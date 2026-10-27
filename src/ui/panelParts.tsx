@@ -184,8 +184,8 @@ export interface Stat {
   title?: string;
 }
 
-/** 一组圆角的行:左边名目、右边数值;title = 上面的小标题;more = 小标题右边的链接;children = 接在后面的行(Row) */
-export function Stats({ items, title = '概况', more, children }: { items: Stat[]; title?: string; more?: ReactNode; children?: ReactNode }) {
+/** 一组圆角的行:左边名目、右边数值;title = 上面的小标题;more = 小标题右边的链接;lead = 排在最前面的行(Row);children = 接在后面的行(Row) */
+export function Stats({ items, title = '概况', more, lead, children }: { items: Stat[]; title?: string; more?: ReactNode; lead?: ReactNode; children?: ReactNode }) {
   return (
     <section className="cp-sec">
       {title && !more && <div className="cp-sec-head">{title}</div>}
@@ -196,6 +196,7 @@ export function Stats({ items, title = '概况', more, children }: { items: Stat
         </div>
       )}
       <div className="cp-grid cp-stats">
+        {lead}
         {items.map((s, i) => (
           <Row key={i} k={s.k} stat title={s.title}>
             {s.v}
@@ -232,6 +233,8 @@ export interface Seg {
   title: string;
   /** 没人的一段(无主):不写字、不可点 */
   blank?: boolean;
+  /** 中立地的一段:几国颜色的细横纹(background),淡一点 */
+  zone?: boolean;
   onClick?: () => void;
 }
 
@@ -245,7 +248,7 @@ export function SegBar({ label, segs, years, className }: { label: string; segs:
         {segs.map((s, i) => (
           <button
             key={i}
-            className={`cp-seg${s.on ? ' on' : ''}${s.blank ? ' blank' : ''}`}
+            className={`cp-seg${s.on ? ' on' : ''}${s.blank ? ' blank' : ''}${s.zone ? ' zone' : ''}`}
             style={{ width: `${s.frac * 100}%`, background: s.background }}
             title={s.title}
             disabled={s.blank}
@@ -266,10 +269,41 @@ export function SegBar({ label, segs, years, className }: { label: string; segs:
 /** 色条大约多宽(面板 340 减去两边的内边距) */
 const OWNER_BAR_W = 300;
 
-/** 历任归属(城、州):每段一个国家的颜色,当年那一段实色;无主的一段留空。spans 空 = 不显示 */
-export function OwnerBar({ civ, spans, year, label = '历任归属' }: { civ: Civ; spans: readonly OwnerSpan[]; year: number; label?: string }) {
+/** 历任归属里中立地的那几年:几国颜色的细横纹(background) */
+export interface ZoneSpan {
+  from: number;
+  to: number;
+  background: string;
+}
+
+/** 无主的几段按中立地的年份切开:中立地那几年单独一段(zone) */
+function splitZones(spans: readonly OwnerSpan[], zones: readonly ZoneSpan[]): (OwnerSpan & { zone?: ZoneSpan })[] {
+  if (!zones.length) return spans.slice();
+  const out: (OwnerSpan & { zone?: ZoneSpan })[] = [];
+  for (const s of spans) {
+    if (s.polity >= 0) {
+      out.push(s);
+      continue;
+    }
+    let at = s.from;
+    for (const z of zones) {
+      const a = Math.max(at, z.from);
+      const b = Math.min(s.to, z.to);
+      if (b <= a) continue;
+      if (a > at) out.push({ from: at, to: a, polity: -1 });
+      out.push({ from: a, to: b, polity: -1, zone: z });
+      at = b;
+    }
+    if (s.to > at) out.push({ from: at, to: s.to, polity: -1 });
+  }
+  return out;
+}
+
+/** 历任归属(城、州):每段一个国家的颜色,当年那一段实色;无主的一段留空;做过中立地的那几年画几国颜色的细横纹(zones)。spans 空 = 不显示 */
+export function OwnerBar({ civ, spans: raw, year, label = '历任归属', zones = [] }: { civ: Civ; spans: readonly OwnerSpan[]; year: number; label?: string; zones?: readonly ZoneSpan[] }) {
   const era = useEra();
-  if (!spans.length) return null;
+  if (!raw.length) return null;
+  const spans = splitZones(raw, zones);
   const from = spans[0].from;
   const to = spans[spans.length - 1].to;
   const total = Math.max(1e-6, to - from);
@@ -277,6 +311,16 @@ export function OwnerBar({ civ, spans, year, label = '历任归属' }: { civ: Ci
     const frac = (s.to - s.from) / total;
     const P = civ.polities[s.polity];
     const years = yearSpan(s.from, s.to, era);
+    if (s.zone)
+      return {
+        name: '',
+        frac,
+        background: s.zone.background,
+        on: year >= s.from && year < s.to,
+        title: `中立地 · ${years}`,
+        zone: true,
+        onClick: () => jumpTo(Math.ceil(s.from)),
+      };
     if (!P) return { name: '', frac, background: 'var(--btn)', on: false, title: `无主 · ${years}`, blank: true };
     const on = year >= s.from && (year < s.to || (i === spans.length - 1 && year >= to));
     const name = nameAt(P, Math.max(s.from, Math.min(year, s.to - 1 / 512)));

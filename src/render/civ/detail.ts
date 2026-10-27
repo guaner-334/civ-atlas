@@ -23,6 +23,7 @@ import { drawParts, nearX, type DrawPart, type WorkStep } from '../common';
 import { drawBorders, mergeChains, regionChains, BAND, type SidedLine } from './borders';
 import { drawRoutes } from './routes';
 import { drawPlagueDetail, washCanvas } from './plague';
+import { washZones, type WashZones } from './neutral';
 import { drawRegionLines, drawSites, habitatCanvas } from './debug';
 import { addToPath, chaikin, meshWrap } from './lines';
 import { DETAIL_EDGE_D, inkFromSymbols, regionPixels, washDetail, washFields, type WashFields } from './territory';
@@ -435,6 +436,8 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
   let g: DetailGrid | null = null;
   let segs: SegIndex | null = null;
   let img: ImageData | null = null;
+  /** 这一年的中立地(色块是国家那一层时):逐格上色时一起画细横纹 */
+  let zones: WashZones | null = null;
   /** 这一步的耗时记到 key 上 */
   const timed =
     (key: 'wash' | 'ink', f: WorkStep): WorkStep =>
@@ -449,7 +452,7 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
   const inkFine = inkWork(cache, v, step, world);
   const wash = rowSteps(
     () => (img ? g!.gh : 0),
-    (j0, j1) => washDetail(img!.data, g!, raster, world.mesh, fl!, p.style, segs, ink, pen, j0, j1),
+    (j0, j1) => washDetail(img!.data, g!, raster, world.mesh, fl!, p.style, segs, ink, pen, j0, j1, zones),
   );
   const steps: WorkStep[] = [
     () => void (p.show.habitat && habitatCanvas(p)),
@@ -466,6 +469,7 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
       const band = Math.max((0.75 * fl.f + 0.3) / S, ((DETAIL_EDGE_D + 0.2) * pen) / S);
       segs = segIndex(fl.lines, band, g.box, meshWrap(world.mesh));
       img = imgOf(cache, 'base', g);
+      zones = fl.polity ? washZones(p, g.u[g.gh >> 1] / g.step, v.dpr) : null;
     }),
     timed('wash', wash),
   ];

@@ -26,6 +26,7 @@ import { borderLines, drawBorders } from './borders';
 import { drawRoutes, routeLines } from './routes';
 import { drawWarHatch, warHatchCanvas, warScene, warsShown, warSpans, warStripesPrep } from './warfare';
 import { drawPlague, plagueCanvas, plagueShown, plagueZone, washCanvas } from './plague';
+import { drawNeutral, neutralCanvas } from './neutral';
 import { clipOutline, type Projector } from '../projection';
 import { flushCanvas, type WorkStep } from '../common';
 import type { CivShow } from './show';
@@ -85,6 +86,7 @@ export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) 
   if (p.show.habitat) drawHabitat(ctx, p);
   drawTerritory(ctx, p);
   drawWarHatch(ctx, p);
+  drawNeutral(ctx, p);
   drawPlague(ctx, p);
   // 弯边投影:线和点不出外轮廓(伸出 ±180° 的那截在另一边接着画)
   ctx.save();
@@ -98,7 +100,7 @@ export function drawCivOverlay(ctx: CanvasRenderingContext2D, p: CivDrawParams) 
 
 /**
  * drawCivOverlay 头一回画一份历史(换上再推、重推、试推演、打开存档推出来的历史)时要现算的东西,拆成一小步一小步:
- * 色块(territory.ts 的 territorySteps,按行分段)、国界、道路、战事的斜线、瘟疫的墨点各一步(斜线、墨点画好就让浏览器当下画出来)。
+ * 色块(territory.ts 的 territorySteps,按行分段)、国界、道路、战事的斜线、瘟疫的墨点、中立地的横纹各一步(斜线、墨点、横纹画好就让浏览器当下画出来)。
  * 都做完以后 drawCivOverlay 只是把备好的贴上、描线,和当场一口气画逐像素一样;已经备好的步骤什么也不做
  */
 export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
@@ -115,6 +117,7 @@ export function civOverlaySteps(p: CivDrawParams): WorkStep[] {
     () => void (plagueShown(p) && plagueZone(p.civ, p.year)),
     () => void flushCanvas(washCanvas(p)),
     () => void flushCanvas(plagueCanvas(p)),
+    () => void flushCanvas(neutralCanvas(p)),
   ];
 }
 
@@ -127,6 +130,7 @@ export function drawCivFill(ctx: CanvasRenderingContext2D, p: CivDrawParams) {
   if (p.show.habitat) drawHabitat(ctx, p);
   drawTerritory(ctx, p);
   drawWarHatch(ctx, p);
+  drawNeutral(ctx, p);
   drawPlague(ctx, p);
   if (p.show.regions) drawRegionLines(ctx, p);
   if (p.show.sites) drawSites(ctx, p);

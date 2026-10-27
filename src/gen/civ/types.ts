@@ -581,6 +581,11 @@ export interface Civ {
    */
   regionNames?: string[];
   /**
+   * 用户改过的约名(gen/edits.ts 的 applyNames 写入;约的编号 → 新名字,没改过的不在里面)。
+   * 没改过的约名照会盟的城起("丹枫关之约",treatyInfo.ts 的 treatyName)
+   */
+  treatyNames?: Record<number, string>;
+  /**
    * 人物(people.ts):各国的历代君主和战争里的统帅。推演结束后按历史"贴"上去,国界、兴亡、战争胜负一个都不变。
    * 下标 = Person.id;先是君主(按国家编号、即位先后),再是统帅(按第一次领兵的先后)。没有文明 = 空
    */

@@ -104,7 +104,7 @@ import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
 import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
 import { foesAt } from './fiscalBook';
-import { envoyOf, treatyBook, treatyLine, treatyName } from './treatyInfo';
+import { envoyOf, treatyBook, treatyCallName, treatyLine } from './treatyInfo';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -1874,14 +1874,14 @@ function polityList(civ: Civ, ps: readonly number[], y: Year): string {
 
 /** 约的称呼:"丹枫关之约";议和顺带立的、没有会盟的城:"甲与乙之约" */
 function treatyRef(civ: Civ, id: number, ps: readonly number[], y: Year): string {
-  const name = treatyBook(civ).treaties[id]?.how === 'peace' ? '' : treatyName(civ, id);
+  const name = treatyCallName(civ, id);
   if (name) return name;
   return ps.length >= 2 ? `${pn(civ, ps[0], y)}与${pn(civ, ps[1], y)}之约` : '前约';
 }
 
 /** 背的约有名字(会盟的城)= "丹枫关之约";没有(议和顺带立的)= 空串,写"背与某国之约" */
 function breachName(civ: Civ, n: number | undefined): string {
-  return treatyBook(civ).treaties[n ?? -1]?.how === 'peace' ? '' : treatyName(civ, n ?? -1);
+  return treatyCallName(civ, n ?? -1);
 }
 
 /** 背约来攻的那场战争(war 的 cause = breach)背的是哪份约的名字(宣战前一刻记的那条 breach;没名字 / 找不到 = 空串) */
