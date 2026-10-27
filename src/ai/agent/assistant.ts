@@ -283,6 +283,8 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   death: '让人物去世',
   temper: '改君主倾向',
   disaster: '降天灾',
+  treaty: '立约',
+  neutral: '划中立地',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {
@@ -293,6 +295,8 @@ function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {
   if (v.kind === 'declare') return `${n(a)} 向 ${n(b)} 宣战`;
   if (v.kind === 'destroy') return `${n(a)} 灭国,${v.b ? `国土并入 ${n(b)}` : '国土散成无主'}`;
   if (v.kind === 'disaster') return `${v.a ? `${n(a)} ` : ''}降${DISASTER_NAMES[v.type]}(${DISASTER_LEVEL_NAMES[v.level]})`;
+  if (v.kind === 'treaty') return `${n(a)} 与另 ${v.ps.length} 国立约`;
+  if (v.kind === 'neutral') return `${n(a)} 与另 ${v.ps.length} 国划一州为中立地`;
   return `${n(a)} ${IV_WORD[v.kind]}${until}`;
 }
 

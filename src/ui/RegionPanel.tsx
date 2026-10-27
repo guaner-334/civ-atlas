@@ -58,7 +58,7 @@ import { DisasterPage } from './DisasterPage';
 import { regionDisasterMark } from './newIvInfo';
 import { treatyBook, treatyTitle, type ZoneInfo } from '../gen/civ/treatyInfo';
 import { personName } from '../gen/civ/peopleText';
-import { nationsWord, treatyPeriod, zoneColors, zoneOfRegionAt, zoneResidentsAt, zoneStripeCss, zonesOfRegion } from './treatyRows';
+import { nationsWord, treatyPeriod, untilText, zoneColors, zoneOfRegionAt, zoneResidentsAt, zoneStripeCss, zonesOfRegion } from './treatyRows';
 import { shownYearOf } from './flyTo';
 import { entriesUpTo, firstOwned, ownerSpans, ownersOf, regionEntries } from './panelData';
 import {
@@ -373,7 +373,16 @@ function ZoneRows({ civ, zone, year }: { civ: Civ; zone: ZoneInfo; year: number 
       )}
       {x && !narrow && (
         <Row k="期限">
-          跟着约<em className="cp-num-note">到 {yearAt(treatyPeriod(x, year).until, era)}</em>
+          {/* 作者下令划的:一直留着 / 到某一年撤;别的跟着约 */}
+          {zone.lasting ? (
+            '一直'
+          ) : zone.until !== undefined ? (
+            `到 ${yearAt(zone.until, era)}`
+          ) : (
+            <>
+              跟着约<em className="cp-num-note">{untilText(treatyPeriod(x, year).until, era)}</em>
+            </>
+          )}
         </Row>
       )}
       {people.length > 0 && (

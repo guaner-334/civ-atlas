@@ -105,9 +105,10 @@ import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
+
 import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
 import { foesAt } from './fiscalBook';
-import { envoyOf, treatyBook, treatyCallName, treatyLine } from './treatyInfo';
+import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_LASTING, envoyOf, treatyBook, treatyCallName, treatyLine } from './treatyInfo';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -978,12 +979,100 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       const old = p ? cityName(civ, capitalBefore(p, y)) : '';
       return done(`${A}${old && old !== city ? `自${old}` : ''}迁都${city}`);
     }
+    case 'treaty':
+    case 'neutral':
+      return decreeStory(civ, e, id, v, A, R, fail, done);
     default:
       return done(A);
   }
 }
 
 type Say = (text: string, why: string) => IvStory;
+
+/**
+ * 作者下令立约 / 划中立地(干预 treaty、neutral):"【干预】渭国与大羽王朝、后乾衍国立约""【干预】渭国与大羽王朝以星河域为中立地";
+ * 没生效的写原因(对方不在了、不肯、那州划不成)。生效了的,编年史那一条另把并进来的约、中立地写全(decreeText)
+ */
+function decreeStory(
+  civ: Civ,
+  e: Annal,
+  id: number,
+  v: Extract<Intervention, { kind: 'treaty' | 'neutral' }>,
+  A: string,
+  R: string,
+  fail: Say,
+  done: Done,
+): IvStory {
+  const y = e.year;
+  const what = v.kind === 'treaty' ? '立约' : '划中立地';
+  if (e.b === -3) return fail(`欲令${A}${what},然${A}已亡`, `那一年${A}已亡`);
+  if (e.b === -2) return fail(`${A}欲以某州为中立地,然无此州`, NO_REGION);
+  // 对方:按国家键在这份历史里找(那一年还在的写名字)
+  const names = v.ps
+    .map((k) => {
+      const r = resolveKey(civ, k);
+      return r && r.kind === 'polity' ? pn(civ, r.id, y) : '';
+    })
+    .filter(Boolean);
+  const them = names.join('、') || '他国';
+  if (e.b === IV_NOBODY) return fail(`${A}欲与他国${what},然其国不存`, '对方在新历史里没有(或那一年已亡、还没立国)');
+  if (e.b === IV_REFUSED) return fail(`${A}欲与${them}${what},${them}不肯`, '对方不肯');
+  if (e.b === IV_NO_ZONE) return fail(`${A}欲以${R}为中立地,然其地划不成`, `那一年${R}划不成中立地(没人住、已是中立地、是国都,或不属共建的几国)`);
+  const got = decreeParts(civ, id).map((k) => civ.annals[k]);
+  const ps = (got[0]?.ps ?? []).filter((p) => p !== e.a).map((p) => pn(civ, p, y));
+  if (v.kind === 'treaty') return done(`${A}与${ps.join('、') || them}立约`);
+  const z = got.find((n) => n.kind === 'neutral');
+  return done(`${A}与${ps.join('、') || them}以${z ? regionName(civ, z.region) : R}为中立地`);
+}
+
+/**
+ * 作者下令立约 / 划中立地生效了的那一条:并进来的约、中立地照它们自己的说法写全 ——
+ * "【干预】渭国与大羽王朝、后乾衍国会于丹枫关,立约互不侵犯,各守今疆,以三十年为期;拉文海姆王国居间;
+ * 渭国、大羽王朝、后乾衍国以星河域为中立地,渭国让出丹枫关,三国皆不驻兵";演一国时下的,不肯的写"某国不肯"
+ */
+function decreeEntry(ctx: Ctx, e: Annal, id: number, v: Extract<Intervention, { kind: 'treaty' | 'neutral' }>): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const tag = v.plot !== undefined ? '【照大纲】' : '【干预】';
+  const parts = decreeParts(civ, id);
+  const subs = parts.map((k) => treatyEntry(ctx, [k]));
+  const ps = new Set<number>([e.a]);
+  const regions: number[] = [];
+  for (const k of parts) {
+    const n = civ.annals[k];
+    for (const p of n.ps ?? []) ps.add(p);
+    if (n.kind === 'neutral' && n.region >= 0) regions.push(n.region);
+  }
+  const no: string[] = [];
+  if (v.ask)
+    for (const k of v.ps) {
+      const r = resolveKey(civ, k);
+      if (r && r.kind === 'polity' && !ps.has(r.id)) no.push(pn(civ, r.id, y));
+    }
+  const text = `${tag}${subs.map((s) => s.text).join(';')}${no.length ? `;${no.join('、')}不肯` : ''}`;
+  const out = base(e, id, text, 3, [...ps], regions.length ? regions : e.region >= 0 ? [e.region] : []);
+  const people = [...new Set(subs.flatMap((s) => s.people ?? []))];
+  if (people.length) out.people = people;
+  return out;
+}
+
+/** 第 id 条史事(作者下令立约 / 划中立地的 intervene)紧跟着记的约、中立地(cause = decree;同一刻、挨着记的;史事下标) */
+function decreeParts(civ: Civ, id: number): number[] {
+  const A = civ.annals;
+  const out: number[] = [];
+  for (let k = id + 1; k < A.length && A[k].year === A[id].year && (A[k].kind === 'treaty' || A[k].kind === 'neutral') && A[k].cause === 'decree'; k++) out.push(k);
+  return out;
+}
+
+/** 作者下令立的约、划的中立地(cause = decree):并进紧挨在前面的那条干预(编年史不另列) */
+function foldedIntoDecree(civ: Civ, i: number): boolean {
+  const A = civ.annals;
+  let j = i - 1;
+  while (j >= 0 && A[j].year === A[i].year && (A[j].kind === 'treaty' || A[j].kind === 'neutral') && A[j].cause === 'decree') j--;
+  const d = A[j];
+  const k = d && d.kind === 'intervene' && d.year === A[i].year ? civ.interventions?.[d.war]?.kind : undefined;
+  return k === 'treaty' || k === 'neutral';
+}
 type Done = (text: string) => IvStory;
 
 /** 作者让他去世 / 改过倾向的那个人(人物里按 killed、moods 记着第几条干预) */
@@ -1630,6 +1719,9 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         return base(e, id, `【照大纲】${regionNames(civ, rs)}划归${pn(civ, e.a, y)}`, 3, [e.a, ...run.map((j) => civ.annals[j].b)], rs);
       }
       const story = interveneStory(civ, e, id);
+      const v0 = civ.interventions?.[e.war];
+      // 作者下令立约 / 划中立地生效了:并进来的约、中立地照它们自己的说法写全
+      if (story.ok && (v0?.kind === 'treaty' || v0?.kind === 'neutral')) return decreeEntry(ctx, e, id, v0);
       const x = base(e, id, story.text, 3, [e.a, e.b], [e.region]);
       // 干预立的国:立国那条并进了这一条,开国之君也写在这里
       const v = civ.interventions?.[e.war];
@@ -2019,7 +2111,13 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       const city = cityName(civ, e.settlement);
       let t: string;
       if (e.cause === 'peace') t = `${pn(civ, ps[0], y)}与${pn(civ, ps[1], y)}议和,约${cnNumber(term)}年互不侵犯${mid}`;
-      else {
+      else if (e.cause === 'decree') {
+        // 作者下令立的:种类照作者选的(互不侵犯的不写各守今疆),期限 0 = 不设期限,选了不许背约的写"誓不背约"
+        const line = x && ps.length < 3 ? treatyLine(civ, x) : -1;
+        const what = x?.kind === 'limited' ? '立约互不侵犯,各守今疆' : line >= 0 ? `立约互不侵犯,以${civ.places[line].name}为界` : '立约互不侵犯';
+        const span = term > 0 ? `以${cnNumber(term)}年为期` : '不设期限';
+        t = `${pn(civ, ps[0], y)}与${polityList(civ, ps.slice(1), y)}${city ? `会于${city},` : ''}${what},${span}${x?.keep ? ',誓不背约' : ''}${mid}`;
+      } else {
         const line = x ? treatyLine(civ, x) : -1;
         const what = ps.length < 3 && line >= 0 ? `立约互不侵犯,以${civ.places[line].name}为界` : '立约互不侵犯,各守今疆';
         t = `${pn(civ, ps[0], y)}与${polityList(civ, ps.slice(1), y)}${city ? `会于${city},` : ''}${what},以${cnNumber(term)}年为期${mid}`;
@@ -2065,6 +2163,12 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
         const city = cityName(civ, e.settlement);
         const give = e.a >= 0 ? `${pn(civ, e.a, y)}让出${city || z},` : '';
         t = `${polityList(civ, fs, y)}以${z}为中立地,${give}${nations(fs.length)}皆不驻兵`;
+        // 作者下令划的:一直留着 / 到哪年撤
+        if (e.cause === 'decree') {
+          const opt = e.opt ?? 0;
+          if (opt & OPT_LASTING) t += ',永为中立';
+          else if (e.until !== undefined) t += `,至第 ${e.until} 年`;
+        }
       }
       return base(e, id, t, fs.length >= 3 ? 3 : 2, fs, [e.region], '中');
     }
@@ -3478,6 +3582,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       if (e.kind !== 'fall' && e.kind !== 'ruin') continue;
     }
     if (e.kind === 'found' && splitOf.has(e.a)) continue;
+    // 作者下令立的约、划的中立地并进干预那一条
+    if ((e.kind === 'treaty' || e.kind === 'neutral') && e.cause === 'decree' && foldedIntoDecree(civ, i)) continue;
     // 干预引起的立国、迁都并进干预那一条
     if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine') && foldedIntoIntervene(civ, i)) continue;
     // 照大纲划给同一国的几州并进头一条

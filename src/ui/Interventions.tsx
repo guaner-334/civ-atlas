@@ -34,6 +34,7 @@ import {
 } from '../gen/edits';
 import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
 import { rulerAt } from '../gen/civ/peopleInfo';
+import { cnNumber } from '../gen/civ/chronicle';
 import { leaningsChange, personName } from '../gen/civ/peopleText';
 import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
@@ -295,6 +296,18 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       const x = personOfKey(civ, v.person);
       const change = leaningsChange(x?.leanings, v.leanings);
       return `${personKeyName(civ, v.person)}:改倾向${change ? `，${change}` : ''}，到他下台`;
+    }
+    case 'treaty': {
+      // "渭国与大羽王朝、后乾衍国立约(有限竞争，三十年)，以星河域为中立地"
+      const ps = v.ps.map((k) => keyName(civ, k, v.from)).join('、');
+      const term = v.term ? `${cnNumber(v.term)}年` : '一直';
+      return `${A}与${ps}立约（${v.limited ? '有限竞争，' : ''}${term}）${v.zone ? `，以${regionKeyName(civ, v.zone)}为中立地` : ''}`;
+    }
+    case 'neutral': {
+      // "渭国与大羽王朝、后乾衍国以星河域为中立地(至第 2350 年)"
+      const ps = v.ps.map((k) => keyName(civ, k, v.from)).join('、');
+      const until = v.lasting ? '（一直）' : v.until !== undefined ? `（至第 ${v.until} 年）` : '';
+      return `${A}与${ps}以${regionKeyName(civ, v.region)}为中立地${until}`;
     }
   }
 }

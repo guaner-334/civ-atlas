@@ -11,6 +11,16 @@ import type { Annal, Civ, Person, Year } from './types';
 import { polityAlive, polityName } from './growth';
 import { ownersAt } from './timeline';
 
+/** 作者下令立的约、划的中立地(史事 treaty / neutral 的 cause = decree)记在 Annal.opt 里的几样选项(按位) */
+export const OPT_LIMITED = 1;
+export const OPT_KEEP = 2;
+export const OPT_QUIET = 4;
+export const OPT_LASTING = 8;
+/** 干预立约 / 划中立地没生效的原因(史事 intervene 的 b 列;−1 = 生效了,−2 州键指不到,−3 下令的国家已亡) */
+export const IV_NOBODY = -8;
+export const IV_REFUSED = -9;
+export const IV_NO_ZONE = -10;
+
 /** 一份约 */
 export interface TreatyInfo {
   /** 约的编号(史事 treaty 的 war 列) */
@@ -19,14 +29,16 @@ export interface TreatyInfo {
   annal: number;
   /** 立约的几国(按入约先后) */
   parties: number[];
-  /** pact 互不侵犯(两国);limited 有限竞争(三国以上:再加各守今疆) */
+  /** pact 互不侵犯(两国);limited 有限竞争(三国以上:再加各守今疆;作者下令立的照作者选的) */
   kind: 'pact' | 'limited';
-  /** self 推演里几国自己立的;peace 议和时顺带立的 */
-  how: 'self' | 'peace';
-  /** 立约的年份;头一个期限(年) */
+  /** self 推演里几国自己立的;peace 议和时顺带立的;decree 作者下令立的(干预「立约」「划中立地」) */
+  how: 'self' | 'peace' | 'decree';
+  /** 作者下令立的、选了"约期内不许背约" */
+  keep: boolean;
+  /** 立约的年份;头一个期限(年;0 = 作者下令立的一直有效的约) */
   start: Year;
   term: number;
-  /** 眼下这一期到哪年(续过约的按最后一次续约算) */
+  /** 眼下这一期到哪年(续过约的按最后一次续约算;一直有效 = Infinity) */
   until: Year;
   /** 会盟的城(−1 = 没有)、所在州 */
   settlement: number;
@@ -67,6 +79,10 @@ export interface ZoneInfo {
   /** 撤销的年份;还给了谁(−1 = 没还,成了无主之地);还在 = 不给 */
   ended?: Year;
   back?: number;
+  /** 作者下令划的:不送人去、一直留着(约废了也不撤)、到哪年撤(没选 = 不给) */
+  quiet?: boolean;
+  lasting?: boolean;
+  until?: Year;
   /** 放逐 / 出奔到这里的人物(Person.id,按先后) */
   residents: number[];
 }
@@ -106,15 +122,18 @@ export function treatyBook(civ: Civ): TreatyBook {
           x.until = e.year + term;
           return;
         }
+        const decree = e.cause === 'decree';
         treaties[e.war] = {
           id: e.war,
           annal: i,
           parties: ps,
-          kind: ps.length >= 3 ? 'limited' : 'pact',
-          how: e.cause === 'peace' ? 'peace' : 'self',
+          // 作者下令立的:种类、不许背约照作者选的(Annal.opt;位见上面的 OPT_*)
+          kind: (decree ? ((e.opt ?? 0) & OPT_LIMITED) !== 0 : ps.length >= 3) ? 'limited' : 'pact',
+          how: e.cause === 'peace' ? 'peace' : decree ? 'decree' : 'self',
+          keep: decree && ((e.opt ?? 0) & OPT_KEEP) !== 0,
           start: e.year,
           term,
-          until: e.year + term,
+          until: term > 0 ? e.year + term : Infinity,
           settlement: e.settlement,
           region: e.region,
           by: e.by ?? -1,
@@ -144,7 +163,14 @@ export function treatyBook(civ: Civ): TreatyBook {
           z.back = e.a;
           return;
         }
-        zones[e.war] = { id: e.war, annal: i, region: e.region, settlement: e.settlement, treaty: e.n ?? -1, how: e.cause === 'peace' ? 'peace' : 'treaty', founders: (e.ps ?? []).slice(), owner: e.a, from: e.year, residents: [] };
+        const z: ZoneInfo = { id: e.war, annal: i, region: e.region, settlement: e.settlement, treaty: e.n ?? -1, how: e.cause === 'peace' ? 'peace' : 'treaty', founders: (e.ps ?? []).slice(), owner: e.a, from: e.year, residents: [] };
+        if (e.cause === 'decree') {
+          const opt = e.opt ?? 0;
+          if (opt & OPT_QUIET) z.quiet = true;
+          if (opt & OPT_LASTING) z.lasting = true;
+          if (e.until !== undefined) z.until = e.until;
+        }
+        zones[e.war] = z;
         const x = treaties[e.n ?? -1];
         if (x) x.zone = e.war;
         return;
