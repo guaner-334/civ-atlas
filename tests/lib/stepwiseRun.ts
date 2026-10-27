@@ -80,22 +80,29 @@ export function authorPlan(base: Civ, years: readonly number[]): Intervention[] 
 
 /**
  * 第 year 年(那一刻)的一个大国和它的一个邻国,按条件现找(历史变了不用跟着改国名):
- * 大国 = 那一刻州最多的(给了 big = 就用这一国,它那一刻还得有州);邻国 = 和它接壤的国家里州最多的。找不到 = null
+ * 大国 = 那一刻州最多、有邻国的(给了 big = 就用这一国,它那一刻还得有州);邻国 = 和它接壤的国家里州最多的。找不到 = null
  */
 export function bigAndNeighbor(civ: Civ, year: number, big?: number): { big: number; next: number } | null {
   const own = ownersAt(civ, year).polity;
   const size = new Map<number, number>();
   for (const p of own) if (p >= 0) size.set(p, (size.get(p) ?? 0) + 1);
-  const a = big ?? [...size].sort((x, y) => y[1] - x[1] || x[0] - y[0])[0]?.[0];
-  if (a === undefined || !size.has(a)) return null;
   const R = civ.regions;
-  const near = new Set<number>();
-  for (let r = 0; r < own.length; r++) {
-    if (own[r] !== a) continue;
-    for (let k = R.adjStart[r]; k < R.adjStart[r + 1]; k++) if (own[R.adj[k]] >= 0 && own[R.adj[k]] !== a) near.add(own[R.adj[k]]);
+  const tryOne = (a: number) => {
+    const near = new Set<number>();
+    for (let r = 0; r < own.length; r++) {
+      if (own[r] !== a) continue;
+      for (let k = R.adjStart[r]; k < R.adjStart[r + 1]; k++) if (own[R.adj[k]] >= 0 && own[R.adj[k]] !== a) near.add(own[R.adj[k]]);
+    }
+    const b = [...near].sort((x, y) => size.get(y)! - size.get(x)! || x - y)[0];
+    return b === undefined ? null : { big: a, next: b };
+  };
+  if (big !== undefined) return size.has(big) ? tryOne(big) : null;
+  // 州最多的那国四面没有邻国(独占一块大陆)时,往下挑
+  for (const [a] of [...size].sort((x, y) => y[1] - x[1] || x[0] - y[0])) {
+    const two = tryOne(a);
+    if (two) return two;
   }
-  const b = [...near].sort((x, y) => size.get(y)! - size.get(x)! || x - y)[0];
-  return b === undefined ? null : { big: a, next: b };
+  return null;
 }
 
 /** 两份历史逐项一样 */

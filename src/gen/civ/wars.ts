@@ -21,6 +21,9 @@
  *       强国的边远处照样可能打不过近处的小国 —— 被夺去的州过些年又被夺回来,前线有来有回
  *     同一对国家议和后 TRUCE 年内不再开战;对方已经同时在打 MAX_WARS 场仗的不去凑;
  *     分裂 / 复国出来的国家(politics.ts)立国 NEWBORN 年内没人对它宣战(站稳期)。
+ *     议和了还会再打:一场仗议和时净丢了州的一方记恨赢它的那一国,GRUDGE_YEARS 年内看邻国时对它的赔率 × GRUDGE;
+ *       停战期满后再过 REVENGE_LOOK 里随机的几年,替输的一方多看一眼邻国(复仇之战;随机数按 REVENGE_K + 战争编号取,不接着预约)。
+ *       讨伐民变、宗室争位的内战不记恨。
  *     国力 = 本国城镇人口之和(growth.ts 的 populationAt;城的人口上限随生产能力变)× 军力系数(PolityModel.military,
  *     发展度按国都所在州的动员能力定,有上下限);照大纲顺着引的方针再乘它的国力倍数(policy.ts 的 powerScale)。
  *     挂了政局数表(control.ts)时读表里每年年初算的国力;这一年里才立的国家照这里现算。
@@ -46,7 +49,10 @@
  *   议和:打满这场战争的年限(厌战,LENGTH 里随机)、连着 STALL 年没打下一州(僵持)、
  *     攻方达成战争目标(拿下 GOAL 里随机的几州)、拿下国都、或守方丢了过半国土、攻方国用不足(窘迫到 BROKE_PEACE,仗已打过年限的 BROKE_LENGTH)→ 议和,占领的州归攻方;
  *     年限、目标看攻方此刻在位的君主(rulers.ts):越好战打得越久、想多拿几州,好战低的早早罢兵;
- *     议和时两国各自被切出去、挨着对方的飞地割给对方(划清边界;割让的州数记在史事 peace 的 region 列)。
+ *     罢兵割地:战役里议和(厌战、僵持、达成目标都算;讨伐民变的不算)时攻方这场仗净得了州,守方再割边上 CEDE 州(不割国都,
+ *     割完至少还剩 MIN_STATE + 1 州;挑哪州和打仗时一样);
+ *     议和时两国各自被切出去、挨着对方的飞地割给对方(划清边界;割让的州数 —— 连同罢兵割的 —— 记在史事 peace 的 region 列,
+ *     罢兵割的几州排在最前面,有几州记在 n 列)。
  *     攻方国力是守方 CRUSH 倍以上时是灭国之战:拿下国都、对方丢了过半国土、达成战争目标都不停,直到厌战、僵持或对方亡国。
  *
  * 同一年里的先后:宣战 → 战役(没打下来的那一仗)/ 攻占 → 灭亡 / 迁都 → 议和(史事按这个顺序记)。
@@ -62,7 +68,8 @@
  *
  * **不存内存状态**:进行中的战争、厌战、停战冷却都能由 Civ 重建(resumeWars,CivSim.fromCiv 调用)——
  *   战争 = 史事里的 war(没有对应 peace 的就还在打);每场战争攻占了哪些州 = 带战争编号的 conquer;
- *   冷却 = 最近一次 peace 的年份;一州多久没易手 = 变化日志;看邻国、打仗的时刻都是由"国家 / 战争 + 第几次"算出来的。
+ *   冷却 = 最近一次 peace 的年份;记恨 = 每场 peace 时这场战争里谁净丢了州(攻占都在史事里);一州多久没易手 = 变化日志;
+ *   看邻国、打仗、复仇多看的那一眼的时刻都是由"国家 / 战争 + 第几次"算出来的。
  *
  * 随机数:keyed(subSeed(seed, 'civ-war'), 国家…, 第几次, 用途);一场战争里的随机数按"攻方 + 守方 + 宣战时刻 + 第几仗"取,
  * 和处理顺序、战争编号都无关。国家、州一律用位置锚(PolityModel.ptag、治所地块;见 rand.ts),不用编号。纯计算,不碰 DOM。
@@ -83,7 +90,7 @@ import type { DiplomacyModel } from './diplomacy';
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
 const CHECK_FIRST = 40;
-const CHECK_EVERY = 25;
+const CHECK_EVERY = 15;
 /** 宣战赔率的底数(国家之间常隔着部落、接壤的不多,底数取得高些);边境胜算(胜率 ÷ 败率)的指数;对异族 */
 const WAR_ODDS = 0.3;
 const LOCAL_EXP = 0.65;
@@ -91,13 +98,13 @@ const FOREIGN = 1.6;
 /** 边界不到这么多段(州与州相邻的对数)时,赔率按比例打折 */
 const BORDER_FULL = 4;
 /** 打完仗至少歇多少年才会再主动宣战;同一对国家议和后多少年内不再开战 */
-const REST = 8;
-const TRUCE = 10;
+const REST = 4;
+const TRUCE = 5;
 /** 一国最多同时打几场仗(被别国趁火打劫算在内);国土到这么多州(帝国一档)的大国可以同时主动开两场仗 */
 const MAX_WARS = 2;
 const TWO_FRONTS = 70;
 /** 两仗之间隔几年(随机) */
-const GAP: [number, number] = [1, 3];
+const GAP: [number, number] = [0.7, 2];
 /** 厌战:一场战争最多打多少年(随机) */
 const LENGTH: [number, number] = [5, 18];
 /** 僵持:连着这么多年没攻下一州就议和 */
@@ -114,7 +121,7 @@ const MIN_STATE = 4;
 /** 打下一州会把守方的国土切出去超过这么多州(和守方国都不再连成一片)的,先不打(不打出大块飞地) */
 const MAX_CUT = 2;
 /** 一州换了国家以后,这么多年内不会再在战争里易手(前线不闪烁) */
-export const HOLD = 8;
+export const HOLD = 6;
 /** 远征打折:国力 × e^(−离本国国都的路程 / PROJECT)(路程以"标准路程"计,见 polities.ts 的 capDist) */
 const PROJECT = 18;
 /** 守方的过界加成(按 AdjKind:平地、跨河、翻山、海峡、航线):攻方从最好打的那条边打进来 */
@@ -129,8 +136,8 @@ const P_MAX = 0.9;
 /** 攻方没打下来时,守方反攻(夺回被攻方占去的州)的机会 */
 const COUNTER = 0.85;
 /** 乘胜:一仗打下一州后,接着再打下一州的机会 = BREAK × 那一州的胜率,最多再连下 BREAK_MAX 州(一仗最多拿下 1 + BREAK_MAX 州,势如破竹) */
-const BREAK = 0.8;
-const BREAK_MAX = 5;
+const BREAK = 0.9;
+const BREAK_MAX = 6;
 /** 战争目标:这场战争想拿下几州(随机,含两头);拿到就议和 */
 const GOAL: [number, number] = [3, 20];
 /** 灭国之战:攻方国力是守方的这么多倍;战争目标翻几倍(Infinity = 不设目标) */
@@ -198,6 +205,19 @@ const STAND = 0.35;
 const STAND_DAYS = [2, 2, 3, 3, 3, 4, 4, 5, 6, 7];
 const STAND_SLAIN = 0.6;
 const STAND_TAKEN = 0.15;
+/**
+ * 议和了还会再打:净丢了州的一方记恨赢它的那一国,这么多年内对它开战的赔率 × GRUDGE;
+ * 停战期满(TRUCE)后再过这么多年(随机)替输的一方多看一眼邻国
+ */
+const GRUDGE = 2;
+const GRUDGE_YEARS = 80;
+const REVENGE_LOOK: [number, number] = [2, 8];
+/** 复仇多看的那一眼的"第几次"从这里往上数(+ 战争编号;和照大纲多看的一眼 LOOK_K 往上那一段分开) */
+const REVENGE_K = 1 << 28;
+/** 罢兵割地:攻方这场仗净得了州,议和时守方再割这么多州 */
+const CEDE = 1;
+/** 罢兵割地挑州时 pickTarget 的"第几仗"(取随机数用;一场仗打不到这么多仗) */
+const CEDE_I = 1000;
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -214,6 +234,7 @@ const U_BREAK = 11;
 const U_STAND = 12;
 const U_STAND_DAYS = 13;
 const U_STAND_END = 14;
+const U_REVENGE = 15;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -247,6 +268,8 @@ export interface WarModel {
   rest: Map<number, Year>;
   /** 两国最近一次议和的年份(键见 pairKey) */
   truce: Map<number, Year>;
+  /** 记恨:净丢了州的一方 × 32768 + 赢它的那一国 → 那场仗议和的年份(见 grudgeOf) */
+  grudge: Map<number, Year>;
   /**
    * 阶段 3 城市兴衰(cities.ts 挂上):战役里攻下一州(攻方打下来、守方反攻夺回;议和割让、亡国时残部归攻方的不算)、
    * 州里有城时调用 —— 城可能被洗劫、被毁。在记这条攻占之前调(洗劫 / 毁城记在攻占前面),sid = 州里的城,
@@ -378,7 +401,25 @@ function newModel(pm: PolityModel): WarModel {
     prev: new Int16Array(pm.terrain.R).fill(-1),
     rest: new Map(),
     truce: new Map(),
+    grudge: new Map(),
   };
+}
+
+/**
+ * 议和时谁记恨谁:这场战争里净丢了州的一方(攻占、割让都算;一来一回的抵掉)记恨净得了的一方。
+ * 讨伐民变、宗室争位的内战(civil)不记恨;两边一样 = null
+ */
+function grudgeOf(w: War, civil: boolean): { lose: number; win: number } | null {
+  if (civil) return null;
+  let gA = 0;
+  for (const e of w.takes) gA += e.by === w.a ? 1 : -1;
+  if (gA === 0) return null;
+  return gA > 0 ? { lose: w.b, win: w.a } : { lose: w.a, win: w.b };
+}
+
+/** 战争 w 议和(t 那一刻)后,替输的一方多看一眼邻国的时刻:停战期满后再过 REVENGE_LOOK 里随机的几年 */
+function revengeTime(wm: WarModel, w: War, t: Year): number {
+  return t + TRUCE + REVENGE_LOOK[0] + (REVENGE_LOOK[1] - REVENGE_LOOK[0]) * warRand(wm, w, 0, U_REVENGE);
 }
 
 /** 国家 p 此刻各州离它国都的路程(远征远近;和国家扩张共用 polities.ts 的那一份,迁都时换成新国都的) */
@@ -563,10 +604,23 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     return qt;
   };
 
-  const makePeace = (w: War, t: number) => {
+  /** 议和。extra = 罢兵割地:守方再割几州给攻方(见 CEDE;只有战役里议和时给) */
+  const makePeace = (w: War, t: number, extra = 0) => {
     if (w.end !== undefined) return;
-    // 议和时划清边界:两国各自和国都不连成一片的飞地,挨着对方的割给对方(一州易手后 HOLD 年内不动的照旧)
     let ceded = 0;
+    // 罢兵割地:守方割边上几州(挑法和打仗时一样;不割国都,割完至少还剩 MIN_STATE + 1 州)
+    let yielded = 0;
+    if (extra > 0 && pm.polities[w.a].ended === undefined && pm.polities[w.b].ended === undefined) {
+      const capR = pm.settlements[capitalAt(pm.polities[w.b], t)].region;
+      for (let j = 0; j < extra && pm.size[w.b] > MIN_STATE + 1; j++) {
+        const [r] = pickTarget(w, CEDE_I + j, w.a, w.b, t, false);
+        if (r < 0 || r === capR) break;
+        take(w, w.a, w.b, r, t);
+        yielded++;
+      }
+      ceded += yielded;
+    }
+    // 议和时划清边界:两国各自和国都不连成一片的飞地,挨着对方的割给对方(一州易手后 HOLD 年内不动的照旧)
     if (pm.polities[w.a].ended === undefined && pm.polities[w.b].ended === undefined) {
       for (const [x, y] of [
         [w.a, w.b],
@@ -598,8 +652,15 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     wm.rest.set(w.a, t);
     wm.rest.set(w.b, t);
     wm.truce.set(pairKey(w.a, w.b), t);
-    // region 列记割让了几州(紧挨在这条议和前面的那么多条攻占是划界割让的,编年史写"划归"而不写"攻取");没割让 = −1
-    sim.record('peace', { a: w.a, b: w.b, war: w.id, region: ceded > 0 ? ceded : -1 });
+    // region 列记割让了几州(紧挨在这条议和前面的那么多条攻占是割让的,编年史写"划归""割某州求和"而不写"攻取");没割让 = −1。
+    // n 列记其中最前面几条是罢兵割地
+    sim.record('peace', { a: w.a, b: w.b, war: w.id, region: ceded > 0 ? ceded : -1, ...(yielded > 0 ? { n: yielded } : {}) });
+    // 记恨赢了自己的那一国;停战期满后几年替输的一方多看一眼邻国(复仇之战)
+    const g = grudgeOf(w, !!wm.revolt?.(w));
+    if (g) {
+      wm.grudge.set(g.lose * 32768 + g.win, t);
+      if (pm.polities[g.lose].ended === undefined) sim.schedule(revengeTime(wm, w, t), Ev.WarCheck, REVENGE_K + w.id, g.lose);
+    }
   };
 
   /** y 亡国(最后一州 r 被 x 攻占):记灭亡,它打着的仗全部结束 */
@@ -707,7 +768,10 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
   wm.declare = declare;
   wm.makePeace = (w, t) => makePeace(w, t);
 
-  /** 第 k 次看邻国;k ≥ LOOK_K = 照大纲顺着引时多看的一眼(不接着预约下一次,见 interventions.ts 的 Ev.Look) */
+  /**
+   * 第 k 次看邻国;k ≥ LOOK_K = 照大纲顺着引时多看的一眼(不接着预约下一次,见 interventions.ts 的 Ev.Look);
+   * k ≥ REVENGE_K = 议和后替输的一方多看的一眼(复仇之战,同样不接着预约)
+   */
   const warCheck = (k: number, p: number, t: number): void => {
     const P = pm.polities[p];
     if (!P || P.ended !== undefined) return;
@@ -769,7 +833,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       if (wm.iv && (wm.iv.allied(p, q, t) || (pm.size[q] <= PROTECT_KEEP && wm.iv.protects(q, t)))) continue;
       if (pol && picks(pm, pol.friends, q)) continue;
       // 照大纲顺着引时多看的一眼:只看方针里的仇国(引的就是"打它")
-      if (k >= LOOK_K && pol?.foes?.length && !picks(pm, pol.foes, q)) continue;
+      if (k >= LOOK_K && k < REVENGE_K && pol?.foes?.length && !picks(pm, pol.foes, q)) continue;
       // 邦交:不打宗主、藩属、同一个宗主的藩属;盟国只在结盟够久、共御的强邻已不足为患时才可能背盟去打
       let betray = false;
       if (dm) {
@@ -798,6 +862,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       // 邻国内忧(大乱、割据、疫后凋敝、幼主权臣):趁虚而入
       const wq = weakness(q, t);
       o *= wq.odds;
+      // 记恨:近年在战场上输给它、丢了州
+      if (t - (wm.grudge.get(p * 32768 + q) ?? -Infinity) < GRUDGE_YEARS) o *= GRUDGE;
       if (pol && picks(pm, pol.foes, q)) o *= FOE_ODDS;
       // 边境对面有本国缺的物产:盯上它(门槛要的那样算两样)
       let got = 0;
@@ -1028,7 +1094,9 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       else peace = capitalFell || held >= pm.size[w.b] || held >= Math.max(1, goalOf(wm, w) + eff.goal);
     }
     if (peace) {
-      makePeace(w, t);
+      // 罢兵割地:攻方这场仗净得了州(讨伐民变的不算),守方再割 CEDE 州
+      const g = grudgeOf(w, !!wm.revolt?.(w));
+      makePeace(w, t, g && g.win === w.a ? CEDE : 0);
       wm.onPeace?.(w, t);
       if (weary) wm.onTruce?.(w, t);
     } else sim.schedule(t + gapOf(wm, w, i + 1), Ev.Campaign, i + 1, id);
@@ -1057,21 +1125,37 @@ export function resumeWars(sim: CivSim, world: World, civ: Civ): void {
       cur[r] = log.value[i];
     }
   }
+  /** 讨伐民变、宗室争位的内战(和 unrest.ts 的 WarModel.revolt 一样按宣战的由头认):不记恨 */
+  const civil = new Set<number>();
+  /** 议和后替输的一方多看一眼邻国:[战争, 输的一方, 议和的年份] */
+  const looks: [War, number, Year][] = [];
   for (const e of civ.annals) {
-    if (e.kind === 'war') wm.wars[e.war] = { id: e.war, a: e.a, b: e.b, start: e.year, takes: [] };
-    else if (e.kind === 'conquer' && e.war >= 0) wm.wars[e.war]?.takes.push({ year: e.year, region: e.region, by: e.a });
+    if (e.kind === 'war') {
+      wm.wars[e.war] = { id: e.war, a: e.a, b: e.b, start: e.year, takes: [] };
+      if (e.cause === 'quell' || e.cause === 'heir') civil.add(e.war);
+    } else if (e.kind === 'conquer' && e.war >= 0) wm.wars[e.war]?.takes.push({ year: e.year, region: e.region, by: e.a });
     else if (e.kind === 'peace') {
       const w = wm.wars[e.war];
       if (w) w.end = e.year;
       wm.rest.set(e.a, e.year);
       wm.rest.set(e.b, e.year);
       wm.truce.set(pairKey(e.a, e.b), e.year);
+      const g = w ? grudgeOf(w, civil.has(w.id)) : null;
+      if (g) {
+        wm.grudge.set(g.lose * 32768 + g.win, e.year);
+        looks.push([w!, g.lose, e.year]);
+      }
     }
   }
   for (const w of wm.wars) if (w && w.end === undefined) wm.active.push(w);
   installWars(sim, pm, world, wm);
 
   const now = sim.now;
+  // 议和那一刻预约的、还没到的复仇之眼(输的一方此刻已亡的不用补:到时候也是什么都不做)
+  for (const [w, p, t] of looks) {
+    const at = revengeTime(wm, w, t);
+    if (quantize(at) > now && pm.polities[p].ended === undefined) sim.schedule(at, Ev.WarCheck, REVENGE_K + w.id, p, t);
+  }
   // 在世的国家:下一次看邻国(上一次看的那一刻预约的;第一次是立国那一刻)
   for (const p of pm.polities) {
     if (p.ended !== undefined) continue;

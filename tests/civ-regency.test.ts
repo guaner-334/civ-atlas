@@ -193,7 +193,10 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
       for (const s of x.spouses ?? []) {
         const e = civ.annals[s.annal];
         expect(e.kind).toBe('marry');
-        expect(e.a).toBe(x.polity);
+        // 娶亲时是那国的宗室;后来据地自立、做了新国家开国之君的,人物记在新国家(它的 parent 是那国、prince 是他的生年)
+        const Q = civ.polities[x.polity];
+        if (e.a !== x.polity) expect([Q.parent, Q.prince], `${x.name}`).toEqual([e.a, x.born]);
+        else expect(e.a).toBe(x.polity);
         expect(s.polity).toBe(e.b);
         const F = P[s.father];
         expect(F.polity).toBe(e.b);

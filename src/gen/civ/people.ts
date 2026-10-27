@@ -20,6 +20,8 @@
  *   每一仗输的一方统帅有机会战死,下一仗换人;将领到年纪卸甲、去世也换人。君主亲征不会战死。
  *   据险断后(史事 stand):败退的一方另起一位将领(部将)守关隘,只经手这一条(PersonCommand.rear,不算统帅);
  *   结局照史事 —— 力战而死的当场战死,力竭被擒的不再领兵,全师而退的照常是本国的将领。
+ *   这一方正由宗室(没即位、日后也不即位的王子)领兵的,有 PRINCE_REAR 的机会由他亲自断后(预定的继承人、日后还要用到他的不去):
+ *   力战而死的当场战死,力竭被擒的不再领兵,全师而退的接着领兵;大军由部将收拢退下。
  *   将领、名臣按出道先后起名,尽量不和此前即位的君主、先出道的将领名臣重名;名字少的语感至少和本国君主、前后几百年的同名人物错开
  *   (同一国几百年后再出一位同名的将领,读起来像同一个人死了两次)。
  * **世系**(lineage.ts):按年纪给继位的君主连上父亲(子、孙、兄弟、侄、叔伯……),对不上的地方补一位没即位的宗室。
@@ -63,6 +65,8 @@ const RETIRE: [number, number] = [58, 70];
 /** 输了的一仗统帅战死的机会:攻方没打下来 / 守方丢了州 */
 const FALL_ATTACK = 0.06;
 const FALL_DEFEND = 0.08;
+/** 据险断后:这一方正由宗室领兵时,由他亲自守关隘的机会 */
+const PRINCE_REAR = 0.5;
 /** 西幻:继位的君主沿用本朝用过的名字的机会(同名多了才有"三世""四世") */
 const REUSE = 0.55;
 /** 帝国里开疆这么多州以上的君主,开疆最多的一位称"大帝" */
@@ -84,6 +88,8 @@ const U_FALL = 13;
 /** 宗室领兵:替不替父出征、派哪个儿子(14–21 是倾向,在 rulers.ts) */
 const U_PRINCE = 22;
 const U_PRINCE_PICK = 23;
+/** 据险断后:领兵的宗室亲自断后 */
+const U_PRINCE_REAR = 24;
 /** keyed4 最后一位:君主(K_RULER = 0,在 rulers.ts)/ 将领 / 战争 */
 const K_GENERAL = 1;
 
@@ -730,7 +736,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       // 据险断后(wars.ts 的 stand):不是统帅打的,另起一位部将守关隘,结局照史事
       if (e.kind === 'stand') {
         const s = e.a === w.a ? 0 : e.a === w.b ? 1 : -1;
-        if (s >= 0) rearGuard(s, t, idx, e.cause);
+        if (s >= 0) rearGuard(s, t, idx, e.cause, n);
         return;
       }
       // 输的一方:攻方没打下来(battle 的 a)/ 丢了州(conquer 的 b)
@@ -760,12 +766,14 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     };
     /**
      * 据险断后的守将:本国新起一位将领(部将),这一回只经手这一条史事(PersonCommand.rear)。
-     * 力战而死 = 当场战死;力竭被擒 = 不再领兵(生死照常);全师而退 = 照常是本国的将领,日后还能领兵
+     * 力战而死 = 当场战死;力竭被擒 = 不再领兵(生死照常);全师而退 = 照常是本国的将领,日后还能领兵。
+     * 这一方正由宗室领兵的,有 PRINCE_REAR 的机会由他亲自断后(见 princeRear)
      */
-    const rearGuard = (s: number, t: Year, idx: number, how: Annal['cause']) => {
+    const rearGuard = (s: number, t: Year, idx: number, how: Annal['cause'], n: number) => {
       const pid = sides[s];
       const P = polities[pid];
       if (!P || !(t >= P.founded) || (P.ended !== undefined && t > P.ended)) return;
+      if (princeRear(s, t, idx, how, n)) return;
       const g = raise(pid, t);
       (g.p.commands ??= []).push({ war: w.id, side: s as 0 | 1, from: t, until: t, first: idx, last: idx, rear: true });
       g.busy = t;
@@ -774,6 +782,27 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       if (how === 'captured' || (g.p.died !== undefined && g.p.died < t)) return;
       g.p.died = t;
       g.p.fate = 'battle';
+    };
+    /**
+     * 领兵的宗室亲自断后:这一方的统帅是没即位、日后也不即位的王子(不是预定的继承人、日后不用他摄政 / 结亲),
+     * 有 PRINCE_REAR 的机会由他守关隘(这一条也记成 PersonCommand.rear)。力战而死 = 当场战死,这一任到此为止;
+     * 力竭被擒 = 这一任到此为止、不再领兵(生死照常);全师而退 = 接着领兵。返回 true = 由他断后
+     */
+    const princeRear = (s: number, t: Year, idx: number, how: Annal['cause'], n: number): boolean => {
+      const c = cur[s];
+      if (!c?.son || c.p.role !== 'prince' || (c.son.heirAt !== undefined && t <= c.son.heirAt) || spared(c.p, t)) return false;
+      if (wr(n + 1, U_PRINCE_REAR) >= PRINCE_REAR) return false;
+      const x = c.p;
+      (x.commands ??= []).push({ war: w.id, side: s as 0 | 1, from: t, until: t, first: idx, last: idx, rear: true });
+      if (how === 'withdrew') return true;
+      if (how !== 'captured') {
+        x.died = t;
+        x.fate = 'battle';
+        c.son.end = t;
+      }
+      close(s, t);
+      if (how === 'captured') busyRuler.set(x, Infinity);
+      return true;
     };
     steps.push({
       idx: w.endIdx,

@@ -199,8 +199,10 @@ export function buildLineage(
         staff.set(others[gi][1], [...(staff.get(others[gi][1]) ?? []), others[gi][2]]);
       }
       for (; hi < heirs.length && heirs[hi][0] <= t; hi++) use(heirs[hi][1], heirs[hi][2]);
-      // 预定的继承人没即位的:名字照君主起(可以和先君同名),和那以前出道的将领、名臣撞了就另起一个
-      if (n.p.name && !staff.get(n.p.name)?.some((y) => Math.abs(y - n.born) < NAME_GAP)) {
+      // 预定的继承人没即位的:名字照君主起(西幻可以和先君同名),和那以前出道的将领、名臣撞了就另起一个;
+      // 东方的和那以前即位的君主撞了也另起(父亲被废、换了一支即位时,照"下一位君主"起的名字会和真即位的那位一样)
+      const crowned = (x: string) => !!p.eastern && list.some((o) => o.name === x && (o.from ?? o.born) <= t && Math.abs(o.born - n.born) < NAME_GAP);
+      if (n.p.name && !staff.get(n.p.name)?.some((y) => Math.abs(y - n.born) < NAME_GAP) && !crowned(n.p.name)) {
         use(n.p.name, n.born);
         if (Number.isFinite(n.died)) n.p.died = q(n.died);
         debut.set(n.p, t);
