@@ -11,6 +11,8 @@
  *                 「在地图上点」和结盟选对象一样(地图压暗、国家浮出名牌,他的国家写"他的国家";手机上放在列表底部)
  *     另立一国    选一州(默认他的出生地)、国号(不填自动起);加进单子的是两条:在那里立国、他即新国君位
  *   到哪年下台    到卒年(N 年)| 到某一年(−10 [年份] +10,后面写"退位，在位 N 年");人物没写卒年时第一项照寻常君主算
+ *                 下面一个勾「在位期间保住王室」(默认勾上;干预里记 keep: true,他在位那些年不改朝换代、不被篡位),
+ *                 一句这一朝已立几年、照常推演哪年会改朝换代(keepInfo.ts 的 crownKeepHint);共和国没有这个勾
  *   性格          四条滑条,和人物卡上的是同一份(松手就存进人物卡)
  *   底部          返回 / 加入待推演(另立一国写"(2 条)";逐年推演写「加入」)
  * 国家干预页「立作者的人物为君主」选人进来的也是这一页(CommandPage.tsx):卡片顶上是国家,国家先选好、即位年份是那里的生效年份。
@@ -39,6 +41,7 @@ import { characterPolity, placeOf } from './characterInfo';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
 import { NEW_POLITY, alivePolities, crownLine } from './crownInfo';
 import { rulerEndText } from './newIvInfo';
+import { KEEP_CROWN, crownKeepHint } from './keepInfo';
 import './newIv.css';
 
 /** 性格四条滑条(让他即位那一页、编辑人物共用);onCommit = 松手(存进人物卡) */
@@ -133,6 +136,8 @@ export function CrownPage({
   const [polName, setPolName] = useState('');
   // 到哪年下台:到卒年 / 到某一年(人物没写卒年:照寻常君主算)
   const [byYear, setByYear] = useState(false);
+  // 在位期间保住王室:新下的即位默认勾上(旧存档里的即位没有这一项 = 不保,照旧)
+  const [keep, setKeep] = useState(true);
   // 等下台:那时在位的那位(他原定哪年下台 = 即位那年)
   const curP = chosen ?? (aliveIds.has(home) ? home : null);
   const cur = after && mode === 'have' && curP !== null && aliveIds.has(curP) ? rulerAt(civ, curP, yv) : null;
@@ -208,6 +213,8 @@ export function CrownPage({
 
   // 下台年份
   const until = byYear ? ui.y : c.died;
+  // 保住王室的勾:共和国没有王室,不出现(另立一国照常有)
+  const keepable = mode === 'new' || (!!P && P.lineage !== 'republic');
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (lo > hi && !step) return c.born > last ? `他${yearAt(c.born, era)}才出生，历史只推到${spaced(yearAt(Math.floor(civ.endYear), era))}` : '他在位不到一年，即不了位';
@@ -235,10 +242,14 @@ export function CrownPage({
     saveLean();
     // 到某一年退位:记下是作者填的退位年份(以后把卒年改成同一年,说法照旧是"退位")
     const end = until !== undefined && until > startT ? (byYear ? { until, abdicate: true as const } : { until }) : {};
-    const base = { kind: 'crown' as const, char: c.id, from: y, born: c.born, leanings: { ...lean }, ...end };
+    // 共和国没有王室:勾不出现,也不带
+    const kept = keep && keepable ? { keep: true as const } : {};
+    const base = { kind: 'crown' as const, char: c.id, from: y, born: c.born, leanings: { ...lean }, ...end, ...kept };
     if (mode === 'have') {
       const v: Intervention = after ? { ...base, a: polityKey(civ, P!.id), after: true } : { ...base, a: polityKey(civ, P!.id) };
-      const text = after && cur ? `${c.name}即${nameAt(P!, y)}君位，等${personName(civ, cur)}下台` : crownLine(c.name, nameAt(P!, y), end, c.died, era);
+      const text =
+        (after && cur ? `${c.name}即${nameAt(P!, y)}君位，等${personName(civ, cur)}下台` : crownLine(c.name, nameAt(P!, y), end, c.died, era)) +
+        ('keep' in kept ? `；${KEEP_CROWN}` : '');
       const err = queueIntervention(v, text, { self: P!.id, target: null, shown: nameAt(P!, y) });
       if (err) return setMsg(err);
     } else {
@@ -251,7 +262,7 @@ export function CrownPage({
       if (!a) return setMsg('这一州立不了国');
       const e1 = queueIntervention(f, interventionText(civ, f));
       if (e1) return setMsg(e1);
-      const e2 = queueIntervention({ ...base, a }, crownLine(c.name, n || NEW_POLITY, end, c.died, era));
+      const e2 = queueIntervention({ ...base, a }, crownLine(c.name, n || NEW_POLITY, end, c.died, era) + ('keep' in kept ? `；${KEEP_CROWN}` : ''));
       if (e2) {
         // 即位那条加不上:立国那条也拿掉
         const lastOne = getPending().at(-1);
@@ -484,9 +495,21 @@ export function CrownPage({
             </button>
           </div>
           {byYear && <YearRow yi={ui} label="退位年份" short after={<span className="cr-after">退位，在位 {Math.max(0, ui.y - start)} 年</span>} />}
+          {keepable && (
+            <>
+              <label className="cp-check" data-crown="keep">
+                <input type="checkbox" checked={keep} data-act="crown-keep" onChange={(e) => (setKeep(e.target.checked), clear())} />
+                <span>{KEEP_CROWN}</span>
+                <span className="cp-note">不改朝换代，不被权臣所废</span>
+              </label>
+              {mode === 'have' && P && pAlive && <span className="cp-note">{crownKeepHint(civ, P.id, startT, until, era)}</span>}
+            </>
+          )}
           <span className="cp-note">
             {c.died === undefined && !byYear ? '人物卡上没写卒年：在位多久照寻常君主算，最多活到 88 岁。' : ''}
-            之后照常有人继位。推演里亡国、改朝换代会让他提前下台（写出降、出奔或被废），卒年照人物卡不变。
+            {keepable && keep
+              ? '之后照常有人继位。推演里亡国会让他提前下台（写出降或出奔），卒年照人物卡不变。'
+              : '之后照常有人继位。推演里亡国、改朝换代会让他提前下台（写出降、出奔或被废），卒年照人物卡不变。'}
           </span>
         </div>
         <div className="cp-form" data-sec="crown-leanings">

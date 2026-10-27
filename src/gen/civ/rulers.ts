@@ -261,6 +261,14 @@ export const IV_PEOPLE = -5;
 export const IV_WAIT = -6;
 export const IV_PROTECTED = -7;
 
+/**
+ * 史事 keep(干预「保住王室」挡下的一回)的 b 列:豪强起兵代之 / 国都权臣篡位(dynasty.ts 看王朝时)/
+ * 掌实权的人篡位(regency.ts;紧跟着记那条 regent 的结局)
+ */
+export const KEEP_RISE = 0;
+export const KEEP_COURT = 1;
+export const KEEP_REGENT = 2;
+
 type CrownIntervention = Extract<Intervention, { kind: 'crown' }>;
 
 /** 一条生效了的即位干预(第 iv 条,t 那一刻生效 / 登记)→ Crown */
