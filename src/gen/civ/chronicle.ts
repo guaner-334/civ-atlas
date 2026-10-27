@@ -118,8 +118,11 @@ export const MAJOR: Importance = 3;
 export const TRIBAL_GAP = 30;
 /** 收服部落:一轮最长这么多年(国家一直在扩张时,每一百年左右记一条,不会一条跨上千年) */
 export const TRIBAL_SPAN = 100;
-/** 易手这么多州以上的战争改变格局(大事) */
-export const BIG_WAR = 15;
+/**
+ * 易手这么多州以上的战争改变格局(大事)。这个和下面大国交兵的门槛在 GENERATOR_VERSION 42(仗打得密,一场仗平均多拿两成州)
+ * 跟着调高了两成(15 → 18、8 → 10)
+ */
+export const BIG_WAR = 18;
 /** 攻下做了这么多年以上的国都(故都陷落)的战争是大事 */
 export const OLD_CAPITAL = 300;
 /** 到过这一档(王国 / 二十五州)以上的是大国:立国算大事 */
@@ -127,7 +130,7 @@ export const GREAT_TIER = 2;
 /** 双方开战时都在这一档(帝国 / 七十州)以上:大国交兵,有得失就算大事 */
 export const TITAN_TIER = 3;
 /** 大国交兵:易手这么多州以上才算大事 */
-export const TITAN_WAR = 8;
+export const TITAN_WAR = 10;
 /** 灭国之战:亡的是大国,或者易手这么多州以上(吞并一个像样的国家),才算大事;小国(残部)被收拾掉的只在"全部"里 */
 export const FALL_WAR = 6;
 /** 改朝换代(东方)、主动迁都:当时在这一档(帝国 / 七十州)以上的是大事;小一些的国家只在"全部"里 */
@@ -1457,11 +1460,59 @@ export function claimsOf(civ: Civ, atk: number, def: number, id: number, year: Y
   return out.sort((a, b) => cap[b] - cap[a] || a - b);
 }
 
-/** 收复故土:"欲夺回瑞州" / "欲复瑞州等故地";从史事里找不到是哪几州的写"欲复故土" */
+/** 复仇之战:攻方上一次和守方交兵、在这么多年内议和,那一场净丢了州 */
+const REVENGE_YEARS = 40;
+
+/**
+ * 攻方 atk 上一次和守方 def 交兵(第 id 条史事以前、REVENGE_YEARS 年内议和的那一场)净丢了州:那一场里丢给 def 的州;
+ * 不是(没交过兵、太久以前、没吃亏)= null
+ */
+function lostLastWar(civ: Civ, atk: number, def: number, id: number, year: Year): Set<number> | null {
+  const A = civ.annals;
+  let p = -1;
+  for (let j = Math.min(id, A.length) - 1; j >= 0 && A[j].year >= year - REVENGE_YEARS; j--) {
+    const e = A[j];
+    if (e.kind === 'peace' && ((e.a === atk && e.b === def) || (e.a === def && e.b === atk))) {
+      p = j;
+      break;
+    }
+  }
+  if (p < 0) return null;
+  const war = A[p].war;
+  let net = 0;
+  const lost = new Set<number>();
+  for (let j = p - 1; j >= 0; j--) {
+    const e = A[j];
+    if (e.war !== war) continue;
+    if (e.kind === 'war') break;
+    if (e.kind !== 'conquer') continue;
+    if (e.a === atk) net++;
+    else if (e.b === atk) {
+      net--;
+      lost.add(e.region);
+    }
+  }
+  return net < 0 ? lost : null;
+}
+
+/**
+ * 收复故土:"欲夺回瑞州" / "欲复瑞州等故地";从史事里找不到是哪几州的写"欲复故土"。
+ * 复仇之战(上一次交兵吃了亏,见 lostLastWar)换着写"欲雪瑞州之耻""欲报瑞州之役"(州挑那一场丢的、还在对方手里的)
+ */
 function claimText(civ: Civ, e: Annal, id: number): string {
   const rs = claimsOf(civ, e.a, e.b, id, e.year);
   const r = rs.length ? regionName(civ, rs[0]) : '';
   if (!r) return '欲复故土';
+  const lost = lostLastWar(civ, e.a, e.b, id, e.year);
+  if (lost) {
+    const v = (Math.imul(id + 1, 0x9e3779b1) >>> 0) % 3;
+    // 州名里已经带"之"的("羊涂之野")不再叠一个"之",照常写
+    const q = regionName(civ, rs.find((x) => lost.has(x)) ?? rs[0]);
+    if (q && !q.includes('之')) {
+      if (v === 0) return `欲雪${q}之耻`;
+      if (v === 1) return `欲报${q}之役`;
+    }
+  }
   return rs.length === 1 ? `欲夺回${r}` : `欲复${r}等故地`;
 }
 
@@ -2340,11 +2391,12 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   order.push(...held);
   // 不是打下来的攻占:议和时划界割让的(peace 的 region = 紧挨在它前面的几条)、丢了国都撑不下去残部一并归攻方的
   // (亡国前同一刻、打下国都以后连着的几条攻占,见 growth.ts 的 annexedRemnants)。各合成一条子条目,不写"攻取"
-  const special = new Map<number, 'cede' | 'annex'>();
+  // 议和时罢兵割地的(peace 的 n = 割让的那几条里最前面几条,wars.ts 的 CEDE)单独一条:"昌国割瑞州求和"
+  const special = new Map<number, 'cede' | 'annex' | 'yield'>();
   for (const i of ids) {
     const e = A[i];
     if (e.kind === 'peace' && e.region > 0) {
-      for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) special.set(j, 'cede');
+      for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) special.set(j, j < i - e.region + (e.n ?? 0) ? 'yield' : 'cede');
     } else if (e.kind === 'fall') {
       for (const j of annexedRemnants(civ, i)) special.set(j, 'annex');
     }
@@ -2397,9 +2449,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       // "议定疆界,乌绝原等三州划归大渭,雪西划归昌国"
       const to = uniq(group.map((j) => A[j].a));
       text = `议定疆界,${to.map((p) => `${regionList(civ, group.filter((j) => A[j].a === p).map((j) => A[j].region)) || '一州'}划归${pn(civ, p, e.year)}`).join(',')}`;
-    } else text = rs.length > 1 ? `余下${regionList(civ, rs)}尽归${pn(civ, e.a, e.year)}` : `余下${regionList(civ, rs) || '一州'}亦归${pn(civ, e.a, e.year)}`;
+    } else if (sp === 'yield') text = `${pn(civ, e.b, e.year)}割${regionList(civ, rs) || '一州'}求和`;
+    else text = rs.length > 1 ? `余下${regionList(civ, rs)}尽归${pn(civ, e.a, e.year)}` : `余下${regionList(civ, rs) || '一州'}亦归${pn(civ, e.a, e.year)}`;
     const kids = group.map((j) => A[j]);
-    children.push({ ...base(e, i, text, 2, kids.flatMap((c) => [c.a, c.b]), rs, sp === 'cede' ? '割' : '占'), settlement: -1 });
+    children.push({ ...base(e, i, text, 2, kids.flatMap((c) => [c.a, c.b]), rs, sp === 'annex' ? '占' : '割'), settlement: -1 });
   }
   function childEntry(i: number): ChronicleEntry {
     const e = A[i];
@@ -2526,15 +2579,19 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     const s = sideOf(e.a);
     const rear = ix?.rear.get(i) ?? null;
     // 掩护的是这一方的统帅:这一刻以前就在领兵的才写名字(这一刻才换上来的写"大军")
-    const lc = s >= 0 ? (ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last) ?? null) : null;
+    let lc = s >= 0 ? (ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last) ?? null) : null;
+    // 领兵的宗室亲自断后(people.ts 的 princeRear):大军没有别人领着,写"大军""主力"
+    if (lc && rear && lc.person === rear) lc = null;
     const lead = lc ? (named.has(lc.person.id) && lc.person.role === 'general' ? lc.person.name : generalRef(civ, lc.person, y)) : '';
     const men = STAND_MEN[((Math.imul(Math.max(0, e.region) + 1, 0x9e3779b1) ^ Math.imul(Math.floor(y) + 7 * Math.max(0, e.war), 0x85ebca6b)) >>> 0) % STAND_MEN.length];
     const days = e.n ?? 3;
     const d = `${days === 2 ? '两' : cnNumber(days)}${east || khan ? '日' : '天'}`;
     const how = e.cause === 'captured' ? 1 : e.cause === 'withdrew' ? 2 : 0;
+    // 守将:部将写"部将某某";宗室写"皇子某某亲率"
+    const prince = !!rear && rear.role !== 'general';
     let t = `${pn(civ, e.a, y)}军败退,`;
-    if (east) t += `${rear ? `部将${rear.name}以${men}人` : `留${men}人`}守${pass},拒${pn(civ, e.b, y)}军${d}`;
-    else t += `${rear ? `${rear.name}率${men}${khan ? '骑' : '人'}` : `留下${men}${khan ? '骑' : '人'}`}扼守${pass},挡住${pn(civ, e.b, y)}${khan ? '军' : '大军'}${d}`;
+    if (east) t += `${rear ? (prince ? `${leaderName(civ, rear, y)}亲率${men}人` : `部将${rear.name}以${men}人`) : `留${men}人`}守${pass},拒${pn(civ, e.b, y)}军${d}`;
+    else t += `${rear ? `${prince ? `${leaderName(civ, rear, y)}亲` : rear.name}率${men}${khan ? '骑' : '人'}` : `留下${men}${khan ? '骑' : '人'}`}扼守${pass},挡住${pn(civ, e.b, y)}${khan ? '军' : '大军'}${d}`;
     const ends = rear
       ? east
         ? ['力战而死', '力竭被执', '全师而还']

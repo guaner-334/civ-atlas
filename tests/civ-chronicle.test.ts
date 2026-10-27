@@ -820,6 +820,64 @@ describe('编年史 · 邦交:结盟、称臣、背盟,开战写由头,议和写
     expect(w?.text).toBe('昌国欲复故土,伐大渭,无功而还');
   });
 
+  it('议和了还会再打:上一次交兵吃了亏的复仇之战换着写"欲雪某州之耻""欲报某州之役";罢兵割地写"某国割某州求和"', () => {
+    const c = fakeCiv();
+    seq = 0;
+    c.annals = [
+      // 渭伐昌,攻取瑞州;议和时昌再割柳州求和(peace 的 region = 割让的几条,n = 其中最前面几条是罢兵割地)
+      annal(1240, 'war', { a: 1, b: 0, war: 0, cause: 'expand' }),
+      annal(1242, 'conquer', { a: 1, b: 0, region: 1, settlement: 1, war: 0 }),
+      annal(1246, 'conquer', { a: 1, b: 0, region: 3, war: 0 }),
+      { ...annal(1246, 'peace', { a: 1, b: 0, war: 0, region: 1 }), n: 1 },
+    ];
+    // 昌接连几次来报仇(上一次交兵都吃了亏):隔几十年以内的写复仇,换着写
+    for (let k = 0; k < 6; k++) {
+      c.annals.push(annal(1255 + 6 * k, 'war', { a: 0, b: 1, war: 1 + k, cause: 'claim' }), annal(1257 + 6 * k, 'peace', { a: 0, b: 1, war: 1 + k }));
+    }
+    c.log = { size: 2, year: Float32Array.of(1242, 1246), region: Int32Array.of(1, 3), layer: Uint8Array.of(Layer.Polity, Layer.Polity), value: Int16Array.of(1, 1), cause: Uint8Array.of(0, 0) };
+    c.checkpoints = [];
+    const wars = buildChronicle(c).filter((e) => e.kind === 'war');
+    // 罢兵割地单独一条,标签"割";议和那一条照常写净得失
+    expect(wars[0].children!.map((k) => [k.tag, k.text])).toEqual([
+      ['战', '大渭与昌国争边,起兵伐之'],
+      ['占', '大渭攻取瑞州,瑞城陷落'],
+      ['割', '昌国割柳州求和'],
+      ['和', '大渭与昌国议和:昌国割瑞州、柳州两州予大渭'],
+    ]);
+    // 第一次报仇:上一次(渭伐昌)丢了瑞州、柳州;之后几次:上一次交兵(自己来伐、无功而还)没吃亏,照常写收复故地
+    const first = wars[1].text;
+    expect(first).toMatch(/^昌国(欲雪(瑞州|柳州)之耻|欲报(瑞州|柳州)之役|欲复(瑞州|柳州)等故地),伐大渭,无功而还$/);
+    for (const w of wars.slice(2)) expect(w.text).toMatch(/^昌国欲复(瑞州|柳州)等故地,伐大渭,无功而还$/);
+    for (const w of wars) for (const k of w.children!) clean(k);
+  });
+
+  it('复仇之战:上一次交兵在 40 年内、净丢了州,三种写法都出现;40 年以前的不算', () => {
+    /** 渭伐昌、攻取瑞州和柳州;昌在 y 年来报仇。前面垫 k 条无关的史事(复仇那一场的史事下标跟着变,换着写按它挑) */
+    const revenge = (k: number, y: number) => {
+      const c = fakeCiv();
+      seq = 0;
+      c.annals = [
+        ...Array.from({ length: k }, () => annal(1200, 'famine', { a: 2, b: 1 })),
+        annal(1240, 'war', { a: 1, b: 0, war: 0, cause: 'expand' }),
+        annal(1242, 'conquer', { a: 1, b: 0, region: 1, settlement: 1, war: 0 }),
+        annal(1243, 'conquer', { a: 1, b: 0, region: 3, war: 0 }),
+        annal(1246, 'peace', { a: 1, b: 0, war: 0 }),
+        annal(y, 'war', { a: 0, b: 1, war: 1, cause: 'claim' }),
+        annal(y + 2, 'peace', { a: 0, b: 1, war: 1 }),
+      ];
+      c.log = { size: 2, year: Float32Array.of(1242, 1243), region: Int32Array.of(1, 3), layer: Uint8Array.of(Layer.Polity, Layer.Polity), value: Int16Array.of(1, 1), cause: Uint8Array.of(0, 0) };
+      c.checkpoints = [];
+      return buildChronicle(c).filter((e) => e.kind === 'war')[1].text;
+    };
+    const texts = new Set<string>();
+    for (let k = 0; k < 9; k++) {
+      texts.add(revenge(k, 1260).replace(/(瑞州|柳州)/, '某州'));
+      // 隔了 40 年以上:不算复仇
+      expect(revenge(k, 1290)).toMatch(/^昌国欲复(瑞州|柳州)等故地,伐大渭,无功而还$/);
+    }
+    expect([...texts].sort()).toEqual(['昌国欲复某州等故地,伐大渭,无功而还', '昌国欲报某州之役,伐大渭,无功而还', '昌国欲雪某州之耻,伐大渭,无功而还']);
+  });
+
   it('结盟写共御谁;盟约断了写为什么(称臣、坐视不救、背盟、共御的强邻亡了);称臣、自立各一条', () => {
     const list = buildChronicle(dipCiv());
     const top = list.filter((e) => e.kind !== 'war').map((e) => [e.tag, e.text]);
@@ -968,16 +1026,25 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
         expect(w.text.replace(/[^,;]+亲征|遣[^,;]+?[伐讨]/g, '')).not.toMatch(/失国都|失.*失/);
         clean(w);
       }
-      // 议和割让:peace 的 region = 紧挨在前面的几条攻占,都合在一条"议定疆界"的子条目里,不写"攻取"
+      // 议和割让:peace 的 region = 紧挨在前面的几条攻占,不写"攻取":最前面 n 条是罢兵割地,合成一条"某国割某州求和";
+      // 余下的是划清边界,合在一条"议定疆界"的子条目里
       const kidOf = new Map<number, ChronicleEntry>();
       for (const w of list) for (const k of w.children ?? []) kidOf.set(k.id, k);
       let ceded = 0;
       A.forEach((e, i) => {
         if (e.kind !== 'peace' || e.region < 0) return;
         for (let j = i - e.region; j < i; j++) expect(A[j].kind === 'conquer' && A[j].war === e.war, `第 ${j} 条`).toBe(true);
-        const k = kidOf.get(i - e.region)!;
-        expect(k.text).toMatch(/^议定疆界,.+划归.+$/);
-        expect(k.tag).toBe('割');
+        const n = e.n ?? 0;
+        if (n > 0) {
+          const k = kidOf.get(i - e.region)!;
+          expect(k.text).toMatch(/^.+割.+求和$/);
+          expect(k.tag).toBe('割');
+        }
+        if (e.region > n) {
+          const k = kidOf.get(i - e.region + n)!;
+          expect(k.text).toMatch(/^议定疆界,.+划归.+$/);
+          expect(k.tag).toBe('割');
+        }
         ceded += e.region;
       });
       // 20 个种子里有两个一次割让都没有(seed 7 就没有),seed 2024 有
@@ -992,7 +1059,8 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
     }, 60_000);
   }
   // 别的种子:都不超过 180 条(GENERATOR_VERSION 22 以后 20 个种子 47–135 条;40 是 64–177 条;
-  // 41 开战看内政以后 67–169 条,seed 1 113 条、3 157 条、99 67 条)
+  // 41 开战看内政以后 67–169 条,seed 1 113 条、3 157 条、99 67 条;42 战争节奏(仗多了,按州数算的门槛跟着调高两成)以后
+  // 84–201 条,seed 1 121 条、3 167 条、99 85 条)
   for (const seed of [1, 3, 99]) {
     it(`seed ${seed}:"大事"不超过 180 条`, () => {
       const list = buildChronicle(generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed })));

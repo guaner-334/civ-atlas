@@ -280,6 +280,7 @@ describe('战争与攻占', () => {
 
   it('据险断后:败退的一方守住关隘,大军退保关隘后面那州;编年史挂在那场战争下,写守将、人数、哪州之隘、拒敌几日、结局、退保何处;守将的结局照史事', () => {
     let stands = 0;
+    let princes = 0;
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const A = civ.annals;
@@ -328,6 +329,13 @@ describe('战争与攻占', () => {
         expect(x.polity).toBe(e.a);
         expect(c!.text).toContain(x.name);
         expect(c!.people).toContain(x.id);
+        // 领兵的宗室亲自断后:这一刻他正统领这一方,编年史写"某某亲率"
+        if (x.role !== 'general') {
+          princes++;
+          expect(x.role, tag).toBe('prince');
+          expect(x.commands!.some((k) => !k.rear && k.war === e.war && k.first < i && i <= k.last), tag).toBe(true);
+          expect(c!.text, tag).toMatch(/亲率/);
+        }
         if (e.cause === 'slain') {
           expect(x.fate, tag).toBe('battle');
           expect(x.died).toBe(e.year);
@@ -336,6 +344,8 @@ describe('战争与攻占', () => {
       });
     }
     expect(stands, 'seed 7、2024 合起来').toBeGreaterThan(0);
+    // GENERATOR_VERSION 42 时种子 1–20 共 28 次由领兵的宗室亲自断后(seed 7 有 3 次)
+    expect(princes, 'seed 7、2024 合起来').toBeGreaterThan(0);
   }, 60_000);
 
   it('默认参数 seed 7 / 2024:有战争、有迁都,两个世界里有亡国;在世国家 8–20 个;第 3000 年的政区图成片(飞地 < 3%)', () => {
@@ -344,8 +354,9 @@ describe('战争与攻占', () => {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const st = warStats(civ);
       expect(st.wars, `seed ${seed}`).toBeGreaterThanOrEqual(8);
-      // GENERATOR_VERSION 19(仗短而狠、休战期短)以后:20 个种子 3000 年里 95–281 场,中位一百六十场上下
-      expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(300);
+      // GENERATOR_VERSION 19(仗短而狠、休战期短)以后:20 个种子 3000 年里 95–281 场,中位一百六十场上下;
+      // 42(议和了还会再打、看邻国更勤)以后种子 1–20 国与国之间 170–536 场,中位三百场上下
+      expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(650);
       falls += st.falls;
       expect(st.capitalMoves, `seed ${seed}`).toBeGreaterThan(0);
       expect(st.conquests, `seed ${seed}`).toBeGreaterThan(30);
@@ -427,6 +438,79 @@ describe('战争与攻占', () => {
       }
     }
     expect(n).toBeGreaterThan(0);
+  }, 120_000);
+
+  /** 每场仗议和时谁净丢了州(讨伐民变、宗室争位的不算):[议和那条的下标, 输的一方, 赢的一方] */
+  const losers = (civ: Civ): [number, number, number][] => {
+    const A = civ.annals;
+    const civil = new Set(A.filter((e) => e.kind === 'war' && (e.cause === 'quell' || e.cause === 'heir')).map((e) => e.war));
+    const net = new Map<number, number>();
+    const side = new Map<number, [number, number]>();
+    const out: [number, number, number][] = [];
+    A.forEach((e, i) => {
+      if (e.kind === 'war') side.set(e.war, [e.a, e.b]);
+      else if (e.kind === 'conquer' && e.war >= 0 && side.has(e.war)) net.set(e.war, (net.get(e.war) ?? 0) + (e.a === side.get(e.war)![0] ? 1 : -1));
+      else if (e.kind === 'peace' && side.has(e.war) && !civil.has(e.war)) {
+        const g = net.get(e.war) ?? 0;
+        const [a, b] = side.get(e.war)!;
+        if (g) out.push([i, g > 0 ? b : a, g > 0 ? a : b]);
+      }
+    });
+    return out;
+  };
+
+  it('议和了还会再打:输的一方停战期满后不久常向赢家开战;罢兵时攻方净得了州的守方再割一州(不割国都),编年史写"某国割某州求和"', () => {
+    let rematch = 0;
+    let yields = 0;
+    for (const seed of [7, 2024]) {
+      const civ = civOf({ ...DEFAULT_PARAMS, seed });
+      const A = civ.annals;
+      // 输的一方 20 年内回头打赢家
+      for (const [i, lose, win] of losers(civ)) {
+        const y = A[i].year;
+        if (A.some((e, j) => j > i && e.kind === 'war' && e.a === lose && e.b === win && e.year - y <= 20)) rematch++;
+      }
+      const kids = new Map(buildChronicle(civ).flatMap((e) => (e.kind === 'war' ? (e.children ?? []) : [])).map((c) => [c.id, c]));
+      A.forEach((e, i) => {
+        if (e.kind !== 'peace' || !e.n) return;
+        yields++;
+        const tag = `seed ${seed} 第 ${i} 条`;
+        expect(e.n, tag).toBe(1);
+        expect(e.region, tag).toBeGreaterThanOrEqual(e.n);
+        // 割让的几条紧挨在议和前面,罢兵割的排最前:攻方得、守方割,不是国都,守方割完还在
+        const j = i - e.region;
+        const c = A[j];
+        expect([c.kind, c.war, c.a, c.b, c.year], tag).toEqual(['conquer', e.war, e.a, e.b, e.year]);
+        const B = civ.polities[e.b];
+        expect(B.ended === undefined || B.ended > e.year, tag).toBe(true);
+        expect(civ.settlements[capitalAt(B, e.year)].region, tag).not.toBe(c.region);
+        // 攻方在这场仗里(割地以前)净得了州
+        let net = 0;
+        for (let k = 0; k < j; k++) if (A[k].kind === 'conquer' && A[k].war === e.war) net += A[k].a === e.a ? 1 : -1;
+        expect(net, tag).toBeGreaterThan(0);
+        const k = kids.get(j);
+        expect(k?.tag, tag).toBe('割');
+        expect(k?.text, tag).toMatch(/割.+求和$/);
+        expect(k?.text, tag).toContain(civ.regions.name![c.region]);
+      });
+    }
+    expect(rematch, '两个世界合起来').toBeGreaterThan(10);
+    expect(yields, '两个世界合起来').toBeGreaterThan(5);
+  }, 60_000);
+
+  it('议和了还会再打:在议和以后、替输的一方多看的那一眼以前切开,接着推的结果和一口气推完完全一样', () => {
+    let n = 0;
+    for (const seed of [7, 2024]) {
+      const w = world({ ...small, seed });
+      const whole = civOf({ ...small, seed });
+      // 几场有输家的仗议和后两三年(多看的那一眼在停战期满后几年)
+      const ls = losers(whole).filter((_, k) => k % 4 === 1);
+      for (const [i] of ls.slice(0, 3)) {
+        expectResumeSame(w, whole, Math.floor(whole.annals[i].year) + 3);
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(2);
   }, 120_000);
 
   it('编年史(真实战争数据):每场战争折叠成一条,攻占、被迫迁都都挂在战争下;亡国、主动迁都另列;一方在别处亡国的仗写"既亡"', () => {
