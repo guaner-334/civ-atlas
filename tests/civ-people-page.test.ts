@@ -20,7 +20,7 @@ import {
   rulerAt,
   rulerNeighbors,
 } from '../src/gen/civ/peopleInfo';
-import { kinOf, personName, rulerFateWord, rulerRole, rulerShort } from '../src/gen/civ/peopleText';
+import { kinOf, personName, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../src/gen/civ/peopleText';
 import { searchCiv } from '../src/ui/searchIndex';
 import { mapTarget, personKey, resolvePersonKey, selectionKey } from '../src/ui/flyTo';
 
@@ -171,27 +171,51 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=2024:大辰末帝(江溟)继祖父即位;搜"末帝"名人排在前面(大岳末帝百里玄衍),他排在前三', () => {
-    const civ = civOf(2024);
-    const x = civ.people!.find((p) => p.name === '江溟' && p.role === 'ruler');
-    expect(x).toBeTruthy();
-    expect(personName(civ, x!)).toBe('末帝江溟');
-    expect(rulerRole(civ, x!)).toBe('大辰皇帝');
-    expect(riseText(civ, x!)).toMatch(/^继祖父/);
-    const famous = new Set(famousPeople(civ).map((f) => f.id));
-    expect(famous.has(x!.id)).toBe(false);
-    const hits = searchCiv(civ, '末帝', 2600);
-    // 名人在前:头一个是名人大岳末帝百里玄衍
-    expect(hits[0]).toMatchObject({ kind: 'person', name: '末帝百里玄衍' });
+  /**
+   * 例子按条件现找(历史变了不用跟着改):东方君主,称号"末帝",接祖父的位,即位那条写了辅政的名臣(那条写到的正好三个人);
+   * 这个世界里搜"末帝"搜得到他,搜到的里面有名人。GENERATOR_VERSION 40 时是种子 2024 的大辰末帝江溟(不是名人;
+   * 搜"末帝"头一个是名人大岳末帝百里玄衍),39 时是种子 2024 的大澜末帝燕溟(是名人,搜"末帝"头一个就是他)
+   */
+  const lastEmperor = () => {
+    for (const seed of [2024, 7, 11, 42, 3, 5]) {
+      const civ = civOf(seed);
+      const P = civ.people!;
+      const famous = new Set(famousPeople(civ).map((f) => f.id));
+      const hits = searchCiv(civ, '末帝', 2600);
+      if (!hits.some((h) => h.kind === 'person' && famous.has(h.id))) continue;
+      const reigns = reignEntries(civ);
+      for (const h of hits) {
+        if (h.kind !== 'person') continue;
+        const x = P[h.id];
+        const prev = rulerNeighbors(civ, x).prev;
+        if (x.role !== 'ruler' || x.title !== '末帝' || x.rise !== 'heir' || !prev || kinOf(civ, x, prev) !== '祖父') continue;
+        const e = reigns.find((r) => r.people?.[1] === x.id);
+        if (!e || e.people!.length !== 3 || e.people![0] !== prev.id || P[e.people![2]].role !== 'minister' || !e.text.includes('辅政')) continue;
+        return { civ, x, prev, e, hits, famous };
+      }
+    }
+    return null;
+  };
+
+  it('继祖父即位、称号"末帝"的君主(按条件现找):搜"末帝"名人排在前面;即位那条前一位连国名一起切、他和辅政的名臣切名字', () => {
+    const found = lastEmperor();
+    expect(found, '几个种子里要有这样一位').toBeTruthy();
+    const { civ, x, prev, e, hits, famous } = found!;
+    expect(personName(civ, x)).toBe(`末帝${x.name}`);
+    expect(rulerRole(civ, x)).toMatch(/皇帝$/);
+    expect(riseText(civ, x)).toMatch(/^继祖父/);
+    // 名人在前:头一个是名人;名人都排在不是名人的前面
     expect(hits[0].kind === 'person' && famous.has(hits[0].id)).toBe(true);
-    const k = hits.findIndex((h) => h.kind === 'person' && h.id === x!.id);
-    expect(k).toBeGreaterThan(0);
-    expect(k).toBeLessThan(3);
-    expect(hits[k]).toMatchObject({ kind: 'person', id: x!.id, name: '末帝江溟', sub: '大辰皇帝，1485–1529' });
-    for (const h of hits.slice(k + 1)) expect(h.kind === 'person' && famous.has(h.id)).toBe(false);
-    // 编年史里写他即位的那条:"大辰怀宗崩……其孙江溟即位,是为末帝,……丞相墨渺缈辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
-    const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
+    const fame = hits.map((h) => h.kind === 'person' && famous.has(h.id));
+    const firstPlain = fame.indexOf(false);
+    expect(firstPlain < 0 || fame.lastIndexOf(true) < firstPlain).toBe(true);
+    const k = hits.findIndex((h) => h.kind === 'person' && h.id === x.id);
+    expect(k).toBeGreaterThanOrEqual(0);
+    const s = personSpan(x);
+    expect(hits[k]).toMatchObject({ kind: 'person', id: x.id, name: `末帝${x.name}`, sub: `${rulerRole(civ, x)}，${Math.floor(s.from)}–${Math.floor(s.until!)}` });
+    // 编年史里写他即位的那条("大辰怀宗崩……其孙江溟即位,是为末帝,……丞相墨渺缈辅政"):前一位连国名一起切、他和辅政的名臣切名字
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['大辰怀宗', '江溟', '墨渺缈']);
+    expect(ms.map((m) => m.person)).toEqual(e.people);
+    expect(ms.map((m) => m.text)).toEqual([rulerRef(civ, prev, e.year), x.name, civ.people![e.people![2]].name]);
   });
 });

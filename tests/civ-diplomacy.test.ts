@@ -210,6 +210,16 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
 
 describe('邦交和作者下令', () => {
   const small = (seed: number) => ({ ...DEFAULT_PARAMS, cells: 12000, seed });
+  /**
+   * 不常见的事(讨伐、纳土归附、打得成的同宗藩属互攻……)依次在这些种子的小世界里找,找到就停、用到哪个才生成哪个:
+   * 历史变了(GENERATOR_VERSION 加一)前面几个种子里没有了,往后接着找,不用手改种子
+   */
+  const SEEDS = [9, 2024, 3, 5, 11, 13, 1, 2, 4, 6, 8, 7, 10, 12, 14, 15, 16, 17, 18, 19, 20];
+  /** 先按 first 的先后,再接 SEEDS 里别的种子 */
+  const seedsFrom = (first: readonly number[]) => [...first, ...SEEDS.filter((s) => !first.includes(s))];
+  function* lazily<T>(seeds: readonly number[], f: (seed: number) => T[]): Generator<T> {
+    for (const s of seeds) yield* f(s);
+  }
   /** 干预那一条后面紧跟着的几条史事 */
   const after = (civ: Civ, from: number) => {
     const k = civ.annals.findIndex((e) => e.kind === 'intervene' && e.year >= from);
@@ -220,9 +230,9 @@ describe('邦交和作者下令', () => {
     type Try = { w: World; civ: Civ; a: number; b: number; from: number };
     const at = (seed: number) => ({ w: world(small(seed)), civ: civOf(small(seed)) });
     // 每种情形挑几对当时还结着的,下令开战;两国不接壤的打不成,换下一对
-    // (依次在几个种子的小世界里找)
-    const tries = (kind: 'alliance' | 'submit'): Try[] =>
-      [2024, 9, 5].flatMap((seed) => {
+    // (依次在几个种子的小世界里找,用到才生成)
+    const tries = (kind: 'alliance' | 'submit'): Iterable<Try> =>
+      lazily(seedsFrom([2024, 9, 5]), (seed) => {
         const { w, civ } = at(seed);
         return civ.annals
           .filter((e) => e.kind === kind)
@@ -233,9 +243,13 @@ describe('邦交和作者下令', () => {
           })
           .slice(0, 8);
       });
-    // 同一个宗主的两个藩属(称臣那一年之后,和别的藩属配对;依次在几个种子的小世界里找;GENERATOR_VERSION 38 起前六个种子里没有打得成的,多找几个)
-    const coVassals = (): Try[] =>
-      [9, 2024, 3, 5, 11, 13, 1, 2, 4, 6, 8].flatMap((seed) => {
+    /** 反过来打(宗主打藩属) */
+    function* flip(list: Iterable<Try>): Generator<Try> {
+      for (const x of list) yield { ...x, a: x.b, b: x.a };
+    }
+    // 同一个宗主的两个藩属(称臣那一年之后,和别的藩属配对;依次在几个种子的小世界里找;GENERATOR_VERSION 38 起前六个种子里没有打得成的)
+    const coVassals = (): Iterable<Try> =>
+      lazily(SEEDS, (seed) => {
         const { w, civ } = at(seed);
         return civ.annals
           .filter((e) => e.kind === 'submit')
@@ -253,7 +267,7 @@ describe('邦交和作者下令', () => {
     const cases = [
       { what: '打盟国', list: tries('alliance'), cut: 'unally', cause: 'betray' },
       { what: '藩属打宗主', list: tries('submit'), cut: 'defect', cause: undefined },
-      { what: '宗主打藩属', list: tries('submit').map((x) => ({ ...x, a: x.b, b: x.a })), cut: 'defect', cause: 'betray' },
+      { what: '宗主打藩属', list: flip(tries('submit')), cut: 'defect', cause: 'betray' },
       { what: '同宗藩属互攻', list: coVassals(), cut: 'defect', cause: undefined },
     ] as const;
     for (const c of cases) {
@@ -284,7 +298,7 @@ describe('邦交和作者下令', () => {
     // 纳土归附不常见:依次在几个种子的小世界里找(上面几条测试也用这几个;GENERATOR_VERSION 37 起种子 9 没有了)
     let civ = civOf(small(9));
     let absorbs: (readonly [Annal, number])[] = [];
-    for (const seed of [9, 2024, 5, 3, 13, 11]) {
+    for (const seed of seedsFrom([9, 2024, 5, 3, 13, 11])) {
       civ = civOf(small(seed));
       // 记 cause = vassal 的,正是并之前是宗主和藩属的那些
       for (const e of civ.annals.filter((x) => x.kind === 'merge')) {
@@ -303,14 +317,18 @@ describe('邦交和作者下令', () => {
   }, 120_000);
 
   it('下令结了盟的宗主不讨伐自立的藩属', () => {
-    // 讨伐不常见:GENERATOR_VERSION 13 时 20 个种子(1–19、2024)的小世界里不到一半有;
-    // GENERATOR_VERSION 22 有讨伐的是种子 4、5、7–14、17、2024(种子 3 没有了),用种子 9(上面的测试也用它);
-    // GENERATOR_VERSION 39 种子 9 没有了,有讨伐的是种子 1–5、7、8、10–18,换种子 4
-    const p = small(4);
+    // 讨伐不常见(GENERATOR_VERSION 13 时 20 个种子的小世界里不到一半有):依次在几个种子的小世界里找第一场
+    // (GENERATOR_VERSION 39、40 时是种子 4 的)
+    let p = small(4);
+    let war: Annal | undefined;
+    for (const seed of seedsFrom([4, 9])) {
+      p = small(seed);
+      war = civOf(p).annals.find((e) => e.kind === 'war' && e.cause === 'punish');
+      if (war) break;
+    }
+    expect(war, '要有一场讨伐').toBeDefined();
     const w = world(p);
     const civ = civOf(p);
-    const war = civ.annals.find((e) => e.kind === 'war' && e.cause === 'punish');
-    expect(war, '要有一场讨伐').toBeDefined();
     const from = Math.floor(war!.year);
     const v: Intervention = { kind: 'ally', a: polityKey(civ, war!.a), b: polityKey(civ, war!.b), from };
     const res = generateCiv(w, { interventions: [v] });
@@ -344,9 +362,9 @@ describe('邦交和作者下令', () => {
     // 找一个有援盟的仗(盟国不是东方国名)的小世界
     const hit = (c: Civ) => c.annals.findIndex((e) => e.kind === 'war' && (e.cause === 'ally' || e.cause === 'rescue') && e.settlement >= 0 && !c.polities[e.settlement].eastern);
     let civ = civOf(small(3));
-    for (const seed of [1, 2, 4, 5, 6]) {
-      if (hit(civ) >= 0) break;
+    for (const seed of seedsFrom([3, 1, 2, 4, 5, 6])) {
       civ = civOf(small(seed));
+      if (hit(civ) >= 0) break;
     }
     const i = hit(civ);
     expect(i, '要有一场援盟 / 救藩的仗').toBeGreaterThanOrEqual(0);
