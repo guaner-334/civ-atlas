@@ -9,8 +9,11 @@
  *       赔率 = WAR_ODDS × 扩张性 × 边境胜算^LOCAL_EXP × 异族 FOREIGN × 收复失地 × 小国 PREY_ODDS × 边界长短
  *       挑好了打谁,开不开战再乘此刻在位君主的好战倍数(rulers.ts:越好战越容易开战)
  *       国家方针(policy.ts):倍数是君主倾向加上方针的;亲国不打,仇国的赔率 × FOE_ODDS(先打它)
- *       动荡(unrest.ts):邻国大乱的格外招人(趁虚而入),自己国内乱也更想对外开战(转移矛盾)
+ *       动荡(unrest.ts):邻国大乱的格外招人(趁虚而入),自己国内乱也更想对外开战(转移矛盾;动荡到 DIVERT_U 再上调一档)
  *       钱粮(control.ts):国用不足(窘迫 0–1)的赔率 × (1 − BROKE_CUT × 窘迫),国库没攒满的再打折(PURSE_0)
+ *       开战看内政(趁虚而入,见 weakness):邻国有割据(control.ts)、疫后凋敝(近年染疫的州多,unrest.ts)、幼主在位或权臣当政(regents.ts),
+ *       赔率各乘一截;国库空竭、钱粮这一截压到 PLUNDER_FLOOR 以下的,边境对面有富州(一州的收入是本国每州平均的 RICH 倍以上)
+ *       就按 PLUNDER_FLOOR 算(为掠夺而战)。由头见 causeOf
  *       物产(development.ts 挂上):本国缺盐、缺牲畜(马),认得金银、铁以后缺金银、铁,快到下一个时代门口缺那道门槛要的矿,
  *       边境对面的州正好有,赔率 × (1 + RES_WANT × 缺的样数,最多算 RES_MAX 样);开战的由头写"欲夺某州之铁"
  *       (收复故土、乘乱的照旧写那两样)
@@ -68,7 +71,9 @@ import type { World } from '../world';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
 import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './sim';
-import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
+import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, regentOf, rulerOf, type PolityModel } from './polities';
+import { reignBorn } from './rulers';
+import { ADULT } from './regents';
 import { FOE_ODDS, FRIEND_JOIN } from './policy';
 import { capitalAt, populationAt } from './growth';
 import { regionPasses } from './passes';
@@ -159,6 +164,28 @@ const PURSE_0 = 0.4;
 const REVOLT_LENGTH = 1.5;
 const PREY_UNREST = 0.35;
 const DIVERT = 0.15;
+/** 转移矛盾:自己动荡到这么高,开战的赔率再 × (1 + DIVERT_STEP)(上调一档),由头写"国中多事,欲以外战安内" */
+const DIVERT_U = 1.5;
+const DIVERT_STEP = 0.25;
+/**
+ * 趁虚而入:邻国动荡到 PREY_HIGH 以上,由头写"乘某国内乱"(赔率照上面的 PREY_UNREST);
+ * 有割据的每处 × (1 + LORD_PREY)(最多算 LORD_PREY_MAX 处;割据的州不出兵,国力本就弱了,这里只算"内乱招人");
+ * 疫后凋敝(unrest.ts 的 blight:近年染疫的州占国土几成)到 BLIGHT_MIN 以上 × (1 + BLIGHT_PREY × 几成 ÷ BLIGHT_FULL,最多加满);
+ * 幼主在位(不满 ADULT 岁)、权臣当政(regents.ts 的宗室摄政、名臣辅政、大臣专权、大将专权)× (1 + WEAK_PREY)
+ */
+const PREY_HIGH = 2;
+const LORD_PREY = 0.25;
+const LORD_PREY_MAX = 2;
+const BLIGHT_MIN = 0.15;
+const BLIGHT_FULL = 0.5;
+const BLIGHT_PREY = 0.6;
+const WEAK_PREY = 0.4;
+/**
+ * 为掠夺而战:钱粮那一截(窘迫、国库没攒满的打折乘起来)不到 PLUNDER_FLOOR、边境对面有富州(收入是本国每州平均的 RICH 倍以上)的,
+ * 对这个邻国按 PLUNDER_FLOOR 算(打不起,但抢得到);由头写"府库空竭,欲掠某国某州"
+ */
+const PLUNDER_FLOOR = 0.3;
+const RICH = 2;
 /** 物产:边境对面有本国缺的物产,每样开战的赔率 × (1 + RES_WANT),最多算 RES_MAX 样;攻方挑州时有本国缺的物产的州加 RES_TARGET 分 */
 const RES_WANT = 1.5;
 const RES_MAX = 2;
@@ -275,6 +302,12 @@ export interface WarModel {
   broke?: (p: number, t: Year) => number;
   /** 钱粮(control.ts 挂上):国家 p 的国库攒到几成(0–1;满 = 攒够了几年的用度) */
   purse?: (p: number, t: Year) => number;
+  /** 钱粮(control.ts 挂上):州 r 的收入(田赋、工商、市税之和)是国家 p 每州平均的几倍(p 还没算过账 = 0):为掠夺而战挑富州 */
+  rich?: (p: number, r: number) => number;
+  /** 割据(control.ts 挂上):国家 p 此刻有几处割据、最早起的那处在哪州(没有 = n 为 0):邻国趁虚而入 */
+  lords?: (p: number, t: Year) => { n: number; region: number };
+  /** 疫后凋敝(unrest.ts 挂上):国家 p 近年染疫的州占国土几成(全球大疫凋敝还没过的州算进去;0–1):邻国趁虚而入 */
+  blight?: (p: number, t: Year) => number;
   /** 中央管到什么程度(control.ts 挂上):战争 w 的第一仗之前(点兵),割据的地方抗命不出兵时记一条 defy */
   onMuster?: (w: War, t: Year) => void;
   /** 物产(development.ts 挂上):州 r 有的物产(按位;地里有、没采空吃空的) */
@@ -290,6 +323,14 @@ export interface WarModel {
   /** 联姻(marriage.ts 挂上):战争 w 打到厌战、达成目标,两国议和之后(以和亲作结) */
   onPeace?: (w: War, t: Year) => void;
 }
+
+/** 邻国的内忧(看邻国时算,见 installWars 里的 weakness):赔率倍数、够得上写由头的那一样、割据的那州(没有 = −1) */
+interface Woe {
+  odds: number;
+  cause?: AnnalCause;
+  region: number;
+}
+const NO_WOE: Woe = { odds: 1, region: -1 };
 
 /** 按位数 */
 function bits(x: number): number {
@@ -645,8 +686,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     wm.dm?.sever?.(x, y, t, w.id);
     wm.wars.push(w);
     wm.active.push(w);
-    // 为夺物产:region 列记由头里那一州,n 列记想要的物产(按位)
-    sim.record('war', { a: x, b: y, war: w.id, ...(ally >= 0 ? { settlement: ally } : {}), ...(cause ? { cause } : {}), ...(res ? { region: res.region, n: res.want } : {}) });
+    // 为夺物产:region 列记由头里那一州,n 列记想要的物产(按位);乘内乱、为掠夺而战:region 列记割据的那州、要掠的富州
+    sim.record('war', { a: x, b: y, war: w.id, ...(ally >= 0 ? { settlement: ally } : {}), ...(cause ? { cause } : {}), ...(res ? { region: res.region, ...(res.want ? { n: res.want } : {}) } : {}) });
     sim.schedule(t + gapOf(wm, w, 0), Ev.Campaign, 0, w.id);
     // 阶段 4 干预的结盟:y 被宣战,它的盟国(和 x 接壤、没和 x 结盟、和 x 没有宗藩之分、没在和 x 打)有 ALLY_JOIN 的机会援盟
     const iv = wm.iv;
@@ -703,12 +744,20 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     const pol = pm.policies.size ? policyAt(pm, p, t) : null;
     // 物产:本国缺、又想要的(没挂发展度 = 都不缺)
     const lack = wm.wantOf && wm.resOf ? wm.wantOf(p) : null;
+    // 钱粮:国用不足、国库没攒满的打折(国库空竭的,对边境对面有富州的邻国按 PLUNDER_FLOOR 算:为掠夺而战)
+    let money = 1;
+    if (wm.broke) money *= 1 - BROKE_CUT * wm.broke(p, t);
+    if (wm.purse) money *= PURSE_0 + (1 - PURSE_0) * wm.purse(p, t);
+    const needy = money < PLUNDER_FLOOR && !!wm.rich;
     let target = -1;
     let odds = 0;
     let traitor = false;
     let breaker = false;
     /** 挑中的那一国:边境上有本国缺的哪几样物产 */
     let covet = 0;
+    /** 挑中的那一国:内忧(趁虚而入的由头、割据的那州)、要掠的富州(不是为掠夺 = −1) */
+    let woe: Woe = NO_WOE;
+    let loot = -1;
     for (const [q, n] of [...border].sort((u, v) => u[0] - v[0])) {
       const Q = pm.polities[q];
       if (Q.ended !== undefined || t - (wm.truce.get(pairKey(p, q)) ?? -Infinity) < TRUCE) continue;
@@ -746,8 +795,9 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       if (oath > 0) o *= oath;
       // 联姻(marriage.ts):两国结着亲少开战,在位的君主不打舅家
       if (wm.kin) o *= wm.kin(p, q, t);
-      // 邻国大乱:趁虚而入
-      if (wm.unrest) o *= 1 + PREY_UNREST * Math.max(0, wm.unrest(q, t) - PREY_CALM);
+      // 邻国内忧(大乱、割据、疫后凋敝、幼主权臣):趁虚而入
+      const wq = weakness(q, t);
+      o *= wq.odds;
       if (pol && picks(pm, pol.foes, q)) o *= FOE_ODDS;
       // 边境对面有本国缺的物产:盯上它(门槛要的那样算两样)
       let got = 0;
@@ -756,21 +806,34 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
         got &= lack.want;
         if (got) o *= 1 + RES_WANT * Math.min(RES_MAX, bits(got) + (got & lack.gate ? 1 : 0));
       }
+      // 国用不足:没钱打仗;国库空竭的,边境对面有富州就去抢(一样富的取治所地块小的)
+      let rich = -1;
+      if (needy) {
+        let most = RICH;
+        for (const y of front.get(q)!.keys()) {
+          const v = wm.rich!(p, y);
+          if (v > most || (v === most && rich >= 0 && reg.seat[y] < reg.seat[rich])) {
+            most = v;
+            rich = y;
+          }
+        }
+      }
+      o *= rich >= 0 ? PLUNDER_FLOOR : money;
       if (o > odds) {
         odds = o;
         target = q;
         traitor = betray;
         breaker = oath > 0;
         covet = got;
+        woe = wq;
+        loot = rich;
       }
     }
     if (target < 0) return;
-    // 越好战的君主越容易开战(加上方针的打仗胆量);国内越乱越想对外开战转移矛盾
+    // 越好战的君主越容易开战(加上方针的打仗胆量);国内越乱越想对外开战转移矛盾(乱到 DIVERT_U 再上调一档)
     odds *= effOf(pm, p, t).declare;
-    if (wm.unrest) odds *= 1 + DIVERT * wm.unrest(p, t);
-    // 国用不足:没钱打仗
-    if (wm.broke) odds *= 1 - BROKE_CUT * wm.broke(p, t);
-    if (wm.purse) odds *= PURSE_0 + (1 - PURSE_0) * wm.purse(p, t);
+    const up = wm.unrest ? wm.unrest(p, t) : 0;
+    odds *= 1 + DIVERT * up + (up >= DIVERT_U ? DIVERT_STEP : 0);
     if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
@@ -783,7 +846,12 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       declare(p, target, t, -1, 'breach');
       return;
     }
-    const cause = causeOf(p, target, t, claims(target), covet);
+    const cause = causeOf(p, target, t, claims(target), covet, woe, loot, up);
+    // 乘内乱(有割据的写割据的那州)、为掠夺而战(写要掠的富州):region 列记那一州
+    if (cause === 'unrest' || cause === 'plunder') {
+      declare(p, target, t, -1, cause, { region: cause === 'plunder' ? loot : woe.region, want: 0 });
+      return;
+    }
     if (cause !== 'resource') {
       declare(p, target, t, -1, cause);
       return;
@@ -803,15 +871,59 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
   sim.on(Ev.WarCheck, warCheck);
   wm.look = (p, k, t) => warCheck(k, p, t);
 
-  /** p 向 q 开战的由头:收复故土 > 乘乱(q 正和别国交兵、刚丢了国都 / 迁都、刚改朝换代)> 夺物产 > 吞并小国 > 争边地 */
-  const causeOf = (p: number, q: number, t: number, claimed: number, covet: number): AnnalCause => {
+  /**
+   * p 向 q 开战的由头:收复故土 > 乘乱(q 正和别国交兵、刚丢了国都 / 迁都、刚改朝换代)> 乘 q 的内忧(内乱 / 大疫之后 / 幼主 / 权臣,见 weakness)
+   * > 为掠夺而战(loot = 要掠的富州)> 夺物产 > 转移矛盾(p 的动荡 up 到 DIVERT_U)> 吞并小国 > 争边地
+   */
+  const causeOf = (p: number, q: number, t: number, claimed: number, covet: number, woe: Woe, loot: number, up: number): AnnalCause => {
     if (claimed > 0) return 'claim';
     const Q = pm.polities[q];
     const d = Q.dynasties;
     if (warsOf(q).some((v) => v.a !== p && v.b !== p) || t - pm.capMoved[q] < CHAOS_YEARS || (d && d.length > 1 && t - d[d.length - 1].year < CHAOS_YEARS)) return 'chaos';
+    if (woe.cause) return woe.cause;
+    if (loot >= 0) return 'plunder';
     if (covet) return 'resource';
+    if (up >= DIVERT_U) return 'divert';
     if (pm.size[q] <= PREY) return 'prey';
     return 'expand';
+  };
+
+  /**
+   * 邻国 q 此刻的内忧(看邻国时趁虚而入):赔率倍数;够得上写由头的那一样,按先后:有割据(unrest,记最早起的那处在哪州)>
+   * 疫后凋敝(plagued)> 幼主在位(minor)/ 权臣当政(regent)> 动荡到 PREY_HIGH(unrest,不记州)
+   */
+  const weakness = (q: number, t: number): Woe => {
+    const u = wm.unrest ? wm.unrest(q, t) : 0;
+    let odds = 1 + PREY_UNREST * Math.max(0, u - PREY_CALM);
+    let cause: AnnalCause | undefined = u >= PREY_HIGH ? 'unrest' : undefined;
+    let region = -1;
+    const k = weakRule(q, t);
+    if (k) {
+      odds *= 1 + WEAK_PREY;
+      cause = k;
+    }
+    const b = wm.blight ? wm.blight(q, t) : 0;
+    if (b >= BLIGHT_MIN) {
+      odds *= 1 + BLIGHT_PREY * Math.min(1, b / BLIGHT_FULL);
+      cause = 'plagued';
+    }
+    const L = wm.lords ? wm.lords(q, t) : null;
+    if (L && L.n) {
+      odds *= 1 + LORD_PREY * Math.min(LORD_PREY_MAX, L.n);
+      cause = 'unrest';
+      region = L.region;
+    }
+    return cause || odds !== 1 ? { odds, cause, region } : NO_WOE;
+  };
+
+  /** 国家 q 此刻是幼主在位(minor:不满 ADULT 岁,或宗室摄政、名臣辅政)还是权臣当政(regent:大臣、大将专权);都不是 = undefined。共和国不算 */
+  const weakRule = (q: number, t: number): 'minor' | 'regent' | undefined => {
+    const Q = pm.polities[q];
+    if (Q.lineage === 'republic') return undefined;
+    const r = rulerOf(pm, q, t);
+    const g = regentOf(pm, q, t, r);
+    if (g) return g.kind === 'chancellor' || g.kind === 'general' ? 'regent' : g.kind === 'uncle' || g.kind === 'minister' ? 'minor' : undefined;
+    return t - reignBorn(r) < ADULT ? 'minor' : undefined;
   };
 
   /**

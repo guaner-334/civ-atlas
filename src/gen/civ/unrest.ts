@@ -69,6 +69,7 @@ import { GROWTH_A, capitalAt, populationAt } from './growth';
 import { calamityRates } from './calamity';
 import type { UnrestRuleConsts } from './stateTables';
 import { claimants, murderedAt } from './royals';
+import { anySlump, inSlump, pandemicModelOf } from './pandemicState';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
@@ -92,6 +93,8 @@ const FAMINE_W = 0.9;
 const PLAGUE_YEARS = 20;
 const PLAGUE_FULL = 0.25;
 const PLAGUE_W = 0.6;
+/** 疫后凋敝(wars.ts 的 blight,邻国趁虚而入):这么多年内染疫的州占国土几成;全球大疫凋敝还没过的州一并算 */
+const BLIGHT_YEARS = 20;
 /** 动荡:民变还没平 */
 const REVOLT_W = 0.4;
 
@@ -268,6 +271,22 @@ function hook(sim: CivSim, um: UnrestModel): void {
   const owner = sim.owners[Layer.Polity];
 
   // ---- 动荡:按国一张数表,每年算一次(规则见 stateTables.ts;control.ts 建引擎、填输入,挂 pol.unrest、wm.unrest) ----
+
+  // ---- 疫后凋敝(wars.ts:邻国趁虚而入):BLIGHT_YEARS 年内染疫的州、全球大疫凋敝还没过的州(取多的)占国土几成 ----
+  wm.blight = (p: number, t: number) => {
+    const N = pm.size[p];
+    if (!N) return 0;
+    let n = 0;
+    const l = um.plagues.get(p);
+    if (l) for (let i = l.length - 1; i >= 0 && t - l[i].year < BLIGHT_YEARS; i--) n += l[i].n;
+    const pan = pandemicModelOf(sim);
+    if (anySlump(pan, t)) {
+      let s = 0;
+      for (const r of pm.lands[p]) if (inSlump(pan, r, t)) s++;
+      n = Math.max(n, s);
+    }
+    return Math.min(1, n / N);
+  };
 
   // ---- 讨伐民变:士气、攻破都城 ----
   wm.morale = (w: War, x: number, t: number) => {

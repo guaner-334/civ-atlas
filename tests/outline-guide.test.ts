@@ -35,9 +35,9 @@ function same(a: Civ, b: Civ, label: string) {
   for (const k of Object.keys(b) as (keyof Civ)[]) expect(a[k], `${label} ${k}`).toEqual(b[k]);
 }
 
-/** seed 28 的随机大纲里第 1897 年那条开战(和它前面的几条):照常推没发生,引几版能引成 */
-const GUIDED_SEED = 28;
-const GUIDED_YEAR = 1897;
+/** seed 7 的随机大纲里第 1574 年那条开战(和它前面的几条):照常推没发生,引几版能引成 */
+const GUIDED_SEED = 7;
+const GUIDED_YEAR = 1574;
 const guidedCase = () => samplePlots(baseCiv(GUIDED_SEED), GUIDED_SEED, 20).filter((p) => p.year <= GUIDED_YEAR && p.kind !== 'peace' && p.kind !== 'submit');
 
 describe('不引 = 和以前一样', () => {

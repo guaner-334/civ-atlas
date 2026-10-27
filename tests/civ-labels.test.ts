@@ -234,12 +234,10 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
           const ids = c.civ.polities.filter((p) => polityAllTitles(p).includes(l.item.text));
           expect(ids.length, l.item.text).toBeGreaterThan(0);
           expect(ids.some((p) => polityAlive(p, year)), `${l.item.text} 第 ${year} 年已灭亡`).toBe(true);
-          // 每个字都落在当年的国土上(按像素归属,和画出来的色块一致;国界附近差一格的不算)
+          // 每个字都落在当年的国土上(按像素归属,和画出来的色块一致;国界附近差一格的不算:和上面静止时一样用 inTerritory,
+          // 排版查国土用的是 GRID 一格的栅格。GENERATOR_VERSION 41 种子 7 第 2999 年后康国的"后"字中心落在 4 年前丢掉的州上,离本国国土不到一格)
           let off = 0;
-          for (const g of l.glyphs) {
-            const r = regionAt(c, g.x / view.scale, g.y / view.scale);
-            if (!(r >= 0 && ids.some((p) => own[r] === p.id))) off++;
-          }
+          for (const g of l.glyphs) if (!ids.some((p) => inTerritory(c, g.x / view.scale, g.y / view.scale, own, p.id))) off++;
           expect(off, `${l.item.text}(第 ${year} 年)有 ${off} 个字压在别国 / 失地上`).toBeLessThanOrEqual(0);
         }
         // 国都符号:在世国家当年的国都

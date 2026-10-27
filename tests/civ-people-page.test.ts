@@ -173,11 +173,12 @@ describe('人物页 · 几处写法', () => {
 
   /**
    * 例子按条件现找(历史变了不用跟着改):东方君主,称号"末帝",接祖父的位,即位那条写了辅政的名臣(那条写到的正好三个人);
-   * 这个世界里搜"末帝"搜得到他,搜到的里面有名人。GENERATOR_VERSION 40 时是种子 2024 的大辰末帝江溟(不是名人;
+   * 这个世界里搜"末帝"搜得到他,搜到的里面有名人。GENERATOR_VERSION 41 时是种子 6 的末帝季工(前面几个种子里,
+   * 种子 2024 的江溟还在,但那个世界搜"末帝"没有名人了);40 时是种子 2024 的大辰末帝江溟(不是名人;
    * 搜"末帝"头一个是名人大岳末帝百里玄衍),39 时是种子 2024 的大澜末帝燕溟(是名人,搜"末帝"头一个就是他)
    */
   const lastEmperor = () => {
-    for (const seed of [2024, 7, 11, 42, 3, 5]) {
+    for (const seed of [2024, 7, 11, 42, 3, 5, 6]) {
       const civ = civOf(seed);
       const P = civ.people!;
       const famous = new Set(famousPeople(civ).map((f) => f.id));
@@ -217,5 +218,5 @@ describe('人物页 · 几处写法', () => {
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
     expect(ms.map((m) => m.person)).toEqual(e.people);
     expect(ms.map((m) => m.text)).toEqual([rulerRef(civ, prev, e.year), x.name, civ.people![e.people![2]].name]);
-  });
+  }, 120_000);
 });

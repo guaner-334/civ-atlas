@@ -768,6 +768,50 @@ describe('编年史 · 邦交:结盟、称臣、背盟,开战写由头,议和写
     return c;
   }
 
+  it('开战看内政:转移矛盾、乘内乱(有割据写那州的守将 / 领主)、乘大疫之后、乘幼主、乘权臣、为掠夺而战,战争标题和宣战那一条都写由头', () => {
+    const c = dipCiv();
+    seq = 0;
+    const causes = [
+      { a: 1, b: 0, cause: 'divert' },
+      { a: 1, b: 0, cause: 'unrest', region: 1 },
+      { a: 1, b: 3, cause: 'unrest', region: 7 },
+      { a: 1, b: 0, cause: 'unrest' },
+      { a: 1, b: 0, cause: 'plagued' },
+      { a: 1, b: 0, cause: 'minor' },
+      { a: 0, b: 2, cause: 'minor' },
+      { a: 1, b: 0, cause: 'regent' },
+      { a: 1, b: 0, cause: 'plunder', region: 1 },
+    ] as const;
+    c.annals = causes.flatMap((x, i) => [annal(1240 + 6 * i, 'war', { ...x, war: i }), annal(1242 + 6 * i, 'peace', { a: x.a, b: x.b, war: i })]);
+    const wars = buildChronicle(c).filter((e) => e.kind === 'war');
+    expect(wars.map((w) => w.text)).toEqual([
+      '大渭国中多事,欲以外战安内,伐昌国,无功而还',
+      '大渭乘昌国瑞州守将拥兵自重,伐之,无功而还',
+      // 西边的国家:领主
+      '大渭乘艾莱斯王国云州领主拥兵自重,伐之,无功而还',
+      '大渭乘昌国内乱,伐之,无功而还',
+      '大渭乘昌国大疫之后,伐之,无功而还',
+      '大渭乘昌国主少国疑,伐之,无功而还',
+      // 汗国:写得平实些
+      '昌国乘索拉特汗国幼主在位,伐之,无功而还',
+      // 没有人物、查不到是谁专权
+      '大渭乘昌国权臣当国,伐之,无功而还',
+      '大渭府库空竭,欲掠昌国瑞州,起兵伐之,无功而还',
+    ]);
+    expect(wars.map((w) => w.children![0].text)).toEqual([
+      '大渭国中多事,欲以外战安内,起兵伐昌国',
+      '大渭乘昌国瑞州守将拥兵自重,起兵伐之',
+      '大渭乘艾莱斯王国云州领主拥兵自重,起兵伐之',
+      '大渭乘昌国内乱,起兵伐之',
+      '大渭乘昌国大疫之后,起兵伐之',
+      '大渭乘昌国主少国疑,起兵伐之',
+      '昌国乘索拉特汗国幼主在位,起兵伐之',
+      '大渭乘昌国权臣当国,起兵伐之',
+      '大渭府库空竭,欲掠昌国瑞州,起兵伐之',
+    ]);
+    for (const w of wars) for (const k of w.children!) clean(k);
+  });
+
   it('收复故土:当年被夺去、开战时已不在守方手里的州不点名(写"欲复故土")', () => {
     const c = dipCiv();
     // 瑞州 1280 年又从渭手里分出去了(不是攻占,史事里没有 conquer)
@@ -947,13 +991,14 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
       for (const e of major) expect(e.text).not.toMatch(/\uff08\uff09|;;|,,|,,/);
     }, 60_000);
   }
-  // 别的种子:都不超过 140 条(GENERATOR_VERSION 22 以后 20 个种子 47–135 条;seed 1 92 条、3 107 条、99 62 条)
+  // 别的种子:都不超过 180 条(GENERATOR_VERSION 22 以后 20 个种子 47–135 条;40 是 64–177 条;
+  // 41 开战看内政以后 67–169 条,seed 1 113 条、3 157 条、99 67 条)
   for (const seed of [1, 3, 99]) {
-    it(`seed ${seed}:"大事"不超过 140 条`, () => {
+    it(`seed ${seed}:"大事"不超过 180 条`, () => {
       const list = buildChronicle(generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed })));
       const n = filterChronicle(list, { major: true }).length;
       expect(n).toBeGreaterThanOrEqual(19);
-      expect(n).toBeLessThanOrEqual(140);
+      expect(n).toBeLessThanOrEqual(180);
     }, 60_000);
   }
 });

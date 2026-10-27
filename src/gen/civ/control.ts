@@ -619,6 +619,18 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     const full = RESERVE * eng.value('应缴', p);
     return full > 0 ? Math.min(1, eng.value('国库', p) / full) : 1;
   };
+  // ---- 为掠夺而战(wars.ts):一州的收入比本国每州平均高几倍 ----
+  wm.rich = (p, r) => {
+    if (p >= tBroke.length) return 0;
+    const due = eng.value('应缴', p);
+    const n = eng.value('州数', p);
+    return due > 0 && n > 0 ? eng.get('税')[r] / (due / n) : 0;
+  };
+  // ---- 割据招邻国趁虚而入(wars.ts):几处、最早起的那处 ----
+  wm.lords = (p, t) => {
+    const ls = lordsOf(p, t);
+    return { n: ls.length, region: ls.length ? ls[0].region : -1 };
+  };
   pol.famineBump = (P, n) => {
     const p = P.id;
     if (p >= tU.length) return 0;
