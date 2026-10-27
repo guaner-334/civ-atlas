@@ -149,14 +149,20 @@ describe.each([555, 207])('关隘上地图 · seed %i', (seed) => {
         expect(seg.shot?.target).toEqual({ kind: 'pass', id: at });
       }
     }
-    // 关两边:第一对州,西边那州的治所在东边那州的西边(按近的那一圈)
+    // 关两边:第一对州;两州治所南北差得比东西远(东西按纬度折成实际远近)写北边 / 南边,北边那州的治所在南边那州的北边;
+    // 不然写西边 / 东边,西边那州的治所在东边那州的西边(按近的那一圈)
     for (const p of c.places) {
       if (p.kind !== 'pass') continue;
       const sides = passSides(w, c, p.pass!.regions);
       expect(sides.map((s) => s.r).sort()).toEqual(p.pass!.regions.slice(0, 2).sort());
-      expect(sides.map((s) => s.k)).toEqual(['西边', '东边']);
-      const [xw, xe] = sides.map((s) => w.mesh.x[c.regions.seat[s.r]]);
-      expect(xe - xw - w.width * Math.round((xe - xw) / w.width)).toBeGreaterThanOrEqual(0);
+      const [s0, s1] = sides.map((s) => c.regions.seat[s.r]);
+      const dx = w.mesh.x[s1] - w.mesh.x[s0] - w.width * Math.round((w.mesh.x[s1] - w.mesh.x[s0]) / w.width);
+      const dy = w.mesh.y[s1] - w.mesh.y[s0];
+      const lat = 90 - (90 * (w.mesh.y[s0] + w.mesh.y[s1])) / w.height;
+      const ns = Math.abs(dy) > Math.abs(dx) * Math.cos((lat * Math.PI) / 180);
+      expect(sides.map((s) => s.k), p.name).toEqual(ns ? ['北边', '南边'] : ['西边', '东边']);
+      if (ns) expect(dy, p.name).toBeGreaterThanOrEqual(0);
+      else expect(dx, p.name).toBeGreaterThanOrEqual(0);
     }
   });
 
@@ -172,6 +178,12 @@ describe.each([555, 207])('关隘上地图 · seed %i', (seed) => {
     expect(pinnedPass(c, w, pin, y - 1)).toBe(-1);
     expect(pinnedPass(c, w, [pin[0] + w.mesh.spacing * 0.3, pin[1]], y)).toBe(-1);
   });
+});
+
+it('关两边的方位:两个种子里东西走向(西边 / 东边)、南北走向(北边 / 南边)的口子都有', () => {
+  const kinds = new Set<string>();
+  for (const { w, c } of cases.values()) for (const p of c.places) if (p.kind === 'pass') kinds.add(passSides(w, c, p.pass!.regions)[0]?.k);
+  expect([...kinds].sort()).toEqual(['北边', '西边']);
 });
 
 it('改过地形的世界:守关那一句用那一年所在那一段地图上的关名', () => {

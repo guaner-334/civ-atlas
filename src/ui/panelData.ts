@@ -222,17 +222,23 @@ export function fightEntries(civ: Civ, regions: readonly number[]): ChronicleEnt
 }
 
 /**
- * 关口两边的州(关隘卡片的"西边 / 东边"):第一对州(口子最低的那一对)按治所的东西分西 / 东(跨左右接缝的按近的那一圈算)
+ * 关口两边的州(关隘卡片的"西边 / 东边"或"北边 / 南边"):第一对州(口子最低的那一对),看两州治所:
+ * 南北差得比东西远(东西按那一带纬度折成实际的远近)写北边 / 南边,不然写西边 / 东边(跨左右接缝的按近的那一圈算)
  */
 export function passSides(world: World, civ: Civ, regions: readonly number[]): { k: string; r: number }[] {
   if (regions.length < 2) return [];
   const [a, b] = regions;
-  const x = world.mesh.x;
+  const { x, y } = world.mesh;
   const sa = civ.regions.seat[a];
   const sb = civ.regions.seat[b];
   if (!(sa >= 0 && sb >= 0)) return [];
   const W = world.width;
+  const H = world.height;
   const dx = W ? x[sb] - x[sa] - W * Math.round((x[sb] - x[sa]) / W) : x[sb] - x[sa];
+  // 主图 y 往下是南(0 = 北极);经纬一度在主图上一样长,东西方向的实际远近再乘那一带纬度的余弦
+  const dy = y[sb] - y[sa];
+  const lat = H ? (Math.PI / 2) * (1 - (y[sa] + y[sb]) / H) : 0;
+  if (Math.abs(dy) > Math.abs(dx) * Math.cos(lat)) return dy >= 0 ? [{ k: '北边', r: a }, { k: '南边', r: b }] : [{ k: '北边', r: b }, { k: '南边', r: a }];
   return dx >= 0 ? [{ k: '西边', r: a }, { k: '东边', r: b }] : [{ k: '西边', r: b }, { k: '东边', r: a }];
 }
 
