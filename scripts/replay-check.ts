@@ -1317,13 +1317,20 @@ if (part('新建界面')) {
   const replayRow = await page.locator('.studio [data-act=replay]').count();
   const intro = await page.locator('.st-left .nw-intro').innerText().catch(() => '');
   await markWf();
-  const genT0 = Date.now();
+  const planet0 = await page.evaluate(() => (window as any).__wfPlanet?.tag);
+  const genT0 = await page.evaluate(() => performance.now());
   await page.click('.studio [data-act=new-seed]');
   // 生成新世界时顶部提示条上有进度
   const genToast = await page.locator('.toast[data-toast=progress]').innerText({ timeout: 5000 }).catch(() => '');
   await waitRedraw();
-  // 默认大小(3.6 万地块)的新世界,从点下去到地图第一次画出来;须知要求 2 秒内。Node 里单线程量不准,在浏览器里量;只记数不卡合并
-  timing('新建默认世界到地图画出来', Date.now() - genT0, 2000);
+  // 默认大小(3.6 万地块)的新世界,从点下去到新建界面的星球露出新的一颗(开始淡入的那一帧;地图先出来,历史随后在后台推完);
+  // 目标 2 秒内。Node 里单线程量不准,在浏览器里量(页面自己的时钟);只记数不卡合并
+  const planetAt = await page
+    .waitForFunction((t) => ((window as any).__wfPlanet?.tag !== t ? (window as any).__wfPlanet.at : null), planet0, { timeout: 30000 })
+    .then((h) => h.jsonValue() as Promise<number>, () => NaN);
+  timing('新建默认世界到星球露出新的一颗', planetAt - genT0, 2000);
+  // 历史推完(世界齐了)再往下查
+  await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
   const seed2 = await page.locator('.nw-seed-input').inputValue();
   const imgNote = await page
     .evaluate(() => {
