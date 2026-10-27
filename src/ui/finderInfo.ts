@@ -93,6 +93,42 @@ export function foundPoints(world: World, civ: Civ, cand: FinderCand, places: re
 }
 
 /**
+ * 地图飞过去要看全的那一块:故事里各国的国都、几处地方,加上各国离它们不远的州(大国隔海的属地、远处的飞地不算,
+ * 不然一飞就是整张图)
+ */
+export function storyPoints(world: World, civ: Civ, cand: FinderCand, places: readonly FinderPlace[]): [number, number][] {
+  const W = world.width;
+  const X = world.mesh.x;
+  const Y = world.mesh.y;
+  const core: [number, number][] = [...cand.capitals.map((c) => [X[c.cell], Y[c.cell]] as [number, number]), ...places.map((p) => [X[p.cell], Y[p.cell]] as [number, number])];
+  const all = foundPoints(world, civ, cand, places);
+  if (!core.length) return all;
+  // 中心:按圆周平均(左右接着的世界);半径:最远的那一处
+  let sx = 0;
+  let sy = 0;
+  let yy = 0;
+  for (const [x, y] of core) {
+    const a = (x / W) * Math.PI * 2;
+    sx += Math.cos(a);
+    sy += Math.sin(a);
+    yy += y;
+  }
+  const cx = ((Math.atan2(sy, sx) / (Math.PI * 2) + 1) % 1) * W;
+  const cy = yy / core.length;
+  const dist = (x: number, y: number) => {
+    let dx = Math.abs(x - cx) % W;
+    if (dx > W / 2) dx = W - dx;
+    return Math.hypot(dx, y - cy);
+  };
+  const r = Math.max(...core.map(([x, y]) => dist(x, y)));
+  // 各国的州离中心多远:大多数(八成五)都算进来,再远的零星几块(隔海的属地、飞地)不算
+  const ds = all.map(([x, y]) => dist(x, y)).sort((a, b) => a - b);
+  const most = ds.length ? ds[Math.floor((ds.length - 1) * 0.85)] * 1.2 : 0;
+  const reach = Math.max(r * 1.6, W * 0.06, most);
+  return [...core, ...all.filter(([x, y]) => dist(x, y) <= reach)];
+}
+
+/**
  * 后来怎样的一句总结:"130 年里山国从 29 州变成 16 州，一直没亡；帝国中途改朝，后来叫有桑皇朝。"
  * years = 故事讲多少年(没写 = 100)
  */

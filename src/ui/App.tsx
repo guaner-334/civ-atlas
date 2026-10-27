@@ -294,7 +294,7 @@ import { FinderPage } from './FinderPage';
 import { FinderOverlay, FinderPins } from './FinderMap';
 import { pickedOf, type FinderFlyTo, type FinderPreview } from './FinderResults';
 import { closeFinder, getFinder, openFinder, resetFinder, selectFinder, setFinderMap, setQuery, useFinder, type FinderBase } from './finderStore';
-import { foundDetail, foundPoints } from './finderInfo';
+import { foundDetail, storyPoints } from './finderInfo';
 import { foundPickOf, putFound, setFindAgainHandler, type FoundPick } from './foundStore';
 import type { StudioFound } from './studio/Studio';
 import { carryStudioView, takeStudioView } from './studio/studioStore';
@@ -3765,7 +3765,7 @@ ${s.image.cells}` : null);
   /** 打开找世界那一页时:新建中的世界原来的样子、地图原来的样式(新建界面的)、搜的时候照它生成的设定 */
   const finderBack = useRef<{ target: Target; view: { base: BaseId; fill: FillId }; base: FinderBase; moved: boolean } | null>(null);
   /** 「用这个世界」以后:新建第 2 步锁着的那几样、建好以后停在哪年、加哪几个标记 */
-  const [found, setFound] = useState<(StudioFound & { pick: FoundPick }) | null>(null);
+  const [found, setFound] = useState<(StudioFound & { pick: FoundPick; pts: [number, number][] }) | null>(null);
   /** 新建中的世界 → 搜的时候照它生成的设定(世界参数、地形和草图(都用这张地图时)、推演年数、拓荒、起源、天灾、地名风格) */
   const finderBaseOf = (t: Target, e: WorldEdits): FinderBase => {
     const endYear = cleanEndYear(e.endYear);
@@ -3874,7 +3874,7 @@ ${s.image.cells}` : null);
     setCivHighlight({ regions: junction, polities: cand.roles, year: cand.year, steady: true });
     if (finderShown.current === finderPreviewKey) return;
     finderShown.current = finderPreviewKey;
-    flyToPoints(foundPoints(finderPreviewData.world, finderPreviewData.civ, cand, places), 'finder');
+    flyToPoints(storyPoints(finderPreviewData.world, finderPreviewData.civ, cand, places), 'finder');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finderPreviewKey]);
   // 点开一个结果的细节:地图再放大到故事里最小的那一国和隘口、交界(两国里多半是要守的那一个)
@@ -3885,8 +3885,8 @@ ${s.image.cells}` : null);
     const near = places.filter((p) => p.kind !== 'port');
     let small = 0;
     cand.sizes.forEach((s, i) => s < cand.sizes[small] && (small = i));
-    const one = cand.roles.length ? { ...cand, roles: [cand.roles[small]] } : cand;
-    flyToPoints(foundPoints(finderPreviewData.world, finderPreviewData.civ, one, near), 'finder');
+    const one = cand.roles.length ? { ...cand, roles: [cand.roles[small]], capitals: cand.capitals.slice(small, small + 1) } : cand;
+    flyToPoints(storyPoints(finderPreviewData.world, finderPreviewData.civ, one, near), 'finder');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finderDetail, finderPreviewKey]);
   // 离开新建(回我的世界、打开别的世界):找世界那一页收起,结果不要了
@@ -3909,8 +3909,8 @@ ${s.image.cells}` : null);
     if (!pv || !finderPick) return;
     const { cand, places } = finderPick;
     if ('role' in to) {
-      const one = { ...cand, roles: [cand.roles[to.role]] };
-      flyToPoints(foundPoints(pv.world, pv.civ, one, []), 'finder');
+      const one = { ...cand, roles: [cand.roles[to.role]], capitals: cand.capitals.slice(to.role, to.role + 1) };
+      flyToPoints(storyPoints(pv.world, pv.civ, one, []), 'finder');
     } else {
       const d = foundDetail(pv.world, pv.civ, cand, places).places[to.place];
       if (d) flyToPoints([[d.x, d.y]], 'finder', 4);
@@ -3935,6 +3935,7 @@ ${s.image.cells}` : null);
       roles: fp.roles.map((r) => ({ role: r.role, name: r.name })),
       places: [...new Set(fp.places.map((p) => p.title))],
       pick: fp,
+      pts: pv ? storyPoints(pv.world, pv.civ, cand, places) : [],
     });
     closeFinder();
     setCivHighlight(null);
@@ -3963,7 +3964,7 @@ ${s.image.cells}` : null);
         more: f.places.length ? [`${f.places.join('、')}加成了地图上的标记，不要了在「标记」里删`] : [],
         ttl: 7000,
       });
-    foundFly.current = { id, polities: f.pick.roles.map((r) => r.polity), year: f.year };
+    foundFly.current = { id, polities: f.pick.roles.map((r) => r.polity), year: f.year, pts: f.pts };
   };
   /** 侧栏「照故事找的」点「再找」:照搜的时候的世界参数新建一个世界,打开找世界那一页,条件照这次的(还没走的那批结果接着用) */
   const findAgainNow = (p: FoundPick) => {
@@ -3980,15 +3981,19 @@ ${s.image.cells}` : null);
     return () => setFindAgainHandler(null);
   }, []);
   /** 照故事找的世界建好、新建界面淡出以后:地图飞到故事里的几国 */
-  const foundFly = useRef<{ id: string; polities: number[]; year: number } | null>(null);
+  const foundFly = useRef<{ id: string; polities: number[]; year: number; pts: [number, number][] } | null>(null);
   useEffect(() => {
     const ff = foundFly.current;
     if (!ff || studioOut !== 0 || draft || !data || !realCiv || currentWorld()?.id !== ff.id) return;
     foundFly.current = null;
-    const own = ownersAt(realCiv, ff.year).polity;
-    const seat = realCiv.regions.seat;
-    const pts: [number, number][] = [];
-    for (let r = 0; r < own.length; r++) if (ff.polities.includes(own[r])) pts.push([data.world.mesh.x[seat[r]], data.world.mesh.y[seat[r]]]);
+    // 「用这个世界」时按那个世界算好的那一块;没算好(还在生成就点了)按几国那年的州
+    let pts = ff.pts;
+    if (!pts.length) {
+      const own = ownersAt(realCiv, ff.year).polity;
+      const seat = realCiv.regions.seat;
+      pts = [];
+      for (let r = 0; r < own.length; r++) if (ff.polities.includes(own[r])) pts.push([data.world.mesh.x[seat[r]], data.world.mesh.y[seat[r]]]);
+    }
     flyToPoints(pts, 'world');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studioOut, draft, data, realCiv]);

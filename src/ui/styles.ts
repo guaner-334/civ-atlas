@@ -39,6 +39,7 @@ import './studio/studio.css';
 import './states.css';
 import './sidebar.css';
 import './outline.css';
+import './finder.css';
 import './stepBranches.css';
 import './newWorld.css';
 import './film.css';
