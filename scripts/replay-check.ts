@@ -3254,8 +3254,8 @@ if (part('国家面板')) {
       errs.push(`国家面板:信息页内容不全(${info.slice(0, 200)})`);
     if (!moved) errs.push(`国家面板:点国家后地图没有飞过去(${flown})`);
     if (!mark) errs.push('国家面板:选中国家后国都没有圆环');
-    if (cmds !== 12 || !/生效年份.*年.*该年之前的历史不变/.test(cmdText)) errs.push(`国家面板:干预页不对(${cmds} 条命令,「${cmdText}」)`);
-    if (!/持续到.*到某一年.*\d+.*年.*只对保护、禁止扩张、结盟有效/.test(untilText) || !untilOff) errs.push(`国家面板:「持续到」不对(「${untilText}」,切回一直有效后收起 ${untilOff})`);
+    if (cmds !== 13 || !/生效年份.*年.*该年之前的历史不变/.test(cmdText)) errs.push(`国家面板:干预页不对(${cmds} 条命令,「${cmdText}」)`);
+    if (!/持续到.*到某一年.*\d+.*年.*只对保护、保住王室、禁止扩张、结盟有效/.test(untilText) || !untilOff) errs.push(`国家面板:「持续到」不对(「${untilText}」,切回一直有效后收起 ${untilOff})`);
     if (warNames.some((n) => !near.includes(n))) errs.push(`国家面板:宣战时浮出了不相邻国家的名牌(${warNames.join('、')};邻国 ${near.join('、')})`);
     if (!backToCmd) errs.push('国家面板:选目标时按 Esc 没有回到干预页');
     if (!dim || allyPlates.length < 3 || !allyPlates.some((p) => p.self && p.note === '本国')) errs.push(`国家面板:结盟选目标时没有压暗 / 名牌不对(压暗 ${dim},名牌 ${allyPlates.length})`);
@@ -5693,7 +5693,7 @@ if (part('手机布局')) {
     if (!ring || !row1 || !(ring.y > 20 && ring.y + ring.height < row1.y)) errs.push(`手机:选中的国家没有落在时间轴胶囊上方(国都圆环 ${JSON.stringify(ring)})`);
     if (hover) errs.push('手机:点了以后出了悬停卡片');
     if (!full || !sheet1 || Math.abs(sheet1.y - 0.08 * VH) > 8 || !fullCapsuleHidden) errs.push(`手机:往上拖没有拉到顶 / 胶囊没藏起来(${JSON.stringify(sheet1)})`);
-    if (cmds !== 12) errs.push(`手机:干预页不对(${cmds} 条命令)`);
+    if (cmds !== 13) errs.push(`手机:干预页不对(${cmds} 条命令)`);
     if (!/^选择与.+结盟的国家 \d+ 年起生效 取消$/.test(pickToast) || !hiddenWhilePicking) errs.push(`手机:选目标的提示条 / 卡片收起不对(${pickToast})`);
     if (!/^.+与.+结盟,已从 \d+ 年起重新推演( \d+ 年时它叫.+)? 撤销$/.test(doneToast))
       errs.push(`手机:点名牌后没有生效(${doneToast};点的「${tgtText}」,看得见的名牌 ${plateN} 个${pickLeft ? ',还停在选目标' : ''})`);

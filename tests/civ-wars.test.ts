@@ -344,7 +344,7 @@ describe('战争与攻占', () => {
       });
     }
     expect(stands, 'seed 7、2024 合起来').toBeGreaterThan(0);
-    // GENERATOR_VERSION 42 时种子 1–20 共 28 次由领兵的宗室亲自断后(seed 7 有 3 次)
+    // GENERATOR_VERSION 43 时种子 1–20 共 28 次由领兵的宗室亲自断后(seed 7 有 3 次)
     expect(princes, 'seed 7、2024 合起来').toBeGreaterThan(0);
   }, 60_000);
 
@@ -355,7 +355,7 @@ describe('战争与攻占', () => {
       const st = warStats(civ);
       expect(st.wars, `seed ${seed}`).toBeGreaterThanOrEqual(8);
       // GENERATOR_VERSION 19(仗短而狠、休战期短)以后:20 个种子 3000 年里 95–281 场,中位一百六十场上下;
-      // 42(议和了还会再打、看邻国更勤)以后种子 1–20 国与国之间 170–536 场,中位三百场上下
+      // 43(议和了还会再打、看邻国更勤)以后种子 1–20 国与国之间 170–536 场,中位三百场上下
       expect(st.wars, `seed ${seed}`).toBeLessThanOrEqual(650);
       falls += st.falls;
       expect(st.capitalMoves, `seed ${seed}`).toBeGreaterThan(0);

@@ -140,7 +140,7 @@ const RESTORE_EVERY = 40;
 const RESTORE_TRIES = 12;
 /**
  * 复国的赔率 = RESTORE_ODDS × 宗主的虚弱 × 异族统治 × 离宗主国都远近
- * (GENERATOR_VERSION 42 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)
+ * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)
  */
 const RESTORE_ODDS = 0.022;
 const RESTORE_FOREIGN = 2;

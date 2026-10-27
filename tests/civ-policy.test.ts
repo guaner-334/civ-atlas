@@ -164,7 +164,7 @@ describe.each([7, 2024])('方针 · seed=%i', (seed) => {
 const foeWars: [number, number][] = [];
 
 // 这两个种子第 1200–1500 年大国之间仗打得多(scripts/policy-stats.ts;种子 7 那几百年几乎不打仗;GENERATOR_VERSION 38 以后 14 号的大国定了仇国也没打起来,换成 10 号;
-// 42 仗打得密以后 4、10 号能挑的仇国多半已称臣,定了也打不起来,种子 1–20 里 16、18、19、20 号定了仇国都多打了两场,换成 19、20 号)
+// 43 仗打得密以后 4、10 号能挑的仇国多半已称臣,定了也打不起来,种子 1–20 里 16、18、19、20 号定了仇国都多打了两场,换成 19、20 号)
 describe.each([19, 20])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
   const T = 1200;
 
@@ -197,7 +197,7 @@ describe.each([19, 20])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
         const fc = generateCiv(w, { interventions: [policy(polityKey(base, p), T, { friends: keys(friends) })], endYear: end });
         for (const q of friends) expect(warsOn(fc, p, q), `${p} 的亲国 ${q}`).toBe(0);
       }
-      // 仇国:不是亲国、第 T 年没有宗藩之分、没结盟的邻国(藩属、盟国定成仇国也不打;GENERATOR_VERSION 42 仗打得密以后,
+      // 仇国:不是亲国、第 T 年没有宗藩之分、没结盟的邻国(藩属、盟国定成仇国也不打;GENERATOR_VERSION 43 仗打得密以后,
       // 三百年里没打过的邻国多半是称了臣的,不再只挑没打过的)
       const foes = near.filter((q) => !friends.includes(q) && !tied(p, q)).slice(0, 3);
       if (foes.length) {
