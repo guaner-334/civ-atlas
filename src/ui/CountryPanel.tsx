@@ -62,6 +62,8 @@ import { FiscalPage, FiscalRow } from './FiscalPage';
 import { CourtPage, CourtRow } from './CourtPage';
 import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
+import { BoostPage } from './BoostPage';
+import { boostRow } from './boostInfo';
 import { TreatyPage, ZonePage } from './TreatyPage';
 import { policyRow, roleLock } from './policyInfo';
 import { keepRow } from './keepInfo';
@@ -159,6 +161,8 @@ export function CountryPanel(props: CountryPanelProps) {
           <DestroyPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'disaster' ? (
           <DisasterPage key={id} civ={civ} polity={id} year={year} from={page.year} />
+        ) : page?.kind === 'boost' ? (
+          <BoostPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'treaty' ? (
           <TreatyPage key={id} civ={civ} world={props.world} id={id} year={year} from={page.year} />
         ) : page?.kind === 'neutral' ? (
@@ -428,6 +432,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
               </span>
             </Row>
           )}
+          {eraNow && <BoostRow civ={civ} id={id} year={shownYear} pending={pending} step={step} locked={lock >= 0} />}
           {plague && (
             <Row k="近况">
               <button className="ins-link" data-act="slump-chronicle" onClick={() => openOverview('chronicle', { polity: null, major: true, at: Math.floor(plague.year) })}>
@@ -632,6 +637,28 @@ function PolicyRow({ civ, id, year, pending, step, locked, holder }: { civ: Civ;
         r.name
       ) : (
         <button className="ins-link" data-act="policy" onClick={() => (openCmdPage({ kind: 'policy', back: 'info' }), setSheet('full'))}>
+          {r.name}
+        </button>
+      )}
+      {r.tag ? <em className="cr-pending">{r.tag}</em> : <em className="cp-num-note pol-row-note">{r.note}</em>}
+    </Row>
+  );
+}
+
+/**
+ * 概况「推一把」一行(时代下面,写法同方针那一行):"快 10 倍 到 1550 年" / "直接进铁器 1500 年" / 单子里的"快 10 倍 待推演";
+ * 只在管着的那些年有(没有 = 不出这一行);点了进推一把那一页(演一国时的别国:只写不点)
+ */
+function BoostRow({ civ, id, year, pending, step, locked }: { civ: Civ; id: number; year: number; pending: readonly Pending[]; step: boolean; locked: boolean }) {
+  const era = useEra();
+  const r = boostRow(civ, id, year, pending, step, era);
+  if (!r) return null;
+  return (
+    <Row k="推一把">
+      {locked ? (
+        r.name
+      ) : (
+        <button className="ins-link" data-act="boost" onClick={() => (openCmdPage({ kind: 'boost', back: 'info' }), setSheet('full'))}>
           {r.name}
         </button>
       )}

@@ -143,3 +143,30 @@
   font-size: 12px;
   text-decoration: line-through;
 }
+
+/* ---- 推一把发展那一页(BoostPage.tsx) ---- */
+/* 进到哪个时代:白底一块,时代名加粗,后面一句小灰字 */
+.bk-era {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--panel-solid, #fff);
+  font-size: 15px;
+}
+.bk-era b {
+  font-weight: 600;
+}
+/* 缺物产的黄字、推完大约会怎样:和上面的块隔开一点;名目不折行 */
+.bk-page .iv-warn {
+  display: block;
+  margin: 10px 14px 0;
+}
+.bk-page .iv-sum {
+  margin-top: 10px;
+  gap: 4px 12px;
+}
+.bk-page .iv-sum > span:nth-child(odd) {
+  white-space: nowrap;
+}

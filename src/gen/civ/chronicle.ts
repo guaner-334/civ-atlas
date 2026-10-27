@@ -111,6 +111,8 @@ import { personNamers } from './naming';
 import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
 import { foesAt } from './fiscalBook';
 import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_LASTING, envoyOf, treatyBook, treatyCallName, treatyLine } from './treatyInfo';
+import { BOOST_N, IV_TOP_ERA } from './boost';
+import { ERAS } from './development';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -994,9 +996,30 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     case 'treaty':
     case 'neutral':
       return decreeStory(civ, e, id, v, A, R, fail, done);
+    case 'boost':
+      return boostStory(civ, e, v, A, R, fail, done);
     default:
       return done(A);
   }
+}
+
+/**
+ * 推一把发展:"【干预】大澜王朝励精图治,百业日新,至第 1550 年""【干预】青月坞一带九州百业日新,至第 1550 年"(快几倍);
+ * "【干预】大澜王朝变法图强,诸州一时并进"(直接进;之后照常记的"始入铁器时代"另有一条);没生效的写原因
+ */
+function boostStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'boost' }>, A: string, R: string, fail: Say, done: Done): IvStory {
+  const jump = v.mul === undefined;
+  if (e.b === -3) return fail(`欲令${A}${jump ? '变法图强' : '励精图治'},然${A}已亡`, `那一年${A}已亡`);
+  if (e.b === IV_TOP_ERA) {
+    const top = ERAS[ERAS.length - 1];
+    return fail(`欲令${A}更进一步,然${A}已在${top}时代`, `${A}已在${top}时代,没有下一个了`);
+  }
+  const n = Math.floor((e.n ?? 0) / BOOST_N);
+  const place = cityName(civ, e.settlement) || R;
+  const where = n > 1 ? `${place}一带${cnNumber(n)}州` : place;
+  if (jump) return done(v.regions ? `${where}变法图强,一时并进` : `${A}变法图强,诸州一时并进`);
+  const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
+  return done(v.regions ? `${where}百业日新${until}` : `${A}励精图治,百业日新${until}`);
 }
 
 type Say = (text: string, why: string) => IvStory;
