@@ -620,9 +620,3 @@ export function ZonePlates({ civ, world, toClient }: { civ: Civ | null; world: W
     </div>
   );
 }
-
-/** 干预页上这两条用不用得了(用不了 = 原因) */
-export function treatyWhy(civ: Civ, world: World, id: number, y: number, k: 'treaty' | 'neutral'): string | null {
-  if (k === 'treaty') return alivePolities(civ, y).some((x) => x.id !== id) ? null : '该年没有别的国家';
-  return zoneChoices(civ, world, id, y, 1).length ? null : '该年没有碰到两国以上、做得了中立地的州';
-}

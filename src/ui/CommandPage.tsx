@@ -45,7 +45,7 @@ import { CrownPage } from './CrownPage';
 import { CharAvatar } from './CharacterPanel';
 import { newCharacterDraft } from './characterStore';
 import type { AuthorCharacter } from '../gen/characters';
-import { treatyWhy } from './TreatyPage';
+import { zoneChoices } from './treatyIv';
 
 let owners: Owners | undefined;
 
@@ -99,6 +99,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const alive = polityAlive(p, y);
   const { size, near } = useMemo(() => neighborsAt(civ, id, yv), [civ, id, yv]);
   const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, y) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, y, size]);
+  // 划中立地:这一年有没有碰到两国以上、做得了中立地的州(按国家、年份记着,回放时不每帧重算)
+  const zoneOk = useMemo(() => zoneChoices(civ, world, id, yv, 1).length > 0, [civ, world, id, yv]);
   // 迁都的候选:那一年本国国土里还在的、不是国都的城
   const cities = useMemo(() => {
     if (!alive) return [];
@@ -127,7 +129,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
     if ((k === 'protect' || k === 'unity' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
-    if (k === 'treaty' || k === 'neutral') return treatyWhy(civ, world, id, yv, k);
+    if (k === 'treaty' && !others.length) return '该年没有别的国家';
+    if (k === 'neutral' && !zoneOk) return '该年没有碰到两国以上、做得了中立地的州';
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
     if (k === 'move' && !cities.length) return '该年本国没有别的城市';
     return null;
