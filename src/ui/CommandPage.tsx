@@ -140,8 +140,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   };
 
   /** 下令:先进待推演的单子;加不了 = 原因 */
-  const order = (v: Intervention, target: { kind: 'polity' | 'settlement'; id: number } | null): string | null => {
-    const err = queueIntervention(v, interventionText(civ, v, -1, shown), { self: id, target, shown });
+  const order = (v: Intervention, target: { kind: 'polity' | 'settlement'; id: number } | null, text?: string): string | null => {
+    const err = queueIntervention(v, text ?? interventionText(civ, v, -1, shown), { self: id, target, shown });
     if (!err) setMsg(null);
     return err;
   };
@@ -158,7 +158,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       return;
     }
     if (k === 'protect' || k === 'keep' || k === 'halt') {
-      setMsg(order({ kind: k, a: key, from: y, ...until }, null));
+      // 保住王室到某一年的,单子上写起止:"大澜王朝保住王室，1525–1560 年"
+      setMsg(order({ kind: k, a: key, from: y, ...until }, null, k === 'keep' && limited ? `${shown}保住王室，${yearSpanAt(y, ui.y, era)}` : undefined));
       return;
     }
     if (k === 'unity') {
