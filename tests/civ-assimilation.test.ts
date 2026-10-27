@@ -342,10 +342,10 @@ describe('同化与迁徙', () => {
         expect(e.text).toMatch(/^.+族亡/);
         expect(e.importance).toBe(3);
       }
-      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(不超过 140);同化与迁徙自己的大事不超过二十条
+      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(不超过 180;GENERATOR_VERSION 41 以后 20 个种子 67–169 条);同化与迁徙自己的大事不超过二十条
       // (GENERATOR_VERSION 19 亡国多了,避兵锋的迁徙跟着多:种子 2024 有 11 条;
       // GENERATOR_VERSION 22 大国崩了又被重新统一,亡国更多:20 个种子 3–19 条,2024 号 19 条)
-      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(140);
+      expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(180);
       const mineMajor = filterChronicle(list, { major: true }).filter((e) => e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish');
       expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(20);
     }
