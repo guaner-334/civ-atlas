@@ -25,14 +25,17 @@ import {
   type DisasterLevel,
   type DisasterType,
   type Intervention,
+  type RegentEnd,
+  type RegentHow,
 } from '../gen/edits';
+import { foesAt } from '../gen/civ/fiscalBook';
 import { eraText, spaced, yearAt, type Era } from '../gen/era';
 import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, populationAt, portAt, regionCityAt, regionPopulationAt, ruralPopulationAt } from '../gen/civ/growth';
 import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calamity';
 import { plagueSpans } from '../gen/civ/plagueSpans';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { interventionText, nameAt, neighborsAt, polityIdOf } from './Interventions';
+import { interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
 
 // ---------------------------------------------------------------------------
 // 灭国
@@ -87,6 +90,75 @@ export function personIvWhy(civ: Civ, x: Person, y: number, open = false): strin
   }
   if (x.role === 'minister' && x.until !== undefined && x.until <= y) return `第 ${Math.floor(x.until)} 年他已去职`;
   return '那一年历史还没推到';
+}
+
+// ---------------------------------------------------------------------------
+// 让他掌权、为他联姻(推演里的规矩见 gen/civ/regents.ts 的 ivRegency、marriage.ts;这里先按人物页挑出说得通的,推演里对不上的照样写原因)
+
+/** 让他掌权、为他联姻:宗室要到这么多岁(同推演) */
+export const IV_ROYAL_AGE = 16;
+
+/** y 年他活着、到了 IV_ROYAL_AGE 岁 */
+const grown = (x: Person, y: number) => x.born + IV_ROYAL_AGE <= y && (x.died === undefined || x.died > y);
+
+/** y 年在位、能被架空 / 有王室的君主(共和国、作者立的君主 = null) */
+function throneAt(civ: Civ, pid: number, y: number): Person | null {
+  const N = rulerAt(civ, pid, y);
+  return N && N.author === undefined && civ.polities[pid]?.lineage !== 'republic' ? N : null;
+}
+
+/**
+ * 让他掌权:y 年能怎么掌、到什么时候(不能 = null)。他得活着、成年、那年没在位,而且是 ——
+ *   在位君主接着即位的太子(他的儿子):引兵入朝 / 太子监国;到君主去世即位 / 几年后还政 / 几年后篡位
+ *   在位君主的兄弟叔伯(同一朝先前几位君主没即位的儿子):摄政;还政 / 篡位
+ *   在朝的名臣:专权;还政 —— 领过兵的将领:专权;还政
+ * span = 能下的整数年份(他那几年都是这样的人,君主也是同一位)
+ */
+export function regentChoice(civ: Civ, x: Person, y: number): { hows: RegentHow[]; ends: RegentEnd[]; ruler: Person; span: { lo: number; hi: number } } | null {
+  const N = throneAt(civ, x.polity, y);
+  if (!N || N === x || !grown(x, y)) return null;
+  const last = Math.ceil(civ.endYear) - 1;
+  const upTo = (...ts: (number | undefined)[]) => Math.min(last, ...ts.map((t) => (t === undefined ? Infinity : Math.ceil(t) - 1)));
+  const lo = (...ts: number[]) => Math.max(...ts.map((t) => Math.ceil(t)));
+  const rs = (civ.people ?? []).filter((r) => r.role === 'ruler' && r.polity === x.polity);
+  const heir = x.parent === N.id && x.rise === 'heir' && x.from !== undefined && x.from === N.until && rs.includes(x);
+  if (heir) return { hows: ['march', 'heir'], ends: ['succeed', 'return', 'usurp'], ruler: N, span: { lo: lo(N.from!, x.born + IV_ROYAL_AGE), hi: upTo(N.until, x.died) } };
+  const F = x.parent !== undefined ? civ.people?.[x.parent] : undefined;
+  const uncle =
+    x.role === 'prince' &&
+    !!F &&
+    F.role === 'ruler' &&
+    F !== N &&
+    F.polity === x.polity &&
+    (F.dynasty ?? 0) === (N.dynasty ?? 0) &&
+    (F.from ?? Infinity) < (N.from ?? 0) &&
+    (x.dynasty ?? 0) === (N.dynasty ?? 0);
+  if (uncle) return { hows: ['uncle'], ends: ['return', 'usurp'], ruler: N, span: { lo: lo(N.from!, x.born + IV_ROYAL_AGE), hi: upTo(N.until, x.died) } };
+  if (x.role === 'minister' && x.from !== undefined && x.from < y && (x.until === undefined || x.until > y))
+    return { hows: ['chancellor'], ends: ['return'], ruler: N, span: { lo: lo(N.from!, x.from + 1, x.born + IV_ROYAL_AGE), hi: upTo(N.until, x.until, x.died) } };
+  const c0 = x.commands?.[0]?.from;
+  if (x.role === 'general' && c0 !== undefined && c0 < y) return { hows: ['general'], ends: ['return'], ruler: N, span: { lo: lo(N.from!, c0 + 1, x.born + IV_ROYAL_AGE), hi: upTo(N.until, x.died) } };
+  return null;
+}
+
+/** 为他联姻:y 年他能不能(在位的君主本人,或同一朝君主没即过位的儿子、兄弟叔伯,活着、成年;共和国、作者立的君主不行) */
+export function marryChoice(civ: Civ, x: Person, y: number): boolean {
+  const N = throneAt(civ, x.polity, y);
+  if (!N || !grown(x, y)) return false;
+  if (N === x) return true;
+  const F = x.parent !== undefined ? civ.people?.[x.parent] : undefined;
+  const royal = !!F && F.role === 'ruler' && F.polity === x.polity && (F.dynasty ?? 0) === (N.dynasty ?? 0);
+  return royal && (x.role === 'prince' || (x.role === 'ruler' && (x.from ?? -Infinity) > y));
+}
+
+/** 为他联姻能挑的国家(y 年在、有王室、没和本国打仗):接壤的在前,再按州数;near = 接壤 */
+export function marryPartners(civ: Civ, pid: number, y: number): { id: number; near: boolean }[] {
+  const { size, near } = neighborsAt(civ, pid, y);
+  const foes = new Set(foesAt(civ, pid, y));
+  return civ.polities
+    .filter((p) => p.id !== pid && p.lineage !== 'republic' && p.founded <= y && (p.ended === undefined || p.ended > y) && !foes.has(p.id) && throneAt(civ, p.id, y))
+    .map((p) => ({ id: p.id, near: near.has(p.id) }))
+    .sort((a, b) => Number(b.near) - Number(a.near) || (size.get(b.id) ?? 0) - (size.get(a.id) ?? 0) || a.id - b.id);
 }
 
 /** 推演里的君主在 year 那年在不在位(人物卡上「让他去世」「改他的倾向」只在那年在位的君主卡上有;作者立的君主去人物卡改) */
@@ -392,7 +464,7 @@ export function regionDisasterMark(civ: Civ, r: number, year: number): { now: nu
 
 /** 一次性的干预(「我的干预」页的年份不写"起"):灭国、让人物去世、改倾向、等下台再即位、天灾 */
 export function onceOnly(v: Intervention): boolean {
-  return v.kind === 'destroy' || v.kind === 'death' || v.kind === 'temper' || v.kind === 'disaster' || (v.kind === 'crown' && !!v.after);
+  return v.kind === 'destroy' || v.kind === 'death' || v.kind === 'temper' || v.kind === 'disaster' || v.kind === 'regent' || v.kind === 'marry' || (v.kind === 'crown' && !!v.after);
 }
 
 /** 人物键在这份历史里的名字(没有这个人 = 键里记的名字) */
@@ -414,7 +486,7 @@ function keyPerson(civ: Civ, key: string): { x: Person | null; name: string } {
  */
 export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, era: Era | undefined, who = ''): { ok: boolean; text: string; same?: boolean } | null {
   if (v.kind === 'disaster') return disasterDoneText(civ, v, i, A, era);
-  if (v.kind !== 'destroy' && v.kind !== 'death' && v.kind !== 'temper' && !(v.kind === 'crown' && v.after)) return null;
+  if (v.kind !== 'destroy' && v.kind !== 'death' && v.kind !== 'temper' && v.kind !== 'regent' && v.kind !== 'marry' && !(v.kind === 'crown' && v.after)) return null;
   const f = i >= 0 ? interventionFate(civ, i) : null;
   const e = f && f.state !== 'later' && f.annal >= 0 ? civ.annals[f.annal] : null;
   const fail = (what: string) => {
@@ -441,6 +513,20 @@ export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, e
       const { name } = keyPerson(civ, v.person);
       if (f?.state === 'void') return fail(`改${name}的倾向`);
       return { ok: true, text: `${name}的倾向改了，到他下台为止` };
+    }
+    case 'regent': {
+      // "彭继桓 2586 年起掌权，到君主去世即位"
+      const { name } = keyPerson(civ, v.person);
+      if (f?.state === 'void') return fail(`让${name}掌权`);
+      return { ok: true, text: `${name}${spaced(at)}起掌权，${regentEndWord(v.end, v.years)}` };
+    }
+    case 'marry': {
+      // "胡炜与大澜王朝结亲"
+      const { name } = keyPerson(civ, v.person);
+      const q = polityIdOf(civ, v.b);
+      const B = q >= 0 ? nameAt(civ.polities[q], v.from) : '对方';
+      if (f?.state === 'void') return fail(`为${name}与${B}联姻`);
+      return { ok: true, text: `${name}与${B}结亲` };
     }
     case 'crown': {
       if (f?.state === 'void') return { ok: false, text: `${who}没能即位：${eraText(f.why.startsWith('那一年') ? `第 ${v.from} 年${f.why.slice(3)}` : f.why, era)}` };

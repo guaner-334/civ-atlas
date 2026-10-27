@@ -44,6 +44,7 @@ import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, portAt, portSinc
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
 import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
+import type { Intervention } from '../edits';
 import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign, type RulerAct } from './rulers';
 import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
 import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } from './regents';
@@ -507,8 +508,18 @@ function regentOf(m: PolityModel, pid: number, t: Year, r: Reign): Regency | nul
 }
 
 /** 掌实权推算要用的那几样(regents.ts):在位表照这国此刻的(带干预、宗室篡位) */
-export function regencyCtx(m: PolityModel): RegencyCtx {
-  return { rbase: m.rbase, base: regencyBase(m.seed), tag: m.rtag, polities: m.polities, book: (pid, t) => bookOf(m, pid, t) };
+export function regencyCtx(m: PolityModel, ivs?: readonly Intervention[]): RegencyCtx {
+  return {
+    rbase: m.rbase,
+    base: regencyBase(m.seed),
+    tag: m.rtag,
+    polities: m.polities,
+    book: (pid, t) => bookOf(m, pid, t),
+    // 干预列表:接着推时 resumePolities 先给(那时还没挂上干预模型),推演里照挂上的
+    get ivs() {
+      return ivs ?? m.iv?.list;
+    },
+  };
 }
 
 /** 方针里的国家键(亲、仇)有没有指着 q(键要用时才解析,见 interventions.ts 的 resolve) */
@@ -1367,7 +1378,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     m.reigned.push(true);
   }
   // 掌实权的几段:由史事推出来(regency.ts;下面重放扩张算账时就要照掌权的人的倾向算,和推演时一样)
-  m.regents = regentsFrom(regencyCtx(m), civ.annals);
+  m.regents = regentsFrom(regencyCtx(m, iv?.list), civ.annals);
   // 各国历任国都的路程表(按国都所在州缓存)
   const distCache = new Map<number, Float32Array>();
   // t = 用这张表的时刻(渡海的一档按它定,见 voyageOf)

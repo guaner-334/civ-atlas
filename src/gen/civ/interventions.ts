@@ -78,6 +78,8 @@ import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
 import { pioneerArrives } from './cultures';
+import { regencyModelOf } from './regency';
+import { marriageModelOf } from './marriage';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -525,6 +527,23 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'death' || v.kind === 'temper') {
       person(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'regent' || v.kind === 'marry') {
+      // 让他掌权、为他联姻:掌实权、联姻的模型先查能不能,记史事 intervene(b 列:掌权 −1 生效了、联姻 = 对方国家;没生效的见那边的 IV_*),再掌权 / 结亲
+      const sid = capitalAt(pm.polities[a], t);
+      const at = { a, region: S[sid]?.region ?? -1, settlement: sid, war: i };
+      const noteIv = (b: number) => sim.record('intervene', { ...at, b });
+      if (v.kind === 'regent') {
+        const rm = regencyModelOf(sim);
+        if (rm?.intervene) rm.intervene(v, i, a, t, noteIv);
+        else noteIv(-3);
+      } else {
+        const mm = marriageModelOf(sim);
+        const q = iv.resolve(v.b);
+        if (mm?.intervene) mm.intervene(v, i, a, q, t, (b) => noteIv(b === -1 ? q : b));
+        else noteIv(-3);
+      }
       return;
     }
     const b = v.kind === 'ally' || v.kind === 'declare' ? iv.resolve(v.b) : -1;

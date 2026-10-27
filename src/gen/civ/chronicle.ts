@@ -79,7 +79,8 @@
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
  */
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from './types';
-import { REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
+import { IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
+import { IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, IV_NO_PARTNER } from './marriages';
 import { kinAt } from './regentInfo';
 import {
   TIER_REGIONS,
@@ -384,7 +385,8 @@ function peopleOf(civ: Civ): PeopleIndex | null {
     for (const g of x.regencies ?? []) {
       ix.power.set(g.annal, { x, g });
       if (g.endAnnal !== undefined) ix.power.set(g.endAnnal, { x, g });
-      if (g.kind === 'uncle') ix.uncle.set(g.ruler, x);
+      // 幼主即位那一刻起摄政的叔父(写在即位那一条);作者下令、后来才摄政的不算(那一条 regent 自己写)
+      if (g.kind === 'uncle' && civ.annals[g.annal]?.foe === undefined) ix.uncle.set(g.ruler, x);
     }
     for (const s of x.spouses ?? []) ix.wed.set(s.annal, { x, s });
     // 名臣经手的事(篡位做了新朝第一位的名臣,做名臣时经手的事也在他身上)
@@ -960,6 +962,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     case 'death':
     case 'temper':
       return personStory(civ, e, v, A, fail, done);
+    case 'regent':
+      return regentStory(civ, e, id, v, A, fail, done);
+    case 'marry':
+      return marryStory(civ, e, v, A, fail, done);
     case 'disaster':
       return disasterStory(civ, e, v, A, R, fail, done);
     case 'move': {
@@ -1049,6 +1055,55 @@ function personStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'death
   if (who.role === 'minister' && who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已去职`, `第 ${Math.floor(who.until)} 年他已去职`);
   if (from === undefined || from >= y) return fail(`欲${verb}于${who.name},然其人尚未出仕`, from !== undefined ? `他第 ${Math.floor(from)} 年才${step}` : `他那时还没${step}`);
   return fail(`欲${verb}于${who.name},未成`, '没有生效');
+}
+
+/**
+ * 让他掌权:"【干预】令彭继桓掌大承国政"(掌权的经过紧跟着那一条 regent 写);没生效的写原因
+ * (这国已亡、共和国 / 作者立的君主、已有人掌着权、他不是太子 / 叔伯 / 不在世)
+ */
+function regentStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { kind: 'regent' }>, A: string, fail: Say, done: Done): IvStory {
+  const holder = civ.people?.find((x) => x.regencies?.some((g) => g.annal === id + 1));
+  const want = holder?.name || parsePersonKey(v.person)?.name || '其人';
+  const verb = `欲令${want}掌${A}国政`;
+  if (e.b === -3) return fail(`${verb},然${A}已亡`, `那一年${A}已亡`);
+  if (e.b === IV_NO_THRONE) return fail(`${verb},然${A}无君可架空`, `${A}那一年是共和国,或在位的是作者立的君主`);
+  if (e.b === IV_HELD) return fail(`${verb},然其时已有人秉政`, '那一年已经有人掌着实权');
+  if (e.b !== -1) {
+    const why =
+      v.how === 'march' || v.how === 'heir'
+        ? '他那一年不是在位君主的预定继承人(或不满 16 岁)'
+        : v.how === 'uncle'
+          ? '他那一年不是君主的兄弟叔伯,或已不在世、不满 16 岁'
+          : '他那一年不满 16 岁';
+    return fail(`${verb},未成`, why);
+  }
+  return done(`令${want}掌${A}国政`);
+}
+
+/** 为他联姻:"【干预】令胡炜与大澜王朝结亲"(结亲的经过紧跟着那一条 marry 写);没生效的写原因 */
+function marryStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'marry' }>, A: string, fail: Say, done: Done): IvStory {
+  const y = e.year;
+  const want = parsePersonKey(v.person)?.name || '其人';
+  const k = resolveKey(civ, v.b);
+  const B = e.b >= 0 ? pn(civ, e.b, y) : k?.kind === 'polity' && civ.polities[k.id] ? pn(civ, k.id, y) : '他国';
+  const verb = `欲为${want}与${B}结亲`;
+  switch (e.b) {
+    case -3:
+      return fail(`欲为${want}结亲,然${A}已亡`, `那一年${A}已亡`);
+    case IV_NO_PARTNER:
+      return fail(`${verb},然其国不存`, '对方那一年没有或已亡');
+    case IV_NO_THRONE:
+      return fail(`${verb},然无王室可结亲`, '两国有一国是共和国,没有王室');
+    case IV_AT_WAR:
+      return fail(`${verb},然两国方交兵`, '两国那一年正在交战');
+    case IV_NOT_HIM:
+      return fail(`${verb},然其人非宗室`, '他那一年不是在位的君主,也不是在世、成年的宗室');
+    case IV_NO_BRIDE:
+      return fail(`${verb},然无女可嫁`, '嫁女那一国的君主那一年不到 30 岁,没有成年的女儿');
+    case IV_NO_GROOM:
+      return fail(`${verb},然${B}无人可娶`, `${B}那一年没有能娶亲的宗室`);
+  }
+  return done(`令${want}与${B}结亲`);
 }
 
 /** 即位(等在位的那位下台)登记的那一条:还在等 = 照登记写;落空(没等到他下台就改朝换代、亡国、另立了别人)= 写原因 */
@@ -1697,8 +1752,10 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
   const why = REGENCY_KINDS[e.b] ?? 'chancellor';
   const kind = g?.kind ?? why;
   const n = e.n ?? RG_START;
-  if (n === RG_START && (kind === 'uncle' || kind === 'minister')) return null;
-  if (n === RG_USURP && kind !== 'uncle') return null;
+  // 作者下令"让他掌权"来的(掌权那一条 foe 列记着第几条干预):摄政不在幼主即位那一条里,这里写;太子到期篡位也在这里写
+  const byIv = (n === RG_START ? e : g ? civ.annals[g.annal] : undefined)?.foe !== undefined;
+  if (n === RG_START && (kind === 'uncle' || kind === 'minister') && !byIv) return null;
+  if (n === RG_USURP && kind !== 'uncle' && !(byIv && (kind === 'march' || kind === 'heir'))) return null;
   const y = e.year;
   // 名义君主:掌权那一刻在位的那位;大臣、大将专权跨了几位君主的,了结那一条写那时在位的
   const strong = kind === 'chancellor' || kind === 'general';
@@ -1732,7 +1789,11 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
         rivals.push(away);
         text += east ? `;其${kinOf(civ, x!, away) || '弟'}${away.name}在外领兵,粮饷为${name}所制,无功而还` : `;${away.name}在外领兵,粮饷被${name}卡住,无功而返`;
       }
-    } else if (kind === 'heir') text = east ? `${ruler}老病,${who}监国` : `${ruler}年老多病,${who}代为理政`;
+    } else if (kind === 'heir') {
+      // 作者下令的监国不一定是先君老病
+      if (byIv) text = east ? `${ruler}命${who}监国` : `${ruler}命${who}代为理政`;
+      else text = east ? `${ruler}老病,${who}监国` : `${ruler}年老多病,${who}代为理政`;
+    }
     else if (kind === 'general') {
       if (tier >= CAPITAL_TIER) imp = 3;
       // 屡破的是他最近一次领兵打的那一国
@@ -1741,15 +1802,20 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
       const foe = w && c ? (c.side === 0 ? w.b : w.a) : -1;
       const beat = foe >= 0 ? pn(civ, foe, y) : '强敌';
       text = east ? `${P}${who}屡破${beat},威震朝野;自是政出于${name},${bare}拱手而已` : `${P}${who}屡败${beat},威名远播,从此独揽大权,${bare}形同虚设`;
+    } else if (kind === 'uncle') {
+      // 作者下令的摄政(推演里自己出的写在幼主即位那一条)
+      text = east ? `${P}${bare}在位,${who}摄政;自是政出于${name}` : `${P}${who}摄政,${bare}虽仍在位,大权已归${name}`;
     } else {
       if (tier >= CAPITAL_TIER) imp = 3;
-      // 这些年战败失地、丢了国都(推演里大臣专权的由头);接连开疆却没有合适的将领(大将专权由大臣顶上)
-      const lead = why === 'general' ? (east ? '连年开疆' : '连年征战') : east ? '国势衰微' : '国势衰微';
-      text = east ? `${P}${lead},${who}总揽朝政;自是政出于${name},${bare}拱手而已` : `${P}${lead},${who}独揽朝政,${bare}形同虚设`;
+      // 这些年战败失地、丢了国都(推演里大臣专权的由头);接连开疆却没有合适的将领(大将专权由大臣顶上);作者下令的不写由头
+      const lead = byIv ? '' : why === 'general' ? (east ? '连年开疆,' : '连年征战,') : '国势衰微,';
+      text = east ? `${P}${lead}${who}总揽朝政;自是政出于${name},${bare}拱手而已` : `${P}${lead}${who}独揽朝政,${bare}形同虚设`;
     }
   } else if (n === RG_RETURN) {
     const age = N ? ageAt(N, y) : 18;
-    text = east ? `${ruler}年${cnNumber(age)},${who}还政` : `${ruler}年满 ${age} 岁,${who}交还大权`;
+    // 幼主成年还政;作者下令掌权的太子、大臣大将到期还政于君主
+    if (kind === 'uncle' || kind === 'minister') text = east ? `${ruler}年${cnNumber(age)},${who}还政` : `${ruler}年满 ${age} 岁,${who}交还大权`;
+    else text = east ? `${P}${who}还政于${bare}` : `${P}${who}将大权交还${bare}`;
   } else if (n === RG_PURGE) {
     const child = kind === 'uncle' || kind === 'minister';
     text = child
@@ -1761,8 +1827,14 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
         : `${ruler}设计处死${who},收回大权`;
   } else if (n === RG_USURP) {
     if (tier >= DYNASTY_TIER) imp = 3;
-    const young = N ? `幼主${N.name}` : '幼主';
-    text = east ? `${P}摄政${name}废${young},自立为君` : `${P}摄政${name}废黜${young},自立为王`;
+    if (kind === 'march' || kind === 'heir') {
+      // 作者下令掌权的太子到期篡位:逼父亲退位,自己接着在位
+      text = east ? `${P}${who}逼${bare}退位,自立为君` : `${P}${who}逼${bare}退位,自立为王`;
+    } else {
+      // 废的是幼主(推演里自己出的都是);作者下令摄政的,君主已成年的写他的称呼
+      const young = !N ? '幼主' : byIv && ageAt(N, y) >= 18 ? bare : `幼主${N.name}`;
+      text = east ? `${P}摄政${name}废${young},自立为君` : `${P}摄政${name}废黜${young},自立为王`;
+    }
   } else if (n === RG_DIED) text = east ? `${P}${kind === 'uncle' ? `摄政${name}` : who}卒,${bare}始亲政` : `${P}${kind === 'uncle' ? `摄政${name}` : who}去世,${bare}开始亲政`;
   else return null;
   return withPeople(base(e, i, text, imp, [e.a], [e.region], REGENT_TAG[n] ?? '权'), x, N, ...rivals);

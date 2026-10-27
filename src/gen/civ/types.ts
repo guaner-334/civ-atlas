@@ -475,7 +475,10 @@ export interface Annal {
   via?: AdjKind;
   /** 宣战(war)为什么打、盟约(unally)怎么断的(见 AnnalCause);自立(defect)的 betray = 宗主先动的兵;合并(merge)的 vassal = 藩属纳土归附 */
   cause?: AnnalCause;
-  /** 结盟(alliance)才有:共御的强邻(−1 = 没有);据险断后(stand)借用:大军退保的那一州 */
+  /**
+   * 结盟(alliance)才有:共御的强邻(−1 = 没有);据险断后(stand)借用:大军退保的那一州;
+   * 掌实权(regent,n = 0 掌权那一条)借用:作者下令"让他掌权"的第几条干预(推演里自己出的不给)
+   */
   foe?: number;
   /**
    * 干预灭国(intervene,灭成了)才有:亡时国土几州;为夺物产的宣战(war,由头 resource)才有:想要的物产(按位,下标见 development.ts 的 RESOURCES);议事(council)才有:结果;

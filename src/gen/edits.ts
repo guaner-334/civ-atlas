@@ -72,6 +72,8 @@
  * | `destroy` | 灭国     | a = 国家                          | 这一年年初这国亡:国土并入 b,或散成无主的部落地带(邻国照规矩慢慢扩进去);它打着的仗全部结束(这国那年已亡 = 不生效) | b:并入哪一国(不给 = 散成无主;b 那年已亡 = 改成散成无主) |
  * | `death`   | 让人物去世 | a = 国家,person = 人物键(君主、将领、名臣) | 这一年年初他去世。君主:此刻在位的是他才生效,下一位从下一刻起照常继位(他之后的君主全换一批);将领、名臣:只改人物和编年史,不改历史(他那年已不在世、还没出道,名臣已去职 = 不生效) | — |
  * | `temper`  | 改君主倾向 | a = 国家,person = 人物键(君主),leanings = 新的倾向 | 这一年年初起此刻在位的这位君主照新的倾向,到他下台为止(此刻在位的不是他 = 不生效) | — |
+ * | `regent`  | 让他掌权 | a = 国家,person = 人物键,how = march 引兵入朝 / heir 太子监国(此刻在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯,宗室)/ chancellor 专权(名臣)/ general 专权(将领);end = succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯:君主下台,他接着在位,同一朝);years = 还政、篡位过几年;leanings = 摄政、专权的人的倾向 | 这一年年初起名义上的君主照旧在位,开战、议和、扩张照他的倾向(引兵入朝、太子监国照他日后即位时的倾向);引兵入朝那一刻杀兄长和战功比他多的兄弟。这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、他不是那样的人 = 不生效 | — |
+ * | `marry`   | 为他联姻 | a = 国家,person = 人物键(此刻在位的君主,或君主的儿子、兄弟叔伯),b = 对方国家 | 这一年年初两国结亲:他娶 b 在位君主的女儿(那位君主要年过 30);两国 40 年里少开战、易结盟(和推演里结的亲一样)。两国有一国已亡、是共和国、正在交战、他不是宗室 = 不生效 | how:give = 本国宗室女嫁给 b 的太子(没有就挑年轻的君主、别的宗室)/ mutual = 互嫁 |
  * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
@@ -565,7 +567,22 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 };
 
 /** 干预的种类(见文件头的表) */
-export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster';
+export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster' | 'regent' | 'marry';
+
+/**
+ * 让他掌权(regent)怎么掌:march 引兵入朝、heir 太子监国(只有那年在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯)/
+ * chancellor 专权(名臣)/ general 专权(将领)
+ */
+export const REGENT_HOWS = ['march', 'heir', 'uncle', 'chancellor', 'general'] as const;
+export type RegentHow = (typeof REGENT_HOWS)[number];
+/** 让他掌权到什么时候:succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯) */
+export const REGENT_ENDS = ['succeed', 'return', 'usurp'] as const;
+export type RegentEnd = (typeof REGENT_ENDS)[number];
+/** 还政、篡位最多过几年 */
+export const REGENT_YEARS_MAX = 40;
+/** 为他联姻怎么结:不给 = 他娶对方的宗室女;give = 本国宗室女嫁给对方;mutual = 互嫁 */
+export const MARRY_HOWS = ['give', 'mutual'] as const;
+export type MarryHow = (typeof MARRY_HOWS)[number];
 
 /** 天灾的种类:瘟疫、饥荒、地震水旱、全球大疫(干预页、大纲里列的这几种) */
 export const DISASTER_TYPES = ['plague', 'famine', 'quake', 'pandemic'] as const;
@@ -619,6 +636,8 @@ export type Intervention = (
   | { kind: 'death'; a: string; person: string; from: number }
   | { kind: 'temper'; a: string; person: string; from: number; leanings: RulerLeanings }
   | { kind: 'disaster'; type: DisasterKind; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string; slump?: number }
+  | { kind: 'regent'; a: string; person: string; from: number; how: RegentHow; end: RegentEnd; years?: number; leanings?: RulerLeanings }
+  | { kind: 'marry'; a: string; person: string; b: string; from: number; how?: MarryHow }
   | {
       kind: 'policy';
       a: string;
@@ -1571,7 +1590,7 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'regent', 'marry'];
 
 /** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
 export interface PersonKeyParts {
@@ -1638,6 +1657,30 @@ function cleanLeanings(x: unknown): RulerLeanings {
   }
   const same = Object.keys(o).length === LEANING_KEYS.length && LEANING_KEYS.every((k) => o[k] === out[k]);
   return same ? (o as unknown as RulerLeanings) : out;
+}
+
+/**
+ * 让他掌权(regent):人物键的国家是 a;怎么掌和他是谁要对得上(引兵入朝、太子监国 = 宗室或日后的君主;摄政 = 宗室;专权 = 名臣、将领);
+ * 到什么时候:太子三样都行、叔伯不能"到君主去世即位"、名臣将领只能还政;还政、篡位要 years(1…REGENT_YEARS_MAX 的整数);
+ * 摄政、专权的要 leanings(掌权的人的倾向,同即位的取整夹回范围),引兵入朝、太子监国不带(推演里照他日后即位时的倾向)。不合格 = null
+ */
+function cleanRegent(o: Record<string, unknown>, a: string, from: number): Intervention | null {
+  const p = parsePersonKey(o.person);
+  const how = o.how as RegentHow;
+  const end = o.end as RegentEnd;
+  if (!p || p.polity !== a || !(REGENT_HOWS as readonly unknown[]).includes(how) || !(REGENT_ENDS as readonly unknown[]).includes(end)) return null;
+  const role = how === 'march' || how === 'heir' ? ['ruler', 'prince'] : how === 'uncle' ? ['prince'] : how === 'chancellor' ? ['minister'] : ['general'];
+  if (!role.includes(p.role)) return null;
+  if (end === 'succeed' ? how !== 'march' && how !== 'heir' : end === 'usurp' && how !== 'march' && how !== 'heir' && how !== 'uncle') return null;
+  const person = o.person as string;
+  let years: number | undefined;
+  if (end !== 'succeed') {
+    const n = o.years;
+    if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+    years = Math.min(REGENT_YEARS_MAX, Math.max(1, Math.round(n)));
+  }
+  const base = years !== undefined ? { kind: 'regent' as const, a, person, from, how, end, years } : { kind: 'regent' as const, a, person, from, how, end };
+  return how === 'march' || how === 'heir' ? base : { ...base, leanings: cleanLeanings(o.leanings) };
 }
 
 /**
@@ -1783,6 +1826,15 @@ export function cleanIntervention(x: unknown): Intervention | null {
       if (!p || p.polity !== a || !(kind === 'temper' ? p.role === 'ruler' : (DEATH_ROLES as readonly string[]).includes(p.role))) return null;
       const person = o.person as string;
       v = kind === 'temper' ? { kind, a, person, from, leanings: cleanLeanings(o.leanings) } : { kind, a, person, from };
+    } else if (kind === 'regent') {
+      const r = cleanRegent(o, a, from);
+      if (!r) return null;
+      v = r;
+    } else if (kind === 'marry') {
+      const p = parsePersonKey(o.person);
+      if (!p || p.polity !== a || (p.role !== 'ruler' && p.role !== 'prince') || !isPolityKey(o.b) || o.b === a) return null;
+      const how = (MARRY_HOWS as readonly unknown[]).includes(o.how) ? (o.how as MarryHow) : undefined;
+      v = how ? { kind, a, person: o.person as string, b: o.b, from, how } : { kind, a, person: o.person as string, b: o.b, from };
     } else {
       if (!isPolityKey(o.b) || o.b === a) return null;
       if (kind === 'declare') v = { kind, a, b: o.b, from };
@@ -2032,7 +2084,7 @@ export function interventionKeys(v: Intervention): string[] {
   if (v.kind === 'found') return [];
   if (v.kind === 'disaster') return v.a ? [v.a] : [];
   if (v.kind === 'destroy') return v.b ? [v.a, v.b] : [v.a];
-  return v.kind === 'ally' || v.kind === 'declare' ? [v.a, v.b] : [v.a];
+  return v.kind === 'ally' || v.kind === 'declare' || v.kind === 'marry' ? [v.a, v.b] : [v.a];
 }
 
 // ---------------------------------------------------------------------------

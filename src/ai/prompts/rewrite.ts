@@ -613,6 +613,10 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${id(v.a, 'polity', 'P')} 的人物去世`;
     case 'temper':
       return `${id(v.a, 'polity', 'P')} 的君主改倾向`;
+    case 'regent':
+      return `${id(v.a, 'polity', 'P')} 的人物掌实权`;
+    case 'marry':
+      return `${id(v.a, 'polity', 'P')} 的人物与 ${id(v.b, 'polity', 'P')} 联姻`;
     case 'disaster': {
       const lv = DISASTER_LEVEL_NAMES[v.level];
       if (v.type === 'plague') return `从 ${id(v.city ?? '', 'settlement', 'C')} 起瘟疫(${lv})`;
@@ -1440,6 +1444,8 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   death: '让人物去世',
   temper: '改君主倾向',
   disaster: '降天灾',
+  regent: '让人物掌权',
+  marry: '为人物联姻',
 };
 
 // ---------------------------------------------------------------------------

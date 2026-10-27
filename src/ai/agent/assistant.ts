@@ -283,6 +283,8 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   death: '让人物去世',
   temper: '改君主倾向',
   disaster: '降天灾',
+  regent: '让人物掌权',
+  marry: '为人物联姻',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {
