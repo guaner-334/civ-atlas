@@ -18,6 +18,8 @@
  *     兵败被杀(revolt),也没领过兵就被新君谮杀(intrigue);新君未满 RIVAL_AGE 岁的只有领过兵的兄长拥兵争位一种
  *   - 新君不是先君的儿子(兄弟、叔侄继位),先君的儿子还在:有机会杀了先君的长子自立(usurp)
  *   被杀的宗室卒于那一刻,结局 purged。疆域、兴亡、战争胜负、君主的在位年份一样都不改。
+ *   先君晚年预定的继承人引兵入朝的(regents.ts;march):那一刻就杀兄长和战功比他多的兄弟(和举兵夺位同一种杀法),即位时不另争储。
+ *   日后要摄政的叔父、要结亲的宗室(推演里还要用到他)不卷进争储(contest 的 spare)。
  * 随机数一律 keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位君主 × 16 + 第几个儿子, 用途, K_SON)。纯计算,不碰 DOM。
  */
 import type { Person, Polity, Year } from './types';
@@ -36,7 +38,7 @@ const SON_LIFE: [number, number] = [24, 78];
 /** 预定的继承人没接上君位的:预定即位那年以后至少再活这么多年 */
 const HEIR_AFTER = 1;
 /** 遗腹子:父亲去世以后最多这么久出生(同 lineage.ts) */
-const POSTHUMOUS = 0.75;
+export const POSTHUMOUS = 0.75;
 /** 一个亲生儿子也没有的君主收养子的机会;收养时养子几岁、父亲比养子大多少岁 */
 const ADOPT = 0.6;
 const ADOPT_AT: [number, number] = [4, 16];
@@ -69,6 +71,7 @@ const U_LIFE = 3;
 const U_ADOPT = 4;
 const U_CONTEST = 5;
 const U_KILL = 6;
+const U_MARCH = 7;
 /** keyed4 最后一位(0 君主、1 将领在 people.ts) */
 const K_SON = 3;
 /** 君主的随机数里遇弑那一项(K_RULER;别的用途见 rulers.ts、people.ts) */
@@ -235,10 +238,11 @@ export function contest(
   T: Year,
   sons: readonly Son[],
   k: number,
-  opts: { base: number; tag: number; merit: MeritOf; armed: (p: Person) => boolean },
+  opts: { base: number; tag: number; merit: MeritOf; armed: (p: Person) => boolean; spare?: (p: Person) => boolean },
 ): ContestResult | null {
   const U = (s: number, use: number) => keyed4(opts.base, opts.tag, k * 16 + s, use, K_SON);
-  const alive = sons.filter((s) => s.p !== X && s.p.role === 'prince' && s.p.born + RIVAL_AGE <= T && s.end > T);
+  // 日后要摄政的叔父、要结亲的宗室(推演里还要用到他,regents.ts、marriages.ts)不卷进来
+  const alive = sons.filter((s) => s.p !== X && s.p.role === 'prince' && s.p.born + RIVAL_AGE <= T && s.end > T && !opts.spare?.(s.p));
   if (!alive.length) return null;
   const gap = X.born - R.born;
   const isSon = sons.some((s) => s.p === X) || (gap >= 14 && gap < 40 && X.born <= (R.died ?? Infinity) + POSTHUMOUS);
@@ -275,4 +279,26 @@ export function contest(
   for (const s of threats) if (opts.merit(s.p) > opts.merit(top.p)) top = s;
   // 他领过兵:拥兵争位,兵败被杀;没领过兵:被新君谮杀
   return { how: opts.armed(top.p) ? 'revolt' : 'intrigue', rivals: [top], killed: [top] };
+}
+
+/**
+ * 引兵入朝(regents.ts 的 march):先君 R 在位的 T 那一刻,预定的继承人 X 引兵还朝掌权 —— 和举兵夺位同一种杀法:
+ * 兄长、战功比他多的成年兄弟各有 COUP_KILL 的机会被杀(有这样的对手至少杀一个)。sons = R 的儿子;k = R 在在位表里第几位。
+ * 没有对手 = 杀的为空(照样掌权)
+ */
+export function march(
+  X: Son,
+  T: Year,
+  sons: readonly Son[],
+  k: number,
+  opts: { base: number; tag: number; merit: MeritOf; spare?: (p: Person) => boolean },
+): ContestResult {
+  const U = (s: number, use: number) => keyed4(opts.base, opts.tag, k * 16 + s, use, K_SON);
+  const mx = opts.merit(X.p);
+  const threats = sons.filter(
+    (s) => s !== X && s.p.role === 'prince' && s.p.born + RIVAL_AGE <= T && s.end > T && !opts.spare?.(s.p) && (s.p.born < X.p.born || opts.merit(s.p) > mx),
+  );
+  const killed = threats.filter((s, i) => U(1 + i, U_MARCH) < COUP_KILL);
+  if (!killed.length && threats.length) killed.push(threats[0]);
+  return { how: 'march', rivals: killed, killed };
 }

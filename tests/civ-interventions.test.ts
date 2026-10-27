@@ -744,8 +744,10 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
         const n0 = sizeAt(c, id, a);
         // 禁令期间一州不多(被打时丢了的州反攻夺回不算扩张:不超过开头的州数)
         for (let y = a; y < end; y += 50) expect(sizeAt(c, id, y), `seed ${seed} 第 ${y} 年`).toBeLessThanOrEqual(n0);
-        // 不主动宣战(也不援盟)
-        expect(c.annals.filter((e) => e.kind === 'war' && e.a === id && e.year >= a && e.year < end)).toEqual([]);
+        // 不主动宣战(也不援盟);讨伐据地自立的宗室、起事的饥民(平叛)不算
+        expect(
+          c.annals.filter((e) => e.kind === 'war' && e.a === id && e.year >= a && e.year < end && e.cause !== 'heir' && e.cause !== 'quell').map((e) => [e.year, e.cause, e.b]),
+        ).toEqual([]);
         if (until) expect(sizeAt(c, id, b), `seed ${seed}:到期后接着扩张`).toBeGreaterThan(sizeAt(c, id, until));
         expect(ivText(c)[0]).toMatch(until ? new RegExp(`不再开疆拓土,至第 ${until} 年`) : /不再开疆拓土/);
       }

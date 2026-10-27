@@ -2,7 +2,7 @@
  * 逐年推演的界面状态和节奏(src/ui/stepwiseStore.ts、stepwisePlan.ts 的放的快慢和停一下的卡片、directorStore.ts 一份份接着放):
  * - 这一段的状态:一步交出去 / 算回来、下一步从哪年起、走到该停的那年停下、倒计时、先停着、接着演绎、一件大事也没有就不停
  * - 放的快慢:算得比放得慢时按算的打折;快追上还在算的那一步时放慢
- * - 停一下时卡片里列哪几件(seed 7 第 2650–2675 年:分教、两场仗、改朝、灭国、改朝、民变)
+ * - 停一下时卡片里列哪几件(seed 7 第 2650–2675 年:打仗、改朝、打仗、灭国、改朝、民变)
  * - 导播一份份接着放:前一份放完接下一份,同一件事不放两次,字幕不在两份之间断掉
  * - 照界面的做法从第 2650 年一步一年演绎到第 2700 年(第 2675 年停下时加两条干预),存回推演模式:
  *   普通世界推到第 2700 年,第 2700 年以前的历史和逐年推演出来的一样
@@ -195,20 +195,21 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
     const items = reviewItems(world, civ, 2650, 2675, entries);
     expect(items.map((it) => [Math.floor(it.cap.entry.year), it.cap.typeName])).toEqual([
       [2652, '战争'],
-      [2652, '议事'],
       [2655, '改朝'],
+      [2662, '战争'],
       [2664, '灭亡'],
       [2664, '改朝'],
+      [2666, '民变'],
     ]);
     for (const it of items) {
       expect(entryWeight(it.cap.entry)).toBeGreaterThanOrEqual(REVIEW_WEIGHT);
       expect(it.cap.text.length).toBeGreaterThan(4);
       expect(it.cap.pin).not.toBeNull();
     }
-    // 打了几年的仗(第 2652 年起的那场):字幕只写开头一句,年份写"起"
-    const war = items[0].cap;
-    expect(war.entry.end).toBeGreaterThan(2655);
-    expect(war.label).toBe('第 2652 年起');
+    // 打了几年的仗(第 2662 年起,打到第 2669 年):字幕只写开头一句,年份写"起"
+    const war = items[2].cap;
+    expect(war.entry.end).toBeGreaterThan(2665);
+    expect(war.label).toBe('第 2662 年起');
     // 这一段里分量没到的几件(重要度 2 的灾异、迁都……)不列
     const light = entries.filter((e) => e.year >= 2650 && e.year < 2675 && e.importance >= 2 && entryWeight(e) < REVIEW_WEIGHT);
     expect(light.length).toBeGreaterThan(0);

@@ -23,7 +23,7 @@ import { characterPolity } from './characterInfo';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
 import { PersonFace, PortraitView } from './Portrait';
-import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, lineageTag, reignOrder, secededFrom, treeLabel, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
+import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, lineageKin, lineageTag, reignOrder, secededFrom, treeLabel, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
 import { polityName } from '../gen/civ/growth';
 import { setPeople } from './overviewStore';
 import { selectPerson } from './panelParts';
@@ -62,16 +62,25 @@ function textWidth(text: string, px: number): number {
   return measure.ctx.measureText(text).width;
 }
 
+/** 名字连同后面的小灰字(lineageTag;字 11 号,前面空 5)有多宽 */
+const topWidth = (civ: Civ, p: Person, box: Box, polity: number) => {
+  const tag = lineageTag(civ, p, polity);
+  return textWidth(personName(civ, p), box.FONT) + (tag ? textWidth(tag, 11) + 5 : 0);
+};
+
 /**
- * 名字连同后面的小灰字(lineageTag;字 11 号,前面空 5)有多宽;
- * 据地自立的儿子第二行写他立的国和在位年份,比名字宽时按第二行算
+ * 方框里名字以外要多宽:名字那一行;第二行比它宽时按第二行算 —— 据地自立的儿子第二行写他立的国和在位年份;
+ * 有"妻大澜"小标的(前面空 10、小方块连空隙 11)接在年份后面,再给「当前」挪下来时留出地方
  */
 const nameWidth = (civ: Civ, p: Person, box: Box, polity: number) => {
-  const tag = lineageTag(civ, p, polity);
-  const w = textWidth(personName(civ, p), box.FONT) + (tag ? textWidth(tag, 11) + 5 : 0);
-  if (!secededFrom(civ, p, polity)) return w;
-  const from = p.from ?? p.born;
-  return Math.max(w, textWidth(`${polityName(civ.polities[p.polity], from)} ${Math.floor(from)}–${p.until !== undefined ? Math.floor(p.until) : ''}`, box.FONT - 1.5));
+  const w = topWidth(civ, p, box, polity);
+  const sec = secededFrom(civ, p, polity);
+  const kin = lineageKin(civ, p);
+  if (!sec && !kin) return w;
+  const from = sec ? (p.from ?? p.born) : p.born;
+  const realm = sec ? `${polityName(civ.polities[p.polity], from)} ` : '';
+  const line = textWidth(`${realm}${Math.floor(from)}–${p.until !== undefined || p.died !== undefined ? '0000' : ''}`, box.FONT - 1.5);
+  return Math.max(w, line + (kin ? 21 + textWidth(kin.text, 11) + badgeWidth() : 0));
 };
 /** 「当前」小标签连同前面的空隙占多宽(字 11 号,左右内边距各 5,空隙 5) */
 const badgeWidth = () => textWidth('当前', 11) + 15;
@@ -173,8 +182,10 @@ function Tree({
         const tag = lineageTag(civ, p, polity);
         const span = k || sec ? yearSpan(p.from ?? p.born, p.until, era) : yearSpan(p.born, p.died, era);
         const realm = sec ? polityName(civ.polities[p.polity], p.from ?? p.born) : '';
+        const kin = lineageKin(civ, p);
+        const kinP = kin ? civ.polities[kin.polity] : undefined;
         // 名字加「当前」放不下:「当前」挪到年份后面
-        const low = on && CHROME + nameWidth(civ, p, box, polity) + badgeWidth() > W;
+        const low = on && CHROME + topWidth(civ, p, box, polity) + badgeWidth() > W;
         // 作者立的君主:头像换成作者人物卡上的那张(人物卡删掉了照旧)
         const ac = p.author !== undefined ? chars?.find((c) => c.id === p.author) : undefined;
         return (
@@ -198,6 +209,12 @@ function Tree({
                 {realm && <span className="lg-realm">{realm}</span>}
                 {span}
                 {low && <em className="cp-badge">当前</em>}
+                {kin && (
+                  <span className="lg-kin" data-kin={kin.polity}>
+                    <i style={kinP ? { background: `rgb(${kinP.color.join(',')})` } : undefined} />
+                    {kin.text}
+                  </span>
+                )}
               </em>
             </span>
           </button>
@@ -228,6 +245,15 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year, place = null 
     return { ...box0, W: Math.min(W_MAX, Math.max(box0.W, Math.ceil(CHROME + longest))) };
   }, [civ, trees, box0, polity]);
   const tail = useMemo(() => dynastyEnd(civ, rows, ri, era), [civ, rows, ri, era]);
+  // 这一朝有掌过实权、被架空过的("掌权""虚位"),有跨国联姻的("妻大澜"):图例多一行讲它(拿这一朝第一个出现的国名举例)
+  const legendHeld = useMemo(() => trees.some((t) => t.nodes.some((n) => /掌权|虚位/.test(lineageTag(civ, n.p, polity)))), [civ, trees, polity]);
+  const legendKin = useMemo(() => {
+    for (const t of trees) for (const n of t.nodes) {
+      const k = lineageKin(civ, n.p);
+      if (k) return k.text.slice(1);
+    }
+    return '';
+  }, [civ, trees]);
   // 最后一位在哪一棵(结尾那句写在他下面)
   const lastTree = useMemo(() => {
     const lastRuler = row?.rulers[row.rulers.length - 1];
@@ -308,6 +334,8 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year, place = null 
           养子（虚线连着）
         </div>
         <div>名字后面的灰字是结局：争储被杀、战死、自立（下一行写他立的国）</div>
+        {legendHeld && <div data-legend="held">灰字「掌权」：他掌过实权（一直没即位，或即位以前）；「虚位」：君主在位时被架空过。点开卡片看是谁、哪几年</div>}
+        {legendKin && <div data-legend="kin">第二行「妻{legendKin}」「母{legendKin}」：妻子、母亲是别国宗室女（只写跨国联姻），小方块是那一国的颜色</div>}
         <div>点一位看他的卡片</div>
       </div>
     </nav>

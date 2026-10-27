@@ -281,6 +281,14 @@ export interface WarModel {
   resOf?: (r: number) => number;
   /** 物产(development.ts 挂上):国家 p 此刻缺、又想要的物产(按位);门槛要的那样(快进下一个时代却没有)单独给 gate */
   wantOf?: (p: number) => { want: number; gate: number };
+  /** 掌实权(regency.ts 挂上):战争 w 里 x 一方的国力倍数(引兵入朝那一刻正在打的仗,粮饷为掌权的人所制,几年里淡回) */
+  supply?: (w: War, x: number, t: Year) => number;
+  /** 联姻(marriage.ts 挂上):p 看要不要打 q 时宣战赔率的倍数(两国结着亲、在位的君主母亲出自 q);没有 = 1 */
+  kin?: (p: number, q: number, t: Year) => number;
+  /** 联姻(marriage.ts 挂上):背盟去打盟国 q 时赔率再乘的(两国结着亲);没有 = 1 */
+  kinBetray?: (p: number, q: number, t: Year) => number;
+  /** 联姻(marriage.ts 挂上):战争 w 打到厌战、达成目标,两国议和之后(以和亲作结) */
+  onPeace?: (w: War, t: Year) => void;
 }
 
 /** 按位数 */
@@ -408,6 +416,11 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (w && wm.morale) {
       sx *= wm.morale(w, x, t);
       sy *= wm.morale(w, y, t);
+    }
+    // 粮饷为掌权的人所制(引兵入朝那一刻正在打的仗;regency.ts)
+    if (w && wm.supply) {
+      sx *= wm.supply(w, x, t);
+      sy *= wm.supply(w, y, t);
     }
     if (culture[r] === X.culture) sx *= KIN_ATTACK;
     if (culture[r] === Y.culture) sy *= HOME_DEF;
@@ -729,8 +742,10 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       o *= 1 + REVANCHE * Math.min(4, claims(q));
       // 小国(一场仗就能吞下)格外招人
       if (pm.size[q] <= PREY) o *= PREY_ODDS;
-      if (betray) o *= dm!.betrayOdds;
+      if (betray) o *= dm!.betrayOdds * (wm.kinBetray?.(p, q, t) ?? 1);
       if (oath > 0) o *= oath;
+      // 联姻(marriage.ts):两国结着亲少开战,在位的君主不打舅家
+      if (wm.kin) o *= wm.kin(p, q, t);
       // 邻国大乱:趁虚而入
       if (wm.unrest) o *= 1 + PREY_UNREST * Math.max(0, wm.unrest(q, t) - PREY_CALM);
       if (pol && picks(pm, pol.foes, q)) o *= FOE_ODDS;
@@ -902,6 +917,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     }
     if (peace) {
       makePeace(w, t);
+      wm.onPeace?.(w, t);
       if (weary) wm.onTruce?.(w, t);
     } else sim.schedule(t + gapOf(wm, w, i + 1), Ev.Campaign, i + 1, id);
   });

@@ -114,6 +114,11 @@ function deedText(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
       if (east) return `${whoName}即位，年方 ${age} 岁，受遗命辅政${years ? ` ${years} 年` : ''}`;
       return `${whoName}年幼即位（${age} 岁），受命摄政${years ? ` ${years} 年` : ''}`;
     }
+    case 'power': {
+      const years = d.until !== undefined ? Math.max(1, F(d.until) - F(d.year)) : 0;
+      if (east) return `${whoName}在位时专擅朝政${years ? ` ${years} 年` : ''}，政出其门`;
+      return `${whoName}在位时独揽朝政${years ? ` ${years} 年` : ''}`;
+    }
     case 'enthrone': {
       const prev = who ? prevRuler(civ, who) : undefined;
       const prevName = prev ? personName(civ, prev) : '先君';
@@ -162,6 +167,8 @@ function deedShort(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
       return east ? `佐${short}开国` : `随${short}建国`;
     case 'regent':
       return east ? `辅幼主${short}` : `为${short}摄政`;
+    case 'power':
+      return east ? '专擅朝政' : '独揽朝政';
     case 'enthrone':
       return east ? `迎立${short}` : `拥立${short}`;
     case 'rank':
@@ -270,6 +277,9 @@ function ministerEnd(civ: Civ, x: Person, east: boolean, era?: Era): string {
       const m = merger !== undefined && merger >= 0 ? polityName(civ.polities[merger], until) : '';
       return after(east ? `${yearAt(until, era)}${oldName}并入${m}，随之归附` : `${yearAt(until, era)}${oldName}并入${m}`);
     }
+    case 'purged':
+      // 掌实权时被君主诛杀(regents.ts)
+      return east ? `${yearAt(until, era)}伏诛` : `${yearAt(until, era)}被处死`;
     default:
       return after(east ? `${yearAt(until, era)}去职` : `${yearAt(until, era)}离任`);
   }
@@ -304,6 +314,8 @@ export function ministerFate(civ: Civ, x: Person, era?: Era): string {
       const to = m !== undefined && m >= 0 && civ.polities[m] ? polityName(civ.polities[m], until) : '';
       return (to ? `随国并入${to}` : '随国归附') + later;
     }
+    case 'purged':
+      return east ? `${yearAt(until, era)}伏诛` : `${yearAt(until, era)}被处死`;
     default:
       return (east ? '去职' : '离任') + later;
   }

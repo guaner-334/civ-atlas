@@ -124,9 +124,10 @@ describe('王朝更替', () => {
         expect(e.b, tag).toBe(-1);
         expect(e.war, tag).toBe(-1);
         expect(polityAlive(p, e.year), tag).toBe(true);
-        // 大国才改朝换代:国号到过第 2 档;当朝已经 OLD_AGE 年以上的,到过第 1 档就行
+        // 大国才改朝换代:国号到过第 2 档;当朝已经 OLD_AGE 年以上的、掌实权的名臣大臣篡位的(紧挨在前面的 regent,regents.ts),到过第 1 档就行
         const prev = p.dynasties![dynastyIndexAt(p, e.year) - 1].year;
-        expect(polityTierAt(p, e.year), tag).toBeGreaterThanOrEqual(e.year - prev >= OLD_AGE ? 1 : 2);
+        const usurp = A[A.indexOf(e) - 1]?.kind === 'regent';
+        expect(polityTierAt(p, e.year), tag).toBeGreaterThanOrEqual(e.year - prev >= OLD_AGE || usurp ? 1 : 2);
         // 根据地在本国国土里、是本族的州、有城;新国都 = 当年的国都(定都根据地时就是根据地的城)
         const own = ownersAt(civ, e.year).polity;
         expect(own[e.region], tag).toBe(e.a);
@@ -159,8 +160,8 @@ describe('王朝更替', () => {
         for (let i = 1; i < d.length; i++) {
           const e = A.find((x) => x.kind === 'dynasty' && x.a === p.id && x.year === d[i].year)!;
           expect(civ.settlements[d[i].seat].region).toBe(e.region);
-          // 一朝至少几十年
-          expect(d[i].year - d[i - 1].year).toBeGreaterThanOrEqual(MIN_AGE);
+          // 一朝至少几十年(掌实权的名臣、大臣篡位不看这一条,regents.ts)
+          if (A[A.indexOf(e) - 1]?.kind !== 'regent') expect(d[i].year - d[i - 1].year).toBeGreaterThanOrEqual(MIN_AGE);
         }
         for (const x of d) expect(x.name.length, p.name).toBeGreaterThan(0);
       }
@@ -258,20 +259,24 @@ describe('王朝更替', () => {
         const p = civ.polities[e.polities[0]];
         const i = dynastyIndexAt(p, e.year);
         const n = Math.floor(e.year) - Math.floor(p.dynasties![i - 1].year);
-        expect(e.tag).toBe('朝');
+        // 掌实权的人篡位开的新朝(紧挨在前面的那条 regent 是篡位)标签"篡"
+        const pre = civ.annals[e.id - 1];
+        const usurped = !!pre && pre.kind === 'regent' && pre.n === 3 && pre.a === p.id && pre.year === e.year;
+        expect(e.tag).toBe(usurped ? '篡' : '朝');
         expect(e.text).not.toMatch(/某国|undefined|NaN|-1|旧王室/);
         expect(e.text).toContain(`享国 ${n} 年`);
         if (p.eastern) {
           // "大昌享国 312 年而亡,景元起于青州代之,国号大景,定都青阳" / "…,权臣赵高废少帝自立,国号大景" / "…,入主昌京,国号大景"
-          expect(e.text).toMatch(/^.+享国 \d+ 年而亡,(权臣.+自立|.+起于.+),国号.+$/);
+          // 掌实权的名臣篡位:"…,丞相赵高废幼主某某,自立为君,国号大景"
+          expect(e.text).toMatch(/^.+享国 \d+ 年而亡,(权臣.+自立|.+起于.+|.+自立为君),国号.+$/);
           const founder = civ.people!.find((x) => x.role === 'ruler' && x.polity === p.id && x.dynasty === i)!;
           expect(e.text).toContain(founder.name);
           expect(e.people).toContain(founder.id);
           // 当时第 DYNASTY_TIER 档以上的是大事
           expect(e.importance).toBe(polityTierAt(p, e.year) >= DYNASTY_TIER ? MAJOR : 2);
         } else {
-          // "索拉特王国王室更迭,塞伦纳王朝享国 312 年而终,卡诺王朝兴,阿尔德里克三世即位"
-          expect(e.text).toMatch(/^.+(王室更迭|汗位易主),.+王朝享国 \d+ 年而终,.+王朝兴,.+即位(,迁都.+)?$/);
+          // "索拉特王国王室更迭,塞伦纳王朝享国 312 年而终,卡诺王朝兴,阿尔德里克三世即位"(掌实权的首相篡位:"…,首相某某废黜某某,自立为王")
+          expect(e.text).toMatch(/^.+(王室更迭|汗位易主),.+王朝享国 \d+ 年而终,.+王朝兴,(.+即位|.+自立为王)(,迁都.+)?$/);
           expect(e.text).toContain(dynastyTitle(p, i));
           expect(e.importance).toBeLessThan(MAJOR);
         }

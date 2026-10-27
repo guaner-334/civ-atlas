@@ -36,7 +36,7 @@
  *     再一样时有城的在前、人少的在前。议和划缓冲的(pickBuffer):这场仗里易手次数最多、此刻在两国交界上的那一州。
  *     那州原属哪国由哪国让出;撤销时还给原来那国(那国还在、陆上还和它接壤),不然成了无主之地,周围的国家照常扩张进去。
  *   **放逐**(每处同时最多 ZONE_CAP 人:EXILE_STAY 年内徙来的算还住着):
- *     立约国新君即位(先君寿终、同一朝里交接,PolityModel.onReign;在 unrest.ts 的宗室争位之前看),先君还有成年在世的儿子:
+ *     立约国新君即位(先君寿终、同一朝里交接、先君晚年新君没有引兵入朝,PolityModel.onReign;在 unrest.ts 的宗室争位之前看),先君还有成年在世的儿子:
  *       EXILE_P 的机会把最年长的那位徙到中立地(记 exile,cause = heir),这一回不再有宗室据地争位;
  *     改朝换代、旧朝末代之君被废(新朝的根据地就是原来的国都,和 people.ts 判"被废"同一个判据):EXILE_P 的机会徙去(cause = deposed);
  *     立约国亡于战争(WarModel.onFall),约还在、中立地还在:亡国之君出奔中立地(cause = fled)。
@@ -749,6 +749,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     }
     // 同一朝里交接(和宗室据地争位同样的条件):先君寿终、不是遇弑、不是作者让他去世
     if (R.death || R.cut !== undefined || R.natural !== t || X.j === 0 || murderedAt(pm.rbase, pm.rtag[pid], R.k)) return false;
+    // 先君晚年新君已引兵入朝、杀过一轮兄弟(regency.ts):和宗室据地争位一样不另看
+    if (pm.regents.get(pid)?.some((g) => g.kind === 'march' && g.k === R.k)) return false;
     const sons = claimants(pm.rbase, pm.rtag[pid], R, P, t);
     if (!sons.length || keyed4(base, pm.ptag[pid], k, 0, U_HEIR) >= EXILE_P) return false;
     exile(pid, z, 'heir', sons[0]);

@@ -33,8 +33,9 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
     for (const x of civ.people!) {
       if (x.role !== 'ruler') continue;
       const p = civ.polities[x.polity];
-      // 新朝的第一位从改朝换代的下一刻起"在位"(见 rulers.ts 文件头)
-      const r = reignAt(base, tags[p.id], p, x.from! + (x.rise !== 'heir' && x.from! > p.founded ? 1 / 256 : 0));
+      // 新朝的第一位、废了幼主自立的摄政叔父(regents.ts)从即位的下一刻起"在位"(见 rulers.ts 文件头)
+      const late = (x.rise !== 'heir' && x.from! > p.founded) || x.claim?.how === 'seize';
+      const r = reignAt(base, tags[p.id], p, x.from! + (late ? 1 / 256 : 0));
       expect(r.from, `${p.name} ${x.name}`).toBe(x.from);
       expect(r.leanings, `${p.name} ${x.name}`).toEqual(x.leanings);
       expect(reignStart(r)).toBeGreaterThanOrEqual(x.from!);

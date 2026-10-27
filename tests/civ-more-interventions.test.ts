@@ -102,6 +102,8 @@ function pairAt(civ: Civ, T: number): [number, number] {
 function officerAt(civ: Civ, role: 'general' | 'minister', T: number): Person | undefined {
   const live = (civ.people ?? []).filter((x) => {
     if (x.role !== role || (x.died !== undefined && x.died <= T)) return false;
+    // 名臣还要在朝(已经致仕、随故朝去职的,让他去世不生效)
+    if (role === 'minister' && x.until !== undefined && x.until <= T) return false;
     const from = role === 'general' ? x.commands?.[0]?.from : x.from;
     return from !== undefined && from < T;
   });
@@ -440,8 +442,10 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
   it('天灾:那座城已毁 / 那一带没人住 = 不生效(历史和不下一样,写原因)', () => {
     const w = world(seed);
     const base = baseOf(seed);
-    const ruin = base.settlements.find((s) => s.ended !== undefined && s.ended < T - 20)!;
-    const civ = generateCiv(w, { interventions: [{ kind: 'disaster', type: 'plague', level: 2, from: T, city: settlementKey(base, ruin.id) }] });
+    // 早先毁了的城(GENERATOR_VERSION 39 时种子 2024 第 1280 年以前没有毁过城:那就在头一座毁了 20 年以后下)
+    const ruin = base.settlements.filter((s) => s.ended !== undefined).sort((a, b) => a.ended! - b.ended!)[0];
+    const at = Math.max(T, Math.ceil(ruin.ended!) + 20);
+    const civ = generateCiv(w, { interventions: [{ kind: 'disaster', type: 'plague', level: 2, from: at, city: settlementKey(base, ruin.id) }] });
     expect(civ.annals.find((e) => e.kind === 'intervene')).toMatchObject({ b: 0 });
     expect(civ.log).toEqual(base.log);
     expect(interventionFate(civ, 0)).toMatchObject({ state: 'void', why: expect.stringMatching(/已毁$/) });

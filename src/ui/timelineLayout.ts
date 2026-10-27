@@ -76,6 +76,8 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   reclaim: 'dynasty',
   fiscal: 'calamity',
   council: 'dynasty',
+  regent: 'dynasty',
+  marry: 'empire',
 };
 
 /** 这条纪事归哪一类(不认识的种类算"改朝":蓝色,和普通链接一样不抢眼) */
@@ -141,6 +143,12 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   中: '中立',
   逐: '放逐',
   奔: '出奔',
+  权: '掌权',
+  还: '还政',
+  诛: '伏诛',
+  篡: '篡位',
+  亲: '亲政',
+  姻: '结亲',
 };
 
 /** 卡片 / 最近事件 / 提示里的类型名:"战争""改朝""称帝"…… */
@@ -199,6 +207,8 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   defy: 1,
   fiscal: 1,
   council: 2,
+  regent: 3,
+  marry: 1,
   submit: 4,
   defect: 4,
   alliance: 2,
