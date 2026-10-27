@@ -12,6 +12,8 @@ import { finishGully, finishVeins, rasterizeDeferred, streamsOf, type GullyJob, 
 import { veinsOf, type DrainLines, type Streams, type VeinJob } from './gen/pixelDrain';
 import type { World } from './gen/world';
 import type { GullyRequest, GullyResponse } from './gullyWorker';
+import { macroGrids, putRealisticRows, realisticRowBands, realisticRowsWindow, realisticWindowPaint, windowTransferables, type MacroGrids, type RealisticPainted } from './render/realistic';
+import type { SurfaceLook } from './render/surface';
 
 /** 开始重活之前最多等帮手加载多久(毫秒) */
 const HELPER_WAIT = 400;
@@ -110,6 +112,64 @@ export class GullyPool {
     return result;
   }
 
+  /**
+   * 写实画风的整张像素层,looks 每种画法一张(和主线程 render/realistic.ts 的 realisticBase 一口气整张画逐像素相同):
+   * 按整行切成带子(realisticRowBands),帮手和本线程一起画(每个帮手手上排两条,画完一条再给一条),拼回整张。
+   * 切带子的数组交来交去、一直接着用(帮手画完把那一块交回来,下一条拷进它里面):不每条另分配,帮手那边不留一堆等着回收的。
+   * 新建世界时用:主线程换上地图之前不用自己再分小步画几百毫秒。
+   * stop() = 不要了(后面排上了新的世界):还没发出去的带子不画了,返回 null
+   */
+  async paintRealistic(r: Raster, looks: SurfaceLook[], stop: () => boolean): Promise<RealisticPainted | null> {
+    const grids = macroGrids(r);
+    const N = r.w * r.h * 4;
+    const out = looks.map((look) => ({ look, px: new Uint8ClampedArray(N), raw: new Uint8ClampedArray(N) }));
+    const bands = realisticRowBands(r);
+    const tasks = out.flatMap((o) => bands.map(([y0, y1]) => ({ o, y0, y1 })));
+    let next = 0;
+    let stopped = false;
+    const take = () => {
+      if (next < tasks.length && stop()) stopped = true;
+      return stopped || next >= tasks.length ? null : tasks[next++];
+    };
+    /** 本线程自己画的那几条接着用的一块 */
+    let spare: Raster | null = null;
+    const mine = (t: (typeof tasks)[number]) => {
+      const win = (spare = realisticRowsWindow(r, t.y0, t.y1, spare));
+      putRealisticRows(t.o, r, t.y0, t.y1, realisticWindowPaint(win, grids, t.o.look, true));
+    };
+    const gridsKey = ++this.seq;
+    const helper = (hw: Worker) => {
+      let sent = false;
+      // 一条线:发一条带子、等它画完、拼上,再发下一条(帮手出了错的那条本线程自己画)
+      const line = async () => {
+        let back: Raster | null = null;
+        // 帮手坏了(onerror 里拿掉了)就不再给它
+        for (let t = this.helpers.includes(hw) ? take() : null; t; t = this.helpers.includes(hw) ? take() : null) {
+          const p = this.sendPaint(hw, realisticRowsWindow(r, t.y0, t.y1, back), t.o.look, gridsKey, sent ? undefined : grids);
+          sent = true;
+          const got = await p;
+          back = got?.win ?? null;
+          if (got?.painted) putRealisticRows(t.o, r, t.y0, t.y1, got.painted);
+          else mine(t);
+        }
+      };
+      // 两条线:帮手画完一条,下一条已经在它那儿排着了(本线程正在画自己那条也不耽误它)
+      return Promise.all([line(), line()]);
+    };
+    const own = async () => {
+      for (let t = take(); t; t = take()) {
+        mine(t);
+        // 让一下:帮手画好的先拼上、再发下一条
+        await yieldTask();
+      }
+    };
+    const hs = this.helpers.slice();
+    await Promise.all([...hs.map(helper), own()]);
+    // 画完了:帮手手上的粗网格放掉
+    for (const hw of hs) if (this.helpers.includes(hw)) hw.postMessage({ id: ++this.seq, paintEnd: true } satisfies GullyRequest);
+    return stopped ? null : { grids, looks: out };
+  }
+
   /** 不用了:关掉帮手 */
   close(): void {
     for (const hw of this.helpers) hw.terminate();
@@ -126,6 +186,16 @@ export class GullyPool {
     });
   }
 
+  /** 写实像素层的一条带子交给 hw(win 是切出来的一块,transfer 过去,画完原样交回来);帮手坏了 = null */
+  private sendPaint(hw: Worker, win: Raster, look: SurfaceLook, gridsKey: number, grids?: MacroGrids): Promise<Extract<GullyResponse, { painted: unknown }> | null> {
+    const id = ++this.seq;
+    return new Promise((resolve) => {
+      this.wait.set(id, (r) => resolve(r && 'painted' in r ? r : null));
+      const req: GullyRequest = { id, paint: { win, look, gridsKey, ...(grids ? { grids } : {}) } };
+      hw.postMessage(req, windowTransferables(win));
+    });
+  }
+
   /** 细沟交给 hw(海拔、水陆、河岸拷一份过去,主图自己的不动;它先算着这个世界的河、溪浅谷时只带编号) */
   private sendVeins(hw: Worker, vj: VeinJob): Promise<{ lines: DrainLines; vein: Uint8Array } | null> {
     const id = ++this.seq;
@@ -138,6 +208,21 @@ export class GullyPool {
       hw.postMessage(req, [copy.elev.buffer, copy.water.buffer, copy.bank.buffer]);
     });
   }
+}
+
+/** 让一下(排到下一个任务再接着做,这期间到了的消息先处理;MessageChannel:没有 setTimeout(0) 连着用时的 4 毫秒下限) */
+let yieldCh: MessageChannel | null = null;
+const yielded: (() => void)[] = [];
+function yieldTask(): Promise<void> {
+  if (!yieldCh) {
+    yieldCh = new MessageChannel();
+    yieldCh.port1.onmessage = () => yielded.shift()?.();
+  }
+  const ch = yieldCh;
+  return new Promise((r) => {
+    yielded.push(r);
+    ch.port2.postMessage(0);
+  });
 }
 
 /** rasterizeDeferred 的结果:铺好的主图、还没算的沟壑和细沟 */

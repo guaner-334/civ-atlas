@@ -400,6 +400,12 @@ export function realisticBase(r: Raster, look: SurfaceLook = 'classic'): AnyCanv
     return hit.canvas;
   }
   const cv = makeCanvas(r.w, r.h);
+  // 后台线程已经画好的(新建世界随地图交来的):贴上就是
+  const got = paintedOf(r, look);
+  if (got) {
+    adoptPainted(r, look, got, cv);
+    return cv;
+  }
   const ctx = cv.getContext('2d') as CanvasRenderingContext2D;
   const grids = r.win ? null : macroGrids(r);
   const raw = paintRealistic(ctx, r, undefined, true, grids ?? undefined, look);
@@ -430,6 +436,7 @@ export function dropRealisticBasesExcept(keep: readonly (Raster | null | undefin
     shoreCache = null;
   }
   if (landPathCache && !keep.includes(landPathCache.raster)) landPathCache = null;
+  if (painted && !keep.includes(painted.raster)) painted = null;
 }
 
 /** 一条带子每步重画多少个像素(约一两帧的活) */
@@ -491,10 +498,19 @@ export function realisticPatchSteps(r1: Raster, r0: Raster, look: SurfaceLook, b
 
 /**
  * 整张像素层分几步画(每步一条带子,和 realisticBase 一口气画逐像素相同),最后一步放进缓存:之后 realisticBase 直接拿。
+ * 后台线程已经画好了的(takeRealisticPainted)只剩贴上、放进缓存那一步。
  * 缓存里已经有这一张的(或放大后现算的一块)= null
  */
 export function realisticFullSteps(r: Raster, look: SurfaceLook): WorkStep[] | null {
   if (r.win || bases.some((b) => b.raster === r && b.look === look)) return null;
+  if (paintedOf(r, look))
+    return [
+      () => {
+        // 这之前别处已经整张画过一张(切到了写实),或者那一张已经贴进了缓存:不用再贴
+        const got = paintedOf(r, look);
+        if (got && !bases.some((b) => b.raster === r && b.look === look)) adoptPainted(r, look, got, makeCanvas(r.w, r.h));
+      },
+    ];
   const W = r.w;
   const H = r.h;
   const region: PixelBox = { x0: 0, y0: 0, w: W, h: H };
@@ -573,16 +589,7 @@ export function realisticBandPixels(r: Raster, g: MacroGrids, look: SurfaceLook,
   const whole = region.w + 2 * P >= W;
   const wx0 = whole ? 0 : (region.x0 - P + W) % W;
   const ww = whole ? W : region.w + 2 * P;
-  const win = cutRaster(r, wx0, wy0, ww, wy1 - wy0);
-  let px: Uint8ClampedArray | null = null;
-  const sink = {
-    createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
-    putImageData: (img: { data: Uint8ClampedArray }) => {
-      px = img.data;
-    },
-  } as unknown as CanvasRenderingContext2D;
-  const pre = paintRealistic(sink, win, undefined, wantRaw, g, look);
-  const out = px as unknown as Uint8ClampedArray;
+  const { px: out, raw: pre } = realisticWindowPaint(cutRaster(r, wx0, wy0, ww, wy1 - wy0), g, look, wantRaw);
   const rows = y1 - y0;
   return boxSpans(region, W).map(([s, e]) => {
     const n = e - s;
@@ -597,6 +604,98 @@ export function realisticBandPixels(r: Raster, g: MacroGrids, look: SurfaceLook,
     }
     return { x: s, n, px: o, raw: q };
   });
+}
+
+/**
+ * 纯计算(帮手线程里也能跑,见 gullyWorker.ts):切出来的一块(cutRaster)上色,大尺度晕渲按整张图的粗网格 g 取样。
+ * px = 抗锯齿以后的 RGBA,raw = 抗锯齿之前的(wantRaw 才给);四周 WINDOW_PAD 个像素邻居不全,调用方裁掉
+ */
+export function realisticWindowPaint(win: Raster, g: MacroGrids, look: SurfaceLook, wantRaw: boolean): { px: Uint8ClampedArray; raw: Uint8ClampedArray | null } {
+  let px: Uint8ClampedArray | null = null;
+  const sink = {
+    createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: (img: { data: Uint8ClampedArray }) => {
+      px = img.data;
+    },
+  } as unknown as CanvasRenderingContext2D;
+  const raw = paintRealistic(sink, win, undefined, wantRaw, g, look);
+  return { px: px as unknown as Uint8ClampedArray, raw };
+}
+
+/** 整张像素层按整行分带子画(后台线程,见 gullyPool.ts 的 paintRealistic)一条带子多少个像素:约几十毫秒的活 */
+const ROWS_BAND_PX = 131072;
+
+/** 整张像素层按整行分成的几条带子([y0, y1),从上到下) */
+export function realisticRowBands(r: Pick<Raster, 'w' | 'h'>): [number, number][] {
+  const band = Math.max(8, Math.floor(ROWS_BAND_PX / r.w));
+  const out: [number, number][] = [];
+  for (let y = 0; y < r.h; y += band) out.push([y, Math.min(r.h, y + band)]);
+  return out;
+}
+
+/**
+ * 第 y0..y1 − 1 行(整宽)连同上下各 WINDOW_PAD 行余量切出来的一块:上色(realisticWindowPaint)以后用
+ * putRealisticRows 裁回这几行。和 realisticBandPixels 整圈画的那一块一样,拼回整张和一口气整张画逐像素相同。
+ * reuse = 画完了的上一块(数组拷进它的里面,见 cutRaster)
+ */
+export function realisticRowsWindow(r: Raster, y0: number, y1: number, reuse?: Raster | null): Raster {
+  const wy0 = Math.max(0, y0 - WINDOW_PAD);
+  return cutRaster(r, 0, wy0, r.w, Math.min(r.h, y1 + WINDOW_PAD) - wy0, reuse);
+}
+
+/** 切出来的一块里的数组(后台线程和帮手之间交来交去时转移,不复制) */
+export function windowTransferables(win: Raster): ArrayBuffer[] {
+  const arrays = [win.elev, win.temp, win.precip, win.water, win.biome, win.ice, win.iceConc, win.iceTone, win.gully, win.bank, win.vein];
+  return arrays.flatMap((a) => (a ? [a.buffer as ArrayBuffer] : []));
+}
+
+/** realisticRowsWindow(r, y0, y1) 那一块上好的色(px、raw)裁回 y0..y1 − 1 行,写进整张的 into(和主图一样大) */
+export function putRealisticRows(into: { px: Uint8ClampedArray; raw: Uint8ClampedArray | null }, r: Pick<Raster, 'w'>, y0: number, y1: number, got: { px: Uint8ClampedArray; raw: Uint8ClampedArray | null }): void {
+  const row = r.w * 4;
+  const from = (y0 - Math.max(0, y0 - WINDOW_PAD)) * row;
+  const n = (y1 - y0) * row;
+  into.px.set(got.px.subarray(from, from + n), y0 * row);
+  if (into.raw && got.raw) into.raw.set(got.raw.subarray(from, from + n), y0 * row);
+}
+
+/**
+ * 后台线程整张画好的像素层(新建世界时随地图一起交来,见 worker.ts 的 map 和 gullyPool.ts 的 paintRealistic):
+ * 每种画法一张(px = 抗锯齿以后的、raw = 之前的),和这张主图的粗网格
+ */
+export interface RealisticPainted {
+  grids: MacroGrids;
+  looks: { look: SurfaceLook; px: Uint8ClampedArray; raw: Uint8ClampedArray }[];
+}
+
+/** 交给主线程时 transfer 走的数组 */
+export function realisticPaintedTransferables(p: RealisticPainted): ArrayBuffer[] {
+  const g = p.grids;
+  return [g.SL, g.SS, g.P, ...(g.GL ?? []), ...(g.GS ?? []), ...p.looks.flatMap((l) => [l.px, l.raw])].map((a) => a.buffer as ArrayBuffer);
+}
+
+/** 随地图交来、还没放进缓存的那几张(只留最近一张主图的;放进缓存的那种画法就从这里拿掉) */
+let painted: { raster: Raster; p: RealisticPainted } | null = null;
+
+/**
+ * 主线程收到后台画好的像素层(r = 和它一起交来的主图):先记着,到 realisticFullSteps / realisticBase 要这一张时
+ * 直接贴上(不再逐行上色);之前记着的别的主图的那几张放掉
+ */
+export function takeRealisticPainted(r: Raster, p: RealisticPainted): void {
+  painted = { raster: r, p };
+}
+
+/** 记着的 r 这种画法画好的那一张(没有 = null) */
+function paintedOf(r: Raster, look: SurfaceLook): RealisticPainted['looks'][number] | null {
+  return painted?.raster === r ? (painted.p.looks.find((l) => l.look === look) ?? null) : null;
+}
+
+/** 画好的那一张贴进一张新画布、放进缓存(从记着的里拿掉) */
+function adoptPainted(r: Raster, look: SurfaceLook, got: RealisticPainted['looks'][number], cv: AnyCanvas): void {
+  (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(got.px, r.w, r.h), 0, 0);
+  const grids = painted!.p.grids;
+  painted!.p.looks = painted!.p.looks.filter((l) => l !== got);
+  if (!painted!.p.looks.length) painted = null;
+  adoptBase({ raster: r, look, canvas: cv, raw: got.raw, grids });
 }
 
 
