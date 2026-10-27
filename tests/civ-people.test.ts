@@ -46,8 +46,10 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
     });
     // 宗室出道(为哪位君主补的)不存:只比君主即位、统帅第一次领兵、名臣入仕的年份
     // (接先君之位的儿子按做儿子出道的那一刻排,也不比)
-    const son = (x: Person) => x.role === 'ruler' && x.parent !== undefined && P[x.parent].role === 'ruler' && P[x.parent].until === x.from;
-    const debut = P.filter((x) => x.role !== 'prince' && !son(x)).map((x) => (x.role === 'general' ? x.commands![0].from : x.from!));
+    // (废了幼主自立的摄政叔父也按做儿子出道排;掌实权篡位的名臣按他做名臣、掌权的那一刻排)
+    const son = (x: Person) => x.role === 'ruler' && ((x.parent !== undefined && P[x.parent].role === 'ruler' && P[x.parent].until === x.from) || x.claim?.how === 'seize');
+    const usurped = (x: Person) => (x.rise === 'usurp' ? x.regencies?.find((g) => g.end === 'usurp')?.from : undefined);
+    const debut = P.filter((x) => x.role !== 'prince' && !son(x)).map((x) => (x.role === 'general' ? x.commands![0].from : (usurped(x) ?? x.from!)));
     for (let i = 1; i < debut.length; i++) expect(debut[i]).toBeGreaterThanOrEqual(debut[i - 1]);
     expect(new Set(P.map((x) => x.role)).size).toBeGreaterThanOrEqual(3);
   });
@@ -219,9 +221,9 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
         }
       }
     }
-    // 君主继位:每一位"继位"的君主一条,只有选了国家时并进去
+    // 君主继位:每一位"继位"的君主一条,只有选了国家时并进去(废了幼主自立的摄政叔父不另列:掌实权那一条写了篡位)
     const reigns = reignEntries(civ);
-    expect(reigns.length).toBe(P.filter((x) => x.role === 'ruler' && x.rise === 'heir').length);
+    expect(reigns.length).toBe(P.filter((x) => x.role === 'ruler' && x.rise === 'heir' && x.claim?.how !== 'seize').length);
     expect(list.some((e) => e.kind === 'reign')).toBe(false);
     const ids = new Set(list.map((e) => e.id));
     for (const e of reigns) {

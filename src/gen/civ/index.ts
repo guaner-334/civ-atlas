@@ -49,6 +49,8 @@ import { finishDevelopment, installDevelopment } from './development';
 import { installUnrest } from './unrest';
 import { installControl } from './control';
 import { installCouncil } from './council';
+import { installRegency } from './regency';
+import { installMarriage } from './marriage';
 import { installPlague } from './plague';
 import { installPandemic } from './pandemic';
 import { breakRoads } from './pandemicInfo';
@@ -240,6 +242,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installUnrest(sim, pm, seed); // 动荡(unrest.ts):饥荒、民变、大崩解
   if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
+  if (pm) installRegency(sim, pm); // 掌实权(regency.ts):引兵入朝、太子监国、宗室摄政、名臣辅政、大臣大将专权
+  if (pm) installMarriage(sim, pm); // 联姻(marriage.ts):两国宗室结亲,少开战、易结盟
   if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
   if (pm) installPandemic(sim, pm, seed); // 全球大疫、疫后凋敝;「天灾」多 / 很多时自己发生的全球大疫、地震水旱(pandemic.ts)
   if (pm) installTreaties(sim, pm, world); // 立约与中立地(treaties.ts):互不侵犯 / 有限竞争之约、背约、续约,共建中立地、放逐

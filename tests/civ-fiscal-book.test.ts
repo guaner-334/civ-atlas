@@ -65,7 +65,8 @@ describe('各国的账本', () => {
         const v = fiscalAt(civ, e.a, e.year)!.values;
         expect(fiscalMood(fillOf(v.国库, v.应缴), v.窘迫), `seed ${seed} 第 ${e.year} 年`).toBe(3);
       }
-      const s = fiscalSeries(civ, fiscal[0].a);
+      // 闹过国用不足的国家里账记得最久的那一国
+      const s = [...new Set(fiscal.map((e) => e.a))].map((p) => fiscalSeries(civ, p)).sort((a, b) => b.length - a.length)[0];
       expect(s.length).toBeGreaterThan(3);
       s.forEach((x) => expect(x.year % BOOK_EVERY).toBe(0));
     }
