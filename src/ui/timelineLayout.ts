@@ -78,6 +78,7 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   council: 'dynasty',
   regent: 'dynasty',
   marry: 'empire',
+  keep: 'dynasty',
 };
 
 /** 这条纪事归哪一类(不认识的种类算"改朝":蓝色,和普通链接一样不抢眼) */
@@ -104,6 +105,7 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   复: '复国',
   合: '合并',
   朝: '改朝',
+  保: '王朝',
   嗣: '继位',
   徙: '迁徙',
   化: '同化',
