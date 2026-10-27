@@ -329,7 +329,8 @@ export function toggleChroniclePolity(id: number) {
  * stamp 每次点都不同 —— 同一条点两次也重新闪、重新把地图平移过去。
  * steady = 不闪、一直亮着,直到换掉或清掉(天灾页先把受灾的州涂出来,DisasterPage.tsx;天灾推完提示条开着时淡淡涂着,faint);
  * tag = 地图上那一片旁边的小牌子("翼门之野一带 8 州"),摆在地块 cell 下面(TargetPlates.tsx);
- * blue = 一直亮着的改用蓝色:不由打开它的那一页给,useCivHighlight 看现在是不是管辖填色(割据在那里是橙色,橙色的圈亮会撞色)
+ * blue = 一直亮着的改用蓝色:不由打开它的那一页给,useCivHighlight 看现在是不是管辖填色(割据在那里是橙色,橙色的圈亮会撞色);
+ * stripes = 一直亮着的事发州画成这几国颜色的细横纹(划中立地那一页预览中立地,TreatyPage.tsx)
  */
 export interface CivHighlightState {
   regions: number[];
@@ -340,6 +341,7 @@ export interface CivHighlightState {
   faint?: boolean;
   tag?: { text: string; cell: number };
   blue?: boolean;
+  stripes?: number[][];
 }
 
 const highlight = store<{ h: CivHighlightState | null }>({ h: null });

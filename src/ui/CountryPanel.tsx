@@ -36,7 +36,7 @@ import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { treatiesOfAt, treatyMembersAt, treatyTitle } from '../gen/civ/treatyInfo';
-import { nationsWord, treatyPeriod, zonesOfAt } from './treatyRows';
+import { nationsWord, treatyPeriod, untilText, zonesOfAt } from './treatyRows';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityTitleChain, populationLabel, regionPopulationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { filterChronicle, polityChronicle } from '../gen/civ/chronicle';
@@ -62,6 +62,7 @@ import { FiscalPage, FiscalRow } from './FiscalPage';
 import { CourtPage, CourtRow } from './CourtPage';
 import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
+import { TreatyPage, ZonePage } from './TreatyPage';
 import { policyRow, roleLock } from './policyInfo';
 import { useRole } from './roleStore';
 import { RoleLockNote } from './RoleBar';
@@ -157,6 +158,10 @@ export function CountryPanel(props: CountryPanelProps) {
           <DestroyPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'disaster' ? (
           <DisasterPage key={id} civ={civ} polity={id} year={year} from={page.year} />
+        ) : page?.kind === 'treaty' ? (
+          <TreatyPage key={id} civ={civ} world={props.world} id={id} year={year} from={page.year} />
+        ) : page?.kind === 'neutral' ? (
+          <ZonePage key={id} civ={civ} world={props.world} id={id} year={year} from={page.year} />
         ) : (
           <CommandPage civ={civ} raster={raster} world={props.world} id={id} year={year} />
         )
@@ -490,7 +495,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
                 return (
                   <Fragment key={t.id}>
                     <Link to={{ kind: 'treaty', id: t.id }}>{treatyTitle(civ, t.id)}</Link>
-                    <em className="cp-num-note">到 {yearAt(treatyPeriod(t, shownYear).until, era)}</em>
+                    <em className="cp-num-note">{untilText(treatyPeriod(t, shownYear).until, era)}</em>
                     {others.length > 0 && <span className="cp-vsub">与{others.map((q) => polityName(civ.polities[q], shownYear)).join('、')}互不侵犯</span>}
                   </Fragment>
                 );

@@ -2,8 +2,9 @@
  * 立约与中立地在卡片上的写法:国家卡片「立约」「中立地」两行、条约卡片(TreatyPanel.tsx)、
  * 中立地那一州的卡片(RegionPanel.tsx)、人物卡「放逐」(PersonPanel.tsx)。数据全按史事整理(gen/civ/treatyInfo.ts),不改推演。
  */
-import type { Civ, Person, Year } from '../gen/civ/types';
+import type { Annal, Civ, Person, Year } from '../gen/civ/types';
 import { cnNumber, type ChronicleEntry } from '../gen/civ/chronicle';
+import { yearAt, type Era } from '../gen/era';
 import { treatyBook, zonesAt, type TreatyInfo, type ZoneInfo } from '../gen/civ/treatyInfo';
 
 /** 约的种类:"有限竞争之约"(三国以上)/ "互不侵犯之约" */
@@ -15,7 +16,7 @@ export const nationsWord = (n: number): string => `${n === 2 ? '两' : cnNumber(
 /** 期限(年):"二十年" */
 export const termWord = (n: number): string => `${cnNumber(n)}年`;
 
-/** 这份约在 year 那一刻的这一期:约里的几国(立约或最近那次续约时的)、这一期从哪年起、几年、到哪年 */
+/** 这份约在 year 那一刻的这一期:约里的几国(立约或最近那次续约时的)、这一期从哪年起、几年、到哪年(期限 0 = 一直有效,到 Infinity) */
 export function treatyPeriod(x: TreatyInfo, year: Year): { parties: number[]; from: Year; term: number; until: Year } {
   let parties = x.parties;
   let from = x.start;
@@ -26,7 +27,12 @@ export function treatyPeriod(x: TreatyInfo, year: Year): { parties: number[]; fr
     from = r.year;
     term = r.term;
   }
-  return { parties, from, term, until: from + term };
+  return { parties, from, term, until: term > 0 ? from + term : Infinity };
+}
+
+/** 到哪年:"到 2330 年";一直有效的约 = "一直有效" */
+export function untilText(until: Year, era?: Era | null): string {
+  return Number.isFinite(until) ? `到 ${yearAt(until, era)}` : '一直有效';
 }
 
 /** 国家 p 在 year 那一刻参与共建的中立地 */
@@ -84,6 +90,8 @@ export function treatyEntries(civ: Civ, x: TreatyInfo, all: readonly ChronicleEn
   return all.filter((e) => {
     const a = A[e.id];
     if (!a || a.kind !== e.kind) return false;
+    // 作者下令立的约、划的中立地并进了干预那一条(紧跟在它后面记的)
+    if (a.kind === 'intervene') return decreeHits(civ, e.id, (n) => (n.kind === 'treaty' && n.war === x.id) || (n.kind === 'neutral' && (n.n === x.id || (zone >= 0 && n.war === zone))));
     switch (a.kind) {
       case 'treaty':
       case 'expire':
@@ -100,12 +108,20 @@ export function treatyEntries(civ: Civ, x: TreatyInfo, all: readonly ChronicleEn
   });
 }
 
-/** 和这处中立地有关的大事:设立、撤销、徙居、出奔那里的人(按先后) */
+/** 和这处中立地有关的大事:设立(作者下令划的:干预那一条)、撤销、徙居、出奔那里的人(按先后) */
 export function zoneEntries(civ: Civ, z: ZoneInfo, all: readonly ChronicleEntry[]): ChronicleEntry[] {
   const A = civ.annals;
   return all.filter((e) => {
     const a = A[e.id];
     if (!a || a.kind !== e.kind) return false;
+    if (a.kind === 'intervene') return decreeHits(civ, e.id, (n) => n.kind === 'neutral' && n.war === z.id);
     return (a.kind === 'neutral' || a.kind === 'exile') && a.war === z.id;
   });
+}
+
+/** 第 id 条史事(干预)紧跟着记的作者下令立的约、划的中立地(cause = decree,同一刻)里有没有合 hit 的 */
+function decreeHits(civ: Civ, id: number, hit: (n: Annal) => boolean): boolean {
+  const A = civ.annals;
+  for (let k = id + 1; k < A.length && A[k].year === A[id].year && (A[k].kind === 'treaty' || A[k].kind === 'neutral') && A[k].cause === 'decree'; k++) if (hit(A[k])) return true;
+  return false;
 }

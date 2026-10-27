@@ -31,6 +31,7 @@ import './countryPanel.css';
 import { spaced, yearSpanAt } from '../gen/era';
 import { currentEra } from './editsStore';
 import { PlotPin } from './OutlineMap';
+import { ZonePlates } from './TreatyPage';
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(',')})`;
 
@@ -418,6 +419,7 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
       )}
       {tag && <MapTag text={tag.text} x={world.mesh.x[tag.cell]} y={world.mesh.y[tag.cell]} blue={!!hl?.blue} toClient={toClient} />}
       {!pick && <PlotPin civ={civ} world={world} toClient={toClient} />}
+      {!pick && <ZonePlates civ={civ} world={world} toClient={toClient} />}
     </>
   );
 }
