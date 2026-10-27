@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/params';
-import { FINDER_PRESETS, condList, judge, type FinderCand, type FinderQuery, type SeedReport } from '../src/gen/finder/query';
-import { checkLines, condLine, hintText, missText, nearSummary, querySummary, relaxText, tenths } from '../src/ui/finderText';
+import { FINDER_PRESETS, condList, judge, type Fact, type FinderCand, type FinderQuery, type SeedReport } from '../src/gen/finder/query';
+import { checkLines, checksTally, condLine, hintText, missText, nearSummary, querySummary, relaxText, tenths } from '../src/ui/finderText';
 import { addRole, dropRole } from '../src/ui/FinderConds';
 import {
   closeFinder,
@@ -84,6 +84,27 @@ describe('照故事找世界:条件写成的话', () => {
     expect(at('有一州同时挨着 3 国')).toBe('金霞域');
     expect(at('两国都撑过 130 年')).toBe('到 1885 年都在');
     expect(at('帝国在青铜时代，15–50 年后进铁器')).toBe('47 年后');
+  });
+
+  it('条件逐条写差几条:按条件数,隘口两行都不合也只差一条,和标题(misses)一致', () => {
+    const tally = (facts: readonly Fact[]) => {
+      const v = judge(MOUNTAIN, facts);
+      const lines = checkLines(MOUNTAIN, v.checks, facts, 1755);
+      return { misses: v.misses, bad: lines.filter((l) => !l.ok).length, text: checksTally(lines) };
+    };
+    const withPass = (pass: Fact): Fact[] => FACTS.map((f, i) => (i === 5 ? pass : f));
+    expect(tally(FACTS)).toEqual({ misses: 0, bad: 0, text: '10 条都合' });
+    // 口子不够低,能过的地方也太多(种子 11 那种):两行都打叉,标题"差一条",这里也写差 1 条
+    expect(tally(withPass([2389, 2829, 5, 31, 900]))).toEqual({ misses: 1, bad: 2, text: '差 1 条' });
+    // 不接壤、山不像关隘:两行都打叉
+    expect(tally(withPass(null))).toEqual({ misses: 1, bad: 2, text: '差 1 条' });
+    expect(judge(MOUNTAIN, withPass([2000, 3000, 2, 12, 900])).checks[5].why).toBe('shape');
+    expect(tally(withPass([2000, 3000, 2, 12, 900]))).toEqual({ misses: 1, bad: 2, text: '差 1 条' });
+    // 只是能过的地方太多:一行打叉
+    expect(tally(withPass([173, 1553, 6, 12, 900]))).toEqual({ misses: 1, bad: 1, text: '差 1 条' });
+    // 隘口之外再差一条:差 2 条
+    const two = withPass([2389, 2829, 5, 31, 900]).map((f, i) => (i === 4 ? [0.06] : f));
+    expect(tally(two)).toEqual({ misses: 2, bad: 3, text: '差 2 条' });
   });
 
   it('差一条差在哪;差一条的归类数个数', () => {
