@@ -285,6 +285,8 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   disaster: '降天灾',
   treaty: '立约',
   neutral: '划中立地',
+  regent: '让人物掌权',
+  marry: '为人物联姻',
   boost: '推一把发展',
 };
 

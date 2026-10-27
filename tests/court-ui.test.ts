@@ -10,7 +10,7 @@ import { COUNCIL_CONSTS, COUNCIL_GATE, councilModelOf, courtRulesAt } from '../s
 import { LORD_BYTE, controlAt, controlShare } from '../src/gen/civ/control';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
-import { courtEvents, courtRowNote, courtView, isFiefRegion, levySay, lordFoot } from '../src/ui/courtInfo';
+import { courtEmpty, courtEvents, courtRowNote, courtView, isFiefRegion, levySay, lordFoot } from '../src/ui/courtInfo';
 
 let cached: { world: World; civ: Civ } | null = null;
 function seed7() {
@@ -106,4 +106,10 @@ describe('朝政', () => {
     expect(v.rules.events).toEqual([]);
     expect(v.shown).toBe(false);
   }, 120_000);
+
+  it('没议过事那一句:会议的几类事都列着(征税、分封、削藩、兵权、任免、分镇、脱离)', () => {
+    const s = courtEmpty();
+    for (const w of ['改征税的法子', '分封或收回边地', '削藩', '收放兵权', '收放任免', '分镇', '脱离']) expect(s).toContain(w);
+    expect(s).toContain(`${COUNCIL_GATE.size} 个州`);
+  });
 });
