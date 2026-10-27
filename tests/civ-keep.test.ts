@@ -10,14 +10,15 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
-import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
+import { continueCiv, generateCiv, type Civ, type Person } from '../src/gen/civ';
+import { holderAt } from '../src/gen/civ/regentInfo';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { KEEP_REGENT } from '../src/gen/civ/rulers';
 import { RG_PURGE, RG_RETURN, RG_USURP, REGENCY_KINDS } from '../src/gen/civ/regents';
 import { interventionFate } from '../src/gen/stepwise';
-import { cleanIntervention, polityKey, type Intervention } from '../src/gen/edits';
+import { cleanIntervention, personKey, polityKey, type Intervention } from '../src/gen/edits';
 
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
@@ -189,6 +190,40 @@ describe.each([7, 2024])('保住王室 · seed=%i', (seed) => {
       expect(ch.some((c) => c.id === i + 1)).toBe(false);
     }
   }, 300_000);
+
+  it('作者下令"让他掌权"到期篡位,和保住王室撞上:后下的为准', () => {
+    const w = world(seed);
+    const base = baseOf(seed);
+    // 君主 N 和接着即位的太子 H,T = H 满 17 岁、N 在位、那几年没人掌权的一年:令 H 监国,三年后篡位
+    const rs = (base.people ?? []).filter((x) => x.role === 'ruler' && x.author === undefined && base.polities[x.polity]?.lineage !== 'republic');
+    let pick: { H: Person; T: number } | null = null;
+    for (const N of rs) {
+      if ((N.from ?? 0) < 700 || N.until === undefined) continue;
+      const H = rs.find((x) => x.polity === N.polity && x.parent === N.id && x.rise === 'heir' && x.from === N.until);
+      if (!H) continue;
+      const T = Math.ceil(Math.max(N.from!, H.born + 17)) + 1;
+      let free = true;
+      for (let t = T; t <= T + 6; t++) if (holderAt(base, N.polity, t)) free = false;
+      if (T + 6 < N.until && free) {
+        pick = { H, T };
+        break;
+      }
+    }
+    expect(pick).not.toBeNull();
+    const { H, T } = pick!;
+    const a = polityKey(base, H.polity);
+    const reg = cleanIntervention({ kind: 'regent', a, person: personKey(base, H.id), from: T, how: 'heir', end: 'usurp', years: 3 })!;
+    const keep: Intervention = { kind: 'keep', a, from: T, until: T + 20 };
+    const usurpAt = (c: Civ) => c.annals.some((x) => x.kind === 'regent' && x.n === RG_USURP && x.a === H.polity && x.year === T + 3);
+    // 先让他掌权、后保住王室:挡下
+    const late = generateCiv(w, { interventions: [reg, keep], endYear: T + 10 });
+    expect(usurpAt(late)).toBe(false);
+    expect(late.annals.some((x) => x.kind === 'keep' && x.b === KEEP_REGENT && x.year === T + 3 && x.war === 1)).toBe(true);
+    // 先保住王室、后让他掌权:照他篡位
+    const early = generateCiv(w, { interventions: [keep, reg], endYear: T + 10 });
+    expect(usurpAt(early)).toBe(true);
+    expect(early.annals.some((x) => x.kind === 'keep')).toBe(false);
+  }, 120_000);
 
   it('那一年这国已亡:不生效,写原因;历史和不干预一样', () => {
     const w = world(seed);
