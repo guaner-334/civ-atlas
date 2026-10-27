@@ -499,7 +499,7 @@ function keyPerson(civ: Civ, key: string): { x: Person | null; name: string } {
 export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, era: Era | undefined, who = ''): { ok: boolean; text: string; same?: boolean } | null {
   if (v.kind === 'disaster') return disasterDoneText(civ, v, i, A, era);
   if (v.kind === 'boost') return boostDoneText(civ, v, i, A, era);
-  if (v.kind !== 'destroy' && v.kind !== 'death' && v.kind !== 'temper' && v.kind !== 'regent' && v.kind !== 'marry' && !(v.kind === 'crown' && v.after)) return null;
+  if (v.kind !== 'destroy' && v.kind !== 'death' && v.kind !== 'temper' && v.kind !== 'regent' && v.kind !== 'marry' && v.kind !== 'keep' && !(v.kind === 'crown' && v.after)) return null;
   const f = i >= 0 ? interventionFate(civ, i) : null;
   const e = f && f.state !== 'later' && f.annal >= 0 ? civ.annals[f.annal] : null;
   const fail = (what: string) => {
@@ -527,6 +527,10 @@ export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, e
       if (f?.state === 'void') return fail(`改${name}的倾向`);
       return { ok: true, text: `${name}的倾向改了，到他下台为止` };
     }
+    case 'keep':
+      // "大澜王朝保住王室，到 1560 年";那一年已亡 / 还没立国:黄色写原因
+      if (f?.state === 'void') return fail(`${A}保住王室`);
+      return { ok: true, text: interventionText(civ, v, i, A) };
     case 'regent': {
       // "彭继桓 2586 年起掌权，到君主去世即位"
       const { name } = keyPerson(civ, v.person);

@@ -316,6 +316,13 @@ export function leaningsText(l: RulerLeanings): string {
   return LEANING_KEYS.map((k) => `${LEANING_TEXT[k].name} ${l[k]}`).join('，');
 }
 
+/** 东方中式的全名拆出姓(复姓两个字) */
+export function splitSurname(full: string): string {
+  const two = full.slice(0, 2);
+  return COMPOUND.has(two) && full.length > 2 ? two : full.slice(0, 1);
+}
+const COMPOUND = new Set(['司马', '欧阳', '上官', '慕容', '宇文', '长孙', '独孤', '皇甫', '令狐', '尉迟', '南宫', '司空', '东方', '端木', '百里']);
+
 /** 改过的倾向:"开拓 53→78、好战 50→20"(只写变了的;不知道原来的 = "开拓 78、好战 20";都没变 = 空串) */
 export function leaningsChange(from: RulerLeanings | undefined, to: RulerLeanings): string {
   return LEANING_KEYS.filter((k) => !from || from[k] !== to[k])

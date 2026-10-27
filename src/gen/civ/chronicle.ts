@@ -101,11 +101,12 @@ import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './disp
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
-import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort } from './peopleText';
+import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, splitSurname } from './peopleText';
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
-import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT } from './rulers';
+import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from './rulers';
+import { personNamers } from './naming';
 
 import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
 import { foesAt } from './fiscalBook';
@@ -633,6 +634,7 @@ const TAG: Record<AnnalKind, string> = {
   expire: '满',
   neutral: '中',
   exile: '逐',
+  keep: '保',
 };
 
 function base(
@@ -887,6 +889,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     }
     case 'unity':
       return dead(e.a) ? fail(`欲令${A}四境无叛,然${A}已亡`, `那一年${A}已亡`) : done(`${A}自此四境无叛,再无州郡自立`);
+    case 'keep': {
+      const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
+      return dead(e.a) ? fail(`欲保${A}宗社,然${A}已亡`, `那一年${A}已亡`) : done(`${A}自此宗社不移${until}`);
+    }
     case 'halt': {
       if (dead(e.a)) return fail(`欲令${A}止戈,然${A}已亡`, `那一年${A}已亡`);
       const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
@@ -949,7 +955,7 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
         const n = civ.annals[k];
         if (n.kind === 'intervene' && n.a === e.a && n.b === -1 && civ.interventions?.[n.war]?.kind === 'crown') return fail(`欲立${who}为${A}之主,然同时又另立他人`, '同一年又给这国立了别的人物');
       }
-      return done(`${who}即${A}君位`);
+      return done(`${who}即${A}君位${v.keep ? ',在位期间保住王室' : ''}`);
     }
     case 'policy': {
       if (e.b === -3) return fail(`欲定${A}方针,然${A}已亡`, `那一年${A}已亡`);
@@ -2003,6 +2009,57 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
   } else if (n === RG_DIED) text = east ? `${P}${kind === 'uncle' ? `摄政${name}` : who}卒,${bare}始亲政` : `${P}${kind === 'uncle' ? `摄政${name}` : who}去世,${bare}开始亲政`;
   else return null;
   return withPeople(base(e, i, text, imp, [e.a], [e.region], REGENT_TAG[n] ?? '权'), x, N, ...rivals);
+}
+
+/**
+ * 保住王室挡下的一回(史事 keep,dynasty.ts、regency.ts),标签"保"(类型名"王朝"),只在"全部"里,历史照旧:
+ *   豪强起兵 "大澜王朝国势危殆,中漠豪强谋起兵代燕氏,未成"(本朝君主没有姓的写"代之";西幻 "卢纳维亚帝国瓦莱拉斯家族谋夺王位,未成");
+ *   国都权臣篡位 "大澜王朝权臣谋篡,事泄伏诛"(西幻 "…权臣图谋篡位,事泄被处死");
+ *   掌实权的人篡位(ids[1] = 紧跟着的那条结局):"大澜王朝丞相某某谋篡,事泄伏诛" / 叔父 "大澜王朝叔父某某谋废幼主某某,未成,遂还政"。
+ * 国势危殆 = 那时动荡(n = 1)
+ */
+function keepEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
+  const { civ } = ctx;
+  const e = civ.annals[ids[0]];
+  const y = e.year;
+  const p = polityOf(civ, e.a);
+  const east = !!p?.eastern;
+  const A = pn(civ, e.a, y);
+  const dire = e.n === 1 ? (east ? '国势危殆,' : '国势危急,') : '';
+  const N = reigning(ctx.ix, e.a, y);
+  const people: (Person | null | undefined)[] = [];
+  let text: string;
+  if (e.b === KEEP_REGENT) {
+    const j = ids[1];
+    const hit = j !== undefined ? ctx.ix?.power.get(j) : undefined;
+    const who = hit ? holderRef(civ, hit.x, hit.g.kind, y, N ?? undefined) : east ? '权臣' : '权臣';
+    people.push(hit?.x, N);
+    if (j !== undefined && civ.annals[j].n === RG_RETURN) {
+      // 叔父废幼主;作者下令掌权的太子、引兵入朝的王子到期要篡位的写"谋夺君位"
+      const young = REGENCY_KINDS[civ.annals[j].b] === 'uncle' ? (N ? `幼主${N.name}` : '幼主') : '';
+      text = young
+        ? east
+          ? `${A}${who}谋废${young},未成,遂还政`
+          : `${A}${who}图谋废黜${young},未成,交还大权`
+        : east
+          ? `${A}${who}谋夺君位,未成,遂还政`
+          : `${A}${who}图谋夺位,未成,交还大权`;
+    } else text = east ? `${A}${who}谋篡,事泄伏诛` : `${A}${who}图谋篡位,事泄被处死`;
+  } else if (e.b === KEEP_COURT) {
+    text = east ? `${A}${dire}权臣谋篡,事泄伏诛` : `${A}${dire}权臣图谋篡位,事泄被处死`;
+  } else if (east) {
+    const r = regionName(civ, e.region);
+    // 本朝的姓:中式起名的国家、君主是中式名字(作者的人物也可能起别的名字)
+    const surnamed = !!p && !!N && /^[一-鿿]{2,4}$/.test(N.name) && personNamers(civ.seed)(civ.cultures[p.culture]?.style || 'kingdom').surnamed;
+    const house = surnamed ? `${splitSurname(N!.name)}氏` : '之';
+    text = `${A}${dire}${r}豪强谋起兵代${house},未成`;
+  } else {
+    const city = cityName(civ, e.settlement);
+    const r = regionName(civ, e.region);
+    const who = city ? `${city}家族` : r ? `${r}领主` : '一方豪族';
+    text = `${A}${dire}${who}谋夺${p?.lineage === 'khanate' ? '汗位' : '王位'},未成`;
+  }
+  return withPeople(base(e, ids[0], text, 2, [e.a], [e.region]), ...people);
 }
 
 /** 掌实权那几步的标签(类型名见 timelineLayout.ts):掌权、还政、伏诛、篡位、(掌权的人卒)亲政 */
@@ -3654,6 +3711,14 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       continue;
     }
     if (e.kind === 'treaty' && e.cause === 'peace' && A[i + 1]?.kind === 'neutral' && A[i + 1].cause === 'peace' && A[i + 1].n === e.war) continue;
+    // 保住王室挡下的一回:掌实权的人篡位挡下的,紧跟着记的结局(伏诛、还政)并进来
+    if (e.kind === 'keep') {
+      const ids = [i];
+      const nx = A[i + 1];
+      if (e.b === KEEP_REGENT && nx && nx.kind === 'regent' && nx.a === e.a && nx.year === e.year) ids.push(++i);
+      out.push(keepEntry(ctx, ids));
+      continue;
+    }
     // 被迫迁都(capital 带战争编号)、洗劫、毁城(阶段 3 城市兴衰)也折进那场战争
     // 邦交:战败称臣(submit 带战争编号)、背盟来攻、坐视不救(unally 带战争编号)也折进那场战争
     const inWar =

@@ -98,7 +98,19 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
     const born = Math.max(0, T - between(rnd, 0, 90) + (rnd() < 0.1 ? between(rnd, 1, 40) : 0));
     const until = rnd() < 0.5 ? T + between(rnd, 1, 80) : undefined;
     const after = rnd() < 0.25;
-    return { kind: 'crown', a, char: between(rnd, 1, 999), from: T, born, ...(until !== undefined ? { until } : {}), ...(after ? { after } : {}), leanings: { expand: L(), war: L(), develop: L(), trade: L() } };
+    // 在位期间保住王室:照生年的奇偶带上一半(不多取随机数,别的命令照旧)
+    const keep = born % 2 === 0;
+    return {
+      kind: 'crown',
+      a,
+      char: between(rnd, 1, 999),
+      from: T,
+      born,
+      ...(until !== undefined ? { until } : {}),
+      ...(after ? { after } : {}),
+      ...(keep ? { keep: true as const } : {}),
+      leanings: { expand: L(), war: L(), develop: L(), trade: L() },
+    };
   };
   /** 让人物去世、改君主倾向:多半挑这国此刻在位的君主,也有将领、名臣(只改人物)、已经下台的 */
   const personOrder = (kind: 'death' | 'temper', A: number, a: string): Intervention | null => {
@@ -182,6 +194,7 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
     } else if (kind === 'halt' || kind === 'protect') {
       out.push(rnd() < 0.3 ? { kind, a, from: T } : { kind, a, from: T, until: T + between(rnd, 1, 80) });
     } else if (kind === 'unity') out.push({ kind, a, from: T });
+    else if (kind === 'keep') out.push(rnd() < 0.3 ? { kind, a, from: T } : { kind, a, from: T, until: T + between(rnd, 1, 80) });
     else if (kind === 'policy') out.push(policy(A!.id, a));
     else if (kind === 'destroy') out.push(B && B !== A && rnd() < 0.6 ? { kind, a, b: polityKey(civ, B.id), from: T } : { kind, a, from: T });
     else if (kind === 'death' || kind === 'temper' || kind === 'disaster') {

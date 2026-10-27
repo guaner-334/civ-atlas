@@ -9,7 +9,7 @@
  *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(复制分享链接(停在这一年、选中这国、地图照现在的样子;
  *         手机上去「存档」要先关掉这张卡片,所以放在这里)、在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
- *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、实权(这一年有人掌着实权才有:"彭继桓  君主之子，2585 年起",
+ *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、王室(保住王室管着的那些年才有:"保住  到 1560 年",点了开「我的干预」)、实权(这一年有人掌着实权才有:"彭继桓  君主之子，2585 年起",
  *         见 gen/civ/regentInfo.ts)、方针(这一年照的方针,"某年起";没定方针、有人掌着实权的写"照彭继桓性格";写进待推演单子的标"待推演";
  *         点了开方针页)、疆域(历年州数的小柱图,和概览"国家"表同一份)、
  *         人口(境内各州的总人口:城 + 乡村)、钱粮(近几百年国库小柱 + 国库怎么样 + 岁入;点了换成钱粮页 FiscalPage.tsx)、
@@ -66,6 +66,7 @@ import { BoostPage } from './BoostPage';
 import { boostRow } from './boostInfo';
 import { TreatyPage, ZonePage } from './TreatyPage';
 import { policyRow, roleLock } from './policyInfo';
+import { keepRow } from './keepInfo';
 import { useRole } from './roleStore';
 import { RoleLockNote } from './RoleBar';
 import { usePending, type Pending } from './pendingStore';
@@ -394,6 +395,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
               </em>
             </Row>
           )}
+          {alive && <KeepRow civ={civ} id={id} year={shownYear} pending={pending} step={step} locked={lock >= 0} />}
           {held && ruler && (
             <Row k="实权">
               <Link to={{ kind: 'person', id: held.x.id }}>{held.x.name}</Link>
@@ -661,6 +663,28 @@ function BoostRow({ civ, id, year, pending, step, locked }: { civ: Civ; id: numb
         </button>
       )}
       {r.tag ? <em className="cr-pending">{r.tag}</em> : <em className="cp-num-note pol-row-note">{r.note}</em>}
+    </Row>
+  );
+}
+
+/**
+ * 概况「王室」一行(君主下面;只在保住王室管着的那些年有,keepInfo.ts):"保住  到 1560 年" / "保住  到燕昭下台" / 单子里的"保住  待推演";
+ * 点了打开「我的干预」(演一国时的别国:只写不点)
+ */
+function KeepRow({ civ, id, year, pending, step, locked }: { civ: Civ; id: number; year: number; pending: readonly Pending[]; step: boolean; locked: boolean }) {
+  const era = useEra();
+  const r = keepRow(civ, id, year, pending, step, era);
+  if (!r) return null;
+  return (
+    <Row k="王室">
+      {locked ? (
+        '保住'
+      ) : (
+        <button className="ins-link" data-act="keep-row" onClick={() => openOverview('interventions')}>
+          保住
+        </button>
+      )}
+      {r.tag ? <em className="cr-pending">{r.tag}</em> : <em className="cp-num-note">{r.note}</em>}
     </Row>
   );
 }

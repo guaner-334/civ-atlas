@@ -26,7 +26,7 @@ import { ERAS, devModelOf, eraNowAt, jumpEra } from './development';
 export type BoostIv = Extract<Intervention, { kind: 'boost' }>;
 
 /** 史事 intervene 的 b:直接进时国都已在最后一个时代,没有下一个了 */
-export const IV_TOP_ERA = -11;
+export const IV_TOP_ERA = -17;
 /** 史事 intervene 的 n = 推了几州 × BOOST_N + 直接进到第几个时代 */
 export const BOOST_N = 16;
 

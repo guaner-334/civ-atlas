@@ -287,6 +287,7 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   neutral: '划中立地',
   regent: '让人物掌权',
   marry: '为人物联姻',
+  keep: '保住王室',
   boost: '推一把发展',
 };
 

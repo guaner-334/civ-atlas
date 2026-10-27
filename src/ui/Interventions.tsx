@@ -43,7 +43,8 @@ import { crownLine } from './crownInfo';
 import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../gen/civ/policy';
 import { policyKnobsText } from './policyInfo';
 import { boostText } from './boostInfo';
-import { eraText, yearShort } from '../gen/era';
+import { KEEP_CROWN } from './keepInfo';
+import { eraText, spaced, yearAt, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
 // 在地图上选目标
@@ -273,15 +274,20 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}迁都${cityKeyName(civ, v.city)}`;
     case 'halt':
       return `${A}:禁止扩张${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
+    case 'keep':
+      // "大澜王朝保住王室，一直有效" / "……，到 1560 年"
+      return `${A}保住王室，${v.until !== undefined ? `到${spaced(yearAt(v.until, getEdits().era))}` : '一直有效'}`;
     case 'crown': {
+      // 在位期间保住王室的,后面接一句
+      const keep = v.keep ? `；${KEEP_CROWN}` : '';
       if (v.after) {
         // "顾长安即有桑皇朝君位,等高宗鸿喾下台"
         const pid = polityIdOf(civ, v.a);
         const cur = pid >= 0 ? rulerAt(civ, pid, v.from) : null;
-        return `${authorName(civ, v.char)}即${A}君位，等${cur ? personName(civ, cur) : '在位的君主'}下台`;
+        return `${authorName(civ, v.char)}即${A}君位，等${cur ? personName(civ, cur) : '在位的君主'}下台${keep}`;
       }
       // "林小满即有桑皇朝君位，1530 年退位" / "……，到 1541 年卒"(下台年份就是人物卡上的卒年)
-      return crownLine(authorName(civ, v.char), A, v, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era);
+      return crownLine(authorName(civ, v.char), A, v, getEdits().characters?.find((c) => c.id === v.char)?.died, getEdits().era) + keep;
     }
     case 'policy': {
       // "大澜王朝:方针「扩张」";细调过 / 自定的带上拧过的几项("「我的干预」里看得到旋钮的数")
@@ -355,6 +361,9 @@ export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: stri
       return `${A}禁止分裂`;
     case 'halt':
       return `${A}禁止扩张${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
+    case 'crown':
+      // 在位期间保住王室的:"燕昭即大澜王朝君位，在位期间保住王室"(下台年份不再写)
+      return v.keep && !v.after ? `${authorName(civ, v.char)}即${A}君位，${KEEP_CROWN}` : interventionText(civ, v, i, A);
     default:
       return interventionText(civ, v, i, A);
   }
