@@ -1,5 +1,5 @@
 /**
- * 照故事找世界那一页(新建世界第 1 步点「照故事找世界」进来):
+ * 照故事找世界那一页(新建世界第 1 步点「照故事找世界」进来;大纲页点「找更合的世界」也进来,那时新建的是照原来那个世界参数的一个):
  *
  *   电脑   左边一张浮在地图上的卡片(和侧栏一样,宽一点):条件 → 搜的时候 / 结果 → 一个结果;右边是地图(FinderMap.tsx)
  *   手机   条件是整页;搜的时候、结果、一个结果是底部卡片,上面露出地图
@@ -19,8 +19,10 @@ export interface FinderPageProps {
   seed: number;
   /** 打开着的那个结果的世界(生成好了才有) */
   preview: FinderPreview | null;
-  /** 「‹ 新建世界」 */
+  /** 「‹ 新建世界」(从大纲页来的是「‹ 大纲」,回原来那个世界的大纲) */
   onExit: () => void;
+  /** 「‹」后面写回哪(不给 = 新建世界) */
+  back?: string;
   /** 「用这个世界」(选中的那一个) */
   onUse: () => void;
   onFly: (to: FinderFlyTo) => void;
@@ -35,7 +37,7 @@ export function FinderPage(p: FinderPageProps) {
     <div className="fd-top">
       <button className="fd-back" data-act="finder-exit" onClick={p.onExit}>
         <Icon name="back" size={15} />
-        新建世界
+        {p.back ?? '新建世界'}
       </button>
       <div className="fd-title">照故事找世界</div>
       <div className="fd-lead">把一批世界各推一遍，挑出最合你故事的几个。</div>

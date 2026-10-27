@@ -91,6 +91,32 @@ export interface FinderQuery {
   together: TogetherCond[];
 }
 
+/** 叫法最多几个字 */
+export const ROLE_NAME_MAX = 6;
+
+/** 第 i 国找的时候不管它:自己没有条件,别的条件(和它接壤、跟着它定开场……)也没指着它 */
+export function roleFree(q: FinderQuery, i: number): boolean {
+  if (q.roles[i]?.conds.length) return false;
+  if (q.roles.some((r) => r.conds.some((c) => 'other' in c && c.other === i))) return false;
+  return !q.together.some((c) => c.kind === 'start' && 'role' in c && c.role === i);
+}
+
+/**
+ * 真去搜的那一套条件:从大纲页来的几国里,自己没有条件、别的条件也没指着它的(找的时候不管它)去掉。
+ * 其余照旧(下标跟着往前挪;都去掉了 = 原样)
+ */
+export function searchQuery(q: FinderQuery): FinderQuery {
+  const keep = q.roles.map((_, i) => !roleFree(q, i));
+  if (keep.every(Boolean)) return q;
+  const at: number[] = [];
+  let n = 0;
+  keep.forEach((k) => at.push(k ? n++ : -1));
+  return {
+    roles: q.roles.filter((_, i) => keep[i]).map((r) => ({ ...r, conds: r.conds.map((c) => ('other' in c ? { ...c, other: at[c.other] } : c)) })),
+    together: q.together.map((c) => (c.kind === 'start' && 'role' in c ? { ...c, role: at[c.role] } : c)),
+  };
+}
+
 /**
  * 每个种子怎么生成(新建世界里设的):世界参数、推演参数。
  * map = 'each'(默认):每个种子换一张地图(地图种子 = 文明种子 = 这个种子);'fixed':都用 world.seed 这张地图(可带作者改过的地形、草图),

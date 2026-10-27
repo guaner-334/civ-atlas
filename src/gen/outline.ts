@@ -49,6 +49,7 @@ import {
   cleanOutline,
   keyCells,
   ownInterventions,
+  plotNeedsRedo,
   parsePersonKey,
   polityKey,
   regionKey,
@@ -657,6 +658,8 @@ async function step(ctx: Ctx, prev: State, pick: Pick): Promise<State | null> {
   };
   const fail = (f: Fail, year = at): State => put({ id: p.id, status: 'failed', year, reason: f.reason, ...(f.who ? { who: f.who } : {}) });
   if (p.kind === 'story') return put({ id: p.id, status: 'story', year: at });
+  // 大纲搬过来以后要填的几项对不上、还没重新指(edits.ts 文件头"要重新指")
+  if (plotNeedsRedo(p)) return fail({ reason: 'redo' });
   if (lo > hi) return fail({ reason: 'beyond' });
   const Y = Math.max(at, st.floor);
   const canFix = !PLOT_CHECK_ONLY.includes(p.kind) && Y <= hi;
