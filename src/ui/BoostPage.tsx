@@ -76,7 +76,7 @@ export function BoostPage({ civ, id, year, from, onBack }: { civ: Civ; id: numbe
     const c = P && polityAlive(P, yv) ? capitalAt(P, yv) : -1;
     return c >= 0 ? civ.settlements[c].region : -1;
   }, [civ, P, yv]);
-  const regs = bregs ?? (capR >= 0 ? [capR] : []);
+  const regs = useMemo(() => bregs ?? (capR >= 0 ? [capR] : []), [bregs, capR]);
   const regsKey = regs.join(',');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const info = useMemo(() => boostLook(civ, pid, mode === 'regions' ? regs : null, yv), [civ, pid, mode, regsKey, yv]);
