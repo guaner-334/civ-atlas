@@ -42,6 +42,15 @@
  *     立约国亡于战争(WarModel.onFall),约还在、中立地还在:亡国之君出奔中立地(cause = fled)。
  *     人物(people.ts)照这几条史事填 Person.exile。
  *
+ *   **作者下令**(干预「立约」「划中立地」,interventions.ts 在干预那一刻调 TreatyModel.decree):记史事 intervene,
+ *     生效了紧跟着记 treaty / neutral(cause = decree;选项记在 Annal.opt、Annal.until,位见 treatyInfo.ts 的 OPT_*):
+ *     立约:约里的国家、期限(0 = 一直,不预约期满)、互不侵犯还是有限竞争、约期内不许背约(看邻国时不背约)、居间的国家照作者的;
+ *     会盟的城照推演挑;同时划的中立地那州要有人住、不是国都、原属约里一国或无主,不然只立约。之后照常续约、约满。
+ *     划中立地:几国已同在一份还没设过中立地的约里就依它设,不然同时立一个互不侵犯之约(TERM_DECREE 年);
+ *     选了不送人去的不往那里放逐人,一直留着的约废了、背约也不撤,到某一年撤的那年撤(Ev.ZoneEnd)。
+ *     演一国时下的(ask):别国照推演的规矩定肯不肯(willing:仇国、别国的藩属不肯,国力相近、都怕同一个强邻、近年打成僵持的更肯),
+ *     不肯的不入约;都不肯、那州原属的国家不肯 = 不生效(intervene 的 b 列 IV_REFUSED)。两两之间正在交战的当即议和(记在约后面)。
+ *
  * **不存内存状态**:约、中立地、背约退出的、两国约废的年份都由史事重建(resumeTreaties);到期的时刻 = 立约 / 续约的年份 + 期限。
  * 随机数:keyed / keyed4(subSeed(seed, 'civ-treaty'), 国家的位置锚…, 用途)。纯计算,不碰 DOM。
  */
@@ -49,13 +58,16 @@ import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
 import { keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { REOPEN, hates, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
+import { REOPEN, hates, limitedEnd, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
 import { capitalAt, populationAt } from './growth';
 import { regionPasses } from './passes';
 import { claimants, murderedAt } from './royals';
 import type { Reign } from './rulers';
+import { regionOfKey, type Intervention } from '../edits';
+import type { InterventionModel } from './interventions';
+import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, OPT_QUIET } from './treatyInfo';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
@@ -103,6 +115,13 @@ const EXILE_P = 0.5;
 const ZONE_CAP = 3;
 const EXILE_STAY = 40;
 
+/** 作者下令划中立地、几国还没有约时同时立的互不侵犯之约几年 */
+const TERM_DECREE = 30;
+/** 演一国时它提出立约,对方肯不肯的赔率底数(国力相近、都怕同一个强邻、近年打成僵持各 × REASON,方针守成和平的 × CALM;最多 ASK_MAX) */
+const ASK_ODDS = 0.3;
+const ASK_MAX = 0.95;
+
+
 // 随机数用途
 const U_TREATY = 1;
 const U_JOIN = 2;
@@ -112,6 +131,7 @@ const U_BUFFER = 5;
 const U_RENEW = 6;
 const U_HEIR = 7;
 const U_DEPOSE = 8;
+const U_ASK = 9;
 
 /** 陆上的邻接(不算海峡、航线) */
 const land = (kind: number) => kind === AdjKind.Flat || kind === AdjKind.River || kind === AdjKind.Mountain;
@@ -127,12 +147,16 @@ export interface Treaty {
   id: number;
   /** 约里的几国(立约时的;续约后 = 续约的几国) */
   parties: number[];
-  /** 首次立约、最近一次立约 / 续约的年份;期限(年) */
+  /** 首次立约、最近一次立约 / 续约的年份;期限(年;0 = 作者下令立的一直有效的约,不预约期满) */
   start: Year;
   since: Year;
   term: number;
-  /** 三国以上立的:有限竞争 */
+  /** 有限竞争(自己立的、议和顺带立的:三国以上就是;作者下令立的:照作者选的) */
   multi: boolean;
+  /** 作者下令立的、选了"约期内不许背约":约里的国家不背约 */
+  keep: boolean;
+  /** 作者下令立的(约满、约废那条另记它是不是有限竞争:立约的国数说明不了,见 polities.ts 的 reopenedBy) */
+  decree: boolean;
   /** 立约时几国 */
   size: number;
   /** 共同的强邻(−1 = 没有) */
@@ -160,6 +184,10 @@ export interface Zone {
   ended?: Year;
   /** 徙来 / 出奔来的年份 */
   exiles: Year[];
+  /** 作者下令划的:不送人去(不往这里放逐宗室)、一直留着(约废了、背约也不撤)、到哪年撤 */
+  quiet: boolean;
+  lasting: boolean;
+  until?: Year;
 }
 
 export class TreatyModel {
@@ -174,6 +202,11 @@ export class TreatyModel {
   readonly zoneAt: Int32Array;
   /** 两国最近一次约废 / 背约的年份(键见 pairKey) */
   readonly rest = new Map<number, Year>();
+  /**
+   * 作者下令立约 / 划中立地(干预 treaty、neutral;interventions.ts 在干预那一刻调,a = 下令的国家此刻的编号):
+   * 记史事 intervene(b 列见 IV_NOBODY 那几个),生效了接着记 treaty / neutral。installTreaties 时挂上
+   */
+  decree?: (v: Extract<Intervention, { kind: 'treaty' | 'neutral' }>, i: number, a: number, t: Year, iv: InterventionModel) => void;
 
   constructor(pm: PolityModel, dm: DiplomacyModel) {
     this.pm = pm;
@@ -234,7 +267,23 @@ export class TreatyModel {
           x.renewals++;
           return;
         }
-        const x: Treaty = { id: e.war, parties: ps, start: e.year, since: e.year, term: e.n ?? TERM_PAIR, multi: ps.length >= 3, size: ps.length, foe: e.foe ?? -1, renewals: 0, out: [], zone: -1 };
+        const decree = e.cause === 'decree';
+        const opt = e.opt ?? 0;
+        const x: Treaty = {
+          id: e.war,
+          parties: ps,
+          start: e.year,
+          since: e.year,
+          term: e.n ?? TERM_PAIR,
+          multi: decree ? (opt & OPT_LIMITED) !== 0 : ps.length >= 3,
+          keep: decree && (opt & OPT_KEEP) !== 0,
+          decree,
+          size: ps.length,
+          foe: e.foe ?? -1,
+          renewals: 0,
+          out: [],
+          zone: -1,
+        };
         this.treaties[e.war] = x;
         this.live.push(x);
         return;
@@ -264,7 +313,9 @@ export class TreatyModel {
           if (this.zoneAt[z.region] === z.id) this.zoneAt[z.region] = -1;
           return;
         }
-        const z: Zone = { id: e.war, region: e.region, treaty: e.n ?? -1, from: e.year, owner: e.a, exiles: [] };
+        const opt = e.cause === 'decree' ? (e.opt ?? 0) : 0;
+        const z: Zone = { id: e.war, region: e.region, treaty: e.n ?? -1, from: e.year, owner: e.a, exiles: [], quiet: (opt & OPT_QUIET) !== 0, lasting: (opt & OPT_LASTING) !== 0 };
+        if (e.cause === 'decree' && e.until !== undefined) z.until = e.until;
         this.zones[e.war] = z;
         if (e.region >= 0 && e.region < this.zoneAt.length) this.zoneAt[e.region] = z.id;
         const x = this.treaties[z.treaty];
@@ -508,11 +559,16 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
 
   // ---- 约、中立地的增减 ----
-  /** 设中立地:记 neutral,州归属记成无主 */
-  const makeZone = (x: Treaty, r: number, parties: number[], t: Year, cause?: AnnalCause) => {
+  /**
+   * 设中立地:记 neutral,州归属记成无主。作者下令的(cause = decree)另记选项(opt:不送人去、一直留着)和到哪年撤(until,预约 ZoneEnd)
+   */
+  const makeZone = (x: Treaty, r: number, parties: number[], t: Year, cause?: AnnalCause, opt = 0, until?: Year) => {
     const o = owner[r];
-    note('neutral', { a: o, region: r, settlement: pm.cityOf[r], war: m.zones.length, n: x.id, ps: parties, ...(cause ? { cause } : {}) });
+    const id = m.zones.length;
+    const decree = cause === 'decree' ? { opt, ...(until !== undefined ? { until } : {}) } : {};
+    note('neutral', { a: o, region: r, settlement: pm.cityOf[r], war: id, n: x.id, ps: parties, ...(cause ? { cause } : {}), ...decree });
     if (o >= 0) sim.setOwner(Layer.Polity, r, -1, Ev.Neutral);
+    if (cause === 'decree' && until !== undefined) sim.schedule(until, Ev.ZoneEnd, id, 0);
   };
 
   /** 撤中立地:还给原主(还在、陆上还和它接壤),不然成了无主之地 */
@@ -531,20 +587,34 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   /** 约废:记 expire(cause = lapse:剩不到两国;没有 = 约满不续;n = 立约时几国),中立地撤销;有限竞争之约废了,下一刻约国旁边的无主之地解禁 */
   const endTreaty = (x: Treaty, t: Year, cause?: AnnalCause) => {
     const act = m.members(x);
-    note('expire', { a: act[0] ?? -1, b: act[1] ?? -1, ps: act, war: x.id, n: x.size, ...(cause ? { cause } : {}) });
+    note('expire', { a: act[0] ?? -1, b: act[1] ?? -1, ps: act, war: x.id, n: x.size, ...(cause ? { cause } : {}), ...(x.decree ? { opt: x.multi ? OPT_LIMITED : 0 } : {}) });
     if (x.multi) sim.schedule(t + 1 / 256, Ev.Respread, REOPEN + sim.annalCount - 1, 0);
-    if (x.zone >= 0) dropZone(m.zones[x.zone], t);
+    if (x.zone >= 0 && !m.zones[x.zone].lasting) dropZone(m.zones[x.zone], t);
   };
 
-  /** 立约:记 treaty,预约期满;三国以上的、议和划缓冲的同时设中立地(zone = 那州,−1 = 不设) */
-  const create = (parties: number[], t: Year, foe: number, zone: number, cause?: AnnalCause) => {
+  /** 作者下令立的约:期限(0 = 一直)、有限竞争、不许背约、居间的国家;同时设的中立地的选项(见 makeZone) */
+  interface DecreeTerms {
+    term: number;
+    multi: boolean;
+    keep: boolean;
+    by: number;
+    zoneOpt?: number;
+    zoneUntil?: Year;
+  }
+
+  /**
+   * 立约:记 treaty,预约期满;三国以上的、议和划缓冲的同时设中立地(zone = 那州,−1 = 不设)。
+   * 作者下令立的(d):期限、种类、居间照作者的(期限 0 = 一直有效,不预约期满),记 cause = decree 和 opt
+   */
+  const create = (parties: number[], t: Year, foe: number, zone: number, cause?: AnnalCause, d?: DecreeTerms) => {
     const id = m.treaties.length;
-    const term = parties.length >= 3 ? TERM_MULTI : TERM_PAIR;
+    const term = d ? d.term : parties.length >= 3 ? TERM_MULTI : TERM_PAIR;
     const sid = zone >= 0 && pm.cityOf[zone] >= 0 ? pm.cityOf[zone] : meetingCity(parties);
-    const by = mediator(parties, t);
-    note('treaty', { a: parties[0], b: parties[1], ps: parties, region: sid >= 0 ? pm.settlements[sid].region : -1, settlement: sid, war: id, n: term, foe, by, ...(cause ? { cause } : {}) });
-    sim.schedule(t + term, Ev.TreatyEnd, id, 0);
-    if (zone >= 0) makeZone(m.treaties[id], zone, parties, t, cause);
+    const by = d ? d.by : mediator(parties, t);
+    const opt = d ? { opt: (d.multi ? OPT_LIMITED : 0) | (d.keep ? OPT_KEEP : 0) } : {};
+    note('treaty', { a: parties[0], b: parties[1], ps: parties, region: sid >= 0 ? pm.settlements[sid].region : -1, settlement: sid, war: id, n: term, foe, by, ...(cause ? { cause } : {}), ...opt });
+    if (term > 0) sim.schedule(t + term, Ev.TreatyEnd, id, 0);
+    if (zone >= 0) makeZone(m.treaties[id], zone, parties, t, cause, d?.zoneOpt ?? 0, d?.zoneUntil);
   };
 
   /** 查一遍还没废的约:剩不到两国的约废;中立地那州被谁占了(作者划州、立国)的撤销 */
@@ -556,6 +626,12 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
       }
       if (m.members(x).length < 2) endTreaty(x, t, 'lapse');
     }
+    // 作者下令划的、一直留着的中立地:约废了也还在,那州被谁占了(作者划州、立国)照样撤
+    for (const z of m.zones) {
+      if (!z || !z.lasting || z.ended !== undefined || owner[z.region] < 0) continue;
+      const x = m.treaties[z.treaty];
+      if (!x || x.ended !== undefined) dropZone(z, t);
+    }
   };
 
   /** p 和约里的 q 一起背约开战(宣战那一刻):记 breach,p 退出,约的中立地当即撤销;剩不到两国的约废 */
@@ -563,7 +639,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     for (const x of m.live.slice()) {
       if (!m.member(x, p) || !m.member(x, q)) continue;
       note('breach', { a: p, b: q, war, n: x.id });
-      if (x.zone >= 0) dropZone(m.zones[x.zone], t);
+      if (x.zone >= 0 && !m.zones[x.zone].lasting) dropZone(m.zones[x.zone], t);
       if (m.members(x).length < 2) endTreaty(x, t, 'lapse');
     }
   };
@@ -633,6 +709,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     if (!m.live.length) return -1;
     const x = m.bound(p, q);
     if (!x) return -1;
+    // 作者下令立的约选了"约期内不许背约":约里的两国不背约(作者下令开战照样记背约)
+    if (m.live.some((y) => y.keep && m.member(y, p) && m.member(y, q))) return 0;
     // 国家方针(policy.ts)把对方当仇国:约拦不住,不等满年就可能背约
     const grudge = hates(pm, p, q, t);
     if (!grudge && t - x.since < BREACH_AGE) return 0;
@@ -701,7 +779,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     for (const x of m.live) {
       if (x.zone < 0 || !(was ? x.parties.includes(p) && !x.out.includes(p) : m.member(x, p))) continue;
       const z = m.zones[x.zone];
-      if (z.ended === undefined && m.residents(z, t) < ZONE_CAP) return z;
+      // 作者下令划的、选了"不送人去"的不往这里放人
+      if (z.ended === undefined && !z.quiet && m.residents(z, t) < ZONE_CAP) return z;
     }
     return undefined;
   };
@@ -757,6 +836,103 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     return true;
   };
 
+  // ---- 作者下令划的中立地到期 ----
+  sim.on(Ev.ZoneEnd, (id, _b, t) => {
+    const z = m.zones[id];
+    if (!z || z.ended !== undefined || z.until === undefined || quantize(z.until) !== t) return;
+    dropZone(z, t);
+  });
+
+  // ---- 作者下令:立约、划中立地(干预;interventions.ts 在干预那一刻调)----
+  /** 演一国时它提出立约,q 肯不肯:仇国不肯、做了别国藩属的不肯;国力相近、都怕同一个强邻、近年打成僵持的更肯,方针守成和平的更肯,正和它打仗的减半 */
+  const willing = (a: number, q: number, t: Year, i: number): boolean => {
+    if (enemies(a, q, t)) return false;
+    const L = dm.liegeOf(q);
+    if (L >= 0 && L !== a) return false;
+    let odds = ASK_ODDS;
+    if (close(a, q, t, TREATY_RATIO)) odds *= REASON;
+    if (commonFoe(a, q, landNeighbors(a), landNeighbors(q), t) >= 0) odds *= REASON;
+    if (stalemate(a, q, t)) odds *= REASON;
+    if (calm(q, t)) odds *= CALM;
+    if (fighting(a, q)) odds *= 0.5;
+    return keyed4(base, pm.ptag[a], pm.ptag[q], i, U_ASK) < Math.min(ASK_MAX, odds);
+  };
+  /** 几国两两之间正在打的仗当即议和 */
+  const truce = (ps: readonly number[], t: Year) => {
+    for (const w of wm.active.filter((x) => ps.includes(x.a) && ps.includes(x.b))) wm.makePeace!(w, t);
+  };
+  /** 几国前两国共同的强邻(没有 = −1) */
+  const foeOf = (ps: readonly number[], t: Year) => (ps.length >= 2 ? commonFoe(ps[0], ps[1], landNeighbors(ps[0]), landNeighbors(ps[1]), t) : -1);
+  /** 作者选的那一州能不能做这几国的中立地:有人住、还不是中立地、原属其中一国或无主、不是国都、没被作者永久划给谁 */
+  const zoneOk = (r: number, ps: readonly number[], t: Year): boolean =>
+    r >= 0 && r < culture.length && culture[r] >= 0 && m.zoneAt[r] < 0 && (owner[r] < 0 || ps.includes(owner[r])) && !isCapital(r) && !wm.iv?.locked(r, t);
+
+  m.decree = (v, i, a, t, iv) => {
+    const sid = alive(a) ? capitalAt(pm.polities[a], t) : -1;
+    const at = { a, region: sid >= 0 ? pm.settlements[sid].region : -1, settlement: sid, war: i };
+    if (!alive(a)) {
+      sim.record('intervene', { ...at, b: -3 });
+      return;
+    }
+    const others: number[] = [];
+    for (const k of v.ps) {
+      const q = iv.resolve(k);
+      if (q >= 0 && q !== a && alive(q) && !others.includes(q)) others.push(q);
+    }
+    if (!others.length) {
+      sim.record('intervene', { ...at, b: IV_NOBODY });
+      return;
+    }
+    // 演一国时下的:对方照推演的规矩定肯不肯(不肯的不入约)
+    const yes = v.ask ? others.filter((q) => willing(a, q, t, i)) : others;
+    if (v.kind === 'treaty') {
+      if (!yes.length) {
+        sim.record('intervene', { ...at, b: IV_REFUSED });
+        return;
+      }
+      const parties = [a, ...yes];
+      const r = v.zone ? regionOfKey(v.zone, iv.of) : -1;
+      const by = v.by ? iv.resolve(v.by) : -1;
+      sim.record('intervene', { ...at, b: -1 });
+      // 先记约(编年史把它并进干预那一条,要紧挨着),再让正在交战的议和
+      create(parties, t, foeOf(parties, t), zoneOk(r, parties, t) ? r : -1, 'decree', {
+        term: v.term ?? 0,
+        multi: !!v.limited,
+        keep: !!v.keep,
+        by: by >= 0 && alive(by) && !parties.includes(by) ? by : -1,
+      });
+      truce(parties, t);
+      return;
+    }
+    // 划中立地:那州原属的国家(下令的不算)不肯就划不成
+    const r = regionOfKey(v.region, iv.of);
+    const here = { ...at, region: r, settlement: r >= 0 && r < culture.length ? pm.cityOf[r] : -1 };
+    if (r < 0 || r >= culture.length) {
+      sim.record('intervene', { ...at, b: -2 });
+      return;
+    }
+    const o = owner[r];
+    if (!yes.length || (o >= 0 && o !== a && others.includes(o) && !yes.includes(o))) {
+      sim.record('intervene', { ...here, b: IV_REFUSED });
+      return;
+    }
+    const founders = [a, ...yes];
+    if (!zoneOk(r, founders, t)) {
+      sim.record('intervene', { ...here, b: IV_NO_ZONE });
+      return;
+    }
+    sim.record('intervene', { ...here, b: -1 });
+    const opt = (v.quiet ? OPT_QUIET : 0) | (v.lasting ? OPT_LASTING : 0);
+    // 几国已同在一份约里、那份约还没有中立地:依那份约设;不然同时立一个互不侵犯之约(TERM_DECREE 年)
+    const x = m.live.find((y) => y.zone < 0 && founders.every((p) => m.member(y, p)));
+    if (x) {
+      makeZone(x, r, founders, t, 'decree', opt, v.until);
+      return;
+    }
+    create(founders, t, foeOf(founders, t), r, 'decree', { term: TERM_DECREE, multi: false, keep: false, by: -1, zoneOpt: opt, zoneUntil: v.until });
+    truce(founders, t);
+  };
+
   return m;
 }
 
@@ -771,13 +947,26 @@ export function resumeTreaties(sim: CivSim, world: World, civ: Civ): void {
   const tm = new TreatyModel(pm, dm);
   for (const e of civ.annals) tm.apply(e);
   installTreaties(sim, pm, world, tm);
+  // 还没到期的约(期满)、作者下令划的还没到撤的那年的中立地(到期):按预约它们的那条史事的先后补上 ——
+  // 同一刻预约、又撞在同一刻的,先后和一口气推完一样(那时是记完立约 / 续约 / 设中立地当下预约的)
+  const booked = new Map<string, number>();
+  civ.annals.forEach((e, i) => {
+    if (e.kind === 'treaty') booked.set(`t${e.war}`, i);
+    else if (e.kind === 'neutral' && e.cause === 'decree' && e.until !== undefined) booked.set(`z${e.war}`, i);
+  });
+  const due: { i: number; go: () => void }[] = [];
   for (const x of tm.live) {
     const at = x.since + x.term;
-    if (quantize(at) > sim.now) sim.schedule(at, Ev.TreatyEnd, x.id, 0, x.since);
+    if (x.term > 0 && quantize(at) > sim.now) due.push({ i: booked.get(`t${x.id}`) ?? -1, go: () => sim.schedule(at, Ev.TreatyEnd, x.id, 0, x.since) });
   }
+  for (const z of tm.zones) {
+    if (z && z.ended === undefined && z.until !== undefined && quantize(z.until) > sim.now) due.push({ i: booked.get(`z${z.id}`) ?? -1, go: () => sim.schedule(z.until!, Ev.ZoneEnd, z.id, 0, z.from) });
+  }
+  due.sort((a, b) => a.i - b.i);
+  for (const d of due) d.go();
   // 解禁几州的下一刻还没到的(此刻正好撤了中立地、废了有限竞争之约):补上;已经过了的由 resumePolities 重放
   civ.annals.forEach((e, i) => {
-    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || (e.kind === 'expire' && (e.n ?? 0) >= 3)) && quantize(e.year + 1 / 256) > sim.now) {
+    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || limitedEnd(e)) && quantize(e.year + 1 / 256) > sim.now) {
       sim.schedule(e.year + 1 / 256, Ev.Respread, REOPEN + i, 0);
     }
   });

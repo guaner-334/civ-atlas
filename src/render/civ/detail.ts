@@ -23,7 +23,7 @@ import { drawParts, nearX, type DrawPart, type WorkStep } from '../common';
 import { drawBorders, mergeChains, regionChains, BAND, type SidedLine } from './borders';
 import { drawRoutes } from './routes';
 import { drawPlagueDetail, washCanvas } from './plague';
-import { washZones, type WashZones } from './neutral';
+import { DETAIL_ALPHA, DETAIL_GAP_CSS, DETAIL_LINE_CSS, washZones, type WashZones } from './neutral';
 import { drawRegionLines, drawSites, habitatCanvas } from './debug';
 import { addToPath, chaikin, meshWrap } from './lines';
 import { DETAIL_EDGE_D, inkFromSymbols, regionPixels, washDetail, washFields, type WashFields } from './territory';
@@ -860,7 +860,10 @@ export function planHighlightDetail(
   let st: ReturnType<typeof highlightStrokes> | null = null;
   const out: { g: DetailGrid | null; img: ImageData | null } = { g: null, img: null };
   // 罩染:按标记(1 相关国家、2 事发州)逐格上色,边按标记之间的界线
-  const fill = fillSteps(cache, 'hl', v, step, world, raster, civ, () => marks!, [null, ...highlightFill(style, !!(hl.steady && hl.blue))], () => lines, out);
+  // 预览中立地(划中立地那一页):事发州不罩色,另铺几国颜色的横纹(见下面 draw)
+  const stripes = hl.steady && hl.stripes?.length ? hl.stripes : null;
+  const fills = highlightFill(style, !!(hl.steady && hl.blue));
+  const fill = fillSteps(cache, 'hl', v, step, world, raster, civ, () => marks!, [null, fills[0], stripes ? [0, 0, 0, 0] : fills[1]], () => lines, out);
   const steps: WorkStep[] = [
     () => {
       marks = highlightMarks(civ, hl);
@@ -876,6 +879,28 @@ export function planHighlightDetail(
     const mk = marks!;
     if (!any) return mk;
     blitFill(ctx, cache, 'hl', out);
+    // 预览中立地:按事发州的界线裁出来,铺屏幕上间距不变的横纹(同细节层里的中立地;相位按地图原点,拖动后重画对得上)
+    if (stripes) {
+      const n = stripes.length;
+      const gap = DETAIL_GAP_CSS * v.dpr;
+      eachPart(ctx, v, world, S, () => {
+        const pa = new Path2D();
+        addToPath(pa, lines, S, wrap, pj);
+        ctx.clip(pa);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.lineWidth = DETAIL_LINE_CSS * v.dpr;
+        const k0 = Math.floor(-v.oy / gap);
+        for (let k = k0; (k - k0) * gap <= v.ch + gap; k++) {
+          const y = v.oy + k * gap;
+          const c = stripes[((k % n) + n) % n];
+          ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${DETAIL_ALPHA})`;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(v.cw, y);
+          ctx.stroke();
+        }
+      });
+    }
     // 描边、光晕(光晕的模糊半径不跟着画布变换走,另乘 a)
     const { strokes, ring } = st!;
     eachPart(ctx, v, world, S, () => {
@@ -894,7 +919,7 @@ export function planHighlightDetail(
       // 事发地在屏幕上很小:外面套一个圆圈(按屏幕大小)
       const b = highlightBox(world, civ, mk);
       const k = Math.max(1, v.k);
-      if (!b || Math.max(b[2] - b[0], b[3] - b[1]) * k >= RING_BELOW * world.width) return;
+      if (!b || stripes || Math.max(b[2] - b[0], b[3] - b[1]) * k >= RING_BELOW * world.width) return;
       const dx = b[2] - b[0];
       const dy = b[3] - b[1];
       const rad = Math.max(48 / k, Math.sqrt(dx * dx + dy * dy) / 2 + 24 / k) * S;
