@@ -4859,6 +4859,8 @@ ${s.image.cells}` : null);
   useEffect(() => {
     const el = stageRef.current;
     if (!hl || !data || !civ || !el || civ.regions.of.length !== data.world.mesh.n || getGlobeOn()) return;
+    // 照故事找世界标两国:地图自己飞过去看全两国(不在这里另平移,两边同时挪会打架)
+    if (getFinder().open && getStage().stage === 'draft') return;
     let b = highlightBox(data.world, civ, highlightMarks(civ, hl));
     if (!b) return;
     const W = el.clientWidth;
