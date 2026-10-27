@@ -502,7 +502,7 @@ export function rulingLeanings(m: PolityModel, pid: number, t: Year): RulerLeani
 }
 
 /** 国家 pid 在 t 这一刻掌着实权的那一段(r = 此刻在位的;没有 = null) */
-function regentOf(m: PolityModel, pid: number, t: Year, r: Reign): Regency | null {
+export function regentOf(m: PolityModel, pid: number, t: Year, r: Reign): Regency | null {
   const list = m.regents.size ? m.regents.get(pid) : undefined;
   return list ? regentAt(m.polities[pid], list, t, r, bookOf(m, pid, t)) : null;
 }

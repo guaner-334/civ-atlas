@@ -370,6 +370,65 @@ describe('战争与攻占', () => {
     expect(falls, 'seed 7、2024 合起来').toBeGreaterThanOrEqual(1);
   }, 60_000);
 
+  it('开战看内政(默认参数 seed 7 / 2024):由头对得上开战时的国内局势,编年史写出由头', () => {
+    const WOE: Record<string, RegExp> = {
+      divert: /国中多事,欲以外战安内/,
+      unrest: /乘.+(拥兵自重|内乱)/,
+      plagued: /乘.+大疫之后/,
+      minor: /乘.+(主少国疑|幼主在位)/,
+      regent: /乘.+(专权|权臣当国)/,
+      plunder: /府库空竭,欲掠/,
+    };
+    const kinds = new Set<string>();
+    for (const seed of [7, 2024]) {
+      const civ = civOf({ ...DEFAULT_PARAMS, seed });
+      const A = civ.annals;
+      const people = civ.people ?? [];
+      const text = new Map(buildChronicle(civ).map((e) => [e.id, e.text]));
+      for (let i = 0; i < A.length; i++) {
+        const e = A[i];
+        if (e.kind !== 'war' || !e.cause || !(e.cause in WOE)) continue;
+        kinds.add(e.cause);
+        const tag = `seed ${seed} 第 ${e.year} 年 ${e.cause}`;
+        expect(text.get(i), tag).toMatch(WOE[e.cause]);
+        if (e.cause === 'unrest' && e.region >= 0) {
+          // 写了割据的那州:开战时那州正割据着(之前起了割据、到开战没收回)
+          let rise = -1;
+          for (let j = i - 1; j >= 0 && rise < 0; j--) if (A[j].kind === 'warlord' && A[j].a === e.b && A[j].region === e.region) rise = j;
+          expect(rise, tag).toBeGreaterThanOrEqual(0);
+          expect(A.slice(rise, i).some((x) => x.kind === 'reclaim' && x.a === e.b && x.region === e.region), tag).toBe(false);
+        }
+        if (e.cause === 'plunder') expect(e.region, tag).toBeGreaterThanOrEqual(0);
+        if (e.cause === 'regent' || e.cause === 'minor') {
+          // 那年守方有人掌着实权(人物里排的那一段),或者在位的君主不满 18 岁
+          const held = people.flatMap((x) => (x.polity === e.b ? (x.regencies ?? []).filter((g) => g.from < e.year && (g.until === undefined || e.year < g.until)).map((g) => g.kind) : []));
+          if (e.cause === 'regent') expect(held.some((k) => k === 'chancellor' || k === 'general'), tag).toBe(true);
+          else {
+            const lord = people.find((x) => x.role === 'ruler' && x.polity === e.b && (x.from ?? Infinity) <= e.year && (x.until === undefined || e.year < x.until));
+            if (lord) expect(held.some((k) => k === 'uncle' || k === 'minister') || e.year - lord.born < 18, tag).toBe(true);
+          }
+        }
+      }
+    }
+    // 两个世界合起来至少有三种新由头(疫后、权臣、掠夺都少见,不硬要)
+    expect(kinds.size, [...kinds].join('、')).toBeGreaterThanOrEqual(3);
+  }, 60_000);
+
+  it('开战看内政:在这类仗开战前切开,接着推的结果和一口气推完完全一样', () => {
+    let n = 0;
+    for (const seed of [7, 2024]) {
+      const w = world({ ...small, seed });
+      const whole = civOf({ ...small, seed });
+      const firsts = new Map<string, number>();
+      for (const e of whole.annals) if (e.kind === 'war' && e.cause && ['divert', 'unrest', 'plagued', 'minor', 'regent', 'plunder'].includes(e.cause) && !firsts.has(e.cause)) firsts.set(e.cause, e.year);
+      for (const y of [...firsts.values()].slice(0, 2)) {
+        expectResumeSame(w, whole, Math.floor(y) - 2);
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(0);
+  }, 120_000);
+
   it('编年史(真实战争数据):每场战争折叠成一条,攻占、被迫迁都都挂在战争下;亡国、主动迁都另列;一方在别处亡国的仗写"既亡"', () => {
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });

@@ -33,7 +33,8 @@ describe('立约与中立地', () => {
     let multi = 0;
     let zones = 0;
     let exiles = 0;
-    for (const s of SEEDS) {
+    // 放逐少见:GENERATOR_VERSION 41(开战看内政)20 个种子里 8 个世界有、合计 8 回(40 是 11 回),种子 1–3 一回都没有,多看一个种子 4
+    for (const s of [...SEEDS, 4]) {
       const st = treatyStats(civOf(s));
       expect(st.treaties, `seed ${s}`).toBeGreaterThan(0);
       expect(st.treaties, `seed ${s}`).toBeLessThan(40);

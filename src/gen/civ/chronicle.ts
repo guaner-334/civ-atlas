@@ -81,7 +81,7 @@
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from './types';
 import { IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
 import { IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, IV_NO_PARTNER } from './marriages';
-import { kinAt } from './regentInfo';
+import { holderAt, kinAt, strongHeld } from './regentInfo';
 import {
   TIER_REGIONS,
   annexedRemnants,
@@ -1334,6 +1334,7 @@ export function interventionOutcome(civ: Civ, i: number): { annal: number; ok: b
 /**
  * 战争那一条的开头(写开战的由头):"大渭欲复故土,伐昌国""大渭乘昌国与索拉特交兵,伐之""大渭欲并昌国,举兵伐之"
  * "大渭与昌国争边,起兵伐之""大渭背盟伐昌国""大渭兴兵讨昌国"(讨伐自立的藩属)"大渭应大昌之约伐昌国""大渭救其藩属瑞国,伐昌国";
+ * 开战看内政(woeText):"大渭国中多事,欲以外战安内,伐昌国""大渭乘昌国瑞州守将拥兵自重,伐之""大渭府库空竭,欲掠昌国瑞州,起兵伐之";
  * 有统帅的写"遣李牧伐之""遣李牧讨昌国"。没记由头的(干预的强制宣战)写"大渭伐昌国"
  */
 function warHead(civ: Civ, e: Annal, id: number, general: string): string {
@@ -1351,6 +1352,15 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
     }
     case 'resource':
       return `${A}${covetText(civ, e)},${general ? `遣${general}伐之` : '起兵伐之'}`;
+    case 'unrest':
+    case 'plagued':
+    case 'minor':
+    case 'regent':
+      return `${A}${woeText(civ, e)},${go('之')}`;
+    case 'plunder':
+      return `${A}${woeText(civ, e)},${general ? `遣${general}伐之` : '起兵伐之'}`;
+    case 'divert':
+      return `${A}${woeText(civ, e)},${go(B)}`;
     case 'prey':
       return `${A}欲并${B},${general ? `遣${general}伐之` : '举兵伐之'}`;
     case 'expand':
@@ -1376,7 +1386,8 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
 
 /**
  * 宣战的由头(史事 war 的 cause),写在"起兵伐某国"前面:"欲复故土,""乘昌国与索拉特交兵,""欲并昌国,""与昌国争边,"
- * "背盟,""应大昌之约,""救其藩属昌国,";讨伐自立的藩属不写由头,动词换成"讨"(见 warVerb)。干预的强制宣战、没记由头的 = 空串
+ * "背盟,""应大昌之约,""救其藩属昌国,";开战看内政的"国中多事,欲以外战安内,""乘昌国大疫之后,"等(见 woeText);
+ * 讨伐自立的藩属不写由头,动词换成"讨"(见 warVerb)。干预的强制宣战、没记由头的 = 空串
  */
 function warReason(civ: Civ, e: Annal, id: number): string {
   const y = e.year;
@@ -1393,6 +1404,13 @@ function warReason(civ: Civ, e: Annal, id: number): string {
     }
     case 'resource':
       return `${covetText(civ, e)},`;
+    case 'divert':
+    case 'unrest':
+    case 'plagued':
+    case 'minor':
+    case 'regent':
+    case 'plunder':
+      return `${woeText(civ, e)},`;
     case 'prey':
       return `欲并${B},`;
     case 'expand':
@@ -1506,7 +1524,39 @@ function claimText(civ: Civ, e: Annal, id: number): string {
 const warVerb = (e: Annal) => (e.cause === 'punish' || e.cause === 'quell' || e.cause === 'heir' ? '讨' : '伐');
 
 /** 由头里点了守方的名("以昌国绝贡,"、"乘昌国与索拉特交兵,"、"欲并昌国,"、"与昌国争边,"),后面写"伐之" */
-const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand', 'resource']);
+const NAMES_FOE: ReadonlySet<AnnalCause> = new Set<AnnalCause>(['punish', 'chaos', 'prey', 'expand', 'resource', 'unrest', 'plagued', 'minor', 'regent', 'plunder']);
+
+/**
+ * 开战看内政的由头(wars.ts):转移矛盾"国中多事,欲以外战安内";乘内乱"乘昌国瑞州守将拥兵自重"(有割据,region 列 = 那州)/ "乘昌国内乱";
+ * 疫后"乘昌国大疫之后";幼主"乘昌国主少国疑"(西幻"乘昌国幼主在位");权臣"乘昌国丞相某某专权"(人物里查不到 = "乘昌国权臣当国");
+ * 掠夺"府库空竭,欲掠昌国瑞州"(region 列 = 边境上最富的那州;查不到 = "府库空竭,欲掠昌国之财")
+ */
+function woeText(civ: Civ, e: Annal): string {
+  const y = e.year;
+  const B = pn(civ, e.b, y);
+  switch (e.cause) {
+    case 'divert':
+      return '国中多事,欲以外战安内';
+    case 'unrest': {
+      const r = regionName(civ, e.region);
+      return r ? `乘${B}${r}${polityOf(civ, e.b)?.eastern ? '守将' : '领主'}拥兵自重` : `乘${B}内乱`;
+    }
+    case 'plagued':
+      return `乘${B}大疫之后`;
+    case 'minor':
+      return classical(polityOf(civ, e.b)) ? `乘${B}主少国疑` : `乘${B}幼主在位`;
+    case 'regent': {
+      const s = holderAt(civ, e.b, y);
+      return s && strongHeld(s.g) ? `乘${B}${holderRef(civ, s.x, s.g.kind, y)}专权` : `乘${B}权臣当国`;
+    }
+    case 'plunder': {
+      const r = regionName(civ, e.region);
+      return r ? `府库空竭,欲掠${B}${r}` : `府库空竭,欲掠${B}之财`;
+    }
+    default:
+      return '';
+  }
+}
 
 /** 为夺物产开战时写的字(下标同 development.ts 的 RESOURCES:粮、牲畜、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银),先后照这里 */
 const COVET_WORD = ['粮', '马', '铜', '铁', '煤', '木', '盐', '渔', '油', '矿', '金'];
