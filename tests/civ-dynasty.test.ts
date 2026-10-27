@@ -259,7 +259,10 @@ describe('王朝更替', () => {
         const p = civ.polities[e.polities[0]];
         const i = dynastyIndexAt(p, e.year);
         const n = Math.floor(e.year) - Math.floor(p.dynasties![i - 1].year);
-        expect(e.tag).toBe('朝');
+        // 掌实权的人篡位开的新朝(紧挨在前面的那条 regent 是篡位)标签"篡"
+        const pre = civ.annals[e.id - 1];
+        const usurped = !!pre && pre.kind === 'regent' && pre.n === 3 && pre.a === p.id && pre.year === e.year;
+        expect(e.tag).toBe(usurped ? '篡' : '朝');
         expect(e.text).not.toMatch(/某国|undefined|NaN|-1|旧王室/);
         expect(e.text).toContain(`享国 ${n} 年`);
         if (p.eastern) {
