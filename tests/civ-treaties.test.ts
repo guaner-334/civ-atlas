@@ -82,7 +82,8 @@ describe('立约与中立地', () => {
     }
     for (const x of civ.people ?? []) {
       const ex = x.exile;
-      if (!ex) continue;
+      // 出奔邻国的(没有中立地)见 civ-exile.test.ts
+      if (!ex || ex.to !== undefined) continue;
       const z = book.zones[ex.zone];
       expect(z.region).toBe(ex.region);
       expect(ex.year).toBeGreaterThanOrEqual(z.from);
