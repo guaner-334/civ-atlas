@@ -860,7 +860,10 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           }
         },
       });
-    } else if (g.kind === 'general' && g.iv === undefined) {
+    } else if (g.kind === 'general') {
+      // 作者下令"让他掌权"的将领:就是人物键里的那位(按生年认;名字这时还没起);推演里自己出的:本国战功最多的那位
+      const iv = g.iv !== undefined ? civ.interventions?.[g.iv] : undefined;
+      const who = iv?.kind === 'regent' ? parsePersonKey(iv.person) : null;
       steps.push({
         idx: g.annal,
         run: () => {
@@ -868,7 +871,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           let best: (typeof genOf)[number][number] | undefined;
           for (const c of genOf[pid]) {
             if (!c.p.commands?.length || c.p.born + GENERAL_AGE[0] > t || c.careerEnd <= t || (c.p.died !== undefined && c.p.died <= t)) continue;
-            if (!best || (merit.get(c.p) ?? 0) > (merit.get(best.p) ?? 0)) best = c;
+            if (g.iv !== undefined ? who && Math.round(c.p.born) === who.born && !best : !best || (merit.get(c.p) ?? 0) > (merit.get(best.p) ?? 0)) best = c;
           }
           if (!best) return;
           // 入朝秉政:正领着的兵就此交出、不再挂帅出征;掌着权的那几年不会战死
@@ -1056,7 +1059,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       // 作者下令"让他掌权"的名臣、将领:按人物键认(国家、生年、名字;名字对不上的按生年)
       const who = parsePersonKey(civ.interventions?.[g.iv]?.kind === 'regent' ? (civ.interventions[g.iv] as { person: string }).person : '');
       const pool = (g.kind === 'general' ? generals : ministers).filter((x) => x.polity === s.pid && who && Math.round(x.born) === who.born);
-      holder = pool.find((x) => (x.defaultName ?? x.name) === who?.name) ?? pool[0];
+      holder = strongGenerals.get(s) ?? pool.find((x) => (x.defaultName ?? x.name) === who?.name) ?? pool[0];
     } else if (g.kind === 'uncle') {
       const Fa = g.uncle && byK[s.pid].get(g.uncle.k);
       holder = Fa ? sonsOf.get(Fa)?.find((x) => x.heirAt === undefined && x.p.born === g.born)?.p : undefined;

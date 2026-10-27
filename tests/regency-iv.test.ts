@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { buildChronicle } from '../src/gen/civ/chronicle';
-import { holderAt } from '../src/gen/civ/regentInfo';
+import { heirBornOf, holderAt } from '../src/gen/civ/regentInfo';
 import { IV_NOT_HIM } from '../src/gen/civ/rulers';
 import { cleanIntervention, personKey, polityKey, resolvePersonKey, type Intervention } from '../src/gen/edits';
 
@@ -143,6 +143,38 @@ for (const seed of [7, 2024]) {
       }
       expect(u || m).toBeTruthy();
     }, 120_000);
+
+    it('还没推到君主下台(太子在人物里还是宗室)也认得出预定的继承人', () => {
+      const base = baseOf(seed);
+      const c = heirCase(base)!;
+      expect(Math.round(heirBornOf(base, c.N)!)).toBe(Math.round(c.H.born));
+      const short = generateCiv(world(seed), { endYear: c.T + 1 });
+      const N = short.people!.find((x) => x.role === 'ruler' && x.polity === c.N.polity && x.from === c.N.from)!;
+      const H = short.people!.find((x) => x.parent === N.id && Math.round(x.born) === Math.round(c.H.born))!;
+      expect(H.role).toBe('prince');
+      expect(Math.round(heirBornOf(short, N)!)).toBe(Math.round(H.born));
+    }, 120_000);
+
+    it('将领专权:那一刻起交出兵权,不再挂帅', () => {
+      const w = world(seed);
+      const base = baseOf(seed);
+      let hit = false;
+      for (const G of (base.people ?? []).filter((x) => x.role === 'general' && (x.commands?.length ?? 0) > 1 && x.commands![0].from > 700)) {
+        const T = Math.ceil(G.commands![0].until) + 1;
+        if (!(G.commands!.some((c) => c.from > T)) || (G.died ?? Infinity) < T + 6 || !free(base, G.polity, T, 6)) continue;
+        const R = rulersOf(base).find((r) => r.polity === G.polity && (r.from ?? Infinity) < T && (r.until ?? Infinity) > T + 6);
+        if (!R) continue;
+        const v = cleanIntervention({ kind: 'regent', a: polityKey(base, G.polity), person: personKey(base, G.id), from: T, how: 'general', end: 'return', years: 4, leanings: { expand: 50, war: 70, develop: 50, trade: 50 } })!;
+        const civ = generateCiv(w, { interventions: [v], endYear: T + 20 });
+        if (ivAnnal(civ).b !== -1) continue;
+        const H = again(civ, base, G);
+        expect(H.regencies?.find((g) => g.from === T)?.kind).toBe('general');
+        expect(H.commands!.every((c) => c.from < T)).toBe(true);
+        hit = true;
+        break;
+      }
+      expect(hit).toBe(true);
+    }, 180_000);
 
     it('不是太子的人引兵入朝:不生效(写原因),历史和不下一样', () => {
       const w = world(seed);

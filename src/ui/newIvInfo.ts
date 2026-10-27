@@ -29,6 +29,7 @@ import {
   type RegentHow,
 } from '../gen/edits';
 import { foesAt } from '../gen/civ/fiscalBook';
+import { heirBornOf } from '../gen/civ/regentInfo';
 import { eraText, spaced, yearAt, type Era } from '../gen/era';
 import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, populationAt, portAt, regionCityAt, regionPopulationAt, ruralPopulationAt } from '../gen/civ/growth';
 import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calamity';
@@ -120,8 +121,9 @@ export function regentChoice(civ: Civ, x: Person, y: number): { hows: RegentHow[
   const last = Math.ceil(civ.endYear) - 1;
   const upTo = (...ts: (number | undefined)[]) => Math.min(last, ...ts.map((t) => (t === undefined ? Infinity : Math.ceil(t) - 1)));
   const lo = (...ts: number[]) => Math.max(...ts.map((t) => Math.ceil(t)));
-  const rs = (civ.people ?? []).filter((r) => r.role === 'ruler' && r.polity === x.polity);
-  const heir = x.parent === N.id && x.rise === 'heir' && x.from !== undefined && x.from === N.until && rs.includes(x);
+  // 预定的继承人(推演还没推到君主下台时他在人物里还是宗室):按生年认,和推演里一样
+  const hb = x.parent === N.id ? heirBornOf(civ, N) : undefined;
+  const heir = hb !== undefined && Math.round(hb) === Math.round(x.born);
   if (heir) return { hows: ['march', 'heir'], ends: ['succeed', 'return', 'usurp'], ruler: N, span: { lo: lo(N.from!, x.born + IV_ROYAL_AGE), hi: upTo(N.until, x.died) } };
   const F = x.parent !== undefined ? civ.people?.[x.parent] : undefined;
   const uncle =

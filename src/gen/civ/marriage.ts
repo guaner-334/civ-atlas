@@ -208,7 +208,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   }
 
   // ---- 作者下令"为他联姻" ----
-  /** 人物键对上的那位宗室(国家 p、t 那一刻):在位的君主本人,或同一朝近几位君主的儿子(在世、成年;已经即过位的不算);对不上 = null */
+  /** 人物键对上的那位宗室(国家 p、t 那一刻):在位的君主本人,或同一朝先前各位君主的儿子(在世、成年;已经即过位的不算);对不上 = null */
   const ivGroom = (p: number, key: string, t: Year): { code: number; born: Year } | null => {
     const who = parsePersonKey(key);
     const P = pm.polities[p];
@@ -217,7 +217,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
     if (r.crown || t - who.born < GROOM_AGE[0]) return null;
     if (Math.round(reignBorn(r)) === who.born) return { code: r.k * 16 + GROOM_SELF, born: reignBorn(r) };
     const book = bookOf(pm, p, t);
-    for (let k = r.k; k >= 0 && k >= r.k - 3 && book[k] && book[k].dynasty === r.dynasty; k--) {
+    for (let k = r.k; k >= 0 && book[k] && book[k].dynasty === r.dynasty; k--) {
       if (book[k].crown) continue;
       const br = broodOf(pm.rbase, pm.rtag[p], book[k], P);
       if (k === r.k && br.heir !== undefined && Math.round(br.heir) === who.born) return { code: k * 16, born: br.heir };
