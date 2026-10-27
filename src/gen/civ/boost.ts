@@ -3,7 +3,9 @@
  *   快几倍(mul = 3 / 10):from 到 until(不含)这些年里,那些州四样能力(生产、运输、信息、行政)的"自己长"和"向邻居学"都 × mul
  *     (发展度的输入表「推」,development.ts 每步按这一步里管了几成折算;动员跟着生产、行政走)。整国 = 每一步那一刻归这国的州
  *     (新打下的也推、丢了的不推);几州 = 只推这几州(换了主也照推)。跨时代的门槛照旧:卡在门口(缺物产、组织、太平、地理)时
- *     自己长不乘(和没推一样慢),等邻居传过来;向邻居学照乘。到期以后照常长,长上去的不退。和方针的发展重点相乘。
+ *     自己长不乘(和没推一样慢),乘出来的那一截也至多长到门口;生产到了门口、缺下一个时代要的物产的州四样能力都不乘(自己长、向邻居学
+ *     都照常慢,等邻居传过来)。前后接着下的几条按一步里各段管了多久合起来算(和一条管到底的一样)。到期以后照常长,长上去的不退。
+ *     和方针的发展重点相乘。
  *   直接进(没有 mul):from 那一刻以这国国都所在州的时代为准,进它的下一个时代 —— 治下各州(几州 = 那几州)四样能力都拉到
  *     那个时代开头(本来就在或更高的不动;development.ts 的 jumpEra),不看物产等门槛;国都已在最后一个时代 = 不生效。
  *     带出来的"始入某时代""为天下之先"、发明、发现大矿都记在这一刻。
@@ -67,14 +69,25 @@ export function installBoosts(sim: CivSim, iv: InterventionModel): void {
     if (s) segs.push(s);
   }
   segsOf.set(sim, segs);
+  // 一步里各州的倍数:这一步按各条的起止切成几段,每段取管着这州的最大倍数,再按各段占这一步的几成加起来
+  // (前后接着下的几条和一条管到底的一样;同时管着的几条取大的,不叠乘)
   d.boostFill = (t0, y, out) => {
     const dt = y - t0;
-    for (const s of segs) {
-      const ov = (Math.min(y, s.until) - Math.max(t0, s.from)) / dt;
-      if (!(ov > 0)) continue;
-      const m = 1 + (s.mul - 1) * Math.min(1, ov);
-      const rs = s.regions ?? (pm.polities[s.p]?.ended === undefined ? (pm.lands[s.p] ?? []) : []);
-      for (const r of rs) if (r < out.length && m > out[r]) out[r] = m;
+    const act = segs.filter((s) => Math.min(y, s.until) > Math.max(t0, s.from));
+    if (!act.length) return;
+    const cut = [...new Set([t0, y, ...act.flatMap((s) => [s.from, s.until]).filter((t) => t > t0 && t < y)])].sort((a, b) => a - b);
+    const best = new Map<number, number>();
+    for (let k = 0; k + 1 < cut.length; k++) {
+      const a = cut[k];
+      const b = cut[k + 1];
+      best.clear();
+      for (const s of act) {
+        if (!(s.from <= a && s.until >= b)) continue;
+        const rs = s.regions ?? (pm.polities[s.p]?.ended === undefined ? (pm.lands[s.p] ?? []) : []);
+        for (const r of rs) if (r < out.length && s.mul > (best.get(r) ?? 1)) best.set(r, s.mul);
+      }
+      const w = (b - a) / dt;
+      for (const [r, m] of best) out[r] += (m - 1) * w;
     }
   };
 }

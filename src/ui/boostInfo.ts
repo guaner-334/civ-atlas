@@ -159,7 +159,7 @@ function boostDone(civ: Civ, i: number): { regions: number; next: number } | nul
 }
 
 /**
- * 快几倍、整国:要跨的头一道门槛缺物产(生效那年治下一州都没有),到期时国都还没进那个时代 ——"；缺铜锡，停在青铜门口"(别的 = 空串)
+ * 快几倍、整国:要跨的头一道门槛缺物产(生效那年、到期那年治下都一州没有),到期时国都还没进那个时代 ——"；缺铜锡，停在青铜门口"(别的 = 空串)
  */
 function boostStall(civ: Civ, v: BoostIv): string {
   if (v.mul === undefined || v.regions) return '';
@@ -173,6 +173,9 @@ function boostStall(civ: Civ, v: BoostIv): string {
   const sid = polityAlive(p, end) ? capitalAt(p, end) : -1;
   const r = sid >= 0 ? civ.settlements[sid].region : look.capR;
   if (lv && eraOf(eraLevel(lv, r)).era >= look.lack.era) return '';
+  // 这些年里打下了有这样物产的州(不再缺了):不算停在门口
+  const late = boostLook(civ, k, null, end).gates.find((g) => g.era === look.lack!.era && g.res === look.lack!.res);
+  if (late && late.n > 0) return '';
   return `；缺${look.lack.res}，停在${ERAS[look.lack.era]}门口`;
 }
 

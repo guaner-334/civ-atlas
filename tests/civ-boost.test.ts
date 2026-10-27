@@ -128,6 +128,33 @@ describe('推一把发展(boost)', () => {
     expect(ch?.text).toMatch(/励精图治,百业日新,至第 1550 年$/);
   }, 120_000);
 
+  it('快几倍照规矩:生产到了青铜门口、治下没有铜锡的国家,国都推不过去;前后接着下的两条和一条管到底的一样', () => {
+    const c0 = baseCiv();
+    const T = 1500;
+    const res = c0.development!.resources;
+    const lv0 = developmentAt(c0.development!, T);
+    const own = ownersAt(c0, T).polity;
+    // 那年治下一州铜锡都没有、国都的生产已在青铜门口(0.7–1)的国家
+    const stuck = c0.polities.find((q) => {
+      if (!(q.founded <= T && (q.ended === undefined || q.ended > T))) return false;
+      const r = capRegion(c0, q.id, T);
+      const prod = lv0[r * 5];
+      if (!(prod > 0.7 && prod < 1)) return false;
+      for (let x = 0; x < own.length; x++) if (own[x] === q.id && res[x * 11 + 2] > 0) return false;
+      return true;
+    })!;
+    expect(stuck).toBeTruthy();
+    const c = generateCiv(world(), { interventions: [{ kind: 'boost', a: polityKey(c0, stuck.id), from: T, mul: 10, until: T + 50 }] });
+    const r = capRegion(c, stuck.id, T + 50);
+    expect(developmentAt(c.development!, T + 50)[r * 5]).toBeLessThan(1);
+    // 前后接着下的两条(1500–1550、1550–1600)和一条 1500–1600 推出来的发展度一样
+    const p = biggestAt(c0, T);
+    const a = polityKey(c0, p);
+    const one = generateCiv(world(), { interventions: [{ kind: 'boost', a, from: T, mul: 10, until: T + 100 }], endYear: T + 120 });
+    const two = generateCiv(world(), { interventions: [{ kind: 'boost', a, from: T, mul: 10, until: T + 50 }, { kind: 'boost', a, from: T + 50, mul: 10, until: T + 100 }], endYear: T + 120 });
+    expect(developmentAt(two.development!, T + 120)).toEqual(developmentAt(one.development!, T + 120));
+  }, 120_000);
+
   it('几州:只推那几州,别的州和不推一样', () => {
     const c0 = baseCiv();
     const T = 1500;
