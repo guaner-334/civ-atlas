@@ -285,6 +285,7 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   disaster: '降天灾',
   treaty: '立约',
   neutral: '划中立地',
+  keep: '保住王室',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {

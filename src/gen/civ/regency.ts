@@ -9,6 +9,8 @@
  *       还政 / 伏诛 / 卒:记一条 regent;
  *       叔父篡位:Polity.seizes 加一条(在位表里幼主那一刻下台、叔父接着在位),预约叔父的即位(Ev.Reign);
  *       名臣、大臣篡位:改朝换代(Polity.dynasties 加一条,新朝起于国都、第一位就是他,见 rulers.ts),先记 regent 再记 dynasty;
+ *       那一刻这国有干预「保住王室」护着(interventions.ts 的 keeps;结局是掌权时定的,挡不挡在这一刻现查,接着推也一样):
+ *       先记一条 keep(未遂),再记结局 —— 叔父还政,名臣、大臣伏诛;
  *     再看此刻在位的君主有没有这一刻的候选:没人掌着权、他不是作者立的君主、(引兵入朝)本国正在打仗 —— 掌权,记一条 regent
  *   - 看王朝时没改朝换代(dynasty.ts 调 strong):王国、帝国这些年战败失地、丢过国都,或接连开疆,有机会出一位专权的大臣、大将
  *   - 引兵入朝那一刻本国正在打的仗:本国国力 × MARCH_SUPPLY,MARCH_FADE 年里淡回(wars.ts 的胜率)
@@ -22,7 +24,7 @@ import { bookOf, dynastyReign, polityModelOf, regencyCtx, rulerOf, type PolityMo
 import { warModelOf, type War } from './wars';
 import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
-import { reignStart, type Reign } from './rulers';
+import { KEEP_REGENT, reignStart, type Reign } from './rulers';
 import {
   MARCH_FADE,
   MARCH_SUPPLY,
@@ -140,6 +142,13 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
     const note = (n: number) => sim.record('regent', { a: P.id, b, n, ...cap, war: g.k });
     if (g.outcome !== 'usurp') {
       note(g.outcome === 'return' ? RG_RETURN : g.outcome === 'purge' ? RG_PURGE : RG_DIED);
+      return;
+    }
+    // 保住王室(干预):篡位挡下 —— 先记一句未遂,紧跟着记结局:叔父到期还政,名臣、大臣事泄伏诛
+    const kept = pm.iv ? pm.iv.keeps(P.id, t) : -1;
+    if (kept >= 0) {
+      sim.record('keep', { a: P.id, b: KEEP_REGENT, ...cap, war: kept, n: 0 });
+      note(g.kind === 'uncle' ? RG_RETURN : RG_PURGE);
       return;
     }
     if (g.kind === 'uncle') {

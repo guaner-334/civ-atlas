@@ -18,6 +18,7 @@ import { cleanIntervention, resolveKey, type Intervention, type WorldEdits } fro
 import { AUTHOR_RULER_DEFAULT, characterLeanings, type AuthorCharacter } from '../gen/characters';
 import { eraText, spaced, yearAt, yearFull, yearSpanAt, type Era } from '../gen/era';
 import type { Pending } from './pendingStore';
+import { KEEP_CROWN } from './keepInfo';
 
 export type CrownIv = Extract<Intervention, { kind: 'crown' }>;
 
@@ -157,7 +158,8 @@ export function crownDoneText(civ: Civ, v: CrownIv, i: number, chars: readonly A
     const why = f.why.startsWith('那一年') ? `第 ${v.from} 年${f.why.slice(3)}` : f.why;
     return { ok: false, text: `${who}没能即位：${eraText(why, era)}` };
   }
-  return { ok: true, text: crownLine(who, A, v, died, era) };
+  // 在位期间保住王室的:"燕昭即大澜王朝君位，在位期间保住王室"(下台年份不再写)
+  return { ok: true, text: v.keep ? `${who}即${A}君位，${KEEP_CROWN}` : crownLine(who, A, v, died, era) };
 }
 
 // ---------------------------------------------------------------------------

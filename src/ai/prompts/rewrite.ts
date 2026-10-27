@@ -604,7 +604,7 @@ function ivText(civ: Civ, v: Intervention): string {
     case 'found':
       return `在 ${reg(v.region)} 立国${v.name ? `(号${v.name})` : ''}`;
     case 'crown':
-      return `${id(v.a, 'polity', 'P')} 立作者的人物为君主${until(v.until)}`;
+      return `${id(v.a, 'polity', 'P')} 立作者的人物为君主${until(v.until)}${v.keep ? ',在位期间保住王室' : ''}`;
     case 'policy':
       return `${id(v.a, 'polity', 'P')} 定方针`;
     case 'destroy':
@@ -624,6 +624,8 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${id(v.a, 'polity', 'P')} 与 ${v.ps.map((k) => id(k, 'polity', 'P')).join('、')} 立约${v.term ? `,以 ${v.term} 年为期` : ''}${v.zone ? `,以 ${reg(v.zone)} 为中立地` : ''}`;
     case 'neutral':
       return `${id(v.a, 'polity', 'P')} 与 ${v.ps.map((k) => id(k, 'polity', 'P')).join('、')} 以 ${reg(v.region)} 为中立地${until(v.until)}`;
+    case 'keep':
+      return `${id(v.a, 'polity', 'P')} 保住王室${until(v.until)}`;
   }
 }
 
@@ -1446,6 +1448,7 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   disaster: '降天灾',
   treaty: '立约',
   neutral: '划中立地',
+  keep: '保住王室',
 };
 
 // ---------------------------------------------------------------------------

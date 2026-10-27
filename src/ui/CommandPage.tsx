@@ -1,9 +1,9 @@
 /**
  * 国家面板的干预页:生效年份(−100 −10 [年份] +10,默认 = 时间轴当前那一年)+ 持续到 + 方针 + 六条命令。
  *
- *   持续到  一直有效 | 到某一年(−100 −10 [年份] +10 +100,默认 = 生效年份 + 100);只管保护、禁止扩张、结盟,到这一年止(不含)
+ *   持续到  一直有效 | 到某一年(−100 −10 [年份] +10 +100,默认 = 生效年份 + 100);只管保护、保住王室、禁止扩张、结盟,到这一年止(不含)
  *
- *   加入待推演  保护(不会被灭亡)、禁止分裂、禁止扩张
+ *   加入待推演  保护(不会被灭亡)、禁止分裂、保住王室(不改朝换代、不被篡位;共和国变淡,"共和国没有王室")、禁止扩张
  *   选择对象  结盟(任意国家)、宣战(仅相邻国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
  *
  * 不可用的命令变淡,说明换成原因。下的令先进待推演的单子(pendingStore.ts,单子在时间轴上面,PendingTray.tsx),已经在单子里的变淡、写"已在待推演里";
@@ -49,12 +49,13 @@ import { zoneChoices } from './treatyIv';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
+type Cmd = 'policy' | 'protect' | 'unity' | 'keep' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
   { k: 'protect', name: '保护', desc: '该国不会被灭亡', pick: false },
   { k: 'unity', name: '禁止分裂', desc: '该国不会分裂出新国家', pick: false },
+  { k: 'keep', name: '保住王室', desc: '不改朝换代，君主不会被权臣所废', pick: false },
   { k: 'halt', name: '禁止扩张', desc: '不再主动扩张,被打时仍会夺回失地', pick: false },
   { k: 'ally', name: '结盟', desc: '选择一个国家,两国不再交战', pick: true },
   { k: 'treaty', name: '立约', desc: '和一国或几国约定若干年互不侵犯', pick: true, go: '选几国 ›' },
@@ -93,7 +94,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   // 持续到:一直有效 / 到某一年(截止那年不含,所以至少是生效年份的下一年;逐年推演里没有上限)
   const [limited, setLimited] = useState(false);
   const ui = useYearInput(y + 100, step ? y + 1 : Math.min(y + 1, civ.endYear), step ? END_YEAR_MAX : civ.endYear, () => setMsg(null));
-  const timed = (k: Cmd) => k === 'protect' || k === 'halt' || k === 'ally';
+  const timed = (k: Cmd) => k === 'protect' || k === 'keep' || k === 'halt' || k === 'ally';
   const until = limited ? { until: ui.y } : {};
 
   const alive = polityAlive(p, y);
@@ -124,10 +125,12 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const why = (k: Cmd): string | null => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
+    // 共和国没有王室(推演里本来就不改朝换代)
+    if (k === 'keep' && p.lineage === 'republic') return '共和国没有王室，用不上';
     if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
-    if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
-    if ((k === 'protect' || k === 'unity' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
+    if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt') && has(k)) return '已经下过这条命令';
+    if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
     if (k === 'treaty' && !others.length) return '该年没有别的国家';
     if (k === 'neutral' && !zoneOk) return '该年没有碰到两国以上、做得了中立地的州';
@@ -154,7 +157,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }
-    if (k === 'protect' || k === 'halt') {
+    if (k === 'protect' || k === 'keep' || k === 'halt') {
       setMsg(order({ kind: k, a: key, from: y, ...until }, null));
       return;
     }
@@ -235,7 +238,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
           {limited && (
             <>
               <YearRow yi={ui} label="持续到的年份" wide />
-              <span className="cp-note">只对保护、禁止扩张、结盟有效。</span>
+              <span className="cp-note">只对保护、保住王室、禁止扩张、结盟有效。</span>
             </>
           )}
         </div>
