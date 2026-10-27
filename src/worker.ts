@@ -121,9 +121,10 @@ export type WorkerRequest =
   /**
    * 生成世界。terrain = 地形修改(不给 = 没改);sketch = 草图(不给 = 没画);interventions = 推文明时带上的干预(改地形重新生成时用;不给 = 没有);
    * tempo = 主线程记着的扩张节拍(星球对不上就不用);skipCiv = 只生成地形、铺像素,不推文明(编辑地形时:交回的 done 不带历史,
-   * 收起编辑地形以后用 civOnly 补推)
+   * 收起编辑地形以后用 civOnly 补推);mapFirst = 地图先交:整张铺好就交 map(沟壑本线程也领一段,不等推文明),
+   * 历史推完再交 done(mapSent,不带地图)。推几千年的历史比生成地形、铺像素慢,新建世界时地图不用等它
    */
-  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[]; skipCiv?: true } & CivInput & PatchInput)
+  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[]; skipCiv?: true; mapFirst?: true } & CivInput & PatchInput)
   /**
    * 补推上一次 skipCiv 生成的世界的文明:世界是线程手上那一个(线程被重开过就按参数重新生成),推法和 generate 里一模一样
    * (同样的输入 = 同一份历史、同样的地名)。nid = 第几次补推(主线程只认最新的)
@@ -199,12 +200,19 @@ export type WorkerResponse =
    * 主图:raster = 整张;按块重铺的不带 raster,带 patch(比 from 那张整图变了的那一块,null = 一个像素也没变),见 PatchInput;
    * 按块重铺的另带手绘风的符号规划(plan,render/fantasy.ts 的 planGlyphs:主线程按块重画手绘地图要用,精细度高时要算一两百毫秒,在这里算);
    * 整张交的推了文明的(打开世界、新建)也带(等帮手算沟壑的工夫里算好):主线程换上之前备手绘地图、缩略图都要用。
-   * civ = null:请求带了 skipCiv,没推文明
+   * civ = null:请求带了 skipCiv,没推文明。
+   * mapSent:请求带了 mapFirst,世界和地图已经随 map 先交了,这条只交历史(不带 world、地图)
    */
-  | ({ type: 'done'; id: number; world: World; civ: Civ | null; split?: CivSplit; chron?: number; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
-      | { raster: Raster; patch?: undefined; from?: undefined; plan?: Plan }
-      | { raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan }
+  | ({ type: 'done'; id: number; civ: Civ | null; split?: CivSplit; chron?: number; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string } & (
+      | { world: World; raster: Raster; patch?: undefined; from?: undefined; plan?: Plan; mapSent?: undefined }
+      | { world: World; raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan; mapSent?: undefined }
+      | { world?: undefined; raster?: undefined; patch?: undefined; from?: undefined; plan?: undefined; mapSent: true }
     ))
+  /**
+   * 请求带了 mapFirst 的生成:整张主图铺好了先交(还没推文明;历史随后的 done 交)。各项同 done;
+   * 不算一件回音(随后的 done / aborted 才算)
+   */
+  | { type: 'map'; id: number; world: World; raster: Raster; plan?: Plan; genMs: number; rasterMs: number; reused?: true; eras?: EraWorld[]; baseKey: string }
   | ({ type: 'history'; id: number } & HistoryFrames)
   /** 重推好的文明;ms = 线程里花的时间(含按参数重新生成世界);tempo、eras 同 done */
   | { type: 'civ'; id: number; seq: number; civ: Civ; split?: CivSplit; chron?: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
@@ -296,6 +304,12 @@ const post = (m: WorkerResponse, transfer: Transferable[] = []) => self.postMess
 
 /** 交出去的历史切段编号到几了 */
 let splitSeq = 0;
+/** 整张主图交给主线程时 transfer 走的数组 */
+function rasterTransferables(raster: Raster): ArrayBuffer[] {
+  const vl = raster.veinLines!;
+  return [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer);
+}
+
 /**
  * 交历史的消息:历史里条数多的几个列表先切成段一条一条交(src/civParts.ts;主线程每段单独拆包,不在这一条上一口气拆整份),
  * 这一条带着编号、那几个列表是空的。短的历史不切,原样交
@@ -822,27 +836,58 @@ async function handle(m: Queued): Promise<void> {
     // 编辑地形时(skipCiv)不推文明:等帮手线程把沟和山脊算完就交回,文明等收起编辑地形以后补推(civOnly)
     // 手绘风的符号规划(按块换上时交给主线程):按块重铺的,等帮手算细沟的工夫里先算好(精细度高时一两百毫秒,不占等的时间)
     let plan: Plan | undefined;
-    const civ = m.skipCiv
-      ? await pool.finish(d, undefined, pj && old ? () => void (plan = planGlyphs(world)) : undefined).then(() => null)
-      : await pool.finish(
-          d,
-          () => {
-            // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
-            post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
-            const tc = performance.now();
-            const c = civOf(world, m, steps);
-            civMs = performance.now() - tc;
-            return c;
-          },
-          // 手绘风的符号规划:主线程换上之前备地图要用(200k 地块要算一百多毫秒),等帮手的工夫里先算好
-          () => void (plan = planGlyphs(world)),
-        );
-    if (giveUp()) return;
-    const transfer: ArrayBuffer[] = [];
+    const pushCiv = () => {
+      // 文明骨架(宜居度、州……)只读 World,之后的文明步骤都在 gen/civ/index.ts 里接
+      post({ type: 'progress', id: m.id, stage: '文明', pct: 0.95 });
+      const tc = performance.now();
+      const c = civOf(world, m, steps);
+      civMs = performance.now() - tc;
+      return c;
+    };
     // 回放快照体积大且主线程用不上,不随世界一起发送
     const { history: _history, ...rest } = world;
     void _history;
     const baseKey = keyOf(m.params, m.terrain, m.sketch);
+    // 地图先交(mapFirst,整张铺的):沟壑本线程也领一段,铺完就交 map,再推文明。
+    // 推文明的时候本线程收不到消息(帮手算好的沟壑也收不到),和推文明同时算沟壑的话,地图要等推完才交得出去
+    const early = !!m.mapFirst && !m.skipCiv && !pj && !old;
+    if (early) {
+      await pool.finish(d, undefined, () => void (plan = planGlyphs(world)));
+      if (superseded()) return void post({ type: 'aborted', id: m.id });
+      // 整张交出去的数组 transfer 走了,留的是一份拷贝(同下面整张交的)
+      if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: copyRaster(raster, spare), inputs: d.inputs } };
+      spare = null;
+      if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
+      post(
+        { type: 'map', id: m.id, world: { ...rest, history: [] }, raster, ...(plan ? { plan } : {}), genMs, rasterMs, ...(reused ? { reused: true as const } : {}), eras: eraWorlds(steps), baseKey },
+        [...rasterTransferables(raster), ...(plan ? [plan.forest.buffer as ArrayBuffer] : [])],
+      );
+      // 交了地图以后后面又排上了新的世界(按了后退……):这个世界的历史不用推了
+      if (superseded()) return void post({ type: 'aborted', id: m.id });
+    }
+    const civ = m.skipCiv
+      ? await pool.finish(d, undefined, pj && old ? () => void (plan = planGlyphs(world)) : undefined).then(() => null)
+      : early
+        ? pushCiv()
+        : await pool.finish(
+            d,
+            pushCiv,
+            // 手绘风的符号规划:主线程换上之前备地图要用(200k 地块要算一百多毫秒),等帮手的工夫里先算好
+            () => void (plan = planGlyphs(world)),
+          );
+    if (giveUp()) return;
+    if (early) {
+      const transfer = civTransferables(civ!);
+      const cloned = cloneCiv(civ!);
+      keepCiv(m, m.play, cloned);
+      const ms = performance.now() - t0;
+      const chron = await postChronicle(m.id, civ!, m.renames);
+      postCiv({ type: 'done', id: m.id, mapSent: true, civ, chron, ms, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), baseKey }, transfer);
+      queuePatches(m.id, m, steps);
+      queueSnapshot(m.id, m, world, steps, cloned);
+      return;
+    }
+    const transfer: ArrayBuffer[] = [];
     let map: { raster: Raster } | { patch: RasterPatch | null; from: string; plan: Plan };
     // 主线程有那张整图:只交回变了的那一块(逐位比),主线程按块重画;整张留在线程里,下一笔接着用。
     // 按块重铺的只在重铺的那块里比;整张铺的(变得多)整张比,变的那块不到 PATCH_SEND 张图也照样只交那一块。
@@ -861,8 +906,7 @@ async function handle(m: Queued): Promise<void> {
       transfer.push(plan.forest.buffer as ArrayBuffer);
       map = { patch, from, plan };
     } else {
-      const vl = raster.veinLines!;
-      transfer.push(...[raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer));
+      transfer.push(...rasterTransferables(raster));
       if (plan) transfer.push(plan.forest.buffer as ArrayBuffer);
       map = plan ? { raster, plan } : { raster };
     }
@@ -946,8 +990,7 @@ async function handle(m: Queued): Promise<void> {
     // 手绘风的符号规划同 generate:等帮手的工夫里先算好,一起交
     let plan: Plan | undefined;
     await pool.finish(d, undefined, () => void (plan = planGlyphs(world)));
-    const vl = raster.veinLines!;
-    const transfer = [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer);
+    const transfer = rasterTransferables(raster);
     if (plan) transfer.push(plan.forest.buffer as ArrayBuffer);
     transfer.push(...civTransferables(civ));
     // 历史那一块原件留着(读出来的那份交给主线程了):接着推时再读

@@ -1360,6 +1360,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const [namingPct, setNamingPct] = useState<number | null>(null);
   /** 上一次推历史用了多久(毫秒;估补推的进度用) */
   const civMsLast = useRef<number | null>(null);
+  /**
+   * 地图先交的生成(新建中的世界,mapFirst):先到的世界、地图换上了没有、地图换上之前先到了的历史(done)。
+   * mapEarly = 地图换上了、历史还在推(新建界面的星球这时就换上新的一颗;按钮照旧等历史)
+   */
+  const mapFirst = useRef<{ id: number; world: World; shown: boolean; done: Extract<WorkerResponse, { type: 'done' }> | null } | null>(null);
+  const [mapEarly, setMapEarly] = useState(false);
   /** 补推完、地名刚换上(那一次的编号;淡入完 = 0):地图上的字淡入 */
   const [namesIn, setNamesIn] = useState(0);
   /** 这次"已按新地形重新生成"多写一行"地名等点「完成」以后再起"(每段编辑只在第一笔换上后写) */
@@ -1504,8 +1510,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         // 交历史之前先交的几段历史(条数多的列表,src/civParts.ts):收着;交历史的那条到了先拼回去,别处拿到的都是整份
         if (m.type === 'civPart') return void civParts.take(m);
         if ('split' in m && m.split) civParts.join(m.civ!, m.split);
-        // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度、先交的编年史也不算:推完 / 停下才算)
-        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress' && m.type !== 'outlineProgress' && m.type !== 'chronicle') {
+        // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度、先交的编年史、先交的地图也不算:推完 / 停下才算)
+        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress' && m.type !== 'outlineProgress' && m.type !== 'chronicle' && m.type !== 'map') {
           busyRef.current = Math.max(0, busyRef.current - 1);
           if (!busyRef.current) {
             workLabel.current = null;
@@ -1558,8 +1564,40 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           void noteMapSum(m.snapshot);
           return;
         }
+        /** 历史到了(和地图一起到的;地图先交了的,是地图换上以后):记下速度,换上历史,套上要打开的那个世界的修改 */
+        const takeCiv = (d: { id: number; civ: Civ | null; ms: number; genMs: number; civMs?: number; reused?: true }, world: World) => {
+          // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
+          if (!frozenLoad.current && !d.reused) noteGenSpeed(world.params.cells, d.genMs, d.ms);
+          // 推文明那一步用了多久:「再推」的弹层拿它估这台电脑再推几年要多久
+          if (d.civMs && d.civ) {
+            noteExtendSpeed(0, d.civ.endYear, d.civMs);
+            civMsLast.current = d.civMs;
+          }
+          setRawCiv(d.civ);
+          // 编辑地形时生成的(没推历史):收起编辑地形时补推
+          civLater.current = !d.civ;
+          setProgress(null);
+          setMapEarly(false);
+          const rg = regenRef.current;
+          if (rg && rg.id === d.id) terrainDoneRef.current(world, d.civ, d.ms);
+          else {
+            fresh.current = false;
+            if (d.civ) readyRef.current(world, d.civ);
+          }
+        };
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
-        else if (m.type === 'done') {
+        else if (m.type === 'done' && m.mapSent) {
+          // 地图先交了的(mapFirst):地图换上了就接上历史;还在备地图的,换上时再接
+          const mf = mapFirst.current;
+          if (!mf || mf.id !== m.id) return;
+          if (!mf.shown) return void (mf.done = m);
+          mapFirst.current = null;
+          takeCiv(m, mf.world);
+        } else if (m.type === 'done' || m.type === 'map') {
+          // map = 地图先交(还没推文明):照常备好、换上地图,历史等随后的 done
+          const early = m.type === 'map';
+          const civ = early ? null : m.civ;
+          if (early) mapFirst.current = { id: m.id, world: m.world, shown: false, done: null };
           const rg0 = regenRef.current;
           if (rg0 && rg0.id === m.id) {
             rg0.got = performance.now() - rg0.t0;
@@ -1570,13 +1608,6 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           /** 换上时画第几段(打开世界时备好了的那一段;按块换上的 = null,换上时照常定) */
           let openK: number | null = null;
           const finish = (raster: Raster) => {
-            // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
-            if (!frozenLoad.current && !m.reused) noteGenSpeed(m.world.params.cells, m.genMs, m.ms);
-            // 推文明那一步用了多久:「再推」的弹层拿它估这台电脑再推几年要多久
-            if (m.civMs && m.civ) {
-              noteExtendSpeed(0, m.civ.endYear, m.civMs);
-              civMsLast.current = m.civMs;
-            }
             // 换了世界:别的世界的各段主图补丁都作废(这个世界的几段在备地图的时候可能已经先到了,留着)
             const chain = new Set((m.eras ?? []).map((e, i, a) => patchKey(i ? a[i - 1].key : m.baseKey, e.key)));
             for (const k of [...eraPatches.current.keys()]) if (!chain.has(k)) eraPatches.current.delete(k);
@@ -1595,16 +1626,17 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             eraAt.current = openK === null ? null : { maps, base: baseRef.current, k: openK };
             eraWarm.current = null;
             rawUps.current = genUps.current;
-            setRawCiv(m.civ);
-            // 编辑地形时生成的(没推历史):收起编辑地形时补推
-            civLater.current = !m.civ;
-            setProgress(null);
-            const rg = regenRef.current;
-            if (rg && rg.id === m.id) terrainDoneRef.current(m.world, m.civ, m.ms);
-            else {
-              fresh.current = false;
-              if (m.civ) readyRef.current(m.world, m.civ);
-            }
+            if (!early) return takeCiv(m, m.world);
+            // 地图先换上:上一个世界的历史不能留在新地图上;提示条照旧("文明"那一步),历史到了才收
+            setRawCiv(null);
+            civLater.current = false;
+            setMapEarly(true);
+            const mf = mapFirst.current;
+            if (!mf || mf.id !== m.id) return;
+            mf.shown = true;
+            if (!mf.done) return;
+            mapFirst.current = null;
+            takeCiv(mf.done, mf.world);
           };
           if (m.raster) {
             // 整张交回来的(打开世界、换世界、刷新、新建……):现在这种底图的整张图先分小步在后台备好再换上,
@@ -1615,7 +1647,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             // 换上时画的那一段:有地形大事、时间轴在大事以后、那一段的主图补丁已经在手里的,是拼好的那张(拼也放在后台的一步里)。
             // 那一段的整张底图、写实 / 卫星画风整张图上的河(矢量,换上时描)、文明层第一次要画的,都一起备好,和地图一起换上
             const view = drawView.current;
-            const civ0 = m.civ;
+            const civ0 = civ;
             const k = civ0 ? eraShown(maps, eraPatches.current, eraIndex(civ0, getCivTime().year)) : 0;
             openK = k;
             const base = { world: m.world, raster };
@@ -2471,8 +2503,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
-      // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块
-      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true } : {}), renames: t.edits.names };
+      // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块。
+      // 新建界面先看的是地图(星球),推几千年的历史比生成地形、铺像素慢:地图先交、先换上,历史随后(mapFirst)
+      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true, mapFirst: true as const } : {}), renames: t.edits.names };
+      mapFirst.current = null;
+      setMapEarly(false);
       frozenLoad.current = null;
       genReq.current = null;
       const save = oldStored(t);
@@ -6428,6 +6463,7 @@ ${s.image.cells}` : null);
       namesIn={!!namesIn}
       onLeaveTerrain={releaseNames}
       ready={!!data && !progress}
+      mapReady={!!data && (!progress || mapEarly)}
       noCiv={noCiv}
       data={data}
       baseWorld={baseData?.world ?? null}
