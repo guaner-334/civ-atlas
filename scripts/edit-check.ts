@@ -6,6 +6,8 @@
  *
  *   npx tsx scripts/edit-check.ts                    默认:种子 7、2024 × 写实、手绘 × 平面、罗宾森,每种四笔(中纬度、跨 180° 经线、南极附近、海里放火山)
  *   npx tsx scripts/edit-check.ts --time             只测速:种子 7,手绘 + 写实平面各涂 5 笔(第一笔不算),打印中位数
+ *   npx tsx scripts/edit-check.ts --burst            连涂测速:种子 7,手绘 + 写实平面,先涂一笔,再连涂 3 回(每回每隔 0.3 秒一笔、连 5 笔,不等换上),
+ *                                                    量每回最后一笔到地图上看到、交回的是按块还是整张,打印中位数
  *   --cells=200000                                    换精细度(测速用)
  *   --proj=robinson                                   测速时换成弯边投影
  *   --no-check                                       不比像素(量改之前的版本时用:那一版没有比像素要用的调试字段)
@@ -21,7 +23,8 @@ import { startDevServer } from './lib/devserver';
 
 const args = process.argv.slice(2);
 const thumbsOnly = args.includes('--thumbs');
-const timeOnly = args.includes('--time') || thumbsOnly;
+const burst = args.includes('--burst');
+const timeOnly = args.includes('--time') || thumbsOnly || burst;
 const check = !args.includes('--no-check') && !thumbsOnly;
 const cells = Number(args.find((a) => a.startsWith('--cells='))?.slice(8) ?? 0) || undefined;
 const timeProj = args.find((a) => a.startsWith('--proj='))?.slice(7);
@@ -339,6 +342,30 @@ for (const c of CASES) {
       const f = (v: number) => v.toFixed(0);
       rows.push(`${label} 第 ${i + 1} 笔:地图换上 ${f(t.shown)},缩略图换好 ${f(t.thumbs)} ms;Long Task 最长 ${f(t.maxAll)},地图换上以后最长 ${f(t.maxAfter)}、超出 50 ms 的合计 ${f(t.blockAfter)}`);
       if (i > 0) for (const [k, v] of Object.entries(t)) (times[`${label} ${k}`] ??= []).push(v);
+    }
+    await page.close();
+    continue;
+  }
+  if (burst) {
+    // 先涂一笔(不算),再连涂 3 回:每隔 0.3 秒加一笔、连 5 笔,不等换上;量每回最后一笔
+    let k = 0;
+    const lift = () => ({ kind: 'lift', pts: [x + 6 * k, y, x + 6 * k++ + 10, y], r: 30, s: 0.6 });
+    await stroke(page, lift());
+    for (let b = 0; b < 3; b++) {
+      for (let i = 0; i < 5; i++) {
+        await page.evaluate(async (o) => {
+          const m = await import('/src/ui/editsStore.ts' as string);
+          m.addTerrainOp(o);
+        }, lift());
+        if (i < 4) await page.waitForTimeout(300);
+      }
+      // 换上的是最后一笔(地形修改的笔数对上)
+      await page.waitForFunction((n) => (window as any).__wfTerrain?.ops === n && (window as any).__wfTerrain.shownMs >= 0, k, { timeout: 60000 });
+      const t = await page.evaluate(() => (window as any).__wfTerrain);
+      const kind = t.patch ? '按块' : '整张';
+      rows.push(`${label} 连涂第 ${b + 1} 回最后一笔:线程 ${t.workerMs.toFixed(0)} 交回 ${t.gotMs.toFixed(0)} 地图上看到 ${t.shownMs.toFixed(0)} ms(${kind})`);
+      (times[`${c.style} 连涂 shown`] ??= []).push(t.shownMs);
+      await page.waitForTimeout(3000);
     }
     await page.close();
     continue;

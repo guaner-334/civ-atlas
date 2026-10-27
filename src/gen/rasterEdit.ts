@@ -57,6 +57,11 @@ export interface PatchJob {
   inputs: RasterInputs;
   /** 重铺的那块(W2;null = 铺像素的输入一点没变):框外除细沟以外都和原来逐位相同 */
   win: PixelBox | null;
+  /**
+   * 铺像素的输入变了的框(连同 prev.dirty;null = 一点没变):原来那张主图只在这块和 inputs 对不上。
+   * 这一笔不交了、改回原样时,下一笔的 dirty 记它就够(不用记往外扩过的 W3)
+   */
+  changed: PixelBox | null;
   /** 就地改的(reuse):原来那张改之前的样子(改的那块 W3 的原样 + 细沟),比补丁时当原来那张用(gen/rasterPatch.ts 的 exactDiffBefore) */
   before?: RasterBefore;
 }
@@ -160,7 +165,7 @@ export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5, re
   if (win) forRows(win, W, (a, b) => into.fill(0, a, b));
   const job = trimJobIn(job0, win ?? { x0: 0, y0: 0, w: 0, h: 0 }, into);
   const veins: VeinJob = { w: W, h: H, scale: 1, elev: raster.elev, water: raster.water, bank: raster.bank!, streams: streamsOf(world) };
-  return { raster, job, veins, inputs, win, ...(before ? { before } : {}) };
+  return { raster, job, veins, inputs, win, changed, ...(before ? { before } : {}) };
 }
 
 /** 框里每一行的一两段像素下标 [a, b)(全图下标) */

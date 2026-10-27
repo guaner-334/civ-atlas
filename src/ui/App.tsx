@@ -1695,6 +1695,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
               if (rg && rg.id === m.id) rg.patch = st;
               preProj.current = pre;
               finish(r1);
+              // 换上了:线程不用再留着怎么改回上一张(还没换上就又涂了一笔时,线程照上一张接着按块重铺要用)
+              workerRef.current?.postMessage({ type: 'shown', id: m.id, key: m.baseKey } satisfies WorkerRequest);
             });
           }
         } else if (m.type === 'history') {

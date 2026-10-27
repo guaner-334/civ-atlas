@@ -50,8 +50,8 @@ import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalSte
 import { computeHabitat } from './gen/civ/habitat';
 import { buildRegions, reshapeRegions } from './gen/civ/regions';
 import { applyPatch, cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
-import { unionBox } from './gen/pixelBox';
 import { rasterizePatch, type RasterKeep } from './gen/rasterEdit';
+import type { PixelBox } from './gen/pixelBox';
 import { planGlyphs, type Plan } from './render/fantasy';
 import { realisticPaintedTransferables, type RealisticPainted } from './render/realistic';
 import type { SurfaceLook } from './render/surface';
@@ -181,6 +181,11 @@ export type WorkerRequest =
    * 按它算(同一个世界的;比发请求时带的 renames 新),推的时候改了名,换上时就不用再算一遍。没有回音(主线程直接发,不算一件活)
    */
   | { type: 'renames'; id: number; names: Record<string, string> }
+  /**
+   * 编辑地形按块交回的那一笔(key = 它的 baseKey)主线程换上了:之后的笔照它比,线程不用再留着怎么改回上一张(见 KeptUndo)。
+   * 不排队,没有回音(主线程直接发,不算一件活)
+   */
+  | { type: 'shown'; id: number; key: string }
   /** 地形大事的预览:upheavals = 已经有的大事,在 year 那一年再加上 ops 会怎么样;pid = 第几次预览(主线程只认最新的) */
   | { type: 'upPreview'; id: number; pid: number; params: WorldParams; terrain?: TerrainOp[]; sketch?: SketchEdit; upheavals?: Upheaval[]; civSeed?: number; year: number; ops: TerrainOp[] };
 
@@ -264,7 +269,19 @@ let last: { key: string; world: World } | null = null;
  * 编辑地形时留着的整张主图和它的输入(下一笔按块重铺,gen/rasterEdit.ts);key = 这张图是哪个世界的(同 baseKey)。
  * 只在请求带 keep 时留(新建世界、能编辑地形的时候),别的时候不占这份内存
  */
-let kept: { key: string; keep: RasterKeep } | null = null;
+let kept: { key: string; keep: RasterKeep; undo?: KeptUndo } | null = null;
+/**
+ * 编辑地形按块交出去的那一笔怎么改回去(交出去以后留着,到主线程说换上了(shown)或者下一笔开始为止):主线程还没换上它就又涂了一笔时,
+ * 新的一笔是照主线程地图上那张(key,上一笔之前的那张)比的 —— 把上一笔就地改的那块(before,改之前的原样)贴回 raster
+ * (上一笔之前那张主图,数组和留着的这张共用;细沟是它自己的),输入变了的框(changed)记进 dirty,照样按块重铺、按块交。
+ * 不留的话对不上,这一笔要整张铺、整张交,主线程整张重画
+ */
+interface KeptUndo {
+  key: string;
+  raster: Raster;
+  before: RasterPatch | null;
+  changed: PixelBox | null;
+}
 /** 整张铺的(变得多)也比一比:变的那块不到整张图的这么多,就只交那一块(主线程按块重画还是划算) */
 const PATCH_SEND = 0.7;
 
@@ -693,7 +710,7 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
 const pool = new GullyPool();
 
 /** 排队处理的消息(改名不排队,见 onmessage) */
-type Queued = Exclude<WorkerRequest, { type: 'renames' }>;
+type Queued = Exclude<WorkerRequest, { type: 'renames' | 'shown' }>;
 /**
  * 消息按先后一件件处理(生成要等帮手线程,等的时候后面来的消息排着,不插进来);
  * 后台的活(各段主图)排在所有消息后面,每做完一件先看有没有新消息
@@ -704,6 +721,11 @@ let running = false;
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   // 改名不排队:在推的那一次推完要按它算编年史
   if (e.data.type === 'renames') return void (renamesNow = { id: e.data.id, names: e.data.names });
+  // 交回的那一笔换上了:不用留着怎么改回上一张
+  if (e.data.type === 'shown') {
+    if (kept?.undo && kept.key === e.data.key) kept = { key: kept.key, keep: kept.keep };
+    return;
+  }
   fg.push(e.data);
   void pump();
 };
@@ -787,6 +809,14 @@ async function handle(m: Queued): Promise<void> {
     // 刚才是照原样读进来的旧世界:州的划分是按旧地形算的,同样的键这回要按新生成的重算
     if (frozen) regionsMemo.clear();
     frozen = null;
+    // 编辑地形:上一笔交出去了、主线程还没换上就又涂了这一笔(照上一笔之前那张比的):上一笔改回去(见 KeptUndo)
+    const undo = kept?.undo;
+    if (kept && undo) {
+      if (m.keep && m.from !== undefined && m.from !== kept.key && m.from === undo.key) {
+        if (undo.before) applyPatch(undo.raster, undo.before);
+        kept = { key: undo.key, keep: { raster: undo.raster, inputs: kept.keep.inputs, dirty: undo.changed } };
+      } else kept = { key: kept.key, keep: kept.keep };
+    }
     await pool.up;
     const t0 = performance.now();
     const had = baseCache.base;
@@ -803,7 +833,6 @@ async function handle(m: Queued): Promise<void> {
     post({ type: 'progress', id: m.id, stage: '铺展地图', pct: 0.93 });
     const t1 = performance.now();
     let prev = m.keep && m.from !== undefined && m.scale === 1 && kept?.key === m.from ? kept : null;
-    const dirty0 = prev?.keep.dirty ?? null;
     const cover = kept?.keep.inputs.cover;
     // 留着的整图对不上这次的(主线程地图上那张不是它):不拿它比,整张交;它的数组下面留一份拷贝时接着用
     let spare = !prev && m.keep ? (kept?.keep.raster ?? null) : null;
@@ -823,14 +852,16 @@ async function handle(m: Queued): Promise<void> {
     const rasterMs = performance.now() - t1;
     /**
      * 编辑地形时(skipCiv)铺完(或算完沟壑)以后新的一笔已经排上了:这次不交了,线程留着的整图回到主线程地图上那张(old)的样子 ——
-     * 就地改的那块改回原样;和这次的输入对不上的那块记进 dirty(下一笔一起重铺)。下一笔照样只重铺、只交回变了的那块
+     * 就地改的那块改回原样;和这次的输入对不上的那块记进 dirty(下一笔一起重铺)。下一笔照样只重铺、只交回变了的那块。
+     * dirty 记输入变了的框(pj.changed,已经并上了之前的 dirty),不记往外扩过的重铺范围:下一笔会照它再往外扩,
+     * 记扩过的话连涂几笔就一圈圈扩大,两三笔以后超过半张图、改成整张铺
      */
     const giveUp = (): boolean => {
       if (!m.skipCiv || !old || !superseded()) return false;
       const r0 = old.raster;
       if (pj) {
         if (pj.before?.box) applyPatch(r0, pj.before.box);
-        kept = { key: old.key, keep: { raster: r0, inputs: d.inputs, dirty: unionBox(dirty0, pj.before?.box ?? null, r0.w) } };
+        kept = { key: old.key, keep: { raster: r0, inputs: d.inputs, dirty: pj.changed } };
       } else kept = { key: old.key, keep: { raster: r0, inputs: d.inputs, dirty: { x0: 0, y0: 0, w: r0.w, h: r0.h } } };
       post({ type: 'aborted', id: m.id });
       return true;
@@ -902,7 +933,10 @@ async function handle(m: Queued): Promise<void> {
     const diff = old && m.scale === 1 ? (pj?.before ? exactDiffBefore(pj.before, raster, pj.win) : exactDiff(old.raster, raster, pj ? pj.win : undefined)) : undefined;
     const send = !!old && diff !== undefined && (!!pj || !diff?.box || diff.box.w * diff.box.h <= PATCH_SEND * raster.w * raster.h);
     const from = old?.key;
-    // 比完了,上一张整图用不着了:按块的这次不再拉着它(它的数组就是这一张的);整张交的这次留拷贝时拷进它的数组
+    // 编辑地形按块重铺的:记下怎么改回上一张(主线程还没换上这一笔就又涂了一笔时用,见 KeptUndo)
+    const undoTo: KeptUndo | undefined = m.skipCiv && pj && old ? { key: old.key, raster: old.raster, before: pj.before?.box ?? null, changed: pj.changed } : undefined;
+    // 比完了,上一张整图用不着了:按块的这次不再拉着它(它的数组就是这一张的;编辑地形时上面记着它的细沟,改回去时用);
+    // 整张交的这次留拷贝时拷进它的数组
     if (!pj) spare ??= old?.raster ?? null;
     old = null;
     if (send && from !== undefined) {
@@ -918,7 +952,7 @@ async function handle(m: Queued): Promise<void> {
       map = plan ? { raster, plan } : { raster };
     }
     // 整张交出去的数组 transfer 走了,留的是一份拷贝(拷进上一张用不着了的整图的数组里,不另开一整张)
-    if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: 'patch' in map ? raster : copyRaster(raster, spare), inputs: d.inputs } };
+    if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: 'patch' in map ? raster : copyRaster(raster, spare), inputs: d.inputs }, ...(undoTo && 'patch' in map ? { undo: undoTo } : {}) };
     spare = null;
     // 地形大事的补丁要和这张整图比:直接用留着的这一份,不用再铺一遍
     if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
