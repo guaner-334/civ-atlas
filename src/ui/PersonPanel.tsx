@@ -353,7 +353,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
-        {x.exile && <ExileEvents civ={civ} x={x} />}
+        {x.exile && x.exile.to === undefined && <ExileEvents civ={civ} x={x} />}
         {heldEv.length > 0 && (
           <EventList
             civ={civ}
@@ -855,15 +855,16 @@ function princeLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
 
 /**
  * 放逐到中立地(争储失势的宗室、被废的君主)/ 出奔(亡国之君):「放逐  星河域 2303 年起，桓王所徙」;
- * 中立地撤销时还活着、回了本国的写"2303–2320 年";没有 = null
+ * 中立地撤销时还活着、回了本国的写"2303–2320 年"(出奔的同一年中立地就撤了:只写"2529 年");
+ * 出奔邻国的(Person.exile.to)这里还不写;没有 = null
  */
 function exileLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
   const e = x.exile;
-  if (!e) return null;
+  if (!e || e.to !== undefined) return null;
   const zone = regionLabel(civ, e.region);
   const by = e.by !== undefined && e.how !== 'fled' ? civ.people?.[e.by] : undefined;
   const back = e.until !== undefined && !diedInExile(x) && (x.died === undefined || x.died > e.until);
-  const when = back ? yearSpanAt(e.year, e.until!, era) : `${yearAt(e.year, era)}起`;
+  const when = back ? (Math.floor(e.until!) === Math.floor(e.year) ? yearAt(e.year, era) : yearSpanAt(e.year, e.until!, era)) : `${yearAt(e.year, era)}起`;
   const note = by ? `${when}，${rulerShort(civ, by)}所徙` : when;
   return {
     k: e.how === 'fled' ? '出奔' : '放逐',

@@ -357,7 +357,7 @@ export interface Place {
  * | breach    | 背约:立约国向约里的另一国开战(紧跟着记那场 war,cause = breach)。背约的一方就此退出这份约;**约的编号在 Annal.n** | 背约的一方 | 被打的一方 | −1 | −1 | 紧跟着的那场战争 |
  * | expire    | 约满不续 / 约废:cause 没有 = 约满、几国不续;lapse = 约里剩不到两国(亡了、被并、称臣、背约退出),约就此作废。**还在约里的几国在 Annal.ps**,**立约时几国在 Annal.n**(三国以上的有限竞争之约废了,下一刻约国旁边的无主之地解禁,见 polities.ts 的 REOPEN) | ps 的第一国 | ps 的第二国(没有 = −1) | −1 | −1 | **约的编号** |
  * | neutral   | 设中立地 / 中立地撤销:一州不归任何一国(归属记成无主,变化日志原因 Ev.Neutral),几国都不进兵、不扩张进去。设的那条:**共建的几国在 Annal.ps**,cause:peace 议和时划的缓冲中立地、decree 作者下令划的(**Annal.opt** 的位:4 不送人去、8 一直留着,约废了也不撤;**到哪年撤在 Annal.until**)、没有 = 立约时几国共建;**约的编号在 Annal.n**。撤销那条 cause = lapse,a = 州还给了哪国(−1 = 没还,成了无主之地) | 设:让出那州的国家(−1 = 原是无主之地);撤:州还给的国家 | −1 | 中立地那州 | 州里的城(没有 = −1) | **中立地的编号**(借用这一列;0 起,按设立先后) |
- * | exile     | 放逐到中立地 / 出奔:cause:heir 新君即位时把争储失势的宗室徙到中立地(**那位宗室的生年在 Annal.n**,他是先君之子;推演里他不再据地自立)、deposed 改朝换代时被废的末代之君徙到中立地(**被废的年份在 Annal.n**)、fled 国亡、亡国之君出奔中立地。人物里写在 Person.exile | 那位人物是哪国的 | −1 | 中立地那州 | 州里的城 | **中立地的编号** |
+ * | exile     | 放逐到中立地 / 出奔:cause:heir 新君即位时把争储失势的宗室徙到中立地(**那位宗室的生年在 Annal.n**,他是先君之子;推演里他不再据地自立)、deposed 改朝换代时被废的末代之君徙到中立地(**被废的年份在 Annal.n**)、fled 国亡、亡国之君出奔中立地;**出奔邻国**(exile.ts:war 列 = −1,b = 去的国家,州和城 = 那国当时的国都,**投奔它的缘由在 Annal.n**,EXILE_TIES 的下标)。人物里写在 Person.exile | 那位人物是哪国的 | −1(出奔邻国:去的国家) | 中立地那州 | 州里的城 | **中立地的编号**(出奔邻国 = −1) |
  * | keep      | 保住王室挡下的一回(干预「保住王室」、即位带的「在位期间保住王室」;dynasty.ts、regency.ts):本该改朝换代 / 篡位,挡下了,历史照旧(只记一句未遂)。**国势危殆(那时动荡)在 Annal.n**:1 = 是 | 国家 | **哪一种**:0 豪强起兵代之、1 国都权臣篡位(看王朝时)、2 掌实权的人篡位(regency.ts:紧跟着记那条 regent 的结局,名臣、大臣伏诛,叔父还政) | 根据地 / 国都所在州 | 那州的城 | **第几条干预**(Civ.interventions 的下标,借用这一列) |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
@@ -458,7 +458,7 @@ export type AnnalKind =
  *   slain / captured / withdrew:据险断后的守将力战而死 / 力竭被擒 / 全师而退(史事 stand 的 cause);
  *   立约与中立地(treaties.ts):breach 背约来攻(war 的 cause);peace 议和时顺带立约 / 划缓冲中立地(treaty、neutral 的 cause);
  *   renew 约满续约(treaty 的 cause);lapse 约里剩不到两国、约废(expire)/ 中立地撤销(neutral);
- *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔的亡国之君(exile 的 cause);
+ *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔(中立地、邻国)的亡国之君(exile 的 cause);
  *   decree 作者下令立的约、划的中立地(干预「立约」「划中立地」;treaty、neutral 的 cause);
  *   开战看内政(wars.ts,war 的 cause):divert 国中动荡、对外开战以安内(转移矛盾)/ unrest 乘对方内乱(动荡高或有割据;region 列 = 割据的那州,没有 = −1)/
  *   plagued 乘对方大疫之后 / minor 乘对方幼主在位 / regent 乘对方权臣当政 / plunder 国库空竭、为掠夺而战(region 列 = 边境上最富的那州)
@@ -905,7 +905,7 @@ export interface Person {
   spouses?: PersonSpouse[];
   /** 母亲是联姻嫁来的宗室女(父亲娶她以后出生的儿子才有,marriage.ts)。别的不给 */
   mother?: PersonSpouse;
-  /** 放逐到中立地 / 出奔中立地(treaties.ts 的史事 exile;people.ts 照它填):没有 = 不给 */
+  /** 放逐到中立地 / 出奔中立地 / 出奔邻国(史事 exile;people.ts 照它填):没有 = 不给 */
   exile?: PersonExile;
   /** 作者改过名时,生成时的名字(稳定键按它算,见 gen/edits.ts 的 personKey);没改过 = 不给 */
   defaultName?: string;
@@ -958,11 +958,13 @@ export interface PersonSpouse {
 }
 
 /**
- * 人物被放逐到中立地 / 出奔中立地(treaties.ts):
+ * 人物被放逐到中立地 / 出奔中立地 / 出奔邻国(treaties.ts、exile.ts):
  * how:heir 争储失势的宗室,新君把他徙过去;deposed 被废的末代之君徙过去;fled 国亡、亡国之君出奔过去。
- * annal = 那条史事 exile 在 Civ.annals 里的下标;zone = 中立地的编号(史事 neutral 的 war 列);region = 中立地那州;
+ * annal = 那条史事 exile 在 Civ.annals 里的下标;zone = 中立地的编号(史事 neutral 的 war 列;出奔邻国的 = −1);
+ * region = 中立地那州(出奔邻国的:那国当时的国都所在州);
  * year = 放逐 / 出奔的年份;by = 徙他的君主(Person.id;出奔、找不到 = 不给);
- * until = 中立地撤销的年份(那时还活着的回本国;撤销以前去世的是卒于中立地;到结束年份还在 = 不给)
+ * until = 中立地撤销的年份(那时还活着的回本国;撤销以前去世的是卒于中立地;到结束年份还在 = 不给;出奔邻国的不给,他在那国终老);
+ * to = 出奔去的国家(Polity.id;只有出奔邻国的给);tie = 投奔那国的缘由(见 ExileTie;只有出奔邻国的给)
  */
 export interface PersonExile {
   how: 'heir' | 'deposed' | 'fled';
@@ -972,7 +974,17 @@ export interface PersonExile {
   year: Year;
   by?: number;
   until?: Year;
+  to?: number;
+  tie?: ExileTie;
 }
+
+/**
+ * 亡国之君投奔邻国的缘由(exile.ts 按这个先后挑):kin 两国结着亲(姻亲)、ally 结着盟、pact 同在一份约里、folk 同族(立国的民族相同)、
+ * foe 那国和灭他的国家敌对(正交战、近年打过仗、方针里当它仇国)、near 别的邻国
+ */
+export type ExileTie = 'kin' | 'ally' | 'pact' | 'folk' | 'foe' | 'near';
+/** 史事 exile(出奔邻国)的 Annal.n 是这里的下标 */
+export const EXILE_TIES: readonly ExileTie[] = ['kin', 'ally', 'pact', 'folk', 'foe', 'near'];
 
 /** 一任官职:官名、哪一年起 */
 export interface PersonPost {

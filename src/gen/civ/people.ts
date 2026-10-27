@@ -36,7 +36,7 @@
  * 干预某一年之前的历史不变,那之前已经下台的君主(名字、生卒、在位年份)、打完的仗的统帅也不变
  * (称号、编号可能变:日后多了一位同名的国王,前面那位就要编"一世")。名字按民族的语感取(naming.ts 的 personNamers)。纯计算,不碰 DOM。
  */
-import type { Annal, Civ, Person, PersonCommand, PersonFate, PersonRegency, PersonSpouse, Polity, RulerLeanings, RulerRise, Year } from './types';
+import { EXILE_TIES, type Annal, type Civ, type Person, type PersonCommand, type PersonFate, type PersonRegency, type PersonSpouse, type Polity, type RulerLeanings, type RulerRise, type Year } from './types';
 import { parsePersonKey, type Intervention } from '../edits';
 import { keyed4, subSeed } from './rand';
 import { personNamers } from './naming';
@@ -46,7 +46,7 @@ import { HEIR_WEIGHT, PRINCE_AGE, PRINCE_LEAD, buildSons, contest, march, murder
 import { buildOfficials, type ForcedRegent } from './officials';
 import { RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP, regencyBase, regentsFrom, type Regency, type RegencyCtx } from './regents';
 import { GROOM_SELF, matchesFrom } from './marriages';
-import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
+import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, fallFate, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
 import { splitSurname } from './peopleText';
 
@@ -54,11 +54,7 @@ import { splitSurname } from './peopleText';
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
 /** 被废、出降、出奔、归附、卸任以后最多再活这么多年 */
 const AFTERLIFE = 15;
-/** 亡国之君:殉国、出降的机会(其余出奔) */
-const FELL = 0.35;
-const SURRENDER = 0.4;
-/** 作者立的君主亡国时出降的机会(其余出奔;推演不写他的生死,不殉国) */
-const AUTHOR_SURRENDER = 0.5;
+// 亡国之君殉国、出降、出奔的机会在 rulers.ts 的 fallFate(推演里出奔邻国用同一个判据)
 /** 好战到顶的君主每场仗亲征的机会(再乘倾向折算的倍数,好战 50 以下不亲征,见 rulers.ts);亲征的年纪 */
 const LEAD = 0.5;
 const LEAD_AGE: [number, number] = [18, 58];
@@ -80,8 +76,7 @@ const NAME_TRIES = 40;
 const NAME_GAP = 300;
 
 // 随机数用途(1、2、14–19 是年纪、在位年数、倾向,在 rulers.ts)
-// 3 = 遇弑(royals.ts 的 murderedAt)
-const U_FATE = 4;
+// 3 = 遇弑(royals.ts 的 murderedAt);4 = 亡国之君的下场(rulers.ts 的 fallFate)
 const U_AFTER = 5;
 const U_REUSE = 7;
 const U_PICK = 8;
@@ -403,7 +398,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           person.until = segEnd;
           if (!last) person.fate = 'deposed';
           else if (f.merge && (!f.fall || f.merge.year <= f.fall.year)) person.fate = 'merged';
-          else person.fate = f.fall && f.fall.b >= 0 && !fledTo.has(p.id) && R(k, U_FATE) < AUTHOR_SURRENDER ? 'surrendered' : 'fled';
+          else person.fate = f.fall && f.fall.b >= 0 && !fledTo.has(p.id) ? fallFate(base, tag[p.id], r) : 'fled';
           break;
         }
         const born = q(from - r.age);
@@ -449,10 +444,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           const old = settlements[capitalAt(p, segEnd - 1 / (2 * TICK))];
           fate = d && old && d.region === old.region ? 'deposed' : 'overthrown';
         } else if (f.merge && (!f.fall || f.merge.year <= f.fall.year)) fate = 'merged';
-        else if (f.fall && f.fall.b >= 0 && !fledTo.has(p.id)) {
-          const u = R(k, U_FATE);
-          fate = u < FELL ? 'fell' : u < FELL + SURRENDER ? 'surrendered' : 'fled';
-        } else fate = 'fled';
+        else if (f.fall && f.fall.b >= 0 && !fledTo.has(p.id)) fate = fallFate(base, tag[p.id], r);
+        else fate = 'fled';
         person.fate = fate;
         if (fate === 'overthrown' || fate === 'fell') person.died = segEnd;
         else {
@@ -1175,12 +1168,17 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       if (mother) s.p.mother = { ...mother };
     }
   }
-  // 放逐到中立地、出奔中立地(那以前就死了的宗室不算);中立地撤销的年份
+  // 放逐到中立地、出奔中立地(那以前就死了的宗室不算);中立地撤销的年份。出奔邻国的:去了哪国、投奔它的缘由(没有中立地,zone = −1)
   for (const [i, { x, by }] of exiled) {
     const e = civ.annals[i];
     if ((x.died ?? Infinity) < e.year) continue;
+    const how = e.cause === 'heir' ? 'heir' : e.cause === 'deposed' ? 'deposed' : 'fled';
+    if (e.war < 0) {
+      if (how === 'fled' && e.b >= 0) x.exile = { how, annal: i, zone: -1, region: e.region, year: e.year, to: e.b, tie: EXILE_TIES[e.n ?? -1] ?? 'near' };
+      continue;
+    }
     const end = civ.annals.find((a) => a.kind === 'neutral' && a.cause === 'lapse' && a.war === e.war);
-    x.exile = { how: e.cause === 'heir' ? 'heir' : e.cause === 'deposed' ? 'deposed' : 'fled', annal: i, zone: e.war, region: e.region, year: e.year, ...(by ? { by: by.id } : {}), ...(end ? { until: end.year } : {}) };
+    x.exile = { how, annal: i, zone: e.war, region: e.region, year: e.year, ...(by ? { by: by.id } : {}), ...(end ? { until: end.year } : {}) };
   }
   return { people: out, ids, usurped: [...usurpers.values()] };
 }

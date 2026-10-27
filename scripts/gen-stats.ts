@@ -143,7 +143,7 @@ const ts = treatyStats(civ);
 console.log(
   `立约:${ts.treaties} 份(议和顺带 ${ts.peaceTreaties} · 三国以上 ${ts.multi})· 续约 ${ts.renewals} 次 · 背约 ${ts.breaches} 次 · 约满不续 ${ts.expiries} · ` +
     `剩不到两国约废 ${ts.lapses} · 平均 ${ts.treaties ? Math.round(ts.years / ts.treaties) : 0} 年 · 中立地 ${ts.zones} 处(平均 ${ts.zones ? Math.round(ts.zoneYears / ts.zones) : 0} 年)· ` +
-    `放逐 ${ts.exiles} 人 · 出奔 ${ts.fled} 人`,
+    `放逐 ${ts.exiles} 人 · 出奔中立地 ${ts.fled} 人 · 出奔邻国 ${ts.abroad} 人`,
 );
 // 王朝更替:东方改朝换代(换国号)、西幻王室更迭(国名不变)分开数;每国几朝;已经结束的朝代平均立了多少年
 const perPolity = [...ds.perPolity]
