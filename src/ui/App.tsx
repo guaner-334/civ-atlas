@@ -293,7 +293,7 @@ import { outlineDoneToast, outlineRunToast } from './OutlineSide';
 import { OutlineRunAsk } from './OutlineRunAsk';
 import { FinderPage } from './FinderPage';
 import { FinderOverlay, FinderPins } from './FinderMap';
-import { pickedOf, type FinderFlyTo, type FinderPreview } from './FinderResults';
+import { pickedOf, variantOf, type FinderFlyTo, type FinderPreview } from './FinderResults';
 import { closeFinder, getFinder, openFinder, resetFinder, selectFinder, setFinderMap, setQuery, useFinder, type FinderBase } from './finderStore';
 import { foundDetail, storyPoints } from './finderInfo';
 import { foundPickOf, putFound, setFindAgainHandler, type FoundPick } from './foundStore';
@@ -3831,7 +3831,8 @@ ${s.image.cells}` : null);
       ...(era ? { era } : {}),
       ...(months !== undefined ? { months } : {}),
     };
-    const edits: WorldEdits = fixed ? { ...be, civSeed: seed === params.seed ? undefined : seed } : { ...EMPTY_EDITS, ...keep };
+    // 都用这张地图:文明种子照搜的时候明写(和地图种子一样也写:改过地形的地图上,写没写推出来的不一样)
+    const edits: WorldEdits = fixed ? { ...be, civSeed: seed } : { ...EMPTY_EDITS, ...keep };
     const cur = targetRef.current;
     if (cur?.fullCiv && genParams.current && worldKey(genParams.current) === worldKey(params) && cleanCivSeed(cur.edits.civSeed) === cleanCivSeed(edits.civSeed)) return;
     back.moved = true;
@@ -3938,7 +3939,8 @@ ${s.image.cells}` : null);
     const run = getFinder().run;
     if (!back || !pick || !run) return;
     finderPreview(pick.row.seed);
-    const q = run.query;
+    // 放宽了一点的:记下的说法、交界几国、撑多少年照放宽以后的门槛(就是判它合的那一套)
+    const q = variantOf(run.query, getFinder().variant);
     const { cand, places } = pick;
     const pv = finderPreviewData;
     const fixed = run.setup.map === 'fixed';

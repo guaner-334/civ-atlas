@@ -114,9 +114,9 @@ export function useFinderSummary(ui: FinderUi) {
   return useMemo(() => (run ? summarize(run.query, run.reports, ui.variant, ui.sort) : null), [run?.query, run?.reports, ui.variant, ui.sort]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-/** 隘口那一条量出来的口子、山脊(米;没有隘口条件 = null) */
-function passOf(q: FinderQuery, cand: FinderCand): { height: number; ridge: number } | null {
-  const i = condList(q).findIndex((r) => r.cond.kind === 'pass');
+/** 隘口那一条量出来的口子、山脊(米;cond = 哪一条隘口条件,不给 = 第一条;没有隘口条件 = null) */
+function passOf(q: FinderQuery, cand: FinderCand, cond?: number): { height: number; ridge: number } | null {
+  const i = cond ?? condList(q).findIndex((r) => r.cond.kind === 'pass');
   const f = i >= 0 ? cand.facts[i] : null;
   return f && f[0] !== null && f[1] !== null ? { height: Math.round(f[0]), ridge: Math.round(f[1] / 10) * 10 } : null;
 }
@@ -467,7 +467,7 @@ function fewNames(names: readonly string[], max = 15): string {
 /** 「谁是谁」里一处地方的小字 */
 function placeNote(q: FinderQuery, pl: FoundDetail['places'][number], cand: FinderCand, phone: boolean): string {
   if (pl.kind === 'pass') {
-    const p = passOf(q, cand);
+    const p = passOf(q, cand, pl.cond);
     if (!p) return pl.name ? `${pl.name}一带` : '';
     return phone ? `口子 ${p.height} 米，山脊约 ${p.ridge} 米` : `${pl.name}一带，口子 ${p.height} 米，两边山脊约 ${p.ridge} 米`;
   }

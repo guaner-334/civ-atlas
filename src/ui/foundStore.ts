@@ -67,14 +67,14 @@ export function foundPickOf(q: FinderQuery, cand: FinderCand, places: readonly F
     else if (d) bits.push(`和 ${d.neighbors.length} 国接壤`);
     return { role: q.roles[i]?.name ?? '', polity, name: cand.names[i], size: cand.sizes[i], note: bits.join('，') };
   });
-  const pi = list.findIndex((r) => r.cond.kind === 'pass');
-  const pf = pi >= 0 ? cand.facts[pi] : null;
   const spots = places
     .filter((p) => p.kind !== 'port')
     .map((p): FoundSpot => {
       const d = detail?.places.find((x) => x.cond === p.cond && x.cell === p.cell);
       let note = '';
       if (p.kind === 'pass') {
+        // 每一处隘口量的是它自己那一条条件(故事里几对国家各有一处隘口时各写各的)
+        const pf = cand.facts[p.cond] ?? null;
         const h = pf && pf[0] !== null ? Math.round(pf[0]) : null;
         const ridge = pf && pf[1] !== null ? Math.round(pf[1] / 10) * 10 : null;
         note = [d?.name ? `${d.name}一带` : '', h !== null ? `口子 ${h} 米` : '', ridge !== null ? `山脊约 ${ridge} 米` : ''].filter(Boolean).join('，');

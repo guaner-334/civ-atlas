@@ -19,6 +19,7 @@ import {
   type SeedReport,
 } from '../gen/finder/query';
 import { FINDER_COUNT, FinderSearch, PER_SEED_MS, estimateMs, finderThreads, pauseWhenHidden, type FinderProgress, type FinderThread } from './finderPool';
+import { dropThumbUrls } from './finderThumb';
 
 export type FinderPage = 'conds' | 'results' | 'detail';
 export type FinderMapMode = 'each' | 'fixed';
@@ -135,6 +136,10 @@ export const finderEstimate = (n: number, phone: boolean) => estimateMs(n, finde
 export function openFinder(base: FinderBase, phone: boolean) {
   const same = !!state.base && state.base.key === base.key;
   const keep = same && !!state.run;
+  if (!keep && state.run) {
+    stopFinder();
+    dropThumbUrls();
+  }
   set({
     open: true,
     phone,
@@ -235,10 +240,14 @@ function launch(seeds: number[]) {
 export function startFinder() {
   const base = state.base;
   if (!base) return;
+  // 还在搜的那一批先停下(要的种子都推过了、不再开新的一批时,旧的也不能接着往这里交)
+  stopFinder();
   const setup = setupOf(base, state.map);
   const key = `${base.key}|${state.map}`;
   const same = state.run && JSON.stringify(state.run.query) === JSON.stringify(state.query) && state.run.key === key;
   const reports = same ? state.run!.reports : [];
+  // 结果作废了:小图占的内存放掉
+  if (!same && state.run) dropThumbUrls();
   set({
     page: 'results',
     sel: same ? state.sel : null,
@@ -282,5 +291,6 @@ export function finderBusy(u: FinderUi = state): boolean {
 /** 换了新建世界(离开新建、换了别的世界):这一页的东西都不要了 */
 export function resetFinder() {
   stopFinder();
+  dropThumbUrls();
   set({ open: false, base: null, run: null, sel: null, page: 'conds', variant: 0 });
 }

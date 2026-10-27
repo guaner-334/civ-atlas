@@ -25,6 +25,14 @@ export const ROLE_RGB: readonly string[] = ['#2f6fd6', '#d9822b', '#8a5cc2'];
 const SCALE = 2;
 
 const cache = new WeakMap<FinderThumb, string>();
+/** 给后台画好的小图开的图片地址(浏览器替它留着那块内存,不用了要放掉) */
+const blobs = new Set<string>();
+
+/** 这一批结果不要了(换了条件重新搜、离开新建):小图占的内存放掉 */
+export function dropThumbUrls(): void {
+  for (const u of blobs) URL.revokeObjectURL(u);
+  blobs.clear();
+}
 
 export function thumbUrl(t: FinderThumb): string | null {
   const hit = cache.get(t);
@@ -33,6 +41,7 @@ export function thumbUrl(t: FinderThumb): string | null {
   if (t.img && t.img.byteLength && typeof URL !== 'undefined' && typeof Blob !== 'undefined') {
     const url = URL.createObjectURL(new Blob([t.img], { type: 'image/jpeg' }));
     cache.set(t, url);
+    blobs.add(url);
     return url;
   }
   if (typeof document === 'undefined' || !t.px.length) return null;
