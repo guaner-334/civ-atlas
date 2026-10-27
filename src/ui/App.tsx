@@ -1585,14 +1585,20 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             if (d.civ) readyRef.current(world, d.civ);
           }
         };
+        /** 地图先换上了的(mapFirst)历史到了:接上;检查脚本看的"世界齐了"这时才算(地图画好时没算,见地图那一层的 __wf) */
+        const civAfterMap = (d: Extract<WorkerResponse, { type: 'done' }>, world: World) => {
+          mapFirst.current = null;
+          takeCiv(d, world);
+          const w = (window as unknown as { __wf?: { ready: boolean } }).__wf;
+          if (w) w.ready = true;
+        };
         if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
         else if (m.type === 'done' && m.mapSent) {
           // 地图先交了的(mapFirst):地图换上了就接上历史;还在备地图的,换上时再接
           const mf = mapFirst.current;
           if (!mf || mf.id !== m.id) return;
           if (!mf.shown) return void (mf.done = m);
-          mapFirst.current = null;
-          takeCiv(m, mf.world);
+          civAfterMap(m, mf.world);
         } else if (m.type === 'done' || m.type === 'map') {
           // map = 地图先交(还没推文明):照常备好、换上地图,历史等随后的 done
           const early = m.type === 'map';
@@ -1634,9 +1640,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             const mf = mapFirst.current;
             if (!mf || mf.id !== m.id) return;
             mf.shown = true;
-            if (!mf.done) return;
-            mapFirst.current = null;
-            takeCiv(mf.done, mf.world);
+            if (mf.done) civAfterMap(mf.done, mf.world);
           };
           if (m.raster) {
             // 整张交回来的(打开世界、换世界、刷新、新建……):现在这种底图的整张图先分小步在后台备好再换上,
@@ -4371,7 +4375,7 @@ ${s.image.cells}` : null);
       mirrorCanvas(canvasCopyRef.current, null, false);
       const w = window as unknown as { __wf: unknown; __wfProj: unknown };
       w.__wfProj = { proj: mp.def.id, lon: mp.lon0, ms: performance.now() - t1, pending: terrainRefining() };
-      if (fresh) w.__wf = { ready: true, renderMs: performance.now() - t0, style, layer, proj: mp.def.id };
+      if (fresh) w.__wf = { ready: !mapFirst.current?.shown, renderMs: performance.now() - t0, style, layer, proj: mp.def.id };
       noteShown();
       dropPreparedRivers(raster.water);
       return;
@@ -4392,7 +4396,8 @@ ${s.image.cells}` : null);
     }
     // 右边再接一份(左右无限拖动)
     mirrorCanvas(canvasCopyRef.current, cv, true);
-    (window as unknown as { __wf: unknown }).__wf = { ready: true, renderMs, style, layer };
+    // 检查脚本用:画好了(mark 没了);ready = 世界齐了(地图先换上的新建世界,历史到了才算,见 takeCiv)
+    (window as unknown as { __wf: unknown }).__wf = { ready: !mapFirst.current?.shown, renderMs, style, layer };
     noteShown();
     // 给这张图后台描好的河没用上(换上前换了画风、缓存里本来就有):放掉
     dropPreparedRivers(raster.water);
