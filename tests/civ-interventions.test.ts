@@ -748,7 +748,13 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
         expect(
           c.annals.filter((e) => e.kind === 'war' && e.a === id && e.year >= a && e.year < end && e.cause !== 'heir' && e.cause !== 'quell').map((e) => [e.year, e.cause, e.b]),
         ).toEqual([]);
-        if (until) expect(sizeAt(c, id, b), `seed ${seed}:到期后接着扩张`).toBeGreaterThan(sizeAt(c, id, until));
+        // 到期后又能扩张、主动开战(GENERATOR_VERSION 43 仗打得密以后,到期后有的国家先扩张、后来又被邻国打得只剩几州:
+        // 不再只比第 b 年的州数,看到期后的两百年里有没有长过、开过战)
+        if (until) {
+          const grew = Array.from({ length: 20 }, (_, i) => until + 10 * (i + 1)).some((y) => y <= b && sizeAt(c, id, y) > sizeAt(c, id, until));
+          const waged = c.annals.some((e) => e.kind === 'war' && e.a === id && e.year >= until && e.year < b && e.cause !== 'heir' && e.cause !== 'quell');
+          expect(grew || waged, `seed ${seed}:到期后接着扩张`).toBe(true);
+        }
         expect(ivText(c)[0]).toMatch(until ? new RegExp(`不再开疆拓土,至第 ${until} 年`) : /不再开疆拓土/);
       }
     }

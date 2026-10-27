@@ -114,6 +114,11 @@
   position: relative;
   overscroll-behavior: contain;
 }
+/* 里面各块照自己的高度排,放不下由 .fd-body 滚,不许压扁:overflow: hidden 的 .fd-grp 能缩到 0
+   (手机详情里会裁掉「条件逐条」底下几行、整页也滚不动),按钮也会被压矮 */
+.fd-body > * {
+  flex-shrink: 0;
+}
 /* 搜完的列表:底下淡出(还有往下的) */
 .fd-body.fade {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);

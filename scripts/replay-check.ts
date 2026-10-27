@@ -2616,9 +2616,10 @@ if (part('改名等推完')) {
   const iv = { kind: 'protect' as const, a: polityKey(plain, keep), from: 1000 };
   const withIv = generateCiv(w, { interventions: [iv] });
   let who = '';
+  // 搜得到的人(没即位的宗室不进搜索)
   for (let i = 0; i < (withIv.people?.length ?? 0) && !who; i++) {
     const k = personKey(withIv, i);
-    if (k && !resolveKey(plain, k)) who = k;
+    if (k && withIv.people![i].role !== 'prince' && !resolveKey(plain, k)) who = k;
   }
   const nobody = 'person:polity:c1#0|general|乌有|2000';
   const share = (names: Record<string, string>, interventions: unknown[]) =>

@@ -15,6 +15,7 @@ import { leaningEffect } from '../src/gen/civ/rulers';
 import { POLICY_PRESETS, policyEffect, policyName, withPolicy } from '../src/gen/civ/policy';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle } from '../src/gen/civ/chronicle';
+import { relationsAt } from '../src/gen/civ/diplomacy';
 import { CAP_COUNT, developmentAt } from '../src/gen/civ/development';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { interventionFate } from '../src/gen/stepwise';
@@ -162,8 +163,9 @@ describe.each([7, 2024])('方针 · seed=%i', (seed) => {
 /** 两个种子各自:[不定方针时打仇国的仗, 定了仇国以后打它的仗](见"仇国先打"那一条) */
 const foeWars: [number, number][] = [];
 
-// 这两个种子第 1200–1500 年大国之间仗打得多(scripts/policy-stats.ts;种子 7 那几百年几乎不打仗;GENERATOR_VERSION 38 以后 14 号的大国定了仇国也没打起来,换成 10 号)
-describe.each([4, 10])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
+// 这两个种子第 1200–1500 年大国之间仗打得多(scripts/policy-stats.ts;种子 7 那几百年几乎不打仗;GENERATOR_VERSION 38 以后 14 号的大国定了仇国也没打起来,换成 10 号;
+// 43 仗打得密以后 4、10 号能挑的仇国多半已称臣,定了也打不起来,种子 1–20 里 16、18、19、20 号定了仇国都多打了两场,换成 19、20 号)
+describe.each([19, 20])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
   const T = 1200;
 
   it('亲国不打、仇国先打;发展重点那一样长得快', () => {
@@ -172,16 +174,20 @@ describe.each([4, 10])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
     const end = T + 300;
     const plain = generateCiv(w, { endYear: end });
     const warsOn = (civ: Civ, p: number, q: number) => civ.annals.filter((e) => e.kind === 'war' && e.a === p && e.b === q && e.year >= T && e.year < end).length;
-    // 前 8 大国各自:亲国 = 第 T 年接壤、不定方针时打过的邻国(最多 3 个),仇国 = 接壤、没打过的(最多 3 个)
+    // 前 12 大国各自:亲国 = 第 T 年接壤、不定方针时打过的邻国(最多 3 个),仇国 = 接壤、不是亲国、没有宗藩之分、没结盟的(最多 3 个)
     const size = new Map<number, number>();
     for (const o of ownersAt(base, T).polity) if (o >= 0) size.set(o, (size.get(o) ?? 0) + 1);
     const big = [...size.entries()]
       .sort((x, y) => y[1] - x[1] || x[0] - y[0])
-      .slice(0, 8)
+      .slice(0, 12)
       .map((x) => x[0]);
     let hitFriends = 0;
     let foeBefore = 0;
     let foeAfter = 0;
+    const rel = relationsAt(base, T);
+    const liege = (x: number) => rel.liege.get(x)?.liege;
+    const tied = (p: number, q: number) =>
+      liege(q) === p || liege(p) === q || (liege(p) !== undefined && liege(p) === liege(q)) || rel.pacts.some((x) => (x.a === p && x.b === q) || (x.a === q && x.b === p));
     for (const p of big) {
       const near = neighborsAt(base, p, T);
       const keys = (qs: number[]) => qs.map((q) => polityKey(base, q));
@@ -191,7 +197,9 @@ describe.each([4, 10])('方针 · 亲仇和发展重点 seed=%i', (seed) => {
         const fc = generateCiv(w, { interventions: [policy(polityKey(base, p), T, { friends: keys(friends) })], endYear: end });
         for (const q of friends) expect(warsOn(fc, p, q), `${p} 的亲国 ${q}`).toBe(0);
       }
-      const foes = near.filter((q) => warsOn(plain, p, q) === 0).slice(0, 3);
+      // 仇国:不是亲国、第 T 年没有宗藩之分、没结盟的邻国(藩属、盟国定成仇国也不打;GENERATOR_VERSION 43 仗打得密以后,
+      // 三百年里没打过的邻国多半是称了臣的,不再只挑没打过的)
+      const foes = near.filter((q) => !friends.includes(q) && !tied(p, q)).slice(0, 3);
       if (foes.length) {
         const hc = generateCiv(w, { interventions: [policy(polityKey(base, p), T, { foes: keys(foes) })], endYear: end });
         foeBefore += foes.reduce((s, q) => s + warsOn(plain, p, q), 0);

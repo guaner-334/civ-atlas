@@ -219,6 +219,9 @@ describe('导播放到哪了', () => {
     expect(getDirector().on).toBe(true);
     start(2645, FAST);
     run(2);
+    // 放到有字幕的那一刻再停(停下时字幕还在才"停着等你";历史变了以后第 2645 年起头两秒不一定正好有字幕)
+    for (let i = 0; i < 600 && !getDirector().shown; i++) run(0.1);
+    expect(getDirector().shown).not.toBeNull();
     pausePlayback();
     directorStopped();
     expect(getDirector().held).toBe(true);

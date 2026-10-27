@@ -511,6 +511,9 @@
  *      国库空竭的国家照旧少开战,但边境对面有富州的会为掠夺而战。编年史写出这些由头。历史重新推演
  *  42:立约国亡于战争时,亡国之君先出奔约里的中立地,再照常查约(civ/treaties.ts;以前两国之约先作废、中立地先撤,他就无处可奔)。
  *      疆域、兴亡不变,编年史多了出奔那一条
+ *  43:战争节奏(civ/wars.ts):议和了还会再打(输的一方记恨赢家,停战期满后几年替它多看一眼邻国;州易手后几年就能再易手);
+ *      仗打得密(一年一两仗、乘胜连下更多州),攻方净得了州的,罢兵时守方再割一州;看邻国更勤。
+ *      国内危机里的"接连丢州"只算丢了还没夺回来的(civ/politics.ts),复国的机会调低一些。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -524,7 +527,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 42;
+export const GENERATOR_VERSION = 43;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -584,6 +587,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   40: { change: 'history' },
   41: { change: 'history' },
   42: { change: 'chronicle' },
+  43: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
