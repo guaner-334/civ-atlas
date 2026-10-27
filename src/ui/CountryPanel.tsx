@@ -59,6 +59,7 @@ import { FiscalPage, FiscalRow } from './FiscalPage';
 import { CourtPage, CourtRow } from './CourtPage';
 import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
+import { TreatyPage, ZonePage } from './TreatyPage';
 import { policyRow, roleLock } from './policyInfo';
 import { useRole } from './roleStore';
 import { RoleLockNote } from './RoleBar';
@@ -154,6 +155,10 @@ export function CountryPanel(props: CountryPanelProps) {
           <DestroyPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'disaster' ? (
           <DisasterPage key={id} civ={civ} polity={id} year={year} from={page.year} />
+        ) : page?.kind === 'treaty' ? (
+          <TreatyPage key={id} civ={civ} world={props.world} id={id} year={year} from={page.year} />
+        ) : page?.kind === 'neutral' ? (
+          <ZonePage key={id} civ={civ} world={props.world} id={id} year={year} from={page.year} />
         ) : (
           <CommandPage civ={civ} raster={raster} world={props.world} id={id} year={year} />
         )

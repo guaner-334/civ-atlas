@@ -17,6 +17,7 @@
  * 「新建人物」直接开新建(国家填好)。
  *
  * 「灭国」(选去向 ›):卡片换成灭国那一页(DestroyPage.tsx),生效年份带过去。
+ * 「立约」(选几国 ›)、「划中立地」(选地方 ›):卡片换成立约 / 划中立地那一页(TreatyPage.tsx),生效年份带过去。
  * 「天灾」(选种类 ›):卡片换成天灾那一页(DisasterPage.tsx,州卡片「更多」里也能进),生效年份带过去。
  *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
@@ -44,10 +45,11 @@ import { CrownPage } from './CrownPage';
 import { CharAvatar } from './CharacterPanel';
 import { newCharacterDraft } from './characterStore';
 import type { AuthorCharacter } from '../gen/characters';
+import { treatyWhy } from './TreatyPage';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
+type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
@@ -55,6 +57,8 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[]
   { k: 'unity', name: '禁止分裂', desc: '该国不会分裂出新国家', pick: false },
   { k: 'halt', name: '禁止扩张', desc: '不再主动扩张,被打时仍会夺回失地', pick: false },
   { k: 'ally', name: '结盟', desc: '选择一个国家,两国不再交战', pick: true },
+  { k: 'treaty', name: '立约', desc: '和一国或几国约定若干年互不侵犯', pick: true, go: '选几国 ›' },
+  { k: 'neutral', name: '划中立地', desc: '交界的一州不归任何一国，几国都不进兵', pick: true, go: '选地方 ›' },
   { k: 'declare', name: '宣战', desc: '选择一个相邻国家', pick: true },
   { k: 'move', name: '迁都', desc: '选择本国的一座城市', pick: true },
   { k: 'crown', name: '立作者的人物为君主', desc: '选一位那年在世的作者人物，从这年起当这国君主', pick: true, go: '选人 ›' },
@@ -123,6 +127,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     if ((k === 'protect' || k === 'unity' || k === 'halt') && has(k)) return '已经下过这条命令';
     if ((k === 'protect' || k === 'unity' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
     if (k === 'ally' && !others.length) return '该年没有别的国家';
+    if (k === 'treaty' || k === 'neutral') return treatyWhy(civ, world, id, yv, k);
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
     if (k === 'move' && !cities.length) return '该年本国没有别的城市';
     return null;
@@ -141,8 +146,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       setCrown('pick');
       return;
     }
-    // 方针、灭国、天灾:卡片换成那一页(生效年份带过去,返回回到这里)
-    if (k === 'policy' || k === 'destroy' || k === 'disaster') {
+    // 方针、灭国、天灾、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
+    if (k === 'policy' || k === 'destroy' || k === 'disaster' || k === 'treaty' || k === 'neutral') {
       openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }

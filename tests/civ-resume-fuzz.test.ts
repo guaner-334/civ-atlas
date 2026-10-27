@@ -64,7 +64,7 @@ describe('接着推和一口气推完一样(随机自查)', () => {
     const r = fuzzResume({ seed, to: 2000 });
     expect(r.diff, `seed ${seed}`).toBeNull();
     // 各种命令都下过
-    expect(Object.keys(r.kinds).sort(), `seed ${seed}`).toEqual(['ally', 'cede', 'crown', 'death', 'declare', 'destroy', 'disaster', 'found', 'halt', 'move', 'policy', 'protect', 'temper', 'unity']);
+    expect(Object.keys(r.kinds).sort(), `seed ${seed}`).toEqual(['ally', 'cede', 'crown', 'death', 'declare', 'destroy', 'disaster', 'found', 'halt', 'move', 'neutral', 'policy', 'protect', 'temper', 'treaty', 'unity']);
   }, 300_000);
 
   it.each(UPHEAVAL_CASES)('带地形大事 seed %i:随机 %i 个年份各发生一件不改海陆的大事,大事那一刻接着推和没有大事、一口气推完一样', (seed, count) => {

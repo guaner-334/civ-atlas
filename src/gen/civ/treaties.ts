@@ -42,6 +42,15 @@
  *     立约国亡于战争(WarModel.onFall),约还在、中立地还在:亡国之君出奔中立地(cause = fled)。
  *     人物(people.ts)照这几条史事填 Person.exile。
  *
+ *   **作者下令**(干预「立约」「划中立地」,interventions.ts 在干预那一刻调 TreatyModel.decree):记史事 intervene,
+ *     生效了紧跟着记 treaty / neutral(cause = decree;选项记在 Annal.opt、Annal.until,位见 treatyInfo.ts 的 OPT_*):
+ *     立约:约里的国家、期限(0 = 一直,不预约期满)、互不侵犯还是有限竞争、约期内不许背约(看邻国时不背约)、居间的国家照作者的;
+ *     会盟的城照推演挑;同时划的中立地那州要有人住、不是国都、原属约里一国或无主,不然只立约。之后照常续约、约满。
+ *     划中立地:几国已同在一份还没设过中立地的约里就依它设,不然同时立一个互不侵犯之约(TERM_DECREE 年);
+ *     选了不送人去的不往那里放逐人,一直留着的约废了、背约也不撤,到某一年撤的那年撤(Ev.ZoneEnd)。
+ *     演一国时下的(ask):别国照推演的规矩定肯不肯(willing:仇国、别国的藩属不肯,国力相近、都怕同一个强邻、近年打成僵持的更肯),
+ *     不肯的不入约;都不肯、那州原属的国家不肯 = 不生效(intervene 的 b 列 IV_REFUSED)。两两之间正在交战的当即议和(记在约后面)。
+ *
  * **不存内存状态**:约、中立地、背约退出的、两国约废的年份都由史事重建(resumeTreaties);到期的时刻 = 立约 / 续约的年份 + 期限。
  * 随机数:keyed / keyed4(subSeed(seed, 'civ-treaty'), 国家的位置锚…, 用途)。纯计算,不碰 DOM。
  */
@@ -49,7 +58,7 @@ import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
 import { keyed, keyed4, subSeed } from './rand';
 import { Ev, quantize, type CivSim } from './sim';
-import { REOPEN, hates, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
+import { REOPEN, hates, limitedEnd, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
 import { capitalAt, populationAt } from './growth';
@@ -146,6 +155,8 @@ export interface Treaty {
   multi: boolean;
   /** 作者下令立的、选了"约期内不许背约":约里的国家不背约 */
   keep: boolean;
+  /** 作者下令立的(约满、约废那条另记它是不是有限竞争:立约的国数说明不了,见 polities.ts 的 reopenedBy) */
+  decree: boolean;
   /** 立约时几国 */
   size: number;
   /** 共同的强邻(−1 = 没有) */
@@ -266,6 +277,7 @@ export class TreatyModel {
           term: e.n ?? TERM_PAIR,
           multi: decree ? (opt & OPT_LIMITED) !== 0 : ps.length >= 3,
           keep: decree && (opt & OPT_KEEP) !== 0,
+          decree,
           size: ps.length,
           foe: e.foe ?? -1,
           renewals: 0,
@@ -575,7 +587,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   /** 约废:记 expire(cause = lapse:剩不到两国;没有 = 约满不续;n = 立约时几国),中立地撤销;有限竞争之约废了,下一刻约国旁边的无主之地解禁 */
   const endTreaty = (x: Treaty, t: Year, cause?: AnnalCause) => {
     const act = m.members(x);
-    note('expire', { a: act[0] ?? -1, b: act[1] ?? -1, ps: act, war: x.id, n: x.size, ...(cause ? { cause } : {}) });
+    note('expire', { a: act[0] ?? -1, b: act[1] ?? -1, ps: act, war: x.id, n: x.size, ...(cause ? { cause } : {}), ...(x.decree ? { opt: x.multi ? OPT_LIMITED : 0 } : {}) });
     if (x.multi) sim.schedule(t + 1 / 256, Ev.Respread, REOPEN + sim.annalCount - 1, 0);
     if (x.zone >= 0 && !m.zones[x.zone].lasting) dropZone(m.zones[x.zone], t);
   };
@@ -935,7 +947,7 @@ export function resumeTreaties(sim: CivSim, world: World, civ: Civ): void {
   for (const z of tm.zones) if (z && z.ended === undefined && z.until !== undefined && quantize(z.until) > sim.now) sim.schedule(z.until, Ev.ZoneEnd, z.id, 0, z.from);
   // 解禁几州的下一刻还没到的(此刻正好撤了中立地、废了有限竞争之约):补上;已经过了的由 resumePolities 重放
   civ.annals.forEach((e, i) => {
-    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || (e.kind === 'expire' && !!tm.treaties[e.war]?.multi)) && quantize(e.year + 1 / 256) > sim.now) {
+    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || limitedEnd(e)) && quantize(e.year + 1 / 256) > sim.now) {
       sim.schedule(e.year + 1 / 256, Ev.Respread, REOPEN + i, 0);
     }
   });
