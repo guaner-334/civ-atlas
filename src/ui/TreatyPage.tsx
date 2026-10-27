@@ -372,7 +372,7 @@ export function ZonePage({ civ, world, id, year, from }: PageProps) {
   const choices = useMemo(() => zoneChoices(civ, world, id, yv), [civ, world, id, yv]);
   const [at, setAt] = useState<number | null>(null);
   const other = useMemo(() => (at !== null && !choices.some((c) => c.region === at) ? zoneChoiceAt(civ, world, id, at, yv) : null), [civ, world, id, at, yv, choices]);
-  const list = other ? [...choices, other] : choices;
+  const list = useMemo(() => (other ? [...choices, other] : choices), [choices, other]);
   const c = list.find((x) => x.region === at) ?? list[0] ?? null;
   // 共建的国家:碰到这州的几国,去掉的记着(换了一处就重来)
   const [drop, setDrop] = useState<{ r: number; ps: number[] }>({ r: -1, ps: [] });
