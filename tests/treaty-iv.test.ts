@@ -27,12 +27,15 @@ function pair(civ: Civ, y: number): { a: number; b: number; r: number } {
   const n = new Map<number, number>();
   for (const o of own) if (o >= 0) n.set(o, (n.get(o) ?? 0) + 1);
   const big = [...n].sort((x, z) => z[1] - x[1] || x[0] - z[0]).map(([p]) => p);
+  // 两国都撑过那一年以后的五十年(约期里一方被别国灭了,"约还在的时候停下"就没有约可停)
+  const lasts = (p: number) => (civ.polities[p].ended ?? Infinity) > y + 50;
   for (const a of big) {
+    if (!lasts(a)) continue;
     for (let r = 0; r < R.count; r++) {
       if (own[r] !== a) continue;
       for (let k = R.adjStart[r]; k < R.adjStart[r + 1]; k++) {
         const b = own[R.adj[k]];
-        if (b >= 0 && b !== a && R.adjKind[k] <= 2 && (n.get(b) ?? 0) > 3) {
+        if (b >= 0 && b !== a && R.adjKind[k] <= 2 && (n.get(b) ?? 0) > 3 && lasts(b)) {
           const cap = civ.settlements[civ.polities[a].capitals?.at(-1)?.settlement ?? civ.polities[a].capital]?.region;
           if (r !== cap) return { a, b, r };
         }

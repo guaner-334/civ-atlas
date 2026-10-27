@@ -71,14 +71,21 @@ function y90(c: Civ): number {
 
 /** 推演结束时有人住的州里没有国家的比例 */
 function stateless(c: Civ): number {
-  let peo = 0;
-  let none = 0;
-  for (let r = 0; r < c.regions.count; r++) {
-    if (c.culture[r] < 0) continue;
-    peo++;
-    if (c.polity[r] < 0) none++;
+  // 第 1500、2000、2500 年和结束那年的平均(只看一年,碰上大崩解、亡国散回部落的那几年数会跳;GENERATOR_VERSION 43 仗打得密以后跳得更多)
+  let sum = 0;
+  const years = [1500, 2000, 2500, c.endYear];
+  for (const y of years) {
+    const o = ownersAt(c, y);
+    let peo = 0;
+    let none = 0;
+    for (let r = 0; r < c.regions.count; r++) {
+      if (o.culture[r] < 0) continue;
+      peo++;
+      if (o.polity[r] < 0) none++;
+    }
+    sum += none / peo;
   }
-  return none / peo;
+  return sum / years.length;
 }
 
 /** 州 r 治所的世界坐标 */
