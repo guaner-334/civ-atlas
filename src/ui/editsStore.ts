@@ -338,11 +338,13 @@ export function setEditGate(f: ((keys: string[]) => string | null) | null) {
 export function editBlock(keys: readonly string[]): string | null {
   return gate ? gate(keys.filter(Boolean)) : null;
 }
-/** 一条干预点到的键(国家、对方、城、州;饥荒选的几州) */
+/** 一条干预点到的键(国家、对方、城、州;饥荒选的几州;立约、划中立地的另几国等) */
 export function interventionKeys(v: Intervention): string[] {
   const o = v as Partial<Record<'a' | 'b' | 'city' | 'region', string>>;
   const regions = v.kind === 'disaster' ? (v.regions ?? []) : [];
-  return [o.a, o.b, o.city, o.region, ...regions].filter((k): k is string => typeof k === 'string');
+  // 立约、划中立地:另几国,居间的国家、同时划的中立地
+  const more = v.kind === 'treaty' ? [...v.ps, v.by, v.zone] : v.kind === 'neutral' ? v.ps : [];
+  return [o.a, o.b, o.city, o.region, ...regions, ...more].filter((k): k is string => typeof k === 'string');
 }
 
 /**

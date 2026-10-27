@@ -25,6 +25,7 @@ import './policy.css';
 import './fiscal.css';
 import './court.css';
 import './newIv.css';
+import './treaty.css';
 import './upheaval.css';
 import './marks.css';
 import './params.css';

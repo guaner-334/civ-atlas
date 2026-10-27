@@ -72,6 +72,8 @@
  * | `destroy` | 灭国     | a = 国家                          | 这一年年初这国亡:国土并入 b,或散成无主的部落地带(邻国照规矩慢慢扩进去);它打着的仗全部结束(这国那年已亡 = 不生效) | b:并入哪一国(不给 = 散成无主;b 那年已亡 = 改成散成无主) |
  * | `death`   | 让人物去世 | a = 国家,person = 人物键(君主、将领、名臣) | 这一年年初他去世。君主:此刻在位的是他才生效,下一位从下一刻起照常继位(他之后的君主全换一批);将领、名臣:只改人物和编年史,不改历史(他那年已不在世、还没出道,名臣已去职 = 不生效) | — |
  * | `temper`  | 改君主倾向 | a = 国家,person = 人物键(君主),leanings = 新的倾向 | 这一年年初起此刻在位的这位君主照新的倾向,到他下台为止(此刻在位的不是他 = 不生效) | — |
+ * | `treaty`  | 立约     | a = 国家,ps = 另几国(1–3 国)       | 这一年年初几国立约互不侵犯(两两之间那一刻正在交战的当即议和),到期照推演看续不续、可能背约(civ/treaties.ts);会盟的城照推演挑。对方都不在了 = 不生效 | term:期限(年;不给 = 一直);limited: true = 有限竞争(再加各守今疆);keep: true = 约里的国家不背约;by:居间的国家;zone:同时以哪一州为中立地(州键);ask: true = 演一国时下的,对方照推演的规矩定肯不肯(不肯的不入约,都不肯 = 不生效) |
+ * | `neutral` | 划中立地 | a = 国家,region = 州,ps = 一起共建的另几国(1–3 国) | 这一年年初这州不归任何一国,几国都不进兵(州原属共建的一国或无主,不能是国都;州里要有人住)。几国已同在一份约里、那份约还没有中立地的,依那份约设;不然同时立一个互不侵犯之约(三十年) | quiet: true = 不送人去(不把失势的宗室徙到这里);lasting: true = 一直留着(约废了也不撤);until:到这一年撤(不含);ask:同立约 |
  * | `regent`  | 让他掌权 | a = 国家,person = 人物键,how = march 引兵入朝 / heir 太子监国(此刻在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯,宗室)/ chancellor 专权(名臣)/ general 专权(将领);end = succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯:君主下台,他接着在位,同一朝);years = 还政、篡位过几年;leanings = 摄政、专权的人的倾向 | 这一年年初起名义上的君主照旧在位,开战、议和、扩张照他的倾向(引兵入朝、太子监国照他日后即位时的倾向);引兵入朝那一刻杀兄长和战功比他多的兄弟。这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、他不是那样的人 = 不生效 | — |
  * | `marry`   | 为他联姻 | a = 国家,person = 人物键(此刻在位的君主,或君主的儿子、兄弟叔伯),b = 对方国家 | 这一年年初两国结亲:他娶 b 在位君主的女儿(那位君主要年过 30);两国 40 年里少开战、易结盟(和推演里结的亲一样)。两国有一国已亡、是共和国、正在交战、他不是宗室 = 不生效 | how:give = 本国宗室女嫁给 b 的太子(没有就挑年轻的君主、别的宗室)/ mutual = 互嫁 |
  * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
@@ -567,7 +569,25 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 };
 
 /** 干预的种类(见文件头的表) */
-export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster' | 'regent' | 'marry';
+export type InterventionKind =
+  | 'protect'
+  | 'ally'
+  | 'declare'
+  | 'unity'
+  | 'cede'
+  | 'found'
+  | 'move'
+  | 'halt'
+  | 'crown'
+  | 'policy'
+  | 'destroy'
+  | 'death'
+  | 'temper'
+  | 'disaster'
+  | 'treaty'
+  | 'neutral'
+  | 'regent'
+  | 'marry';
 
 /**
  * 让他掌权(regent)怎么掌:march 引兵入朝、heir 太子监国(只有那年在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯)/
@@ -636,6 +656,8 @@ export type Intervention = (
   | { kind: 'death'; a: string; person: string; from: number }
   | { kind: 'temper'; a: string; person: string; from: number; leanings: RulerLeanings }
   | { kind: 'disaster'; type: DisasterKind; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string; slump?: number }
+  | { kind: 'treaty'; a: string; ps: string[]; from: number; term?: number; limited?: true; keep?: true; by?: string; zone?: string; ask?: true }
+  | { kind: 'neutral'; a: string; region: string; ps: string[]; from: number; quiet?: true; lasting?: true; until?: number; ask?: true }
   | { kind: 'regent'; a: string; person: string; from: number; how: RegentHow; end: RegentEnd; years?: number; leanings?: RulerLeanings }
   | { kind: 'marry'; a: string; person: string; b: string; from: number; how?: MarryHow }
   | {
@@ -1590,7 +1612,7 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'regent', 'marry'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry'];
 
 /** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
 export interface PersonKeyParts {
@@ -1744,6 +1766,49 @@ function cleanLook(x: unknown, from: number): GuideLook | undefined {
   return same ? (x as GuideLook) : { kind, years };
 }
 
+/** 立约、划中立地:另外最多几国(连同下令的那国最多 4 国);期限最长几年 */
+export const TREATY_OTHERS_MAX = 3;
+export const TREATY_TERM_MAX = 500;
+
+/** 立约 / 划中立地的另几国:国家键去重,去掉格式不对的和 a 自己,最多 TREATY_OTHERS_MAX 国;一国都没有 = null。和原来一样时原样返回(同一个数组) */
+function cleanOthers(x: unknown, a: string): string[] | null {
+  if (!Array.isArray(x)) return null;
+  const out: string[] = [];
+  for (const k of x) if (isPolityKey(k) && k !== a && !out.includes(k) && out.length < TREATY_OTHERS_MAX) out.push(k);
+  if (!out.length) return null;
+  return out.length === x.length && out.every((k, i) => k === x[i]) ? (x as string[]) : out;
+}
+
+/**
+ * 立约(treaty)、划中立地(neutral)(见文件头的表):另几国见 cleanOthers;期限取整、夹到 1–TREATY_TERM_MAX(不是数 / 小于 1 = 一直);
+ * limited、keep、quiet、lasting、ask 只认 true;居间的国家不能是约里的;中立地选了一直留着就不要 until,until 不晚于 from 的当作没给
+ */
+function cleanTreatyIv(o: Record<string, unknown>, kind: 'treaty' | 'neutral', a: string, from: number): Intervention | null {
+  const ps = cleanOthers(o.ps, a);
+  if (!ps) return null;
+  if (kind === 'treaty') {
+    const v: Extract<Intervention, { kind: 'treaty' }> = { kind, a, ps, from };
+    const term = typeof o.term === 'number' && Number.isFinite(o.term) ? Math.round(o.term) : 0;
+    if (term >= 1) v.term = Math.min(TREATY_TERM_MAX, term);
+    if (o.limited === true) v.limited = true;
+    if (o.keep === true) v.keep = true;
+    if (isPolityKey(o.by) && o.by !== a && !ps.includes(o.by)) v.by = o.by;
+    if (isRegionKey(o.zone)) v.zone = o.zone;
+    if (o.ask === true) v.ask = true;
+    return v;
+  }
+  if (!isRegionKey(o.region)) return null;
+  const v: Extract<Intervention, { kind: 'neutral' }> = { kind, a, region: o.region, ps, from };
+  if (o.quiet === true) v.quiet = true;
+  if (o.lasting === true) v.lasting = true;
+  else {
+    const until = o.until === undefined ? null : yearOf(o.until);
+    if (until !== null && until > from) v.until = until;
+  }
+  if (o.ask === true) v.ask = true;
+  return v;
+}
+
 /** 键的格式(新旧两种都认:`polity:c4567#0` / 旧的 `polity:r123#0`,见文件头"稳定键") */
 export const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
 export const isRegionKey = (k: unknown): k is string => typeof k === 'string' && REGION_KEY.test(k);
@@ -1821,6 +1886,10 @@ export function cleanIntervention(x: unknown): Intervention | null {
       v = cleanPolicy(o, a, from);
     } else if (kind === 'destroy') {
       v = isPolityKey(o.b) && o.b !== a ? { kind, a, from, b: o.b } : { kind, a, from };
+    } else if (kind === 'treaty' || kind === 'neutral') {
+      const t = cleanTreatyIv(o, kind, a, from);
+      if (!t) return null;
+      v = t;
     } else if (kind === 'death' || kind === 'temper') {
       const p = parsePersonKey(o.person);
       if (!p || p.polity !== a || !(kind === 'temper' ? p.role === 'ruler' : (DEATH_ROLES as readonly string[]).includes(p.role))) return null;
@@ -2084,6 +2153,8 @@ export function interventionKeys(v: Intervention): string[] {
   if (v.kind === 'found') return [];
   if (v.kind === 'disaster') return v.a ? [v.a] : [];
   if (v.kind === 'destroy') return v.b ? [v.a, v.b] : [v.a];
+  if (v.kind === 'treaty') return v.by ? [v.a, ...v.ps, v.by] : [v.a, ...v.ps];
+  if (v.kind === 'neutral') return [v.a, ...v.ps];
   return v.kind === 'ally' || v.kind === 'declare' || v.kind === 'marry' ? [v.a, v.b] : [v.a];
 }
 

@@ -14,14 +14,14 @@
 import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { zonesAt } from '../../gen/civ/treatyInfo';
 import { pixOf } from './highlight';
-import { inkOf, stripeAt, washLayer } from './territory';
+import { STRIPE_ALPHA, STRIPE_GAP, STRIPE_LINE, inkOf, stripeAt, washLayer } from './territory';
 import type { CivDrawParams } from './overlay';
 import { reprojectImage } from '../projection';
 
-/** 整张图:横纹间距、线宽(世界单位)、浓淡 */
-const GAP = 3.4;
-const LINE = 1.6;
-const ALPHA = 0.62;
+/** 整张图:横纹间距、线宽(世界单位)、浓淡(territory.ts 的 STRIPE_*,划中立地那一页的预览也用它) */
+const GAP = STRIPE_GAP;
+const LINE = STRIPE_LINE;
+const ALPHA = STRIPE_ALPHA;
 /** 细节层:横纹间距、线宽(CSS 像素,放大多少倍屏幕上都一样)、浓淡 */
 export const DETAIL_GAP_CSS = 5;
 export const DETAIL_LINE_CSS = 1.7;

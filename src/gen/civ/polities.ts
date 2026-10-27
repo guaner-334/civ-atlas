@@ -1172,12 +1172,21 @@ export function reopen(sim: CivSim, m: PolityModel, rs: readonly number[]): void
 export const REOPEN = 1 << 24;
 
 /**
+ * 这条史事是不是有限竞争之约废了(约满不续 / 剩不到两国;下一刻约国旁边的无主之地解禁):
+ * 推演自己立的看立约时几国(n,三国以上);作者下令立的照作者选的(Annal.opt 的第 1 位,见 treatyInfo.ts 的 OPT_LIMITED)
+ */
+export function limitedEnd(e: Readonly<Annal>): boolean {
+  if (e.kind !== 'expire') return false;
+  return e.opt !== undefined ? (e.opt & 1) !== 0 : (e.n ?? 0) >= 3;
+}
+
+/**
  * 史事 e 解禁了哪几州(此刻无主、有人住;owner / culture = 那一刻的归属;州号升序):
  * 中立地撤销、没还给哪国(neutral,cause = lapse,a = −1)= 那一州;有限竞争之约废了(expire,n = 立约时的国数,三国以上)= 约里几国陆上挨着的无主之地
  */
 export function reopenedBy(e: Readonly<Annal>, reg: Regions, owner: ArrayLike<number>, culture: ArrayLike<number>): number[] {
   if (e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) return e.region >= 0 && culture[e.region] >= 0 && owner[e.region] < 0 ? [e.region] : [];
-  if (e.kind !== 'expire' || (e.n ?? 0) < 3 || !e.ps?.length) return [];
+  if (!limitedEnd(e) || !e.ps?.length) return [];
   const ps = e.ps;
   const out = new Set<number>();
   for (let r = 0; r < reg.count; r++) {
@@ -1487,7 +1496,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const ends: { t: number; key?: string; pid: number; prev?: LeaningEffect; annal?: number }[] = iv ? iv.haltEndsUpTo(now).map((e) => ({ t: e.t, key: e.key, pid: -1 })) : [];
   // 立约与中立地解禁了几州的下一刻(见 REOPEN):四周的国家往那几州预约(和 reopen 一样)
   civ.annals.forEach((e, i) => {
-    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || (e.kind === 'expire' && (e.n ?? 0) >= 3)) && e.year + 1 / 256 <= now) ends.push({ t: e.year + 1 / 256, pid: -1, annal: i });
+    if (((e.kind === 'neutral' && e.cause === 'lapse' && e.a < 0) || limitedEnd(e)) && e.year + 1 / 256 <= now) ends.push({ t: e.year + 1 / 256, pid: -1, annal: i });
   });
   for (const p of m.polities) {
     const until = Math.min(p.ended ?? Infinity, now);

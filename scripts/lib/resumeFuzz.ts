@@ -168,7 +168,7 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
   for (let i = 0; i < n; i++) {
     const A = anyPolity();
     const kinds: InterventionKind[] = A
-      ? ['declare', 'ally', 'move', 'move', 'cede', 'cede', 'found', 'found', 'halt', 'protect', 'unity', 'crown', 'crown', 'policy', 'policy', 'destroy', 'death', 'death', 'temper', 'disaster', 'disaster']
+      ? ['declare', 'ally', 'move', 'move', 'cede', 'cede', 'found', 'found', 'halt', 'protect', 'unity', 'crown', 'crown', 'policy', 'policy', 'destroy', 'death', 'death', 'temper', 'disaster', 'disaster', 'treaty', 'treaty', 'neutral', 'neutral']
       : ['found'];
     const kind = pick(rnd, kinds);
     const others = alive.filter((p) => p !== A);
@@ -189,7 +189,20 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
       if (v) out.push(v);
     }
     else if (kind === 'crown') out.push(crown(a));
-    else if (kind === 'move') {
+    else if (kind === 'treaty' || kind === 'neutral') {
+      // 立约 / 划中立地:和 B(有时再加一国;可能已亡);中立地多半是两国的一州,也有随便哪一州(多半划不成)
+      if (!B || B === A) continue;
+      const ps = [polityKey(civ, B.id)];
+      const C = others.length > 1 && rnd() < 0.4 ? pick(rnd, others) : undefined;
+      if (C && C !== B && C !== A) ps.push(polityKey(civ, C.id));
+      const own = [...lands(A!.id), ...lands(B.id)];
+      const r = own.length && rnd() < 0.8 ? pick(rnd, own) : between(rnd, 0, civ.regions.count - 1);
+      const v =
+        kind === 'treaty'
+          ? cleanIntervention({ kind, a, ps, from: T, term: pick(rnd, [10, 20, 30, 0]), limited: rnd() < 0.4, keep: rnd() < 0.3, zone: rnd() < 0.4 ? regionKey(civ, r) : undefined, ask: rnd() < 0.3 })
+          : cleanIntervention({ kind, a, region: regionKey(civ, r), ps, from: T, quiet: rnd() < 0.3, lasting: rnd() < 0.3, until: rnd() < 0.3 ? T + between(rnd, 1, 60) : undefined, ask: rnd() < 0.3 });
+      if (v) out.push(v);
+    } else if (kind === 'move') {
       // 多半迁到本国的另一座城;也有迁到别国的城、已毁的城(迁不成)
       const own = civ.settlements.filter((s) => s.ended === undefined && civ.polity[s.region] === A!.id && s.id !== capOf(A!.id));
       const c = own.length && rnd() < 0.8 ? pick(rnd, own) : civ.settlements.length ? pick(rnd, civ.settlements) : undefined;

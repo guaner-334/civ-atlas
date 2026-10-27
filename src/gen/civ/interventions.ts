@@ -51,6 +51,10 @@
  *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
+ *   立约   treaty    from 那一刻几国立约(treaties.ts 的 decree;两两之间正在交战的当即议和),之后照立约的规矩续约、背约、约满;
+ *                   期限、种类、不许背约、居间、同时划的中立地照作者填的。演一国时下的(ask)对方照推演的规矩定肯不肯
+ *   划中立地 neutral  from 那一刻这州成了几国共建的中立地(treaties.ts 的 decree):几国已同在一份还没设中立地的约里就依它设,
+ *                   不然同时立一个互不侵犯之约;不送人去、一直留着、到某一年撤照作者填的
  *   多看一眼 照大纲顺着引的方针带 look:look.years 每年的年中(Ev.Look,装各层时预约,同一刻里排在干预事件后面)替 a 多看一眼
  *                   邻国(wars.ts)/ 内政(politics.ts:大崩解、分裂)/ 王朝(dynasty.ts),和寻常那一次一样定,只是不接着预约下一次;
  *                   那时 a 照的已经不是这条方针(被作者的、别的方针换掉了)= 不看
@@ -78,6 +82,7 @@ import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
 import { pioneerArrives } from './cultures';
+import { treatyModelOf } from './treaties';
 import { regencyModelOf } from './regency';
 import { marriageModelOf } from './marriage';
 
@@ -527,6 +532,11 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'death' || v.kind === 'temper') {
       person(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'treaty' || v.kind === 'neutral') {
+      // 立约、划中立地:照立约的规矩办(treaties.ts 的 decree;史事 intervene 也在那里记)
+      treatyModelOf(sim)?.decree?.(v, i, a, t, iv);
       return;
     }
     if (v.kind === 'regent' || v.kind === 'marry') {
