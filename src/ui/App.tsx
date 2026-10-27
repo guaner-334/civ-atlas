@@ -540,6 +540,11 @@ function draftModeOf(t: Target | null): NewWorldMode {
   return t && (t.mode === 'image' || !!t.edits.sketch?.image) ? 'image' : 'random';
 }
 
+/** 生成这张地图用的(参数、地形、草图):照故事找世界「用这个世界」以后,这几样变了就不再是找到的那个世界 */
+function genSigOf(params: WorldParams, edits: Pick<WorldEdits, 'terrain' | 'sketch'>): string {
+  return JSON.stringify([worldKey(params), edits.terrain, edits.sketch ?? null]);
+}
+
 /** 新建中的世界现在的样子(参数、修改、名字),比较动没动过用 */
 function draftSig(params: WorldParams, edits: WorldEdits, title?: string): string {
   // 地图的校验值是生成完自动记上的,不算动过
@@ -921,6 +926,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   setSideHold(stage !== 'world');
   /** 正在打开 / 已经打开的世界(生成完按它套上修改、交给自动存) */
   const targetRef = useRef<Target | null>(route.target);
+  /**
+   * 新建中、照平常的规矩推历史(先推 3000 年、拓荒起源天灾按默认):照故事找世界选中的结果不算(它按自己的推演年数、拓荒、起源、天灾推,
+   * 和搜的时候一样,见 Target.fullCiv)
+   */
+  const plainDraft = () => getStage().stage === 'draft' && !targetRef.current?.fullCiv;
   /** 新建中的名字(卡片上的输入框;打开没建完的世界时是它存的名字) */
   const [draftTitle, setDraftTitle] = useState(route.target?.kind === 'draft' ? (route.target.title ?? '') : '');
   /** 「新建世界」弹窗:开着没有、从哪一步开始(刷新了照手绘图还没长出星球的新建:停在它选图那一步) */
@@ -2457,7 +2467,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       // 地名风格也直接带着(只管起名,和改名、干预不同:生成完不用再重推一遍)
       civNames.current = t.edits.nameMix;
       // 推演年数同样直接带着(新建中的世界先推 3000 年)
-      civYears.current = yearsFor(t.kind === 'draft', t.edits);
+      civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块
@@ -2636,8 +2646,8 @@ ${s.image.cells}` : null);
     civEdits.current = interventions;
     civUps.current = genUps.current = ups;
     civNames.current = getEdits().nameMix;
-    civYears.current = yearsFor(getStage().stage === 'draft', getEdits());
-    civSetup.current = setupFor(getStage().stage === 'draft', getEdits());
+    civYears.current = yearsFor(plainDraft(), getEdits());
+    civSetup.current = setupFor(plainDraft(), getEdits());
     resimSeq.current++;
     resimInfo.current = null;
     setResim(null);
@@ -2714,8 +2724,8 @@ ${s.image.cells}` : null);
     !sameInterventions(e.interventions, civEdits.current) ||
     !sameUpheavals(e.upheavals, civUps.current) ||
     !sameMix(e.nameMix, civNames.current) ||
-    (!isDraft && cleanEndYear(e.endYear) !== civYears.current) ||
-    !sameSetup(setupFor(isDraft, e), civSetup.current) ||
+    (!(isDraft && !targetRef.current?.fullCiv) && cleanEndYear(e.endYear) !== civYears.current) ||
+    !sameSetup(setupFor(isDraft && !targetRef.current?.fullCiv, e), civSetup.current) ||
     JSON.stringify((isDraft ? undefined : cleanPlay(e.play)) ?? null) !== JSON.stringify(civPlay.current ?? null);
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
   useEffect(() => {
@@ -2725,10 +2735,12 @@ ${s.image.cells}` : null);
     // 地名风格:生成新世界时已经带着(修改先清空、生成完再套上,这期间不算变了);新建时换了风格,只重推、重新起名
     const sameNames = fresh.current || sameMix(names, civNames.current);
     // 推演年数:新建中的世界一律先推 3000 年(不因为调了年数重推);创建以后按世界自己的年数,和推好的不一样就接着推
-    const endYear = draft ? civYears.current : cleanEndYear(edits.endYear);
+    // (照故事找世界选中的结果:新建中也按自己的推演年数、拓荒、起源、天灾推,和搜的时候一样)
+    const plain = plainDraft();
+    const endYear = plain ? civYears.current : cleanEndYear(edits.endYear);
     const sameYears = fresh.current || endYear === civYears.current;
     // 拓荒、起源:同推演年数,新建中的世界一律按默认推;创建以后按世界自己的,整段历史从第 0 年重推(文明种子新建中就照它推)
-    const setup = setupFor(draft, edits);
+    const setup = setupFor(plain, edits);
     const sameSet = fresh.current || sameSetup(setup, civSetup.current);
     // 逐年推演的进度:打开逐年推演的世界、开始逐年推演时按它推到"现在";一步步走的时候进度和推好的那份一样,不重推
     const play = draft ? undefined : cleanPlay(edits.play);
@@ -3768,7 +3780,7 @@ ${s.image.cells}` : null);
   /** 打开找世界那一页时:新建中的世界原来的样子、地图原来的样式(新建界面的)、搜的时候照它生成的设定 */
   const finderBack = useRef<{ target: Target; view: { base: BaseId; fill: FillId }; base: FinderBase; moved: boolean } | null>(null);
   /** 「用这个世界」以后:新建第 2 步锁着的那几样、建好以后停在哪年、加哪几个标记 */
-  const [found, setFound] = useState<(StudioFound & { pick: FoundPick; pts: [number, number][] }) | null>(null);
+  const [found, setFound] = useState<(StudioFound & { pick: FoundPick; pts: [number, number][]; gen: string }) | null>(null);
   /** 新建中的世界 → 搜的时候照它生成的设定(世界参数、地形和草图(都用这张地图时)、推演年数、拓荒、起源、天灾、地名风格) */
   const finderBaseOf = (t: Target, e: WorldEdits): FinderBase => {
     const endYear = cleanEndYear(e.endYear);
@@ -3939,6 +3951,7 @@ ${s.image.cells}` : null);
       places: [...new Set(fp.places.map((p) => p.title))],
       pick: fp,
       pts: pv ? storyPoints(pv.world, pv.civ, cand, places) : [],
+      gen: genSigOf(targetRef.current!.params, targetRef.current!.edits),
     });
     closeFinder();
     setCivHighlight(null);
@@ -4001,7 +4014,9 @@ ${s.image.cells}` : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studioOut, draft, data, realCiv]);
   /** 「用这个世界」以后、新建中的世界还是找到的那个(换了种子、文明种子就不算了) */
-  const foundNow = found && draft && !finderOn && params.seed === found.mapSeed && (cleanCivSeed(edits.civSeed) ?? params.seed) === found.civSeed ? found : null;
+  // (改了世界参数、地形、草图也不算:国家、地方对不上了)
+  const foundNow =
+    found && draft && !finderOn && found.gen === genSigOf(params, edits) && (cleanCivSeed(edits.civSeed) ?? params.seed) === found.civSeed ? found : null;
   // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步 ----
   /** 离开时还没存着的世界(只是看看的、别人分享的):退回来时照原样打开(只记在这一页里,刷新就没了) */
   const navTargets = useRef(new Map<string, Target>());
