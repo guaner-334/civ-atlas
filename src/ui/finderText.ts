@@ -248,6 +248,15 @@ export function checkLines(q: FinderQuery, checks: readonly Check[], facts: read
   return out;
 }
 
+/**
+ * 「条件逐条」那一行右边的一句:都合 = "10 条都合"(几行);不合 = "差 1 条",按条件数 ——
+ * 隘口一条拆成两行,两行都不合也只差一条,和标题、列表里的"差一条"(judge 的 misses)一样
+ */
+export function checksTally(lines: readonly CheckLine[]): string {
+  const misses = new Set(lines.filter((l) => !l.ok).map((l) => l.cond)).size;
+  return misses ? `差 ${misses} 条` : `${lines.length} 条都合`;
+}
+
 /** 差一条的那一条差在哪:"隘口只比山脊低 637 米";full = 地图上那块牌子,再补一句要多少("，要 1200 米") */
 export function missText(q: FinderQuery, row: Pick<FinderRow, 'verdict' | 'cand'>, full = false): string {
   const list = condList(q);
