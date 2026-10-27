@@ -4,6 +4,7 @@
  *   从例子改    山国守隘口 / 几国交界 / 海上强国 / 大国分崩(点了条件换成例子的,再改)
  *   故事里的国家  每国一组(1–3 国):组头是叫法(点了改名)和「＋ 加一条」;一条一行,写成一句话,能改的值是白色的小块
  *               (下拉 = 分几档的,数字框 = 年数、个数、米)。「＋ 再加一国」最多 3 国;一国的条件都去掉了,这一国也去掉
+ *               (从大纲页来的几国留着:没有条件的找的时候不管它,一行灰字说明搬过去以后它要重新指)
  *   一起        交界、故事讲多少年、开场年份
  *   底下        搜几个(种子 1–N)、大约多久;地图每个世界换一张 / 都用这张(电脑上);「开始找」
  *
@@ -11,7 +12,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ERAS } from '../gen/civ/development';
-import { FINDER_PRESETS, type FateKind, type FinderQuery, type FinderRole, type RoleCond, type TogetherCond } from '../gen/finder/query';
+import { FINDER_PRESETS, ROLE_NAME_MAX, roleFree, type FateKind, type FinderQuery, type FinderRole, type RoleCond, type TogetherCond } from '../gen/finder/query';
 import { pickPreset, setFinderCount, setFinderMap, setQuery, startFinder, type FinderUi } from './finderStore';
 import { sizeHint, spanWho, togetherLabel } from './finderText';
 import { Icon } from './icons';
@@ -21,7 +22,7 @@ export const MAX_ROLES = 3;
 /** 新加的一国默认的叫法(和已有的重名就往后挑) */
 const ROLE_NAMES = ['甲国', '乙国', '丙国', '丁国'];
 /** 叫法最多几个字 */
-const NAME_MAX = 6;
+const NAME_MAX = ROLE_NAME_MAX;
 
 /** 角色的颜色下标(帝国蓝、山国橙、第三国紫):条件页、结果、地图上的小牌子同一套 */
 export const roleClass = (i: number) => `fd-role r${i % 3}`;
@@ -347,8 +348,9 @@ function TogetherRow({ q, c, put, phone }: { q: FinderQuery; c: TogetherCond; pu
 // ---------------------------------------------------------------------------
 // 改条件:换一条、去掉一条、去掉一国(别的国家条件里指着它的跟着改)
 
-function withRole(q: FinderQuery, i: number, conds: RoleCond[]): FinderQuery {
-  if (conds.length) return { ...q, roles: q.roles.map((r, k) => (k === i ? { ...r, conds } : r)) };
+export function withRole(q: FinderQuery, i: number, conds: RoleCond[]): FinderQuery {
+  // 从大纲页来的那几国(ref)条件都去掉了也留着:大纲搬过去时按它认
+  if (conds.length || q.roles[i]?.ref !== undefined) return { ...q, roles: q.roles.map((r, k) => (k === i ? { ...r, conds } : r)) };
   return dropRole(q, i);
 }
 
@@ -364,8 +366,9 @@ export function dropRole(q: FinderQuery, i: number): FinderQuery {
   const together: TogetherCond[] = q.together
     .filter((c) => !(c.kind === 'start' && 'role' in c && c.role === i))
     .map((c) => (c.kind === 'start' && 'role' in c ? { ...c, role: shift(c.role) } : c));
-  // 去掉以后没有条件了的国家也去掉(一层就够:指着它的条件已经去掉)
-  const empty = roles.findIndex((r) => !r.conds.length);
+  // 因为去掉它、条件都没了的国家也去掉(一层就够:指着它的条件已经去掉);本来就没有条件的(从大纲页来的)、从大纲页来的留着
+  const was = q.roles.filter((_, k) => k !== i);
+  const empty = roles.findIndex((r, k) => !r.conds.length && was[k].conds.length > 0 && r.ref === undefined);
   const out = { roles, together };
   return empty >= 0 ? dropRole(out, empty) : out;
 }
@@ -576,6 +579,11 @@ function RoleGroup({ q, i, first, onMenu, put }: { q: FinderQuery; i: number; fi
           }}
         />
       ))}
+      {roleFree(q, i) && (
+        <div className="fd-row fd-hint" data-testid="finder-role-empty">
+          还没有条件：找的时候不管它，搬过去以后大纲里的它要重新指。
+        </div>
+      )}
     </div>
   );
 }

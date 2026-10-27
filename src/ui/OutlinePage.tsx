@@ -2,7 +2,8 @@
  * 概览的「大纲」页(格式见 gen/edits.ts 文件头"大纲";照大纲推演见 gen/outline.ts):作者先有的故事,一条条情节。
  *
  *   没写大纲   一段说明、「加第一条情节」,下面一行灰的例子(按这个世界此刻最大的国家写)
- *   写好了     上面一句说明、「加一条情节」「照大纲推演」(推过了:「再照大纲推演」;正在推:「停下」);推过了多一排按结果筛
+ *   写好了     上面一句说明、「找更合的世界」(照这份大纲去照故事找世界,App 接)「加一条情节」「照大纲推演」(推过了:「再照大纲推演」;
+ *              正在推:「停下」);推过了多一排按结果筛。大纲从别的世界搬过来、有对不上的几项:那几项写原来叫什么(橙色),结果一格「要重新指」
  *              一张表:把手(拖动排序)、第几条、时间、谁、发生什么、你写的那句、结果(推过了写明怎么样)、「⋯」(在上面 / 下面加一条、复制、删除)
  *              还没推过:点一行 = 编这一行(右边滑出一栏,OutlineEditor.tsx);推过了:点一行 = 到地图上那一年、那个地方看(「⋯」里改这一条)
  * 手机(OutlinePhone):不要概览的头和页签,整页是大纲 ——「‹ 世界」「大纲 N 条」「+」,一条一张卡片,底下「照大纲推演」;编一条换成整页。
@@ -18,7 +19,7 @@ import type { Intervention, Plot, PlotReview, PlotStatus } from '../gen/edits';
 import { useEdits } from './editsStore';
 import { getCivHighlight, getCivTime, setCivHighlight } from './civView';
 import { closeOverview, openOverview } from './overviewStore';
-import { askOutline, editPlot, setOutlineFilter, stopOutline, useOutlineUi } from './outlineStore';
+import { askOutline, editPlot, findForOutline, setOutlineFilter, stopOutline, useOutlineUi } from './outlineStore';
 import { usePolityPick, interventionText, nameAt } from './Interventions';
 import { MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { Icon } from './icons';
@@ -47,8 +48,25 @@ const STATUS_ORDER: PlotStatus[] = ['natural', 'guided', 'forced', 'failed', 'st
 /** 干预的说法(硬改结果里用) */
 const ivBase = (civ: Civ) => (v: Intervention, i: number) => interventionText(civ, v, i);
 
+/** 大纲搬过来以后对不上、要重新指的章 */
+function RedoTag() {
+  return (
+    <span className="ol-st redo" data-status="redo">
+      <Icon name="warn" size={13} />
+      要重新指
+    </span>
+  );
+}
+
 /** 结果那一格 */
 function ResultCell({ o, p, r, list, era, onFound }: { o: OutlineCtx; p: Plot; r: PlotReview | undefined; list: readonly Intervention[]; era: ReturnType<typeof useEdits>['era']; onFound: () => void }) {
+  if (!r && p.redo)
+    return (
+      <>
+        <RedoTag />
+        <small>点这一条重新指</small>
+      </>
+    );
   if (!r) return <PlotStatusTag s="todo" />;
   return (
     <>
@@ -85,10 +103,16 @@ function WhoCell({ o, p }: { o: OutlineCtx; p: Plot }) {
         <span key={i}>
           {i > 0 && <span className="ar">{w.sep}</span>}
           {i === 0 && x.color && <i className="ol-sw" style={{ background: rgb(x.color) }} />}
-          {x.text}
+          {x.redo ? (
+            <span className="ol-redo" title="原来那个世界里的名字：大纲搬过来以后对不上，要重新指">
+              {x.text}
+            </span>
+          ) : (
+            x.text
+          )}
         </span>
       ))}
-      {w.small && <small>{w.small}</small>}
+      {w.small && <small className={w.smallRedo ? 'ol-redo' : undefined}>{w.small}</small>}
     </>
   );
 }
@@ -221,6 +245,7 @@ export function OutlinePage({ civ }: { civ: Civ | null }) {
   const n = reviewCounts(review);
   const list = edits.interventions;
   const rows = plots.map((p, i) => ({ p, i, r: byId.get(p.id) })).filter((x) => !reviewed || filter === 'all' || x.r?.status === filter);
+  const redo = plots.filter((p) => p.redo).length;
   const lead = run ? (
     <>
       <b>正在照大纲推演。</b>第 {Math.min(run.total, run.done + 1)} / {run.total} 条，查完的标在结果里。算的时候地图照样能拖、能点。
@@ -229,6 +254,11 @@ export function OutlinePage({ civ }: { civ: Civ | null }) {
     <>
       <b>照大纲推演过了。</b>
       {countsText(n, true)}。点一条，到地图上那一年、那个地方看。
+    </>
+  ) : redo ? (
+    <>
+      <b>大纲从原来的世界搬过来了。</b>
+      故事里的国家换成了找到的那几国；{redo} 条有对不上的国家、地方或人物，标着「要重新指」，点一条重新指。
     </>
   ) : (
     '一条条写下故事里的大事：哪一年、谁、发生什么。点「照大纲推演」，世界照常往下推，推完逐条看有没有发生；没发生的在那一年直接改过来，并标出来。大纲没写到的地方照常发生。'
@@ -240,6 +270,10 @@ export function OutlinePage({ civ }: { civ: Civ | null }) {
       <div className="ol-page" data-testid="outline-page">
         <div className="ol-top">
           <div className="ol-lead">{lead}</div>
+          <button className="ol-btn small" data-act="outline-find-world" disabled={!!run} onClick={findForOutline}>
+            <Icon name="search" size={15} />
+            找更合的世界
+          </button>
           <button className="ol-btn small" data-act="outline-add" onClick={add}>
             <Icon name="plus" size={15} />
             加一条情节
@@ -293,7 +327,7 @@ export function OutlinePage({ civ }: { civ: Civ | null }) {
           <tbody>
             {rows.map(({ p, i, r }) => {
               const [t1, t2] = timeCell(o, p, era);
-              const [w1, w2] = whatCell(o, p);
+              const [w1, w2, wr] = whatCell(o, p);
               const on = edit?.draft.id === p.id;
               const dz = drag && drag.to === i && drag.from !== i ? (drag.to < drag.from ? ' drop-before' : ' drop-after') : '';
               return (
@@ -337,7 +371,7 @@ export function OutlinePage({ civ }: { civ: Civ | null }) {
                   </td>
                   <td className="what">
                     <b>{w1}</b>
-                    {w2 && <small>{w2}</small>}
+                    {w2 && <small className={wr ? 'ol-redo' : undefined}>{w2}</small>}
                   </td>
                   <td className={`quote${p.text ? '' : ' none'}`}>{p.text || '（没写）'}</td>
                   <td className="res">{run && !r ? run.at === p.id ? <span className="ol-st run"><i className="ol-spin" />正在查</span> : <span className="ol-st wait">等着</span> : <ResultCell o={o} p={p} r={r} list={list} era={era} onFound={() => foundAfter(i)} />}</td>
@@ -411,7 +445,15 @@ export function OutlinePhone({ civ }: { civ: Civ | null }) {
           </div>
         ) : (
           <>
-            <div className="ol-note">{run ? `正在照大纲推演：第 ${Math.min(run.total, run.done + 1)} / ${run.total} 条。` : reviewed ? `${countsText(n)}。点一条到地图上看。` : '点一条改。'}</div>
+            <div className="ol-note">
+              {run
+                ? `正在照大纲推演：第 ${Math.min(run.total, run.done + 1)} / ${run.total} 条。`
+                : reviewed
+                  ? `${countsText(n)}。点一条到地图上看。`
+                  : plots.some((p) => p.redo)
+                    ? `大纲从原来的世界搬过来了，${plots.filter((p) => p.redo).length} 条有对不上的，标着「要重新指」。点一条改。`
+                    : '点一条改。'}
+            </div>
             <div className="ol-card">
               {plots.map((p) => {
                 const r = byId.get(p.id);
@@ -435,11 +477,13 @@ export function OutlinePhone({ civ }: { civ: Civ | null }) {
                         {w1}
                         {w2 ? `，${w2}` : ''}　{whoLine(o, p)}
                       </small>
-                      {r && (
+                      {r ? (
                         <>
                           <PlotStatusTag s={r.status} />
                           {r.status !== 'natural' && <small>{eraText(resultText(o, p, r, edits.interventions, ivBase(o.civ)), era)}</small>}
                         </>
+                      ) : (
+                        p.redo && <RedoTag />
                       )}
                     </span>
                     {/* 推过了点一条是到地图上看;改这一条(删也在里面)点右边的笔 */}

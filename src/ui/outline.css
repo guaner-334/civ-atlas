@@ -56,6 +56,15 @@
   padding: 0;
   justify-content: center;
 }
+/* 大纲搬过来以后对不上、要重新指:章和"原来的……"那几个字用同一种橙色(和「硬改的」一样) */
+.ol-st.redo {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 13%, transparent);
+}
+.ol-redo,
+.ol-tbl small.ol-redo {
+  color: var(--warn);
+}
 .ol-spin {
   width: 12px;
   height: 12px;

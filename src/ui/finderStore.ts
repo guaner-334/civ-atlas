@@ -12,6 +12,7 @@ import { useSyncExternalStore } from 'react';
 import {
   FINDER_PRESETS,
   nextSeeds,
+  searchQuery,
   type FinderPreset,
   type FinderQuery,
   type FinderSetup,
@@ -166,7 +167,20 @@ export function setFinderPage(page: FinderPage) {
 /** 从例子改:条件换成例子的 */
 export function pickPreset(id: FinderPreset['id']) {
   const p = FINDER_PRESETS.find((x) => x.id === id);
-  if (p) set({ preset: id, query: clone(p.query) });
+  if (p) set({ preset: id, query: presetFor(p.query, state.query) });
+}
+
+/**
+ * 例子的条件套到现在的几国上:从大纲页来的几国(带 ref)按先后接过例子里每国的条件(叫法、ref 还是大纲里的);
+ * 例子里多出来的国家照例子的叫法加上,大纲里多出来的几国留着(没有条件,最多 3 国)。没有从大纲来的国家 = 就是例子
+ */
+export function presetFor(pq: FinderQuery, cur: FinderQuery, max = 3): FinderQuery {
+  const from = cur.roles.filter((r) => r.ref !== undefined);
+  const q = clone(pq);
+  if (!from.length) return q;
+  const roles = q.roles.map((r, i) => (from[i] ? { ...r, name: from[i].name, ref: from[i].ref } : r));
+  for (const r of from.slice(q.roles.length)) if (roles.length < max) roles.push({ name: r.name, ref: r.ref, conds: [] });
+  return { ...q, roles };
 }
 
 /** 改了条件(改了就不再算是那个例子) */
@@ -244,7 +258,9 @@ export function startFinder() {
   stopFinder();
   const setup = setupOf(base, state.map);
   const key = `${base.key}|${state.map}`;
-  const same = state.run && JSON.stringify(state.run.query) === JSON.stringify(state.query) && state.run.key === key;
+  // 从大纲页来、没加条件的几国找的时候不管它(searchQuery 去掉)
+  const query = searchQuery(state.query);
+  const same = state.run && JSON.stringify(state.run.query) === JSON.stringify(query) && state.run.key === key;
   const reports = same ? state.run!.reports : [];
   // 结果作废了:小图占的内存放掉
   if (!same && state.run) dropThumbUrls();
@@ -253,7 +269,7 @@ export function startFinder() {
     sel: same ? state.sel : null,
     variant: 0,
     nearOpen: false,
-    run: { query: clone(state.query), setup, key, reports, progress: null, batch: { from: 1, to: state.count, count: state.count } },
+    run: { query: clone(query), setup, key, reports, progress: null, batch: { from: 1, to: state.count, count: state.count } },
   });
   const done = new Set(reports.map((r) => r.seed));
   // 从 1 起数 count 个,推过的不再推

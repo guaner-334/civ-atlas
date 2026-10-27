@@ -69,7 +69,8 @@
  *   全世界的大事时不写。读档时过 cleanFollow:认不出的当没有,提示一句。不算修改(改了几处、换成别处的存档丢了几处都不数它)
  * - edits.outline(可选):大纲(edits.ts 文件头"大纲"),`{ "plots": [{ "id": 1, "kind": "war", "year": 1520, "a": "polity:c4567#0", "b": "polity:c8123#0", "text": "北燕伐南梁" }],
  *   "review": [{ "id": 1, "status": "forced", "year": 1520 }] }`;没写大纲时不写。读档时过 cleanOutline:格式不对的情节跳过,提示一句。
- *   照大纲硬改出来的干预在 edits.interventions 里(带 plot),和别的干预一样存
+ *   照大纲硬改出来的干预在 edits.interventions 里(带 plot),和别的干预一样存。从别的世界搬过来、对不上的几项记在情节的 redo 里
+ *   (`"redo": { "b": "奥利亚王国" }`,原来叫什么;那几项不在情节里,edits.ts 文件头"要重新指")
  * - view:看这个世界用的投影和中央经线(`{ "projection": "robinson", "center": 120 }`,可选)。
  *   投影名原样存(render/projection.ts 的 ProjectionId,或 "globe"),认不出的由界面当成等距圆柱;
  *   旧存档没有这个字段 = 等距圆柱、中央经线 0°

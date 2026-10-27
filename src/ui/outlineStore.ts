@@ -12,7 +12,7 @@
  * 不碰 DOM,单测直接测。
  */
 import { useSyncExternalStore } from 'react';
-import { OUTLINE_TRIES_MAX, PLOT_ID_MAX, type Plot, type PlotKind, type PlotReview, type PlotStatus } from '../gen/edits';
+import { OUTLINE_TRIES_MAX, PLOT_ID_MAX, type Plot, type PlotKind, type PlotRedo, type PlotReview, type PlotStatus } from '../gen/edits';
 import { onEditsReset } from './editsStore';
 import type { MapSelection } from './civView';
 
@@ -39,8 +39,11 @@ export interface OutlineEdit {
   at: number;
 }
 
-/** 编的时候的草稿:种类可以还没选;编的时候顺带记着的(去世那一条先选的国家)不进大纲 */
-export type PlotDraft = Omit<Plot, 'kind'> & { kind?: PlotKind; pickA?: string };
+/**
+ * 编的时候的草稿:种类可以还没选;编的时候顺带记着的(去世那一条先选的国家)不进大纲。
+ * was = 大纲搬过来以后对不上、要重新指的那几项原来叫什么(编的时候写在上面对照;那几项在草稿里空着,要填的不填不让存)
+ */
+export type PlotDraft = Omit<Plot, 'kind' | 'redo'> & { kind?: PlotKind; pickA?: string; was?: PlotRedo };
 
 export type OutlineFilter = PlotStatus | 'all';
 
@@ -159,9 +162,10 @@ export function setOutlineRun(run: OutlineRun | null) {
 // ---------------------------------------------------------------------------
 // 编一行
 
-/** 开始编:新加一条(at = 插在第几个位置)或改原有的那一条 */
-export function editPlot(draft: PlotDraft, at = -1) {
-  patch({ edit: { draft, at } });
+/** 开始编:新加一条(at = 插在第几个位置)或改原有的那一条(要重新指的几项挪进 was,存的时候不再带着) */
+export function editPlot(draft: PlotDraft & { redo?: PlotRedo }, at = -1) {
+  const { redo, ...rest } = draft;
+  patch({ edit: { draft: redo ? { ...rest, was: redo } : rest, at } });
 }
 /** 改草稿里的几项(没在编 = 不动) */
 export function patchDraft(p: Partial<PlotDraft>) {
@@ -195,6 +199,18 @@ export function nextPlotId(plots: readonly Pick<Plot, 'id'>[]): number {
   let id = 1;
   while (used.has(id)) id++;
   return id;
+}
+
+// ---------------------------------------------------------------------------
+// 找更合的世界(大纲页右上;App 接:新建一个世界、打开照故事找世界那一页,大纲里的国家先列成故事里的国家)
+
+let finder: (() => void) | null = null;
+export function setOutlineFinder(f: (() => void) | null) {
+  finder = f;
+}
+/** 点了「找更合的世界」 */
+export function findForOutline() {
+  finder?.();
 }
 
 /** 换了世界:界面状态都作废(推着的那一次 App 自己收) */

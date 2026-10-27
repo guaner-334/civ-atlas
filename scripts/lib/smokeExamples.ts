@@ -12,6 +12,10 @@ import { peopleIndex, personSpan, rulerAt, rulerNeighbors } from '../../src/gen/
 import { generalRole, isConsul, kinOf, personName, princeRole, rulerRole } from '../../src/gen/civ/peopleText';
 import { dynastyNote, dynastyRowAt, dynastyRows, kidsOf, layoutDynasty, reignOrder, secededFrom } from '../../src/gen/civ/lineageInfo';
 import { searchCiv } from '../../src/ui/searchIndex';
+import { ownersAt } from '../../src/gen/civ/timeline';
+import { capitalAt, polityAlive, polityName } from '../../src/gen/civ/growth';
+import { regionLabel } from '../../src/gen/civ/display';
+import { polityKey, regionKey, settlementKey, type Plot } from '../../src/gen/edits';
 
 const civs = new Map<number, Civ>();
 /** 网址 ?seed=N 打开的那个世界的历史(默认参数) */
@@ -126,6 +130,57 @@ export function findPersonExample(seeds: readonly number[] = [7, 2024, 11, 42]):
   for (const seed of seeds) {
     const all = personExampleIn(civOfSeed(seed), seed);
     if (all.length) return all.sort((a, b) => Math.abs(a.year - 2900) - Math.abs(b.year - 2900) || a.polity - b.polity)[0];
+  }
+  return null;
+}
+
+/** 「大纲找更合的世界」一段的例子:一份带两国的大纲(按这个种子的历史现写,稳定键都是真的) */
+export interface OutlineExample {
+  seed: number;
+  /** 开战那年 */
+  year: number;
+  /** 大纲里的两国:国名(那年的)、稳定键;a 是那年有邻国的最大的一国,b 是和它接壤的最大的一国 */
+  a: { name: string; key: string };
+  b: { name: string; key: string };
+  /** 迁都迁到的城、立国的那一州(原来的名字) */
+  city: string;
+  region: string;
+  /** 4 条:a 攻 b、a 迁都、某州立国、只讲故事 */
+  plots: Plot[];
+}
+
+/** 第 year 年有接壤邻国的最大的一国和它接壤的最大的一国,写成 4 条的大纲;找不到够格的换一年 */
+export function findOutlineExample(seed = 7, years: readonly number[] = [1600, 1500, 1800, 1300]): OutlineExample | null {
+  const civ = civOfSeed(seed);
+  const rg = civ.regions;
+  for (const year of years) {
+    const own = ownersAt(civ, year).polity;
+    const size = new Map<number, number>();
+    for (let r = 0; r < rg.count; r++) if (own[r] >= 0) size.set(own[r], (size.get(own[r]) ?? 0) + 1);
+    const alive = [...size.keys()].filter((p) => polityAlive(civ.polities[p], year)).sort((x, y) => size.get(y)! - size.get(x)! || x - y);
+    for (const a of alive.slice(0, 6)) {
+      const near = new Set<number>();
+      const mine: number[] = [];
+      for (let r = 0; r < rg.count; r++) {
+        if (own[r] !== a) continue;
+        mine.push(r);
+        for (let k = rg.adjStart[r]; k < rg.adjStart[r + 1]; k++) if (own[rg.adj[k]] >= 0 && own[rg.adj[k]] !== a) near.add(own[rg.adj[k]]);
+      }
+      const b = alive.find((p) => near.has(p));
+      const cap = capitalAt(civ.polities[a], year);
+      const city = civ.settlements.findIndex((s, i) => i !== cap && own[s.region] === a);
+      const region = mine.find((r) => r !== civ.settlements[cap]?.region);
+      if (b === undefined || city < 0 || region === undefined) continue;
+      const A = { name: polityName(civ.polities[a], year), key: polityKey(civ, a) };
+      const B = { name: polityName(civ.polities[b], year), key: polityKey(civ, b) };
+      const plots: Plot[] = [
+        { id: 1, kind: 'war', year, a: A.key, b: B.key, text: `${A.name}挥师出境，${B.name}震动。` },
+        { id: 2, kind: 'capital', year: year + 60, a: A.key, city: settlementKey(civ, city), text: '迁都。' },
+        { id: 3, kind: 'found', year: year + 120, region: regionKey(civ, region) },
+        { id: 4, kind: 'story', year: year + 180, text: '雨夜，有人携图籍出奔南海。' },
+      ];
+      return { seed, year, a: A, b: B, city: civ.settlements[city].name, region: regionLabel(civ, region), plots };
+    }
   }
   return null;
 }

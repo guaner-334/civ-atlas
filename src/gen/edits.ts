@@ -256,6 +256,12 @@
  *
  * Outline.review(可选):上一次照大纲推演的批改,每条情节一项(PlotReview:照着发生了 natural / 顺着引了一把 guided / 硬改的 forced /
  * 做不到 failed / 只讲故事 story,落在哪一年,做不到的原因,立起来的国家,硬改的、做不到的先顺着引试了几版 tried)。只是记下来;改了大纲以后界面去掉它,再照大纲推演时重新算。
+ *
+ * **要重新指**(Plot.redo,可选):大纲从一个世界搬到另一个世界(照故事找世界,从大纲页来的)时,国家换成找到的那几国,
+ * 别的对不上的几项(没对上的国家、州、城、人物、作者的人物、作者标记)从情节里去掉,记进 redo:哪一项 → 原来那个世界里它叫什么
+ * (`{ "a": "奥利亚王国", "city": "东定城" }`,作者对照着重新指)。记在 redo 里的要填的几项可以缺着(这条照样收下);
+ * 照大纲推演时缺着要填的那条标"做不到"(reason = redo),只缺可有可无的几项照常查。重新指了的那一项不再记在 redo 里。
+ *
  * 读进来的先过 cleanOutline(格式不对的情节丢掉,编号重复的换一个新编号,最多 OUTLINE_PLOTS_MAX 条;after 指不到前面的去掉;
  * 批改里指不到情节的去掉)。一条情节也没有的不写。
  *
@@ -2362,7 +2368,17 @@ export interface Plot {
   level?: DisasterLevel;
   /** 全球大疫:疫后无人收拾几年(不给 = 30) */
   slump?: number;
+  /** 搬到别的世界以后对不上、要作者重新指的几项(见文件头"大纲"里的"要重新指") */
+  redo?: PlotRedo;
 }
+
+/** 搬大纲时可能对不上的几项 */
+export const PLOT_REDO_FIELDS = ['a', 'b', 'region', 'regions', 'city', 'person', 'char', 'mark'] as const;
+export type PlotRedoField = (typeof PLOT_REDO_FIELDS)[number];
+/** 要重新指的几项:哪一项 → 原来那个世界里它叫什么(作者对照着重新指;说不出 = 空串) */
+export type PlotRedo = Partial<Record<PlotRedoField, string>>;
+/** 原来叫什么最多几个字 */
+export const PLOT_REDO_NAME_MAX = 40;
 
 /** 批改的章:照着发生了 / 顺着引了一把 / 硬改的 / 做不到 / 只讲故事 */
 export const PLOT_STATUSES = ['natural', 'guided', 'forced', 'failed', 'story'] as const;
@@ -2373,9 +2389,10 @@ export type PlotStatus = (typeof PLOT_STATUSES)[number];
  *   notYet 那年这国还没立国(或这段历史里没有它)/ gone 那年这国已亡 / missing 找不到(城、人物、作者的人物、一片地方)/
  *   empty 那里没人住 / notOwned 那州、那城不在这国手里 / ruined 城已毁 / border 两国不接壤 / atWar 两国已在交战 /
  *   dead 那年他已不在世 / unborn 那年他还没出生 / notReigning 那年他不在位 / unsupported 推演里还不能直接让它发生 /
- *   crowded 前面的情节已经把这段时间定下了 / beyond 年份超出了推演年数 / refFailed 它跟着的那条情节没立起国家 / noEffect 硬改了也没成
+ *   crowded 前面的情节已经把这段时间定下了 / beyond 年份超出了推演年数 / refFailed 它跟着的那条情节没立起国家 / noEffect 硬改了也没成 /
+ *   redo 大纲搬到这个世界以后,这条要的国家、州、城、人物……对不上,还没重新指
  */
-export const PLOT_REASONS = ['notYet', 'gone', 'missing', 'empty', 'notOwned', 'ruined', 'border', 'atWar', 'dead', 'unborn', 'notReigning', 'unsupported', 'crowded', 'beyond', 'refFailed', 'noEffect'] as const;
+export const PLOT_REASONS = ['notYet', 'gone', 'missing', 'empty', 'notOwned', 'ruined', 'border', 'atWar', 'dead', 'unborn', 'notReigning', 'unsupported', 'crowded', 'beyond', 'refFailed', 'noEffect', 'redo'] as const;
 export type PlotReason = (typeof PLOT_REASONS)[number];
 
 /** 一条情节的批改 */
@@ -2516,10 +2533,13 @@ export function cleanPlot(x: unknown): Plot | null {
   const text = cleanPlotText(o.text);
   if (text) v.text = text;
   const w = v as unknown as Record<string, unknown>;
+  // 要重新指的几项(大纲搬到别的世界以后对不上的):不在情节里,要填的缺了也收下(照大纲推演时这条标"做不到:还没重新指")
+  const redoRaw = o.redo && typeof o.redo === 'object' && !Array.isArray(o.redo) ? (o.redo as Record<string, unknown>) : null;
+  const pending = (k: keyof Plot) => !!redoRaw && typeof redoRaw[k] === 'string' && (PLOT_REDO_FIELDS as readonly string[]).includes(k);
   for (const k of PLOT_NEEDS[kind]) {
     const c = plotField(k, o[k]);
-    if (c === undefined) return null;
-    w[k] = c;
+    if (c !== undefined) w[k] = c;
+    else if (!pending(k)) return null;
   }
   for (const k of PLOT_OPTIONAL[kind]) {
     const c = plotField(k, o[k]);
@@ -2527,22 +2547,50 @@ export function cleanPlot(x: unknown): Plot | null {
   }
   if (kind === 'hold') {
     if (v.regions) delete v.mark;
-    else if (v.mark === undefined) return null;
+    else if (v.mark === undefined && !pending('regions') && !pending('mark')) return null;
   }
   if ((kind === 'war' || kind === 'ally' || kind === 'submit' || kind === 'peace' || kind === 'fall') && v.b !== undefined && v.b === v.a) {
     if (kind === 'fall') delete v.b;
     else return null;
   }
+  let place: string[] | null = null;
   if (kind === 'disaster') {
-    const keep = v.type === 'plague' || v.type === 'pandemic' ? ['city'] : v.type === 'quake' ? ['region'] : v.a ? ['a'] : ['regions'];
+    const keep = v.type === 'plague' || v.type === 'pandemic' ? ['city'] : v.type === 'quake' ? ['region'] : v.a || pending('a') ? ['a'] : ['regions'];
     for (const k of ['city', 'a', 'regions', 'region'] as const) if (!keep.includes(k)) delete v[k];
     if (v.type !== 'pandemic') delete v.slump;
-    if (!keep.every((k) => w[k] !== undefined)) return null;
+    if (!keep.every((k) => w[k] !== undefined || pending(k as keyof Plot))) return null;
+    place = keep;
+  }
+  if (redoRaw) {
+    // 只留这种情节用得上、现在还空着的几项(重新指过了 = 不再标)
+    const allowed: readonly string[] = [...PLOT_NEEDS[kind], ...PLOT_OPTIONAL[kind]];
+    const area = kind === 'hold' && (v.regions !== undefined || v.mark !== undefined);
+    const r: PlotRedo = {};
+    for (const f of PLOT_REDO_FIELDS) {
+      if (!pending(f) || !allowed.includes(f) || w[f] !== undefined) continue;
+      if ((area && (f === 'regions' || f === 'mark')) || (place && ['city', 'a', 'regions', 'region'].includes(f) && !place.includes(f))) continue;
+      r[f] = [...cleanPlotText(redoRaw[f]).replace(/\n/g, ' ')].slice(0, PLOT_REDO_NAME_MAX).join('');
+    }
+    if (Object.keys(r).length) v.redo = r;
   }
   const keys = Object.keys(o);
-  const same = (p: unknown, q: unknown) => p === q || (Array.isArray(p) && Array.isArray(q) && p.length === q.length && p.every((t, i) => t === q[i]));
+  const same = (p: unknown, q: unknown) =>
+    p === q ||
+    (Array.isArray(p) && Array.isArray(q) && p.length === q.length && p.every((t, i) => t === q[i])) ||
+    (!!p && !!q && typeof p === 'object' && typeof q === 'object' && !Array.isArray(p) && JSON.stringify(p) === JSON.stringify(q));
   const clean = keys.length === Object.keys(v).length && keys.every((k) => same(o[k], w[k]));
   return clean ? (x as Plot) : v;
+}
+
+/**
+ * 照大纲推演时这一条还缺着要填的(大纲搬过来以后对不上、还没重新指的那几项里有这种情节要填的):标"做不到"。
+ * 只缺可有可无的几项(只讲故事的镜头、亡于哪国……)照常查,当没填
+ */
+export function plotNeedsRedo(p: Plot): boolean {
+  if (!p.redo) return false;
+  const { redo: _r, ...rest } = p;
+  void _r;
+  return cleanPlot(rest) === null;
 }
 
 /** 清理一条批改;不合格 = null */
