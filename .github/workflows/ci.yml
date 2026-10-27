@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 # 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项。
-# 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 4 份、压力测试分 3 份,每项几分钟;
+# 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 6 份、压力测试分 3 份,每项十分钟以内;
 # 冒烟从头跑到尾要 25–36 分钟,分 4 份同时跑
 jobs:
   build:
@@ -46,17 +46,17 @@ jobs:
       - name: 首页下载量
         run: pnpm size
 
-  # 单测分 4 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
+  # 单测分 6 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
   test:
     name: 单测 ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    # 平常每份四分钟上下
-    timeout-minutes: 15
+    # 平常每份七分钟上下(含装依赖);GitHub 的机器快慢不一,慢的一台要多花一半时间,留足余量
+    timeout-minutes: 25
     strategy:
       # 一份没过不停掉别的几份,一次看全哪些没过
       fail-fast: false
       matrix:
-        shard: ['1/4', '2/4', '3/4', '4/4']
+        shard: ['1/6', '2/6', '3/6', '4/6', '5/6', '6/6']
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
