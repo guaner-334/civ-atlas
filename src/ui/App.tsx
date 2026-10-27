@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { dropRealisticBasesExcept, realisticRiverSteps, renderRealistic } from '../render/realistic';
+import { dropRealisticBasesExcept, realisticRiverSteps, renderRealistic, takeRealisticPainted } from '../render/realistic';
 import { adoptPlan, dropFantasyBasesExcept, renderFantasy } from '../render/fantasy';
 import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
@@ -488,6 +488,15 @@ export function baseKeyOf(style: Style, layer: LayerId, look: SurfaceLook): stri
   if (style === 'data') return `data:${layer}`;
   if (style === 'realistic') return look === 'classic' ? 'realistic' : `realistic:${look}`;
   return style;
+}
+
+/**
+ * 新建中的世界让生成线程顺手画好的写实像素层(见 worker.ts 的 paint):新建界面的星球贴的是卫星画法 sat 那一种
+ * (studioBase 的「实景」);地图现在的底图(key,baseKeyOf 的键)是写实的另一种画法的,那一种也画
+ */
+function paintLooks(key: string, sat: SurfaceLook): SurfaceLook[] {
+  const look = key === 'realistic' ? 'classic' : key.startsWith('realistic:') ? (key.slice(10) as SurfaceLook) : null;
+  return look && look !== sat ? [sat, look] : [sat];
 }
 
 /** 一个要打开的世界:生成(或直接用正在看的这一个)→ 套上修改 → 交给 saveStore 自动存 */
@@ -1648,6 +1657,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             const raster = m.raster;
             // 线程算好的手绘符号规划(推了文明的才带)
             if (m.plan) adoptPlan(m.world, m.plan);
+            // 线程画好的写实像素层(新建中的世界):下面备这种底图、新建界面的星球要那一张时直接贴上
+            if (m.type === 'map' && m.painted) takeRealisticPainted(raster, m.painted);
             // 换上时画的那一段:有地形大事、时间轴在大事以后、那一段的主图补丁已经在手里的,是拼好的那张(拼也放在后台的一步里)。
             // 那一段的整张底图、写实 / 卫星画风整张图上的河(矢量,换上时描)、文明层第一次要画的,都一起备好,和地图一起换上
             const view = drawView.current;
@@ -2508,8 +2519,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块。
-      // 新建界面先看的是地图(星球),推几千年的历史比生成地形、铺像素慢:地图先交、先换上,历史随后(mapFirst)
-      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true, mapFirst: true as const } : {}), renames: t.edits.names };
+      // 新建界面先看的是地图(星球),推几千年的历史比生成地形、铺像素慢:地图先交、先换上,历史随后(mapFirst);
+      // 写实画风的整张像素层也让线程画好随地图交来(paint),换上之前主线程不用自己再分小步画
+      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true, mapFirst: true as const, paint: paintLooks(drawKey.current, mapViewRef.current.sat) } : {}), renames: t.edits.names };
       mapFirst.current = null;
       setMapEarly(false);
       frozenLoad.current = null;
