@@ -53,6 +53,8 @@ import { applyPatch, cutExact, diffRaster, exactDiff, exactDiffBefore, patchTran
 import { unionBox } from './gen/pixelBox';
 import { rasterizePatch, type RasterKeep } from './gen/rasterEdit';
 import { planGlyphs, type Plan } from './render/fantasy';
+import { realisticPaintedTransferables, type RealisticPainted } from './render/realistic';
+import type { SurfaceLook } from './render/surface';
 import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
@@ -122,9 +124,10 @@ export type WorkerRequest =
    * 生成世界。terrain = 地形修改(不给 = 没改);sketch = 草图(不给 = 没画);interventions = 推文明时带上的干预(改地形重新生成时用;不给 = 没有);
    * tempo = 主线程记着的扩张节拍(星球对不上就不用);skipCiv = 只生成地形、铺像素,不推文明(编辑地形时:交回的 done 不带历史,
    * 收起编辑地形以后用 civOnly 补推);mapFirst = 地图先交:整张铺好就交 map(沟壑本线程也领一段,不等推文明),
-   * 历史推完再交 done(mapSent,不带地图)。推几千年的历史比生成地形、铺像素慢,新建世界时地图不用等它
+   * 历史推完再交 done(mapSent,不带地图)。推几千年的历史比生成地形、铺像素慢,新建世界时地图不用等它。
+   * paint(mapFirst 时):写实画风这几种画法的整张像素层也在这边画好(帮手一起分带子画),随 map 一起交,主线程换上之前只要贴上
    */
-  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[]; skipCiv?: true; mapFirst?: true } & CivInput & PatchInput)
+  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[]; skipCiv?: true; mapFirst?: true; paint?: SurfaceLook[] } & CivInput & PatchInput)
   /**
    * 补推上一次 skipCiv 生成的世界的文明:世界是线程手上那一个(线程被重开过就按参数重新生成),推法和 generate 里一模一样
    * (同样的输入 = 同一份历史、同样的地名)。nid = 第几次补推(主线程只认最新的)
@@ -210,9 +213,10 @@ export type WorkerResponse =
     ))
   /**
    * 请求带了 mapFirst 的生成:整张主图铺好了先交(还没推文明;历史随后的 done 交)。各项同 done;
+   * painted = 请求的 paint 那几种画法画好的写实像素层(render/realistic.ts 的 takeRealisticPainted)。
    * 不算一件回音(随后的 done / aborted 才算)
    */
-  | { type: 'map'; id: number; world: World; raster: Raster; plan?: Plan; genMs: number; rasterMs: number; reused?: true; eras?: EraWorld[]; baseKey: string }
+  | { type: 'map'; id: number; world: World; raster: Raster; plan?: Plan; painted?: RealisticPainted; genMs: number; rasterMs: number; reused?: true; eras?: EraWorld[]; baseKey: string }
   | ({ type: 'history'; id: number } & HistoryFrames)
   /** 重推好的文明;ms = 线程里花的时间(含按参数重新生成世界);tempo、eras 同 done */
   | { type: 'civ'; id: number; seq: number; civ: Civ; split?: CivSplit; chron?: number; ms: number; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string }
@@ -854,13 +858,16 @@ async function handle(m: Queued): Promise<void> {
     if (early) {
       await pool.finish(d, undefined, () => void (plan = planGlyphs(world)));
       if (superseded()) return void post({ type: 'aborted', id: m.id });
+      // 写实画风的整张像素层也在这边画好(帮手一起分带子画),主线程换上之前只要贴上
+      const painted = m.paint?.length && m.scale === 1 ? await pool.paintRealistic(raster, m.paint, superseded) : undefined;
+      if (superseded()) return void post({ type: 'aborted', id: m.id });
       // 整张交出去的数组 transfer 走了,留的是一份拷贝(同下面整张交的)
       if (m.keep && m.scale === 1) kept = { key: baseKey, keep: { raster: copyRaster(raster, spare), inputs: d.inputs } };
       spare = null;
       if (kept?.key === baseKey) rasters.set(baseKey, kept.keep.raster);
       post(
-        { type: 'map', id: m.id, world: { ...rest, history: [] }, raster, ...(plan ? { plan } : {}), genMs, rasterMs, ...(reused ? { reused: true as const } : {}), eras: eraWorlds(steps), baseKey },
-        [...rasterTransferables(raster), ...(plan ? [plan.forest.buffer as ArrayBuffer] : [])],
+        { type: 'map', id: m.id, world: { ...rest, history: [] }, raster, ...(plan ? { plan } : {}), ...(painted ? { painted } : {}), genMs, rasterMs, ...(reused ? { reused: true as const } : {}), eras: eraWorlds(steps), baseKey },
+        [...rasterTransferables(raster), ...(plan ? [plan.forest.buffer as ArrayBuffer] : []), ...(painted ? realisticPaintedTransferables(painted) : [])],
       );
       // 交了地图以后后面又排上了新的世界(按了后退……):这个世界的历史不用推了
       if (superseded()) return void post({ type: 'aborted', id: m.id });

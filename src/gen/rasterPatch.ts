@@ -339,9 +339,15 @@ export function patchBytes(p: RasterPatch): number {
   return arrays(p).reduce((s, a) => s + a.byteLength, 0);
 }
 
-/** 主图上一块(列从 x0 起往右 w 列,出右边接回左边)拷出来成一张小图(带 win:它在整张图上的位置) */
-export function cutRaster(r: Raster, x0: number, y0: number, w: number, h: number): Raster {
+/**
+ * 主图上一块(列从 x0 起往右 w 列,出右边接回左边)拷出来成一张小图(带 win:它在整张图上的位置)。
+ * reuse = 用完了的另一块(同样切出来的):数组够大就拷进它的数组里,不另分配(连着切很多块时少留一堆等着回收的大数组)
+ */
+export function cutRaster(r: Raster, x0: number, y0: number, w: number, h: number, reuse?: Raster | null): Raster {
   const W = r.w;
+  const N = w * h;
+  const f32 = (old: Float32Array | undefined) => (old && old.buffer.byteLength >= N * 4 ? new Float32Array(old.buffer, 0, N) : new Float32Array(N));
+  const u8 = (old: Uint8Array | undefined) => (old && old.buffer.byteLength >= N ? new Uint8Array(old.buffer, 0, N) : new Uint8Array(N));
   const cut = <T extends Float32Array | Uint8Array>(src: T, out: T): T => {
     for (let y = 0; y < h; y++) {
       const row = (y0 + y) * W;
@@ -351,23 +357,23 @@ export function cutRaster(r: Raster, x0: number, y0: number, w: number, h: numbe
     }
     return out;
   };
-  const N = w * h;
+  const o = reuse ?? undefined;
   return {
     w,
     h,
     scale: r.scale,
-    elev: cut(r.elev, new Float32Array(N)),
-    temp: cut(r.temp, new Float32Array(N)),
-    precip: cut(r.precip, new Float32Array(N)),
-    water: cut(r.water, new Uint8Array(N)),
-    biome: cut(r.biome, new Uint8Array(N)),
+    elev: cut(r.elev, f32(o?.elev)),
+    temp: cut(r.temp, f32(o?.temp)),
+    precip: cut(r.precip, f32(o?.precip)),
+    water: cut(r.water, u8(o?.water)),
+    biome: cut(r.biome, u8(o?.biome)),
     cell: new Int32Array(0),
-    ice: cut(r.ice, new Float32Array(N)),
-    iceConc: cut(r.iceConc, new Uint8Array(N)),
-    iceTone: cut(r.iceTone, new Uint8Array(N)),
-    gully: r.gully && cut(r.gully, new Float32Array(N)),
-    bank: r.bank && cut(r.bank, new Uint8Array(N)),
-    vein: r.vein && cut(r.vein, new Uint8Array(N)),
+    ice: cut(r.ice, f32(o?.ice)),
+    iceConc: cut(r.iceConc, u8(o?.iceConc)),
+    iceTone: cut(r.iceTone, u8(o?.iceTone)),
+    gully: r.gully && cut(r.gully, f32(o?.gully)),
+    bank: r.bank && cut(r.bank, u8(o?.bank)),
+    vein: r.vein && cut(r.vein, u8(o?.vein)),
     wrap: true,
     win: { x0, y0, W, H: r.h },
   };

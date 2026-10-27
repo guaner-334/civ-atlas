@@ -1,7 +1,19 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { rasterize, type Raster } from '../src/gen/raster';
-import { macroGrids, realisticBandPixels, realisticBase, realisticFullSteps, realisticPixels } from '../src/render/realistic';
+import {
+  macroGrids,
+  putRealisticRows,
+  realisticBandPixels,
+  realisticBase,
+  realisticFullSteps,
+  realisticPixels,
+  realisticRowBands,
+  realisticRowsWindow,
+  realisticWindowPaint,
+  takeRealisticPainted,
+  type RealisticPainted,
+} from '../src/render/realistic';
 import { fantasyFullPixels, fantasyPixels } from '../src/render/fantasy';
 import { prepareLayer, renderLayer, hasPreparedLayer, type LayerId } from '../src/render/layers';
 import type { WorkStep } from '../src/render/common';
@@ -99,6 +111,43 @@ describe('缩略图的底图分小步画', () => {
       }
       expect(firstDiff(raw, want.raw, W), `${look} 抗锯齿之前`).toBe('');
     }
+  });
+
+  it('写实:后台线程按整行分带子画、拼回整张(新建世界),和一口气整张画逐像素相同;随地图交来的贴进缓存也一样', { timeout: 300000 }, () => {
+    const { r } = worldOf(2024);
+    const W = r.w;
+    const g = macroGrids(r);
+    const bands = realisticRowBands(r);
+    expect(bands.length).toBeGreaterThan(4);
+    const painted: RealisticPainted = { grids: g, looks: [] };
+    for (const look of ['classic', 'detail'] as const) {
+      const into = { px: new Uint8ClampedArray(W * r.h * 4), raw: new Uint8ClampedArray(W * r.h * 4) };
+      // 带子不按顺序画(几个帮手谁先画完谁先拼);切下一条拷进画完的上一块的数组里(不够大才另分配)
+      let spare: Raster | null = null;
+      for (const [y0, y1] of [...bands].reverse()) {
+        const win: Raster = (spare = realisticRowsWindow(r, y0, y1, spare));
+        putRealisticRows(into, r, y0, y1, realisticWindowPaint(win, g, look, true));
+      }
+      const want = realisticPixels(r, look);
+      expect(firstDiff(into.px, want.px, W), look).toBe('');
+      expect(firstDiff(into.raw, want.raw, W), `${look} 抗锯齿之前`).toBe('');
+      painted.looks.push({ look, ...into });
+    }
+    // 随地图交来的:分步备的只剩贴上那一步,贴完放进缓存;另一种画法当场要(realisticBase)也是直接贴上
+    const [classic, detail] = painted.looks.map((l) => l.px);
+    takeRealisticPainted(r, painted);
+    const steps = realisticFullSteps(r, 'classic');
+    expect(steps?.length).toBe(1);
+    runAll(steps!);
+    expect(realisticFullSteps(r, 'classic')).toBeNull();
+    expect(firstDiff((realisticBase(r, 'classic') as unknown as FakeCanvas).px, classic, W)).toBe('');
+    expect(firstDiff((realisticBase(r, 'detail') as unknown as FakeCanvas).px, detail, W)).toBe('');
+    // 两张都贴完了,记着的放掉:同一张主图再要别的画法照常整张分步画
+    expect(painted.looks).toHaveLength(0);
+    expect(realisticFullSteps(r, 'geo')?.length).toBeGreaterThan(1);
+    // 换了一张主图(别的世界):记着的那几张不认
+    takeRealisticPainted({ ...r }, { grids: g, looks: [{ look: 'simple', px: new Uint8ClampedArray(4), raw: new Uint8ClampedArray(4) }] });
+    expect(realisticFullSteps(r, 'simple')?.length).toBeGreaterThan(1);
   });
 
   it('手绘:整张分步铺(fantasyFullPixels)和一口气整张画逐像素相同,墨线原色、波纹的场也一样', { timeout: 600000 }, () => {
