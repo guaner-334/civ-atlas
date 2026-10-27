@@ -64,7 +64,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排)。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排;42 亡国之君先出奔中立地,疆域兴亡不变,只多了出奔的史事(civ.annals、civ.people、civ.development 里记的史事条数、civ.places.pass 里记的史事下标跟着变))。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -181,19 +181,19 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'world.water': '050e7112dd1c',
     'world.waterLevel': '52d96cb0744c',
     'world.width': '2fd8ac4eb585',
-    'civ.annals': 'a8528394a59b',
+    'civ.annals': '5cc47ecb7c5f',
     'civ.capNorm': '92c2a5c30ea1',
     'civ.capSpacing': '8fda3225da8f',
     'civ.checkpoints': 'c3353e3a1318',
     'civ.culture': '09ee184fd6f8',
     'civ.cultures': '268d698c0acd',
-    'civ.development': '0fbce36fc194',
+    'civ.development': 'f7f08882ccce',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '91e9fb0abefb',
     'civ.log': 'fda22a7d81cf',
-    'civ.people': '8ffafbd71fc2',
+    'civ.people': '61f99ba64e34',
     'civ.places': '4f5c7e90ec98',
-    'civ.places.pass': 'fa24f031c8ed',
+    'civ.places.pass': '15de0faad37f',
     'civ.polities': '395d9520fc64',
     'civ.polity': 'cbf67660861a',
     'civ.polityYears': 'e5d380617183',
