@@ -68,16 +68,19 @@
  *   ("天下"只给全球大疫);疫后荒废的城一国一条"某国疫后城邑荒废:甲、乙、丙等十三处,道路断绝"(子条目是每一处);
  *   凋敝结束一条"疫后凋敝三十年,至是始复。天下城邑荒废者六十余处,道路断绝近半"。这三样标签"疠"(界面上叫"大疫",颜色同瘟疫);
  *   逐年传到哪的子条目照旧是"疫"。
- * - **掌实权**(regents.ts,史事 regent,标签"权",见 regentEntry):帝国的引兵入朝、大臣大将专权,王国以上的叔父篡位是大事;太子监国、还政、伏诛、卒在"全部"里;
- *   幼主的叔父摄政、名臣辅政写在即位那一条("…,时年 9 岁,叔父某某摄政"),名臣、大臣篡位写在改朝换代那一条("…,丞相某某废幼主某某,自立为君")。
+ * - **掌实权**(regents.ts,史事 regent,见 regentEntry):帝国的引兵入朝、大臣大将专权,王国以上的叔父篡位是大事;太子监国、还政、伏诛、卒在"全部"里;
+ *   标签按哪一步:掌权"权"、还政"还"、伏诛"诛"、叔父篡位"篡"、掌权的人卒"亲"(亲政)。
+ *   幼主的叔父摄政、名臣辅政写在即位那一条("…,时年 9 岁,叔父某某摄政"),名臣、大臣篡位写在改朝换代那一条("…,丞相某某废幼主某某,自立为君";
+ *   这一条的标签是"篡",别的改朝换代是"朝")。
  * - **结亲**(marriages.ts,史事 marry,标签"姻",见 marryEntry):"南漓、大澜结亲:大澜德宗以女风氏妻南漓懿公胡炜";互嫁并成一条;议和时"是为和亲";
- *   两个帝国议和时的和亲是大事。
+ *   两个帝国议和时的和亲是大事。结亲以后两国结盟(KIN_FADE 年内、那以后没开过战,regentInfo.ts 的 kinAt)的那一条后面写"(两国本为姻亲)"。
  * - 年份写法和时间轴一致:"第 N 年"(N = 年份取整)。州数等计数用中文数字("得瑞州等五州"),年数用阿拉伯数字。
  *
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
  */
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from './types';
 import { REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
+import { kinAt } from './regentInfo';
 import {
   TIER_REGIONS,
   annexedRemnants,
@@ -1579,7 +1582,8 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       // 末代只在权臣篡位时写到("废少帝自立")
       const old = endedAt(ctx.ix, e.a, y);
       const ousted = !!old && /废(幼主|黜)?/.test(text) && (text.includes(old.name) || (!!old.title && text.includes(`废${old.title}`)));
-      return withPeople(base(e, id, text, imp, [e.a], [e.region]), ousted ? old : null, founderOf(ctx.ix, e.a, i));
+      // 掌实权的人篡位开的这一朝:标签"篡"(类型名"篡位")
+      return withPeople(base(e, id, text, imp, [e.a], [e.region], usurped ? '篡' : '朝'), ousted ? old : null, founderOf(ctx.ix, e.a, i));
     }
     case 'sack':
       return base(e, id, sackText(civ, e), 2, [e.a, e.b], [e.region]);
@@ -1822,8 +1826,11 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
     text = east ? `${P}摄政${name}废${young},自立为君` : `${P}摄政${name}废黜${young},自立为王`;
   } else if (n === RG_DIED) text = east ? `${P}${kind === 'uncle' ? `摄政${name}` : who}卒,${bare}始亲政` : `${P}${kind === 'uncle' ? `摄政${name}` : who}去世,${bare}开始亲政`;
   else return null;
-  return withPeople(base(e, i, text, imp, [e.a], [e.region]), x, N, ...rivals);
+  return withPeople(base(e, i, text, imp, [e.a], [e.region], REGENT_TAG[n] ?? '权'), x, N, ...rivals);
 }
+
+/** 掌实权那几步的标签(类型名见 timelineLayout.ts):掌权、还政、伏诛、篡位、(掌权的人卒)亲政 */
+const REGENT_TAG: Readonly<Record<number, string>> = { [RG_START]: '权', [RG_RETURN]: '还', [RG_PURGE]: '诛', [RG_USURP]: '篡', [RG_DIED]: '亲' };
 
 /**
  * 结亲(史事 marry,marriages.ts),标签"姻":"南漓、大澜结亲:大澜德宗以女风氏妻南漓懿公胡炜"(互嫁的紧跟着那一条并进来:
@@ -1848,7 +1855,9 @@ function marryEntry(ctx: Ctx, i: number): ChronicleEntry {
     if (groom) people.push(groom);
     if (F) people.push(F);
     const fa = F ? rulerRef(civ, F, y) : `${pn(civ, f.b, y)}${east ? '国君' : '国王'}`;
-    const gr = !groom ? pn(civ, f.a, y) : reigningAt(groom, y) ? `${rulerRef(civ, groom, y)}${groom.title ? groom.name : ''}` : princeRef(civ, groom, y);
+    // 在位的君主:东方有庙号的称呼不带名字("南漓懿公"),补上名字;西幻、汗国的称呼里已经有名字("奥利亚国王佩尔梅内斯二世"),不再补
+    const ref = groom && reigningAt(groom, y) ? rulerRef(civ, groom, y) : '';
+    const gr = !groom ? pn(civ, f.a, y) : ref ? (ref.includes(groom.name) ? ref : ref + groom.name) : princeRef(civ, groom, y);
     const her = w?.s.name ?? '';
     if (!east) return `${fa}${also ? '也' : ''}将女儿${her}嫁给${gr}`;
     return `${fa}${also ? '亦' : ''}以${f.war >= 0 ? '宗室女' : '女'}${her}妻${gr}`;
@@ -1888,7 +1897,9 @@ function diplomacyEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     case 'alliance': {
       const f = e.foe ?? -1;
       const F = polityOf(civ, f);
-      const t = F ? `${A}与${B}结盟,共御${pn(civ, f, y)}` : `${A}与${B}结盟`;
+      // 结亲以后结的盟(两国还结着亲):"(两国本为姻亲)"
+      const kin = kinAt(civ, e.a, e.b, y, true) >= 0 ? '(两国本为姻亲)' : '';
+      const t = (F ? `${A}与${B}结盟,共御${pn(civ, f, y)}` : `${A}与${B}结盟`) + kin;
       return { ...base(e, id, t, minTier(civ, e.a, e.b, y) >= TITAN_TIER ? 3 : 2, [e.a, e.b, f], []), settlement: -1 };
     }
     case 'unally': {

@@ -231,7 +231,7 @@ describe('编年史:掌权、还政、伏诛、篡位、结亲', () => {
     const texts: string[] = [];
     for (const seed of [7, 2024]) {
       const civ = civOf(seed);
-      for (const e of [...buildChronicle(civ), ...reignEntries(civ)]) if (e.tag === '权' || e.tag === '姻' || /摄政|辅政|自立为君/.test(e.text)) texts.push(e.text);
+      for (const e of [...buildChronicle(civ), ...reignEntries(civ)]) if (e.kind === 'regent' || e.kind === 'marry' || /摄政|辅政|自立为君/.test(e.text)) texts.push(e.text);
     }
     const has = (re: RegExp) => texts.some((t) => re.test(t));
     expect(has(/监国|代为理政/)).toBe(true);

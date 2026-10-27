@@ -12,6 +12,7 @@ import type { Civ, Person, Year } from './types';
 import { polityName } from './growth';
 import { peopleIndex, riseText } from './peopleInfo';
 import { personName, rulerShort } from './peopleText';
+import { heldOver, polityShort } from './regentInfo';
 import { yearAt, yearShort, yearSpanAt, type Era } from '../era';
 
 interface LineageIndex {
@@ -147,14 +148,32 @@ export function secededFrom(civ: Civ, x: Person, polity: number): boolean {
 }
 
 /**
- * 世系图里名字后面的小灰字:没即位的宗室写结局(战死、争储被杀),没有就写"养子";
- * 据地自立做了别国之君的儿子(在父亲那一国的图里)写"自立"。别的不写 = ''
+ * 世系图里名字后面的小灰字:没即位的宗室写结局(战死、争储被杀;摄政时被亲政的幼主诛杀的写"伏诛"),没有就写"养子";
+ * 据地自立做了别国之君的儿子(在父亲那一国的图里)写"自立"。
+ * 再接上掌实权的(regentInfo.ts):掌过实权的(一直没即位,或即位以前)"掌权",在位时被架空过的君主(儿子引兵入朝、大臣大将专权;
+ * 幼主有人辅政、太子监国不算)"虚位";几样都有用"、"连着。别的不写 = ''
  */
 export function lineageTag(civ: Civ, x: Person, polity: number): string {
   if (secededFrom(civ, x, polity)) return '自立';
-  if (x.role === 'prince' && x.fate === 'battle') return '战死';
-  if (x.role === 'prince' && x.fate === 'purged') return '争储被杀';
-  return x.adopted ? '养子' : '';
+  const tags: string[] = [];
+  if (x.role === 'prince' && x.fate === 'battle') tags.push('战死');
+  else if (x.role === 'prince' && x.fate === 'purged') tags.push(x.regencies?.some((g) => g.end === 'purged') ? '伏诛' : '争储被杀');
+  else if (x.adopted) tags.push('养子');
+  if (x.regencies?.length) tags.push('掌权');
+  if (x.role === 'ruler' && heldOver(civ, x).some((h) => VOID_KINDS.has(h.g.kind))) tags.push('虚位');
+  return tags.join('、');
+}
+
+/** 算"虚位"的几种:被儿子引兵入朝架空、被大臣大将专权(幼主有人辅政、太子监国不算) */
+const VOID_KINDS: ReadonlySet<string> = new Set(['march', 'chancellor', 'general']);
+
+/** 世系图第二行的小标:娶了别国宗室女 "妻大澜"、母亲是别国宗室女 "母大澜"(只写一样,妻子优先;polity = 那一国,画它的颜色);没有 = null */
+export function lineageKin(civ: Civ, x: Person): { text: string; polity: number } | null {
+  const s = x.spouses?.[0];
+  if (s) return { text: `妻${polityShort(civ, s.polity, s.year)}`, polity: s.polity };
+  const m = x.mother;
+  if (m) return { text: `母${polityShort(civ, m.polity, m.year)}`, polity: m.polity };
+  return null;
 }
 
 /** 排好的一个人:x = 第几格(可以是负的、整数),depth = 第几代(0 = 树根) */

@@ -195,7 +195,8 @@ function briefOf(civ: Civ, e: ChronicleEntry): string {
   if (e.tag === '分' && A) return `${A}自立`;
   if (e.tag === '复' && A) return `${A}复国`;
   if (e.tag === '亡' && A) return B ? `${B}灭${A}` : `${A}亡`;
-  if (e.tag === '朝' && a !== undefined) {
+  // 改朝换代(掌实权的人篡位开的新朝标签是"篡")
+  if ((e.tag === '朝' || (e.tag === '篡' && e.kind === 'dynasty')) && a !== undefined) {
     const old = shortAt(civ, a, y - 1 / 512);
     const now = shortAt(civ, a, y + 1 / 512);
     if (old && now && old !== now) return `${now}代${old}`;
