@@ -24,6 +24,10 @@
  *                   一方被第三国宣战时,另一方(和攻方接壤)多半援盟参战(见 wars.ts 的 ALLY_JOIN;史事 war 的 settlement 列记盟国)
  *   宣战   declare   from 那一刻强制开战(不管停战冷却、歇战、同时在打几场);两国不接壤 / 已在交战 / 有一方已亡 = 打不成
  *   禁止分裂 unity   politics.ts 的分裂不会发生;它的国土里不会有遗民起兵复国
+ *   保住王室 keep    dynasty.ts 看王朝时本该改朝换代(豪强起兵、国都权臣篡位)的那一回挡下,regency.ts 掌实权的人到期篡位的那一回改成
+ *                   名臣、大臣伏诛 / 叔父还政;挡下的都记一条史事 keep(未遂)。随机数照旧掷,只是不换。有人掌实权、争储、亡国、分裂照旧。
+ *                   即位带 keep 的:作者的人物在位的那些年同样保住(那一刻在位的是他才算,见 keeps)。有 until 的到那一刻止(做决定时现查)。
+ *                   和作者下令"让他掌权"到期篡位撞上:后下的为准(和灭国撞上不许灭一样)
  *   划州   cede      from 那一刻州归 a(setOwner,原因 Ev.Cede;州里没人住 / a 已亡 = 划不成)。原主国照常:划走的是它的国都就迁都到
  *                   剩下的城里人口最多的(和战争里国都失守一样挑),剩下的州里一座城都没有就连同余州归 a、亡国;只有这一州的就亡了。
  *                   带"永久"的:这州还在 a 手里时 —— wars.ts 攻不下、议和不割让,a 丢了国都也不会被并掉残部;
@@ -109,6 +113,9 @@ export class InterventionModel {
   private readonly unityRules: Extract<Intervention, { kind: 'unity' }>[];
   private readonly allyRules: Ally[];
   private readonly haltRules: Halt[];
+  /** 保住王室:开关(keep)的下标;即位带 keep 的有没有 */
+  private readonly keepRules: number[] = [];
+  private readonly crownKeeps: boolean;
   /** 永久划州:州号、得到它的国家(键)、年份(州键要按地块找州:挂上国家模型时才解析,见 bindRegions) */
   private lockRules: { region: number; a: string; from: number }[] = [];
   /** 有永久划州的州(先查它,别的州不用扫规则) */
@@ -131,6 +138,10 @@ export class InterventionModel {
     this.unityRules = list.filter((v): v is Extract<Intervention, { kind: 'unity' }> => v.kind === 'unity');
     this.allyRules = list.filter((v): v is Ally => v.kind === 'ally');
     this.haltRules = list.filter((v): v is Halt => v.kind === 'halt');
+    list.forEach((v, i) => {
+      if (v.kind === 'keep') this.keepRules.push(i);
+    });
+    this.crownKeeps = list.some((v) => v.kind === 'crown' && v.keep === true);
   }
 
   /** 地块 → 州(国家模型挂上以后才有;按地块定位的键靠它找州;地形大事以后按每块地最早属于的州,见 Regions.keyOf) */
@@ -216,6 +227,27 @@ export class InterventionModel {
   unites(p: number, t: number): boolean {
     for (const v of this.unityRules) if (t >= v.from && this.resolve(v.a) === p) return true;
     return false;
+  }
+
+  /**
+   * 国家 p 此刻"保住王室":护着它的那一条干预的下标(开关 keep 在生效期里;即位带 keep 的,此刻在位的是那位作者的人物);
+   * 有几条时取列表里靠前的;没有 = −1。after = 只算排在第 after 条后面(后下)的(作者下令的篡位撞上保住王室:后下的为准)
+   */
+  keeps(p: number, t: number, after = -1): number {
+    let best = -1;
+    for (const i of this.keepRules) {
+      const v = this.list[i] as Extract<Intervention, { kind: 'keep' }>;
+      if (i > after && t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) {
+        best = i;
+        break;
+      }
+    }
+    if (this.crownKeeps && this.pm) {
+      const c = rulerOf(this.pm, p, t).crown;
+      const v = c ? this.list[c.iv] : undefined;
+      if (c && c.iv > after && v?.kind === 'crown' && v.keep === true && (best < 0 || c.iv < best)) best = c.iv;
+    }
+    return best;
   }
 
   /** 国家 p 此刻"不许扩张" */

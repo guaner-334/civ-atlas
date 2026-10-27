@@ -22,6 +22,8 @@
  *   动荡:迁都会让分合(politics.ts)的"动荡"加上迁都那一项,改朝换代本身再加一项(见 politics.ts 的 CRISIS_DYNASTY):
  *     改朝换代之后几十年里,边远之地更容易割据自立。
  *   没改朝换代的那一次:看会不会出一位专权的大臣、大将(DynastyModel.strong,regency.ts 挂上)。
+ *   干预「保住王室」护着的国家(interventions.ts 的 keeps):本该改朝换代的那一回(根据地都挑好了)挡下,只记一条史事 keep(未遂),
+ *     不迁都、不换朝,也不另看专权的大臣;王朝的岁数照算,到期以后照常会换。
  *   掌实权的名臣、大臣到期篡位的改朝换代不在这里(regency.ts,新朝起于国都,先记 regent 再记 dynasty)。
  *
  * 东方 / 西幻(Polity.eastern)要等推演结束、按民族最终的语感起名时才定(naming.ts),推演里分不出来:
@@ -43,6 +45,7 @@ import { GUIDE_DYNASTY } from './policy';
 import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';
 import { politicsModelOf } from './politics';
 import { TIER_REGIONS, capitalAt, populationAt } from './growth';
+import { KEEP_COURT, KEEP_RISE } from './rulers';
 
 // ---- 调参(以统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看王朝;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -78,6 +81,9 @@ const DECLINE = 0.7;
 const C_DECLINE = 0.8;
 /** 根据地的州要这么多年没换过国家(刚打下来的地方出不了新朝) */
 const SETTLE = 30;
+
+/** 保住王室挡下的那一刻动荡到这么高:编年史写"国势危殆"(史事 keep 的 n = 1) */
+const KEEP_DIRE = 1.5;
 /** 挑根据地:城的人口 ^ POP_EXP × (1 + FAR_W × min(FAR_MAX, 离国都的路程 ÷ FAR_REACH));国都(权臣篡位)× COURT */
 const POP_EXP = 0.8;
 const FAR_W = 0.6;
@@ -254,13 +260,20 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     // 东方 / 西幻(Polity.eastern)推演结束起名时才定,这里一视同仁:同一件事,起名后东方写"改朝换代",西幻写"王室更迭"
     const age = t - dynastyStart(P);
     if (age < MIN_AGE || !eligible(pm, p, age)) return strong();
-    const odds = ODDS * fexp((age - AGE_REF) / AGE_SCALE) * unrest(P, t);
+    const stir = unrest(P, t);
+    const odds = ODDS * fexp((age - AGE_REF) / AGE_SCALE) * stir;
     if (keyed(dm.base, pm.ptag[p], k, U_ROLL) >= odds / (1 + odds)) return strong();
     const r = pickBase(P, k, t);
     if (r < 0) return strong();
     const seat = pm.cityOf[r];
     let sid = capitalAt(P, t);
     const capR = pm.settlements[sid].region;
+    // 保住王室(干预):这一回挡下,记一句未遂(起兵还是篡位、在哪州;随机数照旧掷过,只是不换、不迁都)
+    const kept = pm.iv ? pm.iv.keeps(p, t) : -1;
+    if (kept >= 0) {
+      sim.record('keep', { a: p, b: r === capR ? KEEP_COURT : KEEP_RISE, region: r, settlement: seat, war: kept, n: stir >= KEEP_DIRE ? 1 : 0 });
+      return;
+    }
     // 新朝定都根据地;刚迁过都(CAPITAL_GRACE 年内,多半是国都失守)的不再迁 —— 不会几年里一迁再迁
     if (
       r !== capR &&

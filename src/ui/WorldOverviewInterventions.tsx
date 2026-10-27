@@ -4,6 +4,7 @@
  * 所有干预按下达先后列出 —— "2940 年起 · 大昌:保护 · 撤销"(一次性的灭国、去世、改倾向、天灾……年份不写"起");
  * 后面接着地形大事(按添加的先后)—— "1600 年 · 海水漫进来:揽霞城一带,10 座城沉没 · 撤销"。
  * 新历史里没生效的干预写明原因(国家没出现、那一年它还没立国……,见 chronicle.ts 的 interventionOutcome)。
+ * 保住王室(开关、即位带的勾)生效了的,后面补挡下了几回(keepInfo.ts 的 keepResult)。
  * 点正文 = 收起概览、时间轴跳到那一年、选中那个国家 / 州(地形大事:和在编年史里点那一条一样);
  * "撤销" = 删掉这一条(App 在后台重推历史,推完提示"已撤销")。
  * 干预、地形大事都没有时:一句提示,说明从哪里下干预。
@@ -17,6 +18,7 @@ import { cleanIntervention, keyCells, regionOfKey, resolvePersonKey, resolveKey,
 import { regionName } from './outlineInfo';
 import { interventionText, nameAt, polityIdOf } from './Interventions';
 import { onceOnly } from './newIvInfo';
+import { keepResult } from './keepInfo';
 import { removeIntervention, removeUpheaval, useEdits } from './editsStore';
 import { pickChronicleEntry, setCivTime, setSelection, type MapSelection } from './civView';
 import { closeOverview, setOverviewTab } from './overviewStore';
@@ -300,6 +302,7 @@ export function InterventionsPage({ civ, world, busy }: { civ: Civ | null; world
               title="时间轴跳到这一年,在地图上选中它"
             >
               {eraText(interventionText(civ, v, idx), era)}
+              {!why && !busy && same && keepResult(civ, v, idx, era)}
               {why && <em>未生效:{eraText(why, era)}</em>}
             </button>
             {undo}
