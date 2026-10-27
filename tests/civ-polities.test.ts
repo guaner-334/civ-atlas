@@ -296,6 +296,8 @@ describe('城市成长 + 国家', () => {
           'fiscal',
           'council',
           'stand',
+          'regent',
+          'marry',
           'treaty',
           'breach',
           'expire',

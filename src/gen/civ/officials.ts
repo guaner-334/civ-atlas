@@ -5,7 +5,9 @@
  * **名臣**:按年份往后走,只看到当时为止的事(后来的历史变了,先前的大臣不变)。这一朝里真发生的事,每件找一位当时在朝、
  * 手上的事没满(一位最多经手 DEEDS_MAX 件)的大臣经手;没人在朝就当年起用一位,有人但都满了,要紧的事(PRIO_NEW)才另起一位:
  *   found     佐命:一朝的第一位上台时(立国、起兵代之、叛离自立、复国、篡位)
- *   regent    辅政:幼主(不满 YOUNG 岁)即位,辅政到他 ADULT 岁
+ *   regent    辅政:幼主即位、推演里由名臣辅政的(regents.ts;叔父摄政的没有),辅政到他成年(或伏诛、篡位、去世)
+ *   power     专权:推演里大臣专权(regents.ts)
+ *   这两样专门起一位(OfficialsCtx.regents:生年照推演里的,在朝至少到原定了结的那一刻;伏诛、卒于位照那一刻)
  *   rank      劝进:国号升格、国号跟着变(称王、称帝、称大汗)
  *   enthrone  拥立:先君遇弑,迎立新君
  *   capital   迁都:主动迁都(力主迁都)、国都失守以后迁都(护驾)
@@ -34,9 +36,6 @@ import { capitalAt, polityTierAt, polityTitles } from './growth';
 // ---- 调参 ----
 /** 一位最多经手几件事 */
 const DEEDS_MAX = 3;
-/** 幼主:即位不满这么多岁;辅政到他这么多岁 */
-const YOUNG = 12;
-const ADULT = 18;
 /** 入仕的年纪、因一件事起用的年纪、致仕的年纪、寿命 */
 const ENTER_AGE: [number, number] = [20, 30];
 const CALL_AGE: [number, number] = [28, 50];
@@ -218,6 +217,27 @@ export interface OfficialsCtx {
   kills?: ReadonlyMap<string, { t: Year; iv: number }>;
   /** 排出来的名臣记上身份(同上),people.ts 按它找回作者要让他去世的那位 */
   ids?: Map<Person, string>;
+  /** 掌实权的名臣、大臣(regents.ts;国家 → 按掌权先后):各起一位,people.ts 挂上掌权的那一段 */
+  regents?: ReadonlyMap<number, readonly ForcedRegent[]>;
+}
+
+/**
+ * 推演里掌实权的名臣(幼主辅政)、大臣(专权):那一刻起用一位(生年照推演里的),在朝至少到 stay(推演里原定了结的那一刻)。
+ * until = 实际了结的那一刻(经手的事记到那年;还在掌权 = 不给);fate = 那一刻伏诛 / 卒于位(没有 = 照常致仕、去职);
+ * surname = 他篡位以后新朝的姓(东方带姓的语感;people.ts 照新朝的姓给他起名,篡位了就和新朝的第一位并成一人)
+ */
+export interface ForcedRegent {
+  /** 哪一朝(Polity.dynasties 的下标) */
+  dyn: number;
+  year: Year;
+  born: Year;
+  stay: Year;
+  until?: Year;
+  kind: 'regent' | 'power';
+  /** 名义上的君主(大臣专权跨了几位君主的:掌权那一刻在位的那位) */
+  who: Person;
+  fate?: 'purged' | 'died';
+  surname?: string;
 }
 
 export interface Officials {
@@ -229,6 +249,8 @@ export interface Officials {
   nameAt: Map<Person, (a: number) => string>;
   /** 名字定了以后调:名臣、将领的字(字和名里的字不重) */
   finish: () => void;
+  /** 掌实权的那几位(ctx.regents 的每一条 → 起的那位;那一朝没排名臣的不在里面) */
+  regents: Map<ForcedRegent, Person>;
 }
 
 /** 一件可以经手的事 */
@@ -240,6 +262,8 @@ interface Anchor {
   deed: PersonDeed;
   /** 记在 deed.person 上的人(排好编号后换成编号) */
   who?: Person;
+  /** 掌实权(ctx.regents 的那一条):专门起一位 */
+  force?: ForcedRegent;
 }
 
 /** 正在排的一位大臣 */
@@ -251,6 +275,8 @@ interface Draft {
   /** 随机数的键(起他的那一年、缘由) */
   slot: number;
   anchors: Anchor[];
+  /** 掌实权专门起的那位 */
+  force?: ForcedRegent;
 }
 
 /**
@@ -263,6 +289,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   const base = subSeed(input.seed, 'civ-officials');
   const fixups: [PersonDeed, Person][] = [];
   const ministers: Person[] = [];
+  const forcedOut = new Map<ForcedRegent, Person>();
   const nameAt = new Map<Person, (a: number) => string>();
   const later: (() => void)[] = [];
   const homeAsks: { x: Person; year: Year; u: number }[] = [];
@@ -285,6 +312,14 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
       // 部落没有大臣(共和国从城邦起就有)
       const staffed = (y: Year) => sys === 'republic' || polityTierAt(p, y) >= 1;
       const anchors = anchorsOf(input, p, i, s, e, rs, sys);
+      // 掌实权的名臣、大臣:当作最要紧的事,那一刻专门起一位(同一刻的事里排在最前)
+      const forced = ctx.regents?.get(p.id)?.filter((f) => f.dyn === i && f.year >= s && f.year < e) ?? [];
+      if (forced.length) {
+        for (const f of forced)
+          // 辅政、专权到哪一年(还掌着权的 = 原定了结的那一刻;下面再截到他去职)
+          anchors.push({ kind: f.kind, year: f.year, prio: -1, deed: { kind: f.kind, year: f.year, until: f.until ?? f.stay }, who: f.who, force: f });
+        anchors.sort((a, b) => a.year - b.year || a.prio - b.prio);
+      }
       const drafts: Draft[] = [];
       /** why:0 为一件事起用 / 1 补空当;都在 Y 这一年入仕 */
       const make = (Y: Year, why: 0 | 1, kind?: PersonDeed['kind']): Draft | null => {
@@ -307,6 +342,25 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
         drafts.push(d);
         return d;
       };
+      /** 掌实权专门起的那位:生年照推演里的,在朝至少到原定了结的那一刻(这一朝终了为止);随机数的键另编(负数),不和别的撞 */
+      const makeForced = (f: ForcedRegent): Draft => {
+        const slot = -(Math.round(f.year * SLOT_Q) * 2 + 1);
+        const r = (use: number) => R(slot, use);
+        let life = Math.max(f.born + lerp(LIFE, Math.pow(r(U_LIFE), 0.8)), f.stay + 1, f.year + 2);
+        const id = `m${p.id}:${i}:${slot}`;
+        const kill = ctx.kills?.get(id);
+        if (kill && kill.t > f.year && kill.t < life) life = kill.t;
+        const retire = Math.max(f.born + lerp(RETIRE_AGE, r(U_RETIRE)), f.stay);
+        // 伏诛、卒于位的到那一刻为止(那以后的事不归他经手)
+        const cut = f.fate && f.until !== undefined ? f.until : Infinity;
+        const leave = Math.max(Math.min(life, retire, e, cut), q(f.year + 1 / TICK));
+        const x: Person = { id: -1, role: 'minister', polity: p.id, name: '', born: f.born, dynasty: i };
+        ctx.ids?.set(x, id);
+        if (kill && life === kill.t) x.killed = kill.iv;
+        const d: Draft = { x, enter: f.year, leave: q(leave), life: q(life), slot, anchors: [], force: f };
+        drafts.push(d);
+        return d;
+      };
       // 往后走:下一件事、下一个该补人的空当,哪个先到先办
       let cover = s;
       let k = 0;
@@ -320,6 +374,12 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
         }
         if (!a) break;
         k++;
+        if (a.force) {
+          const d = makeForced(a.force);
+          d.anchors.push(a);
+          cover = Math.max(cover, d.leave);
+          continue;
+        }
         if (!staffed(a.year)) continue;
         const on = drafts.filter((x) => x.enter <= a.year && x.leave >= a.year);
         // 没人在朝:要紧的事起一位;寻常的事(打仗、运粮、一般的议和)一半的机会起一位,不然这件事没有名臣经手
@@ -340,13 +400,21 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
           return a.deed;
         });
         x.from = d.enter;
-        // 结局
+        // 结局(掌实权的到了结那一刻伏诛 / 卒于位的照那一刻)
         const ended = endOf(p, d, e, last, end, endYear, rs, input, r);
+        const f = d.force;
+        if (f?.fate && f.until !== undefined && f.until <= (ended.until ?? Infinity) && !(x.killed !== undefined && d.life <= f.until)) {
+          ended.until = f.until;
+          ended.died = f.until;
+          ended.fate = f.fate;
+        }
         x.until = ended.until;
         if (ended.fate) x.fate = ended.fate;
         if (ended.died !== undefined) x.died = ended.died;
         x.posts = civilPosts(p, sys, d, ended.until ?? endYear, tops[p.id], r);
-        nameAt.set(x, (a) => namer.surname(ctx.tag[p.id], 3, i, d.slot, a) + namer.given(ctx.tag[p.id], 3, i, d.slot, a));
+        const sur = f?.surname;
+        nameAt.set(x, (a) => (sur ?? namer.surname(ctx.tag[p.id], 3, i, d.slot, a)) + namer.given(ctx.tag[p.id], 3, i, d.slot, a));
+        if (f) forcedOut.set(f, x);
         if (namer.surnamed) later.push(() => (x.courtesy = courtesyName(style, x.name, r)));
         const tail = artTail(style, r, ART[0]);
         if (tail) x.art = tail;
@@ -384,7 +452,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
       arts.add(artName(city, tail));
     } else delete x.art;
   }
-  return { ministers, fixups, nameAt, finish: () => later.forEach((f) => f()) };
+  return { ministers, fixups, nameAt, finish: () => later.forEach((f) => f()), regents: forcedOut };
 }
 
 /** 这一朝里能经手的事(按年份) */
@@ -396,13 +464,7 @@ function anchorsOf(input: OfficialsInput, p: Polity, dyn: number, s: Year, e: Ye
   // 佐命:这一朝的第一位
   const first = mine[0];
   if (first && first.rise && first.rise !== 'heir' && sys !== 'republic') out.push({ kind: 'found', year: first.from!, prio: 0, deed: { kind: 'found', year: first.from! }, who: first });
-  // 辅政:幼主即位
-  if (sys !== 'republic')
-    for (const r of mine) {
-      if (r.rise !== 'heir' || r.from === undefined || r.from - r.born >= YOUNG) continue;
-      const until = Math.min(q(r.born + ADULT), r.until ?? e, e);
-      out.push({ kind: 'regent', year: r.from, prio: 3, deed: { kind: 'regent', year: r.from, until }, who: r });
-    }
+  // 辅政(幼主即位)、专权:推演里定的(regents.ts),people.ts 经 ctx.regents 传进来,不在这里
   // 拥立:先君遇弑
   for (let k = 0; k + 1 < mine.length; k++) {
     const r = mine[k];
@@ -488,8 +550,8 @@ function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, 
   const first = d.anchors[0];
   // 升到最高那级:佐命的开国时;辅政、劝进、拥立那一刻;别的在朝过半前后
   let topAt = d.enter + T * (0.45 + 0.25 * r(U_POSTS));
-  // 辅政、劝进、拥立的时候已经是最高那级
-  const major = d.anchors.find((a) => a.kind === 'found' || a.kind === 'regent' || a.kind === 'rank' || a.kind === 'enthrone');
+  // 辅政、专权、劝进、拥立的时候已经是最高那级
+  const major = d.anchors.find((a) => a.kind === 'found' || a.kind === 'regent' || a.kind === 'power' || a.kind === 'rank' || a.kind === 'enthrone');
   if (major) topAt = Math.min(topAt, major.year);
   topAt = q(Math.max(d.enter, Math.min(topAt, until)));
   // 佐命之臣开国时、为辅政拥立这类大事起用的(和在朝很短的)入仕当年直接拜最高的官

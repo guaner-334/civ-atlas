@@ -171,23 +171,27 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=2024:大澜末帝(燕溟)是名人,继祖父即位;搜"末帝"排在前面(名人在前)', () => {
+  it('seed=2024:大辰末帝(江溟)继祖父即位;搜"末帝"名人排在前面(大岳末帝百里玄衍),他排在前三', () => {
     const civ = civOf(2024);
-    const x = civ.people!.find((p) => p.name === '燕溟' && p.role === 'ruler');
+    const x = civ.people!.find((p) => p.name === '江溟' && p.role === 'ruler');
     expect(x).toBeTruthy();
-    expect(personName(civ, x!)).toBe('末帝燕溟');
-    expect(rulerRole(civ, x!)).toBe('大澜皇帝');
+    expect(personName(civ, x!)).toBe('末帝江溟');
+    expect(rulerRole(civ, x!)).toBe('大辰皇帝');
     expect(riseText(civ, x!)).toMatch(/^继祖父/);
-    expect(famousPeople(civ).some((f) => f.id === x!.id)).toBe(true);
+    const famous = new Set(famousPeople(civ).map((f) => f.id));
+    expect(famous.has(x!.id)).toBe(false);
     const hits = searchCiv(civ, '末帝', 2600);
+    // 名人在前:头一个是名人大岳末帝百里玄衍
+    expect(hits[0]).toMatchObject({ kind: 'person', name: '末帝百里玄衍' });
+    expect(hits[0].kind === 'person' && famous.has(hits[0].id)).toBe(true);
     const k = hits.findIndex((h) => h.kind === 'person' && h.id === x!.id);
-    expect(k).toBeGreaterThanOrEqual(0);
+    expect(k).toBeGreaterThan(0);
     expect(k).toBeLessThan(3);
-    expect(hits[k]).toMatchObject({ kind: 'person', id: x!.id, name: '末帝燕溟', sub: '大澜皇帝，1489–1529' });
-    for (const h of hits.slice(0, k)) expect(famousPeople(civ).some((f) => h.kind === 'person' && f.id === h.id)).toBe(true);
-    // 编年史里写他即位的那条:"大澜肃宗崩……其孙燕溟即位,是为末帝,……丞相叶渺辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
+    expect(hits[k]).toMatchObject({ kind: 'person', id: x!.id, name: '末帝江溟', sub: '大辰皇帝，1485–1529' });
+    for (const h of hits.slice(k + 1)) expect(h.kind === 'person' && famous.has(h.id)).toBe(false);
+    // 编年史里写他即位的那条:"大辰怀宗崩……其孙江溟即位,是为末帝,……丞相墨渺缈辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
-    expect(ms.map((m) => m.text)).toEqual(['大澜肃宗', '燕溟', '叶渺']);
+    expect(ms.map((m) => m.text)).toEqual(['大辰怀宗', '江溟', '墨渺缈']);
   });
 });

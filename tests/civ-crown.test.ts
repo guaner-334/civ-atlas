@@ -204,9 +204,14 @@ describe.each([7, 2024])('即位 · seed=%i', (seed) => {
     const base = baseOf(seed);
     // 原来的历史里亡于别国(或改朝换代)的那一刻在位的君主,在那一年年初换成一位倾向和他一样的作者君主:到那一刻历史不变
     const cases: { kind: 'fall' | 'dynasty'; pid: number; at: number; ruler: Person }[] = [];
-    for (const e of base.annals) {
+    // 有人掌着实权的那几年(regents.ts)换了作者的君主,掌权就了结、推演跟着变:不挑这样的(掌实权的人篡位的改朝换代也不挑)
+    const held = (pid: number, a: number, b: number) =>
+      (base.people ?? []).some((x) => x.regencies?.some((g) => P0(g.ruler) === pid && g.from < b && (g.until ?? Infinity) > a));
+    const P0 = (id: number) => base.people![id].polity;
+    for (const [i, e] of base.annals.entries()) {
       if ((e.kind !== 'fall' || e.b < 0) && e.kind !== 'dynasty') continue;
       if (Math.floor(e.year) === e.year || e.year < 300) continue;
+      if (base.annals[i - 1]?.kind === 'regent' || held(e.a, Math.floor(e.year), e.year)) continue;
       const r = rulersOf(base, e.a).find((x) => x.from! < Math.floor(e.year) && x.until === e.year);
       if (r) cases.push({ kind: e.kind === 'fall' ? 'fall' : 'dynasty', pid: e.a, at: e.year, ruler: r });
     }

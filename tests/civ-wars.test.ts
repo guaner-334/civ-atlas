@@ -298,7 +298,10 @@ describe('战争与攻占', () => {
         // 大军退保的那一州(foe)这一刻还在断后的一方手里,和追兵的国土之间隔着关隘;关隘的口子在 region 那一州
         const own = ownersAt(civ, e.year).polity;
         const hold = e.foe!;
-        expect(own[hold], tag).toBe(e.a);
+        // 同一刻议和、划清边界时那州成了飞地割给追兵的除外(GENERATOR_VERSION 39 时种子 2024 有一处)
+        const pk = A.findIndex((x) => x.kind === 'peace' && x.war === e.war);
+        const ceded = pk > i && A[pk].year === e.year && A.slice(i + 1, pk).some((x) => x.kind === 'conquer' && x.war === e.war && x.region === hold && x.a === e.b);
+        expect(ceded || own[hold] === e.a, tag).toBe(true);
         const gate = regionPasses(world({ ...DEFAULT_PARAMS, seed }), reg);
         let pass = false;
         for (let k = reg.adjStart[hold]; k < reg.adjStart[hold + 1]; k++) if (own[reg.adj[k]] === e.b && gate[k] >= 0 && reg.of[gate[k]] === e.region) pass = true;
