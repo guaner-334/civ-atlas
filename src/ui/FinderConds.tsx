@@ -287,15 +287,13 @@ function TogetherRow({ q, c, put, phone }: { q: FinderQuery; c: TogetherCond; pu
       return (
         <Row k={k} act="junction">
           有一州同时挨着 <Num label="挨着几国" value={c.min} min={2} max={8} onChange={(n) => put({ ...c, min: n })} /> 国{c.unowned ? '，无主' : ''}
-          <small className="fd-sub">
-            {c.lasting ? (
-              <>
-                这几国都撑过 <Num label="撑过几年" value={c.lasting} onChange={(n) => put({ ...c, lasting: n })} /> 年
-              </>
-            ) : (
-              '能当几国之间的中立地'
-            )}
-          </small>
+          {c.lasting ? (
+            <small className="fd-sub">
+              这几国都撑过 <Num label="撑过几年" value={c.lasting} onChange={(n) => put({ ...c, lasting: n })} /> 年
+            </small>
+          ) : (
+            !phone && <small className="fd-sub">能当几国之间的中立地</small>
+          )}
         </Row>
       );
     case 'span': {

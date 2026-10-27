@@ -48,8 +48,8 @@
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  color: var(--link) !important;
-  font-size: 13.5px !important;
+  color: var(--link);
+  font-size: 13.5px;
   font-weight: 500;
 }
 .fd-title {
@@ -173,12 +173,12 @@
   color: var(--ink-3);
 }
 .fd-link {
-  color: var(--link) !important;
-  font-size: 13px !important;
+  color: var(--link);
+  font-size: 13px;
   font-weight: 500;
 }
 .fd-link.sm {
-  font-size: 12px !important;
+  font-size: 12px;
 }
 .fd-grps {
   display: flex;
@@ -341,12 +341,12 @@ input.fd-val.num {
   align-items: center;
 }
 .fd-chk {
-  display: inline-flex !important;
+  display: inline-flex;
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  background: var(--accent) !important;
-  color: #fff !important;
+  background: var(--accent);
+  color: #fff;
   align-items: center;
   justify-content: center;
   margin-right: 6px;
@@ -362,9 +362,9 @@ input.fd-val.num {
   margin-left: 2px;
 }
 .fd-seg button {
-  padding: 2px 10px !important;
+  padding: 2px 10px;
   border-radius: 6px;
-  font-size: 13px !important;
+  font-size: 13px;
   color: var(--ink);
 }
 .fd-seg button.on {
@@ -386,15 +386,15 @@ input.fd-val.num {
   margin-right: 2px;
 }
 .fd-chip {
-  padding: 2px 9px !important;
+  padding: 2px 9px;
   border-radius: 14px;
-  background: var(--btn) !important;
-  font-size: 12.5px !important;
+  background: var(--btn);
+  font-size: 12.5px;
   color: var(--ink);
 }
 .fd-chip.on {
-  background: var(--accent-soft) !important;
-  color: var(--accent) !important;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-weight: 500;
 }
 
@@ -402,28 +402,28 @@ input.fd-val.num {
 .fd-role {
   display: inline-block;
   flex: none;
-  padding: 0 6px !important;
+  padding: 0 6px;
   border-radius: var(--r-tag);
-  color: #fff !important;
-  font-size: 12px !important;
+  color: #fff;
+  font-size: 12px;
   font-weight: 600;
   line-height: 19px;
   vertical-align: 1px;
   white-space: nowrap;
 }
 .fd-role.r0 {
-  background: var(--fd-r0) !important;
+  background: var(--fd-r0);
 }
 .fd-role.r1 {
-  background: var(--fd-r1) !important;
+  background: var(--fd-r1);
 }
 .fd-role.r2 {
-  background: var(--fd-r2) !important;
+  background: var(--fd-r2);
 }
 .fd-role.sm {
-  font-size: 11px !important;
+  font-size: 11px;
   line-height: 16px;
-  padding: 0 4px !important;
+  padding: 0 4px;
   margin-right: 4px;
   vertical-align: 0;
 }
@@ -473,32 +473,32 @@ input.fd-role.fd-name {
 
 /* 按钮(照大纲的按钮) */
 .fd-btn {
-  display: inline-flex !important;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: 34px;
-  padding: 0 14px !important;
+  padding: 0 14px;
   border-radius: var(--r-btn);
-  background: var(--btn) !important;
+  background: var(--btn);
   color: var(--ink);
-  font: 500 13.5px var(--font-sans) !important;
+  font: 500 13.5px var(--font-sans);
   white-space: nowrap;
 }
 .fd-btn.primary {
-  background: var(--accent) !important;
-  color: #fff !important;
+  background: var(--accent);
+  color: #fff;
 }
 .fd-btn.big {
   height: 40px;
-  font-size: 15px !important;
-  font-weight: 600 !important;
+  font-size: 15px;
+  font-weight: 600;
   width: 100%;
 }
 .fd-btn.small {
   height: 28px;
-  padding: 0 10px !important;
-  font-size: 13px !important;
+  padding: 0 10px;
+  font-size: 13px;
 }
 .fd-btn.grow {
   flex: 1;
@@ -761,18 +761,18 @@ input.fd-role.fd-name {
   color: var(--ink-2);
 }
 .fd-menu-item {
-  display: flex !important;
+  display: flex;
   align-items: center;
   width: 100%;
   min-height: 31px;
-  padding: 0 10px !important;
+  padding: 0 10px;
   border-radius: 7px;
   text-align: left;
-  font-size: 14px !important;
+  font-size: 14px;
 }
 .fd-menu-item:hover {
   background: var(--accent);
-  color: #fff !important;
+  color: #fff;
 }
 .fd-menu-ck {
   flex: none;
@@ -862,14 +862,14 @@ input.fd-role.fd-name {
   width: 36px;
   height: 36px;
   border-radius: 18px;
-  display: flex !important;
+  display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel) !important;
+  background: var(--panel);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-panel);
-  color: var(--ink) !important;
+  color: var(--ink);
 }
 
 .fd-pins {
@@ -911,9 +911,9 @@ input.fd-role.fd-name {
 }
 .fd-pin-lb .fd-role.sm {
   margin-right: 0;
-  font-size: 12px !important;
+  font-size: 12px;
   line-height: 19px;
-  padding: 0 6px !important;
+  padding: 0 6px;
 }
 .fd-pin-lb .g {
   color: #6e6e73;
@@ -943,9 +943,9 @@ input.fd-role.fd-name {
 /* ---- 建好以后侧栏顶上「照故事找的」一组(FoundSide.tsx) ---- */
 .fd-side-tag {
   margin: 0 2px;
-  font-size: 11.5px !important;
+  font-size: 11.5px;
   line-height: 20px;
-  padding: 0 5px !important;
+  padding: 0 5px;
 }
 .fd-side-ic {
   flex: none;
@@ -1033,9 +1033,9 @@ input.fd-role.fd-name {
 }
 .fd-grip {
   flex: none;
-  display: flex !important;
+  display: flex;
   justify-content: center;
-  padding: 7px 0 4px !important;
+  padding: 7px 0 4px;
 }
 .fd-grip i {
   width: 36px;
