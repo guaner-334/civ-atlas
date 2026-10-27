@@ -39,7 +39,8 @@
  *     立约国新君即位(先君寿终、同一朝里交接、先君晚年新君没有引兵入朝,PolityModel.onReign;在 unrest.ts 的宗室争位之前看),先君还有成年在世的儿子:
  *       EXILE_P 的机会把最年长的那位徙到中立地(记 exile,cause = heir),这一回不再有宗室据地争位;
  *     改朝换代、旧朝末代之君被废(新朝的根据地就是原来的国都,和 people.ts 判"被废"同一个判据):EXILE_P 的机会徙去(cause = deposed);
- *     立约国亡于战争(WarModel.onFall),约还在、中立地还在:亡国之君出奔中立地(cause = fled)。
+ *     立约国亡于战争(WarModel.onFall):亡以前它还在约里、约里还有别国、约的中立地还在(没被谁占了、没住满、不是"不送人去"的),
+ *     亡国之君先出奔中立地(cause = fled),再照常查一遍约 —— 两国之约剩一国就废、中立地跟着撤(他这一刻就离开中立地,人物照 Person.exile 的规矩写)。
  *     人物(people.ts)照这几条史事填 Person.exile。
  *
  *   **作者下令**(干预「立约」「划中立地」,interventions.ts 在干预那一刻调 TreatyModel.decree):记史事 intervene,
@@ -221,7 +222,12 @@ export class TreatyModel {
 
   /** p 此刻还在约 x 里:约没废、没背约、国还在、立约(续约)以后没向别国称臣过 */
   member(x: Treaty, p: number): boolean {
-    if (x.ended !== undefined || !x.parties.includes(p) || x.out.includes(p) || !this.alive(p)) return false;
+    return this.alive(p) && this.held(x, p);
+  }
+
+  /** 不看国还在不在的 member(亡国那一刻看它亡以前在不在约里) */
+  held(x: Treaty, p: number): boolean {
+    if (x.ended !== undefined || !x.parties.includes(p) || x.out.includes(p)) return false;
     const dm = this.dm;
     return !((dm.sworn.get(p) ?? -Infinity) >= x.since || (dm.defected.get(p)?.year ?? -Infinity) >= x.since);
   }
@@ -774,11 +780,16 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     return false;
   };
 
-  /** p 此刻能往哪处中立地放人:p 在约里、约的中立地还在、没住满(按约的先后挑第一处;没有 = undefined) */
-  const zoneFor = (p: number, t: Year, was = false): Zone | undefined => {
+  /**
+   * p 此刻能往哪处中立地放人:p 在约里、约的中立地还在、没住满(按约的先后挑第一处;没有 = undefined)。
+   * fell = p 这一刻刚亡(还没查过约):看它亡以前在不在约里,约里还要有别国(两国之约这时还没因为它亡了作废),
+   * 中立地那州还没被谁占了(作者划州、立国;查约时会撤)
+   */
+  const zoneFor = (p: number, t: Year, fell = false): Zone | undefined => {
     for (const x of m.live) {
-      if (x.zone < 0 || !(was ? x.parties.includes(p) && !x.out.includes(p) : m.member(x, p))) continue;
+      if (x.zone < 0 || !(fell ? m.held(x, p) && m.members(x).length >= 1 : m.member(x, p))) continue;
       const z = m.zones[x.zone];
+      if (fell && owner[z.region] >= 0) continue;
       // 作者下令划的、选了"不送人去"的不往这里放人
       if (z.ended === undefined && !z.quiet && m.residents(z, t) < ZONE_CAP) return z;
     }
@@ -787,12 +798,12 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   const exile = (p: number, z: Zone, cause: AnnalCause, n: number) =>
     note('exile', { a: p, region: z.region, settlement: pm.cityOf[z.region], war: z.id, n, cause });
 
-  // ---- 亡国之君出奔 ----
+  // ---- 亡国之君出奔:先出奔,再查一遍约(两国之约剩一国就废、中立地跟着撤)----
   wm.onFall = (_w, _x, y, t) => {
     if (!m.live.length) return;
-    sweep(t);
     const z = zoneFor(y, t, true);
     if (z) exile(y, z, 'fled', -1);
+    sweep(t);
   };
 
   // ---- 新君即位:失势的宗室、被废的末代之君徙到中立地(在宗室据地争位之前看)----
