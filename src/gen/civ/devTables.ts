@@ -10,7 +10,7 @@
  *
  * 输入表(事件层每步填好):民族、国(编号表;国 = 州 → 国);人口、城的规模、有没有路、港口、大河、平原、是不是国都、游牧、
  * 归了现在的民族 / 国家是哪一年;物产的底子、物产从哪一年起有;各国的国号档位、有几州、立国的年份、发展重点的倍数;
- * 这一步里全球大疫的凋敝占几成(pandemic.ts;没有全球大疫时全是 0,规则走平常那一支)。
+ * 这一步里全球大疫的凋敝占几成(pandemic.ts;没有全球大疫时全是 0,规则走平常那一支);推一把发展的倍数(boost.ts;没推的州全是 1,规则算出来逐位不变)。
  */
 import type { TableCard } from './tables';
 
@@ -92,6 +92,7 @@ export function devCards(k: DevRuleConsts, step: number): TableCard[] {
     pol('重点', '发展重点:自己长的倍数', 1, [生产, 运输, 信息, 行政]),
     pol('重点动员', '发展重点:挑动员的时间占几成', 0),
     num('凋敝', '这一步里全球大疫的凋敝占了几成(0–1;没有 = 0)'),
+    num('推', '推一把发展:这一步里自己长、向邻居学的倍数(没推 = 1)', undefined, 1),
   ];
 
   // 有人住的邻州(动力、学、带着本事来,都只看有人住的邻居)
@@ -126,8 +127,15 @@ export function devCards(k: DevRuleConsts, step: number): TableCard[] {
     `let 缺物 = col == 0 and if(门 == 1, ${lack(0)}, if(门 == 2, ${lack(1)}, if(门 == 5, ${lack(2)} or ${lack(1)}, if(门 == 6, ${lack(3)}, if(门 == 7, ${lack(4)}, 0)))))`,
     `let 不够 = (门 >= 2 and not 有国) or (门 >= 3 and (国号 < 1 or 能力.${行政} < 门 - ADMIN_GAP)) or (门 >= 4 and (战乱 > WAR_CALM or 路 == 0)) or (门 >= 5 and not (港口 or 大河 or 平原))`,
     // 自己长:动力 ÷ 这一档要的年数,打仗的地方慢;发展重点;领先时代太多、卡在门口时慢
-    'let 长 = 动力 * 和平 / ERA_YEARS[min(ERA_YEARS_LAST, floor(能力))] * 重点 * if(能力 > 时代 + OVERSHOOT, OVERSHOOT_SLOW, 1) * if(近门 and (缺物 or 不够), GATE_SLOW, 1)',
-    'let 得 = 学 * if(能力 > 时代 + OVERSHOOT_LEARN, OVERSHOOT_SLOW, 1)',
+    'let 长0 = 动力 * 和平 / ERA_YEARS[min(ERA_YEARS_LAST, floor(能力))] * 重点 * if(能力 > 时代 + OVERSHOOT, OVERSHOOT_SLOW, 1)',
+    // 推一把发展再乘「推」:卡在门口时不乘(和没推一样慢);生产到了门口、缺下一个时代要的物产的州,四样都不乘(停在门口,等邻居传过来);
+    // 过不去的门槛乘出来的那一截至多长到门口,不会一步跨过去
+    'let 卡 = 缺物 or 不够',
+    `let 门产 = floor(能力.${生产}) + 1`,
+    `let 产缺 = 能力.${生产} > 门产 - GATE_NEAR and if(门产 == 1, ${lack(0)}, if(门产 == 2, ${lack(1)}, if(门产 == 5, ${lack(2)} or ${lack(1)}, if(门产 == 6, ${lack(3)}, if(门产 == 7, ${lack(4)}, 0)))))`,
+    'let 长 = if(推 == 1, 长0 * if(近门 and 卡, GATE_SLOW, 1), if(近门 and 卡, 长0 * GATE_SLOW, if(产缺, 长0, if(卡, min(长0 * 推, max(长0, (门 - GATE_NEAR - 能力) / dt)), 长0 * 推))))',
+    // 向邻居学:推一把发展的乘「推」,一步里至多追平最高的邻居(没推的 = 学,逐位不变;生产缺物产的州不乘,照常慢慢等邻居传过来)
+    `let 得 = if(推 == 1 or 产缺, 学, min(学 * 推, nbmax(nb.能力 - 能力, 0, ${nbLive} and nb.能力 - 能力 > 0) / dt)) * if(能力 > 时代 + OVERSHOOT_LEARN, OVERSHOOT_SLOW, 1)`,
     // 跌下去的按到过的最高值较快地恢复
     'let 复 = (最高[col] - 能力) * RECOVER',
     'let 平常 = 能力 + dt * (长 + 得 + if(复 > 0, 复, 0))',

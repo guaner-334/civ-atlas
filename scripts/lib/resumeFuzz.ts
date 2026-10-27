@@ -180,7 +180,7 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
   for (let i = 0; i < n; i++) {
     const A = anyPolity();
     const kinds: InterventionKind[] = A
-      ? ['declare', 'ally', 'move', 'move', 'cede', 'cede', 'found', 'found', 'halt', 'protect', 'unity', 'crown', 'crown', 'policy', 'policy', 'destroy', 'death', 'death', 'temper', 'disaster', 'disaster', 'treaty', 'treaty', 'neutral', 'neutral']
+      ? ['declare', 'ally', 'move', 'move', 'cede', 'cede', 'found', 'found', 'halt', 'protect', 'unity', 'crown', 'crown', 'policy', 'policy', 'destroy', 'death', 'death', 'temper', 'disaster', 'disaster', 'treaty', 'treaty', 'neutral', 'neutral', 'boost', 'boost']
       : ['found'];
     const kind = pick(rnd, kinds);
     const others = alive.filter((p) => p !== A);
@@ -202,7 +202,13 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
       if (v) out.push(v);
     }
     else if (kind === 'crown') out.push(crown(a));
-    else if (kind === 'treaty' || kind === 'neutral') {
+    else if (kind === 'boost') {
+      // 推一把发展:直接进下一个时代 / 快 3、10 倍管 20–100 年;整国,有时只推本国的几州
+      const ls = lands(A!.id);
+      const regions = ls.length && rnd() < 0.3 ? Array.from({ length: between(rnd, 1, 6) }, () => regionKey(civ, pick(rnd, ls))) : undefined;
+      const v = rnd() < 0.5 ? cleanIntervention({ kind, a, from: T, regions }) : cleanIntervention({ kind, a, from: T, mul: pick(rnd, [3, 10]), until: T + pick(rnd, [20, 50, 100]), regions });
+      if (v) out.push(v);
+    } else if (kind === 'treaty' || kind === 'neutral') {
       // 立约 / 划中立地:和 B(有时再加一国;可能已亡);中立地多半是两国的一州,也有随便哪一州(多半划不成)
       if (!B || B === A) continue;
       const ps = [polityKey(civ, B.id)];

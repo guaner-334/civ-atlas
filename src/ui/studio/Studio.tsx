@@ -215,6 +215,8 @@ export interface StudioProps {
   onLeaveTerrain: () => void;
   /** 世界出来了(不在生成) */
   ready: boolean;
+  /** 地图出来了(历史可能还在推:新建的世界地图先换上):星球、样式缩略图看它,按钮照旧看 ready */
+  mapReady: boolean;
   noCiv: boolean;
   data: { world: World; raster: Raster } | null;
   /** 第 0 年的星球(有地形大事时是大事以前的那颗;文明起源按它算) */
@@ -588,7 +590,14 @@ export function Studio(p: StudioProps) {
     still: () => {},
   });
   hooks.current = {
-    frame: ({ cx, r, m, cy }) => {
+    frame: ({ cx, r, m, cy, tex, mix }) => {
+      // 冒烟检查、测速用:星球上开始淡入的是哪一颗(at = 它第一次露出来那一帧)、淡入到哪
+      const sh = shown.current;
+      if (sh && mix > 0 && tex.startsWith(`${sh.tag}:`)) {
+        const w = window as unknown as { __wfPlanet?: { seed: number; tag: number; at: number; mix: number } };
+        if (w.__wfPlanet?.tag !== sh.tag) w.__wfPlanet = { seed: sh.seed, tag: sh.tag, at: performance.now(), mix };
+        else w.__wfPlanet.mix = mix;
+      }
       const g = glowRef.current;
       if (g) {
         const R = r * 1.2;
@@ -709,9 +718,9 @@ export function Studio(p: StudioProps) {
 
   // 没有 WebGL:右边样式的缩略图照样要做
   useEffect(() => {
-    if (glOk === false && p.ready) wantThumbs();
+    if (glOk === false && p.mapReady) wantThumbs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [glOk, p.ready, p.data]);
+  }, [glOk, p.mapReady, p.data]);
 
   // 没有 WebGL:平常的地图一直铺在中间那块(刚铺上时带上正中的经线:从放大着的地图进来,也放回 1 倍看整颗星球)
   useEffect(() => {
@@ -754,7 +763,7 @@ export function Studio(p: StudioProps) {
   useEffect(() => {
     const sc = sceneRef.current;
     const d = p.data;
-    if (!glOk || !sc || !d || !p.ready || gone.current) return;
+    if (!glOk || !sc || !d || !p.mapReady || gone.current) return;
     if (shown.current?.mark === holdMark(d)) return;
     const prev = shown.current;
     // 摊平着看不见星球:贴图等收起平面时再换(整张底图那时多半已经在缩略图那边分小步备好了,贴上只要一下),
@@ -795,18 +804,18 @@ export function Studio(p: StudioProps) {
     // 换了一颗、改了地形慢慢淡入新样子;同一颗调了参数淡得快
     void sc.setStyle(`${tag}:${style}`, prev.seed === p.params.seed && prev.pkey !== pkey ? 450 : 1100).then(latest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [glOk, p.data, p.ready, wantFlat]);
+  }, [glOk, p.data, p.mapReady, wantFlat]);
   // 样式列表摊开了(手机点开「样式」):收着时没做的几张现在做(第一颗星球出来以前不抢在它前面)
   useEffect(() => {
-    if (listOpen && p.ready && (shown.current || glOk === false)) p.requestThumbs(STYLE_IDS);
+    if (listOpen && p.mapReady && (shown.current || glOk === false)) p.requestThumbs(STYLE_IDS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listOpen]);
   // 画不了地球仪(只有平面地图)时,看过的星球也照样记
   useEffect(() => {
-    if (glOk !== false || !p.data || !p.ready || image || p.base) return;
+    if (glOk !== false || !p.data || !p.mapReady || image || p.base) return;
     noteSeen(p.params, planetThumb(p.baseCanvas(styleKey('realistic')), 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [glOk, p.data, p.ready]);
+  }, [glOk, p.data, p.mapReady]);
 
   // 换样式:淡过去
   useEffect(() => {

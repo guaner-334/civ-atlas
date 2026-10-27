@@ -10,8 +10,8 @@ import { TILT, easeInOut, fitPose, flatRect, lerpPose, projExtent, type Box, typ
 import { getGraticuleLines } from '../projection';
 
 export interface SceneHooks {
-  /** 画完一帧:星球的中心、卷起来时的半径、卷了多少、图的半高(光晕、提示跟着它) */
-  frame(info: { cx: number; cy: number; r: number; m: number; hh: number }): void;
+  /** 画完一帧:星球的中心、卷起来时的半径、卷了多少、图的半高(光晕、提示跟着它);tex、mix = 这一帧淡入的那张样式贴图的键、淡入到哪 */
+  frame(info: { cx: number; cy: number; r: number; m: number; hh: number; tex: string; mix: number }): void;
   /** 平面模式:平常的地图该铺在哪(视口坐标),lon = 让它正中是哪条经线(度,只在刚摊平时给);null = 收起平面地图 */
   flat(rect: Box | null, lon?: number): void;
   /** 用户按住拖了星球(收起提示、手机上收起样式列表) */
@@ -323,7 +323,7 @@ export class StudioScene {
       grid: getGraticuleLines(),
     };
     this.gl.draw(f);
-    this.hooks.frame({ cx: p.cx, cy: p.cy, r: p.k * p.m, m: p.m, hh: p.hh });
+    this.hooks.frame({ cx: p.cx, cy: p.cy, r: p.k * p.m, m: p.m, hh: p.hh, tex: this.a, mix: this.mix });
   }
 
   // ---- 样式、投影 ----

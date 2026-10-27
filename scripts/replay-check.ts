@@ -1317,13 +1317,20 @@ if (part('新建界面')) {
   const replayRow = await page.locator('.studio [data-act=replay]').count();
   const intro = await page.locator('.st-left .nw-intro').innerText().catch(() => '');
   await markWf();
-  const genT0 = Date.now();
+  const planet0 = await page.evaluate(() => (window as any).__wfPlanet?.tag);
+  const genT0 = await page.evaluate(() => performance.now());
   await page.click('.studio [data-act=new-seed]');
   // 生成新世界时顶部提示条上有进度
   const genToast = await page.locator('.toast[data-toast=progress]').innerText({ timeout: 5000 }).catch(() => '');
   await waitRedraw();
-  // 默认大小(3.6 万地块)的新世界,从点下去到地图第一次画出来;须知要求 2 秒内。Node 里单线程量不准,在浏览器里量;只记数不卡合并
-  timing('新建默认世界到地图画出来', Date.now() - genT0, 2000);
+  // 默认大小(3.6 万地块)的新世界,从点下去到新建界面的星球露出新的一颗(开始淡入的那一帧;地图先出来,历史随后在后台推完);
+  // 目标 2 秒内。Node 里单线程量不准,在浏览器里量(页面自己的时钟);只记数不卡合并
+  const planetAt = await page
+    .waitForFunction((t) => ((window as any).__wfPlanet?.tag !== t ? (window as any).__wfPlanet.at : null), planet0, { timeout: 30000 })
+    .then((h) => h.jsonValue() as Promise<number>, () => NaN);
+  timing('新建默认世界到星球露出新的一颗', planetAt - genT0, 2000);
+  // 历史推完(世界齐了)再往下查
+  await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
   const seed2 = await page.locator('.nw-seed-input').inputValue();
   const imgNote = await page
     .evaluate(() => {
@@ -3121,7 +3128,7 @@ if (part('干预保护')) {
 }
 
 // 国家面板:点国家 → 暂停、地图飞过去(疆域在面板左边)、国都圆环;信息页(三格数字、朝代条、疆域、邻国、相关事件、2×2 按钮)
-// → 干预历史 → 干预页(生效年份、十二条命令)→ 宣战:只有相邻国家浮出名牌 → Esc 回到干预页 → 结盟:地图压暗、提示条"选择与…结盟的国家"、
+// → 干预历史 → 干预页(生效年份、十四条命令)→ 宣战:只有相邻国家浮出名牌 → Esc 回到干预页 → 结盟:地图压暗、提示条"选择与…结盟的国家"、
 // 悬停名牌反色、悬停国土"点击选择" → 点名牌 → 推演时面板藏起,推完面板还在(回到信息页)、地图飞回这国、"…结盟,已从 N 年起重新推演"带撤销、
 // 从 N 年接着放 → 撤销 →"已撤销"
 if (part('国家面板')) {
@@ -3254,7 +3261,7 @@ if (part('国家面板')) {
       errs.push(`国家面板:信息页内容不全(${info.slice(0, 200)})`);
     if (!moved) errs.push(`国家面板:点国家后地图没有飞过去(${flown})`);
     if (!mark) errs.push('国家面板:选中国家后国都没有圆环');
-    if (cmds !== 13 || !/生效年份.*年.*该年之前的历史不变/.test(cmdText)) errs.push(`国家面板:干预页不对(${cmds} 条命令,「${cmdText}」)`);
+    if (cmds !== 14 || !/生效年份.*年.*该年之前的历史不变/.test(cmdText)) errs.push(`国家面板:干预页不对(${cmds} 条命令,「${cmdText}」)`);
     if (!/持续到.*到某一年.*\d+.*年.*只对保护、保住王室、禁止扩张、结盟有效/.test(untilText) || !untilOff) errs.push(`国家面板:「持续到」不对(「${untilText}」,切回一直有效后收起 ${untilOff})`);
     if (warNames.some((n) => !near.includes(n))) errs.push(`国家面板:宣战时浮出了不相邻国家的名牌(${warNames.join('、')};邻国 ${near.join('、')})`);
     if (!backToCmd) errs.push('国家面板:选目标时按 Esc 没有回到干预页');
@@ -5693,7 +5700,7 @@ if (part('手机布局')) {
     if (!ring || !row1 || !(ring.y > 20 && ring.y + ring.height < row1.y)) errs.push(`手机:选中的国家没有落在时间轴胶囊上方(国都圆环 ${JSON.stringify(ring)})`);
     if (hover) errs.push('手机:点了以后出了悬停卡片');
     if (!full || !sheet1 || Math.abs(sheet1.y - 0.08 * VH) > 8 || !fullCapsuleHidden) errs.push(`手机:往上拖没有拉到顶 / 胶囊没藏起来(${JSON.stringify(sheet1)})`);
-    if (cmds !== 13) errs.push(`手机:干预页不对(${cmds} 条命令)`);
+    if (cmds !== 14) errs.push(`手机:干预页不对(${cmds} 条命令)`);
     if (!/^选择与.+结盟的国家 \d+ 年起生效 取消$/.test(pickToast) || !hiddenWhilePicking) errs.push(`手机:选目标的提示条 / 卡片收起不对(${pickToast})`);
     if (!/^.+与.+结盟,已从 \d+ 年起重新推演( \d+ 年时它叫.+)? 撤销$/.test(doneToast))
       errs.push(`手机:点名牌后没有生效(${doneToast};点的「${tgtText}」,看得见的名牌 ${plateN} 个${pickLeft ? ',还停在选目标' : ''})`);

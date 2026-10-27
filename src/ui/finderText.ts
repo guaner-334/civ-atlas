@@ -190,6 +190,23 @@ export interface CheckLine {
 export type PlaceNames = Map<number, string>;
 
 /**
+ * 量出来的"离开场多少年"怎么说:正 = "47 年后",零 = "开场那年",负 = "开场前 207 年"。
+ * 进时代量的是那国头一回进,可能早在开场以前(开场时国都那州还没到,算出来是负数)
+ */
+export function yearsText(v: number): string {
+  const n = Math.round(v);
+  if (n > 0) return `${n} 年后`;
+  if (n < 0) return `开场前 ${-n} 年`;
+  return '开场那年';
+}
+
+/** 前面接上是谁:"帝国 47 年后""帝国开场前 207 年"(数字和汉字之间空一格) */
+function whoYears(who: string, v: number): string {
+  const s = yearsText(v);
+  return /^\d/.test(s) ? `${who} ${s}` : `${who}${s}`;
+}
+
+/**
  * 一种配法逐条:每条一行;隘口拆成两行(口子比山脊低多少、能过的地方几处),和「条件逐条」的样子一样。
  * year = 开场年份("到 1885 年都在");names = 地名(港口、交界那州;没有就不写)
  */
@@ -225,9 +242,9 @@ export function checkLines(q: FinderQuery, checks: readonly Check[], facts: read
         return line(condLine(q, ref.role, c), ch.ok, v === null ? '' : `${eraName(v)}时代`);
       case 'eraEnter':
       case 'fate':
-        return line(condLine(q, ref.role, c), ch.ok, v === null ? '没有' : `${Math.round(v)} 年后`);
+        return line(condLine(q, ref.role, c), ch.ok, v === null ? '没有' : yearsText(v));
       case 'war':
-        return line(condLine(q, ref.role, c), ch.ok, v === null ? '没打' : `${Math.round(v)} 年后开战`);
+        return line(condLine(q, ref.role, c), ch.ok, v === null ? '没打' : `${yearsText(v)}开战`);
       case 'mountain':
         return line(condLine(q, ref.role, c), ch.ok, v === null ? '' : `${Math.round(v * 100)}%`);
       case 'elevation':
@@ -239,10 +256,10 @@ export function checkLines(q: FinderQuery, checks: readonly Check[], facts: read
       case 'junction':
         return line(condLine(q, ref.role, c), ch.ok, ch.ok && name ? name : num(v, '国'));
       case 'span':
-        return line(condLine(q, ref.role, c), ch.ok, v === null ? '' : ch.ok ? `到 ${year + c.years} 年都在` : `${Math.round(v)} 年后有一国没了`);
+        return line(condLine(q, ref.role, c), ch.ok, v === null ? '' : ch.ok ? `到 ${year + c.years} 年都在` : `${yearsText(v)}有一国没了`);
       case 'start':
         if ('from' in c) return line(condLine(q, ref.role, c), ch.ok, v === null ? '' : `第 ${v} 年`);
-        return line(condLine(q, ref.role, c), ch.ok, ch.why === 'era' ? `开场时在${eraName(f?.[0] ?? null)}时代` : v === null ? '没进' : `${Math.round(v)} 年后`);
+        return line(condLine(q, ref.role, c), ch.ok, ch.why === 'era' ? `开场时在${eraName(f?.[0] ?? null)}时代` : v === null ? '没进' : yearsText(v));
     }
   });
   return out;
@@ -287,9 +304,9 @@ export function missText(q: FinderQuery, row: Pick<FinderRow, 'verdict' | 'cand'
     case 'era':
       return `${r}开场时在${eraName(v)}时代${want(`要${eraName(c.era)}`)}`;
     case 'eraEnter':
-      return v === null ? `${r}一直没进${eraName(c.era)}` : v < c.min ? `${r} ${n(v)} 年后就进了${eraName(c.era)}` : `${r} ${n(v)} 年后才进${eraName(c.era)}`;
+      return v === null ? `${r}一直没进${eraName(c.era)}` : `${whoYears(r, v)}${v < c.min ? '就进了' : '才进'}${eraName(c.era)}`;
     case 'fate':
-      return v === null ? `${r}一直没${fateText(c.what)}` : `${r} ${n(v)} 年后才${fateText(c.what)}`;
+      return v === null ? `${r}一直没${fateText(c.what)}` : `${whoYears(r, v)}才${fateText(c.what)}`;
     case 'mountain':
       return `${r}边界只有 ${Math.round((v ?? 0) * 100)}% 是翻山${want(`要${tenths(c.min)}`)}`;
     case 'elevation':
@@ -304,7 +321,7 @@ export function missText(q: FinderQuery, row: Pick<FinderRow, 'verdict' | 'cand'
       if (ch.why === 'wide') return `能过的地方有 ${n(f?.[2] ?? null)} 处${want(`要不超过 ${c.narrow} 处`)}`;
       return `隘口只比山脊低 ${n(v)} 米${want(`要 ${c.gap} 米`)}`;
     case 'war':
-      return v === null ? `${r}和${o(c.other)}一直没打仗` : `${r}和${o(c.other)} ${n(v)} 年后才打仗`;
+      return v === null ? `${r}和${o(c.other)}一直没打仗` : `${whoYears(`${r}和${o(c.other)}`, v)}才打仗`;
     case 'conquer':
       return c.dir === 'took' ? `${r}只占过${o(c.other)} ${n(v)} 州` : `${r}只被${o(c.other)}占过 ${n(v)} 州`;
     case 'junction':
@@ -314,7 +331,7 @@ export function missText(q: FinderQuery, row: Pick<FinderRow, 'verdict' | 'cand'
     case 'start':
       if ('from' in c) return `开场年份不在第 ${c.from}–${c.to} 年`;
       if (ch.why === 'era') return `开场时${o(c.role)}在${eraName(f?.[0] ?? null)}时代`;
-      return v === null ? `${o(c.role)}一直没进${eraName(c.enter)}` : v < c.min ? `${o(c.role)} ${n(v)} 年后就进了${eraName(c.enter)}` : `${o(c.role)} ${n(v)} 年后才进${eraName(c.enter)}`;
+      return v === null ? `${o(c.role)}一直没进${eraName(c.enter)}` : `${whoYears(o(c.role), v)}${v < c.min ? '就进了' : '才进'}${eraName(c.enter)}`;
   }
 }
 

@@ -630,6 +630,8 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${id(v.a, 'polity', 'P')} 与 ${v.ps.map((k) => id(k, 'polity', 'P')).join('、')} 以 ${reg(v.region)} 为中立地${until(v.until)}`;
     case 'keep':
       return `${id(v.a, 'polity', 'P')} 保住王室${until(v.until)}`;
+    case 'boost':
+      return `${v.regions ? v.regions.map(reg).join('、') : id(v.a, 'polity', 'P')} 推一把发展:${v.mul ? `快 ${v.mul} 倍${until(v.until)}` : '直接进下一个时代'}`;
   }
 }
 
@@ -1455,6 +1457,7 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   regent: '让人物掌权',
   marry: '为人物联姻',
   keep: '保住王室',
+  boost: '推一把发展',
 };
 
 // ---------------------------------------------------------------------------
