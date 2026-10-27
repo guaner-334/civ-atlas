@@ -171,7 +171,7 @@ describe('人物页 · 几处写法', () => {
     expect(kinOf(civ, 辛, 壬)).toBe('从伯父');
   });
 
-  it('seed=2024:大辰末帝(江溟)继祖父即位;搜"末帝"名人排在前面(大岳末帝百里玄衍),他排在前三', () => {
+  it('seed=2024:大辰末帝(江溟)继祖父即位;搜"末帝"他排在前三;搜"哀帝"名人排在前面(名人哀帝季益)', () => {
     const civ = civOf(2024);
     const x = civ.people!.find((p) => p.name === '江溟' && p.role === 'ruler');
     expect(x).toBeTruthy();
@@ -180,15 +180,25 @@ describe('人物页 · 几处写法', () => {
     expect(riseText(civ, x!)).toMatch(/^继祖父/);
     const famous = new Set(famousPeople(civ).map((f) => f.id));
     expect(famous.has(x!.id)).toBe(false);
+    /** 搜到的人里名人都排在不是名人的前面 */
+    const famousFirst = (hs: ReturnType<typeof searchCiv>) => {
+      const fam = hs.filter((h) => h.kind === 'person').map((h) => h.kind === 'person' && famous.has(h.id));
+      const j = fam.indexOf(false);
+      return j < 0 || fam.slice(j).every((f) => !f);
+    };
     const hits = searchCiv(civ, '末帝', 2600);
-    // 名人在前:头一个是名人大岳末帝百里玄衍
-    expect(hits[0]).toMatchObject({ kind: 'person', name: '末帝百里玄衍' });
-    expect(hits[0].kind === 'person' && famous.has(hits[0].id)).toBe(true);
+    // GENERATOR_VERSION 41 以后搜"末帝"的三位都不是名人(以前头一个是名人大岳末帝百里玄衍)
+    expect(famousFirst(hits)).toBe(true);
     const k = hits.findIndex((h) => h.kind === 'person' && h.id === x!.id);
-    expect(k).toBeGreaterThan(0);
+    expect(k).toBeGreaterThanOrEqual(0);
     expect(k).toBeLessThan(3);
     expect(hits[k]).toMatchObject({ kind: 'person', id: x!.id, name: '末帝江溟', sub: '大辰皇帝，1485–1529' });
-    for (const h of hits.slice(k + 1)) expect(h.kind === 'person' && famous.has(h.id)).toBe(false);
+    // 名人在前:搜"哀帝",名人哀帝季益排在不是名人的哀帝祝鸾前面
+    const ai = searchCiv(civ, '哀帝', 2600);
+    expect(ai[0]).toMatchObject({ kind: 'person', name: '哀帝季益' });
+    expect(ai[0].kind === 'person' && famous.has(ai[0].id)).toBe(true);
+    expect(ai.some((h) => h.kind === 'person' && !famous.has(h.id))).toBe(true);
+    expect(famousFirst(ai)).toBe(true);
     // 编年史里写他即位的那条:"大辰怀宗崩……其孙江溟即位,是为末帝,……丞相墨渺缈辅政" —— 前一位连国名一起切、他和辅政的丞相切名字
     const e = reignEntries(civ).find((r) => r.people?.[1] === x!.id)!;
     const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
