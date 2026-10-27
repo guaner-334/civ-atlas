@@ -1465,6 +1465,61 @@ if (part('大纲找更合的世界')) {
   }
 }
 
+// 大纲找更合的世界(手机,390×844 触屏):同一份大纲,整页大纲顶上「+」左边一个放大镜(读屏念"找更合的世界",和「+」隔 22 像素)→
+// 整页的条件页:左上「‹ 大纲」、大纲里的两国列成故事里的国家 →「‹ 大纲」回原来那个世界的手机大纲页
+if (part('大纲找更合的世界(手机)')) {
+  const { findOutlineExample } = await import('./lib/smokeExamples');
+  const { DEFAULT_PARAMS } = await import('../src/gen/world');
+  const ex = findOutlineExample(7);
+  if (!ex) errs.push('大纲找更合的世界(手机):种子 7 里找不到两国接壤的例子');
+  else {
+    const id = 'woutlinefind02';
+    const save = {
+      app: '文明与地图',
+      format: 1,
+      generator: GENERATOR_VERSION,
+      seed: 7,
+      params: { ...DEFAULT_PARAMS, seed: 7 },
+      edits: { names: {}, interventions: [], terrain: [], outline: { plots: ex.plots } },
+      savedAt: '2026-10-26T12:00:00.000Z',
+    };
+    const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const pp = await pctx.newPage();
+    pp.on('pageerror', (e) => errs.push(`大纲找更合的世界(手机):${e.message}`));
+    await pp.goto(`${dev.url}/?play=0`);
+    await pp.evaluate(([k, v]) => localStorage.setItem(k, v), [`wenming-ditu:world:${id}`, JSON.stringify(save)]);
+    await pp.goto(`${dev.url}/?w=${id}&play=0`);
+    await pp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+    await pp.tap('.psheet [data-act=overview]', { timeout: 5000 });
+    await pp.locator('.ov-root:not([hidden]) .ov').waitFor({ timeout: 5000 });
+    await pp.tap('.ov-tab[data-tab=outline]');
+    const olp = pp.locator('[data-testid=outline-phone]');
+    await olp.waitFor({ timeout: 5000 });
+    const cards = await olp.locator('.ol-crow').count();
+    const find = olp.locator('[data-act=outline-find-world]');
+    const name = await find.getAttribute('aria-label').catch(() => null);
+    const bFind = await find.boundingBox();
+    const bAdd = await olp.locator('[data-act=outline-add]').boundingBox();
+    const gap = bFind && bAdd ? Math.round(bAdd.x - (bFind.x + bFind.width)) : NaN;
+    await find.tap();
+    const fp = pp.locator('.fd-phone-page');
+    await fp.waitFor({ timeout: 30000 });
+    const back = await fp.locator('[data-act=finder-exit]').innerText();
+    const roles = await fp.locator('[data-act=role-name]').allInnerTexts();
+    // 「‹ 大纲」:回原来那个世界,还是整页的大纲
+    await fp.locator('[data-act=finder-exit]').tap();
+    const backOk = await pp
+      .waitForFunction((w) => new URL(location.href).searchParams.get('w') === w && !!document.querySelector('[data-testid=outline-phone] [data-act=outline-find-world]'), id, { timeout: 60000 })
+      .then(() => true, () => false);
+    console.log(`大纲找更合的世界(手机):大纲 ${cards} 条,放大镜「${name}」和「+」隔 ${gap} 像素 → 「‹ ${back.trim()}」、故事里的国家「${roles.join('、')}」;回原来的大纲 ${backOk}`);
+    if (cards !== 4 || name !== '找更合的世界') errs.push(`大纲找更合的世界(手机):大纲页顶上没有放大镜 / 读屏名字不对(${cards} 条,${name})`);
+    if (!(Math.abs(gap - 22) <= 2)) errs.push(`大纲找更合的世界(手机):放大镜和「+」隔的不是 22 像素(${gap})`);
+    if (back.trim() !== '大纲' || roles.length !== 2 || !ex.a.name.startsWith(roles[0])) errs.push(`大纲找更合的世界(手机):进来以后不是「‹ 大纲」、大纲里的两国没列成故事里的国家(${back} / ${roles.join('、')})`);
+    if (!backOk) errs.push('大纲找更合的世界(手机):「‹ 大纲」没回到原来那个世界的大纲');
+    await pctx.close();
+  }
+}
+
 // 第一次来(什么都没存):先到「我的世界」,中间一颗星球、一段话、「新建世界」;点了先弹窗(第 1 步两种、默认随机生成,
 // 第 2 步种子和参数、说进去还能改;Esc 关掉什么都不留下),「开始」才进新建界面;
 // 「创建世界」先弹确认框(列出种子、世界参数、地形、地名风格四样不能再改),「再改改」关掉、「确认创建」才建好,回到平常的世界页面(浅色、政区)
