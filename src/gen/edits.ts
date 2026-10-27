@@ -75,6 +75,7 @@
  * | `treaty`  | 立约     | a = 国家,ps = 另几国(1–3 国)       | 这一年年初几国立约互不侵犯(两两之间那一刻正在交战的当即议和),到期照推演看续不续、可能背约(civ/treaties.ts);会盟的城照推演挑。对方都不在了 = 不生效 | term:期限(年;不给 = 一直);limited: true = 有限竞争(再加各守今疆);keep: true = 约里的国家不背约;by:居间的国家;zone:同时以哪一州为中立地(州键);ask: true = 演一国时下的,对方照推演的规矩定肯不肯(不肯的不入约,都不肯 = 不生效) |
  * | `neutral` | 划中立地 | a = 国家,region = 州,ps = 一起共建的另几国(1–3 国) | 这一年年初这州不归任何一国,几国都不进兵(州原属共建的一国或无主,不能是国都;州里要有人住)。几国已同在一份约里、那份约还没有中立地的,依那份约设;不然同时立一个互不侵犯之约(三十年) | quiet: true = 不送人去(不把失势的宗室徙到这里);lasting: true = 一直留着(约废了也不撤);until:到这一年撤(不含);ask:同立约 |
  * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
+ * | `boost`   | 推一把发展 | a = 国家;mul = 快几倍(3 / 10;不给 = 直接进下一个时代) | 快几倍:从这一年起到 until(不含)那些州四样能力的"自己长"和"向邻居学"都 × mul(卡在时代门口时自己长不乘),到期照常长、长上去的不退;直接进:这一年年初以 a 的国都所在州为准进它的下一个时代,那些州四样能力都拉到那个时代开头(不看物产等门槛;国都已在最后一个时代 = 不生效)。a 那年已亡 = 不生效(civ/boost.ts) | until:快几倍管到哪一年(不给 = from + 50);regions = 只推这几州(最多 BOOST_REGIONS_MAX 州,换了主也照推;不给 = 整国,每一刻归 a 的州) |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
@@ -97,6 +98,8 @@
  * (作者立的君主不在此列:他的生死、性格归人物卡管)。同一年同一位君主又去世又改倾向:去世为准。
  * 天灾(disaster)只给它那一种用的字段(瘟疫 city、饥荒 a 或 regions(最多 DISASTER_REGIONS_MAX 州,去重)、地震水旱 region、
  * 全球大疫 city 和 slump(吸到最近的一档,30 不写)),别的去掉。
+ * 推一把发展(boost):mul 吸到最近的一档(BOOST_MULS;不是大于 1 的数 = 不给,直接进);直接进不要 until;快几倍的 until 不晚于 from 的
+ * 换成 from + BOOST_YEARS_DEFAULT;regions 去重、去掉格式不对的、最多 BOOST_REGIONS_MAX 个(给了却一个都不合格 = 不合格)。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -576,7 +579,16 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
 };
 
 /** 干预的种类(见文件头的表) */
-export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster' | 'treaty' | 'neutral';
+export type InterventionKind = 'protect' | 'ally' | 'declare' | 'unity' | 'cede' | 'found' | 'move' | 'halt' | 'crown' | 'policy' | 'destroy' | 'death' | 'temper' | 'disaster' | 'treaty' | 'neutral' | 'boost';
+
+/** 推一把发展快几倍的几档(干预 boost 的 mul;不给 = 直接进下一个时代) */
+export const BOOST_MULS = [3, 10] as const;
+export type BoostMul = (typeof BOOST_MULS)[number];
+/** 快几倍管多久的几档(年)、默认 */
+export const BOOST_YEARS = [20, 50, 100] as const;
+export const BOOST_YEARS_DEFAULT = 50;
+/** 推一把发展最多推几州 */
+export const BOOST_REGIONS_MAX = 64;
 
 /** 天灾的种类:瘟疫、饥荒、地震水旱、全球大疫(干预页、大纲里列的这几种) */
 export const DISASTER_TYPES = ['plague', 'famine', 'quake', 'pandemic'] as const;
@@ -632,6 +644,7 @@ export type Intervention = (
   | { kind: 'disaster'; type: DisasterKind; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string; slump?: number }
   | { kind: 'treaty'; a: string; ps: string[]; from: number; term?: number; limited?: true; keep?: true; by?: string; zone?: string; ask?: true }
   | { kind: 'neutral'; a: string; region: string; ps: string[]; from: number; quiet?: true; lasting?: true; until?: number; ask?: true }
+  | { kind: 'boost'; a: string; from: number; mul?: BoostMul; until?: number; regions?: string[] }
   | {
       kind: 'policy';
       a: string;
@@ -1584,7 +1597,7 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'boost'];
 
 /** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
 export interface PersonKeyParts {
@@ -1634,6 +1647,31 @@ function cleanDisaster(o: Record<string, unknown>, from: number): Intervention |
   if (!rs.length) return null;
   const regions = rs.length === o.regions.length && rs.every((k, i) => k === (o.regions as unknown[])[i]) ? (o.regions as string[]) : rs;
   return { kind: 'disaster', type, level, from, regions };
+}
+
+/** 推一把发展(boost):见文件头"推一把发展"的清理 */
+function cleanBoost(o: Record<string, unknown>, a: string, from: number, until: number | null): Intervention | null {
+  const m = o.mul;
+  let mul: BoostMul | undefined;
+  if (typeof m === 'number' && Number.isFinite(m) && m > 1) {
+    mul = BOOST_MULS[0];
+    for (const k of BOOST_MULS) if (Math.abs(k - m) < Math.abs(mul - m)) mul = k;
+  }
+  let regions: string[] | undefined;
+  if (o.regions !== undefined) {
+    if (!Array.isArray(o.regions)) return null;
+    const rs: string[] = [];
+    for (const k of o.regions) if (isRegionKey(k) && !rs.includes(k) && rs.length < BOOST_REGIONS_MAX) rs.push(k);
+    if (!rs.length) return null;
+    regions = rs.length === o.regions.length && rs.every((k, i) => k === (o.regions as unknown[])[i]) ? (o.regions as string[]) : rs;
+  }
+  const v: Extract<Intervention, { kind: 'boost' }> = { kind: 'boost', a, from };
+  if (mul !== undefined) {
+    v.mul = mul;
+    v.until = until ?? Math.min(INTERVENTION_YEAR_MAX, from + BOOST_YEARS_DEFAULT);
+  }
+  if (regions) v.regions = regions;
+  return v;
 }
 
 /** 即位(crown)的作者人物编号最大到几(和 characters.ts 的编号一样) */
@@ -1838,6 +1876,10 @@ export function cleanIntervention(x: unknown): Intervention | null {
       const t = cleanTreatyIv(o, kind, a, from);
       if (!t) return null;
       v = t;
+    } else if (kind === 'boost') {
+      const b = cleanBoost(o, a, from, untilOf());
+      if (!b) return null;
+      v = b;
     } else if (kind === 'death' || kind === 'temper') {
       const p = parsePersonKey(o.person);
       if (!p || p.polity !== a || !(kind === 'temper' ? p.role === 'ruler' : (DEATH_ROLES as readonly string[]).includes(p.role))) return null;

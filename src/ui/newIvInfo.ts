@@ -33,6 +33,7 @@ import { plagueSpans } from '../gen/civ/plagueSpans';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { interventionText, nameAt, neighborsAt, polityIdOf } from './Interventions';
+import { boostDoneText } from './boostInfo';
 
 // ---------------------------------------------------------------------------
 // 灭国
@@ -390,9 +391,9 @@ export function regionDisasterMark(civ: Civ, r: number, year: number): { now: nu
 // ---------------------------------------------------------------------------
 // 推完的提示条、「我的干预」
 
-/** 一次性的干预(「我的干预」页的年份不写"起"):灭国、让人物去世、改倾向、等下台再即位、天灾 */
+/** 一次性的干预(「我的干预」页的年份不写"起"):灭国、让人物去世、改倾向、等下台再即位、天灾、推一把发展的直接进 */
 export function onceOnly(v: Intervention): boolean {
-  return v.kind === 'destroy' || v.kind === 'death' || v.kind === 'temper' || v.kind === 'disaster' || (v.kind === 'crown' && !!v.after);
+  return v.kind === 'destroy' || v.kind === 'death' || v.kind === 'temper' || v.kind === 'disaster' || (v.kind === 'crown' && !!v.after) || (v.kind === 'boost' && v.mul === undefined);
 }
 
 /** 人物键在这份历史里的名字(没有这个人 = 键里记的名字) */
@@ -414,6 +415,7 @@ function keyPerson(civ: Civ, key: string): { x: Person | null; name: string } {
  */
 export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, era: Era | undefined, who = ''): { ok: boolean; text: string; same?: boolean } | null {
   if (v.kind === 'disaster') return disasterDoneText(civ, v, i, A, era);
+  if (v.kind === 'boost') return boostDoneText(civ, v, i, A, era);
   if (v.kind !== 'destroy' && v.kind !== 'death' && v.kind !== 'temper' && !(v.kind === 'crown' && v.after)) return null;
   const f = i >= 0 ? interventionFate(civ, i) : null;
   const e = f && f.state !== 'later' && f.annal >= 0 ? civ.annals[f.annal] : null;

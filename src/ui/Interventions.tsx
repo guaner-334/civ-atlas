@@ -40,6 +40,7 @@ import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
 import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../gen/civ/policy';
 import { policyKnobsText } from './policyInfo';
+import { boostText } from './boostInfo';
 import { eraText, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -254,6 +255,7 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
   }
   if (v.kind === 'disaster') return disasterText(civ, v, i, a);
   const A = a ?? keyName(civ, v.a, v.from);
+  if (v.kind === 'boost') return boostText(civ, v, i, A, getEdits().era);
   switch (v.kind) {
     case 'protect':
       return `${A}:保护${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;

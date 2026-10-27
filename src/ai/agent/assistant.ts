@@ -285,6 +285,7 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   disaster: '降天灾',
   treaty: '立约',
   neutral: '划中立地',
+  boost: '推一把发展',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {
@@ -297,6 +298,7 @@ function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {
   if (v.kind === 'disaster') return `${v.a ? `${n(a)} ` : ''}降${DISASTER_NAMES[v.type]}(${DISASTER_LEVEL_NAMES[v.level]})`;
   if (v.kind === 'treaty') return `${n(a)} 与另 ${v.ps.length} 国立约`;
   if (v.kind === 'neutral') return `${n(a)} 与另 ${v.ps.length} 国划一州为中立地`;
+  if (v.kind === 'boost') return `${n(a)} 推一把发展:${v.mul ? `快 ${v.mul} 倍` : '直接进下一个时代'}${v.regions ? `(${v.regions.length} 州)` : ''}${until}`;
   return `${n(a)} ${IV_WORD[v.kind]}${until}`;
 }
 

@@ -51,6 +51,7 @@
  *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
+ *   推一把发展 boost  快几倍:那些州发展度的"自己长""向邻居学"乘上去,管到 until;直接进:那一刻拉到国都的下一个时代开头(boost.ts)
  *   立约   treaty    from 那一刻几国立约(treaties.ts 的 decree;两两之间正在交战的当即议和),之后照立约的规矩续约、背约、约满;
  *                   期限、种类、不许背约、居间、同时划的中立地照作者填的。演一国时下的(ask)对方照推演的规矩定肯不肯
  *   划中立地 neutral  from 那一刻这州成了几国共建的中立地(treaties.ts 的 decree):几国已同在一份还没设中立地的约里就依它设,
@@ -83,6 +84,7 @@ import { capitalAt } from './growth';
 import { REBUILD_GROWTH } from './cities';
 import { pioneerArrives } from './cultures';
 import { treatyModelOf } from './treaties';
+import { installBoosts, strikeBoost } from './boost';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -532,6 +534,11 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
       person(v, i, a, t);
       return;
     }
+    if (v.kind === 'boost') {
+      // 推一把发展:快几倍登记(发展度每一步照着乘)/ 直接进下一个时代(boost.ts;史事 intervene 也在那里记)
+      strikeBoost(sim, iv, v, i, a, t);
+      return;
+    }
     if (v.kind === 'treaty' || v.kind === 'neutral') {
       // 立约、划中立地:照立约的规矩办(treaties.ts 的 decree;史事 intervene 也在那里记)
       treatyModelOf(sim)?.decree?.(v, i, a, t, iv);
@@ -577,6 +584,9 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     const a = iv.resolve(v.a);
     if (a >= 0 && alive(a)) respread(sim, pm, a);
   });
+
+  // 推一把发展的快几倍:已经生效的按史事推出来,发展度每一步照着乘(没有快几倍的不挂)
+  installBoosts(sim, iv);
 }
 
 /** 接着推(CivSim.fromCiv 调用,在各层 resume 之后):和 installInterventions 一样 */

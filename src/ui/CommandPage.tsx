@@ -11,6 +11,7 @@
  * 面板回到信息页,从 X 年接着放(App.tsx、TargetPlates.tsx)。命令的数据和推演沿用 editsStore / gen/edits 的干预。
  *
  * 最上面一条「方针」(选方针 ›):卡片换成方针那一页(PolicyPage.tsx),生效年份带过去。
+ * 它下面「推一把发展」(选力度 ›):卡片换成推一把那一页(BoostPage.tsx),生效年份带过去。
  *
  * 最后一条「立作者的人物为君主」(选人 ›):卡片换成选人那一页 —— 只列那一年在世的作者人物(头像、生卒、那年几岁、身份),不在世的放下面、变淡、
  * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「即位…」同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
@@ -49,10 +50,11 @@ import { zoneChoices } from './treatyIv';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'protect' | 'unity' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
+type Cmd = 'policy' | 'boost' | 'protect' | 'unity' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
+  { k: 'boost', name: '推一把发展', desc: '一段时间里发展快几倍，或直接进下一个时代', pick: true, go: '选力度 ›' },
   { k: 'protect', name: '保护', desc: '该国不会被灭亡', pick: false },
   { k: 'unity', name: '禁止分裂', desc: '该国不会分裂出新国家', pick: false },
   { k: 'halt', name: '禁止扩张', desc: '不再主动扩张,被打时仍会夺回失地', pick: false },
@@ -149,8 +151,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       setCrown('pick');
       return;
     }
-    // 方针、灭国、天灾、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
-    if (k === 'policy' || k === 'destroy' || k === 'disaster' || k === 'treaty' || k === 'neutral') {
+    // 方针、推一把发展、灭国、天灾、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
+    if (k === 'policy' || k === 'boost' || k === 'destroy' || k === 'disaster' || k === 'treaty' || k === 'neutral') {
       openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }

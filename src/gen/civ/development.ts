@@ -30,6 +30,8 @@
  *   - 动员不单独长:跟着生产和行政走(游牧民族另高一截)。
  *   - 国家方针的发展重点(policy.ts):定了的国家治下各州,挑中的那一样自己长 × FOCUS_UP,别的 × FOCUS_DOWN;
  *     挑动员的,动员的目标多 FOCUS_MOB。一步(20 年)里换了方针的按各段管了多久折算。没有方针的国家不变。
+ *   - 推一把发展(干预 boost,boost.ts):快几倍的那些州"自己长"(卡在时代门口时除外)和"向邻居学"再 × 倍数(一步里至多追平最高的邻居),
+ *     按这一步里管了几成折算;和发展重点相乘。直接进下一个时代 = 那一刻把那些州四样能力拉到那个时代开头(jumpEra)。没推的州不变。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
  *
  * **时代** = 生产、运输、信息、行政四样的"偏短板"平均(调和平均,见 eraLevel):整数部分是哪个时代,小数部分是走到这个时代的几成。
@@ -370,6 +372,8 @@ export interface DevModel {
   saveTables?: () => TablesState;
   /** 算发展度的数表(挂到推演上时建好,见 devEngine) */
   eng?: TableEngine;
+  /** 推一把发展(boost.ts 挂上;没有快几倍的干预 = 不挂):(t0, y] 这一步里各州的倍数填进 out(没推的州留 1) */
+  boostFill?: (t0: Year, y: Year, out: Float64Array) => void;
 }
 
 const models = new WeakMap<CivSim, DevModel>();
@@ -855,6 +859,9 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
       focusMob[p] = mul[Cap.Mobilization];
     }
   }
+  // 推一把发展(boost.ts):这一步里各州"自己长""向邻居学"的倍数,按这一步里管了几成折算。没推的州 1,什么都不变
+  const boostIn = eng.input('推').fill(1);
+  if (dt > 0) d.boostFill?.(d.last, y, boostIn);
 
   // 全球大疫(pandemic.ts):这一步里各州凋敝占了几成(没有全球大疫的世界全是 0)
   const pan = pandemicModelOf(sim);
@@ -1055,6 +1062,116 @@ function makeSnapOf(R: number, cur: Float64Array, availNow: Float64Array): { sna
   // 算坏了(NaN)存成 BAD_LEVEL,压力测试查得出来;正常最多 LEVEL_MAX × LEVEL_SCALE
   for (let i = 0; i < snap.length; i++) snap[i] = cur[i] >= 0 ? Math.min(LEVEL_MAX * LEVEL_SCALE, Math.round(cur[i] * LEVEL_SCALE)) : BAD_LEVEL;
   return { snap, avail: av };
+}
+
+/** 直接进下一个时代:四样能力拉到那个时代开头再往里这么多(时代的整数部分稳稳是那个时代) */
+const JUMP_INTO = 0.02;
+
+/** 州 r 此刻的时代数值(上一步算完的;推演外 / 没有这一州 = −1;推一把发展的"直接进"以它为准) */
+export function eraNowAt(sim: CivSim, r: number): number {
+  const d = models.get(sim);
+  return d && r >= 0 && r < d.R ? d.era[r] : -1;
+}
+
+/**
+ * 推一把发展的"直接进下一个时代"(boost.ts 在生效那一刻调用):regions 里有人住的州四样能力都拉到第 target 个时代开头
+ * (本来就在或更高的不动),到过的最高值、时代跟着改,下一步从这里接着算;生产够了的物产此刻发现。不看物产等门槛。
+ * 带出来的大事都记在此刻 t:国都在这几州里的国家"始入某时代"、世上头一回进这个时代(prefer 那州进了就记它,不然记进得最高的一州)、
+ * 世上头一回的发明、发现大矿。时代图层:此刻之前按上一步的状态补一份快照、之后补一份(不在这一刻以前就往上涨)。返回拉了几州
+ */
+export function jumpEra(sim: CivSim, regions: readonly number[], target: number, prefer: number, t: Year): number {
+  const d = models.get(sim);
+  if (!d) return 0;
+  const eng = d.eng!;
+  const pm = d.pm;
+  const R = d.R;
+  const ownC = sim.owners[Layer.Culture];
+  const ownP = sim.owners[Layer.Polity];
+  const { cur, best, era: E, found, resources } = d;
+  const before = cur.slice();
+  const lv = target + JUMP_INTO;
+  const done: number[] = [];
+  for (const r of regions) {
+    if (!(r >= 0 && r < R) || ownC[r] < 0 || done.includes(r)) continue;
+    done.push(r);
+    const o = r * CAP_COUNT;
+    for (let c = 0; c < 4; c++) {
+      if (cur[o + c] >= lv) continue;
+      cur[o + c] = lv;
+      eng.write('能力', r, c, lv);
+      if (best[o + c] < lv) {
+        best[o + c] = lv;
+        eng.write('最高', r, c, lv);
+      }
+    }
+    E[r] = eraLevel(cur, r);
+    eng.write('时代', r, 0, E[r]);
+    // 城的人口上限倍数跟着生产能力当即换(和每步算完时一样记进城的 devCap;接着推时按能力重算的也是它)
+    const f = popFactor(cur[o + Cap.Production]);
+    d.capF[r] = f;
+    const s = cityIn(pm, r);
+    if (s) {
+      const dc = (s.devCap ??= [s.founded, f]);
+      if (dc[dc.length - 1] !== f) dc.push(t, f);
+    }
+  }
+  if (!done.length) return 0;
+  const cityId = (r: number) => cityIn(pm, r)?.id ?? -1;
+  const push = (e: Omit<DevEvent, 'era' | 'culture' | 'polity' | 'settlement'> & { era?: number }) => {
+    const r = e.region;
+    d.events.push({ era: eraOf(E[r]).era, ...e, culture: ownC[r], polity: ownP[r], settlement: cityId(r) });
+  };
+  /** 这几州里那样数到了 k 的一州:prefer 到了就是它,不然取最高的(没有 = −1) */
+  const reach = (val: (r: number) => number, k: number) => {
+    if (done.includes(prefer) && val(prefer) >= k) return prefer;
+    let at = -1;
+    for (const r of done) if (val(r) >= k && (at < 0 || val(r) > val(at))) at = r;
+    return at;
+  };
+  // 国都在这几州里的国家:始入新时代
+  for (const r of done) {
+    const p = ownP[r];
+    const q = p >= 0 ? pm.polities[p] : undefined;
+    if (!q || q.ended !== undefined || pm.settlements[capitalAt(q, Infinity)]?.region !== r) continue;
+    const e = eraOf(E[r]).era;
+    const seen = d.polityEra[p] ?? -1;
+    if (seen >= 0) for (let k = seen + 1; k <= e; k++) push({ year: t, kind: 'enter', era: k, region: r });
+    if (e > seen) d.polityEra[p] = e;
+  }
+  // 世上头一回进这个时代
+  let top = d.worldEra;
+  for (const r of done) top = Math.max(top, eraOf(E[r]).era);
+  for (let k = d.worldEra + 1; k <= top; k++) {
+    const r = reach((x) => E[x], k);
+    if (r >= 0) push({ year: t, kind: 'first', era: k, region: r });
+  }
+  d.worldEra = top;
+  // 世上头一回的发明(动员不拉,只看四样)
+  INVENTIONS.forEach((inv, i) => {
+    if (d.invented[i] || inv.cap >= 4) return;
+    const r = reach((x) => cur[x * CAP_COUNT + inv.cap], inv.level);
+    if (r < 0) return;
+    d.invented[i] = 1;
+    push({ year: t, kind: 'invent', invention: i, region: r });
+  });
+  // 生产够了的物产此刻发现(储量多的矿记一条)
+  for (const r of done) {
+    const prod = cur[r * CAP_COUNT + Cap.Production];
+    for (let k = 0; k < RESOURCE_COUNT; k++) {
+      const i = r * RESOURCE_COUNT + k;
+      if (!resources[i] || found[i] !== Infinity || prod < DISCOVER_AT[k] || d.resFrom[i] > t) continue;
+      found[i] = t;
+      eng.write('发现', r, k, t);
+      if (resources[i] === 3 && LIFE[k]) push({ year: t, kind: 'discover', region: r, resource: k });
+    }
+  }
+  // 时代图层:此刻之前、之后各一份
+  const pre = makeSnapOf(R, before, d.availNow);
+  const post = makeSnap(d);
+  d.snaps.push(pre.snap, post.snap);
+  d.avail.push(pre.avail, post.avail);
+  d.snapYears.push(t, t);
+  return done.length;
 }
 
 /**
