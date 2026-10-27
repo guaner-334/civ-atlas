@@ -3787,8 +3787,8 @@ ${s.image.cells}` : null);
    * 找世界那一页的「‹ 大纲」回原来那个世界的大纲
    */
   const [outlineSrc, setOutlineSrc] = useState<{ from: OutlineFrom; view: { base: BaseId; fill: FillId } } | null>(null);
-  /** 一张地图认是不是同一张:参数、地形、草图、在哪张地图上打造的 */
-  const mapKeyOf = (p: WorldParams, e: WorldEdits) => JSON.stringify([worldKey(p), e.terrain, e.sketch ?? null, e.map ?? null]);
+  /** 一张地图认是不是同一张:参数、地形、草图(在哪张地图上打造的那条出处不算:地图本身一样) */
+  const mapKeyOf = (p: WorldParams, e: WorldEdits) => JSON.stringify([worldKey(p), e.terrain, e.sketch ?? null]);
   /** 新建中的世界 → 搜的时候照它生成的设定(世界参数、地形和草图(都用这张地图时)、推演年数、拓荒、起源、天灾、地名风格) */
   const finderBaseOf = (t: Target, e: WorldEdits): FinderBase => {
     const endYear = cleanEndYear(e.endYear);
@@ -3977,6 +3977,15 @@ ${s.image.cells}` : null);
     setCivHighlight(null);
     applyMapView(back.view);
   };
+  /** 从大纲页来的:大纲搬到建好的这个世界,国家换成找到的那几国,对不上的标「要重新指」(outlineMove.ts);不是 = null */
+  const moveFoundOutline = (f: NonNullable<typeof found>) => {
+    const civNow = realCivRef.current;
+    const t = targetRef.current;
+    if (!f.from || !civNow || !t || civNow.seed !== f.civSeed) return null;
+    const moved = moveOutline(f.from, f.pick.query, f.pick.roles.map((r) => r.polity), civNow, f.pick.map === 'fixed' && f.from.mapKey === mapKeyOf(t.params, getEdits()));
+    if (moved.plots.length) setOutlinePlots(moved.plots);
+    return moved;
+  };
   /**
    * 照故事找的世界建好了:隘口、交界加成作者标记,侧栏顶上记一组「照故事找的」(foundStore.ts),提示一次;
    * 新建界面淡出以后地图飞到故事里的几国
@@ -3990,10 +3999,7 @@ ${s.image.cells}` : null);
       return { ...p, mark };
     });
     putFound(id, { ...f.pick, places: spots });
-    // 从大纲页来的:大纲搬过来,国家换成找到的那几国,对不上的标「要重新指」
-    const civNow = realCivRef.current;
-    const moved = f.from && civNow && civNow.seed === f.civSeed ? moveOutline(f.from, f.pick.query, f.pick.roles.map((r) => r.polity), civNow, f.pick.map === 'fixed' && f.from.mapKey === mapKeyOf(targetRef.current!.params, getEdits())) : null;
-    if (moved?.plots.length) setOutlinePlots(moved.plots);
+    const moved = moveFoundOutline(f);
     setFound(null);
     if (isStored(id))
       showToast({
@@ -6367,6 +6373,8 @@ ${s.image.cells}` : null);
       return false;
     }
     if (f && how !== 'step') foundCreated(f);
+    // 选了「演绎」:不停在开场那年、不加标记,大纲照样搬过去
+    else if (f && how === 'step') moveFoundOutline(f);
     stopFly();
     publishMapCenter(wrapLon(lon));
     const el = stageRef.current;

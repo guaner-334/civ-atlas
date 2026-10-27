@@ -52,13 +52,17 @@ import { plotLine } from './OutlineSide';
 /** 在地图上点的时候提示条的来源(点完、取消以后概览回到「大纲」页) */
 export const OUTLINE_PICK = 'outline';
 
-/** 草稿 → 情节(缺要填的 = null) */
+/**
+ * 草稿 → 情节(缺要填的 = null)。大纲搬过来以后对不上、还空着的可有可无的几项照旧记着要重新指(不能光打开存一下就丢了);
+ * 要填的几项不填不让存
+ */
 function draftPlot(d: PlotDraft): Plot | null {
   if (!d.kind) return null;
-  const { pickA: _p, was: _w, ...rest } = d;
+  const { pickA: _p, was, ...rest } = d;
   void _p;
-  void _w;
-  return cleanPlot(rest);
+  const p = cleanPlot(rest);
+  if (!p || !was) return p;
+  return cleanPlot({ ...rest, redo: was }) ?? p;
 }
 
 /** 草稿缺什么(写在「好了」旁边) */
@@ -702,6 +706,15 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
         {redoNote && (
           <div className="ol-note warn" data-testid="outline-redo-note">
             大纲搬过来以后对不上，要重新指：{redoNote}
+            {/* 剩下的都是可有可无的:不指也行,点了不再标 */}
+            {plot && (
+              <>
+                {' '}
+                <button className="ol-link" data-act="outline-redo-skip" onClick={() => patchDraft({ was: undefined })}>
+                  不用指了
+                </button>
+              </>
+            )}
           </div>
         )}
         <div className="ol-f">
