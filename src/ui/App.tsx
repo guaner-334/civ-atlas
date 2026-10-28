@@ -337,6 +337,8 @@ import { Sidebar } from './Sidebar';
 import { PhoneSheet } from './PhoneSheet';
 import { useLayerThumbs } from './LayerPopover';
 import { WorldOverview } from './WorldOverview';
+import { RelationBack, RelationGraph, useRelationBack } from './RelationGraph';
+import { getRelation } from './relationStore';
 import { hoverInfo, probeLines, type HoverInfo } from './hoverInfo';
 import {
   FILL_KEYS,
@@ -1096,6 +1098,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 窄屏(手机):底部的世界 / 详情卡片、时间轴胶囊、右上竖排按钮(phone.css);触屏:没有悬停卡片、右下不放 + −(用双指捏合) */
   const narrow = useNarrow();
   const coarse = useCoarse();
+  /** 人物关系图收起着、左边还是那张图中心那位的卡片:地图左上「回到关系图」(RelationGraph.tsx) */
+  const relBack = useRelationBack(civ) && !narrow;
   const narrowRef = useRef(narrow);
   narrowRef.current = narrow;
   /** 生成进度(提示条"正在生成世界"):regen = 按新地形重新生成;seed = 正在生成的种子 */
@@ -5340,7 +5344,8 @@ ${s.image.cells}` : null);
     const cam = momentCam.current;
     momentCam.current = null;
     if (cam) return flyCameraRef.current(cam);
-    flyRef.current('sel');
+    // 人物关系图开着(盖住了地图;图上换中心、左边卡片跟着换):不飞,「在地图上看」时再飞
+    if (!getRelation().open) flyRef.current('sel');
   }, [selStable]);
   const flyReq = panelUi.fly;
   useEffect(() => {
@@ -6787,8 +6792,9 @@ ${s.image.cells}` : null);
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || ((style === 'data' || atlasOn || contourOn) && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || relBack || ((style === 'data' || atlasOn || contourOn) && !terrainTool.on)) && (
             <div className="corner-tl">
+              {relBack && civ && <RelationBack civ={civ} />}
               {workBar}
               <OldSiteBadge />
               {(style === 'data' || atlasOn || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
@@ -6885,6 +6891,8 @@ ${s.image.cells}` : null);
           onDraftFrom={draftFromCurrent}
         />
       )}
+      {/* 人物关系图(人物卡「更多 → 关系图」):电脑右边铺开、手机铺满整屏 */}
+      {data && world && civ && <RelationGraph civ={civ} world={data.world} raster={data.raster} phone={narrow} />}
       {realCiv && <HistoryBook civ={realCiv} land={data?.world ?? null} raster={data?.raster ?? null} />}
       <AiSettingsHost />
       <AccountHost phone={narrow} />
