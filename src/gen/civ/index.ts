@@ -48,6 +48,7 @@ import { YEAR_TICKS, cleanInterventions, sameInterventions, type Intervention, t
 import { finishReligion, installReligion } from './religion';
 import { finishDevelopment, installDevelopment } from './development';
 import { finishIdeology, installIdeology } from './ideology';
+import { finishTrade, installTrade } from './trade';
 import { installUnrest } from './unrest';
 import { installControl } from './control';
 import { installCouncil } from './council';
@@ -243,6 +244,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installDiplomacy(sim, pm); // 邦交(diplomacy.ts):称臣纳贡、结盟、背盟、援盟、讨伐叛藩
   if (pm) installDevelopment(sim, world, pm, habitat, seed); // 发展度(development.ts):每 20 年算各州的能力,影响人口上限、军力、远洋
   if (pm) installIdeology(sim, seed); // 思潮(ideology.ts):跟着发展度每 20 年算各州各说的接受度,只算不用
+  if (pm) installTrade(sim, seed); // 商道(trade.ts):跟着发展度每 20 年算一步,只读推演、不改历史
   if (pm) installUnrest(sim, pm, seed); // 动荡(unrest.ts):饥荒、民变、大崩解
   if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
@@ -528,6 +530,8 @@ function finishCiv(x: Finish): Civ {
     if (dev) civ.development = dev;
     const ideo = finishIdeology(fin.sim, p.endYear);
     if (ideo) civ.ideology = ideo;
+    const trade = finishTrade(fin.sim, fin.regions);
+    if (trade) civ.trade = trade;
   }
   return civ;
 }
@@ -593,6 +597,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
   const res = sim.result();
   const dev = finishDevelopment(sim, res.endYear);
   const ideo = finishIdeology(sim, res.endYear);
+  const trade = finishTrade(sim);
   const pad = (a: Int16Array) => {
     if (a.length >= regions.count) return a;
     const b = new Int16Array(regions.count).fill(-1);
@@ -627,6 +632,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     people: [],
     ...(dev ? { development: dev } : {}),
     ...(ideo ? { ideology: ideo } : {}),
+    ...(trade ? { trade } : {}),
   } as Civ;
 }
 

@@ -329,7 +329,7 @@ function padTo(a: Uint8Array, n: number): Uint8Array {
 
 function hook(sim: CivSim, m: IdeoModel): void {
   models.set(sim, m);
-  m.d.afterTick = (y, prev) => tick(sim, m, y, prev);
+  m.d.afterStep = (y, prev) => tick(sim, m, y, prev);
 }
 
 /** 州 r 此刻的城(还在的那一座;没有 = undefined) */

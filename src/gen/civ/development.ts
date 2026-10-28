@@ -92,7 +92,7 @@ export const RESOURCE_COUNT = 11;
 /** 每样物产有的州占全部有人能住的州的比例 */
 const RESOURCE_SHARE: readonly number[] = [0.7, 0.5, 0.22, 0.4, 0.2, 0.55, 0.3, 0.45, 0.15, 0.12, 0.12];
 /** 生产能力到这么多时发现这样物产(粮、牲畜、木材、盐、渔获有人住就知道;矿都比要它的那道门槛早一截;金银不卡时代,石器时代后段就认得) */
-const DISCOVER_AT: readonly number[] = [0, 0, 0.6, 1.5, 4.5, 0, 0, 0, 5.5, 6.5, 0.4];
+export const DISCOVER_AT: readonly number[] = [0, 0, 0.6, 1.5, 4.5, 0, 0, 0, 5.5, 6.5, 0.4];
 /** 矿:一档储量全力开采能采几年 */
 const LIFE: readonly number[] = [0, 0, 2500, 3000, 1200, 0, 0, 0, 400, 800, 800];
 /** 林、渔、田、牧:吃空的快慢、每年长回缺口的几成 */
@@ -148,7 +148,7 @@ const OVERSHOOT = 0.8;
 const OVERSHOOT_LEARN = 2;
 const OVERSHOOT_SLOW = 0.25;
 /** 卡在物产门口:离下一时代还差这么多以内、又没有要的物产时,生产自己长得只剩 GATE_SLOW */
-const GATE_NEAR = 0.3;
+export const GATE_NEAR = 0.3;
 const GATE_SLOW = 0.15;
 /** 跌下去以后每年按"到过的最高值 − 现在"的这个比例恢复 */
 const RECOVER = 0.02;
@@ -375,8 +375,10 @@ export interface DevModel {
   eng?: TableEngine;
   /** 推一把发展(boost.ts 挂上;没有快几倍的干预 = 不挂):(t0, y] 这一步里各州的倍数填进 out(没推的州留 1) */
   boostFill?: (t0: Year, y: Year, out: Float64Array) => void;
-  /** 每步算完(大事、快照都记好了)以后调(思潮挂上,见 ideology.ts):prev = 这一步开头各州的能力(州 × CAP_COUNT) */
-  afterTick?: (y: Year, prev: Float64Array) => void;
+  /** 每步算完(大事、快照都记好了)以后调(思潮挂上,见 ideology.ts;在 afterTick 之前):prev = 这一步开头各州的能力(州 × CAP_COUNT) */
+  afterStep?: (y: Year, prev: Float64Array) => void;
+  /** 每一步算完以后(商道 trade.ts 挂上;只读,不改推演) */
+  afterTick?: (y: Year) => void;
 }
 
 const models = new WeakMap<CivSim, DevModel>();
@@ -565,6 +567,7 @@ function hook(sim: CivSim, d: DevModel): void {
   });
   sim.on(Ev.DevTick, (_a, _b, t) => {
     tick(sim, d, t);
+    d.afterTick?.(t);
     sim.schedule(t + STEP, Ev.DevTick, 0, 0);
   });
 }
@@ -607,7 +610,7 @@ function wantsOf(sim: CivSim, d: DevModel, p: number): { want: number; gate: num
 }
 
 /** 生产能力 lv 进下一个时代要的物产(按位):进青铜要铜锡,进铁器要铁,进工业要煤和铁,进电气要石油,进信息要稀有矿 */
-function gateNeed(lv: number): number {
+export function gateNeed(lv: number): number {
   const target = Math.floor(lv) + 1;
   return target === 1 ? 1 << Res.Copper : target === 2 ? 1 << Res.Iron : target === 5 ? (1 << Res.Coal) | (1 << Res.Iron) : target === 6 ? 1 << Res.Oil : target === 7 ? 1 << Res.Rare : 0;
 }
@@ -1049,7 +1052,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     d.avail.push(s.avail);
     d.snapYears.push(y);
   }
-  d.afterTick?.(y, prev);
+  d.afterStep?.(y, prev);
 }
 
 /** 此刻的一份快照(能力、眼下能用的物产) */

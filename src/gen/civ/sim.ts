@@ -44,6 +44,7 @@ import { resumeCities } from './cities';
 import { resumeDiplomacy } from './diplomacy';
 import { resumeDevelopment } from './development';
 import { resumeIdeology } from './ideology';
+import { resumeTrade } from './trade';
 import { resumeUnrest } from './unrest';
 import { resumeControl } from './control';
 import { resumeCouncil } from './council';
@@ -581,6 +582,7 @@ export class CivSim {
       resumeDiplomacy(sim, world, civ);
       resumeDevelopment(sim, world, civ);
       resumeIdeology(sim, civ);
+      resumeTrade(sim, civ);
       resumeUnrest(sim, world, civ);
       resumeControl(sim, civ);
       resumeCouncil(sim, civ);
