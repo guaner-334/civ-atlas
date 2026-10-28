@@ -6,7 +6,7 @@
  */
 import { ReliefGL, PALETTE, type ReliefTexPart } from '../../render/terrain3d/gl';
 import type { ReliefMesh } from '../../render/terrain3d/relief';
-import { PITCH_MAX, PITCH_MIN, clipPlanes, fitCam, mul, project, projMatrix, rectShift, viewMatrix, type ReliefCam } from '../../render/terrain3d/camera';
+import { FIT_DESKTOP, FIT_PHONE, PITCH_MAX, PITCH_MIN, clipPlanes, fitCam, mul, project, projMatrix, rectShift, viewMatrix, type ReliefCam } from '../../render/terrain3d/camera';
 
 /** 冒烟检查、测速看的(window.__wfRelief) */
 export interface ReliefDebug {
@@ -158,7 +158,7 @@ export class ReliefStage {
 
   private fit(): ReliefCam {
     const s = this.gl.size!;
-    return fitCam(s.kmX, s.kmZ, (s.maxElev / 1000) * this.ex, this.W, this.H, this.rect(), this.phone ? [0, 0.04] : [0.06, 0.08]);
+    return fitCam(s.kmX, s.kmZ, (s.maxElev / 1000) * this.ex, this.W, this.H, this.rect(), this.phone ? FIT_PHONE : FIT_DESKTOP);
   }
 
   private clampDist(d: number): number {
@@ -196,7 +196,7 @@ export class ReliefStage {
     if (a && this.cam) {
       const t = Math.min(1, (performance.now() - a.t0) / a.ms);
       const e = 1 - Math.pow(1 - t, 3);
-      for (const k of ['yaw', 'pitch', 'dist', 'tx', 'ty', 'tz'] as const) this.cam[k] = a.from[k] + (a.to[k] - a.from[k]) * e;
+      for (const k of ['yaw', 'pitch', 'dist', 'tx', 'ty', 'tz', 'fov'] as const) this.cam[k] = a.from[k] + (a.to[k] - a.from[k]) * e;
       if (t >= 1) this.anim = null;
       else this.kick();
     }
@@ -215,7 +215,7 @@ export class ReliefStage {
     const [shX, shY] = rectShift(this.W, this.H, this.rect());
     const [n, f] = clipPlanes(cam, Math.max(s.kmX, s.kmZ) + ((s.maxElev / 1000) * this.ex));
     const mv = viewMatrix(cam);
-    const mvp = mul(projMatrix(this.W / this.H, n, f, shX, shY), mv);
+    const mvp = mul(projMatrix(this.W / this.H, n, f, shX, shY, cam.fov), mv);
     this.gl.draw(W, H, mv, mvp, this.ex, [cam.dist * 0.55, cam.dist * 1.9], PALETTE);
     reliefDebug().frames++;
     // 北在画面上朝哪:看点往北挪一点,投到画面上比一比
@@ -228,7 +228,11 @@ export class ReliefStage {
 
   private down(e: PointerEvent) {
     this.onTouch();
-    this.canvas.setPointerCapture(e.pointerId);
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // 拿不到(手指已经抬起来了):照常跟着这根手指
+    }
     this.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     this.anim = null;
     if (this.ptrs.size === 1) this.drag = { mode: e.button === 2 || e.shiftKey ? 'pan' : 'turn', x: e.clientX, y: e.clientY };
@@ -283,7 +287,7 @@ export class ReliefStage {
   private pan(dx: number, dy: number) {
     const cam = this.cam!;
     const s = this.gl.size!;
-    const k = (2 * cam.dist * Math.tan((32 * Math.PI) / 360)) / this.H;
+    const k = (2 * cam.dist * Math.tan((cam.fov * Math.PI) / 360)) / this.H;
     const yw = (cam.yaw * Math.PI) / 180;
     // 右 = (cos, 0, -sin);往前(地面上)= (-sin, 0, -cos)
     const rx = Math.cos(yw);

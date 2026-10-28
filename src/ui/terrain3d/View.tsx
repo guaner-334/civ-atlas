@@ -71,6 +71,7 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
       return;
     }
     stage.current = st;
+    shown.current = null;
     st.onNorth = (deg) => {
       if (needle.current) needle.current.style.transform = `rotate(${deg.toFixed(1)}deg)`;
     };
@@ -149,19 +150,6 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
   useEffect(() => {
     recolorRef.current();
   }, [want]);
-
-  // Esc:回到地图
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || getRelief().phase !== 'view') return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      e.stopPropagation();
-      closeRelief();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, []);
 
   const exNow = ex ?? 12;
   const onEx = (v: number) => {
@@ -279,7 +267,7 @@ function visibleRect(el: HTMLElement | null, phone: boolean): [number, number, n
   const sh = r?.height ?? window.innerHeight;
   if (phone) {
     const sheet = el?.querySelector('.rv-sheet')?.getBoundingClientRect().height ?? 140;
-    return [0, 100, sw, sh - sheet - 10];
+    return [0, 190, sw, sh - sheet - 10];
   }
   const [l, , rr] = freeArea({ sw, sh, bw: 0, bh: 0 }, false);
   return [l, 64, rr, sh - 92];

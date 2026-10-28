@@ -15,10 +15,13 @@ export interface ReliefCam {
   tx: number;
   ty: number;
   tz: number;
+  /** 视野(竖直方向,度) */
+  fov: number;
 }
 
-/** 视野(竖直方向,度):窄一点,远处的山不显得太小 */
+/** 视野(竖直方向,度):窄一点,远处的山不显得太小。手机竖着拿,竖直方向放宽一些(横向才不至于太窄) */
 export const FOV = 32;
+export const FOV_PHONE = 46;
 export const PITCH_MIN = 8;
 export const PITCH_MAX = 88;
 
@@ -72,8 +75,8 @@ export function viewMatrix(c: ReliefCam): Mat4 {
  * 透视投影。shiftX、shiftY:画面中心挪多少(-1 … 1,占半个画面的比例;往右、往上为正)——
  * 宽屏左边有卡片,看点要落在卡片右边那一块的正中
  */
-export function projMatrix(aspect: number, near: number, far: number, shiftX = 0, shiftY = 0): Mat4 {
-  const f = 1 / Math.tan((FOV * Math.PI) / 360);
+export function projMatrix(aspect: number, near: number, far: number, shiftX = 0, shiftY = 0, fov = FOV): Mat4 {
+  const f = 1 / Math.tan((fov * Math.PI) / 360);
   const m = new Float32Array(16);
   m[0] = f / aspect;
   m[5] = f;
@@ -104,20 +107,31 @@ export function clipPlanes(c: ReliefCam, size: number): [number, number] {
   return [Math.max(0.5, c.dist * 0.05), c.dist + size * 3];
 }
 
+/** 刚打开时的角度:电脑从南偏东一点往北看、俯角 28°,四周留一圈空;手机竖屏俯角大一些、视野宽一些,左右顶满(两个近角略出屏) */
+export interface FitOpts {
+  yaw: number;
+  pitch: number;
+  fov: number;
+  /** 左右、上下各留看得见那一块宽、高的几成 */
+  margin: [number, number];
+}
+export const FIT_DESKTOP: FitOpts = { yaw: 10, pitch: 28, fov: FOV, margin: [0.06, 0.08] };
+export const FIT_PHONE: FitOpts = { yaw: 8, pitch: 36, fov: FOV_PHONE, margin: [-0.03, 0.04] };
+
 /**
- * 刚打开时的样子:从南偏东一点往北看(朝向 10°)、俯角 28°,远近让整块沙盘(连同最高处)落在画面里,四周留一圈空
- * (margin = 左右、上下各留看得见那一块宽、高的几成;手机屏幕窄,左右不留)。
+ * 刚打开时的样子:远近让整块沙盘(连同最高处)落在画面里看得见的那一块。
  * rect = 画面里看得见的那一块(像素:左、上、右、下),W、H = 整个画面
  */
-export function fitCam(kmX: number, kmZ: number, top: number, W: number, H: number, rect: [number, number, number, number], margin: [number, number] = [0.06, 0.08], yaw = 10, pitch = 28): ReliefCam {
-  const cam: ReliefCam = { yaw, pitch, dist: 1, tx: 0, ty: top * 0.25, tz: 0 };
+export function fitCam(kmX: number, kmZ: number, top: number, W: number, H: number, rect: [number, number, number, number], o: FitOpts = FIT_DESKTOP): ReliefCam {
+  const { margin } = o;
+  const cam: ReliefCam = { yaw: o.yaw, pitch: o.pitch, dist: 1, tx: 0, ty: top * 0.25, tz: 0, fov: o.fov };
   const corners: [number, number, number][] = [];
   for (const sx of [-0.5, 0.5]) for (const sz of [-0.5, 0.5]) for (const y of [0, top]) corners.push([sx * kmX, y, sz * kmZ]);
   const [shX, shY] = rectShift(W, H, rect);
   const fits = (d: number) => {
     cam.dist = d;
     const [n, f] = clipPlanes(cam, Math.max(kmX, kmZ));
-    const m = mul(projMatrix(W / H, n, f, shX, shY), viewMatrix(cam));
+    const m = mul(projMatrix(W / H, n, f, shX, shY, cam.fov), viewMatrix(cam));
     for (const [x, y, z] of corners) {
       const p = project(m, x, y, z);
       if (!p) return false;

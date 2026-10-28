@@ -266,7 +266,7 @@ const REPLAY_BUDGET = process.env.CI ? 60 : 30;
  * 按 GitHub 机器上各段的耗时大致均分(每份约十分钟;每份最后「跑了几段」那行写着各段用了几秒);某一份明显变慢了就挪一挪这里的段名。
  */
 const PART_STARTS = ['点选改名', '搜索', '手机布局'];
-const MOVED: Record<string, number> = { 写实风放大: 4, 隐私模式: 4, 生成器版本: 4, 分享这一刻: 4, 各种状态: 4, 再推: 1, 助手: 4 };
+const MOVED: Record<string, number> = { 写实风放大: 4, 立体地形: 4, 隐私模式: 4, 生成器版本: 4, 分享这一刻: 4, 各种状态: 4, 再推: 1, 助手: 4 };
 const [PART, PARTS] = (process.env.SMOKE_PART ?? '1/1').split('/').map(Number);
 if (!(PARTS === 1 || PARTS === PART_STARTS.length + 1) || !(PART >= 1 && PART <= PARTS)) {
   throw new Error(`SMOKE_PART 要写成"第几份/共几份"(共 1 份或 ${PART_STARTS.length + 1} 份),比如 2/${PART_STARTS.length + 1};现在是 ${process.env.SMOKE_PART}`);
@@ -1299,6 +1299,58 @@ if (part('写实风放大')) {
   const back = await zp.evaluate(() => ({ k: (window as any).__wfView?.k, on: (window as any).__wfDetail?.on, dom: document.querySelectorAll('.detail-tiles canvas.tile').length }));
   if (back.on || back.dom) errs.push(`放大现算:缩回 1 倍后细节层 / 现算的块没有撤掉(${JSON.stringify(back)})`);
   await zp.close();
+}
+
+// 立体地形:右下「立体」→ 地图上出一个框(写着多大)、按钮按下去;立起来:先粗后细都画出来,时间轴的位置换成立体的控件条、
+// 标题是框里的山名;拖着转、换画风(重新上色)不出错;「回到地图」→ 立体收起、时间轴回来
+if (part('立体地形')) {
+  const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
+  rp.on('pageerror', (e) => errs.push(`立体地形:${e.message}`));
+  rp.on('console', (m) => m.type() === 'error' && errs.push(`立体地形:${m.text()}`));
+  await rp.goto(`${dev.url}/?seed=7&map=satellite&sat=detail&fill=none`);
+  await rp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await rp.click('.map-controls [data-act=relief]');
+  const picking = await rp
+    .waitForSelector('.rp-box', { timeout: 30000 })
+    .then(() => true, () => false);
+  const pressed = await rp.locator('.map-controls [data-act=relief]').getAttribute('aria-pressed');
+  const size = await rp.locator('.rp-size').innerText().catch(() => '');
+  // 玉屏山一带的一小块(约 580 公里见方),直接立起来
+  const t0 = Date.now();
+  await rp.evaluate(() => (window as any).__wfReliefPick?.open({ cx: 1478, cy: 436, w: 30, h: 30 }));
+  const fine = await rp
+    .waitForFunction(() => (window as any).__wfRelief?.level === 'fine', null, { timeout: 90000 })
+    .then(() => true, () => false);
+  const took = Date.now() - t0;
+  const rv = await rp.evaluate(() => ({
+    dbg: (window as any).__wfRelief,
+    title: document.querySelector('.rv-t b')?.textContent ?? '',
+    sub: document.querySelector('.rv-t small')?.textContent ?? '',
+    timeline: !!document.querySelector('.bottom-row') && getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none',
+    controls: [...document.querySelectorAll('.rv .map-controls button')].length,
+  }));
+  console.log(`立体地形:框上写「${size}」;立起来 ${took} ms(粗的 ${rv.dbg?.coarseMs} ms、细的 ${rv.dbg?.fineMs} ms,贴图 ${rv.dbg?.tex}、${rv.dbg?.verts} 个点、起伏 ×${rv.dbg?.ex});「${rv.title}」${rv.sub}`);
+  if (!picking || pressed !== 'true' || !/^约 \d+/.test(size)) errs.push(`立体地形:点「立体」没出框 / 按钮没按下 / 框上没写多大(${picking} ${pressed}「${size}」)`);
+  if (!fine) errs.push(`立体地形:细的一档没画出来(${JSON.stringify(rv.dbg)})`);
+  if (rv.title !== '玉屏山一带' || rv.timeline || rv.controls < 4) errs.push(`立体地形:控件条 / 右下一列不对(「${rv.title}」,时间轴还在 ${rv.timeline},右下 ${rv.controls} 个按钮)`);
+  // 拖着转一下、换成地理图(只重新上色)
+  const cv = await rp.locator('.rv canvas').boundingBox();
+  if (cv) {
+    await rp.mouse.move(cv.x + cv.width * 0.6, cv.y + cv.height * 0.5);
+    await rp.mouse.down();
+    await rp.mouse.move(cv.x + cv.width * 0.6 - 120, cv.y + cv.height * 0.5 + 30, { steps: 6 });
+    await rp.mouse.up();
+  }
+  const f0 = await rp.evaluate(() => (window as any).__wfRelief?.frames ?? 0);
+  await pickLayer(rp, 'geo');
+  await rp.waitForTimeout(3000);
+  const f1 = await rp.evaluate(() => (window as any).__wfRelief?.frames ?? 0);
+  if (!(f1 > f0)) errs.push(`立体地形:换成地理图以后立体没有重画(${f0} → ${f1} 帧)`);
+  await rp.click('.rv-bar .b');
+  await rp.waitForTimeout(400);
+  const closed = await rp.evaluate(() => ({ rv: document.querySelectorAll('.rv').length, timeline: getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none' }));
+  if (closed.rv || !closed.timeline) errs.push(`立体地形:点「回到地图」以后立体没收起 / 时间轴没回来(${JSON.stringify(closed)})`);
+  await rp.close();
 }
 
 // 回放中点概览"世界设定"页的"以它为底稿新建…":概览收起,换成新建界面(不弹新建窗口;左边设定:种子锁着,地形、参数带过去);
@@ -5700,8 +5752,8 @@ if (part('手机布局')) {
     errs.push(`手机:时间轴胶囊不在世界卡片上面 / 不是一行(${JSON.stringify(row)})`);
   if (!track || !row || track.height < 32 || track.y < row.y || track.y + track.height > row.y + row.height) errs.push(`手机:时间轴轨道不在胶囊里 / 太矮(${JSON.stringify(track)})`);
   if (!/^种子 7，现存 \d+ 国$/.test(sub)) errs.push(`手机:世界名后面的副标不对(${sub})`);
-  if (btnActs !== 'layers,mark,globe,director,assistant' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 160)
-    errs.push(`手机:右上不是竖排的图层、标记、地球、导播、助手五个按钮(${btnActs} ${JSON.stringify(btns)})`);
+  if (btnActs !== 'layers,mark,globe,director,assistant,relief' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 160)
+    errs.push(`手机:右上不是竖排的图层、标记、地球、导播、助手、立体六个按钮(${btnActs} ${JSON.stringify(btns)})`);
   if (!wsFull || Math.abs(wsFull.y - 0.08 * VH) > 8 || tiles !== 4 || !capsuleHidden) errs.push(`手机:往上拖世界卡片没有拉到顶(${JSON.stringify(wsFull)},大按钮 ${tiles},胶囊藏起 ${capsuleHidden})`);
   if (!ws1 || Math.abs(ws1.y - (VH - PEEK)) > 2) errs.push(`手机:点拖动条没有收起世界卡片(${JSON.stringify(ws1)},点了 ${gripTaps} 次、收到 click ${gripClicks} 次)`);
   if (!hint0.includes('双指缩放') || hint1 !== 0) errs.push(`手机:操作提示不对 / 捏合后没消失(${hint0})`);
