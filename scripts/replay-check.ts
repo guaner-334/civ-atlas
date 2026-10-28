@@ -266,7 +266,7 @@ const REPLAY_BUDGET = process.env.CI ? 60 : 30;
  * 按 GitHub 机器上各段的耗时大致均分(每份约十分钟;每份最后「跑了几段」那行写着各段用了几秒);某一份明显变慢了就挪一挪这里的段名。
  */
 const PART_STARTS = ['点选改名', '搜索', '手机布局'];
-const MOVED: Record<string, number> = { 写实风放大: 4, 生成器版本: 4, 分享这一刻: 4, 助手: 4 };
+const MOVED: Record<string, number> = { 写实风放大: 4, 隐私模式: 4, 生成器版本: 4, 分享这一刻: 4, 各种状态: 4, 再推: 1, 助手: 4 };
 const [PART, PARTS] = (process.env.SMOKE_PART ?? '1/1').split('/').map(Number);
 if (!(PARTS === 1 || PARTS === PART_STARTS.length + 1) || !(PART >= 1 && PART <= PARTS)) {
   throw new Error(`SMOKE_PART 要写成"第几份/共几份"(共 1 份或 ${PART_STARTS.length + 1} 份),比如 2/${PART_STARTS.length + 1};现在是 ${process.env.SMOKE_PART}`);
