@@ -35,7 +35,7 @@ import {
   type PinBox,
 } from './timelineLayout';
 import { eraText } from '../gen/era';
-import { useEra, useMonths } from './editsStore';
+import { useEra, useMonthNames, useMonths } from './editsStore';
 import './timeline.css';
 
 /** 世界坐标 → 屏幕坐标(clientX / clientY);算不出 = null */
@@ -62,6 +62,7 @@ const pinKey = (p: LivePin) => `${p.e.id}:${p.start}`;
 export function EventPins({ civ, world, toClient, hidden, quiet }: EventPinsProps) {
   const era = useEra();
   const months = useMonths();
+  const monthNames = useMonthNames();
   const chron = useChronicle();
   const pick = useChroniclePick();
   const [setRoot, compat] = useThemeCompat();
@@ -220,7 +221,7 @@ export function EventPins({ civ, world, toClient, hidden, quiet }: EventPinsProp
             <div className="ev-card">
               <span className="ev-head">
                 <b className="tb-ev">{evLabel(p.e)}</b>
-                {evYears(p.e, era, months)}
+                {evYears(p.e, era, months, monthNames)}
               </span>
               <span className="ev-text">{eraText(evText(p.e), era)}</span>
             </div>
