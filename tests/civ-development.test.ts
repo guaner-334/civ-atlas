@@ -110,9 +110,10 @@ describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
     expect(new Set(inv.map((e) => e.invention)).size).toBe(inv.length);
     for (const e of inv) {
       const x = INVENTIONS[e.invention!];
-      // 快照之间线性插值,只看下一份快照时到了没有
+      // 快照之间线性插值,只看下一份快照时到了没有;这中间本州打过仗、被攻占洗劫的,战乱折损会扣下去一点
       const next = civ.development!.snapYears.find((y) => y >= e.year)!;
-      expect(developmentAt(civ.development!, next)[e.region * CAP_COUNT + x.cap] + 1 / LEVEL_SCALE).toBeGreaterThanOrEqual(x.level);
+      const hit = civ.annals.some((a) => a.region === e.region && a.year >= e.year && a.year <= next && (a.kind === 'battle' || a.kind === 'conquer' || a.kind === 'sack' || a.kind === 'ruin'));
+      expect(developmentAt(civ.development!, next)[e.region * CAP_COUNT + x.cap] + 1 / LEVEL_SCALE + (hit ? 0.25 : 0)).toBeGreaterThanOrEqual(x.level);
     }
     // 文字比印刷术早
     const at = (name: string) => inv.find((e) => INVENTIONS[e.invention!].name === name)?.year ?? Infinity;

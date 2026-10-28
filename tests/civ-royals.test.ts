@@ -80,7 +80,12 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
         expect(age).toBeGreaterThanOrEqual(16 - 1e-9);
         expect(age).toBeLessThanOrEqual(60 + 1e-9);
         if (x.died !== undefined) expect(c.until).toBeLessThanOrEqual(x.died);
-        // 派他出征的:父亲,或者父亲的继位者(他的兄弟)
+        // 派他出征的:父亲,或者父亲的继位者(他的兄弟)。亲自断后(rear)记在那一任领兵里头,看那一任开头就够了
+        // (那一仗打到下一位君主手里时断后,下一位已经不是父亲的继位者)
+        if (c.rear) {
+          expect(x.commands.some((m) => !m.rear && m.war === c.war && m.side === c.side && m.from <= c.from && c.from <= m.until), x.name).toBe(true);
+          continue;
+        }
         const ruler = P.find((r) => r.role === 'ruler' && r.polity === x.polity && r.from! <= c.from && (r.until === undefined || c.from < r.until));
         expect(ruler, x.name).toBeDefined();
         const prev = P.find((r) => r.role === 'ruler' && r.polity === x.polity && r.until === ruler!.from);

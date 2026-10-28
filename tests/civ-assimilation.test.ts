@@ -15,6 +15,7 @@ import {
   ASSIM_GAP,
   ASSIM_MAJOR,
   ASSIM_SPAN,
+  COMBINE_GAP,
   MIGRATE_MAJOR,
   TREK_ASSIM_MAJOR,
   buildChronicle,
@@ -323,7 +324,8 @@ describe('同化与迁徙', () => {
         expect(e.text).not.toMatch(BAD);
         expect(e.tag).toBe('徙');
         // 亡国后逃难的一波,"大事"里合写进那场战争("…,艾莱斯国亡,艾莱斯族南迁,入阿拉斯等五州")
-        const merged = list.some((w) => w.kind === 'war' && w.importance === 3 && w.text.includes(e.text.replace(/避.+兵锋/, '')));
+        // (同一族前后两回逃到同样几州、字一样的:只认这一回前后 COMBINE_GAP 年里的那场仗)
+        const merged = list.some((w) => w.kind === 'war' && w.importance === 3 && w.year <= e.year && e.year - w.end <= COMBINE_GAP && w.text.includes(e.text.replace(/避.+兵锋/, '')));
         expect(e.importance).toBe(e.regions.length >= MIGRATE_MAJOR && !merged ? 3 : 2);
         const n = e.children?.length ?? 1;
         expect(n).toBe(e.regions.length);

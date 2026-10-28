@@ -8,7 +8,8 @@
  *                 够格议事的国家(州数、立国年数够)都有这一行,不够格又没议过事的小国没有
  *   朝政页        上面一块:第几年、上次议事哪年;政体名(大字)、哪年起、一句为什么叫这个;
  *                 征税、兵制、官制三条分段条(现在那档亮着)叠在一起,共用一条"地方说了算 ↔ 朝廷说了算"的轴,
- *                 每条下面一句(哪年谁定的;征税写各州多交、朝廷多花多少)
+ *                 每条下面一句(哪年谁定的;征税写各州多交、朝廷多花多少);国中还没有户籍、常备军、文官考选时,
+ *                 还议不了的几档画斜纹,轴下面一句写要等什么
  *                 分封:哪位君主哪年起、几州;州名(点了开州卡片)列前几个,「全部」展开;「在地图上看」
  *                 割据:现在的割据一处一行(哪几州、哪年起、多少年);名义上还归本国、一文不交、议没议过削藩;「在地图上看」
  *                 「在地图上看」:填色切到管辖,封地 / 割据的州一直圈亮(管辖填色下圈亮是蓝色),旁边挂小牌子;离开这一页收起
@@ -42,6 +43,7 @@ import {
   armySay,
   courtEmpty,
   courtEvents,
+  courtLocks,
   courtRowNote,
   courtView,
   fiefFoot,
@@ -163,6 +165,7 @@ export function CourtPage({ civ, id, year }: { civ: Civ; id: number; year: numbe
   const events = useMemo(() => courtEvents(civ, v), [civ, v]);
   const last = events[0];
   const form = polityFormAt(civ, id, year);
+  const locks = useMemo(() => courtLocks(civ, id, year, v.rules), [civ, id, year, v]);
   return (
     <div className="cr-page fs-page ct-page" data-court={id}>
       <div className="cp-body">
@@ -182,13 +185,13 @@ export function CourtPage({ civ, id, year }: { civ: Civ; id: number; year: numbe
           )}
           <div className="ct-bars">
             <span className="ct-bk">征税</span>
-            <Seg names={TAX_SEGS} on={v.rules.tax} kind="levy" />
+            <Seg names={TAX_SEGS} on={v.rules.tax} kind="levy" locked={locks.tax} />
             <div className="ct-say">{levySay(v, era)}</div>
             <span className="ct-bk">兵制</span>
-            <Seg names={ARMY_SEGS} on={ruleSeg(v.rules.army)} kind="army" />
+            <Seg names={ARMY_SEGS} on={ruleSeg(v.rules.army)} kind="army" locked={locks.army} />
             <div className="ct-say">{armySay(civ, id, v, era)}</div>
             <span className="ct-bk">官制</span>
-            <Seg names={OFFICE_SEGS} on={ruleSeg(v.rules.office)} kind="office" />
+            <Seg names={OFFICE_SEGS} on={ruleSeg(v.rules.office)} kind="office" locked={locks.office} />
             <div className="ct-say">{officeSay(civ, id, v, era)}</div>
             <span />
             <div className="ct-axis">
@@ -196,6 +199,12 @@ export function CourtPage({ civ, id, year }: { civ: Civ; id: number; year: numbe
               <span>朝廷说了算</span>
             </div>
           </div>
+          {locks.note && (
+            <div className="ct-lock" data-court-lock>
+              <i />
+              {locks.note}
+            </div>
+          )}
         </div>
         <Fiefs civ={civ} id={id} v={v} onMap={() => showOnMap('fief')} />
         <section className="cp-sec" data-sec="lords">
@@ -239,12 +248,12 @@ export function CourtPage({ civ, id, year }: { civ: Civ; id: number; year: numbe
   );
 }
 
-/** 一条分段条:现在那档亮着(data-levy / data-army / data-office = 第几格) */
-function Seg({ names, on, kind }: { names: readonly string[]; on: number; kind: 'levy' | 'army' | 'office' }) {
+/** 一条分段条:现在那档亮着(data-levy / data-army / data-office = 第几格);还议不了的几档(locked)画斜纹 */
+function Seg({ names, on, kind, locked }: { names: readonly string[]; on: number; kind: 'levy' | 'army' | 'office'; locked: readonly number[] }) {
   return (
     <div className="ct-seg" {...{ [`data-${kind}`]: on }}>
       {names.map((t, i) => (
-        <span key={t} className={i === on ? 'on' : undefined}>
+        <span key={t} className={i === on ? 'on' : locked.includes(i) ? 'lock' : undefined}>
           {t}
         </span>
       ))}

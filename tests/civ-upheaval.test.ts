@@ -209,7 +209,8 @@ describe('地形大事 · 推演', () => {
     // 天灵的国都沉了,迁都
     const p = b.polities[f.polity];
     expect(capitalAt(p, Y - 1 / 256)).toBe(sunk[0].settlement);
-    expect(b.settlements[capitalAt(p, Y + 0.5)].ended).toBeUndefined();
+    // 迁去的新国都那一刻还在(后来亡于兵火的不算:GENERATOR_VERSION 48 以后新国都 1882 年被毁)
+    expect(b.settlements[capitalAt(p, Y + 0.5)].ended ?? Infinity).toBeGreaterThan(Y);
     const e = buildChronicle(b).find((x) => x.kind === 'upheaval')!;
     expect(e.tag).toBe('变');
     expect(e.importance).toBe(3);
