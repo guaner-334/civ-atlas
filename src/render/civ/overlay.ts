@@ -74,6 +74,8 @@ export interface CivDrawParams {
   cull?: readonly [number, number, number, number];
   /** 信仰图层:选中的信仰(宗教卡片开着),别的信仰变淡;不给 = 都是原色 */
   faithFocus?: number | null;
+  /** 深色底图(卫星图):商道用亮一点的紫(trade.ts) */
+  bright?: boolean;
   /**
    * 存档缩略图(App 的 thumbMaker,画结束那一年):色块、国界另存一份,不挤掉主图那一年正在用的;
    * 色块那张画完就放掉(缩略图一个世界截一次)

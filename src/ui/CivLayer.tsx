@@ -39,6 +39,7 @@ import { cancelDetailJob, detailAsync, submitDetailJob, type WorkStep } from './
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanvasBoxes, type CivMapLayer } from '../render/civ/labels';
 import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
 import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
+import { drawTradeLines, drawTradeNames, tradeShown } from '../render/civ/trade';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
@@ -152,6 +153,8 @@ export interface CivLayerProps {
   labelsHost?: HTMLElement | null;
   /** 放大后的文明细节层放在哪(屏幕层:地形细节层之上、这一层地图框之下;没有 = 不画细节层) */
   detailHost?: HTMLElement | null;
+  /** 深色底图(卫星图):商道用亮一点的紫 */
+  bright?: boolean;
   /**
    * 各国历代的旗(手绘风国都城堡插旗用;改旗、预览时跟着换)。由 App 和 civ 同一轮算好传进来,
    * 改名、重推时只画一遍(要是自己订阅 flagStore,会先按旧旗画一遍、旗到了再画一遍)
@@ -343,7 +346,7 @@ function useLateStop(moving: boolean): boolean {
   return moving || late;
 }
 
-export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, view, mp = null, labelsHost = null, detailHost = null, flags: flagsIn = null }: CivLayerProps) {
+export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, view, mp = null, labelsHost = null, detailHost = null, flags: flagsIn = null, bright = false }: CivLayerProps) {
   // 时间轴:画哪一年;回放 / 拖动时色块用半分辨率。流畅优先地播放时画的那一年隔一会儿才换(playQuality.ts)
   const time = useCivTime();
   const fast = time.playing || time.scrubbing;
@@ -415,8 +418,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const ok = fitsWorld(world, civ, base);
   // 底图(国土、国界、道路……)用原始 civ:改名不重画
   const params = useMemo<CivDrawParams | null>(
-    () => (ok && base ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null } : null),
-    [ok, world, raster, base, style, y, show, fast, faithFocus],
+    () => (ok && base ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null, bright } : null),
+    [ok, world, raster, base, style, y, show, fast, faithFocus, bright],
   );
   // 国名、城名、城镇符号:同一年、同样的开关,换成套了改名的 civ
   const mapParams = useMemo<CivDrawParams | null>(() => (params && civ ? { ...params, civ } : null), [params, civ]);
@@ -790,7 +793,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const items = mapLayer ? geoItems.concat(mapLayer.items) : geoItems;
     const marks = mapLayer?.marks ?? [];
     const wars = !!params && warsShown(params);
-    if ((!items.length && !marks.length && !wars && !badges?.length) || !extras || !fontsOk) return clear();
+    const trade = !!params && tradeShown(params);
+    if ((!items.length && !marks.length && !wars && !trade && !badges?.length) || !extras || !fontsOk) return clear();
     const t0 = performance.now();
     // 看得见的那块:地图框(已被 CSS 放大)和舞台(视口)的交集,换回地图框自己的坐标
     // (舞台换成视窗,地图框往右多算一份 —— 见 mapWrap.ts 的 visibleBox)
@@ -850,6 +854,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     }
     // 战线、双剑压在国界上、城镇符号和字底下
     const war = wars && params ? drawWarfare(ctx, params, lv, mp ? projector(mp) : null) : null;
+    // 商道的线压在国界、战线上,城镇符号和字底下;名字等字写完以后写
+    if (trade && params) drawTradeLines(ctx, params, lv, mp ? projector(mp) : null);
     drawSelectionLabels(ctx, placed, lv, sel, style, at);
     const capFlags: CapitalFlags | undefined =
       style === 'fantasy' && flags && flags.civ === civ && params
@@ -867,6 +873,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const fade = mapLayer?.sides.size && sideFadeFrom.current ? Math.min(1, (performance.now() - sideFadeFrom.current) / SIDE_FADE_MS) : 1;
     const fading = fade < 1 && placed.labels.some((l) => mapLayer!.sides.has(l.item));
     drawPlacedLabels(ctx, fading ? placed.labels.map((l) => (mapLayer!.sides.has(l.item) ? { ...l, alpha: l.alpha * fade } : l)) : placed.labels, lv);
+    if (trade && params) drawTradeNames(ctx, params, lv, mp ? projector(mp) : null, placed);
     // 信仰图层:圣城符号右上方一个这个教颜色的小圆点(符号没排上时按城的位置;压在界面下面的不画)
     if (params?.show.faiths && base) {
       const cx = (W / 2 - lv.ox) / lv.scale;

@@ -112,6 +112,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.seed': '3ff6de7b7854',
     'civ.settlements': '012a623b98ff',
     'civ.spreadYears': '61c69775ebc4',
+    'civ.trade': '67e7b84be790',
     'civ.viable': '139cfad50334',
   },
   7: {
@@ -158,6 +159,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.seed': '0096064c9137',
     'civ.settlements': 'e6e3160ed4c7',
     'civ.spreadYears': '3f4246767d58',
+    'civ.trade': '065945758565',
     'civ.viable': '139cfad50334',
   },
   555: {
@@ -204,6 +206,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.seed': '6b5deaaf6a3b',
     'civ.settlements': '8fce8ebdb62c',
     'civ.spreadYears': 'cd11167707e7',
+    'civ.trade': '3e7bb0a230df',
     'civ.viable': '139cfad50334',
   },
 };
