@@ -2,6 +2,7 @@
  * 世界的生成参数(滑条上的那些数)和默认值。生成总流程在 world.ts(那边照旧导出这两样);
  * 存档、网址、新建弹窗只用到参数本身,从这里拿,不用带上整套生成代码。
  */
+import { clamp } from './util';
 
 /**
  * 生成参数(滑条上的那些数)。世界是一整颗星球:东西无缝、有南北极,主图是等距圆柱投影
@@ -43,3 +44,11 @@ export const DEFAULT_PARAMS: WorldParams = {
   hardness: 1,
   north: 0,
 };
+
+/**
+ * 指定大陆块数时最多能长出几块(和 tectonics.ts 里定块数时的上限一样):板块太少、陆地太少时分不出那么多块。
+ * 新建弹窗的大陆数量按钮按它变灰,所以放在这里,不放在生成代码里
+ */
+export function continentCap(plates: number, landFraction: number): number {
+  return Math.max(1, Math.min(Math.floor(plates / 3), Math.floor((plates * clamp(landFraction * 1.3, 0.08, 0.92)) / 0.7)));
+}

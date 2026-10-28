@@ -10,8 +10,7 @@
  * 另有几样大家共用的零件:滑条的填色(南北偏向从正中往两边填)、大陆数量的分段按钮(自动 / 1–6)、大陆五样的默认值。
  */
 import { useEffect, useRef, useState } from 'react';
-import { continentCap } from '../gen/tectonics';
-import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
+import { DEFAULT_PARAMS, continentCap, type WorldParams } from '../gen/params';
 import type { SliderLike } from './genesisSliders';
 import './params.css';
 

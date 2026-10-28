@@ -42,7 +42,11 @@
  */
 import type { Civ, Polity, PolityLineage, PopulationAt, Regions, Settlement, Year } from './types';
 import { fexp, flog, fpow } from './rand';
-import { KM_PER_UNIT, REF_CELLS } from './geo';
+import { KM_PER_UNIT, REF_CELLS } from './scale';
+import { polityRootAt } from './polityRoot';
+
+// 某一年是第几朝、那年的国名词根在 polityRoot.ts(存档里的改名只用得到这几样);原来从这里 import 的照旧能用
+export { dynastyAt, dynastyIndexAt, polityRootAt } from './polityRoot';
 
 /** S 形成长的初值比:建城那年人口 = 上限 ÷ (1 + GROWTH_A) */
 export const GROWTH_A = 40;
@@ -531,33 +535,6 @@ function splitRoot(root: string): [boolean, string] {
 export function easternTitles(root: string, lineage: PolityLineage = 'realm'): Titles {
   const [single, core] = splitRoot(root);
   return EASTERN_FORMS[lineage === 'khanate' ? 'khanate' : 'realm'](root, single, core);
-}
-
-/**
- * 某一年是第几朝(Polity.dynasties 的下标,改朝换代那一刻起算新朝;没改朝换代过 = 0)。
- * 年份早于立国 = 第一朝
- */
-export function dynastyIndexAt(p: Polity, year: Year): number {
-  const d = p.dynasties;
-  if (!d || d.length < 2) return 0;
-  let i = 0;
-  while (i + 1 < d.length && d[i + 1].year <= year) i++;
-  return i;
-}
-
-/** 某一年的那一朝(没改朝换代过 = undefined) */
-export function dynastyAt(p: Polity, year: Year): { year: Year; name: string; seat: number } | undefined {
-  const d = p.dynasties;
-  return d && d.length ? d[dynastyIndexAt(p, year)] : undefined;
-}
-
-/**
- * 某一年的国名词根:东方语感按当朝(改朝换代后换国号:"昌" → "景");西幻语感国名不变(王室换了,国名照旧)。
- * 新朝还没起名(推演中途)= 原词根
- */
-export function polityRootAt(p: Polity, year: Year): string {
-  if (!p.eastern || !p.dynasties || p.dynasties.length < 2) return p.name;
-  return p.dynasties[dynastyIndexAt(p, year)].name || p.name;
 }
 
 /**

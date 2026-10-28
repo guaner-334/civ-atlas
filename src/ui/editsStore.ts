@@ -42,9 +42,9 @@ import {
   type Upheaval,
   type WorldEdits,
 } from '../gen/edits';
-import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainEdits';
+import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, cleanTerrainOp, cleanUpheaval } from '../gen/terrainOps';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchImage, cleanSketchStroke, encodeLayer, sketchCoast, sketchFill, type SketchEdit, type SketchFill, type SketchStroke } from '../gen/sketch';
-import { PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, type PlateImage, type PlateOp } from '../gen/plateEdits';
+import { PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, type PlateImage, type PlateOp } from '../gen/plateOps';
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';

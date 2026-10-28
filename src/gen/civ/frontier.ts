@@ -13,7 +13,7 @@
  */
 import { Biome } from '../biomes';
 import { fpow } from './rand';
-import { TERRAIN_H, TERRAIN_W } from '../terrainEdits';
+import { TERRAIN_H, TERRAIN_W } from '../terrainOps';
 import type { World } from '../world';
 import type { Regions } from './types';
 

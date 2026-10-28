@@ -25,7 +25,8 @@ import { classifyBiome } from './biomes';
 import { SEA_ICE_MIN, seaIceNodes, seaIcePixels } from './seaice';
 import { Gullies, gullyHeights, type GullyInput } from './gully';
 export { gullyHeights } from './gully';
-import { smoothstep, subSeed, tileableFbm } from './util';
+import { smoothstep, subSeed } from './util';
+import { tileableFbm } from './noise';
 // 河谷要正好落在画出来的河下面,所以直接用画河的同一套几何(纯计算,不碰页面,worker / Node 都能跑)
 import { bankBytes, carveValleys, valleyLines } from './valleys';
 export { bankBytes, carveValleys, valleyLines, type ValleyLines } from './valleys';
