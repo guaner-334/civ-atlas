@@ -46,6 +46,7 @@ import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } fr
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../gen/civ/peopleText';
 import { REGENCY_END, REGENCY_VERB, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
+import { heOrShe, kinWord, wedVerb } from '../gen/civ/gender';
 import { treatyBook } from '../gen/civ/treatyInfo';
 import { fullChronicle } from '../gen/civ/religionText';
 import { diedAbroad, diedInExile, exileHostName, exileReturns, exileTieText, treatyEntries } from './treatyRows';
@@ -63,6 +64,8 @@ import { newCharacterDraft } from './characterStore';
 import { charactersOfPerson } from './characterInfo';
 import { CharAvatar, CharacterRefs } from './CharacterPanel';
 import type { AuthorCharacter } from '../gen/characters';
+import type { PersonCard } from '../ai/prompts/lives';
+import { LifeMenuItem } from './lifeMenu';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import { NameEdit } from './NameEdit';
@@ -78,6 +81,7 @@ import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
 import { leaningsThen, marryChoice, moodSince, personIvRange, regentChoice, rulerOnThrone } from './newIvInfo';
 import { MarryIvPage, RegentIvPage } from './RegentIvPage';
 import { ReignRecord } from './ReignRecord';
+import { reignRecord, reignText } from '../gen/civ/reignRecord';
 import './policy.css';
 import './newIv.css';
 
@@ -227,6 +231,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
     if (ruler && x.leanings) out.push(`倾向：${leaningsText(x.leanings)}`);
     if (bio) out.push('', `生平：${bio}`);
+    const reign = ruler ? reignRecord(civ, x, era) : null;
+    if (reign) out.push('', ...reignText(reign));
     if (events.length) out.push('', `${head}：`, ...events.map((e) => `${yearShort(e.year, era)} ${eraText(e.text.replace(/^【(?:干预|照大纲)】/, ''), era)}`));
     const text = out.join('\n');
     (window as unknown as { __wfPersonText: string }).__wfPersonText = text;
@@ -310,22 +316,22 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         <MoreAct>
           {canDie && (
             <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-death" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'death' })}>
-              让他去世…
+              让{heOrShe(x)}去世…
             </MenuItem>
           )}
           {onThrone && (
             <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-temper" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'temper' })}>
-              改他的倾向…
+              改{heOrShe(x)}的倾向…
             </MenuItem>
           )}
           {canRule && (
             <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-regent" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'regent' })}>
-              让他掌权…
+              让{heOrShe(x)}掌权…
             </MenuItem>
           )}
           {canWed && (
             <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-marry" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'marry' })}>
-              为他联姻…
+              为{heOrShe(x)}联姻…
             </MenuItem>
           )}
           {nameKey && (
@@ -334,8 +340,9 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </MenuItem>
           )}
           <MenuItem icon={<Icon name="person" size={16} />} act="person-add-character" onClick={() => newCharacterDraft({ kin: [{ rel: '', person: personKey(civ, id) }], year })}>
-            加一个和他有关的人物
+            加一个和{heOrShe(x)}有关的人物
           </MenuItem>
+          {name && <LifeMenuItem civ={civ} scope={{ kind: 'person', person: id }} />}
         </MoreAct>
       </Acts>
       <div className="cp-body">
@@ -429,8 +436,8 @@ function Leanings({ civ, x, l, year, over, onEdit, locked }: { civ: Civ; x: Pers
   const since = moodSince(x, t);
   const [orig, setOrig] = useState(false);
   const shownL = since !== null && !orig ? (leaningsThen(x, t) ?? l) : l;
-  const rows = leanRows(shownL, v);
-  const peace = peaceRow(v);
+  const rows = leanRows(shownL, v, x);
+  const peace = peaceRow(v, x);
   const P = civ.polities[x.polity];
   const pol = v && P && (
     <button className="ins-link cp-more" data-act="person-policy" onClick={() => (locked ? setSelection({ kind: 'polity', id: x.polity }) : openPolicyPage(civ, x.polity))}>
@@ -447,7 +454,7 @@ function Leanings({ civ, x, l, year, over, onEdit, locked }: { civ: Civ; x: Pers
           </button>
         )}
         {onEdit && (
-          <button className="ins-link cp-more" data-act="person-temper-edit" disabled={locked} title={locked ? ROLE_LOCK_NOTE : '改他的倾向'} onClick={onEdit}>
+          <button className="ins-link cp-more" data-act="person-temper-edit" disabled={locked} title={locked ? ROLE_LOCK_NOTE : `改${heOrShe(x)}的倾向`} onClick={onEdit}>
             改
           </button>
         )}
@@ -590,7 +597,7 @@ function heldLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
     const end = (g.end && REGENCY_END[g.end]) || '';
     if (g.kind === 'march' || g.kind === 'heir') {
       const kin = N ? kinOf(civ, x, N) : '';
-      const t = [verb, `${kin === '父' ? '父亲' : kin || '君主'}在位时`].filter(Boolean).join('，');
+      const t = [verb, `${kin === '父' || kin === '母' ? `${kin}亲` : kin || '君主'}在位时`].filter(Boolean).join('，');
       return { node: <>{years}<em className="cp-num-note">{t}</em></>, text: `${years}（${t}）` };
     }
     const nm = N ? personName(civ, N) : '';
@@ -649,12 +656,12 @@ function heldOverLine(civ: Civ, r: Person, hs: readonly Held[], era: Era | undef
  * 宗室女一行(不成完整人物,不能点):「配偶」"风氏  大澜德宗之女，2610 年娶"(议和时结的写"和亲");「母亲」不写年份。
  * 国名是简称、能点;她父亲没有人物的写"大澜宗室女";没有姓的语感写"大澜公主"
  */
-function brideLine(k: string, civ: Civ, list: readonly PersonSpouse[], era: Era | undefined, when: boolean): Line {
+function brideLine(k: string, civ: Civ, x: Person, list: readonly PersonSpouse[], era: Era | undefined, when: boolean): Line {
   const items = list.map((s) => {
     const F = s.father >= 0 ? civ.people?.[s.father] : undefined;
     const short = polityShort(civ, s.polity, s.year);
     const who = F ? `${rulerBare(civ, F, s.year)}之女` : '宗室女';
-    const tail = when ? `，${yearAt(s.year, era)}${s.peace !== undefined ? '和亲' : '娶'}` : '';
+    const tail = when ? `，${yearAt(s.year, era)}${s.peace !== undefined ? '和亲' : wedVerb(x)}` : '';
     const name = brideName(civ, s);
     return {
       node: (
@@ -752,10 +759,10 @@ function kinLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
   const f = fatherOf(civ, x);
   if (f) {
     const away = f.polity !== x.polity ? polityName(civ.polities[f.polity], Math.min(x.from ?? x.born, f.until ?? Infinity) - 1 / 512) : '';
-    out.push(personRow(x.adopted ? '养父' : '父亲', civ, f, [f.role === 'prince' ? '未即位' : '', away].filter(Boolean).join('，')));
+    out.push(personRow(kinWord(f, x.adopted ? '养父' : '父亲'), civ, f, [f.role === 'prince' ? '未即位' : '', away].filter(Boolean).join('，')));
   }
-  if (x.mother) out.push(brideLine('母亲', civ, [x.mother], era, false));
-  if (x.spouses?.length) out.push(brideLine('配偶', civ, x.spouses, era, true));
+  if (x.mother) out.push(brideLine('母亲', civ, x, [x.mother], era, false));
+  if (x.spouses?.length) out.push(brideLine('配偶', civ, x, x.spouses, era, true));
   const ks = kidsOf(civ, x);
   if (ks.length) out.push({ k: '子嗣', ...kidsLine(civ, ks) });
 }
@@ -852,7 +859,8 @@ function princeLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
   else if (x.fate === 'purged') out.push({ k: '结局', node: `${lost}${died}`, text: `${lost}${died}` });
   const r = x.fate === 'purged' && x.rival !== undefined ? civ.people?.[x.rival] : undefined;
   if (r) {
-    const how = ousted ? '亲政后诛之' : ({ coup: '杀他即位', intrigue: '谮杀他得立', usurp: '杀他自立', revolt: '他拥兵争位，兵败被杀', march: '引兵还朝杀他' }[r.claim?.how as string] ?? '杀他即位');
+    const he = heOrShe(x);
+    const how = ousted ? '亲政后诛之' : ({ coup: `杀${he}即位`, intrigue: `谮杀${he}得立`, usurp: `杀${he}自立`, revolt: `${he}拥兵争位，兵败被杀`, march: `引兵还朝杀${he}` }[r.claim?.how as string] ?? `杀${he}即位`);
     out.push(personRow('对手', civ, r, [kinOf(civ, x, r), how].filter(Boolean).join('，')));
   }
 }
@@ -1123,4 +1131,23 @@ export function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
   const mine = all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.id >= c.first && e.id <= c.last && civ.annals[e.id]?.war === c.war));
   if (mine.length) return mine;
   return all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.year >= c.from - eps && e.year <= c.until + eps));
+}
+
+/**
+ * AI 写列传、家传要的人物卡(ai/prompts/lives.ts 的 PersonCard;经 lifeSource.ts 交给写书的那一套):
+ * 概况一行一项、倾向、生平,在位 / 在朝 / 领兵时本国的事连同掌权、联姻、放逐那几条。年份照推演写("2325–2354 年"),不按纪年
+ */
+export function personCard(civ: Civ, x: Person): PersonCard {
+  const lines = personLines(civ, x, undefined).map(({ k, text }) => ({ k, text }));
+  const exile = x.exile ? polityEntries(civ, x.polity).filter((e) => e.kind === 'exile' && e.id === x.exile!.annal) : [];
+  const seen = new Set<string>();
+  const events = [...personEvents(civ, x), ...heldEvents(civ, x), ...marryEvents(civ, x), ...exile]
+    .filter((e) => {
+      const k = `${e.kind}:${e.id}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a.year - b.year || a.id - b.id);
+  return { lines, leanings: x.role === 'ruler' && x.leanings ? leaningsText(x.leanings) : '', bio: personBio(civ, x), events };
 }

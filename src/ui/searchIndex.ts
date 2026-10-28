@@ -15,7 +15,7 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cultureLabel } from '../gen/civ/display';
 import { capitalAt, polityAlive, polityName, populationAt } from '../gen/civ/growth';
 import { personFame, personSpan } from '../gen/civ/peopleInfo';
-import { generalRole, ministerRole, personName, rulerRole, rulerShort } from '../gen/civ/peopleText';
+import { generalRole, ministerRole, personName, rulerRole, rulerShort, rulerTitle } from '../gen/civ/peopleText';
 import { faithCounts } from '../gen/civ/religion';
 import type { AuthorMark } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
@@ -220,7 +220,7 @@ export function searchCiv(
     const forms = [personName(civ, x), x.name];
     if (x.role === 'ruler') {
       forms.push(rulerShort(civ, x));
-      if (x.title) forms.push(x.title);
+      if (x.title) forms.push(rulerTitle(civ, x));
     }
     const m = best(forms, q);
     if (m < 0) continue;
