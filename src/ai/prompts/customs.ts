@@ -4,14 +4,16 @@
  * 历史改写过(干预、改地形)以后标"写于历史改写前"(customsStamp 对不上)。
  */
 import type { Civ } from '../../gen/civ/types';
+import type { ChronicleEntry } from '../../gen/civ/chronicle';
 import { BIOMES } from '../../gen/biomes';
 import { KIND_INFO, cultureLabel, regionLabel } from '../../gen/civ/display';
 import { polityName, populationLabel } from '../../gen/civ/growth';
 import { cultureTraits } from '../../gen/civ/cultureTraits';
 import { cultureKey } from '../../gen/edits';
 import { evText } from '../../ui/timelineLayout';
-import { cultureBranches, cultureEntries, cultureNow, cultureShownYear, cultureWaves, waveText } from '../../ui/cultureInfo';
-import { ownersAt } from '../../gen/civ/timeline';
+import { cultureBranches, cultureEntries, cultureNow, culturePopSeries, cultureShownYear, cultureWaves, waveText } from '../../ui/cultureInfo';
+import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { faithAt } from '../../gen/civ/religion';
 import { nameStamp, styleGuide } from './names';
 import type { AiMessage, AiRequest } from '../types';
 import type { ScanOptions } from '../realWords';
@@ -50,19 +52,41 @@ function hash(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+/** 风俗的指纹(按整段历史、民族缓存:卡片每画一次都要对一下) */
+const stampCache = new WeakMap<object, Map<number, string>>();
+
 /**
- * 风俗的指纹:改名不变,历史改写 / 改地形才变 —— 族名由来那一份(出现、发源、迁徙)加上这一族整段历史里的大事
- * (迁徙、大迁徙、同化、分化、消亡,和本族之国的兴亡)
+ * 风俗的指纹:改名不变,历史改写 / 改地形才变 —— 族名由来那一份(出现、发源、迁徙),这一族整段历史里的大事
+ * (迁徙、大迁徙、同化、分化、消亡,本族之国的兴亡),每一百年住哪几州、归哪国(按国都的地块认)、信什么、多少人
+ * (材料里"住在哪、信什么、多少人"都从这几样来:干预把一州划给别国、天灾少了人,指纹都跟着变)
  */
 export function customsStamp(civ: Civ, id: number): string {
-  const A = civ.history?.annals ?? civ.annals;
+  const full = civ.history ?? civ;
+  let m = stampCache.get(full.log);
+  if (!m) stampCache.set(full.log, (m = new Map()));
+  const hit = m.get(id);
+  if (hit !== undefined) return hit;
+  const A = full.annals;
   const parts: string[] = [];
   for (const a of A) {
     if ((a.kind === 'migrate' || a.kind === 'assimilate' || a.kind === 'vanish' || a.kind === 'diverge') && (a.a === id || a.b === id)) parts.push(`${a.kind}${Math.floor(a.year)}:${a.region}`);
     else if (a.kind === 'trek' && a.a === id) parts.push(`trek${Math.floor(a.year)}:${a.n ?? ''}`);
-    else if ((a.kind === 'found' || a.kind === 'fall') && civ.polities[a.a]?.culture === id) parts.push(`${a.kind}${Math.floor(a.year)}`);
+    else if ((a.kind === 'found' || a.kind === 'fall') && full.polities[a.a]?.culture === id) parts.push(`${a.kind}${Math.floor(a.year)}`);
   }
-  return `${nameStamp(civ, { kind: 'culture', id })}|${hash(parts.join(','))}`;
+  const capCell = (q: number) => (q >= 0 && full.polities[q] ? (full.settlements[full.polities[q].capital]?.cell ?? -1) : -1);
+  let own: Owners | undefined;
+  let faith: Int16Array | undefined;
+  for (let y = 0; y <= full.endYear; y += 100) {
+    own = ownersAt(full, y, own);
+    faith = full.religion ? faithAt(full, y, faith) : undefined;
+    const rs: string[] = [];
+    for (let r = 0; r < full.regions.count; r++) if (own.culture[r] === id) rs.push(`${r}>${capCell(own.polity[r])}/${faith ? faith[r] : -1}`);
+    parts.push(rs.join(','));
+  }
+  parts.push(culturePopSeries(full, id).map((p) => Math.round(p)).join(','));
+  const out = `${nameStamp(full, { kind: 'culture', id })}|${hash(parts.join(';'))}`;
+  m.set(id, out);
+  return out;
 }
 
 /** 写风俗的材料(时间轴停在 year:按那一年的样子写;已消亡的按消亡前) */
@@ -121,9 +145,19 @@ export function cultureMaterial(civ: Civ, id: number, year: number): CustomsMate
   const events = cultureEntries(civ, id).filter((e) => e.year <= y + 1e-6);
   if (events.length) {
     lines.push('', '【和这一族有关的大事(最近几条)】');
-    for (const e of events.slice(-EVENTS)) lines.push(`- 第 ${Math.floor(e.year)} 年 ${evText(e)}`);
+    for (const e of events.slice(-EVENTS)) lines.push(`- 第 ${Math.floor(e.year)} 年 ${eventUpTo(e, y)}`);
   }
   return { id, shown: cultureLabel(cu), year: y, lines, stamp: customsStamp(civ, id) };
+}
+
+/**
+ * 一条大事写到 y 年为止:折叠的条目(一场仗、一次大迁徙)到 y 年还没完的,只写到 y 年为止发生的那几件
+ * (标题写的是结局,不能当成那一年已经有的事)
+ */
+export function eventUpTo(e: ChronicleEntry, y: number): string {
+  if (!e.children?.length || e.end <= y + 1e-6) return evText(e);
+  const done = e.children.filter((c) => c.year <= y + 1e-6);
+  return done.length ? done.map((c) => evText(c)).join(';') : evText(e.children[0]);
 }
 
 export function customsSystem(): string {

@@ -65,7 +65,10 @@ interface Series {
 }
 const seriesCache = new WeakMap<object, Series>();
 
-/** 各族每一百年的人口;同一份历史只算一次(改名不重算) */
+/**
+ * 各族每一百年的人口;同一份历史只算一次(改名不重算)。按整段历史那一份算(Civ.history:地图上看的是地形大事以前那一段时,
+ * 那一段的州少,后来冒出来的州也要算进去;先在哪一段打开都一样)
+ */
 function series(civ: Civ): Series {
   const hit = seriesCache.get(civ.log);
   if (hit && hit.pop.length === hit.years.length * civ.cultures.length) return hit;
@@ -87,6 +90,13 @@ function series(civ: Civ): Series {
   return out;
 }
 
+/** 这一族每一百年的人口(整段历史;风俗的指纹用) */
+export function culturePopSeries(civ: Civ, id: number): number[] {
+  const s = series(civ.history ?? civ);
+  const N = s.years.length;
+  return Array.from(s.pop.subarray(id * N, (id + 1) * N));
+}
+
 /**
  * 小柱图的数:出现以后每一百年一根(多于 SPARK_MAX 根的从这一年往前隔一根取一根),最后一根是 year 这一年(now = 这一年的人口);
  * 已消亡的到消亡前为止
@@ -94,7 +104,7 @@ function series(civ: Civ): Series {
 export function cultureSpark(civ: Civ, id: number, year: number, now: number): { year: number; pop: number }[] {
   const cu = civ.cultures[id];
   if (!cu || cu.unborn || year < cu.born) return [];
-  const s = series(civ);
+  const s = series(civ.history ?? civ);
   const N = s.years.length;
   const out: { year: number; pop: number }[] = [];
   for (let i = 0; i < N; i++) {

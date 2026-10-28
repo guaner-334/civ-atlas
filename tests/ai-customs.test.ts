@@ -9,7 +9,8 @@ import { KIND_INFO, cultureLabel, regionLabel } from '../src/gen/civ/display';
 import { polityName, populationLabel } from '../src/gen/civ/growth';
 import { cultureTraits } from '../src/gen/civ/cultureTraits';
 import { applyNames, cultureKey } from '../src/gen/edits';
-import { CUSTOMS_CHARS, cleanCustoms, cultureMaterial, customsNoteKey, customsRequest, customsScan, customsStamp } from '../src/ai/prompts/customs';
+import { CUSTOMS_CHARS, cleanCustoms, cultureMaterial, customsNoteKey, customsRequest, customsScan, customsStamp, eventUpTo } from '../src/ai/prompts/customs';
+import type { ChronicleEntry } from '../src/gen/civ/chronicle';
 import { cultureEntries, cultureNow, cultureShownYear, cultureWaves, waveText } from '../src/ui/cultureInfo';
 import { scanRealWords } from '../src/ai/realWords';
 
@@ -79,7 +80,7 @@ describe.each([7, 2024])('风俗的材料 · seed=%i', (seed) => {
       const evs = m.lines.filter((l) => /^- 第 \d+ 年 /.test(l));
       const all = cultureEntries(civ, cu.id).filter((e) => e.year <= y);
       expect(evs.length).toBe(Math.min(8, all.length));
-      for (const l of evs) expect(all.some((e) => l === `- 第 ${Math.floor(e.year)} 年 ${e.text}`)).toBe(true);
+      for (const l of evs) expect(all.some((e) => l === `- 第 ${Math.floor(e.year)} 年 ${eventUpTo(e, y)}`)).toBe(true);
       // 写到的年份都是真有的
       const ys = realYears(civ, cu.id, y);
       for (const mm of text.replace(/^- 第 \d+ 年 .*$/gm, '').matchAll(/第 (\d+)(?:–(\d+))? 年/g)) {
@@ -106,10 +107,11 @@ describe.each([7, 2024])('风俗的材料 · seed=%i', (seed) => {
     expect(scanRealWords(scan.material, scan)).toEqual([]);
   });
 
-  it('改名不算历史改写;存的键跟着民族的稳定键', () => {
+  it('改名不算历史改写;存的键跟着民族的稳定键;各族的指纹各不相同', () => {
     const cu = alive[0];
     const renamed = applyNames(civ, { [cultureKey(civ, cu.id)]: '测试' });
     expect(customsStamp(renamed, cu.id)).toBe(customsStamp(civ, cu.id));
+    expect(new Set(alive.map((c) => customsStamp(civ, c.id))).size).toBe(alive.length);
     expect(customsNoteKey(renamed, cu.id)).toBe(`风俗:${cultureKey(civ, cu.id)}`);
     expect(cultureMaterial(renamed, cu.id, y)!.lines[0]).toBe('民族:测试族');
   });
@@ -123,6 +125,21 @@ describe.each([7, 2024])('风俗的材料 · seed=%i', (seed) => {
     }
     const unborn = civ.cultures.find((c) => c.unborn);
     if (unborn) expect(cultureMaterial(civ, unborn.id, y)).toBeNull();
+  });
+});
+
+describe('折叠的大事写到那一年为止', () => {
+  const kid = (year: number, text: string): ChronicleEntry => ({ id: year, kind: 'migrate', year, end: year, text, tag: '徙', importance: 2, polities: [], regions: [], settlement: -1 });
+  const trek: ChronicleEntry = {
+    ...kid(1000, '某族一支举族西徙,过甲州,据乙州等三州,立某国'),
+    end: 1030,
+    children: [kid(1000, '某族分出一支约三成,自丙州西去'), kid(1010, '过甲州,掠之'), kid(1030, '据乙州等三州,立某国')],
+  };
+  it('那一年还没完的只写已经发生的几件;完了的照写标题', () => {
+    expect(eventUpTo(trek, 1015)).toBe('某族分出一支约三成,自丙州西去;过甲州,掠之');
+    expect(eventUpTo(trek, 1000)).toBe('某族分出一支约三成,自丙州西去');
+    expect(eventUpTo(trek, 1030)).toBe(trek.text);
+    expect(eventUpTo(kid(900, '一件事'), 950)).toBe('一件事');
   });
 });
 

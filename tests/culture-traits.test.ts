@@ -170,6 +170,13 @@ describe.each([7, 2024])('真世界 · seed=%i', (seed) => {
         expect(r!.facts.regions).toBe(n);
       }
       expect(cultureTraits(civ, cu.id, y)).toEqual(r);
+      // 圣城算在段末住在那一州的民族头上(城的 culture 是建城时的,不一定还是)
+      if (r!.facts.holy && cu.ended === undefined) {
+        const f = civ.religion!.faiths.find((x) => x.kind === 'great' && x.name === r!.facts.holy)!;
+        const s = civ.settlements[f.holy!];
+        expect(own.culture[s.region]).toBe(cu.id);
+        expect(s.ended === undefined || s.ended > y).toBe(true);
+      }
       any += r!.traits.length;
     }
     expect(any).toBeGreaterThan(0);

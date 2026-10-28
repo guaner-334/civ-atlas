@@ -96,7 +96,7 @@ export interface CultureFacts {
   // 敬神
   /** 住的州里信大教(含教派)的几成 */
   great: number;
-  /** 圣城在本族城里的大教(这段时间以前就有的) */
+  /** 圣城在本族住的州里的大教(段末那座城还在、那一州住的是本族) */
   holy: string;
   /** 这段时间在本族之国分出的教派:教名、年份、国名 */
   sect: { name: string; year: number; polity: string } | null;
@@ -124,6 +124,8 @@ const COL_MARKET = BOOK_COLS.indexOf('市税');
 /** 一段时间里各族的数(按民族编号);worldFacts 算一次缓存起来 */
 interface WorldFacts {
   key: string;
+  /** 段末各州住的民族 */
+  culture: Int16Array;
   regions: Int32Array;
   conquests: Int32Array;
   conquestsAvg: number;
@@ -258,6 +260,7 @@ function worldFacts(civ: Civ, win: TraitWindow): WorldFacts {
 
   const out: WorldFacts = {
     key,
+    culture: own.culture,
     regions,
     conquests,
     conquestsAvg: alive ? conqSum / alive : 0,
@@ -299,8 +302,10 @@ export function cultureFacts(civ: Civ, id: number, win: TraitWindow): CultureFac
   let holy = '';
   let sect: CultureFacts['sect'] = null;
   for (const f of rel?.faiths ?? []) {
+    // 圣城那座城段末还在、它那一州段末住的是本族(城的 culture 是建城时的民族,后来那一州可能改了族)
     if (f.kind === 'great' && f.holy !== undefined && (f.founded ?? 0) <= y && !holy) {
-      if (civ.settlements[f.holy]?.culture === id) holy = f.name;
+      const s = civ.settlements[f.holy];
+      if (s && s.founded <= y && (s.ended === undefined || s.ended > y) && s.region >= 0 && w.culture[s.region] === id) holy = f.name;
     }
     if (f.kind === 'sect' && f.polity !== undefined && f.founded !== undefined && f.founded >= win.from && f.founded <= y) {
       const p = civ.polities[f.polity];
