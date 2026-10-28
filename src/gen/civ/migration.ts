@@ -38,14 +38,22 @@
  *     迁来的国亡于这一仗 = 败散,落脚的几州留下一块异族。
  *   之后照常:迁来的国照常打仗、分合、同化;统治民族在本国是少数时被同化得快(assimilation.ts 的 TREK_*)。
  *
+ * **作者下令**(干预,interventions.ts 在 from 那一刻调 TrekModel.order;字段见 gen/edits.ts 的干预表):
+ *   大迁徙 trek:那一刻这一族分出一支,不看推不推得动、全世界同时几支在路上、这个世界走过几次、这一族多久前走过(Migration.iv = 第几条干预)。
+ *     出发:作者给的那一州那一刻还是这一族的,只从它出发(本族的州也走得过);不然和推演自己起的一样从本族离目的地最近的一州走。
+ *     往哪去:指定一州 = 陆路走得到就去(多远都行);推演挑 = 和"看大迁徙"同一套"值",只是远近换成 REACH 的那一档。
+ *     走不成记 intervene(b = IV_NO_WAY);这一族那一刻已消亡 b = −3;走了 b = −1(region / settlement = 目的地那州和它的城),紧跟着记 trek n = 0。
+ *     史事 intervene 的 a = −1(不是国家),**民族在 Annal.n**。为什么走照"看大迁徙"的推算(没有推力的写老家挤)。
+ *   不许迁 stay:看大迁徙时,生效期里的这一族不在候选里(InterventionModel.stays)。已经在路上的照走;作者下令的照走。
+ *
  * **接着推**:Civ.migrations 里记着每一次的路线、年份和结局;还在路上的照记下的年份补上没走完的几步(动身那一刻一起预约的),
  *   开的那一仗由 Migration.war 认;看大迁徙的时刻由"第几次"算出来(resumeMigration)。
  * 随机数:keyed(subSeed(seed, 'civ-trek'), 第几次 / 民族的发源州 / 州的治所…, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
 import { Biome } from '../biomes';
 import type { World } from '../world';
-import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
+import { regionOfKey, type Intervention, type TrekReach } from '../edits';
 import { AdjKind, Layer, type Civ, type Culture, type Migration, type MigrationDir, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './rand';
 import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
@@ -56,6 +64,8 @@ import { unrestModelOf } from './unrest';
 import { HOLD, assimModelOf } from './assimilation';
 import { devModelOf } from './development';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
+import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } from './trekRoute';
+import type { InterventionModel } from './interventions';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */
@@ -107,8 +117,7 @@ const ODDS = 0.06;
 const HALF = 0.3;
 const PACE_YEARS = 600;
 const PACE_W = 3;
-/** 走一州要几年(× 地形,再 ± STEP_JITTER 随机) */
-const STEP_YEARS = 1;
+/** 走一州的年数(trekRoute.ts 的 trekPace)再 ± STEP_JITTER 随机 */
 const STEP_JITTER = 0.25;
 /** 路上洗劫:有城的州每州的机会、部落地带打的折、人口掉几成 */
 const RAID_P = 0.35;
@@ -132,6 +141,15 @@ const GRAB_MAX = 10;
 const SHATTER_0 = 0.25;
 const SHATTER_U = 0.3;
 const SHATTER_K = 1 << 22;
+/**
+ * 作者下令"推演挑"时走多远(干预 trek 的 reach):[几州远起值不打折, 最远几州, 最近几州]。
+ * 中 = 推演自己起的那样;远只有下令才有(横穿大陆)
+ */
+const REACH: Record<TrekReach, readonly [number, number, number]> = {
+  near: [HOPS_FLOOR, HOPS_MIN, 2],
+  mid: [HOPS_MIN, HOPS_MAX, HOPS_FLOOR],
+  far: [HOPS_MAX, 2 * HOPS_MAX, HOPS_MIN],
+};
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -149,19 +167,6 @@ const biomeSet = (list: number[]) => {
 };
 /** 发源在这些地方的民族会迁:苔原、针叶林(寒地) */
 const COLD = biomeSet([Biome.Tundra, Biome.Taiga]);
-/** 走一州的地形系数:草原荒漠快,林地、湿地慢 */
-const PACE: readonly number[] = (() => {
-  const c = new Array<number>(16).fill(1);
-  c[Biome.Steppe] = c[Biome.ColdDesert] = c[Biome.TemperateDesert] = c[Biome.HotDesert] = c[Biome.Savanna] = 0.7;
-  c[Biome.TemperateForest] = c[Biome.TropicalDryForest] = 1.2;
-  c[Biome.Taiga] = c[Biome.TemperateRainforest] = c[Biome.Rainforest] = c[Biome.Wetland] = 1.5;
-  c[Biome.Tundra] = 1.2;
-  return c;
-})();
-/** 高山(海拔超过这么多)再慢 HIGH_PACE 倍;翻山再加 CLIMB 年 */
-const HIGH_ELEV = 1500;
-const HIGH_PACE = 1.5;
-const CLIMB = 0.8;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -176,7 +181,17 @@ export interface TrekModel {
   list: Migration[];
   /** 到了以后开的那一仗:战争编号 → 第几次大迁徙 */
   wars: Map<number, number>;
+  /** 作者下令的大迁徙(干预 trek,interventions.ts 在那一刻调用;史事 intervene 也在这里记) */
+  order?: (v: TrekIv, i: number, t: Year, iv: InterventionModel) => void;
+  /**
+   * 下令"推演挑"会去哪:民族 c 此刻按 reach 那一档、从 start 出发(−1 = 本族各州一起往外)找走得到的地方里值最高的那一州
+   * (没有 = target −1;hops = 几州远)。out = 各候选州的值(测试用)
+   */
+  pick?: (c: number, t: Year, reach: TrekReach, start: number, out?: Map<number, number>) => { target: number; why: Migration['pull']; hops: number };
 }
+
+/** 干预:大迁徙 */
+export type TrekIv = Extract<Intervention, { kind: 'trek' }>;
 
 function newModel(pm: PolityModel, wm: WarModel, pol: PoliticsModel, world: World, list: Migration[]): TrekModel {
   return { pm, wm, pol, base: subSeed(pm.seed, 'civ-trek'), geo: geometryOf(world.mesh), list, wars: new Map() };
@@ -259,7 +274,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
   const folkTag = (c: number) => reg.seat[Math.min(R - 1, Math.max(0, cultures[c].hearth))];
   /** 第 m 次大迁徙的位置锚:民族 + 动身那一刻 */
   const trekTag = (m: number) => folkTag(list[m].culture) * 64 + (Math.round(list[m].year * 256) & 63);
-  const land = (kind: number) => kind === AdjKind.Flat || kind === AdjKind.River || kind === AdjKind.Mountain;
+  const land = trekLand;
 
   /**
    * 落脚的州改换成迁来的民族(日志原因 Ev.TrekSettle)。HOLD 年内刚改换过民族的州不改(不闪烁),
@@ -298,55 +313,14 @@ function hook(sim: CivSim, tm: TrekModel): void {
     return { v, why };
   };
 
-  // ---- 找路:从本族各州出发,陆路往外,按走的年数(地形)最短 ----
-  const dist = new Float64Array(R);
-  const hops = new Int32Array(R);
-  const from = new Int32Array(R);
-  const done = new Uint8Array(R);
-  const heap = new MinHeap(256);
-  /** 走进州 j(从 i 过界,边的种类 kind)要几年(不含随机) */
-  const pace = (j: number, kind: number) => STEP_YEARS * (PACE[reg.biome[j]] ?? 1) * (reg.elevation[j] > HIGH_ELEV ? HIGH_PACE : 1) + (kind === AdjKind.Mountain ? CLIMB : 0);
-  /** 从民族 c 的州往外找路(最多 HOPS_MAX 州远):dist / hops / from 填好 */
-  const paths = (c: number) => {
-    dist.fill(Infinity);
-    hops.fill(-1);
-    from.fill(-1);
-    done.fill(0);
-    heap.size = 0;
-    for (let r = 0; r < R; r++) {
-      if (culture[r] !== c) continue;
-      dist[r] = 0;
-      hops[r] = 0;
-      heap.push(r, 0);
-    }
-    while (heap.size) {
-      const r = heap.pop();
-      if (done[r]) continue;
-      done[r] = 1;
-      if (hops[r] >= HOPS_MAX) continue;
-      for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
-        const j = reg.adj[e];
-        const kind = reg.adjKind[e];
-        if (j >= R || done[j] || !land(kind) || culture[j] === c) continue;
-        const d = dist[r] + pace(j, kind);
-        if (d < dist[j] || (d === dist[j] && reg.seat[r] < reg.seat[from[j]])) {
-          dist[j] = d;
-          hops[j] = hops[r] + 1;
-          from[j] = r;
-          heap.push(j, d);
-        }
-      }
-    }
-  };
+  // ---- 找路:从本族各州出发(作者下令从哪州走的:只从那一州出发),陆路往外,按走的年数(地形)最短(trekRoute.ts) ----
+  const P = trekPaths(R);
+  const hops = P.hops;
+  /** 从民族 c 往外找路(最多 maxHops 州远;start ≥ 0 = 只从那一州出发):P 填好 */
+  const paths = (c: number, start = -1, maxHops = HOPS_MAX) => searchTrek(reg, R, culture, c, start, maxHops, P);
 
-  // ---- 看大迁徙 ----
-  sim.on(Ev.TrekCheck, (k, _b, t) => {
-    sim.schedule(checkTime(tm, k + 1), Ev.TrekCheck, k + 1, 0);
-    if (list.length >= MAX) return;
-    let live = 0;
-    for (const M of list) if (M.settled === undefined) live++;
-    if (live >= LIVE) return;
-    // 各民族的州、有城的州、闹过饥荒的城、乡村人口挤不挤
+  /** 此刻各民族的州数、有城的州、闹过饥荒的城、乡村人口挤不挤、本族的国近年散了没有(推的几样) */
+  const folkStats = (t: number) => {
     const n = new Int32Array(cultures.length);
     const cities = new Int32Array(cultures.length);
     const hungry = new Int32Array(cultures.length);
@@ -381,10 +355,70 @@ function hook(sim: CivSim, tm: TrekModel): void {
     // 本族的国近年散了(大崩解过、亡了)
     const scattered = new Uint8Array(cultures.length);
     const col = um()?.collapsed;
-    for (const P of pm.polities) {
-      if (P.culture < 0 || P.culture >= cultures.length) continue;
-      if ((P.ended !== undefined && t - P.ended < SCATTER_YEARS) || (col && t - (col.get(P.id) ?? -Infinity) < SCATTER_YEARS)) scattered[P.culture] = 1;
+    for (const Q of pm.polities) {
+      if (Q.culture < 0 || Q.culture >= cultures.length) continue;
+      if ((Q.ended !== undefined && t - Q.ended < SCATTER_YEARS) || (col && t - (col.get(Q.id) ?? -Infinity) < SCATTER_YEARS)) scattered[Q.culture] = 1;
     }
+    return { n, cities, hungry, crowd, crowdN, scattered };
+  };
+  /** 民族 c 推的力量、主要因为什么 */
+  const pushOf = (st: ReturnType<typeof folkStats>, c: number): { push: number; why: Migration['push'] } => {
+    const { cities, hungry, crowd, crowdN, scattered } = st;
+    const fCrowd = crowdN[c] ? Math.max(0, Math.min(1, (crowd[c] / crowdN[c] - CROWD_0) / (1 - CROWD_0))) : 0;
+    const fFamine = cities[c] ? Math.min(1, hungry[c] / Math.max(1, FAMINE_FULL * cities[c])) : 0;
+    const pCrowd = W_CROWD * fCrowd;
+    const pFamine = W_FAMINE * fFamine;
+    const pScatter = W_SCATTER * scattered[c];
+    const push = pCrowd + pFamine + pScatter;
+    const why: Migration['push'] = pScatter >= pFamine && pScatter >= pCrowd && pScatter > 0 ? 'scatter' : pFamine >= pCrowd && pFamine > 0 ? 'famine' : 'crowd';
+    return { push, why };
+  };
+
+  /**
+   * 拉:找过路以后(paths),lo–hi 州远(不到 lo 州的值打折,最近 floor 州)、有城、不是本族的地方里"值"最高的那一州:
+   * 值 = 地好 × 守得弱 × 远近的折扣 × 大国腹地(见文件头)。bigDone = 这个世界已经有一支打进过大国国都。没有 = target −1。
+   * out = 各候选州的值(测试用;不给不记)
+   */
+  const bestTarget = (c: number, t: number, lo: number, hi: number, floor: number, bigDone: boolean, out?: Map<number, number>) => {
+    let target = -1;
+    let pull = 0;
+    let why: Migration['pull'] = 'rich';
+    for (let r = 0; r < R; r++) {
+      const h = hops[r];
+      if (h < floor || h > hi || culture[r] < 0 || culture[r] === c || pm.cityOf[r] < 0) continue;
+      const o = owner[r];
+      if (o >= 0 && pm.polities[o].culture === c) continue;
+      if (o < 0 && pm.closed?.(r, -1, t)) continue;
+      if (wm.iv?.locked(r, t)) continue;
+      const good = Math.min(GOOD_MAX, Math.sqrt(cityPop(r, t) / POP_REF));
+      const wk = weakness(o, t);
+      let v = good * wk.v * (h >= lo ? fexp(-(h - lo) / HOPS_FADE) : fexp(-(lo - h) / SHORT_FADE));
+      // 大国的腹地(离国都近):冲着国都去(这个世界已经有一支打进过大国国都的,大国的地打 LATE_BIG 折,腹地不另加)
+      if (o >= 0 && pm.size[o] >= BIG) {
+        const d = pm.capDist[o][r];
+        if (bigDone) v *= LATE_BIG;
+        else if (d < Infinity) v *= 1 + HEART_W * fexp(-d / HEART_REACH);
+      }
+      out?.set(r, v);
+      if (v > pull || (v === pull && target >= 0 && reg.seat[r] < reg.seat[target])) {
+        pull = v;
+        target = r;
+        why = wk.why;
+      }
+    }
+    return { target, pull, why };
+  };
+
+  // ---- 看大迁徙 ----
+  sim.on(Ev.TrekCheck, (k, _b, t) => {
+    sim.schedule(checkTime(tm, k + 1), Ev.TrekCheck, k + 1, 0);
+    if (list.length >= MAX) return;
+    let live = 0;
+    for (const M of list) if (M.settled === undefined) live++;
+    if (live >= LIVE) return;
+    // 各民族的州、有城的州、闹过饥荒的城、乡村人口挤不挤、本族的国近年散了没有
+    const st = folkStats(t);
+    const n = st.n;
     const cands: { c: number; score: number; target: number; push: Migration['push']; pull: Migration['pull'] }[] = [];
     // 这个世界已经有一支打进过大国国都:大国的地吸引力小一些,腹地不再格外招人
     const bigDone = list.some((M) => M.big);
@@ -392,41 +426,13 @@ function hook(sim: CivSim, tm: TrekModel): void {
       const C = cultures[c];
       if (C.ended !== undefined || n[c] < MIN_FOLK || !trekFolk(C, reg.biome)) continue;
       if (list.some((M) => M.culture === c && t - M.year < GAP)) continue;
-      const fCrowd = crowdN[c] ? Math.max(0, Math.min(1, (crowd[c] / crowdN[c] - CROWD_0) / (1 - CROWD_0))) : 0;
-      const fFamine = cities[c] ? Math.min(1, hungry[c] / Math.max(1, FAMINE_FULL * cities[c])) : 0;
-      const pCrowd = W_CROWD * fCrowd;
-      const pFamine = W_FAMINE * fFamine;
-      const pScatter = W_SCATTER * scattered[c];
-      const push = pCrowd + pFamine + pScatter;
+      // 作者下令不许这一族迁(干预 stay)
+      if (wm.iv?.stays(c, t, cultures)) continue;
+      const { push, why: pw } = pushOf(st, c);
       // 拉:走得到的地方里"值"最高的那一州
       paths(c);
-      let target = -1;
-      let pull = 0;
-      let why: Migration['pull'] = 'rich';
-      for (let r = 0; r < R; r++) {
-        const h = hops[r];
-        if (h < HOPS_FLOOR || h > HOPS_MAX || culture[r] < 0 || culture[r] === c || pm.cityOf[r] < 0) continue;
-        const o = owner[r];
-        if (o >= 0 && pm.polities[o].culture === c) continue;
-        if (o < 0 && pm.closed?.(r, -1, t)) continue;
-        if (wm.iv?.locked(r, t)) continue;
-        const good = Math.min(GOOD_MAX, Math.sqrt(cityPop(r, t) / POP_REF));
-        const wk = weakness(o, t);
-        let v = good * wk.v * (h >= HOPS_MIN ? fexp(-(h - HOPS_MIN) / HOPS_FADE) : fexp(-(HOPS_MIN - h) / SHORT_FADE));
-        // 大国的腹地(离国都近):冲着国都去(这个世界已经有一支打进过大国国都的,大国的地打 LATE_BIG 折,腹地不另加)
-        if (o >= 0 && pm.size[o] >= BIG) {
-          const d = pm.capDist[o][r];
-          if (bigDone) v *= LATE_BIG;
-          else if (d < Infinity) v *= 1 + HEART_W * fexp(-d / HEART_REACH);
-        }
-        if (v > pull || (v === pull && target >= 0 && reg.seat[r] < reg.seat[target])) {
-          pull = v;
-          target = r;
-          why = wk.why;
-        }
-      }
+      const { target, pull, why } = bestTarget(c, t, HOPS_MIN, HOPS_MAX, HOPS_FLOOR, bigDone);
       if (target < 0) continue;
-      const pw: Migration['push'] = pScatter >= pFamine && pScatter >= pCrowd && pScatter > 0 ? 'scatter' : pFamine >= pCrowd && pFamine > 0 ? 'famine' : 'crowd';
       cands.push({ c, score: (PUSH_0 + push) * pull, target, push: pw, pull: why });
     }
     if (!cands.length) return;
@@ -437,18 +443,16 @@ function hook(sim: CivSim, tm: TrekModel): void {
     for (const x of cands) {
       const odds = ODDS * (x.score / (x.score + HALF)) * (1 + PACE_W * behind);
       if (keyed(tm.base, k, folkTag(x.c), U_GO) >= odds / (1 + odds)) continue;
+      paths(x.c);
       depart(x.c, x.target, x.push, x.pull, n[x.c], t);
       break;
     }
   });
 
-  /** 民族 c 分出一支,往 target 那州去 */
-  const depart = (c: number, target: number, push: Migration['push'], pull: Migration['pull'], folk: number, t: number) => {
-    paths(c);
-    const route: number[] = [];
-    for (let r = target; r >= 0; r = from[r]) route.push(r);
-    route.reverse();
-    if (route.length < 2) return;
+  /** 民族 c 分出一支,往 target 那州去(先找好路:paths);iv = 作者下令的第几条干预。走不成(路线不到两州)= false */
+  const depart = (c: number, target: number, push: Migration['push'], pull: Migration['pull'], folk: number, t: number, iv?: number): boolean => {
+    const route = trekRouteTo(P, target);
+    if (route.length < 2) return false;
     const m = list.length;
     const M: Migration = {
       culture: c,
@@ -461,16 +465,55 @@ function hook(sim: CivSim, tm: TrekModel): void {
       pull,
       target: owner[target],
     };
+    if (iv !== undefined) M.iv = iv;
     list.push(M);
     const tag = trekTag(m);
     for (let j = 1; j < route.length; j++) {
       let kind: number = AdjKind.Flat;
       for (let e = reg.adjStart[route[j - 1]]; e < reg.adjStart[route[j - 1] + 1]; e++) if (reg.adj[e] === route[j]) kind = reg.adjKind[e];
-      const y = pace(route[j], kind) * (1 - STEP_JITTER + 2 * STEP_JITTER * keyed4(tm.base, tag, reg.seat[route[j]], j, U_STEP));
+      const y = trekPace(reg, route[j], kind) * (1 - STEP_JITTER + 2 * STEP_JITTER * keyed4(tm.base, tag, reg.seat[route[j]], j, U_STEP));
       M.years.push(Math.max(quantize(M.years[j - 1] + y), M.years[j - 1] + 1 / 256));
     }
     sim.record('trek', { a: c, b: M.target, region: route[0], war: m, n: 0 });
     for (let j = 1; j < route.length; j++) sim.schedule(M.years[j], Ev.TrekStep, m, j);
+    return true;
+  };
+
+  // ---- 作者下令(干预 trek):这一刻从这一族分出一支,往指定的州 / 推演挑的地方去 ----
+  tm.order = (v, i, t, iv) => {
+    const c = iv.resolveCulture(v.folk, cultures);
+    if (c < 0) return; // 键指不到:新历史里没有这一族(或那一刻还没分化出来)
+    const st = folkStats(t);
+    const note = (b: number, region = -1, settlement = -1) => sim.record('intervene', { a: -1, b, region, settlement, war: i, n: c });
+    if (cultures[c].ended !== undefined || st.n[c] <= 0) return note(-3);
+    // 从哪一州出发:作者给的那一州那一刻还是这一族的就从它走,不然从本族离目的地最近的一州走
+    const r0 = v.region !== undefined ? regionOfKey(v.region, iv.of) : -1;
+    const start = r0 >= 0 && r0 < R && culture[r0] === c ? r0 : -1;
+    let target = -1;
+    let pull: Migration['pull'] = 'rich';
+    if (v.to !== undefined) {
+      const r1 = regionOfKey(v.to, iv.of);
+      if (r1 >= 0 && r1 < R) {
+        paths(c, start, Infinity);
+        if (P.hops[r1] > 0) {
+          target = r1;
+          pull = weakness(owner[r1], t).why;
+        }
+      }
+    } else {
+      const best = tm.pick!(c, t, v.reach ?? 'mid', start);
+      target = best.target;
+      pull = best.why;
+    }
+    if (target < 0) return note(IV_NO_WAY, start);
+    note(-1, target, pm.cityOf[target]);
+    depart(c, target, pushOf(st, c).why, pull, st.n[c], t, i);
+  };
+  tm.pick = (c, t, reach, start, out) => {
+    const [lo, hi, floor] = REACH[reach];
+    paths(c, start, hi);
+    const best = bestTarget(c, t, lo, hi, floor, list.some((M) => M.big), out);
+    return { target: best.target, why: best.why, hops: best.target >= 0 ? P.hops[best.target] : -1 };
   };
 
   // ---- 队伍走到下一州 ----
@@ -729,9 +772,11 @@ export function resumeMigration(sim: CivSim, world: World, civ: Civ): void {
   };
   list.forEach((M, m) => {
     if (M.settled !== undefined) return;
-    const kd = checkOf(M.year);
-    // 动身那一刻一起预约的(那一刻的看大迁徙又是上一次看的那一刻预约的)
-    const chain = [quantize(M.year), ...bookChain(kd, (j) => checkTime(tm, j), BOOKED_AT_START)].slice(0, 3);
+    // 动身那一刻一起预约的(那一刻的看大迁徙又是上一次看的那一刻预约的;作者下令的:那一刻的干预事件是装各层时就预约的)
+    const chain =
+      M.iv !== undefined
+        ? [quantize(M.year), BOOKED_AT_START]
+        : [quantize(M.year), ...bookChain(checkOf(M.year), (j) => checkTime(tm, j), BOOKED_AT_START)].slice(0, 3);
     for (let j = 1; j < M.route.length; j++) if (M.years[j] > now) sim.schedule(M.years[j], Ev.TrekStep, m, j, chain);
   });
 }
