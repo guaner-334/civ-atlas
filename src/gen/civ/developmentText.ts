@@ -60,7 +60,7 @@ function rest(civ: Civ, e: DevEvent): string {
  */
 function practiceParts(civ: Civ, p: number, year: Year, rail: Set<number>, wire: Set<number>): string[] {
   if (rail.has(p) && wire.has(p)) return [];
-  const m = practicesAt(civ, p, year);
+  const m = practicesAt(civ, p, year) ?? 0;
   const doRail = !rail.has(p) && hasPractice(m, Practice.Rail);
   const doWire = !wire.has(p) && hasPractice(m, Practice.Wire);
   if (!doRail && !doWire) return [];

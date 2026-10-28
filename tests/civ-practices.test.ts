@@ -144,8 +144,8 @@ describe('时代做法', () => {
       return out;
     });
     const fake: Civ = { ...civ, development: { ...dev, snaps } };
-    expect(hasPractice(practicesAt(fake, P.id, 2600), Practice.Rail)).toBe(true);
-    expect(hasPractice(practicesAt(civ, P.id, 2600), Practice.Rail)).toBe(false);
+    expect(hasPractice(practicesAt(fake, P.id, 2600)!, Practice.Rail)).toBe(true);
+    expect(hasPractice(practicesAt(civ, P.id, 2600)!, Practice.Rail)).toBe(false);
     const far = farRegion(civ, P.id, 2600);
     expect(far).toBeGreaterThanOrEqual(0);
     const lines = developmentEntries(fake).filter((e) => e.polities.includes(P.id) && /铁路|电报/.test(e.text));

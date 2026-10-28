@@ -51,7 +51,8 @@ export interface CourtLocks {
  * 没有文官考选议不到参半和铨选(推演里的前提,gen/civ/council.ts)
  */
 export function courtLocks(civ: Civ, p: number, year: Year, rules: Pick<CourtRules, 'tax' | 'army' | 'office'>): CourtLocks {
-  const m = practicesAt(civ, p, year);
+  // 查不到(没有发展度……)的不画
+  const m = practicesAt(civ, p, year) ?? -1;
   const need = (x: Practice) => `要等国中有了${PRACTICES[x].name}`;
   const above = (cells: number[], on: number) => cells.filter((i) => i > on);
   const tax = hasPractice(m, Practice.Register) ? [] : above([2], rules.tax);

@@ -14,6 +14,7 @@ import { polityName } from '../src/gen/civ/growth';
 import {
   ASSIM_GAP,
   ASSIM_MAJOR,
+  TREK_ASSIM_MAJOR,
   ASSIM_SPAN,
   MIGRATE_MAJOR,
   buildChronicle,
@@ -338,8 +339,9 @@ describe('同化与迁徙', () => {
         expect(e.end - e.year).toBeLessThanOrEqual(ASSIM_SPAN);
         const ys = (e.children ?? [e]).map((c) => c.year);
         for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeLessThanOrEqual(ASSIM_GAP);
-        if (e.regions.length >= ASSIM_MAJOR) expect(e.importance).toBe(3);
-        else expect(e.importance).toBeLessThan(3);
+        // 迁来立的国反被同化("某汗国境内的……")门槛低些(TREK_ASSIM_MAJOR)
+        if (e.regions.length >= (/境内的/.test(e.text) ? TREK_ASSIM_MAJOR : ASSIM_MAJOR)) expect(e.importance, e.text).toBe(3);
+        else expect(e.importance, e.text).toBeLessThan(3);
       }
       for (const e of kids('vanish')) {
         expect(e.text).toMatch(/^.+族亡/);

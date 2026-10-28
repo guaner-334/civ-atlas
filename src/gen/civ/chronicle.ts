@@ -3092,7 +3092,7 @@ function practiceMarks(civ: Civ): { first: Set<number>; last: Set<number> } {
     }
     // 改土归流(3)、罢边镇(5,议之前是边镇);以后又分封(4)、设边镇(6,议之前是征发)的,上一条不算废
     if (e.war === 3 || (e.war === 5 && b.army < 0)) {
-      if (hasPractice(practicesAt(civ, e.a, e.year), Practice.FiefLess)) open.set(`${e.a}:${e.war}`, i);
+      if (hasPractice(practicesAt(civ, e.a, e.year) ?? 0, Practice.FiefLess)) open.set(`${e.a}:${e.war}`, i);
     } else if (e.war === 4) open.delete(`${e.a}:3`);
     else if (e.war === 6 && b.army === 0) open.delete(`${e.a}:5`);
   });

@@ -295,7 +295,8 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
       }
       expect(narrow).toBeLessThanOrEqual(5);
       expect(crowded).toBeLessThanOrEqual(1);
-      expect(bigPx).toBeGreaterThan(20);
+      // GENERATOR_VERSION 47 以后种子 2024 最大的国家(基帕尔大汗国)19.6 像素
+      expect(bigPx).toBeGreaterThan(19);
       // GENERATOR_VERSION 22 大国崩过以后,国都一带留下的残国(不到 25 州)国土还铺得开,字号能到大国的七成多(测的两个世界里最紧的是 1.39 倍)
       if (smallPx < Infinity) expect(bigPx).toBeGreaterThan(smallPx * 1.3);
     }
@@ -435,6 +436,7 @@ describe('地图上写国名:开关、主角和配角', () => {
     }
   });
   it('信仰填色:配角国名和别的字、符号零重叠,缩放 1 倍时国名照样写得出来', () => {
+    let shownAt1 = 0;
     for (const c of cases.values()) {
       for (const k of [1, 2]) {
         const p = at(c, { polities: true, faiths: true, routes: true, labels: true });
@@ -451,9 +453,14 @@ describe('地图上写国名:开关、主角和配角', () => {
             for (const m of marks) expect(overlap(m, b), `${pl.item.text} 压了符号(k=${k})`).toBe(false);
           }
         }
-        if (k === 1) expect(placed.labels.filter((pl) => pl.item.pick?.kind === 'polity').length).toBeGreaterThanOrEqual(2);
+        // 缩放 1 倍时两个世界加起来写得出两个以上国名、放大一倍时每个世界都写得出两个以上(GENERATOR_VERSION 47 以后种子 2024
+        // 最大的国家国名 19.6 像素,配角缩到七成、又让信仰的名字占了地方,缩放 1 倍时一个也排不下)
+        const n = placed.labels.filter((pl) => pl.item.pick?.kind === 'polity').length;
+        if (k === 1) shownAt1 += n;
+        else expect(n, `种子 ${c.civ.seed} 放大一倍`).toBeGreaterThanOrEqual(2);
       }
     }
+    expect(shownAt1).toBeGreaterThanOrEqual(2);
   });
 });
 

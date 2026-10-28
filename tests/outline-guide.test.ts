@@ -136,12 +136,13 @@ describe('顺着引了一把', () => {
 });
 
 /**
- * seed 7 第 1500 年:c693 本来不打 c16152;引它更好战、国力更强、主攻 c16152,窗口里多看几眼邻国就打了,不多看就不打
- * (GENERATOR_VERSION 43 以前是 c6045 打 c16152;46 大迁徙以前是 c16152 打 c6760)
+ * seed 2024 第 1500 年:c32725 本来不打 c33743;引它更好战、国力更强、主攻 c33743,窗口里多看几眼邻国就打了,不多看就不打
+ * (GENERATOR_VERSION 43 以前是 seed 7 c6045 打 c16152;46 大迁徙以前是 c16152 打 c6760;47 时代做法以前是 c693 打 c16152,
+ * 47 以后 seed 7 第 1500 年接壤的国家里找不到这样的一对)
  */
-const LOOK_SEED = 7;
-const LOOK_A = 'polity:c693#0';
-const LOOK_B = 'polity:c16152#0';
+const LOOK_SEED = 2024;
+const LOOK_A = 'polity:c32725#0';
+const LOOK_B = 'polity:c33743#0';
 const lookList = (look: boolean): Intervention[] => [
   { kind: 'policy', a: LOOK_A, from: 1500, war: 35, power: 70, foes: [LOOK_B], ...(look ? { look: { kind: 'war' as const, years: [1500, 1505, 1510, 1515, 1520] } } : {}), plot: 1, guide: true },
   { kind: 'policy', a: LOOK_A, from: 1521, plot: 1, guide: true },

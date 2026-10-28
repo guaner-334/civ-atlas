@@ -63,17 +63,17 @@ const fp = (x: unknown) =>
 describe('保住王室 · 没下、即位没勾的世界不变', () => {
   /**
    * 种子 7(12000 地块)1500 年给最大的国立作者的人物(没勾保住王室)、1600 年起保护它:各字段的指纹。
-   * 期望值是加「保住王室」以前的代码算的(和改动后一样;GENERATOR_VERSION 43 战争节奏、44 出奔邻国、46 大迁徙重算);推演改了历史、升 GENERATOR_VERSION 时照 determinism.test.ts 的做法
+   * 期望值是加「保住王室」以前的代码算的(和改动后一样;GENERATOR_VERSION 43 战争节奏、44 出奔邻国、46 大迁徙、47 时代做法重算);推演改了历史、升 GENERATOR_VERSION 时照 determinism.test.ts 的做法
    * 用 PRINT_FINGERPRINT=1 重算
    */
   const EXPECTED: Record<string, string> = {
-    annals: '1633a08da5551af4',
-    checkpoints: '394b261544fecd16',
-    log: '0433e4c016a60481',
-    people: 'abaca1a397ff069f',
-    polities: '4971b247be7a5f6d',
-    settlements: 'a78325ae48489b9a',
-    chronicle: 'dfb73d652902cb34',
+    annals: 'f864d6e8b9c2605c',
+    checkpoints: '1684d4a72b0a5908',
+    log: '3e24c543cce1bbb0',
+    people: 'a8fff863fe008f78',
+    polities: '4e05307aa3ab0ad4',
+    settlements: '0e53ec52d7d88d7f',
+    chronicle: '778206988cb7819d',
   };
 
   it('即位没勾(旧存档里的即位没有 keep)的世界和加这条干预以前逐字节一样', () => {

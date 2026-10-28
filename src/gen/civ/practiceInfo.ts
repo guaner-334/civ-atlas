@@ -19,13 +19,13 @@ function capRegion(civ: Pick<Civ, 'polities' | 'settlements'>, p: number, year: 
   return civ.settlements[capitalAt(P, year)]?.region ?? -1;
 }
 
-/** 国家 p 在 year 这一年有了哪几样做法(按位,见 practices.ts;没有发展度 = 0) */
-export function practicesAt(civ: Pick<Civ, 'development' | 'polities' | 'settlements'>, p: number, year: Year): number {
+/** 国家 p 在 year 这一年有了哪几样做法(按位,见 practices.ts;没有发展度、查不到国都那州 = null) */
+export function practicesAt(civ: Pick<Civ, 'development' | 'polities' | 'settlements'>, p: number, year: Year): number | null {
   const dev = civ.development;
   const ys = dev?.snapYears;
-  if (!dev || !ys?.length) return 0;
+  if (!dev || !ys?.length) return null;
   const r = capRegion(civ, p, year);
-  if (r < 0) return 0;
+  if (r < 0) return null;
   // 前后两份快照线性插值(和 developmentAt 一样,只算这一州)
   let lo = 0;
   let hi = ys.length;
@@ -38,7 +38,7 @@ export function practicesAt(civ: Pick<Civ, 'development' | 'polities' | 'settlem
   const b = dev.snaps[Math.min(ys.length - 1, lo)];
   const t = lo <= 0 || lo >= ys.length ? 0 : (year - ys[lo - 1]) / (ys[lo] - ys[lo - 1]);
   const o = r * CAP_COUNT;
-  if (o + CAP_COUNT > a.length || o + CAP_COUNT > b.length) return 0;
+  if (o + CAP_COUNT > a.length || o + CAP_COUNT > b.length) return null;
   for (let c = 0; c < CAP_COUNT; c++) row[c] = (a[o + c] + (b[o + c] - a[o + c]) * t) / LEVEL_SCALE;
   return practiceMask(row, 0, eraLevel(row, 0));
 }
