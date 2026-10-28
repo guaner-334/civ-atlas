@@ -14,7 +14,7 @@ import { ownersAt } from '../gen/civ/timeline';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
 import { interventionFate } from '../gen/stepwise';
-import { cleanIntervention, resolveKey, type Intervention, type WorldEdits } from '../gen/edits';
+import { cleanIntervention, commandAt, resolveKey, ticksAt, type Intervention, type WorldEdits } from '../gen/edits';
 import { AUTHOR_RULER_DEFAULT, characterLeanings, type AuthorCharacter } from '../gen/characters';
 import { eraText, spaced, yearAt, yearFull, yearSpanAt, type Era } from '../gen/era';
 import type { Pending } from './pendingStore';
@@ -103,10 +103,11 @@ export type CrownState =
   | { kind: 'void'; v: CrownIv; A: string; why: string; at: number };
 
 /**
- * 人物 id 的即位:单子里的(待推演 / 下一步生效)和这份历史里推过的(生效了 / 没生效),按生效年份先后。
- * ivs = 作者的干预列表(editsStore;"去掉这条即位"用);step = 在逐年推演
+ * 人物 id 的即位:单子里的(待推演 / 下一步生效)和这份历史里推过的(生效了 / 没生效),按生效那一刻(年 + 第几格)先后,同一刻的照原来的先后。
+ * ivs = 作者的干预列表(editsStore;"去掉这条即位"用);step = 在逐年推演;
+ * tick = 逐年推演停在一年里的第几格(单子里的在下一步开头那一年的这一格生效;不在逐年推演、停在年初 = 0)
  */
-export function characterCrowns(civ: Civ, id: number, pending: readonly Pending[], ivs: readonly unknown[], step: boolean, era: Era | undefined): CrownState[] {
+export function characterCrowns(civ: Civ, id: number, pending: readonly Pending[], ivs: readonly unknown[], step: boolean, era: Era | undefined, tick = 0): CrownState[] {
   const out: CrownState[] = [];
   const done = civ.interventions ?? [];
   done.forEach((v, i) => {
@@ -129,7 +130,8 @@ export function characterCrowns(civ: Civ, id: number, pending: readonly Pending[
     if (p.kind !== 'iv' || p.v.kind !== 'crown' || p.v.char !== id) continue;
     out.push({ kind: 'queued', v: p.v, step, A: keyPolityName(civ, p.v.a, p.v.from, NEW_POLITY) });
   }
-  return out.sort((a, b) => a.v.from - b.v.from);
+  const at = (x: CrownState) => (x.kind === 'queued' && step ? ticksAt(x.v.from, tick) : commandAt(x.v));
+  return out.sort((a, b) => at(a) - at(b));
 }
 
 /** 国家的稳定键 → 那一年的国名;这份历史里没有(另立的新国还没推演)= missing */
