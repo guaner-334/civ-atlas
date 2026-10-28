@@ -2096,6 +2096,22 @@ export function issueCommands(play: PlayState, commands: readonly unknown[]): { 
 }
 
 /**
+ * 几条干预改成下在进度的"现在"(play 那一刻)的命令:from = play.year,停在年中的带上 fromTick = play.tick
+ * (年初的不写,原来带着的第几格去掉);别的字段照旧、字段先后不变,不清理(交给 issueCommands 收)。
+ * 界面把单子里还没交出去的干预交给逐年推演(算下一步、存回推演模式、重新演绎时留下原来那一支)时用
+ */
+export function commandsNow(play: Pick<PlayState, 'year' | 'tick'>, list: readonly Intervention[]): Intervention[] {
+  return list.map((v) => {
+    const { fromTick: _t, ...rest } = v;
+    void _t;
+    return (play.tick ? { ...rest, from: play.year, fromTick: play.tick } : { ...rest, from: play.year }) as Intervention;
+  });
+}
+
+/** 一条干预(命令)生效的那一刻折成年(from + fromTick / YEAR_TICKS;1/256 的整数倍,浮点里精确;年初的 = from) */
+export const commandYear = (v: Pick<Intervention, 'from' | 'fromTick'>): number => commandAt(v) / YEAR_TICKS;
+
+/**
  * 推演里面用的干预(civ/ 下的规则读它):清理过(cleanInterventions);年中的(带 fromTick)把 from 换成那一刻
  * (from + fromTick / YEAR_TICKS,1/256 的整数倍,浮点里精确)、去掉 fromTick —— 规则里"从 from 那一刻起"照常比,不用另外认第几格。
  * 没有年中的 = cleanInterventions 的结果原样。只给推演里面用:Civ.interventions、存档里照旧是 from + fromTick
@@ -2839,10 +2855,14 @@ export function cleanOutline(raw: unknown): Outline | undefined {
   return same ? (raw as Outline) : { plots, ...(review ? { review } : {}) };
 }
 
-/** 一国 t 那一刻照的作者的方针(干预列表里它最后一条 from 不晚于 t、不是顺着引出来的;没有 = null) */
+/**
+ * 一国 t 那一刻(年)照的作者的方针(干预列表里它最后一条生效时刻不晚于 t、不是顺着引出来的;没有 = null)。
+ * 生效时刻按年 + 第几格比(逐年推演年中下的方针在那一格才生效)
+ */
 export function basePolicy(list: readonly Intervention[], a: string, t: number): Extract<Intervention, { kind: 'policy' }> | null {
+  const at = ticksAt(t);
   let best: Extract<Intervention, { kind: 'policy' }> | null = null;
-  for (const v of list) if (v.kind === 'policy' && v.a === a && !v.guide && v.from <= t && (!best || v.from >= best.from)) best = v;
+  for (const v of list) if (v.kind === 'policy' && v.a === a && !v.guide && commandAt(v) <= at && (!best || commandAt(v) >= commandAt(best))) best = v;
   return best;
 }
 

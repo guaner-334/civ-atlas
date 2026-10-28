@@ -32,7 +32,7 @@ import { LEANING_KEYS, LEANING_TEXT, personName, rulerFateWord } from '../gen/ci
 import { commandFoes, rulerAt, rulerNeighbors } from '../gen/civ/peopleInfo';
 import { hasLineage } from '../gen/civ/lineageInfo';
 import type { Person, RulerLeanings } from '../gen/civ/types';
-import { MARK_COLORS, polityKey, type Intervention, type MarkColor } from '../gen/edits';
+import { MARK_COLORS, cleanPlay, polityKey, type Intervention, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
   CHAR_NAME_DEFAULT,
@@ -209,7 +209,9 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
   const edits = useEdits();
   const pending = usePending();
   const step = useStepwise().on;
-  const crowns = useMemo(() => characterCrowns(civ, c.id, pending, edits.interventions, step, era), [civ, c.id, pending, edits.interventions, step, era]);
+  // 逐年推演停在年中:单子里的在那一格生效,和推过的按年 + 第几格排先后
+  const tick = useMemo(() => (step ? (cleanPlay(edits.play)?.tick ?? 0) : 0), [step, edits.play]);
+  const crowns = useMemo(() => characterCrowns(civ, c.id, pending, edits.interventions, step, era, tick), [civ, c.id, pending, edits.interventions, step, era, tick]);
   const polity = useMemo(() => characterPolity(civ, world, raster, c), [civ, world, raster, c]);
   const ptAge = Math.floor((c.died !== undefined ? Math.min(year, c.died) : year) - c.born);
   const portrait = useMemo(() => characterPortrait(civ, c, polity, c.born + ptAge), [civ, c, polity, ptAge]);
