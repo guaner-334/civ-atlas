@@ -708,7 +708,7 @@ function fallText(civ: Civ, e: Annal, last: Person | null = null): string {
 const EXILE_RECALL = 100;
 
 /** 国家 fallen 的末代之君出奔去的邻国(史事 exile,exile.ts),那国到 year 还在、亡国不到 EXILE_RECALL 年;不然 −1 */
-function exiledTo(civ: Civ, fallen: number, year: Year): number {
+export function exiledTo(civ: Civ, fallen: number, year: Year): number {
   const e = civ.annals.find((a) => a.kind === 'exile' && a.cause === 'fled' && a.war < 0 && a.a === fallen && a.b >= 0);
   const H = e ? polityOf(civ, e.b) : null;
   return e && H && year - e.year <= EXILE_RECALL && polityAlive(H, year) ? e.b : -1;
