@@ -3254,11 +3254,13 @@ if (part('国家面板')) {
           }
         }
     if (tgt) {
-      await page.mouse.move(tgt.x, tgt.y);
+      // 悬停的国家的名牌先摆(名牌会挪位置):按名牌现在的位置移过去、点它
+      const at = (await plates()).find((p) => p.id === tgt.id && !p.self) ?? tgt;
+      await page.mouse.move(at.x, at.y);
       await page.waitForTimeout(150);
       plateOn = (await plates()).some((p) => p.id === tgt.id && p.on);
       const prev = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);
-      await page.mouse.click(tgt.x, tgt.y);
+      await page.mouse.click(at.x, at.y);
       await pushOrders(page);
       await page.waitForFunction((s) => ((window as any).__wfResim?.seq ?? 0) > s, prev, { timeout: 20000 }).catch(() => null);
       await page.waitForTimeout(300);
