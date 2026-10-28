@@ -2,13 +2,18 @@
  * 纪年:年份的全写 / 短写 / 起止、和第几年互换、没有 0 年;整理(cleanEra);一段字里"第 N 年"换成纪年的写法;
  * 时间轴刻度对准元年;作者填年份不合格时的提示;存档、分享链接带着纪年往返,认不出的按第几年写;
  * 改纪年不记撤销步。没设纪年时每一处写法都和原来一样。
- * 月份:一年几个月、整年的事不写月、和纪年一起的写法、存档带着走;跳到某一年:填的字怎么算回第几年、超出范围怎么提示。
+ * 月份:一年几个月、整年的事不写月、和纪年一起的写法、存档带着走;月份的名字:有名字写名字、空着写数字、太长的不存、存档带着走;
+ * 跳到某一年:填的字怎么算回第几年、超出范围怎么提示。
  */
 import { describe, expect, it } from 'vitest';
 import {
   ERA_DEFAULT,
   MONTHS_DEFAULT,
+  MONTHS_MAX,
+  MONTH_NAME_MAX,
   cleanEra,
+  cleanMonthName,
+  cleanMonthNames,
   cleanMonths,
   eraLabel,
   eraNote,
@@ -16,11 +21,14 @@ import {
   eraYear,
   eraZero,
   epochOfZero,
+  monthLabel,
+  monthNamesInUse,
   monthOf,
   monthsOf,
   noYearZero,
   parseJump,
   sameEra,
+  sameMonthNames,
   spaced,
   worldYear,
   yearAt,
@@ -39,8 +47,9 @@ import { evYears, rulerLabel, rulerOf } from '../src/ui/timelineLayout';
 import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { decodeShare, editCount, editsLost, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
-import { currentMonths, getEdits, revertEdits, setEdits, setEra, setMonths } from '../src/ui/editsStore';
-import { chronicleText, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { currentMonthNames, currentMonths, getEdits, revertEdits, setEdits, setEra, setMonthNames, setMonths } from '../src/ui/editsStore';
+import { chronicleDocument, chronicleText, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import type { Civ } from '../src/gen/civ/types';
 import { parseChapter } from '../src/ui/BookReader';
 import { draftProblem, type MarkDraft } from '../src/ui/markStore';
 import { INTERVENTION_YEAR_MAX } from '../src/gen/edits';
@@ -75,6 +84,16 @@ describe('写法', () => {
     expect(yearSpanAt(2497, 2504, AD)).toBe('公元前 3 年–公元 5 年');
     expect(yearSpanAt(2500, 2510, AD)).toBe('公元元年–公元 11 年');
     expect(yearSpanAt(1680, 1689, AD, '—')).toBe('公元前 820—前 811 年');
+  });
+
+  it('起止同一年只写一个年份,不同年照旧', () => {
+    expect(yearSpan(1488, 1488)).toBe('1488');
+    expect(yearSpan(1480, 1488)).toBe('1480–1488');
+    expect(yearSpanAt(1488, 1488)).toBe('1488 年');
+    expect(yearSpanAt(1488.4, 1488.9)).toBe('1488 年');
+    expect(yearSpanAt(1480, 1488)).toBe('1480–1488 年');
+    expect(yearSpanAt(1680, 1680, AD)).toBe('公元前 820 年');
+    expect(yearSpanAt(3000, 3000, AD)).toBe('公元 501 年');
   });
 
   it('没设纪年:和原来一字不差', () => {
@@ -390,6 +409,144 @@ describe('月份', () => {
     expect(currentMonths()).toBe(0);
     setMonths(12);
     expect('months' in getEdits()).toBe(false);
+    setEdits(EMPTY_EDITS);
+  });
+});
+
+describe('月份的名字', () => {
+  const N12 = ['端月', '杏月', '桃月', '槐月', '蒲月', '荷月', '兰月', '桂月', '菊月', '阳月', '葭月', '冰月'];
+  /** 第 y 年第 m 月(一年 n 个月)里的一刻 */
+  const at = (y: number, m: number, n = 12) => y + (m - 0.5) / n;
+
+  it('有名字写名字,紧跟在"年"后面;空着的照旧写数字;整年的事不写月;和纪年一起写', () => {
+    expect(yearMonthFull(at(1552, 1), 12, null, N12)).toBe('第 1552 年端月');
+    expect(yearMonthAt(at(1549, 8), 12, null, N12)).toBe('1549 年桂月');
+    expect(yearMonthFull(at(1552, 1), 12, AD, N12)).toBe('公元前 948 年端月');
+    expect(yearMonthFull(at(2500, 12), 12, AD, N12)).toBe('公元元年冰月');
+    const some = ['端月', '', '桃月'];
+    expect(yearMonthFull(at(1552, 2), 12, null, some)).toBe('第 1552 年 2 月');
+    expect(yearMonthFull(at(1552, 11), 12, null, some)).toBe('第 1552 年 11 月');
+    expect(yearMonthFull(at(1552, 3), 12, null, some)).toBe('第 1552 年桃月');
+    expect(yearMonthFull(1552, 12, null, N12)).toBe('第 1552 年');
+    expect(yearMonthFull(at(1552, 1), 0, null, N12)).toBe('第 1552 年');
+    // 没有名字:和以前一字不差
+    expect(yearMonthFull(at(1638, 11), 12, null, undefined)).toBe(yearMonthFull(at(1638, 11), 12));
+    expect(monthLabel(3, N12)).toBe('桃月');
+    expect(monthLabel(3, ['', ''])).toBe('3 月');
+    expect(monthLabel(13)).toBe('13 月');
+  });
+
+  it('编年史、时间轴提示、复制全文、导出都写名字;跨年的战争写起止,里面每一仗写名字', () => {
+    const e = (year: number, text: string, extra: Partial<ChronicleEntry> = {}) => ({ year, end: year, text, ...extra }) as ChronicleEntry;
+    expect(evYears(e(at(1549, 8), 'a'), undefined, 12, N12)).toBe('1549 年桂月');
+    expect(evYears(e(at(1549, 8), 'a'), AD, 12, N12)).toBe('公元前 951 年桂月');
+    const war = e(at(1631, 12), '伐之', { end: 1655.05, children: [e(at(1631, 12), '起兵'), e(1636, '会盟'), e(at(1640, 5), '围城')] });
+    expect(chronicleText([war], undefined, undefined, 12, N12).split('\n')).toEqual(['第 1631—1655 年 伐之', '    第 1631 年冰月 起兵', '    第 1636 年 会盟', '    第 1640 年蒲月 围城']);
+    expect(chronicleText([war], undefined, AD, 12, N12).split('\n')[1]).toBe('    公元前 869 年冰月 起兵');
+    const civ = { endYear: 3000 } as Civ;
+    const doc = chronicleDocument(civ, { format: 'txt', seed: 7, entries: [war], months: 12, monthNames: N12 });
+    expect(doc).toContain('    第 1640 年蒲月 围城');
+    expect(chronicleDocument(civ, { format: 'md', seed: 7, entries: [war], months: 12, monthNames: ['', '', '', '', '*蒲*'] })).toContain('  - 第 1640 年\\*蒲\\* 围城');
+  });
+
+  it('整理:去掉前后空白;超过 4 个字的那一格不存(当没起名);末尾空着的去掉;一个名字都没有 = 不写', () => {
+    expect(MONTH_NAME_MAX).toBe(4);
+    expect(cleanMonthName(' 端月 ')).toBe('端月');
+    expect(cleanMonthName('槐花飘香')).toBe('槐花飘香');
+    expect(cleanMonthName('槐花飘香月')).toBe('');
+    expect(cleanMonthName('Frost')).toBe('');
+    expect(cleanMonthName('Ice')).toBe('Ice');
+    expect(cleanMonthName(3)).toBe('');
+    expect(cleanMonthNames({ names: ['端月', ' 杏月', '槐花飘香月', '', '', ''] })).toEqual({ names: ['端月', '杏月'] });
+    expect(cleanMonthNames({ names: ['', '', '桃月'], off: true })).toEqual({ names: ['', '', '桃月'], off: true });
+    expect(cleanMonthNames({ names: ['桃月'], off: 1 })).toEqual({ names: ['桃月'] });
+    expect(cleanMonthNames({ names: Array.from({ length: 50 }, () => '月') })?.names.length).toBe(MONTHS_MAX);
+    for (const bad of [undefined, null, 12, '端月', ['端月'], { names: [] }, { names: ['', ' '] }, { names: '端月' }]) expect(cleanMonthNames(bad)).toBeUndefined();
+    expect(sameMonthNames({ names: ['端月'] }, { names: ['端月'] })).toBe(true);
+    expect(sameMonthNames({ names: ['端月'] }, { names: ['端月'], off: true })).toBe(false);
+    expect(sameMonthNames(undefined, undefined)).toBe(true);
+    expect(monthNamesInUse({ names: N12 })).toEqual(N12);
+    expect(monthNamesInUse({ names: N12, off: true })).toBeUndefined();
+  });
+
+  it('存档、分享链接带着名字往返;旧存档、旧分享没有这一项照旧写数字;认不出的名字当没起名,提示一句', async () => {
+    const edits: WorldEdits = { ...EMPTY_EDITS, months: 24, monthNames: { names: ['立春', '雨水', '', '春分'] } };
+    const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, edits, 'c');
+    expect(save.edits.monthNames).toEqual({ names: ['立春', '雨水', '', '春分'] });
+    const r = parseSave(saveText(save));
+    expect(r.ok && r.save.edits.monthNames).toEqual({ names: ['立春', '雨水', '', '春分'] });
+    expect(r.ok && r.warnings).toEqual([]);
+    const d = await decodeShare(await encodeShare(save));
+    expect(d.ok && d.save.edits.monthNames).toEqual({ names: ['立春', '雨水', '', '春分'] });
+    const off = parseSave(saveText(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, monthNames: { names: ['端月'], off: true } }, 'c')));
+    expect(off.ok && off.save.edits.monthNames).toEqual({ names: ['端月'], off: true });
+
+    // 没起名字(旧存档、旧分享链接都是这样):不写这一项,读回来也没有,写数字
+    const plain = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, months: 24 }, 'c');
+    expect('monthNames' in plain.edits).toBe(false);
+    const old = parseSave(saveText(plain));
+    expect(old.ok && 'monthNames' in old.save.edits).toBe(false);
+    expect(old.ok && old.warnings).toEqual([]);
+    expect(monthNamesInUse(old.ok ? old.save.edits.monthNames : undefined)).toBeUndefined();
+    const oldShare = await decodeShare(await encodeShare(plain));
+    expect(oldShare.ok && 'monthNames' in oldShare.save.edits).toBe(false);
+    expect('monthNames' in makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, monthNames: { names: ['', ''] } }, 'c').edits).toBe(false);
+
+    const raw = JSON.parse(saveText(plain)) as { edits: Record<string, unknown> };
+    raw.edits.monthNames = { names: ['端月', '槐花飘香月', 7, '', '桃月'] };
+    const w = parseSave(JSON.stringify(raw));
+    expect(w.ok && w.save.edits.monthNames).toEqual({ names: ['端月', '', '', '', '桃月'] });
+    expect(w.ok && w.warnings).toContain('有 2 个月份的名字认不出来,照旧写数字');
+    raw.edits.monthNames = '端月';
+    const w2 = parseSave(JSON.stringify(raw));
+    expect(w2.ok && 'monthNames' in w2.save.edits).toBe(false);
+    expect(w2.ok && w2.warnings).toContain('月份的名字认不出来,照旧写数字');
+  });
+
+  it('名字算一处修改;两份存档名字不同算丢一处', () => {
+    expect(editCount({ ...EMPTY_EDITS, monthNames: { names: ['端月'] } })).toBe(editCount(EMPTY_EDITS) + 1);
+    const a = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, monthNames: { names: ['端月'] } }, 'c');
+    const b = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, monthNames: { names: ['杏月'] } }, 'c');
+    expect(editsLost(a, b)).toBe(1);
+    expect(editsLost(a, makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, monthNames: { names: ['端月'] } }, 'c'))).toBe(0);
+  });
+
+  it('改名字不记撤销步;改一年几个月以后名字跟着格子走,多出来的留着;只写年、换回数字时名字留着', () => {
+    setEdits(EMPTY_EDITS);
+    expect(currentMonthNames()).toBeUndefined();
+    setMonths(24);
+    setMonthNames({ names: ['立春', '雨水', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '小雪', '大雪', '冬至'] });
+    expect(currentMonthNames()?.length).toBe(24);
+    expect(yearMonthFull(at(1552, 23, 24), currentMonths(), null, currentMonthNames())).toBe('第 1552 年大雪');
+    // 改成一年 12 个月:第 13 月以后的名字留着,只是写不到
+    setMonths(12);
+    expect(getEdits().monthNames?.names.length).toBe(24);
+    expect(yearMonthFull(at(1552, 12), currentMonths(), null, currentMonthNames())).toBe('第 1552 年 12 月');
+    expect(yearMonthFull(at(1552, 2), currentMonths(), null, currentMonthNames())).toBe('第 1552 年雨水');
+    // 改回 24 个月:名字还在
+    setMonths(24);
+    expect(yearMonthFull(at(1552, 23, 24), currentMonths(), null, currentMonthNames())).toBe('第 1552 年大雪');
+    // 只写年:名字不出现,也留着
+    setMonths(0);
+    expect(yearMonthFull(at(1552, 23, 24), currentMonths(), null, currentMonthNames())).toBe('第 1552 年');
+    expect(getEdits().monthNames?.names[22]).toBe('大雪');
+    setMonths(24);
+    // 换回数字:名字留着,写数字;换回自己起名还在
+    const named = getEdits().monthNames!;
+    setMonthNames({ names: named.names, off: true });
+    expect(currentMonthNames()).toBeUndefined();
+    expect(yearMonthFull(at(1552, 23, 24), currentMonths(), null, currentMonthNames())).toBe('第 1552 年 23 月');
+    setMonthNames({ names: getEdits().monthNames!.names });
+    expect(currentMonthNames()?.[22]).toBe('大雪');
+    // 撤销别的修改时名字照现在的留着
+    const before = getEdits();
+    const after = { ...before, names: { 'polity:c1#0': '昌' } };
+    setEdits(after);
+    setMonthNames({ names: ['端月'] });
+    expect(revertEdits(getEdits(), after, before).monthNames).toEqual({ names: ['端月'] });
+    // 一个名字都不剩:去掉这一项
+    setMonthNames({ names: ['', ''] });
+    expect('monthNames' in getEdits()).toBe(false);
     setEdits(EMPTY_EDITS);
   });
 });

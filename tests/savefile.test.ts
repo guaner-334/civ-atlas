@@ -17,6 +17,7 @@ import {
   CHECK_WARNING,
   NEWER_NOTE,
   SAVE_APP,
+  SAVE_FORMAT,
   DEFAULT_VIEW,
   checkWarning,
   cleanView,
@@ -146,7 +147,7 @@ describe('存档文件 · 坏文件、别的 JSON、别的版本', () => {
   });
 
   it('未来的存档格式:不读,提示更新页面', () => {
-    const a = { ...good(), format: 2 };
+    const a = { ...good(), format: SAVE_FORMAT + 1 };
     expect(err(JSON.stringify(a))).toMatch(/更新版本.*刷新页面/);
   });
 
