@@ -74,8 +74,9 @@ export function TrekPage({ civ, year, from, polity, region, onBack }: { civ: Civ
   const [limited, setLimited] = useState(false);
   const ui = useYearInput(y + 100, step ? y + 1 : Math.min(y + 1, civ.endYear), step ? END_YEAR_MAX : civ.endYear, clear);
 
-  const culture = useMemo(() => ownersAt(civ, yv).culture, [civ, yv]);
-  const own = useMemo(() => ownersAt(civ, yv).polity, [civ, yv]);
+  const owners = useMemo(() => ownersAt(civ, yv), [civ, yv]);
+  const culture = owners.culture;
+  const own = owners.polity;
   const folk = picked ? picked.c : region !== undefined ? (culture[region] ?? -1) : p ? p.culture : -1;
   const C = folk >= 0 ? civ.cultures[folk] : undefined;
   const homes = useMemo(() => (folk >= 0 ? folkRegions(civ, folk, yv) : []), [civ, folk, yv]);
