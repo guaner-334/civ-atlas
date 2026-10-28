@@ -134,8 +134,9 @@ function personByKey(civ: Civ, key: string | undefined) {
   return id >= 0 ? civ.people?.[id] : undefined;
 }
 
-/** 情节里那个人(让他去世)是他还是她;别的情节、找不到人 = 他 */
-const plotHe = (o: OutlineCtx, p: Plot) => heOrShe(p.kind === 'death' ? personByKey(o.civ, p.person) : undefined);
+/** 情节里那个人(让他去世、让作者的人物即位)是他还是她;别的情节、找不到人 = 他 */
+const plotHe = (o: OutlineCtx, p: Plot) =>
+  heOrShe(p.kind === 'death' ? personByKey(o.civ, p.person) : p.kind === 'crown' ? o.characters?.find((c) => c.id === p.char) : undefined);
 
 /** 作者的人物叫什么 */
 export function charName(o: Pick<OutlineCtx, 'characters'>, id: number | undefined): string {
@@ -349,7 +350,7 @@ export function checkText(o: OutlineCtx, p: Plot): string {
       return `看${win}${P}有没有${how}。没有，就在${at}直接改：让${he}去世${tail}${p.how ? '硬改只能写成"去世"，写不成遇弑、战死。' : ''}`;
     }
     case 'crown':
-      return `看${win}${charName(o, p.char)}有没有即${A}君位。没有，就在${at}直接改：让他即位${tail}`;
+      return `看${win}${charName(o, p.char)}有没有即${A}君位。没有，就在${at}直接改：让${plotHe(o, p)}即位${tail}`;
     case 'split': {
       const R = regionName(o.civ, p.region) || '那州';
       return `看${win}${R}有没有起事自立${p.a ? `、从${A}分出去` : ''}。没有，就在${at}直接改：${R}自立为国${tail}`;
