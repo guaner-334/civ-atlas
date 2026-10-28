@@ -516,6 +516,8 @@
  *      国内危机里的"接连丢州"只算丢了还没夺回来的(civ/politics.ts),复国的机会调低一些。历史重新推演
  *  44:亡国之君出奔邻国(civ/exile.ts):亡于战争、末代之君的下场是出奔的,记下他去了哪国(姻亲、盟国、同约、同族、灭他的国家的敌国优先);
  *      复国那一条写起事的人"自某国还"。疆域、兴亡、人物的下场不变,编年史多了出奔那一条
+ *  45:地形大事以后城的港口、人口上限和这座城最后一次记下的那一段比(civ/upheaval.ts 的 reshapeCities;以前和紧挨着的前一段比,
+ *      几件大事各变一点、每件都不到 2% 的一直不记,差别攒下来)。只有带地形大事的世界变了:城的人口上限有一点变化,历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -529,7 +531,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 44;
+export const GENERATOR_VERSION = 45;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -545,9 +547,10 @@ export type GeneratorChange = 'names' | 'chronicle' | 'routes' | 'history' | 'cl
 
 /**
  * 每一版(加到这个号时)改了什么;edited = 只有改过地形(地形修改、草图)的世界变了,没改地形的和上一版一样;
- * upheavals = (和 edited 一起给)带地形大事、没改过地形的世界也变了,按这种改动说
+ * upheavals = (和 edited 一起给)带地形大事、没改过地形的世界也变了,按这种改动说;
+ * only = 'upheavals':只有带地形大事的世界变了(改没改过地形都一样),没有地形大事的和上一版一样
  */
-export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChange; edited?: true; upheavals?: GeneratorChange }>> = {
+export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChange; edited?: true; upheavals?: GeneratorChange; only?: 'upheavals' }>> = {
   2: { change: 'names' },
   3: { change: 'terrain' },
   4: { change: 'planet' },
@@ -591,6 +594,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   42: { change: 'chronicle' },
   43: { change: 'history' },
   44: { change: 'chronicle' },
+  45: { change: 'history', only: 'upheavals' },
 };
 
 /** 干预的种类(见文件头的表) */

@@ -28,7 +28,7 @@ import {
   upheavalName,
 } from '../src/ui/upheavalStore';
 import { bandOutline, cellShapes } from '../src/ui/upheavalShapes';
-import { composeRaster, diffRaster, type RasterPatch } from '../src/gen/rasterPatch';
+import { composeOnto, composeRaster, diffRaster, type RasterPatch } from '../src/gen/rasterPatch';
 import { baseRegions, civAtEra, composedOf, dropComposed, eraData, eraIndex, eraReady, eraShown, patchKey, peekEraData, reuseRegions, type EraMaps } from '../src/ui/eras';
 import type { Raster } from '../src/gen/raster';
 import type { World } from '../src/gen/world';
@@ -302,6 +302,76 @@ describe('地形大事 · 主图补丁', () => {
     expect(diffRaster(a, a)).toBeNull();
     const b = { ...a, elev: a.elev.map((v) => v + 0.2), temp: a.temp.map((v) => v + 0.01) };
     expect(diffRaster(a, b)).toBeNull();
+  });
+
+  /** 拷一份(各字段另开数组) */
+  const copy = (r: Raster): Raster => composeRaster(r, [{ W: r.w, H: r.h, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {} }]);
+  const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
+  const U8 = ['water', 'biome', 'iceConc', 'iceTone'] as const;
+  const same = (x: Raster, y: Raster) => {
+    for (const k of [...F32, ...U8]) expect(Array.from(x[k]!), k).toEqual(Array.from(y[k]!));
+    expect(x.veinLines).toEqual(y.veinLines);
+  };
+
+  it('就地贴(composeOnto)和复制一份贴(composeRaster)逐位相同:框跨过右边、只带细沟的线、没有补丁', () => {
+    const a = raster(16, 8);
+    // 框跨过右边
+    const b = copy(a);
+    for (const [x, y] of [
+      [15, 2],
+      [1, 4],
+    ]) {
+      b.elev[y * 16 + x] += 50;
+      b.water[y * 16 + x] = 1;
+    }
+    b.temp[3 * 16 + 9] += 0.01; // 框外看不出来的差别:拼好的沿用 a 的
+    const p = diffRaster(a, b)!;
+    expect(p.x0 + p.w).toBeGreaterThan(16);
+    const want = composeRaster(a, [p]);
+    const got = composeOnto(a, b, p);
+    expect(got).toBe(b);
+    same(got, want);
+    expect(Array.from(a.water).every((v) => v === 0)).toBe(true);
+    // 只带细沟的线(框是空的)
+    const lines = { off: Int32Array.from([0, 2]), x: Float32Array.from([1, 2]), y: Float32Array.from([1, 1]), a: Float32Array.from([1, 1]) };
+    const c = { ...copy(a), veinLines: lines };
+    c.elev[5] += 0.5;
+    const q = diffRaster(a, c)!;
+    expect(q.w * q.h).toBe(0);
+    same(composeOnto(a, c, q), composeRaster(a, [q]));
+    // 没有补丁 = a 本身
+    expect(composeOnto(a, copy(a), null)).toBe(a);
+  });
+
+  it('好几件大事:每段和拼好的上一段比,框外的小差别不再一段段漏掉(拼出来的离真图不超过看得出来的差别)', () => {
+    const W = 16;
+    const H = 8;
+    // 第 k 段真正的主图:左边一块每段抬高 0.6 米(每段都看不出来,五段攒下 3 米),右边每段各有一处明显的变化
+    const truth = [raster(W, H)];
+    for (let k = 1; k <= 5; k++) {
+      const r = copy(truth[k - 1]);
+      for (let y = 1; y < 4; y++) for (let x = 2; x < 6; x++) r.elev[y * W + x] += 0.6;
+      r.biome[(k + 2) * W + 11] = 3 + k;
+      truth.push(r);
+    }
+    const drift = (r: Raster, t: Raster) => r.elev.reduce((m, v, i) => Math.max(m, Math.abs(v - t.elev[i])), 0);
+    // 以前:每段和上一段真正的主图比,左边那块一直没进框,拼出来还是原样,差了 3 米
+    const pairs: RasterPatch[] = [];
+    for (let k = 1; k <= 5; k++) pairs.push(diffRaster(truth[k - 1], truth[k])!);
+    expect(drift(composeRaster(truth[0], pairs), truth[5])).toBeCloseTo(3, 4);
+    // 现在:和拼好的比(后台线程同样就地拼),主线程按先后贴上的和后台拼的逐位相同,每段离真图都不超过 1 米
+    const patches: RasterPatch[] = [];
+    let shown = truth[0];
+    for (let k = 1; k <= 5; k++) {
+      const b = copy(truth[k]);
+      const p = diffRaster(shown, b);
+      if (p) patches.push(p);
+      shown = composeOnto(shown, b, p);
+      const main = composeRaster(truth[0], patches);
+      same(main, shown);
+      expect(drift(main, truth[k])).toBeLessThanOrEqual(1);
+      for (const key of U8) expect(Array.from(main[key]), key).toEqual(Array.from(truth[k][key]));
+    }
   });
 });
 

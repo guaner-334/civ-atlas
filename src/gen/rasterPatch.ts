@@ -5,6 +5,8 @@
  *
  * 框按"看得出来的差别"划(TOL:海拔 1 米、气温 0.05 度、降水 0.005 毫米、沟 0.5 米、冰 0.01;水陆、群落、冰的样子一变就算),
  * 框里的像素整块照抄(一位不差);框外的差别小到看不出来,沿用上一段。
+ * 好几件大事时,每段要和"拼好的上一段"比(composeOnto 拼出来的,不是上一段真正的主图):框外沿用的小差别一段段攒下来,
+ * 几件下来就超过 TOL 看得出来了;和拼好的比,攒够了的那段就进框,拼好的每段离真图都不超过 TOL。
  * 主图东西相连:框的列可以跨过右边接回左边(x0 + w 超过主图宽的部分取模)。
  * 细沟的线(Raster.veinLines,放大现算时照它画)不大,补丁里整份带上。
  */
@@ -321,6 +323,34 @@ export function composeRaster(base: Raster, patches: readonly RasterPatch[]): Ra
   };
   for (const p of patches) applyPatch(out, p);
   return out;
+}
+
+/**
+ * composeRaster(a, p ? [p] : []) 的省内存版,p = diffRaster(a, b):补丁就是从 b 上切的,框里的 b 本来就对,
+ * 只要把框外的各字段换成 a 的、细沟的线补丁里没带的换成 a 的,b 就是贴好的样子 —— 就地改 b,不另开一整张(b 原来的值不要了)。
+ * 补丁管的字段和细沟的线和 composeRaster 逐位相同;没有补丁 = a 本身。a 不动。
+ * 一段接一段交补丁时用:下一段和拼好的这一段比(见文件头)
+ */
+export function composeOnto(a: Raster, b: Raster, p: RasterPatch | null): Raster {
+  if (!p) return a;
+  const W = b.w;
+  const keys = [...F32, ...U8];
+  // 两张图的字段对不上(一张有沟、一张没有之类):照常复制一份贴
+  if (a.w !== W || a.h !== b.h || keys.some((k) => !a[k] !== !b[k])) return composeRaster(a, [p]);
+  // 框那几行里框外的列:框不跨右边 = 左右两段,跨右边 = 中间一段;框是空的(只带细沟的线)= 没有那几行
+  const end = p.x0 + p.w;
+  const side: [number, number][] = p.w >= W ? [] : end <= W ? [[0, p.x0], [end, W]] : [[end - W, p.x0]];
+  const y1 = p.y0 + p.h;
+  for (const k of keys) {
+    const s = a[k];
+    const d = b[k];
+    if (!s || !d) continue;
+    d.set(s.subarray(0, p.y0 * W));
+    d.set(s.subarray(y1 * W), y1 * W);
+    for (let y = p.y0; y < y1; y++) for (const [x0, x1] of side) if (x1 > x0) d.set(s.subarray(y * W + x0, y * W + x1), y * W + x0);
+  }
+  if (!p.veins && a.veinLines) b.veinLines = a.veinLines;
+  return b;
 }
 
 /** 补丁里的数组 */
