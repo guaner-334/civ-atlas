@@ -34,7 +34,8 @@ import { searchCiv } from '../src/ui/searchIndex';
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
 /** 种子 7 上的三件大事(GENERATOR_VERSION 18):天灵国都一带海水漫进来、埃维里亚的国都莫兰维尔一带火山喷发、哈尔温和对岸之间的海峡隆起 */
 const FLOOD: Upheaval = { year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530, 1903, 469], r: 40, s: 1.1 }] };
-const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1169, 764], r: 36, s: 1.1 }] };
+// (GENERATOR_VERSION 46 大迁徙以后埃维里亚第 1800 年的国都不在莫兰维尔了,火山跟着挪到它那时的国都:以前在 1169, 764)
+const VOLCANO: Upheaval = { year: 1800, ops: [{ kind: 'volcano', pts: [1278, 768], r: 36, s: 1.1 }] };
 const BRIDGE: Upheaval = { year: 2000, ops: [{ kind: 'raise', pts: [749, 799, 729, 784], r: 18, s: 1.1 }] };
 
 let w0: World | null = null;
@@ -218,9 +219,9 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 1508 年:尼索斯城邦(正和奥利亚王国打仗)的州全沉,奥利亚的国都也沉了(州还在,迁都)
-    // (GENERATOR_VERSION 43 战争节奏以后历史重排,以前是第 1491 年;这一年先迁都、后亡国)
-    const Y = 1508;
+    // 第 1497 年:一个只剩一州、正打着仗的小国州全沉,另一国的国都也沉了(州还在,迁都)
+    // (GENERATOR_VERSION 43 战争节奏以后历史重排,以前是第 1491 年;46 大迁徙以后又重排,以前是第 1508 年,那一年先迁都、后亡国)
+    const Y = 1497;
     const W: Upheaval = {
       year: Y,
       ops: [
@@ -235,7 +236,8 @@ describe('地形大事 · 推演', () => {
     expect(at.indexOf('peace')).toBeGreaterThan(Math.max(at.indexOf('fall'), at.lastIndexOf('capital')));
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
-    expect(ch[0].text).toMatch(/迁都.+亡$/);
+    // 先迁都后亡国、先亡国后迁都都有(GENERATOR_VERSION 46 以后这一年是先亡国)
+    expect(ch[0].text).toMatch(/迁都.+亡$|亡,.+迁都[^,]+$/);
     // 早先被毁、没有重建的一座城(按条件现找:第 2799 年还是遗址、四周 60 以内没有别的遗址;GENERATOR_VERSION 43 以前是青陵),
     // 第 2800 年城址沉入海中
     const a = base();

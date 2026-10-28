@@ -7,9 +7,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { deleteNote, getNote, useNotesVersion } from '../ai/library';
 import { HISTORY_LENGTHS, textLength, type HistoryLength, type HistoryStyle } from '../ai/prompts/history';
-import { asHistoryNote, historyFileName, historyMarkdown, historyNoteStatus, historyStyleLabel, historyWriter, shortDate, type HistoryNote } from '../ai/history';
+import { asHistoryNote, bookHowText, historyFileName, historyMarkdown, historyNoteStatus, historyStyleLabel, historyWriter, shortDate, type HistoryNote } from '../ai/history';
+import { isLifeScope, lifeKind } from '../ai/prompts/lives';
 import { currentWorld, useSavesVersion } from './saveStore';
-import { bookTitleText, bookUnit, closeBookReader, openBookReader, startBook, stopBook, useBook } from './bookStore';
+import { bookTitleText, bookUnit, closeBookReader, getBookSource, openBookReader, startBook, stopBook, useBook } from './bookStore';
 import { useDialogEscape } from './BookDialog';
 import { useEra } from './editsStore';
 import { eraText, yearFull, yearSpan, yearSpanAt, type Era } from '../gen/era';
@@ -132,8 +133,12 @@ export function layout(text: string, bookTitle: string, era?: Era | null): { blo
 
 // ---------------------------------------------------------------------------
 
-/** 元信息:"纪传体，中篇，截至 3000 年"(一国的写起止年份;设了纪年:"截至公元 501 年""公元前 820–前 11 年") */
+/**
+ * 元信息:"纪传体，中篇，截至 3000 年"(一国的写起止年份;设了纪年:"截至公元 501 年""公元前 820–前 11 年");
+ * 列传、家传:"列传，史书体，约 2000 字"
+ */
 function metaLine(style: HistoryStyle, length: HistoryLength, range: string, scopeKind: string, era: Era | undefined): string {
+  if (isLifeScope({ kind: scopeKind })) return bookHowText({ kind: scopeKind }, style, length);
   const m = /(\d+)\D+(\d+)/.exec(range);
   const when = !m ? eraText(range, era) : era ? (scopeKind === 'world' ? `截至${yearFull(Number(m[2]), era)}` : yearSpanAt(Number(m[1]), Number(m[2]), era)) : scopeKind === 'world' ? `截至 ${m[2]} 年` : `${m[1]}–${m[2]} 年`;
   return [historyStyleLabel(style), `${HISTORY_LENGTHS[length].label}篇`, when].filter(Boolean).join('，');
@@ -156,7 +161,7 @@ function Reader({ civ }: { civ: Civ }) {
   const key = st.reader.key;
   const note: HistoryNote | null = key && world ? asHistoryNote(getNote(world.id, key)) : null;
   const live = !note && key === null && job ? job : null;
-  const status = useMemo(() => (note ? historyNoteStatus(civ, note) : null), [note, civ]);
+  const status = useMemo(() => (note ? historyNoteStatus(civ, note, getBookSource()) : null), [note, civ]);
   const [copied, setCopied] = useState(false);
   const [armDel, setArmDel] = useState(false);
 
@@ -278,7 +283,9 @@ function Reader({ civ }: { civ: Civ }) {
         >
           {note && status?.stale && (
             <p className="bk-stale">
-              这部史书写于历史改变之前(改过名、干预过历史或改过地形),可能对不上{status.why ? `:${status.why}` : ''}。
+              {isLifeScope(scope)
+                ? `这篇${lifeKind(scope)}写于历史改变之前（改过名、干预过历史、改过地形，或改过人物），可能对不上${status.why ? `：${status.why}` : ''}。`
+                : `这部史书写于历史改变之前(改过名、干预过历史或改过地形),可能对不上${status.why ? `:${status.why}` : ''}。`}
             </p>
           )}
           {chapters.length >= 2 && !writing && (

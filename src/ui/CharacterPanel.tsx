@@ -120,6 +120,7 @@ import { evLabel, evText, evType } from './timelineLayout';
 import { FollowAct } from './Follow';
 import { Act, Acts, EntryText, EraYearInput, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
 import { MenuItem } from './PopMenu';
+import { LifeMenuItem } from './lifeMenu';
 import { Icon } from './icons';
 import './characters.css';
 
@@ -514,6 +515,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
           <MenuItem icon={<Icon name="trash" size={16} />} act="character-delete" onClick={del}>
             删除人物
           </MenuItem>
+          {c.name.trim() && <LifeMenuItem civ={civ} scope={{ kind: 'character', char: c.id }} />}
         </MoreAct>
       </Acts>
       <div className="cp-body">
