@@ -2794,7 +2794,11 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     const khan = !!P?.eastern && !east;
     const r = regionName(civ, e.region) || (east ? '边境' : '边境一带');
     const s = sideOf(e.a);
-    const c = s >= 0 ? commander(ix, e.war, s, i) : null;
+    // 领兵的统帅:这一方在这一条以前接手的最后一位(那时还在世的)。只看以前的事 —— 统帅的任期"到哪一件为止"要等往后的仗才知道,
+    // 不按它找,推到这里和推得更远写的一样
+    let c: Person | null = null;
+    if (s >= 0) for (const m of ix?.commands.get(e.war) ?? []) if (m.side === s && m.first < i) c = m.person;
+    if (c && c.died !== undefined && c.died < y) c = null;
     const who = c ? generalRef(civ, c, y) : `${pn(civ, e.a, y)}${east || khan ? '军' : '大军'}`;
     const at = r.endsWith('一带') ? r : `${r}一带`;
     const t = east ? `冬,${who}顿兵${r},待春复攻` : khan ? `天寒地冻,${who}在${at}驻冬,待开春再战` : `天寒地冻,${who}在${at}扎营过冬,待开春再攻`;

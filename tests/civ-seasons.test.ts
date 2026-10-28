@@ -163,20 +163,32 @@ describe('季节进推演', () => {
     }
   }, 120_000);
 
-  it('接着推:停在顿兵过冬和开春之间、看年景和春荒之间,接着推和一口气推完一样', () => {
+  it('接着推:停在顿兵过冬和开春之间、看年景和春荒之间,接着推和一口气推完一样;顿兵那一条推到那里和推得更远写的一样', () => {
     const seed = SEEDS[0];
     const w = world(seed);
     const full = civOf(seed);
-    const halt = full.annals.find((e) => e.kind === 'winter' && e.year > 600 && e.until! - e.year > 0.1)!;
+    // 顿兵过冬:编年史里写着统帅名字的一条(推到那一刻时,统帅这一任还没打下一仗)
+    const named = new Set(
+      flat(buildChronicle(full))
+        .filter((x) => x.kind === 'winter' && (x.people ?? []).length > 0)
+        .map((x) => x.id),
+    );
+    const halt = full.annals.find((e, i) => e.kind === 'winter' && e.year > 600 && e.until! - e.year > 0.1 && named.has(i))!;
     const famine = full.annals.find((e) => e.kind === 'famine' && e.cause === 'spring' && e.year > 600)!;
     expect(halt && famine).toBeTruthy();
+    const winterText = (c: Civ, stop: number) =>
+      flat(buildChronicle(c))
+        .filter((x) => x.kind === 'winter' && x.year <= stop)
+        .map((x) => [x.id, x.text, x.people ?? []]);
     // 停在顿兵那一刻(那一仗挪到开春,还没到);停在春荒的前一刻(那一次看年景已经过了)
     for (const stop of [halt.year, famine.year - 1 / 256]) {
       const to = Math.floor(stop) + 30;
-      const saved = unpackValue(packValue(generateCiv(w, { endYear: stop }))) as Civ;
+      const atStop = generateCiv(w, { endYear: stop });
+      const saved = unpackValue(packValue(atStop)) as Civ;
       const cont = continueCiv(w, saved, { endYear: to });
       const whole = generateCiv(w, { endYear: to });
       for (const k of Object.keys(whole) as (keyof Civ)[]) expect(cont[k], `停在第 ${stop} 年 ${k}`).toEqual(whole[k]);
+      expect(winterText(atStop, stop), `停在第 ${stop} 年 顿兵过冬`).toEqual(winterText(whole, stop));
     }
   }, 240_000);
 });
