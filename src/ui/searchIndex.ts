@@ -251,7 +251,7 @@ export function searchCiv(
       name: label,
       sub: '民族',
       color: rgb(cu.color),
-      select: { kind: 'region', id: cultureRegion(civ, cu.id, year, owners) },
+      select: { kind: 'culture', id: cu.id },
       score: m,
       weight: n,
     });
