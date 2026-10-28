@@ -19,7 +19,7 @@ import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
-import { advanceOf, type Advance, type Intervention } from '../gen/edits';
+import { advanceOf, cleanPlay, commandsNow, type Advance } from '../gen/edits';
 import { eraText, yearAt, yearFull, yearShort, type Era } from '../gen/era';
 import { directorPlan, type DirectorPlan, type DirectorShot } from './directorPlan';
 import { directorFocusOf } from './followInfo';
@@ -38,7 +38,7 @@ import {
   useDirector,
 } from './directorStore';
 import { getCivTime, pickChronicleEntry, setCivTime, subscribeCivTime, useSelection, clearSelection } from './civView';
-import { useEdits, useEra } from './editsStore';
+import { getEdits, useEdits, useEra } from './editsStore';
 import { usePanel } from './panelStore';
 import { getPending, removePending, usePending } from './pendingStore';
 import {
@@ -405,7 +405,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       const s = getStepwise();
       return Math.min(s.now, Math.max(0, getCivTime().year ?? s.now));
     };
-    /** 播放头走进最后算好的那一步了:请算下一步(单子里的干预一起交出去,在"现在"生效) */
+    /** 播放头走进最后算好的那一步了:请算下一步(单子里的干预一起交出去,在"现在"生效:进度那一刻,停在年中的带着那一格) */
     const ask = (y: number) => {
       const s = getStepwise();
       if (!s.on || s.busy || s.due || s.stop) return;
@@ -416,7 +416,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       }
       if (s.now - y > plan.years + 1e-6) return;
       const queued = getPending().filter((x) => x.kind === 'iv');
-      const cmds = queued.flatMap((x) => (x.kind === 'iv' ? [{ ...x.v, from: s.now } as Intervention] : []));
+      const cmds = commandsNow(cleanPlay(getEdits().play) ?? { year: s.now }, queued.flatMap((x) => (x.kind === 'iv' ? [x.v] : [])));
       if (!stepwiseActions()?.turn(plan.years, cmds)) return;
       for (const x of queued) removePending(x.id);
       stepSent(s.now, plan, cmds);

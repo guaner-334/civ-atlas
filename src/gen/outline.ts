@@ -47,6 +47,8 @@ import {
   PLOT_SPAN_DEFAULT,
   cleanIntervention,
   cleanOutline,
+  commandAt,
+  commandYear,
   keyCells,
   ownInterventions,
   plotNeedsRedo,
@@ -56,6 +58,7 @@ import {
   regionOfKey,
   resolveKey,
   resolvePersonKey,
+  ticksAt,
   type AuthorMark,
   type GuideLook,
   type Intervention,
@@ -444,9 +447,10 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
       if (a < 0 || b < 0) return null;
       const e = findAnnal(civ, lo, hi, (e) => e.kind === 'alliance' && pair(e));
       if (e) return yearFound(e);
-      // 那几年里有一阵两国在盟(早先结的、作者下令的;窗口里散了的也算):查窗口头尾两年和作者下令结盟的那几年
+      // 那几年里有一阵两国在盟(早先结的、作者下令的;窗口里散了的也算):查窗口头尾两年和作者下令结盟的那几刻
+      // (逐年推演年中下令的,查下令的那一格:那一年年初还没结盟)
       const at = [lo, hi];
-      for (const v of civ.interventions ?? []) if (v.kind === 'ally' && v.from > lo && v.from <= hi) at.push(Math.ceil(v.from));
+      for (const v of civ.interventions ?? []) if (v.kind === 'ally' && commandAt(v) > ticksAt(lo) && commandAt(v) < ticksAt(hi + 1)) at.push(commandYear(v));
       for (const y of at) {
         if (!polityAlive(civ.polities[a], y) || !polityAlive(civ.polities[b], y)) continue;
         const x = polityTies(civ, a, y).allies.find((t) => t.id === b);
@@ -891,10 +895,13 @@ function guideList(S: Civ, list: readonly Intervention[], who: readonly GuideOne
     const v: Record<string, unknown> = { kind: 'policy', a: g.a, from: G, war: knob(base?.war, g.war), expand: knob(base?.expand, g.expand), coast: base?.coast, peace: knob(base?.peace, g.peace), foes, friends, focus: base?.focus, power: g.power, unrest: g.unrest, look: g.look, ...tag };
     const c = cleanIntervention(v);
     if (c) add.push(c);
-    if (moved.has(g.a) || list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && x.from > G && x.from <= E)) continue;
-    const { plot: _p, guide: _g, ...back } = base ?? { kind: 'policy' as const, a: g.a, from: E };
+    // 作者的方针按生效那一刻比(逐年推演年中下的,第 E 年第几格才生效:第 E 年年初照样要换回)
+    if (moved.has(g.a) || list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && commandAt(x) > ticksAt(G) && commandAt(x) <= ticksAt(E))) continue;
+    // 换回的那条在第 E 年年初:原来那条是年中下的,它的第几格不抄
+    const { plot: _p, guide: _g, fromTick: _t, ...back } = base ?? { kind: 'policy' as const, a: g.a, from: E };
     void _p;
     void _g;
+    void _t;
     const r = cleanIntervention({ ...back, from: E, ...tag });
     if (r) add.push(r);
   }

@@ -140,6 +140,7 @@ import {
   cleanCivSeed,
   cleanEndYear,
   cleanPlay,
+  commandsNow,
   cultureKey,
   extendedEndYear,
   faithKey,
@@ -156,6 +157,7 @@ import {
   sameInterventions,
   settlementKey,
   treatyKey,
+  tradeKey,
   upgradeLegacyKeys,
   type Intervention,
   type PlayState,
@@ -312,6 +314,7 @@ import { NARROW_MAX, isNarrow, useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
 import { mapTextBoxes, passAt, pickLabelAt } from './mapPick';
+import { setTradeHover, tradeAtClient, tradeHoverInfo } from './tradePick';
 import { ownersAt } from '../gen/civ/timeline';
 import { faithAt } from '../gen/civ/religion';
 import { filterChronicle, interventionOutcome } from '../gen/civ/chronicle';
@@ -1825,14 +1828,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     };
     /**
      * 原来那一支要留下的样子(重新演绎、切走时):单子里还没交出去的干预(和万一还在算的那一步带走的)
-     * 都当作在"现在"下的(在那一年年初生效,同存回推演模式)。没在逐年推演 = null
+     * 都当作在"现在"下的(在进度那一刻生效:那一年年初,停在年中的是那一格;同存回推演模式)。没在逐年推演 = null
      */
     const keptBranch = (): WorldEdits | null => {
       const e0 = getEdits();
       const play = cleanPlay(e0.play);
       if (!play) return null;
       const later = [...(getStepwise().busy?.commands ?? []), ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))];
-      const now = later.map((v) => ({ ...v, from: play.year }) as Intervention);
+      const now = commandsNow(play, later);
       return now.length ? { ...e0, play: issueCommands(play, now).play } : e0;
     };
     /** 单子里还没交出去的干预已经记进原来那一支:从单子里拿掉 */
@@ -1984,6 +1987,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
                 ? cultureKey(old, sel.id)
                 : sel.kind === 'treaty'
                   ? treatyKey(old, sel.id) || null
+                  : sel.kind === 'trade'
+                    ? tradeKey(old, sel.id) || null
                   : null;
       if (key) {
         const r = resolveKey(civ, key);
@@ -5734,6 +5739,7 @@ ${s.image.cells}` : null);
     }
     let label: ReturnType<typeof pickLabelAt> = null;
     let mh: ReturnType<typeof markHoverAt> = null;
+    let trade: number | null = null;
     if (drag.current) {
       const d = drag.current;
       if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > (d.touch ? TOUCH_SLOP : CLICK_SLOP)) moved.current = true;
@@ -5752,11 +5758,18 @@ ${s.image.cells}` : null);
       const tool = getTerrainTool().on || getUpUi().on;
       label = tool || draft ? null : pickLabelAt(e.clientX, e.clientY);
       mh = tool || draft || replayOn ? null : (charHoverAt(e.clientX, e.clientY) ?? markHoverAt(e.clientX, e.clientY));
-      el.style.cursor = mh ? mh.cursor : label ? 'pointer' : '';
+      // 商道的线(字、标记底下):那条亮一圈,出商道的悬停小卡
+      trade = tool || draft || replayOn || label || mh ? null : tradeAtClient(e.clientX, e.clientY);
+      el.style.cursor = mh ? mh.cursor : label || trade !== null ? 'pointer' : '';
     }
+    setTradeHover(drag.current && moved.current ? null : trade);
     // 悬停小卡片:拖动、改地形、回放、新建时不显示;手指没有"悬停"(点了直接出面板)
     if (!data || (drag.current && moved.current) || getTerrainTool().on || getUpUi().on || replayOn || draft || e.pointerType === 'touch') return setHover(null);
     if (mh && mh.info !== undefined) return markHoverCard(mh, e.clientX, e.clientY);
+    if (trade !== null && civ) {
+      const info = tradeHoverInfo(civ, trade, Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear))), getEdits().era ?? null);
+      return setHover(info ? { info, x: e.clientX, y: e.clientY } : null);
+    }
     const p = pixelAt(e.clientX, e.clientY);
     if (!p) return setHover(null);
     showHover(p, label, e.clientX, e.clientY);
@@ -5931,6 +5944,9 @@ ${s.image.cells}` : null);
     }
     const hit = labelAt(e.clientX, e.clientY);
     if (hit) return setSelection(hit, side);
+    // 商道的线(开着「道路」时画在文字层上):商道卡片
+    const tr = getGlobeOn() ? null : tradeAtClient(e.clientX, e.clientY);
+    if (tr !== null) return setSelection({ kind: 'trade', id: tr }, side);
     const c = cellAt(e.clientX, e.clientY);
     const r = civ && c >= 0 && c < civ.regions.of.length ? civ.regions.of[c] : -1;
     if (!civ || r < 0) return clearSelection();
@@ -6609,6 +6625,7 @@ ${s.image.cells}` : null);
         onClick={onStageClick}
         onPointerLeave={() => {
           setHover(null);
+          setTradeHover(null);
           terrainMove(null);
           upMove(null);
         }}
@@ -6634,7 +6651,7 @@ ${s.image.cells}` : null);
         <div className="canvas-wrap-upper" data-hold={hold} style={wrapStyle}>
           <div className="map-box-upper" data-hold={hold} style={{ width: box.w, height: box.h }}>
             {data && (
-              <CivLayer world={data.world} raster={data.raster} civ={namesHeld ? null : civ} geo={namesHeld ? null : shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} />
+              <CivLayer world={data.world} raster={data.raster} civ={namesHeld ? null : civ} geo={namesHeld ? null : shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} bright={mapBase === 'satellite'} />
             )}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />

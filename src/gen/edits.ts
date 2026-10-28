@@ -212,9 +212,10 @@
  *
  * ## 作者的人物
  *
- * WorldEdits.characters(可选,没有 = 一个也没有):作者放进这个世界的自己的人物 —— 名字、生卒、出生地、国家、身份、简介、
+ * WorldEdits.characters(可选,没有 = 一个也没有):作者放进这个世界的自己的人物 —— 名字、性别、生卒、出生地、国家、身份、简介、
  * 一生的几段经历(每段可以勾上推演里的事和人)、亲友。和作者标记一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
- * 字段、上限、怎么清理见 characters.ts。要让他进推演用干预"即位"(crown,见"干预"那一节):生年、倾向抄进干预,推演只看干预。
+ * 字段、上限、怎么清理见 characters.ts。要让他进推演用干预"即位"(crown,见"干预"那一节):生年、倾向抄进干预,推演只看干预
+ * (性别不进干预、不影响推演:即了位的那位君主是男是女,界面按人物卡套上,见 characters.ts 的 applyCharacters)。
  *
  * ## 大纲
  *
@@ -1086,7 +1087,7 @@ export const EMPTY_EDITS: WorldEdits = Object.freeze({
   terrain: Object.freeze([]) as unknown as TerrainOp[],
 });
 
-export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person' | 'treaty';
+export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person' | 'treaty' | 'trade';
 
 export interface ResolvedKey {
   kind: KeyKind;
@@ -1301,6 +1302,18 @@ export function treatyKey(civ: Civ, id: number): string {
   return `treaty:${ps.map((k) => k.slice(k.indexOf(':') + 1)).join('+')}@${Math.round(x.start * 256)}`;
 }
 
+/**
+ * 商道的稳定键:买方国家的稳定键 + 产地州的键 + 开通那一刻(1/256 年为单位)(`trade:c4567#0>c890@410907`)。
+ * 重推历史后同一国、从同一州、同一刻开通的还是它;对不上就算了(和约一样)。没有这条商道 = 空串
+ */
+export function tradeKey(civ: Civ, id: number): string {
+  const r = civ.trade?.routes[id];
+  if (!r || !civ.polities[r.buyer] || !r.events.length) return '';
+  const p = polityKey(civ, r.buyer);
+  if (!p) return '';
+  return `trade:${p.slice(p.indexOf(':') + 1)}>${regionKey(civ, r.from).slice('region:'.length)}@${Math.round(r.events[0].year * 256)}`;
+}
+
 export function regionKey(civ: Civ, region: number): string {
   const seat = keySeats(civ.regions);
   return region >= 0 && region < seat.length ? `region:c${seat[region]}` : `region:r${region}`;
@@ -1363,6 +1376,10 @@ export function resolveKey(civ: Civ, key: string): ResolvedKey | null {
   if (key.startsWith('treaty:')) {
     const x = treatyBook(civ).treaties.find((t) => t && treatyKey(civ, t.id) === key);
     return x ? { kind: 'treaty', id: x.id } : null;
+  }
+  if (key.startsWith('trade:')) {
+    const x = civ.trade?.routes.find((r) => tradeKey(civ, r.id) === key);
+    return x ? { kind: 'trade', id: x.id } : null;
   }
   if (key.startsWith('dynasty:')) {
     const cut = key.lastIndexOf('/');
@@ -1544,6 +1561,7 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
   const faith = new Map<number, string>();
   const person = new Map<number, string>();
   const treaty = new Map<number, string>();
+  const trade = new Map<number, string>();
   for (const key in names) {
     const name = names[key];
     if (typeof name !== 'string' || !name) continue;
@@ -1557,13 +1575,14 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     else if (r.kind === 'faith') faith.set(r.id, name);
     else if (r.kind === 'person') person.set(r.id, name);
     else if (r.kind === 'treaty') treaty.set(r.id, name);
+    else if (r.kind === 'trade') trade.set(r.id, name);
     else {
       let m = dynasty.get(r.id);
       if (!m) dynasty.set(r.id, (m = new Map()));
       m.set(r.index!, name);
     }
   }
-  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size && !treaty.size) return civ;
+  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size && !treaty.size && !trade.size) return civ;
 
   let changed = false;
   // 州名:另起一份 regionNames(civ.regions 不动,见文件头)
@@ -1685,9 +1704,23 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     for (const [id, name] of treaty) treatyNames[id] = name;
     changed = true;
   }
+  // 商道:换名字(路线、通断不动)
+  let tradeData = civ.trade;
+  if (trade.size && tradeData) {
+    const T0 = tradeData.routes;
+    const T = T0.map((r) => {
+      const name = trade.get(r.id);
+      return name && name !== r.name ? { ...r, name } : r;
+    });
+    if (T.some((r, i) => r !== T0[i])) {
+      tradeData = { ...tradeData, routes: T };
+      changed = true;
+    }
+  }
   if (!changed) return civ;
   const out: Civ = { ...civ, cultures, places, settlements, polities };
   if (treatyNames) out.treatyNames = treatyNames;
+  if (tradeData) out.trade = tradeData;
   if (people) out.people = people;
   if (regionNames) out.regionNames = regionNames;
   if (religion) out.religion = religion;
@@ -2098,6 +2131,22 @@ export function issueCommands(play: PlayState, commands: readonly unknown[]): { 
   }
   return { play: playState(play.year, play.tick ?? 0, [...play.commands, ...accepted]), accepted, rejected };
 }
+
+/**
+ * 几条干预改成下在进度的"现在"(play 那一刻)的命令:from = play.year,停在年中的带上 fromTick = play.tick
+ * (年初的不写,原来带着的第几格去掉);别的字段照旧、字段先后不变,不清理(交给 issueCommands 收)。
+ * 界面把单子里还没交出去的干预交给逐年推演(算下一步、存回推演模式、重新演绎时留下原来那一支)时用
+ */
+export function commandsNow(play: Pick<PlayState, 'year' | 'tick'>, list: readonly Intervention[]): Intervention[] {
+  return list.map((v) => {
+    const { fromTick: _t, ...rest } = v;
+    void _t;
+    return (play.tick ? { ...rest, from: play.year, fromTick: play.tick } : { ...rest, from: play.year }) as Intervention;
+  });
+}
+
+/** 一条干预(命令)生效的那一刻折成年(from + fromTick / YEAR_TICKS;1/256 的整数倍,浮点里精确;年初的 = from) */
+export const commandYear = (v: Pick<Intervention, 'from' | 'fromTick'>): number => commandAt(v) / YEAR_TICKS;
 
 /**
  * 推演里面用的干预(civ/ 下的规则读它):清理过(cleanInterventions);年中的(带 fromTick)把 from 换成那一刻
@@ -2843,10 +2892,14 @@ export function cleanOutline(raw: unknown): Outline | undefined {
   return same ? (raw as Outline) : { plots, ...(review ? { review } : {}) };
 }
 
-/** 一国 t 那一刻照的作者的方针(干预列表里它最后一条 from 不晚于 t、不是顺着引出来的;没有 = null) */
+/**
+ * 一国 t 那一刻(年)照的作者的方针(干预列表里它最后一条生效时刻不晚于 t、不是顺着引出来的;没有 = null)。
+ * 生效时刻按年 + 第几格比(逐年推演年中下的方针在那一格才生效)
+ */
 export function basePolicy(list: readonly Intervention[], a: string, t: number): Extract<Intervention, { kind: 'policy' }> | null {
+  const at = ticksAt(t);
   let best: Extract<Intervention, { kind: 'policy' }> | null = null;
-  for (const v of list) if (v.kind === 'policy' && v.a === a && !v.guide && v.from <= t && (!best || v.from >= best.from)) best = v;
+  for (const v of list) if (v.kind === 'policy' && v.a === a && !v.guide && commandAt(v) <= at && (!best || commandAt(v) >= commandAt(best))) best = v;
   return best;
 }
 

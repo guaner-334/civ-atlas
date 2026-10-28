@@ -18,6 +18,7 @@ export const CHARSET_SOURCES = [
   'src/gen/civ/places.ts', // 地理实体:海洋的中性叫法、湖 / 岛 / 沙漠 / 荒原
   'src/render/civ/labels.ts', // 文字层的数据来源(国名、城名也在这里接)
   'src/gen/civ/growth.ts', // 国号形态表:部、国、王国、帝国、汗国、城邦、共和国;东方的大 X、王朝、皇朝
+  'src/gen/civ/trade.ts', // 商道名:产地的名字 + 盐、马、金、铜、煤 + 道,同名加方位
 ];
 
 /** 不收的文件:屏蔽字表里的字恰恰是不会出现在地名里的;人名只在编年史、面板里出现(界面字体),不上地图 */

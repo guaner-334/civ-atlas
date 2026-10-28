@@ -80,9 +80,9 @@ describe('朝政', () => {
         expect(lordFoot(civ, P.id, v, Y)).toMatch(/^名义上还归.+一文不交/);
       }
       if (!v.shown) continue;
-      // 征税那句话:代收 / 分成 / 直征各有各的写法
-      const say = levySay(civ, P.id, v);
-      expect(say, say).toMatch([/代收/, /分成/, /直征/][v.rules.tax]);
+      // 征税那句话:代收(各州自己收税)/ 分成 / 直征各有各的写法
+      const say = levySay(v);
+      expect(say, say).toMatch([/自己收税/, /分成/, /直征/][v.rules.tax]);
       // 历次议事:新的在上;规矩变了的有"从此……"
       const evs = courtEvents(civ, v);
       expect(evs.length).toBe(v.rules.events.length);

@@ -24,6 +24,7 @@ import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './ci
 import { drawSettlementMarks } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
 import { drawTreks, treksShown } from './civ/migrations';
+import { drawTradeLines, drawTradeNames, tradeShown } from './civ/trade';
 import { drawHolyDot, holyCities } from './civ/faith';
 import { drawResourceLayer, type ResourceLook } from './civ/resources';
 import { drawPlacedLabels, placeMap, toCanvas, type LabelItem, type LabelView, type Placement } from './labels/draw';
@@ -306,9 +307,12 @@ export class MapShot {
     }
     const placed: Placement = placeMap(items, layer.marks, lv);
     if (warsShown(params)) drawWarfare(ctx, params, lv, v.mp ? projector(v.mp) : null);
+    const trade = tradeShown(params);
+    if (trade) drawTradeLines(ctx, params, lv, v.mp ? projector(v.mp) : null);
     if (treksShown(params)) drawTreks(ctx, params, lv, v.mp ? projector(v.mp) : null, { placed, era: this.scene.era });
     drawSettlementMarks(ctx, placed.marks, style);
     drawPlacedLabels(ctx, placed.labels, lv);
+    if (trade) drawTradeNames(ctx, params, lv, v.mp ? projector(v.mp) : null, placed);
     if (show.faiths) {
       const cx = (this.w / 2 - lv.ox) / lv.scale;
       for (const hc of holyCities(geo, year, null)) {

@@ -106,7 +106,7 @@ import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
-import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord } from './gender';
+import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
@@ -172,7 +172,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代;商道:商 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -191,6 +191,8 @@ export interface ChronicleEntry {
   people?: number[];
   /** 信仰的大事:哪种信仰(civ.religion.faiths 的下标;教派分立 = 新的教派) */
   faith?: number;
+  /** 商道的大事:哪几条商道(civ.trade.routes 的下标;见 tradeText.ts) */
+  trade?: number[];
 }
 
 // ---------------------------------------------------------------------------
@@ -971,7 +973,7 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     case 'crown': {
       const who = authorName(civ, v.char);
       if (e.b === -3) return fail(`欲立${who}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
-      if (e.b === -2) return fail(`欲立${who}为${A}之主,然其人尚未出生`, `他第 ${v.born} 年才出生`);
+      if (e.b === -2) return fail(`欲立${who}为${A}之主,然其人尚未出生`, `${heOrShe(authorSex(civ, v.char))}第 ${v.born} 年才出生`);
       // 等在位的那位下台再即位:登记的这一条(真即位另记一条 b = −1,interventionOutcome 先找它)
       if (e.b === IV_WAIT) return waitStory(civ, e, who, A, fail, done);
       // 同一刻后面又给这国立了作者的人物(哪怕是同一个人):后立的顶替先立的(rulers.ts),先立的那条算没即位
@@ -1321,6 +1323,11 @@ function policyTail(civ: Civ, v: PolicyIv, y: Year): string {
  */
 function authorName(civ: Civ, char: number): string {
   return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+}
+
+/** 作者的人物是男是女:套过人物卡的历史里记着(Civ.authorFemale);没套过 = 男 */
+function authorSex(civ: Civ, char: number): Sexed {
+  return civ.authorFemale?.includes(char) ? { female: true } : null;
 }
 
 /** 干预"即位"立的那位君主(作者的人物;第 e 条史事那一刻在国家 e.a 即位的) */

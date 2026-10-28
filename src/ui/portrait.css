@@ -70,6 +70,35 @@
   vertical-align: -8px;
 }
 
+/* 没有画像的(NameFace):颜色方块 / 小圆上写名字,白字 */
+.pt-name {
+  background: color-mix(in srgb, var(--c) 78%, #fff);
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 1;
+  white-space: nowrap;
+  align-items: center;
+  justify-content: center;
+}
+.pt-card.pt-name,
+.pt-mini.pt-name {
+  display: flex;
+}
+.pt-row.pt-name {
+  display: inline-flex;
+}
+.pt-card.pt-name {
+  font-size: 30px;
+}
+.pt-card.pt-name-1 {
+  font-size: 38px;
+}
+.pt-mini.pt-name,
+.pt-row.pt-name {
+  font-size: 13px;
+}
+
 /* 去世以后:颜色变旧、加一圈白框,像一幅画像;死于非命的再暗一点 */
 .pt-dead .pt-in {
   filter: saturate(0.35) sepia(0.18) brightness(0.97);

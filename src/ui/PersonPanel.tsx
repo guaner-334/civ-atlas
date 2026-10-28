@@ -47,7 +47,7 @@ import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } fr
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../gen/civ/peopleText';
 import { REGENCY_END, REGENCY_VERB, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
-import { heOrShe, kinWord, wedVerb } from '../gen/civ/gender';
+import { heOrShe, isFemale, kinWord, wedVerb } from '../gen/civ/gender';
 import { treatyBook } from '../gen/civ/treatyInfo';
 import { fullChronicle } from '../gen/civ/religionText';
 import { diedAbroad, diedInExile, exileHostName, exileReturns, exileTieText, treatyEntries } from './treatyRows';
@@ -59,7 +59,7 @@ import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/offic
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
 import { personPortrait, portraitMood } from '../gen/portrait';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { openLineage, openOverview } from './overviewStore';
 import { getEdits, useEdits, useEra } from './editsStore';
 import { eraText, spaced, yearAt, yearShort, yearShortAt, yearSpan, yearSpanAt, type Era } from '../gen/era';
@@ -189,7 +189,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const refs = useMemo(() => charactersOfPerson(civ, chars, id, era), [civ, chars, id, era]);
   // 头像按岁数变(年份取整),去世以后定在去世那年
   const age = x ? Math.floor((x.died !== undefined ? Math.min(year, x.died) : year) - x.born) : 0;
-  const portrait = useMemo(() => (x ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
+  // 女的头像部件还没有:国家色的方块写名字(NameFace)
+  const portrait = useMemo(() => (x && !isFemale(x) ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
   const mood = useMemo(() => (x ? portraitMood(civ, x, year) : undefined), [civ, x, year]);
   // 卡片换上的填写页(让他去世 / 改他的倾向 / 让他掌权 / 为他联姻);换了人就回到卡片
   const [ivPage, setIvPage] = useState<{ id: number; kind: PersonIvKind | 'regent' | 'marry' } | null>(null);
@@ -249,7 +250,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
       <PanelHead
         color={rgb(p.color)}
         icon={
-          portrait && (
+          portrait ? (
             <PortraitView
               p={portrait}
               size="card"
@@ -258,7 +259,9 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
               dark={x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle'}
               mood={mood}
             />
-          )
+          ) : isFemale(x) ? (
+            <NameFace name={x.name} size="card" color={rgb(p.color)} dead={x.died !== undefined && year > x.died} />
+          ) : undefined
         }
       >
         {nameKey ? (

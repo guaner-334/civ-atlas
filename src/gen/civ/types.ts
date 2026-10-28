@@ -655,6 +655,11 @@ export interface Civ {
    */
   authorNames?: Record<number, string>;
   /**
+   * 作者的人物里哪些是女的(编号,从小到大;applyCharacters 写入,同 authorNames;一个女的都没有 = 不给)。
+   * 编年史写没即位成的原因("她第 N 年才出生")时用;生成的 Civ 里没有
+   */
+  authorFemale?: number[];
+  /**
    * 用户改过的州名(阶段 4,gen/edits.ts 的 applyNames 写入;下标 = 州编号,空串 = 用 regions.name)。
    * 不改 regions 本身:画国土、国界的缓存按 civ.regions 存,改州名不用重画
    */
@@ -679,6 +684,16 @@ export interface Civ {
    * 没有文明 = 不给
    */
   development?: Development;
+  /**
+   * 思潮(ideology.ts):各州、各国各说的接受度,各说世上头一处冒在哪。推演里每 20 年算一步,只算不用:国界、兴亡、战争、人物一个都不变。
+   * 没有文明 = 不给
+   */
+  ideology?: Ideology;
+  /**
+   * 商道(trade.ts):要紧的货从哪个产地沿哪条路运到哪国国都、哪年通哪年断。推演里每 20 年算一步,只读推演,历史一个字都不变。
+   * 没有文明 = 不给
+   */
+  trade?: import('./trade').Trade;
   /**
    * 地形大事(upheaval.ts;gen/edits.ts 文件头"地形大事"):按年份排,同一年的合成一件。下标 = 史事 upheaval 的 a。
    * 没有 = 不给。regions、places、routes 是最后一件大事以后的;更早的各段见 eras
@@ -904,6 +919,50 @@ export interface DevEvent {
   culture: number;
   polity: number;
   settlement: number;
+}
+
+/** 思潮(ideology.ts;说的下标见那里的 THOUGHTS) */
+export interface Ideology {
+  /** 各州各说的接受度:每份 = 州 × 说数,存的是接受度 × IDEO_SCALE;和 snapYears 一一对应 */
+  snaps: Uint8Array[];
+  /** 每份快照的年份(递增;每 100 年一份,最后一份是结束那年) */
+  snapYears: Year[];
+  /** 各国各说的接受度(按人口加权):下标 = 国家编号;那国从没在整 20 年上在过 = null */
+  polities: (IdeoSeries | null)[];
+  /** 各国各说传进本国的年份:国 × 说数(没传进 = NaN) */
+  arrive: Float64Array;
+  /** 按年份排好 */
+  events: IdeoEvent[];
+  /** 推演到结束那一刻的内部状态(全精度),接着推(CivSim.fromCiv)时从这里接着算;界面不用 */
+  state?: IdeoState;
+}
+
+/** 一国各说的接受度:from 年起每 20 年一份,每份说数个字节(接受度 × IDEO_SCALE);中间亡过国的那几份是 0 */
+export interface IdeoSeries {
+  from: Year;
+  v: Uint8Array;
+}
+
+/** 思潮的大事:origin = 这一说世上头一处冒出来(那州、那城、那族、那国;那一刻的) */
+export interface IdeoEvent {
+  year: Year;
+  kind: 'origin';
+  thought: number;
+  region: number;
+  settlement: number;
+  culture: number;
+  polity: number;
+}
+
+/** 思潮推演的内部状态(ideology.ts) */
+export interface IdeoState {
+  /** 上一步算到哪一年;史事读到第几条 */
+  last: Year;
+  annals: number;
+  /** 快照里最后一份是补的(结束那年不在整 100 年上) */
+  tail: boolean;
+  /** 数表:合、思潮(州 × 说数)、国中(国 × 说数) */
+  tables: TablesState;
 }
 
 /**
