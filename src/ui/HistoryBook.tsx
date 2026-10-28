@@ -9,21 +9,27 @@
  *
  * 这个组件一直挂着(有历史时):把当前的历史交给 bookStore,换了世界就停下正在写的。
  */
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { Civ } from '../gen/civ/types';
+import type { Raster } from '../gen/raster';
+import type { World } from '../gen/world';
 import { currentWorld, useSavesVersion } from './saveStore';
 import { getBook, resetBookForWorld, setBookContext } from './bookStore';
 import { BookDialog } from './BookDialog';
 import { BookReader } from './BookReader';
+import { lifeSource } from './lifeSource';
 import { useAiOn } from '../ai/client';
 
 export { closeHistoryBook, openHistoryBook } from './bookStore';
 
-export function HistoryBook({ civ }: { civ: Civ }) {
+/** land / raster:地形(写作者人物的列传时算地名、出生地归哪国;还没有 = null) */
+export function HistoryBook({ civ, land, raster }: { civ: Civ; land: World | null; raster: Raster | null }) {
   useSavesVersion();
   const aiOn = useAiOn();
   const world = currentWorld()?.id ?? null;
-  setBookContext(civ, world);
+  // 列传、家传的人物材料(人物卡按这份历史缓存)
+  const src = useMemo(() => lifeSource(civ, land, raster), [civ, land, raster]);
+  setBookContext(civ, world, src);
   // 换了世界:停下正在写的(写到的存不进别的世界),右上的进度收起
   useEffect(() => {
     const j = getBook().job;

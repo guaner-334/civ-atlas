@@ -8,7 +8,7 @@
  *   ④ 道路网               routes.ts              → routes(推演里走过的航线一定画出来,见 usedLanes)
  *   ⑤ 地理名称             places.ts              → places(地图上画的关隘也在里面:passSites.ts 按地形、大路、守关战挑,起名排在最后)
  *   ⑥ 人物                 people.ts              → people(历代君主、战争里的统帅;按推出来的历史排,不改历史)
- *   ⑦ 信仰                 religion.ts            → religion(民间信仰、大教、国教、教派;照推出来的历史贴上去,不改历史)
+ *   ⑦ 信仰                 religion.ts            → religion(民间信仰、大教、国教、教派;推演里每 5 年算一步,别的规则还不读它、不改历史;推完补上名字)
  *   发展度(物产、五种能力、时代)在推演里每 20 年算一步,反过来影响人口上限、军力、远洋(development.ts → development)
  *
  * 阶段 4 干预(params.interventions,interventions.ts):带着干预从第 0 年整段重推;干预年份之前和不干预时逐字节一致。
@@ -44,7 +44,7 @@ import type { PolityModel } from './polities';
 import type { InterventionModel } from './interventions';
 import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
 import { YEAR_TICKS, cleanInterventions, sameInterventions, type Intervention, type TerrainOp } from '../edits';
-import { buildReligion } from './religion';
+import { finishReligion, installReligion } from './religion';
 import { finishDevelopment, installDevelopment } from './development';
 import { finishTrade, installTrade } from './trade';
 import { installUnrest } from './unrest';
@@ -249,6 +249,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
   if (pm) installPandemic(sim, pm, seed); // 全球大疫、疫后凋敝;「天灾」多 / 很多时自己发生的全球大疫、地震水旱(pandemic.ts)
   if (pm) installTreaties(sim, pm, world); // 立约与中立地(treaties.ts):互不侵犯 / 有限竞争之约、背约、续约,共建中立地、放逐
+  if (model && pm) installReligion(sim, seed, model, pm, regions); // 信仰(religion.ts):每 5 年算一步(只算着,别的规则还不读它;不预约事件)
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);
   // 地形大事:推到第一件的前一刻,之后每件套上新地形接着推(upheaval.ts)
@@ -269,7 +270,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, seed, iv, frontier);
     same.upheavals = facts.slice(); // 早先几件大事的经过:分支里也认得出沉过海的城址(见下面 half.upheavals)
     // 接着推和一口气推完一样(CivSim.fromCiv):这一支和"没有这件大事、照原样推到底"一模一样
-    const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? []);
+    // 信仰照历史重放:早先几段按那时的州(eras)
+    const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? [], undefined, eras);
     branch.run(p.endYear);
     // 起名只读这一段的分支,不影响之后的推演
     const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.stored);
@@ -310,6 +312,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
         s.floor = u.year;
         scheduleUpheaval(s, k, u.year);
       },
+      eras, // 信仰照历史重放:这件大事以前的各段按那时的州
     );
     installUpheaval(s1, k, u, impact, fact, fin.world);
     s1.run(k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear);
@@ -513,8 +516,8 @@ function finishCiv(x: Finish): Civ {
     ...(facts.length ? { upheavals: facts, eras } : {}),
     ...(mix ? { names: mix } : {}),
   };
-  // ⑦ religion.ts:要整份 civ(按年份查归属、国都、君主;地形大事以前按那时的州)
-  if (viable && cultures.length) civ.religion = buildReligion(fin.world, civ);
+  // ⑦ religion.ts:推演里算好的,补上名字和皈依的国君(要起好名、排好人物的整份 civ)
+  if (viable && cultures.length) civ.religion = finishReligion(fin.sim, fin.world, civ);
   // 发展度:推演里算好的,整理一份(和推演结束那一刻的状态)
   if (viable && cultures.length) {
     const dev = finishDevelopment(fin.sim, p.endYear);

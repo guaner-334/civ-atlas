@@ -9,6 +9,7 @@
  * - 演一国:别国的干预入口变灰(roleLock)
  */
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
+import { heOrShe, type Sexed } from '../gen/civ/gender';
 import { POLICY_KNOBS, POLICY_PICK_MAX, cleanIntervention, polityKey, resolveKey, type PolicyFocus, type PolicyKnob, type PolicyPreset } from '../gen/edits';
 import { POLICY_PRESETS, POLICY_PRESET_NAMES, emptyPolicy, policiesFrom, policyName, withPolicy, type PolicyIv } from '../gen/civ/policy';
 import { interventionFate } from '../gen/stepwise';
@@ -207,26 +208,26 @@ export function policyDoneText(civ: Civ, v: PolicyIv, i: number, A: string, era:
 const clamp = (x: number) => Math.min(100, Math.max(0, x));
 
 /**
- * 旋钮下面一句:现在在位那位的数、加上方针以后的数(l = 他的倾向,没有君主 = null;ruler = 他的名字)
+ * 旋钮下面一句:现在在位那位的数、加上方针以后的数(l = 他的倾向,没有君主 = null;ruler = 他的名字;x = 他,分他 / 她)
  *   打仗胆量 "燕溟好战 50，加上方针 = 75：更容易开战，打起来更难停。"
  *   开拓     "开拓 53 → 78"      沿海 "重商 63 → 98"      在中间的 "重商 63，照他的意思"
  *   和谈底线 "打得更久才厌战，要多拿几州才肯停；守方打惨了也更不肯称臣。"
  */
-export function knobNote(k: PolicyKnob, n: number, l: RulerLeanings | null | undefined, ruler: string): string {
+export function knobNote(k: PolicyKnob, n: number, l: RulerLeanings | null | undefined, ruler: string, x?: Sexed): string {
   if (k === 'peace') {
     if (!n) return '照君主的意思，不另加减。';
     return n > 0 ? '打得更久才厌战，要多拿几州才肯停；守方打惨了也更不肯称臣。' : '打不了多久就想停，少拿几州也肯议和；守方打不过也早些称臣。';
   }
   if (k === 'war') {
     const head = l ? `${ruler}好战 ${l.war}` : '';
-    if (!n) return l ? `${head}，照他的意思` : '照君主的意思';
+    if (!n) return l ? `${head}，照${heOrShe(x)}的意思` : '照君主的意思';
     const tail = n > 0 ? '更容易开战，打起来更难停。' : '更少开战，打起来也早些停。';
     return l ? `${head}，加上方针 = ${clamp(l.war + n)}：${tail}` : tail;
   }
   const word = k === 'expand' ? '开拓' : '重商';
   const base = l ? (k === 'expand' ? l.expand : l.trade) : null;
   if (base === null) return n ? '' : '照君主的意思';
-  return n ? `${word} ${base} → ${clamp(base + n)}` : `${word} ${base}，照他的意思`;
+  return n ? `${word} ${base} → ${clamp(base + n)}` : `${word} ${base}，照${heOrShe(x)}的意思`;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,9 +236,9 @@ export function knobNote(k: PolicyKnob, n: number, l: RulerLeanings | null | und
 /** 倾向的哪一项受哪个旋钮管(发展不受) */
 const LEAN_KNOB: Record<keyof RulerLeanings, PolicyKnob | null> = { expand: 'expand', war: 'war', develop: null, trade: 'coast' };
 const LEAN_WHY: Record<PolicyKnob, [string, string]> = {
-  expand: ['让他往外占', '让他少往外扩'],
-  war: ['让他更敢打', '让他少打仗'],
-  coast: ['让他更看重沿海、大河', '让他偏向内陆'],
+  expand: ['往外占', '少往外扩'],
+  war: ['更敢打', '少打仗'],
+  coast: ['更看重沿海、大河', '偏向内陆'],
   peace: ['', ''],
 };
 
@@ -250,23 +251,23 @@ export interface LeanRow {
   why: string;
 }
 
-/** 君主 l 的四项倾向加上方针 v(没有方针 = add 都是 0) */
-export function leanRows(l: RulerLeanings, v: PolicyIv | null): LeanRow[] {
+/** 君主 l 的四项倾向加上方针 v(没有方针 = add 都是 0;x = 这位君主,说明里分他 / 她) */
+export function leanRows(l: RulerLeanings, v: PolicyIv | null, x?: Sexed): LeanRow[] {
   const c = v ? withPolicy(l, v).leanings : l;
   const name = v ? policyName(v) : '';
   const who = name ? `方针「${name}」` : '方针';
   return (['expand', 'war', 'develop', 'trade'] as const).map((k) => {
     const knob = LEAN_KNOB[k];
     const add = v && knob ? (v[knob] ?? 0) : 0;
-    return { k, base: l[k], add, actual: c[k], why: add ? `；${who}${LEAN_WHY[knob!][add > 0 ? 0 : 1]}` : '' };
+    return { k, base: l[k], add, actual: c[k], why: add ? `；${who}让${heOrShe(x)}${LEAN_WHY[knob!][add > 0 ? 0 : 1]}` : '' };
   });
 }
 
-/** 和谈底线那一行:"方针让他不轻易议和（＋15）" / "方针让他早议和（−25）";没拧 = null */
-export function peaceRow(v: PolicyIv | null): string | null {
+/** 和谈底线那一行:"方针让他不轻易议和（＋15）" / "方针让他早议和（−25）";没拧 = null(x = 这位君主,分他 / 她) */
+export function peaceRow(v: PolicyIv | null, x?: Sexed): string | null {
   const n = v?.peace ?? 0;
   if (!n) return null;
-  return `方针让他${n > 0 ? '不轻易议和' : '早议和'}（${signed(n)}）`;
+  return `方针让${heOrShe(x)}${n > 0 ? '不轻易议和' : '早议和'}（${signed(n)}）`;
 }
 
 /** 人物卡上这位君主那时照的方针:时间轴那一年(夹在他在位的年份里);不是君主 / 没有方针 = null */
