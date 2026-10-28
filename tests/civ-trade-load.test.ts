@@ -7,12 +7,14 @@ import { RESOURCES } from '../src/gen/civ/development';
 import { CivSim } from '../src/gen/civ/sim';
 import { describe, expect, it } from 'vitest';
 import { TRADE_GOODS } from '../src/gen/civ/trade';
+import { GOOD_NAME } from '../src/gen/civ/tradeText';
 
 describe('商道:先引发展度也装载得了', () => {
-  it('货的下标都在', () => {
+  it('货的下标、货名都在', () => {
     expect(typeof CivSim).toBe('function');
     expect(RESOURCES.length).toBe(11);
     expect(TRADE_GOODS.length).toBe(8);
     for (const g of TRADE_GOODS) expect(Number.isInteger(g)).toBe(true);
+    expect(TRADE_GOODS.map((g) => GOOD_NAME[g]).join('')).toBe('盐铁铜锡煤石油马稀有矿金银');
   });
 });

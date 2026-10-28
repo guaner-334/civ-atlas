@@ -3,6 +3,7 @@
  * 从人物卡「让 AI 写列传」、世系图「让 AI 写这一朝的家传」打开时,写什么多一个"某某列传""某朝某氏家传"(默认选它),
  * 选它时文体换成史书体 / 白话讲述 / 传说故事,篇幅只有一档(列传约 2000 字、家传约 3000 字)。
  * 开始后窗口关上,写作在后台继续(右上显示进度);同一时间只写一部。下面列着已写的(史书、列传、家传在一起),点一部阅读。
+ * 写过的再写一遍不覆盖,算这一部的新一版(最多留 3 版,满了写完去掉最早的那版,写之前在提示里说清楚)。
  * 状态在 bookStore.ts。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -11,7 +12,7 @@ import { useAiStatus } from '../ai/client';
 import { useNotesVersion } from '../ai/library';
 import { BOOK_LENGTHS, BOOK_STYLES, HISTORY_LENGTHS, HISTORY_STYLES, type HistoryLength, type HistoryStyle } from '../ai/prompts/history';
 import { LIFE_STYLES, bookNoteKey, bookPrompts, bookStoreScope, houseName, isLifeScope, lifeLength, lifeOptionLabel, type BookOptions, type LifeScope } from '../ai/prompts/lives';
-import { bookHowText, historyNoteStatus, historyStyleLabel, listHistoryNotes, shortDate } from '../ai/history';
+import { BOOK_VERSIONS_MAX, bookHowText, bookVersions, historyNoteStatus, historyStyleLabel, listHistoryNotes, shortDate, shortDay } from '../ai/history';
 import { personName } from '../gen/civ/peopleText';
 import { getCivTime, useSelection } from './civView';
 import { currentWorld, useSavesVersion } from './saveStore';
@@ -31,14 +32,14 @@ function minutes(chars: number): string {
   return `${lo}–${hi} 分钟`;
 }
 
-/** 对话框开着时按 Esc = f(上面压着 AI 设置时让给它) */
+/** 对话框开着时按 Esc = f(上面压着 AI 设置、阅读页的版本列表开着时让给它们) */
 export function useDialogEscape(on: boolean, f: () => void) {
   const latest = useRef(f);
   latest.current = f;
   useEffect(() => {
     if (!on) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || document.querySelector('.ai-dialog')) return;
+      if (e.key !== 'Escape' || document.querySelector('.ai-dialog, .bk-ver-pop')) return;
       e.stopPropagation();
       latest.current();
     };
@@ -104,6 +105,7 @@ function Dialog({ civ }: { civ: Civ }) {
   const status = useMemo(() => new Map(notes.map((n) => [n.key, historyNoteStatus(civ, n, src)])), [notes, civ, src]);
   const key = bookNoteKey(bookStoreScope(civ, opts.scope, src), opts.style, opts.length);
   const existing = notes.find((n) => n.key === key);
+  const versions = useMemo(() => new Map(notes.map((n) => [n.key, bookVersions(n).list])), [notes]);
 
   const job = st.job;
   const busy = job?.status === 'writing';
@@ -194,7 +196,7 @@ function Dialog({ civ }: { civ: Civ }) {
           </Row>
           <p className="bk-hint" data-testid="book-hint">
             {hint}
-            {existing && !busy && <span className="bk-hint-2">{isLife ? '已写过这一篇，重新生成会替换它。' : '已写过这一部,重新生成会替换它。'}</span>}
+            {existing && !busy && <span className="bk-hint-2">{againHint(versions.get(existing.key) ?? [], isLife)}</span>}
           </p>
           {notes.length > 0 && (
             <div className="bk-lib">
@@ -204,12 +206,14 @@ function Dialog({ civ }: { civ: Civ }) {
               <div className="bk-lib-list">
                 {notes.map((n) => {
                   const s = status.get(n.key);
+                  const nv = versions.get(n.key)?.length ?? 1;
                   return (
                     <button key={n.key} className="bk-lib-row" onClick={() => openBookReader(n.key)}>
                       <span className="bk-lib-t">{bookTitleText(n.book.title, n.book.scope, world?.title)}</span>
                       <span className="bk-lib-m">
                         {bookHowText(n.book.scope, n.book.style, n.book.length, ' · ')} · {shortDate(n.createdAt)}
                         {s?.stale && <em className="bk-tag">历史已变</em>}
+                        {nv > 1 && <em className="bk-tag n">{nv} 版</em>}
                       </span>
                     </button>
                   );
@@ -227,12 +231,22 @@ function Dialog({ civ }: { civ: Civ }) {
             取消
           </button>
           <button className="bk-btn primary" data-act="book-start" disabled={busy || prompts.empty} onClick={() => startBook(opts)}>
-            {existing && !busy ? '重新生成' : '开始生成'}
+            {existing && !busy ? '再写一版' : '开始生成'}
           </button>
         </footer>
       </section>
     </div>
   );
+}
+
+/** 写过的再写:旧的照样留着;满了说清写完去掉最早的哪一版 */
+function againHint(list: readonly { createdAt: string }[], life: boolean): string {
+  if (list.length >= BOOK_VERSIONS_MAX) {
+    const day = shortDay(list[0].createdAt);
+    return `已有 ${list.length} 版，再写一版会去掉最早的第 1 版${day ? `（${day}）` : ''}。`;
+  }
+  if (list.length > 1) return `已有 ${list.length} 版，再写一版旧的照样留着。`;
+  return `已写过这一${life ? '篇' : '部'}，再写一版，这一版照样留着。`;
 }
 
 /** 写列传、家传时那一句:"照世祖苏珩羽卡片上的事写一篇传""照作者写的经历写沈青禾的传""照世系图写衍朝苏氏这一朝的家事" */

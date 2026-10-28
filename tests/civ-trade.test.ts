@@ -8,6 +8,9 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { CivSim } from '../src/gen/civ/sim';
 import { finishTrade } from '../src/gen/civ/trade';
+import { tradeEntries } from '../src/gen/civ/tradeText';
+import { applyNames, resolveKey, tradeKey } from '../src/gen/edits';
+import { fullChronicle } from '../src/gen/civ/religionText';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -82,5 +85,37 @@ describe.each([7, 2024])('商道 · seed=%i', (seed) => {
       }).length;
       expect(n, `第 ${y} 年`).toBeLessThanOrEqual(12);
     }
+  }, 120_000);
+
+  it('编年史:每件通、断、复通、废都写进去(同一仗断的、同一国亡而废的并成一句,各条的买方都算相关国家),都是小事;和别的纪事编号不撞', () => {
+    const civ = civOf(seed);
+    const T = civ.trade!;
+    const es = tradeEntries(civ);
+    const n = T.routes.reduce((s, r) => s + r.events.length, 0);
+    expect(es.reduce((s, e) => s + e.trade!.length, 0)).toBe(n);
+    for (let i = 1; i < es.length; i++) expect(es[i].year).toBeGreaterThanOrEqual(es[i - 1].year);
+    for (const e of es) {
+      expect(e.importance).toBe(1);
+      expect(e.kind).toBe('era');
+      expect(e.tag).toBe('商');
+      expect(e.text).toMatch(/(通|断|复通|废)$/);
+      for (const id of e.trade!) expect(e.text).toContain(T.routes[id].name);
+      // 并进来的各条的买方都算相关国家(按国家筛编年史时看得到)
+      for (const id of e.trade!) expect(e.polities).toContain(T.routes[id].buyer);
+    }
+    const all = fullChronicle(civ);
+    expect(new Set(all.map((e) => `${e.kind}:${e.id}`)).size).toBe(all.length);
+    expect(all.filter((e) => e.tag === '商').length).toBe(es.length);
+  }, 120_000);
+
+  it('改名:稳定键找得回同一条(各条的键都不一样);改过的名字套上,原来那份不动', () => {
+    const civ = civOf(seed);
+    const keys = civ.trade!.routes.map((r) => tradeKey(civ, r.id));
+    expect(new Set(keys).size).toBe(keys.length);
+    const id = civ.trade!.routes.length >> 1;
+    expect(resolveKey(civ, keys[id])).toEqual({ kind: 'trade', id });
+    const named = applyNames(civ, { [keys[id]]: '新商道' });
+    expect(named.trade!.routes[id].name).toBe('新商道');
+    expect(civ.trade!.routes[id].name).not.toBe('新商道');
   }, 120_000);
 });
