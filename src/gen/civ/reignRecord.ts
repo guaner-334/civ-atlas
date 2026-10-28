@@ -8,7 +8,7 @@
  *     钱粮  国库的档位(充裕、尚可、拮据、国用不足),有国用不足的写哪年;小字岁入多少万石(旧版本的历史没有账本,这一行不出)
  *   有才列的几行(只列他在位时真有的;同一样有几件时一件一行,按年份):
  *     国号(升格)、迁都、城(新筑、被毁)、时代(国都进入 / 退回某时代)、首创(世上第一的发明)、物产(发现、采空)、
- *     天灾(饥荒、瘟疫、地震;同一种不止一城受灾的并成一条)
+ *     天灾(饥荒、瘟疫、地震、大水、大旱;同一种不止一城受灾的并成一条,同一城受灾几回算一座)
  *   在位不满 SHORT_REIGN 年的:几乎什么都没变,缩成一句写他在位时的国势。
  *
  * 只给君主(共和国是执政官);将领、名臣、宗室 = null。取数:州的归属(timeline.ts)、各州人口(growth.ts)、
@@ -20,9 +20,10 @@ import type { Era } from '../era';
 import { yearShortAt, yearSpan } from '../era';
 import { ownersAt } from './timeline';
 import { capitalAt, polityName, populationLabel, regionPopulationAt } from './growth';
-import { fiscalAt, fiscalSeries, fiscalMood, fillOf, warSpans, type BookRow } from './fiscalBook';
+import { fiscalAt, fiscalMood, fillOf, warSpans, type BookRow } from './fiscalBook';
 import { ERAS, INVENTIONS, RESOURCES } from './development';
 import { regionLabel } from './display';
+import { quakeWord } from './calamity';
 
 /** 在位不满几年的缩成一句 */
 export const SHORT_REIGN = 3;
@@ -35,7 +36,8 @@ const MAX_BUILT = 3;
 const MAX_RUINED = 2;
 
 const MOODS = ['充裕', '尚可', '拮据', '国用不足'] as const;
-const CAUSE = { famine: '饥荒', plague: '瘟疫', quake: '地震', slump: '疫后凋敝' } as const;
+/** 天灾的名字(quake 照震中那州再分地震、大水、大旱,见 calamity.ts 的 quakeWord) */
+const CAUSE = { famine: '饥荒', plague: '瘟疫', slump: '疫后凋敝' } as const;
 
 /** 有才列的那几行的名目(也是排在四行底子后面的那几行) */
 export type ReignEventKind = '国号' | '迁都' | '城' | '时代' | '首创' | '物产' | '天灾';
@@ -167,20 +169,14 @@ export function reignFacts(civ: Civ, x: Person): ReignFacts | null {
   if (ce > -Infinity) warYears += ce - cs;
   longestPeace = Math.max(longestPeace, until - (ce > -Infinity ? ce : from));
 
-  // 钱粮:即位、末年最近的一行账;档位照每 BOOK_EVERY 年记的那几行(那几年还没记过的照最近的一行账)
+  // 钱粮:即位、末年各取那一刻最近的一行账(国库换档的那一年账本都记了一行,档位是准的)
   const f0 = fiscalAt(civ, pid, a);
   const f1 = fiscalAt(civ, pid, b);
   let fiscal: ReignFacts['fiscal'] = null;
   if (f0 && f1) {
-    const series = fiscalSeries(civ, pid).filter((r) => r.year >= from - 20 && r.year <= until);
-    const moodAt = (y: number): number | null => {
-      let m: number | null = null;
-      for (const r of series) if (r.year <= y) m = r.mood;
-      return m;
-    };
-    const rowMood = (f: BookRow) => fiscalMood(fillOf(f.values.国库, f.values.应缴), f.values.窘迫);
-    const mood1 = moodAt(b) ?? rowMood(f1);
-    const mood0 = moodAt(a) ?? mood1;
+    const moodOf = (f: BookRow) => fiscalMood(fillOf(f.values.国库, f.values.应缴), f.values.窘迫);
+    const mood0 = moodOf(f0);
+    const mood1 = moodOf(f1);
     const short: number[] = [];
     for (const e of civ.annals) if (e.kind === 'fiscal' && e.a === pid && e.year >= from && e.year <= until) short.push(Math.floor(e.year));
     fiscal = {
@@ -207,15 +203,17 @@ export function reignFacts(civ: Civ, x: Person): ReignFacts | null {
   }
   const built: ReignEvent[] = [];
   const ruined: ReignEvent[] = [];
-  const sacks = new Map<string, { year: Year; region: number }[]>();
+  const sacks = new Map<string, { year: Year; region: number; city: number }[]>();
   for (const s of civ.settlements) {
     if (inReign(s.founded) && ownAt(s.founded + 0.25)[s.region] === pid) built.push({ year: s.founded, kind: '城', text: `筑${s.name}` });
     if (s.ended !== undefined && s.ended > from && s.ended <= until && ownAt(s.ended - 0.25)[s.region] === pid) ruined.push({ year: s.ended, kind: '城', text: `${s.name}被毁` });
     for (const k of s.sacks ?? []) {
       if (!k.cause || k.year < from || k.year > until || ownAt(k.year)[s.region] !== pid) continue;
-      let l = sacks.get(k.cause);
-      if (!l) sacks.set(k.cause, (l = []));
-      l.push({ year: k.year, region: s.region });
+      // 地震、大水、大旱记的都是 quake,照震中那州定是哪样(和编年史一样)
+      const what = k.cause === 'quake' ? quakeWord(civ.regions, k.from ?? s.region) : CAUSE[k.cause];
+      let l = sacks.get(what);
+      if (!l) sacks.set(what, (l = []));
+      l.push({ year: k.year, region: s.region, city: s.id });
     }
   }
   raw.push(...built.slice(0, MAX_BUILT), ...ruined.slice(0, MAX_RUINED));
@@ -231,12 +229,12 @@ export function reignFacts(civ: Civ, x: Person): ReignFacts | null {
     }
     // first(世上头一回进这个时代)和同一刻国都进入的那一条是同一件,不另写
   }
-  // 天灾:同一种只一城受灾的写那州,不止一城的并成一条
-  for (const [cause, l] of sacks) {
+  // 天灾:同一种只一城受灾的写那州,不止一城的并成一条(同一城受灾几回只算一座;跨了几年的带上起止)
+  for (const [what, l] of sacks) {
     l.sort((u, v) => u.year - v.year);
-    const what = CAUSE[cause as keyof typeof CAUSE];
-    if (l.length === 1) raw.push({ year: l[0].year, kind: '天灾', text: `${regionLabel(civ, l[0].region)}${what}` });
-    else raw.push({ year: l[0].year, kind: '天灾', text: `${what}，${l.length} 座城受灾`, until: l[l.length - 1].year });
+    const cities = new Set(l.map((k) => k.city)).size;
+    const text = cities === 1 ? `${regionLabel(civ, l[0].region)}${what}` : `${what}，${cities} 座城受灾`;
+    raw.push({ year: l[0].year, kind: '天灾', text, until: l.length > 1 ? l[l.length - 1].year : undefined });
   }
   raw.sort((u, v) => u.year - v.year);
   const seen = new Set<string>();
@@ -293,15 +291,19 @@ export function reignRecord(civ: Civ, x: Person, era?: Era | null): ReignRecord 
   const warLen = f.warYears < 1 ? '不到 1 年' : `约 ${Math.round(f.warYears)} 年`;
   if (noWar) rows.push({ k: '战事', lines: ['没打过仗'], note: yrs(f.len) });
   else rows.push({ k: '战事', lines: [`${yrs(f.len)}里打了${warLen}`], note: f.longestPeace >= 1 ? `最长 ${yrs(f.longestPeace)}无战事` : '' });
-  // 钱粮
+  // 钱粮("国库一直充裕";一直入不敷出的写"一直国用不足",不写"国库一直国用不足")
   let money = '';
+  let moneyShort = '';
   if (f.fiscal) {
     const { mood0, mood1, income0, income1, short } = f.fiscal;
+    const broke = mood1 === MOODS.length - 1;
     money = short.length
       ? `${short.length > 1 ? `${short.length} 回国用不足（${yearShortAt(short[0], era)}起）` : `${yearShortAt(short[0], era)}国用不足`}，末年${MOODS[mood1]}`
       : mood0 === mood1
-        ? `国库一直${MOODS[mood1]}`
+        ? `${broke ? '' : '国库'}一直${MOODS[mood1]}`
         : `国库从${MOODS[mood0]}到${MOODS[mood1]}`;
+    // 一句话里不写"一直":"国库充裕""国用不足"
+    moneyShort = !short.length && mood0 === mood1 ? `${broke ? '' : '国库'}${MOODS[mood1]}` : money;
     rows.push({ k: '钱粮', lines: [money], note: income0 === income1 ? `岁入约 ${income1} 万石` : `岁入 ${income0} → ${income1} 万石` });
   }
   // 大事:同一类并成一行(一件一行),按这一类头一件的先后
@@ -318,7 +320,7 @@ export function reignRecord(civ: Civ, x: Person, era?: Era | null): ReignRecord 
   if (f.len < SHORT_REIGN) {
     const head = `在位${f.len < 1 ? '不到一年' : ` ${Math.round(f.len)} 年`}`;
     const land = r0 === r1 ? `国中没有变化：${r0} 州，${popPeople(p0)}` : `疆域从 ${r0} 州到 ${r1} 州，${popPeople(p1)}`;
-    const fisc = money ? `，${money.replace('国库一直', '国库')}` : '';
+    const fisc = moneyShort ? `，${moneyShort}` : '';
     const war = noWar ? '，没打仗' : `，打了${warLen}仗`;
     short = `${head}，${land}${fisc}${war}。`;
   }

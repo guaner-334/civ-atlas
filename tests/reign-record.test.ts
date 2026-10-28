@@ -9,7 +9,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { populationLabel, regionPopulationAt } from '../src/gen/civ/growth';
-import { fiscalAt, warSpans } from '../src/gen/civ/fiscalBook';
+import { fillOf, fiscalAt, fiscalMood, warSpans } from '../src/gen/civ/fiscalBook';
 import { SHORT_REIGN, reignFacts, reignRecord } from '../src/gen/civ/reignRecord';
 import { yearShortAt, type Era } from '../src/gen/era';
 
@@ -89,12 +89,16 @@ describe('治绩的四行', () => {
         expect(f.longestPeace).toBeLessThanOrEqual(f.len + 0.05);
         expect(f.warYears + f.longestPeace).toBeLessThanOrEqual(f.len + 0.1);
 
-        // 钱粮:账本里即位、末年都查得到才写;国用不足的那几年在他在位时
-        expect(!!f.fiscal).toBe(!!(fiscalAt(civ, x.polity, a) && fiscalAt(civ, x.polity, b)));
-        if (f.fiscal) {
+        // 钱粮:账本里即位、末年都查得到才写;档位照那一刻最近的一行账;国用不足的那几年在他在位时
+        const b0 = fiscalAt(civ, x.polity, a);
+        const b1 = fiscalAt(civ, x.polity, b);
+        expect(!!f.fiscal).toBe(!!(b0 && b1));
+        if (f.fiscal && b0 && b1) {
           fiscal++;
+          const mood = (v: typeof b0) => fiscalMood(fillOf(v.values.国库, v.values.应缴), v.values.窘迫);
+          expect([f.fiscal.mood0, f.fiscal.mood1]).toEqual([mood(b0), mood(b1)]);
           const money = r.rows[3];
-          expect(money.lines[0]).toMatch(/^(国库一直(充裕|尚可|拮据|国用不足)|国库从\S+到\S+|\d+ 年国用不足，末年\S+|\d+ 回国用不足（\d+ 年起），末年\S+)$/);
+          expect(money.lines[0]).toMatch(/^(国库一直(充裕|尚可|拮据)|一直国用不足|国库从\S+到\S+|\d+ 年国用不足，末年\S+|\d+ 回国用不足（\d+ 年起），末年\S+)$/);
           expect(money.note).toMatch(/^岁入(约 \d+| \d+ → \d+) 万石$/);
           for (const y of f.fiscal.short) expect(y >= Math.floor(from) && y <= until).toBe(true);
         }
@@ -125,6 +129,13 @@ describe('治绩的四行', () => {
             expect(l).toContain(evs[i].text);
           });
           expect(row.note).toBe(row.k === '首创' ? '世上第一' : '');
+          // 天灾:饥荒、瘟疫、疫后凋敝,地震水旱照震中分;并成一条的至少两座城
+          if (row.k === '天灾')
+            for (const l of row.lines) {
+              expect(l).toMatch(/(饥荒|瘟疫|地震|大水|大旱|疫后凋敝)/);
+              const m = /(\d+) 座城受灾/.exec(l);
+              if (m) expect(Number(m[1])).toBeGreaterThanOrEqual(2);
+            }
         }
         // 同一类的几行:按这一类头一件的先后
         const firsts = r.rows.filter((q) => EXTRA.includes(q.k)).map((q) => r.facts.events.find((e) => e.kind === q.k)!.year);
@@ -166,7 +177,7 @@ describe('在位不满 3 年', () => {
         if (f.regions[0] === f.regions[1]) expect(r.short).toContain(`国中没有变化：${f.regions[0]} 州，约 `);
         else expect(r.short).toContain(`疆域从 ${f.regions[0]} 州到 ${f.regions[1]} 州，约 `);
         expect(r.short).toMatch(f.warYears < 0.05 ? /，没打仗。$/ : /，打了(约 \d+ 年|不到 1 年)仗。$/);
-        if (f.fiscal) expect(r.short).toMatch(/，(国库|\d+ 年国用不足|\d+ 回国用不足)/);
+        if (f.fiscal) expect(r.short).toMatch(/，(国库|国用不足|\d+ 年国用不足|\d+ 回国用不足)/);
         expect(r.short).not.toMatch(/undefined|null|NaN/);
       }
     }
