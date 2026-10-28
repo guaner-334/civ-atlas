@@ -3312,6 +3312,70 @@ if (part('国家面板')) {
   await page.evaluate(() => localStorage.clear());
 }
 
+// 政体和朝政页:国家卡片「国都」下面一行「政体」(政体名 + 哪年起),点了换成朝政页:政体名(大字)、为什么叫这个、
+// 征税 / 兵制 / 官制三条分段条(现在那档亮着,各一句)、共用的"地方 ↔ 朝廷"轴;「历次改制」一条时间条 + 一条一行,点一条打开编年史;
+// 拖时间轴(换年份)政体跟着变;够不上议事的小国(没有「朝政」一行)也能点「政体」进朝政页
+if (part('政体和朝政页')) {
+  await page.evaluate(() => localStorage.clear()).catch(() => {});
+  await page.goto(`${dev.url}/?seed=7`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  const rowText = () => page.locator('.inspector .ct-form-row').innerText().then((t) => t.replace(/\s+/g, ' '), () => '');
+  const pickPolity = async (id: number) => {
+    await page.evaluate((i) => (window as any).__wfSelect('polity', i), id);
+    await page.locator(`.inspector .cp[data-polity="${id}"] .cp-k`).first().waitFor({ timeout: 10000 });
+  };
+  // 种子 7 的博戈维纳王国(第 3 国):议过事,集权王国
+  await pickPolity(3);
+  const row = await rowText();
+  const t0 = performance.now();
+  await page.click('.inspector [data-act=court-form]');
+  await page.locator('.inspector .ct-page .ct-gov').waitFor({ timeout: 5000 }).catch(() => {});
+  timing('点「政体」→ 朝政页', performance.now() - t0, 800);
+  const gov = (await page.locator('.inspector .ct-gov').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const segs = await page.locator('.inspector .ct-bars .ct-seg').count();
+  const lit = await page.locator('.inspector .ct-bars .ct-seg span.on').allInnerTexts();
+  const says = await page.locator('.inspector .ct-bars .ct-say').allInnerTexts();
+  const axis = (await page.locator('.inspector .ct-bars .ct-axis').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const changes = await page.locator('.inspector [data-sec=form-changes] [data-act=form-change]').allInnerTexts();
+  const bar = await page.locator('.inspector [data-sec=form-changes] .ct-tbar i').count();
+  await page.locator('.inspector [data-sec=form-changes] [data-act=form-change]').first().click().catch(() => {});
+  const chron = await page.locator('.ov-root:not([hidden]) .ov').isVisible({ timeout: 3000 }).catch(() => false);
+  if (chron) await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  // 拖到 1850 年:还是王国(还没议过事)
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${dev.url}/?seed=7&civYear=1850`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await pickPolity(3);
+  const early = await rowText();
+  // 种子 7 里够不上议事的小国(没有「朝政」一行)也有「政体」,点得进朝政页
+  const small = ((await page.evaluate('window.__wfPickables()')) as { kind: string; id: number }[]).filter((q) => q.kind === 'polity').map((q) => q.id);
+  let smallRow = '';
+  let smallPage = '';
+  for (const id of small.slice(0, 40)) {
+    await pickPolity(id);
+    if (await page.locator('.inspector [data-act=court]').count()) continue;
+    smallRow = await rowText();
+    await page.click('.inspector [data-act=court-form]').catch(() => {});
+    smallPage = (await page.locator('.inspector .ct-page').innerText({ timeout: 3000 }).catch(() => '')).replace(/\s+/g, ' ');
+    break;
+  }
+  console.log(
+    `政体和朝政页:博戈维纳王国「${row}」→ 朝政页「${gov}」,${segs} 条分段条亮着「${lit.join('、')}」,轴「${axis}」;` +
+      `历次改制 ${changes.length} 条、时间条 ${bar} 段(最新「${(changes[0] ?? '').replace(/\s+/g, ' ').slice(0, 60)}」),点了打开编年史 ${chron};` +
+      `1850 年「${early}」;小国「${smallRow}」→「${smallPage.slice(0, 80)}…」`,
+  );
+  if (!/^集权王国 \d+ 年起$/.test(row)) errs.push(`政体和朝政页:国家卡片「政体」一行不对(${row})`);
+  if (!/^集权王国 \d+ 年起$/.test(gov)) errs.push(`政体和朝政页:朝政页上面没写政体名、哪年起(${gov})`);
+  if (segs !== 3 || lit.length !== 3 || says.length !== 3 || says.some((s) => !s.trim())) errs.push(`政体和朝政页:征税、兵制、官制三条不全(${segs} 条,亮着 ${lit.join('、')},${says.length} 句)`);
+  if (axis !== '地方说了算 朝廷说了算') errs.push(`政体和朝政页:三条下面的轴不对(${axis})`);
+  if (changes.length < 2 || bar !== changes.length || !/→ 集权王国/.test(changes[0] ?? '')) errs.push(`政体和朝政页:历次改制不对(${changes.length} 条、时间条 ${bar} 段;${changes[0]})`);
+  if (!chron) errs.push('政体和朝政页:点历次改制的一条没有打开编年史');
+  if (!/^王国 \d+ 年起$/.test(early)) errs.push(`政体和朝政页:拖到 1850 年政体没跟着变(${early})`);
+  if (!/^\S+ \d+ 年起$/.test(smallRow) || !/征税.*兵制.*官制.*历次改制/.test(smallPage)) errs.push(`政体和朝政页:小国的「政体」点不进朝政页(${smallRow};${smallPage.slice(0, 80)})`);
+  await page.evaluate(() => localStorage.clear());
+}
+
 // 编辑地形(新建世界时):陆地笔在大洋中间涂一笔 → 重新生成后那里成了陆地,"画了 1 笔";撤销 → 又是海;重做 → 又是陆地;
 // 海 + 圈起来填满圈住那一片(画的时候地图下边有一句提示)→ 又沉成海;河画一条;关掉"在地图上显示草图"地图上不画草图;
 // 全部清除(点两下)→ "还没画",那里回到原来的海

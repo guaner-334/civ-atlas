@@ -6,6 +6,7 @@
  * - 割据:和管辖图层同一份(render/civ/control.ts 的 lordsAt)。
  * - 钱数从钱粮账本来(fiscalBook.ts;千石,页面上写万石):直征 / 分成多派官吏的开销 = 征费 × 应缴;
  *   封地的岁贡 = 自治那一档的截留 ÷ 截留的几成 × 交的几成(分封着时自治那一档正好就是封地);割据一文不交 = 割据那一档的截留。
+ * - 政体名、历次改制由 gen/civ/polityForm.ts 推;这里只写成句子(为什么叫这个、每次改制因为什么)。
  */
 import type { Annal, Civ, Year } from '../gen/civ/types';
 import { COUNCIL_CONSTS, COUNCIL_GATE, councilAble, courtRulesAt, type CourtRules } from '../gen/civ/council';
@@ -20,10 +21,18 @@ import { rulerBare, rulerRef } from '../gen/civ/peopleText';
 import { cnNumber } from '../gen/civ/chronicle';
 import { yearAt, yearShort, yearShortAt, type Era } from '../gen/era';
 import { lordsAt, type LordNow } from '../render/civ/control';
+import { Outcome, applyRule, newRules } from '../gen/civ/councilRules';
+import { FEUDAL_SHARE, lordShare, type FormChange, type FormFacts, type FormLook, type FormName } from '../gen/civ/polityForm';
 import { wan } from './fiscalInfo';
 
 /** 征税的三种法子(征法 0、1、2) */
 export const LEVY_NAMES = ['地方代收', '与地方分成', '朝廷直征'] as const;
+/** 朝政页三条分段条上的字(从地方说了算到朝廷说了算):征税(征法 0–2)、兵制(军制 −1、0、0.5、1)、官制(官制 −1、0、0.5、1) */
+export const TAX_SEGS = ['代收', '分成', '直征'] as const;
+export const ARMY_SEGS = ['边镇', '征发', '监军', '禁军'] as const;
+export const OFFICE_SEGS = ['自辟', '荐举', '参半', '铨选'] as const;
+/** 军制、官制(−1、0、0.5、1)→ 分段条第几格 */
+export const ruleSeg = (v: number): number => (v < 0 ? 0 : v === 0 ? 1 : v < 1 ? 2 : 3);
 /** 议题(史事的 war 列;5–8 按议之前的军制、官制分两种叫法,见 issueName) */
 export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地', '收兵权', '设边镇', '行铨选', '许自辟', '分镇', '脱离'] as const;
 
@@ -117,21 +126,160 @@ function who(civ: Civ, p: number, y: Year, bare: boolean): string {
   return bare || !P ? '' : polityName(P, y);
 }
 
-const OFFICE = '(算在钱粮的「养官」里)';
-const LOCAL = '各州自己收税,按中央管得到几成往上交。';
+const LOCAL = '各州自己收税，按朝廷管得到几成往上交。';
 
-/** 征税那一块的一句话:哪年谁定的、各州多交多少、朝廷多花多少 */
-export function levySay(civ: Civ, p: number, v: CourtView, era?: Era | null): string {
-  const { tax, taxBy, taxFrom } = v.rules;
-  if (taxBy < 0) return `立国以来一直由地方代收:${LOCAL}`;
-  const e = v.annals[taxBy];
-  const Y = yearAt(e.year, era);
-  const east = !!civ.polities[p]?.eastern;
+/** 征税那条下面一句:哪年起、各州多交多少、朝廷多花多少 */
+export function levySay(v: CourtView, era?: Era | null): string {
+  const { tax, taxBy } = v.rules;
+  if (taxBy < 0) return LOCAL;
+  const Y = yearAt(v.annals[taxBy].year, era);
+  if (tax === 0) return `${Y}起复由地方代收：${LOCAL}`;
   const cost = wan(v.levyCost);
-  const spend = `朝廷多派官吏${cost > 0 ? `,每年多花约 ${cost} 万石${OFFICE}` : OFFICE}。`;
-  if (tax === 0) return `${Y}${taxFrom === 1 ? '分成之法' : '直征'}所得不抵所费,复由地方代收:${LOCAL}`;
-  if (tax === 1) return `${Y}${who(civ, p, e.year, false)}议行直征,地方${east ? '豪族' : '贵族'}力阻,改成和地方分成:各州比代收多交上来一截,${spend}`;
-  return `${Y}${who(civ, p, e.year, false)}行直征之法,遣官到各州自收赋税:各州比代收多交上来一大截,${spend}`;
+  const spend = cost > 0 ? `朝廷每年多花约 ${cost} 万石` : '朝廷多派官吏到各州';
+  if (tax === 1) return `${Y}起和地方分成：各州多交一截，${spend}。`;
+  return `${Y}起朝廷直征：各州多交一大截，${spend}。`;
+}
+
+/** 军制、官制现在这一档是哪次议事定的(史事下标;立国以来没变过 = −1)、那次以前是哪一档 */
+export function ruleSince(v: CourtView): { armyBy: number; armyFrom: number; officeBy: number; officeFrom: number } {
+  const r = newRules();
+  const out = { armyBy: -1, armyFrom: 0, officeBy: -1, officeFrom: 0 };
+  for (const id of v.rules.events) {
+    const e = v.annals[id];
+    const { army, office } = r;
+    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year);
+    if (r.army !== army) {
+      out.armyBy = id;
+      out.armyFrom = army;
+    }
+    if (r.office !== office) {
+      out.officeBy = id;
+      out.officeFrom = office;
+    }
+  }
+  return out;
+}
+
+/** 王室还是朝廷;贵族还是豪族 */
+const courtWord = (civ: Civ, p: number) => (civ.polities[p]?.eastern || civ.polities[p]?.lineage === 'republic' ? '朝廷' : '王室');
+const gentry = (civ: Civ, p: number) => (civ.polities[p]?.eastern ? '豪族' : '贵族');
+
+/** 兵制那条下面一句:哪年谁定的、出兵和花钱怎样 */
+export function armySay(civ: Civ, p: number, v: CourtView, era?: Era | null): string {
+  const { armyBy, armyFrom } = ruleSince(v);
+  const a = v.rules.army;
+  if (armyBy < 0) return '立国以来由各州征发兵马，打完仗各回各州。';
+  const e = v.annals[armyBy];
+  const head = `${yearAt(e.year, era)}${who(civ, p, e.year, false)}`;
+  if (a >= 1) return `${head}收兵权，各州兵马归${courtWord(civ, p)}禁军：出兵多一截，朝廷每年多花养兵的钱。`;
+  if (a > 0) return `${head}议收兵权，地方力阻，改派监军到各州。`;
+  if (a < 0) return `${head}设边镇：管不到的边州由守将自领兵马，打仗出兵多，守将容易拥兵割据。`;
+  return armyFrom < 0 ? `${head}罢边镇，兵马复由各州征发，打完仗各回各州。` : `${head}罢禁军，兵马复由各州征发，打完仗各回各州。`;
+}
+
+/** 官制那条下面一句:哪年谁定的、地方官由谁任命 */
+export function officeSay(civ: Civ, p: number, v: CourtView, era?: Era | null): string {
+  const { officeBy, officeFrom } = ruleSince(v);
+  const o = v.rules.office;
+  if (officeBy < 0) return '立国以来地方官由当地荐举，朝廷只是点头。';
+  const e = v.annals[officeBy];
+  const head = `${yearAt(e.year, era)}${who(civ, p, e.year, false)}`;
+  const g = gentry(civ, p);
+  if (o >= 1) return `${head}改由${courtWord(civ, p)}任命各地官员，${g}不再把持州县。`;
+  if (o > 0) return `${head}议行铨选，地方力阻，改成一半由朝廷选授、一半由地方荐举。`;
+  if (o < 0) return `${head}许边州自辟官吏：朝廷省了俸禄，州县却由${g}世代把持。`;
+  return officeFrom < 0 ? `${head}收回辟署之权，地方官复由当地荐举、朝廷点头。` : `${head}罢铨选，地方官复由当地荐举。`;
+}
+
+/** 收归朝廷的那几样(直征 / 和地方分成、禁军 / 派监军、铨选 / 铨选参半) */
+function centralParts(f: FormFacts): string[] {
+  const out: string[] = [];
+  if (f.tax >= 2) out.push('直征');
+  else if (f.tax === 1) out.push('和地方分成');
+  if (f.army >= 1) out.push('禁军');
+  else if (f.army > 0) out.push('派监军');
+  if (f.office >= 1) out.push('铨选');
+  else if (f.office > 0) out.push('铨选参半');
+  return out;
+}
+
+const CN_TENTHS = ['不到一成', '一成', '两成', '三成', '四成', '五成', '六成', '七成', '八成', '九成', '十成'];
+
+/** 地方各自为政的那几样(分封了边地、设了边镇、许了自辟、几成的州割据) */
+function feudalParts(f: FormFacts): string[] {
+  const out: string[] = [];
+  if (f.fief) out.push('分封了边地');
+  if (f.army < 0) out.push('设了边镇');
+  if (f.office < 0) out.push('许了自辟');
+  const s = lordShare(f);
+  if (s >= FEUDAL_SHARE) out.push(`${CN_TENTHS[Math.min(10, Math.round(s * 10))]}的州割据`);
+  return out;
+}
+
+const isCentral = (n: FormName | null) => n === '集权王国' || n === '官僚帝国';
+const isFeudalName = (n: FormName | null) => n === '封建王国' || n === '封建帝国';
+
+/** 朝政页政体名下面一句:为什么叫这个 */
+export function formWhy(f: FormLook): string {
+  const x = f.facts;
+  switch (f.name) {
+    case '集权王国':
+    case '官僚帝国':
+      return `${centralParts(x).join('、')}：下面三样大权里，收归朝廷的够两样`;
+    case '封建王国':
+    case '封建帝国':
+      return `${feudalParts(x).join('、')}：地方各自为政，朝廷管不太到`;
+    case '王国':
+    case '帝国': {
+      const got = centralParts(x);
+      return got.length ? `只收了${got.join('、')}，下面三样大权收归朝廷的还不够两样` : '下面三样大权都还照旧由地方办';
+    }
+    case '部落':
+      return '还没称国，各部各有头人';
+    case '部落联盟':
+      return `还没称国，${x.regions} 个州各有头人，结成联盟`;
+    case '城邦':
+      return '一城自治，没有君主，执政任满继任';
+    case '商人共和国':
+      return '没有君主，执政任满继任';
+    case '海上帝国':
+      return '共和一系，国号升到帝国一档；没有君主，执政任满继任';
+    case '汗国':
+      return '游牧一系，各部听命于汗';
+    case '游牧帝国':
+      return '游牧一系，国号升到大汗国';
+    case '诸侯割据':
+      return '过半的州割据，朝廷名存实亡';
+  }
+}
+
+/** 历次改制一条下面那一句:因为哪次议事、升格、割据(later = 这一条以后还改过) */
+export function formChangeSay(civ: Civ, p: number, ch: FormChange, later: boolean): string {
+  const P = civ.polities[p];
+  const { from, to } = ch;
+  if (ch.cause === 'found') return `${P ? polityName(P, ch.year) : ''}立国${later ? `，那时还是${to}` : ''}`;
+  if (ch.cause === 'title') return `国号升格，称${P ? polityName(P, ch.year) : to}`;
+  if (ch.cause === 'council' && ch.event >= 0) {
+    const src = civ.history ?? civ;
+    const e = src.annals[ch.event];
+    const out = e.n ?? Outcome.Shelve;
+    const name = issueName(e, ch.before ?? undefined);
+    const head = `${who(civ, p, e.year, false)}议${name}${OUTCOME_NAMES[out] ?? ''}`;
+    if (isCentral(to)) return `${head}：有了${centralParts(ch.after).join('、')}，三样大权收归朝廷的够了两样`;
+    if (isFeudalName(to)) return `${head}：边地从此由守将、${gentry(civ, p)}自己管`;
+    if (isCentral(from)) return `${head}：收归朝廷的不够两样了`;
+    if (isFeudalName(from)) return `${head}：地方不再各自为政`;
+    const then = thenText(civ, e, out, name);
+    return then ? `${head}，${then}` : head;
+  }
+  // 割据、州数
+  if (to === '诸侯割据') return '过半的州割据，朝廷名存实亡';
+  if (from === '诸侯割据') return '割据的州不到一半了';
+  if (isFeudalName(to)) return '割据的州多了，地方各自为政';
+  if (isFeudalName(from)) return '割据的州不到一成半了';
+  if (to === '部落联盟') return '州多了，各州头人结成联盟';
+  if (to === '部落') return '州少了，不成联盟';
+  return ch.cause === 'lords' ? '割据的州有增有减' : '州数有增有减';
 }
 
 /** 分封那一行的小字:"孝宗,2908 年起" */

@@ -132,6 +132,7 @@ const SECONDS: Record<string, number> = {
   'civ-religion': 10,
   'civ-swap-prep': 10,
   'court-ui': 10,
+  'polity-form': 10,
   'pixel-drain': 10,
   snapshot: 10,
   'civ-royals': 9,
