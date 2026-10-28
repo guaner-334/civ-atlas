@@ -42,7 +42,7 @@ import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
 import { DEFAULT_CIV_PARAMS, civBase, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
 import { extendCiv } from './gen/civ/extend';
-import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndYear, ownInterventions, playInterventions, type AuthorMark, type Intervention, type PlayState, type PlotReview, type TerrainOp, type Upheaval } from './gen/edits';
+import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndAt, ownInterventions, playInterventions, type AuthorMark, type Intervention, type PlayState, type PlotReview, type TerrainOp, type Upheaval } from './gen/edits';
 import { runOutline, type OutlineCache } from './gen/outline';
 import type { AuthorCharacter } from './gen/characters';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
@@ -91,7 +91,7 @@ interface CivInput {
   upheavals?: Upheaval[];
   /** 整个世界的地名风格(gen/edits.ts 的 WorldEdits.nameMix;不给 = 自动) */
   names?: NameMix;
-  /** 历史推到第几年(gen/edits.ts 的 WorldEdits.endYear;不给 = 3000) */
+  /** 历史推到第几年(gen/edits.ts 的 endParamOf;年中停下存回的普通世界带小数,推到那一年的那一格;不给 = 3000) */
   endYear?: number;
   /** 拓荒(gen/edits.ts 的 WorldEdits.frontier;不给 = 默认) */
   frontier?: Frontier;
@@ -155,7 +155,7 @@ export type WorkerRequest =
    */
   | ({ type: 'turn'; id: number; play: PlayState; commands: unknown[]; years: number; ticks?: number; interventions?: Intervention[] } & CivInput)
   /**
-   * 再推 N 年:在推完的世界上接着推到第 to 年(gen/edits.ts 的 extendedEndYear 算;整数,到 END_YEAR_MAX 为止),前面的历史一点不变。
+   * 再推 N 年:在推完的世界上接着推到第 to 年(gen/edits.ts 的 extendedEndYear 算;年中停下存回的世界带小数,停在 N 年以后的同一格;到 END_YEAR_MAX 为止),前面的历史一点不变。
    * 其余各项和推这个世界时一样(推演年数不带:线程记着推好的那份历史,从它接着推);逐年推演中的世界不用这个(用 turn)。
    * xid = 第几次再推(主线程只认最新的)。推的时候交 extendProgress;推完交 extended(随后照常排原件 snapshot,配方里的推演年数是 to);
    * 被顶掉、叫停交 extendStopped。线程里没有推好的历史(被重开过)就从第 0 年推(结果一样,只是慢、不分段)
@@ -1143,7 +1143,7 @@ async function handle(m: Queued): Promise<void> {
     // 只调大了推演年数(别的都没变):从记着的那份接着推(和从第 0 年推一样;接不上的 continueCiv 自己从第 0 年推)
     const base = m.type === 'resim' && !m.play ? await heldCiv(m, undefined) : null;
     const civ =
-      base && base.endYear < (cleanEndYear(m.endYear) ?? END_YEAR_DEFAULT)
+      base && base.endYear < (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT)
         ? continueCiv(world, base, { ...params, ...memoOpt(world, m.civSeed) })
         : generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
     const ms = performance.now() - t0;
@@ -1180,10 +1180,10 @@ async function handle(m: Queued): Promise<void> {
     }, TURN_SNAPSHOT_IDLE);
   } else if (m.type === 'extend') {
     const t0 = performance.now();
-    const to = cleanEndYear(m.to) ?? END_YEAR_DEFAULT;
+    const to = cleanEndAt(m.to) ?? END_YEAR_DEFAULT;
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(cleanEndYear(to)), ...setupOpt(m), ...frozenOpt(m) };
+    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(cleanEndAt(to)), ...setupOpt(m), ...frozenOpt(m) };
     const base = await heldCiv(m, undefined);
     // 后面排着会换掉这份历史的请求,或者叫停这一次的:不推了
     const stop = () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim' || r.type === 'turn' || r.type === 'extend' || (r.type === 'extendStop' && r.xid >= m.xid));

@@ -182,7 +182,8 @@ function Seg({ pick, onPick, phone }: { pick: ExtendPick; onPick: (p: ExtendPick
 function OwnRow({ end, text, over, onType, phone }: { end: number; text: string; over: boolean; onType: (v: string) => void; phone?: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => ref.current?.focus(), []);
-  const room = extendRoom(end);
+  // 年中停下存回的世界推到的那一刻带小数:还能再推几年只写整年
+  const room = Math.floor(extendRoom(end));
   return (
     <div className={`xt-own${over ? ' over' : ''}${phone ? ' phone' : ''}`}>
       <span>再推</span>
@@ -211,7 +212,7 @@ function Result({ end, years, plan, phone }: { end: number; years: number | null
         {plan && (
           <>
             <br />
-            时间轴变长：原来的 {end} 年挤到左边 {plan.squeeze}%。
+            时间轴变长：原来的 {Math.floor(end)} 年挤到左边 {plan.squeeze}%。
           </>
         )}
       </div>

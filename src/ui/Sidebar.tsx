@@ -29,7 +29,7 @@ import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscrib
 import { controlRows, eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
 import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
-import { playFromOf } from '../gen/edits';
+import { cleanPlay, playFromOf } from '../gen/edits';
 import { openStepDialog, useStepwiseOn } from './stepwiseStore';
 import { StepSideGroup } from './Stepwise';
 import { StepBranches } from './StepBranches';
@@ -44,7 +44,7 @@ import { openOverview } from './overviewStore';
 import { searchCiv, searchMarks, type SearchHit } from './searchIndex';
 import { openCulture } from './faithSelection';
 import { cultureAlive } from './WorldOverviewCultures';
-import { countUpTo } from './timelineLayout';
+import { countUpTo, recentUpTo } from './timelineLayout';
 import { Icon } from './icons';
 import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
@@ -434,6 +434,15 @@ function ResourceList({ civ, year, era }: { civ: Civ; year: number; era?: Era | 
   );
 }
 
+/** 时间轴停在历史推到的那一刻(没拖动过、拖到了头):播放的时候不每一帧都变 */
+function useAtEnd(civ: Civ | null): boolean {
+  const end = civ?.endYear ?? 0;
+  return useSyncExternalStore(
+    (f) => subscribeCivTime(() => f()),
+    () => (getCivTime().year ?? end) >= end,
+  );
+}
+
 /** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
 export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'generating' | 'replay' | 'onReplay'>) {
   const { civ } = p;
@@ -487,7 +496,10 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const ctlOn = show.control && ok;
   const ctl = useMemo(() => (ctlOn ? controlRows(civ!, year, era, narrow) : null), [ctlOn, civ, year, era, narrow]);
   const resOn = show.resources && ok && !!civ!.development;
-  const k = countUpTo(entries, year);
+  // 停在年中、看的是"现在":列到停下的那一格(这一年里已经发生的也列上)
+  const play = cleanPlay(edits.play);
+  const atEnd = useAtEnd(civ);
+  const k = countUpTo(entries, recentUpTo(year, civ?.endYear ?? 0, play ? !!play.tick : !!edits.endTick, atEnd));
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
   // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起;照大纲硬改的一条情节算一处)
   const nUp = edits.upheavals?.length ?? 0;
