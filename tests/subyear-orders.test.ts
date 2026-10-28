@@ -21,7 +21,7 @@ import {
   basePolicy,
   commandYear,
   commandsNow,
-  endYearOf,
+  endAtOf,
   guideNotes,
   issueCommands,
   polityKey,
@@ -86,10 +86,10 @@ describe('下令带上进度停在的那一格', () => {
     const before = stepwiseToNormal({ ...e0, play: issueCommands(atStart, oldWay(atStart, [q])).play });
     expect(saveBackEdits({ ...e0, play: atStart }, [q])).toEqual(before);
     expect(JSON.stringify(saveBackEdits({ ...e0, play: atStart }, [q]))).toBe(JSON.stringify(before));
-    // 年中:推到下一年年初,单子里那条在那一格生效(以前的做法会被当成"不是现在"丢掉)
+    // 年中:推到那一年的那一格,单子里那条在那一格生效(以前的做法会被当成"不是现在"丢掉)
     const mid: PlayState = { year: 1500, tick: 100, commands: [protect(4, 1500, 40)] };
     const normal = saveBackEdits({ ...e0, play: mid }, [q])!;
-    expect(endYearOf(normal)).toBe(1501);
+    expect(endAtOf(normal)).toBe(1500 + 100 / YEAR_TICKS);
     expect(normal.interventions).toEqual([protect(9, 1200), protect(4, 1500, 40), protect(5, 1500, 100)]);
     expect(stepwiseToNormal({ ...e0, play: issueCommands(mid, oldWay(mid, [q])).play })!.interventions).toEqual([protect(9, 1200), protect(4, 1500, 40)]);
   });

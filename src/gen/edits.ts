@@ -285,9 +285,15 @@
  * 推得更久的世界照样从第 0 年推起,前 3000 年和推 3000 年的世界几乎一样;扩张节拍、民族诞生、大宗教创立都按前 3000 年排,
  * 之后只是各国接着兴亡更替。新建世界时选(END_YEAR_DEFAULT 起,一格 END_YEAR_STEP 即整千年),当作第一次推到哪;推完以后可以再推 N 年
  * (worker 的 extend,gen/civ/index.ts 的 continueCiv:前面的历史一点不变,只往后长),所以年数不限整千年,到 END_YEAR_MAX 为止。
- * 逐年推演存回成普通世界(gen/stepwise.ts 的 stepwiseToNormal)推到"现在"那一年,可以不到 3000 年(END_YEAR_MIN 起)。
+ * 逐年推演存回成普通世界(gen/stepwise.ts 的 stepwiseToNormal)推到"现在"那一刻,可以不到 3000 年(END_YEAR_MIN 起)。
  * 推到第 T 年再推到第 T' 年,和一次推到第 T' 年结果一样:存档只记推到哪一年,读档照它推(或读原件)得出同一个世界。
  * 3000 年的不写。以前只有 3000 年起的整千年(存档、链接里写的都是),照旧读出同一个数。
+ *
+ * WorldEdits.endTick(可选,没有 = 年初):推到那一年的第几格(见"时刻";1–YEAR_TICKS−1 的整数)。逐年推演停在年中时存回成普通世界才有:
+ * 推到第 endYear 年第 endTick 格(那一格的事也推完,和推到年初的世界推完"那一年第一刻"的事一样),"再推 N 年"推到 N 年以后的同一格。
+ * 推演用的是折成带小数的年份(endAtOf:endYear + endTick / YEAR_TICKS,浮点里精确);endYear 没写(3000)时照样能带。
+ * 推到 END_YEAR_MAX 的不带(再往后推不到)。0 和不合格的不写(读档时不合格的提示一句,按那一年年初推)。
+ * 有它的存档写格式 2(savefile.ts),只认识年份的版本读到会提示更新页面,不悄悄推到年初。
  *
  * ## 地名风格
  *
@@ -850,6 +856,8 @@ export interface WorldEdits {
   nameMix?: NameMix;
   /** 历史推到第几年(见文件头"推演年数");没有 = 3000 */
   endYear?: number;
+  /** 推到那一年的第几格(1–YEAR_TICKS−1,见文件头"推演年数");没有 = 年初 */
+  endTick?: number;
   /** 拓荒:民族扩散、国家扩张快慢,地形难走程度(见文件头"拓荒与起源");没有 = 默认 */
   frontier?: Frontier;
   /** 自己选的文明起源(见文件头"拓荒与起源");没有 = 自动 */
@@ -1001,12 +1009,38 @@ export function cleanEndYear(v: unknown): number | undefined {
 }
 
 /**
- * 推到第 endYear 年的世界再推 years 年,推到第几年:years 取整、至少 1 年,到 END_YEAR_MAX 为止
- * (已经推到 END_YEAR_MAX 的 = END_YEAR_MAX,推不动了)。years 不是有限数 = 不再推(返回 endYear 本身,清理过)
+ * 推到哪一刻的清理(带小数的年份,见文件头"时刻""推演年数";交给推演、比推好的历史推到哪用):不是数字 = undefined;
+ * 按格取整(最近的一格),夹在 END_YEAR_MIN–END_YEAR_MAX;正好 3000 年 = undefined(不写)。整数年和 cleanEndYear 一样
+ */
+export function cleanEndAt(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  const t = Math.min(END_YEAR_MAX * YEAR_TICKS, Math.max(END_YEAR_MIN * YEAR_TICKS, Math.round(v * YEAR_TICKS)));
+  return t === END_YEAR_DEFAULT * YEAR_TICKS ? undefined : t / YEAR_TICKS;
+}
+
+/** 推到那一年的第几格的清理(见文件头"推演年数"):1–YEAR_TICKS−1 的整数原样返回;0、不合格的、推到 END_YEAR_MAX 的(再往后推不到)= undefined(年初,不写) */
+export function cleanEndTick(v: unknown, endYear: number): number | undefined {
+  const t = cleanTick(v);
+  return t && endYear < END_YEAR_MAX ? t : undefined;
+}
+
+/** 推到 at 那一刻(带小数的年份,先照 cleanEndAt 取整、夹回;不是数字 = 3000 年)写进修改的两项:endYear 是整数年(3000 照写),年初的不带 endTick */
+export function endFields(at: number): { endYear: number; endTick?: number } {
+  const t = Math.round((cleanEndAt(at) ?? END_YEAR_DEFAULT) * YEAR_TICKS);
+  const year = Math.floor(t / YEAR_TICKS);
+  const tick = t - year * YEAR_TICKS;
+  return tick ? { endYear: year, endTick: tick } : { endYear: year };
+}
+
+/**
+ * 推到第 endYear 年(带小数:年中停下存回的普通世界,见文件头"推演年数")的世界再推 years 年,推到哪一刻:years 取整、至少 1 年,
+ * 停在 years 年以后的同一格;到 END_YEAR_MAX 为止(差不到一整年就到头的也推到那一年;已经推到 END_YEAR_MAX 的 = END_YEAR_MAX,推不动了)。
+ * years 不是有限数 = 不再推(返回 endYear 本身,清理过)
  */
 export function extendedEndYear(endYear: number, years: number): number {
-  const from = cleanEndYear(endYear) ?? END_YEAR_DEFAULT;
+  const from = cleanEndAt(endYear) ?? END_YEAR_DEFAULT;
   if (!Number.isFinite(years)) return from;
+  if (from + years >= END_YEAR_MAX) return END_YEAR_MAX;
   return Math.min(END_YEAR_MAX, from + Math.max(1, Math.round(years)));
 }
 
@@ -1077,6 +1111,22 @@ export function newHistoryEdits(base: WorldEdits, o: NewHistoryOptions): WorldEd
 /** 这个世界推到第几年(没写 = 默认) */
 export function endYearOf(edits: Pick<WorldEdits, 'endYear'>): number {
   return cleanEndYear(edits.endYear) ?? END_YEAR_DEFAULT;
+}
+
+/** 这个世界推到哪一刻(带小数的年份:推演年数 + 年内第几格 / YEAR_TICKS,见文件头"推演年数";没写 = 默认那一年年初) */
+export function endAtOf(edits: Pick<WorldEdits, 'endYear' | 'endTick'>): number {
+  const y = endYearOf(edits);
+  return y + (cleanEndTick(edits.endTick, y) ?? 0) / YEAR_TICKS;
+}
+
+/** 推文明时交给推演的推演年数(带小数,见 endAtOf);正好 3000 年 = undefined(和没写一样;推到年初的世界和 cleanEndYear(edits.endYear) 一样) */
+export function endParamOf(edits: Pick<WorldEdits, 'endYear' | 'endTick'>): number | undefined {
+  return cleanEndAt(endAtOf(edits));
+}
+
+/** 修改里写着的推到哪一刻(带小数的年份);推演年数、第几格都没写 = undefined(撤销"再推"时照它改回去:原来没写的照样不写) */
+export function writtenEndAt(edits: Pick<WorldEdits, 'endYear' | 'endTick'>): number | undefined {
+  return edits.endYear === undefined && !edits.endTick ? undefined : endAtOf(edits);
 }
 
 /** 作者标记的颜色(界面上的六种:红、橙、绿、蓝、紫、青) */

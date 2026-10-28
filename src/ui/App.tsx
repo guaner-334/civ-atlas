@@ -139,10 +139,13 @@ import {
   aiNameKeys,
   cleanAdvance,
   cleanCivSeed,
+  cleanEndAt,
   cleanEndYear,
   cleanPlay,
   commandsNow,
   cultureKey,
+  endFields,
+  endParamOf,
   extendedEndYear,
   faithKey,
   issueCommands,
@@ -162,6 +165,7 @@ import {
   treatyKey,
   tradeKey,
   upgradeLegacyKeys,
+  writtenEndAt,
   type Intervention,
   type PlayState,
   type Plot,
@@ -814,7 +818,7 @@ const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
  * 这一步要推到第几年(3000 = undefined):新建界面里只看星球,一律先推 3000 年(换种子、调参数不用等);
  * 创建以后再按世界自己的推演年数接着推(见下面重推的那段)
  */
-const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear'>) => (draft ? undefined : cleanEndYear(edits.endYear));
+const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear' | 'endTick'>) => (draft ? undefined : endParamOf(edits));
 /** 推文明时带的拓荒、起源、文明种子、「天灾」(默认 = undefined) */
 type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity };
 const setupOpt = (s: CivSetup | undefined) => ({
@@ -2290,7 +2294,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     // 有地形大事的世界是从第 0 年整段推的
     noteExtendSpeed(civUps.current?.length ? 0 : x.from, to, ms);
     // 先记下推到哪年,修改里的推演年数跟着换时不再重推一遍
-    civYears.current = cleanEndYear(to);
+    civYears.current = cleanEndAt(to);
     // 播放头停在原处:推的时候放到了原来的结束年份(停在"现在")的,钉在那一年(不然换上以后"现在"成了新的结尾)
     if (getCivTime().year === null) setCivTime({ year: x.from });
     setRawCiv(civ);
@@ -2351,7 +2355,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     const t = getCivTime();
     if (t.year !== null && t.year > u.from) setCivTime({ year: u.from, playing: false, scrubbing: false, story: false });
     if (rawRef.current === u.after) {
-      civYears.current = cleanEndYear(u.from);
+      civYears.current = cleanEndAt(u.from);
       remapSelection(u.after, u.before);
       setRawCiv(u.before);
       refreshThumb();
@@ -2372,9 +2376,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const to = extendedEndYear(from, years);
         if (!(to > from)) return;
         // 照原样打开的旧世界:推演要用新版的规则,先问要不要另存一份(在那一份上推)
-        if (askHistory({ ...getEdits(), endYear: to })) return;
+        if (askHistory({ ...getEdits(), endTick: undefined, ...endFields(to) })) return;
         const xid = ++extendSeq.current;
-        extendRef.current = { xid, from, to, t0: performance.now(), endYear: getEdits().endYear };
+        extendRef.current = { xid, from, to, t0: performance.now(), endYear: writtenEndAt(getEdits()) };
         clearToast('extend-done');
         dropExtendUndo();
         // 停在"现在"(结束年份)的播放头钉在这一年:时间轴变长以后还停在原处
@@ -2802,7 +2806,7 @@ ${s.image.cells}` : null);
     !sameInterventions(e.interventions, civEdits.current) ||
     !sameUpheavals(e.upheavals, civUps.current) ||
     !sameMix(e.nameMix, civNames.current) ||
-    (!(isDraft && !targetRef.current?.fullCiv) && cleanEndYear(e.endYear) !== civYears.current) ||
+    (!(isDraft && !targetRef.current?.fullCiv) && endParamOf(e) !== civYears.current) ||
     !sameSetup(setupFor(isDraft && !targetRef.current?.fullCiv, e), civSetup.current) ||
     JSON.stringify((isDraft ? undefined : cleanPlay(e.play)) ?? null) !== JSON.stringify(civPlay.current ?? null);
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
@@ -2815,7 +2819,7 @@ ${s.image.cells}` : null);
     // 推演年数:新建中的世界一律先推 3000 年(不因为调了年数重推);创建以后按世界自己的年数,和推好的不一样就接着推
     // (照故事找世界选中的结果:新建中也按自己的推演年数、拓荒、起源、天灾推,和搜的时候一样)
     const plain = plainDraft();
-    const endYear = plain ? civYears.current : cleanEndYear(edits.endYear);
+    const endYear = plain ? civYears.current : endParamOf(edits);
     const sameYears = fresh.current || endYear === civYears.current;
     // 拓荒、起源:同推演年数,新建中的世界一律按默认推;创建以后按世界自己的,整段历史从第 0 年重推(文明种子新建中就照它推)
     const setup = setupFor(plain, edits);
@@ -2901,7 +2905,7 @@ ${s.image.cells}` : null);
       ...(play ? { play } : {}),
       have: [...eraPatches.current.keys()],
     });
-  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.frontier, edits.origins, edits.civSeed, edits.calamity, edits.play, draft, baseData, send]);
+  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.endTick, edits.frontier, edits.origins, edits.civSeed, edits.calamity, edits.play, draft, baseData, send]);
   // 地图上这份历史的摘要(检查脚本对比逐年推演、存回推演模式以后是不是同一段历史用):before 年以前的史事条数和指纹、立过几国
   useEffect(() => {
     const c = rawCiv;
@@ -3624,7 +3628,7 @@ ${s.image.cells}` : null);
       putEditsQuiet(startStepwise(getEdits(), 0));
       return true;
     }
-    const later = cleanEndYear(getEdits().endYear) !== civYears.current || !sameSetup(setupFor(false, getEdits()), civSetup.current);
+    const later = endParamOf(getEdits()) !== civYears.current || !sameSetup(setupFor(false, getEdits()), civSetup.current);
     // 照故事找的:停在开场那年,不从第 0 年放(推得更久的接着推完也不放);选了照大纲的照样先打开大纲
     if (stopAt !== undefined) {
       storyAfterYears.current = null;

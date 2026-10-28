@@ -13,12 +13,11 @@
 import { useSyncExternalStore } from 'react';
 import {
   EMPTY_EDITS,
-  END_YEAR_DEFAULT,
   MARKS_MAX,
   cleanAdvance,
   cleanFollow,
   cleanCivSeed,
-  cleanEndYear,
+  endFields,
   MARK_REGIONS_TOTAL,
   cleanIntervention,
   cleanMark,
@@ -102,7 +101,7 @@ let historyGate: ((next: WorldEdits) => boolean) | null = null;
 export function setHistoryGate(f: ((next: WorldEdits) => boolean) | null) {
   historyGate = f;
 }
-const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'frontier', 'origins', 'civSeed', 'calamity'] as const;
+const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'endTick', 'frontier', 'origins', 'civSeed', 'calamity'] as const;
 /** 两份修改里,推演用到的部分不一样 */
 export function historyDiffers(a: WorldEdits, b: WorldEdits): boolean {
   return HISTORY_KEYS.some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
@@ -199,6 +198,7 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.sketch) out.sketch = now.sketch;
   if (now.nameMix) out.nameMix = now.nameMix;
   if (now.endYear) out.endYear = now.endYear;
+  if (now.endTick) out.endTick = now.endTick;
   if (now.frontier) out.frontier = now.frontier;
   if (now.calamity) out.calamity = now.calamity;
   if (now.origins) out.origins = now.origins;
@@ -502,14 +502,16 @@ export function setNameMix(mix: NameMix | undefined) {
 
 /**
  * 推演年数(新建世界时定,不记撤销步):推到第几年;undefined = 开关关着,去掉这一项。
- * 开着拖到 3000 年记成 3000(开关还开着;推演、存档都和没开一样,存档里不写)
+ * 开着拖到 3000 年记成 3000(开关还开着;推演、存档都和没开一样,存档里不写)。
+ * 带小数的(年中停下存回的普通世界再推 N 年、撤销再推)推到那一年的那一格:拆成整数年和年内第几格(edits.ts 的 endFields)
  */
 export function setEndYear(year: number | undefined) {
-  const next = year === undefined || !Number.isFinite(year) ? undefined : (cleanEndYear(year) ?? END_YEAR_DEFAULT);
-  if (next === state.endYear) return;
-  const { endYear: _old, ...rest } = state;
+  const next = year === undefined || !Number.isFinite(year) ? undefined : endFields(year);
+  if (next?.endYear === state.endYear && next?.endTick === state.endTick) return;
+  const { endYear: _old, endTick: _tick, ...rest } = state;
   void _old;
-  put(next ? { ...rest, endYear: next } : rest);
+  void _tick;
+  put(next ? { ...rest, ...next } : rest);
 }
 
 /** 拓荒(新建世界时定,不记撤销步):民族扩散、国家扩张、地形难走程度;undefined / 都是默认 = 去掉这一项 */
