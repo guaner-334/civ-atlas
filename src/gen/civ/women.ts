@@ -248,12 +248,12 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
     const at = (a: number) => sur + namer.femaleGiven(tag[pid] ?? 0, kind(x), qi(x.born), a);
     let name = '';
     const son = sonOf.get(x);
-    // 西幻世袭的君主、预定即位的公主:有机会沿用本朝女王的名字(上一位的除外)
-    const queen = namer.family === 'western' && P.lineage !== 'republic' && (x.role === 'ruler' || son?.heirAt !== undefined) && !exMinister.has(x);
+    // 西幻世袭的君主、预定即位的公主:有机会沿用本朝女王的名字(上一位的除外)。按出道时的身份定(别的公主后来争位、自立当了女王也不改名)
+    const queen = namer.family === 'western' && P.lineage !== 'republic' && !exMinister.has(x) && (son ? son.heirAt !== undefined : x.role === 'ruler');
     const qk = `${pid}:${x.dynasty ?? 0}`;
     if (queen) {
       const list = reigns[x.polity];
-      const prev = x.role === 'ruler' ? list[list.indexOf(x) - 1] : son?.father;
+      const prev = son ? son.father : list[list.indexOf(x) - 1];
       const pool = (queens.get(qk) ?? []).filter((n) => n !== prev?.name);
       if (pool.length && R(x, U_REUSE) < REUSE) name = pool[Math.floor(R(x, U_REUSE_PICK) * pool.length)];
     }

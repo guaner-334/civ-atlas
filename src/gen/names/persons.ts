@@ -139,8 +139,10 @@ const FEMALE_TR_STYLE: Record<string, Record<string, string>> = {
 
 /** 他人作品里、现实里太有名的西幻女名 */
 const WESTERN_FAMOUS_FEMALE = new Set(
-  'galadriel arwen eowyn luthien idril nimrodel celebrian julia livia helena athena medea hera gaia nike olga freya freyja brunhild gudrun ' +
-    'sigrun cleopatra zenobia theodora boudica',
+  (
+    'galadriel arwen eowyn luthien idril nimrodel celebrian julia livia helena athena medea hera gaia nike olga freya freyja brunhild gudrun ' +
+    'sigrun cleopatra zenobia theodora boudica'
+  ).split(' '),
 );
 
 const VOW = /[aeiouy]/;

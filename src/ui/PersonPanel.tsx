@@ -678,8 +678,8 @@ function brideLine(k: string, civ: Civ, x: Person, list: readonly PersonSpouse[]
     const short = polityShort(civ, s.polity, s.year);
     const who = F ? `${rulerBare(civ, F, s.year)}之女` : '宗室女';
     const tail = when ? `，${yearAt(s.year, era)}${s.peace !== undefined ? '和亲' : wedVerb(x)}` : '';
-    if (isFemale(x)) {
-      // 她是嫁过去的那一方:配偶是对方君主的儿子(宗室子),没有名字
+    if (when && isFemale(x)) {
+      // 「配偶」那一行、她是女的:她是嫁过去的那一方,配偶是对方君主的儿子(宗室子),没有名字(「母亲」那一行照旧写宗室女)
       const him = F ? `${rulerBare(civ, F, s.year)}之子` : '宗室子';
       return {
         node: (
