@@ -132,7 +132,8 @@ function historyPrint(world: World, civ: Civ): string {
   feed({ elevation: world.elevation, water: world.water, flux: world.flux });
   // 发展度(推演后算的,不改历史)由 determinism.test.ts 钉住;这里不算它,期望值和加它以前一样
   // 地图上画的关隘(civ.places 里的 pass)是后加的,加它时别的一个没变:不算它,期望值和加它以前一样
-  const { development: _dev, ...history } = civ;
+  // 商道(推演里只读、不改历史)也由 determinism.test.ts 钉住;这里不算它:期望值和加它以前一样,就是历史一个字没变
+  const { development: _dev, trade: _trade, ...history } = civ;
   feed({ ...history, places: geoPlaces(civ) });
   return h.digest('hex').slice(0, 16);
 }

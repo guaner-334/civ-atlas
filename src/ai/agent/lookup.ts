@@ -304,6 +304,8 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
 
   const charLine = (c: AuthorCharacter, detail: boolean): string => {
     const parts = [`作者的人物 ${c.name}${c.role ? `(${c.role})` : ''}`];
+    // 女的写明(AI 写"她")
+    if (isFemale(c)) parts.push('女');
     const pid = charPolity(c);
     if (pid >= 0) parts.push(`国家 ${polityName(pid, Math.max(c.born, 0))}`);
     parts.push(lifeOf(c.born, c.died, '没写卒年'), ageWords(c.born, c.died, Ynow));

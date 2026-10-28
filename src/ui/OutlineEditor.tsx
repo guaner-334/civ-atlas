@@ -16,6 +16,7 @@ import { populationAt } from '../gen/civ/growth';
 import { SLUMP_CHOICES, SLUMP_DEFAULT } from '../gen/civ/calamity';
 import { ownersAt } from '../gen/civ/timeline';
 import { rulerAt } from '../gen/civ/peopleInfo';
+import { heOrShe } from '../gen/civ/gender';
 import {
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
@@ -540,7 +541,7 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
               <span className="side">还没有作者的人物；先在概览的「人物」页捏一个</span>
             )}
           </Line>
-          {polityLine('即哪国君位', 'a', '他即位的那一国')}
+          {polityLine('即哪国君位', 'a', `${heOrShe(chars.find((c) => c.id === d.char))}即位的那一国`)}
         </>
       );
       break;

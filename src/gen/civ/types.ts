@@ -658,6 +658,11 @@ export interface Civ {
    */
   authorNames?: Record<number, string>;
   /**
+   * 作者的人物里哪些是女的(编号,从小到大;applyCharacters 写入,同 authorNames;一个女的都没有 = 不给)。
+   * 编年史写没即位成的原因("她第 N 年才出生")时用;生成的 Civ 里没有
+   */
+  authorFemale?: number[];
+  /**
    * 用户改过的州名(阶段 4,gen/edits.ts 的 applyNames 写入;下标 = 州编号,空串 = 用 regions.name)。
    * 不改 regions 本身:画国土、国界的缓存按 civ.regions 存,改州名不用重画
    */
@@ -682,6 +687,11 @@ export interface Civ {
    * 没有文明 = 不给
    */
   development?: Development;
+  /**
+   * 商道(trade.ts):要紧的货从哪个产地沿哪条路运到哪国国都、哪年通哪年断。推演里每 20 年算一步,只读推演,历史一个字都不变。
+   * 没有文明 = 不给
+   */
+  trade?: import('./trade').Trade;
   /**
    * 地形大事(upheaval.ts;gen/edits.ts 文件头"地形大事"):按年份排,同一年的合成一件。下标 = 史事 upheaval 的 a。
    * 没有 = 不给。regions、places、routes 是最后一件大事以后的;更早的各段见 eras
