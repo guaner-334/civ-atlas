@@ -60,11 +60,12 @@ describe('改过地形的世界沿用原来星球的扩张节拍', () => {
   // GENERATOR_VERSION 13 时这座岛添了两个可居州,按改后的地形折算的话全世界的城都大千分之四,历史从第 954 年起错开)。
   // 生成算法以后有意改了、这里成了航路经过的岛,换一处更远的海就行
   // (GENERATOR_VERSION 18 降水分夏冬两半年算,原来那处的岛让远处的降水差了不到 1 毫米,历史在第一千多年错开一件事;换到南边更远的海上;
-  // GENERATOR_VERSION 19 那处的岛让第 976 年的一次同化差了一州,再往东挪一点)
+  // GENERATOR_VERSION 19 那处的岛让第 976 年的一次同化差了一州,再往东挪一点;
+  // GENERATOR_VERSION 46 那处的岛成了航线上的一站,第 2765 年一位亡国之君出奔的邻国按航线数步数换了一家;换到离陆地 19 步的南大洋东部)
   it('远海放一座小火山岛:各国、整本史事和没改时一字不差', () => {
     const P = { ...DEFAULT_PARAMS, seed: 2024 };
     const base = generateCiv(generateWorld(P));
-    const civ = generateCiv(generateWorld(P, undefined, [{ kind: 'volcano', pts: [1400, 880], r: 18, s: 0.85 }]));
+    const civ = generateCiv(generateWorld(P, undefined, [{ kind: 'volcano', pts: [1894, 703], r: 18, s: 0.85 }]));
     expect(alive(civ)).toEqual(alive(base));
     expect(story(civ)).toEqual(story(base));
   }, 60_000);

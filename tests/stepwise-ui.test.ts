@@ -226,27 +226,32 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
   it('导播一份份接着放(每份 = 算好的那一步):同一件事不放两次,放到的年份只往后走', () => {
     const entries = fullChronicle(civ);
     const make = (from: number, to: number): DirectorPlan => directorPlan(world, civ, { from, to, entries, pace: { mode: 'auto', rate: 4 } });
-    setCivTime({ year: 2650, playing: true });
-    directorBegin(() => make(2650, 2651), 'k', 2650);
+    // 放的这 25 年里重要度 3 以上的至少两件(两次改朝……):从第 2650 年那一段往前一段段找
+    // (按条件现找;GENERATOR_VERSION 46 季节进推演以后 2650–2675 年只剩一件)
+    const majorsIn = (from: number) => entries.filter((e) => e.year >= from && e.year < from + 25 && e.importance >= 3).map((e) => e.id);
+    let y0 = 2650;
+    while (y0 > 0 && majorsIn(y0).length < 2) y0 -= 25;
+    const y1 = y0 + 25;
+    setCivTime({ year: y0, playing: true });
+    directorBegin(() => make(y0, y0 + 1), 'k', y0);
     const seen: number[] = [];
-    let last = 2650;
-    for (let y = 2651; y <= 2675; ) {
+    let last = y0;
+    for (let y = y0 + 1; y <= y1; ) {
       const yy = directorStep(1 / 30);
       expect(yy).not.toBeNull();
       expect(yy!).toBeGreaterThanOrEqual(last - 1e-9);
       last = yy!;
       const sh = getDirector().shown;
       if (sh && !sh.peek && seen[seen.length - 1] !== sh.cap.entry.id) seen.push(sh.cap.entry.id);
-      if (directorDone() && y < 2675) {
+      if (directorDone() && y < y1) {
         directorFeed(make(directorPlanNow()!.to, y + 1), 'k');
         y++;
       } else if (directorDone()) break;
     }
-    expect(last).toBe(2675);
+    expect(last).toBe(y1);
     expect(new Set(seen).size).toBe(seen.length);
-    const majors = entries.filter((e) => e.year >= 2650 && e.year < 2675 && e.importance >= 3).map((e) => e.id);
+    const majors = majorsIn(y0);
     expect(seen.filter((id) => majors.includes(id)).length).toBe(seen.length);
-    // 这一段重要度 3 以上的至少两件(两次改朝……)
     expect(seen.length).toBeGreaterThanOrEqual(2);
     setCivTime({ year: null, playing: false });
   });

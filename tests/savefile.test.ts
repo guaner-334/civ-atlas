@@ -1303,14 +1303,22 @@ describe('旧版本的提示:照实说变了什么', () => {
   it('第 45 版只动了带地形大事的世界(城的人口上限):没有地形大事的,改没改过地形都一样', () => {
     const history = '来自旧版本：地形和气候没变，历史重新推演了';
     expect(GENERATOR_CHANGES[45]).toEqual({ change: 'history', only: 'upheavals' });
-    expect(versionNote(44, false)).toBeNull();
-    expect(versionNote(44, true)).toBeNull();
-    expect(versionNote(44, { terrain: true, upheavals: false })).toBeNull();
+    // 没有地形大事的:从第 44 版来和从第 45 版来说法一样(第 45 版没动它们;第 46 版起都是历史重新推演)
+    expect(versionNote(44, false)).toBe(versionNote(45, false));
+    expect(versionNote(44, true)).toBe(versionNote(45, true));
+    expect(versionNote(44, { terrain: true, upheavals: false })).toBe(versionNote(45, { terrain: true, upheavals: false }));
     expect(versionNote(44, { terrain: false, upheavals: true })).toBe(history);
     expect(versionNote(44, { terrain: true, upheavals: true })).toBe(history);
     // 再早一版来的:没有地形大事的照第 44 版说(编年史添了内容),带地形大事的照第 45 版说
     expect(versionNote(43, { terrain: false, upheavals: false })).toBe(versionNote(43, false));
     expect(versionNote(43, { terrain: false, upheavals: true })).toBe(history);
+  });
+  it('第 46 版(季节进推演)历史重新推演:从第 45 版来的,改没改过地形、有没有地形大事都照历史重新推演说', () => {
+    const history = '来自旧版本：地形和气候没变，历史重新推演了';
+    expect(GENERATOR_CHANGES[46]).toEqual({ change: 'history' });
+    expect(versionNote(45, false)).toBe(history);
+    expect(versionNote(45, true)).toBe(history);
+    expect(versionNote(45, { terrain: false, upheavals: true })).toBe(history);
   });
   it('同一版、或世界本来就变了时:地形对不上只在同一版时提示', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');
