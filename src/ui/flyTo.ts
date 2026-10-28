@@ -9,7 +9,7 @@ import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, treatyKey, type AuthorMark } from '../gen/edits';
+import { faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, tradeKey, treatyKey, type AuthorMark } from '../gen/edits';
 import { personKey, resolvePersonKey } from '../gen/characters';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
@@ -53,8 +53,8 @@ export interface Focus {
 export { personKey, resolvePersonKey };
 
 /** 地图上按什么画、往哪飞:人物 = 他的国家;作者标记、作者的人物 = 不按历史里的东西画(它们自己画,见 MarkLayer.tsx、CharacterLayer.tsx);其余照旧 */
-export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' | 'character' | 'treaty' }> | null {
-  if (!sel || sel.kind === 'mark' || sel.kind === 'character' || sel.kind === 'treaty') return null;
+export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' | 'character' | 'treaty' | 'trade' }> | null {
+  if (!sel || sel.kind === 'mark' || sel.kind === 'character' || sel.kind === 'treaty' || sel.kind === 'trade') return null;
   if (sel.kind !== 'person') return sel;
   const x = civ?.people?.[sel.id];
   return x && civ!.polities[x.polity] ? { kind: 'polity', id: x.polity } : null;
@@ -70,6 +70,7 @@ export function selectionKey(civ: Civ, sel: MapSelection): string {
   if (sel.kind === 'mark') return `mark:${sel.id}`;
   if (sel.kind === 'character') return `character:${sel.id}`;
   if (sel.kind === 'treaty') return treatyKey(civ, sel.id);
+  if (sel.kind === 'trade') return tradeKey(civ, sel.id);
   return sel.id >= 0 && sel.id < civ.regions.count ? regionKey(civ, sel.id) : '';
 }
 
@@ -107,6 +108,17 @@ function cellsBox(world: World, cells: Iterable<number>, ref: number): [number, 
 
 /** 选中的东西在地图上的位置和范围(人物 = 他的国家);找不到 = null */
 export function selectionFocus(world: World, civ: Civ, selIn: MapSelection, year: number): Focus | null {
+  // 商道:这一年那版路线经过的各州治所的外接框,中心在路线正中那一州
+  if (selIn.kind === 'trade') {
+    const r = civ.trade?.routes[selIn.id];
+    if (!r || !r.paths.length) return null;
+    let v = r.paths[0];
+    for (const x of r.paths) if (x.year <= year) v = x;
+    const seats = v.regions.filter((g) => g >= 0 && g < civ.regions.count).map((g) => civ.regions.seat[g]);
+    if (!seats.length) return null;
+    const mid = seats[seats.length >> 1];
+    return focusOf(world.width, world.height, cellsBox(world, seats, world.mesh.x[mid]), world.mesh.x[mid], world.mesh.y[mid]);
+  }
   const sel = mapTarget(civ, selIn);
   if (!sel) return null;
   const { x, y } = world.mesh;

@@ -218,11 +218,16 @@ function push(L: Live, e: TradeEvent): void {
   L.r.events.push(e);
 }
 
-/** 这一步里"看出来"的大事定在哪一年:(t − STEP, t] 里按 keyed 取一个整年,晚于这条商道上一件事(上一件就在这一年里的,同一年) */
+/**
+ * 这一步里"看出来"的大事定在哪一刻:(t − STEP, t] 里按 keyed 取(1/256 年为单位,和推演的时刻一样),
+ * 晚于这条商道上一件事(上一件在这一步里的:取它和 t 的正中)
+ */
 function when(m: TradeModel, L: Live, t: Year, what: number, who: number): Year {
-  const y = t - Math.floor(keyed(m.base, who, Math.floor(t), what) * STEP);
+  const y = t - Math.floor(keyed(m.base, who, Math.floor(t), what) * STEP * 256) / 256;
   const lo = lastYear(L);
-  return y > lo ? y : Math.min(t, Math.floor(lo) + 1);
+  if (y > lo) return y;
+  const z = Math.ceil(((lo + t) / 2) * 256) / 256;
+  return z > lo && z <= t ? z : t;
 }
 
 function step(sim: CivSim, m: TradeModel, t: Year): void {

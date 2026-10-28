@@ -37,6 +37,7 @@ import { RegionPanel } from './RegionPanel';
 import { PersonPanel } from './PersonPanel';
 import { FaithPanel } from './FaithPanel';
 import { TreatyPanel } from './TreatyPanel';
+import { TradePanel } from './TradePanel';
 import { treatyBook } from '../gen/civ/treatyInfo';
 import { MarkPanel } from './MarkPanel';
 import { useMarkUi } from './markStore';
@@ -106,6 +107,7 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
   else if (sel.kind === 'person' && civ.people?.[sel.id]) body = <PersonPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'faith' && civ.religion?.faiths[sel.id]) body = <FaithPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'treaty' && treatyBook(civ).treaties[sel.id]) body = <TreatyPanel key={stable} {...common} id={sel.id} />;
+  else if (sel.kind === 'trade' && civ.trade?.routes[sel.id]) body = <TradePanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'mark' && (markDraft?.id === sel.id || edits.marks?.some((m) => m.id === sel.id))) body = <MarkPanel key={stable} civ={civ} raster={raster} world={world} year={year} id={sel.id} />;
   else if (sel.kind === 'character' && (charDraft?.id === sel.id || edits.characters?.some((c) => c.id === sel.id)))
     body = <CharacterPanel key={stable} civ={civ} raster={raster} world={world} year={year} id={sel.id} />;

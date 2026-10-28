@@ -39,7 +39,8 @@ import { cancelDetailJob, detailAsync, submitDetailJob, type WorkStep } from './
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanvasBoxes, type CivMapLayer } from '../render/civ/labels';
 import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
 import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
-import { drawTradeLines, drawTradeNames, tradeShown } from '../render/civ/trade';
+import { drawTradeLines, drawTradeNames, tradeShown, type TradeFocus } from '../render/civ/trade';
+import { setTradeHits, useTradeHover } from './tradePick';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
@@ -58,7 +59,7 @@ import {
 } from './civView';
 import { primePolityField, territoryGrid } from '../render/labels/polity';
 import { polityNamesOn } from '../render/civ/show';
-import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey, treatyKey } from '../gen/edits';
+import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey, tradeKey, treatyKey } from '../gen/edits';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { whenDone } from './holdMark';
@@ -242,6 +243,8 @@ function selectionIn(sel: MapSelection | null, civ: Civ, base: Civ, was: Civ, wa
             ? placeKeyOf(base, sel.id)
             : sel.kind === 'treaty'
               ? treatyKey(civ, sel.id) || null
+              : sel.kind === 'trade'
+                ? tradeKey(civ, sel.id) || null
               : null;
   // 州(两份历史的州是同一份)、作者的标记和人物:编号不变
   if (key === null) return sel.kind === 'region' || sel.kind === 'mark' || sel.kind === 'character' ? sel : null;
@@ -409,6 +412,12 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const sel = useMemo(() => selectionOnMap(civ, picked), [civ, picked]);
   const faithFocus = faithFocusOf(picked);
   const faithFocusIn = faithFocusOf(pickedIn);
+  // 商道:卡片开着的那条亮、别的变淡;鼠标停着的那条亮一圈;名字按改过名的
+  const tradeHover = useTradeHover();
+  const tradeFocus = useMemo<TradeFocus>(
+    () => ({ sel: picked?.kind === 'trade' ? picked.id : null, hover: tradeHover, names: civ?.trade?.routes.map((r) => r.name) }),
+    [picked, tradeHover, civ],
+  );
   const mpRef = useRef(mp);
   mpRef.current = mp;
   const show = useCivShow();
@@ -788,6 +797,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const ctx = cv.getContext('2d')!;
     const clear = () => {
       setMapPlacement(null);
+      setTradeHits(null);
       ctx.clearRect(0, 0, cv.width, cv.height);
     };
     const items = mapLayer ? geoItems.concat(mapLayer.items) : geoItems;
@@ -855,7 +865,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     // 战线、双剑压在国界上、城镇符号和字底下
     const war = wars && params ? drawWarfare(ctx, params, lv, mp ? projector(mp) : null) : null;
     // 商道的线压在国界、战线上,城镇符号和字底下;名字等字写完以后写
-    if (trade && params) drawTradeLines(ctx, params, lv, mp ? projector(mp) : null);
+    setTradeHits(trade && params ? { canvas: cv, hits: drawTradeLines(ctx, params, lv, mp ? projector(mp) : null, tradeFocus) } : null);
     drawSelectionLabels(ctx, placed, lv, sel, style, at);
     const capFlags: CapitalFlags | undefined =
       style === 'fantasy' && flags && flags.civ === civ && params
@@ -873,7 +883,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const fade = mapLayer?.sides.size && sideFadeFrom.current ? Math.min(1, (performance.now() - sideFadeFrom.current) / SIDE_FADE_MS) : 1;
     const fading = fade < 1 && placed.labels.some((l) => mapLayer!.sides.has(l.item));
     drawPlacedLabels(ctx, fading ? placed.labels.map((l) => (mapLayer!.sides.has(l.item) ? { ...l, alpha: l.alpha * fade } : l)) : placed.labels, lv);
-    if (trade && params) drawTradeNames(ctx, params, lv, mp ? projector(mp) : null, placed);
+    if (trade && params) drawTradeNames(ctx, params, lv, mp ? projector(mp) : null, placed, tradeFocus);
     // 信仰图层:圣城符号右上方一个这个教颜色的小圆点(符号没排上时按城的位置;压在界面下面的不画)
     if (params?.show.faiths && base) {
       const cx = (W / 2 - lv.ox) / lv.scale;
@@ -916,7 +926,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     if (!fading) return;
     const h = requestAnimationFrame(() => setFadeTick((n) => n + 1));
     return () => cancelAnimationFrame(h);
-  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick]);
+  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick, tradeFocus]);
 
   return (
     <>

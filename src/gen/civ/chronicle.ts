@@ -167,7 +167,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代;商道:商 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -186,6 +186,8 @@ export interface ChronicleEntry {
   people?: number[];
   /** 信仰的大事:哪种信仰(civ.religion.faiths 的下标;教派分立 = 新的教派) */
   faith?: number;
+  /** 商道的大事:哪几条商道(civ.trade.routes 的下标;见 tradeText.ts) */
+  trade?: number[];
 }
 
 // ---------------------------------------------------------------------------

@@ -122,6 +122,7 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   派: '教派',
   圣: '圣城',
   代: '时代',
+  商: '商道',
   臣: '称臣',
   盟: '结盟',
   绝: '盟绝',

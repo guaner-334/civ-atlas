@@ -288,10 +288,18 @@ function addPoly(path: Path2D, pts: ArrayLike<number>) {
   for (let i = 2; i < pts.length; i += 2) path.lineTo(pts[i], pts[i + 1]);
 }
 
-/** 选中、鼠标停着的商道(编号;没有 = null) */
+/** 选中、鼠标停着的商道(编号;没有 = null);names = 改过名的名字(下标 = 商道编号;不给 = 照生成的) */
 export interface TradeFocus {
   sel?: number | null;
   hover?: number | null;
+  names?: readonly string[];
+}
+
+/** 画在画布上的一条商道(点选、悬停用):画布像素的折线(可能好几份)、线宽的一半 */
+export interface TradeHit {
+  id: number;
+  polys: Float64Array[];
+  half: number;
 }
 
 interface Look {
@@ -308,11 +316,11 @@ function lookOf(p: CivDrawParams): Look {
   };
 }
 
-/** 商道的线(文字层上,城镇符号和地名之前画)。返回画了几条 */
-export function drawTradeLines(ctx: CanvasRenderingContext2D, p: CivDrawParams, lv: LabelView, pj: Projector | null, focus: TradeFocus = {}): number {
-  if (!tradeShown(p)) return 0;
+/** 商道的线(文字层上,城镇符号和地名之前画)。返回画了的各条(点选、悬停用) */
+export function drawTradeLines(ctx: CanvasRenderingContext2D, p: CivDrawParams, lv: LabelView, pj: Projector | null, focus: TradeFocus = {}): TradeHit[] {
+  if (!tradeShown(p)) return [];
   const lines = tradeScene(p.civ, p.world.mesh, p.year);
-  if (!lines.length) return 0;
+  if (!lines.length) return [];
   const look = lookOf(p);
   const u = penOf(lv);
   const w = SIZE.line * u;
@@ -380,7 +388,7 @@ export function drawTradeLines(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
     }
   }
   ctx.restore();
-  return lines.length;
+  return lines.map((l, i) => ({ id: l.route.id, polys: polys[i], half: w / 2 + cw }));
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +551,7 @@ export function drawTradeNames(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
   for (const o of order) {
-    const text = o.l.route.name;
+    const text = focus.names?.[o.l.route.id] || o.l.route.name;
     if (!text) continue;
     const need = text.length * px * (1 + SIZE.track) + px;
     if (!all && o.L < need) continue;
