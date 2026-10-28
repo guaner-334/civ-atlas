@@ -15,6 +15,7 @@ import { EMPTY_EDITS, polityKey, type Intervention, type WorldEdits } from '../s
 import { applyCharacters, cleanCharacter, cleanCharacters, type AuthorCharacter } from '../src/gen/characters';
 import { heOrShe, isFemale } from '../src/gen/civ/gender';
 import { peopleIndex } from '../src/gen/civ/peopleInfo';
+import { ownersAt } from '../src/gen/civ/timeline';
 import { polityName } from '../src/gen/civ/growth';
 import { dynastyRows, layoutDynasty, treeLabel } from '../src/gen/civ/lineageInfo';
 import { buildChronicle } from '../src/gen/civ/chronicle';
@@ -103,8 +104,20 @@ describe('作者的人物的性别 · 数据', () => {
   });
 });
 
+/** 即位的那一国:第 1500 年国土最大、到 1600 年还在的国家(同 crown-ui.test.ts) */
+let pidMemo: number | null = null;
+const pid = (): number => {
+  if (pidMemo !== null) return pidMemo;
+  const civ = base();
+  const n = new Map<number, number>();
+  for (const p of ownersAt(civ, 1500).polity) if (p >= 0) n.set(p, (n.get(p) ?? 0) + 1);
+  let best = -1;
+  for (const [p, k] of n) if ((civ.polities[p].ended ?? Infinity) > 1600 && (best < 0 || k > n.get(best)!)) best = p;
+  return (pidMemo = best);
+};
+
 describe('作者的人物的性别 · 即了位的', () => {
-  // 种子 7:1500 年即有桑皇朝(第 2 国)君位,填了 1530 年退位
+  // 种子 7:1500 年即位,填了 1530 年退位
   const T = 1500;
   const SHE: AuthorCharacter = { id: 1, name: '沈蘅', born: 1468, died: 1541, color: 'red', leanings: LEAN, female: true };
   const HE: AuthorCharacter = { ...SHE, name: '林小满', female: undefined };
@@ -113,14 +126,14 @@ describe('作者的人物的性别 · 即了位的', () => {
   let made: { civ: Civ; ivs: Intervention[]; A: string } | null = null;
   const setup = () => {
     if (made) return made;
-    const ivs: Intervention[] = [crown(polityKey(base(), 2), T, { until: 1530, abdicate: true })];
+    const ivs: Intervention[] = [crown(polityKey(base(), pid()), T, { until: 1530, abdicate: true })];
     const civ = generateCiv(world(), { interventions: ivs });
-    return (made = { civ, ivs, A: polityName(civ.polities[2], T) });
+    return (made = { civ, ivs, A: polityName(civ.polities[pid()], T) });
   };
 
   it('推演里那位君主跟着人物卡:女的 female = true,男的、删掉了的不写;历史不变', () => {
     const { civ } = setup();
-    const raw = peopleIndex(civ).rulers[2].find((x) => x.author === 1)!;
+    const raw = peopleIndex(civ).rulers[pid()].find((x) => x.author === 1)!;
     expect(raw.female).toBeUndefined();
     const she = applyCharacters(civ, [SHE]);
     const x = she.people!.find((p) => p.author === 1)!;
@@ -150,8 +163,8 @@ describe('作者的人物的性别 · 即了位的', () => {
   it('世系图:接她位的那一棵写"继她之位"', () => {
     const { civ } = setup();
     const she = applyCharacters(civ, [SHE]);
-    const me = peopleIndex(she).rulers[2].find((x) => x.author === 1)!;
-    const row = dynastyRows(she, 2).find((x) => x.rulers.includes(me))!;
+    const me = peopleIndex(she).rulers[pid()].find((x) => x.author === 1)!;
+    const row = dynastyRows(she, pid()).find((x) => x.rulers.includes(me))!;
     const trees = layoutDynasty(she, row);
     const i = trees.findIndex((t) => t.nodes.some((n) => n.p === me));
     const next = row.rulers[row.rulers.indexOf(me) + 1];
@@ -162,7 +175,7 @@ describe('作者的人物的性别 · 即了位的', () => {
   it('没即位成的原因、改人物 / 删人物时问的那一句写"她"', () => {
     const { civ, ivs, A } = setup();
     // 即位那年还没出生
-    const early: Intervention[] = [crown(polityKey(base(), 2), T, { born: T + 10 })];
+    const early: Intervention[] = [crown(polityKey(base(), pid()), T, { born: T + 10 })];
     const civ2 = applyCharacters(generateCiv(world(), { interventions: early }), [{ ...SHE, born: T + 10 }]);
     const [v] = characterCrowns(civ2, 1, [], early, false, undefined);
     expect(v).toMatchObject({ kind: 'void', why: `她第 ${T + 10} 年才出生` });
@@ -181,8 +194,8 @@ describe('作者的人物的性别 · 即了位的', () => {
     expect(del.yes[0]).toBe('连她的即位一起去掉');
     expect(del.done).toBe('已删除人物「沈蘅」和她的即位');
     // 即位页勾下面那一句
-    expect(crownKeepHint(civ, 2, T, 1530, undefined, SHE)).toMatch(/她(下台后|在位时)/);
-    expect(crownKeepHint(civ, 2, T, 1530, undefined)).toMatch(/他(下台后|在位时)/);
+    expect(crownKeepHint(civ, pid(), T, 1530, undefined, SHE)).toMatch(/她(下台后|在位时)/);
+    expect(crownKeepHint(civ, pid(), T, 1530, undefined)).toMatch(/他(下台后|在位时)/);
   }, 120_000);
 });
 

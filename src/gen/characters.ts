@@ -32,7 +32,6 @@
  * 读进来的列表先过 cleanCharacters(格式不对的丢掉,编号重复的换一个新编号,最多留 CHARACTERS_MAX 个)。
  */
 import type { Civ, RulerLeanings } from './civ/types';
-import { isFemale } from './civ/gender';
 import { INTERVENTION_YEAR_MAX, MARK_COLORS, freeMarkId, isCityKey, isPolityKey, isRegionKey, yearOf, type MarkColor } from './edits';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 
@@ -388,7 +387,8 @@ export function applyCharacters(civ: Civ, characters: readonly AuthorCharacter[]
   const byId = new Map<number, AuthorCharacter>();
   for (const c of characters ?? []) byId.set(c.id, c);
   const nameOf = (id: number) => byId.get(id)?.name || AUTHOR_RULER_DEFAULT;
-  const femaleOf = (id: number) => isFemale(byId.get(id));
+  // 和 civ/gender.ts 的 isFemale 一样只认 true(不 import 它:这个文件跟着读存档进首页,首页的代码要省)
+  const femaleOf = (id: number) => byId.get(id)?.female === true;
   const authorNames: Record<number, string> = {};
   const authorFemale: number[] = [];
   for (const id of chars) {
@@ -404,7 +404,7 @@ export function applyCharacters(civ: Civ, characters: readonly AuthorCharacter[]
       if (x.author === undefined) return x;
       const name = nameOf(x.author);
       const female = femaleOf(x.author);
-      if (x.name === name && isFemale(x) === female) return x;
+      if (x.name === name && (x.female === true) === female) return x;
       const { female: __, ...bare } = x;
       return female ? { ...bare, name, female: true } : { ...bare, name };
     });
