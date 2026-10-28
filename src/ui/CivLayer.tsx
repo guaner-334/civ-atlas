@@ -892,7 +892,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     // 战线、双剑压在国界上、城镇符号和字底下
     const war = wars && params ? drawWarfare(ctx, params, lv, mp ? projector(mp) : null) : null;
     // 商道的线压在国界、战线上,城镇符号和字底下;名字等字写完以后写
-    setTradeHits(trade && params ? { canvas: cv, hits: drawTradeLines(ctx, params, lv, mp ? projector(mp) : null, tradeFocus) } : null);
+    setTradeHits(trade && params ? { canvas: cv, hits: drawTradeLines(ctx, params, lv, mp ? projector(mp) : null, tradeFocus), view: lv } : null);
     drawSelectionLabels(ctx, placed, lv, sel, style, at);
     const capFlags: CapitalFlags | undefined =
       style === 'fantasy' && flags && flags.civ === civ && params

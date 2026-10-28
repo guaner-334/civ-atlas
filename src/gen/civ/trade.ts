@@ -76,8 +76,8 @@ export interface TradeEvent {
   war?: number;
   /** 断:和哪国交兵(没有 = 不给) */
   foe?: number;
-  /** 废:买方亡了(fall)/ 不再缺(gain)/ 产地不产了或另找了产地(gone)/ 商旅渐稀(fade) */
-  why?: 'fall' | 'gain' | 'gone' | 'fade';
+  /** 废:买方亡了(fall)/ 本国采得到了(gain)/ 用不着了(need:过了时代门口,门槛要的矿不再缺)/ 产地不产了或另找了产地(gone)/ 商旅渐稀(fade) */
+  why?: 'fall' | 'gain' | 'need' | 'gone' | 'fade';
 }
 
 export interface TradeRoute {
@@ -291,6 +291,8 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
   const paths = new Map<number, Map<number, number[]>>();
   /** 买方 → 缺的货(按位);不在里面的 = 这一步不算买方(太小、国都丢了) */
   const wants = new Map<number, number>();
+  /** 买方 → 本国眼下采得到的货(按位) */
+  const owns = new Map<number, number>();
   const reachOf = new Map<number, Set<number>>();
   for (let p = 0; p < P; p++) {
     const mine = liveOf.get(p);
@@ -310,6 +312,7 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
     if (lv > Math.floor(lv) + 1 - GATE_NEAR) need0 |= gateNeed(lv);
     const want = need0 & GOODS_MASK & ~has;
     wants.set(p, want);
+    owns.set(p, has);
     if (!want && !mine) continue;
     const enemies = foes.get(p);
     // 原来从哪运(货 → 那条商道)
@@ -389,7 +392,7 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
     if (kept.has(L)) return true;
     const gr = groups.get(key(L.r.buyer, L.r.from));
     const w = wants.get(L.r.buyer);
-    const why: TradeEvent['why'] = gr || w === undefined ? 'fade' : lostWhy(L, w);
+    const why: TradeEvent['why'] = gr || w === undefined ? 'fade' : lostWhy(L, w, owns.get(L.r.buyer) ?? 0);
     end(L, when(m, L, t, 1, L.r.id), why);
     return false;
   });
@@ -527,9 +530,14 @@ function foeOn(L: Live, ownP: Int16Array, enemies: Map<number, number> | undefin
   return null;
 }
 
-/** 为什么没货了:还在运的货买方都不缺了 = 不再缺;不然 = 产地不产了或另找了产地 */
-function lostWhy(L: Live, want: number): TradeEvent['why'] {
-  return L.r.goods.every((g) => g.until !== undefined || !(want & (1 << g.res))) ? 'gain' : 'gone';
+/**
+ * 为什么没货了:还在运的货买方都不缺了 —— 本国都采得到了 = gain,不然 = need(用不着了);
+ * 还缺着 = 产地不产了或另找了产地(gone)
+ */
+function lostWhy(L: Live, want: number, has: number): TradeEvent['why'] {
+  const on = L.r.goods.filter((g) => g.until === undefined);
+  if (on.some((g) => want & (1 << g.res))) return 'gone';
+  return on.every((g) => has & (1 << g.res)) ? 'gain' : 'need';
 }
 
 /** 路线经过的国家(含产地所属国;不含买方、没有国家的地方),按从产地到国都的先后 */

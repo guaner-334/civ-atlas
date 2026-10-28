@@ -87,7 +87,7 @@ describe.each([7, 2024])('商道 · seed=%i', (seed) => {
     }
   }, 120_000);
 
-  it('编年史:每件通、断、复通、废都写进去(同一仗断的、同一国亡而废的并成一句),都是小事;和别的纪事编号不撞', () => {
+  it('编年史:每件通、断、复通、废都写进去(同一仗断的、同一国亡而废的并成一句,各条的买方都算相关国家),都是小事;和别的纪事编号不撞', () => {
     const civ = civOf(seed);
     const T = civ.trade!;
     const es = tradeEntries(civ);
@@ -100,6 +100,8 @@ describe.each([7, 2024])('商道 · seed=%i', (seed) => {
       expect(e.tag).toBe('商');
       expect(e.text).toMatch(/(通|断|复通|废)$/);
       for (const id of e.trade!) expect(e.text).toContain(T.routes[id].name);
+      // 并进来的各条的买方都算相关国家(按国家筛编年史时看得到)
+      for (const id of e.trade!) expect(e.polities).toContain(T.routes[id].buyer);
     }
     const all = fullChronicle(civ);
     expect(new Set(all.map((e) => `${e.kind}:${e.id}`)).size).toBe(all.length);

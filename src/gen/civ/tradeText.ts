@@ -4,7 +4,7 @@
  *   通    "萨巴兰王国自大定王朝万兴郡运铁,万兴西道通"(产地没有国家:"萨巴兰王国自万兴郡运铁,万兴西道通")
  *   断    "大定王朝与萨巴兰王国交兵,万兴西道、拉沙金道断"(同一仗、同一年断的几条写在一句里;不是宣战断的:"万兴西道断")
  *   复通  "大定王朝与萨巴兰王国议和,万兴道复通" / "万兴道复通"
- *   废    "萨巴兰王国亡,万兴西道、拉沙金道废"(同一国同一年);"萨巴兰王国境内自产铁,万兴西道废";"万兴道商旅渐稀而废";"万兴道废"
+ *   废    "萨巴兰王国亡,万兴西道、拉沙金道废"(同一国同一年);"萨巴兰王国境内自产铁,万兴西道废";"萨巴兰王国不复求铜锡,某道废";"万兴道商旅渐稀而废";"万兴道废"
  *
  * 编年史里都是小事(重要度 1,只在「全部」里),kind = 'era'(和时代、物产一类),标签"商"(界面上叫"商道")。
  * 纯函数,主线程用。
@@ -138,18 +138,21 @@ export function tradeEntries(civ: Civ): ChronicleEntry[] {
         const q = own!.polity[r.from] ?? -1;
         const from = q >= 0 && q !== r.buyer ? `${pName(civ, q, e.year)}${regionLabel(civ, r.from)}` : regionLabel(civ, r.from);
         out.push(base(e, group, `${buyer}自${from}运${goodsText(goodsAt(r, e.year))},${r.name}通`, [r.buyer, q]));
-      } else if (e.kind === 'break') {
+      } else if (e.kind === 'break' || e.kind === 'reopen') {
+        // 相关国家:并进来的各条的买方、交兵的两国
+        const w = e.war !== undefined ? warAnnal(civ, e.war) : undefined;
+        const ps = [...group.map((x) => x.buyer), ...(w ? [w.a, w.b] : [e.foe ?? -1])];
         const pair = e.war !== undefined ? warPair(civ, e.war) : '';
-        out.push(base(e, group, pair ? `${pair}交兵,${names(group)}断` : `${names(group)}断`, [r.buyer, e.foe ?? -1]));
-      } else if (e.kind === 'reopen') {
-        const pair = e.war !== undefined ? warPair(civ, e.war) : '';
-        out.push(base(e, group, pair ? `${pair}议和,${names(group)}复通` : `${names(group)}复通`, [r.buyer]));
+        const what = e.kind === 'break' ? '断' : '复通';
+        out.push(base(e, group, pair ? `${pair}${e.kind === 'break' ? '交兵' : '议和'},${names(group)}${what}` : `${names(group)}${what}`, ps));
       } else {
         const text =
           e.why === 'fall'
             ? `${buyer}亡,${names(group)}废`
             : e.why === 'gain'
               ? `${buyer}境内自产${goodsText(goodsAt(r, e.year))},${r.name}废`
+              : e.why === 'need'
+                ? `${buyer}不复求${goodsText(goodsAt(r, e.year))},${r.name}废`
               : e.why === 'fade'
                 ? `${r.name}商旅渐稀而废`
                 : `${r.name}废`;

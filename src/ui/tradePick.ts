@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { TradeHit } from '../render/civ/trade';
+import type { LabelView } from '../render/labels/draw';
 import { TRADE_INK } from '../render/civ/trade';
 import { regionLabel } from '../gen/civ/display';
 import { goodsAt, goodsText, tradeCapital, tradeStateAt } from '../gen/civ/tradeText';
@@ -17,10 +18,10 @@ import type { HoverInfo } from './hoverInfo';
 /** 离线多远(屏幕像素)还算点到 */
 const SLOP = 4;
 
-let last: { canvas: HTMLCanvasElement; hits: TradeHit[] } | null = null;
+let last: { canvas: HTMLCanvasElement; hits: TradeHit[]; view?: LabelView } | null = null;
 
-/** 文字层画完商道以后记下(没画 = null) */
-export function setTradeHits(s: { canvas: HTMLCanvasElement; hits: TradeHit[] } | null) {
+/** 文字层画完商道以后记下(没画 = null;view = 文字层的视口,弯边投影时外轮廓外面不算点到) */
+export function setTradeHits(s: { canvas: HTMLCanvasElement; hits: TradeHit[]; view?: LabelView } | null) {
   last = s && s.hits.length ? s : null;
   // 测试入口:画了哪几条;某一条线上第 f(0–1)处在屏幕上的位置(截图、冒烟测试把鼠标挪过去用)
   (window as unknown as { __wfTrade: unknown }).__wfTrade = {
@@ -54,6 +55,10 @@ export function tradeAtClient(clientX: number, clientY: number): number | null {
   const f = canvas.width / r.width;
   const x = (clientX - r.left) * f;
   const y = (clientY - r.top) * f;
+  // 画布外面、弯边投影的外轮廓外面(伸出去的那截没画)不算
+  if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) return null;
+  const v = last.view;
+  if (v?.proj && !v.proj.inside((x - v.ox) / v.scale, (y - v.oy) / v.scale, 0)) return null;
   let best: number | null = null;
   let bestD = Infinity;
   for (const h of hits) {
