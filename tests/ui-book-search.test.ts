@@ -323,11 +323,10 @@ describe('搜索', () => {
     const r3 = searchCiv(civ, cu.name, END);
     const ch = r3.find((h) => h.kind === 'culture' && h.id === cu.id)!;
     expect(ch).toMatchObject({ name: `${cu.name}族`, sub: '民族' });
-    // 民族 → 选中它人口最多的那个州(那一州住的是这个民族)
-    expect(ch.select.kind).toBe('region');
+    // 民族 → 开民族卡片(选中这个民族;地图转到它人口最多的那个州,那一州住的是这个民族)
+    expect(ch.select).toEqual({ kind: 'culture', id: cu.id });
     const owners = ownersAt(civ, END);
-    if (cu.ended === undefined) expect(owners.culture[ch.select.id]).toBe(cu.id);
-    expect(cultureRegion(civ, cu.id, END, owners)).toBe(ch.select.id);
+    if (cu.ended === undefined) expect(owners.culture[cultureRegion(civ, cu.id, END, owners)]).toBe(cu.id);
 
     const pl = civ.places.findIndex((x) => x.kind === 'mountains');
     const r4 = searchCiv(civ, civ.places[pl].name, END);

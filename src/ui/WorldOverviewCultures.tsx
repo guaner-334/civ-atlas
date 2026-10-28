@@ -11,9 +11,9 @@ import type { Civ, Culture } from '../gen/civ/types';
 import { polityName, populationLabel, regionPopulationAt } from '../gen/civ/growth';
 import { KIND_INFO, cultureLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { setCivTime, setSelection } from './civView';
+import { setCivTime } from './civView';
 import { closeOverview } from './overviewStore';
-import { cultureRegion } from './searchIndex';
+import { openCulture } from './faithSelection';
 import { SPARK_N, polityHistory, popCell, type PolityHistory } from './WorldOverviewCountries';
 import { useEra } from './editsStore';
 import { yearAt, yearFull, yearShort, yearSpan, type Era } from '../gen/era';
@@ -106,12 +106,12 @@ export function cultureRows(civ: Civ, y: number): { alive: CultureRow[]; dead: C
   return { alive, dead };
 }
 
-/** 点一行:收起概览、定位到这一族人口最多的州(已消亡的先把时间轴拨到它还在的最后一年) */
-function locate(civ: Civ, cu: Culture, y: number) {
+/** 点一行:收起概览、开民族卡片、地图转到这一族人口最多的州(已消亡的先把时间轴拨到它还在的最后一年) */
+function locate(cu: Culture, y: number) {
   closeOverview();
   const last = cultureLastYear(cu, y);
   if (last !== y) setCivTime({ year: last, playing: false, scrubbing: false, story: false });
-  setSelection({ kind: 'region', id: cultureRegion(civ, cu.id, last, ownersAt(civ, last)) });
+  openCulture(cu.id);
 }
 
 export function CulturesPage({ civ, year }: { civ: Civ | null; year: number }) {
@@ -162,7 +162,7 @@ function CultureLine({ civ, r, year, hist, era }: { civ: Civ; r: CultureRow; yea
     .filter(Boolean)
     .join('，');
   return (
-    <button className={`ov-tr ov-row${r.alive ? '' : ' dead'}`} data-culture={cu.id} onClick={() => locate(civ, cu, year)}>
+    <button className={`ov-tr ov-row${r.alive ? '' : ' dead'}`} data-culture={cu.id} onClick={() => locate(cu, year)}>
       <i className="ov-cu-sw" style={{ background: color }} />
       <span className="ov-name">{cultureLabel(cu)}</span>
       <span className="ov-years">

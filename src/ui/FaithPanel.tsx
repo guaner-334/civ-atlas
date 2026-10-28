@@ -6,7 +6,7 @@
  *         更多(看圣城;教派:看本教、看分出的国家;民间信仰:看发源的州)
  *   概况  大教:类型(带一句说明)、创立(年份、创教者、圣城)、圣城(今属哪国)、信众(小柱图 + 州数)、国教(这一年奉它为国教的国家)、教派
  *         教派:类型、来历(从哪个教分出、哪年、哪国)、信众、国教;没有圣城、教派两行
- *         民间信仰:类型、民族、信众
+ *         民间信仰:类型、民族(可点,开民族卡片)、信众
  *   大事  大教连同它的教派、教派自己的:最近 5 条(可点),"全部 N 件"展开全部;民间信仰没有
  * 卡片开着时,信仰图层上别的信仰变淡、地图上圈出圣城(见 faithSelection.ts)。
  */
@@ -124,7 +124,7 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
             {folk ? '民间信仰' : (f.form ?? '—')}
             {!folk && f.form && <em className="cp-num-note">{FORM_NOTE[f.form]}</em>}
           </Row>
-          {folk && <Row k="民族">{cu ? cultureLabel(cu) : '—'}</Row>}
+          {folk && <Row k="民族">{cu ? cu.unborn ? cultureLabel(cu) : <Link to={{ kind: 'culture', id: cu.id }}>{cultureLabel(cu)}</Link> : '—'}</Row>}
           {f.kind === 'great' && (
             <Row k="创立">
               {yearAt(founded, era)}，{f.founder?.name ?? ''}
