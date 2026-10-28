@@ -80,6 +80,7 @@ import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
 import { leaningsThen, marryChoice, moodSince, personIvRange, regentChoice, rulerOnThrone } from './newIvInfo';
 import { MarryIvPage, RegentIvPage } from './RegentIvPage';
 import { ReignRecord } from './ReignRecord';
+import { reignRecord, reignText } from '../gen/civ/reignRecord';
 import './policy.css';
 import './newIv.css';
 
@@ -229,6 +230,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
     if (ruler && x.leanings) out.push(`倾向：${leaningsText(x.leanings)}`);
     if (bio) out.push('', `生平：${bio}`);
+    const reign = ruler ? reignRecord(civ, x, era) : null;
+    if (reign) out.push('', ...reignText(reign));
     if (events.length) out.push('', `${head}：`, ...events.map((e) => `${yearShort(e.year, era)} ${eraText(e.text.replace(/^【(?:干预|照大纲)】/, ''), era)}`));
     const text = out.join('\n');
     (window as unknown as { __wfPersonText: string }).__wfPersonText = text;

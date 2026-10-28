@@ -10,7 +10,7 @@ import type { Person } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { populationLabel, regionPopulationAt } from '../src/gen/civ/growth';
 import { fillOf, fiscalAt, fiscalMood, warSpans } from '../src/gen/civ/fiscalBook';
-import { SHORT_REIGN, reignFacts, reignRecord } from '../src/gen/civ/reignRecord';
+import { SHORT_REIGN, reignFacts, reignRecord, reignRecordOf, reignText, type ReignFacts } from '../src/gen/civ/reignRecord';
 import { yearShortAt, type Era } from '../src/gen/era';
 
 const civs = new Map<number, Civ>();
@@ -75,8 +75,11 @@ describe('治绩的四行', () => {
         const pop = r.rows[1];
         const w = (v: number) => populationLabel(v).replace(/^约 /, '').replace(/万人$/, '万');
         if (p0 > 0 && Math.round((Math.abs(p1 - p0) / p0) * 100) >= 1) {
-          expect(pop.lines[0]).toBe(`约 ${w(p0)} → 约 ${w(p1)}`);
-          expect(pop.note).toMatch(p1 >= p0 ? /^多了 \d+%$/ : /^少了 \d+%$/);
+          if (w(p0) === w(p1)) expect(pop).toEqual({ k: '人口', lines: [`约 ${w(p0)}`], note: '大致没变' });
+          else {
+            expect(pop.lines[0]).toBe(`约 ${w(p0)} → 约 ${w(p1)}`);
+            expect(pop.note).toMatch(p1 >= p0 ? /^多了 \d+%$/ : /^少了 \d+%$/);
+          }
         } else if (p0 > 0) expect(pop).toEqual({ k: '人口', lines: [`约 ${w(p0)}`], note: '没大变化' });
 
         // 战事:在位时一仗没打 = "没打过仗";打了的年数不超过在位的年数
@@ -174,8 +177,8 @@ describe('在位不满 3 年', () => {
         const f = r.facts;
         expect(r.short).toMatch(/^在位(不到一年| \d 年)，/);
         expect(r.short!.endsWith('。')).toBe(true);
-        if (f.regions[0] === f.regions[1]) expect(r.short).toContain(`国中没有变化：${f.regions[0]} 州，约 `);
-        else expect(r.short).toContain(`疆域从 ${f.regions[0]} 州到 ${f.regions[1]} 州，约 `);
+        if (f.regions[0] === f.regions[1]) expect(r.short).toMatch(/，(国中没有变化：|疆域没变)/);
+        else expect(r.short).toContain(`疆域从 ${f.regions[0]} 州到 ${f.regions[1]} 州`);
         expect(r.short).toMatch(f.warYears < 0.05 ? /，没打仗。$/ : /，打了(约 \d+ 年|不到 1 年)仗。$/);
         if (f.fiscal) expect(r.short).toMatch(/，(国库|国用不足|\d+ 年国用不足|\d+ 回国用不足)/);
         expect(r.short).not.toMatch(/undefined|null|NaN/);
@@ -207,5 +210,46 @@ describe('只给君主', () => {
         for (const row of r.rows) for (const t of [...row.lines, row.note]) expect(t, `${x.name} ${row.k}`).not.toMatch(/undefined|null|NaN|Infinity/);
       }
     }
+  });
+});
+
+/** 造出来的数:疆域没变、人口没变、国库充裕一直没换档、没打仗 */
+const made = (o: Partial<ReignFacts> = {}): ReignFacts => ({
+  from: 100, until: 102, len: 2, regions: [128, 128], gained: 0, lost: 0, peak: 128, low: 128,
+  pop: [140, 140], warYears: 0, longestPeace: 2,
+  fiscal: { mood0: 0, mood1: 0, income0: 50, income1: 50, short: [] }, events: [], ...o,
+});
+const fis = (mood0: number, mood1: number, short: number[] = []) => ({ mood0, mood1, income0: 50, income1: 50, short });
+
+describe('治绩的措辞', () => {
+  it('在位不满 3 年:疆域、人口、国库都没变才写"国中没有变化"', () => {
+    expect(reignRecordOf(made()).short).toBe('在位 2 年，国中没有变化：128 州，约 14 万人，国库充裕，没打仗。');
+  });
+  it('在位不满 3 年:疆域没变、国库换了档,照实写国库,不写"国中没有变化"', () => {
+    const s = reignRecordOf(made({ fiscal: fis(2, 3) })).short!;
+    expect(s).toBe('在位 2 年，疆域没变，国库从拮据到国用不足，没打仗。');
+    expect(s).not.toContain('国中没有变化');
+  });
+  it('在位不满 3 年:疆域和人口都变了,两样都写;期间出过国用不足也算变了', () => {
+    expect(reignRecordOf(made({ regions: [128, 130], gained: 2, pop: [140, 168], warYears: 1.5 })).short).toBe(
+      '在位 2 年，疆域从 128 州到 130 州，人口增到约 17 万人，国库充裕，打了约 2 年仗。',
+    );
+    const s = reignRecordOf(made({ fiscal: fis(2, 2, [101]) })).short!;
+    expect(s).toContain('疆域没变，');
+    expect(s).not.toContain('国中没有变化');
+  });
+  it('人口四舍五入后前后约数一样:只写一个数,写"大致没变"', () => {
+    const row = reignRecordOf(made({ len: 20, pop: [140, 143] })).rows.find((r) => r.k === '人口')!;
+    expect(row.lines).toEqual(['约 14 万']);
+    expect(row.note).toBe('大致没变');
+    const diff = reignRecordOf(made({ len: 20, pop: [140, 168] })).rows.find((r) => r.k === '人口')!;
+    expect(diff.lines).toEqual(['约 14 万 → 约 17 万']);
+  });
+  it('复制生平带上治绩:够年数的一行一项,不满 3 年的一句', () => {
+    const long = reignText(reignRecordOf(made({ len: 20, until: 120, regions: [128, 130], gained: 2 })));
+    expect(long[0]).toBe('治绩：');
+    expect(long[1]).toBe('疆域：128 州 → 130 州（得 2 州）');
+    expect(long.some((l) => l.startsWith('钱粮：'))).toBe(true);
+    expect(reignText(reignRecordOf(made()))).toEqual(['治绩：在位 2 年，国中没有变化：128 州，约 14 万人，国库充裕，没打仗。']);
   });
 });

@@ -271,7 +271,17 @@ function eventLine(e: ReignEvent, era: Era | null | undefined): string {
 /** 君主的治绩;不是君主 = null */
 export function reignRecord(civ: Civ, x: Person, era?: Era | null): ReignRecord | null {
   const f = reignFacts(civ, x);
-  if (!f) return null;
+  return f ? reignRecordOf(f, era) : null;
+}
+
+/** 复制生平里的治绩:"治绩：" 一行加每行一项("疆域：24 州 → 26 州（得 2 州）");不满 SHORT_REIGN 年的 "治绩：" 后接那一句 */
+export function reignText(r: ReignRecord): string[] {
+  if (r.short !== null) return [`治绩：${r.short}`];
+  return ['治绩：', ...r.rows.map((row) => `${row.k}：${row.lines.join('；')}${row.note ? `（${row.note}）` : ''}`)];
+}
+
+/** 由算好的数写成治绩(拆出来是为了单测能直接给数) */
+export function reignRecordOf(f: ReignFacts, era?: Era | null): ReignRecord {
   const rows: ReignRow[] = [];
   const [r0, r1] = f.regions;
   // 疆域
@@ -285,6 +295,8 @@ export function reignRecord(civ: Civ, x: Person, era?: Era | null): ReignRecord 
   const pc = p0 > 0 ? Math.round((Math.abs(p1 - p0) / p0) * 100) : p1 > 0 ? Infinity : 0;
   if (pc < 1) rows.push({ k: '人口', lines: [`约 ${popText(p0)}`], note: '没大变化' });
   else if (!Number.isFinite(pc)) rows.push({ k: '人口', lines: [`约 ${popText(p1)}`], note: '' });
+  // 四舍五入后前后的约数一样("约 14 万 → 约 14 万,多了 4%"):只写一个数
+  else if (popText(p0) === popText(p1)) rows.push({ k: '人口', lines: [`约 ${popText(p0)}`], note: '大致没变' });
   else rows.push({ k: '人口', lines: [`约 ${popText(p0)} → 约 ${popText(p1)}`], note: `${p1 >= p0 ? '多了' : '少了'} ${pc}%` });
   // 战事
   const noWar = f.warYears < 0.05;
@@ -294,8 +306,11 @@ export function reignRecord(civ: Civ, x: Person, era?: Era | null): ReignRecord 
   // 钱粮("国库一直充裕";一直入不敷出的写"一直国用不足",不写"国库一直国用不足")
   let money = '';
   let moneyShort = '';
+  /** 国库没换档、也没出过国用不足 */
+  let fiscalSame = true;
   if (f.fiscal) {
     const { mood0, mood1, income0, income1, short } = f.fiscal;
+    fiscalSame = mood0 === mood1 && !short.length;
     const broke = mood1 === MOODS.length - 1;
     money = short.length
       ? `${short.length > 1 ? `${short.length} 回国用不足（${yearShortAt(short[0], era)}起）` : `${yearShortAt(short[0], era)}国用不足`}，末年${MOODS[mood1]}`
@@ -319,7 +334,16 @@ export function reignRecord(civ: Civ, x: Person, era?: Era | null): ReignRecord 
   let short: string | null = null;
   if (f.len < SHORT_REIGN) {
     const head = `在位${f.len < 1 ? '不到一年' : ` ${Math.round(f.len)} 年`}`;
-    const land = r0 === r1 ? `国中没有变化：${r0} 州，${popPeople(p0)}` : `疆域从 ${r0} 州到 ${r1} 州，${popPeople(p1)}`;
+    const popSame = pc < 1 || popText(p0) === popText(p1);
+    const landSame = r0 === r1;
+    // 疆域、人口、国库都没变才写"国中没有变化";否则照实写变了的那几样
+    let land: string;
+    if (landSame && popSame && fiscalSame) land = `国中没有变化：${r0} 州，${popPeople(p0)}`;
+    else {
+      const parts = [landSame ? '疆域没变' : `疆域从 ${r0} 州到 ${r1} 州`];
+      if (!popSame) parts.push(`人口${p1 >= p0 ? '增到' : '减到'}${popPeople(p1)}`);
+      land = parts.join('，');
+    }
     const fisc = moneyShort ? `，${moneyShort}` : '';
     const war = noWar ? '，没打仗' : `，打了${warLen}仗`;
     short = `${head}，${land}${fisc}${war}。`;
