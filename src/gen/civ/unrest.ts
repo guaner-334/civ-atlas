@@ -127,8 +127,6 @@ const FAMINE_REST = 30;
  */
 const SPRING_HALF = 4;
 const SPRING: readonly [number, number] = [0.2, 0.4];
-/** 春荒那一刻的饥民起事取随机数用的"第几次"从这里往上数(和看年景那一刻的分开) */
-const SPRING_K = 1 << 20;
 
 /** 民变:国家至少几州;赔率;起事的最多几州、不超过国土的几成 */
 const REVOLT_STATE = 8;
@@ -471,8 +469,9 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
       if (!fl) um.famines.set(p, (fl = []));
       fl.push({ year: t, n: list.length });
     }
-    const kr = h === 0 ? k : SPRING_K + 2 * k + h - 1;
-    for (const p of ps) tryRevolt(pm.polities[p], hits.get(p)!, kr, t);
+    // 饥民起事:同一次看年景里各刻(看年景那一刻、南北春荒)取同一个随机数 —— 一国一次年景里只掷一次,
+    // 灾区分在几刻闹的国家不因此多几次起事的机会
+    for (const p of ps) tryRevolt(pm.polities[p], hits.get(p)!, k, t);
   });
 
   // ---- 民变 ----
