@@ -10,6 +10,7 @@ import {
   outlinePath,
   projectWorld,
   projectWorldNear,
+  unprojectRow,
   unprojectWorld,
   wrapLon,
 } from '../src/render/projection';
@@ -67,6 +68,31 @@ describe('地图投影', () => {
           expect(dx(back![0], x)).toBeLessThan(1e-3);
           expect(Math.abs(back![1] - y)).toBeLessThan(1e-3);
         }
+      }
+    }
+  });
+
+  it('整行反投影(unprojectRow)和逐点 unprojectWorld 逐位一样,轮廓外的点、整行在外的行也一样', () => {
+    for (const id of PROJECTION_IDS) {
+      for (const lon0 of [0, 37.5, -120, 180, 93.25]) {
+        const mp = mapProj(id, lon0, W, H);
+        let rows = 0;
+        const bad: string[] = [];
+        for (let my = -3.5; my < H + 4; my += 4) {
+          const row = unprojectRow(mp, my);
+          if (!row) {
+            if ([0.5, W / 2, W - 0.5].some((mx) => unprojectWorld(mp, mx, my) !== null)) bad.push(`${my} 整行`);
+            continue;
+          }
+          rows++;
+          for (let mx = -5.5; mx < W + 6; mx += 3) {
+            const p = unprojectWorld(mp, mx, my);
+            const wx = row.wx(mx);
+            if (p ? wx !== p[0] || row.wy !== p[1] : !Number.isNaN(wx)) bad.push(`${mx},${my}`);
+          }
+        }
+        expect(bad.slice(0, 5), `${id} ${lon0}`).toEqual([]);
+        expect(rows).toBeGreaterThan(H / 8);
       }
     }
   });
