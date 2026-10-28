@@ -23,7 +23,7 @@ concurrency:
 
 # 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项。
 # 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 8 份、压力测试分 3 份,每项十分钟以内;
-# 冒烟从头跑到尾要 25–36 分钟,分 4 份同时跑
+# 冒烟从头跑到尾约 40 分钟,分 4 份同时跑
 jobs:
   build:
     name: 类型检查 / 构建
@@ -72,7 +72,7 @@ jobs:
   stress:
     name: 压力测试 ${{ matrix.part }}
     runs-on: ubuntu-latest
-    # 三份各约 10 分钟以内,留足余量
+    # 三份各约 9 分钟(从头跑到尾约 26 分钟),留足余量
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -91,11 +91,11 @@ jobs:
         env:
           STRESS_PART: ${{ matrix.part }}
 
-  # 冒烟分 4 份同时跑(各段按先后归份,见 scripts/replay-check.ts 的 PART_STARTS)
+  # 冒烟分 4 份同时跑(各段按先后归份,几段自己开页面的挪到别的份拉平时长,见 scripts/replay-check.ts 的 PART_STARTS、MOVED)
   smoke:
     name: 冒烟 ${{ matrix.part }}
     runs-on: ubuntu-latest
-    # 平常每份六七分钟(从头跑到尾要二十五分钟以上),留足余量
+    # 平常每份十分钟上下(从头跑到尾约四十分钟),留足余量
     timeout-minutes: 25
     strategy:
       fail-fast: false
