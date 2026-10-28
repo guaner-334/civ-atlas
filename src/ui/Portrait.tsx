@@ -11,6 +11,7 @@
 import { useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { personPortrait, portraitLayers, type Portrait, type PortraitMood } from '../gen/portrait';
+import { isFemale } from '../gen/civ/gender';
 import './portrait.css';
 
 const BASE = `${import.meta.env.BASE_URL}portraits/`;
@@ -85,14 +86,16 @@ export function PortraitView({ p, size, color, dead, dark, mood, corner }: Portr
 
 /**
  * 世系图、人物页里推演人物的小头像:时间轴那一年的岁数,但不早于上台那年(还没即位、还没出生的按上台那年),
- * 不晚于去世那年。时间轴在他一生以外拖动时,年龄不变、不重算
+ * 不晚于去世那年。时间轴在他一生以外拖动时,年龄不变、不重算。女的(头像部件还没有)写名字的最后一个字(NameFace)
  */
 export function PersonFace({ civ, x, year, size }: { civ: Civ; x: Person; year: number; size: 'mini' | 'row' }) {
   const from = x.from ?? x.commands?.[0]?.from ?? x.born + 20;
   const age = Math.floor(Math.min(Math.max(year, from), x.died ?? Infinity) - x.born);
-  const p = useMemo(() => personPortrait(civ, x.id, x.born + age), [civ, x, age]);
+  const p = useMemo(() => (isFemale(x) ? null : personPortrait(civ, x.id, x.born + age)), [civ, x, age]);
   const pol = civ.polities[x.polity];
-  if (!p || !pol) return null;
+  if (!pol) return null;
+  if (isFemale(x)) return <NameFace name={x.name} size={size} color={`rgb(${pol.color.join(',')})`} />;
+  if (!p) return null;
   return <PortraitView p={p} size={size} color={`rgb(${pol.color.join(',')})`} />;
 }
 

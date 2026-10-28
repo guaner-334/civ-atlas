@@ -395,7 +395,9 @@ export function applyCharacters(civ: Civ, characters: readonly AuthorCharacter[]
     authorNames[id] = nameOf(id);
     if (femaleOf(id)) authorFemale.push(id);
   }
-  const out: Civ = { ...civ, authorNames };
+  // 套过一次的历史再套(人物卡改了):上次记的女的编号不留,按这次的人物卡重记
+  const { authorFemale: _, ...rest } = civ;
+  const out: Civ = { ...rest, authorNames };
   if (authorFemale.length) out.authorFemale = authorFemale.sort((a, b) => a - b);
   if (people?.some((x) => x.author !== undefined))
     out.people = people.map((x) => {
@@ -403,8 +405,8 @@ export function applyCharacters(civ: Civ, characters: readonly AuthorCharacter[]
       const name = nameOf(x.author);
       const female = femaleOf(x.author);
       if (x.name === name && isFemale(x) === female) return x;
-      const { female: _, ...rest } = x;
-      return female ? { ...rest, name, female: true } : { ...rest, name };
+      const { female: __, ...bare } = x;
+      return female ? { ...bare, name, female: true } : { ...bare, name };
     });
   return out;
 }

@@ -24,7 +24,7 @@ import { clearSelection } from '../src/ui/civView';
 import { editCharacterDraft, finishDraft, getCharUi, newCharacterDraft, patchDraft, resetCharacterUi } from '../src/ui/characterStore';
 import { characterCrowns, crownDeleteAsk, crownDoneText, crownEditAsk } from '../src/ui/crownInfo';
 import { crownKeepHint } from '../src/ui/keepInfo';
-import { nameFaceText } from '../src/ui/Portrait';
+import { PersonFace, nameFaceText } from '../src/ui/Portrait';
 import { CharacterPanel } from '../src/ui/CharacterPanel';
 import { CrownPage } from '../src/ui/CrownPage';
 
@@ -132,9 +132,16 @@ describe('作者的人物的性别 · 即了位的', () => {
     expect(isFemale(he.people!.find((p) => p.author === 1))).toBe(false);
     expect(he.authorFemale).toBeUndefined();
     expect(isFemale(applyCharacters(civ, []).people!.find((p) => p.author === 1))).toBe(false);
-    // 人物卡改回男:推演人物上的 female 去掉(不管它原来是怎么来的)
+    // 人物卡改回男、删掉:套过一次的再套,推演人物上的 female、记下的女的编号都去掉
     const back = applyCharacters(she, [HE]);
     expect('female' in back.people!.find((p) => p.author === 1)!).toBe(false);
+    expect('authorFemale' in back).toBe(false);
+    expect('authorFemale' in applyCharacters(she, [])).toBe(false);
+    // 推演人物的小头像(人物页、世系图、关注名牌):女的先写名字的最后一个字
+    const face = renderToStaticMarkup(createElement(PersonFace, { civ: she, x, year: 1510, size: 'row' }));
+    expect(face).toContain('pt-name');
+    expect(face).toContain('>蘅</span>');
+    expect(renderToStaticMarkup(createElement(PersonFace, { civ: he, x: he.people!.find((p) => p.author === 1)!, year: 1510, size: 'row' }))).not.toContain('pt-name');
     // 编年史:写到她即位那一条照旧(只换名字)
     const line = (c: Civ) => buildChronicle(c).find((e) => e.kind === 'intervene' && e.text.includes('即'))?.text ?? '';
     expect(line(she)).toBe(line(applyCharacters(civ, [{ ...HE, name: '沈蘅' }])));
