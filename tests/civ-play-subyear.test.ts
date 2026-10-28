@@ -2,7 +2,7 @@
  * 逐年推演停在年中(gen/civ/play.ts 的 playTicks / playTo;时刻见 gen/edits.ts 文件头"时刻"):
  * - 一步走几格(有一格一格走的、有跨好几年的),每一步停在那一格下 1–3 条命令:和带着同样的命令从第 0 年一口气推到同一刻逐项一样(seed 7 / 2024)
  * - 年中下的命令就在那一格生效(史事记在那一刻),不是那一年年初
- * - 同一格里的几条命令按先后执行:换个先后结果跟着换,同样的先后两次一样
+ * - 同一格里的几条命令按先后执行:换个先后结果跟着换,同样的先后两次一样;年中下令结盟,邦交里从那一格起才算盟国
  * - 推到任一刻(playTo):夹在"至少下一格、最多 PLAY_TICKS_MAX 格"里;一步走几年从年中出发停在几年以后的同一格
  * - 停在年中存档、读回、按存档重推:和一步步推过来的一样
  */
@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
+import { polityTies } from '../src/gen/civ/diplomacy';
 import { PLAY_TICKS_MAX, playCiv, playStop, playTicks, playTo, playTurn } from '../src/gen/civ/play';
 import { YEAR_TICKS, playAt, polityKey, regionKey, settlementKey, ticksAt, type Intervention, type PlayState, type WorldEdits } from '../src/gen/edits';
 import { makeSave, parseSave, saveText } from '../src/gen/savefile';
@@ -142,6 +143,11 @@ describe('逐年推演停在年中:分段推 = 一口气推', () => {
     expect(owner(xy.civ, at)).toBe(y.id);
     expect(owner(yx.civ, at)).toBe(x.id);
     same(playTicks(w, civ, {}, play, [cede(x), cede(y)], 300).civ, xy.civ, '再推一次');
+    // 年中下令结盟:邦交里从那一格起才算盟国
+    const ally: Intervention = { kind: 'ally', a: polityKey(civ, x.id), b: polityKey(civ, y.id), from: 600, fromTick: 150 };
+    const al = playTicks(w, civ, {}, play, [ally], 300).civ;
+    expect(polityTies(al, x.id, 600 + 100 / YEAR_TICKS).allies.find((v) => v.id === y.id)).toBeUndefined();
+    expect(polityTies(al, x.id, 600 + 200 / YEAR_TICKS).allies.find((v) => v.id === y.id)).toEqual({ id: y.id, since: 600 + 150 / YEAR_TICKS, foe: -1 });
     same(xy.civ, generateCiv(w, { endYear: playStop(601, 194), interventions: xy.play.commands }), '一口气推');
   }, 300_000);
 
