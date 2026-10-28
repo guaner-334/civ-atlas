@@ -466,7 +466,7 @@ describe('AI 写史书:用假 AI 跑完整流程', () => {
     expect(listHistoryNotes('w-none')).toHaveLength(0);
   });
 
-  it('长篇:一章调用一次、边写边回调、写完存进本地;改名后标"历史已变";重写覆盖同一部', async () => {
+  it('长篇:一章调用一次、边写边回调、写完存进本地;改名后标"历史已变";重写还是同一部(新写的算新一版)', async () => {
     setActiveProvider('mock');
     setMockResponder((req) => `## ${req.title}\n\n这一章写了${req.messages[1].content.length}字的材料。`);
     const w = 'w-flow';
@@ -504,7 +504,7 @@ describe('AI 写史书:用假 AI 跑完整流程', () => {
     expect(md).toContain('种子 7');
     expect(md).toContain(note.text);
     expect(historyFileName(list[0])).toMatch(/^[^\\/:*?"<>|\s]+\.md$/);
-    // 重写:同一个键覆盖,还是一部
+    // 重写:同一个键,还是一部;正在用的是新写的那版(旧版留着,见 ai-book-versions.test.ts)
     setMockResponder(() => '重写的正文');
     await writeHistory(renamed, o, { world: w });
     const again = listHistoryNotes(w);
