@@ -3420,6 +3420,89 @@ if (part('国家面板')) {
   await page.evaluate(() => localStorage.clear());
 }
 
+// 政体和朝政页:国家卡片「国都」下面一行「政体」(政体名 + 哪年起),点了换成朝政页:政体名(大字)、为什么叫这个、
+// 征税 / 兵制 / 官制三条分段条(现在那档亮着,各一句)、共用的"地方 ↔ 朝廷"轴;「历次改制」一条时间条 + 一条一行,点一条打开编年史;
+// 拖时间轴(换年份)政体跟着变;够不上议事的小国(没有「朝政」一行)也能点「政体」进朝政页
+if (part('政体和朝政页')) {
+  await page.evaluate(() => localStorage.clear()).catch(() => {});
+  await page.goto(`${dev.url}/?seed=7`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  const rowText = () => page.locator('.inspector .ct-form-row').innerText().then((t) => t.replace(/\s+/g, ' '), () => '');
+  const pickPolity = async (id: number) => {
+    await page.evaluate((i) => (window as any).__wfSelect('polity', i), id);
+    await page.locator(`.inspector .cp[data-polity="${id}"] .cp-k`).first().waitFor({ timeout: 10000 });
+  };
+  const changeRows = page.locator('.inspector [data-sec=form-changes] [data-act=form-change]');
+  // 挑前几国里改过制的那一国(历次改制除了立国还有几条):不认死某一国,推演改了历史也照样能查
+  let id = -1;
+  let row = '';
+  let ms = NaN;
+  for (let i = 0; i < 12 && id < 0; i++) {
+    await pickPolity(i);
+    row = await rowText();
+    const t0 = performance.now();
+    await page.click('.inspector [data-act=court-form]');
+    await page.locator('.inspector .ct-page .ct-gov').waitFor({ timeout: 5000 }).catch(() => {});
+    ms = performance.now() - t0;
+    if ((await changeRows.count()) >= 3) id = i;
+    else await page.click('.inspector [data-act=court-back]').catch(() => {});
+  }
+  timing('点「政体」→ 朝政页', ms, 800);
+  const name = row.split(' ')[0];
+  const gov = (await page.locator('.inspector .ct-gov').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const segs = await page.locator('.inspector .ct-bars .ct-seg').count();
+  const lit = await page.locator('.inspector .ct-bars .ct-seg span.on').allInnerTexts();
+  const says = await page.locator('.inspector .ct-bars .ct-say').allInnerTexts();
+  const axis = (await page.locator('.inspector .ct-bars .ct-axis').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const changes = (await changeRows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  const bar = await page.locator('.inspector [data-sec=form-changes] .ct-tbar i').count();
+  // 最近两次改制的年份;拖到这两次中间,政体应是最近那次改之前的名字
+  const ys = (await changeRows.locator('.ct-y').allInnerTexts()).map(Number);
+  const from = changes[0]?.match(/(\S+) → /)?.[1] ?? '';
+  const mid = Math.floor((ys[0] + ys[1]) / 2);
+  await changeRows.first().click().catch(() => {});
+  const chron = await page.locator('.ov-root:not([hidden]) .ov').isVisible({ timeout: 3000 }).catch(() => false);
+  if (chron) await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  let early = '';
+  if (id >= 0 && Number.isFinite(mid)) {
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(`${dev.url}/?seed=7&civYear=${mid}`);
+    await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+    await pickPolity(id);
+    early = await rowText();
+  }
+  // 够不上议事的小国(没有「朝政」一行)也有「政体」,点得进朝政页
+  const small = ((await page.evaluate('window.__wfPickables()')) as { kind: string; id: number }[]).filter((q) => q.kind === 'polity').map((q) => q.id);
+  let smallRow = '';
+  let smallPage = '';
+  for (const q of small.slice(0, 40)) {
+    await pickPolity(q);
+    if (await page.locator('.inspector [data-act=court]').count()) continue;
+    smallRow = await rowText();
+    await page.click('.inspector [data-act=court-form]').catch(() => {});
+    smallPage = (await page.locator('.inspector .ct-page').innerText({ timeout: 3000 }).catch(() => '')).replace(/\s+/g, ' ');
+    break;
+  }
+  console.log(
+    `政体和朝政页:第 ${id} 国「${row}」→ 朝政页「${gov}」,${segs} 条分段条亮着「${lit.join('、')}」,轴「${axis}」;` +
+      `历次改制 ${changes.length} 条、时间条 ${bar} 段(最新「${(changes[0] ?? '').slice(0, 60)}」),点了打开编年史 ${chron};` +
+      `拖到 ${mid} 年「${early}」(应是${from});小国「${smallRow}」→「${smallPage.slice(0, 80)}…」`,
+  );
+  if (id < 0) errs.push('政体和朝政页:前 12 国里没找到改过制的国家');
+  else {
+    if (!/^\S+ \d+ 年起$/.test(row)) errs.push(`政体和朝政页:国家卡片「政体」一行不对(${row})`);
+    if (gov !== row) errs.push(`政体和朝政页:朝政页上面的政体名、哪年起和卡片上的对不上(${gov} / ${row})`);
+    if (segs !== 3 || lit.length !== 3 || says.length !== 3 || says.some((x) => !x.trim())) errs.push(`政体和朝政页:征税、兵制、官制三条不全(${segs} 条,亮着 ${lit.join('、')},${says.length} 句)`);
+    if (axis !== '地方说了算 朝廷说了算') errs.push(`政体和朝政页:三条下面的轴不对(${axis})`);
+    if (bar !== changes.length || !(changes[0] ?? '').includes(`→ ${name}`) || !(ys[0] >= ys[1])) errs.push(`政体和朝政页:历次改制不对(${changes.length} 条、时间条 ${bar} 段;${changes[0]})`);
+    if (!chron) errs.push('政体和朝政页:点历次改制的一条没有打开编年史');
+    if (!from || !early.startsWith(`${from} `)) errs.push(`政体和朝政页:拖到 ${mid} 年政体没跟着变(${early},应是${from})`);
+  }
+  if (!/^\S+ \d+ 年起$/.test(smallRow) || !/征税.*兵制.*官制.*历次改制/.test(smallPage)) errs.push(`政体和朝政页:小国的「政体」点不进朝政页(${smallRow};${smallPage.slice(0, 80)})`);
+  await page.evaluate(() => localStorage.clear());
+}
+
 // 编辑地形(新建世界时):陆地笔在大洋中间涂一笔 → 重新生成后那里成了陆地,"画了 1 笔";撤销 → 又是海;重做 → 又是陆地;
 // 海 + 圈起来填满圈住那一片(画的时候地图下边有一句提示)→ 又沉成海;河画一条;关掉"在地图上显示草图"地图上不画草图;
 // 全部清除(点两下)→ "还没画",那里回到原来的海

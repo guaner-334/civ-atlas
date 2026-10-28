@@ -140,6 +140,8 @@ import {
   cleanCivSeed,
   cleanEndYear,
   cleanPlay,
+  commandsNow,
+  cultureKey,
   extendedEndYear,
   faithKey,
   issueCommands,
@@ -272,7 +274,7 @@ import { disasterDoneArea, newIvDoneText } from './newIvInfo';
 import { RoleBar } from './RoleBar';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
-import { FLY_MS, animProgress, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, shownYearOf, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
+import { FLY_MS, animProgress, cultureFocus, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, shownYearOf, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
 import { setMomentSource, type MomentNow } from './shareMoment';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from './presetLink';
 import { MarkLayer, markHitAt, markPinAt, markPinTip, type MarkApi } from './MarkLayer';
@@ -1824,14 +1826,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     };
     /**
      * 原来那一支要留下的样子(重新演绎、切走时):单子里还没交出去的干预(和万一还在算的那一步带走的)
-     * 都当作在"现在"下的(在那一年年初生效,同存回推演模式)。没在逐年推演 = null
+     * 都当作在"现在"下的(在进度那一刻生效:那一年年初,停在年中的是那一格;同存回推演模式)。没在逐年推演 = null
      */
     const keptBranch = (): WorldEdits | null => {
       const e0 = getEdits();
       const play = cleanPlay(e0.play);
       if (!play) return null;
       const later = [...(getStepwise().busy?.commands ?? []), ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))];
-      const now = later.map((v) => ({ ...v, from: play.year }) as Intervention);
+      const now = commandsNow(play, later);
       return now.length ? { ...e0, play: issueCommands(play, now).play } : e0;
     };
     /** 单子里还没交出去的干预已经记进原来那一支:从单子里拿掉 */
@@ -1979,9 +1981,11 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
             ? settlementKey(old, sel.id)
             : sel.kind === 'faith' && old.religion?.faiths[sel.id]
               ? faithKey(old, sel.id)
-              : sel.kind === 'treaty'
-                ? treatyKey(old, sel.id) || null
-                : null;
+              : sel.kind === 'culture' && old.cultures[sel.id]
+                ? cultureKey(old, sel.id)
+                : sel.kind === 'treaty'
+                  ? treatyKey(old, sel.id) || null
+                  : null;
       if (key) {
         const r = resolveKey(civ, key);
         if (r && r.kind === sel.kind) setSelection({ kind: sel.kind, id: r.id } as MapSelection);
@@ -5077,23 +5081,28 @@ ${s.image.cells}` : null);
   // ---- 选中 → 暂停 + 地图飞过去(国家面板):不管选中来自点地图、面板里的链接、概览还是搜索 ----
   // 国家:平移缩放到能看全当年的疆域,右边让出面板;城 / 州 / 地理实体:平移过去,缩放不变或适度放大;0.6 秒,ease-out 三次方。
   // 地球仪用它自己的 flyTo。选目标时 / 下了令之后缩回整张图('home')
-  const flyNow = (to: 'sel' | 'home') => {
+  const flyNow = (to: 'sel' | 'home' | 'culture') => {
     stopFly();
     const el = stageRef.current;
     if (!data || !el || !box.w || replayOn || getTerrainTool().on) return;
     const sel = getSelection().sel;
     const year = civ ? Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)) : 0;
+    // 民族:飞到它这一年人最多的州(侧栏、世界概览、搜索里点民族;点地图、卡片里的族名不飞),和点州一样只平移
     const focus =
-      to === 'sel' && sel && civ
-        ? sel.kind === 'mark'
-          ? selectedMarkFocus(civ, sel.id)
-          : sel.kind === 'character'
-            ? selectedCharacterFocus(civ, sel.id)
-            : selectionFocus(data.world, civ, sel, year)
-        : null;
-    if (to === 'sel' && (!focus || !sel)) return;
+      to === 'culture'
+        ? sel?.kind === 'culture' && civ
+          ? cultureFocus(data.world, civ, sel.id, year)
+          : null
+        : to === 'sel' && sel && civ
+          ? sel.kind === 'mark'
+            ? selectedMarkFocus(civ, sel.id)
+            : sel.kind === 'character'
+              ? selectedCharacterFocus(civ, sel.id)
+              : selectionFocus(data.world, civ, sel, year)
+          : null;
+    if (to !== 'home' && (!focus || !sel)) return;
     // 人物按他的国家飞(看全疆域)
-    const goal: FlyGoal = { focus, kind: to === 'sel' && sel ? (sel.kind === 'person' ? 'polity' : sel.kind) : 'home' };
+    const goal: FlyGoal = { focus, kind: to === 'culture' ? 'region' : to === 'sel' && sel ? (sel.kind === 'person' ? 'polity' : sel.kind) : 'home' };
     if (getGlobeOn()) {
       // 作者标记:已经在球的正面、看得见的地方就不转
       if (focus && sel?.kind === 'mark') {
@@ -5931,6 +5940,11 @@ ${s.image.cells}` : null);
       const y = Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear));
       const f = faithAt(civ, y)[r];
       if (f >= 0) return setSelection({ kind: 'faith', id: f }, side);
+    }
+    // 民族填色:点陆地 = 那里住的民族(和信仰一样)
+    if (fillOf(getCivShow()) === 'cultures') {
+      const c = ownersAt(civ, Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear))).culture[r];
+      if (c >= 0) return setSelection({ kind: 'culture', id: c }, side);
     }
     if (getCivShow().polities && civ.polities.length) {
       const y = Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear));
