@@ -473,4 +473,31 @@ describe('地形大事 · 地图跟着时间轴换段', () => {
     expect(peekEraData(base, maps, patches, 1)).toBeNull();
     expect(composedOf(base.raster)).toEqual([]);
   });
+
+  it('同一对键的补丁换了一块(前面几段分法变了,后台重交):拼好的不再用,照新补丁重拼', () => {
+    dropComposed();
+    const base = { world: { id: 0 } as unknown as World, raster: raster(8, 4) };
+    const maps: EraMaps = { baseKey: 'k0', keys: ['k1', 'k2'], worlds: [{ id: 1 }, { id: 2 }] as unknown as World[] };
+    const patches = new Map<string, RasterPatch | null>();
+    const c1 = { ...base.raster, water: base.raster.water.slice() };
+    c1.water[1] = 1;
+    patches.set(patchKey('k0', 'k1'), diffRaster(base.raster, c1));
+    const c2 = { ...c1, water: c1.water.slice() };
+    c2.water[6] = 1;
+    patches.set(patchKey('k1', 'k2'), diffRaster(c1, c2));
+    const d = eraData(base, maps, patches, 2);
+    expect(Array.from(d.raster.water)).toEqual(Array.from(c2.water));
+    expect(eraData(base, maps, patches, 2)).toBe(d);
+    // 第二段的补丁换成另一块(键不变)
+    const c3 = { ...c1, water: c1.water.slice() };
+    c3.water[20] = 1;
+    patches.set(patchKey('k1', 'k2'), diffRaster(c1, c3));
+    expect(peekEraData(base, maps, patches, 2)).toBeNull();
+    const e = eraData(base, maps, patches, 2);
+    expect(e).not.toBe(d);
+    expect(Array.from(e.raster.water)).toEqual(Array.from(c3.water));
+    // 换成没有补丁(那一段主图没变)也一样
+    patches.set(patchKey('k1', 'k2'), null);
+    expect(Array.from(eraData(base, maps, patches, 2).raster.water)).toEqual(Array.from(c1.water));
+  });
 });
