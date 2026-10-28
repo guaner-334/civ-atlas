@@ -28,7 +28,7 @@
  *   3 = 大国(到过第 2 档)立国、升格到一生最高的第 2 档以上(称王 / 称帝)、分出来的(复国的)国家日后长成大国、
  *       并掉的是大国、大国土崩瓦解、东方改朝换代(当时第 DYNASTY_TIER 档以上)、帝国级(第 CAPITAL_TIER 档)主动迁都、
  *       改变格局的战争:灭了大国、吞并一个像样的国家(亡的是"国"、易手 ≥ FALL_WAR 州;小国分出去又被原主收回的不算)、
- *       易手 ≥ BIG_WAR 州、攻下大国做了 ≥ OLD_CAPITAL 年的国都、两个第 3 档的帝国交兵且易手 ≥ TITAN_WAR 州、
+ *       打下国都、余下的州一并归降(破都纳降,亡的是"国";小国分出去又被原主收回的不算)、易手 ≥ BIG_WAR 州、攻下大国做了 ≥ OLD_CAPITAL 年的国都、两个第 3 档的帝国交兵且易手 ≥ TITAN_WAR 州、
  *       毁了大城(或做国都的城);
  *   2 = 小国立国、小国分裂 / 复国 / 并入大国、小国的改朝换代、降格、其余有得失的战争、战争里的每一件事(亡国、毁城那一条
  *       也单列,"大事"里由战争说)、夺别国的州、部落亡了、西幻的王室更迭(国名不变,地图上看不出来)、洗劫、城被毁、
@@ -2563,14 +2563,15 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   order.push(...held);
   // 不是打下来的攻占:议和时划界割让的(peace 的 region = 紧挨在它前面的几条)、丢了国都撑不下去残部一并归攻方的
   // (亡国前同一刻、打下国都以后连着的几条攻占,见 growth.ts 的 annexedRemnants)。各合成一条子条目,不写"攻取"
-  // 议和时罢兵割地的(peace 的 n = 割让的那几条里最前面几条,wars.ts 的 CEDE)单独一条:"昌国割瑞州求和"
-  const special = new Map<number, 'cede' | 'annex' | 'yield'>();
+  // 议和时罢兵割地的(peace 的 n = 割让的那几条里最前面几条,wars.ts 的 CEDE)单独一条:"昌国割瑞州求和";
+  // 破都纳降的(fall 的 cause = surrender)残部写"昌国余下瑞州等十二州皆降于大渭"
+  const special = new Map<number, 'cede' | 'annex' | 'yield' | 'surrender'>();
   for (const i of ids) {
     const e = A[i];
     if (e.kind === 'peace' && e.region > 0) {
       for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) special.set(j, j < i - e.region + (e.n ?? 0) ? 'yield' : 'cede');
     } else if (e.kind === 'fall') {
-      for (const j of annexedRemnants(civ, i)) special.set(j, 'annex');
+      for (const j of annexedRemnants(civ, i)) special.set(j, e.cause === 'surrender' ? 'surrender' : 'annex');
     }
   }
   // 人物:统帅这场战争里第一次出场写全("大渭将李牧攻取瑞州"),之后攻占只写国名
@@ -2622,9 +2623,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       const to = uniq(group.map((j) => A[j].a));
       text = `议定疆界,${to.map((p) => `${regionList(civ, group.filter((j) => A[j].a === p).map((j) => A[j].region)) || '一州'}划归${pn(civ, p, e.year)}`).join(',')}`;
     } else if (sp === 'yield') text = `${pn(civ, e.b, e.year)}割${regionList(civ, rs) || '一州'}求和`;
+    else if (sp === 'surrender') text = `${pn(civ, e.b, e.year)}余下${regionList(civ, rs) || '诸州'}${rs.length > 1 ? '皆' : '亦'}降于${pn(civ, e.a, e.year)}`;
     else text = rs.length > 1 ? `余下${regionList(civ, rs)}尽归${pn(civ, e.a, e.year)}` : `余下${regionList(civ, rs) || '一州'}亦归${pn(civ, e.a, e.year)}`;
     const kids = group.map((j) => A[j]);
-    children.push({ ...base(e, i, text, 2, kids.flatMap((c) => [c.a, c.b]), rs, sp === 'annex' ? '占' : '割'), settlement: -1 });
+    children.push({ ...base(e, i, text, 2, kids.flatMap((c) => [c.a, c.b]), rs, sp === 'cede' || sp === 'yield' ? '割' : '占'), settlement: -1 });
   }
   function childEntry(i: number): ChronicleEntry {
     const e = A[i];
@@ -2796,7 +2798,16 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       parts.push(lost ? `${who}国都${lost}陷落` : `${who}国都陷落`);
     }
   }
-  for (const f of falls) parts.push(`${pn(civ, f.a, f.year)}亡`);
+  for (const f of falls) {
+    if (f.cause !== 'surrender') {
+      parts.push(`${pn(civ, f.a, f.year)}亡`);
+      continue;
+    }
+    // 破都纳降(wars.ts):"破汾城,昌国余州皆降";打下国都的不是攻方(守方反攻得手):"昌国破渭京,大渭余州皆降"
+    const p = polityOf(civ, f.a);
+    const city = p ? cityName(civ, capitalBefore(p, f.year)) : '';
+    parts.push(`${f.b === atk ? '' : pn(civ, f.b, f.year)}破${city || `${pn(civ, f.a, f.year)}国都`},${pn(civ, f.a, f.year)}余州皆降`);
+  }
   if (sworn) parts.push(`${pn(civ, sworn.a, sworn.year)}称臣`);
   // 攻守方国都没打下来:"围汾城不克"(写在得失后面;别的什么都没有:"围汾城不克而还")
   const D0 = polityOf(civ, def);
@@ -2837,7 +2848,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     const p = polityOf(civ, f.a);
     // 小国分出去(复国)又被原主收回:分出去那一条只在"全部"里,收回来也不算改变格局(易手很多州的照旧是大事)
     const back = !!p && ctx.splitFrom.get(p.id) === f.b;
-    return isGreat(p) || (isState(p) && gains >= FALL_WAR && !back);
+    // 破都纳降:一仗打下国都、余下的州一并归降,是改变格局的一仗
+    return isGreat(p) || (isState(p) && (gains >= FALL_WAR || f.cause === 'surrender') && !back);
   });
   // 毁了大城 / 国都的战争也是大事(毁城那一条单列,但"大事"里由战争说)
   const razedMajor = list.some((e) => e.kind === 'ruin' && ruinImportance(civ, e) >= MAJOR);

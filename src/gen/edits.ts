@@ -518,6 +518,9 @@
  *      复国那一条写起事的人"自某国还"。疆域、兴亡、人物的下场不变,编年史多了出奔那一条
  *  45:地形大事以后城的港口、人口上限和这座城最后一次记下的那一段比(civ/upheaval.ts 的 reshapeCities;以前和紧挨着的前一段比,
  *      几件大事各变一点、每件都不到 2% 的一直不记,差别攒下来)。只有带地形大事的世界变了:城的人口上限有一点变化,历史重新推演
+ *  46:滚雪球(civ/wars.ts):强国打下国都、守方余下的州不超过攻方一半时,余下的州一并归降、亡国(更大的照旧迁都);
+ *      大胜的一方不歇、几年后再看一眼弱得多的邻国(连续吞并);灭国之战的门槛从国力 3 倍降到 2.5 倍,分裂、复国出来的国家站稳期 60 → 30 年。
+ *      编年史写"破某城,某国余州皆降"。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -531,7 +534,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 45;
+export const GENERATOR_VERSION = 46;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -595,6 +598,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   43: { change: 'history' },
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
+  46: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

@@ -14,7 +14,7 @@ import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
-import type { Polity, Settlement } from '../src/gen/civ/types';
+import type { Place, Polity, Settlement } from '../src/gen/civ/types';
 import { findPorts, foundingYear, routeCities, siteFactor } from '../src/gen/civ/polities';
 import { cultureTerrain } from '../src/gen/civ/cultures';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
@@ -218,9 +218,10 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 1508 年:尼索斯城邦(正和奥利亚王国打仗)的州全沉,奥利亚的国都也沉了(州还在,迁都)
-    // (GENERATOR_VERSION 43 战争节奏以后历史重排,以前是第 1491 年;这一年先迁都、后亡国)
-    const Y = 1508;
+    // 第 1472 年:尼索斯城邦(正和奥利亚王国打仗)的州全沉,奥利亚的国都也沉了(州还在,迁都)
+    // (GENERATOR_VERSION 43 战争节奏以后是第 1508 年、先迁都后亡国,46 滚雪球以后换成第 1472 年(尼索斯第 1470 年立国),这一年先亡国后迁都;
+    // 以前是第 1491 年)
+    const Y = 1472;
     const W: Upheaval = {
       year: Y,
       ops: [
@@ -235,7 +236,8 @@ describe('地形大事 · 推演', () => {
     expect(at.indexOf('peace')).toBeGreaterThan(Math.max(at.indexOf('fall'), at.lastIndexOf('capital')));
     const ch = buildChronicle(b).filter((x) => b.annals[x.id]?.year === Y);
     expect(ch.map((x) => x.kind)).toEqual(['upheaval']);
-    expect(ch[0].text).toMatch(/迁都.+亡$/);
+    // 后果按史事的先后写进大事那一条:亡国、迁都都在
+    expect(ch[0].text).toMatch(/,[^,]+亡,.*迁都[^,]+$|迁都.+亡$/);
     // 早先被毁、没有重建的一座城(按条件现找:第 2799 年还是遗址、四周 60 以内没有别的遗址;GENERATOR_VERSION 43 以前是青陵),
     // 第 2800 年城址沉入海中
     const a = base();
@@ -586,8 +588,10 @@ describe('地形大事 · 推演', () => {
     const e0 = civAtEra(b, 0);
     let moved = 0;
     const names: Record<string, string> = {};
+    // 同一处 = 同类、同名;关隘按所在的地块起名、锚点就是那块地,两处不同的关偶尔撞名(大事前后各有一处),只认同一块地上的
+    const same = (q: Place, p: Place) => q.kind === p.kind && q.name === p.name && (p.kind !== 'pass' || q.cell === p.cell);
     b.places.forEach((p, j) => {
-      const i = e0.places.findIndex((q) => q.kind === p.kind && q.name === p.name);
+      const i = e0.places.findIndex((q) => same(q, p));
       if (i < 0) return;
       if (e0.places[i].cell !== p.cell) moved++;
       expect(placeKeyOf(b, j)).toBe(placeKeyOf(e0, i));
@@ -597,7 +601,7 @@ describe('地形大事 · 推演', () => {
     const after = applyNames(b, names).places;
     const before = applyNames(e0, names).places;
     b.places.forEach((p, j) => {
-      const i = e0.places.findIndex((q) => q.kind === p.kind && q.name === p.name);
+      const i = e0.places.findIndex((q) => same(q, p));
       if (i >= 0) expect(before[i].name).toBe(after[j].name);
     });
   }, 300_000);

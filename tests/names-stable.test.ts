@@ -141,8 +141,8 @@ function historyPrint(world: World, civ: Civ): string {
 
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
-    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据;29 起管到几成和动荡每年算一次;35 起议事;36 起君主有了诸子、王子领兵、争储,宗室据地自立;37 起据险断后;38 起议事第二批:改军制、改官制、分镇、脱离;39 起立约与中立地;40 起有了掌实权的人和两国宗室联姻;41 起开战看内政;43 起战争节奏:议和了还会再打、仗打得密、罢兵割地;44 起亡国之君出奔邻国)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: 'd22d81edfc3b9b86', 2024: '3849e2a89ed3bbfc' };
+    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据;29 起管到几成和动荡每年算一次;35 起议事;36 起君主有了诸子、王子领兵、争储,宗室据地自立;37 起据险断后;38 起议事第二批:改军制、改官制、分镇、脱离;39 起立约与中立地;40 起有了掌实权的人和两国宗室联姻;41 起开战看内政;43 起战争节奏:议和了还会再打、仗打得密、罢兵割地;44 起亡国之君出奔邻国;46 起滚雪球:破都纳降、连续吞并)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
+    const expected: Record<number, string> = { 7: '5cbf7d5deefeb2e9', 2024: '6edcf47cd69f7037' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);
@@ -394,7 +394,7 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.62);
   }, 60_000);
 
-  it('海里放一座小火山:远处的地形不变(99% 以上);远处陆地到第 3000 年民族没变 ≥ 85%、国家没变 ≥ 75%;远处海、山、河的名字没变 ≥ 80%', () => {
+  it('海里放一座小火山:远处的地形不变(99% 以上);远处陆地到第 3000 年民族没变 ≥ 85%、国家没变 ≥ 65%;远处海、山、河的名字没变 ≥ 80%', () => {
     const k = edited(seed, 'volcano');
     // 地形里的随机小洼地按地块取(world.ts):远处的海陆、群落和不放火山时一样,海拔只差风带里水汽的一点点(< 1 米)
     const far = farFrom(k);
@@ -409,7 +409,9 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     expect(moved / farLand, `seed ${seed} 远处地形变了的陆地块`).toBeLessThan(0.01);
     const r = kept(k, k.c0.endYear);
     expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.85);
-    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.75);
+    // GENERATOR_VERSION 46(滚雪球:强国打下国都时余下的州一并归降,一处的变动让远处一国整个归了别国)以后
+    // 7 号、2024 号的国家没变 77.8% / 67.1%(以前都在 75% 以上):国家的下限放到 65%
+    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.65);
     const shr = k.c0.places.filter((p) => far(p.cell!) && (p.kind === 'sea' || p.kind === 'mountains' || p.kind === 'river'));
     expect(ratio(shr.map((p) => counterpart(k, p)?.name === p.name)), `seed ${seed} 海山河`).toBeGreaterThanOrEqual(0.8);
   }, 60_000);
