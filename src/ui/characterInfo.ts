@@ -15,6 +15,7 @@ import { regionLabel } from '../gen/civ/display';
 import { polityName } from '../gen/civ/growth';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName, personRoleShort } from '../gen/civ/peopleText';
+import { heOrShe } from '../gen/civ/gender';
 import { ownersAt } from '../gen/civ/timeline';
 import { keyCells, polityKey, regionKey, regionOfKey, resolveKey, settlementKey } from '../gen/edits';
 import { characterAge, lifeInOrder, lifeStops, personKey, resolvePersonKey, sameWhere, stopAt, type AuthorCharacter, type Where } from '../gen/characters';
@@ -411,14 +412,15 @@ export function charactersOfPerson(civ: Civ, chars: readonly AuthorCharacter[] |
   if (!key || !x || !chars?.length) return [];
   // 经历里写到他的名字换成"他"(这一行就在他的卡片上)
   const name = personName(civ, x);
-  const him = (t: string) => (name ? t.split(name).join('他') : t);
+  const he = heOrShe(x);
+  const him = (t: string) => (name ? t.split(name).join(he) : t);
   const out: CharRef[] = [];
   for (const c of chars) {
     const kin = c.kin?.find((k) => k.person === key);
     const lives = lifeInOrder(c).filter(({ e }) => e.people?.includes(key));
     if (!kin && !lives.length) continue;
     const shown = lives.map(({ e }) => him(lifeLine(e, era)));
-    const text = kin ? [kin.rel ? `${kin.rel}是他` : '亲友里有他', joinParts(shown, shown.length, 1)].filter(Boolean).join('，') : joinParts(shown, shown.length);
+    const text = kin ? [kin.rel ? `${kin.rel}是${he}` : `亲友里有${he}`, joinParts(shown, shown.length, 1)].filter(Boolean).join('，') : joinParts(shown, shown.length);
     out.push({ c, text });
   }
   return byBorn(out);

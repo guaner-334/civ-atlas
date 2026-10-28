@@ -11,6 +11,7 @@ import type { Annal, Civ, Person, Polity } from '../gen/civ/types';
 import { cnNumber } from '../gen/civ/chronicle';
 import { KEEP_RISE } from '../gen/civ/rulers';
 import { rulerAt } from '../gen/civ/peopleInfo';
+import { heOrShe } from '../gen/civ/gender';
 import { polityName, polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import { interventionFate } from '../gen/stepwise';
 import { polityKey, resolveKey, type Intervention } from '../gen/edits';
@@ -91,7 +92,7 @@ export function keepReignNote(civ: Civ, x: Person, i: number, toDeath: boolean, 
   const word = changeWord(p);
   const blocks = keepBlocks(civ, i);
   let head: string;
-  if (!blocks.length) head = `他在位时没有人要${word}。`;
+  if (!blocks.length) head = `${heOrShe(x)}在位时没有人要${word}。`;
   else {
     const y = blocks[0].year;
     const short = p ? (p.eastern ? polityShortTitle(p, Math.max(0, polityTierAt(p, y)), y) : polityName(p, y)) : '';

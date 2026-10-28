@@ -102,7 +102,8 @@ import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './disp
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
-import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, splitSurname } from './peopleText';
+import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
+import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord } from './gender';
 import { eraText, monthTail, type Era } from '../era';
 import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
@@ -762,7 +763,7 @@ function dynastyText(civ: Civ, e: Annal, ix: PeopleIndex | null = null, usurped 
     const coup = e.region >= 0 && oldCap >= 0 && oldCap < civ.settlements.length && civ.settlements[oldCap].region === e.region;
     let t = `${oldName}${lasted ? `${lasted}而亡` : '亡'}`;
     // 被废的末代:"权臣赵高废少帝自立"(称号本身带"废"字的写名字)
-    const ousted = old ? (old.title && !old.title.startsWith('废') ? old.title : old.name) : '';
+    const ousted = old ? (old.title && !old.title.startsWith('废') ? rulerTitle(civ, old) : old.name) : '';
     // 掌实权的名臣、大臣篡位:"丞相契鸾废幼主季工,自立为君"(带他做名臣时的官职;末代未成年写"幼主")
     if (usurped && nu) {
       const young = old && ageAt(old, y) < 18 ? '幼主' : '';
@@ -777,7 +778,7 @@ function dynastyText(civ: Civ, e: Annal, ix: PeopleIndex | null = null, usurped 
   const realm = pn(civ, p.id, y);
   const what = p.lineage === 'khanate' ? '汗位易主' : '王室更迭';
   let t = `${realm}${what},${oldName}${lasted ? `${lasted}而终` : '绝嗣'},${reignName(civ, p, i, y)}兴`;
-  if (usurped && nu) t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${old ? `废黜${old.name}` : ''},自立为王`;
+  if (usurped && nu) t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${old ? `废黜${old.name}` : ''},自立为${bySex(nu, '王', '女王')}`;
   else if (nu) t += `,${rulerShort(civ, nu)}即位`;
   if (moved && city) t += `,迁都${city}`;
   return t;
@@ -1176,16 +1177,17 @@ function personStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'death
   const id = resolvePersonKey(civ, v.person);
   const who = id >= 0 ? civ.people![id] : undefined;
   if (!who) return fail(`欲${verb}于${want},然新史无此人`, '新历史里没有这个人');
-  if (who.died !== undefined && who.died <= y) return fail(`欲${verb}于${who.name},然其人已卒`, `第 ${Math.floor(who.died)} 年他已卒`);
+  const he = heOrShe(who);
+  if (who.died !== undefined && who.died <= y) return fail(`欲${verb}于${who.name},然其人已卒`, `第 ${Math.floor(who.died)} 年${he}已卒`);
   if (who.role === 'ruler' || e.b === IV_NOT_HIM) {
-    if ((who.from ?? Infinity) > y) return fail(`欲${verb}于${who.name},然其人尚未即位`, who.from !== undefined ? `他第 ${Math.floor(who.from)} 年才即位` : '他没有即位');
-    if (who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已不在位`, `第 ${Math.floor(who.until)} 年他已不在位`);
-    return fail(`欲${verb}于${who.name},然其时在位者非其人`, '那一年在位的不是他');
+    if ((who.from ?? Infinity) > y) return fail(`欲${verb}于${who.name},然其人尚未即位`, who.from !== undefined ? `${he}第 ${Math.floor(who.from)} 年才即位` : `${he}没有即位`);
+    if (who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已不在位`, `第 ${Math.floor(who.until)} 年${he}已不在位`);
+    return fail(`欲${verb}于${who.name},然其时在位者非其人`, `那一年在位的不是${he}`);
   }
   const from = who.role === 'general' ? who.commands?.[0]?.from : who.from;
   const step = who.role === 'general' ? '领兵' : '入仕';
-  if (who.role === 'minister' && who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已去职`, `第 ${Math.floor(who.until)} 年他已去职`);
-  if (from === undefined || from >= y) return fail(`欲${verb}于${who.name},然其人尚未出仕`, from !== undefined ? `他第 ${Math.floor(from)} 年才${step}` : `他那时还没${step}`);
+  if (who.role === 'minister' && who.until !== undefined && who.until <= y) return fail(`欲${verb}于${who.name},然其人已去职`, `第 ${Math.floor(who.until)} 年${he}已去职`);
+  if (from === undefined || from >= y) return fail(`欲${verb}于${who.name},然其人尚未出仕`, from !== undefined ? `${he}第 ${Math.floor(from)} 年才${step}` : `${he}那时还没${step}`);
   return fail(`欲${verb}于${who.name},未成`, '没有生效');
 }
 
@@ -1201,12 +1203,13 @@ function regentStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { 
   if (e.b === IV_NO_THRONE) return fail(`${verb},然${A}无君可架空`, `${A}那一年是共和国,或在位的是作者立的君主`);
   if (e.b === IV_HELD) return fail(`${verb},然其时已有人秉政`, '那一年已经有人掌着实权');
   if (e.b !== -1) {
+    const he = heOrShe(holder ?? civ.people?.[resolvePersonKey(civ, v.person)]);
     const why =
       v.how === 'march' || v.how === 'heir'
-        ? '他那一年不是在位君主的预定继承人(或不满 16 岁)'
+        ? `${he}那一年不是在位君主的预定继承人(或不满 16 岁)`
         : v.how === 'uncle'
-          ? '他那一年不是君主的兄弟叔伯,或已不在世、不满 16 岁'
-          : '他那一年不满 16 岁';
+          ? `${he}那一年不是君主的兄弟叔伯,或已不在世、不满 16 岁`
+          : `${he}那一年不满 16 岁`;
     return fail(`${verb},未成`, why);
   }
   return done(`令${want}掌${A}国政`);
@@ -1229,7 +1232,7 @@ function marryStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'marry'
     case IV_AT_WAR:
       return fail(`${verb},然两国方交兵`, '两国那一年正在交战');
     case IV_NOT_HIM:
-      return fail(`${verb},然其人非宗室`, '他那一年不是在位的君主,也不是在世、成年的宗室');
+      return fail(`${verb},然其人非宗室`, `${heOrShe(civ.people?.[resolvePersonKey(civ, v.person)])}那一年不是在位的君主,也不是在世、成年的宗室`);
     case IV_NO_BRIDE:
       return fail(`${verb},然无女可嫁`, '嫁女那一国的君主那一年不到 30 岁,没有成年的女儿');
     case IV_NO_GROOM:
@@ -1247,7 +1250,7 @@ function waitStory(civ: Civ, e: Annal, who: string, A: string, fail: Say, done: 
   const p = polityOf(civ, e.a);
   if (p?.ended !== undefined && p.ended <= cur.until) return fail(`欲立${who}继${curName}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
   const how = cur.fate === 'deposed' || cur.fate === 'overthrown' ? '被废(改朝换代)' : cur.fate === 'yielded' ? '让位' : '下台';
-  return fail(`欲立${who}继${curName}为${A}之主,然${curName}${how},未及即位`, `${curName} ${Math.floor(cur.until)} 年${how},没等到他下台`);
+  return fail(`欲立${who}继${curName}为${A}之主,然${curName}${how},未及即位`, `${curName} ${Math.floor(cur.until)} 年${how},没等到${heOrShe(cur)}下台`);
 }
 
 /** 天灾:"【干预】星邑大疫,死者十之五""【干预】有桑皇朝大饥,民多饿死,死者十之三""【干预】翼门之野一带地震,城郭多圮,死者十之三" */
@@ -1741,7 +1744,7 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       if (e.cause === 'heir') {
         // 宗室争位、据地自立:"大昌先君之子李昭不服其弟李恒即位,据瑞州起兵自立,号昭国"(先君的儿子没对上的:"大昌宗室李昭不服新君李恒即位,…")
         const kin = who && X && who.parent !== undefined ? kinOf(civ, who, X) : '';
-        const head = who ? `${pn(civ, e.b, y)}${who.parent !== undefined ? '先君之子' : '宗室'}${who.name}` : `${pn(civ, e.b, y)}宗室`;
+        const head = who ? `${pn(civ, e.b, y)}${who.parent !== undefined ? `先君之${childWord(who)}` : '宗室'}${who.name}` : `${pn(civ, e.b, y)}宗室`;
         const rival = X ? `${kin ? `其${kin}` : '新君'}${X.name}` : '新君';
         t = `${head}不服${rival}即位,${r ? `据${r}` : ''}起兵自立,号${A}`;
       } else if (fallen) {
@@ -1786,7 +1789,7 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const imp = e.n === 0 && (e.war <= 4 || e.war === 10) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
       const t = councilText(civ, e, id, who);
       // 搁置的几种写法不写君主
-      const named = who && (t.includes(who.name) || (!!who.title && t.includes(who.title)));
+      const named = who && (t.includes(who.name) || (!!who.title && t.includes(rulerTitle(civ, who))));
       // 脱离:b = 想转投的邻国
       return withPeople(base(e, id, t, imp, e.b >= 0 ? [e.a, e.b] : [e.a], [e.region]), named ? who : null);
     }
@@ -1808,7 +1811,7 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       const text = dynastyText(civ, e, ctx.ix, usurped);
       // 末代只在权臣篡位时写到("废少帝自立")
       const old = endedAt(ctx.ix, e.a, y);
-      const ousted = !!old && /废(幼主|黜)?/.test(text) && (text.includes(old.name) || (!!old.title && text.includes(`废${old.title}`)));
+      const ousted = !!old && /废(幼主|黜)?/.test(text) && (text.includes(old.name) || (!!old.title && text.includes(`废${rulerTitle(civ, old)}`)));
       // 掌实权的人篡位开的这一朝:标签"篡"(类型名"篡位")
       return withPeople(base(e, id, text, imp, [e.a], [e.region], usurped ? '篡' : '朝'), ousted ? old : null, founderOf(ctx.ix, e.a, i));
     }
@@ -1946,22 +1949,21 @@ function troubleOf(civ: Civ, p: number, id: number, except = -1): string {
   return '';
 }
 
-/** 太子的叫法(东方按国号档位:帝国太子、王国世子、国公子;西幻王储) */
-function heirWord(p: Polity | null, y: Year): string {
+/** 太子的叫法(东方按国号档位:帝国太子、王国世子、国公子,女的皇太女、王太女、公女;西幻王储) */
+function heirOf(p: Polity | null, y: Year, x: Person): string {
   if (!classical(p)) return '王储';
-  const tier = polityTierAt(p!, y);
-  return tier >= 3 ? '太子' : tier === 2 ? '世子' : '公子';
+  return heirWord(x, polityTierAt(p!, y));
 }
 
 /** 掌实权的人怎么称呼:太子 / 世子某某、叔父(叔祖……)某某、丞相某某(带当年的官职;没有官职的写"权臣某某");N = 名义君主 */
 function holderRef(civ: Civ, x: Person, kind: PersonRegency['kind'], y: Year, N?: Person): string {
   const p = polityOf(civ, x.polity);
   const east = classical(p);
-  if (kind === 'march' || kind === 'heir') return `${heirWord(p, y)}${x.name}`;
+  if (kind === 'march' || kind === 'heir') return `${heirOf(p, y, x)}${x.name}`;
   if (kind === 'uncle') {
     if (!east) return `摄政${x.name}`;
     // 兄终弟及时幼主和先君同辈:"其兄某某"
-    const kin = (N && kinOf(civ, N, x)) || '叔父';
+    const kin = (N && kinOf(civ, N, x)) || kinWord(x, '叔父');
     return `${kin.length === 1 ? '其' : ''}${kin}${x.name}`;
   }
   return x.posts?.length ? ministerRef(x, y) : `${east ? '权臣' : '权臣'}${x.name}`;
@@ -2013,7 +2015,7 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
       if (tier >= CAPITAL_TIER) imp = 3;
       // 杀掉的兄弟(人物里排的,royals.ts 的 march)
       if (x?.claim?.how === 'march') for (const id of x.claim.rivals) if (civ.people?.[id]) rivals.push(civ.people[id]);
-      const kins = rivals.map((r, k) => `${k ? '' : '其'}${(x && kinOf(civ, x, r)) || '兄'}${r.name}`).join('、');
+      const kins = rivals.map((r, k) => `${k ? '' : '其'}${(x && kinOf(civ, x, r)) || kinWord(r, '兄')}${r.name}`).join('、');
       const front = !!x?.commands?.some((c) => c.from < y && c.until >= y - 20);
       text = east
         ? `${P}${who}${front ? '自前线' : ''}引兵还朝,${kins ? `杀${kins},` : ''}尽易宫中宿卫;${bare}虽在位,政出于${name}`
@@ -2023,7 +2025,7 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
       const away = sibs.find((o) => o !== x && o.role === 'prince' && !rivals.includes(o) && o.commands?.some((c) => c.from <= y && c.until > y));
       if (away) {
         rivals.push(away);
-        text += east ? `;其${kinOf(civ, x!, away) || '弟'}${away.name}在外领兵,粮饷为${name}所制,无功而还` : `;${away.name}在外领兵,粮饷被${name}卡住,无功而返`;
+        text += east ? `;其${kinOf(civ, x!, away) || kinWord(away, '弟')}${away.name}在外领兵,粮饷为${name}所制,无功而还` : `;${away.name}在外领兵,粮饷被${name}卡住,无功而返`;
       }
     } else if (kind === 'heir') {
       // 作者下令的监国不一定是先君老病
@@ -2065,11 +2067,11 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
     if (tier >= DYNASTY_TIER) imp = 3;
     if (kind === 'march' || kind === 'heir') {
       // 作者下令掌权的太子到期篡位:逼父亲退位,自己接着在位
-      text = east ? `${P}${who}逼${bare}退位,自立为君` : `${P}${who}逼${bare}退位,自立为王`;
+      text = east ? `${P}${who}逼${bare}退位,自立为君` : `${P}${who}逼${bare}退位,自立为${bySex(x, '王', '女王')}`;
     } else {
       // 废的是幼主(推演里自己出的都是);作者下令摄政的,君主已成年的写他的称呼
       const young = !N ? '幼主' : byIv && ageAt(N, y) >= 18 ? bare : `幼主${N.name}`;
-      text = east ? `${P}摄政${name}废${young},自立为君` : `${P}摄政${name}废黜${young},自立为王`;
+      text = east ? `${P}摄政${name}废${young},自立为君` : `${P}摄政${name}废黜${young},自立为${bySex(x, '王', '女王')}`;
     }
   } else if (n === RG_DIED) text = east ? `${P}${kind === 'uncle' ? `摄政${name}` : who}卒,${bare}始亲政` : `${P}${kind === 'uncle' ? `摄政${name}` : who}去世,${bare}开始亲政`;
   else return null;
@@ -2406,7 +2408,7 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       else {
         by = who ? (who.exile?.by !== undefined ? (civ.people?.[who.exile.by] ?? null) : reigning(ix, e.a, y)) : null;
         const kin = who && by ? kinOf(civ, by, who) : '';
-        if (who && by) t = kin === '兄' || kin === '弟' ? `${rulerRef(civ, by, y)}疏其${kin}${who.name},徙居${z}` : `${rulerRef(civ, by, y)}徙宗室${who.name}居${z}`;
+        if (who && by) t = kin === kinWord(who, '兄') || kin === kinWord(who, '弟') ? `${rulerRef(civ, by, y)}疏其${kin}${who.name},徙居${z}` : `${rulerRef(civ, by, y)}徙宗室${who.name}居${z}`;
         else {
           t = `${P}徙宗室于${z}`;
           by = null;
@@ -3944,13 +3946,14 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
       if (p.lineage === 'republic') text = `${ref}任满,${x.name}继任`;
       else if (prev.author !== undefined) {
         // 作者立的君主到期退位(生死归人物卡管),继他之位的不连成他的儿子
-        const then = p.eastern && (p.lineage === 'khanate' || tier <= 0) ? `${x.name}继为${p.lineage === 'khanate' && tier > 0 ? '可汗' : '首领'}` : p.eastern ? `${x.name}即位${x.title ? `,是为${x.title}` : ''}` : `${rulerShort(civ, x)}即位`;
+        const then = p.eastern && (p.lineage === 'khanate' || tier <= 0) ? `${x.name}继为${p.lineage === 'khanate' && tier > 0 ? khanWord(x) : '首领'}` : p.eastern ? `${x.name}即位${x.title ? `,是为${rulerTitle(civ, x)}` : ''}` : `${rulerShort(civ, x)}即位`;
         text = `${ref}退位${span};${then}`;
       } else {
         const [died, killed] = deathWord(p, tier);
         const k = kinOf(civ, prev, x);
-        const heirWord = p.eastern && p.lineage !== 'khanate' && tier >= 3 ? '太子' : p.eastern && p.lineage !== 'khanate' && tier === 2 ? '世子' : '';
-        let kin = !k ? '宗室' : k !== '子' ? `其${k}` : heirWord || '其子';
+        const heir = p.eastern && p.lineage !== 'khanate' && tier >= 2 ? heirWord(x, tier) : '';
+        const child = childWord(x);
+        let kin = !k ? '宗室' : k !== child ? `其${k}` : heir || `其${child}`;
         const age = ageAt(x, y);
         const young = age < 15 ? `,时年 ${age} 岁` : '';
         const east = classical(p);
@@ -3962,22 +3965,25 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
         if (claim && ix) {
           const rivals = claim.rivals.map((id) => civ.people![id]).filter(Boolean);
           // "其兄李明、李晖、弟李曜":和前一个同辈分的不再写
-          const kins = rivals.map((r) => kinOf(civ, x, r) || '兄');
+          const kins = rivals.map((r) => kinOf(civ, x, r) || kinWord(r, '兄'));
           const list = rivals.map((r, i) => `${i ? '' : '其'}${i && kins[i] === kins[i - 1] ? '' : kins[i]}${r.name}`).join('、');
-          // 第几个儿子:长子、次子、三子……(养子写养子)
+          // 第几个儿子 / 女儿(同性别里排):长子、次子、三子……(养子写养子)
           const sons = ix.kids.get(prev.id) ?? [];
-          const n = sons.filter((o) => !o.adopted).indexOf(x);
-          const ord = k === '养子' ? '养子' : k !== '子' ? kin : n === 0 ? '长子' : n === 1 ? '次子' : n > 1 ? `${cnNumber(n + 1)}子` : kin;
+          const n = sons.filter((o) => !o.adopted && isFemale(o) === isFemale(x)).indexOf(x);
+          const ord = k === kinWord(x, '养子') ? k : k !== child ? kin : n === 0 ? `长${child}` : n === 1 ? `次${child}` : n > 1 ? `${cnNumber(n + 1)}${child}` : kin;
+          const fights = `${rivalsWord([x, ...rivals], east)},`;
           if (claim.how === 'merit') kin = `${ord}${x.name}以${east ? '军功' : '战功'}越${list}`;
           else if (claim.how === 'coup') {
-            fight = east ? '诸子争立,' : '诸子争位,';
+            fight = fights;
             kin = `${ord}${x.name}${east ? '举兵' : '起兵入宫,'}杀${list},`;
           } else if (claim.how === 'intrigue') {
-            fight = east ? '诸子争立,' : '诸子争位,';
+            fight = fights;
             kin = east ? `${ord}${x.name}谮杀${list},` : `${ord}${x.name}构陷${list}致死,`;
           } else if (claim.how === 'usurp') {
             const r = rivals[0];
-            kin = `${kin}${x.name}杀${heirWord || `其${(r && kinOf(civ, x, r)) || '族人'}`}${r?.name ?? ''},`;
+            // 杀的是先君的太子(世子;这一刻名义上的继承人是 r)
+            const rHeir = p.eastern && p.lineage !== 'khanate' && tier >= 2 ? heirWord(r, tier) : '';
+            kin = `${kin}${x.name}杀${rHeir || `其${(r && kinOf(civ, x, r)) || '族人'}`}${r?.name ?? ''},`;
           } else if (claim.how === 'revolt' && rivals.length) tail = `;${list}${east ? '拥兵争位,兵败被杀' : '起兵争位,兵败被杀'}`;
         }
         // 名臣迎立(先君遇弑)、辅政(幼主);争储的不写迎立
@@ -3987,14 +3993,14 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
         let then: string;
         // 争储换掉了"太子某某"那一截的,名字已经在 kin 里
         const nm = (s: string) => (claim && claim.how !== 'revolt' ? '' : s);
-        if (p.eastern && p.lineage === 'khanate') then = by ? `${lead}${kin}${x.name}为${tier <= 0 ? '首领' : '可汗'}` : `${kin}${nm(x.name)}继为${tier <= 0 ? '首领' : '可汗'}`;
+        if (p.eastern && p.lineage === 'khanate') then = by ? `${lead}${kin}${x.name}为${tier <= 0 ? '首领' : khanWord(x)}` : `${kin}${nm(x.name)}继为${tier <= 0 ? '首领' : khanWord(x)}`;
         else if (p.eastern && tier <= 0) then = by ? `${lead}${kin}${x.name}为首领` : `${kin}${nm(x.name)}继为首领`;
-        else if (p.eastern) then = `${lead}${kin}${nm(x.name)}${by ? '' : '即位'}${x.title ? `,是为${x.title}` : ''}`;
+        else if (p.eastern) then = `${lead}${kin}${nm(x.name)}${by ? '' : '即位'}${x.title ? `,是为${rulerTitle(civ, x)}` : ''}`;
         else then = claim && claim.how !== 'revolt' ? `${kin}即位${x.title ? `,是为${rulerShort(civ, x)}` : ''}` : `${lead}${kin}${rulerShort(civ, x)}即位`;
         then = fight + then;
         // 叔父摄政(regents.ts):"…,时年 9 岁,叔父某某摄政"
         const uncle = ix?.uncle.get(x.id);
-        const uk = uncle ? kinOf(civ, x, uncle) || '叔父' : '';
+        const uk = uncle ? kinOf(civ, x, uncle) || kinWord(uncle, '叔父') : '';
         const aid = uncle ? `,${uk.length === 1 ? '其' : ''}${uk}${uncle.name}摄政` : !regent ? '' : regent === by ? (east ? ',遂辅政' : ',并摄政') : `,${ministerRef(regent, y)}${east ? '辅政' : '摄政'}`;
         // 作者让他去世的:那一年的干预那一条已经写了"暴崩,在位几年"
         text = prev.killed !== undefined ? `${ref}既${died};${then}${young}${aid}${tail}` : `${ref}${prev.fate === 'murdered' ? killed : died}${span};${then}${young}${aid}${tail}`;
