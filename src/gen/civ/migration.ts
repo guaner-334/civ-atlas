@@ -211,6 +211,25 @@ export function trekFolk(c: Culture, biome: ArrayLike<number>): boolean {
   return c.kind === 'nomad' || COLD[biome[c.hearth]] === 1;
 }
 
+/**
+ * 一路往哪个方位走(Migration.dir):cells = 路线上依次走过的地块(各州治所)。按地图(经纬度)上整条路线的走向:
+ * 一段一段的经度差(过 180° 经线的一段按近的那边算,和地图上画路线一样)、纬度差加起来,东西、南北哪个大取哪个。
+ * 不看出发地到落脚地的大圆初始朝向:高纬度往西走得远的,大圆先偏向极地,会写成"南徙",地图上却一路往西
+ */
+export function trekDir(geo: Geometry, cells: readonly number[]): MigrationDir {
+  const { x, y, width: W, height: H } = geo.mesh;
+  let dx = 0;
+  for (let j = 1; j < cells.length; j++) {
+    const d = x[cells[j]] - x[cells[j - 1]];
+    dx += d > W / 2 ? d - W : d < -W / 2 ? d + W : d;
+  }
+  // 换成度:东西按经度、南北按纬度(世界坐标 y 向下 = 向南)
+  const e = (dx * 360) / W;
+  const s = cells.length ? ((y[cells[cells.length - 1]] - y[cells[0]]) * 180) / H : 0;
+  if (Math.abs(e) >= Math.abs(s)) return e >= 0 ? '东' : '西';
+  return s > 0 ? '南' : '北';
+}
+
 // ---------------------------------------------------------------------------
 // 挂到推演引擎上
 
@@ -252,19 +271,6 @@ function hook(sim: CivSim, tm: TrekModel): void {
     if (am && (t - am.since[r] < HOLD || (old >= 0 && am.count[old] <= 1))) return false;
     sim.setOwner(Layer.Culture, r, c, Ev.TrekSettle);
     return true;
-  };
-
-  /** 从 a 州到 b 州的方位(治所位置) */
-  const direction = (a: number, b: number): MigrationDir => {
-    const pa = [0, 0];
-    const pb = [0, 0];
-    const seatOf = (r: number) => reg.seat[r];
-    tm.geo.meanPoint([a], seatOf, pa);
-    tm.geo.meanPoint([b], seatOf, pb);
-    const d = [0, 0];
-    tm.geo.pointOffset(pa[0], pa[1], pb[0], pb[1], d);
-    if (Math.abs(d[0]) >= Math.abs(d[1])) return d[0] >= 0 ? '东' : '西';
-    return d[1] > 0 ? '南' : '北';
   };
 
   /** 城 r 此刻的人口(没有城 = 0) */
@@ -449,7 +455,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
       year: t,
       route,
       years: [t],
-      dir: direction(route[0], target),
+      dir: trekDir(tm.geo, route.map((r) => reg.seat[r])),
       size: Math.max(SIZE_MIN, Math.min(SIZE_MAX, Math.round(SHARE * folk))),
       push,
       pull,

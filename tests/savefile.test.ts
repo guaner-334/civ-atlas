@@ -1321,6 +1321,12 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(46, true)).toBe(history);
     expect(versionNote(46, { terrain: false, upheavals: true })).toBe(history);
   });
+  it('第 48 版(大迁徙的方位字)疆域兴亡不变:从第 47 版来的照编年史说;再往前的照历史重新推演说', () => {
+    expect(GENERATOR_CHANGES[48]).toEqual({ change: 'chronicle' });
+    expect(versionNote(47, false)).toBe('来自旧版本：疆域和兴亡没变，编年史写得更细了');
+    expect(versionNote(47, { terrain: true, upheavals: true })).toBe(versionNote(47, false));
+    expect(versionNote(46, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+  });
   it('同一版、或世界本来就变了时:地形对不上只在同一版时提示', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');
     expect(checkWarning(save, 'aaaaaaaaaaaa')).toBeNull();
