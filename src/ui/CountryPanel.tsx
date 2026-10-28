@@ -9,11 +9,11 @@
  *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(复制分享链接(停在这一年、选中这国、地图照现在的样子;
  *         手机上去「存档」要先关掉这张卡片,所以放在这里)、在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
- *   概况  国都、君主(这一年在位的那位,点了看他;共和国写"执政")、王室(保住王室管着的那些年才有:"保住  到 1560 年",点了开「我的干预」)、实权(这一年有人掌着实权才有:"彭继桓  君主之子，2585 年起",
+ *   概况  国都、政体(由已有的制度推出来的政体名,"某年起";点了换成朝政页 CourtPage.tsx,够不上议事的小国也能点)、君主(这一年在位的那位,点了看他;共和国写"执政")、王室(保住王室管着的那些年才有:"保住  到 1560 年",点了开「我的干预」)、实权(这一年有人掌着实权才有:"彭继桓  君主之子，2585 年起",
  *         见 gen/civ/regentInfo.ts)、方针(这一年照的方针,"某年起";没定方针、有人掌着实权的写"照彭继桓性格";写进待推演单子的标"待推演";
  *         点了开方针页)、疆域(历年州数的小柱图,和概览"国家"表同一份)、
  *         人口(境内各州的总人口:城 + 乡村)、钱粮(近几百年国库小柱 + 国库怎么样 + 岁入;点了换成钱粮页 FiscalPage.tsx)、
- *         朝政(征税的法子 + 分封、割据几州;够格议事或议过事的国家才有;点了换成朝政页 CourtPage.tsx)、主体民族、国教(可点,"某年起";没有写"没有")、
+ *         朝政(征税的法子 + 分封、割据几州;够格议事或议过事的国家才有;点了换成朝政页 CourtPage.tsx)、主体民族(可点,开民族卡片)、国教(可点,"某年起";没有写"没有")、
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、
  *         姻亲(最近一门亲 40 年内、那以后没开过战的国家,可点,名字后面是哪年结亲;有才写)、
  *         立约(这一年还在的约:约名可点、开条约卡片,"到哪年",下面一句和哪几国互不侵犯)/ 中立地(参与共建的,州名可点;有才写)、
@@ -59,7 +59,7 @@ import { CommandPage } from './CommandPage';
 import { openCmdPage, setPanelTab, setSheet, usePanel } from './panelStore';
 import { PolicyPage } from './PolicyPage';
 import { FiscalPage, FiscalRow } from './FiscalPage';
-import { CourtPage, CourtRow } from './CourtPage';
+import { CourtPage, CourtRow, FormRow } from './CourtPage';
 import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
 import { BoostPage } from './BoostPage';
@@ -386,6 +386,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
       <div className="cp-body">
         <Stats items={[]}>
           <Row k="国都">{cap ? <Link to={{ kind: 'settlement', id: cap.id }}>{cap.name}</Link> : <span className="cp-none">无</span>}</Row>
+          <FormRow civ={civ} id={id} year={shownYear} />
           {ruler && (
             <Row k={consul ? '执政' : '君主'}>
               <Link to={{ kind: 'person', id: ruler.id }}>{personName(civ, ruler)}</Link>
@@ -444,7 +445,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
             </Row>
           )}
           <Row k="主体民族">
-            {top ? cultureLabel(top) : '—'}
+            {top ? <Link to={{ kind: 'culture', id: top.id }}>{cultureLabel(top)}</Link> : '—'}
             {share !== null && <em className="cp-num-note">{share}%</em>}
           </Row>
           {civ.religion && (
