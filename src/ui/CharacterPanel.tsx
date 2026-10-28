@@ -4,7 +4,7 @@
  *
  * 看的时候
  *   顶部  头像(Portrait.tsx;按编号挑,他的国家定服饰,年龄跟时间轴;右下角「换一张」)、名字、"作者的人物，2490–2561 年"
- *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 即位…(卡片换成让他即位那一页,CrownPage.tsx)/ 关注他(即了位的才有,跟推演里的他,Follow.tsx)/ 更多(复制生平、设为中心、删除人物;删了提示条上能撤销;
+ *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 即位…(卡片换成让他即位那一页,CrownPage.tsx)/ 关注他(即了位的才有,跟推演里的他,Follow.tsx)/ 更多(关系图(RelationGraph.tsx)、复制生平、设为中心、删除人物;删了提示条上能撤销;
  *         当过君主的先问一句:连他的即位一起去掉 / 只删人物,CrownAsk.tsx)
  *   简介  作者写的那几句
  *   概况  年龄(跟时间轴:"22 岁"、"还没出生"、"已故，享年 71 岁")、身份、国家(那年在位的君主;他自己在位写"他在位")、出生地、亲友
@@ -119,7 +119,8 @@ import { clearToast, showToast } from './toastStore';
 import { evLabel, evText, evType } from './timelineLayout';
 import { FollowAct } from './Follow';
 import { Act, Acts, EntryText, EraYearInput, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, copyText, jumpTo } from './panelParts';
-import { MenuItem } from './PopMenu';
+import { MenuItem, MenuSep } from './PopMenu';
+import { openRelationOf } from './relationStore';
 import { LifeMenuItem } from './lifeMenu';
 import { Icon } from './icons';
 import './characters.css';
@@ -506,6 +507,10 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
         </Act>
         {reign && <FollowAct civ={civ} x={reign} year={year} />}
         <MoreAct>
+          <MenuItem icon={<Icon name="relation" size={16} />} act="character-relation" onClick={() => openRelationOf(civ, { kind: 'character', id: c.id })}>
+            关系图
+          </MenuItem>
+          <MenuSep />
           <MenuItem icon={<Icon name="copy" size={16} />} act="character-copy" onClick={() => void copy()}>
             复制生平
           </MenuItem>

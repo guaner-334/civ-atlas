@@ -1,5 +1,5 @@
 import './theme.css';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
@@ -328,6 +328,7 @@ import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Glob
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
+import { closeRelief, useRelief } from './terrain3dStore';
 import { frozenResult, noteMapSum, offerSnapshot, startResults, toldFrozen } from './resultStore';
 import { FrozenAsk, askSaveAsNew, closeSaveAsNew, setSaveAsNew } from './FrozenWorld';
 import { copyNotes } from '../ai/library';
@@ -337,6 +338,8 @@ import { Sidebar } from './Sidebar';
 import { PhoneSheet } from './PhoneSheet';
 import { useLayerThumbs } from './LayerPopover';
 import { WorldOverview } from './WorldOverview';
+import { RelationBack, RelationGraph, useRelationBack } from './RelationGraph';
+import { getRelation } from './relationStore';
 import { hoverInfo, probeLines, type HoverInfo } from './hoverInfo';
 import {
   FILL_KEYS,
@@ -869,6 +872,10 @@ function switchedToast(sw: SwitchNote) {
 /** 切支线的时候,修改里已经是切到的那一支,地图、面板上还是原来那支:先不许下令、改名(用的键可能指到那一支里别的东西) */
 const SWITCH_EDIT_BLOCK = '正在切到别的一支，切完再改';
 
+// 立体地形(框一块地方立起来看):点「立体」时才下载(ui/terrain3d/)
+const ReliefPick = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.ReliefPick })));
+const ReliefView = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.ReliefView })));
+
 // 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字):和主程序同一份下载,用到的地图、推演代码不另下(Boot.tsx 叫)
 export { startGalleryHelper } from './galleryHelper';
 
@@ -1092,6 +1099,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 窄屏(手机):底部的世界 / 详情卡片、时间轴胶囊、右上竖排按钮(phone.css);触屏:没有悬停卡片、右下不放 + −(用双指捏合) */
   const narrow = useNarrow();
   const coarse = useCoarse();
+  /** 人物关系图收起着、左边还是那张图中心那位的卡片:地图左上「回到关系图」(RelationGraph.tsx) */
+  const relBack = useRelationBack(civ) && !narrow;
   const narrowRef = useRef(narrow);
   narrowRef.current = narrow;
   /** 生成进度(提示条"正在生成世界"):regen = 按新地形重新生成;seed = 正在生成的种子 */
@@ -5336,7 +5345,8 @@ ${s.image.cells}` : null);
     const cam = momentCam.current;
     momentCam.current = null;
     if (cam) return flyCameraRef.current(cam);
-    flyRef.current('sel');
+    // 人物关系图开着(盖住了地图;图上换中心、左边卡片跟着换):不飞,「在地图上看」时再飞
+    if (!getRelation().open) flyRef.current('sel');
   }, [selStable]);
   const flyReq = panelUi.fly;
   useEffect(() => {
@@ -6336,6 +6346,13 @@ ${s.image.cells}` : null);
   /** 建好的世界(不是新建中、不在我的世界):时间轴、详情、概览、事件标签这些才有 */
   const world = stage === 'world';
   const filmOn = !!filmUi.mode && !!data && world && !draft && !home;
+  // 立体地形:建好的世界上能用(回放世界形成、导出视频 / 长图时不能);不能用了就收起
+  const relief = useRelief();
+  const reliefable = !!data && world && !replayOn && !filmOn;
+  const reliefView = reliefable && relief.phase === 'view';
+  useEffect(() => {
+    if (!reliefable) closeRelief();
+  }, [reliefable]);
   /** 导播停用:还没有历史、新建、回放世界形成、导出视频 / 长图时(这时时间轴照平常放) */
   const directorOff = !markable || filmOn || !civ?.viable || !civ.cultures.length;
   // 接着回放世界形成放文明时导播不管(事件小卡照旧)
@@ -6532,7 +6549,7 @@ ${s.image.cells}` : null);
   const hold = holdMark(data, civ, shownRaw);
   return (
     <div
-      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}${stepOn ? ' step-on' : ''}${stepCard && !selState.sel ? ' step-stop' : ''}`}
+      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}${stepOn ? ' step-on' : ''}${stepCard && !selState.sel ? ' step-stop' : ''}${reliefView ? ' relief-on' : ''}${reliefable && relief.phase === 'pick' ? ' relief-pick' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
       data-base={mapBase}
@@ -6657,7 +6674,19 @@ ${s.image.cells}` : null);
         {data && world && <MarkLayer civ={civ} world={data.world} api={markApi} hidden={replayOn || draft || home} style={style} />}
         {/* 作者的人物一生的足迹(选中一个人物时;地球仪上也画):在标记上面 */}
         {data && world && <CharacterLayer civ={civ} world={data.world} raster={data.raster} api={markApi} hidden={replayOn || draft || home} />}
+        {/* 立体地形:在地图上框一块 */}
+        {data && reliefable && relief.phase === 'pick' && (
+          <Suspense fallback={null}>
+            <ReliefPick world={data.world} raster={data.raster} api={markApi} phone={narrow} />
+          </Suspense>
+        )}
       </main>
+      {/* 立体地形:框好的一块立起来(盖住地图那一块;手机占满整屏) */}
+      {data && reliefView && (
+        <Suspense fallback={null}>
+          <ReliefView world={data.world} raster={data.raster} civ={civ} style={style} look={terrainLook} phone={narrow} />
+        </Suspense>
+      )}
       {/* 经纬网的度数:新建世界摊平改地形时写在框外,平常的世界页写在地图里贴着左边、下边(GratLabels.tsx) */}
       {data && gratSpec && (
         <GratLabels W={data.world.width} H={data.world.height} view={view} sb={sb} mp={mp} step={graticule} spec={gratSpec} ink={contourStyle} pos={fr} />
@@ -6735,7 +6764,7 @@ ${s.image.cells}` : null);
                 exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }}
               />
           )}
-          {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} />}
+          {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} relief={reliefable ? relief.phase === 'pick' : undefined} />}
           {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || atlasOn || contourOn || workOn) && (
             <div className="corner-tl">
               {workBar}
@@ -6764,8 +6793,9 @@ ${s.image.cells}` : null);
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || ((style === 'data' || atlasOn || contourOn) && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || relBack || ((style === 'data' || atlasOn || contourOn) && !terrainTool.on)) && (
             <div className="corner-tl">
+              {relBack && civ && <RelationBack civ={civ} />}
               {workBar}
               <OldSiteBadge />
               {(style === 'data' || atlasOn || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
@@ -6807,10 +6837,11 @@ ${s.image.cells}` : null);
         onToggleGlobe={toggleGlobe}
         onZoom={zoomButton}
         shifted={false}
-        hidden={!data || narrow || home || draft}
+        hidden={!data || narrow || home || draft || reliefView}
         zoom={!coarse}
         marking={markable ? markPlacing : undefined}
         director={!directorOff}
+        relief={reliefable ? relief.phase === 'pick' : undefined}
       />
       {sharedOn ? (
         <SharedHint phone={narrow} short={sharedFor.short} by={sharedFor.by} own={sharedFor.own} at={sharedAt} onReplay={replayShared} onOk={() => setSharedFor(null)} />
@@ -6861,6 +6892,8 @@ ${s.image.cells}` : null);
           onDraftFrom={draftFromCurrent}
         />
       )}
+      {/* 人物关系图(人物卡「更多 → 关系图」):电脑右边铺开、手机铺满整屏 */}
+      {data && world && civ && <RelationGraph civ={civ} world={data.world} raster={data.raster} phone={narrow} />}
       {realCiv && <HistoryBook civ={realCiv} land={data?.world ?? null} raster={data?.raster ?? null} />}
       <AiSettingsHost />
       <AccountHost phone={narrow} />
