@@ -62,7 +62,7 @@ function validScope(s: unknown): s is BookStoredScope {
   if (x.kind === 'world') return true;
   if (x.kind === 'polity' || x.kind === 'person') return typeof x.key === 'string' && typeof x.name === 'string';
   if (x.kind === 'era') return Number.isFinite(x.from) && Number.isFinite(x.to);
-  if (x.kind === 'character') return Number.isFinite(x.id) && typeof x.name === 'string';
+  if (x.kind === 'character') return Number.isFinite(x.id) && Number.isFinite(x.born) && typeof x.name === 'string';
   if (x.kind === 'house') return typeof x.key === 'string' && Number.isFinite(x.dynasty) && typeof x.name === 'string';
   return false;
 }

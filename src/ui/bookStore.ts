@@ -381,11 +381,11 @@ export function resetBookForWorld() {
 // ---------------------------------------------------------------------------
 // 列传、家传的入口
 
-/** 两个"写什么"是不是同一个人(同一朝):推演里的人、一朝按稳定键,作者的人物按编号 */
+/** 两个"写什么"是不是同一个人(同一朝):推演里的人、一朝按稳定键,作者的人物按编号 + 生年 */
 function sameLife(a: BookStoredScope, b: BookStoredScope): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === 'person' && b.kind === 'person') return !!a.key && a.key === b.key;
-  if (a.kind === 'character' && b.kind === 'character') return a.id === b.id;
+  if (a.kind === 'character' && b.kind === 'character') return a.id === b.id && a.born === b.born;
   if (a.kind === 'house' && b.kind === 'house') return !!a.key && a.key === b.key && a.dynasty === b.dynasty;
   return false;
 }
@@ -410,11 +410,16 @@ export function useLifeNote(civ: Civ, scope: LifeScope | null): string | null {
  */
 export function writeLife(scope: LifeScope, written: string | null = null, from?: Civ) {
   if (written) return openBookReader(written);
-  // 卡片用的那份历史和写书的不是同一份(正看着助手试推演的结果):按稳定键换成写书那份里的人、那一朝
+  // 卡片用的那份历史和写书的不是同一份(正看着助手试推演的结果):按稳定键换成写书那份里的人、那一朝;
+  // 只在试推演里有的(现在的历史里没有):不写(编号在现在的历史里可能是别人)
   const c = ctx;
-  if (from && c && from !== c.civ) {
+  if (from && c && from !== c.civ && scope.kind !== 'character') {
     const s = bookLoadScope(c.civ, bookStoreScope(from, scope, c.src), c.src);
-    if (s && isLifeScope(s)) scope = s;
+    if (!s || !isLifeScope(s)) {
+      showToast({ id: TOAST, kind: 'warn', text: `${scope.kind === 'house' ? '这一朝' : '这个人'}只在试推演的结果里,现在的历史里还没有,写不了` });
+      return;
+    }
+    scope = s;
   }
   if (!getAiStatus().ready) {
     set({ pending: { scope, style: state.lifeStyle, length: lifeLength(scope) } });

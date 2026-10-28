@@ -65,10 +65,13 @@ export interface BookOptions {
 }
 export type LifeOptions = BookOptions & { scope: LifeScope };
 
-/** 存档里记的:推演里的人按稳定键记(改地形重推后编号变了也找得到),作者的人物按人物编号,一朝按国家的稳定键 + 第几朝 */
+/**
+ * 存档里记的:推演里的人按稳定键记(改地形重推后编号变了也找得到),一朝按国家的稳定键 + 第几朝;
+ * 作者的人物按人物编号 + 生年(删掉的人物的编号刷新页面以后可能分给新人物,生年对不上就不算同一个人)
+ */
 export type LifeStoredScope =
   | { kind: 'person'; key: string; name: string }
-  | { kind: 'character'; id: number; name: string }
+  | { kind: 'character'; id: number; born: number; name: string }
   | { kind: 'house'; key: string; dynasty: number; name: string };
 export type BookStoredScope = StoredScope | LifeStoredScope;
 
@@ -532,7 +535,10 @@ export function bookFingerprint(civ: Civ, opts: BookOptions, src?: LifeSource | 
 export function bookStoreScope(civ: Civ, scope: BookScope, src?: LifeSource | null): BookStoredScope {
   if (!isLifeScope(scope)) return storeScope(civ, scope);
   if (scope.kind === 'person') return { kind: 'person', key: personKey(civ, scope.person), name: lifeTitle(civ, scope, src).slice(0, -1) };
-  if (scope.kind === 'character') return { kind: 'character', id: scope.char, name: src?.character(scope.char)?.name ?? '' };
+  if (scope.kind === 'character') {
+    const c = src?.character(scope.char);
+    return { kind: 'character', id: scope.char, born: c ? Y(c.born) : NaN, name: c?.name ?? '' };
+  }
   return { kind: 'house', key: polityKey(civ, scope.polity) ?? '', dynasty: scope.dynasty, name: houseName(civ, scope.polity, scope.dynasty) };
 }
 
@@ -543,7 +549,10 @@ export function bookLoadScope(civ: Civ, s: BookStoredScope, src?: LifeSource | n
     const id = s.key ? resolvePersonKey(civ, s.key) : -1;
     return id >= 0 && personOf(civ, id) ? { kind: 'person', person: id } : null;
   }
-  if (s.kind === 'character') return src?.character(s.id) ? { kind: 'character', char: s.id } : null;
+  if (s.kind === 'character') {
+    const c = src?.character(s.id);
+    return c && Y(c.born) === s.born ? { kind: 'character', char: s.id } : null;
+  }
   const r = resolveKey(civ, s.key);
   if (!r || r.kind !== 'polity' || !civ.polities[r.id]) return null;
   return rowOf(civ, r.id, s.dynasty).i >= 0 ? { kind: 'house', polity: r.id, dynasty: s.dynasty } : null;
@@ -558,7 +567,7 @@ export function bookNoteKey(s: BookStoredScope, style: HistoryStyle, length: His
 
 /** 找不到时的说法(阅读页"写于历史改变之前"后面那半句) */
 export function lifeMissing(s: LifeStoredScope): string {
-  if (s.kind === 'character') return `作者的人物${s.name ? `「${s.name}」` : ''}已经删掉了`;
+  if (s.kind === 'character') return `找不到作者的人物${s.name ? `「${s.name}」` : ''}了(删掉了,或改过生年)`;
   if (s.kind === 'house') return `现在的历史里没有${s.name || '这一朝'}了`;
   return `现在的历史里没有${s.name || '这个人'}了`;
 }

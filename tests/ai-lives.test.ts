@@ -300,11 +300,14 @@ describe('列传:作者的人物', () => {
     expect(lifeOptionLabel(civ, O.scope, csrc)).toBe('沈青禾列传');
   });
 
-  it('作者删了这个人物:找不到(重写不了)', () => {
+  it('作者删了这个人物:找不到(重写不了);编号分给了新人物(生年不同)也不算同一个人', () => {
     const s = bookStoreScope(civ, O.scope, csrc);
-    expect(s).toEqual({ kind: 'character', id: 7, name: '沈青禾' });
+    expect(s).toEqual({ kind: 'character', id: 7, born: c.born, name: '沈青禾' });
     expect(bookLoadScope(civ, s, csrc)).toEqual(O.scope);
     expect(bookLoadScope(civ, s, src)).toBeNull();
+    const other = { ...c, name: '林晚', born: c.born + 5 };
+    const osrc = { person: src.person, character: (id: number) => (id === 7 ? characterCard(civ, world, null, other, [other]) : null) };
+    expect(bookLoadScope(civ, s, osrc)).toBeNull();
   });
 });
 
