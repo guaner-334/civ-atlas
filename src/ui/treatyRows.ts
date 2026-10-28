@@ -2,8 +2,9 @@
  * 立约与中立地在卡片上的写法:国家卡片「立约」「中立地」两行、条约卡片(TreatyPanel.tsx)、
  * 中立地那一州的卡片(RegionPanel.tsx)、人物卡「放逐」(PersonPanel.tsx)。数据全按史事整理(gen/civ/treatyInfo.ts),不改推演。
  */
-import type { Annal, Civ, Person, Year } from '../gen/civ/types';
-import { cnNumber, type ChronicleEntry } from '../gen/civ/chronicle';
+import type { Annal, Civ, ExileTie, Person, Year } from '../gen/civ/types';
+import { cnNumber, exiledTo, type ChronicleEntry } from '../gen/civ/chronicle';
+import { polityAlive, polityName } from '../gen/civ/growth';
 import { yearAt, type Era } from '../gen/era';
 import { treatyBook, zonesAt, type TreatyInfo, type ZoneInfo } from '../gen/civ/treatyInfo';
 
@@ -66,6 +67,57 @@ export function zoneStripeCss(colors: readonly (readonly number[])[]): string {
 export function diedInExile(x: Person): boolean {
   const e = x.exile;
   return !!e && e.to === undefined && x.died !== undefined && x.died >= e.year && (e.until === undefined || x.died <= e.until);
+}
+
+/** 出奔邻国的人去的那国在 year 年的国名(不是出奔邻国的 = 空串) */
+export function exileHostName(civ: Civ, x: Person, year: Year): string {
+  const H = x.exile?.to !== undefined ? civ.polities[x.exile.to] : undefined;
+  return H ? polityName(H, year) || H.name || '' : '';
+}
+
+/** 出奔邻国的人是不是卒于那国(去世时那国还在) */
+export function diedAbroad(civ: Civ, x: Person): boolean {
+  const e = x.exile;
+  const H = e?.to !== undefined ? civ.polities[e.to] : undefined;
+  return !!H && x.died !== undefined && x.died >= e!.year && polityAlive(H, x.died);
+}
+
+/** 投奔邻国的缘由怎么说(灭他之国的敌国另写;别的邻国不写) */
+const TIE_WORD: Record<ExileTie, string> = { kin: '姻亲之国', ally: '盟国', pact: '同约之国', folk: '同族之国', foe: '', near: '' };
+
+/**
+ * 人物卡「出奔」一行小字里的缘由:"投奔盟国""投奔佩罗斯王国的敌国"(写出灭他的国家);
+ * 去的是别的邻国、不是出奔邻国的 = 空串
+ */
+export function exileTieText(civ: Civ, x: Person): string {
+  const e = x.exile;
+  if (!e || e.to === undefined || !e.tie) return '';
+  if (e.tie !== 'foe') return TIE_WORD[e.tie] ? `投奔${TIE_WORD[e.tie]}` : '';
+  // 灭他的国家:同一刻那条亡国史事里的攻方
+  const home = civ.annals[e.annal]?.a ?? x.polity;
+  const fall = civ.annals.find((a) => a.kind === 'fall' && a.a === home && a.b >= 0 && Math.abs(a.year - e.year) < 1e-6);
+  const P = fall ? civ.polities[fall.b] : undefined;
+  const name = P ? polityName(P, e.year) || P.name : '';
+  return name ? `投奔${name}的敌国` : '';
+}
+
+/**
+ * 出奔邻国的末代之君,日后故国宗室从他去的那国回来复国的那几条(编年史写"故某宗室某某自某国还,……复国"的):
+ * 返回 [那一条, 编年史里点哪一条](并在大崩解里的,点大崩解那一条)
+ */
+export function exileReturns(civ: Civ, x: Person, all: readonly ChronicleEntry[]): [ChronicleEntry, ChronicleEntry][] {
+  const e = x.exile;
+  if (!e || e.to === undefined) return [];
+  const home = civ.annals[e.annal]?.a ?? x.polity;
+  const out: [ChronicleEntry, ChronicleEntry][] = [];
+  for (const c of all) {
+    for (const s of [c, ...(c.children ?? [])]) {
+      if (s.kind !== 'split' || s.year < e.year || !s.people?.length) continue;
+      if (civ.polities[s.polities[0]]?.restores !== home || s.polities[1] === e.to) continue;
+      if (exiledTo(civ, home, s.year) === e.to) out.push([s, c]);
+    }
+  }
+  return out;
 }
 
 /** year 那一刻住在中立地 z 的人:已经徙来、还活着(中立地还在,这一刻才算) */
