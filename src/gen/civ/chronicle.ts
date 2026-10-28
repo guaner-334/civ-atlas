@@ -2146,6 +2146,7 @@ const REGENT_TAG: Readonly<Record<number, string>> = { [RG_START]: '权', [RG_RE
 /**
  * 结亲(史事 marry,marriages.ts),标签"姻":"南漓、大澜结亲:大澜德宗以女风氏妻南漓懿公胡炜"(互嫁的紧跟着那一条并进来:
  * ";南漓懿公亦以女胡氏妻大澜太子风某,两国互为婚姻");议和时 "南漓、大澜议和,大澜德宗以宗室女风氏妻南漓懿公胡炜,是为和亲"。
+ * 这一方是女的:"南漓女君胡某嫁大澜德宗之子"(西幻"…嫁给了大澜国王某某的儿子")。
  * 两个大国之间的算大事。西幻 "南漓与大澜联姻:大澜国王某某将女儿嫁给南漓国王某某"
  */
 function marryEntry(ctx: Ctx, i: number): ChronicleEntry {
@@ -2169,6 +2170,8 @@ function marryEntry(ctx: Ctx, i: number): ChronicleEntry {
     // 在位的君主:东方有庙号的称呼不带名字("南漓懿公"),补上名字;西幻、汗国的称呼里已经有名字("奥利亚国王佩尔梅内斯二世"),不再补
     const ref = groom && reigningAt(groom, y) ? rulerRef(civ, groom, y) : '';
     const gr = !groom ? pn(civ, f.a, y) : ref ? (ref.includes(groom.name) ? ref : ref + groom.name) : princeRef(civ, groom, y);
+    // 女的那一方:她嫁过去,配偶是对方君主的儿子
+    if (groom && isFemale(groom)) return east ? `${gr}${also ? '亦' : ''}嫁${fa}之子` : `${gr}${also ? '也' : ''}嫁给了${fa}的儿子`;
     const her = w?.s.name ?? '';
     if (!east) return `${fa}${also ? '也' : ''}将女儿${her}嫁给${gr}`;
     return `${fa}${also ? '亦' : ''}以${f.war >= 0 ? '宗室女' : '女'}${her}妻${gr}`;

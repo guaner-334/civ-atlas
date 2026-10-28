@@ -8,17 +8,18 @@
  *   - 无子传女(中原、边塞):继位的是先君的孩子、先君那时没有别的在世的孩子;或是先君的手足、先君那时没有在世的孩子(兄终妹及)。
  *     开国之君(立国、自立、复国、篡位、起兵代之)不换
  *   - 长子女优先(仙侠、山海、西幻):继位的是先君在世的孩子里最年长的;或是先君的手足、先君那时没有在世的孩子。开国之君也可以
- *   两种都要:她没有娶过宗室女(不是联姻里的新郎),亲生的孩子都生在她 FERTILE 岁之间。孙辈接位、远支、作者立的君主、
- *   摄政篡位的叔父都不换。预定的继承人(太子)即位以前就照这一条定(按预定即位的那一刻),即位前后是同一个人
- * - 共和国的执政官:都可以
- * - 别的没即位的宗室:下面没有后人、没娶过亲、没掌过实权的(世系链上的照旧是男的)
- * - 将领、名臣:都可以
- * 能换的人里按语感抽(RATES,每个世界约 2 成君主、3 成能换的宗室、1 成多的将领名臣是女的)。
+ *   两种都要:她命里的孩子(和原定接她位、按年纪连成她孩子的那一位)都生在她 FERTILE 岁之间、她在世时。
+ *   孙辈接位、远支、作者立的君主不换
+ * - 君主的儿女(royals.ts 的诸子):预定的继承人(太子)照上面君主的规矩、按预定即位的那一刻定;别的儿女都可以。
+ *   后来争储得位、据地自立、摄政篡位、领兵、结亲,都还是出道时定的那样
+ * - 世系里补出来的父辈(下面有后人)照旧是男的;共和国的执政官、将领、名臣都可以
+ * 能换的人里按语感抽(RATES,每个世界约 2 成君主、1 成多的将领名臣、2 成多的宗室是女的)。
  *
- * 接着往后推、干预以后重推,先出道的人尽量不变:"先君有没有别的孩子在世""她的孩子生在几岁"按命里该有的儿子算
- * (royals.ts 的 broodOf,和推到哪一年无关),随机数只看这个人自己 —— keyed4(subSeed(seed, 'civ-gender'),
- * 国家的位置锚, 生年, 身份),宗室(有父亲的)按父亲那一国、不分即位没即位,篡位的名臣按名臣算。
- * 要看日后的只有"娶没娶过亲""宗室下面有没有后人、掌没掌过权",这几样后来有了的,那以后重推时她换回男的(很少)。
+ * 都只看这个人出道的那一刻就定得下来的事("先君有没有别的孩子在世""她的孩子生在几岁"按命里该有的儿子和原定的在位表算,
+ * royals.ts 的 broodOf、rulers.ts 的 reignStep,和推到哪一年无关),随机数只看这个人自己 —— keyed4(subSeed(seed, 'civ-gender'),
+ * 国家的位置锚, 生年, 身份),宗室(有父亲的)按父亲那一国、不分即位没即位,篡位的名臣按名臣算。所以接着往后推、
+ * 在后面的年份干预以后重推,先出道的人性别、名字都不变。代价是日后才有的事不再回头看:她日后在联姻里结了亲,
+ * 就是她嫁过去、配偶是对方的宗室子(她孩子的"母亲"就是她,不另记嫁来的宗室女);世系里后来连到她名下的孩子照连。
  *
  * 名字:女名表在 names/persons.ts(femaleGiven);东方带姓的语感保留原来的姓(王朝的姓、将领名臣自己的姓)。
  * 原来的男名记在 Person.maleName(不显示;头像的长相按它一代代往下传,她的后人长相不变)。
@@ -37,6 +38,10 @@ import type { Person, Polity, Year } from './types';
 // ---- 调参 ----
 /** 女君亲生的孩子要生在她这个岁数之间 */
 const FERTILE: [number, number] = [16, 45];
+/** 世系里连父子的年纪、隔代的年纪差、遗腹子最多晚几年(同 lineage.ts):原定接她位的那一位怎么连到她身上 */
+const GEN_AGE: [number, number] = [14, 55];
+const BRIDGE_GAP = 40;
+const POSTHUMOUS = 0.75;
 /** 西幻女王沿用本朝女王名字的机会(同男王,people.ts 的 REUSE) */
 const REUSE = 0.55;
 /** 起女名最多试几次 */
@@ -55,15 +60,15 @@ const RULE: Record<Group, 'sonless' | 'eldest'> = {
   western: 'eldest',
 };
 /**
- * 能换的人里有几成换成女的:ruler 世袭君主(按上面的规矩能换的那些;能换的约占世袭君主的 2 成 / 4 成,
+ * 能换的人里有几成换成女的:ruler 世袭君主(按上面的规矩能换的那些;能换的约占世袭君主的 1 成半 / 3 成多,
  * 折下来女君约占世袭君主:中原、边塞 1 成,仙侠 3 成,山海、西幻 2 成)、consul 共和国执政官、prince 能换的宗室、general 将领、minister 名臣
  */
 const RATES: Record<Group, Record<'ruler' | 'consul' | 'prince' | 'general' | 'minister', number>> = {
-  central: { ruler: 0.46, consul: 0.1, prince: 0.3, general: 0.1, minister: 0.05 },
-  frontier: { ruler: 0.46, consul: 0.1, prince: 0.3, general: 0.15, minister: 0.1 },
-  xianxia: { ruler: 0.78, consul: 0.3, prince: 0.4, general: 0.3, minister: 0.3 },
-  mythic: { ruler: 0.54, consul: 0.2, prince: 0.3, general: 0.2, minister: 0.2 },
-  western: { ruler: 0.51, consul: 0.2, prince: 0.3, general: 0.15, minister: 0.15 },
+  central: { ruler: 0.6, consul: 0.1, prince: 0.285, general: 0.1, minister: 0.05 },
+  frontier: { ruler: 0.5, consul: 0.1, prince: 0.285, general: 0.15, minister: 0.1 },
+  xianxia: { ruler: 0.9, consul: 0.3, prince: 0.38, general: 0.3, minister: 0.3 },
+  mythic: { ruler: 0.66, consul: 0.2, prince: 0.285, general: 0.2, minister: 0.2 },
+  western: { ruler: 0.63, consul: 0.2, prince: 0.285, general: 0.15, minister: 0.15 },
 };
 
 // ---- 随机数的用途、身份 ----
@@ -130,15 +135,28 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
     return [...(b.heir !== undefined ? [{ born: b.heir, life: Infinity }] : []), ...b.extra.map((e) => ({ born: e.born, life: e.life }))];
   };
   const same = (a: Year, b: Year) => Math.abs(a - b) < 1e-6;
-  /** 她命里的孩子都生在她 FERTILE 岁之间(r = 她在在位表里的那一项) */
-  const kidsFit = (x: Person, r: Reign | undefined) => broodYears(r, x.polity).every((c) => c.born - x.born >= FERTILE[0] && c.born - x.born <= FERTILE[1]);
+  /**
+   * 她命里的孩子都生在她 FERTILE 岁之间、她原定下台(寿终于位)以前(r = 她在在位表里的那一项):命里的儿子(broodOf),
+   * 加上原定接她位的那一位 —— 年纪差得多的,世系里连成她的孩子或隔一代(中间补一位早卒的,lineage.ts 的说法)
+   */
+  const kidsFit = (x: Person, r: Reign | undefined): boolean => {
+    const P = polities[x.polity];
+    if (!r || r.crown || !P) return true;
+    const ok = (b: Year) => b - x.born >= FERTILE[0] && b - x.born <= FERTILE[1] && b <= r.natural;
+    if (!broodYears(r, x.polity).every((c) => ok(c.born))) return false;
+    const hb = r.natural - reignStep(ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, P.lineage, P.kind).age;
+    if (hb - x.born < BRIDGE_GAP) return true;
+    const lo = Math.max(x.born + GEN_AGE[0], hb - GEN_AGE[1]);
+    const hi = Math.min(r.natural + POSTHUMOUS, hb - GEN_AGE[0]);
+    return ok(lo <= hi ? (lo + hi) / 2 : hb);
+  };
 
   /**
    * 君主(和预定的继承人)按规矩能不能是女的:t = 即位那一刻(预定的继承人按预定即位的那一刻),
    * F = 先君(pr = 他在在位表里的那一项),own = 她自己的那一项,child / sib = 她是先君的孩子 / 手足
    */
   const fits = (x: Person, rule: 'sonless' | 'eldest', t: Year, F: Person | undefined, own: Reign | undefined, how: 'child' | 'sib' | 'founder'): boolean => {
-    if (x.spouses?.length || !kidsFit(x, own)) return false;
+    if (!kidsFit(x, own)) return false;
     if (how === 'founder') return rule === 'eldest';
     const pr = F && F.author === undefined ? ctx.reignOf.get(F) : undefined;
     if (!F || !pr) return false;
@@ -182,20 +200,18 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
     const son = sonOf.get(x);
     let ok = false;
     let rate = RATES[g].ruler;
-    if (x.role === 'prince') {
-      if (son?.heirAt !== undefined) {
-        // 预定的继承人:照君主的规矩,按预定即位的那一刻(即位以后和这时一样)
+    if (son) {
+      // 君主的儿女(即位没即位都照出道时的定法,后来争储得位、据地自立、摄政篡位的也一样)
+      if (son.heirAt !== undefined) {
+        // 预定的继承人:照君主的规矩,按预定即位的那一刻
         ok = fits(x, rule, son.heirAt, son.father, heirReign(son), 'child');
       } else {
-        ok = !kids.get(x.id)?.length && !x.spouses?.length && !x.regencies?.length;
+        ok = true;
         rate = RATES[g].prince;
       }
-    } else if (x.claim?.how === 'seize') ok = false;
+    } else if (x.role === 'prince') ok = false;
     else if (x.rise !== 'heir') ok = fits(x, rule, x.from!, undefined, ctx.reignOf.get(x), 'founder');
-    else if (son) {
-      // 做过儿子的(预定的继承人照即位以前的定法;争储得位的):父亲就是先君
-      ok = fits(x, rule, son.heirAt ?? x.from!, son.father, son.heirAt !== undefined ? heirReign(son) : ctx.reignOf.get(x), 'child');
-    } else {
+    else {
       const list = reigns[x.polity];
       const prev = list[list.indexOf(x) - 1];
       if (prev && (prev.dynasty ?? 0) === (x.dynasty ?? 0) && x.parent !== undefined) {
@@ -253,14 +269,20 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
       const q = queens.get(qk);
       if (!q) queens.set(qk, [name]);
       else if (!q.includes(name)) q.push(name);
-      if (x.role === 'ruler') retitle.add(x.polity);
     }
+    // 西幻改了名的君主(篡位开国的名臣也算):这一国同名的另编序数
+    if (x.role === 'ruler' && namer.family === 'western') retitle.add(x.polity);
     x.maleName = x.name;
     x.name = name;
     x.female = true;
     use(x);
     // 字照女名另起
     if (x.courtesy) x.courtesy = courtesyName(ctx.styleOf(P), name, (u) => R(x, U_COURTESY + u), true);
+  }
+  // 女的结过亲(联姻里她是嫁过去的那一方,对方是宗室子):她的孩子的母亲就是她,不另记"母亲是嫁来的宗室女"
+  for (const x of women) {
+    if (!x.spouses?.length) continue;
+    for (const k of kids.get(x.id) ?? []) if (k.mother && x.spouses.some((s) => s.annal === k.mother!.annal)) delete k.mother;
   }
   for (const [S, F] of ctx.usurped) {
     if (!F.female) continue;

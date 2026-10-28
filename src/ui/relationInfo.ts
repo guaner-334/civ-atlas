@@ -111,10 +111,15 @@ export interface RelGraph {
 export const DEEP_BELOW = 5;
 
 // 女的称呼(母、姐、姑母……)和男的同一辈
-const UP = new Set(['父', '养父', '祖父', '曾祖父', '伯父', '叔父', '伯祖', '叔祖', '从伯父', '从叔父', '母', '养母', '祖母', '曾祖母', '姑母', '姑祖母', '从姑母']);
-const SAME = new Set(['兄', '弟', '从兄', '从弟', '族兄', '族弟', '姐', '妹', '从姐', '从妹', '族姐', '族妹']);
+// 隔着一位女性的(外祖父、舅父、姨母、表兄……,peopleText.ts 的 kinOf)同样按辈分
+const UP = new Set([
+  ...['父', '养父', '祖父', '曾祖父', '伯父', '叔父', '伯祖', '叔祖', '从伯父', '从叔父'],
+  ...['母', '养母', '祖母', '曾祖母', '姑母', '姑祖母', '从姑母'],
+  ...['外祖父', '外祖母', '外曾祖父', '外曾祖母', '舅父', '姨母', '舅祖', '姨祖母', '表伯父', '表叔父', '表姑母'],
+]);
+const SAME = new Set(['兄', '弟', '从兄', '从弟', '族兄', '族弟', '姐', '妹', '从姐', '从妹', '族姐', '族妹', '表兄', '表弟', '表姐', '表妹']);
 /** 姻亲簇里的先后 */
-export const INLAW_ORDER = ['外祖父', '外祖母', '岳父', '岳母', '女婿', '外孙', '外孙女'];
+export const INLAW_ORDER = ['外祖父', '外祖母', '岳父', '岳母', '公公', '女婿', '儿媳', '外孙', '外孙女'];
 
 /** 推演人物血亲的称呼 → 摆在哪一辈 */
 export function bloodSlot(word: string): 'up' | 'same' | 'down' {
@@ -281,7 +286,11 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = 
   }
   // 姻亲
   if (x.mother) add(x.mother.father, 'inlaw', kinWord(P[x.mother.father], '外祖父'), `其女${brideName(civ, x.mother)}是${him}的母亲`);
-  for (const s of x.spouses ?? []) add(s.father, 'inlaw', kinWord(P[s.father], '岳父'), `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
+  // 她是女的:嫁对方君主的儿子,对方君主是她的公公
+  for (const s of x.spouses ?? []) {
+    if (isFemale(x)) add(s.father, 'inlaw', '公公', `${him}${at(s.year)}嫁其子`, false, s.year);
+    else add(s.father, 'inlaw', kinWord(P[s.father], '岳父'), `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
+  }
   // 女婿、外孙(按人物编号的先后,和一个个看过去一样)
   const wed = rev.wed.get(x.id) ?? [];
   const grand = rev.grand.get(x.id) ?? [];
@@ -289,7 +298,8 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = 
     const o = i < wed.length && (j >= grand.length || wed[i][0].id <= grand[j].id) ? wed[i][0] : grand[j];
     while (i < wed.length && wed[i][0] === o) {
       const s = wed[i++][1];
-      add(o.id, 'inlaw', '女婿', `${yearAt(s.year, era)}娶${him}的女儿${brideName(civ, s)}`, false, s.year);
+      if (isFemale(o)) add(o.id, 'inlaw', '儿媳', `${yearAt(s.year, era)}嫁${him}的儿子`, false, s.year);
+      else add(o.id, 'inlaw', '女婿', `${yearAt(s.year, era)}娶${him}的女儿${brideName(civ, s)}`, false, s.year);
     }
     if (j < grand.length && grand[j] === o) add(o.id, 'inlaw', kinWord(o, '外孙'), `${him}的女儿${brideName(civ, grand[j++].mother!)}所生`);
   }
@@ -603,6 +613,8 @@ const FULL: Record<string, string> = {
   外祖母: '外祖母',
   岳母: '岳母',
   外孙女: '外孙女',
+  公公: '公公',
+  儿媳: '儿媳',
 };
 
 /** 多看一层:经过的每一位,每一簇最多多出这么几位 */

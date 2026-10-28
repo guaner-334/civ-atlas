@@ -1,6 +1,6 @@
 /**
  * 推演里的女性(gen/civ/women.ts):一部分君主、宗室、将领、名臣是女的,用女名;只换性别和名字,别的一样不改;
- * 接着往后推,先出道的人不变(日后娶了亲的除外)。
+ * 接着往后推,先出道的人不变。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
@@ -8,6 +8,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { splitSurname } from '../src/gen/civ/peopleText';
 import { createPersonNamer } from '../src/gen/names/persons';
+import { buildChronicle } from '../src/gen/civ/chronicle';
 
 const worlds = new Map<number, ReturnType<typeof generateWorld>>();
 const worldOf = (seed: number) => {
@@ -70,19 +71,24 @@ describe.each([7, 2024])('推演里的女性 · seed=%i', (seed) => {
     }
   });
 
-  it('女君没有娶过宗室女;作者立的君主、摄政篡位的叔父不换', () => {
+  it('作者立的君主不换;她结了亲是嫁过去(编年史写"嫁某某之子"),她孩子的母亲就是她', () => {
     const c = civOf(seed);
-    for (const x of c.people!) {
+    const P = c.people!;
+    const n0 = c.annals.length;
+    const chron = buildChronicle(c);
+    let wed = 0;
+    for (const x of P) {
       if (!x.female) continue;
-      expect(x.spouses).toBeUndefined();
       expect(x.author).toBeUndefined();
-      if (x.role === 'ruler') expect(x.claim?.how).not.toBe('seize');
-      // 没即位的宗室:下面有后人、掌过权的照旧是男的(预定的继承人照君主的规矩,可以掌过权)
-      if (x.role === 'prince' && !x.regencies?.some((g) => g.kind === 'march' || g.kind === 'heir')) {
-        expect(c.people!.some((k) => k.parent === x.id), x.name).toBe(false);
-        expect(x.regencies).toBeUndefined();
+      for (const s of x.spouses ?? []) {
+        wed++;
+        const e = chron.find((y) => y.kind === 'marry' && (y.id === s.annal || y.id === s.annal - 1) && y.people?.includes(x.id));
+        if (e) expect(e.text, e.text).toMatch(new RegExp(`${x.name}[^,;，；]{0,6}嫁`));
+        for (const k of P.filter((y) => y.parent === x.id)) expect(k.mother?.annal).not.toBe(s.annal);
       }
     }
+    expect(n0).toBeGreaterThan(0);
+    expect(wed).toBeGreaterThan(0);
   });
 
   it('西幻同名的女王另编序数:"二世"前面有一位同名的女王', () => {
@@ -96,7 +102,7 @@ describe.each([7, 2024])('推演里的女性 · seed=%i', (seed) => {
     }
   });
 
-  it('接着往后推:先出道的人性别、名字不变(日后娶了亲的那几位除外)', () => {
+  it('接着往后推:先出道的人性别、名字不变', () => {
     const w = worldOf(seed);
     const full = civOf(seed);
     let n = 0;
@@ -105,8 +111,8 @@ describe.each([7, 2024])('推演里的女性 · seed=%i', (seed) => {
       for (const x of part.people!) {
         const y = full.people![x.id];
         expect(y.born).toBe(x.born);
-        // 日后娶了亲的(女方出嫁还没做,她换回男的);据地自立、摄政篡位并成一人时本来就换了名字的
-        if (y.spouses?.some((s) => s.year > cut) || (x.maleName ?? x.name) !== (y.maleName ?? y.name)) continue;
+        // 据地自立、摄政篡位并成一人时本来就换了名字的
+        if ((x.maleName ?? x.name) !== (y.maleName ?? y.name)) continue;
         expect(!!y.female, `${cut} ${x.name} → ${y.name}`).toBe(!!x.female);
         expect(y.name).toBe(x.name);
         n++;

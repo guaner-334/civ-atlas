@@ -10,7 +10,7 @@ import type { AuthorCharacter } from '../src/gen/characters';
 import { personKey } from '../src/gen/edits';
 import { fatherOf, kidsOf } from '../src/gen/civ/lineageInfo';
 import { personName } from '../src/gen/civ/peopleText';
-import { DEEP_BELOW, DEEP_PER_VIA, INLAW_ORDER, byWord, charKinSlot, personTies, relationGraph, type RelGraph, type RelNode } from '../src/ui/relationInfo';
+import { DEEP_BELOW, DEEP_PER_VIA, INLAW_ORDER, bloodSlot, byWord, charKinSlot, personTies, relationGraph, type RelGraph, type RelNode } from '../src/ui/relationInfo';
 import { BLOCK_W, capped, clusterOrder, deskLayout, stackLayout, upRow, type Layout } from '../src/ui/relationLayout';
 
 const civs = new Map<number, Civ>();
@@ -77,6 +77,10 @@ describe('按字归簇', () => {
     expect(['父亲', '母亲', '叔父', '祖父', '舅舅'].map(charKinSlot)).toEqual(['up', 'up', 'up', 'up', 'up']);
     expect(['兄长', '弟弟', '姐姐', '表妹'].map(charKinSlot)).toEqual(['same', 'same', 'same', 'same']);
     expect(['儿子', '女儿', '孙子', '侄女', '养子'].map(charKinSlot)).toEqual(['down', 'down', 'down', 'down', 'down']);
+    // 推演人物的称呼(女的、隔着一位女性的同样按辈分)
+    expect(['父', '母', '养母', '姑母', '外祖父', '外祖母', '舅父', '姨母', '表姑母'].map(bloodSlot)).toEqual(Array(9).fill('up'));
+    expect(['兄', '姐', '妹', '从姐', '表兄', '表妹'].map(bloodSlot)).toEqual(Array(6).fill('same'));
+    expect(['子', '女', '外孙', '外孙女', '外甥', '侄女'].map(bloodSlot)).toEqual(Array(6).fill('down'));
   });
 });
 
