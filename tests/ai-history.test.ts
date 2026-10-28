@@ -249,7 +249,9 @@ describe('AI 写史书:材料', () => {
     expect(historyFingerprint(resim, { kind: 'world' })).not.toBe(historyFingerprint(civ, { kind: 'world' }));
     // 和主角从没打过交道的国家改名:主角的国史指纹不变
     const mine = buildChronicle(civ).filter((e) => entryInvolves(e, east.id));
-    const stranger = civ.polities.find((q) => q.id !== east.id && !mine.some((e) => entryInvolves(e, q.id)))!;
+    // 正文里也没写到它(战争的由头"乘某国与某国交兵"会写到第三国,那一国不算没打过交道)
+    const said = (q: { name: string }) => mine.some((e) => [e, ...(e.children ?? [])].some((x) => x.text.includes(q.name)));
+    const stranger = civ.polities.find((q) => q.id !== east.id && !mine.some((e) => entryInvolves(e, q.id)) && !said(q))!;
     expect(stranger).toBeDefined();
     const renamed = applyNames(civ, { [polityKey(civ, stranger.id)]: '饕' });
     expect(historyFingerprint(renamed, { kind: 'polity', polity: east.id })).toBe(historyFingerprint(civ, { kind: 'polity', polity: east.id }));

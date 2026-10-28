@@ -289,6 +289,16 @@
 .app.has-side .mc-btn:hover {
   background: var(--hover-bg);
 }
+/* 「立体」:正在框一块、立着看时是按下去的样子(主色底) */
+.app .map-controls .mc-relief.on,
+.app.has-side .map-controls .mc-relief.on {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.app.has-side .map-controls .mc-relief.on:hover {
+  background: var(--accent-hover);
+}
 
 /* ---- 底部:胶囊形的时间轴(卡片收起 / 展开时跟着卡片伸缩) ---- */
 .app.has-side .bottom-row {
