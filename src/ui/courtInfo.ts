@@ -191,13 +191,13 @@ export function officeSay(civ: Civ, p: number, v: CourtView, era?: Era | null): 
   return officeFrom < 0 ? `${head}收回辟署之权，地方官复由当地荐举、朝廷点头。` : `${head}罢铨选，地方官复由当地荐举。`;
 }
 
-/** 收归朝廷的那几样(直征 / 和地方分成、禁军 / 派监军、铨选 / 铨选参半) */
-function centralParts(f: FormFacts): string[] {
+/** 收归朝廷的那几样(直征 / 和地方分成、禁军 / 派监军、铨选 / 铨选参半);short = 写成"有了……"时的短名(分成、监军) */
+function centralParts(f: FormFacts, short = false): string[] {
   const out: string[] = [];
   if (f.tax >= 2) out.push('直征');
-  else if (f.tax === 1) out.push('和地方分成');
+  else if (f.tax === 1) out.push(short ? '分成' : '和地方分成');
   if (f.army >= 1) out.push('禁军');
-  else if (f.army > 0) out.push('派监军');
+  else if (f.army > 0) out.push(short ? '监军' : '派监军');
   if (f.office >= 1) out.push('铨选');
   else if (f.office > 0) out.push('铨选参半');
   return out;
@@ -265,7 +265,7 @@ export function formChangeSay(civ: Civ, p: number, ch: FormChange, later: boolea
     const out = e.n ?? Outcome.Shelve;
     const name = issueName(e, ch.before ?? undefined);
     const head = `${who(civ, p, e.year, false)}议${name}${OUTCOME_NAMES[out] ?? ''}`;
-    if (isCentral(to)) return `${head}：有了${centralParts(ch.after).join('、')}，三样大权收归朝廷的够了两样`;
+    if (isCentral(to)) return `${head}：有了${centralParts(ch.after, true).join('、')}，三样大权收归朝廷的够了两样`;
     if (isFeudalName(to)) return `${head}：边地从此由守将、${gentry(civ, p)}自己管`;
     if (isCentral(from)) return `${head}：收归朝廷的不够两样了`;
     if (isFeudalName(from)) return `${head}：地方不再各自为政`;
