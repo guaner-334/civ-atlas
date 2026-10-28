@@ -255,6 +255,8 @@ export function entriesUpTo(list: readonly ChronicleEntry[], year: number): Chro
 export interface PlaceFacts {
   /** 最高峰(米):山脉、岛屿 */
   peak?: number;
+  /** 山脉最高峰在哪(世界坐标;立体地形把山名立在这儿) */
+  peakAt?: [number, number];
   /** 长度(公里):山脉、河 */
   lengthKm?: number;
   /** 面积(平方公里):湖、岛、荒漠 */
@@ -324,6 +326,7 @@ function computeFacts(civ: Civ, world: World, raster: Raster | null, p: Place): 
       // 沿路径每隔约 1 像素取样;山脉再往两边看一圈(约一个地块宽)找最高处
       const band = p.kind === 'mountains' ? Math.max(3, Math.round(Math.sqrt((W * H) / 36000) * sc)) : 0;
       let peak = -Infinity;
+      let peakAt: [number, number] | undefined;
       const order: number[] = [];
       for (let i = 0; i + 1 < path.length; i += 2) {
         const x0 = path[i];
@@ -347,12 +350,18 @@ function computeFacts(civ: Civ, world: World, raster: Raster | null, p: Place): 
               for (let ox = -band; ox <= band; ox += 2) {
                 if (ox * ox + oy * oy > band * band) continue;
                 const q = pixel(raster, px + ox, py + oy);
-                if (q >= 0 && raster.water[q] === 0 && raster.elev[q] > peak) peak = raster.elev[q];
+                if (q >= 0 && raster.water[q] === 0 && raster.elev[q] > peak) {
+                  peak = raster.elev[q];
+                  peakAt = [(Math.floor(px + ox) + 0.5) / sc, (Math.floor(py + oy) + 0.5) / sc];
+                }
               }
           }
         }
       }
-      if (band && peak > -Infinity) f.peak = Math.round(peak);
+      if (band && peak > -Infinity) {
+        f.peak = Math.round(peak);
+        f.peakAt = peakAt;
+      }
       // 河按流经的先后(源头 → 河口);山脉按取样多少
       if (p.kind === 'river') {
         const seen = new Set<number>();

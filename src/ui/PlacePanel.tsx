@@ -2,7 +2,8 @@
  * 地理实体(山脉、河流、湖泊、岛屿、荒漠、海 / 大洋 / 海湾、关隘)的面板(和国家面板同一套样子,零件见 panelParts.tsx):
  *
  *   顶部  名字(可改);一行"山脉，拉丁原形 Aldor Mountains，按某族语感"(东方风只写按哪族语感)、关闭
- *   按钮  设为中心 / 改名 / 更多(让 AI 讲名字由来、让 AI 起名:按当地语感起几个,点一个就改名)
+ *   按钮  设为中心 / 改名 / 更多(让 AI 讲名字由来、让 AI 起名:按当地语感起几个,点一个就改名);
+ *         山脉多一个「看立体」:自动框住这条山脉(太长的框最高的那一段),直接立起来看(ui/terrain3d/)
  *   概况  按种类挑拿得到的数(panelData.ts 的 placeFacts):山脉 最高峰 / 长度 / 跨州;河 长度 / 流经州 / 源头海拔;
  *         湖 面积 / 湖面海拔;岛 面积 / 最高峰;荒漠 面积 / 年降水;海 离岸最远 / 最深处;
  *         关隘 关口海拔 / 两旁山脊 / 绕开它要翻多高 / 大路哪年修通(Place.pass),西边 / 东边(南北走向的口子写北边 / 南边)各是哪一州、
@@ -20,6 +21,8 @@ import { NameEdit } from './NameEdit';
 import { areaText, entriesUpTo, fightEntries, kmText, metersText, ownersOf, passSides, placeFacts } from './panelData';
 import { Act, Acts, AiBox, CenterAct, EventList, Link, MoreAct, PanelHead, Row, Stats, SubLine, rgb, type DetailProps, type Stat, useRevealAi } from './panelParts';
 import { newMarkDraft } from './markStore';
+import { openReliefAt } from './terrain3dStore';
+import { rangeBox } from '../render/terrain3d/box';
 import { AiMenuItem, MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import { useAiOn } from '../ai/client';
@@ -148,6 +151,12 @@ export function PlacePanel({ civ, raw, raster, world, id, year, names }: DetailP
         <Act icon="rename" act="rename" onClick={() => setRenaming(true)}>
           改名
         </Act>
+        {/* 山脉:框住这条山脉立起来看 */}
+        {p.kind === 'mountains' && p.path.length >= 2 && (
+          <Act icon="relief" act="view-relief" onClick={() => openReliefAt(rangeBox(p.path, f.peakAt, world.width, world.height))}>
+            看立体
+          </Act>
+        )}
         {/* 关隘:放一个作者标记,图钉钉在关口正中 */}
         {pass && p.cell !== undefined && (
           <Act icon="pin" act="add-mark" onClick={() => newMarkDraft({ at: [world.mesh.x[p.cell!], world.mesh.y[p.cell!]], year })}>

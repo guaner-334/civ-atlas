@@ -54,6 +54,13 @@ export function openReliefView(box: ReliefBox): void {
   set({ phase: 'view', box, at: performance.now() });
 }
 
+/** 不用框,直接立起来看这一块(山脉卡片的「看立体」;地球仪、弯边投影先换回平面地图,正在放标记的收起) */
+export function openReliefAt(box: ReliefBox): void {
+  if (getProjection() !== 'equirect') setProjection('equirect');
+  stopPlacing();
+  openReliefView(box);
+}
+
 /** 回到平常的地图 */
 export function closeRelief(): void {
   if (state.phase !== 'off') set({ phase: 'off', box: state.box, at: 0 });
