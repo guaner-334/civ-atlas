@@ -136,18 +136,20 @@ export function yearShortAt(y: number, era?: Era | null): string {
   return s === '元年' ? s : `${s} 年`;
 }
 
-/** 起止,短写:"820–811";纪年 "前 820–前 811" */
+/** 起止,短写:"820–811"(同一年只写一个:"820");纪年 "前 820–前 811" */
 export function yearSpan(a: number, b: number, era?: Era | null): string {
+  if (Math.floor(a) === Math.floor(b)) return yearShort(a, era); // 起止同一年只写一个
   return `${yearShort(a, era)}–${yearShort(b, era)}`;
 }
 
 /**
  * 起止,句子里:"820–811 年";纪年 "公元前 820–前 811 年""公元 25–220 年";
- * 跨过元年、或者有一头是元年的两头都写全:"公元前 3 年–公元 5 年"。dash = 连接号(编年史的旧写法用"—")
+ * 起止同一年只写一次:"1488 年"(接"领兵""在位"都是"1488 年领兵");跨过元年、或者有一头是元年的两头都写全:"公元前 3 年–公元 5 年"。dash = 连接号(编年史的旧写法用"—")
  */
 export function yearSpanAt(a: number, b: number, era?: Era | null, dash = '–'): string {
   const x = Math.floor(a);
   const z = Math.floor(b);
+  if (x === z) return yearAt(x, era); // 起止同一年只写一个年份:"1488 年"
   if (!era) return `${x}${dash}${z} 年`;
   const A = eraYear(x, era);
   const B = eraYear(z, era);

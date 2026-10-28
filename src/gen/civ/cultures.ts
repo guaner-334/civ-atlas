@@ -33,7 +33,7 @@ import { assignStyles, lastIfPioneer, nameCultures, nameKin, nameRegions } from 
 import type { NameMix } from '../names';
 import { HABITABLE_SUIT, KIND_INFO } from './display';
 import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
-import { cleanInterventions, regionOfKey, type Intervention } from '../edits';
+import { regionOfKey, simInterventions, type Intervention } from '../edits';
 
 // ---- 调参(以截图效果为准) ----
 /** 治所宜居分 ≥ 这个值的州才算可居(和"城址"显示的门槛一致;定义在 display.ts,界面也用) */
@@ -531,7 +531,7 @@ export function planCultures(world: World, habitat: Habitat, regions: Regions, p
   };
   model.spreadYears = (tempo ?? calibrate(model)) / Math.max(1e-3, p.pace * (frontier?.spread ?? 1));
   fixBirths(model);
-  planPioneers(model, cleanInterventions(p.interventions), base, seed);
+  planPioneers(model, simInterventions(p.interventions), base, seed);
   return model;
 }
 
@@ -816,7 +816,7 @@ export function resumeCultures(sim: CivSim, world: World, civ: Civ, intervention
   };
   // 老存档没存标定值:按同样的规则重新标定(默认扩张快慢)
   if (civ.spreadYears === undefined) m.spreadYears = calibrate(m);
-  const extra = planPioneers(m, cleanInterventions(interventions), subSeed(civ.seed, 'civ-culture'), civ.seed, sim.now);
+  const extra = planPioneers(m, simInterventions(interventions), subSeed(civ.seed, 'civ-culture'), civ.seed, sim.now);
   installCultures(sim, m, false);
   const now = sim.now;
   for (const cu of civ.cultures) if (cu.born > now && !cu.unborn) sim.schedule(cu.born, Ev.CultureBorn, cu.hearth, cu.id);
