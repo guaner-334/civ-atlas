@@ -648,17 +648,26 @@ function hook(sim: CivSim, tm: TrekModel): void {
       for (const j of next) {
         if (got.length >= want || pm.size[y] <= GRAB_MIN + 2) break;
         sim.setOwner(Layer.Polity, j, x, Ev.Conquer);
-        sim.record('conquer', { a: x, b: y, region: j, settlement: pm.cityOf[j], war: w.id });
-        w.takes.push({ year: t, region: j, by: x });
         got.push(j);
       }
       ring = next;
     }
+    /** 占下国都一带的那几州记成这一仗的攻占(记在那国迁都后面:迁都紧跟着丢国都的那条攻占) */
+    const note = () => {
+      for (const j of got) {
+        sim.record('conquer', { a: x, b: y, region: j, settlement: pm.cityOf[j], war: w.id });
+        w.takes.push({ year: t, region: j, by: x });
+      }
+    };
     // 那国迁都(剩下的州里挑);一座城都没有 = 照常办(并掉残部)
     const sid = bestCapital(pm, owner, y, t, true);
-    if (sid < 0) return false;
+    if (sid < 0) {
+      note();
+      return false;
+    }
     moveCapital(pm, y, sid, t);
     sim.record('capital', { a: y, region: pm.settlements[sid].region, settlement: sid, war: w.id });
+    note();
     sim.record('trek', { a: M.culture, b: y, region: r, settlement: oldSid, war: tm.wars.get(w.id)!, n: 3 });
     M.outcome = 'conquer';
     M.outcomeYear = t;

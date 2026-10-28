@@ -124,8 +124,7 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
   it('划州:那一年这州归该国(原主照常);"永久"的到第 3000 年仍属该国;没人住的州划不成,写明原因', () => {
     for (const seed of [7, 2024]) {
       const civ = base(seed);
-      const y = 1800;
-      const { r, o, q } = borderRegion(civ, y);
+      const { r, o, q, y } = borderRegion(civ, 1800);
       const kq = polityKey(civ, q);
       const ko = polityKey(civ, o);
       for (const permanent of [false, true]) {
