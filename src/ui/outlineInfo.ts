@@ -7,6 +7,7 @@
 import type { Civ } from '../gen/civ/types';
 import { regionLabel } from '../gen/civ/display';
 import { personName } from '../gen/civ/peopleText';
+import { heOrShe } from '../gen/civ/gender';
 import { capitalAt } from '../gen/civ/growth';
 import { SLUMP_DEFAULT } from '../gen/civ/calamity';
 import {
@@ -123,10 +124,18 @@ export function cityName(civ: Civ, key: string | undefined): string {
 /** 人物键 → 名字(这段历史里没有 = 键里记的名字) */
 export function personKeyName(civ: Civ, key: string | undefined): string {
   if (!key) return '';
-  const id = resolvePersonKey(civ, key);
-  const x = id >= 0 ? civ.people?.[id] : undefined;
+  const x = personByKey(civ, key);
   return x ? personName(civ, x) : parsePersonKey(key)?.name || '（这段历史里没有的人物）';
 }
+
+/** 人物键 → 这段历史里的人物(没有 = undefined) */
+function personByKey(civ: Civ, key: string | undefined) {
+  const id = key ? resolvePersonKey(civ, key) : -1;
+  return id >= 0 ? civ.people?.[id] : undefined;
+}
+
+/** 情节里那个人(让他去世)是他还是她;别的情节、找不到人 = 他 */
+const plotHe = (o: OutlineCtx, p: Plot) => heOrShe(p.kind === 'death' ? personByKey(o.civ, p.person) : undefined);
 
 /** 作者的人物叫什么 */
 export function charName(o: Pick<OutlineCtx, 'characters'>, id: number | undefined): string {
@@ -334,9 +343,10 @@ export function checkText(o: OutlineCtx, p: Plot): string {
       return `看${win}${A}有没有迁都到${C}。没有，就在${at}直接改：迁都${C}${tail}那座城要在${A}手里。`;
     }
     case 'death': {
-      const P = personKeyName(o.civ, p.person) || '他';
+      const he = plotHe(o, p);
+      const P = personKeyName(o.civ, p.person) || he;
       const how = p.how === 'murdered' ? '遇弑' : p.how === 'battle' ? '战死' : '去世';
-      return `看${win}${P}有没有${how}。没有，就在${at}直接改：让他去世${tail}${p.how ? '硬改只能写成"去世"，写不成遇弑、战死。' : ''}`;
+      return `看${win}${P}有没有${how}。没有，就在${at}直接改：让${he}去世${tail}${p.how ? '硬改只能写成"去世"，写不成遇弑、战死。' : ''}`;
     }
     case 'crown':
       return `看${win}${charName(o, p.char)}有没有即${A}君位。没有，就在${at}直接改：让他即位${tail}`;
@@ -504,11 +514,11 @@ function failText(o: OutlineCtx, p: Plot, r: PlotReview, A: string, B: string): 
     case 'atWar':
       return `第 ${y} 年两国已经在打仗`;
     case 'dead':
-      return `第 ${y} 年他已经不在世了`;
+      return `第 ${y} 年${plotHe(o, p)}已经不在世了`;
     case 'unborn':
-      return `第 ${y} 年他还没出生`;
+      return `第 ${y} 年${plotHe(o, p)}还没出生`;
     case 'notReigning':
-      return `第 ${y} 年他不在位`;
+      return `第 ${y} 年${plotHe(o, p)}不在位`;
     case 'unsupported':
       return `第 ${w.lo}–${w.hi} 年没有自然发生，推演里还不能直接让它发生`;
     case 'crowded':
@@ -562,7 +572,7 @@ export function stageText(o: OutlineCtx, p: Plot, fix: number): string {
       case 'capital':
         return [`${A}没有迁都`, `迁都${cityName(o.civ, p.city) || '那座城'}`];
       case 'death': {
-        const P = personKeyName(o.civ, p.person) || '他';
+        const P = personKeyName(o.civ, p.person) || plotHe(o, p);
         return [`${P}还在`, `让${P}去世`];
       }
       case 'crown': {

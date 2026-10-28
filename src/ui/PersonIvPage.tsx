@@ -14,6 +14,7 @@
 import { Fragment, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
 import { LEANING_KEYS, LEANING_TEXT } from '../gen/civ/peopleText';
+import { heOrShe } from '../gen/civ/gender';
 import { personKey, polityKey, type Intervention } from '../gen/edits';
 import { eraText, spaced, yearFull, yearShort, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
@@ -41,6 +42,7 @@ export function PersonIvPage({ civ, x, year, kind, onBack }: { civ: Civ; x: Pers
   const yi = useYearInput(Math.min(Math.max(year, lo), Math.max(lo, hi)), lo, Math.max(lo, hi), clear);
   const y = step ? nextYear(sw) : yi.y;
   const ruler = x.role === 'ruler';
+  const he = heOrShe(x);
   const P = civ.polities[x.polity];
   // 改倾向:原来的(那一年照的,改过的照改后的)、拖到的;国家那时定的方针
   const base = leaningsThen(x, Math.min(y, civ.endYear)) ?? { expand: 50, war: 50, develop: 50, trade: 50 };
@@ -98,7 +100,7 @@ export function PersonIvPage({ civ, x, year, kind, onBack }: { civ: Civ; x: Pers
           <span>继位</span>
           <span>下一位照常继位：年纪、在位多久、倾向照常随机</span>
           <span>之后</span>
-          <span>他以后的君主全换一批；这年以前的一个不变</span>
+          <span>{he}以后的君主全换一批；这年以前的一个不变</span>
         </div>
         {!step && <span className="cp-note iv-tail">逐年推演里固定「下一步年初」去世。</span>}
       </>
@@ -110,25 +112,25 @@ export function PersonIvPage({ civ, x, year, kind, onBack }: { civ: Civ; x: Pers
         {yearBlock('哪一年去世', deathNote(civ, x, era))}
         <div className="iv-warn" data-iv="history-same">
           只改人物卡和编年史里的名字，不改历史：
-          {general ? '这年以后他该领的仗换别的将领出面，打赢打输、国土照旧。' : '这年以后他经手的事换别人去办，国家照旧。'}
+          {general ? `这年以后${he}该领的仗换别的将领出面，打赢打输、国土照旧。` : `这年以后${he}经手的事换别人去办，国家照旧。`}
         </div>
         <div className="iv-sum" data-iv="death-sum">
           <span>人物卡</span>
           <span>卒年改成 {yearShort(y, era)}，结局写「卒」</span>
           <span>编年史</span>
-          <span>{general ? '他以后领兵的几场仗换成别的将领' : '他以后经手的事换成别人'}</span>
+          <span>{general ? `${he}以后领兵的几场仗换成别的将领` : `${he}以后经手的事换成别人`}</span>
         </div>
       </>
     );
   } else {
-    const rows = leanRows(lean, pol);
+    const rows = leanRows(lean, pol, x);
     const warAdd = rows.find((r) => r.k === 'war')?.add ?? 0;
     body = (
       <>
-        {yearBlock('从哪一年起', `到他下台为止（${rulerEndText(civ, x, era)}）；下一位照常随机。`)}
+        {yearBlock('从哪一年起', `到${he}下台为止（${rulerEndText(civ, x, era)}）；下一位照常随机。`)}
         <div className="cp-form" data-iv="temper">
           <span className="cp-form-title cr-ttl">
-            他的倾向<em>拖滑条，松手不算，点「加入」才算</em>
+            {he}的倾向<em>拖滑条，松手不算，点「加入」才算</em>
           </span>
           <div className="cr-leans">
             {LEANING_KEYS.map((k) => {
@@ -162,7 +164,7 @@ export function PersonIvPage({ civ, x, year, kind, onBack }: { civ: Civ; x: Pers
         </div>
         {pol && (
           <div className="iv-warn" data-iv="temper-policy">
-            {nameAt(P, y)}定了方针「{policyLabel(pol)}」，在他的倾向上再加减；{warAdd > 0 ? '想让他少打仗' : warAdd < 0 ? '想让他多打仗' : '想整国换个走向'}，也可以改方针。
+            {nameAt(P, y)}定了方针「{policyLabel(pol)}」，在{he}的倾向上再加减；{warAdd > 0 ? `想让${he}少打仗` : warAdd < 0 ? `想让${he}多打仗` : '想整国换个走向'}，也可以改方针。
           </div>
         )}
       </>
