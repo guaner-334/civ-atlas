@@ -46,7 +46,7 @@ import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leanin
 import { REGENCY_END, REGENCY_VERB, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
 import { treatyBook } from '../gen/civ/treatyInfo';
 import { fullChronicle } from '../gen/civ/religionText';
-import { diedInExile, treatyEntries } from './treatyRows';
+import { diedAbroad, diedInExile, exileHostName, exileReturns, exileTieText, treatyEntries } from './treatyRows';
 import { evType } from './timelineLayout';
 import { regionLabel } from '../gen/civ/display';
 import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
@@ -353,7 +353,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </Row>
           ))}
         </Stats>
-        {x.exile && x.exile.to === undefined && <ExileEvents civ={civ} x={x} />}
+        {x.exile && <ExileEvents civ={civ} x={x} />}
         {heldEv.length > 0 && (
           <EventList
             civ={civ}
@@ -797,10 +797,10 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
   const claim = claimLine(civ, x);
   if (claim) out.push(claim);
   const fate = rulerFateWord(civ, x);
-  // 被废徙居、亡国出奔到中立地的:「放逐」/「出奔」一行排在结局前面,结局写"卒于某地"
+  // 被废徙居、亡国出奔到中立地 / 邻国的:「放逐」/「出奔」一行排在结局前面,结局写"卒于某地 / 某国"
   const ex = exileLine(civ, x, era);
   if (ex) out.push(ex);
-  const diedAt = diedInExile(x) ? `卒于${regionLabel(civ, x.exile!.region)}` : '卒';
+  const diedAt = diedInExile(x) ? `卒于${regionLabel(civ, x.exile!.region)}` : diedAbroad(civ, x) ? `卒于${exileHostName(civ, x, x.died!)}` : '卒';
   if (x.killed !== undefined && x.died !== undefined) {
     const t = `${yearAt(x.died, era)}去世（干预）`;
     out.push({ k: '结局', node: t, text: t });
@@ -856,11 +856,27 @@ function princeLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
 /**
  * 放逐到中立地(争储失势的宗室、被废的君主)/ 出奔(亡国之君):「放逐  星河域 2303 年起，桓王所徙」;
  * 中立地撤销时还活着、回了本国的写"2303–2320 年"(出奔的同一年中立地就撤了:只写"2529 年");
- * 出奔邻国的(Person.exile.to)这里还不写;没有 = null
+ * 出奔邻国的:「出奔  坤武国 1468 年，投奔盟国」(国名能点;去的是别的邻国只写年份);没有 = null
  */
 function exileLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
   const e = x.exile;
-  if (!e || e.to !== undefined) return null;
+  if (!e) return null;
+  if (e.to !== undefined) {
+    const host = exileHostName(civ, x, e.year);
+    if (!host) return null;
+    const why = exileTieText(civ, x);
+    const note = why ? `${yearAt(e.year, era)}，${why}` : yearAt(e.year, era);
+    return {
+      k: '出奔',
+      node: (
+        <>
+          <Link to={{ kind: 'polity', id: e.to }}>{host}</Link>
+          <em className="cp-num-note">{note}</em>
+        </>
+      ),
+      text: `${host}（${note}）`,
+    };
+  }
   const zone = regionLabel(civ, e.region);
   const by = e.by !== undefined && e.how !== 'fled' ? civ.people?.[e.by] : undefined;
   const back = e.until !== undefined && !diedInExile(x) && (x.died === undefined || x.died > e.until);
@@ -879,8 +895,8 @@ function exileLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
 }
 
 /**
- * 人物卡「放逐」/「出奔」一段(概况下面):徙居(出奔)那一条、卒于中立地(编年史里没有,这里写一句)、
- * 中立地撤销时还活着的,撤销那一条;新的在上
+ * 人物卡「放逐」/「出奔」一段(概况下面):徙居(出奔)那一条、卒于中立地 / 出奔去的那国(编年史里没有,这里写一句)、
+ * 中立地撤销时还活着的,撤销那一条;出奔邻国的,日后故国宗室从那国回来复国的那一条;新的在上
  */
 function ExileEvents({ civ, x }: { civ: Civ; x: Person }) {
   const era = useEra();
@@ -888,18 +904,30 @@ function ExileEvents({ civ, x }: { civ: Civ; x: Person }) {
   const e = x.exile!;
   const rows: { key: string; year: number; ev: string; node: ReactNode; go: () => void }[] = [];
   const come = all.find((c) => c.kind === 'exile' && c.id === e.annal);
-  if (come) rows.push({ key: 'come', year: come.year, ev: evType(come), node: <EntryText civ={civ} e={come} />, go: () => pickChronicleEntry(come) });
+  // 出奔邻国的:出奔那一条和「在位时」里一样,不把他自己标成链接
+  const abroad = e.to !== undefined;
+  if (come) rows.push({ key: 'come', year: come.year, ev: evType(come), node: <EntryText civ={civ} e={come} self={abroad ? x.id : -1} />, go: () => pickChronicleEntry(come) });
   const zone = treatyBook(civ).zones[e.zone];
   const pact = zone ? treatyBook(civ).treaties[zone.treaty] : undefined;
   if (diedInExile(x)) {
     const who = x.role === 'prince' ? princeRef(civ, x, x.died!) : rulerRef(civ, x, x.died!);
     const died = x.died!;
     rows.push({ key: 'died', year: died, ev: 'dynasty', node: <EntryText civ={civ} e={{ text: `${who}卒于${regionLabel(civ, e.region)}`, people: [x.id], year: died }} />, go: () => jumpTo(died) });
+  } else if (diedAbroad(civ, x)) {
+    // 卒于出奔去的那国:"乾厉王顾缈卒于坤武国"(有称号的君主也带上名字,名字标成链接)
+    const died = x.died!;
+    const ref = x.role === 'prince' ? princeRef(civ, x, died) : rulerRef(civ, x, died);
+    const named = ref.includes(x.name);
+    const tail = { text: `${named ? ref : x.name}卒于${exileHostName(civ, x, died)}`, people: [x.id], year: died };
+    rows.push({ key: 'died', year: died, ev: 'dynasty', node: <>{!named && ref}<EntryText civ={civ} e={tail} /></>, go: () => jumpTo(died) });
   } else if (e.until !== undefined && pact) {
     const end = treatyEntries(civ, pact, all).find((c) => Math.abs(c.year - e.until!) < 1e-6);
     if (end) rows.push({ key: 'end', year: end.year, ev: evType(end), node: <EntryText civ={civ} e={end} />, go: () => pickChronicleEntry(end) });
   }
+  for (const [s, c] of exileReturns(civ, x, all)) rows.push({ key: `back${s.id}`, year: s.year, ev: evType(s), node: <EntryText civ={civ} e={s} />, go: () => pickChronicleEntry(c) });
   if (!rows.length) return null;
+  // 复国可能在他去世以前:按年份排(同一年保持先后)
+  rows.sort((a, b) => a.year - b.year);
   return (
     <section className="cp-sec cp-events" data-exile>
       <div className="cp-sec-head cp-events-head">
