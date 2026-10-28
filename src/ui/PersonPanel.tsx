@@ -64,6 +64,8 @@ import { newCharacterDraft } from './characterStore';
 import { charactersOfPerson } from './characterInfo';
 import { CharAvatar, CharacterRefs } from './CharacterPanel';
 import type { AuthorCharacter } from '../gen/characters';
+import type { PersonCard } from '../ai/prompts/lives';
+import { LifeMenuItem } from './lifeMenu';
 import { MenuItem } from './PopMenu';
 import { Icon } from './icons';
 import { NameEdit } from './NameEdit';
@@ -340,6 +342,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           <MenuItem icon={<Icon name="person" size={16} />} act="person-add-character" onClick={() => newCharacterDraft({ kin: [{ rel: '', person: personKey(civ, id) }], year })}>
             加一个和{heOrShe(x)}有关的人物
           </MenuItem>
+          {name && <LifeMenuItem civ={civ} scope={{ kind: 'person', person: id }} />}
         </MoreAct>
       </Acts>
       <div className="cp-body">
@@ -1128,4 +1131,23 @@ export function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
   const mine = all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.id >= c.first && e.id <= c.last && civ.annals[e.id]?.war === c.war));
   if (mine.length) return mine;
   return all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.year >= c.from - eps && e.year <= c.until + eps));
+}
+
+/**
+ * AI 写列传、家传要的人物卡(ai/prompts/lives.ts 的 PersonCard;经 lifeSource.ts 交给写书的那一套):
+ * 概况一行一项、倾向、生平,在位 / 在朝 / 领兵时本国的事连同掌权、联姻、放逐那几条。年份照推演写("2325–2354 年"),不按纪年
+ */
+export function personCard(civ: Civ, x: Person): PersonCard {
+  const lines = personLines(civ, x, undefined).map(({ k, text }) => ({ k, text }));
+  const exile = x.exile ? polityEntries(civ, x.polity).filter((e) => e.kind === 'exile' && e.id === x.exile!.annal) : [];
+  const seen = new Set<string>();
+  const events = [...personEvents(civ, x), ...heldEvents(civ, x), ...marryEvents(civ, x), ...exile]
+    .filter((e) => {
+      const k = `${e.kind}:${e.id}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a.year - b.year || a.id - b.id);
+  return { lines, leanings: x.role === 'ruler' && x.leanings ? leaningsText(x.leanings) : '', bio: personBio(civ, x), events };
 }
