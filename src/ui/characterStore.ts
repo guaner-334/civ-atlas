@@ -55,6 +55,8 @@ export interface CharDraft {
   /** 编辑的是哪个人物;新建 = 0 */
   id: number;
   name: string;
+  /** 女的(填写页最上面选「男 / 女」;新建默认男) */
+  female: boolean;
   color: MarkColor;
   bornText: string;
   diedText: string;
@@ -128,6 +130,7 @@ export function newCharacterDraft(init: { birthplace?: Where; kin?: KinEntry[]; 
     draft: {
       id: 0,
       name: '',
+      female: false,
       color,
       bornText: yearText(init.year),
       diedText: '',
@@ -151,6 +154,7 @@ export function editCharacterDraft(c: AuthorCharacter) {
     draft: {
       id: c.id,
       name: c.name,
+      female: c.female === true,
       color: c.color,
       bornText: yearText(c.born),
       diedText: yearText(c.died),
@@ -191,6 +195,7 @@ export function draftProblem(d: CharDraft): string | null {
 export function draftCharacterData(d: CharDraft): Omit<AuthorCharacter, 'id'> | null {
   if (draftProblem(d)) return null;
   const c: Omit<AuthorCharacter, 'id'> = { name: d.name.trim() || CHAR_NAME_DEFAULT, color: d.color, born: parseYear(d.bornText)! };
+  if (d.female) c.female = true;
   const died = parseYear(d.diedText);
   if (died !== null) c.died = died;
   if (d.birthplace) c.birthplace = d.birthplace;
@@ -219,6 +224,7 @@ export function draftAsCharacter(d: CharDraft, fallback: number): AuthorCharacte
     name: d.name.trim() || CHAR_NAME_DEFAULT,
     color: d.color,
     born: b,
+    female: d.female || undefined,
     died: died !== null && !Number.isNaN(died) && died >= b ? died : undefined,
     birthplace: d.birthplace ?? undefined,
     polity: d.polity ?? undefined,

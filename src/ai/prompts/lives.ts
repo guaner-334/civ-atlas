@@ -119,6 +119,8 @@ export interface PersonCard {
 /** 作者的人物(ui/lifeSource.ts 照人物卡组好):作者写的原样,地方写成地名,勾上的事与人找出来 */
 export interface CharacterCard {
   name: string;
+  /** 女的 = true;没有 = 男的 */
+  female?: true;
   born: number;
   died?: number;
   /** 身份("女史");没写 = '' */
@@ -390,7 +392,9 @@ function characterPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSou
   const c = src?.character(id);
   if (!c || !c.name) return emptyPrompts(opts);
   const target = HISTORY_LENGTHS[opts.length].chars;
+  const he = heOrShe(c);
   const body: string[] = ['〔传主〕(作者写的人物;下面每一项都是作者定的)', `- 名字:${c.name}`];
+  if (c.female) body.push('- 性别:女');
   body.push(`- 生卒:${c.died !== undefined ? `生于第 ${Y(c.born)} 年,卒于第 ${Y(c.died)} 年` : `生于第 ${Y(c.born)} 年(作者没写卒年)`}`);
   if (c.role) body.push(`- 身份:${c.role}`);
   if (c.polity) body.push(`- 国家:${c.polity}`);
@@ -404,7 +408,7 @@ function characterPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSou
   for (const k of c.kin) if (k.person !== undefined) add(k.person);
   let events = 0;
   if (c.life.length) {
-    body.push('', '〔经历〕(作者写的,按年份;下面缩进的是他勾上的推演里的事与人)');
+    body.push('', `〔经历〕(作者写的,按年份;下面缩进的是${he}勾上的推演里的事与人)`);
     for (const e of c.life) {
       const age = e.year - c.born;
       const note = [age > 0 ? `${age} 岁` : '', e.where].filter(Boolean).join(',');
@@ -428,8 +432,8 @@ function characterPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSou
   const headLines = [
     `请给作者的人物${c.name}写一篇列传,从出身写到结局。`,
     '- 作者写的不许改:〔传主〕〔简介〕〔亲友〕〔经历〕都是作者自己定的,名字、身份、生卒、亲友和每段经历照写,不要和它们矛盾;' +
-      '作者没写的身世、亲属、官职、师承、法术之类的设定不要替他添,只补合情理的场面、言行和心境',
-    '- 推演里的事与人:〔经历〕里勾上的事、〔人物〕里的人照材料写(年份、谁攻谁守、胜负、谁在位都不能改);他和这些事、这些人是什么关系,只按作者写的经历来写',
+      `作者没写的身世、亲属、官职、师承、法术之类的设定不要替${he}添,只补合情理的场面、言行和心境`,
+    `- 推演里的事与人:〔经历〕里勾上的事、〔人物〕里的人照材料写(年份、谁攻谁守、胜负、谁在位都不能改);${he}和这些事、这些人是什么关系,只按作者写的经历来写`,
     `- 取舍:以作者写的经历为骨架,按年份写下来;作者没写的年份少写,不要编造大事`,
   ];
   return lifePrompts(opts, `${c.name}传`, c.died !== undefined || to > Y(c.born) ? `第 ${Y(c.born)}—${to} 年` : `第 ${Y(c.born)} 年`, target, chars, headLines, `〔材料〕\n${body.join('\n')}`, events, events);
