@@ -15,7 +15,7 @@ import { createPortal } from 'react-dom';
 import type { Civ } from '../gen/civ/types';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
-import { BRANCH_NAME_MAX, BRANCH_NOTE_MAX, type Intervention } from '../gen/edits';
+import { BRANCH_NAME_MAX, BRANCH_NOTE_MAX, commandAt, ticksAt, type Intervention } from '../gen/edits';
 import { branchList, deleteBranch, renameBranch, type BranchInfo } from '../gen/stepwise';
 import { eraText, spaced, yearAt, yearFull, yearShort, yearShortAt, type Era } from '../gen/era';
 import { getEdits, putEditsQuiet, useEdits, useEra } from './editsStore';
@@ -80,10 +80,10 @@ function splitNote(s: string, era: Era | null | undefined): { y: number | null; 
   return m ? { y: Number(m[1]), year: yearShort(Number(m[1]), era), text: m[2] } : { y: null, year: '', text: s };
 }
 
-/** 这一支自己加的干预(分出来以后下的;最早的那一支 = 起演以后下的) */
-function ownCommands(b: BranchInfo): Intervention[] {
-  const at = b.forkAt ?? b.playFrom;
-  return b.play.commands.filter((v) => v.from >= at);
+/** 这一支自己加的干预(分出来的那一刻和以后下的,按年 + 第几格比;最早的那一支 = 起演以后下的) */
+export function ownCommands(b: BranchInfo): Intervention[] {
+  const at = b.forkAt !== undefined ? ticksAt(b.forkAt, b.forkTick ?? 0) : ticksAt(b.playFrom);
+  return b.play.commands.filter((v) => commandAt(v) >= at);
 }
 
 // ---------------------------------------------------------------------------
