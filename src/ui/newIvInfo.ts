@@ -37,8 +37,9 @@ import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calam
 import { plagueSpans } from '../gen/civ/plagueSpans';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
+import { cultureKeyName, interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
 import { boostDoneText } from './boostInfo';
+import { trekDoneText } from './trekInfo';
 
 // ---------------------------------------------------------------------------
 // 灭国
@@ -477,7 +478,8 @@ export function onceOnly(v: Intervention): boolean {
     v.kind === 'regent' ||
     v.kind === 'marry' ||
     (v.kind === 'crown' && !!v.after) ||
-    (v.kind === 'boost' && v.mul === undefined)
+    (v.kind === 'boost' && v.mul === undefined) ||
+    v.kind === 'trek'
   );
 }
 
@@ -501,6 +503,7 @@ function keyPerson(civ: Civ, key: string): { x: Person | null; name: string } {
 export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, era: Era | undefined, who = ''): { ok: boolean; text: string; same?: boolean } | null {
   if (v.kind === 'disaster') return disasterDoneText(civ, v, i, A, era);
   if (v.kind === 'boost') return boostDoneText(civ, v, i, A, era);
+  if (v.kind === 'trek') return trekDoneText(civ, v, i, cultureKeyName(civ, v.folk), era);
   if (v.kind !== 'destroy' && v.kind !== 'death' && v.kind !== 'temper' && v.kind !== 'regent' && v.kind !== 'marry' && v.kind !== 'keep' && !(v.kind === 'crown' && v.after)) return null;
   const f = i >= 0 ? interventionFate(civ, i) : null;
   const e = f && f.state !== 'later' && f.annal >= 0 ? civ.annals[f.annal] : null;

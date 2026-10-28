@@ -279,6 +279,7 @@ import { disasterDoneArea, newIvDoneText } from './newIvInfo';
 import { RoleBar } from './RoleBar';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
+import { TrekPlanLayer } from './TrekPlanLayer';
 import { FLY_MS, animProgress, cultureFocus, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, personKey, pointsFocus, resolvePersonKey, selectionFocus, selectionKey, shownYearOf, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
 import { setMomentSource, type MomentNow } from './shareMoment';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from './presetLink';
@@ -6732,6 +6733,8 @@ ${s.image.cells}` : null);
       {filmOn && filmUi.mode === 'long' && <LongStage phone={narrow} style={style} layer={layer} look={terrainLook} />}
       {/* 选干预目标 / 推演中:压暗地图、浮出名牌;选中国家:国都的圆环(TargetPlates.tsx) */}
       {data && world && <TargetLayer civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} resim={resim} generating={!!progress} labelAt={labelAt} />}
+      {/* 下令大迁徙、指定一州时:预估的虚线和目的地(TrekPlanLayer.tsx) */}
+      {data && world && <TrekPlanLayer civ={civ} world={data.world} toClient={globeOn ? globeToClient : worldToClient} style={style} />}
 
       {replayOn && replay && !home && (
         <div className="caption">

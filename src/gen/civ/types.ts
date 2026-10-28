@@ -176,6 +176,8 @@ export interface Migration {
   big?: true;
   /** 落脚时改换成迁来的民族的几州(州号升序;立的国一开始的国土可能多几州:刚改换过民族的、原民族最后一州的,归它但民族不变) */
   lands?: number[];
+  /** 作者下令的(干预「大迁徙」):Civ.interventions 里第几条;推演自己起的没有 */
+  iv?: number;
 }
 
 /** 城镇 */
@@ -418,6 +420,7 @@ export interface Place {
  * | exile     | 放逐到中立地 / 出奔:cause:heir 新君即位时把争储失势的宗室徙到中立地(**那位宗室的生年在 Annal.n**,他是先君之子;推演里他不再据地自立)、deposed 改朝换代时被废的末代之君徙到中立地(**被废的年份在 Annal.n**)、fled 国亡、亡国之君出奔中立地;**出奔邻国**(exile.ts:war 列 = −1,b = 去的国家,州和城 = 那国当时的国都,**投奔它的缘由在 Annal.n**,EXILE_TIES 的下标)。人物里写在 Person.exile | 那位人物是哪国的 | −1(出奔邻国:去的国家) | 中立地那州 | 州里的城 | **中立地的编号**(出奔邻国 = −1) |
  * | trek      | 大迁徙(migration.ts;经过见 Civ.migrations 里的那一条):**哪一步在 Annal.n**:0 动身(region = 出发的州)、1 路过洗劫(b = 那州当时的主人,−1 = 部落地带;region / settlement = 被洗劫的州和城,折损见 Settlement.sacks 同一年的那一条)、2 落脚立国(b = 立的国;紧跟着记这国的 found,cause = trek;到了以后开的仗是 war,cause = trek)、3 打进国都、那国没整个归它(b = 那国;region / settlement = 打下的国都所在州和那座城;前面同一刻依次记打下国都的 conquer、那国迁都的 capital、占下国都一带的几条 conquer,后面记议和;那国是大国的再记 collapse,崩得成的话)、4 没立成国、散居落脚的几州(b = −1) | **民族**:迁徙的民族 | 见 n | 见 n | 见 n | **第几次大迁徙**(Civ.migrations 的下标,借用这一列) |
  * | keep      | 保住王室挡下的一回(干预「保住王室」、即位带的「在位期间保住王室」;dynasty.ts、regency.ts):本该改朝换代 / 篡位,挡下了,历史照旧(只记一句未遂)。**国势危殆(那时动荡)在 Annal.n**:1 = 是 | 国家 | **哪一种**:0 豪强起兵代之、1 国都权臣篡位(看王朝时)、2 掌实权的人篡位(regency.ts:紧跟着记那条 regent 的结局,名臣、大臣伏诛,叔父还政) | 根据地 / 国都所在州 | 那州的城 | **第几条干预**(Civ.interventions 的下标,借用这一列) |
+ * | winter    | 顿兵过冬(wars.ts 的出兵避冬):轮到下一仗时要打的那州正在冬天里,这一仗顺延到那州开春;**开春再打的时刻在 Annal.until** | 攻方 | 守方 | 要打的那州 | −1 | 战争编号 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -443,6 +446,9 @@ export interface Place {
  *   让人物去世 / 改君主倾向:a = 国家,b = −1(生效了)/ −3(那一年这国已亡)/ −4(此刻在位的不是他)/ −5(将领、名臣:推演里不管,
  *     生没生效看人物的 killed),region / settlement = A 当时的国都所在州 / 国都
  *   天灾:见 disaster.ts(b = 受灾的州数,瘟疫 1 = 起了一场新的 / 2 = 并进正在传的那一场,0 = 没生效);紧跟着记它引起的 plague / famine
+ *   大迁徙、不许迁:a = −1(不是国家),**民族在 n**;大迁徙 b = −1 动身了(region / settlement = 目的地那州和它的城,紧跟着记 trek n = 0)/
+ *     −3 那一刻这一族已消亡 / −18 走不成(陆路走不到指定的那一州、推演挑没有可去的地方;region = 出发的州,没给 = −1);
+ *     不许迁 b = −1 登记了 / −3 这一族已消亡(见 migration.ts)。民族键指不到就不记
  *   推一把发展:见 boost.ts(b = −1 生效了 / −3 那一年这国已亡 / −17 直接进时国都已在最后一个时代;n = 推了几州 × 16 + 直接进到第几个时代)
  *   国家 A 的键指不到(新历史里没有这国 / 那一刻还没立国)就不记(立国、天灾除外:立国一定记;天灾只有饥荒选的那国指不到时不记)。
  * battle(人物与战役,wars.ts 的战役):每一仗都算过胜负,打下来的记 conquer,没打下来的(攻方败退、守方反攻没夺回)记一条 battle;
@@ -506,7 +512,8 @@ export type AnnalKind =
   | 'neutral'
   | 'exile'
   | 'keep'
-  | 'trek';
+  | 'trek'
+  | 'winter';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
@@ -522,9 +529,10 @@ export type AnnalKind =
  *   decree 作者下令立的约、划的中立地(干预「立约」「划中立地」;treaty、neutral 的 cause);
  *   开战看内政(wars.ts,war 的 cause):divert 国中动荡、对外开战以安内(转移矛盾)/ unrest 乘对方内乱(动荡高或有割据;region 列 = 割据的那州,没有 = −1)/
  *   plagued 乘对方大疫之后 / minor 乘对方幼主在位 / regent 乘对方权臣当政 / plunder 国库空竭、为掠夺而战(region 列 = 边境上最富的那州);
- *   trek:大迁徙(migration.ts)迁来的一支落脚立的国(史事 found 的 cause)和它到了以后当即开的那一仗(war 的 cause)
+ *   trek:大迁徙(migration.ts)迁来的一支落脚立的国(史事 found 的 cause)和它到了以后当即开的那一仗(war 的 cause);
+ *   spring:冬夏分明的地方闹的春荒(史事 famine 的 cause,unrest.ts)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder' | 'trek';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder' | 'trek' | 'spring';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -559,7 +567,7 @@ export interface Annal {
   by?: number;
   /** 作者下令立的约、划的中立地(cause = decree)才有:几样选项按位(见 AnnalKind 的表;treaties.ts 的 OPT_*) */
   opt?: number;
-  /** 作者下令划的中立地(neutral,cause = decree)选了"到某一年":那一年撤销 */
+  /** 作者下令划的中立地(neutral,cause = decree)选了"到某一年":那一年撤销;顿兵过冬(winter)借用:开春再打的时刻 */
   until?: number;
 }
 

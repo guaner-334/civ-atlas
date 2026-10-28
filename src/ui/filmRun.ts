@@ -213,6 +213,7 @@ export class FilmRenderer {
         graticule: s.graticule,
         marks: s.marks ? (y) => s.marks!(sc.civ, sc.world, y) : undefined,
         markChars: s.markChars,
+        era: s.era,
       };
       const r = this.mapRect;
       const area: ShotArea = s.area === 'region' && s.region ? { kind: 'region', ...s.region } : { kind: 'whole', dpr: 1 };

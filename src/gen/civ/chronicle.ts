@@ -108,7 +108,8 @@ import { councilBefore } from './councilRules';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
 import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../era';
-import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { IV_NO_WAY } from './trekRoute';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from './rulers';
 import { personNamers } from './naming';
@@ -651,6 +652,7 @@ const TAG: Record<AnnalKind, string> = {
   exile: '逐',
   keep: '保',
   trek: '徙',
+  winter: '冬',
 };
 
 function base(
@@ -1003,6 +1005,9 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       return marryStory(civ, e, v, A, fail, done);
     case 'disaster':
       return disasterStory(civ, e, v, A, R, fail, done);
+    case 'trek':
+    case 'stay':
+      return trekStory(civ, e, v, next()?.kind === 'trek' ? next() : undefined, fail, done);
     case 'move': {
       const city = cityName(civ, e.settlement);
       if (!city) return fail(`${A}欲迁都,然其城尚未建起`, '那一年还没有这座城');
@@ -1262,6 +1267,27 @@ function waitStory(civ: Civ, e: Annal, who: string, A: string, fail: Say, done: 
   if (p?.ended !== undefined && p.ended <= cur.until) return fail(`欲立${who}继${curName}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
   const how = cur.fate === 'deposed' || cur.fate === 'overthrown' ? '被废(改朝换代)' : cur.fate === 'yielded' ? '让位' : '下台';
   return fail(`欲立${who}继${curName}为${A}之主,然${curName}${how},未及即位`, `${curName} ${Math.floor(cur.until)} 年${how},没等到${heOrShe(cur)}下台`);
+}
+
+/**
+ * 大迁徙:"【干预】克拉尔族一支举族西徙,往瑶渊之野"(经过、结局另有大迁徙那一条大事);走不成的"欲令克拉尔族徙往瑶渊之野,然陆路不通"。
+ * 不许迁:"【干预】克拉尔族自此安居故土,不复远徙,至第 2100 年"。民族在 Annal.n;动身紧跟着记 trek n = 0(go)
+ */
+function trekStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'trek' | 'stay' }>, go: Annal | undefined, fail: Say, done: Done): IvStory {
+  const F = e.n !== undefined && e.n >= 0 ? cn(civ, e.n) : '其族';
+  if (v.kind === 'stay') {
+    if (e.b === -3) return fail(`欲令${F}安居故土,然${F}已不在`, `那一年${F}已消亡`);
+    const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
+    return done(`${F}自此安居故土,不复远徙${until}`);
+  }
+  const to = v.to !== undefined ? regionName(civ, regionOfKey(v.to, keyCells(civ.regions))) : '';
+  if (e.b === -3) return fail(`欲令${F}远徙,然${F}已不在`, `那一年${F}已消亡`);
+  if (e.b === IV_NO_WAY) {
+    return to ? fail(`欲令${F}徙往${to},然陆路不通`, `陆路走不到${to}`) : fail(`欲令${F}远徙,然无地可往`, '走得到的地方里没有能去的(有城、不是本族的州)');
+  }
+  const M = go ? civ.migrations?.[go.war] : undefined;
+  const dest = regionName(civ, e.region) || to;
+  return done(`${F}一支举族${M ? `${M.dir}徙` : '远徙'}${dest ? `,往${dest}` : ''}`);
 }
 
 /** 天灾:"【干预】星邑大疫,死者十之五""【干预】有桑皇朝大饥,民多饿死,死者十之三""【干预】翼门之野一带地震,城郭多圮,死者十之三" */
@@ -2655,6 +2681,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     }
     if (e.kind === 'battle') return battleChild(battles.get(i) ?? [i]);
     if (e.kind === 'stand') return standChild(i);
+    if (e.kind === 'winter') return winterChild(i);
     if (e.kind === 'conquer') {
       // 这场战争里被夺走又打回来的,或者以前就是攻方的(议和割让、分裂出去、上一场战争丢掉的)
       const retake = (e.region >= 0 && firstOwner.get(e.region) === e.a) || ctx.retake.has(i);
@@ -2797,6 +2824,31 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     t += east || khan ? `;${lead ? `${lead}得以收兵` : '大军得以'}退保${back || '后方'}` : `;${lead ? `${lead}得以率主力` : '主力得以'}撤回${back || '后方'}`;
     for (const x of [rear, lc?.person]) if (x) named.add(x.id);
     return withPeople(base(e, i, t, 2, [e.a, e.b], [e.region, hold]), rear, lc?.person);
+  }
+
+  /**
+   * 顿兵过冬(wars.ts 的出兵避冬):要打的那州正在冬天里,攻方的兵顿在那里,开春再打。
+   * 东方 "冬,大渭将李牧顿兵瑞州,待春复攻";汗国 "天寒地冻,大渭军在瑞州一带驻冬,待开春再战";
+   * 西幻 "天寒地冻,大渭大军在瑞州一带扎营过冬,待开春再攻"。这一刻有统帅领兵的写统帅
+   */
+  function winterChild(i: number): ChronicleEntry {
+    const e = A[i];
+    const y = e.year;
+    const P = polityOf(civ, e.a);
+    const east = classical(P);
+    const khan = !!P?.eastern && !east;
+    const r = regionName(civ, e.region) || (east ? '边境' : '边境一带');
+    const s = sideOf(e.a);
+    // 领兵的统帅:这一方在这一条以前接手的最后一位(那时还在世的)。只看以前的事 —— 统帅的任期"到哪一件为止"要等往后的仗才知道,
+    // 不按它找,推到这里和推得更远写的一样
+    let c: Person | null = null;
+    if (s >= 0) for (const m of ix?.commands.get(e.war) ?? []) if (m.side === s && m.first < i) c = m.person;
+    if (c && c.died !== undefined && c.died < y) c = null;
+    const who = c ? generalRef(civ, c, y) : `${pn(civ, e.a, y)}${east || khan ? '军' : '大军'}`;
+    const at = r.endsWith('一带') ? r : `${r}一带`;
+    const t = east ? `冬,${who}顿兵${r},待春复攻` : khan ? `天寒地冻,${who}在${at}驻冬,待开春再战` : `天寒地冻,${who}在${at}扎营过冬,待开春再攻`;
+    if (c) named.add(c.id);
+    return withPeople(base(e, i, t, 1, [e.a, e.b], [e.region]), c);
   }
 
   // 标题:"大渭伐昌,得瑞州等五州";攻方先得后失:"得瑞州等三州而失雪西"(只有攻方的得失不带主语,别的一律点名)
@@ -3069,7 +3121,7 @@ function famineToll(loss: number): string {
 }
 
 /**
- * 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥")。
+ * 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥");冬夏分明的地方闹的春荒(cause = spring)前面写"春,"。
  * 「天灾」多 / 很多时自己发生的地震水旱(cause = quake,没有干预那一条可并):"大渭瑞州一带地震,城郭多圮,死者十之二"
  */
 function famineText(civ: Civ, e: Annal): string {
@@ -3083,7 +3135,7 @@ function famineText(civ: Civ, e: Annal): string {
     return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${r || '境内'}一带${what}${e.b > 1 ? `,${cnNumber(e.b)}州受灾` : ''}${k >= 1 ? `,死者十之${cnNumber(k)}` : ''}`;
   }
   const where = e.b > 1 ? `${r || '诸州'}等${cnNumber(e.b)}州` : r || '境内';
-  return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
+  return `${e.cause === 'spring' ? '春,' : ''}${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
 }
 
 /**
@@ -3998,7 +4050,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
         e.kind === 'ruin' ||
         e.kind === 'submit' ||
         e.kind === 'unally' ||
-        e.kind === 'stand');
+        e.kind === 'stand' ||
+        e.kind === 'winter');
     if (inWar) {
       let g = wars.get(e.war);
       if (!g) wars.set(e.war, (g = []));

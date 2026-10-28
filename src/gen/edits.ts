@@ -79,6 +79,8 @@
  * | `marry`   | 为他联姻 | a = 国家,person = 人物键(此刻在位的君主,或君主的儿子、兄弟叔伯),b = 对方国家 | 这一年年初两国结亲:他娶 b 在位君主的女儿(那位君主要年过 30);两国 40 年里少开战、易结盟(和推演里结的亲一样)。两国有一国已亡、是共和国、正在交战、他不是宗室 = 不生效 | how:give = 本国宗室女嫁给 b 的太子(没有就挑年轻的君主、别的宗室)/ mutual = 互嫁 |
  * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
  * | `boost`   | 推一把发展 | a = 国家;mul = 快几倍(3 / 10;不给 = 直接进下一个时代) | 快几倍:从这一年起到 until(不含)那些州四样能力的"自己长"和"向邻居学"都 × mul(卡在时代门口时自己长不乘),到期照常长、长上去的不退;直接进:这一年年初以 a 的国都所在州为准进它的下一个时代,那些州四样能力都拉到那个时代开头(不看物产等门槛;国都已在最后一个时代 = 不生效)。a 那年已亡 = 不生效(civ/boost.ts) | until:快几倍管到哪一年(不给 = from + 50);regions = 只推这几州(最多 BOOST_REGIONS_MAX 州,换了主也照推;不给 = 整国,每一刻归 a 的州) |
+ * | `trek`    | 大迁徙   | folk = 民族(`culture:…`);region = 从哪一州出发(可选);to = 往哪一州去(可选,不给 = 推演挑) | 这一年年初这一族分出一支(约三成的人,到了能占 3–8 州)举族远走,沿陆路(草原快,林地、山地慢,不过海)走到那一州,路上洗劫,到了立国、开战,和推演自己起的大迁徙一样(civ/migration.ts)。出发:给了 region、那年那州还是这一族的就从那州走,不然从本族离目的地最近的一州走。推演挑 = 走得到的、不是本族的、有城的州里"地好 × 守得弱"最高的那一州。不管全世界同时几支在路上、这个世界已经走过几次、这一族多久前走过。这一族那年已消亡 / 走不到(陆路不通、推演挑没有可去的地方)= 不生效 | reach:推演挑时走多远(near 近 / far 远;不给 = 中,见 TREK_REACHES) |
+ * | `stay`    | 不许迁   | folk = 民族                       | 从这一年起推演不让这一族大迁徙(已经在路上的照走;避兵外迁、随征服而来的移民这类小股的照旧;作者下令的大迁徙照走) | until:到这一年止(不含;不给 = 一直) |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
@@ -103,6 +105,8 @@
  * (作者立的君主不在此列:他的生死、性格归人物卡管)。同一年同一位君主又去世又改倾向:去世为准。
  * 天灾(disaster)只给它那一种用的字段(瘟疫 city、饥荒 a 或 regions(最多 DISASTER_REGIONS_MAX 州,去重)、地震水旱 region、
  * 全球大疫 city 和 slump(吸到最近的一档,30 不写)),别的去掉。
+ * 大迁徙(trek)、不许迁(stay):folk 是民族键(格式不对 = 不合格)。大迁徙的 region、to 是州键(格式不对的去掉);给了 to 就不要 reach,
+ * reach 只认 near / far(mid 是默认,不写)。不许迁只多一个 until。
  * 推一把发展(boost):mul 吸到最近的一档(BOOST_MULS;不是大于 1 的数 = 不给,直接进);直接进不要 until;快几倍的 until 不晚于 from 的
  * 换成 from + BOOST_YEARS_DEFAULT;regions 去重、去掉格式不对的、最多 BOOST_REGIONS_MAX 个(给了却一个都不合格 = 不合格)。
  * fromTick(可选,哪一种都能带):在 from 那一年的第几格(见"时刻";1–YEAR_TICKS−1,没有 = 年初)。逐年推演停在年中时下的命令带着它;
@@ -541,6 +545,9 @@
  *  46:大迁徙(civ/migration.ts):草原、寒地的民族老家挤、闹灾年、本族的国散了,附近又有大乱、疫后空了、富庶的地时,
  *      分出一支举族远走(每个世界三千年里三到六次),一路走一路抢,到了占几州立国、当即开战;打进国都的,比它小的国家亡国、
  *      大国大崩解,迁来的占着国都一带;入主以后统治民族是少数的,两三百年里多半渐染当地之俗。编年史一次一条大事。历史重新推演
+ *  47:季节进推演(gen/seasons.ts 估算一年里各地的月温):出兵避冬(civ/wars.ts:要打的那州正在冬天里就顿兵到开春再打,编年史记"顿兵过冬"),
+ *      冬夏分明的地方饥荒挪到当地青黄不接的春荒(civ/unrest.ts,编年史写"春,某州大饥");还没即位的预定继承人的名字从他出道那一刻就算用过
+ *      (civ/lineage.ts:同一刻出道的兄弟不再推到一半时和他同名)。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -554,7 +561,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 46;
+export const GENERATOR_VERSION = 47;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -619,6 +626,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
   46: { change: 'history' },
+  47: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
@@ -642,7 +650,16 @@ export type InterventionKind =
   | 'regent'
   | 'marry'
   | 'keep'
-  | 'boost';
+  | 'boost'
+  | 'trek'
+  | 'stay';
+
+/**
+ * 大迁徙(trek)"推演挑"时走多远:near 近(五到十州)/ mid 中(十到二十州,和推演自己起的一样)/ far 远(二三十州,横穿大陆,只有下令才有)。
+ * 中是默认,不写
+ */
+export const TREK_REACHES = ['near', 'mid', 'far'] as const;
+export type TrekReach = (typeof TREK_REACHES)[number];
 
 /** 推一把发展快几倍的几档(干预 boost 的 mul;不给 = 直接进下一个时代) */
 export const BOOST_MULS = [3, 10] as const;
@@ -726,6 +743,8 @@ export type Intervention = (
   | { kind: 'regent'; a: string; person: string; from: number; how: RegentHow; end: RegentEnd; years?: number; leanings?: RulerLeanings }
   | { kind: 'marry'; a: string; person: string; b: string; from: number; how?: MarryHow }
   | { kind: 'boost'; a: string; from: number; mul?: BoostMul; until?: number; regions?: string[] }
+  | { kind: 'trek'; folk: string; from: number; region?: string; to?: string; reach?: Exclude<TrekReach, 'mid'> }
+  | { kind: 'stay'; folk: string; from: number; until?: number }
   | {
       kind: 'policy';
       a: string;
@@ -1438,7 +1457,7 @@ export function upgradeLegacyKeys(edits: WorldEdits, seat: ArrayLike<number>): W
   const list = edits.interventions.map((v) => {
     const o = v as unknown as Record<string, unknown>;
     let w: Record<string, unknown> | null = null;
-    for (const f of ['a', 'b', 'region', 'city']) {
+    for (const f of ['a', 'b', 'region', 'city', 'folk', 'to']) {
       const c = upgradeKey(o[f], seat);
       if (c === null) continue;
       w ??= { ...o };
@@ -1746,7 +1765,7 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost', 'trek', 'stay'];
 
 /** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
 export interface PersonKeyParts {
@@ -1796,6 +1815,18 @@ function cleanDisaster(o: Record<string, unknown>, from: number): Intervention |
   if (!rs.length) return null;
   const regions = rs.length === o.regions.length && rs.every((k, i) => k === (o.regions as unknown[])[i]) ? (o.regions as string[]) : rs;
   return { kind: 'disaster', type, level, from, regions };
+}
+
+/** 大迁徙(trek)/ 不许迁(stay):见文件头"大迁徙"的清理 */
+function cleanTrek(o: Record<string, unknown>, kind: 'trek' | 'stay', from: number, until: number | null): Intervention | null {
+  if (!isCultureKey(o.folk)) return null;
+  const folk = o.folk;
+  if (kind === 'stay') return until !== null ? { kind, folk, from, until } : { kind, folk, from };
+  const v: Extract<Intervention, { kind: 'trek' }> = { kind, folk, from };
+  if (isRegionKey(o.region)) v.region = o.region;
+  if (isRegionKey(o.to)) v.to = o.to;
+  else if (o.reach === 'near' || o.reach === 'far') v.reach = o.reach;
+  return v;
 }
 
 /** 推一把发展(boost):见文件头"推一把发展"的清理 */
@@ -1972,6 +2003,7 @@ function cleanTreatyIv(o: Record<string, unknown>, kind: 'treaty' | 'neutral', a
 export const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
 export const isRegionKey = (k: unknown): k is string => typeof k === 'string' && REGION_KEY.test(k);
 export const isCityKey = (k: unknown): k is string => typeof k === 'string' && /^settlement:[rc]\d{1,7}#\d{1,5}$/.test(k);
+export const isCultureKey = (k: unknown): k is string => typeof k === 'string' && /^culture:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
 /** 年份:取整、夹到 [0, INTERVENTION_YEAR_MAX];不是有限数 = null */
 export const yearOf = (y: unknown): number | null =>
   typeof y === 'number' && Number.isFinite(y) ? Math.min(INTERVENTION_YEAR_MAX, Math.max(0, Math.floor(y))) : null;
@@ -2014,6 +2046,10 @@ export function cleanIntervention(x: unknown): Intervention | null {
     const d = cleanDisaster(o, from);
     if (!d) return null;
     v = d;
+  } else if (kind === 'trek' || kind === 'stay') {
+    const t = cleanTrek(o, kind, from, untilOf());
+    if (!t) return null;
+    v = t;
   } else {
     if (!isPolityKey(o.a)) return null;
     const a = o.a;
@@ -2407,7 +2443,7 @@ export function sameFollow(a: unknown, b: unknown): boolean {
  * 天灾只有选了一国闹饥荒的才有)
  */
 export function interventionKeys(v: Intervention): string[] {
-  if (v.kind === 'found') return [];
+  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay') return [];
   if (v.kind === 'disaster') return v.a ? [v.a] : [];
   if (v.kind === 'destroy') return v.b ? [v.a, v.b] : [v.a];
   if (v.kind === 'treaty') return v.by ? [v.a, ...v.ps, v.by] : [v.a, ...v.ps];

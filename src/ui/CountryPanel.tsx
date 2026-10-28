@@ -17,7 +17,7 @@
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、
  *         姻亲(最近一门亲 40 年内、那以后没开过战的国家,可点,名字后面是哪年结亲;有才写)、
  *         立约(这一年还在的约:约名可点、开条约卡片,"到哪年",下面一句和哪几国互不侵犯)/ 中立地(参与共建的,州名可点;有才写)、
- *         邻国(可点),来历 / 结局 / 历任国都(有才写)
+ *         邻国(可点),来历 / 结局 / 历任国都(有才写;大迁徙迁来立的国,来历写"克拉尔族自诺敏塔拉西徙至此立国",地名点了跳到动身那年)
  *   历代君主  当前这位和前后各两位(新的在上;遇弑、被废这类结局写在名字后面),点一行看这个人;
  *             作者立的君主(让作者的人物即位):名字前面是他的圆头像,后面写「作者的人物」,点了开作者的人物卡;
  *         "全部 N 位"打开概览的人物页、只看这国的君主;"世系图"(不是共和国才有)打开这国的世系图,停在时间轴那一年的那一朝
@@ -47,6 +47,8 @@ import { spaced, yearAt, yearFull, yearShort, yearShortAt, yearSpan, yearSpanAt 
 import { useEdits, useEra } from './editsStore';
 import { CharAvatar } from './CharacterPanel';
 import { setCivTime, setSelection } from './civView';
+import { polityTrek } from './migrationInfo';
+import { TrekFrom } from './TrekFrom';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
 import { isConsul, kinOf, personName, rulerFateWord } from '../gen/civ/peopleText';
 import { REGENCY_VERB, holderAt, inLawsAt, type Held } from '../gen/civ/regentInfo';
@@ -62,6 +64,7 @@ import { FiscalPage, FiscalRow } from './FiscalPage';
 import { CourtPage, CourtRow, FormRow } from './CourtPage';
 import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
+import { TrekPage } from './TrekPage';
 import { BoostPage } from './BoostPage';
 import { boostRow } from './boostInfo';
 import { TreatyPage, ZonePage } from './TreatyPage';
@@ -161,6 +164,8 @@ export function CountryPanel(props: CountryPanelProps) {
           <DestroyPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'disaster' ? (
           <DisasterPage key={id} civ={civ} polity={id} year={year} from={page.year} />
+        ) : page?.kind === 'trek' ? (
+          <TrekPage key={id} civ={civ} polity={id} year={year} from={page.year} />
         ) : page?.kind === 'boost' ? (
           <BoostPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'treaty' ? (
@@ -329,6 +334,8 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
     }
     return null;
   }, [civ, id]);
+  // 大迁徙迁来立的国:「来历」写哪一族从哪里迁来
+  const trek = useMemo(() => polityTrek(civ, id), [civ, id]);
   const stateFaith = stateFaithAt(civ.religion, id, shownYear);
   const other = (q: number, y: number) => (civ.polities[q] ? <Link to={{ kind: 'polity', id: q }}>{polityName(civ.polities[q], y)}</Link> : null);
   const capitals = p.capitals?.length ? p.capitals : [{ year: p.founded, settlement: p.capital }];
@@ -538,7 +545,12 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
               <span className="cp-none">无</span>
             )}
           </Row>
-          {(p.restores !== undefined && civ.polities[p.restores]) || (p.parent !== undefined && civ.polities[p.parent]) ? (
+          {trek ? (
+            <Row k="来历">
+              {cultureLabel(civ.cultures[trek.M.culture])}自<TrekFrom civ={civ} m={trek.m} />
+              {trek.M.dir}徙至此立国
+            </Row>
+          ) : (p.restores !== undefined && civ.polities[p.restores]) || (p.parent !== undefined && civ.polities[p.parent]) ? (
             <Row k="来历">
               {p.restores !== undefined && civ.polities[p.restores] ? (
                 <>复{other(p.restores, civ.polities[p.restores].ended ?? p.founded)}之国</>
