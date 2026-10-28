@@ -3478,15 +3478,24 @@ if (part('政体和朝政页')) {
   const small = ((await page.evaluate('window.__wfPickables()')) as { kind: string; id: number }[]).filter((q) => q.kind === 'polity').map((q) => q.id);
   let smallRow = '';
   let smallPage = '';
-  // 能点的国名里挨个看(不只看前 40 个:历史变了,前面几十个可能都够得上议事)
-  for (const q of [...new Set(small)]) {
-    await pickPolity(q);
-    if (await page.locator('.inspector [data-act=court]').count()) continue;
-    smallRow = await rowText();
+  // 先在能点的国名里挨个看(前 40 个);都够得上议事(小国的名字常常没标在图上)就按国家编号挨个选:这一年还在、有「政体」一行的
+  const tryPolity = async (q: number, quick: boolean) => {
+    if (quick) await pickPolity(q);
+    else {
+      await page.evaluate((i) => (window as any).__wfSelect('polity', i), q);
+      if (!(await page.locator(`.inspector .cp[data-polity="${q}"] .cp-k`).first().waitFor({ timeout: 1500 }).then(() => true, () => false))) return false;
+    }
+    if (await page.locator('.inspector [data-act=court]').count()) return false;
+    const r = await rowText();
+    if (!r) return false;
+    smallRow = r;
     await page.click('.inspector [data-act=court-form]').catch(() => {});
     smallPage = (await page.locator('.inspector .ct-page').innerText({ timeout: 3000 }).catch(() => '')).replace(/\s+/g, ' ');
-    break;
-  }
+    return true;
+  };
+  let found = false;
+  for (const q of small.slice(0, 40)) if ((found = await tryPolity(q, true))) break;
+  for (let q = 0; q < 150 && !found; q++) found = await tryPolity(q, false);
   console.log(
     `政体和朝政页:第 ${id} 国「${row}」→ 朝政页「${gov}」,${segs} 条分段条亮着「${lit.join('、')}」,轴「${axis}」;` +
       `历次改制 ${changes.length} 条、时间条 ${bar} 段(最新「${(changes[0] ?? '').slice(0, 60)}」),点了打开编年史 ${chron};` +
