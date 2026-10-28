@@ -378,7 +378,7 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     return { culture: c / n, polity: p / n };
   }
 
-  it('挖一个湖(州数变了、州号错开):远处陆地到第 3000 年民族没变 ≥ 73%、国家没变 ≥ 62%', () => {
+  it('挖一个湖(州数变了、州号错开):远处陆地到第 3000 年民族没变 ≥ 73%、国家没变 ≥ 50%', () => {
     const k = edited(seed, 'lake');
     expect(k.c1.regions.count, '州数变了(州号错开)').not.toBe(k.c0.regions.count);
     const r = kept(k, k.c0.endYear);
@@ -390,8 +390,10 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     // 民族、国家的下限放到 73% / 69%
     // GENERATOR_VERSION 43(议和了还会再打、看邻国更勤:一处改了,远处的冤家什么时候再打也跟着变)以后 7 号、2024 号的国家没变 67.2% / 63.9%:
     // 国家的下限放到 62%
+    // GENERATOR_VERSION 46(季节进推演:冬天顿兵、春荒,一仗挪几个月,远处的仗跟着错开)以后 2024 号的国家没变 54.4%(以前 63.9%);
+    // 种子 1–20 挖同样的湖,国家没变 50.6%–83.7%(改前 49.2%–84.3%,平均 67% / 68.5%,整体没变差):国家的下限按 20 个种子的最小值放到 50%
     expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.73);
-    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.62);
+    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.5);
   }, 60_000);
 
   it('海里放一座小火山:远处的地形不变(99% 以上);远处陆地到第 3000 年民族没变 ≥ 85%、国家没变 ≥ 75%;远处海、山、河的名字没变 ≥ 80%', () => {
