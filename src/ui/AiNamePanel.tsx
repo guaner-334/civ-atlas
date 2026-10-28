@@ -57,12 +57,12 @@ interface NameNote extends AiNote {
   portStamp?: string;
 }
 
-interface Err {
+export interface Err {
   code: AiErrorCode;
   message: string;
 }
 
-function toErr(e: unknown): Err {
+export function toErr(e: unknown): Err {
   if (e instanceof AiError) return { code: e.code, message: e.message };
   return { code: 'other', message: `出错了:${e instanceof Error ? e.message : String(e)}` };
 }
@@ -110,23 +110,23 @@ const fresh = (key: string): State => ({
 });
 
 /** 存释名用的世界编号(saveStore 的;还没挂上世界时按种子) */
-function worldId(civ: Civ): string {
+export function worldId(civ: Civ): string {
   return currentWorld()?.id ?? `seed-${civ.seed}`;
 }
 
-function providerLabel(kind: string, model: string): string {
+export function providerLabel(kind: string, model: string): string {
   const p = getProvider(kind as AiProviderKind);
   const label = p?.label ?? kind;
   return model && model !== kind && !label.includes(model) ? `${label} ${model}` : label;
 }
 
-function dateLabel(iso: string): string {
+export function dateLabel(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /** 错误 / 取消的一行提示(没设置 AI:"还没有设置 AI · 设置 AI";被审核拦下:一句平常话,原文放在悬停提示里) */
-function ErrLine({ err, retry }: { err: Err; retry: () => void }) {
+export function ErrLine({ err, retry }: { err: Err; retry: () => void }) {
   const aborted = err.code === 'aborted';
   const unset = err.code === 'not-configured';
   const filtered = err.code === 'content-filter';
@@ -159,6 +159,8 @@ export interface AiNameProps {
   lazy?: boolean;
   /** 框上的叫法:"族名" → "族名由来""AI 起族名"(不给 = "名字由来""AI 起名");由来那一段标"AI 写" */
   what?: string;
+  /** 写好的由来一打开就显示全文(民族卡片:写好的留在卡片最下面);不给 = 先收成几行,点了才展开 */
+  open?: boolean;
 }
 
 export interface AiName {
@@ -176,14 +178,15 @@ export interface AiName {
   busy: boolean;
 }
 
-export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiNameProps): AiName {
+export function useAiName({ civ, raw, raster, target, compact, lazy, what, open }: AiNameProps): AiName {
   useNotesVersion();
   const on = useAiOn();
   // 释名里写的是"第 N 年":按纪年显示、复制
   const era = useEra();
   const info = target ? nameInfo(civ, target) : null;
   const key = info?.key ?? '';
-  const [st, setSt] = useState<State>(() => fresh(key));
+  const init = (k: string): State => ({ ...fresh(k), expanded: !!open });
+  const [st, setSt] = useState<State>(() => init(key));
   const ctl = useRef<AbortController | null>(null);
   // 选中别的东西(或卸载):停掉进行中的调用
   useEffect(() => () => ctl.current?.abort(), [key]);
@@ -192,7 +195,7 @@ export function useAiName({ civ, raw, raster, target, compact, lazy, what }: AiN
     if (!on) ctl.current?.abort();
   }, [on]);
   // 换了对象:状态从头来
-  const s = st.key === key ? st : fresh(key);
+  const s = st.key === key ? st : init(key);
   if (st.key !== key) setSt(s);
   const patch = (k: string, p: Partial<State>) => setSt((prev) => (prev.key === k ? { ...prev, ...p } : prev));
 

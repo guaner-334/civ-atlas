@@ -33,7 +33,7 @@ import { fantasyGlobeInkMask, fantasyInkMask, fantasyInkProj, fantasyWholeProjPr
 import { coastBlocks, KEEP, landCover, nearestCellPixel, nearestSide, type DetailGrid, type SegIndex } from './zoomGrid';
 import { reprojectImage } from '../projection';
 import type { CivDrawParams, CivStyle } from './overlay';
-import { faithBase, faithCiv, faithColors } from './faith';
+import { cultureFocusColors, faithBase, faithCiv, faithColors } from './faith';
 import { eraBase, eraCiv, eraColors } from './era';
 import { controlBase, controlCiv, controlColors } from './control';
 import { vassalColors, vassalTies } from './vassals';
@@ -1010,9 +1010,15 @@ function faithParams(p: CivDrawParams): CivDrawParams | null {
   return { ...p, civ: faithCiv(p.civ), show: { ...p.show, cultures: true, faiths: false } };
 }
 
-/** washFields 的缓存键:层 + 年份 + 画风(信仰 / 时代图层再加选中的信仰) */
+/** 选中的信仰 / 民族进缓存键的那一截:信仰 / 时代图层 = 选中的信仰;民族填色 = 选中的民族;别的 = 空 */
+function focusKey(p0: CivDrawParams, fp: CivDrawParams | null, layer: Layer): string {
+  if (fp) return `|${p0.faithFocus ?? ''}`;
+  return layer === Layer.Culture && p0.cultureFocus !== undefined && p0.cultureFocus !== null ? `|c${p0.cultureFocus}` : '';
+}
+
+/** washFields 的缓存键:层 + 年份 + 画风(信仰 / 时代图层再加选中的信仰,民族填色再加选中的民族) */
 function fieldsKey(p0: CivDrawParams, fp: CivDrawParams | null, layer: Layer): string {
-  return `${layer}|${p0.year}|${p0.style}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+  return `${layer}|${p0.year}|${p0.style}${focusKey(p0, fp, layer)}`;
 }
 
 /** 这一年这一层的归属、渐入系数(都是拷贝,不怕别处改) */
@@ -1026,9 +1032,10 @@ function fieldOwners(p: CivDrawParams, c: Cache, layer: Layer) {
   return { owner, fade, fading, look };
 }
 
-/** 颜色:国土的藩属往宗主的颜色靠(vassals.ts);信仰 / 时代 / 管辖图层用信仰 / 时代 / 管辖的颜色 */
+/** 颜色:国土的藩属往宗主的颜色靠(vassals.ts);信仰 / 时代 / 管辖图层用信仰 / 时代 / 管辖的颜色;民族填色上选中了一个民族时别的变淡 */
 function fieldColors(p0: CivDrawParams, fp: CivDrawParams | null, p: CivDrawParams, layer: Layer, look: LayerLook): Uint8Array {
-  return fp ? (eraBase(fp.civ) ? eraColors() : controlBase(fp.civ) ? controlColors() : faithColors(p0.civ, p0.faithFocus)) : layer === Layer.Polity ? vassalColors(look.colors, vassalTies(p.civ, p.year)) : look.colors;
+  if (fp) return eraBase(fp.civ) ? eraColors() : controlBase(fp.civ) ? controlColors() : faithColors(p0.civ, p0.faithFocus);
+  return layer === Layer.Polity ? vassalColors(look.colors, vassalTies(p.civ, p.year)) : cultureFocusColors(look.colors, p0.cultureFocus);
 }
 
 const noEdge = (): EdgeField => ({ G: 0, GW: 0, GH: 0, PAD: 0, label: new Int16Array(0), dist: new Float32Array(0) });
@@ -1184,7 +1191,7 @@ function washTarget(p0: CivDrawParams) {
   const globeInk = !!p.globeInk && p.style === 'fantasy' && !p.proj;
   // 弯边投影 · 手绘:符号遮罩按投影后的符号层合成,色块本身不乘遮罩
   const projInk = !!p.proj && p.style === 'fantasy';
-  const key = `${layer}|${p.year}|${p.style}|${projInk ? 1 : 0}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+  const key = `${layer}|${p.year}|${p.style}|${projInk ? 1 : 0}${focusKey(p0, fp, layer)}`;
   // 存档缩略图:主图那份正好是这一张就直接用,不然单独一份(画完放掉,见 CivDrawParams.thumb)
   const slot = globeInk ? f + 10 : p.thumb && c.bufs.get(f)?.key !== key ? f + THUMB_SLOT : f;
   const b = bufOf(c, f, slot);

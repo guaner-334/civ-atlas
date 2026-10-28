@@ -5,10 +5,10 @@
  *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(天灾… / 在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
  *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州)
  *         演一国时别国的州:在这里立国、划给…、天灾…变灰,按钮下面写一句(和别国的国家卡片一样,RoleBar.tsx 的 RoleLockNote)
- *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
+ *   概况  主体民族(族名可点,开民族卡片;改族名在民族卡片里)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
  *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、
  *         管辖(中央管得到几成 + 档位,"52% 代管";分封出去的边州 "11% 自治,封地";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
- *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
+ *         民族(族名由来 / 起族名,和民族卡片里的是同一份)、来历(分化出来的民族:哪年从哪族分出,母族可点、开它的民族卡片)
  *   中立地(几国共建、议和划出,不归任何一国;gen/civ/treatyInfo.ts):色块换成共建几国颜色的细横纹,名字下面写"中立地，某国、某国 2301 年共建"
  *         (手机上写"三国");概况最前面多「共建」「来历」(依哪份约设,约名可点开条约卡片)「期限」(手机上不写)「住着」(徙居、出奔来的人),
  *         管辖写"几国都不驻兵";历任归属里中立地那几年画细横纹
@@ -33,7 +33,7 @@ import { isFiefRegion } from './courtInfo';
 import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
-import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
+import { cleanName, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { useEdits, useEra } from './editsStore';
 import { queueIntervention } from './pendingStore';
 import { nextYear, useStepwise } from './stepwiseStore';
@@ -53,7 +53,6 @@ import { newMarkDraft } from './markStore';
 import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfRegion } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
-import { cultureRegion } from './searchIndex';
 import { DisasterPage } from './DisasterPage';
 import { regionDisasterMark } from './newIvInfo';
 import { treatyBook, treatyTitle, type ZoneInfo } from '../gen/civ/treatyInfo';
@@ -192,7 +191,7 @@ export function RegionPanel(props: DetailProps) {
 // ---------------------------------------------------------------------------
 // 信息页
 
-function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: DetailProps & Pick<ReturnType<typeof useRevealAi>, 'ai' | 'aiRef'>) {
+function RegionInfo({ civ, raw, raster, world, id, year, ai, aiRef }: DetailProps & Pick<ReturnType<typeof useRevealAi>, 'ai' | 'aiRef'>) {
   const edits = useEdits();
   const chars = edits.characters;
   const refs = useMemo(() => charactersAt(civ, world, raster, chars, { region: id }, edits.era), [civ, world, raster, chars, id, edits.era]);
@@ -237,20 +236,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
         items={[
           {
             k: '主体民族',
-            v: cu ? (
-              <NameEdit
-                k={cultureKey(civ, cid)}
-                kind="culture"
-                shown={cultureLabel(cu)}
-                current={cu.name}
-                fallback={raw.cultures[cid].name}
-                names={names}
-                preview={(v) => `${v}族`}
-                hint="族名(不带“族”字)"
-              />
-            ) : (
-              '—'
-            ),
+            v: cu ? <Link to={{ kind: 'culture', id: cid }}>{cultureLabel(cu)}</Link> : '—',
           },
           { k: '宜居度', v: score, note: habitatWord(score) },
           {
@@ -315,7 +301,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
           <Row k="来历">
             <span>
               {yearAt(cu.born, edits.era)}从
-              {pa.ended !== undefined && pa.ended <= year ? cultureLabel(pa) : <Link to={{ kind: 'region', id: cultureRegion(civ, pa.id, year, own) }}>{cultureLabel(pa)}</Link>}
+              <Link to={{ kind: 'culture', id: pa.id }}>{cultureLabel(pa)}</Link>
               分出
             </span>
           </Row>
