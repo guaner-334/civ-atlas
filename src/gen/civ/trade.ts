@@ -27,7 +27,7 @@ import { Biome } from '../biomes';
 import { MinHeap } from '../util';
 import { keyed, subSeed } from './rand';
 import type { CivSim } from './sim';
-import { Cap, CAP_COUNT, DISCOVER_AT, GATE_NEAR, RESOURCE_COUNT, Res, devModelOf, gateNeed, type DevModel } from './development';
+import { Cap, CAP_COUNT, DISCOVER_AT, GATE_NEAR, RESOURCE_COUNT, devModelOf, gateNeed, type DevModel } from './development';
 import { warModelOf, type WarModel } from './wars';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { capitalAt } from './growth';
@@ -52,21 +52,15 @@ const RANGE_PER = 150;
 /** 过界的代价(按 AdjKind:平地、跨河、翻山、海峡、航线) */
 const EDGE = [1, 1, 2, 2, 2.5];
 
-/** 运的货(Res 下标),按分量从重到轻 */
-export const TRADE_GOODS: readonly number[] = [Res.Salt, Res.Iron, Res.Copper, Res.Coal, Res.Oil, Res.Livestock, Res.Rare, Res.Gold];
+/**
+ * 物产的下标(同 development.ts 的 Res)。推演的几个文件互相引用,这个文件装载时 development.ts 可能还没装载完,
+ * 装载时就要用的值不从那边取
+ */
+export const G = { Livestock: 1, Copper: 2, Iron: 3, Coal: 4, Salt: 6, Oil: 8, Rare: 9, Gold: 10 } as const;
+/** 运的货(物产下标),按分量从重到轻 */
+export const TRADE_GOODS: readonly number[] = [G.Salt, G.Iron, G.Copper, G.Coal, G.Oil, G.Livestock, G.Rare, G.Gold];
 /** 每样货的分量(排名、"按运得最多的那样起名"用) */
-const WEIGHT: readonly number[] = (() => {
-  const w = new Array<number>(RESOURCE_COUNT).fill(0);
-  w[Res.Salt] = 1;
-  w[Res.Iron] = 0.9;
-  w[Res.Copper] = 0.9;
-  w[Res.Coal] = 0.9;
-  w[Res.Oil] = 0.9;
-  w[Res.Livestock] = 0.8;
-  w[Res.Rare] = 0.7;
-  w[Res.Gold] = 0.6;
-  return w;
-})();
+const WEIGHT: Readonly<Record<number, number>> = { [G.Salt]: 1, [G.Iron]: 0.9, [G.Copper]: 0.9, [G.Coal]: 0.9, [G.Oil]: 0.9, [G.Livestock]: 0.8, [G.Rare]: 0.7, [G.Gold]: 0.6 };
 const GOODS_MASK = TRADE_GOODS.reduce((m, g) => m | (1 << g), 0);
 /** 马:牲畜要在这些群落里才算(草原、荒漠) */
 const HORSE_BIOMES = new Set<number>([Biome.Steppe, Biome.Savanna, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert]);
@@ -109,6 +103,8 @@ export interface TradeState {
   annals: number;
   /** 还没废的商道:编号、挡着它的仗(断着时)、上一步经过的国家(含产地所属国,不含买方) */
   live: { id: number; broken: boolean; blockers: number[]; via: number[] }[];
+  /** 停下那一刻(不在整步上)先记上的事:[商道编号, 几件](接着推时去掉);没有 = 不给 */
+  tail?: [number, number][];
 }
 
 export interface Trade {
@@ -183,7 +179,9 @@ function hook(sim: CivSim, base: number, civ: Civ | null): void {
   if (t) {
     m.last = t.state.last;
     m.annals = t.state.annals;
-    m.routes = t.routes.map((r) => ({ ...r, goods: r.goods.map((g) => ({ ...g })), events: r.events.map((e) => ({ ...e })), paths: r.paths.map((p) => ({ year: p.year, regions: p.regions.slice() })) }));
+    m.routes = t.routes.map(copyRoute);
+    // 停下那一刻先记上的几件(上一步以后的宣战、议和、亡国):去掉,从上一步接着算
+    for (const [id, n] of t.state.tail ?? []) m.routes[id]?.events.splice(-n, n);
     m.live = t.state.live.filter((l) => m.routes[l.id]).map((l) => ({ r: m.routes[l.id], broken: l.broken, blockers: l.blockers.slice(), via: l.via.slice() }));
   } else if (civ) {
     m.annals = civ.annals.length;
@@ -192,21 +190,36 @@ function hook(sim: CivSim, base: number, civ: Civ | null): void {
   d.afterTick = (y) => step(sim, m, y);
 }
 
-/** 推演到这一刻的商道(整理一份;names = 州名,起名用,不给 = 不起名) */
+/**
+ * 推演到这一刻的商道(整理一份;regions = 州表,起名用,不给 = 不起名)。
+ * 上一步以后到这一刻的宣战、议和、买方亡国先记上(这一刻停下的历史里看得到);接着推时去掉它们,从上一步接着算(TradeState.tail)
+ */
 export function finishTrade(sim: CivSim, regions?: Regions): Trade | undefined {
   const m = models.get(sim);
   if (!m) return undefined;
-  const routes: TradeRoute[] = m.routes.map((r) => ({
-    ...r,
-    goods: r.goods.map((g) => ({ ...g })),
-    events: r.events.map((e) => ({ ...e })),
-    paths: r.paths.map((p) => ({ year: p.year, regions: p.regions.slice() })),
-  }));
+  const routes: TradeRoute[] = m.routes.map(copyRoute);
+  const before = routes.map((r) => r.events.length);
+  const live = m.live.map((L) => ({ r: routes[L.r.id], broken: L.broken, blockers: L.blockers.slice(), via: L.via.slice() }));
+  scanAnnals(sim, live, m.annals);
+  dropFallen(m.pm, live, sim.now, false);
+  const tail: [number, number][] = [];
+  routes.forEach((r, i) => {
+    if (r.events.length > before[i]) tail.push([i, r.events.length - before[i]]);
+  });
   if (regions) nameRoutes(routes, regions, m.d.world.mesh);
   return {
     routes,
-    state: { last: m.last, annals: m.annals, live: m.live.map((l) => ({ id: l.r.id, broken: l.broken, blockers: l.blockers.slice(), via: l.via.slice() })) },
+    state: {
+      last: m.last,
+      annals: m.annals,
+      live: m.live.map((l) => ({ id: l.r.id, broken: l.broken, blockers: l.blockers.slice(), via: l.via.slice() })),
+      ...(tail.length ? { tail } : {}),
+    },
   };
+}
+
+function copyRoute(r: TradeRoute): TradeRoute {
+  return { ...r, goods: r.goods.map((g) => ({ ...g })), events: r.events.map((e) => ({ ...e })), paths: r.paths.map((p) => ({ year: p.year, regions: p.regions.slice() })) };
 }
 
 /** 推演引擎上挂着的商道模型里此刻的商道(测试、统计用) */
@@ -237,42 +250,11 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
   const reg = pm.terrain.regions;
   const R = Math.min(pm.terrain.R, ownP.length);
 
-  // 1. 两步之间的史事:宣战断、议和复通
-  for (; m.annals < sim.annalCount; m.annals++) {
-    const e = sim.annal(m.annals);
-    if (e.kind === 'war') {
-      for (const L of m.live) {
-        const p = L.r.buyer;
-        const q = e.a === p ? e.b : e.b === p ? e.a : -1;
-        if (q < 0 || !L.via.includes(q)) continue;
-        if (!L.broken) {
-          push(L, { year: e.year, kind: 'break', war: e.war, foe: q });
-          L.broken = true;
-        }
-        if (!L.blockers.includes(e.war)) L.blockers.push(e.war);
-      }
-    } else if (e.kind === 'peace') {
-      for (const L of m.live) {
-        const i = L.blockers.indexOf(e.war);
-        if (i < 0) continue;
-        L.blockers.splice(i, 1);
-        if (L.broken && !L.blockers.length) {
-          push(L, { year: e.year, kind: 'reopen', war: e.war });
-          L.broken = false;
-        }
-      }
-    }
-  }
-
-  // 2. 买方亡了:那一年废
+  // 1. 两步之间的史事:宣战断、议和复通;2. 买方亡了:那一年废
+  m.annals = scanAnnals(sim, m.live, m.annals);
   const P = pm.polities.length;
   const alive = (p: number) => p >= 0 && p < P && pm.polities[p].ended === undefined && pm.size[p] > 0;
-  m.live = m.live.filter((L) => {
-    if (alive(L.r.buyer)) return true;
-    const y = pm.polities[L.r.buyer]?.ended ?? t;
-    end(L, Math.max(y, lastYear(L)), 'fall');
-    return false;
-  });
+  m.live = dropFallen(pm, m.live, t, true);
 
   // 3. 各州眼下产什么(按位):有人住、这一刻采得到(发现了、没采空;development.ts 的 availNow);马要在草原、荒漠上
   const prod = new Uint16Array(R);
@@ -282,7 +264,7 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
     const o = r * RESOURCE_COUNT;
     let b = 0;
     for (const g of TRADE_GOODS) if (availNow[o + g] > 0) b |= 1 << g;
-    if (b & (1 << Res.Livestock) && !HORSE_BIOMES.has(reg.biome[r])) b &= ~(1 << Res.Livestock);
+    if (b & (1 << G.Livestock) && !HORSE_BIOMES.has(reg.biome[r])) b &= ~(1 << G.Livestock);
     prod[r] = b;
   }
 
@@ -322,9 +304,9 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
     let has = 0;
     for (const r of pm.lands[p]) if (r < R) has |= prod[r];
     const lv = d.cur[cr * CAP_COUNT + Cap.Production];
-    let need0 = (1 << Res.Salt) | (1 << Res.Livestock);
-    if (lv >= DISCOVER_AT[Res.Iron]) need0 |= 1 << Res.Iron;
-    if (lv >= DISCOVER_AT[Res.Gold]) need0 |= 1 << Res.Gold;
+    let need0 = (1 << G.Salt) | (1 << G.Livestock);
+    if (lv >= DISCOVER_AT[G.Iron]) need0 |= 1 << G.Iron;
+    if (lv >= DISCOVER_AT[G.Gold]) need0 |= 1 << G.Gold;
     if (lv > Math.floor(lv) + 1 - GATE_NEAR) need0 |= gateNeed(lv);
     const want = need0 & GOODS_MASK & ~has;
     wants.set(p, want);
@@ -454,6 +436,49 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
   finishStep(m, t);
 }
 
+/** 史事从第 from 条读起:买方和商道经过的国家宣战 → 断(记下是哪一仗),挡着它的仗都议和了 → 复通。返回读到第几条 */
+function scanAnnals(sim: CivSim, live: Live[], from: number): number {
+  let i = from;
+  for (; i < sim.annalCount; i++) {
+    const e = sim.annal(i);
+    if (e.kind === 'war') {
+      for (const L of live) {
+        const p = L.r.buyer;
+        const q = e.a === p ? e.b : e.b === p ? e.a : -1;
+        if (q < 0 || !L.via.includes(q)) continue;
+        if (!L.broken) {
+          push(L, { year: e.year, kind: 'break', war: e.war, foe: q });
+          L.broken = true;
+        }
+        if (!L.blockers.includes(e.war)) L.blockers.push(e.war);
+      }
+    } else if (e.kind === 'peace') {
+      for (const L of live) {
+        const k = L.blockers.indexOf(e.war);
+        if (k < 0) continue;
+        L.blockers.splice(k, 1);
+        if (L.broken && !L.blockers.length) {
+          push(L, { year: e.year, kind: 'reopen', war: e.war });
+          L.broken = false;
+        }
+      }
+    }
+  }
+  return i;
+}
+
+/** 买方亡了的:那一年废(goods = 运的货也记上到哪年);返回还在的 */
+function dropFallen(pm: PolityModel, live: Live[], t: Year, goods: boolean): Live[] {
+  const P = pm.polities.length;
+  return live.filter((L) => {
+    const p = L.r.buyer;
+    if (p >= 0 && p < P && pm.polities[p].ended === undefined && pm.size[p] > 0) return true;
+    const y = pm.polities[p]?.ended ?? t;
+    end(L, Math.max(y, lastYear(L)), 'fall', goods);
+    return false;
+  });
+}
+
 function finishStep(m: TradeModel, t: Year): void {
   m.last = t;
 }
@@ -463,9 +488,9 @@ function lastYear(L: Live): Year {
   return ev.length ? ev[ev.length - 1].year : -Infinity;
 }
 
-function end(L: Live, y: Year, why: TradeEvent['why']): void {
+function end(L: Live, y: Year, why: TradeEvent['why'], goods = true): void {
   if (L.broken) L.broken = false;
-  for (const g of L.r.goods) if (g.until === undefined) g.until = y;
+  if (goods) for (const g of L.r.goods) if (g.until === undefined) g.until = y;
   push(L, { year: y, kind: 'end', why });
 }
 
@@ -597,7 +622,7 @@ function search(
 // 起名
 
 /** 货 → 名字里的字(铁、石油、稀有矿不带字:避开"铁道""油道"这类现代词,只用产地的名字) */
-const GOOD_CHAR: Readonly<Record<number, string>> = { [Res.Salt]: '盐', [Res.Livestock]: '马', [Res.Gold]: '金', [Res.Copper]: '铜', [Res.Coal]: '煤' };
+const GOOD_CHAR: Readonly<Record<number, string>> = { [G.Salt]: '盐', [G.Livestock]: '马', [G.Gold]: '金', [G.Copper]: '铜', [G.Coal]: '煤' };
 /** 州名末尾的这些字起名时去掉("万兴郡" → "万兴道") */
 const SUFFIX = /(州|郡|府|县|省|道|原|川|部)$/;
 
