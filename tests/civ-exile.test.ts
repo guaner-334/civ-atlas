@@ -1,7 +1,7 @@
 /**
  * 亡国之君出奔邻国(gen/civ/exile.ts):亡于战争、末代之君的下场是出奔的,记下他去了哪国 ——
  * 去的国家那时还在、不是灭他的国家;人物的下场照旧是出奔,Person.exile 记着去的国家和缘由;编年史写"某国亡,某王某某出奔某国";
- * 去处够常见;亡国之前停下、接着推,和一口气推完一样。
+ * 去处够常见;亡国之前停下、接着推,和一口气推完一样;人物卡(ui/treatyRows.ts)写的缘由、卒于那国、日后从那国回来复国的那几条和编年史对得上。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
@@ -9,6 +9,8 @@ import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { polityAlive, polityName } from '../src/gen/civ/growth';
 import { EXILE_TIES } from '../src/gen/civ/types';
+import { fullChronicle } from '../src/gen/civ/religionText';
+import { diedAbroad, exileHostName, exileReturns, exileTieText } from '../src/ui/treatyRows';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 
 const SEEDS = [1, 2, 3];
@@ -82,6 +84,40 @@ describe('亡国之君出奔邻国', () => {
       expect(c.tag).toBe('奔');
       expect(c.polities).toEqual([e.a, e.b]);
     }
+  }, 120_000);
+
+  it('人物卡:缘由只写姻亲 / 盟国 / 同约 / 同族 / 灭他之国的敌国;卒于那国 = 去世时那国还在;从那国回来复国的那几条和编年史"自某国还"对得上', () => {
+    const WORD = { kin: '投奔姻亲之国', ally: '投奔盟国', pact: '投奔同约之国', folk: '投奔同族之国' } as Record<string, string>;
+    let backs = 0;
+    for (const seed of SEEDS) {
+      const civ = civOf(seed);
+      const all = fullChronicle(civ);
+      const abroad = (civ.people ?? []).filter((x) => x.exile?.to !== undefined);
+      for (const x of abroad) {
+        const e = x.exile!;
+        const why = exileTieText(civ, x);
+        if (e.tie === 'near') expect(why).toBe('');
+        else if (e.tie === 'foe') {
+          const fall = civ.annals.find((a) => a.kind === 'fall' && a.a === x.polity && a.year === e.year)!;
+          expect(why).toBe(`投奔${polityName(civ.polities[fall.b], e.year)}的敌国`);
+        } else expect(why).toBe(WORD[e.tie!]);
+        expect(exileHostName(civ, x, e.year)).toBe(polityName(civ.polities[e.to!], e.year));
+        expect(diedAbroad(civ, x)).toBe(x.died !== undefined && polityAlive(civ.polities[e.to!], x.died));
+      }
+      // 编年史里写"自某国还"的复国,都列在那位出奔的末代之君的卡片上;卡片上列的,编年史里都写着"自那国还"
+      const listed = new Set<number>();
+      for (const x of abroad) {
+        for (const [s, c] of exileReturns(civ, x, all)) {
+          expect(s.text).toContain(`自${polityName(civ.polities[x.exile!.to!], s.year)}还`);
+          expect(c === s || c.children?.includes(s)).toBe(true);
+          listed.add(s.id);
+        }
+      }
+      const said = all.flatMap((c) => [c, ...(c.children ?? [])]).filter((s) => s.kind === 'split' && /自.+?还,/.test(s.text));
+      expect(said.map((s) => s.id).sort()).toEqual([...listed].sort());
+      backs += listed.size;
+    }
+    expect(backs).toBeGreaterThan(0);
   }, 120_000);
 
   it('亡国那一仗打到一半停下、存档读回、接着推到第 3000 年:和一口气推完逐项一样', () => {
