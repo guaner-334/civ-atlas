@@ -17,6 +17,9 @@
  *   列出几支(branchList)。当前这一支的过去变了(切换、重新演绎)时别的几支跟着换记法,每一支完整的进度不变:
  *   切回哪一支,推出来的都和带着它那串命令从第 0 年推到它走到的那年一样。
  *
+ * 时刻(见 edits.ts 文件头"时刻"):进度、命令、支线落在"第几年 + 那一年的第几格"。倒回、另开一支给年份 = 那一年年初,
+ * 给时刻({ year, tick })= 那一刻;从推演模式开始逐年推演只从年初起。
+ *
  * 一步走几年、走完停不停在 ui/stepwisePlan.ts。
  */
 import type { Civ } from './civ/types';
@@ -25,7 +28,19 @@ import { polityName } from './civ/growth';
 import {
   BRANCH_ID_MAX,
   END_YEAR_MAX,
+  YEAR_TICKS,
+  branchAt,
+  branchEnd,
+  branchFrom,
+  branchFromAt,
   branchPlay,
+  commandAt,
+  forkMoment,
+  forkedAt,
+  momentAt,
+  playAt,
+  playState,
+  ticksAt,
   END_YEAR_MIN,
   cleanEndYear,
   cleanIntervention,
@@ -37,6 +52,7 @@ import {
   playInterventions,
   resolveKey,
   type Intervention,
+  type Moment,
   type PlayBranch,
   type PlayBranches,
   type PlayState,
@@ -46,6 +62,17 @@ import {
 /** 能从第几年开始:取整、夹到 [0, END_YEAR_MAX](不是有限数 = 0) */
 export function stepwiseYear(year: number): number {
   return Number.isFinite(year) ? Math.min(END_YEAR_MAX, Math.max(0, Math.round(year))) : 0;
+}
+
+/**
+ * 倒回、另开一支的那一刻(第几格,edits.ts 的 ticksAt):给年份 = 那一年年初(取整到年);给时刻 = 那一刻(第几格取整、夹回 0–YEAR_TICKS−1);
+ * 夹到 [0, 现在](cur 走到的那一刻);年份不是有限数 = 0
+ */
+function momentArg(when: number | Moment, cur: PlayState): number {
+  const y = typeof when === 'number' ? when : when.year;
+  if (!Number.isFinite(y)) return 0;
+  const t = typeof when === 'number' || !Number.isFinite(when.tick) ? 0 : Math.min(YEAR_TICKS - 1, Math.max(0, Math.floor(when.tick)));
+  return Math.min(playAt(cur), Math.max(0, ticksAt(Math.floor(y), t)));
 }
 
 /** 世界里推演用的干预(作者的干预后面接上逐年推演下过的命令;没在逐年推演 = 作者的干预),没清理(认不出的也在,下标和修改里一致) */
@@ -89,32 +116,36 @@ export function startStepwise(edits: WorldEdits, year: number, drop: readonly nu
 }
 
 /**
- * 从第 year 年重新演绎(倒回;edits 不改):逐年推演中的世界回到第 T 年年初(T = year 取整到那一年,夹到 [0, 现在];
- * 停在第 T 年 = 那一年年初,和逐年推演停下的那一年一样,这一年的事还没发生),从那里接着一步步往下走。
- * - 一路下过的干预(命令串)里 T 年和以后才生效的(from ≥ T)一起不要,按先后列在 dropped;T 年以前的照旧
+ * 从第 year 年(或某一刻)重新演绎(倒回;edits 不改):逐年推演中的世界回到 T 那一刻(给年份 = 那一年年初,见 momentArg;夹到 [0, 现在];
+ * 停在 T = 和逐年推演停下的那一刻一样,这一刻的事还没发生),从那里接着一步步往下走。
+ * - 一路下过的干预(命令串)里 T 那一刻和以后才生效的一起不要,按先后列在 dropped;T 以前的照旧
  * - 另开的几支照旧留着(换记法,完整的进度不变;要把原来这条留成一支,先 forkBranch 再 switchBranch)
- * - 作者在推演模式里的干预照带:T 年以后的到那一年照样发生(和从第 T 年开始逐年推演一样)
- * - T 比这次起演的那一年还早:"从第几年起演绎"改成 T(第 0 年 = 不写);推进设置等别的修改照带
- * 没在逐年推演(没有合格的进度)= null。倒回以后不加干预时,推出来的和推演模式里带着同样干预推到那一年一模一样
+ * - 作者在推演模式里的干预照带:T 以后的到那一年照样发生(和从第 T 年开始逐年推演一样)
+ * - T 比这次起演的那一年还早:"从第几年起演绎"改成 T 所在的那一年(第 0 年 = 不写);推进设置等别的修改照带
+ * 没在逐年推演(没有合格的进度)= null。倒回以后不加干预时,推出来的和推演模式里带着同样干预推到那一刻一模一样
  */
-export function rewindStepwise(edits: WorldEdits, year: number): { edits: WorldEdits; dropped: Intervention[] } | null {
+export function rewindStepwise(edits: WorldEdits, when: number | Moment): { edits: WorldEdits; dropped: Intervention[] } | null {
   const play = cleanPlay(edits.play);
   if (!play) return null;
-  const T = Number.isFinite(year) ? Math.min(play.year, Math.max(0, Math.floor(year))) : 0;
-  const keep = play.commands.filter((v) => v.from < T);
-  const dropped = play.commands.filter((v) => v.from >= T);
-  const start = Math.min(playFromOf(edits), T);
+  const T = momentArg(when, play);
+  const keep = play.commands.filter((v) => commandAt(v) < T);
+  const dropped = play.commands.filter((v) => commandAt(v) >= T);
+  const m = momentAt(T);
+  const start = Math.min(playFromOf(edits), m.year);
   const { play: _play, playFrom: _from, branches, ...rest } = edits;
   const bs = cleanBranches(branches, play);
-  const next: WorldEdits = { ...rest, play: { year: T, commands: keep }, ...(start > 0 ? { playFrom: start } : {}) };
-  // 倒回到这一支分出来以前:改记成从这一年分出(这一年以前和分出它的那一支一样)
-  const fork = bs && bs.forkAt !== undefined && bs.forkAt > T ? { forkAt: T } : {};
-  return { edits: bs ? withBranches(next, { ...bs, ...fork, list: rebase(bs.list, play, T) }) : next, dropped };
+  const next: WorldEdits = { ...rest, play: playState(m.year, m.tick, keep), ...(start > 0 ? { playFrom: start } : {}) };
+  if (!bs) return { edits: next, dropped };
+  // 倒回到这一支分出来以前:改记成从这一刻分出(这一刻以前和分出它的那一支一样)
+  const at = forkedAt(bs);
+  const fork = at !== undefined && at > T ? forkOf({ forkOf: bs.forkOf, ...forkMoment(T) }) : forkOf(bs);
+  return { edits: withBranches(next, { id: bs.id, ...(bs.name ? { name: bs.name } : {}), ...fork, list: rebase(bs.list, play, T) }), dropped };
 }
 
 /**
  * 存回推演模式:逐年推演中的世界 → 一个普通世界的修改(edits 不改)。干预 = 作者的干预后面接上命令串(playInterventions,先后不变),
- * 推演年数 = play.year(至少 END_YEAR_MIN:在第 0 年存回的推到第 1 年);去掉 play、playFrom 和另开的几支(只存当前这一支),别的修改(含推进设置)照带。
+ * 推演年数 = play.year(至少 END_YEAR_MIN:在第 0 年存回的推到第 1 年;停在年中的推到下一年年初,现在以前的事、下过的命令一件不丢);
+ * 去掉 play、playFrom 和另开的几支(只存当前这一支),别的修改(含推进设置)照带。
  * 存成新世界还是盖掉原来的由界面定(默认存成新世界)。没在逐年推演的(没有合格的 play)原样返回(有不合格的 play、playFrom 就去掉)。
  * 进度推过了 END_YEAR_MAX 的存不回(普通世界最多推到那一年,存回去会丢掉后面的历史)= null;照 ui/stepwisePlan.ts 的 nextStep 走不会走过那一年
  */
@@ -123,8 +154,9 @@ export function stepwiseToNormal(edits: WorldEdits): WorldEdits | null {
   if (!play && edits.play === undefined && edits.playFrom === undefined && edits.branches === undefined) return edits;
   const { play: _play, playFrom: _from, branches: _branches, endYear, ...rest } = edits;
   if (!play) return { ...rest, ...(endYear !== undefined ? { endYear } : {}) };
-  if (play.year > END_YEAR_MAX) return null;
-  const years = cleanEndYear(Math.max(END_YEAR_MIN, play.year));
+  const end = play.year + (play.tick ? 1 : 0);
+  if (end > END_YEAR_MAX) return null;
+  const years = cleanEndYear(Math.max(END_YEAR_MIN, end));
   return { ...rest, interventions: [...playInterventions(edits.interventions, play)], ...(years !== undefined ? { endYear: years } : {}) };
 }
 
@@ -135,11 +167,16 @@ export function stepwiseToNormal(edits: WorldEdits): WorldEdits | null {
 export { branchPlay };
 
 /**
- * 当前这一支换了(cur → 新的进度,两份在第 F 年以前的命令一样):别的几支换成相对新进度的记法 ——
- * from 晚于 F 的改成 F,补上原来借当前这一支的那几条(F 年和以后、早于原来的 from);每一支完整的进度不变
+ * 当前这一支换了(cur → 新的进度,两份在 F 那一刻(第几格)以前的命令一样):别的几支换成相对新进度的记法 ——
+ * from 晚于 F 的改成 F,补上原来借当前这一支的那几条(F 和以后、早于原来的 from);每一支完整的进度不变
  */
 function rebase(list: readonly PlayBranch[], cur: PlayState, F: number): PlayBranch[] {
-  return list.map((b) => (b.from <= F ? b : { ...b, from: F, commands: branchPlay(cur, b).commands.filter((v) => v.from >= F) }));
+  return list.map((b) => {
+    if (branchFromAt(b) <= F) return b;
+    const { id, name, from: _f, fromTick: _t, year: _y, tick: _k, commands: _c, ...rest } = b;
+    const commands = branchPlay(cur, b).commands.filter((v) => commandAt(v) >= F);
+    return { id, ...(name ? { name } : {}), ...branchFrom(F), ...branchEnd(branchAt(b)), commands, ...rest };
+  });
 }
 
 /** 放回修改里(edits 不改):list 是空的、当前这一支没起名、没记从哪分出、编号是 1 = 去掉这一项 */
@@ -148,9 +185,10 @@ function withBranches(edits: WorldEdits, bs: PlayBranches): WorldEdits {
   return !bs.list.length && !bs.name && bs.forkAt === undefined && bs.id === 1 ? rest : { ...rest, branches: bs };
 }
 
-/** 一支从哪一支、第几年分出(没记的不写) */
-function forkOf(b: Pick<PlayBranch, 'forkOf' | 'forkAt'>): Pick<PlayBranch, 'forkOf' | 'forkAt'> {
-  return { ...(b.forkOf !== undefined ? { forkOf: b.forkOf } : {}), ...(b.forkAt !== undefined ? { forkAt: b.forkAt } : {}) };
+/** 一支从哪一支、哪一刻分出(没记的不写) */
+function forkOf(b: Pick<PlayBranch, 'forkOf' | 'forkAt' | 'forkTick'>): Pick<PlayBranch, 'forkOf' | 'forkAt' | 'forkTick'> {
+  const at = forkedAt(b);
+  return { ...(b.forkOf !== undefined ? { forkOf: b.forkOf } : {}), ...(at !== undefined ? forkMoment(at) : {}) };
 }
 
 /** 当前这一支的进度和清理过的支线(没另开过 = 只有当前这一支,编号 1);没在逐年推演 = null */
@@ -170,8 +208,12 @@ export interface BranchInfo {
   current: boolean;
   /** 从第几年起和当前这一支不一样(当前这一支没有) */
   from?: number;
-  /** 走到第几年年初 */
+  /** 那一刻在 from 那一年的第几格(没有 = 年初) */
+  fromTick?: number;
+  /** 走到第几年 */
   year: number;
+  /** 走到那一年的第几格(没有 = 年初) */
+  tick?: number;
   /** 从第几年起演绎 */
   playFrom: number;
   /** 完整的进度(推演时接在作者的干预后面) */
@@ -182,6 +224,8 @@ export interface BranchInfo {
   forkOf?: number;
   /** 第几年分出来的;没有 = 最早的那一支 */
   forkAt?: number;
+  /** 分出来的那一刻在 forkAt 那一年的第几格(没有 = 年初) */
+  forkTick?: number;
 }
 
 /** 所有的支(连当前这一支),按编号排(= 另开的先后)。没在逐年推演 = [] */
@@ -190,13 +234,13 @@ export function branchList(edits: WorldEdits): BranchInfo[] {
   if (!r) return [];
   const { cur, bs } = r;
   const out: BranchInfo[] = [
-    { id: bs.id, ...(bs.name ? { name: bs.name } : {}), current: true, year: cur.year, playFrom: playFromOf(edits), play: cur, ...forkOf(bs) },
+    { id: bs.id, ...(bs.name ? { name: bs.name } : {}), current: true, ...branchEnd(playAt(cur)), playFrom: playFromOf(edits), play: cur, ...forkOf(bs) },
     ...bs.list.map((b) => ({
       id: b.id,
       ...(b.name ? { name: b.name } : {}),
       current: false,
-      from: b.from,
-      year: b.year,
+      ...branchFrom(branchFromAt(b)),
+      ...branchEnd(branchAt(b)),
       playFrom: b.playFrom ?? 0,
       play: branchPlay(cur, b),
       ...(b.last ? { last: b.last } : {}),
@@ -207,32 +251,41 @@ export function branchList(edits: WorldEdits): BranchInfo[] {
 }
 
 /**
- * 从第 year 年另开一支(edits 不改):只记一笔 —— 新的一支停在第 T 年年初,T 年以前和当前这一支一样,还没下命令;
- * 不切过去,不用重推。T = year 取整到那一年,夹到 [0, 现在];从第几年起演绎 = 当前这一支的和 T 里早的那个(同 rewindStepwise);
- * 记下它是第 T 年从当前这一支分出的(列表里显示)。
- * 返回新的修改和新的一支的编号(最大的加一);没在逐年推演、编号用完了 = null。要从那一年接着演绎,再 switchBranch 过去
+ * 从第 year 年(或某一刻)另开一支(edits 不改):只记一笔 —— 新的一支停在 T 那一刻,T 以前和当前这一支一样,还没下命令;
+ * 不切过去,不用重推。T 同 rewindStepwise(给年份 = 那一年年初,夹到 [0, 现在]);从第几年起演绎 = 当前这一支的和 T 所在那年里早的那个;
+ * 记下它是 T 那一刻从当前这一支分出的(列表里显示)。
+ * 返回新的修改和新的一支的编号(最大的加一);没在逐年推演、编号用完了 = null。要从那一刻接着演绎,再 switchBranch 过去
  */
-export function forkBranch(edits: WorldEdits, year: number, name?: string): { edits: WorldEdits; id: number } | null {
+export function forkBranch(edits: WorldEdits, when: number | Moment, name?: string): { edits: WorldEdits; id: number } | null {
   const r = branchesOf(edits);
   if (!r) return null;
   const { cur, bs } = r;
-  const T = Number.isFinite(year) ? Math.min(cur.year, Math.max(0, Math.floor(year))) : 0;
+  const T = momentArg(when, cur);
   const id = bs.list.reduce((m, b) => Math.max(m, b.id), bs.id) + 1;
   if (id > BRANCH_ID_MAX) return null;
   const nm = cleanBranchName(name);
-  const start = Math.min(playFromOf(edits), T);
-  const b: PlayBranch = { id, ...(nm ? { name: nm } : {}), from: T, year: T, commands: [], ...(start > 0 ? { playFrom: start } : {}), forkOf: bs.id, forkAt: T };
+  const start = Math.min(playFromOf(edits), momentAt(T).year);
+  const b: PlayBranch = {
+    id,
+    ...(nm ? { name: nm } : {}),
+    ...branchFrom(T),
+    ...branchEnd(T),
+    commands: [],
+    ...(start > 0 ? { playFrom: start } : {}),
+    forkOf: bs.id,
+    ...forkMoment(T),
+  };
   return { edits: withBranches(edits, { ...bs, list: [...bs.list, b] }), id };
 }
 
 /**
- * 从第 year 年重新演绎、原来那条留成一支(edits 不改):从那一年另开一支(名字 name)、切过去,原来那条记下 last 留在列表里。
+ * 从第 year 年(或某一刻)重新演绎、原来那条留成一支(edits 不改):从那一年另开一支(名字 name)、切过去,原来那条记下 last 留在列表里。
  * 进度、从第几年起和 rewindStepwise 一样;原来那条完整的进度原样留着,切回去和没倒回过一样。
  * 返回新的修改、新的一支和原来那条的编号;没在逐年推演、编号用完了 = null
  */
-export function rewindBranch(edits: WorldEdits, year: number, name?: string, last?: string): { edits: WorldEdits; id: number; kept: number } | null {
+export function rewindBranch(edits: WorldEdits, when: number | Moment, name?: string, last?: string): { edits: WorldEdits; id: number; kept: number } | null {
   const r = branchesOf(edits);
-  const f = r && forkBranch(edits, year, name);
+  const f = r && forkBranch(edits, when, name);
   if (!r || !f) return null;
   const e = switchBranch(f.edits, f.id, last);
   return e ? { edits: e, id: f.id, kept: r.bs.id } : null;
@@ -250,15 +303,15 @@ export function switchBranch(edits: WorldEdits, id: number, last?: string): Worl
   if (id === bs.id) return edits;
   const b = bs.list.find((x) => x.id === id);
   if (!b) return null;
-  const F = b.from;
+  const F = branchFromAt(b);
   const from = playFromOf(edits);
   const note = cleanBranchNote(last);
   const old: PlayBranch = {
     id: bs.id,
     ...(bs.name ? { name: bs.name } : {}),
-    from: F,
-    year: cur.year,
-    commands: cur.commands.filter((v) => v.from >= F),
+    ...branchFrom(F),
+    ...branchEnd(playAt(cur)),
+    commands: cur.commands.filter((v) => commandAt(v) >= F),
     ...(from > 0 ? { playFrom: from } : {}),
     ...(note ? { last: note } : {}),
     ...forkOf(bs),
@@ -294,7 +347,7 @@ export function deleteBranch(edits: WorldEdits, id: number): WorldEdits | null {
 }
 
 /**
- * 一条干预在这份历史里怎么样了:'later' = 还没到那一年(from 比 civ.endYear 晚);'done' = 生效了;
+ * 一条干预在这份历史里怎么样了:'later' = 还没到那一刻(from 那一刻比 civ.endYear 晚);'done' = 生效了;
  * 'void' = 到了那一年但没生效,why = 原因("那一年某国已亡""某国第 812 年才立国""新历史里没有这个国家";即位还有"他第 1520 年才出生"……)。
  * annal = 它那条史事 intervene 在 civ.annals 里的下标(对象不在、连史事都没记 = −1)。i = 在 civ.interventions 里的下标
  */
@@ -303,7 +356,7 @@ export type InterventionFate = { state: 'later' } | { state: 'done'; annal: numb
 export function interventionFate(civ: Civ, i: number): InterventionFate {
   const v = civ.interventions?.[i];
   if (!v) return { state: 'void', annal: -1, why: '没有这条干预' };
-  if (v.from > civ.endYear) return { state: 'later' };
+  if (commandAt(v) / YEAR_TICKS > civ.endYear) return { state: 'later' };
   const r = interventionOutcome(civ, i);
   if (r.annal >= 0) return r.ok ? { state: 'done', annal: r.annal } : { state: 'void', annal: r.annal, why: r.why ?? '没有生效' };
   if (v.kind === 'found' || !v.a) return { state: 'void', annal: -1, why: '没有生效' };
