@@ -564,7 +564,7 @@ export function bookLoadScope(civ: Civ, s: BookStoredScope, src?: LifeSource | n
   return rowOf(civ, r.id, s.dynasty).i >= 0 ? { kind: 'house', polity: r.id, dynasty: s.dynasty } : null;
 }
 
-/** 笔记的键:同一个人(一朝)+ 文体 + 篇幅 = 同一篇(重写就覆盖) */
+/** 笔记的键:同一个人(一朝)+ 文体 + 篇幅 = 同一篇(重写不覆盖,加一版,见 ai/history.ts) */
 export function bookNoteKey(s: BookStoredScope, style: HistoryStyle, length: HistoryLength): string {
   if (!isLifeScope(s)) return historyNoteKey(s as StoredScope, style, length);
   const where = s.kind === 'person' ? `person:${s.key}` : s.kind === 'character' ? `char:${s.id}` : `house:${s.key}#${s.dynasty}`;
