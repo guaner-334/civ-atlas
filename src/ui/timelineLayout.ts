@@ -168,13 +168,13 @@ export function evText(e: Pick<ChronicleEntry, 'text'>): string {
 
 /**
  * 年份:"2629 年";跨年的 "2940–2957 年";打到最后还没打完的 "2987 年起"(纪年:"公元前 850 年""公元前 820–前 811 年")。
- * months = 一年几个月(不给 / 0 = 只写年):不跨年的写到月 "2629 年 3 月"
+ * months = 一年几个月(不给 / 0 = 只写年):不跨年的写到月 "2629 年 3 月";monthNames = 月份的名字,起了名字的写 "2629 年桃月"
  */
-export function evYears(e: Pick<ChronicleEntry, 'year' | 'end' | 'ongoing'>, era?: Era | null, months = 0): string {
+export function evYears(e: Pick<ChronicleEntry, 'year' | 'end' | 'ongoing'>, era?: Era | null, months = 0, monthNames?: readonly string[] | null): string {
   const a = Math.floor(e.year);
   if (e.ongoing) return `${yearAt(a, era)}起`;
   const b = Math.floor(e.end);
-  return b > a ? yearSpanAt(a, b, era) : yearMonthAt(e.year, months, era);
+  return b > a ? yearSpanAt(a, b, era) : yearMonthAt(e.year, months, era, monthNames);
 }
 
 /** 种类的分量:同一处挤了几件事时画哪一件的颜色。不认识的种类算中等 */

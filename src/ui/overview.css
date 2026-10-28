@@ -1249,6 +1249,51 @@ button.ov-iv-text:hover {
   flex: none;
   margin-left: auto;
 }
+/* 月份叫法:数字 | 自己起名 */
+.mo-seg {
+  flex: none;
+  margin-left: auto;
+}
+.era-kv .mo-seg button {
+  padding: 4px 14px;
+}
+/* 自己起名:一年几个月就几格,格子左边是第几月(手机一排三格) */
+.mo-names {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px 10px;
+  margin: 2px 0 10px;
+}
+.mo-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mo-cell small {
+  flex: none;
+  width: 18px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.era-in.mo-in {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  text-align: left;
+}
+/* 空着的格:灰字是空着时写成什么 */
+.mo-in::placeholder {
+  color: var(--ink-3);
+}
+.mo-in:placeholder-shown {
+  opacity: 0.55;
+}
+.era-in.mo-in.bad {
+  color: var(--err);
+}
 .era-kv {
   margin-bottom: 8px;
   overflow: hidden;
@@ -1634,6 +1679,9 @@ button.ov-kv-row:hover {
     display: block;
     margin: 2px 0 0;
     font-size: 12px;
+  }
+  .mo-names {
+    grid-template-columns: repeat(3, 1fr);
   }
   .cj {
     font-size: 14px;

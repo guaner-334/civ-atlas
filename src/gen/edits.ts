@@ -106,7 +106,8 @@
  * 推一把发展(boost):mul 吸到最近的一档(BOOST_MULS;不是大于 1 的数 = 不给,直接进);直接进不要 until;快几倍的 until 不晚于 from 的
  * 换成 from + BOOST_YEARS_DEFAULT;regions 去重、去掉格式不对的、最多 BOOST_REGIONS_MAX 个(给了却一个都不合格 = 不合格)。
  * fromTick(可选,哪一种都能带):在 from 那一年的第几格(见"时刻";1–YEAR_TICKS−1,没有 = 年初)。逐年推演停在年中时下的命令带着它;
- * 不是 0–YEAR_TICKS−1 的整数、是 0 的去掉(当年初)。until、born 这些别的年份照旧只到年。
+ * 不是 0–YEAR_TICKS−1 的整数、是 0 的去掉(当年初)。推演里在那一年的那一格生效,"从 from 起"的规则都从那一格算(simInterventions);
+ * until、born 这些别的年份照旧只到年。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -413,6 +414,11 @@
  * WorldEdits.months(可选,没有 = 一年 12 个月):编年史、地图上的事件卡片、时间轴提示写到哪一月 ——
  * 0 = 只写年;2–36 = 一年几个月。和纪年一样只换写法,不参与推演;随时能改,改了不记撤销步。写法见 era.ts 的 monthOf。
  *
+ * WorldEdits.monthNames(可选,没有 = 月份都写数字):自己起的月份名字(era.ts 的 MonthNames)——
+ * `{ names: ['端月', '杏月', '', …] }`,第 i 个是第 i + 1 月的名字,'' = 没起名、照旧写数字;每个最多 4 个字,最多 36 个。
+ * 一年的月数改少了,多出来的名字留着(改回去还在);只写年时名字不出现、也留着;换回「数字」记 `off: true`,名字留着。
+ * 和月数一样只换写法,随时能改,不记撤销步。读进来的先过 cleanMonthNames。
+ *
  * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"来自旧版本"和变了什么;
  * 每一版改了什么记在下面的 GENERATOR_CHANGES,提示照它说)。
  *   2:名字按位置取(gen/civ/naming.ts、places.ts;地形、历史不变,默认的名字换了一遍),稳定键改按地块定位(c 格式)。
@@ -540,7 +546,7 @@ import { treatyBook } from './civ/treatyInfo';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
-import type { Era } from './era';
+import type { Era, MonthNames } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
@@ -829,6 +835,8 @@ export interface WorldEdits {
   era?: Era;
   /** 一年几个月(见文件头"月份");0 = 只写年;没有 = 12 */
   months?: number;
+  /** 自己起的月份名字(见文件头"月份");没有 = 都写数字 */
+  monthNames?: MonthNames;
   /** 逐年推演的进度(见文件头"逐年推演的进度");没有 = 没在逐年推演 */
   play?: PlayState;
   /** 这次逐年推演从第几年起(见文件头"逐年推演的进度");只跟着 play 走,没有 = 0 */
@@ -2089,6 +2097,21 @@ export function issueCommands(play: PlayState, commands: readonly unknown[]): { 
     else rejected.push(x);
   }
   return { play: playState(play.year, play.tick ?? 0, [...play.commands, ...accepted]), accepted, rejected };
+}
+
+/**
+ * 推演里面用的干预(civ/ 下的规则读它):清理过(cleanInterventions);年中的(带 fromTick)把 from 换成那一刻
+ * (from + fromTick / YEAR_TICKS,1/256 的整数倍,浮点里精确)、去掉 fromTick —— 规则里"从 from 那一刻起"照常比,不用另外认第几格。
+ * 没有年中的 = cleanInterventions 的结果原样。只给推演里面用:Civ.interventions、存档里照旧是 from + fromTick
+ */
+export function simInterventions(raw: readonly unknown[] | null | undefined): Intervention[] {
+  const list = cleanInterventions(raw);
+  if (!list.some((v) => v.fromTick)) return list;
+  return list.map((v) => {
+    if (!v.fromTick) return v;
+    const { fromTick, ...rest } = v;
+    return { ...rest, from: v.from + fromTick / YEAR_TICKS } as Intervention;
+  });
 }
 
 /** 推演用的干预列表:作者的干预后面接上逐年推演时下过的命令(没在逐年推演 = 作者的干预本身) */

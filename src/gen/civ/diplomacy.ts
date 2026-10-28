@@ -44,7 +44,7 @@
  * 随机数:keyed(subSeed(seed, 'civ-diplomacy'), 国家…, 第几次, 用途);国家一律用位置锚(PolityModel.ptag)。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
-import { resolveKey } from '../edits';
+import { YEAR_TICKS, resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './rand';
 import { bookChain, Ev, quantize, type CivSim } from './sim';
@@ -671,14 +671,16 @@ export function polityTies(civ: Civ, id: number, year: Year): PolityTies {
   const allies = r.pacts.filter((x) => x.a === id || x.b === id).map((x) => ({ id: x.a === id ? x.b : x.a, since: x.since, foe: x.foe }));
   const P = civ.polities[id];
   for (const v of civ.interventions ?? []) {
-    if (v.kind !== 'ally' || year < v.from || (v.until !== undefined && year >= v.until)) continue;
+    // 结盟从下令那一刻起(年中下的带着第几格)
+    const from = v.from + (v.fromTick ?? 0) / YEAR_TICKS;
+    if (v.kind !== 'ally' || year < from || (v.until !== undefined && year >= v.until)) continue;
     const a = resolveKey(civ, v.a);
     const b = resolveKey(civ, v.b);
     if (a?.kind !== 'polity' || b?.kind !== 'polity' || (a.id !== id && b.id !== id)) continue;
     const o = a.id === id ? b.id : a.id;
     const O = civ.polities[o];
     if (o === id || !P || !O || !polityAlive(P, year) || !polityAlive(O, year) || allies.some((x) => x.id === o)) continue;
-    allies.push({ id: o, since: Math.max(v.from, O.founded, P.founded), foe: -1 });
+    allies.push({ id: o, since: Math.max(from, O.founded, P.founded), foe: -1 });
   }
   return { liege: r.liege.get(id), vassals, allies };
 }
