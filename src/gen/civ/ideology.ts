@@ -379,45 +379,52 @@ function tick(sim: CivSim, m: IdeoModel, y: Year, prev: Float64Array): void {
     }
   }
 
-  eng.step(y);
-
-  // 冒出来:还没冒过的几说,这一步里满足前提的州中估出的那一刻最早的
-  const fit = eng.get('合');
-  for (let k = 0; k < K; k++) {
-    if (m.emerged[k]) continue;
-    let at = -1;
-    let tAt = Infinity;
-    for (let r = 0; r < R; r++) {
-      if (ownC[r] < 0 || iCity[r] < EMERGE_POP) continue;
-      const f = fit[r * K + k];
-      if (!(f >= EMERGE_FIT)) continue;
-      let ok = true;
-      let tc = -Infinity;
-      for (const n of NEEDS[k]) {
-        const a1 = cur[r * CAP_COUNT + n.cap];
-        if (!(a1 >= n.level)) {
-          ok = false;
-          break;
+  // 冒出来:还没冒过的几说,这一步里满足前提的州中估出的那一刻最早的。各州的接受度算完、各国的(国中)算之前写进去,
+  // 这一步的国中、快照都算上冒出来的那一州
+  let emerged = false;
+  const emerge = () => {
+    emerged = true;
+    const fit = eng.get('合');
+    for (let k = 0; k < K; k++) {
+      if (m.emerged[k]) continue;
+      let at = -1;
+      let tAt = Infinity;
+      for (let r = 0; r < R; r++) {
+        if (ownC[r] < 0 || iCity[r] < EMERGE_POP) continue;
+        const f = fit[r * K + k];
+        if (!(f >= EMERGE_FIT)) continue;
+        let ok = true;
+        let tc = -Infinity;
+        for (const n of NEEDS[k]) {
+          const a1 = cur[r * CAP_COUNT + n.cap];
+          if (!(a1 >= n.level)) {
+            ok = false;
+            break;
+          }
+          const a0 = prev[r * CAP_COUNT + n.cap];
+          if (a0 < n.level) tc = Math.max(tc, t0 + ((y - t0) * (n.level - a0)) / (a1 - a0));
         }
-        const a0 = prev[r * CAP_COUNT + n.cap];
-        if (a0 < n.level) tc = Math.max(tc, t0 + ((y - t0) * (n.level - a0)) / (a1 - a0));
+        if (!ok) continue;
+        // 前提这一步以前就够了(这一步才有了城、合得来了):算这一步
+        const s = cityIn(d, r)!;
+        const t = Math.min(y, Math.max(tc > -Infinity ? tc : y, d.sinceC[r], d.sinceP[r], s.founded));
+        if (t < tAt || (t === tAt && f > fit[at * K + k])) (tAt = t), (at = r);
       }
-      if (!ok) continue;
-      // 前提这一步以前就够了(这一步才有了城、合得来了):算这一步
-      const s = cityIn(d, r)!;
-      const t = Math.min(y, Math.max(tc > -Infinity ? tc : y, d.sinceC[r], d.sinceP[r], s.founded));
-      if (t < tAt || (t === tAt && f > fit[at * K + k])) (tAt = t), (at = r);
+      if (at < 0) continue;
+      m.emerged[k] = 1;
+      eng.write('思潮', at, k, Math.max(eng.value('思潮', at, k), ORIGIN_SEED));
+      const p = ownP[at];
+      m.events.push({ year: tAt, kind: 'origin', thought: k, region: at, settlement: cityIn(d, at)!.id, culture: ownC[at], polity: p });
+      if (p >= 0) {
+        growArrive(m, P);
+        if (Number.isNaN(m.arrive[p * K + k])) m.arrive[p * K + k] = tAt;
+      }
     }
-    if (at < 0) continue;
-    m.emerged[k] = 1;
-    eng.write('思潮', at, k, Math.max(eng.value('思潮', at, k), ORIGIN_SEED));
-    const p = ownP[at];
-    m.events.push({ year: tAt, kind: 'origin', thought: k, region: at, settlement: cityIn(d, at)!.id, culture: ownC[at], polity: p });
-    if (p >= 0) {
-      growArrive(m, P);
-      if (Number.isNaN(m.arrive[p * K + k])) m.arrive[p * K + k] = tAt;
-    }
-  }
+  };
+  eng.step(y, (done) => {
+    if (done.includes('思潮')) emerge();
+  });
+  if (!emerged) emerge();
 
   // 各国:这一步的接受度(按人口加权)记一份;到半成的那一刻算传进本国
   growArrive(m, P);

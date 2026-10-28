@@ -180,8 +180,14 @@ describe.each([7, 2024])('思潮 · seed %i', (seed) => {
       expect(e.culture, label).toBeGreaterThanOrEqual(0);
       // 那州冒出来以后有这一说
       expect(ideologyAt(ideo, snapYear)[e.region * K + k], label).toBeGreaterThan(0);
-      // 始倡这一说的那国:冒出来那年就算传进本国
-      if (e.polity >= 0) expect(thoughtArrival(ideo, e.polity, k), label).toBe(e.year);
+      // 始倡这一说的那国:冒出来那年就算传进本国;那一步的国中已经算上冒出来的那一州(那州的人口占得够多时看得出来)
+      if (e.polity >= 0) {
+        expect(thoughtArrival(ideo, e.polity, k), label).toBe(e.year);
+        const own = ownersAt(civ, step).polity;
+        let w = 0;
+        for (let r = 0; r < own.length; r++) if (own[r] === e.polity) w += regionPopulationAt(civ, r, step) + 1;
+        if (own[e.region] === e.polity && (0.3 * (regionPopulationAt(civ, e.region, step) + 1)) / w > 3 / IDEO_SCALE) expect(polityIdeologyAt(ideo, e.polity, step)[k], label).toBeGreaterThan(0);
+      }
     }
     // 冒出来以前,世上没有一州有这一说
     for (const e of ideo.events) {
