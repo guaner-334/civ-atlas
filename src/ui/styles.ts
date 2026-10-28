@@ -42,6 +42,7 @@ import './sidebar.css';
 import './outline.css';
 import './finder.css';
 import './stepBranches.css';
+import './relation.css';
 import './newWorld.css';
 import './film.css';
 import './long.css';

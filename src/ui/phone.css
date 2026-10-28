@@ -420,6 +420,11 @@
 .pb-btn.on {
   color: var(--accent);
 }
+/* 「立体」正在框:主色底 */
+.pb-btn.relief-on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
 .pb-btn:disabled {
   opacity: 0.45;
 }

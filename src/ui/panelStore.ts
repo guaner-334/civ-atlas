@@ -38,7 +38,8 @@ export interface IvRun {
 }
 
 export interface FlyRequest {
-  to: 'sel' | 'home';
+  /** 'culture' = 选中的民族这一年人最多的州(侧栏、世界概览、搜索里点民族) */
+  to: 'sel' | 'home' | 'culture';
   stamp: number;
 }
 
@@ -114,7 +115,7 @@ export function endRun() {
   if (state.run) set({ run: null });
 }
 
-/** 让 App 把地图飞过去:'sel' = 选中的东西,'home' = 缩回整张图 */
+/** 让 App 把地图飞过去:'sel' = 选中的东西,'home' = 缩回整张图,'culture' = 选中的民族人最多的州 */
 export function requestFly(to: FlyRequest['to']) {
   set({ fly: { to, stamp: ++stamp } });
 }
