@@ -133,6 +133,7 @@ import {
 import {
   EMPTY_EDITS,
   END_YEAR_DEFAULT,
+  YEAR_TICKS,
   GENERATOR_VERSION,
   applyNames,
   aiNameKeys,
@@ -150,6 +151,7 @@ import {
   namesWithoutAi,
   newHistoryEdits,
   placeKeyOf,
+  playAt,
   playFromOf,
   polityKey,
   regionKey,
@@ -1844,7 +1846,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       for (const x of getPending()) if (x.kind === 'iv') removePending(x.id);
     };
     setStepwiseActions({
-      turn: (years, commands) => {
+      turn: (ticks, commands) => {
         const p = genParams.current;
         const play = cleanPlay(getEdits().play);
         // 地图上这份历史得正是按现在这份进度推的(不在重推、不在生成)
@@ -1854,7 +1856,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           id: reqId.current,
           play,
           commands,
-          years,
+          years: Math.max(1, Math.round(ticks / YEAR_TICKS)),
+          ticks,
           params: p,
           terrain: [...genTerrain.current],
           sketch: genSketch.current,
@@ -1920,8 +1923,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           dropPending();
           // 进度换成那一年年初(App 照它从第 0 年推到那一年)
           putEditsQuiet(r.edits);
-          rewoundTo(playFromOf(r.edits), T);
-          setCivTime({ year: T, playing: false, scrubbing: false, story: false });
+          rewoundTo(playFromOf(r.edits), playAt(r.edits.play) / YEAR_TICKS);
+          setCivTime({ year: playAt(r.edits.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
         });
       },
       switchBranch: (id) => {
@@ -1946,8 +1949,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           // 两支走到的一模一样(另开以后原样走回了同一年):地图上这份历史就是它的,不用重推,直接换上
           if (JSON.stringify(next.play) === JSON.stringify(civPlay.current ?? null)) {
             putEditsQuiet(next);
-            enterStepwise(playFromOf(next), next.play.year);
-            setCivTime({ year: next.play.year, playing: false, scrubbing: false, story: false });
+            enterStepwise(playFromOf(next), playAt(next.play) / YEAR_TICKS);
+            setCivTime({ year: playAt(next.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
             return switchedToast(note);
           }
           // 地图先留着原来那支(照样能拖),在后台照那一支从第 0 年推到它走到的那一年,推完换上、停在那一年
@@ -2200,7 +2203,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     const play = civPlay.current;
     const rw = rewindNote.current;
     rewindNote.current = null;
-    if (play && rw && rw.year === play.year && getStepwise().on && getStepwise().now === play.year) {
+    if (play && rw && rw.year === play.year && getStepwise().on && getStepwise().now === playAt(play) / YEAR_TICKS) {
       // 刚从这一年重新演绎:界面早就停在这一年了(推的时候点了「接着演绎」的照走),这里只说一声
       const era = getEdits().era;
       showToast({
@@ -2211,8 +2214,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         ttl: 7000,
       });
     } else if (play && cleanPlay(getEdits().play)) {
-      enterStepwise(playFromOf(getEdits()), play.year);
-      setCivTime({ year: play.year, playing: stepAuto.current, scrubbing: false, story: false });
+      enterStepwise(playFromOf(getEdits()), playAt(play) / YEAR_TICKS);
+      setCivTime({ year: playAt(play) / YEAR_TICKS, playing: stepAuto.current, scrubbing: false, story: false });
       stepAuto.current = false;
       // 刚切到别的一支:停在那一支的"现在",说一声,带「切回」原来那支
       const sw = switchNote.current;
@@ -2241,7 +2244,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     }
     const now = cleanPlay(getEdits().play);
     // 换了世界、另开了一次逐年推演、这一步不是接着现在这份进度走的:不要
-    if (!now || !getStepwise().on || !getStepwise().busy || play.year <= now.year) return stepLost();
+    if (!now || !getStepwise().on || !getStepwise().busy || playAt(play) <= playAt(now)) return stepLost();
     const old = rawRef.current;
     const sameUps = sameUpheavals(civUps.current, rawUps.current);
     const civ: Civ = old ? reuseRegions(old, next, sameUps, true) : next;
@@ -3112,8 +3115,8 @@ ${s.image.cells}` : null);
     // 照原样打开的逐年推演的世界:原件就推到了"现在",不重推,直接停在"现在"
     const fp = civPlay.current;
     if (frozen !== undefined && fp && cleanPlay(edits.play)?.year === fp.year) {
-      enterStepwise(playFromOf(edits), fp.year);
-      setCivTime({ year: fp.year, playing: false, scrubbing: false, story: false });
+      enterStepwise(playFromOf(edits), playAt(fp) / YEAR_TICKS);
+      setCivTime({ year: playAt(fp) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
     }
     // 在旧版本建的世界的地图上打造文明:现在算出来的地图和它不一样,不让打造(这一份还没存,回到我的世界)
     if (t.kind === 'draft' && t.mapCheck && t.mapCheck !== check) {

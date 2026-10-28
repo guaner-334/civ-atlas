@@ -45,7 +45,7 @@ import type { DraftBase } from '../stageStore';
 import { getEdits, setAdvance, setCalamity, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
 import { CALAMITIES, CALAMITY_NAMES, cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { AdvanceFields } from '../StepwiseDialogs';
-import { advanceBrief } from '../Stepwise';
+import { advanceBrief } from '../advanceText';
 import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Origins } from '../../gen/civ/frontier';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { OriginsPage } from './OriginsPage';

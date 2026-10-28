@@ -34,7 +34,7 @@ import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { END_YEAR_MAX, cleanPlay, playInterventions, polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
 import { useNarrow } from './device';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, STEP_QUEUED, StepCommandFoot, StepEffectTime, useStepView } from './Stepwise';
 import { useEdits, useEra } from './editsStore';
 import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
@@ -94,16 +94,16 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const y = step ? nextYear(sw) : yi.y;
   const valid = step || yi.valid;
   /** 看国土、邻国、城用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   // 持续到:一直有效 / 到某一年(截止那年不含,所以至少是生效年份的下一年;逐年推演里没有上限)
   const [limited, setLimited] = useState(false);
   const ui = useYearInput(y + 100, step ? y + 1 : Math.min(y + 1, civ.endYear), step ? END_YEAR_MAX : civ.endYear, () => setMsg(null));
   const timed = (k: Cmd) => k === 'protect' || k === 'keep' || k === 'halt' || k === 'ally';
   const until = limited ? { until: ui.y } : {};
 
-  const alive = polityAlive(p, y);
+  const alive = polityAlive(p, yv);
   const { size, near } = useMemo(() => neighborsAt(civ, id, yv), [civ, id, yv]);
-  const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, y) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, y, size]);
+  const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, yv) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, yv, size]);
   // 划中立地:这一年有没有碰到两国以上、做得了中立地的州(按国家、年份记着,回放时不每帧重算)
   const zoneOk = useMemo(() => zoneChoices(civ, world, id, yv, 1).length > 0, [civ, world, id, yv]);
   // 迁都的候选:那一年本国国土里还在的、不是国都的城
@@ -131,7 +131,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
     // 共和国没有王室(推演里本来就不改朝换代)
     if (k === 'keep' && p.lineage === 'republic') return '共和国没有王室，用不上';
-    if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (!alive) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt') && has(k)) return '已经下过这条命令';
     if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
@@ -196,7 +196,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
         accept: (q) => {
           if (q === id) return '要选另一个国家';
           const Q = civ.polities[q];
-          if (!Q || !polityAlive(Q, y) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
+          if (!Q || !polityAlive(Q, yv) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
           if (k === 'declare' && !near.has(q)) return '两国不接壤,无法宣战';
           const b = polityKey(civ, q);
           return order(k === 'ally' ? { kind: k, a: key, b, from: y, ...until } : { kind: k, a: key, b, from: y }, { kind: 'polity', id: q });

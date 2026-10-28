@@ -18,7 +18,7 @@ import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { useNarrow } from './device';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, nameAt, setPolityPick, usePolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
@@ -46,7 +46,7 @@ export function DestroyPage({ civ, id, year, from }: { civ: Civ; id: number; yea
   const yi = useYearInput(from ?? defaultYear(p, year), lo, hi, clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、邻国用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const name = nameAt(p, y);
   /** 面板标题上的名字(单子、提示条写它,和用户点的那个对得上) */
   const shown = nameAt(p, year);
@@ -98,7 +98,7 @@ export function DestroyPage({ civ, id, year, from }: { civ: Civ; id: number; yea
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!step && !yi.valid) return `亡国年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (!polityAlive(p, y)) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (!polityAlive(p, yv)) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (mode === 'merge' && !B) return '选一国并入，或者散成无主';
     return null;
   })();

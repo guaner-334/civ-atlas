@@ -7,7 +7,7 @@
  *   国家卡片概况「推一把」一行(时代下面,只在管着的那些年有;直接进的推的那一年起 BOOST_ROW_YEARS 年里有)
  */
 import type { Civ } from '../gen/civ/types';
-import { BOOST_YEARS_DEFAULT, keyCells, polityKey, regionOfKey, type Intervention } from '../gen/edits';
+import { BOOST_YEARS_DEFAULT, YEAR_TICKS, commandAt, keyCells, polityKey, regionOfKey, type Intervention } from '../gen/edits';
 import { BOOST_N } from '../gen/civ/boost';
 import { ERAS, RESOURCES, developmentAt, eraLevel, eraOf } from '../gen/civ/development';
 import { capitalAt, polityAlive, populationAt, regionCityAt } from '../gen/civ/growth';
@@ -218,7 +218,8 @@ export function boostRow(civ: Civ, id: number, year: number, pending: readonly P
   const list = civ.interventions ?? [];
   for (let i = list.length - 1; i >= 0; i--) {
     const v = list[i];
-    if (v.kind !== 'boost' || v.a !== key || v.regions || year < v.from) continue;
+    // 年中下的(逐年推演停在年中时)到那一格才算
+    if (v.kind !== 'boost' || v.a !== key || v.regions || year < commandAt(v) / YEAR_TICKS) continue;
     const done = boostDone(civ, i);
     if (!done) continue;
     if (v.mul !== undefined) {
