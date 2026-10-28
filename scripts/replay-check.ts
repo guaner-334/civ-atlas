@@ -778,7 +778,9 @@ if (part('人物')) person: {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!new RegExp(`${reEsc(G.name)}\\s*${reEsc(G.role)}，${G.from}–${G.until} 年领兵`).test(card2) || y1 !== G.from)
+  // 起止同一年只写一个年份("2874 年领兵")
+  const gSpan = G.until > G.from ? `${G.from}–${G.until}` : `${G.from}`;
+  if (!new RegExp(`${reEsc(G.name)}\\s*${reEsc(G.role)}，${gSpan} 年领兵`).test(card2) || y1 !== G.from)
     errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
@@ -3196,8 +3198,15 @@ if (part('干预保护')) {
     orders = await page.locator('.timebar .tb-order').count();
     // 已生效的提示(带撤销)
     ivToast = await toastText(page, 'resim-done');
-    // 放得快,停下时已经过了好些年:这国后来的大事会把干预那条挤出面板(只列最近 5 件),按 ← 一次退 10 年,退到干预那年附近;
-    // 不退到干预那年之前(那时面板里还没有这条)
+    // 放得快,停下时已经过了好些年:这国后来的大事会把干预那条挤出面板(只列最近 5 件)。按 G 打年份,跳到干预的下一年;
+    // 打不了的话按 ← 一次退 10 年,退到干预那年附近(不退到干预那年之前:那时面板里还没有这条)
+    await page.keyboard.press('g');
+    const jumpIn = page.locator('.timebar .jy-in');
+    if (await jumpIn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await jumpIn.fill(String(Y + 1));
+      await jumpIn.press('Enter');
+      await page.waitForTimeout(300);
+    }
     for (let i = 0; i < 20; i++) {
       const y = Number((await page.locator('.timebar .tb-year').innerText().catch(() => '')).replace(/[^\d]/g, ''));
       if (!(y >= Y + 10)) break;
@@ -3476,14 +3485,24 @@ if (part('政体和朝政页')) {
   const small = ((await page.evaluate('window.__wfPickables()')) as { kind: string; id: number }[]).filter((q) => q.kind === 'polity').map((q) => q.id);
   let smallRow = '';
   let smallPage = '';
-  for (const q of small.slice(0, 40)) {
-    await pickPolity(q);
-    if (await page.locator('.inspector [data-act=court]').count()) continue;
-    smallRow = await rowText();
+  // 先在能点的国名里挨个看(前 40 个);都够得上议事(小国的名字常常没标在图上)就按国家编号挨个选:这一年还在、有「政体」一行的
+  const tryPolity = async (q: number, quick: boolean) => {
+    if (quick) await pickPolity(q);
+    else {
+      await page.evaluate((i) => (window as any).__wfSelect('polity', i), q);
+      if (!(await page.locator(`.inspector .cp[data-polity="${q}"] .cp-k`).first().waitFor({ timeout: 1500 }).then(() => true, () => false))) return false;
+    }
+    if (await page.locator('.inspector [data-act=court]').count()) return false;
+    const r = await rowText();
+    if (!r) return false;
+    smallRow = r;
     await page.click('.inspector [data-act=court-form]').catch(() => {});
     smallPage = (await page.locator('.inspector .ct-page').innerText({ timeout: 3000 }).catch(() => '')).replace(/\s+/g, ' ');
-    break;
-  }
+    return true;
+  };
+  let found = false;
+  for (const q of small.slice(0, 40)) if ((found = await tryPolity(q, true))) break;
+  for (let q = 0; q < 150 && !found; q++) found = await tryPolity(q, false);
   console.log(
     `政体和朝政页:第 ${id} 国「${row}」→ 朝政页「${gov}」,${segs} 条分段条亮着「${lit.join('、')}」,轴「${axis}」;` +
       `历次改制 ${changes.length} 条、时间条 ${bar} 段(最新「${(changes[0] ?? '').slice(0, 60)}」),点了打开编年史 ${chron};` +

@@ -181,9 +181,10 @@ export function buildLineage(
     let ri = 0;
     let gi = 0;
     const others = generalNames[p.id].slice().sort((a, b) => a[0] - b[0]);
-    // 即位了的预定继承人:做儿子出道那一刻起名字就算用过了
+    // 预定的继承人(即位了的、还没即位的都算):做儿子出道那一刻起名字就算用过了 ——
+    // 还没即位的名字是照他即位时先起好的,往后推他即位了也是这个名字:同一刻出道的兄弟不会推到这里时和他同名、推远了又改名
     const heirs: [Year, string, Year][] = [];
-    for (const r of list) for (const s of opts.sons?.get(r) ?? []) if (s.p.role === 'ruler') heirs.push([s.debut, s.p.name, s.p.born]);
+    for (const r of list) for (const s of opts.sons?.get(r) ?? []) if (s.p.role === 'ruler' || (s.heirAt !== undefined && s.p.name)) heirs.push([s.debut, s.p.name, s.p.born]);
     heirs.sort((a, b) => a[0] - b[0]);
     let hi = 0;
     /** 将领、名臣用过的名字 → 生年 */
