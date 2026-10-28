@@ -30,6 +30,7 @@
  *   名臣辅政、大臣专权 = 专门起的一位名臣(officials.ts;篡位了和新朝第一位并成一人,编号排在他做名臣时的位置);
  *   大将专权 = 那时本国战功最多的将领(没有就由一位大臣顶上)。有人掌着实权的那几年,名义君主不亲征。
  * **联姻**(marriages.ts):娶亲的人记上配偶(宗室女只记一行:出自哪国、父亲、"某氏"),娶亲以后生的儿子记上母亲;要结亲的宗室结亲以前不战死。
+ * **女性**(women.ts):上面都排完以后,按语感的规矩和比例把一部分君主、宗室、将领、名臣换成女的、另起女名(只换性别和名字,别的一样不改)。
  *
  * 随机数一律 keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位, 用途, 种类):国家的位置锚 = 立国时国都的地块
  * (+ 这块地上第几个立国,同 naming.ts);一场战争里按"攻守两国的位置锚 + 宣战的年份"取(同 wars.ts)。
@@ -49,6 +50,7 @@ import { GROOM_SELF, matchesFrom } from './marriages';
 import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, fallFate, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
 import { splitSurname } from './peopleText';
+import { assignWomen } from './women';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -1180,6 +1182,19 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const end = civ.annals.find((a) => a.kind === 'neutral' && a.cause === 'lapse' && a.war === e.war);
     x.exile = { how, annal: i, zone: e.war, region: e.region, year: e.year, ...(by ? { by: by.id } : {}), ...(end ? { until: end.year } : {}) };
   }
+  // 一部分人换成女的(women.ts):只换性别、名字、字号,西幻同名女王另编序数
+  const heirs = new Set<Person>();
+  for (const ss of sonsOf.values()) for (const s of ss) if (s.heirAt !== undefined && s.p.role === 'prince') heirs.add(s.p);
+  assignWomen(out, {
+    seed: civ.seed,
+    polities,
+    tag,
+    styleOf,
+    namerOf: (p) => namerOf(styleOf(p)),
+    heirs,
+    usurped: usurperOf,
+    retitle: (pid) => titleRulers(polities[pid], rulers[pid], facts[pid], base, tag[pid]),
+  });
   return { people: out, ids, usurped: [...usurpers.values()] };
 }
 

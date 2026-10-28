@@ -857,6 +857,11 @@ export interface Person {
    * 身后称号、嫁娶)都照它取,见 gender.ts
    */
   female?: true;
+  /**
+   * 女的:推演里先按男的给这个位置起的名字(civ/women.ts;不显示)。头像的长相按它一代代往下传,换成女的以后她的后人长相不变。
+   * 男的不给
+   */
+  maleName?: string;
   born: Year;
   /** 卒年;到结束年份还在世 = 不给 */
   died?: Year;
