@@ -134,7 +134,8 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       if (x.fate === 'battle') {
         // 战死的是将领、领兵的宗室(君主亲征不战死)
         expect(['general', 'prince']).toContain(x.role);
-        const last = x.commands![x.commands!.length - 1];
+        // 最后一件事 = 经手的事里最晚的那条(亲自断后、全师而退以后接着领兵的,断后那一条排在领兵那一任后面,却不是最晚的)
+        const last = x.commands!.reduce((m, c) => (c.last > m.last ? c : m));
         expect(x.died).toBe(A[last.last].year);
       }
     }

@@ -46,9 +46,12 @@
  *   出兵的几成 = 管得到几成 + LEVY_0 + 收了兵权多出的(兵升)(最多 1),割据的地盘 0(抗命不出兵);
  *   设了边镇的国家,管得到几成不到 BORDER_C 的州全数出兵(边将自募)。
  * 管得到几成里的行政能力加上铨选多管的几档(官升;许了自辟是负的),离国都远近不加。
+ * **做法**(practices.ts 的做法表):各国国都所在州的五种能力和时代(国都能力,每年填)→ 有了哪几样做法(做法,一样一栏);
+ * 有了铁路的,管得到几成里管得到的远近再乘 RAIL_REACH。别的做法改的是议事、割据(事件层按同一张表现算)。
  */
 import type { TableCard } from './tables';
 import { NEVER } from './devTables';
+import { RAIL_REACH, practiceCards } from './practices';
 
 /** 管得到几成、离国都多远的常数(control.ts 给;名字和那边一样) */
 export interface ControlRuleConsts {
@@ -144,7 +147,7 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
   const num = (id: string, name: string): TableCard => ({ id, name, unit: 'region', input: true, min: -BIG, max: BIG, off: 0 });
   const pol = (id: string, name: string): TableCard => ({ ...num(id, name), unit: 'polity' });
   const cell = (id: string, name: string): TableCard => ({ ...num(id, name), unit: 'tile' });
-  const consts = { ...c, ...u, ...f, ...h, ...k, NEVER };
+  const consts = { ...c, ...u, ...f, ...h, ...k, NEVER, RAIL_REACH };
 
   const inputs: TableCard[] = [
     { id: '国', name: '归哪国', unit: 'region', kind: 'id', min: -1, max: 1e9, off: -1 },
@@ -201,11 +204,13 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     max: 1,
     off: 0,
     builtin: true,
+    // 读这一步刚算的做法(只看这一年填的国都能力;接着推时不用存)
+    after: ['做法'],
     consts,
     rule: [
-      // 铨选的多管一截(官升;许了自辟少管一截)只算在这里,不算进离国都远近
+      // 铨选的多管一截(官升;许了自辟少管一截)只算在这里,不算进离国都远近;有了铁路(做法表)管得到的远近再乘 RAIL_REACH
       'let 行政 = 1 + ADMIN_GAIN * max(0, 国都行政 + 官升)',
-      'let x = if(路程 >= NEVER, 4, 路程 / (REACH * 行政))',
+      'let x = if(路程 >= NEVER, 4, 路程 / (REACH * 行政 * if(做法.铁路 > 0, RAIL_REACH, 1)))',
       // 异族、刚被征服(随年数淡去)、当地有大城都打折
       'let c = 1 / (1 + x * x) * if(异族, FOREIGN, 1) * if(新征 < RECENT, 1 - RECENT_CUT * (1 - 新征 / RECENT), 1) * if(大城, BIG_CITY, 1)',
       'if(not has(国), 0, if(是国都, 1, c))',
@@ -333,5 +338,5 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     // 管不到的州出兵打折(管得到几成 + LEVY_0,收了兵权的再加兵升,最多 1),割据的州不出兵;设了边镇的,边地全数出兵
     rule: 'max(1, sumof(城民 * if(割据州, 0, if(边镇 and 管辖 < BORDER_C, 1, min(1, 管辖 + LEVY_0 + 兵升))))) * 军力 * 国力倍数',
   };
-  return [...inputs, control, remote, settle, strife, soil, crowd, rural, ruralSum, soilMean, ...fiscal, base, unrest, power];
+  return [...inputs, ...practiceCards(), control, remote, settle, strife, soil, crowd, rural, ruralSum, soilMean, ...fiscal, base, unrest, power];
 }

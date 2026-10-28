@@ -7,6 +7,8 @@
  * - 钱数从钱粮账本来(fiscalBook.ts;千石,页面上写万石):直征 / 分成多派官吏的开销 = 征费 × 应缴;
  *   封地的岁贡 = 自治那一档的截留 ÷ 截留的几成 × 交的几成(分封着时自治那一档正好就是封地);割据一文不交 = 割据那一档的截留。
  * - 政体名、历次改制由 gen/civ/polityForm.ts 推;这里只写成句子(为什么叫这个、每次改制因为什么)。
+ * - 还议不了的几档(courtLocks):国中还没有户籍 / 常备军 / 文官考选(做法表,gen/civ/practices.ts;按国都那州那一年的能力)时,
+ *   直征 / 监军和禁军 / 参半和铨选比现在那档高的画斜纹,下面一句写要等什么。
  */
 import type { Annal, Civ, Year } from '../gen/civ/types';
 import { COUNCIL_CONSTS, COUNCIL_GATE, councilAble, courtRulesAt, type CourtRules } from '../gen/civ/council';
@@ -24,6 +26,8 @@ import { lordsAt, type LordNow } from '../render/civ/control';
 import { Outcome, applyRule, newRules } from '../gen/civ/councilRules';
 import { FEUDAL_SHARE, lordShare, type FormChange, type FormFacts, type FormLook, type FormName } from '../gen/civ/polityForm';
 import { wan } from './fiscalInfo';
+import { practicesAt } from '../gen/civ/practiceInfo';
+import { PRACTICES, Practice, hasPractice } from '../gen/civ/practices';
 
 /** 征税的三种法子(征法 0、1、2) */
 export const LEVY_NAMES = ['地方代收', '与地方分成', '朝廷直征'] as const;
@@ -33,6 +37,33 @@ export const ARMY_SEGS = ['边镇', '征发', '监军', '禁军'] as const;
 export const OFFICE_SEGS = ['自辟', '荐举', '参半', '铨选'] as const;
 /** 军制、官制(−1、0、0.5、1)→ 分段条第几格 */
 export const ruleSeg = (v: number): number => (v < 0 ? 0 : v === 0 ? 1 : v < 1 ? 2 : 3);
+
+/** 还议不了的几档:三条分段条各自画斜纹的格子(比现在那档高的),下面那一句(都没有 = 空串) */
+export interface CourtLocks {
+  tax: number[];
+  army: number[];
+  office: number[];
+  note: string;
+}
+
+/**
+ * 国家 p 第 year 年还议不了的几档(rules = 那一年的规矩):没有户籍议不到直征、没有常备军议不到监军和禁军、
+ * 没有文官考选议不到参半和铨选(推演里的前提,gen/civ/council.ts)
+ */
+export function courtLocks(civ: Civ, p: number, year: Year, rules: Pick<CourtRules, 'tax' | 'army' | 'office'>): CourtLocks {
+  // 查不到(没有发展度……)的不画
+  const m = practicesAt(civ, p, year) ?? -1;
+  const need = (x: Practice) => `要等国中有了${PRACTICES[x].name}`;
+  const above = (cells: number[], on: number) => cells.filter((i) => i > on);
+  const tax = hasPractice(m, Practice.Register) ? [] : above([2], rules.tax);
+  const army = hasPractice(m, Practice.Army) ? [] : above([2, 3], ruleSeg(rules.army));
+  const office = hasPractice(m, Practice.Exam) ? [] : above([2, 3], ruleSeg(rules.office));
+  const says: string[] = [];
+  if (tax.length) says.push(`直征${need(Practice.Register)}`);
+  if (army.length) says.push(`${army.length > 1 ? '禁军、监军' : '禁军'}${need(Practice.Army)}`);
+  if (office.length) says.push(`铨选${need(Practice.Exam)}`);
+  return { tax, army, office, note: says.length ? `${says.join('；')}（斜纹的那几档现在还议不了）` : '' };
+}
 /** 议题(史事的 war 列;5–8 按议之前的军制、官制分两种叫法,见 issueName) */
 export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地', '收兵权', '设边镇', '行铨选', '许自辟', '分镇', '脱离'] as const;
 
