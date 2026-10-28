@@ -50,7 +50,8 @@ export function reliefPrepare(world: World, raster: Raster, phone: boolean): boo
       slots = Array.from({ length: poolSize(phone) }, () => {
         const w = new Worker(new URL('../../terrain3dWorker.ts', import.meta.url), { type: 'module' });
         w.onmessage = (e: MessageEvent<ReliefResponse>) => got(e.data);
-        w.onerror = () => failAll();
+        // 线程没加载上、出了没接住的错:整组关掉(等着的作废);下次要算时重新开
+        w.onerror = () => reliefRelease();
         return { w };
       });
     } catch {

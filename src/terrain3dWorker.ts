@@ -76,10 +76,13 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     if (typeof OffscreenCanvas === 'undefined') throw new Error('后台线程不能画图');
     const P = WINDOW_PAD;
     const n = m.w + 2 * P;
-    const key = `${m.S}/${m.x0}/${m.y0}/${m.w}/${m.h}`;
+    // 方框可以在左右相连的哪一圈上、也可以跨过接缝:左边挪到主图那一圈里(铺出来的一样),河按跨过的那一截再画一份
+    const Wpx = Math.round(cur.world.width * m.S);
+    const x0 = ((m.x0 % Wpx) + Wpx) % Wpx;
+    const key = `${m.S}/${x0}/${m.y0}/${m.w}/${m.h}`;
     let r = recent.get(key);
     if (!r) {
-      r = rasterizeWindow(cur.src, m.S, m.x0 - P, m.y0 - P, n, m.h + 2 * P);
+      r = rasterizeWindow(cur.src, m.S, x0 - P, m.y0 - P, n, m.h + 2 * P);
       recent.set(key, r);
       while (recent.size > 2) recent.delete(recent.keys().next().value!);
     }
@@ -91,7 +94,13 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     if (!ctx) throw new Error('后台线程不能画图');
     ctx.putImageData(new ImageData(px, m.w, m.h), 0, 0);
     // 粗的一档(每单位不到 8 像素)小溪细得看不见,不画,省下时间
-    drawRealisticRivers(ctx, cur.world, r, { s: m.S, ox: -m.x0, oy: -m.y0, k: m.k }, m.S >= 8, m.look);
+    const creeks = m.S >= 8;
+    drawRealisticRivers(ctx, cur.world, r, { s: m.S, ox: -x0, oy: -m.y0, k: m.k }, creeks, m.look);
+    if (x0 + m.w > Wpx && r.win) {
+      // 跨过接缝的那一截:主图左边那一圈的河挪一整圈画过来(这一块的水陆跟着挪,河照样只留在陆地上)
+      const shifted = { ...r, win: { ...r.win, x0: r.win.x0 - Wpx } };
+      drawRealisticRivers(ctx, cur.world, shifted, { s: m.S, ox: Wpx - x0, oy: -m.y0, k: m.k }, creeks, m.look);
+    }
     const bitmap = cv.transferToImageBitmap();
     const res: ReliefResponse = { wid: m.wid, job: m.job, y: m.y, bitmap, ms: 0 };
     const transfer: Transferable[] = [bitmap];

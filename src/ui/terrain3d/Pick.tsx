@@ -207,7 +207,8 @@ export function ReliefPick({ world, raster, api, phone }: { world: World; raster
     if (g.hy < 0) nb.cy = b.cy + b.h / 2 - nb.h / 2;
     if (g.hy > 0) nb.cy = b.cy - b.h / 2 + nb.h / 2;
     if (g.hy === 0) nb.cy = b.cy;
-    setBox(nb);
+    // 贴着对边挪过中心以后再夹一次(往极地拉时不出南北纬 75°、不出两极,东西宽照新纬度重新夹)
+    setBox(clampBox(nb, H));
   };
   const up = (e: RPointerEvent<HTMLDivElement>) => {
     if (!grab.current) return;

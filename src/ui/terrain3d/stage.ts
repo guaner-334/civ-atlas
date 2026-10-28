@@ -262,11 +262,16 @@ export class ReliefStage {
       if (da > Math.PI) da -= 2 * Math.PI;
       if (da < -Math.PI) da += 2 * Math.PI;
       cam.yaw -= (da * 180) / Math.PI;
-      // 两个手指一起往上 / 往下推(同一个方向)才改俯角:往上推更斜
+      // 两个手指一起往上 / 往下推(同一个方向)才改俯角:往上推更斜。一次只来一根手指的移动,
+      // 两根都挪过了再比(没挪的那根留着上一次的位置);一上一下(捏合)不算
       const dy1 = a.y - t.ys[0];
       const dy2 = b.y - t.ys[1];
-      if (dy1 * dy2 > 0) cam.pitch = clampPitch(cam.pitch + (cy - t.cy) * 0.25);
-      this.two = { d, a: ang, cy, ys: [a.y, b.y] };
+      let ys = t.ys;
+      if (dy1 * dy2 > 0) {
+        cam.pitch = clampPitch(cam.pitch + ((dy1 + dy2) / 2) * 0.25);
+        ys = [a.y, b.y];
+      } else if (dy1 * dy2 < 0) ys = [a.y, b.y];
+      this.two = { d, a: ang, cy, ys };
       this.kick();
       return;
     }
