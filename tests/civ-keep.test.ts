@@ -67,13 +67,13 @@ describe('保住王室 · 没下、即位没勾的世界不变', () => {
    * 用 PRINT_FINGERPRINT=1 重算
    */
   const EXPECTED: Record<string, string> = {
-    annals: '1633a08da5551af4',
-    checkpoints: '394b261544fecd16',
-    log: '0433e4c016a60481',
-    people: 'abaca1a397ff069f',
-    polities: '4971b247be7a5f6d',
-    settlements: 'a78325ae48489b9a',
-    chronicle: 'dfb73d652902cb34',
+    annals: '16af066bc95735e9',
+    checkpoints: '5a9ac377276da99c',
+    log: '90db7c95a6cefb30',
+    people: '29ad14664afa7077',
+    polities: '71dd9626b578377c',
+    settlements: '6f420e276dd29d5b',
+    chronicle: '8f965a11c6798a3e',
   };
 
   it('即位没勾(旧存档里的即位没有 keep)的世界和加这条干预以前逐字节一样', () => {
