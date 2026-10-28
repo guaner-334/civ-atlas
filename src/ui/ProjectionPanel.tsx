@@ -11,7 +11,7 @@ import { PROJECTIONS, PROJECTION_IDS, type ProjectionId } from '../render/projec
 import { formatLon, lonOfX, requestMapCenter, useMapCenter } from './mapWrap';
 import { GLOBE_READY, GRATICULE_STEPS, setGraticule, setGraticuleStep, setMapMoving, setProjection, useGraticule, useGraticuleStep, useProjection, type MapProjection } from './projection';
 import type { MapSelection } from './civView';
-import { cultureFocus, mapTarget } from './flyTo';
+import { cultureFocus, mapTarget, selectionFocus } from './flyTo';
 
 /** 悬停时的一句用途(弹层里地方小,比 render/projection.ts 的说明短) */
 const SHORT_HINT: Partial<Record<ProjectionId, string>> = {
@@ -146,6 +146,11 @@ export function GraticuleSteps() {
 export function selectionLon(world: World, civ: Civ, selIn: MapSelection, year: number): number | null {
   if (selIn.kind === 'culture') {
     const f = cultureFocus(world, civ, selIn.id, year);
+    return f ? f.lon : null;
+  }
+  // 商道:路线正中那一州
+  if (selIn.kind === 'trade') {
+    const f = selectionFocus(world, civ, selIn, year);
     return f ? f.lon : null;
   }
   const sel = mapTarget(civ, selIn);
