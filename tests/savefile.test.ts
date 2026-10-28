@@ -1303,9 +1303,10 @@ describe('旧版本的提示:照实说变了什么', () => {
   it('第 45 版只动了带地形大事的世界(城的人口上限):没有地形大事的,改没改过地形都一样', () => {
     const history = '来自旧版本：地形和气候没变，历史重新推演了';
     expect(GENERATOR_CHANGES[45]).toEqual({ change: 'history', only: 'upheavals' });
-    expect(versionNote(44, false)).toBeNull();
-    expect(versionNote(44, true)).toBeNull();
-    expect(versionNote(44, { terrain: true, upheavals: false })).toBeNull();
+    // 没有地形大事的:从第 44 版来和从第 45 版来说的一样(第 45 版没动它们;以后的版本动了的话两边一起说)
+    expect(versionNote(44, false)).toBe(versionNote(45, false));
+    expect(versionNote(44, true)).toBe(versionNote(45, true));
+    expect(versionNote(44, { terrain: true, upheavals: false })).toBe(versionNote(45, { terrain: true, upheavals: false }));
     expect(versionNote(44, { terrain: false, upheavals: true })).toBe(history);
     expect(versionNote(44, { terrain: true, upheavals: true })).toBe(history);
     // 再早一版来的:没有地形大事的照第 44 版说(编年史添了内容),带地形大事的照第 45 版说
