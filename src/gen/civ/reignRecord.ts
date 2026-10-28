@@ -264,9 +264,10 @@ export function reignFacts(civ: Civ, x: Person): ReignFacts | null {
   };
 }
 
-/** 一件大事写成一行:"2337 年升格为大衍王朝";几城受灾的带上起止 */
+/** 一件大事写成一行:"2337 年升格为大衍王朝";几城受灾、跨了几年的带上起止 */
 function eventLine(e: ReignEvent, era: Era | null | undefined): string {
-  return `${yearShortAt(e.year, era)}${e.text}${e.until !== undefined ? `（${yearSpan(e.year, e.until, era)}）` : ''}`;
+  const span = e.until !== undefined && Math.floor(e.until) > Math.floor(e.year);
+  return `${yearShortAt(e.year, era)}${e.text}${span ? `（${yearSpan(e.year, e.until!, era)}）` : ''}`;
 }
 
 /** 君主的治绩;不是君主 = null */
