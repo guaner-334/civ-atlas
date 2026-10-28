@@ -35,6 +35,7 @@ import { RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
+import { drawTradeLines, drawTradeNames, tradeShown } from './civ/trade';
 import { REF_MAP_CSS, drawPlacedLabels, placeMap, type LabelMark, type LabelView, type PlacedMark, type Placement } from './labels/draw';
 import { ensureFonts, familyFor, fontCss } from './labels/fonts';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
@@ -483,14 +484,15 @@ export async function drawMapLabels(
     opt.beforeDraw?.(null);
     return { labels: 0, marks: 0 };
   }
-  const params = { world: p.world, raster: p.raster, civ: p.civ, style: p.style, year: p.year, show: p.show };
+  const params = { world: p.world, raster: p.raster, civ: p.civ, style: p.style, year: p.year, show: p.show, bright: inkStyle(p) === 'realistic' };
   // 地理名不随年份变(和屏幕上一样按结束年份取);国名、城名、城镇符号按当年
   const geo = civLabelItems({ ...params, year: p.civ.endYear });
   // 弯边投影:国名按投影后的国土拟合
   const layer = civMapLayer(params, { proj: exportProj(p), fast: opt.fast });
   const items = geo.concat(layer.items);
   const wars = warsShown(params);
-  if (!items.length && !layer.marks.length && !wars && !p.show.resources) {
+  const trade = tradeShown(params);
+  if (!items.length && !layer.marks.length && !wars && !trade && !p.show.resources) {
     opt.beforeDraw?.(null);
     return { labels: 0, marks: 0 };
   }
@@ -504,8 +506,12 @@ export async function drawMapLabels(
     const mp = exportProj(p);
     drawWarfare(ctx, params, lv, mp ? projector(mp) : null);
   }
+  // 商道:线在城镇符号和字底下,名字等字写完以后写(和屏幕上一样)
+  const tpj = trade ? exportProj(p) : null;
+  if (trade) drawTradeLines(ctx, params, lv, tpj ? projector(tpj) : null);
   drawSettlementMarks(ctx, placed.marks, p.style);
   drawPlacedLabels(ctx, placed.labels, lv);
+  if (trade) drawTradeNames(ctx, params, lv, tpj ? projector(tpj) : null, placed);
   if (p.show.resources) drawResourceLayer(ctx, p.civ!, p.world, p.year, lv, placed.labels, p.res);
   return { labels: placed.labels.length, marks: placed.marks.length, placed };
 }
