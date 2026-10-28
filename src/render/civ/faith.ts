@@ -82,6 +82,21 @@ export function faithColors(civ: Civ, focus?: number | null): Uint8Array {
   return out;
 }
 
+/** 民族填色上选中一个民族(民族卡片开着)时:别的民族照信仰那样往白里调(colors = 各民族的颜色,3 个一组;按颜色表和选中的缓存) */
+const focusCache = new WeakMap<Uint8Array, { focus: number; out: Uint8Array }>();
+export function cultureFocusColors(colors: Uint8Array, focus?: number | null): Uint8Array {
+  if (focus === undefined || focus === null || focus < 0 || focus * 3 >= colors.length) return colors;
+  const hit = focusCache.get(colors);
+  if (hit && hit.focus === focus) return hit.out;
+  const out = new Uint8Array(colors.length);
+  for (let i = 0; i + 2 < colors.length; i += 3) {
+    const c: [number, number, number] = [colors[i], colors[i + 1], colors[i + 2]];
+    out.set(i === focus * 3 ? c : shade(c, FADED), i);
+  }
+  focusCache.set(colors, { focus, out });
+  return out;
+}
+
 /** 某一年要画小圆点的圣城:[城的编号, 颜色];focus = 选中的信仰(只画它所属大教的圣城) */
 export function holyCities(civ: Civ, year: Year, focus?: number | null): { settlement: number; color: [number, number, number] }[] {
   const rel = civ.religion;

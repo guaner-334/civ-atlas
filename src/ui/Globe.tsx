@@ -133,7 +133,7 @@ import { currentWorld } from './saveStore';
 import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
 import { drawResourceBadges, hitsLabels, resourceBadges, type ResourceBadge } from '../render/civ/resources';
-import { faithFocusOf, selectionOnMap } from './faithSelection';
+import { cultureFocusOf, faithFocusOf, selectionOnMap } from './faithSelection';
 import { yearFull } from '../gen/era';
 import { currentEra } from './editsStore';
 import './globe.css';
@@ -702,12 +702,14 @@ function civParamsOf(p: {
   style: CivDrawParams['style'];
   show: CivShow;
   faithFocus?: number | null;
+  cultureFocus?: number | null;
 }): CivDrawParams | null {
   const base = p.geo ?? p.civ;
   if (!p.civ || !base || base.habitat.suitability.length !== p.world.mesh.n || base.regions !== p.civ.regions) return null;
   const t = getCivTime();
   const faithFocus = p.show.faiths ? (p.faithFocus ?? null) : null;
-  return { world: p.world, raster: p.raster, civ: base, style: p.style, year: t.year ?? base.endYear, show: p.show, fast: t.playing || t.scrubbing, faithFocus };
+  const cultureFocus = p.show.cultures ? (p.cultureFocus ?? null) : null;
+  return { world: p.world, raster: p.raster, civ: base, style: p.style, year: t.year ?? base.endYear, show: p.show, fast: t.playing || t.scrubbing, faithFocus, cultureFocus };
 }
 
 /**
@@ -754,6 +756,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(faithSelection.ts)
   const sel = useMemo(() => selectionOnMap(civ, picked), [civ, picked]);
   const faithFocus = faithFocusOf(picked);
+  // 选中一个民族:民族填色上别的民族变淡
+  const cultureFocus = cultureFocusOf(picked);
   const hl = useCivHighlight();
   const show = useCivShow();
   const resView = useResourceView();
@@ -890,8 +894,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   }).current;
 
   // 最新的 props(帧回调里读)
-  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView, onOpened });
-  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, resView, onOpened };
+  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView, onOpened });
+  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView, onOpened };
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
@@ -1118,7 +1122,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const p = props.current;
     const cp = civParamsOf(p);
     const globeInk = !!cp && !cp.fast && globeTex;
-    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus] : [p.world];
+    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus, cp.cultureFocus] : [p.world];
     if (!sameKey(s.civTex.key, ck)) {
       s.civTex.key = ck;
       const t0 = performance.now();
@@ -1836,7 +1840,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (s.frames) s.hold = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
-  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, resView]);
+  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView]);
   // 云的开关、飘不飘变了:重画,飘动循环接上
   const cloudPrefs = useCloudPrefs();
   // CPU 画法画不了云:图层面板的「云层」跟着变灰;地球仪关掉后恢复
