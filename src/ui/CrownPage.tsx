@@ -28,6 +28,7 @@ import { populationAt } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, personName } from '../gen/civ/peopleText';
+import { heOrShe } from '../gen/civ/gender';
 import { INTERVENTION_YEAR_MAX, cleanName, foundedPolityKey, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { characterLeanings, type AuthorCharacter } from '../gen/characters';
 import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
@@ -381,7 +382,7 @@ export function CrownPage({
                 ? `${rulerEndText(civ, cur, era)}；到那时由${c.name}继位${step ? '' : `，他那年 ${Math.floor(cur.until - c.born)} 岁`}。`
                 : step
                   ? `哪天下台（驾崩、退位），就由${c.name}继位。`
-                  : `推演里一直在位到最后；到他下台时由${c.name}继位。`}
+                  : `推演里一直在位到最后；到${heOrShe(cur)}下台时由${c.name}继位。`}
               {cur.name}要是先因改朝换代、亡国下台，这条不生效。
             </span>
           )}
@@ -434,7 +435,7 @@ export function CrownPage({
                 </div>
                 <span className="cp-note">
                   {before && P
-                    ? `那年${P.lineage === 'republic' ? '执政' : '在位'}的是${personName(civ, before)}，${after ? `他下台后由${c.name}继位` : `他让位给${c.name}`}。`
+                    ? `那年${P.lineage === 'republic' ? '执政' : '在位'}的是${personName(civ, before)}，${after ? `${heOrShe(before)}下台后由${c.name}继位` : `${heOrShe(before)}让位给${c.name}`}。`
                     : ''}
                   {!P && home >= 0 ? `人物卡上他的国家${yearAt(y, era)}不在了，点「换一国」选一个。` : ''}
                   {`${yearFull(y, era)}还在的 ${alive.length} 国都能选${polity !== undefined ? '。' : '，默认是人物卡上他的国家。'}`}

@@ -18,7 +18,8 @@ import type { Civ, Person, Polity, Year } from '../../gen/civ/types';
 import { buildChronicle, cnNumber, entryInvolves, entryYearLabel, yearText, type ChronicleEntry } from '../../gen/civ/chronicle';
 import { capitalAt, dynastyTitle, polityName, polityShortTitle, polityTierAt, polityTitleChain } from '../../gen/civ/growth';
 import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
-import { generalRole, ministerRole, personName, rulerShort } from '../../gen/civ/peopleText';
+import { generalRole, ministerRole, personName, rulerShort, rulerTitle } from '../../gen/civ/peopleText';
+import { isFemale } from '../../gen/civ/gender';
 import { generalTally, peopleIndex } from '../../gen/civ/peopleInfo';
 import { deedsShort } from '../../gen/civ/officialText';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
@@ -646,8 +647,9 @@ function rulersText(civ: Civ, p: Polity, clip: Clip): string {
   if (rs.length < 2) return '';
   const xs = rs.map((x) => {
     const titled = x.title && (x.until === undefined || x.until <= end);
-    const who = p.eastern ? `${titled ? x.title : ''}${x.name}` : rulerShort(civ, x);
-    return `${who}(${span(x.from!, Math.min(x.until ?? end, end))})`;
+    const who = p.eastern ? `${titled ? rulerTitle(civ, x) : ''}${x.name}` : rulerShort(civ, x);
+    // 女君写明(AI 写"她"、写女帝女王)
+    return `${who}(${isFemale(x) ? '女,' : ''}${span(x.from!, Math.min(x.until ?? end, end))})`;
   });
   const MAX = 24;
   const list = xs.length > MAX ? [...xs.slice(0, 14), '……', ...xs.slice(-8)] : xs;
@@ -1087,7 +1089,7 @@ export function battleLines(civ: Civ, x: Person, from: Year = -Infinity, to: Yea
 /** 人物的一行:"郭继泰(大定将领,字子昭,凤州人):生于第 1503 年,卒于第 1561 年(寿终);第 1519 年以后才能出仕、领兵" */
 function personHead(civ: Civ, x: Person): string {
   const role = x.role === 'minister' ? ministerRole(civ, x) : x.role === 'general' ? generalRole(civ, x) : '';
-  const extra = [role, x.courtesy ? `字${x.courtesy}` : '', x.home !== undefined && cityName(civ, x.home) ? `${cityName(civ, x.home)}人` : ''].filter(Boolean).join(',');
+  const extra = [role, isFemale(x) ? '女' : '', x.courtesy ? `字${x.courtesy}` : '', x.home !== undefined && cityName(civ, x.home) ? `${cityName(civ, x.home)}人` : ''].filter(Boolean).join(',');
   const born = Y(x.born);
   const died = x.died !== undefined ? `卒于第 ${Y(x.died)} 年(${x.fate === 'battle' ? '战死' : '寿终'})` : `到第 ${Y(civ.endYear)} 年还在世`;
   return `- ${x.name}(${extra}):生于第 ${born} 年,${died};第 ${born + SERVE_AGE} 年以后才能出仕、领兵`;

@@ -12,6 +12,7 @@ import type { Civ, Person, Year } from './types';
 import { polityName } from './growth';
 import { peopleIndex, riseText } from './peopleInfo';
 import { personName, rulerShort } from './peopleText';
+import { heOrShe, kinWord, spouseWord } from './gender';
 import { heldOver, polityShort } from './regentInfo';
 import { yearAt, yearShort, yearSpanAt, type Era } from '../era';
 
@@ -158,7 +159,7 @@ export function lineageTag(civ: Civ, x: Person, polity: number): string {
   const tags: string[] = [];
   if (x.role === 'prince' && x.fate === 'battle') tags.push('战死');
   else if (x.role === 'prince' && x.fate === 'purged') tags.push(x.regencies?.some((g) => g.end === 'purged') ? '伏诛' : '争储被杀');
-  else if (x.adopted) tags.push('养子');
+  else if (x.adopted) tags.push(kinWord(x, '养子'));
   if (x.regencies?.length) tags.push('掌权');
   if (x.role === 'ruler' && heldOver(civ, x).some((h) => VOID_KINDS.has(h.g.kind))) tags.push('虚位');
   return tags.join('、');
@@ -170,7 +171,7 @@ const VOID_KINDS: ReadonlySet<string> = new Set(['march', 'chancellor', 'general
 /** 世系图第二行的小标:娶了别国宗室女 "妻大澜"、母亲是别国宗室女 "母大澜"(只写一样,妻子优先;polity = 那一国,画它的颜色);没有 = null */
 export function lineageKin(civ: Civ, x: Person): { text: string; polity: number } | null {
   const s = x.spouses?.[0];
-  if (s) return { text: `妻${polityShort(civ, s.polity, s.year)}`, polity: s.polity };
+  if (s) return { text: `${spouseWord(x)}${polityShort(civ, s.polity, s.year)}`, polity: s.polity };
   const m = x.mother;
   if (m) return { text: `母${polityShort(civ, m.polity, m.year)}`, polity: m.polity };
   return null;
@@ -200,7 +201,7 @@ export function treeLabel(row: DynastyRow, trees: readonly LineageTree[], i: num
   const a = trees[i - 1]?.nodes.find((n) => n.p.author !== undefined)?.p;
   const k = a ? row.rulers.indexOf(a) : -1;
   const next = k >= 0 ? row.rulers[k + 1] : undefined;
-  return next && t.nodes.some((n) => n.p === next) ? '继他之位' : '宗室远支';
+  return next && t.nodes.some((n) => n.p === next) ? `继${heOrShe(a)}之位` : '宗室远支';
 }
 
 /** 一朝排成几棵树:第一棵是开国那一支,远支按即位先后跟在后面 */
