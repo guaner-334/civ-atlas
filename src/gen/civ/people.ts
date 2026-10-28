@@ -1311,16 +1311,18 @@ function titleRulers(p: Polity, list: Person[], f: PolityFacts, base: number, ta
     // 西幻:同名的国王编序数(在位的也编);帝国里开疆最多的一位称大帝
     if (p.lineage === 'realm' || p.lineage === undefined) {
       const count = new Map<string, number>();
-      for (const r of list) if (r.author === undefined) count.set(r.name, (count.get(r.name) ?? 0) + 1);
+      // 男王、女王分开数(女名和男名偶尔撞上)
+      const key = (r: Person) => (r.female ? `女:${r.name}` : r.name);
+      for (const r of list) if (r.author === undefined) count.set(key(r), (count.get(key(r)) ?? 0) + 1);
       const seen = new Map<string, number>();
       for (const r of list) {
         if (r.author !== undefined) {
           r.title = '';
           continue;
         }
-        const n = (seen.get(r.name) ?? 0) + 1;
-        seen.set(r.name, n);
-        r.title = count.get(r.name)! > 1 ? `${ordinal(n)}世` : '';
+        const n = (seen.get(key(r)) ?? 0) + 1;
+        seen.set(key(r), n);
+        r.title = count.get(key(r))! > 1 ? `${ordinal(n)}世` : '';
       }
       let best: Person | undefined;
       let most = GREAT_GAINS - 1;

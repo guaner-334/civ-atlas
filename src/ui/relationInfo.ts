@@ -22,7 +22,7 @@ import { peopleIndex, personFame, personSpan } from '../gen/civ/peopleInfo';
 import { fatherOf, kidsOf } from '../gen/civ/lineageInfo';
 import { brideName, heldOver, polityShort } from '../gen/civ/regentInfo';
 import { generalRole, isConsul, kinOf, ministerRole, personName, princeRole, rulerRole } from '../gen/civ/peopleText';
-import { heOrShe, isFemale, kinWord } from '../gen/civ/gender';
+import { bySex, heOrShe, isFemale, kinWord } from '../gen/civ/gender';
 import { MARK_HEX } from '../render/marks';
 import { spaced, yearAt, yearShort, yearSpan, yearSpanAt, type Era } from '../gen/era';
 import { lifeYears } from './characterInfo';
@@ -119,7 +119,7 @@ const UP = new Set([
 ]);
 const SAME = new Set(['兄', '弟', '从兄', '从弟', '族兄', '族弟', '姐', '妹', '从姐', '从妹', '族姐', '族妹', '表兄', '表弟', '表姐', '表妹']);
 /** 姻亲簇里的先后 */
-export const INLAW_ORDER = ['外祖父', '外祖母', '岳父', '岳母', '公公', '女婿', '儿媳', '外孙', '外孙女'];
+export const INLAW_ORDER = ['外祖父', '外祖母', '岳父', '岳母', '公公', '婆婆', '女婿', '儿媳', '外孙', '外孙女'];
 
 /** 推演人物血亲的称呼 → 摆在哪一辈 */
 export function bloodSlot(word: string): 'up' | 'same' | 'down' {
@@ -288,7 +288,7 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = 
   if (x.mother) add(x.mother.father, 'inlaw', kinWord(P[x.mother.father], '外祖父'), `其女${brideName(civ, x.mother)}是${him}的母亲`);
   // 她是女的:嫁对方君主的儿子,对方君主是她的公公
   for (const s of x.spouses ?? []) {
-    if (isFemale(x)) add(s.father, 'inlaw', '公公', `${him}${at(s.year)}嫁其子`, false, s.year);
+    if (isFemale(x)) add(s.father, 'inlaw', bySex(P[s.father], '公公', '婆婆'), `${him}${at(s.year)}嫁其子`, false, s.year);
     else add(s.father, 'inlaw', kinWord(P[s.father], '岳父'), `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
   }
   // 女婿、外孙(按人物编号的先后,和一个个看过去一样)
@@ -614,6 +614,7 @@ const FULL: Record<string, string> = {
   岳母: '岳母',
   外孙女: '外孙女',
   公公: '公公',
+  婆婆: '婆婆',
   儿媳: '儿媳',
 };
 

@@ -17,7 +17,7 @@
  *
  * 都只看这个人出道的那一刻就定得下来的事("先君有没有别的孩子在世""她的孩子生在几岁"按命里该有的儿子和原定的在位表算,
  * royals.ts 的 broodOf、rulers.ts 的 reignStep,和推到哪一年无关),随机数只看这个人自己 —— keyed4(subSeed(seed, 'civ-gender'),
- * 国家的位置锚, 生年, 身份),宗室(有父亲的)按父亲那一国、不分即位没即位,篡位的名臣按名臣算。所以接着往后推、
+ * 国家的位置锚, 生年, 身份),君主的儿女按父亲那一国、不分即位没即位,篡位的名臣按名臣算。所以接着往后推、
  * 在后面的年份干预以后重推,先出道的人性别、名字都不变。代价是日后才有的事不再回头看:她日后在联姻里结了亲,
  * 就是她嫁过去、配偶是对方的宗室子(她孩子的"母亲"就是她,不另记嫁来的宗室女);世系里后来连到她名下的孩子照连。
  *
@@ -123,9 +123,12 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
   for (const ss of ctx.sons.values()) for (const s of ss) sonOf.set(s.p, s);
   /** 篡位开国的名臣(按名臣定) */
   const exMinister = new Set(ctx.usurped.values());
-  /** 按哪一国定(宗室按父亲那一国:据地自立的开国之君和做宗室时一样) */
-  const home = (x: Person) => (x.parent !== undefined ? (people[x.parent]?.polity ?? x.polity) : x.polity);
-  const kind = (x: Person) => (exMinister.has(x) ? K.minister : x.parent !== undefined ? K_ROYAL : K[x.role]);
+  /**
+   * 按出道时的身份定:君主的儿女(royals.ts 的诸子)按父亲那一国、算宗室(据地自立的开国之君和做宗室时一样);
+   * 篡位开国的名臣算名臣;别的照身份(世系里后来补上的父亲不算:开国之君日后连上一位父亲,还是开国之君)
+   */
+  const home = (x: Person) => sonOf.get(x)?.father.polity ?? x.polity;
+  const kind = (x: Person) => (exMinister.has(x) ? K.minister : sonOf.has(x) ? K_ROYAL : K[x.role]);
   const R = (x: Person, use: number) => keyed4(base, tag[home(x)] ?? 0, qi(x.born), kind(x), use);
   const group = (x: Person) => groupOf(polities[home(x)] ? ctx.styleOf(polities[home(x)]) : 'kingdom');
   /** 一位寻常君主命里该有的儿子的生年;寿数(预定的继承人不知道,当一直在世) */
