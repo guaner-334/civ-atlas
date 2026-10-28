@@ -289,6 +289,8 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   marry: '为人物联姻',
   keep: '保住王室',
   boost: '推一把发展',
+  trek: '大迁徙',
+  stay: '不许迁',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {

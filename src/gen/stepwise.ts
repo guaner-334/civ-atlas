@@ -359,7 +359,7 @@ export function interventionFate(civ: Civ, i: number): InterventionFate {
   if (commandAt(v) / YEAR_TICKS > civ.endYear) return { state: 'later' };
   const r = interventionOutcome(civ, i);
   if (r.annal >= 0) return r.ok ? { state: 'done', annal: r.annal } : { state: 'void', annal: r.annal, why: r.why ?? '没有生效' };
-  if (v.kind === 'found' || !v.a) return { state: 'void', annal: -1, why: '没有生效' };
+  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || !v.a) return { state: 'void', annal: -1, why: '没有生效' };
   const k = resolveKey(civ, v.a);
   if (!k || k.kind !== 'polity') return { state: 'void', annal: -1, why: '新历史里没有这个国家' };
   const p = civ.polities[k.id];

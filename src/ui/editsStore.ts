@@ -344,7 +344,8 @@ export function interventionKeys(v: Intervention): string[] {
   const o = v as Partial<Record<'a' | 'b' | 'city' | 'region', string>>;
   const regions = v.kind === 'disaster' || v.kind === 'boost' ? (v.regions ?? []) : [];
   // 立约、划中立地:另几国,居间的国家、同时划的中立地
-  const more = v.kind === 'treaty' ? [...v.ps, v.by, v.zone] : v.kind === 'neutral' ? v.ps : [];
+  // 大迁徙、不许迁:那一族;大迁徙的目的地
+  const more = v.kind === 'treaty' ? [...v.ps, v.by, v.zone] : v.kind === 'neutral' ? v.ps : v.kind === 'trek' ? [v.folk, v.to] : v.kind === 'stay' ? [v.folk] : [];
   return [o.a, o.b, o.city, o.region, ...regions, ...more].filter((k): k is string => typeof k === 'string');
 }
 

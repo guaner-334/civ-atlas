@@ -204,7 +204,13 @@ export function hoverInfo(p: {
 function pickTarget(civ: Civ, pk: PolityPick, label: LabelPick | null, cell: number, year: number): HoverInfo | null {
   const r = cell < civ.regions.of.length ? civ.regions.of[cell] : -1;
   // 选州(另立一国):点到哪州算哪州,合不合格点了再说
-  if (pk.target === 'region') return r >= 0 ? { name: regionLabel(civ, r), sub: VERDICT_TEXT.ok, pick: -1 } : null;
+  // 给了可选的州(大迁徙往哪去):可选的写"点击选择"、名牌反色,别的"不可选"
+  if (pk.target === 'region') {
+    if (r < 0) return null;
+    if (!pk.eligible) return { name: regionLabel(civ, r), sub: VERDICT_TEXT.ok, pick: -1 };
+    const v = pickVerdict(pk, r);
+    return { name: regionLabel(civ, r), sub: VERDICT_TEXT[v], pick: v === 'ok' ? r : -1 };
+  }
   if (pk.target === 'settlement') {
     let sid = label?.kind === 'settlement' ? label.id : -1;
     if (sid < 0 && r >= 0) sid = civ.settlements.find((s) => s.region === r && s.founded <= year && (s.ended === undefined || s.ended > year))?.id ?? -1;
