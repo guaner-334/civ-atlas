@@ -145,16 +145,22 @@ export function emptyRegion(civ: Civ, y: number): number {
   throw new Error('找不到没人住的州');
 }
 
-/** y 年某国的一个边境州(不是国都),和挨着它的另一国(到第 3000 年仍在);原本到第 3000 年不归那一国 */
-export function borderRegion(civ: Civ, y: number): { r: number; o: number; q: number } {
-  const own = ownersAt(civ, y - 0.01).polity;
+/**
+ * y 年某国的一个边境州(不是国都),和挨着它的另一国(到第 3000 年仍在);原本到第 3000 年不归那一国。
+ * y 年没有这样的州,就往前后每隔 100 年找(y − 100、y + 100、y − 200……),返回找到的那一年
+ */
+export function borderRegion(civ: Civ, y0: number): { r: number; o: number; q: number; y: number } {
   const reg = civ.regions;
-  for (let r = 0; r < reg.count; r++) {
-    const o = own[r];
-    if (o < 0 || civ.settlements[capitalAt(civ.polities[o], y)].region === r) continue;
-    for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
-      const q = own[reg.adj[k]];
-      if (q >= 0 && q !== o && civ.polities[q].ended === undefined && civ.polity[r] !== q) return { r, o, q };
+  for (const d of [0, -100, 100, -200, 200, -300, 300]) {
+    const y = y0 + d;
+    const own = ownersAt(civ, y - 0.01).polity;
+    for (let r = 0; r < reg.count; r++) {
+      const o = own[r];
+      if (o < 0 || civ.settlements[capitalAt(civ.polities[o], y)].region === r) continue;
+      for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
+        const q = own[reg.adj[k]];
+        if (q >= 0 && q !== o && civ.polities[q].ended === undefined && civ.polity[r] !== q) return { r, o, q, y };
+      }
     }
   }
   throw new Error('找不到边境州');
