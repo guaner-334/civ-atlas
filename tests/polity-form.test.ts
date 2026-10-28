@@ -85,7 +85,7 @@ describe('政体名', () => {
     expect(formName(f({ tier: 3, fief: true }))).toBe('封建帝国');
   });
 
-  it('种子 7、2024 第 3000 年:博戈维纳王国集权王国(2018 年起)、卢纳维亚帝国官僚帝国、基帕尔大汗国游牧帝国', () => {
+  it('种子 7、2024 第 3000 年:博戈维纳王国集权王国(2018 年起)、有熊皇朝官僚帝国、卢纳维亚帝国封建帝国、基帕尔大汗国游牧帝国', () => {
     const at = (seed: number, name: string) => {
       const civ = civOf(seed);
       const P = civ.polities.find((q) => polityName(q, 3000) === name);
@@ -94,12 +94,13 @@ describe('政体名', () => {
     };
     const boge = at(7, '博戈维纳王国');
     expect([boge.name, Math.floor(boge.since)]).toEqual(['集权王国', 2018]);
-    // 先因议事成了封建帝国,后来收归朝廷的够了两样,成了官僚帝国
-    const lu = at(2024, '卢纳维亚帝国');
-    expect(lu.name).toBe('官僚帝国');
-    const civ = civOf(2024);
-    const P = civ.polities.find((q) => polityName(q, 3000) === '卢纳维亚帝国')!;
-    expect(formChangesAt(civ, P.id, 3000).map((c) => c.to)).toContain('封建帝国');
+    // 先是帝国,后来收归朝廷的够了两样,成了官僚帝国;另一国因议事成了封建帝国
+    // (GENERATOR_VERSION 47 季节进推演以前,卢纳维亚帝国先成了封建帝国、后来成了官僚帝国)
+    expect(at(7, '有熊皇朝').name).toBe('官僚帝国');
+    const civ7 = civOf(7);
+    const Y = civ7.polities.find((q) => polityName(q, 3000) === '有熊皇朝')!;
+    expect(formChangesAt(civ7, Y.id, 3000).map((c) => c.to).slice(-2)).toEqual(['帝国', '官僚帝国']);
+    expect(at(2024, '卢纳维亚帝国').name).toBe('封建帝国');
     expect(at(2024, '基帕尔大汗国').name).toBe('游牧帝国');
   }, 120_000);
 

@@ -34,7 +34,7 @@ import { characterLeanings, type AuthorCharacter } from '../gen/characters';
 import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
 import { getEdits, updateCharacter, useEra } from './editsStore';
 import { getPending, queueIntervention, removePending } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
 import { getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick } from './Interventions';
@@ -118,7 +118,7 @@ export function CrownPage({
   const yi = useYearInput(year, lo, Math.max(lo, hi), clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、谁在位用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const [mode, setMode] = useState<Mode>('have');
   // 什么时候即位:某一年 / 等那时在位的那位下台(after)
   const [after, setAfter] = useState(false);
@@ -226,7 +226,7 @@ export function CrownPage({
     if (step && c.died !== undefined && y >= c.died) return `${he}${yearAt(c.died, era)}已经去世`;
     if (mode === 'have') {
       if (!P) return '选一个国家';
-      if (!pAlive) return y < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
+      if (!pAlive) return yv < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
       if (after && !cur) return `${yearAt(y, era)}${nameAt(P, y)}没有在位的君主可等，选「${step ? `${yearFull(y, era)}年初` : '某一年'}」`;
       if (after && cur?.until !== undefined && c.died !== undefined && cur.until >= c.died)
         return `${he}${yearAt(c.died, era)}去世，等不到${personName(civ, cur)}下台`;

@@ -395,12 +395,14 @@
  *
  * | 字段      | 意思                                         | 取值                                                      | 默认 |
  * |-----------|----------------------------------------------|-----------------------------------------------------------|------|
- * | step      | 一步走几年                                   | 1–ADVANCE_STEP_MAX 的整数(取整、夹回范围)               | 1    |
- * | every     | 每隔几年停一下(从上一次停下的那年数起)     | 1–END_YEAR_MAX 的整数(取整、夹回范围);常用 10 / 25 / 50 / 100 | 25   |
+ * | step      | 一步走多久:几个 unit                         | 正整数(取整、夹回范围):年 1–ADVANCE_STEP_MAX,月 1–ADVANCE_MONTHS_MAX,格 1–ADVANCE_TICKS_MAX | 1    |
+ * | unit      | step 的单位:'month' = 月(按这个世界一年几个月算,只写年的世界照 12 个月),'tick' = 格(见"时刻") | 没有 = 年 | 年   |
+ * | every     | 每隔几年停一下(从上一次停下的那一刻数起)   | 0 = 每一步都停;1–END_YEAR_MAX 的整数(取整、夹回范围);常用 10 / 25 / 50 / 100 | 25   |
  * | big       | 出大事也停(亡国、改朝换代、大战这类,ui/stepwisePlan.ts) | 只认 true                                       | 不停 |
  * | countdown | 停下以后倒计时几秒再接着走                   | ADVANCE_COUNTDOWNS 里的一个:30 / 60 / 120;0 = 不倒计时(等人点) | 60   |
  *
- * 认不出的项(不是数、不在可选的几个里)按默认;多余的字段去掉。都是能原样转成 JSON 的数和布尔值。
+ * 一季、半年存成 64 格、128 格;一步最长 5 年(按月算的到用的时候再按这个世界一年几个月夹,见 ui/stepwisePlan.ts 的 stepTicks)。
+ * 认不出的项(不是数、不在可选的几个里)按默认;多余的字段去掉。都是能原样转成 JSON 的数、字符串和布尔值。
  *
  * ## 导播跟着谁
  *
@@ -539,6 +541,9 @@
  *  46:大迁徙(civ/migration.ts):草原、寒地的民族老家挤、闹灾年、本族的国散了,附近又有大乱、疫后空了、富庶的地时,
  *      分出一支举族远走(每个世界三千年里三到六次),一路走一路抢,到了占几州立国、当即开战;打进国都的,比它小的国家亡国、
  *      大国大崩解,迁来的占着国都一带;入主以后统治民族是少数的,两三百年里多半渐染当地之俗。编年史一次一条大事。历史重新推演
+ *  47:季节进推演(gen/seasons.ts 估算一年里各地的月温):出兵避冬(civ/wars.ts:要打的那州正在冬天里就顿兵到开春再打,编年史记"顿兵过冬"),
+ *      冬夏分明的地方饥荒挪到当地青黄不接的春荒(civ/unrest.ts,编年史写"春,某州大饥");还没即位的预定继承人的名字从他出道那一刻就算用过
+ *      (civ/lineage.ts:同一刻出道的兄弟不再推到一半时和他同名)。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -552,7 +557,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 46;
+export const GENERATOR_VERSION = 47;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -617,6 +622,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
   46: { change: 'history' },
+  47: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
@@ -904,9 +910,11 @@ export interface PlayBranch {
 
 /** 推进设置(存进修改的样子:默认的项不写;字段见文件头"推进设置") */
 export interface AdvanceSettings {
-  /** 一步走几年(1–ADVANCE_STEP_MAX) */
+  /** 一步走几个 unit(年 1–ADVANCE_STEP_MAX,月 1–ADVANCE_MONTHS_MAX,格 1–ADVANCE_TICKS_MAX) */
   step?: number;
-  /** 每隔几年停一下(1–END_YEAR_MAX) */
+  /** step 的单位(没有 = 年) */
+  unit?: 'month' | 'tick';
+  /** 每隔几年停一下(1–END_YEAR_MAX;0 = 每一步都停) */
   every?: number;
   /** 出大事也停 */
   big?: true;
@@ -917,6 +925,7 @@ export interface AdvanceSettings {
 /** 推进设置,每一项都填上(没写的照默认;advanceOf 返回这个) */
 export interface Advance {
   step: number;
+  unit: AdvanceUnit;
   every: number;
   big: boolean;
   countdown: number;
@@ -2321,14 +2330,22 @@ export function cleanBranches(raw: unknown, play: unknown): PlayBranches | undef
   return JSON.stringify(out) === JSON.stringify(raw) ? (raw as PlayBranches) : out;
 }
 
+/** 推进设置:一步的单位(年 / 月 / 格) */
+export type AdvanceUnit = 'year' | 'month' | 'tick';
 /** 推进设置:一步最多走几年 */
 export const ADVANCE_STEP_MAX = 5;
+/** 推进设置:一步按月算时最多几个月(一年最多 36 个月 × 5 年;用的时候再按这个世界一年几个月夹到 5 年) */
+export const ADVANCE_MONTHS_MAX = 180;
+/** 推进设置:一步按格算时最多几格(5 年) */
+export const ADVANCE_TICKS_MAX = ADVANCE_STEP_MAX * YEAR_TICKS;
+/** 推进设置:每个单位 step 最多多少 */
+export const ADVANCE_UNIT_MAX: Readonly<Record<AdvanceUnit, number>> = { year: ADVANCE_STEP_MAX, month: ADVANCE_MONTHS_MAX, tick: ADVANCE_TICKS_MAX };
 /** 推进设置:倒计时可选的秒数(0 = 不倒计时,等人点) */
 export const ADVANCE_COUNTDOWNS: readonly number[] = [30, 60, 120, 0];
 /** 推进设置:"每隔几年停一下"常用的几档(界面上的按钮;别的数也认,见 cleanAdvance) */
 export const ADVANCE_EVERY_CHOICES: readonly number[] = [10, 25, 50, 100];
 /** 推进设置的默认值 */
-export const ADVANCE_DEFAULT: Readonly<Advance> = Object.freeze({ step: 1, every: 25, big: false, countdown: 60 });
+export const ADVANCE_DEFAULT: Readonly<Advance> = Object.freeze({ step: 1, unit: 'year', every: 25, big: false, countdown: 60 });
 
 /** 推进设置清理(读档、存进修改前用;见文件头"推进设置"):认不出的项按默认,默认的项不写;一项都不剩 = undefined。全都合格时返回原对象 */
 export function cleanAdvance(raw: unknown): AdvanceSettings | undefined {
@@ -2336,9 +2353,11 @@ export function cleanAdvance(raw: unknown): AdvanceSettings | undefined {
   const o = raw as Record<string, unknown>;
   const num = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : undefined);
   const out: AdvanceSettings = {};
-  const step = num(o.step, 1, ADVANCE_STEP_MAX);
-  if (step !== undefined && step !== ADVANCE_DEFAULT.step) out.step = step;
-  const every = num(o.every, 1, END_YEAR_MAX);
+  const unit: AdvanceUnit = o.unit === 'month' || o.unit === 'tick' ? o.unit : 'year';
+  const step = num(o.step, 1, ADVANCE_UNIT_MAX[unit]);
+  if (step !== undefined && (step !== ADVANCE_DEFAULT.step || unit !== 'year')) out.step = step;
+  if (unit !== 'year') out.unit = unit;
+  const every = num(o.every, 0, END_YEAR_MAX);
   if (every !== undefined && every !== ADVANCE_DEFAULT.every) out.every = every;
   if (o.big === true) out.big = true;
   if (typeof o.countdown === 'number' && ADVANCE_COUNTDOWNS.includes(o.countdown) && o.countdown !== ADVANCE_DEFAULT.countdown) out.countdown = o.countdown;
@@ -2353,6 +2372,7 @@ export function advanceOf(edits: Pick<WorldEdits, 'advance'>): Advance {
   const a = cleanAdvance(edits.advance);
   return {
     step: a?.step ?? ADVANCE_DEFAULT.step,
+    unit: a?.unit ?? ADVANCE_DEFAULT.unit,
     every: a?.every ?? ADVANCE_DEFAULT.every,
     big: a?.big ?? ADVANCE_DEFAULT.big,
     countdown: a?.countdown ?? ADVANCE_DEFAULT.countdown,
@@ -2363,7 +2383,7 @@ export function advanceOf(edits: Pick<WorldEdits, 'advance'>): Advance {
 export function sameAdvance(a: unknown, b: unknown): boolean {
   const x = advanceOf({ advance: a as AdvanceSettings });
   const y = advanceOf({ advance: b as AdvanceSettings });
-  return x.step === y.step && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
+  return x.step === y.step && x.unit === y.unit && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
 }
 
 /** 导播跟着谁:稳定键最长几个字(人物键 = 国家键 + 身份 + 名字 + 生年,名字再长也够) */
