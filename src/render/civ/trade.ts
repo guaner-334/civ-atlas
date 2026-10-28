@@ -593,20 +593,27 @@ export function drawTradeNames(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
     const need = text.length * px * (1 + SIZE.track) + px;
     if (!all && o.L < need) continue;
     let pick: Glyph[] | null = null;
-    let first: Glyph[] | null = null;
+    // 挤不开时(2 倍起照写):压字最少的那一种
+    let least: Glyph[] | null = null;
+    let leastN = Infinity;
     for (const f of [0.5, 0.38, 0.62, 0.26, 0.74, 0.16, 0.84]) {
       const mid = Math.min(Math.max(o.L * f, need / 2), o.L - need / 2);
       const gs = layoutAt(o.pts, o.cum, text, px, o.L < need ? o.L / 2 : mid, need, off, step);
       if (!gs.length) continue;
-      first ??= gs;
       const boxes = gs.map((g) => glyphBox(g, px, px * 0.08));
+      let hit = 0;
+      for (const b of boxes) for (const t of taken) if (overlaps(b, t)) hit++;
       // 出了画布的不算
-      if (boxes.some((b) => b[0] < 0 || b[1] < 0 || b[2] > W || b[3] > H)) continue;
-      if (boxes.some((b) => taken.some((t) => overlaps(b, t)))) continue;
+      const out = boxes.filter((b) => b[0] < 0 || b[1] < 0 || b[2] > W || b[3] > H).length;
+      if (hit + 1000 * out < leastN) {
+        leastN = hit + 1000 * out;
+        least = gs;
+      }
+      if (hit || out) continue;
       pick = gs;
       break;
     }
-    if (!pick && all) pick = first;
+    if (!pick && all) pick = least;
     if (!pick) continue;
     for (const g of pick) taken.push(glyphBox(g, px, px * 0.08));
     ctx.globalAlpha = sel !== null && o.l.route.id !== sel ? DIM : 1;
