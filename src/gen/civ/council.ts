@@ -633,7 +633,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const register = has(Practice.Register);
   if (r.tax < (register ? 2 : 1) && ready(Issue.Tax) && (broke > 0 || purse < PURSE_TAX || ruler.develop >= DEV_TAX)) {
     // 朝廷按行政能力高估一档来算
-    const guess = shift(r.tax, 2, af(admin + 1)) - (COST[2] - COST[r.tax]) * owed;
+    const guess = shift(r.tax, 2, af(admin + 1)) - (COST[2] - COST[r.tax]) * costK * owed;
     if (guess >= GAIN_MIN * owed) {
       const stake = shift(r.tax, 2, a) / owed;
       const foe = best;
