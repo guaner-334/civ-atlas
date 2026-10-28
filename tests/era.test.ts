@@ -77,6 +77,16 @@ describe('写法', () => {
     expect(yearSpanAt(1680, 1689, AD, '—')).toBe('公元前 820—前 811 年');
   });
 
+  it('起止同一年只写一个年份,不同年照旧', () => {
+    expect(yearSpan(1488, 1488)).toBe('1488');
+    expect(yearSpan(1480, 1488)).toBe('1480–1488');
+    expect(yearSpanAt(1488, 1488)).toBe('1488 年');
+    expect(yearSpanAt(1488.4, 1488.9)).toBe('1488 年');
+    expect(yearSpanAt(1480, 1488)).toBe('1480–1488 年');
+    expect(yearSpanAt(1680, 1680, AD)).toBe('公元前 820 年');
+    expect(yearSpanAt(3000, 3000, AD)).toBe('公元 501 年');
+  });
+
   it('没设纪年:和原来一字不差', () => {
     expect(yearFull(1650.4)).toBe('第 1650 年');
     expect(yearAt(1601)).toBe('1601 年');
