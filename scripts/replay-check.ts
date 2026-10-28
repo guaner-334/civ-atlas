@@ -4782,13 +4782,34 @@ if (part('东西相连')) {
     console.log(`编年史跳转(东西相连):点了 ${n} 条,平移了 ${pans.length} 次,最大横向平移 ${worst.toFixed(0)} 像素(半圈 ${half.toFixed(0)} 像素)`);
     if (!pans.length) errs.push('东西相连:编年史点了好几条,地图一次都没平移过去');
     if (worst > half + 2) errs.push(`东西相连:编年史跳转绕了远路(平移 ${worst.toFixed(0)} 像素 > 半圈 ${half.toFixed(0)})`);
-    // 双击:缩放复位,中央经线不变(它是这个世界的设置)
+    // 双击:缩放复位,中央经线不变(它是这个世界的设置)。
+    // 点一条编年史地图要飞 600 毫秒(机器忙时起飞也晚),上面每条只等 550 毫秒:最后一条可能还在飞,
+    // 这时记下的中心不是停下来的中心。先等平移、缩放连着 300 毫秒没变(最多 5 秒)再记
+    const lonEarly = (await view()).lon;
+    const still = await page
+      .waitForFunction(
+        () => {
+          const w = window as any;
+          const v = w.__wfView;
+          const key = `${v.k.toFixed(4)},${v.x.toFixed(1)},${v.y.toFixed(1)}`;
+          const now = performance.now();
+          if (w.__stillKey !== key) (w.__stillKey = key), (w.__stillAt = now);
+          return now - w.__stillAt > 300;
+        },
+        null,
+        { timeout: 5000, polling: 50 },
+      )
+      .then(() => true, () => false);
     const before = (await view()).lon;
     await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(200);
     const vr = await view();
     const dl = Math.abs(((vr.lon - before + 540) % 360) - 180);
-    if (!(vr.k === 1 && dl < 0.5)) errs.push(`东西相连:双击没有只复位缩放(k=${vr.k},中心 ${before.toFixed(1)}° → ${vr.lon.toFixed(1)}°)`);
+    console.log(
+      `双击复位(东西相连):编年史最后一条点完 550 毫秒时中心 ${lonEarly.toFixed(1)}°,停稳${still ? '' : '(没等到)'}后 ${before.toFixed(1)}° → 双击 k=${vr.k}、中心 ${vr.lon.toFixed(1)}°`,
+    );
+    if (!(vr.k === 1 && dl < 0.5))
+      errs.push(`东西相连:双击没有只复位缩放(k=${vr.k},中心 ${before.toFixed(1)}° → ${vr.lon.toFixed(1)}°${still ? '' : ';双击前地图 5 秒没停稳'})`);
   }
 
   // 5. 手绘风:外框、罗盘、纸边做旧画在视窗上(视窗装饰层画了,地形图本身没有外框)
@@ -5858,8 +5879,8 @@ if (part('手机布局')) {
     await mp.keyboard.press('Escape');
     await mp.waitForTimeout(400);
   }
-  // 上面撤销结盟、重推完以后时间轴从 2600 年接着放;国家表按那一年的州数排,两国州数交错时先后跟着换
-  //(种子 7 第 2716–2724 年、2784 年前后第一名换人),读第一行和点下去之间可能已经换了一国。
+  // 上面撤销结盟、重推完以后时间轴从 2600 年接着放;国家表按那一年的州数排,两国州数交错的那几年先后跟着换,
+  // 读第一行和点下去之间可能已经换了一国(放到哪一年看机器快慢,偶发)。
   // 先点胶囊上的暂停键,让表停在一年上;点的时候也按国家编号点读到的那一行
   const ovPlaying = (await mp.locator('.bottom-row .tb-play.on:not([disabled])').count()) > 0;
   if (ovPlaying) {
