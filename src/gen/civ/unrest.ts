@@ -573,6 +573,8 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     return collapse(P, k, t);
   };
 
+  pol.shatter = (P: Polity, k: number, t: number): boolean => (wm.iv?.unites(P.id, t) ? false : collapse(P, k, t));
+
   const collapse = (P: Polity, k: number, t: number): boolean => {
     const pid = P.id;
     const tag = pm.ptag[pid];

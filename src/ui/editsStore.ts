@@ -7,7 +7,7 @@
  *
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
  * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源不记:只在新建世界时能改,工具有自己的"撤销一笔"。
- * 纪年、月份也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
+ * 纪年、月份(一年几个月、月份的名字)也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
  * 逐年推演的进度、从第几年起、推进设置、导播跟着谁也不记(撤销别的时照现在的留着)。
  */
 import { useSyncExternalStore } from 'react';
@@ -49,7 +49,7 @@ import { PLATE_MAX_OPS, cleanPlateImage, cleanPlateOp, type PlateImage, type Pla
 import { CHARACTERS_MAX, cleanCharacter, nextCharacterId, sameCharacter, type AuthorCharacter } from '../gen/characters';
 import { showToast } from './toastStore';
 import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
-import { cleanEra, cleanMonths, monthsOf, sameEra, type Era } from '../gen/era';
+import { cleanEra, cleanMonthNames, cleanMonths, monthNamesInUse, monthsOf, sameEra, sameMonthNames, type Era, type MonthNames } from '../gen/era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import { cleanCalamity, type Calamity } from '../gen/civ/calamity';
 
@@ -206,6 +206,7 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.map) out.map = now.map;
   if (now.era) out.era = now.era;
   if (now.months !== undefined) out.months = now.months;
+  if (now.monthNames) out.monthNames = now.monthNames;
   // 逐年推演的进度、从第几年起、另开的几支、推进设置也不记撤销步(进度只往前走;设置随时能改回来)
   if (now.play) out.play = now.play;
   if (now.playFrom !== undefined) out.playFrom = now.playFrom;
@@ -654,6 +655,48 @@ export function useMonths(): number {
 /** 不经过 React 订阅时读一年几个月 */
 export function currentMonths(): number {
   return monthsOf(state.months);
+}
+
+/** 月份的名字(随时能改,不记撤销步):undefined / 一个名字都没有 = 去掉这一项(都写数字)。换回「数字」传 off: true,名字留着 */
+export function setMonthNames(mn: MonthNames | undefined) {
+  const next = cleanMonthNames(mn);
+  if (sameMonthNames(next, state.monthNames)) return;
+  const { monthNames: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, monthNames: next } : rest);
+}
+
+const getMonthNameSet = () => state.monthNames;
+
+/** 记着的月份名字(世界设定里填的那一份,换回了「数字」的也在);只在它变了时重新渲染 */
+export function useMonthNameSet(): MonthNames | undefined {
+  return useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => subs.delete(f);
+    },
+    getMonthNameSet,
+    getMonthNameSet,
+  );
+}
+
+const getMonthNames = () => monthNamesInUse(state.monthNames);
+
+/** 现在写出来用的月份名字(第 i 个 = 第 i + 1 月;'' / 没有 = 写数字);没起名、选了「数字」= undefined */
+export function useMonthNames(): readonly string[] | undefined {
+  return useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => subs.delete(f);
+    },
+    getMonthNames,
+    getMonthNames,
+  );
+}
+
+/** 不经过 React 订阅时读现在用的月份名字 */
+export function currentMonthNames(): readonly string[] | undefined {
+  return monthNamesInUse(state.monthNames);
 }
 
 /** 地形修改:撤销最后一处 */

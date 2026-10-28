@@ -325,6 +325,11 @@ export interface WarModel {
   /** 民变(unrest.ts 挂上):战争 w 里 x 打下了 y 的国都,y 就此亡国、余下的州一并归 x(起事的饥民攻破都城) */
   overthrow?: (w: War, x: number, y: number, t: Year) => boolean;
   /**
+   * 大迁徙(migration.ts 挂上):战争 w 里 x 打下了 y 的国都 r(y 还有别的州,没被 overthrow 整个吞掉):返回 true = 已经办完
+   * (迁来的一支打进大国国都:占着国都一带,那国迁都、议和、大崩解),不再照常迁都 / 并掉残部
+   */
+  storm?: (w: War, x: number, y: number, r: number, t: Year) => boolean;
+  /**
    * 中央管到什么程度(control.ts 挂上):国家 p 此刻各州出兵的几成(0–1;割据的州 0)。返回的函数要马上用完(下一次调 levy 前)
    */
   levy?: (p: number, t: Year) => (r: number) => number;
@@ -705,6 +710,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     // 起事的饥民攻破都城:余下的州一并归它,亡国(unrest.ts)
     // 朝廷还守着永久割让的州时不能整个吞掉,照常迁都(下面 keep 那条)
     if (wm.overthrow?.(w, x, y, t) && !wm.iv?.holdsLock(y, t)) return annex(w, x, y, r, t);
+    // 迁来的一支打进大国国都(migration.ts):占着国都一带,那国迁都、大崩解
+    if (wm.storm?.(w, x, y, r, t)) return true;
     // 丢了国都只剩不到 MIN_STATE 州(而且都不是刚易手的):撑不下去,残部一并归攻方,亡国
     let left = 0;
     let settled = true;
@@ -1160,14 +1167,14 @@ export function resumeWars(sim: CivSim, world: World, civ: Civ): void {
       cur[r] = log.value[i];
     }
   }
-  /** 讨伐民变、宗室争位的内战(和 unrest.ts 的 WarModel.revolt 一样按宣战的由头认):不记恨 */
+  /** 讨伐民变、宗室争位的内战、迁来的一支到了以后开的仗(和 unrest.ts、migration.ts 的 WarModel.revolt 一样按宣战的由头认):不记恨 */
   const civil = new Set<number>();
   /** 议和后替输的一方多看一眼邻国:[战争, 输的一方, 议和的年份] */
   const looks: [War, number, Year][] = [];
   for (const e of civ.annals) {
     if (e.kind === 'war') {
       wm.wars[e.war] = { id: e.war, a: e.a, b: e.b, start: e.year, takes: [] };
-      if (e.cause === 'quell' || e.cause === 'heir') civil.add(e.war);
+      if (e.cause === 'quell' || e.cause === 'heir' || e.cause === 'trek') civil.add(e.war);
     } else if (e.kind === 'conquer' && e.war >= 0) wm.wars[e.war]?.takes.push({ year: e.year, region: e.region, by: e.a });
     else if (e.kind === 'peace') {
       const w = wm.wars[e.war];

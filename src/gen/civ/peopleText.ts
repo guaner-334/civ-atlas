@@ -8,20 +8,12 @@
  * - 君主(不带国名,国名前文已经写了):rulerBare 带君号 —— 东方 "太宗""庄王""咄苾可汗""皇帝李昭",西幻 "国王阿尔德里克三世";
  *   rulerShort 不带君号 —— 东方 "太宗""李昭",西幻 "阿尔德里克三世"。
  * - 统帅:"大渭将李牧"(国名用当年的简称);领兵的宗室 "大渭皇子李昭"(princeRef)。名臣:"大景丞相"(ministerRole)。
- * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。
+ * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。君号、身份词、身后称号、亲属词分男女(Person.female),换哪个字见 gender.ts。
  * - 君主的倾向:名字和一句说明(LEANING_TEXT),复制生平的一行(leaningsText)
  */
 import type { Civ, Person, Polity, RulerLeanings, Year } from './types';
 import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from './growth';
-
-/** 西幻的君号(按国号一系、档位) */
-const WEST_RANK: Record<string, readonly [string, string, string, string]> = {
-  realm: ['酋长', '国王', '国王', '皇帝'],
-  khanate: ['首领', '汗', '汗', '大汗'],
-  republic: ['执政官', '执政官', '执政官', '皇帝'],
-};
-/** 东方还在位(没有称号)的君号 */
-const EAST_RANK = ['首领', '公', '王', '皇帝'] as const;
+import { eastRank, isFemale, khanWord, postTitle, princeWord, westRank } from './gender';
 
 function polityOfPerson(civ: Civ, x: Person): Polity | null {
   return x.polity >= 0 && x.polity < civ.polities.length ? civ.polities[x.polity] : null;
@@ -57,8 +49,13 @@ function tierFor(p: Polity, x: Person, year: Year): number {
  */
 export function rulerShort(civ: Civ, x: Person): string {
   const p = polityOfPerson(civ, x);
-  if (p?.eastern) return x.title || x.name;
-  return `${x.name}${x.title ?? ''}`;
+  if (p?.eastern) return rulerTitle(civ, x) || x.name;
+  return `${x.name}${rulerTitle(civ, x)}`;
+}
+
+/** 君主的称号按性别的写法(Person.title 记的是男的写法;女君王国"庄女王"、国"穆君",见 gender.ts);没有称号 = 空串 */
+export function rulerTitle(civ: Civ, x: Person): string {
+  return postTitle(x, !!polityOfPerson(civ, x)?.eastern, x.title ?? '');
 }
 
 /** 君主的称呼,带国名(year = 写到的那一刻,决定国号和还在位时的君号) */
@@ -79,17 +76,17 @@ function refOf(civ: Civ, x: Person, year: Year, realm: boolean): string {
   if (!p) return x.name;
   const tier = tierFor(p, x, year);
   const at = Math.min(Math.max(year, x.from ?? p.founded), (x.until ?? Infinity) - 1 / 512);
+  const title = rulerTitle(civ, x);
   if (p.eastern) {
     const tribe = realm ? polityTitles(p, at)[0] : '';
-    if (p.lineage === 'khanate') return tier <= 0 ? `${tribe}首领${x.name}` : `${realm ? polityName(p, at) : ''}${x.name}可汗`;
+    if (p.lineage === 'khanate') return tier <= 0 ? `${tribe}首领${x.name}` : `${realm ? polityName(p, at) : ''}${x.name}${khanWord(x)}`;
     if (tier <= 0) return `${tribe}首领${x.name}`;
     const root = polityRootAt(p, at);
-    if (x.title) return !realm ? x.title : tier >= 3 ? `${polityShortTitle(p, 3, at)}${x.title}` : `${core(root)}${x.title}`;
-    if (tier >= 3) return `${realm ? polityShortTitle(p, 3, at) : ''}皇帝${x.name}`;
-    return `${core(root)}${EAST_RANK[tier]}${x.name}`;
+    if (title) return !realm ? title : tier >= 3 ? `${polityShortTitle(p, 3, at)}${title}` : `${core(root)}${title}`;
+    if (tier >= 3) return `${realm ? polityShortTitle(p, 3, at) : ''}${eastRank(x, 3)}${x.name}`;
+    return `${core(root)}${eastRank(x, tier)}${x.name}`;
   }
-  const rank = (WEST_RANK[p.lineage ?? 'realm'] ?? WEST_RANK.realm)[tier];
-  return `${realm ? polityRootAt(p, at) : ''}${rank}${x.name}${x.title ?? ''}`;
+  return `${realm ? polityRootAt(p, at) : ''}${westRank(x, p.lineage, tier)}${x.name}${title}`;
 }
 
 /** 这一刻领兵的是不是在位的君主本人(即位以前就领兵的不算亲征) */
@@ -98,16 +95,16 @@ export function reigningAt(x: Person, year: Year): boolean {
 }
 
 /**
- * 宗室(没即位的,或即位以前的君主)那一刻的身份词:父亲正在位 —— 东方帝国"皇子"、王国"王子"、国和部落"公子",汗国、西幻"王子";
- * 父亲不在位(先君的儿子、君主的兄弟)= "宗室"
+ * 宗室(没即位的,或即位以前的君主)那一刻的身份词:父亲正在位 —— 东方帝国"皇子"、王国"王子"、国和部落"公子",汗国、西幻"王子"
+ * (女:公主,国和部落公女);父亲不在位(先君的儿子、君主的兄弟)= "宗室"
  */
 export function princeTitle(civ: Civ, x: Person, year: Year): string {
   const p = princePolityAt(civ, x, year);
   const f = x.parent !== undefined ? civ.people?.[x.parent] : undefined;
   if (!p || !f || f.role !== 'ruler' || (f.from ?? Infinity) > year || (f.until !== undefined && f.until <= year)) return '宗室';
-  if (!p.eastern || p.lineage === 'khanate') return '王子';
+  if (!p.eastern || p.lineage === 'khanate') return princeWord(x, '王子');
   const tier = clampTier(polityTierAt(p, year));
-  return tier >= 3 ? '皇子' : tier === 2 ? '王子' : '公子';
+  return princeWord(x, tier >= 3 ? '皇子' : tier === 2 ? '王子' : '公子');
 }
 
 /** 宗室的称呼:"大渭皇子李昭""索拉特王子阿尔德里克" */
@@ -146,7 +143,7 @@ export function ageAt(x: Person, year: Year): number {
 export function personName(civ: Civ, x: Person): string {
   if (x.role !== 'ruler') return x.name;
   const p = polityOfPerson(civ, x);
-  if (p?.eastern) return x.title ? `${x.title}${x.name}` : x.name;
+  if (p?.eastern) return x.title ? `${rulerTitle(civ, x)}${x.name}` : x.name;
   return rulerShort(civ, x);
 }
 
@@ -166,12 +163,12 @@ export function rulerRole(civ: Civ, x: Person): string {
   const at = lastReignYear(civ, x);
   const tier = tierFor(p, x, at);
   if (p.eastern) {
-    if (p.lineage === 'khanate') return tier <= 0 ? `${polityTitles(p, at)[0]}首领` : `${polityName(p, at)}可汗`;
+    if (p.lineage === 'khanate') return tier <= 0 ? `${polityTitles(p, at)[0]}首领` : `${polityName(p, at)}${khanWord(x)}`;
     if (tier <= 0) return `${polityTitles(p, at)[0]}首领`;
-    if (tier >= 3) return `${polityShortTitle(p, 3, at)}皇帝`;
-    return `${core(polityRootAt(p, at))}${EAST_RANK[tier]}`;
+    if (tier >= 3) return `${polityShortTitle(p, 3, at)}${eastRank(x, 3)}`;
+    return `${core(polityRootAt(p, at))}${eastRank(x, tier)}`;
   }
-  return `${polityRootAt(p, at)}${(WEST_RANK[p.lineage ?? 'realm'] ?? WEST_RANK.realm)[tier]}`;
+  return `${polityRootAt(p, at)}${westRank(x, p.lineage, tier)}`;
 }
 
 /** 名臣的身份:"大景丞相""兹拉季纳首相"(国名按做到最高那个官那年的简称) */
@@ -235,7 +232,9 @@ function ancestors(civ: Civ, x: Person, max: number): Person[] {
 /**
  * b 是 a 的什么人,按世系(Person.parent,lineage.ts)说:子、养子、孙、父、养父、兄、弟、侄、伯父、叔父、从兄、从弟……;
  * 往上三代都找不到同一位祖先 = 空串(同一朝的宗室远支,或者根本不是一家)。
- * 编年史的"其子 / 其侄"(kinOf(先君, 新君))、人物页的"继叔父某某即位"(kinOf(新君, 先君))、人物卡片前任继任后面的小字都用它
+ * 编年史的"其子 / 其侄"(kinOf(先君, 新君))、人物页的"继叔父某某即位"(kinOf(新君, 先君))、人物卡片前任继任后面的小字都用它。
+ * b 是女的(Person.female)换成女的说法:女、孙女、母、祖母、姐、妹、侄女、姑母、从姐……;
+ * a、b 之间隔着一位女性(两头和同一位祖先不算):外孙、外祖父、外甥、舅父 / 姨母、表兄 / 表妹、舅祖 / 姨祖母……
  */
 export function kinOf(civ: Civ, a: Person, b: Person): string {
   const up = 3;
@@ -247,18 +246,27 @@ export function kinOf(civ: Civ, a: Person, b: Person): string {
       if (as[i] === undefined || bs[j] === undefined || as[i] !== bs[j]) continue;
       // a 往上 i 代、b 往上 j 代是同一位
       const elder = b.born < a.born;
+      const f = isFemale(b);
+      const via = as.slice(1, i).some(isFemale) || bs.slice(1, j).some(isFemale);
+      const sex = (m: string, w: string) => (f ? w : m);
       // 收养的(Person.adopted)只在父子这一层写明:养子、养父
-      if (i === 0) return j === 1 && b.adopted ? '养子' : ['', '子', '孙', '曾孙'][j];
-      if (j === 0) return i === 1 && a.adopted ? '养父' : ['', '父', '祖父', '曾祖父'][i];
-      if (i === 1 && j === 1) return elder ? '兄' : '弟';
-      if (i === 1 && j === 2) return '侄';
-      if (i === 1 && j === 3) return '侄孙';
-      if (i === 2 && j === 1) return b.born < as[1].born ? '伯父' : '叔父';
-      if (i === 2 && j === 2) return elder ? '从兄' : '从弟';
-      if (i === 2 && j === 3) return '从侄';
-      if (i === 3 && j === 1) return b.born < as[2].born ? '伯祖' : '叔祖';
-      if (i === 3 && j === 2) return b.born < as[1].born ? '从伯父' : '从叔父';
-      return elder ? '族兄' : '族弟';
+      if (i === 0) {
+        if (j === 1) return b.adopted ? sex('养子', '养女') : sex('子', '女');
+        return `${via ? '外' : ''}${['', '', '孙', '曾孙'][j]}${f ? '女' : ''}`;
+      }
+      if (j === 0) {
+        if (i === 1) return a.adopted ? sex('养父', '养母') : sex('父', '母');
+        return `${via ? '外' : ''}${['', '', '祖', '曾祖'][i]}${sex('父', '母')}`;
+      }
+      if (i === 1 && j === 1) return elder ? sex('兄', '姐') : sex('弟', '妹');
+      if (i === 1 && j === 2) return via ? sex('外甥', '外甥女') : sex('侄', '侄女');
+      if (i === 1 && j === 3) return via ? sex('外甥孙', '外甥孙女') : sex('侄孙', '侄孙女');
+      if (i === 2 && j === 1) return via ? sex('舅父', '姨母') : f ? '姑母' : b.born < as[1].born ? '伯父' : '叔父';
+      if (i === 2 && j === 2) return `${via ? '表' : '从'}${elder ? sex('兄', '姐') : sex('弟', '妹')}`;
+      if (i === 2 && j === 3) return `${via ? '表' : '从'}${sex('侄', '侄女')}`;
+      if (i === 3 && j === 1) return via ? sex('舅祖', '姨祖母') : f ? '姑祖母' : b.born < as[2].born ? '伯祖' : '叔祖';
+      if (i === 3 && j === 2) return `${via ? '表' : '从'}${f ? '姑母' : b.born < as[1].born ? '伯父' : '叔父'}`;
+      return elder ? sex('族兄', '族姐') : sex('族弟', '族妹');
     }
   }
   return '';

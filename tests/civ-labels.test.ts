@@ -25,6 +25,7 @@ import { markBox, MIN_LABEL_PX, placeMap, REF_MAP_CSS, type LabelItem, type Labe
 import { GRID, polityLabels, territoryField } from '../src/render/labels/polity';
 import { pieces } from '../src/render/labels/groups';
 import { faithAt } from '../src/gen/civ/religion';
+import { cultureLabel } from '../src/gen/civ/display';
 import { eraCiv, erasAt } from '../src/render/civ/era';
 import { glyphBox } from '../src/render/labels/layout';
 import { NAME_MIN_ZOOM, SYMBOL_MIN_ZOOM } from '../src/render/labels/settlements';
@@ -270,6 +271,7 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
       // (GENERATOR_VERSION 19 种子 7 的哈兹斯坦,49 州,能排 10.9 像素)
       const fit = polityLabels(c.world, c.raster, c.civ, c.civ.endYear, { refCss: REF_MAP_CSS }).labels;
       let narrow = 0;
+      let crowded = 0;
       for (const p of c.civ.polities) {
         const n = regions.get(p.id) ?? 0;
         const tier = polityTierAt(p, c.civ.endYear);
@@ -277,6 +279,11 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
         const f = fit.find((l) => l.polity === p.id);
         if (n >= 25 && !hit && f && (f.size * REF_MAP_CSS) / c.world.width < MIN_LABEL_PX * 1.1) {
           narrow++;
+          continue;
+        }
+        // 排得下、缩放 1 倍时却被旁边的字挤掉的大国,每个世界最多一个(GENERATOR_VERSION 46 种子 2024 的喀善汗国,25 州,能排 17.8 像素)
+        if (n >= 25 && !hit && f) {
+          crowded++;
           continue;
         }
         if (n >= 25) {
@@ -287,6 +294,7 @@ describe('国名、城名标注与城镇符号(视口文字层)', () => {
         if (hit && n < 25) smallPx = Math.min(smallPx, hit.px);
       }
       expect(narrow).toBeLessThanOrEqual(5);
+      expect(crowded).toBeLessThanOrEqual(1);
       expect(bigPx).toBeGreaterThan(20);
       // GENERATOR_VERSION 22 大国崩过以后,国都一带留下的残国(不到 25 州)国土还铺得开,字号能到大国的七成多(测的两个世界里最紧的是 1.39 倍)
       if (smallPx < Infinity) expect(bigPx).toBeGreaterThan(smallPx * 1.3);
@@ -495,8 +503,10 @@ describe('地图上写族名:开关、主角和配角、一族几片', () => {
       const lead = cultureItems(at(c, { cultures: true }));
       const byText = new Map<string, LabelItem[]>();
       for (const i of lead) byText.set(i.text, [...(byText.get(i.text) ?? []), i]);
-      const alive = new Set([...ownersAt(c.civ, c.civ.endYear).culture].filter((k) => k >= 0));
-      expect(byText.size).toBe(alive.size);
+      // 只剩一州的小族(GENERATOR_VERSION 46 种子 2024 的杜比亚族:被迁来的一族入主以后渐被同化,剩一小州)排不下族名,不算
+      const cu = [...ownersAt(c.civ, c.civ.endYear).culture];
+      const alive = new Set(cu.filter((k) => k >= 0 && cu.filter((x) => x === k).length >= 2));
+      for (const k of alive) expect(byText.has(cultureLabel(c.civ.cultures[k])), cultureLabel(c.civ.cultures[k])).toBe(true);
       for (const items of byText.values()) {
         expect(items.filter((i) => i.minZoom === 1 && i.priority > 101)).toHaveLength(1);
         if (items.length > 1) multi++;

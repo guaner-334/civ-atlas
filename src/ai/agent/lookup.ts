@@ -24,6 +24,7 @@ import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { ERAS, RESOURCES, RESOURCE_COUNT, developmentAt, eraLevel, eraOf, resourcesAt } from '../../gen/civ/development';
 import { campaignText, commandFoes, fameLine, famousPeople, foesText, generalTally, peopleIndex, personFame, personSpan, riseText, rulerAt } from '../../gen/civ/peopleInfo';
 import { ageAt, generalRole, isConsul, leaningsText, ministerRole, personName, princeRole, rulerFateWord, rulerRef, rulerRole } from '../../gen/civ/peopleText';
+import { isFemale, kinWord } from '../../gen/civ/gender';
 import { deedsShort, ministerFate, personBio } from '../../gen/civ/officialText';
 import { fatherOf } from '../../gen/civ/lineageInfo';
 import { nearestCell as nearestWorldCell } from '../../gen/civ/frontier';
@@ -202,7 +203,7 @@ function roleArg(v: unknown): RoleArg | null {
   const hit = ROLES.find((r) => r === s || ROLE_NAME[r] === s);
   if (hit) return hit;
   // 宗室先认("王子""皇子"里也有"王""皇")
-  if (/宗室|王子|皇子|太子|公子/.test(s)) return 'prince';
+  if (/宗室|王子|皇子|太子|公子|公主|公女|太女/.test(s)) return 'prince';
   if (/作者/.test(s)) return 'author';
   if (/君|帝|王|执政/.test(s)) return 'ruler';
   if (/将/.test(s)) return 'general';
@@ -369,7 +370,7 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
       if (x.author !== undefined) parts.push('是作者的人物(即位命令立的)');
       if (detail) {
         const f = fatherOf(civ, x);
-        if (f) parts.push(`父 ${personName(civ, f)}`);
+        if (f) parts.push(`${kinWord(f, '父')} ${personName(civ, f)}`);
         const fame = personFame(civ, x);
         if (fame?.deeds) parts.push(`事迹:${fame.deeds}`);
         const foes = commandFoes(civ, x);
@@ -405,6 +406,8 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
     } else {
       parts.push(`宗室 ${x.name} · ${princeRole(civ, x)}${pid ? `(${pid})` : ''}`, lifeOf(x.born, died, still));
     }
+    // 女的写明(AI 写"她"、写女帝女王)
+    if (isFemale(x)) parts.splice(1, 0, '女');
     return parts.join(' · ');
   };
 

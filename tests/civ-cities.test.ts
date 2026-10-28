@@ -206,7 +206,8 @@ describe('城市兴衰 · 推演', () => {
       // 城镇表和史事对得上:每座被毁的城有一条毁城,每座重建的城有一条重建,每次洗劫有一条洗劫(饥荒的折损记在国家的饥荒那一条)
       expect(S.filter((s) => s.ended !== undefined).length).toBe(A.filter((e) => e.kind === 'ruin').length);
       expect(S.filter((s) => s.rebuilds !== undefined).length).toBe(A.filter((e) => e.kind === 'rebuild').length);
-      expect(S.reduce((n, s) => n + (s.sacks?.filter((k) => !k.cause).length ?? 0), 0)).toBe(A.filter((e) => e.kind === 'sack').length);
+      // 大迁徙的队伍路上洗劫(史事 trek n = 1)也记一条不带 cause 的折损
+      expect(S.reduce((n, s) => n + (s.sacks?.filter((k) => !k.cause).length ?? 0), 0)).toBe(A.filter((e) => e.kind === 'sack' || (e.kind === 'trek' && e.n === 1)).length);
       // 国都年份段:和各国的国都变迁表一致(每一段 = 某国做国都的那一段)
       for (const p of civ.polities) {
         const caps = p.capitals!;
@@ -220,7 +221,7 @@ describe('城市兴衰 · 推演', () => {
     }
   });
 
-  it('默认参数 seed 7 / 2024:毁城 2–90 座、多数是村镇;一场战争最多毁 3 座;有重建也有留下的遗址;有洗劫、有旧都渐衰', () => {
+  it('默认参数 seed 7 / 2024:毁城 2–140 座、多数是村镇;一场战争最多毁 3 座;有重建也有留下的遗址;有洗劫、有旧都渐衰', () => {
     let rebuilds = 0;
     for (const seed of [7, 2024]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
@@ -228,8 +229,9 @@ describe('城市兴衰 · 推演', () => {
       const tag = `seed ${seed}`;
       // 20 个种子里毁城 2–15 座(荒僻之地留给部落以后仗少了;GENERATOR_VERSION 13 以后 seed 8 最少,2 座)
       expect(c.ruins, tag).toBeGreaterThanOrEqual(2);
-      // GENERATOR_VERSION 20(饥荒、民变、大崩解:仗多了)以后 20 个种子(1–19、2024)毁城 32–75 座
-      expect(c.ruins, tag).toBeLessThanOrEqual(90);
+      // GENERATOR_VERSION 20(饥荒、民变、大崩解:仗多了)以后 20 个种子(1–19、2024)毁城 32–75 座;
+      // GENERATOR_VERSION 46(大迁徙:迁来的游牧之国破城狠,打进国都、亡国多了)以后 20 个种子(1–20)49–120 座,seed 2024 121 座:上限放到 140
+      expect(c.ruins, tag).toBeLessThanOrEqual(140);
       expect(c.ruinsByRank[0] + c.ruinsByRank[1], tag).toBeGreaterThan(c.ruins / 2);
       expect(c.maxRuinsPerWar, tag).toBeLessThanOrEqual(3);
       // 重建:GENERATOR_VERSION 13 以后 20 个种子里只有 seed 7 一座也没重建(毁的 4 座都留成了遗址),两个世界合计有,见循环后
@@ -385,7 +387,8 @@ describe('城市兴衰 · 地图、悬停、编年史', () => {
           expect(x.text).not.toMatch(/undefined|NaN|某国|一城/);
           expect(x.text.length).toBeGreaterThan(3);
           if (x.kind === 'ruin') expect(x.text).toMatch(/破|焚毁|毁于|屠/);
-          if (x.kind === 'sack') expect(x.text).toMatch(/洗劫|大掠/);
+          // 大迁徙那一条的经过里,路上洗劫写"过某州,掠之"
+          if (x.kind === 'sack') expect(x.text).toMatch(/洗劫|大掠|掠之/);
           if (x.kind === 'rebuild') expect(x.text).toMatch(/重建|新城/);
           if (x.kind === 'decline') expect(x.text).toMatch(/[旧故]都.+渐衰$/);
           expect(['掠', '毁', '建', '衰']).toContain(x.tag);

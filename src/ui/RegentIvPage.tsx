@@ -15,6 +15,7 @@
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
 import { kinOf, rulerShort } from '../gen/civ/peopleText';
+import { heOrShe, heirWord, isFemale, mateWord, wedVerb, type Sexed } from '../gen/civ/gender';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { brideNameOf } from '../gen/civ/people';
 import { drawLeanings } from '../gen/civ/rulers';
@@ -28,17 +29,20 @@ import { useNarrow } from './device';
 import { queueIntervention } from './pendingStore';
 import { nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
-import { REGENT_HOW_WORD, interventionText, nameAt, regentEndWord } from './Interventions';
+import { interventionText, nameAt, regentEndWord, regentHowWord } from './Interventions';
 import { YearRow, rgb, useYearInput, type YearInput } from './panelParts';
 import { IV_ROYAL_AGE, marryChoice, marryPartners, regentChoice } from './newIvInfo';
 import './newIv.css';
 
-/** 这一种掌权下面那一句 */
-const HOW_NOTE: Record<RegentHow, (N: string) => string> = {
-  march: (N) => `引兵入朝：带兵回朝、换掉宫中宿卫，杀兄长和战功比他多的兄弟，不即位；${N}照旧在位。`,
-  heir: (N) => `太子监国：${N}照旧在位，政事交给太子，不杀人。`,
-  uncle: (N) => `摄政：${N}照旧在位，政出于他。`,
-  chancellor: (N) => `专权：${N}照旧在位，大权在他手里。`,
+/** 在位的君主是掌权的人的什么人,说全:"父亲德宗""兄长德宗"(别的照 kinOf) */
+const KIN_LONG: Readonly<Record<string, string>> = { 父: '父亲', 母: '母亲', 兄: '兄长', 姐: '姐姐' };
+
+/** 这一种掌权下面那一句(N = 在位的君主;x = 掌权的人) */
+const HOW_NOTE: Record<RegentHow, (N: string, x: Sexed) => string> = {
+  march: (N, x) => `引兵入朝：带兵回朝、换掉宫中宿卫，杀兄长和战功比${heOrShe(x)}多的兄弟，不即位；${N}照旧在位。`,
+  heir: (N, x) => `${heirWord(x)}监国：${N}照旧在位，政事交给${heirWord(x)}，不杀人。`,
+  uncle: (N, x) => `摄政：${N}照旧在位，政出于${heOrShe(x)}。`,
+  chancellor: (N, x) => `专权：${N}照旧在位，大权在${heOrShe(x)}手里。`,
   general: (N) => `专权：大将入朝秉政，${N}照旧在位。`,
 };
 /** 到什么时候的分段按钮上的字 */
@@ -148,7 +152,7 @@ export function RegentIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; ye
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!pkey) return '推演里认不出这个人，下不了';
     // 逐年推演:下在下一步开头(已经推过的历史后面),只看他那时是不是那样的人,不按历史推到哪年卡
-    if (!open || (!step && span.lo > span.hi)) return '那一年他不是太子、君主的兄弟叔伯、在朝的名臣或领兵的将领，或者已不在世、不满 16 岁';
+    if (!open || (!step && span.lo > span.hi)) return `那一年${heOrShe(x)}不是太子、君主的兄弟叔伯、在朝的名臣或领兵的将领，或者已不在世、不满 16 岁`;
     if (!step && !yi.valid) return `掌权的年份要在${spaced(yearSpanAt(span.lo, span.hi, era))}之间`;
     return null;
   })();
@@ -175,24 +179,24 @@ export function RegentIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; ye
   const age = Math.max(0, Math.floor(y - x.born));
   // 在位的是谁:"父亲德宗""兄长德宗";名臣、将领只写称呼
   const kin = N ? kinOf(civ, x, N) : '';
-  const who = `${({ 父: '父亲', 兄: '兄长' } as Record<string, string>)[kin] ?? kin}${Nname}`;
+  const who = `${KIN_LONG[kin] ?? kin}${Nname}`;
   const at = yearAt(y, era);
   const endAt = y + years;
   const after =
     end === 'succeed'
-      ? `${Nname}去世由他即位；这年以前的一个不变`
+      ? `${Nname}去世由${heOrShe(x)}即位；这年以前的一个不变`
       : end === 'return'
         ? `${spaced(yearAt(endAt, era))}还政于${Nname}；这年以前的一个不变`
         : `${spaced(yearAt(endAt, era))}废${Nname}自立，接着在位；这年以前的一个不变`;
   const body = (
     <>
-      <YearBlock step={step} yi={yi} label="从哪一年起" note={`那年他 ${age} 岁、在世，${who}在位。`} />
+      <YearBlock step={step} yi={yi} label="从哪一年起" note={`那年${heOrShe(x)} ${age} 岁、在世，${who}在位。`} />
       {open && (
         <div className="cp-from" data-iv="regent-how">
           <div className="dx-row">
             <span className="cp-k">怎么掌权</span>
-            <Seg options={open.hows} value={how} word={(h) => REGENT_HOW_WORD[h]} onPick={(h) => (clear(), setHow(h))} act="regent-how" />
-            <span className="cp-note">{HOW_NOTE[how](Nname)}</span>
+            <Seg options={open.hows} value={how} word={(h) => regentHowWord(h, x)} onPick={(h) => (clear(), setHow(h))} act="regent-how" />
+            <span className="cp-note">{HOW_NOTE[how](Nname, x)}</span>
           </div>
           <div className="dx-row">
             <span className="cp-k">到什么时候</span>
@@ -205,7 +209,7 @@ export function RegentIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; ye
         <div className="iv-sum" data-iv="regent-sum">
           <span>掌权</span>
           <span>
-            {name}，{at}起；政出于他
+            {name}，{at}起；政出于{heOrShe(x)}
           </span>
           <span>君主</span>
           <span>{N ? `${Nname}照旧在位${end === 'succeed' && N.until !== undefined ? `，到原定的 ${yearShortAt(N.until, era)}` : ''}` : '照旧在位'}</span>
@@ -216,7 +220,7 @@ export function RegentIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; ye
           {how === 'march' && (
             <>
               <span>宗室</span>
-              <span>引兵还朝时杀兄长和战功比他多的兄弟</span>
+              <span>引兵还朝时杀兄长和战功比{heOrShe(x)}多的兄弟</span>
             </>
           )}
           <span>之后</span>
@@ -228,7 +232,8 @@ export function RegentIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; ye
   return <IvShell kind="regent" body={body} why={why} msg={msg} step={step} onBack={onBack} onGo={go} />;
 }
 
-const MARRY_WORD: Record<'take' | MarryHow, string> = { take: '娶对方宗室女', give: '本国宗室女嫁过去', mutual: '互嫁' };
+/** 怎么结亲的分段按钮(take:这个人那一边娶 / 嫁过去) */
+const marryWord = (h: 'take' | MarryHow, x: Sexed) => (h === 'take' ? `${wedVerb(x)}对方${mateWord(x)}` : h === 'give' ? '本国宗室女嫁过去' : '互嫁');
 
 export function MarryIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; year: number; onBack: () => void }) {
   const era = useEra();
@@ -255,7 +260,7 @@ export function MarryIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; yea
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!pkey) return '推演里认不出这个人，下不了';
     if (!step && !yi.valid) return `结亲的年份要在${spaced(yearSpanAt(lo, Math.max(lo, hi), era))}之间`;
-    if (!ok) return '那一年他不是在位的君主或在世、成年的宗室，或者本国是共和国、在位的是作者立的君主';
+    if (!ok) return `那一年${heOrShe(x)}不是在位的君主或在世、成年的宗室，或者本国是共和国、在位的是作者立的君主`;
     if (!Q) return '那一年没有能结亲的国家（有王室、没和本国打仗）';
     return null;
   })();
@@ -274,16 +279,19 @@ export function MarryIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; yea
   const age = Math.max(0, Math.floor(y - x.born));
   // 娶来的是对方那年在位君主的女儿:"大澜宗室女风氏（德宗之女）"
   const F = Q ? rulerAt(civ, Q.id, y) : null;
-  const bride = `${Bshort}宗室女${Q ? brideNameOf(civ, Q.id, F ?? undefined) : ''}${F ? `（${rulerShort(civ, F)}之女）` : ''}`;
+  // (这个人是女的:嫁过去,对方是那位君主的儿子)
+  const bride = isFemale(x)
+    ? `${Bshort}${mateWord(x)}${F ? `（${rulerShort(civ, F)}之子）` : ''}`
+    : `${Bshort}宗室女${Q ? brideNameOf(civ, Q.id, F ?? undefined) : ''}${F ? `（${rulerShort(civ, F)}之女）` : ''}`;
   const wed =
     how === 'take'
-      ? `${x.name}娶${bride}，${at}`
+      ? `${x.name}${wedVerb(x)}${bride}，${at}`
       : how === 'give'
         ? `${Ashort}宗室女嫁${Bshort}太子或宗室（推演里挑），${at}`
-        : `${x.name}娶${bride}，${Ashort}宗室女也嫁过去，${at}`;
+        : `${x.name}${wedVerb(x)}${bride}，${Ashort}宗室女也嫁过去，${at}`;
   const body = (
     <>
-      <YearBlock step={step} yi={yi} label="哪一年结亲" note={`那年他 ${age} 岁；国君、宗室都行。`} />
+      <YearBlock step={step} yi={yi} label="哪一年结亲" note={`那年${heOrShe(x)} ${age} 岁；国君、宗室都行。`} />
       <div className="cp-from" data-iv="marry-how">
         <div className="dx-row">
           <span className="cp-k">和哪一国</span>
@@ -307,7 +315,7 @@ export function MarryIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; yea
         </div>
         <div className="dx-row">
           <span className="cp-k">怎么结</span>
-          <Seg options={['take', 'give', 'mutual'] as const} value={how} word={(h) => MARRY_WORD[h]} onPick={(h) => (clear(), setHow(h))} act="marry-how" />
+          <Seg options={['take', 'give', 'mutual'] as const} value={how} word={(h) => marryWord(h, x)} onPick={(h) => (clear(), setHow(h))} act="marry-how" />
         </div>
       </div>
       {Q && (

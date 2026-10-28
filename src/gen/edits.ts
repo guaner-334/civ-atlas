@@ -414,6 +414,11 @@
  * WorldEdits.months(可选,没有 = 一年 12 个月):编年史、地图上的事件卡片、时间轴提示写到哪一月 ——
  * 0 = 只写年;2–36 = 一年几个月。和纪年一样只换写法,不参与推演;随时能改,改了不记撤销步。写法见 era.ts 的 monthOf。
  *
+ * WorldEdits.monthNames(可选,没有 = 月份都写数字):自己起的月份名字(era.ts 的 MonthNames)——
+ * `{ names: ['端月', '杏月', '', …] }`,第 i 个是第 i + 1 月的名字,'' = 没起名、照旧写数字;每个最多 4 个字,最多 36 个。
+ * 一年的月数改少了,多出来的名字留着(改回去还在);只写年时名字不出现、也留着;换回「数字」记 `off: true`,名字留着。
+ * 和月数一样只换写法,随时能改,不记撤销步。读进来的先过 cleanMonthNames。
+ *
  * GENERATOR_VERSION:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对,不一致就提示"来自旧版本"和变了什么;
  * 每一版改了什么记在下面的 GENERATOR_CHANGES,提示照它说)。
  *   2:名字按位置取(gen/civ/naming.ts、places.ts;地形、历史不变,默认的名字换了一遍),稳定键改按地块定位(c 格式)。
@@ -530,7 +535,10 @@
  *      复国那一条写起事的人"自某国还"。疆域、兴亡、人物的下场不变,编年史多了出奔那一条
  *  45:地形大事以后城的港口、人口上限和这座城最后一次记下的那一段比(civ/upheaval.ts 的 reshapeCities;以前和紧挨着的前一段比,
  *      几件大事各变一点、每件都不到 2% 的一直不记,差别攒下来)。只有带地形大事的世界变了:城的人口上限有一点变化,历史重新推演
- *  46:季节进推演(gen/seasons.ts 估算一年里各地的月温):出兵避冬(civ/wars.ts:要打的那州正在冬天里就顿兵到开春再打,编年史记"顿兵过冬"),
+ *  46:大迁徙(civ/migration.ts):草原、寒地的民族老家挤、闹灾年、本族的国散了,附近又有大乱、疫后空了、富庶的地时,
+ *      分出一支举族远走(每个世界三千年里三到六次),一路走一路抢,到了占几州立国、当即开战;打进国都的,比它小的国家亡国、
+ *      大国大崩解,迁来的占着国都一带;入主以后统治民族是少数的,两三百年里多半渐染当地之俗。编年史一次一条大事。历史重新推演
+ *  47:季节进推演(gen/seasons.ts 估算一年里各地的月温):出兵避冬(civ/wars.ts:要打的那州正在冬天里就顿兵到开春再打,编年史记"顿兵过冬"),
  *      冬夏分明的地方饥荒挪到当地青黄不接的春荒(civ/unrest.ts,编年史写"春,某州大饥");还没即位的预定继承人的名字从他出道那一刻就算用过
  *      (civ/lineage.ts:同一刻出道的兄弟不再推到一半时和他同名)。历史重新推演
  */
@@ -541,12 +549,12 @@ import { treatyBook } from './civ/treatyInfo';
 import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
-import type { Era } from './era';
+import type { Era, MonthNames } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 46;
+export const GENERATOR_VERSION = 47;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -611,6 +619,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
   46: { change: 'history' },
+  47: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
@@ -830,6 +839,8 @@ export interface WorldEdits {
   era?: Era;
   /** 一年几个月(见文件头"月份");0 = 只写年;没有 = 12 */
   months?: number;
+  /** 自己起的月份名字(见文件头"月份");没有 = 都写数字 */
+  monthNames?: MonthNames;
   /** 逐年推演的进度(见文件头"逐年推演的进度");没有 = 没在逐年推演 */
   play?: PlayState;
   /** 这次逐年推演从第几年起(见文件头"逐年推演的进度");只跟着 play 走,没有 = 0 */

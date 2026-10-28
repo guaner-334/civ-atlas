@@ -16,6 +16,7 @@ import { personKey } from '../gen/edits';
 import { polityName } from '../gen/civ/growth';
 import { personSpan } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
+import { heOrShe } from '../gen/civ/gender';
 import { personPortrait } from '../gen/portrait';
 import { yearFull, yearShort, yearSpan, type Era } from '../gen/era';
 import { getCivTime, setCivTime, subscribeCivTime } from './civView';
@@ -192,7 +193,7 @@ function HandPlate({ civ, prev, next, year, era, phone }: { civ: Civ; prev: Pers
   } else if (P) {
     face = <PolityFace civ={civ} id={P.id} />;
     head = `接着看${polityName(P, Math.min(year, P.ended !== undefined ? P.ended - 1 / 256 : year))}`;
-    small = '回到他的国家';
+    small = `回到${heOrShe(prev)}的国家`;
   } else {
     head = '接着看全世界的大事';
     small = pp ? `${polityName(pp, Math.max(pp.founded, Math.min(end, pp.ended ?? end) - 1 / 256))}已经不在了` : '';
@@ -238,7 +239,7 @@ export function FollowPick({ civ, year }: { civ: Civ; year: number }) {
       {x ? <Face civ={civ} x={x} year={year} /> : P ? <PolityFace civ={civ} id={P.id} /> : <span className="fp-face fp-pol" />}
       <span className="fp-name">
         <b>{x ? personName(civ, x) : P ? polityName(P, Math.min(year, P.ended !== undefined ? P.ended - 1 / 256 : year)) : '全世界的大事'}</b>
-        <small>{x ? `${followRole(civ, x)}，${F(year - x.born)} 岁，${followSub(civ, x, year, era)}` : P ? `${gone}，跟着他的国家` : gone}</small>
+        <small>{x ? `${followRole(civ, x)}，${F(year - x.born)} 岁，${followSub(civ, x, year, era)}` : P ? `${gone}，跟着${heOrShe(leg.prev)}的国家` : gone}</small>
       </span>
       <button className="fp-link" data-act="follow-pick" onClick={() => setDirectorPicking(true)}>
         换一个 ›
@@ -350,12 +351,13 @@ export function useFollowing(civ: Civ, id: number, year: number): boolean {
   return t?.kind === 'person' && t.id === id;
 }
 
-/** 人物卡按钮一排里的「关注他 / 不关注」 */
+/** 人物卡按钮一排里的「关注他 / 不关注」(她:关注她) */
 export function FollowAct({ civ, x, year }: { civ: Civ; x: Person; year: number }) {
   const on = useFollowing(civ, x.id, year);
+  const he = heOrShe(x);
   return (
-    <Act icon="camera" act="person-follow" pressed={on} onClick={() => (on ? setDirectorFollow(null) : followPerson(civ, x, year))} title={on ? '导播不再跟着他' : '导播只讲他这一辈子，镜头跟着他'}>
-      {on ? '不关注' : '关注他'}
+    <Act icon="camera" act="person-follow" pressed={on} onClick={() => (on ? setDirectorFollow(null) : followPerson(civ, x, year))} title={on ? `导播不再跟着${he}` : `导播只讲${he}这一辈子，镜头跟着${he}`}>
+      {on ? '不关注' : `关注${he}`}
     </Act>
   );
 }

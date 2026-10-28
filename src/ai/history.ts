@@ -13,31 +13,32 @@ import { aiChat } from './client';
 import { AiError, type AiProviderKind } from './types';
 import { listNotes, putNote, type AiNote } from './library';
 import { fixRealWords } from './realWords';
+import { HISTORY_LENGTHS, HISTORY_STYLES, historyMessages, type HistoryLength, type HistoryStyle } from './prompts/history';
 import {
-  HISTORY_LENGTHS,
-  HISTORY_STYLES,
-  buildHistoryPrompts,
-  historyFingerprint,
-  historyMessages,
-  historyNoteKey,
-  loadScope,
-  storeScope,
-  type HistoryLength,
-  type HistoryOptions,
-  type HistoryScope,
-  type HistoryStyle,
-  type StoredScope,
-} from './prompts/history';
+  bookFingerprint,
+  bookLoadScope,
+  bookNoteKey,
+  bookPrompts,
+  bookStoreScope,
+  isLifeScope,
+  lifeKind,
+  lifeMissing,
+  type BookOptions,
+  type BookScope,
+  type BookStoredScope,
+  type LifeSource,
+  type LifeStoredScope,
+} from './prompts/lives';
 
 export const HISTORY_KIND = '史书';
 
-/** 一部史书的"书目信息"(存在笔记的 book 字段里) */
+/** 一部史书的"书目信息"(存在笔记的 book 字段里);列传、家传也存成一部"史书",写什么是一个人、一朝(prompts/lives.ts) */
 export interface HistoryBookMeta {
-  /** 书名:"世界通史" / "大昌史" / "第 1200—1500 年史" */
+  /** 书名:"世界通史" / "大昌史" / "第 1200—1500 年史" / "世祖苏珩羽传" / "衍朝苏氏家传" */
   title: string;
   /** "第 0—3000 年" */
   range: string;
-  scope: StoredScope;
+  scope: BookStoredScope;
   style: HistoryStyle;
   length: HistoryLength;
   /** 写的时候的历史指纹 */
@@ -55,12 +56,14 @@ export interface HistoryNote extends AiNote {
 const STYLES = Object.keys(HISTORY_STYLES);
 const LENGTHS = Object.keys(HISTORY_LENGTHS);
 
-function validScope(s: unknown): s is StoredScope {
-  const x = s as StoredScope | null;
+function validScope(s: unknown): s is BookStoredScope {
+  const x = s as BookStoredScope | null;
   if (!x || typeof x !== 'object') return false;
   if (x.kind === 'world') return true;
-  if (x.kind === 'polity') return typeof x.key === 'string' && typeof x.name === 'string';
+  if (x.kind === 'polity' || x.kind === 'person') return typeof x.key === 'string' && typeof x.name === 'string';
   if (x.kind === 'era') return Number.isFinite(x.from) && Number.isFinite(x.to);
+  if (x.kind === 'character') return Number.isFinite(x.id) && Number.isFinite(x.born) && typeof x.name === 'string';
+  if (x.kind === 'house') return typeof x.key === 'string' && Number.isFinite(x.dynasty) && typeof x.name === 'string';
   return false;
 }
 
@@ -81,11 +84,15 @@ export function listHistoryNotes(world: string): HistoryNote[] {
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
 }
 
-/** 一部史书在现在的历史里:还能不能按原来的选项重写(scope)、是不是写于历史改变之前(stale) */
-export function historyNoteStatus(civ: Civ, note: HistoryNote): { scope: HistoryScope | null; stale: boolean; why?: string } {
-  const scope = loadScope(civ, note.book.scope);
-  if (!scope) return { scope: null, stale: true, why: `现在的历史里没有${note.book.scope.kind === 'polity' ? note.book.scope.name || '这个国家' : '这一段'}了` };
-  const stale = historyFingerprint(civ, scope) !== note.book.fp;
+/**
+ * 一部史书在现在的历史里:还能不能按原来的选项重写(scope)、是不是写于历史改变之前(stale)。
+ * src:列传、家传的材料要界面层交进来的人物卡(prompts/lives.ts 的 LifeSource);史书用不着
+ */
+export function historyNoteStatus(civ: Civ, note: HistoryNote, src?: LifeSource | null): { scope: BookScope | null; stale: boolean; why?: string } {
+  const s = note.book.scope;
+  const scope = bookLoadScope(civ, s, src);
+  if (!scope) return { scope: null, stale: true, why: isLifeScope(s) ? lifeMissing(s as LifeStoredScope) : `现在的历史里没有${s.kind === 'polity' ? s.name || '这个国家' : '这一段'}了` };
+  const stale = bookFingerprint(civ, { scope, style: note.book.style, length: note.book.length }, src) !== note.book.fp;
   return { scope, stale };
 }
 
@@ -94,9 +101,24 @@ export function historyStyleLabel(style: HistoryStyle): string {
   return style === 'plain' ? '白话通俗' : HISTORY_STYLES[style].label;
 }
 
-/** 笔记列表里的标题:"世界通史 · 纪传体 · 中篇" */
-export function historyNoteTitle(title: string, style: HistoryStyle, length: HistoryLength): string {
-  return `${title} · ${historyStyleLabel(style)} · ${HISTORY_LENGTHS[length].label}篇`;
+/** 一部书的文体名:列传、家传的三种叫"史书体 / 白话讲述 / 传说故事",史书照 historyStyleLabel */
+export function bookStyleLabel(scope: { kind: string }, style: HistoryStyle): string {
+  return isLifeScope(scope) ? HISTORY_STYLES[style].label : historyStyleLabel(style);
+}
+
+/** 篇幅的说法:史书"中篇";列传、家传"约 2000 字" */
+export function bookLengthLabel(scope: { kind: string }, length: HistoryLength): string {
+  return isLifeScope(scope) ? `约 ${HISTORY_LENGTHS[length].chars} 字` : `${HISTORY_LENGTHS[length].label}篇`;
+}
+
+/** 一部书的写法:"纪传体，中篇";列传、家传前面多"列传""家传":"列传，史书体，约 2000 字"(sep 换成" · "就是已写列表里那行小字) */
+export function bookHowText(scope: { kind: string }, style: HistoryStyle, length: HistoryLength, sep = '，'): string {
+  return [isLifeScope(scope) ? lifeKind(scope) : '', bookStyleLabel(scope, style), bookLengthLabel(scope, length)].filter(Boolean).join(sep);
+}
+
+/** 笔记列表里的标题:"世界通史 · 纪传体 · 中篇" / "世祖苏珩羽传 · 列传 · 史书体 · 约 2000 字" */
+export function historyNoteTitle(title: string, style: HistoryStyle, length: HistoryLength, scope: { kind: string } = { kind: 'world' }): string {
+  return `${title} · ${bookHowText(scope, style, length, ' · ')}`;
 }
 
 export interface WriteProgress {
@@ -122,6 +144,8 @@ export function joinWritten(written: readonly WrittenCall[]): string {
 export interface WriteHistoryOptions {
   /** 存到哪个世界(saveStore 的世界编号) */
   world: string;
+  /** 列传、家传:界面层交进来的人物卡(prompts/lives.ts 的 LifeSource) */
+  src?: LifeSource | null;
   signal?: AbortSignal;
   onProgress?: (p: WriteProgress) => void;
   /**
@@ -142,8 +166,8 @@ export interface WriteHistoryOptions {
  * 这一次带上"战争、杀伐写得克制"(restrainedLine)自动再写一次,还被拦才抛错。
  * 没设置 AI / 失败 / 取消都抛 AiError(取消 = code 'aborted');这时不存,旧的那部(同一个键)不动
  */
-export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHistoryOptions): Promise<HistoryNote> {
-  const prompts = buildHistoryPrompts(civ, opts);
+export async function writeHistory(civ: Civ, opts: BookOptions, o: WriteHistoryOptions): Promise<HistoryNote> {
+  const prompts = bookPrompts(civ, opts, o.src);
   if (prompts.empty || !prompts.calls.length) throw new AiError('other', '这段历史里没有史事可写');
   const n = prompts.calls.length;
   const written: WrittenCall[] = (o.written ?? []).slice(0, n);
@@ -180,11 +204,11 @@ export async function writeHistory(civ: Civ, opts: HistoryOptions, o: WriteHisto
   const provider = last?.provider ?? '';
   const model = last?.model ?? '';
   o.onProgress?.({ text: done, call: n - 1, calls: n });
-  const stored = storeScope(civ, opts.scope);
+  const stored = bookStoreScope(civ, opts.scope, o.src);
   const note: HistoryNote = {
-    key: historyNoteKey(stored, opts.style, opts.length),
+    key: bookNoteKey(stored, opts.style, opts.length),
     kind: HISTORY_KIND,
-    title: historyNoteTitle(prompts.title, opts.style, opts.length),
+    title: historyNoteTitle(prompts.title, opts.style, opts.length, opts.scope),
     text: done,
     createdAt: (o.now?.() ?? new Date()).toISOString(),
     provider,
@@ -225,7 +249,7 @@ export function historyMarkdown(note: HistoryNote, title = note.book.title): str
   const b = note.book;
   const meta = [
     `「文明与地图」种子 ${b.seed} · ${b.range}`,
-    `${historyStyleLabel(b.style)} · ${HISTORY_LENGTHS[b.length].label}篇`,
+    bookHowText(b.scope, b.style, b.length, ' · '),
     `AI 写作(${historyWriter(note)})`,
     note.createdAt.slice(0, 10),
   ].join(' · ');
@@ -235,6 +259,6 @@ export function historyMarkdown(note: HistoryNote, title = note.book.title): str
 /** 导出的文件名:"世界通史-史书体-种子7.md"(去掉文件名里不能用的字符) */
 export function historyFileName(note: HistoryNote, title = note.book.title): string {
   const b = note.book;
-  const base = `${title}-${historyStyleLabel(b.style)}-种子${b.seed}`.replace(/[\\/:*?"<>|\s]+/g, '');
+  const base = `${title}-${bookStyleLabel(b.scope, b.style)}-种子${b.seed}`.replace(/[\\/:*?"<>|\s]+/g, '');
   return `${base}.md`;
 }

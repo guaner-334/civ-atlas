@@ -16,13 +16,16 @@
  * - **史事**(阶段 3):record(种类, …) 记"发生了什么事"(立国、升格、宣战、攻占、灭亡……),编年史只读它。
  *   各字段的含义见 types.ts 的 AnnalKind。
  * - **检查点**:每 100 年存一份各州的归属,时间轴一下跳到很远时不用从头翻。
+ * - **隔几年看一眼**(everyYears):在整几年那一刻的事件都办完、下一刻的还没办时调一次,和检查点同一个时机。
+ *   信仰(religion.ts)每 5 年在这里算一步;它只读、只记自己的账,不预约事件、不改归属,事件的先后和不挂它时一样。
  * - **不保存事件堆**:CivSim.fromCiv(world, civ) 由 Civ 数据本身重建"接下来该发生什么",从 civ.endYear 接着推。
  *   进行中的战争、厌战、停战冷却也一样(由史事 + 日志 + 国家表重建,见 wars.ts 的 resumeWars);
  *   分裂、合并、复国、主动迁都的冷却同样(见 politics.ts 的 resumePolitics);王朝更替也一样(dynasty.ts 的 resumeDynasty);
- *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);
+ *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);大迁徙在路上的队伍按 Civ.migrations 接着走(migration.ts 的 resumeMigration);
  *   城市兴衰(毁城后的重建、旧都衰落)也一样(cities.ts 的 resumeCities)。
  *   发展度是例外:各州能力的全精度状态存在 Civ.development.state 里,接着推时从那里接上(development.ts 的 resumeDevelopment);
  *   政局的数表也存在那里(state.tables,control.ts 的 resumeControl);议事定下的规矩由史事重建(council.ts 的 resumeCouncil)。
+ *   信仰不存状态:照历史从第 0 年重放到 civ.endYear(religion.ts 的 resumeReligion)。
  *   阶段 4 的干预不存进事件堆:fromCiv(world, civ, 干预列表)按列表补上还没到的干预(interventions.ts 的 resumeInterventions)。
  *
  * 纯计算,不碰 DOM。
@@ -48,7 +51,11 @@ import { resumePlague } from './plague';
 import { resumePandemic } from './pandemic';
 import type { Calamity } from './calamity';
 import { resumeTreaties } from './treaties';
+import { resumeMigration } from './migration';
 import { resumeInterventions, scheduleInterventions } from './interventions';
+import { resumeReligion, type FaithEra } from './religion';
+import { cultureModelOf } from './cultures';
+import { polityModelOf } from './polities';
 import type { Intervention } from '../edits';
 
 // ---------------------------------------------------------------------------
@@ -226,6 +233,15 @@ export const enum Ev {
   SlumpStep = 61,
   /** 看地震水旱(pandemic.ts):a = 第几次看。只有「天灾」设成多、很多的世界才有:各国偶尔闹一场地震、大水、大旱 */
   QuakeCheck = 62,
+  /**
+   * 看大迁徙(migration.ts;编号 63–64):a = 第几次看。每隔几十年看一眼草原、寒地的民族:老家挤、闹灾年、本族的国刚散了(推),
+   * 走得到的地方有大乱、疫后空了、富庶的地(拉),就可能分出一支举族远走(一次看最多走一支)
+   */
+  TrekCheck = 63,
+  /** 迁徙的队伍走到路线上的下一州(migration.ts):a = 第几次大迁徙(Civ.migrations 的下标),b = 路线上的第几州;最后一州 = 落脚立国 */
+  TrekStep = 64,
+  /** 落脚(migration.ts):不单独预约,是大迁徙落脚的几州改换成迁来的民族时变化日志记的原因 */
+  TrekSettle = 65,
 }
 
 export interface EventInfo {
@@ -282,6 +298,9 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.PandemicCheck, name: '看全球大疫', watch: false },
   { id: Ev.SlumpStep, name: '疫后凋敝', watch: false },
   { id: Ev.QuakeCheck, name: '看地震水旱', watch: false },
+  { id: Ev.TrekCheck, name: '看大迁徙', watch: false },
+  { id: Ev.TrekStep, name: '迁徙的队伍', watch: false },
+  { id: Ev.TrekSettle, name: '迁徙落脚', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -498,6 +517,10 @@ export class CivSim {
   private handlers: (EventHandler | undefined)[] = [];
   private watch = new Uint8Array(256);
   private listeners: ChangeListener[][] = [[], []];
+  /** 隔几年看一眼的(everyYears):下一次的年份、间隔、回调 */
+  private yearly: { next: Year; every: number; fn: (year: Year) => void }[] = [];
+  /** yearly 里最早的下一次(没有 = Infinity) */
+  private nextYearly = Infinity;
 
   /** 推演过程中处理了多少个事件(含过期丢掉的),调参 / 测试用 */
   processed = 0;
@@ -514,9 +537,16 @@ export class CivSim {
    * 然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,阶段 4 的存档也只存 Civ。
    * interventions = 接着推时带着的干预(阶段 4;默认 = 这份历史推出来时带着的 civ.interventions):
    * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(逐年推演时下的新命令,civ/play.ts)。
-   * first = 最先预约的事件(地形大事那一刻接着推时:大事本身)
+   * first = 最先预约的事件(地形大事那一刻接着推时:大事本身)。
+   * eras = 地形大事以前各段的州(信仰照历史重放时,大事以前按那时的州;默认 = civ.eras)。地形大事那一刻接着推时由 generateCiv 给
    */
-  static fromCiv(world: World, civ: Civ, interventions: readonly Intervention[] = civ.interventions ?? [], first?: (sim: CivSim) => void): CivSim {
+  static fromCiv(
+    world: World,
+    civ: Civ,
+    interventions: readonly Intervention[] = civ.interventions ?? [],
+    first?: (sim: CivSim) => void,
+    eras: readonly FaithEra[] = civ.eras ?? [],
+  ): CivSim {
     const sim = new CivSim(civ.regions.count);
     sim.owners[Layer.Culture].set(civ.culture);
     sim.owners[Layer.Polity].set(civ.polity);
@@ -556,6 +586,11 @@ export class CivSim {
       resumePlague(sim, world, civ, iv?.list);
       resumePandemic(sim, civ, iv?.list);
       resumeTreaties(sim, world, civ);
+      resumeMigration(sim, world, civ);
+      // 信仰:不存状态,照 civ 的历史从第 0 年重放到 civ.endYear,之后接着每 5 年算一步(不预约事件)
+      const cm = cultureModelOf(sim);
+      const pm = polityModelOf(sim);
+      if (cm && pm) resumeReligion(sim, civ, cm, pm, eras);
       if (iv) resumeInterventions(sim, iv);
       sim.releaseHeld();
     }
@@ -578,6 +613,30 @@ export class CivSim {
   on(kind: number, handler: EventHandler, opts: { watch?: boolean } = {}): void {
     this.handlers[kind] = handler;
     if (opts.watch !== undefined) this.watch[kind] = opts.watch ? 1 : 0;
+  }
+
+  /**
+   * 从第 first 年起每 every 年看一眼:那一年那一刻(含)的事件都办完、下一刻的事件还没办时调 fn(年份)(推到的年份正好是它时,推完那一刻调)。
+   * 和检查点同一个时机。fn 只读引擎和各层的状态、记自己的账:不预约事件、不改归属、不记史事(不然同一刻的先后就和不挂它时不一样了)
+   */
+  everyYears(first: Year, every: number, fn: (year: Year) => void): void {
+    this.yearly.push({ next: first, every, fn });
+    if (first < this.nextYearly) this.nextYearly = first;
+  }
+
+  /** 办 yearly 里年份早于 before(inclusive:不晚于)的,按年份先后 */
+  private runYearly(before: Year, inclusive: boolean): void {
+    for (;;) {
+      let h: (typeof this.yearly)[number] | undefined;
+      for (const x of this.yearly) if (!h || x.next < h.next) h = x;
+      if (!h || !(inclusive ? h.next <= before : h.next < before)) {
+        this.nextYearly = h ? h.next : Infinity;
+        return;
+      }
+      const y = h.next;
+      h.next += h.every;
+      h.fn(y);
+    }
   }
 
   /** 登记某一层归属变化的监听者(setOwner 之后同步调用) */
@@ -680,7 +739,7 @@ export class CivSim {
     this.annals.push(e);
   }
 
-  /** 推演到 untilYear(含这一年的事件);途中每过一个整百年存一个检查点 */
+  /** 推演到 untilYear(含这一年的事件);途中每过一个整百年存一个检查点,隔几年看一眼的(everyYears)到点就看 */
   run(untilYear: Year): void {
     const untilTick = Math.floor(untilYear * TICKS_PER_YEAR + 1e-9);
     const limit = (untilTick + 1) * TICK_SPAN;
@@ -689,6 +748,7 @@ export class CivSim {
       const id = heap.pop();
       const t = this.evT[id];
       while (this.nextCheckpoint <= untilYear && t > this.nextCheckpoint) this.checkpoint();
+      if (t > this.nextYearly) this.runYearly(t, false);
       if (t > this.now) this.now = t;
       const kind = this.evKind[id];
       const a = this.evA[id];
@@ -700,6 +760,7 @@ export class CivSim {
       this.handlers[kind]?.(a, b, t);
     }
     while (this.nextCheckpoint <= untilYear) this.checkpoint();
+    if (this.nextYearly <= untilYear) this.runYearly(untilYear, true);
     if (untilYear > this.now) this.now = untilYear;
   }
 
