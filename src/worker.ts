@@ -101,7 +101,7 @@ interface CivInput {
   calamity?: Calamity;
   /** 文明种子(gen/edits.ts 的 WorldEdits.civSeed;不给 = 地图种子) */
   civSeed?: number;
-  /** 逐年推演的进度(gen/edits.ts 的 WorldEdits.play;不给 = 没在逐年推演):推到 play.year 年初,命令接在干预后面 */
+  /** 逐年推演的进度(gen/edits.ts 的 WorldEdits.play;不给 = 没在逐年推演):推到进度那一刻,命令接在干预后面 */
   play?: PlayState;
   tempo?: TempoNote;
   /** 主线程已经有了的主图补丁("上一段的键>这一段的键");没给的才在后台铺 */
@@ -149,7 +149,7 @@ export type WorkerRequest =
    */
   | ({ type: 'load'; id: number; scale: number; parts: SnapshotPart[]; interventions?: Intervention[] } & CivInput)
   /**
-   * 逐年推演的一步(gen/civ/play.ts 的 playTurn):在 play.year 年初下 commands(只收 from = play.year 的),接着推 years 年。
+   * 逐年推演的一步(gen/civ/play.ts 的 playTurn):在进度那一刻下 commands(只收正是这一刻的),接着推 years 年。
    * 线程里记着这份进度的结果就接着推;没有(线程被重开过、换了世界)就从第 0 年推到这一刻再接着推(结果一样,只是慢)
    */
   | ({ type: 'turn'; id: number; play: PlayState; commands: unknown[]; years: number; interventions?: Intervention[] } & CivInput)
@@ -508,9 +508,9 @@ const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed' | 'calami
   ...(m.calamity ? { calamity: m.calamity } : {}),
 });
 
-/** 推文明时带的逐年推演进度(没在逐年推演 = 不带):推到 play.year 年初,命令接在干预后面(放在最后,盖过干预、推演年数) */
+/** 推文明时带的逐年推演进度(没在逐年推演 = 不带):推到进度那一刻(年 + 第几格),命令接在干预后面(放在最后,盖过干预、推演年数) */
 const playOpt = (m: Pick<CivInput, 'play'> & { interventions?: Intervention[] }) =>
-  m.play ? { interventions: [...playInterventions(m.interventions ?? [], m.play)], endYear: playStop(m.play.year) } : {};
+  m.play ? { interventions: [...playInterventions(m.interventions ?? [], m.play)], endYear: playStop(m.play.year, m.play.tick) } : {};
 
 /** 推这个世界用的输入(推演年数、逐年推演的进度除外) */
 type CivRecipe = Omit<CivInput, 'endYear' | 'play'> & { interventions?: Intervention[] };

@@ -105,6 +105,8 @@
  * 全球大疫 city 和 slump(吸到最近的一档,30 不写)),别的去掉。
  * 推一把发展(boost):mul 吸到最近的一档(BOOST_MULS;不是大于 1 的数 = 不给,直接进);直接进不要 until;快几倍的 until 不晚于 from 的
  * 换成 from + BOOST_YEARS_DEFAULT;regions 去重、去掉格式不对的、最多 BOOST_REGIONS_MAX 个(给了却一个都不合格 = 不合格)。
+ * fromTick(可选,哪一种都能带):在 from 那一年的第几格(见"时刻";1–YEAR_TICKS−1,没有 = 年初)。逐年推演停在年中时下的命令带着它;
+ * 不是 0–YEAR_TICKS−1 的整数、是 0 的去掉(当年初)。until、born 这些别的年份照旧只到年。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -322,22 +324,30 @@
  * 和改名一样只是记下来:不改变世界、不参与推演、和生成器版本无关;年份(干预、标记、网址)照旧按第几年存。
  * 随时能改,改了不记撤销步。字段、写法见 era.ts。
  *
+ * ## 时刻
+ *
+ * 逐年推演的进度、命令、支线落在"第几年 + 那一年的第几格":一年分 YEAR_TICKS(256)格,和推演的最小一步(civ/sim.ts,1/256 年)一样细。
+ * 两样都是整数,存档里没有小数年的零头;第几格是 0(年初)的不写,所以只到年初的存档和加这一项以前一模一样。
+ * 不存"几月":一年几个月(下面"月份")只是写法,随时能改,改了以后存下的时刻不变,只是写出来的月份跟着变。
+ * 比先后时折成从第 0 年年初数起的第几格(ticksAt:year × YEAR_TICKS + tick)。
+ *
  * ## 逐年推演的进度
  *
- * WorldEdits.play(可选,没有 = 没在逐年推演):逐年推演一步步往下推的进度 —— 推到第几年年初(year),一路下过的命令(commands)。
- * 每一步停在第 year 年年初:第 year 年以前的事都推完了,这一年的事一件还没发生;命令就下在这一刻(from = year),
- * 再接着推几年,停在下一步的年初(civ/play.ts 的 playTurn)。命令的格式和干预一样(上面"干预"那一节),
+ * WorldEdits.play(可选,没有 = 没在逐年推演):逐年推演一步步往下推的进度 —— 推到第几年(year)的第几格(tick,见"时刻";没有 = 年初),
+ * 一路下过的命令(commands)。每一步停在这一刻:以前的事都推完了,这一刻的事一件还没发生;命令就下在这一刻(from = year、fromTick = tick),
+ * 再接着推几年,停在下一步的同一格(civ/play.ts 的 playTurn)。命令的格式和干预一样(上面"干预"那一节),
  * 推演时接在作者的干预后面(playInterventions):停下来下命令、接着推,和带着同样的命令从第 0 年一口气推完结果一样
  * (所以读档、换一台设备都能照"推到哪年 + 命令串"重新推出同一个世界)。
- * 命令串里的先后就是序号:同一年下的几条按先后执行(和干预一样,先下的先生效);from 只增不减、不晚于 year。
- * 命令只能下在"现在"(issueCommands:from 不是 year 的不收,不影响推演)。
+ * 命令串里的先后就是序号:同一刻下的几条按先后执行(和干预一样,先下的先生效);命令的时刻只增不减、不晚于进度。
+ * 命令只能下在"现在"(issueCommands:时刻不是进度那一刻的不收,不影响推演)。
  * year 可以是 0(从第 0 年起逐年推演、还没走第一步:一件事都还没发生)。
- * 读进来的先过 cleanPlay(年份不是 0–INTERVENTION_YEAR_MAX 的整数 = 没有这一项;命令按 cleanIntervention 清理,晚于 year、比前一条早的丢掉)。
+ * 读进来的先过 cleanPlay(年份不是 0–INTERVENTION_YEAR_MAX 的整数、第几格不是 0–YEAR_TICKS−1 的整数 = 没有这一项;
+ * 命令按 cleanIntervention 清理,晚于进度、比前一条早的丢掉)。
  * 没在逐年推演的不写,不写时一切和没有这一项一样。
  *
  * WorldEdits.playFrom(可选,只跟着 play 走;没有 = 0):这次逐年推演从第几年起(gen/stepwise.ts 的 startStepwise 定;
  * 界面上写"从第几年起",时间轴、往回看用)。只是记下来,不参与推演(不进配方指纹)。读进来的先过 cleanPlayFrom
- * (整数、夹到 [0, play.year];没有 play = 不要这一项);0 不写。
+ * (整数、夹到 [0, play.year];没有 play = 不要这一项);0 不写。只记到年:从年中倒回重新演绎时记那一刻所在的年。
  *
  * ## 支线
  *
@@ -350,7 +360,7 @@
  * |------|----------------------------------------|----------------------------------------------|
  * | id   | 当前这一支的编号                       | 1–BRANCH_ID_MAX 的整数                       |
  * | name | 当前这一支的名字(可选)               | 同下面一支的 name                            |
- * | forkOf, forkAt | 当前这一支从哪一支、第几年分出(可选) | 同下面一支的 forkOf、forkAt(forkAt 不晚于 play.year) |
+ * | forkOf, forkAt, forkTick | 当前这一支从哪一支、哪一刻分出(可选) | 同下面一支的 forkOf、forkAt、forkTick(不晚于进度) |
  * | list | 不在用的几支(PlayBranch,见下)       | 数组                                         |
  *
  * list 里的一支(PlayBranch):
@@ -359,19 +369,20 @@
  * |----------|----------------------------------------------------------------------|---------------------------------------------------------|
  * | id       | 编号:几支(连当前这一支)各不相同;另开一支取最大的加一,界面按它排先后、认是哪一支 | 1–BRANCH_ID_MAX 的整数                  |
  * | name     | 名字(可选;没有 = 界面自己写)                                      | 去掉控制字符和首尾空白,最多 BRANCH_NAME_MAX 个字       |
- * | from     | 从第几年起和当前这一支不一样:第 from 年以前下过的命令就是当前这一支命令串里早于这一年的那几条(不另记) | 0–当前这一支的 play.year 的整数 |
- * | year     | 走到第几年年初(同 play.year)                                       | from–INTERVENTION_YEAR_MAX 的整数                       |
- * | commands | 第 from 年和以后下过的命令(格式同 play.commands)                    | from 只增不减、都在 [from, year] 里                      |
+ * | from, fromTick | 从哪一刻(第几年、第几格,见"时刻";fromTick 没有 = 年初)起和当前这一支不一样:这一刻以前下过的命令就是当前这一支命令串里早于这一刻的那几条(不另记) | 不晚于当前这一支的进度 |
+ * | year, tick | 走到哪一刻(同 play.year、play.tick)                               | 不早于 from 那一刻;year 是 0–INTERVENTION_YEAR_MAX 的整数 |
+ * | commands | from 那一刻和以后下过的命令(格式同 play.commands)                  | 时刻只增不减、都在 [from, year] 两刻之间                 |
  * | playFrom | 这一支从第几年起演绎(同 WorldEdits.playFrom)                       | 取整、夹到 [0, year];0 不写                             |
  * | last     | 切走时这一支的最后一件大事(可选,只用来在列表里显示)              | 同 name,最多 BRANCH_NOTE_MAX 个字                      |
- * | forkAt   | 第几年分出来的(可选,只用来在列表里显示"第几年从哪一支分出";最早的那一支没有) | 0–year 的整数                       |
+ * | forkAt, forkTick | 哪一刻分出来的(可选,只用来在列表里显示"第几年从哪一支分出";最早的那一支没有;forkTick 没有 = 年初) | 不晚于 year、tick 那一刻 |
  * | forkOf   | 从哪一支分出来的编号(可选,有 forkAt 才有;那一支删掉了也照记)     | 1–BRANCH_ID_MAX 的整数                                  |
  *
- * 一支完整的进度 = { year, commands: 当前这一支命令串里早于 from 的几条 + commands }(gen/stepwise.ts 的 branchPlay)。
- * from 不晚于当前这一支走到的那年,所以当前这一支往下走、在"现在"下的命令(from = play.year ≥ 那一支的 from)不会混进别的几支;
+ * 年内第几格(fromTick、tick、forkTick)是 0 的不写,不是 0–YEAR_TICKS−1 的整数 = 那一支不合格(forkTick 不合格只去掉 forkAt、forkTick)。
+ * 一支完整的进度 = { year, tick, commands: 当前这一支命令串里早于 from 那一刻的几条 + commands }(gen/stepwise.ts 的 branchPlay)。
+ * from 不晚于当前这一支走到的那一刻,所以当前这一支往下走、在"现在"下的命令(不早于那一支的 from)不会混进别的几支;
  * 当前这一支的过去变了(从这一年重新演绎、切到别的一支)时,别的几支跟着换记法(from 往前挪、命令补上),完整的进度不变。
  * 读进来的先过 cleanBranches:没有 play = 不要这一项;编号不合格、重复的换一个新编号;year、from 不合格的那一支去掉,命令按 cleanPlay 的规矩清理;
- * from 晚于当前这一支走到的那年的,改记成从那一年起(完整的进度不变);forkAt、forkOf 不合格的去掉(不影响别的)。
+ * from 晚于当前这一支走到的那一刻的,改记成从那一刻起(完整的进度不变);forkAt、forkOf 不合格的去掉(不影响别的)。
  * list 是空的、当前这一支没起名、没记从哪分出、编号是 1 时不写。
  * 存回推演模式只存当前这一支(stepwiseToNormal 去掉这一项);只认识 play 的版本读这样的存档,看到的就是当前这一支。
  *
@@ -722,7 +733,7 @@ export type Intervention = (
       unrest?: number;
       look?: GuideLook;
     }
-) & { plot?: number; guide?: true };
+) & { plot?: number; guide?: true; fromTick?: number };
 
 /** 顺着引的方针替这国多看几眼的那一种:war 看邻国(开战)、politics 看内政(大崩解、分裂)、dynasty 看王朝 */
 export const GUIDE_LOOKS = ['war', 'politics', 'dynasty'] as const;
@@ -848,6 +859,8 @@ export interface PlayBranches {
   forkOf?: number;
   /** 当前这一支第几年分出来的;没有 = 最早的那一支 */
   forkAt?: number;
+  /** 分出来的那一刻在 forkAt 那一年的第几格;没有 = 年初 */
+  forkTick?: number;
   /** 不在用的几支 */
   list: PlayBranch[];
 }
@@ -858,11 +871,15 @@ export interface PlayBranch {
   id: number;
   /** 名字;没有 = 没起名 */
   name?: string;
-  /** 从第几年起和当前这一支不一样(这一年以前的命令和当前这一支一样,不另记) */
+  /** 从第几年起和当前这一支不一样(这一刻以前的命令和当前这一支一样,不另记) */
   from: number;
-  /** 走到第几年年初 */
+  /** 那一刻在 from 那一年的第几格;没有 = 年初 */
+  fromTick?: number;
+  /** 走到第几年 */
   year: number;
-  /** 第 from 年和以后下过的命令 */
+  /** 走到那一年的第几格;没有 = 年初 */
+  tick?: number;
+  /** from 那一刻和以后下过的命令 */
   commands: Intervention[];
   /** 这一支从第几年起演绎;没有 = 0 */
   playFrom?: number;
@@ -872,6 +889,8 @@ export interface PlayBranch {
   forkOf?: number;
   /** 第几年分出来的;没有 = 最早的那一支 */
   forkAt?: number;
+  /** 分出来的那一刻在 forkAt 那一年的第几格;没有 = 年初 */
+  forkTick?: number;
 }
 
 /** 推进设置(存进修改的样子:默认的项不写;字段见文件头"推进设置") */
@@ -896,11 +915,34 @@ export interface Advance {
 
 /** 逐年推演的进度(见文件头"逐年推演的进度") */
 export interface PlayState {
-  /** 推到第几年年初(正整数):这一年以前的事都推完了,这一年的事一件还没发生 */
+  /** 推到第几年(0 和正整数) */
   year: number;
-  /** 一路下过的命令(格式同干预;先后 = 序号,from 只增不减、不晚于 year) */
+  /** 推到那一年的第几格(1–YEAR_TICKS−1;没有 = 年初):这一刻以前的事都推完了,这一刻的事一件还没发生 */
+  tick?: number;
+  /** 一路下过的命令(格式同干预;先后 = 序号,时刻只增不减、不晚于进度) */
   commands: Intervention[];
 }
+
+/** 一年分几格(见文件头"时刻"):和推演的最小一步一样细(civ/sim.ts,1/256 年) */
+export const YEAR_TICKS = 256;
+
+/** 一个时刻:第 year 年的第 tick 格(0 = 年初,最多 YEAR_TICKS − 1) */
+export interface Moment {
+  year: number;
+  tick: number;
+}
+
+/** 时刻折成从第 0 年年初数起的第几格(整数;比先后用) */
+export const ticksAt = (year: number, tick = 0): number => year * YEAR_TICKS + tick;
+/** 第几格(ticksAt 的结果,不是负数)→ 时刻 */
+export const momentAt = (n: number): Moment => ({ year: Math.floor(n / YEAR_TICKS), tick: n % YEAR_TICKS });
+/** 进度停在哪一刻(第几格) */
+export const playAt = (p: Pick<PlayState, 'year' | 'tick'>): number => ticksAt(p.year, p.tick ?? 0);
+/** 一条命令(干预)在哪一刻生效(第几格) */
+export const commandAt = (v: Pick<Intervention, 'from' | 'fromTick'>): number => ticksAt(v.from, v.fromTick ?? 0);
+/** 年内第几格的清理:不给 = 0;0–YEAR_TICKS−1 的整数原样返回;别的 = null(不合格) */
+export const cleanTick = (v: unknown): number | null =>
+  v === undefined ? 0 : typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < YEAR_TICKS ? v : null;
 
 /**
  * 推演年数:默认(新建世界时最少也是它)、最多、新建世界时选年数的一格(见文件头"推演年数";推完以后再推的年数不限整千年);
@@ -1991,6 +2033,9 @@ export function cleanIntervention(x: unknown): Intervention | null {
   }
   // 照大纲硬改出来的:记着哪一条情节(编号不合格 = 当作者自己下的);顺着引的方针多记 guide
   if (isPlotId(o.plot)) v = o.guide === true && v.kind === 'policy' ? { ...v, ...guideKnobs(o, v.from), plot: o.plot, guide: true } : { ...v, plot: o.plot };
+  // 年中的时刻(见文件头"时刻"):1–YEAR_TICKS−1 的整数才记,别的当年初
+  const ft = cleanTick(o.fromTick);
+  if (ft) v = { ...v, fromTick: ft };
   const keys = Object.keys(o);
   const w = v as Record<string, unknown>;
   const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);
@@ -2004,38 +2049,46 @@ export function sameInterventions(a: readonly Intervention[], b: readonly Interv
   return a.every((x, i) => JSON.stringify(x) === JSON.stringify(b[i]));
 }
 
+/** 进度的样子(第几格是 0 的不写;字段的先后照这里) */
+export const playState = (year: number, tick: number, commands: Intervention[]): PlayState => (tick ? { year, tick, commands } : { year, commands });
+
 /**
- * 逐年推演的进度清理(读档、推演前用;见文件头"逐年推演的进度"):年份不是 0–INTERVENTION_YEAR_MAX 的整数 = undefined(没在逐年推演);
- * 命令逐条过 cleanIntervention,不合格的、晚于 year 的、比前一条早的丢掉。全都合格时返回原对象
+ * 逐年推演的进度清理(读档、推演前用;见文件头"逐年推演的进度"):年份不是 0–INTERVENTION_YEAR_MAX 的整数、
+ * 第几格不是 0–YEAR_TICKS−1 的整数 = undefined(没在逐年推演;不悄悄当成年初);第几格是 0 的去掉。
+ * 命令逐条过 cleanIntervention,不合格的、晚于进度的、比前一条早的丢掉。全都合格时返回原对象
  */
 export function cleanPlay(raw: unknown): PlayState | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const o = raw as Record<string, unknown>;
   const year = o.year;
   if (typeof year !== 'number' || !Number.isInteger(year) || year < 0 || year > INTERVENTION_YEAR_MAX) return undefined;
+  const tick = cleanTick(o.tick);
+  if (tick === null) return undefined;
+  const now = ticksAt(year, tick);
   const commands: Intervention[] = [];
-  let same = Array.isArray(o.commands) && Object.keys(o).length === 2;
+  let same = Array.isArray(o.commands) && Object.keys(o).length === (tick ? 3 : 2);
   for (const x of Array.isArray(o.commands) ? (o.commands as unknown[]) : []) {
     const v = cleanIntervention(x);
-    if (v && v.from <= year && (!commands.length || v.from >= commands[commands.length - 1].from)) commands.push(v);
+    if (v && commandAt(v) <= now && (!commands.length || commandAt(v) >= commandAt(commands[commands.length - 1]))) commands.push(v);
     if (v !== x || commands[commands.length - 1] !== v) same = false;
   }
-  return same ? (raw as PlayState) : { year, commands };
+  return same ? (raw as PlayState) : playState(year, tick, commands);
 }
 
 /**
- * 在逐年推演的进度的"现在"(play.year 年初)下几条命令:清理过、from 正是 play.year 的收下,接在命令串后面;
- * 早于现在的(过去的事改不了)、晚于现在的、格式不对的不收(rejected,原样交回),不影响推演。返回新的进度(原来的不改)
+ * 在逐年推演的进度的"现在"(play 那一刻)下几条命令:清理过、时刻正是这一刻(from = play.year、fromTick = play.tick)的收下,
+ * 接在命令串后面;早于现在的(过去的事改不了)、晚于现在的、格式不对的不收(rejected,原样交回),不影响推演。返回新的进度(原来的不改)
  */
 export function issueCommands(play: PlayState, commands: readonly unknown[]): { play: PlayState; accepted: Intervention[]; rejected: unknown[] } {
   const accepted: Intervention[] = [];
   const rejected: unknown[] = [];
+  const now = playAt(play);
   for (const x of commands) {
     const v = cleanIntervention(x);
-    if (v && v.from === play.year) accepted.push(v);
+    if (v && commandAt(v) === now) accepted.push(v);
     else rejected.push(x);
   }
-  return { play: { year: play.year, commands: [...play.commands, ...accepted] }, accepted, rejected };
+  return { play: playState(play.year, play.tick ?? 0, [...play.commands, ...accepted]), accepted, rejected };
 }
 
 /** 推演用的干预列表:作者的干预后面接上逐年推演时下过的命令(没在逐年推演 = 作者的干预本身) */
@@ -2079,26 +2132,61 @@ export const cleanBranchName = (raw: unknown): string => cleanBranchText(raw, BR
 /** 支线切走时记下的最后一件大事清理:空 = 没记 */
 export const cleanBranchNote = (raw: unknown): string => cleanBranchText(raw, BRANCH_NOTE_MAX);
 
+/** 一支从哪一刻起和当前这一支不一样(第几格) */
+export const branchFromAt = (b: Pick<PlayBranch, 'from' | 'fromTick'>): number => ticksAt(b.from, b.fromTick ?? 0);
+/** 一支走到哪一刻(第几格) */
+export const branchAt = (b: Pick<PlayBranch, 'year' | 'tick'>): number => ticksAt(b.year, b.tick ?? 0);
+/** 一支(或当前这一支)哪一刻分出来的(第几格);没记 = undefined */
+export const forkedAt = (b: Pick<PlayBranch, 'forkAt' | 'forkTick'>): number | undefined =>
+  b.forkAt === undefined ? undefined : ticksAt(b.forkAt, b.forkTick ?? 0);
+
+/** 一支从哪一刻起(第几格 → from、fromTick;第几格是 0 的不写) */
+export function branchFrom(at: number): Pick<PlayBranch, 'from' | 'fromTick'> {
+  const m = momentAt(at);
+  return m.tick ? { from: m.year, fromTick: m.tick } : { from: m.year };
+}
+
+/** 一支走到哪一刻(第几格 → year、tick;第几格是 0 的不写) */
+export function branchEnd(at: number): Pick<PlayBranch, 'year' | 'tick'> {
+  const m = momentAt(at);
+  return m.tick ? { year: m.year, tick: m.tick } : { year: m.year };
+}
+
+/** 哪一刻分出来的(第几格 → forkAt、forkTick;第几格是 0 的不写) */
+export function forkMoment(at: number): Pick<PlayBranch, 'forkAt' | 'forkTick'> {
+  const m = momentAt(at);
+  return m.tick ? { forkAt: m.year, forkTick: m.tick } : { forkAt: m.year };
+}
+
 /**
- * 不在用的一支的清理(cur = 清理过的当前这一支的进度):year、from 不是合格的整数(from 晚于 year 也算)= null;
- * 命令照 cleanPlay 的规矩、只收 [from, year] 里的;from 晚于 cur.year 的改记成从 cur.year 起。编号不合格 = 0(由 cleanBranches 换新的)
+ * 不在用的一支的清理(cur = 清理过的当前这一支的进度):year、from 不是合格的整数,第几格不合格,from 晚于走到的那一刻 = null;
+ * 命令照 cleanPlay 的规矩、只收两刻之间的;from 晚于当前这一支的进度的改记成从那一刻起。编号不合格 = 0(由 cleanBranches 换新的)。
+ * 字段的先后:id、name、from、fromTick、year、tick、commands、playFrom、last、forkOf、forkAt、forkTick
  */
 function cleanBranch(x: unknown, cur: PlayState): PlayBranch | null {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
   const o = x as Record<string, unknown>;
   const { year, from } = o;
   if (typeof year !== 'number' || !Number.isInteger(year) || year < 0 || year > INTERVENTION_YEAR_MAX) return null;
-  if (typeof from !== 'number' || !Number.isInteger(from) || from < 0 || from > year) return null;
+  if (typeof from !== 'number' || !Number.isInteger(from) || from < 0) return null;
+  const tick = cleanTick(o.tick);
+  const fromTick = cleanTick(o.fromTick);
+  if (tick === null || fromTick === null) return null;
+  const end = ticksAt(year, tick);
+  const start = ticksAt(from, fromTick);
+  if (start > end) return null;
   let commands: Intervention[] = [];
   for (const c of Array.isArray(o.commands) ? (o.commands as unknown[]) : []) {
     const v = cleanIntervention(c);
-    if (v && v.from >= from && v.from <= year && (!commands.length || v.from >= commands[commands.length - 1].from)) commands.push(v);
+    const t = v ? commandAt(v) : -1;
+    if (v && t >= start && t <= end && (!commands.length || t >= commandAt(commands[commands.length - 1]))) commands.push(v);
   }
-  // 晚于当前这一支走到的那年:完整的进度 = 当前这一支的命令全都在前面(都早于 from),改记成从 cur.year 起,补上当前这一支在那一年下的
-  let at = from;
-  if (from > cur.year) {
-    at = cur.year;
-    commands = [...cur.commands.filter((v) => v.from >= at), ...commands];
+  // 晚于当前这一支走到的那一刻:完整的进度 = 当前这一支的命令全都在前面(都早于 from),改记成从那一刻起,补上当前这一支在那一刻下的
+  let at = start;
+  const now = playAt(cur);
+  if (start > now) {
+    at = now;
+    commands = [...cur.commands.filter((v) => commandAt(v) >= at), ...commands];
   }
   const name = cleanBranchName(o.name);
   const last = cleanBranchNote(o.last);
@@ -2106,25 +2194,30 @@ function cleanBranch(x: unknown, cur: PlayState): PlayBranch | null {
   return {
     id: isBranchId(o.id) ? o.id : 0,
     ...(name ? { name } : {}),
-    from: at,
-    year,
+    ...branchFrom(at),
+    ...branchEnd(end),
     commands,
     ...(pf > 0 ? { playFrom: pf } : {}),
     ...(last ? { last } : {}),
-    ...cleanFork(o, year),
+    ...cleanFork(o, end),
   };
 }
 
-/** 从哪一支、第几年分出(见文件头"支线"):forkAt 是 [0, year] 里的整数才要;forkOf 是合格的编号、又有 forkAt 才要 */
-function cleanFork(o: Record<string, unknown>, year: number): Pick<PlayBranch, 'forkOf' | 'forkAt'> {
+/**
+ * 从哪一支、哪一刻分出(见文件头"支线"):forkAt 是整数、forkTick 合格(没有 = 年初)、那一刻不晚于 end(第几格)才要;
+ * forkOf 是合格的编号、又有 forkAt 才要
+ */
+function cleanFork(o: Record<string, unknown>, end: number): Pick<PlayBranch, 'forkOf' | 'forkAt' | 'forkTick'> {
   const at = o.forkAt;
-  if (typeof at !== 'number' || !Number.isInteger(at) || at < 0 || at > year) return {};
-  return { ...(isBranchId(o.forkOf) ? { forkOf: o.forkOf } : {}), forkAt: at };
+  const tick = cleanTick(o.forkTick);
+  if (typeof at !== 'number' || !Number.isInteger(at) || at < 0 || tick === null || ticksAt(at, tick) > end) return {};
+  return { ...(isBranchId(o.forkOf) ? { forkOf: o.forkOf } : {}), ...forkMoment(ticksAt(at, tick)) };
 }
 
-/** 一支完整的进度(见文件头"支线"):当前这一支(cur)命令串里早于 from 的几条 + 这一支自己的 */
-export function branchPlay(cur: PlayState, b: Pick<PlayBranch, 'from' | 'year' | 'commands'>): PlayState {
-  return { year: b.year, commands: [...cur.commands.filter((v) => v.from < b.from), ...b.commands] };
+/** 一支完整的进度(见文件头"支线"):当前这一支(cur)命令串里早于 from 那一刻的几条 + 这一支自己的 */
+export function branchPlay(cur: PlayState, b: Pick<PlayBranch, 'from' | 'fromTick' | 'year' | 'tick' | 'commands'>): PlayState {
+  const from = branchFromAt(b);
+  return playState(b.year, b.tick ?? 0, [...cur.commands.filter((v) => commandAt(v) < from), ...b.commands]);
 }
 
 /**
@@ -2150,7 +2243,7 @@ export function cleanBranches(raw: unknown, play: unknown): PlayBranches | undef
     else if (top < BRANCH_ID_MAX) used.add((b.id = ++top));
     else b.id = 0;
   }
-  const fork = cleanFork(o, cur.year);
+  const fork = cleanFork(o, playAt(cur));
   const out: PlayBranches = { id, ...(name ? { name } : {}), ...fork, list: list.filter((b) => b.id) };
   if (!out.list.length && !name && fork.forkAt === undefined && id === 1) return undefined;
   return JSON.stringify(out) === JSON.stringify(raw) ? (raw as PlayBranches) : out;
