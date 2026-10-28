@@ -116,6 +116,35 @@ const downTitle = (list: RelNode[]) => (list.every((n) => n.word === '子' || n.
 const LEFT_K: Cluster[] = ['inlaw', 'author', 'other', 'story'];
 const RIGHT_K: Cluster[] = ['court', 'friend', 'rival'];
 
+/** 父母(推演人物的"父""养父";作者人物写的"父亲""母亲""养母"……) */
+export const isParent = (n: RelNode) => !n.dim && /^(养?父|[生养义]?父亲|[生养义]?母亲?|[生养义][父母])$/.test(n.word);
+
+/**
+ * 上一辈那一排:父母在正中(父亲 dx = 0、母亲在他右边),别的长辈按生年分到两边(比父亲年长的在左);
+ * 最多 cap 格,父母一定画出来,放不下的最后一格"还有 N 位"(cells 里 n = null 的那格)
+ */
+export function upRow(ups: readonly RelNode[], cap: number): { cells: { n: RelNode | null; dx: number }[]; more: number; all: RelNode[] } {
+  const parents = ups.filter(isParent).sort((a, b) => Number(/母/.test(a.word)) - Number(/母/.test(b.word)) || a.born - b.born);
+  const rest = capped(
+    ups.filter((n) => !isParent(n)),
+    Math.max(1, cap - parents.length),
+    byBorn,
+  );
+  const all = [...ups].sort((a, b) => Number(a.dim) - Number(b.dim) || a.born - b.born);
+  if (!parents.length) {
+    const n = rest.shown.length + (rest.more ? 1 : 0);
+    const cells = [...rest.shown, ...(rest.more ? [null] : [])].map((c, i) => ({ n: c, dx: i - (n - 1) / 2 }));
+    return { cells, more: rest.more, all };
+  }
+  const cells: { n: RelNode | null; dx: number }[] = parents.map((n, i) => ({ n, dx: i }));
+  const pBorn = parents[0].born;
+  let l = 0;
+  let r = parents.length - 1;
+  for (const n of rest.shown) cells.push(!n.dim && n.born < pBorn ? { n, dx: -++l } : { n, dx: ++r });
+  if (rest.more) cells.push({ n: null, dx: ++r });
+  return { cells, more: rest.more, all };
+}
+
 interface Group {
   via: LNode;
   kids: RelNode[];
@@ -250,14 +279,13 @@ export function deskLayout(g: RelGraph, W: number, H: number, cardW: number): La
   };
 
   // ---- 中心
-  // ---- 上一辈
-  const upC = capped(ups, 3, byBorn);
-  const upCells = upC.shown.length + (upC.more ? 1 : 0);
-  upC.shown.forEach((n, i) => {
-    const x = cx + (i - (upCells - 1) / 2) * 112;
-    put(n, x, yUp, `M${cx} ${cardTop}V${yBar}H${x}V${yUp + 70}`, x < cx ? -1 : 1);
-  });
-  if (upC.more) mores.push({ k: 'more-up', x: cx + (upCells - 1 - (upCells - 1) / 2) * 112, y: yUp, size: 48, count: upC.more, label: `还有 ${upC.more} 位`, title: '父辈', list: [...upC.all].sort(byBorn) });
+  // ---- 上一辈:父亲(母亲)在他正上方,家谱线只从父母连下来;别的长辈(叔伯……)按生年分到两边
+  const up = upRow(ups, 3);
+  for (const c of up.cells) {
+    const x = cx + c.dx * 112;
+    if (c.n) put(c.n, x, yUp, `M${cx} ${cardTop}V${yBar}H${x}V${yUp + 70}`, x < cx ? -1 : 1);
+    else mores.push({ k: 'more-up', x, y: yUp, size: 48, count: up.more, label: `还有 ${up.more} 位`, title: '父辈', list: up.all });
+  }
   // 再上一辈(多看一层):父辈上面(祖父在父亲正上方,别的往右排)
   const upGroups = groupBy(up2, pos).filter((g) => g.via.y === yUp);
   placeRow(upGroups, (g, i) => g.via.x + i * 100, 100, limits(yUp2 - 30, yUp2 + 64)).forEach(({ g, n, x, i }) => {
@@ -302,10 +330,10 @@ export function deskLayout(g: RelGraph, W: number, H: number, cardW: number): La
     }
   }
   // 家谱线:父 → 横杠 → 兄弟和他
-  if (upCells || xs.length) {
-    const fx = upC.shown.length ? pos.get(upC.shown[Math.floor((upC.shown.length - 1) / 2)].k)!.x : cx;
-    if (upC.shown.length) edges.push({ d: `M${fx} ${yUp + 70}V${yBar}`, kind: 'blood' });
-    const all = [cx, fx, ...xs.map((p) => p[0])];
+  const parentXs = up.cells.filter((c) => c.n && isParent(c.n)).map((c) => cx + c.dx * 112);
+  if (parentXs.length || xs.length) {
+    for (const x of parentXs) edges.push({ d: `M${x} ${yUp + 70}V${yBar}`, kind: 'blood' });
+    const all = [cx, ...parentXs, ...xs.map((p) => p[0])];
     const lo = Math.min(...all);
     const hi = Math.max(...all);
     if (hi > lo) edges.push({ d: `M${lo} ${yBar}H${hi}`, kind: 'blood' });
@@ -417,9 +445,9 @@ const STRIP_K: Cluster[] = ['inlaw', 'court', 'rival', 'author', 'friend', 'othe
 export function stackLayout(g: RelGraph, W: number, top: number): StackLayout {
   const S = (slot: RelNode['slot'] | Cluster) => g.nodes.filter((n) => n.slot === slot);
   const cx = Math.round(W / 2);
-  const ups = capped([...S('up'), ...S('up2')], 2, byBorn);
+  const up = upRow([...S('up'), ...S('up2')], 2);
   const sames = S('same');
-  const spine = ups.all.length + sames.length > 0;
+  const spine = up.all.length + sames.length > 0;
   const yUp = 62 + top;
   const yBar = 124 + top;
   const ySame = 168 + top;
@@ -432,9 +460,13 @@ export function stackLayout(g: RelGraph, W: number, top: number): StackLayout {
   const mores: LMore[] = [];
   const edges: LEdge[] = [];
   const put = (n: RelNode, x: number, y: number, hover: string) => nodes.push({ n, x, y, size: 44, hover, side: x < cx ? -1 : 1 });
-  const nu = ups.shown.length + (ups.more ? 1 : 0);
-  ups.shown.forEach((n, i) => put(n, cx + (i - (nu - 1) / 2) * 90, yUp, ''));
-  if (ups.more) mores.push({ k: 'more-up', x: cx + (nu - 1 - (nu - 1) / 2) * 90, y: yUp, size: 44, count: ups.more, label: `还有 ${ups.more} 位`, title: '父辈', list: [...ups.all].sort(byBorn) });
+  // 父母在正中,别的长辈在两边(手机上最多 2 格)
+  for (const c of up.cells) {
+    const x = cx + c.dx * 90;
+    if (c.n) put(c.n, x, yUp, '');
+    else mores.push({ k: 'more-up', x, y: yUp, size: 44, count: up.more, label: `还有 ${up.more} 位`, title: '父辈', list: up.all });
+  }
+  const parentXs = up.cells.filter((c) => c.n && isParent(c.n)).map((c) => cx + c.dx * 90);
   const xs: number[] = [];
   for (const [list, side, title, order] of [
     [sames.filter((n) => isElder(n.word)), -1, '兄长', bornDesc],
@@ -454,10 +486,10 @@ export function stackLayout(g: RelGraph, W: number, top: number): StackLayout {
       xs.push(x);
     }
   }
-  if (nu || xs.length) {
-    if (nu) edges.push({ d: `M${cx} ${yUp + 64}V${yBar}`, kind: 'blood' });
-    const lo = Math.min(cx, ...xs);
-    const hi = Math.max(cx, ...xs);
+  if (parentXs.length || xs.length) {
+    for (const x of parentXs) edges.push({ d: `M${x} ${yUp + 64}V${yBar}`, kind: 'blood' });
+    const lo = Math.min(cx, ...parentXs, ...xs);
+    const hi = Math.max(cx, ...parentXs, ...xs);
     if (hi > lo) edges.push({ d: `M${lo} ${yBar}H${hi}`, kind: 'blood' });
     for (const x of xs) edges.push({ d: `M${x} ${yBar}V${ySame - 26}`, kind: 'blood' });
     edges.push({ d: `M${cx} ${yBar}V${cy - half - 4}`, kind: 'blood' });

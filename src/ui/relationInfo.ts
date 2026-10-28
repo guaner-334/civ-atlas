@@ -216,8 +216,11 @@ export function warmRelations(civ: Civ) {
   reverseIndex(civ);
 }
 
-/** 一个推演人物的全部关系("他"指 x) */
-export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
+/**
+ * 一个推演人物的全部关系。说明里指 x 的地方写 him(关系图里换成中心那位的名字;不给 = "他");
+ * 名字下面的红字(tag)照旧写"他"
+ */
+export function personTies(civ: Civ, x: Person, era?: Era | null, him = '他'): Tie[] {
   const out = new Map<number, Tie>();
   const P = civ.people ?? [];
   const ix = peopleIndex(civ);
@@ -241,9 +244,9 @@ export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
   };
   // 血亲:父、子、同父的兄弟
   const f = fatherOf(civ, x);
-  if (f) add(f.id, 'blood', x.adopted ? '养父' : '父', x.adopted ? '他的养父' : '他的父亲', false, 0);
-  for (const k of kidsOf(civ, x)) add(k.id, 'blood', k.adopted ? '养子' : '子', `他的${k.adopted ? '养子' : '儿子'}${k.role === 'prince' ? '，未即位' : ''}`, false, 3);
-  if (f) for (const s of kidsOf(civ, f)) if (s.id !== x.id) add(s.id, 'blood', s.born < x.born ? '兄' : '弟', s.born < x.born ? '他的兄长' : '他的弟弟', false, 1);
+  if (f) add(f.id, 'blood', x.adopted ? '养父' : '父', x.adopted ? `${him}的养父` : `${him}的父亲`, false, 0);
+  for (const k of kidsOf(civ, x)) add(k.id, 'blood', k.adopted ? '养子' : '子', `${him}的${k.adopted ? '养子' : '儿子'}${k.role === 'prince' ? '，未即位' : ''}`, false, 3);
+  if (f) for (const s of kidsOf(civ, f)) if (s.id !== x.id) add(s.id, 'blood', s.born < x.born ? '兄' : '弟', s.born < x.born ? `${him}的兄长` : `${him}的弟弟`, false, 1);
   // 前任、继任
   if (x.role === 'ruler') {
     const rs = ix.rulers[x.polity] ?? [];
@@ -256,14 +259,14 @@ export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
     ] as const) {
       if (!o) continue;
       const kin = kinOf(civ, x, o);
-      const t = w === '前任' ? '他继其位' : '继他即位';
+      const t = w === '前任' ? `${him}继其位` : `继${him}即位`;
       if (kin) add(o.id, 'blood', kin, t);
       else add(o.id, 'court', w, isConsul(civ, x) ? t : (o.dynasty ?? 0) !== (x.dynasty ?? 0) ? `${t}（${w === '前任' ? '前朝' : '新朝'}）` : t);
     }
   }
   // 姻亲
-  if (x.mother) add(x.mother.father, 'inlaw', '外祖父', `其女${brideName(civ, x.mother)}是他的母亲`);
-  for (const s of x.spouses ?? []) add(s.father, 'inlaw', '岳父', `他${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
+  if (x.mother) add(x.mother.father, 'inlaw', '外祖父', `其女${brideName(civ, x.mother)}是${him}的母亲`);
+  for (const s of x.spouses ?? []) add(s.father, 'inlaw', '岳父', `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
   // 女婿、外孙(按人物编号的先后,和一个个看过去一样)
   const wed = rev.wed.get(x.id) ?? [];
   const grand = rev.grand.get(x.id) ?? [];
@@ -271,13 +274,14 @@ export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
     const o = i < wed.length && (j >= grand.length || wed[i][0].id <= grand[j].id) ? wed[i][0] : grand[j];
     while (i < wed.length && wed[i][0] === o) {
       const s = wed[i++][1];
-      add(o.id, 'inlaw', '女婿', `${yearAt(s.year, era)}娶他的女儿${brideName(civ, s)}`, false, s.year);
+      add(o.id, 'inlaw', '女婿', `${yearAt(s.year, era)}娶${him}的女儿${brideName(civ, s)}`, false, s.year);
     }
-    if (j < grand.length && grand[j] === o) add(o.id, 'inlaw', '外孙', `他的女儿${brideName(civ, grand[j++].mother!)}所生`);
+    if (j < grand.length && grand[j] === o) add(o.id, 'inlaw', '外孙', `${him}的女儿${brideName(civ, grand[j++].mother!)}所生`);
   }
   // 争储、杀他、掌实权、放逐(对方是亲属的仍算血亲)
   if (x.claim) {
-    const [why, tag] = BEAT[x.claim.how];
+    const [w0, tag] = BEAT[x.claim.how];
+    const why = w0.replace(/他/g, him);
     for (const r of x.claim.rivals) {
       const o = P[r];
       if (!o) continue;
@@ -288,34 +292,35 @@ export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
   for (const o of rev.lost.get(x.id) ?? []) {
     if (!o.claim) continue;
     const kin = kinOf(civ, x, o);
-    const [why, tag] = LOST[o.claim.how];
+    const [w0, tag] = LOST[o.claim.how];
+    const why = w0.replace(/他/g, him);
     add(o.id, kin ? 'blood' : 'rival', kin || '争储', why, true, 2, tag);
   }
   if (x.rival !== undefined && !out.get(x.rival)?.tag) {
     const o = P[x.rival];
     const kin = o ? kinOf(civ, x, o) : '';
-    add(x.rival, kin ? 'blood' : 'rival', kin || '对手', '杀他', true, 2, '杀他');
+    add(x.rival, kin ? 'blood' : 'rival', kin || '对手', `杀${him}`, true, 2, '杀他');
   }
   for (const h of heldOver(civ, x)) {
     const kin = kinOf(civ, x, h.x);
-    add(h.x.id, kin ? 'blood' : h.x.role === 'minister' || h.x.role === 'general' ? 'court' : 'rival', kin || '权臣', `${span(h.g.from, h.g.until)}架空他、掌实权`, true, 2, '架空他');
+    add(h.x.id, kin ? 'blood' : h.x.role === 'minister' || h.x.role === 'general' ? 'court' : 'rival', kin || '权臣', `${span(h.g.from, h.g.until)}架空${him}、掌实权`, true, 2, '架空他');
   }
   for (const g of x.regencies ?? []) {
     const o = P[g.ruler];
     if (!o) continue;
     const kin = kinOf(civ, x, o);
-    add(o.id, kin ? 'blood' : 'court', kin || '君主', `${span(g.from, g.until)}在位时被他架空`, true, 2, '被他架空');
+    add(o.id, kin ? 'blood' : 'court', kin || '君主', `${span(g.from, g.until)}在位时被${him}架空`, true, 2, '被他架空');
   }
   if (x.exile?.by !== undefined) {
     const o = P[x.exile.by];
     if (o) {
       const kin = kinOf(civ, x, o);
-      add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(x.exile.year, era)}徙他`, true, 2, '徙他');
+      add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(x.exile.year, era)}徙${him}`, true, 2, '徙他');
     }
   }
   for (const o of rev.exiled.get(x.id) ?? []) {
     const kin = kinOf(civ, x, o);
-    add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(o.exile!.year, era)}被他所徙`, true, 2, '被他所徙');
+    add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(o.exile!.year, era)}被${him}所徙`, true, 2, '被他所徙');
   }
   // 君臣
   if (x.role === 'ruler') {
@@ -323,11 +328,11 @@ export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
     const until = x.until ?? civ.endYear;
     for (const g of ix.generals[x.polity] ?? []) {
       const cs = (g.commands ?? []).filter((c) => c.until > from && c.from < until);
-      if (cs.length) add(g.id, 'court', g.role === 'prince' ? '宗室' : '将领', `替他领兵（${span(cs[0].from, cs[cs.length - 1].until)}）`, false, cs[0].from);
+      if (cs.length) add(g.id, 'court', g.role === 'prince' ? '宗室' : '将领', `替${him}领兵（${span(cs[0].from, cs[cs.length - 1].until)}）`, false, cs[0].from);
     }
     for (const m of ix.ministers[x.polity] ?? []) {
       const mf = m.from ?? m.born;
-      if (mf < until && (m.until ?? Infinity) > from) add(m.id, 'court', '名臣', `他在位时任${m.posts?.[m.posts.length - 1]?.title ?? '大臣'}（${span(mf, m.until)}在朝）`, false, mf);
+      if (mf < until && (m.until ?? Infinity) > from) add(m.id, 'court', '名臣', `${him}在位时任${m.posts?.[m.posts.length - 1]?.title ?? '大臣'}（${span(mf, m.until)}在朝）`, false, mf);
     }
   } else {
     const cs = x.commands ?? [];
@@ -340,7 +345,7 @@ export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
         const hit = x.role === 'minister' ? rf < until && ru > from : cs.some((c) => rf < c.until && ru > c.from);
         if (!hit) continue;
         const kin = kinOf(civ, x, r);
-        add(r.id, kin ? 'blood' : 'court', kin || '君主', `他效力于此君（${span(Math.max(r.from ?? 0, from), Math.min(ru, until))}）`, false, r.from ?? 0);
+        add(r.id, kin ? 'blood' : 'court', kin || '君主', `${him}效力于此君（${span(Math.max(r.from ?? 0, from), Math.min(ru, until))}）`, false, r.from ?? 0);
       }
     }
   }
@@ -358,7 +363,7 @@ export function personTies(civ: Civ, x: Person, era?: Era | null): Tie[] {
       const w = wars.get(hit[0].war);
       const mine = cs.find((c) => c.war === hit[0].war)!;
       const pol = civ.polities[o.polity];
-      add(o.id, 'rival', '对阵', `${yearAt(Math.max(hit[0].from, mine.from), era)}他${mine.side === 0 ? '伐' : '抗'}${w && pol ? polityName(pol, hit[0].from) : ''}，此人在对面领兵`, true, hit[0].from);
+      add(o.id, 'rival', '对阵', `${yearAt(Math.max(hit[0].from, mine.from), era)}${him}${mine.side === 0 ? '伐' : '抗'}${w && pol ? polityName(pol, hit[0].from) : ''}，此人在对面领兵`, true, hit[0].from);
     }
   }
   return [...out.values()];
@@ -437,8 +442,6 @@ function charNode(c: AuthorCharacter, polity: number, era?: Era | null): RelNode
   };
 }
 
-/** 句子里的"他"换成名字 */
-const named = (lines: readonly string[], name: string) => lines.map((l) => l.replace(/他/g, name));
 
 // ---------------------------------------------------------------------------
 // 一张图
@@ -476,9 +479,9 @@ function personGraph(civ: Civ, chars: readonly AuthorCharacter[], x: Person, pol
   const P = civ.people!;
   const center: RelCenter = { k: `p${x.id}`, ref: { kind: 'person', id: x.id }, name: personName(civ, x), role: personRoleLine(civ, x, era), color: null, polity: x.polity };
   const nodes: RelNode[] = [];
-  for (const t of personTies(civ, x, era)) {
+  for (const t of personTies(civ, x, era, center.name)) {
     const n = personNode(civ, P[t.id], x.polity, era);
-    Object.assign(n, { cluster: t.cluster, slot: t.cluster === 'blood' ? bloodSlot(t.word) : t.cluster, word: t.word, tag: t.tag, clash: t.clash, why: named(t.why, center.name), sort: t.sort });
+    Object.assign(n, { cluster: t.cluster, slot: t.cluster === 'blood' ? bloodSlot(t.word) : t.cluster, word: t.word, tag: t.tag, clash: t.clash, why: t.why, sort: t.sort });
     nodes.push(n);
   }
   // 作者的人物:亲友里写了他、经历里勾了他的
@@ -490,10 +493,11 @@ function personGraph(civ: Civ, chars: readonly AuthorCharacter[], x: Person, pol
       if (!kin && !lives.length) continue;
       const n = charNode(c, polOf(c), era);
       const why: string[] = [];
-      if (kin) why.push(`${c.name}的亲友里写着：${kin.rel ? `${kin.rel}是他` : '有他'}`);
-      for (const { e } of lives) why.push(`经历里写到他：${yearAt(e.year, era)}${e.text || '（没写经历）'}`);
+      // 作者写的字(人物名、关系、经历)原样放,不换里面的"他"
+      if (kin) why.push(`${c.name}的亲友里写着：${kin.rel ? `${kin.rel}是${center.name}` : `有${center.name}`}`);
+      for (const { e } of lives) why.push(`经历里写到${center.name}：${yearAt(e.year, era)}${e.text || '（没写经历）'}`);
       n.word = kin ? (kin.rel ? `${kin.rel}是他` : '亲友里有他') : '经历里写到他';
-      n.why = named(why, center.name);
+      n.why = why;
       nodes.push(n);
     }
   }
@@ -589,7 +593,7 @@ function deepRing(civ: Civ, x: Person | null, c: AuthorCharacter | null, first: 
       const s = personSpan(P[u.id]);
       return Math.max(0, s.from - mine[1], mine[0] - (s.until ?? civ.endYear));
     };
-    const ties = personTies(civ, v, era)
+    const ties = personTies(civ, v, era, via.name)
       .filter((u) => !taken.has(`p${u.id}`) && allow(u))
       .sort((a, b) => gap(a) - gap(b) || (a.cluster === 'inlaw' && b.cluster === 'inlaw' ? INLAW_ORDER.indexOf(a.word) - INLAW_ORDER.indexOf(b.word) : 0) || a.sort - b.sort || a.id - b.id);
     const count = new Map<string, number>();
@@ -615,7 +619,7 @@ function deepRing(civ: Civ, x: Person | null, c: AuthorCharacter | null, first: 
       count.set(cluster, n);
       taken.add(`p${u.id}`);
       const node = personNode(civ, o, centerPolity, era);
-      Object.assign(node, { cluster, slot, word, clash: u.clash, why: named(u.why, via.name), sort: u.sort, dim: true, via: via.k });
+      Object.assign(node, { cluster, slot, word, clash: u.clash, why: u.why, sort: u.sort, dim: true, via: via.k });
       out.push(node);
     }
   }

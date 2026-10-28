@@ -608,7 +608,7 @@
   background: var(--panel-solid);
   z-index: 3;
 }
-.rg-phone .rg-title {
+.rg-stacked .rg-title {
   flex: 1;
   margin: 0;
   text-align: center;

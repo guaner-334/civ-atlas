@@ -422,7 +422,7 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
   }, []);
   const stacked = phone || (!!size && size.W < DESK_MIN_W);
   const crumbs = st.path.slice(0, st.at + 1);
-  const crumbTop = phone && crumbs.length > 1 ? 26 : 0;
+  const crumbTop = stacked && crumbs.length > 1 ? 26 : 0;
   const cardW = useMemo(() => (g ? cardWidth(g.center, stacked) : 0), [g, stacked]);
   const L = useMemo<Layout | StackLayout | null>(() => {
     if (!g || !size) return null;
@@ -642,6 +642,8 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
 
   // ---- 名单("还有 N 位")
   let listEl: ReactNode = null;
+  /** 手机(上下排时):名单从底下弹出来,放在滑动的那一块外面,贴着看得见的底边 */
+  let listSheet: ReactNode = null;
   if (list && L && size) {
     const m = list.m;
     const H = 46 + m.list.length * 45;
@@ -670,12 +672,14 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
         ))}
       </>
     );
-    listEl = stacked ? (
-      <>
-        <div className="rg-dim" onClick={() => setList(null)} />
-        <div className="rg-sheet rg-lsheet">{body}</div>
-      </>
-    ) : (
+    if (stacked)
+      listSheet = (
+        <>
+          <div className="rg-dim" onClick={() => setList(null)} />
+          <div className="rg-sheet rg-lsheet">{body}</div>
+        </>
+      );
+    else listEl = (
       <>
         <div className="rg-catch" onPointerDown={() => setList(null)} />
         <div className="rg-list" style={{ left: x, top: y }}>
@@ -745,12 +749,17 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
       onDoubleClick={stop}
       onWheel={stop}
     >
-      {phone ? (
+      {stacked ? (
         <header className="rg-head">
           <button className="rg-ib" data-act="relation-back-step" disabled={!canBack} onClick={backRelation} aria-label="退回上一个">
             <Icon name="back" size={17} />
           </button>
           <span className="rg-title">关系图</span>
+          {!phone && (
+            <button className="rg-ib" data-act="relation-map" onClick={onMap} title="在地图上看" aria-label="在地图上看">
+              <Icon name="pin" size={16} />
+            </button>
+          )}
           <button className="rg-x" data-act="relation-close" onClick={closeRelation} aria-label="关闭">
             <Icon name="close" size={14} />
           </button>
@@ -780,7 +789,7 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
       <div className="rg-stage" ref={stageRef}>
         {L && g && (
           <div className="rg-canvas" ref={layer} style={{ height: stacked ? stripsH : L.height }}>
-            {phone && crumbs.length > 1 && <div className="rg-pcrumbs">{crumbEls}</div>}
+            {stacked && crumbs.length > 1 && <div className="rg-pcrumbs">{crumbEls}</div>}
             {drawn(L, g.center)}
             {empty}
             {strips}
@@ -845,6 +854,7 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
           </span>
         </button>
       )}
+      {listSheet}
       {stacked && sheet && (
         <>
           <div className="rg-dim" onClick={() => setSheetNode(null)} />

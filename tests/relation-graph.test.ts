@@ -11,7 +11,7 @@ import { personKey } from '../src/gen/edits';
 import { fatherOf, kidsOf } from '../src/gen/civ/lineageInfo';
 import { personName } from '../src/gen/civ/peopleText';
 import { DEEP_BELOW, DEEP_PER_VIA, INLAW_ORDER, byWord, charKinSlot, personTies, relationGraph, type RelGraph, type RelNode } from '../src/ui/relationInfo';
-import { BLOCK_W, capped, clusterOrder, deskLayout, stackLayout, type Layout } from '../src/ui/relationLayout';
+import { BLOCK_W, capped, clusterOrder, deskLayout, stackLayout, upRow, type Layout } from '../src/ui/relationLayout';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {
@@ -77,6 +77,43 @@ describe('按字归簇', () => {
     expect(['父亲', '母亲', '叔父', '祖父', '舅舅'].map(charKinSlot)).toEqual(['up', 'up', 'up', 'up', 'up']);
     expect(['兄长', '弟弟', '姐姐', '表妹'].map(charKinSlot)).toEqual(['same', 'same', 'same', 'same']);
     expect(['儿子', '女儿', '孙子', '侄女', '养子'].map(charKinSlot)).toEqual(['down', 'down', 'down', 'down', 'down']);
+  });
+});
+
+describe('上一辈那一排', () => {
+  const center = { k: 'p0', ref: { kind: 'person' as const, id: 0 }, name: '中', role: '', color: null, polity: 0 };
+  const dad = fake(1, { cluster: 'blood', slot: 'up', word: '父', born: 1000 });
+  const elder = fake(2, { cluster: 'blood', slot: 'up', word: '伯父', born: 990, ruler: true, fame: 99, clash: true });
+  const younger = fake(3, { cluster: 'blood', slot: 'up', word: '叔父', born: 1010 });
+  it('父亲在正中、一定画出来;别的长辈按生年分到两边,放不下的收进"还有 N 位"', () => {
+    expect(upRow([younger, elder, dad], 3).cells.map((c) => [c.n?.word ?? '+', c.dx])).toEqual([
+      ['父', 0],
+      ['伯父', -1],
+      ['叔父', 1],
+    ]);
+    const two = upRow([younger, elder, dad], 2);
+    expect(two.cells.map((c) => [c.n?.word ?? '+', c.dx])).toEqual([
+      ['父', 0],
+      ['+', 1],
+    ]);
+    expect(two.more).toBe(2);
+    // 作者人物写的父母:父亲正中,母亲在他右边
+    const mom = fake(4, { cluster: 'blood', slot: 'up', word: '母亲', born: 1003 });
+    expect(upRow([mom, fake(5, { cluster: 'blood', slot: 'up', word: '父亲', born: 1001 })], 3).cells.map((c) => [c.n?.word, c.dx])).toEqual([
+      ['父亲', 0],
+      ['母亲', 1],
+    ]);
+  });
+  it('家谱线只从父亲连下来(叔伯不连),电脑、手机都是', () => {
+    const g: RelGraph = { center, nodes: [younger, elder, dad, fake(6, { cluster: 'blood', slot: 'same', word: '兄', born: 1020 })], own: 4, more: 0, empty: '' };
+    const L = deskLayout(g, 1188, 816, 280);
+    const at = (k: string) => L.nodes.find((l) => l.n.k === k)!;
+    expect(at('p1').x).toBe(L.cx);
+    const downs = L.edges.filter((e) => e.d.startsWith('M') && e.d.includes(`V${L.cy - 214}`) && /^M[\d.]+ [\d.]+V/.test(e.d) && !e.d.includes('H'));
+    const fromUp = downs.filter((e) => Number(/^M[\d.]+ ([\d.]+)/.exec(e.d)![1]) < L.cy - 214);
+    expect(fromUp.map((e) => Number(/^M([\d.]+)/.exec(e.d)![1]))).toEqual([at('p1').x]);
+    const S = stackLayout(g, 390, 0);
+    expect(S.nodes.find((l) => l.n.k === 'p1')!.x).toBe(S.cx);
   });
 });
 
@@ -228,7 +265,7 @@ describe.each([7, 2024])('关系图 · seed=%i', (seed) => {
           { rel: '杀父仇人', person: personKey(civ, foe.id) },
           { rel: '旧识', person: personKey(civ, other.id) },
         ],
-        life: [{ year: x.born + 40, text: '随军', people: [personKey(civ, other.id), personKey(civ, f.id)] }],
+        life: [{ year: x.born + 40, text: '随军，与其他人同行', people: [personKey(civ, other.id), personKey(civ, f.id)] }],
       },
       { id: 2, name: '乙', color: 'teal', born: x.born, kin: [{ rel: '主君', person: personKey(civ, x.id) }] },
     ];
@@ -240,6 +277,9 @@ describe.each([7, 2024])('关系图 · seed=%i', (seed) => {
     ]);
     expect(auth[0].color).toBeTruthy();
     expect(auth[1].why[0]).toBe(`乙的亲友里写着：主君是${personName(civ, x)}`);
+    // 作者写的字里的"他"不换("其他人")
+    const viaF = graphOf(civ, f, false, chars).nodes.find((n) => n.k === 'c1')!;
+    expect(viaF.why.some((t) => t.endsWith('随军，与其他人同行'))).toBe(true);
 
     const c = relationGraph(civ, chars, { kind: 'character', id: 1 }, { deep: false })!;
     const at = (k: string) => c.nodes.find((n) => n.k === k)!;
