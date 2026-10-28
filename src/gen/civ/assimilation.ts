@@ -21,6 +21,7 @@
  *              × 原民族越大越难、越小越快(√(SIZE_REF ÷ 州数),夹在 [SIZE_MIN, SIZE_MAX])
  *      统治民族在本国人口占比不到 REVERSE_SHARE、另有一族占到 REVERSE_MAJ 时反过来:统治民族的州被那一族同化
  *      (入主的少数民族渐为多数民族所化),速率另乘 REVERSE_K。默认参数下很少见:战争打下的异族国土很少多过本族。
+ *      大迁徙迁来立的国(Polity.trek)门槛低、速率快:统治民族不到 TREK_SHARE、另有一族到 TREK_MAJ,速率再乘 TREK_K,统治满 MIN_RULE 年就是满速。
  *      同一次看里先定好哪些州改换,再一起改:同化一次最多往外推一圈,前线齐整。
  *
  *   看孤地(Ev.EnclaveCheck)每 ENCLAVE_EVERY 年看一次部落地带(没有国家的州):被别族团团围住的孤地
@@ -82,6 +83,13 @@ const SIZE_MAX = 2;
 const REVERSE_SHARE = 0.35;
 const REVERSE_MAJ = 0.5;
 const REVERSE_K = 0.8;
+/**
+ * 大迁徙迁来立的国(Polity.trek,migration.ts):统治民族在本国占不到 TREK_SHARE(少数)、另有一族到 TREK_MAJ 就反过来被同化,
+ * 速率再乘 TREK_K —— 入主中原的一支两三百年里多半渐染当地之俗(北魏、诺曼人、保加尔人那样),国还在、国号不变
+ */
+const TREK_SHARE = 0.55;
+const TREK_MAJ = 0.3;
+const TREK_K = 8;
 /** 地形:草原荒漠上的游牧民族、高山(海拔 > HIGH_ELEV)上的高原民族、林中的山林民族、小岛上的海洋民族难同化 */
 const RESIST_STEPPE = 0.2;
 const RESIST_HIGH = 0.35;
@@ -398,8 +406,9 @@ function hook(sim: CivSim, am: AssimModel): void {
     const own = weight[P.culture] / W;
     let M = -1;
     for (let c = 0; c < weight.length; c++) if (c !== P.culture && (M < 0 || weight[c] > weight[M])) M = c;
-    const reverse = own < REVERSE_SHARE && M >= 0 && weight[M] / W >= REVERSE_MAJ;
-    const strength = reverse ? REVERSE_K : Math.min(1, own / STRONG_SHARE);
+    const trek = P.trek !== undefined;
+    const reverse = trek ? own < TREK_SHARE && M >= 0 && weight[M] / W >= TREK_MAJ : own < REVERSE_SHARE && M >= 0 && weight[M] / W >= REVERSE_MAJ;
+    const strength = reverse ? REVERSE_K * (trek ? TREK_K : 1) : Math.min(1, own / STRONG_SHARE);
     if (!(strength > 0)) return;
     const d = pm.capDist[P.id];
     const capR = pm.settlements[capitalAt(P, t)].region;
@@ -427,7 +436,8 @@ function hook(sim: CivSim, am: AssimModel): void {
       let e = ease(c, g, r);
       const bi = reg.biome[r];
       if (!reverse && nomadRuler && !STEPPE_DESERT[bi] && bi !== Biome.Savanna) e *= NOMAD_FARMLAND;
-      const ramp = Math.min(1, (rule - MIN_RULE) / (FULL_RULE - MIN_RULE));
+      // 迁来立的国反被同化:统治满 MIN_RULE 年就是满速(不等到 FULL_RULE)
+      const ramp = reverse && trek ? 1 : Math.min(1, (rule - MIN_RULE) / (FULL_RULE - MIN_RULE));
       const rate = RATE * ramp * f * near * strength * e;
       const p = 1 - fexp(-rate * span);
       if (keyed4(am.base, pm.ptag[P.id], reg.seat[r], k, U_ASSIM) < p) out.push([r, g]);

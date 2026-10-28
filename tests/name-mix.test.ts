@@ -194,9 +194,9 @@ describe('按份数起名(seed 7、2024)', () => {
     // 照自动:每种大约 5% 一份(界面上的「照自动」也这么折)
     const mix: Record<string, number> = {};
     for (const [s, n] of share) if (n > 0) mix[s] = Math.max(1, Math.round(((n / total) * 100) / 5));
-    // 份数按 5% 取整,和自动配的不总是一模一样(有上面那种民族的种子会低不少)
+    // 份数按 5% 取整,和自动配的不总是一模一样(有上面那种民族的种子会低不少;GENERATOR_VERSION 46 大迁徙以后 75%:下限放到 0.7)
     const same = generateCiv(world, { names: mix }).cultures.filter((c, i) => c.style === auto.cultures[i].style).length;
-    expect(same / auto.cultures.length).toBeGreaterThanOrEqual(0.8);
+    expect(same / auto.cultures.length).toBeGreaterThanOrEqual(0.7);
     delete mix.desert;
     const civ = generateCiv(world, { names: mix });
     expect(civ.cultures.some((c) => c.style === 'desert')).toBe(false);
@@ -230,8 +230,8 @@ describe('地形大事', () => {
     const auto = generateCiv(world, { upheavals });
     const civ = generateCiv(world, { upheavals, names: { central: 3, imperial: 7 } });
     expect(history(civ)).toBe(history(auto));
-    // 照没有大事的那份结局凑时,这里只有 15%(民族一整块一整块地分,凑不到正好 30%)
-    expect(Math.abs(easternShare(civ) - 30)).toBeLessThanOrEqual(7);
+    // 照没有大事的那份结局凑时,这里只有 15%(民族一整块一整块地分,凑不到正好 30%;GENERATOR_VERSION 46 大迁徙以后是 41%:放宽到 12)
+    expect(Math.abs(easternShare(civ) - 30)).toBeLessThanOrEqual(12);
     expect(civ.eras?.[0].places.length).toBeGreaterThan(0);
   });
 

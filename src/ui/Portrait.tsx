@@ -41,11 +41,13 @@ export interface PortraitViewProps {
   mood?: PortraitMood;
   /** 右下角的小按钮(作者人物的"换一张") */
   corner?: ReactNode;
+  /** card 大小但不眨眼、不动(关系图中间那张卡片) */
+  still?: boolean;
 }
 
-export function PortraitView({ p, size, color, dead, dark, mood, corner }: PortraitViewProps) {
+export function PortraitView({ p, size, color, dead, dark, mood, corner, still }: PortraitViewProps) {
   const card = size === 'card';
-  const live = card && !dead;
+  const live = card && !dead && !still;
   const expr = live ? (mood?.expr ?? 'calm') : 'calm';
   const layers = useMemo(() => portraitLayers(p, expr, live), [p, expr, live]);
   const filter = whiten(p.white);

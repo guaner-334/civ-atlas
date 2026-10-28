@@ -46,6 +46,9 @@
  *   "大渭治下,瑞州等五州的居兰人渐为渭人";统治民族反被同化写"大渭的居兰人渐染渭俗,…渐为渭人";
  *   部落地带的孤地(没有国家)写"瑞州的居兰人渐为渭人"。民族消亡单列一条"乌耐族亡"(大事)。
  *   迁入 ≥ MIGRATE_MAJOR 州的迁徙、同化 ≥ ASSIM_MAJOR 州的一段、民族消亡是大事。
+ *   大迁徙(migration.ts,史事 trek)一次一条大事(种类记成 migrate,标签"徙";写法见 trekEntry),展开看经过;
+ *   到了以后那一仗照旧单列一条战争,打进大国国都引起的大崩解写成"萨热汗国破星邑,百尾皇朝大崩解,……";
+ *   迁来立的国的统治民族渐为当地多数所化写"萨热汗国境内的克拉尔人渐为桑人,瑶渊之野等五州皆说桑语"(≥ TREK_ASSIM_MAJOR 州是大事)。
  * - **干预**(阶段 4,史事 intervene;哪一条干预见 Civ.interventions[e.war]):"【干预】大昌与索拉特结盟"
  *   "【干预】大昌自此不亡"(有截止年份的加",至第 2750 年")"【干预】大昌向索拉特宣战"(没打成的写原因:"…,然两国不接壤,未能成行");
  *   划州"【干预】瑞州自大渭划归大昌,永为大昌之土";立国"【干预】瑞州脱大渭自立,号瑞国,都于瑞城"(紧跟着的 found 并进这一条);
@@ -150,6 +153,8 @@ export const ASSIM_MAJOR = 10;
 export const ASSIM_MINOR = 3;
 /** 一波迁徙迁入这么多州以上是大事 */
 export const MIGRATE_MAJOR = 5;
+/** 大迁徙迁来立的国,统治民族一段里被同化了这么多州以上是大事 */
+export const TREK_ASSIM_MAJOR = 5;
 
 /**
  * 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries)、
@@ -643,6 +648,7 @@ const TAG: Record<AnnalKind, string> = {
   neutral: '中',
   exile: '逐',
   keep: '保',
+  trek: '徙',
 };
 
 function base(
@@ -1430,6 +1436,8 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
     case 'quell':
     case 'heir':
       return general ? `${A}遣${general}讨${B}` : `${A}发兵讨${B}`;
+    case 'trek':
+      return general ? `${A}甫立,遣${general}伐${B}` : `${A}甫立,即伐${B}`;
     case 'rescue':
       return ally ? `${A}救其藩属${ally},${go(B)}` : `${A}${go(B)}`;
     default:
@@ -3154,15 +3162,25 @@ function collapseEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   const keep = city ? `,${P}仅保${city}一隅` : '';
   const pieces = ids.slice(1).map((i) => A[i]);
   const children = ids.slice(1).map((i) => simpleEntry(ctx, A[i], i));
+  // 大迁徙迁来的一支打进国都引起的(同一刻、紧挨在前面几条里有 trek n = 3):"萨热汗国破星邑,百尾皇朝大崩解,……各自立国"
+  let storm: Annal | undefined;
+  for (let i = ids[0] - 1; i >= 0 && A[i].year === y; i--) {
+    if (A[i].kind === 'trek' && A[i].n === 3 && A[i].b === e.a) {
+      storm = A[i];
+      break;
+    }
+  }
+  const civM = storm ? civ.migrations?.[storm.war]?.polity : undefined;
+  const lead = storm && civM !== undefined ? `${pn(civ, civM, y)}破${cityName(civ, storm.settlement) || regionName(civ, storm.region) || '其都'},` : '';
   let text: string;
-  if (e.b === 2) text = `${P}土崩瓦解,${e.war > 0 ? `${cnNumber(e.war)}州` : '诸州'}散为部落${keep}`;
+  if (e.b === 2) text = lead ? `${lead}${P}土崩瓦解,${e.war > 0 ? `${cnNumber(e.war)}州` : '诸州'}散为部落${keep}` : `${P}土崩瓦解,${e.war > 0 ? `${cnNumber(e.war)}州` : '诸州'}散为部落${keep}`;
   else {
     const names = uniq(pieces.map((s) => s.region)).map((r) => regionName(civ, r)).filter(Boolean);
     const rose = names.length ? `${names.join('、')}各自立国` : '诸州各自立国';
-    text = `${P}大乱,${e.b === 1 ? '诸州残破,' : ''}${rose}${keep}`;
+    text = lead ? `${lead}${P}大崩解,${e.b === 1 ? '诸州残破,' : ''}${rose}${keep}` : `${P}大乱,${e.b === 1 ? '诸州残破,' : ''}${rose}${keep}`;
   }
   return {
-    ...base(e, ids[0], text, 3, uniq([e.a, ...pieces.map((s) => s.a)]), uniq(pieces.map((s) => s.region))),
+    ...base(e, ids[0], text, 3, uniq([...(civM !== undefined ? [e.a, civM] : [e.a]), ...pieces.map((s) => s.a)]), uniq(pieces.map((s) => s.region))),
     ...(children.length ? { children } : {}),
   };
 }
@@ -3427,6 +3445,146 @@ function migrationEntry(ctx: Ctx, ids: number[], dirUsed: Map<number, number>): 
   };
 }
 
+/** 大迁徙为什么走(Migration.push):灾年(发源在苔原、针叶林的"苦寒",别的"苦旱")、老家挤、本族的国散了 */
+function trekWhy(civ: Civ, push: string | undefined, c: number): string {
+  if (push === 'famine') {
+    const cu = cultureOf(civ, c);
+    const b = cu && cu.hearth >= 0 && cu.hearth < civ.regions.count ? civ.regions.biome[cu.hearth] : -1;
+    return b === 4 || b === 5 ? '苦寒' : '苦旱';
+  }
+  return push === 'crowd' ? '生齿日繁' : push === 'scatter' ? '部落离散' : '';
+}
+
+/**
+ * 大迁徙(migration.ts;史事 trek 按 war 列 = 第几次大迁徙折成一条,经过见 Civ.migrations):
+ * 一句话写谁、为什么、往哪、经过哪、结果:"克拉尔族苦寒,一支举族西徙,过梅尔郡,入百尾皇朝,据瑶渊之野等五州,立萨热汗国";
+ * 败了的再写";为大定王朝所败,部众散亡";没立成国的"……,散居瑶渊之野等三州";还在路上的"……,尚在途中"。
+ * 年份写起止两头:动身那年到落脚那年(败了的到亡国那年)。标签"徙",种类记成 migrate(时间轴上和别的迁徙同归「同化」一类),一律是大事。
+ * 展开看经过:动身("克拉尔族苦寒,分出一支约三成,自诺敏塔拉西去")、路上洗劫("过梅尔郡,掠之")、攻进去("入百尾皇朝,破瑶渊之野、长舞之野")、
+ * 立国("据瑶渊之野等五州,立萨热汗国,都青都,与百尾皇朝开战")、打进国都("萨热汗国破星邑,百尾皇朝大崩解";没崩的"……,百尾皇朝迁都某城";
+ * 小国"……,某国亡")/ 被打败("为大定王朝所败,焉支汗国亡,部众散亡,余众留居乐和郡")。
+ * 到了以后那一仗照旧另记一条战争(war,cause = trek),打进大国国都引起的大崩解也照旧另记一条;立国那条 found(cause = trek)并进这一条的经过
+ */
+function trekEntry(ctx: Ctx, ids: number[], warIds: number[] | undefined): ChronicleEntry {
+  const { civ } = ctx;
+  const A = civ.annals;
+  const list = ids.map((i) => A[i]);
+  const e0 = list[0];
+  const M = civ.migrations?.[e0.war];
+  const c = e0.a;
+  const who = cn(civ, c);
+  const dir = M?.dir ?? null;
+  const why = trekWhy(civ, M?.push, c);
+  const wl = (warIds ?? []).map((i) => ({ e: A[i], i }));
+  const kids: ChronicleEntry[] = [];
+  /** 子条目(kind、标签照它是哪一种事:迁徙、洗劫、攻占、立国、崩解、灭亡) */
+  const kid = (e: Annal, i: number, t: string, ps: number[], rs: number[], kind: EntryKind, tag: string): ChronicleEntry => ({ ...base(e, i, t, 2, ps, rs, tag), kind });
+  const raided: string[] = [];
+  let settle: { e: Annal; i: number } | undefined;
+  let storm: { e: Annal; i: number } | undefined;
+  let scatter: { e: Annal; i: number } | undefined;
+  ids.forEach((i) => {
+    const e = A[i];
+    const r = regionName(civ, e.region);
+    if (e.n === 0) kids.push(kid(e, i, `${who}${why ? `${why},` : ''}分出一支约三成,自${r || '故地'}${dir ? `${dir}去` : '远去'}`, [], e.region >= 0 ? [e.region] : [], 'migrate', '徙'));
+    else if (e.n === 1) {
+      if (r && !raided.includes(r)) raided.push(r);
+      kids.push(kid(e, i, `过${r || '一州'},掠之`, e.b >= 0 ? [e.b] : [], e.region >= 0 ? [e.region] : [], 'sack', '掠'));
+    } else if (e.n === 2) settle = { e, i };
+    else if (e.n === 3) storm = { e, i };
+    else if (e.n === 4) scatter = { e, i };
+  });
+  const lands = M?.lands ?? [];
+  const where = regionList(civ, lands);
+  let text = `${who}${why ? `${why},` : ''}一支举族${dir ? `${dir}徙` : '远徙'}`;
+  if (raided.length) text += `,过${raided.slice(0, 2).join('、')}`;
+  let end = e0.year;
+  let ongoing = false;
+  const polities: number[] = [];
+  const regions: number[] = [];
+  let settlement = -1;
+  if (settle) {
+    const se = settle.e;
+    const y = se.year;
+    const p = se.b;
+    const P = pn(civ, p, y);
+    const city = cityName(civ, se.settlement);
+    settlement = se.settlement;
+    end = y;
+    polities.push(p);
+    const decl = wl.find((x) => x.e.kind === 'war');
+    const foe = decl ? decl.e.b : -1;
+    // 攻进去:立国那一刻从那国手里占下的州
+    if (foe >= 0) {
+      polities.push(foe);
+      const now = ownersAt(civ, y).polity;
+      const was = ownersAt(civ, y - 1 / 512).polity;
+      const taken: number[] = [];
+      for (let r = 0; r < now.length; r++) if (now[r] === p && was[r] === foe) taken.push(r);
+      if (taken.length) {
+        const names = taken.sort((u, v) => civ.regions.capacity[v] - civ.regions.capacity[u] || u - v).map((r) => regionName(civ, r)).filter(Boolean);
+        const shown = names.length > 3 ? `${names.slice(0, 2).join('、')}等${cnNumber(names.length)}州` : names.join('、');
+        kids.push(kid(se, settle.i, `入${pn(civ, foe, y)},破${shown}`, [p, foe], taken.slice(), 'conquer', '占'));
+      }
+    }
+    text += `${foe >= 0 ? `,入${pn(civ, foe, y)}` : `,至${regionName(civ, se.region) || '其地'}`},据${where || '其地'},立${P}`;
+    // 立国那条记在紧跟着的 found 上(攻进去那条用 trek 本身,两条的 id 不重)
+    const fi = A[settle.i + 1]?.kind === 'found' && A[settle.i + 1].cause === 'trek' ? settle.i + 1 : settle.i;
+    kids.push(kid(A[fi], fi, `据${where || '其地'},立${P}${city ? `,都${city}` : ''}${foe >= 0 ? `,与${pn(civ, foe, y)}开战` : ''}`, [p], lands.slice(), 'found', '立'));
+    regions.push(...lands);
+    if (foe >= 0) {
+      const fallR = wl.find((x) => x.e.kind === 'fall' && x.e.a === p);
+      const fallC = wl.find((x) => x.e.kind === 'fall' && x.e.a === foe && x.e.b === p);
+      if (storm) {
+        const sy = storm.e.year;
+        const cap = cityName(civ, storm.e.settlement) || regionName(civ, storm.e.region) || '国都';
+        const F = pn(civ, foe, sy);
+        // 那国大崩解(另有一条大事)写"大崩解";没崩的写迁都到哪
+        const broke = A.some((x) => x.kind === 'collapse' && x.a === foe && x.year === sy);
+        const moved = wl.find((x) => x.e.kind === 'capital' && x.e.a === foe && x.e.year === sy);
+        const to = moved ? cityName(civ, moved.e.settlement) : '';
+        kids.push(kid(storm.e, storm.i, `${pn(civ, p, sy)}破${cap},${F}${broke ? '大崩解' : `迁都${to}`}`, [p, foe], storm.e.region >= 0 ? [storm.e.region] : [], broke ? 'collapse' : 'conquer', broke ? '崩' : '占'));
+        regions.push(storm.e.region);
+      } else if (fallC) {
+        const C = polityOf(civ, foe);
+        const cap = C ? cityName(civ, capitalBefore(C, fallC.e.year)) : '';
+        kids.push(kid(fallC.e, fallC.i, `${pn(civ, p, fallC.e.year)}破${cap || '其都'},${pn(civ, foe, fallC.e.year)}亡`, [p, foe], fallC.e.region >= 0 ? [fallC.e.region] : [], 'fall', '亡'));
+      } else if (fallR) {
+        const fy = fallR.e.year;
+        text += `;为${pn(civ, foe, fy)}所败,部众散亡`;
+        end = fy;
+        kids.push(kid(fallR.e, fallR.i, `为${pn(civ, foe, fy)}所败,${pn(civ, p, fy - 1 / 512)}亡,部众散亡${where ? `,余众留居${where}` : ''}`, [foe, p], lands.slice(), 'fall', '亡'));
+      }
+    }
+  } else if (scatter) {
+    end = scatter.e.year;
+    text += where ? `,至${regionName(civ, scatter.e.region) || '其地'},散居${where}` : `,至${regionName(civ, scatter.e.region) || '远方'}一带,部众散亡`;
+    kids.push(kid(scatter.e, scatter.i, where ? `未能立国,散居${where}` : '部众散亡', [], lands.slice(), 'migrate', '徙'));
+    regions.push(...lands);
+  } else {
+    // 还在路上
+    text += ',尚在途中';
+    ongoing = true;
+    end = civ.endYear;
+  }
+  const children = kids.sort((a, b) => a.year - b.year || a.id - b.id);
+  const rs = uniq(regions.filter((r) => r >= 0));
+  return {
+    id: ids[0],
+    kind: 'migrate',
+    year: e0.year,
+    end,
+    text,
+    tag: '徙',
+    importance: 3,
+    polities: uniq(polities.filter((p) => p >= 0)),
+    regions: rs.length ? rs : e0.region >= 0 ? [e0.region] : [],
+    settlement,
+    children,
+    ...(ongoing ? { ongoing: true } : {}),
+  };
+}
+
 /** 同化:同一国治下、同一对民族,相隔不到 ASSIM_GAP 年的折成一段(一段最长 ASSIM_SPAN 年) */
 function assimEntries(ctx: Ctx, groups: Map<string, number[]>, out: ChronicleEntry[]) {
   const { civ } = ctx;
@@ -3441,10 +3599,13 @@ function assimEntries(ctx: Ctx, groups: Map<string, number[]>, out: ChronicleEnt
       const where = regionList(civ, regions) || '一州';
       const P = polityOf(civ, first.war);
       let text: string;
-      if (P && P.culture === first.b) text = `${pn(civ, first.war, first.year)}的${folk(civ, first.b)}渐染${cultureOf(civ, first.a)?.name ?? '异族'}俗,${where}渐为${folk(civ, first.a)}`;
+      // 大迁徙迁来立的国(Polity.trek),统治民族渐为当地多数所化:"萨热汗国境内的克拉尔人渐为桑人,瑶渊之野等五州皆说桑语"(五州以上是大事)
+      const trek = !!P && P.trek !== undefined && P.culture === first.b;
+      if (trek) text = `${pn(civ, first.war, first.year)}境内的${folk(civ, first.b)}渐为${folk(civ, first.a)},${where}皆说${cultureOf(civ, first.a)?.name ?? '当地'}语`;
+      else if (P && P.culture === first.b) text = `${pn(civ, first.war, first.year)}的${folk(civ, first.b)}渐染${cultureOf(civ, first.a)?.name ?? '异族'}俗,${where}渐为${folk(civ, first.a)}`;
       else if (P) text = `${pn(civ, first.war, first.year)}治下,${where}的${folk(civ, first.b)}渐为${folk(civ, first.a)}`;
       else text = `${where}的${folk(civ, first.b)}渐为${folk(civ, first.a)}`;
-      const importance: Importance = regions.length >= ASSIM_MAJOR ? 3 : regions.length >= ASSIM_MINOR ? 2 : 1;
+      const importance: Importance = regions.length >= (trek ? TREK_ASSIM_MAJOR : ASSIM_MAJOR) ? 3 : regions.length >= ASSIM_MINOR ? 2 : 1;
       const kids = group.map((i) => assimChild(civ, A[i], i));
       out.push({
         id: group[0],
@@ -3633,8 +3794,13 @@ function* introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicl
     const y = e.year;
     const pids = e.polities.filter((id) => polityOf(civ, id));
     const personNames = (e.people ?? []).map((k) => civ.people?.[k]?.name ?? '').filter(Boolean);
-    // 立国、分裂、复国这一条本身就是来历(干预"立国"那一条也是)
-    const founding = e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt' || (e.kind === 'intervene' && civ.interventions?.[A[e.id]?.war]?.kind === 'found');
+    // 立国、分裂、复国这一条本身就是来历(干预"立国"那一条、大迁徙落脚立国的那一条也是:立的国排在 polities 第一个)
+    const founding =
+      e.kind === 'found' ||
+      e.kind === 'split' ||
+      e.kind === 'revolt' ||
+      (e.kind === 'intervene' && civ.interventions?.[A[e.id]?.war]?.kind === 'found') ||
+      (e.kind === 'migrate' && A[e.id]?.kind === 'trek');
     if (founding && pids.length) shown.set(pids[0], polityRootAt(civ.polities[pids[0]], y));
     const also = told.get(e);
     if (also !== undefined && polityOf(civ, also)) shown.set(also, polityRootAt(civ.polities[also], y));
@@ -3737,6 +3903,16 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   // 同化与迁徙:一波迁徙(同一刻、同一民族、同一起因);同一国治下同一对民族的同化
   const waves = new Map<string, number[]>();
   const assim = new Map<string, number[]>();
+  // 大迁徙:第几次 → 它的几条史事;到了以后开的那一仗(战争编号 → 第几次:立的国 = trek n = 2 的 b,那一仗 = 它开的 war,cause = trek)
+  const treks = new Map<number, number[]>();
+  const trekWar = new Map<number, number>();
+  {
+    const byPolity = new Map<number, number>();
+    for (const e of A) {
+      if (e.kind === 'trek' && e.n === 2 && e.b >= 0) byPolity.set(e.b, e.war);
+      else if (e.kind === 'war' && e.cause === 'trek' && byPolity.has(e.a)) trekWar.set(e.war, byPolity.get(e.a)!);
+    }
+  }
   // 分裂出来的国家不再记"立国";并入别国的不再记"瓦解"(合并那条已经说了)
   const splitOf = new Set<number>();
   const mergedAt = new Set<string>();
@@ -3857,6 +4033,14 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       if (!mutualTail(A, i)) out.push(marryEntry(ctx, i));
       continue;
     }
+    // 大迁徙:同一次的几条(war 列 = 第几次)折成一条;它立国那条 found 并进来
+    if (e.kind === 'trek') {
+      let g = treks.get(e.war);
+      if (!g) treks.set(e.war, (g = []));
+      g.push(i);
+      continue;
+    }
+    if (e.kind === 'found' && e.cause === 'trek') continue;
     if (e.kind === 'migrate' || e.kind === 'assimilate') {
       const map = e.kind === 'migrate' ? waves : assim;
       const key = e.kind === 'migrate' ? `${e.year}|${e.a}|${e.war}` : `${e.a}|${e.b}|${e.war}`;
@@ -3867,9 +4051,17 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
     }
     out.push(simpleEntry(ctx, e, i));
   }
-  for (const ids of wars.values()) {
+  // 大迁徙到了以后那一仗照旧单列一条战争;它的几件事(宣战、亡国、迁都)也写进大迁徙的经过
+  const trekWars = new Map<number, number[]>();
+  for (const [w, ids] of wars) {
     if (++n % 8 === 0) yield;
+    const m = trekWar.get(w);
+    if (m !== undefined) trekWars.set(m, ids);
     out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
+  }
+  for (const [m, ids] of treks) {
+    if (++n % 8 === 0) yield;
+    out.push(trekEntry(ctx, ids, trekWars.get(m)));
   }
   for (const ids of plagues.values()) {
     if (++n % 32 === 0) yield;
