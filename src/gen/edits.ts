@@ -548,7 +548,9 @@
  *  47:季节进推演(gen/seasons.ts 估算一年里各地的月温):出兵避冬(civ/wars.ts:要打的那州正在冬天里就顿兵到开春再打,编年史记"顿兵过冬"),
  *      冬夏分明的地方饥荒挪到当地青黄不接的春荒(civ/unrest.ts,编年史写"春,某州大饥");还没即位的预定继承人的名字从他出道那一刻就算用过
  *      (civ/lineage.ts:同一刻出道的兄弟不再推到一半时和他同名)。历史重新推演
- *  48:时代做法(civ/practices.ts 的做法表):国都那州有了户籍才能议成直征(没有时最多和地方分成),有了常备军才议收兵权,
+ *  48:大迁徙的方位按整条路线在地图上的走向定(civ/migration.ts 的 trekDir;以前按出发地到落脚地的大圆初始朝向,
+ *      高纬度往西走得远的会写成"南徙")。疆域、兴亡不变,只有编年史、国家卡片、人物卡上大迁徙的方位字变了
+ *  49:时代做法(civ/practices.ts 的做法表):国都那州有了户籍才能议成直征(没有时最多和地方分成),有了常备军才议收兵权,
  *      有了文官考选才议铨选;人口普查、铁路、电报、火药以后分封边镇渐废也接进议事和割据。编年史里头一回直征、禁军、铨选换说法,
  *      进新时代那条接上铁路、电报。历史重新推演
  */
@@ -564,7 +566,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 48;
+export const GENERATOR_VERSION = 49;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -630,7 +632,8 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   45: { change: 'history', only: 'upheavals' },
   46: { change: 'history' },
   47: { change: 'history' },
-  48: { change: 'history' },
+  48: { change: 'chronicle' },
+  49: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

@@ -36,7 +36,7 @@ import { heOrShe, type Sexed } from '../gen/civ/gender';
 import { commandFoes, rulerAt, rulerNeighbors } from '../gen/civ/peopleInfo';
 import { hasLineage } from '../gen/civ/lineageInfo';
 import type { Person, RulerLeanings } from '../gen/civ/types';
-import { MARK_COLORS, cleanPlay, polityKey, type Intervention, type MarkColor } from '../gen/edits';
+import { MARK_COLORS, advanceOf, cleanPlay, polityKey, type Intervention, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
   CHAR_NAME_DEFAULT,
@@ -55,7 +55,7 @@ import {
   type AuthorCharacter,
 } from '../gen/characters';
 import { MARK_HEX } from '../render/marks';
-import { getEdits, removeCharacter, removeIntervention, restoreCharacter, updateCharacter, useEdits, useEra } from './editsStore';
+import { getEdits, removeCharacter, removeIntervention, restoreCharacter, updateCharacter, useEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { characterPortrait } from '../gen/portrait';
 import { NameFace, PortraitView } from './Portrait';
 import { eraText, spaced, yearAt, yearFull, yearShort, yearSpanAt, type Era } from '../gen/era';
@@ -113,7 +113,8 @@ import { requestMapCenter } from './mapWrap';
 import { openLineage, openOverview } from './overviewStore';
 import { setSheet } from './panelStore';
 import { getPending, queueIntervention, removePending, usePending, type Pending } from './pendingStore';
-import { useStepwise } from './stepwiseStore';
+import { nextAt, useStepwise } from './stepwiseStore';
+import { momentStart, monthly } from './stepTime';
 import { characterCrowns, crownDeleteAsk, crownEditAsk, crownToDeath, newReignName, noteCrownResim, type CrownAsk, type CrownState } from './crownInfo';
 import { KEEP_CROWN, keepReignNote } from './keepInfo';
 import { CrownAskDialog } from './CrownAsk';
@@ -625,7 +626,12 @@ function LeanRead({ l, onEdit }: { l: RulerLeanings; onEdit: () => void }) {
 
 /** 他的一条即位(「君位」一块):待推演 / 下一步生效、生效了、没生效 */
 function CrownSec({ civ, c, st, era }: { civ: Civ; c: AuthorCharacter; st: CrownState; era: Era | undefined }) {
-  const when = (v: { from: number }, step: boolean) => `${yearFull(v.from, era)}${step ? '年初' : ''}`;
+  // 故事模式下一步生效的:写下一步开始的那一刻("第 2676 年年初""第 1549 年菊月初")
+  const sw = useStepwise();
+  const months = useMonths();
+  const names = useMonthNames();
+  const always = monthly(advanceOf(useEdits()), months);
+  const when = (v: { from: number }, step: boolean) => (step ? momentStart(nextAt(sw), months, era, names, always) : yearFull(v.from, era));
   if (st.kind === 'queued')
     return (
       <section className="cp-sec" data-crown-state={st.step ? 'next' : 'pending'}>

@@ -239,7 +239,7 @@ export interface StepwiseActions {
   start(year: number, drop: readonly number[], adv: Advance): void;
   /** 存回推演模式(只存当前这一支):asNew = 存成新世界(不然覆盖原来那个);open = 存好以后打开它 */
   saveBack(asNew: boolean, open: boolean): void;
-  /** 从第 year 年重新演绎:原来那条原样留成一支,从那一年另开一支(名字 name,空 = 没起名)、切过去 */
+  /** 从 year 那一刻(年份带小数;停在年中、一步短于一年的是那一格)重新演绎:原来那条原样留成一支,从那一刻另开一支(名字 name,空 = 没起名)、切过去 */
   rewind(year: number, name: string): void;
   /** 切到编号 id 的那一支(在后台照它从第 0 年重推,推完换上) */
   switchBranch(id: number): void;
