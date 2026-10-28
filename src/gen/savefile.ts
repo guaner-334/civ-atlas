@@ -470,6 +470,8 @@ function changeSince(from: number, edited: EditedWorld): GeneratorChange | 'newe
   for (let v = Math.max(1, from) + 1; v <= GENERATOR_VERSION; v++) {
     const c = GENERATOR_CHANGES[v];
     let change: GeneratorChange | undefined = c?.change;
+    // 只动了带地形大事的世界的那一版:这个世界没有地形大事就跳过
+    if (c?.only === 'upheavals' && !upheavals) continue;
     // 只动了改过地形(或带地形大事)的世界的那一版:这个世界两样都不沾就跳过
     if (c?.edited && !terrain) {
       if (!(upheavals && c.upheavals)) continue;

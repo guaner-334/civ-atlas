@@ -38,7 +38,7 @@ import { installDiplomacy } from './diplomacy';
 import { warModelOf } from './wars';
 import { installInterventions, scheduleInterventions } from './interventions';
 import { buildPeople } from './people';
-import { installUpheaval, reshapeCities, scheduleUpheaval, upheavalImpact } from './upheaval';
+import { installUpheaval, reshapeCities, scheduleUpheaval, upheavalImpact, type TerrainEra } from './upheaval';
 import type { CultureModel } from './cultures';
 import type { PolityModel } from './polities';
 import type { InterventionModel } from './interventions';
@@ -256,6 +256,8 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const pins: NamePins | undefined = ups.length ? { regionNames: [], polities: new Map(), settlements: new Map() } : undefined;
   const eras: CivEra[] = [];
   const facts: UpheavalFact[] = [];
+  // 各段的州地形(城的人口上限和它最后一次记下的那一段比,reshapeCities)
+  const terrains: TerrainEra[] = pm ? [{ from: -Infinity, terrain: pm.terrain }] : [];
   for (let k = 0; k < ups.length; k++) {
     const u = ups[k];
     const before = fin.regions;
@@ -293,7 +295,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     facts.push(fact);
     const half = partialCiv(fin.sim, fin.model!, fin.pm!, h1, r1, seed, iv, frontier);
     // 还在的城:港口、人口上限照新地形换值(从大事那一刻起;接着推时立国的年份按新的上限算)
-    half.settlements = reshapeCities(half.settlements, fin.pm!.terrain, u.world, h1, r1, u.year, u.ops);
+    half.settlements = reshapeCities(half.settlements, terrains, u.world, h1, r1, u.year, u.ops);
     // 早先几件大事的经过(接着推时认得出哪些城址沉过海,cities.ts 的 resumeCities)
     half.upheavals = facts.slice(0, k);
     // 从前一刻接着推:大事那一刻的事件照常补上(同一年下的干预、民族诞生……),排在大事后面;
@@ -313,6 +315,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const pm1 = polityModelOf(s1)!;
     pm1.cultures = m1.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
     fin = { sim: s1, model: m1, pm: pm1, world: u.world, habitat: h1, regions: r1 };
+    terrains.push({ from: u.year, terrain: pm1.terrain });
   }
   return finishCiv({ fin, p, seed, viable, mix, frontier, origins, interventions: iv?.list, model, pm, pins, eras, facts, progress });
 }

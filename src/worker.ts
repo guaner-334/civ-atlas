@@ -49,7 +49,7 @@ import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
 import { buildRegions, reshapeRegions } from './gen/civ/regions';
-import { applyPatch, cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
+import { applyPatch, composeOnto, cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
 import { rasterizePatch, rasterizePatchSteps, type PatchJob, type PatchProgress, type RasterKeep } from './gen/rasterEdit';
 import type { PixelBox } from './gen/pixelBox';
 import { planGlyphs, type Plan } from './render/fantasy';
@@ -60,6 +60,7 @@ import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
 import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, recipeText, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
 import { playStop, playTurn } from './gen/civ/play';
+import { subSeed } from './gen/util';
 import { chronicleParts, type ChroniclePart } from './chronicleParts';
 import { splitCiv, type CivPart, type CivSplit } from './civParts';
 
@@ -610,41 +611,84 @@ function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: S
 // ---------------------------------------------------------------------------
 // 各段的主图补丁(后台慢慢铺)
 
-/** 最近铺好的两张整图(下一段要和它比) */
+/**
+ * 最近两段"主线程拼好的"主图(原来的主图按先后贴上各段补丁,和 ui/eras.ts 的 eraData 拼出来的一样),
+ * 按一路过来的几段世界的键记着(第 0 段 = 原来的主图,键就是它的世界键)。下一段的补丁和它比、不和上一段真正的主图比:
+ * 框外看不出来的小差别主线程沿用上一段,一段段各自和真图比的话,几件大事的小差别会攒成看得出来的(gen/rasterPatch.ts 文件头)
+ */
 const rasters = new Map<string, Raster>();
-async function rasterOfWorld(key: string, world: () => World): Promise<Raster> {
-  const r = rasters.get(key);
-  if (r) return r;
-  await pool.up;
-  const w = world();
-  pool.prepare(w);
-  const d = rasterizeDeferred(w, 1);
-  await pool.finish(d);
-  const raster = d.raster;
-  rasters.set(key, raster);
+function keepRaster(chain: string, r: Raster): Raster {
+  rasters.delete(chain);
+  rasters.set(chain, r);
   while (rasters.size > 2) rasters.delete(rasters.keys().next().value!);
-  return raster;
+  return r;
 }
+
+/** 铺一张整图 */
+async function rasterOf(world: World): Promise<Raster> {
+  await pool.up;
+  pool.prepare(world);
+  const d = rasterizeDeferred(world, 1);
+  await pool.finish(d);
+  return d.raster;
+}
+
+/** 长字符串的短指纹(两个 32 位散列拼起来):世界键带着草图可能很长,一路过来的键、补丁的键记着只为认"是不是同一个" */
+const digest = (s: string) => `${subSeed(1, s).toString(36)}.${subSeed(2, s).toString(36)}`;
+
+/** 一路过来的一段:键(第 0 段 = 原来的世界键,往后每段 = 前一段的键接上这一段的世界键取指纹)、世界 */
+interface Link {
+  chain: string;
+  world: () => World;
+}
+
+/** 第 i 段拼好的主图:记着就用;没记着就铺出那一段,和第 i - 1 段拼好的比出补丁、贴上 */
+async function shownAt(links: readonly Link[], i: number): Promise<Raster> {
+  const { chain } = links[i];
+  const hit = rasters.get(chain);
+  if (hit) return keepRaster(chain, hit);
+  if (!i) return keepRaster(chain, await rasterOf(links[0].world()));
+  const a = await shownAt(links, i - 1);
+  const b = await rasterOf(links[i].world());
+  return keepRaster(chain, composeOnto(a, b, diffRaster(a, b)));
+}
+
+/**
+ * 交出去的补丁是照哪一路拼的(补丁的键的指纹 → 一路过来的键)。补丁的键只有前后两段的世界键,同样两段、前面几段分法不同
+ * (同一年的两件大事改成先后两年……)拼出来的上一段不一样,补丁也不一样:主线程留着的不是这一路的,照样重交
+ */
+const posted = new Map<string, string>();
+const POSTED_KEEP = 64;
 
 /** 推完文明:主线程手里没有的各段补丁排进后台(之前排着、现在用不上的作废) */
 function queuePatches(id: number, m: CivInput, steps: Step[]) {
   bg.length = 0;
   const have = new Set(m.have ?? []);
-  let prevKey = keyOf(m.params, m.terrain, m.sketch);
-  let prevWorld: () => World = () => worldOf(m.params, m.terrain, m.sketch);
-  for (const s of steps) {
-    const pair = `${prevKey}>${s.key}`;
-    const a = prevKey;
-    const wa = prevWorld;
-    prevKey = s.key;
-    prevWorld = () => s.world;
-    // 主线程手里有没有以它说的为准(它会丢掉用不着的旧补丁,丢了的再要就重新铺)
-    if (have.has(pair)) continue;
+  const baseKey = keyOf(m.params, m.terrain, m.sketch);
+  const links: Link[] = [{ chain: baseKey, world: () => worldOf(m.params, m.terrain, m.sketch) }];
+  for (const s of steps) links.push({ chain: digest(`${links[links.length - 1].chain}>${s.key}`), world: () => s.world });
+  const prevOf = (i: number) => (i ? steps[i - 1].key : baseKey);
+  const pairs = steps.map((s, i) => `${prevOf(i)}>${s.key}`);
+  // 主线程手里有没有以它说的为准(它会丢掉用不着的旧补丁,丢了的再要就重新铺)
+  const want = pairs.map((pair, i) => !(have.has(pair) && posted.get(digest(pair)) === links[i + 1].chain));
+  // 缺的那几段以前的各段也得拼出来(拼好的才能比);一段一件活,做完一件先看有没有新消息
+  const last = want.lastIndexOf(true);
+  for (let i = 0; i <= last; i++) {
+    const s = steps[i];
+    const chain = links[i + 1].chain;
     bg.push(async () => {
-      const ra = await rasterOfWorld(a, wa);
-      const rb = await rasterOfWorld(s.key, () => s.world);
-      const patch = diffRaster(ra, rb);
-      post({ type: 'eraPatch', id, key: s.key, prev: a, patch }, patch ? patchTransferables(patch) : []);
+      if (!want[i]) return void (await shownAt(links, i + 1));
+      const a = await shownAt(links, i);
+      // 这一段拼好的还记着:和它比跟和真图比出来的补丁一样(框外它就是 a,框里它就是真图),不用再铺
+      const hit = rasters.get(chain);
+      const b = hit ?? (await rasterOf(s.world));
+      const patch = diffRaster(a, b);
+      keepRaster(chain, hit ?? composeOnto(a, b, patch));
+      const pair = digest(pairs[i]);
+      posted.delete(pair);
+      posted.set(pair, chain);
+      while (posted.size > POSTED_KEEP) posted.delete(posted.keys().next().value!);
+      post({ type: 'eraPatch', id, key: s.key, prev: prevOf(i), patch }, patch ? patchTransferables(patch) : []);
     });
   }
 }

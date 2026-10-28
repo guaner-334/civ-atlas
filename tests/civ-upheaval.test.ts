@@ -9,13 +9,13 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { mergeUpheavals, previewUpheaval, previewVictims, reshapeCities, upheavalBase, upheavalSteps, type UpheavalStep } from '../src/gen/civ/upheaval';
+import { mergeUpheavals, previewUpheaval, previewVictims, reshapeCities, upheavalBase, upheavalSteps, type TerrainEra, type UpheavalStep } from '../src/gen/civ/upheaval';
 import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
 import type { Polity, Settlement } from '../src/gen/civ/types';
-import { findPorts, foundingYear, routeCities } from '../src/gen/civ/polities';
+import { findPorts, foundingYear, routeCities, siteFactor } from '../src/gen/civ/polities';
 import { cultureTerrain } from '../src/gen/civ/cultures';
 import { UPHEAVALS_MAX, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, cleanUpheavals, sameUpheavals } from '../src/gen/terrainEdits';
 import { EMPTY_EDITS, applyNames, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, type Upheaval } from '../src/gen/edits';
@@ -363,10 +363,10 @@ describe('地形大事 · 推演', () => {
     while (!(c.regions.capacity[r] > 0 && W.water[c.regions.seat[r]] === 0)) r++;
     const s: Settlement = { id: 0, cell: c.regions.seat[r], region: r, culture: 0, name: '', founded: 0, capacity: 30, growth: 0.002, port: ports[r] === 1 };
     const zero = { ...c.regions, capacity: c.regions.capacity.map((v, i) => (i === r ? 0 : v)) };
-    const [a] = reshapeCities([s], T, W, c.habitat, zero, 100, []);
+    const [a] = reshapeCities([s], [{ from: -Infinity, terrain: T }], W, c.habitat, zero, 100, []);
     expect(a.reshaped).toHaveLength(1);
     expect(capacityAt(a, 100)).toBeLessThan(1e-3);
-    const [b] = reshapeCities([a], cultureTerrain(W, c.habitat, zero), W, c.habitat, c.regions, 200, []);
+    const [b] = reshapeCities([a], [{ from: -Infinity, terrain: T }, { from: 100, terrain: cultureTerrain(W, c.habitat, zero) }], W, c.habitat, c.regions, 200, []);
     expect(b.reshaped).toHaveLength(2);
     expect(portAt(b, 200)).toBe(s.port);
     expect(b.reshaped![1].capacity).toBeCloseTo(30, 6);
@@ -375,6 +375,38 @@ describe('地形大事 · 推演', () => {
     const again: Settlement = { ...s, id: 1, port: false, founded: 600, rebuilds: 0 };
     const [rc] = routeCities([old, again], [], 1000);
     expect(rc.port).toBe(false);
+  }, 120_000);
+
+  it('几件大事各让城址的上限变一点、每件都不到 2%:和最后一次记下的比,攒够了照样记;上限和每件都记的差不到 2%', () => {
+    const W = world();
+    const c = base();
+    const T = cultureTerrain(W, c.habitat, c.regions);
+    const ports = findPorts(W, T);
+    let r = 0;
+    while (!(c.regions.capacity[r] > 0 && W.water[c.regions.seat[r]] === 0)) r++;
+    const s: Settlement = { id: 0, cell: c.regions.seat[r], region: r, culture: 0, name: '', founded: 0, capacity: 30, growth: 0.002, port: ports[r] === 1 };
+    // 州 r 的人口上限乘 m 时城址系数的变化:找出让系数每次只变 1.5% 的 m
+    const scaled = (m: number) => ({ ...c.regions, capacity: c.regions.capacity.map((v, i) => (i === r ? v * m : v)) });
+    const fOf = (regions: typeof c.regions) => siteFactor(cultureTerrain(W, c.habitat, regions), s.port, r);
+    const f0 = fOf(c.regions);
+    const e = Math.log(fOf(scaled(1.1)) / f0) / Math.log(1.1);
+    const step = Math.pow(1.015, 1 / e);
+    const past: TerrainEra[] = [{ from: -Infinity, terrain: T }];
+    let city = s;
+    for (let k = 1; k <= 5; k++) {
+      const year = 100 * k;
+      const regions = scaled(Math.pow(step, k));
+      // 和紧挨着的前一段比,每件都只变 1.5%
+      expect(fOf(regions) / siteFactor(past[past.length - 1].terrain, s.port, r)).toBeCloseTo(1.015, 3);
+      [city] = reshapeCities([city], past, W, c.habitat, regions, year, []);
+      past.push({ from: year, terrain: cultureTerrain(W, c.habitat, regions) });
+      // 每件都记的话上限 = 建城时的 × 现在的系数 ÷ 建城时的系数;只记攒够了的,差不到 2%
+      const every = (s.capacity * fOf(regions)) / f0;
+      expect(Math.abs(capacityAt(city, Infinity) / every - 1)).toBeLessThan(0.02);
+    }
+    // 攒够了的那几件记下了(以前一件都不记,五件攒下来差了 7% 多)
+    expect(city.reshaped?.map((x) => x.year)).toEqual([200, 400]);
+    expect(city.reshaped!.every((x) => x.port === s.port)).toBe(true);
   }, 120_000);
 
   it('港口城的州变得不宜居、海岸没变:还是港口;大事以后才成港口的,海路从成港口那年算起', () => {
@@ -388,7 +420,7 @@ describe('地形大事 · 推演', () => {
     const suitability = Float32Array.from(c.habitat.suitability);
     suitability[s.cell] = 0;
     expect(cultureTerrain(W, { ...c.habitat, suitability }, c.regions).habitable[r]).toBe(0);
-    const [a] = reshapeCities([s], T, W, { ...c.habitat, suitability }, c.regions, 100, []);
+    const [a] = reshapeCities([s], [{ from: -Infinity, terrain: T }], W, { ...c.habitat, suitability }, c.regions, 100, []);
     expect(portAt(a, Infinity)).toBe(true);
     // 一直没长成镇的小城,第 700 年地形大事以后成了港口:够格修路从 700 年起(不是建城那年)
     const late: Settlement = { ...s, port: false, capacity: 5, reshaped: [{ year: 700, capacity: 5, port: true }] };
