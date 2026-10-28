@@ -20,7 +20,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { cleanPlay, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
+import { cleanPlay, commandsNow, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
 import { stepwiseToNormal } from '../gen/stepwise';
 import type { PauseWhy, StepPlan, StepReviewItem } from './stepwisePlan';
 
@@ -385,13 +385,14 @@ export function stepwiseChanged() {
 }
 
 /**
- * 存回推演模式存成的普通世界的修改:单子里还没交出去的干预(queued)当作在"现在"下的(在那一年年初生效)一起存进去,
- * 再照 gen/stepwise.ts 的 stepwiseToNormal 换成普通世界(推演年数 = 现在那一年)。存不回(推得太远)= null
+ * 存回推演模式存成的普通世界的修改:单子里还没交出去的干预(queued)当作在"现在"下的(在进度那一刻生效:那一年年初,
+ * 停在年中的是那一格)一起存进去,再照 gen/stepwise.ts 的 stepwiseToNormal 换成普通世界(推演年数 = 现在那一年;
+ * 停在年中的推到下一年年初)。存不回(推得太远)= null
  */
 export function saveBackEdits(edits: WorldEdits, queued: readonly Intervention[]): WorldEdits | null {
   const play = cleanPlay(edits.play);
   if (!play) return null;
-  const now = queued.map((v) => ({ ...v, from: play.year }) as Intervention);
+  const now = commandsNow(play, queued);
   return stepwiseToNormal(now.length ? { ...edits, play: issueCommands(play, now).play } : edits);
 }
 
