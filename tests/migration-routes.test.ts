@@ -15,7 +15,7 @@ import { FADE, LINGER, drawTreks, trekAlpha, trekBox, trekLook, trekPath, trekRe
 import type { LabelView } from '../src/render/labels/draw';
 import { jumpYearOf, setCivShow } from '../src/ui/civView';
 import { departureEntry, flashAlpha, personTrek, polityTrek, trekOfEntry } from '../src/ui/migrationInfo';
-import { selectionFocus } from '../src/ui/flyTo';
+import { flatFly, selectionFocus } from '../src/ui/flyTo';
 
 let world: World;
 let civ: Civ;
@@ -186,9 +186,19 @@ describe('画不画、怎么画', () => {
     expect(box[2]).toBeGreaterThanOrEqual(tb[2] - 1e-6);
     const later = M.settled! + LINGER + FADE + 1;
     expect(trekBox(civ, world, m, later, 0)).toBeNull();
+    // 连来路一起按 1 倍也框不下(窄的画面):只框国土,和不画来路时一样飞
+    const f = selectionFocus(world, civ, { kind: 'polity', id }, y)!;
+    expect(f.core).toBeTruthy();
+    const narrow = { sw: 90, sh: 900, bw: 1800, bh: 900 };
+    const wide = { sw: 6000, sh: 3000, bw: 6000, bh: 3000 };
+    const v0 = { k: 1, x: 0, y: 0 };
+    const goal = (focus: typeof f) => ({ focus, kind: 'polity' as const });
+    expect(flatFly(v0, narrow, world.width, world.height, goal(f))?.(1)).toEqual(flatFly(v0, narrow, world.width, world.height, goal(f.core!))?.(1));
+    expect(flatFly(v0, wide, world.width, world.height, goal(f))?.(1)).not.toEqual(flatFly(v0, wide, world.width, world.height, goal(f.core!))?.(1));
     setCivShow({ ...CIV_SHOW_OFF });
-    const plain = selectionFocus(world, civ, { kind: 'polity', id }, y)!.box!;
-    expect(plain[2] - plain[0]).toBeLessThanOrEqual(box[2] - box[0]);
+    const plain = selectionFocus(world, civ, { kind: 'polity', id }, y)!;
+    expect(plain.core).toBeUndefined();
+    expect(plain.box![2] - plain.box![0]).toBeLessThanOrEqual(box[2] - box[0]);
     setCivShow({ ...CIV_SHOW_OFF, polities: true });
   });
 });

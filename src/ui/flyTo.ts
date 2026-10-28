@@ -50,6 +50,8 @@ export interface Focus {
   /** 中心的经纬度(度) */
   lon: number;
   lat: number;
+  /** 大迁徙迁来立的国:box 连来路一起框;按 1 倍也框不下(手机上、来路很长)时退回只框国土的这一份 */
+  core?: Focus;
 }
 
 /** 人物的稳定键(gen/characters.ts;这里转一下,别处照旧从这里引) */
@@ -173,13 +175,15 @@ export function selectionFocus(world: World, civ: Civ, selIn: MapSelection, year
   function* cells() {
     for (const r of regs) for (let k = R.cellStart[r]; k < R.cellStart[r + 1]; k++) yield R.cells[k];
   }
-  let b = regs.length ? cellsBox(world, cells(), ref) : null;
+  const b = regs.length ? cellsBox(world, cells(), ref) : null;
   // 大迁徙迁来立的国:来路还在地图上的那些年(国家、民族填色上才画),国土和整条来路一起框进来
   const fill = civFillOf(getCivShow());
   const tb = p.trek !== undefined && (fill === 'polities' || fill === 'cultures') ? trekBox(civ, world, p.trek, year, ref) : null;
-  if (tb) b = b ? [Math.min(b[0], tb[0]), Math.min(b[1], tb[1]), Math.max(b[2], tb[2]), Math.max(b[3], tb[3])] : tb;
   if (!b) return focusOf(W, H, null, ref, cap ? y[cap.cell] : H / 2);
-  return focusOf(W, H, b, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
+  const own = focusOf(W, H, b, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
+  if (!tb) return own;
+  const u: [number, number, number, number] = [Math.min(b[0], tb[0]), Math.min(b[1], tb[1]), Math.max(b[2], tb[2]), Math.max(b[3], tb[3])];
+  return { ...focusOf(W, H, u, (u[0] + u[2]) / 2, (u[1] + u[3]) / 2), core: own };
 }
 
 /** 作者标记在地图上的位置和范围:一个点 = 那一点;几个州 = 这几州的外接框(州键对不上的不算);都没有 = null */
@@ -303,12 +307,18 @@ export function flatFly(v0: MapView, b: StageBox, W: number, H: number, goal: Fl
   const ax = (l + r) / 2;
   const ay = (t + btm) / 2;
   const p0 = stageToWorld(ax, ay, v0, b, W, H);
-  let fit = 1;
-  if (goal.focus?.box) {
-    const [x0, y0, x1, y1] = goal.focus.box;
+  const fitOf = (box: Focus['box'] | undefined) => {
+    if (!box) return 1;
+    const [x0, y0, x1, y1] = box;
     const pw = (Math.max(x1 - x0, W / 400) / W) * b.bw;
     const ph = (Math.max(y1 - y0, H / 400) / H) * b.bh;
-    fit = Math.min((r - l - 2 * MARGIN) / pw, (btm - t - 2 * MARGIN) / ph);
+    return Math.min((r - l - 2 * MARGIN) / pw, (btm - t - 2 * MARGIN) / ph);
+  };
+  let fit = fitOf(goal.focus?.box);
+  // 连来路一起按 1 倍也框不下:只框国土
+  if (fit < 1 && goal.focus?.core) {
+    goal = { ...goal, focus: goal.focus.core };
+    fit = fitOf(goal.focus!.box);
   }
   const k1 = goalZoom(goal, v0.k, fit);
   const fx = home ? p0[0] : goal.focus ? goal.focus.x - W * Math.round((goal.focus.x - p0[0]) / W) : p0[0];
@@ -348,16 +358,12 @@ export function curvedFly(
     if (Math.abs(v1.k - v0.k) < 1e-3 && Math.abs(v1.y - v0.y) < 1) return null;
     return (e) => ({ v: clampCurved({ k: v0.k * (v1.k / v0.k) ** e, x: 0, y: v0.y + (v1.y - v0.y) * e }, b), lon: m0.lon0 });
   }
-  const f = goal.focus;
   const [l, t, r, btm] = area ?? freeArea(b, true);
   const ax = (l + r) / 2;
   const ay = (t + btm) / 2;
-  const phi = (f.lat * Math.PI) / 180;
-  const pxPerDeg = (k: number) => k * (b.bw / W) * m0.s * Math.max(0.2, m0.def.kx(phi)) * (Math.PI / 180);
   // 先按目标中央经线 = 中心经度量范围、定缩放,再把中心往左挪出面板
-  const m1 = proj(f.lon);
-  let fit = 1;
-  if (f.box) {
+  const fitOf = (f: Focus, m1: MapProj) => {
+    if (!f.box) return 1;
     const [x0, y0, x1, y1] = f.box;
     const pts = [
       [x0, y0],
@@ -373,8 +379,19 @@ export function curvedFly(
     const ys = pts.map((p) => p[1]);
     const pw = (Math.max(Math.max(...xs) - Math.min(...xs), W / 400) / W) * b.bw;
     const ph = (Math.max(Math.max(...ys) - Math.min(...ys), H / 400) / H) * b.bh;
-    fit = Math.min((r - l - 2 * MARGIN) / pw, (btm - t - 2 * MARGIN) / ph);
+    return Math.min((r - l - 2 * MARGIN) / pw, (btm - t - 2 * MARGIN) / ph);
+  };
+  let f = goal.focus;
+  let m1 = proj(f.lon);
+  let fit = fitOf(f, m1);
+  // 连来路一起按 1 倍也框不下:只框国土
+  if (fit < 1 && f.core) {
+    f = f.core;
+    m1 = proj(f.lon);
+    fit = fitOf(f, m1);
   }
+  const phi = (f.lat * Math.PI) / 180;
+  const pxPerDeg = (k: number) => k * (b.bw / W) * m0.s * Math.max(0.2, m0.def.kx(phi)) * (Math.PI / 180);
   const k1 = goalZoom(goal, v0.k, fit);
   if (panOnly(goal)) {
     const [mx, my] = projectWorld(m0, f.x, f.y);
