@@ -37,7 +37,7 @@ import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
 import { northText } from './WorldOverviewGenesis';
 import { cleanEndYear } from '../gen/edits';
-import { monthsOf, yearFull } from '../gen/era';
+import { monthNamesInUse, monthsOf, yearFull } from '../gen/era';
 import { markItemsAt, plainMarkChars } from './markInfo';
 import { ensureFonts, fantasyFontUrl } from '../render/labels/fonts';
 import { characterTrail } from './characterInfo';
@@ -475,7 +475,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
         // 换回原名的那份历史还没算过编年史:在主线程上分小块算好(长历史一口气算要好几百毫秒,界面那么久不动)
         await chronicleInSlices(civ);
         const name = `${base}-编年史.${job === 'md' ? 'md' : 'txt'}`;
-        const text = chronicleDocument(civ, { format: job, seed: seedN, params, entries: fullChronicle(civ), era, months: monthsOf(getEdits().months) });
+        const text = chronicleDocument(civ, { format: job, seed: seedN, params, entries: fullChronicle(civ), era, months: monthsOf(getEdits().months), monthNames: monthNamesInUse(getEdits().monthNames) });
         const blob = new Blob([text], { type: job === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8' });
         download(blob, name);
         dbg = { job, name, bytes: blob.size, ms: performance.now() - t0 };
