@@ -10,6 +10,7 @@
  *   ⑥ 人物                 people.ts              → people(历代君主、战争里的统帅;按推出来的历史排,不改历史)
  *   ⑦ 信仰                 religion.ts            → religion(民间信仰、大教、国教、教派;照推出来的历史贴上去,不改历史)
  *   发展度(物产、五种能力、时代)在推演里每 20 年算一步,反过来影响人口上限、军力、远洋(development.ts → development)
+ *   思潮(各州各说的接受度)跟着发展度每 20 年算一步,只算不用(ideology.ts → ideology)
  *
  * 阶段 4 干预(params.interventions,interventions.ts):带着干预从第 0 年整段重推;干预年份之前和不干预时逐字节一致。
  * 阶段 4 改地形(world.terrain):扩张节拍、城的人口折算按没改地形时的同一颗星球定(planetTempo),只有改动附近的历史跟着地形变。
@@ -46,6 +47,7 @@ import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
 import { YEAR_TICKS, cleanInterventions, sameInterventions, type Intervention, type TerrainOp } from '../edits';
 import { buildReligion } from './religion';
 import { finishDevelopment, installDevelopment } from './development';
+import { finishIdeology, installIdeology } from './ideology';
 import { installUnrest } from './unrest';
 import { installControl } from './control';
 import { installCouncil } from './council';
@@ -239,6 +241,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installCities(sim, pm, warModelOf(sim)!); // 阶段 3 城市兴衰(cities.ts):洗劫、毁城、重建、旧都衰落
   if (pm) installDiplomacy(sim, pm); // 邦交(diplomacy.ts):称臣纳贡、结盟、背盟、援盟、讨伐叛藩
   if (pm) installDevelopment(sim, world, pm, habitat, seed); // 发展度(development.ts):每 20 年算各州的能力,影响人口上限、军力、远洋
+  if (pm) installIdeology(sim, seed); // 思潮(ideology.ts):跟着发展度每 20 年算各州各说的接受度,只算不用
   if (pm) installUnrest(sim, pm, seed); // 动荡(unrest.ts):饥荒、民变、大崩解
   if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
@@ -517,6 +520,8 @@ function finishCiv(x: Finish): Civ {
   if (viable && cultures.length) {
     const dev = finishDevelopment(fin.sim, p.endYear);
     if (dev) civ.development = dev;
+    const ideo = finishIdeology(fin.sim, p.endYear);
+    if (ideo) civ.ideology = ideo;
   }
   return civ;
 }
@@ -581,6 +586,7 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
 function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null, frontier?: Frontier): Civ {
   const res = sim.result();
   const dev = finishDevelopment(sim, res.endYear);
+  const ideo = finishIdeology(sim, res.endYear);
   const pad = (a: Int16Array) => {
     if (a.length >= regions.count) return a;
     const b = new Int16Array(regions.count).fill(-1);
@@ -613,6 +619,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     ...(iv ? { interventions: iv.stored.slice() } : {}),
     people: [],
     ...(dev ? { development: dev } : {}),
+    ...(ideo ? { ideology: ideo } : {}),
   } as Civ;
 }
 

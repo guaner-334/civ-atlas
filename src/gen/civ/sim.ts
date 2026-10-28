@@ -22,6 +22,7 @@
  *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);
  *   城市兴衰(毁城后的重建、旧都衰落)也一样(cities.ts 的 resumeCities)。
  *   发展度是例外:各州能力的全精度状态存在 Civ.development.state 里,接着推时从那里接上(development.ts 的 resumeDevelopment);
+ *   思潮也一样(Civ.ideology.state,ideology.ts 的 resumeIdeology);
  *   政局的数表也存在那里(state.tables,control.ts 的 resumeControl);议事定下的规矩由史事重建(council.ts 的 resumeCouncil)。
  *   阶段 4 的干预不存进事件堆:fromCiv(world, civ, 干预列表)按列表补上还没到的干预(interventions.ts 的 resumeInterventions)。
  *
@@ -39,6 +40,7 @@ import { resumeAssimilation } from './assimilation';
 import { resumeCities } from './cities';
 import { resumeDiplomacy } from './diplomacy';
 import { resumeDevelopment } from './development';
+import { resumeIdeology } from './ideology';
 import { resumeUnrest } from './unrest';
 import { resumeControl } from './control';
 import { resumeCouncil } from './council';
@@ -548,6 +550,7 @@ export class CivSim {
       resumeCities(sim, world, civ);
       resumeDiplomacy(sim, world, civ);
       resumeDevelopment(sim, world, civ);
+      resumeIdeology(sim, civ);
       resumeUnrest(sim, world, civ);
       resumeControl(sim, civ);
       resumeCouncil(sim, civ);
