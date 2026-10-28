@@ -87,7 +87,7 @@ function useForm(civ: Civ, id: number, year: number, from?: number) {
   const base = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!step && !yi.valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (!polityAlive(p, y)) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (!polityAlive(p, yv)) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     return null;
   })();
   return { era, phone, step, sw, p, key, yi, y, yv, name, shown, ask, base, msg, setMsg, clear };

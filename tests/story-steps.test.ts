@@ -13,7 +13,7 @@ import type { Civ } from '../src/gen/civ';
 import { playCiv, playTicks, playTurn } from '../src/gen/civ/play';
 import { ADVANCE_DEFAULT, END_YEAR_MAX, YEAR_TICKS, advanceOf, cleanAdvance, playAt, polityKey, type Advance, type Intervention, type PlayState } from '../src/gen/edits';
 import { monthOf } from '../src/gen/era';
-import { EMPTY_STOP_SECS, monthStart, nextStep, pauseYear, redrawAt, stepEnd, stepMarks, type StepPlan } from '../src/ui/stepwisePlan';
+import { EMPTY_STOP_SECS, monthStart, nextStep, pauseYear, prevPage, redrawAt, stepEnd, stepMarks, stepPage, type StepPlan } from '../src/ui/stepwisePlan';
 import { STEP_PICKS, advanceBrief, aboutTime, everyWhy, ownStep, stepLabel, stepPickOf, stepUnitMax, stepWhy, type Run } from '../src/ui/advanceText';
 import { oneMonth, spanShort, spanText } from '../src/ui/stepTime';
 
@@ -179,6 +179,22 @@ describe('一步走几格', () => {
     const m = stepMarks(MONTH, 12, 1549, at(1549, 171), 4 / 1000);
     expect(m.map((y) => Math.round((y - 1549) * YEAR_TICKS))).toEqual([22, 43, 64, 86, 107, 128, 150]);
     expect(stepMarks(adv({ step: 5 }), 12, 2650, 2675, 4 / 1000)).toEqual([2655, 2660, 2665, 2670]);
+  });
+});
+
+describe('往回翻:一段只有一个月时一段一段翻', () => {
+  it('每一步都停、一个月一步:「‹」翻到紧挨着的上一个月,不跳过几个月', () => {
+    const starts = [0, 22, 43, 64, 86, 107, 128, 150].map((k) => at(1552, k));
+    const cur = { from: at(1552, 150), to: at(1552, 171) };
+    const p0 = stepPage(cur.from, cur, starts, 0);
+    expect(p0).toEqual({ ...cur, current: true });
+    const p1 = prevPage(p0, cur, starts, 0)!;
+    expect([p1.from, p1.to]).toEqual([at(1552, 128), at(1552, 150)]);
+    const p2 = prevPage(p1, cur, starts, 0)!;
+    expect([p2.from, p2.to]).toEqual([at(1552, 107), at(1552, 128)]);
+    // 一年一段的照旧
+    const y = prevPage(stepPage(2675, { from: 2675, to: 2700 }, [2650, 2675], 25), { from: 2675, to: 2700 }, [2650, 2675], 25)!;
+    expect([y.from, y.to]).toEqual([2650, 2675]);
   });
 });
 

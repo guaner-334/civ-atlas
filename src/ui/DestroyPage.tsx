@@ -98,7 +98,7 @@ export function DestroyPage({ civ, id, year, from }: { civ: Civ; id: number; yea
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!step && !yi.valid) return `亡国年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (!polityAlive(p, y)) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (!polityAlive(p, yv)) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (mode === 'merge' && !B) return '选一国并入，或者散成无主';
     return null;
   })();

@@ -226,7 +226,7 @@ export function CrownPage({
     if (step && c.died !== undefined && y >= c.died) return `${he}${yearAt(c.died, era)}已经去世`;
     if (mode === 'have') {
       if (!P) return '选一个国家';
-      if (!pAlive) return y < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
+      if (!pAlive) return yv < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
       if (after && !cur) return `${yearAt(y, era)}${nameAt(P, y)}没有在位的君主可等，选「${step ? `${yearFull(y, era)}年初` : '某一年'}」`;
       if (after && cur?.until !== undefined && c.died !== undefined && cur.until >= c.died)
         return `${he}${yearAt(c.died, era)}去世，等不到${personName(civ, cur)}下台`;

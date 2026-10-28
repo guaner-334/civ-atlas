@@ -164,7 +164,7 @@ export function BoostPage({ civ, id, year, from, onBack }: { civ: Civ; id: numbe
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!step && !yi.valid) return `年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (!P || !polityAlive(P, y)) return P && y < P.founded ? `${when}${pName}还没立国` : `${when}${pName || '这国'}已亡`;
+    if (!P || !polityAlive(P, yv)) return P && yv < P.founded ? `${when}${pName}还没立国` : `${when}${pName || '这国'}已亡`;
     if (mode === 'regions') {
       if (!regs.length) return '在地图上点几州';
       if (!peopled) return '选的州那年都没人住';

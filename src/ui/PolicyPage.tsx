@@ -170,7 +170,7 @@ export function PolicyPage({ civ, id, year, from }: { civ: Civ; id: number; year
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!step && !yi.valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (!polityAlive(p, y)) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (!polityAlive(p, yv)) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     return null;
   })();
   // 和单子里的 / 推过的历史里那一年照的一样:按不下去(不写原因,卡片上「方针」一行已经写着)

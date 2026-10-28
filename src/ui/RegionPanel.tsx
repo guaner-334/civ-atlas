@@ -427,7 +427,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
     for (let k = reg.adjStart[id]; k < reg.adjStart[id + 1]; k++) if (o.polity[reg.adj[k]] >= 0) near.add(o.polity[reg.adj[k]]);
     return { owner: o.polity[id], peopled: o.culture[id] >= 0, size, near };
   }, [civ, id, yv]);
-  const others = useMemo(() => civ.polities.filter((q) => q.id !== at.owner && polityAlive(q, y) && (at.size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, y, at]);
+  const others = useMemo(() => civ.polities.filter((q) => q.id !== at.owner && polityAlive(q, yv) && (at.size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, yv, at]);
   const R = regionLabel(civ, id);
   const O = at.owner >= 0 ? civ.polities[at.owner] : undefined;
   /** 原主会怎样:这州是它的国都 → 迁都;它只有这一州 → 亡国 */
@@ -461,7 +461,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   /** 划给国家 q:合格就下干预,不合格返回原因 */
   const cedeTo = (q: number): string | null => {
     const Q = civ.polities[q];
-    if (!Q || !polityAlive(Q, y) || !(at.size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
+    if (!Q || !polityAlive(Q, yv) || !(at.size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
     if (q === at.owner && !forever) return `${yearAt(y, era)}${R}本来就属${nameAt(Q, y)}`;
     return add(forever ? { kind: 'cede', a: polityKey(civ, q), region: key, from: y, permanent: true } : { kind: 'cede', a: polityKey(civ, q), region: key, from: y });
   };

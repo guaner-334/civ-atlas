@@ -1168,6 +1168,10 @@ export function StepDock({ phone }: { phone: boolean }) {
   const { sel } = useSelection();
   const view = useStepView();
   const { playing } = usePlayState();
+  // 手机:这一步没有大事、停着那 3 秒里选中了东西(在看、在干预):倒计时停住(和停一下的底部卡片一样)
+  useEffect(() => {
+    if (phone && sel && getStepwise().stop?.empty) holdClock('act');
+  }, [phone, sel, s.stop]);
   if (!s.on) return null;
   const acting = !!sel && panel.tab === 'cmd';
   const look = view.look;

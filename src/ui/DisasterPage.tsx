@@ -245,7 +245,7 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
     if (type === 'quake') return qc < 0 ? '在地图上点一处' : toll.hit ? null : '那一带那年没人住';
     if (fmode === 'polity') {
       if (!F) return '这州那年不属哪国，换一国';
-      return polityAlive(F, y) ? null : y < F.founded ? `${when}${fName}还没立国` : `${when}${fName}已亡`;
+      return polityAlive(F, yv) ? null : yv < F.founded ? `${when}${fName}还没立国` : `${when}${fName}已亡`;
     }
     if (!regs.length) return '在地图上点几州';
     return toll.hit ? null : '选的州那年都没人住';

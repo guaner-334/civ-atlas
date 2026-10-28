@@ -268,9 +268,9 @@ export function stepPage(y: number, cur: { from: number; to: number }, marks: re
   return { from: Math.max(0, from), to, current: false };
 }
 
-/** 上一段(「‹」;已经到第 0 年 = null) */
+/** 上一段(「‹」;已经到第 0 年 = null):找这一段开头前半格落在哪一段(一段可能只有一个月、几格) */
 export function prevPage(p: StepPage, cur: { from: number; to: number }, marks: readonly number[], every: number): StepPage | null {
-  return p.from <= 0 ? null : stepPage(p.from - 0.5, cur, marks, every);
+  return p.from <= 0 ? null : stepPage(p.from - 1 / (2 * YEAR_TICKS), cur, marks, every);
 }
 
 /** 下一段(「›」;已经是"现在"这一段 = null) */
