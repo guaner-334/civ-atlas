@@ -9,7 +9,7 @@ import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, treatyKey, type AuthorMark } from '../gen/edits';
+import { cultureKey, faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, treatyKey, type AuthorMark } from '../gen/edits';
 import { personKey, resolvePersonKey } from '../gen/characters';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
@@ -18,6 +18,7 @@ import { NARROW_MAX, safeInsets } from './device';
 import { ABOVE_SHEET, sheetGeometry } from './gestures';
 import { astRoom } from './astPanel';
 import { sideShown } from './sideStore';
+import { cultureRegion } from './searchIndex';
 
 /** 飞行时长(毫秒) */
 export const FLY_MS = 600;
@@ -52,9 +53,12 @@ export interface Focus {
 /** 人物的稳定键(gen/characters.ts;这里转一下,别处照旧从这里引) */
 export { personKey, resolvePersonKey };
 
-/** 地图上按什么画、往哪飞:人物 = 他的国家;作者标记、作者的人物 = 不按历史里的东西画(它们自己画,见 MarkLayer.tsx、CharacterLayer.tsx);其余照旧 */
-export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' | 'character' | 'treaty' }> | null {
-  if (!sel || sel.kind === 'mark' || sel.kind === 'character' || sel.kind === 'treaty') return null;
+/**
+ * 地图上按什么画、往哪飞:人物 = 他的国家;作者标记、作者的人物 = 不按历史里的东西画(它们自己画,见 MarkLayer.tsx、CharacterLayer.tsx);
+ * 民族 = 不圈、不飞(民族填色上别的族变淡,见 cultureFocusOf;侧栏、概览里点民族另外飞到人最多的州,见 cultureFocus);其余照旧
+ */
+export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<MapSelection, { kind: 'person' | 'mark' | 'character' | 'treaty' | 'culture' }> | null {
+  if (!sel || sel.kind === 'mark' || sel.kind === 'character' || sel.kind === 'treaty' || sel.kind === 'culture') return null;
   if (sel.kind !== 'person') return sel;
   const x = civ?.people?.[sel.id];
   return x && civ!.polities[x.polity] ? { kind: 'polity', id: x.polity } : null;
@@ -67,6 +71,7 @@ export function selectionKey(civ: Civ, sel: MapSelection): string {
   if (sel.kind === 'settlement') return civ.settlements[sel.id] ? settlementKey(civ, sel.id) : '';
   if (sel.kind === 'place') return civ.places[sel.id] ? placeKeyOf(civ, sel.id) : '';
   if (sel.kind === 'faith') return civ.religion?.faiths[sel.id] ? faithKey(civ, sel.id) : '';
+  if (sel.kind === 'culture') return civ.cultures[sel.id] ? cultureKey(civ, sel.id) : '';
   if (sel.kind === 'mark') return `mark:${sel.id}`;
   if (sel.kind === 'character') return `character:${sel.id}`;
   if (sel.kind === 'treaty') return treatyKey(civ, sel.id);
@@ -103,6 +108,14 @@ function cellsBox(world: World, cells: Iterable<number>, ref: number): [number, 
     if (y[c] > y1) y1 = y[c];
   }
   return x0 <= x1 ? [x0, y0, x1, y1] : null;
+}
+
+/** 民族这一年人最多的州(已消亡的按还在的最后一年;一州都没有 = 发源州)在地图上的位置:侧栏、世界概览、搜索里点民族时飞过去 */
+export function cultureFocus(world: World, civ: Civ, id: number, year: number): Focus | null {
+  const cu = civ.cultures[id];
+  if (!cu || cu.unborn) return null;
+  const y = cu.ended !== undefined && cu.ended <= year ? Math.max(Math.ceil(cu.born), Math.ceil(cu.ended) - 1) : Math.max(year, Math.ceil(cu.born));
+  return selectionFocus(world, civ, { kind: 'region', id: cultureRegion(civ, id, y, ownersAt(civ, y)) }, y);
 }
 
 /** 选中的东西在地图上的位置和范围(人物 = 他的国家);找不到 = null */
