@@ -236,51 +236,59 @@ describe.each([7, 2024])('即位 · seed=%i', (seed) => {
   it('他在位时这国的强制宣战:他亲征,编年史写他的名字', () => {
     const w = world(seed);
     const base = baseOf(seed);
-    // T 年年初(之前的历史一样)陆上接壤、没在交战的两国,挑最大的那一国
-    const own = ownersAt(base, T - 1 / 512).polity;
+    // Y 年年初(之前的历史一样)陆上接壤、没在交战的两国,挑最大的那一国。Y 从 T 年起找;那年各国只隔海相邻的,往后每 50 年再找
+    // (GENERATOR_VERSION 46 以后种子 2024 第 1500 年就是这样)
     const reg = base.regions;
-    const open = new Set<number>();
-    for (const e of base.annals) {
-      if (e.year >= T) break;
-      if (e.kind === 'war') open.add(e.war);
-      else if (e.kind === 'peace') open.delete(e.war);
-    }
-    const fighting = base.annals.filter((e) => e.kind === 'war' && e.year < T && open.has(e.war)).map((e) => `${Math.min(e.a, e.b)}|${Math.max(e.a, e.b)}`);
-    const size = new Map<number, number>();
-    for (const o of own) if (o >= 0) size.set(o, (size.get(o) ?? 0) + 1);
+    let Y = T;
     let pid = -1;
     let foe = -1;
-    for (const [p] of [...size.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0])) {
-      const near: number[] = [];
-      for (let r = 0; r < reg.count; r++) {
-        if (own[r] !== p) continue;
-        for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
-          const q = own[reg.adj[k]];
-          if (q >= 0 && q !== p && reg.adjKind[k] < 3 && !fighting.includes(`${Math.min(p, q)}|${Math.max(p, q)}`)) near.push(q);
+    for (const y of [T, T + 50, T + 100, T + 150, T + 200]) {
+      const own = ownersAt(base, y - 1 / 512).polity;
+      const open = new Set<number>();
+      for (const e of base.annals) {
+        if (e.year >= y) break;
+        if (e.kind === 'war') open.add(e.war);
+        else if (e.kind === 'peace') open.delete(e.war);
+      }
+      const fighting = base.annals.filter((e) => e.kind === 'war' && e.year < y && open.has(e.war)).map((e) => `${Math.min(e.a, e.b)}|${Math.max(e.a, e.b)}`);
+      const size = new Map<number, number>();
+      for (const o of own) if (o >= 0) size.set(o, (size.get(o) ?? 0) + 1);
+      for (const [p] of [...size.entries()].sort((x, z) => z[1] - x[1] || x[0] - z[0])) {
+        const near: number[] = [];
+        for (let r = 0; r < reg.count; r++) {
+          if (own[r] !== p) continue;
+          for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
+            const q = own[reg.adj[k]];
+            if (q >= 0 && q !== p && reg.adjKind[k] < 3 && !fighting.includes(`${Math.min(p, q)}|${Math.max(p, q)}`)) near.push(q);
+          }
+        }
+        if (near.length) {
+          pid = p;
+          foe = Math.min(...near);
+          break;
         }
       }
-      if (near.length) {
-        pid = p;
-        foe = Math.min(...near);
+      if (foe >= 0) {
+        Y = y;
         break;
       }
     }
     expect(foe).toBeGreaterThanOrEqual(0);
     // 好战 0 的君主本来不亲征:作者下令的仗一律他领兵(同一年下的宣战排在即位后面)
-    const list: Intervention[] = [crown(polityKey(base, pid), T, { until: T + 30, leanings: { expand: 50, war: 0, develop: 50, trade: 50 } }), { kind: 'declare', a: polityKey(base, pid), b: polityKey(base, foe), from: T }];
-    const civ = applyCharacters(generateCiv(w, { interventions: list, endYear: T + 60 }), [{ id: 1, name: '林小满', color: 'red', born: T - 30 }]);
+    const list: Intervention[] = [crown(polityKey(base, pid), Y, { until: Y + 30, leanings: { expand: 50, war: 0, develop: 50, trade: 50 } }), { kind: 'declare', a: polityKey(base, pid), b: polityKey(base, foe), from: Y }];
+    const civ = applyCharacters(generateCiv(w, { interventions: list, endYear: Y + 60 }), [{ id: 1, name: '林小满', color: 'red', born: Y - 30 }]);
     const ai = civ.annals.findIndex((e) => e.kind === 'intervene' && e.war === 1);
-    const war = civ.annals.slice(ai + 1).find((e) => e.year === T && e.kind === 'war' && e.a === pid && e.b === foe);
+    const war = civ.annals.slice(ai + 1).find((e) => e.year === Y && e.kind === 'war' && e.a === pid && e.b === foe);
     expect(war, '宣战打成了').toBeDefined();
     const me = authorsOf(civ)[0];
     expect(me.name).toBe('林小满');
-    expect(me.commands?.[0]).toMatchObject({ war: war!.war, side: 0, from: T });
+    expect(me.commands?.[0]).toMatchObject({ war: war!.war, side: 0, from: Y });
     const all = buildChronicle(civ);
-    expect(all.find((e) => e.year === T && e.text.includes('亲征'))?.text ?? '').toContain('林小满');
-    expect(all.find((e) => e.kind === 'intervene' && e.year === T)?.text).toMatch(/^【干预】林小满即.+君位$/);
+    expect(all.find((e) => e.year === Y && e.text.includes('亲征'))?.text ?? '').toContain('林小满');
+    expect(all.find((e) => e.kind === 'intervene' && e.year === Y)?.text).toMatch(/^【干预】林小满即.+君位$/);
     // 同一年先宣战、后立他:那场仗打起来时他还没即位,不由他领兵(好战 100 的也不)
-    const late = generateCiv(w, { interventions: [list[1], { ...(list[0] as CrownIv), leanings: BOLD }], endYear: T + 60 });
-    const war2 = late.annals.find((e) => e.year === T && e.kind === 'war' && e.a === pid && e.b === foe);
+    const late = generateCiv(w, { interventions: [list[1], { ...(list[0] as CrownIv), leanings: BOLD }], endYear: Y + 60 });
+    const war2 = late.annals.find((e) => e.year === Y && e.kind === 'war' && e.a === pid && e.b === foe);
     expect(war2).toBeDefined();
     const decl = late.annals.indexOf(war2!);
     // 开战那一刻不是他(之后他即了位,仗打到一半换他领兵照常可以)

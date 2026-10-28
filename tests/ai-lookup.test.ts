@@ -13,7 +13,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { polityAlive, populationLabel, regionPopulationAt } from '../src/gen/civ/growth';
 import { regionLabel } from '../src/gen/civ/display';
 import { peopleIndex, rulerAt } from '../src/gen/civ/peopleInfo';
-import { personName } from '../src/gen/civ/peopleText';
+import { isConsul, personName } from '../src/gen/civ/peopleText';
 import { toLonLat } from '../src/ai/prompts/rewrite';
 import { LOOKUP_MAX, fitLines, landLabel, lookupLand, lookupPeople, peopleLabel, regionOf, type LookupContext } from '../src/ai/agent/lookup';
 import { ASSISTANT_SYSTEM, assistantTools, mockAssistant, stepsSummary } from '../src/ai/agent/assistant';
@@ -102,8 +102,10 @@ describe.each(worlds)('种子 $seed', (w) => {
   it('国家 + 年份:那年在位的君主、在位第几年、几岁,和那年在世的作者的人物', () => {
     const r = lookupPeople(ctx, { country: `P${big}`, year: Y });
     expect(r.summary).toBe(`第 ${Y} 年在位的是${personName(civ, ruler)}`);
-    expect(r.result).toContain(`在位的:君主 ${personName(civ, ruler)}`);
-    expect(r.result).toContain(`第 ${Y} 年时在位第 ${Y - F(ruler.from!) + 1} 年、${F(Y - ruler.born)} 岁`);
+    // 那国是共和国的(GENERATOR_VERSION 46 以后种子 7 第 2000 年最大的国家就是):写"执政""在任"
+    const consul = isConsul(civ, ruler);
+    expect(r.result).toContain(`在位的:${consul ? '执政' : '君主'} ${personName(civ, ruler)}`);
+    expect(r.result).toContain(`第 ${Y} 年时${consul ? '在任' : '在位'}第 ${Y - F(ruler.from!) + 1} 年、${F(Y - ruler.born)} 岁`);
     expect(r.result).toContain('作者的人物 林小满(书记官)');
     expect(r.result).toContain(`第 ${Y} 年时 20 岁`);
   });
@@ -325,7 +327,7 @@ describe('作者的人物即位以后', () => {
     expect(r.result).toMatch(/在推演里即位:.+\(P\d+\),第 2001—\d+ 年/);
     const k = lookupPeople(ctx, { name: '林小满', role: 'ruler' });
     expect(k.summary).toBe('找到 1 人');
-    expect(k.result).toContain('君主 林小满');
+    expect(k.result).toContain(`${ctx.civ.polities[big].lineage === 'republic' ? '执政' : '君主'} 林小满`);
     expect(k.result).toContain('是作者的人物(即位命令立的)');
   });
 

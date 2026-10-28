@@ -182,6 +182,7 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
   }, 180_000);
 
   it('不许扩张:禁令期间国土不增、不主动宣战;到期后接着扩张', () => {
+    let after = 0;
     for (const seed of [7, 2024]) {
       const civ = base(seed);
       const { a, b, p } = expansion(civ);
@@ -202,7 +203,10 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
         ).toEqual([]);
         // 到期后又能扩张、主动开战(GENERATOR_VERSION 43 仗打得密以后,到期后有的国家先扩张、后来又被邻国打得只剩几州:
         // 不再只比第 b 年的州数,看到期后的两百年里有没有长过、开过战)
-        if (until) {
+        // 禁令期间可能被强国打下国都、余下的州一并归降(GENERATOR_VERSION 46 以后 2024 号的那国第 1380 年亡了):亡了的不看到期后
+        const gone = !!until && c.polities[id].ended !== undefined && c.polities[id].ended! <= until;
+        if (until && !gone) {
+          after++;
           const grew = Array.from({ length: 20 }, (_, i) => until + 10 * (i + 1)).some((y) => y <= b && sizeAt(c, id, y) > sizeAt(c, id, until));
           const waged = c.annals.some((e) => e.kind === 'war' && e.a === id && e.year >= until && e.year < b && e.cause !== 'heir' && e.cause !== 'quell');
           expect(grew || waged, `seed ${seed}:到期后接着扩张`).toBe(true);
@@ -210,5 +214,6 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
         expect(ivText(c)[0]).toMatch(until ? new RegExp(`不再开疆拓土,至第 ${until} 年`) : /不再开疆拓土/);
       }
     }
+    expect(after, '两个种子里至少一国撑到禁令到期').toBeGreaterThan(0);
   }, 180_000);
 });
