@@ -140,6 +140,7 @@ import {
   cleanCivSeed,
   cleanEndYear,
   cleanPlay,
+  commandsNow,
   cultureKey,
   extendedEndYear,
   faithKey,
@@ -1827,14 +1828,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     };
     /**
      * 原来那一支要留下的样子(重新演绎、切走时):单子里还没交出去的干预(和万一还在算的那一步带走的)
-     * 都当作在"现在"下的(在那一年年初生效,同存回推演模式)。没在逐年推演 = null
+     * 都当作在"现在"下的(在进度那一刻生效:那一年年初,停在年中的是那一格;同存回推演模式)。没在逐年推演 = null
      */
     const keptBranch = (): WorldEdits | null => {
       const e0 = getEdits();
       const play = cleanPlay(e0.play);
       if (!play) return null;
       const later = [...(getStepwise().busy?.commands ?? []), ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))];
-      const now = later.map((v) => ({ ...v, from: play.year }) as Intervention);
+      const now = commandsNow(play, later);
       return now.length ? { ...e0, play: issueCommands(play, now).play } : e0;
     };
     /** 单子里还没交出去的干预已经记进原来那一支:从单子里拿掉 */
