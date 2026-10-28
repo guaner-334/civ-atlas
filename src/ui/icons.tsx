@@ -297,6 +297,16 @@ const PATHS = {
   pen: <path d="M14.5 5.5l4 4L9 19H5v-4z" />,
   lines: <path d="M6 7h12M6 12h12M6 17h7" />,
   ring: <circle cx="12" cy="12" r="6" />,
+  /** 人物关系图:中间一个圈,连着三个小圈 */
+  relation: (
+    <>
+      <circle cx="12" cy="12" r="3.2" />
+      <circle cx="5" cy="5.5" r="2.2" />
+      <circle cx="19" cy="6.5" r="2.2" />
+      <circle cx="6.5" cy="19" r="2.2" />
+      <path d="M6.6 7.1l3.1 2.9M17.2 7.9l-2.6 2.2M7.9 17.4l2.3-2.6" />
+    </>
+  ),
   /** 拖动排序的把手 */
   grip: (
     <>

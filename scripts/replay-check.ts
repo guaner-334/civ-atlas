@@ -780,6 +780,61 @@ if (part('人物')) person: {
   await page.evaluate(() => localStorage.clear());
 }
 
+// 人物关系图:君主卡片「更多」最上面「关系图」→ 右边铺开以他为中心的图(左边卡片留着);点图上一位 → 换他居中、左边卡片跟着换、路径两段;
+// ‹ 退回;× 收起 → 地图左上「回到关系图」→ 再打开(中心还在);Esc 收起、卡片还开着
+if (part('人物关系图')) relation: {
+  const { findPersonExample } = await import('./lib/smokeExamples');
+  const ex = findPersonExample();
+  if (!ex) break relation;
+  await page.goto(`${dev.url}/?seed=${ex.seed}&civYear=${ex.year}`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await page.evaluate((id) => (window as any).__wfSelect('polity', id), ex.polity);
+  await page.waitForTimeout(500);
+  await page.click('.inspector .cp-rulers .cp-dyn-row.on');
+  await page.waitForTimeout(400);
+  const id = await page.locator('.inspector .cp.pp').getAttribute('data-person');
+  await page.click('.inspector .cp.pp [data-act=more]');
+  const first = await page.locator('.pm-menu .pm-item').first().getAttribute('data-act');
+  await page.click('.pm-menu [data-act=person-relation]');
+  await page.waitForTimeout(500);
+  const center = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  const nodes = await page.locator('.rg-canvas > .rg-node[data-relation]').count();
+  const blocks = await page.locator('.rg-block').count();
+  const next = page.locator('.rg-canvas > .rg-node[data-relation^="p"]').first();
+  const nextK = await next.getAttribute('data-relation');
+  await next.click();
+  await page.waitForTimeout(700);
+  const center2 = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  const card2 = await page.locator('.inspector .cp.pp').getAttribute('data-person').catch(() => null);
+  const crumbs = await page.locator('.rg-crumbs b, .rg-crumbs .lnk').count();
+  await page.click('.rg [data-act=relation-back-step]');
+  await page.waitForTimeout(600);
+  const center3 = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  const card3 = await page.locator('.inspector .cp.pp').getAttribute('data-person').catch(() => null);
+  await page.click('.rg [data-act=relation-close]');
+  await page.waitForTimeout(300);
+  const back = await page.locator('.corner-tl [data-act=relation-back]').count();
+  await page.click('.corner-tl [data-act=relation-back]').catch(() => {});
+  await page.waitForTimeout(500);
+  const reopened = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  await page.mouse.move(5, 5);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  const closed = !(await page.locator('.rg').count());
+  const cardKept = await page.locator('.inspector .cp.pp').getAttribute('data-person').catch(() => null);
+  console.log(
+    `人物关系图:「更多」第一项 ${first};${center} ${nodes} 人、${blocks} 簇;点 ${nextK} → ${center2}、卡片 ${card2}、路径 ${crumbs} 段;‹ → ${center3}、卡片 ${card3};` +
+      `× → 回到关系图 ${back} → ${reopened};Esc 收起 ${closed}、卡片 ${cardKept}`,
+  );
+  if (first !== 'person-relation') errs.push(`人物关系图:「更多」最上面不是「关系图」(${first})`);
+  if (center !== `p${id}` || nodes < 2) errs.push(`人物关系图:没有以他为中心打开(${center};p${id};${nodes} 人)`);
+  if (!nextK || center2 !== nextK || `p${card2}` !== nextK || crumbs !== 2) errs.push(`人物关系图:点一位没有换他居中、卡片没跟着换(${nextK};${center2};${card2};${crumbs})`);
+  if (center3 !== `p${id}` || card3 !== id) errs.push(`人物关系图:‹ 没有退回(${center3};${card3})`);
+  if (back !== 1 || reopened !== `p${id}`) errs.push(`人物关系图:收起后「回到关系图」不对(${back};${reopened})`);
+  if (!closed || cardKept !== id) errs.push(`人物关系图:Esc 没收起、或者把卡片也关了(${closed};${cardKept})`);
+  await page.keyboard.press('Escape');
+}
+
 // 作者标记:右下角「标记」→ 顶部提示条"点地图放标记",点城的位置放下 → 填写卡片(名字、年份、说明)→ 完成:地图上有图钉和名字、
 // 卡片是看的样子;悬停图钉 = 小卡片在图钉左上方;撤销 / 重做;往回拖 100 年标记不见了;搜得到;世界概览「标记」页一行,点了打开;
 // 「更多」→ 删除,提示条上「撤销」放回;州卡片「更多」→ 在这里加标记(几个州,地图上有名字牌);导出菜单多一行"作者标记"
