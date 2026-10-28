@@ -5839,9 +5839,19 @@ if (part('手机布局')) {
     await mp.keyboard.press('Escape');
     await mp.waitForTimeout(400);
   }
+  // 上面撤销结盟、重推完以后时间轴从 2600 年接着放;国家表按那一年的州数排,两国州数交错时先后跟着换
+  //(种子 7 第 2716–2724 年、2784 年前后第一名换人),读第一行和点下去之间可能已经换了一国。
+  // 先点胶囊上的暂停键,让表停在一年上;点的时候也按国家编号点读到的那一行
+  const ovPlaying = (await mp.locator('.bottom-row .tb-play.on:not([disabled])').count()) > 0;
+  if (ovPlaying) {
+    await mp.tap('.bottom-row .tb-play.on').catch(() => {});
+    await mp.locator('.bottom-row .tb-play.on').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  }
+  const ovYear = (await mp.locator('.bottom-row .tb-year').first().innerText().catch(() => '')).replace(/\s+/g, '');
   await mp.tap('.psheet [data-act=overview]', { timeout: 5000 }).catch(() => {});
   await mp.waitForTimeout(400);
-  const ovRow = mp.locator('.ov-row').first();
+  const ovId = await mp.locator('.ov-row').first().getAttribute('data-polity', { timeout: 5000 }).catch(() => null);
+  const ovRow = mp.locator(`.ov-row[data-polity="${ovId}"]`);
   const ovName = await ovRow.locator('.ov-name').innerText().catch(() => '');
   const ovRowText = (await ovRow.innerText().catch(() => '')).replace(/\n/g, ' ');
   await ovRow.tap().catch(() => {});
@@ -5895,7 +5905,7 @@ if (part('手机布局')) {
       `捏合 k ${k0.toFixed(2)} → ${k1.toFixed(2)}(中点下 ${mid0?.map((v: number) => v.toFixed(0))} → ${mid1?.map((v: number) => v.toFixed(0))});单指拖动 ${panned};点两下回正 k ${kReset.toFixed(2)};` +
       `点「${pol?.text}」→ 详情卡片 ${JSON.stringify(sheet0)}、胶囊 ${JSON.stringify(row1)}、国都圆环 ${JSON.stringify(ring)}、悬停卡片 ${hover};上拖 → 拉到顶 ${full} ${JSON.stringify(sheet1)}、胶囊藏起 ${fullCapsuleHidden};` +
       `干预页 ${cmds} 条;结盟提示「${pickToast}」、卡片藏起 ${hiddenWhilePicking};点「${tgtText}」→「${doneToast}」;撤销 →「${undoToast}」;` +
-      `图层抽屉 ${JSON.stringify(lp)} → 卫星 ${dark}、收起 ${lpClosed};概览「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」;` +
+      `图层抽屉 ${JSON.stringify(lp)} → 卫星 ${dark}、收起 ${lpClosed};概览(${ovYear}${ovPlaying ? ',在放 → 先暂停' : ''})「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」;` +
       `拉到顶 ${homeFull} 点我的世界 → ${JSON.stringify(homeBox)}、${homeCards} 个世界;新建 → 卡片 ${JSON.stringify(nwBox)};改地形 → 工具 ${nwTools};完成 → 退回 ${nwBack}`,
   );
   if (!ws0 || Math.abs(ws0.y - (VH - PEEK)) > 2 || Math.abs(ws0.y + ws0.height - VH) > 1 || ws0.width !== VW) errs.push(`手机:世界卡片没有收在最底(${JSON.stringify(ws0)})`);
@@ -5932,7 +5942,7 @@ if (part('手机布局')) {
   if (!lp || Math.abs(lp.y + lp.height - VH) > 1 || lp.width !== VW) errs.push(`手机:图层弹层不是底部抽屉(${JSON.stringify(lp)})`);
   if (dark !== 'dark' || !lpClosed) errs.push(`手机:图层抽屉里切到卫星不对 / 收不起来(${dark},${lpClosed})`);
   if (!afterX.sheet) errs.push(`手机:关掉详情卡片后没有回到世界卡片(${JSON.stringify(afterX)})`);
-  if (!ovClosed || !ovName || !ovIns.includes(ovName)) errs.push(`手机:概览的国家列表点一国没有打开这国(${ovName})`);
+  if (!ovClosed || !ovName || !ovIns.includes(ovName)) errs.push(`手机:概览的国家列表点一国没有打开这国(${ovName};${ovYear},详情卡片「${ovIns.slice(0, 20).replace(/\n/g, ' ')}」)`);
   if (!sb || sb.width < VW - 40 || !searchFull) errs.push(`手机:搜索时世界卡片没有拉到顶(${JSON.stringify(sb)})`);
   if (!hitName || !searchIns.includes(hitName)) errs.push(`手机:搜索点一条没有打开它(${hitName})`);
   if (!homeFull || !homeBox || homeBox.width !== VW || homeCards !== 1) errs.push(`手机:拉到顶的世界卡片里点"我的世界"没有整屏换成我的世界(${JSON.stringify(homeBox)},${homeCards} 个世界)`);
