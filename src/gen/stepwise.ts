@@ -35,6 +35,7 @@ import {
   branchFromAt,
   branchPlay,
   commandAt,
+  commandYear,
   forkMoment,
   forkedAt,
   momentAt,
@@ -356,15 +357,17 @@ export type InterventionFate = { state: 'later' } | { state: 'done'; annal: numb
 export function interventionFate(civ: Civ, i: number): InterventionFate {
   const v = civ.interventions?.[i];
   if (!v) return { state: 'void', annal: -1, why: '没有这条干预' };
-  if (commandAt(v) / YEAR_TICKS > civ.endYear) return { state: 'later' };
+  // 生效那一刻(年;逐年推演年中下的带着第几格)
+  const t = commandYear(v);
+  if (t > civ.endYear) return { state: 'later' };
   const r = interventionOutcome(civ, i);
   if (r.annal >= 0) return r.ok ? { state: 'done', annal: r.annal } : { state: 'void', annal: r.annal, why: r.why ?? '没有生效' };
   if (v.kind === 'found' || !v.a) return { state: 'void', annal: -1, why: '没有生效' };
   const k = resolveKey(civ, v.a);
   if (!k || k.kind !== 'polity') return { state: 'void', annal: -1, why: '新历史里没有这个国家' };
   const p = civ.polities[k.id];
-  if (p.founded > v.from) return { state: 'void', annal: -1, why: `${polityName(p, p.founded) || p.name}第 ${Math.floor(p.founded)} 年才立国` };
-  if (p.ended !== undefined && p.ended <= v.from) {
+  if (p.founded > t) return { state: 'void', annal: -1, why: `${polityName(p, p.founded) || p.name}第 ${Math.floor(p.founded)} 年才立国` };
+  if (p.ended !== undefined && p.ended <= t) {
     const name = polityName(p, p.ended - 1 / 512) || p.name;
     return { state: 'void', annal: -1, why: `${name}第 ${Math.floor(p.ended)} 年已亡` };
   }

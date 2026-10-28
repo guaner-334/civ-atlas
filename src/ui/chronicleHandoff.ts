@@ -63,10 +63,10 @@ function sameNames(a: Record<string, string>, b: Record<string, string>): boolea
 
 /** 没套作者人物名字的历史的 authorsKey */
 const NO_AUTHORS = 'null';
-/** 套了哪些作者人物的名字(编年史里写到的作者立的君主、没即位成的人物):一样的两份,编年史逐字一样 */
-const authorsKey = (civ: Civ) => JSON.stringify(civ.authorNames ?? null);
+/** 套了哪些作者人物的名字和性别(编年史里写到的作者立的君主、没即位成的人物):一样的两份,编年史逐字一样;一个女的都没有时只看名字 */
+const authorsKey = (civ: Civ) => (civ.authorFemale?.length ? JSON.stringify([civ.authorNames ?? null, civ.authorFemale]) : JSON.stringify(civ.authorNames ?? null));
 
-/** 历史 raw 里会写到哪些作者人物的名字(没有作者立的君主 = ''):人物卡改了别的(颜色、经历……)不用重套 */
+/** 历史 raw 里会写到哪些作者人物的名字、性别(没有作者立的君主 = ''):人物卡改了别的(颜色、经历……)不用重套 */
 export function authorNamesKey(raw: Civ | null, chars: Chars): string {
   return raw ? authorsKey(applyCharacters({ ...raw, people: undefined }, chars)) : '';
 }
@@ -140,11 +140,11 @@ export interface NamedHistory {
 export function useNamedHistory(raw: Civ | null, names: Record<string, string>, chars?: Chars): NamedHistory | null {
   const [tick, bump] = useReducer((x: number) => x + 1, 0);
   const last = useRef<NamedHistory | null>(null);
-  // 作者人物只看会写进历史的名字:改了人物卡上别的,历史不用重套
+  // 作者人物只看会写进历史的名字、性别:改了人物卡上别的,历史不用重套
   const authors = useMemo(() => authorNamesKey(raw, chars), [raw, chars]);
   const charsRef = useRef(chars);
   charsRef.current = chars;
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- authors:写进历史的名字变了才重套
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- authors:写进历史的名字、性别变了才重套
   const want = useMemo(() => (raw ? namedHistory(raw, names, charsRef.current) : null), [raw, names, authors]);
   const shown = useMemo((): NamedHistory | null => {
     if (!raw || !want) return null;

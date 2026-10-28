@@ -113,6 +113,8 @@ function useFace(civ: Civ, chars: readonly AuthorCharacter[] | undefined, ref: R
     }
     const c = chars?.find((q) => q.id === ref.id);
     if (!c) return null;
+    // 女的作者人物(头像部件还没有):她的颜色上写名字(和作者人物卡同一种)
+    if (c.female) return { p: null, name: c.name, color: MARK_HEX[c.color] };
     const p = characterPortrait(civ, c, polity, Math.min(c.born + 30, c.died ?? Infinity));
     const pol = polity >= 0 ? civ.polities[polity] : undefined;
     return p ? { p, name: '', color: pol ? `rgb(${pol.color.join(',')})` : MARK_HEX[c.color] } : null;
@@ -432,8 +434,8 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
     return stacked ? stackLayout(g, size.W, crumbTop) : deskLayout(g, size.W, size.H, cardW);
   }, [g, size, stacked, crumbTop, cardW]);
 
-  /** 推演里的人按性别写他 / 她(作者的人物照旧写他) */
-  const ta = (ref: RelRef) => (ref.kind === 'person' ? heOrShe(civ.people?.[ref.id]) : '他');
+  /** 按性别写他 / 她(推演里的人、作者的人物都一样) */
+  const ta = (ref: RelRef) => heOrShe(ref.kind === 'person' ? civ.people?.[ref.id] : chars?.find((c) => c.id === ref.id));
   // 悬停说明、名单、手机上点开的那位
   const [hot, setHot] = useState<string | null>(null);
   const [list, setList] = useState<ListOpen | null>(null);
@@ -615,7 +617,7 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
   const empty =
     g && !g.own ? (
       <div className="rg-empty" style={L ? { top: L.cy + (stacked ? PHONE_CARD_H / 2 + 58 : CARD_H / 2 + 34) } : undefined}>
-        <div className="t">{center.kind === 'person' ? `推演里没记下${ta(center)}和别人的往来` : '还没写他和别人的关系'}</div>
+        <div className="t">{center.kind === 'person' ? `推演里没记下${ta(center)}和别人的往来` : `还没写${ta(center)}和别人的关系`}</div>
         <div className="s">{g.empty}</div>
         {center.kind === 'person' && (
           <button className="rg-pri" data-act="relation-add-character" onClick={addChar}>

@@ -186,7 +186,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const refs = useMemo(() => charactersOfPerson(civ, chars, id, era), [civ, chars, id, era]);
   // 头像按岁数变(年份取整),去世以后定在去世那年
   const age = x ? Math.floor((x.died !== undefined ? Math.min(year, x.died) : year) - x.born) : 0;
-  const portrait = useMemo(() => (x ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
+  // 女的头像部件还没有:国家色的方块写名字(NameFace)
+  const portrait = useMemo(() => (x && !isFemale(x) ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
   const mood = useMemo(() => (x ? portraitMood(civ, x, year) : undefined), [civ, x, year]);
   // 卡片换上的填写页(让他去世 / 改他的倾向 / 让他掌权 / 为他联姻);换了人就回到卡片
   const [ivPage, setIvPage] = useState<{ id: number; kind: PersonIvKind | 'regent' | 'marry' } | null>(null);
@@ -255,10 +256,9 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
               dark={x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle'}
               mood={mood}
             />
-          ) : x.female && x.name ? (
-            // 女性的头像部件还没画:国家色方块上写名字后两个字
+          ) : isFemale(x) ? (
             <NameFace name={x.name} size="card" color={rgb(p.color)} dead={x.died !== undefined && year > x.died} />
-          ) : null
+          ) : undefined
         }
       >
         {nameKey ? (

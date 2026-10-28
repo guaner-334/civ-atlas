@@ -38,7 +38,7 @@
  *   没有标记时不写这个字段。读档时过 cleanMarks,格式不对的跳过
  * - edits.characters(可选):作者的人物(characters.ts),`[{ "id": 1, "name": "林小满", "color": "red", "born": 2490, "died": 2561,
  *   "birthplace": "settlement:c4567#0", "life": [{ "year": 2506, "text": "随军西征", "where": "region:c8123" }] }]`;
- *   没有人物时不写这个字段。读档时逐个过 cleanCharacter,格式不对的跳过
+ *   女的多一项 `"female": true`(以前的存档没有这一项,读出来都是男的)。没有人物时不写这个字段。读档时逐个过 cleanCharacter,格式不对的跳过
  * - edits.nameMix(可选):整个世界的地名风格,每种语感占几份(edits.ts 文件头"地名风格"),`{ "xianxia": 6, "central": 4 }`;自动时不写。
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
  * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。

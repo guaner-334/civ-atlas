@@ -35,6 +35,7 @@ export function characterCard(civ: Civ, world: World, raster: Raster | null, c: 
   });
   return {
     name: c.name,
+    ...(c.female ? { female: true as const } : {}),
     born: c.born,
     died: c.died,
     role: c.role ?? '',
