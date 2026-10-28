@@ -25,7 +25,7 @@ describe('接着推和一口气推完一样(随机自查)', () => {
     const r = fuzzResume({ seed, to: 2000 });
     expect(r.diff, `seed ${seed}`).toBeNull();
     // 各种命令都下过
-    expect(Object.keys(r.kinds).sort(), `seed ${seed}`).toEqual(['ally', 'boost', 'cede', 'crown', 'death', 'declare', 'destroy', 'disaster', 'found', 'halt', 'move', 'neutral', 'policy', 'protect', 'temper', 'treaty', 'unity']);
+    expect(Object.keys(r.kinds).sort(), `seed ${seed}`).toEqual(['ally', 'boost', 'cede', 'crown', 'death', 'declare', 'destroy', 'disaster', 'found', 'halt', 'move', 'neutral', 'policy', 'protect', 'stay', 'temper', 'treaty', 'trek', 'unity']);
   }, 300_000);
 
   it('seed 37:停在一次"早年当过别国国都的城照原定的年份立国"以前、接着推 50 年,和一口气推完一样', () => {

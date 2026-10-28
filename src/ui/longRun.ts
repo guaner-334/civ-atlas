@@ -195,6 +195,7 @@ function sceneOf(src: FilmSource, look: LongLook, year: number): ShotScene {
     graticule: look.graticule,
     marks: look.marks ? (y) => look.marks!(sc.civ, sc.world, y) : undefined,
     markChars: look.markChars,
+    era: getEdits().era,
   };
 }
 

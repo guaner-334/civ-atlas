@@ -110,7 +110,8 @@ import { Practice, hasPractice } from './practices';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
 import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../era';
-import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { IV_NO_WAY } from './trekRoute';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from './rulers';
 import { personNamers } from './naming';
@@ -1006,6 +1007,9 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       return marryStory(civ, e, v, A, fail, done);
     case 'disaster':
       return disasterStory(civ, e, v, A, R, fail, done);
+    case 'trek':
+    case 'stay':
+      return trekStory(civ, e, v, next()?.kind === 'trek' ? next() : undefined, fail, done);
     case 'move': {
       const city = cityName(civ, e.settlement);
       if (!city) return fail(`${A}欲迁都,然其城尚未建起`, '那一年还没有这座城');
@@ -1265,6 +1269,27 @@ function waitStory(civ: Civ, e: Annal, who: string, A: string, fail: Say, done: 
   if (p?.ended !== undefined && p.ended <= cur.until) return fail(`欲立${who}继${curName}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
   const how = cur.fate === 'deposed' || cur.fate === 'overthrown' ? '被废(改朝换代)' : cur.fate === 'yielded' ? '让位' : '下台';
   return fail(`欲立${who}继${curName}为${A}之主,然${curName}${how},未及即位`, `${curName} ${Math.floor(cur.until)} 年${how},没等到${heOrShe(cur)}下台`);
+}
+
+/**
+ * 大迁徙:"【干预】克拉尔族一支举族西徙,往瑶渊之野"(经过、结局另有大迁徙那一条大事);走不成的"欲令克拉尔族徙往瑶渊之野,然陆路不通"。
+ * 不许迁:"【干预】克拉尔族自此安居故土,不复远徙,至第 2100 年"。民族在 Annal.n;动身紧跟着记 trek n = 0(go)
+ */
+function trekStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'trek' | 'stay' }>, go: Annal | undefined, fail: Say, done: Done): IvStory {
+  const F = e.n !== undefined && e.n >= 0 ? cn(civ, e.n) : '其族';
+  if (v.kind === 'stay') {
+    if (e.b === -3) return fail(`欲令${F}安居故土,然${F}已不在`, `那一年${F}已消亡`);
+    const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
+    return done(`${F}自此安居故土,不复远徙${until}`);
+  }
+  const to = v.to !== undefined ? regionName(civ, regionOfKey(v.to, keyCells(civ.regions))) : '';
+  if (e.b === -3) return fail(`欲令${F}远徙,然${F}已不在`, `那一年${F}已消亡`);
+  if (e.b === IV_NO_WAY) {
+    return to ? fail(`欲令${F}徙往${to},然陆路不通`, `陆路走不到${to}`) : fail(`欲令${F}远徙,然无地可往`, '走得到的地方里没有能去的(有城、不是本族的州)');
+  }
+  const M = go ? civ.migrations?.[go.war] : undefined;
+  const dest = regionName(civ, e.region) || to;
+  return done(`${F}一支举族${M ? `${M.dir}徙` : '远徙'}${dest ? `,往${dest}` : ''}`);
 }
 
 /** 天灾:"【干预】星邑大疫,死者十之五""【干预】有桑皇朝大饥,民多饿死,死者十之三""【干预】翼门之野一带地震,城郭多圮,死者十之三" */
