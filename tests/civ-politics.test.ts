@@ -206,8 +206,9 @@ describe('分与合', () => {
       for (const e of civ.annals) {
         if (e.kind !== 'war') continue;
         const Q = civ.polities[e.b];
-        // 援盟、救藩不算:是它先动的手(打了别国的盟国 / 藩属);讨伐民变、据地争位的宗室不算:起事当即发兵
-        if (e.cause === 'ally' || e.cause === 'rescue' || e.cause === 'quell' || e.cause === 'heir') continue;
+        // 援盟、救藩不算:是它先动的手(打了别国的盟国 / 藩属);讨伐民变、据地争位的宗室不算:起事当即发兵;
+        // 大迁徙迁来的一支到了当即开的那一仗(cause = trek)也不算
+        if (e.cause === 'ally' || e.cause === 'rescue' || e.cause === 'quell' || e.cause === 'heir' || e.cause === 'trek') continue;
         if (Q.parent !== undefined) expect(e.year - Q.founded, `seed ${seed} 战争 ${e.war}`).toBeGreaterThanOrEqual(NEWBORN);
       }
       const restored = civ.polities.filter((p) => p.restores !== undefined).map((p) => p.restores!);

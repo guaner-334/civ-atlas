@@ -257,17 +257,18 @@ describe('改写 · 核对 AI 的回复', () => {
 
   it('保护 / 禁止扩张 / 禁止分裂:编号换成稳定键;until 在 from 之后才收;没写年份用时间轴的年份', () => {
     const a = polityKey(civ, big);
-    // 这个国家第 473 年立国(GENERATOR_VERSION 15),命令从立国以后下
-    expect(one({ op: 'protect', country: `P${big}`, from: 1700, until: 2000, why: '多撑一阵' })).toMatchObject({
+    // 命令从立国以后下:第 1700 年起,这个国家那时还没立就从立国后一年起(GENERATOR_VERSION 15 时它第 473 年立国;47 以后换了一国,第 2236 年立国)
+    const F = Math.max(1700, Math.floor(civ.polities[big].founded) + 1);
+    expect(one({ op: 'protect', country: `P${big}`, from: F, until: F + 300, why: '多撑一阵' })).toMatchObject({
       op: 'protect',
-      change: { kind: 'intervention', v: { kind: 'protect', a, from: 1700, until: 2000 } },
-      year: 1700,
+      change: { kind: 'intervention', v: { kind: 'protect', a, from: F, until: F + 300 } },
+      year: F,
       why: '多撑一阵',
-      text: expect.stringMatching(/:保护\(至第 2000 年\)$/),
+      text: expect.stringMatching(new RegExp(`:保护\\(至第 ${F + 300} 年\\)$`)),
     });
-    expect(one({ op: 'protect', country: `P${big}`, from: '第 1700 年', until: 1600 }).change).toEqual({ kind: 'intervention', v: { kind: 'protect', a, from: 1700 } });
+    expect(one({ op: 'protect', country: `P${big}`, from: `第 ${F} 年`, until: F - 100 }).change).toEqual({ kind: 'intervention', v: { kind: 'protect', a, from: F } });
     expect(one({ op: 'halt', country: `P${big} 某国`, until: Y + 100 }).change).toEqual({ kind: 'intervention', v: { kind: 'halt', a, from: Y, until: Y + 100 } });
-    expect(one({ op: 'unity', country: big, from: 1999.7 }).change).toEqual({ kind: 'intervention', v: { kind: 'unity', a, from: 1999 } });
+    expect(one({ op: 'unity', country: big, from: F + 299.7 }).change).toEqual({ kind: 'intervention', v: { kind: 'unity', a, from: F + 299 } });
     // 时间轴在最后一年(刚打开时就是):没写年份、或写的就是最后一年 = 前一年起
     const end = ctx(EMPTY, civ.endYear);
     const last = civ.polities.find((p) => p.ended === undefined)!;
