@@ -111,7 +111,15 @@ const rank = (w: string) => {
 };
 
 /** 下一排点开的名单叫什么 */
-const downTitle = (list: RelNode[]) => (list.every((n) => n.word === '子' || n.word === '养子') ? '子嗣' : '晚辈');
+const downTitle = (list: RelNode[]) => (list.every((n) => /^养?[子女]$/.test(n.word)) ? '子嗣' : '晚辈');
+/** 同辈一边点开的名单叫什么:兄长 / 姐姐 / 兄姐(弟弟、妹妹、弟妹;从兄、族姐也算);夹着别的 = '' */
+const sameTitle = (list: readonly RelNode[], side: number): string => {
+  const [m, f] = side < 0 ? ['兄', '姐'] : ['弟', '妹'];
+  if (!list.every((n) => n.word.includes(m) || n.word.includes(f))) return '';
+  const hasM = list.some((n) => n.word.includes(m));
+  const hasF = list.some((n) => n.word.includes(f));
+  return hasM && hasF ? `${m}${f}` : hasF ? `${f}${f}` : side < 0 ? '兄长' : '弟弟';
+};
 
 const LEFT_K: Cluster[] = ['inlaw', 'author', 'other', 'story'];
 const RIGHT_K: Cluster[] = ['court', 'friend', 'rival'];
@@ -312,9 +320,9 @@ export function deskLayout(g: RelGraph, W: number, H: number, cardW: number): La
     byBorn,
   );
   const xs: [number, RelNode | null][] = [];
-  for (const [C, side, title] of [
-    [elders, -1, '兄长'],
-    [youngers, 1, '弟弟'],
+  for (const [C, side] of [
+    [elders, -1],
+    [youngers, 1],
   ] as const) {
     C.shown.forEach((n, i) => {
       const x = cx + side * (sx0 + i * sx);
@@ -324,7 +332,7 @@ export function deskLayout(g: RelGraph, W: number, H: number, cardW: number): La
     if (C.more) {
       const x = cx + side * (sx0 + C.shown.length * sx);
       const list = [...C.all].sort(byBorn);
-      const w = list.every((n) => n.word.includes(side < 0 ? '兄' : '弟')) ? title : '';
+      const w = sameTitle(list, side);
       mores.push({ k: `more-same${side}`, x, y: ySame, size: 48, count: C.more, label: `还有 ${C.more} 位${w}`, title: w || '同辈', list });
       xs.push([x, null]);
     }
@@ -468,9 +476,9 @@ export function stackLayout(g: RelGraph, W: number, top: number): StackLayout {
   }
   const parentXs = up.cells.filter((c) => c.n && isParent(c.n)).map((c) => cx + c.dx * 90);
   const xs: number[] = [];
-  for (const [list, side, title, order] of [
-    [sames.filter((n) => isElder(n.word)), -1, '兄长', bornDesc],
-    [sames.filter((n) => !isElder(n.word)), 1, '弟弟', byBorn],
+  for (const [list, side, order] of [
+    [sames.filter((n) => isElder(n.word)), -1, bornDesc],
+    [sames.filter((n) => !isElder(n.word)), 1, byBorn],
   ] as const) {
     if (!list.length) continue;
     // 每边 1 格,多了第二格是"还有 N 位"(正好两位就都画出来)
@@ -482,7 +490,7 @@ export function stackLayout(g: RelGraph, W: number, top: number): StackLayout {
     if (C.more) {
       const all = [...C.all].sort(byBorn);
       const x = cx + side * (92 + C.shown.length * 82);
-      mores.push({ k: `more-same${side}`, x, y: ySame, size: 44, count: C.more, label: `还有 ${C.more} 位`, title: all.every((n) => n.word.includes(side < 0 ? '兄' : '弟')) ? title : '同辈', list: all });
+      mores.push({ k: `more-same${side}`, x, y: ySame, size: 44, count: C.more, label: `还有 ${C.more} 位`, title: sameTitle(all, side) || '同辈', list: all });
       xs.push(x);
     }
   }

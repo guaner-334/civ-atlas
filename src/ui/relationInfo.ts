@@ -11,7 +11,8 @@
  * 作者的人物居中时:他的亲友按写的字归簇(byWord),经历里勾到的推演人物单独一簇「经历里写到」;存档里的格式不动。
  *
  * 自己的关系不到 5 位时自动"多看一层":亲人的亲人(按世系算得出称呼的写"祖父""侄",算不出的写"父亲的女婿""同朝将领""某某之父"),
- * 淡一些、小一号。悬停的几句里"他"都换成了中心那位(多看一层的换成经过的那位)的名字;名字下面的红字照旧写"他"(指中心那位)。
+ * 淡一些、小一号。悬停的几句里"他"都换成了中心那位(多看一层的换成经过的那位)的名字;名字下面的红字照旧写"他"(指中心那位,
+ * 她是女的写"她")。称呼都按对方的性别写(父 / 母、子 / 女、兄 / 姐、岳父 / 岳母……,gen/civ/gender.ts)。
  */
 import type { Civ, Person, PersonSpouse } from '../gen/civ/types';
 import type { AuthorCharacter } from '../gen/characters';
@@ -21,6 +22,7 @@ import { peopleIndex, personFame, personSpan } from '../gen/civ/peopleInfo';
 import { fatherOf, kidsOf } from '../gen/civ/lineageInfo';
 import { brideName, heldOver, polityShort } from '../gen/civ/regentInfo';
 import { generalRole, isConsul, kinOf, ministerRole, personName, princeRole, rulerRole } from '../gen/civ/peopleText';
+import { heOrShe, isFemale, kinWord } from '../gen/civ/gender';
 import { MARK_HEX } from '../render/marks';
 import { spaced, yearAt, yearShort, yearSpan, yearSpanAt, type Era } from '../gen/era';
 import { lifeYears } from './characterInfo';
@@ -108,10 +110,11 @@ export interface RelGraph {
 /** 自己的关系不到这么多位时自动多看一层 */
 export const DEEP_BELOW = 5;
 
-const UP = new Set(['父', '养父', '祖父', '曾祖父', '伯父', '叔父', '伯祖', '叔祖', '从伯父', '从叔父']);
-const SAME = new Set(['兄', '弟', '从兄', '从弟', '族兄', '族弟']);
+// 女的称呼(母、姐、姑母……)和男的同一辈
+const UP = new Set(['父', '养父', '祖父', '曾祖父', '伯父', '叔父', '伯祖', '叔祖', '从伯父', '从叔父', '母', '养母', '祖母', '曾祖母', '姑母', '姑祖母', '从姑母']);
+const SAME = new Set(['兄', '弟', '从兄', '从弟', '族兄', '族弟', '姐', '妹', '从姐', '从妹', '族姐', '族妹']);
 /** 姻亲簇里的先后 */
-export const INLAW_ORDER = ['外祖父', '岳父', '女婿', '外孙'];
+export const INLAW_ORDER = ['外祖父', '外祖母', '岳父', '岳母', '女婿', '外孙', '外孙女'];
 
 /** 推演人物血亲的称呼 → 摆在哪一辈 */
 export function bloodSlot(word: string): 'up' | 'same' | 'down' {
@@ -217,11 +220,14 @@ export function warmRelations(civ: Civ) {
 }
 
 /**
- * 一个推演人物的全部关系。说明里指 x 的地方写 him(关系图里换成中心那位的名字;不给 = "他");
- * 名字下面的红字(tag)照旧写"他"
+ * 一个推演人物的全部关系。说明里指 x 的地方写 him(关系图里换成中心那位的名字;不给 = "他" / "她");
+ * 名字下面的红字(tag)照旧写"他"(x 是女的写"她")。称呼按对方的性别写(父 / 母、子 / 女、兄 / 姐……)
  */
-export function personTies(civ: Civ, x: Person, era?: Era | null, him = '他'): Tie[] {
+export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = heOrShe(x)): Tie[] {
   const out = new Map<number, Tie>();
+  const ta = heOrShe(x);
+  /** 红字里的"他"按 x 的性别 */
+  const tg = (t: string) => t.replace(/他/g, ta);
   const P = civ.people ?? [];
   const ix = peopleIndex(civ);
   const rev = reverseIndex(civ);
@@ -244,9 +250,18 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him = '他'): 
   };
   // 血亲:父、子、同父的兄弟
   const f = fatherOf(civ, x);
-  if (f) add(f.id, 'blood', x.adopted ? '养父' : '父', x.adopted ? `${him}的养父` : `${him}的父亲`, false, 0);
-  for (const k of kidsOf(civ, x)) add(k.id, 'blood', k.adopted ? '养子' : '子', `${him}的${k.adopted ? '养子' : '儿子'}${k.role === 'prince' ? '，未即位' : ''}`, false, 3);
-  if (f) for (const s of kidsOf(civ, f)) if (s.id !== x.id) add(s.id, 'blood', s.born < x.born ? '兄' : '弟', s.born < x.born ? `${him}的兄长` : `${him}的弟弟`, false, 1);
+  if (f) {
+    const w = kinWord(f, x.adopted ? '养父' : '父');
+    add(f.id, 'blood', w, `${him}的${kinWord(f, x.adopted ? '养父' : '父亲')}`, false, 0);
+  }
+  for (const k of kidsOf(civ, x)) add(k.id, 'blood', kinWord(k, k.adopted ? '养子' : '子'), `${him}的${kinWord(k, k.adopted ? '养子' : '儿子')}${k.role === 'prince' ? '，未即位' : ''}`, false, 3);
+  if (f) {
+    for (const s of kidsOf(civ, f)) {
+      if (s.id === x.id) continue;
+      const elder = s.born < x.born;
+      add(s.id, 'blood', kinWord(s, elder ? '兄' : '弟'), `${him}的${elder ? kinWord(s, '兄长') : isFemale(s) ? '妹妹' : '弟弟'}`, false, 1);
+    }
+  }
   // 前任、继任
   if (x.role === 'ruler') {
     const rs = ix.rulers[x.polity] ?? [];
@@ -265,8 +280,8 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him = '他'): 
     }
   }
   // 姻亲
-  if (x.mother) add(x.mother.father, 'inlaw', '外祖父', `其女${brideName(civ, x.mother)}是${him}的母亲`);
-  for (const s of x.spouses ?? []) add(s.father, 'inlaw', '岳父', `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
+  if (x.mother) add(x.mother.father, 'inlaw', kinWord(P[x.mother.father], '外祖父'), `其女${brideName(civ, x.mother)}是${him}的母亲`);
+  for (const s of x.spouses ?? []) add(s.father, 'inlaw', kinWord(P[s.father], '岳父'), `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
   // 女婿、外孙(按人物编号的先后,和一个个看过去一样)
   const wed = rev.wed.get(x.id) ?? [];
   const grand = rev.grand.get(x.id) ?? [];
@@ -276,7 +291,7 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him = '他'): 
       const s = wed[i++][1];
       add(o.id, 'inlaw', '女婿', `${yearAt(s.year, era)}娶${him}的女儿${brideName(civ, s)}`, false, s.year);
     }
-    if (j < grand.length && grand[j] === o) add(o.id, 'inlaw', '外孙', `${him}的女儿${brideName(civ, grand[j++].mother!)}所生`);
+    if (j < grand.length && grand[j] === o) add(o.id, 'inlaw', kinWord(o, '外孙'), `${him}的女儿${brideName(civ, grand[j++].mother!)}所生`);
   }
   // 争储、杀他、掌实权、放逐(对方是亲属的仍算血亲)
   if (x.claim) {
@@ -286,7 +301,7 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him = '他'): 
       const o = P[r];
       if (!o) continue;
       const kin = kinOf(civ, x, o);
-      add(r, kin ? 'blood' : 'rival', kin || '争储', why, true, 2, tag);
+      add(r, kin ? 'blood' : 'rival', kin || '争储', why, true, 2, tg(tag));
     }
   }
   for (const o of rev.lost.get(x.id) ?? []) {
@@ -294,33 +309,33 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him = '他'): 
     const kin = kinOf(civ, x, o);
     const [w0, tag] = LOST[o.claim.how];
     const why = w0.replace(/他/g, him);
-    add(o.id, kin ? 'blood' : 'rival', kin || '争储', why, true, 2, tag);
+    add(o.id, kin ? 'blood' : 'rival', kin || '争储', why, true, 2, tg(tag));
   }
   if (x.rival !== undefined && !out.get(x.rival)?.tag) {
     const o = P[x.rival];
     const kin = o ? kinOf(civ, x, o) : '';
-    add(x.rival, kin ? 'blood' : 'rival', kin || '对手', `杀${him}`, true, 2, '杀他');
+    add(x.rival, kin ? 'blood' : 'rival', kin || '对手', `杀${him}`, true, 2, tg('杀他'));
   }
   for (const h of heldOver(civ, x)) {
     const kin = kinOf(civ, x, h.x);
-    add(h.x.id, kin ? 'blood' : h.x.role === 'minister' || h.x.role === 'general' ? 'court' : 'rival', kin || '权臣', `${span(h.g.from, h.g.until)}架空${him}、掌实权`, true, 2, '架空他');
+    add(h.x.id, kin ? 'blood' : h.x.role === 'minister' || h.x.role === 'general' ? 'court' : 'rival', kin || '权臣', `${span(h.g.from, h.g.until)}架空${him}、掌实权`, true, 2, tg('架空他'));
   }
   for (const g of x.regencies ?? []) {
     const o = P[g.ruler];
     if (!o) continue;
     const kin = kinOf(civ, x, o);
-    add(o.id, kin ? 'blood' : 'court', kin || '君主', `${span(g.from, g.until)}在位时被${him}架空`, true, 2, '被他架空');
+    add(o.id, kin ? 'blood' : 'court', kin || '君主', `${span(g.from, g.until)}在位时被${him}架空`, true, 2, tg('被他架空'));
   }
   if (x.exile?.by !== undefined) {
     const o = P[x.exile.by];
     if (o) {
       const kin = kinOf(civ, x, o);
-      add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(x.exile.year, era)}徙${him}`, true, 2, '徙他');
+      add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(x.exile.year, era)}徙${him}`, true, 2, tg('徙他'));
     }
   }
   for (const o of rev.exiled.get(x.id) ?? []) {
     const kin = kinOf(civ, x, o);
-    add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(o.exile!.year, era)}被${him}所徙`, true, 2, '被他所徙');
+    add(o.id, kin ? 'blood' : 'rival', kin || '放逐', `${yearAt(o.exile!.year, era)}被${him}所徙`, true, 2, tg('被他所徙'));
   }
   // 君臣
   if (x.role === 'ruler') {
@@ -496,7 +511,8 @@ function personGraph(civ: Civ, chars: readonly AuthorCharacter[], x: Person, pol
       // 作者写的字(人物名、关系、经历)原样放,不换里面的"他"
       if (kin) why.push(`${c.name}的亲友里写着：${kin.rel ? `${kin.rel}是${center.name}` : `有${center.name}`}`);
       for (const { e } of lives) why.push(`经历里写到${center.name}：${yearAt(e.year, era)}${e.text || '（没写经历）'}`);
-      n.word = kin ? (kin.rel ? `${kin.rel}是他` : '亲友里有他') : '经历里写到他';
+      const ta = heOrShe(x);
+      n.word = kin ? (kin.rel ? `${kin.rel}是${ta}` : `亲友里有${ta}`) : `经历里写到${ta}`;
       n.why = why;
       nodes.push(n);
     }
@@ -560,7 +576,34 @@ function charGraph(civ: Civ, chars: readonly AuthorCharacter[], c: AuthorCharact
 const vias = (nodes: readonly RelNode[]) => nodes.filter((n) => n.ref.kind === 'person').length;
 
 /** 称呼的全写(多看一层:"父亲的女婿""兄长的将领") */
-const FULL: Record<string, string> = { 父: '父亲', 养父: '养父', 兄: '兄长', 弟: '弟弟', 子: '儿子', 养子: '养子', 侄: '侄子', 孙: '孙子', 叔父: '叔父', 伯父: '伯父', 外祖父: '外祖父', 岳父: '岳父', 女婿: '女婿', 外孙: '外孙' };
+const FULL: Record<string, string> = {
+  父: '父亲',
+  养父: '养父',
+  兄: '兄长',
+  弟: '弟弟',
+  子: '儿子',
+  养子: '养子',
+  侄: '侄子',
+  孙: '孙子',
+  叔父: '叔父',
+  伯父: '伯父',
+  外祖父: '外祖父',
+  岳父: '岳父',
+  女婿: '女婿',
+  外孙: '外孙',
+  母: '母亲',
+  养母: '养母',
+  姐: '姐姐',
+  妹: '妹妹',
+  女: '女儿',
+  养女: '养女',
+  侄女: '侄女',
+  孙女: '孙女',
+  姑母: '姑母',
+  外祖母: '外祖母',
+  岳母: '岳母',
+  外孙女: '外孙女',
+};
 
 /** 多看一层:经过的每一位,每一簇最多多出这么几位 */
 export const DEEP_PER_VIA = 2;
@@ -611,7 +654,7 @@ function deepRing(civ: Civ, x: Person | null, c: AuthorCharacter | null, first: 
       // 算不出称呼的血亲(作者的人物居中):父亲的父亲、兄弟的儿子照样摆在家谱上下,别的放其他
       if (!kin && cluster === 'blood') {
         if (via.slot === 'up' && UP.has(u.word)) slot = 'up2';
-        else if ((via.slot === 'same' || via.slot === 'down') && (u.word === '子' || u.word === '养子')) slot = 'down2';
+        else if ((via.slot === 'same' || via.slot === 'down') && (u.word === '子' || u.word === '养子' || u.word === '女' || u.word === '养女')) slot = 'down2';
         else slot = cluster = 'other';
       }
       const n = (count.get(cluster) ?? 0) + 1;
@@ -629,17 +672,18 @@ function deepRing(civ: Civ, x: Person | null, c: AuthorCharacter | null, first: 
 /** 一位关系都没有时的原因:"他只在 1488 年抗大岳时领过一次兵；那几年太岳国的君主、对面的统帅，推演里都没有记下。" */
 export function emptyReason(civ: Civ, x: Person, era?: Era | null): string {
   const pol = civ.polities[x.polity];
-  const pn = pol ? polityName(pol, activeYear(civ, x)) : '他的国家';
+  const ta = heOrShe(x);
+  const pn = pol ? polityName(pol, activeYear(civ, x)) : `${ta}的国家`;
   const cs = x.commands ?? [];
   if (cs.length) {
     const wars = new Set(cs.map((c) => c.war));
     const w = peopleIndex(civ).wars.get(cs[0].war);
     const foe = w ? (cs[0].side === 0 ? w.b : w.a) : -1;
     const foeName = foe >= 0 && civ.polities[foe] ? polityName(civ.polities[foe], cs[0].from) : '';
-    const once = wars.size === 1 && foeName ? `他只在${spaced(yearAt(cs[0].from, era))}${cs[0].side === 0 ? '伐' : '抗'}${foeName}时领过一次兵` : `他${spaced(yearSpanAt(cs[0].from, cs[cs.length - 1].until, era))}领过兵`;
+    const once = wars.size === 1 && foeName ? `${ta}只在${spaced(yearAt(cs[0].from, era))}${cs[0].side === 0 ? '伐' : '抗'}${foeName}时领过一次兵` : `${ta}${spaced(yearSpanAt(cs[0].from, cs[cs.length - 1].until, era))}领过兵`;
     return `${once}；那几年${pn}的君主、对面的统帅，推演里都没有记下。`;
   }
   if (x.role === 'minister') return `那几年${pn}的君主、同朝的人，推演里都没有记下。`;
-  if (x.role === 'prince') return `推演里没记下他的父兄、子嗣。`;
-  return `推演里没记下他的前任、继任和同朝的人。`;
+  if (x.role === 'prince') return `推演里没记下${ta}的父兄、子嗣。`;
+  return `推演里没记下${ta}的前任、继任和同朝的人。`;
 }

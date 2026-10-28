@@ -168,7 +168,9 @@ describe.each([7, 2024])('关系图 · seed=%i', (seed) => {
       expect(keys.has(`p${x.id}`)).toBe(false);
       expect(g.empty === '').toBe(g.own > 0);
       const f = fatherOf(civ, x);
-      if (f) expect(g.nodes.find((n) => n.k === `p${f.id}`)?.word).toMatch(/^养?父$/);
+      // 称呼按对方的性别:父 / 母
+      if (f) expect(g.nodes.find((n) => n.k === `p${f.id}`)?.word).toMatch(f.female ? /^养?母$/ : /^养?父$/);
+      for (const k of kidsOf(civ, x)) expect(g.nodes.find((n) => n.k === `p${k.id}`)?.word).toMatch(k.female ? /^养?女$/ : /^养?子$/);
       for (const k of kidsOf(civ, x)) expect(g.nodes.find((n) => n.k === `p${k.id}`)?.slot).toBe('down');
       for (const n of g.nodes) {
         if (n.cluster === 'inlaw') expect(INLAW_ORDER).toContain(n.word);
@@ -271,9 +273,11 @@ describe.each([7, 2024])('关系图 · seed=%i', (seed) => {
     ];
     const g = graphOf(civ, x, false, chars);
     const auth = g.nodes.filter((n) => n.cluster === 'author');
+    // 名字下面的"他"指中心那位(女的写"她")
+    const ta = x.female ? '她' : '他';
     expect(auth.map((n) => [n.k, n.word])).toEqual([
-      ['c1', '父亲是他'],
-      ['c2', '主君是他'],
+      ['c1', `父亲是${ta}`],
+      ['c2', `主君是${ta}`],
     ]);
     expect(auth[0].color).toBeTruthy();
     expect(auth[1].why[0]).toBe(`乙的亲友里写着：主君是${personName(civ, x)}`);

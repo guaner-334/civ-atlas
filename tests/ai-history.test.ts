@@ -194,7 +194,8 @@ describe('AI 写史书:材料', () => {
     const user = userOf(civ, { scope: { kind: 'polity', polity: east.id }, style: 'classic', length: 'medium' });
     const line = user.split('\n').find((l) => l.includes('历代君主('))!;
     expect(line).toBeDefined();
-    expect(line).toContain(`${rulers[0].name}(第 ${Math.floor(rulers[0].from!)}`);
+    // 女君名字后面先写"女"
+    expect(line).toMatch(new RegExp(`${rulers[0].name}\\((女[,，])?第 ${Math.floor(rulers[0].from!)}`));
     expect(line).toContain(rulers[rulers.length - 1].name);
     // 系统提示:材料里的人物照写
     expect(SYSTEM_PROMPT).toMatch(/材料里写到的人物.+照材料写/);

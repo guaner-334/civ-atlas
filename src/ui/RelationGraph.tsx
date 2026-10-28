@@ -20,9 +20,10 @@ import type { World } from '../gen/world';
 import type { AuthorCharacter } from '../gen/characters';
 import { personKey, resolvePersonKey } from '../gen/characters';
 import { personName } from '../gen/civ/peopleText';
+import { heOrShe } from '../gen/civ/gender';
 import { characterPortrait, personPortrait } from '../gen/portrait';
 import { MARK_HEX } from '../render/marks';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { Icon } from './icons';
 import { getCivTime, getSelection, setSelection, useSelection, type MapSelection } from './civView';
 import { useEdits } from './editsStore';
@@ -106,13 +107,15 @@ function useFace(civ: Civ, chars: readonly AuthorCharacter[] | undefined, ref: R
       const from = x.from ?? x.commands?.[0]?.from ?? x.born + 20;
       const age = Math.floor(Math.min(Math.max(from + 5, x.born + 18), x.died ?? Infinity) - x.born);
       const p = personPortrait(civ, x.id, x.born + age);
-      return p ? { p, color: `rgb(${pol.color.join(',')})` } : null;
+      const color = `rgb(${pol.color.join(',')})`;
+      // 女性的头像部件还没画:国家色上写名字后两个字(和人物卡同一种)
+      return p ? { p, color } : x.female && x.name ? { p: null, name: x.name, color } : null;
     }
     const c = chars?.find((q) => q.id === ref.id);
     if (!c) return null;
     const p = characterPortrait(civ, c, polity, Math.min(c.born + 30, c.died ?? Infinity));
     const pol = polity >= 0 ? civ.polities[polity] : undefined;
-    return p ? { p, color: pol ? `rgb(${pol.color.join(',')})` : MARK_HEX[c.color] } : null;
+    return p ? { p, name: '', color: pol ? `rgb(${pol.color.join(',')})` : MARK_HEX[c.color] } : null;
   }, [civ, chars, ref.kind, ref.id, polity]);
 }
 
@@ -120,14 +123,14 @@ function Face({ civ, chars, n, size }: { civ: Civ; chars: readonly AuthorCharact
   const f = useFace(civ, chars, n.ref, n.polity);
   return (
     <span className="rg-av" style={{ width: size, height: size }}>
-      {f && <PortraitView p={f.p} size="mini" color={f.color} />}
+      {f && (f.p ? <PortraitView p={f.p} size="mini" color={f.color} /> : <NameFace name={f.name} size="mini" color={f.color} chars={2} px={Math.round(size * 0.31)} />)}
     </span>
   );
 }
 
 function CenterFace({ civ, chars, c }: { civ: Civ; chars: readonly AuthorCharacter[] | undefined; c: RelCenter }) {
   const f = useFace(civ, chars, c.ref, c.polity);
-  return <span className="rg-cav">{f && <PortraitView p={f.p} size="card" color={f.color} still />}</span>;
+  return <span className="rg-cav">{f && (f.p ? <PortraitView p={f.p} size="card" color={f.color} still /> : <NameFace name={f.name} size="card" color={f.color} px={23} />)}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +432,8 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
     return stacked ? stackLayout(g, size.W, crumbTop) : deskLayout(g, size.W, size.H, cardW);
   }, [g, size, stacked, crumbTop, cardW]);
 
+  /** 推演里的人按性别写他 / 她(作者的人物照旧写他) */
+  const ta = (ref: RelRef) => (ref.kind === 'person' ? heOrShe(civ.people?.[ref.id]) : '他');
   // 悬停说明、名单、手机上点开的那位
   const [hot, setHot] = useState<string | null>(null);
   const [list, setList] = useState<ListOpen | null>(null);
@@ -610,11 +615,11 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
   const empty =
     g && !g.own ? (
       <div className="rg-empty" style={L ? { top: L.cy + (stacked ? PHONE_CARD_H / 2 + 58 : CARD_H / 2 + 34) } : undefined}>
-        <div className="t">{center.kind === 'person' ? '推演里没记下他和别人的往来' : '还没写他和别人的关系'}</div>
+        <div className="t">{center.kind === 'person' ? `推演里没记下${ta(center)}和别人的往来` : '还没写他和别人的关系'}</div>
         <div className="s">{g.empty}</div>
         {center.kind === 'person' && (
           <button className="rg-pri" data-act="relation-add-character" onClick={addChar}>
-            加一个和他有关的作者人物
+            加一个和{ta(center)}有关的作者人物
           </button>
         )}
       </div>
@@ -631,9 +636,9 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
       <div className="rg-pop" style={{ left: x, top: y }} onMouseEnter={() => enter(hotNode.n.k)} onMouseLeave={leave}>
         <WhyBody civ={civ} chars={chars} n={hotNode.n} />
         <div className="f">
-          <span>点一下换他居中</span>
+          <span>点一下换{ta(hotNode.n.ref)}居中</span>
           <button className="lnk" data-act="relation-peek" onClick={() => peek(hotNode.n)}>
-            只看他的人物卡
+            只看{ta(hotNode.n.ref)}的人物卡
           </button>
         </div>
       </div>
@@ -704,7 +709,7 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
       {deepChip && (
         <div className="rg-chip">
           {deepBtn}
-          {deepOn && st.deep === null && <span>他只有 {g!.own} 位关系，自动打开</span>}
+          {deepOn && st.deep === null && <span>{ta(center)}只有 {g!.own} 位关系，自动打开</span>}
         </div>
       )}
       {stack.strips.map((s) => {
@@ -862,7 +867,7 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
             <WhyBody civ={civ} chars={chars} n={sheet} big />
             <div className="btns">
               <button className="pri" data-act="relation-center" onClick={() => pick(sheet)}>
-                以他为中心
+                以{ta(sheet.ref)}为中心
               </button>
               <button
                 data-act="relation-peek"

@@ -86,13 +86,18 @@ export function PortraitView({ p, size, color, dead, dark, mood, corner, still }
   );
 }
 
-/** 没有头像部件的人:国家色方块上写名字(card 写后两个字,mini、row 写最后一个字) */
-export function NameFace({ name, size, color, dead }: { name: string; size: 'card' | 'mini' | 'row'; color: string; dead?: boolean }) {
+/**
+ * 没有头像部件的人:国家色方块上写名字(card 写后两个字,mini、row 写最后一个字)。
+ * 别处放大了的(关系图的圆头像、中间那张卡片):chars 写几个字、px 字号(和头像大小成比例)
+ */
+export function NameFace({ name, size, color, dead, chars, px }: { name: string; size: 'card' | 'mini' | 'row'; color: string; dead?: boolean; chars?: 1 | 2; px?: number }) {
   const cs = [...name];
-  const text = cs.slice(size === 'card' ? -2 : -1).join('');
+  const text = cs.slice(-(chars ?? (size === 'card' ? 2 : 1))).join('');
   return (
     <span className={`pt pt-${size} pt-name${dead ? ' pt-dead' : ''}`} style={{ '--c': color } as CSSProperties} aria-hidden="true">
-      <span className={`pt-name-in${[...text].length < 2 ? ' pt-one' : ''}`}>{text}</span>
+      <span className={`pt-name-in${[...text].length < 2 ? ' pt-one' : ''}`} style={px ? { fontSize: px } : undefined}>
+        {text}
+      </span>
     </span>
   );
 }
