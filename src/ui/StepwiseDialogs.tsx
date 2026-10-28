@@ -12,13 +12,13 @@
  *              原样留在在用的这一支里,侧栏「支线」里随时切回去;新的一支的名字可以先起(不改 = "第 N 支")
  * AdvanceFields(三组推进设置)新建世界第 2 步也用。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, ADVANCE_STEP_MAX, BRANCH_NAME_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance, type Intervention } from '../gen/edits';
+import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, BRANCH_NAME_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance, type Intervention } from '../gen/edits';
 import { branchList, laterInterventions, rewindStepwise } from '../gen/stepwise';
 import { fullChronicle } from '../gen/civ/religionText';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
-import { getEdits, setAdvance, useEdits, useEra } from './editsStore';
+import { getEdits, setAdvance, useEdits, useEra, useMonths } from './editsStore';
 import { getPending } from './pendingStore';
 import { interventionText } from './Interventions';
 import { DirectorSettings, followName } from './Director';
@@ -26,13 +26,14 @@ import { setStepDirectorOn, stepDirectorOn, useDirector, useDirectorFollow } fro
 import { getStepwise, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
 import { branchLabel, branchSpan } from './StepBranches';
 import { rewindBrief } from './stepwisePlan';
-import { advanceBrief } from './Stepwise';
+import { stepSeconds } from './Stepwise';
+import { STEP_PICKS, STEP_UNITS, advanceBrief, everyWhy, ownStep as ownStep_, stepPickOf, stepUnitMax, stepWhy, type Run, type StepPick } from './advanceText';
 import { currentWorld, stepOrigin, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
 import { polityKey } from '../gen/edits';
 import { alivePolities } from './crownInfo';
 import { nameAt } from './Interventions';
-import { getSelection } from './civView';
+import { getCivTime, getSelection } from './civView';
 import { FlagIcon } from './Flag';
 import { flagOf, useFlags } from './flagStore';
 import { rolePolity } from './policyInfo';
@@ -47,9 +48,9 @@ const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 // 三组推进设置
 
 /** 分段按钮的一格 */
-function Seg<T extends string | number>({ items, value, onPick, wide, act }: { items: { v: T; label: string }[]; value: T | null; onPick: (v: T) => void; wide?: boolean; act: string }) {
+function Seg<T extends string | number>({ items, value, onPick, wide, act, unit }: { items: { v: T; label: string }[]; value: T | null; onPick: (v: T) => void; wide?: boolean; act: string; unit?: boolean }) {
   return (
-    <span className={`sw-seg${wide ? ' wide' : ''}`} role="radiogroup">
+    <span className={`sw-seg${wide ? ' wide' : ''}${unit ? ' sw-unit' : ''}`} role="radiogroup">
       {items.map((it) => (
         <button key={String(it.v)} role="radio" aria-checked={value === it.v} className={value === it.v ? 'on' : ''} data-act={`${act}-${it.v}`} onClick={() => onPick(it.v)}>
           {it.label}
@@ -59,19 +60,26 @@ function Seg<T extends string | number>({ items, value, onPick, wide, act }: { i
   );
 }
 
-/** 自己填的那个数(失焦、回车时交;不合格的退回原来的) */
-function NumField({ value, lo, hi, onCommit, act }: { value: number; lo: number; hi: number; onCommit: (n: number) => void; act: string }) {
+/**
+ * 自己填的那个数(失焦、回车时交;不合格的退回原来的;clamp = 超了夹回 lo–hi,不退回)。
+ * unit = 数后面的字(默认"年";'' = 不写,单位另有一排按钮)
+ */
+function NumField({ value, lo, hi, onCommit, act, unit = '年', clamp }: { value: number; lo: number; hi: number; onCommit: (n: number) => void; act: string; unit?: string; clamp?: boolean }) {
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   const commit = () => {
     const n = Math.round(Number(text));
-    if (Number.isFinite(n) && n >= lo && n <= hi) onCommit(n);
+    if (text !== '' && Number.isFinite(n) && clamp) {
+      const c = Math.min(hi, Math.max(lo, n));
+      setText(String(c));
+      if (c !== value) onCommit(c);
+    } else if (Number.isFinite(n) && n >= lo && n <= hi) onCommit(n);
     else setText(String(value));
   };
   return (
     <span className="sw-num-field">
       <input
-        className="sw-num-in"
+        className={`sw-num-in${unit ? '' : ' short'}`}
         inputMode="numeric"
         data-act={act}
         value={text}
@@ -79,32 +87,34 @@ function NumField({ value, lo, hi, onCommit, act }: { value: number; lo: number;
         onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
         onBlur={commit}
       />
-      年
+      {unit}
     </span>
   );
 }
 
-const STEP_SEG = [
-  { v: '1', label: '一年' },
-  { v: '5', label: '五年' },
-  { v: 'own', label: '自己填' },
-];
-const EVERY_SEG = [...ADVANCE_EVERY_CHOICES.map((n) => ({ v: String(n), label: `${n} 年` })), { v: 'own', label: '自己填' }];
+const STEP_SEG = STEP_PICKS.map((p) => ({ v: p.v, label: p.label }));
+const UNIT_SEG = STEP_UNITS.map((u) => ({ v: u.v, label: u.label }));
+const EVERY_SEG = [{ v: '0', label: '每一步' }, ...ADVANCE_EVERY_CHOICES.map((n) => ({ v: String(n), label: `${n} 年` })), { v: 'own', label: '自己填' }];
 const COUNT_SEG = ADVANCE_COUNTDOWNS.map((n) => ({ v: String(n), label: n ? `${n} 秒` : '不倒计时' }));
 const COUNT_WORDS: Record<number, string> = { 30: '半分钟', 60: '一分钟', 120: '两分钟' };
 
-/** "演绎 100 年停 4 次" */
-function everyNote(every: number): string {
-  if (every <= 100) return `演绎 100 年停 ${Math.floor(100 / every)} 次`;
-  if (every <= 1000) return `演绎 1000 年停 ${Math.floor(1000 / every)} 次`;
-  return `演绎 ${every} 年才停 1 次`;
+/** 几段字(加粗的用 <b>) */
+function Runs({ runs }: { runs: readonly Run[] }) {
+  return (
+    <>
+      {runs.map((r, i) => (r.b ? <b key={i}>{r.t}</b> : <Fragment key={i}>{r.t}</Fragment>))}
+    </>
+  );
 }
 
 export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Advance) => void; phone: boolean }) {
-  const [ownStep, setOwnStep] = useState(adv.step !== 1 && adv.step !== 5);
-  const [ownEvery, setOwnEvery] = useState(!ADVANCE_EVERY_CHOICES.includes(adv.every));
-  const stepV = ownStep ? 'own' : String(adv.step);
+  const months = useMonths();
+  const [ownStep, setOwnStep] = useState(stepPickOf(adv) === 'own');
+  const [ownEvery, setOwnEvery] = useState(adv.every > 0 && !ADVANCE_EVERY_CHOICES.includes(adv.every));
+  const stepV: StepPick = ownStep ? 'own' : stepPickOf(adv);
   const everyV = ownEvery ? 'own' : String(adv.every);
+  // 这台设备上一步约几秒(开着窗口时不跟着变)
+  const [perStep] = useState(() => stepSeconds(getStepwise().on ? getStepwise().now : getCivTime().year ?? 0));
   const stepSeg = (
     <Seg
       items={STEP_SEG}
@@ -114,7 +124,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
       onPick={(v) => {
         if (v === 'own') return setOwnStep(true);
         setOwnStep(false);
-        set({ ...adv, step: Number(v) });
+        const p = STEP_PICKS.find((x) => x.v === v)?.adv;
+        if (p) set({ ...adv, ...p });
       }}
     />
   );
@@ -141,16 +152,21 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
       <button className={`sw-sw${adv.big ? ' on' : ''}`} role="switch" aria-checked={adv.big} aria-label="出大事也停" data-act="adv-big" onClick={() => set({ ...adv, big: !adv.big })} />
     </div>
   );
+  // 自己填:一个数 + 单位(年 / 个月 / 格);换单位数字不变,超了夹回范围
   const ownStepRow = ownStep && (
     <div className="sw-r sw-own">
-      <span className="sw-r-main">一步走几年（1–{ADVANCE_STEP_MAX}）</span>
-      <NumField value={adv.step} lo={1} hi={ADVANCE_STEP_MAX} act="adv-step-n" onCommit={(n) => set({ ...adv, step: n })} />
+      <span className="sw-r-main">
+        <span>一步走多久</span>
+        <small>最短 1 格，最长 5 年</small>
+      </span>
+      <NumField value={adv.step} lo={1} hi={stepUnitMax(adv.unit, months)} act="adv-step-n" unit="" clamp onCommit={(n) => set({ ...adv, ...ownStep_(n, adv.unit, months) })} />
+      <Seg items={UNIT_SEG} value={adv.unit} act="adv-unit" unit onPick={(u) => set({ ...adv, ...ownStep_(adv.step, u, months) })} />
     </div>
   );
   const ownEveryRow = ownEvery && (
     <div className="sw-r sw-own">
       <span className="sw-r-main">每隔几年停一下</span>
-      <NumField value={adv.every} lo={1} hi={END_YEAR_MAX} act="adv-every-n" onCommit={(n) => set({ ...adv, every: n })} />
+      <NumField value={Math.max(1, adv.every)} lo={1} hi={END_YEAR_MAX} act="adv-every-n" onCommit={(n) => set({ ...adv, every: n })} />
     </div>
   );
   const cw = COUNT_WORDS[adv.countdown];
@@ -164,6 +180,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
       <b>不倒计时</b>：等你点了才走。
     </>
   );
+  const stepNote = <Runs runs={stepWhy(adv, months, perStep, phone)} />;
+  const everyNote = <Runs runs={everyWhy(adv, months, phone)} />;
   if (phone)
     return (
       <>
@@ -172,8 +190,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
         </div>
         <div className="sw-pad">{stepSeg}</div>
         {ownStepRow && <div className="sw-grp white sw-gap">{ownStepRow}</div>}
-        <div className="sw-why">
-          <b>一年</b>：约七成的步子全世界没有大事，导播一闪而过。<b>五年</b>：每一步事多，干预最多要等五年。
+        <div className="sw-why" data-why="step">
+          {stepNote}
         </div>
         <div className="sw-sh">
           停一下<em>看看这一段的大事</em>
@@ -183,8 +201,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
           {ownEveryRow}
           {bigRow}
         </div>
-        <div className="sw-why">
-          <b>每 {adv.every} 年</b>停一次：{everyNote(adv.every)}。隔得越短、开了「出大事也停」，停得越勤。
+        <div className="sw-why" data-why="every">
+          {everyNote}
         </div>
         <div className="sw-sh">
           倒计时<em>停下以后多久接着走</em>
@@ -206,8 +224,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
           </div>
           {ownStepRow}
         </div>
-        <div className="sw-why">
-          <b>一年</b>：约七成的步子全世界没有大事，导播一闪而过；干预最晚一年后生效。<b>五年</b>：每一步事多，但干预最多要等五年才生效。自己填最多 5 年。
+        <div className="sw-why" data-why="step">
+          {stepNote}
         </div>
       </div>
       <div className="sw-sec">
@@ -222,8 +240,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
           {ownEveryRow}
           {bigRow}
         </div>
-        <div className="sw-why">
-          <b>每 {adv.every} 年</b>停一次：{everyNote(adv.every)}，每次导播先把这一段的大事放一遍。隔得越短停得越勤；开「出大事也停」故事更有起伏，也停得更多。
+        <div className="sw-why" data-why="every">
+          {everyNote}
         </div>
       </div>
       <div className="sw-sec">
