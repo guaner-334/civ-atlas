@@ -14,6 +14,7 @@ import type { Annal, Civ, Person, RulerLeanings, Year } from '../gen/civ/types';
 import { interventionFate } from '../gen/stepwise';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName, rulerFateWord } from '../gen/civ/peopleText';
+import { heOrShe } from '../gen/civ/gender';
 import {
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
@@ -80,17 +81,18 @@ export function personIvRange(civ: Civ, x: Person, open = false): { lo: number; 
 export function personIvWhy(civ: Civ, x: Person, y: number, open = false): string | null {
   const { lo, hi } = personIvRange(civ, x, open);
   if (y >= lo && y <= hi) return null;
-  if (x.died !== undefined && x.died <= y) return `第 ${Math.floor(x.died)} 年他已卒`;
+  const he = heOrShe(x);
+  if (x.died !== undefined && x.died <= y) return `第 ${Math.floor(x.died)} 年${he}已卒`;
   if (x.role === 'ruler') {
-    if (y < lo) return x.from !== undefined ? `他第 ${Math.floor(x.from)} 年才即位` : '他没有即位';
-    return x.until !== undefined && x.until <= y ? `第 ${Math.floor(x.until)} 年他已不在位` : '那一年历史还没推到';
+    if (y < lo) return x.from !== undefined ? `${he}第 ${Math.floor(x.from)} 年才即位` : `${he}没有即位`;
+    return x.until !== undefined && x.until <= y ? `第 ${Math.floor(x.until)} 年${he}已不在位` : '那一年历史还没推到';
   }
   if (y < lo) {
     const from = x.role === 'general' ? x.commands?.[0]?.from : x.from;
     const step = x.role === 'general' ? '领兵' : '入仕';
-    return from !== undefined ? `他第 ${Math.floor(from)} 年才${step}` : `他那时还没${step}`;
+    return from !== undefined ? `${he}第 ${Math.floor(from)} 年才${step}` : `${he}那时还没${step}`;
   }
-  if (x.role === 'minister' && x.until !== undefined && x.until <= y) return `第 ${Math.floor(x.until)} 年他已去职`;
+  if (x.role === 'minister' && x.until !== undefined && x.until <= y) return `第 ${Math.floor(x.until)} 年${he}已去职`;
   return '那一年历史还没推到';
 }
 
@@ -177,9 +179,9 @@ export function rulerEndText(civ: Civ, x: Person, era: Era | undefined): string 
 
 /** 让他去世那一页年份下面那一句 */
 export function deathNote(civ: Civ, x: Person, era: Era | undefined): string {
-  if (x.role === 'ruler') return `他${spaced(yearAt(x.from ?? x.born, era))}即位，${rulerEndText(civ, x, era)}。之前的历史不变。`;
+  if (x.role === 'ruler') return `${heOrShe(x)}${spaced(yearAt(x.from ?? x.born, era))}即位，${rulerEndText(civ, x, era)}。之前的历史不变。`;
   const end = x.died === undefined ? '' : `，原定${spaced(yearAt(x.died, era))}${x.fate === 'battle' ? '战死' : '卒'}`;
-  return `他${spaced(yearAt(x.born, era))}生${end}。`;
+  return `${heOrShe(x)}${spaced(yearAt(x.born, era))}生${end}。`;
 }
 
 /** 他 y 年照的倾向(改过的照改后的;不是君主 = null) */
@@ -523,9 +525,9 @@ export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, e
       return { ok: true, text: `${name}改成${spaced(at)}去世；历史不变`, same: true };
     }
     case 'temper': {
-      const { name } = keyPerson(civ, v.person);
+      const { x, name } = keyPerson(civ, v.person);
       if (f?.state === 'void') return fail(`改${name}的倾向`);
-      return { ok: true, text: `${name}的倾向改了，到他下台为止` };
+      return { ok: true, text: `${name}的倾向改了，到${heOrShe(x)}下台为止` };
     }
     case 'keep':
       // "大澜王朝保住王室，到 1560 年";那一年已亡 / 还没立国:黄色写原因

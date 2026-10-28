@@ -13,7 +13,7 @@
 import type { Civ, Person, PersonDeed, PersonPost, Polity, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
-import { ageAt, ministerRole, personName } from './peopleText';
+import { ageAt, ministerRole, personName, rulerTitle } from './peopleText';
 import { commandFoes, generalTally } from './peopleInfo';
 import { artName } from './officials';
 import { yearAt, type Era } from '../era';
@@ -158,7 +158,7 @@ function deedText(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
 function deedShort(civ: Civ, x: Person, d: PersonDeed, east: boolean): string {
   const p = civ.polities[x.polity];
   const who = d.person !== undefined ? civ.people?.[d.person] : undefined;
-  const short = who ? (east ? who.title || who.name : personName(civ, who)) : '';
+  const short = who ? (east ? rulerTitle(civ, who) || who.name : personName(civ, who)) : '';
   const foe = foeOf(civ, d.annal, x.polity);
   const foeName = foe ? polityName(foe, d.year) : '';
   switch (d.kind) {
@@ -201,7 +201,7 @@ export function deedsShort(civ: Civ, x: Person): string {
     const k = merged.get(d.kind);
     const who = d.person !== undefined ? civ.people?.[d.person] : undefined;
     if (k !== undefined && who && (d.kind === 'regent' || d.kind === 'enthrone')) {
-      out[k] += '、' + (east ? who.title || who.name : personName(civ, who));
+      out[k] += '、' + (east ? rulerTitle(civ, who) || who.name : personName(civ, who));
       continue;
     }
     // 迎立的就是辅政的那位幼主:"迎立昭公，辅政"
