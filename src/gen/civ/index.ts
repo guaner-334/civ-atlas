@@ -43,7 +43,7 @@ import type { CultureModel } from './cultures';
 import type { PolityModel } from './polities';
 import type { InterventionModel } from './interventions';
 import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
-import { cleanInterventions, sameInterventions, type Intervention, type TerrainOp } from '../edits';
+import { YEAR_TICKS, cleanInterventions, sameInterventions, type Intervention, type TerrainOp } from '../edits';
 import { finishReligion, installReligion } from './religion';
 import { finishDevelopment, installDevelopment } from './development';
 import { installUnrest } from './unrest';
@@ -272,7 +272,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? [], undefined, eras);
     branch.run(p.endYear);
     // 起名只读这一段的分支,不影响之后的推演
-    const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.list);
+    const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.stored);
     // 第一段:改过地形的世界照没改过时的地名(nameRefOf);之后各段沿用前一段的
     const eraRef = k ? undefined : nameRefOf(eraWorld, { p, mix, frontier, origins });
     const br = branch.result();
@@ -320,7 +320,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     fin = { sim: s1, model: m1, pm: pm1, world: u.world, habitat: h1, regions: r1 };
     terrains.push({ from: u.year, terrain: pm1.terrain });
   }
-  return finishCiv({ fin, p, seed, viable, mix, frontier, origins, interventions: iv?.list, model, pm, pins, eras, facts, progress });
+  return finishCiv({ fin, p, seed, viable, mix, frontier, origins, interventions: iv?.stored, model, pm, pins, eras, facts, progress });
 }
 
 /**
@@ -410,10 +410,10 @@ export function startContinue(world: World, civ: Civ, params: Partial<CivParams>
   };
 }
 
-/** 干预列表 next 是 had 后面接上几条、接上的都在 endYear 以后才生效(接着推得出和从第 0 年重推一样的结果) */
+/** 干预列表 next 是 had 后面接上几条、接上的都在 endYear 以后才生效(年中的按那一格;接着推得出和从第 0 年重推一样的结果) */
 function extends_(had: readonly Intervention[], next: readonly Intervention[], endYear: number): boolean {
   if (next.length < had.length || !sameInterventions(had, next.slice(0, had.length))) return false;
-  return next.slice(had.length).every((v) => quantize(v.from) > endYear);
+  return next.slice(had.length).every((v) => quantize(v.from + (v.fromTick ?? 0) / YEAR_TICKS) > endYear);
 }
 
 /** 推完以后整理成 Civ 要的东西(generateCiv、continueCiv 共用) */
@@ -613,7 +613,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     sailFrom: pm.sailFrom,
     ...(frontier ? { frontier } : {}),
     ...(sim.calamity ? { calamity: sim.calamity } : {}),
-    ...(iv ? { interventions: iv.list.slice() } : {}),
+    ...(iv ? { interventions: iv.stored.slice() } : {}),
     people: [],
     ...(dev ? { development: dev } : {}),
   } as Civ;
