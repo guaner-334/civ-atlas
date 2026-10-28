@@ -13,6 +13,7 @@ import {
   BOOK_VERSIONS_MAX,
   asHistoryNote,
   bookHowText,
+  bookRedoScope,
   bookVersions,
   deleteBookVersion,
   dropOldestVersion,
@@ -255,7 +256,9 @@ function Reader({ civ }: { civ: Civ }) {
   const length = note ? note.book.length : live!.opts.length;
   const range = note ? note.book.range : live!.range;
   const busy = job?.status === 'writing';
-  const redo = note ? (status?.scope ? { scope: status.scope, style, length } : null) : live && !writing ? live.opts : null;
+  // 重写按正在看的这版记的"写什么";它在现在的历史里找不到了(比如改过人物生年以后的旧版),用别的版里还找得到的
+  const redoScope = note ? (status?.scope ?? bookRedoScope(civ, note, getBookSource())) : null;
+  const redo = note ? (redoScope ? { scope: redoScope, style, length } : null) : live && !writing ? live.opts : null;
   // 重写 / 重试:阅读页接着看正在写的这一部
   const rewrite = () => {
     if (redo && startBook(redo)) openBookReader(null);

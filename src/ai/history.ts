@@ -234,13 +234,32 @@ export function historyNoteStatus(civ: Civ, note: HistoryNote, src?: LifeSource 
   return { scope, stale };
 }
 
-/** 每一版是不是写于历史改变之前(和 bookVersions 的顺序一样);这一部在现在的历史里找不到了 = 都算 */
+/**
+ * 每一版是不是写于历史改变之前(和 bookVersions 的顺序一样)。每版按自己记的"写什么"找、算指纹
+ * (作者改过人物的生年再写一版:两版记的生年不同,旧的那版找不到 = 算,新的照样对得上;和正在用的是哪版无关)
+ */
 export function versionsStale(civ: Civ, note: HistoryNote, src?: LifeSource | null): boolean[] {
+  const fps = new Map<string, string | null>();
+  return bookVersions(note).list.map((v) => {
+    const k = JSON.stringify([v.book.scope, v.book.style, v.book.length]);
+    let fp = fps.get(k);
+    if (fp === undefined) {
+      const scope = bookLoadScope(civ, v.book.scope, src);
+      fp = scope ? bookFingerprint(civ, { scope, style: v.book.style, length: v.book.length }, src) : null;
+      fps.set(k, fp);
+    }
+    return fp === null || v.book.fp !== fp;
+  });
+}
+
+/** 这一部在现在的历史里按什么重写:从最新写的那版往前,第一个还找得到的"写什么";都找不到 = null */
+export function bookRedoScope(civ: Civ, note: HistoryNote, src?: LifeSource | null): BookScope | null {
   const { list } = bookVersions(note);
-  const scope = bookLoadScope(civ, note.book.scope, src);
-  if (!scope) return list.map(() => true);
-  const fp = bookFingerprint(civ, { scope, style: note.book.style, length: note.book.length }, src);
-  return list.map((v) => v.book.fp !== fp);
+  for (let i = list.length - 1; i >= 0; i--) {
+    const scope = bookLoadScope(civ, list[i].book.scope, src);
+    if (scope) return scope;
+  }
+  return null;
 }
 
 /** 界面上的文体名:成书的三种叫"纪传体 / 编年体 / 白话通俗";旧版写史书面板的"史书体""传说故事"照旧 */

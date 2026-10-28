@@ -14,12 +14,14 @@ import {
   BOOK_VERSIONS_MAX,
   HISTORY_KIND,
   asHistoryNote,
+  bookRedoScope,
   bookVersions,
   deleteBookVersion,
   dropOldestVersion,
   listHistoryNotes,
   pickBookVersion,
   unsavedVersions,
+  versionsNote,
   versionsStale,
   writeHistory,
   type HistoryNote,
@@ -170,6 +172,14 @@ describe('AI 写的书留旧版', () => {
     await writeHistory(renamed, P, { world: w });
     expect(versionsStale(renamed, noteOf(w, key)!)).toEqual([true, false]);
     expect(versionsStale(civ, noteOf(w, key)!)).toEqual([false, true]);
+    // 旧的那版记的"写什么"在现在的历史里找不到了(比如改过人物生年):只有它算,和正在用的是哪版无关;重写按还找得到的那版
+    const vs = bookVersions(noteOf(w, key)!).list;
+    const lost = { ...vs[0], book: { ...vs[0].book, scope: { kind: 'polity' as const, key: '不存在', name: '无' } } };
+    for (const at of [0, 1]) {
+      const n = versionsNote(key, [lost, vs[1]], at);
+      expect(versionsStale(renamed, n)).toEqual([true, false]);
+      expect(bookRedoScope(renamed, n)).toEqual(P.scope);
+    }
   });
 
   it('列传、家传同样留旧版', async () => {
