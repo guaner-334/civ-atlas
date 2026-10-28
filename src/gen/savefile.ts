@@ -15,7 +15,10 @@
  * }
  * ```
  *
- * - format:存档格式的版本(字段有不兼容的变化时加一;读到比自己新的格式就不读,提示更新页面)
+ * - format:存档格式的版本(字段有不兼容的变化时加一;读到比自己新的格式就不读,提示更新页面)。
+ *   2 = 进度、命令、支线、干预里有落在年中的时刻(年 + 年内第几格,edits.ts 文件头"时刻"):只认识年份的版本会把它当成年初,
+ *   所以写成 2,让那些版本提示更新页面、不悄悄读错。只到年初的存档照旧写 1(和加年内第几格以前一模一样,旧版本照常打开)。
+ *   1、2 都照读(saveFormatOf 定写哪一版)
  * - generator:生成器版本(edits.ts 的 GENERATOR_VERSION);和当前的不同 = 同样的参数可能生成不同的世界
  * - check:地形的短哈希(worldCheck);读档生成完再算一遍,对不上也说明地形变了。两种情况都照样打开,
  *   提示"改过的名字会尽量套上"(稳定键按州、地块定位,地形变化不大时大多还能对上)
@@ -56,12 +59,14 @@
  * - edits.months(可选):一年几个月(edits.ts 文件头"月份"),`24`;只写年 `0`;一年 12 个月时不写。
  *   读档时过 cleanMonths:认不出的按 12 个月,提示一句
  * - edits.play(可选):逐年推演的进度(edits.ts 文件头"逐年推演的进度"),`{ "year": 825, "commands": [{ "kind": "declare", "a": "polity:c4567#0", "b": "polity:c8123#0", "from": 825 }] }`;
- *   没在逐年推演时不写。读档时过 cleanPlay:年份不对的当没在逐年推演、不合格的命令丢掉,提示一句。读回来按"推到哪年 + 命令串"重新推出同一刻(civ/play.ts 的 playCiv)
+ *   停在年中的多一个 tick(那一年的第几格),那时下的命令多一个 fromTick:`{ "year": 825, "tick": 192, "commands": [{ …, "from": 825, "fromTick": 192 }] }`(格式 2)。
+ *   没在逐年推演时不写。读档时过 cleanPlay:年份、第几格不对的当没在逐年推演、不合格的命令丢掉,提示一句。
+ *   读回来按"推到哪一刻 + 命令串"重新推出同一刻(civ/play.ts 的 playCiv);没有 tick 的(旧存档)就是那一年年初
  * - edits.playFrom(可选):这次逐年推演从第几年起(edits.ts 文件头"逐年推演的进度"),`2650`;没在逐年推演、从第 0 年起的不写。
  *   读档时过 cleanPlayFrom:取整、夹到 [0, play.year],没有 play 的去掉(不提示:只是记录)
  * - edits.branches(可选):逐年推演另开的几支(edits.ts 文件头"支线"),当前这一支照旧在 play、playFrom 里,
  *   `{ "id": 3, "name": "北伐", "list": [{ "id": 1, "from": 2660, "year": 2700, "commands": [{ "kind": "unity", "a": "polity:c4567#0", "from": 2660 }] }] }`;
- *   每支只记从哪年起和当前这一支不一样、那以后的命令。只有当前这一支时不写。读档时过 cleanBranches:没有 play 的去掉,
+ *   每支只记从哪年起和当前这一支不一样、那以后的命令;年中的时刻多一个 fromTick、tick、forkTick(同 play.tick,格式 2)。只有当前这一支时不写。读档时过 cleanBranches:没有 play 的去掉,
  *   不合格的那一支去掉,提示一句。只认识 play 的版本读到这一项会跳过,看到的是当前这一支
  * - edits.advance(可选):推进设置(edits.ts 文件头"推进设置"),`{ "step": 5, "every": 50, "big": true, "countdown": 0 }`;都是默认时不写。
  *   读档时过 cleanAdvance:认不出的项按默认,提示一句
@@ -94,7 +99,7 @@
 import type { World } from './world';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, playState, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type PlayState, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
@@ -107,14 +112,29 @@ import { cleanCalamity } from './civ/calamity';
 
 export const SAVE_APP = '文明与地图';
 /**
- * 存档格式版本。加一时注意:旧版网站读不了更新格式的存档,打开文件、分享链接读进来的存档已经换成了现在的格式,
+ * 存档格式版本:读得了的最新一版(见文件头 format)。加一时注意:旧版网站读不了更新格式的存档,打开文件、分享链接读进来的存档已经换成了现在的格式,
  * 「看原样」(ui/oldSite.ts)交给旧版网站之前要换回它认得的格式
  */
-export const SAVE_FORMAT = 1;
+export const SAVE_FORMAT = 2;
+/** 只到年初的存档写的格式(加年内第几格以前的那一版,旧版本照常打开) */
+const SAVE_FORMAT_YEARS = 1;
+
+/** 存档该写哪一版格式:修改里有落在年中的时刻(第几格不是 0)= 2,不然 = 1(见文件头 format) */
+export function saveFormatOf(edits: WorldEdits): 1 | 2 {
+  const iv = (list: readonly Intervention[] | undefined) => !!list?.some((v) => v.fromTick);
+  const b = edits.branches;
+  const sub =
+    !!edits.play?.tick ||
+    iv(edits.play?.commands) ||
+    iv(edits.interventions) ||
+    !!b?.forkTick ||
+    !!b?.list?.some((x) => x.fromTick || x.tick || x.forkTick || iv(x.commands));
+  return sub ? SAVE_FORMAT : SAVE_FORMAT_YEARS;
+}
 
 export interface SaveFile {
   app: '文明与地图';
-  format: 1;
+  format: 1 | 2;
   /** 生成器版本(GENERATOR_VERSION) */
   generator: number;
   seed: number;
@@ -595,7 +615,7 @@ export function makeSave(
   for (const k of PARAM_KEYS) p[k] = params[k] ?? DEFAULT_PARAMS[k];
   const save: SaveFile = {
     app: SAVE_APP,
-    format: SAVE_FORMAT,
+    format: SAVE_FORMAT_YEARS,
     generator: GENERATOR_VERSION,
     seed: p.seed,
     params: p,
@@ -647,7 +667,7 @@ export function makeSave(
   const months = cleanMonths(edits.months);
   if (months !== undefined) save.edits.months = months;
   const play = cleanPlay(edits.play);
-  if (play) save.edits.play = { year: play.year, commands: play.commands.map((x) => ({ ...x })) };
+  if (play) save.edits.play = playState(play.year, play.tick ?? 0, play.commands.map((x) => ({ ...x })));
   const playFrom = cleanPlayFrom(edits.playFrom, play);
   if (playFrom !== undefined) save.edits.playFrom = playFrom;
   const branches = cleanBranches(edits.branches, play);
@@ -664,6 +684,7 @@ export function makeSave(
   if (v) save.view = v;
   const o = origin ? cleanOrigin(origin) : null;
   if (o) save.origin = o;
+  save.format = saveFormatOf(save.edits);
   return save;
 }
 
@@ -913,7 +934,7 @@ export function parseSave(text: string): ParseResult {
   // 月份:认不出的按一年 12 个月
   const months = cleanMonths(E.months);
   if (E.months !== undefined && E.months !== 12 && months === undefined) warnings.push('月份设定认不出来,按一年 12 个月写');
-  // 逐年推演的进度:年份不对的当没在逐年推演,不合格的命令丢掉
+  // 逐年推演的进度:年份、第几格不对的当没在逐年推演,不合格的命令丢掉
   const play = cleanPlay(E.play);
   if (E.play !== undefined) {
     const raw = isObj(E.play) && Array.isArray(E.play.commands) ? E.play.commands.length : 0;
@@ -945,7 +966,7 @@ export function parseSave(text: string): ParseResult {
 
   const save: SaveFile = {
     app: SAVE_APP,
-    format: SAVE_FORMAT,
+    format: SAVE_FORMAT_YEARS,
     generator,
     seed: params.seed,
     params,
@@ -986,6 +1007,7 @@ export function parseSave(text: string): ParseResult {
   // 底稿出处:格式不对就当没有
   const origin = cleanOrigin(raw.origin);
   if (origin) save.origin = origin;
+  save.format = saveFormatOf(save.edits);
   // 打开时看哪(分享链接里带的):不合格的那一样去掉,不提示
   const moment = cleanMoment(raw.moment, momentYearMax(save.edits));
   if (moment) save.moment = moment;
@@ -1222,7 +1244,7 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
 function branchKeys(edits: WorldEdits): string[] {
   const cur = cleanPlay(edits.play);
   if (!cur) return [];
-  const key = (p: { year: number; commands: Intervention[] }, from: number) => JSON.stringify([p.year, p.commands, from]);
+  const key = (p: PlayState, from: number) => JSON.stringify(p.tick ? [p.year, p.commands, from, p.tick] : [p.year, p.commands, from]);
   const list = cleanBranches(edits.branches, cur)?.list ?? [];
   return [key(cur, cleanPlayFrom(edits.playFrom, cur) ?? 0), ...list.map((b) => key(branchPlay(cur, b), b.playFrom ?? 0))];
 }
