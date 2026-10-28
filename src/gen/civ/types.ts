@@ -589,6 +589,11 @@ export interface Civ {
    */
   authorNames?: Record<number, string>;
   /**
+   * 作者的人物里哪些是女的(编号,从小到大;applyCharacters 写入,同 authorNames;一个女的都没有 = 不给)。
+   * 编年史写没即位成的原因("她第 N 年才出生")时用;生成的 Civ 里没有
+   */
+  authorFemale?: number[];
+  /**
    * 用户改过的州名(阶段 4,gen/edits.ts 的 applyNames 写入;下标 = 州编号,空串 = 用 regions.name)。
    * 不改 regions 本身:画国土、国界的缓存按 civ.regions 存,改州名不用重画
    */
