@@ -33,7 +33,7 @@
  */
 import type { Civ, RulerLeanings } from './civ/types';
 import { INTERVENTION_YEAR_MAX, MARK_COLORS, freeMarkId, isCityKey, isPolityKey, isRegionKey, yearOf, type MarkColor } from './edits';
-import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
+import { TERRAIN_H, TERRAIN_W } from './terrainOps';
 
 /** 一个世界最多几个作者的人物 */
 export const CHARACTERS_MAX = 500;

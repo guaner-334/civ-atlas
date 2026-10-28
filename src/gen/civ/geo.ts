@@ -7,12 +7,10 @@
  */
 import type { Mesh } from '../mesh';
 import { geometryOf } from '../geometry';
+import { REF_CELLS } from './scale';
 
-/** 一个世界单位约多少公里(赤道处;地图宽 2048 单位 ≈ 地球周长 4 万公里) */
-export const KM_PER_UNIT = 40000 / 2048;
-
-/** 默认精细度(地块数参数)。面积、间距类常数都以它为基准,换精细度时结果大致不变 */
-export const REF_CELLS = 36000;
+// 比例尺(一个世界单位多少公里、默认精细度)在 scale.ts;原来从这里 import 的照旧能用
+export { KM_PER_UNIT, REF_CELLS } from './scale';
 
 /**
  * 基准地块的面积(世界单位²):主图(宽 × 高)按默认精细度分的一块地的面积,约 2.2 万平方公里。

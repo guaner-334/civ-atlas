@@ -562,9 +562,9 @@
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
-import { polityRootAt } from './civ/growth';
-import { treatyBook } from './civ/treatyInfo';
-import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
+import { polityRootAt } from './civ/polityRoot';
+import { treatyBook } from './civ/treatyBook';
+import { TERRAIN_H, TERRAIN_W } from './terrainOps';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
 import type { Era, MonthNames } from './era';

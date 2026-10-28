@@ -22,7 +22,8 @@ import type { World } from './world';
 import type { Raster } from './raster';
 import { boxSpans, type PixelBox } from './pixelBox';
 import { classifyBiome } from './biomes';
-import { clamp, fbm3, noise3, orderByKey, smoothstep, subSeed } from './util';
+import { clamp, orderByKey, smoothstep, subSeed } from './util';
+import { fbm3, noise3 } from './noise';
 import { geometryOf } from './geometry';
 
 /** 有效冬季温度高于这个值:开阔水面;低于 PACK:整片冰盖(°C,按年均温尺度) */
