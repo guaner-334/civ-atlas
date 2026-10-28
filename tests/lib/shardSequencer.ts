@@ -100,6 +100,7 @@ const SECONDS: Record<string, number> = {
   'stepwise-branches-run-11': 22,
   portrait: 21,
   'thumb-prep': 21,
+  'relation-graph': 21,
   'labels-charset': 20,
   savefile: 20,
   'stepwise-branches-run-2024': 19,
