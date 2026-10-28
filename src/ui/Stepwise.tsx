@@ -787,6 +787,8 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   };
   // 两头:正好在年初的照旧只写年,年中的写到月;大字:一步短于一年的一直写到月,一步一年以上的拖到年中只写年(停在"现在"那一刻才写月)
   const mt = { months, names: monthNames, always: monthly(adv, months) };
+  // 大字写的那一刻(年和月从同一刻取):"现在"就是"现在";别的按一步(一步一年以上按整年)取到开头
+  const shownAt = year >= st.now - 1e-9 ? st.now : redrawAt(adv, months, year);
   const toLabel = past ? momentShort(to, months, era, monthNames, false) : `${momentAt(to, months, era, monthNames, false)}${st.stop ? ' ' : ''}停一下`;
   const lookUp = view.look !== null;
   return (
@@ -803,7 +805,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
       <button className={`tb-play${playing ? ' on' : ''}`} onClick={toggle} aria-label={playing ? '暂停' : st.stop && !lookUp ? '接着演绎' : '播放'} data-act="step-play">
         <i aria-hidden="true" />
       </button>
-      <TimelineYear world={baseRegions(civ)} range={{ from: 0, to: st.now }} year={Math.floor(year + 1e-9)} end={st.now} era={era} narrow={phone} locked={false} below={false} future tail={momentTail(year >= st.now - 1e-9 ? st.now : redrawAt(adv, months, year), months, monthNames, mt.always)} />
+      <TimelineYear world={baseRegions(civ)} range={{ from: 0, to: st.now }} year={Math.floor(shownAt + 1e-9)} end={st.now} era={era} narrow={phone} locked={false} below={false} future tail={momentTail(shownAt, months, monthNames, mt.always)} />
       {pager('prev')}
       <div
         ref={track}

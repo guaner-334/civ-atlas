@@ -123,6 +123,8 @@ export function nextStep(advance: Pick<Advance, 'step' | 'unit' | 'every'>, sinc
  * 按月走的每个月初,按格走的每一步的那几格(从第 0 年数起对齐)
  */
 export function redrawAt(advance: Pick<Advance, 'step' | 'unit'>, months: number, y: number): number {
+  // 一步一年以上(按月的 12 个月以上也算):整年
+  if (stepYears(advance, months) >= 1) return Math.floor(y + 1e-9);
   const t = Math.floor(y * YEAR_TICKS + 1e-6);
   if (advance.unit === 'month') {
     const n = stepMonths(months);
