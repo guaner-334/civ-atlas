@@ -3515,10 +3515,11 @@ ${s.image.cells}` : null);
       st.edits.civSeed === undefined &&
       !st.edits.era &&
       st.edits.months === undefined &&
+      !st.edits.monthNames &&
       worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
     // 地名风格、推演年数、拓荒和参数一样是这一类星球的设定,换一颗照旧;选的起源按位置照旧(新星球上那里住不了人的,推演时跳过);
     // 纪年、月份(年份的写法)也照旧,按一件事定的换成按年份(那件事是原来那颗星球上的)
-    const { nameMix, endYear, frontier, calamity, origins, civSeed, era, months } = st.edits;
+    const { nameMix, endYear, frontier, calamity, origins, civSeed, era, months, monthNames } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
     const edits = {
       ...kept,
@@ -3530,6 +3531,7 @@ ${s.image.cells}` : null);
       ...(civSeed !== undefined ? { civSeed } : {}),
       ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}),
       ...(months !== undefined ? { months } : {}),
+      ...(monthNames ? { monthNames } : {}),
     };
     // 换一颗:记一步(按后退换回刚才那颗)
     navTo({ page: 'draft', id: t.id, seed, title: st.title });
@@ -3887,7 +3889,7 @@ ${s.image.cells}` : null);
     const fixed = run.setup.map === 'fixed';
     const be = back.target.edits;
     const params = fixed ? back.target.params : { ...back.target.params, seed };
-    const { nameMix, endYear, frontier, origins, calamity, era, months } = be;
+    const { nameMix, endYear, frontier, origins, calamity, era, months, monthNames } = be;
     const keep: Partial<WorldEdits> = {
       ...(nameMix ? { nameMix } : {}),
       ...(endYear ? { endYear } : {}),
@@ -3896,6 +3898,7 @@ ${s.image.cells}` : null);
       ...(calamity ? { calamity } : {}),
       ...(era ? { era } : {}),
       ...(months !== undefined ? { months } : {}),
+      ...(monthNames ? { monthNames } : {}),
     };
     // 都用这张地图:文明种子照搜的时候明写(和地图种子一样也写:改过地形的地图上,写没写推出来的不一样)
     const edits: WorldEdits = fixed ? { ...be, civSeed: seed } : { ...EMPTY_EDITS, ...keep };
@@ -4099,7 +4102,7 @@ ${s.image.cells}` : null);
     if (!cur || !t || t.kind === 'draft' || !civNow || !e.outline?.plots.length) return;
     const from = outlineFrom({ civ: civNow, plots: e.outline.plots, marks: e.marks, characters: e.characters }, cur.id, mapKeyOf(t.params, e));
     const view = { base: mapViewRef.current.base, fill: mapViewRef.current.fill };
-    const { endYear, frontier, origins, calamity, nameMix, era, months, sketch } = e;
+    const { endYear, frontier, origins, calamity, nameMix, era, months, monthNames, sketch } = e;
     const keep: WorldEdits = {
       ...EMPTY_EDITS,
       terrain: [...e.terrain],
@@ -4111,6 +4114,7 @@ ${s.image.cells}` : null);
       ...(calamity ? { calamity } : {}),
       ...(era ? { era } : {}),
       ...(months !== undefined ? { months } : {}),
+      ...(monthNames ? { monthNames } : {}),
     };
     closeOverview();
     openTarget(draftTarget(t.params, null, keep));

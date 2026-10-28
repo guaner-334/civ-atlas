@@ -1,17 +1,20 @@
 /**
- * 信仰(gen/civ/religion.ts,推演结束后贴上去的):编号、日志、检查点前后一致;大事、国教说得通;
+ * 信仰(gen/civ/religion.ts,推演里每 5 年算一步):编号、日志、检查点前后一致;大事、国教说得通;
+ * 推演里逐步算的和推完照历史再算一遍一样(带干预、地形大事、结束年份不在整步上),推演里问得到各州信仰、各国国教;
  * 编年史里的宗教大事(religionText.ts)写得干净、编号不和史事撞;侧栏的信仰列表排得对;
  * 改名(教名、民族改名带着民间信仰改)、搜索、信仰图层、选中信仰时地图上圈哪座城。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
+import { CivSim } from '../src/gen/civ/sim';
+import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { polityAlive } from '../src/gen/civ/growth';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { buildChronicle, chronicleDocument, reignEntries } from '../src/gen/civ/chronicle';
-import { GREAT_COLORS, faithAt, faithCounts, faithFromScratch, faithRoot, stateFaithAt, statesOfFaith } from '../src/gen/civ/religion';
+import { GREAT_COLORS, buildReligion, faithAt, faithCounts, faithFromScratch, faithRoot, faithSimOf, stateFaithAt, statesOfFaith } from '../src/gen/civ/religion';
 import { FOLK_ROW_NAME, faithEntries, faithHistory, faithRows, fullChronicle } from '../src/gen/civ/religionText';
-import { applyNames, cultureKey, faithKey } from '../src/gen/edits';
+import { applyNames, cultureKey, faithKey, polityKey, regionKey, type Intervention } from '../src/gen/edits';
 import { searchCiv } from '../src/ui/searchIndex';
 import { layerDef, layerOf } from '../src/ui/mapLayers';
 import { developmentEntries } from '../src/gen/civ/developmentText';
@@ -263,6 +266,59 @@ describe('信仰 · 同种子同一套', () => {
     expect([...b.log.value]).toEqual([...a.log.value]);
     expect([...b.log.region]).toEqual([...a.log.region]);
   });
+});
+
+describe('信仰 · 推演里逐步算', () => {
+  it('推演里每 5 年算的一步,和推完照历史从头再算一遍(buildReligion)逐项一样:默认、结束年份不在整步上、带干预(含立国)、有地形大事', () => {
+    const w = world(7);
+    const base = civOf(7);
+    const iv: Intervention[] = [
+      { kind: 'declare', a: polityKey(base, 0), b: polityKey(base, 1), from: 900 },
+      { kind: 'found', region: regionKey(base, Math.floor(base.regions.count / 3)), from: 1200 },
+    ];
+    const P = { ...DEFAULT_PARAMS, cells: 12000, seed: 7 };
+    const ups = upheavalSteps(P, [], null, [{ year: 1600, ops: [{ kind: 'sink', pts: [1850, 520, 1930, 530, 1903, 469], r: 40, s: 1.1 }] }]);
+    const cases: [string, Civ, World][] = [
+      ['seed 7', base, w],
+      ['seed 2024', civOf(2024), world(2024)],
+      ['推到 1873.5 年', generateCiv(w, { endYear: 1873.5 }), w],
+      ['干预', generateCiv(w, { interventions: iv }), w],
+      ['地形大事', generateCiv(w, { upheavals: ups }), ups[0].world],
+    ];
+    for (const [label, civ, cw] of cases) {
+      const a = civ.religion!;
+      const b = buildReligion(cw, civ);
+      expect(a.faiths.length, label).toBeGreaterThan(0);
+      expect(b.faiths, label).toEqual(a.faiths);
+      expect(b.events, label).toEqual(a.events);
+      expect(b.states, label).toEqual(a.states);
+      expect(b.log, label).toEqual(a.log);
+      expect(b.checkpoints, label).toEqual(a.checkpoints);
+    }
+    expect(cases[4][1].eras?.length).toBe(1);
+  }, 120_000);
+
+  it('推演里问得到"这州眼下信什么、这国眼下的国教"(算到的最近一步),早先某一年的也问得到;和推完的结果一样', () => {
+    const w = world(2024);
+    const full = civOf(2024);
+    const rel = full.religion!;
+    const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: 1502 }));
+    const fs = faithSimOf(sim)!;
+    const check = (y: number) => {
+      expect(fs.year).toBe(y);
+      expect([...fs.faith], `${y} 年`).toEqual([...faithAt(full, y)]);
+      for (let p = 0; p < full.polities.length; p++) expect(fs.stateFaith(p), `${y} 年 国家 ${p}`).toBe(stateFaithAt(rel, p, y)?.faith ?? -1);
+    };
+    check(1500); // 接着推:照历史重放到 1502 年以前的最后一步
+    sim.run(2203);
+    check(2200);
+    for (const y of [0, 777.5, 1234, 2200]) expect([...fs.faithAt(y)], `${y} 年`).toEqual([...faithAt(full, y)]);
+    for (let p = 0; p < full.polities.length; p++) expect(fs.stateFaithAt(p, 1234), `国家 ${p}`).toBe(stateFaithAt(rel, p, 1234)?.faith ?? -1);
+    for (let f = 0; f < fs.faithCount; f++) {
+      expect(fs.folk(f), `信仰 ${f}`).toBe(rel.faiths[f].kind === 'folk');
+      expect(fs.rootOf(f), `信仰 ${f}`).toBe(faithRoot(rel, f));
+    }
+  }, 60_000);
 });
 
 describe('信仰 · 改名、搜索、图层、地图上的选中', () => {
