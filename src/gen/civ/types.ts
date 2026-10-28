@@ -913,7 +913,7 @@ export interface Person {
   regencies?: PersonRegency[];
   /** 联姻娶的宗室女(marriage.ts;按先后)。没有 = 不给 */
   spouses?: PersonSpouse[];
-  /** 母亲是联姻嫁来的宗室女(父亲娶她以后出生的儿子才有,marriage.ts)。别的不给 */
+  /** 母亲是联姻嫁来的宗室女(父亲娶她以后出生的子女才有,marriage.ts)。别的不给 */
   mother?: PersonSpouse;
   /** 放逐到中立地 / 出奔中立地 / 出奔邻国(史事 exile;people.ts 照它填):没有 = 不给 */
   exile?: PersonExile;

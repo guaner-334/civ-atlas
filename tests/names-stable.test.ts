@@ -100,8 +100,13 @@ const styleOf = (civ: Civ, p: Place) => (p.culture >= 0 ? civ.cultures[p.culture
 const geoPlaces = (c: Civ) => c.places.filter((p) => p.kind !== 'pass');
 const ratio = (xs: boolean[]) => xs.filter(Boolean).length / Math.max(1, xs.length);
 
-/** 除名字以外的世界 + 历史的指纹(名字、语感、东方 / 西幻、拉丁原形、改名前的名字不算;小数按 64 位原样) */
+/**
+ * 除名字以外的世界 + 历史的指纹(名字、语感、东方 / 西幻、拉丁原形、改名前的名字不算;人物跟着名字走的性别、原来的男名、字、号、称号也不算;
+ * 小数按 64 位原样)
+ */
 const NAME_FIELDS = new Set(['name', 'style', 'eastern', 'latin', 'defaultName']);
+/** 人物(有 role 的对象)上跟着名字走的几项 */
+const PERSON_NAME_FIELDS = new Set(['female', 'maleName', 'courtesy', 'art', 'title']);
 const f64 = new Float64Array(1);
 const f64b = new Uint8Array(f64.buffer);
 function historyPrint(world: World, civ: Civ): string {
@@ -115,8 +120,9 @@ function historyPrint(world: World, civ: Civ): string {
       return void h.update(']');
     }
     if (typeof v === 'object') {
+      const person = typeof (v as { role?: unknown }).role === 'string';
       for (const k of Object.keys(v as object).sort()) {
-        if (NAME_FIELDS.has(k)) continue;
+        if (NAME_FIELDS.has(k) || (person && PERSON_NAME_FIELDS.has(k))) continue;
         h.update(`.${k}`);
         feed((v as Record<string, unknown>)[k]);
       }
@@ -141,8 +147,8 @@ function historyPrint(world: World, civ: Civ): string {
 
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
-    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据;29 起管到几成和动荡每年算一次;35 起议事;36 起君主有了诸子、王子领兵、争储,宗室据地自立;37 起据险断后;38 起议事第二批:改军制、改官制、分镇、脱离;39 起立约与中立地;40 起有了掌实权的人和两国宗室联姻;41 起开战看内政;43 起战争节奏:议和了还会再打、仗打得密、罢兵割地;44 起亡国之君出奔邻国)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: 'd22d81edfc3b9b86', 2024: '3849e2a89ed3bbfc' };
+    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据;29 起管到几成和动荡每年算一次;35 起议事;36 起君主有了诸子、王子领兵、争储,宗室据地自立;37 起据险断后;38 起议事第二批:改军制、改官制、分镇、脱离;39 起立约与中立地;40 起有了掌实权的人和两国宗室联姻;41 起开战看内政;43 起战争节奏:议和了还会再打、仗打得密、罢兵割地;44 起亡国之君出奔邻国)算的;46 起一部分人物换成女的,人物的性别、原来的男名、字、号、称号不再算进来(期望值换成不算它们的;第 45、46 版代码算出来一样)。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
+    const expected: Record<number, string> = { 7: '5c40f2b8bd89b81e', 2024: '3b7e78137bd8a623' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);

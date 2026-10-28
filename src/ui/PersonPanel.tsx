@@ -46,7 +46,7 @@ import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } fr
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../gen/civ/peopleText';
 import { REGENCY_END, REGENCY_VERB, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
-import { heOrShe, kinWord, wedVerb } from '../gen/civ/gender';
+import { heOrShe, isFemale, kinWord, wedVerb } from '../gen/civ/gender';
 import { treatyBook } from '../gen/civ/treatyInfo';
 import { fullChronicle } from '../gen/civ/religionText';
 import { diedAbroad, diedInExile, exileHostName, exileReturns, exileTieText, treatyEntries } from './treatyRows';
@@ -56,7 +56,7 @@ import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/offic
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
 import { personPortrait, portraitMood } from '../gen/portrait';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { openLineage, openOverview } from './overviewStore';
 import { getEdits, useEdits, useEra } from './editsStore';
 import { eraText, spaced, yearAt, yearShort, yearShortAt, yearSpan, yearSpanAt, type Era } from '../gen/era';
@@ -243,7 +243,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
       <PanelHead
         color={rgb(p.color)}
         icon={
-          portrait && (
+          portrait ? (
             <PortraitView
               p={portrait}
               size="card"
@@ -252,7 +252,10 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
               dark={x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle'}
               mood={mood}
             />
-          )
+          ) : x.female && x.name ? (
+            // 女性的头像部件还没画:国家色方块上写名字后两个字
+            <NameFace name={x.name} size="card" color={rgb(p.color)} dead={x.died !== undefined && year > x.died} />
+          ) : null
         }
       >
         {nameKey ? (
@@ -328,7 +331,14 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </MenuItem>
           )}
           {canWed && (
-            <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-marry" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'marry' })}>
+            // 女方出嫁的联姻还没做:灰掉、写"以后做"
+            <MenuItem
+              icon={<Icon name="close" size={16} className="iv-blank" />}
+              act="person-marry"
+              disabled={locked || isFemale(x)}
+              note={isFemale(x) ? '以后做' : locked ? ROLE_LOCK_NOTE : undefined}
+              onClick={() => setIvPage({ id, kind: 'marry' })}
+            >
               为{heOrShe(x)}联姻…
             </MenuItem>
           )}

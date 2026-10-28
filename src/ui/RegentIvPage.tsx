@@ -328,7 +328,7 @@ export function MarryIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; yea
             <>
               <span>子女</span>
               <span>
-                之后生的儿子算{nameAt(P, y)}的人，卡片上写母亲出自{Bshort}
+                之后生的子女算{nameAt(P, y)}的人，卡片上写母亲出自{Bshort}
               </span>
             </>
           )}

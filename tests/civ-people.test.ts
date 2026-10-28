@@ -10,7 +10,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { dynastyIndexAt, polityShortTitle, polityTierAt } from '../src/gen/civ/growth';
 import { buildChronicle, filterChronicle, mergeChronicle, polityChronicle, reignEntries, type ChronicleEntry } from '../src/gen/civ/chronicle';
-import { kinOf, rulerRef } from '../src/gen/civ/peopleText';
+import { kinOf, rulerRef, rulerTitle } from '../src/gen/civ/peopleText';
 import { regionLabel } from '../src/gen/civ/display';
 import { polityKey } from '../src/gen/edits';
 
@@ -206,7 +206,8 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       for (const id of e.people ?? []) {
         const x = P[id];
         expect(x).toBeDefined();
-        expect(e.text.includes(x.name) || (!!x.title && e.text.includes(x.title)), `${e.text} / ${x.name}`).toBe(true);
+        // 女君的称号按她写("成王" → "成女王")
+        expect(e.text.includes(x.name) || (!!x.title && e.text.includes(rulerTitle(civ, x))), `${e.text} / ${x.name}`).toBe(true);
       }
       expect(e.text).not.toMatch(/undefined|NaN|某国/);
       // 句子里写到的开国之君(立国、分裂、复国、改朝换代;和别的事并成一条的也算)都记在 people 上
@@ -254,7 +255,7 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
       if (x.role !== 'ruler') continue;
       const p = civ.polities[x.polity];
       const ref = rulerRef(civ, x, x.from!);
-      expect(ref.includes(x.name) || (!!x.title && ref.includes(x.title)), ref).toBe(true);
+      expect(ref.includes(x.name) || (!!x.title && ref.includes(rulerTitle(civ, x))), ref).toBe(true);
       if (p.eastern && p.lineage !== 'khanate' && polityTierAt(p, x.from!) >= 3 && (x.until === undefined || polityTierAt(p, x.until - 1 / 512) >= 3)) {
         expect(ref.startsWith(polityShortTitle(p, 3, x.from!))).toBe(true);
       }
@@ -335,7 +336,8 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
     const reigns = reignEntries(civ);
     let n = 0;
     let none = 0;
-    // 亲属紧跟在分号后面,名臣迎立的在"迎立 / 拥立"后面
+    // 亲属紧跟在分号后面,名臣迎立的在"迎立 / 拥立"后面;诸子争储的前面有"诸子争立"(争的人里有女的:"兄妹争立""王子公主争位"……)
+    const FIGHT = '(?:(?:诸子|兄妹|诸女)争立|(?:诸子|王子公主|诸公主)争位)';
     const after = (s: string) => new RegExp(`;([^;,]*(迎立|拥立))?(${s})`);
     for (const e of reigns) {
       const x = P[e.id - civ.annals.length];
@@ -345,8 +347,9 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       if (!k) {
         none++;
         expect(e.text).toMatch(after('宗室'));
-      } else if (k === '子') expect(e.text).toMatch(after('(诸子争(立|位),)?(太子|世子|其子|长子|次子|[三四五六七八九十]+子)'));
-      else if (k === '养子') expect(e.text).toMatch(after('(诸子争(立|位),)?(其养子|养子)'));
+      } else if (k === '子') expect(e.text).toMatch(after(`(${FIGHT},)?(太子|世子|其子|长子|次子|[三四五六七八九十]+子)`));
+      else if (k === '女') expect(e.text).toMatch(after(`(${FIGHT},)?(皇太女|王太女|其女|长女|次女|[三四五六七八九十]+女)`));
+      else if (k === '养子' || k === '养女') expect(e.text).toMatch(after(`(${FIGHT},)?(其${k}|${k})`));
       else expect(e.text).toMatch(after(`其${k}`));
       n++;
     }

@@ -70,6 +70,30 @@
   vertical-align: -8px;
 }
 
+/* 还没有头像部件的人(女性):国家色方块上写名字 */
+.pt-name {
+  background: color-mix(in srgb, var(--c) 78%, #fff);
+}
+.pt-name-in {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 1px;
+  line-height: 1;
+  user-select: none;
+}
+.pt-card .pt-name-in {
+  font-size: 30px;
+}
+.pt-card .pt-name-in.pt-one {
+  font-size: 38px;
+}
+
 /* 去世以后:颜色变旧、加一圈白框,像一幅画像;死于非命的再暗一点 */
 .pt-dead .pt-in {
   filter: saturate(0.35) sepia(0.18) brightness(0.97);

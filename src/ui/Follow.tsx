@@ -25,7 +25,7 @@ import { followAt, followChoices, followRefOf, followRole, followSub, goneWord, 
 import { useEra } from './editsStore';
 import { useStepwise } from './stepwiseStore';
 import { polityHistory } from './WorldOverviewCountries';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { Act } from './panelParts';
 import { Icon } from './icons';
 
@@ -53,7 +53,13 @@ function Face({ civ, x, year, dead }: { civ: Civ; x: Person; year: number; dead?
   const age = F(Math.min(Math.max(year, Math.min(from, x.born + 20)), x.died ?? Infinity) - x.born);
   const p = useMemo(() => personPortrait(civ, x.id, x.born + age), [civ, x, age]);
   const pol = civ.polities[x.polity];
-  return <span className="fp-face">{p && pol ? <PortraitView p={p} size="mini" color={rgb(pol.color)} dead={dead} dark={dead && (x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle')} /> : null}</span>;
+  // 还没有头像部件的(女性):国家色上写名字的最后一个字
+  const face = !pol ? null : p ? (
+    <PortraitView p={p} size="mini" color={rgb(pol.color)} dead={dead} dark={dead && (x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle')} />
+  ) : x.female && x.name ? (
+    <NameFace name={x.name} size="mini" color={rgb(pol.color)} dead={dead} />
+  ) : null;
+  return <span className="fp-face">{face}</span>;
 }
 
 /** 国家当头像:一块国色 */

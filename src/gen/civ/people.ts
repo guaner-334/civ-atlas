@@ -1182,16 +1182,16 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const end = civ.annals.find((a) => a.kind === 'neutral' && a.cause === 'lapse' && a.war === e.war);
     x.exile = { how, annal: i, zone: e.war, region: e.region, year: e.year, ...(by ? { by: by.id } : {}), ...(end ? { until: end.year } : {}) };
   }
-  // 一部分人换成女的(women.ts):只换性别、名字、字号,西幻同名女王另编序数
-  const heirs = new Set<Person>();
-  for (const ss of sonsOf.values()) for (const s of ss) if (s.heirAt !== undefined && s.p.role === 'prince') heirs.add(s.p);
+  // 一部分人换成女的(women.ts):只换性别、名字、字,西幻同名女王另编序数
   assignWomen(out, {
     seed: civ.seed,
     polities,
     tag,
     styleOf,
     namerOf: (p) => namerOf(styleOf(p)),
-    heirs,
+    rbase: base,
+    reignOf,
+    sons: sonsOf,
     usurped: usurperOf,
     retitle: (pid) => titleRulers(polities[pid], rulers[pid], facts[pid], base, tag[pid]),
   });

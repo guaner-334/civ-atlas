@@ -201,8 +201,13 @@ describe('kinOf:男女两套亲属词', () => {
 });
 
 describe('推演出来的人物改成女的', () => {
+  let raw: Civ | undefined;
   let civ: Civ | undefined;
-  const civOf = () => (civ ??= generateCiv(generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed: 7 })));
+  /** 推演出来的世界(一部分人物是女的) */
+  const rawOf = () => (raw ??= generateCiv(generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed: 7 })));
+  /** 同一个世界,女的都换回原来的男的(下面手动挑几位换成女的,看称呼怎么跟着变) */
+  const civOf = () =>
+    (civ ??= { ...rawOf(), people: rawOf().people!.map((x) => (x.female ? (({ female: _f, maleName, ...rest }) => ({ ...rest, name: maleName! }))(x) : x)) });
   /** 把几位换成女的(一份新的 Civ,原来的不动);polities 可以顺带改几国 */
   const withFemale = (c: Civ, ids: readonly number[], polities?: (p: Polity) => Polity): Civ => {
     const set = new Set(ids);
@@ -215,7 +220,12 @@ describe('推演出来的人物改成女的', () => {
   const rulers = () => civOf().people!.filter((x) => x.role === 'ruler' && x.author === undefined);
   const tierEnd = (c: Civ, x: Person) => polityTierAt(c.polities[x.polity], (x.until ?? c.endYear) - 1 / 512);
 
-  it('推演出来的人物都没有性别这一项(按男的写);照 JSON 读回来也一样', () => {
+  it('推演出来的人物:女的记 female: true、男的没有这一项;照 JSON 读回来也一样', () => {
+    const r = rawOf();
+    expect(r.people!.some((x) => x.female === true)).toBe(true);
+    expect(r.people!.every((x) => !('female' in x) || x.female === true)).toBe(true);
+    const her = r.people!.find((x) => x.female && x.role === 'ruler')!;
+    expect(isFemale(JSON.parse(JSON.stringify(her)) as Person)).toBe(true);
     const c = civOf();
     expect(c.people!.some((x) => 'female' in x)).toBe(false);
     const x = rulers()[0];

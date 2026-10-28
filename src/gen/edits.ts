@@ -535,6 +535,8 @@
  *      复国那一条写起事的人"自某国还"。疆域、兴亡、人物的下场不变,编年史多了出奔那一条
  *  45:地形大事以后城的港口、人口上限和这座城最后一次记下的那一段比(civ/upheaval.ts 的 reshapeCities;以前和紧挨着的前一段比,
  *      几件大事各变一点、每件都不到 2% 的一直不记,差别攒下来)。只有带地形大事的世界变了:城的人口上限有一点变化,历史重新推演
+ *  46:推演里有了女性(civ/women.ts):按语感的规矩和比例,一部分君主、没即位的宗室、将领、名臣是女的,用女名(将领、名臣的字跟着另起;
+ *      西幻同名的国王里有一位成了女王的,后面那几位的"几世"跟着变)。疆域、兴亡、战争、人物的生卒和父子一样不变,男的名字一个不变
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -548,11 +550,12 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 45;
+export const GENERATOR_VERSION = 46;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
  *   names      地形、历史不变,默认的名字换了
+ *   people     地形、历史不变,一部分人物换成了女的,她们的名字跟着换了
  *   chronicle  疆域、兴亡不变,编年史里添了内容
  *   routes     地形、历史不变,道路和航线变了
  *   history    地形、气候不变,历史重新推演
@@ -560,7 +563,7 @@ export const GENERATOR_VERSION = 45;
  *   terrain    地形有局部变化,历史重新推演
  *   planet     整颗星球重新生成
  */
-export type GeneratorChange = 'names' | 'chronicle' | 'routes' | 'history' | 'climate' | 'terrain' | 'planet';
+export type GeneratorChange = 'names' | 'people' | 'chronicle' | 'routes' | 'history' | 'climate' | 'terrain' | 'planet';
 
 /**
  * 每一版(加到这个号时)改了什么;edited = 只有改过地形(地形修改、草图)的世界变了,没改地形的和上一版一样;
@@ -612,6 +615,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   43: { change: 'history' },
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
+  46: { change: 'people' },
 };
 
 /** 干预的种类(见文件头的表) */

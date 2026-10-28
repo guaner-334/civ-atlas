@@ -64,7 +64,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排;42 亡国之君先出奔中立地,疆域兴亡不变,只多了出奔的史事(civ.annals、civ.people、civ.development 里记的史事条数、civ.places.pass 里记的史事下标跟着变);43 战争节奏(议和了还会再打、仗打得密、罢兵割地),历史重排;44 亡国之君出奔邻国,疆域兴亡不变,只多了出奔的史事(和 42 一样只变了 civ.annals、civ.people、civ.development、civ.places.pass)))。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排;42 亡国之君先出奔中立地,疆域兴亡不变,只多了出奔的史事(civ.annals、civ.people、civ.development 里记的史事条数、civ.places.pass 里记的史事下标跟着变);43 战争节奏(议和了还会再打、仗打得密、罢兵割地),历史重排;44 亡国之君出奔邻国,疆域兴亡不变,只多了出奔的史事(和 42 一样只变了 civ.annals、civ.people、civ.development、civ.places.pass);46 一部分人物换成女的,只变了 civ.people(性别、名字、字号、西幻的序数)))。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -99,7 +99,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '35d8ad95d249',
     'civ.log': '29ade17a2317',
-    'civ.people': '9c6d504cdf53',
+    'civ.people': 'e620776d0dcb',
     'civ.places': 'e82d872374d7',
     'civ.places.pass': 'f4319d79075e',
     'civ.polities': '55208907ba9c',
@@ -145,7 +145,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '1268425e378a',
     'civ.log': 'd3f85cf63182',
-    'civ.people': '487684383783',
+    'civ.people': 'ef4ef2f9de16',
     'civ.places': '1648605488de',
     'civ.places.pass': 'f6dbb9f76af0',
     'civ.polities': 'b75e44c65373',
@@ -191,7 +191,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '91e9fb0abefb',
     'civ.log': '02c96eeac9f5',
-    'civ.people': '011827b641fc',
+    'civ.people': 'd5bed517405c',
     'civ.places': '4f5c7e90ec98',
     'civ.places.pass': 'bef02442f825',
     'civ.polities': '7472ed30eebd',

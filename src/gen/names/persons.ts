@@ -107,7 +107,7 @@ const WESTERN_FEMALE_ENDS: Record<string, Weighted<Part>[]> = {
   kingdom: parts('ena:2 ina:2 ella:2 wen:2 ilda:2 ith:1 is:1 a:1'),
   nordic: parts('hild:3 run:2 dis:2 a:2 gerd:1 frid:1'),
   slavic: parts('slava:4 mila:3 na:1 ka:1 ena:1'),
-  hellenic: parts('ia:3 e:1 ippe:1 ea:1 one:1 ene:1 ope:1'),
+  hellenic: parts('ia:3 ippe:1 ea:1 one:1 ene:1 ope:1'),
   desert: parts('ida:2 ila:2 ima:2 iya:2 a:1 ah:1 ina:1 ara:1'),
   steppe: parts('guli:4 ai:1 a:1 ana:1 ra:1'),
   elven: parts('iel:2 wen:2 eth:1 ia:2 ith:1 wyn:1 ara:1'),
@@ -175,7 +175,8 @@ function westernPerson(st: WesternPersonStyle, tr: TranscribeOptions, link: stri
   // 女名词尾的 s、th 写"丝"(伊迪丝、托尔迪丝)
   if (female && /(s|th)$/.test(l) && zh.endsWith('斯')) zh = `${zh.slice(0, -1)}丝`;
   const n = [...zh].length;
-  if (n < 3 || n > 6 || zhBlocked(zh)) return null;
+  // 女名不以"尔"起头(l、r 打头连辅音时译出来的,读着不像名字)
+  if (n < 3 || n > 6 || zhBlocked(zh) || (female && zh.startsWith('尔'))) return null;
   return zh;
 }
 
