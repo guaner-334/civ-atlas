@@ -141,7 +141,7 @@ export interface Migration {
   route: number[];
   /** 到 route 里每一州的那一刻(和 route 一样长,严格递增;years[0] = 动身,最后一个 = 落脚) */
   years: Year[];
-  /** 大致往哪个方位走(出发的州 → 落脚的州;屏幕上 y 向下 = 向南) */
+  /** 一路往哪个方位走:整条路线在地图上的总体走向(各段的经度差、纬度差加起来,哪个大取哪个;见 migration.ts 的 trekDir) */
   dir: MigrationDir;
   /** 这一支有多少人:到了能占几州(本族州数的三成,3–8 州) */
   size: number;
