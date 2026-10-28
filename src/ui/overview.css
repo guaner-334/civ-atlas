@@ -829,6 +829,29 @@
   font-weight: 600;
   color: var(--ink);
 }
+/* 那一行右边的「让 AI 写这一朝的家传」(手机上紧跟在年份后面,放不下就换到下一行) */
+.lg-ai {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 7px;
+  border: 1px solid var(--ink-2);
+  border-radius: 3px;
+  background: none;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.lg-ai:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.lg-phone .lg-head {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.lg-phone .lg-ai {
+  margin-left: 0;
+}
 .lg-scroll {
   position: relative;
   flex: 1;

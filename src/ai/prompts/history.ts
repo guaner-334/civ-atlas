@@ -55,7 +55,7 @@ export interface HistoryStyleSpec {
  * "史臣曰"的禁句:模型几乎每段都写成"某之兴,非恃甲兵之利,实赖民志之凝"(编年体是"非唯……亦在……"),
  * 只说"句式和前面不同"管不住,点名禁掉这种对句
  */
-const VERDICT_RULE = '"史臣曰"不要写成"某之兴,非恃……实赖……""非唯……亦在……"这种先否定、再肯定的对句,每段换一种说法。';
+export const VERDICT_RULE = '"史臣曰"不要写成"某之兴,非恃……实赖……""非唯……亦在……"这种先否定、再肯定的对句,每段换一种说法。';
 
 export const HISTORY_STYLES: Record<HistoryStyle, HistoryStyleSpec> = {
   classic: {
@@ -184,7 +184,7 @@ export function estimateTokens(s: string): number {
 }
 
 /** 两个 32 位 FNV-1a 拼成 16 位十六进制(历史指纹用,不求密码学强度) */
-function hash(s: string): string {
+export function hash(s: string): string {
   let a = 0x811c9dc5;
   let b = 0x01000193 ^ 0x9e3779b9;
   for (let i = 0; i < s.length; i++) {
@@ -1223,6 +1223,8 @@ export interface HistoryPrompts {
   /** 发给 AI 的总字数(系统提示每次都发;多章时带的前文按 PREV_CONTEXT 封顶估)和估算的 token 数 */
   inputChars: number;
   inputTokens: number;
+  /** 一次写完的这一整篇叫什么("克制"重写那一条里用):不给 = "部";列传、家传是"篇" */
+  whole?: string;
 }
 
 export const SYSTEM_PROMPT = [
@@ -1402,7 +1404,7 @@ const CHOOSE =
   '- 取舍:以 ★ 大事为骨架,挑能说明因果的小事写,其余一笔带过或略去;不要逐条复述编年史,要写成连贯的叙述;材料里没有的时期就少写,不要硬凑';
 
 /** 写作要求里的"笔调"一条(各文体共用) */
-const TONE = '- 笔调:平实,少用比喻、排比和空泛的抒情;不要每段都发议论,结尾不要升华成大道理;战争写攻守得失,不要渲染杀戮和血腥场面(服务商的内容审核会拦)';
+export const TONE = '- 笔调:平实,少用比喻、排比和空泛的抒情;不要每段都发议论,结尾不要升华成大道理;战争写攻守得失,不要渲染杀戮和血腥场面(服务商的内容审核会拦)';
 
 function styleLine(opts: HistoryOptions): string {
   const s = HISTORY_STYLES[opts.style];
@@ -1414,7 +1416,7 @@ function styleLine(opts: HistoryOptions): string {
  * 一千字以上给一个区间:只说上限和"宁可略短"时,一次两三千字的章实测只写到八成多(要一万字的书写成 8,349 字);
  * 给了下限会写得长些
  */
-function lengthLine(chars: number, what = ''): string {
+export function lengthLine(chars: number, what = ''): string {
   const r = (x: number) => Math.round(x / 50) * 50;
   if (chars < 1000) return `- 篇幅:${what}约 ${chars} 字(正文的中文字数;最多不超过 ${r(chars * 1.1)} 字,宁可略短)`;
   return `- 篇幅:${what}约 ${chars} 字(正文的中文字数,写到 ${r(chars * 0.9)}—${r(chars * 1.1)} 字之间;材料少的地方多写人物的言行、场面和前因后果,但不要编造史事)`;
@@ -1677,7 +1679,7 @@ export function restrainedLine(unit: string): string {
  * 让 AI 接着写、不重复用过的人名和评语。
  * restrained:这一章(一次写完的是整部)刚被内容审核拦下,重写时在写作要求末尾加一条"战争、杀伐写得克制"(restrainedLine)
  */
-export function historyMessages(p: HistoryPrompts, i: number, prevText = '', restrained = false): AiMessage[] {
+export function historyMessages(p: { system: string; calls: readonly HistoryCall[]; whole?: string; options: { style: HistoryStyle } }, i: number, prevText = '', restrained = false): AiMessage[] {
   const c = p.calls[i];
   const unit = p.options.style === 'biography' ? '篇' : HISTORY_STYLES[p.options.style].unit ?? '章';
   let ctx = '';
@@ -1687,7 +1689,7 @@ export function historyMessages(p: HistoryPrompts, i: number, prevText = '', res
     ctx = `\n\n〔前文〕(已经写好的${cut ? '最后一部分' : '部分'};接着它往下写,不要重复)\n${cut ? '……' + t.slice(-PREV_CONTEXT) : t}`;
     ctx += usedBlock(t, unit);
   }
-  const head = restrained ? `${c.head}\n${restrainedLine(c.chapter === null ? '部' : unit)}` : c.head;
+  const head = restrained ? `${c.head}\n${restrainedLine(c.chapter === null ? (p.whole ?? '部') : unit)}` : c.head;
   return [
     { role: 'system', content: p.system },
     { role: 'user', content: `${head}${ctx}\n\n${c.body}` },

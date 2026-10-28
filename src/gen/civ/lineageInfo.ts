@@ -269,32 +269,37 @@ export function layoutDynasty(civ: Civ, row: DynastyRow): LineageTree[] {
 export function lineageText(civ: Civ, polity: number, era?: Era): string {
   const rows = dynastyRows(civ, polity);
   const out: string[] = [];
-  rows.forEach((row, i) => {
-    out.push(`${row.name}(${dynastyNote(civ, rows, i, era)})`);
-    const trees = layoutDynasty(civ, row);
-    trees.forEach((t, ti) => {
-      const label = treeLabel(row, trees, ti);
-      if (label) out.push(label);
-      const inTree = new Set(t.nodes.map((n) => n.p));
-      const walk = (x: Person, depth: number) => {
-        const pad = '  '.repeat(depth);
-        const k = reignOrder(row, x);
-        const from = x.from ?? x.born;
-        const reign = `${!era ? `${Math.floor(from)}–${x.until !== undefined ? Math.floor(x.until) : ''} 年` : x.until !== undefined ? yearSpanAt(from, x.until, era) : `${yearAt(from, era)}起`}在位`;
-        if (k) out.push(`${pad}${k} ${personName(civ, x)} ${reign}`);
-        else if (secededFrom(civ, x, polity)) out.push(`${pad}${personName(civ, x)} 自立为${polityName(civ.polities[x.polity], from)}之君 ${reign}`);
-        else {
-          const tag = lineageTag(civ, x, polity);
-          out.push(`${pad}${personName(civ, x)} 未即位${tag ? `(${tag})` : ''} ${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`);
-        }
-        for (const c of kidsOf(civ, x)) if (inTree.has(c)) walk(c, depth + 1);
-      };
-      const root = t.nodes.find((n) => n.depth === 0);
-      if (root) walk(root.p, 0);
-    });
-    const end = dynastyEnd(civ, rows, i, era);
-    if (end) out.push(end);
-    out.push('');
-  });
+  rows.forEach((_, i) => out.push(...dynastyLines(civ, polity, rows, i, era), ''));
   return out.join('\n').trim();
+}
+
+/** 一朝的那一段(lineageText 的一段;AI 写家传的材料也用它):标题行、一人一行(下一代多缩两格)、结尾那句 */
+export function dynastyLines(civ: Civ, polity: number, rows: readonly DynastyRow[], i: number, era?: Era): string[] {
+  const row = rows[i];
+  if (!row) return [];
+  const out: string[] = [`${row.name}(${dynastyNote(civ, rows, i, era)})`];
+  const trees = layoutDynasty(civ, row);
+  trees.forEach((t, ti) => {
+    const label = treeLabel(row, trees, ti);
+    if (label) out.push(label);
+    const inTree = new Set(t.nodes.map((n) => n.p));
+    const walk = (x: Person, depth: number) => {
+      const pad = '  '.repeat(depth);
+      const k = reignOrder(row, x);
+      const from = x.from ?? x.born;
+      const reign = `${!era ? `${Math.floor(from)}–${x.until !== undefined ? Math.floor(x.until) : ''} 年` : x.until !== undefined ? yearSpanAt(from, x.until, era) : `${yearAt(from, era)}起`}在位`;
+      if (k) out.push(`${pad}${k} ${personName(civ, x)} ${reign}`);
+      else if (secededFrom(civ, x, polity)) out.push(`${pad}${personName(civ, x)} 自立为${polityName(civ.polities[x.polity], from)}之君 ${reign}`);
+      else {
+        const tag = lineageTag(civ, x, polity);
+        out.push(`${pad}${personName(civ, x)} 未即位${tag ? `(${tag})` : ''} ${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`);
+      }
+      for (const c of kidsOf(civ, x)) if (inTree.has(c)) walk(c, depth + 1);
+    };
+    const root = t.nodes.find((n) => n.depth === 0);
+    if (root) walk(root.p, 0);
+  });
+  const end = dynastyEnd(civ, rows, i, era);
+  if (end) out.push(end);
+  return out;
 }

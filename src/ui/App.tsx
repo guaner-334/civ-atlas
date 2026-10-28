@@ -6856,7 +6856,7 @@ ${s.image.cells}` : null);
           onDraftFrom={draftFromCurrent}
         />
       )}
-      {realCiv && <HistoryBook civ={realCiv} />}
+      {realCiv && <HistoryBook civ={realCiv} land={data?.world ?? null} raster={data?.raster ?? null} />}
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       <FrozenAsk phone={narrow} />
