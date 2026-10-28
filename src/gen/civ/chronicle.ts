@@ -639,6 +639,7 @@ const TAG: Record<AnnalKind, string> = {
   neutral: '中',
   exile: '逐',
   keep: '保',
+  winter: '冬',
 };
 
 function base(
@@ -2635,6 +2636,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     }
     if (e.kind === 'battle') return battleChild(battles.get(i) ?? [i]);
     if (e.kind === 'stand') return standChild(i);
+    if (e.kind === 'winter') return winterChild(i);
     if (e.kind === 'conquer') {
       // 这场战争里被夺走又打回来的,或者以前就是攻方的(议和割让、分裂出去、上一场战争丢掉的)
       const retake = (e.region >= 0 && firstOwner.get(e.region) === e.a) || ctx.retake.has(i);
@@ -2777,6 +2779,27 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     t += east || khan ? `;${lead ? `${lead}得以收兵` : '大军得以'}退保${back || '后方'}` : `;${lead ? `${lead}得以率主力` : '主力得以'}撤回${back || '后方'}`;
     for (const x of [rear, lc?.person]) if (x) named.add(x.id);
     return withPeople(base(e, i, t, 2, [e.a, e.b], [e.region, hold]), rear, lc?.person);
+  }
+
+  /**
+   * 顿兵过冬(wars.ts 的出兵避冬):要打的那州正在冬天里,攻方的兵顿在那里,开春再打。
+   * 东方 "冬,大渭将李牧顿兵瑞州,待春复攻";汗国 "天寒地冻,大渭军在瑞州一带驻冬,待开春再战";
+   * 西幻 "天寒地冻,大渭大军在瑞州一带扎营过冬,待开春再攻"。这一刻有统帅领兵的写统帅
+   */
+  function winterChild(i: number): ChronicleEntry {
+    const e = A[i];
+    const y = e.year;
+    const P = polityOf(civ, e.a);
+    const east = classical(P);
+    const khan = !!P?.eastern && !east;
+    const r = regionName(civ, e.region) || (east ? '边境' : '边境一带');
+    const s = sideOf(e.a);
+    const c = s >= 0 ? commander(ix, e.war, s, i) : null;
+    const who = c ? generalRef(civ, c, y) : `${pn(civ, e.a, y)}${east || khan ? '军' : '大军'}`;
+    const at = r.endsWith('一带') ? r : `${r}一带`;
+    const t = east ? `冬,${who}顿兵${r},待春复攻` : khan ? `天寒地冻,${who}在${at}驻冬,待开春再战` : `天寒地冻,${who}在${at}扎营过冬,待开春再攻`;
+    if (c) named.add(c.id);
+    return withPeople(base(e, i, t, 1, [e.a, e.b], [e.region]), c);
   }
 
   // 标题:"大渭伐昌,得瑞州等五州";攻方先得后失:"得瑞州等三州而失雪西"(只有攻方的得失不带主语,别的一律点名)
@@ -3049,7 +3072,7 @@ function famineToll(loss: number): string {
 }
 
 /**
- * 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥")。
+ * 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥");冬夏分明的地方闹的春荒(cause = spring)前面写"春,"。
  * 「天灾」多 / 很多时自己发生的地震水旱(cause = quake,没有干预那一条可并):"大渭瑞州一带地震,城郭多圮,死者十之二"
  */
 function famineText(civ: Civ, e: Annal): string {
@@ -3063,7 +3086,7 @@ function famineText(civ: Civ, e: Annal): string {
     return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${r || '境内'}一带${what}${e.b > 1 ? `,${cnNumber(e.b)}州受灾` : ''}${k >= 1 ? `,死者十之${cnNumber(k)}` : ''}`;
   }
   const where = e.b > 1 ? `${r || '诸州'}等${cnNumber(e.b)}州` : r || '境内';
-  return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
+  return `${e.cause === 'spring' ? '春,' : ''}${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
 }
 
 /**
@@ -3810,7 +3833,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
         e.kind === 'ruin' ||
         e.kind === 'submit' ||
         e.kind === 'unally' ||
-        e.kind === 'stand');
+        e.kind === 'stand' ||
+        e.kind === 'winter');
     if (inWar) {
       let g = wars.get(e.war);
       if (!g) wars.set(e.war, (g = []));

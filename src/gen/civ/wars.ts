@@ -42,6 +42,9 @@
  *       乘胜追击到此为止(仗照常往下打)。记一条史事 stand(关隘在哪州、大军退保哪州、守了几日、守将的结局见 STAND_DAYS、STAND_SLAIN),
  *       编年史写成"某某以数百人守某州之隘,拒敌三日,力战而死";守将是谁由人物(people.ts)按它排。讨伐民变的仗不算。
  *     一州易手后 HOLD 年内不会再易手:前线有来有回,但不会闪烁。
+ *     出兵避冬:轮到下一仗时,攻方要打的那州正在冬天里(月温低于 WINTER_T,年内气温是估算,见 gen/seasons.ts)就不打,
+ *       顿兵到那州开春后几天再打这一仗(常年冰封的地方照旧打);记一条史事 winter(要打的那州、开春再打的时刻记在 until),
+ *       编年史写成"冬,某军顿兵某州,待春复攻"。顿兵期间照常能议和(作者下令的、另一场仗里亡国的)。
  *   攻占 → 州归攻方(民族不变,只换国家;城可能被洗劫、被毁,见 cities.ts)。丢的是国都:还有别的州就迁都到剩下人口最多的城
  *     (剩下的国土被切成几块时,在人口最多的那一块里挑),新国都 CAPITAL_GRACE 年内攻不下;
  *     只剩不到 MIN_STATE 州的撑不下去,残部归攻方、亡国;
@@ -69,13 +72,14 @@
  * **不存内存状态**:进行中的战争、厌战、停战冷却都能由 Civ 重建(resumeWars,CivSim.fromCiv 调用)——
  *   战争 = 史事里的 war(没有对应 peace 的就还在打);每场战争攻占了哪些州 = 带战争编号的 conquer;
  *   冷却 = 最近一次 peace 的年份;记恨 = 每场 peace 时这场战争里谁净丢了州(攻占都在史事里);一州多久没易手 = 变化日志;
- *   看邻国、打仗、复仇多看的那一眼的时刻都是由"国家 / 战争 + 第几次"算出来的。
+ *   看邻国、打仗、复仇多看的那一眼的时刻都是由"国家 / 战争 + 第几次"算出来的;顿兵过冬挪到哪一刻记在史事 winter 里。
  *
  * 随机数:keyed(subSeed(seed, 'civ-war'), 国家…, 第几次, 用途);一场战争里的随机数按"攻方 + 守方 + 宣战时刻 + 第几仗"取,
  * 和处理顺序、战争编号都无关。国家、州一律用位置锚(PolityModel.ptag、治所地块;见 rand.ts),不用编号。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
-import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
+import { coldShare, coldSpellEnd, yearClimate } from '../seasons';
+import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
 import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, regentOf, rulerOf, type PolityModel } from './polities';
@@ -218,6 +222,13 @@ const REVENGE_K = 1 << 28;
 const CEDE = 1;
 /** 罢兵割地挑州时 pickTarget 的"第几仗"(取随机数用;一场仗打不到这么多仗) */
 const CEDE_I = 1000;
+/**
+ * 出兵避冬:轮到下一仗时要打的那州正在冬天里(月温低于 WINTER_T °C,年内气温估算见 gen/seasons.ts),这一仗顺延到那州开春,
+ * 再隔 0–WINTER_JITTER 年(约三周,随机)才打;一年里 WINTER_ALWAYS 以上的日子都这么冷的地方(常年冰封)照旧打
+ */
+const WINTER_T = 3;
+const WINTER_JITTER = 0.06;
+const WINTER_ALWAYS = 0.9;
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -235,6 +246,7 @@ const U_STAND = 12;
 const U_STAND_DAYS = 13;
 const U_STAND_END = 14;
 const U_REVENGE = 15;
+const U_THAW = 16;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -444,6 +456,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
   const reg = T.regions;
   // 州与州之间的关隘(据险断后在这些地方):只看地形,按州的邻接边
   const gate = regionPasses(world, reg);
+  // 年内气温(估算;出兵避冬按它):同一个世界只算一次
+  const yc = yearClimate(world);
   const R = T.R;
   const culture = sim.owners[Layer.Culture];
   const owner = sim.owners[Layer.Polity];
@@ -1035,9 +1049,30 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     return true;
   };
 
+  /**
+   * 出兵避冬:战争 w 的第 i 仗此刻要打州 r,r 正在冬天里 = 顺延到的时刻(那州开春后再隔几天,已取整);不用顺延 = t
+   */
+  const thawOf = (w: War, i: number, r: number, t: Year): Year => {
+    const c = reg.seat[r];
+    const share = coldShare(yc, c, WINTER_T);
+    if (share <= 0 || share >= WINTER_ALWAYS) return t;
+    const end = coldSpellEnd(yc, c, t, WINTER_T, share);
+    return end > t ? quantize(end + WINTER_JITTER * warRand(wm, w, i, U_THAW)) : t;
+  };
+
   sim.on(Ev.Campaign, (i, id, t) => {
     const w = wm.wars[id];
     if (!w || w.end !== undefined) return;
+    // 出兵避冬:要打的那州正在冬天里,顿兵到那州开春再打(同一仗重新预约;记一条 winter,until = 开春再打的时刻,接着推时按它重建)
+    const [r0] = pickTarget(w, i, w.a, w.b, t, false);
+    if (r0 >= 0) {
+      const until = thawOf(w, i, r0, t);
+      if (until > t) {
+        sim.record('winter', { a: w.a, b: w.b, region: r0, war: w.id, until });
+        sim.schedule(until, Ev.Campaign, i, id);
+        return;
+      }
+    }
     if (i === 0) wm.onMuster?.(w, t);
     const pow = powers(t, [w.a, w.b]);
     let capitalFell = false;
@@ -1163,14 +1198,29 @@ export function resumeWars(sim: CivSim, world: World, civ: Civ): void {
     while (quantize(checkTime(wm, p.id, k)) <= now) k++;
     sim.schedule(checkTime(wm, p.id, k), Ev.WarCheck, k, p.id, bookChain(k, (j) => checkTime(wm, p.id, j), p.founded), k > 0 ? 0 : p.id);
   }
-  // 还在打的仗:下一仗(和推演时一样逐仗累加、逐仗取整;上一仗那一刻预约的,第一仗是宣战那一刻)
+  // 还在打的仗:下一仗(和推演时一样逐仗累加、逐仗取整;上一仗那一刻预约的,第一仗是宣战那一刻)。
+  // 顿兵过冬(史事 winter)的那一刻:同一仗挪到开春(until),是那一刻预约的
+  const winters = new Map<number, Annal[]>();
+  for (const e of civ.annals) {
+    if (e.kind !== 'winter' || e.until === undefined) continue;
+    let l = winters.get(e.war);
+    if (!l) winters.set(e.war, (l = []));
+    l.push(e);
+  }
   for (const w of wm.active) {
+    const ws = winters.get(w.id);
+    let h = 0;
     let i = 0;
     const times = [w.start];
     let t = quantize(w.start + gapOf(wm, w, 0));
     while (t <= now) {
-      i++;
       times.push(t);
+      while (ws && h < ws.length && ws[h].year < t) h++;
+      if (ws && h < ws.length && ws[h].year === t) {
+        t = ws[h++].until!;
+        continue;
+      }
+      i++;
       t = quantize(t + gapOf(wm, w, i));
     }
     sim.schedule(t, Ev.Campaign, i, w.id, times.slice(-3).reverse());

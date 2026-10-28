@@ -22,6 +22,8 @@
  *     灾区里人口离上限越近、地越薄的城越容易闹饥荒(赔率 ∝ 灾情 × 气候 × (P_BASE + P_FULL × 人口顶到上限的几成⁴) × (1 + SOIL_W × (1 − 地力))):
  *     城的人口掉一截(LOSS 里随机,记进 Settlement.sacks,cause = famine,和洗劫一样几十年慢慢长回来);
  *     FAMINE_REST 年内闹过饥荒的城不再闹。一国治下同一处灾年里闹饥荒的几州记一条史事 famine(部落地带不记)。
+ *     春荒:冬夏分明的地方(治所的年较差 8°C 以上,见 SPRING_HALF)不在看年景那一刻闹,等到当地青黄不接的时候
+ *     (最冷那一刻往后几个月,北半球四五月前后;北、南半球各一刻,见 springTime):灾年的中心在那一刻才挑,一处灾年照旧往外几州。
  *
  *   **民变**:闹了饥荒的国家(至少 REVOLT_STATE 州),动荡越高越容易有饥民起事:
  *     赔率 = REVOLT_ODDS × e^(REVOLT_K × (动荡 − REVOLT_U0)) × min(1, 闹饥荒的州数 ÷ 3)。
@@ -53,10 +55,11 @@
  *       两样都崩(2):散出去的州不立国,散回部落地带(日志原因 Ev.Collapse),发展度掉得更多。
  *     哪一种:时代越早、游牧国家越容易散回部落;刚闹了饥荒、正在打仗的多是地方崩;别的多是中央崩。
  *
- * **不存内存状态**:饥荒、民变、崩解都由史事重建(resumeUnrest);看年景的时刻由"第几次"算出来。
+ * **不存内存状态**:饥荒、民变、崩解都由史事重建(resumeUnrest);看年景、春荒的时刻由"第几次"(春荒再加半球)算出来。
  * 随机数:keyed(subSeed(seed, 'civ-unrest'), 国家 / 州…, 第几次, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
+import { COLDEST_NORTH, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { Biome } from '../biomes';
 import { fexp, keyed, keyed4, subSeed } from './rand';
@@ -117,6 +120,15 @@ const SOIL_W = 2;
 const LOSS: readonly [number, number] = [0.08, 0.3];
 /** 闹过饥荒的城这么多年内不再闹 */
 const FAMINE_REST = 30;
+/**
+ * 春荒:冬夏分明的地方(年较差的一半 ≥ SPRING_HALF °C,即年较差 8°C 以上;年内气温是估算,见 gen/seasons.ts)
+ * 不在看年景那一刻闹灾年,等到当地青黄不接的时候 —— 最冷那一刻往后 SPRING 里随机的几成年(北半球四五月前后),
+ * 北半球、南半球各一刻(这一次看年景按"第几次 + 哪个半球"随机)
+ */
+const SPRING_HALF = 4;
+const SPRING: readonly [number, number] = [0.2, 0.4];
+/** 春荒那一刻的饥民起事取随机数用的"第几次"从这里往上数(和看年景那一刻的分开) */
+const SPRING_K = 1 << 20;
 
 /** 民变:国家至少几州;赔率;起事的最多几州、不超过国土的几成 */
 const REVOLT_STATE = 8;
@@ -189,6 +201,7 @@ const U_PIECES = 12;
 const U_SEED = 13;
 const U_CLAIM = 14;
 const U_CLAIM_R = 15;
+const U_SPRING = 16;
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -226,6 +239,13 @@ function famineTime(um: UnrestModel, k: number): number {
   return FAMINE_FIRST + FAMINE_EVERY * (k + 0.2 + 0.6 * keyed(um.base, k, 0, U_FAM_T));
 }
 
+/** 第 k 次看年景之后,半球 h(1 = 北,2 = 南)冬夏分明的地方闹春荒的时刻:看年景那一刻以后头一个春荒 */
+function springTime(um: UnrestModel, k: number, h: number): number {
+  const t0 = famineTime(um, k);
+  const at = Math.floor(t0) + COLDEST_NORTH + (h === 2 ? 0.5 : 0) + SPRING[0] + (SPRING[1] - SPRING[0]) * keyed(um.base, k, h, U_SPRING);
+  return quantize(at) > quantize(t0) ? at : at + 1;
+}
+
 /** 当朝从哪一年起(没改朝换代过 = 立国那年;同 dynasty.ts 的 dynastyStart) */
 function dynastyStart(p: Polity): Year {
   const d = p.dynasties;
@@ -252,23 +272,32 @@ export function unrestInputs(um: UnrestModel, P: Polity, t: Year): { age: number
 // 挂到推演引擎上
 
 /** 登记动荡、饥荒、民变、大崩解的事件处理和挂钩(installDevelopment 之后调用),预约第一次看年景 */
-export function installUnrest(sim: CivSim, pm: PolityModel, seed: number): UnrestModel {
+export function installUnrest(sim: CivSim, pm: PolityModel, seed: number, world: World): UnrestModel {
   const wm = warModelOf(sim);
   const pol = politicsModelOf(sim);
   if (!wm || !pol) throw new Error('installUnrest:先 installWars、installPolitics');
   const um = newModel(pm, wm, pol, seed);
-  hook(sim, um);
+  hook(sim, um, world);
   sim.schedule(famineTime(um, 0), Ev.FamineCheck, 0, 0);
   return um;
 }
 
-function hook(sim: CivSim, um: UnrestModel): void {
+function hook(sim: CivSim, um: UnrestModel, world: World): void {
   models.set(sim, um);
   const { pm, wm, pol } = um;
   const reg = pm.terrain.regions;
   const R = pm.terrain.R;
   const culture = sim.owners[Layer.Culture];
   const owner = sim.owners[Layer.Polity];
+  /** 每州在哪一刻看年景:0 = 看年景那一刻;1 / 2 = 冬夏分明,等北 / 南半球的春荒(按治所的年内气温) */
+  const springOf = new Uint8Array(R);
+  {
+    const yc = yearClimate(world);
+    for (let r = 0; r < R; r++) {
+      const c = reg.seat[r];
+      if (yc.half[c] >= SPRING_HALF) springOf[r] = yc.coldest[c] > COLDEST_NORTH ? 2 : 1;
+    }
+  }
 
   // ---- 动荡:按国一张数表,每年算一次(规则见 stateTables.ts;control.ts 建引擎、填输入,挂 pol.unrest、wm.unrest) ----
 
@@ -363,15 +392,22 @@ function hook(sim: CivSim, um: UnrestModel): void {
   const hop = new Int32Array(R);
   const mark = new Int32Array(R);
   let stamp = 0;
-  /** 第 k 次看年景:挑几处灾年,闹饥荒;闹了饥荒的国家看会不会民变 */
-  sim.on(Ev.FamineCheck, (k, _b, t) => {
-    sim.schedule(famineTime(um, k + 1), Ev.FamineCheck, k + 1, 0);
+  /**
+   * 第 k 次看年景:挑几处灾年,闹饥荒;闹了饥荒的国家看会不会民变。
+   * h = 0:看年景那一刻,只看不分冬夏的地方,再预约下一次和南北两个半球的春荒;h = 1 / 2:北 / 南半球冬夏分明的地方闹春荒
+   */
+  sim.on(Ev.FamineCheck, (k, h, t) => {
+    if (h === 0) {
+      sim.schedule(famineTime(um, k + 1), Ev.FamineCheck, k + 1, 0);
+      sim.schedule(springTime(um, k, 1), Ev.FamineCheck, k, 1);
+      sim.schedule(springTime(um, k, 2), Ev.FamineCheck, k, 2);
+    }
     // 灾年的中心:有城、有人住的州各自掷(按州的治所取随机数,改了别处的地形这里照旧);干旱、寒冷的地方更容易;
     // 「天灾」多 / 很多时几率 × CalamityRates.famine(平常照旧)
     const centres: number[] = [];
     const more = calamityRates(sim.calamity)?.famine;
     for (let r = 0; r < R; r++) {
-      if (pm.cityOf[r] < 0 || culture[r] < 0) continue;
+      if (springOf[r] !== h || pm.cityOf[r] < 0 || culture[r] < 0) continue;
       const odds = more ? ((CLIMATE[reg.biome[r]] ?? 1) * more) / CLUSTER_PER : (CLIMATE[reg.biome[r]] ?? 1) / CLUSTER_PER;
       if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < odds) centres.push(r);
     }
@@ -430,12 +466,13 @@ function hook(sim: CivSim, um: UnrestModel): void {
       const list = hits.get(p)!;
       let worst = list[0];
       for (const x of list) if (x[1] > worst[1] || (x[1] === worst[1] && x[0] < worst[0])) worst = x;
-      sim.record('famine', { a: p, b: list.length, region: worst[0], settlement: pm.cityOf[worst[0]] });
+      sim.record('famine', { a: p, b: list.length, region: worst[0], settlement: pm.cityOf[worst[0]], ...(h ? { cause: 'spring' as const } : {}) });
       let fl = um.famines.get(p);
       if (!fl) um.famines.set(p, (fl = []));
       fl.push({ year: t, n: list.length });
     }
-    for (const p of ps) tryRevolt(pm.polities[p], hits.get(p)!, k, t);
+    const kr = h === 0 ? k : SPRING_K + 2 * k + h - 1;
+    for (const p of ps) tryRevolt(pm.polities[p], hits.get(p)!, kr, t);
   });
 
   // ---- 民变 ----
@@ -658,7 +695,7 @@ function hook(sim: CivSim, um: UnrestModel): void {
  * 由 Civ 重建动荡的推演状态(CivSim.fromCiv 调用,在 resumeDevelopment 之后):
  * 饥荒、讨伐民变的战争、大崩解从史事里读;再算出下一次看年景,补进引擎。
  */
-export function resumeUnrest(sim: CivSim, _world: World, civ: Civ): void {
+export function resumeUnrest(sim: CivSim, world: World, civ: Civ): void {
   const pm = polityModelOf(sim);
   const wm = warModelOf(sim);
   const pol = politicsModelOf(sim);
@@ -681,11 +718,13 @@ export function resumeUnrest(sim: CivSim, _world: World, civ: Civ): void {
     } else if (e.kind === 'war' && e.cause === 'heir') um.claims.set(e.war, e.b);
     else if (e.kind === 'collapse') um.collapsed.set(e.a, e.year);
   }
-  hook(sim, um);
+  hook(sim, um, world);
   let k = 0;
   while (quantize(famineTime(um, k)) <= sim.now) k++;
-  // 一口气推时上一次看年景那一刻预约的(第一次是开头)
-  sim.schedule(famineTime(um, k), Ev.FamineCheck, k, 0, bookChain(k, (j) => famineTime(um, j), BOOKED_AT_START));
+  // 一口气推时上一次看年景那一刻预约的(第一次是开头);上一次看年景以后、还没到的春荒也是那一刻预约的
+  const chain = bookChain(k, (j) => famineTime(um, j), BOOKED_AT_START);
+  sim.schedule(famineTime(um, k), Ev.FamineCheck, k, 0, chain);
+  if (k > 0) for (const h of [1, 2]) if (quantize(springTime(um, k - 1, h)) > sim.now) sim.schedule(springTime(um, k - 1, h), Ev.FamineCheck, k - 1, h, chain, h);
 }
 
 // ---------------------------------------------------------------------------

@@ -239,7 +239,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installCities(sim, pm, warModelOf(sim)!); // 阶段 3 城市兴衰(cities.ts):洗劫、毁城、重建、旧都衰落
   if (pm) installDiplomacy(sim, pm); // 邦交(diplomacy.ts):称臣纳贡、结盟、背盟、援盟、讨伐叛藩
   if (pm) installDevelopment(sim, world, pm, habitat, seed); // 发展度(development.ts):每 20 年算各州的能力,影响人口上限、军力、远洋
-  if (pm) installUnrest(sim, pm, seed); // 动荡(unrest.ts):饥荒、民变、大崩解
+  if (pm) installUnrest(sim, pm, seed, world); // 动荡(unrest.ts):饥荒、民变、大崩解
   if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
   if (pm) installRegency(sim, pm); // 掌实权(regency.ts):引兵入朝、太子监国、宗室摄政、名臣辅政、大臣大将专权

@@ -518,6 +518,9 @@
  *      复国那一条写起事的人"自某国还"。疆域、兴亡、人物的下场不变,编年史多了出奔那一条
  *  45:地形大事以后城的港口、人口上限和这座城最后一次记下的那一段比(civ/upheaval.ts 的 reshapeCities;以前和紧挨着的前一段比,
  *      几件大事各变一点、每件都不到 2% 的一直不记,差别攒下来)。只有带地形大事的世界变了:城的人口上限有一点变化,历史重新推演
+ *  46:季节进推演(gen/seasons.ts 估算一年里各地的月温):出兵避冬(civ/wars.ts:要打的那州正在冬天里就顿兵到开春再打,编年史记"顿兵过冬"),
+ *      冬夏分明的地方饥荒挪到当地青黄不接的春荒(civ/unrest.ts,编年史写"春,某州大饥");还没即位的预定继承人的名字从他出道那一刻就算用过
+ *      (civ/lineage.ts:同一刻出道的兄弟不再推到一半时和他同名)。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -531,7 +534,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 45;
+export const GENERATOR_VERSION = 46;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -595,6 +598,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   43: { change: 'history' },
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
+  46: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
