@@ -227,7 +227,7 @@ describe('seed 7 从第 2650 年演绎到第 2700 年', () => {
     const entries = fullChronicle(civ);
     const make = (from: number, to: number): DirectorPlan => directorPlan(world, civ, { from, to, entries, pace: { mode: 'auto', rate: 4 } });
     // 放的这 25 年里重要度 3 以上的至少两件(两次改朝……):从第 2650 年那一段往前一段段找
-    // (按条件现找;GENERATOR_VERSION 46 季节进推演以后 2650–2675 年只剩一件)
+    // (按条件现找;GENERATOR_VERSION 47 季节进推演时 2650–2675 年只剩一件)
     const majorsIn = (from: number) => entries.filter((e) => e.year >= from && e.year < from + 25 && e.importance >= 3).map((e) => e.id);
     let y0 = 2650;
     while (y0 > 0 && majorsIn(y0).length < 2) y0 -= 25;
