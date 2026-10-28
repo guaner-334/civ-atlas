@@ -12,7 +12,6 @@
 import type { Annal, Civ, Year } from './types';
 import type { ChronicleEntry } from './chronicle';
 import type { TradeEvent, TradeRoute } from './trade';
-import { Res } from './development';
 import { capitalAt, polityName } from './growth';
 import { regionLabel } from './display';
 import { ownersAt, type Owners } from './timeline';
@@ -20,17 +19,8 @@ import { ownersAt, type Owners } from './timeline';
 /** 编年史的标签 */
 export const TRADE_TAG = '商';
 
-/** 货名(Res 下标 → 界面上的叫法;牲畜在商道里只算马) */
-export const GOOD_NAME: Readonly<Record<number, string>> = {
-  [Res.Salt]: '盐',
-  [Res.Iron]: '铁',
-  [Res.Livestock]: '马',
-  [Res.Gold]: '金银',
-  [Res.Copper]: '铜锡',
-  [Res.Coal]: '煤',
-  [Res.Oil]: '石油',
-  [Res.Rare]: '稀有矿',
-};
+/** 货名(物产下标 → 界面上的叫法;牲畜在商道里只算马)。下标同 development.ts 的 Res(装载时就要用,写成数) */
+export const GOOD_NAME: Readonly<Record<number, string>> = { 6: '盐', 3: '铁', 1: '马', 10: '金银', 2: '铜锡', 4: '煤', 8: '石油', 9: '稀有矿' };
 
 /** year 这一年运的货(还没通 = 开通时运的;废了 = 废前运的),按开始运的先后 */
 export function goodsAt(r: TradeRoute, year: Year): number[] {
