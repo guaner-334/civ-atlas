@@ -23,6 +23,7 @@ import { characterPolity } from './characterInfo';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
 import { PersonFace, PortraitView } from './Portrait';
+import { HouseBookButton } from './lifeMenu';
 import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, lineageKin, lineageTag, reignOrder, secededFrom, treeLabel, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
 import { polityName } from '../gen/civ/growth';
 import { setPeople } from './overviewStore';
@@ -347,6 +348,7 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year, place = null 
         <div className="lg-head">
           <b>{row.name}</b>
           <span>{narrow ? dynastyNote(civ, rows, ri, era).split('；')[0] : dynastyNote(civ, rows, ri, era)}</span>
+          <HouseBookButton civ={civ} polity={polity} dynasty={row.index} />
         </div>
         <div className="lg-scroll" ref={scrollRef}>
           {trees.map((t, i) => (

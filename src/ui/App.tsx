@@ -6868,7 +6868,7 @@ ${s.image.cells}` : null);
       )}
       {/* 人物关系图(人物卡「更多 → 关系图」):电脑右边铺开、手机铺满整屏 */}
       {data && world && civ && <RelationGraph civ={civ} world={data.world} raster={data.raster} phone={narrow} />}
-      {realCiv && <HistoryBook civ={realCiv} />}
+      {realCiv && <HistoryBook civ={realCiv} land={data?.world ?? null} raster={data?.raster ?? null} />}
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       <FrozenAsk phone={narrow} />
