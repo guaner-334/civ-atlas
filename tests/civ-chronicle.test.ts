@@ -982,8 +982,8 @@ describe('编年史 · 真实世界(默认参数):被迫迁都折进战争,"大�
   // (seed 7 75 条、2024 98 条):上限放到 140
   // GENERATOR_VERSION 46(大迁徙:一次一条大事,打进国都、亡国、大崩解跟着多)以后 20 个种子(1–20)84–191 条(以前 84–201 条;
   // seed 7 121 条、2024 150 条):上限放到 175
-  // GENERATOR_VERSION 47(时代做法:议事的先后跟着能力走,同一种子的历史重排)以后 seed 7 150 条、2024 177 条:上限放到 190
-  const RANGE: [number, number] = [30, 190];
+  // GENERATOR_VERSION 47(季节进推演)以后 20 个种子 80–200 条(seed 7 154 条、2024 180 条):上限放到 210
+  const RANGE: [number, number] = [30, 210];
   for (const seed of [7, 2024]) {
     it(`seed ${seed}`, () => {
       const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }));

@@ -209,7 +209,8 @@ describe('地形大事 · 推演', () => {
     // 天灵的国都沉了,迁都
     const p = b.polities[f.polity];
     expect(capitalAt(p, Y - 1 / 256)).toBe(sunk[0].settlement);
-    expect(b.settlements[capitalAt(p, Y + 0.5)].ended).toBeUndefined();
+    // 迁去的新国都那一刻还在(后来亡于兵火的不算:GENERATOR_VERSION 48 以后新国都 1882 年被毁)
+    expect(b.settlements[capitalAt(p, Y + 0.5)].ended ?? Infinity).toBeGreaterThan(Y);
     const e = buildChronicle(b).find((x) => x.kind === 'upheaval')!;
     expect(e.tag).toBe('变');
     expect(e.importance).toBe(3);
@@ -219,15 +220,15 @@ describe('地形大事 · 推演', () => {
   }, 300_000);
 
   it('后果都并进大事那一条:亡了的国家打着的仗,议和记在后果之后;早先的遗址城址沉了,从那年起不再画', () => {
-    // 第 1225 年:一个只剩一州、正打着仗的小国州全沉,另一国的国都也沉了(州还在,迁都)
+    // 第 1571 年:一个只剩一州、正打着仗的小国州全沉,另一国的国都也沉了(州还在,迁都)
     // (GENERATOR_VERSION 43 战争节奏以后历史重排,以前是第 1491 年;46 大迁徙以后又重排,以前是第 1508 年,那一年先迁都、后亡国;
-    // 47 时代做法以后又重排,以前是第 1497 年、第一处在 1610, 370)
-    const Y = 1225;
+    // 47 季节进推演以后又重排,以前是第 1497 年)
+    const Y = 1571;
     const W: Upheaval = {
       year: Y,
       ops: [
-        { kind: 'sink', pts: [1734, 370], r: 32, s: 1.1 },
-        { kind: 'sink', pts: [1746, 453], r: 12, s: 1.1 },
+        { kind: 'sink', pts: [1091, 781], r: 32, s: 1.1 },
+        { kind: 'sink', pts: [1278, 768], r: 12, s: 1.1 },
       ],
     };
     const b = civOf([W]);
@@ -545,12 +546,13 @@ describe('地形大事 · 推演', () => {
     expect(burnt.length).toBeGreaterThan(0);
     for (const e of burnt) expect(e.b).toBe(0);
 
-    // 第 1650 年对岸还没人占,写"哈尔温与对岸那州之间";到第 2000 年哈尔温已经占了对岸,写"境内的海峡"
+    // 第 1650 年对岸还没人占,写"哈尔温与对岸那州之间";到第 2300 年两岸已是同一国,写"境内的海峡"
+    // (GENERATOR_VERSION 47 季节进推演以后两岸到第 2250 年才归了同一国,以前第 2000 年就是)
     const early = civOf([{ ...BRIDGE, year: 1650 }]);
     const f0 = early.upheavals![0];
     expect(f0.joinedBy![0]).not.toBe(f0.joinedBy![1]);
     expect(buildChronicle(early).find((x) => x.kind === 'upheaval')!.text).toMatch(/之间的海峡隆起成陆$/);
-    const r = civOf([BRIDGE]);
+    const r = civOf([{ ...BRIDGE, year: 2300 }]);
     const f = r.upheavals![0];
     expect(f.joined).toBeDefined();
     expect(f.joinedBy![0]).toBeGreaterThanOrEqual(0);

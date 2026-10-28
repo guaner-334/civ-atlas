@@ -13,9 +13,9 @@ import { diedInExile, treatyEntries, treatyPeriod, zoneOfRegionAt, zoneResidents
 import { neutralZones } from '../src/render/civ/neutral';
 import { stripeAt } from '../src/render/civ/territory';
 
-// 种子 3(GENERATOR_VERSION 47 的历史;以前是种子 50、10、31):
+// 种子 13(GENERATOR_VERSION 48 的历史;第 47 版是种子 60,第 46 版是种子 50,以前是种子 10、31;第 48 版种子 1–13 里三样都有的只有 13):
 // 三国以上立约、设了中立地的一份(three),设了中立地又背约的一份(broken),有人被放逐到中立地
-const world = generateWorld({ ...DEFAULT_PARAMS, seed: 3 });
+const world = generateWorld({ ...DEFAULT_PARAMS, seed: 13 });
 const civ = generateCiv(world);
 const book = treatyBook(civ);
 const three = book.treaties.find((x) => x && x.parties.length >= 3 && x.zone >= 0)!;
@@ -24,7 +24,7 @@ const broken = book.treaties.find((x) => x && x.zone >= 0 && x.breaches.length >
 const exiled = (civ.people ?? []).filter((x) => x.exile && x.exile.zone >= 0);
 
 describe('立约与中立地的界面', () => {
-  it('种子 3 里有三国立约、设了中立地的约,有设了中立地又背约的约,有人被放逐到中立地(GENERATOR_VERSION 47 时代做法以前是种子 50)', () => {
+  it('种子 13 里有三国立约、设了中立地的约,有设了中立地又背约的约,有人被放逐到中立地(GENERATOR_VERSION 47 是种子 60,46 是种子 50)', () => {
     expect(three).toBeTruthy();
     expect(broken).toBeTruthy();
     expect(exiled.length).toBeGreaterThan(0);

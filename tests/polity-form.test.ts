@@ -85,7 +85,7 @@ describe('政体名', () => {
     expect(formName(f({ tier: 3, fief: true }))).toBe('封建帝国');
   });
 
-  it('种子 7、2024 第 3000 年:博戈维纳王国王国(635 年起)、埃维里亚帝国当过封建帝国;渠宿汗国集权王国、基帕尔大汗国当过游牧帝国', () => {
+  it('种子 7、2024 第 3000 年:博戈维纳王国王国(635 年起)、大霄王朝封建帝国;伊昌汗国集权王国、基帕尔大汗国当过游牧帝国', () => {
     const at = (seed: number, name: string) => {
       const civ = civOf(seed);
       const P = civ.polities.find((q) => polityName(q, 3000) === name);
@@ -93,14 +93,18 @@ describe('政体名', () => {
       return { look: polityFormAt(civ, P!.id, 3000)!, changes: formChangesAt(civ, P!.id, 3000).map((c) => c.to) };
     };
     // 博戈维纳 2783 年才议成直征(有了户籍以后),收归朝廷的只有一样,还是王国
+    // (GENERATOR_VERSION 48 时代做法以前 1894 年收兵权、2018 年行铨选,是集权王国;有熊皇朝是官僚帝国、卢纳维亚帝国是封建帝国)
     const boge = at(7, '博戈维纳王国');
     expect([boge.look.name, Math.floor(boge.look.since)]).toEqual(['王国', 635]);
     expect(boge.changes).toEqual(['部落', '王国']);
-    // 先因议事成了封建帝国,后来又回到帝国
-    const ev = at(7, '埃维里亚帝国');
-    expect(ev.look.name).toBe('帝国');
-    expect(ev.changes).toContain('封建帝国');
-    expect(at(2024, '渠宿汗国').look.name).toBe('集权王国');
+    // 先是帝国,后来因议事分封了边地,成了封建帝国
+    const da = at(7, '大霄王朝');
+    expect(da.look.name).toBe('封建帝国');
+    expect(da.changes.slice(-2)).toEqual(['帝国', '封建帝国']);
+    // 先是汗国,当过封建王国,后来收归朝廷的够了两样,成了集权王国
+    const yi = at(2024, '伊昌汗国');
+    expect(yi.look.name).toBe('集权王国');
+    expect(yi.changes).toContain('封建王国');
     const ki = at(2024, '基帕尔大汗国');
     expect(ki.look.name).toBe('封建帝国');
     expect(ki.changes).toContain('游牧帝国');

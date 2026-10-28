@@ -338,6 +338,8 @@ export interface DevModel {
   eng?: TableEngine;
   /** 推一把发展(boost.ts 挂上;没有快几倍的干预 = 不挂):(t0, y] 这一步里各州的倍数填进 out(没推的州留 1) */
   boostFill?: (t0: Year, y: Year, out: Float64Array) => void;
+  /** 每步算完(大事、快照都记好了)以后调(思潮挂上,见 ideology.ts;在 afterTick 之前):prev = 这一步开头各州的能力(州 × CAP_COUNT) */
+  afterStep?: (y: Year, prev: Float64Array) => void;
   /** 每一步算完以后(商道 trade.ts 挂上;只读,不改推演) */
   afterTick?: (y: Year) => void;
 }
@@ -1013,6 +1015,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     d.avail.push(s.avail);
     d.snapYears.push(y);
   }
+  d.afterStep?.(y, prev);
 }
 
 /** 此刻的一份快照(能力、眼下能用的物产) */
