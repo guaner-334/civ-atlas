@@ -182,7 +182,8 @@ describe('动荡、饥荒、民变、大崩解', () => {
       const collapses = list.filter((e) => e.kind === 'collapse');
       expect(collapses.length).toBe(A.filter((e) => e.kind === 'collapse').length);
       for (const e of collapses) {
-        expect(e.text).toMatch(/大乱|土崩瓦解/);
+        // 大迁徙迁来的一支打进国都引起的写"某某破某城,某国大崩解"
+        expect(e.text).toMatch(/大乱|土崩瓦解|大崩解/);
         expect(e.tag).toBe('崩');
         expect(e.importance).toBe(3);
       }

@@ -333,7 +333,9 @@ export function reignRecordOf(f: ReignFacts, era?: Era | null): ReignRecord {
   // 在位不满 SHORT_REIGN 年:一句话
   let short: string | null = null;
   if (f.len < SHORT_REIGN) {
-    const head = `在位${f.len < 1 ? '不到一年' : ` ${Math.round(f.len)} 年`}`;
+    // 年数和人物卡副标题同一个取法:起止各取整年再相减(2.5 年可能写 2 年,不四舍五入)
+    const whole = Math.floor(f.until) - Math.floor(f.from);
+    const head = `在位${whole < 1 ? '不到一年' : ` ${whole} 年`}`;
     const popSame = pc < 1 || popText(p0) === popText(p1);
     const landSame = r0 === r1;
     // 疆域、人口、国库都没变才写"国中没有变化";否则照实写变了的那几样
