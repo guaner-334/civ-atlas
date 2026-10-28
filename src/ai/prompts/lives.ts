@@ -23,6 +23,7 @@ import { personName, personRoleShort, splitSurname } from '../../gen/civ/peopleT
 import { riseText, rulerNeighbors } from '../../gen/civ/peopleInfo';
 import { heldOver } from '../../gen/civ/regentInfo';
 import { reignRecord } from '../../gen/civ/reignRecord';
+import { heOrShe } from '../../gen/civ/gender';
 import { dynastyEnd, dynastyLines, dynastyMembers, dynastyNote, dynastyRows, fatherOf, kidsOf, secededFrom, type DynastyRow } from '../../gen/civ/lineageInfo';
 import { personNamers } from '../../gen/civ/naming';
 import { personKey, polityKey, resolveKey, resolvePersonKey } from '../../gen/edits';
@@ -319,17 +320,18 @@ function personPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSource
   const ruler = x.role === 'ruler';
   const end = Y(civ.endYear);
   const body: string[] = [];
+  const he = heOrShe(x);
   const role = personRoleShort(civ, x);
   const a = Y(x.born);
   const b = x.died !== undefined ? Y(x.died) : end;
-  body.push(`〔传主〕${name}(${role}${x.name && !name.includes(x.name) ? `,本名${x.name}` : ''})。下面是他人物卡上的事("${a}–${b} 年"指第 ${a} 年到第 ${b} 年)`);
+  body.push(`〔传主〕${name}(${role}${x.name && !name.includes(x.name) ? `,本名${x.name}` : ''})。下面是${he}人物卡上的事("${a}–${b} 年"指第 ${a} 年到第 ${b} 年)`);
   for (const l of card.lines) body.push(`- ${l.k}:${l.text}`);
-  if (card.leanings) body.push(`- 倾向:${card.leanings}(推演里他的脾性,写他的为人时参考,不要把数写进正文)`);
+  if (card.leanings) body.push(`- 倾向:${card.leanings}(推演里${he}的脾性,写${he}的为人时参考,不要把数写进正文)`);
   if (card.bio) body.push('', '〔生平〕', card.bio);
   // 治绩(人物卡上那一段):他在位这些年本国的疆域、人口、战事、钱粮怎么变,在位时的大事
   const rec = ruler ? reignRecord(civ, x) : null;
   if (rec) {
-    body.push('', '〔治绩〕(他在位这些年本国怎么变;数照这里写,不要夸大)');
+    body.push('', `〔治绩〕(${he}在位这些年本国怎么变;数照这里写,不要夸大)`);
     if (rec.short !== null) body.push(rec.short);
     else for (const r of rec.rows) body.push(`- ${r.k}:${r.lines.join(';')}${r.note ? `(${r.note})` : ''}`);
   }
@@ -339,7 +341,7 @@ function personPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSource
     for (const b of battles.slice(0, LIFE_BATTLES)) body.push(`- ${b}`);
     if (battles.length > LIFE_BATTLES) body.push(`- (另有${cnNumber(battles.length - LIFE_BATTLES)}仗从略)`);
   }
-  const head = ruler ? '在位时' : x.role === 'minister' ? '在朝时' : x.role === 'prince' ? '他经手的' : '领兵时';
+  const head = ruler ? '在位时' : x.role === 'minister' ? '在朝时' : x.role === 'prince' ? `${he}经手的` : '领兵时';
   const ev = pickEvents(card.events, LIFE_EVENT_BUDGET, (e) => (e.people?.includes(x.id) ? 1 : 0));
   if (ev.lines.length) {
     body.push('', `〔${head}本国的事〕(按先后;★ 是大事)`, ...ev.lines);
@@ -374,10 +376,10 @@ function personPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSource
   const facts = card.lines.length + Math.min(battles.length, LIFE_BATTLES) + ev.lines.length + (card.bio ? 3 : 0) + (rec?.facts.events.length ?? 0);
   const chars = capChars(target, facts, 800, 60, 800);
   const headLines = [
-    `请给${name}写一篇列传,从出身写到结局,写他这个人。`,
+    `请给${name}写一篇列传,从出身写到结局,写${he}这个人。`,
     `- 史实:生卒、${ruler ? '即位、前任继任、' : ''}父子兄弟、争储、联姻、掌权、放逐出奔、结局和打过的每一仗(谁攻谁守、胜负),都照〔传主〕〔领兵打过的仗〕写,不能改;` +
       `一生的事只写在第 ${from}—${to} 年之间,${cnNumber(SERVE_AGE)}岁以前不出仕、不领兵;〔人物〕里的人也只在他们的生卒年之间出现`,
-    `- 取舍:以他自己的事为主;本国的事只挑和他有关、能写出他的为人和处境的,其余一笔带过或略去,不要写成本国的编年史;材料里没有的年份就少写,不要编造史事`,
+    `- 取舍:以${he}自己的事为主;本国的事只挑和${he}有关、能写出${he}的为人和处境的,其余一笔带过或略去,不要写成本国的编年史;材料里没有的年份就少写,不要编造史事`,
   ];
   const text = body.join('\n');
   return lifePrompts(opts, `${name}传`, `第 ${from}—${to} 年`, target, chars, headLines, `〔材料〕\n${text}`, ev.lines.length, card.events.length);
