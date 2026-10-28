@@ -74,7 +74,7 @@
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
 import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
-import { Layer, type Polity } from './types';
+import { Layer, type Culture, type Polity } from './types';
 import { subSeed } from './rand';
 import { Ev, LOOK_K, quantize, type CivSim } from './sim';
 import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
@@ -91,6 +91,8 @@ import { treatyModelOf } from './treaties';
 import { regencyModelOf } from './regency';
 import { marriageModelOf } from './marriage';
 import { installBoosts, strikeBoost } from './boost';
+import { trekModelOf } from './migration';
+import { assimModelOf } from './assimilation';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -101,6 +103,7 @@ type CrownIv = Extract<Intervention, { kind: 'crown' }>;
 type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
 type DestroyIv = Extract<Intervention, { kind: 'destroy' }>;
 type PersonIv = Extract<Intervention, { kind: 'death' | 'temper' }>;
+type Stay = Extract<Intervention, { kind: 'stay' }>;
 
 /** 推演里的干预:清理过的列表 + 键 → 编号的解析 + 各机制查询用的规则 */
 export class InterventionModel {
@@ -118,6 +121,7 @@ export class InterventionModel {
   private readonly unityRules: Extract<Intervention, { kind: 'unity' }>[];
   private readonly allyRules: Ally[];
   private readonly haltRules: Halt[];
+  private readonly stayRules: Stay[];
   /** 保住王室:开关(keep)的下标;即位带 keep 的有没有 */
   private readonly keepRules: number[] = [];
   private readonly crownKeeps: boolean;
@@ -144,6 +148,7 @@ export class InterventionModel {
     this.unityRules = list.filter((v): v is Extract<Intervention, { kind: 'unity' }> => v.kind === 'unity');
     this.allyRules = list.filter((v): v is Ally => v.kind === 'ally');
     this.haltRules = list.filter((v): v is Halt => v.kind === 'halt');
+    this.stayRules = list.filter((v): v is Stay => v.kind === 'stay');
     list.forEach((v, i) => {
       if (v.kind === 'keep') this.keepRules.push(i);
     });
@@ -226,6 +231,28 @@ export class InterventionModel {
       const v = this.list[k];
       if (v.kind === 'protect' && t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) return true;
     }
+    return false;
+  }
+
+  /**
+   * 民族的稳定键 → 此刻的民族编号(还没分化出来 / 新历史里没有 = −1;和 edits.ts 的 cultureKey 同一个算法:
+   * 发源州 + 这州发源的第几个(按出现先后))。cultures = 推演里此刻的民族表
+   */
+  resolveCulture(key: string, cultures: readonly Culture[]): number {
+    const k = this.ref(key);
+    const m = k ? /^culture:(-?\d+)#(\d+)$/.exec(k) : null;
+    if (!m) return -1;
+    const r = Number(m[1]);
+    const n = Number(m[2]);
+    const same: number[] = [];
+    for (let i = 0; i < cultures.length; i++) if (cultures[i].hearth === r) same.push(i);
+    same.sort((i, j) => cultures[i].born - cultures[j].born || i - j);
+    return same[n] ?? -1;
+  }
+
+  /** 民族 c 此刻"不许迁"(cultures = 推演里此刻的民族表) */
+  stays(c: number, t: number, cultures: readonly Culture[]): boolean {
+    for (const v of this.stayRules) if (t >= v.from && (v.until === undefined || t < v.until) && this.resolveCulture(v.folk, cultures) === c) return true;
     return false;
   }
 
@@ -545,6 +572,18 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'disaster') {
       strikeDisaster(sim, iv, v, i, t);
+      return;
+    }
+    if (v.kind === 'trek') {
+      // 大迁徙:这一刻分出一支上路(migration.ts;史事 intervene 也在那里记)
+      trekModelOf(sim)?.order?.(v, i, t, iv);
+      return;
+    }
+    if (v.kind === 'stay') {
+      // 不许迁:看大迁徙时查(InterventionModel.stays),这里只记一笔
+      const cultures = assimModelOf(sim)?.cultures ?? pm.cultures;
+      const c = iv.resolveCulture(v.folk, cultures);
+      if (c >= 0) sim.record('intervene', { a: -1, b: cultures[c].ended !== undefined ? -3 : -1, war: i, n: c });
       return;
     }
     const a = iv.resolve(v.a);

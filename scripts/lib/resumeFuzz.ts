@@ -22,6 +22,7 @@ import {
   POLICY_FOCI,
   POLICY_PRESETS_KEYS,
   cleanIntervention,
+  cultureKey,
   personKey,
   polityKey,
   regionKey,
@@ -258,6 +259,26 @@ export function fuzzOrders(civ: Civ, T: number): Intervention[] {
       // 同一刻给新国立一位君主(键按"这州第几个立国"推出来;没立成就对不上,不生效)
       if (rnd() < 0.3) out.push(crown(nextPolityKey(r)));
     }
+  }
+  // 大迁徙 / 不许迁:随便一族(多半还在的),有时从它的一州出发、往随便一州(可能走不到)或推演挑近中远;不许迁有时到某一年为止
+  // (另取一串随机数:别的命令和以前一样)
+  const g = mulberry32(subSeed(civ.seed, `resume-fuzz:trek:${T}`));
+  const folks = [...new Set(Array.from(civ.culture).filter((c) => c >= 0))];
+  const folk = () => (folks.length && g() < 0.9 ? pick(g, folks) : civ.cultures.length ? between(g, 0, civ.cultures.length - 1) : -1);
+  if (g() < 0.15) {
+    const c = folk();
+    if (c >= 0) {
+      const homes: number[] = [];
+      for (let r = 0; r < civ.culture.length; r++) if (civ.culture[r] === c) homes.push(r);
+      const region = homes.length && g() < 0.5 ? regionKey(civ, pick(g, homes)) : undefined;
+      const to = g() < 0.5 ? regionKey(civ, between(g, 0, civ.regions.count - 1)) : undefined;
+      const v = cleanIntervention({ kind: 'trek', folk: cultureKey(civ, c), from: T, region, to, reach: pick(g, ['near', 'mid', 'far']) });
+      if (v) out.push(v);
+    }
+  }
+  if (g() < 0.08) {
+    const c = folk();
+    if (c >= 0) out.push(g() < 0.5 ? { kind: 'stay', folk: cultureKey(civ, c), from: T } : { kind: 'stay', folk: cultureKey(civ, c), from: T, until: T + between(g, 1, 150) });
   }
   return out;
 }

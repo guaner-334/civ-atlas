@@ -586,6 +586,11 @@ function ivText(civ: Civ, v: Intervention): string {
     return r >= 0 && r < civ.regions.count ? `R${r}` : '(没有的州)';
   };
   const until = (u?: number) => (u !== undefined ? `,至第 ${u} 年` : '');
+  const folk = (key: string) => {
+    const r = resolveKey(civ, key);
+    const c = r && r.kind === 'culture' ? civ.cultures[r.id] : undefined;
+    return c ? `${c.name}族` : '(新历史里没有的民族)';
+  };
   switch (v.kind) {
     case 'protect':
       return `${id(v.a, 'polity', 'P')} 保护${until(v.until)}`;
@@ -632,6 +637,10 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${id(v.a, 'polity', 'P')} 保住王室${until(v.until)}`;
     case 'boost':
       return `${v.regions ? v.regions.map(reg).join('、') : id(v.a, 'polity', 'P')} 推一把发展:${v.mul ? `快 ${v.mul} 倍${until(v.until)}` : '直接进下一个时代'}`;
+    case 'trek':
+      return `${folk(v.folk)} 分出一支大迁徙${v.region ? `,从 ${reg(v.region)} 出发` : ''}${v.to ? `,往 ${reg(v.to)}` : ''}`;
+    case 'stay':
+      return `${folk(v.folk)} 不许大迁徙${until(v.until)}`;
   }
 }
 
@@ -1458,6 +1467,8 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   marry: '为人物联姻',
   keep: '保住王室',
   boost: '推一把发展',
+  trek: '大迁徙',
+  stay: '不许迁',
 };
 
 // ---------------------------------------------------------------------------
