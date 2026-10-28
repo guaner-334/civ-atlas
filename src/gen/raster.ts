@@ -506,9 +506,28 @@ export function rasterize(world: World, scale = 1, gully = true, lines?: DrainLi
  * (gullyHeights 分段算、finishGully 叠回去;veinsOf 算、finishVeins 存进去);结果和 rasterize 一样
  */
 export function rasterizeDeferred(world: World, scale = 1, lines?: DrainLines, cover?: Cover, pre?: Precomputed): { raster: Raster; job: GullyJob; veins: VeinJob; inputs: RasterInputs } {
-  const { raster, job, veins, inputs } = rasterizeRaw(world, scale, true, lines, cover, pre);
+  return drain(rasterizeDeferredSteps(world, scale, lines, cover, pre));
+}
+
+/**
+ * 同 rasterizeDeferred,一段一段做(段与段之间 yield;逐像素那一步按整行分段):后台线程每隔一会儿让一下,
+ * 新的一笔来了就不用等这张铺完(放下时什么都不用改回去:铺的是新开的数组)。做完的结果和 rasterizeDeferred 逐位相同
+ */
+export function* rasterizeDeferredSteps(world: World, scale = 1, lines?: DrainLines, cover?: Cover, pre?: Precomputed): Generator<void, { raster: Raster; job: GullyJob; veins: VeinJob; inputs: RasterInputs }> {
+  const { raster, job, veins, inputs } = yield* rasterizeRawSteps(world, scale, true, lines, cover, pre);
   return { raster, job: trimJob(job!), veins: veins!, inputs };
 }
+
+/** 一口气做完一段一段做的 */
+export function drain<T>(it: Generator<void, T>): T {
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** 一段一段铺的时候,逐像素那一步每一段大约铺多少个像素(几毫秒) */
+export const SHADE_STEP = 1 << 16;
 
 /**
  * 已经算好的这个世界 1 倍主图的输入(rasterInputs;编辑地形按块重铺不划算、改成整张铺时接着用)和最近地块
@@ -574,6 +593,11 @@ export function finishVeins(r: Raster, v: { lines: DrainLines; vein: Uint8Array 
 
 /** 铺像素;gully = true 时把要算沟壑的像素记进 job(没截短)、细沟要的几样记进 veins */
 function rasterizeRaw(world: World, scale: number, gully: boolean, lines?: DrainLines, cover?: Cover, pre?: Precomputed): { raster: Raster; job: GullyJob | null; veins: VeinJob | null; inputs: RasterInputs } {
+  return drain(rasterizeRawSteps(world, scale, gully, lines, cover, pre));
+}
+
+/** 同 rasterizeRaw,一段一段做(见 rasterizeDeferredSteps) */
+function* rasterizeRawSteps(world: World, scale: number, gully: boolean, lines?: DrainLines, cover?: Cover, pre?: Precomputed): Generator<void, { raster: Raster; job: GullyJob | null; veins: VeinJob | null; inputs: RasterInputs }> {
   const pi = pre && scale === 1 && coverFits(pre.inputs.cover, world.mesh, Math.round(world.width), Math.round(world.height)) ? pre.inputs : null;
   const b = pi
     ? { w: pi.cover.g.w, h: pi.cover.g.h, N: pi.cover.g.w * pi.cover.g.h, g: pi.cover.g, tri: pi.cover.tri, wa: pi.cover.wa, wb: pi.cover.wb, planes: pi.planes, elev: pi.base, cell: pre!.cell, sElev: pi.sElev }
@@ -589,6 +613,7 @@ function rasterizeRaw(world: World, scale: number, gully: boolean, lines?: Drain
     calm = new Float32Array(N);
     carveValleys(valleyLines(world.rivers, world.riverThreshold, world.width), world.riverThreshold, scale, w, h, carve, calm);
   }
+  yield;
 
   const { dTile, jTile } = noiseTiles(world.params.seed);
   const out: Raster = {
@@ -608,8 +633,14 @@ function rasterizeRaw(world: World, scale: number, gully: boolean, lines?: Drain
   };
   const R = world.width / (2 * Math.PI);
   const job = gully ? newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale) : null;
-  shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, world.mesh.spacing, job);
+  // 逐像素按整行分段铺(一个像素只看输入,和一口气整张铺逐位相同;沟壑要算的像素照样按行记进 job)
+  const rows = Math.max(1, Math.floor(SHADE_STEP / w));
+  for (let y = 0; y < h; y += rows) {
+    shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, world.mesh.spacing, job, null, { x0: 0, y0: y, w, h: Math.min(rows, h - y) });
+    yield;
+  }
   dropSpecks(out, Math.round(SPECK_MAX * scale * scale));
+  yield;
   out.bank = bankBytes(calm);
   seaIcePixels(world, out);
   // 细沟只有写实风用(和沟壑一样,gully = false 时不算)

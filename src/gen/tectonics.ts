@@ -517,7 +517,7 @@ const SK_ISLES_T = 0.25;
 /**
  * 第 1–4 步(板块、边界、陆地场)的结果:只由网格、参数、作者改的板块(草图的 plates)定,草图涂的笔在第 4b 步才套上。
  * 编辑地形时每涂一笔草图都要重新生成,这一段一笔一笔都一样:记着上一次的(frameOf),第 4b 步起在海陆、地壳底色的副本上接着算,
- * 结果和从头算逐位相同。记着的数组之后只读不写(海陆、地壳底色除外,它们每次拷一份)
+ * 结果和从头算逐位相同。记着的数组之后只读不写(海陆、地壳底色除外,它们每次拷一份;第 4b 步起取的噪声另外记,见 CellNoises)
  */
 interface Frame {
   plate: Int16Array;
@@ -535,10 +535,8 @@ interface Frame {
   /** 地壳底色、海陆(第 4 步按目标陆地比例取完阈值):第 4b 步起只在副本上改 */
   B: Float32Array;
   land: Uint8Array;
-  rugN: SurfaceNoise;
-  coastF: SurfaceNoise;
-  fs: number;
-  fc: number;
+  /** 第 4b–6 步每个地块取的噪声(见 CellNoises) */
+  noise: CellNoises;
   ramp: number;
   thin: (w: number) => number;
   soft: number;
@@ -546,12 +544,110 @@ interface Frame {
 }
 type DistanceField = ReturnType<typeof distanceField>;
 
+/**
+ * 一项噪声在各地块上的值(只看地块、种子和频率,和草图、地形修改无关)。记着的时候(keep.on)第一次取时算、记下,之后照记下的
+ * (同一个 Float64 数,结果逐位相同);不记的时候每次现算。表用到才分配
+ */
+class CellNoise {
+  private v: Float64Array | null = null;
+  constructor(
+    private readonly keep: { on: boolean },
+    private readonly n: number,
+    private readonly f: (i: number) => number,
+  ) {}
+  at(i: number): number {
+    if (!this.keep.on) return this.f(i);
+    const a = (this.v ??= new Float64Array(this.n).fill(NaN));
+    let x = a[i];
+    if (x !== x) x = a[i] = this.f(i);
+    return x;
+  }
+}
+
+/**
+ * 第 4b–6 步(草图、海底、抬升)每个地块取的噪声。编辑地形时每涂一笔草图都从第 4b 步起重算,这些噪声一笔一笔都一样:
+ * 同一个 Frame 第二次用起(frameOf)记下来接着用,省掉每笔把整颗星球的噪声重算一遍。只生成一次的世界不记(不多占内存)
+ */
+interface CellNoises {
+  /** 记不记(frameOf 第二次给出同一个 Frame 时打开) */
+  keep: { on: boolean };
+  /** 草图按扭过的位置取值:东西、南北的扭动 */
+  warpX: CellNoise;
+  warpY: CellNoise;
+  /** 群岛笔的岛屿噪声 */
+  isles: CellNoise;
+  /** 海岸的破碎程度、细碎的海岸噪声(同第 4 步) */
+  rug: CellNoise;
+  coastF: CellNoise;
+  /** 深海丘陵(两层加起来) */
+  seaHills: CellNoise;
+  /** 大陆架宽窄;草图涂的浅海深浅 */
+  shelf: CellNoise;
+  shelfSk: CellNoise;
+  /** 基础抬升、零星丘陵、古老山系的山脊和它冒头的地方、大陆内部的台地 */
+  baseU: CellNoise;
+  hills: CellNoise;
+  oldRidge: CellNoise;
+  oldHills: CellNoise;
+  shield: CellNoise;
+  /** 碰撞带背后的高原:伸多远、沿走向有没有 */
+  platReach: CellNoise;
+  platAlong: CellNoise;
+  /** 草图涂的山地(山脊)、丘陵、高原 */
+  skRidge: CellNoise;
+  skHills: CellNoise;
+  skPlat: CellNoise;
+}
+
+function cellNoises(mesh: Mesh, seed: number, fs: number, fc: number, rugN: SurfaceNoise, coastF: SurfaceNoise): CellNoises {
+  const n = mesh.n;
+  const geo = geometryOf(mesh);
+  const keep = { on: false };
+  const of = (f: (i: number) => number) => new CellNoise(keep, n, f);
+  const wx = geo.fbm(subSeed(seed, 'sketch-warp'), 3);
+  const wy = geo.fbm(subSeed(seed, 'sketch-warp') ^ 0x2f17, 3);
+  const isleN = geo.fbm(subSeed(seed, 'sketch-isles'), 3);
+  const seaNoise = geo.fbm(subSeed(seed, 'sea'), 5);
+  const shelfN = geo.fbm(subSeed(seed, 'shelf'), 3);
+  const baseU = geo.fbm(subSeed(seed, 'uplift'), 5);
+  const hills = geo.fbm(subSeed(seed, 'hills'), 4);
+  const old = geo.ridged(subSeed(seed, 'old-ranges'), 5);
+  const plat = geo.fbm(subSeed(seed, 'plateau'), 4);
+  const shield = geo.fbm(subSeed(seed, 'shield'), 4);
+  const skRidge = geo.ridged(subSeed(seed, 'sketch-ranges'), 4);
+  return {
+    keep,
+    warpX: of((i) => wx.atScale(i, SK_WARP_SCALE)),
+    warpY: of((i) => wy.atScale(i, SK_WARP_SCALE)),
+    isles: of((i) => isleN.atScale(i, SK_ISLES_SCALE)),
+    rug: of((i) => rugN.at(i, fc, 0.8, 2.1, -6.3)),
+    coastF: of((i) => coastF.at(i, fc, 7)),
+    seaHills: of((i) => 300 * seaNoise.at(i, fs, 2) + 90 * seaNoise.at(i, fs, 9, 3.3, -1.7)),
+    shelf: of((i) => shelfN.at(i, fs, 1.6)),
+    shelfSk: of((i) => shelfN.at(i, fs, 3.1, 2.2, -0.9)),
+    baseU: of((i) => baseU.at(i, fs, 1.5)),
+    hills: of((i) => hills.at(i, fs, 2.2, 11, -3)),
+    oldRidge: of((i) => old.at(i, fs, 1.9, 3.1, -7.4)),
+    oldHills: of((i) => hills.at(i, fs, 0.7, -5, 2)),
+    shield: of((i) => shield.at(i, fs, 1.2)),
+    platReach: of((i) => plat.at(i, fs, 1.1, 4, 0)),
+    platAlong: of((i) => plat.at(i, fs, 2.3, -8, 1)),
+    skRidge: of((i) => skRidge.at(i, fs, 3.2, 5.1, -2.7)),
+    skHills: of((i) => hills.at(i, fs, 4.1, -2, 6)),
+    skPlat: of((i) => plat.at(i, fs, 2.6, 3, -5)),
+  };
+}
+
 /** 上一次的第 1–4 步(网格对象 + 参数 + 板块改动对得上才用) */
 let frameMemo: { mesh: Mesh; key: string; frame: Frame } | null = null;
 
 function frameOf(mesh: Mesh, p: TectonicParams, pe: PlateEdit | undefined): Frame {
   const key = JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), pe ?? null]);
-  if (frameMemo && frameMemo.mesh === mesh && frameMemo.key === key) return frameMemo.frame;
+  if (frameMemo && frameMemo.mesh === mesh && frameMemo.key === key) {
+    // 同一个 Frame 又用一次(编辑地形接着涂):第 4b 步起的噪声从这次起记下来
+    frameMemo.frame.noise.keep.on = true;
+    return frameMemo.frame;
+  }
   frameMemo = null;
   const frame = buildFrame(mesh, p, pe);
   frameMemo = { mesh, key, frame };
@@ -904,7 +1000,8 @@ function buildFrame(mesh: Mesh, p: TectonicParams, pe: PlateEdit | undefined): F
   const threshold = sorted[Math.floor((1 - clamp(p.landFraction, 0.02, 0.95)) * (n - 1))];
   const land = new Uint8Array(n);
   for (let i = 0; i < n; i++) land[i] = L[i] > threshold ? 1 : 0;
-  return { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, B, land, rugN, coastF, fs, fc, ramp, thin, soft, softW };
+  const noise = cellNoises(mesh, p.seed, fs, fc, rugN, coastF);
+  return { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, B, land, noise, ramp, thin, soft, softW };
 }
 
 /**
@@ -915,7 +1012,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   const geo = geometryOf(mesh);
   const pe = sketch?.plates;
   const fr = frameOf(mesh, p, pe);
-  const { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, rugN, coastF, fs, fc, ramp, thin, soft, softW } = fr;
+  const { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, noise: nz, ramp, thin, soft, softW } = fr;
   // 草图要改海陆、地壳底色:在副本上改(第 1–4 步记着的不动)
   const land = fr.land.slice();
   const B = fr.B.slice();
@@ -937,18 +1034,15 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     const cp = clamp(sketch.coast, 0, 1);
     const warp = SK_WARP_MIN + (SK_WARP - SK_WARP_MIN) * cp;
     const fine = SK_FINE_MIN + (SK_FINE - SK_FINE_MIN) * cp;
-    const wx = geo.fbm(subSeed(p.seed, 'sketch-warp'), 3);
-    const wy = geo.fbm(subSeed(p.seed, 'sketch-warp') ^ 0x2f17, 3);
     for (let i = 0; i < n; i++) {
-      geo.moveCell(q, i, warp * wx.atScale(i, SK_WARP_SCALE), warp * wy.atScale(i, SK_WARP_SCALE));
+      geo.moveCell(q, i, warp * nz.warpX.at(i), warp * nz.warpY.at(i));
       sk[i] = sketchAt(sketch.grid, q[0], q[1], W, mesh.height);
     }
     // 群岛:涂过的那片按岛屿噪声冒出一个个小岛
-    const isleN = sk.includes(SKETCH_ISLES) ? geo.fbm(subSeed(p.seed, 'sketch-isles'), 3) : null;
     const want = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
       const v = sk[i];
-      want[i] = v === SKETCH_NONE ? land[i] : v === SKETCH_ISLES ? (isleN!.atScale(i, SK_ISLES_SCALE) > SK_ISLES_T ? 1 : 0) : v >= SKETCH_LAND ? 1 : 0;
+      want[i] = v === SKETCH_NONE ? land[i] : v === SKETCH_ISLES ? (nz.isles.at(i) > SK_ISLES_T ? 1 : 0) : v >= SKETCH_LAND ? 1 : 0;
     }
     const edge: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -968,10 +1062,10 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
       const v = sk[i];
       if (v === SKETCH_NONE) continue;
       const sd = want[i] ? ed[i] : -ed[i];
-      const rug = 0.25 + 1.35 * smoothstep(-0.35, 0.45, rugN.at(i, fc, 0.8, 2.1, -6.3));
+      const rug = 0.25 + 1.35 * smoothstep(-0.35, 0.45, nz.rug.at(i));
       // 群岛那片的海岸就是岛屿噪声本身,不再加细碎噪声(否则一个个小岛会被推得连成一片)
       if (v === SKETCH_ISLES) land[i] = want[i];
-      else land[i] = v >= SKETCH_MOUNTAIN || sd + fine * rug * coastF.at(i, fc, 7) > 0 ? 1 : 0;
+      else land[i] = v >= SKETCH_MOUNTAIN || sd + fine * rug * nz.coastF.at(i) > 0 ? 1 : 0;
       if (Number.isFinite(sd)) B[i] = ftanh(sd / ramp);
       else B[i] = want[i] ? 1 : -1;
       if (v >= SKETCH_MOUNTAIN) mtn[i] = SK_MTN_H[v - SKETCH_MOUNTAIN];
@@ -1050,8 +1144,6 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   // 洋中脊:只算大洋里的张裂边界(大陆里的张裂是裂谷)
   const ridgeSrc = divSources.filter((i) => !land[i] && B[i] < 0.1);
   const ridge = distanceField(mesh, ridgeSrc, (i) => clamp(-convergence[i] / 0.9, 0, 1));
-  const seaNoise = geo.fbm(subSeed(p.seed, 'sea'), 5);
-  const shelfN = geo.fbm(subSeed(p.seed, 'shelf'), 3);
   const oceanDepth = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     if (land[i]) continue;
@@ -1059,10 +1151,10 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     const rs = ridge.str[i];
     const age = clamp(ridge.dist[i] / 160, 0, 1);
     let d = -2700 - 2700 * Math.sqrt(age) + 500 * rs * band(ridge.dist[i], 14);
-    d += 300 * seaNoise.at(i, fs, 2) + 90 * seaNoise.at(i, fs, 9, 3.3, -1.7); // 深海丘陵
+    d += nz.seaHills.at(i); // 深海丘陵
     // 大陆架:离岸一段很浅(-30 ~ -180 米),被动边缘宽、俯冲带一侧窄;外面是大陆坡,往下接到大洋
     const active = conv.str[i] * band(conv.dist[i], 30);
-    const sw = (3 + 26 * (1 - active) * (0.35 + 0.65 * smoothstep(-0.4, 0.5, shelfN.at(i, fs, 1.6)))) * (B[i] > -0.2 ? 1.3 : 0.7);
+    const sw = (3 + 26 * (1 - active) * (0.35 + 0.65 * smoothstep(-0.4, 0.5, nz.shelf.at(i)))) * (B[i] > -0.2 ? 1.3 : 0.7);
     const dc = dCoast[i];
     const shelf = dc < sw ? -(30 + 150 * (dc / sw)) : -(180 + 6500 * smoothstep(0, 24, dc - sw));
     d = Math.max(d, shelf);
@@ -1071,7 +1163,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     if (s === SIDE_ARC) d = Math.max(d, -1600 - 2200 * (1 - conv.str[i] * band(conv.dist[i] - 11, 9)));
     d += 2600 * hot[i];
     // 草图上涂的浅海:像大陆架那样浅
-    if (sk && sk[i] === SKETCH_SHELF) d = Math.max(d, -(40 + 110 * (0.5 + 0.5 * shelfN.at(i, fs, 3.1, 2.2, -0.9))));
+    if (sk && sk[i] === SKETCH_SHELF) d = Math.max(d, -(40 + 110 * (0.5 + 0.5 * nz.shelfSk.at(i))));
     oceanDepth[i] = Math.min(-20, d);
   }
   // 平滑海底,去掉距离场的折线痕迹;海沟在平滑之后再挖(窄而深)
@@ -1087,12 +1179,6 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
 
   // ---- 6. 抬升场 + 高原底座 ----
   const dSea = distanceField(mesh, seaSrc, () => 0).dist;
-  const baseU = geo.fbm(subSeed(p.seed, 'uplift'), 5);
-  const hills = geo.fbm(subSeed(p.seed, 'hills'), 4);
-  const old = geo.ridged(subSeed(p.seed, 'old-ranges'), 5);
-  const plat = geo.fbm(subSeed(p.seed, 'plateau'), 4);
-  const shield = geo.fbm(subSeed(p.seed, 'shield'), 4);
-  const skRidge = skMtn ? geo.ridged(subSeed(p.seed, 'sketch-ranges'), 4) : null;
   const uplift = new Float32Array(n);
   const plateau = new Float32Array(n);
   const mf = p.mountains;
@@ -1104,17 +1190,17 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     // 只补细节 / 完全照画的涂过的地块:只有基础抬升(完全照画的连起伏也不要:处处一样的低抬升,侵蚀出来是一片低平原)
     // + 草图自己涂的山地、丘陵、高原
     if (fixed && fixed[i]) {
-      let U = exact ? SK_EXACT_U : 0.016 + 0.018 * soft * (baseU.at(i, fs, 1.5) + 1);
-      if (skMtn && skRidge && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * skRidge.at(i, fs, 3.2, 5.1, -2.7));
-      if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * hills.at(i, fs, 4.1, -2, 6));
+      let U = exact ? SK_EXACT_U : 0.016 + 0.018 * soft * (nz.baseU.at(i) + 1);
+      if (skMtn && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * nz.skRidge.at(i));
+      if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * nz.skHills.at(i));
       uplift[i] = U;
-      plateau[i] = skPlat && skPlat[i] > 0 ? SK_PLATEAU_M * skPlat[i] * (0.85 + 0.15 * plat.at(i, fs, 2.6, 3, -5)) * smoothstep(3, 30, dSea[i]) : 0;
+      plateau[i] = skPlat && skPlat[i] > 0 ? SK_PLATEAU_M * skPlat[i] * (0.85 + 0.15 * nz.skPlat.at(i)) * smoothstep(3, 30, dSea[i]) : 0;
       continue;
     }
     // 基础抬升很低 → 大部分陆地是平原
-    let U = 0.016 + 0.018 * soft * (baseU.at(i, fs, 1.5) + 1);
+    let U = 0.016 + 0.018 * soft * (nz.baseU.at(i) + 1);
     // 零星的丘陵区
-    U += 0.1 * soft * smoothstep(0.3, 0.75, hills.at(i, fs, 2.2, 11, -3));
+    U += 0.1 * soft * smoothstep(0.3, 0.75, nz.hills.at(i));
     const s = sideOf(i);
     const cs = conv.str[i];
     const cd = conv.dist[i];
@@ -1127,28 +1213,28 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
       else if (s === SIDE_SLAB) U += mf * 0.35 * cs * band(cd, 6) * contF;
     }
     // 古老山系:细长的山脊噪声,只在少数地方冒头
-    const r = old.at(i, fs, 1.9, 3.1, -7.4);
-    U += mf * 0.4 * soft * smoothstep(0.78, 0.96, r) * smoothstep(0.1, 0.55, hills.at(i, fs, 0.7, -5, 2) + 0.3);
+    const r = nz.oldRidge.at(i);
+    U += mf * 0.4 * soft * smoothstep(0.78, 0.96, r) * smoothstep(0.1, 0.55, nz.oldHills.at(i) + 0.3);
     // 大陆裂谷:抬升减弱成低地(不减成负的:负抬升会压到海平面以下,积成一串死水湖);
     // 裂谷湖在 world.ts 里另挖(只在强的张裂带上)
     U *= 1 - 0.75 * div.str[i] * band(div.dist[i], 20) * contF;
     // 草图上涂的山地:一片山,里面是山脊噪声(高低起伏、有走向),交给侵蚀刻出山谷
-    if (skMtn && skRidge && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * skRidge.at(i, fs, 3.2, 5.1, -2.7));
+    if (skMtn && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * nz.skRidge.at(i));
     // 草图上涂的丘陵:一片低矮的起伏
-    if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * hills.at(i, fs, 4.1, -2, 6));
+    if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * nz.skHills.at(i));
     uplift[i] = U;
     // 高原底座(米):碰撞带、强俯冲带上盘背后一大片平坦的高地(青藏、安第斯高原),沿走向时有时无;
     // 大陆内部零星的台地(非洲、巴西那样几百到一千多米的高原)。离海近处收掉,海岸不会是悬崖
     let pb = 0;
     if (orogeny && (s === SIDE_UPPER || s === SIDE_ARC) && cs > 0.25) {
-      const reach = (s === SIDE_UPPER ? 28 : 16) + 34 * (0.5 + 0.5 * plat.at(i, fs, 1.1, 4, 0));
+      const reach = (s === SIDE_UPPER ? 28 : 16) + 34 * (0.5 + 0.5 * nz.platReach.at(i));
       const inBand = smoothstep(4, 12, cd) * (1 - smoothstep(reach, reach + 16, cd));
-      const along = smoothstep(-0.25, 0.3, plat.at(i, fs, 2.3, -8, 1));
+      const along = smoothstep(-0.25, 0.3, nz.platAlong.at(i));
       pb = (s === SIDE_UPPER ? 3400 : 2600) * mf * soft * smoothstep(0.25, 0.8, cs) * inBand * along;
     }
-    pb += 1400 * smoothstep(-0.2, 0.3, shield.at(i, fs, 1.2)) * smoothstep(0.1, 0.5, B[i]);
+    pb += 1400 * smoothstep(-0.2, 0.3, nz.shield.at(i)) * smoothstep(0.1, 0.5, B[i]);
     // 草图上涂的高原:一整片平坦的高地
-    if (skPlat && skPlat[i] > 0) pb = Math.max(pb, SK_PLATEAU_M * skPlat[i] * (0.85 + 0.15 * plat.at(i, fs, 2.6, 3, -5)));
+    if (skPlat && skPlat[i] > 0) pb = Math.max(pb, SK_PLATEAU_M * skPlat[i] * (0.85 + 0.15 * nz.skPlat.at(i)));
     plateau[i] = pb * smoothstep(3, 30, dSea[i]);
   }
 
