@@ -174,8 +174,8 @@ function birthEntry(civ: Civ, cu: Culture): ChronicleEntry {
 }
 
 /**
- * 和这一族有关的编年史条目(按年份排好):出现(自然兴起的补一条)、这一族的迁徙(别族迁进它的地方不算,那一条写的是别族)、
- * 同化(这一族的州改了族,或别族的州改成这一族)、消亡(它的,或它取代的)、分化(它分出来,或从它分出去);折叠的条目看子条目
+ * 和这一族有关的编年史条目(按年份排好):出现(自然兴起的补一条)、这一族的迁徙(别族迁进它的地方不算,那一条写的是别族)
+ * 和大迁徙、同化(这一族的州改了族,或别族的州改成这一族)、消亡(它的,或它取代的)、分化(它分出来,或从它分出去);折叠的条目看子条目
  */
 export function cultureEntries(civ: Civ, id: number): ChronicleEntry[] {
   const all = fullChronicle(civ);
@@ -187,6 +187,8 @@ export function cultureEntries(civ: Civ, id: number): ChronicleEntry[] {
     const test = (e: ChronicleEntry) => {
       if (!KINDS.has(e.kind)) return false;
       const a = A[e.id];
+      // 大迁徙那一条是 migrate,第一件史事是 trek(a = 迁徙的民族)
+      if (a?.kind === 'trek') return e.kind === 'migrate' && a.a === id;
       return !!a && a.kind === e.kind && (a.a === id || (a.b === id && a.kind !== 'migrate'));
     };
     hit = all.filter((e) => test(e) || !!e.children?.some(test));

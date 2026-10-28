@@ -52,13 +52,14 @@ function hash(s: string): string {
 
 /**
  * 风俗的指纹:改名不变,历史改写 / 改地形才变 —— 族名由来那一份(出现、发源、迁徙)加上这一族整段历史里的大事
- * (迁徙、同化、分化、消亡,和本族之国的兴亡)
+ * (迁徙、大迁徙、同化、分化、消亡,和本族之国的兴亡)
  */
 export function customsStamp(civ: Civ, id: number): string {
   const A = civ.history?.annals ?? civ.annals;
   const parts: string[] = [];
   for (const a of A) {
     if ((a.kind === 'migrate' || a.kind === 'assimilate' || a.kind === 'vanish' || a.kind === 'diverge') && (a.a === id || a.b === id)) parts.push(`${a.kind}${Math.floor(a.year)}:${a.region}`);
+    else if (a.kind === 'trek' && a.a === id) parts.push(`trek${Math.floor(a.year)}:${a.n ?? ''}`);
     else if ((a.kind === 'found' || a.kind === 'fall') && civ.polities[a.a]?.culture === id) parts.push(`${a.kind}${Math.floor(a.year)}`);
   }
   return `${nameStamp(civ, { kind: 'culture', id })}|${hash(parts.join(','))}`;
