@@ -7,7 +7,8 @@
  *    缩放、平移、换年份时重画。它不在被 CSS 放大的地图框里,而是在最上面的屏幕层里(App 传进来的 labelsHost,
  *    见 mapWrap.ts 的"屏幕层"),按地图框的位置摆,一个画布像素对一个屏幕像素 —— 放大到 12 倍字和城镇符号也是清晰的。
  *    画的东西:地理名、国名、城名和城镇符号,一起避让(render/labels/draw.ts 的 placeMap);
- *    底下先画战事的战线和双剑(render/civ/warfare.ts,不参与避让)。
+ *    底下先画战事的战线和双剑(render/civ/warfare.ts,不参与避让)、大迁徙的箭头(render/civ/migrations.ts:箭头不参与避让,
+ *    它的字躲开排好的地名;点编年史那一条时整条亮一下,亮着的两秒逐帧重画)。
  *    回放 / 拖时间轴时城名只排国都和大城的,每帧更快;停下来就补上城、镇、村的名字。
  *
  * 3. 高亮层(canvas.civ-hl,阶段 3 编年史):点编年史的一条,事发的州、相关国家的国土闪约两秒;天灾页的预览(受灾的州)一直亮着
@@ -39,6 +40,9 @@ import { cancelDetailJob, detailAsync, submitDetailJob, type WorkStep } from './
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanvasBoxes, type CivMapLayer } from '../render/civ/labels';
 import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
 import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
+import { drawTreks, treksShown } from '../render/civ/migrations';
+import { flashAlpha, useTrekFlash } from './migrationInfo';
+import { useEra } from './editsStore';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
@@ -312,6 +316,8 @@ interface LabelsDebug {
   fitted?: boolean;
   /** 画了几段战线、几个双剑(战事关着 / 没在打仗 = null 或 0) */
   wars?: { lines: number; marks: number } | null;
+  /** 画了几支大迁徙的箭头(东西相连在另一圈再画的算多支) */
+  treks?: number;
 }
 
 /** 弯边投影停下来以后文明底图按投影重画(后台分小步)的活名 */
@@ -693,6 +699,9 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     sidesBefore.current = sides;
   }, [sides]);
   const [fadeTick, setFadeTick] = useState(0);
+  // 大迁徙:点编年史那一条时整条箭头亮一下;路线旁的年份照纪年写
+  const trekFlash = useTrekFlash(civ);
+  const era = useEra();
   const extras = useMemo(() => (labelParams ? labelViewExtras(labelParams) : null), [labelParams]);
   const text = useMemo(() => (ok && civ ? labelCharsOf(civ) : ''), [ok, civ]);
   const fontStyle = style;
@@ -790,7 +799,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const items = mapLayer ? geoItems.concat(mapLayer.items) : geoItems;
     const marks = mapLayer?.marks ?? [];
     const wars = !!params && warsShown(params);
-    if ((!items.length && !marks.length && !wars && !badges?.length) || !extras || !fontsOk) return clear();
+    const treks = !!params && treksShown(params);
+    if ((!items.length && !marks.length && !wars && !treks && !badges?.length) || !extras || !fontsOk) return clear();
     const t0 = performance.now();
     // 看得见的那块:地图框(已被 CSS 放大)和舞台(视口)的交集,换回地图框自己的坐标
     // (舞台换成视窗,地图框往右多算一份 —— 见 mapWrap.ts 的 visibleBox)
@@ -850,6 +860,9 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     }
     // 战线、双剑压在国界上、城镇符号和字底下
     const war = wars && params ? drawWarfare(ctx, params, lv, mp ? projector(mp) : null) : null;
+    // 大迁徙的路线也是:字躲开排好的地名、符号和盖着的界面
+    const glowA = trekFlash ? flashAlpha(performance.now() - trekFlash.t0) : 0;
+    const trekN = treks && params ? drawTreks(ctx, params, lv, mp ? projector(mp) : null, { placed, blocked: ui, era, glow: glowA > 0 ? { m: trekFlash!.m, a: glowA } : null }) : 0;
     drawSelectionLabels(ctx, placed, lv, sel, style, at);
     const capFlags: CapitalFlags | undefined =
       style === 'fantasy' && flags && flags.civ === civ && params
@@ -902,14 +915,16 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
       k,
       texts: placed.labels.map((l) => l.item.text),
       wars: war,
+      treks: trekN,
       proj: mp?.def.id ?? 'equirect',
       lon: mp?.lon0,
       fitted: !!fitMp,
     };
-    if (!fading) return;
+    // 配角名淡入中、迁徙的箭头亮着:下一帧再画
+    if (!fading && !(glowA > 0)) return;
     const h = requestAnimationFrame(() => setFadeTick((n) => n + 1));
     return () => cancelAnimationFrame(h);
-  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick]);
+  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick, trekFlash, era]);
 
   return (
     <>

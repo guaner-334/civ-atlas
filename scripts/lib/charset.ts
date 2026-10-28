@@ -38,6 +38,8 @@ export const EXTRA_CHARS =
   '东南西北中上下前后内外大小新旧高低' +
   '一二三四五六七八九十百千万零' +
   '海洋湾峡岛屿群礁半岬角河江湖泽泊溪川水源山岭峰脉原野漠沙荒林谷滩' +
+  // 大迁徙路线旁的标注(src/render/civ/migrations.ts):"1905 掠某州""1910 破某州",纪年的"元年"
+  '掠破年' +
   '0123456789·—';
 
 const isHan = (c: string) => /\p{Script=Han}/u.test(c);

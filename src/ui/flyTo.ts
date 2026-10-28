@@ -1,7 +1,7 @@
 /**
  * 选中 → 地图飞过去(国家面板):算"飞到哪、放多大",App 按它逐帧改视图(0.6 秒,ease-out 三次方)。纯计算,不碰 DOM。
  *
- * - 国家:平移缩放到能看全当年的疆域(窄屏:目标落在底部抽屉上方看得见的地方);城 / 州 / 地理实体:平移过去,缩放不变或适度放大。
+ * - 国家:平移缩放到能看全当年的疆域(大迁徙迁来立的国:来路还在地图上时连来路一起;窄屏:目标落在底部抽屉上方看得见的地方);城 / 州 / 地理实体:平移过去,缩放不变或适度放大。
  * - 'home'(选目标、下令之后):缩回整张图,中心经线不变。
  * - 等距圆柱按平移量飞;弯边投影(罗宾森……)转中央经线 + 上下平移;地球仪直接用它自己的 flyTo(经纬度)。
  */
@@ -13,7 +13,9 @@ import { faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, sett
 import { personKey, resolvePersonKey } from '../gen/characters';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';
 import { clampCurved, clampSphere, stageToWorld, type MapView, type StageBox } from './mapWrap';
-import type { MapSelection } from './civView';
+import { getCivShow, type MapSelection } from './civView';
+import { civFillOf } from '../render/civ/show';
+import { trekBox } from '../render/civ/migrations';
 import { NARROW_MAX, safeInsets } from './device';
 import { ABOVE_SHEET, sheetGeometry } from './gestures';
 import { astRoom } from './astPanel';
@@ -158,7 +160,11 @@ export function selectionFocus(world: World, civ: Civ, selIn: MapSelection, year
   function* cells() {
     for (const r of regs) for (let k = R.cellStart[r]; k < R.cellStart[r + 1]; k++) yield R.cells[k];
   }
-  const b = regs.length ? cellsBox(world, cells(), ref) : null;
+  let b = regs.length ? cellsBox(world, cells(), ref) : null;
+  // 大迁徙迁来立的国:来路还在地图上的那些年(国家、民族填色上才画),国土和整条来路一起框进来
+  const fill = civFillOf(getCivShow());
+  const tb = p.trek !== undefined && (fill === 'polities' || fill === 'cultures') ? trekBox(civ, world, p.trek, year, ref) : null;
+  if (tb) b = b ? [Math.min(b[0], tb[0]), Math.min(b[1], tb[1]), Math.max(b[2], tb[2]), Math.max(b[3], tb[3])] : tb;
   if (!b) return focusOf(W, H, null, ref, cap ? y[cap.cell] : H / 2);
   return focusOf(W, H, b, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
 }
