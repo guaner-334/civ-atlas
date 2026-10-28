@@ -151,6 +151,7 @@ import {
   namesWithoutAi,
   newHistoryEdits,
   placeKeyOf,
+  momentAt,
   playAt,
   playFromOf,
   polityKey,
@@ -183,7 +184,8 @@ import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, us
 import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
 import { condList, summarize } from '../gen/finder/query';
 import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putOutlineResult, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, setOutlinePlots, undoTerrainOp, useEdits } from './editsStore';
-import { eraText, spaced, yearAt, yearFull } from '../gen/era';
+import { eraText, monthNamesInUse, monthsOf, spaced, yearAt, yearFull } from '../gen/era';
+import { momentFull } from './stepTime';
 import { redoLastEdit, undoLastEdit } from './undo';
 import { useShortcuts } from './useShortcuts';
 import { openJump } from './JumpYear';
@@ -1915,15 +1917,16 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           const e0 = keptBranch();
           const play = e0 && cleanPlay(e0.play);
           // 原来那条原样留成一支(记下它的最后一件大事),从那一年另开一支、切过去
-          const r = e0 && play && rewindBranch(e0, year, name, branchNote(rawRef.current, play.year));
+          // year 带小数(停在年中、一步短于一年的回到那一格)
+          const r = e0 && play && rewindBranch(e0, momentAt(Math.round(year * YEAR_TICKS)), name, branchNote(rawRef.current, play.year));
           if (!play || !r || !r.edits.play) return notify({ kind: 'error', text: '没能从这一年重新演绎', more: ['另开的支太多了'] });
-          const T = r.edits.play.year;
+          const T = playAt(r.edits.play) / YEAR_TICKS;
           rewindNote.current = { year: T };
           dropPending();
           // 进度换成那一年年初(App 照它从第 0 年推到那一年)
           putEditsQuiet(r.edits);
-          rewoundTo(playFromOf(r.edits), playAt(r.edits.play) / YEAR_TICKS);
-          setCivTime({ year: playAt(r.edits.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
+          rewoundTo(playFromOf(r.edits), T);
+          setCivTime({ year: T, playing: false, scrubbing: false, story: false });
         });
       },
       switchBranch: (id) => {
@@ -2202,14 +2205,14 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     const play = civPlay.current;
     const rw = rewindNote.current;
     rewindNote.current = null;
-    if (play && rw && rw.year === play.year && getStepwise().on && getStepwise().now === playAt(play) / YEAR_TICKS) {
+    if (play && rw && rw.year === playAt(play) / YEAR_TICKS && getStepwise().on && getStepwise().now === rw.year) {
       // 刚从这一年重新演绎:界面早就停在这一年了(推的时候点了「接着演绎」的照走),这里只说一声
-      const era = getEdits().era;
+      const e = getEdits();
       showToast({
         id: 'step-rewound',
         kind: 'ok',
         dot: true,
-        text: `已回到${yearFull(rw.year, era)}`,
+        text: `已回到${momentFull(rw.year, monthsOf(e.months), e.era, monthNamesInUse(e.monthNames), false)}`,
         ttl: 7000,
       });
     } else if (play && cleanPlay(getEdits().play)) {

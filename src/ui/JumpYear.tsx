@@ -98,6 +98,8 @@ export interface TimelineYearProps {
   range?: { from: number; to: number } | null;
   /** 逐年推演(end 是"现在"):比"现在"晚的年份写"以后的事还没发生" */
   future?: boolean;
+  /** 逐年推演写到月:接在"年"后面的月份("菊月"" 9 月";'' / 没有 = 只写年);手机上写到月时省掉"第" */
+  tail?: string;
 }
 
 /** 提示下面的小字:这个世界从哪年推到哪年(逐年推演:已经演绎到哪年) */
@@ -106,7 +108,7 @@ function spanNote(end: number, era: Era | undefined, future?: boolean): string {
 }
 
 /** 时间轴左边的年份:平常是字,点了变输入框(手机弹小卡片) */
-export function TimelineYear({ world, year, end, era, narrow, locked, below, ghost, range, future }: TimelineYearProps) {
+export function TimelineYear({ world, year, end, era, narrow, locked, below, ghost, range, future, tail }: TimelineYearProps) {
   const [edit, setEdit] = useState<{ text: string; pre: boolean } | null>(null);
   const boxRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -151,16 +153,17 @@ export function TimelineYear({ world, year, end, era, narrow, locked, below, gho
   const [a, num, b] = yearParts(year, era);
   const label = (
     <>
-      {a}
+      {narrow && tail && a === '第 ' ? '' : a}
       <span className="jy-num">{num}</span>
       {b}
+      {tail}
     </>
   );
 
   if (narrow) {
     return (
       <>
-        <span className={`tb-year jy${edit ? ' on' : ''}`} {...pressable(locked, open)} aria-label={`${yearFull(year, era)}，点一下输入年份跳过去`}>
+        <span className={`tb-year jy${edit ? ' on' : ''}`} {...pressable(locked, open)} aria-label={`${yearFull(year, era)}${tail ?? ''}，点一下输入年份跳过去`}>
           {label}
         </span>
         {edit &&
@@ -190,7 +193,7 @@ export function TimelineYear({ world, year, end, era, narrow, locked, below, gho
         data-tip="点一下输入年份，跳到那一年"
         data-tip-key="jump"
         data-tip-side="above"
-        aria-label={`${yearFull(year, era)}，点一下输入年份跳过去`}
+        aria-label={`${yearFull(year, era)}${tail ?? ''}，点一下输入年份跳过去`}
       >
         {ghost ? (
           <>

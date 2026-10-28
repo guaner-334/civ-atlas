@@ -15,10 +15,16 @@ import { createPortal } from 'react-dom';
 import type { Civ } from '../gen/civ/types';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
-import { BRANCH_NAME_MAX, BRANCH_NOTE_MAX, commandAt, ticksAt, type Intervention } from '../gen/edits';
+import { BRANCH_NAME_MAX, BRANCH_NOTE_MAX, YEAR_TICKS, commandAt, ticksAt, type Intervention } from '../gen/edits';
 import { branchList, deleteBranch, renameBranch, type BranchInfo } from '../gen/stepwise';
 import { eraText, spaced, yearAt, yearFull, yearShort, yearShortAt, type Era } from '../gen/era';
-import { getEdits, putEditsQuiet, useEdits, useEra } from './editsStore';
+import { currentMonthNames, currentMonths, getEdits, putEditsQuiet, useEdits, useEra } from './editsStore';
+import { momentAt, momentFull } from './stepTime';
+
+/** 第 y 年第 tick 格:年初只写年,年中的写到月("1549 年桃月";full = "第 1549 年桃月") */
+function atText(y: number, tick: number | undefined, era: Era | null | undefined, full: boolean): string {
+  return (full ? momentFull : momentAt)(y + (tick ?? 0) / YEAR_TICKS, currentMonths(), era, currentMonthNames(), false);
+}
 import { openStepDialog, stepwiseActions, useStepwise, type StepSwitch } from './stepwiseStore';
 import { REVIEW_WEIGHT } from './stepwisePlan';
 import { entryWeight } from './timelineLayout';
@@ -52,10 +58,10 @@ function cnCount(n: number): string {
  */
 export function branchSpan(b: BranchInfo, all: readonly BranchInfo[], era: Era | null | undefined, full = false): string {
   const y = (n: number) => (full ? yearFull(n, era) : yearAt(n, era));
-  const to = `演到${spaced(y(b.year))}`;
+  const to = `演到${spaced(atText(b.year, b.tick, era, full))}`;
   if (b.forkAt === undefined) return `${full ? '从' : ''}${y(b.playFrom)}起演绎，${to}`;
   const parent = b.forkOf !== undefined && b.forkOf !== b.id ? all.find((x) => x.id === b.forkOf) : undefined;
-  return `${y(b.forkAt)}${parent ? `从${branchRef(parent)}` : ''}分出，${to}`;
+  return `${atText(b.forkAt, b.forkTick, era, full)}${parent ? `从${branchRef(parent)}` : ''}分出，${to}`;
 }
 
 /** 这一段历史里最后一件大事(停一下时卡片会列的那么大),写成"1523 卢纳维亚帝国始入青铜时代";没有 = undefined */
@@ -416,15 +422,15 @@ function DeleteDialog({ phone, civ, id }: { phone: boolean; civ: Civ; id: number
   const a = b.forkAt ?? b.playFrom;
   const lead =
     b.forkAt === undefined
-      ? `这一支从${yearFull(b.playFrom, era)}起演绎，演到${spaced(yearFull(b.year, era))}。`
-      : `这一支${parent ? `从${branchRef(parent)}的` : ''}${yearFull(b.forkAt, era)}分出，演到${spaced(yearFull(b.year, era))}。`;
+      ? `这一支从${yearFull(b.playFrom, era)}起演绎，演到${spaced(atText(b.year, b.tick, era, true))}。`
+      : `这一支${parent ? `从${branchRef(parent)}的` : ''}${atText(b.forkAt, b.forkTick, era, true)}分出，演到${spaced(atText(b.year, b.tick, era, true))}。`;
   const cmds = ownCommands(b);
   const texts = cmds.map((v) => `${yearShortAt(v.from, era)}${eraText(interventionText(civ, v), era)}`);
   const ivSmall = texts.length > DELETE_LIST_MAX ? `${texts.slice(0, DELETE_LIST_MAX).join('；')}……等 ${texts.length} 条` : texts.join('；');
   const note = b.last ? splitNote(b.last, era) : null;
   // 最后一件大事(去掉开头的【干预】这类小标签)
   const histSmall = `${note ? `${note.y !== null ? yearShortAt(note.y, era) : ''}${note.text.replace(/^【[^】]*】/, '')}……` : ''}编年史里这一段`;
-  const why = `删了找不回来。别的${cnCount(all.length - 1)}支照旧${parent ? `；${branchRef(parent)}${yearFull(b.forkAt!, era)}以前的事本来就在它自己那里，不受影响` : ''}。`;
+  const why = `删了找不回来。别的${cnCount(all.length - 1)}支照旧${parent ? `；${branchRef(parent)}${atText(b.forkAt!, b.forkTick, era, true)}以前的事本来就在它自己那里，不受影响` : ''}。`;
   const rows = (
     <div className={`sw-grp${phone ? ' white' : ''}`}>
       {b.year > a && (
