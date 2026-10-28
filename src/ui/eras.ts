@@ -165,8 +165,14 @@ export function eraReady(maps: EraMaps | null, patches: ReadonlyMap<string, Rast
   return chainOf(maps, patches, kk).n === kk;
 }
 
-/** 拼好的各段主图(最多留两张:来回拖时间轴不用重拼) */
-const composed = new Map<string, { base: Raster; raster: Raster }>();
+/**
+ * 拼好的各段主图(最多留两张:来回拖时间轴不用重拼)。按补丁的键记着,用的时候还要核对是不是同样那几块补丁:
+ * 同一对键的补丁会换(后台线程照前面几段的分法拼出上一段再比,分法变了就重交一块),换了就重拼
+ */
+const composed = new Map<string, { base: Raster; list: readonly RasterPatch[]; raster: Raster }>();
+/** 拼好的那一张还能用:照同一张原主图、按先后贴的是同样那几块补丁 */
+const fresh = (hit: { base: Raster; list: readonly RasterPatch[] } | undefined, base: Raster, list: readonly RasterPatch[]) =>
+  !!hit && hit.base === base && hit.list.length === list.length && hit.list.every((p, i) => p === list[i]);
 /** 同一个世界配同一张主图 = 同一个对象(地图按对象认"换没换图") */
 const pairs = new WeakMap<World, WeakMap<Raster, { world: World; raster: Raster }>>();
 function pair(world: World, raster: Raster): { world: World; raster: Raster } {
@@ -188,8 +194,8 @@ export function eraData(base: { world: World; raster: Raster }, maps: EraMaps | 
   const world = maps.worlds[n - 1];
   if (!list.length) return pair(world, base.raster);
   let hit = composed.get(sig);
-  if (!hit || hit.base !== base.raster) {
-    hit = { base: base.raster, raster: composeRaster(base.raster, list) };
+  if (!hit || !fresh(hit, base.raster, list)) {
+    hit = { base: base.raster, list, raster: composeRaster(base.raster, list) };
     composed.delete(sig);
     composed.set(sig, hit);
     while (composed.size > 2) composed.delete(composed.keys().next().value!);
@@ -204,7 +210,7 @@ export function peekEraData(base: { world: World; raster: Raster }, maps: EraMap
   if (!n) return base;
   if (!list.length) return pair(maps.worlds[n - 1], base.raster);
   const hit = composed.get(sig);
-  return hit && hit.base === base.raster ? pair(maps.worlds[n - 1], hit.raster) : null;
+  return hit && fresh(hit, base.raster, list) ? pair(maps.worlds[n - 1], hit.raster) : null;
 }
 
 /**

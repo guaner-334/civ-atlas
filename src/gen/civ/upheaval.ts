@@ -292,19 +292,35 @@ const RESHAPE_MIN = 0.02;
  */
 const SITE_MIN = 1e-6;
 
+/** 大事以前的一段州地形(cultureTerrain):从 from 那一刻起(第 0 段 from = -Infinity),到下一段的 from 为止 */
+export interface TerrainEra {
+  from: Year;
+  terrain: CultureTerrain;
+}
+
+/** 第 y 年那一段的州地形(past 按先后);州 r 那时还没有的按最后一段 */
+function terrainAt(past: readonly TerrainEra[], y: Year, r: number): CultureTerrain {
+  let j = past.length - 1;
+  while (j > 0 && past[j].from > y) j--;
+  const T = past[j].terrain;
+  return r < T.R ? T : past[past.length - 1].terrain;
+}
+
 /**
  * 大事那一刻(t)还在、过了这一刻也还在的城:城址照新地形换值(Settlement.reshaped 添一段,从 t 起;t 以前的人口一点不变)——
  *   - 港口照新地形重新认(polities.ts 的 findPorts:海水漫到城边可能成了港口,抬升把港口围成了内陆就不是了;
  *     州变得不宜居、海岸没变的照样是港口)
  *   - 人口上限按城址那一州的人口上限、港口、大河前后之比缩放(siteFactor;建城时的基准、随机部分不变)
- * 港口没变、上限变得不到 RESHAPE_MIN 的不动(地形没变的州前后之比正好是 1;远处气候、河流的一点点变化不算)。
+ * "前"是这座城最后一次记下的那一段(没记过 = 建城时那一段)的地形,不是紧挨着的前一段:
+ * 港口没变、上限比那时变得不到 RESHAPE_MIN 的不动(地形没变的州前后之比正好是 1;远处气候、河流的一点点变化不算)。
+ * 几件大事各变一点、每件都不到 RESHAPE_MIN 的,攒够了照样记一段,和每件都记的差不到 RESHAPE_MIN。
  * 这一刻会没了的城(upheavalVictims)、早先毁了的城不管。
- * T0 = 大事以前的州地形(cultureTerrain);w1、h1、r1 = 大事以后的世界、宜居度、州(r1 沿用 T0 的州编号)。
+ * past = 大事以前的各段州地形(按先后,最后一段就是紧挨着这件大事的);w1、h1、r1 = 大事以后的世界、宜居度、州(r1 沿用之前的州编号)。
  * 返回新的城镇表:变了的城换成新对象,不改传进来的
  */
 export function reshapeCities(
   settlements: readonly Settlement[],
-  T0: CultureTerrain,
+  past: readonly TerrainEra[],
   w1: World,
   h1: Habitat,
   r1: Regions,
@@ -326,7 +342,7 @@ export function reshapeCities(
     const last = s.reshaped?.[s.reshaped.length - 1];
     const port0 = last ? last.port : s.port;
     const port = port1[r] === 1;
-    const f0 = Math.max(SITE_MIN, siteFactor(T0, port0, r));
+    const f0 = Math.max(SITE_MIN, siteFactor(terrainAt(past, last ? last.year : s.founded, r), port0, r));
     const f1 = Math.max(SITE_MIN, siteFactor(T1, port, r));
     if (!(f0 > 0)) return s;
     const k = f1 / f0;
