@@ -76,6 +76,8 @@ export interface CivDrawParams {
   faithFocus?: number | null;
   /** 民族填色:选中的民族(民族卡片开着),别的民族变淡;不给 = 都是原色 */
   cultureFocus?: number | null;
+  /** 深色底图(卫星图):商道用亮一点的紫(trade.ts) */
+  bright?: boolean;
   /**
    * 存档缩略图(App 的 thumbMaker,画结束那一年):色块、国界另存一份,不挤掉主图那一年正在用的;
    * 色块那张画完就放掉(缩略图一个世界截一次)
