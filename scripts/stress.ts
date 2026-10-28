@@ -154,8 +154,9 @@ const caseName = (c: (typeof cases)[number]) =>
       : JSON.stringify(c);
 /**
  * 只跑其中一份:STRESS_PART=1/3 跑第 1 份、2/3 跑第 2 份、3/3 跑第 3 份(PR 检查上分三台机器同时跑);不设就全跑。
- * 下面每个(参数组合, 种子)按出现的先后,各带一个估的耗时(秒,照 CI 上的实测),
- * 谁当前累计最少就分给谁(各份跑同一段代码,分得一样),三份合起来正好是全部,而且长短差不多
+ * 下面每个(参数组合, 种子)按出现的先后,各带一个估的耗时(秒,照 CI 上的实测:2026 年 10 月下旬 5 轮里各组从上一行输出到这一行的中位数),
+ * 谁当前累计最少就分给谁(各份跑同一段代码,分得一样),三份合起来正好是全部,而且长短差不多。
+ * 估时和实际差得多了,各份就不匀(大头在后面几组:推到 60000 年的两组、随机自查);某一份明显变慢了就照日志里的时间改一改估时
  */
 const [PART, PARTS] = (process.env.STRESS_PART ?? '1/1').split('/').map(Number);
 if (!(Number.isInteger(PART) && Number.isInteger(PARTS) && PART >= 1 && PART <= PARTS)) {
@@ -211,7 +212,7 @@ const noteRate = (years: number, ms: number, name: string) => {
 for (const c of cases) {
   for (const seed of [3, 99]) {
     // 估的耗时(秒):20 万地块和推到 6 成陆地、整片抬成陆地的最慢,画草图没有陆地的几乎不推演
-    const sec = c.cells === 200000 ? 19 : c.landFraction === 0.6 || c.terrain?.[0]?.kind === 'raise' ? 9 : c.sketch?.rest === 'sea' && !c.sketch.strokes.length && !c.sketch.plates ? 3 : 6;
+    const sec = c.cells === 200000 ? 17 : c.landFraction === 0.6 || c.terrain?.[0]?.kind === 'raise' ? 11 : c.sketch?.rest === 'sea' && !c.sketch.strokes.length && !c.sketch.plates ? 2 : 7;
     if (!mine(sec)) continue;
     const { terrain, sketch, ...pc } = c;
     const grid = sketchGrid(sketch);
@@ -449,7 +450,8 @@ const UPHEAVAL_CASES: [string, Upheaval[]][] = [
 ];
 for (const [name, list] of UPHEAVAL_CASES) {
   for (const seed of [3, 99]) {
-    if (!mine(9)) continue;
+    // 估的耗时(秒):整颗星球沉入海中的那组,第 1500 年以后没有陆地可推,最快
+    if (!mine(list[0].ops[0].kind === 'sink' ? 5 : list[0].ops[0].kind === 'raise' ? 12 : 13)) continue;
     const params = { ...DEFAULT_PARAMS, seed };
     const t0 = performance.now();
     const w = generateWorld(params);
@@ -509,7 +511,7 @@ for (const [seed, ups] of [
   [7, []],
   [99, [{ year: 2999, ops: [{ kind: 'volcano', pts: [900, 400], r: 160, s: 2 }] }]],
 ] as [number, Upheaval[]][]) {
-  if (!mine(seed === 7 ? 150 : 220)) continue;
+  if (!mine(seed === 7 ? 120 : 165)) continue;
   const params = { ...DEFAULT_PARAMS, seed };
   const w = generateWorld(params);
   const steps = upheavalSteps(params, [], null, ups);
@@ -548,7 +550,7 @@ for (const [seed, ups] of [
 // ---- 「天灾 很多」推 12000 年,第 600 年再下一场最重、无人收拾 60 年的全球大疫:史事有序、人口和发展度不是 NaN、
 // 全球大疫里一城最多死六成、天下人口不低于疫前一半、还有国家在、纪事里不冒 undefined / NaN ----
 for (const seed of [7, 99]) {
-  if (!mine(20)) continue;
+  if (!mine(24)) continue;
   const w = generateWorld({ ...DEFAULT_PARAMS, seed });
   const probe = generateCiv(w, { endYear: 600 });
   const town = probe.settlements.filter((s) => s.ended === undefined).sort((a, b) => populationAt(b, 600) - populationAt(a, 600))[0];
@@ -587,7 +589,7 @@ const FUZZ: FuzzCase[] = [
   ...[13, 2025].map((seed) => ({ seed, to: 3000, params: { calamity: 'many' as const } })),
 ];
 for (const c of FUZZ) {
-  if (!mine(c.cells ? 25 : c.params?.calamity ? 50 : 42)) continue;
+  if (!mine(c.cells ? 23 : c.params?.calamity ? 50 : 44)) continue;
   const t0 = performance.now();
   const r = fuzzResume(c);
   if (r.diff) process.exitCode = 1;
@@ -601,7 +603,7 @@ for (const c of FUZZ) {
 // ---- 带地形大事的世界:大事那一刻接着推和一口气推完一样(scripts/lib/resumeFuzz.ts 的 fuzzUpheavalResume):
 // 随机几年各放一件不改海陆的大事,带着作者的干预和随机命令,和没有大事时逐项比(单测里另跑几个种子) ----
 for (const seed of [2, 4, 9, 13, 27, 64]) {
-  if (!mine(25)) continue;
+  if (!mine(24)) continue;
   const t0 = performance.now();
   const r = fuzzUpheavalResume(seed);
   if (r.diff) process.exitCode = 1;

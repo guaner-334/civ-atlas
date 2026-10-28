@@ -1,5 +1,5 @@
 /**
- * 冒烟检查:npx tsx scripts/replay-check.ts(SMOKE_PART=2/4 只跑其中一份,见 PART_STARTS)
+ * 冒烟检查:npx tsx scripts/replay-check.ts(SMOKE_PART=2/4 只跑其中一份,见 PART_STARTS、MOVED)
  * 界面骨架(左边侧栏 + 地图、右上图层按钮、图层与投影弹层、世界概览浮层、侧栏里的详情面板)、回放、悬停、点选改名、
  * 存档读档分享、导出、干预、改地形、AI、键盘快捷键、人物(人物卡片、历代君主、编年史里的人名、人物页、世系图、搜人名)、作者标记、作者的人物、信仰图层与宗教卡片、东西相连、多种投影、地球仪、宽屏侧栏收起、浏览器的后退和前进;手机布局(390×844 触屏:底部的世界 / 详情卡片、时间轴胶囊、双指捏合)。
  * 宽屏:存档在侧栏顶上,成书、AI 设置在侧栏右上的"更多"里,导出在地图右上;创建时定下的种子、参数、地形在世界概览的"世界设定"页(只能看)
@@ -261,27 +261,47 @@ const REPLAY_BUDGET = process.env.CI ? 60 : 30;
  * 分几份同时跑:SMOKE_PART=2/4 只跑第 2 份(PR 检查上 4 台机器同时跑,各开各的浏览器);不设就从头跑到尾。
  * 下面每一段都包在 if (part('段名')) 里,从上往下按顺序归份:PART_STARTS 是第 2、3、4 份打头的那一段,其余的段跟着上一段走,
  * 所以一份里的先后和从头跑到尾时一样。打头的那段要自己打开页面(page.goto 或新开浏览器页面),不靠前面几段留下的页面和存档。
- * 按 GitHub 机器上各段的耗时大致均分(每份六七分钟,看 PR 检查日志里每段那行输出的时间);某一份明显变慢了就挪一挪这里的段名。
+ * MOVED 里的段不跟上一段走,改归写的那一份(在那一份里照样按先后跑)。只有不碰主页面 page 的段能挪:它自己新开浏览器页面,
+ * 不靠别的段留下的页面和存档;挪走、挪来都不改变用 page 的那几段看到的页面和存档。
+ * 按 GitHub 机器上各段的耗时大致均分(每份约十分钟;每份最后「跑了几段」那行写着各段用了几秒);某一份明显变慢了就挪一挪这里的段名。
  */
 const PART_STARTS = ['点选改名', '搜索', '手机布局'];
+const MOVED: Record<string, number> = { 写实风放大: 4, 隐私模式: 4, 生成器版本: 4, 分享这一刻: 4, 各种状态: 4, 再推: 1, 助手: 4 };
 const [PART, PARTS] = (process.env.SMOKE_PART ?? '1/1').split('/').map(Number);
 if (!(PARTS === 1 || PARTS === PART_STARTS.length + 1) || !(PART >= 1 && PART <= PARTS)) {
   throw new Error(`SMOKE_PART 要写成"第几份/共几份"(共 1 份或 ${PART_STARTS.length + 1} 份),比如 2/${PART_STARTS.length + 1};现在是 ${process.env.SMOKE_PART}`);
 }
+for (const [name, k] of Object.entries(MOVED)) {
+  if (!(Number.isInteger(k) && k >= 1 && k <= PART_STARTS.length + 1) || PART_STARTS.includes(name)) {
+    throw new Error(`MOVED 里的「${name}」要归第 1–${PART_STARTS.length + 1} 份中的一份,而且不能是 PART_STARTS 里打头的段`);
+  }
+}
 const partNames = new Set<string>();
 const partRan: string[] = [];
 let partNow = 1;
+/** 正在跑的那段和它开始的时刻;下一段开始(或全跑完)时记下它用了几秒,写进 partRan */
+let partOpen: [string, number] | null = null;
+/** 开第一段之前的准备(起开发服务器、开浏览器)用了几毫秒 */
+let partSetupMs = 0;
+const partClose = () => {
+  if (partOpen) partRan.push(`${partOpen[0]} ${Math.round((performance.now() - partOpen[1]) / 1000)}s`);
+  partOpen = null;
+};
 /** 这一段在不在这次跑的那一份里 */
 const part = (name: string) => {
   if (partNames.has(name)) throw new Error(`冒烟的段名「${name}」重复了`);
   partNames.add(name);
+  partClose();
   const i = PART_STARTS.indexOf(name);
   if (i >= 0) {
     if (i + 2 !== partNow + 1) throw new Error(`PART_STARTS 里的段要按冒烟里的先后排(「${name}」排错了)`);
     partNow = i + 2;
   }
-  const on = PARTS === 1 || partNow === PART;
-  if (on) partRan.push(name);
+  const on = PARTS === 1 || (MOVED[name] ?? partNow) === PART;
+  if (on) {
+    if (!partSetupMs) partSetupMs = performance.now();
+    partOpen = [name, performance.now()];
+  }
   return on;
 };
 // 界面骨架:地图铺满窗口,左边浮着侧栏卡片(世界名 + 副标、搜索框);右上填色分段按钮"国家"亮着、底图按钮写"手绘";第一次打开有操作提示(拖一下就没了);
@@ -6371,9 +6391,12 @@ if (part('手机大图')) {
   if (!got || g2?.hdStarted !== 1) errs.push('手机地球仪:点了「换高清」没有换上高清贴图');
 }
 
-const lostStarts = PART_STARTS.filter((n) => !partNames.has(n));
-if (lostStarts.length) errs.push(`分份:PART_STARTS 里的段「${lostStarts.join('、')}」找不到了(改了段名要跟着改)`);
-if (PARTS > 1) console.log(`第 ${PART}/${PARTS} 份跑了 ${partRan.length} 段:${partRan.join('、')}`);
+partClose();
+const lostStarts = [...PART_STARTS, ...Object.keys(MOVED)].filter((n) => !partNames.has(n));
+if (lostStarts.length) errs.push(`分份:PART_STARTS / MOVED 里的段「${lostStarts.join('、')}」找不到了(改了段名要跟着改)`);
+if (PARTS > 1) {
+  console.log(`第 ${PART}/${PARTS} 份跑了 ${partRan.length} 段(开浏览器等准备 ${Math.round(partSetupMs / 1000)}s):${partRan.join('、')}`);
+}
 // 快慢汇总(只记数,见 timing):日志里一段;在 GitHub 上再写进检查页的摘要(一张表),超了的挂一条 warning
 if (timings.length) {
   const over = timings.filter((t) => !(t.ms <= t.budget));
