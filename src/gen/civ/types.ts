@@ -125,6 +125,59 @@ export interface Culture {
 /** 迁徙的方位 */
 export type MigrationDir = '东' | '南' | '西' | '北';
 
+/**
+ * 一次大迁徙(migration.ts):草原、寒地的一个民族分出一支(约三成的人),举族远走,一路走一路抢,
+ * 到了落脚地占几州立国、和那里的国家开战。老家照旧。下标 = 史事 trek 的 war 列。
+ */
+export interface Migration {
+  /** 迁徙的民族 */
+  culture: number;
+  /** 动身那一刻(= years[0]) */
+  year: Year;
+  /**
+   * 路线:依次走过的州。第一个是出发的州(在老家边上集结),最后一个是落脚的州。只走陆路(平地、跨河、翻山),
+   * 一般 10–20 州远。队伍不占地,只是路过
+   */
+  route: number[];
+  /** 到 route 里每一州的那一刻(和 route 一样长,严格递增;years[0] = 动身,最后一个 = 落脚) */
+  years: Year[];
+  /** 大致往哪个方位走(出发的州 → 落脚的州;屏幕上 y 向下 = 向南) */
+  dir: MigrationDir;
+  /** 这一支有多少人:到了能占几州(本族州数的三成,3–8 州) */
+  size: number;
+  /** 为什么走(推):crowd 老家挤、famine 灾年、scatter 本族的国刚散回部落 / 亡了 */
+  push: 'crowd' | 'famine' | 'scatter';
+  /** 冲着什么去(拉):chaos 那边的国家大乱(崩了、动荡高、正打着仗)、plague 疫后空了、rich 富庶、tribal 部落地带 */
+  pull: 'chaos' | 'plague' | 'rich' | 'tribal';
+  /** 动身时落脚那片地的主人(冲着哪国去;−1 = 部落地带) */
+  target: number;
+  /** 落脚那一刻(= years 的最后一个;还在路上 = 不给) */
+  settled?: Year;
+  /**
+   * 结局:found 立了国(和那里的国家议和、割据一方,或者仗还没打完)/ conquer 入主(打进那国的国都:小国亡、州归它,
+   * 大国大崩解、迁来的占着国都一带)/ rout 败散(立的国亡于到了以后的那一仗,或者根本没立成国),落脚的几州留下一块异族。
+   * 还在路上 = 不给。先是 found,入主、败散那一刻改过来(outcomeYear 跟着改)
+   */
+  outcome?: 'found' | 'conquer' | 'rout';
+  /** 结局那一刻(立国 = settled;入主、败散 = 那一仗的那一刻) */
+  outcomeYear?: Year;
+  /** 立的国(没立成 = 不给) */
+  polity?: number;
+  /** 到了以后当即开的那一仗(战争编号;没开仗 = 不给) */
+  war?: number;
+  /** 入主:打进了哪国的国都 */
+  stormed?: number;
+  /** 到了以后开仗的那国有几州(落脚那一刻、迁来的占走几州以前;没开仗 = 不给) */
+  foeSize?: number;
+  /**
+   * 打进大国:开仗时对方有 25 州以上,打进了它的国都(结局 conquer)。丢国都时那国还有 25 州的大崩解(史事 trek n = 3 后面紧跟着 collapse,
+   * 崩得成的话),迁来的占着国都一带;已经被打得只剩不多的整个归它。别的 = 不给
+   */
+  big?: true;
+  /** 落脚时改换成迁来的民族的几州(州号升序;立的国一开始的国土可能多几州:刚改换过民族的、原民族最后一州的,归它但民族不变) */
+  lands?: number[];
+}
+
 /** 城镇 */
 export interface Settlement {
   id: number;
@@ -216,6 +269,11 @@ export interface Polity {
    * 他就是这国的开国之君(在位表照这个生年算即位的年纪,rulers.ts);别的国家不给
    */
   prince?: Year;
+  /**
+   * 大迁徙(migration.ts):迁来的一支到了落脚地立的国 —— Civ.migrations 的下标。统治民族在本国只占少数时,
+   * 被多数民族同化得快(assimilation.ts)。别的国家不给
+   */
+  trek?: number;
   /**
    * 宗室摄政篡位(regency.ts;史事 regent n = 3、b = 2):year 那一刻幼主(在位表第 k 位)下台,摄政的叔父接着在位(同一朝,在位表第 k + 1 位):
    * 他的生年、倾向(和摄政时一样)、不被打断时在位到哪年。在位表照它排(rulers.ts);没有 = 不给
@@ -358,6 +416,7 @@ export interface Place {
  * | expire    | 约满不续 / 约废:cause 没有 = 约满、几国不续;lapse = 约里剩不到两国(亡了、被并、称臣、背约退出),约就此作废。**还在约里的几国在 Annal.ps**,**立约时几国在 Annal.n**(三国以上的有限竞争之约废了,下一刻约国旁边的无主之地解禁,见 polities.ts 的 REOPEN) | ps 的第一国 | ps 的第二国(没有 = −1) | −1 | −1 | **约的编号** |
  * | neutral   | 设中立地 / 中立地撤销:一州不归任何一国(归属记成无主,变化日志原因 Ev.Neutral),几国都不进兵、不扩张进去。设的那条:**共建的几国在 Annal.ps**,cause:peace 议和时划的缓冲中立地、decree 作者下令划的(**Annal.opt** 的位:4 不送人去、8 一直留着,约废了也不撤;**到哪年撤在 Annal.until**)、没有 = 立约时几国共建;**约的编号在 Annal.n**。撤销那条 cause = lapse,a = 州还给了哪国(−1 = 没还,成了无主之地) | 设:让出那州的国家(−1 = 原是无主之地);撤:州还给的国家 | −1 | 中立地那州 | 州里的城(没有 = −1) | **中立地的编号**(借用这一列;0 起,按设立先后) |
  * | exile     | 放逐到中立地 / 出奔:cause:heir 新君即位时把争储失势的宗室徙到中立地(**那位宗室的生年在 Annal.n**,他是先君之子;推演里他不再据地自立)、deposed 改朝换代时被废的末代之君徙到中立地(**被废的年份在 Annal.n**)、fled 国亡、亡国之君出奔中立地;**出奔邻国**(exile.ts:war 列 = −1,b = 去的国家,州和城 = 那国当时的国都,**投奔它的缘由在 Annal.n**,EXILE_TIES 的下标)。人物里写在 Person.exile | 那位人物是哪国的 | −1(出奔邻国:去的国家) | 中立地那州 | 州里的城 | **中立地的编号**(出奔邻国 = −1) |
+ * | trek      | 大迁徙(migration.ts;经过见 Civ.migrations 里的那一条):**哪一步在 Annal.n**:0 动身(region = 出发的州)、1 路过洗劫(b = 那州当时的主人,−1 = 部落地带;region / settlement = 被洗劫的州和城,折损见 Settlement.sacks 同一年的那一条)、2 落脚立国(b = 立的国;紧跟着记这国的 found,cause = trek;到了以后开的仗是 war,cause = trek)、3 打进国都、那国没整个归它(b = 那国;region / settlement = 打下的国都所在州和那座城;前面同一刻记占下国都一带的 conquer、那国迁都的 capital,后面记议和;那国是大国的再记 collapse,崩得成的话)、4 没立成国、散居落脚的几州(b = −1) | **民族**:迁徙的民族 | 见 n | 见 n | 见 n | **第几次大迁徙**(Civ.migrations 的下标,借用这一列) |
  * | keep      | 保住王室挡下的一回(干预「保住王室」、即位带的「在位期间保住王室」;dynasty.ts、regency.ts):本该改朝换代 / 篡位,挡下了,历史照旧(只记一句未遂)。**国势危殆(那时动荡)在 Annal.n**:1 = 是 | 国家 | **哪一种**:0 豪强起兵代之、1 国都权臣篡位(看王朝时)、2 掌实权的人篡位(regency.ts:紧跟着记那条 regent 的结局,名臣、大臣伏诛,叔父还政) | 根据地 / 国都所在州 | 那州的城 | **第几条干预**(Civ.interventions 的下标,借用这一列) |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
@@ -446,7 +505,8 @@ export type AnnalKind =
   | 'expire'
   | 'neutral'
   | 'exile'
-  | 'keep';
+  | 'keep'
+  | 'trek';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
@@ -461,9 +521,10 @@ export type AnnalKind =
  *   heir / deposed / fled 放逐到中立地的是争储失势的宗室 / 被废的末代之君 / 出奔(中立地、邻国)的亡国之君(exile 的 cause);
  *   decree 作者下令立的约、划的中立地(干预「立约」「划中立地」;treaty、neutral 的 cause);
  *   开战看内政(wars.ts,war 的 cause):divert 国中动荡、对外开战以安内(转移矛盾)/ unrest 乘对方内乱(动荡高或有割据;region 列 = 割据的那州,没有 = −1)/
- *   plagued 乘对方大疫之后 / minor 乘对方幼主在位 / regent 乘对方权臣当政 / plunder 国库空竭、为掠夺而战(region 列 = 边境上最富的那州)
+ *   plagued 乘对方大疫之后 / minor 乘对方幼主在位 / regent 乘对方权臣当政 / plunder 国库空竭、为掠夺而战(region 列 = 边境上最富的那州);
+ *   trek:大迁徙(migration.ts)迁来的一支落脚立的国(史事 found 的 cause)和它到了以后当即开的那一仗(war 的 cause)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder' | 'trek';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -578,6 +639,11 @@ export interface Civ {
   frontier?: import('./frontier').Frontier;
   /** 「天灾」设定(CivParams.calamity;平常 = 不写)。CivSim.fromCiv 接着推时要用 */
   calamity?: import('./calamity').Calamity;
+  /**
+   * 大迁徙(migration.ts):按动身先后,每一次一条(下标 = 史事 trek 的 war 列)。还在路上的那支,路线和到每一州的年份
+   * 动身时就定了(可能比 endYear 晚);落脚、结局到了那一刻才填。CivSim.fromCiv 接着推时要用。旧版本的历史、没有文明 = 不给
+   */
+  migrations?: Migration[];
   /**
    * 阶段 4 干预:这份历史是带着哪些干预推出来的(清理过的列表,见 gen/edits.ts;史事 intervene 的 war 列是它的下标)。
    * 没有干预 = 不给。CivSim.fromCiv 接着推时默认带着它
