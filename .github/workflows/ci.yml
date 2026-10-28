@@ -98,11 +98,11 @@ jobs:
       - name: 单元测试(第 ${{ matrix.shard }} 份)
         run: pnpm test --shard=${{ matrix.shard }}
 
-  # 压力测试分 3 份同时跑(各组参数按估的耗时均匀分,见 scripts/stress.ts 的 STRESS_PART)
+  # 压力测试分 3 份同时跑(各组按估的耗时从长到短、每组给累计最少的那份,见 scripts/stress.ts 的 group)
   stress:
     name: 压力测试 ${{ matrix.part }}
     runs-on: ubuntu-latest
-    # 三份各约 9 分钟(从头跑到尾约 26 分钟),留足余量
+    # 三份各约 9.5 分钟(从头跑到尾约 28 分钟;GitHub 快的那档机器上约 6 分钟),留足余量
     timeout-minutes: 20
     strategy:
       fail-fast: false
