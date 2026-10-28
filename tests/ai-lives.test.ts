@@ -9,6 +9,7 @@ import { applyNames, personKey } from '../src/gen/edits';
 import { personName } from '../src/gen/civ/peopleText';
 import { peopleIndex } from '../src/gen/civ/peopleInfo';
 import { dynastyLines, dynastyMembers, dynastyRows } from '../src/gen/civ/lineageInfo';
+import { reignRecord } from '../src/gen/civ/reignRecord';
 import type { AuthorCharacter } from '../src/gen/characters';
 import type { Civ, Person } from '../src/gen/civ/types';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
@@ -131,6 +132,12 @@ describe('列传:推演里的人', () => {
       else expect(x.died).toBeUndefined();
       expect(x.id).not.toBe(hero.id);
     }
+    // 治绩:人物卡上那一段,一行一项照搬(在位不满 3 年的是一句话)
+    const rec = reignRecord(civ, hero)!;
+    expect(rec).toBeTruthy();
+    expect(body).toContain('〔治绩〕');
+    if (rec.short !== null) expect(body).toContain(rec.short);
+    else for (const r of rec.rows) expect(body).toContain(`- ${r.k}:${r.lines.join(';')}`);
     // 父亲、前任、继任这几位一定在
     const prev = peopleIndex(civ).rulers[hero.polity][peopleIndex(civ).rulers[hero.polity].indexOf(hero) - 1];
     if (prev?.name) expect(ppl.some((l) => l.startsWith(`- ${personName(civ, prev)}(`))).toBe(true);

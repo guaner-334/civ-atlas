@@ -3,7 +3,7 @@
  * 写、存、阅读和写史书是同一套(ai/history.ts、ui/bookStore.ts):同一时间只写一部,被内容审核拦下自动带"克制"重写一次,
  * 写完扫现实里的词,存进本地的 AI 笔记;这里只管"写谁、给 AI 什么材料、提什么要求"。
  *
- * - 列传 · 推演里的人(person):人物卡上的事(概况一行一项、倾向、生平)、他领兵打过的每一仗(谁攻、谁守、结果)、
+ * - 列传 · 推演里的人(person):人物卡上的事(概况一行一项、倾向、生平、君主的治绩)、他领兵打过的每一仗(谁攻、谁守、结果)、
  *   他在位 / 在朝 / 领兵时本国的事(连同掌权、联姻、放逐那几条)、材料里写到的人的生卒年。约 2000 字
  * - 列传 · 作者的人物(character):作者写的身份、生卒、国家、出生地、简介、亲友、每段经历,和经历里勾上的推演里的事与人。
  *   作者写的一个字不改,也不替作者添设定
@@ -22,6 +22,7 @@ import { polityName } from '../../gen/civ/growth';
 import { personName, personRoleShort, splitSurname } from '../../gen/civ/peopleText';
 import { riseText, rulerNeighbors } from '../../gen/civ/peopleInfo';
 import { heldOver } from '../../gen/civ/regentInfo';
+import { reignRecord } from '../../gen/civ/reignRecord';
 import { dynastyEnd, dynastyLines, dynastyMembers, dynastyNote, dynastyRows, fatherOf, kidsOf, secededFrom, type DynastyRow } from '../../gen/civ/lineageInfo';
 import { personNamers } from '../../gen/civ/naming';
 import { personKey, polityKey, resolveKey, resolvePersonKey } from '../../gen/edits';
@@ -322,6 +323,13 @@ function personPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSource
   for (const l of card.lines) body.push(`- ${l.k}:${l.text}`);
   if (card.leanings) body.push(`- 倾向:${card.leanings}(推演里他的脾性,写他的为人时参考,不要把数写进正文)`);
   if (card.bio) body.push('', '〔生平〕', card.bio);
+  // 治绩(人物卡上那一段):他在位这些年本国的疆域、人口、战事、钱粮怎么变,在位时的大事
+  const rec = ruler ? reignRecord(civ, x) : null;
+  if (rec) {
+    body.push('', '〔治绩〕(他在位这些年本国怎么变;数照这里写,不要夸大)');
+    if (rec.short !== null) body.push(rec.short);
+    else for (const r of rec.rows) body.push(`- ${r.k}:${r.lines.join(';')}${r.note ? `(${r.note})` : ''}`);
+  }
   const battles = battleLines(civ, x);
   if (battles.length) {
     body.push('', '〔领兵打过的仗〕(每一仗写的是"攻方、守方 → 结果",谁攻谁守、胜负都不能改)');
@@ -360,7 +368,7 @@ function personPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSource
   if (people.length) body.push('', '〔人物〕(材料里写到的人:生卒年、在位年份照这里写)', ...people.map((p) => personFacts(civ, p)));
   const from = Y(x.born);
   const to = x.died !== undefined ? Y(x.died) : end;
-  const facts = card.lines.length + Math.min(battles.length, LIFE_BATTLES) + ev.lines.length + (card.bio ? 3 : 0);
+  const facts = card.lines.length + Math.min(battles.length, LIFE_BATTLES) + ev.lines.length + (card.bio ? 3 : 0) + (rec?.facts.events.length ?? 0);
   const chars = capChars(target, facts, 800, 60, 800);
   const headLines = [
     `请给${name}写一篇列传,从出身写到结局,写他这个人。`,
