@@ -54,7 +54,7 @@ describe('这一段的状态', () => {
     expect([s0.start, s0.since, s0.now]).toEqual([2650, 2650, 2650]);
     expect(nextYear()).toBe(2650);
     const plan = nextStep(advanceOf(WORLD), 2650, 2650);
-    expect(plan).toEqual({ years: 1, to: 2651, pause: null });
+    expect(plan).toEqual({ ticks: 256, years: 1, to: 2651, pause: null });
     stepSent(2650, plan);
     expect(getStepwise().busy?.to).toBe(2651);
     // 在算的时候新下的干预:那一步算完以后的那一年年初生效

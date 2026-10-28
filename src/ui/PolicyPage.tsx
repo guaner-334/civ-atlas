@@ -22,7 +22,7 @@ import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { useNarrow } from './device';
 import { getPending, queueIntervention, removePending, usePending } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, nameAt, neighborsAt, polityIdOf, setPolityPick, usePolityPick, type PolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
@@ -94,7 +94,7 @@ export function PolicyPage({ civ, id, year, from }: { civ: Civ; id: number; year
   const yi = useYearInput(from ?? defaultYear(p, year), lo, hi, clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、谁在位用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const name = nameAt(p, y);
   /** 面板标题上的名字(单子、提示条写它,和用户点的那个对得上) */
   const shown = nameAt(p, year);

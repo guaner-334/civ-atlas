@@ -36,7 +36,7 @@ import { faithAt } from '../gen/civ/religion';
 import { cleanName, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { useEdits, useEra } from './editsStore';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
 import { roleLock } from './policyInfo';
@@ -409,7 +409,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const phone = useNarrow();
   const y = step ? nextYear(sw) : yi.y;
   const valid = step || yi.valid;
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   // 离开这一页(返回、选了别的东西):在地图上选到一半的收起
   useEffect(
     () => () => {

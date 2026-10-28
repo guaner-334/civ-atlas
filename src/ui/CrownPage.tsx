@@ -34,7 +34,7 @@ import { characterLeanings, type AuthorCharacter } from '../gen/characters';
 import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
 import { getEdits, updateCharacter, useEra } from './editsStore';
 import { getPending, queueIntervention, removePending } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
 import { getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick } from './Interventions';
@@ -116,7 +116,7 @@ export function CrownPage({
   const yi = useYearInput(year, lo, Math.max(lo, hi), clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、谁在位用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const [mode, setMode] = useState<Mode>('have');
   // 什么时候即位:某一年 / 等那时在位的那位下台(after)
   const [after, setAfter] = useState(false);

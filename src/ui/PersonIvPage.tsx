@@ -20,7 +20,7 @@ import { eraText, spaced, yearFull, yearShort, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { useNarrow } from './device';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { interventionText, nameAt } from './Interventions';
 import { YearRow, useYearInput } from './panelParts';
@@ -45,9 +45,9 @@ export function PersonIvPage({ civ, x, year, kind, onBack }: { civ: Civ; x: Pers
   const he = heOrShe(x);
   const P = civ.polities[x.polity];
   // 改倾向:原来的(那一年照的,改过的照改后的)、拖到的;国家那时定的方针
-  const base = leaningsThen(x, Math.min(y, civ.endYear)) ?? { expand: 50, war: 50, develop: 50, trade: 50 };
+  const base = leaningsThen(x, Math.min(step ? nextAt(sw) : y, civ.endYear)) ?? { expand: 50, war: 50, develop: 50, trade: 50 };
   const [lean, setLean] = useState<RulerLeanings>(() => ({ ...base }));
-  const pol = ruler ? rulerPolicy(civ, x, Math.min(y, civ.endYear)) : null;
+  const pol = ruler ? rulerPolicy(civ, x, Math.min(step ? nextAt(sw) : y, civ.endYear)) : null;
   const pkey = personKey(civ, x.id);
 
   const why = (() => {

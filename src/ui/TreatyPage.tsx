@@ -33,7 +33,7 @@ import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { useNarrow } from './device';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick, type PolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
@@ -77,7 +77,7 @@ function useForm(civ: Civ, id: number, year: number, from?: number) {
   const yi = useYearInput(from ?? defaultYear(p, year), lo, hi, clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、谁跟谁接壤用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const name = nameAt(p, y);
   const shown = nameAt(p, year);
   // 演一国时下的:对方肯不肯照推演的规矩定
