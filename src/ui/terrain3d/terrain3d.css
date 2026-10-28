@@ -49,9 +49,10 @@
   white-space: nowrap;
   pointer-events: none;
 }
+/* 底下一条:在地图那一块(左边卡片右边)的正中,和第一次打开的操作提示一样 */
 .rp-bar {
   position: absolute;
-  left: 50%;
+  left: var(--map-mid, 50%);
   bottom: 104px;
   transform: translateX(-50%);
   display: flex;
