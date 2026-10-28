@@ -20,7 +20,7 @@ import type { World } from '../gen/world';
 import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import { YEAR_TICKS, advanceOf, cleanPlay, commandsNow, type Advance } from '../gen/edits';
-import { eraText, yearAt, yearFull, yearShort, type Era } from '../gen/era';
+import { eraText, yearShort, type Era } from '../gen/era';
 import { directorPlan, type DirectorPlan, type DirectorShot } from './directorPlan';
 import { directorFocusOf } from './followInfo';
 import {
@@ -41,7 +41,7 @@ import { getCivTime, pickChronicleEntry, setCivTime, subscribeCivTime, useSelect
 import { currentMonths, getEdits, useEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { extendMs } from './extendStore';
 import { advanceBrief } from './advanceText';
-import { spanShort, spanText } from './stepTime';
+import { eventShort, momentAt, momentFull, momentShort, momentStart, momentTail, monthly, spanShort, spanText } from './stepTime';
 import { usePanel } from './panelStore';
 import { getPending, removePending, usePending } from './pendingStore';
 import {
@@ -70,6 +70,7 @@ import {
   getStepwise,
   holdClock,
   markSeen,
+  nextAt,
   nextYear,
   openStepDialog,
   passStop,
@@ -137,15 +138,29 @@ function currentSegment(s: StepwiseState, adv: Advance, months: number): { from:
 // ---------------------------------------------------------------------------
 // 往回看:时间轴的年份比放到过的最远处早(拖回去、「‹」翻回去、跳年、点编年史),而且没在放
 
-/** 往回看的那一年(取整;没在往回看 = null) */
+/** 往回看按多细算:一步一年以上按整年;一步短于一年的按一步(按月的落在月初;见 stepwisePlan.ts 的 redrawAt) */
+function lookGrid(y: number): number {
+  return redrawAt(advanceOf(getEdits()), currentMonths(), y);
+}
+
+/** 往回看的那一刻(一步一年以上取整年,短于一年的取到一步的开头;没在往回看 = null) */
 export function stepLookYear(): number | null {
   const s = getStepwise();
   if (!s.on) return null;
   const t = getCivTime();
   if (t.playing) return null;
-  const y = Math.floor(Math.max(0, Math.min(s.now, t.year ?? s.now)) + 1e-6);
-  return y < Math.floor(getSeen() + 1e-6) ? y : null;
+  const y = lookGrid(Math.max(0, Math.min(s.now, t.year ?? s.now)));
+  return y < lookGrid(getSeen()) - 1e-9 ? y : null;
 }
+
+/** 写到月要用的几样:一年几个月、月份名字、一步短于一年(一直写到月;一步一年以上只在年中写) */
+export function useMonthText(): { months: number; names: readonly string[] | undefined; always: boolean } {
+  const edits = useEdits();
+  const months = useMonths();
+  const names = useMonthNames();
+  return { months, names, always: monthly(advanceOf(edits), months) };
+}
+type MonthText = ReturnType<typeof useMonthText>;
 
 function subscribeView(f: () => void): () => void {
   const a = subscribeCivTime(f);
@@ -401,7 +416,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
     if (!st.on || !playing || !world) return;
     const s0 = getStepwise();
     const y0 = Math.min(s0.now, Math.max(0, getCivTime().year ?? s0.now));
-    const replayTo = Math.floor(y0 + 1e-6) < Math.floor(getSeen() + 1e-6) ? Math.min(s0.now, getSeen()) : null;
+    const replayTo = lookGrid(y0) < lookGrid(getSeen()) - 1e-9 ? Math.min(s0.now, getSeen()) : null;
     const replay = replayTo !== null;
     if (stopped && !replay) {
       setCivTime({ playing: false });
@@ -675,6 +690,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
   const view = useStepView();
   const year = useStepYear(st.now);
   const months = useMonths();
+  const monthNames = useMonthNames();
   // 放的是哪一段:「‹ ›」翻到的那一段(年份还在里面时),不然年份落在的那一段("现在"这一段 = 只放这一段的时间轴)
   const cur = currentSegment(st, adv, months);
   const kept = st.page !== null ? stepPage(st.page, cur, st.marks, adv.every) : null;
@@ -769,7 +785,11 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
       </button>
     );
   };
-  const toLabel = past ? yearShort(to, era) : `${yearAt(to, era)}${st.stop ? ' ' : ''}停一下`;
+  // 两头:正好在年初的照旧只写年,年中的写到月;大字:一步短于一年的一直写到月,一步一年以上的拖到年中只写年(停在"现在"那一刻才写月)
+  const mt = { months, names: monthNames, always: monthly(adv, months) };
+  // 大字写的那一刻(年和月从同一刻取):"现在"就是"现在";别的按一步(一步一年以上按整年)取到开头
+  const shownAt = year >= st.now - 1e-9 ? st.now : redrawAt(adv, months, year);
+  const toLabel = past ? momentShort(to, months, era, monthNames, false) : `${momentAt(to, months, era, monthNames, false)}${st.stop ? ' ' : ''}停一下`;
   const lookUp = view.look !== null;
   return (
     <div
@@ -785,7 +805,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
       <button className={`tb-play${playing ? ' on' : ''}`} onClick={toggle} aria-label={playing ? '暂停' : st.stop && !lookUp ? '接着演绎' : '播放'} data-act="step-play">
         <i aria-hidden="true" />
       </button>
-      <TimelineYear world={baseRegions(civ)} range={{ from: 0, to: st.now }} year={Math.floor(year + 1e-9)} end={st.now} era={era} narrow={phone} locked={false} below={false} future />
+      <TimelineYear world={baseRegions(civ)} range={{ from: 0, to: st.now }} year={Math.floor(shownAt + 1e-9)} end={st.now} era={era} narrow={phone} locked={false} below={false} future tail={momentTail(shownAt, months, monthNames, mt.always)} />
       {pager('prev')}
       <div
         ref={track}
@@ -852,7 +872,7 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
         </span>
         {!phone && (
           <>
-            <span className="sw-lab first">{yearShort(from, era)}</span>
+            <span className="sw-lab first">{momentShort(from, months, era, monthNames, false)}</span>
             <span className="sw-lab last" style={{ left: W + 16 }}>
               {toLabel}
             </span>
@@ -901,16 +921,16 @@ export function StepTimeline({ civ, phone, hidden }: { civ: Civ | null; phone: b
 // ---------------------------------------------------------------------------
 // 时间轴上面:单子、停着的提示、这一段的大事
 
-/** 这一段的标题:"第 2650–2675 年的大事" / "出了一件大事" */
-function stopTitle(s: NonNullable<StepwiseState['stop']>, era: Era | null | undefined): string {
+/** 这一段的标题:"第 2650–2675 年的大事""第 1549 年菊月–1574 年菊月的大事""第 1552 年杏月的大事" / "出了一件大事" */
+function stopTitle(s: NonNullable<StepwiseState['stop']>, era: Era | null | undefined, mt: MonthText): string {
   if (s.why === 'big') return '出了一件大事';
-  return `${eraText(`第 ${Math.floor(s.from)}–${Math.floor(s.to)} 年`, era)}的大事`;
+  return `${spanText(s.from, s.to, mt.months, era, mt.names, false)}的大事`;
 }
 
-/** 一件事的年份:"2655";打到现在还没打完的仗 "2662 起" */
-function rowYear(it: StepReviewItem, era: Era | null | undefined, phone: boolean): string {
-  const y = yearShort(it.cap.entry.year, era);
-  return it.cap.entry.ongoing && !phone ? `${y} 起` : y;
+/** 一件事的年份:"2655";一步短于一年的写到月 "1549 桂月";打到现在还没打完的仗 "2662 起" */
+function rowYear(it: StepReviewItem, era: Era | null | undefined, phone: boolean, mt: MonthText): string {
+  const y = eventShort(it.cap.entry.year, mt.months, era, mt.names, mt.always);
+  return it.cap.entry.ongoing && !phone ? `${y}${mt.always ? '' : ' '}起` : y;
 }
 
 /** 一件事的正文;打到现在还没打完的仗写开头一句 + "还在打" */
@@ -930,12 +950,13 @@ function Countdown({ s, phone }: { s: StepwiseState; phone: boolean }) {
 }
 
 function ReviewRows({ items, cur, era, phone }: { items: readonly StepReviewItem[]; cur: number; era: Era | null | undefined; phone: boolean }) {
+  const mt = useMonthText();
   return (
     <div className="sw-rows">
       {items.map((it, i) => (
         <button key={it.cap.entry.id} className={`sw-row${i === cur ? ' cur' : ''}`} data-ev={it.cap.type} data-entry={it.cap.entry.id} onClick={() => reviewGo(i)}>
           <span className="sw-num">{i + 1}</span>
-          <span className="sw-y">{rowYear(it, era, phone)}</span>
+          <span className="sw-y">{rowYear(it, era, phone, mt)}</span>
           <span className="sw-t">{it.cap.typeName}</span>
           <span className="sw-x">{rowText(it)}</span>
         </button>
@@ -962,9 +983,8 @@ function emptyTitle(st: NonNullable<StepwiseState['stop']>, months: number, era:
 
 function ReviewCard({ s, era }: { s: StepwiseState; era: Era | null | undefined }) {
   const st = s.stop!;
-  const months = useMonths();
-  const names = useMonthNames();
-  const title = st.empty ? emptyTitle(st, months, era, names, false) : stopTitle(st, era);
+  const mt = useMonthText();
+  const title = st.empty ? emptyTitle(st, mt.months, era, mt.names, false) : stopTitle(st, era, mt);
   return (
     <div className={`sw-review dr-avoid${st.empty ? ' empty' : ''}`} role="region" aria-label={title} data-step-empty={st.empty ? '' : undefined} onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
       <ClockLine s={s} />
@@ -994,8 +1014,9 @@ function StepQueue({ phone }: { phone: boolean }) {
   const era = useEra();
   const list = usePending().filter((x) => x.kind === 'iv');
   const [open, setOpen] = useState(false);
+  const mt = useMonthText();
   if (!list.length) return null;
-  const y = nextYear(s);
+  const at = nextAt(s);
   const shown = !phone || open;
   return (
     <div className={`sw-queue${phone ? ' phone' : ''}`} data-pending={list.length} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
@@ -1020,7 +1041,7 @@ function StepQueue({ phone }: { phone: boolean }) {
           <div className="sw-queue-rows">
             {list.map((x) => (
               <div key={x.id} className="sw-queue-row">
-                <span className="sw-queue-yr">{yearAt(y, era)}</span>
+                <span className="sw-queue-yr">{momentAt(at, mt.months, era, mt.names, mt.always)}</span>
                 <span className="sw-queue-text">{eraText(x.text, era)}</span>
                 <button className="sw-queue-x" data-act="step-unqueue" onClick={() => removePending(x.id)} title="删掉这一条" aria-label="删掉这一条">
                   ✕
@@ -1028,7 +1049,7 @@ function StepQueue({ phone }: { phone: boolean }) {
               </div>
             ))}
           </div>
-          <div className="sw-queue-note">{yearFull(y, era)}年初生效。</div>
+          <div className="sw-queue-note">{momentStart(at, mt.months, era, mt.names, mt.always)}生效。</div>
         </>
       )}
     </div>
@@ -1039,11 +1060,12 @@ function StepQueue({ phone }: { phone: boolean }) {
 function LookNote({ look, phone }: { look: number; phone: boolean }) {
   const s = useStepwise();
   const era = useEra();
+  const mt = useMonthText();
   const head = (
     <>
       <Icon name="history" size={18} />
-      <b>在看{yearFull(look, era)}</b>
-      <span>已经演绎到{yearFull(s.now, era)}</span>
+      <b>在看{momentFull(look, mt.months, era, mt.names, mt.always)}</b>
+      <span>已经演绎到{momentFull(s.now, mt.months, era, mt.names, mt.always)}</span>
     </>
   );
   const back = (
@@ -1079,6 +1101,7 @@ function LookNote({ look, phone }: { look: number; phone: boolean }) {
 function FreshNote({ phone }: { phone: boolean }) {
   const s = useStepwise();
   const era = useEra();
+  const mt = useMonthText();
   const go = (
     <button className={phone ? 'sw-big pri' : 'sw-btn pri'} data-act="step-go" onClick={stepGo}>
       接着演绎
@@ -1089,7 +1112,7 @@ function FreshNote({ phone }: { phone: boolean }) {
       <div className="sw-note" data-step-fresh={s.now} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
         <div className="sw-note-t">
           <Icon name="timer" size={18} />
-          <b>{yearFull(s.now, era)}停着</b>
+          <b>{momentFull(s.now, mt.months, era, mt.names, mt.always)}停着</b>
           <span>从这一年重新演绎</span>
         </div>
         <div className="sw-note-sub">可以先干预：点地图上的国家。</div>
@@ -1099,7 +1122,7 @@ function FreshNote({ phone }: { phone: boolean }) {
   return (
     <div className="sw-held sw-strip" data-step-fresh={s.now} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <Icon name="timer" size={18} />
-      <b>{yearFull(s.now, era)}停着</b>
+      <b>{momentFull(s.now, mt.months, era, mt.names, mt.always)}停着</b>
       <span>从这一年重新演绎，可以先干预</span>
       {go}
     </div>
@@ -1139,12 +1162,13 @@ function EmptyNote() {
 function DownNote() {
   const s = useStepwise();
   const era = useEra();
+  const mt = useMonthText();
   const st = s.stop!;
   return (
     <div className="sw-note" data-step-down={s.now} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <div className="sw-note-t">
         <Icon name="timer" size={18} />
-        <b>{yearFull(s.now, era)}停着</b>
+        <b>{momentFull(s.now, mt.months, era, mt.names, mt.always)}停着</b>
         <span>{st.why === 'end' ? '已经推到能推的最后一年' : '等你点「接着演绎」'}</span>
       </div>
       <div className="sw-note-acts">
@@ -1164,6 +1188,7 @@ function DownNote() {
 export function StepDock({ phone }: { phone: boolean }) {
   const s = useStepwise();
   const era = useEra();
+  const mt = useMonthText();
   const panel = usePanel();
   const { sel } = useSelection();
   const view = useStepView();
@@ -1210,7 +1235,7 @@ export function StepDock({ phone }: { phone: boolean }) {
       {(s.stop || s.fresh) && acting && (
         <div className="sw-held" data-act="step-held" onPointerDown={stop} onClick={stop}>
           <Icon name="timer" size={18} />
-          <b>{yearFull(s.now, era)}停着</b>
+          <b>{momentFull(s.now, mt.months, era, mt.names, mt.always)}停着</b>
           <span>{s.clock ? '你在干预，倒计时先停下' : '你在干预'}</span>
           <button className="sw-btn pri" data-act="step-go" onClick={stepGo}>
             接着演绎
@@ -1229,6 +1254,7 @@ export function StepReviewSheet() {
   const era = useEra();
   const { sel } = useSelection();
   const view = useStepView();
+  const mt = useMonthText();
   // 卡片拉起来时停着的倒计时照走;选中了东西(在看、在干预):倒计时停住
   useEffect(() => {
     if (sel && getStepwise().stop) holdClock('act');
@@ -1236,7 +1262,7 @@ export function StepReviewSheet() {
   if (!s.on || !s.stop || s.stop.empty || sel || s.down || view.look !== null || view.replay) return null;
   const st = s.stop;
   return (
-    <section className="sw-sheet" role="region" aria-label={stopTitle(st, era)} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+    <section className="sw-sheet" role="region" aria-label={stopTitle(st, era, mt)} onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <ClockLine s={s} />
       <button
         className="sw-grip-btn"
@@ -1250,7 +1276,7 @@ export function StepReviewSheet() {
         <i className="sw-grip" />
       </button>
       <div className="sw-sheet-head">
-        <b>{stopTitle(st, era)}</b>
+        <b>{stopTitle(st, era, mt)}</b>
         <Countdown s={s} phone />
       </div>
       {st.items.length > 0 && <ReviewRows items={st.items} cur={s.cur} era={era} phone />}
@@ -1351,18 +1377,19 @@ export function StepSideGroup() {
   );
 }
 
-/** 干预页最上面:生效时间固定是下一步开始的那一年年初(在"现在"干预) */
+/** 干预页最上面:生效时间固定是下一步开始的那一刻(在"现在"干预):"第 2676 年年初""第 1549 年菊月初" */
 export function StepEffectTime({ phone }: { phone: boolean }) {
   const s = useStepwise();
   const era = useEra();
   const look = useStepView().look;
+  const mt = useMonthText();
   // 往回看时:只能在"现在"干预,想从这一年改得先从这里重新演绎(下面的干预都是灰的)
   if (look !== null)
     return (
       <div className="sw-effect" data-step-effect="look">
         <span className="sw-effect-k">生效时间</span>
         <span className="sw-effect-v">
-          <b>在看{yearFull(look, era)}</b>
+          <b>在看{momentFull(look, mt.months, era, mt.names, mt.always)}</b>
         </span>
         <span className="sw-effect-note">只能在「现在」干预；想从这一年改，点「从这里重新演绎」。</span>
       </div>
@@ -1371,7 +1398,7 @@ export function StepEffectTime({ phone }: { phone: boolean }) {
     <div className="sw-effect" data-step-effect={nextYear(s)}>
       <span className="sw-effect-k">生效时间</span>
       <span className="sw-effect-v">
-        <b>{yearFull(nextYear(s), era)}年初</b>
+        <b>{momentStart(nextAt(s), mt.months, era, mt.names, mt.always)}</b>
         <span className="sw-chip">下一步</span>
       </span>
       <span className="sw-effect-note">{phone ? '只在「现在」干预；想改以前的事，存回推演模式。' : '只在「现在」干预；改以前的事请存回推演模式。'}</span>
@@ -1383,6 +1410,7 @@ export function StepEffectTime({ phone }: { phone: boolean }) {
 export function StepCommandFoot({ onBack }: { onBack: () => void }) {
   const s = useStepwise();
   const era = useEra();
+  const mt = useMonthText();
   const list = usePending().filter((x) => x.kind === 'iv');
   const [open, setOpen] = useState(false);
   const y = nextYear(s);
@@ -1397,7 +1425,7 @@ export function StepCommandFoot({ onBack }: { onBack: () => void }) {
         <div className="sw-cfoot">
           <button className="sw-cfoot-sum" data-act="step-queue" aria-expanded={open} onClick={() => setOpen(!open)}>
             <span>
-              已加 {list.length} 条干预，{yearFull(y, era)}年初生效
+              已加 {list.length} 条干预，{momentStart(nextAt(s), mt.months, era, mt.names, mt.always)}生效
             </span>
             <Icon name={open ? 'down' : 'chevron'} size={15} />
           </button>

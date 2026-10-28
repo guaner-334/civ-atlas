@@ -174,6 +174,9 @@ describe('一步走几格', () => {
     expect(redrawAt(MONTH, 12, at(1552, 21))).toBe(1552);
     expect(redrawAt(adv({ step: 64, unit: 'tick' }), 12, at(1552, 130))).toBe(at(1552, 128));
     expect(redrawAt(adv({ step: 300, unit: 'tick' }), 12, at(1552, 130))).toBe(1552);
+    // 按月走 12 个月以上(一年以上):往回看、重画都按整年
+    expect(redrawAt(adv({ step: 12, unit: 'month' }), 12, 1552.5)).toBe(1552);
+    expect(redrawAt(adv({ step: 11, unit: 'month' }), 12, 1552.5)).toBe(at(1552, 128));
     // 25 年一段里一个月一格挤不下(4 像素,段宽 1000 像素);出大事停下的那 8 个月一个月一格
     expect(stepMarks(MONTH, 12, at(1549, 171), at(1574, 171), 4 / 1000)).toEqual([]);
     const m = stepMarks(MONTH, 12, 1549, at(1549, 171), 4 / 1000);
