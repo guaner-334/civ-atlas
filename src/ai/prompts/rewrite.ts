@@ -337,7 +337,7 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
 
   out.push('# 这个世界');
   out.push(
-    `历史从第 0 年推演到第 ${civ.endYear} 年;时间轴现在在第 ${Y} 年` +
+    `历史从第 0 年推演到第 ${Math.floor(civ.endYear)} 年;时间轴现在在第 ${Y} 年` +
       (civ.viable ? `,作者没说年份的命令从第 ${defaultFrom(civ, Y)} 年起。` : '。') +
       '位置写成(经度, 纬度):经度 −180~180,东经为正;纬度 −90~90,北纬为正。赤道一圈约 4 万公里,纬度 1° 约 111 公里。',
   );
@@ -443,7 +443,7 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
       const chain = polityTitleChain(p);
       const cu = civ.cultures[p.culture];
       out.push(
-        `P${p.id} ${nameAt(p, Y)} · 第 ${Math.floor(p.founded)}—${p.ended !== undefined ? `${Math.floor(p.ended)} 年` : `${civ.endYear} 年(到最后仍在)`}` +
+        `P${p.id} ${nameAt(p, Y)} · 第 ${Math.floor(p.founded)}—${p.ended !== undefined ? `${Math.floor(p.ended)} 年` : `${Math.floor(civ.endYear)} 年(到最后仍在)`}` +
           (chain.includes('→') ? ` · 国号先后:${chain}` : '') +
           (cu ? ` · 民族 E${cu.id}(${cu.name}族)` : ''),
       );
