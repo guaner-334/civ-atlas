@@ -23,6 +23,7 @@ import { detailCache, drawCivDetail, drawSelectionDetail, releaseDetailCache, ty
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
+import { drawTreks, treksShown } from './civ/migrations';
 import { drawTradeLines, drawTradeNames, tradeShown } from './civ/trade';
 import { drawHolyDot, holyCities } from './civ/faith';
 import { drawResourceLayer, type ResourceLook } from './civ/resources';
@@ -32,6 +33,7 @@ import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type
 import { drawGraticule, labelProjection, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
 import { nearX, wrapOf } from './common';
 import type { SurfaceLook } from './surface';
+import type { Era } from '../gen/era';
 
 type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
 
@@ -63,6 +65,8 @@ export interface ShotScene {
   markChars?: string;
   /** 物产图层:只看哪一样、画不画还没发现的(不给 = 全部显示) */
   res?: ResourceLook;
+  /** 纪年(大迁徙路线旁的年份照它写;不给 = 第几年) */
+  era?: Era;
 }
 
 /**
@@ -121,7 +125,7 @@ export class MapShot {
 
   private params(year: Year, civ: Civ): ExportMapParams {
     const s = this.scene;
-    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, look: s.look, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res, legend: false };
+    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, look: s.look, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res, legend: false, era: s.era };
   }
 
   /** 画布像素 / 世界单位、字放大几倍、画布左上角的世界坐标(一块) */
@@ -305,6 +309,7 @@ export class MapShot {
     if (warsShown(params)) drawWarfare(ctx, params, lv, v.mp ? projector(v.mp) : null);
     const trade = tradeShown(params);
     if (trade) drawTradeLines(ctx, params, lv, v.mp ? projector(v.mp) : null);
+    if (treksShown(params)) drawTreks(ctx, params, lv, v.mp ? projector(v.mp) : null, { placed, era: this.scene.era });
     drawSettlementMarks(ctx, placed.marks, style);
     drawPlacedLabels(ctx, placed.labels, lv);
     if (trade) drawTradeNames(ctx, params, lv, v.mp ? projector(v.mp) : null, placed);

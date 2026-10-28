@@ -276,9 +276,14 @@ describe('推演出来的人物改成女的', () => {
     const end = (y.until ?? c.endYear) - 1 / 512;
     expect(rulerRef(c2, y, end)).toContain(`女王${y.name}${x!.title}`);
     expect(rulerRef(c, x!, end)).toContain(`国王${x!.name}${x!.title}`);
-    const e = rulers().find((r) => !c.polities[r.polity].eastern && (c.polities[r.polity].lineage ?? 'realm') === 'realm' && tierEnd(c, r) >= 3);
+    // 当上皇帝的西幻君主:种子 7 里没有就看种子 1(GENERATOR_VERSION 47 季节进推演以后种子 7 没有)
+    const emperor = (cc: Civ) =>
+      cc.people!.find((r) => r.role === 'ruler' && r.author === undefined && !cc.polities[r.polity].eastern && (cc.polities[r.polity].lineage ?? 'realm') === 'realm' && tierEnd(cc, r) >= 3);
+    let ce = c;
+    let e = emperor(c);
+    if (!e) e = emperor((ce = generateCiv(generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed: 1 }))));
     expect(e).toBeDefined();
-    const c3 = withFemale(c, [e!.id]);
+    const c3 = withFemale(ce, [e!.id]);
     expect(rulerRole(c3, c3.people![e!.id])).toMatch(/女皇$/);
   });
 

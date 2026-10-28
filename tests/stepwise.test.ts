@@ -55,7 +55,9 @@ describe('推进设置', () => {
     expect(cleanAdvance({ step: '2' })).toBeUndefined();
     // 每隔几年:1 年起,到能推的最后一年;自己填的数照收
     expect(cleanAdvance({ every: 10 })).toEqual({ every: 10 });
-    expect(cleanAdvance({ every: 0 })).toEqual({ every: 1 });
+    // 0 = 每一步都停
+    expect(cleanAdvance({ every: 0 })).toEqual({ every: 0 });
+    expect(cleanAdvance({ every: -3 })).toEqual({ every: 0 });
     expect(cleanAdvance({ every: 1e9 })).toEqual({ every: END_YEAR_MAX });
     expect(cleanAdvance({ every: Number.NaN })).toBeUndefined();
     // 出大事也停:只认 true
@@ -69,7 +71,7 @@ describe('推进设置', () => {
     // 多余的字段去掉
     expect(cleanAdvance({ step: 2, foo: 1 })).toEqual({ step: 2 });
     expect(advanceOf({})).toEqual(ADVANCE_DEFAULT);
-    expect(advanceOf({ advance: { step: 5, countdown: 0 } })).toEqual({ step: 5, every: 25, big: false, countdown: 0 });
+    expect(advanceOf({ advance: { step: 5, countdown: 0 } })).toEqual({ step: 5, unit: 'year', every: 25, big: false, countdown: 0 });
     expect(sameAdvance(undefined, { step: 1, every: 25 })).toBe(true);
     expect(sameAdvance({}, { big: true })).toBe(false);
   });
@@ -80,7 +82,7 @@ describe('推进设置', () => {
     expect(r.ok && r.warnings).toEqual([]);
     expect(r.ok && r.save.edits.advance).toEqual(edits.advance);
     expect(r.ok && r.save.edits.playFrom).toBe(2650);
-    expect(r.ok && advanceOf(r.save.edits)).toEqual({ step: 5, every: 50, big: true, countdown: 0 });
+    expect(r.ok && advanceOf(r.save.edits)).toEqual({ step: 5, unit: 'year', every: 50, big: true, countdown: 0 });
     // 旧存档:没有推进设置、没有从第几年起
     const old = parseSave(saveText(makeSave(DEFAULT_SEED_PARAMS, { ...base, play: { year: 300, commands: [] } }, 'x')));
     expect(old.ok && 'advance' in old.save.edits).toBe(false);
@@ -140,10 +142,10 @@ describe('一步走几年、什么时候停一下', () => {
   const adv = (a: Partial<Advance> = {}): Advance => ({ ...ADVANCE_DEFAULT, ...a });
 
   it('每隔几年:从上一次停下的那年数起;一步不跨过该停的那年;中途改了设置下一步起照新的', () => {
-    expect(nextStep(adv(), 2650, 2650)).toEqual({ years: 1, to: 2651, pause: null });
-    expect(nextStep(adv(), 2650, 2674)).toEqual({ years: 1, to: 2675, pause: 'every' });
-    expect(nextStep(adv({ step: 5 }), 2650, 2650)).toEqual({ years: 5, to: 2655, pause: null });
-    expect(nextStep(adv({ step: 5 }), 2650, 2670)).toEqual({ years: 5, to: 2675, pause: 'every' });
+    expect(nextStep(adv(), 2650, 2650)).toEqual({ ticks: 256, years: 1, to: 2651, pause: null });
+    expect(nextStep(adv(), 2650, 2674)).toEqual({ ticks: 256, years: 1, to: 2675, pause: 'every' });
+    expect(nextStep(adv({ step: 5 }), 2650, 2650)).toEqual({ ticks: 1280, years: 5, to: 2655, pause: null });
+    expect(nextStep(adv({ step: 5 }), 2650, 2670)).toEqual({ ticks: 1280, years: 5, to: 2675, pause: 'every' });
     // 一步三年、每十年停:2653、2656、2659,最后一步只走一年正好停在 2660
     const walk = (a: Advance, since: number, years: number) => {
       const out: number[] = [];
@@ -159,18 +161,18 @@ describe('一步走几年、什么时候停一下', () => {
       }
       return out;
     };
-    expect(nextStep(adv({ step: 3, every: 10 }), 2650, 2659)).toEqual({ years: 1, to: 2660, pause: 'every' });
+    expect(nextStep(adv({ step: 3, every: 10 }), 2650, 2659)).toEqual({ ticks: 256, years: 1, to: 2660, pause: 'every' });
     // 每 25 年停一次:演绎 100 年停 4 次(一步一年、一步五年都一样)
     expect(walk(adv(), 2650, 100)).toEqual([2675, 2700, 2725, 2750]);
     expect(walk(adv({ step: 5 }), 2650, 100)).toEqual([2675, 2700, 2725, 2750]);
     expect(walk(adv({ step: 4, every: 10 }), 0, 30)).toEqual([10, 20, 30]);
     // 中途把 50 年改成 10 年:从上一次停下的那年(2650)按 10 年数,下一次停 2680
     expect(pauseYear({ every: 10 }, 2650, 2670)).toBe(2680);
-    expect(nextStep(adv({ every: 10 }), 2650, 2670)).toEqual({ years: 1, to: 2671, pause: null });
+    expect(nextStep(adv({ every: 10 }), 2650, 2670)).toEqual({ ticks: 256, years: 1, to: 2671, pause: null });
     expect(pauseYear({ every: 25 }, 2650, 2600)).toBe(2675);
     // 到能推的最后一年停下,不再往下走
-    expect(nextStep(adv({ step: 5 }), 59990, 59998)).toEqual({ years: 2, to: END_YEAR_MAX, pause: 'end' });
-    expect(nextStep(adv({ step: 5 }), 59990, END_YEAR_MAX)).toEqual({ years: 0, to: END_YEAR_MAX, pause: 'end' });
+    expect(nextStep(adv({ step: 5 }), 59990, 59998)).toEqual({ ticks: 512, years: 2, to: END_YEAR_MAX, pause: 'end' });
+    expect(nextStep(adv({ step: 5 }), 59990, END_YEAR_MAX)).toEqual({ ticks: 0, years: 0, to: END_YEAR_MAX, pause: 'end' });
   });
 
   it('出大事也停:照导播排期的分量(头等大事),干预、地形大事不算;几样都碰上了按 到头 > 每隔几年 > 出大事', () => {
@@ -192,7 +194,7 @@ describe('一步走几年、什么时候停一下', () => {
     expect(bigEntries([e0], y, y + 1)).toEqual([e0]);
     expect(bigEntries([e0], y - 1, y)).toEqual([]);
     const from = Math.floor(y);
-    const step = { years: 1, to: from + 1, pause: null };
+    const step = { ticks: 256, years: 1, to: from + 1, pause: null };
     expect(stepPause({ big: true }, from, step, entries).why).toBe('big');
     const off = stepPause({ big: false }, from, step, entries);
     expect(off.why).toBeNull();
@@ -241,8 +243,8 @@ describe('一步走几年、什么时候停一下', () => {
     // 不给走这一步以前的编年史:看不出哪条这一步里才成了大事,只认得出仗里亡了国
     expect(bigEntries(now, 1000, 1005)).toEqual([fell]);
     expect(bigEntries(now, 1005, 1010, now)).toEqual([later]);
-    expect(stepPause({ big: true }, 1000, { years: 5, to: 1005, pause: null }, now, before).why).toBe('big');
-    expect(stepPause({ big: true }, 1000, { years: 5, to: 1005, pause: null }, [quiet], [quiet]).why).toBeNull();
+    expect(stepPause({ big: true }, 1000, { ticks: 1280, years: 5, to: 1005, pause: null }, now, before).why).toBe('big');
+    expect(stepPause({ big: true }, 1000, { ticks: 1280, years: 5, to: 1005, pause: null }, [quiet], [quiet]).why).toBeNull();
   });
 
   it('出大事也停,真的一步步推:每一步看这一步里的;推到最后编年史里的头等大事,每一件都在某一步停过', () => {

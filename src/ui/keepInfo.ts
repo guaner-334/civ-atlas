@@ -14,7 +14,7 @@ import { rulerAt } from '../gen/civ/peopleInfo';
 import { heOrShe, type Sexed } from '../gen/civ/gender';
 import { polityName, polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import { interventionFate } from '../gen/stepwise';
-import { polityKey, resolveKey, type Intervention } from '../gen/edits';
+import { YEAR_TICKS, commandAt, polityKey, resolveKey, type Intervention } from '../gen/edits';
 import { spaced, yearAt, type Era } from '../gen/era';
 import type { Pending } from './pendingStore';
 
@@ -73,7 +73,8 @@ export function keepRow(civ: Civ, id: number, year: number, pending: readonly Pe
   const list = civ.interventions ?? [];
   for (let i = 0; i < list.length; i++) {
     const v = list[i];
-    if (v.kind !== 'keep' || year < v.from || (v.until !== undefined && year >= v.until)) continue;
+    // 年中下的(逐年推演停在年中时)到那一格才算
+    if (v.kind !== 'keep' || year < commandAt(v) / YEAR_TICKS || (v.until !== undefined && year >= v.until)) continue;
     if (polityOfKey(civ, v.a) !== id || interventionFate(civ, i).state !== 'done') continue;
     return { note: v.until !== undefined ? `到${spaced(yearAt(v.until, era))}` : '一直有效' };
   }

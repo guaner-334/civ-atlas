@@ -306,6 +306,7 @@ describe('城市成长 + 国家', () => {
           'neutral',
           'exile',
           'trek',
+          'winter',
         ]).toContain(e.kind);
       }
     }
