@@ -8,7 +8,9 @@ import { AdjKind } from '../src/gen/civ/types';
 import { CivSim } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
-import { trekFolk, trekModelOf, trekStats } from '../src/gen/civ/migration';
+import { trekDir, trekFolk, trekModelOf, trekStats } from '../src/gen/civ/migration';
+import { geometryOf } from '../src/gen/geometry';
+import { cultureLabel } from '../src/gen/civ/display';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
 
 const worlds = new Map<number, World>();
@@ -199,6 +201,52 @@ describe('大迁徙', () => {
         if (i >= 0) expect(e.text).toMatch(/^.+破.+,.+(大崩解|土崩瓦解)/);
       }
       for (const e of flat(entries)) expect(e.text).not.toMatch(/undefined|NaN|某国|某族|-1/);
+    }
+  }, 60_000);
+
+  it('方位按整条路线实际怎么走定:造出来的路线往西走的是西、往南走的是南;高纬度一路往西走得远的不写成南', () => {
+    const geo = geometryOf(world(7).mesh);
+    const { width: W, height: H } = world(7).mesh;
+    /** 从 (纬度, 经度) 到 (纬度, 经度) 一段一段走过去(n 段),经过的地块 */
+    const walk = (lat0: number, lon0: number, lat1: number, lon1: number, n = 12): number[] => {
+      const out: number[] = [];
+      let hint = 0;
+      for (let i = 0; i <= n; i++) {
+        const lat = lat0 + ((lat1 - lat0) * i) / n;
+        const lon = (((lon0 + ((lon1 - lon0) * i) / n) % 360) + 360) % 360;
+        hint = geo.nearest((lon / 360) * W, ((90 - lat) / 180) * H, hint);
+        out.push(hint);
+      }
+      return out;
+    };
+    expect(trekDir(geo, walk(10, 100, 10, 60))).toBe('西');
+    expect(trekDir(geo, walk(20, 40, -25, 42))).toBe('南');
+    expect(trekDir(geo, walk(-30, 40, 15, 35))).toBe('北');
+    expect(trekDir(geo, walk(45, 300, 50, 340))).toBe('东');
+    // 过 180° 经线(世界坐标 x 从右边接到左边)照样是往东 / 往西
+    expect(trekDir(geo, walk(30, 160, 32, 200))).toBe('东');
+    expect(trekDir(geo, walk(30, 200, 32, 160))).toBe('西');
+    // 南纬近 50° 往西走 120 个经度、略往北:出发地到落脚地的大圆初始朝向偏向南极(南比西大),地图上却一路往西
+    const far = walk(-49, 325, -44, 205);
+    const d = [0, 0];
+    const a = far[0];
+    const b = far[far.length - 1];
+    geo.pointOffset(geo.mesh.x[a], geo.mesh.y[a], geo.mesh.x[b], geo.mesh.y[b], d);
+    expect(d[1]).toBeGreaterThan(Math.abs(d[0]));
+    expect(trekDir(geo, far)).toBe('西');
+  });
+
+  it('seed 7 的克拉尔族一路往西走:记成西,编年史、动身那件都写西徙 / 西去', () => {
+    const civ = civOf(7);
+    const list = buildChronicle(civ);
+    const treks = (civ.migrations ?? []).map((M, m) => ({ M, m })).filter(({ M }) => cultureLabel(civ.cultures[M.culture]) === '克拉尔族');
+    expect(treks.length).toBeGreaterThanOrEqual(1);
+    for (const { M, m } of treks) {
+      expect(M.dir, `第 ${m} 次`).toBe('西');
+      const i = civ.annals.findIndex((e) => e.kind === 'trek' && e.war === m);
+      const e = list.find((x) => x.id === i)!;
+      expect(e.text).toMatch(/一支举族西徙/);
+      expect(e.children![0].text).toMatch(/西去$/);
     }
   }, 60_000);
 
