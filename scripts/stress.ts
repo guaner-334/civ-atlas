@@ -1,5 +1,5 @@
 /**
- * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/3 只跑其中一份,见 PART)
+ * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/3 只跑其中一份,STRESS_DRY=1 只列出怎么分,见 group)
  * 每行打印:生成 / 铺像素 / 文明(其中宜居度 + 划州、推演(民族 + 城镇 + 国家 + 战争)、回放一帧、道路)耗时,
  * 州数、民族数、占据率、国家数、城镇数、路段数,战争统计(场数、攻占、灭亡、迁都、飞地、易手频繁的州),
  * 分合统计(分裂、合并、复国、主动迁都),王朝更替(东方改朝换代 / 西幻王室更迭),信仰(大教、教派、宗教大事),
@@ -154,24 +154,26 @@ const caseName = (c: (typeof cases)[number]) =>
       : JSON.stringify(c);
 /**
  * 只跑其中一份:STRESS_PART=1/3 跑第 1 份、2/3 跑第 2 份、3/3 跑第 3 份(PR 检查上分三台机器同时跑);不设就全跑。
- * 下面每个(参数组合, 种子)按出现的先后,各带一个估的耗时(秒,照 CI 上的实测:2026 年 10 月下旬 5 轮里各组从上一行输出到这一行的中位数),
- * 谁当前累计最少就分给谁(各份跑同一段代码,分得一样),三份合起来正好是全部,而且长短差不多。
- * 估时和实际差得多了,各份就不匀(大头在后面几组:推到 60000 年的两组、随机自查);某一份明显变慢了就照日志里的时间改一改估时
+ * 下面每一组(参数组合 + 种子)先用 group 登记,各带一个估的耗时(秒);全部登记完再分(在速度汇总前面):
+ * 从估时最长的组往下,每组给当前累计最少的那份(各份跑同一段代码,分得一样),三份合起来正好是全部,长短差不多;
+ * 每份里各组仍按登记的先后跑。
+ * 估时是 GitHub 常见那一档机器上的秒数,照 2026 年 10 月下旬 15 轮检查算:GitHub 的机器有快有慢(快的那档同一组只要六成多的时间),
+ * 先把每台机器的快慢和每组本身的长短分开,再取各组的中位数 —— 直接拿各轮的秒数取中位数,哪份碰巧多分到快机器,那份的组就显得短。
+ * 每份跑完最后写一行:估多少秒、实际多少秒、这台机器是估时的几倍,以及按这个倍数折算后和估时差得最多的几组;某一份总是偏长,照这行改估时。
+ * STRESS_DRY=1 空跑:只列出每组分到第几份、估多少秒和各份合计,什么都不算(改了估时或加了组,先用它看分得匀不匀)。
  */
 const [PART, PARTS] = (process.env.STRESS_PART ?? '1/1').split('/').map(Number);
 if (!(Number.isInteger(PART) && Number.isInteger(PARTS) && PART >= 1 && PART <= PARTS)) {
   throw new Error(`STRESS_PART 要写成"第几份/共几份",比如 1/3;现在是 ${process.env.STRESS_PART}`);
 }
-if (PARTS > 1) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)
+const DRY = process.env.STRESS_DRY === '1';
+if (PARTS > 1 && !DRY) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)
 `);
-/** 各份已分到的估计耗时(秒) */
-const load: number[] = new Array(PARTS).fill(0);
-/** 这一组(估计 sec 秒)轮到本份跑吗 */
-const mine = (sec = 1) => {
-  let k = 0;
-  for (let i = 1; i < PARTS; i++) if (load[i] < load[k]) k = i;
-  load[k] += sec;
-  return k === PART - 1;
+/** 登记的各组:名字(和这组打印的那行开头一样)、估的耗时(秒)、要跑的检查 */
+const groups: { name: string; sec: number; run: () => void }[] = [];
+/** 登记一组;分份、跑本份的各组在速度汇总前面 */
+const group = (name: string, sec: number, run: () => void) => {
+  groups.push({ name, sec, run });
 };
 
 /**
@@ -209,11 +211,24 @@ const noteRate = (years: number, ms: number, name: string) => {
     slowestRateCase = `${name} 推 ${years} 年用 ${Math.round(ms)}ms`;
   }
 };
+/** 一个参数组合一组的估时(秒):20 万地块、6 成陆地、整片抬成陆地、草图叠改地形的最慢;整颗星球是海、满图涂山的几乎不推演 */
+const caseSec = (c: (typeof cases)[number]) => {
+  const sk = c.sketch;
+  const op = c.terrain?.[0]?.kind;
+  if (c.cells === 200000) return 19;
+  if (c.landFraction === 0.6 || op === 'raise') return 11;
+  if (c.cells === 12000 || c.landFraction === 0.12) return 5;
+  if (sk) {
+    if (c.terrain) return 10.5;
+    if (sk.plates) return 9;
+    if (!sk.strokes.length) return 2.5;
+    // 满图涂同一种笔:涂成群岛的有文明可推,其余几乎没有
+    return sk.strokes[0].kind === 'isles' ? 8.5 : 4;
+  }
+  return op === 'sink' ? 3.5 : c.terrain ? 8.5 : 7;
+};
 for (const c of cases) {
-  for (const seed of [3, 99]) {
-    // 估的耗时(秒):20 万地块和推到 6 成陆地、整片抬成陆地的最慢,画草图没有陆地的几乎不推演
-    const sec = c.cells === 200000 ? 17 : c.landFraction === 0.6 || c.terrain?.[0]?.kind === 'raise' ? 11 : c.sketch?.rest === 'sea' && !c.sketch.strokes.length && !c.sketch.plates ? 2 : 7;
-    if (!mine(sec)) continue;
+  for (const seed of [3, 99]) group(`${caseName(c)} seed ${seed}`, caseSec(c), () => {
     const { terrain, sketch, ...pc } = c;
     const grid = sketchGrid(sketch);
     // 改过地形的世界要原来星球(参数 + 草图)的扩张节拍:和 worker 一样事先记下(新建时先生成的就是没改的星球),不算进耗时
@@ -437,7 +452,7 @@ for (const c of cases) {
       `大教 ${rel?.faiths.filter((f) => f.kind === 'great').length ?? 0} 教派 ${rel?.faiths.filter((f) => f.kind === 'sect').length ?? 0} 宗教大事 ${rel?.events.length ?? 0}`,
       nan || rn || cn ? `NaN! ${nan}/${rn}/${cn}` : '',
     );
-  }
+  });
 }
 // ---- 地形大事:极端的几种(整颗星球沉入海中、整片抬成陆地、五件最大最强的火山) ----
 const UPHEAVAL_CASES: [string, Upheaval[]][] = [
@@ -449,9 +464,9 @@ const UPHEAVAL_CASES: [string, Upheaval[]][] = [
   ],
 ];
 for (const [name, list] of UPHEAVAL_CASES) {
-  for (const seed of [3, 99]) {
-    // 估的耗时(秒):整颗星球沉入海中的那组,第 1500 年以后没有陆地可推,最快
-    if (!mine(list[0].ops[0].kind === 'sink' ? 5 : list[0].ops[0].kind === 'raise' ? 12 : 13)) continue;
+  // 估的耗时(秒):整颗星球沉入海中的那组,第 1500 年以后没有陆地可推,最快
+  const sec = list[0].ops[0].kind === 'sink' ? 5.5 : list[0].ops[0].kind === 'raise' ? 10.5 : 14;
+  for (const seed of [3, 99]) group(`{"地形大事":"${name}"} seed ${seed}`, sec, () => {
     const params = { ...DEFAULT_PARAMS, seed };
     const t0 = performance.now();
     const w = generateWorld(params);
@@ -503,15 +518,15 @@ for (const [name, list] of UPHEAVAL_CASES) {
       `大事 ${ch.map((e) => `${Math.floor(e.year)} ${e.text}`).join(' | ')}`,
       cn ? `NaN! ${cn}` : '',
     );
-  }
+  });
 }
 
 // ---- 推演年数:推到最久(60000 年;再叠一件第 2999 年的地形大事):史事有序、国都在本国、人口不是 NaN、名字里不冒数字和 undefined ----
+// 估的耗时(秒):带一件地形大事的那组最长,三分多钟
 for (const [seed, ups] of [
   [7, []],
   [99, [{ year: 2999, ops: [{ kind: 'volcano', pts: [900, 400], r: 160, s: 2 }] }]],
-] as [number, Upheaval[]][]) {
-  if (!mine(seed === 7 ? 120 : 165)) continue;
+] as [number, Upheaval[]][]) group(`{"推演年数":${END_YEAR_MAX}} seed ${seed}`, seed === 7 ? 120 : 205, () => {
   const params = { ...DEFAULT_PARAMS, seed };
   const w = generateWorld(params);
   const steps = upheavalSteps(params, [], null, ups);
@@ -545,12 +560,11 @@ for (const [seed, ups] of [
     `文明 ${Math.round(ms)}ms 国家 ${civ.polities.length}(在世 ${civ.polities.filter((p) => p.ended === undefined).length})城镇 ${civ.settlements.length} 人物 ${civ.people?.length ?? 0} 纪事 ${ch.length}`,
     cn ? `NaN! ${cn}` : '',
   );
-}
+});
 
 // ---- 「天灾 很多」推 12000 年,第 600 年再下一场最重、无人收拾 60 年的全球大疫:史事有序、人口和发展度不是 NaN、
 // 全球大疫里一城最多死六成、天下人口不低于疫前一半、还有国家在、纪事里不冒 undefined / NaN ----
-for (const seed of [7, 99]) {
-  if (!mine(24)) continue;
+for (const seed of [7, 99]) group(`{"天灾":"很多","推演年数":12000} seed ${seed}`, 23.5, () => {
   const w = generateWorld({ ...DEFAULT_PARAMS, seed });
   const probe = generateCiv(w, { endYear: 600 });
   const town = probe.settlements.filter((s) => s.ended === undefined).sort((a, b) => populationAt(b, 600) - populationAt(a, 600))[0];
@@ -578,7 +592,7 @@ for (const seed of [7, 99]) {
     `文明 ${Math.round(ms)}ms(每秒 ${Math.round(civ.endYear / (ms / 1000))} 年)全球大疫 ${list.length} 场 国家在世 ${civ.polities.filter((p) => p.ended === undefined).length} 纪事 ${ch.length}`,
     cn ? `NaN! ${cn}` : '',
   );
-}
+});
 
 // ---- 接着推和一口气推完一样(随机自查,scripts/lib/resumeFuzz.ts):逐年推演一步随机推 1–60 年、每停一下随机下各种命令,
 // 推到第 3000 年,和带着同样的命令一口气推完逐字段比(默认参数 10 个种子、自定义参数 2 个、小世界 2 个、「天灾 很多」2 个;单测里另跑 3 个推到第 2000 年) ----
@@ -589,21 +603,23 @@ const FUZZ: FuzzCase[] = [
   ...[13, 2025].map((seed) => ({ seed, to: 3000, params: { calamity: 'many' as const } })),
 ];
 for (const c of FUZZ) {
-  if (!mine(c.cells ? 23 : c.params?.calamity ? 50 : 44)) continue;
-  const t0 = performance.now();
-  const r = fuzzResume(c);
-  if (r.diff) process.exitCode = 1;
-  console.log(
-    `{"接着推随机自查":${JSON.stringify({ ...(c.params ?? {}), ...(c.cells ? { cells: c.cells } : {}) })}}`, 'seed', c.seed,
-    `${Math.round(performance.now() - t0)}ms 推了 ${r.steps} 步 命令 ${r.commands} 条 作者的干预 ${r.author} 条`,
-    r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐字段一致',
-  );
+  const label = `{"接着推随机自查":${JSON.stringify({ ...(c.params ?? {}), ...(c.cells ? { cells: c.cells } : {}) })}}`;
+  // 估的耗时(秒):小世界最快,「天灾 很多」最慢
+  group(`${label} seed ${c.seed}`, c.cells ? 25 : c.params?.calamity ? 50 : c.params ? 42 : 46, () => {
+    const t0 = performance.now();
+    const r = fuzzResume(c);
+    if (r.diff) process.exitCode = 1;
+    console.log(
+      label, 'seed', c.seed,
+      `${Math.round(performance.now() - t0)}ms 推了 ${r.steps} 步 命令 ${r.commands} 条 作者的干预 ${r.author} 条`,
+      r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐字段一致',
+    );
+  });
 }
 
 // ---- 带地形大事的世界:大事那一刻接着推和一口气推完一样(scripts/lib/resumeFuzz.ts 的 fuzzUpheavalResume):
 // 随机几年各放一件不改海陆的大事,带着作者的干预和随机命令,和没有大事时逐项比(单测里另跑几个种子) ----
-for (const seed of [2, 4, 9, 13, 27, 64]) {
-  if (!mine(24)) continue;
+for (const seed of [2, 4, 9, 13, 27, 64]) group(`{"大事那一刻接着推随机自查":{}} seed ${seed}`, 27, () => {
   const t0 = performance.now();
   const r = fuzzUpheavalResume(seed);
   if (r.diff) process.exitCode = 1;
@@ -612,31 +628,67 @@ for (const seed of [2, 4, 9, 13, 27, 64]) {
     `${Math.round(performance.now() - t0)}ms 大事 ${r.years.join('、')} 年 命令 ${r.commands} 条`,
     r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐项一致',
   );
-}
+});
 
-// ---- 速度汇总:只报告,不改退出码(预算和来历见 SPEED_BUDGET) ----
-const over: string[] = [];
-/** 一项最慢的耗时和预算;超了记下,后面写"超预算" */
-const vsBudget = (label: string, ms: number, budget: number, digits = 0) => {
-  if (ms > budget) over.push(label);
-  return `${label}最慢 ${ms.toFixed(digits)}ms(预算 ${budget}ms${ms > budget ? ',超预算' : ''})`;
-};
-console.log('\n速度(只报告,超预算不影响检查结果):');
-console.log(
-  `默认精细度下:${vsBudget('地图(生成 + 铺像素)', worstMap, SPEED_BUDGET.map)};${vsBudget('宜居度+划州', worstHabReg, SPEED_BUDGET.habReg)};${vsBudget('道路', worstRoutes, SPEED_BUDGET.routes)}`,
-);
-if (Number.isFinite(slowestRate)) {
-  const slow = slowestRate < SPEED_BUDGET.yearsPerSec;
-  if (slow) over.push('推演速度');
-  console.log(
-    `推演速度(推到的年数 ÷ 文明这一步的耗时)最慢 ${Math.round(slowestRate)} 年/秒(预算至少 ${SPEED_BUDGET.yearsPerSec} 年/秒${slow ? ',超预算' : ''}),是 ${slowestRateCase}`,
-  );
+// ---- 分份(见 group):从估时最长的组往下,每组给当前累计最少的那份 ----
+/** 各份已分到的估计耗时(秒) */
+const load: number[] = new Array(PARTS).fill(0);
+/** 每组分到第几份(从 0 数) */
+const partOf: number[] = [];
+for (const i of groups.map((_, i) => i).sort((a, b) => groups[b].sec - groups[a].sec || a - b)) {
+  let k = 0;
+  for (let p = 1; p < PARTS; p++) if (load[p] < load[k]) k = p;
+  load[k] += groups[i].sec;
+  partOf[i] = k;
 }
-console.log(
-  `所有参数下:${vsBudget('回放一帧(归属 + 国界 + 半分辨率色块,Node 里)', worstFrame, SPEED_BUDGET.frame, 1)};国名、城名、城镇符号排版 + 避让(缩放 1 倍,含国土栅格首次计算)最慢 ${worstLabels.toFixed(1)}ms`,
-);
-if (over.length) {
-  console.log(`${over.length} 项超预算:${over.join('、')}`);
-  // GitHub 的检查页上挂一条提醒(不算失败)
-  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=压力测试速度::${over.join('、')} 超预算(只报告,不影响检查结果)`);
+if (DRY) {
+  groups.forEach((g, i) => console.log(`第 ${partOf[i] + 1} 份 估 ${g.sec} 秒 ${g.name}`));
+  console.log(`共 ${groups.length} 组;${load.map((sec, k) => `第 ${k + 1} 份 ${partOf.filter((p) => p === k).length} 组 估 ${sec} 秒`).join(',')}`);
+} else {
+  /** 本份各组:名字、估时、实际用了几秒 */
+  const spent: { name: string; sec: number; real: number }[] = [];
+  groups.forEach((g, i) => {
+    if (partOf[i] !== PART - 1) return;
+    const t0 = performance.now();
+    g.run();
+    spent.push({ name: g.name, sec: g.sec, real: (performance.now() - t0) / 1000 });
+  });
+
+  // ---- 速度汇总:只报告,不改退出码(预算和来历见 SPEED_BUDGET) ----
+  const over: string[] = [];
+  /** 一项最慢的耗时和预算;超了记下,后面写"超预算" */
+  const vsBudget = (label: string, ms: number, budget: number, digits = 0) => {
+    if (ms > budget) over.push(label);
+    return `${label}最慢 ${ms.toFixed(digits)}ms(预算 ${budget}ms${ms > budget ? ',超预算' : ''})`;
+  };
+  console.log('\n速度(只报告,超预算不影响检查结果):');
+  console.log(
+    `默认精细度下:${vsBudget('地图(生成 + 铺像素)', worstMap, SPEED_BUDGET.map)};${vsBudget('宜居度+划州', worstHabReg, SPEED_BUDGET.habReg)};${vsBudget('道路', worstRoutes, SPEED_BUDGET.routes)}`,
+  );
+  if (Number.isFinite(slowestRate)) {
+    const slow = slowestRate < SPEED_BUDGET.yearsPerSec;
+    if (slow) over.push('推演速度');
+    console.log(
+      `推演速度(推到的年数 ÷ 文明这一步的耗时)最慢 ${Math.round(slowestRate)} 年/秒(预算至少 ${SPEED_BUDGET.yearsPerSec} 年/秒${slow ? ',超预算' : ''}),是 ${slowestRateCase}`,
+    );
+  }
+  console.log(
+    `所有参数下:${vsBudget('回放一帧(归属 + 国界 + 半分辨率色块,Node 里)', worstFrame, SPEED_BUDGET.frame, 1)};国名、城名、城镇符号排版 + 避让(缩放 1 倍,含国土栅格首次计算)最慢 ${worstLabels.toFixed(1)}ms`,
+  );
+  if (over.length) {
+    console.log(`${over.length} 项超预算:${over.join('、')}`);
+    // GitHub 的检查页上挂一条提醒(不算失败)
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning title=压力测试速度::${over.join('、')} 超预算(只报告,不影响检查结果)`);
+  }
+  // ---- 本份估时和实际:机器快慢不一,先按整份的倍数折算,再看哪几组和估时差得最多 ----
+  if (spent.length) {
+    const est = spent.reduce((a, x) => a + x.sec, 0);
+    const real = spent.reduce((a, x) => a + x.real, 0);
+    const k = real / est;
+    const off = [...spent].sort((a, b) => Math.abs(b.real - b.sec * k) - Math.abs(a.real - a.sec * k)).slice(0, 3);
+    console.log(
+      `\n这一份 ${spent.length} 组:估 ${Math.round(est)} 秒,实际 ${Math.round(real)} 秒,这台机器约是估时的 ${k.toFixed(2)} 倍;` +
+        `按这个倍数折算后和估时差得最多的:${off.map((x) => `${x.name} 估 ${x.sec} 秒(折算 ${(x.sec * k).toFixed(1)} 秒)实际 ${x.real.toFixed(1)} 秒`).join(';')}`,
+    );
+  }
 }

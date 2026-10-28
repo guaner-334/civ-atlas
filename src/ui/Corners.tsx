@@ -27,6 +27,7 @@ import { FILLS, FILL_KEYS, type MapLayer } from './mapLayers';
 import { toggleAssistant, useAstOpen } from './astPanel';
 import { togglePlacing } from './markStore';
 import { directorButton, useDirector } from './directorStore';
+import { toggleRelief } from './terrain3dStore';
 import { useAiOn } from '../ai/client';
 import './book.css';
 
@@ -125,6 +126,7 @@ export function PhoneButtons({
   onToggleGlobe,
   marking,
   director,
+  relief,
 }: {
   layers: LayerPopoverProps;
   globeOn: boolean;
@@ -133,6 +135,8 @@ export function PhoneButtons({
   marking?: boolean;
   /** 放不放「导播」按钮(有历史、没在导出视频时) */
   director?: boolean;
+  /** 「立体」按钮(框一块立起来看):正在框 = true;不放 = undefined */
+  relief?: boolean;
 }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const astOpen = useAstOpen();
@@ -179,6 +183,19 @@ export function PhoneButtons({
             <Icon name="bubble" size={22} />
           </button>
         )}
+        {relief !== undefined && (
+          <button
+            className={`pb-btn${relief ? ' relief-on' : ''}`}
+            data-act="relief"
+            aria-pressed={relief}
+            disabled={layers.disabled}
+            onClick={toggleRelief}
+            aria-label="立体"
+            title="框一块地方，立起来看山的起伏"
+          >
+            <Icon name="relief" size={22} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -193,6 +210,7 @@ export function MapControls({
   zoom = true,
   marking,
   director,
+  relief,
 }: {
   globeOn: boolean;
   onToggleGlobe: () => void;
@@ -205,11 +223,19 @@ export function MapControls({
   marking?: boolean;
   /** 放不放「导播」按钮(有历史、没在导出视频时) */
   director?: boolean;
+  /** 「立体」按钮(框一块立起来看):正在框 = true;不放 = undefined */
+  relief?: boolean;
 }) {
   if (hidden) return null;
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   return (
     <div className={`map-controls${shifted ? ' shifted' : ''}`} onPointerDown={stop} onDoubleClick={stop}>
+      {relief !== undefined && (
+        <button className={`glass mc-btn mc-globe mc-relief${relief ? ' on' : ''}`} data-act="relief" aria-pressed={relief} onClick={toggleRelief} title="框一块地方，立起来看山的起伏(Esc 取消)">
+          <Icon name="relief" size={18} />
+          <span>立体</span>
+        </button>
+      )}
       {director && <DirectorButton />}
       {marking !== undefined && (
         <button className={`glass mc-btn mc-globe mc-mark${marking ? ' on' : ''}`} data-act="mark" aria-pressed={marking} onClick={togglePlacing} title="在地图上放一个标记(Esc 取消)">
