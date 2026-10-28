@@ -22,7 +22,7 @@ import { MARK_HEX } from '../render/marks';
 import { characterPolity } from './characterInfo';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
-import { PersonFace, PortraitView } from './Portrait';
+import { NameFace, PersonFace, PortraitView } from './Portrait';
 import { HouseBookButton } from './lifeMenu';
 import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, lineageKin, lineageTag, reignOrder, secededFrom, treeLabel, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
 import { polityName } from '../gen/civ/growth';
@@ -97,7 +97,10 @@ function inRow(row: DynastyRow, year: number) {
 /** 世界和底图(作者人物的头像按他的国家挑服饰:人物卡上没填国家时看出生地归哪国,要用到) */
 type Place = { world: World; raster: Raster } | null;
 
-/** 作者立的君主的头像:和作者人物卡上的同一张(他的国家定服饰,年龄跟时间轴);底色和别的方框一样按这国的颜色,外面描一圈他的颜色(CSS) */
+/**
+ * 作者立的君主的头像:和作者人物卡上的同一张(他的国家定服饰,年龄跟时间轴);底色和别的方框一样按这国的颜色,外面描一圈他的颜色(CSS)。
+ * 女的(头像部件还没有)写名字的最后一个字
+ */
 function AuthorFace({ civ, x, c, year, place }: { civ: Civ; x: Person; c: AuthorCharacter; year: number; place: Place }) {
   const pol = useMemo(() => {
     if (place) return characterPolity(civ, place.world, place.raster, c);
@@ -105,9 +108,11 @@ function AuthorFace({ civ, x, c, year, place }: { civ: Civ; x: Person; c: Author
     return k?.kind === 'polity' ? k.id : x.polity;
   }, [civ, c, x.polity, place]);
   const age = Math.floor(Math.min(Math.max(year, x.from ?? c.born), c.died ?? Infinity) - c.born);
-  const p = useMemo(() => characterPortrait(civ, c, pol >= 0 ? pol : x.polity, c.born + age), [civ, c, pol, x.polity, age]);
+  const p = useMemo(() => (c.female ? null : characterPortrait(civ, c, pol >= 0 ? pol : x.polity, c.born + age)), [civ, c, pol, x.polity, age]);
+  const color = `rgb(${civ.polities[x.polity].color.join(',')})`;
+  if (c.female) return <NameFace name={c.name} size="mini" color={color} />;
   if (!p) return null;
-  return <PortraitView p={p} size="mini" color={`rgb(${civ.polities[x.polity].color.join(',')})`} />;
+  return <PortraitView p={p} size="mini" color={color} />;
 }
 
 /** 一棵树:方框绝对定位,连线画在底下的 svg 里;tail = 最后一位下面那句话(这一棵里有最后一位才给) */
