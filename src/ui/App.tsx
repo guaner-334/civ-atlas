@@ -870,8 +870,8 @@ function switchedToast(sw: SwitchNote) {
 const SWITCH_EDIT_BLOCK = '正在切到别的一支，切完再改';
 
 // 立体地形(框一块地方立起来看):点「立体」时才下载(ui/terrain3d/)
-const ReliefPick = lazy(() => import('./terrain3d').then((m) => ({ default: m.ReliefPick })));
-const ReliefView = lazy(() => import('./terrain3d').then((m) => ({ default: m.ReliefView })));
+const ReliefPick = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.ReliefPick })));
+const ReliefView = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.ReliefView })));
 
 // 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字):和主程序同一份下载,用到的地图、推演代码不另下(Boot.tsx 叫)
 export { startGalleryHelper } from './galleryHelper';
