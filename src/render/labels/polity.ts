@@ -27,7 +27,7 @@ import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityShortTitle, polityTierAt } from '../../gen/civ/growth';
 import { Polyline, type Candidate, type Glyph } from './layout';
 import { pathToCanvas, type LabelView } from './draw';
-import { projectWorld, unprojectWorld, type MapProj } from '../projection';
+import { projectWorld, unprojectRow, type MapProj } from '../projection';
 
 /** 网格边长(世界单位) */
 export const GRID = 4;
@@ -564,11 +564,14 @@ export function projectedTerritoryGrid(world: World, raster: Raster, civ: Civ, m
   const of = civ.regions.of;
   const { adjStart, adj } = world.mesh;
   for (let gy = 0; gy < gh; gy++) {
+    // 纬度整行只反解一次(和逐格 unprojectWorld 逐位一样)
+    const row = unprojectRow(mp, (gy + 0.5) * G);
+    if (!row) continue;
+    const py = Math.min(h - 1, Math.max(0, Math.floor(row.wy * scale)));
     for (let gx = 0; gx < gw; gx++) {
-      const p = unprojectWorld(mp, (gx + 0.5) * G, (gy + 0.5) * G);
-      if (!p) continue;
-      const px = Math.min(w - 1, Math.floor(p[0] * scale));
-      const py = Math.min(h - 1, Math.max(0, Math.floor(p[1] * scale)));
+      const wx = row.wx((gx + 0.5) * G);
+      if (Number.isNaN(wx)) continue;
+      const px = Math.min(w - 1, Math.floor(wx * scale));
       const k = py * w + px;
       if (water[k] !== 0) continue;
       const c = cell[k];

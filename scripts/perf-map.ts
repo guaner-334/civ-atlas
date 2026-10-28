@@ -9,10 +9,16 @@
  *   --runs=3(放大那一组重复几轮,默认 3)  --out=snaps/perf.json(逐次原始记录)  --headed(开窗口跑)
  *   --case=4倍降速                                             只跑名字里带这几个字的情况
  *   npx tsx scripts/perf-map.ts curved                         弯边投影(罗宾森、摩尔威德):拖动转中央经线,停下再精画
+ *   npx tsx scripts/perf-map.ts curvedops --runs=5             弯边投影逐项:第一次切到罗宾森 / 摩尔威德、换中心、拖动第一帧、拖动中、松手后(seed 7 / 2024,手绘 / 写实;
+ *                                                              每轮开一个新页面;主线程每个任务多长从浏览器的跟踪记录里取,50 ms 以下也量得出;见文件末尾 runCurvedOps)
  *   npx tsx scripts/perf-map.ts globe                          地球仪:显卡画法、CPU 兼容画法(网址加 globe=cpu,没有 WebGL2 时走的那条路)
  *   npx tsx scripts/perf-map.ts click --op=点国家              点国家:平面、罗宾森、地球仪(电脑、手机 4 倍降速),只量点选
  *   --op=放大,点国家                                            只跑名字里带这几个字的操作(逗号分开)
  *   --profile=snaps/prof                                       每次操作另录一份 CPU profile,摘要里打印最耗时的几个函数
+ *   --proj=mollweide                                           curvedops 只量这几种投影(逗号分开)
+ *   curvedops 加 --profile=1:每段最长的那个任务里浏览器自己的几步(跑脚本、绘制……)各占多久、耗时最多的函数(--top=25 列几个);
+ *                                                              函数名要可读就量一份不压缩的构建(vite build --minify false --outDir 别处,再 --dist= 指过去)
+ *   --gpu                                                      用完整版 Chromium 的无界面模式跑(用得上显卡,画布走显卡加速,接近有独显 / 核显的电脑;默认的没有显卡)
  *
  * 每种情况开一个新页面,世界画好后依次:1 倍拖动 → 放大到 4 倍(第 1 轮 = 这一页第一次放大,之后几轮是第二、三次)→
  * 4 倍短拖 → 4 倍长拖(跨过画好的那一块)→(政区)放回 1 倍点一个国家。
@@ -31,6 +37,7 @@
  */
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright';
 import { preview } from 'vite';
@@ -81,6 +88,11 @@ const PRESETS: Record<string, Case[]> = {
     { id: '手机4倍降速-罗宾森-7', ...PHONE, cpu: 4, seed: 7, layer: 'political', proj: 'robinson' },
   ],
 };
+// 弯边投影逐项(runCurvedOps):页面按等距圆柱打开,依次切到 CURVED_PROJS 里的每一种再量;写实 = 卫星(细节画法)+ 国家
+PRESETS.curvedops = [7, 2024].flatMap((seed): Case[] => [
+  { id: `电脑-手绘-${seed}`, ...DESKTOP, seed, layer: 'political' },
+  { id: `电脑-写实-${seed}`, ...DESKTOP, seed, layer: 'political', extra: 'map=satellite&sat=detail' },
+]);
 PRESETS.globe = [
   { id: '电脑-地球仪CPU-7', ...DESKTOP, seed: 7, layer: 'political', proj: 'globe', extra: 'globe=cpu' },
   { id: '电脑-地球仪-7', ...DESKTOP, seed: 7, layer: 'political', proj: 'globe' },
@@ -113,6 +125,8 @@ const EXTRA_QUERY = opt('query') ?? '';
 const OUT = opt('out');
 const HEADED = args.includes('--headed');
 const PROFILE = opt('profile');
+/** curvedops 量哪几种弯边投影 */
+const CURVED_PROJS = opt('proj')?.split(',') ?? ['robinson', 'mollweide'];
 
 /**
  * 页面里的记录器(字符串:tsx 编译出的函数带 __name 包装,页面里没有)。
@@ -511,12 +525,233 @@ const COLS: [keyof Row, string][] = [
 const fmt = (r: Row) =>
   `${r.case.padEnd(14)} ${`${r.op}#${r.run}`.padEnd(8)} ${COLS.map(([k, n]) => `${n} ${String(r[k]).padStart(6)}`).join('  ')}  k=${r.k}${r.valid ? '' : '  (轨迹不对,不算)'}`;
 
+// ---------------------------------------------------------------------------
+// 弯边投影逐项(curvedops)
+
+/**
+ * 页面里的记录器:几个调试字段最后一次被写的时刻(判断画面稳下来没有),逐帧记 RAF;
+ * 每一段的起止用 performance.mark 打在浏览器的跟踪记录里(主线程每个任务多长从跟踪记录里取)
+ */
+const CURVED_RECORDER = `(() => {
+  if (window.__cperf) return;
+  const P = (window.__cperf = { last: 0, frames: [] });
+  for (const key of ['__wfView', '__wfProj', '__wfCivProj', '__wfCiv', '__wfLabels', '__wf', '__wfDetail', '__wfCivDetail']) {
+    let v = window[key];
+    Object.defineProperty(window, key, { configurable: true, get: () => v, set: (n) => { v = n; P.last = performance.now(); } });
+  }
+  let last = null;
+  const tick = (t) => { if (last !== null) P.frames.push({ t, dt: t - last }); last = t; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  P.mark = (name) => { performance.mark(name); return performance.now(); };
+  // 等画面稳下来:至少 minMs,且 0.6 秒里调试字段没再被写、地形精画不在备(最多 10 秒)
+  P.settle = async (minMs) => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 10000) {
+      await new Promise((r) => setTimeout(r, 50));
+      const p = window.__wfProj, d = window.__wfDetail, c = window.__wfCivDetail;
+      if (performance.now() - t0 > minMs && performance.now() - P.last > 600 && !(p && p.pending) && !(d && d.pending) && !(c && c.pending)) break;
+    }
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  };
+})()`;
+
+/** 一项的一次:主线程最长的任务(跟踪记录)、最长帧距(RAF) */
+interface CurvedRow {
+  case: string;
+  proj: string;
+  op: string;
+  run: number;
+  task: number;
+  frame: number;
+}
+
+interface TraceEv {
+  name: string;
+  cat: string;
+  ph: string;
+  ts: number;
+  dur?: number;
+  pid: number;
+  tid: number;
+}
+
+/**
+ * 量一轮:新页面按等距圆柱打开,对每种弯边投影依次 第一次切过去 → 换中心 → 拖动(第一帧 / 拖动中 / 松手后)→ 切回等距圆柱。
+ * 段的划分:第一帧 = 按下到第 3 次移动;拖动中 = 之后到松手前;松手后 = 松手到画面稳下来(精画换上、国名重新排好)
+ */
+async function runCurvedOps(browser: Browser, base: string, c: Case, run: number, out: CurvedRow[]) {
+  const context: BrowserContext = await browser.newContext({ viewport: { width: c.w, height: c.h }, deviceScaleFactor: c.dpr });
+  const page = await context.newPage();
+  page.setDefaultTimeout(15000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const q = new URLSearchParams({ ...(c.extra ? Object.fromEntries(new URLSearchParams(c.extra)) : {}), seed: String(c.seed), play: '0', ...(c.extra?.includes('map=') ? {} : { layer: c.layer }) });
+  await page.goto(`${base}?${q}${EXTRA_QUERY ? `&${EXTRA_QUERY}` : ''}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForFunction('window.__wfLabels && window.__wfLabels.ready', null, { timeout: 180000 });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(1500);
+  await page.evaluate(CURVED_RECORDER);
+  const mark = (name: string) => page.evaluate(`window.__cperf.mark(${JSON.stringify(name)})`) as Promise<number>;
+  const settle = (min: number) => page.evaluate(`window.__cperf.settle(${min})`);
+  // 每一段:[起点 mark, 终点 mark]
+  const spans: { proj: string; op: string; a: string; b: string; ta: number; tb: number }[] = [];
+  const cdp = PROFILE ? await context.newCDPSession(page) : null;
+  if (cdp) {
+    await cdp.send('Profiler.enable');
+    await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+    await cdp.send('Profiler.start');
+  }
+  if (run === 0 && c === cases[0])
+    console.log(
+      `显卡 ${await page.evaluate(`(() => { const gl = document.createElement('canvas').getContext('webgl', { failIfMajorPerformanceCaveat: true }); if (!gl) return '没有(画布走 CPU)'; const e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : '有'; })()`)}`,
+    );
+  await browser.startTracing(page, { categories: ['toplevel', 'blink.user_timing', ...(PROFILE ? ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'blink', 'v8'] : [])] });
+  for (const proj of CURVED_PROJS) {
+    const m = async (op: string, act: () => Promise<void>) => {
+      const a = `cop:${proj}:${op}:a`;
+      const b = `cop:${proj}:${op}:b`;
+      const ta = await mark(a);
+      await act();
+      spans.push({ proj, op, a, b, ta, tb: await mark(b) });
+    };
+    await m('第一次切过去', async () => {
+      await page.evaluate(`window.__wfSetProjection(${JSON.stringify(proj)})`);
+      await settle(1500);
+    });
+    await m('换中心', async () => {
+      await page.evaluate(`window.__wfSetCenter(${40 + run * 23})`);
+      await settle(1000);
+    });
+    // 拖动:和 curved 那组的 1 倍拖动一样,从右往左 30 步
+    const y = c.h * 0.43;
+    const x0 = c.w * 0.78;
+    const x1 = Math.max(420, c.w * 0.32);
+    const pre = `cop:${proj}:`;
+    const t0 = await mark(`${pre}拖动第一帧:a`);
+    await page.mouse.move(x0, y);
+    await page.mouse.down();
+    for (let i = 1; i <= 3; i++) {
+      await page.mouse.move(x0 + ((x1 - x0) * i) / 30, y);
+      await page.waitForTimeout(12);
+    }
+    await page.waitForTimeout(40);
+    const t1 = await mark(`${pre}拖动第一帧:b`);
+    for (let i = 4; i <= 30; i++) {
+      await page.mouse.move(x0 + ((x1 - x0) * i) / 30, y);
+      await page.waitForTimeout(12);
+    }
+    const t2 = await mark(`${pre}松手后:a`);
+    await page.mouse.up();
+    await settle(1000);
+    const t3 = await mark(`${pre}松手后:b`);
+    spans.push({ proj, op: '拖动第一帧', a: `${pre}拖动第一帧:a`, b: `${pre}拖动第一帧:b`, ta: t0, tb: t1 });
+    spans.push({ proj, op: '拖动中', a: `${pre}拖动第一帧:b`, b: `${pre}松手后:a`, ta: t1, tb: t2 });
+    spans.push({ proj, op: '松手后', a: `${pre}松手后:a`, b: `${pre}松手后:b`, ta: t2, tb: t3 });
+    await page.evaluate(`window.__wfSetProjection('equirect')`);
+    await settle(1000);
+  }
+  const trace = JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEv[] };
+  const prof = cdp ? ((await cdp.send('Profiler.stop')) as { profile: CpuProfile & { startTime: number } }).profile : null;
+  const frames = (await page.evaluate('window.__cperf.frames')) as { t: number; dt: number }[];
+  const evs = trace.traceEvents;
+  const marks = new Map<string, TraceEv>();
+  for (const e of evs) if (e.name.startsWith('cop:') && e.cat.includes('blink.user_timing')) marks.set(e.name, e);
+  const any = marks.values().next().value as TraceEv | undefined;
+  if (!any) throw new Error('跟踪记录里没找到打的点');
+  // 主线程:打点的那个线程;顶层任务(同一个任务两种名字都有时取外层)
+  const tasks = evs.filter((e) => e.pid === any.pid && e.tid === any.tid && e.ph === 'X' && (e.name === 'ThreadControllerImpl::RunTask' || e.name === 'RunTask') && e.dur);
+  for (const s of spans) {
+    const a = marks.get(s.a)?.ts;
+    const b = marks.get(s.b)?.ts;
+    if (a === undefined || b === undefined) continue;
+    const inSpan = tasks.filter((e) => e.ts < b && e.ts + (e.dur ?? 0) > a);
+    const task = Math.max(0, ...inSpan.map((e) => (e.dur ?? 0) / 1000));
+    // 帧距:这一段里画出来的帧(第一帧这一段算到它后面紧跟的那一帧)
+    const frame = Math.max(0, ...frames.filter((f) => f.t > s.ta && f.t - f.dt < s.tb).map((f) => f.dt));
+    const row: CurvedRow = { case: c.id, proj: s.proj, op: s.op, run, task: r1(task), frame: r1(frame) };
+    out.push(row);
+    // --profile:这一段最长的那个任务里,(含调用的)耗时最多的几个函数
+    const top = inSpan.find((e) => (e.dur ?? 0) / 1000 === task);
+    if (prof && top && task > 20) {
+      // 这个任务里浏览器自己的几步(跑脚本、样式、绘制……)各占多久
+      const kids = new Map<string, number>();
+      for (const e of evs)
+        if (e.pid === top.pid && e.tid === top.tid && e.ph === 'X' && e.cat !== 'toplevel' && e.ts >= top.ts && e.ts < top.ts + (top.dur ?? 0) && e !== top)
+          kids.set(e.name, (kids.get(e.name) ?? 0) + (e.dur ?? 0) / 1000);
+      console.log(`    ${s.proj}-${s.op} ${r1(task)}:${[...kids].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([k, v]) => `${k} ${r1(v)}`).join('  ')}`);
+      console.log(`      ${spanTop(prof, top.ts, top.ts + (top.dur ?? 0))}`);
+    }
+  }
+  const mine = out.filter((r) => r.case === c.id && r.run === run);
+  console.log(`${c.id} 第 ${run + 1} 轮  ${mine.map((r) => `${r.proj.slice(0, 3)}-${r.op} ${r.task}/${r.frame}`).join('  ')}`);
+  if (errors.length) console.log(`  页面报错 ${errors.length} 条:${errors[0]}`);
+  await context.close();
+}
+
+/** CPU profile 里 [t0, t1](微秒,和跟踪记录同一个时钟)这段时间,含调用的耗时最多的几个函数(毫秒) */
+function spanTop(p: CpuProfile & { startTime: number }, t0: number, t1: number, n = Number(opt('top') ?? 10)): string {
+  const parent = new Map<number, number>();
+  const byId = new Map(p.nodes.map((nd) => [nd.id, nd]));
+  for (const nd of p.nodes) for (const ch of nd.children ?? []) parent.set(ch, nd.id);
+  const total = new Map<string, number>();
+  let t = p.startTime;
+  p.samples.forEach((id, i) => {
+    const dt = p.timeDeltas[i] ?? 0;
+    t += dt;
+    if (t < t0 || t > t1) return;
+    const seen = new Set<string>();
+    for (let cur: number | undefined = id; cur !== undefined; cur = parent.get(cur)) {
+      const f = byId.get(cur)!.callFrame;
+      if (!f.url) continue;
+      const name = `${f.functionName || '(匿名)'}@${f.url.split('/').pop()}:${f.lineNumber + 1}`;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      total.set(name, (total.get(name) ?? 0) + (p.timeDeltas[i + 1] ?? dt) / 1000);
+    }
+  });
+  return [...total].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => `${k} ${r1(v)}`).join('  ');
+}
+
+function median(a: number[]): number {
+  const s = [...a].sort((x, y) => x - y);
+  return s.length % 2 ? s[(s.length - 1) / 2] : r1((s[s.length / 2 - 1] + s[s.length / 2]) / 2);
+}
+
 const srv = await serve();
 console.log(`量 ${srv.url}${EXTRA_QUERY ? `(另加 ${EXTRA_QUERY})` : ''},${cases.length} 种情况,放大重复 ${RUNS} 轮;单位 ms`);
-const browser = await chromium.launch({ headless: !HEADED });
+// --gpu:用完整版 Chromium 的无界面模式(能用上本机显卡,画布走显卡加速;默认的精简无界面版没有显卡,画布全在 CPU 上画)
+const browser = await chromium.launch({ headless: !HEADED, ...(args.includes('--gpu') ? { channel: 'chromium' } : {}) });
 console.log(`浏览器 ${browser.version()}`);
 const rows: Row[] = [];
 const raws: unknown[] = [];
+if (preset === 'curvedops') {
+  console.log(`负载 ${os.loadavg().map((x) => x.toFixed(2)).join(' ')}`);
+  const out: CurvedRow[] = [];
+  try {
+    for (const c of cases) for (let r = 0; r < RUNS; r++) await runCurvedOps(browser, srv.url, c, r, out);
+  } finally {
+    await browser.close();
+    await srv.close();
+  }
+  console.log(`负载 ${os.loadavg().map((x) => x.toFixed(2)).join(' ')}`);
+  console.log(`\n== 汇总(主线程最长任务:中位 / 最大;括号里是最长帧距的最大值;${RUNS} 轮)`);
+  const opNames = ['第一次切过去', '换中心', '拖动第一帧', '拖动中', '松手后'];
+  console.log(`${'情况'.padEnd(18)} ${opNames.map((o) => o.padStart(20)).join(' ')}`);
+  for (const c of cases)
+    for (const proj of CURVED_PROJS) {
+      const cells = opNames.map((o) => {
+        const sel = out.filter((r) => r.case === c.id && r.proj === proj && r.op === o);
+        if (!sel.length) return '—'.padStart(20);
+        return `${median(sel.map((r) => r.task))} / ${Math.max(...sel.map((r) => r.task))} (${Math.max(...sel.map((r) => r.frame))})`.padStart(20);
+      });
+      console.log(`${`${c.id}-${proj}`.padEnd(18)} ${cells.join(' ')}`);
+    }
+  if (OUT) {
+    fs.mkdirSync(path.dirname(OUT), { recursive: true });
+    fs.writeFileSync(OUT, JSON.stringify({ url: srv.url, query: EXTRA_QUERY, rows: out }, null, 1));
+  }
+  process.exit(0);
+}
 try {
   for (const c of cases) await runCase(browser, srv.url, c, rows, raws);
 } finally {

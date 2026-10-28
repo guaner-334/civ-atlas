@@ -290,6 +290,43 @@ export function unprojectWorld(mp: MapProj, mx: number, my: number): [number, nu
   return [wx >= mp.W ? 0 : wx, ((HALF_PI - r[1]) / Math.PI) * mp.H];
 }
 
+/** 地图平面上一行的反投影(unprojectRow):这一行的世界 y,和这一行上任一点的世界 x */
+export interface UnprojectedRow {
+  wy: number;
+  /** 地图平面 x → 世界 x(在 [0, W) 里);不在外轮廓里 = NaN */
+  wx(mx: number): number;
+}
+
+/**
+ * 地图平面上同一行(my 相同)逐点反投影:纬度和这条纬线的横向比例整行只算一次
+ * (摩尔威德、罗宾森反解纬度要迭代 / 查表,整张栅格逐点调 unprojectWorld 时这一步占了大半)。
+ * 整行在外轮廓外 = null。结果和逐点调 unprojectWorld(mp, mx, my) 逐位一样(同样的算式、同样的顺序)
+ */
+export function unprojectRow(mp: MapProj, my: number): UnprojectedRow | null {
+  const { def, s, W, H } = mp;
+  const phi = def.phi((H / 2 - my) / s);
+  if (!Number.isFinite(phi)) return null;
+  const k = def.kx(phi);
+  const l0 = mp.lon0 * DEG;
+  return {
+    wy: ((HALF_PI - phi) / Math.PI) * H,
+    wx: (mx) => {
+      const x = (mx - W / 2) / s;
+      let lam = 0;
+      if (k < 1e-9) {
+        if (!(Math.abs(x) < 1e-6)) return NaN;
+      } else {
+        lam = x / k;
+        if (!(Math.abs(lam) <= Math.PI + 1e-9)) return NaN;
+        lam = Math.max(-Math.PI, Math.min(Math.PI, lam));
+      }
+      const t = (lam + l0 + Math.PI) / (2 * Math.PI);
+      const wx = (t - Math.floor(t)) * W;
+      return wx >= W ? 0 : wx;
+    },
+  };
+}
+
 /**
  * 只换中央经线(from → to,同一种投影、同样大小)时,地图平面上 my0 … my1 这几行横向挪了多少:
  * 每一行整体平移 −s · kx(φ) · Δλ,纬度不同挪得不一样多。
