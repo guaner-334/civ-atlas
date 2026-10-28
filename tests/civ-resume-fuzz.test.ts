@@ -6,24 +6,13 @@
  *   立国干预在没人住的州当场建的城没几年就被毁、到了定居时预约的年份又建一座新城
  * - seed 37 的一个例子(种子 1–36 里没有这种立国):停在一次立国以前二三十年、接着推,那次立国照样有(立国的城早年当过别国的国都,
  *   那国亡了、那一州散回部落以后到了原定的年份立国;按条件现找;GENERATOR_VERSION 43 以前是种子 1 第 1700 年停下、第 1722 年那次)
- * - 带地形大事的世界:大事那一刻(推到前一刻、套上新地形接着推)也用同一套接法。随机几年各放一件不改海陆的大事,
- *   带着作者的干预和随机命令推完,日志、史事(大事那几条除外)、归属、检查点和没有大事时一样。
- *   种子 17、30 各放 15 件(比界面上的上限多,多停几次):大事那一刻还用旧接法时,这两个种子在第 1525、2067 年对不上
+ * 带地形大事的世界在 civ-resume-fuzz-upheaval(各放 5 件)和 civ-resume-fuzz-upheaval-15(各放 15 件),按耗时分开,好分到几台机器上同时跑
  */
 import { describe, expect, it } from 'vitest';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import type { Intervention, PlayState } from '../src/gen/edits';
-import { fuzzResume, fuzzUpheavalResume, fuzzWorld } from '../scripts/lib/resumeFuzz';
-
-/** 带地形大事的随机自查跑这几个[种子, 几件大事](更多的在 scripts/stress.ts 里跑) */
-const UPHEAVAL_CASES: [number, number][] = [
-  [3, 5],
-  [6, 5],
-  [7, 5],
-  [17, 15],
-  [30, 15],
-];
+import { fuzzResume, fuzzWorld } from '../scripts/lib/resumeFuzz';
 
 /** 两份历史逐项一样 */
 function same(a: Civ, b: Civ, label: string) {
@@ -37,12 +26,6 @@ describe('接着推和一口气推完一样(随机自查)', () => {
     expect(r.diff, `seed ${seed}`).toBeNull();
     // 各种命令都下过
     expect(Object.keys(r.kinds).sort(), `seed ${seed}`).toEqual(['ally', 'boost', 'cede', 'crown', 'death', 'declare', 'destroy', 'disaster', 'found', 'halt', 'move', 'neutral', 'policy', 'protect', 'temper', 'treaty', 'unity']);
-  }, 300_000);
-
-  it.each(UPHEAVAL_CASES)('带地形大事 seed %i:随机 %i 个年份各发生一件不改海陆的大事,大事那一刻接着推和没有大事、一口气推完一样', (seed, count) => {
-    const r = fuzzUpheavalResume(seed, count);
-    expect(r.years.length, `seed ${seed}`).toBeGreaterThan(1);
-    expect(r.diff, `seed ${seed} 大事在 ${r.years.join('、')} 年`).toBeNull();
   }, 300_000);
 
   it('seed 37:停在一次"早年当过别国国都的城照原定的年份立国"以前、接着推 50 年,和一口气推完一样', () => {
