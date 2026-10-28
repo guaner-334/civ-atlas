@@ -778,7 +778,9 @@ if (part('人物')) person: {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!new RegExp(`${reEsc(G.name)}\\s*${reEsc(G.role)}，${G.from}–${G.until} 年领兵`).test(card2) || y1 !== G.from)
+  // 起止同一年只写一个年份("2874 年领兵")
+  const gSpan = G.until > G.from ? `${G.from}–${G.until}` : `${G.from}`;
+  if (!new RegExp(`${reEsc(G.name)}\\s*${reEsc(G.role)}，${gSpan} 年领兵`).test(card2) || y1 !== G.from)
     errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
@@ -3476,7 +3478,8 @@ if (part('政体和朝政页')) {
   const small = ((await page.evaluate('window.__wfPickables()')) as { kind: string; id: number }[]).filter((q) => q.kind === 'polity').map((q) => q.id);
   let smallRow = '';
   let smallPage = '';
-  for (const q of small.slice(0, 40)) {
+  // 能点的国名里挨个看(不只看前 40 个:历史变了,前面几十个可能都够得上议事)
+  for (const q of [...new Set(small)]) {
     await pickPolity(q);
     if (await page.locator('.inspector [data-act=court]').count()) continue;
     smallRow = await rowText();
