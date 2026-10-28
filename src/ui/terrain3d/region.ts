@@ -27,18 +27,27 @@ export interface ReliefPeak {
 export function reliefPeaks(box: ReliefBox, civ: Civ | null, world: World, raster: Raster): ReliefPeak[] {
   if (!civ) return [];
   const W = world.width;
-  const inBox = (x: number, y: number, m = 0) => {
-    let dx = x - box.cx;
-    dx -= W * Math.round(dx / W);
-    return Math.abs(dx) <= box.w / 2 + m && Math.abs(y - box.cy) <= box.h / 2 + m;
+  const wrapDx = (dx: number) => dx - W * Math.round(dx / W);
+  const inBox = (x: number, y: number) => Math.abs(wrapDx(x - box.cx)) <= box.w / 2 && Math.abs(y - box.cy) <= box.h / 2;
+  /** 山脊线有没有哪一段(两端连成的那一截的范围)碰到往外扩 m 的框 */
+  const nearBox = (path: Float32Array, m: number) => {
+    const n = path.length >> 1;
+    let x = wrapDx(path[0] - box.cx);
+    for (let i = 0; i < n; i++) {
+      const x1 = i + 1 < n ? x + wrapDx(path[2 * i + 2] - path[2 * i]) : x;
+      const y0 = path[2 * i + 1];
+      const y1 = i + 1 < n ? path[2 * i + 3] : y0;
+      if (Math.min(x, x1) <= box.w / 2 + m && Math.max(x, x1) >= -box.w / 2 - m && Math.min(y0, y1) - box.cy <= box.h / 2 + m && Math.max(y0, y1) - box.cy >= -box.h / 2 - m)
+        return true;
+      x = wrapDx(x1);
+    }
+    return false;
   };
   const out: (ReliefPeak & { rank: number; h: number })[] = [];
   civ.places.forEach((p, id) => {
-    if (p.kind !== 'mountains') return;
+    if (p.kind !== 'mountains' || p.path.length < 2) return;
     // 山脊线离框太远的不用算(最高峰在山脊线两旁一个地块宽以内)
-    let near = false;
-    for (let i = 0; i + 1 < p.path.length && !near; i += 2) near = inBox(p.path[i], p.path[i + 1], 12);
-    if (!near) return;
+    if (!nearBox(p.path, 12)) return;
     const f = placeFacts(civ, world, raster, id);
     if (f.peak === undefined || !f.peakAt || !inBox(f.peakAt[0], f.peakAt[1])) return;
     out.push({ id, name: p.name, meters: metersText(f.peak), at: f.peakAt, rank: p.rank, h: f.peak });

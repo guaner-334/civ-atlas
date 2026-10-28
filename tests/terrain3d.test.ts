@@ -377,4 +377,18 @@ describe('手绘贴图(按框的大小画)', () => {
     expect(reliefPeaks({ cx: 400, cy: 600, w: 70, h: 46 }, civ, world, whole)).toEqual([]);
     expect(reliefPeaks(box, null, world, whole)).toEqual([]);
   });
+
+  it('山脊线的点隔得远、最高峰落在两点之间的一小块框里也立名字', () => {
+    const w = whole.w;
+    const h = whole.h;
+    const elev = new Float32Array(w * h);
+    elev[512 * w + 1050] = 3000;
+    const flat = { ...whole, elev, water: new Uint8Array(w * h), cell: new Int32Array(w * h) } as Raster;
+    const civ = {
+      places: [{ kind: 'mountains', name: '长岭', culture: 0, path: new Float32Array([1000, 512, 1100, 512, 1200, 512]), rank: 1 }],
+      regions: { of: new Int32Array(world.mesh.n).fill(-1) },
+    } as unknown as Civ;
+    const peaks = reliefPeaks({ cx: 1050.5, cy: 512.5, w: 16, h: 16 }, civ, world, flat);
+    expect(peaks.map((p) => [p.name, p.meters])).toEqual([['长岭', '3000']]);
+  });
 });

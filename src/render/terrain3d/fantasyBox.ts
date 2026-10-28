@@ -76,8 +76,22 @@ export function paintFantasyBox(ctx: CanvasRenderingContext2D, world: World, f: 
   const px = fantasyBoxPixels(r, u);
   ctx.putImageData(new ImageData(px, f.w, f.h), -pad, -pad);
   fantasyBoxForest(ctx, r, pad, u, ax, world.params.seed, world.width);
-  // 河:按世界坐标画(东西相连,跨过接缝的框两边都画),粗细按这一格
-  ctx.save();
-  drawRivers(ctx, world.rivers, { s: S, ox: -x0, oy: -y0, k: 1, wrap: world.width }, world.riverThreshold, fantasyBoxRiverStyle(world.riverThreshold, u / S));
-  ctx.restore();
+  // 河:按世界坐标画,粗细按这一格。跨过接缝的框:接缝左边按主图那一圈画,右边按往东挪一整圈画(各裁在自己那半边,不重画)
+  const style = fantasyBoxRiverStyle(world.riverThreshold, u / S);
+  const cw = ctx.canvas.width;
+  const ch = ctx.canvas.height;
+  const seam = Wpx - x0;
+  const rivers = (ox: number, a: number, b: number) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(a, 0, b - a, ch);
+    ctx.clip();
+    drawRivers(ctx, world.rivers, { s: S, ox, oy: -y0, k: 1, wrap: world.width }, world.riverThreshold, style);
+    ctx.restore();
+  };
+  if (seam >= cw) rivers(-x0, 0, cw);
+  else {
+    rivers(-x0, 0, seam);
+    rivers(seam, seam, cw);
+  }
 }
