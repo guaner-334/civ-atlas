@@ -74,6 +74,8 @@ export interface CivDrawParams {
   cull?: readonly [number, number, number, number];
   /** 信仰图层:选中的信仰(宗教卡片开着),别的信仰变淡;不给 = 都是原色 */
   faithFocus?: number | null;
+  /** 民族填色:选中的民族(民族卡片开着),别的民族变淡;不给 = 都是原色 */
+  cultureFocus?: number | null;
   /** 深色底图(卫星图):商道用亮一点的紫(trade.ts) */
   bright?: boolean;
   /**

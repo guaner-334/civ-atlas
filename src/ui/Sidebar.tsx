@@ -41,7 +41,8 @@ import { SaveMenu } from './SaveMenu';
 import { openAiSettings } from './AiSettings';
 import { openHistoryBook } from './bookStore';
 import { openOverview } from './overviewStore';
-import { cultureRegion, searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { openCulture } from './faithSelection';
 import { cultureAlive } from './WorldOverviewCultures';
 import { countUpTo } from './timelineLayout';
 import { Icon } from './icons';
@@ -183,7 +184,9 @@ export function useSearch(civ: Civ | null): SearchState {
   }, [sel]);
   const pick = useCallback((h: SearchHit) => {
     setQ('');
-    setSelection(h.select);
+    // 民族:开民族卡片,地图转到人最多的州
+    if (h.select.kind === 'culture') openCulture(h.select.id);
+    else setSelection(h.select);
   }, []);
   return { q, setQ, hits, active, setActive, pick, searching: q.trim() !== '', enabled: civOk };
 }
@@ -655,7 +658,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
                   key={cu.id}
                   className="sb-row two"
                   data-culture={cu.id}
-                  onClick={() => setSelection({ kind: 'region', id: cultureRegion(civ!, cu.id, year, ownersAt(civ!, year)) })}
+                  onClick={() => openCulture(cu.id)}
                 >
                   <i className="sb-sw as-flag" style={{ background: rgb(cu.color) }} />
                   <span className="sb-row-main">

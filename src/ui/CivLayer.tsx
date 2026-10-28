@@ -59,7 +59,7 @@ import {
 } from './civView';
 import { primePolityField, territoryGrid } from '../render/labels/polity';
 import { polityNamesOn } from '../render/civ/show';
-import { faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey, tradeKey, treatyKey } from '../gen/edits';
+import { cultureKey, faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey, tradeKey, treatyKey } from '../gen/edits';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { whenDone } from './holdMark';
@@ -72,7 +72,7 @@ import { CivDetail } from './CivDetail';
 import { playSmooth, useDrawnYear, usePlayQuality } from './playQuality';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
 import { drawResourceLayer, resourceBadges } from '../render/civ/resources';
-import { faithFocusOf, selectionOnMap } from './faithSelection';
+import { cultureFocusOf, faithFocusOf, selectionOnMap } from './faithSelection';
 import { flagOf, type FlagView } from './flagStore';
 import { flagImage, useFlagImages } from './flagImages';
 
@@ -198,7 +198,17 @@ export function civOpenSteps(o: { world: World; raster: Raster; civ: Civ; style:
   if (t.playing || t.scrubbing) return [];
   const show = getCivShow();
   const year = t.year ?? civ.endYear;
-  const p: CivDrawParams = { world, raster, civ, style, year, show, fast: false, faithFocus: show.faiths ? faithFocusOf(getSelection().sel) : null };
+  const p: CivDrawParams = {
+    world,
+    raster,
+    civ,
+    style,
+    year,
+    show,
+    fast: false,
+    faithFocus: show.faiths ? faithFocusOf(getSelection().sel) : null,
+    cultureFocus: show.cultures ? cultureFocusOf(getSelection().sel) : null,
+  };
   const pp: CivDrawParams = mp ? { ...p, proj: projector(mp) } : p;
   const steps: WorkStep[] = [
     ...civOverlaySteps(pp),
@@ -239,13 +249,15 @@ function selectionIn(sel: MapSelection | null, civ: Civ, base: Civ, was: Civ, wa
         ? settlementKey(civ, sel.id)
         : sel.kind === 'faith' && civ.religion?.faiths[sel.id]
           ? faithKey(civ, sel.id)
-          : sel.kind === 'place' && base.places[sel.id]
-            ? placeKeyOf(base, sel.id)
-            : sel.kind === 'treaty'
-              ? treatyKey(civ, sel.id) || null
-              : sel.kind === 'trade'
-                ? tradeKey(civ, sel.id) || null
-              : null;
+          : sel.kind === 'culture' && civ.cultures[sel.id]
+            ? cultureKey(civ, sel.id)
+            : sel.kind === 'place' && base.places[sel.id]
+              ? placeKeyOf(base, sel.id)
+              : sel.kind === 'treaty'
+                ? treatyKey(civ, sel.id) || null
+                : sel.kind === 'trade'
+                  ? tradeKey(civ, sel.id) || null
+                  : null;
   // 州(两份历史的州是同一份)、作者的标记和人物:编号不变
   if (key === null) return sel.kind === 'region' || sel.kind === 'mark' || sel.kind === 'character' ? sel : null;
   const r = resolveKey(sel.kind === 'place' ? wasBase : was, key);
@@ -408,10 +420,12 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     () => (hold && civ && wasBase ? selectionIn(pickedIn, civIn!, incoming!, civ, wasBase) : pickedIn),
     [hold, pickedIn, civIn, incoming, civ, wasBase],
   );
-  // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(selectionOnMap、faithFocus)
+  // 选中人物:地图上亮出他的国家;选中一种信仰:圈它的城,信仰图层上别的信仰变淡(selectionOnMap、faithFocus);选中一个民族:民族填色上别的民族变淡
   const sel = useMemo(() => selectionOnMap(civ, picked), [civ, picked]);
   const faithFocus = faithFocusOf(picked);
   const faithFocusIn = faithFocusOf(pickedIn);
+  const cultureFocus = cultureFocusOf(picked);
+  const cultureFocusIn = cultureFocusOf(pickedIn);
   // 商道:卡片开着的那条亮、别的变淡;鼠标停着的那条亮一圈;名字按改过名的
   const tradeHover = useTradeHover();
   const tradeFocus = useMemo<TradeFocus>(
@@ -427,8 +441,11 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const ok = fitsWorld(world, civ, base);
   // 底图(国土、国界、道路……)用原始 civ:改名不重画
   const params = useMemo<CivDrawParams | null>(
-    () => (ok && base ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null, bright } : null),
-    [ok, world, raster, base, style, y, show, fast, faithFocus, bright],
+    () =>
+      ok && base
+        ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null, cultureFocus: show.cultures ? cultureFocus : null, bright }
+        : null,
+    [ok, world, raster, base, style, y, show, fast, faithFocus, cultureFocus, bright],
   );
   // 国名、城名、城镇符号:同一年、同样的开关,换成套了改名的 civ
   const mapParams = useMemo<CivDrawParams | null>(() => (params && civ ? { ...params, civ } : null), [params, civ]);
@@ -724,7 +741,17 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const curved = !!mp;
   useEffect(() => {
     if (!target || !civIn) return;
-    const p: CivDrawParams = { world, raster, civ: target, style, year: y ?? target.endYear, show, fast: false, faithFocus: show.faiths ? faithFocusIn : null };
+    const p: CivDrawParams = {
+      world,
+      raster,
+      civ: target,
+      style,
+      year: y ?? target.endYear,
+      show,
+      fast: false,
+      faithFocus: show.faiths ? faithFocusIn : null,
+      cultureFocus: show.cultures ? cultureFocusIn : null,
+    };
     const named: CivDrawParams = { ...p, civ: civIn };
     const mp0 = mpRef.current;
     // 弯边投影 · 手绘:符号遮罩按投影重算的那几步(按这一刻的投影;停着的时候缓存里本来就有,什么也不做)
@@ -771,7 +798,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     );
     return () => cancelDetailJob(CIV_SWAP_JOB);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 投影只看弯不弯(中心、大小在做到那一步时取当时的)
-  }, [target, civIn, world, raster, style, y, show, faithFocusIn, curved]);
+  }, [target, civIn, world, raster, style, y, show, faithFocusIn, cultureFocusIn, curved]);
 
   // 地图框大小变了(窗口缩放)也要重画
   const [tick, setTick] = useState(0);

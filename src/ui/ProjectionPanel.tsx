@@ -11,7 +11,7 @@ import { PROJECTIONS, PROJECTION_IDS, type ProjectionId } from '../render/projec
 import { formatLon, lonOfX, requestMapCenter, useMapCenter } from './mapWrap';
 import { GLOBE_READY, GRATICULE_STEPS, setGraticule, setGraticuleStep, setMapMoving, setProjection, useGraticule, useGraticuleStep, useProjection, type MapProjection } from './projection';
 import type { MapSelection } from './civView';
-import { mapTarget, selectionFocus } from './flyTo';
+import { cultureFocus, mapTarget, selectionFocus } from './flyTo';
 
 /** 悬停时的一句用途(弹层里地方小,比 render/projection.ts 的说明短) */
 const SHORT_HINT: Partial<Record<ProjectionId, string>> = {
@@ -141,9 +141,13 @@ export function GraticuleSteps() {
 
 /**
  * 选中的东西在哪条经线上(人物按他的国家;国家 = 当年的国都;城 = 城址;地理实体 = 路径中点;州 = 州府;
- * 信仰 = 圣城 / 教派分出时的国都 / 民间信仰的民族发源州);找不到 = null
+ * 信仰 = 圣城 / 教派分出时的国都 / 民间信仰的民族发源州;民族 = 这一年人最多的州);找不到 = null
  */
 export function selectionLon(world: World, civ: Civ, selIn: MapSelection, year: number): number | null {
+  if (selIn.kind === 'culture') {
+    const f = cultureFocus(world, civ, selIn.id, year);
+    return f ? f.lon : null;
+  }
   // 商道:路线正中那一州
   if (selIn.kind === 'trade') {
     const f = selectionFocus(world, civ, selIn, year);

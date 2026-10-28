@@ -8,7 +8,7 @@
  *     推演里没过海的不走航线),那几州里的路走不通的就把各州治所平滑地连起来。几条商道走同一段路时线叠在一起,就是一条。
  *   - 样子:比大路粗一档的紫线,外面一圈浅边(手绘纸色、写实白色);卫星图上用亮一点的紫。
  *     产地一个小空心圆,终点(买方国都)一个实心点。断着的整条画虚线,颜色不变;废了就不画。
- *   - 线宽、字号随放大长得比地图慢:线宽和战线同一把尺(× k^LINE_GROW),字号 × k^NAME_GROW。
+ *   - 线宽、字号随放大长得比地图慢:线宽 2 倍以内和战线同一把尺(× k^LINE_GROW),再往上更慢;字号 × k^NAME_GROW。
  *   - 名字:缩放 1 倍时写得下的才写,2 倍起每条都写(挤不开时照写在正中)。
  *   - 选中的一条(商道卡片开着)亮一圈、别的变淡;鼠标停着的一条亮一圈。
  */
@@ -31,8 +31,9 @@ export const TRADE_INK = '#73379a';
 export const TRADE_BRIGHT = '#b07ce8';
 /** 尺寸(CSS 像素,缩放 1 倍时):线宽、浅边(每侧)、虚线、两头的圆点、名字的字号和字距(字号的倍数)、光晕 */
 const SIZE = { line: 2.2, casing: 1.1, dashOn: 6, dashOff: 5, end: 2.8, cap: 3.4, endStroke: 1.6, name: 12, track: 0.18, halo: 3.4, glow: 6 };
-/** 放大 k 倍时线宽 × k^LINE_GROW(和战线同一把尺:3 倍时 2 倍) */
+/** 放大 k 倍时线宽:2 倍以内 × k^LINE_GROW(和战线同一把尺,2 倍时约 1.55 倍),再往上 × (k/2)^LINE_GROW_HI 长得更慢(4 倍时 2 倍) */
 const LINE_GROW = Math.log(2) / Math.log(3);
+const LINE_GROW_HI = Math.log2(4.4 / 3.4);
 /** 放大 k 倍时字号 × k^NAME_GROW(2 倍时约 14、4 倍时约 16) */
 const NAME_GROW = 0.22;
 /** 选中时别的商道淡到几成 */
@@ -274,7 +275,8 @@ export function tradeScene(civ: Civ, mesh: Mesh, year: Year): TradeLine[] {
 
 /** 线宽这些在画布上多少像素:CSS 像素 × 放大的倍数 × dpr */
 function penOf(lv: LabelView): number {
-  return Math.max(1, lv.k) ** LINE_GROW * lv.dpr;
+  const k = Math.max(1, lv.k);
+  return (k <= 2 ? k ** LINE_GROW : 2 ** LINE_GROW * (k / 2) ** LINE_GROW_HI) * lv.dpr;
 }
 
 /** 名字的字号(画布像素) */
