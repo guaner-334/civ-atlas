@@ -30,6 +30,7 @@
  * 只用加减乘除,跨 CPU 逐位一致;不用随机数。
  */
 import type { Civ, IdeoEvent, Ideology, IdeoState, Year } from './types';
+import type { TableCard } from './tables';
 import { AdjKind, Layer } from './types';
 import type { CivSim } from './sim';
 import { TableEngine } from './tables';
@@ -181,44 +182,55 @@ function invention(name: string): { cap: number; level: number } {
   return { cap: v.cap, level: v.level };
 }
 
+// 发明表、能力的名字在 development.ts 里,它和 sim.ts、这个文件互相引用:下面两样第一次用到时才拼(模块刚载入时它们可能还没有)
+let needs: { cap: number; level: number }[][] | null = null;
+let cards: TableCard[] | null = null;
+
 /** 各说的前提(能力的下标、档位;一样或两样) */
-const NEEDS = THOUGHTS.map((t) => {
-  if (t.needs.length < 1 || t.needs.length > 2) throw new Error(`思潮表:「${t.name}」的前提要一样或两样`);
-  return t.needs.map(invention);
-});
+function needsOf(): { cap: number; level: number }[][] {
+  return (needs ??= THOUGHTS.map((t) => {
+    if (t.needs.length < 1 || t.needs.length > 2) throw new Error(`思潮表:「${t.name}」的前提要一样或两样`);
+    return t.needs.map(invention);
+  }));
+}
 
 /** 思潮的数表(规则里的常数都取这个文件里的;测试拿它在几州的小图上单算) */
-export const IDEO_CARDS = ideoCards(
-  {
-    NAMES: THOUGHTS.map((t) => t.name),
-    CAPS,
-    ROOTS: THOUGHTS.map((t) => t.root),
-    NEED_A_CAP: NEEDS.map((n) => n[0].cap),
-    NEED_A_LV: NEEDS.map((n) => n[0].level),
-    NEED_B_CAP: NEEDS.map((n) => n[n.length - 1].cap),
-    NEED_B_LV: NEEDS.map((n) => n[n.length - 1].level),
-    BOOST_CAP: THOUGHTS.map((t) => (t.boost ? invention(t.boost).cap : 0)),
-    BOOST_LV: THOUGHTS.map((t) => (t.boost ? invention(t.boost).level : NO_BOOST)),
-    RIVAL: THOUGHTS.flatMap((t) => THOUGHTS.map((u) => (u === t ? 0 : CROWD + (t.rivals?.[u.name] ?? 0)))),
-    BELOW,
-    ABOVE,
-    BOOST,
-    LEARN,
-    SAME_STATE,
-    LINK,
-    SEA_ROUTE: AdjKind.SeaRoute,
-    SEA_PER_TRANSPORT,
-    RECEPT,
-    PRESS_CAP: invention('报刊').cap,
-    PRESS_LV: invention('报刊').level,
-    PRESS_UP,
-    GROW,
-    FOOT,
-    FADE,
-    CITY_HALF,
-  },
-  STEP,
-);
+export function ideoTableCards(): TableCard[] {
+  if (cards) return cards;
+  const NEEDS = needsOf();
+  cards = ideoCards(
+    {
+      NAMES: THOUGHTS.map((t) => t.name),
+      CAPS,
+      ROOTS: THOUGHTS.map((t) => t.root),
+      NEED_A_CAP: NEEDS.map((n) => n[0].cap),
+      NEED_A_LV: NEEDS.map((n) => n[0].level),
+      NEED_B_CAP: NEEDS.map((n) => n[n.length - 1].cap),
+      NEED_B_LV: NEEDS.map((n) => n[n.length - 1].level),
+      BOOST_CAP: THOUGHTS.map((t) => (t.boost ? invention(t.boost).cap : 0)),
+      BOOST_LV: THOUGHTS.map((t) => (t.boost ? invention(t.boost).level : NO_BOOST)),
+      RIVAL: THOUGHTS.flatMap((t) => THOUGHTS.map((u) => (u === t ? 0 : CROWD + (t.rivals?.[u.name] ?? 0)))),
+      BELOW,
+      ABOVE,
+      BOOST,
+      LEARN,
+      SAME_STATE,
+      LINK,
+      SEA_ROUTE: AdjKind.SeaRoute,
+      SEA_PER_TRANSPORT,
+      RECEPT,
+      PRESS_CAP: invention('报刊').cap,
+      PRESS_LV: invention('报刊').level,
+      PRESS_UP,
+      GROW,
+      FOOT,
+      FADE,
+      CITY_HALF,
+    },
+    STEP,
+  );
+  return cards;
+}
 
 // ---------------------------------------------------------------------------
 // 推演里的模型
@@ -254,7 +266,7 @@ function emptyModel(d: DevModel, seed: number): IdeoModel {
   const R = d.R;
   const eng = new TableEngine({
     seed: subSeed(seed, 'civ-ideology'),
-    cards: IDEO_CARDS,
+    cards: ideoTableCards(),
     units: { region: { count: R, adjStart: reg.adjStart, adj: reg.adj, adjKind: reg.adjKind, seat: reg.seat } },
     owner: '国',
   });
@@ -385,6 +397,7 @@ function tick(sim: CivSim, m: IdeoModel, y: Year, prev: Float64Array): void {
   const emerge = () => {
     emerged = true;
     const fit = eng.get('合');
+    const need = needsOf();
     for (let k = 0; k < K; k++) {
       if (m.emerged[k]) continue;
       let at = -1;
@@ -395,7 +408,7 @@ function tick(sim: CivSim, m: IdeoModel, y: Year, prev: Float64Array): void {
         if (!(f >= EMERGE_FIT)) continue;
         let ok = true;
         let tc = -Infinity;
-        for (const n of NEEDS[k]) {
+        for (const n of need[k]) {
           const a1 = cur[r * CAP_COUNT + n.cap];
           if (!(a1 >= n.level)) {
             ok = false;
@@ -487,11 +500,15 @@ export function finishIdeology(sim: CivSim, endYear: Year): Ideology | undefined
   arrive.set(m.arrive.slice(0, P * K));
   // 同一步里的几件按估出来的那一刻排(排序是稳定的)
   const events = m.events.map((e) => ({ ...e })).sort((a, b) => a.year - b.year);
+  // 国中按此刻的国数存(上一步以后才立的国补 0;接着推时建表就按此刻的国数,两边一样长)
+  const nat = new Float64Array(P * K);
+  const natNow = m.eng.get('国中');
+  nat.set(natNow.subarray(0, Math.min(natNow.length, nat.length)));
   const state: IdeoState = {
     last: m.last,
     annals: m.annals,
     tail,
-    tables: { last: m.last, data: { 合: m.eng.get('合').slice(), 思潮: m.eng.get('思潮').slice(), 国中: m.eng.get('国中').slice() } },
+    tables: { last: m.last, data: { 合: m.eng.get('合').slice(), 思潮: m.eng.get('思潮').slice(), 国中: nat } },
   };
   return { snaps, snapYears, polities, arrive, events, state };
 }

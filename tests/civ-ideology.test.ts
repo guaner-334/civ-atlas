@@ -12,7 +12,7 @@ import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { populationAt, regionPopulationAt } from '../src/gen/civ/growth';
 import { CAP_COUNT, INVENTIONS, developmentAt } from '../src/gen/civ/development';
-import { ARRIVE, IDEO_CARDS, IDEO_SCALE, THOUGHTS, THOUGHT_COUNT, ideologyAt, polityIdeologyAt, polityThoughts, thoughtArrival, thoughtOrigin } from '../src/gen/civ/ideology';
+import { ARRIVE, IDEO_SCALE, THOUGHTS, THOUGHT_COUNT, ideologyAt, polityIdeologyAt, polityThoughts, ideoTableCards, thoughtArrival, thoughtOrigin } from '../src/gen/civ/ideology';
 import { TableEngine, type Backend } from '../src/gen/civ/tables';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { AdjKind } from '../src/gen/civ/types';
@@ -58,7 +58,7 @@ function miniEngine(m: Mini, backend?: Backend): TableEngine {
   const adj = new Int32Array(adjStart[R]);
   const adjKind = new Uint8Array(adjStart[R]);
   nb.flat().forEach(([j, kind], i) => ((adj[i] = j), (adjKind[i] = kind)));
-  const eng = new TableEngine({ seed: 1, cards: IDEO_CARDS, units: { region: { count: R, adjStart, adj, adjKind, seat: new Int32Array(R) } }, owner: '国', ...(backend ? { backend } : {}) });
+  const eng = new TableEngine({ seed: 1, cards: ideoTableCards(), units: { region: { count: R, adjStart, adj, adjKind, seat: new Int32Array(R) } }, owner: '国', ...(backend ? { backend } : {}) });
   const P = Math.max(0, ...m.polity) + 1;
   eng.setPolities(P);
   eng.input('民族').fill(0);
