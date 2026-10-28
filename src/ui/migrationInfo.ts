@@ -63,11 +63,12 @@ export function polityTrek(civ: Civ, id: number): { m: number; M: Migration } | 
 
 /**
  * 人物卡「来历」:这个人是不是跟着迁过来的那一代人。lead = 领头立国的那位(这国第一位君主);
- * follow = 动身以前生的;road = 路上生的。在新地方生的、名臣将领籍贯是别族的城的 = null
+ * follow = 动身以前生的;road = 路上生的。在新地方生的、没活到落脚的、名臣将领籍贯是别族的城的 = null
  */
 export function personTrek(civ: Civ, x: Person): { m: number; M: Migration; how: 'lead' | 'follow' | 'road' } | null {
   const t = polityTrek(civ, x.polity);
-  if (!t || t.M.settled === undefined || !(x.born < t.M.settled)) return null;
+  // 落脚以后出生的、落脚以前就去世的(世系里补出来的父辈可能卒于动身以前)不算
+  if (!t || t.M.settled === undefined || !(x.born < t.M.settled) || (x.died !== undefined && x.died < t.M.settled)) return null;
   if (x.role === 'ruler' && peopleIndex(civ).rulers[x.polity]?.[0]?.id === x.id) return { ...t, how: 'lead' };
   const home = x.home !== undefined ? civ.settlements[x.home] : undefined;
   if (home && home.culture !== t.M.culture) return null;

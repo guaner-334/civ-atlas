@@ -22,7 +22,7 @@ import type { CivDrawParams, CivStyle } from './overlay';
 import { pathToCanvas, placedMarkBox, toCanvas, type LabelView, type Placement } from '../labels/draw';
 import { glyphBox } from '../labels/layout';
 import { familyFor, fontCss } from '../labels/fonts';
-import { clipOutline, type Projector } from '../projection';
+import { clipOutline, projectLinePts, type Projector } from '../projection';
 import { shiftsIn } from './warfare';
 
 // ---------------------------------------------------------------------------
@@ -686,12 +686,48 @@ export function drawTreks(ctx: CanvasRenderingContext2D, p: CivDrawParams, lv: L
   for (const t of scene) {
     const w = cutWorld(t);
     const marks = t.marks.map((mk) => ({ mk, at: pointAt(t.path.pts, t.path.s, markS(t, mk, back)) }));
+    if (pj) {
+      // 弯边投影:整条按起点那一刻的经度差连续投过去;伸出 ±180° 的那一截在另一边再画一份(和战线一样,见 projectLinePts),
+      // 起点、火苗跟着同一份挪
+      const v = { s: lv.scale, ox: lv.ox, oy: lv.oy };
+      const k2 = (2 * Math.PI) / pj.W;
+      const r0 = pj.rel(w[0]);
+      let lo = r0;
+      let hi = r0;
+      for (let i = 2; i < w.length; i += 2) {
+        const r = r0 + (w[i] - w[0]) * k2;
+        if (r < lo) lo = r;
+        if (r > hi) hi = r;
+      }
+      const at = (x: number, y: number, shift: number): [number, number] => [
+        (pj.W / 2 + pj.K(y) * (r0 + (x - w[0]) * k2 + shift)) * v.s + v.ox,
+        pj.Y(y) * v.s + v.oy,
+      ];
+      const shifts = [0];
+      if (lo < -Math.PI) shifts.push(2 * Math.PI);
+      if (hi > Math.PI) shifts.push(-2 * Math.PI);
+      const copies = projectLinePts(w, 2, pj, v);
+      shifts.forEach((sh, i) => {
+        const start = at(w[0], w[1], sh);
+        out.push({
+          t,
+          pts: copies[i] ? Array.from(copies[i]) : [...start, ...start],
+          head: true,
+          start,
+          marks: marks.map(({ mk, at: q }) => {
+            const [x, y] = at(q[0], q[1], sh);
+            return { k: mk, x, y };
+          }),
+        });
+      });
+      continue;
+    }
     if (lv.proj) {
+      // 只有标注投影、没给画线的投影(不该有):整条连续投过去
       const ref = midX(w);
-      const pts = pathToCanvas(w, lv);
       out.push({
         t,
-        pts,
+        pts: pathToCanvas(w, lv),
         head: true,
         start: toCanvas(lv, w[0], w[1], ref),
         marks: marks.map(({ mk, at }) => {
@@ -750,6 +786,7 @@ export function drawGlobeTreks(
   u: number,
   dpr: number,
   alpha = 1,
+  era?: Era | null,
 ): number {
   if (!treksShown(p)) return 0;
   const scene = trekScene(p.civ, p.world, p.year);
@@ -785,7 +822,7 @@ export function drawGlobeTreks(
     });
     if (!runs.length && s0[2] >= minD) out.push({ t: shown, pts: [s0[0], s0[1]], head: false, start: [s0[0], s0[1]], marks: [] });
   }
-  paintTreks(ctx, p.civ, out, u, dpr, 1, p.style);
+  paintTreks(ctx, p.civ, out, u, dpr, 1, p.style, { era });
   return out.length;
 }
 

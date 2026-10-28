@@ -13,6 +13,7 @@ import { rasterize, type Raster } from '../src/gen/raster';
 import { CIV_SHOW_OFF, type CivDrawParams } from '../src/render/civ/overlay';
 import { FADE, LINGER, drawTreks, trekAlpha, trekBox, trekLook, trekPath, trekReach, trekScene, treksShown } from '../src/render/civ/migrations';
 import type { LabelView } from '../src/render/labels/draw';
+import { labelProjection, mapProj, projector } from '../src/render/projection';
 import { jumpYearOf, setCivShow } from '../src/ui/civView';
 import { departureEntry, flashAlpha, personTrek, polityTrek, trekOfEntry } from '../src/ui/migrationInfo';
 import { flatFly, selectionFocus } from '../src/ui/flyTo';
@@ -174,6 +175,24 @@ describe('画不画、怎么画', () => {
     expect(texts.some((s) => s.startsWith(`${Math.floor(raid.year)} 掠`))).toBe(true);
   });
 
+  it('弯边投影:路线跨过地图左右边(中央经线对面)时,两边各画一份,不丢那一截', () => {
+    const M = L.find((x) => x.settled !== undefined)!;
+    const p = trekPath(civ, world, L.indexOf(M))!;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < p.pts.length; i += 2) [lo, hi] = [Math.min(lo, p.pts[i]), Math.max(hi, p.pts[i])];
+    // 中央经线放在路线正中的对面:地图的左右边从路线中间穿过
+    const seam = (lo + hi) / 2;
+    const lon0 = ((seam / world.width) * 360 - 180 + 180 + 540) % 360 - 180;
+    const mp = mapProj('robinson', lon0, world.width, world.height);
+    const ctx = new Proxy({}, { get: (_t, k) => (k === 'measureText' ? (s: string) => ({ width: s.length * 12 }) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D;
+    const lv: LabelView = { scale: 1, ox: 0, oy: 0, dpr: 1, k: 1, mapCss: world.width, worldW: world.width, worldH: world.height, wrap: 0, canvasW: world.width, canvasH: world.height, proj: labelProjection(mp) };
+    expect(drawTreks(ctx, params(M.settled! + 1), lv, projector(mp))).toBeGreaterThanOrEqual(2);
+    // 中央经线就在路线正中:一份就够
+    const mid = mapProj('robinson', ((seam / world.width) * 360 - 180 + 540) % 360 - 180, world.width, world.height);
+    expect(drawTreks(ctx, params(M.settled! + 1), { ...lv, proj: labelProjection(mid) }, projector(mid))).toBe(1);
+  });
+
   it('选中迁来立的国:来路还在地图上时镜头连来路一起框,淡完以后只框国土;不填色时不框来路', () => {
     const M = L.find((x) => x.polity !== undefined && x.settled! + LINGER + FADE < (civ.polities[x.polity].ended ?? civ.endYear))!;
     const m = L.indexOf(M);
@@ -230,7 +249,7 @@ describe('编年史、卡片', () => {
     expect(flashAlpha(5000)).toBe(0);
   });
 
-  it('国家卡片、人物卡的来历:迁来立的国;领头立国的是第一位君主,落脚以后生的不写', () => {
+  it('国家卡片、人物卡的来历:迁来立的国;领头立国的是第一位君主,落脚以后生的、没活到落脚的不写', () => {
     let lead = 0;
     let follow = 0;
     for (const [m, M] of L.entries()) {
@@ -244,7 +263,7 @@ describe('编年史、卡片', () => {
       for (const x of civ.people ?? []) {
         if (x.polity !== M.polity) continue;
         const t = personTrek(civ, x);
-        if (x.born >= M.settled!) expect(t).toBeNull();
+        if (x.born >= M.settled! || (x.died !== undefined && x.died < M.settled!)) expect(t).toBeNull();
         else if (t && t.how !== 'lead') {
           follow++;
           expect(t.how).toBe(x.born < M.year ? 'follow' : 'road');

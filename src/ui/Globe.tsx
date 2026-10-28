@@ -135,7 +135,7 @@ import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
 import { drawHolyDot, holyCities } from '../render/civ/faith';
 import { drawResourceBadges, hitsLabels, resourceBadges, type ResourceBadge } from '../render/civ/resources';
 import { cultureFocusOf, faithFocusOf, selectionOnMap } from './faithSelection';
-import { yearFull } from '../gen/era';
+import { yearFull, type Era } from '../gen/era';
 import { currentEra } from './editsStore';
 import './globe.css';
 
@@ -467,6 +467,8 @@ interface OverlayInput {
   war: CivDrawParams | null;
   /** 大迁徙的箭头(每帧按画布像素画,背面的几段不画);没开 / 不画 = null */
   treks: CivDrawParams | null;
+  /** 纪年(大迁徙路线旁的年份照它写) */
+  era: Era | undefined;
   /** 编年史高亮的描边、圆圈(不闪的时候 = null),alpha = 闪到多亮 */
   hl: { strokes: GlobeLineStroke[]; ring: { box: [number, number, number, number]; colors: [string, string, string] } | null; alpha: number } | null;
   /** 信仰图层:圣城的小圆点(世界坐标、这个教的颜色) */
@@ -590,7 +592,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     drawSwords(ctx, swords, style);
   }
   // 大迁徙的箭头:粗细和线宽一样按 unit;背面、贴着球边缘的几段不画
-  if (o.treks && o.lineAlpha > 0.01) drawGlobeTreks(ctx, o.treks, (x, y) => globePoint(P, x, y, o.world.width, o.world.height), MARK_MIN_D, o.unit * dpr, dpr, o.lineAlpha);
+  if (o.treks && o.lineAlpha > 0.01) drawGlobeTreks(ctx, o.treks, (x, y) => globePoint(P, x, y, o.world.width, o.world.height), MARK_MIN_D, o.unit * dpr, dpr, o.lineAlpha, o.era);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (o.cpuDecor) {
     if (o.graticule) {
@@ -1487,6 +1489,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       lineAlpha: 1 - s.replayMix,
       war: cp && warsShown(cp) ? cp : null,
       treks: cp && treksShown(cp) ? cp : null,
+      era: currentEra(),
       hl: s.hlA > 0.001 && (s.hlTex.strokes.length || s.hlTex.ring) ? { strokes: s.hlTex.strokes, ring: s.hlTex.ring, alpha: s.hlA } : null,
       placement: pl,
       shift: at.shift,
