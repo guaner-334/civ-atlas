@@ -198,7 +198,7 @@ export function PolicyPage({ civ, id, year, from }: { civ: Civ; id: number; year
     const n = d[k];
     const pos = 50 + n;
     const val = n === 0 ? <span className="pol-v zero">照性格</span> : <span className="pol-v">{n > 0 ? `+${n}` : `−${-n}`}</span>;
-    const note = knobNote(k, n, lean, ruler?.name ?? '');
+    const note = knobNote(k, n, lean, ruler?.name ?? '', ruler);
     return (
       <div className={`pol-knob${o.sub ? ' sub' : ''}`} data-knob={k}>
         <div className="pol-k">
