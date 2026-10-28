@@ -41,7 +41,7 @@ import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanv
 import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
 import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
 import { drawTreks, treksShown } from '../render/civ/migrations';
-import { flashAlpha, useTrekFlash } from './migrationInfo';
+import { FLASH_MS as TREK_FLASH_MS, flashAlpha, useTrekFlash } from './migrationInfo';
 import { useEra } from './editsStore';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
@@ -888,7 +888,8 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     // 战线、双剑压在国界上、城镇符号和字底下
     const war = wars && params ? drawWarfare(ctx, params, lv, mp ? projector(mp) : null) : null;
     // 大迁徙的路线也是:字躲开排好的地名、符号和盖着的界面
-    const glowA = trekFlash ? flashAlpha(performance.now() - trekFlash.t0) : 0;
+    const flashMs = trekFlash ? performance.now() - trekFlash.t0 : Infinity;
+    const glowA = flashAlpha(flashMs);
     const trekN = treks && params ? drawTreks(ctx, params, lv, mp ? projector(mp) : null, { placed, blocked: ui, era, glow: glowA > 0 ? { m: trekFlash!.m, a: glowA } : null }) : 0;
     drawSelectionLabels(ctx, placed, lv, sel, style, at);
     const capFlags: CapitalFlags | undefined =
@@ -948,7 +949,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
       fitted: !!fitMp,
     };
     // 配角名淡入中、迁徙的箭头亮着:下一帧再画
-    if (!fading && !(glowA > 0)) return;
+    if (!fading && !(flashMs < TREK_FLASH_MS)) return;
     const h = requestAnimationFrame(() => setFadeTick((n) => n + 1));
     return () => cancelAnimationFrame(h);
   }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick, trekFlash, era]);
