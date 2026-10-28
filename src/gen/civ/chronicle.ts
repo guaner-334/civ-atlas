@@ -228,9 +228,12 @@ export function entryYearLabel(e: ChronicleEntry): string {
   return b > a ? `第 ${a}—${b} 年` : `第 ${a} 年`;
 }
 
-/** 条目的年份带月(一年 months 个月;0 = 只写年):"第 1240 年 3 月";跨年的折叠条目照旧 "第 1240—1256 年"(每一件事各自写月) */
-export function entryYearMonthLabel(e: ChronicleEntry, months: number): string {
-  return Math.floor(e.end) > Math.floor(e.year) ? entryYearLabel(e) : `${yearText(e.year)}${monthTail(e.year, months)}`;
+/**
+ * 条目的年份带月(一年 months 个月;0 = 只写年):"第 1240 年 3 月";月份起了名字的 "第 1240 年端月"(names 见 era.ts 的 MonthNames);
+ * 跨年的折叠条目照旧 "第 1240—1256 年"(每一件事各自写月)
+ */
+export function entryYearMonthLabel(e: ChronicleEntry, months: number, names?: readonly string[] | null): string {
+  return Math.floor(e.end) > Math.floor(e.year) ? entryYearLabel(e) : `${yearText(e.year)}${monthTail(e.year, months, names)}`;
 }
 
 function polityOf(civ: Civ, id: number): Polity | null {
@@ -4068,13 +4071,16 @@ export function filterChronicle(entries: readonly ChronicleEntry[], f: Chronicle
   return entries.filter((e) => (!f.major || e.importance >= MAJOR) && (pol === null || entryInvolves(e, pol)));
 }
 
-/** 纯文本(复制给 OC 作者写设定用):一条一行,折叠条目的子条目缩进列在下面;era = 年份照这个纪年写;months = 一年几个月(0 = 只写年) */
-export function chronicleText(entries: readonly ChronicleEntry[], title?: string, era?: Era, months = 0): string {
+/**
+ * 纯文本(复制给 OC 作者写设定用):一条一行,折叠条目的子条目缩进列在下面;era = 年份照这个纪年写;months = 一年几个月(0 = 只写年);
+ * monthNames = 月份的名字(没有 = 写数字)
+ */
+export function chronicleText(entries: readonly ChronicleEntry[], title?: string, era?: Era, months = 0, monthNames?: readonly string[] | null): string {
   const lines: string[] = [];
   if (title) lines.push(title, '');
   for (const e of entries) {
-    lines.push(eraText(`${entryYearMonthLabel(e, months)} ${e.text}`, era));
-    for (const c of e.children ?? []) lines.push(eraText(`    ${entryYearMonthLabel(c, months)} ${c.text}`, era));
+    lines.push(eraText(`${entryYearMonthLabel(e, months, monthNames)} ${e.text}`, era));
+    for (const c of e.children ?? []) lines.push(eraText(`    ${entryYearMonthLabel(c, months, monthNames)} ${c.text}`, era));
   }
   return lines.join('\n');
 }
@@ -4102,6 +4108,8 @@ export interface ChronicleDocOptions {
   era?: Era;
   /** 一年几个月,纪事写到哪一月(不给 / 0 = 只写年) */
   months?: number;
+  /** 月份的名字(第 i 个 = 第 i + 1 月;不给 / 空着 = 写数字) */
+  monthNames?: readonly string[];
 }
 
 /** Markdown 里有特殊含义的几个符号前面加反斜杠(纪事是中文,一般用不到,防个万一) */
@@ -4121,6 +4129,7 @@ export function chronicleDocument(civ: Civ, opt: ChronicleDocOptions): string {
   const span = Math.max(1, Math.floor(opt.eraYears ?? chronicleEraYears(civ.endYear)));
   const era = opt.era;
   const months = opt.months ?? 0;
+  const names = opt.monthNames;
   const title = eraText(`编年史 · 种子 ${opt.seed} · 第 0—${end} 年`, era);
   const esc = md ? (s: string) => mdEscape(eraText(s, era)) : (s: string) => eraText(s, era);
   const out: string[] = [];
@@ -4147,11 +4156,11 @@ export function chronicleDocument(civ: Civ, opt: ChronicleDocOptions): string {
         sec = i;
         out.push(md ? `### ${eraTitle(i)}` : `【${eraTitle(i)}】`, '');
       }
-      const ey = esc(entryYearMonthLabel(e, months));
+      const ey = esc(entryYearMonthLabel(e, months, names));
       out.push(md ? `- **${ey}** ${esc(e.text)}` : `${ey} ${esc(e.text)}`);
       if (children)
         for (const c of e.children ?? []) {
-          const cy = esc(entryYearMonthLabel(c, months));
+          const cy = esc(entryYearMonthLabel(c, months, names));
           out.push(md ? `  - ${cy} ${esc(c.text)}` : `    ${cy} ${esc(c.text)}`);
         }
     }

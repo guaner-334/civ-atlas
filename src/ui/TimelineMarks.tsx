@@ -24,7 +24,7 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
 import { eraText, yearAt, yearFull, yearShort, yearSpanAt, type Era } from '../gen/era';
-import { useMonths } from './editsStore';
+import { useMonthNames, useMonths } from './editsStore';
 import { getCivTime, pickChronicleEntry, setCivTime, stepYear } from './civView';
 import {
   LIFE_FONT,
@@ -133,6 +133,7 @@ type Tip = Diamond & { pinned?: boolean };
 export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, year, era, range, small, limit, grow, fresh, life, plots, pandemics }: TimelineMarksProps) {
   const ref = useRef<HTMLDivElement>(null);
   const months = useMonths();
+  const monthNames = useMonthNames();
   const tipRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [tip, setTip] = useState<Tip | null>(null);
@@ -615,7 +616,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
                 }}
               >
                 <b className="tb-ev">{evLabel(e)}</b>
-                <span className="tb-tip-year">{evYears(e, era, months)}</span>
+                <span className="tb-tip-year">{evYears(e, era, months, monthNames)}</span>
                 <span className="tb-tip-text">{eraText(evText(e), era)}</span>
               </div>
               {subRows(e).map((c) => (
