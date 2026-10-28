@@ -200,7 +200,7 @@ export function finishTrade(sim: CivSim, regions?: Regions): Trade | undefined {
   const routes: TradeRoute[] = m.routes.map(copyRoute);
   const before = routes.map((r) => r.events.length);
   const live = m.live.map((L) => ({ r: routes[L.r.id], broken: L.broken, blockers: L.blockers.slice(), via: L.via.slice() }));
-  scanAnnals(sim, live, m.annals);
+  scanAnnals(sim, m.pm, live, m.annals);
   dropFallen(m.pm, live, sim.now, false);
   const tail: [number, number][] = [];
   routes.forEach((r, i) => {
@@ -251,7 +251,7 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
   const R = Math.min(pm.terrain.R, ownP.length);
 
   // 1. 两步之间的史事:宣战断、议和复通;2. 买方亡了:那一年废
-  m.annals = scanAnnals(sim, m.live, m.annals);
+  m.annals = scanAnnals(sim, pm, m.live, m.annals);
   const P = pm.polities.length;
   const alive = (p: number) => p >= 0 && p < P && pm.polities[p].ended === undefined && pm.size[p] > 0;
   m.live = dropFallen(pm, m.live, t, true);
@@ -436,8 +436,11 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
   finishStep(m, t);
 }
 
-/** 史事从第 from 条读起:买方和商道经过的国家宣战 → 断(记下是哪一仗),挡着它的仗都议和了 → 复通。返回读到第几条 */
-function scanAnnals(sim: CivSim, live: Live[], from: number): number {
+/**
+ * 史事从第 from 条读起:买方和商道经过的国家宣战 → 断(记下是哪一仗),挡着它的仗都议和了 → 复通
+ * (买方那一刻已经亡了的不算复通:亡国时它的仗都议和了,接着就废)。返回读到第几条
+ */
+function scanAnnals(sim: CivSim, pm: PolityModel, live: Live[], from: number): number {
   let i = from;
   for (; i < sim.annalCount; i++) {
     const e = sim.annal(i);
@@ -457,7 +460,8 @@ function scanAnnals(sim: CivSim, live: Live[], from: number): number {
         const k = L.blockers.indexOf(e.war);
         if (k < 0) continue;
         L.blockers.splice(k, 1);
-        if (L.broken && !L.blockers.length) {
+        const gone = pm.polities[L.r.buyer]?.ended;
+        if (L.broken && !L.blockers.length && !(gone !== undefined && gone <= e.year)) {
           push(L, { year: e.year, kind: 'reopen', war: e.war });
           L.broken = false;
         }
