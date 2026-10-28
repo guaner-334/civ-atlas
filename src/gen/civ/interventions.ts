@@ -73,7 +73,7 @@
  *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
-import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, type Intervention } from '../edits';
+import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
 import { Layer, type Polity } from './types';
 import { subSeed } from './rand';
 import { Ev, LOOK_K, quantize, type CivSim } from './sim';
@@ -104,7 +104,10 @@ type PersonIv = Extract<Intervention, { kind: 'death' | 'temper' }>;
 
 /** 推演里的干预:清理过的列表 + 键 → 编号的解析 + 各机制查询用的规则 */
 export class InterventionModel {
+  /** 推演用的干预(edits.ts 的 simInterventions:年中的 from 就是那一刻) */
   readonly list: readonly Intervention[];
+  /** 清理过的原样(年中的照旧是 from + fromTick;Civ.interventions 存这一份) */
+  readonly stored: readonly Intervention[];
   /** keyed 随机数的根(援盟) */
   readonly base: number;
   /** 城镇 / 国家模型(installInterventions 时挂上;解析键要用) */
@@ -133,8 +136,9 @@ export class InterventionModel {
   private readonly cityPerRegion = new Map<number, number>();
   private knownCities = 0;
 
-  constructor(list: readonly Intervention[], seed: number) {
+  constructor(list: readonly Intervention[], seed: number, stored: readonly Intervention[] = list) {
     this.list = list;
+    this.stored = stored;
     this.base = subSeed(seed, 'civ-intervene');
     this.protectRules = list.filter((v): v is Extract<Intervention, { kind: 'protect' }> => v.kind === 'protect');
     this.unityRules = list.filter((v): v is Extract<Intervention, { kind: 'unity' }> => v.kind === 'unity');
@@ -318,7 +322,7 @@ export function interventionModelOf(sim: CivSim): InterventionModel | undefined 
 
 /**
  * 预约各条干预的事件(在所有别的事件之前调用:同一刻里只有地形大事和看王朝、新君即位、迁都后重看边地排在干预前面;
- * "不许扩张到期"又比干预事件更早)。
+ * "不许扩张到期"又比干预事件更早)。年中的(带 fromTick)在那一年的那一格生效(edits.ts 的 simInterventions)。
  * generateCiv 里全部预约;fromCiv 接着推(resume)时只预约比现在晚的(已经到了的在切开之前就处理过了)。
  * 没有(合格的)干预 = null,什么都不做
  */
@@ -328,9 +332,10 @@ export function scheduleInterventions(
   raw: readonly Intervention[] | undefined,
   resume = false,
 ): InterventionModel | null {
-  const list = cleanInterventions(raw);
-  if (!list.length) return null;
-  const iv = new InterventionModel(list, seed);
+  const stored = cleanInterventions(raw);
+  if (!stored.length) return null;
+  const list = simInterventions(stored);
+  const iv = new InterventionModel(list, seed, stored);
   list.forEach((v, i) => {
     if (v.kind === 'halt' && v.until !== undefined && (!resume || quantize(v.until) > sim.now)) sim.schedule(v.until, Ev.HaltEnd, i, 0);
   });

@@ -106,7 +106,8 @@
  * 推一把发展(boost):mul 吸到最近的一档(BOOST_MULS;不是大于 1 的数 = 不给,直接进);直接进不要 until;快几倍的 until 不晚于 from 的
  * 换成 from + BOOST_YEARS_DEFAULT;regions 去重、去掉格式不对的、最多 BOOST_REGIONS_MAX 个(给了却一个都不合格 = 不合格)。
  * fromTick(可选,哪一种都能带):在 from 那一年的第几格(见"时刻";1–YEAR_TICKS−1,没有 = 年初)。逐年推演停在年中时下的命令带着它;
- * 不是 0–YEAR_TICKS−1 的整数、是 0 的去掉(当年初)。until、born 这些别的年份照旧只到年。
+ * 不是 0–YEAR_TICKS−1 的整数、是 0 的去掉(当年初)。推演里在那一年的那一格生效,"从 from 起"的规则都从那一格算(simInterventions);
+ * until、born 这些别的年份照旧只到年。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -2092,6 +2093,21 @@ export function issueCommands(play: PlayState, commands: readonly unknown[]): { 
     else rejected.push(x);
   }
   return { play: playState(play.year, play.tick ?? 0, [...play.commands, ...accepted]), accepted, rejected };
+}
+
+/**
+ * 推演里面用的干预(civ/ 下的规则读它):清理过(cleanInterventions);年中的(带 fromTick)把 from 换成那一刻
+ * (from + fromTick / YEAR_TICKS,1/256 的整数倍,浮点里精确)、去掉 fromTick —— 规则里"从 from 那一刻起"照常比,不用另外认第几格。
+ * 没有年中的 = cleanInterventions 的结果原样。只给推演里面用:Civ.interventions、存档里照旧是 from + fromTick
+ */
+export function simInterventions(raw: readonly unknown[] | null | undefined): Intervention[] {
+  const list = cleanInterventions(raw);
+  if (!list.some((v) => v.fromTick)) return list;
+  return list.map((v) => {
+    if (!v.fromTick) return v;
+    const { fromTick, ...rest } = v;
+    return { ...rest, from: v.from + fromTick / YEAR_TICKS } as Intervention;
+  });
 }
 
 /** 推演用的干预列表:作者的干预后面接上逐年推演时下过的命令(没在逐年推演 = 作者的干预本身) */

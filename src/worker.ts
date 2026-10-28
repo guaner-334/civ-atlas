@@ -59,7 +59,7 @@ import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
 import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, recipeText, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
-import { playStop, playTurn } from './gen/civ/play';
+import { playStop, playTicks, playTurn } from './gen/civ/play';
 import { subSeed } from './gen/util';
 import { chronicleParts, type ChroniclePart } from './chronicleParts';
 import { splitCiv, type CivPart, type CivSplit } from './civParts';
@@ -149,10 +149,11 @@ export type WorkerRequest =
    */
   | ({ type: 'load'; id: number; scale: number; parts: SnapshotPart[]; interventions?: Intervention[] } & CivInput)
   /**
-   * 逐年推演的一步(gen/civ/play.ts 的 playTurn):在进度那一刻下 commands(只收正是这一刻的),接着推 years 年。
+   * 逐年推演的一步(gen/civ/play.ts 的 playTurn):在进度那一刻下 commands(只收正是这一刻的),接着推 years 年;
+   * 给了 ticks 就按格走(playTicks:走 ticks 格,能停在年中),不看 years。
    * 线程里记着这份进度的结果就接着推;没有(线程被重开过、换了世界)就从第 0 年推到这一刻再接着推(结果一样,只是慢)
    */
-  | ({ type: 'turn'; id: number; play: PlayState; commands: unknown[]; years: number; interventions?: Intervention[] } & CivInput)
+  | ({ type: 'turn'; id: number; play: PlayState; commands: unknown[]; years: number; ticks?: number; interventions?: Intervention[] } & CivInput)
   /**
    * 再推 N 年:在推完的世界上接着推到第 to 年(gen/edits.ts 的 extendedEndYear 算;整数,到 END_YEAR_MAX 为止),前面的历史一点不变。
    * 其余各项和推这个世界时一样(推演年数不带:线程记着推好的那份历史,从它接着推);逐年推演中的世界不用这个(用 turn)。
@@ -1163,7 +1164,8 @@ async function handle(m: Queued): Promise<void> {
     const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m) };
     // 上一步的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一步年初
     const from = (await heldCiv(m, m.play)) ?? generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
-    const out = playTurn(world, from, { ...params, ...memoOpt(world, m.civSeed) }, m.play, m.commands, m.years);
+    const opt = { ...params, ...memoOpt(world, m.civSeed) };
+    const out = m.ticks !== undefined ? playTicks(world, from, opt, m.play, m.commands, m.ticks) : playTurn(world, from, opt, m.play, m.commands, m.years);
     const ms = performance.now() - t0;
     const cloned = cloneCiv(out.civ);
     keepCiv(m, out.play, cloned);
