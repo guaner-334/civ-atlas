@@ -14,7 +14,7 @@
 import type { Annal, Civ, Person, PersonCommand, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
-import { isConsul, kinOf, personName, rulerRef, rulerShort } from './peopleText';
+import { isConsul, kinOf, personName, rulerRef, rulerShort, rulerTitle } from './peopleText';
 
 /** 够这么多分算名人 */
 export const FAME_MIN = 6;
@@ -331,7 +331,7 @@ export function personMentions(civ: Civ, text: string, ids: readonly number[] | 
     if (!x || id === skip) continue;
     const forms = new Set<string>([personName(civ, x), rulerShort(civ, x), x.name]);
     if (x.role === 'ruler' && x.title) {
-      forms.add(x.title);
+      forms.add(rulerTitle(civ, x));
       if (year !== undefined && civ.polities[x.polity]?.eastern) forms.add(rulerRef(civ, x, year));
     }
     for (const s of forms) if ([...s].length >= 2) cands.push({ s, id });

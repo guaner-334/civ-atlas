@@ -852,6 +852,11 @@ export interface Person {
   polity: number;
   /** 本名:东方中式 = 姓 + 名("李昭");东方边塞、山海和西幻 = 名("咄苾""阿尔德里克") */
   name: string;
+  /**
+   * 女的 = true;男的不给(旧存档、旧链接里的人物没有这一项,一律当男的)。称呼里分男女的字(他 / 她、君号、身份词、亲属词、
+   * 身后称号、嫁娶)都照它取,见 gender.ts
+   */
+  female?: true;
   born: Year;
   /** 卒年;到结束年份还在世 = 不给 */
   died?: Year;
