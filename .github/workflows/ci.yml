@@ -23,13 +23,13 @@ concurrency:
 
 # 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项。
 # 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 8 份、压力测试分 3 份,每项十分钟以内;
-# 冒烟从头跑到尾约 40 分钟,分 4 份同时跑
+# 冒烟从头跑到尾约 37 分钟,分 5 份同时跑;类型检查 / 构建和画面回归都只要两三分钟,合在一项里先后跑
 jobs:
   build:
-    name: 类型检查 / 构建
+    name: 类型检查 / 构建 / 画面回归
     runs-on: ubuntu-latest
-    # 平常一分半左右
-    timeout-minutes: 10
+    # 平常四分半左右(类型检查 / 构建一分半,画面回归三分钟)
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -37,7 +37,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - name: 安装依赖
+        id: install
+        run: pnpm install --frozen-lockfile
       - name: 类型检查
         run: pnpm typecheck
       - name: 生产构建
@@ -45,6 +47,34 @@ jobs:
       # 打开网站时首页要下载的代码 + 样式(gzip)不超过上限;超了怎么办见 scripts/first-load.ts 开头
       - name: 首页下载量
         run: pnpm size
+      # 下面画面回归的几步不管上面类型检查 / 构建过没过都照样跑(依赖装好了就跑),一次看全;
+      # 这一项要上下两部分都过才算过,哪一步没过在检查页的步骤列表里看得出来
+      - name: 读取 Playwright 版本
+        id: pw
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # 浏览器按 Playwright 版本缓存;升级 Playwright 时自动重新下载
+      - name: 缓存无头浏览器
+        id: pw-cache
+        if: ${{ !cancelled() && steps.pw.outcome == 'success' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-shell
+      - name: 安装无头浏览器(缓存未命中时)
+        if: ${{ !cancelled() && steps.pw.outcome == 'success' && steps.pw-cache.outputs.cache-hit != 'true' }}
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+      - name: 画面回归检查
+        id: visual
+        if: ${{ !cancelled() && steps.pw.outcome == 'success' }}
+        run: pnpm test:visual
+      - name: 上传画面差异图
+        if: ${{ !cancelled() && steps.visual.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff
+          path: snaps/visual-diff/
+          retention-days: 14
 
   # 单测分 8 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
   test:
@@ -91,16 +121,16 @@ jobs:
         env:
           STRESS_PART: ${{ matrix.part }}
 
-  # 冒烟分 4 份同时跑(各段按先后归份,几段自己开页面的挪到别的份拉平时长,见 scripts/replay-check.ts 的 PART_STARTS、MOVED)
+  # 冒烟分 5 份同时跑(各段按先后归份,几段自己开页面的挪到别的份拉平时长,见 scripts/replay-check.ts 的 PART_STARTS、MOVED)
   smoke:
     name: 冒烟 ${{ matrix.part }}
     runs-on: ubuntu-latest
-    # 平常每份十分钟上下(从头跑到尾约四十分钟),留足余量
+    # 平常每份八分钟上下(从头跑到尾约三十七分钟),留足余量
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        part: ['1/4', '2/4', '3/4', '4/4']
+        part: ['1/5', '2/5', '3/5', '4/5', '5/5']
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -126,39 +156,3 @@ jobs:
         run: pnpm smoke
         env:
           SMOKE_PART: ${{ matrix.part }}
-
-  visual:
-    name: 画面回归
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: 读取 Playwright 版本
-        id: pw
-        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      # 浏览器按 Playwright 版本缓存;升级 Playwright 时自动重新下载
-      - name: 缓存无头浏览器
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-shell
-      - name: 安装无头浏览器(缓存未命中时)
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps --only-shell chromium
-      - name: 画面回归检查
-        id: visual
-        run: pnpm test:visual
-      - name: 上传画面差异图
-        if: failure() && steps.visual.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: visual-diff
-          path: snaps/visual-diff/
-          retention-days: 14
