@@ -539,6 +539,9 @@
  *  46:大迁徙(civ/migration.ts):草原、寒地的民族老家挤、闹灾年、本族的国散了,附近又有大乱、疫后空了、富庶的地时,
  *      分出一支举族远走(每个世界三千年里三到六次),一路走一路抢,到了占几州立国、当即开战;打进国都的,比它小的国家亡国、
  *      大国大崩解,迁来的占着国都一带;入主以后统治民族是少数的,两三百年里多半渐染当地之俗。编年史一次一条大事。历史重新推演
+ *  47:时代做法(civ/practices.ts 的做法表):国都那州有了户籍才能议成直征(没有时最多和地方分成),有了常备军才议收兵权,
+ *      有了文官考选才议铨选;人口普查、铁路、电报、火药以后分封边镇渐废也接进议事和割据。编年史里头一回直征、禁军、铨选换说法,
+ *      进新时代那条接上铁路、电报。历史重新推演
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -552,7 +555,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 46;
+export const GENERATOR_VERSION = 47;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -617,6 +620,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
   46: { change: 'history' },
+  47: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

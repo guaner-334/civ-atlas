@@ -11,7 +11,7 @@
  *
  *   **管得到几成**(raw):国都所在州 = 1;别的州
  *       c = 1 ÷ (1 + (离国都的路程 ÷ 管得到的远近)²) × 异族 FOREIGN × 刚被征服(RECENT 年内,随年数淡去)× 当地大城 BIG_CITY
- *     管得到的远近 = REACH × (1 + ADMIN_GAIN × 国都所在州的行政能力)(发展度,development.ts;行政能力 0–9):
+ *     管得到的远近 = REACH × (1 + ADMIN_GAIN × 国都所在州的行政能力)(发展度,development.ts;行政能力 0–9;有了铁路的再乘 RAIL_REACH):
  *     行政越强,远处的州也管得住。分四档(controlTier):直辖、代管、自治,割据的州另算(见下)。
  *     行政能力也折进原来"离国都多远"的那几项(remote:路程 ÷ (FAR_REACH × 行政折算),行政越强远处越不算远):
  *       分裂的离心力(politics.ts),割据的州再加一截(politics.ts 的 LORD_D):割据久了的地方先起兵;
@@ -20,11 +20,12 @@
  *
  *   **割据**(看内政时,politics.ts 在分裂没成之后调 check):国土至少 MIN_SIZE 州、立国满 MIN_AGE 年的国家,
  *     管得最松(c < WARLORD_C)、有城的那州(不是国都、SETTLE 年没换过国家,离心力加一点随机挑),
- *     赔率 = ODDS × e^(K × (动荡 + (WARLORD_C − c) × GAP_W − U0)),换成概率;同时最多 MAX_LORDS 处。
+ *     赔率 = ODDS × e^(K × (动荡 + (WARLORD_C − c) × GAP_W − U0)),换成概率(有了电报的再乘 WIRE_LORD);同时最多 MAX_LORDS 处。
  *     割据的地盘(mark,现算):从那座城所在的州往外走陆路 HOPS 州以内、还是这国的、c < HOLD 的州(不含国都;近的先算,最多 DOMAIN_MAX 州)。
  *     名义上照旧归这国:地图上国界不变,只在「中央管到什么程度」图层上看得出来。
  *     割据了结:①那州换了国家(被打下、自立出去)= 就此了结,不另记;②中央收回(reclaim):以后每次看内政,
- *       那州的 c 已回到 HOLD 以上(行政变强、迁都近了)、或者国都迁到了那座城,就收回;否则按 RECLAIM_P × 1 ÷ (1 + 动荡) 的机会收回。
+ *       那州的 c 已回到 HOLD 以上(行政变强、迁都近了)、或者国都迁到了那座城,就收回;否则按 RECLAIM_P × 1 ÷ (1 + 动荡) 的机会收回
+ *       (有了铁路的再乘 RAIL_RECLAIM;做法表,practices.ts)。
  *     割据的州起兵自立的,史事 split 记 cause = warlord(编年史写"割据多年,遂……自立")。
  *
  *   **钱粮**(同一张政局的数表,公式见 stateTables.ts):各州田赋、工商、市税(每 FISCAL_EVERY 年按人口、生产 / 运输能力、港口大河算一次),
@@ -53,7 +54,8 @@ import { polityModelOf, powerScaleOf, unrestShiftOf, type PolityModel } from './
 import { GUIDE_UNREST } from './policy';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
-import { Cap, CAP_COUNT, cityPopulationsAt, devModelOf, type DevModel } from './development';
+import { Cap, CAP_COUNT, cityPopulationsAt, devModelOf, eraLevel, type DevModel } from './development';
+import { ERA_COL, Practice, RAIL_RECLAIM, WIRE_LORD, hasPractice, practiceMask } from './practices';
 import { capacityAt, capitalAt, populationAt } from './growth';
 import { TableEngine } from './tables';
 import { NEVER } from './devTables';
@@ -233,6 +235,8 @@ export interface ControlModel {
   fiefOf?: (p: number, t: Year) => boolean;
   /** 议事(council.ts 挂上):国家 p 的军制让新起割据的赔率乘多少(边镇多、禁军少) */
   lordOdds?: (p: number, t: Year) => number;
+  /** 国家 p 此刻有了哪几样做法(practices.ts 的按位;按国都所在州此刻的能力现算,和议事的底气同一处取) */
+  practices: (p: number, t: Year) => number;
 }
 
 const models = new WeakMap<CivSim, ControlModel>();
@@ -373,11 +377,15 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     }
     const [admin, crisis, age, famine, plague, quell, lordsN, size, mil, scale] = ['国都行政', '危机', '当朝', '饥荒', '疫病', '平叛', '割据', '州数', '军力', '国力倍数'].map((id) => eng.input(id));
     const lordLand = eng.input('割据州').fill(0);
+    // 国都所在州的五种能力和时代(做法表的前提,practices.ts)
+    const capab = eng.input('国都能力');
+    const CW = ERA_COL + 1;
     for (let p = 0; p < NP; p++) {
       capR[p] = -1;
       const P = pm.polities[p];
       if (!(pm.size[p] > 0)) {
         admin[p] = crisis[p] = age[p] = famine[p] = plague[p] = quell[p] = lordsN[p] = size[p] = mil[p] = scale[p] = 0;
+        capab.fill(0, p * CW, p * CW + CW);
         continue;
       }
       const sid = capitalAt(P, t);
@@ -385,6 +393,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       capR[p] = r;
       capCap[p] = capacityAt(pm.settlements[sid], t);
       admin[p] = dev.cur[r * CAP_COUNT + Cap.Administration] || 0;
+      for (let c = 0; c < CAP_COUNT; c++) capab[p * CW + c] = dev.cur[r * CAP_COUNT + c] || 0;
+      capab[p * CW + ERA_COL] = eraLevel(dev.cur, r) || 0;
       crisis[p] = pol.strain!(P, t);
       const x = unrestInputs(um, P, t);
       age[p] = x.age;
@@ -517,7 +527,11 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     const s = pm.cityOf[r];
     return s >= 0 && pm.settlements[s].ended === undefined && owner[r] === p && r !== capRegion(pm.polities[p], t) && lordsOf(p, t).length < MAX_LORDS;
   };
-  const cm: ControlModel = { pm, wm, pol, base: subSeed(seed, 'civ-control'), lords, raw, remote, lordsOf, mark, inLord, domainOf, eng, canRaise, raise: rise };
+  const practices = (p: number, t: Year): number => {
+    const r = capRegion(pm.polities[p], t);
+    return practiceMask(dev.cur, r, eraLevel(dev.cur, r));
+  };
+  const cm: ControlModel = { pm, wm, pol, base: subSeed(seed, 'civ-control'), lords, raw, remote, lordsOf, mark, inLord, domainOf, eng, canRaise, raise: rise, practices };
   models.set(sim, cm);
 
   // ---- 挂到分裂(离心力)、动荡、看内政 ----
@@ -560,13 +574,14 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     const p = P.id;
     const ls = lordsOf(p, t);
     const u = pol.unrest ? pol.unrest(P, t) : 0;
-    // 收回
+    // 收回(有了铁路的机会大些)
     const capR = capRegion(P, t);
+    const rail = ls.length > 0 && hasPractice(practices(p, t), Practice.Rail);
     for (const w of ls) {
       const seat = w.region === capR;
       if (!seat && t - w.start < RECLAIM_AGE) continue;
       const c = raw(p, w.region, t);
-      if (seat || c >= HOLD || keyed4(cm.base, pm.ptag[p], reg.seat[w.region], k, U_RECLAIM) < RECLAIM_P / (1 + u)) {
+      if (seat || c >= HOLD || keyed4(cm.base, pm.ptag[p], reg.seat[w.region], k, U_RECLAIM) < (RECLAIM_P * (rail ? RAIL_RECLAIM : 1)) / (1 + u)) {
         w.end = t;
         sim.record('reclaim', { a: p, region: w.region, settlement: w.city, war: Math.round(t - w.start) });
         return true;
@@ -596,7 +611,9 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       }
     }
     if (r0 < 0) return false;
-    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1) * (cm.lordOdds?.(p, t) ?? 1);
+    // 有了电报的,地方有变朝廷当日即知:赔率再乘 WIRE_LORD
+    const wire = hasPractice(practices(p, t), Practice.Wire) ? WIRE_LORD : 1;
+    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1) * (cm.lordOdds?.(p, t) ?? 1) * wire;
     if (keyed(cm.base, pm.ptag[p], k, U_RISE) >= odds / (1 + odds)) return false;
     rise(p, r0, t);
     return true;

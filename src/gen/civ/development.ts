@@ -72,6 +72,7 @@ import { TableEngine } from './tables';
 import { NEVER, devCards } from './devTables';
 import { warModelOf } from './wars';
 import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
+import { CAPS, INVENTIONS } from './inventions';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -101,8 +102,8 @@ const REGROW = 0.003;
 /** 眼下能用多少存成 0–3 档 × 这个数 */
 export const AVAIL_SCALE = 80;
 
-/** 五种能力(下标就是快照里每州的第几样) */
-export const CAPS = ['生产', '运输', '信息', '行政', '动员'] as const;
+/** 五种能力(下标就是快照里每州的第几样);名字和发明表在 inventions.ts(不依赖推演模块,做法表也读) */
+export { CAPS, INVENTIONS };
 export const enum Cap {
   Production = 0,
   Transport = 1,
@@ -259,44 +260,6 @@ export function popFactor(production: number): number {
   return Math.round(f * POP_QUANT) / POP_QUANT;
 }
 
-/**
- * 发明:哪样能力(Cap)到了哪一档(和时代同一把尺子),世上第一次到的那一州记一条 invent。
- * major = 编年史里算大事(见 developmentText.ts)。和时代同名的(青铜、铁器、火药……)不另列
- */
-export const INVENTIONS: readonly { name: string; cap: number; level: number; major?: boolean }[] = [
-  { name: '陶轮', cap: 0, level: 0.5 },
-  { name: '车轮', cap: 1, level: 0.6 },
-  { name: '文字', cap: 2, level: 0.7, major: true },
-  { name: '战车', cap: 4, level: 0.9 },
-  { name: '成文法', cap: 3, level: 1 },
-  { name: '帆船', cap: 1, level: 1.2 },
-  { name: '犁耕', cap: 0, level: 1.5 },
-  { name: '字母', cap: 2, level: 1.6 },
-  { name: '户籍', cap: 3, level: 1.8 },
-  { name: '驿道', cap: 1, level: 2 },
-  { name: '马镫', cap: 4, level: 2.2, major: true },
-  { name: '造纸', cap: 2, level: 2.5, major: true },
-  { name: '水车', cap: 0, level: 2.6 },
-  { name: '文官考选', cap: 3, level: 2.8 },
-  { name: '指南针', cap: 1, level: 3, major: true },
-  { name: '常备军', cap: 4, level: 3 },
-  { name: '高炉', cap: 0, level: 3.4 },
-  { name: '印刷术', cap: 2, level: 3.4, major: true },
-  { name: '远洋帆船', cap: 1, level: 3.7 },
-  { name: '火器', cap: 4, level: 4.1 },
-  { name: '人口普查', cap: 3, level: 4.5 },
-  { name: '报刊', cap: 2, level: 4.6 },
-  { name: '机械织机', cap: 0, level: 4.6 },
-  { name: '征兵制', cap: 4, level: 5 },
-  { name: '蒸汽机', cap: 0, level: 5.2, major: true },
-  { name: '铁路', cap: 1, level: 5.4 },
-  { name: '电报', cap: 2, level: 5.6, major: true },
-  { name: '电力', cap: 0, level: 6.2 },
-  { name: '汽车', cap: 1, level: 6.3 },
-  { name: '无线电', cap: 2, level: 6.5 },
-  { name: '飞机', cap: 1, level: 6.9 },
-  { name: '计算机', cap: 2, level: 7.3, major: true },
-];
 
 // ---------------------------------------------------------------------------
 // 推演里的模型
