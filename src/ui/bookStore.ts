@@ -9,7 +9,8 @@
  *                                 没设置 AI → 提示条"还没有设置 AI · 去设置";失败 → 提示条报错 + 重试
  *                                 (分章写到一半出错的:写好的几章留着,重试从断的那章接着写,见 kept)
  *   stopBook()                    停下正在写的(写到一半的不存)
- *   openBookReader(key | null)    阅读:已写好的那部(笔记的键)/ null = 正在写(或刚写完)的那部
+ *   openBookReader(key | null)    阅读:已写好的那部(笔记的键;看的是它正在用的那版)/ null = 正在写(或刚写完)的那部
+ *                                 写过的再写一遍不覆盖,算这一部的新一版(ai/history.ts 的 bookVersions;阅读页能翻看旧版)
  *   useBook()                     React:整个状态(窗口、阅读、正在写的那部、上次选的文体篇幅)
  *   useBookReader()               React:只看阅读那一块
  *
@@ -49,7 +50,7 @@ export interface BookJob {
   /** 写进哪个世界(saveStore 的世界编号) */
   world: string;
   opts: BookOptions;
-  /** 笔记的键(写完存在这里;同一个"写什么 + 文体 + 篇幅"是同一部) */
+  /** 笔记的键(写完存成这里的新一版;同一个"写什么 + 文体 + 篇幅"是同一部) */
   key: string;
   /** 书名(不带书名号):"世界通史" / "大昌史" / "世祖苏珩羽传" */
   title: string;
@@ -365,7 +366,7 @@ function reportError(j: BookJob, err: AiError) {
   showToast({ id: TOAST, kind: 'error', text: `${name}没写完`, more: [err.message], action: retry });
 }
 
-/** 停下正在写的(写到一半的不存;旧的那部不动) */
+/** 停下正在写的(写到一半的不存;旧的几版不动) */
 export function stopBook() {
   abort?.abort();
 }

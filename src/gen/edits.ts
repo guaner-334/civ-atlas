@@ -1102,7 +1102,7 @@ export const EMPTY_EDITS: WorldEdits = Object.freeze({
   terrain: Object.freeze([]) as unknown as TerrainOp[],
 });
 
-export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person' | 'treaty';
+export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person' | 'treaty' | 'trade';
 
 export interface ResolvedKey {
   kind: KeyKind;
@@ -1317,6 +1317,18 @@ export function treatyKey(civ: Civ, id: number): string {
   return `treaty:${ps.map((k) => k.slice(k.indexOf(':') + 1)).join('+')}@${Math.round(x.start * 256)}`;
 }
 
+/**
+ * 商道的稳定键:买方国家的稳定键 + 产地州的键 + 开通那一刻(1/256 年为单位)(`trade:c4567#0>c890@410907`)。
+ * 重推历史后同一国、从同一州、同一刻开通的还是它;对不上就算了(和约一样)。没有这条商道 = 空串
+ */
+export function tradeKey(civ: Civ, id: number): string {
+  const r = civ.trade?.routes[id];
+  if (!r || !civ.polities[r.buyer] || !r.events.length) return '';
+  const p = polityKey(civ, r.buyer);
+  if (!p) return '';
+  return `trade:${p.slice(p.indexOf(':') + 1)}>${regionKey(civ, r.from).slice('region:'.length)}@${Math.round(r.events[0].year * 256)}`;
+}
+
 export function regionKey(civ: Civ, region: number): string {
   const seat = keySeats(civ.regions);
   return region >= 0 && region < seat.length ? `region:c${seat[region]}` : `region:r${region}`;
@@ -1379,6 +1391,10 @@ export function resolveKey(civ: Civ, key: string): ResolvedKey | null {
   if (key.startsWith('treaty:')) {
     const x = treatyBook(civ).treaties.find((t) => t && treatyKey(civ, t.id) === key);
     return x ? { kind: 'treaty', id: x.id } : null;
+  }
+  if (key.startsWith('trade:')) {
+    const x = civ.trade?.routes.find((r) => tradeKey(civ, r.id) === key);
+    return x ? { kind: 'trade', id: x.id } : null;
   }
   if (key.startsWith('dynasty:')) {
     const cut = key.lastIndexOf('/');
@@ -1560,6 +1576,7 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
   const faith = new Map<number, string>();
   const person = new Map<number, string>();
   const treaty = new Map<number, string>();
+  const trade = new Map<number, string>();
   for (const key in names) {
     const name = names[key];
     if (typeof name !== 'string' || !name) continue;
@@ -1573,13 +1590,14 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     else if (r.kind === 'faith') faith.set(r.id, name);
     else if (r.kind === 'person') person.set(r.id, name);
     else if (r.kind === 'treaty') treaty.set(r.id, name);
+    else if (r.kind === 'trade') trade.set(r.id, name);
     else {
       let m = dynasty.get(r.id);
       if (!m) dynasty.set(r.id, (m = new Map()));
       m.set(r.index!, name);
     }
   }
-  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size && !treaty.size) return civ;
+  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size && !treaty.size && !trade.size) return civ;
 
   let changed = false;
   // 州名:另起一份 regionNames(civ.regions 不动,见文件头)
@@ -1701,9 +1719,23 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     for (const [id, name] of treaty) treatyNames[id] = name;
     changed = true;
   }
+  // 商道:换名字(路线、通断不动)
+  let tradeData = civ.trade;
+  if (trade.size && tradeData) {
+    const T0 = tradeData.routes;
+    const T = T0.map((r) => {
+      const name = trade.get(r.id);
+      return name && name !== r.name ? { ...r, name } : r;
+    });
+    if (T.some((r, i) => r !== T0[i])) {
+      tradeData = { ...tradeData, routes: T };
+      changed = true;
+    }
+  }
   if (!changed) return civ;
   const out: Civ = { ...civ, cultures, places, settlements, polities };
   if (treatyNames) out.treatyNames = treatyNames;
+  if (tradeData) out.trade = tradeData;
   if (people) out.people = people;
   if (regionNames) out.regionNames = regionNames;
   if (religion) out.religion = religion;

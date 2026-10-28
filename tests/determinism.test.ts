@@ -64,7 +64,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排;42 亡国之君先出奔中立地,疆域兴亡不变,只多了出奔的史事(civ.annals、civ.people、civ.development 里记的史事条数、civ.places.pass 里记的史事下标跟着变);43 战争节奏(议和了还会再打、仗打得密、罢兵割地),历史重排;44 亡国之君出奔邻国,疆域兴亡不变,只多了出奔的史事(和 42 一样只变了 civ.annals、civ.people、civ.development、civ.places.pass);46 有了大迁徙,历史重排,多了 civ.migrations))。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排;42 亡国之君先出奔中立地,疆域兴亡不变,只多了出奔的史事(civ.annals、civ.people、civ.development 里记的史事条数、civ.places.pass 里记的史事下标跟着变);43 战争节奏(议和了还会再打、仗打得密、罢兵割地),历史重排;44 亡国之君出奔邻国,疆域兴亡不变,只多了出奔的史事(和 42 一样只变了 civ.annals、civ.people、civ.development、civ.places.pass);46 有了大迁徙,历史重排,多了 civ.migrations;civ.ideology(思潮,只算不用)是后加的字段,加它时别的字段一个没变))。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -78,6 +78,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.development': '2d31695691b2',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '35d8ad95d249',
+    'civ.ideology': '0fa08b27893d',
     'civ.log': 'cb2a34157443',
     'civ.migrations': 'ee67928c5bf2',
     'civ.people': '5c462f0539aa',
@@ -93,7 +94,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.seed': '3ff6de7b7854',
     'civ.settlements': 'ebb6e4ee854b',
     'civ.spreadYears': '61c69775ebc4',
-    'civ.trade': '319c24df1ca9',
+    'civ.trade': 'fe27cf56041c',
     'civ.viable': '139cfad50334',
     'world.biome': 'e3a907d36819',
     'world.climate': 'de99136bdcb4',
@@ -126,6 +127,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.development': '501ce7ff9756',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '1268425e378a',
+    'civ.ideology': 'cb890637d5b4',
     'civ.log': 'dbce5ae12985',
     'civ.migrations': 'd492024fc8f6',
     'civ.people': '40fc6b96fe1c',
@@ -141,7 +143,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.seed': '0096064c9137',
     'civ.settlements': '5c67d07dcddc',
     'civ.spreadYears': '3f4246767d58',
-    'civ.trade': 'b978cb7ddbe6',
+    'civ.trade': '74f275726623',
     'civ.viable': '139cfad50334',
     'world.biome': '4cdf863704e1',
     'world.climate': 'd66f2d1ccdb0',
@@ -174,6 +176,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.development': '1e2dac01f01e',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '91e9fb0abefb',
+    'civ.ideology': '182ce7adc9c6',
     'civ.log': '32dc361f72ae',
     'civ.migrations': '6f69ce5daf26',
     'civ.people': '4c56ef7afca0',
@@ -189,7 +192,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.seed': '6b5deaaf6a3b',
     'civ.settlements': 'efce315311b7',
     'civ.spreadYears': 'cd11167707e7',
-    'civ.trade': 'b95786c7a8d4',
+    'civ.trade': 'b654e2d1a4d3',
     'civ.viable': '139cfad50334',
     'world.biome': 'cca45da35de5',
     'world.climate': '80fc89f4397e',

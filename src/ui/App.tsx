@@ -157,6 +157,7 @@ import {
   sameInterventions,
   settlementKey,
   treatyKey,
+  tradeKey,
   upgradeLegacyKeys,
   type Intervention,
   type PlayState,
@@ -314,6 +315,7 @@ import { NARROW_MAX, isNarrow, useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
 import { mapTextBoxes, passAt, pickLabelAt } from './mapPick';
+import { setTradeHover, tradeAtClient, tradeHoverInfo } from './tradePick';
 import { ownersAt } from '../gen/civ/timeline';
 import { faithAt } from '../gen/civ/religion';
 import { filterChronicle, interventionOutcome } from '../gen/civ/chronicle';
@@ -1986,6 +1988,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
                 ? cultureKey(old, sel.id)
                 : sel.kind === 'treaty'
                   ? treatyKey(old, sel.id) || null
+                  : sel.kind === 'trade'
+                    ? tradeKey(old, sel.id) || null
                   : null;
       if (key) {
         const r = resolveKey(civ, key);
@@ -5736,6 +5740,7 @@ ${s.image.cells}` : null);
     }
     let label: ReturnType<typeof pickLabelAt> = null;
     let mh: ReturnType<typeof markHoverAt> = null;
+    let trade: number | null = null;
     if (drag.current) {
       const d = drag.current;
       if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > (d.touch ? TOUCH_SLOP : CLICK_SLOP)) moved.current = true;
@@ -5754,11 +5759,18 @@ ${s.image.cells}` : null);
       const tool = getTerrainTool().on || getUpUi().on;
       label = tool || draft ? null : pickLabelAt(e.clientX, e.clientY);
       mh = tool || draft || replayOn ? null : (charHoverAt(e.clientX, e.clientY) ?? markHoverAt(e.clientX, e.clientY));
-      el.style.cursor = mh ? mh.cursor : label ? 'pointer' : '';
+      // 商道的线(字、标记底下):那条亮一圈,出商道的悬停小卡
+      trade = tool || draft || replayOn || label || mh ? null : tradeAtClient(e.clientX, e.clientY);
+      el.style.cursor = mh ? mh.cursor : label || trade !== null ? 'pointer' : '';
     }
+    setTradeHover(drag.current && moved.current ? null : trade);
     // 悬停小卡片:拖动、改地形、回放、新建时不显示;手指没有"悬停"(点了直接出面板)
     if (!data || (drag.current && moved.current) || getTerrainTool().on || getUpUi().on || replayOn || draft || e.pointerType === 'touch') return setHover(null);
     if (mh && mh.info !== undefined) return markHoverCard(mh, e.clientX, e.clientY);
+    if (trade !== null && civ) {
+      const info = tradeHoverInfo(civ, trade, Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear))), getEdits().era ?? null);
+      return setHover(info ? { info, x: e.clientX, y: e.clientY } : null);
+    }
     const p = pixelAt(e.clientX, e.clientY);
     if (!p) return setHover(null);
     showHover(p, label, e.clientX, e.clientY);
@@ -5933,6 +5945,9 @@ ${s.image.cells}` : null);
     }
     const hit = labelAt(e.clientX, e.clientY);
     if (hit) return setSelection(hit, side);
+    // 商道的线(开着「道路」时画在文字层上):商道卡片
+    const tr = getGlobeOn() ? null : tradeAtClient(e.clientX, e.clientY);
+    if (tr !== null) return setSelection({ kind: 'trade', id: tr }, side);
     const c = cellAt(e.clientX, e.clientY);
     const r = civ && c >= 0 && c < civ.regions.of.length ? civ.regions.of[c] : -1;
     if (!civ || r < 0) return clearSelection();
@@ -6611,6 +6626,7 @@ ${s.image.cells}` : null);
         onClick={onStageClick}
         onPointerLeave={() => {
           setHover(null);
+          setTradeHover(null);
           terrainMove(null);
           upMove(null);
         }}
