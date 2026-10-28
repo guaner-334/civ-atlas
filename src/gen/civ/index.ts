@@ -245,7 +245,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installDevelopment(sim, world, pm, habitat, seed); // 发展度(development.ts):每 20 年算各州的能力,影响人口上限、军力、远洋
   if (pm) installIdeology(sim, seed); // 思潮(ideology.ts):跟着发展度每 20 年算各州各说的接受度,只算不用
   if (pm) installTrade(sim, seed); // 商道(trade.ts):跟着发展度每 20 年算一步,只读推演、不改历史
-  if (pm) installUnrest(sim, pm, seed); // 动荡(unrest.ts):饥荒、民变、大崩解
+  if (pm) installUnrest(sim, pm, seed, world); // 动荡(unrest.ts):饥荒、民变、大崩解
   if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
   if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
   if (pm) installRegency(sim, pm); // 掌实权(regency.ts):引兵入朝、太子监国、宗室摄政、名臣辅政、大臣大将专权

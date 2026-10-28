@@ -300,8 +300,9 @@ describe('真实世界', () => {
       for (let i = 1; i < marks.length; i++) expect(marks[i].x - marks[i - 1].x).toBeGreaterThanOrEqual(DIAMOND_GAP - 1e-9);
       for (const d of marks) expect(d.x >= 0 && d.x <= width).toBe(true);
     }
-    // 菱形数 ÷ 大事条数:GENERATOR_VERSION 36 时 20 个种子(1–20)里最少 0.31(seed 7 是 0.48),门槛按最少的放
-    expect(layoutDiamonds(majors, civ.endYear, 900).marks.length).toBeGreaterThan(majors.length * 0.3);
+    // 菱形数 ÷ 大事条数:GENERATOR_VERSION 36 时 20 个种子(1–20)里最少 0.31(seed 7 是 0.48),门槛按最少的放;
+    // GENERATOR_VERSION 47(季节进推演)以后 20 个种子 0.23–0.46(seed 7 是 0.27):放到 0.22
+    expect(layoutDiamonds(majors, civ.endYear, 900).marks.length).toBeGreaterThan(majors.length * 0.22);
   });
 
   it('seed 7:每条大事都找得到事发地,在陆地上', () => {
