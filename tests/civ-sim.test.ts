@@ -317,6 +317,7 @@ describe('民族扩张', () => {
       expect(frac).toBeLessThanOrEqual(0.95);
 
       // 游牧民族的地盘里,草原 / 稀树草原 / 荒漠占一半上下或更多(高纬度的苔原、针叶林也有游牧),而且明显比其他民族多
+      // (GENERATOR_VERSION 46 大迁徙:游牧民族分出的几支落脚在农耕地方,这一处的种子 42%:下限放到 0.38)
       const grass = new Set<number>([Biome.Steppe, Biome.Savanna, Biome.HotDesert, Biome.TemperateDesert, Biome.ColdDesert]);
       const tally = { nomad: [0, 0], other: [0, 0] };
       for (let r = 0; r < T.R; r++) {
@@ -327,7 +328,7 @@ describe('民族扩张', () => {
         if (grass.has(civ.regions.biome[r])) t[0]++;
       }
       expect(tally.nomad[1]).toBeGreaterThan(0);
-      expect(tally.nomad[0] / tally.nomad[1]).toBeGreaterThanOrEqual(0.45);
+      expect(tally.nomad[0] / tally.nomad[1]).toBeGreaterThanOrEqual(0.38);
       expect(tally.nomad[0] / tally.nomad[1]).toBeGreaterThan((1.5 * tally.other[0]) / tally.other[1]);
 
       // 海洋民族的地盘跨过海(占了不止一块陆地)

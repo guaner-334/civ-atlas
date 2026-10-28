@@ -118,8 +118,8 @@ describe('道路网与航线', () => {
       expect(cities.some((c) => c.major)).toBe(true);
       expect(cities.some((c) => c.port)).toBe(true);
       // 大路连的是真国都:同一片陆地上还有别的(城还在的)国都的国都,都在大路上
-      // 按"立国"立起来的国家,国都各不相同;分裂 / 复国出来的国家(阶段 3 分合)常常就都于故都,同一座城可以先后是几国的国都
-      const founded = civ.polities.filter((p) => p.parent === undefined).map((p) => civ.settlements[p.capital].cell);
+      // 按"立国"立起来的国家,国都各不相同;分裂 / 复国出来的国家(阶段 3 分合)、大迁徙迁来立的国(Polity.trek)常常就都于故都,同一座城可以先后是几国的国都
+      const founded = civ.polities.filter((p) => p.parent === undefined && p.trek === undefined).map((p) => civ.settlements[p.capital].cell);
       expect(new Set(founded).size).toBe(founded.length);
       // 城被毁了的国都不算:大路要等两头都是国都才修,修之前一头已经被毁就从来没修过(routes.ts),先毁的国都可能一条大路都没有
       const standing = (cell: number) => civ.settlements.filter((s) => s.cell === cell).some((s) => s.ended === undefined);

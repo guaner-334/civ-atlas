@@ -1155,7 +1155,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const s = m.code & 15;
     const groom = !R ? undefined : s === GROOM_SELF ? R : sonsOf.get(R)?.find((x) => (s === 0 ? x.heirAt !== undefined : x.heirAt === undefined && x.p.born === m.born))?.p;
     if (!groom) continue;
-    const father = rulerAt(rulers[m.b] ?? [], m.t);
+    // 嫁女的那国在这一刻被娶亲的一方纳土并掉(同一刻先结亲、再并国):父亲是并国以前在位的那位
+    const father = rulerAt(rulers[m.b] ?? [], m.t) ?? rulerAt(rulers[m.b] ?? [], m.t - 1 / 512);
     const Q = polities[m.b];
     const name = father && father.author === undefined && Q && namerOf(styleOf(Q)).surnamed ? `${splitSurname(father.name)}氏` : '';
     const sp: PersonSpouse = { polity: m.b, father: father?.id ?? -1, name, year: m.t, annal: m.annal };

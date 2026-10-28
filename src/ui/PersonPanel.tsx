@@ -7,7 +7,7 @@
  *   按钮  即位那年 / 出征那年 / 入仕那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
  *         复制生平(纯文字,写设定用;带上「生平」那一段)、关注他(导播只讲他这一辈子,镜头跟着他;正跟着他时是「不关注」;宗室没有,
  *         见 Follow.tsx)、更多(加一个和他有关的作者人物:亲友里先填上他)。
- *         「更多」最上面:让他去世…(那年在位的君主、将领、名臣)、改他的倾向…(那年在位的君主),点了卡片换成那一页(PersonIvPage.tsx);
+ *         「更多」最上面是「关系图」(右边铺开以他为中心的关系图,RelationGraph.tsx),隔一条线;接着让他去世…(那年在位的君主、将领、名臣)、改他的倾向…(那年在位的君主),点了卡片换成那一页(PersonIvPage.tsx);
  *         接着让他掌权…(那年在世、成年、没在位的太子、君主的兄弟叔伯、在朝的名臣、领过兵的将领)、为他联姻…(那年在位的君主、
  *         在世成年的宗室),点了换成那一页(RegentIvPage.tsx);演一国时别国的人这几项变灰,写"切回造物主才能改别国"
  *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系;
@@ -64,7 +64,10 @@ import { newCharacterDraft } from './characterStore';
 import { charactersOfPerson } from './characterInfo';
 import { CharAvatar, CharacterRefs } from './CharacterPanel';
 import type { AuthorCharacter } from '../gen/characters';
-import { MenuItem } from './PopMenu';
+import type { PersonCard } from '../ai/prompts/lives';
+import { LifeMenuItem } from './lifeMenu';
+import { MenuItem, MenuSep } from './PopMenu';
+import { openRelationOf } from './relationStore';
 import { Icon } from './icons';
 import { NameEdit } from './NameEdit';
 import { FollowAct } from './Follow';
@@ -315,6 +318,10 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         </Act>
         {!prince && <FollowAct civ={civ} x={x} year={year} />}
         <MoreAct>
+          <MenuItem icon={<Icon name="relation" size={16} />} act="person-relation" onClick={() => openRelationOf(civ, { kind: 'person', id })}>
+            关系图
+          </MenuItem>
+          <MenuSep />
           {canDie && (
             <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-death" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'death' })}>
               让{heOrShe(x)}去世…
@@ -350,6 +357,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           <MenuItem icon={<Icon name="person" size={16} />} act="person-add-character" onClick={() => newCharacterDraft({ kin: [{ rel: '', person: personKey(civ, id) }], year })}>
             加一个和{heOrShe(x)}有关的人物
           </MenuItem>
+          {name && <LifeMenuItem civ={civ} scope={{ kind: 'person', person: id }} />}
         </MoreAct>
       </Acts>
       <div className="cp-body">
@@ -1138,4 +1146,23 @@ export function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
   const mine = all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.id >= c.first && e.id <= c.last && civ.annals[e.id]?.war === c.war));
   if (mine.length) return mine;
   return all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.year >= c.from - eps && e.year <= c.until + eps));
+}
+
+/**
+ * AI 写列传、家传要的人物卡(ai/prompts/lives.ts 的 PersonCard;经 lifeSource.ts 交给写书的那一套):
+ * 概况一行一项、倾向、生平,在位 / 在朝 / 领兵时本国的事连同掌权、联姻、放逐那几条。年份照推演写("2325–2354 年"),不按纪年
+ */
+export function personCard(civ: Civ, x: Person): PersonCard {
+  const lines = personLines(civ, x, undefined).map(({ k, text }) => ({ k, text }));
+  const exile = x.exile ? polityEntries(civ, x.polity).filter((e) => e.kind === 'exile' && e.id === x.exile!.annal) : [];
+  const seen = new Set<string>();
+  const events = [...personEvents(civ, x), ...heldEvents(civ, x), ...marryEvents(civ, x), ...exile]
+    .filter((e) => {
+      const k = `${e.kind}:${e.id}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a.year - b.year || a.id - b.id);
+  return { lines, leanings: x.role === 'ruler' && x.leanings ? leaningsText(x.leanings) : '', bio: personBio(civ, x), events };
 }
