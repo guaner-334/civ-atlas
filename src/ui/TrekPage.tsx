@@ -24,7 +24,7 @@ import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { useNarrow } from './device';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
@@ -61,7 +61,7 @@ export function TrekPage({ civ, year, from, polity, region, onBack }: { civ: Civ
   const yi = useYearInput(from ?? (p ? defaultYear(p, year) : year), lo, hi, clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看各州住着谁、走得到哪用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const when = `${yearAt(y, era)}`;
 
   const [stay, setStay] = useState(false);
