@@ -60,6 +60,11 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     recent.clear();
     try {
       cur = { wid: m.wid, world: m.world, src: zoomSource(m.world, m.whole), grids: macroGrids(m.whole as Raster) };
+      // 先在一小块上走一遍(铺像素、上色、画河):小溪的线、各段代码在框的工夫里备好,立起来时粗的那一档快一些
+      const r = rasterizeWindow(cur.src, 4, 0, 400, 16, 16);
+      realisticWindowPixels(r, cur.grids, 'detail');
+      const ctx = typeof OffscreenCanvas === 'undefined' ? null : (new OffscreenCanvas(8, 8).getContext('2d') as unknown as CanvasRenderingContext2D | null);
+      if (ctx) drawRealisticRivers(ctx, cur.world, r, { s: 4, ox: 0, oy: -400, k: 4 * 1.46 }, false, 'detail');
     } catch {
       // 要算的时候报错
     }
@@ -85,7 +90,8 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     const ctx = cv.getContext('2d') as unknown as CanvasRenderingContext2D | null;
     if (!ctx) throw new Error('后台线程不能画图');
     ctx.putImageData(new ImageData(px, m.w, m.h), 0, 0);
-    drawRealisticRivers(ctx, cur.world, r, { s: m.S, ox: -m.x0, oy: -m.y0, k: m.k }, true, m.look);
+    // 粗的一档(每单位不到 8 像素)小溪细得看不见,不画,省下时间
+    drawRealisticRivers(ctx, cur.world, r, { s: m.S, ox: -m.x0, oy: -m.y0, k: m.k }, m.S >= 8, m.look);
     const bitmap = cv.transferToImageBitmap();
     const res: ReliefResponse = { wid: m.wid, job: m.job, y: m.y, bitmap, ms: 0 };
     const transfer: Transferable[] = [bitmap];
