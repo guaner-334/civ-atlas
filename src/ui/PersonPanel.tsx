@@ -34,6 +34,8 @@
  *         被架空过的,上面一句"2585–2587 年政出于彭继桓：这几年开战、议和照彭继桓的倾向，不照下面这几条。"
  *   生平  将领、名臣的一段生平(officialText.ts 的 personBio);写到的君主是蓝字
  *   作者的人物  亲友里有他、经历里勾了他的作者人物(characterInfo.ts 的 charactersOfPerson),没有就不显示
+ *   治绩  君主、执政官才有:在位这些年本国的疆域、人口、战事、钱粮,和国号、迁都、城、时代、首创、物产、天灾里真有的;
+ *         在位不满 3 年的缩成一句(ReignRecord.tsx,现算见 gen/civ/reignRecord.ts)
  *   在位时 / 领兵时 / 在朝时  他在台上那几年本国的事(将领 = 他经手的那几仗),新的在上;点一条跳到那一年。
  *         宗室:领兵时(他经手的那几仗)/ 争储(杀他的那位新君即位那一条),都没有就不显示
  */
@@ -76,6 +78,7 @@ import { pickChronicleEntry, setSelection } from './civView';
 import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
 import { leaningsThen, marryChoice, moodSince, personIvRange, regentChoice, rulerOnThrone } from './newIvInfo';
 import { MarryIvPage, RegentIvPage } from './RegentIvPage';
+import { ReignRecord } from './ReignRecord';
 import './policy.css';
 import './newIv.css';
 
@@ -393,6 +396,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           </section>
         )}
         <CharacterRefs refs={refs} />
+        {ruler && <ReignRecord civ={civ} x={x} era={era} />}
         {(!prince || events.length > 0) && (
         <EventList
           civ={civ}
