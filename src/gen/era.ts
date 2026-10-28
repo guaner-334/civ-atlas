@@ -136,18 +136,20 @@ export function yearShortAt(y: number, era?: Era | null): string {
   return s === '元年' ? s : `${s} 年`;
 }
 
-/** 起止,短写:"820–811";纪年 "前 820–前 811" */
+/** 起止,短写:"820–811"(同一年只写一个:"820");纪年 "前 820–前 811" */
 export function yearSpan(a: number, b: number, era?: Era | null): string {
+  if (Math.floor(a) === Math.floor(b)) return yearShort(a, era); // 起止同一年只写一个
   return `${yearShort(a, era)}–${yearShort(b, era)}`;
 }
 
 /**
  * 起止,句子里:"820–811 年";纪年 "公元前 820–前 811 年""公元 25–220 年";
- * 跨过元年、或者有一头是元年的两头都写全:"公元前 3 年–公元 5 年"。dash = 连接号(编年史的旧写法用"—")
+ * 起止同一年只写一次:"1488 年"(接"领兵""在位"都是"1488 年领兵");跨过元年、或者有一头是元年的两头都写全:"公元前 3 年–公元 5 年"。dash = 连接号(编年史的旧写法用"—")
  */
 export function yearSpanAt(a: number, b: number, era?: Era | null, dash = '–'): string {
   const x = Math.floor(a);
   const z = Math.floor(b);
+  if (x === z) return yearAt(x, era); // 起止同一年只写一个年份:"1488 年"
   if (!era) return `${x}${dash}${z} 年`;
   const A = eraYear(x, era);
   const B = eraYear(z, era);
@@ -205,6 +207,7 @@ export function eraLabel(era: Era): string {
 // 月份:编年史、地图上的事件卡片、时间轴的提示写到"第 1638 年 11 月"。
 // 推演里每件事本来就记着发生在一年里的哪一格(1/256 年),一年分 N 个月,月份 = 那一年过了几成 × N,取整 + 1。
 // 年份正好落在年初的(宗教的传播、干预、地形大事这类按整年算的事)不写月。只换写法,不参与推演。
+// 月份可以自己起名(MonthNames):起了名字的月写名字,紧跟在"年"后面("第 1552 年端月");没起名的照旧写数字。
 
 /** 一年几个月:默认、最少、最多 */
 export const MONTHS_DEFAULT = 12;
@@ -231,20 +234,64 @@ export function monthOf(y: number, months: number): number {
   return Math.min(months, Math.floor(f * months) + 1);
 }
 
-/** 接在年份后面的月份:" 11 月";不写月 = '' */
-export function monthTail(y: number, months: number): string {
+/** 月份的名字最多几个字 */
+export const MONTH_NAME_MAX = 4;
+
+/** 自己起的月份名字(WorldEdits.monthNames) */
+export interface MonthNames {
+  /** 第 i 个是第 i + 1 月的名字;'' = 没起名,照旧写数字。最多 MONTHS_MAX 个(一年的月数改少了,多出来的名字留着),末尾空着的不存 */
+  names: string[];
+  /** 换回了「数字」:名字留着(换回「自己起名」还在),这时不用 */
+  off?: true;
+}
+
+/** 一个月份的名字:去掉控制字符和前后空白;空、超过 MONTH_NAME_MAX 个字 = ''(没起名) */
+export function cleanMonthName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  // eslint-disable-next-line no-control-regex
+  const s = raw.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return [...s].length <= MONTH_NAME_MAX ? s : '';
+}
+
+/** 整理 WorldEdits.monthNames:每格过 cleanMonthName,最多 MONTHS_MAX 格,末尾空着的去掉;一个名字都没有 = undefined */
+export function cleanMonthNames(raw: unknown): MonthNames | undefined {
+  if (!isObj(raw) || !Array.isArray(raw.names)) return undefined;
+  const names = raw.names.slice(0, MONTHS_MAX).map(cleanMonthName);
+  while (names.length && !names[names.length - 1]) names.pop();
+  if (!names.length) return undefined;
+  return raw.off === true ? { names, off: true } : { names };
+}
+
+export function sameMonthNames(a: MonthNames | undefined, b: MonthNames | undefined): boolean {
+  if (!a || !b) return a === b;
+  return !a.off === !b.off && a.names.length === b.names.length && a.names.every((s, i) => s === b.names[i]);
+}
+
+/** 现在写出来用的名字:选了「自己起名」的那份;没起名、换回了「数字」= undefined(都写数字) */
+export function monthNamesInUse(mn: MonthNames | null | undefined): readonly string[] | undefined {
+  return mn && !mn.off ? mn.names : undefined;
+}
+
+/** 第 m 月(1 起)怎么叫:起了名字写名字,没起写 "m 月" */
+export function monthLabel(m: number, names?: readonly string[] | null): string {
+  return names?.[m - 1] || `${m} 月`;
+}
+
+/** 接在年份后面的月份:" 11 月";起了名字的紧跟着写 "端月";不写月 = '' */
+export function monthTail(y: number, months: number, names?: readonly string[] | null): string {
   const m = monthOf(y, months);
-  return m ? ` ${m} 月` : '';
+  if (!m) return '';
+  return names?.[m - 1] || ` ${m} 月`;
 }
 
-/** 全写带月:"第 1638 年 11 月""公元前 850 年 3 月";不写月 = yearFull */
-export function yearMonthFull(y: number, months: number, era?: Era | null): string {
-  return yearFull(y, era) + monthTail(y, months);
+/** 全写带月:"第 1638 年 11 月""公元前 850 年 3 月""第 1552 年端月";不写月 = yearFull */
+export function yearMonthFull(y: number, months: number, era?: Era | null, names?: readonly string[] | null): string {
+  return yearFull(y, era) + monthTail(y, months, names);
 }
 
-/** 句子里带月:"1638 年 11 月";纪年 "公元前 850 年 3 月";不写月 = yearAt */
-export function yearMonthAt(y: number, months: number, era?: Era | null): string {
-  return yearAt(y, era) + monthTail(y, months);
+/** 句子里带月:"1638 年 11 月";纪年 "公元前 850 年 3 月";起了名字 "1549 年桂月";不写月 = yearAt */
+export function yearMonthAt(y: number, months: number, era?: Era | null, names?: readonly string[] | null): string {
+  return yearAt(y, era) + monthTail(y, months, names);
 }
 
 // ---------------------------------------------------------------------------
