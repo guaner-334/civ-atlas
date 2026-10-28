@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type BaseCache, type World } from '../src/gen/world';
-import { finishGully, finishVeins, gullyHeights, rasterizeDeferred, veinsOf, type Raster } from '../src/gen/raster';
-import { rasterizePatch, type RasterKeep } from '../src/gen/rasterEdit';
+import { finishGully, finishVeins, gullyHeights, newGullyJob, noiseTiles, rasterizeDeferred, rasterizeDeferredSteps, SHADE_STEP, shadeSphere, veinsOf, type Raster } from '../src/gen/raster';
+import { rasterizePatch, rasterizePatchSteps, type PatchProgress, type RasterKeep } from '../src/gen/rasterEdit';
+import { subSeed } from '../src/gen/util';
 import { applyPatch, composeRaster, cutExact, exactDiff, exactDiffBefore, exactPatch } from '../src/gen/rasterPatch';
 import { boxOfCols, growBox, inBox, unionBox, type PixelBox } from '../src/gen/pixelBox';
 import type { TerrainOp } from '../src/gen/edits';
@@ -293,6 +294,86 @@ describe('编辑地形 · 连涂几笔都被顶掉以后接着按块重铺', () 
   };
   it('种子 7:连 5 笔,前 4 笔沟壑算完才改回去', { timeout: 300000 }, () => giveUpRun(7, run, 'after'));
   it('种子 2024:连 5 笔,前 4 笔沟壑还没算就改回去', { timeout: 300000 }, () => giveUpRun(2024, run, 'before'));
+});
+
+/**
+ * 连涂:前几笔按块重铺到一半(一段一段铺,rasterizePatchSteps)就被下一笔顶掉:贴回记下的那块(at.before.box)就是原样,
+ * 留着的整图、输入照旧(同 worker.ts 铺到一半放下);在各种地方放下(还没记下原样、刚开始逐像素、逐像素到一半、去碎点以后)。
+ * 最后一笔按块重铺到底:和整张重铺逐位相同,补丁贴到主线程手里那张上也逐位相同
+ */
+function stopMidRun(seed: number, ops: (w: World) => TerrainOp[]) {
+  const params = { ...DEFAULT_PARAMS, seed };
+  const cache: BaseCache = { base: null };
+  const w0 = generateWorld(params, undefined, [], null, cache);
+  const d0 = rasterizeDeferred(w0, 1);
+  const r0 = finish(d0);
+  const shown = structuredClone(r0);
+  const all = ops(w0);
+  const keep: RasterKeep = { raster: r0, inputs: d0.inputs };
+  // 一笔一共分几段:拿第一笔在一份拷贝上走一遍
+  const w1 = generateWorld(params, undefined, all.slice(0, 1), null, cache);
+  let steps = 0;
+  const probe = rasterizePatchSteps(w1, { raster: structuredClone(r0), inputs: d0.inputs }, undefined, true);
+  while (!probe.next().done) steps++;
+  expect(steps, '分了好几段').toBeGreaterThan(5);
+  const stopAt = [1, 2, 3, Math.floor(steps / 2), steps];
+  for (let i = 0; i < all.length - 1; i++) {
+    const w = i === 0 ? w1 : generateWorld(params, undefined, all.slice(0, i + 1), null, cache);
+    const at: PatchProgress = {};
+    const it = rasterizePatchSteps(w, keep, undefined, true, at);
+    for (let k = 0; k < stopAt[i % stopAt.length]; k++) expect(it.next().done, `第 ${i + 1} 笔第 ${k + 1} 段`).toBe(false);
+    if (at.before?.box) applyPatch(r0, at.before.box);
+    expect(rasterDiff(r0, shown), `第 ${i + 1} 笔铺到第 ${stopAt[i % stopAt.length]} 段放下,改回原样`).toBe('');
+  }
+  const w = generateWorld(params, undefined, all, null, cache);
+  const t = rasterizePatch(w, keep, undefined, true);
+  if (!t || !('job' in t)) throw new Error('最后一笔没按块重铺');
+  const got = finish(t);
+  const full = finish(rasterizeDeferred(w, 1));
+  expect(rasterDiff(got, full), '按块重铺').toBe('');
+  const d = exactDiffBefore(t.before!, got, t.win);
+  expect(rasterDiff(composeRaster(shown, d ? [cutExact(got, d)] : []), full), '补丁贴上').toBe('');
+}
+
+describe('编辑地形 · 连涂时铺到一半就被顶掉', () => {
+  const run = (w: World): TerrainOp[] => {
+    const [x, y] = landAt(w, 200, 900);
+    return [0, 1, 2, 3, 4, 5].map((i) => ({ kind: i % 2 ? 'wet' : 'lift', pts: [x + 6 * i, y, x + 6 * i + 10, y], r: 30, s: 0.6 }));
+  };
+  it('种子 7:前 5 笔在不同的地方放下,最后一笔照样按块重铺', { timeout: 300000 }, () => stopMidRun(7, run));
+  it('种子 2024', { timeout: 300000 }, () => stopMidRun(2024, run));
+});
+
+describe('编辑地形 · 一段一段铺', () => {
+  it('逐像素那一步按整行分段铺,和一口气铺整张逐位相同(沟壑要算的像素按同样的先后记下)', { timeout: 300000 }, () => {
+    const w = generateWorld({ ...DEFAULT_PARAMS, seed: 7 }, undefined, [], null, undefined);
+    const d = rasterizeDeferred(w, 1);
+    const { base, carve, calm, planes, cover } = d.inputs;
+    const { w: W, h: H } = cover.g;
+    const R = w.width / (2 * Math.PI);
+    const { dTile, jTile } = noiseTiles(7);
+    const blank = (): Raster => ({ w: W, h: H, scale: 1, elev: new Float32Array(W * H), temp: new Float32Array(W * H), precip: new Float32Array(W * H), water: new Uint8Array(W * H), biome: new Uint8Array(W * H), cell: d.raster.cell, ice: new Float32Array(W * H), iceConc: new Uint8Array(W * H), iceTone: new Uint8Array(W * H), wrap: true });
+    const shade = (rects: (PixelBox | null)[]) => {
+      const out = blank();
+      const job = newGullyJob(subSeed(7, 'gully'), W, H, R, 1);
+      for (const rect of rects) shadeSphere(out, cover.tri, cover.wa, cover.wb, planes, base, carve, calm, dTile, jTile, cover.g, R, w.mesh.spacing, job, null, rect);
+      const n = job.n;
+      return { out, job: [job.idx, job.ge, job.gn, job.amp, job.base, job.cut, job.floor].map((a) => Array.from(a.subarray(0, n)).join()).join('|') };
+    };
+    const one = shade([null]);
+    const rows = Math.floor(SHADE_STEP / W);
+    const bands: PixelBox[] = [];
+    for (let y = 0; y < H; y += rows) bands.push({ x0: 0, y0: y, w: W, h: Math.min(rows, H - y) });
+    expect(bands.length, '分了好几段').toBeGreaterThan(5);
+    const split = shade(bands);
+    expect(rasterDiff(split.out, one.out), '铺出来的').toBe('');
+    expect(split.job === one.job, '沟壑要算的像素').toBe(true);
+    // 整张一段一段铺的(rasterizeDeferredSteps)走完和 rasterizeDeferred 一样
+    const it = rasterizeDeferredSteps(w, 1);
+    let r = it.next();
+    while (!r.done) r = it.next();
+    expect(rasterDiff(finish(r.value), finish(d)), '一段一段整张铺').toBe('');
+  });
 });
 
 describe('编辑地形 · 先比出框、再决定拷不拷补丁', () => {

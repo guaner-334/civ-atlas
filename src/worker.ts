@@ -37,7 +37,7 @@
  * 每一步的样子记在线程里(outlineCache),改了后面几条情节再推时,前面没改的不重算;换世界时放掉。
  */
 import { generateWorld, generateWorldSteps, type BaseCache, type World, type WorldParams } from './gen/world';
-import { dropGullyBuffers, rasterizeDeferred, type Raster } from './gen/raster';
+import { dropGullyBuffers, rasterizeDeferred, rasterizeDeferredSteps, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
 import { DEFAULT_CIV_PARAMS, civBase, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
@@ -50,7 +50,7 @@ import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalSte
 import { computeHabitat } from './gen/civ/habitat';
 import { buildRegions, reshapeRegions } from './gen/civ/regions';
 import { applyPatch, composeOnto, cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
-import { rasterizePatch, type RasterKeep } from './gen/rasterEdit';
+import { rasterizePatch, rasterizePatchSteps, type PatchJob, type PatchProgress, type RasterKeep } from './gen/rasterEdit';
 import type { PixelBox } from './gen/pixelBox';
 import { planGlyphs, type Plan } from './render/fantasy';
 import { realisticPaintedTransferables, type RealisticPainted } from './render/realistic';
@@ -771,6 +771,11 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
     return;
   }
   fg.push(e.data);
+  if (wake && (e.data.type === 'generate' || e.data.type === 'load')) {
+    const f = wake;
+    wake = null;
+    f();
+  }
   void pump();
 };
 async function pump() {
@@ -822,16 +827,32 @@ const GEN_SLICE = 25;
  * 算完的结果和 generateWorld 一模一样
  */
 async function generateUnlessSuperseded(...args: Parameters<typeof generateWorld>): Promise<World | null> {
-  const it = generateWorldSteps(...args);
+  const r = await stepsUnlessSuperseded(generateWorldSteps(...args));
+  return r && r.value;
+}
+
+/** 一段一段做的活(yield 隔开),每隔 GEN_SLICE 毫秒让一下;让的时候后面排上了新的世界就不做了(null,做到一半的留给调用方收拾) */
+async function stepsUnlessSuperseded<T>(it: Generator<void, T>): Promise<{ value: T } | null> {
   let t = performance.now();
   for (;;) {
     const r = it.next();
-    if (r.done) return r.value;
+    if (r.done) return { value: r.value };
     if (performance.now() - t < GEN_SLICE) continue;
     await yieldTask();
     if (superseded()) return null;
     t = performance.now();
   }
+}
+
+/** 等着"后面排上了新的世界"的(onmessage 收到生成、打开时叫醒,见 untilSuperseded) */
+let wake: (() => void) | null = null;
+/** 后面排上了新的世界时兑现的 p(已经排着就马上兑现);不等了叫 done(不留着叫醒它) */
+function untilSuperseded(): { p: Promise<void>; done: () => void } {
+  if (superseded()) return { p: Promise.resolve(), done: () => {} };
+  let f!: () => void;
+  const p = new Promise<void>((r) => (f = r));
+  wake = f;
+  return { p, done: () => void (wake === f && (wake = null)) };
 }
 
 /** 逐年推演走完一步以后过多久(没有下一步了)才打这一份原件(毫秒);等着的那一次 */
@@ -883,15 +904,37 @@ async function handle(m: Queued): Promise<void> {
     // 留着的这份先放掉:按块重铺就地改它的数组,改到一半出了错,下一笔也不会接着用改了一半的那张
     kept = null;
     pool.prepare(world, m.scale);
-    // 按块重铺直接改上一张整图的数组(不另拷一整张;改之前那块的样子记在 before 里,比补丁时用)
-    const tried = prev ? rasterizePatch(world, prev.keep, undefined, true) : null;
+    // 按块重铺直接改上一张整图的数组(不另拷一整张;改之前那块的样子记在 before 里,比补丁时用)。
+    // 编辑地形时(skipCiv)一段一段铺、中间让一下:新的一笔来了就放下,就地改了的那块贴回原样,留着的整图照旧是主线程地图上那张
+    let tried: ReturnType<typeof rasterizePatch> = null;
+    if (prev && m.skipCiv) {
+      const at: PatchProgress = {};
+      const r = await stepsUnlessSuperseded(rasterizePatchSteps(world, prev.keep, undefined, true, at));
+      if (!r) {
+        if (at.before?.box) applyPatch(prev.keep.raster, at.before.box);
+        kept = prev;
+        return void post({ type: 'aborted', id: m.id });
+      }
+      tried = r.value;
+    } else if (prev) tried = rasterizePatch(world, prev.keep, undefined, true);
     const pj = tried && 'job' in tried ? tried : null;
     // 上一张铺像素的输入比完了(覆盖表已经接到这一份里):只留下比补丁要用的整图,别的先放掉 ——
     // 要整张铺的,铺之前就放(铺的时候、推文明的时候不和新的一份同时占着)
     let old = prev && { key: prev.key, raster: prev.keep.raster };
     prev = null;
-    // 要重铺的那块太大(比如海里放火山,侵蚀整个重算):整张铺,已经算好的输入接着用
-    const d = pj ?? rasterizeDeferred(world, m.scale, undefined, cover, tried && 'whole' in tried ? tried.whole : undefined);
+    // 要重铺的那块太大(比如海里放火山,侵蚀整个重算):整张铺,已经算好的输入接着用。
+    // 编辑地形时同样一段一段铺,新的一笔来了就放下(铺的是新开的数组,留着的整图没动;同下面 giveUp 整张铺的那样记下)
+    const whole = tried && 'whole' in tried ? tried.whole : undefined;
+    let d: PatchJob | ReturnType<typeof rasterizeDeferred>;
+    if (pj) d = pj;
+    else if (m.skipCiv && old && whole) {
+      const r = await stepsUnlessSuperseded(rasterizeDeferredSteps(world, m.scale, undefined, cover, whole));
+      if (!r) {
+        kept = { key: old.key, keep: { raster: old.raster, inputs: whole.inputs, dirty: { x0: 0, y0: 0, w: old.raster.w, h: old.raster.h } } };
+        return void post({ type: 'aborted', id: m.id });
+      }
+      d = r.value;
+    } else d = rasterizeDeferred(world, m.scale, undefined, cover, whole);
     const raster = d.raster;
     const rasterMs = performance.now() - t1;
     /**
@@ -947,8 +990,10 @@ async function handle(m: Queued): Promise<void> {
       // 交了地图以后后面又排上了新的世界(按了后退……):这个世界的历史不用推了
       if (superseded()) return void post({ type: 'aborted', id: m.id });
     }
+    // 编辑地形等帮手的时候新的一笔来了:不等帮手算完就放下(沟壑、细沟没叠回去也没关系,giveUp 把留着的整图改回原样)
+    const sup = m.skipCiv && old ? untilSuperseded() : null;
     const civ = m.skipCiv
-      ? await pool.finish(d, undefined, pj && old ? () => void (plan = planGlyphs(world)) : undefined).then(() => null)
+      ? await pool.finish(d, undefined, pj && old ? () => void (plan = planGlyphs(world)) : undefined, sup?.p).then(() => null)
       : early
         ? pushCiv()
         : await pool.finish(
@@ -957,6 +1002,7 @@ async function handle(m: Queued): Promise<void> {
             // 手绘风的符号规划:主线程换上之前备地图要用(200k 地块要算一百多毫秒),等帮手的工夫里先算好
             () => void (plan = planGlyphs(world)),
           );
+    sup?.done();
     if (giveUp()) return;
     if (early) {
       const transfer = civTransferables(civ!);

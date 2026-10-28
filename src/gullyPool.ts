@@ -19,6 +19,8 @@ import type { SurfaceLook } from './render/surface';
 const HELPER_WAIT = 400;
 /** 细沟大约顶多少沟壑(整张图的沟壑算 1):分活时第一个帮手的沟壑按这个少分 */
 const VEIN_COST = 0.4;
+/** finish 的 stop 兑现了(不要这张了) */
+const HALT = Symbol('halt');
 /** 帮手几个:留出主线程和本线程 */
 const HELPERS = Math.max(0, Math.min(3, (self.navigator?.hardwareConcurrency || 2) - 2));
 
@@ -77,11 +79,13 @@ export class GullyPool {
   /**
    * 铺好的主图(rasterizeDeferred 的结果)把沟壑、细沟算完叠回去:沟壑分段交给帮手,细沟交给第一个帮手;
    * 本线程同时做 during(推文明;没有 = 本线程也领一段沟壑)。返回 during 的结果。结果和 rasterize 一样。
-   * idle:本线程自己那段做完、等帮手的时候顺手做的(不影响结果;没有帮手时最后做)
+   * idle:本线程自己那段做完、等帮手的时候顺手做的(不影响结果;没有帮手时最后做)。
+   * stop(没有 during 时才给):它兑现了就是不要这张了 —— 不再等帮手(帮手手上那几段算完交回来也没人要),沟壑、细沟可能没叠回去,
+   * 主图不能用(调用方自己看 stop 兑现没有)
    */
   finish<T>(d: Deferred, during: () => T, idle?: () => void): Promise<T>;
-  finish(d: Deferred, during?: undefined, idle?: () => void): Promise<undefined>;
-  async finish<T>(d: Deferred, during?: () => T, idle?: () => void): Promise<T | undefined> {
+  finish(d: Deferred, during?: undefined, idle?: () => void, stop?: Promise<void>): Promise<undefined>;
+  async finish<T>(d: Deferred, during?: () => T, idle?: () => void, stop?: Promise<void>): Promise<T | undefined> {
     const { job, veins: vj, raster } = d;
     const hs = this.helpers.slice();
     const n = job.n;
@@ -92,6 +96,11 @@ export class GullyPool {
       idle?.();
       return result;
     }
+    let halted = false;
+    const halt = stop?.then((): typeof HALT => {
+      halted = true;
+      return HALT;
+    });
     // 细沟先发(第一个帮手先算它,再算它那段沟壑;它那段少分一些,各线程差不多同时算完)
     const vp = this.sendVeins(hs[0], vj);
     const k = hs.length + (during ? 0 : 1);
@@ -100,15 +109,24 @@ export class GullyPool {
     const parts = hs.map((hw, i) => this.send(hw, job, cut(i), cut(i + 1)));
     // 让一下,发给帮手的消息才送得出去
     await new Promise((r) => setTimeout(r, 0));
+    if (halted) return undefined;
     const result = during?.();
     const mine = during ? null : gullyHeights(job, cut(k - 1), n);
+    if (halt) {
+      // 本线程那段算的工夫里来的消息先收进来,不要了就不再往下做
+      await yieldTask();
+      if (halted) return undefined;
+    }
     idle?.();
-    const outs = await Promise.all(parts);
+    const outs = await (halt ? Promise.race([Promise.all(parts), halt]) : Promise.all(parts));
+    if (outs === HALT) return undefined;
     const heights = new Float32Array(n);
     outs.forEach((o, i) => heights.set(o ?? gullyHeights(job, cut(i), cut(i + 1)), cut(i)));
     if (mine) heights.set(mine, cut(k - 1));
     finishGully(raster, job, heights);
-    finishVeins(raster, (await vp) ?? veinsOf(vj));
+    const veins = await (halt ? Promise.race([vp, halt]) : vp);
+    if (veins === HALT) return undefined;
+    finishVeins(raster, veins ?? veinsOf(vj));
     return result;
   }
 

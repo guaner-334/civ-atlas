@@ -4,6 +4,7 @@ import { buildTectonics, distanceField, type DistanceFieldStats } from '../src/g
 import { DEFAULT_PARAMS, MAP_H, MAP_W } from '../src/gen/world';
 import { geometryOf, sphereSpacing } from '../src/gen/geometry';
 import { MinHeap, mulberry32, subSeed } from '../src/gen/util';
+import { sketchGrid, type SketchEdit, type SketchStroke } from '../src/gen/sketch';
 
 /** 和 generateWorld 一样的网格(默认 36k 地块) */
 function meshFor(seed: number, cells = DEFAULT_PARAMS.cells): Mesh {
@@ -188,5 +189,56 @@ describe('一颗星球:陆块、海底', () => {
       expect(shallow, `seed ${seed} 宽大陆架`).toBeGreaterThan(30);
       expect(deep, `seed ${seed} 窄大陆架`).toBeGreaterThan(30);
     }
+  });
+});
+
+describe('编辑地形接着涂草图', () => {
+  it('同一颗星球连着涂:第 4b 步起记下来接着用的噪声,和每次从头算的逐位相同', () => {
+    const seed = 7;
+    const mesh = meshFor(seed);
+    const p = { ...DEFAULT_PARAMS, seed };
+    const t0 = buildTectonics(mesh, p);
+    let lx = 0;
+    let ly = 0;
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < mesh.n; i++) {
+      if (!lx && t0.land[i] && Math.abs(mesh.y[i] - MAP_H / 2) < 250) [lx, ly] = [Math.round(mesh.x[i]), Math.round(mesh.y[i])];
+      if (!sx && !t0.land[i] && t0.oceanDepth[i] < -3000 && Math.abs(mesh.y[i] - MAP_H / 2) < 250) [sx, sy] = [Math.round(mesh.x[i]), Math.round(mesh.y[i])];
+    }
+    // 草图一笔笔加:各种笔、程序补全的三种、海岸参数、没涂的地方不长新陆地
+    const strokes: SketchStroke[] = [];
+    const edits: SketchEdit[] = [];
+    const add = (s: SketchStroke, more: Partial<SketchEdit> = {}) => {
+      strokes.push(s);
+      edits.push({ rest: 'auto', strokes: [...strokes], ...more });
+    };
+    add({ kind: 'land', r: 22, pts: [sx, sy, sx + 30, sy + 5] });
+    add({ kind: 'mountain', r: 18, pts: [lx, ly - 20, lx + 30, ly + 10], h: 2 });
+    add({ kind: 'hills', r: 20, pts: [lx - 40, ly, lx - 10, ly + 20] });
+    add({ kind: 'plateau', r: 20, pts: [lx + 40, ly + 30, lx + 60, ly + 50] });
+    add({ kind: 'shelf', r: 22, pts: [sx + 60, sy, sx + 80, sy + 5] });
+    add({ kind: 'isles', r: 22, pts: [sx + 100, sy, sx + 120, sy + 5] }, { coast: 0.9 });
+    add({ kind: 'mountain', r: 16, pts: [lx + 5, ly + 5, lx + 40, ly - 20] }, { fill: 'detail' });
+    add({ kind: 'hills', r: 16, pts: [lx - 60, ly + 40, lx - 30, ly + 50] }, { fill: 'exact' });
+    add({ kind: 'land', r: 22, pts: [sx + 140, sy, sx + 160, sy + 5] }, { rest: 'noNewLand', coast: 0.2 });
+    const keys = ['land', 'oceanDepth', 'uplift', 'plateau', 'sketched', 'sketchTouched'] as const;
+    const bytes = (t: ReturnType<typeof buildTectonics>) =>
+      keys.map((k) => {
+        const a = t[k];
+        return a ? Array.from(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)).join() : '-';
+      });
+    // 接着涂:第 1–4 步记着的那一份连着用(第二次起噪声记下来)
+    const kept = edits.map((e) => bytes(buildTectonics(mesh, p, sketchGrid(e))));
+    // 每次从头算:中间换一下板块数,把记着的那一份挤掉
+    const fresh = edits.map((e) => {
+      buildTectonics(mesh, { ...p, plates: p.plates + 1 });
+      return bytes(buildTectonics(mesh, p, sketchGrid(e)));
+    });
+    for (let s = 0; s < edits.length; s++) {
+      for (let k = 0; k < keys.length; k++) expect(kept[s][k] === fresh[s][k], `第 ${s + 1} 笔 ${keys[k]}`).toBe(true);
+    }
+    // 真的涂到了:每一笔的结果都和上一笔不一样
+    for (let s = 1; s < edits.length; s++) expect(kept[s].join('|') !== kept[s - 1].join('|'), `第 ${s + 1} 笔`).toBe(true);
   });
 });

@@ -16,11 +16,13 @@ import type { World } from './world';
 import {
   coastShiftMax,
   coverFits,
+  drain,
   dropSpecksIn,
   newGullyJob,
   noiseTiles,
   PLANE,
   rasterInputs,
+  SHADE_STEP,
   shadeSphere,
   speckMax,
   streamsOf,
@@ -77,6 +79,21 @@ const SPECK_PAD = 6;
  * 返回 { whole }、null 的时候一个数也没改
  */
 export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5, reuse = false): PatchJob | { whole: Precomputed } | null {
+  return drain(rasterizePatchSteps(world, prev, maxFrac, reuse));
+}
+
+/** 按块重铺做到哪儿了(rasterizePatchSteps 在中途放下时,调用方照它把上一张改回原样) */
+export interface PatchProgress {
+  /** 就地改之前记下的样子:记下了,上一张的数组在这块(box)里可能已经改了一些,贴回 box 就是原样;没记下 = 一个数也没改 */
+  before?: RasterBefore;
+}
+
+/**
+ * 同 rasterizePatch,一段一段做(每段几毫秒到几十毫秒,段与段之间 yield):后台线程每隔一会儿让一下,
+ * 新的一笔来了就不用等这一笔铺完。做完的结果和 rasterizePatch 逐位相同。
+ * 中途放下(不再接着取下一段)时:at.before 记下了的,把 at.before.box 贴回 prev.raster 就是原样(只就地改的才会改到它)
+ */
+export function* rasterizePatchSteps(world: World, prev: RasterKeep, maxFrac = 0.5, reuse = false, at: PatchProgress = {}): Generator<void, PatchJob | { whole: Precomputed } | null> {
   const r0 = prev.raster;
   const { w: W, h: H } = r0;
   const N = W * H;
@@ -84,7 +101,9 @@ export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5, re
   const cover0 = prev.inputs.cover;
   if (!coverFits(cover0, world.mesh, W, H)) return null;
   const inputs = rasterInputs(world, cover0, prev.inputs);
+  yield;
   const changed = unionBox(inputChange(prev.inputs, inputs, W, H), prev.dirty ?? null, W);
+  yield;
   const seed = world.params.seed;
   const { g } = cover0;
   // 要重铺的几块:逐像素结果可能变的(S1)、去碎点以后的(W2)、逐像素多铺的一圈(W3)
@@ -99,6 +118,7 @@ export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5, re
   }
   // 就地改:先记下要改的那块(W3)原来的样子;不然各数组拷一份再改
   const before = reuse ? rasterBefore(r0, w3) : undefined;
+  at.before = before;
   const own = <T extends Float32Array | Uint8Array>(a: T): T => (reuse ? a : (a.slice() as T));
   const raster: Raster = {
     w: W,
@@ -127,8 +147,15 @@ export function rasterizePatch(world: World, prev: RasterKeep, maxFrac = 0.5, re
       raster.iceTone.fill(0, a, b);
     });
     const { dTile, jTile } = noiseTiles(seed);
-    shadeSphere(raster, cover0.tri, cover0.wa, cover0.wb, inputs.planes, inputs.base, inputs.carve, inputs.calm, dTile, jTile, g, R, world.mesh.spacing, job0, null, w3);
+    // 逐像素按整行分段铺(一个像素只看输入,和一口气铺 W3 逐位相同;沟壑要算的像素照样按行记进 job0)
+    const rows = Math.max(1, Math.floor(SHADE_STEP / w3.w));
+    for (let y = w3.y0; y < w3.y0 + w3.h; y += rows) {
+      const band = { x0: w3.x0, y0: y, w: w3.w, h: Math.min(rows, w3.y0 + w3.h - y) };
+      shadeSphere(raster, cover0.tri, cover0.wa, cover0.wb, inputs.planes, inputs.base, inputs.carve, inputs.calm, dTile, jTile, g, R, world.mesh.spacing, job0, null, band);
+      yield;
+    }
     dropSpecksIn(raster, speckMax(1), w3);
+    yield;
     // W3 比 W2 多出的那圈:换回原来的(那里本来就没变,去碎点只在 W2 里算得准)。就地改的,原来的取自改之前记下的那块
     const was = before?.box;
     const src = was
