@@ -21,7 +21,7 @@
  * - **不保存事件堆**:CivSim.fromCiv(world, civ) 由 Civ 数据本身重建"接下来该发生什么",从 civ.endYear 接着推。
  *   进行中的战争、厌战、停战冷却也一样(由史事 + 日志 + 国家表重建,见 wars.ts 的 resumeWars);
  *   分裂、合并、复国、主动迁都的冷却同样(见 politics.ts 的 resumePolitics);王朝更替也一样(dynasty.ts 的 resumeDynasty);
- *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);
+ *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);大迁徙在路上的队伍按 Civ.migrations 接着走(migration.ts 的 resumeMigration);
  *   城市兴衰(毁城后的重建、旧都衰落)也一样(cities.ts 的 resumeCities)。
  *   发展度是例外:各州能力的全精度状态存在 Civ.development.state 里,接着推时从那里接上(development.ts 的 resumeDevelopment);
  *   思潮也一样(Civ.ideology.state,ideology.ts 的 resumeIdeology);
@@ -53,6 +53,7 @@ import { resumePlague } from './plague';
 import { resumePandemic } from './pandemic';
 import type { Calamity } from './calamity';
 import { resumeTreaties } from './treaties';
+import { resumeMigration } from './migration';
 import { resumeInterventions, scheduleInterventions } from './interventions';
 import { resumeReligion, type FaithEra } from './religion';
 import { cultureModelOf } from './cultures';
@@ -234,6 +235,15 @@ export const enum Ev {
   SlumpStep = 61,
   /** 看地震水旱(pandemic.ts):a = 第几次看。只有「天灾」设成多、很多的世界才有:各国偶尔闹一场地震、大水、大旱 */
   QuakeCheck = 62,
+  /**
+   * 看大迁徙(migration.ts;编号 63–64):a = 第几次看。每隔几十年看一眼草原、寒地的民族:老家挤、闹灾年、本族的国刚散了(推),
+   * 走得到的地方有大乱、疫后空了、富庶的地(拉),就可能分出一支举族远走(一次看最多走一支)
+   */
+  TrekCheck = 63,
+  /** 迁徙的队伍走到路线上的下一州(migration.ts):a = 第几次大迁徙(Civ.migrations 的下标),b = 路线上的第几州;最后一州 = 落脚立国 */
+  TrekStep = 64,
+  /** 落脚(migration.ts):不单独预约,是大迁徙落脚的几州改换成迁来的民族时变化日志记的原因 */
+  TrekSettle = 65,
 }
 
 export interface EventInfo {
@@ -290,6 +300,9 @@ export const EVENT_INFO: EventInfo[] = [
   { id: Ev.PandemicCheck, name: '看全球大疫', watch: false },
   { id: Ev.SlumpStep, name: '疫后凋敝', watch: false },
   { id: Ev.QuakeCheck, name: '看地震水旱', watch: false },
+  { id: Ev.TrekCheck, name: '看大迁徙', watch: false },
+  { id: Ev.TrekStep, name: '迁徙的队伍', watch: false },
+  { id: Ev.TrekSettle, name: '迁徙落脚', watch: false },
 ];
 
 /** 检查点间隔(年) */
@@ -576,6 +589,7 @@ export class CivSim {
       resumePlague(sim, world, civ, iv?.list);
       resumePandemic(sim, civ, iv?.list);
       resumeTreaties(sim, world, civ);
+      resumeMigration(sim, world, civ);
       // 信仰:不存状态,照 civ 的历史从第 0 年重放到 civ.endYear,之后接着每 5 年算一步(不预约事件)
       const cm = cultureModelOf(sim);
       const pm = polityModelOf(sim);

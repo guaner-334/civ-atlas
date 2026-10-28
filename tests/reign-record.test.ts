@@ -221,6 +221,19 @@ const made = (o: Partial<ReignFacts> = {}): ReignFacts => ({
 });
 const fis = (mood0: number, mood1: number, short: number[] = []) => ({ mood0, mood1, income0: 50, income1: 50, short });
 
+describe('在位不满 3 年:年数和副标题同一个取法', () => {
+  // 副标题(人物卡「在位」一行):起止各取整年再相减,不满 1 年写"不足一年"
+  const sub = (from: number, until: number) => Math.floor(until) - Math.floor(from);
+  const cases: [number, number][] = [[100, 102.5], [100.2, 102.7], [100.9, 103.89], [100.1, 100.5], [100.7, 101.1], [100, 102.99]];
+  for (const [from, until] of cases) {
+    it(`${from}→${until}`, () => {
+      const t = reignRecordOf(made({ from, until, len: until - from })).short!;
+      const n = sub(from, until);
+      expect(t.startsWith(n < 1 ? '在位不到一年，' : `在位 ${n} 年，`)).toBe(true);
+    });
+  }
+});
+
 describe('治绩的措辞', () => {
   it('在位不满 3 年:疆域、人口、国库都没变才写"国中没有变化"', () => {
     expect(reignRecordOf(made()).short).toBe('在位 2 年，国中没有变化：128 州，约 14 万人，国库充裕，没打仗。');

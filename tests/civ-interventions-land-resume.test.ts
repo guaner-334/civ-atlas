@@ -31,12 +31,12 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
       const list: Intervention[] = [
         { kind: 'halt', a: polityKey(civ, hp.p), from: hp.a, until: hp.a + 400 },
         { kind: 'found', region: regionKey(civ, r), from: 1500 },
-        { kind: 'cede', a: polityKey(civ, bd.q), region: regionKey(civ, bd.r), from: 1800, permanent: true },
+        { kind: 'cede', a: polityKey(civ, bd.q), region: regionKey(civ, bd.r), from: bd.y, permanent: true },
         { kind: 'move', a: polityKey(civ, mv.p), city: settlementKey(civ, mv.s), from: 2000 },
       ];
       const whole = generateCiv(w, { interventions: list });
       expect(fingerprint(generateCiv(w, { interventions: list.map((v) => ({ ...v })) }))).toBe(fingerprint(whole));
-      const cuts = new Set([999, 1000, 1200, 1400, 1450, 1500, 1501, 1800, 2000, 2400, hp.a - 1, hp.a, hp.a + 400]);
+      const cuts = new Set([999, 1000, 1200, 1400, 1450, 1500, 1501, bd.y, 2000, 2400, hp.a - 1, hp.a, hp.a + 400]);
       for (const cut of [...cuts].sort((x, y) => x - y)) {
         const half = generateCiv(w, { endYear: cut, interventions: list });
         const sim = CivSim.fromCiv(w, half);

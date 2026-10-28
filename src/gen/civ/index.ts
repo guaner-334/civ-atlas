@@ -58,6 +58,7 @@ import { installPandemic } from './pandemic';
 import { breakRoads } from './pandemicInfo';
 import { cleanCalamity } from './calamity';
 import { installTreaties } from './treaties';
+import { installMigration, migrationsOf } from './migration';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
 
@@ -250,6 +251,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
   if (pm) installPandemic(sim, pm, seed); // 全球大疫、疫后凋敝;「天灾」多 / 很多时自己发生的全球大疫、地震水旱(pandemic.ts)
   if (pm) installTreaties(sim, pm, world); // 立约与中立地(treaties.ts):互不侵犯 / 有限竞争之约、背约、续约,共建中立地、放逐
+  if (pm) installMigration(sim, pm, world); // 大迁徙(migration.ts):草原、寒地的民族分出一支举族远走,到了立国、开战,打进国都
   if (model && pm) installReligion(sim, seed, model, pm, regions); // 信仰(religion.ts):每 5 年算一步(只算着,别的规则还不读它;不预约事件)
   if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
   progress('民族推演', 0.85);
@@ -512,6 +514,7 @@ function finishCiv(x: Finish): Civ {
     ...(pm ? { sailFrom: pm.sailFrom } : {}),
     ...(frontier ? { frontier } : {}),
     ...(fin.sim.calamity ? { calamity: fin.sim.calamity } : {}),
+    ...(migrationsOf(fin.sim) ? { migrations: migrationsOf(fin.sim)! } : {}),
     ...(x.interventions ? { interventions: x.interventions.slice() } : {}),
     people,
     ...(facts.length ? { upheavals: facts, eras } : {}),
@@ -619,6 +622,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     sailFrom: pm.sailFrom,
     ...(frontier ? { frontier } : {}),
     ...(sim.calamity ? { calamity: sim.calamity } : {}),
+    ...(migrationsOf(sim) ? { migrations: migrationsOf(sim)! } : {}),
     ...(iv ? { interventions: iv.stored.slice() } : {}),
     people: [],
     ...(dev ? { development: dev } : {}),
