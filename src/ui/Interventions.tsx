@@ -38,6 +38,7 @@ import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { cnNumber } from '../gen/civ/chronicle';
 import { leaningsChange, personName } from '../gen/civ/peopleText';
+import { heOrShe, heirWord, mateWord, wedVerb, type Sexed } from '../gen/civ/gender';
 import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
 import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../gen/civ/policy';
@@ -305,7 +306,7 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     case 'temper': {
       const x = personOfKey(civ, v.person);
       const change = leaningsChange(x?.leanings, v.leanings);
-      return `${personKeyName(civ, v.person)}:改倾向${change ? `，${change}` : ''}，到他下台`;
+      return `${personKeyName(civ, v.person)}:改倾向${change ? `，${change}` : ''}，到${heOrShe(x)}下台`;
     }
     case 'treaty': {
       // "渭国与大羽王朝、后乾衍国立约(有限竞争，三十年)，以星河域为中立地"
@@ -321,17 +322,21 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     }
     case 'regent':
       // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政"
-      return `${personKeyName(civ, v.person)}:${REGENT_HOW_WORD[v.how]}掌权，${regentEndWord(v.end, v.years)}`;
+      return `${personKeyName(civ, v.person)}:${regentHowWord(v.how, personOfKey(civ, v.person))}掌权，${regentEndWord(v.end, v.years)}`;
     case 'marry': {
       // "胡炜:娶大澜王朝宗室女""胡炜:本国宗室女嫁大澜王朝""胡炜:与大澜王朝互嫁"
       const B = keyName(civ, v.b, v.from) || '对方';
-      return `${personKeyName(civ, v.person)}:${v.how === 'give' ? `本国宗室女嫁${B}` : v.how === 'mutual' ? `与${B}互嫁` : `娶${B}宗室女`}`;
+      const x = personOfKey(civ, v.person);
+      return `${personKeyName(civ, v.person)}:${v.how === 'give' ? `本国宗室女嫁${B}` : v.how === 'mutual' ? `与${B}互嫁` : `${wedVerb(x)}${B}${mateWord(x)}`}`;
     }
   }
 }
 
-/** 让他掌权的几种怎么叫 */
-export const REGENT_HOW_WORD: Record<RegentHow, string> = { march: '引兵入朝', heir: '太子监国', uncle: '摄政', chancellor: '专权', general: '专权' };
+/** 让他掌权的几种怎么叫(太子监国:掌权的是女的写太女监国) */
+export function regentHowWord(how: RegentHow, x?: Sexed): string {
+  return how === 'heir' ? `${heirWord(x)}监国` : REGENT_HOW_WORD[how];
+}
+const REGENT_HOW_WORD: Record<RegentHow, string> = { march: '引兵入朝', heir: '太子监国', uncle: '摄政', chancellor: '专权', general: '专权' };
 
 /** 让他掌权到什么时候:"到君主去世即位""5 年后还政""5 年后篡位" */
 export function regentEndWord(end: RegentEnd, years?: number): string {
