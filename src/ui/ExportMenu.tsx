@@ -286,7 +286,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   detail.worker = t1 - t0;
   const t2 = performance.now();
   const iso = m.contours ? contoursOf(m.world, m.raster, m.contours) : null;
-  const n = await drawMapLabels(ctx, { ...m }, scale, {
+  const n = await drawMapLabels(ctx, { ...m, era: getEdits().era }, scale, {
     beforeDraw: iso
       ? (placed) => {
           drawExportContours(ctx, m, scale, iso, !!m.contourDark, placed ? placedTextBoxes(placed) : []);

@@ -371,7 +371,7 @@ export function swordHalf(u: number, k: number, dpr: number): number {
 }
 
 /** 东西相连的主图:世界 x 在 [lo, hi] 的东西挪几圈落在画布里(视口展开,见 LabelView.wrap) */
-function shiftsIn(lo: number, hi: number, lv: LabelView, pad: number): number[] {
+export function shiftsIn(lo: number, hi: number, lv: LabelView, pad: number): number[] {
   const P = lv.proj ? 0 : (lv.wrap ?? 0);
   if (!P) return [0];
   const cw = lv.canvasW;
