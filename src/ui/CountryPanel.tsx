@@ -64,6 +64,7 @@ import { FiscalPage, FiscalRow } from './FiscalPage';
 import { CourtPage, CourtRow, FormRow } from './CourtPage';
 import { DestroyPage } from './DestroyPage';
 import { DisasterPage } from './DisasterPage';
+import { TrekPage } from './TrekPage';
 import { BoostPage } from './BoostPage';
 import { boostRow } from './boostInfo';
 import { TreatyPage, ZonePage } from './TreatyPage';
@@ -163,6 +164,8 @@ export function CountryPanel(props: CountryPanelProps) {
           <DestroyPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'disaster' ? (
           <DisasterPage key={id} civ={civ} polity={id} year={year} from={page.year} />
+        ) : page?.kind === 'trek' ? (
+          <TrekPage key={id} civ={civ} polity={id} year={year} from={page.year} />
         ) : page?.kind === 'boost' ? (
           <BoostPage key={id} civ={civ} id={id} year={year} from={page.year} />
         ) : page?.kind === 'treaty' ? (

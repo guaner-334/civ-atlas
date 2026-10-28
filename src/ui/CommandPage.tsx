@@ -20,6 +20,7 @@
  * 「灭国」(选去向 ›):卡片换成灭国那一页(DestroyPage.tsx),生效年份带过去。
  * 「立约」(选几国 ›)、「划中立地」(选地方 ›):卡片换成立约 / 划中立地那一页(TreatyPage.tsx),生效年份带过去。
  * 「天灾」(选种类 ›):卡片换成天灾那一页(DisasterPage.tsx,州卡片「更多」里也能进),生效年份带过去。
+ * 「大迁徙」(选民族 ›):卡片换成大迁徙那一页(TrekPage.tsx,州卡片「更多」里也能进;默认这国的主体民族),生效年份带过去。
  *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
  * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
@@ -50,7 +51,7 @@ import { zoneChoices } from './treatyIv';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'boost' | 'protect' | 'unity' | 'keep' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
+type Cmd = 'policy' | 'boost' | 'protect' | 'unity' | 'keep' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster' | 'trek';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
@@ -67,6 +68,7 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[]
   { k: 'crown', name: '立作者的人物为君主', desc: '选一位那年在世的作者人物，从这年起当这国君主', pick: true, go: '选人 ›' },
   { k: 'destroy', name: '灭国', desc: '这年让它亡国，国土并入一国或散成无主', pick: true, go: '选去向 ›' },
   { k: 'disaster', name: '天灾', desc: '瘟疫、饥荒、地震水旱，人口锐减', pick: true, go: '选种类 ›' },
+  { k: 'trek', name: '大迁徙', desc: '让国内一族分出一支远走、到别处立国，或不许它迁', pick: true, go: '选民族 ›' },
 ];
 
 export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster: Raster | null; world: World; id: number; year: number }) {
@@ -116,9 +118,9 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const orders = polityOrders(civ, id, step ? playInterventions(edits.interventions, cleanPlay(edits.play)) : edits.interventions);
   // 下过同一种命令(有截止年份的,到期以后可以再下)
   const has = (kind: InterventionKind) =>
-    orders.some(({ v }) => v.kind === kind && v.kind !== 'found' && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
+    orders.some(({ v }) => v.kind === kind && 'a' in v && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
   // 待推演的单子里有本国同一种命令
-  const queued = (kind: InterventionKind) => pendingInterventions(pending).some((v) => v.kind === kind && v.kind !== 'found' && v.a === key);
+  const queued = (kind: InterventionKind) => pendingInterventions(pending).some((v) => v.kind === kind && 'a' in v && v.a === key);
   const name = nameAt(p, y);
   /** 面板标题上的名字(时间轴当前那一年的) */
   const shown = nameAt(p, year);
@@ -154,8 +156,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       setCrown('pick');
       return;
     }
-    // 方针、推一把发展、灭国、天灾、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
-    if (k === 'policy' || k === 'boost' || k === 'destroy' || k === 'disaster' || k === 'treaty' || k === 'neutral') {
+    // 方针、推一把发展、灭国、天灾、大迁徙、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
+    if (k === 'policy' || k === 'boost' || k === 'destroy' || k === 'disaster' || k === 'trek' || k === 'treaty' || k === 'neutral') {
       openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }
