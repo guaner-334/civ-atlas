@@ -16,7 +16,7 @@ import { personKey } from '../gen/edits';
 import { polityName } from '../gen/civ/growth';
 import { personSpan } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
-import { heOrShe } from '../gen/civ/gender';
+import { heOrShe, isFemale } from '../gen/civ/gender';
 import { personPortrait } from '../gen/portrait';
 import { yearFull, yearShort, yearSpan, type Era } from '../gen/era';
 import { getCivTime, setCivTime, subscribeCivTime } from './civView';
@@ -25,7 +25,7 @@ import { followAt, followChoices, followRefOf, followRole, followSub, goneWord, 
 import { useEra } from './editsStore';
 import { useStepwise } from './stepwiseStore';
 import { polityHistory } from './WorldOverviewCountries';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { Act } from './panelParts';
 import { Icon } from './icons';
 
@@ -51,8 +51,15 @@ function legKey(civ: Civ, leg: FollowLeg): string {
 function Face({ civ, x, year, dead }: { civ: Civ; x: Person; year: number; dead?: boolean }) {
   const from = personSpan(x).from;
   const age = F(Math.min(Math.max(year, Math.min(from, x.born + 20)), x.died ?? Infinity) - x.born);
-  const p = useMemo(() => personPortrait(civ, x.id, x.born + age), [civ, x, age]);
+  // 女的(头像部件还没有):国家色的小圆写名字的最后一个字
+  const p = useMemo(() => (isFemale(x) ? null : personPortrait(civ, x.id, x.born + age)), [civ, x, age]);
   const pol = civ.polities[x.polity];
+  if (pol && isFemale(x))
+    return (
+      <span className="fp-face">
+        <NameFace name={x.name} size="mini" color={rgb(pol.color)} dead={dead} />
+      </span>
+    );
   return <span className="fp-face">{p && pol ? <PortraitView p={p} size="mini" color={rgb(pol.color)} dead={dead} dark={dead && (x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle')} /> : null}</span>;
 }
 
