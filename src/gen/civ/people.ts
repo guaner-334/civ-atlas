@@ -46,7 +46,7 @@
  * 干预某一年之前的历史不变,那之前已经下台的君主(名字、生卒、在位年份)、打完的仗的统帅也不变
  * (称号、编号可能变:日后多了一位同名的国王,前面那位就要编"一世")。名字按民族的语感取(naming.ts 的 personNamers)。纯计算,不碰 DOM。
  */
-import { EXILE_TIES, type Annal, type Civ, type Person, type PersonCommand, type PersonDeed, type PersonFate, type PersonRegency, type PersonSpouse, type Polity, type RulerLeanings, type RulerRise, type Year } from './types';
+import { EXILE_TIES, type Annal, type Civ, type Person, type PersonCommand, type PersonDeed, type PersonFate, type PersonPost, type PersonRegency, type PersonSpouse, type Polity, type RulerLeanings, type RulerRise, type Year } from './types';
 import { parsePersonKey, type Intervention } from '../edits';
 import { keyed4, subSeed } from './rand';
 import { personNamers } from './naming';
@@ -1250,18 +1250,24 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         const authorTop = (title: string, t: Year) => officers.some((o) => o.polity === ap.polity && o.role === 'minister' && (o.until ?? Infinity) > t && o.posts?.[at(o, t)]?.title === title);
         const { posts, top } = deedPosts(P, ap.from, x.deeds ?? [], authorTop);
         x.posts = posts;
-        if (top)
+        // 他做着最高的官那几年(升到那一刻起,到去职):推演里的名臣这几年做着这个官的(先做着的、后来升上来的都算),
+        // 那几年写次一级,前后照旧
+        if (top) {
+          const end = ap.until ?? Infinity;
           for (const m of ministers) {
-            const k = m.polity === ap.polity ? at(m, top.at) : -1;
-            if (k < 0 || m.posts![k].title !== top.title) continue;
-            const ps = m.posts!.slice(0, k + 1);
-            // 同一刻拜的:直接写次一级
-            if (ps[k].from >= top.at) ps.pop();
-            ps.push({ title: topAltAt(P, top.at), from: top.at });
-            if (ap.until !== undefined && (m.until ?? Infinity) > ap.until && (m.posts![k + 1]?.from ?? Infinity) > ap.until) ps.push({ title: top.title, from: ap.until });
-            ps.push(...m.posts!.slice(k + 1));
+            if (m.polity !== ap.polity || !m.posts?.some((pt) => pt.title === top.title)) continue;
+            const ps: PersonPost[] = [];
+            m.posts.forEach((pt, k) => {
+              const pe = m.posts![k + 1]?.from ?? m.until ?? Infinity;
+              if (pt.title !== top.title || pe <= top.at || pt.from >= end) return void ps.push(pt);
+              if (pt.from < top.at) ps.push(pt);
+              const from = Math.max(pt.from, top.at);
+              ps.push({ title: topAltAt(P, from), from });
+              if (end < pe) ps.push({ title: pt.title, from: end });
+            });
             m.posts = ps.filter((pt, i) => i === 0 || pt.title !== ps[i - 1].title);
           }
+        }
       }
       officers.push(x);
     }

@@ -154,6 +154,15 @@ describe(`人物卡上的一条(种子 ${seed})`, () => {
         for (const d of x.deputies) expect(l1).toContain(d.name);
       }
     } else expect(warTally(ws)).toBe('');
+    // 派他出征换过去、打完又回来领原来那场(A、B、A):原来那场只算一仗
+    const cs = gen.x.commands ?? [];
+    if (cs.length >= 2 && cs[0].war !== cs[1].war) {
+      const again = { ...cs[0], from: cs[1].until, until: cs[1].until + 1 };
+      const fake = { ...gen.x, commands: [cs[0], cs[1], again] };
+      const fw = ledWars(civ, fake);
+      expect(fw.map((x) => x.war)).toEqual([cs[0].war, cs[1].war]);
+      expect(fw[0].until).toBe(again.until);
+    }
     // 为臣那一任;仕途一行写两样、从任将那年起
     const min = sts[2] as Extract<(typeof sts)[number], { kind: 'done' }>;
     expect(min.x).toMatchObject({ role: 'minister', polity: P, from: T + 21 });

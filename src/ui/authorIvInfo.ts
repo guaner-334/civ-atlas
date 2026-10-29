@@ -12,7 +12,7 @@
  */
 import type { Civ, Person, PersonDeed, PersonRegency, Polity } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
-import { cnNumber, interventionOutcome, regionList } from '../gen/civ/chronicle';
+import { cnNumber, regionList } from '../gen/civ/chronicle';
 import { commandFoe, peopleIndex } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
 import { heOrShe, type Sexed } from '../gen/civ/gender';
@@ -144,10 +144,10 @@ export function voidTail(v: PostIv, x: Sexed): string {
 
 /** 推完的提示条:"林小满为大衍王朝将，到 2442 年卸任" / 没生效 "林小满没能为将：第 2430 年后东定国已亡" */
 export function postDoneText(civ: Civ, v: PostIv, i: number, who: string, era: Era | undefined): { ok: boolean; text: string } {
-  const out = i >= 0 ? interventionOutcome(civ, i) : null;
+  const f = i >= 0 ? interventionFate(civ, i) : null;
   const A = keyPolityName(civ, v.a, v.from);
-  if (out && !out.ok && out.annal >= 0) {
-    const why = out.why ?? '没有生效';
+  if (f?.state === 'void') {
+    const why = f.why;
     const r = postRole(v);
     return { ok: false, text: `${who}没能${r === 'general' ? '为将' : r === 'minister' ? '入朝' : '掌权'}：${eraText(why.startsWith('那一年') ? `第 ${v.from} 年${why.slice(3)}` : why, era)}` };
   }
@@ -190,15 +190,17 @@ export function ledWars(civ: Civ, x: Person): LedWar[] {
   const ix = peopleIndex(civ);
   const out: LedWar[] = [];
   const pid = x.polity;
+  // 同一场仗(同一方)几段并成一条:派他出征换过去、打完又回来领原来那场的也算一场
+  const byWar = new Map<string, LedWar>();
   for (const c of x.commands ?? []) {
     if (c.rear) continue;
-    const prev = out[out.length - 1];
-    let w: LedWar;
-    if (prev && prev.war === c.war && prev.side === c.side) {
-      w = prev;
-      w.until = c.until;
+    let w = byWar.get(`${c.war}:${c.side}`);
+    if (w) {
+      w.from = Math.min(w.from, c.from);
+      w.until = Math.max(w.until, c.until);
     } else {
       w = { war: c.war, side: c.side, foe: commandFoe(civ, c), from: c.from, until: c.until, decl: A.findIndex((e) => e.kind === 'war' && e.war === c.war), result: 'even', deputies: [], gained: [], lost: [], held: 0, fell: false, next: null };
+      byWar.set(`${c.war}:${c.side}`, w);
       out.push(w);
     }
     for (let i = Math.max(0, c.first); i <= c.last && i < A.length; i++) {

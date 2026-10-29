@@ -74,20 +74,26 @@ const sig = (x: Person) =>
   });
 const simPeople = (civ: Civ, noPosts = false) => (civ.people ?? []).filter((x) => x.author === undefined).map((x) => sig(noPosts ? { ...x, posts: undefined } : x));
 /**
- * 作者的名臣 X 升到最高的官时,那一刻正做着的推演名臣:人物卡上从那一刻起写次一级,X 去职后复为原官;别的推演人物官职一个不变
+ * 作者的名臣 X 做着最高的官那几年(升到那一刻起,到去职):推演里的名臣这几年做着这个官的,人物卡上这几年写次一级、前后照旧;
+ * 别的推演人物官职一个不变
  */
 function checkDisplaced(civ: Civ, plain: Civ, X: Person) {
   const top = X.posts![X.posts!.length - 1];
+  const end = X.until ?? Infinity;
   const sims = (c: Civ) => (c.people ?? []).filter((x) => x.author === undefined);
+  /** m 在 t 那一刻的官 */
+  const titleAt = (m: Person, t: number) => [...(m.posts ?? [])].reverse().find((p) => p.from <= t)?.title;
   const a = sims(civ);
   const b = sims(plain);
   for (let i = 0; i < a.length; i++) {
     if (JSON.stringify(a[i].posts) === JSON.stringify(b[i].posts)) continue;
     expect(a[i].role).toBe('minister');
     expect(a[i].polity).toBe(X.polity);
-    const held = b[i].posts!.find((p, k, ps) => p.title === top.title && p.from <= top.from && (ps[k + 1]?.from ?? Infinity) > top.from);
-    expect(held, a[i].name).toBeDefined();
-    expect(a[i].posts!.some((p) => p.from === top.from && p.title !== top.title)).toBe(true);
+    // 原来在他做最高的官那几年里做过这个官,现在那几年一刻也不是
+    const over = b[i].posts!.some((p, k, ps) => p.title === top.title && p.from < end && (ps[k + 1]?.from ?? b[i].until ?? Infinity) > top.from);
+    expect(over, a[i].name).toBe(true);
+    for (const p of a[i].posts!) if (p.from >= top.from && p.from < end) expect(p.title, a[i].name).not.toBe(top.title);
+    expect(titleAt(a[i], top.from), a[i].name).not.toBe(top.title);
   }
 }
 /** 下了令的历史:除了干预那几条史事,和不下一样 */

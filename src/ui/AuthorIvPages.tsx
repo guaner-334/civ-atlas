@@ -24,7 +24,7 @@ import { personName, rulerShort } from '../gen/civ/peopleText';
 import { heOrShe } from '../gen/civ/gender';
 import { postAt } from '../gen/civ/officialText';
 import { authorMinisterLadder, courtDeeds } from '../gen/civ/officials';
-import { appointPreview, type AuthorPost } from '../gen/civ/appoint';
+import { appointEnd, appointPreview, type AuthorPost } from '../gen/civ/appoint';
 import {
   APPOINT_SKILL_POWER,
   INTERVENTION_YEAR_MAX,
@@ -476,22 +476,6 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
   const ui = useYearInput(Math.min(untilHi, y + 20), y + 1, Math.max(y + 1, untilHi), clear);
   const until = byYear ? ui.y : undefined;
   const [skill, setSkill] = useState<'plain' | AppointSkill>('plain');
-  // 同时派他出征:伐哪国(那年接壤的)、哪年
-  const [send, setSend] = useState(false);
-  const tenureEnd = Math.min(until ?? c.died ?? Infinity, Math.ceil(civ.endYear)) - 1;
-  const si = useYearInput(y, y, Math.max(y, tenureEnd), clear);
-  const sy = step ? y : si.y;
-  const syv = step ? yv : sy;
-  const [target, setTarget] = useState<number | null>(null);
-  const [tList, setTList] = useState(false);
-  const near = useMemo(() => (P && pAlive ? neighborsAt(civ, P.id, syv).near : new Set<number>()), [civ, P, pAlive, syv]);
-  const nearHere = useMemo(() => (P && pAlive ? neighborsAt(civ, P.id, yv).near : new Set<number>()), [civ, P, pAlive, yv]);
-  const tgt = target !== null && near.has(target) ? target : null;
-  const T = tgt !== null ? civ.polities[tgt] : undefined;
-  const nearRows = useMemo(() => alivePolities(civ, syv).filter((x) => near.has(x.id)), [civ, syv, near]);
-  const pk = usePolityPick();
-  const tPicking = pk?.source === `${source}:send`;
-
   const v: Intervention | null = P
     ? {
         kind: 'appoint',
@@ -507,6 +491,29 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
     : null;
   // 照现在的推演,他会领哪几仗(任将不改历史)
   const pre = useMemo<AuthorPost | null>(() => (v && v.kind === 'appoint' && pAlive && !step ? appointPreview(civ, v, P!.id) : null), [civ, JSON.stringify(v), pAlive, step]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 同时派他出征:伐哪国(那年接壤的)、哪年(在他任上:照现在排出来的任期,排不出的按卸任年 / 卒年 / 卸甲的岁数)
+  const [send, setSend] = useState(false);
+  const stopT = pre ? (pre.until ?? civ.endYear) : v && v.kind === 'appoint' ? appointEnd(v, y).stop : y + 1;
+  const tenureEnd = Math.ceil(Math.min(stopT, civ.endYear)) - 1;
+  const si = useYearInput(y, y, Math.max(y, tenureEnd), clear);
+  const sy = step ? y : si.y;
+  const syv = step ? yv : sy;
+  const [target, setTarget] = useState<number | null>(null);
+  const [tList, setTList] = useState(false);
+  const near = useMemo(() => (P && pAlive ? neighborsAt(civ, P.id, syv).near : new Set<number>()), [civ, P, pAlive, syv]);
+  const nearHere = useMemo(() => (P && pAlive ? neighborsAt(civ, P.id, yv).near : new Set<number>()), [civ, P, pAlive, yv]);
+  const tgt = target !== null && near.has(target) ? target : null;
+  const T = tgt !== null ? civ.polities[tgt] : undefined;
+  const nearRows = useMemo(() => alivePolities(civ, syv).filter((x) => near.has(x.id)), [civ, syv, near]);
+  const pk = usePolityPick();
+  const tPicking = pk?.source === `${source}:send`;
+  // 离开这一页时收起"伐哪一国"的地图挑选(选哪国的那个由 usePolityChoice 收)
+  useEffect(
+    () => () => {
+      if (getPolityPick()?.source === `${source}:send`) setPolityPick(null);
+    },
+    [source],
+  );
 
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;

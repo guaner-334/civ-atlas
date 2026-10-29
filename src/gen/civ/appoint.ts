@@ -268,6 +268,8 @@ export function appointPreview(civ: AppointInput, v: AppointIv, pid: number): Au
     if (A[mid].year < v.from) k = mid + 1;
     else hi = mid;
   }
+  // 同一刻已有的干预在它前面(推演里干预照列表先后下,这一条排在最后)
+  while (k < A.length && A[k].year === v.from && A[k].kind === 'intervene') k++;
   const mark: Annal = { year: v.from, kind: 'intervene', a: pid, b: -1, region: -1, settlement: -1, war: list.length - 1 };
   const annals = [...A.slice(0, k), mark, ...A.slice(k)];
   const posts = computePosts({ ...civ, annals }, list);
