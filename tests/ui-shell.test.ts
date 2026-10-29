@@ -395,6 +395,13 @@ describe('世界概览', () => {
       pausePlayback();
       dismissOverview();
       expect(getCivTime()).toMatchObject({ year: 900, playing: false });
+      // 逐年推演停下后把年份换成播放头真正停的那一刻(往后不到一年):还算概览停的,关掉从那一刻接着放
+      setCivTime({ year: 1700, playing: true });
+      openOverview();
+      setCivTime({ year: 1700.4 });
+      expect(getOverviewHold()).toBe(true);
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 1700.4, playing: true });
       // "回放世界形成"接着放文明的那一段:停下、关掉接着放那一段
       setCivTime({ year: 40, playing: true, story: true });
       openOverview('chronicle');

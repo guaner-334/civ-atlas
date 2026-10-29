@@ -46,7 +46,7 @@ const chron0 = getChronicle();
 let state: OverviewState = { open: chron0.open, tab: chron0.open ? 'chronicle' : 'countries' };
 const subs = new Set<() => void>();
 
-/** 打开概览时停下的播放:停在哪一年、快慢、是不是"回放世界形成"接着放文明的那一段;null = 不是概览停的 */
+/** 打开概览时停下的播放:停在哪一年(显示的那一年)、快慢、是不是"回放世界形成"接着放文明的那一段;null = 不是概览停的 */
 let hold: { year: number; speed: CivTime['speed']; story: boolean } | null = null;
 
 function holdPlayback() {
@@ -58,9 +58,10 @@ function holdPlayback() {
   hold = { year: p.year, speed: p.speed, story: t.story };
 }
 
-// 开着时时间被别处动过(又放起来了、跳了年份、换了快慢):不再是概览停的,关掉也不接着放
+// 开着时时间被别处动过(又放起来了、跳了年份、换了快慢):不再是概览停的,关掉也不接着放。
+// 停下那一下往后挪不到一年不算:逐年推演显示的是取整到一步的年份,停下后再把地图换成播放头真正停的那一刻(Stepwise.tsx),从那一刻接着放
 subscribeCivTime((t) => {
-  if (!hold || (!t.playing && !t.scrubbing && t.year === hold.year && t.speed === hold.speed)) return;
+  if (!hold || (!t.playing && !t.scrubbing && t.speed === hold.speed && t.year !== null && t.year >= hold.year && t.year < hold.year + 1)) return;
   hold = null;
   subs.forEach((f) => f());
 });
