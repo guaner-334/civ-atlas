@@ -4,7 +4,7 @@
  *   手机:单指转;双指捏合远近、一起上下推改俯角(往上推更斜)、拧转方向
  * 指南针、复位、远近按钮由 View.tsx 调 north / reset / zoomBy。
  */
-import { ReliefGL, PALETTE, type ReliefTexPart } from '../../render/terrain3d/gl';
+import { ReliefGL, PALETTE, type ReliefPalette, type ReliefTexPart } from '../../render/terrain3d/gl';
 import type { ReliefMesh } from '../../render/terrain3d/relief';
 import { FIT_DESKTOP, FIT_PHONE, PITCH_MAX, PITCH_MIN, clipPlanes, fitCam, mul, project, projMatrix, rectShift, viewMatrix, type ReliefCam } from '../../render/terrain3d/camera';
 
@@ -25,6 +25,8 @@ export interface ReliefDebug {
   ex?: number;
   /** 方框里最高处(米,粗的一档) */
   maxElev?: number;
+  /** 贴着的是哪种上色(render/terrain3d/relief.ts 的 ReliefLook) */
+  look?: string;
   frames: number;
 }
 
@@ -40,6 +42,7 @@ export class ReliefStage {
   private cam: ReliefCam | null = null;
   private home: ReliefCam | null = null;
   private ex = 12;
+  private pal: ReliefPalette = PALETTE;
   private raf = 0;
   private anim: { from: ReliefCam; to: ReliefCam; t0: number; ms: number } | null = null;
   private W = 1;
@@ -56,6 +59,9 @@ export class ReliefStage {
   onNorth: (deg: number) => void = () => {};
   /** 第一次按下(手机上收起操作提示) */
   onTouch: () => void = () => {};
+  /** 每画一帧告诉外面几个钉子(山顶)在画面上的位置(CSS 像素;落在镜头后面 = null) */
+  onPins: (pts: ([number, number] | null)[]) => void = () => {};
+  private pins: ({ x: number; z: number; h: number } | null)[] = [];
 
   private phone: boolean;
 
@@ -93,6 +99,19 @@ export class ReliefStage {
 
   setColor(w: number, h: number, parts: ReliefTexPart[]): void {
     this.gl.setColor(w, h, parts);
+    this.kick();
+  }
+
+  /** 钉在沙盘上的几个点(公里,方框中心为原点;h = 海拔米,跟着起伏倍数升降):山名立在这儿 */
+  setPins(pins: ({ x: number; z: number; h: number } | null)[]): void {
+    this.pins = pins;
+    this.kick();
+  }
+
+  /** 切面、光照、远处天色跟着画风换(手绘一套,别的一套) */
+  setPalette(pal: ReliefPalette): void {
+    if (pal === this.pal) return;
+    this.pal = pal;
     this.kick();
   }
 
@@ -209,19 +228,27 @@ export class ReliefStage {
     const W = this.canvas.width;
     const H = this.canvas.height;
     if (!cam || !s) {
-      this.gl.draw(W, H, new Float32Array(16), new Float32Array(16), this.ex, [0, 1], PALETTE);
+      this.gl.draw(W, H, new Float32Array(16), new Float32Array(16), this.ex, [0, 1], this.pal);
       return;
     }
     const [shX, shY] = rectShift(this.W, this.H, this.rect());
     const [n, f] = clipPlanes(cam, Math.max(s.kmX, s.kmZ) + ((s.maxElev / 1000) * this.ex));
     const mv = viewMatrix(cam);
     const mvp = mul(projMatrix(this.W / this.H, n, f, shX, shY, cam.fov), mv);
-    this.gl.draw(W, H, mv, mvp, this.ex, [cam.dist * 0.55, cam.dist * 1.9], PALETTE);
+    this.gl.draw(W, H, mv, mvp, this.ex, [cam.dist * 0.55, cam.dist * 1.9], this.pal);
     reliefDebug().frames++;
     // 北在画面上朝哪:看点往北挪一点,投到画面上比一比
     const a = project(mvp, cam.tx, cam.ty, cam.tz);
     const b = project(mvp, cam.tx, cam.ty, cam.tz - s.kmZ * 0.05);
     if (a && b) this.onNorth((Math.atan2((b[0] - a[0]) * this.W, (b[1] - a[1]) * this.H) * 180) / Math.PI);
+    if (this.pins.length) {
+      this.onPins(
+        this.pins.map((p) => {
+          const q = p && project(mvp, p.x, p.h * 0.001 * this.ex, p.z);
+          return q ? [((q[0] + 1) / 2) * this.W, ((1 - q[1]) / 2) * this.H] : null;
+        }),
+      );
+    }
   }
 
   // ---- 拖动、滚轮、手势 ----
