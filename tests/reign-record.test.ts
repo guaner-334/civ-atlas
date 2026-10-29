@@ -189,7 +189,7 @@ describe('在位不满 3 年', () => {
 });
 
 describe('只给君主', () => {
-  it('将领、名臣、宗室没有治绩', () => {
+  it('将领、名臣、宗室、后妃没有治绩', () => {
     const kinds = new Set<string>();
     for (const seed of SEEDS) {
       const civ = civOf(seed);
@@ -199,7 +199,7 @@ describe('只给君主', () => {
         expect(reignRecord(civ, x)).toBeNull();
       }
     }
-    expect([...kinds].sort()).toEqual(['general', 'minister', 'prince']);
+    expect([...kinds].sort()).toEqual(['consort', 'general', 'minister', 'prince']);
   });
 
   it('字里没有漏填的空值', () => {

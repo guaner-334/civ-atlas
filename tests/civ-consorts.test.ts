@@ -11,6 +11,7 @@ import { REGENCY_KINDS, RG_START } from '../src/gen/civ/regents';
 import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
 import { dowagerSpans, dowagerWordOf, kinOf } from '../src/gen/civ/peopleText';
 import { personCard } from '../src/ui/PersonPanel';
+import { parsePersonKey, personKey, resolvePersonKey } from '../src/gen/edits';
 
 const worlds = new Map<number, ReturnType<typeof generateWorld>>();
 const worldOf = (seed: number) => {
@@ -151,6 +152,17 @@ describe.each([7, 2024])('后妃 · seed=%i', (seed) => {
     const lines = personCard(c, b).lines;
     for (const k of ['国家', '生卒', '父亲', '出嫁']) expect(lines.map((l) => l.k), b.name).toContain(k);
     expect(lines.find((l) => l.k === '国家')!.text).toContain('嫁入');
+  });
+
+  it('人物键认得后妃(改名、关注、作者人物的亲友都按它找人)', () => {
+    const c = civOf(seed);
+    const xs = c.people!.filter((x) => x.role === 'consort').slice(0, 20);
+    expect(xs.length).toBeGreaterThan(5);
+    for (const x of xs) {
+      const k = personKey(c, x.id);
+      expect(parsePersonKey(k)?.role, k).toBe('consort');
+      expect(resolvePersonKey(c, k)).toBe(x.id);
+    }
   });
 
   it('接着往后推:先出道的后妃名字、生年、丈夫不变', () => {

@@ -206,6 +206,13 @@ export function dowagerSpans(x: Person): PersonRegency[] {
   return (x.regencies ?? []).filter((g) => g.kind === 'dowager');
 }
 
+/** 这个人"那一国":临朝的太后 = 她临朝的那一国(嫁来的宗室女做了太后的,不是她娘家);别的 = Person.polity */
+export function seatPolity(civ: Civ, x: Person): number {
+  const g = x.role === 'consort' ? dowagerSpans(x)[0] : undefined;
+  const N = g ? civ.people?.[g.ruler] : undefined;
+  return N ? N.polity : x.polity;
+}
+
 /** 她临朝的那一国(幼主那一国;嫁来的宗室女做了太后的,不是她娘家) */
 function dowagerPolity(civ: Civ, x: Person): Polity | null {
   const g = dowagerSpans(x)[0];

@@ -11,7 +11,7 @@
 import type { Civ, Person } from '../gen/civ/types';
 import { personKey, polityKey, resolveKey, resolvePersonKey, type FollowRef } from '../gen/edits';
 import { personSpan, rulerNeighbors } from '../gen/civ/peopleInfo';
-import { consortRole, dowagerSpans, generalRole, isConsul, ministerRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { consortRole, dowagerSpans, generalRole, isConsul, ministerRole, rulerFateWord, rulerRole, seatPolity } from '../gen/civ/peopleText';
 import { yearAt, type Era } from '../gen/era';
 import type { DirectorFocus } from './directorPlan';
 
@@ -91,7 +91,8 @@ export function followNext(civ: Civ, x: Person): FollowTarget | null {
     const n = rulerNeighbors(civ, x).next;
     if (n) return { kind: 'person', id: n.id };
   }
-  const p = civ.polities[x.polity];
+  // 临朝的太后接着跟她临朝的那一国(嫁来的不是她娘家)
+  const p = civ.polities[seatPolity(civ, x)];
   const end = personEnd(x);
   return p && (p.ended === undefined || p.ended > end) ? { kind: 'polity', id: p.id } : null;
 }

@@ -53,7 +53,7 @@ import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, fallFate, leaningEffect, 
 import { policiesFrom, policyEffect, segAt } from './policy';
 import { splitSurname } from './peopleText';
 import { nameWomen, pickWomen, type ConsortName } from './women';
-import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, brideFits, consortDeath, consortRand, dowagerHomeU, isDowager, otherSurname } from './consorts';
+import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, consortDeath, consortRand, dowagerHomeU, isDowager, otherSurname } from './consorts';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -942,18 +942,18 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     for (const m of (F && wedsOf.get(F)) ?? []) if (m.t < kid.born) hit = m;
     return hit;
   };
-  /** 一门亲里嫁来的宗室女(先只排生年、卒年,名字等下面起);并成一人以后、知道娶亲的是男是女以后再定收不收 */
+  /**
+   * 一门亲里嫁来的宗室女(先只排生年、卒年,名字等下面起);并成一人以后、知道娶亲的是男是女以后再定收不收。
+   * 生年、卒年只看结亲那一刻(推到哪一年都一样)
+   */
   const brideOf = new Map<Match, Person>();
-  const makeBride = (m: Match, G: Person, born?: Year): Person => {
+  const makeBride = (m: Match): Person => {
     let b = brideOf.get(m);
     if (b) return b;
     const F = brideFatherOf(m);
     const t0 = tag[m.b] ?? 0;
-    const later = (wedsOf.get(G) ?? []).find((o) => o.t > m.t)?.t ?? Infinity;
-    const kids = (sonsOf.get(G) ?? []).map((x) => x.p.born).filter((y) => y > m.t && y <= later);
-    born ??= brideBorn(CR, t0, m.t, F && F.author === undefined ? F.born : undefined, kids);
-    const fits = kids.filter((y) => bears(born!, undefined, y));
-    const died = consortDeath(CR, t0, m.t, K_BRIDE, born, Math.max(m.t + 1, ...fits.map((y) => y + 1 / 4)));
+    const born = brideBorn(CR, t0, m.t, F && F.author === undefined ? F.born : undefined);
+    const died = consortDeath(CR, t0, m.t, K_BRIDE, born, m.t + 1);
     b = { id: -1, role: 'consort', polity: m.b, name: '', female: true, born, died };
     if (F?.dynasty !== undefined) b.dynasty = F.dynasty;
     brideOf.set(m, b);
@@ -971,17 +971,20 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     if (g.kind !== 'minister' || g.iv !== undefined || N.author !== undefined) continue;
     const P = polities[pid];
     const t0 = tag[pid] ?? 0;
-    if (!P || !isDowager(CR, t0, g.start, styleOf(P), g.born, N.born)) continue;
+    if (!P || !isDowager(CR, t0, g.start, styleOf(P))) continue;
     const F = sonFather.get(N);
     const mm = motherMatch(N, F);
     if (mm) {
-      // 幼主的母亲本来就是嫁来的宗室女:太后就是她(结亲时的年纪对得上才换;篡位开国的不换,新朝的姓对不上她的父姓)
-      const BF = brideFatherOf(mm);
-      if (g.outcome === 'usurp' || !brideFits(mm.t, BF && BF.author === undefined ? BF.born : undefined, g.born)) continue;
-      dowagerOf.set(s, makeBride(mm, F!, g.born));
+      // 幼主的母亲本来就是嫁来的宗室女:太后就是她(生年、寿数照她自己的:幼主要生在她 16–45 岁之间、她要活过原定还政的那一年;
+      // 篡位开国的不换,新朝第一位的生年、姓对不上她)
+      const b = makeBride(mm);
+      if (g.outcome === 'usurp' || !bears(b.born, b.died, N.born) || (b.died ?? Infinity) <= g.stop) continue;
+      dowagerOf.set(s, b);
       dowagerGrooms.add(F!);
       continue;
     }
+    // 别的:生年照推演里掌权的人,幼主要生在她 16–45 岁之间
+    if (!bears(g.born, undefined, N.born)) continue;
     // 原定要篡位的(推到她篡位以前也是这一位):东方的姓照新朝的姓(和名臣篡位一样);篡了位就和新朝的第一位并成一人(下面)
     const died = consortDeath(CR, t0, g.start, K_DOWAGER, g.born, Math.max(g.stop + 1, g.start + 2));
     const x: Person = { id: -1, role: 'consort', polity: pid, name: '', female: true, born: g.born, died, dynasty: g.dyn };
@@ -1303,7 +1306,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   for (const m of matches) {
     const G = groomOf(m);
     if (!G || G.author !== undefined || women.has(G)) continue;
-    const b = makeBride(m, G);
+    const b = makeBride(m);
     brideOfMatch.set(m, b);
     if (consortNames.has(b)) continue;
     const F = brideFatherOf(m);

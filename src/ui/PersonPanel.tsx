@@ -48,7 +48,7 @@ import type { Civ, Person, PersonSpouse, RulerLeanings } from '../gen/civ/types'
 import { polityName, polityTierAt } from '../gen/civ/growth';
 import { buildChronicle, cnNumber, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
-import { LEANING_KEYS, LEANING_TEXT, ageAt, consortRole, dowagerSpans, dowagerWordOf, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort, rulerTitle, splitSurname } from '../gen/civ/peopleText';
+import { LEANING_KEYS, LEANING_TEXT, ageAt, consortRole, dowagerSpans, dowagerWordOf, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort, rulerTitle, seatPolity, splitSurname } from '../gen/civ/peopleText';
 import { REGENCY_END, REGENCY_VERB, brideMatchOf, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
 import { eastRank, heOrShe, isFemale, kinWord, wedVerb, westRank } from '../gen/civ/gender';
 import { treatyBook } from '../gen/civ/treatyInfo';
@@ -135,7 +135,7 @@ function kidsLine(civ: Civ, list: readonly Person[], max = 6, self?: Person): { 
       const w = brideMatchOf(civ, k);
       return H && w && H.polity !== k.polity ? `嫁${polityShort(civ, H.polity, w.year)}` : '';
     }
-    if (k.role === 'ruler' && self && k.polity !== self.polity) return rulerRole(civ, k);
+    if (k.role === 'ruler' && self && k.polity !== seatPolity(civ, self)) return rulerRole(civ, k);
     // 临朝篡位的女君:被她废了的儿子是前朝的君主
     if (k.role === 'ruler' && self && self.role === 'ruler' && (k.dynasty ?? 0) !== (self.dynasty ?? 0)) return `前朝${rulerRank(civ, k)}`;
     return k.role !== 'prince' ? '' : k.fate !== 'purged' ? '未即位' : regentPurged(k) ? '伏诛' : '被杀';
@@ -337,7 +337,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             {ruler ? (consul ? '就任那年' : '即位那年') : minister ? '入仕那年' : dowagerOf ? '临朝那年' : bride ? '出生那年' : '出征那年'}
           </Act>
         )}
-        <Act icon="scroll" act="person-chronicle" onClick={() => openOverview('chronicle', { polity: x.polity, major: false, at: end })}>
+        <Act icon="scroll" act="person-chronicle" onClick={() => openOverview('chronicle', { polity: seatPolity(civ, x), major: false, at: end })}>
           编年史
         </Act>
         <Act icon="copy" act="person-copy" onClick={() => void copy()}>
@@ -414,7 +414,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             upTo={heldEv}
             limit={8}
             more={
-              <button className="ins-link cp-more" data-act="person-held-chronicle" onClick={() => openOverview('chronicle', { polity: x.polity, major: false, at: x.regencies![x.regencies!.length - 1].until ?? end })}>
+              <button className="ins-link cp-more" data-act="person-held-chronicle" onClick={() => openOverview('chronicle', { polity: seatPolity(civ, x), major: false, at: x.regencies![x.regencies!.length - 1].until ?? end })}>
                 在编年史中查看
               </button>
             }

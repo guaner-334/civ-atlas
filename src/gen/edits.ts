@@ -1866,7 +1866,7 @@ export interface PersonKeyParts {
   n: number;
 }
 
-const PERSON_KEY = /^person:(polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5})\|(ruler|general|prince|minister)\|([^|]*)\|(-?\d{1,6})(?:#(\d{1,5}))?$/;
+const PERSON_KEY = /^person:(polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5})\|(ruler|general|prince|minister|consort)\|([^|]*)\|(-?\d{1,6})(?:#(\d{1,5}))?$/;
 
 /** 拆开人物键(personKey 的反过来) */
 export function parsePersonKey(key: unknown): PersonKeyParts | null {
