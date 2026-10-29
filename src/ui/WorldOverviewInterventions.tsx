@@ -84,7 +84,8 @@ function targetOf(civ: Civ, v: Intervention, i: number): MapSelection | null {
   if (!v.a) return null;
   // 让人物去世、改君主倾向、让他掌权、为他联姻:那个人(新历史里没有他 = 他的国家)
   if (v.kind === 'death' || v.kind === 'temper' || v.kind === 'regent' || v.kind === 'marry') {
-    const x = resolvePersonKey(civ, v.person);
+    // 让作者的人物掌权:那国里的他(推演里掌了权才有)
+    const x = v.kind === 'regent' && v.char !== undefined ? (civ.people?.findIndex((p) => p.author === v.char && p.polity === polityIdOf(civ, v.a)) ?? -1) : resolvePersonKey(civ, v.person ?? '');
     if (x >= 0) return { kind: 'person', id: x };
   }
   const id = polityIdOf(civ, v.a);
