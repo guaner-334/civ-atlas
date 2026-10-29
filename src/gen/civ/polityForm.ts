@@ -7,14 +7,22 @@
  *   | 名字                       | 条件                                                                   |
  *   |----------------------------|------------------------------------------------------------------------|
  *   | 诸侯割据                   | 至少 WARLORDS_MIN 州,一半以上的州割据                                  |
+ *   | 军政府                     | 改制(reform.ts)以后政变、将军执政的那一段                             |
+ *   | 贵族共和国 / 共和国        | 改出来的共和国(本国原来有君主):只有贵族能议政 / 其余                 |
  *   | 城邦 / 商人共和国 / 海上帝国 | 海洋共和一系:国号第 0 档 / 第 1–2 档 / 第 3 档                          |
  *   | 部落 / 部落联盟            | 还没称国(国号第 0 档):不到 LEAGUE_MIN 州 / 以上                        |
+ *   | 立宪王国 / 立宪帝国        | 有君主、立宪设了议会                                                   |
  *   | 集权王国 / 官僚帝国        | 征税、兵制、官制收归朝廷的够两样(直征、禁军、铨选各算一样;分成、监军、参半各算半样) |
  *   | 封建王国 / 封建帝国        | 分封了边地、设了边镇、许了自辟,或一成半以上的州割据                    |
  *   | 汗国 / 游牧帝国            | 游牧一系                                                               |
  *   | 王国 / 帝国                | 其余                                                                   |
  *
  * 王国还是帝国(汗国还是游牧帝国、集权王国还是官僚帝国……)看国号档位:第 3 档(帝国、大汗国、王朝)算帝国那一头。
+ * 改出来的共和国不管多大都叫共和国(海洋一系第 3 档叫海上帝国,这里不跟)。
+ *
+ * **继任、议政、参与**(朝政页的三条,讨论稿 6c 的维度 1–3;formDims):共用"少数人 ↔ 众人"的轴,各四档 ——
+ *   继任:拥立(军政府)/ 世袭(有君主)/ 推举 / 任期(共和);议政:军人 / 独断 / 议事会 / 议会;
+ *   参与:王族贵族 / 有产者 / 全体男子 / 全体成年人(海洋共和一系从有产者起;有君主、没设议事会的只算贵族)。
  *
  * **历次改制**:只在这一国议事、国号升格、管辖快照(每 20 年一份,割据从它来)的那几年看一次,名字变了就记一条
  * (哪年、从什么变成什么、因为什么)。两次之间州数变了不另看,下一次看时才算进去;
@@ -23,7 +31,9 @@
  */
 import { Layer, type Civ, type Polity, type PolityLineage, type Year } from './types';
 import { courtRulesAt } from './council';
-import { Outcome, applyRule, newRules } from './councilRules';
+import { Outcome, applyRule, isReformIssue, newRules, replayRule } from './councilRules';
+import { reformedSeg, segRegime, type Regime } from './regime';
+import { dynastyIndexAt } from './polityRoot';
 import { LORD_BYTE, controlAt } from './control';
 import { logIndexAfter, ownersAt } from './timeline';
 import { polityTierAt } from './growth';
@@ -54,6 +64,30 @@ export interface FormFacts {
   /** 州数、其中割据的州数(管辖快照) */
   regions: number;
   lords: number;
+  /** 改制(regime.ts):那一段的政体、是不是改出来的共和 / 军政府(本国原来有君主);议政设到哪(0 没设、1 议事会、2 议会)、参与多了几档 */
+  regime: Regime;
+  reformed: boolean;
+  charter: number;
+  franchise: number;
+}
+
+/** 继任、议政、参与三条(各 0–3,少数人 → 众人;见文件头) */
+export interface FormDims {
+  /** 0 拥立、1 世袭、2 推举、3 任期 */
+  succession: number;
+  /** 0 军人、1 独断、2 议事会、3 议会 */
+  council: number;
+  /** 0 王族贵族、1 有产者、2 全体男子、3 全体成年人 */
+  franchise: number;
+}
+
+/** 那几样 → 继任、议政、参与 */
+export function formDims(f: Pick<FormFacts, 'regime' | 'lineage' | 'reformed' | 'charter' | 'franchise'>): FormDims {
+  const succession = f.regime === 'junta' ? 0 : f.regime === 'crown' ? 1 : 3;
+  const council = f.regime === 'junta' ? 0 : f.regime === 'crown' ? 1 + Math.min(2, f.charter) : f.charter >= 2 ? 3 : 2;
+  const base = f.lineage === 'republic' && !f.reformed ? 1 : 0;
+  const franchise = f.regime === 'crown' && f.charter === 0 ? 0 : Math.min(3, base + f.franchise);
+  return { succession, council, franchise };
 }
 
 /** 收归朝廷几样:直征、禁军、铨选各算一样;分成、监军、参半各算半样 */
@@ -73,15 +107,21 @@ export function isFeudal(f: FormFacts): boolean {
 
 const republic = (f: FormFacts) => f.lineage === 'republic';
 const empire = (f: FormFacts) => f.tier >= EMPIRE_TIER;
+const commonwealth = (f: FormFacts) => f.reformed && f.regime === 'republic';
 
 /** 政体名的表:一行一个名字,从上往下先对上的算数 */
 export const FORMS = [
   { name: '诸侯割据', test: (f: FormFacts) => f.regions >= WARLORDS_MIN && lordShare(f) >= WARLORDS_SHARE },
+  { name: '军政府', test: (f: FormFacts) => f.regime === 'junta' },
+  { name: '贵族共和国', test: (f: FormFacts) => commonwealth(f) && formDims(f).franchise === 0 },
+  { name: '共和国', test: (f: FormFacts) => commonwealth(f) },
   { name: '城邦', test: (f: FormFacts) => republic(f) && f.tier <= 0 },
   { name: '商人共和国', test: (f: FormFacts) => republic(f) && !empire(f) },
   { name: '海上帝国', test: (f: FormFacts) => republic(f) },
   { name: '部落', test: (f: FormFacts) => f.tier <= 0 && f.regions < LEAGUE_MIN },
   { name: '部落联盟', test: (f: FormFacts) => f.tier <= 0 },
+  { name: '立宪王国', test: (f: FormFacts) => f.regime === 'crown' && f.charter >= 2 && !empire(f) },
+  { name: '立宪帝国', test: (f: FormFacts) => f.regime === 'crown' && f.charter >= 2 },
   { name: '集权王国', test: (f: FormFacts) => centralScore(f) >= CENTRAL_MIN && !empire(f) },
   { name: '官僚帝国', test: (f: FormFacts) => centralScore(f) >= CENTRAL_MIN },
   { name: '封建王国', test: (f: FormFacts) => isFeudal(f) && !empire(f) },
@@ -105,8 +145,8 @@ export function formName(f: FormFacts): FormName {
   return FORMS[formIndex(f)].name;
 }
 
-/** 政体名变了是因为什么:立国、议事、国号升格、割据(管辖快照里割据的州多了 / 少了)、州数 */
-export type FormCause = 'found' | 'council' | 'title' | 'lords' | 'size';
+/** 政体名变了是因为什么:立国、议事、国号升格、割据(管辖快照里割据的州多了 / 少了)、州数、改制(立宪、废君、革命、政变、复辟、还政、扩大参与) */
+export type FormCause = 'found' | 'council' | 'title' | 'lords' | 'size' | 'reform';
 
 /** 看过的一次(议事、升格、管辖快照那几年) */
 export interface FormLook {
@@ -124,7 +164,7 @@ export interface FormChange {
   from: FormName | null;
   to: FormName;
   cause: FormCause;
-  /** 因为议事:那条史事的下标;否则 −1 */
+  /** 因为议事、改制:那条史事的下标;否则 −1 */
   event: number;
   /** 变之前、之后的样子 */
   before: FormFacts | null;
@@ -174,6 +214,7 @@ export function formFactsAt(civ: Civ, p: number, year: Year): FormFacts | null {
   const snapOwn = sy === null ? null : ownersAt(full, sy).polity;
   const { regions, lords } = countRegions(own, snapOwn, controlAt(full, year), p);
   const rules = courtRulesAt(full, p, year);
+  const seg = dynastyIndexAt(P, year);
   return {
     lineage: P.lineage ?? 'realm',
     tier: Math.max(0, polityTierAt(P, year)),
@@ -183,6 +224,10 @@ export function formFactsAt(civ: Civ, p: number, year: Year): FormFacts | null {
     fief: rules.fiefBy >= 0,
     regions,
     lords,
+    regime: segRegime(P, seg),
+    reformed: reformedSeg(P, seg),
+    charter: rules.charter,
+    franchise: rules.franchise,
   };
 }
 
@@ -194,12 +239,13 @@ function lookYears(full: Civ, P: Polity, end: Year): { year: Year; events: numbe
   };
   add(P.founded);
   for (const t of P.titles ?? []) add(t.year);
+  for (const d of P.dynasties ?? []) add(d.year);
   for (const y of full.development?.controlYears ?? []) add(y);
   const A = full.annals;
   for (let i = 0; i < A.length; i++) {
     const e = A[i];
     if (e.year > end) break;
-    if (e.kind !== 'council' || e.a !== P.id || e.year < P.founded) continue;
+    if ((e.kind !== 'council' && e.kind !== 'reform') || e.a !== P.id || e.year < P.founded) continue;
     add(e.year);
     m.get(e.year)!.push(i);
   }
@@ -208,6 +254,10 @@ function lookYears(full: Civ, P: Polity, end: Year): { year: Year; events: numbe
 
 function sameRules(a: FormFacts, b: FormFacts): boolean {
   return a.tax === b.tax && a.army === b.army && a.office === b.office && a.fief === b.fief;
+}
+
+function sameRegime(a: FormFacts, b: FormFacts): boolean {
+  return a.regime === b.regime && a.charter === b.charter && a.franchise === b.franchise;
 }
 
 /** 一国一生的政体名:看过的每一次、历次改制(按那一份历史缓存) */
@@ -236,10 +286,19 @@ function formBook(civ: Civ, p: number): FormBook {
   let since = years[0].year;
   for (const { year, events } of years) {
     for (; li < log.size && log.year[li] <= year; li++) if (log.layer[li] === Layer.Polity) own[log.region[li]] = log.value[li];
+    // 这一年改制的那条史事(议立宪、扩大参与、废君、还政,革命、政变、复辟);没有 = −1
+    let reformAt = -1;
     for (const id of events) {
       const e = full.annals[id];
-      applyRule(rules, e.war, e.n ?? Outcome.Shelve, e.year);
+      if (e.kind === 'reform') {
+        replayRule(rules, e);
+        reformAt = id;
+      } else {
+        applyRule(rules, e.war, e.n ?? Outcome.Shelve, e.year, e.opt);
+        if (isReformIssue(e.war)) reformAt = id;
+      }
     }
+    const seg = dynastyIndexAt(P, year);
     if (snapYears.has(year)) snapOwn = own.slice();
     const { regions, lords } = countRegions(own, snapOwn, controlAt(full, year), p);
     const facts: FormFacts = {
@@ -251,6 +310,10 @@ function formBook(civ: Civ, p: number): FormBook {
       fief: rules.fief !== undefined,
       regions,
       lords,
+      regime: segRegime(P, seg),
+      reformed: reformedSeg(P, seg),
+      charter: rules.charter,
+      franchise: rules.franchise,
     };
     const name = formName(facts);
     const last = book.looks[book.looks.length - 1];
@@ -259,7 +322,10 @@ function formBook(civ: Civ, p: number): FormBook {
       let cause: FormCause = 'found';
       let event = -1;
       if (prev) {
-        if (events.length && !sameRules(prev, facts)) {
+        if (reformAt >= 0 && !sameRegime(prev, facts)) {
+          cause = 'reform';
+          event = reformAt;
+        } else if (events.length && !sameRules(prev, facts)) {
           cause = 'council';
           event = events[events.length - 1];
         } else if (facts.tier !== prev.tier) cause = 'title';

@@ -49,10 +49,15 @@ function samePast(a: Civ, b: Civ, T: number, label: string) {
   for (const p of a.polities) if (p.dynasties) expect(b.polities[p.id].dynasties!.slice(0, p.dynasties.length), `${label} ${p.name} 朝代`).toEqual(p.dynasties);
   // 人物:编号按出道先后排,推到 T 时已经有的人编号、名字、身世一样(谥号、"一世"这类后来才定的称呼,T 以后才领的兵、还在打的仗打到哪年不比;
   // T 以后才即位的先君之子、据地自立的先君之子,推到 T 时还是父亲那一国、那一朝的宗室)
+  // T 以后才篡位开新朝的名臣(people.ts 里和新朝第一位并成一人):推到 T 时还是前一朝的名臣,出仕那年 = 他的第一个官职
   const who = (P: NonNullable<Civ['people']>) => (x: (typeof P)[number]) => {
     const later = x.role === 'ruler' && x.from! > T;
-    const home = later && x.parent !== undefined ? P[x.parent] : x;
-    return [x.id, later ? 'prince' : x.role, home.polity, x.name, x.born, later ? undefined : x.from, home.dynasty, x.parent, x.courtesy, (x.commands ?? []).filter((c) => c.from <= T).map((c) => [c.war, c.side, c.from])];
+    const usurper = later && x.rise === 'usurp' && !!x.posts?.length;
+    const home = later && !usurper && x.parent !== undefined ? P[x.parent] : x;
+    const role = usurper ? 'minister' : later ? 'prince' : x.role;
+    const from = usurper ? x.posts![0].from : later ? undefined : x.from;
+    const dynasty = usurper ? (x.dynasty ?? 0) - 1 : home.dynasty;
+    return [x.id, role, home.polity, x.name, x.born, from, dynasty, x.parent, x.courtesy, (x.commands ?? []).filter((c) => c.from <= T).map((c) => [c.war, c.side, c.from])];
   };
   const pa = a.people ?? [];
   const pb = b.people ?? [];

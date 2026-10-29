@@ -79,6 +79,10 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   regent: 'dynasty',
   marry: 'empire',
   keep: 'dynasty',
+  // 改制:立宪、改制(废君、还政)、复辟和改朝、继位一类(蓝);革命、政变动了兵,和战争一类(红)
+  reform: 'dynasty',
+  revolution: 'war',
+  coup: 'war',
 };
 
 /** 这条纪事归哪一类(不认识的种类算"改朝":蓝色,和普通链接一样不抢眼) */
@@ -153,6 +157,11 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   篡: '篡位',
   亲: '亲政',
   姻: '结亲',
+  宪: '立宪',
+  制: '改制',
+  革: '革命',
+  政: '政变',
+  辟: '复辟',
 };
 
 /** 卡片 / 最近事件 / 提示里的类型名:"战争""改朝""称帝"…… */

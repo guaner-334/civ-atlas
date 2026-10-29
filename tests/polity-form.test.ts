@@ -28,18 +28,23 @@ function civOf(seed: number): Civ {
 }
 
 /** 一个普通的农耕王国:第 2 档、10 州、规矩都是原样 */
-const base: FormFacts = { lineage: 'realm', tier: 2, tax: 0, army: 0, office: 0, fief: false, regions: 10, lords: 0 };
+const base: FormFacts = { lineage: 'realm', tier: 2, tax: 0, army: 0, office: 0, fief: false, regions: 10, lords: 0, regime: 'crown', reformed: false, charter: 0, franchise: 0 };
 const f = (o: Partial<FormFacts>): FormFacts => ({ ...base, ...o });
 
 describe('政体名', () => {
   it('名字表的每一行都对得上(造出来的输入,一行一个)', () => {
     const cases: [FormName, FormFacts][] = [
       ['诸侯割据', f({ regions: 12, lords: 6 })],
+      ['军政府', f({ regime: 'junta', reformed: true })],
+      ['贵族共和国', f({ regime: 'republic', reformed: true, charter: 1 })],
+      ['共和国', f({ regime: 'republic', reformed: true, charter: 1, franchise: 1 })],
       ['城邦', f({ lineage: 'republic', tier: 0, regions: 2 })],
       ['商人共和国', f({ lineage: 'republic', tier: 1 })],
       ['海上帝国', f({ lineage: 'republic', tier: 3, regions: 80 })],
       ['部落', f({ tier: 0, regions: 3 })],
       ['部落联盟', f({ tier: 0, regions: 4 })],
+      ['立宪王国', f({ charter: 2 })],
+      ['立宪帝国', f({ tier: 3, charter: 2, tax: 2, army: 1 })],
       ['集权王国', f({ tax: 2, army: 1 })],
       ['官僚帝国', f({ tier: 3, army: 1, office: 1 })],
       ['封建王国', f({ fief: true })],
@@ -49,7 +54,7 @@ describe('政体名', () => {
       ['王国', f({})],
       ['帝国', f({ tier: 3 })],
     ];
-    // 表里 14 行,一行不漏
+    // 表里 19 行,一行不漏
     expect(cases.map((c) => c[0])).toEqual(FORMS.map((r) => r.name));
     for (const [name, facts] of cases) expect(formName(facts), name).toBe(name);
   });
@@ -85,29 +90,23 @@ describe('政体名', () => {
     expect(formName(f({ tier: 3, fief: true }))).toBe('封建帝国');
   });
 
-  it('种子 7、2024 第 3000 年:博戈维纳王国王国(635 年起)、大霄王朝封建帝国;伊昌汗国集权王国、基帕尔大汗国当过游牧帝国', () => {
-    const at = (seed: number, name: string) => {
+  it('种子 7、2024:立国时的名字、议事改出来的集权 / 封建、游牧一系、改制改出来的共和国 / 军政府都有,历次改制接得上', () => {
+    // 历史重排以后国家会变,按条件找例子(不写死哪一国)
+    const all = [7, 2024].flatMap((seed) => {
       const civ = civOf(seed);
-      const P = civ.polities.find((q) => polityName(q, 3000) === name);
-      expect(P, name).toBeTruthy();
-      return { look: polityFormAt(civ, P!.id, 3000)!, changes: formChangesAt(civ, P!.id, 3000).map((c) => c.to) };
-    };
-    // 博戈维纳 2783 年才议成直征(有了户籍以后),收归朝廷的只有一样,还是王国
-    // (GENERATOR_VERSION 48 时代做法以前 1894 年收兵权、2018 年行铨选,是集权王国;有熊皇朝是官僚帝国、卢纳维亚帝国是封建帝国)
-    const boge = at(7, '博戈维纳王国');
-    expect([boge.look.name, Math.floor(boge.look.since)]).toEqual(['王国', 635]);
-    expect(boge.changes).toEqual(['部落', '王国']);
-    // 先是帝国,后来因议事分封了边地,成了封建帝国
-    const da = at(7, '大霄王朝');
-    expect(da.look.name).toBe('封建帝国');
-    expect(da.changes.slice(-2)).toEqual(['帝国', '封建帝国']);
-    // 先是汗国,当过封建王国,后来收归朝廷的够了两样,成了集权王国
-    const yi = at(2024, '伊昌汗国');
-    expect(yi.look.name).toBe('集权王国');
-    expect(yi.changes).toContain('封建王国');
-    const ki = at(2024, '基帕尔大汗国');
-    expect(ki.look.name).toBe('封建帝国');
-    expect(ki.changes).toContain('游牧帝国');
+      return civ.polities.filter((P) => polityAlive(P, P.founded)).map((P) => ({ civ, P, changes: formChangesAt(civ, P.id, civ.endYear) }));
+    });
+    const names = new Set(all.flatMap((x) => x.changes.map((c) => c.to)));
+    for (const n of ['部落', '王国', '帝国', '游牧帝国', '汗国']) expect(names.has(n as FormName), n).toBe(true);
+    expect(names.has('集权王国') || names.has('官僚帝国'), '集权').toBe(true);
+    expect(names.has('封建王国') || names.has('封建帝国'), '封建').toBe(true);
+    // 议事改出来的:有一条 cause = council,前后的名字不一样
+    expect(all.some((x) => x.changes.some((c) => c.cause === 'council' && c.from !== c.to))).toBe(true);
+    // 改制改出来的(立宪、废君、革命、政变、复辟):cause = reform,接着那条史事
+    const reformed = all.flatMap((x) => x.changes.filter((c) => c.cause === 'reform').map((c) => ({ ...x, c })));
+    expect(reformed.length).toBeGreaterThan(0);
+    for (const { civ, c } of reformed) expect(['council', 'reform']).toContain(civ.annals[c.event].kind);
+    expect(reformed.some(({ c }) => c.to === '共和国' || c.to === '贵族共和国' || c.to === '军政府')).toBe(true);
   }, 120_000);
 
   it('缓存的(只在议事、升格、管辖快照那几年看)和现算的一样;历次改制前后接得上', () => {

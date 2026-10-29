@@ -17,7 +17,7 @@ export function dynastyIndexAt(p: Polity, year: Year): number {
 }
 
 /** 某一年的那一朝(没改朝换代过 = undefined) */
-export function dynastyAt(p: Polity, year: Year): { year: Year; name: string; seat: number } | undefined {
+export function dynastyAt(p: Polity, year: Year): NonNullable<Polity['dynasties']>[number] | undefined {
   const d = p.dynasties;
   return d && d.length ? d[dynastyIndexAt(p, year)] : undefined;
 }
@@ -28,5 +28,21 @@ export function dynastyAt(p: Polity, year: Year): { year: Year; name: string; se
  */
 export function polityRootAt(p: Polity, year: Year): string {
   if (!p.eastern || !p.dynasties || p.dynasties.length < 2) return p.name;
-  return p.dynasties[dynastyIndexAt(p, year)].name || p.name;
+  return segRootOf(p, dynastyIndexAt(p, year));
+}
+
+/**
+ * 第 i 段的国名词根(东方语感):改制开的共和 / 军政府那一段照上一段(大靖王朝 → 大靖共和国),
+ * 复辟迎回旧王室的照那一朝(Polity.dynasties 的 house);作者改了那一朝的名字,这几段跟着变
+ */
+export function segRootOf(p: Polity, i: number): string {
+  const d = p.dynasties;
+  if (!d || !d[i]) return p.name;
+  for (let g = 0; g < 64; g++) {
+    const x = d[i];
+    if (x.house !== undefined && x.house < i && d[x.house]) i = x.house;
+    else if (x.regime && i > 0) i--;
+    else return x.name || p.name;
+  }
+  return p.name;
 }

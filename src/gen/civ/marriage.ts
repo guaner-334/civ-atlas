@@ -48,6 +48,7 @@ import {
   type Match,
   type MatchCtx,
 } from './marriages';
+import { royalAt } from './regime';
 
 // 随机数用途
 const U_MARRY = 1;
@@ -153,7 +154,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   /** 国家 p 此刻娶亲的人:未成婚的成年太子 → 年轻的在位君主 → 别的成年宗室;没有 = null */
   const groomOf = (p: number, t: Year): { code: number; born: Year } | null => {
     const P = pm.polities[p];
-    if (!P || P.lineage === 'republic') return null;
+    if (!P || !royalAt(P, t)) return null;
     const r = rulerOf(pm, p, t);
     if (r.crown) return null;
     const ok = (born: Year) => t - born >= GROOM_AGE[0] && t - born <= GROOM_AGE[1] && !married(p, born);
@@ -170,7 +171,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   /** 国家 q 此刻在位的君主有女儿可嫁 */
   const brideOk = (q: number, t: Year): boolean => {
     const Q = pm.polities[q];
-    if (!Q || Q.lineage === 'republic') return false;
+    if (!Q || !royalAt(Q, t)) return false;
     return t - reignBorn(rulerOf(pm, q, t)) >= BRIDE_FATHER;
   };
   const note = (p: number, q: number, g: { code: number; born: Year }, t: Year, war = -1) => {
@@ -184,7 +185,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
     dm.bond = bond;
     dm.marry = (p: number, k: number, t: Year) => {
       const P = pm.polities[p];
-      if (!P || P.lineage === 'republic') return;
+      if (!P || !royalAt(P, t)) return;
       const g = groomOf(p, t);
       if (!g) return;
       const near = new Set<number>(dm.neighborsOf?.(p) ?? []);
@@ -231,7 +232,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   mm.intervene = (v, _i, p, q, t, noteIv) => {
     if (!alive(p)) return noteIv(-3);
     if (q < 0 || q === p || !alive(q)) return noteIv(IV_NO_PARTNER);
-    if (pm.polities[p].lineage === 'republic' || pm.polities[q].lineage === 'republic') return noteIv(IV_NO_THRONE);
+    if (!royalAt(pm.polities[p], t) || !royalAt(pm.polities[q], t)) return noteIv(IV_NO_THRONE);
     if (fighting(p, q)) return noteIv(IV_AT_WAR);
     const me = ivGroom(p, v.person, t);
     if (!me) return noteIv(IV_NOT_HIM);

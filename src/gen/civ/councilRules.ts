@@ -37,6 +37,14 @@ export const enum Issue {
   Reorg = 9,
   /** 脱离(地方提的:转投邻国,或起兵自立) */
   Leave = 10,
+  /** 立宪(设议会,君主还在;妥协 = 只设议事会,不限君权。reform.ts) */
+  Charter = 11,
+  /** 扩大参与(能进议事会 / 议会的人多一档) */
+  Widen = 12,
+  /** 废君立共和(办成 = 改共和;妥协 = 只设议事会) */
+  Abolish = 13,
+  /** 还政(军政府交还议事会,复行共和) */
+  Return = 14,
 }
 /** 结果(Annal.n) */
 export const enum Outcome {
@@ -46,7 +54,9 @@ export const enum Outcome {
   Break = 3,
 }
 /** 议题有几种 */
-export const ISSUES = 11;
+export const ISSUES = 15;
+/** 改制的几种议题(立宪、扩大参与、废君立共和、还政;reform.ts) */
+export const isReformIssue = (i: number) => i >= Issue.Charter && i <= Issue.Return;
 
 /** 政局数表里归议事管的常数(stateTables.ts) */
 export const COUNCIL_CONSTS: CouncilRuleConsts = { FIEF_C, FIEF_REMIT, FIEF_FAR, BORDER_C, BORDER_ARMY };
@@ -74,6 +84,15 @@ export interface Rules {
   office: number;
   /** 最近一次集权的改制办成(余波从这年算) */
   shock: Year;
+  /**
+   * 议政(改制,reform.ts):0 君主独断、1 设了议事会(立宪妥协、废君妥协)、2 设了议会(立宪办成、革命);复辟回到 0。
+   * 共和那几段至少算议事会(见 polityForm.ts 的 dims)
+   */
+  charter: number;
+  /** 能议政的人多了几档(扩大参与、废君、革命;0 = 只有王族贵族,1 有产者、2 全体男子、3 全体成年人) */
+  franchise: number;
+  /** 上回改制(废君、还政办成,革命、政变、复辟)的年份;没改过 = −Infinity */
+  reformed: Year;
   /** 各议题上次议的年份、上次搁置了没有 */
   last: Year[];
   shelved: boolean[];
@@ -81,14 +100,15 @@ export interface Rules {
 
 /** 没议过事的国家:原样 */
 export function newRules(): Rules {
-  return { tax: 0, army: 0, office: 0, shock: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity), shelved: new Array<boolean>(ISSUES).fill(false) };
+  return { tax: 0, army: 0, office: 0, shock: -Infinity, charter: 0, franchise: 0, reformed: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity), shelved: new Array<boolean>(ISSUES).fill(false) };
 }
 
 /**
  * 议了一件事以后规矩怎么变(收兵权、收任免:从让了权的 −1 收回到 0,不然办成到 1、妥协到 0.5;
- * 放兵权、放任免:收着权的(> 0)放回 0,不然办成到 −1)
+ * 放兵权、放任免:收着权的(> 0)放回 0,不然办成到 −1)。
+ * 改制:立宪办成设议会、妥协设议事会;扩大参与办成多一档;废君办成至少设议事会、参与照 opt(那条史事的 Annal.opt),妥协设议事会
  */
-export function applyRule(r: Rules, issue: number, out: number, t: Year): void {
+export function applyRule(r: Rules, issue: number, out: number, t: Year, opt?: number): void {
   r.last[issue] = t;
   r.shelved[issue] = out === Outcome.Shelve;
   const done = out === Outcome.Done;
@@ -109,6 +129,35 @@ export function applyRule(r: Rules, issue: number, out: number, t: Year): void {
     r.office = r.office < 0 ? 0 : done ? 1 : 0.5;
     r.shock = t;
   } else if (issue === Issue.OfficeOut && done) r.office = r.office > 0 ? 0 : -1;
+  else if (issue === Issue.Charter && (done || half)) r.charter = Math.max(r.charter, done ? 2 : 1);
+  else if (issue === Issue.Widen && done) r.franchise = Math.min(3, r.franchise + 1);
+  else if (issue === Issue.Abolish && (done || half)) {
+    r.charter = Math.max(r.charter, 1);
+    if (done && opt !== undefined) r.franchise = Math.max(r.franchise, opt);
+    if (done) r.reformed = t;
+  } else if (issue === Issue.Return && done) r.reformed = t;
+}
+
+/** 改制(史事 reform)以后规矩怎么变:革命设议会、参与照 Annal.opt;复辟回到君主独断;政变不改(议会散了看政体) */
+export function applyReform(r: Rules, e: Pick<Annal, 'year' | 'n' | 'opt'>): void {
+  r.reformed = e.year;
+  if (e.n === REFORM_REVOLUTION) {
+    r.charter = 2;
+    if (e.opt !== undefined) r.franchise = Math.max(r.franchise, e.opt);
+  } else if (e.n === REFORM_RESTORE) r.charter = 0;
+}
+
+/** 史事 reform 的 n:革命、政变、复辟 */
+export const REFORM_REVOLUTION = 0;
+export const REFORM_COUP = 1;
+export const REFORM_RESTORE = 2;
+
+/** 一条史事要不要照着改规矩(议事、改制):议事 → applyRule,改制 → applyReform;别的不管。返回改没改 */
+export function replayRule(r: Rules, e: Annal): boolean {
+  if (e.kind === 'council') applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year, e.opt);
+  else if (e.kind === 'reform') applyReform(r, e);
+  else return false;
+  return true;
 }
 
 /**
@@ -119,11 +168,21 @@ export function councilBefore(annals: readonly Annal[]): ({ army: number; office
   const book = new Map<number, Rules>();
   const out: ({ army: number; office: number; tax: number } | undefined)[] = new Array(annals.length);
   annals.forEach((e, i) => {
-    if (e.kind !== 'council') return;
+    if (e.kind !== 'council' && e.kind !== 'reform') return;
     let r = book.get(e.a);
     if (!r) book.set(e.a, (r = newRules()));
-    out[i] = { army: r.army, office: r.office, tax: r.tax };
-    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year);
+    if (e.kind === 'council') out[i] = { army: r.army, office: r.office, tax: r.tax };
+    replayRule(r, e);
   });
   return out;
+}
+
+/** 国家 p 到 year 这一年为止的规矩(议事、改制的史事重放;史事按年份排好,year 以后的不看)。编年史读议政、参与用 */
+export function rulesAt(annals: readonly Annal[], p: number, year: Year): Rules {
+  const r = newRules();
+  for (const e of annals) {
+    if (e.year > year) break;
+    if (e.a === p) replayRule(r, e);
+  }
+  return r;
 }

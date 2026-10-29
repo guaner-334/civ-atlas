@@ -14,6 +14,7 @@
 import type { Civ, Person, PersonRegency, Polity, RulerLeanings, Year } from './types';
 import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from './growth';
 import { childWord, dowagerWord, eastRank, isFemale, khanWord, postTitle, princeWord, westRank } from './gender';
+import { reformedSeg, royalSeg } from './regime';
 
 function polityOfPerson(civ: Civ, x: Person): Polity | null {
   return x.polity >= 0 && x.polity < civ.polities.length ? civ.polities[x.polity] : null;
@@ -76,6 +77,8 @@ function refOf(civ: Civ, x: Person, year: Year, realm: boolean): string {
   if (!p) return x.name;
   const tier = tierFor(p, x, year);
   const at = Math.min(Math.max(year, x.from ?? p.founded), (x.until ?? Infinity) - 1 / 512);
+  // 改出来的共和国、军政府的执政:"博戈维纳共和国执政某某""大靖执政某某"
+  if (x.role === 'ruler' && reformedSeg(p, x.dynasty ?? 0)) return `${realm ? (p.eastern ? polityShortTitle(p, 3, at) : polityName(p, at)) : ''}执政${x.name}`;
   const title = rulerTitle(civ, x);
   if (p.eastern) {
     const tribe = realm ? polityTitles(p, at)[0] : '';
@@ -162,6 +165,7 @@ export function rulerRole(civ: Civ, x: Person): string {
   if (!p) return '';
   const at = lastReignYear(civ, x);
   const tier = tierFor(p, x, at);
+  if (x.role === 'ruler' && reformedSeg(p, x.dynasty ?? 0)) return `${polityName(p, at)}执政`;
   if (p.eastern) {
     if (p.lineage === 'khanate') return tier <= 0 ? `${polityTitles(p, at)[0]}首领` : `${polityName(p, at)}${khanWord(x)}`;
     if (tier <= 0) return `${polityTitles(p, at)[0]}首领`;
@@ -258,12 +262,13 @@ export function personRoleShort(civ: Civ, x: Person): string {
   const p = polityOfPerson(civ, x);
   if (!p) return '君主';
   const y = x.from ?? x.born;
-  return `${polityShortTitle(p, tierFor(p, x, y), y)}${p.lineage === 'republic' ? '执政' : '君主'}`;
+  return `${polityShortTitle(p, tierFor(p, x, y), y)}${royalSeg(p, x.dynasty ?? 0) ? '君主' : '执政'}`;
 }
 
-/** 共和国的执政官(写"执政""在任""任满",不写"君主""在位") */
+/** 共和国的执政官(写"执政""在任""任满",不写"君主""在位"):海洋城邦共和一系,和改制开的共和、军政府那几段 */
 export function isConsul(civ: Civ, x: Person): boolean {
-  return x.role === 'ruler' && polityOfPerson(civ, x)?.lineage === 'republic';
+  const p = polityOfPerson(civ, x);
+  return x.role === 'ruler' && !!p && !royalSeg(p, x.dynasty ?? 0);
 }
 
 /** 往上数几代的祖先(0 = 自己);没记父亲的到此为止 */
@@ -349,7 +354,7 @@ export function rulerFateWord(civ: Civ, x: Person): string {
       return '国并入他国';
     case 'retired':
       // 作者立的君主到期下台(生死归人物卡管)
-      return x.author !== undefined && p.lineage !== 'republic' ? '退位' : '任满';
+      return x.author !== undefined && royalSeg(p, x.dynasty ?? 0) ? '退位' : '任满';
     case 'battle':
       return '战死';
     case 'yielded':

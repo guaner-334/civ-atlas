@@ -46,6 +46,9 @@
  *        OFFICE_OUT 放任免之二,许自辟:官制 0、国用不足、动荡到 HERED_U、af 不到 AF_HERED → 办成(官制 −1)或搁置;
  *        FIEF 分封边地:动荡到 FIEF_U、管得到几成不到 FIEF_C 的州占 FIEF_SHARE 以上、至少 FIEF_SIZE 州 → 办成或搁置。
  *
+ *   **改制**(reform.ts):③ 罢铨选之后、④ 脱离之前先看改制 —— 立宪、扩大参与、废君立共和、还政(议题 11–14,结果照上面四种),
+ *     谈崩、动荡大的起兵革命;共和国的政变、新制不到五十年的复辟。出了一件就不再议别的。
+ *
  *   **定下来以后怎么样**(每年填进政局数表的输入,公式见 stateTables.ts):
  *     征法 0 代收(原样)、1 分成、2 直征:实收里各州管得到几成先加 LIFT[征法] × af(征升,最多到 1),岁出多 COST[征法] × 应缴(征费);
  *       有了人口普查的,征升乘 CENSUS_LIFT、征费乘 CENSUS_COST。
@@ -57,7 +60,7 @@
  *     改组:那处割据的地盘最多几州(control.ts 的 Warlord.cap,由史事重建)。脱离:改归属,不改规矩。
  *     直征、分成、改土归流、收兵权、收任免办成或妥协以后 SHOCK_YEARS 年里有余波:动荡多 SHOCK,随年数淡去(改制).
  *
- * **不存内存状态**:各国的征法、分封、军制、官制、各议题上次议的年份都由史事 council 重建(resumeCouncil)。
+ * **不存内存状态**:各国的征法、分封、军制、官制、议政、参与、各议题上次议的年份都由史事 council、reform 重建(resumeCouncil)。
  * 随机数:keyed4(subSeed(seed, 'civ-council'), 国家锚, 第几次看内政, 议题),和处理顺序无关。纯计算,不碰 DOM。
  */
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
@@ -69,7 +72,8 @@ import { warModelOf, type WarModel } from './wars';
 import { capitalAt, populationAt } from './growth';
 import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
 import type { ControlModel, Warlord } from './control';
-import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, type Rules } from './councilRules';
+import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, replayRule, type Rules } from './councilRules';
+import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
@@ -275,7 +279,7 @@ export function installCouncil(sim: CivSim, seed: number): CouncilModel | undefi
 /** 接着推(CivSim.fromCiv,在 resumeControl 之后):各国的规矩由史事重建 */
 export function resumeCouncil(sim: CivSim, civ: Civ): void {
   const book = new Map<number, Rules>();
-  for (const e of civ.annals) if (e.kind === 'council') applyRule(rulesOf(book, e.a), e.war, e.n ?? Outcome.Shelve, e.year);
+  for (const e of civ.annals) if (e.kind === 'council' || e.kind === 'reform') replayRule(rulesOf(book, e.a), e);
   hook(sim, civ.seed, book);
 }
 
@@ -307,6 +311,9 @@ export interface CourtRules {
   office: number;
   /** 这一国到那一年为止议过的事(史事下标,按先后) */
   events: number[];
+  /** 议政:0 君主独断、1 设了议事会、2 设了议会;能议政的人多了几档(见 councilRules.ts 的 Rules) */
+  charter: number;
+  franchise: number;
 }
 
 /**
@@ -315,15 +322,19 @@ export interface CourtRules {
  */
 export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): CourtRules {
   const r = newRules();
-  const out: CourtRules = { tax: 0, taxBy: -1, taxFrom: 0, fiefBy: -1, army: 0, office: 0, events: [] };
+  const out: CourtRules = { tax: 0, taxBy: -1, taxFrom: 0, fiefBy: -1, army: 0, office: 0, events: [], charter: 0, franchise: 0 };
   const A = civ.annals;
   for (let i = 0; i < A.length; i++) {
     const e = A[i];
     if (e.year > year) break;
-    if (e.kind !== 'council' || e.a !== p) continue;
+    if ((e.kind !== 'council' && e.kind !== 'reform') || e.a !== p) continue;
+    if (e.kind === 'reform') {
+      replayRule(r, e);
+      continue;
+    }
     const tax = r.tax;
     const fief = r.fief;
-    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year);
+    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year, e.opt);
     out.events.push(i);
     if (r.tax !== tax) {
       out.taxBy = i;
@@ -334,6 +345,8 @@ export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): C
   out.tax = r.tax;
   out.army = r.army;
   out.office = r.office;
+  out.charter = r.charter;
+  out.franchise = r.franchise;
   return out;
 }
 
@@ -345,6 +358,7 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
   const dev = devModelOf(sim);
   if (!pm || !pol || !wm || !cm || !dev) return undefined;
   const base = subSeed(seed, 'civ-council');
+  const rbase = subSeed(seed, 'civ-reform');
   const { eng } = cm;
 
   const model: CouncilModel = {
@@ -386,7 +400,7 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
     return a < 0 ? BORDER_LORD : 1 - ARMY_LORD * a;
   };
 
-  pol.councilCheck = (P, k, t) => check(sim, pm, pol, wm, cm, dev, base, book, P, k, t);
+  pol.councilCheck = (P, k, t) => check(sim, pm, pol, wm, cm, dev, base, rbase, book, P, k, t);
   return model;
 }
 
@@ -395,7 +409,7 @@ function af(admin: number): number {
   return Math.min(1, Math.max(0, admin) / ADMIN_FULL);
 }
 
-function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, cm: ControlModel, dev: DevModel, base: number, book: Map<number, Rules>, P: Polity, k: number, t: number): void {
+function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, cm: ControlModel, dev: DevModel, base: number, rbase: number, book: Map<number, Rules>, P: Polity, k: number, t: number): void {
   const p = P.id;
   if (pm.size[p] < MIN_SIZE || t - P.founded < MIN_AGE) return;
   for (const w of wm.active) if (w.a === p || w.b === p) return;
@@ -432,10 +446,10 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const costK = has(Practice.Census) ? CENSUS_COST : 1;
   /** 随机的一截(每种议题各取一个) */
   const jit = (i: Issue) => JITTER * (keyed4(base, pm.ptag[p], k, i, 0) - 0.5);
-  /** broke:直征是因为国用不足才议的(记 cause = broke;不然是君主锐意兴革);b:脱离时想转投的邻国 */
-  const record = (i: Issue, out: Outcome, region: number, broke = false, b = -1) => {
-    applyRule(r, i, out, t);
-    sim.record('council', { a: p, ...(b >= 0 ? { b } : {}), region, settlement: pm.cityOf[region], war: i, n: out, ...(broke ? { cause: 'broke' as const } : {}) });
+  /** broke:直征是因为国用不足才议的(记 cause = broke;不然是君主锐意兴革);b:脱离时想转投的邻国;opt:废君办成以后能议政的有几档 */
+  const record = (i: Issue, out: Outcome, region: number, broke = false, b = -1, opt?: number) => {
+    applyRule(r, i, out, t, opt);
+    sim.record('council', { a: p, ...(b >= 0 ? { b } : {}), region, settlement: pm.cityOf[region], war: i, n: out, ...(broke ? { cause: 'broke' as const } : {}), ...(opt !== undefined ? { opt } : {}) });
   };
   /** 边地(管得到几成不到 BORDER_C;国都、割据的地盘不算):几州、城民占全国几成、城民最多的那州(有城;没有 = −1) */
   const borderland = () => {
@@ -520,6 +534,9 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
     record(Issue.OfficeOut, x > 0 ? Outcome.Done : Outcome.Shelve, capR);
     return;
   }
+
+  // 改制(reform.ts):立宪、扩大参与、废君立共和(谈崩起兵革命)、政变、复辟、还政;出了一件就不再议别的
+  if (reformCheck({ sim, pm, pol, wm, cm, base: rbase, P, k, t, rules: r, u, broke, capR, ready, record: (i, out, region, opt) => record(i, out, region, false, -1, opt) })) return;
 
   // ④ 脱离:割据久了的地方要转投邻国(肯收它的:和那州同族而本国不是,或国力比本国强)
   if (lordsN && ready(Issue.Leave) && !wm.iv?.unites(p, t)) {

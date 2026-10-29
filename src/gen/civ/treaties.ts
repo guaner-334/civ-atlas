@@ -71,6 +71,7 @@ import type { Reign } from './rulers';
 import { regionOfKey, type Intervention } from '../edits';
 import type { InterventionModel } from './interventions';
 import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, OPT_QUIET } from './treatyInfo';
+import { royalSeg } from './regime';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
@@ -725,8 +726,10 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     const Q = pm.polities[q];
     const d = Q.dynasties;
     const strong = pow[p] >= BREACH_PREY * pow[q];
+    // 改制开的一段(共和、军政府、迎回旧王室)不算改朝换代之乱
+    const dl = d && d.length > 1 ? d[d.length - 1] : undefined;
     const chaos =
-      wm.active.some((w) => (w.a === q || w.b === q) && w.a !== p && w.b !== p) || t - pm.capMoved[q] < CHAOS_YEARS || (!!d && d.length > 1 && t - d[d.length - 1].year < CHAOS_YEARS);
+      wm.active.some((w) => (w.a === q || w.b === q) && w.a !== p && w.b !== p) || t - pm.capMoved[q] < CHAOS_YEARS || (!!dl && !dl.regime && dl.house === undefined && t - dl.year < CHAOS_YEARS);
     const gone = x.foe >= 0 && !alive(x.foe);
     return grudge || strong || chaos || gone ? BREACH_ODDS : 0;
   };
@@ -821,7 +824,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   /** 徙了一位宗室(这一回不再有宗室据地争位)= true */
   const banish = (pid: number, k: number, list: readonly Reign[], t: Year): boolean => {
     const P = pm.polities[pid];
-    if (P.ended !== undefined || P.lineage === 'republic') return false;
+    if (P.ended !== undefined || !royalSeg(P, list[k].dynasty)) return false;
     const z = zoneFor(pid, t);
     if (!z) return false;
     const R = list[k - 1];

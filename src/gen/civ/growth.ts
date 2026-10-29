@@ -43,7 +43,8 @@
 import type { Civ, Polity, PolityLineage, PopulationAt, Regions, Settlement, Year } from './types';
 import { fexp, flog, fpow } from './rand';
 import { KM_PER_UNIT, REF_CELLS } from './scale';
-import { polityRootAt } from './polityRoot';
+import { dynastyIndexAt, polityRootAt } from './polityRoot';
+import { hasReform, reformedSeg, titleSeg } from './regime';
 
 // 某一年是第几朝、那年的国名词根在 polityRoot.ts(存档里的改名只用得到这几样);原来从这里 import 的照旧能用
 export { dynastyAt, dynastyIndexAt, polityRootAt } from './polityRoot';
@@ -539,11 +540,11 @@ export function easternTitles(root: string, lineage: PolityLineage = 'realm'): T
 
 /**
  * 某一朝的王朝名:东方 = 国名词根("景",编年史里写"大景"之类用 polityName);西幻 = "卡诺王朝"。
- * 没改朝换代过、或还没起名 = 空串
+ * 没改朝换代过、或还没起名、改制开的共和 / 军政府那一段(没有王室)= 空串
  */
 export function dynastyTitle(p: Polity, i: number): string {
   const d = p.dynasties?.[i];
-  if (!d || !d.name) return '';
+  if (!d || !d.name || d.regime) return '';
   return p.eastern ? d.name : `${d.name}王朝`;
 }
 
@@ -564,11 +565,36 @@ function titlesOf(p: Polity, root: string): Titles {
 }
 
 /**
- * 这个国家四档的全称(按语感、一系)。给了年份就按那一年的那一朝(东方改朝换代后国号换了);
+ * 改出来的共和国(regime.ts;本国原来有君主)的国号:不分档,西幻"博戈维纳共和国";东方单字国名留着"大"("大靖共和国"),
+ * 两个字的"景辰共和国"。这里的字都是国号里的字(本文件的字面量会收进地图字体的字表)
+ */
+function republicTitles(p: Polity, root: string): Titles {
+  const key = `${root}|共和|${p.eastern ? 1 : 0}`;
+  let m = titleCache.get(p);
+  if (!m) titleCache.set(p, (m = new Map()));
+  let t = m.get(key);
+  if (!t) {
+    const [single, core] = splitRoot(root);
+    const full = p.eastern && single ? `大${core}共和国` : `${root}共和国`;
+    t = [full, full, full, full];
+    m.set(key, t);
+  }
+  return t;
+}
+
+/** 那一年是不是改出来的共和国(军政府照它前面那一段:政变不改国号) */
+function reformedAt(p: Polity, year: Year): boolean {
+  return !!p.dynasties && reformedSeg(p, titleSeg(p, dynastyIndexAt(p, year)));
+}
+
+/**
+ * 这个国家四档的全称(按语感、一系)。给了年份就按那一年的那一朝(东方改朝换代后国号换了;改制以后的共和国写"某共和国");
  * 不给 = 第一朝(立国时的国名)
  */
 export function polityTitles(p: Polity, year?: Year): Titles {
-  return titlesOf(p, year === undefined ? p.name : polityRootAt(p, year));
+  if (year === undefined) return reformedSeg(p, 0) ? republicTitles(p, p.name) : titlesOf(p, p.name);
+  const root = polityRootAt(p, year);
+  return reformedAt(p, year) ? republicTitles(p, root) : titlesOf(p, root);
 }
 
 /** 这个国家先后用过的国名词根(第一朝在前,去重;西幻只有一个) */
@@ -581,21 +607,28 @@ export function polityRoots(p: Polity): string[] {
 /** 这个国家历朝历代各档的全称和简称(地图文字的字表、字体预载用) */
 export function polityAllTitles(p: Polity): string[] {
   const out = new Set<string>();
+  const reformed = hasReform(p);
   for (const root of polityRoots(p)) {
     const t = titlesOf(p, root);
     for (let tier = 0; tier < 4; tier++) {
       out.add(t[tier]);
       out.add(shortTitle(p, root, tier));
     }
+    if (reformed) {
+      out.add(republicTitles(p, root)[0]);
+      out.add(shortTitle(p, root, 3, true));
+    }
   }
   return [...out];
 }
 
-function shortTitle(p: Polity, root: string, tier: number): string {
+function shortTitle(p: Polity, root: string, tier: number, republic = false): string {
   if (tier < 0) return root;
   if (!p.eastern) return root;
   const [single, core] = splitRoot(root);
   if (!single) return root;
+  // 改出来的共和国:单字国名的简称是"大X"(和全称"大X共和国"一样留着"大")
+  if (republic) return `大${core}`;
   if (tier >= 2 && p.lineage !== 'khanate') return `大${core}`;
   return titlesOf(p, root)[tier];
 }
@@ -607,7 +640,8 @@ function shortTitle(p: Polity, root: string, tier: number): string {
  * 给了年份就按那一年的那一朝(改朝换代后"大昌" → "大景");不给 = 第一朝
  */
 export function polityShortTitle(p: Polity, tier: number, year?: Year): string {
-  return shortTitle(p, year === undefined ? p.name : polityRootAt(p, year), tier);
+  if (year === undefined) return shortTitle(p, p.name, tier, reformedSeg(p, 0));
+  return shortTitle(p, polityRootAt(p, year), tier, reformedAt(p, year));
 }
 
 /** 某一年的国号档位(按 titles 查);还没立国 = −1 */
@@ -633,12 +667,12 @@ export function polityName(p: Polity, year: Year): string {
  */
 export function polityTitleChain(p: Polity): string {
   const d = p.dynasties;
-  if (!p.eastern || !d || d.length < 2 || !d[1].name) {
+  if ((!p.eastern || !d || d.length < 2 || !d[1].name) && !hasReform(p)) {
     return polityTitles(p)
       .filter((f, i, a) => a.indexOf(f) === i)
       .join(' → ');
   }
-  const years = [...(p.titles ?? []).map((x) => x.year), ...d.map((x) => x.year)].sort((a, b) => a - b);
+  const years = [...(p.titles ?? []).map((x) => x.year), ...d!.map((x) => x.year)].sort((a, b) => a - b);
   const out: string[] = [];
   for (const y of years) {
     const n = polityName(p, y);

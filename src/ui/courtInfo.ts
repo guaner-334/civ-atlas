@@ -24,7 +24,7 @@ import { cnNumber } from '../gen/civ/chronicle';
 import { yearAt, yearShort, yearShortAt, type Era } from '../gen/era';
 import { lordsAt, type LordNow } from '../render/civ/control';
 import { Outcome, applyRule, newRules } from '../gen/civ/councilRules';
-import { FEUDAL_SHARE, lordShare, type FormChange, type FormFacts, type FormLook, type FormName } from '../gen/civ/polityForm';
+import { FEUDAL_SHARE, formDims, lordShare, type FormChange, type FormFacts, type FormLook, type FormName } from '../gen/civ/polityForm';
 import { wan } from './fiscalInfo';
 import { practicesAt } from '../gen/civ/practiceInfo';
 import { PRACTICES, Practice, hasPractice } from '../gen/civ/practices';
@@ -65,7 +65,7 @@ export function courtLocks(civ: Civ, p: number, year: Year, rules: Pick<CourtRul
   return { tax, army, office, note: says.length ? `${says.join('；')}（斜纹的那几档现在还议不了）` : '' };
 }
 /** 议题(史事的 war 列;5–8 按议之前的军制、官制分两种叫法,见 issueName) */
-export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地', '收兵权', '设边镇', '行铨选', '许自辟', '分镇', '脱离'] as const;
+export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地', '收兵权', '设边镇', '行铨选', '许自辟', '分镇', '脱离', '立宪', '扩大参与', '废王立共和', '还政'] as const;
 
 /** 一条议事的议题名:收兵权 / 罢边镇、设边镇 / 罢禁军、行铨选 / 收回辟署、许自辟 / 罢铨选(b = 议之前那国的军制、官制) */
 function issueName(e: Annal, b: { army: number; office: number } | undefined): string {
@@ -281,8 +281,22 @@ export function formWhy(f: FormLook): string {
       return '游牧一系，国号升到大汗国';
     case '诸侯割据':
       return '过半的州割据，朝廷名存实亡';
+    case '军政府':
+      return '将军执政，议事会散了，国事决于军中';
+    case '贵族共和国':
+      return '没有君主，国事由议事会议定、推举执政；只有王族贵族能进议事会';
+    case '共和国': {
+      const d = formDims(x);
+      return `没有君主，国事由${d.council >= 3 ? '议会' : '议事会'}议定、推举执政；${FRANCHISE_SAY[d.franchise]}能进${d.council >= 3 ? '议会' : '议事会'}`;
+    }
+    case '立宪王国':
+    case '立宪帝国':
+      return `君主还在，国事经议会议定，不再独断；${FRANCHISE_SAY[formDims(x).franchise]}能进议会`;
   }
 }
+
+/** 参与那条的说法:谁能进议事会 / 议会 */
+const FRANCHISE_SAY = ['只有王族贵族', '家有田产、商号的才', '男子都', '成年人都'];
 
 /** 历次改制一条下面那一句:因为哪次议事、升格、割据(later = 这一条以后还改过) */
 export function formChangeSay(civ: Civ, p: number, ch: FormChange, later: boolean): string {

@@ -46,6 +46,7 @@ import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';
 import { politicsModelOf } from './politics';
 import { TIER_REGIONS, capitalAt, populationAt } from './growth';
 import { KEEP_COURT, KEEP_RISE } from './rulers';
+import { royalAt } from './regime';
 
 // ---- 调参(以统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看王朝;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -252,7 +253,7 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     const P = pm.polities[p];
     if (!P || P.ended !== undefined) return;
     if (k < LOOK_K) sim.schedule(checkTime(dm, p, k + 1), Ev.DynastyCheck, k + 1, p);
-    if (P.lineage === 'republic') return; // 海洋城邦共和一系没有王室
+    if (!royalAt(P, t)) return; // 海洋城邦共和一系、改制以后的共和 / 军政府没有王室
     // 没改朝换代:看会不会出一位专权的大臣、大将(regency.ts;照大纲多看的一眼不算)
     const strong = () => {
       if (k < LOOK_K) dm.strong?.(p, t);

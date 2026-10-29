@@ -1,7 +1,8 @@
 /**
  * 思潮:世上的几种说法(天命之说、律法之说……),每州每说一个接受度 0–1。推演里每 STEP(20)年算一步,
  * 紧跟在发展度那一步后面(同一刻,读发展度刚算完的五种能力、眼下能用的物产)。
- * **先只算只看**:不影响推演里的任何东西,同一个种子的国界、兴亡、战争、人物一个都不变。纯计算,不碰 DOM。
+ * 推演里只有改制(reform.ts)读它:各国国中的接受度(nationalNow,最近算的那一步)决定议不议立宪、废君,复辟看天命之说还在不在。
+ * 纯计算,不碰 DOM。
  *
  * **数表**(THOUGHTS,一说一行):名字、冒出来的前提(发明表 INVENTIONS 里的几样:那样能力到了那一档)、助长的发明(到了扎得更深)、
  *   在哪扎根(root:一条公式)、对头(哪几说盛了它就衰)、主张、以后支持什么做法 / 政体(改制那一步才用,现在只记着)。
@@ -259,6 +260,20 @@ const models = new WeakMap<CivSim, IdeoModel>();
 /** 推演引擎上挂着的思潮模型(测试、统计用) */
 export function ideoModelOf(sim: CivSim): IdeoModel | undefined {
   return models.get(sim);
+}
+
+/**
+ * 推演里(改制 reform.ts 读):国家 p 最近算的那一步各说的国中接受度(0–1;按存下的那一份,接着推时一样)。
+ * 还没算过这国 = null
+ */
+export function nationalNow(m: IdeoModel, p: number): number[] | null {
+  const s = m.series[p];
+  const K = THOUGHT_COUNT;
+  if (!s || s.v.length < K) return null;
+  const o = s.v.length - K;
+  const out: number[] = new Array(K);
+  for (let k = 0; k < K; k++) out[k] = s.v[o + k] / IDEO_SCALE;
+  return out;
 }
 
 function emptyModel(d: DevModel, seed: number): IdeoModel {

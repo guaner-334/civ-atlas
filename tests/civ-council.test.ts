@@ -74,7 +74,7 @@ describe('议事', () => {
         .map((e) => e.text),
     );
     expect(texts.length).toBeGreaterThan(0);
-    for (const t of texts) expect(t, t).toMatch(/直征|直接征税|分成|代收|削|改土归流|封授|分封|封给|兵权|禁军|常备军|边镇|军镇|铨选|考选|户籍|辟署|自辟|任命|自选官员|之镇|拆分|归附|改投/);
+    for (const t of texts) expect(t, t).toMatch(/直征|直接征税|分成|代收|削|改土归流|封授|分封|封给|兵权|禁军|常备军|边镇|军镇|铨选|考选|户籍|辟署|自辟|任命|自选官员|之镇|拆分|归附|改投|立宪|宪章|议事会|议会|议院|废王位|废帝制|废帝位|废汗位|王位|还政/);
     // 第二批的几种都写得出来
     expect(texts.some((t) => /兵权|禁军|常备军|边镇|军镇/.test(t))).toBe(true);
     expect(texts.some((t) => /铨选|辟署|自辟|任命|自选官员/.test(t))).toBe(true);
