@@ -3,6 +3,7 @@
  *   - 沟和山脊只管写实风的明暗:分段算和一次算完一样;海拔、水陆不变;起伏是连着的(跨过噪声格子的边不断开)
  *   - 现算的块:相邻两块接得上(多铺一圈裁掉以后,和一次铺一大块逐像素一样)、跨 180° 经线和挪一整圈一样、水陆和整张图大体一致、没有 NaN
  *   - 小溪:都比成河门槛小、不走河上的地块,同一个世界结果一样
+ *   - 河口(gen/estuary.ts):画出来的河在岸前断了的,补的那一段一定通到海;河口那几样(三角洲、喇叭口、浑水)相邻两块也接得上;整张主图不画
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
@@ -169,6 +170,73 @@ describe('放大后现算的一块', () => {
       }
     expect(same / ((n - 2) * (n - 2))).toBeGreaterThan(0.93);
     expect(rough).toBeGreaterThan(1.5 * roughWhole);
+  });
+});
+
+describe('河口', () => {
+  /** 河口的轴上离岸 s 处(上游为正)的点 */
+  const axisAt = (m: ZoomSource['mouths'][number], s: number): [number, number] => {
+    for (let k = 0; k < m.as.length - 1; k++)
+      if (m.as[k] >= s && m.as[k + 1] <= s) {
+        const u = m.as[k] === m.as[k + 1] ? 0 : (m.as[k] - s) / (m.as[k] - m.as[k + 1]);
+        return [m.ax[k] + (m.ax[k + 1] - m.ax[k]) * u, m.ay[k] + (m.ay[k + 1] - m.ay[k]) * u];
+      }
+    return [m.ax[0], m.ay[0]];
+  };
+
+  it('有河口;画出来的河在岸前断了的,补的那一段一路是水(通到海);整张主图不画', () => {
+    expect(src.mouths.length).toBeGreaterThan(20);
+    const bridged = src.mouths.filter((m) => m.bridge && m.sEnd > 0.5);
+    expect(bridged.length).toBeGreaterThan(3);
+    const S = 8;
+    let dry = 0;
+    let n = 0;
+    for (const m of bridged.slice(0, 10)) {
+      const x0 = Math.floor((m.cx - 12) * S);
+      const y0 = Math.floor((m.cy - 12) * S);
+      const r = rasterizeWindow(src, S, x0, y0, 24 * S, 24 * S);
+      for (let s = 0; s <= m.sEnd; s += 0.25) {
+        const [x, y] = axisAt(m, s);
+        const px = Math.floor(x * S - x0);
+        const py = Math.floor(y * S - y0);
+        if (px < 0 || py < 0 || px >= r.w || py >= r.h) continue;
+        n++;
+        if (r.water[py * r.w + px] !== 1) dry++;
+      }
+    }
+    expect(n).toBeGreaterThan(20);
+    expect(dry).toBe(0);
+    expect(whole.plume).toBeUndefined();
+  });
+
+  it('河口处相邻两块裁掉多铺的一圈以后,和一次铺一大块逐像素一样(海拔、水陆、浑水、河水颜色、上色)', () => {
+    const S = 8;
+    // 流量最大的河口(喇叭口、浑水都有)
+    const m = src.mouths.reduce((a, q) => (q.f > a.f ? q : a));
+    const T = 64;
+    const P = WINDOW_PAD;
+    const x0 = Math.round(m.cx * S) - T;
+    const y0 = Math.round(m.cy * S) - T / 2;
+    const big = rasterizeWindow(src, S, x0 - P, y0 - P, 2 * T + 2 * P, T + 2 * P);
+    const bigPx = realisticWindowPixels(big, grids, 'detail');
+    expect(big.plume).toBeDefined();
+    let diff = 0;
+    let bad = 0;
+    for (const tx of [0, 1]) {
+      const r = rasterizeWindow(src, S, x0 + tx * T - P, y0 - P, T + 2 * P, T + 2 * P);
+      const px = realisticWindowPixels(r, grids, 'detail');
+      for (let y = 0; y < T; y++)
+        for (let x = 0; x < T; x++) {
+          const a = (y + P) * r.w + x + P;
+          const b = (y + P) * big.w + tx * T + x + P;
+          if (!Number.isFinite(r.elev[a])) bad++;
+          if (r.elev[a] !== big.elev[b] || r.water[a] !== big.water[b]) diff++;
+          if ((r.plume?.[a] ?? 0) !== big.plume![b] || (r.rivTint?.[a] ?? 0) !== big.rivTint![b]) diff++;
+          for (let c = 0; c < 3; c++) if (px[a * 4 + c] !== bigPx[b * 4 + c]) diff++;
+        }
+    }
+    expect(bad).toBe(0);
+    expect(diff).toBe(0);
   });
 });
 

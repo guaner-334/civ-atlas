@@ -124,6 +124,11 @@ interface Material {
   ripK?: number;
   /** 分层设色褪色多少(0–1;叠国家等填色时用,留明暗和层次,颜色让给填色) */
   mute?: number;
+  /**
+   * 放大后河口外的浑水(见 gen/estuary.ts):浓的地方是泥沙的黄绿(near),淡的地方偏青、混进海水(far);
+   * 不给 = 不画浑水,喇叭口里也不往河水的颜色过渡(地图册只跟着变海岸形状;补到海的河道、三角洲的水道照样是河水的颜色)
+   */
+  plume?: { near: RGB; far: RGB };
 }
 
 const CLASSIC: Material = {
@@ -155,6 +160,7 @@ const CLASSIC: Material = {
   ecoP: 0.15,
   valleyDark: 0.12,
   flat: null,
+  plume: { near: [92, 132, 128], far: [70, 128, 150] },
 };
 
 /** 卫星(细节):远洋一片深蓝,大陆架窄窄一条渐浅(浅暖海另外泛青绿,见 Material.reef) */
@@ -227,6 +233,7 @@ function hypsoBand(e: number): number {
 const GEO: Material = {
   ...CLASSIC,
   model: 'hypso',
+  plume: undefined,
   cool: 0,
   coast: [hexRGB('#3f6f98'), 0.7],
   bandLine: 0.1,
@@ -254,6 +261,12 @@ const GEO: Material = {
   veinK: 0,
 };
 
+/** 'rgb(r, g, b)' / 'rgba(…)' → RGB(河的颜色是这样写的) */
+function cssRGB(css: string): RGB {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(css);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [40, 80, 110];
+}
+
 const MATERIALS: Record<SurfaceLook, Material> = {
   classic: CLASSIC,
   // 卫星(细节):照片的颜色 —— 植被覆盖度连续上色(沙黄 → 草地 → 深林),海面安静、浅暖海泛青绿,起伏轻,只画大河
@@ -262,6 +275,7 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     model: 'photo',
     reef: true,
     ocean: OCEAN_PHOTO,
+    plume: { near: [84, 100, 80], far: [46, 92, 102] },
     rock: hexRGB('#7b7062'),
     rockE0: 2600,
     rockE1: 4800,
@@ -302,6 +316,7 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     macroW: 0,
     seaRelief: 0,
     flat: { sea: hexRGB('#c6dbea'), shelf: hexRGB('#d6e6f1'), land: hexRGB('#efece4'), ice: hexRGB('#fbfcfd') },
+    plume: undefined,
   },
   // 简化卫星:和细节同一套照片的颜色,纹理很轻、起伏淡、海面安静、雪平、河更少
   simple: {
@@ -309,6 +324,7 @@ const MATERIALS: Record<SurfaceLook, Material> = {
     model: 'photo',
     reef: true,
     ocean: OCEAN_SIMPLE,
+    plume: { near: [84, 100, 80], far: [46, 92, 102] },
     rock: hexRGB('#9a8a74'),
     rockE0: 2800,
     rockE1: 5200,
@@ -1270,6 +1286,14 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const STIP = !!m.stipple;
   const REEF = !!m.reef;
   const MUTE = m.mute ?? 0;
+  // 海色在相邻两档之间按深度插值(浅海几米里颜色变得最快,取整档会一圈圈);地图册的海本来就是分层的,不插值
+  const OCEAN_LERP = MODEL !== 'hypso';
+  // 放大后的河口(见 gen/estuary.ts):浑水、喇叭口里往河水的颜色过渡;
+  // 地图册不画这两样,只给补到海的那一段河道、三角洲的水道上河水的颜色(不然是一道海色的沟)
+  const PLUME_C = m.plume && !FLAT ? m.plume : null;
+  const PLUME = PLUME_C ? r.plume : undefined;
+  const RIVT = FLAT ? undefined : PLUME_C ? r.rivTint : r.rivCore;
+  const RIVER_C = RIVT ? cssRGB(m.river.color) : null;
   const RIP_K = m.ripK ?? 1;
   // 打光用的地面:海拔 + 山坡上的沟和山脊(只管明暗,见 Raster.gully)
   const relief = reliefOf(r);
@@ -1447,17 +1471,47 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
       let mgxk = 0;
       let mgyk = 0;
       if (water[k] === 1) {
-        // 海色查表(每 10 米一格)
-        const oi = e <= OCEAN_MIN ? 0 : e >= 0 ? OCEAN_N - 1 : ((e - OCEAN_MIN) / 10 + 0.5) | 0;
-        col[0] = ocean[oi * 3];
-        col[1] = ocean[oi * 3 + 1];
-        col[2] = ocean[oi * 3 + 2];
+        // 海色查表(每 10 米一格;相邻两格之间按深度插值,浅海不出一圈圈色阶)
+        if (OCEAN_LERP && e > OCEAN_MIN && e < 0) {
+          const u = (e - OCEAN_MIN) / 10;
+          const i0 = u | 0;
+          const t = u - i0;
+          const i1 = i0 + 1 < OCEAN_N ? i0 + 1 : i0;
+          col[0] = ocean[i0 * 3] + (ocean[i1 * 3] - ocean[i0 * 3]) * t;
+          col[1] = ocean[i0 * 3 + 1] + (ocean[i1 * 3 + 1] - ocean[i0 * 3 + 1]) * t;
+          col[2] = ocean[i0 * 3 + 2] + (ocean[i1 * 3 + 2] - ocean[i0 * 3 + 2]) * t;
+        } else {
+          const oi = e <= OCEAN_MIN ? 0 : e >= 0 ? OCEAN_N - 1 : ((e - OCEAN_MIN) / 10 + 0.5) | 0;
+          col[0] = ocean[oi * 3];
+          col[1] = ocean[oi * 3 + 1];
+          col[2] = ocean[oi * 3 + 2];
+        }
         // 浅暖海(珊瑚礁、浅滩):不到 40 米深、水暖的地方泛青绿(像巴哈马、大堡礁)
         if (REEF && e > -40 && temp[k] > 20) {
           const a = 0.42 * smoothstep(-36, -6, e) * smoothstep(20, 26, temp[k]);
           col[0] += (REEF_C[0] - col[0]) * a;
           col[1] += (REEF_C[1] - col[1]) * a;
           col[2] += (REEF_C[2] - col[2]) * a;
+        }
+        // 放大后的河口:浑水、河水的颜色往外淡开(见 gen/estuary.ts)
+        if (PLUME && PLUME_C) {
+          const pa = PLUME[k] / 255;
+          if (pa > 0) {
+            // 淡的地方偏青(浑水散开、混进海水),浓的地方是泥沙的黄绿
+            const q = Math.min(1, pa * 1.6);
+            const { near: PN, far: PF } = PLUME_C;
+            col[0] += (PF[0] + (PN[0] - PF[0]) * q - col[0]) * pa;
+            col[1] += (PF[1] + (PN[1] - PF[1]) * q - col[1]) * pa;
+            col[2] += (PF[2] + (PN[2] - PF[2]) * q - col[2]) * pa;
+          }
+        }
+        if (RIVT && RIVER_C) {
+          const ta = RIVT[k] / 255;
+          if (ta > 0) {
+            col[0] += (RIVER_C[0] - col[0]) * ta;
+            col[1] += (RIVER_C[1] - col[1]) * ta;
+            col[2] += (RIVER_C[2] - col[2]) * ta;
+          }
         }
         c = col;
         // 海底晕渲:只看大尺度(洋中脊、海沟、大陆坡),很淡

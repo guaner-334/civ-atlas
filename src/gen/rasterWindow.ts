@@ -8,6 +8,7 @@
  *   - 沟和山脊直接算进海拔(海岸、浅海也跟着碎),另外多叠两层更细的细节噪声
  *   - 河谷连小溪也刻(gen/creeks.ts)
  *   - 海冰按整张主图铺好的冰取样(浮冰的形状和全图一样)
+ *   - 河口:海岸凹出喇叭口、大河口外长出三角洲、河一定通到海,带上浑水和河水颜色(gen/estuary.ts;整张主图不画)
  * 每一块四周要多铺几个像素再裁掉(晕渲、岸线抗锯齿要用到邻居),见 rasterizeWindow 的说明。
  * 纯计算:不碰页面,worker / Node 都能跑;同一个世界、同一块,结果一样。
  */
@@ -17,6 +18,7 @@ import { bankBytes, carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSph
 import type { DrainLines } from './pixelDrain';
 import { Gullies } from './gully';
 import { subSeed } from './util';
+import { mouthsOf, stampEstuaries, type Mouth } from './estuary';
 
 /** 放大现算要用的东西(每个世界准备一次,之后每一块都用它) */
 export interface ZoomSource {
@@ -53,6 +55,8 @@ export interface ZoomSource {
   ice: Float32Array;
   iceConc: Uint8Array;
   iceTone: Uint8Array;
+  /** 入海的河口(放大后海岸照它们凹出喇叭口、长出三角洲,见 estuary.ts) */
+  mouths: Mouth[];
 }
 
 /** 准备放大现算:whole = 这个世界的整张主图(1 倍;只取海冰和细沟,细沟的线没带来就现算) */
@@ -63,6 +67,7 @@ export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale'
   const { nrm, box } = triangleBounds(mesh.xyz!, mesh.triangles);
   const { dTile, jTile } = noiseTiles(world.params.seed);
   const streams = streamsOf(world);
+  const lines = valleyLines(streams.rivers, world.riverThreshold, world.width);
   return {
     seed: world.params.seed,
     width: world.width,
@@ -76,7 +81,8 @@ export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale'
     base: b.elev,
     bw: b.w,
     bh: b.h,
-    lines: valleyLines(streams.rivers, world.riverThreshold, world.width),
+    lines,
+    mouths: mouthsOf(world, lines, whole, b.elev, b.w, b.h),
     threshold: world.riverThreshold,
     veins: whole.veinLines ?? veinLinesOf(whole, streams),
     gullies: new Gullies(subSeed(world.params.seed, 'gully')),
@@ -154,6 +160,7 @@ export function rasterizeWindow(src: ZoomSource, S: number, x0: number, y0: numb
   };
   const zoom = { gullies: src.gullies, base: src.base, w: src.bw, h: src.bh, x0, y0, S: W / src.bw };
   shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, src.spacing, null, zoom);
+  stampEstuaries(out, src.mouths, src.threshold, src.width, S, x0, y0);
   out.bank = bankBytes(calm);
   out.vein = new Uint8Array(N);
   stampVeins(src.veins, S, w, h, out.vein, x0, y0, W);

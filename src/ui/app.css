@@ -1953,8 +1953,9 @@ body.imp-move .stage.terrain-on {
 }
 .detail-tiles canvas.tile {
   position: absolute;
-  width: 256px;
-  height: 256px;
+  /* 一块 256 像素,多带一行一列叠住接缝(见 tileWorker.ts) */
+  width: 257px;
+  height: 257px;
   transition: opacity 0.35s ease-out;
 }
 .detail-tiles canvas.tile.fade {
