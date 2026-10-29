@@ -3,12 +3,13 @@
  * 放在这里而不是 App.tsx 里,这样以后加开关 / 时间轴时只改文明自己的文件。
  *
  * 网址参数(截图脚本用):
- *   civ=habitat,regions,sites,routes,cultures,polities,faiths,eras,control,resources,wars,plague   直接打开对应显示;前面加减号是关掉,
+ *   civ=habitat,regions,sites,routes,cultures,polities,faiths,eras,control,ideology,resources,wars,plague   直接打开对应显示;前面加减号是关掉,
  *                                               如 civ=-labels 关掉默认打开的地名、civ=-wars 关掉默认打开的战事;
  *                                               「地图上写」国名、族名、教名、时代名按填色各记各的:civ=polityNames.cultures(民族填色上写国名)、
  *                                               civ=-polityNames.polities(国家填色上不写)、civ=cultureNames.polities(国家填色上写族名)、
  *                                               civ=-cultureNames.cultures(民族填色上不写族名)、civ=faithNames.polities(国家填色上写教名)、
  *                                               civ=-eraNames.eras(时代填色上不写时代名);不带填色 = 网址里那种填色的
+ *   ideo=1                                      思潮图层看第几说(0 天命、1 律法、2 共治、3 技艺、4 民权、5 国族、6 均产;不给 = 那一年到半成的州最多的那说)
  *   civYear=1200                                时间轴停在第 1200 年(不给 = 结束年份);给了就不自动播放
  *   chron=1 / chron=all                         打开世界概览的编年史页(1 = 只看大事,all = 全部)
  *   play=0 / play=1                             打开网页时不自动播放 / 自动播放
@@ -32,6 +33,8 @@ function fromUrl(): CivShow {
 /** 网址里的 civ=(见文件头)→ 文明层开关;底图 / 填色由 App 按 map=、fill= 另外设 */
 export function civShowFromQuery(q: URLSearchParams): CivShow {
   const s: CivShow = { ...CIV_SHOW_DEFAULT };
+  const t = q.get('ideo');
+  if (t !== null && /^\d$/.test(t)) s.thought = Number(t);
   const v = q.get('civ');
   if (!v) return s;
   const names: string[] = [];
@@ -39,7 +42,7 @@ export function civShowFromQuery(q: URLSearchParams): CivShow {
     const off = raw.startsWith('-');
     const k = off ? raw.slice(1) : raw;
     if (NAME_TOKEN.test(k)) names.push(raw);
-    else if (k in s && k !== 'names') (s as unknown as Record<string, boolean>)[k] = !off;
+    else if (k in s && k !== 'names' && k !== 'thought') (s as unknown as Record<string, boolean>)[k] = !off;
   }
   // 「地图上写」:polityNames.cultures = 民族填色上写国名,-polityNames.polities = 国家填色上不写,族名(cultureNames)、教名(faithNames)、时代名(eraNames)同样;
   // 不带填色的(polityNames / -cultureNames)算网址里那种填色的
@@ -128,6 +131,16 @@ export function setNamesShown(kind: CivNameKind, on: boolean) {
   show.set({ names });
   if (typeof location === 'undefined') return;
   const next = `?${namesUrl(new URLSearchParams(location.search), names, fill)}`;
+  if (next !== location.search) navUrl(next);
+}
+
+/** 思潮图层换看哪一说(图层面板「看哪一说」、侧栏「思潮」一组、州卡片「思潮」一组):记着,写进网址 ideo= */
+export function setThought(k: number) {
+  show.set({ thought: k });
+  if (typeof location === 'undefined') return;
+  const q = new URLSearchParams(location.search);
+  q.set('ideo', String(k));
+  const next = `?${q}`;
   if (next !== location.search) navUrl(next);
 }
 
@@ -375,6 +388,7 @@ const pick = store<{ entry: ChronicleEntry | null; stamp: number }>({ entry: nul
 
 /**
  * 点编年史的一条:时间轴跳到那一年并暂停(大迁徙那一条跳到落脚那年,见 jumpYearOf;高亮的国土也按那年画),填色换成国家(宗教大事:正在信仰填色上就留着;时代的:正在时代填色上就留着;割据、收回、抗命:正在管辖填色上就留着;
+ * 思潮的:正在思潮填色上就留着,换看那一说;
  * 民族卡片里点的(keep = 'cultures'):正在民族填色上就留着;物产等叠加开关不动),地图上闪烁高亮事发地
  * (事发地不在视野里时 App 把地图平移过去);编年史面板里这一条标成选中(战争自动展开,不在视野里就滚过去)。
  */
@@ -386,7 +400,10 @@ export function pickChronicleEntry(e: ChronicleEntry, keep?: 'cultures') {
     // 民族填色留着(不开国家:开了国家就盖过民族填色)
   } else if ((e.kind === 'faith' && s.faiths) || (e.kind === 'era' && s.eras) || ((e.kind === 'warlord' || e.kind === 'reclaim' || e.kind === 'defy') && s.control))
     setCivShow({ polities: true });
-  else setCivShow({ polities: true, cultures: false, faiths: false, eras: false, control: false });
+  else if (e.kind === 'thought' && s.ideology && e.thought !== undefined) {
+    setCivShow({ polities: true });
+    setThought(e.thought);
+  } else setCivShow({ polities: true, cultures: false, faiths: false, eras: false, control: false, ideology: false });
   setCivHighlight({ regions: e.regions, polities: e.polities, year });
   pick.set({ entry: e, stamp: pick.get().stamp + 1 });
 }
