@@ -5957,8 +5957,8 @@ ${s.image.cells}` : null);
     }
     const hit = labelAt(e.clientX, e.clientY);
     if (hit) return setSelection(hit, side);
-    // 商道的线(开着「道路」时画在文字层上):商道卡片
-    const tr = getGlobeOn() ? null : tradeAtClient(e.clientX, e.clientY);
+    // 商道的线(开着「道路」时画在文字层上;地球仪上画在球面那层上):商道卡片
+    const tr = tradeAtClient(e.clientX, e.clientY, getGlobeOn() ? 'globe' : 'map');
     if (tr !== null) return setSelection({ kind: 'trade', id: tr }, side);
     const c = cellAt(e.clientX, e.clientY);
     const r = civ && c >= 0 && c < civ.regions.of.length ? civ.regions.of[c] : -1;
@@ -6220,12 +6220,23 @@ ${s.image.cells}` : null);
   );
   const terrainKey = useMemo(() => ({ data, style, layer, look: terrainLook }), [data, style, layer, terrainLook]);
   const onGlobeHover = (p: [number, number] | null) => {
-    if (!p || !data || replayOn) return setHover(null);
+    if (!p || !data || replayOn) {
+      setTradeHover(null);
+      return setHover(null);
+    }
     const [x, y] = mouseAt.current;
     const mh = draft ? null : (charHoverAt(x, y) ?? markHoverAt(x, y));
+    const label = globeApi.current?.labelAt(x, y) ?? null;
+    // 商道的线(字、标记底下):那条亮一圈,出商道的悬停小卡(和平面地图一样)
+    const trade = draft || mh || label ? null : tradeAtClient(x, y, 'globe');
+    setTradeHover(trade);
     if (stageRef.current) stageRef.current.style.cursor = mh ? mh.cursor : '';
     if (mh && mh.info !== undefined) return markHoverCard(mh, x, y);
-    showHover(p, globeApi.current?.labelAt(x, y) ?? null, x, y);
+    if (trade !== null && civ) {
+      const info = tradeHoverInfo(civ, trade, Math.floor(Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear))), getEdits().era ?? null);
+      return setHover(info ? { info, x, y } : null);
+    }
+    showHover(p, label, x, y);
   };
   // ---- 顶部提示条:生成进度、重推历史、选目标、改地形的结果(同一时间只显示最近的一条) ----
   // 生成世界(首次打开、换种子、调参数、读档)/ 按新地形重新生成:一行"正在…",小字是种子和这一步在做什么

@@ -4,15 +4,15 @@
  * - 点「找更合的世界」时记下原来那个世界的大纲(outlineFrom):大纲里的国家键 → 原来那国的编号、每条情节每一项原来叫什么
  * - 大纲里写到最多的几国(最多 3 国)先列成「故事里的国家」(outlineRoles):叫法用大纲里的国名,ref = 原来那国,条件空着让作者自己加
  * - 建好找到的那个世界以后(moveOutline):情节里的国家照 ref 换成结果里对上的那一国(新世界里的稳定键);
- *   别的对不上的(没对上的国家、州、城、人物、作者的人物、作者标记)从情节里去掉,记进 redo(原来叫什么),大纲页上标「要重新指」
- *   (格式见 gen/edits.ts 文件头"要重新指")。都用同一张地图找的(只换文明种子):州还是那块地方,州键照旧;城在新历史里还在那一处的照旧。
+ *   别的对不上的(没对上的国家、州、城、人物、作者的人物、作者标记、民族)从情节里去掉,记进 redo(原来叫什么),大纲页上标「要重新指」
+ *   (格式见 gen/edits.ts 文件头"要重新指")。都用同一张地图找的(只换文明种子):州还是那块地方,州键照旧;城、民族在新历史里还在那一处(发源)的照旧。
  *   `plot:编号`(大纲里立起来的国家)、年份、作者写的那句都照旧;上一次照大纲推演的批改不要了(历史换了)
  * 纯计算,不碰 DOM。
  */
 import type { Civ } from '../gen/civ/types';
 import { cleanPlot, keyCells, polityKey, regionOfKey, resolveKey, type Plot, type PlotRedo, type PlotRedoField } from '../gen/edits';
 import { ROLE_NAME_MAX, type FinderQuery, type FinderRole } from '../gen/finder/query';
-import { areaText, charName, cityName, personKeyName, plotPolityId, plotPolityName, regionName, type OutlineCtx } from './outlineInfo';
+import { areaText, charName, cityName, folkName, personKeyName, plotPolityId, plotPolityName, regionName, type OutlineCtx } from './outlineInfo';
 
 /** 从大纲页来的:原来那个世界和它的大纲 */
 export interface OutlineFrom {
@@ -53,6 +53,7 @@ export function outlineFrom(o: OutlineCtx, world: string, mapKey: string): Outli
     if (p.person) n.person = known(personKeyName(o.civ, p.person));
     if (p.char !== undefined) n.char = o.characters?.find((c) => c.id === p.char) ? charName(o, p.char) : '';
     if (p.mark !== undefined) n.mark = known(areaText(o, { mark: p.mark }).name);
+    if (p.folk) n.folk = known(folkName(o.civ, p.folk));
     // 上一次搬过来还没重新指的:照旧记着原来的名字
     names[p.id] = { ...(p.redo ?? {}), ...n };
   }
@@ -109,6 +110,7 @@ export function moveOutline(from: OutlineFrom, q: FinderQuery, found: readonly n
     return r >= 0 && r < civ.regions.count;
   };
   const cityOk = (k: string) => resolveKey(civ, k)?.kind === 'settlement';
+  const folkOk = (k: string) => resolveKey(civ, k)?.kind === 'culture';
   const plots: Plot[] = [];
   for (const p0 of from.plots) {
     const { redo: old, ...rest } = p0;
@@ -134,6 +136,7 @@ export function moveOutline(from: OutlineFrom, q: FinderQuery, found: readonly n
       else drop('regions');
     }
     if (p0.city && !(sameMap && cityOk(p0.city))) drop('city');
+    if (p0.folk && !(sameMap && folkOk(p0.folk))) drop('folk');
     if (p0.person) drop('person');
     if (p0.char !== undefined) drop('char');
     if (p0.mark !== undefined) drop('mark');
