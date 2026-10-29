@@ -703,6 +703,11 @@ export class CivSim {
     return this.annals[i];
   }
 
+  /** 到此刻为止的史事(只读;推演中会增长,用完就丢,不要存下来):作者的将领此刻手上是哪场仗按它推(appoint.ts) */
+  get annalsView(): readonly Readonly<Annal>[] {
+    return this.annals;
+  }
+
   /** 待处理的事件数(含已过期、还没弹出的) */
   get pending(): number {
     return this.heap.size;

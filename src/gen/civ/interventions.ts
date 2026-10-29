@@ -55,7 +55,8 @@
  *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
  *   任将任臣 appoint 推演里只在 from 那一刻记一笔史事(b 列见 appoint.ts 的 IV_REIGNING 那几样),历史一字不变;
- *                   他在任的年份、挂帅哪几仗由 appoint.ts 按史事推出来,人物、编年史照它排
+ *                   他在任的年份、挂帅哪几仗由 appoint.ts 按史事推出来,人物、编年史照它排。
+ *                   将领带了能力(良将 / 名将)的例外:他挂帅的仗本方兵力加成(wars.ts 的 WarModel.led,见下面的 authorLed)
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
  *   推一把发展 boost  快几倍:那些州发展度的"自己长""向邻居学"乘上去,管到 until;直接进:那一刻拉到国都的下一个时代开头(boost.ts)
  *   立约   treaty    from 那一刻几国立约(treaties.ts 的 decree;两两之间正在交战的当即议和),之后照立约的规矩续约、背约、约满;
@@ -79,11 +80,11 @@ import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, region
 import { Layer, type Culture, type Polity } from './types';
 import { subSeed } from './rand';
 import { Ev, LOOK_K, quantize, type CivSim } from './sim';
-import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
+import { addPolity, bookOf, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, crownOf, reignBorn } from './rulers';
 import { strikeDisaster } from './disaster';
 import { segAt } from './policy';
-import { bestCapital, polityBorders, warModelOf } from './wars';
+import { bestCapital, polityBorders, warModelOf, type War } from './wars';
 import { politicsModelOf } from './politics';
 import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
@@ -95,8 +96,8 @@ import { marriageModelOf } from './marriage';
 import { installBoosts, strikeBoost } from './boost';
 import { trekModelOf } from './migration';
 import { assimModelOf } from './assimilation';
-import { APPOINT_AGE, IV_REIGNING, type AppointIv } from './appoint';
-import { IV_GONE } from './regents';
+import { APPOINT_AGE, IV_REIGNING, appointEnd, authorLeadsNow, skillPower, type AppointInput, type AppointIv, type AuthorLead } from './appoint';
+import { IV_GONE, authorRegentEnd, regentAt } from './regents';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -707,6 +708,59 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
 
   // 推一把发展的快几倍:已经生效的按史事推出来,发展度每一步照着乘(没有快几倍的不挂)
   installBoosts(sim, iv);
+  // 作者的良将 / 名将挂帅的仗:本方兵力加成(没有带能力的任将不挂 —— 寻常的、没任过作者将领的世界一点不变)
+  if (iv.stored.some((v) => v.kind === 'appoint' && v.skill)) wm.led = authorLed(sim, pm, iv);
+}
+
+/**
+ * 作者的良将 / 名将挂帅的仗(WarModel.led):打仗那一刻,按 appoint.ts 的 authorLeadsNow 问此刻谁领着哪场 ——
+ * 史事记到此刻为止,和事后排人物是同一份规则。先粗筛:这一方有生效了的带能力任将、此刻还没过他最晚可能卸任的那一刻
+ * (到期卸任;让他掌权、掌权比任期长的,到掌权最晚了结),才算一遍;同一刻、史事条数没变的几次问只算一遍。
+ * 生效了哪几条按史事 intervene 扫出来(接着推时从头扫一遍),不存别的状态
+ */
+function authorLed(sim: CivSim, pm: PolityModel, iv: InterventionModel): (w: War, x: number, t: number) => number {
+  const stored = iv.stored;
+  const skilled = new Set<number>();
+  stored.forEach((v, i) => {
+    if (v.kind === 'appoint' && v.skill) skilled.add(i);
+  });
+  /** 让作者的人物掌权的几条:作者人物 → 掌权最晚了结的那一刻 */
+  const regentEnd = new Map<number, number>();
+  iv.list.forEach((v) => {
+    if (v.kind === 'regent' && v.char !== undefined) regentEnd.set(v.char, Math.max(regentEnd.get(v.char) ?? -Infinity, authorRegentEnd(v, v.from).stop));
+  });
+  /** 生效了的带能力任将:哪国、上任那一刻、最晚可能卸任的那一刻 */
+  const took: { pid: number; from: number; end: number }[] = [];
+  let seen = 0;
+  let memo: { n: number; t: number; leads: AuthorLead[] } | null = null;
+  /** 此刻让作者的人物掌权的那几段(AppointInput.holds;只问此刻在不在任:还掌着的不给了结,已了结的给此刻就够) */
+  const holdsAt = (t: number): AppointInput['holds'] => {
+    if (!regentEnd.size) return undefined;
+    const out: NonNullable<AppointInput['holds']>[number][] = [];
+    for (const [pid, list] of pm.regents) {
+      for (const g of list) {
+        const v = g.iv !== undefined ? stored[g.iv] : undefined;
+        if (v?.kind !== 'regent' || v.char === undefined || !(g.start < t)) continue;
+        const on = regentAt(pm.polities[pid], list, t, rulerOf(pm, pid, t), bookOf(pm, pid, t)) === g;
+        out.push(on ? { char: v.char, polity: pid, start: g.start } : { char: v.char, polity: pid, start: g.start, stop: t });
+      }
+    }
+    return out;
+  };
+  return (w, x, t) => {
+    const A = sim.annalsView;
+    for (; seen < A.length; seen++) {
+      const e = A[seen];
+      if (e.kind !== 'intervene' || e.b !== -1 || !skilled.has(e.war)) continue;
+      const v = stored[e.war] as AppointIv;
+      took.push({ pid: e.a, from: e.year, end: Math.max(appointEnd(v, e.year).stop, regentEnd.get(v.char) ?? -Infinity) });
+    }
+    if (!took.some((p) => p.pid === x && p.from <= t && t < p.end)) return 1;
+    if (!memo || memo.n !== A.length || memo.t !== t) {
+      memo = { n: A.length, t, leads: authorLeadsNow({ annals: A, polities: pm.polities, endYear: t, interventions: stored, holds: holdsAt(t) }, t) };
+    }
+    return skillPower(stored, memo.leads, x, w.id, w.a === x ? 0 : 1);
+  };
 }
 
 /** 接着推(CivSim.fromCiv 调用,在各层 resume 之后):和 installInterventions 一样 */

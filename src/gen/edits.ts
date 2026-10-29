@@ -76,7 +76,7 @@
  * | `treaty`  | 立约     | a = 国家,ps = 另几国(1–3 国)       | 这一年年初几国立约互不侵犯(两两之间那一刻正在交战的当即议和),到期照推演看续不续、可能背约(civ/treaties.ts);会盟的城照推演挑。对方都不在了 = 不生效 | term:期限(年;不给 = 一直);limited: true = 有限竞争(再加各守今疆);keep: true = 约里的国家不背约;by:居间的国家;zone:同时以哪一州为中立地(州键);ask: true = 演一国时下的,对方照推演的规矩定肯不肯(不肯的不入约,都不肯 = 不生效) |
  * | `neutral` | 划中立地 | a = 国家,region = 州,ps = 一起共建的另几国(1–3 国) | 这一年年初这州不归任何一国,几国都不进兵(州原属共建的一国或无主,不能是国都;州里要有人住)。几国已同在一份约里、那份约还没有中立地的,依那份约设;不然同时立一个互不侵犯之约(三十年) | quiet: true = 不送人去(不把失势的宗室徙到这里);lasting: true = 一直留着(约废了也不撤);until:到这一年撤(不含);ask:同立约 |
  * | `regent`  | 让他掌权 | a = 国家,person = 人物键,how = march 引兵入朝 / heir 太子监国(此刻在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯,宗室)/ chancellor 专权(名臣)/ general 专权(将领);end = succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯:君主下台,他接着在位,同一朝);years = 还政、篡位过几年;leanings = 摄政、专权的人的倾向。**作者的人物**不给 person,给 char、born(、died),见表下 | 这一年年初起名义上的君主照旧在位,开战、议和、扩张照他的倾向(引兵入朝、太子监国照他日后即位时的倾向);引兵入朝那一刻杀兄长和战功比他多的兄弟。这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、他不是那样的人(作者的人物:还没出生、已去世、不满 16 岁)= 不生效 | — |
- * | `appoint` | 任将 / 任臣 | a = 国家,char = 作者人物的编号,role = general 将领 / minister 名臣,born = 他的生年 | 这一年年初起他是这国的将领 / 名臣,**只改人物和编年史,不改历史**:将领 = 本国的仗由他挂帅(推演原来派的那位照旧随军,写成副将),名臣 = 朝中的事他也经手(推演里的名臣照旧)。这国那年已亡、他还没出生、已去世、不满 16 岁、那时他正是某国在位的君主 = 不生效。见表下 | died:他的卒年(人物卡上写了才有);until:这一年年初卸任(不含;不给 = 到卒年,卒年也没有 = 将领到 AUTHOR_GENERAL_AGE_END 岁卸甲、名臣到 AUTHOR_MINISTER_AGE_END 岁致仕) |
+ * | `appoint` | 任将 / 任臣 | a = 国家,char = 作者人物的编号,role = general 将领 / minister 名臣,born = 他的生年 | 这一年年初起他是这国的将领 / 名臣,**只改人物和编年史,不改历史**(将领带了能力 skill 的除外:他挂帅的仗改历史,见表下):将领 = 本国的仗由他挂帅(推演原来派的那位照旧随军,写成副将),名臣 = 朝中的事他也经手(推演里的名臣照旧)。这国那年已亡、他还没出生、已去世、不满 16 岁、那时他正是某国在位的君主 = 不生效。见表下 | died:他的卒年(人物卡上写了才有);until:这一年年初卸任(不含;不给 = 到卒年,卒年也没有 = 将领到 AUTHOR_GENERAL_AGE_END 岁卸甲、名臣到 AUTHOR_MINISTER_AGE_END 岁致仕);skill:将领的能力(不给 = 寻常,见表下) |
  * | `marry`   | 为他联姻 | a = 国家,person = 人物键(此刻在位的君主,或君主的儿子、兄弟叔伯),b = 对方国家 | 这一年年初两国结亲:他娶 b 在位君主的女儿(那位君主要年过 30);两国 40 年里少开战、易结盟(和推演里结的亲一样)。两国有一国已亡、是共和国、正在交战、他不是宗室 = 不生效 | how:give = 本国宗室女嫁给 b 的太子(没有就挑年轻的君主、别的宗室)/ mutual = 互嫁 |
  * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
  * | `boost`   | 推一把发展 | a = 国家;mul = 快几倍(3 / 10;不给 = 直接进下一个时代) | 快几倍:从这一年起到 until(不含)那些州四样能力的"自己长"和"向邻居学"都 × mul(卡在时代门口时自己长不乘),到期照常长、长上去的不退;直接进:这一年年初以 a 的国都所在州为准进它的下一个时代,那些州四样能力都拉到那个时代开头(不看物产等门槛;国都已在最后一个时代 = 不生效)。a 那年已亡 = 不生效(civ/boost.ts) | until:快几倍管到哪一年(不给 = from + 50);regions = 只推这几州(最多 BOOST_REGIONS_MAX 州,换了主也照推;不给 = 整国,每一刻归 a 的州) |
@@ -108,12 +108,15 @@
  *
  * 任将 / 任臣(appoint,civ/appoint.ts):char、born、died 同让作者的人物掌权(都抄进干预,推演不读人物卡);role 只认 general / minister。
  * 推演里只在 from 那一刻记一笔史事 intervene(b 列:−1 生效了 / −2 他还没出生 / −3 那一年这国已亡 / −4 不满 16 岁 / −19 他已去世 /
- * −20 那时他正是某国在位的君主,见 civ/appoint.ts 的 IV_REIGNING),历史一字不变;人物、编年史照它排(civ/people.ts、chronicle.ts)。
+ * −20 那时他正是某国在位的君主,见 civ/appoint.ts 的 IV_REIGNING),历史一字不变(带能力的将领见下);人物、编年史照它排(civ/people.ts、chronicle.ts)。
  * 任期:from 那一刻起,到 until / 卒年 / 卸甲致仕的岁数(见上)为止;中途这国亡了 = 出降(有灭它的国家)/ 出奔 / 随国归附;
  * 名臣遇改朝换代去职(想留任就再任一次),将领照旧在任;他后来又任了别的(哪国都算)、即了位 = 前一个到那一刻为止
  * (同一刻又任、又即位的,前一个算没生效)。将领挂帅哪几仗(不取随机数):上任时本国正在打的仗里最先开打的那场,没有就等下一场开打;
  * 那场打完换到还在打的里最先开打的那场;宣战(declare)带 lead = 他、本国是攻方的那场一开打就换去那场(派他出征)。
  * 君主亲征的那几仗君主为帅,他随驾。宣战的 lead 是新字段:旧版网站读到会去掉它,宣战照旧(只是统帅换回推演派的)。
+ * 将领的能力 skill(只认 general 带的 good 良将 / great 名将;不给 = 寻常):**这一项改历史** —— 他挂帅的那几仗(上面那份,君主亲征时他随驾的也算)
+ * 本方兵力乘 APPOINT_SKILL_POWER(攻守都算;civ/wars.ts 的胜率),只从他上任那一刻起,之前一字不变;推演里的将领照旧不分良莠,
+ * 寻常的、没任过作者将领的世界一点不变。旧存档、旧版网站没有这个字段 = 寻常。
  * 让作者的人物掌权(regent 带 char)时他正任着这国的将领 / 名臣:掌权那几段挂在他任职的那一位上(将领 = 大将专权、名臣 = 大臣专权);
  * 没任职的照旧单起一位名臣。旧存档没有任将任臣,照旧。
  * 即位(crown)可以带 after: true = 等此刻(from 那一年年初)在位的那位君主下台再即位:他到期驾崩 / 退位、或被作者让他去世时由作者的人物继位
@@ -744,6 +747,11 @@ export type AppointRole = (typeof APPOINT_ROLES)[number];
 /** 任将 / 任臣:没填卸任年、人物卡也没写卒年时,将领到这么多岁卸甲、名臣到这么多岁致仕(推演里寻常的 58–70 岁、62–76 岁取中) */
 export const AUTHOR_GENERAL_AGE_END = 65;
 export const AUTHOR_MINISTER_AGE_END = 70;
+/** 任将(appoint,将领)的能力:不给 = 寻常;good 良将 / great 名将 */
+export const APPOINT_SKILLS = ['good', 'great'] as const;
+export type AppointSkill = (typeof APPOINT_SKILLS)[number];
+/** 良将 / 名将挂帅的那几仗本方兵力乘这个数(只对作者的将领,见文件头) */
+export const APPOINT_SKILL_POWER: Readonly<Record<AppointSkill, number>> = { good: 1.15, great: 1.3 };
 /** 为他联姻怎么结:不给 = 他娶对方的宗室女;give = 本国宗室女嫁给对方;mutual = 互嫁 */
 export const MARRY_HOWS = ['give', 'mutual'] as const;
 export type MarryHow = (typeof MARRY_HOWS)[number];
@@ -818,7 +826,7 @@ export type Intervention = (
       leanings: RulerLeanings;
     }
   | { kind: 'marry'; a: string; person: string; b: string; from: number; how?: MarryHow }
-  | { kind: 'appoint'; a: string; char: number; role: AppointRole; born: number; died?: number; from: number; until?: number }
+  | { kind: 'appoint'; a: string; char: number; role: AppointRole; born: number; died?: number; from: number; until?: number; skill?: AppointSkill }
   | { kind: 'boost'; a: string; from: number; mul?: BoostMul; until?: number; regions?: string[] }
   | { kind: 'trek'; folk: string; from: number; region?: string; to?: string; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir }
   | { kind: 'stay'; folk: string; from: number; until?: number }
@@ -2048,7 +2056,7 @@ const isCharId = (x: unknown): x is number => typeof x === 'number' && Number.is
 
 /**
  * 任将 / 任臣(appoint,见文件头):char 同即位的编号;role 只认 general / minister;born 要有、died 早于等于 born 的去掉;
- * until 同别的干预(不晚于 from 的当作没给)。不合格 = null
+ * until 同别的干预(不晚于 from 的当作没给);skill 只留将领带的 good / great(别的 = 寻常,去掉)。不合格 = null
  */
 function cleanAppoint(o: Record<string, unknown>, a: string, from: number, until: number | null): Intervention | null {
   const char = o.char;
@@ -2057,7 +2065,8 @@ function cleanAppoint(o: Record<string, unknown>, a: string, from: number, until
   if (!isCharId(char) || born === null || !(APPOINT_ROLES as readonly unknown[]).includes(role)) return null;
   const d = o.died === undefined ? null : yearOf(o.died);
   const died = d !== null && d > born ? { died: d } : {};
-  return { kind: 'appoint', a, char, role, born, ...died, from, ...(until !== null ? { until } : {}) };
+  const skill = role === 'general' && (APPOINT_SKILLS as readonly unknown[]).includes(o.skill) ? { skill: o.skill as AppointSkill } : {};
+  return { kind: 'appoint', a, char, role, born, ...died, from, ...(until !== null ? { until } : {}), ...skill };
 }
 
 /**

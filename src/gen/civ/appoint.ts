@@ -2,6 +2,8 @@
  * 任将 / 任臣(干预 appoint,字段见 gen/edits.ts 文件头):作者的人物当某国的将领 / 名臣。
  * **只改人物和编年史,不改历史**:推演里只在 from 那一刻记一笔史事 intervene(b 列见下),这里由史事 + 干预列表推出
  * 他在任的那几年、怎么卸任的、将领挂帅的是哪几仗(people.ts 排人物、chronicle.ts 写编年史都用这一份)。纯计算,不碰 DOM。
+ * 例外:将领带了能力(skill:良将 / 名将)的,他挂帅的那几仗本方兵力加成(wars.ts 的胜率),推演里打仗那一刻
+ * 用 authorLeadsNow 问"此刻他手上是哪场" —— 和事后排人物是同一份规则、同一段代码(warsLed),只是史事记到那一刻为止。
  *
  * **任期**:那条史事那一刻起(生效了 = b 列 −1),到下面最早的那一刻为止 ——
  *   - 卸任年(until 那一年年初)/ 卒年(died)/ 都没有:将领 AUTHOR_GENERAL_AGE_END 岁卸甲、名臣 AUTHOR_MINISTER_AGE_END 岁致仕(至少一年);
@@ -20,7 +22,7 @@
  *   君主亲征的那几仗由君主为帅、他随驾 —— 谁亲征是排人物时定的(people.ts),这里不管;编年史按那一刻的统帅分(chronicle.ts)。
  */
 import type { Annal, Polity, Year } from './types';
-import { AUTHOR_GENERAL_AGE_END, AUTHOR_MINISTER_AGE_END, type AppointRole, type Intervention } from '../edits';
+import { APPOINT_SKILL_POWER, AUTHOR_GENERAL_AGE_END, AUTHOR_MINISTER_AGE_END, type AppointRole, type Intervention } from '../edits';
 
 /** 任将任臣的一条 */
 export type AppointIv = Extract<Intervention, { kind: 'appoint' }>;
@@ -120,7 +122,11 @@ interface WarInfo {
   lead: number;
 }
 
-function computePosts(civ: AppointInput, list: readonly Intervention[]): AuthorPost[] {
+/**
+ * 排任期、挂帅的几段。now 给了 = 推演里打仗那一刻(史事只记到那一刻,civ.endYear 也是它):还在任的将领手上那场记进 leads
+ * (这一仗随后记成第 annals.length 条史事,事后排出来它落在那一段里)
+ */
+function computePosts(civ: AppointInput, list: readonly Intervention[], now?: { t: Year; leads: AuthorLead[] }): AuthorPost[] {
   const { annals: A, polities } = civ;
   const N = A.length;
   const posts: AuthorPost[] = [];
@@ -237,9 +243,49 @@ function computePosts(civ: AppointInput, list: readonly Intervention[]): AuthorP
     }
     if (until !== undefined) p.until = until;
     if (end) p.end = end;
-    if (p.role === 'general') p.wars = warsLed(A, p, warsOf.get(p.polity) ?? [], polities, stopIdx, until ?? civ.endYear);
+    if (p.role !== 'general') continue;
+    const led = warsLed(A, p, warsOf.get(p.polity) ?? [], polities, stopIdx, until ?? civ.endYear, until === undefined ? now?.t : undefined);
+    p.wars = led.segs;
+    if (now && led.cur) now.leads.push({ iv: p.iv, char: p.char, polity: p.polity, war: led.cur.war, side: led.cur.side });
   }
   return posts;
+}
+
+/** 推演里打仗那一刻,一位作者将领手上的那场:第几条干预、作者人物、哪国、哪场战争、哪一方(0 攻 1 守) */
+export interface AuthorLead {
+  iv: number;
+  char: number;
+  polity: number;
+  war: number;
+  side: 0 | 1;
+}
+
+/**
+ * 推演里打仗那一刻(civ.annals 是史事记到此刻为止的那些,t = 此刻):还在任的作者将领各自手上是哪场仗。
+ * 规则和事后 authorPostsFrom 排挂帅的那几段是同一段代码(warsLed),只看到当时为止的史事,所以两边一样:
+ * 这一仗随后记下的史事,事后排出来正落在他挂帅的那一段里。civ.endYear 不看(按 t)。没有任将 = 空数组
+ */
+export function authorLeadsNow(civ: AppointInput, t: Year): AuthorLead[] {
+  const list = civ.interventions;
+  if (!list?.some((v) => v.kind === 'appoint')) return [];
+  const leads: AuthorLead[] = [];
+  computePosts({ ...civ, endYear: t }, list, { t, leads });
+  return leads;
+}
+
+/**
+ * 战争 war 里 pid 一方此刻由带能力的作者将领挂帅:本方兵力乘的数(没有 = 1;同一国几位作者将领领着同一场的,取最大的)。
+ * leads = authorLeadsNow 的结果,side = pid 在这场里是哪一方。
+ * 君主亲征的那几仗他随驾,这里也照样加(谁亲征是推完排人物时才定的,推演里分不出);要改成随驾不加,得先把亲征挪进推演
+ */
+export function skillPower(list: readonly Intervention[], leads: readonly AuthorLead[], pid: number, war: number, side: 0 | 1): number {
+  let k = 1;
+  for (const l of leads) {
+    if (l.polity !== pid || l.war !== war || l.side !== side) continue;
+    const v = list[l.iv];
+    if (v?.kind === 'appoint' && v.skill) k = Math.max(k, APPOINT_SKILL_POWER[v.skill]);
+  }
+  return k;
 }
 
 /** 第 t 年这国是第几朝 */
@@ -250,14 +296,26 @@ function dynastyIndex(P: Polity, t: Year): number {
   return k;
 }
 
-/** 将领挂帅的几段(规则见文件头):从他上任那条史事走到 stop(不含) */
-function warsLed(A: readonly Annal[], p: AuthorPost, mine: readonly WarInfo[], polities: readonly Polity[], stop: number, until: Year): AuthorWar[] {
+/**
+ * 将领挂帅的几段(规则见文件头):从他上任那条史事走到 stop(不含)。
+ * now 给了(推演里打仗那一刻,他还在任、stop = 史事条数):走完以后再看此刻(第 stop 条、年份 now,即将记下的这一仗)手上那场还在不在打,
+ * 不在就换一场 —— 和事后走到那一条时一样;cur = 此刻手上的那场(没仗 = null)。不给 now 时 cur 不用
+ */
+function warsLed(
+  A: readonly Annal[],
+  p: AuthorPost,
+  mine: readonly WarInfo[],
+  polities: readonly Polity[],
+  stop: number,
+  until: Year,
+  now?: Year,
+): { segs: AuthorWar[]; cur: { war: number; side: 0 | 1 } | null } {
   const out: AuthorWar[] = [];
   const pid = p.polity;
-  /** 第 i 条史事那一刻还在打(开打了、没议和、两边都还在) */
-  const live = (w: WarInfo, i: number) => {
-    if (w.decl > i || w.endIdx <= i) return false;
-    const t = A[Math.min(i, A.length - 1)]?.year ?? until;
+  const N = A.length;
+  /** 第 i 条史事那一刻(年份 t,不给 = 那条的)还在打(开打了、没议和、两边都还在);endIdx = N 是到此为止还没议和 */
+  const live = (w: WarInfo, i: number, t: Year = A[Math.min(i, N - 1)]?.year ?? until) => {
+    if (w.decl > i || (w.endIdx < N && w.endIdx <= i)) return false;
     const gone = (x: number) => {
       const P = polities[x];
       return !!P && P.ended !== undefined && P.ended < t;
@@ -265,10 +323,10 @@ function warsLed(A: readonly Annal[], p: AuthorPost, mine: readonly WarInfo[], p
     return !gone(w.a) && !gone(w.b);
   };
   const sentHere = (w: WarInfo) => w.lead === p.char && w.a === pid;
-  const pick = (i: number): WarInfo | null => {
+  const pick = (i: number, t?: Year): WarInfo | null => {
     let best: WarInfo | null = null;
     for (const w of mine) {
-      if (!live(w, i)) continue;
+      if (!live(w, i, t)) continue;
       if (sentHere(w)) return w;
       best ??= w;
     }
@@ -306,9 +364,17 @@ function warsLed(A: readonly Annal[], p: AuthorPost, mine: readonly WarInfo[], p
       take(w, i);
     }
   }
+  if (now !== undefined) {
+    // 推演里打仗那一刻:手上那场此刻打完了(有一方亡了还没记议和)就换一场,和事后走到这一仗那条史事时一样
+    if (cur && !live(cur.w, stop, now)) {
+      close(stop, now);
+      take(pick(stop, now), stop);
+    }
+    return { segs: out, cur: cur ? { war: cur.w.id, side: cur.w.a === pid ? 0 : 1 } : null };
+  }
   if (cur) {
     const end = stop < A.length ? A[stop].year : until;
     close(stop, Math.min(end, until));
   }
-  return out;
+  return { segs: out, cur: null };
 }
