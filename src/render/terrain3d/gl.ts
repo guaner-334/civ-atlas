@@ -93,9 +93,22 @@ export interface ReliefPalette {
   /** 远处淡入的天色、淡多少 */
   fog: [number, number, number];
   fogAmt: number;
+  /** 环境光、漫射光多强 */
+  amb: number;
+  dif: number;
 }
 
-export const PALETTE: ReliefPalette = { top: [0x6e / 255, 0x63 / 255, 0x55 / 255], bottom: [0x3d / 255, 0x36 / 255, 0x2f / 255], fog: [0xc9 / 255, 0xd6 / 255, 0xe3 / 255], fogAmt: 0.32 };
+export const PALETTE: ReliefPalette = { top: [0x6e / 255, 0x63 / 255, 0x55 / 255], bottom: [0x3d / 255, 0x36 / 255, 0x2f / 255], fog: [0xc9 / 255, 0xd6 / 255, 0xe3 / 255], fogAmt: 0.32, amb: 0.5, dif: 0.9 };
+
+/** 手绘:切面是纸板似的浅褐;光照平一些(像一块上了色的沙盘,纸色不被压暗),远处淡入纸色 */
+export const PALETTE_FANTASY: ReliefPalette = {
+  top: [0x8a / 255, 0x7a / 255, 0x63 / 255],
+  bottom: [0x5e / 255, 0x52 / 255, 0x41 / 255],
+  fog: [0xe9 / 255, 0xe4 / 255, 0xd8 / 255],
+  fogAmt: 0.18,
+  amb: 0.62,
+  dif: 0.55,
+};
 
 /** 一块沙盘在显卡上的那一份 */
 interface Model {
@@ -261,8 +274,8 @@ export class ReliefGL {
     gl.uniform2f(u.uKm, m.kmX, m.kmZ);
     gl.uniform3f(u.uL, -Math.cos(alt), Math.sin(alt), 0);
     gl.uniform1f(u.uSunTan, SUN_TAN);
-    gl.uniform1f(u.uAmb, 0.5);
-    gl.uniform1f(u.uDif, 0.9);
+    gl.uniform1f(u.uAmb, pal.amb);
+    gl.uniform1f(u.uDif, pal.dif);
     gl.uniform1f(u.uShadow, 0.55);
     gl.uniform1f(u.uBright, 1.06);
     gl.uniform3f(u.uFog, pal.fog[0], pal.fog[1], pal.fog[2]);

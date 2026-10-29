@@ -91,3 +91,68 @@ export function boxPixels(b: ReliefBox, S: number): { x0: number; y0: number; w:
   const y0 = Math.round((b.cy - b.h / 2) * S);
   return { x0, y0, w: Math.max(2, Math.round(b.w * S)), h: Math.max(2, Math.round(b.h * S)) };
 }
+
+/** 山脉卡片「看立体」:山脉四周留多少(公里;至少这么多,长的山脉按长边的比例留) */
+const RANGE_PAD_KM = 120;
+const RANGE_PAD = 0.18;
+/** 框住一条山脉时短边至少是长边的几分之一(细长的山脉不立成一根窄条) */
+const RANGE_ASPECT = 1.5;
+
+/**
+ * 框住一条山脉(path = 山脊线 x,y,x,y…,世界坐标;W、H = 世界宽高):山脊线的范围四周留一圈;
+ * 太长(某条边超过 BOX_MAX_KM)的山脉框它最高的那一段(peak = 最高峰在哪,那条边以它为中心、不出山脉的范围)。
+ * 跨过地图左右接缝的山脉按连着的那一段算
+ */
+export function rangeBox(path: ArrayLike<number>, peak: [number, number] | undefined, W: number, H: number): ReliefBox {
+  const n = path.length >> 1;
+  let x = path[0];
+  let x0 = x;
+  let x1 = x;
+  let y0 = path[1];
+  let y1 = path[1];
+  for (let i = 1; i < n; i++) {
+    // 跨过接缝的一段按近的那边走(x 展开成连续的)
+    let dx = path[2 * i] - path[2 * i - 2];
+    dx -= W * Math.round(dx / W);
+    x += dx;
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    y0 = Math.min(y0, path[2 * i + 1]);
+    y1 = Math.max(y1, path[2 * i + 1]);
+  }
+  const cy0 = (y0 + y1) / 2;
+  const kx = kmPerUnitX(cy0, H);
+  let wKm = (x1 - x0) * kx;
+  let hKm = (y1 - y0) * KM_PER_UNIT;
+  const pad = Math.max(RANGE_PAD_KM, RANGE_PAD * Math.max(wKm, hKm));
+  wKm = Math.max(BOX_MIN_KM, wKm + 2 * pad);
+  hKm = Math.max(BOX_MIN_KM, hKm + 2 * pad);
+  if (wKm < hKm / RANGE_ASPECT) wKm = hKm / RANGE_ASPECT;
+  if (hKm < wKm / RANGE_ASPECT) hKm = wKm / RANGE_ASPECT;
+  let cx = (x0 + x1) / 2;
+  let cy = cy0;
+  // 太长:那条边框最高的那一段(以最高峰为中心,不出山脉留了一圈以后的范围)
+  if (wKm > BOX_MAX_KM) {
+    const half = BOX_MAX_KM / 2 / kx;
+    const span = (wKm / kx) / 2;
+    let px = peak ? peak[0] : cx;
+    px -= W * Math.round((px - cx) / W);
+    cx = Math.min(cx + span - half, Math.max(cx - span + half, px));
+    wKm = BOX_MAX_KM;
+  }
+  if (hKm > BOX_MAX_KM) {
+    const half = BOX_MAX_KM / 2 / KM_PER_UNIT;
+    const span = hKm / KM_PER_UNIT / 2;
+    cy = Math.min(cy + span - half, Math.max(cy - span + half, peak ? peak[1] : cy));
+    hKm = BOX_MAX_KM;
+  }
+  return clampBox({ cx, cy, w: wKm / kmPerUnitX(cy, H), h: hKm / KM_PER_UNIT }, H);
+}
+
+/** 世界坐标 (wx, wy) 在方框贴图(S 倍,boxPixels)上的像素位置(东西相连:按离方框中心近的那一圈算) */
+export function boxPixelOf(b: ReliefBox, S: number, wx: number, wy: number, W: number): [number, number] {
+  const p = boxPixels(b, S);
+  let dx = wx - b.cx;
+  dx -= W * Math.round(dx / W);
+  return [(b.cx + dx) * S - p.x0, wy * S - p.y0];
+}

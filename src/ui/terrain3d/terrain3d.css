@@ -473,3 +473,45 @@
   color: var(--ink);
   font: 500 14px/1 var(--font-sans);
 }
+
+/* 山名立在山顶上:白底小牌子 + 一根细杆 + 山顶一个小圆点(转到哪都朝着人)。
+   立体的天色不跟着深浅主题变,字色照浅色的那一套;紧跟在画布后面,控件条、按钮盖在它上面 */
+.rv-peak {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  translate: -50% -100%;
+}
+.rv-peak b {
+  font: 600 15px/1.2 var(--font-sans);
+  color: #1d1d1f;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+}
+.rv-peak b small {
+  font-weight: 500;
+  color: #6e6e73;
+  font-size: 12px;
+  margin-left: 5px;
+}
+.rv-peak i {
+  width: 1.5px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.rv-peak u {
+  width: 7px;
+  height: 7px;
+  margin-top: -1px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(29, 29, 31, 0.7);
+}

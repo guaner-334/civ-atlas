@@ -5,15 +5,22 @@
  *   - 网格:点数、三角形数、坡度的方向、切面;点数不超过上限
  *   - 镜头:刚打开时整块落在看得见的那一块里;北在上
  *   - 这一块叫什么:框里的山脉 > 湖 > 海 > 州名
+ *   - 山名立在山顶:最高峰落在框里的山脉(和山脉卡片上的最高峰同一个数),钉在附近最高的那一点
+ *   - 山脉卡片「看立体」:框住整条山脉、四周留一圈;太长的框最高的那一段
+ *   - 手绘:一格按框的大小定(粗细两档在同一处);海岸墨线按一格的大小画;同一块每次一样
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { WINDOW_PAD, rasterizeWindow, zoomSource, type ZoomSource } from '../src/gen/rasterWindow';
-import { BOX_MAX_KM, BOX_MIN_KM, autoExaggeration, boxKm, boxPixels, boxSizeText, clampBox, reliefScales } from '../src/render/terrain3d/box';
-import { buildMesh, horizonSlopes, meshStep, stripHeights } from '../src/render/terrain3d/relief';
+import { BOX_MAX_KM, BOX_MIN_KM, autoExaggeration, boxKm, boxPixelOf, boxPixels, boxSizeText, clampBox, rangeBox, reliefScales } from '../src/render/terrain3d/box';
+import { buildMesh, horizonSlopes, meshStep, peakPin, stripHeights } from '../src/render/terrain3d/relief';
+import { BOX_STYLE_SPAN, boxStyle } from '../src/render/terrain3d/fantasyBox';
+import { fantasyBoxPixels } from '../src/render/fantasy';
+import { metersText, placeFacts } from '../src/ui/panelData';
+import { KM_PER_UNIT } from '../src/gen/civ/geo';
 import { fitCam, mul, project, projMatrix, viewMatrix, clipPlanes, rectShift } from '../src/render/terrain3d/camera';
-import { reliefTitle } from '../src/ui/terrain3d/region';
+import { reliefPeaks, reliefTitle } from '../src/ui/terrain3d/region';
 import type { Civ, Place } from '../src/gen/civ/types';
 
 const H = 1024;
@@ -242,5 +249,146 @@ describe('这一块叫什么', () => {
     const seam = place('mountains', '接缝山', [2040, 300, 5, 300, 20, 300]);
     expect(reliefTitle({ cx: 2047, cy: 300, w: 60, h: 40 }, civ([seam]), raster, W)).toBe('接缝山一带');
     expect(reliefTitle({ cx: -1, cy: 300, w: 60, h: 40 }, civ([seam]), raster, W)).toBe('接缝山一带');
+  });
+});
+
+describe('山脉卡片「看立体」', () => {
+  it('框住整条山脉,四周至少留 120 公里;短边不短于长边的三分之二', () => {
+    const path = [1450, 436, 1470, 440, 1490, 446];
+    const b = rangeBox(path, [1470, 440], W, H);
+    const km = boxKm(b, H);
+    const kx = km.w / b.w;
+    expect(b.cx - b.w / 2).toBeLessThanOrEqual(1450 - 120 / kx);
+    expect(b.cx + b.w / 2).toBeGreaterThanOrEqual(1490 + 120 / kx);
+    expect(b.cy - b.h / 2).toBeLessThanOrEqual(436 - 120 / KM_PER_UNIT);
+    expect(b.cy + b.h / 2).toBeGreaterThanOrEqual(446 + 120 / KM_PER_UNIT);
+    expect(Math.min(km.w, km.h) * 1.5).toBeGreaterThanOrEqual(Math.max(km.w, km.h) - 1);
+  });
+
+  it('太长的山脉:那条边 2000 公里,以最高峰为中心、不出山脉的范围', () => {
+    const path = [1000, 440, 1100, 442, 1200, 444, 1300, 446];
+    const b = rangeBox(path, [1250, 445], W, H);
+    expect(boxKm(b, H).w).toBeCloseTo(BOX_MAX_KM, 0);
+    expect(b.cx).toBeCloseTo(1250, 0);
+    // 最高峰在一头:框在留了一圈以后的范围里,最高峰还在框里
+    const end = rangeBox(path, [1300, 446], W, H);
+    // 留的一圈:东西长 300 个世界单位的 18%
+    const pad = 0.18 * 300;
+    expect(end.cx + end.w / 2).toBeLessThanOrEqual(1300 + pad + 0.5);
+    expect(end.cx + end.w / 2).toBeGreaterThanOrEqual(1300);
+    expect(end.cx - end.w / 2).toBeLessThanOrEqual(1300);
+    // 最高峰在山脉中间以外的地方:框不越过山脉留了一圈以后的那一头
+    const first = rangeBox(path, [990, 440], W, H);
+    expect(first.cx - first.w / 2).toBeGreaterThanOrEqual(1000 - pad - 0.5);
+  });
+
+  it('跨过地图左右接缝的山脉按连着的那一段框', () => {
+    const b = rangeBox([2030, 300, 2045, 302, 10, 304, 25, 306], [5, 303], W, H);
+    const c = ((b.cx % W) + W) % W;
+    expect(Math.min(c, W - c)).toBeLessThan(10);
+    expect(boxKm(b, H).w).toBeLessThan(1500);
+  });
+});
+
+describe('山名立在山顶', () => {
+  it('钉在 R 像素以内最高的那一点;位置按公里、方框中心为原点;不在贴图里 = null', () => {
+    const w = 20;
+    const h = 10;
+    const elev = new Float32Array(w * h);
+    elev[4 * w + 12] = 3000;
+    elev[4 * w + 18] = 5000; // 太远,不算
+    const p = peakPin(elev, w, h, 10, 5, 3, 200, 100)!;
+    expect(p.h).toBe(3000);
+    expect(p.x).toBeCloseTo(((12.5 / w) - 0.5) * 200, 6);
+    expect(p.z).toBeCloseTo(((4.5 / h) - 0.5) * 100, 6);
+    expect(peakPin(elev, w, h, -1, 5, 3, 200, 100)).toBeNull();
+    // 世界坐标 → 贴图像素:跨过接缝的框也按近的那一圈
+    const b = { cx: 2047, cy: 300, w: 60, h: 40 };
+    const [px, py] = boxPixelOf(b, 4, 3, 300, W);
+    expect(px).toBeCloseTo((2047 + 4 - (2047 - 30)) * 4, 0);
+    expect(py).toBeCloseTo(20 * 4, 0);
+  });
+});
+
+describe('手绘贴图(按框的大小画)', () => {
+  let world: World;
+  let whole: Raster;
+  let src: ZoomSource;
+  beforeAll(() => {
+    world = generateWorld({ ...DEFAULT_PARAMS, seed: 7, cells: 12000 });
+    whole = rasterize(world, 1);
+    src = zoomSource(world, whole);
+  });
+
+  it('一格按框的大小定:框越大一格越大;手机按小屏幕;细的一档一格至少 0.85 像素;东西向按纬度拉宽', () => {
+    const small = boxStyle({ cx: 1470, cy: 440, w: 60, h: 40 }, H, false, 16);
+    const big = boxStyle({ cx: 1470, cy: 440, w: 120, h: 80 }, H, false, 16);
+    expect(big.unit / small.unit).toBeCloseTo(2, 1);
+    const km = boxKm({ cx: 1470, cy: 440, w: 120, h: 80 }, H);
+    expect(big.unit).toBeCloseTo(Math.max(km.w, km.h) / BOX_STYLE_SPAN.desktop / KM_PER_UNIT, 6);
+    expect(boxStyle({ cx: 1470, cy: 440, w: 120, h: 80 }, H, true, 8).unit).toBeGreaterThan(big.unit * 2);
+    const tiny = boxStyle({ cx: 1470, cy: 440, w: 16, h: 16 }, H, false, 16);
+    expect(tiny.unit * 16).toBeCloseTo(0.85, 6);
+    expect(boxStyle({ cx: 1470, cy: 170, w: 100, h: 60 }, H, false, 8).ax).toBeGreaterThan(2);
+    expect(big.ax).toBeLessThan(1.1);
+  });
+
+  it('海岸墨线按一格的大小画(一格大一倍,墨线宽一倍);同一块画两次一样', () => {
+    // 框住一段海岸(主图上第一个挨着陆地的海面像素)
+    let at = -1;
+    for (let k = whole.w * 300; k < whole.w * 700 && at < 0; k++) if (whole.water[k] === 1 && whole.water[k + 1] === 0) at = k;
+    const box = { cx: at % whole.w, cy: Math.floor(at / whole.w), w: 24, h: 16 };
+    const S = 4;
+    const p = boxPixels(box, S);
+    const P = WINDOW_PAD;
+    const r = rasterizeWindow(src, S, p.x0 - P, p.y0 - P, p.w + 2 * P, p.h + 2 * P);
+    const ink = (px: Uint8ClampedArray) => {
+      let n = 0;
+      for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 3 * 90) n++;
+      return n;
+    };
+    const a = fantasyBoxPixels(r, 1);
+    expect(Buffer.from(fantasyBoxPixels(r, 1).buffer).equals(Buffer.from(a.buffer))).toBe(true);
+    const n1 = ink(a);
+    const n2 = ink(fantasyBoxPixels(r, 2));
+    expect(n1).toBeGreaterThan(50);
+    expect(n2 / n1).toBeGreaterThan(1.5);
+    expect(n2 / n1).toBeLessThan(2.6);
+  });
+
+  it('山名:最高峰落在框里的山脉,海拔和山脉卡片上的最高峰一样', () => {
+    // 一条假的山脉:沿着框里最高的那一行(山名按卡片上的算法找最高峰)
+    let best = 0;
+    for (let y = 420; y < 460; y++) for (let x = 1440; x < 1500; x++) if (whole.elev[y * whole.w + x] > whole.elev[best]) best = y * whole.w + x;
+    const bx = best % whole.w;
+    const by = Math.floor(best / whole.w);
+    const mk = (name: string, pts: number[], rank: number): Place => ({ kind: 'mountains', name, culture: 0, path: new Float32Array(pts), rank });
+    const civ = {
+      places: [mk('玉屏山', [bx - 6, by, bx, by, bx + 6, by], 2), mk('远山', [400, 300, 410, 302], 1), { ...mk('镜湖', [bx, by], 1), kind: 'lake' }],
+      regions: { of: new Int32Array(world.mesh.n).fill(-1) },
+    } as unknown as Civ;
+    const box = { cx: bx, cy: by, w: 70, h: 46 };
+    const peaks = reliefPeaks(box, civ, world, whole);
+    expect(peaks.map((p) => p.name)).toEqual(['玉屏山']);
+    const f = placeFacts(civ, world, whole, 0);
+    expect(peaks[0].meters).toBe(metersText(f.peak!));
+    expect(Math.abs(peaks[0].at[0] - bx)).toBeLessThan(10);
+    expect(Math.abs(peaks[0].at[1] - by)).toBeLessThan(10);
+    expect(reliefPeaks({ cx: 400, cy: 600, w: 70, h: 46 }, civ, world, whole)).toEqual([]);
+    expect(reliefPeaks(box, null, world, whole)).toEqual([]);
+  });
+
+  it('山脊线的点隔得远、最高峰落在两点之间的一小块框里也立名字', () => {
+    const w = whole.w;
+    const h = whole.h;
+    const elev = new Float32Array(w * h);
+    elev[512 * w + 1050] = 3000;
+    const flat = { ...whole, elev, water: new Uint8Array(w * h), cell: new Int32Array(w * h) } as Raster;
+    const civ = {
+      places: [{ kind: 'mountains', name: '长岭', culture: 0, path: new Float32Array([1000, 512, 1100, 512, 1200, 512]), rank: 1 }],
+      regions: { of: new Int32Array(world.mesh.n).fill(-1) },
+    } as unknown as Civ;
+    const peaks = reliefPeaks({ cx: 1050.5, cy: 512.5, w: 16, h: 16 }, civ, world, flat);
+    expect(peaks.map((p) => [p.name, p.meters])).toEqual([['长岭', '3000']]);
   });
 });
