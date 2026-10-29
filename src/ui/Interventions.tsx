@@ -20,6 +20,7 @@ import { polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import {
+  AUTHOR_REGENT_AGE_END,
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
   cleanIntervention,
@@ -341,7 +342,8 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}与${ps}以${regionKeyName(civ, v.region)}为中立地${until}`;
     }
     case 'regent':
-      // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政"
+      // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政";作者的人物 "林小满:专权掌权，到卒年"
+      if (v.char !== undefined) return `${authorName(civ, v.char)}:${REGENT_HOW_WORD[v.how]}掌权，${authorRegentEndWord(v)}`;
       return `${personKeyName(civ, v.person)}:${regentHowWord(v.how, personOfKey(civ, v.person))}掌权，${regentEndWord(v.end, v.years)}`;
     case 'marry': {
       // "胡炜:娶大澜王朝宗室女""胡炜:本国宗室女嫁大澜王朝""胡炜:与大澜王朝互嫁"
@@ -361,6 +363,11 @@ const REGENT_HOW_WORD: Record<RegentHow, string> = { march: '引兵入朝', heir
 /** 让他掌权到什么时候:"到君主去世即位""5 年后还政""5 年后篡位" */
 export function regentEndWord(end: RegentEnd, years?: number): string {
   return end === 'succeed' ? '到君主去世即位' : `${years ?? 1} 年后${end === 'return' ? '还政' : '篡位'}`;
+}
+
+/** 让作者的人物掌权到什么时候:"5 年后还政" / 没填还政年 = "到卒年"(人物卡没写卒年 = "到 70 岁还政") */
+export function authorRegentEndWord(v: { years?: number; died?: number }): string {
+  return v.years !== undefined ? regentEndWord('return', v.years) : v.died !== undefined ? '到卒年' : `到 ${AUTHOR_REGENT_AGE_END} 岁还政`;
 }
 
 /** 方针拧过旋钮(一键选的细调过,或者没从一键选起) */
