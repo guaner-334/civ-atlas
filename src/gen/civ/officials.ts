@@ -32,6 +32,8 @@
 import { Layer, type Annal, type ChangeLog, type Person, type PersonDeed, type PersonFate, type PersonPost, type Polity, type Settlement, type UpheavalFact, type Year } from './types';
 import { keyed4, subSeed } from './rand';
 import { capitalAt, polityTierAt, polityTitles } from './growth';
+import { HEIR, K_HOUSE_MINISTER, houseBase, pickHouses, withParentSurname, type HouseCand } from './kin';
+import { splitSurname } from './peopleText';
 
 // ---- 调参 ----
 /** 一位最多经手几件事 */
@@ -230,6 +232,8 @@ export interface OfficialsCtx {
   ids?: Map<Person, string>;
   /** 掌实权的名臣、大臣(regents.ts;国家 → 按掌权先后):各起一位,people.ts 挂上掌权的那一段 */
   regents?: ReadonlyMap<number, readonly ForcedRegent[]>;
+  /** 将门(kin.ts,people.ts 定的):将领 → 他的父辈(籍贯同父亲) */
+  houses?: ReadonlyMap<Person, Person>;
 }
 
 /**
@@ -262,6 +266,8 @@ export interface Officials {
   finish: () => void;
   /** 掌实权的那几位(ctx.regents 的每一条 → 起的那位;那一朝没排名臣的不在里面) */
   regents: Map<ForcedRegent, Person>;
+  /** 世家(kin.ts):名臣 → 他的父辈(也是名臣;随父姓、籍贯同父亲) */
+  houses: Map<Person, Person>;
 }
 
 /** 一件可以经手的事 */
@@ -306,6 +312,9 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   const homeAsks: { x: Person; year: Year; u: number }[] = [];
   /** 每国最高的官谁在任:[起, 止] */
   const tops: [Year, Year][][] = polities.map(() => []);
+  /** 世家的候选(掌实权专门起的不算) */
+  const hBase = houseBase(input.seed);
+  const cands: HouseCand[] = [];
 
   for (const p of polities) {
     const sys = systemOf(p);
@@ -426,6 +435,11 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
         const sur = f?.surname;
         nameAt.set(x, (a) => (sur ?? namer.surname(ctx.tag[p.id], 3, i, d.slot, a)) + namer.given(ctx.tag[p.id], 3, i, d.slot, a));
         if (f) forcedOut.set(f, x);
+        else {
+          const slot = d.slot;
+          const pid = p.id;
+          cands.push({ x, debut: d.enter, died: x.died ?? Infinity, merit: (t) => x.deeds!.filter((e) => e.year < t).length, u: (use) => keyed4(hBase, ctx.tag[pid], i, slot * 16 + use, K_HOUSE_MINISTER) });
+        }
         if (namer.surnamed) later.push(() => (x.courtesy = courtesyName(style, x.name, r)));
         const tail = artTail(style, r, ART[0]);
         if (tail) x.art = tail;
@@ -433,6 +447,13 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
         ministers.push(x);
       }
     }
+  }
+
+  // ---- 世家(kin.ts):名臣有机会是本国先前一位名臣的孩子,随父姓 ----
+  const houses = pickHouses(cands, HEIR.minister);
+  for (const [x, f] of houses) {
+    const at = nameAt.get(x);
+    if (at && ctx.namerOf(polities[x.polity]).surnamed) nameAt.set(x, withParentSurname(at, f, splitSurname));
   }
 
   // ---- 将领:籍贯、号、官职 ----
@@ -451,6 +472,10 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   }
 
   resolveHomes(input, homeAsks);
+  // 将门、世家的籍贯同父亲(按出道先后,祖孙三代一路传下来)
+  const debutOf = (x: Person) => x.commands?.[0]?.from ?? x.from ?? x.born;
+  const kin = [...(ctx.houses ?? []), ...houses].sort((a, b) => debutOf(a[0]) - debutOf(b[0]));
+  for (const [x, f] of kin) if (f.home !== undefined) x.home = f.home;
   // 号不和先前的人撞(同一座城出的人多,"揽霞子"不出第二位):换一个后半,都用过了就不起号
   const arts = new Set<string>();
   for (const { x } of homeAsks) {
@@ -463,7 +488,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
       arts.add(artName(city, tail));
     } else delete x.art;
   }
-  return { ministers, fixups, nameAt, finish: () => later.forEach((f) => f()), regents: forcedOut };
+  return { ministers, fixups, nameAt, finish: () => later.forEach((f) => f()), regents: forcedOut, houses };
 }
 
 /** 这一朝里能经手的事(按年份) */
