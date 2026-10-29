@@ -391,7 +391,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         if (heirOf && namerOf(styleOf(fallen!)).surnamed) surname = splitSurname(heirOf.name);
         if (sire && namerOf(styleOf(polities[sire.polity])).surnamed) surname = splitSurname(sire.name);
         if (house !== undefined) surname = surnames[p.id][house] ?? '';
-        for (let t = 0; !surname || (surname === prev && t < 20); t++) surname = namer.surname(tag[p.id], 0, i, t);
+        // 迎回的旧王室照它原来的姓(和上一段撞了也不换)
+        for (let t = 0; !surname || (house === undefined && surname === prev && t < 20); t++) surname = namer.surname(tag[p.id], 0, i, t);
       }
       surnames[p.id][i] = surname;
       const usedGiven = new Set<string>();
