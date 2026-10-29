@@ -1468,8 +1468,9 @@ if (part('写实风放大')) {
   await zp.close();
 }
 
-// 立体地形:右下「立体」→ 地图上出一个框(写着多大)、按钮按下去;立起来:先粗后细都画出来,时间轴的位置换成立体的控件条、
-// 标题是框里的山名;拖着转、换画风(重新上色)不出错;「回到地图」→ 立体收起、时间轴回来
+// 地区(地区图、立体):右下「地区」→ 地图上出一个框(写着多大)、按钮按下去;看这一块 = 地区图(一页:先粗后细,标题是框里的山名,
+// 2 倍清晰度,图例列出这一页上的城镇、线和山峰);底条切到立体:先粗后细都画出来,时间轴的位置换成控件条;
+// 拖着转、换画风(重新上色)不出错;「回到地图」→ 收起、时间轴回来、刚才的框淡淡留一会儿
 if (part('立体地形')) {
   const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   rp.on('pageerror', (e) => errs.push(`立体地形:${e.message}`));
@@ -1482,9 +1483,42 @@ if (part('立体地形')) {
     .then(() => true, () => false);
   const pressed = await rp.locator('.map-controls [data-act=relief]').getAttribute('aria-pressed');
   const size = await rp.locator('.rp-size').innerText().catch(() => '');
-  // 玉屏山一带的一小块(约 580 公里见方),直接立起来
-  const t0 = Date.now();
+  // 玉屏山一带的一小块(约 580 公里见方):先看地区图
+  const tr = Date.now();
   await rp.evaluate(() => (window as any).__wfReliefPick?.open({ cx: 1478, cy: 436, w: 30, h: 30 }));
+  const paged = await rp
+    .waitForFunction(() => (window as any).__wfRegion?.drawn === 'fine', null, { timeout: 90000 })
+    .then(() => true, () => false);
+  const rg = await rp.evaluate(() => ({
+    dbg: (window as any).__wfRegion,
+    title: document.querySelector('.rv-t b')?.textContent ?? '',
+    cv: (() => {
+      const c = document.querySelector('.rgm-sheet') as HTMLCanvasElement | null;
+      return c ? [c.width, c.height] : null;
+    })(),
+    face: document.querySelector('.ab-seg button.on')?.getAttribute('data-face'),
+    timeline: !!document.querySelector('.bottom-row') && getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none',
+  }));
+  console.log(`地区图:${Date.now() - tr} ms(粗的 ${rg.dbg?.coarseMs} ms、细的 ${rg.dbg?.fineMs} ms),「${rg.title}」${rg.cv?.join('×')},山峰 ${rg.dbg?.peaks} 座,图例 ${rg.dbg?.lines?.join('、')}`);
+  if (!paged || rg.title !== '玉屏山一带' || rg.face !== 'flat' || rg.timeline || !rg.cv || rg.cv[0] !== 2560 || !(rg.dbg?.peaks > 0) || !rg.dbg?.lines?.includes('河'))
+    errs.push(`立体地形:看这一块没出地区图 / 标题、清晰度、图例不对(${JSON.stringify({ paged, ...rg })})`);
+  // 导出这一页:底条右边「导出图片」→ 卡片(标题、版式、清晰度、格式)→ 导出 2 倍 PNG(就是屏幕上那一页)
+  await rp.click('.rv-bar [data-act=region-export]');
+  const rx = await rp.evaluate(() => ({
+    title: (document.querySelector('.rx .rx-field') as HTMLInputElement | null)?.value ?? '',
+    sizes: [...document.querySelectorAll('.rx .rx-seg button')].map((b) => b.textContent ?? ''),
+    name: document.querySelector('.rx .rx-small')?.textContent ?? '',
+  }));
+  await rp.click('[data-act=region-save]');
+  const saved = await rp
+    .waitForFunction(() => (window as any).__wfRegionExport?.bytes > 0 && !document.querySelector('.rx'), null, { timeout: 30000 })
+    .then(() => rp.evaluate(() => (window as any).__wfRegionExport), () => null);
+  console.log(`地区图导出:「${rx.title}」${rx.sizes.join(' / ')};${saved?.name} ${Math.round((saved?.bytes ?? 0) / 1e3)} KB`);
+  if (rx.title !== '玉屏山一带' || !rx.sizes.includes(`${rg.cv?.[0]}×${rg.cv?.[1]}`) || !saved || !/^文明与地图-种子7-玉屏山一带-第\d+年-.+\.png$/.test(saved.name) || saved.type !== 'image/png')
+    errs.push(`立体地形:地区图导出卡片 / 导出的文件不对(${JSON.stringify({ rx, saved })})`);
+  // 底条切到立体:同一个框立起来
+  const t0 = Date.now();
+  await rp.click('.ab-seg [data-face=relief]');
   const fine = await rp
     .waitForFunction(() => (window as any).__wfRelief?.level === 'fine', null, { timeout: 90000 })
     .then(() => true, () => false);
@@ -1521,8 +1555,16 @@ if (part('立体地形')) {
   if (!drawn) errs.push(`立体地形:换成手绘以后立体没有按手绘重画(${JSON.stringify(await rp.evaluate(() => (window as any).__wfRelief))})`);
   await rp.click('.rv-bar .b');
   await rp.waitForTimeout(400);
-  const closed = await rp.evaluate(() => ({ rv: document.querySelectorAll('.rv').length, timeline: getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none' }));
-  if (closed.rv || !closed.timeline) errs.push(`立体地形:点「回到地图」以后立体没收起 / 时间轴没回来(${JSON.stringify(closed)})`);
+  const closed = await rp.evaluate(() => ({ rv: document.querySelectorAll('.rv').length, timeline: getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none', ghost: !!document.querySelector('.rp-ghost') }));
+  if (closed.rv || !closed.timeline || !closed.ghost) errs.push(`立体地形:点「回到地图」以后没收起 / 时间轴没回来 / 刚才的框没留下(${JSON.stringify(closed)})`);
+  // 导出菜单里的「地区图」:进框一块
+  await rp.click('.export-btn');
+  await rp.click('.export-item[data-job=region]');
+  const picked = await rp
+    .waitForSelector('.rp-box', { timeout: 15000 })
+    .then(() => true, () => false);
+  if (!picked) errs.push('立体地形:导出菜单里点「地区图」没进框一块');
+  await rp.keyboard.press('Escape');
   // 山脉卡片「看立体」:搜玉屏山点开卡片 → 直接立起来(手绘),山名和最高峰的海拔立在山顶
   await rp.fill('[data-act=search]', '玉屏山');
   await rp.waitForTimeout(400);

@@ -27,7 +27,7 @@ import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { tiedPair, vassalTies } from './vassals';
 import { nearX, valueNoise, wrapShifts, type WorkStep } from '../common';
 import { addToPath, chaikin, cullLines, meshWrap, sphereMean, xRange } from './lines';
-import type { CivDrawParams } from './overlay';
+import type { CivDrawParams, CivStyle } from './overlay';
 import { projectLinePts, type Projector } from '../projection';
 
 /** 色块按界线重新判归属的范围(世界单位):平滑后的线离原始像素分界最多约 3 个单位(单测核对) */
@@ -882,30 +882,45 @@ export function drawBorders(ctx: CanvasRenderingContext2D, p: CivDrawParams): vo
   const lines = p.cull ? cullLines(all0, p.cull, meshWrap(p.world.mesh), 8) : all0;
   if (!lines.length) return;
   const S = p.raster.scale;
-  // 线宽、虚线长短(细节层按屏幕重画时 × pen,见 overlay.ts)
-  const P = S * (p.pen ?? 1);
   const wrap = meshWrap(p.world.mesh);
-  // 两国之间 / 宗主和藩属之间 / 国家和部落地带之间
+  // 两国之间 / 宗主和藩属之间 / 国家和部落地带之间(线宽、虚线长短:细节层按屏幕重画时 × pen,见 overlay.ts)
   const ties = vassalTies(p.civ, p.year);
   const inner = lines.filter((l) => l.left >= 0 && l.right >= 0 && !tiedPair(ties, l.left, l.right));
   const bloc = ties.key ? lines.filter((l) => l.left >= 0 && l.right >= 0 && tiedPair(ties, l.left, l.right)) : [];
   const outer = lines.filter((l) => l.left < 0 || l.right < 0);
+  strokeBorders(ctx, { inner, bloc, outer }, p.style, S, p.pen ?? 1, wrap, p.proj);
+}
+
+/**
+ * 国界的笔(地图上、地区图的图例里都用它):inner = 两国之间,bloc = 宗主和藩属之间,outer = 国家和部落地带之间;
+ * 线是世界坐标,按 S 倍画;pen = 线宽、虚线长短再乘几倍(细节层按屏幕重画时)
+ */
+export function strokeBorders(
+  ctx: CanvasRenderingContext2D,
+  groups: { inner: SidedLine[]; bloc: SidedLine[]; outer: SidedLine[] },
+  style: CivStyle,
+  S: number,
+  pen: number,
+  wrap: number,
+  proj?: Projector | null,
+): void {
+  const { inner, bloc, outer } = groups;
+  const P = S * pen;
   const path = (ls: SidedLine[]) => {
     const pa = new Path2D();
-    addToPath(pa, ls, S, wrap, p.proj);
+    addToPath(pa, ls, S, wrap, proj);
     return pa;
   };
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  if (p.style === 'fantasy') {
+  if (style === 'fantasy') {
     const pens = [new Path2D(), new Path2D(), new Path2D()];
     // 墨线下面先垫一道淡淡的纸色,穿过深色树林时也看得清
     ctx.strokeStyle = 'rgba(246,236,210,0.6)';
     ctx.lineWidth = 3.8 * P;
     ctx.stroke(path(inner));
-    const pen = p.pen ?? 1;
-    inkDashes(inner, S, 5 * pen, 3 * pen, pens, wrap, p.proj);
+    inkDashes(inner, S, 5 * pen, 3 * pen, pens, wrap, proj);
     const widths = [1.45, 2.05, 2.75];
     ctx.strokeStyle = 'rgba(58,32,20,0.9)';
     pens.forEach((pa, i) => {
@@ -933,7 +948,7 @@ export function drawBorders(ctx: CanvasRenderingContext2D, p: CivDrawParams): vo
     ctx.setLineDash([4.2 * P, 1.9 * P, 0.01, 1.9 * P]);
     ctx.stroke(path(outer));
   } else {
-    const all = path(lines);
+    const all = path([...inner, ...bloc, ...outer]);
     ctx.strokeStyle = 'rgba(255,252,244,0.6)';
     ctx.lineWidth = 4 * P;
     ctx.stroke(all);
