@@ -585,6 +585,8 @@
  *      西幻同名的国王里有一位成了女王的,后面那几位的"几世"跟着变)。疆域、兴亡、战争、人物的生卒和父子一样不变,男的名字一个不变
  *  51:将门、世家(civ/kin.ts):一部分将领、名臣是本国先前一位将领、名臣的孩子,随父姓、籍贯同父亲;复国之君接上故国世系
  *      (lineage.ts:中间补几代故国宗室,隔得太远的补一位父亲)。疆域、兴亡、战争不变,将领名臣的名字、籍贯和人物的编号会变
+ *  52:后妃(civ/consorts.ts):联姻嫁来的宗室女成了能点开的人物;名臣辅政的一部分换成幼主的母亲临朝(篡位的就是开国的女君),
+ *      名臣那边不再为这几段起人(同一朝的名臣、经手的事跟着重排,名字可能变)。疆域、兴亡、战争、君主将领宗室的生卒和父子不变
  */
 import type { Civ, Culture, Faith, MigrationDir, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -598,7 +600,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 51;
+export const GENERATOR_VERSION = 52;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -669,6 +671,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   49: { change: 'history' },
   50: { change: 'people' },
   51: { change: 'people' },
+  52: { change: 'people' },
 };
 
 /** 干预的种类(见文件头的表) */
@@ -1399,14 +1402,16 @@ export function resolvePersonKey(civ: Civ, key: string): number {
   const hit = ix.byKey.get(key);
   if (hit !== undefined) return hit;
   // 预定的继承人、摄政篡位的叔父:推到他即位以前记下的是宗室(prince),接着推过了即位那年他是君主(ruler);
-  // 掌实权篡位的名臣:以前是名臣(minister),篡位以后是新朝的第一位(ruler);往回推反过来
+  // 掌实权篡位的名臣:以前是名臣(minister),篡位以后是新朝的第一位(ruler);临朝篡位的太后:以前是后妃(consort);往回推反过来
   const swaps = key.includes('|prince|')
     ? [key.replace('|prince|', '|ruler|')]
     : key.includes('|minister|')
       ? [key.replace('|minister|', '|ruler|')]
-      : key.includes('|ruler|')
-        ? [key.replace('|ruler|', '|prince|'), key.replace('|ruler|', '|minister|')]
-        : [];
+      : key.includes('|consort|')
+        ? [key.replace('|consort|', '|ruler|')]
+        : key.includes('|ruler|')
+          ? [key.replace('|ruler|', '|prince|'), key.replace('|ruler|', '|minister|'), key.replace('|ruler|', '|consort|')]
+          : [];
   for (const s of swaps) {
     const hit = ix.byKey.get(s);
     if (hit !== undefined) return hit;
@@ -1894,7 +1899,7 @@ export interface PersonKeyParts {
   n: number;
 }
 
-const PERSON_KEY = /^person:(polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5})\|(ruler|general|prince|minister)\|([^|]*)\|(-?\d{1,6})(?:#(\d{1,5}))?$/;
+const PERSON_KEY = /^person:(polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5})\|(ruler|general|prince|minister|consort)\|([^|]*)\|(-?\d{1,6})(?:#(\d{1,5}))?$/;
 
 /** 拆开人物键(personKey 的反过来) */
 export function parsePersonKey(key: unknown): PersonKeyParts | null {

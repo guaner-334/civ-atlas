@@ -58,7 +58,8 @@ describe.each([7, 2024])('推演里的女性 · seed=%i', (seed) => {
       // 每类都是少数(1–4 成)
       expect(f.length / all.length, role).toBeLessThan(0.45);
     }
-    for (const x of P.filter((y) => y.female)) {
+    // 后妃(嫁来的宗室女、临朝的太后,consorts.ts)本来就是女的,没有男名
+    for (const x of P.filter((y) => y.female && y.role !== 'consort')) {
       expect(x.female).toBe(true);
       expect(x.maleName, x.name).toBeTruthy();
       expect(x.name).not.toBe(x.maleName);
@@ -84,7 +85,9 @@ describe.each([7, 2024])('推演里的女性 · seed=%i', (seed) => {
         wed++;
         const e = chron.find((y) => y.kind === 'marry' && (y.id === s.annal || y.id === s.annal - 1) && y.people?.includes(x.id));
         if (e) expect(e.text, e.text).toMatch(new RegExp(`${x.name}[^,;，；]{0,6}嫁`));
-        for (const k of P.filter((y) => y.parent === x.id)) expect(k.mother?.annal).not.toBe(s.annal);
+        // 她嫁过去:对方是宗室子,只记一行(不成人物);她的孩子不另记母亲
+        expect(s.person).toBeUndefined();
+        for (const k of P.filter((y) => y.parent === x.id)) expect(k.mom).toBeUndefined();
       }
     }
     expect(n0).toBeGreaterThan(0);

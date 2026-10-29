@@ -234,6 +234,8 @@ export interface OfficialsCtx {
   regents?: ReadonlyMap<number, readonly ForcedRegent[]>;
   /** 将门(kin.ts,people.ts 定的):将领 → 他的父辈(籍贯同父亲) */
   houses?: ReadonlyMap<Person, Person>;
+  /** 别的要定籍贯的人(临朝的太后,consorts.ts):那一年、随机数;和名臣、将领一起按那一年本国的城挑 */
+  homes?: readonly { x: Person; year: Year; u: number }[];
 }
 
 /**
@@ -476,6 +478,8 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   const debutOf = (x: Person) => x.commands?.[0]?.from ?? x.from ?? x.born;
   const kin = [...(ctx.houses ?? []), ...houses].sort((a, b) => debutOf(a[0]) - debutOf(b[0]));
   for (const [x, f] of kin) if (f.home !== undefined) x.home = f.home;
+  // 别的人另扫一遍(各人只看那一年本国有哪些城,互不相干;名臣、将领的先后照旧,下面起号按它)
+  if (ctx.homes?.length) resolveHomes(input, [...ctx.homes]);
   // 号不和先前的人撞(同一座城出的人多,"揽霞子"不出第二位):换一个后半,都用过了就不起号
   const arts = new Set<string>();
   for (const { x } of homeAsks) {

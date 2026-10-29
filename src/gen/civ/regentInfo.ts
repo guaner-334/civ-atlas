@@ -4,7 +4,8 @@
  * - holdersOf / holderAt   某国掌过实权的几段(人物上 Person.regencies,按掌权先后)/ 某一年谁掌着实权(from–until 之间)
  * - heldOver               一位君主在位时被谁架空过:名义君主是他的那几段;大臣、大将专权跨了几位君主的,在位年份重叠的也算
  * - kinAt / inLawsAt       两国到某一年结着亲(最近一门亲 KIN_FADE 年内、那以后两国没开过战,和推演里 bondOf 同一个算法)/ 某国那一年的姻亲
- * - brideName / polityShort  宗室女那一行的写法("风氏";没有姓的语感写"大澜公主")、国名的简称("大澜""南漓")
+ * - brideName / polityShort  宗室女的名字(她是人物的写名字;不然 "风氏",没有姓的语感写"大澜公主")、国名的简称("大澜""南漓")
+ * - brideMatchOf           嫁来的宗室女嫁过来的那一门亲
  * - REGENCY_VERB / REGENCY_END  几种掌权、几种结局的说法
  */
 import type { Annal, Civ, Person, PersonRegency, PersonSpouse, Year } from './types';
@@ -25,6 +26,7 @@ export const REGENCY_VERB: Readonly<Record<PersonRegency['kind'], string>> = {
   heir: '监国',
   uncle: '摄政',
   minister: '辅政',
+  dowager: '临朝',
   chancellor: '专权',
   general: '专权',
 };
@@ -48,7 +50,8 @@ export function holdersOf(civ: Civ, pid: number): readonly Held[] {
   let all = holdCache.get(key);
   if (!all || all.length !== civ.polities.length) {
     all = civ.polities.map(() => []);
-    for (const x of civ.people ?? []) for (const g of x.regencies ?? []) all[x.polity]?.push({ x, g });
+    // 嫁来的宗室女做了太后:记在临朝的那一国(幼主那一国),不是她娘家
+    for (const x of civ.people ?? []) for (const g of x.regencies ?? []) all[g.kind === 'dowager' ? (civ.people?.[g.ruler]?.polity ?? x.polity) : x.polity]?.push({ x, g });
     for (const list of all) list.sort((a, b) => a.g.from - b.g.from || a.x.id - b.x.id);
     holdCache.set(key, all);
   }
@@ -191,5 +194,12 @@ export function polityShort(civ: Civ, pid: number, t: Year): string {
 
 /** 宗室女那一行:东方带姓 = "风氏";别的语感没有名字 = "大澜公主" */
 export function brideName(civ: Civ, s: PersonSpouse): string {
-  return s.name || `${polityShort(civ, s.polity, s.year)}公主`;
+  const b = s.person !== undefined ? civ.people?.[s.person] : undefined;
+  return b?.name || s.name || `${polityShort(civ, s.polity, s.year)}公主`;
+}
+
+/** 嫁来的宗室女(后妃)嫁过来的那一门亲(记在她丈夫的 spouses 里);不是 = undefined */
+export function brideMatchOf(civ: Civ, x: Person): PersonSpouse | undefined {
+  if (x.role !== 'consort' || x.husband === undefined) return undefined;
+  return civ.people?.[x.husband]?.spouses?.find((s) => s.person === x.id);
 }

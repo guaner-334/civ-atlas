@@ -2,7 +2,7 @@
  * 世系图要用的:谁是谁的父亲、子嗣,一国有几朝,一朝的家谱树怎么排、标题和结尾怎么写、复制成文字。
  * 只读推演记下的 Person.parent(lineage.ts),纯计算;人物页的世系图(PeopleLineage.tsx)、人物卡片的「父亲」「子嗣」用它。
  *
- * 一朝一棵树:这一朝即位的君主 + 推演补上的没即位的宗室(role = 'prince',dynasty 同一朝)。
+ * 一朝一棵树:这一朝即位的君主 + 推演补上的没即位的宗室(role = 'prince',dynasty 同一朝)+ 嫁到别国的女儿(后妃,role = 'consort',挂在父亲下面)。
  * 树的排法:一代一行;兄弟按长幼从左往右;父亲在传下去的那一支(子孙里有最后即位的君主)正上方,所以主干是一条直线往下;
  * 子树之间按每一代的左右边缘挤紧(位置以"一格"为单位,一格 = 一个方框宽加间距)。
  * 找不到合年纪的父亲、兜底成"宗室"的君主连不上这一朝开国的那一支:另起一小棵(远支)。
@@ -15,15 +15,17 @@ import { polityName } from './growth';
 import { peopleIndex, riseText } from './peopleInfo';
 import { personName, rulerShort } from './peopleText';
 import { heOrShe, kinWord, spouseWord } from './gender';
-import { heldOver, polityShort } from './regentInfo';
+import { brideMatchOf, heldOver, polityShort } from './regentInfo';
 import { cnNumber } from './chronicle';
 import { yearAt, yearShort, yearSpanAt, type Era } from '../era';
 
 interface LineageIndex {
   /** 人物编号 → 子嗣(按出生先后) */
   kids: Map<number, Person[]>;
-  /** 国家 → 没即位的宗室 */
+  /** 国家 → 没即位的宗室(连同嫁到别国的女儿) */
   princes: Person[][];
+  /** 人物编号 → 母亲是她的子女(Person.mom;按出生先后) */
+  borne: Map<number, Person[]>;
   /** 国家 → 据地自立、做了别国之君的儿子(按父亲那一国) */
   seceders: Person[][];
   /** 国家 → 复这一国的复国之君(父辈在这一国:接上故国世系) */
@@ -36,9 +38,14 @@ function lineageIndex(civ: Civ): LineageIndex {
   const key = civ.people ?? civ.annals;
   const hit = cache.get(key);
   if (hit && hit.princes.length === civ.polities.length) return hit;
-  const ix: LineageIndex = { kids: new Map(), princes: civ.polities.map(() => []), seceders: civ.polities.map(() => []), restorers: civ.polities.map(() => []) };
+  const ix: LineageIndex = { kids: new Map(), princes: civ.polities.map(() => []), seceders: civ.polities.map(() => []), restorers: civ.polities.map(() => []), borne: new Map() };
   for (const x of civ.people ?? []) {
-    if (x.role === 'prince' && ix.princes[x.polity]) ix.princes[x.polity].push(x);
+    if ((x.role === 'prince' || (x.role === 'consort' && x.parent !== undefined)) && ix.princes[x.polity]) ix.princes[x.polity].push(x);
+    if (x.mom !== undefined) {
+      const l = ix.borne.get(x.mom);
+      if (l) l.push(x);
+      else ix.borne.set(x.mom, [x]);
+    }
     if (x.parent === undefined) continue;
     const f = civ.people![x.parent];
     if (f && f.polity !== x.polity && x.claim?.how === 'secede') ix.seceders[f.polity]?.push(x);
@@ -47,6 +54,7 @@ function lineageIndex(civ: Civ): LineageIndex {
     ix.kids.get(x.parent)!.push(x);
   }
   for (const ks of ix.kids.values()) ks.sort((a, b) => a.born - b.born || a.id - b.id);
+  for (const ks of ix.borne.values()) ks.sort((a, b) => a.born - b.born || a.id - b.id);
   cache.set(key, ix);
   return ix;
 }
@@ -56,9 +64,27 @@ export function fatherOf(civ: Civ, x: Person): Person | undefined {
   return x.parent !== undefined ? civ.people?.[x.parent] : undefined;
 }
 
-/** 子嗣(按出生先后;只有世系图里有的人:即位的君主和他们没即位的父辈) */
+/** 子嗣(按出生先后;只有世系图里有的人:即位的君主和他们没即位的父辈、嫁到别国的女儿) */
 export function kidsOf(civ: Civ, x: Person): Person[] {
   return lineageIndex(civ).kids.get(x.id) ?? [];
+}
+
+/** 母亲(Person.mom:联姻嫁来的宗室女、临朝的太后;没记 = undefined) */
+export function motherOf(civ: Civ, x: Person): Person | undefined {
+  return x.mom !== undefined ? civ.people?.[x.mom] : undefined;
+}
+
+/** 她生的子女(母亲记成她的,按出生先后;世系只按父亲连,这些人多半在丈夫那一国的世系图里) */
+export function borneOf(civ: Civ, x: Person): Person[] {
+  return lineageIndex(civ).borne.get(x.id) ?? [];
+}
+
+/** 子嗣连同她生的(女的:世系里在她名下的 + 母亲记成她的,不重复,按出生先后) */
+export function childrenOf(civ: Civ, x: Person): Person[] {
+  const a = kidsOf(civ, x);
+  const b = borneOf(civ, x);
+  if (!b.length) return a;
+  return [...a, ...b.filter((k) => !a.includes(k))].sort((u, v) => u.born - v.born || u.id - v.id);
 }
 
 /** 这国有没有世系图:不是共和国、有君主 */
@@ -217,12 +243,19 @@ export function lineageTag(civ: Civ, x: Person, polity: number): string {
 /** 算"虚位"的几种:被儿子引兵入朝架空、被大臣大将专权(幼主有人辅政、太子监国不算) */
 const VOID_KINDS: ReadonlySet<string> = new Set(['march', 'chancellor', 'general']);
 
-/** 世系图第二行的小标:娶了别国宗室女 "妻大澜"、母亲是别国宗室女 "母大澜"(只写一样,妻子优先;polity = 那一国,画它的颜色);没有 = null */
+/**
+ * 世系图第二行的小标:娶了别国宗室女 "妻大澜"、母亲是别国宗室女 "母大澜"、嫁到了别国的女儿 "嫁埃维里亚"
+ * (只写一样,妻子优先;polity = 那一国,画它的颜色);没有 = null
+ */
 export function lineageKin(civ: Civ, x: Person): { text: string; polity: number } | null {
   const s = x.spouses?.[0];
   if (s) return { text: `${spouseWord(x)}${polityShort(civ, s.polity, s.year)}`, polity: s.polity };
-  const m = x.mother;
-  if (m) return { text: `母${polityShort(civ, m.polity, m.year)}`, polity: m.polity };
+  const w = brideMatchOf(civ, x);
+  const H = x.husband !== undefined ? civ.people?.[x.husband] : undefined;
+  if (w && H && H.polity !== x.polity) return { text: `嫁${polityShort(civ, H.polity, w.year)}`, polity: H.polity };
+  const M = motherOf(civ, x);
+  const mw = M ? brideMatchOf(civ, M) : undefined;
+  if (M && mw && M.polity !== x.polity) return { text: `母${polityShort(civ, M.polity, mw.year)}`, polity: M.polity };
   return null;
 }
 
@@ -377,7 +410,9 @@ export function dynastyLines(civ: Civ, polity: number, rows: readonly DynastyRow
       else if (restoredFrom(civ, x, polity)) out.push(`${pad}${personName(civ, x)} ${restoreCaption(civ, x, true, era)}，${reign}`);
       else {
         const tag = lineageTag(civ, x, polity);
-        out.push(`${pad}${personName(civ, x)} 未即位${tag ? `(${tag})` : ''} ${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`);
+        // 嫁到别国的女儿写"嫁某国"
+        const wed = x.role === 'consort' ? (lineageKin(civ, x)?.text ?? '') : '';
+        out.push(`${pad}${personName(civ, x)} ${wed || '未即位'}${tag ? `(${tag})` : ''} ${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`);
       }
       for (const c of kidsOf(civ, x)) if (inTree.has(c)) walk(c, depth + 1);
     };

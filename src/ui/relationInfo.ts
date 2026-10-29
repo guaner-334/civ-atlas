@@ -4,7 +4,8 @@
  *
  * 推演人物居中时,每一簇收哪些人:
  *   血亲    父(养父)、同父的兄弟、子(养子);前任 / 继任、争储、杀他、掌实权、放逐的对方是亲属的也算这里(按世系写称呼:孙、侄……)
- *   姻亲    外祖父(母亲是联姻嫁来的)、岳父(他娶了谁家的女儿)、女婿(谁娶了他的女儿)、外孙(女儿所生)
+ *   姻亲    外祖父(母亲是联姻嫁来的)、岳父(他娶了谁家的女儿)、女婿(谁娶了他的女儿)、外孙(女儿所生);妻(嫁来的宗室女)、夫(后妃的丈夫)
+ *   母亲(Person.mom:嫁来的宗室女、临朝的太后)算血亲;后妃生的子女也是她的子女
  *   君臣    君主:在位时领兵的将领、在朝的名臣;将领、名臣、宗室:效力过的君主;不是亲属的权臣、前任 / 继任
  *   对手    同一场仗对面的统帅;不是亲属的争储对手、杀他的人、放逐他的人
  *   作者的人物  亲友里写了他、经历里勾了他的作者人物
@@ -19,9 +20,9 @@ import type { AuthorCharacter } from '../gen/characters';
 import { lifeInOrder, personKey, resolvePersonKey } from '../gen/characters';
 import { polityName } from '../gen/civ/growth';
 import { peopleIndex, personFame, personSpan } from '../gen/civ/peopleInfo';
-import { fatherOf, kidsOf } from '../gen/civ/lineageInfo';
-import { brideName, heldOver, polityShort } from '../gen/civ/regentInfo';
-import { generalRole, isConsul, kinOf, ministerRole, personName, princeRole, rulerRole } from '../gen/civ/peopleText';
+import { childrenOf, fatherOf, kidsOf, motherOf } from '../gen/civ/lineageInfo';
+import { brideMatchOf, brideName, heldOver, polityShort } from '../gen/civ/regentInfo';
+import { consortRole, dowagerSpans, generalRole, isConsul, kinOf, ministerRole, personName, princeRole, rulerRole } from '../gen/civ/peopleText';
 import { bySex, heOrShe, isFemale, kinWord } from '../gen/civ/gender';
 import { MARK_HEX } from '../render/marks';
 import { spaced, yearAt, yearShort, yearSpan, yearSpanAt, type Era } from '../gen/era';
@@ -119,7 +120,7 @@ const UP = new Set([
 ]);
 const SAME = new Set(['兄', '弟', '从兄', '从弟', '族兄', '族弟', '姐', '妹', '从姐', '从妹', '族姐', '族妹', '表兄', '表弟', '表姐', '表妹']);
 /** 姻亲簇里的先后 */
-export const INLAW_ORDER = ['外祖父', '外祖母', '岳父', '岳母', '公公', '婆婆', '女婿', '儿媳', '外孙', '外孙女'];
+export const INLAW_ORDER = ['夫', '妻', '外祖父', '外祖母', '岳父', '岳母', '公公', '婆婆', '女婿', '儿媳', '外孙', '外孙女'];
 
 /** 推演人物血亲的称呼 → 摆在哪一辈 */
 export function bloodSlot(word: string): 'up' | 'same' | 'down' {
@@ -208,7 +209,8 @@ function reverseIndex(civ: Civ): Reverse {
   };
   for (const o of P) {
     for (const s of o.spouses ?? []) push(r.wed, s.father, [o, s] as [Person, PersonSpouse]);
-    if (o.mother) push(r.grand, o.mother.father, o);
+    const M = o.mom !== undefined ? P[o.mom] : undefined;
+    if (M?.parent !== undefined && M.role === 'consort') push(r.grand, M.parent, o);
     for (const id of o.claim?.rivals ?? []) push(r.lost, id, o);
     if (o.exile?.by !== undefined) push(r.exiled, o.exile.by, o);
     const wars = new Set((o.commands ?? []).map((c) => c.war));
@@ -259,7 +261,12 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = 
     const w = kinWord(f, x.adopted ? '养父' : '父');
     add(f.id, 'blood', w, `${him}的${kinWord(f, x.adopted ? '养父' : '父亲')}`, false, 0);
   }
-  for (const k of kidsOf(civ, x)) add(k.id, 'blood', kinWord(k, k.adopted ? '养子' : '子'), `${him}的${kinWord(k, k.adopted ? '养子' : '儿子')}${k.role === 'prince' ? '，未即位' : ''}`, false, 3);
+  // 母亲(嫁来的宗室女、临朝的太后)
+  const M = motherOf(civ, x);
+  if (M) add(M.id, 'blood', '母', `${him}的母亲`, false, 0);
+  // 女的:世系里在她名下的 + 母亲记成她的
+  for (const k of isFemale(x) ? childrenOf(civ, x) : kidsOf(civ, x))
+    add(k.id, 'blood', kinWord(k, k.adopted ? '养子' : '子'), `${him}的${kinWord(k, k.adopted ? '养子' : '儿子')}${k.role === 'prince' ? '，未即位' : ''}`, false, 3);
   if (f) {
     for (const s of kidsOf(civ, f)) {
       if (s.id === x.id) continue;
@@ -285,11 +292,20 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = 
     }
   }
   // 姻亲
-  if (x.mother) add(x.mother.father, 'inlaw', kinWord(P[x.mother.father], '外祖父'), `其女${brideName(civ, x.mother)}是${him}的母亲`);
+  if (M?.parent !== undefined && M.role === 'consort') add(M.parent, 'inlaw', kinWord(P[M.parent], '外祖父'), `其女${M.name}是${him}的母亲`);
+  // 后妃(临朝篡位的女君也有):丈夫
+  if (x.husband !== undefined) {
+    const w = brideMatchOf(civ, x);
+    add(x.husband, 'inlaw', '夫', w ? `${at(w.year)}嫁给${him}` : `${him}的丈夫`, false, w?.year ?? 0);
+  }
   // 她是女的:嫁对方君主的儿子,对方君主是她的公公
   for (const s of x.spouses ?? []) {
     if (isFemale(x)) add(s.father, 'inlaw', bySex(P[s.father], '公公', '婆婆'), `${him}${at(s.year)}嫁其子`, false, s.year);
-    else add(s.father, 'inlaw', kinWord(P[s.father], '岳父'), `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
+    else {
+      add(s.father, 'inlaw', kinWord(P[s.father], '岳父'), `${him}${at(s.year)}娶其女${brideName(civ, s)}`, false, s.year);
+      // 嫁来的宗室女是人物的:她本人
+      if (s.person !== undefined) add(s.person, 'inlaw', '妻', `${at(s.year)}嫁给${him}`, false, s.year);
+    }
   }
   // 女婿、外孙(按人物编号的先后,和一个个看过去一样)
   const wed = rev.wed.get(x.id) ?? [];
@@ -301,7 +317,7 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = 
       if (isFemale(o)) add(o.id, 'inlaw', '儿媳', `${yearAt(s.year, era)}嫁${him}的儿子`, false, s.year);
       else add(o.id, 'inlaw', '女婿', `${yearAt(s.year, era)}娶${him}的女儿${brideName(civ, s)}`, false, s.year);
     }
-    if (j < grand.length && grand[j] === o) add(o.id, 'inlaw', kinWord(o, '外孙'), `${him}的女儿${brideName(civ, grand[j++].mother!)}所生`);
+    if (j < grand.length && grand[j] === o) add(o.id, 'inlaw', kinWord(o, '外孙'), `${him}的女儿${P[grand[j++].mom!]?.name ?? ''}所生`);
   }
   // 争储、杀他、掌实权、放逐(对方是亲属的仍算血亲)
   if (x.claim) {
@@ -401,6 +417,15 @@ export function personTies(civ: Civ, x: Person, era?: Era | null, him: string = 
 export function personRoleLine(civ: Civ, x: Person, era?: Era | null): string {
   const span = personSpan(x);
   const consul = isConsul(civ, x);
+  if (x.role === 'consort') {
+    // 临朝的太后:"大衍太后，2414–2421 年临朝";嫁来的宗室女:"大澜公主，2601–2662"
+    const g = dowagerSpans(x)[0];
+    if (g) {
+      const east = !!civ.polities[P0(civ, g.ruler)?.polity ?? x.polity]?.eastern;
+      return `${consortRole(civ, x)}，${span.until === null ? `${yearAt(span.from, era)}起` : yearSpanAt(span.from, span.until, era)}${east ? '临朝' : '摄政'}`;
+    }
+    return `${consortRole(civ, x, brideMatchOf(civ, x)?.year)}，${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`;
+  }
   if (x.role === 'prince') return `${princeRole(civ, x)}，${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`;
   if (x.role === 'ruler')
     return span.until === null ? `${rulerRole(civ, x)}，${yearAt(span.from, era)}${consul ? '就任' : '即位'}` : `${rulerRole(civ, x)}，${yearSpanAt(span.from, span.until, era)}${consul ? '在任' : '在位'}`;
@@ -409,10 +434,21 @@ export function personRoleLine(civ: Civ, x: Person, era?: Era | null): string {
   return `${generalRole(civ, x)}，${yearSpanAt(span.from, span.until ?? civ.endYear, era)}领兵`;
 }
 
+const P0 = (civ: Civ, id: number) => civ.people?.[id];
+
 const lifeShort = (born: number, died: number | undefined, era?: Era | null) => (died !== undefined ? yearSpan(born, died, era) : `${yearShort(born, era)}–`);
 
 /** 他在台上那几年(国名按那时候的) */
 const activeYear = (civ: Civ, x: Person) => Math.min(x.until ?? x.died ?? civ.endYear, civ.polities[x.polity]?.ended ?? civ.endYear) - 0.01;
+
+/** 嫁到别国的女儿(中心不是她丈夫那一国):灰字写"嫁克拉尔";别的 = undefined(照常写别国的国名) */
+function wedSub(civ: Civ, x: Person, centerPolity: number): string | undefined {
+  if (x.role !== 'consort' || x.husband === undefined) return undefined;
+  const H = civ.people?.[x.husband];
+  const w = brideMatchOf(civ, x);
+  if (!H || !w || H.polity === x.polity || H.polity === centerPolity) return undefined;
+  return `嫁${polityShort(civ, H.polity, w.year)}`;
+}
 
 /** 推演人物的一格(还没定簇、名字下面写什么) */
 function personNode(civ: Civ, x: Person, centerPolity: number, era?: Era | null): RelNode {
@@ -425,7 +461,7 @@ function personNode(civ: Civ, x: Person, centerPolity: number, era?: Era | null)
     word: '',
     tag: '',
     clash: false,
-    sub: x.polity !== centerPolity && civ.polities[x.polity] ? polityShort(civ, x.polity, activeYear(civ, x)) : '',
+    sub: wedSub(civ, x, centerPolity) ?? (x.polity !== centerPolity && civ.polities[x.polity] ? polityShort(civ, x.polity, activeYear(civ, x)) : ''),
     why: [],
     role: personRoleLine(civ, x, era),
     years: lifeShort(x.born, x.died, era),

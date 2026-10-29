@@ -24,7 +24,7 @@ import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { decodePresetHash } from './presetLink';
 import { dynastyAt, polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
-import { generalRole, ministerRole, princeRole, rulerRole } from '../gen/civ/peopleText';
+import { consortRole, generalRole, ministerRole, princeRole, rulerRole } from '../gen/civ/peopleText';
 import { personArt } from '../gen/civ/officialText';
 import { TEXTS_MAX, type HelperKind, type HelperText, type RenderRequest } from './helperProtocol';
 
@@ -110,6 +110,7 @@ function personRole(civ: Civ, x: Person): string {
   if (x.role === 'ruler') return rulerRole(civ, x) || '君主';
   if (x.role === 'general') return generalRole(civ, x);
   if (x.role === 'minister') return ministerRole(civ, x);
+  if (x.role === 'consort') return consortRole(civ, x);
   return princeRole(civ, x);
 }
 

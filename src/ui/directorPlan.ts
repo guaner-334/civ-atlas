@@ -32,6 +32,7 @@
 import { MAJOR, entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ, Person } from '../gen/civ/types';
 import { personSpan } from '../gen/civ/peopleInfo';
+import { seatPolity } from '../gen/civ/peopleText';
 import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
@@ -378,12 +379,12 @@ function focuser(civ: Civ, f: DirectorFocus | null, to: number): { related: (e: 
   const p = civ.people?.[f.id];
   if (!p || p.id !== f.id) return null;
   const min = f.min ?? MAJOR;
-  if (!f.relay) return { others, related: personRelated(p, min) };
+  if (!f.relay) return { others, related: personRelated(civ, p, min) };
   // 接着跟:按年份落在哪一段,照那一段跟的排;写到这一路上哪一位的事(在他那一段前后一年里)也算
   const legs = followLegs(civ, { kind: 'person', id: p.id }, to).map((l) => {
     const t = l.target;
     const x = t?.kind === 'person' ? civ.people?.[t.id] : undefined;
-    const related = x ? personRelated(x, min) : t?.kind === 'polity' ? polityRelated(t.id, 2) : (e: ChronicleEntry) => e.importance >= MAJOR;
+    const related = x ? personRelated(civ, x, min) : t?.kind === 'polity' ? polityRelated(t.id, 2) : (e: ChronicleEntry) => e.importance >= MAJOR;
     return { from: l.from, to: l.to, x, related };
   });
   const mentionsAny = (e: ChronicleEntry) => legs.some((l) => l.x && e.year >= l.from - 1 && e.year <= l.to + 1 && mentions(e, l.x.id));
@@ -403,12 +404,14 @@ const mentions = (e: ChronicleEntry, id: number) => !!e.people?.includes(id) || 
 /** 关注一国:和这国有关、重要度不低于 min */
 const polityRelated = (id: number, min: number) => (e: ChronicleEntry) => e.importance >= min && entryInvolves(e, id);
 
-/** 关注一人:写到他的事 + 他在台上那些年(君主在位、将领领兵、名臣在朝)他那一国重要度不低于 min 的事 */
-function personRelated(p: Person, min: number): (e: ChronicleEntry) => boolean {
+/** 关注一人:写到他的事 + 他在台上那些年(君主在位、将领领兵、名臣在朝、太后临朝)他那一国重要度不低于 min 的事 */
+function personRelated(civ: Civ, p: Person, min: number): (e: ChronicleEntry) => boolean {
   const span = personSpan(p);
   const a = span.from;
   const b = span.until ?? p.died ?? Infinity;
-  return (e) => mentions(e, p.id) || (e.importance >= min && e.year >= a && e.year <= b && entryInvolves(e, p.polity));
+  // 临朝的太后:她临朝的那一国(嫁来的不是她娘家)
+  const pid = seatPolity(civ, p);
+  return (e) => mentions(e, p.id) || (e.importance >= min && e.year >= a && e.year <= b && entryInvolves(e, pid));
 }
 
 // ---------------------------------------------------------------------------
