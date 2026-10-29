@@ -90,7 +90,8 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
       const end = dynastyEnd(civ, rows, i);
       if (end) expect(lines).toContain(end);
     }
-    const people = lines.filter((l) => /年在位$|未即位/.test(l));
+    // 嫁到别国的女儿写"嫁某国"
+    const people = lines.filter((l) => /年在位$|未即位| 嫁[^ ]+ /.test(l));
     expect(people).toHaveLength(rows.reduce((n, r) => n + dynastyMembers(civ, r).length, 0));
     expect(text).not.toMatch(/undefined|NaN/);
   });

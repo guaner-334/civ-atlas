@@ -276,8 +276,9 @@ describe('王朝更替', () => {
           // 当时第 DYNASTY_TIER 档以上的是大事
           expect(e.importance).toBe(polityTierAt(p, e.year) >= DYNASTY_TIER ? MAJOR : 2);
         } else {
-          // "索拉特王国王室更迭,塞伦纳王朝享国 312 年而终,卡诺王朝兴,阿尔德里克三世即位"(掌实权的首相篡位:"…,首相某某废黜某某,自立为王")
-          expect(e.text).toMatch(/^.+(王室更迭|汗位易主),.+王朝享国 \d+ 年而终,.+王朝兴,(.+即位|.+自立为女?王)(,迁都.+)?$/);
+          // "索拉特王国王室更迭,塞伦纳王朝享国 312 年而终,卡诺王朝兴,阿尔德里克三世即位"(掌实权的首相篡位:"…,首相某某废黜某某,自立为王";
+          // 临朝的皇太后篡位:"…,皇太后某某废黜其子某某,自立为女皇")
+          expect(e.text).toMatch(/^.+(王室更迭|汗位易主),.+王朝享国 \d+ 年而终,.+王朝兴,(.+即位|.+自立为(女?王|女皇|女汗|女大汗))(,迁都.+)?$/);
           expect(e.text).toContain(dynastyTitle(p, i));
           expect(e.importance).toBeLessThan(MAJOR);
         }

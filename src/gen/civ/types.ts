@@ -979,8 +979,11 @@ export interface IdeoState {
  */
 export interface Person {
   id: number;
-  /** ruler 君主、general 将领、prince 没即位的宗室(君主的诸子、养子见 royals.ts,世系里补出来的见 lineage.ts)、minister 名臣(文臣,见 officials.ts) */
-  role: 'ruler' | 'general' | 'prince' | 'minister';
+  /**
+   * ruler 君主、general 将领、prince 没即位的宗室(君主的诸子、养子见 royals.ts,世系里补出来的见 lineage.ts)、minister 名臣(文臣,见 officials.ts)、
+   * consort 后妃(consorts.ts:联姻嫁来的宗室女、临朝的太后;都是女的)
+   */
+  role: 'ruler' | 'general' | 'prince' | 'minister' | 'consort';
   /** 哪国的人 */
   polity: number;
   /** 本名:东方中式 = 姓 + 名("李昭");东方边塞、山海和西幻 = 名("咄苾""阿尔德里克") */
@@ -1054,8 +1057,13 @@ export interface Person {
   regencies?: PersonRegency[];
   /** 联姻娶的宗室女(marriage.ts;按先后)。没有 = 不给 */
   spouses?: PersonSpouse[];
-  /** 母亲是联姻嫁来的宗室女(父亲娶她以后出生的子女才有,marriage.ts)。别的不给 */
-  mother?: PersonSpouse;
+  /**
+   * 母亲(Person.id;consorts.ts):联姻嫁来的宗室女所生(父亲娶她以后出生、生在她 16–45 岁之间的子女),临朝的太后所辅的幼主。
+   * 别的不给(世系只按父亲连,Person.parent)
+   */
+  mom?: number;
+  /** 后妃:丈夫(Person.id;嫁来的宗室女 = 娶她的人,太后 = 幼主的父亲;找不到 = 不给)。临朝篡位做了女君的也有。别的不给 */
+  husband?: number;
   /** 放逐到中立地 / 出奔中立地 / 出奔邻国(史事 exile;people.ts 照它填):没有 = 不给 */
   exile?: PersonExile;
   /** 作者改过名时,生成时的名字(稳定键按它算,见 gen/edits.ts 的 personKey);没改过 = 不给 */
@@ -1075,7 +1083,7 @@ export interface Person {
 /**
  * 掌实权的一段(regency.ts):
  * - kind:march 引兵入朝(先君在位、太子掌权)、heir 太子监国、uncle 宗室摄政(幼主的叔父)、minister 名臣辅政(幼主)、
- *   chancellor 大臣专权、general 大将专权
+ *   dowager 太后临朝(幼主的母亲;推演里是名臣辅政那一段,掌权的人换成了她,consorts.ts)、chancellor 大臣专权、general 大将专权
  * - from / until:从哪年到哪年(到结束年份还在掌权 = until 不给)
  * - ruler:名义上的君主(掌权开始时在位的那位,Person.id);大臣、大将专权跨了几位君主的,后几位按年份查在位表
  * - end:怎么结束的 —— succeed 先君去世、他即位(引兵入朝、太子监国)/ return 还政 / purged 伏诛 / usurp 篡位 /
@@ -1083,7 +1091,7 @@ export interface Person {
  * - annal:掌权那一条史事(regent,n = 0)的下标;endAnnal:还政、伏诛、篡位、卒那一条的下标(没有 = 不给)
  */
 export interface PersonRegency {
-  kind: 'march' | 'heir' | 'uncle' | 'minister' | 'chancellor' | 'general';
+  kind: 'march' | 'heir' | 'uncle' | 'minister' | 'dowager' | 'chancellor' | 'general';
   from: Year;
   until?: Year;
   ruler: number;
@@ -1093,11 +1101,12 @@ export interface PersonRegency {
 }
 
 /**
- * 联姻的宗室女(marriage.ts;不是完整的人物,只记一行):
+ * 联姻的一门亲(marriage.ts;记在娶亲的人身上):
  * - polity:她出自哪国;father:她的父亲(那一刻那国在位的君主,Person.id;没有人物 = −1)
- * - name:东方带姓的语感 = 父姓 + 氏("风氏");别的语感 = 空串(界面写"某国公主")
+ * - name:东方带姓的语感 = 父姓 + 氏("风氏");别的语感 = 空串(界面写"某国公主")。有 person 的界面写她的名字
  * - year:结亲那年;peace:议和时以和亲作结的那场战争(没有 = 不给)
  * - annal:那条史事 marry 的下标
+ * - person:嫁来的宗室女本人(后妃,Person.id;consorts.ts)。娶亲的是女的(她嫁过去,对方是宗室子,只记一行)、作者立的君主 = 不给
  */
 export interface PersonSpouse {
   polity: number;
@@ -1106,6 +1115,7 @@ export interface PersonSpouse {
   year: Year;
   peace?: number;
   annal: number;
+  person?: number;
 }
 
 /**

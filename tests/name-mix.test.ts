@@ -44,7 +44,10 @@ function easternShare(civ: Civ): number {
   const total = a.reduce((x, y) => x + y, 0);
   return (civ.cultures.reduce((s, cu, i) => (EASTERN.has(cu.style) ? s + a[i] : s), 0) / total) * 100;
 }
-/** 历史(和名字无关的部分) */
+/**
+ * 历史(和名字无关的部分)。人物只比君主、将领、宗室:后妃按语感的比例有没有(名臣辅政按语感换成太后临朝;
+ * 娶亲的是女的就没有嫁来的宗室女),名臣跟着重排,都不比
+ */
 const history = (c: Civ) =>
   JSON.stringify({
     annals: c.annals.map((x) => [x.year, x.kind, x.a, x.b]),
@@ -52,7 +55,7 @@ const history = (c: Civ) =>
     polity: Array.from(c.polity),
     polities: c.polities.map((p) => [p.founded, p.ended, p.capital, p.dynasties?.length ?? 0]),
     settlements: c.settlements.map((s) => [s.cell, s.founded]),
-    people: (c.people ?? []).map((p) => [p.born, p.died, p.polity, p.role]),
+    people: (c.people ?? []).filter((p) => p.role !== 'consort' && p.role !== 'minister').map((p) => [p.born, p.died, p.polity, p.role]),
   });
 
 describe('清理、按份数抽', () => {

@@ -49,7 +49,8 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
     // (废了幼主自立的摄政叔父也按做儿子出道排;掌实权篡位的名臣按他做名臣、掌权的那一刻排)
     const son = (x: Person) => x.role === 'ruler' && ((x.parent !== undefined && P[x.parent].role === 'ruler' && P[x.parent].until === x.from) || x.claim?.how === 'seize');
     const usurped = (x: Person) => (x.rise === 'usurp' ? x.regencies?.find((g) => g.end === 'usurp')?.from : undefined);
-    const debut = P.filter((x) => x.role !== 'prince' && !son(x)).map((x) => (x.role === 'general' ? x.commands![0].from : (usurped(x) ?? x.from!)));
+    // 后妃按结亲 / 临朝的那一刻排(不记在人物上),也不比
+    const debut = P.filter((x) => x.role !== 'prince' && x.role !== 'consort' && !son(x)).map((x) => (x.role === 'general' ? x.commands![0].from : (usurped(x) ?? x.from!)));
     for (let i = 1; i < debut.length; i++) expect(debut[i]).toBeGreaterThanOrEqual(debut[i - 1]);
     expect(new Set(P.map((x) => x.role)).size).toBeGreaterThanOrEqual(3);
   });
@@ -280,7 +281,8 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       }
       linked++;
       expect(f.role === 'ruler' || f.role === 'prince').toBe(true);
-      expect(x.role === 'ruler' || x.role === 'prince').toBe(true);
+      // 嫁到别国的宗室女(后妃)挂在她父亲名下
+      expect(x.role === 'ruler' || x.role === 'prince' || x.role === 'consort').toBe(true);
       // 宗室据地争位、自立为君的(推演里 split 的 cause = heir):父亲是原来那一国的先君;他的儿子也可能留在原来那一国
       if (f.polity !== x.polity) {
         if (x.claim?.how === 'secede') expect(civ.polities[x.polity].parent).toBe(f.polity);
@@ -329,7 +331,7 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       const west = !civ.polities[x.polity].eastern;
       // 西幻沿用王室名字的(和本国某位君主同名),也可以和早先的将领同名
       const royal = west && P.some((o) => o.polity === x.polity && o.role === 'ruler' && o.name === x.name);
-      const names = P.filter((o) => o.polity === x.polity && o.id < x.id && o.role !== 'prince' && !(west && o.role === 'ruler') && Math.abs(o.born - x.born) < 300).map((o) => o.name);
+      const names = P.filter((o) => o.polity === x.polity && o.id < x.id && o.role !== 'prince' && o.role !== 'consort' && !(west && o.role === 'ruler') && Math.abs(o.born - x.born) < 300).map((o) => o.name);
       if (!royal) expect(names, x.name).not.toContain(x.name);
       if (x.died !== undefined) expect(x.died).toBeLessThanOrEqual(civ.endYear);
       // 补出来的:子孙里有即位的君主,他自己在那以前去世、没领过兵
