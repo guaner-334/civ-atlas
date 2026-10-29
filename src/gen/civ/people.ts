@@ -1105,7 +1105,12 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const officers: Person[] = [];
   /** 作者的名臣经手的事记着的人(排好编号再换) */
   const officerFix: [PersonDeed, Person][] = [];
-  const aposts = civ.interventions?.length ? authorPostsFrom({ annals: civ.annals, polities, endYear, interventions: civ.interventions }) : [];
+  // 让作者的人物掌权的那几段:任期里掌了权、掌权比任期长的,在任到掌权了结(appoint.ts)
+  const holds = spans.flatMap((s) => {
+    const av = authorRegentOf(civ, s.g);
+    return av ? [{ char: av.char, polity: s.pid, start: s.g.start, ...(s.until !== undefined ? { stop: s.until } : {}), died: s.end === 'died' }] : [];
+  });
+  const aposts = civ.interventions?.length ? authorPostsFrom({ annals: civ.annals, polities, endYear, interventions: civ.interventions, holds }) : [];
   if (aposts.length) {
     const warById = new Map(wars.map((w) => [w.id, w]));
     for (const ap of aposts) {
@@ -1132,9 +1137,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
             if (who) officerFix.push([deed, who]);
             return deed;
           });
-        // 最高的官同一时间只一位:推演里本国的名臣那几年正做着这个官,他写次一级
-        const held = (title: string, a: Year, b: Year) =>
-          ministers.some((m) => m.polity === ap.polity && (m.posts ?? []).some((pt, k, ps) => pt.title === title && pt.from < b && (ps[k + 1]?.from ?? m.until ?? Infinity) > a));
+        // 最高的官同一时间只一位:升到那一级的那一刻推演里本国的名臣正做着这个官,他写次一级(只看那一刻,往后推不改他先前的官)
+        const held = (title: string, t: Year) =>
+          ministers.some((m) => m.polity === ap.polity && (m.posts ?? []).some((pt, k, ps) => pt.title === title && pt.from <= t && (ps[k + 1]?.from ?? m.until ?? Infinity) > t));
         x.posts = seniorityPosts(P, ap.from, stop, held, x.deeds?.[0]?.kind);
       }
       officers.push(x);
@@ -1150,22 +1155,14 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     let kind: PersonRegency['kind'] = g.kind;
     let holder: Person | undefined;
     const av = authorRegentOf(civ, g);
-    // 他那时正任着这国的将领 / 名臣(干预"任将 / 任臣"):挂在他任职的那一位上(将领 = 大将专权、名臣 = 大臣专权);掌权比任期长的,在任到掌权了结
+    // 他那时正任着这国的将领 / 名臣(干预"任将 / 任臣"):挂在他任职的那一位上(将领 = 大将专权、名臣 = 大臣专权);
+    // 掌权比任期长的,任期已经排到掌权了结(appoint.ts 的 holds)
     const post = av && officers.find((x) => x.author === av.char && x.polity === s.pid && x.from! <= g.start && (x.until === undefined || x.until > g.start));
     if (post) {
       const seg: PersonRegency = { kind: post.role === 'general' ? 'general' : 'chancellor', from: s.from, ruler: -1, annal: g.annal };
       if (s.until !== undefined) seg.until = s.until;
       if (s.end) seg.end = s.end;
       if (s.endAnnal !== undefined) seg.endAnnal = s.endAnnal;
-      if (post.until !== undefined && (s.until === undefined || s.until > post.until)) {
-        if (s.until === undefined) {
-          delete post.until;
-          delete post.fate;
-        } else {
-          post.until = s.until;
-          post.fate = s.end === 'died' ? 'died' : 'retired';
-        }
-      }
       (post.regencies ??= []).push(seg);
       segs.push([seg, s.N]);
       continue;

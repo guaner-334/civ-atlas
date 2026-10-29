@@ -392,6 +392,35 @@ describe('挂帅哪几仗(appoint.ts,拼出来的史事)', () => {
     // 点的是别人:不换
     const [q] = posts(A, [ap({ until: 1020 }), declare('polity:c2#0', 9)]);
     expect(q.wars.map((w) => w.war)).toEqual([0]);
+    // 手上的也是派他出征的:照样换到新派的那场
+    const B = [
+      ev(1000, 'intervene', 0, -1, 0), // 0 上任
+      ev(1005, 'intervene', 0, 2, 1), // 1
+      ev(1005, 'war', 0, 2, 1), // 2
+      ev(1006, 'intervene', 0, 1, 2), // 3
+      ev(1006, 'war', 0, 1, 2), // 4
+      ev(1008, 'peace', 0, 1, 2), // 5 → 回到第一场
+      ev(1010, 'peace', 0, 2, 1), // 6
+    ];
+    const [r] = posts(B, [ap({ until: 1020 }), declare('polity:c2#0', 1), declare('polity:c3#0', 1)]);
+    expect(r.wars.map((w) => [w.war, w.from, w.until, !!w.sent])).toEqual([
+      [1, 1005, 1006, true],
+      [2, 1006, 1008, true],
+      [1, 1008, 1010, true],
+    ]);
+  });
+
+  it('任期里在这国掌了权、掌权比任期长:在任到掌权了结(挂帅也排到那时)', () => {
+    const A = [ev(1000, 'intervene', 0, -1, 0), ev(1012, 'war', 0, 1, 0), ev(1018, 'peace', 0, 1, 0)];
+    const hold = (o: { start?: number; stop?: number; died?: boolean; polity?: number } = {}) => [{ char: 1, polity: o.polity ?? 0, start: o.start ?? 1005, ...(o.stop !== undefined ? { stop: o.stop } : {}), died: !!o.died }];
+    const at = (h: ReturnType<typeof hold>) => authorPostsFrom({ annals: A, polities: [P(0), P(1)], endYear: 1100, interventions: [ap({ until: 1010 })], holds: h })[0];
+    expect(at(hold({ stop: 1020 }))).toMatchObject({ until: 1020, end: 'retired' });
+    expect(at(hold({ stop: 1020 })).wars.map((w) => [w.war, w.from, w.until])).toEqual([[0, 1012, 1018]]);
+    expect(at(hold({ stop: 1020, died: true }))).toMatchObject({ until: 1020, end: 'died' });
+    const still = at(hold());
+    expect(still.until).toBeUndefined();
+    // 掌权比任期短、在别国掌权、卸任以后才掌权:照原来的任期
+    for (const h of [hold({ stop: 1008 }), hold({ stop: 1020, polity: 1 }), hold({ start: 1011, stop: 1020 })]) expect(at(h)).toMatchObject({ until: 1010, end: 'retired' });
   });
 
   it('卸任年 / 卒年 / 卸甲致仕的岁数;到结束年份还在任;亡国;名臣改朝换代;又任了别的、即位', () => {

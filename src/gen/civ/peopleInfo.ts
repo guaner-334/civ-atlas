@@ -51,10 +51,12 @@ export function peopleIndex(civ: Civ): PeopleIndex {
     if (x.polity < 0 || x.polity >= n) continue;
     if (x.role === 'ruler') ix.rulers[x.polity].push(x);
     else if (x.role === 'minister') ix.ministers[x.polity].push(x);
-    else if (x.commands?.length) ix.generals[x.polity].push(x);
+    else if (x.commands?.length || (x.author !== undefined && x.from !== undefined)) ix.generals[x.polity].push(x);
   }
+  // 作者的将领(任将)按上任那年排,一仗没打过的也在
+  const debut = (x: Person) => (x.author !== undefined && x.from !== undefined ? x.from : x.commands![0].from);
   for (const rs of ix.rulers) rs.sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.id - b.id);
-  for (const gs of ix.generals) gs.sort((a, b) => a.commands![0].from - b.commands![0].from || a.id - b.id);
+  for (const gs of ix.generals) gs.sort((a, b) => debut(a) - debut(b) || a.id - b.id);
   for (const ms of ix.ministers) ms.sort((a, b) => a.from! - b.from! || a.id - b.id);
   for (const e of civ.annals) {
     if (e.kind === 'war' && e.war >= 0 && !ix.wars.has(e.war)) ix.wars.set(e.war, e);

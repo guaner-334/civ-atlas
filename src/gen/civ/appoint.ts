@@ -9,12 +9,14 @@
  *   - 这国亡了:有灭它的国家 = 出降,散了 = 出奔,并入别国 = 随国归附
  *   - 名臣:这国改朝换代(去职;想留任就再任一次)。将领照旧在任
  *   - 他又任了别的(哪国、将相都算)、即了位(同一个作者人物):前一个到那一刻为止;同一刻的,前一个算没生效(skip)
+ *   任期里他在这国掌了实权(让作者的人物掌权,AppointInput.holds)、掌权比任期长的:到期没卸任,在任到掌权了结。
  *   到结束年份还在任 = until 不给。
  *
  * **挂帅哪几仗**(将领;规则不取随机数,只看到当时为止的史事,推演里也能逐刻算):
  *   - 上任那一刻本国正在打的仗(攻守都算)里挑一场;此刻没仗就等,下一场开打就挂帅
  *   - 挑的先后:宣战(declare)带 lead = 他、本国是攻方的那场(派他出征)> 最先开打的那场
  *   - 挂帅的那场打完(议和,或有一方亡了)换到还在打的里再挑一场;派他出征的那场一开打,手上那场交出去换过去
+ *     (手上的也是派他出征的,照样换到新的那场)
  *   君主亲征的那几仗由君主为帅、他随驾 —— 谁亲征是排人物时定的(people.ts),这里不管;编年史按那一刻的统帅分(chronicle.ts)。
  */
 import type { Annal, Polity, Year } from './types';
@@ -82,6 +84,11 @@ export interface AppointInput {
   polities: readonly Polity[];
   endYear: Year;
   interventions?: readonly Intervention[];
+  /**
+   * 让作者的人物掌权的那几段(people.ts 按推演里的掌权排出来的;没有 = 不管):作者人物、哪国、掌权那一刻、了结那一刻(还掌着 = 不给)、
+   * 是不是卒于位。任期里在这国掌了权、掌权比任期长的,在任到掌权了结
+   */
+  holds?: readonly { char: number; polity: number; start: Year; stop?: Year; died?: boolean }[];
 }
 
 const cache = new WeakMap<readonly Annal[], { list: readonly Intervention[] | undefined; endYear: Year; n: number; out: AuthorPost[] }>();
@@ -93,6 +100,7 @@ const cache = new WeakMap<readonly Annal[], { list: readonly Intervention[] | un
 export function authorPostsFrom(civ: AppointInput): AuthorPost[] {
   const list = civ.interventions;
   if (!list?.some((v) => v.kind === 'appoint')) return [];
+  if (civ.holds?.length) return computePosts(civ, list);
   const hit = cache.get(civ.annals);
   if (hit && hit.list === list && hit.endYear === civ.endYear && hit.n === civ.annals.length) return hit.out;
   const out = computePosts(civ, list);
@@ -212,6 +220,15 @@ function computePosts(civ: AppointInput, list: readonly Intervention[]): AuthorP
       break;
     }
     if (p.skip) continue;
+    // 到期卸任以前在这国掌了权、掌权比任期长:在任到掌权了结
+    if (end === 'retired' || end === 'died') {
+      const h = civ.holds?.find((x) => x.char === p.char && x.polity === p.polity && x.start >= p.from && x.start < (until ?? Infinity));
+      if (h && (h.stop === undefined || h.stop > (until ?? Infinity))) {
+        until = h.stop ?? Infinity;
+        end = h.died ? 'died' : 'retired';
+        stopIdx = h.stop === undefined ? N : indexAt(h.stop);
+      }
+    }
     // 到结束年份还在任
     if (until === undefined || until > civ.endYear) {
       until = undefined;
@@ -284,7 +301,7 @@ function warsLed(A: readonly Annal[], p: AuthorPost, mine: readonly WarInfo[], p
     const w = mine.find((x) => x.decl === i);
     if (!w) continue;
     if (!cur) take(w, i);
-    else if (sentHere(w) && !sentHere(cur.w)) {
+    else if (sentHere(w)) {
       close(i, e.year);
       take(w, i);
     }

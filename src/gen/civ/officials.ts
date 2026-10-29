@@ -691,10 +691,11 @@ const SENIORITY = 8;
 
 /**
  * 作者的名臣的官职:入朝那年拜那套官(按那一年本国的档位)的最低一级,此后每 SENIORITY 年升一级,做到最高的那级为止;
- * 最高的官同一时间只有一位(推演里的名臣在任,topHeld(起, 止) = true),他写次一级(TOP_ALT),推演里的那位不变。
+ * 最高的官同一时间只有一位:升到那一级的那一刻推演里的名臣正做着(topHeld(官名, 那一刻) = true),他写次一级(TOP_ALT),推演里的那位不变
+ * (只看那一刻:往后推、后来有人做了这个官,不改他先前的官)。
  * until = 去职那一刻(还在朝 = 推到的最后一年);dept = 经手的第一件事(东方帝国级的尚书按它挑哪一部)。同一个官名接连两级的合并
  */
-export function seniorityPosts(p: Polity, from: Year, until: Year, topHeld: (title: string, a: Year, b: Year) => boolean, dept?: PersonDeed['kind']): PersonPost[] {
+export function seniorityPosts(p: Polity, from: Year, until: Year, topHeld: (title: string, t: Year) => boolean, dept?: PersonDeed['kind']): PersonPost[] {
   const sys = systemOf(p);
   const ladderAt = (y: Year) => CIVIL[sys][clampTier(polityTierAt(p, y))] ?? CIVIL[sys][1] ?? [];
   const out: PersonPost[] = [];
@@ -705,7 +706,7 @@ export function seniorityPosts(p: Polity, from: Year, until: Year, topHeld: (tit
     if (!lad.length) break;
     let title = lad[Math.min(k, lad.length - 1)];
     const top = k >= lad.length - 1;
-    if (top && topHeld(title, y, until)) title = TOP_ALT[sys][clampTier(polityTierAt(p, y))] ?? lad[lad.length - 2] ?? title;
+    if (top && topHeld(title, y)) title = TOP_ALT[sys][clampTier(polityTierAt(p, y))] ?? lad[lad.length - 2] ?? title;
     // 东方帝国级的尚书按经手的第一件事挑哪一部(没有 = 吏部)
     if (title === '尚书') title = (dept && DEPT[dept] ? DEPT[dept] : '吏部') + title;
     if (!out.length || out[out.length - 1].title !== title) out.push({ title, from: y });
