@@ -51,7 +51,7 @@ import type { WarModel } from './wars';
 import type { ControlModel } from './control';
 import { capitalAt, populationAt } from './growth';
 import { drawLeanings, reignBorn } from './rulers';
-import { Issue, Outcome, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION, applyReform, type Rules } from './councilRules';
+import { Issue, Outcome, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION, REVOLT_CHARTER, REVOLT_FRANCHISE, applyReform, type Rules } from './councilRules';
 import { segRegime } from './regime';
 import { ideoModelOf, nationalNow } from './ideology';
 
@@ -148,6 +148,8 @@ export interface ReformCtx {
   k: number;
   t: Year;
   rules: Rules;
+  /** 别的国家的规矩(革命据地自立的新国家立国就设议会) */
+  rulesOf: (p: number) => Rules;
   /** 动荡、国用不足(0–1) */
   u: number;
   broke: number;
@@ -351,6 +353,11 @@ function revolt(cx: ReformCtx, issue: Issue, push: number, R: (use: number) => n
   const full = sid >= 0 ? pol.cutOff(p, group, t, group.length * 2 + 4) : null;
   if (!full || full.length < REBEL_MIN || full.includes(capR)) return false;
   cx.record(issue, Outcome.Break, rise);
-  pol.secede(p, full, sid, rise, t, 'split', 'revolution', { lineage: P.lineage, dynasties: [{ year: t, name: '', seat: sid, regime: 'republic' }] });
+  const q = pol.secede(p, full, sid, rise, t, 'split', 'revolution', { lineage: P.lineage, dynasties: [{ year: t, name: '', seat: sid, regime: 'republic' }] });
+  // 新国家立国就设议会、有产者能议政(和接着推时由那条 split 重建的一样,councilRules.ts 的 replayRule)
+  const nr = cx.rulesOf(q.id);
+  nr.charter = REVOLT_CHARTER;
+  nr.franchise = Math.max(nr.franchise, REVOLT_FRANCHISE);
+  nr.reformed = t;
   return true;
 }

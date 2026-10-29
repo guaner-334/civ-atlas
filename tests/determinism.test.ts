@@ -179,7 +179,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.ideology': 'a66f74003da7',
     'civ.log': 'cb3e2408c2a7',
     'civ.migrations': 'e8203d02290d',
-    'civ.people': '789f8113da0e',
+    'civ.people': '5228662c2fd6',
     'civ.places': '4f5c7e90ec98',
     'civ.places.pass': 'dd854ceb8059',
     'civ.polities': '725f5b2174bf',

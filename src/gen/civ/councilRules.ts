@@ -152,11 +152,24 @@ export const REFORM_REVOLUTION = 0;
 export const REFORM_COUP = 1;
 export const REFORM_RESTORE = 2;
 
-/** 一条史事要不要照着改规矩(议事、改制):议事 → applyRule,改制 → applyReform;别的不管。返回改没改 */
+/** 革命据地自立的共和国立国时:设了议会,有产者能议政 */
+export const REVOLT_CHARTER = 2;
+export const REVOLT_FRANCHISE = 1;
+
+/** 这条史事改不改规矩(a 那一国的):议事、改制、革命据地自立(新国家 a 的立国) */
+export function rulesAnnal(e: Annal): boolean {
+  return e.kind === 'council' || e.kind === 'reform' || (e.kind === 'split' && e.cause === 'revolution');
+}
+
+/** 一条史事要不要照着改规矩(议事、改制):议事 → applyRule,改制 → applyReform,革命据地自立 → 新国家设议会;别的不管。返回改没改 */
 export function replayRule(r: Rules, e: Annal): boolean {
   if (e.kind === 'council') applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year, e.opt);
   else if (e.kind === 'reform') applyReform(r, e);
-  else return false;
+  else if (e.kind === 'split' && e.cause === 'revolution') {
+    r.charter = REVOLT_CHARTER;
+    r.franchise = Math.max(r.franchise, REVOLT_FRANCHISE);
+    r.reformed = e.year;
+  } else return false;
   return true;
 }
 
@@ -168,7 +181,7 @@ export function councilBefore(annals: readonly Annal[]): ({ army: number; office
   const book = new Map<number, Rules>();
   const out: ({ army: number; office: number; tax: number } | undefined)[] = new Array(annals.length);
   annals.forEach((e, i) => {
-    if (e.kind !== 'council' && e.kind !== 'reform') return;
+    if (!rulesAnnal(e)) return;
     let r = book.get(e.a);
     if (!r) book.set(e.a, (r = newRules()));
     if (e.kind === 'council') out[i] = { army: r.army, office: r.office, tax: r.tax };

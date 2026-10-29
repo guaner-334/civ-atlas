@@ -72,7 +72,7 @@ import { warModelOf, type WarModel } from './wars';
 import { capitalAt, populationAt } from './growth';
 import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
 import type { ControlModel, Warlord } from './control';
-import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, replayRule, type Rules } from './councilRules';
+import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, replayRule, rulesAnnal, type Rules } from './councilRules';
 import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
 
@@ -279,7 +279,7 @@ export function installCouncil(sim: CivSim, seed: number): CouncilModel | undefi
 /** 接着推(CivSim.fromCiv,在 resumeControl 之后):各国的规矩由史事重建 */
 export function resumeCouncil(sim: CivSim, civ: Civ): void {
   const book = new Map<number, Rules>();
-  for (const e of civ.annals) if (e.kind === 'council' || e.kind === 'reform') replayRule(rulesOf(book, e.a), e);
+  for (const e of civ.annals) if (rulesAnnal(e)) replayRule(rulesOf(book, e.a), e);
   hook(sim, civ.seed, book);
 }
 
@@ -327,8 +327,8 @@ export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): C
   for (let i = 0; i < A.length; i++) {
     const e = A[i];
     if (e.year > year) break;
-    if ((e.kind !== 'council' && e.kind !== 'reform') || e.a !== p) continue;
-    if (e.kind === 'reform') {
+    if (!rulesAnnal(e) || e.a !== p) continue;
+    if (e.kind !== 'council') {
       replayRule(r, e);
       continue;
     }
@@ -536,7 +536,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   }
 
   // 改制(reform.ts):立宪、扩大参与、废君立共和(谈崩起兵革命)、政变、复辟、还政;出了一件就不再议别的
-  if (reformCheck({ sim, pm, pol, wm, cm, base: rbase, P, k, t, rules: r, u, broke, capR, ready, record: (i, out, region, opt) => record(i, out, region, false, -1, opt) })) return;
+  if (reformCheck({ sim, pm, pol, wm, cm, base: rbase, P, k, t, rules: r, rulesOf: (q) => rulesOf(book, q), u, broke, capR, ready, record: (i, out, region, opt) => record(i, out, region, false, -1, opt) })) return;
 
   // ④ 脱离:割据久了的地方要转投邻国(肯收它的:和那州同族而本国不是,或国力比本国强)
   if (lordsN && ready(Issue.Leave) && !wm.iv?.unites(p, t)) {

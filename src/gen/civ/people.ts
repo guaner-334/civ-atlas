@@ -1519,7 +1519,12 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   // 起女名(women.ts):换成女的人只换性别、名字、字,西幻同名女王另编序数;后妃一起按出道先后起
   nameWomen(out, wctx, new Set([...women, ...dowagerF.values()]), consortNames);
   // 自立为君的执政 / 将军:名字照做执政时的那一份(起女名、改撞名以后)
-  for (const [K, C] of selfOf) K.name = C.name;
+  for (const [K, C] of selfOf) {
+    K.name = C.name;
+    // 同一个人:做执政那一份卸任的那一刻就是做君主的那一刻,卒年照做君主那一份
+    if (K.died !== undefined) C.died = K.died;
+    else delete C.died;
+  }
   return { people: out, ids, usurped: [...usurpers.values()] };
 }
 
