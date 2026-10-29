@@ -29,6 +29,9 @@ import { currentEra } from './editsStore';
 import { vassalTies } from '../render/civ/vassals';
 import { ERA_COLORS, eraLevelsAt, eraName } from '../render/civ/era';
 import { CONTROL_COLORS, controlOf, lordOf } from '../render/civ/control';
+import { THOUGHT_COLORS, thoughtBand, thoughtFocus, thoughtShare } from '../render/civ/thoughts';
+import { THOUGHTS } from '../gen/civ/ideology';
+import { getCivShow } from './civView';
 import { CONTROL_TIERS } from '../gen/civ/control';
 import { eraOf } from '../gen/civ/development';
 
@@ -97,7 +100,7 @@ export function hoverInfo(p: {
   px: number;
   py: number;
   /** 地图上现在的样子:画风、数据底图、填色(国家 / 民族 / 信仰开不开) */
-  layer: Pick<LayerDef, 'style' | 'data' | 'polities' | 'cultures' | 'faiths' | 'eras'> & { control?: boolean };
+  layer: Pick<LayerDef, 'style' | 'data' | 'polities' | 'cultures' | 'faiths' | 'eras'> & { control?: boolean; ideology?: boolean };
   /** 鼠标下的城镇符号 / 国名 / 地名 */
   label?: LabelPick | null;
   /** 时间轴当前的年份(null = 结束年份) */
@@ -146,7 +149,13 @@ export function hoverInfo(p: {
       const lv = def.eras && civ.development && cu ? (levels = eraLevelsAt(civ, year, owners, levels))[r] : -1;
       // 管辖:州名 + 档位(割据写名义上属哪国)
       const ctl = def.control && po ? controlOf(civ, year, r) : null;
-      if (lv >= 0) {
+      // 思潮:州名 + 看的那一说几成(有人住的州;世上还没有思潮时照国家写)
+      const th = def.ideology && civ.ideology && cu ? thoughtFocus(civ, getCivShow(), year) : -1;
+      if (th >= 0) {
+        const a = thoughtShare(civ, year, r, th);
+        const b = thoughtBand(a);
+        info = { color: b >= 0 ? rgb(THOUGHT_COLORS[b]) : undefined, name: regionLabel(civ, r), sub: `${THOUGHTS[th].name} ${Math.round(a * 100)}%` };
+      } else if (lv >= 0) {
         const { era, progress } = eraOf(lv);
         info = { color: rgb(ERA_COLORS[era]), name: regionLabel(civ, r), sub: `${eraName(era)} ${Math.floor(progress * 100)}%` };
       } else if (ctl) {

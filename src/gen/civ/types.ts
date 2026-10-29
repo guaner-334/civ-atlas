@@ -933,7 +933,7 @@ export interface DevEvent {
 export interface Ideology {
   /** 各州各说的接受度:每份 = 州 × 说数,存的是接受度 × IDEO_SCALE;和 snapYears 一一对应 */
   snaps: Uint8Array[];
-  /** 每份快照的年份(递增;每 100 年一份,最后一份是结束那年) */
+  /** 每份快照的年份(递增;每 20 年一份,最后一份是结束那年) */
   snapYears: Year[];
   /** 各国各说的接受度(按人口加权):下标 = 国家编号;那国从没在整 20 年上在过 = null */
   polities: (IdeoSeries | null)[];
@@ -967,7 +967,7 @@ export interface IdeoState {
   /** 上一步算到哪一年;史事读到第几条 */
   last: Year;
   annals: number;
-  /** 快照里最后一份是补的(结束那年不在整 100 年上) */
+  /** 快照里最后一份是补的(结束那年不在整 20 年上) */
   tail: boolean;
   /** 数表:合、思潮(州 × 说数)、国中(国 × 说数) */
   tables: TablesState;

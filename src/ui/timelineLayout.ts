@@ -29,8 +29,8 @@ import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era
 // ---------------------------------------------------------------------------
 // 事件类型
 
-/** 五类事件 + 宗教(faith)+ 时代(era)+ 灾异(calamity)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
-export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'calamity' | 'order';
+/** 五类事件 + 宗教(faith)+ 时代(era)+ 思潮(thought)+ 灾异(calamity)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
+export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'thought' | 'calamity' | 'order';
 
 const KIND_TYPE: Readonly<Record<string, EvType>> = {
   war: 'war',
@@ -65,6 +65,7 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   diverge: 'assim',
   faith: 'faith',
   era: 'era',
+  thought: 'thought',
   intervene: 'order',
   upheaval: 'order',
   famine: 'calamity',
@@ -123,6 +124,7 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   派: '教派',
   圣: '圣城',
   代: '时代',
+  思: '思潮',
   商: '商道',
   臣: '称臣',
   盟: '结盟',
@@ -201,6 +203,7 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   sack: 1,
   faith: 2,
   era: 2,
+  thought: 2,
   intervene: 9,
   upheaval: 9,
   collapse: 6,
