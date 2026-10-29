@@ -12,7 +12,7 @@ import { ARRIVE, THOUGHTS, THOUGHT_COUNT, ideologyAt, polityIdeologyAt, polityTh
 import { polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
 import { yearAt, yearFull, type Era } from '../gen/era';
-import { thoughtCounts, thoughtEmerged } from '../render/civ/thoughts';
+import { thoughtBand, thoughtCounts, thoughtEmerged } from '../render/civ/thoughts';
 
 /** 比百年前差不到这么多个百分点算持平(按卡片上写的百分数比) */
 export const FLAT = 3;
@@ -125,7 +125,7 @@ export interface RegionThought {
   sub: string;
 }
 
-/** 这州到半成的几说(从多到少;一样多的按七说的次序) */
+/** 这州到半成的几说(从多到少;一样多的按七说的次序;这一年还没有人倡的不算 —— 快照之间插值,始倡以前的几年也会有一点) */
 export function regionThoughts(civ: Civ, r: number, year: Year, polity: number, era?: Era | null): RegionThought[] {
   const ideo = civ.ideology;
   if (!ideo) return [];
@@ -135,7 +135,7 @@ export function regionThoughts(civ: Civ, r: number, year: Year, polity: number, 
   const out: RegionThought[] = [];
   for (let k = 0; k < K; k++) {
     const share = now[r * K + k] ?? 0;
-    if (share < ARRIVE) continue;
+    if (thoughtBand(share) < 0 || !thoughtEmerged(civ, k, year)) continue;
     const o = thoughtOrigin(ideo, k);
     let sub = '';
     if (o && o.region === r) sub = `${yearAt(o.year, era)}始倡于本州${civ.settlements[o.settlement]?.name ?? ''}`;
@@ -163,7 +163,7 @@ export interface PolityThought {
   series: number[];
 }
 
-/** 国中到半成的几说(从多到少) */
+/** 国中到半成的几说(从多到少;这一年还没有人倡的不算) */
 export function polityThoughtRows(civ: Civ, p: number, year: Year, era?: Era | null): PolityThought[] {
   const ideo = civ.ideology;
   if (!ideo || !ideo.polities[p]) return [];
@@ -174,7 +174,9 @@ export function polityThoughtRows(civ: Civ, p: number, year: Year, era?: Era | n
   for (let t = t0; t < year; t += 20) ts.push(t);
   ts.push(year);
   const at = ts.map((t) => polityIdeologyAt(ideo, p, t));
-  return polityThoughts(ideo, p, year).map(({ thought: k, share, arrive }) => {
+  return polityThoughts(ideo, p, year, ARRIVE - 1e-6)
+    .filter(({ thought: k }) => thoughtEmerged(civ, k, year))
+    .map(({ thought: k, share, arrive }) => {
     const o = thoughtOrigin(ideo, k);
     const born = o && o.polity === p;
     return {

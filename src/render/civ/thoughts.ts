@@ -26,9 +26,12 @@ export const THOUGHT_COLORS: readonly (readonly [number, number, number])[] = [
 /** 图层多少年取一次(和思潮的快照一样) */
 const THOUGHT_STEP = 20;
 
+/** 比档的下限时让一点(快照存的是整数 / IDEO_SCALE,读回 Float32 时 175 / 250 成了 0.69999…,要算七成) */
+const BAND_EPS = 1e-6;
+
 /** 接受度 → 第几档(不到半成 = −1) */
 export function thoughtBand(a: number): number {
-  for (let b = THOUGHT_BANDS.length - 1; b >= 0; b--) if (a >= THOUGHT_BANDS[b]) return b;
+  for (let b = THOUGHT_BANDS.length - 1; b >= 0; b--) if (a >= THOUGHT_BANDS[b] - BAND_EPS) return b;
   return -1;
 }
 
@@ -50,7 +53,7 @@ export function thoughtCounts(civ: Civ, year: Year): number[] {
   if (ideo) {
     buf = ideologyAt(ideo, year, buf);
     const R = buf.length / K;
-    for (let r = 0; r < R; r++) for (let k = 0; k < K; k++) if (buf[r * K + k] >= THOUGHT_BANDS[0]) n[k]++;
+    for (let r = 0; r < R; r++) for (let k = 0; k < K; k++) if (thoughtBand(buf[r * K + k]) >= 0) n[k]++;
   }
   countKey = { civ, year, n };
   return n;

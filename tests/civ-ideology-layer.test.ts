@@ -20,6 +20,8 @@ describe('思潮图层', () => {
     expect(ideo.events.length).toBeGreaterThan(0);
     for (let i = 1; i < ideo.snapYears.length - 1; i++) expect(ideo.snapYears[i] - ideo.snapYears[i - 1]).toBe(20);
     expect([0.04, 0.05, 0.09, 0.1, 0.29, 0.3, 0.5, 0.69, 0.7, 1].map(thoughtBand)).toEqual([-1, 0, 0, 1, 1, 2, 3, 3, 4, 4]);
+    // 快照存整数,读回 Float32 时 175 / 250 = 0.69999…:照样算七成
+    expect([13, 25, 75, 125, 175].map((x) => thoughtBand(new Float32Array([x / IDEO_SCALE])[0]))).toEqual([0, 1, 2, 3, 4]);
   });
 
   it('换进民族那一层的五档:按 civ + 哪一说缓存;各年的色块和那年的接受度一致', () => {
@@ -87,13 +89,17 @@ describe('思潮图层', () => {
     for (let r = 0; r < civ.regions.count; r += 7) {
       const list = regionThoughts(civ, r, y, own.polity[r]);
       for (let i = 1; i < list.length; i++) expect(list[i].share).toBeLessThanOrEqual(list[i - 1].share);
-      for (const t of list) expect(t.share).toBeGreaterThanOrEqual(0.05);
+      for (const t of list) expect(thoughtBand(t.share)).toBeGreaterThanOrEqual(0);
       seen += list.length;
     }
     expect(seen).toBeGreaterThan(0);
+    // 始倡以前几年(快照之间插值会有一点):州卡片不列
+    const o = ideo.events[ideo.events.length - 1];
+    const before = Math.floor(o.year) - 1;
+    expect(regionThoughts(civ, o.region, before, ownersAt(civ, before).polity[o.region]).some((t) => t.k === o.thought)).toBe(false);
     const p = own.polity.find((q) => q >= 0)!;
     for (const t of polityThoughtRows(civ, p, y)) {
-      expect(t.share).toBeGreaterThanOrEqual(0.05);
+      expect(thoughtBand(t.share)).toBeGreaterThanOrEqual(0);
       expect(t.series.length).toBeGreaterThan(1);
       expect(t.series[t.series.length - 1]).toBeCloseTo(t.share, 5);
     }

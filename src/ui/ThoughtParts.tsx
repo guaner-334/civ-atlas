@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { THOUGHTS, THOUGHT_COUNT, ideologyAt, thoughtOrigin } from '../gen/civ/ideology';
 import { yearAt, spaced } from '../gen/era';
-import { THOUGHT_BAND_NAMES, THOUGHT_COLORS, thoughtEmerged, thoughtFocus } from '../render/civ/thoughts';
+import { THOUGHT_BAND_NAMES, THOUGHT_COLORS, thoughtBand, thoughtEmerged, thoughtFocus } from '../render/civ/thoughts';
 import { useEra } from './editsStore';
 import { setThought, useCivShow } from './civView';
 import { openInfoPage, setSheet } from './panelStore';
@@ -162,14 +162,14 @@ export function ThoughtSide({ civ, year }: { civ: Civ; year: number }) {
   );
 }
 
-/** 一州各说的接受度(这一年) */
+/** 一州到半成的几说(这一年;还没有人倡的不算) */
 function regionShares(civ: Civ, id: number, year: number): { k: number; share: number }[] {
   if (!civ.ideology) return [];
   const v = ideologyAt(civ.ideology, year);
   const out: { k: number; share: number }[] = [];
   for (let k = 0; k < THOUGHT_COUNT; k++) {
     const a = v[id * THOUGHT_COUNT + k] ?? 0;
-    if (a >= 0.05) out.push({ k, share: a });
+    if (thoughtBand(a) >= 0 && thoughtEmerged(civ, k, year)) out.push({ k, share: a });
   }
   return out.sort((a, b) => b.share - a.share || a.k - b.k);
 }
