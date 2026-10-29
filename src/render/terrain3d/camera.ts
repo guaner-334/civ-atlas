@@ -163,7 +163,8 @@ export function rectShift(W: number, H: number, rect: [number, number, number, n
 
 /**
  * 立体的角度(写进网址,别人打开是同一个角度):朝向、俯角(度);远近 = 比刚打开时(按这块屏幕摆好的那么远)近几倍(1 = 刚打开,2 = 近一倍);
- * 看点 = 占方框东西、南北的几成(中心 = 0,-0.5 … 0.5)。远近按屏幕摆好的距离算,手机、电脑打开都是那么大的一块
+ * 看点 = 占方框东西、南北的几成(中心 = 0,-0.5 … 0.5);h = 看点多高(公里;拉过起伏滑条、没复位时看点不跟着升降,要记下;没有 = 照刚打开时的)。
+ * 远近按屏幕摆好的距离算,手机、电脑打开都是那么大的一块
  */
 export interface ReliefAngle {
   yaw: number;
@@ -171,7 +172,11 @@ export interface ReliefAngle {
   zoom: number;
   px: number;
   pz: number;
+  h?: number;
 }
+
+/** 看点最高多少公里(起伏 30 倍、最高的山也够了) */
+export const TARGET_H_MAX = 300;
 
 /** 远近最多比刚打开时近几倍、远几倍(和拖动、滚轮的上下限一样:0.15 – 3 倍的距离) */
 export const ZOOM_MIN = 1 / 3;
@@ -193,10 +198,11 @@ export function angleOf(cam: ReliefCam, fit: ReliefCam, kmX: number, kmZ: number
     zoom: clamp(fit.dist / cam.dist, ZOOM_MIN, ZOOM_MAX),
     px: kmX > 0 ? clamp(cam.tx / kmX, -0.5, 0.5) : 0,
     pz: kmZ > 0 ? clamp(cam.tz / kmZ, -0.5, 0.5) : 0,
+    h: clamp(cam.ty, 0, TARGET_H_MAX),
   };
 }
 
-/** 角度 → 镜头(高度、视野照 fit) */
+/** 角度 → 镜头(视野照 fit;看点高度没记的也照 fit) */
 export function camOfAngle(a: ReliefAngle, fit: ReliefCam, kmX: number, kmZ: number): ReliefCam {
   return {
     ...fit,
@@ -205,5 +211,6 @@ export function camOfAngle(a: ReliefAngle, fit: ReliefCam, kmX: number, kmZ: num
     dist: fit.dist / clamp(a.zoom, ZOOM_MIN, ZOOM_MAX),
     tx: clamp(a.px, -0.5, 0.5) * kmX,
     tz: clamp(a.pz, -0.5, 0.5) * kmZ,
+    ty: a.h === undefined ? fit.ty : clamp(a.h, 0, TARGET_H_MAX),
   };
 }
