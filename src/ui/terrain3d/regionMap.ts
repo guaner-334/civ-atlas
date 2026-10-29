@@ -319,18 +319,20 @@ function legendLines(inp: RegionInput, style: CivStyle, pk: number, alpha: numbe
     });
   }
   const river = style === 'fantasy' ? fantasyBoxRiverStyle(world.riverThreshold, 1).color : realisticRiverStyle(20, world.riverThreshold, inp.look).color;
-  out.push({
-    name: '河',
-    draw: (ctx, x, y) => {
-      ctx.strokeStyle = river;
-      ctx.lineWidth = 1.6;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(x, y + 2);
-      ctx.bezierCurveTo(x + 8, y - 4, x + 16, y + 6, x + len, y - 1);
-      ctx.stroke();
-    },
-  });
+  if (riversIn(inp)) {
+    out.push({
+      name: '河',
+      draw: (ctx, x, y) => {
+        ctx.strokeStyle = river;
+        ctx.lineWidth = 1.6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x, y + 2);
+        ctx.bezierCurveTo(x + 8, y - 4, x + 16, y + 6, x + len, y - 1);
+        ctx.stroke();
+      },
+    });
+  }
   return out;
 }
 
@@ -352,6 +354,22 @@ function borderKindIn(inp: RegionInput, style: CivStyle): 'inner' | 'bloc' | 'ou
   }
   const best = (['inner', 'bloc', 'outer'] as const).reduce((a, b) => (len[b] > len[a] ? b : a));
   return len[best] > 0 ? best : null;
+}
+
+/** 框里有没有河(流量够画出来的) */
+function riversIn(inp: RegionInput): boolean {
+  const { world, box } = inp;
+  const W = world.width;
+  for (const r of world.rivers) {
+    const p = r.pts;
+    for (let i = 0; i + 2 < p.length; i += 3) {
+      if (p[i + 2] < world.riverThreshold) continue;
+      let dx = p[i] - box.cx;
+      dx -= W * Math.round(dx / W);
+      if (Math.abs(dx) <= box.w / 2 && Math.abs(p[i + 1] - box.cy) <= box.h / 2) return true;
+    }
+  }
+  return false;
 }
 
 /** 框里有没有大路(那一年修好、没荒掉的) */
