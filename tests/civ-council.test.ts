@@ -53,8 +53,10 @@ describe('议事', () => {
         // 削藩、改组、脱离谈崩 → 那处割据自立(split,cause = warlord);直征、改土归流、收兵权、收任免谈崩 → 新起割据(warlord),同一刻、同一州
         const next = A[i + 1];
         expect(next.year).toBe(e.year);
-        expect(next.region).toBe(e.region);
+        if (e.war < 11) expect(next.region).toBe(e.region);
         if (e.war === 1 || e.war === 9 || e.war === 10) expect([next.kind, next.cause, next.b]).toEqual(['split', 'warlord', e.a]);
+        // 改制(议立宪、废君)谈崩 → 起兵:打进国都 = 革命(reform),打不进 = 据地自立(split,cause = revolution)
+        else if (e.war >= 11) expect(next.kind === 'reform' ? [next.kind, next.n, next.a] : [next.kind, next.cause, next.b]).toEqual(next.kind === 'reform' ? ['reform', 0, e.a] : ['split', 'revolution', e.a]);
         else expect([next.kind, next.a]).toEqual(['warlord', e.a]);
       });
     }
