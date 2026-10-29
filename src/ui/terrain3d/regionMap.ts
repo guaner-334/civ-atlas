@@ -71,6 +71,25 @@ export interface RegionMap {
   ms: Record<string, number>;
 }
 
+/** 两次要画的是不是同一页(世界、文字、画风、填色、年份、框、清晰度都一样;导出时能不能直接用屏幕上那一页) */
+export function sameRegion(a: RegionInput, b: RegionInput): boolean {
+  return (
+    a.world === b.world &&
+    a.raster === b.raster &&
+    a.civ === b.civ &&
+    a.style === b.style &&
+    a.look === b.look &&
+    a.layer === b.layer &&
+    a.year === b.year &&
+    a.D === b.D &&
+    a.box.cx === b.box.cx &&
+    a.box.cy === b.box.cy &&
+    a.box.w === b.box.w &&
+    a.box.h === b.box.h &&
+    JSON.stringify(a.show) === JSON.stringify(b.show)
+  );
+}
+
 /** 地区图的画风:写实、手绘照地图;数据底图按写实画(地形按卫星) */
 export function regionStyle(style: CivStyle): CivStyle {
   return style === 'fantasy' ? 'fantasy' : 'realistic';

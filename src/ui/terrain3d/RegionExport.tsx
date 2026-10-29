@@ -12,7 +12,7 @@ import { downloadBlob } from '../filmStore';
 import { showToast } from '../toastStore';
 import { noteDismiss } from '../dismissClick';
 import { setRegionTitle } from '../terrain3dStore';
-import { buildRegionMap, drawRegionSheet, type RegionInput, type RegionMap, type RegionText } from './regionMap';
+import { buildRegionMap, drawRegionSheet, sameRegion, type RegionInput, type RegionMap, type RegionText } from './regionMap';
 
 interface Props {
   phone: boolean;
@@ -91,7 +91,8 @@ export function RegionExport(p: Props) {
     const t0 = performance.now();
     let own: RegionMap | null = null;
     try {
-      let m = p.map?.fine && scale === 2 ? p.map : null;
+      // 2 倍:屏幕上那一页画好了、画的正是现在这样(换了画风、填色还没重画完的不算)就直接用
+      let m = p.map?.fine && scale === 2 && sameRegion(p.map.input, p.inputFor(2)) ? p.map : null;
       if (!m) {
         own = await buildRegionMap(p.inputFor(scale), { coarse: false, progress: (f) => alive.current && setBusy(f * 0.95), alive: () => alive.current });
         m = own;
