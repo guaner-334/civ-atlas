@@ -8,6 +8,7 @@
 import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
+import { seatPolity } from '../gen/civ/peopleText';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cultureKey, faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, tradeKey, treatyKey, type AuthorMark } from '../gen/edits';
 import { personKey, resolvePersonKey } from '../gen/characters';
@@ -66,7 +67,9 @@ export function mapTarget(civ: Civ | null, sel: MapSelection | null): Exclude<Ma
   if (!sel || sel.kind === 'mark' || sel.kind === 'character' || sel.kind === 'treaty' || sel.kind === 'culture' || sel.kind === 'trade') return null;
   if (sel.kind !== 'person') return sel;
   const x = civ?.people?.[sel.id];
-  return x && civ!.polities[x.polity] ? { kind: 'polity', id: x.polity } : null;
+  // 临朝的太后:亮她临朝的那一国(嫁来的不是她娘家)
+  const pid = x ? seatPolity(civ!, x) : -1;
+  return x && civ!.polities[pid] ? { kind: 'polity', id: pid } : null;
 }
 
 /** 选中的东西的稳定键(重推历史后编号变了、还是同一个东西 = 同一个键) */

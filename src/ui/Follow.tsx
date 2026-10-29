@@ -186,7 +186,7 @@ export function FollowPlate({ civ, phone }: { civ: Civ; phone: boolean }) {
 function HandPlate({ civ, prev, next, year, era, phone }: { civ: Civ; prev: Person; next: FollowTarget | null; year: number; era: Era | null | undefined; phone: boolean }) {
   const end = personEnd(prev);
   const pName = personName(civ, prev);
-  const life = prev.died !== undefined ? `${yearSpan(prev.born, prev.died, era)}，享年 ${F(prev.died - prev.born)}` : `${yearSpan(personSpan(prev).from, end, era)}${prev.role === 'ruler' ? '在位' : prev.role === 'minister' ? '在朝' : '领兵'}`;
+  const life = prev.died !== undefined ? `${yearSpan(prev.born, prev.died, era)}，享年 ${F(prev.died - prev.born)}` : `${yearSpan(personSpan(prev).from, end, era)}${prev.role === 'ruler' ? '在位' : prev.role === 'minister' ? '在朝' : prev.role === 'consort' ? '临朝' : '领兵'}`;
   const x = next?.kind === 'person' ? civ.people?.[next.id] : undefined;
   const P = next?.kind === 'polity' ? civ.polities[next.id] : undefined;
   const pp = civ.polities[prev.polity];

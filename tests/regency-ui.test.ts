@@ -26,8 +26,10 @@ describe('谁掌着实权、谁被架空', () => {
         for (const g of x.regencies ?? []) {
           n++;
           const mid = g.until !== undefined ? (g.from + g.until) / 2 : g.from + 0.01;
-          expect(holderAt(civ, x.polity, mid)?.x, `${x.name} ${g.kind} ${g.from}`).toBe(x);
-          if (g.until !== undefined) expect(holderAt(civ, x.polity, g.until)?.x).not.toBe(x);
+          // 嫁来的宗室女做了太后:临朝的是幼主那一国
+          const pid = civ.people![g.ruler]?.polity ?? x.polity;
+          expect(holderAt(civ, pid, mid)?.x, `${x.name} ${g.kind} ${g.from}`).toBe(x);
+          if (g.until !== undefined) expect(holderAt(civ, pid, g.until)?.x).not.toBe(x);
           expect(lineageTag(civ, x, x.polity)).toContain('掌权');
           const N = civ.people![g.ruler];
           if (!N) continue;
@@ -74,16 +76,22 @@ describe('联姻', () => {
     for (const seed of SEEDS) {
       const civ = civOf(seed);
       for (const x of civ.people ?? []) {
-        for (const s of [...(x.spouses ?? []), ...(x.mother ? [x.mother] : [])]) {
+        for (const s of x.spouses ?? []) {
           n++;
-          expect(brideName(civ, s)).toMatch(/^.+(氏|公主)$/);
+          // 嫁来的宗室女是人物的写她的名字;不然"某氏" / "某国公主"
+          const B = s.person !== undefined ? civ.people![s.person] : undefined;
+          if (B) expect(brideName(civ, s)).toBe(B.name);
+          else expect(brideName(civ, s)).toMatch(/^.+(氏|公主)$/);
           expect(polityShort(civ, s.polity, s.year)).not.toBe('');
         }
         const k = lineageKin(civ, x);
-        // 女的结了亲:配偶是对方的宗室子,写"夫某国"
+        const M = x.mom !== undefined ? civ.people![x.mom] : undefined;
+        const H = x.husband !== undefined ? civ.people![x.husband] : undefined;
+        // 女的结了亲:配偶是对方的宗室子,写"夫某国";嫁到别国的女儿"嫁某国";母亲是别国嫁来的"母某国"
         if (x.spouses?.length) expect(k?.text).toMatch(x.female ? /^夫./ : /^妻./);
-        else if (x.mother) expect(k?.text).toMatch(/^母./);
-        else expect(k).toBeNull();
+        else if (x.role === 'consort' && H && H.polity !== x.polity && !x.regencies?.length) expect(k?.text).toMatch(/^嫁./);
+        else if (M && M.polity !== x.polity && M.husband !== undefined && !M.regencies?.length) expect(k?.text).toMatch(/^母./);
+        else if (!x.regencies?.length && x.role !== 'consort' && !M) expect(k).toBeNull();
       }
     }
     expect(n).toBeGreaterThan(10);

@@ -23,10 +23,11 @@ import { polityAlive, polityRoots, polityTitleChain, populationAt, populationLab
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { ERAS, RESOURCES, RESOURCE_COUNT, developmentAt, eraLevel, eraOf, resourcesAt } from '../../gen/civ/development';
 import { campaignText, commandFoes, fameLine, famousPeople, foesText, generalTally, peopleIndex, personFame, personSpan, riseText, rulerAt } from '../../gen/civ/peopleInfo';
-import { ageAt, generalRole, isConsul, leaningsText, ministerRole, personName, princeRole, rulerFateWord, rulerRef, rulerRole } from '../../gen/civ/peopleText';
+import { ageAt, consortRole, dowagerSpans, generalRole, isConsul, leaningsText, ministerRole, personName, princeRole, rulerFateWord, rulerRef, rulerRole } from '../../gen/civ/peopleText';
 import { isFemale, kinWord } from '../../gen/civ/gender';
 import { deedsShort, ministerFate, personBio } from '../../gen/civ/officialText';
 import { fatherOf } from '../../gen/civ/lineageInfo';
+import { REGENCY_END } from '../../gen/civ/regentInfo';
 import { nearestCell as nearestWorldCell } from '../../gen/civ/frontier';
 import { KM_PER_UNIT } from '../../gen/civ/geo';
 import { TERRAIN_W } from '../../gen/terrainEdits';
@@ -405,6 +406,18 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
         const bio = personBio(civ, x);
         if (bio) parts.push(`生平:${clip(bio, 300)}`);
       }
+    } else if (x.role === 'consort') {
+      // 后妃:临朝的太后、嫁来的宗室女
+      const gs = dowagerSpans(x);
+      parts.push(`${gs.length ? '太后' : '宗室女'} ${x.name} · ${consortRole(civ, x)}${pid ? `(${pid})` : ''}`);
+      for (const g of gs) {
+        const N = civ.people?.[g.ruler];
+        const end = g.end ? (REGENCY_END[g.end] ?? '') : '';
+        parts.push(`临朝 第 ${F(g.from)}—${g.until !== undefined ? `${F(g.until)} 年` : '最后'}${N ? `,幼主 ${personName(civ, N)}` : ''}${end ? `,${end}` : ''}`);
+      }
+      const H = x.husband !== undefined ? civ.people?.[x.husband] : undefined;
+      if (H) parts.push(`丈夫 ${personName(civ, H)}`);
+      parts.push(lifeOf(x.born, died, still));
     } else {
       parts.push(`宗室 ${x.name} · ${princeRole(civ, x)}${pid ? `(${pid})` : ''}`, lifeOf(x.born, died, still));
     }
@@ -458,7 +471,7 @@ export function lookupPeople(ctx: LookupContext, a: Record<string, unknown>): Lo
       }
     }
     if (role !== 'author') {
-      const ORDER: Record<Person['role'], number> = { ruler: 1, minister: 2, general: 3, prince: 4 };
+      const ORDER: Record<Person['role'], number> = { ruler: 1, minister: 2, general: 3, prince: 4, consort: 5 };
       for (const x of people) {
         if (!roleOk(x) || (cid >= 0 && x.polity !== cid)) continue;
         if (x.author !== undefined && listed.has(x.author)) continue;

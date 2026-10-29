@@ -249,7 +249,7 @@ function Tree({
         className={ac ? `${cls} cr-author` : cls}
         style={{ left, top: y, width: W, height: H, ...(ac ? ({ '--ring': MARK_HEX[ac.color] } as CSSProperties) : {}) }}
         data-person={p.id}
-        title={`${name}，${who}${k || away ? reign : `未即位${tag ? `（${tag}）` : ''}，${span}`}`}
+        title={`${name}，${who}${k || away ? reign : `${p.role === 'consort' && kin ? kin.text : '未即位'}${tag ? `（${tag}）` : ''}，${span}`}`}
         onClick={() => selectPerson(p.id)}
       >
         {(k > 0 || sec || res) && <span className="lg-n">{k || ''}</span>}
@@ -416,7 +416,7 @@ export function PeopleLineage({ civ, polity, dynasty, focus, year, place = null 
         </div>
         <div>名字后面的灰字是结局：争储被杀、战死、自立（下一行写他立的国）</div>
         {legendHeld && <div data-legend="held">灰字「掌权」：他掌过实权（一直没即位，或即位以前）；「虚位」：君主在位时被架空过。点开卡片看是谁、哪几年</div>}
-        {legendKin && <div data-legend="kin">第二行「妻{legendKin}」「母{legendKin}」：妻子、母亲是别国宗室女（只写跨国联姻），小方块是那一国的颜色</div>}
+        {legendKin && <div data-legend="kin">第二行「妻{legendKin}」「母{legendKin}」「嫁{legendKin}」：妻子、母亲是别国宗室女，或她嫁到了别国（只写跨国联姻），小方块是那一国的颜色</div>}
         <div>点一位看他的卡片</div>
       </div>
     </nav>
