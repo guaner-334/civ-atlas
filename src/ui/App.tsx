@@ -340,7 +340,8 @@ import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Glob
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
-import { closeRelief, useRelief } from './terrain3dStore';
+import { closeRelief, openAreaLink, urlHasArea, useRelief } from './terrain3dStore';
+import { AREA_KEYS } from './areaLink';
 import { frozenResult, noteMapSum, offerSnapshot, startResults, toldFrozen } from './resultStore';
 import { FrozenAsk, askSaveAsNew, closeSaveAsNew, setSaveAsNew } from './FrozenWorld';
 import { copyNotes } from '../ai/library';
@@ -778,7 +779,7 @@ function writeWorldUrl(t: Target) {
 }
 
 /** 回到"我的世界"时网址里去掉的:这个世界(种子、参数、编号、年份……) */
-const HOME_DROP = [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'years', 's', GEN_KEY, 'civYear', 'play', 'chron'];
+const HOME_DROP = [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'years', 's', GEN_KEY, 'civYear', 'play', 'chron', ...AREA_KEYS];
 
 /** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……)、作品墙,留着图层、投影这些看法 */
 function writeHomeUrl() {
@@ -6406,6 +6407,18 @@ ${s.image.cells}` : null);
   useEffect(() => {
     if (!reliefable) closeRelief();
   }, [reliefable, relief.phase]);
+  // 网址里带着地区模式(area=…:分享链接、刷新):这次打开网页第一次显示世界、历史推完(带着"这一刻"的先停到那一年)以后进那一块的那一面;
+  // 那包代码打开网页时就先下载起来(生成世界的同时),慢网上也不多等
+  const areaTried = useRef(false);
+  useEffect(() => {
+    if (urlHasArea()) void import('./terrain3d/relief3d');
+  }, []);
+  useEffect(() => {
+    if (areaTried.current || !reliefable || !data || !rawCiv || !box.w || resimInfo.current || pendingMoment.current) return;
+    areaTried.current = true;
+    openAreaLink(data.world.height);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reliefable, rawCiv, box.w, stageSize.w, resim, momentTick]);
   /** 导播停用:还没有历史、新建、回放世界形成、导出视频 / 长图时(这时时间轴照平常放) */
   const directorOff = !markable || filmOn || !civ?.viable || !civ.cultures.length;
   // 接着回放世界形成放文明时导播不管(事件小卡照旧)

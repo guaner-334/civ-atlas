@@ -367,10 +367,6 @@
   box-shadow: var(--shadow-panel);
   font: 600 14px/1 var(--font-sans);
 }
-.rv-rb.rv-spacer {
-  visibility: hidden;
-  width: 74px;
-}
 .rv-ttl {
   flex: 1;
   min-width: 0;

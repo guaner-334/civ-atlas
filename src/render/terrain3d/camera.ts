@@ -160,3 +160,50 @@ export function rectShift(W: number, H: number, rect: [number, number, number, n
   const cy = (rect[1] + rect[3]) / 2;
   return [(cx / W) * 2 - 1, 1 - (cy / H) * 2];
 }
+
+/**
+ * 立体的角度(写进网址,别人打开是同一个角度):朝向、俯角(度);远近 = 比刚打开时(按这块屏幕摆好的那么远)近几倍(1 = 刚打开,2 = 近一倍);
+ * 看点 = 占方框东西、南北的几成(中心 = 0,-0.5 … 0.5)。远近按屏幕摆好的距离算,手机、电脑打开都是那么大的一块
+ */
+export interface ReliefAngle {
+  yaw: number;
+  pitch: number;
+  zoom: number;
+  px: number;
+  pz: number;
+}
+
+/** 远近最多比刚打开时近几倍、远几倍(和拖动、滚轮的上下限一样:0.15 – 3 倍的距离) */
+export const ZOOM_MIN = 1 / 3;
+export const ZOOM_MAX = 1 / 0.15;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** 朝向换到 -180 … 180 */
+export function wrapYaw(yaw: number): number {
+  const y = (((yaw % 360) + 540) % 360) - 180;
+  return y === -180 ? 180 : y;
+}
+
+/** 现在的镜头 → 角度(fit = 按现在的起伏、这块屏幕摆好的那个镜头,见 fitCam) */
+export function angleOf(cam: ReliefCam, fit: ReliefCam, kmX: number, kmZ: number): ReliefAngle {
+  return {
+    yaw: wrapYaw(cam.yaw),
+    pitch: cam.pitch,
+    zoom: clamp(fit.dist / cam.dist, ZOOM_MIN, ZOOM_MAX),
+    px: kmX > 0 ? clamp(cam.tx / kmX, -0.5, 0.5) : 0,
+    pz: kmZ > 0 ? clamp(cam.tz / kmZ, -0.5, 0.5) : 0,
+  };
+}
+
+/** 角度 → 镜头(高度、视野照 fit) */
+export function camOfAngle(a: ReliefAngle, fit: ReliefCam, kmX: number, kmZ: number): ReliefCam {
+  return {
+    ...fit,
+    yaw: wrapYaw(a.yaw),
+    pitch: clamp(a.pitch, PITCH_MIN, PITCH_MAX),
+    dist: fit.dist / clamp(a.zoom, ZOOM_MIN, ZOOM_MAX),
+    tx: clamp(a.px, -0.5, 0.5) * kmX,
+    tz: clamp(a.pz, -0.5, 0.5) * kmZ,
+  };
+}

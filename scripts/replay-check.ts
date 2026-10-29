@@ -1470,6 +1470,7 @@ if (part('写实风放大')) {
 
 // 地区(地区图、立体):右下「地区」→ 地图上出一个框(写着多大)、按钮按下去;看这一块 = 地区图(一页:先粗后细,标题是框里的山名,
 // 2 倍清晰度,图例列出这一页上的城镇、线和山峰);底条切到立体:先粗后细都画出来,时间轴的位置换成控件条;
+// 框和角度写进网址、新页面打开那个网址是同一个角度;导出菜单里导出立体这一面;
 // 拖着转、换画风(重新上色)不出错;「回到地图」→ 收起、时间轴回来、刚才的框淡淡留一会儿
 if (part('立体地形')) {
   const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
@@ -1542,6 +1543,31 @@ if (part('立体地形')) {
     await rp.mouse.move(cv.x + cv.width * 0.6 - 120, cv.y + cv.height * 0.5 + 30, { steps: 6 });
     await rp.mouse.up();
   }
+  // 框和角度写进网址(停下约半秒);导出菜单里「导出立体这一面」→ PNG(看得见的那一块,两倍像素密度);
+  // 同一个网址在新页面打开:直接进这一块的立体,角度一样
+  await rp.waitForTimeout(900);
+  const linkUrl = await rp.evaluate(() => location.href);
+  const ang = await rp.evaluate(() => (window as any).__wfRelief?.angle);
+  await rp.click('.export-btn');
+  await rp.click('.export-item[data-job=relief]');
+  const shot = await rp
+    .waitForFunction(() => (window as any).__wfExport?.job === 'relief' && (window as any).__wfExport.bytes > 0, null, { timeout: 30000 })
+    .then(() => rp.evaluate(() => (window as any).__wfExport), () => null);
+  console.log(`立体导出:${shot?.name} ${shot?.w}×${shot?.h} ${Math.round((shot?.bytes ?? 0) / 1e3)} KB;网址 ${linkUrl.replace(/^.*?\?/, '?')}`);
+  if (!/[?&]area=[\d.,%C-]+/.test(linkUrl) || !/[?&]face=3d/.test(linkUrl) || !/[?&]ang=/.test(linkUrl) || !ang)
+    errs.push(`立体地形:框、角度没写进网址(${linkUrl})`);
+  if (!shot || !/^文明与地图-种子7-玉屏山一带-第\d+年-立体-.+\.png$/.test(shot.name) || !(shot.w > 1000))
+    errs.push(`立体地形:导出立体这一面不对(${JSON.stringify(shot)})`);
+  const lp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
+  lp.on('pageerror', (e) => errs.push(`立体地形(链接):${e.message}`));
+  await lp.goto(linkUrl);
+  const linked = await lp
+    .waitForFunction(() => (window as any).__wfRelief?.level === 'fine' && (window as any).__wfRelief?.angle, null, { timeout: 120000 })
+    .then(() => lp.evaluate(() => ({ angle: (window as any).__wfRelief?.angle, title: document.querySelector('.rv-t b')?.textContent ?? '', face: document.querySelector('.ab-seg button.on')?.getAttribute('data-face') })), () => null);
+  console.log(`立体链接:${JSON.stringify(linked)}(原来 ${JSON.stringify(ang)})`);
+  if (!linked || linked.face !== 'relief' || linked.title !== '玉屏山一带' || !ang || Math.abs(linked.angle.yaw - ang.yaw) > 0.2 || Math.abs(linked.angle.pitch - ang.pitch) > 0.2 || Math.abs(linked.angle.zoom / ang.zoom - 1) > 0.02)
+    errs.push(`立体地形:网址打开没进同一个角度的立体(${JSON.stringify({ linked, ang })})`);
+  await lp.close();
   const f0 = await rp.evaluate(() => (window as any).__wfRelief?.frames ?? 0);
   await pickLayer(rp, 'geo');
   await rp.waitForTimeout(3000);

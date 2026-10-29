@@ -4,6 +4,7 @@
  *   - 海拔和地平线:海面按 0、湖按湖面;西边有山才有影子;按行切成几条各算各的和一次算完逐像素一样(同一块每次一样)
  *   - 网格:点数、三角形数、坡度的方向、切面;点数不超过上限
  *   - 镜头:刚打开时整块落在看得见的那一块里;北在上
+ *   - 网址里的地区模式:框、哪一面、立体的角度和起伏写进去读出来一样;老网址、不像样的不进;角度 ↔ 镜头
  *   - 这一块叫什么:框里的山脉 > 湖 > 海 > 州名
  *   - 山名立在山顶:最高峰落在框里的山脉(和山脉卡片上的最高峰同一个数),钉在附近最高的那一点
  *   - 山脉卡片「看立体」:框住整条山脉、四周留一圈;太长的框最高的那一段
@@ -19,7 +20,8 @@ import { BOX_STYLE_SPAN, boxStyle } from '../src/render/terrain3d/fantasyBox';
 import { fantasyBoxPixels } from '../src/render/fantasy';
 import { metersText, placeFacts } from '../src/ui/panelData';
 import { KM_PER_UNIT } from '../src/gen/civ/geo';
-import { fitCam, mul, project, projMatrix, viewMatrix, clipPlanes, rectShift } from '../src/render/terrain3d/camera';
+import { PITCH_MAX, ZOOM_MAX, angleOf, camOfAngle, fitCam, mul, project, projMatrix, viewMatrix, clipPlanes, rectShift, wrapYaw } from '../src/render/terrain3d/camera';
+import { readAreaLink, writeAreaLink } from '../src/ui/areaLink';
 import { reliefPeaks, reliefTitle } from '../src/ui/terrain3d/region';
 import type { Civ, Place } from '../src/gen/civ/types';
 
@@ -223,6 +225,58 @@ describe('镜头', () => {
     const south = project(m0, 0, 0, 300)!;
     expect(north[1]).toBeGreaterThan(south[1]);
     expect(north[0]).toBeCloseTo(south[0], 5);
+  });
+});
+
+describe('网址里的地区模式', () => {
+  const q = (s: string) => new URLSearchParams(s);
+  it('框、哪一面、立体的角度和起伏写进网址再读出来一样;别的参数照留', () => {
+    const link = { box: { cx: 1470.126, cy: 440, w: 70.5, h: 46 }, face: 'relief' as const, angle: { yaw: -35.04, pitch: 41.26, zoom: 1.8, px: 0.1234, pz: -0.25 }, ex: 13 };
+    const out = writeAreaLink(q('seed=7&map=satellite&lon=30'), link);
+    expect(out.get('seed')).toBe('7');
+    expect(out.get('lon')).toBe('30');
+    expect(out.get('area')).toBe('1470.13,440,70.5,46');
+    expect(out.get('face')).toBe('3d');
+    expect(out.get('ang')).toBe('-35,41.3,1.8,0.123,-0.25');
+    expect(out.get('ex')).toBe('13');
+    const back = readAreaLink(out)!;
+    expect(back.face).toBe('relief');
+    expect(back.box).toEqual({ cx: 1470.13, cy: 440, w: 70.5, h: 46 });
+    expect(back.angle).toEqual({ yaw: -35, pitch: 41.3, zoom: 1.8, px: 0.123, pz: -0.25 });
+    expect(back.ex).toBe(13);
+    // 平面图:只写框
+    const flat = writeAreaLink(out, { ...link, face: 'flat' });
+    expect([...flat.keys()].sort()).toEqual(['area', 'lon', 'map', 'seed']);
+    expect(readAreaLink(flat)).toEqual({ box: back.box, face: 'flat', angle: null, ex: null });
+    // 离开地区模式:这几样都去掉
+    expect([...writeAreaLink(out, null).keys()].sort()).toEqual(['lon', 'map', 'seed']);
+  });
+  it('老网址、不像样的框不进地区模式;认不出的角度、起伏不管,超出范围的夹回来', () => {
+    expect(readAreaLink(q('seed=7&lon=30'))).toBeNull();
+    for (const a of ['', '1,2,3', '1,2,3,x', '1,2,0,5', '1,2,-3,5', '1,,3,4', 'NaN,1,2,3']) expect(readAreaLink(q(`area=${a}`))).toBeNull();
+    const r = readAreaLink(q('area=10,20,30,40&face=3d&ang=370,95,99,2,-2&ex=55'))!;
+    expect(r.angle).toEqual({ yaw: 10, pitch: PITCH_MAX, zoom: ZOOM_MAX, px: 0.5, pz: -0.5 });
+    expect(r.ex).toBe(30);
+    const bad = readAreaLink(q('area=10,20,30,40&face=3d&ang=1,2,3&ex=abc'))!;
+    expect(bad.angle).toBeNull();
+    expect(bad.ex).toBeNull();
+    // face 认不出 = 平面图(角度、起伏不看)
+    expect(readAreaLink(q('area=10,20,30,40&face=x&ang=1,30,1,0,0&ex=5'))).toEqual({ box: { cx: 10, cy: 20, w: 30, h: 40 }, face: 'flat', angle: null, ex: null });
+  });
+  it('角度 → 镜头 → 角度一样;远近按刚打开时那么远算,换一块屏幕也是那么大的一块', () => {
+    const fit = fitCam(1330, 900, 50, 1600, 900, [400, 64, 1600, 808]);
+    const a = { yaw: -120, pitch: 55, zoom: 2, px: 0.2, pz: -0.1 };
+    const cam = camOfAngle(a, fit, 1330, 900);
+    expect(cam.dist).toBeCloseTo(fit.dist / 2, 6);
+    expect(cam.tx).toBeCloseTo(266, 6);
+    expect(cam.fov).toBe(fit.fov);
+    const b = angleOf(cam, fit, 1330, 900);
+    for (const k of ['yaw', 'pitch', 'zoom', 'px', 'pz'] as const) expect(b[k]).toBeCloseTo(a[k], 6);
+    // 朝向转了几圈也一样
+    expect(angleOf({ ...cam, yaw: -120 + 720 }, fit, 1330, 900).yaw).toBeCloseTo(-120, 6);
+    expect(wrapYaw(180)).toBe(180);
+    expect(wrapYaw(-180)).toBe(180);
+    expect(wrapYaw(-190)).toBe(170);
   });
 });
 
