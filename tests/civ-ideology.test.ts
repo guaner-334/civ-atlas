@@ -131,6 +131,35 @@ describe('思潮的数表(几州的小图)', () => {
     expect(rival[0]).toBeLessThan(calm[0] - 0.1);
   });
 
+  it('天命之说到了印刷的时代合不来:信息过了 3 档的州守不住', () => {
+    const fate = T('天命之说');
+    const keep = run(miniEngine({ edges: [], polity: [0], level: 3 }), { 0: { [fate]: 0.6 } }, fate, 5);
+    const late = run(miniEngine({ edges: [], polity: [0], level: 4 }), { 0: { [fate]: 0.6 } }, fate, 5);
+    expect(keep[0]).toBeGreaterThan(0.55);
+    expect(late[0]).toBeLessThan(keep[0] - 0.15);
+  });
+
+  it('后来几说(技艺、民权)传得快:同样隔着国界、前提都够,一步传过去的比律法之说多得多', () => {
+    // 0 是传出去的那州,1 是别国的邻州;两说在 0 州一样多
+    const m: Mini = { edges: [[0, 1, AdjKind.Flat]], polity: [0, 1], level: 4.5 };
+    for (const k of [T('技艺之说'), T('民权之说')]) {
+      const law = T('律法之说');
+      const slow = run(miniEngine(m), { 0: { [law]: 0.6 } }, law, 1);
+      const fast = run(miniEngine(m), { 0: { [k]: 0.6 } }, k, 1);
+      expect(fast[1]).toBeGreaterThan(slow[1] * 1.5);
+      expect(fast[1]).toBeLessThanOrEqual(0.6 + 1e-12);
+    }
+  });
+
+  it('技艺、民权:前提差两档以内的州也学得进一点(能隔着还落后的地方传到别处),差得更多的学不进', () => {
+    // 民权之说要印刷术(信息 3.4):差 1.4 档还学得进一点,差 2.1 档学不进
+    const k = T('民权之说');
+    const at = (level: number) => run(miniEngine({ edges: [[0, 1, AdjKind.Flat]], polity: [0, 0], level }), { 0: { [k]: 0.6 } }, k, 1)[1];
+    expect(at(2)).toBeGreaterThan(0.05);
+    expect(at(2)).toBeLessThan(at(3.4));
+    expect(at(1.3)).toBe(0);
+  });
+
   it('拼成函数和拼成闭包(网页不许拼函数时)算出来逐位一样;各国按人口加权', () => {
     const m: Mini = { edges: [[0, 1, AdjKind.Flat], [1, 2, AdjKind.Mountain], [2, 3, AdjKind.Strait], [3, 0, AdjKind.SeaRoute], [1, 3, AdjKind.River]], polity: [0, 0, 1, -1], level: 3.6 };
     const out = (['js', 'closure'] as Backend[]).map((b) => {

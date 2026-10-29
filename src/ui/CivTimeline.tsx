@@ -47,7 +47,7 @@ import { usePlotTicks } from './OutlineMap';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';
 import { useNarrow } from './device';
-import { useEra } from './editsStore';
+import { useEra, useMonthNames, useMonths } from './editsStore';
 import { yearFull, type Era } from '../gen/era';
 import { STORY_SECONDS, playRate, replayStart } from './timelineLayout';
 import { filmRangeOf, getFilm, setFilmRange, useFilm } from './filmStore';
@@ -83,6 +83,8 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
   const film = useFilm();
   const chron = useChronicle();
   const era = useEra();
+  const months = useMonths();
+  const monthNames = useMonthNames();
   const has = !!civ && civ.viable && civ.cultures.length > 0;
   const end = civ?.endYear ?? 0;
   const year = Math.min(end, Math.max(0, t.year ?? end));
@@ -91,7 +93,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
   const ext = useExtend();
   const busy = ext.busy && ext.busy.from === end && film.mode !== 'video' ? ext.busy : null;
   const axis = busy ? busy.to : end;
-  const grow = useMemo(() => (busy ? { from: busy.from, at: busy.slow ? null : busy.year, note: narrow ? undefined : busyNote(busy, era) } : undefined), [busy, narrow, era]);
+  const grow = useMemo(() => (busy ? { from: busy.from, at: busy.slow ? null : busy.year, note: narrow ? undefined : busyNote(busy, era, months, monthNames) } : undefined), [busy, narrow, era, months, monthNames]);
   const fresh = !busy && ext.fresh && ext.fresh.to === end ? ext.fresh.from : undefined;
 
   // 换了新世界:回到结束年份(第一次拿到文明时保留网址里的 civYear)。
