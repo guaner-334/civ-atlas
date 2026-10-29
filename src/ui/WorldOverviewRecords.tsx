@@ -271,7 +271,9 @@ export function RecordsPage({ civ }: { civ: Civ | null }) {
   };
 
   const toggle = (k: RecordKey) => setOpen((o) => (o === k ? null : k));
+  // 只管这一行自己有焦点时按的键:焦点在「历来 N 任」上按回车是展开,不是打开卡片
   const keyGo = (f: () => void) => (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       f();

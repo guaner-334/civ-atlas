@@ -15,7 +15,7 @@
  */
 import type { Civ, Person, Year } from './types';
 import { Layer } from './types';
-import { CAPITAL_BOOST, GROWTH_A, dynastyTitle, polityName, populationAt } from './growth';
+import { CAPITAL_BOOST, GROWTH_A, annexedRemnants, dynastyTitle, polityName, populationAt } from './growth';
 import { peopleIndex } from './peopleInfo';
 import { kidsOf } from './lineageInfo';
 import { personName } from './peopleText';
@@ -452,11 +452,19 @@ export function recordBook(civ: Civ): RecordBook {
   );
 
   // ---- 战争和地方 ----
-  // 一场仗:宣战到议和;没议和就有一方亡了的,到亡国那一刻;到现在还在打的一直算
+  // 一场仗:宣战到议和;没议和就有一方亡了的,到亡国那一刻;到现在还在打的一直算。
+  // 攻下几州只数打下来的:议和时割让的、亡国时一并归过去的残部不算(和推演里给每一仗排统帅时一样,见 people.ts 的 warsOf)
+  const ceded = new Set<number>();
+  A.forEach((e, i) => {
+    if (e.kind === 'peace' && e.region > 0) {
+      for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) ceded.add(j);
+    } else if (e.kind === 'fall' && e.war >= 0) for (const j of annexedRemnants(civ, i)) ceded.add(j);
+  });
   const wars: (RecordRef & { kind: 'war' })[] = [];
   const warTook: number[][] = [];
   const byWar = new Map<number, number>();
-  for (const e of A) {
+  for (let i = 0; i < A.length; i++) {
+    const e = A[i];
     if (e.kind === 'war' && !byWar.has(e.war)) {
       const to = Math.min(pols[e.a]?.ended ?? Infinity, pols[e.b]?.ended ?? Infinity);
       byWar.set(e.war, wars.length);
@@ -465,7 +473,7 @@ export function recordBook(civ: Civ): RecordBook {
     } else if (e.kind === 'peace') {
       const w = byWar.get(e.war);
       if (w !== undefined && wars[w].to > e.year) wars[w].to = Math.max(wars[w].from, e.year);
-    } else if (e.kind === 'conquer') {
+    } else if (e.kind === 'conquer' && !ceded.has(i)) {
       const w = byWar.get(e.war);
       if (w !== undefined) warTook[w].push(e.year);
     }

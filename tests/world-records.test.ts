@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { populationAt } from '../src/gen/civ/growth';
+import { annexedRemnants, populationAt } from '../src/gen/civ/growth';
 import { peopleIndex } from '../src/gen/civ/peopleInfo';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { RECORD_GROUPS, recordBook, recordHistory, recordsAt, type RecordKey } from '../src/gen/civ/records';
@@ -116,6 +116,25 @@ describe.each([7, 2024])('世界之最 · seed=%i', (seed) => {
         expect(n).toBe(r.value);
       }
     }
+  });
+
+  it('一场仗攻下州最多:议和割让的、亡国时一并归过去的残部不算', () => {
+    const civ = civOf(seed);
+    const A = civ.annals;
+    const ceded = new Set<number>();
+    A.forEach((e, i) => {
+      if (e.kind === 'peace' && e.region > 0) {
+        for (let j = Math.max(0, i - e.region); j < i; j++) if (A[j].kind === 'conquer' && A[j].war === e.war) ceded.add(j);
+      } else if (e.kind === 'fall' && e.war >= 0) for (const j of annexedRemnants(civ, i)) ceded.add(j);
+    });
+    expect(ceded.size).toBeGreaterThan(0);
+    const wars = new Set(A.filter((e) => e.kind === 'war').map((e) => e.war));
+    const n = new Map<number, number>();
+    A.forEach((e, i) => {
+      if (e.kind === 'conquer' && wars.has(e.war) && !ceded.has(i) && e.year <= civ.endYear) n.set(e.war, (n.get(e.war) ?? 0) + 1);
+    });
+    const r = recordsAt(recordBook(civ), civ.endYear).get('warTook');
+    expect(r?.value).toBe(Math.max(...n.values()));
   });
 
   it('最大的城:那一年人口最多的城', () => {

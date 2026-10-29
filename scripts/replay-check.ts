@@ -809,7 +809,7 @@ if (part('人物')) person: {
   await page.evaluate(() => localStorage.clear());
 }
 
-// 世界之最:世界概览「之最」页(人物后面)15 条纪录,跟着时间轴;刚被刷新的那条淡蓝、标「新纪录」;「历来 N 任」就地展开,点名字开他的卡片;
+// 世界之最:世界概览「之最」页(人物后面)15 条纪录,跟着时间轴;刚被刷新的那条淡蓝、标「新纪录」;「历来 N 任」就地展开(键盘回车也行),点名字开他的卡片;
 // 点一场仗 → 编年史只看攻方;点一朝 → 世系图;复制全文。例子按 Node 里同一份历史现找(某条纪录刚被刷新的那一年),历史变了照样找得到
 if (part('世界之最')) records: {
   const { civOfSeed } = await import('./lib/smokeExamples');
@@ -846,7 +846,9 @@ if (part('世界之最')) records: {
   const groups = await rp.locator('.rec .pp-group').count();
   const tookRow = await text('.rec-row[data-key=took]');
   const tookNew = await rp.locator('.rec-row[data-key=took].rec-new .rec-pill').count();
-  await rp.click('.rec-row[data-key=took] [data-act=record-history]');
+  // 用键盘展开:焦点在「历来 N 任」上按回车(不是打开这一行的卡片)
+  await rp.focus('.rec-row[data-key=took] [data-act=record-history]');
+  await rp.keyboard.press('Enter');
   await rp.waitForTimeout(200);
   const chain = await rp.locator('.rec-chain[data-chain=took] .rec-ch').count();
   const chainTop = await text('.rec-chain[data-chain=took] .rec-ch');
