@@ -758,6 +758,10 @@
   z-index: 5;
   background: rgba(0, 0, 0, 0.4);
 }
+/* 手机上压暗的只是那一页,顶上一排照旧亮着 */
+.rgm.phone .rv-top {
+  z-index: 6;
+}
 .rx.rx-phone {
   left: 0;
   right: 0;
