@@ -63,7 +63,7 @@ import { splitSurname } from './peopleText';
 import { debutSex, nameWomen, pickWomen, type ConsortName } from './women';
 import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, consortDeath, consortRand, dowagerHomeU, isDowager, otherSurname } from './consorts';
 import { HEIR, K_HOUSE_GENERAL, houseBase, pickHouses, withParentSurname } from './kin';
-import { opensSeg, royalSeg } from './regime';
+import { opensSeg, reformedSeg, royalSeg } from './regime';
 import { Issue, REFORM_RESTORE } from './councilRules';
 
 // ---- 调参 ----
@@ -1628,8 +1628,10 @@ function rulerName(
 }
 
 /** 定称号(去世以后才有;见文件头) */
-function titleRulers(p: Polity, list: Person[], f: PolityFacts, base: number, tag: number): void {
+function titleRulers(p: Polity, all: Person[], f: PolityFacts, base: number, tag: number): void {
   const T = (k: number, use: number) => keyed4(base, tag, k, use, K_RULER);
+  // 改制开的共和、军政府那几段的执政没有称号、序数(不和君主一起排)
+  const list = p.dynasties?.some((d) => d.regime) ? all.filter((r) => !reformedSeg(p, r.dynasty ?? 0)) : all;
   // 作者立的君主没有称号(名字也是人物卡上的,不和别的君主编序数),别的君主照旧排
   if (!p.eastern) {
     // 西幻:同名的国王编序数(在位的也编);帝国里开疆最多的一位称大帝
