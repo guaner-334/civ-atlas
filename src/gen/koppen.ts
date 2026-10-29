@@ -8,9 +8,11 @@
  * 热带不分 f / m / w,温带、冷温带不分 f / s / w(第二个字母空着,写成 Ca、Db 这样)。
  *
  * 只读栅格(像素的年均温、年降水、水陆),不改世界;同一个世界算出来总是一样。
+ * 大陆度、年较差的算法(continentalityGrid、annualRange)推演也用:年内气温估算(seasons.ts)按地块取陆地,和这里共用一份。
  */
 import { latitudeAt, windAt } from './climate';
 import type { Raster } from './raster';
+import { round24 } from './civ/rand';
 
 export interface ClimateClass {
   /** 代号:柯本 - 盖格写法,温带、冷温带省掉第二个字母 */
@@ -39,21 +41,19 @@ export const CLIMATE_CLASSES: ClimateClass[] = [
 /** 水面(海、湖)不分类 */
 export const CLIMATE_WATER = 255;
 
-/** 大陆度的粗网格:每格 1° */
-const GW = 360;
-const GH = 180;
+/** 大陆度的粗网格:每格 1°(gy = 0 在北极那一行,gx = 0 在经度 −180° 那一列;和主图一样的等距圆柱) */
+export const CONT_GW = 360;
+export const CONT_GH = 180;
+const GW = CONT_GW;
+const GH = CONT_GH;
 const KM_PER_DEG = 40000 / 360;
 
-/**
- * 大陆度 0–1(0 = 海洋性,1 = 极端大陆性),每格 1°:一半看离海岸多远,一半看顺着盛行风往上风走多远才见到海
- * (同纬度的西岸、东岸差别就在这里)
- */
-function continentality(r: Raster): Float32Array {
+/** 主图像素的陆地(湖算陆地)按 1° 一格:这一格里陆地多于一半算陆地 */
+function landGridOfRaster(r: Raster): Uint8Array {
   const { w, h, water } = r;
   const land = new Uint8Array(GW * GH);
   for (let gy = 0; gy < GH; gy++)
     for (let gx = 0; gx < GW; gx++) {
-      // 这一格里陆地多于一半算陆地
       const x0 = Math.floor((gx * w) / GW);
       const x1 = Math.max(x0 + 1, Math.floor(((gx + 1) * w) / GW));
       const y0 = Math.floor((gy * h) / GH);
@@ -67,10 +67,19 @@ function continentality(r: Raster): Float32Array {
         }
       land[gy * GW + gx] = l * 2 > n ? 1 : 0;
     }
+  return land;
+}
+
+/**
+ * 大陆度 0–1(0 = 海洋性,1 = 极端大陆性),每格 1°:一半看离海岸多远,一半看顺着盛行风往上风走多远才见到海
+ * (同纬度的西岸、东岸差别就在这里)。land = 每格是不是陆地(CONT_GW × CONT_GH)。
+ * 气候图层(按主图像素)和推演里的年内气温(gen/seasons.ts,按地块)共用这一份;三角函数、指数舍入到 24 位,跨 CPU 一致
+ */
+export function continentalityGrid(land: Uint8Array): Float32Array {
   // 离海岸(公里):两遍倒角距离,东西相连(各跑两圈)
   const dist = new Float32Array(GW * GH);
   for (let i = 0; i < GW * GH; i++) dist[i] = land[i] ? 1e9 : 0;
-  const dxOf = (gy: number) => KM_PER_DEG * Math.max(0.05, Math.cos((((gy + 0.5) / GH) * 180 - 90) * (Math.PI / 180)));
+  const dxOf = (gy: number) => KM_PER_DEG * Math.max(0.05, round24(Math.cos((((gy + 0.5) / GH) * 180 - 90) * (Math.PI / 180))));
   for (let pass = 0; pass < 2; pass++) {
     for (let gy = 0; gy < GH; gy++) {
       const dx = dxOf(gy);
@@ -100,8 +109,10 @@ function continentality(r: Raster): Float32Array {
   const STEP = 100;
   for (let gy = 0; gy < GH; gy++) {
     const lat = 90 - ((gy + 0.5) / GH) * 180;
-    const [u, v] = windAt(lat);
-    const cosl = Math.max(0.05, Math.cos(lat * (Math.PI / 180)));
+    const wind = windAt(lat);
+    const u = round24(wind[0]);
+    const v = round24(wind[1]);
+    const cosl = Math.max(0.05, round24(Math.cos(lat * (Math.PI / 180))));
     for (let gx = 0; gx < GW; gx++) {
       const i = gy * GW + gx;
       if (!land[i]) continue;
@@ -116,7 +127,7 @@ function continentality(r: Raster): Float32Array {
         if (!land[j]) break;
         fetch += STEP;
       }
-      cont[i] = 0.5 * (1 - Math.exp(-dist[i] / 600)) + 0.5 * (1 - Math.exp(-fetch / 2000));
+      cont[i] = 0.5 * (1 - round24(Math.exp(-dist[i] / 600))) + 0.5 * (1 - round24(Math.exp(-fetch / 2000)));
     }
   }
   // 抹平一点(格子边上不跳)
@@ -138,11 +149,26 @@ function continentality(r: Raster): Float32Array {
   return out;
 }
 
-/** 年较差(°C):海洋性 3 + 12·sin|φ|,极端大陆性 3 + 60·sin|φ|^1.5,按大陆度在两者之间 */
+/**
+ * 主图上 (u, v) 处的大陆度(u、v = 横、竖的几成,0–1):格子中心之间双线性插值,东西相连
+ */
+export function continentalityAt(cont: Float32Array, u: number, v: number): number {
+  const fy = Math.min(GH - 1, Math.max(0, v * GH - 0.5));
+  const y0 = Math.min(GH - 2, Math.floor(fy));
+  const ty = fy - y0;
+  const fx = u * GW - 0.5;
+  const xf = Math.floor(fx);
+  const tx = fx - xf;
+  const x0 = ((xf % GW) + GW) % GW;
+  const x1 = (x0 + 1) % GW;
+  return (cont[y0 * GW + x0] * (1 - tx) + cont[y0 * GW + x1] * tx) * (1 - ty) + (cont[(y0 + 1) * GW + x0] * (1 - tx) + cont[(y0 + 1) * GW + x1] * tx) * ty;
+}
+
+/** 年较差(°C):海洋性 3 + 12·sin|φ|,极端大陆性 3 + 60·sin|φ|^1.5,按大陆度在两者之间(三角函数、乘方舍入到 24 位,跨 CPU 一致) */
 export function annualRange(lat: number, cont: number): number {
-  const s = Math.abs(Math.sin(lat * (Math.PI / 180)));
+  const s = Math.abs(round24(Math.sin(lat * (Math.PI / 180))));
   const sea = 3 + 12 * s;
-  const inland = 3 + 60 * s ** 1.5;
+  const inland = 3 + 60 * round24(s ** 1.5);
   return sea + (inland - sea) * cont;
 }
 
@@ -168,11 +194,11 @@ export function classOf(mat: number, range: number, map: number): number {
 /** 每个像素的分类(CLIMATE_CLASSES 的下标;水面 = CLIMATE_WATER) */
 export function climateClasses(r: Raster): Uint8Array {
   const { w, h, temp, precip, water } = r;
-  const cont = continentality(r);
+  const cont = continentalityGrid(landGridOfRaster(r));
   const out = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) {
     const lat = latitudeAt(y + 0.5, h);
-    // 大陆度双线性插值(格子中心之间)
+    // 大陆度双线性插值(格子中心之间;同 continentalityAt,按行提出来)
     const fy = Math.min(GH - 1, Math.max(0, ((y + 0.5) / h) * GH - 0.5));
     const y0 = Math.min(GH - 2, Math.floor(fy));
     const ty = fy - y0;

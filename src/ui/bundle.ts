@@ -48,8 +48,10 @@ export const BUNDLE_FORMAT = 1;
  * AI 写的东西不另限条数、长短;存的时候超了就少带一些(见 bundleText),存出来的都在这以内
  */
 const MAX_LEN = 64 * 1024 * 1024;
-/** 一条 AI 写的东西除了正文以外另记的字段(史书的书目等),最多这么长 */
+/** 一条 AI 写的东西除了正文以外另记的字段(史书的书目等),最多这么长(史书留的旧版另算,见 cleanVersions) */
 const NOTE_EXTRA_MAX = 20_000;
+/** 一部史书最多带几份旧版(网页里只留 3 版;文件里的多带几份也只是被网页里的规矩去掉) */
+const NOTE_VERSIONS_MAX = 8;
 /** 缩略图最长多少字(网页自己截的 480×240 只有几十 KB) */
 const THUMB_MAX = 1_000_000;
 
@@ -148,17 +150,40 @@ function cleanNotes(v: unknown): AiNote[] {
   const keys = new Set<string>();
   for (const x of v) {
     if (!isObj(x)) continue;
-    const { key, kind, title, text, createdAt, provider, model, ...rest } = x;
+    const { key, kind, title, text, createdAt, provider, model, others, ...rest } = x;
     if (typeof key !== 'string' || !key || keys.has(key) || typeof kind !== 'string' || typeof text !== 'string') continue;
     keys.add(key);
+    const olds = cleanVersions(others);
     out.push({
       // 各功能自己另记的(史书的书目、释名写的时候的名字……)原样带上,用的时候各功能自己再检查;太大的不要
       ...(JSON.stringify(rest).length <= NOTE_EXTRA_MAX ? rest : {}),
+      // 史书留的旧版:每版和正文一样不限长短,只查每版自己另记的(书目)
+      ...(olds.length ? { others: olds } : {}),
       key: key.slice(0, 200),
       kind: kind.slice(0, 40),
       title: typeof title === 'string' ? title.slice(0, 200) : '',
       text,
       createdAt: typeof createdAt === 'string' && !Number.isNaN(Date.parse(createdAt)) ? createdAt : '',
+      provider: typeof provider === 'string' ? provider.slice(0, 80) : '',
+      model: typeof model === 'string' ? model.slice(0, 120) : '',
+    });
+  }
+  return out;
+}
+
+/** 史书留的旧版(ai/history.ts 的 BookVersion):正文必须是字,另记的字段(书目)太大的那版不要 */
+function cleanVersions(v: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(v)) return [];
+  const out: Record<string, unknown>[] = [];
+  for (const x of v.slice(0, NOTE_VERSIONS_MAX)) {
+    if (!isObj(x)) continue;
+    const { text, createdAt, provider, model, ...rest } = x;
+    if (typeof text !== 'string' || typeof createdAt !== 'string' || Number.isNaN(Date.parse(createdAt))) continue;
+    if (JSON.stringify(rest).length > NOTE_EXTRA_MAX) continue;
+    out.push({
+      ...rest,
+      text,
+      createdAt,
       provider: typeof provider === 'string' ? provider.slice(0, 80) : '',
       model: typeof model === 'string' ? model.slice(0, 120) : '',
     });

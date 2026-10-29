@@ -18,6 +18,7 @@ import { applyNames, cultureKey, faithKey, polityKey, regionKey, type Interventi
 import { searchCiv } from '../src/ui/searchIndex';
 import { layerDef, layerOf } from '../src/ui/mapLayers';
 import { developmentEntries } from '../src/gen/civ/developmentText';
+import { tradeEntries } from '../src/gen/civ/tradeText';
 import { faithFocusOf, selectionOnMap } from '../src/ui/faithSelection';
 import { getCivShow, pickChronicleEntry, setCivShow } from '../src/ui/civView';
 import { sameInBoth } from '../src/ui/assistantStore';
@@ -161,7 +162,7 @@ describe.each([7, 2024])('信仰 · seed=%i', (seed) => {
     expect(new Set(fe.map((e) => e.id)).size).toBe(fe.length);
     const all = fullChronicle(civ).flatMap((e) => [e, ...(e.children ?? [])]);
     expect(all.filter((e) => e.kind === 'faith')).toHaveLength(fe.length);
-    expect(all.length).toBe(base.flatMap((e) => [e, ...(e.children ?? [])]).length + fe.length + developmentEntries(civ).length);
+    expect(all.length).toBe(base.flatMap((e) => [e, ...(e.children ?? [])]).length + fe.length + developmentEntries(civ).length + tradeEntries(civ).length);
   });
 
   it('侧栏的信仰列表:大教按(自己 + 教派)州数排,教派紧跟本教,民间信仰最后;州数加起来 = 有人住的州', () => {

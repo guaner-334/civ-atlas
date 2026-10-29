@@ -23,7 +23,7 @@ import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { standPass } from '../gen/civ/display';
 import { nearX, wrapOf } from '../render/common';
-import { END_YEAR_DEFAULT } from '../gen/edits';
+import { END_YEAR_DEFAULT, YEAR_TICKS } from '../gen/edits';
 import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -123,6 +123,7 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   派: '教派',
   圣: '圣城',
   代: '时代',
+  商: '商道',
   臣: '称臣',
   盟: '结盟',
   绝: '盟绝',
@@ -320,6 +321,14 @@ export function countUpTo(entries: readonly ChronicleEntry[], y: number): number
     else hi = m;
   }
   return lo;
+}
+
+/**
+ * 侧栏「最近大事」列到哪(countUpTo 的 y):停在年中(mid:故事模式停在一年中间、普通世界推到一年中间)、看的是推到的那一刻(atEnd)时,
+ * 历史推到的那一格(end 所在的那一格,那一格的事也推完了)以前的都列上;别的照旧列到看的那一年(year,取过整)
+ */
+export function recentUpTo(year: number, end: number, mid: boolean, atEnd: boolean): number {
+  return mid && atEnd ? (Math.floor(end * YEAR_TICKS + 1e-6) + 1) / YEAR_TICKS : year;
 }
 
 /** 最近事件:到第 y 年为止(含)最近的 n 条,旧的在前 */

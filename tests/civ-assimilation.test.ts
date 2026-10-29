@@ -15,7 +15,9 @@ import {
   ASSIM_GAP,
   ASSIM_MAJOR,
   ASSIM_SPAN,
+  COMBINE_GAP,
   MIGRATE_MAJOR,
+  TREK_ASSIM_MAJOR,
   buildChronicle,
   filterChronicle,
   type ChronicleEntry,
@@ -234,8 +236,9 @@ describe('同化与迁徙', () => {
       const s = assimStats(civ);
       const tag = `seed ${seed}`;
       expect(s.changedShare, tag).toBeGreaterThanOrEqual(0.04);
-      // GENERATOR_VERSION 15(民族分化:分出去的州也算改换过民族)以后 20 个种子 10%–39%:上限放宽到 0.45
-      expect(s.changedShare, tag).toBeLessThanOrEqual(0.45);
+      // GENERATOR_VERSION 15(民族分化:分出去的州也算改换过民族)以后 20 个种子 10%–39%:上限放宽到 0.45;
+      // GENERATOR_VERSION 47(季节进推演)以后 20 个种子 19%–46%,2024 号 45.6%:上限放到 0.5
+      expect(s.changedShare, tag).toBeLessThanOrEqual(0.5);
       expect(s.assimilated, tag).toBeGreaterThan(30);
       migrations += s.migrations;
       expect(s.migrated, tag).toBeGreaterThanOrEqual(s.migrations);
@@ -321,7 +324,8 @@ describe('同化与迁徙', () => {
         expect(e.text).not.toMatch(BAD);
         expect(e.tag).toBe('徙');
         // 亡国后逃难的一波,"大事"里合写进那场战争("…,艾莱斯国亡,艾莱斯族南迁,入阿拉斯等五州")
-        const merged = list.some((w) => w.kind === 'war' && w.importance === 3 && w.text.includes(e.text.replace(/避.+兵锋/, '')));
+        // (同一族前后两回逃到同样几州、字一样的:只认这一回前后 COMBINE_GAP 年里的那场仗)
+        const merged = list.some((w) => w.kind === 'war' && w.importance === 3 && w.year <= e.year && e.year - w.end <= COMBINE_GAP && w.text.includes(e.text.replace(/避.+兵锋/, '')));
         expect(e.importance).toBe(e.regions.length >= MIGRATE_MAJOR && !merged ? 3 : 2);
         const n = e.children?.length ?? 1;
         expect(n).toBe(e.regions.length);
@@ -338,7 +342,8 @@ describe('同化与迁徙', () => {
         expect(e.end - e.year).toBeLessThanOrEqual(ASSIM_SPAN);
         const ys = (e.children ?? [e]).map((c) => c.year);
         for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeLessThanOrEqual(ASSIM_GAP);
-        if (e.regions.length >= ASSIM_MAJOR) expect(e.importance).toBe(3);
+        // 大迁徙迁来立的国反被同化("…境内的…人渐为…人"):五州以上就是大事
+        if (e.regions.length >= (/境内的/.test(e.text) ? TREK_ASSIM_MAJOR : ASSIM_MAJOR)) expect(e.importance).toBe(3);
         else expect(e.importance).toBeLessThan(3);
       }
       for (const e of kids('vanish')) {

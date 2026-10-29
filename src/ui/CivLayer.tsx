@@ -7,7 +7,8 @@
  *    缩放、平移、换年份时重画。它不在被 CSS 放大的地图框里,而是在最上面的屏幕层里(App 传进来的 labelsHost,
  *    见 mapWrap.ts 的"屏幕层"),按地图框的位置摆,一个画布像素对一个屏幕像素 —— 放大到 12 倍字和城镇符号也是清晰的。
  *    画的东西:地理名、国名、城名和城镇符号,一起避让(render/labels/draw.ts 的 placeMap);
- *    底下先画战事的战线和双剑(render/civ/warfare.ts,不参与避让)。
+ *    底下先画战事的战线和双剑(render/civ/warfare.ts,不参与避让)、大迁徙的箭头(render/civ/migrations.ts:箭头不参与避让,
+ *    它的字躲开排好的地名;点编年史那一条时整条亮一下,亮着的两秒逐帧重画)。
  *    回放 / 拖时间轴时城名只排国都和大城的,每帧更快;停下来就补上城、镇、村的名字。
  *
  * 3. 高亮层(canvas.civ-hl,阶段 3 编年史):点编年史的一条,事发的州、相关国家的国土闪约两秒;天灾页的预览(受灾的州)一直亮着
@@ -39,6 +40,11 @@ import { cancelDetailJob, detailAsync, submitDetailJob, type WorkStep } from './
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras, reserveCanvasBoxes, type CivMapLayer } from '../render/civ/labels';
 import { drawSettlementMarks, type CapitalFlags } from '../render/civ/settlements';
 import { drawWarfare, warFront, warsShown } from '../render/civ/warfare';
+import { drawTreks, treksShown } from '../render/civ/migrations';
+import { FLASH_MS as TREK_FLASH_MS, flashAlpha, useTrekFlash } from './migrationInfo';
+import { useEra } from './editsStore';
+import { drawTradeLines, drawTradeNames, tradeShown, type TradeFocus } from '../render/civ/trade';
+import { setTradeHits, useTradeHover } from './tradePick';
 import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
@@ -57,7 +63,7 @@ import {
 } from './civView';
 import { primePolityField, territoryGrid } from '../render/labels/polity';
 import { polityNamesOn } from '../render/civ/show';
-import { cultureKey, faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey, treatyKey } from '../gen/edits';
+import { cultureKey, faithKey, personKey, placeKeyOf, polityKey, resolveKey, resolvePersonKey, settlementKey, tradeKey, treatyKey } from '../gen/edits';
 import { setMapPlacement } from './mapPick';
 import { mapBoxOf, mirrorCanvas, placeOnScreen, visibleBox, watchMapBox } from './mapWrap';
 import { whenDone } from './holdMark';
@@ -152,6 +158,8 @@ export interface CivLayerProps {
   labelsHost?: HTMLElement | null;
   /** 放大后的文明细节层放在哪(屏幕层:地形细节层之上、这一层地图框之下;没有 = 不画细节层) */
   detailHost?: HTMLElement | null;
+  /** 深色底图(卫星图):商道用亮一点的紫 */
+  bright?: boolean;
   /**
    * 各国历代的旗(手绘风国都城堡插旗用;改旗、预览时跟着换)。由 App 和 civ 同一轮算好传进来,
    * 改名、重推时只画一遍(要是自己订阅 flagStore,会先按旧旗画一遍、旗到了再画一遍)
@@ -251,7 +259,9 @@ function selectionIn(sel: MapSelection | null, civ: Civ, base: Civ, was: Civ, wa
               ? placeKeyOf(base, sel.id)
               : sel.kind === 'treaty'
                 ? treatyKey(civ, sel.id) || null
-                : null;
+                : sel.kind === 'trade'
+                  ? tradeKey(civ, sel.id) || null
+                  : null;
   // 州(两份历史的州是同一份)、作者的标记和人物:编号不变
   if (key === null) return sel.kind === 'region' || sel.kind === 'mark' || sel.kind === 'character' ? sel : null;
   const r = resolveKey(sel.kind === 'place' ? wasBase : was, key);
@@ -324,6 +334,8 @@ interface LabelsDebug {
   fitted?: boolean;
   /** 画了几段战线、几个双剑(战事关着 / 没在打仗 = null 或 0) */
   wars?: { lines: number; marks: number } | null;
+  /** 画了几支大迁徙的箭头(东西相连在另一圈再画的算多支) */
+  treks?: number;
 }
 
 /** 弯边投影停下来以后文明底图按投影重画(后台分小步)的活名 */
@@ -355,7 +367,7 @@ function useLateStop(moving: boolean): boolean {
   return moving || late;
 }
 
-export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, view, mp = null, labelsHost = null, detailHost = null, flags: flagsIn = null }: CivLayerProps) {
+export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, view, mp = null, labelsHost = null, detailHost = null, flags: flagsIn = null, bright = false }: CivLayerProps) {
   // 时间轴:画哪一年;回放 / 拖动时色块用半分辨率。流畅优先地播放时画的那一年隔一会儿才换(playQuality.ts)
   const time = useCivTime();
   const fast = time.playing || time.scrubbing;
@@ -420,6 +432,12 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const faithFocusIn = faithFocusOf(pickedIn);
   const cultureFocus = cultureFocusOf(picked);
   const cultureFocusIn = cultureFocusOf(pickedIn);
+  // 商道:卡片开着的那条亮、别的变淡;鼠标停着的那条亮一圈;名字按改过名的
+  const tradeHover = useTradeHover();
+  const tradeFocus = useMemo<TradeFocus>(
+    () => ({ sel: picked?.kind === 'trade' ? picked.id : null, hover: tradeHover, names: civ?.trade?.routes.map((r) => r.name) }),
+    [picked, tradeHover, civ],
+  );
   const mpRef = useRef(mp);
   mpRef.current = mp;
   const show = useCivShow();
@@ -431,9 +449,9 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   const params = useMemo<CivDrawParams | null>(
     () =>
       ok && base
-        ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null, cultureFocus: show.cultures ? cultureFocus : null }
+        ? { world, raster, civ: base, style, year: y ?? base.endYear, show, fast, faithFocus: show.faiths ? faithFocus : null, cultureFocus: show.cultures ? cultureFocus : null, bright }
         : null,
-    [ok, world, raster, base, style, y, show, fast, faithFocus, cultureFocus],
+    [ok, world, raster, base, style, y, show, fast, faithFocus, cultureFocus, bright],
   );
   // 国名、城名、城镇符号:同一年、同样的开关,换成套了改名的 civ
   const mapParams = useMemo<CivDrawParams | null>(() => (params && civ ? { ...params, civ } : null), [params, civ]);
@@ -710,6 +728,9 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     sidesBefore.current = sides;
   }, [sides]);
   const [fadeTick, setFadeTick] = useState(0);
+  // 大迁徙:点编年史那一条时整条箭头亮一下;路线旁的年份照纪年写
+  const trekFlash = useTrekFlash(civ);
+  const era = useEra();
   const extras = useMemo(() => (labelParams ? labelViewExtras(labelParams) : null), [labelParams]);
   const text = useMemo(() => (ok && civ ? labelCharsOf(civ) : ''), [ok, civ]);
   const fontStyle = style;
@@ -812,12 +833,15 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const ctx = cv.getContext('2d')!;
     const clear = () => {
       setMapPlacement(null);
+      setTradeHits(null);
       ctx.clearRect(0, 0, cv.width, cv.height);
     };
     const items = mapLayer ? geoItems.concat(mapLayer.items) : geoItems;
     const marks = mapLayer?.marks ?? [];
     const wars = !!params && warsShown(params);
-    if ((!items.length && !marks.length && !wars && !badges?.length) || !extras || !fontsOk) return clear();
+    const treks = !!params && treksShown(params);
+    const trade = !!params && tradeShown(params);
+    if ((!items.length && !marks.length && !wars && !treks && !trade && !badges?.length) || !extras || !fontsOk) return clear();
     const t0 = performance.now();
     // 看得见的那块:地图框(已被 CSS 放大)和舞台(视口)的交集,换回地图框自己的坐标
     // (舞台换成视窗,地图框往右多算一份 —— 见 mapWrap.ts 的 visibleBox)
@@ -877,6 +901,12 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     }
     // 战线、双剑压在国界上、城镇符号和字底下
     const war = wars && params ? drawWarfare(ctx, params, lv, mp ? projector(mp) : null) : null;
+    // 商道的线压在国界、战线上,城镇符号和字底下;名字等字写完以后写
+    setTradeHits(trade && params ? { canvas: cv, hits: drawTradeLines(ctx, params, lv, mp ? projector(mp) : null, tradeFocus), view: lv } : null);
+    // 大迁徙的路线压在国界、战线、商道上,城镇符号和字底下:字躲开排好的地名、符号和盖着的界面
+    const flashMs = trekFlash ? performance.now() - trekFlash.t0 : Infinity;
+    const glowA = flashAlpha(flashMs);
+    const trekN = treks && params ? drawTreks(ctx, params, lv, mp ? projector(mp) : null, { placed, blocked: ui, era, glow: glowA > 0 ? { m: trekFlash!.m, a: glowA } : null }) : 0;
     drawSelectionLabels(ctx, placed, lv, sel, style, at);
     const capFlags: CapitalFlags | undefined =
       style === 'fantasy' && flags && flags.civ === civ && params
@@ -894,6 +924,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const fade = mapLayer?.sides.size && sideFadeFrom.current ? Math.min(1, (performance.now() - sideFadeFrom.current) / SIDE_FADE_MS) : 1;
     const fading = fade < 1 && placed.labels.some((l) => mapLayer!.sides.has(l.item));
     drawPlacedLabels(ctx, fading ? placed.labels.map((l) => (mapLayer!.sides.has(l.item) ? { ...l, alpha: l.alpha * fade } : l)) : placed.labels, lv);
+    if (trade && params) drawTradeNames(ctx, params, lv, mp ? projector(mp) : null, placed, tradeFocus);
     // 信仰图层:圣城符号右上方一个这个教颜色的小圆点(符号没排上时按城的位置;压在界面下面的不画)
     if (params?.show.faiths && base) {
       const cx = (W / 2 - lv.ox) / lv.scale;
@@ -929,14 +960,16 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
       k,
       texts: placed.labels.map((l) => l.item.text),
       wars: war,
+      treks: trekN,
       proj: mp?.def.id ?? 'equirect',
       lon: mp?.lon0,
       fitted: !!fitMp,
     };
-    if (!fading) return;
+    // 配角名淡入中、迁徙的箭头亮着:下一帧再画
+    if (!fading && !(flashMs < TREK_FLASH_MS)) return;
     const h = requestAnimationFrame(() => setFadeTick((n) => n + 1));
     return () => cancelAnimationFrame(h);
-  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick]);
+  }, [geoItems, mapLayer, extras, fontsOk, fontStyle, style, text, view, tick, params, fast, sel, civ, world, mp, fitMp, avoid, labelsHost, flags, flagImages, badges, resView, fadeTick, tradeFocus, trekFlash, era]);
 
   return (
     <>

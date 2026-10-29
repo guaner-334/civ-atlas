@@ -1,8 +1,7 @@
 /**
- * 生成管线共用的小工具:确定性随机数、噪声、最小堆、插值。
+ * 生成管线共用的小工具:确定性随机数、最小堆、插值(噪声在 noise.ts)。
  * 所有生成步骤只通过 seed 取随机,保证"同一个种子 = 同一个世界"。
  */
-import { createNoise2D, createNoise3D } from 'simplex-noise';
 
 export type Rng = () => number;
 
@@ -57,97 +56,6 @@ export function keyed4(base: number, a: number, b: number, c: number, d: number)
   h = fmix((h ^ Math.imul(c | 0, 0xc2b2ae3d)) >>> 0);
   h = fmix((h ^ Math.imul(d | 0, 0x27d4eb2f)) >>> 0);
   return h / 4294967296;
-}
-
-export type Noise2 = (x: number, y: number) => number;
-
-export function noise2(seed: number): Noise2 {
-  return createNoise2D(mulberry32(seed));
-}
-
-/** 分形布朗运动:多层噪声叠加,输出约 [-1,1]。 */
-export function fbm(n: Noise2, octaves: number, persistence = 0.5, lacunarity = 2): Noise2 {
-  return (x, y) => {
-    let v = 0;
-    let amp = 1;
-    let f = 1;
-    let norm = 0;
-    for (let o = 0; o < octaves; o++) {
-      v += amp * n(x * f + o * 17.3, y * f - o * 9.1);
-      norm += amp;
-      amp *= persistence;
-      f *= lacunarity;
-    }
-    return v / norm;
-  };
-}
-
-/** 山脊噪声:在噪声零线处形成尖脊,输出 [0,1]。用来做古老山系。 */
-export function ridged(n: Noise2, octaves: number, persistence = 0.5): Noise2 {
-  return (x, y) => {
-    let v = 0;
-    let amp = 1;
-    let f = 1;
-    let norm = 0;
-    let weight = 1;
-    for (let o = 0; o < octaves; o++) {
-      let r = 1 - Math.abs(n(x * f + o * 31.7, y * f + o * 7.7));
-      r *= r;
-      r *= weight;
-      weight = Math.min(1, r * 2);
-      v += amp * r;
-      norm += amp;
-      amp *= persistence;
-      f *= 2;
-    }
-    return v / norm;
-  };
-}
-
-export type Noise3 = (x: number, y: number, z: number) => number;
-
-/** 3D simplex 噪声(球面世界在单位球面上取样:没有接缝,极点不收缩) */
-export function noise3(seed: number): Noise3 {
-  return createNoise3D(mulberry32(seed));
-}
-
-/** 3D 分形叠加(同 fbm,各层再错开一点 z) */
-export function fbm3(n: Noise3, octaves: number, persistence = 0.5, lacunarity = 2): Noise3 {
-  return (x, y, z) => {
-    let v = 0;
-    let amp = 1;
-    let f = 1;
-    let norm = 0;
-    for (let o = 0; o < octaves; o++) {
-      v += amp * n(x * f + o * 17.3, y * f - o * 9.1, z * f + o * 5.7);
-      norm += amp;
-      amp *= persistence;
-      f *= lacunarity;
-    }
-    return v / norm;
-  };
-}
-
-/** 3D 山脊噪声(同 ridged) */
-export function ridged3(n: Noise3, octaves: number, persistence = 0.5): Noise3 {
-  return (x, y, z) => {
-    let v = 0;
-    let amp = 1;
-    let f = 1;
-    let norm = 0;
-    let weight = 1;
-    for (let o = 0; o < octaves; o++) {
-      let r = 1 - Math.abs(n(x * f + o * 31.7, y * f + o * 7.7, z * f - o * 3.1));
-      r *= r;
-      r *= weight;
-      weight = Math.min(1, r * 2);
-      v += amp * r;
-      norm += amp;
-      amp *= persistence;
-      f *= 2;
-    }
-    return v / norm;
-  };
 }
 
 /**
@@ -283,78 +191,6 @@ export function boxBlur(src: Float32Array, w: number, h: number, radius: number)
       acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
     }
   }
-}
-
-/**
- * 可无缝平铺的分形噪声贴图(周期梯度噪声多层叠加),size×size,左右 / 上下边缘首尾相接。
- * 铺像素时用"查贴图 + 双线性插值"代替逐像素算多层噪声,快一个数量级。
- * cells:最底层每边多少格(整数才能无缝,波长 = size / cells 像素);之后每层格数 ×2、幅度 ×persistence。
- * 输出已归一化:均值 0、标准差 1。size 必须是 2 的幂(采样时用位运算取模)。
- */
-export function tileableFbm(seed: number, size: number, cells: number, octaves: number, persistence = 0.5): Float32Array {
-  const out = new Float32Array(size * size);
-  const rng = mulberry32(seed);
-  // 256 个均匀分布的单位方向,格点梯度从里面随机挑
-  const DIRS = 256;
-  const ux = new Float32Array(DIRS);
-  const uy = new Float32Array(DIRS);
-  for (let i = 0; i < DIRS; i++) {
-    ux[i] = Math.cos((i / DIRS) * Math.PI * 2);
-    uy[i] = Math.sin((i / DIRS) * Math.PI * 2);
-  }
-  let amp = 1;
-  for (let o = 0; o < octaves; o++) {
-    const c = cells * (1 << o);
-    // 每个格点一个随机单位梯度;格点下标对 c 取模 → 周期正好是 size 个像素
-    const gx = new Float32Array(c * c);
-    const gy = new Float32Array(c * c);
-    for (let i = 0; i < c * c; i++) {
-      const di = (rng() * DIRS) | 0;
-      gx[i] = ux[di];
-      gy[i] = uy[di];
-    }
-    // 每层随机平移,避免各层格点重合(否则会出现规则排列的"平点")
-    const ox = rng() * c;
-    const oy = rng() * c;
-    const f = c / size;
-    // 坐标都在 [0, 2c) 内:取模用一次减法即可
-    for (let py = 0; py < size; py++) {
-      const v = py * f + oy;
-      const vi = v | 0;
-      const ty = v - vi;
-      const sy = ty * ty * ty * (ty * (ty * 6 - 15) + 10);
-      const y0 = vi >= c ? vi - c : vi;
-      const r0 = y0 * c;
-      const r1 = (y0 + 1 === c ? 0 : y0 + 1) * c;
-      const row = py * size;
-      for (let px = 0; px < size; px++) {
-        const u = px * f + ox;
-        const ui = u | 0;
-        const tx = u - ui;
-        const sx = tx * tx * tx * (tx * (tx * 6 - 15) + 10);
-        const c0 = ui >= c ? ui - c : ui;
-        const c1 = c0 + 1 === c ? 0 : c0 + 1;
-        const n00 = gx[r0 + c0] * tx + gy[r0 + c0] * ty;
-        const n10 = gx[r0 + c1] * (tx - 1) + gy[r0 + c1] * ty;
-        const n01 = gx[r1 + c0] * tx + gy[r1 + c0] * (ty - 1);
-        const n11 = gx[r1 + c1] * (tx - 1) + gy[r1 + c1] * (ty - 1);
-        const a0 = n00 + (n10 - n00) * sx;
-        const a1 = n01 + (n11 - n01) * sx;
-        out[row + px] += amp * (a0 + (a1 - a0) * sy);
-      }
-    }
-    amp *= persistence;
-  }
-  let s = 0;
-  let s2 = 0;
-  for (let i = 0; i < out.length; i++) {
-    s += out[i];
-    s2 += out[i] * out[i];
-  }
-  const mean = s / out.length;
-  const inv = 1 / Math.sqrt(Math.max(1e-12, s2 / out.length - mean * mean));
-  for (let i = 0; i < out.length; i++) out[i] = (out[i] - mean) * inv;
-  return out;
 }
 
 /**

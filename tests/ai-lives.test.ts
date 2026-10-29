@@ -300,6 +300,15 @@ describe('列传:作者的人物', () => {
     expect(lifeOptionLabel(civ, O.scope, csrc)).toBe('沈青禾列传');
   });
 
+  it('女的:材料写明"性别:女",说明里写"她";男的(以前的人物)不写性别', () => {
+    const she = { ...c, female: true as const };
+    const ssrc = { person: src.person, character: (id: number) => (id === 7 ? characterCard(civ, world, null, she, [she]) : null) };
+    expect(materialOf(O, ssrc)).toContain('- 性别:女');
+    expect(materialOf(O, ssrc)).toContain('下面缩进的是她勾上的');
+    expect(userOf(O, ssrc)).toContain('不要替她添');
+    expect(materialOf(O, csrc)).not.toContain('性别');
+  });
+
   it('作者删了这个人物:找不到(重写不了);编号分给了新人物(生年不同)也不算同一个人', () => {
     const s = bookStoreScope(civ, O.scope, csrc);
     expect(s).toEqual({ kind: 'character', id: 7, born: c.born, name: '沈青禾' });

@@ -2,8 +2,11 @@
  * 作者的人物的卡片(和推演人物、作者标记的卡片同一套样子,零件见 panelParts.tsx;数据格式见 gen/characters.ts 文件头):
  * 世界概览「人物」页的「我的」、搜索、地图上的头像、别的卡片里「作者的人物」打开;新建、编辑也在这张卡片里填(characterStore.ts 的 draft)。
  *
+ * 卡片上写到这个人物的"他 / 她"按人物卡上的性别(gen/civ/gender.ts 的 heOrShe;没选过的 = 男)。
+ *
  * 看的时候
- *   顶部  头像(Portrait.tsx;按编号挑,他的国家定服饰,年龄跟时间轴;右下角「换一张」)、名字、"作者的人物，2490–2561 年"
+ *   顶部  头像(Portrait.tsx;按编号挑,他的国家定服饰,年龄跟时间轴;右下角「换一张」;女的先用她的颜色的方块写名字,没有「换一张」)、
+ *         名字、"作者的人物，2490–2561 年"
  *   按钮  出生那年(主操作:时间轴跳到生年)/ 编辑 / 即位…(卡片换成让他即位那一页,CrownPage.tsx)/ 关注他(即了位的才有,跟推演里的他,Follow.tsx)/ 更多(关系图(RelationGraph.tsx)、复制生平、设为中心、删除人物;删了提示条上能撤销;
  *         当过君主的先问一句:连他的即位一起去掉 / 只删人物,CrownAsk.tsx)
  *   简介  作者写的那几句
@@ -16,7 +19,7 @@
  *   这些年身边的事  他在世那些年他的国家的事、换君主、他去过的州的事(当前那年前后最多 8 条),后面「在编年史中查看」
  *
  * 填的时候(新建、编辑)
- *   名字输入框、生卒(各带"用第 N 年")、出生地(点地图挑,「换一处」「去掉」)、国家(默认跟着出生地)、身份、性格(四条滑条)、颜色、简介、
+ *   名字输入框、性别(男 | 女,默认男;卡片、按钮上的"他 / 她"跟着它)、生卒(各带"用第 N 年")、出生地(点地图挑,「换一处」「去掉」)、国家(默认跟着出生地)、身份、性格(四条滑条)、颜色、简介、
  *   一生(一行一段,点了改;「加一段经历」)、亲友(点了改;「加亲友」)、底部 取消 / 完成
  *   (当过君主的改了生卒、性格,点「完成」先问一句:他的即位一起改 / 只改人物卡,CrownAsk.tsx)
  *   加一段经历:年份(算好几岁)、经历、在哪(点地图;「去掉」清掉)、勾推演里那几年那一处的事和人;底部 取消 / 加上
@@ -29,10 +32,11 @@ import type { World } from '../gen/world';
 import { polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/display';
 import { LEANING_KEYS, LEANING_TEXT, personName, rulerFateWord } from '../gen/civ/peopleText';
+import { heOrShe, type Sexed } from '../gen/civ/gender';
 import { commandFoes, rulerAt, rulerNeighbors } from '../gen/civ/peopleInfo';
 import { hasLineage } from '../gen/civ/lineageInfo';
 import type { Person, RulerLeanings } from '../gen/civ/types';
-import { MARK_COLORS, polityKey, type Intervention, type MarkColor } from '../gen/edits';
+import { MARK_COLORS, advanceOf, cleanPlay, polityKey, type Intervention, type MarkColor } from '../gen/edits';
 import {
   CHARACTERS_MAX,
   CHAR_NAME_DEFAULT,
@@ -51,9 +55,9 @@ import {
   type AuthorCharacter,
 } from '../gen/characters';
 import { MARK_HEX } from '../render/marks';
-import { getEdits, removeCharacter, removeIntervention, restoreCharacter, updateCharacter, useEdits, useEra } from './editsStore';
+import { getEdits, removeCharacter, removeIntervention, restoreCharacter, updateCharacter, useEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { characterPortrait } from '../gen/portrait';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { eraText, spaced, yearAt, yearFull, yearShort, yearSpanAt, type Era } from '../gen/era';
 import { clearSelection, pickChronicleEntry, setSelection, type MapSelection } from './civView';
 import {
@@ -109,7 +113,8 @@ import { requestMapCenter } from './mapWrap';
 import { openLineage, openOverview } from './overviewStore';
 import { setSheet } from './panelStore';
 import { getPending, queueIntervention, removePending, usePending, type Pending } from './pendingStore';
-import { useStepwise } from './stepwiseStore';
+import { nextAt, useStepwise } from './stepwiseStore';
+import { momentStart, monthly } from './stepTime';
 import { characterCrowns, crownDeleteAsk, crownEditAsk, crownToDeath, newReignName, noteCrownResim, type CrownAsk, type CrownState } from './crownInfo';
 import { KEEP_CROWN, keepReignNote } from './keepInfo';
 import { CrownAskDialog } from './CrownAsk';
@@ -211,10 +216,14 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
   const edits = useEdits();
   const pending = usePending();
   const step = useStepwise().on;
-  const crowns = useMemo(() => characterCrowns(civ, c.id, pending, edits.interventions, step, era), [civ, c.id, pending, edits.interventions, step, era]);
+  // 逐年推演停在年中:单子里的在那一格生效,和推过的按年 + 第几格排先后
+  const tick = useMemo(() => (step ? (cleanPlay(edits.play)?.tick ?? 0) : 0), [step, edits.play]);
+  const crowns = useMemo(() => characterCrowns(civ, c.id, pending, edits.interventions, step, era, tick), [civ, c.id, pending, edits.interventions, step, era, tick]);
   const polity = useMemo(() => characterPolity(civ, world, raster, c), [civ, world, raster, c]);
   const ptAge = Math.floor((c.died !== undefined ? Math.min(year, c.died) : year) - c.born);
-  const portrait = useMemo(() => characterPortrait(civ, c, polity, c.born + ptAge), [civ, c, polity, ptAge]);
+  // 女的头像部件还没有:先用她的颜色的方块写名字(NameFace)
+  const portrait = useMemo(() => (c.female ? null : characterPortrait(civ, c, polity, c.born + ptAge)), [civ, c, polity, ptAge]);
+  const he = heOrShe(c);
   const around = useMemo(() => aroundEvents(civ, world, raster, c), [civ, world, raster, c]);
   const kin = useMemo(() => kinList(civ, c, chars), [civ, c, chars]);
   const focus = useMemo(() => {
@@ -313,7 +322,7 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
       node: (
         <>
           <Link to={{ kind: 'polity', id: polity }}>{polityName(p, y)}</Link>
-          {ruler && <em className="cp-num-note">{ruler.author === c.id ? '他在位' : `${personName(civ, ruler)}在位`}</em>}
+          {ruler && <em className="cp-num-note">{ruler.author === c.id ? `${he}在位` : `${personName(civ, ruler)}在位`}</em>}
         </>
       ),
     });
@@ -448,6 +457,8 @@ function CharView({ civ, raster, world, year, c, chars }: CharacterPanelProps & 
                 </button>
               }
             />
+          ) : c.female ? (
+            <NameFace name={c.name} size="card" color={MARK_HEX[c.color]} dead={c.died !== undefined && year > c.died} />
           ) : (
             <CharAvatar c={c} size={38} />
           )
@@ -615,7 +626,12 @@ function LeanRead({ l, onEdit }: { l: RulerLeanings; onEdit: () => void }) {
 
 /** 他的一条即位(「君位」一块):待推演 / 下一步生效、生效了、没生效 */
 function CrownSec({ civ, c, st, era }: { civ: Civ; c: AuthorCharacter; st: CrownState; era: Era | undefined }) {
-  const when = (v: { from: number }, step: boolean) => `${yearFull(v.from, era)}${step ? '年初' : ''}`;
+  // 故事模式下一步生效的:写下一步开始的那一刻("第 2676 年年初""第 1549 年菊月初")
+  const sw = useStepwise();
+  const months = useMonths();
+  const names = useMonthNames();
+  const always = monthly(advanceOf(useEdits()), months);
+  const when = (v: { from: number }, step: boolean) => (step ? momentStart(nextAt(sw), months, era, names, always) : yearFull(v.from, era));
   if (st.kind === 'queued')
     return (
       <section className="cp-sec" data-crown-state={st.step ? 'next' : 'pending'}>
@@ -712,11 +728,11 @@ function ReignSec({
       const what =
         x.fate === 'deposed'
           ? next && newName
-            ? `${next.name}入主、${reign.eastern ? `改国号${newName}` : `${newName}兴`}，他被废`
-            : '改朝换代，他被废'
+            ? `${next.name}入主、${reign.eastern ? `改国号${newName}` : `${newName}兴`}，${heOrShe(c)}被废`
+            : `改朝换代，${heOrShe(c)}被废`
           : x.fate === 'yielded'
-            ? `又立了${next ? personName(civ, next) : '别的人物'}，他让位`
-            : `${polityName(p, u - 1 / 512)}亡，他${down.word}`;
+            ? `又立了${next ? personName(civ, next) : '别的人物'}，${heOrShe(c)}让位`
+            : `${polityName(p, u - 1 / 512)}亡，${heOrShe(c)}${down.word}`;
       const tail = c.died !== undefined ? `卒年照你写的${spaced(yearAt(c.died, era))}不变。` : '';
       warn = `${plan}；推演里${spaced(at)}${what}，比原定早 ${gap} 年。${tail}`;
     }
@@ -754,7 +770,7 @@ function ReignSec({
         {next && (
           <Row k="继任">
             <Link to={{ kind: 'person', id: next.id }}>{personName(civ, next)}</Link>
-            <em className="cp-num-note">{sameDyn(x, next) ? '继他之位' : newName ? (reign.eastern ? `改朝换代，国号${newName}` : `王室更迭，${newName}`) : '新朝'}</em>
+            <em className="cp-num-note">{sameDyn(x, next) ? `继${heOrShe(c)}之位` : newName ? (reign.eastern ? `改朝换代，国号${newName}` : `王室更迭，${newName}`) : '新朝'}</em>
           </Row>
         )}
         {down && (
@@ -842,6 +858,11 @@ function placeNote(civ: Civ, pl: CharPlace, year: number): string {
   return parts.join('，');
 }
 
+/** 正在填的人物的性别(填写页选的「男 / 女」) */
+const draftSex = (d: CharDraft): Sexed => (d.female ? { female: true } : null);
+/** 正在填的人物:他 / 她 */
+const draftHe = (d: CharDraft) => heOrShe(draftSex(d));
+
 function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPanelProps & { draft: CharDraft; picking: boolean }) {
   const problem = draftProblem(d);
   const era = useEra();
@@ -923,6 +944,20 @@ function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPane
         <SubLine parts={['作者的人物']} />
       </PanelHead>
       <div className="cp-body">
+        <section className="cp-sec" data-oc="sex">
+          <div className="cp-sec-head">性别</div>
+          <div className="cp-from">
+            <div className="cp-dur" role="radiogroup" aria-label="性别">
+              <button role="radio" aria-checked={!d.female} className={d.female ? '' : 'on'} data-act="character-male" onClick={() => patchDraft({ female: false })}>
+                男
+              </button>
+              <button role="radio" aria-checked={d.female} className={d.female ? 'on' : ''} data-act="character-female" onClick={() => patchDraft({ female: true })}>
+                女
+              </button>
+            </div>
+            <div className="cp-note">{d.female ? '头像先用颜色方块，女性头像以后补上。' : '卡片、按钮上写「他」还是「她」跟着这个。'}</div>
+          </div>
+        </section>
         <section className="cp-sec">
           <div className="cp-sec-head">生卒</div>
           <div className="cp-from mk-yrs">
@@ -960,7 +995,7 @@ function CharEdit({ civ, raster, world, year, draft: d, picking }: CharacterPane
           <div className="cp-form cr-leans cr-leans-edit">
             <LeanSliders value={d.leanings ?? characterLeanings({})} onChange={(l) => patchDraft({ leanings: l })} />
           </div>
-          <div className="cp-note">四项 0–100，没动过就是 50。让他即位时带进推演。</div>
+          <div className="cp-note">四项 0–100，没动过就是 50。让{draftHe(d)}即位时带进推演。</div>
         </section>
         <section className="cp-sec">
           <div className="cp-sec-head">颜色</div>
@@ -1135,7 +1170,7 @@ function LifeCard({ civ, raster, world, year, draft: d, l, picking }: CharacterP
             </div>
           )}
           <div className="cp-note">
-            {events.scope === 'place' ? '那几年这一处的事。' : '那几年他的国家的事。'}勾上的写进他的一生，事的那一方也会在卡片上看到他。
+            {events.scope === 'place' ? '那几年这一处的事。' : `那几年${draftHe(d)}的国家的事。`}勾上的写进{draftHe(d)}的一生，事的那一方也会在卡片上看到{draftHe(d)}。
           </div>
         </section>
         {people.length > 0 && (

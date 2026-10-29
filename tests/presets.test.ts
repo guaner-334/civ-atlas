@@ -104,7 +104,7 @@ describe('预设', () => {
 
 describe('大陆块数的上限', () => {
   it('板块、陆地够多时 1–6 都能选;板块太少时少几块', async () => {
-    const { continentCap } = await import('../src/gen/tectonics');
+    const { continentCap } = await import('../src/gen/params');
     expect(continentCap(30, 0.33)).toBeGreaterThanOrEqual(6);
     expect(continentCap(8, 0.33)).toBe(2);
     expect(continentCap(15, 0.12)).toBe(3);

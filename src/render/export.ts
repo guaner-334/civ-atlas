@@ -4,7 +4,7 @@
  * 分两步,重活放后台线程(src/exportWorker.ts),界面不卡:
  *   1. drawMapBase(后台线程,OffscreenCanvas):地形(当前画风;2× 时用重新铺的两倍像素)+ 文明底图(国土 / 民族色块、国界、道路,
  *      当前时间轴年份、和屏幕上开着的一样)+ 写实风 / 数据图层的外框和罗盘(手绘风的外框、罗盘本来就画在地形里)。
- *   2. drawMapLabels(主线程,要用页面里加载好的字体):地名、国名、城名和城镇符号(还有战事的战线、双剑),按"整图、缩放 1 倍"排版 ——
+ *   2. drawMapLabels(主线程,要用页面里加载好的字体):地名、国名、城名和城镇符号(还有战事的战线、双剑,大迁徙的路线),按"整图、缩放 1 倍"排版 ——
  *      地图按世界宽(2048 CSS 像素)显示、2× 时像素密度 × 2:2× 和 1× 排出来一模一样,只是更清楚。
  *      排版、避让和屏幕上是同一套(render/labels/draw.ts 的 placeMap),文字之间不重叠、国名落在国土上。
  *      等值线开着时,后台线程把地形和上面两层分成两张交回来;排好字、还没画之前,先在地形上画线(drawExportContours,
@@ -35,6 +35,8 @@ import { RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
+import { drawTreks, treksShown } from './civ/migrations';
+import { drawTradeLines, drawTradeNames, tradeShown } from './civ/trade';
 import { REF_MAP_CSS, drawPlacedLabels, placeMap, type LabelMark, type LabelView, type PlacedMark, type Placement } from './labels/draw';
 import { ensureFonts, familyFor, fontCss } from './labels/fonts';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
@@ -89,6 +91,8 @@ export interface ExportMapParams {
   res?: ResourceLook;
   /** 数据图层在地图角上带不带色阶;不给 = 带(回放、长图用的整图不带) */
   legend?: boolean;
+  /** 纪年(地图上大迁徙路线旁的年份照它写;不给 = 第几年) */
+  era?: Era;
 }
 
 /** 弯边投影:图片按哪种投影、哪条中央经线画(等距圆柱 = null) */
@@ -483,14 +487,16 @@ export async function drawMapLabels(
     opt.beforeDraw?.(null);
     return { labels: 0, marks: 0 };
   }
-  const params = { world: p.world, raster: p.raster, civ: p.civ, style: p.style, year: p.year, show: p.show };
+  const params = { world: p.world, raster: p.raster, civ: p.civ, style: p.style, year: p.year, show: p.show, bright: inkStyle(p) === 'realistic' };
   // 地理名不随年份变(和屏幕上一样按结束年份取);国名、城名、城镇符号按当年
   const geo = civLabelItems({ ...params, year: p.civ.endYear });
   // 弯边投影:国名按投影后的国土拟合
   const layer = civMapLayer(params, { proj: exportProj(p), fast: opt.fast });
   const items = geo.concat(layer.items);
   const wars = warsShown(params);
-  if (!items.length && !layer.marks.length && !wars && !p.show.resources) {
+  const treks = treksShown(params);
+  const trade = tradeShown(params);
+  if (!items.length && !layer.marks.length && !wars && !treks && !trade && !p.show.resources) {
     opt.beforeDraw?.(null);
     return { labels: 0, marks: 0 };
   }
@@ -504,8 +510,17 @@ export async function drawMapLabels(
     const mp = exportProj(p);
     drawWarfare(ctx, params, lv, mp ? projector(mp) : null);
   }
+  // 商道:线在城镇符号和字底下,名字等字写完以后写(和屏幕上一样)
+  const tpj = trade ? exportProj(p) : null;
+  if (trade) drawTradeLines(ctx, params, lv, tpj ? projector(tpj) : null);
+  // 大迁徙的路线:压在国界、商道上,城镇符号和字底下(字躲开排好的地名)
+  if (treks) {
+    const mp = exportProj(p);
+    drawTreks(ctx, params, lv, mp ? projector(mp) : null, { placed, era: p.era });
+  }
   drawSettlementMarks(ctx, placed.marks, p.style);
   drawPlacedLabels(ctx, placed.labels, lv);
+  if (trade) drawTradeNames(ctx, params, lv, tpj ? projector(tpj) : null, placed);
   if (p.show.resources) drawResourceLayer(ctx, p.civ!, p.world, p.year, lv, placed.labels, p.res);
   return { labels: placed.labels.length, marks: placed.marks.length, placed };
 }

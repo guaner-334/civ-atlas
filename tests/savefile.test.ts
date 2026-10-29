@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyNotes, getNote, listNotes, putNote, replaceNotes } from '../src/ai/library';
-import { asHistoryNote } from '../src/ai/history';
+import { asHistoryNote, bookVersions, versionsNote, type BookVersion, type HistoryBookMeta } from '../src/ai/history';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
@@ -1314,6 +1314,21 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(43, { terrain: false, upheavals: false })).toBe(versionNote(43, false));
     expect(versionNote(43, { terrain: false, upheavals: true })).toBe(history);
   });
+  it('第 47 版(季节进推演)历史重新推演:从第 46 版来的,改没改过地形、有没有地形大事都照历史重新推演说', () => {
+    const history = '来自旧版本：地形和气候没变，历史重新推演了';
+    expect(GENERATOR_CHANGES[47]).toEqual({ change: 'history' });
+    expect(versionNote(46, false)).toBe(history);
+    expect(versionNote(46, true)).toBe(history);
+    expect(versionNote(46, { terrain: false, upheavals: true })).toBe(history);
+  });
+  it('第 48 版(大迁徙的方位字)疆域兴亡不变;第 49 版(时代做法)历史重新推演:从第 48、47 版来的照历史重新推演说', () => {
+    expect(GENERATOR_CHANGES[48]).toEqual({ change: 'chronicle' });
+    expect(GENERATOR_CHANGES[49]).toEqual({ change: 'history' });
+    expect(versionNote(48, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    expect(versionNote(47, false)).toBe(versionNote(48, false));
+    expect(versionNote(47, { terrain: true, upheavals: true })).toBe(versionNote(47, false));
+    expect(versionNote(46, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+  });
   it('同一版、或世界本来就变了时:地形对不上只在同一版时提示', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');
     expect(checkWarning(save, 'aaaaaaaaaaaa')).toBeNull();
@@ -1775,6 +1790,27 @@ describe('全部存成文件(bundle)', () => {
     const huge = { ...NOTE, key: '史书:huge', book: { title: 'x'.repeat(30_000) } };
     const r = parseBundle(JSON.stringify({ app: SAVE_APP, bundle: 1, worlds: [{ save: makeSave({ ...DEFAULT_PARAMS, seed: 8 }, EDITS, 'c8', '大'), notes: [huge] }] }));
     expect(r && r.ok ? r.bundle.worlds[0].notes : null).toEqual([NOTE].map((n) => ({ ...n, key: '史书:huge' })));
+  });
+
+  it('史书留的几版(长篇,每版三万字)跟着存进文件、跟着放回来,还是那几版、停在原来那版', () => {
+    const a = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'c7', '苍澜界'))!;
+    const meta: HistoryBookMeta = { title: '世界通史', range: '第 0—3000 年', scope: { kind: 'world' }, style: 'biography', length: 'k30', fp: 'fp1', seed: 7, calls: 6 };
+    const ver = (n: number): BookVersion => ({ text: `第 ${n} 版`.repeat(6000), createdAt: `2026-10-2${n}T08:00:00.000Z`, provider: 'bailian', model: 'qwen-plus', book: { ...meta, fp: `fp${n}` } });
+    const book = versionsNote('史书:world:biography:k30', [ver(1), ver(2), ver(3)], 1);
+    putNote(a, book);
+    const text = bundleText()!.text;
+    freshBrowser();
+    openBundleText(text);
+    const na = saveStore.listWorlds()[0];
+    const back = asHistoryNote(getNote(na.id, book.key));
+    expect(back).not.toBeNull();
+    expect(bookVersions(back!)).toEqual(bookVersions(book));
+    expect(back!.text).toBe(ver(2).text);
+    // 旧版里坏了的那版不要,别的照留
+    const bad = { ...book, others: [...book.others!, { text: 3 }, { text: '缺日期' }, { ...ver(4), book: { title: 'x'.repeat(30_000) } }] };
+    const r = parseBundle(JSON.stringify({ app: SAVE_APP, bundle: 1, worlds: [{ save: makeSave({ ...DEFAULT_PARAMS, seed: 8 }, EDITS, 'c8', '大'), notes: [bad] }] }));
+    const got = r && r.ok ? asHistoryNote(r.bundle.worlds[0].notes[0]) : null;
+    expect(got && bookVersions(got).list.map((v) => v.createdAt)).toEqual([ver(1), ver(2), ver(3)].map((v) => v.createdAt));
   });
 
   it('参数、修改、名字都一样,底稿出处不一样:不算同一个,文件里的出处不丢', () => {

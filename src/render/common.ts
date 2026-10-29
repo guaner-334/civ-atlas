@@ -1,6 +1,7 @@
 /** 渲染共用:明暗(山体阴影)、距离变换、颜色工具。 */
 import type { Raster } from '../gen/raster';
-import { boxBlur, noise3 } from '../gen/util';
+import { boxBlur } from '../gen/util';
+import { noise3 } from '../gen/noise';
 import { reprojectImage, type Projector } from './projection';
 export { boxBlur };
 

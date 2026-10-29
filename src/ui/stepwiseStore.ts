@@ -1,15 +1,17 @@
 /**
  * 逐年推演的界面状态(和 civView.ts 一样的小 store;界面在 Stepwise.tsx,一步怎么算在 worker 的 turn,数据格式见 gen/edits.ts、gen/stepwise.ts)。
  *
- * 一个世界的修改里有进度(edits.play)就是在逐年推演:历史只算到"现在"(play.year 年初),
- * 时间轴只放这一段([since, 下一次停的那年],见 ui/stepwisePlan.ts 的 nextStep / pauseYear),"现在"以后是还没发生的。
+ * 一个世界的修改里有进度(edits.play)就是在逐年推演:历史只算到"现在"(play 那一刻:play.year 年第 play.tick 格),
+ * 时间轴只放这一段([since, 下一次停的那一刻],见 ui/stepwisePlan.ts 的 nextStep / pauseTick),"现在"以后是还没发生的。
+ * 时刻都写成带小数的年份(第 y 年第 k 格 = y + k / YEAR_TICKS,见 stepwisePlan.ts 文件头),一步能短到一个月、一格。
  *
  * - 往下走:播放头在算好的历史里走(导播开着按导播的排期,关着按固定速度);播放头走进最后算好的那一步时,
  *   在后台算下一步(App 交给 worker 的 turn),算得比放得慢就放慢一点等它,不停顿。
- * - 停一下:一步走完说该停了(每隔几年、出大事、到能推的最后一年),播放头走到那一年就停下:
- *   卡片列出这一段的大事(和导播放的一样挑)、倒计时,倒计时走完、点「接着演绎」接着走。这一段一件大事也没有就不停(接着走)。
+ * - 停一下:一步走完说该停了(每隔几年、每一步、出大事、到能推的最后一年),播放头走到那一刻就停下:
+ *   卡片列出这一段的大事(和导播放的一样挑)、倒计时,倒计时走完、点「接着演绎」接着走。这一段一件大事也没有就不停(接着走);
+ *   每一步都停的,这一步一件大事也没有时只停 EMPTY_STOP_SECS 秒,写一句"全世界没有大事"(empty)。
  * - 干预:国家 / 州 / 城的干预先进单子(pendingStore.ts,和推演模式的待推演是同一个单子),下一步开始时一起交给 worker,
- *   生效年份 = 下一步从哪年起(nextYear)。打开干预页时倒计时停住,点「接着演绎」再走。
+ *   生效时刻 = 下一步从哪一刻起(nextAt;干预的 from 写那一年 nextYear,交出去时带上第几格)。打开干预页时倒计时停住,点「接着演绎」再走。
  * - 往回看:时间轴两头「‹ ›」一段一段翻(page、marks;怎么切段见 stepwisePlan.ts 的 stepPage),拖、跳年、点编年史也能回到以前任一年;
  *   比放到过的最远处(seen)早就是在往回看,倒计时停住。从那一年重新演绎(App 的 rewind):原来那条原样留成一支,
  *   "现在"回到那一年(另开的新一支),停着等点「接着演绎」(fresh),这一段从那一年数起。
@@ -20,15 +22,17 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { cleanPlay, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
+import { cleanPlay, commandsNow, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
 import { stepwiseToNormal } from '../gen/stepwise';
 import type { PauseWhy, StepPlan, StepReviewItem } from './stepwisePlan';
 
-/** 停在哪:这一段(from 到 to 年年初)、为什么停、这一段的大事(和导播放这一段时挑的一样) */
+/** 停在哪:这一段(from 到 to 那一刻)、为什么停、这一段的大事(和导播放这一段时挑的一样) */
 export interface StepStop {
   from: number;
   to: number;
   why: PauseWhy;
+  /** 每一步都停、这一步全世界没有大事:只停几秒,一句话(没有卡片) */
+  empty?: true;
   /** 出大事也停时,这一步里的头等大事(卡片标题"出了一件大事") */
   big: readonly ChronicleEntry[];
   items: readonly StepReviewItem[];
@@ -59,11 +63,11 @@ export interface StepwiseState {
   on: boolean;
   /** 这次从第几年起演绎 */
   start: number;
-  /** 这一段从哪年起(开始的那年、上一次停下的那年、打开时的"现在") */
+  /** 这一段从哪一刻起(开始的那年、上一次停下的那一刻、打开时的"现在";年份带小数) */
   since: number;
-  /** 推到哪年年初了("现在";历史算到这一刻之前) */
+  /** 推到哪一刻了("现在";历史算到这一刻之前;年份带小数) */
   now: number;
-  /** 正在算的一步:从哪年起、照哪份打算走(走几年、走完停不停)、随这一步交出去的干预(在 from 那年生效;没在算 = null) */
+  /** 正在算的一步:从哪一刻起、照哪份打算走(走多久、走完停不停)、随这一步交出去的干预(在 from 那一刻生效;没在算 = null) */
   busy: { from: number; to: number; plan: StepPlan; t0: number; commands: readonly Intervention[] } | null;
   /** 推到的这一年要停一下(走完的那一步说的):播放头走到这里就停 */
   due: { why: PauseWhy; big: readonly ChronicleEntry[] } | null;
@@ -226,8 +230,8 @@ export function onStepGestureEnd(f: () => void): () => void {
 // App 做的几件事
 
 export interface StepwiseActions {
-  /** 算一步:在"现在"下这几条干预(from 已经是"现在"),接着走 years 年;交出去了 = true */
-  turn(years: number, commands: unknown[]): boolean;
+  /** 算一步:在"现在"下这几条干预(时刻已经是"现在"),接着走 ticks 格;交出去了 = true */
+  turn(ticks: number, commands: unknown[]): boolean;
   /**
    * 从推演模式第 year 年开始(drop = 不带的那几条以后的干预,laterInterventions 的 index;adv = 推进设置):
    * 另存一个世界、打开它(推进设置只写进新的那个,原来的世界不动)
@@ -235,7 +239,7 @@ export interface StepwiseActions {
   start(year: number, drop: readonly number[], adv: Advance): void;
   /** 存回推演模式(只存当前这一支):asNew = 存成新世界(不然覆盖原来那个);open = 存好以后打开它 */
   saveBack(asNew: boolean, open: boolean): void;
-  /** 从第 year 年重新演绎:原来那条原样留成一支,从那一年另开一支(名字 name,空 = 没起名)、切过去 */
+  /** 从 year 那一刻(年份带小数;停在年中、一步短于一年的是那一格)重新演绎:原来那条原样留成一支,从那一刻另开一支(名字 name,空 = 没起名)、切过去 */
   rewind(year: number, name: string): void;
   /** 切到编号 id 的那一支(在后台照它从第 0 年重推,推完换上) */
   switchBranch(id: number): void;
@@ -324,9 +328,14 @@ export function stepLost() {
   if (S.busy) patch({ busy: null });
 }
 
-/** 下一步从哪年起(新下的干预在这一年年初生效):在算的那一步算完以后的那一年,没在算 = 现在 */
-export function nextYear(s: StepwiseState = S): number {
+/** 下一步从哪一刻起(新下的干预在这一刻生效;年份带小数):在算的那一步算完以后的那一刻,没在算 = 现在 */
+export function nextAt(s: StepwiseState = S): number {
   return s.busy ? s.busy.to : s.now;
+}
+
+/** 下一步从哪年起(nextAt 那一刻落在的那一年;新下的干预 from 写它,交出去时再带上第几格) */
+export function nextYear(s: StepwiseState = S): number {
+  return Math.floor(nextAt(s) + 1e-9);
 }
 
 // ---------------------------------------------------------------------------
@@ -385,13 +394,14 @@ export function stepwiseChanged() {
 }
 
 /**
- * 存回推演模式存成的普通世界的修改:单子里还没交出去的干预(queued)当作在"现在"下的(在那一年年初生效)一起存进去,
- * 再照 gen/stepwise.ts 的 stepwiseToNormal 换成普通世界(推演年数 = 现在那一年)。存不回(推得太远)= null
+ * 存回推演模式存成的普通世界的修改:单子里还没交出去的干预(queued)当作在"现在"下的(在进度那一刻生效:那一年年初,
+ * 停在年中的是那一格)一起存进去,再照 gen/stepwise.ts 的 stepwiseToNormal 换成普通世界(推演年数 = 现在那一年;
+ * 停在年中的推到下一年年初)。存不回(推得太远)= null
  */
 export function saveBackEdits(edits: WorldEdits, queued: readonly Intervention[]): WorldEdits | null {
   const play = cleanPlay(edits.play);
   if (!play) return null;
-  const now = queued.map((v) => ({ ...v, from: play.year }) as Intervention);
+  const now = commandsNow(play, queued);
   return stepwiseToNormal(now.length ? { ...edits, play: issueCommands(play, now).play } : edits);
 }
 

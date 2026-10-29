@@ -12,27 +12,29 @@
  *              原样留在在用的这一支里,侧栏「支线」里随时切回去;新的一支的名字可以先起(不改 = "第 N 支")
  * AdvanceFields(三组推进设置)新建世界第 2 步也用。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, ADVANCE_STEP_MAX, BRANCH_NAME_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance, type Intervention } from '../gen/edits';
+import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, BRANCH_NAME_MAX, END_YEAR_MAX, YEAR_TICKS, advanceOf, cleanPlay, commandAt, momentAt as tickMoment, playAt, type Advance, type Intervention } from '../gen/edits';
 import { branchList, laterInterventions, rewindStepwise } from '../gen/stepwise';
 import { fullChronicle } from '../gen/civ/religionText';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
-import { getEdits, setAdvance, useEdits, useEra } from './editsStore';
+import { getEdits, setAdvance, useEdits, useEra, useMonths } from './editsStore';
 import { getPending } from './pendingStore';
 import { interventionText } from './Interventions';
 import { DirectorSettings, followName } from './Director';
 import { setStepDirectorOn, stepDirectorOn, useDirector, useDirectorFollow } from './directorStore';
-import { getStepwise, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
+import { getStepwise, nextAt, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
 import { branchLabel, branchSpan } from './StepBranches';
 import { rewindBrief } from './stepwisePlan';
-import { advanceBrief } from './Stepwise';
+import { stepSeconds, useMonthText } from './Stepwise';
+import { momentFull, momentStart, momentsText, spanText } from './stepTime';
+import { STEP_PICKS, STEP_UNITS, advanceBrief, everyWhy, ownStep as ownStep_, stepPickOf, stepUnitMax, stepWhy, type Run, type StepPick } from './advanceText';
 import { currentWorld, stepOrigin, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
 import { polityKey } from '../gen/edits';
 import { alivePolities } from './crownInfo';
 import { nameAt } from './Interventions';
-import { getSelection } from './civView';
+import { getCivTime, getSelection } from './civView';
 import { FlagIcon } from './Flag';
 import { flagOf, useFlags } from './flagStore';
 import { rolePolity } from './policyInfo';
@@ -47,9 +49,9 @@ const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 // 三组推进设置
 
 /** 分段按钮的一格 */
-function Seg<T extends string | number>({ items, value, onPick, wide, act }: { items: { v: T; label: string }[]; value: T | null; onPick: (v: T) => void; wide?: boolean; act: string }) {
+function Seg<T extends string | number>({ items, value, onPick, wide, act, unit }: { items: { v: T; label: string }[]; value: T | null; onPick: (v: T) => void; wide?: boolean; act: string; unit?: boolean }) {
   return (
-    <span className={`sw-seg${wide ? ' wide' : ''}`} role="radiogroup">
+    <span className={`sw-seg${wide ? ' wide' : ''}${unit ? ' sw-unit' : ''}`} role="radiogroup">
       {items.map((it) => (
         <button key={String(it.v)} role="radio" aria-checked={value === it.v} className={value === it.v ? 'on' : ''} data-act={`${act}-${it.v}`} onClick={() => onPick(it.v)}>
           {it.label}
@@ -59,19 +61,26 @@ function Seg<T extends string | number>({ items, value, onPick, wide, act }: { i
   );
 }
 
-/** 自己填的那个数(失焦、回车时交;不合格的退回原来的) */
-function NumField({ value, lo, hi, onCommit, act }: { value: number; lo: number; hi: number; onCommit: (n: number) => void; act: string }) {
+/**
+ * 自己填的那个数(失焦、回车时交;不合格的退回原来的;clamp = 超了夹回 lo–hi,不退回)。
+ * unit = 数后面的字(默认"年";'' = 不写,单位另有一排按钮)
+ */
+function NumField({ value, lo, hi, onCommit, act, unit = '年', clamp }: { value: number; lo: number; hi: number; onCommit: (n: number) => void; act: string; unit?: string; clamp?: boolean }) {
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   const commit = () => {
     const n = Math.round(Number(text));
-    if (Number.isFinite(n) && n >= lo && n <= hi) onCommit(n);
+    if (text !== '' && Number.isFinite(n) && clamp) {
+      const c = Math.min(hi, Math.max(lo, n));
+      setText(String(c));
+      if (c !== value) onCommit(c);
+    } else if (Number.isFinite(n) && n >= lo && n <= hi) onCommit(n);
     else setText(String(value));
   };
   return (
     <span className="sw-num-field">
       <input
-        className="sw-num-in"
+        className={`sw-num-in${unit ? '' : ' short'}`}
         inputMode="numeric"
         data-act={act}
         value={text}
@@ -79,32 +88,34 @@ function NumField({ value, lo, hi, onCommit, act }: { value: number; lo: number;
         onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
         onBlur={commit}
       />
-      年
+      {unit}
     </span>
   );
 }
 
-const STEP_SEG = [
-  { v: '1', label: '一年' },
-  { v: '5', label: '五年' },
-  { v: 'own', label: '自己填' },
-];
-const EVERY_SEG = [...ADVANCE_EVERY_CHOICES.map((n) => ({ v: String(n), label: `${n} 年` })), { v: 'own', label: '自己填' }];
+const STEP_SEG = STEP_PICKS.map((p) => ({ v: p.v, label: p.label }));
+const UNIT_SEG = STEP_UNITS.map((u) => ({ v: u.v, label: u.label }));
+const EVERY_SEG = [{ v: '0', label: '每一步' }, ...ADVANCE_EVERY_CHOICES.map((n) => ({ v: String(n), label: `${n} 年` })), { v: 'own', label: '自己填' }];
 const COUNT_SEG = ADVANCE_COUNTDOWNS.map((n) => ({ v: String(n), label: n ? `${n} 秒` : '不倒计时' }));
 const COUNT_WORDS: Record<number, string> = { 30: '半分钟', 60: '一分钟', 120: '两分钟' };
 
-/** "演绎 100 年停 4 次" */
-function everyNote(every: number): string {
-  if (every <= 100) return `演绎 100 年停 ${Math.floor(100 / every)} 次`;
-  if (every <= 1000) return `演绎 1000 年停 ${Math.floor(1000 / every)} 次`;
-  return `演绎 ${every} 年才停 1 次`;
+/** 几段字(加粗的用 <b>) */
+function Runs({ runs }: { runs: readonly Run[] }) {
+  return (
+    <>
+      {runs.map((r, i) => (r.b ? <b key={i}>{r.t}</b> : <Fragment key={i}>{r.t}</Fragment>))}
+    </>
+  );
 }
 
 export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Advance) => void; phone: boolean }) {
-  const [ownStep, setOwnStep] = useState(adv.step !== 1 && adv.step !== 5);
-  const [ownEvery, setOwnEvery] = useState(!ADVANCE_EVERY_CHOICES.includes(adv.every));
-  const stepV = ownStep ? 'own' : String(adv.step);
+  const months = useMonths();
+  const [ownStep, setOwnStep] = useState(stepPickOf(adv) === 'own');
+  const [ownEvery, setOwnEvery] = useState(adv.every > 0 && !ADVANCE_EVERY_CHOICES.includes(adv.every));
+  const stepV: StepPick = ownStep ? 'own' : stepPickOf(adv);
   const everyV = ownEvery ? 'own' : String(adv.every);
+  // 这台设备上一步约几秒(开着窗口时不跟着变)
+  const [perStep] = useState(() => stepSeconds(getStepwise().on ? getStepwise().now : getCivTime().year ?? 0));
   const stepSeg = (
     <Seg
       items={STEP_SEG}
@@ -114,7 +125,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
       onPick={(v) => {
         if (v === 'own') return setOwnStep(true);
         setOwnStep(false);
-        set({ ...adv, step: Number(v) });
+        const p = STEP_PICKS.find((x) => x.v === v)?.adv;
+        if (p) set({ ...adv, ...p });
       }}
     />
   );
@@ -141,16 +153,21 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
       <button className={`sw-sw${adv.big ? ' on' : ''}`} role="switch" aria-checked={adv.big} aria-label="出大事也停" data-act="adv-big" onClick={() => set({ ...adv, big: !adv.big })} />
     </div>
   );
+  // 自己填:一个数 + 单位(年 / 个月 / 格);换单位数字不变,超了夹回范围
   const ownStepRow = ownStep && (
     <div className="sw-r sw-own">
-      <span className="sw-r-main">一步走几年（1–{ADVANCE_STEP_MAX}）</span>
-      <NumField value={adv.step} lo={1} hi={ADVANCE_STEP_MAX} act="adv-step-n" onCommit={(n) => set({ ...adv, step: n })} />
+      <span className="sw-r-main">
+        <span>一步走多久</span>
+        <small>最短 1 格，最长 5 年</small>
+      </span>
+      <NumField value={adv.step} lo={1} hi={stepUnitMax(adv.unit, months)} act="adv-step-n" unit="" clamp onCommit={(n) => set({ ...adv, ...ownStep_(n, adv.unit, months) })} />
+      <Seg items={UNIT_SEG} value={adv.unit} act="adv-unit" unit onPick={(u) => set({ ...adv, ...ownStep_(adv.step, u, months) })} />
     </div>
   );
   const ownEveryRow = ownEvery && (
     <div className="sw-r sw-own">
       <span className="sw-r-main">每隔几年停一下</span>
-      <NumField value={adv.every} lo={1} hi={END_YEAR_MAX} act="adv-every-n" onCommit={(n) => set({ ...adv, every: n })} />
+      <NumField value={Math.max(1, adv.every)} lo={1} hi={END_YEAR_MAX} act="adv-every-n" onCommit={(n) => set({ ...adv, every: n })} />
     </div>
   );
   const cw = COUNT_WORDS[adv.countdown];
@@ -164,6 +181,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
       <b>不倒计时</b>：等你点了才走。
     </>
   );
+  const stepNote = <Runs runs={stepWhy(adv, months, perStep, phone)} />;
+  const everyNote = <Runs runs={everyWhy(adv, months, phone)} />;
   if (phone)
     return (
       <>
@@ -172,8 +191,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
         </div>
         <div className="sw-pad">{stepSeg}</div>
         {ownStepRow && <div className="sw-grp white sw-gap">{ownStepRow}</div>}
-        <div className="sw-why">
-          <b>一年</b>：约七成的步子全世界没有大事，导播一闪而过。<b>五年</b>：每一步事多，干预最多要等五年。
+        <div className="sw-why" data-why="step">
+          {stepNote}
         </div>
         <div className="sw-sh">
           停一下<em>看看这一段的大事</em>
@@ -183,8 +202,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
           {ownEveryRow}
           {bigRow}
         </div>
-        <div className="sw-why">
-          <b>每 {adv.every} 年</b>停一次：{everyNote(adv.every)}。隔得越短、开了「出大事也停」，停得越勤。
+        <div className="sw-why" data-why="every">
+          {everyNote}
         </div>
         <div className="sw-sh">
           倒计时<em>停下以后多久接着走</em>
@@ -206,8 +225,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
           </div>
           {ownStepRow}
         </div>
-        <div className="sw-why">
-          <b>一年</b>：约七成的步子全世界没有大事，导播一闪而过；干预最晚一年后生效。<b>五年</b>：每一步事多，但干预最多要等五年才生效。自己填最多 5 年。
+        <div className="sw-why" data-why="step">
+          {stepNote}
         </div>
       </div>
       <div className="sw-sec">
@@ -222,8 +241,8 @@ export function AdvanceFields({ adv, set, phone }: { adv: Advance; set: (a: Adva
           {ownEveryRow}
           {bigRow}
         </div>
-        <div className="sw-why">
-          <b>每 {adv.every} 年</b>停一次：{everyNote(adv.every)}，每次导播先把这一段的大事放一遍。隔得越短停得越勤；开「出大事也停」故事更有起伏，也停得更多。
+        <div className="sw-why" data-why="every">
+          {everyNote}
         </div>
       </div>
       <div className="sw-sec">
@@ -704,15 +723,17 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
   const [name, setName] = useState(newLabel);
   const close = () => openStepDialog(null);
   useDialogKeys(close);
+  const mt = useMonthText();
   const play = cleanPlay(edits.play);
-  const now = play?.year ?? s.now;
-  const T = Math.min(now, Math.max(0, Math.floor(year)));
-  const r = useMemo(() => rewindStepwise(edits, T), [edits, T]);
-  // 不要了的干预:那一年和以后下过的、正在算的那一步带着的、单子里还没交出去的(都在那一年以后生效)
-  const dropped = useMemo((): Intervention[] => {
-    const inflight = s.busy?.commands ?? [];
+  const now = play ? playAt(play) / YEAR_TICKS : s.now;
+  // 回到哪一刻(停在年中、一步短于一年的,回到那一格;一步一年以上的回到那一年年初)
+  const T = Math.min(now, Math.max(0, Math.floor(year * YEAR_TICKS + 1e-6) / YEAR_TICKS));
+  const r = useMemo(() => rewindStepwise(edits, tickMoment(Math.round(T * YEAR_TICKS))), [edits, T]);
+  // 不要了的干预:那一刻和以后下过的、正在算的那一步带着的、单子里还没交出去的(都在那一刻以后生效);ats = 各在哪一刻生效
+  const { dropped, ats } = useMemo(() => {
+    const done = [...(r?.dropped ?? []), ...(s.busy?.commands ?? [])];
     const queued = getPending().flatMap((x) => (x.kind === 'iv' ? [{ ...x.v, from: nextYear(s) } as Intervention] : []));
-    return [...(r?.dropped ?? []), ...inflight, ...queued];
+    return { dropped: [...done, ...queued], ats: [...done.map((v) => commandAt(v) / YEAR_TICKS), ...(queued.length ? [nextAt(s)] : [])] };
   }, [r, s]);
   const brief = useMemo(() => rewindBrief(civ, T, now, fullChronicle(civ)), [civ, T, now]);
   const adv = advanceOf(edits);
@@ -721,17 +742,18 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
     const v = name.trim();
     stepwiseActions()?.rewind(T, v === newLabel ? '' : v);
   };
-  const years = [...new Set(dropped.map((v) => Math.floor(v.from)))].sort((a, b) => a - b);
   const ivTexts = dropped.map((v) => eraText(interventionText(civ, v), era));
   const ivSmall = ivTexts.length > REWIND_LIST_MAX ? `${ivTexts.slice(0, REWIND_LIST_MAX).join('；')}……等 ${ivTexts.length} 条` : ivTexts.join('；');
-  const ivWhen = years.length === 1 ? yearFull(years[0], era) : eraText(`第 ${years[0]}–${years[years.length - 1]} 年`, era);
-  const span = eraText(`第 ${T}–${now} 年`, era);
+  const ivWhen = momentsText(ats, mt.months, era, mt.names, mt.always);
+  const span = spanText(T, now, mt.months, era, mt.names, false);
+  const back = momentStart(T, mt.months, era, mt.names, mt.always);
+  const Tfull = momentFull(T, mt.months, era, mt.names, mt.always);
   const histSmall = phone
     ? `${brief.length ? `${brief.slice(0, 2).join('、')}……` : ''}留在「${keepIn}」里`
     : `${brief.length ? `${brief.join('、')}……` : ''}都留在「${keepIn}」里`;
   const lead = phone
-    ? `世界回到${yearFull(T, era)}年初，从这里往下另开一支。原来那条原样留着，随时切回去：`
-    : `世界回到${yearFull(T, era)}年初，从这里往下另开一支。原来那条原样留着，在侧栏「支线」里随时切回去：`;
+    ? `世界回到${back}，从这里往下另开一支。原来那条原样留着，随时切回去：`
+    : `世界回到${back}，从这里往下另开一支。原来那条原样留着，在侧栏「支线」里随时切回去：`;
   const rows = (
     <div className={`sw-grp sw-drop${phone ? ' white' : ''}`}>
       <div className="sw-r top" data-rewind="history">
@@ -752,7 +774,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
       )}
     </div>
   );
-  const why = phone ? `${yearFull(T, era)}以前的照旧，推进设置也不变。` : `${yearFull(T, era)}以前的照旧，推进设置也不变（${advanceBrief(adv)}）。`;
+  const why = phone ? `${Tfull}以前的照旧，推进设置也不变。` : `${Tfull}以前的照旧，推进设置也不变（${advanceBrief(adv)}）。`;
   const nameField = (
     <input
       className="br-name-in"
@@ -777,7 +799,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
       </div>
     </div>
   );
-  const head = `从${yearFull(T, era)}重新演绎？`;
+  const head = `从${Tfull}重新演绎？`;
   if (phone)
     return (
       <>
@@ -825,7 +847,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
               取消
             </button>
             <button className="sw-btn2 pri" data-act="rewind-go" onClick={go}>
-              从{yearFull(T, era)}重新演绎
+              从{Tfull}重新演绎
             </button>
           </div>
         </div>

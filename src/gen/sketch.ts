@@ -18,8 +18,8 @@
  */
 import type { Mesh } from './mesh';
 import { clamp } from './util';
-import { TERRAIN_H, TERRAIN_W, nearLon, wrapLon } from './terrainEdits';
-import { cleanPlates, samePlates, type PlateEdit } from './plateEdits';
+import { TERRAIN_H, TERRAIN_W, nearLon, wrapLon } from './terrainOps';
+import { cleanPlates, samePlates, type PlateEdit } from './plateOps';
 
 export const SKETCH_W = 1024;
 export const SKETCH_H = 512;

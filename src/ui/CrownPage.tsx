@@ -1,5 +1,5 @@
 /**
- * 让作者的人物即位那一页:人物卡「即位…」点开,卡片换成这一页(和州卡片「在这里立国」同一种做法,不弹对话框;
+ * 让作者的人物即位那一页(写到这个人物的"他 / 她"按人物卡上的性别):人物卡「即位…」点开,卡片换成这一页(和州卡片「在这里立国」同一种做法,不弹对话框;
  * 下的令先进待推演的单子,pendingStore.ts;推演规则见 gen/edits.ts 的干预"即位")。
  *
  *   什么时候即位  某一年 | 等那时的君主下台(逐年推演:第 N 年年初 | 等现在这位下台)
@@ -34,7 +34,7 @@ import { characterLeanings, type AuthorCharacter } from '../gen/characters';
 import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
 import { getEdits, updateCharacter, useEra } from './editsStore';
 import { getPending, queueIntervention, removePending } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
 import { getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick } from './Interventions';
@@ -109,6 +109,8 @@ export function CrownPage({
   const [view, setView] = useState<'form' | 'list'>('form');
   const [msg, setMsg] = useState<string | null>(null);
   const clear = () => setMsg(null);
+  /** 他 / 她(人物卡上的性别) */
+  const he = heOrShe(c);
   // 即位年份:他出生那年 … 卒年前一年(历史推到哪年为止)
   const last = Math.ceil(civ.endYear) - 1;
   const lo = Math.max(0, Math.ceil(c.born));
@@ -116,7 +118,7 @@ export function CrownPage({
   const yi = useYearInput(year, lo, Math.max(lo, hi), clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、谁在位用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const [mode, setMode] = useState<Mode>('have');
   // 什么时候即位:某一年 / 等那时在位的那位下台(after)
   const [after, setAfter] = useState(false);
@@ -177,7 +179,7 @@ export function CrownPage({
       sub: `${yearAt(y, era)}即位，那年还在的国家都能选`,
       source,
       self: aliveIds.has(home) ? home : undefined,
-      selfNote: '他的国家',
+      selfNote: `${he}的国家`,
       selfPick: true,
       eligible: aliveIds,
       year: yv,
@@ -199,7 +201,7 @@ export function CrownPage({
     toYear();
     setPolityPick({
       prompt: `选${c.name}在哪一州立国`,
-      sub: `${yearAt(y, era)}立国，他是开国之君`,
+      sub: `${yearAt(y, era)}立国，${he}是开国之君`,
       source,
       target: 'region',
       year: yv,
@@ -218,16 +220,16 @@ export function CrownPage({
   const keepable = mode === 'new' || (!!P && P.lineage !== 'republic');
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
-    if (lo > hi && !step) return c.born > last ? `他${yearAt(c.born, era)}才出生，历史只推到${spaced(yearAt(Math.floor(civ.endYear), era))}` : '他在位不到一年，即不了位';
+    if (lo > hi && !step) return c.born > last ? `${he}${yearAt(c.born, era)}才出生，历史只推到${spaced(yearAt(Math.floor(civ.endYear), era))}` : `${he}在位不到一年，即不了位`;
     if (!step && !yi.valid) return `即位年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (step && y < c.born) return `他${yearAt(c.born, era)}才出生`;
-    if (step && c.died !== undefined && y >= c.died) return `他${yearAt(c.died, era)}已经去世`;
+    if (step && y < c.born) return `${he}${yearAt(c.born, era)}才出生`;
+    if (step && c.died !== undefined && y >= c.died) return `${he}${yearAt(c.died, era)}已经去世`;
     if (mode === 'have') {
       if (!P) return '选一个国家';
-      if (!pAlive) return y < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
+      if (!pAlive) return yv < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
       if (after && !cur) return `${yearAt(y, era)}${nameAt(P, y)}没有在位的君主可等，选「${step ? `${yearFull(y, era)}年初` : '某一年'}」`;
       if (after && cur?.until !== undefined && c.died !== undefined && cur.until >= c.died)
-        return `他${yearAt(c.died, era)}去世，等不到${personName(civ, cur)}下台`;
+        return `${he}${yearAt(c.died, era)}去世，等不到${personName(civ, cur)}下台`;
     } else {
       if (after) return `另立的新国没有在位的君主可等，选「${step ? `${yearFull(y, era)}年初` : '某一年'}」`;
       if (reg === null) return '选一州立国';
@@ -319,7 +321,7 @@ export function CrownPage({
                   <span className="oc-txt">
                     <b>
                       {x.name}
-                      {x.id === home && <em className="cp-num-note">他的国家</em>}
+                      {x.id === home && <em className="cp-num-note">{he}的国家</em>}
                     </b>
                     <span>
                       {x.regions} 州{x.ruler && `，${x.ruler}${x.republic ? '执政' : '在位'}`}
@@ -367,19 +369,19 @@ export function CrownPage({
             </button>
           </div>
           {step ? (
-            !after && <span className="cp-note">下一步开始时即位，他那年 {age} 岁。只在「现在」干预；想改以前的事，存回推演模式。</span>
+            !after && <span className="cp-note">下一步开始时即位，{he}那年 {age} 岁。只在「现在」干预；想改以前的事，存回推演模式。</span>
           ) : (
             <div className="cp-from iv-inner">
               <span className="cp-k">{after ? '从哪年在位的君主' : '即位年份'}</span>
               <YearRow yi={yi} label={after ? '从哪年在位的君主' : '即位年份'} />
-              {!after && <span className="cp-note">他那年 {age} 岁。这年之前的历史不变，之后重新推演。</span>}
+              {!after && <span className="cp-note">{he}那年 {age} 岁。这年之前的历史不变，之后重新推演。</span>}
             </div>
           )}
           {after && cur && (
             <span className="cp-note" data-crown="wait">
               {step ? `现在在位的${personName(civ, cur)}` : `那年在位的是${personName(civ, cur)}，`}
               {cur.until !== undefined
-                ? `${rulerEndText(civ, cur, era)}；到那时由${c.name}继位${step ? '' : `，他那年 ${Math.floor(cur.until - c.born)} 岁`}。`
+                ? `${rulerEndText(civ, cur, era)}；到那时由${c.name}继位${step ? '' : `，${he}那年 ${Math.floor(cur.until - c.born)} 岁`}。`
                 : step
                   ? `哪天下台（驾崩、退位），就由${c.name}继位。`
                   : `推演里一直在位到最后；到${heOrShe(cur)}下台时由${c.name}继位。`}
@@ -437,8 +439,8 @@ export function CrownPage({
                   {before && P
                     ? `那年${P.lineage === 'republic' ? '执政' : '在位'}的是${personName(civ, before)}，${after ? `${heOrShe(before)}下台后由${c.name}继位` : `${heOrShe(before)}让位给${c.name}`}。`
                     : ''}
-                  {!P && home >= 0 ? `人物卡上他的国家${yearAt(y, era)}不在了，点「换一国」选一个。` : ''}
-                  {`${yearFull(y, era)}还在的 ${alive.length} 国都能选${polity !== undefined ? '。' : '，默认是人物卡上他的国家。'}`}
+                  {!P && home >= 0 ? `人物卡上${he}的国家${yearAt(y, era)}不在了，点「换一国」选一个。` : ''}
+                  {`${yearFull(y, era)}还在的 ${alive.length} 国都能选${polity !== undefined ? '。' : `，默认是人物卡上${he}的国家。`}`}
                 </span>
               </>
             )
@@ -503,14 +505,14 @@ export function CrownPage({
                 <span>{KEEP_CROWN}</span>
                 <span className="cp-note">不改朝换代，不被权臣所废</span>
               </label>
-              {mode === 'have' && P && pAlive && <span className="cp-note">{crownKeepHint(civ, P.id, startT, until, era)}</span>}
+              {mode === 'have' && P && pAlive && <span className="cp-note">{crownKeepHint(civ, P.id, startT, until, era, c)}</span>}
             </>
           )}
           <span className="cp-note">
             {c.died === undefined && !byYear ? '人物卡上没写卒年：在位多久照寻常君主算，最多活到 88 岁。' : ''}
             {keepable && keep
-              ? '之后照常有人继位。推演里亡国会让他提前下台（写出降或出奔），卒年照人物卡不变。'
-              : '之后照常有人继位。推演里亡国、改朝换代会让他提前下台（写出降、出奔或被废），卒年照人物卡不变。'}
+              ? `之后照常有人继位。推演里亡国会让${he}提前下台（写出降或出奔），卒年照人物卡不变。`
+              : `之后照常有人继位。推演里亡国、改朝换代会让${he}提前下台（写出降、出奔或被废），卒年照人物卡不变。`}
           </span>
         </div>
         <div className="cp-form" data-sec="crown-leanings">

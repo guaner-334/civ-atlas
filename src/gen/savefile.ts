@@ -16,7 +16,7 @@
  * ```
  *
  * - format:存档格式的版本(字段有不兼容的变化时加一;读到比自己新的格式就不读,提示更新页面)。
- *   2 = 进度、命令、支线、干预里有落在年中的时刻(年 + 年内第几格,edits.ts 文件头"时刻"):只认识年份的版本会把它当成年初,
+ *   2 = 进度、命令、支线、干预、推到哪一刻(endTick)里有落在年中的时刻(年 + 年内第几格,edits.ts 文件头"时刻"):只认识年份的版本会把它当成年初,
  *   所以写成 2,让那些版本提示更新页面、不悄悄读错。只到年初的存档照旧写 1(和加年内第几格以前一模一样,旧版本照常打开)。
  *   1、2 都照读(saveFormatOf 定写哪一版)
  * - generator:生成器版本(edits.ts 的 GENERATOR_VERSION);和当前的不同 = 同样的参数可能生成不同的世界
@@ -38,11 +38,13 @@
  *   没有标记时不写这个字段。读档时过 cleanMarks,格式不对的跳过
  * - edits.characters(可选):作者的人物(characters.ts),`[{ "id": 1, "name": "林小满", "color": "red", "born": 2490, "died": 2561,
  *   "birthplace": "settlement:c4567#0", "life": [{ "year": 2506, "text": "随军西征", "where": "region:c8123" }] }]`;
- *   没有人物时不写这个字段。读档时逐个过 cleanCharacter,格式不对的跳过
+ *   女的多一项 `"female": true`(以前的存档没有这一项,读出来都是男的)。没有人物时不写这个字段。读档时逐个过 cleanCharacter,格式不对的跳过
  * - edits.nameMix(可选):整个世界的地名风格,每种语感占几份(edits.ts 文件头"地名风格"),`{ "xianxia": 6, "central": 4 }`;自动时不写。
  *   读档时过 cleanMix:认不出的语感(比如以后的新语感)、不是正数的份数去掉,提示一句;一份都不剩就按自动
  * - edits.endYear(可选):历史推到第几年(edits.ts 文件头"推演年数"),`12000`;3000 年时不写。
  *   读档时过 cleanEndYear:取整到年、夹在 1–60000(逐年推演存回的普通世界可以不到 3000 年;以前只有 3000 起的整千年,照旧读出同一个数);不是数字的按 3000,提示一句
+ * - edits.endTick(可选):推到那一年的第几格(同上,逐年推演停在年中时存回的普通世界才有),`192`(格式 2);年初的不写。
+ *   读档时过 cleanEndTick:不是 1–255 的整数、推到 60000 年的去掉(按那一年年初推),提示一句
  * - edits.frontier(可选):拓荒(edits.ts 文件头"拓荒与起源"、civ/frontier.ts),`{ "spread": 1.5, "expand": 2, "terrain": { "desert": 6 } }`;
  *   都是默认时不写。读档时过 cleanFrontier:吸到最近的一档,认不出的项去掉,提示一句
  * - edits.origins(可选):自己选的文明起源(同上),`{ "pts": [976, 342, 544, 448], "only": true }`;自动时不写。
@@ -101,12 +103,12 @@
 import type { World } from './world';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, aiNameKeys, cleanCivSeed, cleanEndYear, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, playState, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type PlayState, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_DEFAULT, END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, YEAR_TICKS, aiNameKeys, cleanCivSeed, cleanEndTick, cleanEndYear, endAtOf, endParamOf, playAt, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, playState, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type PlayState, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import type { Civ } from './civ/types';
-import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainEdits';
+import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainOps';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
-import type { PlateEdit } from './plateEdits';
-import { decodeFlag } from './civ/flags';
+import type { PlateEdit } from './plateOps';
+import { decodeFlag } from './civ/flagSpec';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
 import { MONTHS_MAX, cleanEra, cleanMonthName, cleanMonthNames, cleanMonths, sameEra, sameMonthNames } from './era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins } from './civ/frontier';
@@ -126,6 +128,7 @@ export function saveFormatOf(edits: WorldEdits): 1 | 2 {
   const iv = (list: readonly Intervention[] | undefined) => !!list?.some((v) => v.fromTick);
   const b = edits.branches;
   const sub =
+    !!edits.endTick ||
     !!edits.play?.tick ||
     iv(edits.play?.commands) ||
     iv(edits.interventions) ||
@@ -360,9 +363,10 @@ export function cleanMoment(raw: unknown, maxYear: number = END_YEAR_MAX): SaveM
   return Object.keys(m).length ? m : null;
 }
 
-/** 这个世界的历史推到第几年(逐年推演的 = "现在"那年):打开时看的年份不能超过它 */
-export function momentYearMax(edits: Pick<WorldEdits, 'endYear' | 'play'>): number {
-  return cleanPlay(edits.play)?.year ?? endYearOf(edits);
+/** 这个世界的历史推到哪一刻(带小数的年份;逐年推演的 = "现在"那一刻,年中的带那一格):打开时看的年份不能超过它 */
+export function momentYearMax(edits: Pick<WorldEdits, 'endYear' | 'endTick' | 'play'>): number {
+  const play = cleanPlay(edits.play);
+  return play ? playAt(play) / YEAR_TICKS : endAtOf(edits);
 }
 
 /** 分享前给存档带上"打开时看哪"(清理过;null 或一样都不剩 = 去掉)。返回新的一份,原来的不动 */
@@ -582,7 +586,7 @@ export function editCount(edits: WorldEdits): number {
     Object.keys(edits.flags ?? {}).length +
     (edits.characters?.length ?? 0) +
     (edits.nameMix ? 1 : 0) +
-    (cleanEndYear(edits.endYear) ? 1 : 0) +
+    (endParamOf(edits) !== undefined ? 1 : 0) +
     (cleanFrontier(edits.frontier) ? 1 : 0) +
     (cleanOrigins(edits.origins) ? 1 : 0) +
     (cleanCalamity(edits.calamity) ? 1 : 0) +
@@ -655,6 +659,8 @@ export function makeSave(
   if (mix) save.edits.nameMix = { ...mix };
   const endYear = cleanEndYear(edits.endYear);
   if (endYear) save.edits.endYear = endYear;
+  const endTick = cleanEndTick(edits.endTick, endYearOf(edits));
+  if (endTick) save.edits.endTick = endTick;
   const frontier = cleanFrontier(edits.frontier);
   if (frontier) save.edits.frontier = frontier;
   const origins = cleanOrigins(edits.origins);
@@ -920,6 +926,9 @@ export function parseSave(text: string): ParseResult {
   // 推演年数:取整到年、夹在 1–60000;认不出的按 3000 年
   const endYear = cleanEndYear(E.endYear);
   if (E.endYear !== undefined && (typeof E.endYear !== 'number' || !Number.isFinite(E.endYear))) warnings.push('推演年数认不出来,按 3000 年推演');
+  // 推到那一年的第几格:认不出的按那一年年初
+  const endTick = cleanEndTick(E.endTick, endYear ?? END_YEAR_DEFAULT);
+  if (E.endTick !== undefined && E.endTick !== 0 && !endTick) warnings.push(`推演到第 ${endYear ?? END_YEAR_DEFAULT} 年的哪一刻认不出来,按那一年年初推演`);
   // 拓荒:吸到最近的一档,认不出的项去掉
   const frontier = cleanFrontier(E.frontier);
   if (E.frontier !== undefined && JSON.stringify(frontier ?? {}) !== JSON.stringify(E.frontier)) warnings.push(frontier ? '拓荒设定里有认不出来的项,已按最近的一档读' : '拓荒设定认不出来,按默认推演');
@@ -994,6 +1003,7 @@ export function parseSave(text: string): ParseResult {
       ...(characters.length ? { characters } : {}),
       ...(nameMix ? { nameMix } : {}),
       ...(endYear ? { endYear } : {}),
+      ...(endTick ? { endTick } : {}),
       ...(frontier ? { frontier } : {}),
       ...(origins ? { origins } : {}),
       ...(calamity ? { calamity } : {}),

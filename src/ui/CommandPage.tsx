@@ -20,6 +20,7 @@
  * 「灭国」(选去向 ›):卡片换成灭国那一页(DestroyPage.tsx),生效年份带过去。
  * 「立约」(选几国 ›)、「划中立地」(选地方 ›):卡片换成立约 / 划中立地那一页(TreatyPage.tsx),生效年份带过去。
  * 「天灾」(选种类 ›):卡片换成天灾那一页(DisasterPage.tsx,州卡片「更多」里也能进),生效年份带过去。
+ * 「大迁徙」(选民族 ›):卡片换成大迁徙那一页(TrekPage.tsx,州卡片「更多」里也能进;默认这国的主体民族),生效年份带过去。
  *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
  * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
@@ -33,7 +34,7 @@ import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { END_YEAR_MAX, cleanPlay, playInterventions, polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
 import { useNarrow } from './device';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, STEP_QUEUED, StepCommandFoot, StepEffectTime, useStepView } from './Stepwise';
 import { useEdits, useEra } from './editsStore';
 import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
@@ -50,7 +51,7 @@ import { zoneChoices } from './treatyIv';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'boost' | 'protect' | 'unity' | 'keep' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
+type Cmd = 'policy' | 'boost' | 'protect' | 'unity' | 'keep' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster' | 'trek';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
@@ -67,6 +68,7 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[]
   { k: 'crown', name: '立作者的人物为君主', desc: '选一位那年在世的作者人物，从这年起当这国君主', pick: true, go: '选人 ›' },
   { k: 'destroy', name: '灭国', desc: '这年让它亡国，国土并入一国或散成无主', pick: true, go: '选去向 ›' },
   { k: 'disaster', name: '天灾', desc: '瘟疫、饥荒、地震水旱，人口锐减', pick: true, go: '选种类 ›' },
+  { k: 'trek', name: '大迁徙', desc: '让国内一族分出一支远走、到别处立国，或不许它迁', pick: true, go: '选民族 ›' },
 ];
 
 export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster: Raster | null; world: World; id: number; year: number }) {
@@ -92,16 +94,16 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const y = step ? nextYear(sw) : yi.y;
   const valid = step || yi.valid;
   /** 看国土、邻国、城用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   // 持续到:一直有效 / 到某一年(截止那年不含,所以至少是生效年份的下一年;逐年推演里没有上限)
   const [limited, setLimited] = useState(false);
   const ui = useYearInput(y + 100, step ? y + 1 : Math.min(y + 1, civ.endYear), step ? END_YEAR_MAX : civ.endYear, () => setMsg(null));
   const timed = (k: Cmd) => k === 'protect' || k === 'keep' || k === 'halt' || k === 'ally';
   const until = limited ? { until: ui.y } : {};
 
-  const alive = polityAlive(p, y);
+  const alive = polityAlive(p, yv);
   const { size, near } = useMemo(() => neighborsAt(civ, id, yv), [civ, id, yv]);
-  const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, y) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, y, size]);
+  const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, yv) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, yv, size]);
   // 划中立地:这一年有没有碰到两国以上、做得了中立地的州(按国家、年份记着,回放时不每帧重算)
   const zoneOk = useMemo(() => zoneChoices(civ, world, id, yv, 1).length > 0, [civ, world, id, yv]);
   // 迁都的候选:那一年本国国土里还在的、不是国都的城
@@ -116,9 +118,9 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const orders = polityOrders(civ, id, step ? playInterventions(edits.interventions, cleanPlay(edits.play)) : edits.interventions);
   // 下过同一种命令(有截止年份的,到期以后可以再下)
   const has = (kind: InterventionKind) =>
-    orders.some(({ v }) => v.kind === kind && v.kind !== 'found' && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
+    orders.some(({ v }) => v.kind === kind && 'a' in v && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
   // 待推演的单子里有本国同一种命令
-  const queued = (kind: InterventionKind) => pendingInterventions(pending).some((v) => v.kind === kind && v.kind !== 'found' && v.a === key);
+  const queued = (kind: InterventionKind) => pendingInterventions(pending).some((v) => v.kind === kind && 'a' in v && v.a === key);
   const name = nameAt(p, y);
   /** 面板标题上的名字(时间轴当前那一年的) */
   const shown = nameAt(p, year);
@@ -129,7 +131,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
     // 共和国没有王室(推演里本来就不改朝换代)
     if (k === 'keep' && p.lineage === 'republic') return '共和国没有王室，用不上';
-    if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (!alive) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt') && has(k)) return '已经下过这条命令';
     if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
@@ -154,8 +156,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
       setCrown('pick');
       return;
     }
-    // 方针、推一把发展、灭国、天灾、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
-    if (k === 'policy' || k === 'boost' || k === 'destroy' || k === 'disaster' || k === 'treaty' || k === 'neutral') {
+    // 方针、推一把发展、灭国、天灾、大迁徙、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
+    if (k === 'policy' || k === 'boost' || k === 'destroy' || k === 'disaster' || k === 'trek' || k === 'treaty' || k === 'neutral') {
       openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }
@@ -194,7 +196,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
         accept: (q) => {
           if (q === id) return '要选另一个国家';
           const Q = civ.polities[q];
-          if (!Q || !polityAlive(Q, y) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
+          if (!Q || !polityAlive(Q, yv) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
           if (k === 'declare' && !near.has(q)) return '两国不接壤,无法宣战';
           const b = polityKey(civ, q);
           return order(k === 'ally' ? { kind: k, a: key, b, from: y, ...until } : { kind: k, a: key, b, from: y }, { kind: 'polity', id: q });

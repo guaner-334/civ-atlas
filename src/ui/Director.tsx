@@ -21,7 +21,8 @@ import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { fullChronicle } from '../gen/civ/religionText';
 import { polityName } from '../gen/civ/growth';
-import { yearAt, yearShort, type Era } from '../gen/era';
+import { yearAt, yearMonthAt, yearShort, type Era } from '../gen/era';
+import { advanceOf } from '../gen/edits';
 import { directorPlan, type DirectorCaption, type DirectorSkip } from './directorPlan';
 import {
   HOLD_STEPS,
@@ -53,10 +54,11 @@ import { directorFocusOf, followAt, followRefOf, resolveFollow } from './followI
 import { FollowPick, FollowPicker, FollowPlate } from './Follow';
 import { personName } from '../gen/civ/peopleText';
 import { getCivTime, setCivTime, subscribeCivTime, togglePlayback } from './civView';
-import { useEra } from './editsStore';
+import { useEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { baseRegions } from './eras';
 import { playRate, replayStart } from './timelineLayout';
-import { getStepwise } from './stepwiseStore';
+import { getStepwise, useStepwiseOn } from './stepwiseStore';
+import { monthly } from './stepTime';
 import { STEP_RATE } from './stepwisePlan';
 import { polityHistory } from './WorldOverviewCountries';
 import { Icon } from './icons';
@@ -204,6 +206,7 @@ function plateSide(x: number, y: number, w: number, h: number, bw: number, bh: n
 export function DirectorPin({ toClient, hidden }: { toClient: MutableRefObject<WorldToClient | null>; hidden?: boolean }) {
   const d = useDirector();
   const era = useEra();
+  const capMonth = useCapMonth();
   const cap = !hidden && d.on ? (d.shown?.cap ?? null) : null;
   const pin = cap?.pin ?? null;
   const root = useRef<HTMLDivElement>(null);
@@ -249,16 +252,27 @@ export function DirectorPin({ toClient, hidden }: { toClient: MutableRefObject<W
         <i className="dr-ring" />
         <div ref={plate} className="dr-plate">
           <b>{cap.typeName}</b>
-          <span>{cap.place || capYear(cap, era)}</span>
+          <span>{cap.place || capYear(cap, era, capMonth)}</span>
         </div>
       </div>
     </div>
   );
 }
 
-/** 字幕上的年份:"2655 年";多年的战争刚开打 "2562 年起"(纪年照写) */
-function capYear(c: DirectorCaption, era: Era | null | undefined): string {
-  return `${yearAt(Math.floor(c.entry.year), era)}${c.label.endsWith('起') ? '起' : ''}`;
+/** 字幕上的年份写到月:故事模式一步短于一年时(一个月一个月地走,只写年分不出先后);别的时候 null */
+type CapMonth = { months: number; names: readonly string[] | undefined } | null;
+function useCapMonth(): CapMonth {
+  const on = useStepwiseOn();
+  const edits = useEdits();
+  const months = useMonths();
+  const names = useMonthNames();
+  return on && monthly(advanceOf(edits), months) ? { months, names } : null;
+}
+
+/** 字幕上的年份:"2655 年";多年的战争刚开打 "2562 年起"(纪年照写);写到月 "1552 年端月" */
+function capYear(c: DirectorCaption, era: Era | null | undefined, m: CapMonth = null): string {
+  const y = m ? yearMonthAt(c.entry.year, m.months, era, m.names) : yearAt(Math.floor(c.entry.year), era);
+  return `${y}${c.label.endsWith('起') ? '起' : ''}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +281,7 @@ function capYear(c: DirectorCaption, era: Era | null | undefined): string {
 export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: Civ | null; hidden?: boolean }) {
   const d = useDirector();
   const era = useEra();
+  const capMonth = useCapMonth();
   const prog = useRef<HTMLElement | null>(null);
   const setProg = useCallback((el: HTMLElement | null) => {
     prog.current = el;
@@ -394,11 +409,11 @@ export function DirectorCaption({ phone, civ, hidden }: { phone: boolean; civ: C
         <div className="dr-head">
           <b className="dr-tag">{cap.typeName}</b>
           {pl && phone ? (
-            <span className="dr-year fit">{`第 ${pl.n}/${pl.total} 条 ${capYear(cap, era)}`}</span>
+            <span className="dr-year fit">{`第 ${pl.n}/${pl.total} 条 ${capYear(cap, era, capMonth)}`}</span>
           ) : (
             <>
               {pl && <span className="dr-year">{`第 ${pl.n} 条`}</span>}
-              <span className="dr-year">{capYear(cap, era)}</span>
+              <span className="dr-year">{capYear(cap, era, capMonth)}</span>
             </>
           )}
           <span className="dr-sp" />

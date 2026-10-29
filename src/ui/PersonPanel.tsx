@@ -21,6 +21,7 @@
  *         宗室:国家、生卒、父亲、子嗣、领兵(替父兄出征打的仗)、效力(派他出征的君主,小字写父 / 兄)、结局(战死、争储被杀)、
  *         对手(杀他的那位新君,小字写亲属和怎么回事)
  *         (字号:西幻、汗国这类名字没有姓的不起字号,这一行不出)
+ *         跟着大迁徙迁过来的那一代人,概况最后多「来历」一行("克拉尔族；1899 年随族自诺敏塔拉西徙，1911 年随众立国",领头立国的"率克拉尔族西徙，立萨热汗国")
  *         放逐到中立地的(争储失势的宗室、被废的君主)多「放逐」一行("星河域 2303 年起，桓王所徙"),亡国出奔的写「出奔」;
  *         卒于中立地的结局写"卒于星河域"(宗室的「放逐」「结局」排在子嗣前面)
  *         掌过实权的(regentInfo.ts):「掌权」一行("2585–2587 年  父亲在位时""2602–2609 年  辅政懿公胡炜，还政";君主排在在位下面,
@@ -46,17 +47,19 @@ import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } fr
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../gen/civ/peopleText';
 import { REGENCY_END, REGENCY_VERB, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
-import { heOrShe, kinWord, wedVerb } from '../gen/civ/gender';
+import { heOrShe, isFemale, kinWord, wedVerb } from '../gen/civ/gender';
 import { treatyBook } from '../gen/civ/treatyInfo';
 import { fullChronicle } from '../gen/civ/religionText';
 import { diedAbroad, diedInExile, exileHostName, exileReturns, exileTieText, treatyEntries } from './treatyRows';
 import { evType } from './timelineLayout';
-import { regionLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/display';
+import { personTrek } from './migrationInfo';
+import { TrekFrom } from './TrekFrom';
 import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
 import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
 import { personPortrait, portraitMood } from '../gen/portrait';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { openLineage, openOverview } from './overviewStore';
 import { getEdits, useEdits, useEra } from './editsStore';
 import { eraText, spaced, yearAt, yearShort, yearShortAt, yearSpan, yearSpanAt, type Era } from '../gen/era';
@@ -186,7 +189,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const refs = useMemo(() => charactersOfPerson(civ, chars, id, era), [civ, chars, id, era]);
   // 头像按岁数变(年份取整),去世以后定在去世那年
   const age = x ? Math.floor((x.died !== undefined ? Math.min(year, x.died) : year) - x.born) : 0;
-  const portrait = useMemo(() => (x ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
+  // 女的头像部件还没有:国家色的方块写名字(NameFace)
+  const portrait = useMemo(() => (x && !isFemale(x) ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
   const mood = useMemo(() => (x ? portraitMood(civ, x, year) : undefined), [civ, x, year]);
   // 卡片换上的填写页(让他去世 / 改他的倾向 / 让他掌权 / 为他联姻);换了人就回到卡片
   const [ivPage, setIvPage] = useState<{ id: number; kind: PersonIvKind | 'regent' | 'marry' } | null>(null);
@@ -246,7 +250,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
       <PanelHead
         color={rgb(p.color)}
         icon={
-          portrait && (
+          portrait ? (
             <PortraitView
               p={portrait}
               size="card"
@@ -255,7 +259,9 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
               dark={x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle'}
               mood={mood}
             />
-          )
+          ) : isFemale(x) ? (
+            <NameFace name={x.name} size="card" color={rgb(p.color)} dead={x.died !== undefined && year > x.died} />
+          ) : undefined
         }
       >
         {nameKey ? (
@@ -524,6 +530,47 @@ function Leanings({ civ, x, l, year, over, onEdit, locked }: { civ: Civ; x: Pers
 
 /** 概况的每一行 */
 function personLines(civ: Civ, x: Person, era: Era | undefined): Line[] {
+  const out = personFacts(civ, x, era);
+  const from = trekLine(civ, x, era);
+  if (from) out.push(from);
+  return out;
+}
+
+/**
+ * 跟着大迁徙迁过来的那一代人(这国的人、落脚以前生的):「来历」一行,排在概况最后。领头立国的那位 "率克拉尔族西徙，立萨热汗国";
+ * 别的 "克拉尔族；1899 年随族自诺敏塔拉西徙，1911 年随众立国"(地名点了跳到动身那年),路上生的 "克拉尔族；生于西徙途中，1911 年随众立国"。
+ * 不是 = null(见 migrationInfo.ts 的 personTrek)
+ */
+function trekLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
+  const t = personTrek(civ, x);
+  if (!t) return null;
+  const folk = cultureLabel(civ.cultures[t.M.culture]);
+  const go = `${t.M.dir}徙`;
+  if (t.how === 'lead') {
+    const text = `率${folk}${go}，立${polityName(civ.polities[x.polity], t.M.settled!)}`;
+    return { k: '来历', node: text, text };
+  }
+  const settled = `${yearAt(t.M.settled!, era)}随众立国`;
+  if (t.how === 'road') {
+    const text = `${folk}；生于${go}途中，${settled}`;
+    return { k: '来历', node: text, text };
+  }
+  const left = `${folk}；${yearAt(t.M.year, era)}随族自`;
+  return {
+    k: '来历',
+    node: (
+      <>
+        {left}
+        <TrekFrom civ={civ} m={t.m} />
+        {go}，{settled}
+      </>
+    ),
+    text: `${left}${regionLabel(civ, t.M.route[0])}${go}，${settled}`,
+  };
+}
+
+/** 概况里除了「来历」的那些行(按身份) */
+function personFacts(civ: Civ, x: Person, era: Era | undefined): Line[] {
   const p = civ.polities[x.polity];
   const out: Line[] = [];
   const fame = personFame(civ, x);

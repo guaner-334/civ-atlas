@@ -21,7 +21,8 @@
  */
 import { Delaunay } from 'd3-delaunay';
 import type { Mesh } from './mesh';
-import { clamp, fbm3, noise3, ridged3, type Noise3, type Rng } from './util';
+import { clamp, type Rng } from './util';
+import { fbm3, noise3, ridged3, type Noise3 } from './noise';
 import { round24 } from './civ/rand';
 
 /**

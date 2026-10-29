@@ -496,6 +496,10 @@
   color: var(--ink);
   font-family: var(--font-sans);
 }
+/* 每一步都停、这一步全世界没有大事:只一行,宽度跟着字 */
+.sw-review.empty {
+  flex: 0 1 auto;
+}
 .sw-line {
   height: 3px;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
@@ -1201,6 +1205,17 @@
 .sw-own .sw-r-main {
   font-size: 13.5px;
   color: var(--ink-2);
+}
+/* 自己填一步走多久:数后面一排单位(年 / 个月 / 格) */
+.sw-num-in.short {
+  width: 52px;
+  text-align: center;
+}
+.sw-seg.sw-unit {
+  margin-left: 8px;
+}
+.sw-seg.sw-unit > button {
+  padding: 5px 11px;
 }
 /* 导播设置原地展开 */
 .dr-set.inline {
