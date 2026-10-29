@@ -291,6 +291,7 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   boost: '推一把发展',
   trek: '大迁徙',
   stay: '不许迁',
+  appoint: '任作者的人物为将 / 为臣',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {

@@ -496,7 +496,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
 }
 
 /** 这一朝里能经手的事(按年份) */
-function anchorsOf(input: OfficialsInput, p: Polity, dyn: number, s: Year, e: Year, rs: readonly Person[], sys: System): Anchor[] {
+function anchorsOf(input: Pick<OfficialsInput, 'annals' | 'polities' | 'upheavals'>, p: Polity, dyn: number, s: Year, e: Year, rs: readonly Person[], sys: System): Anchor[] {
   const { annals } = input;
   const out: Anchor[] = [];
   const inSeg = (y: Year) => y >= s && y < e;
@@ -538,7 +538,7 @@ function anchorsOf(input: OfficialsInput, p: Polity, dyn: number, s: Year, e: Ye
   return out.sort((a, b) => a.year - b.year || a.prio - b.prio);
 }
 
-function polityOf(input: OfficialsInput, id: number): Polity | undefined {
+function polityOf(input: Pick<OfficialsInput, 'polities'>, id: number): Polity | undefined {
   return id >= 0 ? input.polities[id] : undefined;
 }
 
@@ -638,9 +638,10 @@ export function postLadder(p: Polity, role: 'minister' | 'general', year: Year):
 
 /**
  * 将领的官职:每次领兵时按此前打赢的仗数定级,用那一年本国档位的那套官。
- * 国号升格换了一套官时,照已经做到的位置(在那套官里的比例)落到新的那套上,只升不降
+ * 国号升格换了一套官时,照已经做到的位置(在那套官里的比例)落到新的那套上,只升不降。
+ * start = 上任那一刻先定一级(作者的将领:任将那年就有官,不等领兵;推演里的将领不给)
  */
-function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: (use: number) => number): PersonPost[] {
+export function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: (use: number) => number, start?: Year): PersonPost[] {
   const sys = systemOf(p);
   const wing = pickOf(WINGS, r(U_DEPT));
   const out: PersonPost[] = [];
@@ -655,6 +656,7 @@ function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: (use: n
     const title = lad[k].replace('*', wing);
     if (!out.length || out[out.length - 1].title !== title) out.push({ title, from });
   };
+  if (start !== undefined) rise(start);
   for (const c of g.commands ?? []) {
     rise(c.from);
     // 打赢一仗(攻方攻下一州、守方守住)记一功,功够了当年就升
@@ -666,6 +668,53 @@ function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: (use: n
         rise(a.year);
       }
     }
+  }
+  return out;
+}
+
+/**
+ * 作者的名臣(干预「任臣」,appoint.ts)经手的事:他在朝那几年(from 起、until 以前)本国朝中的事 —— 劝进、拥立、迁都、赈灾、议和、主战、守御
+ * (同推演里的名臣那几样;佐命、辅政、专权不算,那是推演里专门起的那位的)。推演里原来经手的那位照旧经手,这里只是他也经手。
+ * dyn = 他在朝那一朝;rs = 这国的君主(即位先后)。who = 记在 deed.person 上的人(排好编号再换)
+ */
+export function courtDeeds(
+  input: Pick<OfficialsInput, 'annals' | 'polities' | 'upheavals'>,
+  p: Polity,
+  dyn: number,
+  from: Year,
+  until: Year,
+  rs: readonly Person[],
+): { deed: PersonDeed; who?: Person }[] {
+  return anchorsOf(input, p, dyn, from, until, rs, systemOf(p))
+    .filter((a) => a.kind !== 'found' && a.kind !== 'regent' && a.kind !== 'power')
+    .map((a) => ({ deed: { ...a.deed }, ...(a.who ? { who: a.who } : {}) }));
+}
+
+/** 作者的名臣按年资每这么多年升一级 */
+const SENIORITY = 8;
+
+/**
+ * 作者的名臣的官职:入朝那年拜那套官(按那一年本国的档位)的最低一级,此后每 SENIORITY 年升一级,做到最高的那级为止;
+ * 最高的官同一时间只有一位:升到那一级的那一刻推演里的名臣正做着(topHeld(官名, 那一刻) = true),他写次一级(TOP_ALT),推演里的那位不变
+ * (只看那一刻:往后推、后来有人做了这个官,不改他先前的官)。
+ * until = 去职那一刻(还在朝 = 推到的最后一年);dept = 经手的第一件事(东方帝国级的尚书按它挑哪一部)。同一个官名接连两级的合并
+ */
+export function seniorityPosts(p: Polity, from: Year, until: Year, topHeld: (title: string, t: Year) => boolean, dept?: PersonDeed['kind']): PersonPost[] {
+  const sys = systemOf(p);
+  const ladderAt = (y: Year) => CIVIL[sys][clampTier(polityTierAt(p, y))] ?? CIVIL[sys][1] ?? [];
+  const out: PersonPost[] = [];
+  for (let k = 0; ; k++) {
+    const y = q(from + k * SENIORITY);
+    if (k > 0 && y >= until) break;
+    const lad = ladderAt(y);
+    if (!lad.length) break;
+    let title = lad[Math.min(k, lad.length - 1)];
+    const top = k >= lad.length - 1;
+    if (top && topHeld(title, y)) title = TOP_ALT[sys][clampTier(polityTierAt(p, y))] ?? lad[lad.length - 2] ?? title;
+    // 东方帝国级的尚书按经手的第一件事挑哪一部(没有 = 吏部)
+    if (title === '尚书') title = (dept && DEPT[dept] ? DEPT[dept] : '吏部') + title;
+    if (!out.length || out[out.length - 1].title !== title) out.push({ title, from: y });
+    if (top) break;
   }
   return out;
 }

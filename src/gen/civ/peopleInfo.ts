@@ -51,10 +51,12 @@ export function peopleIndex(civ: Civ): PeopleIndex {
     if (x.polity < 0 || x.polity >= n) continue;
     if (x.role === 'ruler') ix.rulers[x.polity].push(x);
     else if (x.role === 'minister') ix.ministers[x.polity].push(x);
-    else if (x.commands?.length) ix.generals[x.polity].push(x);
+    else if (x.commands?.length || (x.author !== undefined && x.from !== undefined)) ix.generals[x.polity].push(x);
   }
+  // 作者的将领(任将)按上任那年排,一仗没打过的也在
+  const debut = (x: Person) => (x.author !== undefined && x.from !== undefined ? x.from : x.commands![0].from);
   for (const rs of ix.rulers) rs.sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.id - b.id);
-  for (const gs of ix.generals) gs.sort((a, b) => a.commands![0].from - b.commands![0].from || a.id - b.id);
+  for (const gs of ix.generals) gs.sort((a, b) => debut(a) - debut(b) || a.id - b.id);
   for (const ms of ix.ministers) ms.sort((a, b) => a.from! - b.from! || a.id - b.id);
   for (const e of civ.annals) {
     if (e.kind === 'war' && e.war >= 0 && !ix.wars.has(e.war)) ix.wars.set(e.war, e);
@@ -66,10 +68,10 @@ export function peopleIndex(civ: Civ): PeopleIndex {
 
 /**
  * 一个人在台上的年份:君主 = 即位到失位(还在位 = null);将领 = 第一次领兵到最后一次卸任;名臣 = 入仕到去职(还在朝 = null);
- * 后妃:临朝的太后 = 临朝那几年(还在临朝 = null),嫁来的宗室女 = 一生
+ * 作者的将领(任将)= 任期(还在任 = null);后妃:临朝的太后 = 临朝那几年(还在临朝 = null),嫁来的宗室女 = 一生
  */
 export function personSpan(x: Person): { from: Year; until: Year | null } {
-  if (x.role === 'ruler' || x.role === 'minister') return { from: x.from ?? x.born, until: x.until ?? null };
+  if (x.role === 'ruler' || x.role === 'minister' || (x.author !== undefined && x.from !== undefined)) return { from: x.from ?? x.born, until: x.until ?? null };
   if (x.role === 'consort') {
     const gs = (x.regencies ?? []).filter((g) => g.kind === 'dowager');
     if (gs.length) return { from: gs[0].from, until: gs[gs.length - 1].until ?? null };
@@ -150,6 +152,28 @@ export function generalTally(civ: Civ, x: Person): { took: number; held: number 
     }
   }
   return { took, held };
+}
+
+/**
+ * 将领经手的仗的胜负(作者的将领"胜 7 阵、败 2 阵"用):胜 = 攻下一州、守住一仗;败 = 丢了一州、攻而不克。
+ * 只数他领兵(挂帅、随驾)那几段里的仗
+ */
+export function generalRecord(civ: Civ, x: Person): { won: number; lost: number } {
+  let won = 0;
+  let lost = 0;
+  const A = civ.annals;
+  for (const c of x.commands ?? []) {
+    if (c.rear) continue;
+    for (let i = Math.max(0, c.first); i <= c.last && i < A.length; i++) {
+      const e = A[i];
+      if (e.war !== c.war || (e.kind !== 'conquer' && e.kind !== 'battle')) continue;
+      const mine = e.kind === 'conquer' ? e.a === x.polity : e.b === x.polity;
+      const theirs = e.kind === 'conquer' ? e.b === x.polity : e.a === x.polity;
+      if (mine) won++;
+      else if (theirs) lost++;
+    }
+  }
+  return { won, lost };
 }
 
 /** 君主在位时本国在战争里攻下几州 */

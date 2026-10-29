@@ -373,15 +373,18 @@ export const CHAR_YEAR_MAX = INTERVENTION_YEAR_MAX;
 export const AUTHOR_RULER_DEFAULT = '作者的人物';
 
 /**
- * 套上作者人物的名字和性别(干预"即位"立的君主、"让他掌权"掌权的作者人物,Person.author):按编号把人物卡上的名字填进推演人物的 name
+ * 套上作者人物的名字和性别(干预"即位"立的君主、"让他掌权"掌权的、"任将 / 任臣"任了的作者人物,Person.author):按编号把人物卡上的名字填进推演人物的 name
  * (找不到 = AUTHOR_RULER_DEFAULT)、性别照人物卡(女的 female = true,男的、找不到的不写),再记一份"编号 → 名字"进 Civ.authorNames、
  * 女的编号进 Civ.authorFemale(编年史写没即位成的原因时用)。推演本身不看性别,所以只在这里套,历史不变。
- * 返回新的 Civ(原 Civ 不改);没有作者的人物、也没有即位、让作者的人物掌权的干预时返回原对象。界面在套完改名(edits.ts 的 applyNames)之后调用
+ * 返回新的 Civ(原 Civ 不改);没有作者的人物、也没有即位、让作者的人物掌权、任将任臣、点了谁挂帅的宣战时返回原对象。界面在套完改名(edits.ts 的 applyNames)之后调用
  */
 export function applyCharacters(civ: Civ, characters: readonly AuthorCharacter[] | undefined): Civ {
   const people = civ.people;
   const chars = new Set<number>();
-  for (const v of civ.interventions ?? []) if (v.kind === 'crown' || (v.kind === 'regent' && v.char !== undefined)) chars.add(v.char);
+  for (const v of civ.interventions ?? []) {
+    if (v.kind === 'crown' || v.kind === 'appoint' || (v.kind === 'regent' && v.char !== undefined)) chars.add(v.char);
+    else if (v.kind === 'declare' && v.lead !== undefined) chars.add(v.lead);
+  }
   if (people) for (const x of people) if (x.author !== undefined) chars.add(x.author);
   if (!chars.size) return civ;
   const byId = new Map<number, AuthorCharacter>();
