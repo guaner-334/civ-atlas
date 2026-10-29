@@ -1,9 +1,10 @@
 /**
- * 地图上的商道(render/civ/trade.ts 画在文字层上):点选、悬停。
+ * 地图上的商道(render/civ/trade.ts 画在文字层上;地球仪上 render/globeTrade.ts 画在球面那层上):点选、悬停。
  *
- *   - 文字层每画一次记下这一次画的各条商道(画布像素的折线,setTradeHits);鼠标、手指的位置换成画布像素,
- *     离哪条线够近(线宽的一半 + SLOP 个屏幕像素)就是哪条,几条叠在一起取最近的
- *   - 鼠标停着的那条(useTradeHover):文字层上那条亮一圈;悬停小卡的内容见 tradeHoverInfo
+ *   - 文字层(地球仪:球面那层)每画一次记下这一次画的各条商道(画布像素的折线,setTradeHits);鼠标、手指的位置换成画布像素,
+ *     离哪条线够近(线宽的一半 + SLOP 个屏幕像素)就是哪条,几条叠在一起取最近的。
+ *     平面地图、地球仪各记各的(地球仪开着时平面地图的文字层还在、也会重画)
+ *   - 鼠标停着的那条(useTradeHover):那条亮一圈;悬停小卡的内容见 tradeHoverInfo
  */
 import { useSyncExternalStore } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -18,24 +19,34 @@ import type { HoverInfo } from './hoverInfo';
 /** 离线多远(屏幕像素)还算点到 */
 const SLOP = 4;
 
-let last: { canvas: HTMLCanvasElement; hits: TradeHit[]; view?: LabelView } | null = null;
+/** 画在哪:平面地图 / 地球仪 */
+export type TradeSurface = 'map' | 'globe';
 
-/** 文字层画完商道以后记下(没画 = null;view = 文字层的视口,弯边投影时外轮廓外面不算点到) */
-export function setTradeHits(s: { canvas: HTMLCanvasElement; hits: TradeHit[]; view?: LabelView } | null) {
-  last = s && s.hits.length ? s : null;
-  // 测试入口:画了哪几条;某一条线上第 f(0–1)处在屏幕上的位置(截图、冒烟测试把鼠标挪过去用)
-  (window as unknown as { __wfTrade: unknown }).__wfTrade = {
-    ids: last ? last.hits.map((h) => h.id) : [],
-    at: (id: number, f = 0.5) => tradePoint(id, f),
+interface Drawn {
+  canvas: HTMLCanvasElement;
+  hits: TradeHit[];
+  view?: LabelView;
+}
+const last: Record<TradeSurface, Drawn | null> = { map: null, globe: null };
+/** 测试入口的名字:画了哪几条;某一条线上第 f(0–1)处在屏幕上的位置(截图、冒烟测试把鼠标挪过去用) */
+const HOOK: Record<TradeSurface, string> = { map: '__wfTrade', globe: '__wfGlobeTrade' };
+
+/** 画完商道以后记下(没画 = null;view = 文字层的视口,弯边投影时外轮廓外面不算点到) */
+export function setTradeHits(s: Drawn | null, where: TradeSurface = 'map') {
+  const d = (last[where] = s && s.hits.length ? s : null);
+  (window as unknown as Record<string, unknown>)[HOOK[where]] = {
+    ids: d ? d.hits.map((h) => h.id) : [],
+    at: (id: number, f = 0.5) => tradePoint(where, id, f),
   };
 }
 
 /** 第 id 条商道线上第 f 处(按点数)的屏幕坐标;没画 = null */
-function tradePoint(id: number, f: number): [number, number] | null {
-  const h = last?.hits.find((x) => x.id === id);
-  if (!last || !h) return null;
-  const r = last.canvas.getBoundingClientRect();
-  const k = r.width / last.canvas.width;
+function tradePoint(where: TradeSurface, id: number, f: number): [number, number] | null {
+  const d = last[where];
+  const h = d?.hits.find((x) => x.id === id);
+  if (!d || !h) return null;
+  const r = d.canvas.getBoundingClientRect();
+  const k = r.width / d.canvas.width;
   for (const pl of h.polys) {
     const n = pl.length >> 1;
     const i = Math.min(n - 1, Math.max(0, Math.round(f * (n - 1))));
@@ -47,9 +58,10 @@ function tradePoint(id: number, f: number): [number, number] | null {
 }
 
 /** 点到 / 鼠标停着的商道(屏幕坐标);没有 = null */
-export function tradeAtClient(clientX: number, clientY: number): number | null {
-  if (!last || !last.canvas.isConnected) return null;
-  const { canvas, hits } = last;
+export function tradeAtClient(clientX: number, clientY: number, where: TradeSurface = 'map'): number | null {
+  const d = last[where];
+  if (!d || !d.canvas.isConnected) return null;
+  const { canvas, hits } = d;
   const r = canvas.getBoundingClientRect();
   if (!r.width || !r.height || !canvas.width) return null;
   const f = canvas.width / r.width;
@@ -57,7 +69,7 @@ export function tradeAtClient(clientX: number, clientY: number): number | null {
   const y = (clientY - r.top) * f;
   // 画布外面、弯边投影的外轮廓外面(伸出去的那截没画)不算
   if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) return null;
-  const v = last.view;
+  const v = d.view;
   if (v?.proj && !v.proj.inside((x - v.ox) / v.scale, (y - v.oy) / v.scale, 0)) return null;
   let best: number | null = null;
   let bestD = Infinity;
@@ -65,9 +77,9 @@ export function tradeAtClient(clientX: number, clientY: number): number | null {
     const tol = h.half + SLOP * f;
     for (const pl of h.polys) {
       for (let i = 2; i < pl.length; i += 2) {
-        const d = segDist(x, y, pl[i - 2], pl[i - 1], pl[i], pl[i + 1]);
-        if (d <= tol && d < bestD) {
-          bestD = d;
+        const dd = segDist(x, y, pl[i - 2], pl[i - 1], pl[i], pl[i + 1]);
+        if (dd <= tol && dd < bestD) {
+          bestD = dd;
           best = h.id;
         }
       }
