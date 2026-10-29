@@ -271,14 +271,21 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
     let linked = 0;
     for (const x of P) {
       if (x.parent === undefined) continue;
-      linked++;
       const f = P[x.parent];
       expect(f, x.name).toBeTruthy();
+      // 将门、世家(父辈是本国先前的将领、名臣)另见 civ-kin.test.ts
+      if (x.role === 'general' || x.role === 'minister') {
+        expect(f.role).toBe(x.role);
+        continue;
+      }
+      linked++;
       expect(f.role === 'ruler' || f.role === 'prince').toBe(true);
       expect(x.role === 'ruler' || x.role === 'prince').toBe(true);
       // 宗室据地争位、自立为君的(推演里 split 的 cause = heir):父亲是原来那一国的先君;他的儿子也可能留在原来那一国
       if (f.polity !== x.polity) {
         if (x.claim?.how === 'secede') expect(civ.polities[x.polity].parent).toBe(f.polity);
+        // 复国之君(和接着继位、连到同一位父辈下面的兄弟子侄)接上故国末代那一朝的宗室
+        else if (civ.polities[x.polity].restores === f.polity) expect(x.dynasty ?? 0).toBe(0);
         else {
           expect(f.claim?.how).toBe('secede');
           expect(civ.polities[f.polity].parent).toBe(x.polity);
@@ -301,8 +308,11 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
     const heirs = P.filter((x) => x.role === 'ruler' && x.rise === 'heir' && civ.polities[x.polity].lineage !== 'republic');
     expect(linked).toBeGreaterThan(heirs.length);
     expect(heirs.filter((x) => x.parent === undefined).length).toBeLessThan(heirs.length / 50);
-    // 共和国的执政官、将领没有父亲
-    for (const x of P) if (x.role === 'general' || (x.role === 'ruler' && civ.polities[x.polity].lineage === 'republic')) expect(x.parent).toBeUndefined();
+    // 共和国的执政官没有父亲(复国的那一位接上故国王室的除外);将领的父辈只会是将领(将门)
+    for (const x of P) {
+      if (x.role === 'ruler' && civ.polities[x.polity].lineage === 'republic' && x.rise !== 'restore') expect(x.parent).toBeUndefined();
+      if (x.role === 'general' && x.parent !== undefined) expect(P[x.parent].role).toBe('general');
+    }
   });
 
   it('宗室:有名字;不和本国先出道的君主、将领同名;补出来的(为了接上即位的子孙)有儿子,在儿子即位前去世', () => {

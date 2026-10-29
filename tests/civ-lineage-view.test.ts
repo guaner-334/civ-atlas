@@ -8,7 +8,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { peopleIndex } from '../src/gen/civ/peopleInfo';
 import { personName, princeRole, rulerShort } from '../src/gen/civ/peopleText';
-import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText, reignOrder } from '../src/gen/civ/lineageInfo';
+import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText, reignOrder, restoredFrom } from '../src/gen/civ/lineageInfo';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {
@@ -55,7 +55,8 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
         // 第一棵是开国那一支
         expect(trees[0].distant).toBe(false);
         expect(trees[0].nodes.some((n) => n.p === row.rulers[0])).toBe(true);
-        distant += trees.filter((t) => t.distant).length;
+        // (复国之君的宗室远支 —— 隔得太远、只补了一位父亲的那一支 —— 不算)
+        distant += trees.filter((t) => t.distant && !t.nodes.some((n) => restoredFrom(civ, n.p, p.id))).length;
         for (const t of trees) {
           const at = new Map(t.nodes.map((n) => [n.p, n]));
           const cells = new Set(t.nodes.map((n) => `${n.x},${n.depth}`));
