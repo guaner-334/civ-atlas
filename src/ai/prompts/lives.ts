@@ -343,7 +343,7 @@ function personPrompts(civ: Civ, opts: LifeOptions, id: number, src?: LifeSource
     for (const b of battles.slice(0, LIFE_BATTLES)) body.push(`- ${b}`);
     if (battles.length > LIFE_BATTLES) body.push(`- (另有${cnNumber(battles.length - LIFE_BATTLES)}仗从略)`);
   }
-  const head = ruler ? '在位时' : x.role === 'minister' ? '在朝时' : x.role === 'prince' ? `${he}经手的` : '领兵时';
+  const head = ruler ? '在位时' : x.role === 'minister' ? '在朝时' : x.role === 'prince' || x.role === 'consort' ? `${he}经手的` : '领兵时';
   const ev = pickEvents(card.events, LIFE_EVENT_BUDGET, (e) => (e.people?.includes(x.id) ? 1 : 0));
   if (ev.lines.length) {
     body.push('', `〔${head}本国的事〕(按先后;★ 是大事)`, ...ev.lines);

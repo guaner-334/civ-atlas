@@ -117,7 +117,11 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
         expect(civ.annals[i + 1].kind).toBe('dynasty');
         expect(x.rise).toBe('usurp');
         expect(x.dynasty).toBe((N.dynasty ?? 0) + 1);
-        expect(x.posts?.length).toBeGreaterThan(0);
+        // 临朝的太后篡位:新朝第一位就是她(女的,幼主的母亲);名臣、大臣篡位:带着做名臣时的官职
+        if (x.regencies?.some((v) => v.kind === 'dowager')) {
+          expect(x.female).toBe(true);
+          expect(N.mom).toBe(x.id);
+        } else expect(x.posts?.length).toBeGreaterThan(0);
         expect(civ.polities[e.a].dynasties![x.dynasty!].usurper?.born).toBe(x.born);
       }
     }
@@ -182,7 +186,7 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
     expect(n).toBe(civ.annals.filter((e) => e.kind === 'regent' && e.n === RG_START).length);
   });
 
-  it('联姻:史事 marry 推得回娶亲的人;他记着配偶(出自哪国、父亲是那国当时的君主),娶亲以后生的儿子记着母亲', () => {
+  it('联姻:史事 marry 推得回娶亲的人;他记着配偶(出自哪国、父亲是那国当时的君主),娶亲以后生的儿子记着母亲(嫁来的宗室女本人)', () => {
     const civ = civOf(seed);
     const P = civ.people!;
     const matches = matchesFrom(ctxOf(civ), civ.annals);
@@ -204,11 +208,14 @@ describe.each([7, 2024])('掌实权、联姻 · seed=%i', (seed) => {
         // 东方带姓的语感写"某氏"
         if (s.name) expect(s.name.endsWith('氏')).toBe(true);
       }
-      if (x.mother) {
+      // 母亲是嫁来的宗室女(后妃):父亲娶了她、娶她以后出生
+      const M = x.mom !== undefined ? P[x.mom] : undefined;
+      if (M && !M.regencies?.length) {
         mothers++;
         const f = P[x.parent!];
-        expect(f.spouses?.some((s) => s.annal === x.mother!.annal)).toBe(true);
-        expect(x.mother.year).toBeLessThan(x.born);
+        const s = f.spouses?.find((v) => v.person === M.id);
+        expect(s).toBeDefined();
+        expect(s!.year).toBeLessThan(x.born);
       }
     }
     expect(P.filter((x) => x.spouses?.length).length).toBeGreaterThan(0);

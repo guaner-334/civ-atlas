@@ -25,7 +25,8 @@
  * 原来的男名记在 Person.maleName(不显示;头像的长相按它一代代往下传,她的后人长相不变)。
  * 按出道先后起,不和此前出道的人重名(名字少的语感至少和本国的人、前后 NAME_GAP 年里出生的同名人物错开);
  * 西幻同一朝的女王(和预定即位的公主)有 REUSE 的机会沿用本朝女王用过的名字(序数照男王的规矩编,男女分开数)。
- * 将领、名臣的字照女名另起(officials.ts 的 courtesyName)。纯计算,不碰 DOM。
+ * 将领、名臣的字照女名另起(officials.ts 的 courtesyName)。后妃(嫁来的宗室女、临朝的太后,consorts.ts)本来就是女的,
+ * 名字在这里和别的女性一起按出道先后起(nameWomen)。纯计算,不碰 DOM。
  */
 import type { PersonNamer } from '../names';
 import { keyed4, subSeed } from './rand';
@@ -79,7 +80,7 @@ const U_REUSE_PICK = 2;
 const U_COURTESY = 16;
 /** 身份:宗室(有父亲的,即位没即位都算这一种)、别的君主、将领、名臣(篡位开国的名臣也算名臣) */
 const K_ROYAL = 2;
-const K: Record<Person['role'], number> = { ruler: 1, prince: K_ROYAL, general: 3, minister: 4 };
+const K: Record<Person['role'], number> = { ruler: 1, prince: K_ROYAL, general: 3, minister: 4, consort: 5 };
 
 const TICK = 256;
 const qi = (x: number) => Math.round(x * TICK);
@@ -106,18 +107,16 @@ export interface WomenCtx {
   retitle: (pid: number) => void;
 }
 
-/** people = 排好编号、连好父亲的全部人物(下标 = Person.id);就地改 */
-export function assignWomen(people: Person[], ctx: WomenCtx): void {
+/** 后妃起名用的(consorts.ts):姓(东方带姓的语感;别的 = 空串)、身份(起名的随机数用) */
+export interface ConsortName {
+  sur: string;
+  kind: number;
+}
+
+/** 两步共用的:随机数、按出道时的身份算的那几样 */
+function prep(ctx: WomenCtx) {
   const { polities, tag } = ctx;
-  if (!people.length) return;
   const base = subSeed(ctx.seed, 'civ-gender');
-  const kids = new Map<number, Person[]>();
-  for (const x of people) {
-    if (x.parent === undefined) continue;
-    const l = kids.get(x.parent);
-    if (l) l.push(x);
-    else kids.set(x.parent, [x]);
-  }
   /** 人物 → 他做儿子的那一份(royals.ts;即位了的也有) */
   const sonOf = new Map<Person, Son>();
   for (const ss of ctx.sons.values()) for (const s of ss) sonOf.set(s.p, s);
@@ -131,6 +130,25 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
   const kind = (x: Person) => (exMinister.has(x) ? K.minister : sonOf.has(x) ? K_ROYAL : K[x.role]);
   const R = (x: Person, use: number) => keyed4(base, tag[home(x)] ?? 0, qi(x.born), kind(x), use);
   const group = (x: Person) => groupOf(polities[home(x)] ? ctx.styleOf(polities[home(x)]) : 'kingdom');
+  /** 君主:一国一国、按即位先后(作者立的君主、作者让他让位的照常在表里,只是不换) */
+  const reignsOf = (people: readonly Person[]) => {
+    const reigns: Person[][] = polities.map(() => []);
+    for (const x of people) if (x.role === 'ruler') reigns[x.polity]?.push(x);
+    for (const list of reigns) list.sort((a, b) => a.from! - b.from! || a.id - b.id);
+    return reigns;
+  };
+  return { sonOf, exMinister, home, kind, R, group, reignsOf };
+}
+
+/**
+ * 谁是女的(只定、不改):people = 排好编号、连好父亲的人物(下标 = Person.id);keepMale = 照旧是男的
+ * (临朝的太后的丈夫:幼主的父亲,people.ts 给)
+ */
+export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: ReadonlySet<Person> = new Set()): Set<Person> {
+  const { polities, tag } = ctx;
+  const women = new Set<Person>();
+  if (!people.length) return women;
+  const { sonOf, exMinister, kind, R, group, reignsOf } = prep(ctx);
   /** 一位寻常君主命里该有的儿子的生年;寿数(预定的继承人不知道,当一直在世) */
   const broodYears = (r: Reign | undefined, pid: number): { born: Year; life: Year }[] => {
     if (!r || r.crown || !polities[pid]) return [];
@@ -169,11 +187,7 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
     return rule === 'sonless' ? !others.length : others.every((c) => c.born > x.born);
   };
 
-  const women = new Set<Person>();
-  // 君主:一国一国、按即位先后(作者立的君主、作者让他让位的照常在表里,只是不换)
-  const reigns: Person[][] = polities.map(() => []);
-  for (const x of people) if (x.role === 'ruler') reigns[x.polity]?.push(x);
-  for (const list of reigns) list.sort((a, b) => a.from! - b.from! || a.id - b.id);
+  const reigns = reignsOf(people);
   /**
    * 预定的继承人照原定(父亲到期下台、他接着即位)在在位表里的那一项:不看后来真的怎样(父亲先没了、改朝换代),
    * 即位以前、以后,推到哪一年都一样
@@ -187,7 +201,7 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
     return same(reignBorn(next), s.p.born) ? next : undefined;
   };
   for (const x of people) {
-    if (x.author !== undefined || x.rise === 'crown') continue;
+    if (x.author !== undefined || x.rise === 'crown' || x.role === 'consort' || keepMale.has(x)) continue;
     const g = group(x);
     const u = R(x, U_PICK);
     const rule = RULE[g];
@@ -224,7 +238,18 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
     }
     if (ok && u < rate) women.add(x);
   }
-  if (!women.size) return;
+  return women;
+}
+
+/**
+ * 换成女的、起女名:people = 排好编号、连好父亲的全部人物(下标 = Person.id;就地改),women = pickWomen 挑的再加上
+ * 临朝篡位的太后(新朝第一位);consorts = 后妃(都是女的,名字还空着)的姓和身份
+ */
+export function nameWomen(people: Person[], ctx: WomenCtx, women: ReadonlySet<Person>, consorts: ReadonlyMap<Person, ConsortName> = new Map()): void {
+  const { polities, tag } = ctx;
+  if (!people.length || (!women.size && !consorts.size)) return;
+  const { sonOf, exMinister, home, kind, R, reignsOf } = prep(ctx);
+  const reigns = reignsOf(people);
 
   // ---- 起女名:按出道先后(编号),不和此前出道的人重名 ----
   /** 名字 → 用过的人的生年;国家 → 本国用过的名字 */
@@ -240,19 +265,20 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
   const queens = new Map<string, string[]>();
   const retitle = new Set<number>();
   for (const x of people) {
-    if (!women.has(x)) {
+    const cn = consorts.get(x);
+    if (!women.has(x) && !cn) {
       use(x);
       continue;
     }
     const pid = home(x);
     const P = polities[pid];
     const namer = ctx.namerOf(P);
-    const sur = namer.surnamed ? splitSurname(x.name) : '';
-    const at = (a: number) => sur + namer.femaleGiven(tag[pid] ?? 0, kind(x), qi(x.born), a);
+    const sur = cn ? cn.sur : namer.surnamed ? splitSurname(x.name) : '';
+    const at = (a: number) => sur + namer.femaleGiven(tag[pid] ?? 0, cn ? cn.kind : kind(x), qi(x.born), a);
     let name = '';
     const son = sonOf.get(x);
     // 西幻世袭的君主、预定即位的公主:有机会沿用本朝女王的名字(上一位的除外)。按出道时的身份定(别的公主后来争位、自立当了女王也不改名)
-    const queen = namer.family === 'western' && P.lineage !== 'republic' && !exMinister.has(x) && (son ? son.heirAt !== undefined : x.role === 'ruler');
+    const queen = !cn && namer.family === 'western' && P.lineage !== 'republic' && !exMinister.has(x) && (son ? son.heirAt !== undefined : x.role === 'ruler');
     const qk = `${pid}:${x.dynasty ?? 0}`;
     if (queen) {
       const list = reigns[x.polity];
@@ -275,17 +301,13 @@ export function assignWomen(people: Person[], ctx: WomenCtx): void {
     }
     // 西幻改了名的君主(篡位开国的名臣也算):这一国同名的另编序数
     if (x.role === 'ruler' && namer.family === 'western') retitle.add(x.polity);
-    x.maleName = x.name;
+    // 后妃本来没有名字(不记男名);临朝篡位的太后记下新朝第一位原来的男名(头像按它往下传)
+    if (x.name) x.maleName = x.name;
     x.name = name;
     x.female = true;
     use(x);
     // 字照女名另起
     if (x.courtesy) x.courtesy = courtesyName(ctx.styleOf(P), name, (u) => R(x, U_COURTESY + u), true);
-  }
-  // 女的结过亲(联姻里她是嫁过去的那一方,对方是宗室子):她的孩子的母亲就是她,不另记"母亲是嫁来的宗室女"
-  for (const x of women) {
-    if (!x.spouses?.length) continue;
-    for (const k of kids.get(x.id) ?? []) if (k.mother && x.spouses.some((s) => s.annal === k.mother!.annal)) delete k.mother;
   }
   for (const [S, F] of ctx.usurped) {
     if (!F.female) continue;

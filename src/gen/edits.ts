@@ -561,6 +561,8 @@
  *      进新时代那条接上铁路、电报。历史重新推演
  *  50:推演里有了女性(civ/women.ts):按语感的规矩和比例,一部分君主、没即位的宗室、将领、名臣是女的,用女名(将领、名臣的字跟着另起;
  *      西幻同名的国王里有一位成了女王的,后面那几位的"几世"跟着变)。疆域、兴亡、战争、人物的生卒和父子一样不变,男的名字一个不变
+ *  51:后妃(civ/consorts.ts):联姻嫁来的宗室女成了能点开的人物;名臣辅政的一部分换成幼主的母亲临朝(篡位的就是开国的女君),
+ *      名臣那边不再为这几段起人(同一朝的名臣、经手的事跟着重排,名字可能变)。疆域、兴亡、战争、君主将领宗室的生卒和父子不变
  */
 import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -574,7 +576,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 50;
+export const GENERATOR_VERSION = 51;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -644,6 +646,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   48: { change: 'chronicle' },
   49: { change: 'history' },
   50: { change: 'people' },
+  51: { change: 'people' },
 };
 
 /** 干预的种类(见文件头的表) */

@@ -107,8 +107,8 @@ import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
 import { practicesAt } from './practiceInfo';
 import { Practice, hasPractice } from './practices';
-import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
-import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, type Sexed } from './gender';
+import { ageAt, dowagerSpans, dowagerWordOf, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
+import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, westRank, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../era';
 import { keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { IV_NO_WAY } from './trekRoute';
@@ -372,8 +372,9 @@ interface PeopleIndex {
   rear: Map<number, Person>;
   /** 史事下标(掌实权的掌权、还政、伏诛、篡位、卒那一条)→ 掌权的人、那一段(Person.regencies) */
   power: Map<number, { x: Person; g: PersonRegency }>;
-  /** 幼主(Person.id)→ 摄政的叔父 */
+  /** 幼主(Person.id)→ 摄政的叔父 / 临朝的太后 */
   uncle: Map<number, Person>;
+  dowager: Map<number, Person>;
   /** 史事下标(结亲那一条)→ 娶亲的人、那一门亲(Person.spouses) */
   wed: Map<number, { x: Person; s: PersonSpouse }>;
 }
@@ -395,6 +396,7 @@ function peopleOf(civ: Civ): PeopleIndex | null {
     rear: new Map(),
     power: new Map(),
     uncle: new Map(),
+    dowager: new Map(),
     wed: new Map(),
   };
   for (const x of list) {
@@ -409,6 +411,7 @@ function peopleOf(civ: Civ): PeopleIndex | null {
       if (g.endAnnal !== undefined) ix.power.set(g.endAnnal, { x, g });
       // 幼主即位那一刻起摄政的叔父(写在即位那一条);作者下令、后来才摄政的不算(那一条 regent 自己写)
       if (g.kind === 'uncle' && civ.annals[g.annal]?.foe === undefined) ix.uncle.set(g.ruler, x);
+      if (g.kind === 'dowager') ix.dowager.set(g.ruler, x);
     }
     for (const s of x.spouses ?? []) ix.wed.set(s.annal, { x, s });
     // 名臣经手的事(篡位做了新朝第一位的名臣,做名臣时经手的事也在他身上)
@@ -780,7 +783,11 @@ function dynastyText(civ: Civ, e: Annal, ix: PeopleIndex | null = null, usurped 
     // 被废的末代:"权臣赵高废少帝自立"(称号本身带"废"字的写名字)
     const ousted = old ? (old.title && !old.title.startsWith('废') ? rulerTitle(civ, old) : old.name) : '';
     // 掌实权的名臣、大臣篡位:"丞相契鸾废幼主季工,自立为君"(带他做名臣时的官职;末代未成年写"幼主")
-    if (usurped && nu) {
+    if (usurped && nu && dowagerSpans(nu).length) {
+      // 临朝的太后废了幼主(她的儿子)自立:"太后燕晚歌废其子厉公,自立为君"
+      const son = old && old.mom === nu.id ? '其子' : old && ageAt(old, y) < 18 ? '幼主' : '';
+      t += `,${dowagerWordOf(civ, nu, y - 1 / 512)}${nu.name}${ousted ? `废${son}${ousted}` : ''},自立为君`;
+    } else if (usurped && nu) {
       const young = old && ageAt(old, y) < 18 ? '幼主' : '';
       t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${ousted ? `废${young}${ousted}` : ''},自立为君`;
     } else if (coup || !r) t += nu ? `,权臣${nu.name}${ousted ? `废${ousted}` : ''}自立` : `,权臣${house}篡位`;
@@ -793,7 +800,11 @@ function dynastyText(civ: Civ, e: Annal, ix: PeopleIndex | null = null, usurped 
   const realm = pn(civ, p.id, y);
   const what = p.lineage === 'khanate' ? '汗位易主' : '王室更迭';
   let t = `${realm}${what},${oldName}${lasted ? `${lasted}而终` : '绝嗣'},${reignName(civ, p, i, y)}兴`;
-  if (usurped && nu) t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${old ? `废黜${old.name}` : ''},自立为${bySex(nu, '王', '女王')}`;
+  if (usurped && nu && dowagerSpans(nu).length) {
+    // 皇太后废黜她的儿子,自立为女皇 / 女王
+    const son = old && old.mom === nu.id ? '其子' : '';
+    t += `,${dowagerWordOf(civ, nu, y - 1 / 512)}${nu.name}${old ? `废黜${son}${old.name}` : ''},自立为${westRank(nu, p.lineage, Math.max(1, polityTierAt(p, y)))}`;
+  } else if (usurped && nu) t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${old ? `废黜${old.name}` : ''},自立为${bySex(nu, '王', '女王')}`;
   else if (nu) t += `,${rulerShort(civ, nu)}即位`;
   if (moved && city) t += `,迁都${city}`;
   return t;
@@ -2006,6 +2017,8 @@ function holderRef(civ: Civ, x: Person, kind: PersonRegency['kind'], y: Year, N?
   const p = polityOf(civ, x.polity);
   const east = classical(p);
   if (kind === 'march' || kind === 'heir') return `${heirOf(p, y, x)}${x.name}`;
+  // 临朝的太后:"太后江晚萦""皇太后维斯佩丽娜"
+  if (kind === 'dowager') return `${dowagerWordOf(civ, x, y)}${x.name}`;
   if (kind === 'uncle') {
     if (!east) return `摄政${x.name}`;
     // 兄终弟及时幼主和先君同辈:"其兄某某"
@@ -2038,7 +2051,7 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
   const n = e.n ?? RG_START;
   // 作者下令"让他掌权"来的(掌权那一条 foe 列记着第几条干预):摄政不在幼主即位那一条里,这里写;太子到期篡位也在这里写
   const byIv = (n === RG_START ? e : g ? civ.annals[g.annal] : undefined)?.foe !== undefined;
-  if (n === RG_START && (kind === 'uncle' || kind === 'minister') && !byIv) return null;
+  if (n === RG_START && (kind === 'uncle' || kind === 'minister' || kind === 'dowager') && !byIv) return null;
   if (n === RG_USURP && kind !== 'uncle' && !(byIv && (kind === 'march' || kind === 'heir'))) return null;
   const y = e.year;
   // 名义君主:掌权那一刻在位的那位;大臣、大将专权跨了几位君主的,了结那一条写那时在位的
@@ -2098,11 +2111,13 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
   } else if (n === RG_RETURN) {
     const age = N ? ageAt(N, y) : 18;
     // 幼主成年还政;作者下令掌权的太子、大臣大将到期还政于君主
-    if (kind === 'uncle' || kind === 'minister') text = east ? `${ruler}年${cnNumber(age)},${who}还政` : `${ruler}年满 ${age} 岁,${who}交还大权`;
+    if (kind === 'uncle' || kind === 'minister' || kind === 'dowager') text = east ? `${ruler}年${cnNumber(age)},${who}还政` : `${ruler}年满 ${age} 岁,${who}交还大权`;
     else text = east ? `${P}${who}还政于${bare}` : `${P}${who}将大权交还${bare}`;
   } else if (n === RG_PURGE) {
     const child = kind === 'uncle' || kind === 'minister';
-    text = child
+    // 太后被亲政的幼主废黜、幽禁至死
+    if (kind === 'dowager') text = east ? `${ruler}亲政,废${who},幽死` : `${ruler}亲政,废黜${who},将她幽禁至死`;
+    else text = child
       ? east
         ? `${ruler}亲政,以谋逆诛${who}`
         : `${ruler}亲政,以谋逆罪处死${who}`
@@ -2207,7 +2222,10 @@ function marryEntry(ctx: Ctx, i: number): ChronicleEntry {
     const gr = !groom ? pn(civ, f.a, y) : ref ? (ref.includes(groom.name) ? ref : ref + groom.name) : princeRef(civ, groom, y);
     // 女的那一方:她嫁过去,配偶是对方君主的儿子
     if (groom && isFemale(groom)) return east ? `${gr}${also ? '亦' : ''}嫁${fa}之子` : `${gr}${also ? '也' : ''}嫁给了${fa}的儿子`;
-    const her = w?.s.name ?? '';
+    // 嫁来的宗室女是人物的写她的名字(能点)
+    const B = w && w.s.person !== undefined ? civ.people?.[w.s.person] : undefined;
+    if (B) people.push(B);
+    const her = B?.name ?? w?.s.name ?? '';
     if (!east) return `${fa}${also ? '也' : ''}将女儿${her}嫁给${gr}`;
     return `${fa}${also ? '亦' : ''}以${f.war >= 0 ? '宗室女' : '女'}${her}妻${gr}`;
   };
@@ -4309,12 +4327,25 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
         // 叔父摄政(regents.ts):"…,时年 9 岁,叔父某某摄政"
         const uncle = ix?.uncle.get(x.id);
         const uk = uncle ? kinOf(civ, x, uncle) || kinWord(uncle, '叔父') : '';
-        const aid = uncle ? `,${uk.length === 1 ? '其' : ''}${uk}${uncle.name}摄政` : !regent ? '' : regent === by ? (east ? ',遂辅政' : ',并摄政') : `,${ministerRef(regent, y)}${east ? '辅政' : '摄政'}`;
+        // 太后临朝(consorts.ts):"…,时年 11 岁,太后江晚萦临朝称制"(西幻"…,皇太后某某摄政")
+        const dowager = ix?.dowager.get(x.id);
+        const aid = uncle
+          ? `,${uk.length === 1 ? '其' : ''}${uk}${uncle.name}摄政`
+          : dowager
+            ? `,${dowagerWordOf(civ, dowager, y)}${dowager.name}${east ? '临朝称制' : '摄政'}`
+            : !regent
+              ? ''
+              : regent === by
+                ? east
+                  ? ',遂辅政'
+                  : ',并摄政'
+                : `,${ministerRef(regent, y)}${east ? '辅政' : '摄政'}`;
         // 作者让他去世的:那一年的干预那一条已经写了"暴崩,在位几年"
         text = prev.killed !== undefined ? `${ref}既${died};${then}${young}${aid}${tail}` : `${ref}${prev.fate === 'murdered' ? killed : died}${span};${then}${young}${aid}${tail}`;
         if (by) minis.push(by);
         if (regent && regent !== by && !uncle) minis.push(regent);
         if (uncle) minis.push(uncle);
+        if (dowager) minis.push(dowager);
       }
       out.push({
         id: n0 + x.id,

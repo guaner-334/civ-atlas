@@ -11,9 +11,9 @@
  * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。君号、身份词、身后称号、亲属词分男女(Person.female),换哪个字见 gender.ts。
  * - 君主的倾向:名字和一句说明(LEANING_TEXT),复制生平的一行(leaningsText)
  */
-import type { Civ, Person, Polity, RulerLeanings, Year } from './types';
+import type { Civ, Person, PersonRegency, Polity, RulerLeanings, Year } from './types';
 import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from './growth';
-import { eastRank, isFemale, khanWord, postTitle, princeWord, westRank } from './gender';
+import { childWord, dowagerWord, eastRank, isFemale, khanWord, postTitle, princeWord, westRank } from './gender';
 
 function polityOfPerson(civ: Civ, x: Person): Polity | null {
   return x.polity >= 0 && x.polity < civ.polities.length ? civ.polities[x.polity] : null;
@@ -201,8 +201,50 @@ export function princeRole(civ: Civ, x: Person): string {
   return `${polityShortTitle(p, clampTier(polityTierAt(p, y)), y)}宗室`;
 }
 
+/** 太后临朝的那几段(Person.regencies 里 kind = dowager;临朝篡位做了女君的也有);不是太后 = [] */
+export function dowagerSpans(x: Person): PersonRegency[] {
+  return (x.regencies ?? []).filter((g) => g.kind === 'dowager');
+}
+
+/** 她临朝的那一国(幼主那一国;嫁来的宗室女做了太后的,不是她娘家) */
+function dowagerPolity(civ: Civ, x: Person): Polity | null {
+  const g = dowagerSpans(x)[0];
+  const N = g ? civ.people?.[g.ruler] : undefined;
+  return (N && polityOfPerson(civ, N)) ?? polityOfPerson(civ, x);
+}
+
+/** 太后的称呼(不带国名、不带名字):东方帝国、国"太后",王国"王太后",汗国"可敦";西幻帝国"皇太后"、别的"王太后"(按 year 那年的国号) */
+export function dowagerWordOf(civ: Civ, x: Person, year: Year): string {
+  const p = dowagerPolity(civ, x);
+  return dowagerWord(p, p ? clampTier(polityTierAt(p, year)) : 0);
+}
+
+/** 太后的身份(卡片上名字下面那行的开头,按她临朝那年):"大衍太后""卢纳维亚皇太后" */
+export function dowagerRole(civ: Civ, x: Person): string {
+  const p = dowagerPolity(civ, x);
+  const y = dowagerSpans(x)[0]?.from ?? x.born;
+  if (!p) return '太后';
+  const tier = clampTier(polityTierAt(p, y));
+  return `${p.eastern ? polityShortTitle(p, tier, y) : polityRootAt(p, y)}${dowagerWord(p, tier)}`;
+}
+
+/**
+ * 后妃的身份:太后见 dowagerRole;嫁来的宗室女按娘家结亲那年的国号 —— "大澜公主"(国、部落"公女";西幻、汗国"公主")。
+ * year = 她结亲那年(不给 = 生年)
+ */
+export function consortRole(civ: Civ, x: Person, year?: Year): string {
+  if (dowagerSpans(x).length) return dowagerRole(civ, x);
+  const p = polityOfPerson(civ, x);
+  const y = year ?? x.born;
+  if (!p) return '公主';
+  const tier = clampTier(polityTierAt(p, Math.max(p.founded, y)));
+  if (!p.eastern || p.lineage === 'khanate') return `${polityRootAt(p, y)}${princeWord(x, '王子')}`;
+  return `${polityShortTitle(p, tier, y)}${princeWord(x, tier >= 3 ? '皇子' : tier === 2 ? '王子' : '公子')}`;
+}
+
 /** 一个人简短的身份:"大景将领""大景君主""大景宗室""大景丞相"(共和国:"某某执政";国名按他上台那年的简称)。作者的人物勾选推演里的人时用 */
 export function personRoleShort(civ: Civ, x: Person): string {
+  if (x.role === 'consort') return consortRole(civ, x);
   if (x.role === 'prince') return princeRole(civ, x);
   if (x.role === 'minister') return ministerRole(civ, x);
   if (x.role !== 'ruler') return generalRole(civ, x);
@@ -237,6 +279,9 @@ function ancestors(civ: Civ, x: Person, max: number): Person[] {
  * a、b 之间隔着一位女性(两头和同一位祖先不算):外孙、外祖父、外甥、舅父 / 姨母、表兄 / 表妹、舅祖 / 姨祖母……
  */
 export function kinOf(civ: Civ, a: Person, b: Person): string {
+  // 母亲不在世系里(世系只按父亲连):b 是 a 的母亲 / a 是 b 的母亲(联姻嫁来的宗室女、临朝的太后,Person.mom)
+  if (a.mom !== undefined && a.mom === b.id) return '母';
+  if (b.mom !== undefined && b.mom === a.id) return childWord(b);
   const up = 3;
   const as = ancestors(civ, a, up);
   const bs = ancestors(civ, b, up);

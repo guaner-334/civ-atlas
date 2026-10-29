@@ -11,7 +11,7 @@
 import type { Civ, Person } from '../gen/civ/types';
 import { personKey, polityKey, resolveKey, resolvePersonKey, type FollowRef } from '../gen/edits';
 import { personSpan, rulerNeighbors } from '../gen/civ/peopleInfo';
-import { generalRole, isConsul, ministerRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
+import { consortRole, dowagerSpans, generalRole, isConsul, ministerRole, rulerFateWord, rulerRole } from '../gen/civ/peopleText';
 import { yearAt, type Era } from '../gen/era';
 import type { DirectorFocus } from './directorPlan';
 
@@ -80,6 +80,8 @@ export function directorFocusOf(civ: Civ, ref: FollowRef | null | undefined): Di
 /** 他什么时候不在了(导播接着跟下一位的那一刻):君主 = 失去君位;名臣 = 去职(没记就是去世);将领 = 去世;到最后还在 = +∞ */
 export function personEnd(x: Person): number {
   if (x.role === 'ruler' || x.role === 'minister') return x.until ?? x.died ?? Infinity;
+  // 临朝的太后:临朝那几年(还政、伏诛以后接着跟她那一国)
+  if (x.role === 'consort') return personSpan(x).until ?? Infinity;
   return x.died ?? Infinity;
 }
 
@@ -130,27 +132,31 @@ export function followAt(civ: Civ, start: FollowTarget | null, year: number): Fo
  * 逐年推演里还不知道他以后还打不打,和 personEnd 一样跟到他去世)
  */
 export function activeAt(x: Person, year: number): boolean {
-  if (x.role === 'prince') return false;
+  if (x.role === 'prince' || (x.role === 'consort' && !dowagerSpans(x).length)) return false;
   const s = personSpan(x);
   if (year < s.from) return false;
   if (x.role === 'general') return year < personEnd(x);
   return s.until === null || year < s.until;
 }
 
-/** 能"关注他"的人:君主、将领、名臣(宗室是世系图里补出来的,没有自己的事) */
+/** 能"关注他"的人:君主、将领、名臣、临朝的太后(宗室是世系图里补出来的、嫁来的宗室女只结了一门亲,没有自己的事) */
 export function canFollow(x: Person | undefined | null): x is Person {
-  return !!x && x.role !== 'prince';
+  return !!x && x.role !== 'prince' && !(x.role === 'consort' && !dowagerSpans(x).length);
 }
 
 /** 名牌、选人列表上的身份:"大澜皇帝""大澜将领""大澜丞相" */
 export function followRole(civ: Civ, x: Person): string {
-  return x.role === 'ruler' ? rulerRole(civ, x) : x.role === 'minister' ? ministerRole(civ, x) : x.role === 'general' ? generalRole(civ, x) : '';
+  return x.role === 'ruler' ? rulerRole(civ, x) : x.role === 'minister' ? ministerRole(civ, x) : x.role === 'general' ? generalRole(civ, x) : x.role === 'consort' ? consortRole(civ, x) : '';
 }
 
 /** 他怎么不在了(名牌上"燕溟死于兵乱"):君主照人物卡的结局;将领战死 / 去世;名臣去世、致仕、罢官…… */
 export function goneWord(civ: Civ, x: Person): string {
   if (x.role === 'ruler') return rulerFateWord(civ, x) || '下台';
   if (x.role === 'general') return x.fate === 'battle' ? '战死' : '去世';
+  if (x.role === 'consort') {
+    const g = dowagerSpans(x).at(-1);
+    return g?.end === 'return' ? '还政' : g?.end === 'purged' ? '被废' : '去世';
+  }
   const east = !!civ.polities[x.polity]?.eastern;
   switch (x.fate) {
     case 'retired':
@@ -180,7 +186,7 @@ export function followSub(civ: Civ, x: Person, year: number, era?: Era | null): 
     if (year < s.from) return `${yearAt(s.from, era)}${consul ? '就任' : '即位'}`;
     return `${consul ? '在任' : '在位'}第 ${Math.floor(year - s.from) + 1} 年`;
   }
-  return `${yearAt(s.from, era)}起${x.role === 'minister' ? '在朝' : '领兵'}`;
+  return `${yearAt(s.from, era)}起${x.role === 'minister' ? '在朝' : x.role === 'consort' ? '临朝' : '领兵'}`;
 }
 
 /** 选人列表的一组:一国这一年在台上的人(君主、将领、名臣,各按上台先后) */
@@ -189,7 +195,7 @@ export interface FollowGroup {
   people: Person[];
 }
 
-const ROLE_ORDER: Record<Person['role'], number> = { ruler: 0, general: 1, minister: 2, prince: 3 };
+const ROLE_ORDER: Record<Person['role'], number> = { ruler: 0, consort: 1, general: 2, minister: 3, prince: 4 };
 
 /**
  * 选人列表:第 year 年在台上的人,按国家分组;rank = 国家排在前面的先后(大国在前,没给的按编号)。

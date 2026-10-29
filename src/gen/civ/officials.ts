@@ -230,6 +230,8 @@ export interface OfficialsCtx {
   ids?: Map<Person, string>;
   /** 掌实权的名臣、大臣(regents.ts;国家 → 按掌权先后):各起一位,people.ts 挂上掌权的那一段 */
   regents?: ReadonlyMap<number, readonly ForcedRegent[]>;
+  /** 别的要定籍贯的人(临朝的太后,consorts.ts):那一年、随机数;和名臣、将领一起按那一年本国的城挑 */
+  homes?: readonly { x: Person; year: Year; u: number }[];
 }
 
 /**
@@ -451,6 +453,8 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   }
 
   resolveHomes(input, homeAsks);
+  // 别的人另扫一遍(各人只看那一年本国有哪些城,互不相干;名臣、将领的先后照旧,下面起号按它)
+  if (ctx.homes?.length) resolveHomes(input, [...ctx.homes]);
   // 号不和先前的人撞(同一座城出的人多,"揽霞子"不出第二位):换一个后半,都用过了就不起号
   const arts = new Set<string>();
   for (const { x } of homeAsks) {
