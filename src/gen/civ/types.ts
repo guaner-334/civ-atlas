@@ -1027,8 +1027,16 @@ export interface Person {
   title?: string;
   /** 领兵打过的仗(君主亲征也记在这里) */
   commands?: PersonCommand[];
-  /** 父亲(Person.id;君主和宗室才有;一朝的第一位、共和国执政官、将领没有) */
+  /**
+   * 父亲(Person.id;女的父辈也记在这里,界面上写"母亲"):君主和宗室按世系(lineage.ts;一朝的第一位、共和国执政官没有,
+   * 复国之君的是故国的宗室或末帝);将门、世家的将领、名臣是本国先前的一位将领、名臣(kin.ts);别的没有
+   */
   parent?: number;
+  /**
+   * 复国之君出自故国哪位君主(from = Person.id,一般是末帝)、是他的第几代孙(gen:1 = 子、2 = 孙、3 = 曾孙……)。
+   * 中间几代都在世系里(Person.parent 一路连上去)的和隔得太远、只补了一位父亲的(宗室远支)都记;别的人没有
+   */
+  descent?: { from: number; gen: number };
   /** parent 是养父(这人是收养的 / 过继的养子,见 royals.ts、lineage.ts);亲生的不给 */
   adopted?: true;
   /** 宗室在争储里被杀(fate purged):杀他的那位新君(Person.id) */

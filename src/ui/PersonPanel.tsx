@@ -55,8 +55,8 @@ import { evType } from './timelineLayout';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { personTrek } from './migrationInfo';
 import { TrekFrom } from './TrekFrom';
-import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
-import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
+import { deedsShort, houseMentions, houseNote, ministerFate, personArt, personBio } from '../gen/civ/officialText';
+import { descentOf, descentWord, fatherOf, hasLineage, isLastRuler, kidsOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
 import { personPortrait, portraitMood } from '../gen/portrait';
 import { NameFace, PortraitView } from './Portrait';
@@ -602,6 +602,9 @@ function personFacts(civ: Civ, x: Person, era: Era | undefined): Line[] {
       text: `${yearSpanAt(x.born, x.died, era)}，享年 ${age} 岁`,
     });
   } else out.push({ k: '生卒', node: `${yearAt(x.born, era)}生`, text: `${yearAt(x.born, era)}生` });
+  // 将门、世家:父亲(母亲)、子嗣;复国之君:故国的父亲、出自
+  if (x.role === 'minister' || x.role === 'general') houseLines(civ, x, out, era);
+  if (x.role === 'ruler') restoreLines(civ, x, out);
   if (x.role === 'prince') {
     const held = heldLine(civ, x, era);
     if (held) out.push(held);
@@ -813,9 +816,9 @@ function ministerLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
   if (fate) out.push({ k: '结局', node: fate, text: fate });
 }
 
-/** 生平里写到的人:经手的事里的君主,迎立的那件还有遇弑的先君 */
+/** 生平里写到的人:将门、世家的父辈,经手的事里的君主,迎立的那件还有遇弑的先君 */
 function bioPeople(civ: Civ, x: Person): number[] {
-  const out: number[] = [];
+  const out: number[] = houseMentions(civ, x).map((a) => a.id);
   for (const d of x.deeds ?? []) {
     const r = d.person !== undefined ? civ.people?.[d.person] : undefined;
     if (!r) continue;
@@ -828,10 +831,51 @@ function bioPeople(civ: Civ, x: Person): number[] {
   return [...new Set(out)];
 }
 
+/**
+ * 将门、世家(将领、名臣):「父亲」(女的写「母亲」)、「子嗣」(当了将领、名臣的孩子),人名能点,后面小字写他是什么人、做过什么
+ * ("大定将领，攻取六州""哈兹斯坦首相，1321–1346 年在任")。没有的不出
+ */
+function houseLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
+  const f = fatherOf(civ, x);
+  if (f) out.push(personRow(kinWord(f, '父亲'), civ, f, houseNote(civ, f, era)));
+  const ks = kidsOf(civ, x);
+  if (!ks.length) return;
+  out.push({
+    k: '子嗣',
+    node: (
+      <>
+        {ks.map((k, i) => (
+          <Fragment key={k.id}>
+            {i > 0 && '、'}
+            <Link to={{ kind: 'person', id: k.id }}>{personName(civ, k)}</Link>
+            <em className="cp-num-note">{houseNote(civ, k, era)}</em>
+          </Fragment>
+        ))}
+      </>
+    ),
+    text: ks.map((k) => `${personName(civ, k)}(${houseNote(civ, k, era)})`).join('、'),
+  });
+}
+
+/** 复国之君接上了故国世系:父亲在故国(小字"大嘉宗室""大嘉末帝"),再一行「出自」:故国哪位君主、他的第几代孙("大嘉末帝，他的曾孙") */
+function restoreLines(civ: Civ, x: Person, out: Line[]) {
+  if (x.rise !== 'restore') return;
+  const f = fatherOf(civ, x);
+  const realm = (y: Person) => {
+    const p = civ.polities[y.polity];
+    return polityShort(civ, y.polity, Math.min(civ.endYear, p?.ended ?? civ.endYear) - 1 / 512);
+  };
+  const what = (y: Person) => `${realm(y)}${y.role === 'prince' ? '宗室' : isLastRuler(civ, y) ? '末帝' : '君主'}`;
+  if (f && f.polity !== x.polity) out.push(personRow(kinWord(f, '父亲'), civ, f, what(f)));
+  const d = descentOf(civ, x);
+  if (d && d.gen >= 2) out.push(personRow('出自', civ, d.from, `${what(d.from)}，${heOrShe(d.from)}的${descentWord(x, d.gen)}`));
+}
+
 /** 父亲(收养的写「养父」;在别国的小字写那一国)、母亲 / 配偶(联姻的宗室女)、子嗣(世系图里有的人;没即位的小字"未即位") */
 function kinLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
   const f = fatherOf(civ, x);
-  if (f) {
+  // 复国之君在故国的父亲写在生卒下面(restoreLines)
+  if (f && !(x.rise === 'restore' && f.polity !== x.polity)) {
     const away = f.polity !== x.polity ? polityName(civ.polities[f.polity], Math.min(x.from ?? x.born, f.until ?? Infinity) - 1 / 512) : '';
     out.push(personRow(kinWord(f, x.adopted ? '养父' : '父亲'), civ, f, [f.role === 'prince' ? '未即位' : '', away].filter(Boolean).join('，')));
   }
