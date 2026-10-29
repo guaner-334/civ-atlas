@@ -15,6 +15,7 @@
  *                 「在地图上看」:填色切到管辖,封地 / 割据的州一直圈亮(管辖填色下圈亮是蓝色),旁边挂小牌子;离开这一页收起
  *                 历次改制:一条时间条(立国到这一年,按政体名分段,现在那段是蓝的)+ 一条一行(新的在上;哪年、从什么变成什么、
  *                 因为哪次议事 / 升格 / 割据);点一条打开编年史、滚到那一年
+ *                 思潮:国中到半成的几说一说一行(名字、哪年传入、近一千年小折线、几成、渐盛 / 渐衰),底下一句最盛那说出自哪座城(ThoughtParts.tsx)
  *                 历次议事:新的在上;年份、议题、结果标签(办成绿、妥协黄、搁置灰、谈崩红)、编年史那一句(君主名字可点)、
  *                 规矩因此变了的加一行"从此……";点一条打开编年史、滚到那一年
  *                 底部「返回」回到信息页
@@ -31,6 +32,7 @@ import { useEra } from './editsStore';
 import { openInfoPage, setSheet } from './panelStore';
 import { getCivHighlight, setCivHighlight, setCivShow, setSelection } from './civView';
 import { fillShow } from './mapLayers';
+import { CourtThoughts } from './ThoughtParts';
 import { openOverview } from './overviewStore';
 import { EntryText, Row, rgb } from './panelParts';
 import {
@@ -249,6 +251,7 @@ export function CourtPage({ civ, id, year }: { civ: Civ; id: number; year: numbe
           {(v.lords.length > 0 || v.rules.events.length > 0) && <div className="ct-foot">{lordFoot(civ, id, v, year, era)}</div>}
         </section>
         <Changes civ={civ} id={id} year={year} />
+        <CourtThoughts civ={civ} id={id} year={year} />
         <Events civ={civ} id={id} events={events} />
       </div>
       {back}

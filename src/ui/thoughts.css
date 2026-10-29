@@ -1,0 +1,280 @@
+/*
+ * 思潮(ThoughtParts.tsx):左上角图例的五档色标、图层面板「看哪一说」、侧栏「思潮」一组(单选圆点)、还没有思潮的年份那一句、
+ * 州卡片「思潮」一组(小条 + 百分数 + 比百年前)、朝政页「思潮」一块(小折线)。
+ * 五档的颜色是地图上的颜色(render/civ/thoughts.ts 的 THOUGHT_COLORS),由组件写进 style;小条用第四档。
+ */
+:root {
+  --th-bar: rgb(178, 36, 100);
+}
+
+/* ---- 五档色标(图例、图层面板共用):刻度写在每档的左边 ---- */
+.th-bands {
+  width: 250px;
+}
+.th-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.th-bar i,
+.legend .th-bar i {
+  display: block;
+  flex: 1;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+.th-ticks {
+  position: relative;
+  height: 16px;
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+.th-ticks span {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-2px);
+  white-space: nowrap;
+}
+
+/* ---- 左上角图例 ---- */
+.legend.th-legend {
+  padding: 10px 12px 6px;
+}
+.legend.th-legend .lg-title span {
+  margin-left: 6px;
+}
+.legend.th-legend.empty .th-bar {
+  opacity: 0.35;
+}
+.legend.th-legend.phone {
+  width: 316px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.legend.th-legend.phone .th-bands {
+  width: 100%;
+}
+
+/* ---- 图层面板:「看哪一说」七说一排,还没有人倡的灰着 ---- */
+.lp-pop .th-pick button.dim {
+  color: var(--ink-3);
+  opacity: 0.7;
+  cursor: default;
+}
+.lp-pop .th-bands {
+  width: 100%;
+  margin-top: -2px;
+}
+
+/* ---- 侧栏「思潮」一组:单选圆点(和「分支」一组的圆点一个样子) ---- */
+.sb-row.th-row.on {
+  background: var(--accent-soft);
+}
+.sb-row.th-row.on .sb-row-main b {
+  font-weight: 600;
+}
+.sb-row.th-row.dim {
+  cursor: default;
+}
+.sb-row.th-row.dim:hover {
+  background: none;
+}
+.sb-row.th-row.dim .sb-row-main b,
+.sb-row.th-row.dim .sb-row-side {
+  color: var(--ink-3);
+}
+.th-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.6px solid var(--ink-3);
+  box-sizing: border-box;
+}
+.th-row.on .th-dot {
+  border: 4px solid var(--accent);
+  background: var(--surface);
+}
+.th-row.dim .th-dot {
+  border-color: var(--line-strong);
+}
+.sb-row.th-never {
+  min-height: 36px;
+}
+.sb-row.th-never .sb-row-main small {
+  white-space: normal;
+  line-height: 1.5;
+}
+/* 还没有思潮的年份:一句话 + 头一说哪年在哪冒出来 + 跳过去 */
+.th-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+.th-empty b {
+  font-weight: 600;
+}
+.th-empty p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.th-jump {
+  margin-top: 8px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.th-jump:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* ---- 州卡片「思潮」一组:名字 + 哪年 | 小条 | 百分数 | 比百年前 ---- */
+.th-group .th-li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 0.5px solid var(--line);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+.th-group .th-li:last-child {
+  border-bottom: 0;
+}
+.th-group .th-li:hover {
+  background: var(--hover-bg);
+}
+.th-group .th-li.on {
+  background: var(--accent-soft);
+}
+.th-k {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.th-k b {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.th-li.on .th-k b {
+  font-weight: 600;
+}
+.th-k small {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.th-share {
+  flex: none;
+  position: relative;
+  width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.th-share i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--ink-3);
+}
+.th-li.on .th-share i {
+  background: var(--th-bar);
+}
+.th-pct {
+  flex: none;
+  width: 36px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.th-tr {
+  flex: none;
+  width: 30px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.th-tr.up {
+  color: var(--ok);
+}
+.app.phone .th-group .th-li {
+  min-height: 52px;
+  padding: 7px 13px;
+  gap: 8px;
+  font-size: 15px;
+}
+.app.phone .th-share {
+  width: 52px;
+}
+.app.phone .th-pct {
+  font-size: 13.5px;
+}
+
+/* ---- 朝政页「思潮」一块:名字 + 哪年传入 | 小折线 | 几成 + 渐盛 / 渐衰 ---- */
+.fs-li.th-cli {
+  min-height: 44px;
+}
+.th-ck {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.fs-k.th-ck small {
+  margin-left: 0;
+  font-size: 11.5px;
+}
+.th-spark {
+  margin-left: auto;
+  flex: none;
+}
+.th-spark polyline {
+  fill: none;
+  stroke: #8e8e93;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.th-spark circle {
+  fill: #8e8e93;
+}
+.th-spark .base {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.fs-n.th-cn {
+  margin-left: 0;
+  min-width: 64px;
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  line-height: 1.25;
+  font-size: 14px;
+}
+.fs-n.th-cn small {
+  margin-left: 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}

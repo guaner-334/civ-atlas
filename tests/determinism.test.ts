@@ -64,7 +64,7 @@ function fingerprint(seed: number): Record<string, string> {
 }
 
 /**
- * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排;42 亡国之君先出奔中立地,疆域兴亡不变,只多了出奔的史事(civ.annals、civ.people、civ.development 里记的史事条数、civ.places.pass 里记的史事下标跟着变);43 战争节奏(议和了还会再打、仗打得密、罢兵割地),历史重排;44 亡国之君出奔邻国,疆域兴亡不变,只多了出奔的史事(和 42 一样只变了 civ.annals、civ.people、civ.development、civ.places.pass);46 有了大迁徙,历史重排,多了 civ.migrations;48 大迁徙的方位按整条路线定,只变了 civ.migrations;50 一部分人物换成女的,只变了 civ.people(性别、名字、字、西幻的序数);51 将门世家、复国之君接上故国世系,只变了 civ.people(多了父子、补的宗室,名字、籍贯、编号跟着变)和 civ.religion(里面记的君主编号);civ.ideology(思潮,只算不用)是后加的字段,加它时别的字段一个没变;53 调了思潮的数(传播、退潮),只变了 civ.ideology;54 改制(立宪、废君立共和、革命、政变、复辟,读思潮)进推演,历史重排))。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
+ * 期望值是 GENERATOR_VERSION 24 算的(civ.religion 是后加的字段,加它时别的字段一个没变;地图上画的关隘(civ.places 里的 pass,算在 civ.places.pass)也是后加的,加它时别的字段、别的地名一个没变,后来关隘又记上在那里据险断后的史事(Place.pass.stands),也只变了 civ.places.pass;10 加了邦交、11 加了君主性格和扩张算账,历史都重排;12 只改了 civ.people:多了名臣,将领有了字号、籍贯、官职,撞名的将领换了名字;13 改了宜居度和城的人口上限,地形一个字段没变,历史重排;多了 civ.capNorm;14 处理了封闭内海、贴着海的湖、湖心小块地,地形局部变了、历史重排;15 立国更早、多了边缘立国和民族分化,历史重排;civ.development 是后加的字段,加它时别的字段一个没变;16 有了航海时代,历史重排;17 发展度反过来影响人口、打仗和远航,各国自己进航海时代,历史重排;18 降水分夏冬两半年算、河多了,地形不变,气候、河流、历史重排;19 仗短而狠、乘胜连下、前线拉锯,历史重排;20 有了饥荒、民变、大崩解,历史重排;23 推完以后的整理只看每样东西出现以前的历史,归属、日志、史事、检查点一个没变,民族、州、城、国家、人物、地名、道路、信仰重排,多了 civ.capSpacing;24 推演里走过的航线不通到遗址,只有 civ.routes 变了;36 君主有了诸子、王子领兵、争储,宗室据地自立,历史重排;39 有了立约与中立地,历史重排;40 有了掌实权的人和两国宗室联姻,历史重排;41 开战看内政,历史重排;42 亡国之君先出奔中立地,疆域兴亡不变,只多了出奔的史事(civ.annals、civ.people、civ.development 里记的史事条数、civ.places.pass 里记的史事下标跟着变);43 战争节奏(议和了还会再打、仗打得密、罢兵割地),历史重排;44 亡国之君出奔邻国,疆域兴亡不变,只多了出奔的史事(和 42 一样只变了 civ.annals、civ.people、civ.development、civ.places.pass);46 有了大迁徙,历史重排,多了 civ.migrations;48 大迁徙的方位按整条路线定,只变了 civ.migrations;50 一部分人物换成女的,只变了 civ.people(性别、名字、字、西幻的序数);51 将门世家、复国之君接上故国世系,只变了 civ.people(多了父子、补的宗室,名字、籍贯、编号跟着变)和 civ.religion(里面记的君主编号);civ.ideology(思潮,只算不用)是后加的字段,加它时别的字段一个没变;53 调了思潮的数(传播、退潮),只变了 civ.ideology;54 思潮的快照从每 100 年一份改成每 20 年一份,只变了 civ.ideology;55 改制(立宪、废君立共和、革命、政变、复辟,读思潮)进推演,历史重排))。经纬度换算、沿大圆走、球面三角形面积这些三角函数都舍入到 24 位,
  * 推演里的超越函数也一样,所以各 CPU、各浏览器逐位一致
  */
 const EXPECTED: Record<number, Record<string, string>> = {
@@ -78,10 +78,10 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.development': '2083e3c1b145',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '35d8ad95d249',
-    'civ.ideology': '61eff0b8a8ef',
+    'civ.ideology': 'b4da1070a7aa',
     'civ.log': '957851df1c3d',
     'civ.migrations': '20fc653fad84',
-    'civ.people': '751d87874930',
+    'civ.people': '041097790fd3',
     'civ.places': 'e82d872374d7',
     'civ.places.pass': 'b7262006d7cb',
     'civ.polities': 'a44d2d11b5a2',
@@ -127,7 +127,7 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.development': 'e251cce8c3c8',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '1268425e378a',
-    'civ.ideology': 'b2ef3b5fac0c',
+    'civ.ideology': 'fc429bb05bdc',
     'civ.log': '05eb5f74a25c',
     'civ.migrations': '79eebe7b01a9',
     'civ.people': '4dc1ecae9fc0',
@@ -176,10 +176,10 @@ const EXPECTED: Record<number, Record<string, string>> = {
     'civ.development': 'bf60952c63e7',
     'civ.endYear': 'c1d83dcab0a1',
     'civ.habitat': '91e9fb0abefb',
-    'civ.ideology': '29b6d16e7665',
+    'civ.ideology': 'a66f74003da7',
     'civ.log': 'cb3e2408c2a7',
     'civ.migrations': 'e8203d02290d',
-    'civ.people': '8d7b2f002b0b',
+    'civ.people': '789f8113da0e',
     'civ.places': '4f5c7e90ec98',
     'civ.places.pass': 'dd854ceb8059',
     'civ.polities': '725f5b2174bf',

@@ -14,6 +14,7 @@
  *         点了开方针页)、疆域(历年州数的小柱图,和概览"国家"表同一份)、
  *         人口(境内各州的总人口:城 + 乡村)、钱粮(近几百年国库小柱 + 国库怎么样 + 岁入;点了换成钱粮页 FiscalPage.tsx)、
  *         朝政(征税的法子 + 分封、割据几州;够格议事或议过事的国家才有;点了换成朝政页 CourtPage.tsx)、主体民族(可点,开民族卡片)、国教(可点,"某年起";没有写"没有")、
+ *         思潮(国中最盛那说,点了进朝政页的「思潮」那块;几成,小字"另有某说等 N 说";都不到半成不显示,ThoughtParts.tsx)、
  *         宗主("某年起称臣")/ 藩属 / 盟国(可点,名字后面是哪年称臣、结盟;有才写)、
  *         姻亲(最近一门亲 40 年内、那以后没开过战的国家,可点,名字后面是哪年结亲;有才写)、
  *         立约(这一年还在的约:约名可点、开条约卡片,"到哪年",下面一句和哪几国互不侵犯)/ 中立地(参与共建的,州名可点;有才写)、
@@ -88,6 +89,7 @@ import { flagOf, useFlags } from './flagStore';
 import { ERAS, developmentAt, eraLevel, eraOf } from '../gen/civ/development';
 import { pandemicsOf, peakEraAt, slumpAt } from '../gen/civ/pandemicInfo';
 import { ERA_COLORS, eraName } from '../render/civ/era';
+import { PolityThoughtRow } from './ThoughtParts';
 import './countryPanel.css';
 import { lineageAt } from '../gen/civ/regime';
 import { rootSegIndex } from '../gen/civ/polityRoot';
@@ -472,6 +474,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
               )}
             </Row>
           )}
+          <PolityThoughtRow civ={civ} id={id} year={shownYear} />
           {ties.liege && (
             <Row k="宗主">
               {other(ties.liege.liege, shownYear)}
