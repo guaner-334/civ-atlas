@@ -42,6 +42,7 @@
  *   大迁徙 trek:那一刻这一族分出一支,不看推不推得动、全世界同时几支在路上、这个世界走过几次、这一族多久前走过(Migration.iv = 第几条干预)。
  *     出发:作者给的那一州那一刻还是这一族的,只从它出发(本族的州也走得过);不然和推演自己起的一样从本族离目的地最近的一州走。
  *     往哪去:指定一州 = 陆路走得到就去(多远都行);推演挑 = 和"看大迁徙"同一套"值",只是远近换成 REACH 的那一档。
+ *     推演挑带着方位(dir,照大纲下的令):只挑走过去整条路线朝那个方位(trekDir)的州;那一档没有,依次放宽到中、近、远里别的几档。
  *     走不成记 intervene(b = IV_NO_WAY);这一族那一刻已消亡 b = −3;走了 b = −1(region / settlement = 目的地那州和它的城),紧跟着记 trek n = 0。
  *     史事 intervene 的 a = −1(不是国家),**民族在 Annal.n**。为什么走照"看大迁徙"的推算(没有推力的写老家挤)。
  *   不许迁 stay:看大迁徙时,生效期里的这一族不在候选里(InterventionModel.stays)。已经在路上的照走;作者下令的照走。
@@ -53,7 +54,7 @@
 import { Biome } from '../biomes';
 import type { World } from '../world';
 import { geometryOf, type Geometry } from '../geometry';
-import { regionOfKey, type Intervention, type TrekReach } from '../edits';
+import { TREK_DIR_NAMES, regionOfKey, type Intervention, type TrekReach } from '../edits';
 import { AdjKind, Layer, type Civ, type Culture, type Migration, type MigrationDir, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './rand';
 import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
@@ -150,6 +151,8 @@ const REACH: Record<TrekReach, readonly [number, number, number]> = {
   mid: [HOPS_MIN, HOPS_MAX, HOPS_FLOOR],
   far: [HOPS_MAX, 2 * HOPS_MAX, HOPS_MIN],
 };
+/** 往某个方位的令,那一档没有地方可去时依次放宽到的几档 */
+const TREK_ORDER: readonly TrekReach[] = ['mid', 'near', 'far'];
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -185,9 +188,9 @@ export interface TrekModel {
   order?: (v: TrekIv, i: number, t: Year, iv: InterventionModel) => void;
   /**
    * 下令"推演挑"会去哪:民族 c 此刻按 reach 那一档、从 start 出发(−1 = 本族各州一起往外)找走得到的地方里值最高的那一州
-   * (没有 = target −1;hops = 几州远)。out = 各候选州的值(测试用)
+   * (没有 = target −1;hops = 几州远)。out = 各候选州的值(测试用);dir = 只挑路线朝这个方位的
    */
-  pick?: (c: number, t: Year, reach: TrekReach, start: number, out?: Map<number, number>) => { target: number; why: Migration['pull']; hops: number };
+  pick?: (c: number, t: Year, reach: TrekReach, start: number, out?: Map<number, number>, dir?: MigrationDir) => { target: number; why: Migration['pull']; hops: number };
 }
 
 /** 干预:大迁徙 */
@@ -377,9 +380,9 @@ function hook(sim: CivSim, tm: TrekModel): void {
   /**
    * 拉:找过路以后(paths),lo–hi 州远(不到 lo 州的值打折,最近 floor 州)、有城、不是本族的地方里"值"最高的那一州:
    * 值 = 地好 × 守得弱 × 远近的折扣 × 大国腹地(见文件头)。bigDone = 这个世界已经有一支打进过大国国都。没有 = target −1。
-   * out = 各候选州的值(测试用;不给不记)
+   * out = 各候选州的值(测试用;不给不记);dir = 只看走过去整条路线朝这个方位的州(trekDir;照大纲下的令才有)
    */
-  const bestTarget = (c: number, t: number, lo: number, hi: number, floor: number, bigDone: boolean, out?: Map<number, number>) => {
+  const bestTarget = (c: number, t: number, lo: number, hi: number, floor: number, bigDone: boolean, out?: Map<number, number>, dir?: MigrationDir) => {
     let target = -1;
     let pull = 0;
     let why: Migration['pull'] = 'rich';
@@ -390,6 +393,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
       if (o >= 0 && pm.polities[o].culture === c) continue;
       if (o < 0 && pm.closed?.(r, -1, t)) continue;
       if (wm.iv?.locked(r, t)) continue;
+      if (dir !== undefined && trekDir(tm.geo, trekRouteTo(P, r).map((x) => reg.seat[x])) !== dir) continue;
       const good = Math.min(GOOD_MAX, Math.sqrt(cityPop(r, t) / POP_REF));
       const wk = weakness(o, t);
       let v = good * wk.v * (h >= lo ? fexp(-(h - lo) / HOPS_FADE) : fexp(-(lo - h) / SHORT_FADE));
@@ -500,6 +504,16 @@ function hook(sim: CivSim, tm: TrekModel): void {
           pull = weakness(owner[r1], t).why;
         }
       }
+    } else if (v.dir !== undefined) {
+      // 往某个方位(照大纲下的令):那一档没有这个方位上的地方,依次放宽到中、近、远里别的几档
+      const first: TrekReach = v.reach ?? 'mid';
+      for (const reach of [first, ...TREK_ORDER.filter((x) => x !== first)] as TrekReach[]) {
+        const best = tm.pick!(c, t, reach, start, undefined, TREK_DIR_NAMES[v.dir]);
+        if (best.target < 0) continue;
+        target = best.target;
+        pull = best.why;
+        break;
+      }
     } else {
       const best = tm.pick!(c, t, v.reach ?? 'mid', start);
       target = best.target;
@@ -509,10 +523,10 @@ function hook(sim: CivSim, tm: TrekModel): void {
     note(-1, target, pm.cityOf[target]);
     depart(c, target, pushOf(st, c).why, pull, st.n[c], t, i);
   };
-  tm.pick = (c, t, reach, start, out) => {
+  tm.pick = (c, t, reach, start, out, dir) => {
     const [lo, hi, floor] = REACH[reach];
     paths(c, start, hi);
-    const best = bestTarget(c, t, lo, hi, floor, list.some((M) => M.big), out);
+    const best = bestTarget(c, t, lo, hi, floor, list.some((M) => M.big), out, dir);
     return { target: best.target, why: best.why, hops: best.target >= 0 ? P.hops[best.target] : -1 };
   };
 

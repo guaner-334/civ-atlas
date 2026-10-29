@@ -4,6 +4,7 @@
  *   头部  世界名;一行"种子 7，当前 2679 年，未干预"(设了纪年:"当前公元前 850 年");一行汇总(现存几国、历来几国、民族、城镇、州,跟着时间轴的当前年份);
  *         关闭。存档、导出、AI 设置、写成史书不放这里:宽屏在侧栏和地图右上,手机在底部世界卡片的按钮和「···」里
  *   页签  国家(WorldOverviewCountries.tsx)/ 民族(WorldOverviewCultures.tsx)/ 编年史(Chronicle.tsx)/ 人物(WorldOverviewPeople.tsx:名人、君主、将领)/
+ *         之最(WorldOverviewRecords.tsx:在位最久、疆域最大、打得最久……15 条纪录,跟着时间轴)/
  *         标记(WorldOverviewMarks.tsx:作者在地图上放的标记)/
  *         大纲(OutlinePage.tsx:作者先写下的故事,照大纲推演;手机上不要概览的头和页签,整页是大纲)/
  *         我的干预(WorldOverviewInterventions.tsx)/
@@ -19,6 +20,8 @@ import type { Civ } from '../gen/civ/types';
 import { polityAlive, populationAt } from '../gen/civ/growth';
 import { Chronicle } from './Chronicle';
 import { PeoplePage } from './WorldOverviewPeople';
+import { RecordsPage } from './WorldOverviewRecords';
+import { recordBook } from '../gen/civ/records';
 import { MarksPage } from './WorldOverviewMarks';
 import { CountriesPage } from './WorldOverviewCountries';
 import { CulturesPage } from './WorldOverviewCultures';
@@ -64,6 +67,7 @@ const TABS: { id: OverviewTab; name: string }[] = [
   { id: 'cultures', name: '民族' },
   { id: 'chronicle', name: '编年史' },
   { id: 'people', name: '人物' },
+  { id: 'records', name: '之最' },
   { id: 'marks', name: '标记' },
   { id: 'outline', name: '大纲' },
   { id: 'interventions', name: '我的干预' },
@@ -84,6 +88,19 @@ export function WorldOverview(p: WorldOverviewProps) {
   const narrow = useNarrow();
   // 大纲在地图上点完、取消:回到「大纲」页接着编
   useOutlinePickReturn();
+  // 概览开着、手上空闲时先把世界之最整理好(扫一遍历史要几十毫秒),翻到「之最」页时只查表
+  const civ = p.civ;
+  useEffect(() => {
+    if (!open || !civ?.viable) return;
+    const w = window as Window & { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
+    const prep = () => void recordBook(civ);
+    if (w.requestIdleCallback) {
+      const h = w.requestIdleCallback(prep, { timeout: 3000 });
+      return () => w.cancelIdleCallback?.(h);
+    }
+    const h = setTimeout(prep, 400);
+    return () => clearTimeout(h);
+  }, [open, civ]);
 
   // Esc 收起(先于页面上别的 Esc:不顺手取消地图上的选中)。输入框里打字时不管;
   // 存档 / 导出菜单、AI 设置开着时先让它们收
@@ -189,6 +206,8 @@ function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
       return <Chronicle civ={p.civ} />;
     case 'people':
       return <PeoplePage civ={p.civ} data={p.data} />;
+    case 'records':
+      return <RecordsPage civ={p.civ} />;
     case 'marks':
       return <MarksPage civ={p.civ} data={p.data} />;
     case 'outline':
