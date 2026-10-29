@@ -117,6 +117,11 @@ export interface LabelView {
   dpr: number;
   /** 地图缩放倍数(1 = 整张图铺满) */
   k: number;
+  /**
+   * 字和符号按放大几倍的样子长(不给 = k)。地区图:放得很大(k 大,该出现的名字都出现),字却只按放大两三倍的大小写,
+   * 同样大的图写得下更多名字;哪些名字出现照旧看 k
+   */
+  textK?: number;
   /** k = 1 时地图显示多宽(CSS 像素) */
   mapCss: number;
   /** 世界大小(世界单位) */
@@ -239,14 +244,14 @@ export interface PlacedLabel {
 
 /** 这条标注在当前视口下的字号(画布像素) */
 export function labelPx(item: LabelItem, view: LabelView): number {
-  const zoom = Math.pow(Math.max(1, view.k), item.grow);
+  const zoom = Math.pow(Math.max(1, view.textK ?? view.k), item.grow);
   const css = item.sizeWorld !== undefined ? item.sizeWorld * (view.mapCss / view.worldW) * zoom : item.size * Math.sqrt(view.mapCss / REF_MAP_CSS) * zoom;
   return Math.max(MIN_PX, css) * view.dpr;
 }
 
 /** 符号在当前视口下的放大倍数:符号的 CSS 像素尺寸 × 这个数 = 画布像素 */
 export function markScale(grow: number, view: LabelView): number {
-  return Math.sqrt(view.mapCss / REF_MAP_CSS) * Math.pow(Math.max(1, view.k), grow) * view.dpr;
+  return Math.sqrt(view.mapCss / REF_MAP_CSS) * Math.pow(Math.max(1, view.textK ?? view.k), grow) * view.dpr;
 }
 
 /** 符号的外接框(画布像素) */

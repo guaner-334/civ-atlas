@@ -884,9 +884,10 @@ function switchedToast(sw: SwitchNote) {
 /** 切支线的时候,修改里已经是切到的那一支,地图、面板上还是原来那支:先不许下令、改名(用的键可能指到那一支里别的东西) */
 const SWITCH_EDIT_BLOCK = '正在切到别的一支，切完再改';
 
-// 立体地形(框一块地方立起来看):点「立体」时才下载(ui/terrain3d/)
+// 地区(框一块地方单独看:地区图、立体):点「地区」时才下载(ui/terrain3d/)
 const ReliefPick = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.ReliefPick })));
-const ReliefView = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.ReliefView })));
+const AreaView = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.AreaView })));
+const ReliefGhost = lazy(() => import('./terrain3d/relief3d').then((m) => ({ default: m.ReliefGhost })));
 
 // 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字):和主程序同一份下载,用到的地图、推演代码不另下(Boot.tsx 叫)
 export { startGalleryHelper } from './galleryHelper';
@@ -6385,7 +6386,7 @@ ${s.image.cells}` : null);
   /** 建好的世界(不是新建中、不在我的世界):时间轴、详情、概览、事件标签这些才有 */
   const world = stage === 'world';
   const filmOn = !!filmUi.mode && !!data && world && !draft && !home;
-  // 立体地形:建好的世界上能用(回放世界形成、导出视频 / 长图时不能);不能用了就收起
+  // 地区(地区图、立体):建好的世界上能用(回放世界形成、导出视频 / 长图时不能);不能用了就收起
   const relief = useRelief();
   const reliefable = !!data && world && !replayOn && !filmOn;
   const reliefView = reliefable && relief.phase === 'view';
@@ -6714,17 +6715,22 @@ ${s.image.cells}` : null);
         {data && world && <MarkLayer civ={civ} world={data.world} api={markApi} hidden={replayOn || draft || home} style={style} />}
         {/* 作者的人物一生的足迹(选中一个人物时;地球仪上也画):在标记上面 */}
         {data && world && <CharacterLayer civ={civ} world={data.world} raster={data.raster} api={markApi} hidden={replayOn || draft || home} />}
-        {/* 立体地形:在地图上框一块 */}
+        {/* 地区:在地图上框一块;回到地图时刚才的框淡淡留一会儿 */}
         {data && reliefable && relief.phase === 'pick' && (
           <Suspense fallback={null}>
             <ReliefPick world={data.world} raster={data.raster} api={markApi} phone={narrow} />
           </Suspense>
         )}
+        {data && reliefable && relief.phase === 'off' && relief.ghost && (
+          <Suspense fallback={null}>
+            <ReliefGhost api={markApi} />
+          </Suspense>
+        )}
       </main>
-      {/* 立体地形:框好的一块立起来(盖住地图那一块;手机占满整屏) */}
+      {/* 地区模式:框好的一块画成地区图 / 立起来(盖住地图那一块;手机占满整屏) */}
       {data && reliefView && (
         <Suspense fallback={null}>
-          <ReliefView world={data.world} raster={data.raster} civ={civ} style={style} look={terrainLook} phone={narrow} />
+          <AreaView world={data.world} raster={data.raster} civ={civ} style={style} look={terrainLook} layer={layer} phone={narrow} />
         </Suspense>
       )}
       {/* 经纬网的度数:新建世界摊平改地形时写在框外,平常的世界页写在地图里贴着左边、下边(GratLabels.tsx) */}

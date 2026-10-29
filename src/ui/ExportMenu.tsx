@@ -17,6 +17,7 @@
  * (AI 起的名字换回挑之前的,见 gen/edits.ts 的 namesWithoutAi)。
  * 有作者标记时再多一行"作者标记:带上 / 不带"(默认带上):地图图片、地球仪这一面画上那一年有的标记(都写名字,见 render/marks.ts)。
  * 正选着一个作者的人物时,地图图片、地球仪这一面带上他的足迹(和地图上看到的一样,见 render/trail.ts)。
+ * 地区图:点了进「地区」框一块(ui/terrain3d/),框好看那一页时导出。
  * 文件名带世界名(没起名 = 种子)、年份、画风:文明与地图-九州大陆-第3000年-手绘.png、文明与地图-种子7-第3000年-手绘.png(JPEG 是 .jpg)
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -57,6 +58,7 @@ import { noteDismiss } from './dismissClick';
 import { fileBaseName, type ContourKind } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { openFilm } from './filmStore';
+import { openReliefPick } from './terrain3dStore';
 import { useNarrow } from './device';
 import { Icon } from './icons';
 
@@ -562,6 +564,20 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
           >
             <b>故事长图</b>
             <span>按时代分段：那时的地图和几件大事，拼成长图</span>
+          </button>
+          {/* 地区图:进「地区」框一块(和右下「地区」同一套),看这一块的那一页上导出 */}
+          <button
+            className="export-item go"
+            role="menuitem"
+            data-job="region"
+            disabled={busy || !ok}
+            onClick={() => {
+              setOpen(false);
+              openReliefPick();
+            }}
+          >
+            <b>地区图</b>
+            <span>在地图上框一块，出一张带标题、比例尺、图例的图</span>
           </button>
           <div className="export-hr" />
           <div className="export-scale">
