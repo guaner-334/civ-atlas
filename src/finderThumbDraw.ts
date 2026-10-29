@@ -28,6 +28,7 @@ const SHOW: CivShow = {
   faiths: false,
   eras: false,
   control: false,
+  ideology: false,
   resources: false,
   wars: false,
   plague: false,

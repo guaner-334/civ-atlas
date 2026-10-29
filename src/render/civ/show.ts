@@ -25,6 +25,13 @@ export interface CivShow {
   eras: boolean;
   /** 管辖色块(管辖图层;开着时按中央管得到几成给各州铺色,画法同时代,国家只画国界和城镇;割据的州国界照旧画在原国里) */
   control: boolean;
+  /**
+   * 思潮色块(思潮图层;一次看一说,各州按信这一说的有几成铺一种颜色的五档深浅,画法同管辖,国家只画国界和城镇;见 thoughts.ts)。
+   * 看哪一说是 thought(THOUGHTS 的下标;没给 = 这一年到半成的州最多的那说)
+   */
+  ideology: boolean;
+  /** 思潮图层看哪一说(网址 ideo=;没给 / 那一年还没有人倡 = 默认的那说,见 thoughts.ts 的 thoughtFocus) */
+  thought?: number;
   /** 物产圆章(物产图层;州治上画这一年能用的物产,见 resources.ts) */
   resources: boolean;
   /** 战事:正在打的仗(战线、易手的州、交战处的双剑);要开着"国家"才画(默认打开) */
@@ -39,8 +46,8 @@ export interface CivShow {
 }
 
 /** 填色:哪种颜色铺满底图(图层面板「填色」那一排) */
-export type CivFill = 'none' | 'polities' | 'cultures' | 'faiths' | 'eras' | 'control';
-export const CIV_FILLS: readonly CivFill[] = ['none', 'polities', 'cultures', 'faiths', 'eras', 'control'];
+export type CivFill = 'none' | 'polities' | 'cultures' | 'faiths' | 'eras' | 'control' | 'ideology';
+export const CIV_FILLS: readonly CivFill[] = ['none', 'polities', 'cultures', 'faiths', 'eras', 'control', 'ideology'];
 
 /** 地图上写哪些名字(不给 = 按填色的默认) */
 export interface CivNames {
@@ -58,23 +65,24 @@ export interface CivNames {
 export type CivNameKind = keyof CivNames;
 export const CIV_NAME_KINDS: readonly CivNameKind[] = ['polities', 'cultures', 'faiths', 'eras'];
 
-/** 开关算哪种填色(先看信仰、时代、管辖,再看国家、再看民族) */
-export function civFillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean; control?: boolean }): CivFill {
+/** 开关算哪种填色(先看信仰、时代、管辖、思潮,再看国家、再看民族) */
+export function civFillOf(show: { polities: boolean; cultures: boolean; faiths?: boolean; eras?: boolean; control?: boolean; ideology?: boolean }): CivFill {
   if (show.faiths) return 'faiths';
   if (show.eras) return 'eras';
   if (show.control) return 'control';
+  if (show.ideology) return 'ideology';
   if (show.polities) return 'polities';
   if (show.cultures) return 'cultures';
   return 'none';
 }
 
 /**
- * 这种填色默认写哪些名字:国家、信仰、时代、管辖填色写国名(信仰、时代、管辖上是小一号的灰字),民族填色写族名,
+ * 这种填色默认写哪些名字:国家、信仰、时代、管辖、思潮填色写国名(信仰、时代、管辖、思潮上是小一号的灰字),民族填色写族名,
  * 信仰填色写教名,时代填色写时代名;不填色时都不写
  */
 export function namesDefault(fill: CivFill): Required<CivNames> {
   return {
-    polities: fill === 'polities' || fill === 'faiths' || fill === 'eras' || fill === 'control',
+    polities: fill === 'polities' || fill === 'faiths' || fill === 'eras' || fill === 'control' || fill === 'ideology',
     cultures: fill === 'cultures',
     faiths: fill === 'faiths',
     eras: fill === 'eras',
@@ -83,7 +91,7 @@ export function namesDefault(fill: CivFill): Required<CivNames> {
 
 /**
  * 地图上写不写国名:这种填色勾过就照勾的;没勾过按默认 —— 开着国家就写
- * (国家、信仰、时代、管辖填色都开着国家;只开了信仰、没开国家的旧链接照旧不写)
+ * (国家、信仰、时代、管辖、思潮填色都开着国家;只开了信仰、没开国家的旧链接照旧不写)
  */
 export function polityNamesOn(show: CivShow): boolean {
   return show.names?.[civFillOf(show)]?.polities ?? show.polities;
@@ -131,6 +139,7 @@ export const CIV_SHOW_OFF: CivShow = {
   faiths: false,
   eras: false,
   control: false,
+  ideology: false,
   resources: false,
   wars: false,
   plague: false,

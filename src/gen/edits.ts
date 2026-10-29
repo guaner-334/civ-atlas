@@ -592,6 +592,8 @@
  *      名臣那边不再为这几段起人(同一朝的名臣、经手的事跟着重排,名字可能变)。疆域、兴亡、战争、君主将领宗室的生卒和父子不变
  *  53:思潮(civ/ideology.ts)的数:技艺、民权两说传得快、前提差一点的地方也学得进一点,各说退潮快一倍,天命之说到了印刷的时代更合不来。
  *      只算不用,地形、历史一个字段不变,只有 civ.ideology 变了
+ *  54:思潮上了编年史(civ/ideologyText.ts):某城始倡某说(大事)、某说盛于某大国、大国里某说渐衰某说代兴;
+ *      各州的思潮从每 100 年存一份改成每 20 年一份(思潮图层传开的边缘照真推的走)。疆域、兴亡、战争、人物一样不变
  */
 import type { Civ, Culture, Faith, MigrationDir, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -605,7 +607,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 53;
+export const GENERATOR_VERSION = 54;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -679,6 +681,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   51: { change: 'people' },
   52: { change: 'people' },
   53: { change: 'ideology' },
+  54: { change: 'chronicle' },
 };
 
 /** 干预的种类(见文件头的表) */
