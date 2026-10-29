@@ -182,10 +182,15 @@ export function drawRegionLines(ctx: CanvasRenderingContext2D, p: CivDrawParams)
   const wrap = meshWrap(p.world.mesh);
   const all = regionLines(p.world.mesh, p.civ);
   addToPath(path, p.cull ? cullLines(all, p.cull, wrap, 4) : all, S, wrap, p.proj);
+  strokeRegionLines(ctx, path, p.style, P);
+}
+
+/** 州界的笔(地图上、地区图的图例里都用它):P = 线宽、虚线长短的单位 */
+export function strokeRegionLines(ctx: CanvasRenderingContext2D, path: Path2D, style: CivStyle, P: number) {
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  if (p.style === 'fantasy') {
+  if (style === 'fantasy') {
     // 墨色点划线,像旧地图上的州县界
     ctx.setLineDash([3.2 * P, 2.4 * P]);
     ctx.strokeStyle = 'rgba(70,50,36,0.5)';
@@ -193,10 +198,10 @@ export function drawRegionLines(ctx: CanvasRenderingContext2D, p: CivDrawParams)
     ctx.stroke(path);
   } else {
     // 写实:先描一道很淡的暗边,再描一道半透明的亮线 —— 雪地、沙漠上也看得清
-    ctx.strokeStyle = p.style === 'data' ? 'rgba(20,20,20,0.35)' : 'rgba(20,16,10,0.22)';
+    ctx.strokeStyle = style === 'data' ? 'rgba(20,20,20,0.35)' : 'rgba(20,16,10,0.22)';
     ctx.lineWidth = 2 * P;
     ctx.stroke(path);
-    ctx.strokeStyle = p.style === 'data' ? 'rgba(255,255,255,0.7)' : 'rgba(255,250,240,0.62)';
+    ctx.strokeStyle = style === 'data' ? 'rgba(255,255,255,0.7)' : 'rgba(255,250,240,0.62)';
     ctx.lineWidth = 0.8 * P;
     ctx.stroke(path);
   }

@@ -1,7 +1,7 @@
 /**
  * 立体地形的后台线程池(terrain3dWorker.ts):点「立体」开始框的时候就开好、把世界送过去准备(框的工夫里准备完),
- * 立起来时把方框按行切成几条,一个线程一条,各算各的,全回来了拼成一整块。关掉立体就全部关掉(放掉内存)。
- * 同一条总是交给同一个线程(它留着铺好的像素,只换画风时不用重铺)。
+ * 立起来时把方框按行切成几条,一个线程一条(地区图那么大的块切得更碎,几个线程轮流算),各算各的,全回来了拼成一整块。
+ * 离开地区模式就全部关掉(放掉内存)。同一条总是交给同一个线程(它留着铺好的像素,只换画风时不用重铺)。
  * 手绘多一步:几条铺好的像素拼成一整块,交给第一个线程整块画(纸纹、林块、波纹不在接缝处断开)。
  */
 import type { World } from '../../gen/world';
@@ -12,6 +12,9 @@ import type { ReliefLook } from '../../render/terrain3d/relief';
 import { boxKm, boxPixels, kmPerUnitX, type ReliefBox } from '../../render/terrain3d/box';
 import type { BoxFields, BoxStyle } from '../../render/terrain3d/fantasyBox';
 import { WINDOW_PAD } from '../../gen/rasterWindow';
+
+/** 一条最多约多少像素(再大就多切几条,几个线程轮流算) */
+const STRIP_PX = 400_000;
 
 /** 拼好的一整块 */
 export interface ReliefImage {
@@ -93,15 +96,16 @@ export function reliefWorkers(): number {
 }
 
 /**
- * 算方框里的一整块(S 倍像素、这种画法)。heights = 要不要海拔和地平线;style = 手绘的一格多大(fantasyBox.ts 的 boxStyle)。
+ * 算方框里的一整块(S 倍像素、这种画法)。heights = 要不要海拔和地平线('elev' = 只要海拔);style = 手绘的一格多大(fantasyBox.ts 的 boxStyle)。
  * 出错(线程没起来、不能画图、中途换了世界)= null。part:每回来一条调一次(回来了几条、一共几步;手绘最后整块画算一步)
  */
-export function reliefImage(box: ReliefBox, S: number, look: ReliefLook, heights: boolean, H: number, style: BoxStyle, part?: (n: number, of: number) => void): Promise<ReliefImage | null> {
+export function reliefImage(box: ReliefBox, S: number, look: ReliefLook, heights: boolean | 'elev', H: number, style: BoxStyle, part?: (n: number, of: number) => void): Promise<ReliefImage | null> {
   const pool = slots;
   if (!pool) return Promise.resolve(null);
   const t0 = performance.now();
   const px = boxPixels(box, S);
-  const n = Math.min(pool.length, px.h);
+  // 一个线程一条;大块(地区图)切得更碎,几个线程轮流算,进度一格一格往上走
+  const n = Math.min(px.h, Math.max(pool.length, Math.min(pool.length * 4, Math.ceil((px.w * px.h) / STRIP_PX))));
   const job = ++jobSeq;
   const kmPerPx = kmPerUnitX(box.cy, H) / S;
   // 往西最远看方框短边的 35%(倍数拉到 30 倍时最高的山的影子也就这么长)
@@ -121,11 +125,11 @@ export function reliefImage(box: ReliefBox, S: number, look: ReliefLook, heights
           const img: ReliefImage = { S, w: px.w, h: px.h, parts, ms: performance.now() - t0 };
           if (heights) {
             img.elev = new Float32Array(px.w * px.h);
+            for (const r of list) img.elev.set(r.elev!, r.y * px.w);
+          }
+          if (heights === true) {
             img.horizon = new Float32Array(px.w * px.h);
-            for (const r of list) {
-              img.elev.set(r.elev!, r.y * px.w);
-              img.horizon.set(r.horizon!, r.y * px.w);
-            }
+            for (const r of list) img.horizon.set(r.horizon!, r.y * px.w);
           }
           resolve(img);
         };
@@ -143,7 +147,7 @@ export function reliefImage(box: ReliefBox, S: number, look: ReliefLook, heights
       const y = Math.round((i * px.h) / n);
       const h = Math.round(((i + 1) * px.h) / n) - y;
       const m: ReliefRequest = { type: 'strip', wid, job, y, S, x0: px.x0, y0: px.y0 + y, w: px.w, h, k, look, heights, kmPerPx, maxPx };
-      pool[i].w.postMessage(m);
+      pool[i % pool.length].w.postMessage(m);
     }
   });
 }

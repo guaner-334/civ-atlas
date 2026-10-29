@@ -13,7 +13,7 @@
 import type { Civ, Route } from '../../gen/civ/types';
 import type { Mesh } from '../../gen/mesh';
 import { addToPath, chaikin, cullLines, meshWrap, unwrapLine, type Polyline } from './lines';
-import type { CivDrawParams } from './overlay';
+import type { CivDrawParams, CivStyle } from './overlay';
 
 type Kind = Route['kind'];
 
@@ -143,13 +143,16 @@ export function drawRoutes(ctx: CanvasRenderingContext2D, p: CivDrawParams): voi
     addToPath(pa, p.cull ? cullLines(ls, p.cull, wrap, 4) : ls, S, wrap, p.proj);
     return pa;
   };
-  const road = path(lines.road);
-  const trail = path(lines.trail);
-  const sea = path(lines.sea);
+  strokeRoutes(ctx, { road: path(lines.road), trail: path(lines.trail), sea: path(lines.sea) }, p.style, P);
+}
+
+/** 道路、航线的笔(地图上、地区图的图例里都用它):P = 线宽、虚线长短的单位 */
+export function strokeRoutes(ctx: CanvasRenderingContext2D, paths: { road: Path2D; trail: Path2D; sea: Path2D }, style: CivStyle, P: number): void {
+  const { road, trail, sea } = paths;
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  if (p.style === 'fantasy') {
+  if (style === 'fantasy') {
     // 墨色:航线是海上的点线;大路长虚线、小路短虚线。
     // 路下面先垫一道很淡的纸色,穿过深色树林时也看得清(像旧地图上路从树林符号里"让"出来)
     ctx.strokeStyle = 'rgba(52,58,66,0.62)';

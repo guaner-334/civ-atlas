@@ -1,24 +1,24 @@
 /**
- * 框一块地方立起来看(地图右下 / 手机右上的「立体」点了以后):
+ * 框一块地方单独看(地图右下 / 手机右上的「地区」、导出菜单的「地区图」点了以后):
  *   电脑:一开始框住看得见的地图正中一块;拖框里面挪、拖边角改大小,在框外拖一下 = 重新框一个;滚轮照样缩放地图。
- *         框上写着多大;底下一条:怎么做、「取消」「立起来看」
- *   手机:框固定在屏幕正中,手指只管挪、缩放地图(框不动,地图动);顶上一句提示,底下「取消」「立起来看」
+ *         框上写着多大;底下一条:怎么做、「取消」「看这一块」
+ *   手机:框固定在屏幕正中,手指只管挪、缩放地图(框不动,地图动);顶上一句提示,底下「取消」「看这一块」
  * 框每条边 300–2000 公里(render/terrain3d/box.ts);框多大跟着世界走(地图缩放、挪动时框贴在地上)。
- * 一开始就把后台线程开好、把世界送过去准备,框的工夫里准备完,立起来时直接算。
+ * 一开始就把后台线程开好、把世界送过去准备,框的工夫里准备完,看这一块时直接算(地区图、立体共用)。
  */
 import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react';
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { MarkApi } from '../MarkLayer';
 import { BOX_MAX_KM, boxKm, boxSizeText, clampBox, kmPerUnitX, type ReliefBox } from '../../render/terrain3d/box';
-import { closeRelief, getRelief, openReliefView } from '../terrain3dStore';
+import { closeRelief, getRelief, openReliefView, type AreaFace } from '../terrain3dStore';
 import { getProjection } from '../projection';
 import { freeArea } from '../flyTo';
 import { reliefPrepare, reliefRelease } from './jobs';
 import './terrain3d.css';
 
 /** 这一刻地图的换算:世界 → 舞台像素(线性,平面等距圆柱)、左右相连的一整圈多宽 */
-interface Frame {
+export interface Frame {
   ox: number;
   oy: number;
   /** 每世界单位多少像素 */
@@ -29,7 +29,7 @@ interface Frame {
   sig: string;
 }
 
-function readFrame(api: MarkApi | null): Frame | null {
+export function readFrame(api: MarkApi | null): Frame | null {
   const f = api?.frame();
   if (!f || getProjection() !== 'equirect') return null;
   const a = f.pt(0, 0);
@@ -61,7 +61,7 @@ export function ReliefPick({ world, raster, api, phone }: { world: World; raster
   const grab = useRef<Grab | null>(null);
   const seen = useRef(false);
 
-  // 线程先开好、世界先送过去;不框了(没立起来)就关掉
+  // 线程先开好、世界先送过去;不框了(没点「看这一块」)就关掉
   useEffect(() => {
     reliefPrepare(world, raster, phone);
   }, [world, raster, phone]);
@@ -121,10 +121,10 @@ export function ReliefPick({ world, raster, api, phone }: { world: World; raster
     setBox(clampBox({ cx: wx, cy: wy, w: wPx / frame.k, h: (wPx * 2) / 3 / frame.k }, H));
   }, [phone, frame, box, H]);
 
-  // 冒烟检查、截图用:直接定一个框(世界坐标)、立起来
+  // 冒烟检查、截图用:直接定一个框(世界坐标)、看这一块(face 不给 = 平面图)
   useEffect(() => {
     const g = window as unknown as { __wfReliefPick?: unknown };
-    g.__wfReliefPick = { set: (b: ReliefBox) => setBox(clampBox(b, H)), open: (b: ReliefBox) => openReliefView(clampBox(b, H)) };
+    g.__wfReliefPick = { set: (b: ReliefBox) => setBox(clampBox(b, H)), open: (b: ReliefBox, face?: AreaFace) => openReliefView(clampBox(b, H), face) };
     return () => {
       delete g.__wfReliefPick;
     };
@@ -250,24 +250,24 @@ export function ReliefPick({ world, raster, api, phone }: { world: World; raster
       )}
       {phone ? (
         <>
-          <div className="rp-chip">挪地图、双指缩放，让框住想立起来看的地方</div>
+          <div className="rp-chip">挪地图、双指缩放，让框住想看的地方</div>
           <div className="rp-act">
             <button type="button" onClick={closeRelief}>
               取消
             </button>
             <button type="button" className="pri" onClick={go} disabled={!shown}>
-              立起来看
+              看这一块
             </button>
           </div>
         </>
       ) : (
         <div className="rp-bar" onPointerDown={stop}>
-          拖一个框，框住想立起来看的地方；拖框里面挪动，拖边角改大小
+          拖一个框，框住想看的地方；拖框里面挪动，拖边角改大小
           <button type="button" onClick={closeRelief}>
             取消
           </button>
           <button type="button" className="pri" onClick={go} disabled={!shown}>
-            立起来看
+            看这一块
           </button>
         </div>
       )}
@@ -276,7 +276,7 @@ export function ReliefPick({ world, raster, api, phone }: { world: World; raster
 }
 
 /** 方框中心在舞台上的位置:左右相连时取离 nearX 最近的那一圈 */
-function toScreen(f: Frame, b: ReliefBox, nearX: number): [number, number] {
+export function toScreen(f: Frame, b: ReliefBox, nearX: number): [number, number] {
   let x = f.ox + b.cx * f.k;
   if (f.period > 0) x += f.period * Math.round((nearX - x) / f.period);
   return [x, f.oy + b.cy * f.k];

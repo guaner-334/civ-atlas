@@ -5,7 +5,7 @@
  * 另交回每个像素的海拔和往西看的地平线坡度(render/terrain3d/relief.ts)。同一条结果一样。
  * 手绘:一条只交回铺好的像素(海拔、年均温、水陆、群落,连多铺的那圈),几条拼成一整块以后交给其中一个线程整块画
  * (render/terrain3d/fantasyBox.ts;纸纹、林块、波纹不在横条接缝处断开)。
- * 最近铺过的两条(粗的、细的)留着:只换画风时不用重新铺像素,只重新上色。
+ * 最近铺过的几条(粗的、细的)留着:只换画风时不用重新铺像素,只重新上色。
  */
 import type { World } from './gen/world';
 import type { Raster } from './gen/raster';
@@ -20,7 +20,8 @@ export type ReliefRequest =
   | { type: 'world'; wid: number; world: World; whole: WholeRaster }
   /**
    * S 倍主图上从 (x0, y0) 开始的 w × h 像素(方框里第 y 行起的一条);k = 河按几倍缩放的样子画;
-   * heights = 要不要交回海拔和地平线(只换画风时不要);kmPerPx、maxPx = 算地平线用(东西方向每像素多少公里、往西最远看几个像素)
+   * heights = 要不要交回海拔和地平线(只换画风时不要;'elev' = 只要海拔,地区图找山峰用);
+   * kmPerPx、maxPx = 算地平线用(东西方向每像素多少公里、往西最远看几个像素)
    */
   | {
       type: 'strip';
@@ -34,7 +35,7 @@ export type ReliefRequest =
       h: number;
       k: number;
       look: ReliefLook;
-      heights: boolean;
+      heights: boolean | 'elev';
       kmPerPx: number;
       maxPx: number;
     }
@@ -59,6 +60,8 @@ export interface ReliefResponse {
 }
 
 let cur: { wid: number; world: World; src: ZoomSource; grids: MacroGrids } | null = null;
+/** 最近铺过的几条留几条(粗的、细的;地区图那么大的块一个线程轮到几条) */
+const KEEP = 4;
 /** 最近铺过的几条(编号 → 铺好的像素) */
 const recent = new Map<string, Raster>();
 
@@ -105,7 +108,7 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     if (!r) {
       r = rasterizeWindow(cur.src, m.S, x0 - P, m.y0 - P, n, m.h + 2 * P);
       recent.set(key, r);
-      while (recent.size > 2) recent.delete(recent.keys().next().value!);
+      while (recent.size > KEEP) recent.delete(recent.keys().next().value!);
     }
     if (m.look === 'fantasy') {
       // 手绘:只交回铺好的像素(连多铺的那圈;留着的那份不动,拷一份交出去),拼好了整块画
@@ -114,8 +117,11 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
       const transfer: Transferable[] = [raw.elev.buffer, raw.temp.buffer, raw.water.buffer, raw.biome.buffer];
       if (m.heights) {
         res.elev = stripHeights(r, P, m.w, m.h);
-        res.horizon = horizonSlopes(res.elev, m.w, m.h, m.kmPerPx, m.maxPx);
-        transfer.push(res.elev.buffer, res.horizon.buffer);
+        transfer.push(res.elev.buffer);
+        if (m.heights === true) {
+          res.horizon = horizonSlopes(res.elev, m.w, m.h, m.kmPerPx, m.maxPx);
+          transfer.push(res.horizon.buffer);
+        }
       }
       res.ms = performance.now() - t0;
       self.postMessage(res, { transfer });
@@ -141,8 +147,11 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     const transfer: Transferable[] = [bitmap];
     if (m.heights) {
       res.elev = stripHeights(r, P, m.w, m.h);
-      res.horizon = horizonSlopes(res.elev, m.w, m.h, m.kmPerPx, m.maxPx);
-      transfer.push(res.elev.buffer, res.horizon.buffer);
+      transfer.push(res.elev.buffer);
+      if (m.heights === true) {
+        res.horizon = horizonSlopes(res.elev, m.w, m.h, m.kmPerPx, m.maxPx);
+        transfer.push(res.horizon.buffer);
+      }
     }
     res.ms = performance.now() - t0;
     self.postMessage(res, { transfer });

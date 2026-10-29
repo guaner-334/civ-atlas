@@ -1,8 +1,8 @@
 /**
- * 立体模式:框好的一块立起来,能转着看。
+ * 地区模式的立体:框好的一块立起来,能转着看(底条上「平面图 | 立体」和地区图来回切,同一个框)。
  *   电脑:和地球仪一样占住地图那一块(左边的卡片、上面的画风和导出照旧能用);时间轴的位置换成一条控件:
- *         回到地图、这一块叫什么 / 多大、起伏几倍(滑条 1–30)、复位视角、怎么操作;右下是「立体」(按下的)、指南针、远近
- *   手机:占满整屏;左上回到地图,中间这一块叫什么,指南针在右上;底下一张小卡片放起伏和复位;第一次按下之前有一句手势提示
+ *         回到地图、这一块叫什么 / 多大、平面图 | 立体、起伏几倍(滑条 1–30)、复位视角、怎么操作;右下是「地区」(按下的)、指南针、远近
+ *   手机:占满整屏;左上回到地图,中间这一块叫什么,指南针在右上;底下一张小卡片放平面图 | 立体、起伏和复位;第一次按下之前有一句手势提示
  * 先出粗的(几个后台线程分着算,不到 0.3 秒就能转),细的算好了换上;换画风只重新上色(网格不变)。
  * 起伏默认按框的大小定(render/terrain3d/box.ts 的 autoExaggeration),滑条一拉立刻变,影子也跟着(着色器里算)。
  * 卫星(经典 / 细节 / 简化)、地理图、白模照着现成的画法上色;手绘按这一块的大小重画(render/terrain3d/fantasyBox.ts,不画山符号);
@@ -22,9 +22,10 @@ import { closeRelief, getRelief, useRelief } from '../terrain3dStore';
 import { freeArea } from '../flyTo';
 import { showToast } from '../toastStore';
 import { Icon } from '../icons';
-import { reliefImage, reliefPrepare, reliefRelease, type ReliefImage } from './jobs';
+import { reliefImage, reliefPrepare, type ReliefImage } from './jobs';
 import { reliefPeaks, reliefTitle, type ReliefPeak } from './region';
 import { ReliefStage, reliefDebug } from './stage';
+import { AreaTitle, FaceSwitch } from './AreaBar';
 import './terrain3d.css';
 
 /** 立体用哪种上色:写实底图照它自己的画法(地理图叠了填色的那份按地理图);手绘按手绘;别的底图按卫星 */
@@ -175,7 +176,6 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
       recolorRef.current = () => {};
       stage.current = null;
       st.dispose();
-      reliefRelease();
       delete (window as unknown as { __wfReliefSpin?: unknown }).__wfReliefSpin;
     };
     // 方框、世界换了才重来;画风换了走下面的重新上色
@@ -248,10 +248,7 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
               <Icon name="back" size={18} />
               地图
             </button>
-            <div className="rv-ttl">
-              <b>{title}</b>
-              <small>{busyText ? `${sizeText}，${busyText}` : sizeText}</small>
-            </div>
+            <AreaTitle phone title={title} sub={busyText ? `${sizeText}，${busyText}` : sizeText} />
             {/* 右上留给「导出」(和左边的按钮一样宽,标题居中) */}
             <span className="rv-rb rv-spacer" aria-hidden="true" />
           </div>
@@ -261,6 +258,9 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
           {tip && <div className="rv-tip">单指转动，双指缩放，双指上下推改俯角</div>}
           <div className="rv-sheet">
             <div className="rv-grab" />
+            <div className="rv-line">
+              <FaceSwitch face="relief" />
+            </div>
             <div className="rv-line">
               <span className="rv-lab">起伏</span>
               {range}
@@ -277,8 +277,8 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
         <>
           <div className="map-controls rv-ctl">
             <button type="button" className="glass mc-btn mc-globe mc-relief on" data-act="relief" aria-pressed="true" onClick={closeRelief} title="回到地图">
-              <Icon name="relief" size={18} />
-              <span>立体</span>
+              <Icon name="region" size={18} />
+              <span>地区</span>
             </button>
             <button type="button" className="glass mc-btn mc-globe rv-north" onClick={() => stage.current?.north()} aria-label="转回正北" title="转回正北">
               {compass}
@@ -297,10 +297,9 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
               <Icon name="back" size={16} />
               回到地图
             </button>
-            <span className="rv-t">
-              <b>{title}</b>
-              <small>{sizeText}</small>
-            </span>
+            <AreaTitle title={title} sub={sizeText} />
+            <span className="rv-sep" />
+            <FaceSwitch face="relief" />
             <span className="rv-sep" />
             <span className="rv-lab">起伏</span>
             {range}
