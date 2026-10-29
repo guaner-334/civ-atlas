@@ -114,12 +114,13 @@ export function nameFaceText(name: string, small: boolean): string {
 
 /**
  * 没有画像的头像:颜色方块(卡片)/ 小圆(世系图、人物页)上写名字,大小、圆角、去世后的白框和 PortraitView 一样;
- * color = 底色(国家颜色、作者人物的颜色)
+ * color = 底色(国家颜色、作者人物的颜色)。别处放大了的(关系图的圆头像、中间那张卡片):chars 写几个字、px 字号(和头像大小成比例)
  */
-export function NameFace({ name, size, color, dead }: { name: string; size: 'card' | 'mini' | 'row'; color: string; dead?: boolean }) {
-  const text = nameFaceText(name, size !== 'card');
+export function NameFace({ name, size, color, dead, chars, px }: { name: string; size: 'card' | 'mini' | 'row'; color: string; dead?: boolean; chars?: 1 | 2; px?: number }) {
+  const text = nameFaceText(name, chars ? chars === 1 : size !== 'card');
+  const style = { '--c': color, ...(px ? { fontSize: px } : {}) } as CSSProperties;
   return (
-    <span className={`pt pt-${size} pt-name${[...text].length > 1 ? '' : ' pt-name-1'}${dead ? ' pt-dead' : ''}`} style={{ '--c': color } as CSSProperties} aria-hidden="true">
+    <span className={`pt pt-${size} pt-name${[...text].length > 1 ? '' : ' pt-name-1'}${dead ? ' pt-dead' : ''}`} style={style} aria-hidden="true">
       {text}
     </span>
   );

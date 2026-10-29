@@ -496,10 +496,11 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const ctlOn = show.control && ok;
   const ctl = useMemo(() => (ctlOn ? controlRows(civ!, year, era, narrow) : null), [ctlOn, civ, year, era, narrow]);
   const resOn = show.resources && ok && !!civ!.development;
-  // 停在年中、看的是"现在":列到停下的那一格(这一年里已经发生的也列上)
+  // 看的是"现在":故事模式(历史推到停下那一刻的前一格,停在年初的也是上一年最后一格)、普通世界推到年中的,列到推到的那一格
+  // (这一年、停在年初的上一年里已经发生的也列上)
   const play = cleanPlay(edits.play);
   const atEnd = useAtEnd(civ);
-  const k = countUpTo(entries, recentUpTo(year, civ?.endYear ?? 0, play ? !!play.tick : !!edits.endTick, atEnd));
+  const k = countUpTo(entries, recentUpTo(year, civ?.endYear ?? 0, !!play || !!edits.endTick, atEnd));
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
   // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起;照大纲硬改的一条情节算一处)
   const nUp = edits.upheavals?.length ?? 0;

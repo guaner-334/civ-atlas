@@ -17,7 +17,8 @@ import { createPortal } from 'react-dom';
 import type { Civ } from '../gen/civ/types';
 import { eraYear, parseJump, yearFull, type Era } from '../gen/era';
 import { getCivTime, setCivTime, useCivTime } from './civView';
-import { useEra } from './editsStore';
+import { useEra, useMonthNames, useMonths } from './editsStore';
+import { momentFull } from './stepTime';
 import { baseRegions } from './eras';
 import { EraPre } from './panelParts';
 
@@ -72,10 +73,11 @@ function yearParts(y: number, era: Era | undefined): [string, string, string] {
 
 /** 输入框上面(时间轴在顶上时是下面)的提示:平常写回车跳、这个世界从哪年到哪年;填得不对标红 */
 function JumpTip({ why, hint, end, era, below, future }: { why: string | null; hint: string | null; end: number; era: Era | undefined; below?: boolean; future?: boolean }) {
+  const note = useSpanNote(end, era, future);
   return (
     <span className={`jy-tip${why ? ' bad' : ''}${below ? ' below' : ''}`} role="status">
       {why ?? '回车跳到这一年，Esc 取消'}
-      <small>{why ? hint : spanNote(end, era, future)}</small>
+      <small>{why ? hint : note}</small>
     </span>
   );
 }
@@ -102,9 +104,11 @@ export interface TimelineYearProps {
   tail?: string;
 }
 
-/** 提示下面的小字:这个世界从哪年推到哪年(逐年推演:已经演绎到哪年) */
-function spanNote(end: number, era: Era | undefined, future?: boolean): string {
-  return future ? `已经演绎到${yearFull(end, era)}` : `这个世界从${yearFull(0, era)}推到${yearFull(end, era)}`;
+/** 提示下面的小字:这个世界从哪年推到哪年(推到一年中间的写到月,正好在年初的只写年;逐年推演:已经演绎到哪年) */
+function useSpanNote(end: number, era: Era | undefined, future?: boolean): string {
+  const months = useMonths();
+  const names = useMonthNames();
+  return future ? `已经演绎到${yearFull(end, era)}` : `这个世界从${yearFull(0, era)}推到${momentFull(end, months, era, names, false)}`;
 }
 
 /** 时间轴左边的年份:平常是字,点了变输入框(手机弹小卡片) */
@@ -254,6 +258,7 @@ function JumpCard(p: {
   onClose: () => void;
 }) {
   const parsed = parseJump(p.text, p.pre, p.era, p.end, p.future);
+  const note = useSpanNote(p.end, p.era, p.future);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     ref.current?.focus();
@@ -288,7 +293,7 @@ function JumpCard(p: {
           </button>
         </form>
         <small className={parsed.why ? 'bad' : ''}>
-          {parsed.why ? `${parsed.why}，${parsed.hint ?? ''}`.replace(/，$/, '') : spanNote(p.end, p.era, p.future)}
+          {parsed.why ? `${parsed.why}，${parsed.hint ?? ''}`.replace(/，$/, '') : note}
         </small>
       </div>
     </div>

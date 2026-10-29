@@ -883,6 +883,151 @@ function lakeInk(r: Raster, d: Uint8ClampedArray, lake: PixelPatch, py: number, 
 /** 每个世界的符号规划:像素层、符号层都要用;文明层先要符号层时也不用再算一遍 */
 const plans = new WeakMap<World, Plan>();
 
+// ---------------------------------------------------------------------------
+// 立体地形(地图上框一块立起来看,render/terrain3d/)的手绘贴图:那一块当成一张小地图来画
+
+/**
+ * 立体地形的手绘底图:放大现算的一块 r(gen/rasterWindow.ts;r.scale = S 像素 / 世界单位,四周多铺了一圈)当成一张小地图来铺 ——
+ * 纸、水彩、海(深浅、近岸排线、岸线外的波纹)、海冰、海岸墨线、湖岸描边,大小都按 u(一"格"几个像素:整张主图上
+ * 一格是 1 个世界单位,这里按这一块的大小定)画,不按整颗星球的尺度,框一块看不会又粗又大。
+ * 不画山 / 丘陵 / 沙丘符号(起伏本身就是山);冷到积雪的高处铺一层冰雪色(平面地图上靠白顶的山符号)。
+ * 东西不相连(只是一块)。返回 RGBA,和 r 一样大
+ */
+export function fantasyBoxPixels(r: Raster, u: number) {
+  const rs: Raster = { ...r, scale: u };
+  const { w, h, water, biome, temp } = r;
+  const N = w * h;
+  const landMask = new Uint8Array(N);
+  const seaMask = new Uint8Array(N);
+  for (let k = 0; k < N; k++) {
+    if (water[k] === 1) seaMask[k] = 1;
+    else landMask[k] = 1;
+  }
+  const dLand = distanceTo(landMask, w, h, false);
+  const dSea = distanceTo(seaMask, w, h, false);
+  const shade = hillshade(rs, 0.008, 0);
+  const { mask: iceM, near: iceNear } = seaIceField(rs);
+  const band = iceBand(rs, iceM, iceNear);
+  const pr = new Float32Array(N);
+  const pg = new Float32Array(N);
+  const pb = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    const c = biome[k] === Biome.Ice ? SNOW_PAINT : BIOMES[biome[k]].paint;
+    pr[k] = c[0];
+    pg[k] = c[1];
+    pb[k] = c[2];
+  }
+  const br = Math.max(1, Math.round(3 * u));
+  boxBlurWrap(pr, w, h, br);
+  boxBlurWrap(pg, w, h, br);
+  boxBlurWrap(pb, w, h, br);
+  const d = new Uint8ClampedArray(N * 4);
+  const patch: InkPatch = { coast: new PixelPatch(), lake: new PixelPatch(), sea: new PixelPatch(), iceW: new PixelPatch(), iceI: new PixelPatch() };
+  const sea: SeaFields = { dist: new Uint16Array(N), fade: new Uint8Array(N) };
+  paintPixels(rs, d, { dLand, dSea, shade, calm: new Uint8Array(N), iceM, iceNear, band, pr, pg, pb, patch, sea });
+  for (let py = 1; py < h - 1; py++) lakeInk(rs, d, patch.lake, py, 0, w);
+  // 积雪:和像素层的雪地同一个温度门槛,往冰面的纸色上铺
+  for (let k = 0; k < N; k++) {
+    if (water[k] !== 0 || temp[k] >= -7.5) continue;
+    const t = 0.65 * smoothstep(-7.5, -10.5, temp[k]);
+    const o = k * 4;
+    d[o] += (ICE_PAPER[0] - d[o]) * t;
+    d[o + 1] += (ICE_PAPER[1] - d[o + 1]) * t;
+    d[o + 2] += (ICE_PAPER[2] - d[o + 2]) * t;
+  }
+  return d;
+}
+
+/** 立体地形手绘底图上林块点阵的间距(格,同 fantasyBoxPixels 的 u):和整张主图上地块的间距差不多 */
+const BOX_FOREST_GAP = 7;
+/** 林块按缩放几倍时的样子画(树冠大小、每个点几棵树冠,见 forestTiles) */
+const BOX_FOREST_K = 1;
+
+/**
+ * 立体地形手绘底图上的林块:按这一块自己的大小重新布,不用整颗星球的地块 ——
+ * 蜂窝点阵(每隔 BOX_FOREST_GAP 格一个点;东西向拉宽 ax 倍,立起来以后是圆的),点下的群落是森林,
+ * 再加上低频噪声(和整张主图同一套,林子大体还在主图上的那一片)和一层这一块尺度的噪声,够了门槛就是林子;
+ * 画法和主图的林块一样(扇贝边、阴影排线、树冠,见 forestTiles)。
+ * ctx = 方框那一块的画布;r = 它四周多铺了 pad 像素的那一块(r.scale = S,r.win 有位置);u = 一格几个像素(南北向);
+ * seed = 世界的种子,worldW = 世界宽(世界单位)。同一块每次画得一样
+ */
+export function fantasyBoxForest(ctx: CanvasRenderingContext2D, r: Raster, pad: number, u: number, ax: number, seed: number, worldW: number): void {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const S = r.scale;
+  const x0 = (r.win?.x0 ?? 0) + pad;
+  const y0 = (r.win?.y0 ?? 0) + pad;
+  const gy = BOX_FOREST_GAP * u * 0.866;
+  const gx = BOX_FOREST_GAP * u * ax;
+  const rows = Math.ceil(H / gy) + 5;
+  const cols = Math.ceil(W / gx) + 5;
+  const n = rows * cols;
+  const x = new Float32Array(n);
+  const y = new Float32Array(n);
+  const water = new Uint8Array(n);
+  const forest = new Uint8Array(n);
+  const gSeed = subSeed(seed, 'glyphs');
+  const bSeed = subSeed(seed, 'box-forest');
+  const nSalt = gSeed & 0xffff;
+  const n85 = wrapCells(worldW, 85);
+  const n26 = wrapCells(worldW, 26);
+  /** 这一块尺度的噪声:约 6 个点一个起伏(按地面上的距离,东西向不拉宽) */
+  const bc = BOX_FOREST_GAP * u * 6;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const k = j * cols + i;
+      const px = (i - 2 + (j & 1) * 0.5 + (hash2(i, j, bSeed) - 0.5) * 0.5) * gx;
+      const py = (j - 2 + (hash2(i, j, bSeed + 1) - 0.5) * 0.5) * gy;
+      x[k] = px / u;
+      y[k] = py / u;
+      const qx = Math.min(r.w - 1, Math.max(0, Math.floor(px + pad)));
+      const qy = Math.min(r.h - 1, Math.max(0, Math.floor(py + pad)));
+      const q = qy * r.w + qx;
+      if (r.water[q] !== 0) {
+        water[k] = 1;
+        continue;
+      }
+      const f = FOREST_OF[r.biome[q]];
+      if (!f) continue;
+      const wx = (x0 + px) / S;
+      const wy = (y0 + py) / S;
+      const nz =
+        0.62 * valueNoiseP((wx * n85) / worldW, wy / 85, nSalt, n85) +
+        0.38 * valueNoiseP((wx * n26) / worldW, wy / 26, nSalt + 1, n26) +
+        0.45 * (valueNoiseP(px / ax / bc, py / bc, bSeed + 2, 1 << 30) - 0.5);
+      if (nz > f[1]) forest[k] = f[0];
+    }
+  }
+  // 蜂窝的六个邻居:同一行左右两个,上下两行各两个(奇数行往右错半格)
+  const adjStart = new Int32Array(n + 1);
+  const adj = new Int32Array(n * 6);
+  let m = 0;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      adjStart[j * cols + i] = m;
+      const put = (ii: number, jj: number) => {
+        if (ii >= 0 && ii < cols && jj >= 0 && jj < rows) adj[m++] = jj * cols + ii;
+      };
+      put(i - 1, j);
+      put(i + 1, j);
+      const lo = j & 1 ? i : i - 1;
+      put(lo, j - 1);
+      put(lo + 1, j - 1);
+      put(lo, j + 1);
+      put(lo + 1, j + 1);
+    }
+  }
+  adjStart[n] = m;
+  const grid: ForestGrid = { n, x, y, spacing: BOX_FOREST_GAP, adjStart, adj, water, seed: gSeed, height: 0 };
+  const ft = forestTiles(W, H, grid, forest, { s: u, ox: 0, oy: 0, k: BOX_FOREST_K }, 256, undefined, false, ax);
+  ft.draw(ctx, 0, ft.cost.length);
+}
+
+/** 立体地形手绘底图上的河:粗细按这一块的"格"(unit = 一格几个世界单位),整张主图上全图就画的河都画 */
+export function fantasyBoxRiverStyle(threshold: number, unit: number): RiverStyle {
+  return { ...fantasyRiverStyle(1, threshold), minW: 0.9 * unit, maxW: 3 * unit, thin: 1, minFlux: threshold };
+}
+
 /**
  * 别处(后台线程,见 worker.ts 编辑地形那条路)替这个世界算好的符号规划:直接记下,用到时不用再算
  * (同一个世界、同一套算法,结果一样;精细度高的世界一次要算一两百毫秒,不在主线程上算)
@@ -941,14 +1086,14 @@ export function fantasyVectorParts(world: World, v: VecView): DrawPart[] {
     // 弯边投影(按投影重画):这种投影的符号规划;林块、符号在投影后的位置上按屏幕大小画,河逐点投影
     const pj = v.proj;
     const pp = () => planOf(world, pj.mp.def.id);
-    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, world, pp().forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj));
+    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, meshGrid(world), pp().forest, v, v.k > 1 ? 256 : FOREST_TILE, projCells(world, pj));
     rivers = (ctx) => drawRivers(ctx, world.rivers, v, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
     symbols = (ctx) => drawSymbols(ctx, pp().glyphs, v);
   } else {
     // 东西相连:挨着左右边的林块、河、符号在另一边再画一份。图框不画在这里(主图是一整圈星球,不是一页纸;
     // 纸边、外框画在视窗上,见 ui/MapDecor.tsx、导出)
     const vw = { ...v, wrap: wrapOf(world) };
-    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, world, planOf(world).forest, vw, v.k > 1 ? 256 : FOREST_TILE);
+    forest = (ctx) => forestTiles(ctx.canvas.width, ctx.canvas.height, meshGrid(world), planOf(world).forest, vw, v.k > 1 ? 256 : FOREST_TILE);
     rivers = (ctx) => drawRivers(ctx, world.rivers, vw, world.riverThreshold, fantasyRiverStyle(v.k, world.riverThreshold));
     symbols = (ctx) => drawSymbols(ctx, planOf(world).glyphs, vw);
   }
@@ -4439,7 +4584,7 @@ const FOREST_PART_COST = 1200;
  * 包到球上正好是圆 —— 高纬度的林块、树冠在球上不扁(平面主图不用这个)
  */
 function drawForests(ctx: CanvasRenderingContext2D, world: World, forest: Uint8Array, v: VecView, T: number, pc?: ProjCells, sphere = false) {
-  const ft = forestTiles(ctx.canvas.width, ctx.canvas.height, world, forest, v, T, pc, sphere);
+  const ft = forestTiles(ctx.canvas.width, ctx.canvas.height, meshGrid(world), forest, v, T, pc, sphere);
   ft.draw(ctx, 0, ft.cost.length);
 }
 
@@ -4453,10 +4598,35 @@ interface ForestTiles {
   draw: (ctx: CanvasRenderingContext2D, a: number, b: number) => void;
 }
 
-function forestTiles(W: number, H: number, world: World, forest: Uint8Array, v: VecView, T: number, pc?: ProjCells, sphere = false): ForestTiles {
-  const { mesh, water } = world;
-  const { n, x, y, spacing, adjStart, adj } = mesh;
-  const seed = subSeed(world.params.seed, 'glyphs');
+/**
+ * 林块铺在哪些点上:主图是地块(meshGrid);立体地形的手绘底图是那一块自己的蜂窝点阵(fantasyBoxForest)。
+ * 坐标、间距按世界单位(点阵按它自己的"格"),邻居是 CSR 邻接表;water ≠ 0 = 水(挨着水的林边收小)
+ */
+interface ForestGrid {
+  n: number;
+  x: Float32Array;
+  y: Float32Array;
+  spacing: number;
+  adjStart: Int32Array;
+  adj: Int32Array;
+  water: Uint8Array;
+  /** 树冠位置、大小的随机种子 */
+  seed: number;
+  /** 世界高(地球仪贴图按纬度拉宽时用) */
+  height: number;
+}
+
+function meshGrid(world: World): ForestGrid {
+  const { n, x, y, spacing, adjStart, adj } = world.mesh;
+  return { n, x, y, spacing, adjStart, adj, water: world.water, seed: subSeed(world.params.seed, 'glyphs'), height: world.height };
+}
+
+/**
+ * boxAx:立体地形的手绘底图(fantasyBoxForest):每个点的圆、树冠和往西北的阴影都横向拉宽这么多倍
+ * (贴图按经纬度铺,立起来以后东西向按 cos 纬度压回去,画出来是圆的);0 = 不是这种
+ */
+function forestTiles(W: number, H: number, grid: ForestGrid, forest: Uint8Array, v: VecView, T: number, pc?: ProjCells, sphere = false, boxAx = 0): ForestTiles {
+  const { n, x, y, spacing, adjStart, adj, water, seed } = grid;
   const S = v.s;
   const gs = glyphScale(v.k);
   const lw = FOREST_LW * gs * S;
@@ -4516,8 +4686,14 @@ function forestTiles(W: number, H: number, world: World, forest: Uint8Array, v: 
     for (let i = 0; i < n; i++) {
       const kind = forest[i];
       if (!kind) continue;
-      const ax = sphereStretch(y[i], world.height);
+      const ax = sphereStretch(y[i], grid.height);
       for (const sh of wrapShifts(x[i] - reachW * ax, x[i] + reachW * ax, wrap)) forestCell(i, kind, (x[i] + sh) * S + v.ox, y[i] * S + v.oy, 1, reach, ax);
+    }
+  } else if (boxAx) {
+    // 立体地形的手绘底图:不相连,每个点横向拉宽同样的倍数
+    for (let i = 0; i < n; i++) {
+      const kind = forest[i];
+      if (kind) forestCell(i, kind, x[i] * S + v.ox, y[i] * S + v.oy, 1, reach, boxAx);
     }
   } else
     for (let i = 0; i < n; i++) {
@@ -4612,8 +4788,8 @@ function forestTiles(W: number, H: number, world: World, forest: Uint8Array, v: 
       const Y0 = Math.floor(key / tw) * T;
       const X1 = Math.min(W, X0 + T);
       const Y1 = Math.min(H, Y0 + T);
-      // 地球仪贴图:往西北的阴影平移量也按这一格的纬度横向拉宽(平面 = 1)
-      const tax = sphere ? sphereStretch(((Y0 + Y1) / 2 - v.oy) / S, world.height) : 1;
+      // 地球仪贴图:往西北的阴影平移量也按这一格的纬度横向拉宽;立体地形的手绘底图按 boxAx(平面 = 1)
+      const tax = sphere ? sphereStretch(((Y0 + Y1) / 2 - v.oy) / S, grid.height) : boxAx || 1;
       ctx.save();
       ctx.beginPath();
       ctx.rect(X0, Y0, X1 - X0, Y1 - Y0);
