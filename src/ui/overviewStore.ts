@@ -8,15 +8,21 @@
  *   openOverview('cultures')                     打开"民族"页(侧栏「民族」的"全部 N 族")
  *   openPeople({ list: 'rulers', polity: 3 })    打开人物页,看 3 号国家的历代君主(usePeople() 读人物页的筛选)
  *   openLineage(3, { dynasty: 4, focus: 120 })   打开人物页,看 3 号国家的世系图:第 4 朝,圈出 120 号人物
- *   closeOverview()                              收起(编年史的"只看这一国"一起清掉)
+ *   closeOverview()                              收起(编年史的"只看这一国"一起清掉);从概览里点进别处(点一国、一个人、一件事……)用它
+ *   dismissOverview()                            用的人直接关掉(×、Esc、点外面):打开时是概览停下的播放,照原样接着放
  *   useOverview() / getOverview()                { open, tab }
+ *   useOverviewHold() / getOverviewHold()        时间轴是不是打开概览时停下的(概览顶上标「已暂停,关掉接着放」)
+ *
+ * 打开时时间轴在放(连"回放世界形成"接着放文明的那一段):先停下,国家表、民族表不再跟着年份换顺序,也不会点到刚挪上来的那一国;
+ * 记下停在哪一年、是不是那一段。直接关掉时从这一年照原来的快慢接着放;从概览里点进别处以后停着。
+ * 开着时时间被别处动过(重推完从生效年份接着放、跳到某一年……),关掉就不再照记下的接着放。
  *
  * 编年史以前是单独的窗口(civView.ts 的 setChronicle({ open })),现在是概览里的一页:
  * 两边保持一致 —— setChronicle({ open: true }) 等于打开概览的编年史页,setChronicle({ open: false }) 在编年史页时收起概览;
  * 网址 chron=1 / chron=all 打开网页时就停在编年史页。
  */
 import { useSyncExternalStore } from 'react';
-import { getChronicle, setChronicle, subscribeChronicle, type ChronicleView } from './civView';
+import { getChronicle, getCivTime, pausePlayback, setChronicle, setCivTime, subscribeChronicle, subscribeCivTime, type ChronicleView, type CivTime } from './civView';
 
 export type OverviewTab = 'countries' | 'cultures' | 'chronicle' | 'people' | 'records' | 'marks' | 'outline' | 'interventions' | 'genesis';
 
@@ -40,9 +46,31 @@ const chron0 = getChronicle();
 let state: OverviewState = { open: chron0.open, tab: chron0.open ? 'chronicle' : 'countries' };
 const subs = new Set<() => void>();
 
-function set(next: OverviewState) {
+/** 打开概览时停下的播放:停在哪一年、快慢、是不是"回放世界形成"接着放文明的那一段;null = 不是概览停的 */
+let hold: { year: number; speed: CivTime['speed']; story: boolean } | null = null;
+
+function holdPlayback() {
+  const t = getCivTime();
+  if (!t.playing || t.year === null) return;
+  pausePlayback();
+  const p = getCivTime();
+  if (p.playing || p.year === null) return;
+  hold = { year: p.year, speed: p.speed, story: t.story };
+}
+
+// 开着时时间被别处动过(又放起来了、跳了年份、换了快慢):不再是概览停的,关掉也不接着放
+subscribeCivTime((t) => {
+  if (!hold || (!t.playing && !t.scrubbing && t.year === hold.year && t.speed === hold.speed)) return;
+  hold = null;
+  subs.forEach((f) => f());
+});
+
+function set(next: OverviewState, resume = false) {
   if (next.open === state.open && next.tab === state.tab) return;
   const closing = state.open && !next.open;
+  if (!state.open && next.open) holdPlayback();
+  const back = closing ? hold : null;
+  if (closing) hold = null;
   state = next;
   subs.forEach((f) => f());
   // 编年史"开着" = 概览开在编年史页(同步到 civView 的编年史状态:App 根元素的 chron-open 读它);
@@ -53,6 +81,8 @@ function set(next: OverviewState) {
   if (c.open !== shown) patch.open = shown;
   if (closing && c.polity !== null) patch.polity = null;
   if (patch.open !== undefined || patch.polity !== undefined) setChronicle(patch);
+  // 直接关掉:照停下前的样子接着放(快慢没动过,还是原来的 1× / 4×)
+  if (back && resume) setCivTime({ playing: true, story: back.story, scrubbing: false });
 }
 
 // 别处还按老办法开关编年史(setChronicle({ open })):换成开关概览的编年史页
@@ -85,8 +115,27 @@ export function openOverview(tab?: OverviewTab, opts: OverviewOpts = {}) {
   set({ open: true, tab: tab ?? state.tab });
 }
 
+/** 收起;打开时停下的播放不接着放(从概览里点进一国、一个人、一件事以后停着,和在地图上点开详情一样) */
 export function closeOverview() {
   set({ ...state, open: false });
+}
+
+/** 用的人直接关掉(右上角 ×、Esc、点浮层外面;手机大纲页的「世界」):打开时是概览停下的播放,从停下那一年照原来的快慢接着放 */
+export function dismissOverview() {
+  set({ ...state, open: false }, true);
+}
+
+/** 时间轴是不是打开概览时停下的(关掉会接着放) */
+export function getOverviewHold(): boolean {
+  return hold !== null;
+}
+
+export function useOverviewHold(): boolean {
+  return useSyncExternalStore(
+    (f) => (subs.add(f), () => subs.delete(f)),
+    getOverviewHold,
+    getOverviewHold,
+  );
 }
 
 /** 换页(开着时) */
