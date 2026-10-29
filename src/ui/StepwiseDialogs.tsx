@@ -27,7 +27,7 @@ import { getStepwise, nextAt, nextYear, openStepDialog, stepwiseActions, useStep
 import { branchLabel, branchSpan } from './StepBranches';
 import { rewindBrief } from './stepwisePlan';
 import { stepSeconds, useMonthText } from './Stepwise';
-import { momentFull, momentStart, momentsText, spanText } from './stepTime';
+import { momentFull, momentStart, momentTail, momentsText, spanText } from './stepTime';
 import { STEP_PICKS, STEP_UNITS, advanceBrief, everyWhy, ownStep as ownStep_, stepPickOf, stepUnitMax, stepWhy, type Run, type StepPick } from './advanceText';
 import { currentWorld, stepOrigin, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
@@ -586,10 +586,14 @@ function SaveDialog({ phone }: { phone: boolean }) {
   const [open, setOpen] = useState(true);
   const close = () => openStepDialog(null);
   useDialogKeys(close);
+  const mt = useMonthText();
   const play = cleanPlay(edits.play);
-  const now = play?.year ?? getStepwise().now;
+  const now = play ? playAt(play) / YEAR_TICKS : getStepwise().now;
   const n = (play?.commands.length ?? 0) + getPending().filter((x) => x.kind === 'iv').length;
-  const lead = `把这个故事存成一个普通世界：${eraText(`第 0–${now} 年`, era)}的历史${n ? `，连同故事里加的 ${n} 条干预` : ''}。存好以后照样看编年史、写史书，回到任一年改了重推，导出地图、编年史和视频，以后还能接着往后推。`;
+  // 停在年中的:历史写到那个月,末尾说一句再推也停在这个月;停在年初的只写年
+  const span = spanText(0, now, mt.months, era, mt.names, false);
+  const stay = momentTail(now, mt.months, mt.names, false);
+  const lead = `把这个故事存成一个普通世界：${span}的历史${n ? `，连同故事里加的 ${n} 条干预` : ''}。存好以后照样看编年史、写史书，回到任一年改了重推，导出地图、编年史和视频，以后还能接着往后推${stay ? `，再推几年都停在${stay}` : ''}。`;
   // 另开过支:最上面一行写明存的是在用的这一支,另外几支不跟着存
   const branches = useMemo(() => branchList(edits), [edits]);
   const curBranch = branches.find((b) => b.current);
