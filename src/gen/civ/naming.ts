@@ -587,14 +587,14 @@ function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces,
     /** 这个国家第 i 朝的 keyed 随机数(同一地块立的第几国占高位,和 i 错开) */
     const rand = (i: number, use: number) => keyed(base, cell, n * 4096 + i, use);
     const d = ds[i];
-    // 改制开的一段(regime.ts):东方的国名词根照抄上一段(大靖王朝 → 大靖共和国),西幻没有王室名;
-    // 复辟迎回旧王室的一段:照那一朝的名字
+    // 改制开的一段(regime.ts):照抄上一段的名字(东方是国名词根:大靖王朝 → 大靖共和国;西幻这一段没有王室,
+    // 名字只是占位,王朝名照 growth.ts 的 dynastyTitle 写空);复辟迎回旧王室的一段:照那一朝的名字
     if (d.house !== undefined && ds[d.house]) {
       d.name = ds[d.house].name;
       return;
     }
     if (d.regime) {
-      d.name = p.eastern ? (i > 0 ? ds[i - 1].name : p.name) : '';
+      d.name = i > 0 ? ds[i - 1].name || p.name : p.name;
       return;
     }
     if (!p.eastern) {

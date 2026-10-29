@@ -21,6 +21,7 @@ import { fiscalAt } from '../gen/civ/fiscalBook';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { rulerBare, rulerRef } from '../gen/civ/peopleText';
 import { cnNumber } from '../gen/civ/chronicle';
+import { Issue, REFORM_REVOLUTION } from '../gen/civ/councilRules';
 import { yearAt, yearShort, yearShortAt, type Era } from '../gen/era';
 import { lordsAt, type LordNow } from '../render/civ/control';
 import { Outcome, applyRule, newRules } from '../gen/civ/councilRules';
@@ -431,9 +432,26 @@ function thenText(civ: Civ, e: Annal, out: number, name: string): string | null 
       return out === 0 ? `${r}割据只留一州` : out === 1 ? `${r}割据的地盘收回一半` : out === 3 ? `${r}起兵自立` : null;
     case 10:
       return out === 0 ? `${r}等地归${civ.polities[e.b] ? polityName(civ.polities[e.b], e.year) : '邻国'}` : out === 3 ? `${r}起兵自立` : null;
+    case Issue.Charter:
+      return out === 0 ? '从此设议会，君主不复独断' : out === 1 ? '从此设议事会' : out === 3 ? revoltThen(civ, e) : null;
+    case Issue.Abolish:
+      return out === 0 ? `从此国号${civ.polities[e.a] ? polityName(civ.polities[e.a], e.year) : '某共和国'}` : out === 1 ? '从此设议事会' : out === 3 ? revoltThen(civ, e) : null;
+    case Issue.Widen:
+      return out === 0 ? '从此能议政的人多了一档' : null;
+    case Issue.Return:
+      return out === 0 ? '从此复行共和' : null;
     default:
       return null;
   }
+}
+
+/** 议立宪、废君谈崩以后起兵:打进国都 = 革命,打不进 = 据地自立 */
+function revoltThen(civ: Civ, e: Annal): string | null {
+  const A = (civ.history ?? civ).annals;
+  const n = A[A.indexOf(e) + 1];
+  if (n?.kind === 'reform' && n.n === REFORM_REVOLUTION) return `${regionLabel(civ, n.region)}起兵，革命立共和`;
+  if (n?.kind === 'split' && n.cause === 'revolution') return `${regionLabel(civ, n.region)}起兵自立，号${civ.polities[n.a] ? polityName(civ.polities[n.a], n.year) : '某共和国'}`;
+  return null;
 }
 
 /** 没议过事时那一块写什么(列的是会议的几类事,和 ISSUE_NAMES 对得上:征税、分封 / 改土归流、削藩、兵权、任免、分镇、脱离) */

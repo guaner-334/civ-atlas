@@ -132,7 +132,8 @@ describe('战争与攻占', () => {
             expect(e.war).toBe(war.size); // 按宣战先后编号
             expect(polityAlive(P[e.a], e.year) && polityAlive(P[e.b], e.year)).toBe(true);
             // 宣战时两国接壤(经攻方能走的边);讨伐民变、据地争位的宗室紧跟在起事后面,看起事以后的国土;大迁徙迁来的一支落脚立国当即开战,也看立国以后的
-            const own = e.cause === 'quell' || e.cause === 'heir' || e.cause === 'trek' ? after : before;
+            // 打的是同一刻刚立的国(大迁徙落脚、民变、据地自立……,救它的盟国、宗主也一样):看立国以后的
+            const own = e.cause === 'quell' || e.cause === 'heir' || e.cause === 'trek' || P[e.b].founded === e.year ? after : before;
             let touch = false;
             for (let r = 0; r < reg.count && !touch; r++) {
               if (own[r] !== e.a) continue;
