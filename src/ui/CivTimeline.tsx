@@ -24,7 +24,8 @@
  *   推完以后刚推的那段垫一道浅蓝(这次打开网页里一直标着,换了世界不标)。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Civ } from '../gen/civ/types';
+import type { Civ, Polity } from '../gen/civ/types';
+import { polityName } from '../gen/civ/growth';
 import { filterChronicle } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
 import {
@@ -122,7 +123,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
   const lifeOf = sel?.kind === 'polity' ? sel.id : null;
   const life = useMemo<TimelineLife | undefined>(() => {
     const p = lifeOf !== null && has ? civ?.polities[lifeOf] : undefined;
-    return p && lifeOf !== null ? { polity: lifeOf, founded: p.founded, ended: p.ended ?? null, color: p.color } : undefined;
+    return p && lifeOf !== null ? { polity: lifeOf, founded: p.founded, ended: p.ended ?? null, color: p.color, renames: renamesOf(p) } : undefined;
   }, [civ, has, lifeOf]);
   // 起过的全球大疫:时间轴上的大点、名字、凋敝那几十年的短条;这一年在凋敝里:年份旁边一枚「疫后凋敝」
   const pans = useMemo<TimelinePandemic[] | undefined>(() => {
@@ -300,4 +301,22 @@ export function useThemeCompat(): [(el: HTMLElement | null) => void, boolean] {
     if (el) setCompat(getComputedStyle(el).getPropertyValue('--ink').trim() === '');
   }, [el]);
   return [setEl, compat];
+}
+
+/**
+ * 改制改了国号的那几年(时间轴上选中这国时一颗蓝点、一句):废君、革命改共和 = "改称共和国";
+ * 复辟复称旧国号 = "复称王国"(东方写全称"复称大靖王朝")。立宪、政变、还政不改国号,不标
+ */
+function renamesOf(p: Polity): { year: number; text: string }[] | undefined {
+  const d = p.dynasties;
+  if (!d || d.length < 2 || !d.some((x) => x.regime)) return undefined;
+  const out: { year: number; text: string }[] = [];
+  for (let i = 1; i < d.length; i++) {
+    const y = d[i].year;
+    const now = polityName(p, y);
+    if (now === polityName(p, y - 1 / 512) || (!d[i].regime && !d[i - 1].regime)) continue;
+    const short = !p.eastern && now.startsWith(p.name) && now.length > p.name.length ? now.slice(p.name.length) : now;
+    out.push({ year: y, text: d[i].regime ? '改称共和国' : `复称${short}` });
+  }
+  return out.length ? out : undefined;
 }

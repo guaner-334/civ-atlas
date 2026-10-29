@@ -30,6 +30,7 @@ import {
   isEastern,
   isMetal,
   polityFlagKeys,
+  type FlagBook,
   type FlagEra,
   type FlagSpec,
   type Layout,
@@ -37,7 +38,9 @@ import {
   underCharge,
 } from '../gen/civ/flags';
 import { markButtonSvg, symbolButtonSvg } from '../render/flag/flagSvg';
-import { setFlags, useEdits } from './editsStore';
+import { setFlags, useEdits, useEra } from './editsStore';
+import { yearAt } from '../gen/era';
+import type { Civ } from '../gen/civ/types';
 import { FlagIcon } from './Flag';
 import { flagOf, setFlagPreview, useFlags, type FlagView } from './flagStore';
 import { useNarrow } from './device';
@@ -188,7 +191,7 @@ export function FlagPanel({ id, year, anchor, onClose }: { id: number; year: num
           ))}
         </div>
         <div className="fl-note">
-          {flagNote(era)}
+          {flagNote(era, civ, v.book, id)}
           {edited && (
             <>
               {' '}
@@ -198,6 +201,7 @@ export function FlagPanel({ id, year, anchor, onClose }: { id: number; year: num
             </>
           )}
         </div>
+        <PriorFlag civ={civ} book={v.book} id={id} era={era} />
         <div className="fl-acts">
           <button className="fl-btn" data-act="flag-alts" onClick={() => setMode({ m: 'alts', era, batch: 0, pick: 0 })}>
             换一面
@@ -441,4 +445,28 @@ function EastEditor({ spec, onSpec }: { spec: FlagSpec; onSpec: (s: FlagSpec) =>
 
 function SvgBtn({ on, title, svg, onClick }: { on: boolean; title: string; svg: string; onClick: () => void }) {
   return <button className={`fl-sym${on ? ' on' : ''}`} role="radio" aria-checked={on} title={title} aria-label={title} onClick={onClick} dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
+/**
+ * 改制换的那一面(废君、革命改共和):底下一块"2794 年以前用的是这面(王国时的旗)";
+ * 后来复辟用回了它的,东方写"复辟以后用回它"
+ */
+function PriorFlag({ civ, book, id, era }: { civ: Civ; book: FlagBook; id: number; era: FlagEra }) {
+  const eraName = useEra();
+  if (era.why.reform !== 'republic' || era.why.prior === undefined) return null;
+  const eras = book.eras[id] ?? [];
+  const prior = eras[era.why.prior];
+  if (!prior) return null;
+  const p = civ.polities[id];
+  const was = polityName(p, era.year - 1 / 512);
+  const what = p.eastern ? `${was}的${prior.spec.shape === 'banner' ? '牙旗' : '旗'}` : `${was.startsWith(p.name) && was.length > p.name.length ? was.slice(p.name.length) : was}时的旗`;
+  const back = eras.some((e) => e.year > era.year && e.why.reform === 'restore' && e.why.prior === era.why.prior);
+  return (
+    <div className="fl-prior" data-flag-prior>
+      <FlagIcon spec={prior.spec} w={36} />
+      <span>
+        {yearAt(era.year, eraName)}以前用的是这面（{what}）{back ? '；复辟以后用回它' : ''}
+      </span>
+    </div>
+  );
 }

@@ -20,7 +20,9 @@ import { polityName, regionPopulationAt } from '../gen/civ/growth';
 import { fiscalAt } from '../gen/civ/fiscalBook';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { rulerBare, rulerRef } from '../gen/civ/peopleText';
-import { cnNumber } from '../gen/civ/chronicle';
+import { cnNumber, reformText } from '../gen/civ/chronicle';
+import { dynastyIndexAt } from '../gen/civ/polityRoot';
+import { Issue, REFORM_REVOLUTION } from '../gen/civ/councilRules';
 import { yearAt, yearShort, yearShortAt, type Era } from '../gen/era';
 import { lordsAt, type LordNow } from '../render/civ/control';
 import { Outcome, applyRule, newRules } from '../gen/civ/councilRules';
@@ -35,6 +37,10 @@ export const LEVY_NAMES = ['地方代收', '与地方分成', '朝廷直征'] as
 export const TAX_SEGS = ['代收', '分成', '直征'] as const;
 export const ARMY_SEGS = ['边镇', '征发', '监军', '禁军'] as const;
 export const OFFICE_SEGS = ['自辟', '荐举', '参半', '铨选'] as const;
+/** 继任、议政、参与三条分段条上的字(从少数人说了算到众人说了算;polityForm.ts 的 formDims) */
+export const SUCC_SEGS = ['拥立', '世袭', '推举', '任期'] as const;
+export const DELIB_SEGS = ['军人', '独断', '议事会', '议会'] as const;
+export const VOICE_SEGS = ['贵族', '有产者', '男子', '成年人'] as const;
 /** 军制、官制(−1、0、0.5、1)→ 分段条第几格 */
 export const ruleSeg = (v: number): number => (v < 0 ? 0 : v === 0 ? 1 : v < 1 ? 2 : 3);
 
@@ -298,12 +304,65 @@ export function formWhy(f: FormLook): string {
 /** 参与那条的说法:谁能进议事会 / 议会 */
 const FRANCHISE_SAY = ['只有王族贵族', '家有田产、商号的才', '男子都', '成年人都'];
 
+/** 编年史的半角标点换成卡片上的全角 */
+const fullWidth = (t: string) => t.replace(/,/g, '，').replace(/:/g, '：').replace(/;/g, '；');
+
+/**
+ * 继任、议政、参与三条下面各一句(第 year 年;form = 那一年的政体):
+ * "2794 年起执政由议事会推举，任满改选，不再父子相传。""2794 年起国事由议事会议定，执政照办。""家有田产、商号的才能进议事会、推执政。"
+ */
+export function regimeSays(civ: Civ, p: number, year: Year, form: FormLook, era?: Era): [string, string, string] {
+  const P = civ.polities[p];
+  const f = form.facts;
+  const d = formDims(f);
+  const seg = P ? dynastyIndexAt(P, year) : 0;
+  const segFrom = seg > 0 && P?.dynasties?.[seg] ? P.dynasties[seg].year : (P?.founded ?? year);
+  const since = (y: Year) => (P && y > P.founded ? `${yearAt(y, era)}起` : '立国以来');
+  const body = d.council >= 3 ? '议会' : '议事会';
+  let succ: string;
+  if (f.regime === 'junta') succ = `${yearAt(segFrom, era)}起将军拥兵执政，由军中拥立。`;
+  else if (f.regime === 'republic') succ = `${f.reformed ? since(segFrom) : '立国以来'}执政由${body}推举，任满改选${f.reformed ? '，不再父子相传' : ''}。`;
+  else succ = P?.dynasties?.[seg]?.house !== undefined ? `${yearAt(segFrom, era)}复辟，迎回旧王室，君位父子相传。` : '君位父子相传。';
+  // 议政:设议事会、议会是哪一年(最近一次改了议政的议事、革命)
+  const A = (civ.history ?? civ).annals;
+  let set = -Infinity;
+  for (const e of A) {
+    if (e.year > year) break;
+    if (e.a !== p) continue;
+    if ((e.kind === 'council' && (e.war === Issue.Charter || e.war === Issue.Abolish) && (e.n === 0 || e.n === 1)) || (e.kind === 'reform' && e.n === REFORM_REVOLUTION)) set = e.year;
+  }
+  let delib: string;
+  if (f.regime === 'junta') delib = '议事会散了，国事决于军中。';
+  else if (f.regime === 'republic') delib = `${f.reformed ? since(Math.max(segFrom, set > -Infinity ? set : segFrom)) : '立国以来'}国事由${body}议定，执政照办。`;
+  else if (d.council >= 3) delib = `${yearAt(set, era)}立宪，国事经议会议定，君主不复独断。`;
+  else if (d.council === 2) delib = `${yearAt(set, era)}起大事先咨议事会，君权照旧。`;
+  else delib = '国事由君主独断。';
+  const elect = f.regime === 'crown' ? '' : '、推执政';
+  const voice = f.regime === 'crown' && f.charter === 0 ? '议政的只有王族贵族。' : `${FRANCHISE_SAY[d.franchise]}能进${body}${elect}。`;
+  return [succ, delib, voice];
+}
+
+/**
+ * 历次改制一条:因为改制(立宪、废君、还政、扩大参与、革命、政变、复辟)的那一句 —— 编年史那一条,国名前文已经写了的去掉;
+ * 革命、政变、复辟开头写是哪一种("革命：……"),复辟用回旧旗的写上
+ */
+function reformChangeSay(civ: Civ, p: number, ch: FormChange): string {
+  const src = civ.history ?? civ;
+  const e = src.annals[ch.event];
+  const P = civ.polities[p];
+  let t = reformText(src, ch.event);
+  for (const n of P ? [polityName(P, e.year - 1 / 512), polityName(P, e.year)] : []) if (t.startsWith(n)) t = t.slice(n.length);
+  const head = e.kind === 'reform' ? (['革命：', '政变：', '复辟：'][e.n ?? 0] ?? '') : e.kind === 'split' ? '革命：' : '';
+  return head + fullWidth(t.replace(/^[,;:]/, ''));
+}
+
 /** 历次改制一条下面那一句:因为哪次议事、升格、割据(later = 这一条以后还改过) */
 export function formChangeSay(civ: Civ, p: number, ch: FormChange, later: boolean): string {
   const P = civ.polities[p];
   const { from, to } = ch;
   if (ch.cause === 'found') return `${P ? polityName(P, ch.year) : ''}立国${later ? `，那时还是${to}` : ''}`;
   if (ch.cause === 'title') return `国号升格，称${P ? polityName(P, ch.year) : to}`;
+  if (ch.cause === 'reform' && ch.event >= 0) return reformChangeSay(civ, p, ch);
   if (ch.cause === 'council' && ch.event >= 0) {
     const src = civ.history ?? civ;
     const e = src.annals[ch.event];
@@ -431,9 +490,26 @@ function thenText(civ: Civ, e: Annal, out: number, name: string): string | null 
       return out === 0 ? `${r}割据只留一州` : out === 1 ? `${r}割据的地盘收回一半` : out === 3 ? `${r}起兵自立` : null;
     case 10:
       return out === 0 ? `${r}等地归${civ.polities[e.b] ? polityName(civ.polities[e.b], e.year) : '邻国'}` : out === 3 ? `${r}起兵自立` : null;
+    case Issue.Charter:
+      return out === 0 ? '从此设议会，君主不复独断' : out === 1 ? '从此设议事会' : out === 3 ? revoltThen(civ, e) : null;
+    case Issue.Abolish:
+      return out === 0 ? `从此国号${civ.polities[e.a] ? polityName(civ.polities[e.a], e.year) : '某共和国'}` : out === 1 ? '从此设议事会' : out === 3 ? revoltThen(civ, e) : null;
+    case Issue.Widen:
+      return out === 0 ? '从此能议政的人多了一档' : null;
+    case Issue.Return:
+      return out === 0 ? '从此复行共和' : null;
     default:
       return null;
   }
+}
+
+/** 议立宪、废君谈崩以后起兵:打进国都 = 革命,打不进 = 据地自立 */
+function revoltThen(civ: Civ, e: Annal): string | null {
+  const A = (civ.history ?? civ).annals;
+  const n = A[A.indexOf(e) + 1];
+  if (n?.kind === 'reform' && n.n === REFORM_REVOLUTION) return `${regionLabel(civ, n.region)}起兵，革命立共和`;
+  if (n?.kind === 'split' && n.cause === 'revolution') return `${regionLabel(civ, n.region)}起兵自立，号${civ.polities[n.a] ? polityName(civ.polities[n.a], n.year) : '某共和国'}`;
+  return null;
 }
 
 /** 没议过事时那一块写什么(列的是会议的几类事,和 ISSUE_NAMES 对得上:征税、分封 / 改土归流、削藩、兵权、任免、分镇、脱离) */

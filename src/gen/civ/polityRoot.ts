@@ -38,11 +38,18 @@ export function polityRootAt(p: Polity, year: Year): string {
 export function segRootOf(p: Polity, i: number): string {
   const d = p.dynasties;
   if (!d || !d[i]) return p.name;
+  return d[rootSegIndex(p, i)].name || p.name;
+}
+
+/** 第 i 段的国名词根照的是哪一段(改制开的共和 / 军政府照上一段,复辟迎回旧王室照那一朝;别的就是自己) */
+export function rootSegIndex(p: Polity, i: number): number {
+  const d = p.dynasties;
+  if (!d || !d[i]) return i;
   for (let g = 0; g < 64; g++) {
     const x = d[i];
     if (x.house !== undefined && x.house < i && d[x.house]) i = x.house;
     else if (x.regime && i > 0) i--;
-    else return x.name || p.name;
+    else break;
   }
-  return p.name;
+  return i;
 }
