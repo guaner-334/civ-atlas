@@ -15,10 +15,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { Civ } from '../gen/civ/types';
+import { advanceOf } from '../gen/edits';
 import { eraYear, parseJump, yearFull, type Era } from '../gen/era';
 import { getCivTime, setCivTime, useCivTime } from './civView';
-import { useEra, useMonthNames, useMonths } from './editsStore';
-import { momentFull } from './stepTime';
+import { useEdits, useEra, useMonthNames, useMonths } from './editsStore';
+import { monthly, spanNote } from './stepTime';
 import { baseRegions } from './eras';
 import { EraPre } from './panelParts';
 
@@ -104,11 +105,12 @@ export interface TimelineYearProps {
   tail?: string;
 }
 
-/** 提示下面的小字:这个世界从哪年推到哪年(推到一年中间的写到月,正好在年初的只写年;逐年推演:已经演绎到哪年) */
+/** 提示下面的小字:这个世界从哪年推到哪年;逐年推演:已经演绎到哪一刻(都是推到一年中间的写到月,见 stepTime.ts 的 spanNote) */
 function useSpanNote(end: number, era: Era | undefined, future?: boolean): string {
   const months = useMonths();
   const names = useMonthNames();
-  return future ? `已经演绎到${yearFull(end, era)}` : `这个世界从${yearFull(0, era)}推到${momentFull(end, months, era, names, false)}`;
+  const always = monthly(advanceOf(useEdits()), months);
+  return spanNote(end, months, era, names, !!future, always);
 }
 
 /** 时间轴左边的年份:平常是字,点了变输入框(手机弹小卡片) */

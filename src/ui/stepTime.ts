@@ -41,6 +41,14 @@ export function momentFull(y: number, months: number, era: Era | null | undefine
   return yearFull(y, era) + momentTail(y, months, names, always);
 }
 
+/**
+ * 年份框点开时提示下面的小字:推演模式 "这个世界从第 0 年推到第 1549 年菊月"(推到年中的写到月,年初只写年);
+ * 逐年推演(future)"已经演绎到第 1549 年菊月",写法和时间轴大字一样(always = 一步短于一年,年初也写那一年第一个月)
+ */
+export function spanNote(end: number, months: number, era: Era | null | undefined, names: readonly string[] | null | undefined, future: boolean, always: boolean): string {
+  return future ? `已经演绎到${momentFull(end, months, era, names, always)}` : `这个世界从${yearFull(0, era)}推到${momentFull(end, months, era, names, false)}`;
+}
+
 /** 一刻,句子里:"1549 年菊月""2676 年" */
 export function momentAt(y: number, months: number, era: Era | null | undefined, names: readonly string[] | null | undefined, always: boolean): string {
   return yearAt(y, era) + momentTail(y, months, names, always);

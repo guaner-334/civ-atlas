@@ -112,6 +112,21 @@ export type RecordRef =
   | { kind: 'region'; id: number }
   | { kind: 'settlement'; id: number };
 
+/** 并列时数保持者用的量词:几位(人)、几朝、几国、几场(仗)、几州、几座(城) */
+export const RECORD_COUNTER: Record<RecordRef['kind'], string> = {
+  person: '位',
+  dynasty: '朝',
+  polity: '国',
+  war: '场',
+  region: '州',
+  settlement: '座',
+};
+
+/** 并列那一句:"另有 14 位同为 51 年""另有 3 国同为 2 次";value = 写好的数 */
+export function tieNote(r: Pick<RecordAt, 'ref' | 'ties'>, value: string): string {
+  return `另有 ${r.ties} ${RECORD_COUNTER[r.ref.kind]}同为 ${value}`;
+}
+
 /** 一条纪录在某一年的样子 */
 export interface RecordAt {
   key: RecordKey;
