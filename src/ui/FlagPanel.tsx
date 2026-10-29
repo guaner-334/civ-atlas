@@ -463,7 +463,7 @@ function PriorFlag({ civ, book, id, era }: { civ: Civ; book: FlagBook; id: numbe
   const back = eras.some((e) => e.year > era.year && e.why.reform === 'restore' && e.why.prior === era.why.prior);
   return (
     <div className="fl-prior" data-flag-prior>
-      <FlagIcon spec={prior.spec} w={36} />
+      <FlagIcon spec={prior.spec} w={36} className="fl-prior-flag" />
       <span>
         {yearAt(era.year, eraName)}以前用的是这面（{what}）{back ? '；复辟以后用回它' : ''}
       </span>

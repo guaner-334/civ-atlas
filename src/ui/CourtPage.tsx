@@ -307,8 +307,8 @@ function Changes({ civ, id, year }: { civ: Civ; id: number; year: number }) {
   // 改制那一年换了旗的(废君、革命、复辟):这一条底下"旗 旧 → 新"
   const eras = useFlags()?.book.eras[id] ?? [];
   const flagAt = (y: number) => {
-    const e = eras.find((x) => x.year === y && x.why.prior !== undefined && x.why.reform !== 'keep');
-    return e ? { from: eras[e.why.prior!].spec, to: e.spec } : null;
+    const i = eras.findIndex((x) => x.year === y && x.why.prior !== undefined && x.why.reform !== 'keep');
+    return i > 0 ? { from: eras[i - 1].spec, to: eras[i].spec } : null;
   };
   if (!list.length) return null;
   const t0 = list[0].year;
@@ -357,14 +357,14 @@ function Changes({ civ, id, year }: { civ: Civ; id: number; year: number }) {
             <span className="ct-ev-top">
               <span className="ct-issue">{c.from ? `${c.from} → ${c.to}` : c.to}</span>
             </span>
-            <span className="ct-chg-text">{formChangeSay(civ, id, c, later)}</span>
+            <span className="ct-chg-text">{formChangeSay(civ, id, c, later, era)}</span>
             {c.cause === 'reform' &&
               (() => {
                 const f = flagAt(c.year);
                 return (
                   f && (
                     <span className="ct-chg-flag">
-                      旗 <FlagIcon spec={f.from} w={22} /> → <FlagIcon spec={f.to} w={22} />
+                      旗 <FlagIcon spec={f.from} w={22} className="ct-chg-fl" /> → <FlagIcon spec={f.to} w={22} className="ct-chg-fl" />
                     </span>
                   )
                 );

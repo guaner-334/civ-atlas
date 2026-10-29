@@ -346,23 +346,31 @@ export function regimeSays(civ: Civ, p: number, year: Year, form: FormLook, era?
  * 历次改制一条:因为改制(立宪、废君、还政、扩大参与、革命、政变、复辟)的那一句 —— 编年史那一条,国名前文已经写了的去掉;
  * 革命、政变、复辟开头写是哪一种("革命：……"),复辟用回旧旗的写上
  */
-function reformChangeSay(civ: Civ, p: number, ch: FormChange): string {
+function reformChangeSay(civ: Civ, p: number, ch: FormChange, era?: Era): string {
   const src = civ.history ?? civ;
   const e = src.annals[ch.event];
   const P = civ.polities[p];
   let t = reformText(src, ch.event);
   for (const n of P ? [polityName(P, e.year - 1 / 512), polityName(P, e.year)] : []) if (t.startsWith(n)) t = t.slice(n.length);
   const head = e.kind === 'reform' ? (['革命：', '政变：', '复辟：'][e.n ?? 0] ?? '') : e.kind === 'split' ? '革命：' : '';
-  return head + fullWidth(t.replace(/^[,;:]/, ''));
+  // 复辟迎回旧王室:旗用回改制那一年(这一段前面那一串共和、军政府的头一段)以前那面
+  let back = '';
+  const d = P?.dynasties;
+  if (e.kind === 'reform' && e.n === 2 && e.b >= 0 && d) {
+    let k = dynastyIndexAt(P!, e.year) - 1;
+    while (k > 0 && d[k - 1].regime) k--;
+    if (d[k]?.regime) back = `，旗用回${yearAt(d[k].year, era)}以前那面`;
+  }
+  return head + fullWidth(t.replace(/^[,;:]/, '')) + back;
 }
 
 /** 历次改制一条下面那一句:因为哪次议事、升格、割据(later = 这一条以后还改过) */
-export function formChangeSay(civ: Civ, p: number, ch: FormChange, later: boolean): string {
+export function formChangeSay(civ: Civ, p: number, ch: FormChange, later: boolean, era?: Era): string {
   const P = civ.polities[p];
   const { from, to } = ch;
   if (ch.cause === 'found') return `${P ? polityName(P, ch.year) : ''}立国${later ? `，那时还是${to}` : ''}`;
   if (ch.cause === 'title') return `国号升格，称${P ? polityName(P, ch.year) : to}`;
-  if (ch.cause === 'reform' && ch.event >= 0) return reformChangeSay(civ, p, ch);
+  if (ch.cause === 'reform' && ch.event >= 0) return reformChangeSay(civ, p, ch, era);
   if (ch.cause === 'council' && ch.event >= 0) {
     const src = civ.history ?? civ;
     const e = src.annals[ch.event];

@@ -192,6 +192,10 @@
   line-height: 1.5;
 }
 /* 改制换的那一面:以前用的那面(小旗 + 一句) */
+.fl-prior-flag {
+  width: 36px;
+  height: 24px;
+}
 .fl-prior {
   display: flex;
   align-items: center;
