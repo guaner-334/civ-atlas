@@ -28,15 +28,19 @@ export interface IdeoRuleConsts {
   BOOST_LV: readonly number[];
   /** 对头:第 k 说被第 j 说压几成(说数 × 说数,按行) */
   RIVAL: readonly number[];
-  BELOW: number;
+  /** 前提(和助长的发明)差几档就完全学不进(一说一个) */
+  BELOW: readonly number[];
   ABOVE: number;
   BOOST: number;
   LEARN: number;
+  /** 各说向邻州学得快几倍(和 LEARN 相乘;一说一个) */
+  PACE: readonly number[];
   SAME_STATE: number;
   LINK: readonly number[];
   SEA_ROUTE: number;
   SEA_PER_TRANSPORT: number;
-  RECEPT: number;
+  /** 合不来的州也学到几成(一说一个) */
+  RECEPT: readonly number[];
   PRESS_CAP: number;
   PRESS_LV: number;
   PRESS_UP: number;
@@ -76,7 +80,7 @@ export function ideoCards(k: IdeoRuleConsts, step: number): TableCard[] {
   names.forEach((n, i) => (root[n] = [`let 城 = 城民 / (城民 + CITY_HALF)`, `clamp(${k.ROOTS[i]}, 0, 1)`].join('\n')));
 
   /** 能力到前提那一档的几成(差 BELOW 档 = 0,到了 = BELOW / (BELOW + ABOVE),过了 ABOVE 档 = 1) */
-  const ready = (cap: string, lv: string) => `clamp((能力[${cap}] - ${lv} + BELOW) / (BELOW + ABOVE), 0, 1)`;
+  const ready = (cap: string, lv: string) => `clamp((能力[${cap}] - ${lv} + BELOW[col]) / (BELOW[col] + ABOVE), 0, 1)`;
   /** 对头压了几成:第 j 说的接受度 × RIVAL[col × 说数 + j],加起来 */
   const press = Array.from({ length: K }, (_, j) => `RIVAL[col * ${K} + ${j}] * 思潮[${j}]`).join(' + ');
   const nbLive = 'has(nb.民族)';
@@ -88,12 +92,12 @@ export function ideoCards(k: IdeoRuleConsts, step: number): TableCard[] {
     `let 助 = 1 - BOOST + BOOST * ${ready('BOOST_CAP[col]', 'BOOST_LV[col]')}`,
     `let 压 = ${press}`,
     'let 标 = if(在, 合 * 备 * 助 * max(0, 1 - 压), 0)',
-    // 向邻州学:向接受度最高的有人住的邻州靠拢,同一国快、跨国慢,翻山、过海峡、走航线更慢;合得来的学得多(合不来的学到 RECEPT 那几成,
-    // 前提差得远的学不进来);有报刊的快。一步至多追平最高的邻州
+    // 向邻州学:向接受度最高的有人住的邻州靠拢,同一国快、跨国慢,翻山、过海峡、走航线更慢;各说快慢不一(PACE);
+    // 合得来的学得多(合不来的学到 RECEPT 那几成,前提差得远的学不进来);有报刊的快。一步至多追平最高的邻州
     `let 差 = nbmax(nb.思潮 - 思潮, 0, ${nbLive} and nb.思潮 > 思潮)`,
     `let 学 = nbmax((nb.思潮 - 思潮) * ${link}, 0, ${nbLive} and nb.思潮 > 思潮)`,
     'let 报 = if(能力[PRESS_CAP] >= PRESS_LV, PRESS_UP, 1)',
-    'let 传 = if(在, min(差, dt * LEARN * 报 * (RECEPT * 备 + (1 - RECEPT) * 标) * 学), 0)',
+    'let 传 = if(在, min(差, dt * LEARN * PACE[col] * 报 * (RECEPT[col] * 备 + (1 - RECEPT[col]) * 标) * 学), 0)',
     // 扎根:往标长,刚传进来的(不到 FOOT)长得慢;退潮:比标高的往下掉
     'let 长 = if(思潮 < 标, GROW * (标 - 思潮) * min(1, 思潮 / FOOT), 0)',
     'let 退 = if(思潮 > 标, FADE * (思潮 - 标), 0)',
@@ -115,6 +119,7 @@ export function ideoCards(k: IdeoRuleConsts, step: number): TableCard[] {
     ABOVE: k.ABOVE,
     BOOST: k.BOOST,
     LEARN: k.LEARN,
+    PACE: k.PACE,
     SAME_STATE: k.SAME_STATE,
     LINK: k.LINK,
     SEA_ROUTE: k.SEA_ROUTE,

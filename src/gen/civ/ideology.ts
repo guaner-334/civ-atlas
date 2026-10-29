@@ -13,7 +13,8 @@
  * **传开**(每步):
  *   - 向邻州学:向接受度最高的有人住的邻州靠拢,同一国里快(SAME_STATE 倍)、跨国慢,翻山、过海峡、走航线更慢(航线随运输能力快一点);
  *     这州合得来的学得多(合不来的只学到 RECEPT 那几成,前提差得远的学不进来);有报刊(信息到了报刊那一档)的州学得快 PRESS_UP 倍。
- *     一步至多追平最高的邻州。
+ *     一步至多追平最高的邻州。后来的几说(技艺、民权)靠书坊、工匠、商旅传,传得快(pace 倍)、不大挑地方(recept)、
+ *     前提差得多一点的州也学得进一点(below),能隔着还落后的地方传到别处发达的地方。
  *   - 扎根:接受度往"这州能到多高"长 —— 标 = 合 × 前提够不够(差 BELOW 档 = 0,过了 ABOVE 档 = 1)× 助长 × (1 − 别的几说压的几成:
  *     每一说 CROWD,对头另加);
  *     刚传进来的(不到 FOOT)长得慢。
@@ -55,6 +56,12 @@ export interface Thought {
   root: string;
   /** 对头:哪几说盛了它就衰(说名 → 压几成;对头的接受度 × 这个数,加起来从这州能到的高度里扣掉) */
   rivals?: Readonly<Record<string, number>>;
+  /** 合不来的州也学到几成(没写 = RECEPT) */
+  recept?: number;
+  /** 向邻州学得快几倍(没写 = 1) */
+  pace?: number;
+  /** 前提(和助长的发明)差几档就完全学不进、也扎不下根(没写 = BELOW) */
+  below?: number;
   /** 主张(一句话) */
   say: string;
   /** 以后支持什么做法 / 政体(改制那一步才用) */
@@ -67,7 +74,8 @@ export const THOUGHTS: readonly Thought[] = [
     name: '天命之说',
     needs: ['文字'],
     where: '农本大国',
-    root: 'if(has(国), 0.2 + 0.1 * min(2, 粮) + 0.1 * clamp(国号, 0, 3) + 0.1 * min(1, 州数 / 20) - 0.15 * 港口 - 0.1 * max(0, 能力.信息 - 3), 0)',
+    // 信息过了 3 档(快到印刷术)就渐渐合不来:印刷的时代渐衰
+    root: 'if(has(国), 0.2 + 0.1 * min(2, 粮) + 0.1 * clamp(国号, 0, 3) + 0.1 * min(1, 州数 / 20) - 0.15 * 港口 - 0.3 * max(0, 能力.信息 - 3), 0)',
     rivals: { 民权之说: 0.6, 共治之说: 0.3, 均产之说: 0.3 },
     say: '君权受之于天,守成为上',
     backs: ['君主世袭', '敬天祭祀'],
@@ -96,6 +104,10 @@ export const THOUGHTS: readonly Thought[] = [
     boost: '高炉',
     where: '矿区、工坊',
     root: '0.1 + 0.1 * min(4, 矿) + 0.05 * 能力.生产 + 0.25 * 城',
+    // 靠工匠、书坊、商旅传:传得快,不大挑地方,前提差两档的州也学得进一点
+    recept: 0.6,
+    pace: 2,
+    below: 2,
     say: '百工技艺可以富国',
     backs: ['官办矿冶', '工坊'],
   },
@@ -106,6 +118,10 @@ export const THOUGHTS: readonly Thought[] = [
     where: '大城',
     root: '0.05 + 0.55 * 城 + 0.06 * 能力.信息 + 0.1 * 港口',
     rivals: { 天命之说: 0.4, 国族之说: 0.2 },
+    // 同技艺之说
+    recept: 0.6,
+    pace: 2,
+    below: 2,
     say: '国之本在民,民可议政',
     backs: ['立宪', '议会'],
   },
@@ -142,13 +158,13 @@ const SNAP = 100;
 const EMERGE_POP = 8;
 const EMERGE_FIT = 0.55;
 const ORIGIN_SEED = 0.3;
-/** 前提够不够:差 BELOW 档 = 0,过了 ABOVE 档 = 1;助长的发明没到时能到的高度只剩 1 − BOOST */
+/** 前提够不够:差 BELOW 档 = 0(各说可另写 below),过了 ABOVE 档 = 1;助长的发明没到时能到的高度只剩 1 − BOOST */
 const BELOW = 1;
 const ABOVE = 0.8;
 const BOOST = 0.3;
 /** 别的几说盛了,各说能到的高度都低一点(每一说的接受度 × CROWD;对头另加) */
 const CROWD = 0.12;
-/** 向邻州学:每年追上差距的比例;同一国里快几倍;邻接边的类型 → 学得多快(航线另加运输能力的几成) */
+/** 向邻州学:每年追上差距的比例(各说再乘 pace);同一国里快几倍;邻接边的类型 → 学得多快(航线另加运输能力的几成) */
 const LEARN = 0.025;
 const SAME_STATE = 2.5;
 const LINK: readonly number[] = (() => {
@@ -160,14 +176,14 @@ const LINK: readonly number[] = (() => {
   return t;
 })();
 const SEA_PER_TRANSPORT = 0.08;
-/** 合不来的州只学到几成 */
+/** 合不来的州只学到几成(各说可另写 recept) */
 const RECEPT = 0.3;
 /** 有报刊的州学得快几倍 */
 const PRESS_UP = 1.5;
 /** 扎根:每年长差距的几成;不到 FOOT 的长得慢(按比例);退潮:每年掉差距的几成 */
 const GROW = 0.02;
 const FOOT = 0.1;
-const FADE = 0.006;
+const FADE = 0.012;
 /** 移民:迁进来的州往那国的国中靠几成 */
 const MIGRANT_MIX = 0.5;
 /** 城的规模 = 城民 / (城民 + CITY_HALF) */
@@ -210,15 +226,16 @@ export function ideoTableCards(): TableCard[] {
       BOOST_CAP: THOUGHTS.map((t) => (t.boost ? invention(t.boost).cap : 0)),
       BOOST_LV: THOUGHTS.map((t) => (t.boost ? invention(t.boost).level : NO_BOOST)),
       RIVAL: THOUGHTS.flatMap((t) => THOUGHTS.map((u) => (u === t ? 0 : CROWD + (t.rivals?.[u.name] ?? 0)))),
-      BELOW,
+      BELOW: THOUGHTS.map((t) => t.below ?? BELOW),
       ABOVE,
       BOOST,
       LEARN,
+      PACE: THOUGHTS.map((t) => t.pace ?? 1),
       SAME_STATE,
       LINK,
       SEA_ROUTE: AdjKind.SeaRoute,
       SEA_PER_TRANSPORT,
-      RECEPT,
+      RECEPT: THOUGHTS.map((t) => t.recept ?? RECEPT),
       PRESS_CAP: invention('报刊').cap,
       PRESS_LV: invention('报刊').level,
       PRESS_UP,
