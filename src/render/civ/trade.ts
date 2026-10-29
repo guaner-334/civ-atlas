@@ -273,14 +273,14 @@ export function tradeScene(civ: Civ, mesh: Mesh, year: Year): TradeLine[] {
 // ---------------------------------------------------------------------------
 // 画
 
-/** 线宽这些在画布上多少像素:CSS 像素 × 放大的倍数 × dpr */
-function penOf(lv: LabelView): number {
+/** 线宽这些在画布上多少像素:CSS 像素 × 放大的倍数 × dpr(k = 主图的缩放倍数;地球仪上是等效的倍数) */
+export function penOf(lv: Pick<LabelView, 'k' | 'dpr'>): number {
   const k = Math.max(1, lv.k);
   return (k <= 2 ? k ** LINE_GROW : 2 ** LINE_GROW * (k / 2) ** LINE_GROW_HI) * lv.dpr;
 }
 
 /** 名字的字号(画布像素) */
-export function tradeNamePx(lv: LabelView): number {
+export function tradeNamePx(lv: Pick<LabelView, 'k' | 'dpr'>): number {
   return SIZE.name * Math.max(1, lv.k) ** NAME_GROW * lv.dpr;
 }
 
@@ -339,12 +339,12 @@ export interface TradeHit {
   half: number;
 }
 
-interface Look {
+export interface TradeLook {
   color: string;
   halo: string;
   family: string;
 }
-function lookOf(p: CivDrawParams): Look {
+export function tradeLookOf(p: Pick<CivDrawParams, 'style' | 'bright'>): TradeLook {
   const real = p.style !== 'fantasy';
   return {
     color: p.bright ? TRADE_BRIGHT : TRADE_INK,
@@ -358,44 +358,74 @@ export function drawTradeLines(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
   if (!tradeShown(p)) return [];
   const lines = tradeScene(p.civ, p.world.mesh, p.year);
   if (!lines.length) return [];
-  const look = lookOf(p);
   const u = penOf(lv);
+  const pad = (SIZE.line + 2 * SIZE.casing) * u;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (pj) clipOutline(ctx, pj.mp, { s: lv.scale, ox: lv.ox, oy: lv.oy });
+  const drawn = lines.map((l): TradeDrawn => {
+    const polys = tradeCanvasLines(l, lv, pj, pad);
+    const ends: TradeEnd[] = [];
+    for (const pl of polys) {
+      if (pl.length < 4) continue;
+      const n = pl.length;
+      ends.push([pl[0], pl[1], false], [pl[n - 2], pl[n - 1], true]);
+    }
+    return { line: l, polys, ends };
+  });
+  const hits = paintTradeLines(ctx, drawn, tradeLookOf(p), u, focus);
+  ctx.restore();
+  return hits;
+}
+
+/** 一头的圆点:画布像素的位置;true = 终点(实心点),false = 产地(小空心圆) */
+export type TradeEnd = [number, number, boolean];
+
+/** 投影好的一条商道:画布像素的折线(可能好几份)、两头的圆点(看不见的那头不给) */
+export interface TradeDrawn {
+  line: TradeLine;
+  polys: Float64Array[];
+  ends: TradeEnd[];
+}
+
+/**
+ * 按画布像素描商道(主图、地球仪共用):选中、鼠标停着的先垫一圈白光;先画所有的浅边、再画所有的紫线(走同一段路的几条叠成一条);
+ * 断着的整条虚线;两头的圆点。u = 线宽这些的倍数(penOf),alpha = 整体再淡几成。返回画了的各条(点选、悬停用)
+ */
+export function paintTradeLines(ctx: CanvasRenderingContext2D, drawn: readonly TradeDrawn[], look: TradeLook, u: number, focus: TradeFocus = {}, alpha = 1): TradeHit[] {
   const w = SIZE.line * u;
   const cw = SIZE.casing * u;
   const dash = [SIZE.dashOn * u, SIZE.dashOff * u];
   const sel = focus.sel ?? null;
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (pj) clipOutline(ctx, pj.mp, { s: lv.scale, ox: lv.ox, oy: lv.oy });
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const polys = lines.map((l) => tradeCanvasLines(l, lv, pj, w + 2 * cw));
   // 选中、鼠标停着的:先垫一圈白光
-  for (let i = 0; i < lines.length; i++) {
-    const id = lines[i].route.id;
+  for (const d of drawn) {
+    const id = d.line.route.id;
     if (id !== sel && id !== focus.hover) continue;
     const pa = new Path2D();
-    for (const pl of polys[i]) addPoly(pa, pl);
-    ctx.globalAlpha = id === sel ? 0.55 : 0.5;
+    for (const pl of d.polys) addPoly(pa, pl);
+    ctx.globalAlpha = alpha * (id === sel ? 0.55 : 0.5);
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = w + 2 * SIZE.glow * u;
     ctx.stroke(pa);
   }
   // 先画所有的浅边、再画所有的紫线:走同一段路的几条叠成一条
   for (const pass of [0, 1]) {
-    for (let i = 0; i < lines.length; i++) {
-      const l = lines[i];
+    for (const d of drawn) {
+      const l = d.line;
       const pa = new Path2D();
-      for (const pl of polys[i]) addPoly(pa, pl);
+      for (const pl of d.polys) addPoly(pa, pl);
       const dim = sel !== null && l.route.id !== sel ? DIM : 1;
       ctx.setLineDash(l.broken ? dash : []);
       ctx.lineCap = l.broken && pass ? 'butt' : 'round';
       if (!pass) {
-        ctx.globalAlpha = dim * (l.broken ? 0.8 : 0.95);
+        ctx.globalAlpha = alpha * dim * (l.broken ? 0.8 : 0.95);
         ctx.strokeStyle = look.halo;
         ctx.lineWidth = w + 2 * cw;
       } else {
-        ctx.globalAlpha = dim * (l.broken ? 0.85 : 1);
+        ctx.globalAlpha = alpha * dim * (l.broken ? 0.85 : 1);
         ctx.strokeStyle = look.color;
         ctx.lineWidth = w;
       }
@@ -404,28 +434,25 @@ export function drawTradeLines(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
   }
   ctx.setLineDash([]);
   // 两头:产地小空心圆,终点实心点
-  for (let i = 0; i < lines.length; i++) {
-    const dim = sel !== null && lines[i].route.id !== sel ? DIM : 1;
-    ctx.globalAlpha = dim;
+  for (const d of drawn) {
+    ctx.globalAlpha = alpha * (sel !== null && d.line.route.id !== sel ? DIM : 1);
     ctx.lineWidth = SIZE.endStroke * u;
-    for (const pl of polys[i]) {
-      if (pl.length < 4) continue;
-      const n = pl.length;
-      for (const [x, y, big] of [
-        [pl[0], pl[1], false],
-        [pl[n - 2], pl[n - 1], true],
-      ] as const) {
-        ctx.beginPath();
-        ctx.arc(x, y, (big ? SIZE.cap : SIZE.end) * u, 0, Math.PI * 2);
-        ctx.fillStyle = big ? look.color : look.halo;
-        ctx.strokeStyle = big ? look.halo : look.color;
-        ctx.fill();
-        ctx.stroke();
-      }
+    for (const [x, y, big] of d.ends) {
+      ctx.beginPath();
+      ctx.arc(x, y, (big ? SIZE.cap : SIZE.end) * u, 0, Math.PI * 2);
+      ctx.fillStyle = big ? look.color : look.halo;
+      ctx.strokeStyle = big ? look.halo : look.color;
+      ctx.fill();
+      ctx.stroke();
     }
   }
   ctx.restore();
-  return lines.map((l, i) => ({ id: l.route.id, polys: polys[i], half: w / 2 + cw }));
+  return drawn.map((d) => ({ id: d.line.route.id, polys: d.polys, half: w / 2 + cw }));
+}
+
+/** 线宽的一半(画布像素,含浅边):整块剔除时往外放宽多少 */
+export function tradeHalfWidth(u: number): number {
+  return (SIZE.line / 2 + SIZE.casing) * u;
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +566,49 @@ export function drawTradeNames(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
   if (!tradeShown(p)) return 0;
   const lines = tradeScene(p.civ, p.world.mesh, p.year);
   if (!lines.length) return 0;
-  const look = lookOf(p);
+  const W = lv.canvasW ?? Infinity;
+  const H = lv.canvasH ?? Infinity;
+  // 画布里那一份(中点离画布中心最近的)
+  const on = lines.map((l) => {
+    let best: Float64Array | null = null;
+    let bd = Infinity;
+    for (const pl of tradeCanvasLines(l, lv, pj)) {
+      const m = (pl.length >> 2) << 1;
+      const d = Math.hypot(pl[m] - W / 2, pl[m + 1] - H / 2);
+      if (d < bd) {
+        bd = d;
+        best = pl;
+      }
+    }
+    return { line: l, pl: best };
+  });
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (pj) clipOutline(ctx, pj.mp, { s: lv.scale, ox: lv.ox, oy: lv.oy });
+  const n = writeTradeNames(ctx, on, tradeLookOf(p), lv, placed, focus);
+  ctx.restore();
+  return n;
+}
+
+/** 写名字时另外的规矩(地球仪):哪些字框算出了界(和出画布一样不要)、每个字淡几成 */
+export interface TradeNameRules {
+  outside?: (box: readonly number[]) => boolean;
+  alpha?: (g: Glyph) => number;
+}
+
+/**
+ * 按画布像素写商道的名字(主图、地球仪共用):on = 每条商道拿来写字的那一段折线(画布像素;没有 = null)。
+ * 选中的先放,再按线长;缩放 1 倍时写得下、又不压地名和城镇符号的才写,2 倍起每条都写(挤不开时写在压字最少的位置)。返回写了几条
+ */
+export function writeTradeNames(
+  ctx: CanvasRenderingContext2D,
+  on: readonly { line: TradeLine; pl: ArrayLike<number> | null }[],
+  look: TradeLook,
+  lv: Pick<LabelView, 'k' | 'dpr' | 'canvasW' | 'canvasH'>,
+  placed: Placement | null,
+  focus: TradeFocus = {},
+  rules: TradeNameRules = {},
+): number {
   const u = penOf(lv);
   const px = tradeNamePx(lv);
   const all = lv.k >= 2;
@@ -552,37 +621,21 @@ export function drawTradeNames(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
   }
   const sel = focus.sel ?? null;
   const step = 2 * lv.dpr;
+  const outside = rules.outside;
   // 选中的先放,再按线长
-  const order = lines
-    .map((l) => {
-      // 画布里那一份(中点离画布中心最近的)
-      const polys = tradeCanvasLines(l, lv, pj);
-      let best: Float64Array | null = null;
-      let bd = Infinity;
-      for (const pl of polys) {
-        const m = (pl.length >> 2) << 1;
-        const d = Math.hypot(pl[m] - W / 2, pl[m + 1] - H / 2);
-        if (d < bd) {
-          bd = d;
-          best = pl;
-        }
-      }
-      return { l, pl: best };
-    })
+  const order = on
     .filter((x) => x.pl && x.pl.length >= 4)
     .map((x) => {
       // 等距重采样后抹顺(窗口约一个字宽):字顺着大的走向排
       const pts = smoothFor(resample(x.pl!, step), Math.max(2, Math.round(px / step)));
       const cum = cumOf(pts);
-      return { ...x, pts, cum, L: cum[cum.length - 1] };
+      return { l: x.line, pts, cum, L: cum[cum.length - 1] };
     })
     .sort((a, b) => (a.l.route.id === sel ? -1 : b.l.route.id === sel ? 1 : b.L - a.L || a.l.route.id - b.l.route.id));
   const off = (SIZE.line / 2 + SIZE.casing) * u + px * 0.55;
   const font = fontCss(look.family, 700, px);
   let n = 0;
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (pj) clipOutline(ctx, pj.mp, { s: lv.scale, ox: lv.ox, oy: lv.oy });
   ctx.font = font;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -603,8 +656,8 @@ export function drawTradeNames(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
       const boxes = gs.map((g) => glyphBox(g, px, px * 0.08));
       let hit = 0;
       for (const b of boxes) for (const t of taken) if (overlaps(b, t)) hit++;
-      // 出了画布的不算
-      const out = boxes.filter((b) => b[0] < 0 || b[1] < 0 || b[2] > W || b[3] > H).length;
+      // 出了画布(地球仪:出了球面)的不算
+      const out = boxes.filter((b) => b[0] < 0 || b[1] < 0 || b[2] > W || b[3] > H || (outside && outside(b))).length;
       if (hit + 1000 * out < leastN) {
         leastN = hit + 1000 * out;
         least = gs;
@@ -613,11 +666,13 @@ export function drawTradeNames(ctx: CanvasRenderingContext2D, p: CivDrawParams, 
       pick = gs;
       break;
     }
-    if (!pick && all) pick = least;
+    // 2 倍起照写;地球仪上出了球面的那种不写
+    if (!pick && all && !(outside && leastN >= 1000)) pick = least;
     if (!pick) continue;
     for (const g of pick) taken.push(glyphBox(g, px, px * 0.08));
-    ctx.globalAlpha = sel !== null && o.l.route.id !== sel ? DIM : 1;
+    const dim = sel !== null && o.l.route.id !== sel ? DIM : 1;
     for (const g of pick) {
+      ctx.globalAlpha = dim * (rules.alpha ? rules.alpha(g) : 1);
       ctx.save();
       ctx.translate(g.x, g.y);
       ctx.rotate(g.a);
