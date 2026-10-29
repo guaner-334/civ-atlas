@@ -3420,7 +3420,7 @@ function reformEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     const king = old ? (east ? rulerBare(civ, old, y) : old.name) : '';
     let t = `${before}${woe ? `${woe},` : ''}${failedAsk(civ, civ.annals, id, e.a)}`;
     t += `${nu ? nu.name : east ? '义军' : '起义者'}起兵${r ? `于${r}` : ''}${capital ? `,入${capital}` : ''}${king ? `,废${king}` : ''}`;
-    t += `${east ? ',罢帝号' : ''},立共和,国号${after}${nu ? ',自为执政' : ''}`;
+    t += `${east ? `,罢${P && polityTierAt(P, y - 1 / 512) >= 3 ? '帝' : '王'}号` : ''},立共和,国号${after}${nu ? ',自为执政' : ''}`;
     return entry(t, '革', 'revolution', nu, old);
   }
   if (e.n === REFORM_COUP) {
