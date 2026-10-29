@@ -462,7 +462,7 @@ const CHANGE_TEXT: Record<GeneratorChange, string> = {
   history: '地形和气候没变，历史重新推演了',
   routes: '地形和历史没变，道路和航线有些改动',
   chronicle: '疆域和兴亡没变，编年史写得更细了',
-  people: '地形和历史没变，一部分人物换成了女性，名字跟着换了',
+  people: '地形和历史没变，人物有些改动，名字跟着换了',
   names: '地形和历史没变，默认的地名换了',
 };
 const CHANGE_RANK: GeneratorChange[] = ['names', 'people', 'chronicle', 'routes', 'history', 'climate', 'terrain', 'planet'];
@@ -1038,7 +1038,7 @@ export function parseSave(text: string): ParseResult {
   return { ok: true, save, warnings };
 }
 
-/** 跨过这几种改动,世界(地形、疆域、兴亡)和原来一样:只换了默认的名字、人物的性别和名字、编年史的字、道路和航线 */
+/** 跨过这几种改动,世界(地形、疆域、兴亡)和原来一样:只换了默认的名字、人物(性别、父子、名字)、编年史的字、道路和航线 */
 const SAME_WORLD: readonly (GeneratorChange | 'newer' | null)[] = [null, 'names', 'people', 'chronicle', 'routes'];
 
 /**

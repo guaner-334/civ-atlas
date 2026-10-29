@@ -135,7 +135,7 @@ export function PhoneButtons({
   marking?: boolean;
   /** 放不放「导播」按钮(有历史、没在导出视频时) */
   director?: boolean;
-  /** 「立体」按钮(框一块立起来看):正在框 = true;不放 = undefined */
+  /** 「地区」按钮(框一块单独看):正在框 = true;不放 = undefined */
   relief?: boolean;
 }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
@@ -190,10 +190,10 @@ export function PhoneButtons({
             aria-pressed={relief}
             disabled={layers.disabled}
             onClick={toggleRelief}
-            aria-label="立体"
-            title="框一块地方，立起来看山的起伏"
+            aria-label="地区"
+            title="框一块地方单独看：出一张地区图，也能立起来看"
           >
-            <Icon name="relief" size={22} />
+            <Icon name="region" size={22} />
           </button>
         )}
       </div>
@@ -223,7 +223,7 @@ export function MapControls({
   marking?: boolean;
   /** 放不放「导播」按钮(有历史、没在导出视频时) */
   director?: boolean;
-  /** 「立体」按钮(框一块立起来看):正在框 = true;不放 = undefined */
+  /** 「地区」按钮(框一块单独看):正在框 = true;不放 = undefined */
   relief?: boolean;
 }) {
   if (hidden) return null;
@@ -231,9 +231,9 @@ export function MapControls({
   return (
     <div className={`map-controls${shifted ? ' shifted' : ''}`} onPointerDown={stop} onDoubleClick={stop}>
       {relief !== undefined && (
-        <button className={`glass mc-btn mc-globe mc-relief${relief ? ' on' : ''}`} data-act="relief" aria-pressed={relief} onClick={toggleRelief} title="框一块地方，立起来看山的起伏(Esc 取消)">
-          <Icon name="relief" size={18} />
-          <span>立体</span>
+        <button className={`glass mc-btn mc-globe mc-relief${relief ? ' on' : ''}`} data-act="relief" aria-pressed={relief} onClick={toggleRelief} title="框一块地方单独看：出一张地区图，也能立起来看(Esc 取消)">
+          <Icon name="region" size={18} />
+          <span>地区</span>
         </button>
       )}
       {director && <DirectorButton />}

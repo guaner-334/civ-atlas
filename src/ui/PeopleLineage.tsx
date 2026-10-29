@@ -8,6 +8,9 @@
  *         最后一位下面写这一朝怎么结束("2794 年，渊朝起兵代之");连不上开国那一支的远支另起一小棵,上面写"宗室远支"。点一位看他的卡片
  *         作者立的君主(让作者的人物即位):单独一棵,上面写"作者立的君主",头像是作者人物卡上的那张、描一圈他的颜色,点了开作者的人物卡;
  *         紧跟着接他位的那一棵写"继他之位"
+ *         复国之君:他那一国第一朝的树顶上画出他在故国的几代(故国的末帝白底实框、第二行写故国,没即位的宗室虚线框),
+ *         衬一块淡淡的故国颜色、左上写"故国大嘉王室",接到他的那条线旁写"2527 年复国";
+ *         故国那一朝的树里他挂在父辈下面,照据地自立的画法(实框、不带序号、第二行写他复的国),线旁写"2527 年复国，立后嘉"
  * 看哪一朝:人物卡片进来 = 他那一朝;别的 = 时间轴那一年的那一朝(还没立国 = 第一朝,亡了 = 最后一朝);打开时滚到圈出的那位或「当前」。
  * 树比右边宽时左右滑,长的上下滑(手机上整页上下滑)。
  */
@@ -24,7 +27,26 @@ import { rulerAt } from '../gen/civ/peopleInfo';
 import { personName } from '../gen/civ/peopleText';
 import { NameFace, PersonFace, PortraitView } from './Portrait';
 import { HouseBookButton } from './lifeMenu';
-import { dynastyEnd, dynastyNote, dynastyRowAt, dynastyRows, layoutDynasty, lineageKin, lineageTag, reignOrder, secededFrom, treeLabel, type DynastyRow, type LineageTree } from '../gen/civ/lineageInfo';
+import {
+  dynastyEnd,
+  dynastyNote,
+  dynastyRowAt,
+  dynastyRows,
+  fallenLabel,
+  fromFallen,
+  isLastRuler,
+  layoutDynasty,
+  lineageKin,
+  lineageTag,
+  reignOrder,
+  restoreCaption,
+  restoredFrom,
+  secededFrom,
+  treeLabel,
+  type DynastyRow,
+  type LineageTree,
+} from '../gen/civ/lineageInfo';
+import { polityShort } from '../gen/civ/regentInfo';
 import { polityName } from '../gen/civ/growth';
 import { setPeople } from './overviewStore';
 import { selectPerson } from './panelParts';
@@ -43,6 +65,11 @@ const W_MAX = 224;
 const PAD = 4;
 /** 最后一位下面那句话占的高 */
 const TAIL_H = 30;
+/** 树顶故国那一块:上面留给"故国大嘉王室"那行字的高、左右比方框宽出的边、底下比方框多出的边;下面的复国之君再往下挪一点,好写"某年复国" */
+const BAND_TOP = 26;
+const BAND_SIDE = 14;
+const BAND_BOTTOM = 8;
+const BAND_EXTRA = 12;
 
 type Box = (typeof BOX)['wide'];
 
@@ -63,10 +90,21 @@ function textWidth(text: string, px: number): number {
   return measure.ctx.measureText(text).width;
 }
 
-/** 名字连同后面的小灰字(lineageTag;字 11 号,前面空 5)有多宽 */
+/** 名字后面的小灰字:树顶故国那几代里的末帝写"末帝",别的照 lineageTag */
+const tagOf = (civ: Civ, p: Person, polity: number) => (fromFallen(civ, p, polity) && isLastRuler(civ, p) ? '末帝' : lineageTag(civ, p, polity));
+
+/** 名字连同后面的小灰字(字 11 号,前面空 5)有多宽 */
 const topWidth = (civ: Civ, p: Person, box: Box, polity: number) => {
-  const tag = lineageTag(civ, p, polity);
+  const tag = tagOf(civ, p, polity);
   return textWidth(personName(civ, p), box.FONT) + (tag ? textWidth(tag, 11) + 5 : 0);
+};
+
+/** 第二行写国名的:据地自立的儿子(他立的国)、故国树里的复国之君(他复的国)、树顶故国那几代里的君主(故国);别的 = '' */
+const realmOf = (civ: Civ, p: Person, polity: number) => {
+  const from = p.from ?? p.born;
+  if (secededFrom(civ, p, polity)) return polityName(civ.polities[p.polity], from);
+  if (restoredFrom(civ, p, polity) || (fromFallen(civ, p, polity) && p.role === 'ruler')) return polityShort(civ, p.polity, from);
+  return '';
 };
 
 /**
@@ -75,11 +113,12 @@ const topWidth = (civ: Civ, p: Person, box: Box, polity: number) => {
  */
 const nameWidth = (civ: Civ, p: Person, box: Box, polity: number) => {
   const w = topWidth(civ, p, box, polity);
-  const sec = secededFrom(civ, p, polity);
+  const r = realmOf(civ, p, polity);
+  const sec = !!r;
   const kin = lineageKin(civ, p);
   if (!sec && !kin) return w;
   const from = sec ? (p.from ?? p.born) : p.born;
-  const realm = sec ? `${polityName(civ.polities[p.polity], from)} ` : '';
+  const realm = sec ? `${r} ` : '';
   const line = textWidth(`${realm}${Math.floor(from)}–${p.until !== undefined || p.died !== undefined ? '0000' : ''}`, box.FONT - 1.5);
   return Math.max(w, line + (kin ? 21 + textWidth(kin.text, 11) + badgeWidth() : 0));
 };
@@ -141,24 +180,33 @@ function Tree({
   const era = useEra();
   const chars = useEdits().characters;
   const unit = W + GAP;
+  const polity = row.rulers[0]?.polity ?? -1;
   const xs = tree.nodes.map((n) => n.x);
   const minX = Math.min(...xs);
   const maxD = Math.max(...tree.nodes.map((n) => n.depth));
-  const cx = (x: number) => (x - minX) * unit + W / 2 + PAD;
-  const top = (d: number) => d * STEP + PAD;
-  const width = (Math.max(...xs) - minX) * unit + W + PAD * 2;
-  const height = maxD * STEP + H + PAD * 2 + (tail ? TAIL_H : 0);
+  // 复国之君那一国的第一棵:树根是故国的人,连同再往上的几代画在树顶,衬故国的颜色(band 从上往下,最后一位是树根)
+  const root = tree.nodes.find((n) => n.depth === 0);
+  const band = root && fromFallen(civ, root.p, polity) ? [...(tree.up ?? []), root.p] : null;
+  const padX = band ? PAD + BAND_SIDE : PAD;
+  const head = band ? BAND_TOP + (band.length - 1) * STEP : 0;
+  const cx = (x: number) => (x - minX) * unit + W / 2 + padX;
+  const top = (d: number) => d * STEP + PAD + head + (band && d >= 1 ? BAND_EXTRA : 0);
+  const width = (Math.max(...xs) - minX) * unit + W + padX * 2;
+  const height = top(maxD) + H + PAD + (tail ? TAIL_H : 0);
   const at = new Map(tree.nodes.map((n) => [n.p, n]));
   const future = (p: Person) => (p.role === 'ruler' ? (p.from ?? p.born) > year : p.born > year);
-  const last = tail ? tree.nodes.filter((n) => n.p.role === 'ruler').sort((a, b) => (b.p.from ?? 0) - (a.p.from ?? 0))[0] : undefined;
-  const polity = row.rulers[0]?.polity ?? -1;
+  const last = tail ? tree.nodes.filter((n) => row.rulers.includes(n.p)).sort((a, b) => (b.p.from ?? 0) - (a.p.from ?? 0))[0] : undefined;
+  /** 树顶故国那几代(不含树根)第 i 位的上沿 */
+  const bandTop = (i: number) => PAD + BAND_TOP + i * STEP;
   // 连线;养子那一截(横线上通到他的那段、落到他的竖线)是虚线:先画虚线,亲生的实线压在上面
   const lines: { d: string; fut: boolean; dash?: boolean }[] = [];
+  // 树顶故国那几代之间的竖线
+  if (band && root) for (let i = 1; i < band.length; i++) lines.push({ d: `M${cx(root.x)} ${bandTop(i - 1) + H}V${bandTop(i)}`, fut: future(band[i]) });
   for (const n of tree.nodes) {
     const ks = tree.nodes.filter((k) => k.p.parent === n.p.id && at.has(k.p));
     if (!ks.length) continue;
     const y0 = top(n.depth) + H;
-    const ym = y0 + (STEP - H) / 2;
+    const ym = (y0 + top(n.depth + 1)) / 2;
     const fx = cx(n.x);
     const own = ks.filter((k) => !k.p.adopted);
     const allFut = ks.every((k) => future(k.p));
@@ -171,61 +219,88 @@ function Tree({
     for (const k of ks) lines.push({ d: `M${cx(k.x)} ${ym}V${top(k.depth)}`, fut: future(k.p), dash: !!k.p.adopted });
   }
   lines.sort((a, b) => Number(!!b.dash) - Number(!!a.dash));
+  const fallenP = band ? civ.polities[band[0].polity] : undefined;
+  /** 复国之君(他那一国的树里是树根下面的那位;故国的树里是挂在父辈下面的那位):连线旁写哪年复国 */
+  const caps = tree.nodes.filter((n) => (band ? n.p === row.rulers[0] && n.depth === 1 : restoredFrom(civ, n.p, polity)));
+  const node = (p: Person, left: number, y: number) => {
+    const k = reignOrder(row, p);
+    // 据地自立做了别国之君的儿子、故国树里的复国之君:实线框、不带序号,第二行写他立(复)的国;树顶故国那几代:君主实线框、没有序号
+    const sec = secededFrom(civ, p, polity);
+    const res = restoredFrom(civ, p, polity);
+    const old = !!band?.includes(p);
+    const away = sec || res || (old && p.role === 'ruler');
+    const on = k > 0 && p === cur;
+    const cls = `lg-node${k || away ? '' : ' lg-prince'}${old ? ' lg-old' : ''}${res ? ' lg-res' : ''}${on ? ' on' : ''}${future(p) ? ' fut' : ''}${p.id === focus ? ' focus' : ''}`;
+    const name = personName(civ, p);
+    const tag = tagOf(civ, p, polity);
+    const span = k || away ? yearSpan(p.from ?? p.born, p.until, era) : yearSpan(p.born, p.died, era);
+    const realm = realmOf(civ, p, polity);
+    const kin = lineageKin(civ, p);
+    const kinP = kin ? civ.polities[kin.polity] : undefined;
+    // 名字加「当前」放不下:「当前」挪到年份后面
+    const low = on && CHROME + topWidth(civ, p, box, polity) + badgeWidth() > W;
+    // 作者立的君主:头像换成作者人物卡上的那张(人物卡删掉了照旧)
+    const ac = p.author !== undefined ? chars?.find((c) => c.id === p.author) : undefined;
+    const reign = era && p.until !== undefined ? `${yearSpanAt(p.from ?? p.born, p.until, era)}在位` : `${span} 年在位`;
+    const who = sec ? `自立为${realm}之君，` : res ? `复国，立为${realm}之君，` : old && p.role === 'ruler' ? `${realm}${tag}，` : '';
+    return (
+      <button
+        key={p.id}
+        className={ac ? `${cls} cr-author` : cls}
+        style={{ left, top: y, width: W, height: H, ...(ac ? ({ '--ring': MARK_HEX[ac.color] } as CSSProperties) : {}) }}
+        data-person={p.id}
+        title={`${name}，${who}${k || away ? reign : `${p.role === 'consort' && kin ? kin.text : '未即位'}${tag ? `（${tag}）` : ''}，${span}`}`}
+        onClick={() => selectPerson(p.id)}
+      >
+        {(k > 0 || sec || res) && <span className="lg-n">{k || ''}</span>}
+        {ac ? <AuthorFace civ={civ} x={p} c={ac} year={year} place={place} /> : <PersonFace civ={civ} x={p} year={year} size="mini" />}
+        <span className="lg-t">
+          <b>
+            <span className="lg-nm">{name}</span>
+            {tag && <span className="lg-tag">{tag}</span>}
+            {on && !low && <em className="cp-badge">当前</em>}
+          </b>
+          <em>
+            {realm && <span className="lg-realm">{realm}</span>}
+            {span}
+            {low && <em className="cp-badge">当前</em>}
+            {kin && (
+              <span className="lg-kin" data-kin={kin.polity}>
+                <i style={kinP ? { background: `rgb(${kinP.color.join(',')})` } : undefined} />
+                {kin.text}
+              </span>
+            )}
+          </em>
+        </span>
+      </button>
+    );
+  };
   return (
     <div className="lg-tree" style={{ width, height }}>
+      {band && root && fallenP && (
+        <div
+          className="lg-band"
+          data-fallen={fallenP.id}
+          style={{ left: cx(root.x) - W / 2 - BAND_SIDE, top: PAD, width: W + BAND_SIDE * 2, height: head + H + BAND_BOTTOM, '--kc': `rgb(${fallenP.color.join(',')})` } as CSSProperties}
+        >
+          <span>
+            <i />
+            {fallenLabel(civ, fallenP.id)}
+          </span>
+        </div>
+      )}
       <svg width={width} height={height} aria-hidden="true">
         {lines.map((l, i) => (
           <path key={i} d={l.d} className={[l.fut && 'fut', l.dash && 'dash'].filter(Boolean).join(' ') || undefined} />
         ))}
       </svg>
-      {tree.nodes.map(({ p, x, depth }) => {
-        const k = reignOrder(row, p);
-        // 据地自立做了别国之君的儿子:实线框、不带序号,第二行写他立的国
-        const sec = secededFrom(civ, p, polity);
-        const on = k > 0 && p === cur;
-        const cls = `lg-node${k || sec ? '' : ' lg-prince'}${on ? ' on' : ''}${future(p) ? ' fut' : ''}${p.id === focus ? ' focus' : ''}`;
-        const name = personName(civ, p);
-        const tag = lineageTag(civ, p, polity);
-        const span = k || sec ? yearSpan(p.from ?? p.born, p.until, era) : yearSpan(p.born, p.died, era);
-        const realm = sec ? polityName(civ.polities[p.polity], p.from ?? p.born) : '';
-        const kin = lineageKin(civ, p);
-        const kinP = kin ? civ.polities[kin.polity] : undefined;
-        // 名字加「当前」放不下:「当前」挪到年份后面
-        const low = on && CHROME + topWidth(civ, p, box, polity) + badgeWidth() > W;
-        // 作者立的君主:头像换成作者人物卡上的那张(人物卡删掉了照旧)
-        const ac = p.author !== undefined ? chars?.find((c) => c.id === p.author) : undefined;
-        return (
-          <button
-            key={p.id}
-            className={ac ? `${cls} cr-author` : cls}
-            style={{ left: cx(x) - W / 2, top: top(depth), width: W, height: H, ...(ac ? ({ '--ring': MARK_HEX[ac.color] } as CSSProperties) : {}) }}
-            data-person={p.id}
-            title={`${name}，${sec ? `自立为${realm}之君，` : ''}${k || sec ? (era && p.until !== undefined ? `${yearSpanAt(p.from ?? p.born, p.until, era)}在位` : `${span} 年在位`) : `${p.role === 'consort' && kin ? kin.text : '未即位'}${tag ? `（${tag}）` : ''}，${span}`}`}
-            onClick={() => selectPerson(p.id)}
-          >
-            {(k > 0 || sec) && <span className="lg-n">{k || ''}</span>}
-            {ac ? <AuthorFace civ={civ} x={p} c={ac} year={year} place={place} /> : <PersonFace civ={civ} x={p} year={year} size="mini" />}
-            <span className="lg-t">
-              <b>
-                <span className="lg-nm">{name}</span>
-                {tag && <span className="lg-tag">{tag}</span>}
-                {on && !low && <em className="cp-badge">当前</em>}
-              </b>
-              <em>
-                {realm && <span className="lg-realm">{realm}</span>}
-                {span}
-                {low && <em className="cp-badge">当前</em>}
-                {kin && (
-                  <span className="lg-kin" data-kin={kin.polity}>
-                    <i style={kinP ? { background: `rgb(${kinP.color.join(',')})` } : undefined} />
-                    {kin.text}
-                  </span>
-                )}
-              </em>
-            </span>
-          </button>
-        );
-      })}
+      {band && root && band.slice(0, -1).map((p, i) => node(p, cx(root.x) - W / 2, bandTop(i)))}
+      {tree.nodes.map(({ p, x, depth }) => node(p, cx(x) - W / 2, top(depth)))}
+      {caps.map((n) => (
+        <div key={`cap${n.p.id}`} className="lg-cap" style={{ left: cx(n.x) + 8, top: top(n.depth) - 17 }}>
+          {restoreCaption(civ, n.p, !band, era)}
+        </div>
+      ))}
       {last && (
         <div className="lg-tail" style={{ left: cx(last.x) - 120, top: top(last.depth) + H + 8 }}>
           {tail}

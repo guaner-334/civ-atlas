@@ -24,7 +24,9 @@
  *   力战而死的当场战死,力竭被擒的不再领兵,全师而退的接着领兵;大军由部将收拢退下。
  *   将领、名臣按出道先后起名,尽量不和此前即位的君主、先出道的将领名臣重名;名字少的语感至少和本国君主、前后几百年的同名人物错开
  *   (同一国几百年后再出一位同名的将领,读起来像同一个人死了两次)。
- * **世系**(lineage.ts):按年纪给继位的君主连上父亲(子、孙、兄弟、侄、叔伯……),对不上的地方补一位没即位的宗室。
+ * **世系**(lineage.ts):按年纪给继位的君主连上父亲(子、孙、兄弟、侄、叔伯……),对不上的地方补一位没即位的宗室;
+ *   复国之君接到故国末代那一朝的人下面(中间补几代故国宗室,隔得太远的算宗室远支,记成末帝的几世孙)。
+ * **将门、世家**(kin.ts):新起的将领、名臣有机会是本国先前一位将领、名臣的孩子(随父姓、籍贯同父亲),一代代接下去有三代为将、父子相继为相。
  * **掌实权**(regents.ts,推演里定的段落,这里挂上人;Person.regencies):引兵入朝、太子监国 = 预定的继承人(引兵入朝那一刻杀兄弟,
  *   royals.ts 的 march);宗室摄政 = 幼主的叔父(日后要摄政的不战死、不卷进争储;篡位了就和接着即位的那位并成一人);
  *   名臣辅政、大臣专权 = 专门起的一位名臣(officials.ts;篡位了和新朝第一位并成一人,编号排在他做名臣时的位置);
@@ -54,6 +56,7 @@ import { policiesFrom, policyEffect, segAt } from './policy';
 import { splitSurname } from './peopleText';
 import { debutSex, nameWomen, pickWomen, type ConsortName } from './women';
 import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, consortDeath, consortRand, dowagerHomeU, isDowager, otherSurname } from './consorts';
+import { HEIR, K_HOUSE_GENERAL, houseBase, pickHouses, withParentSurname } from './kin';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -595,6 +598,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const generals: Person[] = [];
   /** 将领第 a 次试的名字(名字等名臣排出来以后一起起,见 NameBook) */
   const genName = new Map<Person, (a: number) => string>();
+  /** 将领 → 他是本国第几位将领(随机数的键) */
+  const genIdx = new Map<Person, number>();
   const genOf: { p: Person; careerEnd: number; busy: number }[][] = polities.map(() => []);
   const busyRuler = new Map<Person, number>();
   const wars = warsOf(civ);
@@ -617,6 +622,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const namer = namerOf(styleOf(polities[pid]));
     const person: Person = { id: -1, role: 'general', polity: pid, name: '', born };
     ids.set(person, id);
+    genIdx.set(person, gi);
     if (kill && life === kill.t) person.killed = kill.iv;
     genName.set(person, (a) => namer.surname(tag[pid], 1, gi, a) + namer.given(tag[pid], 1, gi, a));
     if (life <= endYear) {
@@ -1005,6 +1011,17 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     if (F && sex === 'male') husbandOf.set(N, F);
     dowagerHomes.push({ x, year: g.start, u: dowagerHomeU(CR, t0, g.start) });
   }
+  // ---- 将门(kin.ts):新起的将领有机会是本国先前一位将领的孩子;随父姓(起名时现读父辈的姓),籍贯同父亲(officials.ts)----
+  const hBase = houseBase(civ.seed);
+  const houseG = pickHouses(
+    generals.map((x) => {
+      const gi = genIdx.get(x)!;
+      const cs = x.commands!;
+      return { x, debut: cs[0].from, died: x.died ?? Infinity, merit: (t: Year) => cs.filter((c) => c.from < t).length, u: (use: number) => keyed4(hBase, tag[x.polity], gi, use, K_HOUSE_GENERAL) };
+    }),
+    HEIR.general,
+  );
+  for (const [x, f] of houseG) if (namerOf(styleOf(polities[x.polity])).surnamed) genName.set(x, withParentSurname(genName.get(x)!, f, splitSurname));
 
   // ---- 名臣(编号排在宗室后面,君主、将领、宗室的编号不变),顺带给将领填籍贯、号、官职(officials.ts)----
   // 掌实权的名臣、大臣(大将专权没有合适的将领的,也由一位大臣顶上):专门起一位,生年照推演里的;篡位的照新朝的姓起名
@@ -1032,13 +1049,13 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     if (list) list.push(f);
     else forcedRegs.set(pid, [f]);
   }
-  const { ministers, fixups, nameAt, finish, regents: forcedPeople } = civ.log
+  const { ministers, fixups, nameAt, finish, regents: forcedPeople, houses: houseM } = civ.log
     ? buildOfficials(
         { seed: civ.seed, endYear, polities, settlements, annals: civ.annals, upheavals: civ.upheavals, log: civ.log, regionCount: civ.regionCount ?? 0 },
-        { tag, rulers, styleOf, namerOf: (p) => namerOf(styleOf(p)), kills, ids, regents: forcedRegs, homes: dowagerHomes },
+        { tag, rulers, styleOf, namerOf: (p) => namerOf(styleOf(p)), kills, ids, regents: forcedRegs, homes: dowagerHomes, houses: houseG },
         generals,
       )
-    : { ministers: [], fixups: [], nameAt: new Map<Person, (a: number) => string>(), finish: () => {}, regents: new Map<ForcedRegent, Person>() };
+    : { ministers: [], fixups: [], nameAt: new Map<Person, (a: number) => string>(), finish: () => {}, regents: new Map<ForcedRegent, Person>(), houses: new Map<Person, Person>() };
 
   // ---- 起名:将领、名臣按出道先后(第一次领兵、入仕)一个个起 ----
   const book = new NameBook(rulers);
@@ -1069,7 +1086,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   }
 
   // ---- 世系:谁是谁的父亲,补上没即位的宗室(不和本国的君主、将领、名臣重名)----
-  const { princes, parentOf, debut } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons: sonsOf });
+  const { princes, parentOf, debut, descent } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons: sonsOf });
   // 据地争位的宗室和他立的国的开国之君并成一人:名字、父亲、早先领的兵都是做宗室时的(推到那一刻以前,他已经以宗室的身份在了)
   const merged = new Map<Person, Person>();
   // 摄政篡位的叔父同样并成一人(在本国,同一朝接着即位)
@@ -1254,6 +1271,19 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       delete holder.fate;
     }
   }
+  // 将门、世家连上父辈(kin.ts 起名以前定的):掌权的那几段改过卒年,他出生时父辈已经不在了的不连;篡位、并进新朝的名臣不算。
+  // 父辈后来改了名(和并成一人的开国之君撞名,见 renameClashes),孩子的姓跟着换(按出道先后,祖孙一路传下来)
+  const staff = new Set<Person>([...generals, ...ministers]);
+  const houses = [...houseG, ...houseM].filter(([x, f]) => staff.has(x) && staff.has(f) && x.born <= (f.died ?? Infinity));
+  const debutOf = (x: Person) => (x.role === 'general' ? x.commands![0].from : x.from!);
+  houses.sort((a, b) => debutOf(a[0]) - debutOf(b[0]));
+  for (const [x, f] of houses) {
+    parentOf.set(x, f);
+    if (!namerOf(styleOf(polities[x.polity])).surnamed) continue;
+    const sur = splitSurname(f.name);
+    const own = splitSurname(x.name);
+    if (own !== sur) x.name = sur + x.name.slice(own.length);
+  }
   // 编号按出道先后排(同一年:君主、将领、宗室、名臣),接着往后推时先出道的人编号不变
   // 即位以前就是先君诸子之一的君主(royals.ts 预定的继承人、据地争位的宗室、摄政篡位的叔父):按做儿子出道的那一刻、在父亲那一国排;
   // 篡位的名臣:按他入仕的那一刻(推到他即位以前,他已经以宗室、名臣的身份在了)
@@ -1282,6 +1312,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const list = all.map((e) => e.x);
     list.forEach((p, i) => (p.id = i));
     for (const [x, f] of parentOf) x.parent = f.id;
+    for (const [x, d] of descent) x.descent = { from: d.from.id, gen: d.gen };
     for (const [x, c] of claims) x.claim = { how: c.how, rivals: c.rivals.map((r) => r.id) };
     for (const [x, by] of rivalOf) x.rival = by.id;
     for (const [d, x] of fixups) d.person = x.id;

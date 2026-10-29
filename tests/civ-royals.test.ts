@@ -45,6 +45,8 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
           expect(k.from).toBe(father.until);
           continue;
         }
+        // 复国之君是末帝的儿子(接上故国世系,见 lineage.ts)
+        if (civ.polities[k.polity].restores === father.polity) continue;
         expect(k.polity).toBe(father.polity);
         expect(k.dynasty ?? 0).toBe(father.dynasty ?? 0);
         if (k.adopted) {

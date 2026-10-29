@@ -50,6 +50,8 @@ export interface CivDetailView extends PlaneToCanvas {
   ch: number;
   k: number;
   dpr: number;
+  /** 手绘风的色块不给地形符号让位(地形另外画、上面没有山符号时;地区图) */
+  noInk?: boolean;
 }
 
 /**
@@ -430,7 +432,8 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
   const S = raster.scale;
   const pen = detailPen(v.k, p.style);
   const t: DetailTiming = { wash: 0, lines: 0, ink: 0 };
-  const fantasy = p.style === 'fantasy';
+  // 手绘风的色块给符号让位(地区图的地形上没画符号,不让)
+  const inked = p.style === 'fantasy' && !v.noInk;
   let fl: WashFields | null = null;
   let ink: InkMask | null = null;
   let g: DetailGrid | null = null;
@@ -457,10 +460,10 @@ export function planCivDetail(p: CivDrawParams, v: CivDetailView, step: number, 
   const steps: WorkStep[] = [
     () => void (p.show.habitat && habitatCanvas(p)),
     timed('wash', () => void (fl = washFields(p, p.fast ? 2 : 1))),
-    timed('ink', (d) => (fl && fantasy ? inkCoarse(d) : false)),
-    timed('ink', (d) => (fl && fantasy ? inkFine(d) : false)),
+    timed('ink', (d) => (fl && inked ? inkCoarse(d) : false)),
+    timed('ink', (d) => (fl && inked ? inkFine(d) : false)),
     timed('ink', () => {
-      if (fl && fantasy) ink = cache.inks.get(step) ?? inkOf(cache, v, step, world);
+      if (fl && inked) ink = cache.inks.get(step) ?? inkOf(cache, v, step, world);
     }),
     timed('wash', () => {
       if (!fl) return;

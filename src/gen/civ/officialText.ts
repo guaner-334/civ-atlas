@@ -6,7 +6,8 @@
  * - ministerRole   "大景丞相"(国名按做到最高那个官那年的简称;在 peopleText.ts,这里转出)
  * - deedLine       一句为什么有名(人物页一行、名人的"事迹")
  * - ministerFate   卡片上"结局"一行
- * - personBio      一段生平(名臣、将领):籍贯字号、一级级的官、经手的事、结局。东方写得文一些("拜丞相""卒于任上"),西幻、共和国平实些
+ * - personBio      一段生平(名臣、将领):籍贯字号、(将门、世家的父辈)、一级级的官、经手的事、结局。东方写得文一些("拜丞相""卒于任上"),西幻、共和国平实些
+ * - houseNote / houseSentence  将门、世家:卡片上父辈、子嗣那一行的小字,生平开头那一句("其父某某，亦为名将。")
  *
  * 写年份的(personBio、ministerFate)多一个参数 era:年份照这个纪年写("公元前 850 年卒");不给 = "850 年卒"
  */
@@ -15,8 +16,9 @@ import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
 import { ageAt, ministerRole, personName, rulerTitle } from './peopleText';
 import { commandFoes, generalTally } from './peopleInfo';
-import { artName } from './officials';
-import { yearAt, type Era } from '../era';
+import { artName, postLadder } from './officials';
+import { childWord, kinWord } from './gender';
+import { yearAt, yearSpanAt, type Era } from '../era';
 
 const F = Math.floor;
 const clampTier = (t: number) => Math.max(0, Math.min(3, t));
@@ -50,6 +52,85 @@ export function topPost(x: Person): PersonPost | undefined {
 }
 
 export { ministerRole };
+
+/** 名臣做到了那时最高的那个官(丞相、首相……;已经有人在任时写的次一级不算) */
+function reachedTop(civ: Civ, x: Person): boolean {
+  const top = topPost(x);
+  const p = civ.polities[x.polity];
+  if (!top || !p) return false;
+  const lad = postLadder(p, 'minister', top.from);
+  return top.title === lad[lad.length - 1];
+}
+
+/** 将门、世家往上几代(父、祖、曾祖,同一种人;最多 3 位,近的在前) */
+function houseAncestors(civ: Civ, x: Person): Person[] {
+  const out: Person[] = [];
+  for (let a = x; out.length < 3 && a.parent !== undefined; ) {
+    const f = civ.people?.[a.parent];
+    if (!f || f.role !== x.role || out.includes(f)) break;
+    out.push(f);
+    a = f;
+  }
+  return out;
+}
+
+/**
+ * 将门、世家(kin.ts)的父辈、子嗣在卡片上那一行人名后面的小字:将领 "大定将领，攻取六州"(攻取几州、击退几次挑多的那样,
+ * 都没有、战死的写"战死");名臣 "哈兹斯坦首相，1321–1346 年在任"(做到最高的那个官、任期)。国名按他在任那几年的中间
+ */
+export function houseNote(civ: Civ, y: Person, era?: Era): string {
+  const p = civ.polities[y.polity];
+  if (!p) return '';
+  if (y.role === 'general') {
+    const cs = y.commands ?? [];
+    const mid = cs.length ? (cs[0].from + cs[cs.length - 1].until) / 2 : y.born;
+    const { took, held } = generalTally(civ, y);
+    const deed = took && took >= held ? `攻取${cnNumber(took)}州` : held ? `击退来攻${cnNumber(held)}次` : y.fate === 'battle' ? '战死' : '';
+    return `${shortName(p, mid) || polityName(p, mid)}将领${deed ? `，${deed}` : ''}`;
+  }
+  const top = topPost(y);
+  if (!top) return `${shortName(p, y.from ?? y.born) || polityName(p, y.from ?? y.born)}大臣`;
+  const span = y.until !== undefined ? yearSpanAt(top.from, y.until, era) : `${yearAt(top.from, era)}起`;
+  return `${shortName(p, top.from) || polityName(p, top.from)}${top.title}，${span}在任`;
+}
+
+/**
+ * 将门、世家写在生平开头的那一句(女的父辈写"其母""祖母"):
+ * 将领 "其父谭佑，亦为名将。""祖父谭佑、父谭慎皆为名将，祖孙三代为将。";
+ * 名臣 父子都做到最高的官 "其父哈西姆亦曾任首相，父子相继为相。",不然 "其父某某亦仕于朝，官至户部尚书。";
+ * 三代 "祖父某某、父某某皆仕于朝，祖孙三代为官。"(三代都做到最高的官 "皆居相位，祖孙三代为相");四代以上 "曾祖父…一门四代为将"。
+ * 没有父辈 = ''
+ */
+export function houseSentence(civ: Civ, x: Person): string {
+  if (x.role !== 'general' && x.role !== 'minister') return '';
+  const up = houseAncestors(civ, x);
+  if (!up.length) return '';
+  const general = x.role === 'general';
+  const f = up[0];
+  if (up.length === 1) {
+    const who = `其${kinWord(f, '父')}${f.name}`;
+    if (general) return `${who}，亦为名将。`;
+    const top = topPost(f);
+    if (top && reachedTop(civ, f) && reachedTop(civ, x)) return `${who}亦曾任${top.title}，${kinWord(f, '父')}${childWord(x)}相继为相。`;
+    return top ? `${who}亦仕于朝，官至${top.title}。` : `${who}亦仕于朝。`;
+  }
+  const words = ['父', '祖父', '曾祖父'];
+  const names = up
+    .map((a, i) => `${kinWord(a, words[i])}${a.name}`)
+    .reverse()
+    .join('、');
+  // 一共几代(往上数到头,不止三位的也算上)
+  let n = 1;
+  for (let a: Person | undefined = x; a?.parent !== undefined && civ.people?.[a.parent]?.role === x.role; a = civ.people?.[a.parent]) n++;
+  const gens = n === 3 ? '祖孙三代' : `一门${cnNumber(n)}代`;
+  if (general) return `${names}皆为名将，${gens}为将。`;
+  return [x, ...up].every((a) => reachedTop(civ, a)) ? `${names}皆居相位，${gens}为相。` : `${names}皆仕于朝，${gens}为官。`;
+}
+
+/** 生平里写到的将门、世家的父辈(卡片上点得开) */
+export function houseMentions(civ: Civ, x: Person): Person[] {
+  return x.role === 'general' || x.role === 'minister' ? houseAncestors(civ, x) : [];
+}
 
 /** 议和时这场战争里本国净得、失了几州(和编年史"议和,得某州等五州"同一个算法:每一州最早的原主、最后是谁打下来的) */
 function peaceSwing(civ: Civ, idx: number, polity: number): { got: number; lost: number } {
@@ -360,7 +441,7 @@ function ministerBio(civ: Civ, x: Person, era?: Era): string {
     if (top && until - top.from >= 10) sentences.push(east ? `居${top.title}之位 ${F(until) - F(top.from)} 年，${shortName(p, top.from)}中无大事` : `任${top.title} ${F(until) - F(top.from)} 年，国中太平`);
   }
   sentences.push(ministerEnd(civ, x, east, era));
-  return opening(civ, x, east) + sentences.join('。') + '。';
+  return opening(civ, x, east) + houseSentence(civ, x) + sentences.join('。') + '。';
 }
 
 /** 将领的生平:从军、伐谁抗谁、攻下几州守住几次、一路升到什么官、结局 */
@@ -370,7 +451,7 @@ function generalBio(civ: Civ, x: Person, era?: Era): string {
   const east = !!p.eastern && p.lineage !== 'khanate';
   const posts = x.posts ?? [];
   const cs = x.commands ?? [];
-  if (!cs.length) return opening(civ, x, east);
+  if (!cs.length) return opening(civ, x, east) + houseSentence(civ, x);
   const out: string[] = [];
   const first = posts[0];
   out.push(east ? `${yearAt(cs[0].from, era)}以${first?.title ?? '将'}领兵` : `${yearAt(cs[0].from, era)}以${first?.title ?? '将领'}身份领兵`);
@@ -384,5 +465,5 @@ function generalBio(civ: Civ, x: Person, era?: Era): string {
   const age = x.died !== undefined ? ageAt(x, x.died) : 0;
   if (x.fate === 'battle' && x.died !== undefined) out.push(east ? `${yearAt(x.died, era)}战死，时年 ${age} 岁` : `${yearAt(x.died, era)}阵亡，时年 ${age} 岁`);
   else if (x.died !== undefined) out.push(x.died - last >= 1 ? (east ? `后卸甲归乡，${yearAt(x.died, era)}卒，享年 ${age} 岁` : `后解甲归乡，${yearAt(x.died, era)}去世，享年 ${age} 岁`) : east ? `${yearAt(x.died, era)}卒于军中` : `${yearAt(x.died, era)}死于军中`);
-  return opening(civ, x, east) + out.join('。') + '。';
+  return opening(civ, x, east) + houseSentence(civ, x) + out.join('。') + '。';
 }

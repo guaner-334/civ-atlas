@@ -10,6 +10,14 @@
  * 都不行、他比前一位小 14 岁以上的,算前一位过继的养子(Person.adopted);再不行就不连(宗室远支)。
  * 君主的诸子、养子(royals.ts 排好的,opts.sons)先挂在父亲下面,侄、从兄弟也可能是这些人的儿子;他们的名字也在这里起。
  * 补出来的人是 role = 'prince' 的人物(只有国家、朝代、名字、生卒、父亲);编号按"为了哪一位君主即位补的"那一刻排(people.ts)。
+ *
+ * **复国之君接上故国世系**:复国的第一位(rise = 'restore')在故国末代那一朝里找一位能做他祖上的人(末帝、末帝的诸子、
+ * 那一朝别的君主和宗室),中间至多补 RESTORE_LINKS − 1 代没即位的宗室(故国的人,补的父辈都在他复国以前去世),
+ * 隔的代数最少的优先,一样少的先挑末帝那一支、再挑年纪近的;他就是末帝的儿子也行(不用补人)。
+ * 隔得太远、几代接不上的(亡国一两百年以后才复国的):补一位故国宗室当他的父亲,这一支算宗室远支,
+ * "出自"照年纪差记成末帝的几世孙(Person.descent)。故国是共和国(没有王室)的不接。
+ * 补出来的宗室在故国的世系图里;复国之君挂在父亲下面(他自己那一国的树里,树顶画出故国这几代,见 lineageInfo.ts)。
+ *
  * 只往前看:每一位的父亲只取决于他和他之前的君主;补出来的宗室的生卒、名字只看补他的那一刻以前的人 ——
  * 干预某年之前、接着往后推,那时的世系都不变。不用随机数,名字按位置锚取(和君主、将领同一个起名器)。
  * 纯计算,不碰 DOM。
@@ -30,6 +38,13 @@ const FOUNDER_FATHER_AGE = 30;
 const PRINCE_NAME_TRIES = 120;
 /** 用满了以后:至少和前后这么多年里出生的同名人物错开(同 people.ts) */
 const NAME_GAP = 300;
+/** 复国之君接上故国世系:从找到的祖上到他至多隔几代(补的宗室 = 这个数 − 1);补的那几代父子之间差多少岁 */
+const RESTORE_LINKS = 3;
+const RESTORE_GAP: [number, number] = [18, 45];
+/** 补的宗室最多活到多少岁(都在复国以前去世);远支的父亲比他大多少岁;远支照年纪差折几世孙时一代算多少年 */
+const RESTORE_LIFE = 64;
+const DISTANT_FATHER = 30;
+const DISTANT_GEN = 30;
 
 const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
@@ -45,6 +60,8 @@ interface Node {
   debut?: Year;
   /** 补出来的先后(起名排序用) */
   order?: number;
+  /** 复国之君接上故国补出来的宗室:随这位君主的姓(故国末代的姓) */
+  sur?: Person;
 }
 
 export interface LineageNamer {
@@ -69,10 +86,22 @@ export function buildLineage(
     /** 君主的诸子(royals.ts;没即位的在这里起名、算进返回的宗室,出道那一刻 = Son.debut) */
     sons?: ReadonlyMap<Person, readonly Son[]>;
   },
-): { princes: Person[]; parentOf: Map<Person, Person>; debut: Map<Person, Year> } {
+): { princes: Person[]; parentOf: Map<Person, Person>; debut: Map<Person, Year>; descent: Map<Person, { from: Person; gen: number }> } {
   const princes: Person[] = [];
   const parentOf = new Map<Person, Person>();
   const debut = new Map<Person, Year>();
+  /** 复国之君 → 出自故国哪位君主、隔几代 */
+  const descent = new Map<Person, { from: Person; gen: number }>();
+  /** 故国 → 复它的国家 */
+  const restorers = new Map<number, Polity[]>();
+  for (const P of polities) {
+    if (P.restores === undefined) continue;
+    const l = restorers.get(P.restores);
+    if (l) l.push(P);
+    else restorers.set(P.restores, [P]);
+  }
+  /** 复国之君(接好了故国的父辈)→ 他那个节点:排他自己那一国时接着用,继位的兄弟、侄子照样能连到这位父辈下面 */
+  const restored = new Map<Person, Node>();
   /** 各国的将领、名臣:出道那年 + 名字 */
   const generalNames: [Year, string, Year][][] = polities.map(() => []);
   for (const g of generals) generalNames[g.polity]?.push([g.commands?.[0]?.from ?? g.from ?? g.born, g.name, g.born]);
@@ -113,7 +142,7 @@ export function buildLineage(
     const sonOf = new Map<Person, Node>();
     for (let k = 0; k < list.length; k++) {
       const r = list[k];
-      const X: Node = { p: r, born: r.born, died: r.died ?? Infinity, kids: [] };
+      const X: Node = restored.get(r) ?? { p: r, born: r.born, died: r.died ?? Infinity, kids: [] };
       nodes.set(r, X);
       // 他的诸子先挂上(即位了的那一个等他即位时再挂)
       for (const s of opts.sons?.get(r) ?? []) {
@@ -168,6 +197,75 @@ export function buildLineage(
         r.adopted = true;
       }
     }
+    // 复这一国的复国之君:接到末代那一朝的人下面(中间补几代宗室);接不上的补一位父亲,算宗室远支
+    const L = list[list.length - 1];
+    for (const P of restorers.get(p.id) ?? []) {
+      const F = rulers[P.id]?.[0];
+      if (!L || L.author !== undefined || !F || F.rise !== 'restore' || F.author !== undefined) continue;
+      const lastDyn = L.dynasty ?? 0;
+      const at = F.from ?? F.born;
+      const FN: Node = { p: F, born: F.born, died: F.died ?? Infinity, kids: [] };
+      /** 从 A 接到他要几代(接不上 = Infinity):父子差的岁数在范围里、A 生下一代时还在世 */
+      const links = (A: Node): number => {
+        const D = F.born - A.born;
+        for (let s = 1; s <= RESTORE_LINKS; s++) {
+          const g = D / s;
+          const lo = s === 1 ? GEN_AGE[0] : RESTORE_GAP[0];
+          const hi = s === 1 ? GEN_AGE[1] : RESTORE_GAP[1];
+          if (g < lo) break;
+          if (g > hi || A.born + g > A.died + POSTHUMOUS) continue;
+          return s;
+        }
+        return Infinity;
+      };
+      const fromL = (A: Node) => {
+        for (let d: Node | undefined = A; d; d = d.parent) if (d.p === L) return true;
+        return false;
+      };
+      let best: Node | undefined;
+      let bestS = Infinity;
+      for (const A of [...nodes.values(), ...mine]) {
+        if ((A.p.dynasty ?? 0) !== lastDyn || A.p.polity !== p.id || A.debut! > at) continue;
+        const s = links(A);
+        if (s === Infinity) continue;
+        const better = !best || s < bestS || (s === bestS && (fromL(A) !== fromL(best) ? fromL(A) : A.born > best.born));
+        if (better) {
+          best = A;
+          bestS = s;
+        }
+      }
+      /** 补一位宗室(故国的人,在复国以前去世),child 是他的孩子 */
+      const bridge = (born: Year, child: Node): Node => {
+        const m = prince(born, Math.max(child.born, Math.min(at - 1, born + RESTORE_LIFE)), lastDyn, at);
+        m.sur = L;
+        adopt(m, child);
+        return m;
+      };
+      if (best) {
+        let child = FN;
+        const D = F.born - best.born;
+        for (let i = bestS - 1; i >= 1; i--) child = bridge(best.born + (i * D) / bestS, child);
+        adopt(best, child);
+        // 出自:往上数到第一位故国的君主
+        let gen = 0;
+        for (let d: Node | undefined = FN; d; d = d.parent, gen++) {
+          if (d !== FN && d.p.role === 'ruler' && d.p.polity === p.id) {
+            descent.set(F, { from: d.p, gen });
+            break;
+          }
+        }
+      } else {
+        // 远支:补一位父亲;照年纪差记成末帝的几世孙(差得不够几代的不记)
+        bridge(F.born - DISTANT_FATHER, FN);
+        const D = F.born - L.born;
+        if (D >= (RESTORE_LINKS + 1) * RESTORE_GAP[0]) {
+          const gen = Math.max(RESTORE_LINKS + 1, Math.min(Math.floor(D / RESTORE_GAP[0]), Math.max(Math.ceil(D / RESTORE_GAP[1]), Math.round(D / DISTANT_GEN))));
+          descent.set(F, { from: L, gen });
+        }
+      }
+      parentOf.set(F, FN.parent!.p);
+      restored.set(F, FN);
+    }
     // 宗室的名字:东方中式 = 本朝的姓 + 名;不和出道那一刻这国已有的君主、将领、名臣、先出道的宗室(连同预定的继承人)同名
     // (按出道的先后起;出道一样早的按补出来的先后)。预定的继承人(royals.ts)名字已经起好,不改
     const namer = opts.namerOf(p);
@@ -210,8 +308,9 @@ export function buildLineage(
         return;
       }
       const i = named++;
-      let r: Person | undefined;
-      for (let d: Node | undefined = n; d && !r; d = d.kids.find((c) => c.p.role === 'ruler') ?? d.kids[0]) if (d.p.role === 'ruler') r = d.p;
+      let r: Person | undefined = n.sur;
+      // (复国之君是别国的君主,不随他的姓)
+      for (let d: Node | undefined = n; d && !r; d = d.kids.find((c) => c.p.role === 'ruler') ?? d.kids[0]) if (d.p.role === 'ruler' && d.p.polity === p.id) r = d.p;
       // 没有即位的子孙(君主的诸子):随父亲的姓
       for (let d = n.parent; d && !r; d = d.parent) if (d.p.role === 'ruler') r = d.p;
       const sur = namer.surnamed && r ? opts.surnameOf(r) : '';
@@ -231,5 +330,5 @@ export function buildLineage(
     for (const n of [...nodes.values(), ...mine]) if (n.parent) parentOf.set(n.p, n.parent.p);
     princes.push(...mine.map((n) => n.p));
   }
-  return { princes, parentOf, debut };
+  return { princes, parentOf, debut, descent };
 }
