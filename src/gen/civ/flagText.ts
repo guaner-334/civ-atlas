@@ -73,7 +73,9 @@ export function flagRows(civ: Civ, book: FlagBook, id: number, e: FlagEra): Flag
   const prior = w.prior !== undefined ? book.eras[id]?.[w.prior] : undefined;
   if (w.reform && prior && (w.reform === 'keep' || w.reform === 'restore')) {
     const rows = flagRows(civ, book, id, prior);
-    return w.reform === 'restore' ? [{ k: '复辟', v: `用回${yearWord(e.year)}以前的那面旗（${formerName(civ, id, e.year)}时的旗）` }, ...rows] : rows;
+    // 复辟:用回改制那一年(这一面之后的第一段共和)以前的那面
+    const since = book.eras[id]?.[w.prior! + 1]?.year ?? e.year;
+    return w.reform === 'restore' ? [{ k: '复辟', v: `用回 ${yearWord(since)}以前的那面旗（${formerName(civ, id, since)}时的旗）` }, ...rows] : rows;
   }
   if (w.reform === 'republic' && prior) {
     const y = yearWord(e.year);
@@ -82,14 +84,18 @@ export function flagRows(civ: Civ, book: FlagBook, id: number, e: FlagEra): Flag
       const rows: FlagRow[] = [{ k: '底色', v: `${de >= 0 ? `${tName(s.c[0])}，${DE[de]}德` : colorWord(s.c[0])}（沿用改制前这一朝的${de >= 0 ? '德' : '颜色'}）`, sw: [s.c[0]] }];
       if (s.mark) rows.push({ k: MARK_NAME[s.mark], v: `${colorWord(s.edge ?? 'Y')}，${prior.spec.mark === s.mark ? '沿用改制前的纹样' : '共和以后神兽换成纹样'}` });
       if (s.shape === 'rect' && prior.spec.shape === 'banner') rows.push({ k: '方旗', v: '去掉犬牙边：牙旗是军旗、将旗，共和以后不用' });
+      if (s.trim) rows.push({ k: '镶边', v: `${colorWord(s.trim)}，沿用改制前那面旗的镶边` });
       return rows;
     }
     const rows: FlagRow[] = [{ k: '颜色', v: `${joinNames(s.c)}，${cu}人的颜色（${formerName(civ, id, e.year, true)}时就是这${NUM[Math.min(3, uniq(prior.spec.c).length)] || '几'}色）`, sw: uniq(s.c).slice(0, 3) }];
     rows.push({ k: LAYOUT_NAME[s.layout], v: `共和国常用的样式（${y}改共和时换的，以前是${LAYOUT_NAME[prior.spec.layout]}）` });
     if (s.charge) {
-      const city = civ.settlements[w.city]?.name ?? '';
+      // 留着的图案照改制前那面讲(王室兴起的城);王冠、剑这类换掉的照国都讲
       const kept = prior.spec.charge?.sym === s.charge.sym;
-      rows.push({ k: SYM_NAME[s.charge.sym], v: `国都${city}是一座${SEAT_WORD[w.seat]}（${kept ? '城的图案改共和时留着' : '王室的图案改共和时拿掉了，换成这座城的'}）` });
+      const v = kept
+        ? `${seatText(civ, prior, `${dynName(civ, id, prior.dyn)}王室`)}（城的图案改共和时留着）`
+        : `国都${civ.settlements[w.city]?.name ?? ''}是一座${SEAT_WORD[w.seat]}（王室的图案改共和时拿掉了，换成这座城的）`;
+      rows.push({ k: SYM_NAME[s.charge.sym], v });
     }
     return rows;
   }
