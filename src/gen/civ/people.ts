@@ -29,6 +29,8 @@
  *   royals.ts 的 march);宗室摄政 = 幼主的叔父(日后要摄政的不战死、不卷进争储;篡位了就和接着即位的那位并成一人);
  *   名臣辅政、大臣专权 = 专门起的一位名臣(officials.ts;篡位了和新朝第一位并成一人,编号排在他做名臣时的位置);
  *   大将专权 = 那时本国战功最多的将领(没有就由一位大臣顶上)。有人掌着实权的那几年,名义君主不亲征。
+ *   作者下令"让作者的人物掌权"的(干预带 char):每国每位作者的人物添一位(Person.author = 人物编号,role minister,
+ *   名字空着、由界面按人物卡填,生年照干预,不写卒年;入仕 = 头一回掌权、去职 = 掌权了结),这几段都记成大臣专权。
  * **联姻**(marriages.ts):娶亲的人记上配偶(宗室女只记一行:出自哪国、父亲、"某氏"),娶亲以后生的儿子记上母亲;要结亲的宗室结亲以前不战死。
  *
  * 随机数一律 keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位, 用途, 种类):国家的位置锚 = 立国时国都的地块
@@ -44,7 +46,7 @@ import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
 import { HEIR_WEIGHT, PRINCE_AGE, PRINCE_LEAD, buildSons, contest, march, murderedAt, type Son } from './royals';
 import { buildOfficials, type ForcedRegent } from './officials';
-import { RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP, regencyBase, regentsFrom, type Regency, type RegencyCtx } from './regents';
+import { RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP, regencyBase, regentsFrom, type AuthorRegentIv, type Regency, type RegencyCtx } from './regents';
 import { GROOM_SELF, matchesFrom } from './marriages';
 import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, fallFate, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
@@ -883,7 +885,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           }
         },
       });
-    } else if (g.kind === 'general') {
+    } else if (g.kind === 'general' && !authorRegentOf(civ, g)) {
       // 作者下令"让他掌权"的将领:就是人物键里的那位(按生年认;名字这时还没起);推演里自己出的:本国战功最多的那位
       const iv = g.iv !== undefined ? civ.interventions?.[g.iv] : undefined;
       const who = iv?.kind === 'regent' ? parsePersonKey(iv.person) : null;
@@ -1073,10 +1075,29 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   // 掌实权的那一段挂到人身上:引兵入朝、太子监国 = 预定的继承人;宗室摄政 = 叔父;名臣辅政、大臣专权 = 专门起的那位名臣(篡位了 = 新朝的第一位);
   // 大将专权 = 那位将领(没有合适的将领 = 顶上的那位大臣,记成大臣专权)
   const segs: [PersonRegency, Person][] = [];
+  /** 作者的人物掌权(干预"让他掌权"带 char):每国每位作者的人物一位(国家:人物编号 → 他),出道 = 头一回掌权那一刻 */
+  const authors = new Map<string, { x: Person; T: Year }>();
   for (const s of spans) {
     const { g } = s;
     let kind: PersonRegency['kind'] = g.kind;
     let holder: Person | undefined;
+    const av = authorRegentOf(civ, g);
+    if (av) {
+      // 名字空着(界面按人物卡填,gen/characters.ts 的 applyCharacters)、不写卒年(生死归人物卡);眼下都按名臣的身份(大臣专权)
+      const key = `${s.pid}:${av.char}`;
+      let A = authors.get(key);
+      if (!A) authors.set(key, (A = { x: { id: -1, role: 'minister', polity: s.pid, name: '', born: av.born, from: g.start, dynasty: g.dyn, author: av.char }, T: g.start }));
+      const seg: PersonRegency = { kind: 'chancellor', from: s.from, ruler: -1, annal: g.annal };
+      if (s.until !== undefined) seg.until = s.until;
+      if (s.end) seg.end = s.end;
+      if (s.endAnnal !== undefined) seg.endAnnal = s.endAnnal;
+      // 掌权了结就去职(还掌着权 = 在朝)
+      if (s.until !== undefined) A.x.until = s.until;
+      else delete A.x.until;
+      (A.x.regencies ??= []).push(seg);
+      segs.push([seg, s.N]);
+      continue;
+    }
     if (g.kind === 'march' || g.kind === 'heir') holder = sonsOf.get(s.N)?.find((x) => x.heirAt !== undefined)?.p;
     else if (g.iv !== undefined && (g.kind === 'chancellor' || g.kind === 'general')) {
       // 作者下令"让他掌权"的名臣、将领:按人物键认(国家、生年、名字;名字对不上的按生年)
@@ -1136,6 +1157,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     ...generals.map((x) => ({ x, T: x.commands![0].from, r: 1, pid: x.polity })),
     ...princes.map((x) => ({ x, T: debut.get(x)!, r: 2, pid: x.polity })),
     ...ministers.map((x) => ({ x, T: x.from!, r: 3, pid: x.polity })),
+    ...[...authors.values()].map(({ x, T }) => ({ x, T, r: 3, pid: x.polity })),
   ].map((e, k) => ({ ...e, k }));
   // 同一刻出道的宗室(一位君主即位时已经出生的几个儿子)按长幼
   all.sort((a, b) => a.T - b.T || a.r - b.r || a.pid - b.pid || (a.r === 2 ? a.x.born - b.x.born : 0) || a.k - b.k);
@@ -1448,4 +1470,10 @@ function warsOf(civ: PeopleInput): WarFacts[] {
     }
   });
   return wars;
+}
+
+/** 掌权的一段是作者下令"让作者的人物掌权"来的(干预带 char):那一条干预;别的 = null */
+function authorRegentOf(civ: PeopleInput, g: Regency): AuthorRegentIv | null {
+  const v = g.iv !== undefined ? civ.interventions?.[g.iv] : undefined;
+  return v?.kind === 'regent' && v.char !== undefined ? v : null;
 }
