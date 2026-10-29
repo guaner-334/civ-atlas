@@ -13,7 +13,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { END_YEAR_MAX } from '../gen/edits';
 import { yearFull, type Era } from '../gen/era';
-import { getEdits, useEra } from './editsStore';
+import { getEdits, useEra, useMonthNames, useMonths } from './editsStore';
+import { momentFull } from './stepTime';
 import {
   EXTEND_PRESETS,
   durationText,
@@ -33,6 +34,14 @@ import { Icon } from './icons';
 import './extend.css';
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+
+/** 推到的那一刻怎么写:推到一年中间的写到月("第 1549 年 9 月",起了名字的写名字),正好在年初的只写年 */
+function useMoment(): (y: number) => string {
+  const era = useEra();
+  const months = useMonths();
+  const names = useMonthNames();
+  return (y) => momentFull(y, months, era, names, false);
+}
 
 /** 推的时候说到哪了:"正在推,到第 3240 年" / 推演推完、还在收尾 / 有地形大事从第 0 年重推 / 还没回报 */
 export function busyNote(b: ExtendBusy, era: Era | undefined, phone = false): ReactNode {
@@ -197,13 +206,13 @@ function OwnRow({ end, text, over, onType, phone }: { end: number; text: string;
 
 /** 底下那一格:推到第几年、大约多久、推的时候怎样、时间轴怎么变 */
 function Result({ end, years, plan, phone }: { end: number; years: number | null; plan: ReturnType<typeof extendPlan> | null; phone?: boolean }) {
-  const era = useEra();
+  const moment = useMoment();
   const slow = !!getEdits().upheavals?.length;
   const ms = !phone && plan ? extendMs(end, plan.to - end, slow) : null;
   return (
     <div className="xt-res">
       <div className="xt-res-top">
-        {plan ? <b>推到{yearFull(plan.to, era)}</b> : <b className="dim">填上要再推几年</b>}
+        {plan ? <b>推到{moment(plan.to)}</b> : <b className="dim">填上要再推几年</b>}
         <span className="xt-sp" />
         {ms !== null && years && <em>这台电脑{durationText(ms)}</em>}
       </div>
@@ -233,7 +242,7 @@ const POP_RIGHT = 55;
 const POP_GAP = 10;
 
 function PopBody({ end }: { end: number }) {
-  const era = useEra();
+  const moment = useMoment();
   const f = useForm(end);
   const ref = useRef<HTMLDivElement>(null);
   useKeys(true, f.go);
@@ -267,9 +276,9 @@ function PopBody({ end }: { end: number }) {
       <div className="xt-head">
         <h3>再推几年</h3>
         <span className="xt-sp" />
-        <em>现在推到{yearFull(end, era)}</em>
+        <em>现在推到{moment(end)}</em>
       </div>
-      <div className="xt-lead">从{yearFull(end, era)}接着往后推：前面的历史一点不变，只往后长。</div>
+      <div className="xt-lead">从{moment(end)}接着往后推：前面的历史一点不变，只往后长。</div>
       <Seg pick={f.x.pick} onPick={f.pick} />
       {f.x.pick === 'own' && <OwnRow end={end} text={f.text} over={over} onType={f.type} />}
       <Result end={end} years={f.years} plan={f.plan} />
@@ -295,7 +304,7 @@ export function ExtendSheet({ end, hidden }: { end: number; hidden?: boolean }) 
 }
 
 function SheetBody({ end }: { end: number }) {
-  const era = useEra();
+  const moment = useMoment();
   const f = useForm(end);
   useKeys(true, f.go);
   useOutside(true, '.xt-sheet');
@@ -321,7 +330,7 @@ function SheetBody({ end }: { end: number }) {
         <div className="xt-head">
           <h3>再推几年</h3>
           <span className="xt-sp" />
-          <em>现在推到{yearFull(end, era)}</em>
+          <em>现在推到{moment(end)}</em>
         </div>
         <div className="xt-lead">接着往后推：前面的历史一点不变，只往后长。</div>
       </div>
