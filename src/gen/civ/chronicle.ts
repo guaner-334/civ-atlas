@@ -105,10 +105,13 @@ import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './disp
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
+import { practicesAt } from './practiceInfo';
+import { Practice, hasPractice } from './practices';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
 import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../era';
-import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { IV_NO_WAY } from './trekRoute';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from './rulers';
 import { personNamers } from './naming';
@@ -1004,6 +1007,9 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       return marryStory(civ, e, v, A, fail, done);
     case 'disaster':
       return disasterStory(civ, e, v, A, R, fail, done);
+    case 'trek':
+    case 'stay':
+      return trekStory(civ, e, v, next()?.kind === 'trek' ? next() : undefined, fail, done);
     case 'move': {
       const city = cityName(civ, e.settlement);
       if (!city) return fail(`${A}欲迁都,然其城尚未建起`, '那一年还没有这座城');
@@ -1263,6 +1269,27 @@ function waitStory(civ: Civ, e: Annal, who: string, A: string, fail: Say, done: 
   if (p?.ended !== undefined && p.ended <= cur.until) return fail(`欲立${who}继${curName}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
   const how = cur.fate === 'deposed' || cur.fate === 'overthrown' ? '被废(改朝换代)' : cur.fate === 'yielded' ? '让位' : '下台';
   return fail(`欲立${who}继${curName}为${A}之主,然${curName}${how},未及即位`, `${curName} ${Math.floor(cur.until)} 年${how},没等到${heOrShe(cur)}下台`);
+}
+
+/**
+ * 大迁徙:"【干预】克拉尔族一支举族西徙,往瑶渊之野"(经过、结局另有大迁徙那一条大事);走不成的"欲令克拉尔族徙往瑶渊之野,然陆路不通"。
+ * 不许迁:"【干预】克拉尔族自此安居故土,不复远徙,至第 2100 年"。民族在 Annal.n;动身紧跟着记 trek n = 0(go)
+ */
+function trekStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'trek' | 'stay' }>, go: Annal | undefined, fail: Say, done: Done): IvStory {
+  const F = e.n !== undefined && e.n >= 0 ? cn(civ, e.n) : '其族';
+  if (v.kind === 'stay') {
+    if (e.b === -3) return fail(`欲令${F}安居故土,然${F}已不在`, `那一年${F}已消亡`);
+    const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
+    return done(`${F}自此安居故土,不复远徙${until}`);
+  }
+  const to = v.to !== undefined ? regionName(civ, regionOfKey(v.to, keyCells(civ.regions))) : '';
+  if (e.b === -3) return fail(`欲令${F}远徙,然${F}已不在`, `那一年${F}已消亡`);
+  if (e.b === IV_NO_WAY) {
+    return to ? fail(`欲令${F}徙往${to},然陆路不通`, `陆路走不到${to}`) : fail(`欲令${F}远徙,然无地可往`, '走得到的地方里没有能去的(有城、不是本族的州)');
+  }
+  const M = go ? civ.migrations?.[go.war] : undefined;
+  const dest = regionName(civ, e.region) || to;
+  return done(`${F}一支举族${M ? `${M.dir}徙` : '远徙'}${dest ? `,往${dest}` : ''}`);
 }
 
 /** 天灾:"【干预】星邑大疫,死者十之五""【干预】有桑皇朝大饥,民多饿死,死者十之三""【干预】翼门之野一带地震,城郭多圮,死者十之三" */
@@ -2953,6 +2980,9 @@ function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
  * "大渭太宗削藩,收回割据四十年的瑞州" / "大渭边地难制,群臣请分封瑞州等边州,太宗不许"(西幻:贵族、领主,写得平实些);
  * 第二批:"大渭太宗收诸将兵权,精兵尽隶禁军" / "大渭议行铨选,瑞州等地豪族力阻,改为铨选、荐举各半" /
  * "大渭太宗分瑞州之镇,守将所领诸州尽归朝廷,只留瑞州一州" / "大渭瑞州守将举所领诸州归附大燕,朝廷不能制"
+ * 有了时代做法(practices.ts)以后同一件事换个说法,不另加条目:一国头一回直征、收兵权(禁军)、收任免(铨选)办成,
+ * 写"编定户籍,改由官吏按户征税""始置常备之军……不复征发于州郡""始行考选,州县之官由朝廷选授"(推演里这几件要有了户籍、
+ * 常备军、文官考选才办得成);国都进了火药时代以后改土归流、罢边镇办成,这国以后再没分封、设边镇的,写"分封之制遂废""边镇之制遂废"
  */
 function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string {
   const y = e.year;
@@ -3001,6 +3031,7 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
       // 直征:国用不足才议的(cause = broke),不然是君主锐意兴革
       const head = e.cause === 'broke' ? `${A}${east ? '国用不足' : '国库空虚'},${bare}` : who ? `${ref}${east ? '锐意兴革,' : '有意革新,'}` : A;
       const foes = `${r}等地${east ? '豪族' : '贵族'}力阻`;
+      if (out === 0 && firstDone(civ, id)) return east ? `${head}编定户籍,改由官吏按户征税,遣官至${r}等地` : `${head}编定户籍,改由王室官吏按户征税,派员前往${r}等地`;
       if (out === 0) return east ? `${head}行直征之法,遣官至${r}等地自收赋税` : `${head}改由王室官吏直接征税,派员前往${r}等地`;
       if (out === 1) return east ? `${head}议行直征,${foes},改与地方分成` : `${head}议由王室直接征税,${foes},改为与地方分成`;
       if (out === 3) return east ? `${head}强行直征,${r}${lord}拒不奉诏` : `${head}强推直接征税,${r}${lord}拒不从命`;
@@ -3008,6 +3039,7 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
     }
     case 3: {
       // 改土归流
+      if (out === 0 && lastOfKind(civ, id)) return east ? `${ref}改土归流,${r}等边州归朝廷直辖,分封之制遂废` : `${ref}收回边地封授,${r}等地归王室直辖,分封之制就此废止`;
       if (out === 0) return east ? `${ref}改土归流,${r}等边州归朝廷直辖` : `${ref}收回边地封授,${r}等地归王室直辖`;
       if (out === 3) return east ? `${ref}改土归流,${r}${lord}拒不奉诏` : `${ref}收回边地封授,${r}${lord}拒不从命`;
       return east ? `${A}议改土归流,${r}等地土官力阻,事寝` : `${A}议收回边地封授,${r}等地领主力阻,作罢`;
@@ -3020,10 +3052,12 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
     case 5: {
       // 收兵权:设了边镇的是罢边镇
       if (before(civ, id).army < 0) {
+        if (out === 0 && lastOfKind(civ, id)) return east ? `${ref}罢边镇,${r}等地兵归朝廷,边镇之制遂废` : `${ref}撤销边境军镇,${r}等地兵马重归王室调遣,军镇之制就此废止`;
         if (out === 0) return east ? `${ref}罢边镇,${r}等地兵马归朝廷节制` : `${ref}撤销边境军镇,${r}等地兵马重归王室调遣`;
         if (out === 3) return east ? `${ref}罢边镇,${r}${lord}拥兵不受代` : `${ref}撤销边境军镇,${r}${lord}拥兵抗命`;
         return east ? `${A}议罢边镇,${r}等地边将力阻,事寝` : `${A}议撤销边境军镇,${r}等地将领力阻,作罢`;
       }
+      if (out === 0 && firstDone(civ, id)) return east ? `${ref}始置常备之军,收诸将兵权,不复征发于州郡` : `${ref}始置常备之军,收回各地领主的兵权,不复征发于州郡`;
       if (out === 0) return east ? `${ref}收诸将兵权,精兵尽隶禁军` : `${ref}收回各地领主的兵权,组建王室常备军`;
       if (out === 1) return east ? `${A}议收兵权,${r}等地守将力阻,改遣监军` : `${A}议收回各地兵权,${r}等地领主力阻,改为派员监军`;
       if (out === 3) return east ? `${ref}欲收兵权,${r}${lord}拥兵抗命` : `${ref}要收回兵权,${r}${lord}举兵抗命`;
@@ -3045,6 +3079,7 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
         if (out === 3) return east ? `${ref}收辟署之权,${r}豪族据城抗命` : `${ref}收回地方自选官员之权,${r}贵族据城抗命`;
         return east ? `${A}议收辟署之权,${r}等地豪族力阻,事寝` : `${A}议收回地方自选官员之权,${r}等地贵族力阻,作罢`;
       }
+      if (out === 0 && firstDone(civ, id)) return east ? `${ref}始行考选,州县之官由朝廷选授,${r}等地长吏不复由豪族世守` : `${ref}始行考选,州县之官由王室选授,${r}等地不再由贵族把持`;
       if (out === 0) return east ? `${ref}行铨选之法,${r}等地长吏皆由朝廷选派` : `${ref}改由王室任命各地官员,${r}等地不再由贵族把持`;
       if (out === 1) return east ? `${A}议行铨选,${r}等地豪族力阻,改为铨选、荐举各半` : `${A}议由王室任命各地官员,${r}等地贵族力阻,改为王室和贵族各任一半`;
       if (out === 3) return east ? `${ref}强行铨选,${r}豪族据城抗命` : `${ref}强行任命地方官员,${r}贵族据城抗命`;
@@ -3083,6 +3118,46 @@ function before(civ: Civ, id: number): { army: number; office: number } {
   if (!b || b.length !== civ.annals.length) beforeCache.set(civ.annals, (b = councilBefore(civ.annals)));
   return b[id] ?? { army: 0, office: 0 };
 }
+
+/**
+ * 时代做法换说法要用的(按史事数组缓存,接着推长了就重算):
+ * first:一国头一回办成的直征、收兵权(禁军,不算罢边镇)、收任免(铨选,不算收回辟署)那几条议事;
+ * last:国都进了火药时代(做法表的"封镇渐废")以后办成的改土归流、罢边镇,这国以后再没分封、设边镇的那几条
+ */
+const practiceCache = new WeakMap<readonly Annal[], { n: number; first: Set<number>; last: Set<number> }>();
+function practiceMarks(civ: Civ): { first: Set<number>; last: Set<number> } {
+  const A = civ.annals;
+  const hit = practiceCache.get(A);
+  if (hit && hit.n === A.length) return hit;
+  const first = new Set<number>();
+  const last = new Set<number>();
+  const seen = new Set<string>();
+  /** 罢边镇 / 改土归流办成的那条,等着看这国以后还设不设边镇、分不分封 */
+  const open = new Map<string, number>();
+  A.forEach((e, i) => {
+    if (e.kind !== 'council' || e.n !== 0) return;
+    const b = before(civ, i);
+    // 直征(2)、收兵权(5,议之前不是边镇)、收任免(7,议之前不是自辟)
+    if (e.war === 2 || (e.war === 5 && b.army >= 0) || (e.war === 7 && b.office >= 0)) {
+      const key = `${e.a}:${e.war}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        first.add(i);
+      }
+    }
+    // 改土归流(3)、罢边镇(5,议之前是边镇);以后又分封(4)、设边镇(6,议之前是征发)的,上一条不算废
+    if (e.war === 3 || (e.war === 5 && b.army < 0)) {
+      if (hasPractice(practicesAt(civ, e.a, e.year) ?? 0, Practice.FiefLess)) open.set(`${e.a}:${e.war}`, i);
+    } else if (e.war === 4) open.delete(`${e.a}:3`);
+    else if (e.war === 6 && b.army === 0) open.delete(`${e.a}:5`);
+  });
+  for (const i of open.values()) last.add(i);
+  const m = { n: A.length, first, last };
+  practiceCache.set(A, m);
+  return m;
+}
+const firstDone = (civ: Civ, id: number) => practiceMarks(civ).first.has(id);
+const lastOfKind = (civ: Civ, id: number) => practiceMarks(civ).last.has(id);
 
 /** 一州闹饥荒(地震水旱:cause = quake)时城里的人口折损(Settlement.sacks 里同一种、同一年的那一条;找不到 = 0) */
 function famineLoss(civ: Civ, e: Annal): number {

@@ -17,7 +17,7 @@
  */
 import type { Civ, Person, Place, Polity } from '../gen/civ/types';
 import type { WorkerRequest } from '../worker';
-import { cleanCivSeed, cleanEndYear, cleanPlay, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
+import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
 import { parseSave } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
@@ -61,7 +61,7 @@ export function helperJob(r: RenderRequest): HelperJob {
   if (!p.ok) throw new Error(`存档读不出来：${p.error}`);
   const sv = p.save;
   const e = sv.edits;
-  const endYear = cleanEndYear(e.endYear);
+  const endYear = endParamOf(e);
   const frontier = cleanFrontier(e.frontier);
   const origins = cleanOrigins(e.origins);
   const civSeed = cleanCivSeed(e.civSeed);

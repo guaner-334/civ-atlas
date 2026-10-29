@@ -337,7 +337,7 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
 
   out.push('# 这个世界');
   out.push(
-    `历史从第 0 年推演到第 ${civ.endYear} 年;时间轴现在在第 ${Y} 年` +
+    `历史从第 0 年推演到第 ${Math.floor(civ.endYear)} 年;时间轴现在在第 ${Y} 年` +
       (civ.viable ? `,作者没说年份的命令从第 ${defaultFrom(civ, Y)} 年起。` : '。') +
       '位置写成(经度, 纬度):经度 −180~180,东经为正;纬度 −90~90,北纬为正。赤道一圈约 4 万公里,纬度 1° 约 111 公里。',
   );
@@ -443,7 +443,7 @@ export function rewriteMaterial(world: World, civ: Civ, year: number, edits: Wor
       const chain = polityTitleChain(p);
       const cu = civ.cultures[p.culture];
       out.push(
-        `P${p.id} ${nameAt(p, Y)} · 第 ${Math.floor(p.founded)}—${p.ended !== undefined ? `${Math.floor(p.ended)} 年` : `${civ.endYear} 年(到最后仍在)`}` +
+        `P${p.id} ${nameAt(p, Y)} · 第 ${Math.floor(p.founded)}—${p.ended !== undefined ? `${Math.floor(p.ended)} 年` : `${Math.floor(civ.endYear)} 年(到最后仍在)`}` +
           (chain.includes('→') ? ` · 国号先后:${chain}` : '') +
           (cu ? ` · 民族 E${cu.id}(${cu.name}族)` : ''),
       );
@@ -586,6 +586,11 @@ function ivText(civ: Civ, v: Intervention): string {
     return r >= 0 && r < civ.regions.count ? `R${r}` : '(没有的州)';
   };
   const until = (u?: number) => (u !== undefined ? `,至第 ${u} 年` : '');
+  const folk = (key: string) => {
+    const r = resolveKey(civ, key);
+    const c = r && r.kind === 'culture' ? civ.cultures[r.id] : undefined;
+    return c ? `${c.name}族` : '(新历史里没有的民族)';
+  };
   switch (v.kind) {
     case 'protect':
       return `${id(v.a, 'polity', 'P')} 保护${until(v.until)}`;
@@ -632,6 +637,10 @@ function ivText(civ: Civ, v: Intervention): string {
       return `${id(v.a, 'polity', 'P')} 保住王室${until(v.until)}`;
     case 'boost':
       return `${v.regions ? v.regions.map(reg).join('、') : id(v.a, 'polity', 'P')} 推一把发展:${v.mul ? `快 ${v.mul} 倍${until(v.until)}` : '直接进下一个时代'}`;
+    case 'trek':
+      return `${folk(v.folk)} 分出一支大迁徙${v.region ? `,从 ${reg(v.region)} 出发` : ''}${v.to ? `,往 ${reg(v.to)}` : ''}`;
+    case 'stay':
+      return `${folk(v.folk)} 不许大迁徙${until(v.until)}`;
   }
 }
 
@@ -1458,6 +1467,8 @@ const KIND_LABEL: Record<Intervention['kind'], string> = {
   marry: '为人物联姻',
   keep: '保住王室',
   boost: '推一把发展',
+  trek: '大迁徙',
+  stay: '不许迁',
 };
 
 // ---------------------------------------------------------------------------

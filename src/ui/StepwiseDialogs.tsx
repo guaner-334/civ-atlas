@@ -14,7 +14,7 @@
  */
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, BRANCH_NAME_MAX, END_YEAR_MAX, advanceOf, cleanPlay, type Advance, type Intervention } from '../gen/edits';
+import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, BRANCH_NAME_MAX, END_YEAR_MAX, YEAR_TICKS, advanceOf, cleanPlay, commandAt, momentAt as tickMoment, playAt, type Advance, type Intervention } from '../gen/edits';
 import { branchList, laterInterventions, rewindStepwise } from '../gen/stepwise';
 import { fullChronicle } from '../gen/civ/religionText';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
@@ -23,10 +23,11 @@ import { getPending } from './pendingStore';
 import { interventionText } from './Interventions';
 import { DirectorSettings, followName } from './Director';
 import { setStepDirectorOn, stepDirectorOn, useDirector, useDirectorFollow } from './directorStore';
-import { getStepwise, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
+import { getStepwise, nextAt, nextYear, openStepDialog, stepwiseActions, useStepwise } from './stepwiseStore';
 import { branchLabel, branchSpan } from './StepBranches';
 import { rewindBrief } from './stepwisePlan';
-import { stepSeconds } from './Stepwise';
+import { stepSeconds, useMonthText } from './Stepwise';
+import { momentFull, momentStart, momentsText, spanText } from './stepTime';
 import { STEP_PICKS, STEP_UNITS, advanceBrief, everyWhy, ownStep as ownStep_, stepPickOf, stepUnitMax, stepWhy, type Run, type StepPick } from './advanceText';
 import { currentWorld, stepOrigin, useSavesVersion } from './saveStore';
 import { Icon } from './icons';
@@ -722,15 +723,17 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
   const [name, setName] = useState(newLabel);
   const close = () => openStepDialog(null);
   useDialogKeys(close);
+  const mt = useMonthText();
   const play = cleanPlay(edits.play);
-  const now = play?.year ?? s.now;
-  const T = Math.min(now, Math.max(0, Math.floor(year)));
-  const r = useMemo(() => rewindStepwise(edits, T), [edits, T]);
-  // 不要了的干预:那一年和以后下过的、正在算的那一步带着的、单子里还没交出去的(都在那一年以后生效)
-  const dropped = useMemo((): Intervention[] => {
-    const inflight = s.busy?.commands ?? [];
+  const now = play ? playAt(play) / YEAR_TICKS : s.now;
+  // 回到哪一刻(停在年中、一步短于一年的,回到那一格;一步一年以上的回到那一年年初)
+  const T = Math.min(now, Math.max(0, Math.floor(year * YEAR_TICKS + 1e-6) / YEAR_TICKS));
+  const r = useMemo(() => rewindStepwise(edits, tickMoment(Math.round(T * YEAR_TICKS))), [edits, T]);
+  // 不要了的干预:那一刻和以后下过的、正在算的那一步带着的、单子里还没交出去的(都在那一刻以后生效);ats = 各在哪一刻生效
+  const { dropped, ats } = useMemo(() => {
+    const done = [...(r?.dropped ?? []), ...(s.busy?.commands ?? [])];
     const queued = getPending().flatMap((x) => (x.kind === 'iv' ? [{ ...x.v, from: nextYear(s) } as Intervention] : []));
-    return [...(r?.dropped ?? []), ...inflight, ...queued];
+    return { dropped: [...done, ...queued], ats: [...done.map((v) => commandAt(v) / YEAR_TICKS), ...(queued.length ? [nextAt(s)] : [])] };
   }, [r, s]);
   const brief = useMemo(() => rewindBrief(civ, T, now, fullChronicle(civ)), [civ, T, now]);
   const adv = advanceOf(edits);
@@ -739,17 +742,18 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
     const v = name.trim();
     stepwiseActions()?.rewind(T, v === newLabel ? '' : v);
   };
-  const years = [...new Set(dropped.map((v) => Math.floor(v.from)))].sort((a, b) => a - b);
   const ivTexts = dropped.map((v) => eraText(interventionText(civ, v), era));
   const ivSmall = ivTexts.length > REWIND_LIST_MAX ? `${ivTexts.slice(0, REWIND_LIST_MAX).join('；')}……等 ${ivTexts.length} 条` : ivTexts.join('；');
-  const ivWhen = years.length === 1 ? yearFull(years[0], era) : eraText(`第 ${years[0]}–${years[years.length - 1]} 年`, era);
-  const span = eraText(`第 ${T}–${now} 年`, era);
+  const ivWhen = momentsText(ats, mt.months, era, mt.names, mt.always);
+  const span = spanText(T, now, mt.months, era, mt.names, false);
+  const back = momentStart(T, mt.months, era, mt.names, mt.always);
+  const Tfull = momentFull(T, mt.months, era, mt.names, mt.always);
   const histSmall = phone
     ? `${brief.length ? `${brief.slice(0, 2).join('、')}……` : ''}留在「${keepIn}」里`
     : `${brief.length ? `${brief.join('、')}……` : ''}都留在「${keepIn}」里`;
   const lead = phone
-    ? `世界回到${yearFull(T, era)}年初，从这里往下另开一支。原来那条原样留着，随时切回去：`
-    : `世界回到${yearFull(T, era)}年初，从这里往下另开一支。原来那条原样留着，在侧栏「支线」里随时切回去：`;
+    ? `世界回到${back}，从这里往下另开一支。原来那条原样留着，随时切回去：`
+    : `世界回到${back}，从这里往下另开一支。原来那条原样留着，在侧栏「支线」里随时切回去：`;
   const rows = (
     <div className={`sw-grp sw-drop${phone ? ' white' : ''}`}>
       <div className="sw-r top" data-rewind="history">
@@ -770,7 +774,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
       )}
     </div>
   );
-  const why = phone ? `${yearFull(T, era)}以前的照旧，推进设置也不变。` : `${yearFull(T, era)}以前的照旧，推进设置也不变（${advanceBrief(adv)}）。`;
+  const why = phone ? `${Tfull}以前的照旧，推进设置也不变。` : `${Tfull}以前的照旧，推进设置也不变（${advanceBrief(adv)}）。`;
   const nameField = (
     <input
       className="br-name-in"
@@ -795,7 +799,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
       </div>
     </div>
   );
-  const head = `从${yearFull(T, era)}重新演绎？`;
+  const head = `从${Tfull}重新演绎？`;
   if (phone)
     return (
       <>
@@ -843,7 +847,7 @@ function RewindDialog({ phone, civ, year }: { phone: boolean; civ: Civ; year: nu
               取消
             </button>
             <button className="sw-btn2 pri" data-act="rewind-go" onClick={go}>
-              从{yearFull(T, era)}重新演绎
+              从{Tfull}重新演绎
             </button>
           </div>
         </div>

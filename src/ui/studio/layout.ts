@@ -4,7 +4,7 @@
  *
  * 位置都是视口里的 CSS 像素;一个"姿势"(Pose)= 投影平面 1 个单位多少像素 + 图的中心。
  */
-import { PROJECTIONS, PROJ_PAD } from '../../render/projection';
+import { PROJECTIONS, PROJ_PAD } from '../../render/projectionDefs';
 import type { PlanetProjection } from '../../render/planet';
 
 export interface Box {

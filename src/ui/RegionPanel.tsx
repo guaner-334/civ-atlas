@@ -3,7 +3,7 @@
  *
  *   顶部  颜色块(当年所属国)、州名(可改)、"州，属 大昌，第 12 州"(没有国家 = "无主之地")、关闭
  *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(天灾… / 在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
- *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州)
+ *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州);「大迁徙…」换成大迁徙那一页(TrekPage.tsx,默认这州的主体民族、从这州出发)
  *         演一国时别国的州:在这里立国、划给…、天灾…变灰,按钮下面写一句(和别国的国家卡片一样,RoleBar.tsx 的 RoleLockNote)
  *   概况  主体民族(族名可点,开民族卡片;改族名在民族卡片里)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
  *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、
@@ -54,6 +54,7 @@ import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfRegion } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
 import { DisasterPage } from './DisasterPage';
+import { TrekPage } from './TrekPage';
 import { regionDisasterMark } from './newIvInfo';
 import { treatyBook, treatyTitle, type ZoneInfo } from '../gen/civ/treatyInfo';
 import { personName } from '../gen/civ/peopleText';
@@ -84,7 +85,7 @@ import {
   useYearInput,
 } from './panelParts';
 
-type Page = 'found' | 'cede' | 'disaster';
+type Page = 'found' | 'cede' | 'disaster' | 'trek';
 
 export function RegionPanel(props: DetailProps) {
   const { civ, raw, raster, world, id, year, names } = props;
@@ -136,6 +137,8 @@ export function RegionPanel(props: DetailProps) {
       </PanelHead>
       {page === 'disaster' && canAct && !lock ? (
         <DisasterPage key={id} civ={civ} region={id} year={year} onBack={() => setPage(null)} />
+      ) : page === 'trek' && canAct && !lock ? (
+        <TrekPage key={id} civ={civ} region={id} year={year} onBack={() => setPage(null)} />
       ) : page && canAct && !lock ? (
         <RegionOrder civ={civ} id={id} year={year} page={page} back={() => setPage(null)} />
       ) : (
@@ -166,6 +169,17 @@ export function RegionPanel(props: DetailProps) {
                   onClick={() => (setPage('disaster'), setSheet('full'))}
                 >
                   天灾…
+                </MenuItem>
+              )}
+              {canAct && (
+                <MenuItem
+                  icon={<Icon name="close" size={16} className="iv-blank" />}
+                  act="region-trek"
+                  disabled={!!lock}
+                  note={lock ? ROLE_LOCK_NOTE : undefined}
+                  onClick={() => (setPage('trek'), setSheet('full'))}
+                >
+                  大迁徙…
                 </MenuItem>
               )}
               <MenuItem icon={<Icon name="pin" size={16} />} act="add-mark" onClick={() => newMarkDraft({ regions: [regionKey(civ, id)], year })}>

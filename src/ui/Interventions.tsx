@@ -17,7 +17,7 @@ import type { ToastAction } from './toastStore';
 import type { Civ, Polity } from '../gen/civ/types';
 import { canCross } from '../gen/civ/polities';
 import { polityAlive, polityName } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import {
   DISASTER_LEVEL_NAMES,
@@ -45,6 +45,7 @@ import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../
 import { policyKnobsText } from './policyInfo';
 import { boostText } from './boostInfo';
 import { KEEP_CROWN } from './keepInfo';
+import { TREK_REACH_NAMES } from './trekInfo';
 import { eraText, spaced, yearAt, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -184,6 +185,13 @@ const regionKeyName = (civ: Civ, key: string): string => {
   return r >= 0 && r < civ.regions.count ? regionLabel(civ, r) : '(没有的州)';
 };
 
+/** 民族的稳定键 → "克拉尔族"(这份历史里没有 = 写明) */
+export const cultureKeyName = (civ: Civ, key: string): string => {
+  const r = resolveKey(civ, key);
+  const c = r && r.kind === 'culture' ? civ.cultures[r.id] : undefined;
+  return c ? cultureLabel(c) : '(新历史里没有的民族)';
+};
+
 const cityKeyName = (civ: Civ, key: string): string => {
   const id = cityIdOf(civ, key);
   return id >= 0 ? civ.settlements[id].name || '某城' : '(新历史里没有的城)';
@@ -223,6 +231,17 @@ function disasterText(civ: Civ, v: Extract<Intervention, { kind: 'disaster' }>, 
   return `${regionKeyName(civ, v.region ?? '')}一带:${word}${lv}${e && e.b > 0 ? `，${e.b} 州受灾` : ''}`;
 }
 
+/**
+ * 大迁徙、不许迁的说法:"克拉尔族:大迁徙，从诺敏塔拉往瑶渊之野""克拉尔族:大迁徙，去处推演挑（远）""克拉尔族:不许迁(至第 2100 年)"
+ */
+function trekText(civ: Civ, v: Extract<Intervention, { kind: 'trek' | 'stay' }>): string {
+  const F = cultureKeyName(civ, v.folk);
+  if (v.kind === 'stay') return `${F}:不许迁${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
+  const from = v.region ? `从${regionKeyName(civ, v.region)}` : '';
+  if (v.to) return `${F}:大迁徙，${from}往${regionKeyName(civ, v.to)}`;
+  return `${F}:大迁徙，${from ? `${from}出发，` : ''}去处推演挑（${TREK_REACH_NAMES[v.reach ?? 'mid']}）`;
+}
+
 /** 第 i 条干预(Civ.interventions 的下标)是"立国"、在这份历史里立成了:立出来的国家(没有 = −1) */
 function foundedBy(civ: Civ, i: number): number {
   if (i < 0 || civ.interventions?.[i]?.kind !== 'found') return -1;
@@ -258,6 +277,7 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     return `在${regionKeyName(civ, v.region)}立国${shown}`;
   }
   if (v.kind === 'disaster') return disasterText(civ, v, i, a);
+  if (v.kind === 'trek' || v.kind === 'stay') return trekText(civ, v);
   const A = a ?? keyName(civ, v.a, v.from);
   if (v.kind === 'boost') return boostText(civ, v, i, A, getEdits().era);
   switch (v.kind) {
@@ -357,7 +377,7 @@ function authorName(civ: Civ, char: number): string {
  * a = 下令的国家怎么称呼:国家面板下的令用面板标题上的名字(用户点的那个),不给 = 生效那年的名字
  */
 export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: string): string {
-  if (v.kind === 'found' || v.kind === 'disaster') return interventionText(civ, v, i, a);
+  if (v.kind === 'found' || v.kind === 'disaster' || v.kind === 'trek' || v.kind === 'stay') return interventionText(civ, v, i, a);
   const A = a ?? keyName(civ, v.a, v.from);
   switch (v.kind) {
     case 'protect':
@@ -376,7 +396,7 @@ export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: stri
 
 /** 下令的国家在生效那一年叫什么(立国没有下令的国家 = null) */
 export function interventionActorThen(civ: Civ, v: Intervention): string | null {
-  return v.kind === 'found' || !v.a ? null : keyName(civ, v.a, v.from);
+  return v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || !v.a ? null : keyName(civ, v.a, v.from);
 }
 
 let owners: Owners | undefined;
@@ -427,7 +447,9 @@ export function polityOrders(civ: Civ, id: number, list: readonly unknown[]): { 
     .filter(
       (e): e is { v: Intervention; i: number; c: number } =>
         !!e.v &&
-        (e.v.kind === 'found' ? foundedBy(civ, e.c) === id : e.v.a === key || ((e.v.kind === 'ally' || e.v.kind === 'declare') && e.v.b === key)),
+        (e.v.kind === 'found'
+          ? foundedBy(civ, e.c) === id
+          : e.v.kind !== 'trek' && e.v.kind !== 'stay' && (e.v.a === key || ((e.v.kind === 'ally' || e.v.kind === 'declare') && e.v.b === key))),
     );
 }
 
@@ -437,7 +459,10 @@ export function regionOrders(civ: Civ, region: number, list: readonly unknown[])
   const ci = civIndexes(civ, list);
   return list
     .map((x, i) => ({ v: cleanIntervention(x), i, c: ci[i] }))
-    .filter((e): e is { v: Intervention; i: number; c: number } => !!e.v && (e.v.kind === 'found' || e.v.kind === 'cede') && e.v.region === key);
+    .filter(
+      (e): e is { v: Intervention; i: number; c: number } =>
+        !!e.v && (((e.v.kind === 'found' || e.v.kind === 'cede') && e.v.region === key) || (e.v.kind === 'trek' && (e.v.region === key || e.v.to === key))),
+    );
 }
 
 /** 已经下了的几条(可撤销;i = editsStore 里的下标,c = 这份历史里的下标) */

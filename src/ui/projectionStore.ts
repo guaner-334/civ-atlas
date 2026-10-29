@@ -4,7 +4,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { GRATICULE_STEPS, type ContourKind } from '../gen/savefile';
-import { isProjectionId, type ProjectionId } from '../render/projection';
+import { isProjectionId, type ProjectionId } from '../render/projectionDefs';
 
 /** 主图的投影;'globe' = 3D 地球仪(单独的视图) */
 export type MapProjection = ProjectionId | 'globe';

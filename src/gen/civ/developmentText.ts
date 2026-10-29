@@ -6,6 +6,8 @@
  * - 全球大疫的凋敝里国都退回上一个时代(regress):大事,"埃维里亚帝国退入铁器时代(疫后凋敝,中古之业渐废)"。
  * - 各国国都进入新时代(重要度 2)、储量多的州发现大矿、物产采空 / 吃空(重要度 1):只在"全部"里;
  *   发现、采空一国(没有国家的按民族)每样只记头一回;同一国同一年的几件并成一句:"内里尼亚王国始入中古时代,特罗纳发现大铁矿"。
+ * - 时代做法(practices.ts)里的铁路、电报不另加条目,接在这国有了以后头一条"始入某时代"(各国的,或世上第一次)后面(只写一回):
+ *   "大渭始入工业时代,铁路成,自京师至瑞州旬日可达" / "……,电报通,瑞州有变,朝廷当日即知"(瑞州 = 离国都最远的州)。
  * 国名用事发当年的国号,地方先写城名、没有城写州名;没有国家的写"某某人"。
  */
 import type { Civ, DevEvent, Year } from './types';
@@ -13,6 +15,8 @@ import { polityName } from './growth';
 import { regionLabel } from './display';
 import { ERAS, INVENTIONS } from './development';
 import { rulerAt } from './peopleInfo';
+import { farName, farRegion, practicesAt } from './practiceInfo';
+import { Practice, hasPractice } from './practices';
 import { rulerBare } from './peopleText';
 import type { ChronicleEntry, Importance } from './chronicle';
 
@@ -50,6 +54,31 @@ function rest(civ: Civ, e: DevEvent): string {
   return `${place(civ, e)}${GONE[k] ?? '物产耗尽'}`;
 }
 
+/**
+ * 国家 p 在 year 这一年(进新时代那条)已经有了铁路、电报,而且还没写过:"铁路成,自京师至瑞州旬日可达" / "电报通,瑞州有变,朝廷当日即知"
+ * (西幻写得平实些);写了的记进 rail / wire
+ */
+function practiceParts(civ: Civ, p: number, year: Year, rail: Set<number>, wire: Set<number>): string[] {
+  if (rail.has(p) && wire.has(p)) return [];
+  const m = practicesAt(civ, p, year) ?? 0;
+  const doRail = !rail.has(p) && hasPractice(m, Practice.Rail);
+  const doWire = !wire.has(p) && hasPractice(m, Practice.Wire);
+  if (!doRail && !doWire) return [];
+  const far = farName(civ, farRegion(civ, p, year));
+  if (!far) return [];
+  const east = !!civ.polities[p]?.eastern;
+  const out: string[] = [];
+  if (doRail) {
+    rail.add(p);
+    out.push(east ? `铁路成,自京师至${far}旬日可达` : `铁路建成,从都城到${far}只要十来天`);
+  }
+  if (doWire) {
+    wire.add(p);
+    out.push(east ? `电报通,${far}有变,朝廷当日即知` : `电报接通,${far}一有变故,朝廷当天就知道`);
+  }
+  return out;
+}
+
 const cache = new WeakMap<Civ, ChronicleEntry[]>();
 
 /**
@@ -74,6 +103,8 @@ export function developmentEntries(civ: Civ): ChronicleEntry[] {
       regions: e.region >= 0 ? [e.region] : [],
       settlement: e.settlement,
     });
+    /** 进新时代的条目(各国的、世上第一次的):铁路、电报接在后面 */
+    const eraEntries: { entry: ChronicleEntry; polity: number }[] = [];
     /** 世上第一次:"某国某君时,某城……,为天下之先"(没有国家、当时没有君主的:"某国某城……") */
     const first = (e: DevEvent, i: number, what: string, importance: Importance) => {
       const ruler = e.polity >= 0 && civ.people?.length ? rulerAt(civ, e.polity, e.year) : null;
@@ -81,13 +112,15 @@ export function developmentEntries(civ: Civ): ChronicleEntry[] {
       const entry = base(e, i, `${head}${what},为天下之先`, importance);
       if (ruler) entry.people = [ruler.id];
       out.push(entry);
+      return entry;
     };
     // 世上第一次:那一国同一年国都也进了这个时代的,不再另记
     const firsts = new Set<string>();
     dev.events.forEach((e, i) => {
       if (e.kind !== 'first') return;
       firsts.add(`${e.polity}:${Math.floor(e.year)}:${e.era}`);
-      first(e, i, `始入${ERAS[e.era]}时代`, 3);
+      const entry = first(e, i, `始入${ERAS[e.era]}时代`, 3);
+      if (e.polity >= 0) eraEntries.push({ entry, polity: e.polity });
     });
     // 发明:同一处同一年的并成一句
     const inventions = new Map<string, { i: number; e: DevEvent; list: number[] }>();
@@ -142,6 +175,15 @@ export function developmentEntries(civ: Civ): ChronicleEntry[] {
       const entry = base(e0, g.i, `${who(civ, head)}${parts.join(',')}`, enters.length ? 2 : 1);
       entry.regions = [...new Set(list.map((e) => e.region).filter((r) => r >= 0))];
       out.push(entry);
+      if (enters.length && head.polity >= 0) eraEntries.push({ entry, polity: head.polity });
+    }
+    // 铁路、电报:按年份先后,一国接在有了以后的头一条进新时代的后面
+    const rail = new Set<number>();
+    const wire = new Set<number>();
+    eraEntries.sort((a, b) => a.entry.year - b.entry.year || a.entry.id - b.entry.id);
+    for (const { entry, polity } of eraEntries) {
+      const more = practiceParts(civ, polity, entry.year, rail, wire);
+      if (more.length) entry.text += `,${more.join(',')}`;
     }
     out.sort((a, b) => a.year - b.year || a.id - b.id);
   }

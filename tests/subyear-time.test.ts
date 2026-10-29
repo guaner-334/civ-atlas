@@ -4,7 +4,7 @@
  * - 命令只能下在"现在"那一刻(年 + 第几格都要对上)
  * - 旧存档(只有年份、格式 1)照读,读进来落在那一年的第 0 格,和以前一模一样;只到年初的新存档照旧写格式 1、一个字不多
  * - 有年中时刻的存档写格式 2(旧版本读到会提示更新页面),往返一样、没有提示;比现在新的格式不读
- * - 支线、倒回、另开一支、切换、存回推演模式按时刻算
+ * - 支线、倒回、另开一支、切换、存回推演模式按时刻算(停在年中存回的推到那一格,见 subyear-save.test.ts)
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/world';
@@ -244,9 +244,10 @@ describe('支线、倒回、存回推演模式按时刻', () => {
     expect(bs.list[1]).toEqual({ id: 6, from: 700, fromTick: 128, year: 800, commands: [c700, cmd(750, 7)] });
   });
 
-  it('存回推演模式:停在年中的推到下一年年初,下过的命令一条不丢;年中的命令在干预里照带第几格', () => {
+  it('存回推演模式:停在年中的推到那一年的那一格,下过的命令一条不丢;年中的命令在干预里照带第几格', () => {
     const n = stepwiseToNormal(e0)!;
-    expect(n.endYear).toBe(701);
+    expect(n.endYear).toBe(700);
+    expect(n.endTick).toBe(128);
     expect(n.interventions).toEqual([c300, c400, c400b, c700]);
     expect(saveFormatOf(n)).toBe(2);
     expect(stepwiseToNormal({ ...base, play: { year: 700, commands: [] } })!.endYear).toBe(700);
