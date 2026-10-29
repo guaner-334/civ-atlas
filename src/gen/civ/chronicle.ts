@@ -3334,7 +3334,8 @@ function reformCouncilText(civ: Civ, e: Annal, id: number, who: Person | null, i
       if (out === 1) return east ? `${ref}下诏设议事会,国事先咨议事会,君权照旧` : `${ref}设议事会,大事先咨议事会,王权照旧`;
       return `${lead}群臣请立宪,${stop}`;
     case Issue.Widen: {
-      const to = rulesAt(civ.annals, e.a, y).franchise;
+      // 海洋城邦共和一系本来就有产者能议政(和政体那三条一样,polityForm.ts 的 formDims)
+      const to = rulesAt(civ.annals, e.a, y).franchise + (P?.lineage === 'republic' ? 1 : 0);
       const body = bodyOf(civ, e.a, y);
       const whom = FRANCHISE_WHO[Math.max(1, Math.min(3, out === 0 ? to : to + 1))];
       const verb = whom === '有产者' ? '入' : '皆得推举';
