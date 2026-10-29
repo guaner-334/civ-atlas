@@ -8,6 +8,10 @@
  * 坐标:x 朝东、z 朝南(公里,方框中心为原点),高度单独存(米),着色器里乘起伏倍数。
  */
 import type { Raster } from '../../gen/raster';
+import type { SurfaceLook } from '../surface';
+
+/** 立体用哪种上色:写实底图的几种画法(render/surface.ts),或者手绘(render/terrain3d/fantasyBox.ts) */
+export type ReliefLook = SurfaceLook | 'fantasy';
 
 /** 太阳高度(度)和它的正切:光从正西边来(和贴图自带的西北光差不多,转到北面看时阴面不会太重) */
 export const SUN_ALT = 30;
@@ -181,4 +185,23 @@ function buildSkirt(verts: Float32Array, nx: number, ny: number): Float32Array {
     }
   }
   return out;
+}
+
+/**
+ * 钉山名的那一点:贴图上 (px, py) 附近 R 像素以内最高的那个像素(山顶;w × h 的海拔,超出的部分不看)。
+ * 返回它在沙盘上的位置(公里,方框中心为原点;kmX、kmZ = 方框东西、南北多少公里)和海拔(米);(px, py) 不在贴图里 = null
+ */
+export function peakPin(elev: Float32Array, w: number, h: number, px: number, py: number, R: number, kmX: number, kmZ: number): { x: number; z: number; h: number } | null {
+  const cx = Math.floor(px);
+  const cy = Math.floor(py);
+  if (cx < 0 || cy < 0 || cx >= w || cy >= h) return null;
+  let best = cy * w + cx;
+  for (let y = Math.max(0, cy - R); y <= Math.min(h - 1, cy + R); y++)
+    for (let x = Math.max(0, cx - R); x <= Math.min(w - 1, cx + R); x++) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 > R * R) continue;
+      if (elev[y * w + x] > elev[best]) best = y * w + x;
+    }
+  const bx = best % w;
+  const by = (best - bx) / w;
+  return { x: ((bx + 0.5) / w - 0.5) * kmX, z: ((by + 0.5) / h - 0.5) * kmZ, h: elev[best] };
 }
