@@ -54,6 +54,8 @@
  *                   下一位从下一刻起照常继位);将领、名臣:推演里只记一笔(b 列 −5),人物那边按卒年换人(people.ts、officials.ts)
  *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
+ *   任将任臣 appoint 推演里只在 from 那一刻记一笔史事(b 列见 appoint.ts 的 IV_REIGNING 那几样),历史一字不变;
+ *                   他在任的年份、挂帅哪几仗由 appoint.ts 按史事推出来,人物、编年史照它排
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
  *   推一把发展 boost  快几倍:那些州发展度的"自己长""向邻居学"乘上去,管到 until;直接进:那一刻拉到国都的下一个时代开头(boost.ts)
  *   立约   treaty    from 那一刻几国立约(treaties.ts 的 decree;两两之间正在交战的当即议和),之后照立约的规矩续约、背约、约满;
@@ -93,6 +95,8 @@ import { marriageModelOf } from './marriage';
 import { installBoosts, strikeBoost } from './boost';
 import { trekModelOf } from './migration';
 import { assimModelOf } from './assimilation';
+import { APPOINT_AGE, IV_REIGNING, type AppointIv } from './appoint';
+import { IV_GONE } from './regents';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -555,6 +559,23 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     rulerAct(sim, pm, a, v.kind === 'death' ? { kind: 'death', t, iv: i } : { kind: 'temper', t, iv: i, leanings: v.leanings });
   };
 
+  /**
+   * 任将任臣:只记一笔史事,历史不变(人物、编年史照它排,见 appoint.ts)。b 列:−1 生效了 / −3 a 已亡 / −2 他还没出生 /
+   * IV_GONE 已去世 / IV_NOT_HIM 不满 APPOINT_AGE 岁 / IV_REIGNING 他此刻正是某国在位的君主(作者立的)
+   */
+  const appoint = (v: AppointIv, i: number, a: number, t: number) => {
+    const sid = capitalAt(pm.polities[a], t);
+    const reigning = () => {
+      for (const [pid, acts] of pm.acts) {
+        if (!alive(pid) || !acts.some((c) => c.kind === 'crown' && c.char === v.char)) continue;
+        if (rulerOf(pm, pid, t).crown?.char === v.char) return true;
+      }
+      return false;
+    };
+    const b = !alive(a) ? -3 : v.born > t ? -2 : v.died !== undefined && v.died <= t ? IV_GONE : t - v.born < APPOINT_AGE ? IV_NOT_HIM : reigning() ? IV_REIGNING : -1;
+    sim.record('intervene', { a, b, region: S[sid]?.region ?? -1, settlement: sid, war: i });
+  };
+
   /** 方针:a 此刻定方针(b 列:−1 生效了 / −3 a 已亡) */
   const policy = (v: PolicyIv, i: number, a: number, t: number) => {
     const sid = capitalAt(pm.polities[a], t);
@@ -602,6 +623,10 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'policy') {
       policy(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'appoint') {
+      appoint(v, i, a, t);
       return;
     }
     if (v.kind === 'destroy') {

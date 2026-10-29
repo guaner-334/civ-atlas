@@ -20,6 +20,8 @@ import { polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import {
+  AUTHOR_GENERAL_AGE_END,
+  AUTHOR_MINISTER_AGE_END,
   AUTHOR_REGENT_AGE_END,
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
@@ -293,7 +295,8 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     case 'ally':
       return `${A}与${keyName(civ, v.b, v.from)}结盟${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
     case 'declare':
-      return `${A}向${keyName(civ, v.b, v.from)}宣战`;
+      // 宣战时点了谁挂帅(作者的将领):"大定向奥利亚宣战，林小满挂帅"
+      return `${A}向${keyName(civ, v.b, v.from)}宣战${v.lead !== undefined ? `，${authorName(civ, v.lead)}挂帅` : ''}`;
     case 'cede':
       return `${regionKeyName(civ, v.region)}划给${A}${v.permanent ? '(永久)' : ''}`;
     case 'move':
@@ -349,6 +352,9 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政";作者的人物 "林小满:专权掌权，到卒年"
       if (v.char !== undefined) return `${authorName(civ, v.char)}:${REGENT_HOW_WORD[v.how]}掌权，${authorRegentEndWord(v)}`;
       return `${personKeyName(civ, v.person)}:${regentHowWord(v.how, personOfKey(civ, v.person))}掌权，${regentEndWord(v.end, v.years)}`;
+    case 'appoint':
+      // "林小满:任大定将领，到卒年""林小满:任大定名臣，到第 1530 年"
+      return `${authorName(civ, v.char)}:任${A}${v.role === 'general' ? '将领' : '名臣'}，${appointEndWord(v)}`;
     case 'marry': {
       // "胡炜:娶大澜王朝宗室女""胡炜:本国宗室女嫁大澜王朝""胡炜:与大澜王朝互嫁"
       const B = keyName(civ, v.b, v.from) || '对方';
@@ -372,6 +378,13 @@ export function regentEndWord(end: RegentEnd, years?: number): string {
 /** 让作者的人物掌权到什么时候:"5 年后还政" / 没填还政年 = "到卒年"(人物卡没写卒年 = "到 70 岁还政") */
 export function authorRegentEndWord(v: { years?: number; died?: number }): string {
   return v.years !== undefined ? regentEndWord('return', v.years) : v.died !== undefined ? '到卒年' : `到 ${AUTHOR_REGENT_AGE_END} 岁还政`;
+}
+
+/** 任将任臣到什么时候:"到第 1530 年" / 没填卸任年 = "到卒年"(人物卡没写卒年 = "到 65 岁卸甲""到 70 岁致仕") */
+export function appointEndWord(v: { role: 'general' | 'minister'; until?: number; died?: number }): string {
+  if (v.until !== undefined) return `到第 ${v.until} 年`;
+  if (v.died !== undefined) return '到卒年';
+  return v.role === 'general' ? `到 ${AUTHOR_GENERAL_AGE_END} 岁卸甲` : `到 ${AUTHOR_MINISTER_AGE_END} 岁致仕`;
 }
 
 /** 方针拧过旋钮(一键选的细调过,或者没从一键选起) */

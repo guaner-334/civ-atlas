@@ -57,6 +57,11 @@
  *   照大纲硬改出来的(干预带 plot,gen/edits.ts 文件头"大纲")前面标【照大纲】,别的写法一样:"【照大纲】大昌向索拉特宣战";
  *   同一条情节同一刻划给同一国的几州并成一条:"【照大纲】瑞州、汾州、雪西三州划归大昌"。
  *   援盟参战的战争(史事 war 的 settlement 列 = 盟国)写"索拉特应大昌之约伐某国"。
+ * - **作者的将领、名臣**(干预"任将 / 任臣",Person.author;appoint.ts):他挂帅的仗统帅写他、推演原来派的那位写成副将 ——
+ *   "大定以林小满为帅、司玄副之,起兵伐奥利亚""奥利亚以林小满为帅、司玄副之拒之",后面几仗的统帅也写他("…,副将司玄战死");
+ *   那一刻君主亲征的,君主为帅、他随驾("大定太宗亲征奥利亚,林小满随驾")。作者的名臣在朝时议和、劝进写上他(写在推演里经手的那位前面:
+ *   "大定遣丞相林小满、礼部尚书百里青与奥利亚议和"),议事后面加一句"…,丞相林小满与议"(西幻"参与其议")。
+ *   【干预】:"大定拜林小满为将""林小满入仕大定";宣战点了谁挂帅的"大定向奥利亚宣战,以林小满为帅"。
  * - **名臣**(Person.deeds):经手的事写上他(官职按那一年):议和"大景王朝遣礼部尚书百里青与萨尔斯坦帝国议和"
  *   (对方的使臣写在对方国名后面);称王称帝"…,丞相某某劝进"(西幻"…,首相某某力主其事");幼主即位"…,时年 11 岁,丞相某某辅政"
  *   (西幻"摄政");先君遇弑"…;丞相某某迎立其兄柳清瑶,是为睿宗"(西幻、汗国"拥立")。
@@ -105,6 +110,7 @@ import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './disp
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
 import { councilBefore } from './councilRules';
+import { IV_REIGNING, authorPostsFrom } from './appoint';
 import { practicesAt } from './practiceInfo';
 import { Practice, hasPractice } from './practices';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
@@ -354,6 +360,8 @@ interface Command {
   /** 经手的第一件、最后一件事(史事下标,见 PersonCommand) */
   first: number;
   last: number;
+  /** 卸下这一任的那一刻(见 PersonCommand) */
+  until: Year;
   person: Person;
 }
 
@@ -376,6 +384,10 @@ interface PeopleIndex {
   uncle: Map<number, Person>;
   /** 史事下标(结亲那一条)→ 娶亲的人、那一门亲(Person.spouses) */
   wed: Map<number, { x: Person; s: PersonSpouse }>;
+  /** 国家 → 作者的名臣(任臣、掌权的作者人物;Person.author);没有 = 不在里面 */
+  court: Map<number, Person[]>;
+  /** 史事(统帅按史事位置找那一刻的年份) */
+  annals: readonly Annal[];
 }
 
 const peopleCache = new WeakMap<object, PeopleIndex>();
@@ -396,6 +408,8 @@ function peopleOf(civ: Civ): PeopleIndex | null {
     power: new Map(),
     uncle: new Map(),
     wed: new Map(),
+    court: new Map(),
+    annals: civ.annals,
   };
   for (const x of list) {
     if (x.parent !== undefined) {
@@ -411,6 +425,11 @@ function peopleOf(civ: Civ): PeopleIndex | null {
       if (g.kind === 'uncle' && civ.annals[g.annal]?.foe === undefined) ix.uncle.set(g.ruler, x);
     }
     for (const s of x.spouses ?? []) ix.wed.set(s.annal, { x, s });
+    if (x.author !== undefined && x.role === 'minister') {
+      const cs = ix.court.get(x.polity);
+      if (cs) cs.push(x);
+      else ix.court.set(x.polity, [x]);
+    }
     // 名臣经手的事(篡位做了新朝第一位的名臣,做名臣时经手的事也在他身上)
     for (const d of x.role === 'minister' || x.role === 'ruler' ? (x.deeds ?? []) : []) {
       if ((d.kind === 'peace' || d.kind === 'rank') && d.annal !== undefined) {
@@ -426,7 +445,7 @@ function peopleOf(civ: Civ): PeopleIndex | null {
       }
       let m = ix.commands.get(c.war);
       if (!m) ix.commands.set(c.war, (m = []));
-      m.push({ side: c.side, first: c.first, last: c.last, person: x });
+      m.push({ side: c.side, first: c.first, last: c.last, until: c.until, person: x });
     }
   }
   for (const rs of ix.rulers) rs.sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.id - b.id);
@@ -449,10 +468,19 @@ const classical = (p: Polity | null | undefined) => !!p?.eastern && p.lineage !=
 /** 议和的开头:"甲遣礼部尚书某某与乙议和"(乙方的使臣:"甲与乙首相某某议和");people = 写到的名臣 */
 function peaceHead(civ: Civ, ix: PeopleIndex | null, e: Annal, i: number, y: Year): { text: string; people: Person[] } {
   const ms = ix?.envoys.get(i) ?? [];
-  const ma = ms.find((m) => m.polity === e.a);
-  const mb = ms.find((m) => m.polity === e.b);
-  const text = `${pn(civ, e.a, y)}${ma ? `遣${ministerRef(ma, y)}` : ''}与${pn(civ, e.b, y)}${mb ? ministerRef(mb, y) : ''}议和`;
-  return { text, people: [ma, mb].filter((m): m is Person => !!m) };
+  const ma = envoysOf(ms, e.a);
+  const mb = envoysOf(ms, e.b);
+  const refs = (xs: Person[]) => xs.map((m) => ministerRef(m, y)).join('、');
+  const text = `${pn(civ, e.a, y)}${ma.length ? `遣${refs(ma)}` : ''}与${pn(civ, e.b, y)}${refs(mb)}议和`;
+  return { text, people: [...ma, ...mb] };
+}
+
+/** 经手这件事的一国的名臣:作者的名臣(任臣)在前,再加推演里经手的那一位 */
+function envoysOf(ms: readonly Person[], p: number): Person[] {
+  const own = ms.find((m) => m.polity === p && m.author === undefined);
+  const out = ms.filter((m) => m.polity === p && m.author !== undefined);
+  if (own) out.push(own);
+  return out;
 }
 
 /** 某一刻在位的君主(即位那一刻起算) */
@@ -474,12 +502,39 @@ function endedAt(ix: PeopleIndex | null, p: number, t: Year): Person | null {
   return null;
 }
 
-/** 某场战争某一方(0 = 攻方,1 = 守方)打第 i 条史事(宣战、战役、攻占)的统帅 */
+/**
+ * 某场战争某一方(0 = 攻方,1 = 守方)打第 i 条史事(宣战、战役、攻占)的统帅。作者的将领(任将)挂帅的那几段是他
+ * (推演原来派的那位是副将,见 deputyOf);那一刻推演派的是亲征的君主的,君主为帅(作者的将领随驾,见 escortOf)
+ */
 function commander(ix: PeopleIndex | null, war: number, side: number, i: number): Person | null {
+  const { lead, own } = leadersAt(ix, war, side, i);
+  return lead && !(own && reigningAt(own, ix!.annals[i]?.year ?? -Infinity)) ? lead : own;
+}
+
+/** 这一方第 i 条史事那一刻:推演派的统帅(own)、挂帅的作者将领(lead,没有 = null) */
+function leadersAt(ix: PeopleIndex | null, war: number, side: number, i: number): { own: Person | null; lead: Person | null } {
+  let own: Person | null = null;
+  let lead: Person | null = null;
   const m = ix?.commands.get(war);
-  if (!m || side < 0) return null;
-  for (const c of m) if (c.side === side && c.first <= i && i <= c.last) return c.person;
-  return null;
+  if (!m || side < 0) return { own, lead };
+  for (const c of m) {
+    if (c.side !== side || c.first > i || i > c.last) continue;
+    if (c.person.author !== undefined) lead ??= c.person;
+    else own ??= c.person;
+  }
+  return { own, lead };
+}
+
+/** 作者的将领挂帅时推演原来派的那位(副将);不是作者的将领挂帅 = null */
+function deputyOf(ix: PeopleIndex | null, war: number, side: number, i: number): Person | null {
+  const { lead, own } = leadersAt(ix, war, side, i);
+  return lead && commander(ix, war, side, i) === lead ? own : null;
+}
+
+/** 君主亲征时随驾的作者将领;没有 = null */
+function escortOf(ix: PeopleIndex | null, war: number, side: number, i: number): Person | null {
+  const { lead } = leadersAt(ix, war, side, i);
+  return lead && commander(ix, war, side, i) !== lead ? lead : null;
 }
 
 /** 在第 i 条史事(战役、攻占)里战死的那一方统帅 */
@@ -576,7 +631,7 @@ function rankEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   else {
     const titles = polityTitles(p, e.year);
     const [b, a] = rankTiers(ctx, e, p);
-    const adviser = ctx.ix?.envoys.get(id)?.find((m) => m.polity === p.id);
+    const advisers = envoysOf(ctx.ix?.envoys.get(id) ?? [], p.id);
     const oldName = titles[Math.min(3, Math.max(0, b))];
     const newName = titles[Math.min(3, Math.max(0, a))];
     if (a > b) {
@@ -592,9 +647,9 @@ function rankEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         // (帝国的一生读起来是"立国 → 称帝",不再夹一条"称王");部 → 国是小事
         importance = a >= GREAT_TIER ? (a >= peakTier(p) ? 3 : 2) : 1;
       }
-      if (adviser && newName !== oldName) {
-        text += `,${ministerRef(adviser, e.year)}${classical(p) ? '劝进' : '力主其事'}`;
-        return withPeople(base(e, id, text, importance, [e.a], [], tag), adviser);
+      if (advisers.length && newName !== oldName) {
+        text += `,${advisers.map((m) => ministerRef(m, e.year)).join('、')}${classical(p) ? '劝进' : '力主其事'}`;
+        return withPeople(base(e, id, text, importance, [e.a], [], tag), ...advisers);
       }
     } else if (a < b) {
       tag = '降';
@@ -944,7 +999,7 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
         ((cut.kind === 'unally' && ((cut.a === e.a && cut.b === e.b) || (cut.a === e.b && cut.b === e.a))) ||
           (cut.kind === 'defect' && (cut.a === e.a || cut.a === e.b)));
       const n = tie ? next(2) : cut;
-      if (n && n.kind === 'war' && n.a === e.a && n.b === e.b) return done(`${A}向${B}宣战`);
+      if (n && n.kind === 'war' && n.a === e.a && n.b === e.b) return done(`${A}向${B}宣战${v.lead !== undefined ? leadTail(civ, v.lead, A, n.war, id + (tie ? 2 : 1)) : ''}`);
       if (dead(e.a)) return fail(`欲令${A}伐${B},然${A}已亡`, `那一年${A}已亡`);
       if (dead(e.b)) return fail(`${A}欲伐${B},然${B}已亡`, `那一年${B}已亡`);
       if (atWarBefore(civ, e.a, e.b, id)) return fail(`${A}欲伐${B},然两国已在交战`, '两国那时已在交战');
@@ -1003,6 +1058,8 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       return personStory(civ, e, v, A, fail, done);
     case 'regent':
       return regentStory(civ, e, id, v, A, fail, done);
+    case 'appoint':
+      return appointStory(civ, e, id, v, A, fail, done);
     case 'marry':
       return marryStory(civ, e, v, A, fail, done);
     case 'disaster':
@@ -1238,6 +1295,39 @@ function regentStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { 
     return fail(`${verb},未成`, why);
   }
   return done(`令${want}掌${A}国政`);
+}
+
+/**
+ * 任将 / 任臣:"【干预】大定拜林小满为将""【干预】林小满入仕大定";没生效的写原因(先看他自己,再看这国;同 interventions.ts 查的先后)。
+ * 史事记着生效了、同一刻他又任了别的 / 又即了位的(appoint.ts 的 skip),这一条算没生效
+ */
+function appointStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { kind: 'appoint' }>, A: string, fail: Say, done: Done): IvStory {
+  const who = authorName(civ, v.char);
+  const he = heOrShe(authorSex(civ, v.char));
+  const general = v.role === 'general';
+  const verb = general ? `欲拜${who}为${A}之将` : `欲令${who}入仕${A}`;
+  if (e.b === -3) return fail(`${verb},然${A}已亡`, `那一年${A}已亡`);
+  if (e.b === -2) return fail(`${verb},然其人尚未出生`, `${he}第 ${v.born} 年才出生`);
+  if (e.b === IV_GONE) return fail(`${verb},然其人已卒`, `第 ${v.died ?? Math.floor(e.year)} 年${he}已去世`);
+  if (e.b === IV_NOT_HIM) return fail(`${verb},然其人尚幼`, `${he}那一年不满 16 岁`);
+  if (e.b === IV_REIGNING) return fail(`${verb},然${he}方为人君`, `${he}那一年正是在位的君主`);
+  const skip = authorPostsFrom(civ).find((p) => p.annal === id)?.skip;
+  if (skip === 'replaced') return fail(`${verb},然同时又另有任命`, `同一年又给${he}任了别的`);
+  if (skip === 'crowned') return fail(`${verb},然同时${he}即位`, `同一年${he}又即了位`);
+  return done(general ? `${A}拜${who}为将` : `${who}入仕${A}`);
+}
+
+/**
+ * 宣战点了谁挂帅(declare 带 lead):",以林小满为帅";那一刻君主亲征 ",林小满随驾";他那时不是这国的将领(没任将、已卸任)
+ * ";欲以林小满为帅,然其时他非大定之将"(仗照打,统帅照推演派)。war = 打起来的那场,i = 宣战那一条的位置
+ */
+function leadTail(civ: Civ, char: number, A: string, war: number, i: number): string {
+  const ix = peopleOf(civ);
+  const who = authorName(civ, char);
+  const c = commander(ix, war, 0, i);
+  if (c?.author === char) return `,以${who}为帅`;
+  if (escortOf(ix, war, 0, i)?.author === char) return `,${who}随驾`;
+  return `;欲以${who}为帅,然其时${heOrShe(authorSex(civ, char))}非${A}之将`;
 }
 
 /** 为他联姻:"【干预】令胡炜与大澜王朝结亲"(结亲的经过紧跟着那一条 marry 写);没生效的写原因 */
@@ -1734,16 +1824,23 @@ function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const v = warVerb(e);
   const ca = commander(ix, e.war, 0, id);
   const cd = commander(ix, e.war, 1, id);
+  // 作者的将领挂帅:推演原来派的那位是副将;君主亲征:作者的将领随驾
+  const [da, dd] = [deputyOf(ix, e.war, 0, id), deputyOf(ix, e.war, 1, id)];
+  const [ea, ed] = [escortOf(ix, e.war, 0, id), escortOf(ix, e.war, 1, id)];
+  const vice = (d: Person | null) => (d ? `、${leaderName(civ, d, y)}副之` : '');
+  const escort = (x: Person | null) => (x ? `,${leaderName(civ, x, y)}随驾` : '');
   const to = e.cause && NAMES_FOE.has(e.cause) ? '之' : B;
   let t: string;
-  if (ca && reigningAt(ca, y)) t = `${rulerRef(civ, ca, y)}${pact}亲征${to}`;
+  if (ca && reigningAt(ca, y)) t = `${rulerRef(civ, ca, y)}${pact}亲征${to}${escort(ea)}`;
+  else if (ca?.author !== undefined) t = `${A}${pact}以${leaderName(civ, ca, y)}为帅${vice(da)},起兵${v}${to}`;
   else if (ca) t = `${A}${pact}以${leaderName(civ, ca, y)}为将,起兵${v}${to}`;
   else t = `${A}${pact}起兵${v}${to}`;
-  if (cd && reigningAt(cd, y)) t += `;${rulerRef(civ, cd, y)}亲自领兵拒之`;
+  if (cd && reigningAt(cd, y)) t += `;${rulerRef(civ, cd, y)}亲自领兵拒之${escort(ed)}`;
+  else if (cd?.author !== undefined) t += `;${B}以${leaderName(civ, cd, y)}为帅${vice(dd)}拒之`;
   else if (cd) t += `;${B}遣${leaderName(civ, cd, y)}拒之`;
   const x = base(e, id, t, 2, ally >= 0 ? [e.a, e.b, ally] : [e.a, e.b], []);
   if (ally >= 0) x.settlement = -1;
-  return withPeople(x, ca, cd);
+  return withPeople(x, ca, cd, da, dd, ea, ed);
 }
 
 function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
@@ -1845,11 +1942,14 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       // 第二批里只有脱离转投(国土易手)算大事;改军制、改官制、分镇只在"全部"里(大国一个种子十来次,放进大事时间轴就挤了)
       const who = reigning(ctx.ix, e.a, y);
       const imp = e.n === 0 && (e.war <= 4 || e.war === 10) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
-      const t = councilText(civ, e, id, who);
+      let t = councilText(civ, e, id, who);
       // 搁置的几种写法不写君主
       const named = who && (t.includes(who.name) || (!!who.title && t.includes(rulerTitle(civ, who))));
+      // 作者的名臣这时在朝(任臣、掌权的作者人物):"…,丞相林小满与议"(西幻"参与其议")
+      const court = (ctx.ix?.court.get(e.a) ?? []).filter((x) => (x.from ?? Infinity) <= y && (x.until === undefined || x.until > y));
+      if (court.length) t += `,${court.map((x) => ministerRef(x, y)).join('、')}${classical(polityOf(civ, e.a)) ? '与议' : '参与其议'}`;
       // 脱离:b = 想转投的邻国
-      return withPeople(base(e, id, t, imp, e.b >= 0 ? [e.a, e.b] : [e.a], [e.region]), named ? who : null);
+      return withPeople(base(e, id, t, imp, e.b >= 0 ? [e.a, e.b] : [e.a], [e.region]), named ? who : null, ...court);
     }
     case 'merge': {
       // 并掉的是大国才是大事
@@ -2709,7 +2809,9 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       let t = conquerText(civ, e, [atk, def], retake, fresh ? generalRef(civ, fresh, e.year) : undefined);
       // 守方统帅战死:"…,守将王翦战死"(领兵的宗室:"…,公子胡翔战死")
       const lost = s >= 0 ? fallenAt(ix, e.war, 1 - s, i) : null;
-      if (lost) t += `,${lost.role === 'prince' ? princeTitle(civ, lost, e.year) : '守将'}${lost.name}战死`;
+      // 守方由作者的将领挂帅时战死的是副将
+      const vice = !!lost && commander(ix, e.war, 1 - s, i)?.author !== undefined;
+      if (lost) t += `,${lost.role === 'prince' ? princeTitle(civ, lost, e.year) : vice ? '副将' : '守将'}${lost.name}战死`;
       return withPeople(base(e, i, t, e.b >= 0 ? 2 : 1, [e.a, e.b], [e.region]), fresh, lost);
     }
     if (e.kind === 'unally') {
@@ -2787,7 +2889,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       const r = regionName(civ, e.region) || '边境';
       t = `${r}之战,${who}${times}${VIA[e.via ?? 0] ?? ''}${counter ? '反攻' : '来攻'},${all}为${cd ? generalRef(civ, cd, y) : `${pn(civ, e.b, y)}守军`}所败`;
     }
-    if (dead) t += `,${dead.name}战死`;
+    // 作者的将领挂帅时战死的是副将
+    if (dead) t += `,${ca?.author !== undefined && dead !== ca ? '副将' : ''}${dead.name}战死`;
     for (const x of [ca, cd]) if (x) named.add(x.id);
     return withPeople({ ...base(e, ids[0], t, 2, [e.a, e.b], [e.region]), end: last.year }, ca, cd);
   }
@@ -2815,7 +2918,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     const s = sideOf(e.a);
     const rear = ix?.rear.get(i) ?? null;
     // 掩护的是这一方的统帅:这一刻以前就在领兵的才写名字(这一刻才换上来的写"大军")
-    let lc = s >= 0 ? (ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last) ?? null) : null;
+    let lc = s >= 0 ? (ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last && c.person.author === undefined) ?? null) : null;
+    // 作者的将领挂帅(那一刻不是君主亲征):掩护的是他
+    const al = s >= 0 ? ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last && c.person.author !== undefined) : undefined;
+    if (al && !(lc && reigningAt(lc.person, y))) lc = al;
     // 领兵的宗室亲自断后(people.ts 的 princeRear):大军没有别人领着,写"大军""主力"
     if (lc && rear && lc.person === rear) lc = null;
     const lead = lc ? (named.has(lc.person.id) && lc.person.role === 'general' ? lc.person.name : generalRef(civ, lc.person, y)) : '';
@@ -2859,8 +2965,11 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     // 领兵的统帅:这一方在这一条以前接手的最后一位(那时还在世的)。只看以前的事 —— 统帅的任期"到哪一件为止"要等往后的仗才知道,
     // 不按它找,推到这里和推得更远写的一样
     let c: Person | null = null;
-    if (s >= 0) for (const m of ix?.commands.get(e.war) ?? []) if (m.side === s && m.first < i) c = m.person;
+    if (s >= 0) for (const m of ix?.commands.get(e.war) ?? []) if (m.side === s && m.first < i && m.person.author === undefined) c = m.person;
     if (c && c.died !== undefined && c.died < y) c = null;
+    // 作者的将领这时挂着帅(那一刻不是君主亲征):顿兵的是他
+    const al = s >= 0 ? ix?.commands.get(e.war)?.find((m) => m.side === s && m.first < i && m.until >= y && m.person.author !== undefined) : undefined;
+    if (al && !(c && reigningAt(c, y))) c = al.person;
     const who = c ? generalRef(civ, c, y) : `${pn(civ, e.a, y)}${east || khan ? '军' : '大军'}`;
     const at = r.endsWith('一带') ? r : `${r}一带`;
     const t = east ? `冬,${who}顿兵${r},待春复攻` : khan ? `天寒地冻,${who}在${at}驻冬,待开春再战` : `天寒地冻,${who}在${at}扎营过冬,待开春再攻`;

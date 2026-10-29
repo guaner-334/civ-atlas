@@ -64,9 +64,12 @@ export function peopleIndex(civ: Civ): PeopleIndex {
   return ix;
 }
 
-/** 一个人在台上的年份:君主 = 即位到失位(还在位 = null);将领 = 第一次领兵到最后一次卸任;名臣 = 入仕到去职(还在朝 = null) */
+/**
+ * 一个人在台上的年份:君主 = 即位到失位(还在位 = null);将领 = 第一次领兵到最后一次卸任;名臣 = 入仕到去职(还在朝 = null);
+ * 作者的将领(任将)= 任期(还在任 = null)
+ */
 export function personSpan(x: Person): { from: Year; until: Year | null } {
-  if (x.role === 'ruler' || x.role === 'minister') return { from: x.from ?? x.born, until: x.until ?? null };
+  if (x.role === 'ruler' || x.role === 'minister' || (x.author !== undefined && x.from !== undefined)) return { from: x.from ?? x.born, until: x.until ?? null };
   const cs = x.commands ?? [];
   if (!cs.length) return { from: x.born, until: x.died ?? null };
   return { from: cs[0].from, until: cs[cs.length - 1].until };
@@ -142,6 +145,28 @@ export function generalTally(civ: Civ, x: Person): { took: number; held: number 
     }
   }
   return { took, held };
+}
+
+/**
+ * 将领经手的仗的胜负(作者的将领"胜 7 阵、败 2 阵"用):胜 = 攻下一州、守住一仗;败 = 丢了一州、攻而不克。
+ * 只数他领兵(挂帅、随驾)那几段里的仗
+ */
+export function generalRecord(civ: Civ, x: Person): { won: number; lost: number } {
+  let won = 0;
+  let lost = 0;
+  const A = civ.annals;
+  for (const c of x.commands ?? []) {
+    if (c.rear) continue;
+    for (let i = Math.max(0, c.first); i <= c.last && i < A.length; i++) {
+      const e = A[i];
+      if (e.war !== c.war || (e.kind !== 'conquer' && e.kind !== 'battle')) continue;
+      const mine = e.kind === 'conquer' ? e.a === x.polity : e.b === x.polity;
+      const theirs = e.kind === 'conquer' ? e.b === x.polity : e.a === x.polity;
+      if (mine) won++;
+      else if (theirs) lost++;
+    }
+  }
+  return { won, lost };
 }
 
 /** 君主在位时本国在战争里攻下几州 */

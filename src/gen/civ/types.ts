@@ -1000,9 +1000,9 @@ export interface Person {
   died?: Year;
   /** 结局(君主:怎么失去君位的;统帅:寿终还是战死)。还在位 / 还在世 = 不给 */
   fate?: PersonFate;
-  /** 君主:即位的年份;名臣:入仕的年份 */
+  /** 君主:即位的年份;名臣:入仕的年份;作者的将领(任将):上任的年份 */
   from?: Year;
-  /** 君主:失去君位(去世、被废、亡国)的年份;名臣:去职的年份;到结束年份还在位 / 在朝 = 不给 */
+  /** 君主:失去君位(去世、被废、亡国)的年份;名臣:去职的年份;作者的将领:卸任的年份;到结束年份还在位 / 在朝 = 不给 */
   until?: Year;
   /** 君主、名臣:第几朝(Polity.dynasties 的下标;没改朝换代过 = 0) */
   dynasty?: number;
@@ -1015,9 +1015,10 @@ export interface Person {
   /** 作者让他去世(干预"让人物去世"):第几条干预;卒年 = died。君主改了历史,将领、名臣只改人物(他后来该领的仗、该经手的事换了人) */
   killed?: number;
   /**
-   * 作者的人物(干预"即位"立的君主、干预"让他掌权"掌了权的名臣,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
+   * 作者的人物(干预"即位"立的君主、干预"让他掌权"掌了权的名臣、干预"任将 / 任臣"任了的将领名臣,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
    * 这样的人物 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
-   * 不写 died(生死归人物卡管)、没有称号;别的人物不给
+   * 不写 died(生死归人物卡管)、没有称号;别的人物不给。同一个作者人物可以有几位(为将一位、为相一位、即位一位……),按编号合起来看。
+   * 任将任臣的:from / until = 任期(到结束年份还在任 = until 不给),fate = 怎么卸任的(见 PersonFate)
    */
   author?: number;
   /**
@@ -1025,7 +1026,10 @@ export interface Person {
    * 西幻 = 同名君主的序数("三世")或"大帝"。称呼的写法见 peopleText.ts
    */
   title?: string;
-  /** 领兵打过的仗(君主亲征也记在这里) */
+  /**
+   * 领兵打过的仗(君主亲征也记在这里)。作者的将领(任将):他挂帅的那几段 —— 同一场仗那一方推演原来派的统帅照旧在,编年史写成副将;
+   * 那一刻统帅是亲征的君主的,君主为帅、他随驾(chronicle.ts 的 commander)
+   */
   commands?: PersonCommand[];
   /**
    * 父亲(Person.id;女的父辈也记在这里,界面上写"母亲"):君主和宗室按世系(lineage.ts;一朝的第一位、共和国执政官没有,
@@ -1188,6 +1192,9 @@ export interface PersonCommand {
  * - 宗室:died 寿终、battle 领兵战死、purged 争储被杀(Person.rival 是杀他的新君)/ 摄政的叔父伏诛(Person.rival 是亲政的幼主)
  * - 名臣:掌实权伏诛 purged
  * - 君主:被摄政的叔父废了(regents.ts)也是 deposed
+ * - 作者的将领、名臣(干预"任将 / 任臣",Person.author;不写卒年,结局只说怎么卸任的):retired 到期卸任(卸任年、卸甲致仕的岁数)/
+ *   died 到人物卡的卒年(卒于任上、卒于军中)/ surrendered 亡国出降 / fled 亡国出奔 / merged 随国归附 / deposed 改朝换代去职(名臣)/
+ *   yielded 又任了别的、即了位
  */
 export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle' | 'yielded' | 'purged';
 
