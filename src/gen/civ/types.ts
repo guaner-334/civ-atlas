@@ -1015,8 +1015,8 @@ export interface Person {
   /** 作者让他去世(干预"让人物去世"):第几条干预;卒年 = died。君主改了历史,将领、名臣只改人物(他后来该领的仗、该经手的事换了人) */
   killed?: number;
   /**
-   * 作者的人物(干预"即位"立的君主,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
-   * 这样的君主 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
+   * 作者的人物(干预"即位"立的君主、干预"让他掌权"掌了权的名臣,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
+   * 这样的人物 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
    * 不写 died(生死归人物卡管)、没有称号;别的人物不给
    */
   author?: number;

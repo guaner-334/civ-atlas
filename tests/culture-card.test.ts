@@ -1,6 +1,6 @@
 /**
  * 民族卡片(src/ui/CulturePanel.tsx)用的数和选中:大事只列和这一族有关的、自然兴起的补一条"出现";人口小柱图;
- * 选中民族时稳定键、地图上不圈不飞(侧栏、概览里点了另飞到人最多的州)、民族填色上别的族变淡。
+ * 选中民族时稳定键、地图上不圈不飞(侧栏、概览里点了另飞到人最多的州)、民族填色上别的族变淡;卡片里点大事时留在民族填色。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
@@ -14,6 +14,8 @@ import { cultureFocus, mapTarget, selectionFocus, selectionKey } from '../src/ui
 import { cultureFocusOf, faithFocusOf } from '../src/ui/faithSelection';
 import { cultureRegion } from '../src/ui/searchIndex';
 import { cultureFocusColors } from '../src/render/civ/faith';
+import { civFillOf } from '../src/render/civ/show';
+import { getCivHighlight, getCivShow, getCivTime, jumpYearOf, pickChronicleEntry, setCivShow } from '../src/ui/civView';
 
 const world: World = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed: 7 });
 const civ: Civ = generateCiv(world);
@@ -74,5 +76,28 @@ describe('选中一个民族', () => {
     expect([...out.subarray(6, 9)]).toEqual(shade([40, 40, 200], 0.62));
     expect(cultureFocusColors(colors, 1)).toBe(out); // 缓存
     expect(cultureFocusColors(colors, 9)).toBe(colors); // 编号不在表里
+  });
+});
+
+describe('卡片里点大事', () => {
+  const cu = civ.cultures.find((c) => !c.unborn && cultureEntries(civ, c.id).some((e) => e.regions?.length))!;
+  const ev = cultureEntries(civ, cu.id).find((e) => e.regions?.length)!;
+
+  it('正在民族填色上:留在民族填色,时间轴照样跳到那年、事发地照样亮', () => {
+    setCivShow({ polities: false, cultures: true, faiths: false, eras: false, control: false });
+    pickChronicleEntry(ev, 'cultures');
+    expect(civFillOf(getCivShow())).toBe('cultures');
+    expect(getCivTime()).toMatchObject({ year: jumpYearOf(ev), playing: false });
+    expect(getCivHighlight()?.regions).toEqual(ev.regions);
+  });
+
+  it('不在民族填色上、或从别的卡片点:照旧换成国家', () => {
+    setCivShow({ polities: false, cultures: false, faiths: false, eras: false, control: false });
+    pickChronicleEntry(ev, 'cultures');
+    expect(civFillOf(getCivShow())).toBe('polities');
+    setCivShow({ polities: false, cultures: true, faiths: false, eras: false, control: false });
+    pickChronicleEntry(ev);
+    expect(civFillOf(getCivShow())).toBe('polities');
+    expect(getCivShow().cultures).toBe(false);
   });
 });

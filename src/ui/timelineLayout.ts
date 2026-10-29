@@ -324,8 +324,9 @@ export function countUpTo(entries: readonly ChronicleEntry[], y: number): number
 }
 
 /**
- * 侧栏「最近大事」列到哪(countUpTo 的 y):停在年中(mid:故事模式停在一年中间、普通世界推到一年中间)、看的是推到的那一刻(atEnd)时,
- * 历史推到的那一格(end 所在的那一格,那一格的事也推完了)以前的都列上;别的照旧列到看的那一年(year,取过整)
+ * 侧栏「最近大事」列到哪(countUpTo 的 y):历史不是推到年初的(mid:故事模式 —— 历史推到停下那一刻的前一格,停在年初的推到上一年最后一格;
+ * 普通世界推到一年中间)、看的是推到的那一刻(atEnd)时,历史推到的那一格(end 所在的那一格,那一格的事也推完了)以前的都列上;
+ * 别的照旧列到看的那一年(year,取过整)
  */
 export function recentUpTo(year: number, end: number, mid: boolean, atEnd: boolean): number {
   return mid && atEnd ? (Math.floor(end * YEAR_TICKS + 1e-6) + 1) / YEAR_TICKS : year;

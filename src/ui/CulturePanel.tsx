@@ -8,7 +8,7 @@
  *   概况  生计(民族类型和一句说明)、人口(历年小柱图 + 这一年多少人)、住在哪(各国几州,无主另写)、信什么(各教几州)
  *   特质  两三个词,各带一句来由;节头写"据哪些年的历史"(时间轴那一年往前三百年,见 gen/civ/cultureTraits.ts)
  *   族系  来历(自然兴起,发源某州 / 从某族分出)、支族(可点)、迁徙(几次、最近一次)
- *   大事  迁徙、同化、分化、消亡:最近 5 条(可点),"全部 N 件"展开
+ *   大事  迁徙、同化、分化、消亡:最近 5 条(可点:跳到那年、亮出事发地,正在民族填色上就留着),"全部 N 件"展开
  *   最下面  AI 写的族名由来(和州卡片里的是同一份)、风俗(CustomsAi.tsx);写好的存在本地,下次打开还在
  * 卡片开着、又开着民族填色时,别的民族变淡(faithSelection.ts 的 cultureFocusOf)。
  */
@@ -264,6 +264,7 @@ export function CulturePanel({ civ, raw, raster, world, id, year, names }: Detai
         <EventList
           upTo={upTo}
           civ={civ}
+          keep="cultures"
           limit={allEvents ? upTo.length : 5}
           empty={year < cu.born ? '尚未出现' : '还没有'}
           more={

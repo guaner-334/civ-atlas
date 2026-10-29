@@ -37,7 +37,7 @@ import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calam
 import { plagueSpans } from '../gen/civ/plagueSpans';
 import { regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { cultureKeyName, interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
+import { authorRegentEndWord, cultureKeyName, interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
 import { boostDoneText } from './boostInfo';
 import { trekDoneText } from './trekInfo';
 
@@ -537,10 +537,10 @@ export function newIvDoneText(civ: Civ, v: Intervention, i: number, A: string, e
       if (f?.state === 'void') return fail(`${A}保住王室`);
       return { ok: true, text: interventionText(civ, v, i, A) };
     case 'regent': {
-      // "彭继桓 2586 年起掌权，到君主去世即位"
-      const { name } = keyPerson(civ, v.person);
+      // "彭继桓 2586 年起掌权，到君主去世即位";作者的人物 "林小满 2586 年起掌权，到卒年"
+      const name = v.char !== undefined ? civ.authorNames?.[v.char] || who || '作者的人物' : keyPerson(civ, v.person).name;
       if (f?.state === 'void') return fail(`让${name}掌权`);
-      return { ok: true, text: `${name}${spaced(at)}起掌权，${regentEndWord(v.end, v.years)}` };
+      return { ok: true, text: `${name}${spaced(at)}起掌权，${v.char !== undefined ? authorRegentEndWord(v) : regentEndWord(v.end, v.years)}` };
     }
     case 'marry': {
       // "胡炜与大澜王朝结亲"
