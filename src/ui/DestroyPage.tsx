@@ -22,6 +22,7 @@ import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, nameAt, setPolityPick, usePolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
+import { NationLifeHead } from './LifeHead';
 import { closeCmdPage } from './panelStore';
 import { alivePolities } from './crownInfo';
 import { destroyDefault, destroyQueueText } from './newIvInfo';
@@ -178,6 +179,7 @@ export function DestroyPage({ civ, id, year, from }: { civ: Civ; id: number; yea
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form" data-destroy="form">
+        <NationLifeHead kinds={['destroy']} polity={id} />
         {step ? (
           <StepEffectTime phone={phone} />
         ) : (

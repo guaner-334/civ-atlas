@@ -192,3 +192,47 @@
   pointer-events: none;
   z-index: 2;
 }
+
+/* ---- 作者的人物:照经历先填好的页顶(LifeHead.tsx)、经历进推演选一种(LifeIvPage.tsx)、宣战选谁挂帅(CommandPage.tsx) ---- */
+/* 那一段经历:白底一条,年份 + 他写的那句话 */
+.as-entry {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 14px;
+}
+.as-entry .cp-ev-year {
+  width: auto;
+}
+/* 几组命令行的小标题:"他本人""国家的事，记在他名下""先不能进推演" */
+.as-cmd-title {
+  padding: 2px 14px 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+/* 国家的事十行:名字和说明排在一行,行矮一些 */
+.as-cmds-compact .cp-cmd {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.as-cmds-compact .cp-cmd-main {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
+/* 谁挂帅:单选的圆点 */
+.as-radio {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  align-self: center;
+}
+.as-radio.on {
+  border: 5px solid var(--accent);
+}

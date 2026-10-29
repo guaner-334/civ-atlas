@@ -28,6 +28,7 @@ import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
+import { NationLifeHead } from './LifeHead';
 import { closeCmdPage } from './panelStore';
 import { getCivHighlight, setCivHighlight } from './civView';
 import { TREK_REACH_NAMES, folkRegions, getTrekPlan, livingCityIn, setTrekPlan, trekReach, trekRoute, trekTargets } from './trekInfo';
@@ -239,6 +240,7 @@ export function TrekPage({ civ, year, from, polity, region, onBack }: { civ: Civ
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form" data-trek="form">
+        <NationLifeHead kinds={['trek']} polity={polity ?? -1} />
         {step ? (
           <StepEffectTime phone={phone} />
         ) : (

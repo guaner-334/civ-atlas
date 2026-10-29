@@ -13,7 +13,9 @@
  *   掌权      掌哪国的权(下面写那年谁在位)、从哪一年起、怎么掌权(大臣专权 | 大将专权:要他这时在当这国的将领)、几年后还政、
  *             灰底会怎样(和推演人物掌权那一页同一套句子,RegentIvPage.tsx)
  *   底部      返回 / 加入待推演(派他出征写"(2 条)";逐年推演写「加入」)
- * polity = 先选好的国家(国家干预页选人进来的;不给 = 人物卡上他的国家);from = 先填好的年份(经历进推演;不给 = 时间轴这一年)
+ * polity = 先选好的国家(国家干预页选人进来的;不给 = 人物卡上他的国家);from = 先填好的年份(经历进推演;不给 = 时间轴这一年);
+ * life = 照「一生」里哪一段经历填的(经历旁「进推演…」进来的):页顶多一块「照这段经历填好了」(LifeHead.tsx);
+ * 当将领那一页 send = 一打开就勾上「同时派他出征」(经历进推演选「出征」)
  */
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
@@ -45,7 +47,9 @@ import { getPolityPick, interventionText, nameAt, neighborsAt, setPolityPick, us
 import { characterPolity } from './characterInfo';
 import { Row, YearRow, jumpTo, rgb, useYearInput, type YearInput } from './panelParts';
 import { alivePolities, characterCrowns, crownTail, type AlivePolity } from './crownInfo';
-import { AUTHOR_HOW_NAMES, SKILL_NAMES, characterPosts, deedText, postLine, postRole, type PostIv, type PostState } from './authorIvInfo';
+import { AUTHOR_HOW_NAMES, SKILL_NAMES, characterPosts, deedText, holdsPost, overlapWhy, postLine, postRole, type PostIv, type PostState } from './authorIvInfo';
+import { LifeHead } from './LifeHead';
+import type { LifeTag } from './lifeTag';
 import './newIv.css';
 
 /** 选身份那一页的几种 */
@@ -64,6 +68,8 @@ interface PageProps {
   polity?: number;
   /** 先填好的年份(不给 = 时间轴这一年) */
   from?: number;
+  /** 照「一生」里哪一段经历填的(页顶「照这段经历填好了」) */
+  life?: LifeTag;
   onBack: () => void;
   /** 加进单子以后(不给 = 同返回) */
   onDone?: () => void;
@@ -147,6 +153,7 @@ export function RolePickPage({ civ, c, onPick, onBack }: { civ: Civ; c: AuthorCh
             </div>
           </section>
         )}
+        <div className="cp-note cr-pick-note">也能在「一生」里点一段经历旁的「进推演…」，年份、国家照那段经历先填好。</div>
       </div>
       <div className="cp-foot">
         <button className="cp-btn wide" data-act="author-iv-back" onClick={onBack}>
@@ -454,7 +461,7 @@ function warsDuring(civ: Civ, pid: number, from: number, until: number): { war: 
 // ---------------------------------------------------------------------------
 // 当将领
 
-export function GeneralPage({ civ, raster, world, year, c, polity, from: preset, onBack, onDone }: PageProps) {
+export function GeneralPage({ civ, raster, world, year, c, polity, from: preset, life, send: send0, onBack, onDone }: PageProps & { send?: boolean }) {
   const era = useEra();
   const sw = useStepwise();
   const step = sw.on;
@@ -471,6 +478,10 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
   const ch = usePolityChoice(civ, c, home, yv, y, polity, `选${c.name}当哪国的将领`, `${yearAt(y, era)}任将，那年还在的国家都能选`, source, clear);
   const P = ch.pid !== null ? civ.polities[ch.pid] : undefined;
   const pAlive = !!P && ch.aliveIds.has(P.id);
+  // 他名下已有的(同一时刻只有一个身份:那年掌着别国的权就拦下)
+  const pending = usePending();
+  const ivs = getEdits().interventions;
+  const posts = useMemo(() => characterPosts(civ, c.id, pending, ivs, step, era), [civ, c.id, pending, ivs, step, era]);
   // 到哪年卸任
   const [byYear, setByYear] = useState(false);
   const untilHi = c.died !== undefined ? c.died - 1 : INTERVENTION_YEAR_MAX;
@@ -493,7 +504,7 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
   // 照现在的推演,他会领哪几仗(任将不改历史)
   const pre = useMemo<AuthorPost | null>(() => (v && v.kind === 'appoint' && pAlive && !step ? appointPreview(civ, v, P!.id) : null), [civ, JSON.stringify(v), pAlive, step]); // eslint-disable-line react-hooks/exhaustive-deps
   // 同时派他出征:伐哪国(那年接壤的)、哪年(在他任上:照现在排出来的任期,排不出的按卸任年 / 卒年 / 卸甲的岁数)
-  const [send, setSend] = useState(false);
+  const [send, setSend] = useState(!!send0);
   const stopT = pre ? (pre.until ?? civ.endYear) : v && v.kind === 'appoint' ? appointEnd(v, y).stop : y + 1;
   const tenureEnd = Math.ceil(Math.min(stopT, civ.endYear)) - 1;
   const si = useYearInput(y, y, Math.max(y, tenureEnd), clear);
@@ -522,6 +533,8 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
     if (w) return w;
     if (!P) return '选一个国家';
     if (!pAlive) return yv < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
+    const ov = overlapWhy(civ, posts, 'general', P.id, y, yv, he, era);
+    if (ov) return ov;
     if (byYear && !ui.valid) return `卸任年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     if (send) {
       if (!step && !si.valid) return `出征年份要在${spaced(yearSpanAt(si.lo, si.hi, era))}之间，在${he}任上`;
@@ -594,6 +607,7 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
   const age = y - c.born;
   const body = (
     <>
+      {life && <LifeHead t={life} />}
       <div className="cp-form" data-author-iv="polity">
         <span className="cp-form-title">当哪国的将领</span>
         <PolityRow civ={civ} ch={ch} y={y} act="general-polity" />
@@ -725,7 +739,7 @@ function SendRow({ civ, T, y, regions, onList, onMap }: { civ: Civ; T: Civ['poli
 // ---------------------------------------------------------------------------
 // 当名臣
 
-export function MinisterPage({ civ, raster, world, year, c, polity, from: preset, onBack, onDone }: PageProps) {
+export function MinisterPage({ civ, raster, world, year, c, polity, from: preset, life, onBack, onDone }: PageProps) {
   const era = useEra();
   const sw = useStepwise();
   const step = sw.on;
@@ -741,6 +755,9 @@ export function MinisterPage({ civ, raster, world, year, c, polity, from: preset
   const ch = usePolityChoice(civ, c, home, yv, y, polity, `选${c.name}入哪国的朝`, `${yearAt(y, era)}入朝，那年还在的国家都能选`, `character:${c.id}`, clear);
   const P = ch.pid !== null ? civ.polities[ch.pid] : undefined;
   const pAlive = !!P && ch.aliveIds.has(P.id);
+  const pending = usePending();
+  const ivs = getEdits().interventions;
+  const posts = useMemo(() => characterPosts(civ, c.id, pending, ivs, step, era), [civ, c.id, pending, ivs, step, era]);
   const [byYear, setByYear] = useState(false);
   const untilHi = c.died !== undefined ? c.died - 1 : INTERVENTION_YEAR_MAX;
   const ui = useYearInput(Math.min(untilHi, y + 20), y + 1, Math.max(y + 1, untilHi), clear);
@@ -770,6 +787,8 @@ export function MinisterPage({ civ, raster, world, year, c, polity, from: preset
     if (w) return w;
     if (!P) return '选一个国家';
     if (!pAlive) return yv < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
+    const ov = overlapWhy(civ, posts, 'minister', P.id, y, yv, he, era);
+    if (ov) return ov;
     if (byYear && !ui.valid) return `去职年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     return null;
   })();
@@ -789,6 +808,7 @@ export function MinisterPage({ civ, raster, world, year, c, polity, from: preset
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form" data-author-iv="minister">
+        {life && <LifeHead t={life} />}
         <div className="cp-form" data-author-iv="polity">
           <span className="cp-form-title">入哪国的朝</span>
           <PolityRow civ={civ} ch={ch} y={y} act="minister-polity" />
@@ -838,7 +858,7 @@ export function MinisterPage({ civ, raster, world, year, c, polity, from: preset
 // ---------------------------------------------------------------------------
 // 掌权
 
-export function AuthorRegentPage({ civ, raster, world, year, c, polity, from: preset, onBack, onDone }: PageProps) {
+export function AuthorRegentPage({ civ, raster, world, year, c, polity, from: preset, life, onBack, onDone }: PageProps) {
   const era = useEra();
   const sw = useStepwise();
   const step = sw.on;
@@ -862,15 +882,8 @@ export function AuthorRegentPage({ civ, raster, world, year, c, polity, from: pr
   const lean = characterLeanings(c);
   // 大将专权:他这时在当这国的将领(推过的生效了的、单子里更早下的)
   const ivs = getEdits().interventions;
-  const general = useMemo(() => {
-    if (!P) return false;
-    const key = polityKey(civ, P.id);
-    return characterPosts(civ, c.id, pending, ivs, step, era).some((s) => {
-      if (s.v.kind !== 'appoint' || s.v.role !== 'general') return false;
-      if (s.kind === 'done') return s.x.polity === P.id && (s.x.from ?? Infinity) <= yv && (s.x.until === undefined || s.x.until > yv);
-      return s.kind === 'queued' && s.v.a === key && s.v.from <= y && (s.v.until === undefined || s.v.until > y);
-    });
-  }, [civ, c.id, pending, ivs, step, era, P, y, yv]);
+  const posts = useMemo(() => characterPosts(civ, c.id, pending, ivs, step, era), [civ, c.id, pending, ivs, step, era]);
+  const general = !!P && holdsPost(civ, posts, 'general', P.id, y, yv);
 
   const why = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
@@ -881,6 +894,8 @@ export function AuthorRegentPage({ civ, raster, world, year, c, polity, from: pr
     if (!royalAt(P, yv)) return `${yearAt(y, era)}${nameAt(P, y)}是${regimeAt(P, yv) === 'junta' ? '军政府' : '共和国'}，没有君主可架空`;
     if (!N) return `${yearAt(y, era)}${nameAt(P, y)}没有在位的君主`;
     if (N.author !== undefined) return `那年在位的是作者立的君主${personName(civ, N)}，掌不了权`;
+    const ov = overlapWhy(civ, posts, 'regent', P.id, y, yv, he, era);
+    if (ov) return ov;
     if (how === 'general' && !general) return `大将专权要${he}这时在当${nameAt(P, y)}的将领：先「当将领」，或选大臣专权`;
     return null;
   })();
@@ -909,6 +924,7 @@ export function AuthorRegentPage({ civ, raster, world, year, c, polity, from: pr
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form" data-author-iv="regent">
+        {life && <LifeHead t={life} />}
         <div className="cp-form" data-author-iv="polity">
           <span className="cp-form-title">掌哪国的权</span>
           <PolityRow civ={civ} ch={ch} y={y} act="regent-polity" />

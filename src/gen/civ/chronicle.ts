@@ -56,6 +56,7 @@
  *   没生效的写原因("…,然其地无人居住""…,然瑞城属大渭");界面上的干预列表也用它(interventionOutcome)。标签"干",一律是大事。
  *   照大纲硬改出来的(干预带 plot,gen/edits.ts 文件头"大纲")前面标【照大纲】,别的写法一样:"【照大纲】大昌向索拉特宣战";
  *   同一条情节同一刻划给同一国的几州并成一条:"【照大纲】瑞州、汾州、雪西三州划归大昌"。
+ *   记在作者人物名下的国家的事(干预带 author)后面写"(林小满之议)":"【干预】大昌与索拉特结盟(林小满之议)"。
  *   援盟参战的战争(史事 war 的 settlement 列 = 盟国)写"索拉特应大昌之约伐某国"。
  * - **作者的将领、名臣**(干预"任将 / 任臣",Person.author;appoint.ts):他挂帅的仗统帅写他、推演原来派的那位写成副将 ——
  *   "大定以林小满为将、司玄为副,起兵伐奥利亚""奥利亚以林小满为将、司玄为副拒之",后面几仗的统帅也写他("…,副将司玄战死");
@@ -977,8 +978,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
   };
   // 照大纲硬改出来的(gen/edits.ts 文件头"大纲")标【照大纲】
   const tag = v?.plot !== undefined ? '【照大纲】' : '【干预】';
-  const fail = (text: string, why: string): IvStory => ({ text: `${tag}${text}`, ok: false, why });
-  const done = (text: string): IvStory => ({ text: `${tag}${text}`, ok: true });
+  // 记在作者人物名下的国家的事:后面写"(林小满之议)"
+  const by = authorBy(civ, v);
+  const fail = (text: string, why: string): IvStory => ({ text: `${tag}${text}${by}`, ok: false, why });
+  const done = (text: string): IvStory => ({ text: `${tag}${text}${by}`, ok: true });
   /** 紧跟在这条干预后面(同一刻)的史事 */
   const next = (k = 1) => {
     const n = civ.annals[id + k];
@@ -1193,7 +1196,7 @@ function decreeEntry(ctx: Ctx, e: Annal, id: number, v: Extract<Intervention, { 
       const r = resolveKey(civ, k);
       if (r && r.kind === 'polity' && !ps.has(r.id)) no.push(pn(civ, r.id, y));
     }
-  const text = `${tag}${subs.map((s) => s.text).join(';')}${no.length ? `;${no.join('、')}不肯` : ''}`;
+  const text = `${tag}${subs.map((s) => s.text).join(';')}${no.length ? `;${no.join('、')}不肯` : ''}${authorBy(civ, v)}`;
   const out = base(e, id, text, 3, [...ps], regions.length ? regions : e.region >= 0 ? [e.region] : []);
   const people = [...new Set(subs.flatMap((s) => s.people ?? []))];
   if (people.length) out.people = people;
@@ -1497,6 +1500,11 @@ function policyTail(civ: Civ, v: PolicyIv, y: Year): string {
  */
 function authorName(civ: Civ, char: number): string {
   return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+}
+
+/** 国家的事记在作者人物名下(干预带 author):"(林小满之议)";没带 = '' */
+function authorBy(civ: Civ, v: Intervention | undefined): string {
+  return v?.author !== undefined ? `(${authorName(civ, v.author)}之议)` : '';
 }
 
 /** 作者的人物是男是女:套过人物卡的历史里记着(Civ.authorFemale);没套过 = 男 */

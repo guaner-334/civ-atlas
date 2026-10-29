@@ -37,6 +37,7 @@ import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick, type PolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
+import { NationLifeHead } from './LifeHead';
 import { closeCmdPage } from './panelStore';
 import { getCivHighlight, setCivHighlight } from './civView';
 import { alivePolities } from './crownInfo';
@@ -285,6 +286,7 @@ export function TreatyPage({ civ, world, id, year, from }: PageProps) {
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form tr-form" data-treaty="form">
+        <NationLifeHead kinds={['treaty']} polity={id} />
         <EffectYear f={f} note="从这年起立约，之前的历史不变。" />
         <Group title="和谁立约" act="parties">
           <span className="pol-chips">
@@ -470,6 +472,7 @@ export function ZonePage({ civ, world, id, year, from }: PageProps) {
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form tr-form" data-neutral="form">
+        <NationLifeHead kinds={['neutral']} polity={id} />
         <EffectYear f={f} note="从这年起是中立地，之前的历史不变。" />
         <Group title="放在哪" em="按推演数据挑的，碰到的国家越多越靠前" act="where">
           <div className="cp-cmds tr-picks">
