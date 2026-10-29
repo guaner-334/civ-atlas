@@ -3,10 +3,38 @@
  *   电脑:左键拖动转(左右转方向、上下改俯角)、滚轮拉近拉远、右键拖动平移、双击回到刚打开时的角度
  *   手机:单指转;双指捏合远近、一起上下推改俯角(往上推更斜)、拧转方向
  * 指南针、复位、远近按钮由 View.tsx 调 north / reset / zoomBy。
+ * 角度(写进网址):angle / setAngle,按"这块屏幕刚打开时那么远"算远近(手机、电脑打开都是那么大的一块);每画一帧告诉外面一声(onView)。
+ * 导出这一面:snapshot 按几倍像素密度把看得见的那一块单独画一张(天色底、地形;山名由 View.tsx 画上)。
  */
 import { ReliefGL, PALETTE, type ReliefPalette, type ReliefTexPart } from '../../render/terrain3d/gl';
 import type { ReliefMesh } from '../../render/terrain3d/relief';
-import { FIT_DESKTOP, FIT_PHONE, PITCH_MAX, PITCH_MIN, clipPlanes, fitCam, mul, project, projMatrix, rectShift, viewMatrix, type ReliefCam } from '../../render/terrain3d/camera';
+import {
+  FIT_DESKTOP,
+  FIT_PHONE,
+  PITCH_MAX,
+  PITCH_MIN,
+  angleOf,
+  camOfAngle,
+  clipPlanes,
+  fitCam,
+  mul,
+  project,
+  projMatrix,
+  rectShift,
+  viewMatrix,
+  type Mat4,
+  type ReliefAngle,
+  type ReliefCam,
+} from '../../render/terrain3d/camera';
+
+/** 立体的天色底(和 terrain3d.css 里 .rv 的底色一样:从上往下) */
+export const SKY: [string, string] = ['#b0c4da', '#e2e8ee'];
+
+/** 导出这一面画好的那张:天色底 + 地形;pins = 山顶在这张图上的位置(像素;落在镜头后面 = null) */
+export interface ReliefSnap {
+  canvas: HTMLCanvasElement;
+  pins: ([number, number] | null)[];
+}
 
 /** 冒烟检查、测速看的(window.__wfRelief) */
 export interface ReliefDebug {
@@ -27,6 +55,8 @@ export interface ReliefDebug {
   maxElev?: number;
   /** 贴着的是哪种上色(render/terrain3d/relief.ts 的 ReliefLook) */
   look?: string;
+  /** 最近一次写进网址的角度 */
+  angle?: ReliefAngle;
   frames: number;
 }
 
@@ -61,7 +91,11 @@ export class ReliefStage {
   onTouch: () => void = () => {};
   /** 每画一帧告诉外面几个钉子(山顶)在画面上的位置(CSS 像素;落在镜头后面 = null) */
   onPins: (pts: ([number, number] | null)[]) => void = () => {};
+  /** 每画一帧告诉外面一声(转了、拉了、换了起伏:角度写进网址用) */
+  onView: () => void = () => {};
   private pins: ({ x: number; z: number; h: number } | null)[] = [];
+  /** 动过镜头没有(拖、滚轮、指南针、远近、复位;网址带来的角度细的一档换上时再摆一次,动过就不摆) */
+  touched = false;
 
   private phone: boolean;
 
@@ -125,9 +159,82 @@ export class ReliefStage {
     return this.gl.maxTex;
   }
 
+  /** 现在的起伏倍数 */
+  get exNow(): number {
+    return this.ex;
+  }
+
+  /** 现在的角度(远近按现在的起伏、这块屏幕刚打开时那么远算);还没换上一块 = null */
+  angle(): ReliefAngle | null {
+    const s = this.gl.size;
+    if (!this.cam || !s) return null;
+    return angleOf(this.cam, this.fit(), s.kmX, s.kmZ);
+  }
+
+  /** 转到某个角度(网址带来的;第一次换上一块以后调) */
+  setAngle(a: ReliefAngle): void {
+    const s = this.gl.size;
+    if (!this.cam || !s) return;
+    this.anim = null;
+    const c = camOfAngle(a, this.fit(), s.kmX, s.kmZ);
+    this.cam = { ...c, dist: this.clampDist(c.dist) };
+    this.kick();
+  }
+
+  /**
+   * 导出这一面:看得见的那一块(rect,CSS 像素)按 sc 倍像素密度单独画一张 —— 天色底 + 地形(画布临时换成这么大画一帧,马上换回去重画)。
+   * 还没换上一块 = null
+   */
+  snapshot(rect: [number, number, number, number], sc: number): ReliefSnap | null {
+    const s = this.gl.size;
+    if (!this.cam || !s) return null;
+    const [l, t, r, b] = rect;
+    const cw = Math.max(1, Math.round((r - l) * sc));
+    const ch = Math.max(1, Math.round((b - t) * sc));
+    const out = document.createElement('canvas');
+    out.width = cw;
+    out.height = ch;
+    const ctx = out.getContext('2d')!;
+    // 天色底:和屏幕上一样从整个画面的顶到底渐变,这一块取中间那一段
+    const g = ctx.createLinearGradient(0, -t * sc, 0, (this.H - t) * sc);
+    g.addColorStop(0, SKY[0]);
+    g.addColorStop(1, SKY[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cw, ch);
+    const cvs = this.canvas;
+    const ow = cvs.width;
+    const oh = cvs.height;
+    let pins: ([number, number] | null)[] = [];
+    try {
+      cvs.width = cw;
+      cvs.height = ch;
+      // 整个画面的投影上再加一步:只取 rect 那一块铺满
+      const crop = new Float32Array(16);
+      crop[0] = this.W / (r - l);
+      crop[5] = this.H / (b - t);
+      crop[10] = 1;
+      crop[15] = 1;
+      crop[12] = (this.W - l - r) / (r - l);
+      crop[13] = (t + b - this.H) / (b - t);
+      const mvp = this.draw(cw, ch, crop);
+      ctx.drawImage(cvs, 0, 0);
+      pins = this.pins.map((p) => {
+        const q = p && mvp && project(mvp, p.x, p.h * 0.001 * this.ex, p.z);
+        return q ? [((q[0] + 1) / 2) * cw, ((1 - q[1]) / 2) * ch] : null;
+      });
+    } finally {
+      cvs.width = ow;
+      cvs.height = oh;
+      // 马上照屏幕的样子重画(不等下一帧,画布不闪空)
+      this.render();
+    }
+    return { canvas: out, pins };
+  }
+
   /** 回到刚打开时的角度(按现在的起伏重新定远近) */
   reset(): void {
     if (!this.cam || !this.gl.ready) return;
+    this.touched = true;
     this.home = this.fit();
     this.tween({ ...this.home });
   }
@@ -135,6 +242,7 @@ export class ReliefStage {
   /** 转回正北(朝向 0,别的不变) */
   north(): void {
     if (!this.cam) return;
+    this.touched = true;
     let yaw = this.cam.yaw % 360;
     if (yaw > 180) yaw -= 360;
     if (yaw < -180) yaw += 360;
@@ -145,6 +253,7 @@ export class ReliefStage {
   /** 拉近(f > 1)、拉远 */
   zoomBy(f: number): void {
     if (!this.cam) return;
+    this.touched = true;
     this.tween({ ...this.cam, dist: this.clampDist(this.cam.dist / f) });
   }
 
@@ -222,20 +331,28 @@ export class ReliefStage {
     this.render();
   }
 
-  private render() {
+  /** 按现在的镜头画一帧到 W × H 像素的画布上(crop = 投影上再加的一步,导出时用);返回用的变换(还没换上一块 = null) */
+  private draw(W: number, H: number, crop?: Mat4): Mat4 | null {
     const cam = this.cam;
     const s = this.gl.size;
-    const W = this.canvas.width;
-    const H = this.canvas.height;
     if (!cam || !s) {
       this.gl.draw(W, H, new Float32Array(16), new Float32Array(16), this.ex, [0, 1], this.pal);
-      return;
+      return null;
     }
     const [shX, shY] = rectShift(this.W, this.H, this.rect());
     const [n, f] = clipPlanes(cam, Math.max(s.kmX, s.kmZ) + ((s.maxElev / 1000) * this.ex));
     const mv = viewMatrix(cam);
-    const mvp = mul(projMatrix(this.W / this.H, n, f, shX, shY, cam.fov), mv);
+    let mvp = mul(projMatrix(this.W / this.H, n, f, shX, shY, cam.fov), mv);
+    if (crop) mvp = mul(crop, mvp);
     this.gl.draw(W, H, mv, mvp, this.ex, [cam.dist * 0.55, cam.dist * 1.9], this.pal);
+    return mvp;
+  }
+
+  private render() {
+    const cam = this.cam;
+    const s = this.gl.size;
+    const mvp = this.draw(this.canvas.width, this.canvas.height);
+    if (!cam || !s || !mvp) return;
     reliefDebug().frames++;
     // 北在画面上朝哪:看点往北挪一点,投到画面上比一比
     const a = project(mvp, cam.tx, cam.ty, cam.tz);
@@ -249,12 +366,14 @@ export class ReliefStage {
         }),
       );
     }
+    this.onView();
   }
 
   // ---- 拖动、滚轮、手势 ----
 
   private down(e: PointerEvent) {
     this.onTouch();
+    this.touched = true;
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -349,6 +468,7 @@ export class ReliefStage {
     e.stopPropagation();
     if (!this.cam) return;
     this.anim = null;
+    this.touched = true;
     const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     // 触控板捏合(ctrl + 滚轮)的量小,放大一点
     this.cam.dist = this.clampDist(this.cam.dist * Math.exp(dy * (e.ctrlKey ? 0.01 : 0.0015)));

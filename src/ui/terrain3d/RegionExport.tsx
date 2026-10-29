@@ -37,7 +37,7 @@ type Layout = 'page' | 'map';
 
 /** 文件名里不能有的字去掉 */
 // eslint-disable-next-line no-control-regex
-const safeName = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').trim();
+export const safeName = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').trim();
 
 export function RegionExport(p: Props) {
   const [layout, setLayout] = useState<Layout>('page');
@@ -204,20 +204,21 @@ export function RegionExport(p: Props) {
   );
 }
 
-function mbText(bytes: number): string {
+export function mbText(bytes: number): string {
   const mb = bytes / 1e6;
   return `${mb >= 5 ? Math.round(mb) : mb.toFixed(1)} MB`;
 }
 
-/** 存下来:手机上能分享的走分享菜单(提示条上点「存到相册」),别的直接下载 */
-function deliver(blob: Blob, name: string, more: string, phone: boolean) {
+/** 存下来:手机上能分享的走分享菜单(提示条上点「存到相册」),别的直接下载。kind = 地区图 / 立体这一面(View.tsx 也用) */
+export function deliver(blob: Blob, name: string, more: string, phone: boolean, kind: 'region' | 'relief' = 'region') {
+  const id = `${kind}-export`;
   const file = typeof File !== 'undefined' ? new File([blob], name, { type: blob.type }) : null;
   const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
   if (phone && file && nav.canShare?.({ files: [file] })) {
     showToast({
-      id: 'region-export',
+      id,
       kind: 'ok',
-      text: '地区图画好了',
+      text: kind === 'relief' ? '立体这一面画好了' : '地区图画好了',
       more: [more],
       ttl: 0,
       dismissible: true,
@@ -226,7 +227,7 @@ function deliver(blob: Blob, name: string, more: string, phone: boolean) {
     return;
   }
   downloadBlob(blob, name);
-  showToast({ id: 'region-export', kind: 'ok', text: `已导出 ${name}`, more: [more] });
-  const g = window as unknown as { __wfRegionExport?: unknown };
-  g.__wfRegionExport = { name, bytes: blob.size, type: blob.type };
+  showToast({ id, kind: 'ok', text: `已导出 ${name}`, more: [more] });
+  const g = window as unknown as Record<string, unknown>;
+  g[kind === 'relief' ? '__wfReliefExport' : '__wfRegionExport'] = { name, bytes: blob.size, type: blob.type };
 }
