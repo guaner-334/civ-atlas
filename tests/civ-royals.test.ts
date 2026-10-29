@@ -154,7 +154,8 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
           expect(r.rival).toBe(x.id);
         }
       }
-      if (x.claim.how === 'coup' || x.claim.how === 'intrigue') expect(e.text).toMatch(/诸子争(立|位)/);
+      // 争的人里有女的换说法("兄妹争立""王子公主争位"……)
+      if (x.claim.how === 'coup' || x.claim.how === 'intrigue') expect(e.text).toMatch(/(诸子|兄妹|诸女)争立|(诸子|王子公主|诸公主)争位/);
     }
     expect(n).toBeGreaterThan(10);
     // 以军功得立、举兵夺位、宫中争立至少两种(GENERATOR_VERSION 40 时种子 7 只有两种)

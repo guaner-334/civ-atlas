@@ -52,8 +52,8 @@ import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './OldSiteBadge';
 import { BETA_SITE, OLD_SITE } from './oldSite';
 import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
-import { cleanPlay } from '../gen/edits';
-import { yearFull } from '../gen/era';
+import { YEAR_TICKS, cleanPlay, playAt } from '../gen/edits';
+import { monthNamesInUse, monthTail, monthsOf, yearFull } from '../gen/era';
 import { loadGallery, useGallery, type GalleryWork } from '../account/gallery';
 import { GalleryFeatured } from './Gallery';
 import './worlds.css';
@@ -135,8 +135,10 @@ function WaitLabel() {
 function worldLine(w: StoredWorld): string {
   const seed = `种子 ${w.save.seed}`;
   if (w.draft) return `${seed}，还在新建`;
-  const play = cleanPlay(w.save.edits.play);
-  if (play) return `${seed}，演绎到${yearFull(play.year, w.save.edits.era)}`;
+  const e = w.save.edits;
+  const play = cleanPlay(e.play);
+  // 故事停在一年中间的写到月("演绎到第 1549 年 9 月"),停在年初的只写年
+  if (play) return `${seed}，演绎到${yearFull(play.year, e.era)}${play.tick ? monthTail(playAt(play) / YEAR_TICKS, monthsOf(e.months), monthNamesInUse(e.monthNames)) : ''}`;
   if (w.alive === undefined) return seed;
   return w.alive ? `${seed}，现存 ${w.alive} 国` : `${seed}，没有文明`;
 }

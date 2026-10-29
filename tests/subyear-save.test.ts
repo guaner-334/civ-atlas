@@ -263,6 +263,8 @@ describe('停在年中的世界存档、存回推演模式、再推 N 年', () =
     expect(recentUpTo(year, civ.endYear, true, true)).toBe(at(502, 74));
     // 普通世界推到第 502 年第 74 格:那一格的事也推完了
     expect(recentUpTo(502, at(502, 74), true, true)).toBe(at(502, 75));
+    // 故事停在第 503 年年初:历史推到第 502 年最后一格,第 502 年里的事都列上
+    expect(recentUpTo(502, at(502, YEAR_TICKS - 1), true, true)).toBe(503);
     // 停在年初、拖到了别处:照旧
     expect(recentUpTo(year, civ.endYear, false, true)).toBe(year);
     expect(recentUpTo(480, civ.endYear, true, false)).toBe(480);

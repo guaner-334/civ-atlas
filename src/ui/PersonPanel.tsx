@@ -341,7 +341,14 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </MenuItem>
           )}
           {canWed && (
-            <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-marry" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'marry' })}>
+            // 女方出嫁的联姻还没做:灰掉、写"以后做"
+            <MenuItem
+              icon={<Icon name="close" size={16} className="iv-blank" />}
+              act="person-marry"
+              disabled={locked || isFemale(x)}
+              note={isFemale(x) ? '以后做' : locked ? ROLE_LOCK_NOTE : undefined}
+              onClick={() => setIvPage({ id, kind: 'marry' })}
+            >
               为{heOrShe(x)}联姻…
             </MenuItem>
           )}
@@ -706,6 +713,7 @@ function heldOverLine(civ: Civ, r: Person, hs: readonly Held[], era: Era | undef
 
 /**
  * 宗室女一行(不成完整人物,不能点):「配偶」"风氏  大澜德宗之女，2610 年娶"(议和时结的写"和亲");「母亲」不写年份。
+ * 女的(她嫁过去,配偶是对方的宗室子):"大澜德宗之子  2610 年嫁"。
  * 国名是简称、能点;她父亲没有人物的写"大澜宗室女";没有姓的语感写"大澜公主"
  */
 function brideLine(k: string, civ: Civ, x: Person, list: readonly PersonSpouse[], era: Era | undefined, when: boolean): Line {
@@ -714,6 +722,20 @@ function brideLine(k: string, civ: Civ, x: Person, list: readonly PersonSpouse[]
     const short = polityShort(civ, s.polity, s.year);
     const who = F ? `${rulerBare(civ, F, s.year)}之女` : '宗室女';
     const tail = when ? `，${yearAt(s.year, era)}${s.peace !== undefined ? '和亲' : wedVerb(x)}` : '';
+    if (when && isFemale(x)) {
+      // 「配偶」那一行、她是女的:她是嫁过去的那一方,配偶是对方君主的儿子(宗室子),没有名字(「母亲」那一行照旧写宗室女)
+      const him = F ? `${rulerBare(civ, F, s.year)}之子` : '宗室子';
+      return {
+        node: (
+          <>
+            {civ.polities[s.polity] ? <Link to={{ kind: 'polity', id: s.polity }}>{short}</Link> : short}
+            {him}
+            {tail && <em className="cp-num-note">{tail.slice(1)}</em>}
+          </>
+        ),
+        text: `${short}${him}${tail}`,
+      };
+    }
     const name = brideName(civ, s);
     return {
       node: (

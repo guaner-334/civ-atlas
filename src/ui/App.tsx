@@ -2317,16 +2317,18 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     extendDone.current = null;
     // 新添几件大事(和时间轴上默认画的"大事"同一个口径)
     const fresh = filterChronicle(fullChronicle(realCiv), { major: true, polity: null }).filter((e) => e.year > d.from).length;
-    const era = getEdits().era;
+    // 推到一年中间的(停在年中存回的世界)写到月,正好在年初的只写年
+    const e = getEdits();
+    const at = (y: number) => momentFull(y, monthsOf(e.months), e.era, monthNamesInUse(e.monthNames), false);
     showToast({
       id: 'extend-done',
       kind: 'ok',
       dot: true,
-      text: `已推到${yearFull(d.to, era)}`,
+      text: `已推到${at(d.to)}`,
       more: [`新添 ${fresh} 件大事`],
       actions: [
         {
-          label: narrowRef.current ? '接着看' : `从${yearFull(d.from, era)}接着看`,
+          label: narrowRef.current ? '接着看' : `从${at(d.from)}接着看`,
           primary: true,
           act: 'extend-watch',
           onClick: () => {

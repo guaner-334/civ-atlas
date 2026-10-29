@@ -3,6 +3,8 @@
  *
  * - 西幻风:先拼拉丁字母原形(词根 + 可选的中间音节 + 词尾),再按这种语感的译音表转成中文(Aldric → 阿尔德里克)。
  * - 东方风:中原、仙侠是"姓 + 名"(名一两个字);边塞是西域音译式的名(两三个字);山海是上古式的两字名。都不带姓的语感,姓为空串。
+ * - 女名(femaleGiven):东方各语感另有一套用字;西幻词根照用、换女名的词尾,译音时按中文译女名的习惯换几个字
+ *   (ia → 娅、na → 娜、li → 莉、ri → 丽、va → 娃、wen → 雯……,词尾的 s / th 写"丝")。
  *
  * 按键取:同一个 seed + 语感 + 用途 + 键 → 同一个名字,和调用先后无关(键 = 国家的位置锚、第几位……,见 gen/civ/people.ts)。
  * 不查重:调用方自己挑(同一朝的君主不重名时换下一个键)。
@@ -25,6 +27,8 @@ export interface PersonNamer {
   surname(...key: number[]): string;
   /** 名(带姓的语感不含姓) */
   given(...key: number[]): string;
+  /** 女名(带姓的语感不含姓;和 given 是两套随机数,同一个键起的男名、女名互不相干) */
+  femaleGiven(...key: number[]): string;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +101,50 @@ const WESTERN_FAMOUS = new Set(
     'yaroslav svyatoslav pericles alexander achilles odysseus leonidas themistocles aristides saladin rashid batu kublai temujin ogedei',
 );
 
+/** 女名:各语感的词尾(词根、中间音节照男名的用) */
+const WESTERN_FEMALE_ENDS: Record<string, Weighted<Part>[]> = {
+  imperial: parts('ia:4 ina:2 illa:2 ana:1 iana:1 ella:1'),
+  kingdom: parts('ena:2 ina:2 ella:2 wen:2 ilda:2 ith:1 is:1 a:1'),
+  nordic: parts('hild:3 run:2 dis:2 a:2 gerd:1 frid:1'),
+  slavic: parts('slava:4 mila:3 na:1 ka:1 ena:1'),
+  hellenic: parts('ia:3 ippe:1 ea:1 one:1 ene:1 ope:1'),
+  desert: parts('ida:2 ila:2 ima:2 iya:2 a:1 ah:1 ina:1 ara:1'),
+  steppe: parts('guli:4 ai:1 a:1 ana:1 ra:1'),
+  elven: parts('iel:2 wen:2 eth:1 ia:2 ith:1 wyn:1 ara:1'),
+};
+
+/** 女名的译字(盖在各语感的译音表上):中文译女名的习惯 */
+const FEMALE_TR: Record<string, string> = {
+  ya: '娅',
+  na: '娜',
+  li: '莉',
+  ri: '丽',
+  ni: '妮',
+  ne: '妮',
+  lin: '琳',
+  va: '娃',
+  vi: '薇',
+  we: '薇',
+  wen: '雯',
+  ma: '玛',
+  sa: '莎',
+  sha: '莎',
+  lu: '露',
+  ti: '蒂',
+};
+/** 个别语感的女名译字(草原 -guli 写"古丽") */
+const FEMALE_TR_STYLE: Record<string, Record<string, string>> = {
+  steppe: { li: '丽' },
+};
+
+/** 他人作品里、现实里太有名的西幻女名 */
+const WESTERN_FAMOUS_FEMALE = new Set(
+  (
+    'galadriel arwen eowyn luthien idril nimrodel celebrian julia livia helena athena medea hera gaia nike olga freya freyja brunhild gudrun ' +
+    'sigrun cleopatra zenobia theodora boudica'
+  ).split(' '),
+);
+
 const VOW = /[aeiouy]/;
 
 /** 两段拼接:元音相撞去掉前一段末尾的元音,辅音挤成一团插一个元音 */
@@ -119,15 +167,27 @@ function latinShapeOk(l: string): boolean {
   return l.length >= 3;
 }
 
-function westernPerson(st: WesternPersonStyle, tr: TranscribeOptions, link: string, r: Rng): string | null {
+function westernPerson(st: WesternPersonStyle, tr: TranscribeOptions, link: string, r: Rng, ends: Weighted<Part>[] = st.ends): string | null {
   let l = pick(r, st.stems).l;
   if (r() < st.mid) l = join(l, pick(r, st.mids).l, link);
-  l = join(l, wpick(r, st.ends).l, link);
-  if (!latinShapeOk(l) || WESTERN_FAMOUS.has(l) || latinBlocked(l)) return null;
-  const zh = transcribe(l, tr);
+  l = join(l, wpick(r, ends).l, link);
+  const female = ends !== st.ends;
+  if (!latinShapeOk(l) || WESTERN_FAMOUS.has(l) || (female && WESTERN_FAMOUS_FEMALE.has(l)) || latinBlocked(l)) return null;
+  let zh = transcribe(l, tr);
+  // 女名词尾的 s、th 写"丝"(伊迪丝、托尔迪丝)
+  if (female && /(s|th)$/.test(l) && zh.endsWith('斯')) zh = `${zh.slice(0, -1)}丝`;
   const n = [...zh].length;
-  if (n < 3 || n > 6 || zhBlocked(zh)) return null;
+  // 女名不以"尔"起头(l、r 打头连辅音时译出来的,读着不像名字)
+  if (n < 3 || n > 6 || zhBlocked(zh) || (female && zh.startsWith('尔'))) return null;
   return zh;
+}
+
+/** 某种语感女名的译音选项(各语感一份,建一次:译音按选项对象记结果) */
+const femaleTr = new Map<string, TranscribeOptions>();
+function femaleTrOf(styleId: string, tr: TranscribeOptions): TranscribeOptions {
+  let o = femaleTr.get(styleId);
+  if (!o) femaleTr.set(styleId, (o = { ...tr, table: { ...tr.table, ...FEMALE_TR, ...FEMALE_TR_STYLE[styleId] } }));
+  return o;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +239,31 @@ const EASTERN_PERSONS: Record<string, EasternPersonStyle> = {
   },
 };
 
+/** 女名(东方;带姓的语感姓照用男名那一张) */
+const EASTERN_FEMALE: Record<string, EasternPersonStyle> = {
+  central: {
+    single: 0.3,
+    chars: '婉淑婧嫣妍姝娴瑶琬蘅芷蕙薇萱莹霜凝素柔令仪容宁静婷媛锦绣兰秀玉珠琳琴曼雅慧敏菡茹筠妙宛韵黛绮月贞懿',
+  },
+  xianxia: {
+    single: 0.3,
+    chars: '清雪月灵璃绮萦绾鸢霓汐漪黛弦卿若烟晚歌瑶素芊落紫音霜婳笙璎岚澜',
+  },
+  frontier: {
+    single: 0,
+    first: '阿伊古帕迪萨娜莎乌塔',
+    chars: '丽娜依莎罕兰提雅朵曼',
+    third: 0.3,
+  },
+  mythic: {
+    single: 0,
+    first: '女姮宓嫘瑶素青玄白赤',
+    chars: '华英姬丹霓鸾凰兰芷桑',
+    third: 0,
+    famous: ['女娲', '嫦娥', '羲和', '常羲', '精卫', '瑶姬', '女魃', '宓妃', '娥皇', '女英', '嫘祖', '西王母', '素女', '玄女', '青女'],
+  },
+};
+
 const chars = (s: string) => [...s];
 
 function easternGiven(st: EasternPersonStyle, r: Rng): string | null {
@@ -219,6 +304,8 @@ function keyRng(base: number, use: number, key: number[]): Rng {
 /** 抽不出合格的名字时(极少见)的兜底 */
 const FALLBACK_WEST = '阿尔德';
 const FALLBACK_EAST = '昭';
+const FALLBACK_WEST_FEMALE = '阿德琳';
+const FALLBACK_EAST_FEMALE = '婉';
 const TRIES = 60;
 
 /** 有没有这种语感的人名表 */
@@ -250,6 +337,15 @@ export function createPersonNamer(seed: number, styleId: string): PersonNamer {
         }
         return FALLBACK_EAST;
       },
+      femaleGiven(...key) {
+        const r = keyRng(base, 2, key);
+        const st = EASTERN_FEMALE[styleId];
+        for (let t = 0; t < TRIES; t++) {
+          const g = easternGiven(st, r);
+          if (g) return g;
+        }
+        return FALLBACK_EAST_FEMALE;
+      },
     };
   }
   const west = WESTERN_PERSONS[styleId] ?? WESTERN_PERSONS.kingdom;
@@ -266,6 +362,16 @@ export function createPersonNamer(seed: number, styleId: string): PersonNamer {
         if (g) return g;
       }
       return FALLBACK_WEST;
+    },
+    femaleGiven(...key) {
+      const r = keyRng(base, 2, key);
+      const ends = WESTERN_FEMALE_ENDS[styleId] ?? WESTERN_FEMALE_ENDS.kingdom;
+      const tr = femaleTrOf(WESTERN_PERSONS[styleId] ? styleId : 'kingdom', ws.tr);
+      for (let t = 0; t < TRIES; t++) {
+        const g = westernPerson(west, tr, ws.link, r, ends);
+        if (g) return g;
+      }
+      return FALLBACK_WEST_FEMALE;
     },
   };
 }
