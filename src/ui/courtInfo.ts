@@ -338,7 +338,8 @@ export function regimeSays(civ: Civ, p: number, year: Year, form: FormLook, era?
   else if (d.council === 2) delib = `${yearAt(set, era)}起大事先咨议事会，君权照旧。`;
   else delib = '国事由君主独断。';
   const elect = f.regime === 'crown' ? '' : '、推执政';
-  const voice = f.regime === 'crown' && f.charter === 0 ? '议政的只有王族贵族。' : `${FRANCHISE_SAY[d.franchise]}能进${body}${elect}。`;
+  const voice =
+    f.regime === 'junta' ? '议事会散了，议政的只剩军中将领。' : f.regime === 'crown' && f.charter === 0 ? '议政的只有王族贵族。' : `${FRANCHISE_SAY[d.franchise]}能进${body}${elect}。`;
   return [succ, delib, voice];
 }
 

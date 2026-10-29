@@ -50,7 +50,7 @@ import { baseRegions } from './eras';
 import { useNarrow } from './device';
 import { useEra, useMonthNames, useMonths } from './editsStore';
 import { yearFull, type Era } from '../gen/era';
-import { STORY_SECONDS, playRate, replayStart } from './timelineLayout';
+import { STORY_SECONDS, evType, playRate, replayStart } from './timelineLayout';
 import { filmRangeOf, getFilm, setFilmRange, useFilm } from './filmStore';
 import { filmClock, lengthText } from './filmPlan';
 import { setDirectorPace, useDirector } from './directorStore';
@@ -125,6 +125,14 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
     const p = lifeOf !== null && has ? civ?.polities[lifeOf] : undefined;
     return p && lifeOf !== null ? { polity: lifeOf, founded: p.founded, ended: p.ended ?? null, color: p.color, renames: renamesOf(p) } : undefined;
   }, [civ, has, lifeOf]);
+  // 改国号那几年的蓝点底下要有那一年的事件点(悬停、点它):只看大事时,选中的国家那几条改制补进来
+  const shown = useMemo(() => {
+    const ys = life?.renames;
+    if (!ys?.length) return marks;
+    const have = new Set(marks.map((e) => e.id));
+    const add = all.filter((e) => !have.has(e.id) && e.polities[0] === life!.polity && ys.some((n) => n.year === e.year) && evType(e) !== 'era');
+    return add.length ? [...marks, ...add].sort((a, b) => a.year - b.year) : marks;
+  }, [marks, all, life]);
   // 起过的全球大疫:时间轴上的大点、名字、凋敝那几十年的短条;这一年在凋敝里:年份旁边一枚「疫后凋敝」
   const pans = useMemo<TimelinePandemic[] | undefined>(() => {
     const list = has && civ ? pandemicsOf(civ) : [];
@@ -262,7 +270,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
         )}
         {extendOn && <ExtendButton end={end} phone={narrow} />}
         <TimelineMarks
-          entries={marks}
+          entries={shown}
           end={axis}
           dock={dock}
           year={n}
