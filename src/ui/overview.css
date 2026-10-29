@@ -166,7 +166,8 @@
   padding: 4px 24px 16px;
 }
 .ov-body.tab-chronicle,
-.ov-body.tab-people {
+.ov-body.tab-people,
+.ov-body.tab-records {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -688,6 +689,266 @@
   font-size: 15px;
   font-weight: 600;
   color: var(--ink);
+}
+
+/* ---- 世界之最页(WorldOverviewRecords.tsx):一行一条 纪录 | 保持者 | 多少 | 年份 | 保持自 | 历来;组名停在表头下面 ---- */
+.rec-at {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.rec-at b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.rec-list {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
+}
+.rec .ov-tr {
+  --ov-cols: 190px minmax(0, 1.25fr) 96px 180px minmax(0, 1fr) 86px;
+}
+.rec .rec-when,
+.rec .ov-th span:nth-child(4) {
+  padding-left: 14px;
+}
+.rec .ov-th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--panel-solid);
+}
+.rec .pp-group {
+  top: 37px;
+}
+.rec-row {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.rec-title {
+  font-size: 14px;
+  color: var(--ink);
+}
+.rec-who {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.rec-who .ov-name {
+  font: 600 15px var(--font-serif);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rec-who .rec-sub {
+  margin-left: 10px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rec-flag {
+  flex: none;
+  margin-right: 8px;
+}
+.rec-sw {
+  display: inline-block;
+  flex: none;
+  margin: 0 14px 0 6px;
+}
+.rec .pt-row {
+  flex: none;
+}
+.rec-val {
+  font: 600 15px var(--font-serif);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rec-when {
+  white-space: nowrap;
+}
+.rec-since {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.rec-since em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+}
+/* 「新纪录」小牌子;30 年内换了保持者的那行淡蓝 */
+.rec-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--r-tag);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 600 11px/18px var(--font-sans);
+  font-style: normal;
+  vertical-align: 1px;
+}
+.rec-new {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.rec-hist {
+  text-align: right;
+}
+.rec-hist .ov-link {
+  font-size: 13px;
+}
+.rec-none .rec-who,
+.rec-none .rec-val {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+.rec-none .rec-who .ov-name,
+.rec-item.rec-none .rec-l .ov-name {
+  font: 14px var(--font-sans);
+  color: var(--ink-2);
+}
+.rec-none {
+  cursor: default;
+}
+.rec-none:hover {
+  background: transparent;
+}
+.rec-row.open {
+  background: rgba(128, 128, 128, 0.08);
+}
+/* 「历来 N 任」就地展开:新的在上 */
+.rec-chain {
+  margin: 0 0 0 202px;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+.rec-chain-h {
+  padding: 2px 0 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.rec-ch {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 260px) 90px auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 13.5px;
+}
+.rec-ch .y {
+  font: 13px var(--font-serif);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.rec-ch b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rec-ch b .ov-link {
+  font-weight: 600;
+  color: var(--accent);
+}
+.rec-ch .v {
+  font: 600 14px var(--font-serif);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rec-ch .n {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+/* 手机:一条三行(纪录名;头像、名字、多少;身份和年份),下面一行小字"保持自 … 历来 N 任" */
+.rec-item {
+  padding: 9px 0 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.rec-item:hover {
+  background: rgba(128, 128, 128, 0.08);
+}
+.rec-item.rec-none {
+  cursor: default;
+}
+.rec-t {
+  margin-bottom: 3px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.rec-l {
+  display: flex;
+  align-items: center;
+}
+.rec-l .ov-name {
+  flex: 1;
+  min-width: 0;
+  font: 600 15px var(--font-serif);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rec-l .rec-val {
+  margin-left: 10px;
+}
+.rec-s {
+  margin-top: 3px;
+  padding-left: 34px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.rec-s .ov-link {
+  font-size: 12.5px;
+}
+.rec.ph .pp-group {
+  top: 0;
+}
+.rec.ph .rec-chain {
+  margin-left: 34px;
+}
+.rec.ph .rec-ch {
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+}
+.rec.ph .rec-ch .n {
+  display: none;
+}
+
+/* 窗口窄一些的电脑(稿子按 1600 宽排):纪录名、年份两列收窄;再窄就不列年份(点一行看卡片),名字不被挤没 */
+@media (max-width: 1280px) {
+  .rec .ov-tr {
+    --ov-cols: 168px minmax(0, 1.4fr) 92px 160px minmax(0, 1fr) 80px;
+  }
+  .rec-chain {
+    margin-left: 180px;
+  }
+}
+@media (max-width: 1080px) {
+  .rec .ov-tr {
+    --ov-cols: 150px minmax(0, 1.4fr) 84px 150px minmax(0, 1fr) 78px;
+  }
+  .rec-chain {
+    margin-left: 162px;
+  }
+  .rec-ch {
+    grid-template-columns: 100px minmax(0, 200px) 80px auto;
+  }
+}
+@media (max-width: 900px) {
+  .rec .ov-tr {
+    --ov-cols: 140px minmax(0, 1.5fr) 84px minmax(0, 1fr) 78px;
+  }
+  .rec .rec-when,
+  .rec .ov-th span:nth-child(4) {
+    display: none;
+  }
+  .rec-chain {
+    margin-left: 152px;
+  }
 }
 
 /* ---- 人物页的世系图(PeopleLineage.tsx):左边朝代一列,右边一朝一棵家谱树 ---- */
