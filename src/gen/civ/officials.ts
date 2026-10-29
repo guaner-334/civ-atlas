@@ -150,6 +150,12 @@ const COURTESY_CHARS: Record<string, string> = {
   central: '昭明远达通和正信德方平安宁谦恭惠厚仁义礼智敬济光华修彦云衡伯舒朗博渊文良弘承泰谨直诚思道',
   xianxia: '玄清微远渺离寒澈遥尘霄岚霁云深幽宁默逸白素凝隐川羽泓旷',
 };
+/** 女子的字:前一个字、字里用的字(按语感;"令娴""清商",李清照字易安那样) */
+const COURTESY_HEAD_F = ['令', '惠', '淑', '婉', '静', '若', '素', '易', '季', '仲'];
+const COURTESY_CHARS_F: Record<string, string> = {
+  central: '娴仪容华贞安宁和柔兰芳蕙瑾瑶芷婉徽懿章',
+  xianxia: '商音弦烟霜月雪澜漪萦岚微清素灵',
+};
 /** 号的后半(按语感) */
 const ART_TAIL: Record<string, string[]> = {
   central: ['居士', '先生', '山人', '老人', '主人'],
@@ -162,8 +168,13 @@ function pickOf<T>(list: readonly T[], u: number): T {
   return list[Math.min(list.length - 1, Math.floor(u * list.length))];
 }
 
-/** 字:"子昭""伯远""达之";和名里的字不重 */
-export function courtesyName(style: string, name: string, R: (use: number) => number): string {
+/** 字:"子昭""伯远""达之";和名里的字不重。female:女子的字("令娴""清商") */
+export function courtesyName(style: string, name: string, R: (use: number) => number, female = false): string {
+  if (female) {
+    const pool = [...(COURTESY_CHARS_F[style] ?? COURTESY_CHARS_F.central)].filter((c) => !name.includes(c));
+    const ch = pickOf(pool, R(U_CHAR));
+    return pickOf(COURTESY_HEAD_F.filter((c) => !name.includes(c) && c !== ch), R(U_STYLE)) + ch;
+  }
   const pool = [...(COURTESY_CHARS[style] ?? COURTESY_CHARS.central)].filter((c) => !name.includes(c));
   const ch = pickOf(pool, R(U_CHAR));
   const u = R(U_STYLE);
