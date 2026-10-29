@@ -37,7 +37,7 @@
  * **作者的人物任将任臣**(干预 appoint,任期、挂帅哪几仗见 appoint.ts):每一条添一位(Person.author = 人物编号,名字空着、生年照干预、不写卒年;
  *   from / until = 任期,fate = 怎么卸任的)。推演里的人一个不变,只是多了他:将领的 commands 是他挂帅的那几段(那几仗推演原来派的统帅照旧,
  *   编年史写成副将;君主亲征的,君主为帅、他随驾),官职照推演将领那套按胜仗升;名臣经手他在朝那几年朝中的事(officials.ts 的 courtDeeds,
- *   推演里经手的名臣照旧),官职按年资升。不进将门世家、世系,不会被换成女的(性别照人物卡)。
+ *   推演里经手的名臣照旧),官职照推演里名臣的升法(侍郎起、经手一件升一级;升到最高的官时推演里正做着的那位从那一刻起写次一级,只改人物)。不进将门世家、世系,不会被换成女的(性别照人物卡)。
  * **联姻**(marriages.ts):娶亲的人记上配偶(宗室女只记一行:出自哪国、父亲、"某氏"),娶亲以后生的儿子记上母亲;要结亲的宗室结亲以前不战死。
  * **女性**(women.ts):上面都排完以后,按语感的规矩和比例把一部分君主、宗室、将领、名臣换成女的、另起女名(只换性别和名字,别的一样不改)。
  *
@@ -53,7 +53,7 @@ import { personNamers } from './naming';
 import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';
 import { HEIR_WEIGHT, PRINCE_AGE, PRINCE_LEAD, buildSons, contest, march, murderedAt, type Son } from './royals';
-import { buildOfficials, courtDeeds, generalPosts, seniorityPosts, type ForcedRegent } from './officials';
+import { buildOfficials, courtDeeds, deedPosts, generalPosts, topAltAt, type ForcedRegent } from './officials';
 import { authorPostsFrom } from './appoint';
 import { RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP, regencyBase, regentsFrom, type AuthorRegentIv, type Regency, type RegencyCtx } from './regents';
 import { GROOM_SELF, matchesFrom, type Match } from './marriages';
@@ -1240,10 +1240,28 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
             if (who) officerFix.push([deed, who]);
             return deed;
           });
-        // 最高的官同一时间只一位:升到那一级的那一刻推演里本国的名臣正做着这个官,他写次一级(只看那一刻,往后推不改他先前的官)
-        const held = (title: string, t: Year) =>
-          ministers.some((m) => m.polity === ap.polity && (m.posts ?? []).some((pt, k, ps) => pt.title === title && pt.from <= t && (ps[k + 1]?.from ?? m.until ?? Infinity) > t));
-        x.posts = seniorityPosts(P, ap.from, stop, held, x.deeds?.[0]?.kind);
+        // 官职照推演里名臣的升法:经手一件升一级(officials.ts 的 deedPosts)。最高的官同一时间只一位:
+        // 升到那一级的那一刻已有作者的名臣做着,他写次一级;推演里的名臣做着的,那位从这一刻起在人物卡上写次一级,他去职后复为原官
+        const at = (m: Person, t: Year) => {
+          const ps = m.posts ?? [];
+          for (let k = ps.length - 1; k >= 0; k--) if (ps[k].from <= t) return (ps[k + 1]?.from ?? m.until ?? Infinity) > t && (m.until ?? Infinity) > t ? k : -1;
+          return -1;
+        };
+        const authorTop = (title: string, t: Year) => officers.some((o) => o.polity === ap.polity && o.role === 'minister' && (o.until ?? Infinity) > t && o.posts?.[at(o, t)]?.title === title);
+        const { posts, top } = deedPosts(P, ap.from, x.deeds ?? [], authorTop);
+        x.posts = posts;
+        if (top)
+          for (const m of ministers) {
+            const k = m.polity === ap.polity ? at(m, top.at) : -1;
+            if (k < 0 || m.posts![k].title !== top.title) continue;
+            const ps = m.posts!.slice(0, k + 1);
+            // 同一刻拜的:直接写次一级
+            if (ps[k].from >= top.at) ps.pop();
+            ps.push({ title: topAltAt(P, top.at), from: top.at });
+            if (ap.until !== undefined && (m.until ?? Infinity) > ap.until && (m.posts![k + 1]?.from ?? Infinity) > ap.until) ps.push({ title: top.title, from: ap.until });
+            ps.push(...m.posts!.slice(k + 1));
+            m.posts = ps.filter((pt, i) => i === 0 || pt.title !== ps[i - 1].title);
+          }
       }
       officers.push(x);
     }

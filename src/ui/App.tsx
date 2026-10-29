@@ -295,6 +295,7 @@ import { draftAsCharacter, escapeCharacter, getCharUi, parseYear as parseCharYea
 import { characterHover, placeOf, whereOfCity, whereOfRegion } from './characterInfo';
 import { applyCharacters, lifeStops, type Where } from '../gen/characters';
 import { crownDoneText, crownWho, takeCrownResim, type CrownResimNote } from './crownInfo';
+import { postDoneText } from './authorIvInfo';
 import { regionLabel } from '../gen/civ/display';
 import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
@@ -2150,7 +2151,9 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         const crowned =
           v.kind === 'crown' && !v.after
             ? crownDoneText(applyCharacters(named, chars), v, idx, chars, era)
-            : v.kind === 'policy'
+            : v.kind === 'appoint' || (v.kind === 'regent' && v.char !== undefined)
+              ? postDoneText(named, v, idx, crownWho(named, v.char, chars), era)
+              : v.kind === 'policy'
               ? policyDoneText(named, v, idx, shown ?? then ?? '', era)
               : newIvDoneText(v.kind === 'crown' ? applyCharacters(named, chars) : named, v, idx, shown ?? then ?? '', era, v.kind === 'crown' ? crownWho(named, v.char, chars) : '');
         showToast({

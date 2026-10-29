@@ -690,33 +690,58 @@ export function courtDeeds(
     .map((a) => ({ deed: { ...a.deed }, ...(a.who ? { who: a.who } : {}) }));
 }
 
-/** 作者的名臣按年资每这么多年升一级 */
-const SENIORITY = 8;
+/** 作者的名臣入朝时比最高的官低几级(东方帝国:侍郎 → 尚书 → 丞相) */
+export const AUTHOR_MINISTER_BELOW = 2;
 
 /**
- * 作者的名臣的官职:入朝那年拜那套官(按那一年本国的档位)的最低一级,此后每 SENIORITY 年升一级,做到最高的那级为止;
- * 最高的官同一时间只有一位:升到那一级的那一刻推演里的名臣正做着(topHeld(官名, 那一刻) = true),他写次一级(TOP_ALT),推演里的那位不变
- * (只看那一刻:往后推、后来有人做了这个官,不改他先前的官)。
- * until = 去职那一刻(还在朝 = 推到的最后一年);dept = 经手的第一件事(东方帝国级的尚书按它挑哪一部)。同一个官名接连两级的合并
+ * 作者的名臣的官职(照推演里名臣的升法):入朝那年拜那套官(按那一年本国的档位)比最高的低 AUTHOR_MINISTER_BELOW 级的那个
+ * (东方帝国侍郎;那套官级数少的从最低一级起),此后经手一件事升一级(那件事经手完的下一刻,经手时还是原来的官),做到最高的那级为止。
+ * 最高的官同一时间只有一位:升到那一刻 reachTop(官名, 那一刻) 说了算 —— 返回 true = 已有作者的名臣做着,他写次一级(TOP_ALT);
+ * 推演里的名臣正做着的不拦(那位在人物卡上写次一级,people.ts 改)。
+ * 东方帝国级的尚书按升他做尚书的那件事挑哪一部(入朝就是尚书的:经手的第一件事;都没有 = 吏部)。同一个官名接连两级的合并。
+ * 返回官职、升到最高那级的那一刻(没升到 = 不给)
  */
-export function seniorityPosts(p: Polity, from: Year, until: Year, topHeld: (title: string, t: Year) => boolean, dept?: PersonDeed['kind']): PersonPost[] {
+export function deedPosts(p: Polity, from: Year, deeds: readonly PersonDeed[], reachTop: (title: string, t: Year) => boolean): { posts: PersonPost[]; top?: { title: string; at: Year } } {
   const sys = systemOf(p);
   const ladderAt = (y: Year) => CIVIL[sys][clampTier(polityTierAt(p, y))] ?? CIVIL[sys][1] ?? [];
   const out: PersonPost[] = [];
-  for (let k = 0; ; k++) {
-    const y = q(from + k * SENIORITY);
-    if (k > 0 && y >= until) break;
-    const lad = ladderAt(y);
-    if (!lad.length) break;
-    let title = lad[Math.min(k, lad.length - 1)];
-    const top = k >= lad.length - 1;
-    if (top && topHeld(title, y)) title = TOP_ALT[sys][clampTier(polityTierAt(p, y))] ?? lad[lad.length - 2] ?? title;
-    // 东方帝国级的尚书按经手的第一件事挑哪一部(没有 = 吏部)
-    if (title === '尚书') title = (dept && DEPT[dept] ? DEPT[dept] : '吏部') + title;
-    if (!out.length || out[out.length - 1].title !== title) out.push({ title, from: y });
-    if (top) break;
+  let top: { title: string; at: Year } | undefined;
+  const at = (below: number, t: Year, why?: PersonDeed['kind']): boolean => {
+    const lad = ladderAt(t);
+    if (!lad.length) return true;
+    const k = Math.max(0, lad.length - 1 - below);
+    let title = lad[k];
+    const isTop = k === lad.length - 1;
+    if (isTop && reachTop(title, t)) title = TOP_ALT[sys][clampTier(polityTierAt(p, t))] ?? lad[lad.length - 2] ?? title;
+    else if (isTop) top = { title, at: t };
+    if (title === '尚书') {
+      const d = why ?? deeds.find((x) => DEPT[x.kind])?.kind;
+      title = (d && DEPT[d] ? DEPT[d] : '吏部') + title;
+    }
+    if (!out.length || out[out.length - 1].title !== title) out.push({ title, from: t });
+    return isTop;
+  };
+  let below = Math.min(AUTHOR_MINISTER_BELOW, Math.max(0, ladderAt(from).length - 1));
+  if (!at(below, from)) {
+    for (const d of deeds) {
+      below = Math.max(0, below - 1);
+      if (at(below, q(d.year + 1 / TICK), d.kind)) break;
+    }
   }
-  return out;
+  return top ? { posts: out, top } : { posts: out };
+}
+
+/** 作者的名臣入朝拜的官、最高的官(按那一年本国的档位;任臣那一页写"从侍郎做起……做到丞相时") */
+export function authorMinisterLadder(p: Polity, t: Year): { start: string; top: string } {
+  const lad = CIVIL[systemOf(p)][clampTier(polityTierAt(p, t))] ?? CIVIL[systemOf(p)][1] ?? [];
+  return { start: lad[Math.max(0, lad.length - 1 - AUTHOR_MINISTER_BELOW)] ?? '', top: lad[lad.length - 1] ?? '' };
+}
+
+/** 最高的官已经有人时写的那个(按那一年本国的档位;没有 = 次一级的官) */
+export function topAltAt(p: Polity, t: Year): string {
+  const sys = systemOf(p);
+  const lad = CIVIL[sys][clampTier(polityTierAt(p, t))] ?? CIVIL[sys][1] ?? [];
+  return TOP_ALT[sys][clampTier(polityTierAt(p, t))] ?? lad[lad.length - 2] ?? '';
 }
 
 /** 籍贯:那一年本国的城里挑一座(国都的机会大些);按年份扫一遍日志 */

@@ -14,7 +14,7 @@
  * 它下面「推一把发展」(选力度 ›):卡片换成推一把那一页(BoostPage.tsx),生效年份带过去。
  *
  * 最后一条「立作者的人物为君主」(选人 ›):卡片换成选人那一页 —— 只列那一年在世的作者人物(头像、生卒、那年几岁、身份),不在世的放下面、变淡、
- * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「即位…」同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
+ * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「进推演…」里当君主同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
  * 「新建人物」直接开新建(国家填好)。
  *
  * 「灭国」(选去向 ›):卡片换成灭国那一页(DestroyPage.tsx),生效年份带过去。
@@ -387,7 +387,7 @@ function CrownPick({
             </div>
           </section>
         )}
-        {alive.length > 0 && <div className="cp-note cr-pick-note">点一位，接着填到哪年下台和性格（和人物卡上「即位…」是同一页）。</div>}
+        {alive.length > 0 && <div className="cp-note cr-pick-note">点一位，接着填到哪年下台和性格（和人物卡上「进推演…」里当君主是同一页）。</div>}
       </div>
       <div className={`cp-foot${alive.length ? ' mk-foot' : ''}`}>
         <button className={`cp-btn${alive.length ? '' : ' wide'}`} data-act="crown-pick-back" onClick={onBack}>
