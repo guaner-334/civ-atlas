@@ -3,7 +3,7 @@
  * 时间轴刻度对准元年;作者填年份不合格时的提示;存档、分享链接带着纪年往返,认不出的按第几年写;
  * 改纪年不记撤销步。没设纪年时每一处写法都和原来一样。
  * 月份:一年几个月、整年的事不写月、和纪年一起的写法、存档带着走;月份的名字:有名字写名字、空着写数字、太长的不存、存档带着走;
- * 跳到某一年:填的字怎么算回第几年、超出范围怎么提示。
+ * 跳到某一年:填的字怎么算回第几年、超出范围怎么提示(推到年中的世界提示里写到月,年初只写年)。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -581,5 +581,35 @@ describe('跳到某一年', () => {
       hint: '回车跳到第一年（公元前 2500 年）',
     });
     expect(parseJump('900', false, AD, 3000)).toMatchObject({ year: 3000, why: '这个世界只推到公元 501 年' });
+  });
+
+  it('推到年中的世界填超了:"只推到"写到月(起了名字写名字),回车照旧停在最后一年;年初、只写年的世界只写年', () => {
+    const N12 = ['端月', '杏月', '桃月', '槐月', '蒲月', '荷月', '兰月', '桂月', '菊月', '阳月', '葭月', '冰月'];
+    expect(parseJump('1600', false, undefined, 1549.75, false, 12)).toEqual({
+      year: 1549,
+      why: '这个世界只推到第 1549 年 10 月',
+      hint: '回车跳到最后一年（第 1549 年）',
+    });
+    expect(parseJump('1600', false, undefined, 1549.7, false, 12, N12).why).toBe('这个世界只推到第 1549 年菊月');
+    expect(parseJump('1', false, AD, 1549.7, false, 12, N12).why).toBe('这个世界只推到公元前 951 年菊月');
+    expect(parseJump('1600', false, undefined, 1550, false, 12, N12).why).toBe('这个世界只推到第 1550 年');
+    expect(parseJump('1600', false, undefined, 1549.7, false, 0, N12).why).toBe('这个世界只推到第 1549 年');
+    // 没超:照旧跳到那一年,不提示
+    expect(parseJump('1549', false, undefined, 1549.7, false, 12, N12)).toEqual({ year: 1549, why: null, hint: null });
+  });
+
+  it('逐年推演填得比"现在"晚:"回车跳到「现在」"写到月,回车停在"现在"那一刻;年初、只写年的世界只写年', () => {
+    const N12 = ['端月', '杏月', '桃月', '槐月', '蒲月', '荷月', '兰月', '桂月', '菊月', '阳月', '葭月', '冰月'];
+    expect(parseJump('1600', false, undefined, 1549.7, true, 12, N12)).toEqual({
+      year: 1549.7,
+      why: '以后的事还没发生',
+      hint: '回车跳到「现在」（第 1549 年菊月）',
+    });
+    expect(parseJump('1600', false, undefined, 1549.7, true, 12).hint).toBe('回车跳到「现在」（第 1549 年 9 月）');
+    expect(parseJump('1600', false, AD, 1549.7, true, 12, ['', '', '', '', '', '', '', '', '']).hint).toBe('回车跳到「现在」（公元前 951 年 9 月）');
+    expect(parseJump('1600', false, undefined, 1550, true, 12, N12)).toEqual({ year: 1550, why: '以后的事还没发生', hint: '回车跳到「现在」（第 1550 年）' });
+    expect(parseJump('1600', false, undefined, 1549.7, true, 0, N12).hint).toBe('回车跳到「现在」（第 1549 年）');
+    // 填"现在"那一年:跳到那一年年初,不提示
+    expect(parseJump('1549', false, undefined, 1549.7, true, 12, N12)).toEqual({ year: 1549, why: null, hint: null });
   });
 });
