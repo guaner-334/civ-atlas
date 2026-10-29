@@ -399,7 +399,7 @@ export function recordBook(civ: Civ): RecordBook {
       end,
     ),
   );
-  // 各国州数(国家层;按整年看,和国家页「州」一列同一个数:那一年的变化全生效以后数)、各州易手:从头翻一遍变化日志
+  // 各国州数(国家层;按整年看,和国家页「州」一列同一个数:一年里的变化全生效以后才数)、各州易手:从头翻一遍变化日志
   const L = civ.log;
   let R = civ.regions.count;
   for (let k = 0; k < L.size; k++) R = Math.max(R, L.region[k] + 1);
@@ -408,6 +408,8 @@ export function recordBook(civ: Civ): RecordBook {
   const peak = new Int32Array(pols.length);
   const bigSteps = pols.map(() => ({ t: [] as number[], v: [] as number[] }));
   const flips: number[][] = Array.from({ length: R }, () => []);
+  // 这一年里这国的州数最后一次变的那一刻(鼎盛记在那一刻:写"哪年鼎盛"是那件事的年份,到下一个整年国家页上就是这么多州)
+  const lastT = new Float64Array(pols.length);
   for (let k = 0; k < L.size; ) {
     const y = Math.ceil(L.year[k]);
     const touched: number[] = [];
@@ -419,18 +421,22 @@ export function recordBook(civ: Civ): RecordBook {
       if (o === v) continue;
       if (o >= 0) {
         flips[r].push(L.year[k]);
-        if (o < pols.length) size[o]--;
+        if (o < pols.length) {
+          size[o]--;
+          lastT[o] = L.year[k];
+        }
       }
       owner[r] = v;
       if (v >= 0 && v < pols.length) {
         size[v]++;
+        lastT[v] = L.year[k];
         touched.push(v);
       }
     }
     for (const p of touched) {
       if (size[p] > peak[p]) {
         peak[p] = size[p];
-        bigSteps[p].t.push(y);
+        bigSteps[p].t.push(lastT[p]);
         bigSteps[p].v.push(size[p]);
       }
     }
