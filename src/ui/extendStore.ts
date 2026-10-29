@@ -13,6 +13,8 @@
  */
 import { useSyncExternalStore } from 'react';
 import { END_YEAR_MAX } from '../gen/edits';
+import { yearFull, type Era } from '../gen/era';
+import { momentFull, momentTail } from './stepTime';
 
 /** 弹层里的三档 */
 export const EXTEND_PRESETS = [100, 500, 1000] as const;
@@ -223,4 +225,26 @@ export function durationText(ms: number): string {
   if (s < 0.95) return `约 ${Math.max(0.1, Math.round(s * 10) / 10)} 秒`;
   if (s < 59.5) return `约 ${Math.round(s)} 秒`;
   return `约 ${Math.round(s / 60)} 分钟`;
+}
+
+/** 月份怎么写:一年几个月、起的名字(没起 = null) */
+type MonthNames = readonly string[] | null | undefined;
+
+/**
+ * 推的时候说到哪了,拆成三段(中间那段标主色):"正在推，到第 " "3240" " 年";推到一年中间的写到月 "… 年 9 月"(起了名字的写名字),
+ * 正好在年初的只写年;纪年时整个年份标主色。推演推完、还在收尾 / 有地形大事从第 0 年重推 / 还没回报:只有第一段
+ */
+export function busyParts(b: ExtendBusy, era: Era | null | undefined, months: number, names: MonthNames, phone = false): [string, string, string] {
+  if (b.slow) return [phone ? '有地形大事，要从第 0 年重推，慢一些' : '正在推（这个世界有地形大事，要从第 0 年重推，慢一些）', '', ''];
+  if (b.year === null) return ['正在推', '', ''];
+  if (b.year >= b.to) return ['收尾：起名、人物、道路', '', ''];
+  const y = yearFull(b.year, era);
+  const tail = momentTail(b.year, months, names, false);
+  const m = /^(第 )(\d+)( 年)$/.exec(y);
+  return m ? [`正在推，到${m[1]}`, m[2], m[3] + tail] : ['正在推，到', y, tail];
+}
+
+/** 「停下」的提示:这次不推了,世界还是推到原来那一刻("还是到第 1549 年 9 月";推到年初的只写年) */
+export function stopTip(b: Pick<ExtendBusy, 'from'>, era: Era | null | undefined, months: number, names: MonthNames): string {
+  return `停下：不推了，还是到${momentFull(b.from, months, era, names, false)}`;
 }
