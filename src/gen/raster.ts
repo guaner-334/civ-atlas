@@ -86,6 +86,13 @@ export interface Raster {
    */
   win?: { x0: number; y0: number; W: number; H: number };
   /**
+   * 放大后现算的块里有河口时:河口外的浑水浓淡 × 255、往河水的颜色过渡多少 × 255(喇叭口、河道、三角洲的水道)、
+   * 其中河道本身(补到海的那一段、三角洲的水道;不含喇叭口里的过渡)的那份 × 255。只在水面像素上用,见 gen/estuary.ts
+   */
+  plume?: Uint8Array;
+  rivTint?: Uint8Array;
+  rivCore?: Uint8Array;
+  /**
    * 等距圆柱主图东西相连 —— 第 0 列和最后一列相邻,邻域操作的列下标取模;
    * 第 py 行像素中心的纬度 = 90° − (py + 0.5) / h × 180°(上边是北极、下边是南极)
    */

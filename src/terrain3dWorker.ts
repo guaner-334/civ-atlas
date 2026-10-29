@@ -59,7 +59,8 @@ export interface ReliefResponse {
   error?: string;
 }
 
-let cur: { wid: number; world: World; src: ZoomSource; grids: MacroGrids } | null = null;
+/** plain = 不带河口的那份(手绘照旧,不凹喇叭口、不长三角洲,见 gen/estuary.ts) */
+let cur: { wid: number; world: World; src: ZoomSource; plain: ZoomSource; grids: MacroGrids } | null = null;
 /** 最近铺过的几条留几条(粗的、细的;地区图那么大的块一个线程轮到几条) */
 const KEEP = 4;
 /** 最近铺过的几条(编号 → 铺好的像素) */
@@ -71,7 +72,8 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     cur = null;
     recent.clear();
     try {
-      cur = { wid: m.wid, world: m.world, src: zoomSource(m.world, m.whole), grids: macroGrids(m.whole as Raster) };
+      const src = zoomSource(m.world, m.whole);
+      cur = { wid: m.wid, world: m.world, src, plain: { ...src, mouths: [] }, grids: macroGrids(m.whole as Raster) };
       // 先在一小块上走一遍(铺像素、上色、画河):小溪的线、各段代码在框的工夫里备好,立起来时粗的那一档快一些
       const r = rasterizeWindow(cur.src, 4, 0, 400, 16, 16);
       realisticWindowPixels(r, cur.grids, 'detail');
@@ -103,10 +105,11 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     // 方框可以在左右相连的哪一圈上、也可以跨过接缝:左边挪到主图那一圈里(铺出来的一样),河按跨过的那一截再画一份
     const Wpx = Math.round(cur.world.width * m.S);
     const x0 = ((m.x0 % Wpx) + Wpx) % Wpx;
-    const key = `${m.S}/${x0}/${m.y0}/${m.w}/${m.h}`;
+    const hand = m.look === 'fantasy';
+    const key = `${m.S}/${x0}/${m.y0}/${m.w}/${m.h}/${hand ? 'f' : ''}`;
     let r = recent.get(key);
     if (!r) {
-      r = rasterizeWindow(cur.src, m.S, x0 - P, m.y0 - P, n, m.h + 2 * P);
+      r = rasterizeWindow(hand ? cur.plain : cur.src, m.S, x0 - P, m.y0 - P, n, m.h + 2 * P);
       recent.set(key, r);
       while (recent.size > KEEP) recent.delete(recent.keys().next().value!);
     }

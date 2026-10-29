@@ -185,15 +185,20 @@ export function ReliefView({ world, raster, civ, style, look, phone }: Props) {
       if (coloring || !s || s.look === wantRef.current || !alive) return;
       coloring = true;
       const look2 = wantRef.current;
-      const img = await reliefImage(box, s.S, look2, false, H, style);
+      // 手绘铺的地形不带河口(别的画风放大后海岸凹出喇叭口、长出三角洲):跨过手绘换画风,地形连同上色一起换
+      const reshape = (s.look === 'fantasy') !== (look2 === 'fantasy');
+      const img = await reliefImage(box, s.S, look2, reshape, H, style);
       coloring = false;
       if (!alive) return img?.parts.forEach((p) => p.img.close());
-      if (img && shown.current?.S === s.S) {
-        st.setColor(img.w, img.h, img.parts);
-        st.setPalette(paletteOf(look2));
-        for (const p of img.parts) p.img.close();
+      if (img && shown.current?.S === s.S && (!reshape || img.elev)) {
+        if (reshape) put(img, buildMesh(img.elev!, img.w, img.h, s.S === sc.fine ? meshStep(img.w, img.h, phone ? 130_000 : 220_000) : 1, km.w, km.h), look2);
+        else {
+          st.setColor(img.w, img.h, img.parts);
+          st.setPalette(paletteOf(look2));
+          for (const p of img.parts) p.img.close();
+          dbg.look = look2;
+        }
         shown.current = { look: look2, S: s.S };
-        dbg.look = look2;
       } else img?.parts.forEach((p) => p.img.close());
       recolor();
     };

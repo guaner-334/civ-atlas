@@ -206,7 +206,8 @@ export function TerrainDetail({
       const src = tileCanvas(tileKey(lv.S, lv.k, ((tx % nx) + nx) % nx, ty));
       if (!src) return false;
       const c = document.createElement('canvas');
-      c.width = c.height = TILE;
+      c.width = src.width;
+      c.height = src.height;
       c.getContext('2d')!.drawImage(src, 0, 0);
       c.className = fade ? 'tile fade' : 'tile';
       c.style.left = `${tx * TILE}px`;
