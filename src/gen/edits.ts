@@ -1380,14 +1380,16 @@ export function resolvePersonKey(civ: Civ, key: string): number {
   const hit = ix.byKey.get(key);
   if (hit !== undefined) return hit;
   // 预定的继承人、摄政篡位的叔父:推到他即位以前记下的是宗室(prince),接着推过了即位那年他是君主(ruler);
-  // 掌实权篡位的名臣:以前是名臣(minister),篡位以后是新朝的第一位(ruler);往回推反过来
+  // 掌实权篡位的名臣:以前是名臣(minister),篡位以后是新朝的第一位(ruler);临朝篡位的太后:以前是后妃(consort);往回推反过来
   const swaps = key.includes('|prince|')
     ? [key.replace('|prince|', '|ruler|')]
     : key.includes('|minister|')
       ? [key.replace('|minister|', '|ruler|')]
-      : key.includes('|ruler|')
-        ? [key.replace('|ruler|', '|prince|'), key.replace('|ruler|', '|minister|')]
-        : [];
+      : key.includes('|consort|')
+        ? [key.replace('|consort|', '|ruler|')]
+        : key.includes('|ruler|')
+          ? [key.replace('|ruler|', '|prince|'), key.replace('|ruler|', '|minister|'), key.replace('|ruler|', '|consort|')]
+          : [];
   for (const s of swaps) {
     const hit = ix.byKey.get(s);
     if (hit !== undefined) return hit;

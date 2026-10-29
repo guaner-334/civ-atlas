@@ -52,7 +52,7 @@ import { GROOM_SELF, matchesFrom, type Match } from './marriages';
 import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, fallFate, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
 import { splitSurname } from './peopleText';
-import { nameWomen, pickWomen, type ConsortName } from './women';
+import { debutSex, nameWomen, pickWomen, type ConsortName } from './women';
 import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, consortDeath, consortRand, dowagerHomeU, isDowager, otherSurname } from './consorts';
 
 // ---- 调参 ----
@@ -952,7 +952,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     if (b) return b;
     const F = brideFatherOf(m);
     const t0 = tag[m.b] ?? 0;
-    const born = brideBorn(CR, t0, m.t, F && F.author === undefined ? F.born : undefined);
+    const born = brideBorn(CR, t0, m.t, F?.born);
     const died = consortDeath(CR, t0, m.t, K_BRIDE, born, m.t + 1);
     b = { id: -1, role: 'consort', polity: m.b, name: '', female: true, born, died };
     if (F?.dynasty !== undefined) b.dynasty = F.dynasty;
@@ -964,8 +964,11 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   /** 太后们的籍贯(嫁来的不要)、东方带姓的姓(篡位的照新朝的姓,已经在名字里) */
   const dowagerHomes: { x: Person; year: Year; u: number }[] = [];
   const dowagerSur = new Map<Person, string>();
+  /** 太后的丈夫(幼主的父亲):royals.ts 的诸子里出道时就定得下来的(定了是女的不安排太后);说不准的排完世系再认、让他照旧是男的 */
+  const husbandOf = new Map<Person, Person>();
   /** 太后是嫁来的宗室女的:娶她的人(照旧是男的,她才是人物) */
   const dowagerGrooms = new Set<Person>();
+  const wctx0 = { seed: civ.seed, polities, tag, styleOf, namerOf: (p: Polity) => namerOf(styleOf(p)), rbase: base, reignOf, sons: sonsOf, usurped: new Map<Person, Person>(), retitle: () => {} };
   for (const s of spans) {
     const { g, pid, N } = s;
     if (g.kind !== 'minister' || g.iv !== undefined || N.author !== undefined) continue;
@@ -973,6 +976,10 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const t0 = tag[pid] ?? 0;
     if (!P || !isDowager(CR, t0, g.start, styleOf(P))) continue;
     const F = sonFather.get(N);
+    // 摄政篡位的叔父、据地自立的开国之君日后才和做宗室时的他并成一人(出道时的身份那时才定):说不准
+    const merging = !!F && (!!reignOf.get(F)?.seize || (seceded.has(F.polity) && rulers[F.polity][0] === F));
+    const sex = F && !merging ? debutSex(F, wctx0) : undefined;
+    if (sex === 'female') continue;
     const mm = motherMatch(N, F);
     if (mm) {
       // 幼主的母亲本来就是嫁来的宗室女:太后就是她(生年、寿数照她自己的:幼主要生在她 16–45 岁之间、她要活过原定还政的那一年;
@@ -980,7 +987,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       const b = makeBride(mm);
       if (g.outcome === 'usurp' || !bears(b.born, b.died, N.born) || (b.died ?? Infinity) <= g.stop) continue;
       dowagerOf.set(s, b);
-      dowagerGrooms.add(F!);
+      if (sex === 'male') husbandOf.set(N, F!);
+      else dowagerGrooms.add(F!);
       continue;
     }
     // 别的:生年照推演里掌权的人,幼主要生在她 16–45 岁之间
@@ -994,6 +1002,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       dowagerSur.set(x, g.outcome === 'usurp' ? otherSurname((t) => namer.surname(tag[pid], 0, g.dyn + 1, t), prev) : otherSurname((t) => namer.surname(t0, K_DOWAGER, Math.round(g.start * 256), U_SURNAME + t), prev));
     }
     dowagerOf.set(s, x);
+    if (F && sex === 'male') husbandOf.set(N, F);
     dowagerHomes.push({ x, year: g.start, u: dowagerHomeU(CR, t0, g.start) });
   }
 
@@ -1291,13 +1300,17 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     usurped: usurperOf,
     retitle: (pid: number) => titleRulers(polities[pid], rulers[pid], facts[pid], base, tag[pid]),
   };
-  // 一部分人换成女的(women.ts):先定是谁(按出道时的身份;临朝的太后的丈夫照旧是男的)
-  const husbandOf = new Map<Person, Person>();
+  // 一部分人换成女的(women.ts):先定是谁(按出道时的身份;临朝的太后的丈夫照旧是男的:出道时定不下来的那几位排完世系才认)
+  const keepMale = new Set<Person>(dowagerGrooms);
   for (const [s] of dowagerOf) {
+    if (husbandOf.has(s.N)) continue;
     const H = parentOf.get(s.N);
-    if (H && H.author === undefined) husbandOf.set(s.N, H);
+    if (H && H.author === undefined) {
+      husbandOf.set(s.N, H);
+      keepMale.add(H);
+    }
   }
-  const women = pickWomen(number(), wctx, new Set([...husbandOf.values(), ...dowagerGrooms]));
+  const women = pickWomen(number(), wctx, keepMale);
 
   // ---- 后妃(consorts.ts)的后一半:嫁来的宗室女(娶亲的是男的才有)、太后,收进人物、排编号 ----
   /** 收进来的后妃 → 起名用的姓、身份 */

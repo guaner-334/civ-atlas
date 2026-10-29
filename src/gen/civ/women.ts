@@ -141,8 +141,24 @@ function prep(ctx: WomenCtx) {
 }
 
 /**
+ * 这个人是男是女,出道时就定得下来的:君主之子、开国之君和 pickWomen 同一个判法(只看出道时的事);没即位、不是君主之子的宗室
+ * 本来就不换(男)。继位的君主要按世系认先君是他父亲还是兄弟、作者立的君主、篡位开国的,这时说不准 = undefined。
+ * 临朝的太后先按它定(consorts.ts):定了是女的父亲不安排太后,不会日后回头把她改成男的
+ */
+export function debutSex(x: Person, ctx: WomenCtx): 'male' | 'female' | undefined {
+  if (x.female) return 'female';
+  if (x.author !== undefined || x.rise === 'usurp') return undefined;
+  if (x.rise === 'crown') return 'male';
+  let son = false;
+  for (const ss of ctx.sons.values()) for (const s of ss) if (s.p === x) son = true;
+  if (!son && x.role === 'prince') return 'male';
+  if (!son && x.rise === 'heir') return undefined;
+  return pickWomen([x], ctx).has(x) ? 'female' : 'male';
+}
+
+/**
  * 谁是女的(只定、不改):people = 排好编号、连好父亲的人物(下标 = Person.id);keepMale = 照旧是男的
- * (临朝的太后的丈夫:幼主的父亲,people.ts 给)
+ * (临朝的太后的丈夫里出道时说不准的那几位,people.ts 给)
  */
 export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: ReadonlySet<Person> = new Set()): Set<Person> {
   const { polities, tag } = ctx;
