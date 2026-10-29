@@ -73,6 +73,33 @@
 .ov-subline.ov-stats {
   white-space: normal;
 }
+/* 打开概览时停下了时间轴:年份那行末尾一枚「已暂停，关掉接着放」;窄屏单起一行,放在汇总那行下面 */
+.ov-paused {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 0 8px 0 6px;
+  vertical-align: 1px;
+  border-radius: var(--r-tag);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.ov-paused svg {
+  width: 10px;
+  height: 10px;
+  fill: var(--accent);
+}
+.ov-paused-row {
+  display: block;
+  margin-top: 4px;
+}
+.ov-paused-row .ov-paused {
+  margin-left: 0;
+}
 
 .ov-actions {
   margin-left: auto;
