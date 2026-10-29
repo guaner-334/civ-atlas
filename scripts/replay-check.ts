@@ -1429,10 +1429,42 @@ if (part('立体地形')) {
   await rp.waitForTimeout(3000);
   const f1 = await rp.evaluate(() => (window as any).__wfRelief?.frames ?? 0);
   if (!(f1 > f0)) errs.push(`立体地形:换成地理图以后立体没有重画(${f0} → ${f1} 帧)`);
+  // 换成手绘:按这一块的大小重画(整块画一张)
+  await pickLayer(rp, 'terrain');
+  const drawn = await rp
+    .waitForFunction(() => (window as any).__wfRelief?.look === 'fantasy', null, { timeout: 60000 })
+    .then(() => true, () => false);
+  if (!drawn) errs.push(`立体地形:换成手绘以后立体没有按手绘重画(${JSON.stringify(await rp.evaluate(() => (window as any).__wfRelief))})`);
   await rp.click('.rv-bar .b');
   await rp.waitForTimeout(400);
   const closed = await rp.evaluate(() => ({ rv: document.querySelectorAll('.rv').length, timeline: getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none' }));
   if (closed.rv || !closed.timeline) errs.push(`立体地形:点「回到地图」以后立体没收起 / 时间轴没回来(${JSON.stringify(closed)})`);
+  // 山脉卡片「看立体」:搜玉屏山点开卡片 → 直接立起来(手绘),山名和最高峰的海拔立在山顶
+  await rp.fill('[data-act=search]', '玉屏山');
+  await rp.waitForTimeout(400);
+  await rp.press('[data-act=search]', 'Enter');
+  const card = await rp
+    .waitForSelector('[data-act=view-relief]', { timeout: 15000 })
+    .then(() => true, () => false);
+  if (!card) errs.push('立体地形:玉屏山的卡片上没有「看立体」');
+  else {
+    const peak = await rp.evaluate(() => document.querySelector('[data-stat="最高峰"]')?.textContent ?? '');
+    await rp.click('[data-act=view-relief]');
+    const up = await rp
+      .waitForFunction(() => (window as any).__wfRelief?.level === 'fine' && document.querySelector('.rv-peak b'), null, { timeout: 90000 })
+      .then(() => true, () => false);
+    const rv2 = await rp.evaluate(() => ({
+      title: document.querySelector('.rv-t b')?.textContent ?? '',
+      peaks: [...document.querySelectorAll('.rv-peak b')].map((e) => e.textContent ?? ''),
+      shown: [...document.querySelectorAll('.rv-peak')].filter((e) => (e as HTMLElement).style.visibility !== 'hidden').length,
+      look: (window as any).__wfRelief?.look,
+    }));
+    console.log(`立体地形:卡片「看立体」→「${rv2.title}」,山名 ${rv2.peaks.join('、')}(卡片上最高峰 ${peak})`);
+    const m = peak.match(/(\d+)/);
+    if (!up || rv2.title !== '玉屏山一带' || rv2.look !== 'fantasy' || !rv2.shown || !rv2.peaks.some((t) => t.startsWith('玉屏山') && (!m || t.includes(`${m[1]} 米`))))
+      errs.push(`立体地形:卡片上点「看立体」没立起来 / 山名不对(${JSON.stringify({ up, peak, ...rv2 })})`);
+    await rp.click('.rv-bar .b');
+  }
   await rp.close();
 }
 

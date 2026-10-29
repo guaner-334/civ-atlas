@@ -6391,7 +6391,7 @@ ${s.image.cells}` : null);
   const reliefView = reliefable && relief.phase === 'view';
   useEffect(() => {
     if (!reliefable) closeRelief();
-  }, [reliefable]);
+  }, [reliefable, relief.phase]);
   /** 导播停用:还没有历史、新建、回放世界形成、导出视频 / 长图时(这时时间轴照平常放) */
   const directorOff = !markable || filmOn || !civ?.viable || !civ.cultures.length;
   // 接着回放世界形成放文明时导播不管(事件小卡照旧)

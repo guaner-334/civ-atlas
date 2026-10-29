@@ -3,14 +3,16 @@
  * 立体地形(地图上框一块立起来看,见 ui/terrain3d/)的后台线程:收到世界以后准备一次(gen/rasterWindow.ts 的 zoomSource、
  * 大尺度晕渲的粗网格),之后一次算方框里的一横条(若干整行):铺像素(多铺一圈)→ 上色 → 裁掉多铺的那圈 → 画上河和小溪,
  * 另交回每个像素的海拔和往西看的地平线坡度(render/terrain3d/relief.ts)。同一条结果一样。
+ * 手绘:一条只交回铺好的像素(海拔、年均温、水陆、群落,连多铺的那圈),几条拼成一整块以后交给其中一个线程整块画
+ * (render/terrain3d/fantasyBox.ts;纸纹、林块、波纹不在横条接缝处断开)。
  * 最近铺过的两条(粗的、细的)留着:只换画风时不用重新铺像素,只重新上色。
  */
 import type { World } from './gen/world';
 import type { Raster } from './gen/raster';
 import { WINDOW_PAD, rasterizeWindow, zoomSource, type ZoomSource } from './gen/rasterWindow';
 import { drawRealisticRivers, macroGrids, realisticWindowPixels, type MacroGrids } from './render/realistic';
-import type { SurfaceLook } from './render/surface';
-import { horizonSlopes, stripHeights } from './render/terrain3d/relief';
+import { horizonSlopes, stripHeights, type ReliefLook } from './render/terrain3d/relief';
+import { paintFantasyBox, type BoxFields } from './render/terrain3d/fantasyBox';
 import type { WholeRaster } from './tileWorker';
 
 export type ReliefRequest =
@@ -31,18 +33,25 @@ export type ReliefRequest =
       w: number;
       h: number;
       k: number;
-      look: SurfaceLook;
+      look: ReliefLook;
       heights: boolean;
       kmPerPx: number;
       maxPx: number;
-    };
+    }
+  /**
+   * 手绘:几条拼好的一整块(f 四周多铺了 pad 像素)画成贴图。S 倍主图上方框左上角在 (x0, y0)、w × h;
+   * u = 一格几个像素,ax = 东西向拉宽几倍(见 fantasyBox.ts 的 boxStyle)
+   */
+  | { type: 'fantasy'; wid: number; job: number; S: number; x0: number; y0: number; w: number; h: number; pad: number; u: number; ax: number; f: BoxFields };
 
 export interface ReliefResponse {
   wid: number;
   job: number;
   y: number;
-  /** 上好色的一条(w × h);出错 = null */
+  /** 上好色的一条(w × h;手绘的整块画好了是 0 起的一整块);出错 = null */
   bitmap: ImageBitmap | null;
+  /** 手绘的一条:铺好的像素(连多铺的那圈,(w + 2·pad) × (h + 2·pad)),还没上色 */
+  raw?: BoxFields;
   elev?: Float32Array;
   horizon?: Float32Array;
   ms: number;
@@ -71,9 +80,21 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     return;
   }
   const t0 = performance.now();
+  const y = m.type === 'strip' ? m.y : 0;
   try {
     if (!cur || cur.wid !== m.wid) throw new Error('世界还没送到');
     if (typeof OffscreenCanvas === 'undefined') throw new Error('后台线程不能画图');
+    if (m.type === 'fantasy') {
+      // 手绘:拼好的一整块画成贴图
+      const cv = new OffscreenCanvas(m.w, m.h);
+      const ctx = cv.getContext('2d') as unknown as CanvasRenderingContext2D | null;
+      if (!ctx) throw new Error('后台线程不能画图');
+      paintFantasyBox(ctx, cur.world, m.f, m.pad, m.S, m.x0, m.y0, m.u, m.ax);
+      const bitmap = cv.transferToImageBitmap();
+      const res: ReliefResponse = { wid: m.wid, job: m.job, y: 0, bitmap, ms: performance.now() - t0 };
+      self.postMessage(res, { transfer: [bitmap] });
+      return;
+    }
     const P = WINDOW_PAD;
     const n = m.w + 2 * P;
     // 方框可以在左右相连的哪一圈上、也可以跨过接缝:左边挪到主图那一圈里(铺出来的一样),河按跨过的那一截再画一份
@@ -85,6 +106,20 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
       r = rasterizeWindow(cur.src, m.S, x0 - P, m.y0 - P, n, m.h + 2 * P);
       recent.set(key, r);
       while (recent.size > 2) recent.delete(recent.keys().next().value!);
+    }
+    if (m.look === 'fantasy') {
+      // 手绘:只交回铺好的像素(连多铺的那圈;留着的那份不动,拷一份交出去),拼好了整块画
+      const raw: BoxFields = { w: n, h: m.h + 2 * P, elev: r.elev.slice(), temp: r.temp.slice(), water: r.water.slice(), biome: r.biome.slice() };
+      const res: ReliefResponse = { wid: m.wid, job: m.job, y, bitmap: null, raw, ms: 0 };
+      const transfer: Transferable[] = [raw.elev.buffer, raw.temp.buffer, raw.water.buffer, raw.biome.buffer];
+      if (m.heights) {
+        res.elev = stripHeights(r, P, m.w, m.h);
+        res.horizon = horizonSlopes(res.elev, m.w, m.h, m.kmPerPx, m.maxPx);
+        transfer.push(res.elev.buffer, res.horizon.buffer);
+      }
+      res.ms = performance.now() - t0;
+      self.postMessage(res, { transfer });
+      return;
     }
     const all = realisticWindowPixels(r, cur.grids, m.look);
     const px = new Uint8ClampedArray(m.w * m.h * 4);
@@ -102,7 +137,7 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
       drawRealisticRivers(ctx, cur.world, shifted, { s: m.S, ox: Wpx - x0, oy: -m.y0, k: m.k }, creeks, m.look);
     }
     const bitmap = cv.transferToImageBitmap();
-    const res: ReliefResponse = { wid: m.wid, job: m.job, y: m.y, bitmap, ms: 0 };
+    const res: ReliefResponse = { wid: m.wid, job: m.job, y, bitmap, ms: 0 };
     const transfer: Transferable[] = [bitmap];
     if (m.heights) {
       res.elev = stripHeights(r, P, m.w, m.h);
@@ -112,7 +147,7 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     res.ms = performance.now() - t0;
     self.postMessage(res, { transfer });
   } catch (err) {
-    const res: ReliefResponse = { wid: m.wid, job: m.job, y: m.y, bitmap: null, ms: performance.now() - t0, error: err instanceof Error ? err.message : String(err) };
+    const res: ReliefResponse = { wid: m.wid, job: m.job, y, bitmap: null, ms: performance.now() - t0, error: err instanceof Error ? err.message : String(err) };
     self.postMessage(res);
   }
 };
