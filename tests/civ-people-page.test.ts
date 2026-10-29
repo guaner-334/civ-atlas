@@ -84,6 +84,7 @@ describe.each([7, 2024])('人物页 · seed=%i', (seed) => {
           if (!e || civ.polities[x.polity].lineage === 'republic') continue;
           const k = kinOf(civ, prev, x);
           if (k === '子') expect(e.text).toMatch(/太子|世子|其子|长子|次子|[三四五六七八九十]+子/);
+          else if (k === '女') expect(e.text).toMatch(/皇太女|王太女|其女|长女|次女|[三四五六七八九十]+女/);
           else if (k) expect(e.text).toContain(`其${k}`);
           expect(riseText(civ, x)).toMatch(new RegExp(`^继${kinOf(civ, x, prev)}`));
           kinChecked++;

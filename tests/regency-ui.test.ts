@@ -80,7 +80,8 @@ describe('联姻', () => {
           expect(polityShort(civ, s.polity, s.year)).not.toBe('');
         }
         const k = lineageKin(civ, x);
-        if (x.spouses?.length) expect(k?.text).toMatch(/^妻./);
+        // 女的结了亲:配偶是对方的宗室子,写"夫某国"
+        if (x.spouses?.length) expect(k?.text).toMatch(x.female ? /^夫./ : /^妻./);
         else if (x.mother) expect(k?.text).toMatch(/^母./);
         else expect(k).toBeNull();
       }

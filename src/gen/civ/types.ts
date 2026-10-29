@@ -990,6 +990,11 @@ export interface Person {
    * 身后称号、嫁娶)都照它取,见 gender.ts
    */
   female?: true;
+  /**
+   * 女的:推演里先按男的给这个位置起的名字(civ/women.ts;不显示)。头像的长相按它一代代往下传,换成女的以后她的后人长相不变。
+   * 男的不给
+   */
+  maleName?: string;
   born: Year;
   /** 卒年;到结束年份还在世 = 不给 */
   died?: Year;
@@ -1041,7 +1046,7 @@ export interface Person {
   regencies?: PersonRegency[];
   /** 联姻娶的宗室女(marriage.ts;按先后)。没有 = 不给 */
   spouses?: PersonSpouse[];
-  /** 母亲是联姻嫁来的宗室女(父亲娶她以后出生的儿子才有,marriage.ts)。别的不给 */
+  /** 母亲是联姻嫁来的宗室女(父亲娶她以后出生的子女才有,marriage.ts)。别的不给 */
   mother?: PersonSpouse;
   /** 放逐到中立地 / 出奔中立地 / 出奔邻国(史事 exile;people.ts 照它填):没有 = 不给 */
   exile?: PersonExile;

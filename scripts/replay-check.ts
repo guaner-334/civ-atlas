@@ -585,6 +585,19 @@ if (part('键盘快捷键')) {
   const ps = (await page.evaluate('window.__wfPickables()')) as Pick[];
   const city = ps.find((c) => c.kind === 'settlement' && ps.some((m) => m.kind === 'mark' && m.id === c.id && m.x > SIDE_ROOM + 60 && m.x < vp.width - 60 && m.y > 120 && m.y < vp.height - 160));
   const has = (n: string) => page.evaluate((t) => ((window as any).__wfLabels?.texts ?? []).includes(t), n);
+  /**
+   * 等地图上的字成了 want 写的样子(哪些名字在、哪些不在),最多 5 秒;等了多久记进 waits。
+   * 改名以后地图上的字不是当下就换:编年史按新名字分小块重算、新的字在后台备好再换上;点城时地图还在飞过去的话,
+   * 要等飞完、细节层画完才轮到,CI 的虚拟机上要半秒上下(固定等 400 毫秒会偶发没等到)
+   */
+  const waits: number[] = [];
+  const labelsAre = async (want: Record<string, boolean>) => {
+    const t0 = performance.now();
+    await page
+      .waitForFunction((w) => Object.entries(w).every(([t, on]) => ((window as any).__wfLabels?.texts ?? []).includes(t) === on), want, { timeout: 5000, polling: 50 })
+      .catch(() => {});
+    waits.push(Math.round(performance.now() - t0));
+  };
   let undo = '';
   let redo = '';
   const named: boolean[] = [];
@@ -594,15 +607,15 @@ if (part('键盘快捷键')) {
     await page.click('.inspector .ins-name');
     await page.fill('.inspector .ins-edit input', '快捷键城');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(400);
+    await labelsAre({ 快捷键城: true });
     named.push(await has('快捷键城'));
     await page.keyboard.press('Control+z');
     undo = await toastText(page, 'resim-done');
-    await page.waitForTimeout(400);
+    await labelsAre({ 快捷键城: false, [city.text]: true });
     named.push(await has('快捷键城'), await has(city.text));
     await page.keyboard.press('Control+Shift+z');
     redo = await toastText(page, 'resim-done');
-    await page.waitForTimeout(400);
+    await labelsAre({ 快捷键城: true });
     named.push(await has('快捷键城'));
   }
   // 收起按钮的提示框;Ctrl+\ 收起、再按展开;收起着按 / :卡片展开、光标在搜索框里
@@ -629,7 +642,7 @@ if (part('键盘快捷键')) {
     `快捷键:年份 ${y0} → ← ${y1} → Shift+← ${y2} → → ${y3};空格 ${play1}/${play2},点播放键 ${play3} 后空格 ${play4};缩放 ${k0.toFixed(2)} → ${k1.toFixed(2)} → ${k2.toFixed(2)};` +
       `2 → ${l2}、1 → ${l1};/ 进搜索框 ${searchFocused}、打「${typed}」图层 ${lTyped};? 一览「${help.slice(0, 30)}…」、开着时空格播放 ${playUnderHelp}、Esc 收起 ${helpClosed};` +
       `Ctrl+S 存档菜单 ${saveMenu}、拦下 ${savePrevented};提示「${tip}」;更多菜单「${menu}」→ 一览 ${menuOpens};` +
-      `改名「${city?.text}」→ 快捷键城 ${named.join('/')}、撤销「${undo}」、重做「${redo}」;收起按钮提示「${tipSide}」;Ctrl+\\ 收起 ${fold1} → 展开 ${!fold2};收起着按 / → 展开 ${!fold3}、进搜索框 ${searchAfterFold}`,
+      `改名「${city?.text}」→ 快捷键城 ${named.join('/')}(地图上的字等了 ${waits.join(' / ')} ms)、撤销「${undo}」、重做「${redo}」;收起按钮提示「${tipSide}」;Ctrl+\\ 收起 ${fold1} → 展开 ${!fold2};收起着按 / → 展开 ${!fold3}、进搜索框 ${searchAfterFold}`,
   );
   if (!(y1 === y0 - 10 && y2 === y0 - 110 && y3 === y0 - 100)) errs.push(`快捷键:← → 没有按 10 年 / Shift 100 年走(${y0} → ${y1} → ${y2} → ${y3})`);
   if (!play1 || play2) errs.push(`快捷键:空格没有播放 / 暂停(${play1}、${play2})`);
@@ -645,7 +658,7 @@ if (part('键盘快捷键')) {
   if (!/键盘快捷键\s*\?/.test(menu) || !menuOpens) errs.push(`快捷键:"更多"菜单里没有"键盘快捷键",或点了没打开一览(${menu})`);
   if (!city) errs.push('快捷键:没找到能点的城');
   else if (named.join() !== 'true,false,true,true' || undo !== '已撤销改名' || redo !== '已重做改名')
-    errs.push(`快捷键:改名后 Ctrl+Z / Ctrl+Shift+Z 不对(${named.join('/')};${undo};${redo})`);
+    errs.push(`快捷键:改名后 Ctrl+Z / Ctrl+Shift+Z 不对(${named.join('/')},各等了最多 5 秒;${undo};${redo})`);
   if (!/收起侧栏\s*(Ctrl\+|⌘)\\/.test(tipSide)) errs.push(`快捷键:收起按钮的提示框没写键(${tipSide})`);
   if (!fold1 || fold2) errs.push(`快捷键:Ctrl+\\ 没有收起 / 展开左边的卡片(${fold1}、${fold2})`);
   if (fold3 || !searchAfterFold) errs.push(`快捷键:卡片收起着按 / ,应先展开再跳进搜索框(${fold3}、${searchAfterFold})`);

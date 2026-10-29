@@ -32,6 +32,7 @@
  *   作者下令"让作者的人物掌权"的(干预带 char):每国每位作者的人物添一位(Person.author = 人物编号,role minister,
  *   名字空着、由界面按人物卡填,生年照干预,不写卒年;入仕 = 头一回掌权、去职 = 掌权了结),这几段都记成大臣专权。
  * **联姻**(marriages.ts):娶亲的人记上配偶(宗室女只记一行:出自哪国、父亲、"某氏"),娶亲以后生的儿子记上母亲;要结亲的宗室结亲以前不战死。
+ * **女性**(women.ts):上面都排完以后,按语感的规矩和比例把一部分君主、宗室、将领、名臣换成女的、另起女名(只换性别和名字,别的一样不改)。
  *
  * 随机数一律 keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位, 用途, 种类):国家的位置锚 = 立国时国都的地块
  * (+ 这块地上第几个立国,同 naming.ts);一场战争里按"攻守两国的位置锚 + 宣战的年份"取(同 wars.ts)。
@@ -51,6 +52,7 @@ import { GROOM_SELF, matchesFrom } from './marriages';
 import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, fallFate, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
 import { splitSurname } from './peopleText';
+import { assignWomen } from './women';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -1203,6 +1205,19 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const end = civ.annals.find((a) => a.kind === 'neutral' && a.cause === 'lapse' && a.war === e.war);
     x.exile = { how, annal: i, zone: e.war, region: e.region, year: e.year, ...(by ? { by: by.id } : {}), ...(end ? { until: end.year } : {}) };
   }
+  // 一部分人换成女的(women.ts):只换性别、名字、字,西幻同名女王另编序数
+  assignWomen(out, {
+    seed: civ.seed,
+    polities,
+    tag,
+    styleOf,
+    namerOf: (p) => namerOf(styleOf(p)),
+    rbase: base,
+    reignOf,
+    sons: sonsOf,
+    usurped: usurperOf,
+    retitle: (pid) => titleRulers(polities[pid], rulers[pid], facts[pid], base, tag[pid]),
+  });
   return { people: out, ids, usurped: [...usurpers.values()] };
 }
 
@@ -1318,16 +1333,18 @@ function titleRulers(p: Polity, list: Person[], f: PolityFacts, base: number, ta
     // 西幻:同名的国王编序数(在位的也编);帝国里开疆最多的一位称大帝
     if (p.lineage === 'realm' || p.lineage === undefined) {
       const count = new Map<string, number>();
-      for (const r of list) if (r.author === undefined) count.set(r.name, (count.get(r.name) ?? 0) + 1);
+      // 男王、女王分开数(女名和男名偶尔撞上)
+      const key = (r: Person) => (r.female ? `女:${r.name}` : r.name);
+      for (const r of list) if (r.author === undefined) count.set(key(r), (count.get(key(r)) ?? 0) + 1);
       const seen = new Map<string, number>();
       for (const r of list) {
         if (r.author !== undefined) {
           r.title = '';
           continue;
         }
-        const n = (seen.get(r.name) ?? 0) + 1;
-        seen.set(r.name, n);
-        r.title = count.get(r.name)! > 1 ? `${ordinal(n)}世` : '';
+        const n = (seen.get(key(r)) ?? 0) + 1;
+        seen.set(key(r), n);
+        r.title = count.get(key(r))! > 1 ? `${ordinal(n)}世` : '';
       }
       let best: Person | undefined;
       let most = GREAT_GAINS - 1;

@@ -128,7 +128,7 @@ describe('让人物去世、改倾向', () => {
     expect(r.hi).toBe(Math.ceil(g.died!) - 1);
     expect(personIvWhy(civ, g, r.lo - 1)).toMatch(/才领兵$/);
     expect(personIvWhy(civ, g, Math.ceil(g.died!))).toMatch(/已卒$/);
-    expect(deathNote(civ, g, undefined)).toMatch(/^他 \d+ 年生，原定 \d+ 年(卒|战死)。$/);
+    expect(deathNote(civ, g, undefined)).toMatch(/^[他她] \d+ 年生，原定 \d+ 年(卒|战死)。$/);
     const m = civ.people!.find((x) => x.role === 'minister' && x.until !== undefined && x.from !== undefined && x.until - x.from > 5 && (x.died ?? Infinity) > x.until + 1)!;
     const rm = personIvRange(civ, m);
     expect(rm.hi).toBe(Math.ceil(m.until!) - 1);

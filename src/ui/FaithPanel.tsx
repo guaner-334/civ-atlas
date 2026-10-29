@@ -3,14 +3,15 @@
  *
  *   顶部  颜色块(这个教的颜色)、教名(可改)、"宗教，1140 年创立"(教派:"教派，2250 年分出";民间信仰:"民间信仰")、关闭
  *   按钮  创立那年(主操作:时间轴跳到创立那年;民间信仰 = 这个民族出现那年)/ 设为中心(转到圣城)/ 改名 /
- *         更多(看圣城;教派:看本教、看分出的国家;民间信仰:看发源的州)
+ *         更多(看圣城;教派:看本教、看分出的国家;民间信仰:看发源的州;大教、教派在分隔线下面让 AI 讲讲教义)
  *   概况  大教:类型(带一句说明)、创立(年份、创教者、圣城)、圣城(今属哪国)、信众(小柱图 + 州数)、国教(这一年奉它为国教的国家)、教派
  *         教派:类型、来历(从哪个教分出、哪年、哪国)、信众、国教;没有圣城、教派两行
  *         民间信仰:类型、民族(可点,开民族卡片)、信众
  *   大事  大教连同它的教派、教派自己的:最近 5 条(可点),"全部 N 件"展开全部;民间信仰没有
+ *   AI    「讲讲教义」写好的一段留在卡片最下面(DoctrineAi.tsx;民间信仰没有)
  * 卡片开着时,信仰图层上别的信仰变淡、地图上圈出圣城(见 faithSelection.ts)。
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Civ, Faith } from '../gen/civ/types';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel } from '../gen/civ/display';
@@ -23,8 +24,11 @@ import { entriesUpTo, ownersOf } from './panelData';
 import { Act, Acts, CenterAct, EventList, Link, MoreAct, PanelHead, Row, Spark, Stats, SubLine, jumpTo, rgb, type DetailProps } from './panelParts';
 import { useEra } from './editsStore';
 import { spaced, yearAt, yearShortAt } from '../gen/era';
-import { MenuItem } from './PopMenu';
+import { AiMenuItem, MenuItem, MenuSep } from './PopMenu';
 import { Icon } from './icons';
+import { AiTag } from './aiTag';
+import { useAiOn } from '../ai/client';
+import { useDoctrineAi } from './DoctrineAi';
 
 /** 圣城这一年归谁:"今属大景王朝" / "今为部落地带" / "已成故城" */
 function holyNote(civ: Civ, city: number, year: number): string {
@@ -62,6 +66,17 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
   const firstYear = folk ? Math.ceil(cu?.born ?? 0) : Math.ceil(f.founded ?? 0);
   const pol = (p: number | undefined, y: number) => (p !== undefined && civ.polities[p] ? <Link to={{ kind: 'polity', id: p }}>{polityName(civ.polities[p], y)}</Link> : null);
   const faithLink = (x: Faith) => <Link to={{ kind: 'faith', id: x.id }}>{x.name}</Link>;
+  // 讲讲教义(民间信仰没有):写好的留在卡片最下面;点了 / 边写边出字时卡片跟着划到那一块
+  const aiOn = useAiOn();
+  const doctrine = useDoctrineAi(civ, id, year);
+  const doctrineRef = useRef<HTMLDivElement>(null);
+  const [reveal, setReveal] = useState(0);
+  useEffect(() => {
+    if (reveal) doctrineRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [reveal]);
+  useEffect(() => {
+    if (doctrine.live) doctrineRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [doctrine.live]);
 
   return (
     <div className="cp" data-faith={id}>
@@ -115,6 +130,21 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
             <MenuItem icon={<Icon name="map" size={16} />} act="hearth" disabled={!cu || cu.hearth < 0} onClick={() => cu && setSelection({ kind: 'region', id: cu.hearth })}>
               看发源的州
             </MenuItem>
+          )}
+          {!folk && aiOn && <MenuSep />}
+          {!folk && (
+            <AiMenuItem
+              icon={<Icon name="scroll" size={16} />}
+              act="faith-doctrine"
+              disabled={doctrine.busy}
+              onClick={() => {
+                doctrine.ask();
+                setReveal((n) => n + 1);
+              }}
+            >
+              讲讲教义
+              <AiTag />
+            </AiMenuItem>
           )}
         </MoreAct>
       </Acts>
@@ -195,6 +225,11 @@ export function FaithPanel({ civ, raw, world, id, year, names }: DetailProps) {
               )
             }
           />
+        )}
+        {doctrine.panel && (
+          <div className="cp-ai" ref={doctrineRef}>
+            {doctrine.panel}
+          </div>
         )}
       </div>
     </div>

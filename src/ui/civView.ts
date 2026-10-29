@@ -374,14 +374,17 @@ function toned(h: CivHighlightState | null, control: boolean): CivHighlightState
 const pick = store<{ entry: ChronicleEntry | null; stamp: number }>({ entry: null, stamp: 0 });
 
 /**
- * 点编年史的一条:时间轴跳到那一年并暂停(大迁徙那一条跳到落脚那年,见 jumpYearOf;高亮的国土也按那年画),填色换成国家(宗教大事:正在信仰填色上就留着;时代的:正在时代填色上就留着;割据、收回、抗命:正在管辖填色上就留着;物产等叠加开关不动),地图上闪烁高亮事发地
+ * 点编年史的一条:时间轴跳到那一年并暂停(大迁徙那一条跳到落脚那年,见 jumpYearOf;高亮的国土也按那年画),填色换成国家(宗教大事:正在信仰填色上就留着;时代的:正在时代填色上就留着;割据、收回、抗命:正在管辖填色上就留着;
+ * 民族卡片里点的(keep = 'cultures'):正在民族填色上就留着;物产等叠加开关不动),地图上闪烁高亮事发地
  * (事发地不在视野里时 App 把地图平移过去);编年史面板里这一条标成选中(战争自动展开,不在视野里就滚过去)。
  */
-export function pickChronicleEntry(e: ChronicleEntry) {
+export function pickChronicleEntry(e: ChronicleEntry, keep?: 'cultures') {
   const year = jumpYearOf(e);
   setCivTime({ year, playing: false, scrubbing: false, story: false });
   const s = getCivShow();
-  if ((e.kind === 'faith' && s.faiths) || (e.kind === 'era' && s.eras) || ((e.kind === 'warlord' || e.kind === 'reclaim' || e.kind === 'defy') && s.control))
+  if (keep === 'cultures' && civFillOf(s) === 'cultures') {
+    // 民族填色留着(不开国家:开了国家就盖过民族填色)
+  } else if ((e.kind === 'faith' && s.faiths) || (e.kind === 'era' && s.eras) || ((e.kind === 'warlord' || e.kind === 'reclaim' || e.kind === 'defy') && s.control))
     setCivShow({ polities: true });
   else setCivShow({ polities: true, cultures: false, faiths: false, eras: false, control: false });
   setCivHighlight({ regions: e.regions, polities: e.polities, year });
