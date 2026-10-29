@@ -174,8 +174,9 @@ function regionShares(civ: Civ, id: number, year: number): { k: number; share: n
   return out.sort((a, b) => b.share - a.share || a.k - b.k);
 }
 
-/** "另有律法之说等 2 说" */
-const others = (list: { k: number }[]) => (list.length > 1 ? `另有${THOUGHTS[list[1].k].name}等 ${list.length - 1} 说` : '');
+/** "另有律法之说等 2 说";只另有一说:"另有律法之说" */
+const others = (list: { k: number }[]) =>
+  list.length > 2 ? `另有${THOUGHTS[list[1].k].name}等 ${list.length - 1} 说` : list.length === 2 ? `另有${THOUGHTS[list[1].k].name}` : '';
 
 /** 州卡片概况「思潮」一行(放在「信仰」下面) */
 export function RegionThoughtRow({ civ, id, year }: { civ: Civ; id: number; year: number }) {
