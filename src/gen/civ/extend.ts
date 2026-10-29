@@ -27,7 +27,10 @@ function simShare(from: number, to: number): number {
 
 /** 再推时的回调(都可以不给) */
 export interface ExtendHooks {
-  /** 开始推、每推完一段、整理完各报一次:推演已经推到第几年、整体进度(0–1,只增不减;推演推完到整理完之间停在一个数上) */
+  /**
+   * 开始推、每推完一段、整理完各报一次:推演已经推到哪一刻(带小数的年份:停在一年中间的世界从那一格接着推,开头和最后一段在年中)、
+   * 整体进度(0–1,只增不减;推演推完到整理完之间停在一个数上)
+   */
   progress?: (year: number, pct: number) => void;
   /** 每段之间等一下(worker 里等一个宏任务,好让新到的消息排进来);不给 = 不等 */
   pause?: () => Promise<void>;
@@ -53,13 +56,13 @@ export async function extendCiv(world: World, base: Civ | null, params: Partial<
   }
   const span = run.to - run.from;
   const share = simShare(run.from, run.to);
-  hooks.progress?.(Math.floor(run.from), 0);
+  hooks.progress?.(run.from, 0);
   while (run.year < run.to) {
     // 一段至少往前推一步(机器再慢也推得动)
     const t0 = now();
     do run.advance(Math.floor(run.year / STEP_YEARS) * STEP_YEARS + STEP_YEARS);
     while (run.year < run.to && now() - t0 < SLICE_MS);
-    hooks.progress?.(Math.floor(run.year), (share * (run.year - run.from)) / span);
+    hooks.progress?.(run.year, (share * (run.year - run.from)) / span);
     if (hooks.pause) await hooks.pause();
     if (stop()) return null;
   }
