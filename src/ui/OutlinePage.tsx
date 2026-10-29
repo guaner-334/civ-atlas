@@ -74,7 +74,7 @@ function ResultCell({ o, p, r, list, era, onFound }: { o: OutlineCtx; p: Plot; r
       <PlotStatusTag s={r.status} />
       <small>
         {eraText(resultText(o, p, r, list, ivBase(o.civ)), era)}
-        {needsFound(r) && (
+        {needsFound(r, p) && (
           <>
             {' '}
             <button

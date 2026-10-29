@@ -110,7 +110,7 @@ import { Practice, hasPractice } from './practices';
 import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
 import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../era';
-import { keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { TREK_DIR_NAMES, keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
 import { IV_NO_WAY } from './trekRoute';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from './rulers';
@@ -1292,7 +1292,12 @@ function trekStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'trek' |
   const to = v.to !== undefined ? regionName(civ, regionOfKey(v.to, keyCells(civ.regions))) : '';
   if (e.b === -3) return fail(`欲令${F}远徙,然${F}已不在`, `那一年${F}已消亡`);
   if (e.b === IV_NO_WAY) {
-    return to ? fail(`欲令${F}徙往${to},然陆路不通`, `陆路走不到${to}`) : fail(`欲令${F}远徙,然无地可往`, '走得到的地方里没有能去的(有城、不是本族的州)');
+    if (to) return fail(`欲令${F}徙往${to},然陆路不通`, `陆路走不到${to}`);
+    if (v.dir) {
+      const d = TREK_DIR_NAMES[v.dir];
+      return fail(`欲令${F}${d}徙,然${d}向无地可往`, `往${d}走得到的地方里没有能去的(有城、不是本族的州)`);
+    }
+    return fail(`欲令${F}远徙,然无地可往`, '走得到的地方里没有能去的(有城、不是本族的州)');
   }
   const M = go ? civ.migrations?.[go.war] : undefined;
   const dest = regionName(civ, e.region) || to;

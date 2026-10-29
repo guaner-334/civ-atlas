@@ -23,6 +23,7 @@ import {
   AUTHOR_REGENT_AGE_END,
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
+  TREK_DIR_NAMES,
   cleanIntervention,
   keyCells,
   parsePersonKey,
@@ -233,13 +234,16 @@ function disasterText(civ: Civ, v: Extract<Intervention, { kind: 'disaster' }>, 
 }
 
 /**
- * 大迁徙、不许迁的说法:"克拉尔族:大迁徙，从诺敏塔拉往瑶渊之野""克拉尔族:大迁徙，去处推演挑（远）""克拉尔族:不许迁(至第 2100 年)"
+ * 大迁徙、不许迁的说法:"克拉尔族:大迁徙，从诺敏塔拉往瑶渊之野""克拉尔族:大迁徙，去处推演挑（远）""克拉尔族:大迁徙，往南，去处推演挑"
+ * "克拉尔族:不许迁(至第 2100 年)"
  */
 function trekText(civ: Civ, v: Extract<Intervention, { kind: 'trek' | 'stay' }>): string {
   const F = cultureKeyName(civ, v.folk);
   if (v.kind === 'stay') return `${F}:不许迁${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
   const from = v.region ? `从${regionKeyName(civ, v.region)}` : '';
   if (v.to) return `${F}:大迁徙，${from}往${regionKeyName(civ, v.to)}`;
+  // 照大纲下的往某个方位的令:远近照推演依次放宽,不写哪一档
+  if (v.dir) return `${F}:大迁徙，${from ? `${from}出发，` : ''}往${TREK_DIR_NAMES[v.dir]}，去处推演挑`;
   return `${F}:大迁徙，${from ? `${from}出发，` : ''}去处推演挑（${TREK_REACH_NAMES[v.reach ?? 'mid']}）`;
 }
 
