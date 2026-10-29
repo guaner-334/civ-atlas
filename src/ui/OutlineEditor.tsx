@@ -26,7 +26,10 @@ import {
   PLOT_SPAN_DEFAULT,
   PLOT_SPAN_MAX,
   PLOT_TEXT_MAX,
+  TREK_DIRS,
+  TREK_DIR_NAMES,
   cleanPlot,
+  cultureKey,
   keyCells,
   personKey,
   polityKey,
@@ -47,7 +50,7 @@ import { cityStands, setPolityPick, type PolityPick } from './Interventions';
 import { alivePolities } from './crownInfo';
 import { Icon } from './icons';
 import { rgb } from './panelParts';
-import { PLOT_KIND_GROUPS, PLOT_KIND_INFO, areaText, charName, checkText, cityName, personKeyName, plotNo, plotPolityColor, plotPolityName, plotWindow, redoLine, regionName, type OutlineCtx } from './outlineInfo';
+import { PLOT_KIND_GROUPS, PLOT_KIND_INFO, areaText, charName, checkText, cityName, folkName, personKeyName, plotNo, plotPolityColor, plotPolityName, plotWindow, redoLine, regionName, type OutlineCtx } from './outlineInfo';
 import { plotLine } from './OutlineSide';
 
 /** 在地图上点的时候提示条的来源(点完、取消以后概览回到「大纲」页) */
@@ -79,6 +82,7 @@ function missingText(d: PlotDraft): string {
   if (k === 'capital' && !has('city')) need.push('迁到哪座城');
   if (k === 'death' && !has('person')) need.push('哪一位');
   if (k === 'crown' && !has('char')) need.push('作者的人物');
+  if (k === 'trek' && !has('folk')) need.push('哪一族');
   if (k === 'disaster') {
     if ((d.type === 'plague' || d.type === 'pandemic') && !has('city')) need.push('从哪座城起');
     if (d.type === 'quake' && !has('region')) need.push('哪一处');
@@ -90,7 +94,7 @@ function missingText(d: PlotDraft): string {
 
 /** 去掉草稿里这种情节用不上的字段(换了种类时) */
 function draftFor(d: PlotDraft, kind: PlotKind): PlotDraft {
-  const keep: (keyof PlotDraft)[] = ['id', 'year', 'span', 'after', 'text', 'a', 'b', 'region', 'regions', 'mark', 'city', 'person', 'how', 'char', 'name', 'type', 'level', 'slump', 'was'];
+  const keep: (keyof PlotDraft)[] = ['id', 'year', 'span', 'after', 'text', 'a', 'b', 'region', 'regions', 'mark', 'city', 'person', 'how', 'char', 'name', 'type', 'level', 'slump', 'folk', 'dir', 'was'];
   const out = { kind } as PlotDraft;
   for (const k of keep) if (d[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = d[k];
   if (kind === 'disaster' && !out.type) out.type = 'famine';
@@ -278,6 +282,19 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
         const r = rulerAt(civ, id, at);
         if (!r) return `${when}这国没有君主`;
         patchDraft({ person: personKey(civ, r.id) });
+        return null;
+      },
+    });
+  /** 大迁徙的那一族:在地图上点它住的一州(按点的那一年谁住在那里) */
+  const pickFolk = () =>
+    pick({
+      prompt: `第 ${n} 条：在地图上点那一族住的一州`,
+      sub: when,
+      target: 'region',
+      accept: (r) => {
+        const c = ownersAt(civ, at).culture[r] ?? -1;
+        if (c < 0) return `${when}这州没人住`;
+        patchDraft({ folk: cultureKey(civ, c) });
         return null;
       },
     });
@@ -595,6 +612,25 @@ export function OutlineEditor({ civ, phone }: { civ: Civ; phone?: boolean }) {
       );
       break;
     }
+    case 'trek':
+      whoLabel = '谁、往哪';
+      who = (
+        <>
+          <Line k="哪一族" side={mapBtn(pickFolk)}>
+            {d.folk ? <span className="ol-tag">{folkName(civ, d.folk)}</span> : <span className="side">点它住的一州</span>}
+          </Line>
+          <Line k="往哪">
+            <span className="ol-seg" role="radiogroup">
+              {([undefined, ...TREK_DIRS] as const).map((v) => (
+                <button key={v ?? 'any'} className={d.dir === v ? 'on' : ''} onClick={() => patchDraft({ dir: v })}>
+                  {v ? TREK_DIR_NAMES[v] : '不限'}
+                </button>
+              ))}
+            </span>
+          </Line>
+        </>
+      );
+      break;
     case 'dynasty':
     case 'revolt':
     case 'collapse':
