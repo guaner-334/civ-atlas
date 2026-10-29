@@ -31,7 +31,7 @@
  */
 import { Layer, type Civ, type Polity, type PolityLineage, type Year } from './types';
 import { courtRulesAt } from './council';
-import { Outcome, applyRule, isReformIssue, newRules, replayRule } from './councilRules';
+import { Outcome, applyRule, isReformIssue, newRules, replayRule, rulesAnnal } from './councilRules';
 import { reformedSeg, segRegime, type Regime } from './regime';
 import { dynastyIndexAt } from './polityRoot';
 import { LORD_BYTE, controlAt } from './control';
@@ -245,7 +245,7 @@ function lookYears(full: Civ, P: Polity, end: Year): { year: Year; events: numbe
   for (let i = 0; i < A.length; i++) {
     const e = A[i];
     if (e.year > end) break;
-    if ((e.kind !== 'council' && e.kind !== 'reform') || e.a !== P.id || e.year < P.founded) continue;
+    if (!rulesAnnal(e) || e.a !== P.id || e.year < P.founded) continue;
     add(e.year);
     m.get(e.year)!.push(i);
   }
@@ -290,7 +290,7 @@ function formBook(civ: Civ, p: number): FormBook {
     let reformAt = -1;
     for (const id of events) {
       const e = full.annals[id];
-      if (e.kind === 'reform') {
+      if (e.kind !== 'council') {
         replayRule(rules, e);
         reformAt = id;
       } else {

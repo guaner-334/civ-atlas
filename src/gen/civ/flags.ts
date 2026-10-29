@@ -414,7 +414,10 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
     // 西幻王国 / 共和国
     let base: FlagSpec;
     let split: Pick<FlagWhy, 'nth' | 'swap'> | null = null;
-    if (parent && !parent.eastern && parent.lineage !== 'khanate') {
+    if (parent && dyn[0].regime && !parent.eastern && parent.lineage !== 'khanate') {
+      // 革命据地自立的共和国:母国的颜色留着,样式换成共和国常用的,王冠、剑拿掉(和废君改共和一样)
+      base = republicStep(specOf(ctx, parent.id, p.founded), seatOf(world, civ, p.capital), pal, mulberry32(subSeed(seed, `flag:${key}/0`)));
+    } else if (parent && !parent.eastern && parent.lineage !== 'khanate') {
       // 沿用母国的样式,换一种颜色,左上角加星
       const at = specOf(ctx, parent.id, p.founded);
       const c = at.c.slice();
