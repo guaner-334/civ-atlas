@@ -25,8 +25,8 @@ import {
 } from '../src/ui/mapLayers';
 import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesLead, namesOn, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
-import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
-import { civShowFromQuery, clearSelection, getChronicle, getSelection, namesUrl, setChronicle, setSelection } from '../src/ui/civView';
+import { closeOverview, dismissOverview, getOverview, getOverviewHold, openOverview, setOverviewTab } from '../src/ui/overviewStore';
+import { civShowFromQuery, clearSelection, getChronicle, getCivTime, getSelection, namesUrl, pausePlayback, setChronicle, setCivTime, setSelection } from '../src/ui/civView';
 import { collapseSide, expandSide, getSide, setSideHold } from '../src/ui/sideStore';
 import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui/flyTo';
 
@@ -359,6 +359,65 @@ describe('世界概览', () => {
     expect(getChronicle().polity).toBe(2);
     closeOverview();
     expect(getChronicle().polity).toBe(null);
+  });
+
+  it('在放时打开概览就停;直接关掉从停下那一年照原来的快慢接着放;点进别处、开着时时间被动过就停着', () => {
+    try {
+      // 4× 在放时打开:停在那一年,标「已暂停」;直接关掉:接着放,还是 4×
+      setCivTime({ year: 1200, playing: true, scrubbing: false, story: false, speed: 4 });
+      openOverview('countries');
+      expect(getCivTime()).toMatchObject({ year: 1200, playing: false, speed: 4 });
+      expect(getOverviewHold()).toBe(true);
+      setOverviewTab('chronicle'); // 概览里换页不算关掉
+      expect(getOverviewHold()).toBe(true);
+      dismissOverview();
+      expect(getOverview().open).toBe(false);
+      expect(getCivTime()).toMatchObject({ year: 1200, playing: true, speed: 4, story: false });
+      expect(getOverviewHold()).toBe(false);
+      // 停着时打开:不标,关掉还停着
+      pausePlayback();
+      openOverview();
+      expect(getOverviewHold()).toBe(false);
+      dismissOverview();
+      expect(getCivTime().playing).toBe(false);
+      // 从概览里点进别处(点一国、一个人、一件事都走 closeOverview):停着
+      setCivTime({ playing: true });
+      openOverview('countries');
+      expect(getCivTime().playing).toBe(false);
+      closeOverview();
+      expect(getCivTime().playing).toBe(false);
+      expect(getOverviewHold()).toBe(false);
+      // 开着时别处动了时间(跳了年份 / 自己又放起来):不再是概览停的,关掉照现在的样子
+      setCivTime({ year: 1300, playing: true });
+      openOverview();
+      setCivTime({ year: 1500, playing: false });
+      expect(getOverviewHold()).toBe(false);
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 1500, playing: false });
+      setCivTime({ year: 1300, playing: true });
+      openOverview();
+      setCivTime({ year: 900, playing: true, speed: 1 });
+      expect(getOverviewHold()).toBe(false);
+      pausePlayback();
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 900, playing: false });
+      // 逐年推演停下后把年份换成播放头真正停的那一刻(往后不到一年):还算概览停的,关掉从那一刻接着放
+      setCivTime({ year: 1700, playing: true });
+      openOverview();
+      setCivTime({ year: 1700.4 });
+      expect(getOverviewHold()).toBe(true);
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 1700.4, playing: true });
+      // "回放世界形成"接着放文明的那一段:停下、关掉接着放那一段
+      setCivTime({ year: 40, playing: true, story: true });
+      openOverview('chronicle');
+      expect(getCivTime()).toMatchObject({ year: 40, playing: false, story: false });
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 40, playing: true, story: true });
+    } finally {
+      closeOverview();
+      setCivTime({ year: null, playing: false, scrubbing: false, story: false, speed: 1 });
+    }
   });
 });
 
