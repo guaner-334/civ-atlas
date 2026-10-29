@@ -32,6 +32,7 @@
  *       其次是离敌国国都近的(直取国都)、好走的(翻山、跨河难打)、有本国缺的物产的(RES_TARGET);打下来会把敌国切出一大块(> MAX_CUT 州)的先不打。
  *     打不打得下看局部国力:双方国力各按"离本国国都的路程"打折(远征越远越弱;军力系数高的打折少,强国能越打越远),
  *       守方再乘过界难度(翻山 / 跨河 / 渡海)、守国都、守本族的加成;胜率 = 攻² ÷ (攻² + 守²)。
+ *       作者的良将 / 名将(干预任将带能力)挂帅的仗,他那一方再乘他的倍数(攻守都算;谁领哪场见 appoint.ts,WarModel.led)。
  *     打下来了还能乘胜:接着挑下一州,机会 = BREAK × 那一州的胜率,最多再连下 BREAK_MAX 州(打下国都、一方亡国就停)。
  *     打不下来,守方有 COUNTER 的机会反攻,夺回被攻方占去的州(这场战争里丢的、以前丢的;同样按局部国力)。
  *     没打下来的这一仗(攻方的、守方反攻的)记一条史事 battle(从哪种边打过去记在 via),不改归属,编年史写成"某某之战"。
@@ -80,7 +81,7 @@
 import type { World } from '../world';
 import { coldShare, coldSpellEnd, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Polity, type Year } from './types';
-import { fexp, flog, fpow, keyed, keyed4, subSeed } from './rand';
+import { fexp, flog, fpow, keyed, keyed4, round24, subSeed } from './rand';
 import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, regentOf, rulerOf, type PolityModel } from './polities';
 import { reignBorn } from './rulers';
@@ -356,6 +357,11 @@ export interface WarModel {
   wantOf?: (p: number) => { want: number; gate: number };
   /** 掌实权(regency.ts 挂上):战争 w 里 x 一方的国力倍数(引兵入朝那一刻正在打的仗,粮饷为掌权的人所制,几年里淡回) */
   supply?: (w: War, x: number, t: Year) => number;
+  /**
+   * 作者的将领(干预任将带能力,interventions.ts 挂上;没有带能力的任将 = 不给):战争 w 里 x 一方此刻由良将 / 名将挂帅时的兵力倍数,
+   * 别的 = 1。只管打仗的胜率(chance),看邻国、议和不管
+   */
+  led?: (w: War, x: number, t: Year) => number;
   /** 联姻(marriage.ts 挂上):p 看要不要打 q 时宣战赔率的倍数(两国结着亲、在位的君主母亲出自 q);没有 = 1 */
   kin?: (p: number, q: number, t: Year) => number;
   /** 联姻(marriage.ts 挂上):背盟去打盟国 q 时赔率再乘的(两国结着亲);没有 = 1 */
@@ -522,6 +528,13 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (w && wm.supply) {
       sx *= wm.supply(w, x, t);
       sy *= wm.supply(w, y, t);
+    }
+    // 作者的良将 / 名将挂帅(见 WarModel.led):本方兵力乘上去
+    if (w && wm.led) {
+      const kx = wm.led(w, x, t);
+      if (kx !== 1) sx = round24(sx * kx);
+      const ky = wm.led(w, y, t);
+      if (ky !== 1) sy = round24(sy * ky);
     }
     if (culture[r] === X.culture) sx *= KIN_ATTACK;
     if (culture[r] === Y.culture) sy *= HOME_DEF;
