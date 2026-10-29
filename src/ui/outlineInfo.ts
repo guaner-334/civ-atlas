@@ -5,7 +5,7 @@
  * 纯计算,不碰 DOM。
  */
 import type { Civ } from '../gen/civ/types';
-import { regionLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { personName } from '../gen/civ/peopleText';
 import { heOrShe } from '../gen/civ/gender';
 import { capitalAt } from '../gen/civ/growth';
@@ -16,6 +16,7 @@ import {
   PLOT_CHECK_ONLY,
   PLOT_SPAN_DEFAULT,
   OUTLINE_ALLY_YEARS,
+  TREK_DIR_NAMES,
   keyCells,
   parsePersonKey,
   regionOfKey,
@@ -49,6 +50,7 @@ export const PLOT_KIND_INFO: Record<PlotKind, { name: string; desc: string }> = 
   crown: { name: '作者的人物即位', desc: '你捏的人物即某国君位' },
   split: { name: '分裂、独立', desc: '某地从某国分出去' },
   disaster: { name: '天灾', desc: '瘟疫、饥荒、地震水旱、全球大疫' },
+  trek: { name: '大迁徙', desc: '某族分出一支，往东南西北远走' },
   submit: { name: '称臣', desc: '' },
   peace: { name: '议和', desc: '' },
   dynasty: { name: '改朝换代', desc: '' },
@@ -59,7 +61,7 @@ export const PLOT_KIND_INFO: Record<PlotKind, { name: string; desc: string }> = 
 
 /** 选种类那一栏的三组 */
 export const PLOT_KIND_GROUPS: { head: string; kinds: PlotKind[]; inline?: boolean }[] = [
-  { head: '会查；没发生就在那一年直接改过来', kinds: ['found', 'fall', 'hold', 'war', 'ally', 'capital', 'death', 'crown', 'split', 'disaster'] },
+  { head: '会查；没发生就在那一年直接改过来', kinds: ['found', 'fall', 'hold', 'war', 'ally', 'capital', 'death', 'crown', 'split', 'disaster', 'trek'] },
   { head: '只查不改：推演里还不能直接让它发生，没发生就标「做不到」', kinds: ['submit', 'peace', 'dynasty', 'revolt', 'collapse'], inline: true },
   { head: '不查不改', kinds: ['story'] },
 ];
@@ -113,6 +115,16 @@ export function regionName(civ: Civ, key: string | undefined): string {
   const r = regionOfKey(key, keyCells(civ.regions));
   return r >= 0 && r < civ.regions.count ? regionLabel(civ, r) : '（没有的州）';
 }
+
+/** 民族键 → "克拉尔族"(这段历史里没有 = 写明) */
+export function folkName(civ: Civ, key: string | undefined): string {
+  if (!key) return '';
+  const r = resolveKey(civ, key);
+  return r?.kind === 'culture' ? cultureLabel(civ.cultures[r.id]) : '（这段历史里没有的民族）';
+}
+
+/** 大迁徙往哪:"南徙"(没写方位 = "远徙") */
+export const trekWord = (p: Pick<Plot, 'dir'>) => (p.dir ? `${TREK_DIR_NAMES[p.dir]}徙` : '远徙');
 
 /** 城键 → 城名 */
 export function cityName(civ: Civ, key: string | undefined): string {
@@ -187,7 +199,7 @@ export function redoOf(p: Pick<Plot, 'redo'>, f: PlotRedoField): string | null {
   return p.redo && f in p.redo ? p.redo[f] || '要重新指' : null;
 }
 /** 编一条时那一项叫什么(要重新指的几项) */
-export const REDO_FIELD_NAMES: Record<PlotRedoField, string> = { a: '国家', b: '另一国', region: '那一州', regions: '那片地方', city: '那座城', person: '那一位', char: '作者的人物', mark: '那片地方' };
+export const REDO_FIELD_NAMES: Record<PlotRedoField, string> = { a: '国家', b: '另一国', region: '那一州', regions: '那片地方', city: '那座城', person: '那一位', char: '作者的人物', mark: '那片地方', folk: '那一族' };
 /** 这一条要重新指的几项,写成一行:"国家（原来的奥利亚王国）、那座城（原来的东定城）" */
 export function redoLine(redo: Plot['redo']): string {
   if (!redo) return '';
@@ -249,6 +261,8 @@ export function whoCell(o: OutlineCtx, p: Plot): { parts: WhoPart[]; sep?: strin
       if (p.type === 'quake') return { parts: [reg('', '一带')] };
       if (p.a || p.redo?.a !== undefined) return { parts: [pol('a')] };
       return { parts: [redo('regions') ?? { text: p.regions?.length ? `${regionName(o.civ, p.regions[0])}${p.regions.length > 1 ? `等 ${p.regions.length} 州` : ''}` : '' }] };
+    case 'trek':
+      return { parts: [redo('folk') ?? { text: folkName(o.civ, p.folk) }] };
     case 'story': {
       const where = storyPlace(o, p);
       return { parts: where.text ? [{ text: where.text, ...(where.redo ? { redo: true } : {}) }] : [] };
@@ -309,6 +323,8 @@ export function whatCell(o: OutlineCtx, p: Plot): [string, string, boolean?] {
       return [name, p.how === 'murdered' ? '遇弑' : p.how === 'battle' ? '战死' : ''];
     case 'disaster':
       return [name, `${DISASTER_NAMES[p.type!]}（${DISASTER_LEVEL_NAMES[p.level ?? 2]}）${p.type === 'pandemic' ? `，无人收拾 ${p.slump ?? SLUMP_DEFAULT} 年` : ''}`];
+    case 'trek':
+      return [name, p.dir ? `往${TREK_DIR_NAMES[p.dir]}` : ''];
     default:
       return [name, ''];
   }
@@ -362,6 +378,11 @@ export function checkText(o: OutlineCtx, p: Plot): string {
         return `看${win}${C}有没有起全球大疫。没有，就在${at}直接从${C}起一场（${DISASTER_LEVEL_NAMES[p.level ?? 2]}），疫后无人收拾 ${p.slump ?? SLUMP_DEFAULT} 年${tail}`;
       }
       return `看${win}那里有没有闹${what}。没有，就在${at}直接降一场${what}（${DISASTER_LEVEL_NAMES[p.level ?? 2]}）${tail}`;
+    }
+    case 'trek': {
+      const F = folkName(o.civ, p.folk) || '那一族';
+      const D = p.dir ? TREK_DIR_NAMES[p.dir] : '';
+      return `看${win}${F}有没有分出一支${D ? `往${D}` : ''}大迁徙。没有，就在${at}直接改：${F}分出一支${D ? `往${D}` : ''}远走，去处推演挑${tail}${F}那年不在了、${D ? `往${D}` : ''}陆路走不到能去的地方就做不到。`;
     }
     case 'story':
       return `不查、不改历史。导播放到第 ${p.year} 年照样停下来，打出这句。`;
@@ -477,6 +498,8 @@ function happenedText(o: OutlineCtx, p: Plot, r: PlotReview): string {
       return `${charName(o, p.char)}即位`;
     case 'disaster':
       return `闹${DISASTER_NAMES[p.type ?? 'famine']}`;
+    case 'trek':
+      return `${folkName(o.civ, p.folk)}一支${trekWord(p)}`;
     case 'submit':
       return `${A}称臣于${B}`;
     case 'peace':
@@ -499,11 +522,11 @@ function failText(o: OutlineCtx, p: Plot, r: PlotReview, A: string, B: string): 
   const w = plotWindow(o, p);
   switch (r.reason) {
     case 'notYet':
-      return `第 ${y} 年${who || '那国'}还没立国`;
+      return p.kind === 'trek' ? `第 ${y} 年${folkName(o.civ, p.folk) || '那一族'}还没出现` : `第 ${y} 年${who || '那国'}还没立国`;
     case 'gone':
-      return `第 ${y} 年${who || '那国'}已经亡了`;
+      return p.kind === 'trek' ? `第 ${y} 年${folkName(o.civ, p.folk) || '那一族'}已经不在了` : `第 ${y} 年${who || '那国'}已经亡了`;
     case 'missing':
-      return p.kind === 'crown' ? '找不到这位作者的人物' : p.kind === 'death' ? '这段历史里没有这个人' : p.kind === 'hold' ? '找不到那片地方' : '这段历史里找不到它';
+      return p.kind === 'crown' ? '找不到这位作者的人物' : p.kind === 'death' ? '这段历史里没有这个人' : p.kind === 'hold' ? '找不到那片地方' : p.kind === 'trek' ? folkMissing(o, p, y) : '这段历史里找不到它';
     case 'empty':
       return '那里没人住';
     case 'notOwned':
@@ -530,14 +553,22 @@ function failText(o: OutlineCtx, p: Plot, r: PlotReview, A: string, B: string): 
       return `它跟着的那一条没立起国家`;
     case 'redo':
       return '大纲搬过来以后对不上，还没重新指';
+    case 'noWay':
+      return `第 ${y} 年${folkName(o.civ, p.folk) || '那一族'}${p.dir ? `往${TREK_DIR_NAMES[p.dir]}` : ''}陆路走不到能去的地方`;
     case 'noEffect':
     default:
       return '硬改了也没成';
   }
 }
 
+/** 大迁徙那一族推的时候认不出来:后来才分化出来的写"还没出现",不然"没有这一族" */
+function folkMissing(o: OutlineCtx, p: Plot, y: number): string {
+  const q = p.folk ? resolveKey(o.civ, p.folk) : null;
+  return q?.kind === 'culture' && o.civ.cultures[q.id].born > y ? `第 ${y} 年${folkName(o.civ, p.folk)}还没出现` : '这段历史里没有这一族';
+}
+
 /** 做不到是因为要的国家没了(还没立国、已亡、跟着的那条没立起来):提示先用「立国」把它捏出来 */
-export const needsFound = (r: PlotReview | undefined) => r?.status === 'failed' && (r.reason === 'notYet' || r.reason === 'gone' || r.reason === 'refFailed');
+export const needsFound = (r: PlotReview | undefined, p?: Pick<Plot, 'kind'>) => p?.kind !== 'trek' && r?.status === 'failed' && (r.reason === 'notYet' || r.reason === 'gone' || r.reason === 'refFailed');
 
 /** 批改合计:每种章各几条 */
 export function reviewCounts(review: readonly PlotReview[] | undefined): Record<PlotStatus, number> {
@@ -585,6 +616,10 @@ export function stageText(o: OutlineCtx, p: Plot, fix: number): string {
       case 'disaster': {
         const what = DISASTER_NAMES[p.type ?? 'famine'];
         return [`那里没有闹${what}`, `降一场${what}`];
+      }
+      case 'trek': {
+        const F = folkName(o.civ, p.folk) || '那一族';
+        return [`${F}没有${trekWord(p)}`, `让${F}分出一支${trekWord(p)}`];
       }
       default:
         return ['没有自然发生', '直接改过来'];
@@ -642,6 +677,8 @@ export function plotHeadline(o: OutlineCtx, p: Plot): string {
       return A ? `${R}从${A}分出` : `${R}自立`;
     case 'disaster':
       return `${whoLine(o, p)}${DISASTER_NAMES[p.type ?? 'famine']}`;
+    case 'trek':
+      return `${folkName(o.civ, p.folk)}一支${trekWord(p)}`;
     case 'story':
       return plotText(p);
   }
@@ -691,6 +728,14 @@ export function plotCell(o: OutlineCtx, p: Plot, r: PlotReview | undefined): num
       return pol(p.a);
     case 'disaster':
       return first(city(p.city), seat(p.region), seat(p.regions?.[0]), pol(p.a));
+    case 'trek': {
+      // 动身的那一州(推过、对上了那一次);不然这一族的发源州
+      const q = p.folk ? resolveKey(civ, p.folk) : null;
+      if (q?.kind !== 'culture') return -1;
+      const M = r && r.status !== 'failed' ? civ.migrations?.find((x) => x.culture === q.id && Math.floor(x.year) === r.year) : undefined;
+      const reg = M ? M.route[0] : civ.cultures[q.id].hearth;
+      return reg >= 0 && reg < civ.regions.count ? civ.regions.seat[reg] : -1;
+    }
     case 'story':
       return first(city(p.city), seat(p.region), pol(p.a), p.person ? pol(parsePersonKey(p.person)?.polity) : -1);
     default:
@@ -716,6 +761,7 @@ const PLOT_ENTRY_KINDS: Partial<Record<PlotKind, readonly string[]>> = {
   collapse: ['collapse'],
   hold: ['war', 'conquer'],
   disaster: ['plague', 'famine', 'upheaval', 'intervene'],
+  trek: ['migrate'],
 };
 
 /** 说的是两国之间的情节(b = 另一国) */
@@ -759,6 +805,13 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
   // 天灾:种类、地方都得对上(说不出地方 = 对不上)
   const sky = p.kind === 'disaster' ? disasterMatch(o, p, y) : null;
   if (p.kind === 'disaster' && !sky) return null;
+  // 大迁徙:只认这一族那年动身的那一次(大迁徙那一条大事的 id 是动身那条史事)
+  const folk = p.kind === 'trek' ? (p.folk ? resolveKey(civ, p.folk) : null) : undefined;
+  if (folk !== undefined && folk?.kind !== 'culture') return null;
+  const trekOf = (e: ChronicleEntry) => {
+    const a = civ.annals[e.id];
+    return e.kind === 'migrate' && a?.kind === 'trek' && a.n === 0 && a.a === folk!.id;
+  };
   const kinds = PLOT_ENTRY_KINDS[p.kind] ?? [];
   let best: ChronicleEntry | null = null;
   let score = -1;
@@ -769,6 +822,7 @@ function plotEntry(o: OutlineCtx, p: Plot, r: PlotReview, entries: readonly Chro
     if (pol >= 0 && !entryInvolves(e, pol)) continue;
     if (other >= 0 && !entryInvolves(e, other)) continue;
     if (sky && !sky(e)) continue;
+    if (folk && !trekOf(e)) continue;
     if (who !== null && !e.people?.includes(who) && !e.children?.some((c) => c.people?.includes(who))) continue;
     const k = kinds.indexOf(e.kind);
     const sc = (k >= 0 ? 100 - k * 10 : 0) + e.importance;

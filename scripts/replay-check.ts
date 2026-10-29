@@ -279,6 +279,7 @@ const MOVED: Record<string, number> = {
   各种状态: 5,
   编辑地形: 5,
   成书: 4,
+  世界之最: 3,
 };
 const [PART, PARTS] = (process.env.SMOKE_PART ?? '1/1').split('/').map(Number);
 if (!(PARTS === 1 || PARTS === PART_STARTS.length + 1) || !(PART >= 1 && PART <= PARTS)) {
@@ -806,6 +807,89 @@ if (part('人物')) person: {
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
+}
+
+// 世界之最:世界概览「之最」页(人物后面)15 条纪录,跟着时间轴;刚被刷新的那条淡蓝、标「新纪录」;「历来 N 任」就地展开(键盘回车也行),点名字开他的卡片;
+// 点一场仗 → 编年史只看攻方;点一朝 → 世系图;复制全文。例子按 Node 里同一份历史现找(某条纪录刚被刷新的那一年),历史变了照样找得到
+if (part('世界之最')) records: {
+  const { civOfSeed } = await import('./lib/smokeExamples');
+  const { recordBook, recordsAt, recordName } = await import('../src/gen/civ/records');
+  const civ = civOfSeed(7);
+  const book = recordBook(civ);
+  let Y = -1;
+  for (let y = 1000; y <= Math.min(2600, civ.endYear) && Y < 0; y += 10) {
+    const r = recordsAt(book, y).get('took');
+    if (r && r.count > 2 && y - r.since <= 20 && y - r.since >= 3) Y = y;
+  }
+  if (Y < 0) {
+    errs.push('世界之最:种子 7 里找不到"攻下州最多的将领"刚被刷新的年份');
+    break records;
+  }
+  const at = recordsAt(book, Y);
+  const took = at.get('took')!;
+  const tookName = recordName(civ, took.ref, Y);
+  const prevName = took.prev ? recordName(civ, took.prev.ref, took.since) : '';
+  const war = at.get('war');
+  const dyn = at.get('dynasty');
+  const rctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  const rp = await rctx.newPage();
+  rp.on('pageerror', (e) => errs.push(`世界之最:${e.message}`));
+  await rp.goto(`${dev.url}/?seed=7&civYear=${Y}`);
+  await rp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  const text = (sel: string) => rp.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
+  const t0 = Date.now();
+  await openOverview(rp, 'records');
+  await rp.locator('.rec-row').first().waitFor({ timeout: 5000 });
+  const openMs = Date.now() - t0;
+  const tabAfter = await rp.locator('.ov-tabs .ov-tab').evaluateAll((els) => els.map((e) => e.getAttribute('data-tab')).join(','));
+  const rows = await rp.locator('.rec-row').count();
+  const groups = await rp.locator('.rec .pp-group').count();
+  const tookRow = await text('.rec-row[data-key=took]');
+  const tookNew = await rp.locator('.rec-row[data-key=took].rec-new .rec-pill').count();
+  // 用键盘展开:焦点在「历来 N 任」上按回车(不是打开这一行的卡片)
+  await rp.focus('.rec-row[data-key=took] [data-act=record-history]');
+  await rp.keyboard.press('Enter');
+  await rp.waitForTimeout(200);
+  const chain = await rp.locator('.rec-chain[data-chain=took] .rec-ch').count();
+  const chainTop = await text('.rec-chain[data-chain=took] .rec-ch');
+  await rp.locator('.rec-chain[data-chain=took] [data-act=record-holder]').nth(1).click();
+  await rp.waitForTimeout(500);
+  const closed = !(await rp.locator('.ov-root:not([hidden])').count());
+  const card = await text('.inspector .cp.pp .ins-name');
+  await openOverview(rp);
+  await rp.click('[data-act=records-copy]');
+  await rp.waitForTimeout(200);
+  const copied = ((await rp.evaluate(() => (window as any).__wfRecordsText)) as string) ?? '';
+  let warOk = true;
+  if (war && war.ref.kind === 'war') {
+    await rp.click('.rec-row[data-key=war]');
+    await rp.waitForTimeout(500);
+    const on = await rp.locator('.ov-tab.on[data-tab=chronicle]').count();
+    const pick = await rp.locator('.chron-pick select').first().inputValue().catch(() => '');
+    warOk = on === 1 && pick === String(war.ref.a);
+    await rp.click('.ov-tab[data-tab=records]');
+    await rp.waitForTimeout(300);
+  }
+  let dynOk = true;
+  if (dyn) {
+    await rp.click('.rec-row[data-key=dynasty]');
+    await rp.waitForTimeout(600);
+    dynOk = (await rp.locator('.ov-tab.on[data-tab=people]').count()) === 1 && (await rp.locator('.lg-box').count()) === 1;
+  }
+  console.log(
+    `世界之最:种子 7 第 ${Y} 年,页签 ${tabAfter};${rows} 行 ${groups} 组(${openMs} ms 出来);攻下州最多「${tookRow.slice(0, 60)}」新纪录 ${tookNew};` +
+      `历来 ${chain} 任「${chainTop.slice(0, 30)}」→ 点上一任:收起 ${closed}、卡片「${card}」;复制「${copied.split('\n')[0]}」;仗 → 编年史 ${warOk};一朝 → 世系图 ${dynOk}`,
+  );
+  if (!tabAfter.includes('people,records,marks')) errs.push(`世界之最:「之最」页签没有放在「人物」后面(${tabAfter})`);
+  if (rows !== 15 || groups !== 3) errs.push(`世界之最:不是 15 条、三组(${rows} 行;${groups} 组)`);
+  if (!tookRow.includes(tookName) || !tookRow.includes(`${took.value} 州`) || !tookRow.includes(`历来 ${took.count} 任`) || tookNew !== 1)
+    errs.push(`世界之最:"攻下州最多的将领"那行不对,或没标新纪录(${tookRow};应是 ${tookName} ${took.value} 州、历来 ${took.count} 任;${tookNew})`);
+  if (chain !== took.count || !chainTop.includes(tookName) || !chainTop.includes('保持至今')) errs.push(`世界之最:「历来」展开不对(${chain} 行,应 ${took.count};${chainTop})`);
+  if (!closed || card !== prevName) errs.push(`世界之最:点历来的名字没有收起概览、打开他的卡片(${closed};${card};应是 ${prevName})`);
+  if (!copied.startsWith(`世界之最 · 到 ${Y} 年为止 · 种子 7`) || !copied.includes(`攻下州最多的将领：${tookName}`)) errs.push(`世界之最:复制全文不对(${copied.slice(0, 80)})`);
+  if (!warOk) errs.push('世界之最:点打得最久的仗没有打开编年史、只看攻方');
+  if (!dynOk) errs.push('世界之最:点国祚最长的一朝没有打开世系图');
+  await rctx.close();
 }
 
 // 人物关系图:君主卡片「更多」最上面「关系图」→ 右边铺开以他为中心的图(左边卡片留着);点图上一位 → 换他居中、左边卡片跟着换、路径两段;

@@ -316,8 +316,8 @@ function phoneLine(civ: Civ, r: CountryRow): string {
   return (r.alive ? '' : '亡国前 ') + parts.join('，');
 }
 
-/** 点一行:收起概览、选中这国(已亡的先把时间轴拨到它还在的最后一年) */
-function locate(p: Polity, y: number) {
+/** 点一行:收起概览、选中这国(已亡的先把时间轴拨到它还在的最后一年;世界之最页点一国也用它) */
+export function locate(p: Polity, y: number) {
   closeOverview();
   const last = lastAliveYear(p, y);
   if (last !== y) setCivTime({ year: last, playing: false, scrubbing: false, story: false });

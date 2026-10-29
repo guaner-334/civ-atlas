@@ -21,6 +21,8 @@
  *     (render/globeLines.ts),线宽按屏幕像素定,放大到 8 倍也锐利;背面裁掉,跨 180° 经线不断
  *   - 战事(render/civ/warfare.ts):战线在矢量线里,朝守方的短齿、交战处的双剑按投影后的位置用画布像素画;
  *     易手的州的斜线画在文明贴图里
+ *   - 商道(render/globeTrade.ts,开着「道路」时):和平面主图同一套画法,线压在国界、战线上,名字在地名后面写(转动时不写);
+ *     鼠标停上去那条亮一圈、出悬停小卡,点了开商道卡片(App 按 tradeAtClient(…, 'globe') 判断点没点到)
  *   - 城镇符号和文字:和平面主图同一套排版(render/globeLabels.ts):山名沿山脊、河名逐字正立沿河、国名顺着国土、
  *     城名在符号旁、海名疏排,一起避让,按缩放分级出现;始终正立朝着屏幕,背面的不画,靠近球边缘的淡出。
  *     转动、拖时间轴时只排大字(国名、大洋和海、国都和大城的名字),停下约 0.15 秒后排全部
@@ -119,6 +121,9 @@ import {
 import { MARK_MIN_D, globeGlyphAlpha, globeLabelView, globePolityItem, globeToCanvas, isQuickLabel, overviewFloor, visibleMarks, type GlobeLabelView } from '../render/globeLabels';
 import { ALL_FIGHTS_K, drawSwords, swordHalf, warFront, warMarkPoints, warsShown } from '../render/civ/warfare';
 import { drawGlobeTreks, treksShown } from '../render/civ/migrations';
+import { tradeShown, type TradeFocus, type TradeHit } from '../render/civ/trade';
+import { drawGlobeTradeLines, drawGlobeTradeNames, type GlobeTradeFrame } from '../render/globeTrade';
+import { setTradeHits, tradeAtClient, useTradeHover } from './tradePick';
 import { drawGlobeGlyphs, globeGlyphSet, placeGlobeGlyphs, type GlobeGlyphSet, type GlobeGlyphView, type PlacedGlobeGlyph } from '../render/globeGlyphs';
 import { fantasyGlobeBase, releaseFantasyGlobeBase } from '../render/fantasy';
 import { cancelDetailJob, detailAsync, submitDetailJob } from './detailJobs';
@@ -128,7 +133,7 @@ import type { GlobeTexRequest, GlobeTexResponse } from '../globeWorker';
 import { GlobeCpuPool, cpuWorkerCount, type CpuFrame } from './globeCpu';
 import { reliefWeights } from '../render/realistic';
 import type { SurfaceLook } from '../render/surface';
-import { LOOK_NAMES } from './mapLayers';
+import { LOOK_NAMES, baseOf } from './mapLayers';
 import { fileBaseName } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { createWheelReader, inGesturePinch, wheelSample } from './wheel';
@@ -327,6 +332,8 @@ interface GlobeDebug {
   /** 云(卫星底图):off = 没开 / 不是卫星底图 / 没有显卡画法,baking = 后台在画云图或正在淡入,ready = 这个世界的云已全部显出来;画云图用了多少毫秒 */
   cloud: 'off' | 'baking' | 'ready';
   cloudMs: number;
+  /** 商道:画了几条、写了几个名字 */
+  trade: { lines: number; names: number };
 }
 
 /** CPU 画法的贴图槽位 */
@@ -425,6 +432,9 @@ interface GlobePlaced {
   verts: number;
   /** 画手绘符号用了多少毫秒 */
   glyphMs: number;
+  /** 画了的商道(画布像素的折线,点选、悬停用)、写了几个商道的名字 */
+  trade: TradeHit[];
+  tradeNames: number;
 }
 
 /** 排好的文字 + 画的时候要用的视图(停着不动时直接重画,不重排) */
@@ -469,6 +479,8 @@ interface OverlayInput {
   treks: CivDrawParams | null;
   /** 纪年(大迁徙路线旁的年份照它写) */
   era: Era | undefined;
+  /** 商道(开着「道路」时;线每帧按投影画,名字在地名后面写;names = 这一帧写不写名字,转动时不写);没开 / 没有 = null */
+  trade: { cp: CivDrawParams; focus: TradeFocus; names: boolean } | null;
   /** 编年史高亮的描边、圆圈(不闪的时候 = null),alpha = 闪到多亮 */
   hl: { strokes: GlobeLineStroke[]; ring: { box: [number, number, number, number]; colors: [string, string, string] } | null; alpha: number } | null;
   /** 信仰图层:圣城的小圆点(世界坐标、这个教的颜色) */
@@ -551,7 +563,7 @@ function drawGlobeBadges(ctx: CanvasRenderingContext2D, b: NonNullable<OverlayIn
 function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlaced {
   const { view, w, h, dpr, style } = o;
   const f = globeFrame(view, w, h, o.shift);
-  const placed: GlobePlaced = { marks: [], labels: [], verts: 0, glyphMs: 0 };
+  const placed: GlobePlaced = { marks: [], labels: [], verts: 0, glyphMs: 0, trade: [], tradeNames: 0 };
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   // 1. 手绘符号:正立、按屏幕像素定大小;回放世界形成时和文明层一起淡出
@@ -570,6 +582,12 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     if (o.war) drawGlobeWarTeeth(ctx, P, globeWarSet(warFront(o.war), o.world.width, o.world.height), o.unit * dpr, style);
     ctx.globalAlpha = 1;
   }
+  // 商道的线:压在国界、战线上,城镇符号和字底下(和主图一样);线宽、字号按等效的主图缩放
+  let trade: GlobeTradeFrame | null = null;
+  if (o.trade && o.lineAlpha > 0.01) {
+    trade = drawGlobeTradeLines(ctx, o.trade.cp, P, { k: equivalentZoom(f.R, REF_MAP_CSS), dpr }, o.trade.focus, o.lineAlpha);
+    placed.trade = trade.hits;
+  }
   // 编年史高亮:描边(线宽和国界一样按屏幕定)、事发地很小时外面套一个圆圈(按屏幕大小),不透明度跟着闪
   const hl = o.hl;
   if (hl) {
@@ -578,7 +596,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     if (hl.ring) drawHighlightRing(ctx, hl.ring.box, hl.ring.colors, P, o.world, dpr);
     ctx.globalAlpha = 1;
   }
-  if ((o.lines.length && o.lineAlpha > 0.01) || gl?.placed.length || hl) fadeRim(ctx, P);
+  if ((o.lines.length && o.lineAlpha > 0.01) || gl?.placed.length || hl || trade?.hits.length) fadeRim(ctx, P);
   // 战事的双剑:州治往右上挪一点,大小和线宽一样按 unit(放大以后不再变);背面、贴着球边缘的不画
   if (o.war && o.lineAlpha > 0.01) {
     const kEq = equivalentZoom(f.R, REF_MAP_CSS);
@@ -618,11 +636,14 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
     }
   }
   const pl = o.placement;
+  const tradeNames = trade?.hits.length && o.trade?.names ? trade : null;
   if (!pl) {
-    // 地名、道路都关了也画物产圆章
-    if (o.badges) {
+    // 地名、道路都关了也画物产圆章;地名关了也写商道的名字
+    if (o.badges || tradeNames) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      drawGlobeBadges(ctx, o.badges, globeLabelView({ view: o.view, w: o.w, h: o.h, dpr, worldW: o.world.width, worldH: o.world.height, shift: o.shift }), [], dpr);
+      const lv = globeLabelView({ view: o.view, w: o.w, h: o.h, dpr, worldW: o.world.width, worldH: o.world.height, shift: o.shift });
+      if (tradeNames) placed.tradeNames = drawGlobeTradeNames(ctx, o.trade!.cp, lv, tradeNames, null, o.trade!.focus, o.lineAlpha);
+      if (o.badges) drawGlobeBadges(ctx, o.badges, lv, [], dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     return placed;
@@ -639,6 +660,8 @@ function drawOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): GlobePlace
   drawSelectionLabels(ctx, pl.placed, lv, sel, style, at);
   drawSettlementMarks(ctx, pl.placed.marks, style);
   drawPlacedLabels(ctx, pl.placed.labels, lv, globeGlyphAlpha(lv));
+  // 商道的名字:地名写完以后写,躲开地名和城镇符号(和主图一样)
+  if (tradeNames) placed.tradeNames = drawGlobeTradeNames(ctx, o.trade!.cp, lv, tradeNames, pl.placed, o.trade!.focus, o.lineAlpha);
   for (const h of o.holy) {
     const [x, y, d] = globeToCanvas(lv, h.wx, h.wy);
     if (d > MARK_MIN_D) drawHolyDot(ctx, x, y, h.color, dpr);
@@ -768,6 +791,12 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   const hl = useCivHighlight();
   const show = useCivShow();
   const resView = useResourceView();
+  // 商道:卡片开着的那条亮、别的变淡;鼠标停着的那条亮一圈;名字按改过名的(和主图一样)
+  const tradeHover = useTradeHover();
+  const tradeFocus = useMemo<TradeFocus>(
+    () => ({ sel: picked?.kind === 'trade' ? picked.id : null, hover: tradeHover, names: civ?.trade?.routes.map((r) => r.name) }),
+    [picked, tradeHover, civ],
+  );
 
   /** 所有每帧要用的东西放在一个 ref 里(不触发 React 重新渲染) */
   const s = useRef({
@@ -853,7 +882,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     frameEma: 16,
     lastTick: 0,
     lastBusy: false,
-    placed: { marks: [], labels: [], verts: 0, glyphMs: 0 } as GlobePlaced,
+    placed: { marks: [], labels: [], verts: 0, glyphMs: 0, trade: [], tradeNames: 0 } as GlobePlaced,
     debug: { upload: {} as Record<string, number> },
     /**
      * 球心横向挪了多少(CSS 像素;宽屏往右挪侧栏卡片宽的一半)、正在往哪挪(约 0.6 秒,和转动一样的缓动)
@@ -901,8 +930,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
   }).current;
 
   // 最新的 props(帧回调里读)
-  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView, onOpened });
-  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView, onOpened };
+  const props = useRef({ world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView, tradeFocus, onOpened });
+  props.current = { world, raster, civ, geo, style, layer, look, terrain, terrainKey, replay, graticule, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView, tradeFocus, onOpened };
 
   /** 左边被侧栏卡片挡住的宽度(画布太窄就不让) */
   const leftOf = () => (s.size.w > 2 * props.current.leftRoom ? props.current.leftRoom : 0);
@@ -1490,6 +1519,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       war: cp && warsShown(cp) ? cp : null,
       treks: cp && treksShown(cp) ? cp : null,
       era: currentEra(),
+      // 卫星底图上用亮一点的紫(和主图一样)
+      trade: cp && tradeShown(cp) ? { cp: { ...cp, bright: baseOf(p.style, p.layer, p.look) === 'satellite' }, focus: p.tradeFocus, names: !quick } : null,
       hl: s.hlA > 0.001 && (s.hlTex.strokes.length || s.hlTex.ring) ? { strokes: s.hlTex.strokes, ring: s.hlTex.ring, alpha: s.hlA } : null,
       placement: pl,
       shift: at.shift,
@@ -1693,6 +1724,8 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       const oi = overlayInput(w, h, dpr, quick, reserved, true, at);
       s.placed = drawOverlay(octx, oi);
       s.lineVerts = s.placed.verts;
+      // 商道:点选、悬停按这一帧画的线算(App 的 tradeAtClient(…, 'globe'))
+      setTradeHits(s.placed.trade.length ? { canvas: ov, hits: s.placed.trade } : null, 'globe');
       s.glyphs = oi.glyphs;
     }
     const t2 = performance.now();
@@ -1757,6 +1790,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       cpuMs: s.cpuMs,
       cloud: s.cloud.uploaded && s.cloud.upKey === p.world.precipitation && s.cloud.mix >= 1 ? 'ready' : cloudWanted() && s.cloud.failedKey !== p.world.precipitation ? 'baking' : 'off',
       cloudMs: s.cloud.ms,
+      trade: { lines: s.placed.trade.length, names: s.placed.tradeNames },
     };
     (window as unknown as { __wfGlobe: GlobeDebug }).__wfGlobe = dbg;
     if (!busy) {
@@ -1849,7 +1883,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     if (s.frames) s.hold = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
-  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView]);
+  useEffect(invalidate, [terrain, terrainKey, replay, raster, graticule, style, look, civ, geo, sel, show, leftRoom, rightRoom, hl, faithFocus, cultureFocus, resView, tradeFocus]);
   // 云的开关、飘不飘变了:重画,飘动循环接上
   const cloudPrefs = useCloudPrefs();
   // CPU 画法画不了云:图层面板的「云层」跟着变灰;地球仪关掉后恢复
@@ -2067,6 +2101,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     };
     return () => {
       for (const k of ['__wfGlobeSet', '__wfGlobeWorldToClient', '__wfGlobeMarks', '__wfGlobeBench', '__wfGlobeSelectName']) delete w[k];
+      setTradeHits(null, 'globe');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2129,7 +2164,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const r = props.current.raster;
     const a = shownAt();
     onHover(screenToPixel(a.view, globeFrame(a.view, s.size.w, s.size.h, a.shift), x, y, r.w, r.h));
-    if (rootRef.current) rootRef.current.style.cursor = labelAt(e.clientX, e.clientY) ? 'pointer' : '';
+    if (rootRef.current) rootRef.current.style.cursor = labelAt(e.clientX, e.clientY) || tradeAtClient(e.clientX, e.clientY, 'globe') !== null ? 'pointer' : '';
   };
   const onPointerUp = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -2240,7 +2275,10 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
       ov.width = W;
       ov.height = H;
       // 导出的图不带选中的记号;文字按导出的像素密度重新排一遍(排全部)
-      drawOverlay(ov.getContext('2d')!, { ...overlayInput(w, h, sc, false, [], false), selection: null, selWorld: null, lines: civLineStrokes(civParamsOf(p)) });
+      const oi = overlayInput(w, h, sc, false, [], false);
+      // 和选中的描边一样:商道也不亮选中、鼠标停着的那条
+      const trade = oi.trade && { ...oi.trade, focus: { names: oi.trade.focus.names } };
+      drawOverlay(ov.getContext('2d')!, { ...oi, selection: null, selWorld: null, lines: civLineStrokes(civParamsOf(p)), trade });
       octx.drawImage(ov, 0, 0);
       ov.width = ov.height = 0;
       if (extra) {
