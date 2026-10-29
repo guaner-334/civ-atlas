@@ -161,7 +161,7 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
     const sh = r?.height ?? window.innerHeight;
     if (phone) {
       const sheetH = root.current?.querySelector('.rv-sheet')?.getBoundingClientRect().height ?? 130;
-      return [12, 64, sw - 12, sh - sheetH - 46];
+      return [12, 64, sw - 12, sh - sheetH - 80];
     }
     // 让开左边的卡片、右边那一列按钮、上面一排、底下的控件条
     const [l, , rr] = freeArea({ sw, sh, bw: 0, bh: 0 }, false);

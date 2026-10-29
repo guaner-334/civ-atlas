@@ -22,7 +22,9 @@ import { boxStyle } from '../../render/terrain3d/fantasyBox';
 import type { ReliefBox } from '../../render/terrain3d/box';
 import { ensureFonts } from '../../render/labels/fonts';
 import { detailPen } from '../../render/civ/detail';
-import { strokeBorders } from '../../render/civ/borders';
+import { borderLines, strokeBorders } from '../../render/civ/borders';
+import { tiedPair, vassalTies } from '../../render/civ/vassals';
+import { Layer } from '../../gen/civ/types';
 import { strokeRegionLines } from '../../render/civ/debug';
 import { strokeRoutes, routeLines } from '../../render/civ/routes';
 import { realisticRiverStyle } from '../../render/realistic';
@@ -283,11 +285,15 @@ function legendLines(inp: RegionInput, style: CivStyle, pk: number, alpha: numbe
   const out: LegendLine[] = [];
   const regs = regionsIn(inp);
   const own = ownersAt(civ, year).polity;
-  // 国界:框里有两国(或者国家和没人管的地方)相接
-  if (show.polities && new Set(regs.map((r) => own[r])).size > 1) {
+  // 国界:框里有两国(或者国家和没人管的地方)相接;画框里最长的那一种(两国之间 / 宗主和藩属之间 / 国家和部落地带之间)
+  const kind = show.polities && new Set(regs.map((r) => own[r])).size > 1 ? borderKindIn(inp, style) : null;
+  if (kind) {
     out.push({
       name: '国界',
-      draw: sample(4, 7, (ctx, pts) => strokeBorders(ctx, { inner: [{ pts, closed: false, left: 0, right: 1, end0: true, end1: true }], bloc: [], outer: [] }, style, S, pen, 0)),
+      draw: sample(4, 7, (ctx, pts) => {
+        const l = [{ pts, closed: false, left: 0, right: kind === 'outer' ? -1 : 1, end0: true, end1: true }];
+        strokeBorders(ctx, { inner: kind === 'inner' ? l : [], bloc: kind === 'bloc' ? l : [], outer: kind === 'outer' ? l : [] }, style, S, pen, 0);
+      }),
     });
   }
   if (regs.length > 1) {
@@ -326,6 +332,26 @@ function legendLines(inp: RegionInput, style: CivStyle, pk: number, alpha: numbe
     },
   });
   return out;
+}
+
+/** 框里哪一种国界最长:两国之间(inner)/ 宗主和藩属之间(bloc)/ 国家和部落地带之间(outer);框里没有 = null */
+function borderKindIn(inp: RegionInput, style: CivStyle): 'inner' | 'bloc' | 'outer' | null {
+  const { world, raster, civ, year, show, box } = inp;
+  const W = world.width;
+  const ties = vassalTies(civ, year);
+  const len = { inner: 0, bloc: 0, outer: 0 };
+  const inBox = (x: number, y: number) => {
+    let dx = x - box.cx;
+    dx -= W * Math.round(dx / W);
+    return Math.abs(dx) <= box.w / 2 && Math.abs(y - box.cy) <= box.h / 2;
+  };
+  for (const l of borderLines({ world, raster, civ, style, year, show }, Layer.Polity)) {
+    const kind = l.left < 0 || l.right < 0 ? 'outer' : tiedPair(ties, l.left, l.right) ? 'bloc' : 'inner';
+    const p = l.pts;
+    for (let i = 2; i + 1 < p.length; i += 2) if (inBox(p[i], p[i + 1])) len[kind] += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+  }
+  const best = (['inner', 'bloc', 'outer'] as const).reduce((a, b) => (len[b] > len[a] ? b : a));
+  return len[best] > 0 ? best : null;
 }
 
 /** 框里有没有大路(那一年修好、没荒掉的) */
