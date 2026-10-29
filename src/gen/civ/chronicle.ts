@@ -82,7 +82,7 @@
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
  */
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from './types';
-import { IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
+import { IV_GONE, IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
 import { IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, IV_NO_PARTNER } from './marriages';
 import { holderAt, kinAt, strongHeld } from './regentInfo';
 import {
@@ -1222,17 +1222,24 @@ function personStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'death
 
 /**
  * 让他掌权:"【干预】令彭继桓掌大承国政"(掌权的经过紧跟着那一条 regent 写);没生效的写原因
- * (这国已亡、共和国 / 作者立的君主、已有人掌着权、他不是太子 / 叔伯 / 不在世)
+ * (这国已亡、共和国 / 作者立的君主、已有人掌着权、他不是太子 / 叔伯 / 不在世;作者的人物:还没出生、已去世、不满 16 岁)
  */
 function regentStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { kind: 'regent' }>, A: string, fail: Say, done: Done): IvStory {
   const holder = civ.people?.find((x) => x.regencies?.some((g) => g.annal === id + 1));
-  const want = holder?.name || parsePersonKey(v.person)?.name || '其人';
+  const want = holder?.name || (v.char !== undefined ? authorName(civ, v.char) : parsePersonKey(v.person)?.name) || '其人';
   const verb = `欲令${want}掌${A}国政`;
   if (e.b === -3) return fail(`${verb},然${A}已亡`, `那一年${A}已亡`);
+  if (v.char !== undefined && e.b !== -1) {
+    // 作者的人物:先看他自己,再看这国(同 regency.ts 查的先后)
+    const he = heOrShe(holder ?? authorSex(civ, v.char));
+    if (e.b === -2) return fail(`${verb},然其人尚未出生`, `${he}第 ${v.born} 年才出生`);
+    if (e.b === IV_GONE) return fail(`${verb},然其人已卒`, `第 ${v.died ?? Math.floor(e.year)} 年${he}已去世`);
+    if (e.b === IV_NOT_HIM) return fail(`${verb},然其人尚幼`, `${he}那一年不满 16 岁`);
+  }
   if (e.b === IV_NO_THRONE) return fail(`${verb},然${A}无君可架空`, `${A}那一年是共和国,或在位的是作者立的君主`);
   if (e.b === IV_HELD) return fail(`${verb},然其时已有人秉政`, '那一年已经有人掌着实权');
   if (e.b !== -1) {
-    const he = heOrShe(holder ?? civ.people?.[resolvePersonKey(civ, v.person)]);
+    const he = heOrShe(holder ?? (v.char !== undefined ? authorSex(civ, v.char) : civ.people?.[resolvePersonKey(civ, v.person)]));
     const why =
       v.how === 'march' || v.how === 'heir'
         ? `${he}那一年不是在位君主的预定继承人(或不满 16 岁)`

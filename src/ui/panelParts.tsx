@@ -424,6 +424,7 @@ export function EventList({
   title = '大事',
   limit = 5,
   self,
+  keep,
 }: {
   upTo: readonly ChronicleEntry[];
   more?: ReactNode;
@@ -432,6 +433,8 @@ export function EventList({
   title?: string;
   limit?: number;
   self?: number;
+  /** 点一条时留着哪种填色(民族卡片:正在民族填色上就不换成国家,见 pickChronicleEntry) */
+  keep?: 'cultures';
 }) {
   const era = useEra();
   if (!upTo.length && empty === undefined) return null;
@@ -444,7 +447,7 @@ export function EventList({
       </div>
       <div className="cp-group">
         {recent.map((e: ChronicleEntry) => (
-          <button key={`${e.kind}:${e.id}`} className="cp-ev" data-ev={evType(e)} title={evLabel(e)} onClick={() => pickChronicleEntry(e)}>
+          <button key={`${e.kind}:${e.id}`} className="cp-ev" data-ev={evType(e)} title={evLabel(e)} onClick={() => pickChronicleEntry(e, keep)}>
             <span className={`cp-ev-year${era ? ' era' : ''}`}>{yearShort(e.year, era)}</span>
             <span className="cp-ev-text">
               <EntryText civ={civ} e={e} self={self} />

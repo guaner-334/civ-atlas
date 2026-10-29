@@ -75,7 +75,7 @@
  * | `temper`  | 改君主倾向 | a = 国家,person = 人物键(君主),leanings = 新的倾向 | 这一年年初起此刻在位的这位君主照新的倾向,到他下台为止(此刻在位的不是他 = 不生效) | — |
  * | `treaty`  | 立约     | a = 国家,ps = 另几国(1–3 国)       | 这一年年初几国立约互不侵犯(两两之间那一刻正在交战的当即议和),到期照推演看续不续、可能背约(civ/treaties.ts);会盟的城照推演挑。对方都不在了 = 不生效 | term:期限(年;不给 = 一直);limited: true = 有限竞争(再加各守今疆);keep: true = 约里的国家不背约;by:居间的国家;zone:同时以哪一州为中立地(州键);ask: true = 演一国时下的,对方照推演的规矩定肯不肯(不肯的不入约,都不肯 = 不生效) |
  * | `neutral` | 划中立地 | a = 国家,region = 州,ps = 一起共建的另几国(1–3 国) | 这一年年初这州不归任何一国,几国都不进兵(州原属共建的一国或无主,不能是国都;州里要有人住)。几国已同在一份约里、那份约还没有中立地的,依那份约设;不然同时立一个互不侵犯之约(三十年) | quiet: true = 不送人去(不把失势的宗室徙到这里);lasting: true = 一直留着(约废了也不撤);until:到这一年撤(不含);ask:同立约 |
- * | `regent`  | 让他掌权 | a = 国家,person = 人物键,how = march 引兵入朝 / heir 太子监国(此刻在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯,宗室)/ chancellor 专权(名臣)/ general 专权(将领);end = succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯:君主下台,他接着在位,同一朝);years = 还政、篡位过几年;leanings = 摄政、专权的人的倾向 | 这一年年初起名义上的君主照旧在位,开战、议和、扩张照他的倾向(引兵入朝、太子监国照他日后即位时的倾向);引兵入朝那一刻杀兄长和战功比他多的兄弟。这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、他不是那样的人 = 不生效 | — |
+ * | `regent`  | 让他掌权 | a = 国家,person = 人物键,how = march 引兵入朝 / heir 太子监国(此刻在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯,宗室)/ chancellor 专权(名臣)/ general 专权(将领);end = succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯:君主下台,他接着在位,同一朝);years = 还政、篡位过几年;leanings = 摄政、专权的人的倾向。**作者的人物**不给 person,给 char、born(、died),见表下 | 这一年年初起名义上的君主照旧在位,开战、议和、扩张照他的倾向(引兵入朝、太子监国照他日后即位时的倾向);引兵入朝那一刻杀兄长和战功比他多的兄弟。这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、他不是那样的人(作者的人物:还没出生、已去世、不满 16 岁)= 不生效 | — |
  * | `marry`   | 为他联姻 | a = 国家,person = 人物键(此刻在位的君主,或君主的儿子、兄弟叔伯),b = 对方国家 | 这一年年初两国结亲:他娶 b 在位君主的女儿(那位君主要年过 30);两国 40 年里少开战、易结盟(和推演里结的亲一样)。两国有一国已亡、是共和国、正在交战、他不是宗室 = 不生效 | how:give = 本国宗室女嫁给 b 的太子(没有就挑年轻的君主、别的宗室)/ mutual = 互嫁 |
  * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
  * | `boost`   | 推一把发展 | a = 国家;mul = 快几倍(3 / 10;不给 = 直接进下一个时代) | 快几倍:从这一年起到 until(不含)那些州四样能力的"自己长"和"向邻居学"都 × mul(卡在时代门口时自己长不乘),到期照常长、长上去的不退;直接进:这一年年初以 a 的国都所在州为准进它的下一个时代,那些州四样能力都拉到那个时代开头(不看物产等门槛;国都已在最后一个时代 = 不生效)。a 那年已亡 = 不生效(civ/boost.ts) | until:快几倍管到哪一年(不给 = from + 50);regions = 只推这几州(最多 BOOST_REGIONS_MAX 州,换了主也照推;不给 = 整国,每一刻归 a 的州) |
@@ -96,6 +96,14 @@
  * unrest 动荡加减(−50…50 的整数,见 civ/policy.ts 的 GUIDE_UNREST);0 去掉。look = { kind, years }:替这国在那几年的年中多看一眼
  * 邻国(war)/ 内政(politics:大崩解、分裂)/ 王朝(dynasty)—— 寻常二三十年才看一次,窗口里常常一眼都没看;years 是整数年,
  * 不早于 from,升序去重,最多 GUIDE_LOOK_MAX 个,没有 = 去掉。作者自己定的方针没有这几项(带了也去掉)。
+ *
+ * 让作者的人物掌权(regent 带 char,不带 person):char = 作者人物的编号,born = 他的生年,died = 他的卒年(人物卡上写了才有),
+ * leanings = 他的性格(同即位,都抄进干预,推演不读人物卡);how 只能 chancellor(以名臣的身份专权)/ general(以将领的身份专权),
+ * end 只能 return(掌权以后篡位还没有)。到哪一刻:years 给了 = from + years 还政;不给 = 到卒年(died 那一年年初,编年史写"卒");
+ * 卒年也没有 = 到他 AUTHOR_REGENT_AGE_END 岁还政(至少一年)。给了 years、卒年又更早的,到卒年为止。
+ * 推演照推演人物的大臣 / 大将专权算(civ/regents.ts 的 ivRegency):这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、
+ * 他那年还没出生、已去世、不满 16 岁 = 不生效。人物里多一位(Person.author = 人物编号,见 civ/people.ts);
+ * 人物里眼下两种都按名臣的身份挂(作者的人物还不能当将领;推演里照样记下 how)。旧存档里的掌权都带 person,照旧。
  *
  * 即位(crown)可以带 after: true = 等此刻(from 那一年年初)在位的那位君主下台再即位:他到期驾崩 / 退位、或被作者让他去世时由作者的人物继位
  * (年份到时才定;那位先因改朝换代、亡国、被作者另立的君主取代而下台 = 不生效)。旧存档没有这个字段,照旧。
@@ -701,6 +709,11 @@ export const REGENT_ENDS = ['succeed', 'return', 'usurp'] as const;
 export type RegentEnd = (typeof REGENT_ENDS)[number];
 /** 还政、篡位最多过几年 */
 export const REGENT_YEARS_MAX = 40;
+/** 让作者的人物掌权(regent 带 char)能怎么掌:chancellor 以名臣的身份专权 / general 以将领的身份专权 */
+export const AUTHOR_REGENT_HOWS = ['chancellor', 'general'] as const;
+export type AuthorRegentHow = (typeof AUTHOR_REGENT_HOWS)[number];
+/** 让作者的人物掌权:没填还政年、人物卡也没写卒年时,掌权到他这么多岁还政 */
+export const AUTHOR_REGENT_AGE_END = 70;
 /** 为他联姻怎么结:不给 = 他娶对方的宗室女;give = 本国宗室女嫁给对方;mutual = 互嫁 */
 export const MARRY_HOWS = ['give', 'mutual'] as const;
 export type MarryHow = (typeof MARRY_HOWS)[number];
@@ -760,7 +773,20 @@ export type Intervention = (
   | { kind: 'disaster'; type: DisasterKind; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string; slump?: number }
   | { kind: 'treaty'; a: string; ps: string[]; from: number; term?: number; limited?: true; keep?: true; by?: string; zone?: string; ask?: true }
   | { kind: 'neutral'; a: string; region: string; ps: string[]; from: number; quiet?: true; lasting?: true; until?: number; ask?: true }
-  | { kind: 'regent'; a: string; person: string; from: number; how: RegentHow; end: RegentEnd; years?: number; leanings?: RulerLeanings }
+  | { kind: 'regent'; a: string; person: string; char?: undefined; from: number; how: RegentHow; end: RegentEnd; years?: number; leanings?: RulerLeanings }
+  | {
+      kind: 'regent';
+      a: string;
+      person?: undefined;
+      char: number;
+      born: number;
+      died?: number;
+      from: number;
+      how: AuthorRegentHow;
+      end: 'return';
+      years?: number;
+      leanings: RulerLeanings;
+    }
   | { kind: 'marry'; a: string; person: string; b: string; from: number; how?: MarryHow }
   | { kind: 'boost'; a: string; from: number; mul?: BoostMul; until?: number; regions?: string[] }
   | { kind: 'trek'; folk: string; from: number; region?: string; to?: string; reach?: Exclude<TrekReach, 'mid'> }
@@ -1941,6 +1967,7 @@ function cleanLeanings(x: unknown): RulerLeanings {
  * 摄政、专权的要 leanings(掌权的人的倾向,同即位的取整夹回范围),引兵入朝、太子监国不带(推演里照他日后即位时的倾向)。不合格 = null
  */
 function cleanRegent(o: Record<string, unknown>, a: string, from: number): Intervention | null {
+  if (typeof o.person !== 'string' && o.char !== undefined) return cleanAuthorRegent(o, a, from);
   const p = parsePersonKey(o.person);
   const how = o.how as RegentHow;
   const end = o.end as RegentEnd;
@@ -1957,6 +1984,27 @@ function cleanRegent(o: Record<string, unknown>, a: string, from: number): Inter
   }
   const base = years !== undefined ? { kind: 'regent' as const, a, person, from, how, end, years } : { kind: 'regent' as const, a, person, from, how, end };
   return how === 'march' || how === 'heir' ? base : { ...base, leanings: cleanLeanings(o.leanings) };
+}
+
+/**
+ * 让作者的人物掌权(regent 带 char,见文件头):char 同即位的编号;born 要有、died 早于等于 born 的去掉;how 只认名臣、将领的专权;
+ * end 只能还政(不给 = 还政);years 给了取整夹到 1…REGENT_YEARS_MAX(不是数 = 不合格),不给 = 到卒年;leanings 同即位。不合格 = null
+ */
+function cleanAuthorRegent(o: Record<string, unknown>, a: string, from: number): Intervention | null {
+  const char = o.char;
+  const born = yearOf(o.born);
+  const how = o.how as AuthorRegentHow;
+  if (typeof char !== 'number' || !Number.isInteger(char) || char < 1 || char > CROWN_CHAR_MAX || born === null) return null;
+  if (!(AUTHOR_REGENT_HOWS as readonly unknown[]).includes(how) || (o.end !== undefined && o.end !== 'return')) return null;
+  const d = o.died === undefined ? null : yearOf(o.died);
+  const died = d !== null && d > born ? { died: d } : {};
+  let years: { years: number } | Record<string, never> = {};
+  if (o.years !== undefined) {
+    const n = o.years;
+    if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+    years = { years: Math.min(REGENT_YEARS_MAX, Math.max(1, Math.round(n))) };
+  }
+  return { kind: 'regent', a, char, born, ...died, from, how, end: 'return', ...years, leanings: cleanLeanings(o.leanings) };
 }
 
 /**
