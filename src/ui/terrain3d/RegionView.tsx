@@ -2,9 +2,10 @@
  * 地区模式的平面图(地区图):框好的一块画成"地图集的一页"(标题、经纬度、比例尺、指北、图例、位置小图),摆在地图那一块的位置上;
  * 屏幕上看的就是导出的那一页(同一张画布,2 倍清晰度)。
  *   电脑:和立体一样占住地图那一块,中性灰底上一页纸(默认按 0.75 倍摆、放得下为止);滚轮放大(以鼠标处为中心)、拖动挪;
- *         时间轴的位置换成一条:回到地图、标题(点了能改名)/ 多大、平面图 | 立体、怎么操作(算细节时写进度);
+ *         时间轴的位置换成一条:回到地图、标题(点了能改名)/ 多大、平面图 | 立体、怎么操作(算细节时写进度)、导出图片;
  *         右下「地区」(按下的,点了回到地图)、放大缩小
- *   手机:占满整屏;一页按屏幕宽摆(先看全貌),双指放大、点两下放大 / 缩回;左上回到地图,中间标题,底下卡片里平面图 | 立体
+ *   手机:占满整屏;一页按屏幕宽摆(先看全貌),双指放大、点两下放大 / 缩回;左上回到地图,中间标题,右上导出,底下卡片里平面图 | 立体
+ * 导出这一页见 RegionExport.tsx。
  * 先出粗的(后台线程不到一秒),细的算好了换上;画风、填色换了重画(年份按进来时的,时间轴不在)。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
@@ -24,11 +25,14 @@ import { currentWorld } from '../saveStore';
 import { freeArea } from '../flyTo';
 import { showToast } from '../toastStore';
 import { pinchStep, isDoubleTap, type Pt, type Tap } from '../gestures';
-import { LOOK_NAMES } from '../mapLayers';
+import { FILLS, LOOK_NAMES } from '../mapLayers';
+import { civFillOf } from '../../render/civ/show';
+import { fileBaseName } from '../../gen/savefile';
 import { Icon } from '../icons';
 import { reliefTitle } from './region';
 import { buildRegionMap, drawRegionSheet, regionStyle, type RegionInput, type RegionMap } from './regionMap';
 import { AreaTitle, FaceSwitch } from './AreaBar';
+import { RegionExport } from './RegionExport';
 import './terrain3d.css';
 
 interface Props {
@@ -96,6 +100,8 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
   /** 细的那一档算到几成(null = 没在算) */
   const [busy, setBusy] = useState<number | null>(null);
   const [tip, setTip] = useState(true);
+  /** 「导出这一页」开着 */
+  const [exp, setExp] = useState(false);
 
   // 画这一页的地图:先粗后细;画风、填色、框换了重画
   useEffect(() => {
@@ -296,7 +302,7 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
   return (
     <div
       ref={root}
-      className={`rv rgm${phone ? ' phone' : ''}`}
+      className={`rv rgm${phone ? ' phone' : ''}${exp ? ' exp' : ''}`}
       onPointerDown={(e) => {
         stop(e);
         down(e);
@@ -327,8 +333,10 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
               地图
             </button>
             <AreaTitle phone editable title={title} sub={busyText ? `${sizeText}，${busyText}` : sizeText} />
-            {/* 右上留给「导出」(和左边的按钮一样宽,标题居中) */}
-            <span className="rv-rb rv-spacer" aria-hidden="true" />
+            <button type="button" className="rv-rb rgm-exp" data-act="region-export" aria-expanded={exp} onClick={() => setExp((o) => !o)}>
+              <Icon name="download" size={18} />
+              导出
+            </button>
           </div>
           {tip && <div className="rv-tip rgm-tip">先看全貌；双指放大（或点两下）看字</div>}
           <div className="rv-sheet">
@@ -364,8 +372,27 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
             <span className="rv-sep" />
             <FaceSwitch face="flat" />
             <span className="rv-hint">{busyText ?? '滚轮放大看细节，拖动挪；画风在右上角换'}</span>
+            <button type="button" className="b pri" data-act="region-export" aria-expanded={exp} onClick={() => setExp((o) => !o)}>
+              <Icon name="download" size={16} />
+              导出图片
+            </button>
           </div>
         </>
+      )}
+      {exp && (
+        <RegionExport
+          phone={phone}
+          page={page}
+          title={title}
+          map={map}
+          inputFor={(D) => ({ world, raster, civ: civ!, style, look, layer, show, year, box, D, phone })}
+          text={{ year: yearText, world: worldLine }}
+          styleName={styleName(style, look)}
+          fillName={FILLS.find((f) => f.id === civFillOf(show))?.name ?? '不填'}
+          fileBase={fileBaseName({ title: currentWorld()?.title, seed })}
+          fileYear={yearText.replace(/ /g, '')}
+          onClose={() => setExp(false)}
+        />
       )}
     </div>
   );
