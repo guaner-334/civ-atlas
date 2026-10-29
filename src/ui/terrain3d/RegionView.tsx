@@ -67,8 +67,8 @@ export function regionDebug(): Record<string, unknown> {
   return (g.__wfRegion ??= {});
 }
 
-/** 地区图的画风名(手机卡片上写):写实照卫星 / 地理图的名字,手绘,数据底图按卫星画 */
-function styleName(style: CivStyle, look: SurfaceLook): string {
+/** 地区图(和立体)的画风名(手机卡片上写、导出的文件名里):写实照卫星 / 地理图的名字,手绘,数据底图按卫星画 */
+export function styleName(style: CivStyle, look: SurfaceLook): string {
   if (style === 'fantasy') return '手绘';
   if (style === 'realistic') return LOOK_NAMES[look];
   return LOOK_NAMES.detail;

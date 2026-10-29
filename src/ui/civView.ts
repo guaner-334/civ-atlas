@@ -241,7 +241,7 @@ export function stepYear(end: number, dy: number) {
 
 /**
  * 打开网页后第一次显示世界时,要不要自动播放(只问一次,之后都是 false):
- * 网址给了 civYear(看某一年)或 play=0 不播;play=1 一定播;无头浏览器(截图脚本、冒烟检查)里默认不播
+ * 网址给了 civYear(看某一年)、area(打开就进地区模式,见 areaLink.ts)或 play=0 不播;play=1 一定播;无头浏览器(截图脚本、冒烟检查)里默认不播
  */
 let autoplayAsked = false;
 export function takeAutoplay(): boolean {
@@ -250,7 +250,7 @@ export function takeAutoplay(): boolean {
   if (typeof location === 'undefined') return false;
   const q = new URLSearchParams(location.search);
   const play = q.get('play');
-  if (play === '0' || q.has('civYear')) return false;
+  if (play === '0' || q.has('civYear') || q.has('area')) return false;
   if (play === '1') return true;
   return !(typeof navigator !== 'undefined' && navigator.webdriver);
 }
