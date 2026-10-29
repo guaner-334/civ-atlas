@@ -8,7 +8,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { annexedRemnants, populationAt } from '../src/gen/civ/growth';
 import { peopleIndex } from '../src/gen/civ/peopleInfo';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { RECORD_GROUPS, recordBook, recordHistory, recordsAt, type RecordKey } from '../src/gen/civ/records';
+import { RECORD_COUNTER, RECORD_GROUPS, recordBook, recordHistory, recordsAt, tieNote, type RecordKey, type RecordRef } from '../src/gen/civ/records';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {
@@ -26,6 +26,16 @@ function brute(items: { id: number; v: number; reach: number }[]) {
   const first = Math.min(...top.map((x) => x.reach));
   return { max, ties: top.length - 1, firsts: new Set(top.filter((x) => x.reach === first).map((x) => x.id)) };
 }
+
+describe('并列那句的量词', () => {
+  it('另有 N 位 / 朝 / 国 / 场 / 州同为…', () => {
+    expect(tieNote({ ties: 14, ref: { kind: 'person', id: 0 } }, '51 年')).toBe('另有 14 位同为 51 年');
+    expect(tieNote({ ties: 3, ref: { kind: 'polity', id: 0 } }, '2 次')).toBe('另有 3 国同为 2 次');
+    expect(tieNote({ ties: 3, ref: { kind: 'war', war: 0, a: 0, b: 1, from: 0, to: 1 } }, '12 年')).toBe('另有 3 场同为 12 年');
+    expect(tieNote({ ties: 3, ref: { kind: 'region', id: 0 } }, '5 回')).toBe('另有 3 州同为 5 回');
+    expect(tieNote({ ties: 2, ref: { kind: 'dynasty', polity: 0, dynasty: 0, from: 0, to: 1 } }, '300 年')).toBe('另有 2 朝同为 300 年');
+  });
+});
 
 describe.each([7, 2024])('世界之最 · seed=%i', (seed) => {
   it('在位最久、最长寿:按起止年份相减比,一样长的先到的保持,并列个数对', () => {
@@ -194,6 +204,22 @@ describe.each([7, 2024])('世界之最 · seed=%i', (seed) => {
     // 第 3000 年:人物、王朝和国家、战争和地方都该有纪录了
     const end = recordsAt(book, civ.endYear);
     for (const k of keys) expect(end.get(k), k).not.toBeNull();
+  });
+
+  it('并列那句按保持者用量词:人"位"、国"国"、仗"场"、州"州"', () => {
+    const civ = civOf(seed);
+    const book = recordBook(civ);
+    const kinds = new Set<RecordRef['kind']>();
+    for (const y of YEARS) {
+      for (const r of recordsAt(book, y).values()) {
+        if (!r || r.ties <= 0) continue;
+        kinds.add(r.ref.kind);
+        expect(tieNote(r, '2 次')).toBe(`另有 ${r.ties} ${RECORD_COUNTER[r.ref.kind]}同为 2 次`);
+      }
+    }
+    // 在位最久、最长寿常顶着上限并列;别的对象也会并列
+    expect(kinds.has('person')).toBe(true);
+    expect(kinds.size).toBeGreaterThan(1);
   });
 
   it('同一个种子算出同一份', () => {

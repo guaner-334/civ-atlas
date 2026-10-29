@@ -17,6 +17,7 @@ import { getEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { momentFull } from './stepTime';
 import {
   EXTEND_PRESETS,
+  busyParts,
   durationText,
   extendMs,
   extendPlan,
@@ -26,6 +27,7 @@ import {
   pickYears,
   setExtendOpen,
   setExtendPick,
+  stopTip,
   useExtend,
   type ExtendBusy,
   type ExtendPick,
@@ -43,23 +45,16 @@ function useMoment(): (y: number) => string {
   return (y) => momentFull(y, months, era, names, false);
 }
 
-/** 推的时候说到哪了:"正在推,到第 3240 年" / 推演推完、还在收尾 / 有地形大事从第 0 年重推 / 还没回报 */
-export function busyNote(b: ExtendBusy, era: Era | undefined, phone = false): ReactNode {
-  if (b.slow) return phone ? '有地形大事，要从第 0 年重推，慢一些' : '正在推（这个世界有地形大事，要从第 0 年重推，慢一些）';
-  if (b.year === null) return '正在推';
-  if (b.year >= b.to) return '收尾：起名、人物、道路';
-  const y = yearFull(b.year, era);
+/** 推的时候说到哪了:"正在推,到第 3240 年""正在推,到第 1549 年 9 月" / 推演推完、还在收尾 / 有地形大事从第 0 年重推 / 还没回报(字见 extendStore 的 busyParts) */
+export function busyNote(b: ExtendBusy, era: Era | undefined, months: number, names: readonly string[] | undefined, phone = false): ReactNode {
+  const [a, n, c] = busyParts(b, era, months, names, phone);
+  if (!n) return a;
   // 数字标成主色(纪年时整个年份一起)
-  const m = /^(第 )(\d+)( 年)$/.exec(y);
-  return m ? (
+  return (
     <>
-      正在推，到{m[1]}
-      <b>{m[2]}</b>
-      {m[3]}
-    </>
-  ) : (
-    <>
-      正在推，到<b>{y}</b>
+      {a}
+      <b>{n}</b>
+      {c}
     </>
   );
 }
@@ -77,15 +72,17 @@ function Ring({ b }: { b: ExtendBusy }) {
 export function ExtendButton({ end, phone }: { end: number; phone: boolean }) {
   const x = useExtend();
   const era = useEra();
+  const months = useMonths();
+  const names = useMonthNames();
   const b = x.busy;
   if (b) {
     return phone ? (
-      <button className="xt-btn phone busy" data-act="extend-stop" aria-label={`停下：不推了，还是到${yearFull(b.from, era)}`} onClick={extendStop}>
+      <button className="xt-btn phone busy" data-act="extend-stop" aria-label={stopTip(b, era, months, names)} onClick={extendStop}>
         <Ring b={b} />
         <i className="xt-sq" aria-hidden="true" />
       </button>
     ) : (
-      <button className="xt-btn busy" data-act="extend-stop" data-tip={`停下：不推了，还是到${yearFull(b.from, era)}`} data-tip-side="above" onClick={extendStop}>
+      <button className="xt-btn busy" data-act="extend-stop" data-tip={stopTip(b, era, months, names)} data-tip-side="above" onClick={extendStop}>
         <Ring b={b} />
         停下
       </button>
@@ -353,13 +350,15 @@ function SheetBody({ end }: { end: number }) {
 export function ExtendDock({ hidden }: { hidden?: boolean }) {
   const x = useExtend();
   const era = useEra();
+  const months = useMonths();
+  const names = useMonthNames();
   const b = x.busy;
   if (!b || hidden) return null;
   return (
     <div className="xt-dock" role="status" onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <div className="xt-dock-text">
         <b>再推 {b.to - b.from} 年</b>
-        <span>{busyNote(b, era, true)}</span>
+        <span>{busyNote(b, era, months, names, true)}</span>
       </div>
       <button className="xt-b dock" data-act="extend-stop-card" onClick={extendStop}>
         停下

@@ -5,7 +5,7 @@
  *   电脑  表格一行一条:纪录 | 保持者(头像或国旗、名字、身份)| 多少 | 年份 | 保持自 | 历来 N 任
  *   手机  一条三行:纪录名;头像、名字、多少;身份和年份;下面一行小字"保持自 … 历来 N 任 ›"
  *
- * 并列(在位最久、最长寿常顶着人物的寿数上限):先到的保持,写"另有 N 位同为 51 年"。
+ * 并列(在位最久、最长寿常顶着人物的寿数上限):先到的保持,写"另有 N 位同为 51 年"(国家写"国"、仗"场"、州"州")。
  * 30 年内换了保持者的那行淡蓝、标「新纪录」,写破了谁的多少。「历来 N 任」点了在这一行下面就地展开,新的在上,点名字看他。
  * 还没有的(早年还没打过仗……)照列,灰字写"还没打过仗",数写"—"。
  *
@@ -27,6 +27,7 @@ import {
   recordHistory,
   recordName,
   recordsAt,
+  tieNote,
   type RecordAt,
   type RecordKey,
   type RecordRef,
@@ -55,7 +56,7 @@ interface Line {
   when: string;
   /** 保持自:"1275 年起";最大的城 = "按这一年的人口" */
   since: string;
-  /** 保持自下面一行:"另有 14 位同为 51 年" / "破了某某的 16 州" */
+  /** 保持自下面一行:"另有 14 位同为 51 年""另有 3 国同为 2 次" / "破了某某的 16 州" */
   note: string;
   fresh: boolean;
 }
@@ -128,7 +129,7 @@ function lineOf(civ: Civ, r: RecordAt, y: number, era: Era | undefined, owner: (
   }
   const fresh = r.key !== 'city' && r.count > 1 && y - r.since <= FRESH;
   let note = '';
-  if (r.ties > 0) note = `另有 ${r.ties} 位同为 ${value}`;
+  if (r.ties > 0) note = tieNote(r, value);
   else if (fresh && r.prev) note = `破了${recordName(civ, r.prev.ref, r.since)}的 ${valueText(r.key, r.prev.value)}`;
   const since = r.key === 'city' ? '按这一年的人口' : `${yearShortAt(r.since, era)}起`;
   return { name, sub, value, when, since, note, fresh };
