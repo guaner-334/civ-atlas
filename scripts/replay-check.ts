@@ -1502,6 +1502,20 @@ if (part('立体地形')) {
   console.log(`地区图:${Date.now() - tr} ms(粗的 ${rg.dbg?.coarseMs} ms、细的 ${rg.dbg?.fineMs} ms),「${rg.title}」${rg.cv?.join('×')},山峰 ${rg.dbg?.peaks} 座,图例 ${rg.dbg?.lines?.join('、')}`);
   if (!paged || rg.title !== '玉屏山一带' || rg.face !== 'flat' || rg.timeline || !rg.cv || rg.cv[0] !== 2560 || !(rg.dbg?.peaks > 0) || !rg.dbg?.lines?.includes('河'))
     errs.push(`立体地形:看这一块没出地区图 / 标题、清晰度、图例不对(${JSON.stringify({ paged, ...rg })})`);
+  // 导出这一页:底条右边「导出图片」→ 卡片(标题、版式、清晰度、格式)→ 导出 2 倍 PNG(就是屏幕上那一页)
+  await rp.click('.rv-bar [data-act=region-export]');
+  const rx = await rp.evaluate(() => ({
+    title: (document.querySelector('.rx .rx-field') as HTMLInputElement | null)?.value ?? '',
+    sizes: [...document.querySelectorAll('.rx .rx-seg button')].map((b) => b.textContent ?? ''),
+    name: document.querySelector('.rx .rx-small')?.textContent ?? '',
+  }));
+  await rp.click('[data-act=region-save]');
+  const saved = await rp
+    .waitForFunction(() => (window as any).__wfRegionExport?.bytes > 0 && !document.querySelector('.rx'), null, { timeout: 30000 })
+    .then(() => rp.evaluate(() => (window as any).__wfRegionExport), () => null);
+  console.log(`地区图导出:「${rx.title}」${rx.sizes.join(' / ')};${saved?.name} ${Math.round((saved?.bytes ?? 0) / 1e3)} KB`);
+  if (rx.title !== '玉屏山一带' || !rx.sizes.includes(`${rg.cv?.[0]}×${rg.cv?.[1]}`) || !saved || !/^文明与地图-种子7-玉屏山一带-第\d+年-.+\.png$/.test(saved.name) || saved.type !== 'image/png')
+    errs.push(`立体地形:地区图导出卡片 / 导出的文件不对(${JSON.stringify({ rx, saved })})`);
   // 底条切到立体:同一个框立起来
   const t0 = Date.now();
   await rp.click('.ab-seg [data-face=relief]');

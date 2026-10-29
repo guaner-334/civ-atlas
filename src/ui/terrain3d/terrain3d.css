@@ -651,3 +651,167 @@
     opacity: 0;
   }
 }
+
+/* ==== 地区图「导出这一页」:电脑贴在底条右上的卡片,手机底部卡片 ==== */
+.rv-bar .b.pri {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-weight: 600;
+}
+.rv-bar .b.pri:hover {
+  filter: brightness(1.06);
+}
+.rgm.exp .rgm-sheet {
+  filter: brightness(0.82);
+}
+.rx {
+  position: absolute;
+  right: calc(14px + var(--ast-room, 0px));
+  bottom: 88px;
+  z-index: 6;
+  width: 400px;
+  box-sizing: border-box;
+  padding: 16px 16px 14px;
+  border-radius: 14px;
+  background: var(--panel-solid);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 12px 40px rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  font: 13px/1.4 var(--font-sans);
+  cursor: default;
+}
+.rx h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.rx-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.rx-row + .rx-row {
+  margin-top: 12px;
+}
+.rx-lab {
+  width: 56px;
+  flex: none;
+  color: var(--ink-2);
+}
+.rx-field {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--field, var(--btn));
+  color: var(--ink);
+  font: 500 14px/1 var(--font-sans);
+}
+.rx-field:focus {
+  outline: 2px solid var(--accent);
+}
+.rx .rx-seg {
+  flex: 1;
+  display: flex;
+}
+.rx .rx-seg button {
+  flex: 1;
+  justify-content: center;
+  height: 30px;
+  padding: 0 6px;
+  font-size: 12.5px;
+}
+.rx-small {
+  margin: 12px 0 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+.rx-go {
+  width: 100%;
+  margin-top: 14px;
+  height: 36px;
+  border: 0;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font: 600 14px/1 var(--font-sans);
+  cursor: pointer;
+}
+.rx-go:disabled,
+.rx-b:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.rx-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.4);
+}
+/* 手机上压暗的只是那一页,顶上一排照旧亮着 */
+.rgm.phone .rv-top {
+  z-index: 6;
+}
+.rx.rx-phone {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  padding: 12px 16px calc(28px + var(--safe-b, 0px));
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+}
+.rx-phone h3 {
+  margin: 0 0 14px;
+  font-size: 17px;
+  text-align: center;
+}
+.rx-phone .rx-row + .rx-row {
+  margin-top: 14px;
+}
+.rx-phone .rx-lab {
+  width: 52px;
+  font-size: 13.5px;
+}
+.rx-phone .rx-seg button {
+  height: 34px;
+  padding: 0 4px;
+  font-size: 13px;
+}
+.rx-warn {
+  margin: 8px 0 0 64px;
+  color: var(--warn, #ff9f0a);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.rx-phone .rx-acts {
+  margin-top: 18px;
+}
+.rx-b {
+  flex: 1;
+  height: 42px;
+  border: 0;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 14px/1 var(--font-sans);
+}
+.rx-b.pri {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-weight: 600;
+}
