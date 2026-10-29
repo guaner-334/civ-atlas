@@ -10,13 +10,14 @@
  *
  * 填的数只收数字;设了纪年时前面是「公元前 ⌄ / 公元 ⌄」小按钮(和干预页一样),按纪年算回第几年。
  * 超出这个世界(第 0 年–结束年份):标红、提示一句,回车停在最后一年 / 第 0 年;纪年填 0:提示"公元没有 0 年",不跳。
- * 怎么算见 gen/era.ts 的 parseJump。导出回放视频时时间轴锁着,年份不能点。
+ * 逐年推演填得比"现在"晚:回车停在"现在"那一刻(停在年中时也是那一刻,不退回那一年年初)。
+ * 怎么算见 gen/era.ts 的 parseJump(推到年中的世界,提示里的那一刻写到月)。导出回放视频时时间轴锁着,年份不能点。
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { Civ } from '../gen/civ/types';
 import { advanceOf } from '../gen/edits';
-import { eraYear, parseJump, yearFull, type Era } from '../gen/era';
+import { eraYear, parseJump, yearFull, type Era, type JumpParse } from '../gen/era';
 import { getCivTime, setCivTime, useCivTime } from './civView';
 import { useEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { monthly, spanNote } from './stepTime';
@@ -26,6 +27,13 @@ import { EraPre } from './panelParts';
 /** 跳过去:时间轴停在第 y 年的开头,不播放 */
 export function jumpToYear(y: number) {
   setCivTime({ year: Math.max(0, Math.floor(y)), playing: false, scrubbing: false, story: false });
+}
+
+/** 填的年份算出来的结果(gen/era.ts 的 parseJump,带上这个世界一年几个月、月份的名字);没在填 = null */
+function useJump(st: { text: string; pre: boolean } | null, era: Era | undefined, end: number, future?: boolean): JumpParse | null {
+  const months = useMonths();
+  const names = useMonthNames();
+  return st ? parseJump(st.text, st.pre, era, end, future, months, names) : null;
 }
 
 // 快捷键 G:时间轴上的年份变成输入框(App 的快捷键调 openJump)
@@ -145,14 +153,17 @@ export function TimelineYear({ world, year, end, era, narrow, locked, below, gho
     setEdit(null);
   }, [locked, world, end, era]);
 
-  const parsed = edit ? parseJump(edit.text, edit.pre, era, end, future) : null;
+  const parsed = useJump(edit, era, end, future);
   const go = () => {
     if (!edit || !parsed) return;
     if (parsed.year === null) {
       if (!parsed.why) setEdit(null);
       return;
     }
-    jumpToYear(range ? Math.min(range.to, Math.max(range.from, parsed.year)) : parsed.year);
+    const y = range ? Math.min(range.to, Math.max(range.from, parsed.year)) : parsed.year;
+    // 逐年推演填超了:停在"现在"那一刻(停在年中时不退回那一年年初)
+    if (future && y >= end) setCivTime({ year: end, playing: false, scrubbing: false, story: false });
+    else jumpToYear(y);
     setEdit(null);
   };
 
@@ -259,7 +270,7 @@ function JumpCard(p: {
   onGo: () => void;
   onClose: () => void;
 }) {
-  const parsed = parseJump(p.text, p.pre, p.era, p.end, p.future);
+  const parsed = useJump(p, p.era, p.end, p.future)!;
   const note = useSpanNote(p.end, p.era, p.future);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -316,7 +327,7 @@ export function JumpField({ civ, listRef, nowRef }: { civ: Civ | null; listRef: 
   }, [world, era]);
   // 还没填:"前"不"前"跟着现在这一年
   const shown = st ?? { text: '', pre: startOf(cur, era).pre };
-  const parsed = parseJump(shown.text, shown.pre, era, end);
+  const parsed = useJump(shown, era, end)!;
   if (!civ) return null;
   const go = () => {
     if (parsed.year === null) return;
