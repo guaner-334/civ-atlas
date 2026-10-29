@@ -5,9 +5,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { END_YEAR_MAX } from '../src/gen/edits';
+import { YEAR_TICKS } from '../src/gen/edits';
 import {
   EXTEND_DEFAULT,
   _resetExtendForTest,
+  busyParts,
   durationText,
   extendMs,
   extendPlan,
@@ -24,6 +26,7 @@ import {
   setExtendOpen,
   setExtendPick,
   setExtendRunner,
+  stopTip,
 } from '../src/ui/extendStore';
 import { rulerOf } from '../src/ui/timelineLayout';
 
@@ -98,6 +101,28 @@ describe('推的时候', () => {
     expect(getExtend().busy).toMatchObject({ year: 3240, pct: 0.14 });
     extendProgress(2, 3500, 1.5);
     expect(getExtend().busy).toMatchObject({ year: 3500, pct: 1 });
+  });
+
+  it('推到哪了、「停下」的提示:推到一年中间的写到月(起了名字的写名字),正好在年初的只写年', () => {
+    const N12 = ['端月', '杏月', '桃月', '槐月', '蒲月', '荷月', '兰月', '桂月', '菊月', '阳月', '葭月', '冰月'];
+    // 第 1549 年 9 月(菊月)停下的世界再推 500 年
+    const from = 1549 + 171 / YEAR_TICKS;
+    const b = { xid: 1, from, to: from + 500, year: null as number | null, pct: 0, slow: false };
+    expect(stopTip(b, undefined, 12, undefined)).toBe('停下：不推了，还是到第 1549 年 9 月');
+    expect(stopTip(b, undefined, 12, N12)).toBe('停下：不推了，还是到第 1549 年菊月');
+    expect(stopTip({ from: 3000 }, undefined, 12, N12)).toBe('停下：不推了，还是到第 3000 年');
+    expect(stopTip(b, undefined, 0, N12)).toBe('停下：不推了，还是到第 1549 年');
+    expect(stopTip(b, { name: '公元', epoch: 1000 }, 12, undefined)).toBe('停下：不推了，还是到公元 550 年 9 月');
+    // 刚开始推(在原来那一刻)写到月;推到整十年的只写年;数字标主色、月份跟在后面
+    expect(busyParts({ ...b, year: from }, undefined, 12, undefined)).toEqual(['正在推，到第 ', '1549', ' 年 9 月']);
+    expect(busyParts({ ...b, year: from }, undefined, 12, N12)).toEqual(['正在推，到第 ', '1549', ' 年菊月']);
+    expect(busyParts({ ...b, year: 1560 }, undefined, 12, N12)).toEqual(['正在推，到第 ', '1560', ' 年']);
+    expect(busyParts({ ...b, year: from }, { name: '公元', epoch: 1000 }, 12, undefined)).toEqual(['正在推，到', '公元 550 年', ' 9 月']);
+    expect(busyParts({ ...b, year: 3240, from: 3000, to: 3500 }, undefined, 12, N12)).toEqual(['正在推，到第 ', '3240', ' 年']);
+    // 推演推到头、还没回报、有地形大事:只有一段
+    expect(busyParts({ ...b, year: b.to }, undefined, 12, N12)).toEqual(['收尾：起名、人物、道路', '', '']);
+    expect(busyParts(b, undefined, 12, N12)).toEqual(['正在推', '', '']);
+    expect(busyParts({ ...b, slow: true }, undefined, 12, N12, true)[0]).toBe('有地形大事，要从第 0 年重推，慢一些');
   });
 
   it('弹层里点「再推」:收起弹层、交给 App 推这么多年;「停下」交给 App', () => {
