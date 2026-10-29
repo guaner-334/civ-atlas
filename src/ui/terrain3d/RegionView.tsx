@@ -92,7 +92,9 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
 
   const root = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLCanvasElement>(null);
-  const [map, setMap] = useState<RegionMap | null>(() => (kept && kept.key === key && civ ? kept.map : null));
+  /** 画好的那一页能不能接着用:框、画风、填色、年份一样,世界和文字(改名以后换一份)也是同一份 */
+  const keptFits = () => !!kept && kept.key === key && kept.map.input.civ === civ && kept.map.input.world === world && kept.map.input.raster === raster;
+  const [map, setMap] = useState<RegionMap | null>(() => (keptFits() ? kept!.map : null));
   /** 细的那一档算到几成(null = 没在算) */
   const [busy, setBusy] = useState<number | null>(null);
   const [tip, setTip] = useState(true);
@@ -100,8 +102,8 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
   // 画这一页的地图:先粗后细;画风、填色、框换了重画
   useEffect(() => {
     if (!civ) return;
-    if (kept && kept.key === key) {
-      setMap(kept.map);
+    if (keptFits()) {
+      setMap(kept!.map);
       setBusy(null);
       return;
     }
@@ -243,12 +245,16 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
   // ---- 拖动挪、双指放大、点两下放大 / 缩回 ----
   const pts = useRef(new Map<number, Pt>());
   const lastTap = useRef<Tap | null>(null);
+  /** 这一下手指按下的地方、时刻:挪远了、中途多了一根手指就不算"点一下"(拖完、捏完松手不算双击的一下) */
+  const tapStart = useRef<(Tap & { id: number }) | null>(null);
   const down = (e: RPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button, input, .rv-bar, .rv-top, .rv-sheet, .map-controls')) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const r = e.currentTarget.getBoundingClientRect();
-    pts.current.set(e.pointerId, { x: e.clientX - r.left, y: e.clientY - r.top });
+    const p = { x: e.clientX - r.left, y: e.clientY - r.top };
+    pts.current.set(e.pointerId, p);
+    tapStart.current = e.pointerType === 'touch' && pts.current.size === 1 ? { ...p, t: performance.now(), id: e.pointerId } : null;
     setTip(false);
   };
   const move = (e: RPointerEvent<HTMLDivElement>) => {
@@ -257,6 +263,8 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
     if (!p0 || !v) return;
     const r = e.currentTarget.getBoundingClientRect();
     const p1 = { x: e.clientX - r.left, y: e.clientY - r.top };
+    const t0 = tapStart.current;
+    if (t0 && Math.hypot(p1.x - t0.x, p1.y - t0.y) > 10) tapStart.current = null;
     if (pts.current.size >= 2) {
       const [ida, idb] = [...pts.current.keys()];
       const other = pts.current.get(e.pointerId === ida ? idb : ida)!;
@@ -273,7 +281,14 @@ export function RegionView({ world, raster, civ, style, look, layer, phone }: Pr
   const up = (e: RPointerEvent<HTMLDivElement>) => {
     const p = pts.current.get(e.pointerId);
     pts.current.delete(e.pointerId);
+    const start = tapStart.current;
+    tapStart.current = null;
     if (!p || e.pointerType !== 'touch' || pts.current.size) return;
+    // 拖过、捏过、取消了:不算点一下,前一下也作废
+    if (e.type === 'pointercancel' || !start || start.id !== e.pointerId) {
+      lastTap.current = null;
+      return;
+    }
     const tap = { x: p.x, y: p.y, t: performance.now() };
     if (isDoubleTap(lastTap.current, tap)) {
       lastTap.current = null;
