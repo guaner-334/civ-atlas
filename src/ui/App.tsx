@@ -57,6 +57,7 @@ import {
 } from './projection';
 import { LAYERS, renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
+import { ThoughtLegend } from './ThoughtParts';
 import type { EraWorld, TempoNote, WorkerRequest, WorkerResponse } from '../worker';
 import type { Civ } from '../gen/civ/types';
 import { CivLayer, civOpenSteps } from './CivLayer';
@@ -1438,6 +1439,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const contourOn = !!contourKind && !draft && !globeOn;
   /** 地理图:左上角放海拔色标(地球仪上不放) */
   const atlasOn = mapBase === 'geo' && !globeOn;
+  /** 思潮填色:左上角放看的哪一说、五档色标 */
+  const ideoLegend = mapFill === 'ideology' && !!civ?.ideology && civ.viable;
   // 等值线、经纬网的墨色:白模、地理图是浅底,和数据底图一样用深色线
   const contourStyle = mapBase === 'blank' || mapBase === 'geo' ? 'data' : style;
   const contourInkNow = contourKind ? contourInk(contourKind, contourStyle, baseDark(mapBase)).line : undefined;
@@ -5974,6 +5977,8 @@ ${s.image.cells}` : null);
       const f = faithAt(civ, y)[r];
       if (f >= 0) return setSelection({ kind: 'faith', id: f }, side);
     }
+    // 思潮填色:点陆地 = 那一州(州卡片里列这州各说几成)
+    if (getCivShow().ideology && civ.ideology) return setSelection({ kind: 'region', id: r }, side);
     // 民族填色:点陆地 = 那里住的民族(和信仰一样)
     if (fillOf(getCivShow()) === 'cultures') {
       const c = ownersAt(civ, Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear))).culture[r];
@@ -6842,11 +6847,12 @@ ${s.image.cells}` : null);
               />
           )}
           {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} relief={reliefable ? relief.phase === 'pick' : undefined} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || atlasOn || contourOn || workOn) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || atlasOn || contourOn || workOn || ideoLegend) && (
             <div className="corner-tl">
               {workBar}
               <OldSiteBadge />
               {(style === 'data' || atlasOn || contourOn) && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} phone />}
+              {ideoLegend && <ThoughtLegend civ={civ!} phone />}
             </div>
           )}
         </>
@@ -6870,12 +6876,13 @@ ${s.image.cells}` : null);
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || relBack || ((style === 'data' || atlasOn || contourOn) && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || relBack || ((style === 'data' || atlasOn || contourOn || ideoLegend) && !terrainTool.on)) && (
             <div className="corner-tl">
               {relBack && civ && <RelationBack civ={civ} />}
               {workBar}
               <OldSiteBadge />
               {(style === 'data' || atlasOn || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
+              {ideoLegend && !terrainTool.on && <ThoughtLegend civ={civ!} />}
             </div>
           )}
         </>

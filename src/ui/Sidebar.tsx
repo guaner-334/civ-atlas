@@ -6,7 +6,7 @@
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
- *          什么都没选:整个世界(WorldHome:大纲(OutlineSide.tsx;逐年推演里不放)、信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
+ *          什么都没选:整个世界(WorldHome:大纲(OutlineSide.tsx;逐年推演里不放)、信仰(只在信仰图层)、思潮(只在思潮图层,ThoughtParts.tsx)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
  *          这颗星球(从这里演绎(逐年推演,从时间轴停的这一年起)、回放世界形成、地形大事、在这张地图上打造新文明、世界设定;
  *          从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))。
  *          在逐年推演里:副标写"逐年推演,从某某年起演绎"(演一国时"逐年推演,演某国"),"这颗星球"换成"这个故事"(推进设置、存回推演模式,见 Stepwise.tsx)
@@ -53,6 +53,7 @@ import { VersionMenuFoot } from './VersionNews';
 import { PlayQualityItem } from './PlayQualityMenu';
 import { useCoarse, useNarrow } from './device';
 import { CONTROL_COLORS } from '../render/civ/control';
+import { ThoughtSide } from './ThoughtParts';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
 import { openDiag } from './DiagDialog';
@@ -495,6 +496,8 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const narrow = useNarrow();
   const ctlOn = show.control && ok;
   const ctl = useMemo(() => (ctlOn ? controlRows(civ!, year, era, narrow) : null), [ctlOn, civ, year, era, narrow]);
+  // 思潮图层:「国家」上面一组「思潮」(七说一说一行,点一行换一说)
+  const ideoOn = show.ideology && ok && !!civ!.ideology;
   const resOn = show.resources && ok && !!civ!.development;
   // 看的是"现在":故事模式(历史推到停下那一刻的前一格,停在年初的也是上一年最后一格)、普通世界推到年中的,列到推到的那一格
   // (这一年、停在年初的上一年里已经发生的也列上)
@@ -604,6 +607,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
+      {ideoOn && <ThoughtSide civ={civ!} year={year} />}
       {ok && !step && <FoundSide id={now?.id} />}
       {ok && !step && <OutlineSide civ={civ} era={era} />}
       {resOn && <ResourceList civ={civ!} year={year} era={era} />}

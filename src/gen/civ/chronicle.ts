@@ -170,7 +170,7 @@ export const TREK_ASSIM_MAJOR = 5;
  * 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries)、
  * 信仰的大事(faith,不是史事,见 religionText.ts 的 faithEntries)、时代和物产的大事(era,见 developmentText.ts 的 developmentEntries)
  */
-export type EntryKind = AnnalKind | 'reign' | 'faith' | 'era';
+export type EntryKind = AnnalKind | 'reign' | 'faith' | 'era' | 'thought';
 
 export interface ChronicleEntry {
   /** 这一条(第一条)史事在 civ.annals 里的下标;列表里唯一,当 key 用(君主继位 = civ.annals.length + 新君的 Person.id) */
@@ -182,7 +182,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代;商道:商 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代;商道:商;思潮:思 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -203,6 +203,8 @@ export interface ChronicleEntry {
   faith?: number;
   /** 商道的大事:哪几条商道(civ.trade.routes 的下标;见 tradeText.ts) */
   trade?: number[];
+  /** 思潮的大事:哪一说(始倡、盛于的那说,渐衰里代兴的那说;THOUGHTS 的下标,见 ideologyText.ts) */
+  thought?: number;
 }
 
 // ---------------------------------------------------------------------------

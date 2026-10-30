@@ -7,11 +7,13 @@
  *         演一国时别国的州:在这里立国、划给…、天灾…变灰,按钮下面写一句(和别国的国家卡片一样,RoleBar.tsx 的 RoleLockNote)
  *   概况  主体民族(族名可点,开民族卡片;改族名在民族卡片里)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
  *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、
- *         管辖(中央管得到几成 + 档位,"52% 代管";分封出去的边州 "11% 自治,封地";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
+ *         管辖(中央管得到几成 + 档位,"52% 代管";分封出去的边州 "11% 自治,封地";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、
+ *         思潮(最盛那说几成,小字"另有某说等 N 说";都不到半成不显示)、州里的城(可点;故城标出来)、地貌、
  *         民族(族名由来 / 起族名,和民族卡片里的是同一份)、来历(分化出来的民族:哪年从哪族分出,母族可点、开它的民族卡片)
  *   中立地(几国共建、议和划出,不归任何一国;gen/civ/treatyInfo.ts):色块换成共建几国颜色的细横纹,名字下面写"中立地，某国、某国 2301 年共建"
  *         (手机上写"三国");概况最前面多「共建」「来历」(依哪份约设,约名可点开条约卡片)「期限」(手机上不写)「住着」(徙居、出奔来的人),
  *         管辖写"几国都不驻兵";历任归属里中立地那几年画细横纹
+ *   思潮  开着思潮图层时才有:这州到半成的几说,小条 + 百分数 + 比百年前;地图上正看的那说标出来,点一行换看那说(ThoughtParts.tsx)
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
  *   大事  最近 5 条(可点)、这一州的干预(可撤销)
@@ -30,6 +32,7 @@ import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, pop
 import { CONTROL_TIERS } from '../gen/civ/control';
 import { controlOf, lordOf } from '../render/civ/control';
 import { isFiefRegion } from './courtInfo';
+import { RegionThoughtRow, RegionThoughts } from './ThoughtParts';
 import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
@@ -278,6 +281,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, ai, aiRef }: DetailProp
             {faith ? <Link to={{ kind: 'faith', id: faith.id }}>{faith.name}</Link> : '—'}
           </Row>
         )}
+        <RegionThoughtRow civ={civ} id={id} year={year} />
         {cities.length > 0 && (
           <Row k="城" className="cp-links">
             {cities.map((s) => {
@@ -321,6 +325,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, ai, aiRef }: DetailProp
           </Row>
         )}
       </Stats>
+      <RegionThoughts civ={civ} id={id} year={year} polity={own.polity[id]} />
       <CharacterRefs refs={refs} />
       <OwnerBar civ={civ} spans={spans} year={year} zones={zoneSpans} />
       <EventList upTo={upTo} civ={civ} />
