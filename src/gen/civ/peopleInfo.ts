@@ -15,6 +15,8 @@ import type { Annal, Civ, Person, PersonCommand, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
 import { dowagerSpans, dowagerWordOf, isConsul, kinOf, personName, rulerRef, rulerShort, rulerTitle } from './peopleText';
+import { opensSeg } from './regime';
+import { Issue, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION } from './councilRules';
 
 /** 够这么多分算名人 */
 export const FAME_MIN = 6;
@@ -224,6 +226,16 @@ export function riseText(civ: Civ, x: Person): string {
     case 'usurp':
       // 临朝的太后废了幼主自立
       return dowagerSpans(x).length ? `以${dowagerWordOf(civ, x, x.from ?? y)}废帝自立` : '篡位';
+    case 'reform': {
+      // 改制开的那一段的第一位:哪一种改制(开这一段的那条史事)
+      const y0 = p.dynasties?.[x.dynasty ?? 0]?.year ?? y;
+      const e = civ.annals.find((a) => a.a === p.id && a.year === y0 && opensSeg(a));
+      if (e?.kind === 'council') return e.war === Issue.Return ? '军政府还政，推为执政' : '废君立共和，推为执政';
+      if (e?.n === REFORM_REVOLUTION) return '起兵革命，自为执政';
+      if (e?.n === REFORM_COUP) return '率兵政变，自为执政';
+      if (e?.n === REFORM_RESTORE) return e.b >= 0 ? '复辟，迎回旧王室即位' : '废议事会，自立为君';
+      return consul ? '就任' : '即位';
+    }
     default:
       if (!prev) return consul ? '就任' : '即位';
       if (consul) return `接${rulerShort(civ, prev)}继任`;

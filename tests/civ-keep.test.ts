@@ -63,17 +63,17 @@ const fp = (x: unknown) =>
 describe('保住王室 · 没下、即位没勾的世界不变', () => {
   /**
    * 种子 7(12000 地块)1500 年给最大的国立作者的人物(没勾保住王室)、1600 年起保护它:各字段的指纹。
-   * 期望值是加「保住王室」以前的代码算的(和改动后一样;GENERATOR_VERSION 43 战争节奏、44 出奔邻国、46 大迁徙、47 季节进推演重算;48 大迁徙的方位字只重算了 chronicle;49 时代做法重算;50 一部分人物换成女的,只有 people、chronicle 变了;51 将门世家、复国接上故国,只有 people 变了;52 嫁来的宗室女、临朝的太后成了人物,只有 people 变了);推演改了历史、升 GENERATOR_VERSION 时照 determinism.test.ts 的做法
+   * 期望值是加「保住王室」以前的代码算的(和改动后一样;GENERATOR_VERSION 43 战争节奏、44 出奔邻国、46 大迁徙、47 季节进推演重算;48 大迁徙的方位字只重算了 chronicle;49 时代做法重算;50 一部分人物换成女的,只有 people、chronicle 变了;51 将门世家、复国接上故国,只有 people 变了;52 嫁来的宗室女、临朝的太后成了人物,只有 people 变了;55 改制进推演重算);推演改了历史、升 GENERATOR_VERSION 时照 determinism.test.ts 的做法
    * 用 PRINT_FINGERPRINT=1 重算
    */
   const EXPECTED: Record<string, string> = {
-    annals: '05219f6273974438',
-    checkpoints: '09470fa6e9f2c1e5',
-    log: '463547ad21c9de19',
-    people: 'f59112b30dcd3f64',
-    polities: '6aa53808d0ef9944',
-    settlements: '43336581a8161375',
-    chronicle: 'd2e297a232e852f1',
+    annals: '18342d72546039dd',
+    checkpoints: 'd488489a5c7bc233',
+    log: '0525b9628a60ab7e',
+    people: 'd6ab41455f7225bb',
+    polities: 'dcd8593d2db1b826',
+    settlements: '623be5c23e5250e4',
+    chronicle: '637af330b7291adb',
   };
 
   it('即位没勾(旧存档里的即位没有 keep)的世界和加这条干预以前逐字节一样', () => {

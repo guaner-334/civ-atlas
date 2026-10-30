@@ -110,7 +110,8 @@ import { pandemicsOf } from './pandemicInfo';
 import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
-import { councilBefore } from './councilRules';
+import { Issue, REFORM_COUP, REFORM_REVOLUTION, councilBefore, isReformIssue, rulesAt } from './councilRules';
+import { reformedSeg, royalSeg } from './regime';
 import { IV_REIGNING, authorPostsFrom } from './appoint';
 import { practicesAt } from './practiceInfo';
 import { Practice, hasPractice } from './practices';
@@ -170,7 +171,8 @@ export const TREK_ASSIM_MAJOR = 5;
  * 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries)、
  * 信仰的大事(faith,不是史事,见 religionText.ts 的 faithEntries)、时代和物产的大事(era,见 developmentText.ts 的 developmentEntries)
  */
-export type EntryKind = AnnalKind | 'reign' | 'faith' | 'era' | 'thought';
+/** 纪事的种类(见上);改制里动了兵的革命、政变单列(时间轴上归战争那一类的红色) */
+export type EntryKind = AnnalKind | 'reign' | 'faith' | 'era' | 'thought' | 'revolution' | 'coup';
 
 export interface ChronicleEntry {
   /** 这一条(第一条)史事在 civ.annals 里的下标;列表里唯一,当 key 用(君主继位 = civ.annals.length + 新君的 Person.id) */
@@ -718,6 +720,7 @@ const TAG: Record<AnnalKind, string> = {
   keep: '保',
   trek: '徙',
   winter: '冬',
+  reform: '制',
 };
 
 function base(
@@ -1927,7 +1930,11 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         : `${pn(civ, e.a, y)}迁都`;
       return base(e, id, text, p && polityTierAt(p, y) >= CAPITAL_TIER ? 3 : 2, [e.a], [e.region]);
     }
+    case 'reform':
+      return reformEntry(ctx, e, id);
     case 'split': {
+      // 革命据地自立
+      if (e.cause === 'revolution') return revolutionSplitEntry(ctx, e, id);
       const A = pn(civ, e.a, y);
       const r = regionName(civ, e.region);
       const P = polityOf(civ, e.a);
@@ -1983,7 +1990,9 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       // 第二批里只有脱离转投(国土易手)算大事;改军制、改官制、分镇只在"全部"里(大国一个种子十来次,放进大事时间轴就挤了)
       const who = reigning(ctx.ix, e.a, y);
       const imp = e.n === 0 && (e.war <= 4 || e.war === 10) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
-      let t = councilText(civ, e, id, who);
+      // 改制的议题办成了(立宪、废君立共和、还政):单列一种(立宪、改制,蓝色)
+      if (e.n === 0 && (e.war === Issue.Charter || e.war === Issue.Abolish || e.war === Issue.Return)) return reformDoneEntry(ctx, e, id);
+      let t = councilText(civ, e, id, who, ctx.ix);
       // 搁置的几种写法不写君主
       const named = who && (t.includes(who.name) || (!!who.title && t.includes(rulerTitle(civ, who))));
       // 作者的名臣这时在朝(任臣、掌权的作者人物):"…,丞相林小满与议"(西幻"参与其议")
@@ -3155,7 +3164,8 @@ function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
  * 写"编定户籍,改由官吏按户征税""始置常备之军……不复征发于州郡""始行考选,州县之官由朝廷选授"(推演里这几件要有了户籍、
  * 常备军、文官考选才办得成);国都进了火药时代以后改土归流、罢边镇办成,这国以后再没分封、设边镇的,写"分封之制遂废""边镇之制遂废"
  */
-function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string {
+function councilText(civ: Civ, e: Annal, id: number, who: Person | null, ix: PeopleIndex | null = null): string {
+  if (isReformIssue(e.war)) return reformCouncilText(civ, e, id, who, ix);
   const y = e.year;
   const A = pn(civ, e.a, y);
   const P = polityOf(civ, e.a);
@@ -3280,6 +3290,208 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
       return east ? `${A}${r}${lord}欲以所领诸州归附${B},朝廷遣使抚谕,事寝` : `${A}的${r}${lord}想改投${B},王室派人安抚,作罢`;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// 改制(reform.ts):立宪、扩大参与、废君立共和、还政(议事),革命、政变、复辟(史事 reform)
+
+/** 窘境写到几年以前 */
+const WOE_YEARS = 30;
+
+/** 某国此刻(第 id 条史事之前 WOE_YEARS 年里)的窘境:"连年兵败,府库空竭""大疫之后国用不足";没有 = 空串 */
+function woeOf(civ: Civ, p: number, id: number): string {
+  const A = civ.annals;
+  const y = A[id]?.year ?? civ.endYear;
+  let lost = 0;
+  let broke = false;
+  let plague = false;
+  for (let k = id - 1; k >= 0 && y - A[k].year < WOE_YEARS; k--) {
+    const a = A[k];
+    if (a.kind === 'conquer' && a.b === p && a.war >= 0) lost++;
+    else if (a.kind === 'fiscal' && a.a === p) broke = true;
+    else if (a.kind === 'plague' && a.a === p && (a.cause === 'great' || a.cause === 'pandemic')) plague = true;
+  }
+  const out: string[] = [];
+  if (lost >= 2) out.push('连年兵败');
+  else if (lost) out.push('兵败失地');
+  if (plague) out.push(broke ? '大疫之后国用不足' : '大疫之后');
+  else if (broke) out.push('府库空竭');
+  return out.join(',');
+}
+
+/** 议事的地方:设了议会的东方写"议院"、西幻写"议会",没设的写"议事会"(year 这一刻以后的规矩) */
+function bodyOf(civ: Civ, p: number, year: Year): string {
+  if (rulesAt(civ.annals, p, year).charter < 2) return '议事会';
+  return polityOf(civ, p)?.eastern ? '议院' : '议会';
+}
+
+/** 君位的叫法:东方"帝制"(王国"王位"),西幻"王位""帝位",汗国"汗位" */
+function throneWord(P: Polity | null, y: Year): string {
+  const tier = P ? polityTierAt(P, y) : 2;
+  if (P?.lineage === 'khanate') return '汗位';
+  if (P?.eastern) return tier >= 3 ? '帝制' : '王位';
+  return tier >= 3 ? '帝位' : '王位';
+}
+
+/** 不复独断的那位:东方"天子"(王国"国君"),西幻"国王""皇帝",汗国"可汗" */
+function sovereignWord(P: Polity | null, y: Year): string {
+  const tier = P ? polityTierAt(P, y) : 2;
+  if (P?.lineage === 'khanate') return '可汗';
+  if (P?.eastern) return tier >= 3 ? '天子' : '国君';
+  return tier >= 3 ? '皇帝' : '国王';
+}
+
+/** 能议政的人多到哪一档的说法(扩大参与) */
+const FRANCHISE_WHO = ['王族贵族', '有产者', '男子', '成年人'];
+
+/** 改制的议事(立宪、扩大参与、废君立共和、还政)正文;办成的立宪、废君、还政单列一条(reformDoneEntry),这里多半写妥协、搁置 */
+function reformCouncilText(civ: Civ, e: Annal, id: number, who: Person | null, ix: PeopleIndex | null): string {
+  const y = e.year;
+  const A = pn(civ, e.a, y);
+  const P = polityOf(civ, e.a);
+  const east = !!P?.eastern;
+  const ref = who ? rulerRef(civ, who, y) : A;
+  const out = e.n ?? 2;
+  const woe = woeOf(civ, e.a, id);
+  const lead = woe ? `${A}${woe},` : A;
+  const stop = east ? '守旧之臣力阻,事寝' : '守旧的大臣力阻,作罢';
+  switch (e.war) {
+    case Issue.Charter:
+      if (out === 0) return reformDoneText(civ, e, ix);
+      if (out === 1) return east ? `${ref}下诏设议事会,国事先咨议事会,君权照旧` : `${ref}设议事会,大事先咨议事会,王权照旧`;
+      return `${lead}群臣请立宪,${stop}`;
+    case Issue.Widen: {
+      // 海洋城邦共和一系本来就有产者能议政(和政体那三条一样,polityForm.ts 的 formDims)
+      const to = rulesAt(civ.annals, e.a, y).franchise + (P?.lineage === 'republic' ? 1 : 0);
+      const body = bodyOf(civ, e.a, y);
+      const whom = FRANCHISE_WHO[Math.max(1, Math.min(3, out === 0 ? to : to + 1))];
+      const verb = whom === '有产者' ? '入' : '皆得推举';
+      if (out === 0) return `${A}许${whom}${verb}${body},与闻国事`;
+      return `${A}议许${whom}${verb}${body},议不合,${east ? '事寝' : '作罢'}`;
+    }
+    case Issue.Abolish:
+      if (out === 0) return reformDoneText(civ, e, ix);
+      if (out === 1) return `${lead}议废${throneWord(P, y)},不成,改设议事会,君权稍减`;
+      return `${lead}议废${throneWord(P, y)},${stop}`;
+    default:
+      // 还政(军政府交还议事会)
+      if (out === 0) return reformDoneText(civ, e, ix);
+      return `${A}议还政于议事会,${who ? `执政${who.name}` : '将领'}不许,${east ? '事寝' : '作罢'}`;
+  }
+}
+
+/** 办成的立宪、废君立共和、还政 */
+function reformDoneText(civ: Civ, e: Annal, ix: PeopleIndex | null): string {
+  const y = e.year;
+  const A = pn(civ, e.a, y - 1 / 512);
+  const P = polityOf(civ, e.a);
+  const east = !!P?.eastern;
+  if (e.war === Issue.Charter) {
+    const who = reigning(ix, e.a, y);
+    const ref = who ? rulerRef(civ, who, y) : A;
+    const body = east ? '议院' : '议会';
+    return `${ref}${east ? '下诏立宪' : '颁行宪章'},开${body},国事经${body}议定,${sovereignWord(P, y)}不复独断`;
+  }
+  const body = bodyOf(civ, e.a, y);
+  const old = endedAt(ix, e.a, y);
+  if (e.war === Issue.Return) return `${A}议还政,议成:${old ? `执政${old.name}去位,` : ''}国事复由${body}议定、推举执政`;
+  // 废君立共和:"博戈维纳王国议废王位,议成:国王斯坦波尔克逊位,国事改由议事会议定、推举执政,国号改称博戈维纳共和国"
+  const tier = Math.max(1, P ? polityTierAt(P, y - 1 / 512) : 2);
+  const king = old ? (east ? rulerBare(civ, old, y) : `${westRank(old, P?.lineage, tier)}${old.name}`) : '';
+  return `${A}议废${throneWord(P, y - 1 / 512)},议成:${king ? `${king}逊位,` : ''}国事改由${body}议定、推举执政,国号改称${pn(civ, e.a, y)}`;
+}
+
+/** 改制办成的那一条(立宪,改制:废君立共和、还政):蓝色 */
+function reformDoneEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const imp = isGreat(polityOf(civ, e.a)) ? 3 : 2;
+  const text = reformDoneText(civ, e, ctx.ix);
+  const who = e.war === Issue.Charter ? reigning(ctx.ix, e.a, y) : endedAt(ctx.ix, e.a, y);
+  return withPeople(base(e, id, text, imp, [e.a], [e.region], e.war === Issue.Charter ? '宪' : '制'), who && text.includes(who.name) ? who : null);
+}
+
+/** 议立宪 / 废君谈崩、紧跟着起兵(革命、据地自立):议事那一条并进起兵那一条 */
+function revolutionAfter(A: readonly Annal[], i: number): boolean {
+  const e = A[i];
+  const n = A[i + 1];
+  if (e.kind !== 'council' || e.n !== 3 || (e.war !== Issue.Charter && e.war !== Issue.Abolish) || !n || n.year !== e.year) return false;
+  return (n.kind === 'reform' && n.n === REFORM_REVOLUTION && n.a === e.a) || (n.kind === 'split' && n.cause === 'revolution' && n.b === e.a);
+}
+
+/** 议什么不成(起兵那一条的开头):"议废帝制,不成;""议立宪,不成;" */
+function failedAsk(civ: Civ, A: readonly Annal[], i: number, p: number): string {
+  const c = A[i - 1];
+  if (!c || c.kind !== 'council' || c.a !== p || c.year !== A[i].year) return '';
+  return c.war === Issue.Charter ? '议立宪,不成;' : `议废${throneWord(polityOf(civ, p), c.year)},不成;`;
+}
+
+/** 史事 reform:革命(红)、政变(红)、复辟(蓝) */
+function reformEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const P = polityOf(civ, e.a);
+  const east = !!P?.eastern;
+  const before = pn(civ, e.a, y - 1 / 512);
+  const after = pn(civ, e.a, y);
+  const nu = founderOf(ctx.ix, e.a, P ? dynastyIndexAt(P, y) : 0);
+  const old = endedAt(ctx.ix, e.a, y);
+  const woe = woeOf(civ, e.a, id);
+  const capital = P ? cityName(civ, capitalBefore(P, y)) : '';
+  const imp = isGreat(P) ? 3 : 2;
+  const entry = (text: string, tag: string, kind: EntryKind, ...ps: (Person | null)[]) => {
+    const x = base(e, id, text, imp, [e.a], [e.region], tag);
+    x.kind = kind;
+    return withPeople(x, ...ps.filter((z) => !!z && text.includes(z.name)));
+  };
+  if (e.n === REFORM_REVOLUTION) {
+    // "大靖王朝兵败失地,议废帝制,不成;田继徽起兵于玉舞之野,入桂陵,废光宗,罢帝号,立共和,国号大靖共和国,自为执政"
+    const r = regionName(civ, e.region);
+    const king = old ? (east ? rulerBare(civ, old, y) : old.name) : '';
+    let t = `${before}${woe ? `${woe},` : ''}${failedAsk(civ, civ.annals, id, e.a)}`;
+    t += `${nu ? nu.name : east ? '义军' : '起义者'}起兵${r ? `于${r}` : ''}${capital ? `,入${capital}` : ''}${king ? `,废${king}` : ''}`;
+    t += `${east ? `,罢${P && polityTierAt(P, y - 1 / 512) >= 3 ? '帝' : '王'}号` : ''},立共和,国号${after}${nu ? ',自为执政' : ''}`;
+    return entry(t, '革', 'revolution', nu, old);
+  }
+  if (e.n === REFORM_COUP) {
+    // "博戈维纳共和国大疫之后国用不足,议事会久议不决;将军米列斯拉娃率兵入莫尔格勒,散议事会,自为执政,国事决于军中"
+    const body = bodyOf(civ, e.a, y - 1 / 512);
+    const t = `${before}${woe ? `${woe},` : ''}${body}久议不决;将军${nu ? nu.name : ''}率兵入${capital || '国都'},散${body},自为执政,国事决于军中`;
+    return entry(t, '政', 'coup', nu, old);
+  }
+  // 复辟
+  const head = woe ? `${before}${woe};` : before;
+  if (e.b >= 0) {
+    // "大靖共和国连年兵败,府库空竭;宗室、旧臣迎光宗之子蔡安钧即位,罢共和,复称大靖王朝"
+    const rs = ctx.ix?.rulers[e.a] ?? [];
+    let last: Person | undefined;
+    for (let k = rs.length - 1; k >= 0 && !last; k--) if ((rs[k].from ?? Infinity) < y && P && royalSeg(P, rs[k].dynasty ?? 0)) last = rs[k];
+    const kin = nu && last ? (nu.parent === last.id ? `之${childWord(nu)}` : '之后') : '';
+    const lastRef = last ? (east ? rulerBare(civ, last, y) : last.name) : '';
+    const t = `${head}${woe ? '' : ','}${east ? '宗室、旧臣' : '王党'}迎${lastRef ? `${lastRef}${kin}` : '旧王室之后'}${nu ? nu.name : ''}即位,罢共和,复称${after}`;
+    return entry(t, '辟', 'reform', nu, last ?? null);
+  }
+  // 旧王室没人了:执政 / 将军自立为君,当成换了一朝
+  const rank = east ? (P && polityTierAt(P, y) >= 3 ? '帝' : '王') : nu ? westRank(nu, P?.lineage, Math.max(1, P ? polityTierAt(P, y) : 2)) : '王';
+  const same = !!P && polityRootAt(P, y) === polityRootAt(P, y - 1 / 512);
+  const ruler = P && reformedSeg(P, P ? dynastyIndexAt(P, y - 1 / 512) : 0) ? '执政' : '将军';
+  const t = `${head}${woe ? '' : ','}${ruler}${nu ? nu.name : ''}废${bodyOf(civ, e.a, y - 1 / 512)},自立为${rank},国号${same ? '复称' : '改称'}${after}`;
+  return entry(t, '辟', 'reform', nu);
+}
+
+/** 革命起兵打不进国都、据地自立:"大靖王朝议废帝制,不成;田继徽据玉舞之野自立,号玉舞共和国,都于某城" */
+function revolutionSplitEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const woe = woeOf(civ, e.b, id);
+  const lead = founderOf(ctx.ix, e.a, 0);
+  const r = regionName(civ, e.region);
+  const city = cityName(civ, e.settlement);
+  let t = `${pn(civ, e.b, y)}${woe ? `${woe},` : ''}${failedAsk(civ, civ.annals, id, e.b)}${lead ? lead.name : '起事的人'}${r ? `据${r}` : ''}自立,号${pn(civ, e.a, y)}`;
+  if (city) t += `,都于${city}`;
+  const x = base(e, id, t, isGreat(polityOf(civ, e.a)) || isGreat(polityOf(civ, e.b)) ? 3 : 2, [e.a, e.b], [e.region], '革');
+  x.kind = 'revolution';
+  return withPeople(x, lead);
 }
 
 /** 各条议事议之前那国的军制、官制(council.ts 的 councilBefore;按史事数组缓存,接着推长了就重算) */
@@ -4284,6 +4496,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       if (e.kind !== 'fall' && e.kind !== 'ruin') continue;
     }
     if (e.kind === 'found' && splitOf.has(e.a)) continue;
+    // 议立宪 / 废君谈崩、紧跟着起兵:并进起兵那一条(革命)
+    if (e.kind === 'council' && revolutionAfter(A, i)) continue;
     // 作者下令立的约、划的中立地并进干预那一条
     if ((e.kind === 'treaty' || e.kind === 'neutral') && e.cause === 'decree' && foldedIntoDecree(civ, i)) continue;
     // 干预引起的立国、迁都并进干预那一条
@@ -4422,7 +4636,7 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
       const ref = rulerRef(civ, prev, y);
       const minis: Person[] = [];
       let text: string;
-      if (p.lineage === 'republic') text = `${ref}任满,${x.name}继任`;
+      if (!royalSeg(p, x.dynasty ?? 0)) text = `${ref}任满,${x.name}继任`;
       else if (prev.author !== undefined) {
         // 作者立的君主到期退位(生死归人物卡管),继他之位的不连成他的儿子
         const then = p.eastern && (p.lineage === 'khanate' || tier <= 0) ? `${x.name}继为${p.lineage === 'khanate' && tier > 0 ? khanWord(x) : '首领'}` : p.eastern ? `${x.name}即位${x.title ? `,是为${rulerTitle(civ, x)}` : ''}` : `${rulerShort(civ, x)}即位`;

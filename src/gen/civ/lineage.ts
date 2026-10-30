@@ -25,6 +25,7 @@
 
 import type { Person, Polity, Year } from './types';
 import type { Son } from './royals';
+import { royalSeg } from './regime';
 
 /** 生儿子的年纪 */
 const GEN_AGE: [number, number] = [14, 55];
@@ -107,7 +108,8 @@ export function buildLineage(
   for (const g of generals) generalNames[g.polity]?.push([g.commands?.[0]?.from ?? g.from ?? g.born, g.name, g.born]);
   for (const p of polities) {
     if (p.lineage === 'republic') continue;
-    const list = rulers[p.id];
+    // 改制开的共和、军政府那几段的执政不连世系
+    const list = rulers[p.id].filter((x) => royalSeg(p, x.dynasty ?? 0));
     const mine: Node[] = [];
     const nodes = new Map<Person, Node>();
     const prince = (born: Year, died: Year, dynasty: number, at: Year): Node => {
@@ -154,9 +156,11 @@ export function buildLineage(
         mine.push(n);
         adopt(X, n);
       }
-      const prev = list[k - 1];
+      // 复辟迎回旧王室(那一段的 house):第一位接到旧王室最后那位下面(和继位一样按年纪连)
+      const house = r.rise === 'reform' ? p.dynasties?.[r.dynasty ?? 0]?.house : undefined;
+      const prev = house !== undefined ? list.slice(0, k).reverse().find((x) => (p.dynasties?.[x.dynasty ?? 0]?.house ?? x.dynasty ?? 0) === house) : list[k - 1];
       // 作者立的君主(Person.author)不连父子:他自己不算谁的儿子,继他之位的也不硬说是他的儿子
-      if (!prev || r.rise !== 'heir' || (prev.dynasty ?? 0) !== (r.dynasty ?? 0) || prev.author !== undefined) continue;
+      if (!prev || (house === undefined && (r.rise !== 'heir' || (prev.dynasty ?? 0) !== (r.dynasty ?? 0))) || prev.author !== undefined) continue;
       const PV = nodes.get(prev)!;
       const born = sonOf.get(r);
       if (born) {

@@ -1329,20 +1329,19 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(47, { terrain: true, upheavals: true })).toBe(versionNote(47, false));
     expect(versionNote(46, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
   });
-  it('第 50 版一部分人物换成女的、51 版将门世家:地形、历史不变;第 54 版编年史多了思潮:按编年史说;地形对不上照样提示;再早的照历史重新推演说', () => {
-    const chronicle = '来自旧版本：疆域和兴亡没变，编年史写得更细了';
+  it('第 50 版一部分人物换成女的、51 版将门世家只改了人物,第 54 版编年史多了思潮;第 55 版改制重排了历史,从那以前打开的都照历史重新推演说', () => {
     expect(GENERATOR_CHANGES[50]).toEqual({ change: 'people' });
     expect(GENERATOR_CHANGES[51]).toEqual({ change: 'people' });
     expect(GENERATOR_CHANGES[53]).toEqual({ change: 'ideology' });
     expect(GENERATOR_CHANGES[54]).toEqual({ change: 'chronicle' });
-    expect(versionNote(53, false)).toBe(chronicle);
-    expect(versionNote(52, false)).toBe(chronicle);
-    expect(versionNote(50, false)).toBe(chronicle);
-    expect(versionNote(49, false)).toBe(chronicle);
-    expect(versionNote(49, { terrain: true, upheavals: true })).toBe(chronicle);
-    expect(versionNote(48, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    // 第 55 版改制进了推演,历史重新推演:从第 54 版以前打开的都照历史说
+    expect(GENERATOR_CHANGES[55]).toEqual({ change: 'history' });
+    const history = '来自旧版本：地形和气候没变，历史重新推演了';
+    for (const v of [54, 53, 52, 50, 49, 48]) expect(versionNote(v, false)).toBe(history);
+    expect(versionNote(49, { terrain: true, upheavals: true })).toBe(history);
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');
-    expect(checkWarning({ ...save, generator: 49 }, 'bbbbbbbbbbbb')).toBe(CHECK_WARNING);
+    // 从第 49 版打开:世界本来就变了(历史重新推演,已经说过),地形对不上不再另提示
+    expect(checkWarning({ ...save, generator: 49 }, 'bbbbbbbbbbbb')).toBeNull();
   });
   it('同一版、或世界本来就变了时:地形对不上只在同一版时提示', () => {
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');

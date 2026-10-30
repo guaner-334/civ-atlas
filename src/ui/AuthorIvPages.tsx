@@ -24,6 +24,7 @@ import { personName, rulerShort } from '../gen/civ/peopleText';
 import { heOrShe } from '../gen/civ/gender';
 import { postAt } from '../gen/civ/officialText';
 import { authorMinisterLadder, courtDeeds } from '../gen/civ/officials';
+import { regimeAt, royalAt } from '../gen/civ/regime';
 import { appointEnd, appointPreview, type AuthorPost } from '../gen/civ/appoint';
 import {
   APPOINT_SKILL_POWER,
@@ -877,7 +878,7 @@ export function AuthorRegentPage({ civ, raster, world, year, c, polity, from: pr
     if (w) return w;
     if (!P) return '选一个国家';
     if (!pAlive) return yv < P.founded ? `${yearAt(y, era)}${nameAt(P, y)}还没立国` : `${yearAt(y, era)}${nameAt(P, y)}已亡`;
-    if (P.lineage === 'republic') return `${nameAt(P, y)}是共和国，没有君主可架空`;
+    if (!royalAt(P, yv)) return `${yearAt(y, era)}${nameAt(P, y)}是${regimeAt(P, yv) === 'junta' ? '军政府' : '共和国'}，没有君主可架空`;
     if (!N) return `${yearAt(y, era)}${nameAt(P, y)}没有在位的君主`;
     if (N.author !== undefined) return `那年在位的是作者立的君主${personName(civ, N)}，掌不了权`;
     if (how === 'general' && !general) return `大将专权要${he}这时在当${nameAt(P, y)}的将领：先「当将领」，或选大臣专权`;

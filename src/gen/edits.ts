@@ -594,6 +594,8 @@
  *      只算不用,地形、历史一个字段不变,只有 civ.ideology 变了
  *  54:思潮上了编年史(civ/ideologyText.ts):某城始倡某说(大事)、某说盛于某大国、大国里某说渐衰某说代兴;
  *      各州的思潮从每 100 年存一份改成每 20 年一份(思潮图层传开的边缘照真推的走)。疆域、兴亡、战争、人物一样不变
+ *  55:改制(civ/reform.ts):国中思潮和政体对不上、国用不足、刚打败仗时议立宪、废君立共和,谈崩起兵革命;共和国政变、新制不到五十年复辟;
+ *      国号只在君主没了 / 回来了时变(某共和国),旗跟着换。历史重排
  */
 import type { Civ, Culture, Faith, MigrationDir, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -607,7 +609,7 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 54;
+export const GENERATOR_VERSION = 55;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -682,6 +684,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   52: { change: 'people' },
   53: { change: 'ideology' },
   54: { change: 'chronicle' },
+  55: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */

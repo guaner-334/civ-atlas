@@ -81,7 +81,8 @@ describe.each([7, 2024])('国旗 · seed=%i', (seed) => {
     for (const es of book.eras)
       for (let i = 1; i < es.length; i++) {
         const [a, b] = [es[i - 1].spec, es[i].spec];
-        if (!isEastern(a) || deOf(a.c[0]) < 0) continue;
+        // 改制换的那几面另有规矩(废君改方旗、底色不变;政变不换;复辟用回旧旗),见 civ-reform.test.ts
+        if (!isEastern(a) || deOf(a.c[0]) < 0 || (es[i].why.reform && es[i].why.reform !== 'crown')) continue;
         expect(deOf(b.c[0])).toBe((deOf(a.c[0]) + 1) % 5);
         expect(b.mark).not.toBe(a.mark);
         n++;

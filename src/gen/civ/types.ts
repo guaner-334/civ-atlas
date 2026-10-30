@@ -293,9 +293,14 @@ export interface Polity {
    *   第一朝东方 = 国名词根 name,西幻 = 按立国时的国都起
    * - seat:这一朝兴起的城(Settlement id,王室的根据地;第一朝 = 立国时的国都)。西幻的王朝名借它的城名
    * 某一年是哪一朝用 growth.ts 的 dynastyAt(p, 年份) 查
-   * - usurper:掌实权的名臣、大臣篡位开的这一朝(regency.ts):他的生年、倾向(和掌权时一样),这一朝的第一位就是他(在位表照它排,rulers.ts);别的朝不给
+   * - usurper:掌实权的名臣、大臣篡位开的这一朝(regency.ts):他的生年、倾向(和掌权时一样),这一朝的第一位就是他(在位表照它排,rulers.ts);
+   *   改制(reform.ts)开的那几段也借它:政变的将军、革命起兵的人、复辟时自立为君的执政 / 将军;别的朝不给
+   * - regime:改制(reform.ts)开的一段 —— 不是换了一家王室,是改了政体:republic 共和(议事会推举执政,有任期)、
+   *   junta 军政府(将军执政)。这一段没有王室(不结亲、不立储、不摄政),东方语感的国名词根照抄上一段;
+   *   王室的那几段(立国那一朝、改朝换代、复辟)不给。某一年是什么政体用 regime.ts 的 regimeAt / lineageAt 查
+   * - house:复辟迎回的是第几朝的王室(这一段的国名词根、旗照那一朝);拥立的人自己做君主的复辟、寻常改朝换代不给
    */
-  dynasties?: { year: Year; name: string; seat: number; usurper?: { born: Year; leanings: RulerLeanings } }[];
+  dynasties?: { year: Year; name: string; seat: number; usurper?: { born: Year; leanings: RulerLeanings }; regime?: 'republic' | 'junta'; house?: number }[];
 }
 
 /** 国号一系 */
@@ -409,7 +414,7 @@ export interface Place {
  * | reclaim   | 收回割据(control.ts):中央重新管住了那一带 | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **割据了几年**(借用这一列) |
  * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
  * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出 | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
- * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩、军制、官制、分镇,地方提脱离;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩、改组、脱离谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流、收兵权、收任免谈崩紧跟着记 warlord) | 国家 | 脱离:想转投的邻国;别的 −1 | 罢直征、罢禁军、罢铨选:国都所在州;削藩、改组、脱离:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);收兵权、设边镇:边地城民最多的那州;收任免、许自辟:豪族把持的州里税最多的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地、5 收兵权(设了边镇的是罢边镇)、6 放兵权(收着兵权的是罢禁军,不然是设边镇)、7 收任免(许了自辟的是收回辟署)、8 放任免(铨选着的是罢铨选,不然是许自辟)、9 改组(分镇)、10 脱离。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
+ * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩、军制、官制、分镇,地方提脱离;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩、改组、脱离谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流、收兵权、收任免谈崩紧跟着记 warlord) | 国家 | 脱离:想转投的邻国;别的 −1 | 罢直征、罢禁军、罢铨选:国都所在州;削藩、改组、脱离:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);收兵权、设边镇:边地城民最多的那州;收任免、许自辟:豪族把持的州里税最多的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地、5 收兵权(设了边镇的是罢边镇)、6 放兵权(收着兵权的是罢禁军,不然是设边镇)、7 收任免(许了自辟的是收回辟署)、8 放任免(铨选着的是罢铨选,不然是许自辟)、9 改组(分镇)、10 脱离、11 立宪、12 扩大参与、13 废君立共和、14 还政(军政府交还议事会;11–14 见 reform.ts:改制议题国都所在州;立宪 / 废君谈崩时紧跟着记革命 reform 或自立 split,cause = revolution)。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
  * | stand     | 据险断后(wars.ts):败退的一方留一支兵守住关隘(见 passes.ts),挡住追兵(追兵本来能再打下的那一州没打下来),大军退保关隘后面那州(**Annal.foe**);**守了几日在 Annal.n**,守将的结局在 cause:slain 力战而死、captured 力竭被擒、withdrew 全师而退 | 断后的一方 | 追兵的一方 | 关隘所在的州(口子那块地所在的州;可能是刚丢给追兵的那州) | −1 | 战争编号 |
  * | regent    | 掌实权(regency.ts):名义上的君主照旧在位,政出于另一个人;**哪一步在 Annal.n**:0 掌权、1 还政、2 伏诛、3 篡位(名臣、大臣篡位紧跟着记那条 dynasty)、4 掌权的人卒于位 | 国家 | **哪一种**:0 引兵入朝、1 太子监国、2 宗室摄政、3 名臣辅政、4 大臣专权、5 大将专权(见 regency.ts 的 REGENCY_KINDS) | 国都所在州 | 国都 | **名义君主**在在位表里第几位(rulers.ts 的 Reign.k,借用这一列) |
  * | marry     | 结亲(marriage.ts):两国宗室联姻,娶亲的一方 a、嫁女的一方 b;互嫁的另一门紧跟着记(a、b 对调,同一刻) | 娶亲的国家 | 嫁女的国家 | 娶亲一方的国都所在州 | 国都 | 议和时以和亲作结:那场战争;别的 = −1 |
@@ -421,6 +426,7 @@ export interface Place {
  * | trek      | 大迁徙(migration.ts;经过见 Civ.migrations 里的那一条):**哪一步在 Annal.n**:0 动身(region = 出发的州)、1 路过洗劫(b = 那州当时的主人,−1 = 部落地带;region / settlement = 被洗劫的州和城,折损见 Settlement.sacks 同一年的那一条)、2 落脚立国(b = 立的国;紧跟着记这国的 found,cause = trek;到了以后开的仗是 war,cause = trek)、3 打进国都、那国没整个归它(b = 那国;region / settlement = 打下的国都所在州和那座城;前面同一刻依次记打下国都的 conquer、那国迁都的 capital、占下国都一带的几条 conquer,后面记议和;那国是大国的再记 collapse,崩得成的话)、4 没立成国、散居落脚的几州(b = −1) | **民族**:迁徙的民族 | 见 n | 见 n | 见 n | **第几次大迁徙**(Civ.migrations 的下标,借用这一列) |
  * | keep      | 保住王室挡下的一回(干预「保住王室」、即位带的「在位期间保住王室」;dynasty.ts、regency.ts):本该改朝换代 / 篡位,挡下了,历史照旧(只记一句未遂)。**国势危殆(那时动荡)在 Annal.n**:1 = 是 | 国家 | **哪一种**:0 豪强起兵代之、1 国都权臣篡位(看王朝时)、2 掌实权的人篡位(regency.ts:紧跟着记那条 regent 的结局,名臣、大臣伏诛,叔父还政) | 根据地 / 国都所在州 | 那州的城 | **第几条干预**(Civ.interventions 的下标,借用这一列) |
  * | winter    | 顿兵过冬(wars.ts 的出兵避冬):轮到下一仗时要打的那州正在冬天里,这一仗顺延到那州开春;**开春再打的时刻在 Annal.until** | 攻方 | 守方 | 要打的那州 | −1 | 战争编号 |
+ * | reform    | 改制(reform.ts):**哪一种在 Annal.n**:0 革命(议立宪 / 废君谈崩、动荡大,有人起兵打进国都,整国改共和;紧跟在那条 council 后面)、1 政变(统兵的将军夺权,改军政府)、2 复辟(迎回旧王室,或执政 / 将军自立为君);同一刻往 Polity.dynasties 加一段。**之后能议政的有几档(参与)在 Annal.opt**(革命) | 国家 | 复辟:迎回第几朝的王室(Polity.dynasties 的下标;−1 = 拥立的人自己做君主);别的 −1 | 起兵的州(政变、复辟:国都所在州) | 那州的城 | −1 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -513,7 +519,8 @@ export type AnnalKind =
   | 'exile'
   | 'keep'
   | 'trek'
-  | 'winter';
+  | 'winter'
+  | 'reform';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
@@ -530,9 +537,10 @@ export type AnnalKind =
  *   开战看内政(wars.ts,war 的 cause):divert 国中动荡、对外开战以安内(转移矛盾)/ unrest 乘对方内乱(动荡高或有割据;region 列 = 割据的那州,没有 = −1)/
  *   plagued 乘对方大疫之后 / minor 乘对方幼主在位 / regent 乘对方权臣当政 / plunder 国库空竭、为掠夺而战(region 列 = 边境上最富的那州);
  *   trek:大迁徙(migration.ts)迁来的一支落脚立的国(史事 found 的 cause)和它到了以后当即开的那一仗(war 的 cause);
- *   spring:冬夏分明的地方闹的春荒(史事 famine 的 cause,unrest.ts)
+ *   spring:冬夏分明的地方闹的春荒(史事 famine 的 cause,unrest.ts);
+ *   revolution:议立宪 / 废君谈崩、起兵的人打不进国都,据地自立为共和国(史事 split 的 cause,reform.ts;紧跟在那条 council 后面)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder' | 'trek' | 'spring';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder' | 'trek' | 'spring' | 'revolution';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -565,7 +573,10 @@ export interface Annal {
   ps?: number[];
   /** 立约(treaty)才有:居间的国家(−1 = 没有;它当时在朝的名臣出使,见 treatyInfo.ts 的 envoyOf) */
   by?: number;
-  /** 作者下令立的约、划的中立地(cause = decree)才有:几样选项按位(见 AnnalKind 的表;treaties.ts 的 OPT_*) */
+  /**
+   * 作者下令立的约、划的中立地(cause = decree)才有:几样选项按位(见 AnnalKind 的表;treaties.ts 的 OPT_*);
+   * 改制借用(议事 council 的废君立共和办成、史事 reform 的革命):之后能议政的有几档(参与,councilRules.ts 的 Rules.franchise)
+   */
   opt?: number;
   /** 作者下令划的中立地(neutral,cause = decree)选了"到某一年":那一年撤销;顿兵过冬(winter)借用:开春再打的时刻 */
   until?: number;
@@ -1222,9 +1233,10 @@ export interface RulerLeanings {
 
 /**
  * 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位、
- * crown 作者立的(干预"即位",Person.author 是那个人物)
+ * crown 作者立的(干预"即位",Person.author 是那个人物)、reform 改制(reform.ts)开的那一段的第一位:改共和后的首任执政、
+ * 政变的将军、革命起兵的人、复辟迎立的君主 / 自立为君的执政
  */
-export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir' | 'crown';
+export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir' | 'crown' | 'reform';
 
 /**
  * 一颗星球(没改地形)定下的、改过地形的世界沿用的两个数(index.ts 的 planetTempo):

@@ -20,6 +20,7 @@ import { peopleIndex } from './peopleInfo';
 import { kidsOf } from './lineageInfo';
 import { personName } from './peopleText';
 import { regionLabel } from './display';
+import { royalSeg } from './regime';
 
 /** 15 条纪录 */
 export type RecordKey =
@@ -386,6 +387,7 @@ export function recordBook(civ: Civ): RecordBook {
     if (p.lineage === 'republic') continue;
     const ds = p.dynasties?.length ? p.dynasties : [{ year: p.founded }];
     ds.forEach((d, i) => {
+      if (!royalSeg(p, i)) return;
       const from = i === 0 ? p.founded : d.year;
       const to = Math.min(ds[i + 1]?.year ?? Infinity, p.ended ?? Infinity);
       if (to > from) dyn.push({ kind: 'dynasty', polity: p.id, dynasty: i, from, to });

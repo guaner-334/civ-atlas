@@ -34,6 +34,8 @@ import { keyed4, subSeed } from './rand';
 import { capitalAt, polityTierAt, polityTitles } from './growth';
 import { HEIR, K_HOUSE_MINISTER, houseBase, pickHouses, withParentSurname, type HouseCand } from './kin';
 import { splitSurname } from './peopleText';
+import { royalAt, segLineage } from './regime';
+import { dynastyIndexAt } from './polityRoot';
 
 // ---- 调参 ----
 /** 一位最多经手几件事 */
@@ -99,11 +101,16 @@ const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 /** 官制的一系:东方 / 西幻 / 汗国 / 共和国 */
 type System = 'east' | 'west' | 'khan' | 'republic';
 
-function systemOf(p: Polity): System {
-  if (p.lineage === 'khanate') return 'khan';
-  if (p.lineage === 'republic') return 'republic';
+/** 第 seg 段(Polity.dynasties 的下标)的官制:改制开的共和、军政府那几段算共和国 */
+function systemOf(p: Polity, seg = 0): System {
+  const lineage = segLineage(p, seg);
+  if (lineage === 'khanate') return 'khan';
+  if (lineage === 'republic') return 'republic';
   return p.eastern ? 'east' : 'west';
 }
+
+/** 那一年的官制 */
+const systemAt = (p: Polity, y: Year): System => systemOf(p, dynastyIndexAt(p, y));
 
 /** 文官从低到高(按档位;最后一个是最高的那个官)。部落(档位 0)没有,共和国从城邦起就有 */
 const CIVIL: Record<System, (string[] | null)[]> = {
@@ -319,13 +326,13 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   const cands: HouseCand[] = [];
 
   for (const p of polities) {
-    const sys = systemOf(p);
     const segs = p.dynasties?.length ? p.dynasties : [{ year: p.founded, name: p.name, seat: p.capital }];
     const end = p.ended ?? endYear;
     const rs = ctx.rulers[p.id] ?? [];
     const namer = ctx.namerOf(p);
     const style = ctx.styleOf(p);
     for (let i = 0; i < segs.length; i++) {
+      const sys = systemOf(p, i);
       const s = i === 0 ? p.founded : segs[i].year;
       const last = i + 1 >= segs.length;
       const e = last ? end : segs[i + 1].year;
@@ -568,7 +575,7 @@ function endOf(
     // 一朝里去职:卒于任上 / 新君即位后不久罢官 / 致仕
     if (died !== undefined && d.leave >= d.life) return { until: d.leave, fate: 'died', died };
     // 共和国的执政是选出来的,换人不算"新君即位"
-    const fresh = p.lineage !== 'republic' && rs.some((x) => x.rise === 'heir' && x.from !== undefined && x.from <= d.leave && x.from > d.leave - 1);
+    const fresh = royalAt(p, d.leave) && rs.some((x) => x.rise === 'heir' && x.from !== undefined && x.from <= d.leave && x.from > d.leave - 1);
     const fate: PersonFate = fresh && r(U_FATE) < DISMISS ? 'deposed' : 'retired';
     return { until: d.leave, fate, died };
   }
@@ -628,7 +635,7 @@ function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, 
 
 /** 某国某一年的那套官(从低到高;文官带上最高的官已经有人时写的那个,尚书不分部、将军不分前后左右写成"*将军") */
 export function postLadder(p: Polity, role: 'minister' | 'general', year: Year): readonly string[] {
-  const sys = systemOf(p);
+  const sys = systemAt(p, year);
   const tier = clampTier(polityTierAt(p, year));
   if (role === 'general') return MILITARY[sys][tier];
   const lad = CIVIL[sys][tier] ?? CIVIL[sys][1] ?? [];
@@ -642,13 +649,12 @@ export function postLadder(p: Polity, role: 'minister' | 'general', year: Year):
  * start = 上任那一刻先定一级(作者的将领:任将那年就有官,不等领兵;推演里的将领不给)
  */
 export function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: (use: number) => number, start?: Year): PersonPost[] {
-  const sys = systemOf(p);
   const wing = pickOf(WINGS, r(U_DEPT));
   const out: PersonPost[] = [];
   let wins = 0;
   let grade = 0;
   const rise = (from: Year) => {
-    const lad = MILITARY[sys][clampTier(polityTierAt(p, from))];
+    const lad = MILITARY[systemAt(p, from)][clampTier(polityTierAt(p, from))];
     const n = lad.length - 1;
     let k = n > 0 ? Math.min(n, Math.ceil(grade * n - 1e-9)) : 0;
     while (k + 1 < lad.length && wins >= PROMOTE[k + 1]) k++;
@@ -685,7 +691,7 @@ export function courtDeeds(
   until: Year,
   rs: readonly Person[],
 ): { deed: PersonDeed; who?: Person }[] {
-  return anchorsOf(input, p, dyn, from, until, rs, systemOf(p))
+  return anchorsOf(input, p, dyn, from, until, rs, systemOf(p, dyn))
     .filter((a) => a.kind !== 'found' && a.kind !== 'regent' && a.kind !== 'power')
     .map((a) => ({ deed: { ...a.deed }, ...(a.who ? { who: a.who } : {}) }));
 }
@@ -702,8 +708,7 @@ export const AUTHOR_MINISTER_BELOW = 2;
  * 返回官职、升到最高那级的那一刻(没升到 = 不给)
  */
 export function deedPosts(p: Polity, from: Year, deeds: readonly PersonDeed[], reachTop: (title: string, t: Year) => boolean): { posts: PersonPost[]; top?: { title: string; at: Year } } {
-  const sys = systemOf(p);
-  const ladderAt = (y: Year) => CIVIL[sys][clampTier(polityTierAt(p, y))] ?? CIVIL[sys][1] ?? [];
+  const ladderAt = (y: Year) => CIVIL[systemAt(p, y)][clampTier(polityTierAt(p, y))] ?? CIVIL[systemAt(p, y)][1] ?? [];
   const out: PersonPost[] = [];
   let top: { title: string; at: Year } | undefined;
   const at = (below: number, t: Year, why?: PersonDeed['kind']): boolean => {
@@ -712,7 +717,7 @@ export function deedPosts(p: Polity, from: Year, deeds: readonly PersonDeed[], r
     const k = Math.max(0, lad.length - 1 - below);
     let title = lad[k];
     const isTop = k === lad.length - 1;
-    if (isTop && reachTop(title, t)) title = TOP_ALT[sys][clampTier(polityTierAt(p, t))] ?? lad[lad.length - 2] ?? title;
+    if (isTop && reachTop(title, t)) title = TOP_ALT[systemAt(p, t)][clampTier(polityTierAt(p, t))] ?? lad[lad.length - 2] ?? title;
     else if (isTop) top = { title, at: t };
     if (title === '尚书') {
       const d = why ?? deeds.find((x) => DEPT[x.kind])?.kind;
@@ -733,13 +738,14 @@ export function deedPosts(p: Polity, from: Year, deeds: readonly PersonDeed[], r
 
 /** 作者的名臣入朝拜的官、最高的官(按那一年本国的档位;任臣那一页写"从侍郎做起……做到丞相时") */
 export function authorMinisterLadder(p: Polity, t: Year): { start: string; top: string } {
-  const lad = CIVIL[systemOf(p)][clampTier(polityTierAt(p, t))] ?? CIVIL[systemOf(p)][1] ?? [];
+  const sys = systemAt(p, t);
+  const lad = CIVIL[sys][clampTier(polityTierAt(p, t))] ?? CIVIL[sys][1] ?? [];
   return { start: lad[Math.max(0, lad.length - 1 - AUTHOR_MINISTER_BELOW)] ?? '', top: lad[lad.length - 1] ?? '' };
 }
 
 /** 最高的官已经有人时写的那个(按那一年本国的档位;没有 = 次一级的官) */
 export function topAltAt(p: Polity, t: Year): string {
-  const sys = systemOf(p);
+  const sys = systemAt(p, t);
   const lad = CIVIL[sys][clampTier(polityTierAt(p, t))] ?? CIVIL[sys][1] ?? [];
   return TOP_ALT[sys][clampTier(polityTierAt(p, t))] ?? lad[lad.length - 2] ?? '';
 }

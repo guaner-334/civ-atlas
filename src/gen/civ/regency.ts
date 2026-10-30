@@ -58,6 +58,7 @@ import {
   type RegentIv,
 } from './regents';
 import { IV_NOT_HIM } from './rulers';
+import { royalAt, royalSeg } from './regime';
 
 export interface RegencyModel {
   pm: PolityModel;
@@ -91,7 +92,7 @@ export function resumeRegency(sim: CivSim, _civ: Civ): void {
   const rm = hook(sim, pm);
   const now = sim.now;
   for (const P of pm.polities) {
-    if (P.ended !== undefined || P.lineage === 'republic') continue;
+    if (P.ended !== undefined || !royalAt(P, now)) continue;
     for (const c of latePlans(rm.cx, P.id, rulerOf(pm, P.id, now))) if (quantize(c.t) > now) sim.schedule(c.t, Ev.Regency, 0, P.id);
     const list = pm.regents.get(P.id);
     const g = list?.[list.length - 1];
@@ -225,7 +226,7 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
   if (dm)
     dm.strong = (p: number, t: Year) => {
       const P = pm.polities[p];
-      if (P.lineage === 'republic' || pm.tier[p] < STRONG_TIER) return;
+      if (!royalAt(P, t) || pm.tier[p] < STRONG_TIER) return;
       const r = rulerOf(pm, p, t);
       if (r.crown || busy(P, t, r)) return;
       let lost = 0;
@@ -257,7 +258,7 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
       if (t - v.born < IV_REGENT_AGE) return noteIv(IV_NOT_HIM);
     }
     const r = rulerOf(pm, pid, t);
-    if (P.lineage === 'republic' || r.crown) return noteIv(IV_NO_THRONE);
+    if (!royalSeg(P, r.dynasty) || r.crown) return noteIv(IV_NO_THRONE);
     if (busy(P, t, r)) return noteIv(IV_HELD);
     const g = ivRegency(cx, pid, v, i, r, t, -1);
     if (!g) return noteIv(IV_NOT_HIM);

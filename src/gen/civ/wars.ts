@@ -91,6 +91,7 @@ import { capitalAt, populationAt } from './growth';
 import { regionPasses } from './passes';
 import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
+import { royalAt } from './regime';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -979,7 +980,9 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (claimed > 0) return 'claim';
     const Q = pm.polities[q];
     const d = Q.dynasties;
-    if (warsOf(q).some((v) => v.a !== p && v.b !== p) || t - pm.capMoved[q] < CHAOS_YEARS || (d && d.length > 1 && t - d[d.length - 1].year < CHAOS_YEARS)) return 'chaos';
+    // 改制开的一段(共和、军政府、迎回旧王室)不算改朝换代之乱
+    const dl = d && d.length > 1 ? d[d.length - 1] : undefined;
+    if (warsOf(q).some((v) => v.a !== p && v.b !== p) || t - pm.capMoved[q] < CHAOS_YEARS || (dl && !dl.regime && dl.house === undefined && t - dl.year < CHAOS_YEARS)) return 'chaos';
     if (woe.cause) return woe.cause;
     if (loot >= 0) return 'plunder';
     if (covet) return 'resource';
@@ -1019,7 +1022,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
   /** 国家 q 此刻是幼主在位(minor:不满 ADULT 岁,或宗室摄政、名臣辅政)还是权臣当政(regent:大臣、大将专权);都不是 = undefined。共和国不算 */
   const weakRule = (q: number, t: number): 'minor' | 'regent' | undefined => {
     const Q = pm.polities[q];
-    if (Q.lineage === 'republic') return undefined;
+    if (!royalAt(Q, t)) return undefined;
     const r = rulerOf(pm, q, t);
     const g = regentOf(pm, q, t, r);
     if (g) return g.kind === 'chancellor' || g.kind === 'general' ? 'regent' : g.kind === 'uncle' || g.kind === 'minister' ? 'minor' : undefined;
