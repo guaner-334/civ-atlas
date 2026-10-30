@@ -18,6 +18,7 @@ import { applyCharacters, type AuthorCharacter } from '../src/gen/characters';
 import { AUTHOR_IV_KINDS, cleanIntervention, polityKey, type Intervention } from '../src/gen/edits';
 import { authorDeleteAsk, authorEditAsk, characterPosts, holdsPost, leadOrders, overlapWhy, type AppointIv } from '../src/ui/authorIvInfo';
 import { characterCrowns } from '../src/ui/crownInfo';
+import { declareTargets, neighborsAt } from '../src/ui/Interventions';
 import { lifePolity, lifeStatusText, lifeStatuses } from '../src/ui/lifeIv';
 import { getLifeTag, holdLifeTag, lifeTagFor, lifeTagUsed, setLifeTag, stampLife, type LifeTag } from '../src/ui/lifeTag';
 import type { Pending } from '../src/ui/pendingStore';
@@ -150,6 +151,55 @@ describe(`推演里(种子 ${seed})`, () => {
     const q = [{ kind: 'queued' as const, v: queued, step: false, A: '' }];
     expect(holdsPost(civ, q, 'general', P, 2440, 2440)).toBe(true);
     expect(holdsPost(civ, q, 'general', P, 2460, 2460)).toBe(false);
+  });
+
+  it('宣战、派他出征挑对象:那年已在交战的国家不列(推演里那条宣战跳过,他也挂不了帅);接壤、没在交战的照列,打得成、由他挂帅', { timeout: 120_000 }, () => {
+    const civ0 = base();
+    // 每场仗打到哪一刻(议和,或有一国亡了)
+    const stop = new Map<number, number>();
+    for (const e of civ0.annals) {
+      if (e.kind === 'war' && !stop.has(e.war)) stop.set(e.war, Math.min(civ0.polities[e.a]?.ended ?? Infinity, civ0.polities[e.b]?.ended ?? Infinity));
+      else if (e.kind === 'peace' && stop.has(e.war)) stop.set(e.war, Math.min(stop.get(e.war)!, e.year));
+    }
+    const fighting = (p: number, q: number, y: number) =>
+      civ0.annals.some((e) => e.kind === 'war' && ((e.a === p && e.b === q) || (e.a === q && e.b === p)) && e.year <= y && y < stop.get(e.war)!);
+    // 现找:宣战后的下一个整年还在打、两国接壤,这国那年另有接壤、没在交战的邻国
+    let hit: { A: number; B: number; Q: number; y: number } | null = null;
+    for (const e of civ0.annals) {
+      if (e.kind !== 'war' || e.a < 0 || e.b < 0) continue;
+      const y = Math.floor(e.year) + 1;
+      if (y >= stop.get(e.war)! || y > civ0.endYear - 30) continue;
+      const near = neighborsAt(civ0, e.a, y).near;
+      const Q = [...near].find((q) => !fighting(e.a, q, y));
+      if (near.has(e.b) && Q !== undefined) {
+        hit = { A: e.a, B: e.b, Q, y };
+        break;
+      }
+    }
+    expect(hit).not.toBeNull();
+    const { A, B, Q, y } = hit!;
+    const near = neighborsAt(civ0, A, y).near;
+    const { open, foes } = declareTargets(civ0, A, y, near);
+    expect(foes.has(B)).toBe(true);
+    expect(open.has(B)).toBe(false);
+    expect(open.has(Q)).toBe(true);
+    for (const q of near) expect(open.has(q)).toBe(!fighting(A, q, y));
+    // 推演里:任他为将、派他出征
+    const C: AuthorCharacter = { ...LIN, born: y - 30, died: y + 30 };
+    const a = polityKey(civ0, A);
+    const appoint: AppointIv = { kind: 'appoint', a, char: 1, role: 'general', born: C.born, died: C.died!, from: y };
+    const run = (q: number) => applyCharacters(generateCiv(world(), { interventions: [appoint, { kind: 'declare', a, b: polityKey(civ0, q), from: y, lead: 1 }] }), [C]);
+    const warOf = (civ: Civ, q: number) => civ.annals.find((e) => e.kind === 'war' && e.year === y && e.a === A && e.b === q);
+    const sent = (civ: Civ) => (authorPostsFrom(civ).find((p) => p.iv === 0)?.wars ?? []).filter((w) => w.sent).map((w) => w.war);
+    // 已在交战的:宣战那条跳过,那年没有新开的仗,他一仗也没挂帅
+    const busy = run(B);
+    expect(warOf(busy, B)).toBeUndefined();
+    expect(sent(busy)).toEqual([]);
+    // 接壤、没在交战的:打得成,由他挂帅
+    const free = run(Q);
+    const war = warOf(free, Q);
+    expect(war).toBeDefined();
+    expect(sent(free)).toContain(war!.war);
   });
 
   it('「一生」每段下面的状态、他那年的国家;同一时刻只有一个身份;改生卒、删人物时问一句', { timeout: 120_000 }, () => {

@@ -39,6 +39,7 @@ import {
 import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { cnNumber } from '../gen/civ/chronicle';
+import { foesAt } from '../gen/civ/fiscalBook';
 import { leaningsChange, personName } from '../gen/civ/peopleText';
 import { heOrShe, heirWord, mateWord, wedVerb, type Sexed } from '../gen/civ/gender';
 import { getEdits, removeIntervention, useEra } from './editsStore';
@@ -442,6 +443,15 @@ export function neighborsAt(civ: Civ, id: number, y: number): { size: Map<number
     }
   }
   return { size, near };
+}
+
+/**
+ * y 年 id 宣战打得成的国家(宣战、派作者的人物出征挑对象用):接壤的 near 里那年没和它在交战的 ——
+ * 推演里两国已在交战时宣战那条跳过,下了不生效,点的挂帅也就领不了这一仗。foes = 那年和它在交战的国家
+ */
+export function declareTargets(civ: Civ, id: number, y: number, near: ReadonlySet<number>): { open: Set<number>; foes: Set<number> } {
+  const foes = new Set(foesAt(civ, id, y));
+  return { open: new Set([...near].filter((q) => !foes.has(q))), foes };
 }
 
 /** 城 s 在 y 年还在(建了、没毁) */
