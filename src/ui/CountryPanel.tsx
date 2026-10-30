@@ -91,6 +91,8 @@ import { pandemicsOf, peakEraAt, slumpAt } from '../gen/civ/pandemicInfo';
 import { ERA_COLORS, eraName } from '../render/civ/era';
 import { PolityThoughtRow } from './ThoughtParts';
 import './countryPanel.css';
+import { lineageAt } from '../gen/civ/regime';
+import { rootSegIndex } from '../gen/civ/polityRoot';
 
 // ---------------------------------------------------------------------------
 // 国家
@@ -129,7 +131,8 @@ function dynastySegments(civ: Civ, p: Polity): { name: string; from: number; to:
   const last = p.ended ?? civ.endYear;
   const d = p.dynasties;
   if (!d || d.length < 2) return [{ name: p.name, from: p.founded, to: last }];
-  return d.map((x, i) => ({ name: x.name || p.name, from: Math.max(p.founded, x.year), to: d[i + 1]?.year ?? last }));
+  // 改制开的共和、军政府那一段没有王室:写那时的国号("博戈维纳共和国")、"军政府"
+  return d.map((x, i) => ({ name: x.regime === 'junta' ? '军政府' : x.regime ? polityName(p, x.year) : x.name || p.name, from: Math.max(p.founded, x.year), to: d[i + 1]?.year ?? last }));
 }
 
 export interface CountryPanelProps {
@@ -203,7 +206,8 @@ function CountryHead({ civ, raw, id, year, names, shared }: CountryPanelProps & 
   const shownYear = shownYearOf(p, year, civ.endYear);
   const d = p.dynasties;
   // 东方改朝换代过的:标题上的国号是当朝的,改的是当朝的国号(第一朝 = 国名词根)
-  const di = p.eastern && d && d.length >= 2 ? dynastyIndexAt(p, shownYear) : 0;
+  // 改制开的那一段(共和、军政府、迎回旧王室)用的是别的一段的国名词根:改的是那一段的
+  const di = p.eastern && d && d.length >= 2 ? rootSegIndex(p, dynastyIndexAt(p, shownYear)) : 0;
   const { renaming, setRenaming, ai } = shared;
   const withDynasty = (i: number, v: string): Polity => (i === 0 ? withRoot(p, v) : { ...p, dynasties: d!.map((y, j) => (j === i ? { ...y, name: v } : y)) });
   const extra = <AiSuggestLink ai={ai} />;
@@ -351,7 +355,8 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
   }, [civ, capSeat, eraNow, shownYear]);
   const cap = civ.settlements[capitalAt(p, shownYear)];
   const ruler = rulerAt(civ, id, shownYear);
-  const consul = p.lineage === 'republic';
+  // 共和国(海洋城邦共和一系,和改制以后的共和、军政府那些年)写"执政"
+  const consul = lineageAt(p, shownYear) === 'republic';
   // 这一年谁掌着实权(名义君主照旧在位)、姻亲(最近一门亲 40 年内、那以后没开过战)
   const held = ruler && !consul ? holderAt(civ, id, shownYear) : null;
   const inLaws = useMemo(() => inLawsAt(civ, id, shownYear), [civ, id, shownYear]);

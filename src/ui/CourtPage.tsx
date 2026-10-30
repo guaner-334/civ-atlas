@@ -37,11 +37,14 @@ import { openOverview } from './overviewStore';
 import { EntryText, Row, rgb } from './panelParts';
 import {
   ARMY_SEGS,
+  DELIB_SEGS,
   LEVY_NAMES,
   OFFICE_SEGS,
   OUTCOME_KEYS,
   OUTCOME_NAMES,
+  SUCC_SEGS,
   TAX_SEGS,
+  VOICE_SEGS,
   armySay,
   courtEmpty,
   courtEvents,
@@ -57,9 +60,13 @@ import {
   lordName,
   mapTagText,
   officeSay,
+  regimeSays,
   ruleSeg,
   type CourtView,
 } from './courtInfo';
+import { formDims } from '../gen/civ/polityForm';
+import { FlagIcon } from './Flag';
+import { useFlags } from './flagStore';
 import './fiscal.css';
 import './court.css';
 
@@ -207,6 +214,7 @@ export function CourtPage({ civ, id, year }: { civ: Civ; id: number; year: numbe
               {locks.note}
             </div>
           )}
+          {form && <RegimeBars civ={civ} id={id} year={year} form={form} />}
         </div>
         <Fiefs civ={civ} id={id} v={v} onMap={() => showOnMap('fief')} />
         <section className="cp-sec" data-sec="lords">
@@ -251,8 +259,34 @@ export function CourtPage({ civ, id, year }: { civ: Civ; id: number; year: numbe
   );
 }
 
-/** 一条分段条:现在那档亮着(data-levy / data-army / data-office = 第几格);还议不了的几档(locked)画斜纹 */
-function Seg({ names, on, kind, locked }: { names: readonly string[]; on: number; kind: 'levy' | 'army' | 'office'; locked: readonly number[] }) {
+/** 继任、议政、参与三条(讨论稿 6c 的维度 1–3):和征税、兵制、官制一样的分段条,共用"少数人说了算 ↔ 众人说了算"的轴 */
+function RegimeBars({ civ, id, year, form }: { civ: Civ; id: number; year: number; form: NonNullable<ReturnType<typeof polityFormAt>> }) {
+  const era = useEra();
+  const d = formDims(form.facts);
+  const [succ, delib, voice] = regimeSays(civ, id, year, form, era);
+  return (
+    <div className="ct-bars ct-bars2" data-court-regime>
+      <span className="ct-bk">继任</span>
+      <Seg names={SUCC_SEGS} on={d.succession} kind="succ" locked={NONE} />
+      <div className="ct-say">{succ}</div>
+      <span className="ct-bk">议政</span>
+      <Seg names={DELIB_SEGS} on={d.council} kind="delib" locked={NONE} />
+      <div className="ct-say">{delib}</div>
+      <span className="ct-bk">参与</span>
+      <Seg names={VOICE_SEGS} on={d.franchise} kind="voice" locked={NONE} />
+      <div className="ct-say">{voice}</div>
+      <span />
+      <div className="ct-axis">
+        <span>少数人说了算</span>
+        <span>众人说了算</span>
+      </div>
+    </div>
+  );
+}
+const NONE: readonly number[] = [];
+
+/** 一条分段条:现在那档亮着(data-levy / data-army / data-office / data-succ / data-delib / data-voice = 第几格);还议不了的几档(locked)画斜纹 */
+function Seg({ names, on, kind, locked }: { names: readonly string[]; on: number; kind: 'levy' | 'army' | 'office' | 'succ' | 'delib' | 'voice'; locked: readonly number[] }) {
   return (
     <div className="ct-seg" {...{ [`data-${kind}`]: on }}>
       {names.map((t, i) => (
@@ -273,6 +307,12 @@ const TICK_EDGE = [0.12, 0.85] as const;
 function Changes({ civ, id, year }: { civ: Civ; id: number; year: number }) {
   const era = useEra();
   const list = formChangesAt(civ, id, year);
+  // 改制那一年换了旗的(废君、革命、复辟):这一条底下"旗 旧 → 新"
+  const eras = useFlags()?.book.eras[id] ?? [];
+  const flagAt = (y: number) => {
+    const i = eras.findIndex((x) => x.year === y && x.why.prior !== undefined && x.why.reform !== 'keep');
+    return i > 0 ? { from: eras[i - 1].spec, to: eras[i].spec } : null;
+  };
   if (!list.length) return null;
   const t0 = list[0].year;
   const span = Math.max(1e-6, year - t0);
@@ -320,7 +360,18 @@ function Changes({ civ, id, year }: { civ: Civ; id: number; year: number }) {
             <span className="ct-ev-top">
               <span className="ct-issue">{c.from ? `${c.from} → ${c.to}` : c.to}</span>
             </span>
-            <span className="ct-chg-text">{formChangeSay(civ, id, c, later)}</span>
+            <span className="ct-chg-text">{formChangeSay(civ, id, c, later, era)}</span>
+            {c.cause === 'reform' &&
+              (() => {
+                const f = flagAt(c.year);
+                return (
+                  f && (
+                    <span className="ct-chg-flag">
+                      旗 <FlagIcon spec={f.from} w={22} className="ct-chg-fl" /> → <FlagIcon spec={f.to} w={22} className="ct-chg-fl" />
+                    </span>
+                  )
+                );
+              })()}
           </button>
         ))}
       </div>
@@ -395,7 +446,9 @@ function Events({ civ, id, events }: { civ: Civ; id: number; events: ReturnType<
   const entries = useMemo(() => {
     const m = new Map<number, ChronicleEntry>();
     if (!events.length) return m;
+    // 议立宪、废君谈崩紧跟着起兵的,编年史里并进了革命那一条(它的下标是议事的下一条)
     for (const e of fullChronicle(civ)) if (e.kind === 'council') m.set(e.id, e);
+    else if (e.kind === 'revolution' && !m.has(e.id - 1)) m.set(e.id - 1, e);
     return m;
   }, [civ, events.length]);
   return (

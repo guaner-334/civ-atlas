@@ -3494,6 +3494,20 @@ function revolutionSplitEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   return withPeople(x, lead);
 }
 
+/**
+ * 改制那一条的正文(朝政页「历次改制」用,和编年史里那一条一样):第 id 条史事是议事(立宪、废君、还政、扩大参与)、
+ * 改制(革命、政变、复辟)或革命据地自立(split,cause = revolution);别的 = 空串
+ */
+export function reformText(civ: Civ, id: number): string {
+  const e = civ.annals[id];
+  if (!e) return '';
+  const ctx = { civ, ix: peopleOf(civ) } as Ctx;
+  if (e.kind === 'reform') return reformEntry(ctx, e, id).text;
+  if (e.kind === 'split' && e.cause === 'revolution') return revolutionSplitEntry(ctx, e, id).text;
+  if (e.kind === 'council' && isReformIssue(e.war)) return councilText(civ, e, id, reigning(ctx.ix, e.a, e.year), ctx.ix);
+  return '';
+}
+
 /** 各条议事议之前那国的军制、官制(council.ts 的 councilBefore;按史事数组缓存,接着推长了就重算) */
 const beforeCache = new WeakMap<readonly Annal[], ReturnType<typeof councilBefore>>();
 function before(civ: Civ, id: number): { army: number; office: number } {

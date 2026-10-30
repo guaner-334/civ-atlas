@@ -191,6 +191,23 @@
   color: var(--ink-2);
   line-height: 1.5;
 }
+/* 改制换的那一面:以前用的那面(小旗 + 一句) */
+.fl-prior-flag {
+  width: 36px;
+  height: 24px;
+}
+.fl-prior {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
 /* 换一面:标题下面那句说明贴近标题 */
 .fl-note.fl-lead {
   margin-top: -4px;
