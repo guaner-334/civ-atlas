@@ -3,7 +3,7 @@
  *
  *   持续到  一直有效 | 到某一年(−100 −10 [年份] +10 +100,默认 = 生效年份 + 100);只管保护、保住王室、禁止扩张、结盟,到这一年止(不含)
  *
- *   加入待推演  保护(不会被灭亡)、禁止分裂、保住王室(不改朝换代、不被篡位;共和国变淡,"共和国没有王室")、禁止扩张
+ *   加入待推演  保护(不会被灭亡)、禁止分裂、保住王室(不改朝换代、不被篡位;那年是共和国 / 军政府的变淡,"共和国没有王室",按那一年的政体、复辟以后照君主国)、禁止扩张
  *   选择对象  结盟(任意国家)、宣战(仅相邻国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
  *
  * 不可用的命令变淡,说明换成原因。下的令先进待推演的单子(pendingStore.ts,单子在时间轴上面,PendingTray.tsx),已经在单子里的变淡、写"已在待推演里";
@@ -18,7 +18,7 @@
  * 「新建人物」直接开新建(国家填好)。
  *
  * 它下面「任作者的人物为将」「任作者的人物为臣」「让作者的人物掌权」(选人 ›):同一张选人页,点一位进当将领 / 当名臣 / 掌权那一页
- * (AuthorIvPages.tsx,和人物卡「进推演…」里是同一页),国家先选好、年份是这里的生效年份;共和国「让作者的人物掌权」变淡("没有君主可架空")。
+ * (AuthorIvPages.tsx,和人物卡「进推演…」里是同一页),国家先选好、年份是这里的生效年份;那年是共和国 / 军政府的「让作者的人物掌权」变淡("没有君主可架空")。
  *
  * 「宣战」(选择对象 ›):地图上点好对象以后,那年有在世(满 16 岁)的作者人物才多一页「谁挂帅」—— 宣战(对象一行、「换一国」)、
  * 谁挂帅(照推演派 | 一位一行:头像、名字、那年几岁、身份、是不是这国的将领;默认照推演派)、一句说明,底部 返回 / 加入待推演。
@@ -57,6 +57,7 @@ import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
 import { CrownPage } from './CrownPage';
 import { AuthorRegentPage, GeneralPage, MinisterPage, type AuthorIvRole } from './AuthorIvPages';
 import { characterPosts, holdsPost, leadOrders, overlapWhy, postLine } from './authorIvInfo';
+import { keepWhy } from './keepInfo';
 import { heOrShe } from '../gen/civ/gender';
 import { NationLifeHead } from './LifeHead';
 import { getLifeTag, lifeTagFor } from './lifeTag';
@@ -125,6 +126,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const until = limited ? { until: ui.y } : {};
 
   const alive = polityAlive(p, yv);
+  const noKeep = keepWhy(p, yv);
   const { size, near } = useMemo(() => neighborsAt(civ, id, yv), [civ, id, yv]);
   const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, yv) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, yv, size]);
   // 划中立地:这一年有没有碰到两国以上、做得了中立地的州(按国家、年份记着,回放时不每帧重算)
@@ -154,8 +156,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const why = (k: Cmd): string | null => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    // 共和国没有王室(推演里本来就不改朝换代)
-    if (k === 'keep' && p.lineage === 'republic') return '共和国没有王室，用不上';
+    // 那年是共和国 / 军政府的没有王室(推演里本来就不改朝换代);复辟以后照君主国
+    if (k === 'keep' && noKeep) return noKeep;
     if (k === 'regent' && !royalAt(p, yv)) return `${regimeAt(p, yv) === 'junta' ? '军政府' : '共和国'}没有君主可架空`;
     if (!alive) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;

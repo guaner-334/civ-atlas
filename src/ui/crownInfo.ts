@@ -12,6 +12,7 @@ import type { Civ, Person, Polity } from '../gen/civ/types';
 import { dynastyTitle, polityAlive, polityName, polityShortTitle, polityTierAt, polityTitles } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
+import { royalAt } from '../gen/civ/regime';
 import { personName } from '../gen/civ/peopleText';
 import { heOrShe } from '../gen/civ/gender';
 import { interventionFate } from '../gen/stepwise';
@@ -65,6 +66,7 @@ export interface AlivePolity {
   name: string;
   regions: number;
   ruler: string;
+  /** 那一年没有王室、写"执政":海洋城邦共和一系,和改制以后的共和、军政府那些年(复辟以后照君主国) */
   republic: boolean;
 }
 
@@ -78,7 +80,7 @@ export function alivePolities(civ: Civ, year: number): AlivePolity[] {
     .map(([id, regions]) => {
       const p = civ.polities[id];
       const r = rulerAt(civ, id, y);
-      return { id, name: nameAt(p, y), regions, ruler: r ? personName(civ, r) : '', republic: p.lineage === 'republic' };
+      return { id, name: nameAt(p, y), regions, ruler: r ? personName(civ, r) : '', republic: !royalAt(p, y) };
     });
 }
 

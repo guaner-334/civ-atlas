@@ -5,12 +5,14 @@
  *     单子里的 "保住  待推演"(逐年推演 "下一步生效")
  *   - 人物卡君位「王室」一行下面一段:"在位期间保住王室：1529、1558 年两回有人要起兵代大澜，都没成。到卒年下台以后照常继位，也照常会改朝换代。"
  *   - 即位页勾下面一句:"大澜王朝这一朝已立 400 年，照常推演 1529 年就会改朝换代。保住以后，他下台后几十年里多半还是会换。"
+ *   - 那一年是共和国 / 军政府(按那一年的政体,改制以后的也算)用不上:干预页那一条变淡写"共和国没有王室，用不上" / "军政府没有王室，用不上",即位页没有这个勾
  * 西幻的国家"改朝换代"写"王室更迭"。挡下的那几回是史事 keep(b 列:豪强起兵 / 国都权臣篡位 / 掌实权的人篡位)。
  */
 import type { Annal, Civ, Person, Polity } from '../gen/civ/types';
 import { cnNumber } from '../gen/civ/chronicle';
 import { KEEP_RISE } from '../gen/civ/rulers';
 import { rulerAt } from '../gen/civ/peopleInfo';
+import { regimeAt, royalAt } from '../gen/civ/regime';
 import { heOrShe, type Sexed } from '../gen/civ/gender';
 import { polityName, polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import { interventionFate } from '../gen/stepwise';
@@ -20,6 +22,15 @@ import type { Pending } from './pendingStore';
 
 /** 即位带的那一句 */
 export const KEEP_CROWN = '在位期间保住王室';
+
+/**
+ * 那一年用不上「保住王室」的原因(干预页那一条变淡写它;即位页的勾不出现):那年是共和国 / 军政府就没有王室 ——
+ * 海洋城邦共和一系,和改制以后的共和、军政府那些年(推演里本来就不改朝换代);复辟以后照君主国 = null
+ */
+export function keepWhy(p: Polity, year: number): string | null {
+  if (royalAt(p, year)) return null;
+  return `${regimeAt(p, year) === 'junta' ? '军政府' : '共和国'}没有王室，用不上`;
+}
 
 /** 第 i 条干预(Civ.interventions 的下标)挡下的那几回(史事 keep,按先后) */
 export function keepBlocks(civ: Civ, i: number): Annal[] {

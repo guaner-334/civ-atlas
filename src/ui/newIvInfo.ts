@@ -13,6 +13,7 @@
 import type { Annal, Civ, Person, RulerLeanings, Year } from '../gen/civ/types';
 import { interventionFate } from '../gen/stepwise';
 import { rulerAt } from '../gen/civ/peopleInfo';
+import { royalAt } from '../gen/civ/regime';
 import { personName, rulerFateWord } from '../gen/civ/peopleText';
 import { heOrShe } from '../gen/civ/gender';
 import {
@@ -106,10 +107,11 @@ export const IV_ROYAL_AGE = 16;
 /** y 年他活着、到了 IV_ROYAL_AGE 岁 */
 const grown = (x: Person, y: number) => x.born + IV_ROYAL_AGE <= y && (x.died === undefined || x.died > y);
 
-/** y 年在位、能被架空 / 有王室的君主(共和国、作者立的君主 = null) */
+/** y 年在位、能被架空 / 有王室的君主(那年是共和国 / 军政府 —— 改制以后的也算,复辟以后照君主国 —— 或作者立的君主 = null) */
 function throneAt(civ: Civ, pid: number, y: number): Person | null {
   const N = rulerAt(civ, pid, y);
-  return N && N.author === undefined && civ.polities[pid]?.lineage !== 'republic' ? N : null;
+  const P = civ.polities[pid];
+  return N && N.author === undefined && P && royalAt(P, y) ? N : null;
 }
 
 /**
@@ -162,7 +164,7 @@ export function marryPartners(civ: Civ, pid: number, y: number): { id: number; n
   const { size, near } = neighborsAt(civ, pid, y);
   const foes = new Set(foesAt(civ, pid, y));
   return civ.polities
-    .filter((p) => p.id !== pid && p.lineage !== 'republic' && p.founded <= y && (p.ended === undefined || p.ended > y) && !foes.has(p.id) && throneAt(civ, p.id, y))
+    .filter((p) => p.id !== pid && p.founded <= y && (p.ended === undefined || p.ended > y) && !foes.has(p.id) && throneAt(civ, p.id, y))
     .map((p) => ({ id: p.id, near: near.has(p.id) }))
     .sort((a, b) => Number(b.near) - Number(a.near) || (size.get(b.id) ?? 0) - (size.get(a.id) ?? 0) || a.id - b.id);
 }
