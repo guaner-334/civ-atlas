@@ -34,6 +34,7 @@ import {
   type Intervention,
 } from '../gen/edits';
 import { eraText, spaced, yearAt, yearFull, yearSpanAt, type Era } from '../gen/era';
+import { appointEnd } from '../gen/civ/appoint';
 import { AUTHOR_RULER_DEFAULT, characterLeanings, type AuthorCharacter } from '../gen/characters';
 import type { Pending } from './pendingStore';
 import { crownDeleteAsk, crownEditAsk, type CrownAsk } from './crownInfo';
@@ -133,7 +134,8 @@ export function characterPosts(civ: Civ, id: number, pending: readonly Pending[]
 }
 
 /**
- * 他那时是不是 pid 那国的 role(将领 / 名臣):推过生效了的(推演里那一任 yv 那一刻在任)、单子里的(y 那年在任期里)。
+ * 他那时是不是 pid 那国的 role(将领 / 名臣):推过生效了的(推演里那一任 yv 那一刻在任)、单子里的(y 那年在任期里;
+ * 没写卸任年的照推演的规矩算到卒年或卸甲致仕的岁数)。
  * posts = characterPosts 的结果;y = 生效年份,yv = 看推演用哪一刻(逐年推演的下一步还没算出来:"现在")
  */
 export function holdsPost(civ: Civ, posts: readonly PostState[], role: 'general' | 'minister', pid: number, y: number, yv: number): boolean {
@@ -141,7 +143,7 @@ export function holdsPost(civ: Civ, posts: readonly PostState[], role: 'general'
   return posts.some((s) => {
     if (s.v.kind !== 'appoint' || s.v.role !== role) return false;
     if (s.kind === 'done') return s.x.polity === pid && (s.x.from ?? Infinity) <= yv && (s.x.until === undefined || s.x.until > yv);
-    return s.kind === 'queued' && s.v.a === key && s.v.from <= y && (s.v.until === undefined || s.v.until > y);
+    return s.kind === 'queued' && s.v.a === key && s.v.from <= y && appointEnd(s.v, s.v.from).stop > y;
   });
 }
 

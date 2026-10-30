@@ -22,7 +22,7 @@ import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, nameAt, setPolityPick, usePolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
-import { NationLifeHead } from './LifeHead';
+import { LifeHead, useNationLife } from './LifeHead';
 import { closeCmdPage } from './panelStore';
 import { alivePolities } from './crownInfo';
 import { destroyDefault, destroyQueueText } from './newIvInfo';
@@ -57,6 +57,8 @@ export function DestroyPage({ civ, id, year, from }: { civ: Civ; id: number; yea
   const [mode, setMode] = useState<Mode>('merge');
   const [chosen, setChosen] = useState<number | null>(null);
   const [view, setView] = useState<'form' | 'list'>('form');
+  // 照经历开的:整页记着(换到「换一国」列表再回来也还记在他名下)
+  const life = useNationLife(['destroy'], id);
   const bid = chosen !== null && aliveIds.has(chosen) ? chosen : d.b >= 0 ? d.b : null;
   const B = bid !== null ? civ.polities[bid] : undefined;
   const cap = useMemo(() => {
@@ -179,7 +181,7 @@ export function DestroyPage({ civ, id, year, from }: { civ: Civ; id: number; yea
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form" data-destroy="form">
-        <NationLifeHead kinds={['destroy']} polity={id} />
+        {life && <LifeHead t={life} />}
         {step ? (
           <StepEffectTime phone={phone} />
         ) : (

@@ -145,6 +145,11 @@ describe(`推演里(种子 ${seed})`, () => {
     expect(holdsPost(civ, posts, 'general', P, T + 1, T + 1)).toBe(true);
     expect(holdsPost(civ, posts, 'minister', P, T + 1, T + 1)).toBe(false);
     expect(holdsPost(civ, posts, 'general', Q, T + 1, T + 1)).toBe(false);
+    // 单子里没写卸任年、卒年的那一任:照推演的规矩到卸甲致仕的岁数为止(生于 2390、65 岁卸甲 → 2455 年)
+    const queued: AppointIv = { kind: 'appoint', a, char: 1, role: 'general', born: 2390, from: T };
+    const q = [{ kind: 'queued' as const, v: queued, step: false, A: '' }];
+    expect(holdsPost(civ, q, 'general', P, 2440, 2440)).toBe(true);
+    expect(holdsPost(civ, q, 'general', P, 2460, 2460)).toBe(false);
   });
 
   it('「一生」每段下面的状态、他那年的国家;同一时刻只有一个身份;改生卒、删人物时问一句', { timeout: 120_000 }, () => {

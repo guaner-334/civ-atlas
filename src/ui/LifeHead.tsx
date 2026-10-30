@@ -27,12 +27,20 @@ export function LifeHead({ t }: { t: LifeTag }) {
   );
 }
 
-/** 国家的事那一页的页顶:照经历开的(种类、国家 / 州对得上)才写;开着时记着,关掉就收起 */
-export function NationLifeHead({ kinds, polity, region }: { kinds: readonly LifeNationKind[]; polity?: number; region?: number }) {
-  // 打开那一刻对上的那一份(之后不跟着变;开着时一直是它)
+/**
+ * 国家的事那一页照经历开的那一份(种类、国家 / 州对得上;打开那一刻对上的,之后不跟着变):挂着它的组件在,就一直记着,卸下才收起。
+ * 返回页顶要写的那一份(记在他名下的那一条加进单子以后 = null,见 lifeTag.ts 的 lifeTagUsed)。
+ * 页里有换掉表单的子页(灭国的「换一国」列表)时在整页挂这个,页顶用 LifeHead,换子页时才不会丢
+ */
+export function useNationLife(kinds: readonly LifeNationKind[], polity?: number, region?: number): LifeTag | null {
   const [t] = useState(() => lifeTagFor(getLifeTag(), kinds, { polity, region }));
   useEffect(() => (t ? holdLifeTag(t) : undefined), [t]);
-  // 记在他名下的那一条加进单子以后收起(lifeTag.ts 的 lifeTagUsed)
   const now = useLifeTag();
-  return t && now === t ? <LifeHead t={t} /> : null;
+  return t && now === t ? t : null;
+}
+
+/** 国家的事那一页的页顶:照经历开的(种类、国家 / 州对得上)才写;开着时记着,关掉就收起 */
+export function NationLifeHead({ kinds, polity, region }: { kinds: readonly LifeNationKind[]; polity?: number; region?: number }) {
+  const t = useNationLife(kinds, polity, region);
+  return t ? <LifeHead t={t} /> : null;
 }

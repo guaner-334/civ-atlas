@@ -64,7 +64,9 @@ export function LifeIvPage({
     return null;
   };
   const nationWhy = (k: LifeNationKind): string | null => {
-    if (y > last) return `历史只推到${spaced(yearAt(Math.floor(civ.endYear), era))}`;
+    // 记在他名下:那年他得在世
+    const w = life(false);
+    if (w) return w;
     if (k === 'cede' || k === 'found') return region < 0 ? `这段经历没写在哪，${he}那年也没有国家` : null;
     return P ? null : noLand;
   };
