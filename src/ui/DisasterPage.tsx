@@ -38,6 +38,7 @@ import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, nameAt, setPolityPick, usePolityPick, type PolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
+import { NationLifeHead } from './LifeHead';
 import { closeCmdPage } from './panelStore';
 import { getCivHighlight, setCivHighlight } from './civView';
 import { alivePolities } from './crownInfo';
@@ -413,6 +414,7 @@ export function DisasterPage({ civ, year, from, polity, region, onBack }: { civ:
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form" data-disaster="form">
+        <NationLifeHead kinds={['disaster']} polity={polity ?? -1} />
         {step ? (
           <StepEffectTime phone={phone} />
         ) : (

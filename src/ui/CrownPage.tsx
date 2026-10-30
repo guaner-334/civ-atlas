@@ -16,7 +16,8 @@
  *   性格          四条滑条,和人物卡上的是同一份(松手就存进人物卡)
  *   底部          返回 / 加入待推演(另立一国写"(2 条)";逐年推演写「加入」)
  * 国家干预页「立作者的人物为君主」选人进来的也是这一页(CommandPage.tsx):卡片顶上是国家,国家先选好、即位年份是那里的生效年份。
- * "到某一年"退位的,干预里记 abdicate(以后把卒年改成同一年,说法照旧是"退位")
+ * "到某一年"退位的,干预里记 abdicate(以后把卒年改成同一年,说法照旧是"退位")。
+ * 人物卡「一生」一段经历旁「进推演…」选即位 / 自立进来的也是这一页:年份照那段经历,页顶「照这段经历填好了」;自立一打开就是另立一国(州默认那段经历写的在哪)
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Civ, RulerLeanings } from '../gen/civ/types';
@@ -43,6 +44,8 @@ import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
 import { NEW_POLITY, alivePolities, crownLine } from './crownInfo';
 import { rulerEndText } from './newIvInfo';
 import { KEEP_CROWN, crownKeepHint } from './keepInfo';
+import { LifeHead } from './LifeHead';
+import type { LifeTag } from './lifeTag';
 import './newIv.css';
 
 /** 性格四条滑条(让他即位那一页、编辑人物共用);onCommit = 松手(存进人物卡) */
@@ -89,6 +92,9 @@ export function CrownPage({
   year,
   c,
   polity,
+  life,
+  fresh,
+  region,
   onBack,
   onDone,
 }: {
@@ -98,6 +104,11 @@ export function CrownPage({
   year: number;
   c: AuthorCharacter;
   polity?: number;
+  /** 照「一生」里哪一段经历填的(经历旁「进推演…」进来的):页顶「照这段经历填好了」 */
+  life?: LifeTag;
+  /** 一打开就是「另立一国」(经历进推演选「自立」);region = 默认哪一州(不给 = 出生地) */
+  fresh?: boolean;
+  region?: number;
   onBack: () => void;
   onDone?: () => void;
 }) {
@@ -119,7 +130,7 @@ export function CrownPage({
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、谁在位用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
   const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
-  const [mode, setMode] = useState<Mode>('have');
+  const [mode, setMode] = useState<Mode>(fresh ? 'new' : 'have');
   // 什么时候即位:某一年 / 等那时在位的那位下台(after)
   const [after, setAfter] = useState(false);
   // 他的国家(人物卡上的;没填 = 出生地那年归属的)
@@ -132,6 +143,7 @@ export function CrownPage({
   const pAlive = !!P && aliveIds.has(P.id);
   // 另立一国:哪一州(默认他的出生地)、国号
   const [reg, setReg] = useState<number | null>(() => {
+    if (region !== undefined && region >= 0) return region;
     if (!c.birthplace) return null;
     const r = placeOf(civ, world, raster, c.birthplace, c.born).region;
     return r !== undefined && r >= 0 ? r : null;
@@ -358,6 +370,7 @@ export function CrownPage({
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form" data-crown="form">
+        {life && <LifeHead t={life} />}
         <div className="cp-form" data-crown="when">
           <span className="cp-form-title">什么时候即位</span>
           <div className="cp-dur" role="radiogroup" aria-label="什么时候即位">

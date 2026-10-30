@@ -123,6 +123,9 @@
  * (年份到时才定;那位先因改朝换代、亡国、被作者另立的君主取代而下台 = 不生效)。旧存档没有这个字段,照旧。
  * 即位(crown)可以带 keep: true = 他在位期间保住王室(同 keep 那一条,只管他在位的那些年;即位页的勾,新下的默认勾上)。
  * 没有这个字段 = 不保(旧存档里的即位都没有,照旧)。
+ * 国家的事记在作者人物名下(人物卡「一生」一段经历旁「进推演…」下的):结盟、立约、划中立地、迁都、划州、灭国、立国、方针、天灾、大迁徙(连同不许迁)
+ * 可以带 author = 作者人物的编号(AUTHOR_IV_KINDS;同即位的编号)。**推演不看它**(历史和不带一样),只管说法:编年史这一条后面写"(林小满之议)"。
+ * 别的种类带了去掉;旧版网站读到会去掉它,干预照旧。
  * 让人物去世(death)、改君主倾向(temper)用人物键(personKey)认人,键里的国家要是 a;推演里按"国家 + 生年 + 此刻在位"认君主
  * (作者立的君主不在此列:他的生死、性格归人物卡管)。同一年同一位君主又去世又改倾向:去世为准。
  * 天灾(disaster)只给它那一种用的字段(瘟疫 city、饥荒 a 或 regions(最多 DISASTER_REGIONS_MAX 州,去重)、地震水旱 region、
@@ -802,7 +805,8 @@ export const POLICY_PICK_MAX = 3;
 /**
  * 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`)。
  * 照大纲推演硬改出来的多一个 plot = 哪一条情节(Plot.id,见文件头"大纲");推演不看它,只管说法和"改了大纲再推时先去掉"。
- * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它;只有它能带 power、unrest(国力、动荡加减)
+ * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它;只有它能带 power、unrest(国力、动荡加减)。
+ * author = 记在哪位作者人物名下(只有 AUTHOR_IV_KINDS 那几种;推演不看它,见文件头)
  */
 export type Intervention = (
   | { kind: 'protect'; a: string; from: number; until?: number }
@@ -856,7 +860,10 @@ export type Intervention = (
       unrest?: number;
       look?: GuideLook;
     }
-) & { plot?: number; guide?: true; fromTick?: number };
+) & { plot?: number; guide?: true; fromTick?: number; author?: number };
+
+/** 能记在作者人物名下的几种(国家的事;Intervention.author,见文件头) */
+export const AUTHOR_IV_KINDS: readonly InterventionKind[] = ['ally', 'treaty', 'neutral', 'move', 'cede', 'destroy', 'found', 'policy', 'disaster', 'trek', 'stay'];
 
 /** 顺着引的方针替这国多看几眼的那一种:war 看邻国(开战)、politics 看内政(大崩解、分裂)、dynasty 看王朝 */
 export const GUIDE_LOOKS = ['war', 'politics', 'dynasty'] as const;
@@ -2306,6 +2313,8 @@ export function cleanIntervention(x: unknown): Intervention | null {
   // 年中的时刻(见文件头"时刻"):1–YEAR_TICKS−1 的整数才记,别的当年初
   const ft = cleanTick(o.fromTick);
   if (ft) v = { ...v, fromTick: ft };
+  // 记在作者人物名下(国家的事;推演不看它)
+  if (isCharId(o.author) && AUTHOR_IV_KINDS.includes(v.kind)) v = { ...v, author: o.author };
   const keys = Object.keys(o);
   const w = v as Record<string, unknown>;
   const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);

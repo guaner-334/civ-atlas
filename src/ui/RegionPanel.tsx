@@ -18,6 +18,7 @@
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
  *   大事  最近 5 条(可点)、这一州的干预(可撤销)
  *
+ * 人物卡「一生」一段经历进推演选了划州、立国(lifeIv.ts):换到这一州,一打开就是那一页,页顶「照这段经历填好了」,那一条记在他名下。
  * "在这里立国""划给…"换到干预页:生效年份(−100 −10 [年份] +10)+ 国名(可不填)/ 永久;
  * 立国:那一年没人住、但住得了人的州也能立(推演时一支新的民族来这里落脚),住不了人的写明是什么地形、按钮点不了;
  * 在别国(不止这一州的)领土里立国,多一句提示:新国只有一州,几十年后常被原主收回,要留下来得再下「保护」;
@@ -87,12 +88,19 @@ import {
   useRevealAi,
   useYearInput,
 } from './panelParts';
+import { NationLifeHead } from './LifeHead';
+import { getLifeTag, lifeTagFor } from './lifeTag';
 
 type Page = 'found' | 'cede' | 'disaster' | 'trek';
 
 export function RegionPanel(props: DetailProps) {
   const { civ, raw, raster, world, id, year, names } = props;
-  const [page, setPage] = useState<Page | null>(null);
+  // 人物卡一段经历进推演选了划州、立国:打开就是那一页(年份照那段经历,lifeTag.ts)
+  const [page, setPage] = useState<Page | null>(() => (lifeTagFor(getLifeTag(), ['cede', 'found'], { region: id })?.kind as Page | undefined) ?? null);
+  useEffect(() => {
+    if (page === 'cede' || page === 'found') setSheet('full');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [renaming, setRenaming] = useState(false);
   const { ai, aiRef } = useRevealAi({ civ, raw, raster, target: { kind: 'region', id }, lazy: true });
   const own = ownersOf(civ, year);
@@ -507,6 +515,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   return (
     <>
       <div className="cp-body">
+        <NationLifeHead kinds={[page === 'found' ? 'found' : 'cede']} region={id} />
         {step ? <StepEffectTime phone={phone} /> : <YearStepper yi={yi} />}
         <div className="cp-form">
           <span className="cp-form-title">{page === 'found' ? '在这里立国' : '划给…'}</span>

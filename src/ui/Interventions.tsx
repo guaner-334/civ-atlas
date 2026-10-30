@@ -274,9 +274,15 @@ export function civIndexes(civ: Civ, list: readonly unknown[]): number[] {
  * 一条干预的说法:"大昌:保护""大昌:保护(至第 2300 年)""大昌与索拉特结盟(至第 2000 年)""大昌向索拉特宣战""大昌:禁止分裂"
  * "瑞州划给大昌(永久)""在瑞州立国(号饕餮)""大昌迁都瑞城""大昌:禁止扩张(至第 1800 年)"。
  * i = 它在这份历史的 Civ.interventions 里是第几条(给了、立国立成了,就写出立出来的国名);
- * a = 下令的国家怎么称呼(不给 = 生效那年的名字)
+ * a = 下令的国家怎么称呼(不给 = 生效那年的名字)。记在作者人物名下的(干预带 author)后面加"（林小满之议）"
  */
 export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string): string {
+  const t = ivText(civ, v, i, a);
+  // 记在作者人物名下的国家的事:"大昌与索拉特结盟（林小满之议）"
+  return v.author !== undefined ? `${t}（${authorName(civ, v.author)}之议）` : t;
+}
+
+function ivText(civ: Civ, v: Intervention, i: number, a: string | undefined): string {
   if (v.kind === 'found') {
     const made = i >= 0 ? foundedBy(civ, i) : -1;
     const shown = made >= 0 ? `,即${nameAt(civ.polities[made], v.from)}` : v.name ? `(号${v.name})` : '';

@@ -26,6 +26,7 @@ import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, nameAt, neighborsAt, polityIdOf, setPolityPick, usePolityPick, type PolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
+import { NationLifeHead } from './LifeHead';
 import { closeCmdPage, openCmdPage, queueCmdPage, setSheet } from './panelStore';
 import { getSelection, setSelection } from './civView';
 import { alivePolities } from './crownInfo';
@@ -256,6 +257,7 @@ export function PolicyPage({ civ, id, year, from }: { civ: Civ; id: number; year
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form pol-form" data-policy="form">
+        <NationLifeHead kinds={['policy']} polity={id} />
         {step ? (
           <StepEffectTime phone={phone} />
         ) : (

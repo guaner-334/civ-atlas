@@ -9,6 +9,9 @@
  * 将领挂帅的每一仗(ledWars):同一场仗接连几段并成一条;胜负按他挂帅那几年本方得失 —— 对方在这几年亡了、得的州比失的多 = 胜,
  * 失的多 = 兵败,一样多(连同都没有)= 无功。名臣经手的事人物卡上只列最大的 DEEDS_SHOWN 件(拥立、劝进、迁都、议和、赈灾、主战、守御的先后),
  * 其余折成"另经手 N 件"。
+ *
+ * 改人物的生卒、性格,删人物时问的那一句(authorEditAsk / authorDeleteAsk):即位那套(crownInfo.ts)扩到任将、任臣、掌权 ——
+ * 它们抄着生卒(掌权还抄着性格),人物卡改了要不要一起改;删人物连这几任一起去掉,还是只删人物(那几任改叫"作者的人物",历史不变)。
  */
 import type { Civ, Person, PersonDeed, PersonRegency, Polity } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
@@ -24,13 +27,17 @@ import {
   AUTHOR_REGENT_AGE_END,
   cleanIntervention,
   commandAt,
+  polityKey as polityKeyOf,
   resolveKey,
   ticksAt,
   type AppointSkill,
   type Intervention,
 } from '../gen/edits';
-import { eraText, spaced, yearAt, yearSpanAt, type Era } from '../gen/era';
+import { eraText, spaced, yearAt, yearFull, yearSpanAt, type Era } from '../gen/era';
+import { appointEnd } from '../gen/civ/appoint';
+import { AUTHOR_RULER_DEFAULT, characterLeanings, type AuthorCharacter } from '../gen/characters';
 import type { Pending } from './pendingStore';
+import { crownDeleteAsk, crownEditAsk, type CrownAsk } from './crownInfo';
 
 export type AppointIv = Extract<Intervention, { kind: 'appoint' }>;
 export type AuthorRegentIv = Extract<Intervention, { kind: 'regent'; char: number }>;
@@ -124,6 +131,66 @@ export function characterPosts(civ: Civ, id: number, pending: readonly Pending[]
   }
   const t = (x: PostState) => (x.kind === 'queued' && step ? ticksAt(x.v.from, tick) : commandAt(x.v));
   return out.sort((a, b) => t(a) - t(b));
+}
+
+/**
+ * 他那时是不是 pid 那国的 role(将领 / 名臣):推过生效了的(推演里那一任 yv 那一刻在任)、单子里的(y 那年在任期里;
+ * 没写卸任年的照推演的规矩算到卒年或卸甲致仕的岁数)。
+ * posts = characterPosts 的结果;y = 生效年份,yv = 看推演用哪一刻(逐年推演的下一步还没算出来:"现在")
+ */
+export function holdsPost(civ: Civ, posts: readonly PostState[], role: 'general' | 'minister', pid: number, y: number, yv: number): boolean {
+  const key = civ.polities[pid] ? polityKeyOf(civ, pid) : '';
+  return posts.some((s) => {
+    if (s.v.kind !== 'appoint' || s.v.role !== role) return false;
+    if (s.kind === 'done') return s.x.polity === pid && (s.x.from ?? Infinity) <= yv && (s.x.until === undefined || s.x.until > yv);
+    return s.kind === 'queued' && s.v.a === key && s.v.from <= y && appointEnd(s.v, s.v.from).stop > y;
+  });
+}
+
+/**
+ * 同一时刻只有一个身份:推演只管任将任臣之间、任职和即位之间(后一个顶掉前一个),掌权和任职之间不管 —— 下令时拦下。
+ * 任将任臣(role = general / minister)那一年他正掌着别国的权、掌权(role = regent)那一年他正任着别国的将相 = 原因;没有 = null。
+ * 同一国的不算(在那国任着将相掌权 = 大将 / 大臣专权)。posts = characterPosts 的结果;y = 生效年份,yv = 看推演用哪一刻
+ */
+export function overlapWhy(civ: Civ, posts: readonly PostState[], role: PostRole, pid: number, y: number, yv: number, he: string, era: Era | undefined): string | null {
+  for (const s of posts) {
+    if (s.kind === 'void') continue;
+    const r = postRole(s.v);
+    if (role === 'regent' ? r === 'regent' : r !== 'regent') continue;
+    let p: number;
+    let from: number;
+    let until: number | undefined;
+    if (s.kind === 'done') {
+      p = s.x.polity;
+      from = s.g ? s.g.from : (s.x.from ?? s.v.from);
+      until = s.g ? s.g.until : s.x.until;
+    } else {
+      const k = resolveKey(civ, s.v.a);
+      p = k?.kind === 'polity' ? k.id : -1;
+      from = s.v.from;
+      until = s.v.kind === 'regent' ? (s.v.years !== undefined ? s.v.from + s.v.years : s.v.died) : (s.v.until ?? s.v.died);
+    }
+    if (p === pid || p < 0) continue;
+    const t = s.kind === 'done' ? yv : y;
+    if (from > t || (until !== undefined && until <= t)) continue;
+    const span = spaced(until !== undefined ? yearSpanAt(from, until, era) : `${yearAt(from, era)}起`);
+    const A = s.A;
+    return r === 'regent'
+      ? `${he}${span}掌${A}国政，同一时刻只有一个身份`
+      : `${he}${span}是${A}的${r === 'general' ? '将领' : '名臣'}，同一时刻只有一个身份`;
+  }
+  return null;
+}
+
+/**
+ * 国家干预页宣战选了谁挂帅,加进单子的几条(CommandPage.tsx 的「谁挂帅」那一页):c = 作者的人物(照推演派 = null)、general = 他那年已是这国将领。
+ * 照推演派 = 一条宣战;选了他、已是将领 = 一条带 lead 的宣战;还不是将领 = 先任他为将(到卒年、能力寻常),再一条带 lead 的宣战
+ */
+export function leadOrders(a: string, b: string, y: number, c: Pick<AuthorCharacter, 'id' | 'born' | 'died'> | null, general: boolean): { appoint: AppointIv | null; declare: Intervention } {
+  if (!c) return { appoint: null, declare: { kind: 'declare', a, b, from: y } };
+  const declare: Intervention = { kind: 'declare', a, b, from: y, lead: c.id };
+  if (general) return { appoint: null, declare };
+  return { appoint: { kind: 'appoint', a, char: c.id, role: 'general', born: c.born, ...(c.died !== undefined ? { died: c.died } : {}), from: y }, declare };
 }
 
 /** 没生效的原因:"那一年后东定国已亡（2428 年）" / "他第 2398 年才出生"…… */
@@ -353,4 +420,130 @@ export function careerLine(posts: readonly PostState[], era: Era | undefined): {
     else until = Math.max(until, u);
   }
   return { titles: titles.join('、'), span: open ? `${yearAt(from, era)}起` : yearSpanAt(from, until, era) };
+}
+
+// ---------------------------------------------------------------------------
+// 改人物、删人物时问一句(即位那套扩到任将、任臣、掌权;crownInfo.ts 的 crownEditAsk / crownDeleteAsk,CrownAsk.tsx 弹出来)
+
+/** 他在作者的干预列表 ivs 里的一条任将任臣掌权(这份历史里推过的):at = 第几条,st = 人物卡上那一条的样子 */
+interface PostAt {
+  at: number;
+  v: PostIv;
+  st: Exclude<PostState, { kind: 'queued' }>;
+}
+
+function postsIn(civ: Civ, id: number, ivs: readonly Intervention[], era: Era | undefined): PostAt[] {
+  return characterPosts(civ, id, [], ivs, false, era).flatMap((st): PostAt[] => {
+    if (st.kind === 'queued') return [];
+    const at = st.kind === 'void' ? st.at : ivs.findIndex((x) => JSON.stringify(cleanIntervention(x)) === JSON.stringify(st.v));
+    const v = ivs[at];
+    if (at < 0 || !v || !isPostOf(v, id)) return [];
+    return [{ at, v, st }];
+  });
+}
+
+/** 一任的说法:"大衍王朝的将领（2421–2442 年）" / "大衍王朝的名臣（2442 年起）" / "掌大衍王朝的权（2436–2441 年）";没生效的写"一条没生效的任将（2430 年，后东定国）" */
+function postWhat(p: PostAt, era: Era | undefined): string {
+  const r = postRole(p.v);
+  if (p.st.kind !== 'done') return `一条没生效的${r === 'general' ? '任将' : r === 'minister' ? '任臣' : '掌权'}（${yearAt(p.v.from, era)}，${p.st.A}）`;
+  const from = p.st.g ? p.st.g.from : (p.st.x.from ?? p.v.from);
+  const until = p.st.g ? p.st.g.until : p.st.x.until;
+  const span = until !== undefined ? yearSpanAt(from, until, era) : `${yearAt(from, era)}起`;
+  return r === 'regent' ? `掌${p.st.A}的权（${span}）` : `${p.st.A}的${r === 'general' ? '将领' : '名臣'}（${span}）`;
+}
+
+/** 他名下这几样怎么叫:"即位、任职、掌权"(有哪样写哪样) */
+function holdWords(crown: boolean, posts: readonly PostAt[]): string {
+  const w: string[] = [];
+  if (crown) w.push('即位');
+  if (posts.some((p) => p.v.kind === 'appoint')) w.push('任职');
+  if (posts.some((p) => p.v.kind === 'regent')) w.push('掌权');
+  return w.join('、');
+}
+
+/** 改过以后的列表比原来的:去掉、改了的那几条里最早的生效年份 */
+function redoFrom(before: readonly Intervention[], after: readonly Intervention[]): number {
+  const kept = new Set(after.map((v) => JSON.stringify(v)));
+  return Math.min(...before.filter((v) => !kept.has(JSON.stringify(v))).map((v) => v.from));
+}
+
+/**
+ * 编辑人物点「完成」:改了生年、卒年、性格,他的即位、任将任臣掌权(抄着生卒;掌权还抄着性格)要不要一起改。都没有要改的 = null(直接存)。
+ * 即位照 crownEditAsk;任将任臣掌权:生年、卒年照新的抄进去(卒年早到上任那年或更早的,这一条去掉;卒年去掉了 = 到卸甲致仕的岁数),掌权的性格照新的。
+ * 只有即位要改的,问的话和以前一样
+ */
+export function authorEditAsk(civ: Civ, ivs: readonly Intervention[], old: AuthorCharacter, next: AuthorCharacter, era: Era | undefined): CrownAsk | null {
+  const crown = crownEditAsk(civ, ivs, old, next, era);
+  const born = next.born !== old.born;
+  const died = next.died !== old.died;
+  const lean = JSON.stringify(characterLeanings(next)) !== JSON.stringify(characterLeanings(old));
+  if (!born && !died && !lean) return crown;
+  const base = crown ? crown.ivs : ivs.slice();
+  const out: (Intervention | null)[] = base.slice();
+  const changed: PostAt[] = [];
+  const gone: PostAt[] = [];
+  for (const p of postsIn(civ, old.id, base, era)) {
+    const v = p.v;
+    if (died && next.died !== undefined && next.died <= v.from) {
+      out[p.at] = null;
+      changed.push(p);
+      gone.push(p);
+      continue;
+    }
+    let w: PostIv = { ...v };
+    if (born) w.born = next.born;
+    if (died) {
+      if (next.died !== undefined) w.died = next.died;
+      else {
+        const { died: _, ...rest } = w;
+        w = rest as PostIv;
+      }
+    }
+    if (lean && w.kind === 'regent') w.leanings = characterLeanings(next);
+    if (JSON.stringify(w) === JSON.stringify(v)) continue;
+    out[p.at] = w;
+    changed.push(p);
+  }
+  if (!changed.length) return crown;
+  const he = heOrShe(next);
+  const name = next.name;
+  const words = holdWords(!!crown, changed);
+  const final = out.filter((x): x is Intervention => x !== null);
+  const what: string[] = [];
+  const goneWhat = gone.map((p) => (p.v.kind === 'regent' ? `掌${p.st.A}的权` : `${p.st.A}的${p.v.role === 'general' ? '将领' : '名臣'}`));
+  if (died) what.push(next.died === undefined ? '卒年去掉了' : `卒年改成${spaced(yearAt(next.died, era))}${gone.length ? `，在${goneWhat.join('、')}那一任上任以前` : ''}`);
+  if (born) what.push(`生年改成${spaced(yearAt(next.born, era))}`);
+  if (lean && changed.some((p) => p.v.kind === 'regent')) what.push('性格改了');
+  const posts = `${name}当过${changed.map((p) => postWhat(p, era)).join('、')}。`;
+  return {
+    title: `要一起改${he}的${words}吗？`,
+    lead: crown ? `${crown.lead}${posts}` : `${posts}${what.join('，')}。`,
+    yes: [gone.length ? `一起改：去掉${goneWhat.join('、')}那一任` : '一起改', `从${yearFull(redoFrom(ivs, final), era)}起重新推演；推演里${he}的${words}照新的${died ? '卒年' : born ? '生年' : '性格'}算`],
+    no: ['只改人物卡', `推演里${he}的${words}照旧，和人物卡对不上`],
+    ivs: final,
+    done: `${name}的${words}跟着改了`,
+  };
+}
+
+/**
+ * 删人物:即位过、任过将相、掌过权的(推演里生效了的)先问 —— 连这些一起去掉(重新推演),还是只删人物(推演里那几任改叫"作者的人物",历史不变)。
+ * 都没有 = null(直接删);只即位过的,问的话和以前一样(crownDeleteAsk)。去掉的时候没生效的那几条也一起去掉
+ */
+export function authorDeleteAsk(civ: Civ, ivs: readonly Intervention[], c: AuthorCharacter, era: Era | undefined): CrownAsk | null {
+  const crown = crownDeleteAsk(civ, ivs, c, era);
+  const posts = postsIn(civ, c.id, ivs, era);
+  const done = posts.filter((p) => p.st.kind === 'done');
+  if (!done.length) return crown;
+  const he = heOrShe(c);
+  const final = (crown ? crown.ivs : ivs).filter((v) => !posts.some((p) => p.v === v));
+  const words = holdWords(!!crown, done);
+  const As = [...new Set(done.map((p) => p.st.A))];
+  return {
+    title: `删除人物「${c.name}」`,
+    lead: `${crown ? crown.lead : ''}${he}当过${done.map((p) => postWhat(p, era)).join('、')}。`,
+    yes: [`连${he}的${words}一起去掉`, `从${yearFull(redoFrom(ivs, final), era)}起重新推演，${As.join('、')}照原来的历史走`],
+    no: [`只删人物，${words}留着`, `推演里那几任改叫「${AUTHOR_RULER_DEFAULT}」，历史不变`],
+    ivs: final,
+    done: `已删除人物「${c.name}」和${he}的${words}`,
+  };
 }
