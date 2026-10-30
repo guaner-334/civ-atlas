@@ -7,7 +7,7 @@
  *   当将领    当哪国的将领(默认人物卡上他的国家;「换一国」列出那年还在的国家、「在地图上点」)、什么时候任将(年份;逐年推演固定下一步年初)、
  *             到哪年卸任(到卒年 | 到某一年)、能力(寻常 | 良将 | 名将)、灰底「照现在的推演,他会领哪几仗」(appoint.ts 的 appointPreview;
  *             一仗都没有的写明原因:这些年本国没打仗 / 四周没有走得过去的邻国)、
- *             出征(勾「同时派他出征」:伐哪国(那年接壤的)、出征年份(在他任上);加进单子的是两条:任将、宣战点他挂帅)
+ *             出征(勾「同时派他出征」:伐哪国(那年接壤、没在交战的)、出征年份(在他任上);加进单子的是两条:任将、宣战点他挂帅)
  *   当名臣    入哪国的朝(下面写那年在朝的推演名臣)、什么时候入朝、到哪年去职、黄底"只改编年史和人物卡"、灰底「他做什么」
  *             (经手、照现在这些年朝中有几件事、官:侍郎做起经手一件升一级,officials.ts 的 deedPosts)
  *   掌权      掌哪国的权(下面写那年谁在位)、从哪一年起、怎么掌权(大臣专权 | 大将专权:要他这时在当这国的将领)、几年后还政、
@@ -43,7 +43,7 @@ import { getPending, queueIntervention, removePending, usePending } from './pend
 import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
-import { getPolityPick, interventionText, nameAt, neighborsAt, setPolityPick, usePolityPick } from './Interventions';
+import { declareTargets, getPolityPick, interventionText, nameAt, neighborsAt, setPolityPick, usePolityPick } from './Interventions';
 import { characterPolity } from './characterInfo';
 import { Row, YearRow, jumpTo, rgb, useYearInput, type YearInput } from './panelParts';
 import { alivePolities, characterCrowns, crownTail, type AlivePolity } from './crownInfo';
@@ -291,7 +291,7 @@ function PolityList({ civ, ch, home, he, title, y, ids, onKey }: { civ: Civ; ch:
             <span>{title}</span>
             <span className="cp-num-note">
               {yearFull(y, era)}
-              {ids ? '接壤的' : '还在的'} {list.length} 国
+              {ids ? '接壤、没在打仗的' : '还在的'} {list.length} 国
             </span>
           </div>
           <div className="oc-rows oc-people">
@@ -503,7 +503,7 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
     : null;
   // 照现在的推演,他会领哪几仗(任将不改历史)
   const pre = useMemo<AuthorPost | null>(() => (v && v.kind === 'appoint' && pAlive && !step ? appointPreview(civ, v, P!.id) : null), [civ, JSON.stringify(v), pAlive, step]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 同时派他出征:伐哪国(那年接壤的)、哪年(在他任上:照现在排出来的任期,排不出的按卸任年 / 卒年 / 卸甲的岁数)
+  // 同时派他出征:伐哪国(那年接壤、没在交战的)、哪年(在他任上:照现在排出来的任期,排不出的按卸任年 / 卒年 / 卸甲的岁数)
   const [send, setSend] = useState(!!send0);
   const stopT = pre ? (pre.until ?? civ.endYear) : v && v.kind === 'appoint' ? appointEnd(v, y).stop : y + 1;
   const tenureEnd = Math.ceil(Math.min(stopT, civ.endYear)) - 1;
@@ -513,10 +513,12 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
   const [target, setTarget] = useState<number | null>(null);
   const [tList, setTList] = useState(false);
   const near = useMemo(() => (P && pAlive ? neighborsAt(civ, P.id, syv).near : new Set<number>()), [civ, P, pAlive, syv]);
+  // 伐得了的:接壤、那年没和这国在交战的(已在交战的推演里那条宣战跳过,他也就挂不了这一仗的帅)
+  const { open, foes } = useMemo(() => (P && pAlive ? declareTargets(civ, P.id, syv, near) : { open: near, foes: new Set<number>() }), [civ, P, pAlive, syv, near]);
   const nearHere = useMemo(() => (P && pAlive ? neighborsAt(civ, P.id, yv).near : new Set<number>()), [civ, P, pAlive, yv]);
-  const tgt = target !== null && near.has(target) ? target : null;
+  const tgt = target !== null && open.has(target) ? target : null;
   const T = tgt !== null ? civ.polities[tgt] : undefined;
-  const nearRows = useMemo(() => alivePolities(civ, syv).filter((x) => near.has(x.id)), [civ, syv, near]);
+  const nearRows = useMemo(() => alivePolities(civ, syv).filter((x) => open.has(x.id)), [civ, syv, open]);
   const pk = usePolityPick();
   const tPicking = pk?.source === `${source}:send`;
   // 离开这一页时收起"伐哪一国"的地图挑选(选哪国的那个由 usePolityChoice 收)
@@ -539,6 +541,7 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
     if (send) {
       if (!step && !si.valid) return `出征年份要在${spaced(yearSpanAt(si.lo, si.hi, era))}之间，在${he}任上`;
       if (!near.size) return `${yearAt(sy, era)}${nameAt(P, sy)}四周没有走得过去的邻国，派不了`;
+      if (!open.size) return `${yearAt(sy, era)}${nameAt(P, sy)}和接壤的国家都已在交战，派不了`;
       if (!T) return '选伐哪一国';
     }
     return null;
@@ -570,11 +573,12 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
       sub: `${yearAt(sy, era)}宣战，${c.name}挂帅`,
       source: `${source}:send`,
       self: P?.id,
-      eligible: near,
+      eligible: open,
       near,
       year: syv,
       accept: (q) => {
         if (!near.has(q)) return '两国不接壤，无法宣战';
+        if (foes.has(q)) return '两国已在交战，无法宣战';
         setTarget(q);
         setTList(false);
         return null;
@@ -689,7 +693,7 @@ export function GeneralPage({ civ, raster, world, year, c, polity, from: preset,
                 </>
               )}
               <span className="cp-note">
-                和宣战一样只能伐那年接壤的国家；{step ? '下一步开始时宣战' : `年份默认是任将那年，只能在${he}任上`}。宣战改历史：从{spaced(yearAt(sy, era))}起重新推演。
+                和宣战一样只能伐那年接壤、没在打仗的国家；{step ? '下一步开始时宣战' : `年份默认是任将那年，只能在${he}任上`}。宣战改历史：从{spaced(yearAt(sy, era))}起重新推演。
               </span>
             </div>
           </>

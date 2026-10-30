@@ -4,7 +4,7 @@
  *   持续到  一直有效 | 到某一年(−100 −10 [年份] +10 +100,默认 = 生效年份 + 100);只管保护、保住王室、禁止扩张、结盟,到这一年止(不含)
  *
  *   加入待推演  保护(不会被灭亡)、禁止分裂、保住王室(不改朝换代、不被篡位;那年是共和国 / 军政府的变淡,"共和国没有王室",按那一年的政体、复辟以后照君主国)、禁止扩张
- *   选择对象  结盟(任意国家)、宣战(仅相邻国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
+ *   选择对象  结盟(任意国家)、宣战(仅相邻、那年没在交战的国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
  *
  * 不可用的命令变淡,说明换成原因。下的令先进待推演的单子(pendingStore.ts,单子在时间轴上面,PendingTray.tsx),已经在单子里的变淡、写"已在待推演里";
  * 单子里有令时底部多一个「全部推演(N 条)」。推演时面板先藏起,顶部提示条"正在重新推演 X–3000 年",推完"有鹰王朝禁止扩张,已从 X 年起重新推演"带撤销,
@@ -48,7 +48,7 @@ import { useNarrow } from './device';
 import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, STEP_QUEUED, StepCommandFoot, StepEffectTime, useStepView } from './Stepwise';
 import { useEdits, useEra } from './editsStore';
-import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
+import { cityStands, declareTargets, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
 import { openCmdPage, setPanelTab } from './panelStore';
 import { getPending, pendingInterventions, pushPending, queueIntervention, removePending, usePending } from './pendingStore';
 import { setCivTime } from './civView';
@@ -128,6 +128,8 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const alive = polityAlive(p, yv);
   const noKeep = keepWhy(p, yv);
   const { size, near } = useMemo(() => neighborsAt(civ, id, yv), [civ, id, yv]);
+  // 宣战打得成的:接壤、那年没和本国在交战的(已在交战的推演里那条宣战跳过)
+  const { open: canDeclare, foes } = useMemo(() => declareTargets(civ, id, yv, near), [civ, id, yv, near]);
   const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, yv) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, yv, size]);
   // 划中立地:这一年有没有碰到两国以上、做得了中立地的州(按国家、年份记着,回放时不每帧重算)
   const zoneOk = useMemo(() => zoneChoices(civ, world, id, yv, 1).length > 0, [civ, world, id, yv]);
@@ -167,6 +169,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     if (k === 'treaty' && !others.length) return '该年没有别的国家';
     if (k === 'neutral' && !zoneOk) return '该年没有碰到两国以上、做得了中立地的州';
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
+    if (k === 'declare' && !canDeclare.size) return '该年相邻的国家都已在交战';
     if (k === 'move' && !cities.length) return '该年本国没有别的城市';
     return null;
   };
@@ -216,7 +219,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
         },
       };
     } else {
-      const ok = new Set(k === 'ally' ? others : [...near]);
+      const ok = new Set(k === 'ally' ? others : canDeclare);
       pk = {
         ...base,
         prompt: k === 'ally' ? `选择与${name}结盟的国家` : `选择${name}要宣战的国家`,
@@ -226,6 +229,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
           const Q = civ.polities[q];
           if (!Q || !polityAlive(Q, yv) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
           if (k === 'declare' && !near.has(q)) return '两国不接壤,无法宣战';
+          if (k === 'declare' && foes.has(q)) return '两国已在交战,无法宣战';
           // 那年有在世的作者人物:先选谁挂帅
           if (k === 'declare' && leaders.length) {
             setLead(q);
