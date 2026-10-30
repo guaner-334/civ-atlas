@@ -20,8 +20,6 @@ import { polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import {
-  AUTHOR_GENERAL_AGE_END,
-  AUTHOR_MINISTER_AGE_END,
   AUTHOR_REGENT_AGE_END,
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
@@ -45,6 +43,7 @@ import { leaningsChange, personName } from '../gen/civ/peopleText';
 import { heOrShe, heirWord, mateWord, wedVerb, type Sexed } from '../gen/civ/gender';
 import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
+import { postLine } from './authorIvInfo';
 import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../gen/civ/policy';
 import { policyKnobsText } from './policyInfo';
 import { boostText } from './boostInfo';
@@ -349,12 +348,12 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}与${ps}以${regionKeyName(civ, v.region)}为中立地${until}`;
     }
     case 'regent':
-      // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政";作者的人物 "林小满:专权掌权，到卒年"
-      if (v.char !== undefined) return `${authorName(civ, v.char)}:${REGENT_HOW_WORD[v.how]}掌权，${authorRegentEndWord(v)}`;
+      // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政";作者的人物 "苏晚以大臣专权掌大定国政，5 年后还政"(authorIvInfo.ts)
+      if (v.char !== undefined) return postLine(authorName(civ, v.char), A, v, getEdits().era);
       return `${personKeyName(civ, v.person)}:${regentHowWord(v.how, personOfKey(civ, v.person))}掌权，${regentEndWord(v.end, v.years)}`;
     case 'appoint':
-      // "林小满:任大定将领，到卒年""林小满:任大定名臣，到第 1530 年"
-      return `${authorName(civ, v.char)}:任${A}${v.role === 'general' ? '将领' : '名臣'}，${appointEndWord(v)}`;
+      // "林小满为大定将，到 1530 年卸任""林小满入大定为臣，到卒年（1561 年）"(authorIvInfo.ts)
+      return postLine(authorName(civ, v.char), A, v, getEdits().era);
     case 'marry': {
       // "胡炜:娶大澜王朝宗室女""胡炜:本国宗室女嫁大澜王朝""胡炜:与大澜王朝互嫁"
       const B = keyName(civ, v.b, v.from) || '对方';
@@ -380,19 +379,12 @@ export function authorRegentEndWord(v: { years?: number; died?: number }): strin
   return v.years !== undefined ? regentEndWord('return', v.years) : v.died !== undefined ? '到卒年' : `到 ${AUTHOR_REGENT_AGE_END} 岁还政`;
 }
 
-/** 任将任臣到什么时候:"到第 1530 年" / 没填卸任年 = "到卒年"(人物卡没写卒年 = "到 65 岁卸甲""到 70 岁致仕") */
-export function appointEndWord(v: { role: 'general' | 'minister'; until?: number; died?: number }): string {
-  if (v.until !== undefined) return `到第 ${v.until} 年`;
-  if (v.died !== undefined) return '到卒年';
-  return v.role === 'general' ? `到 ${AUTHOR_GENERAL_AGE_END} 岁卸甲` : `到 ${AUTHOR_MINISTER_AGE_END} 岁致仕`;
-}
-
 /** 方针拧过旋钮(一键选的细调过,或者没从一键选起) */
 const tweakedOrCustom = (v: PolicyIv) => policyName(v) !== (v.preset ? POLICY_PRESET_NAMES[v.preset] : '');
 
-/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字,没即位成的也有;没套过 = "作者的人物") */
+/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字,没即位成的也有;还没下过令的照人物卡;都没有 = "作者的人物") */
 function authorName(civ: Civ, char: number): string {
-  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || getEdits().characters?.find((c) => c.id === char)?.name || '作者的人物';
 }
 
 /**

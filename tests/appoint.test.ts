@@ -72,7 +72,30 @@ const sig = (x: Person) =>
     g: x.regencies?.map((g) => [g.kind, g.from, g.until, g.end]),
     de: x.deeds?.map((d) => [d.kind, d.year]),
   });
-const simPeople = (civ: Civ) => (civ.people ?? []).filter((x) => x.author === undefined).map(sig);
+const simPeople = (civ: Civ, noPosts = false) => (civ.people ?? []).filter((x) => x.author === undefined).map((x) => sig(noPosts ? { ...x, posts: undefined } : x));
+/**
+ * 作者的名臣 X 做着最高的官那几年(升到那一刻起,到去职):推演里的名臣这几年做着这个官的,人物卡上这几年写次一级、前后照旧;
+ * 别的推演人物官职一个不变
+ */
+function checkDisplaced(civ: Civ, plain: Civ, X: Person) {
+  const top = X.posts![X.posts!.length - 1];
+  const end = X.until ?? Infinity;
+  const sims = (c: Civ) => (c.people ?? []).filter((x) => x.author === undefined);
+  /** m 在 t 那一刻的官 */
+  const titleAt = (m: Person, t: number) => [...(m.posts ?? [])].reverse().find((p) => p.from <= t)?.title;
+  const a = sims(civ);
+  const b = sims(plain);
+  for (let i = 0; i < a.length; i++) {
+    if (JSON.stringify(a[i].posts) === JSON.stringify(b[i].posts)) continue;
+    expect(a[i].role).toBe('minister');
+    expect(a[i].polity).toBe(X.polity);
+    // 原来在他做最高的官那几年里做过这个官,现在那几年一刻也不是
+    const over = b[i].posts!.some((p, k, ps) => p.title === top.title && p.from < end && (ps[k + 1]?.from ?? b[i].until ?? Infinity) > top.from);
+    expect(over, a[i].name).toBe(true);
+    for (const p of a[i].posts!) if (p.from >= top.from && p.from < end) expect(p.title, a[i].name).not.toBe(top.title);
+    expect(titleAt(a[i], top.from), a[i].name).not.toBe(top.title);
+  }
+}
 /** 下了令的历史:除了干预那几条史事,和不下一样 */
 const history = (civ: Civ) => civ.annals.filter((e) => e.kind !== 'intervene');
 
@@ -131,11 +154,11 @@ for (const seed of [7, 2024]) {
         expect(m.from).toBeGreaterThanOrEqual(c.T);
         expect(m.until).toBeLessThanOrEqual(c.T + 15);
       }
-      // 编年史:【干预】拜将;开战那一条他为帅、原来那位副之;后面的仗统帅写他
+      // 编年史:【干预】以他为某国将;开战那一条他为将、原来那位为副;后面的仗统帅写他
       const lines = flat(buildChronicle(named(civ)));
-      expect(lines.some((e) => e.kind === 'intervene' && e.year === c.T && e.text.includes(`拜${NAME}为将`))).toBe(true);
-      const head = lines.find((e) => e.kind === 'war' && e.year === civ.annals[decl].year && e.text.includes(`以${NAME}为帅`));
-      expect(head?.text).toContain(`${own.name}副之`);
+      expect(lines.some((e) => e.kind === 'intervene' && e.year === c.T && new RegExp(`以${NAME}为.+将$`).test(e.text))).toBe(true);
+      const head = lines.find((e) => e.kind === 'war' && e.year === civ.annals[decl].year && e.text.includes(`以${NAME}为将`));
+      expect(head?.text).toContain(`${own.name}为副`);
       expect(head?.people).toContain(X.id);
       expect(head?.people).toContain(own.id);
     }, 240_000);
@@ -164,8 +187,10 @@ for (const seed of [7, 2024]) {
       const v = appoint(plain, pick.pid, pick.T, { role: 'minister', born, died: pick.T + 25 });
       const civ = generateCiv(w, { interventions: [v], endYear: end });
       expect(history(civ)).toEqual(plain.annals);
-      expect(simPeople(civ)).toEqual(simPeople(plain));
       const [X] = authorsOf(civ);
+      // 推演里的人一个不变;只有他升到最高的官那一刻正做着的那位,人物卡上这几年写次一级(他去职后复为原官)
+      expect(simPeople(civ, true)).toEqual(simPeople(plain, true));
+      checkDisplaced(civ, plain, X);
       expect(X).toMatchObject({ role: 'minister', polity: pick.pid, name: '', born, from: pick.T, until: pick.T + 25, fate: 'died' });
       expect(X.died).toBeUndefined();
       expect(X.posts?.length).toBeGreaterThan(0);
@@ -176,11 +201,14 @@ for (const seed of [7, 2024]) {
         expect(['rank', 'enthrone', 'capital', 'relief', 'peace', 'war', 'defend']).toContain(d.kind);
       }
       const lines = flat(buildChronicle(named(civ)));
-      expect(lines.some((e) => e.kind === 'intervene' && e.text.includes(`${NAME}入仕`))).toBe(true);
-      // 议和:他写在推演里经手的那位前面
+      expect(lines.some((e) => e.kind === 'intervene' && e.text.includes(`以${NAME}为`))).toBe(true);
+      // 议和:他写在推演里经手的那位后面
       const peace = lines.find((e) => e.year === pick.peace && e.text.includes('议和') && e.text.includes(NAME));
       expect(peace?.text).toContain(pick.envoy.name);
-      expect(peace!.text.indexOf(NAME)).toBeLessThan(peace!.text.indexOf(pick.envoy.name));
+      expect(peace!.text.indexOf(NAME)).toBeGreaterThan(peace!.text.indexOf(pick.envoy.name));
+      // 官:入朝比最高的低两级,经手一件升一级(经手完的下一刻)
+      expect(X.posts!.length).toBeLessThanOrEqual(1 + (X.deeds?.length ?? 0));
+      (X.deeds ?? []).slice(0, X.posts!.length - 1).forEach((d, k) => expect(X.posts![k + 1].from).toBeCloseTo(d.year + 1 / 256, 6));
       // 改朝换代:名臣去职
       const dyn = plain.polities.find((p) => p.founded < 900 && (p.dynasties ?? []).some((d) => d.year > 1000 && d.year < end - 20) && (p.ended ?? Infinity) > end - 10);
       if (dyn) {

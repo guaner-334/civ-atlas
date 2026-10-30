@@ -58,10 +58,11 @@
  *   同一条情节同一刻划给同一国的几州并成一条:"【照大纲】瑞州、汾州、雪西三州划归大昌"。
  *   援盟参战的战争(史事 war 的 settlement 列 = 盟国)写"索拉特应大昌之约伐某国"。
  * - **作者的将领、名臣**(干预"任将 / 任臣",Person.author;appoint.ts):他挂帅的仗统帅写他、推演原来派的那位写成副将 ——
- *   "大定以林小满为帅、司玄副之,起兵伐奥利亚""奥利亚以林小满为帅、司玄副之拒之",后面几仗的统帅也写他("…,副将司玄战死");
- *   那一刻君主亲征的,君主为帅、他随驾("大定太宗亲征奥利亚,林小满随驾")。作者的名臣在朝时议和、劝进写上他(写在推演里经手的那位前面:
- *   "大定遣丞相林小满、礼部尚书百里青与奥利亚议和"),议事后面加一句"…,丞相林小满与议"(西幻"参与其议")。
- *   【干预】:"大定拜林小满为将""林小满入仕大定";宣战点了谁挂帅的"大定向奥利亚宣战,以林小满为帅"。
+ *   "大定以林小满为将、司玄为副,起兵伐奥利亚""奥利亚以林小满为将、司玄为副拒之",后面几仗的统帅也写他("…,副将司玄战死");
+ *   那一刻君主亲征的,君主为帅、他随驾("大定太宗亲征奥利亚,林小满随驾")。作者的名臣在朝时议和、劝进写上他(写在推演里经手的那位后面:
+ *   "大定遣礼部尚书百里青、侍郎林小满与奥利亚议和"),议事后面加一句"…,丞相林小满与议"(西幻"参与其议")。
+ *   【干预】:"以林小满为大定将""以林小满为大定侍郎"(入朝拜的官);从本国将领任上入朝的"大定将林小满入朝为侍郎,副将司玄代领其军"
+ *   (手上正领着的那场仗由推演原来派的那位接着领);宣战点了谁挂帅的"大定向奥利亚宣战,以林小满为帅"。
  * - **名臣**(Person.deeds):经手的事写上他(官职按那一年):议和"大景王朝遣礼部尚书百里青与萨尔斯坦帝国议和"
  *   (对方的使臣写在对方国名后面);称王称帝"…,丞相某某劝进"(西幻"…,首相某某力主其事");幼主即位"…,时年 11 岁,丞相某某辅政"
  *   (西幻"摄政");先君遇弑"…;丞相某某迎立其兄柳清瑶,是为睿宗"(西幻、汗国"拥立")。
@@ -277,7 +278,7 @@ function regionName(civ: Civ, r: number): string {
 }
 
 /** 一串州:"瑞州"、"瑞州、青州"、"瑞州等五州"(人口上限大的写在前面) */
-function regionList(civ: Civ, rs: readonly number[]): string {
+export function regionList(civ: Civ, rs: readonly number[]): string {
   const ok = rs.filter((r) => r >= 0 && r < civ.regions.count);
   if (!ok.length) return '';
   const cap = civ.regions.capacity;
@@ -482,12 +483,11 @@ function peaceHead(civ: Civ, ix: PeopleIndex | null, e: Annal, i: number, y: Yea
   return { text, people: [...ma, ...mb] };
 }
 
-/** 经手这件事的一国的名臣:作者的名臣(任臣)在前,再加推演里经手的那一位 */
+/** 经手这件事的一国的名臣:推演里经手的那一位在前,再加作者的名臣(任臣) */
 function envoysOf(ms: readonly Person[], p: number): Person[] {
   const own = ms.find((m) => m.polity === p && m.author === undefined);
   const out = ms.filter((m) => m.polity === p && m.author !== undefined);
-  if (own) out.push(own);
-  return out;
+  return own ? [own, ...out] : out;
 }
 
 /** 某一刻在位的君主(即位那一刻起算) */
@@ -1317,7 +1317,8 @@ function regentStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { 
 }
 
 /**
- * 任将 / 任臣:"【干预】大定拜林小满为将""【干预】林小满入仕大定";没生效的写原因(先看他自己,再看这国;同 interventions.ts 查的先后)。
+ * 任将 / 任臣:"【干预】以林小满为大定将""【干预】以林小满为大定侍郎";从本国将领任上入朝的"【干预】大定将林小满入朝为侍郎,副将司玄代领其军"。
+ * 没生效的写原因(先看他自己,再看这国;同 interventions.ts 查的先后)。
  * 史事记着生效了、同一刻他又任了别的 / 又即了位的(appoint.ts 的 skip),这一条算没生效
  */
 function appointStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { kind: 'appoint' }>, A: string, fail: Say, done: Done): IvStory {
@@ -1333,7 +1334,31 @@ function appointStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, {
   const skip = authorPostsFrom(civ).find((p) => p.annal === id)?.skip;
   if (skip === 'replaced') return fail(`${verb},然同时又另有任命`, `同一年又给${he}任了别的`);
   if (skip === 'crowned') return fail(`${verb},然同时${he}即位`, `同一年${he}又即了位`);
-  return done(general ? `${A}拜${who}为将` : `${who}入仕${A}`);
+  if (general) return done(`以${who}为${A}将`);
+  // 名臣:写入朝拜的官;刚从本国将领任上下来的写"大定将林小满入朝为侍郎",手上那场仗由推演原来派的那位接着领
+  const y = e.year;
+  const { me, was, deputy } = appointPeople(civ, e, v);
+  const title = me?.posts?.[0]?.title ?? '';
+  if (!was) return done(`以${who}为${A}${title || '臣'}`);
+  return done(`${generalRef(civ, was, y)}入朝${title ? `为${title}` : ''}${deputy ? `,副将${leaderName(civ, deputy, y)}代领其军` : ''}`);
+}
+
+/**
+ * 任将任臣那一条写到的人:me = 这一任的他(作者的人物);was = 刚卸任的本国将领那一任(从将领任上入朝的;没有 = null);
+ * deputy = 他手上那场仗接着领兵的推演将领(副将;没有 = null)
+ */
+function appointPeople(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'appoint' }>): { me: Person | null; was: Person | null; deputy: Person | null } {
+  const y = e.year;
+  const mine = (civ.people ?? []).filter((x) => x.author === v.char && x.polity === e.a);
+  const me = mine.find((x) => x.role === v.role && x.from === y) ?? null;
+  const was = v.role === 'minister' ? (mine.find((x) => x.role === 'general' && x.until === y) ?? null) : null;
+  const c = was?.commands?.at(-1);
+  const ix = peopleOf(civ);
+  const deputy =
+    c && c.until === y
+      ? (ix?.commands.get(c.war)?.find((m) => m.side === c.side && !authorGeneral(m.person) && (ix.annals[m.first]?.year ?? Infinity) <= y && m.until >= y && !reigningAt(m.person, y))?.person ?? null)
+      : null;
+  return { me, was, deputy };
 }
 
 /**
@@ -1846,16 +1871,16 @@ function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   // 作者的将领挂帅:推演原来派的那位是副将;君主亲征:作者的将领随驾
   const [da, dd] = [deputyOf(ix, e.war, 0, id), deputyOf(ix, e.war, 1, id)];
   const [ea, ed] = [escortOf(ix, e.war, 0, id), escortOf(ix, e.war, 1, id)];
-  const vice = (d: Person | null) => (d ? `、${leaderName(civ, d, y)}副之` : '');
+  const vice = (d: Person | null) => (d ? `、${leaderName(civ, d, y)}为副` : '');
   const escort = (x: Person | null) => (x ? `,${leaderName(civ, x, y)}随驾` : '');
   const to = e.cause && NAMES_FOE.has(e.cause) ? '之' : B;
   let t: string;
   if (ca && reigningAt(ca, y)) t = `${rulerRef(civ, ca, y)}${pact}亲征${to}${escort(ea)}`;
-  else if (ca && authorGeneral(ca)) t = `${A}${pact}以${leaderName(civ, ca, y)}为帅${vice(da)},起兵${v}${to}`;
+  else if (ca && authorGeneral(ca)) t = `${A}${pact}以${leaderName(civ, ca, y)}为将${vice(da)},起兵${v}${to}`;
   else if (ca) t = `${A}${pact}以${leaderName(civ, ca, y)}为将,起兵${v}${to}`;
   else t = `${A}${pact}起兵${v}${to}`;
   if (cd && reigningAt(cd, y)) t += `;${rulerRef(civ, cd, y)}亲自领兵拒之${escort(ed)}`;
-  else if (cd && authorGeneral(cd)) t += `;${B}以${leaderName(civ, cd, y)}为帅${vice(dd)}拒之`;
+  else if (cd && authorGeneral(cd)) t += `;${B}以${leaderName(civ, cd, y)}为将${vice(dd)}拒之`;
   else if (cd) t += `;${B}遣${leaderName(civ, cd, y)}拒之`;
   const x = base(e, id, t, 2, ally >= 0 ? [e.a, e.b, ally] : [e.a, e.b], []);
   if (ally >= 0) x.settlement = -1;
@@ -2065,7 +2090,9 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       if (who && who.author === undefined) x.text += `,奉${who.name}为主`;
       // 即位:记上作者立的那位君主
       const crowned = story.ok && v?.kind === 'crown' ? crownedAt(ctx.ix, e, v.char) : null;
-      return withPeople(x, who && who.author === undefined ? who : null, crowned);
+      // 任将任臣:记上这一任的他(编年史里点他的名字开作者的人物卡)、代领其军的副将
+      const ap = story.ok && v?.kind === 'appoint' ? appointPeople(civ, e, v) : null;
+      return withPeople(x, who && who.author === undefined ? who : null, crowned, ap?.me, ap?.deputy);
     }
     case 'regent':
       return regentEntry(ctx, id) ?? base(e, id, `${pn(civ, e.a, y)}权臣秉政`, 1, [e.a], [e.region]);

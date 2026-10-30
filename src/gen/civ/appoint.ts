@@ -251,6 +251,32 @@ function computePosts(civ: AppointInput, list: readonly Intervention[], now?: { 
   return posts;
 }
 
+/**
+ * 界面上"照现在的推演,他会领哪几仗 / 经手几件事"用:假定再下一条 v(给 pid 这国)、在 v.from 那一刻生效,照这份历史排出他这一任
+ * (任将任臣不改历史,所以推完就是这样;能力选了良将、名将的,胜负可能变,这里照现在的排)。
+ * 列表里已有的任将任臣、即位照旧算(同一个人物又任了别的、即了位,这一任到那一刻为止)。这国那一刻已亡等生效不了的 = null
+ */
+export function appointPreview(civ: AppointInput, v: AppointIv, pid: number): AuthorPost | null {
+  const P = civ.polities[pid];
+  if (!P || P.founded > v.from || (P.ended !== undefined && P.ended <= v.from)) return null;
+  const list = [...(civ.interventions ?? []), v];
+  const A = civ.annals;
+  let k = 0;
+  let hi = A.length;
+  while (k < hi) {
+    const mid = (k + hi) >> 1;
+    if (A[mid].year < v.from) k = mid + 1;
+    else hi = mid;
+  }
+  // 同一刻已有的干预在它前面(推演里干预照列表先后下,这一条排在最后)
+  while (k < A.length && A[k].year === v.from && A[k].kind === 'intervene') k++;
+  const mark: Annal = { year: v.from, kind: 'intervene', a: pid, b: -1, region: -1, settlement: -1, war: list.length - 1 };
+  const annals = [...A.slice(0, k), mark, ...A.slice(k)];
+  const posts = computePosts({ ...civ, annals }, list);
+  const p = posts.find((x) => x.iv === list.length - 1);
+  return p && !p.skip ? p : null;
+}
+
 /** 推演里打仗那一刻,一位作者将领手上的那场:第几条干预、作者人物、哪国、哪场战争、哪一方(0 攻 1 守) */
 export interface AuthorLead {
   iv: number;
