@@ -63,6 +63,8 @@ import { splitSurname } from './peopleText';
 import { debutSex, nameWomen, pickWomen, type ConsortName } from './women';
 import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, consortDeath, consortRand, dowagerHomeU, isDowager, otherSurname } from './consorts';
 import { HEIR, K_HOUSE_GENERAL, houseBase, pickHouses, withParentSurname } from './kin';
+import { opensSeg, reformedSeg, royalSeg } from './regime';
+import { Issue, REFORM_RESTORE } from './councilRules';
 
 // ---- 调参 ----
 // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
@@ -108,6 +110,8 @@ const U_PRINCE_REAR = 24;
 const K_GENERAL = 1;
 /** keyed4 最后一位:作者的将领(任将,只挑"前后左右"将军) */
 const K_AUTHOR = 7;
+/** 起姓的第二位:改出来的共和那几段的执政(东方中式,各有各的姓) */
+const K_CONSUL_SUR = 9;
 
 const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
@@ -127,7 +131,7 @@ interface PolityFacts {
   /** 灭亡(fall,a = 本国)/ 并入(merge,b = 本国) */
   fall?: Annal;
   merge?: Annal;
-  /** 改朝换代的史事(按先后,对应 dynasties[1..]) */
+  /** 改朝换代、改制开一段的史事(按先后,对应 dynasties[1..];改制的见 regime.ts 的 opensSeg) */
   dynasty: Annal[];
   /** 战争里得失的州(年份、+1 得 / −1 失)、国都失守的年份 */
   swings: { year: Year; d: number }[];
@@ -144,7 +148,7 @@ function factsOf(civ: PeopleInput): PolityFacts[] {
     } else if (e.kind === 'merge') {
       const f = at(e.b);
       if (f && !f.merge) f.merge = e;
-    } else if (e.kind === 'dynasty') at(e.a)?.dynasty.push(e);
+    } else if (e.kind === 'dynasty' || opensSeg(e)) at(e.a)?.dynasty.push(e);
     else if (e.kind === 'conquer' && e.war >= 0) {
       at(e.a)?.swings.push({ year: e.year, d: 1 });
       at(e.b)?.swings.push({ year: e.year, d: -1 });
@@ -345,12 +349,13 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   const byK: Map<number, Person>[] = polities.map(() => new Map());
   /** 国家 → 各朝的姓(东方中式;名臣篡位开的新朝照它给他起名) */
   const surnames: string[][] = polities.map(() => []);
+  /** 复辟时自立为君的执政 / 将军:新朝第一位 → 做执政时的那一份(同一个人;性别、名字照那一份) */
+  const selfOf = new Map<Person, Person>();
 
   for (const p of polities) {
     const f = facts[p.id];
     const R = (k: number, use: number) => keyed4(base, tag[p.id], k, use, K_RULER);
     const namer = namerOf(styleOf(p));
-    const republic = p.lineage === 'republic';
     const segs = p.dynasties?.length ? p.dynasties : [{ year: p.founded, name: p.name, seat: p.capital }];
     const end = p.ended ?? endYear;
     const list = rulers[p.id];
@@ -362,12 +367,16 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       const segStart = i === 0 ? p.founded : segs[i].year;
       const last = i + 1 >= segs.length;
       const segEnd = last ? end : segs[i + 1].year;
+      // 改制开的共和、军政府那几段:执政(有任期、不立储)
+      const republic = !royalSeg(p, i);
+      // 复辟迎回旧王室的那一段:沿用旧王室的姓
+      const house = (segs[i] as { house?: number }).house;
       // 这一朝的第一位怎么上台的;东方中式的姓(新朝换姓,复国沿用故国末代的姓)
       let rise: RulerRise = 'found';
       if (i > 0) {
         const d = f.dynasty[i - 1];
         const old = settlements[capitalAt(p, segStart - 1 / (2 * TICK))];
-        rise = d && old && d.region === old.region ? 'usurp' : 'rise';
+        rise = d && d.kind !== 'dynasty' ? 'reform' : d && old && d.region === old.region ? 'usurp' : 'rise';
       } else if (p.restores !== undefined) rise = 'restore';
       else if (p.parent !== undefined) rise = 'rebel';
       const pool: string[] = [];
@@ -381,7 +390,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         surname = '';
         if (heirOf && namerOf(styleOf(fallen!)).surnamed) surname = splitSurname(heirOf.name);
         if (sire && namerOf(styleOf(polities[sire.polity])).surnamed) surname = splitSurname(sire.name);
-        for (let t = 0; !surname || (surname === prev && t < 20); t++) surname = namer.surname(tag[p.id], 0, i, t);
+        if (house !== undefined) surname = surnames[p.id][house] ?? '';
+        // 迎回的旧王室照它原来的姓(和上一段撞了也不换)
+        for (let t = 0; !surname || (house === undefined && surname === prev && t < 20); t++) surname = namer.surname(tag[p.id], 0, i, t);
       }
       surnames[p.id][i] = surname;
       const usedGiven = new Set<string>();
@@ -419,8 +430,13 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         }
         const born = q(from - r.age);
         const person: Person = { id: -1, role: 'ruler', polity: p.id, name: '', born, from, dynasty: i, rise: j === 0 ? rise : 'heir', leanings: { ...r.leanings } };
-        // 名字
-        person.name = rulerName(namer, tag[p.id], k, j, surname, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], list[list.length - 1]?.name);
+        // 名字;改出来的共和那几段的执政各有各的姓(东方中式),复辟时自立为君的执政 / 将军(生年和上一位一样)还是他
+        const before = list[list.length - 1];
+        const self = j === 0 && rise === 'reform' && !republic && house === undefined && before && before.born === born ? before : undefined;
+        const sur = republic && namer.surnamed && p.lineage !== 'republic' ? namer.surname(tag[p.id], K_CONSUL_SUR, k, 0) : surname;
+        person.name = self ? self.name : rulerName(namer, tag[p.id], k, j, sur, usedGiven, pool, R, republic, heirOf && pools[fallen!.id], before?.name);
+        if (self) selfOf.set(person, self);
+        if (self && namer.surnamed) surnames[p.id][i] = surname = splitSurname(self.name);
         list.push(person);
         reignOf.set(person, r);
         byK[p.id].set(k, person);
@@ -458,7 +474,9 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
           // 下一朝是篡位(根据地就是此刻的国都)还是起兵代之(和下一朝第一位的 rise 同一个判据)
           const d = f.dynasty[i];
           const old = settlements[capitalAt(p, segEnd - 1 / (2 * TICK))];
-          fate = d && old && d.region === old.region ? 'deposed' : 'overthrown';
+          // 改制:被废(废君、革命、政变、迎回旧王室);军政府还政、执政自立为君的照卸任算
+          if (d && d.kind !== 'dynasty') fate = (d.kind === 'council' && d.war === Issue.Return) || (d.kind === 'reform' && d.n === REFORM_RESTORE && d.b < 0) ? 'retired' : 'deposed';
+          else fate = d && old && d.region === old.region ? 'deposed' : 'overthrown';
         } else if (f.merge && (!f.fall || f.merge.year <= f.fall.year)) fate = 'merged';
         else if (f.fall && f.fall.b >= 0 && !fledTo.has(p.id)) fate = fallFate(base, tag[p.id], r);
         else fate = 'fled';
@@ -685,7 +703,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
         const ls = leaningsOf(ruler, t);
         const lead = (seg ? policyEffect(ls, seg.v) : leaningEffect(ls)).lead;
         // 有人掌着实权的那几年,名义君主不亲征
-        if (free && P.lineage !== 'republic' && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && !held(pid, t) && wr(x * 2 + s, U_LEAD) < LEAD * lead) {
+        if (free && royalSeg(P, ruler.dynasty ?? 0) && age >= LEAD_AGE[0] && age <= LEAD_AGE[1] && !held(pid, t) && wr(x * 2 + s, U_LEAD) < LEAD * lead) {
           cur[s] = { p: ruler, careerEnd: ruler.until ?? Infinity, cmd: command(ruler), general: false };
           busyRuler.set(ruler, Infinity);
           return;
@@ -1409,6 +1427,11 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     }
   }
   const women = pickWomen(number(), wctx, keepMale);
+  // 自立为君的执政 / 将军和做执政时是同一个人:男女照那一份
+  for (const [K, C] of selfOf) {
+    if (women.has(C)) women.add(K);
+    else women.delete(K);
+  }
 
   // ---- 后妃(consorts.ts)的后一半:嫁来的宗室女(娶亲的是男的才有)、太后,收进人物、排编号 ----
   /** 收进来的后妃 → 起名用的姓、身份 */
@@ -1496,6 +1519,13 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   }
   // 起女名(women.ts):换成女的人只换性别、名字、字,西幻同名女王另编序数;后妃一起按出道先后起
   nameWomen(out, wctx, new Set([...women, ...dowagerF.values()]), consortNames);
+  // 自立为君的执政 / 将军:名字照做执政时的那一份(起女名、改撞名以后)
+  for (const [K, C] of selfOf) {
+    K.name = C.name;
+    // 同一个人:做执政那一份卸任的那一刻就是做君主的那一刻,卒年照做君主那一份
+    if (K.died !== undefined) C.died = K.died;
+    else delete C.died;
+  }
   return { people: out, ids, usurped: [...usurpers.values()] };
 }
 
@@ -1604,8 +1634,10 @@ function rulerName(
 }
 
 /** 定称号(去世以后才有;见文件头) */
-function titleRulers(p: Polity, list: Person[], f: PolityFacts, base: number, tag: number): void {
+function titleRulers(p: Polity, all: Person[], f: PolityFacts, base: number, tag: number): void {
   const T = (k: number, use: number) => keyed4(base, tag, k, use, K_RULER);
+  // 改制开的共和、军政府那几段的执政没有称号、序数(不和君主一起排)
+  const list = p.dynasties?.some((d) => d.regime) ? all.filter((r) => !reformedSeg(p, r.dynasty ?? 0)) : all;
   // 作者立的君主没有称号(名字也是人物卡上的,不和别的君主编序数),别的君主照旧排
   if (!p.eastern) {
     // 西幻:同名的国王编序数(在位的也编);帝国里开疆最多的一位称大帝

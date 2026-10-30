@@ -4,6 +4,8 @@
  */
 import type { Civ } from './types';
 import { polityName } from './growth';
+import { opensSeg } from './regime';
+import { Issue } from './councilRules';
 import { DE, LAYOUT_NAME, MARK_NAME, MARK_NOTE, SYM_NAME, TINCT, deOf, isEastern, type FlagBook, type FlagEra, type FlagSpec, type Seat, type Tinct } from './flags';
 
 /** 一行:左边是什么(带色块的是颜色),右边什么意思 */
@@ -67,6 +69,37 @@ export function flagRows(civ: Civ, book: FlagBook, id: number, e: FlagEra): Flag
   const derived = e.how === 'derived';
   const parentName = w.parent !== undefined ? nameAt(civ, w.parent, p.founded) : '';
 
+  // 改制(flags.ts 的 FlagWhy.reform)
+  const prior = w.prior !== undefined ? book.eras[id]?.[w.prior] : undefined;
+  if (w.reform && prior && (w.reform === 'keep' || w.reform === 'restore')) {
+    const rows = flagRows(civ, book, id, prior);
+    // 复辟:用回改制那一年(这一面之后的第一段共和)以前的那面
+    const since = book.eras[id]?.[w.prior! + 1]?.year ?? e.year;
+    return w.reform === 'restore' ? [{ k: '复辟', v: `用回 ${yearWord(since)}以前的那面旗（${formerName(civ, id, since)}时的旗）` }, ...rows] : rows;
+  }
+  if (w.reform === 'republic' && prior) {
+    const y = yearWord(e.year);
+    if (isEastern(s)) {
+      const de = deOf(s.c[0]);
+      const rows: FlagRow[] = [{ k: '底色', v: `${de >= 0 ? `${tName(s.c[0])}，${DE[de]}德` : colorWord(s.c[0])}（沿用改制前这一朝的${de >= 0 ? '德' : '颜色'}）`, sw: [s.c[0]] }];
+      if (s.mark) rows.push({ k: MARK_NAME[s.mark], v: `${colorWord(s.edge ?? 'Y')}，${prior.spec.mark === s.mark ? '沿用改制前的纹样' : '共和以后神兽换成纹样'}` });
+      if (s.shape === 'rect' && prior.spec.shape === 'banner') rows.push({ k: '方旗', v: '去掉犬牙边：牙旗是军旗、将旗，共和以后不用' });
+      if (s.trim) rows.push({ k: '镶边', v: `${colorWord(s.trim)}，沿用改制前那面旗的镶边` });
+      return rows;
+    }
+    const rows: FlagRow[] = [{ k: '颜色', v: `${joinNames(s.c)}，${cu}人的颜色（${formerName(civ, id, e.year, true)}时就是这${NUM[Math.min(3, uniq(prior.spec.c).length)] || '几'}色）`, sw: uniq(s.c).slice(0, 3) }];
+    rows.push({ k: LAYOUT_NAME[s.layout], v: `共和国常用的样式（${y}改共和时换的，以前是${LAYOUT_NAME[prior.spec.layout]}）` });
+    if (s.charge) {
+      // 留着的图案照改制前那面讲(王室兴起的城);王冠、剑这类换掉的照国都讲
+      const kept = prior.spec.charge?.sym === s.charge.sym;
+      const v = kept
+        ? `${seatText(civ, prior, `${dynName(civ, id, prior.dyn)}王室`)}（城的图案改共和时留着）`
+        : `国都${civ.settlements[w.city]?.name ?? ''}是一座${SEAT_WORD[w.seat]}（王室的图案改共和时拿掉了，换成这座城的）`;
+      rows.push({ k: SYM_NAME[s.charge.sym], v });
+    }
+    return rows;
+  }
+
   if (w.restores !== undefined && e.dyn === 0) {
     const old = book.eras[w.restores];
     const last = old?.[old.length - 1];
@@ -120,6 +153,7 @@ export function flagRows(civ: Civ, book: FlagBook, id: number, e: FlagEra): Flag
   let layout: string;
   if (derived) layout = '照你改过的那面旗';
   else if (split) layout = `沿用${from}的样式`;
+  else if (w.reform === 'crown') layout = '沿用共和时的样式';
   else layout = p.lineage === 'republic' ? '共和国常用条纹、竖条、十字' : `${cu}人的国家常用的样式`;
   rows.push({ k: LAYOUT_NAME[s.layout], v: layout });
   if (s.mullet && s.mullets) {
@@ -150,10 +184,48 @@ function editedRows(s: FlagSpec): FlagRow[] {
   return rows;
 }
 
-/** 底下那句:这面旗怎么来的 */
-export function flagNote(e: FlagEra): string {
+/** "2794 年" */
+const yearWord = (y: number) => `${Math.floor(y)} 年`;
+
+/** 改制以前的国号(year 那一刻以前):西幻 short = 只要国号("王国"),东方写全称("大靖王朝") */
+function formerName(civ: Civ, id: number, year: number, short = false): string {
+  const p = civ.polities[id];
+  const n = polityName(p, year - 1 / 512);
+  return short && !p.eastern && n.startsWith(p.name) && n.length > p.name.length ? n.slice(p.name.length) : n;
+}
+
+/** 那一刻开这一段的是哪一种改制:废君、革命、政变、还政、复辟(找不到 = '') */
+function reformWord(civ: Civ, id: number, year: number): string {
+  const p = civ.polities[id];
+  for (const a of civ.annals) {
+    if (a.year > year) break;
+    if (a.year !== year || a.a !== id || !opensSeg(a)) continue;
+    if (a.kind === 'council') return a.war === Issue.Return ? '还政' : p.eastern ? '罢帝号、立共和' : p.lineage === 'khanate' ? '废汗立共和' : '废王立共和';
+    return a.n === 0 ? '革命立共和' : a.n === 1 ? '政变' : '复辟';
+  }
+  return '';
+}
+
+/**
+ * 底下那句:这面旗怎么来的。给了 civ、book、id 时改制那几面写哪年、怎么改的(不给 = 只写规矩)
+ */
+export function flagNote(e: FlagEra, civ?: Civ, book?: FlagBook, id?: number): string {
   if (e.how === 'edited') return '你改过这面旗，之后的朝代照它往下配。';
   if (e.how === 'derived') return '照你改过的那面旗往下配的。';
+  const w = e.why;
+  if (w.reform) {
+    const how = civ && id !== undefined ? reformWord(civ, id, e.year) : '改制';
+    const head = `按这一国的历史自动配的：${yearWord(e.year)}${how}，`;
+    if (w.reform === 'keep') return `${head}君主没变，旗不换。`;
+    if (w.reform === 'restore') return `${head}迎回旧王室，用回改制以前那面旗。`;
+    if (w.reform === 'crown') return `${head}旧王室已经没人了，拥立的人自己做君主，当成换了一朝：${isEastern(e.spec) ? '方旗改回牙旗，按五德相生往下推一德，换一只神兽。' : '共和时的颜色、样式留着，图案换成新王室的。'}`;
+    const prior = w.prior !== undefined && id !== undefined ? book?.eras[id]?.[w.prior] : undefined;
+    if (isEastern(e.spec)) {
+      const was = prior?.spec.mark && e.spec.mark && prior.spec.mark !== e.spec.mark ? `${MARK_NAME[prior.spec.mark]}换成${MARK_NAME[e.spec.mark]}` : '图案照旧';
+      return `${head}底色沿用，牙旗改方旗，${was}。`;
+    }
+    return `${head}颜色和国都的图案留着，样式换成共和国常用的；王冠、剑这类王室的图案会拿掉。`;
+  }
   if (isEastern(e.spec)) return '按这一国的历史自动配的：换朝代时，按五德相生换底色，中间换成新王室兴起那座城的神兽或纹样。';
   if (e.spec.charge?.sym === 'tamga') return '按这一国的历史自动配的：换一家部族掌权时换烙印，颜色和样式不变。';
   return '按这一国的历史自动配的：换王室时换图案，颜色和样式不变。';

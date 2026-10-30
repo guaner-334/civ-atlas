@@ -31,6 +31,7 @@ import { fpow, keyed4, subSeed } from './rand';
 import { MAX_AGE, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep, type LeaningEffect, type Reign } from './rulers';
 import { POSTHUMOUS, broodOf } from './royals';
 import { polityTierAt } from './growth';
+import { royalSeg, segLineage } from './regime';
 
 // ---- 调参(推荐值,按 20 个种子的统计调,见 scripts/gen-stats.ts) ----
 /**
@@ -223,7 +224,7 @@ export interface LatePlan {
 /** 君主 r(国家 pid)晚年的候选,按时刻(同一刻引兵入朝在前);没有 = 空 */
 export function latePlans(cx: RegencyCtx, pid: number, r: Reign): LatePlan[] {
   const P = cx.polities[pid];
-  if (!P || P.lineage === 'republic' || r.crown || !(r.natural < Infinity)) return [];
+  if (!P || !royalSeg(P, r.dynasty) || r.crown || !(r.natural < Infinity)) return [];
   const R = (use: number) => rnd(cx, pid, r.k * 16, use, K_REIGN);
   const march = R(U_MARCH) < MARCH_P;
   const heir = R(U_HEIR) < HEIR_P;
@@ -234,7 +235,7 @@ export function latePlans(cx: RegencyCtx, pid: number, r: Reign): LatePlan[] {
   const fb = reignBorn(r);
   const from = reignStart(r);
   let lean: RulerLeanings | null = null;
-  const heirLean = () => (lean ??= reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, P.lineage, P.kind).leanings);
+  const heirLean = () => (lean ??= reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
   const out: LatePlan[] = [];
   if (march) {
     const t = q(r.natural - lerp(MARCH_LEAD, R(U_MARCH_T)));
@@ -268,12 +269,12 @@ const childEnd = (u: number, born: Year, stop: Year): RegencyOutcome =>
  */
 export function childPlan(cx: RegencyCtx, pid: number, r: Reign, marched: (k: number) => boolean): ChildPlan | null {
   const P = cx.polities[pid];
-  if (!P || P.lineage === 'republic' || r.crown || r.seize || r.j === 0 || !(r.age < YOUNG)) return null;
+  if (!P || !royalSeg(P, r.dynasty) || r.crown || r.seize || r.j === 0 || !(r.age < YOUNG)) return null;
   const t = reignStart(r);
   const key = r.k * 16 + 1;
   const R = (use: number) => rnd(cx, pid, key, use, K_REIGN);
   const adult = q(reignBorn(r) + ADULT);
-  const leanings = () => drawLeanings((use) => rnd(cx, pid, key, use, K_LEAN), P.lineage, P.kind);
+  const leanings = () => drawLeanings((use) => rnd(cx, pid, key, use, K_LEAN), segLineage(P, r.dynasty), P.kind);
   // 叔父:先君的兄弟(先君是他父亲的预定继承人、接着即位的),成年、在世、没据地自立,挑最年长的
   const list = cx.book(pid, t);
   const prev = list[r.k - 1];
@@ -417,7 +418,7 @@ export function ivRegency(cx: RegencyCtx, pid: number, v: RegentIv, iv: number, 
   if (v.how === 'march' || v.how === 'heir') {
     const hb = broodOf(cx.rbase, cx.tag[pid], r, P).heir;
     if (hb === undefined || Math.round(hb) !== who.born) return null;
-    const rest = tail(hb, reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, P.lineage, P.kind).leanings);
+    const rest = tail(hb, reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
     return rest && { ...base, ...rest };
   }
   const lean = v.leanings ?? { expand: 50, war: 50, develop: 50, trade: 50 };

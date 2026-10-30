@@ -46,6 +46,7 @@ import type { Intervention } from '../edits';
 
 export type { RulerLeanings };
 import { anchorTag, fexp, fpow, keyed4, subSeed } from './rand';
+import { segLineage } from './regime';
 
 // ---- 调参 ----
 /** 开国之君、新朝之君即位的年纪(随机) */
@@ -158,6 +159,11 @@ export function rulerTags(polities: readonly Pick<Polity, 'capital'>[], cellOf: 
 /** 一国的君主要用到的国家字段 */
 export type ReignPolity = Pick<Polity, 'founded' | 'dynasties' | 'lineage' | 'kind' | 'prince' | 'seizes'>;
 
+/** 军政府那一段的执政(将军)倾向偏移:好战、开拓偏高(加在共和一系的偏移上) */
+export const JUNTA_SHIFT: Partial<RulerLeanings> = { war: 15, expand: 5, develop: -10 };
+/** 改出来的共和国的执政:开战要议事会点头,比海洋城邦共和一系还少开战(加在共和一系的偏移上) */
+export const COMMONWEALTH_SHIFT: Partial<RulerLeanings> = { war: -10 };
+
 /**
  * 第 k 位君主(这一朝第 j 位)从 from 年即位:即位的年纪、不被打断时在位到哪年、倾向。
  * born = 生年已经定了的开国之君(宗室争位、据地自立的那位,Polity.prince):即位的年纪照它算
@@ -171,20 +177,22 @@ export function reignStep(
   lineage: PolityLineage | undefined,
   kind: CultureKind,
   born?: Year,
+  shift?: Partial<RulerLeanings>,
 ): { age: number; natural: Year; leanings: RulerLeanings } {
   const R = (use: number) => keyed4(base, tag, k, use, K_RULER);
   const republic = lineage === 'republic';
   let A: number;
   let L: number;
   if (republic) {
-    A = lerp(CONSUL_AGE, R(U_AGE));
+    // 生年定了的(改制开的那一段的第一位:政变的将军、革命起兵的人)照它算
+    A = born !== undefined ? from - born : lerp(CONSUL_AGE, R(U_AGE));
     L = lerp(TERM, R(U_REIGN));
   } else {
     A = born !== undefined ? from - born : j === 0 ? lerp(FOUNDER_AGE, R(U_AGE)) : HEIR_AGE[0] + (HEIR_AGE[1] - HEIR_AGE[0]) * fpow(R(U_AGE), HEIR_EXP);
     L = 1 + REIGN_MAX * fpow(R(U_REIGN), REIGN_EXP);
   }
   if (A + L > MAX_AGE) L = Math.max(1, MAX_AGE - A);
-  return { age: A, natural: q(from + L), leanings: drawLeanings(R, lineage, kind) };
+  return { age: A, natural: q(from + L), leanings: drawLeanings(R, lineage, kind, shift) };
 }
 
 /**
@@ -426,7 +434,10 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
   /** 寻常的第 k 位(这一朝第 j 位)从 from 即位;掌实权的名臣、大臣篡位开的朝(Polity.dynasties 的 usurper),第一位照他的生年、倾向 */
   const regular = (k: number, dynasty: number, j: number, from: Year): Reign => {
     const u = j === 0 && dynasty > 0 ? segs?.[dynasty]?.usurper : undefined;
-    const s = reignStep(base, tag, k, j, from, p.lineage, p.kind, u ? u.born : k === 0 ? p.prince : undefined);
+    // 改制开的共和、军政府那几段照共和一系排(执政有任期);军政府的执政好战
+    const regime = segs?.[dynasty]?.regime;
+    const shift = regime === 'junta' ? JUNTA_SHIFT : regime === 'republic' && p.lineage !== 'republic' ? COMMONWEALTH_SHIFT : undefined;
+    const s = reignStep(base, tag, k, j, from, segLineage(p, dynasty), p.kind, u ? u.born : k === 0 ? p.prince : undefined, shift);
     const leanings = u ? { ...u.leanings } : s.leanings;
     return { k, dynasty, j, from, age: s.age, natural: s.natural, leanings, eff: leaningEffect(leanings) };
   };
@@ -449,7 +460,7 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
     j,
     from,
     age: from - c.born,
-    natural: crownNatural(base, tag, k, from, c, p.lineage),
+    natural: crownNatural(base, tag, k, from, c, segLineage(p, dynasty)),
     leanings: c.leanings,
     eff: leaningEffect(c.leanings),
     crown: c,

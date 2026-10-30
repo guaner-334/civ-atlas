@@ -35,6 +35,7 @@ import { splitSurname } from './peopleText';
 import { broodOf, type Son } from './royals';
 import { leaningEffect, reignBorn, reignStep, type Reign } from './rulers';
 import type { Person, Polity, Year } from './types';
+import { royalSeg, segLineage } from './regime';
 
 // ---- 调参 ----
 /** 女君亲生的孩子要生在她这个岁数之间 */
@@ -181,7 +182,7 @@ export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: Re
     if (!r || r.crown || !P) return true;
     const ok = (b: Year) => b - x.born >= FERTILE[0] && b - x.born <= FERTILE[1] && b <= r.natural;
     if (!broodYears(r, x.polity).every((c) => ok(c.born))) return false;
-    const hb = r.natural - reignStep(ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, P.lineage, P.kind).age;
+    const hb = r.natural - reignStep(ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).age;
     if (hb - x.born < BRIDGE_GAP) return true;
     const lo = Math.max(x.born + GEN_AGE[0], hb - GEN_AGE[1]);
     const hi = Math.min(r.natural + POSTHUMOUS, hb - GEN_AGE[0]);
@@ -212,7 +213,7 @@ export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: Re
     const r = ctx.reignOf.get(s.father);
     const P = polities[s.father.polity];
     if (!r || !P) return undefined;
-    const st = reignStep(ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, P.lineage, P.kind);
+    const st = reignStep(ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind);
     const next: Reign = { k: r.k + 1, dynasty: r.dynasty, j: r.j + 1, from: r.natural, age: st.age, natural: st.natural, leanings: st.leanings, eff: leaningEffect(st.leanings) };
     return same(reignBorn(next), s.p.born) ? next : undefined;
   };
@@ -226,7 +227,7 @@ export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: Re
       continue;
     }
     const P = polities[x.polity];
-    if (x.role === 'ruler' && P?.lineage === 'republic') {
+    if (x.role === 'ruler' && P && !royalSeg(P, x.dynasty ?? 0)) {
       if (u < RATES[g].consul) women.add(x);
       continue;
     }
@@ -294,7 +295,7 @@ export function nameWomen(people: Person[], ctx: WomenCtx, women: ReadonlySet<Pe
     let name = '';
     const son = sonOf.get(x);
     // 西幻世袭的君主、预定即位的公主:有机会沿用本朝女王的名字(上一位的除外)。按出道时的身份定(别的公主后来争位、自立当了女王也不改名)
-    const queen = !cn && namer.family === 'western' && P.lineage !== 'republic' && !exMinister.has(x) && (son ? son.heirAt !== undefined : x.role === 'ruler');
+    const queen = !cn && namer.family === 'western' && royalSeg(P, x.dynasty ?? 0) && !exMinister.has(x) && (son ? son.heirAt !== undefined : x.role === 'ruler');
     const qk = `${pid}:${x.dynasty ?? 0}`;
     if (queen) {
       const list = reigns[x.polity];

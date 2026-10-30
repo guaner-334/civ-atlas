@@ -18,6 +18,7 @@ import { heOrShe, kinWord, spouseWord } from './gender';
 import { brideMatchOf, heldOver, polityShort } from './regentInfo';
 import { cnNumber } from './chronicle';
 import { yearAt, yearShort, yearSpanAt, type Era } from '../era';
+import { royalSeg } from './regime';
 
 interface LineageIndex {
   /** 人物编号 → 子嗣(按出生先后) */
@@ -90,7 +91,7 @@ export function childrenOf(civ: Civ, x: Person): Person[] {
 /** 这国有没有世系图:不是共和国、有君主 */
 export function hasLineage(civ: Civ, polity: number): boolean {
   const p = civ.polities[polity];
-  return !!p && p.lineage !== 'republic' && (peopleIndex(civ).rulers[polity]?.length ?? 0) > 0;
+  return !!p && p.lineage !== 'republic' && (peopleIndex(civ).rulers[polity] ?? []).some((x) => royalSeg(p, x.dynasty ?? 0));
 }
 
 /** 一国的一朝(只列有君主的) */
@@ -114,6 +115,8 @@ export function dynastyRows(civ: Civ, polity: number): DynastyRow[] {
   const by = new Map<number, Person[]>();
   for (const r of peopleIndex(civ).rulers[polity] ?? []) {
     const d = r.dynasty ?? 0;
+    // 改制开的共和、军政府那几段不算一朝
+    if (!royalSeg(p, d)) continue;
     if (!by.has(d)) by.set(d, []);
     by.get(d)!.push(r);
   }
@@ -158,6 +161,8 @@ export function dynastyEnd(civ: Civ, rows: readonly DynastyRow[], i: number, era
   if (!row || row.to === undefined) return '';
   const p = civ.polities[row.rulers[0].polity];
   const y = yearAt(row.to, era);
+  // 下一段是改制开的共和、军政府:写改了国号
+  if (p.dynasties?.[row.index + 1]?.regime) return `${y}，改称${polityName(p, row.to)}`;
   const next = rows[i + 1];
   if (!next) return `${y}，${polityName(p, row.to - 1 / 512)}亡`;
   const nu = next.rulers[0];

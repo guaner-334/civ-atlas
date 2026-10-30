@@ -73,6 +73,7 @@ import { calamityRates } from './calamity';
 import type { UnrestRuleConsts } from './stateTables';
 import { claimants, murderedAt } from './royals';
 import { anySlump, inSlump, pandemicModelOf } from './pandemicState';
+import { royalSeg } from './regime';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
@@ -346,7 +347,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const P = pm.polities[pid];
     const R = list[k - 1];
     const X = list[k];
-    if (P.ended !== undefined || P.lineage === 'republic' || pm.size[pid] < CLAIM_STATE) return;
+    if (P.ended !== undefined || !royalSeg(P, X.dynasty) || pm.size[pid] < CLAIM_STATE) return;
     // 先君寿终、同一朝里交接(遇弑的由名臣迎立新君;作者立的、作者让他去世的不算)
     if (R.crown || X.crown || R.death || R.cut !== undefined || R.natural !== t || R.dynasty !== X.dynasty || X.j === 0) return;
     if (murderedAt(pm.rbase, pm.rtag[pid], R.k)) return;

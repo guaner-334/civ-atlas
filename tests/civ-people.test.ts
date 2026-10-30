@@ -13,6 +13,7 @@ import { buildChronicle, filterChronicle, mergeChronicle, polityChronicle, reign
 import { kinOf, rulerRef, rulerTitle } from '../src/gen/civ/peopleText';
 import { regionLabel } from '../src/gen/civ/display';
 import { polityKey } from '../src/gen/edits';
+import { royalSeg } from '../src/gen/civ/regime';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -307,7 +308,7 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
       }
     }
     // 君主国继位的君主几乎都连得上父亲(连不上的是宗室远支,很少)
-    const heirs = P.filter((x) => x.role === 'ruler' && x.rise === 'heir' && civ.polities[x.polity].lineage !== 'republic');
+    const heirs = P.filter((x) => x.role === 'ruler' && x.rise === 'heir' && royalSeg(civ.polities[x.polity], x.dynasty ?? 0));
     expect(linked).toBeGreaterThan(heirs.length);
     expect(heirs.filter((x) => x.parent === undefined).length).toBeLessThan(heirs.length / 50);
     // 共和国的执政官没有父亲(复国的那一位接上故国王室的除外);将领的父辈只会是将领(将门)
@@ -354,7 +355,7 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
     const after = (s: string) => new RegExp(`;([^;,]*(迎立|拥立))?(${s})`);
     for (const e of reigns) {
       const x = P[e.id - civ.annals.length];
-      if (civ.polities[x.polity].lineage === 'republic') continue;
+      if (!royalSeg(civ.polities[x.polity], x.dynasty ?? 0)) continue;
       const prev = P[e.people![0]];
       const k = kinOf(civ, prev, x);
       if (!k) {

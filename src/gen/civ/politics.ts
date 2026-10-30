@@ -456,8 +456,8 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     return p;
   };
   pol.secede = (parent, group, sid, rising, t, kind, cause, extra) => {
-    // 新国都是某个同族亡国的故都:这一次起兵就是复国(宗室据地争位的不算)
-    const f = kind === 'split' && cause !== 'heir' ? heirOf(sid, t) : null;
+    // 新国都是某个同族亡国的故都:这一次起兵就是复国(宗室据地争位、革命据地自立的不算)
+    const f = kind === 'split' && cause !== 'heir' && cause !== 'revolution' ? heirOf(sid, t) : null;
     const p = secede(parent, group, sid, rising, t, f ? { restores: f.id, lineage: f.lineage } : (extra ?? {}), kind, cause);
     if (f) pol.restored.add(f.id);
     return p;

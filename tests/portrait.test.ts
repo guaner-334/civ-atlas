@@ -8,6 +8,7 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { characterPortrait, personPortrait, polityGroup, portraitLayers, portraitMood, STYLE_GROUP, type Portrait } from '../src/gen/portrait';
 import { PORTRAIT_PARTS } from '../src/gen/portraitParts';
+import { royalSeg } from '../src/gen/civ/regime';
 
 const civs = new Map<number, Civ>();
 /** 男的(女性的部件还没画,没有头像) */
@@ -67,7 +68,7 @@ describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
       const clothes = layerOf(p, 'clothes');
       expect(clothes.length).toBe(1);
       const roles = P.find((q) => q.id === clothes[0])!.roles!;
-      const want = x.role === 'general' ? 'general' : x.role === 'minister' ? 'minister' : x.role === 'prince' ? 'royal' : civ.polities[x.polity].lineage === 'republic' ? 'consul' : 'ruler';
+      const want = x.role === 'general' ? 'general' : x.role === 'minister' ? 'minister' : x.role === 'prince' ? 'royal' : !royalSeg(civ.polities[x.polity], x.dynasty ?? 0) ? 'consul' : 'ruler';
       expect(roles).toContain(want);
       const hat = layerOf(p, 'hat')[0];
       if (hat && part(p, hat).hides) expect(layerOf(p, 'hair')).toEqual([]);

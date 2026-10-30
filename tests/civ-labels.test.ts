@@ -29,6 +29,7 @@ import { cultureLabel } from '../src/gen/civ/display';
 import { eraCiv, erasAt } from '../src/render/civ/era';
 import { glyphBox } from '../src/render/labels/layout';
 import { NAME_MIN_ZOOM, SYMBOL_MIN_ZOOM } from '../src/render/labels/settlements';
+import { hasReform, reformedSeg } from '../src/gen/civ/regime';
 
 interface Case {
   world: World;
@@ -120,11 +121,12 @@ describe('东方语感的中式国号', () => {
       // 历朝的国号(阶段 3 王朝更替)都算
       for (const p of eastern) {
         for (const t of polityAllTitles(p)) {
-          expect(t, p.name).not.toMatch(/王国|帝国|共和国|城邦/);
+          // 改制以后的共和国写"大靖共和国""景辰共和国"(东方也是共和国,不加别的翻译腔)
+          expect(t, p.name).not.toMatch(hasReform(p) ? /王国|帝国|城邦/ : /王国|帝国|共和国|城邦/);
           expect(t).not.toContain('大大');
         }
       }
-      for (const p of western) expect(polityTitles(p)).toEqual(POLITY_FORMS[p.lineage ?? 'realm'].map((f) => p.name + f));
+      for (const p of western) if (!reformedSeg(p, 0)) expect(polityTitles(p)).toEqual(POLITY_FORMS[p.lineage ?? 'realm'].map((f) => p.name + f));
       // 两个国家的国号(任何一档的全称、简称,历朝的都算)不会撞("昌"升格成"大昌"时,不会有另一个叫"大昌"的国家)
       const owner = new Map<string, number>();
       for (const p of civ.polities) {
@@ -138,7 +140,8 @@ describe('东方语感的中式国号', () => {
       for (const p of civ.polities) {
         const years = [p.founded, ...(p.dynasties ?? []).map((d) => d.year)];
         for (const y of years) {
-          const root = polityRoots(p).find((r) => polityTitles(p, y)[0].startsWith(r))!;
+          // 改制以后的共和国:单字国名留着"大"("大靖共和国")
+          const root = polityRoots(p).find((r) => polityTitles(p, y)[0].startsWith(r) || polityTitles(p, y)[0].startsWith(`大${r}`))!;
           expect(root, `${p.name} 第 ${y} 年`).toBeDefined();
           for (let tier = 0; tier < 4; tier++) {
             const s = polityShortTitle(p, tier, y);

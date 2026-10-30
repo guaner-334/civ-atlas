@@ -14,6 +14,7 @@ import { BAND, mergeChains, traceChains, borderLines, type SidedLine } from '../
 import { labelImage, pixelRegions } from '../src/render/civ/territory';
 import type { CivDrawParams, CivShow } from '../src/render/civ/overlay';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
+import { hasReform } from '../src/gen/civ/regime';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -307,6 +308,7 @@ describe('城市成长 + 国家', () => {
           'exile',
           'trek',
           'winter',
+          'reform',
         ]).toContain(e.kind);
       }
     }
@@ -363,7 +365,8 @@ describe('城市成长 + 国家', () => {
       if (p.ended === undefined) expect(tier).toBeGreaterThanOrEqual(tierOf(n));
       else expect(n).toBe(0);
       expect(polityName(p, civ.endYear)).toBe(polityTitles(p, civ.endYear)[tier]);
-      if (!p.eastern) expect(polityName(p, civ.endYear)).toBe(p.name + POLITY_FORMS[p.lineage!][tier]);
+      // 改制以后的共和国不分档,写"某共和国"(见 civ-reform.test.ts)
+      if (!p.eastern && !hasReform(p)) expect(polityName(p, civ.endYear)).toBe(p.name + POLITY_FORMS[p.lineage!][tier]);
       if (tier === 3) empires++;
       if (p.kind === 'nomad') expect(p.lineage).toBe('khanate');
     }

@@ -23,6 +23,7 @@ import {
 import { kinOf, personName, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../src/gen/civ/peopleText';
 import { searchCiv } from '../src/ui/searchIndex';
 import { mapTarget, personKey, resolvePersonKey, selectionKey } from '../src/ui/flyTo';
+import { royalSeg } from '../src/gen/civ/regime';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {
@@ -81,7 +82,7 @@ describe.each([7, 2024])('人物页 · seed=%i', (seed) => {
         // 同一朝的上一位传给他:编年史那一条写"其弟 / 其孙 / 其侄 / 太子 / 其子……",人物页写"继兄 / 继祖父 / 继叔父……某某即位"
         if (prev && x.rise === 'heir') {
           const e = reigns.find((r) => r.people?.[0] === prev.id && r.people?.[1] === x.id);
-          if (!e || civ.polities[x.polity].lineage === 'republic') continue;
+          if (!e || !royalSeg(civ.polities[x.polity], x.dynasty ?? 0)) continue;
           const k = kinOf(civ, prev, x);
           if (k === '子') expect(e.text).toMatch(/太子|世子|其子|长子|次子|[三四五六七八九十]+子/);
           else if (k === '女') expect(e.text).toMatch(/皇太女|王太女|其女|长女|次女|[三四五六七八九十]+女/);
