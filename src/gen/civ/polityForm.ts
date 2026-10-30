@@ -86,7 +86,8 @@ export function formDims(f: Pick<FormFacts, 'regime' | 'lineage' | 'reformed' | 
   const succession = f.regime === 'junta' ? 0 : f.regime === 'crown' ? 1 : 3;
   const council = f.regime === 'junta' ? 0 : f.regime === 'crown' ? 1 + Math.min(2, f.charter) : f.charter >= 2 ? 3 : 2;
   const base = f.lineage === 'republic' && !f.reformed ? 1 : 0;
-  const franchise = f.regime === 'crown' && f.charter === 0 ? 0 : Math.min(3, base + f.franchise);
+  // 军政府:议事会散了,议政的只剩将领,算最少的那一档;有君主、没设议事会的只算贵族
+  const franchise = f.regime === 'junta' || (f.regime === 'crown' && f.charter === 0) ? 0 : Math.min(3, base + f.franchise);
   return { succession, council, franchise };
 }
 

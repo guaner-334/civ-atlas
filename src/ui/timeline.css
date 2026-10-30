@@ -639,6 +639,22 @@
 .tb-life-lab.gone {
   color: var(--ink-2, #6e6e73);
 }
+/* 选中的国家改制改了国号的那几年:一颗蓝点(和改朝、继位同色)、宽屏写"2794 改称共和国" */
+.tb-life-rename {
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--ev-dynasty, #3a6fd8);
+  box-shadow:
+    0 0 0 2px var(--surface, #fff),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.tb-life-lab.rename {
+  color: var(--ev-dynasty, #3a6fd8);
+}
 .tb-order {
   top: 4px;
   width: 2px;

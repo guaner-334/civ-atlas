@@ -3656,10 +3656,14 @@ if (part('政体和朝政页')) {
   timing('点「政体」→ 朝政页', ms, 800);
   const name = row.split(' ')[0];
   const gov = (await page.locator('.inspector .ct-gov').innerText().catch(() => '')).replace(/\s+/g, ' ');
-  const segs = await page.locator('.inspector .ct-bars .ct-seg').count();
-  const lit = await page.locator('.inspector .ct-bars .ct-seg span.on').allInnerTexts();
-  const says = await page.locator('.inspector .ct-bars .ct-say').allInnerTexts();
-  const axis = (await page.locator('.inspector .ct-bars .ct-axis').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  // 征税、兵制、官制一块,继任、议政、参与一块(.ct-bars2),各三条、一条轴
+  const segs = await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-seg').count();
+  const lit = await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-seg span.on').allInnerTexts();
+  const says = await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-say').allInnerTexts();
+  const axis = (await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-axis').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const segs2 = await page.locator('.inspector .ct-bars2 .ct-seg').count();
+  const lit2 = await page.locator('.inspector .ct-bars2 .ct-seg span.on').allInnerTexts();
+  const axis2 = (await page.locator('.inspector .ct-bars2 .ct-axis').innerText().catch(() => '')).replace(/\s+/g, ' ');
   const changes = (await changeRows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
   const bar = await page.locator('.inspector [data-sec=form-changes] .ct-tbar i').count();
   // 最近两次改制的年份;拖到这两次中间,政体应是最近那次改之前的名字
@@ -3711,6 +3715,8 @@ if (part('政体和朝政页')) {
     if (gov !== row) errs.push(`政体和朝政页:朝政页上面的政体名、哪年起和卡片上的对不上(${gov} / ${row})`);
     if (segs !== 3 || lit.length !== 3 || says.length !== 3 || says.some((x) => !x.trim())) errs.push(`政体和朝政页:征税、兵制、官制三条不全(${segs} 条,亮着 ${lit.join('、')},${says.length} 句)`);
     if (axis !== '地方说了算 朝廷说了算') errs.push(`政体和朝政页:三条下面的轴不对(${axis})`);
+    if (segs2 !== 3 || lit2.length !== 3) errs.push(`政体和朝政页:继任、议政、参与三条不全(${segs2} 条,亮着 ${lit2.join('、')})`);
+    if (axis2 !== '少数人说了算 众人说了算') errs.push(`政体和朝政页:继任、议政、参与下面的轴不对(${axis2})`);
     if (bar !== changes.length || !(changes[0] ?? '').includes(`→ ${name}`) || !(ys[0] >= ys[1])) errs.push(`政体和朝政页:历次改制不对(${changes.length} 条、时间条 ${bar} 段;${changes[0]})`);
     if (!chron) errs.push('政体和朝政页:点历次改制的一条没有打开编年史');
     if (!from || !early.startsWith(`${from} `)) errs.push(`政体和朝政页:拖到 ${mid} 年政体没跟着变(${early},应是${from})`);
