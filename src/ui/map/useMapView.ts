@@ -425,6 +425,8 @@ export function useMapView({ view, setView, stageRef, data, dataRef, narrow, pan
   };
   /** 双击:缩放复位(中央经线不变 —— 它是这个世界的设置,拖远了、放大了双击回到整张图) */
   const resetView = () => {
+    // 双击的第一下单击选中了国家、地图正飞过去:停下,不然飞完又盖掉复位
+    stopFly();
     const el = stageRef.current;
     if (!el || !box.w) return setView({ k: 1, x: 0, y: 0 });
     const b = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h };
