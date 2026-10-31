@@ -232,7 +232,8 @@ export function useMapView({ view, setView, stageRef, data, dataRef, narrow, pan
         pendingLon.current = wrapLon(lon);
         return;
       }
-      const b = { sw: el.clientWidth, sh: el.clientHeight, bw: g.bw, bh: g.bh };
+      // 上下照平移范围夹(连同窄屏底部卡片那一截,和拖动、飞过去一样):推上去看卡片后面的地方时,设为中心不把它拉回去
+      const b = { sw: el.clientWidth, sh: el.clientHeight, bw: g.bw, bh: g.bh, padB: g.padB };
       setView((v) => viewCentredAt(v, b, g.wrap, xOfLon(lon, g.wrap)));
     });
     // 截图脚本、冒烟检查用:转到某经度;世界坐标 ↔ 屏幕坐标(取视窗里的那一份;弯边投影按投影)
