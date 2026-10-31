@@ -3,8 +3,8 @@
  * 地图标签的淡入淡出和摆放、事发地。手工造的纪事测规则;再用真实世界(seed 7)核对。
  */
 import { describe, expect, it } from 'vitest';
-import type { ChronicleEntry, Importance } from '../src/gen/civ/chronicle';
-import { buildChronicle, filterChronicle } from '../src/gen/civ/chronicle';
+import type { ChronicleEntry, Importance } from '../src/gen/civ/story/chronicle';
+import { buildChronicle, filterChronicle } from '../src/gen/civ/story/chronicle';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import {

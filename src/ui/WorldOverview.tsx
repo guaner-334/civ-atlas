@@ -23,7 +23,7 @@ import { polityAlive, populationAt } from '../gen/civ/growth';
 import { Chronicle } from './Chronicle';
 import { PeoplePage } from './WorldOverviewPeople';
 import { RecordsPage } from './WorldOverviewRecords';
-import { recordBook } from '../gen/civ/records';
+import { recordBook } from '../gen/civ/story/records';
 import { MarksPage } from './WorldOverviewMarks';
 import { CountriesPage } from './WorldOverviewCountries';
 import { CulturesPage } from './WorldOverviewCultures';

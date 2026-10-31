@@ -14,7 +14,7 @@ import { compareTrial, type Fate, type FateChange, type TrialDiff } from '../src
 import { fateShort, stepsSummary, trialView } from '../src/ai/agent/assistant';
 import { bordersAt, nameAt } from '../src/ai/prompts/rewrite';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { fullChronicleCached } from '../src/gen/civ/religionText';
+import { fullChronicleCached } from '../src/gen/civ/story/religionText';
 import { namedHistory } from '../src/ui/chronicleHandoff';
 import { addIntervention, clearEdits, getEdits, setEditGate, setEdits, setName } from '../src/ui/editsStore';
 import { takeRewriteNote } from '../src/ui/rewriteStore';

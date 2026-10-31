@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
-import { buildChronicle, chronicleDocument, chronicleText } from '../src/gen/civ/chronicle';
+import { buildChronicle, chronicleDocument, chronicleText } from '../src/gen/civ/story/chronicle';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polityTitleChain } from '../src/gen/civ/growth';
 import { legendRows } from '../src/render/export';
 import {

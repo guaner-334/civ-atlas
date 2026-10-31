@@ -15,8 +15,8 @@ import type { Civ } from '../gen/civ/types';
 import { populationAt } from '../gen/civ/growth';
 import { SLUMP_CHOICES, SLUMP_DEFAULT } from '../gen/civ/calamity';
 import { ownersAt } from '../gen/civ/timeline';
-import { rulerAt } from '../gen/civ/peopleInfo';
-import { heOrShe } from '../gen/civ/gender';
+import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { heOrShe } from '../gen/civ/story/gender';
 import {
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,

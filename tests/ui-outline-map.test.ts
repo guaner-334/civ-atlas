@@ -8,7 +8,7 @@ import { generateCiv } from '../src/gen/civ';
 import { capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { personKey, polityKey, regionKey, settlementKey, type Plot } from '../src/gen/edits';
 import { directorPlots, plotCell, plotHeadline, plotText, type OutlineCtx } from '../src/ui/outlineInfo';
-import type { ChronicleEntry } from '../src/gen/civ/chronicle';
+import type { ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { focusHolds } from '../src/ui/outlineStore';
 import { nextInGroup, tickGroups } from '../src/ui/OutlineMap';
 

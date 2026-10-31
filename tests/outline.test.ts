@@ -13,7 +13,7 @@ import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { polityAlive } from '../src/gen/civ/growth';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { runOutline, type OutlineCache } from '../src/gen/outline';
 import {
   cleanIntervention,

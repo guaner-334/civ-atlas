@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react';
 import type { Civ, Polity, StateFaith } from '../gen/civ/types';
 import { capitalAt, polityName, populationLabel, regionPopulationAt } from '../gen/civ/growth';
-import { cultureLabel } from '../gen/civ/display';
+import { cultureLabel } from '../gen/civ/story/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { canCross } from '../gen/civ/polities';
 import { polityTies, type PolityTies } from '../gen/civ/diplomacy';

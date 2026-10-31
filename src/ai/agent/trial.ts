@@ -8,7 +8,7 @@
  */
 import type { Civ } from '../../gen/civ/types';
 import { ownersAt } from '../../gen/civ/timeline';
-import { buildChronicle } from '../../gen/civ/chronicle';
+import { buildChronicle } from '../../gen/civ/story/chronicle';
 import { resolveKey } from '../../gen/edits';
 import { nameAt } from '../prompts/rewrite';
 

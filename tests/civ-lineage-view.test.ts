@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
-import { peopleIndex } from '../src/gen/civ/peopleInfo';
+import { peopleIndex } from '../src/gen/civ/story/peopleInfo';
 import { royalSeg } from '../src/gen/civ/regime';
-import { personName, princeRole, rulerShort } from '../src/gen/civ/peopleText';
-import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText, reignOrder, restoredFrom } from '../src/gen/civ/lineageInfo';
+import { personName, princeRole, rulerShort } from '../src/gen/civ/story/peopleText';
+import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText, reignOrder, restoredFrom } from '../src/gen/civ/story/lineageInfo';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {

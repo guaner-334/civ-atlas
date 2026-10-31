@@ -14,7 +14,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { PersonDeed } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityName } from '../src/gen/civ/growth';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { appointPreview, authorPostsFrom } from '../src/gen/civ/appoint';
 import { AUTHOR_MINISTER_BELOW, authorMinisterLadder, deedPosts } from '../src/gen/civ/officials';
 import { applyCharacters } from '../src/gen/characters';

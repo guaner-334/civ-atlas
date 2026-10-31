@@ -4,7 +4,7 @@
  * 外面一圈 0.5 像素的淡边(白旗在白底上也看得出)在 flags.css 里,燕尾旗的在 SVG 里描。
  */
 import { useMemo, type ReactNode } from 'react';
-import { encodeFlag, type FlagSpec } from '../gen/civ/flags';
+import { encodeFlag, type FlagSpec } from '../gen/civ/story/flags';
 import { flagSvg } from '../render/flag/flagSvg';
 import { getCivTime } from './civView';
 import { flagOf, useFlags } from './flagStore';

@@ -11,10 +11,10 @@
 import type { Civ, Person, Polity } from '../gen/civ/types';
 import { dynastyTitle, polityAlive, polityName, polityShortTitle, polityTierAt, polityTitles } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
-import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
+import { peopleIndex, rulerAt } from '../gen/civ/story/peopleInfo';
 import { royalAt } from '../gen/civ/regime';
-import { personName } from '../gen/civ/peopleText';
-import { heOrShe } from '../gen/civ/gender';
+import { personName } from '../gen/civ/story/peopleText';
+import { heOrShe } from '../gen/civ/story/gender';
 import { interventionFate } from '../gen/stepwise';
 import { cleanIntervention, commandAt, resolveKey, ticksAt, type Intervention, type WorldEdits } from '../gen/edits';
 import { AUTHOR_RULER_DEFAULT, characterLeanings, type AuthorCharacter } from '../gen/characters';

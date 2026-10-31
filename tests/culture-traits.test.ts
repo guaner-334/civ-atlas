@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { TRAIT_MAX, TRAIT_RULES, TRAIT_SPAN, cultureFacts, cultureTraits, readTraits, tenths, traitWindow, type CultureFacts, type TraitKey } from '../src/gen/civ/cultureTraits';
+import { TRAIT_MAX, TRAIT_RULES, TRAIT_SPAN, cultureFacts, cultureTraits, readTraits, tenths, traitWindow, type CultureFacts, type TraitKey } from '../src/gen/civ/story/cultureTraits';
 
 /** 什么都够不上的一族:20 州,别的数都是 0 */
 function facts(over: Partial<CultureFacts> = {}): CultureFacts {

@@ -10,8 +10,8 @@ import { asHistoryNote, bookVersions, versionsNote, type BookVersion, type Histo
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
-import { buildChronicle, chronicleText, interventionOutcome } from '../src/gen/civ/chronicle';
-import { regionLabel } from '../src/gen/civ/display';
+import { buildChronicle, chronicleText, interventionOutcome } from '../src/gen/civ/story/chronicle';
+import { regionLabel } from '../src/gen/civ/story/display';
 import { EMPTY_EDITS, GENERATOR_CHANGES, GENERATOR_VERSION, applyNames, regionKey, resolveKey, upgradeLegacyKeys, type WorldEdits } from '../src/gen/edits';
 import {
   CHECK_WARNING,

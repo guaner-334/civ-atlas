@@ -5,9 +5,9 @@
  * 纯计算,不碰 DOM。
  */
 import type { Civ } from '../gen/civ/types';
-import { cultureLabel, regionLabel } from '../gen/civ/display';
-import { personName } from '../gen/civ/peopleText';
-import { heOrShe } from '../gen/civ/gender';
+import { cultureLabel, regionLabel } from '../gen/civ/story/display';
+import { personName } from '../gen/civ/story/peopleText';
+import { heOrShe } from '../gen/civ/story/gender';
 import { capitalAt } from '../gen/civ/growth';
 import { SLUMP_DEFAULT } from '../gen/civ/calamity';
 import {
@@ -32,7 +32,7 @@ import {
   guideNotes,
 } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
-import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
+import { entryInvolves, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { ownersAt } from '../gen/civ/timeline';
 import type { DirectorPlot } from './directorPlan';
 import { nameAt } from './Interventions';

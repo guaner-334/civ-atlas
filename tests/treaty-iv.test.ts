@@ -8,13 +8,13 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { treatyBook, treatyMembersAt, zonesAt, IV_REFUSED } from '../src/gen/civ/treatyInfo';
-import { buildChronicle, interventionOutcome } from '../src/gen/civ/chronicle';
+import { treatyBook, treatyMembersAt, zonesAt, IV_REFUSED } from '../src/gen/civ/story/treatyInfo';
+import { buildChronicle, interventionOutcome } from '../src/gen/civ/story/chronicle';
 import { cleanIntervention, polityKey, regionKey, type Intervention } from '../src/gen/edits';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { zoneChoices } from '../src/ui/treatyIv';
 import { treatyEntries, treatyPeriod, zoneEntries } from '../src/ui/treatyRows';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 14 });
 const base = generateCiv(world);

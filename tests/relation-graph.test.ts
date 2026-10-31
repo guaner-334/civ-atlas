@@ -8,8 +8,8 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import type { AuthorCharacter } from '../src/gen/characters';
 import { personKey } from '../src/gen/edits';
-import { fatherOf, kidsOf } from '../src/gen/civ/lineageInfo';
-import { personName } from '../src/gen/civ/peopleText';
+import { fatherOf, kidsOf } from '../src/gen/civ/story/lineageInfo';
+import { personName } from '../src/gen/civ/story/peopleText';
 import { DEEP_BELOW, DEEP_PER_VIA, INLAW_ORDER, bloodSlot, byWord, charKinSlot, personTies, relationGraph, type RelGraph, type RelNode } from '../src/ui/relationInfo';
 import { BLOCK_W, capped, clusterOrder, deskLayout, stackLayout, upRow, type Layout } from '../src/ui/relationLayout';
 

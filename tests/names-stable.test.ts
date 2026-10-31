@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, MAP_H, MAP_W, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ, Place } from '../src/gen/civ/types';
-import { interventionOutcome } from '../src/gen/civ/chronicle';
+import { interventionOutcome } from '../src/gen/civ/story/chronicle';
 import { applyNames, cultureKey, polityKey, regionKey, resolveKey, settlementKey, type Intervention, type TerrainOp } from '../src/gen/edits';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { sketchGrid, type SketchStroke } from '../src/gen/sketch';

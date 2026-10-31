@@ -7,9 +7,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { generateCiv } from '../src/gen/civ';
 import { playCiv } from '../src/gen/civ/play';
-import { MAJOR, mergeChronicle, reignEntries } from '../src/gen/civ/chronicle';
-import { fullChronicle } from '../src/gen/civ/religionText';
-import { personSpan, rulerNeighbors } from '../src/gen/civ/peopleInfo';
+import { MAJOR, mergeChronicle, reignEntries } from '../src/gen/civ/story/chronicle';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
+import { personSpan, rulerNeighbors } from '../src/gen/civ/story/peopleInfo';
 import type { Civ, Person } from '../src/gen/civ/types';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { EMPTY_EDITS, FOLLOW_KEY_MAX, cleanFollow, personKey, polityKey, sameFollow, type WorldEdits } from '../src/gen/edits';

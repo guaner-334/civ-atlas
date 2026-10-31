@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { generateCiv } from '../src/gen/civ';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { directorAt, directorPlan, directorYear, type DirectorPace } from '../src/ui/directorPlan';
 import { getCivTime, pausePlayback, setCivTime } from '../src/ui/civView';

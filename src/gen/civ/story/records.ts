@@ -13,14 +13,14 @@
  *
  * 时间的约定和国家页一样:"到 Y 年为止" = 第 Y 年那一刻,年份 ≤ Y 的事都算上;纪录换人记在换了以后的第一个整年。
  */
-import type { Civ, Person, Year } from './types';
-import { Layer } from './types';
-import { CAPITAL_BOOST, GROWTH_A, annexedRemnants, dynastyTitle, polityName, populationAt } from './growth';
+import type { Civ, Person, Year } from '../types';
+import { Layer } from '../types';
+import { CAPITAL_BOOST, GROWTH_A, annexedRemnants, dynastyTitle, polityName, populationAt } from '../growth';
 import { peopleIndex } from './peopleInfo';
 import { kidsOf } from './lineageInfo';
 import { personName } from './peopleText';
 import { regionLabel } from './display';
-import { royalSeg } from './regime';
+import { royalSeg } from '../regime';
 
 /** 15 条纪录 */
 export type RecordKey =

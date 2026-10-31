@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { fullChronicle } from '../gen/civ/religionText';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { polityName } from '../gen/civ/growth';
 import { yearAt, yearMonthAt, yearShort, type Era } from '../gen/era';
 import { advanceOf } from '../gen/edits';
@@ -52,7 +52,7 @@ import {
 } from './directorStore';
 import { directorFocusOf, followAt, followRefOf, resolveFollow } from './followInfo';
 import { FollowPick, FollowPicker, FollowPlate } from './Follow';
-import { personName } from '../gen/civ/peopleText';
+import { personName } from '../gen/civ/story/peopleText';
 import { getCivTime, setCivTime, subscribeCivTime, togglePlayback } from './civView';
 import { useEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { baseRegions } from './eras';

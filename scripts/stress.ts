@@ -23,7 +23,7 @@ import { borderLines } from '../src/render/civ/borders';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { warFront, warMarkPoints, warSpans } from '../src/render/civ/warfare';
 import { capitalAt, populationAt, regionPopulationAt } from '../src/gen/civ/growth';
-import { pandemicsOf } from '../src/gen/civ/pandemicInfo';
+import { pandemicsOf } from '../src/gen/civ/story/pandemicInfo';
 import { warStats } from '../src/gen/civ/wars';
 import { politicsStats } from '../src/gen/civ/politics';
 import { dynastyStats } from '../src/gen/civ/dynasty';
@@ -36,7 +36,7 @@ import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/l
 import { placeMap } from '../src/render/labels/draw';
 import { END_YEAR_MAX, settlementKey, type Intervention, type TerrainOp, type Upheaval } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
 import { PLATE_IMAGE_MAX, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
 import { fuzzResume, fuzzUpheavalResume, type FuzzCase } from './lib/resumeFuzz';

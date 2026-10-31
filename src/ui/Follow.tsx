@@ -14,9 +14,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { Civ, Person } from '../gen/civ/types';
 import { personKey } from '../gen/edits';
 import { polityName } from '../gen/civ/growth';
-import { personSpan } from '../gen/civ/peopleInfo';
-import { personName } from '../gen/civ/peopleText';
-import { heOrShe, isFemale } from '../gen/civ/gender';
+import { personSpan } from '../gen/civ/story/peopleInfo';
+import { personName } from '../gen/civ/story/peopleText';
+import { heOrShe, isFemale } from '../gen/civ/story/gender';
 import { personPortrait } from '../gen/portrait';
 import { yearFull, yearShort, yearSpan, type Era } from '../gen/era';
 import { getCivTime, setCivTime, subscribeCivTime } from './civView';

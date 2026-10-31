@@ -15,11 +15,11 @@
  */
 import type { Civ, Person, PersonDeed, PersonRegency, Polity } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
-import { cnNumber, regionList } from '../gen/civ/chronicle';
-import { commandFoe, peopleIndex } from '../gen/civ/peopleInfo';
-import { personName } from '../gen/civ/peopleText';
-import { heOrShe, type Sexed } from '../gen/civ/gender';
-import { postAt } from '../gen/civ/officialText';
+import { cnNumber, regionList } from '../gen/civ/story/chronicle';
+import { commandFoe, peopleIndex } from '../gen/civ/story/peopleInfo';
+import { personName } from '../gen/civ/story/peopleText';
+import { heOrShe, type Sexed } from '../gen/civ/story/gender';
+import { postAt } from '../gen/civ/story/officialText';
 import { interventionFate } from '../gen/stepwise';
 import {
   AUTHOR_GENERAL_AGE_END,

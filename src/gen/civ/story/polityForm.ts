@@ -29,14 +29,14 @@
  * 所以某一年的政体名 = 不晚于这一年最近那次看的结果,和历次改制的最后一条对得上。
  * 一国一生只算一次(按那一份历史的史事缓存),拖时间轴时只在里面二分查找。
  */
-import { Layer, type Civ, type Polity, type PolityLineage, type Year } from './types';
-import { courtRulesAt } from './council';
-import { Outcome, applyRule, isReformIssue, newRules, replayRule, rulesAnnal } from './councilRules';
-import { reformedSeg, segRegime, type Regime } from './regime';
-import { dynastyIndexAt } from './polityRoot';
-import { LORD_BYTE, controlAt } from './control';
-import { logIndexAfter, ownersAt } from './timeline';
-import { polityTierAt } from './growth';
+import { Layer, type Civ, type Polity, type PolityLineage, type Year } from '../types';
+import { courtRulesAt } from '../council';
+import { Outcome, applyRule, isReformIssue, newRules, replayRule, rulesAnnal } from '../councilRules';
+import { reformedSeg, segRegime, type Regime } from '../regime';
+import { dynastyIndexAt } from '../polityRoot';
+import { LORD_BYTE, controlAt } from '../control';
+import { logIndexAfter, ownersAt } from '../timeline';
+import { polityTierAt } from '../growth';
 
 /** 国号到这一档算帝国那一头 */
 export const EMPIRE_TIER = 3;

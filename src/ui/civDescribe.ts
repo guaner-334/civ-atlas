@@ -1,7 +1,7 @@
 /** 悬停信息里的文明部分:国家与最近城市、故城遗址(阶段 3 城市兴衰)、民族、州、宜居度。 */
 import type { Civ } from '../gen/civ/types';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
+import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../gen/civ/story/display';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, ruinSites, settlementRank } from '../gen/civ/growth';
 import { MinHeap } from '../gen/util';
 import { getCivTime } from './civView';

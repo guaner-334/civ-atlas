@@ -14,10 +14,10 @@ import { AdjKind, type Civ, type Year } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive, populationAt, regionPopulationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { regionPasses } from '../gen/civ/passes';
-import { cnNumber } from '../gen/civ/chronicle';
-import { treatiesOfAt, treatyMembersAt, treatyTitle, type TreatyInfo } from '../gen/civ/treatyInfo';
+import { cnNumber } from '../gen/civ/story/chronicle';
+import { treatiesOfAt, treatyMembersAt, treatyTitle, type TreatyInfo } from '../gen/civ/story/treatyInfo';
 import { nameAt } from './Interventions';
 import { nationsWord, zoneOfRegionAt } from './treatyRows';
 

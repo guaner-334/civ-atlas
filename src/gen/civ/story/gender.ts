@@ -15,7 +15,7 @@
  *
  * 纯函数,只引 types.ts
  */
-import type { Person, Polity } from './types';
+import type { Person, Polity } from '../types';
 
 /** 带性别的人物(没有这个人 / 没写性别 = 男) */
 export type Sexed = Pick<Person, 'female'> | null | undefined;

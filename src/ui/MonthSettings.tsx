@@ -13,8 +13,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { filterChronicle } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { filterChronicle } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { MONTH_NAME_MAX, MONTHS_DEFAULT, MONTHS_MAX, MONTHS_MIN, cleanMonthName, monthOf, yearFull, yearMonthFull } from '../gen/era';
 import { setMonthNames, setMonths, useEra, useMonthNameSet, useMonthNames, useMonths } from './editsStore';
 import { useYear } from './WorldOverviewMarks';

@@ -8,13 +8,13 @@
 import { DEFAULT_PARAMS, generateWorld } from '../../src/gen/world';
 import { generateCiv } from '../../src/gen/civ';
 import type { Civ, Person } from '../../src/gen/civ/types';
-import { peopleIndex, personSpan, rulerAt, rulerNeighbors } from '../../src/gen/civ/peopleInfo';
-import { generalRole, isConsul, kinOf, personName, princeRole, rulerRole } from '../../src/gen/civ/peopleText';
-import { dynastyNote, dynastyRowAt, dynastyRows, kidsOf, layoutDynasty, reignOrder, secededFrom } from '../../src/gen/civ/lineageInfo';
+import { peopleIndex, personSpan, rulerAt, rulerNeighbors } from '../../src/gen/civ/story/peopleInfo';
+import { generalRole, isConsul, kinOf, personName, princeRole, rulerRole } from '../../src/gen/civ/story/peopleText';
+import { dynastyNote, dynastyRowAt, dynastyRows, kidsOf, layoutDynasty, reignOrder, secededFrom } from '../../src/gen/civ/story/lineageInfo';
 import { searchCiv } from '../../src/ui/searchIndex';
 import { ownersAt } from '../../src/gen/civ/timeline';
 import { capitalAt, polityAlive, polityName } from '../../src/gen/civ/growth';
-import { regionLabel } from '../../src/gen/civ/display';
+import { regionLabel } from '../../src/gen/civ/story/display';
 import { polityKey, regionKey, settlementKey, type Plot } from '../../src/gen/edits';
 
 const civs = new Map<number, Civ>();

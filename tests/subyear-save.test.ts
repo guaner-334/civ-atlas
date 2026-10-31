@@ -13,8 +13,8 @@ import { DEFAULT_PARAMS } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { extendCiv } from '../src/gen/civ/extend';
 import { playCiv, playStop, playTicks } from '../src/gen/civ/play';
-import { filterChronicle } from '../src/gen/civ/chronicle';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { filterChronicle } from '../src/gen/civ/story/chronicle';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import {
   END_YEAR_MAX,
   YEAR_TICKS,

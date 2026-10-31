@@ -59,7 +59,7 @@ import { requestFly } from './panelStore';
 import { showToast } from './toastStore';
 import { noteRewrite } from './rewriteStore';
 import { namedHistory, prepareChronicle } from './chronicleHandoff';
-import { fullChronicleCached } from '../gen/civ/religionText';
+import { fullChronicleCached } from '../gen/civ/story/religionText';
 
 // ---------------------------------------------------------------------------
 // 状态

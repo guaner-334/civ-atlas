@@ -12,8 +12,8 @@
  */
 import { useEffect, useMemo, useReducer, useRef } from 'react';
 import { joinChronicleParts, type ChroniclePart } from '../chronicleParts';
-import { buildChronicle, primeChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle, fullChronicleCached, fullChronicleSteps, primeFullChronicle } from '../gen/civ/religionText';
+import { buildChronicle, primeChronicle, type ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle, fullChronicleCached, fullChronicleSteps, primeFullChronicle } from '../gen/civ/story/religionText';
 import { applyNames } from '../gen/edits';
 import { applyCharacters, type AuthorCharacter } from '../gen/characters';
 import type { Civ } from '../gen/civ';

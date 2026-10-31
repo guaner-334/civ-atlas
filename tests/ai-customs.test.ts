@@ -5,12 +5,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { KIND_INFO, cultureLabel, regionLabel } from '../src/gen/civ/display';
+import { KIND_INFO, cultureLabel, regionLabel } from '../src/gen/civ/story/display';
 import { polityName, populationLabel } from '../src/gen/civ/growth';
-import { cultureTraits } from '../src/gen/civ/cultureTraits';
+import { cultureTraits } from '../src/gen/civ/story/cultureTraits';
 import { applyNames, cultureKey } from '../src/gen/edits';
 import { CUSTOMS_CHARS, cleanCustoms, cultureMaterial, customsNoteKey, customsRequest, customsScan, customsStamp, eventUpTo } from '../src/ai/prompts/customs';
-import type { ChronicleEntry } from '../src/gen/civ/chronicle';
+import type { ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { cultureEntries, cultureNow, cultureShownYear, cultureWaves, waveText } from '../src/ui/cultureInfo';
 import { scanRealWords } from '../src/ai/realWords';
 

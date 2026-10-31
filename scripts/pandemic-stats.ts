@@ -15,9 +15,9 @@ import { populationAt, polityAlive, regionPopulationAt, ruinSites, settlementRan
 import { ownersAt } from '../src/gen/civ/timeline';
 import { sailsOcean } from '../src/gen/civ/polities';
 import { developmentAt, eraLevel } from '../src/gen/civ/development';
-import { pandemicsOf, wasteAt } from '../src/gen/civ/pandemicInfo';
-import { buildChronicle } from '../src/gen/civ/chronicle';
-import { developmentEntries } from '../src/gen/civ/developmentText';
+import { pandemicsOf, wasteAt } from '../src/gen/civ/story/pandemicInfo';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
+import { developmentEntries } from '../src/gen/civ/story/developmentText';
 import type { Calamity } from '../src/gen/civ/calamity';
 
 const SEEDS = [...Array.from({ length: 19 }, (_, i) => i + 1), 2024];

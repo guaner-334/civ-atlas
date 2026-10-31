@@ -5,9 +5,9 @@
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
-import { regionLabel } from '../gen/civ/display';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
+import { regionLabel } from '../gen/civ/story/display';
 import { polityName } from '../gen/civ/growth';
 import { keyCells, markShownAt, regionOfKey, type AuthorMark } from '../gen/edits';
 import { ownersOf } from './panelData';

@@ -40,8 +40,8 @@ import { REF_MAP_CSS, drawPlacedLabels, placeMap, type LabelMark, type LabelView
 import { ensureFonts, familyFor, fontCss } from './labels/fonts';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
-import { KIND_INFO, cultureLabel } from '../gen/civ/display';
-import { faithRows } from '../gen/civ/religionText';
+import { KIND_INFO, cultureLabel } from '../gen/civ/story/display';
+import { faithRows } from '../gen/civ/story/religionText';
 import { yearFull, type Era } from '../gen/era';
 import { drawGraticule, labelProjection, mapProj, outlineOnCanvas, pageColor, projectWorld, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
 import { NAME_ZOOM, canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkFrame, type MarkItem } from './marks';

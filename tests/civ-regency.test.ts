@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person, Polity } from '../src/gen/civ/types';
-import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
+import { buildChronicle, reignEntries } from '../src/gen/civ/story/chronicle';
 import { REGENCY_KINDS, RG_START, RG_USURP, holds, regencyBase, regentAt, regentsFrom } from '../src/gen/civ/regents';
 import { matchesFrom } from '../src/gen/civ/marriages';
 import { actsFrom, leaningEffect, reignAt, reignBook, rulerBase, rulerTags, type Reign } from '../src/gen/civ/rulers';
