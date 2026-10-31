@@ -6,8 +6,11 @@ name: 发布正式网站
 # 在 Actions 页面手动跑:
 # - 提交号不填 = 测试网站现在的版本(「发布测试网站」最近一次发布成功的提交)
 # - 填的话要是 main 上的完整 40 位提交号,并且已经在测试网站上(就是测试网站现在的版本,或者比它早)
-# 生成器升级以后(同一个种子的世界变样),上一版的旧网站 /v<上一版>/(deploy-old-site.yml)要先发好:
-# 正式网站里「看原样」会指过去。这里会检查它能不能打开,打不开就不发。
+# 要发的版本换了生成器(同一个种子的世界变样)时,正式网站现在那一版的旧网站 /v<那一版>/(deploy-old-site.yml)要先发好:
+# 发了以后,用那一版建的世界在正式网站里点「看原样」会指过去。这里会检查它能不能打开,打不开就不发。
+# 只在测试网站上出现过、没上过正式网站的版本不用留旧网站,也不查。
+# 正式网站现在是第几版:每次发布都往网站根目录放一个 version.json(只写提交号和生成器版本),下次发布先读它;
+# 读不到就取 main 上最近的发布标签(v*,打在发到正式网站的提交上)那个提交里的版本。
 #
 # 要在仓库 Settings → Environments → site 里配好(只允许 main 用;测试网站、旧版网站的发布也用它):
 # - DEPLOY_SSH_KEY:发布专用的 SSH 私钥。服务器上这把钥匙只能往网站目录传文件,不能登录、不能执行别的命令
@@ -92,23 +95,46 @@ jobs:
             exit 1
           fi
           echo "要发 ${COMMIT::7}(生成器第 $ver 版;测试网站现在是 ${BETA::7})" >> "$GITHUB_STEP_SUMMARY"
-          # 从第 FIRST_OLD_SITE 版起才留旧网站;上一版比它早就不用查
-          first=$(sed -nE 's/^export const FIRST_OLD_SITE = ([0-9]+);.*/\1/p' src/ui/oldSite.ts)
-          if [[ "$first" =~ ^[0-9]+$ ]] && [ $((ver - 1)) -ge "$first" ]; then
-            echo "prev=$((ver - 1))" >> "$GITHUB_OUTPUT"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+          # 正式网站现在是第几版:先读网站根目录的 version.json(每次发布时写的);
+          # 读不到(还没有这个文件,或者一时没读到)就取 main 上最近的发布标签那个提交里的版本
+          live=$(curl -fsS --retry 3 --max-time 30 -H 'Cache-Control: no-cache' "https://atlas.gerdor.top/version.json?t=$(date +%s)" | jq -r '.generator // empty' 2>/dev/null || true)
+          if [[ "$live" =~ ^[0-9]+$ ]]; then
+            from="网站上的 version.json"
+          else
+            live=''
+            tag=$(git describe --tags --abbrev=0 --match 'v*' origin/main 2>/dev/null || true)
+            if [ -n "$tag" ]; then
+              live=$(git show "$tag:src/gen/edits.ts" | sed -nE 's/^export const GENERATOR_VERSION = ([0-9]+);.*/\1/p')
+            fi
+            if ! [[ "$live" =~ ^[0-9]+$ ]]; then
+              echo "查不出正式网站现在是第几版:网站上读不到 version.json,main 上也没有带生成器版本的发布标签(v*)" >&2
+              exit 1
+            fi
+            from="发布标签 $tag"
           fi
-      # 上一版建的世界在正式网站上点「看原样」会到 /v<上一版>/:那里要先有旧版网站
-      - name: 确认上一版的旧网站能打开
-        if: steps.check.outputs.prev != ''
+          echo "正式网站现在是生成器第 $live 版(取自$from)" >> "$GITHUB_STEP_SUMMARY"
+          # 版本没变就不用查;从第 FIRST_OLD_SITE 版起才留旧网站,比它早也不用查
+          first=$(sed -nE 's/^export const FIRST_OLD_SITE = ([0-9]+);.*/\1/p' src/ui/oldSite.ts)
+          if [ "$live" -ne "$ver" ] && [[ "$first" =~ ^[0-9]+$ ]] && [ "$live" -ge "$first" ]; then
+            echo "live=$live" >> "$GITHUB_OUTPUT"
+          fi
+      # 发了新版以后,正式网站现在那一版建的世界点「看原样」会到 /v<那一版>/:那里要先有旧版网站
+      - name: 确认正式网站现在那一版的旧网站能打开
+        if: steps.check.outputs.live != ''
         env:
-          PREV: ${{ steps.check.outputs.prev }}
+          LIVE: ${{ steps.check.outputs.live }}
+          VER: ${{ steps.check.outputs.ver }}
         run: |
-          url="https://atlas.gerdor.top/v$PREV/"
-          if ! curl -fsSL --retry 3 --max-time 30 "$url" | grep -qE '\./assets/index-[A-Za-z0-9_-]+\.js'; then
-            echo "$url 打不开:生成器升级了,先跑「发布旧版网站」把第 $PREV 版留下来再发(网站其实能打开的话,重跑这个流程)" >&2
+          url="https://atlas.gerdor.top/v$LIVE/"
+          # 不跟着跳转:没有这个目录时服务器会跳回首页,首页也引用主程序,跟过去会误认成能打开。
+          # 旧版网站的页面里有一段补结尾斜杠的脚本写着自己的目录名(deploy-old-site.yml),拿它认出确实是第几版
+          html=$(curl -fsS --retry 3 --max-time 30 "$url" || true)
+          if ! printf '%s' "$html" | grep -qE '\./assets/index-[A-Za-z0-9_-]+\.js' || ! printf '%s' "$html" | grep -qF "endsWith('/v$LIVE')"; then
+            echo "$url 打不开:正式网站现在是第 $LIVE 版,要发的是第 $VER 版。先跑「发布旧版网站」把第 $LIVE 版留下来再发(网站其实能打开的话,重跑这个流程)" >&2
             exit 1
           fi
-          echo "上一版的旧网站 $url 能打开" >> "$GITHUB_STEP_SUMMARY"
+          echo "正式网站现在那一版的旧网站 $url 能打开" >> "$GITHUB_STEP_SUMMARY"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -120,6 +146,14 @@ jobs:
           VITE_AI_SERVER: ${{ vars.VITE_AI_SERVER }}
           ICP_BEIAN: ${{ vars.ICP_BEIAN_SHOW == '1' && vars.ICP_BEIAN || '' }}
         run: pnpm build
+      # 记下这次发的是哪个提交、生成器第几版,放在网站根目录:下次发布先读它(公开可见,只有这两项)
+      - name: 写 version.json
+        env:
+          COMMIT: ${{ steps.pick.outputs.commit }}
+          VER: ${{ steps.check.outputs.ver }}
+        run: |
+          jq -n --arg commit "$COMMIT" --argjson generator "$VER" '{commit: $commit, generator: $generator}' > dist/version.json
+          cat dist/version.json
       - name: 准备 SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -144,8 +178,10 @@ jobs:
         run: |
           export RSYNC_RSH="ssh -p ${DEPLOY_PORT:-22} -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=10"
           retry() { local n; for n in 1 2 3 4; do "$@" && return 0; echo "第 $n 次失败,10 秒后重试" >&2; sleep 10; done; return 1; }
-          retry rsync -rltz --chmod=D755,F644 --exclude='/*.html' dist/ "$DEPLOY_DEST"
+          retry rsync -rltz --chmod=D755,F644 --exclude='/*.html' --exclude='/version.json' dist/ "$DEPLOY_DEST"
           retry rsync -ltz --chmod=F644 dist/*.html "$DEPLOY_DEST"
+          # 页面换好了才换 version.json:中途失败的话,它还写着原来那一版
+          retry rsync -ltz --chmod=F644 dist/version.json "$DEPLOY_DEST"
           echo "已发布 ${COMMIT::7} → https://atlas.gerdor.top" >> "$GITHUB_STEP_SUMMARY"
       # 打开看看:页面和它引用的主程序都拿得到(网站在别处有拦截时这一步可能失败,不影响已经传上去的文件)
       - name: 检查网址能打开
