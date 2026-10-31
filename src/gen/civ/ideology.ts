@@ -41,6 +41,7 @@ import { populationAt } from './growth';
 import { ideoCards } from './ideoTables';
 import { subSeed } from './engine/rand';
 import type { CivModule } from './modules';
+import { civApi } from './api';
 
 /** 一说一行 */
 export interface Thought {
@@ -364,8 +365,9 @@ function padTo(a: Uint8Array, n: number): Uint8Array {
 }
 
 function hook(sim: CivSim, m: IdeoModel): void {
+  const api = civApi(sim);
   models.set(sim, m);
-  m.d.afterStep = (y, prev) => tick(sim, m, y, prev);
+  api.dev.afterStep = (y, prev) => tick(sim, m, y, prev);
 }
 
 /** 州 r 此刻的城(还在的那一座;没有 = undefined) */
@@ -378,6 +380,7 @@ function cityIn(d: DevModel, r: number) {
 
 /** 算一步(第 y 年,发展度这一步刚算完;prev = 这一步开头各州的能力) */
 function tick(sim: CivSim, m: IdeoModel, y: Year, prev: Float64Array): void {
+  const api = civApi(sim);
   const { d, eng } = m;
   const pm = d.pm;
   const R = m.R;
@@ -390,7 +393,7 @@ function tick(sim: CivSim, m: IdeoModel, y: Year, prev: Float64Array): void {
   // 输入表:各州归属、能力、城的人口、一州的人口、港口、粮、矿;各国的国号、州数
   eng.setPolities(P);
   const [iC, iP, iCap, iCity, iPop, iPort, iGrain, iMine] = ['民族', '国', '能力', '城民', '人数', '港口', '粮', '矿'].map((id) => eng.input(id));
-  const rural = d.ruralNow?.().data;
+  const rural = api.dev.ruralNow?.().data;
   const cur = d.cur;
   const avail = d.availNow;
   for (let r = 0; r < R; r++) {

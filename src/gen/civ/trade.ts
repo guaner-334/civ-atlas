@@ -1,6 +1,6 @@
 /**
  * 商道:要紧的货(盐、铁、马、金银,快到时代门口时加上门槛要的矿)从哪来、运到哪去。
- * 在推演里每 STEP(20)年算一步(挂在发展度那一步后面,development.ts 的 DevModel.afterTick),只读推演的状态,
+ * 在推演里每 STEP(20)年算一步(挂在发展度那一步后面,development.ts 的 接口 dev.afterTick),只读推演的状态,
  * **不改历史**:不预约事件、不取随机数序列、不写别的模型(日后"断道缺货"这类后果读 Civ.trade)。纯计算,不碰 DOM。
  *
  * **一步怎么算**:
@@ -32,6 +32,7 @@ import { warModelOf, type WarModel } from './wars';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { capitalAt } from './growth';
 import type { CivModule } from './modules';
+import { civApi } from './api';
 
 /** 一步多少年(和发展度同一步) */
 const STEP = 20;
@@ -155,6 +156,7 @@ export function resumeTrade(sim: CivSim, civ: Civ): void {
 }
 
 function hook(sim: CivSim, base: number, civ: Civ | null): void {
+  const api = civApi(sim);
   const d = devModelOf(sim);
   const pm = polityModelOf(sim);
   const wm = warModelOf(sim);
@@ -188,7 +190,7 @@ function hook(sim: CivSim, base: number, civ: Civ | null): void {
     m.annals = civ.annals.length;
   }
   models.set(sim, m);
-  d.afterTick = (y) => step(sim, m, y);
+  api.dev.afterTick = (y) => step(sim, m, y);
 }
 
 /**

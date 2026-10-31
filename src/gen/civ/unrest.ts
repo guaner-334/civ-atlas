@@ -339,7 +339,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
   const quelling = (p: number) => wm.active.some((w) => w.a === p && (um.quell.has(w.id) || um.claims.has(w.id)));
 
   // ---- 宗室争位、据地自立(新君即位那一刻) ----
-  pm.onReign = (pid, k, list, t) => {
+  api.polity.onReign = (pid, k, list, t) => {
     const P = pm.polities[pid];
     const R = list[k - 1];
     const X = list[k];
@@ -352,7 +352,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     if (rebelNow(pid) || quelling(pid) || wm.iv?.unites(pid, t)) return;
     const sons = claimants(pm.rbase, pm.rtag[pid], R, P, t);
     if (!sons.length) return;
-    const u = pol.unrest?.(P, t) ?? 0;
+    const u = api.politics.unrest?.(P, t) ?? 0;
     const odds = CLAIM_ODDS * (1 + CLAIM_MORE * (sons.length - 1)) * fexp(CLAIM_K * (u - CLAIM_U0));
     const tag = pm.ptag[pid];
     if (keyed(um.base, tag, k, U_CLAIM) >= odds / (1 + odds)) return;
@@ -373,11 +373,11 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const limit = Math.min(CLAIM_MAX, Math.max(CLAIM_MIN, Math.floor(pm.size[pid] * CLAIM_FRAC)));
     const group = grow(pid, r0, limit, t, () => 0, capR);
     if (group.length < CLAIM_MIN) return;
-    const sid = pol.biggestCity!(group, t);
+    const sid = api.politics.biggestCity!(group, t);
     if (sid < 0) return;
-    const full = pol.cutOff!(pid, group.slice().sort((a, b) => a - b), t, limit * 2 + 2);
+    const full = api.politics.cutOff!(pid, group.slice().sort((a, b) => a - b), t, limit * 2 + 2);
     if (!full) return;
-    const rival = pol.secede!(pid, full, sid, r0, t, 'split', 'heir', { prince: sons[0], lineage: P.lineage });
+    const rival = api.politics.secede!(pid, full, sid, r0, t, 'split', 'heir', { prince: sons[0], lineage: P.lineage });
     const w = api.war.declare!(pid, rival.id, t, -1, 'heir');
     um.claims.set(w.id, rival.id);
   };
@@ -407,7 +407,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
       if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < odds) centres.push(r);
     }
     if (!centres.length) return;
-    const soil = devModelOf(sim)?.soilNow?.();
+    const soil = api.dev.soilNow?.();
     /** 这一次闹了饥荒的州:国家 → [州, 折损] */
     const hits = new Map<number, [number, number][]>();
     for (const c0 of centres) {
@@ -477,7 +477,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const N = pm.size[pid];
     if (P.ended !== undefined || N < REVOLT_STATE || rebelNow(pid) || wm.iv?.unites(pid, t)) return false;
     // 这次的饥荒表里还没算进去(每年年初才算),先加上
-    const u = pol.unrest!(P, t) + (pol.famineBump?.(P, list.length) ?? 0);
+    const u = api.politics.unrest!(P, t) + (api.politics.famineBump?.(P, list.length) ?? 0);
     const odds = REVOLT_ODDS * fexp(REVOLT_K * (u - REVOLT_U0)) * Math.min(1, list.length / 3);
     if (keyed(um.base, pm.ptag[pid], k, U_REVOLT) >= odds / (1 + odds)) return false;
     const capR = pm.settlements[capitalAt(P, t)].region;
@@ -499,11 +499,11 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const limit = Math.min(REVOLT_MAX, Math.max(REVOLT_MIN, Math.floor(N * REVOLT_FRAC)));
     const group = grow(pid, r0, limit, t, (r) => (hit.has(r) ? 0 : 1), capR);
     if (group.length < REVOLT_MIN) return false;
-    const sid = pol.biggestCity!(group, t);
+    const sid = api.politics.biggestCity!(group, t);
     if (sid < 0) return false;
-    const full = pol.cutOff!(pid, group.slice().sort((a, b) => a - b), t, limit * 2 + 2);
+    const full = api.politics.cutOff!(pid, group.slice().sort((a, b) => a - b), t, limit * 2 + 2);
     if (!full) return false;
-    const rebel = pol.secede!(pid, full, sid, r0, t, 'revolt');
+    const rebel = api.politics.secede!(pid, full, sid, r0, t, 'revolt');
     const w = api.war.declare!(pid, rebel.id, t, -1, 'quell');
     um.quell.set(w.id, rebel.id);
     return true;
@@ -556,20 +556,20 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     for (const r of lands[best]) if (culture[r] >= 0) lived++;
     return most / Math.max(1, lived);
   };
-  pol.crisis = (P: Polity, k: number, t: number): boolean => {
+  api.politics.crisis = (P: Polity, k: number, t: number): boolean => {
     const pid = P.id;
     const N = pm.size[pid];
     if (N < COLLAPSE_MIN || t - P.founded < COLLAPSE_AGE || t - (um.collapsed.get(pid) ?? -Infinity) < COLLAPSE_REST) return false;
     if (wm.iv?.unites(pid, t)) return false; // 阶段 4 干预"禁止分裂"
     const share = landShare(pid);
     if (share < HEG_GATE) return false;
-    const u = pol.unrest!(P, t) + HEG_W * Math.min(1, Math.max(0, (share - HEG_0) / HEG_SPAN));
+    const u = api.politics.unrest!(P, t) + HEG_W * Math.min(1, Math.max(0, (share - HEG_0) / HEG_SPAN));
     const odds = COLLAPSE_ODDS * fexp(COLLAPSE_K * (u - COLLAPSE_U0));
     if (keyed(um.base, pm.ptag[pid], k, U_COLLAPSE) >= odds / (1 + odds)) return false;
     return collapse(P, k, t);
   };
 
-  pol.shatter = (P: Polity, k: number, t: number): boolean => (wm.iv?.unites(P.id, t) ? false : collapse(P, k, t));
+  api.politics.shatter = (P: Polity, k: number, t: number): boolean => (wm.iv?.unites(P.id, t) ? false : collapse(P, k, t));
 
   const collapse = (P: Polity, k: number, t: number): boolean => {
     const pid = P.id;
@@ -678,12 +678,12 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const ready: [number[], number, number][] = [];
     groups.forEach((g, i) => {
       if (g.length < PIECE_MIN) return;
-      const sid = pol.biggestCity!(g, t);
+      const sid = api.politics.biggestCity!(g, t);
       if (sid >= 0) ready.push([g.sort((a, b) => a - b), sid, seeds[i]]);
     });
     if (ready.length < 2) return false;
     sim.record('collapse', { a: pid, b: kind, region: capR, settlement: capSid, war: ready.length });
-    for (const [g, sid, r0] of ready) pol.secede!(pid, g, sid, r0, t, 'split', 'collapse');
+    for (const [g, sid, r0] of ready) api.politics.secede!(pid, g, sid, r0, t, 'split', 'collapse');
     um.collapsed.set(pid, t);
     return true;
   };

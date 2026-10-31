@@ -328,23 +328,12 @@ export interface DevModel {
   ruralYears: Year[];
   /** 各国的账本(control.ts 每年记;见 fiscalBook.ts) */
   book: BookWriter;
-  /** 乡村人口此刻的表、上一步算到哪一年(population.ts 挂上) */
-  ruralNow?: () => { year: Year; data: Float64Array };
   /** 世界、地块的宜居度(乡村人口按地块算,population.ts 读) */
   world: World;
   habitat: Civ['habitat'];
-  /** 各州此刻的地力(0–1,population.ts 挂上;饥荒的赔率读它) */
-  soilNow?: () => Float64Array;
-  /** 存档时一并存下的政局数表(control.ts 挂上) */
-  saveTables?: () => TablesState;
   /** 算发展度的数表(挂到推演上时建好,见 devEngine) */
   eng?: TableEngine;
-  /** 推一把发展(boost.ts 挂上;没有快几倍的干预 = 不挂):(t0, y] 这一步里各州的倍数填进 out(没推的州留 1) */
-  boostFill?: (t0: Year, y: Year, out: Float64Array) => void;
-  /** 每步算完(大事、快照都记好了)以后调(思潮挂上,见 ideology.ts;在 afterTick 之前):prev = 这一步开头各州的能力(州 × CAP_COUNT) */
-  afterStep?: (y: Year, prev: Float64Array) => void;
-  /** 每一步算完以后(商道 trade.ts 挂上;只读,不改推演) */
-  afterTick?: (y: Year) => void;
+  // 别的子系统挂过来的回调不在这里,在具名接口表 civ/api.ts 的 dev 那一组
 }
 
 const models = new WeakMap<CivSim, DevModel>();
@@ -534,7 +523,7 @@ function hook(sim: CivSim, d: DevModel): void {
   });
   sim.on(Ev.DevTick, (_a, _b, t) => {
     tick(sim, d, t);
-    d.afterTick?.(t);
+    api.dev.afterTick?.(t);
     sim.schedule(t + STEP, Ev.DevTick, 0, 0);
   });
 }
@@ -635,11 +624,12 @@ export function cityPopulationsAt(d: DevModel, y: Year, owner: ArrayLike<number>
 
 /** 每 SNAP 年:各州人口、城的规模、有没有路 */
 function refreshRoads(d: DevModel, y: Year, sim: CivSim) {
+  const api = civApi(sim);
   const pm = d.pm;
   const ownC = sim.owners[Layer.Culture];
   const ownP = sim.owners[Layer.Polity];
   // 乡村人口读 population.ts 的表(这一年那张表还没算:读上一年的)
-  const rural = d.ruralNow?.().data;
+  const rural = api.dev.ruralNow?.().data;
   for (let r = 0; r < d.R; r++) {
     if (ownC[r] < 0) continue;
     const s = cityIn(pm, r);
@@ -767,6 +757,7 @@ function devEngine(d: DevModel): TableEngine {
 
 /** 算一步(第 y 年;见文件头) */
 function tick(sim: CivSim, d: DevModel, y: Year): void {
+  const api = civApi(sim);
   const pm = d.pm;
   const T = pm.terrain;
   const reg = T.regions;
@@ -834,7 +825,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   }
   // 推一把发展(boost.ts):这一步里各州"自己长""向邻居学"的倍数,按这一步里管了几成折算。没推的州 1,什么都不变
   const boostIn = eng.input('推').fill(1);
-  if (dt > 0) d.boostFill?.(d.last, y, boostIn);
+  if (dt > 0) api.dev.boostFill?.(d.last, y, boostIn);
 
   // 全球大疫(pandemic.ts):这一步里各州凋敝占了几成(没有全球大疫的世界全是 0)
   const pan = pandemicModelOf(sim);
@@ -1019,7 +1010,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     d.avail.push(s.avail);
     d.snapYears.push(y);
   }
-  d.afterStep?.(y, prev);
+  api.dev.afterStep?.(y, prev);
 }
 
 /** 此刻的一份快照(能力、眼下能用的物产) */
@@ -1225,6 +1216,7 @@ function collapseHit(sim: CivSim, i: number, hit: readonly number[], R: number, 
 }
 
 export function finishDevelopment(sim: CivSim, endYear: Year): Development | undefined {
+  const api = civApi(sim);
   const d = models.get(sim);
   if (!d) return undefined;
   const snaps = d.snaps.slice();
@@ -1261,13 +1253,13 @@ export function finishDevelopment(sim: CivSim, endYear: Year): Development | und
     worldEra: d.worldEra,
     invented: d.invented.slice(),
     military: Array.from(d.pm.military ?? [], (m) => m ?? 1),
-    ...(d.saveTables ? { tables: d.saveTables() } : {}),
+    ...(api.dev.saveTables ? { tables: api.dev.saveTables() } : {}),
   };
   const control = d.controlYears.length ? { control: d.control.slice(), controlYears: d.controlYears.slice() } : {};
   // 乡村人口:最后一份不是最后一步算的那年的,补一份那一步的(不在整 RURAL_SNAP 年上;接着推时去掉)
   const rural = d.rural.slice();
   const ruralYears = d.ruralYears.slice();
-  const now = d.ruralNow?.();
+  const now = api.dev.ruralNow?.();
   if (now && now.year > -Infinity && !(ruralYears.length && ruralYears[ruralYears.length - 1] >= now.year)) {
     rural.push(Float32Array.from(now.data));
     ruralYears.push(now.year);

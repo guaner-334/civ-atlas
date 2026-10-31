@@ -77,7 +77,7 @@ import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
 import type { CivModule } from './modules';
 import { Ev } from './events';
-import { civApi } from './api';
+import { civApi, type CivApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */
@@ -354,6 +354,7 @@ export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): C
 }
 
 function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel | undefined {
+  const api = civApi(sim);
   const pm = polityModelOf(sim);
   const pol = politicsModelOf(sim);
   const wm = warModelOf(sim);
@@ -403,7 +404,7 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
     return a < 0 ? BORDER_LORD : 1 - ARMY_LORD * a;
   };
 
-  pol.councilCheck = (P, k, t) => check(sim, pm, pol, wm, cm, dev, base, rbase, book, P, k, t);
+  api.politics.councilCheck = (P, k, t) => check(sim, pm, pol, wm, cm, dev, base, rbase, book, P, k, t);
   return model;
 }
 
@@ -422,7 +423,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   if (!(owed > 0)) return;
   const r = rulesOf(book, p);
   const ready = (i: Issue) => t - r.last[i] >= (r.shelved[i] ? REST_SHELVED : REST);
-  const u = pol.unrest ? pol.unrest(P, t) : 0;
+  const u = api.politics.unrest ? api.politics.unrest(P, t) : 0;
   const broke = api.war.broke ? api.war.broke(p, t) : 0;
   const purse = api.war.purse ? api.war.purse(p, t) : 1;
   const capR = pm.settlements[capitalAt(P, t)].region;
@@ -574,12 +575,12 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
       const x = LEAVE_0 + LEAVE_ADMIN * a + LEAVE_PURSE * purse - LEAVE_U * u - LEAVE_SHARE * share - pick.pull + jit(Issue.Leave);
       let out = x > LEAVE_KEEP ? Outcome.Shelve : x > LEAVE_BREAK ? Outcome.Done : Outcome.Break;
       // 强到能自立的起兵自立;自立不成(地盘不够 REBEL_MIN 州……)就转投;转投也不成(地盘里刚换过国家……)就算搁置
-      const plan = out === Outcome.Break ? rebelPlan(pol, wm, w, dom, t) : null;
+      const plan = out === Outcome.Break ? rebelPlan(api, pol, wm, w, dom, t) : null;
       if (out === Outcome.Break && !plan) out = Outcome.Done;
-      const move = out === Outcome.Done ? leaveGroup(pol, wm, reg, owner, w, dom, q, t) : null;
+      const move = out === Outcome.Done ? leaveGroup(api, pol, wm, reg, owner, w, dom, q, t) : null;
       if (out === Outcome.Done && !move) out = Outcome.Shelve;
       record(Issue.Leave, out, w.region, false, q);
-      if (plan) pol.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
+      if (plan) api.politics.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
       if (move) for (const x of move) sim.setOwner(Layer.Polity, x, q, Ev.Merge);
       return;
     }
@@ -604,12 +605,12 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
       share /= owed;
       const x = REORG_0 + REORG_ADMIN * a + REORG_WAR * war - REORG_U_W * u - REORG_SHARE * share + jit(Issue.Reorg);
       let out = x > REORG_DONE ? Outcome.Done : x > REORG_HALF_X ? Outcome.Half : x > REORG_SHELVE ? Outcome.Shelve : Outcome.Break;
-      const plan = out === Outcome.Break ? rebelPlan(pol, wm, w, dom, t) : null;
+      const plan = out === Outcome.Break ? rebelPlan(api, pol, wm, w, dom, t) : null;
       if (out === Outcome.Break && !plan) out = Outcome.Shelve;
       if (out === Outcome.Done) w.cap = 1;
       else if (out === Outcome.Half) w.cap = REORG_HALF;
       record(Issue.Reorg, out, w.region);
-      if (plan) pol.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
+      if (plan) api.politics.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
       return;
     }
     remark();
@@ -627,11 +628,11 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
       const x = CUT_0 + CUT_ADMIN * a + CUT_WAR * war - CUT_U_W * u - CUT_SHARE * share + jit(Issue.Cut);
       let out = x > CUT_DONE ? Outcome.Done : x > CUT_SHELVE ? Outcome.Shelve : Outcome.Break;
       // 谈崩:先记议事,再记自立;起不了兵(干预禁止分裂、地盘被切断不成片……)就算搁置
-      const plan = out === Outcome.Break ? rebelPlan(pol, wm, w, dom, t) : null;
+      const plan = out === Outcome.Break ? rebelPlan(api, pol, wm, w, dom, t) : null;
       if (out === Outcome.Break && !plan) out = Outcome.Shelve;
       if (out === Outcome.Done) w.end = t;
       record(Issue.Cut, out, w.region);
-      if (plan) pol.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
+      if (plan) api.politics.secede!(w.p, plan.group, plan.sid, w.region, t, 'split', 'warlord');
       return;
     }
   }
@@ -756,14 +757,14 @@ function canRise(wm: WarModel, cm: ControlModel, p: number, r: number, t: number
 }
 
 /** 削藩谈崩:割据 w 带着地盘(连同被切断的碎块)起兵自立的州组(升序)和国都;起不了兵(起事的州或碎块里有刚换过国家的州……)= null */
-function rebelPlan(pol: PoliticsModel, wm: WarModel, w: Warlord, dom: number[], t: number): { group: number[]; sid: number } | null {
-  if (!pol.secede || !pol.cutOff || !pol.biggestCity || wm.iv?.unites(w.p, t)) return null;
+function rebelPlan(api: CivApi, pol: PoliticsModel, wm: WarModel, w: Warlord, dom: number[], t: number): { group: number[]; sid: number } | null {
+  if (!api.politics.secede || !api.politics.cutOff || !api.politics.biggestCity || wm.iv?.unites(w.p, t)) return null;
   // 和分裂一样:SETTLE 年内换过国家的州、干预永久划给这国的州不跟着起兵
   const group = dom.filter((q) => t - wm.since[q] >= SETTLE && !wm.iv?.locked(q, t)).sort((x, y) => x - y);
   if (!group.includes(w.region)) return null;
-  const sid = pol.biggestCity(group, t);
+  const sid = api.politics.biggestCity(group, t);
   if (sid < 0) return null;
-  const full = pol.cutOff(w.p, group, t, group.length * 2 + 4);
+  const full = api.politics.cutOff(w.p, group, t, group.length * 2 + 4);
   return full && full.length >= REBEL_MIN ? { group: full, sid } : null;
 }
 
@@ -771,8 +772,8 @@ function rebelPlan(pol: PoliticsModel, wm: WarModel, w: Warlord, dom: number[], 
  * 脱离转投:割据 w 的地盘(SETTLE 年内换过国家的、干预永久划给这国的州不跟着走)连同被切断的碎块(升序);
  * 走不成(起事的州不在里面、碎块里有刚换过国家的州、剩下的州已经不挨着邻国 q)= null
  */
-function leaveGroup(pol: PoliticsModel, wm: WarModel, reg: PolityModel['terrain']['regions'], owner: ArrayLike<number>, w: Warlord, dom: number[], q: number, t: number): number[] | null {
-  if (!pol.cutOff) return null;
+function leaveGroup(api: CivApi, pol: PoliticsModel, wm: WarModel, reg: PolityModel['terrain']['regions'], owner: ArrayLike<number>, w: Warlord, dom: number[], q: number, t: number): number[] | null {
+  if (!api.politics.cutOff) return null;
   const group = dom.filter((x) => t - wm.since[x] >= SETTLE && !wm.iv?.locked(x, t)).sort((x, y) => x - y);
   if (!group.includes(w.region)) return null;
   let touches = false;
@@ -782,7 +783,7 @@ function leaveGroup(pol: PoliticsModel, wm: WarModel, reg: PolityModel['terrain'
       if (kind !== AdjKind.Strait && kind !== AdjKind.SeaRoute && owner[reg.adj[e]] === q) touches = true;
     }
   }
-  return touches ? pol.cutOff(w.p, group, t, group.length * 2 + 4) : null;
+  return touches ? api.politics.cutOff(w.p, group, t, group.length * 2 + 4) : null;
 }
 
 /** 统计(scripts、测试用):各议题、各结果的次数 */

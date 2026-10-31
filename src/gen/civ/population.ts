@@ -35,6 +35,7 @@ import { pandemicModelOf, slumpIn } from './pandemicState';
 import type { TableEngine } from './engine/tables';
 import type { PopRuleConsts } from './stateTables';
 import { fpow } from './engine/rand';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 几年算一步(搬家要算每条邻边,每年算太慢;钱粮每 10 年读一次、快照每 10 年一份,都对得齐) */
@@ -185,6 +186,7 @@ export interface PopLayer {
  * 乡村人口最后一步(不晚于它的整 POP_EVERY 年)以前的折损、兵灾算过了(一步只看那一刻以前的),之后的接着看
  */
 export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: TableEngine, resumed: Year | null): PopLayer {
+  const api = civApi(sim);
   const R = dev.R;
   const from = resumed === null ? null : Math.floor(resumed / POP_EVERY) * POP_EVERY;
   /** 各城看到第几次折损、毁城看过没有;史事看到第几条 */
@@ -214,8 +216,8 @@ export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: Table
     while (annal < sim.annalCount && sim.annal(annal).year < from) annal++;
   }
   let last = from ?? -Infinity;
-  dev.ruralNow = () => ({ year: last, data: eng.get('乡口') });
-  dev.soilNow = () => eng.get('州地力');
+  api.dev.ruralNow = () => ({ year: last, data: eng.get('乡口') });
+  api.dev.soilNow = () => eng.get('州地力');
 
   const reg = pm.terrain.regions;
   const T = popTiles(dev);

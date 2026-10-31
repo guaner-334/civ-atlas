@@ -63,6 +63,7 @@ import { capacityAt, capitalAt, populationAt } from './growth';
 import type { ControlModel } from './control';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -203,40 +204,9 @@ export interface PoliticsModel {
   restored: Set<number>;
   /** 被并掉的国家(不复国) */
   merged: Set<number>;
-  /**
-   * 国家此刻的危机(hook 里填):国土太大、刚丢了国都 / 迁了都、正在打仗、这些年接连丢州。
-   * 动荡(control.ts 的数表,规则见 stateTables.ts)在它上面再加边远、异族、王朝老了、饥荒、民变、割据
-   */
-  strain?: (P: Polity, t: Year) => number;
-  /** 动荡(control.ts 挂上,读每年年初算的数表;没挂 = 只看危机):分裂的"动荡"那一项用它 */
-  unrest?: (P: Polity, t: Year) => number;
-  /** 这一年里又有 n 州闹了饥荒,动荡再加多少(control.ts 挂上;表里下一年才算进去,民变当时就要算上) */
-  famineBump?: (P: Polity, n: number) => number;
-  /** 看内政时最先看的大崩解(unrest.ts 挂上):崩了 = true,这一次看内政就到此为止 */
-  crisis?: (P: Polity, k: number, t: Year) => boolean;
-  /**
-   * 迁来的一支打进大国国都时当即大崩解(unrest.ts 挂上;migration.ts 用):不看国土、立国年数、动荡,崩法照常挑。
-   * k = 取随机数用的"第几次"(和看内政的错开);禁止分裂的干预护着、散不成几块 = false
-   */
-  shatter?: (P: Polity, k: number, t: Year) => boolean;
-  /** 照大纲顺着引时替国家 p 多看一眼内政(installPolitics 填):只看大崩解、分裂(k ≥ LOOK_K,随机数按它取,不接着预约) */
-  look?: (p: number, k: number, t: Year) => void;
-  /**
-   * 州组从 parent 分出去,立新国(国都 sid,起事的州 rising;hook 里填):记一条 kind(split / revolt;split 带 cause),
-   * 新国都是某个同族亡国的故都时算复国(宗室据地争位 cause = heir 的不算)。州组不用连着国都以外的碎块(要的先用 cutOff 补上);
-   * extra = 新国家另带的字段(不是复国时;如宗室争位的 Polity.prince)
-   */
-  secede?: (parent: number, group: number[], sid: number, rising: number, t: Year, kind: 'split' | 'revolt', cause?: AnnalCause, extra?: Partial<Polity>) => Polity;
-  /** 州组(升序)从 pid 分出去以后,pid 和国都断开的碎块也并进来(hook 里填;碎块太大、有刚换过国家的州 = null) */
-  cutOff?: (pid: number, group: number[], t: Year, cap: number) => number[] | null;
-  /** 州组里人口最多的城(hook 里填;没有城 = −1) */
-  biggestCity?: (group: readonly number[], t: Year) => number;
   /** 中央管到什么程度(control.ts 挂上;没挂 = 离心力照离国都的路程算) */
   control?: ControlModel;
-  /** 看内政时分裂没成之后:收回割据、新起割据(control.ts 挂上);出了一件事 = true */
-  lordCheck?: (P: Polity, k: number, t: Year) => boolean;
-  /** 看内政最后(分裂、割据、合并、迁都都没出事):议一件事(council.ts 挂上) */
-  councilCheck?: (P: Polity, k: number, t: Year) => void;
+  // 别的子系统挂过来的回调不在这里,在具名接口表 civ/api.ts 的 politics 那一组
 }
 
 function newModel(pm: PolityModel, wm: WarModel, world: World): PoliticsModel {
@@ -297,6 +267,7 @@ export function installPolitics(sim: CivSim, pm: PolityModel, world: World): Pol
 }
 
 function hook(sim: CivSim, pol: PoliticsModel): void {
+  const api = civApi(sim);
   models.set(sim, pol);
   const { pm, wm } = pol;
   const T = pm.terrain;
@@ -363,7 +334,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
   /** 国家 p 现在的国土(州号升序;复制一份,分出去、并掉时原表会变) */
   const regionsOf = (p: number): number[] => pm.lands[p].slice();
 
-  /** 危机(见 PoliticsModel.strain):国土大、刚丢了国都 / 迁了都、正在打仗、接连丢州 */
+  /** 危机(见 接口 politics.strain):国土大、刚丢了国都 / 迁了都、正在打仗、接连丢州 */
   const strain = (P: Polity, t: number): number => {
     const pid = P.id;
     let g = SIZE_D * Math.max(0, flog(pm.size[pid] / SPLIT_MIN_SIZE));
@@ -372,7 +343,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     g += CRISIS_LOSS * Math.min(1, lostRecently(pid, t) / 6);
     return g;
   };
-  pol.strain = strain;
+  api.politics.strain = strain;
 
   // 草稿数组(每个引擎一份)
   const dis = new Float64Array(R);
@@ -434,7 +405,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     }
     return sid;
   };
-  pol.biggestCity = biggestCity;
+  api.politics.biggestCity = biggestCity;
 
   /** 州组从 parent 分出去,立新国(国都 sid),记一条 split(起事的州 = rising)。返回新国家 */
   const secede = (
@@ -457,14 +428,14 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     if (kind === 'split') pol.lastSplit.set(parent, t);
     return p;
   };
-  pol.secede = (parent, group, sid, rising, t, kind, cause, extra) => {
+  api.politics.secede = (parent, group, sid, rising, t, kind, cause, extra) => {
     // 新国都是某个同族亡国的故都:这一次起兵就是复国(宗室据地争位、革命据地自立的不算)
     const f = kind === 'split' && cause !== 'heir' && cause !== 'revolution' ? heirOf(sid, t) : null;
     const p = secede(parent, group, sid, rising, t, f ? { restores: f.id, lineage: f.lineage } : (extra ?? {}), kind, cause);
     if (f) pol.restored.add(f.id);
     return p;
   };
-  pol.cutOff = (pid, group, t, cap) => {
+  api.politics.cutOff = (pid, group, t, cap) => {
     const stamp = ++gStamp;
     for (const r of group) inG[r] = stamp;
     return withCutOff(pid, group, t, cap);
@@ -482,7 +453,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const capR = capRegion(pid, t);
     const dist = pm.capDist[pid];
     // 动荡(整个国家;unrest.ts 没挂上时只看危机,新朝初立再加一点)
-    const g = pol.unrest ? pol.unrest(P, t) : strain(P, t) + (t - lastDynasty(P) < DYNASTY_YEARS ? CRISIS_DYNASTY : 0);
+    const g = api.politics.unrest ? api.politics.unrest(P, t) : strain(P, t) + (t - lastDynasty(P) < DYNASTY_YEARS ? CRISIS_DYNASTY : 0);
     // 各州的离心力;挑起事的州
     const cm = pol.control;
     const lords = cm ? cm.mark(pid, t) : 0;
@@ -687,10 +658,10 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     return true;
   };
 
-  pol.look = (p, k, t) => {
+  api.politics.look = (p, k, t) => {
     const P = pm.polities[p];
     if (!P || P.ended !== undefined) return;
-    if (pol.crisis?.(P, k, t)) return;
+    if (api.politics.crisis?.(P, k, t)) return;
     if (canSplit(P, t)) trySplit(P, k, t, regionsOf(p));
   };
 
@@ -702,17 +673,17 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const merge = canMerge(P, t);
     const move = canMove(P, k, t);
     // 大崩解(unrest.ts):动荡到顶的大国一下子散成几块,这一次看内政就到此为止
-    if (pol.crisis?.(P, k, t)) return;
-    const lord = !!pol.lordCheck;
+    if (api.politics.crisis?.(P, k, t)) return;
+    const lord = !!api.politics.lordCheck;
     if (!split && !merge && !move && !lord) return;
     const mine = regionsOf(p);
     if (split && trySplit(P, k, t, mine)) return;
     // 割据(control.ts):收回、新起一处
-    if (lord && pol.lordCheck!(P, k, t)) return;
+    if (lord && api.politics.lordCheck!(P, k, t)) return;
     if (merge && tryMerge(P, k, t, mine)) return;
     if (move && tryMove(P, k, t, mine)) return;
     // 议事(council.ts):这一次看内政没出别的事,就议一件
-    pol.councilCheck?.(P, k, t);
+    api.politics.councilCheck?.(P, k, t);
   });
 
   // ---- 复国 ----
@@ -837,7 +808,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     let caps: Uint8Array | null = null;
     for (const s of pm.settlements) {
       const r = s.region;
-      if (s.capitalFrom !== undefined || s.ended !== undefined || owner[r] >= 0 || culture[r] < 0 || pm.closed?.(r, -1, t)) continue;
+      if (s.capitalFrom !== undefined || s.ended !== undefined || owner[r] >= 0 || culture[r] < 0 || api.polity.closed?.(r, -1, t)) continue;
       // 自己的"立国"事件已经处理过(当时没立成);同一刻的还在排队,不重复预约
       if (pm.near[r] === 0 && quantize(foundingYear(s)) < t) {
         sim.schedule(t, Ev.PolityFound, r, s.id);

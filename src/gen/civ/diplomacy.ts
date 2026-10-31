@@ -35,7 +35,7 @@
  *
  * 阶段 4 干预:作者下令的结盟(iv.allied)不在这里,不会背盟、不会渐废,下令结了盟的两国也不讨伐;不许扩张的国家不收别国称臣、不援盟、不讨伐;
  *   不许灭的国家照样可以称臣(称臣不灭国),但不会被纳土归附(和合并一样)。
- *   作者下令盟国、宗藩之间开战:宣战前盟约、宗藩之分就此断了(DiplomacyModel.sever;盟国记 unally,cause = betray;
+ *   作者下令盟国、宗藩之间开战:宣战前盟约、宗藩之分就此断了(接口 diplomacy.sever;盟国记 unally,cause = betray;
  *   藩属打宗主记 defect,宗主打藩属记 defect,cause = betray;同一个宗主的两个藩属,攻方先自立,记 defect)。
  *
  * **不存内存状态**:结着的盟 = 史事 alliance 减去 unally;藩属 = submit 减去 defect;盟约断过的年份 = unally;
@@ -56,7 +56,7 @@ import { capitalAt, polityAlive, populationAt } from './growth';
 import { politicsModelOf } from './politics';
 import type { CivModule } from './modules';
 import { Ev } from './events';
-import { civApi } from './api';
+import { civApi, type DiplomacyApi } from './api';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邦交;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -185,29 +185,13 @@ export class DiplomacyModel {
   readonly broken = new Map<number, Year>();
   /** 看邻国挑中盟国时,宣战赔率 × 这么多(wars.ts) */
   readonly betrayOdds = BETRAY_ODDS;
-  /** 记一条邦交的史事并更新模型(installDiplomacy 挂上;wars.ts 背盟时用) */
-  note?: (kind: Annal['kind'], f: Partial<Omit<Annal, 'year' | 'kind'>>) => void;
-  /**
-   * x 向 y 宣战、记 war 之前(installDiplomacy 挂上;wars.ts 的 declare 调,war = 这场战争的编号):
-   * 两国结着盟、有宗藩之分的,就此断了;同是一国的藩属的,攻方先自立。
-   * 自然开战都先避开了这些(背盟先记了 unally),只有作者下令的宣战会走到这里
-   */
-  sever?: (x: number, y: number, t: Year, war: number) => void;
-  /** 接壤的在世邻国(installDiplomacy 挂上;联姻挑亲家用) */
-  neighborsOf?: (p: number) => number[];
-  /** 看邦交时(第 k 次)先看要不要和别国结亲(marriage.ts 挂上) */
-  marry?: (p: number, k: number, t: Year) => void;
-  /** 两国结着亲的分量(marriage.ts 挂上;0 = 没有 / 断了,1 = 刚结亲,KIN_FADE 年里淡到 0):挑盟友、援盟照它加 */
-  bond?: (p: number, q: number, t: Year) => number;
-  /** 立约(treaties.ts 挂上):两国此刻在同一份约里(约期内互不宣战,和结盟一样算友好) */
-  bound?: (p: number, q: number) => boolean;
-  /** 立约(treaties.ts 挂上):q 和 L 立了有限竞争之约,不收 L 的藩属(刚脱离 L 的国家来称臣也不收) */
-  limits?: (q: number, L: number) => boolean;
-  /** 立约(treaties.ts 挂上):看邦交时称臣、结盟都没成,接着看要不要和邻国立约(threat = 最怕的强邻,−1 = 没有) */
-  onCheck?: (p: number, k: number, t: Year, threat: number) => void;
 
-  constructor(pm: PolityModel) {
+  /** 具名接口表的邦交那一组(friendly 要问立约那边的 bound);单独建模型时是空的 */
+  readonly api: DiplomacyApi;
+
+  constructor(pm: PolityModel, api: DiplomacyApi = {}) {
     this.pm = pm;
+    this.api = api;
     this.base = subSeed(pm.seed, 'civ-diplomacy');
   }
 
@@ -259,7 +243,7 @@ export class DiplomacyModel {
 
   /** 两国此刻不会互相宣战:结着盟、有宗藩之分、同是一国的藩属、在同一份约里(treaties.ts) */
   friendly(p: number, q: number): boolean {
-    return !!this.pactOf(p, q) || this.vassalTie(p, q) || !!this.bound?.(p, q);
+    return !!this.pactOf(p, q) || this.vassalTie(p, q) || !!this.api.bound?.(p, q);
   }
 
   /**
@@ -295,6 +279,7 @@ export class DiplomacyModel {
       this.defected.set(e.a, { liege: e.b, year: e.year });
     }
   }
+  // 别的子系统挂过来的回调不在这里,在具名接口表 civ/api.ts 的 diplomacy 那一组
 }
 
 const models = new WeakMap<CivSim, DiplomacyModel>();
@@ -314,7 +299,7 @@ function checkTime(dm: DiplomacyModel, p: number, k: number): number {
 // 挂到推演引擎上
 
 /** 登记邦交的事件处理,把规则挂到战争模型上(installCities 之后、installInterventions 之前调用) */
-export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyModel = new DiplomacyModel(pm)): DiplomacyModel {
+export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyModel = new DiplomacyModel(pm, civApi(sim).diplomacy)): DiplomacyModel {
   const api = civApi(sim);
   const wm = warModelOf(sim);
   if (!wm) throw new Error('installDiplomacy:先 installWars');
@@ -334,7 +319,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     sim.record(kind, f);
     dm.apply({ year: sim.now, kind, a: f.a ?? -1, b: f.b ?? -1, region: -1, settlement: -1, war: f.war ?? -1, ...(f.foe !== undefined ? { foe: f.foe } : {}) });
   };
-  dm.note = record;
+  api.diplomacy.note = record;
 
   // ---- 小工具 ----
   const alive = (p: number) => p >= 0 && pm.polities[p].ended === undefined;
@@ -381,7 +366,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     }
     return [...out].sort((x, y) => x - y);
   };
-  dm.neighborsOf = neighbors;
+  api.diplomacy.neighborsOf = neighbors;
   /** 和作者下令的结盟一起算:两国此刻不会互相宣战 */
   const friendly = (p: number, q: number, t: number) => dm.friendly(p, q) || !!wm.iv?.allied(p, q, t);
   /** p 正在和 L 的某个藩属交兵(这时不向 L 称臣:称了臣就和那个藩属同是 L 的藩属,不该还在打) */
@@ -488,7 +473,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     const d = dm.defected.get(p);
     if (d && d.liege === q && t - d.year < RESUBMIT_REST) return false;
     // 有限竞争之约(treaties.ts):不收约国的藩属
-    if (d && dm.limits?.(q, d.liege)) return false;
+    if (d && api.diplomacy.limits?.(q, d.liege)) return false;
     // 有够分量的盟国撑腰就不称臣
     const pq = powerOf(q, t);
     for (const z of dm.alliesOf(p)) if (powerOf(z, t) >= 0.5 * pq) return false;
@@ -516,7 +501,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
       let score = Math.min(1, pz / pf) * (war ? PACT_COWAR : 1) * (borders(p, z) ? 1.5 : 1);
       if (pol && picks(pm, pol.friends, z)) score *= FRIEND_PACT;
       // 结着亲的先找(marriage.ts)
-      if (dm.bond) score *= 1 + (KIN_PACT - 1) * dm.bond(p, z, t);
+      if (api.diplomacy.bond) score *= 1 + (KIN_PACT - 1) * api.diplomacy.bond(p, z, t);
       if (score > bestScore) {
         bestScore = score;
         best = z;
@@ -537,7 +522,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     if (!P || P.ended !== undefined) return;
     sim.schedule(checkTime(dm, p, k + 1), Ev.DiplomacyCheck, k + 1, p);
     // 结亲(marriage.ts):不占"一次最多出一件事"
-    dm.marry?.(p, k, t);
+    api.diplomacy.marry?.(p, k, t);
     const L = dm.liegeOf(p);
     if (L >= 0) {
       tryDefect(p, L, k, t);
@@ -549,11 +534,11 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     const [f, ratio] = mainThreat(p, t, pp);
     if (f >= 0 && (trySubmit(p, f, ratio, k, t) || tryPact(p, f, ratio, k, t))) return;
     // 立约(treaties.ts)
-    dm.onCheck?.(p, k, t, f);
+    api.diplomacy.onCheck?.(p, k, t, f);
   });
 
   // ---- 战争里 ----
-  dm.sever = (x: number, y: number, t: number, war: number) => {
+  api.diplomacy.sever = (x: number, y: number, t: number, war: number) => {
     if (dm.pactOf(x, y)) record('unally', { a: x, b: y, war, cause: 'betray' });
     // 藩属打宗主 = 自立;宗主打藩属 = 宗藩反目(defect 的 cause = betray),藩属也不再称臣
     else if (dm.liegeOf(x) === y) record('defect', { a: x, b: y, region: capRegion(x, t), settlement: capitalAt(pm.polities[x], t) });
@@ -569,7 +554,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
       if (z === x || !alive(z) || friendly(z, x, t) || befriends(pm, z, x, t) || fighting(z, x) || halted(z, t) || busy(z) || !borders(z, x)) continue;
       let join = hates(pm, z, y, t) ? 0 : befriends(pm, z, y, t) ? FRIEND_JOIN : PACT_JOIN;
       // 结着亲的更肯出兵(marriage.ts)
-      if (join > 0 && dm.bond) join *= 1 + (KIN_JOIN - 1) * dm.bond(z, y, t);
+      if (join > 0 && api.diplomacy.bond) join *= 1 + (KIN_JOIN - 1) * api.diplomacy.bond(z, y, t);
       if (keyed4(dm.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_JOIN) < join) api.war.declare!(z, x, t, y, 'ally');
       else record('unally', { a: z, b: y, war: w.id, cause: 'abandon' });
     }
@@ -616,7 +601,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
 export function resumeDiplomacy(sim: CivSim, _world: World, civ: Civ): void {
   const pm = polityModelOf(sim);
   if (!pm || !warModelOf(sim)) return;
-  const dm = new DiplomacyModel(pm);
+  const dm = new DiplomacyModel(pm, civApi(sim).diplomacy);
   for (const e of civ.annals) dm.apply(e);
   installDiplomacy(sim, pm, dm);
   const now = sim.now;

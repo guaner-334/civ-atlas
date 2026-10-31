@@ -22,6 +22,7 @@ import type { InterventionModel } from './interventions';
 import type { PolityModel } from './polities';
 import { capitalAt, populationAt } from './growth';
 import { ERAS, devModelOf, eraNowAt, jumpEra } from './development';
+import { civApi } from './api';
 
 export type BoostIv = Extract<Intervention, { kind: 'boost' }>;
 
@@ -56,6 +57,7 @@ function segOf(v: BoostIv, p: number, pm: PolityModel): BoostSeg | null {
  * 发展度每一步按它们填「推」。列表里没有快几倍的什么都不挂(没下这条干预的世界逐字节不变)
  */
 export function installBoosts(sim: CivSim, iv: InterventionModel): void {
+  const api = civApi(sim);
   const d = devModelOf(sim);
   const pm = iv.pm;
   if (!d || !pm || !iv.list.some((v) => v.kind === 'boost' && v.mul !== undefined)) return;
@@ -71,7 +73,7 @@ export function installBoosts(sim: CivSim, iv: InterventionModel): void {
   segsOf.set(sim, segs);
   // 一步里各州的倍数:这一步按各条的起止切成几段,每段取管着这州的最大倍数,再按各段占这一步的几成加起来
   // (前后接着下的几条和一条管到底的一样;同时管着的几条取大的,不叠乘)
-  d.boostFill = (t0, y, out) => {
+  api.dev.boostFill = (t0, y, out) => {
     const dt = y - t0;
     const act = segs.filter((s) => Math.min(y, s.until) > Math.max(t0, s.from));
     if (!act.length) return;

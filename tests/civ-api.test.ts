@@ -1,6 +1,7 @@
 /**
  * 子系统之间的具名接口(src/gen/civ/api.ts):接口挂在每次推演自己的 CivSim.api 上,按名字分组;
- * 战争那一组(war)是别的子系统挂给战争的回调和战争提供给别人的宣战、议和、多看一眼。
+ * 战争那一组(war)是别的子系统挂给战争的回调和战争提供给别人的宣战、议和、多看一眼;另有国家(polity)、分合(politics)、
+ * 邦交(diplomacy)、发展度(dev)几组。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
@@ -29,5 +30,11 @@ describe('子系统之间的具名接口', () => {
     const war = civApi(sim).war;
     for (const k of ['declare', 'makePeace', 'look', 'treaty', 'onTruce', 'onFall', 'levy', 'power', 'kin', 'onPeace', 'onAssault', 'sue'] as const)
       expect(typeof war[k], k).toBe('function');
+    const api = civApi(sim);
+    expect(Object.keys(api).sort()).toEqual(['dev', 'diplomacy', 'politics', 'polity', 'war']);
+    expect(typeof api.polity.closed).toBe('function');
+    expect(typeof api.politics.unrest).toBe('function');
+    expect(typeof api.diplomacy.bound).toBe('function');
+    expect(typeof api.dev.afterStep).toBe('function');
   });
 });

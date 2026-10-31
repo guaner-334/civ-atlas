@@ -63,7 +63,6 @@ import { bestCapital, polityBorders, warModelOf, type War, type WarModel } from 
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { unrestModelOf } from './unrest';
 import { HOLD, assimModelOf } from './assimilation';
-import { devModelOf } from './development';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } from './trekRoute';
 import type { InterventionModel } from './interventions';
@@ -302,7 +301,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
   const weakness = (o: number, t: number): { v: number; why: Migration['pull'] } => {
     if (o < 0) return { v: WEAK_TRIBAL, why: 'tribal' };
     const P = pm.polities[o];
-    const u = pol.unrest?.(P, t) ?? 0;
+    const u = api.politics.unrest?.(P, t) ?? 0;
     const col = um()?.collapsed.get(o);
     // 近年大崩解过,或者是崩出来的一块(自立不久)
     const chaos = (col !== undefined && t - col < CHAOS_YEARS) || (P.parent !== undefined && t - P.founded < CHAOS_YEARS && (um()?.collapsed.get(P.parent) ?? -Infinity) >= P.founded - 1e-6);
@@ -328,7 +327,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     const hungry = new Int32Array(cultures.length);
     const crowd = new Float64Array(cultures.length);
     const crowdN = new Int32Array(cultures.length);
-    const rural = devModelOf(sim)?.ruralNow?.()?.data;
+    const rural = api.dev.ruralNow?.()?.data;
     for (let r = 0; r < R; r++) {
       const c = culture[r];
       if (c < 0 || c >= cultures.length) continue;
@@ -390,7 +389,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
       if (h < floor || h > hi || culture[r] < 0 || culture[r] === c || pm.cityOf[r] < 0) continue;
       const o = owner[r];
       if (o >= 0 && pm.polities[o].culture === c) continue;
-      if (o < 0 && pm.closed?.(r, -1, t)) continue;
+      if (o < 0 && api.polity.closed?.(r, -1, t)) continue;
       if (wm.iv?.locked(r, t)) continue;
       if (dir !== undefined && trekDir(tm.geo, trekRouteTo(P, r).map((x) => reg.seat[x])) !== dir) continue;
       const good = Math.min(GOOD_MAX, Math.sqrt(cityPop(r, t) / POP_REF));
@@ -559,7 +558,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
   const open = (r: number, y: number, c: number, t: number): boolean => {
     if (r >= R || culture[r] < 0 || capitals[r] || wm.iv?.locked(r, t)) return false;
     const o = owner[r];
-    if (o >= 0 ? o !== y || pm.polities[o].culture === c : pm.closed?.(r, -1, t)) return false;
+    if (o >= 0 ? o !== y || pm.polities[o].culture === c : api.polity.closed?.(r, -1, t)) return false;
     return true;
   };
 
@@ -610,7 +609,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     }
     if (!picked.length) return scatter([]);
     // 都城:人口最多的城;落脚的几州改换成迁来的民族(刚改换过的、原民族的最后一州除外)
-    const sid = pol.biggestCity?.(picked, t) ?? -1;
+    const sid = api.politics.biggestCity?.(picked, t) ?? -1;
     const settledIn = picked.filter((r) => changeFolk(r, c, t));
     if (sid < 0) return scatter(settledIn);
     const capR = pm.settlements[sid].region;
@@ -687,7 +686,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     if (!M || x !== w.a || y !== w.b || small(x, y)) return false;
     if (wm.iv?.holdsLock(y, t)) return false;
     // 丢国都以前还有 BIG 州的大国,本来就乱的多半当即大崩解(SHATTER_0 + SHATTER_U × 动荡 的机会)
-    const Yu = pol.unrest?.(pm.polities[y], t) ?? 0;
+    const Yu = api.politics.unrest?.(pm.polities[y], t) ?? 0;
     const shatter = pm.size[y] + 1 >= BIG && !wm.iv?.unites(y, t) && keyed(tm.base, pm.ptag[y], w.id, U_SHATTER) < SHATTER_0 + SHATTER_U * Math.max(0, Yu);
     const Y = pm.polities[y];
     const oldSid = pm.cityOf[r];
@@ -736,7 +735,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     M.stormed = y;
     if ((M.foeSize ?? 0) >= BIG) M.big = true;
     api.war.makePeace!(w, t);
-    if (shatter) pol.shatter?.(Y, SHATTER_K + w.id, t);
+    if (shatter) api.politics.shatter?.(Y, SHATTER_K + w.id, t);
     return true;
   };
   const prevFall = api.war.onFall;

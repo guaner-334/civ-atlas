@@ -33,13 +33,13 @@ import { quantize, type CivSim } from './engine/sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { plagueModelOf } from './plague';
 import { capitalAt, populationAt, settlementRank } from './growth';
-import { devModelOf } from './development';
 import { scheduleRebuild } from './cities';
 import { afflict } from './disaster';
 import { IV_LOSS, PANDEMIC_K, PLAGUE_IV, calamityRates, naturalPandemic, pandemicBase, quakeRing, type Calamity } from './calamity';
 import { anySlump, newPandemic, notePandemicHit, pandemicModelOf, setPandemicModel, type Pandemic, type PandemicModel } from './pandemicState';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/pandemic-stats.ts) ----
 /** 看全球大疫:每隔多少年;上一场起疫后这么多年内不再自己起 */
@@ -109,7 +109,7 @@ export function installPandemic(sim: CivSim, pm: PolityModel, seed: number): voi
 
 /** 此刻天下人口(千人):各州乡村(population.ts 最近一步算的)+ 各城 */
 function worldPopulation(run: Runner, t: Year): number {
-  const rural = devModelOf(run.sim)?.ruralNow?.().data;
+  const rural = civApi(run.sim).dev.ruralNow?.().data;
   let sum = 0;
   if (rural) for (let r = 0; r < rural.length; r++) sum += rural[r];
   for (const s of run.pm.settlements) if (s.ended === undefined && t >= s.founded) sum += populationAt(s, t);

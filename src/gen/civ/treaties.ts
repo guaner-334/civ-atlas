@@ -5,7 +5,7 @@
  *
  * 流程(index.ts 在 installPlague 之后调用 installTreaties):
  *
- *   **立约**(看邦交时,称臣、结盟都没成之后;DiplomacyModel.onCheck):
+ *   **立约**(看邦交时,称臣、结盟都没成之后;接口 diplomacy.onCheck):
  *     两国陆上接壤、国力差不到 TREATY_RATIO 倍、都没在打仗、都不是藩属、没结盟、两国上次约废 / 背约过了 TREATY_REST 年,
  *     还要有个由头:近 STALE_YEARS 年里两国打过一场谁也没占到便宜的仗(双方攻下的州数差不超过 STALE_NET),
  *     或者两国都怕同一个强邻(都接壤、国力是两国各自的 FEAR 倍以上)。
@@ -20,11 +20,11 @@
  *   **居间**:和立约各国都没在打仗、至少和其中两国接壤的国家里国力最大的(没有就没有);编年史写它当时在朝的名臣(treatyInfo.ts)。
  *   **会盟地**:有中立地的会于中立地的城;没有就挑国界上(和别的约国接壤的州里)离几国国都路程之和最近的一座城。约名照这座城起("丹枫关之约")。
  *   **约的效果**:约期内立约几国互不宣战(DiplomacyModel.friendly 算上它:看邻国时跳过,不援盟来打约国,不把约国当强邻);
- *     有限竞争的还不进约国旁边的无主之地(PolityModel.closed)、不收约国的藩属(DiplomacyModel.limits)。不互相出兵相救(那是结盟)。
+ *     有限竞争的还不进约国旁边的无主之地(接口 polity.closed)、不收约国的藩属(接口 diplomacy.limits)。不互相出兵相救(那是结盟)。
  *   **背约**(看邻国时;接口 war.treaty):立约(或续约)满 BREACH_AGE 年以后才可能,还要有由头 —— 自己国力已是对方 BREACH_PREY 倍以上、
  *     对方正乱(在和别国打仗、CHAOS_YEARS 年内迁过都 / 改朝换代)、或者共同的强邻已经亡了;宣战赔率 × BREACH_ODDS。
  *     国家方针(policy.ts)把对方当仇国的不和它立约;立了约以后才定的仇国,约拦不住,不等满年就可能背约。
- *     宣战那一刻(DiplomacyModel.sever)先记 breach:背约的一方退出这份约,约的中立地当即撤销、州还给原主,剩下两国以上的约照旧。
+ *     宣战那一刻(接口 diplomacy.sever)先记 breach:背约的一方退出这份约,约的中立地当即撤销、州还给原主,剩下两国以上的约照旧。
  *     作者下令约国之间开战也一样记背约。
  *   **到期**(Ev.TreatyEnd):还在约里的几国国力差不到 RENEW_RATIO 倍 → RENEW_P 的机会续约(共同的强邻还在 × RENEW_FOE,最多 RENEW_MAX;
  *     每续过一次再 × RENEW_DECAY),续 TERM_RENEW 年(记 treaty,cause = renew);不续就记 expire,约废,中立地撤销。
@@ -36,7 +36,7 @@
  *     再一样时有城的在前、人少的在前。议和划缓冲的(pickBuffer):这场仗里易手次数最多、此刻在两国交界上的那一州。
  *     那州原属哪国由哪国让出;撤销时还给原来那国(那国还在、陆上还和它接壤),不然成了无主之地,周围的国家照常扩张进去。
  *   **放逐**(每处同时最多 ZONE_CAP 人:EXILE_STAY 年内徙来的算还住着):
- *     立约国新君即位(先君寿终、同一朝里交接、先君晚年新君没有引兵入朝,PolityModel.onReign;在 unrest.ts 的宗室争位之前看),先君还有成年在世的儿子:
+ *     立约国新君即位(先君寿终、同一朝里交接、先君晚年新君没有引兵入朝,接口 polity.onReign;在 unrest.ts 的宗室争位之前看),先君还有成年在世的儿子:
  *       EXILE_P 的机会把最年长的那位徙到中立地(记 exile,cause = heir),这一回不再有宗室据地争位;
  *     改朝换代、旧朝末代之君被废(新朝的根据地就是原来的国都,和 people.ts 判"被废"同一个判据):EXILE_P 的机会徙去(cause = deposed);
  *     立约国亡于战争(接口 war.onFall):亡以前它还在约里、约里还有别国、约的中立地还在(没被谁占了、没住满、不是"不送人去"的),
@@ -705,14 +705,14 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     return true;
   };
 
-  dm.bound = (p, q) => !!m.bound(p, q);
-  dm.limits = (q, L) => m.limits(q, L);
-  dm.onCheck = (p, k, t) => {
+  api.diplomacy.bound = (p, q) => !!m.bound(p, q);
+  api.diplomacy.limits = (q, L) => m.limits(q, L);
+  api.diplomacy.onCheck = (p, k, t) => {
     sweep(t);
     tryTreaty(p, k, t);
   };
-  const sever = dm.sever;
-  dm.sever = (x, y, t, war) => {
+  const sever = api.diplomacy.sever;
+  api.diplomacy.sever = (x, y, t, war) => {
     sever?.(x, y, t, war);
     if (m.live.length) breakOff(x, y, t, war);
   };
@@ -776,7 +776,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   });
 
   // ---- 中立地:谁都不进;有限竞争之约:不进约国旁边的无主之地 ----
-  pm.closed = (r, pid) => {
+  api.polity.closed = (r, pid) => {
     if (m.zoneAt[r] >= 0) return true;
     if (pid < 0 || !m.live.length) return false;
     for (const x of m.live) {
@@ -808,7 +808,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     note('exile', { a: p, region: z.region, settlement: pm.cityOf[z.region], war: z.id, n, cause });
 
   // ---- 亡国之君出奔:有中立地可去的先奔中立地,不然末代之君出奔的奔邻国(exile.ts);再查一遍约(两国之约剩一国就废、中立地跟着撤)----
-  const refuge = refugeFinder(pm, wm, dm, owner, (y, q) => m.live.some((x) => m.held(x, y) && m.member(x, q)));
+  const refuge = refugeFinder(api, pm, wm, dm, owner, (y, q) => m.live.some((x) => m.held(x, y) && m.member(x, q)));
   api.war.onFall = (_w, x, y, t) => {
     const z = m.live.length ? zoneFor(y, t, true) : undefined;
     if (z) exile(y, z, 'fled', -1);
@@ -820,8 +820,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
 
   // ---- 新君即位:失势的宗室、被废的末代之君徙到中立地(在宗室据地争位之前看)----
-  const reign = pm.onReign;
-  pm.onReign = (pid, k, list, t) => {
+  const reign = api.polity.onReign;
+  api.polity.onReign = (pid, k, list, t) => {
     if (m.live.length && m.zones.length && banish(pid, k, list, t)) return;
     reign?.(pid, k, list, t);
   };
