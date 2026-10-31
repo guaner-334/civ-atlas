@@ -488,7 +488,7 @@ function Events({ civ, id, events }: { civ: Civ; id: number; events: ReturnType<
             );
           })
         ) : (
-          <div className="ct-empty">{courtEmpty()}</div>
+          <div className="ct-empty">{courtEmpty(civ)}</div>
         )}
       </div>
     </section>

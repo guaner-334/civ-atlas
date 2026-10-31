@@ -90,7 +90,8 @@
  */
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from '../types';
 import { IV_GONE, IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from '../regents';
-import { IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, IV_NO_PARTNER } from '../marriages';
+import { MARRIAGES_KNOBS } from '../marriages';
+import { knobsOf } from '../knobs';
 import { holderAt, kinAt, strongHeld } from './regentInfo';
 import {
   TIER_REGIONS,
@@ -1385,6 +1386,8 @@ function marryStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'marry'
   const k = resolveKey(civ, v.b);
   const B = e.b >= 0 ? pn(civ, e.b, y) : k?.kind === 'polity' && civ.polities[k.id] ? pn(civ, k.id, y) : '他国';
   const verb = `欲为${want}与${B}结亲`;
+  // 没生效的原因编号、嫁女的君主至少几岁:按这个世界的那套数
+  const { IV_NO_PARTNER, IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, BRIDE_FATHER } = knobsOf(civ).get(MARRIAGES_KNOBS);
   switch (e.b) {
     case -3:
       return fail(`欲为${want}结亲,然${A}已亡`, `那一年${A}已亡`);
@@ -1397,7 +1400,7 @@ function marryStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'marry'
     case IV_NOT_HIM:
       return fail(`${verb},然其人非宗室`, `${heOrShe(civ.people?.[resolvePersonKey(civ, v.person)])}那一年不是在位的君主,也不是在世、成年的宗室`);
     case IV_NO_BRIDE:
-      return fail(`${verb},然无女可嫁`, '嫁女那一国的君主那一年不到 30 岁,没有成年的女儿');
+      return fail(`${verb},然无女可嫁`, `嫁女那一国的君主那一年不到 ${BRIDE_FATHER} 岁,没有成年的女儿`);
     case IV_NO_GROOM:
       return fail(`${verb},然${B}无人可娶`, `${B}那一年没有能娶亲的宗室`);
   }

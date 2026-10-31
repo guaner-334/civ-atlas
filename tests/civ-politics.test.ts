@@ -7,12 +7,14 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { canCross, polityModelOf } from '../src/gen/civ/polities';
-import { NEWBORN, warStats } from '../src/gen/civ/wars';
+import { WARS_KNOBS, warStats } from '../src/gen/civ/wars';
 import { politicsModelOf, politicsStats } from '../src/gen/civ/politics';
 import { capitalAt, polityAlive, polityRootAt, polityTitles, polityShortTitle, tierOf } from '../src/gen/civ/growth';
 import { GREAT_TIER, MAJOR, buildChronicle } from '../src/gen/civ/story/chronicle';
 import { resumeCiv } from '../src/gen/civ/modules';
 import { Ev } from '../src/gen/civ/events';
+
+const { NEWBORN } = WARS_KNOBS.values;
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 

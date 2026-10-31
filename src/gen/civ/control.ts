@@ -51,7 +51,7 @@ import { Layer, AdjKind, type Civ, type Polity, type TablesState, type Year } fr
 import { fexp, keyed, keyed4, subSeed } from './engine/rand';
 import { type CivSim } from './engine/sim';
 import { polityModelOf, powerScaleOf, unrestShiftOf, type PolityModel } from './polities';
-import { GUIDE_UNREST } from './policy';
+import { POLICY_KNOBS } from './policy';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { Cap, CAP_COUNT, cityPopulationsAt, devModelOf, eraLevel, type DevModel } from './development';
@@ -60,17 +60,18 @@ import { capacityAt, capitalAt, populationAt } from './growth';
 import { TableEngine } from './engine/tables';
 import { NEVER } from './devTables';
 import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './stateTables';
-import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
+import type { TableCard } from './engine/tables';
+import { UNREST_KNOBS, unrestConsts, unrestInputs, unrestModelOf } from './unrest';
 import { BOOK_WIDTH } from './fiscalBook';
-import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
-import { COUNCIL_CONSTS, cutDone, reorgCap } from './councilRules';
+import { popConsts, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
+import { COUNCIL_RULES_KNOBS, councilConsts, cutDone, reorgCap } from './councilRules';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const CONTROL_KNOBS = defineKnobs('control', {
   /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
   REACH: 3.3,
@@ -97,7 +98,6 @@ export const CONTROL_KNOBS = defineKnobs('control', {
   /** 出兵的几成 = min(1, c + LEVY_0);割据的州 0 */
   LEVY_0: 0.45,
 });
-const { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_RATIO, BIG_CITY, TIER_DIRECT, TIER_PROXY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX, LEVY_0 } = CONTROL_KNOBS.values;
 
 // ---- 钱粮(公式见 stateTables.ts;以 20 个种子的统计为准) ----
 /** 各州三样收入:田赋(乡村人口)、工商(城的人口)、市税(城的人口,看运输、港口、大河);每样随生产 / 运输能力涨 */
@@ -169,7 +169,8 @@ const U_RISE = 2;
 const U_RECLAIM = 3;
 
 /** 快照里的一个数是哪一档(0 直辖、1 代管、2 自治、3 割据);0(不在国家里)当自治 */
-export function controlTier(v: number): number {
+export function controlTier(knobs: KnobSet, v: number): number {
+  const { TIER_DIRECT, TIER_PROXY } = knobs.get(CONTROL_KNOBS);
   if (v === LORD_BYTE) return 3;
   const c = (v - 1) / 100;
   return c >= TIER_DIRECT ? 0 : c >= TIER_PROXY ? 1 : 2;
@@ -275,10 +276,10 @@ export function resumeControl(sim: CivSim, civ: Civ): void {
       // 削藩办成:那一处割据了结
       const w = latest(e.a, e.region);
       if (w) w.end = e.year;
-    } else if (e.kind === 'council' && reorgCap(e) !== undefined) {
+    } else if (e.kind === 'council' && reorgCap(sim.knobs, e) !== undefined) {
       // 改组(分镇):那一处割据的地盘从此最多几州
       const w = latest(e.a, e.region);
-      if (w) w.cap = reorgCap(e);
+      if (w) w.cap = reorgCap(sim.knobs, e);
     } else if (e.kind === 'warlord') lords.push({ p: e.a, region: e.region, city: e.settlement, start: e.year, defied: -Infinity });
     else if (e.kind === 'reclaim') {
       const w = latest(e.a, e.region);
@@ -291,8 +292,11 @@ export function resumeControl(sim: CivSim, civ: Civ): void {
   hook(sim, civ.seed, lords, civ.development?.state?.tables ?? undefined, noted);
 }
 
-/** 政局的数表(管得到几成、离国都多远、动荡;见 stateTables.ts)里归这里管的常数 */
-export const CONTROL_CONSTS: ControlRuleConsts = { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_CITY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX, LEVY_0 };
+/** 政局的数表(管得到几成、离国都多远、动荡;见 stateTables.ts)里归这里管的常数(按这个世界的那套数) */
+export function controlConsts(knobs: KnobSet): ControlRuleConsts {
+  const { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_CITY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX, LEVY_0 } = knobs.get(CONTROL_KNOBS);
+  return { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_CITY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX, LEVY_0 };
+}
 /** 钱粮的常数(见 stateTables.ts) */
 export const FISCAL_CONSTS: FiscalRuleConsts = {
   LAND,
@@ -313,7 +317,13 @@ export const FISCAL_CONSTS: FiscalRuleConsts = {
   FISCAL_W,
   FISCAL_EVERY,
 };
-const STATE_CARDS = stateCards(CONTROL_CONSTS, UNREST_CONSTS, FISCAL_CONSTS, POP_CONSTS, COUNCIL_CONSTS);
+/** 政局的全部表:按一套数编好的(同一套数只编一次) */
+const cardsMemo = new WeakMap<KnobSet, TableCard[]>();
+function stateCardsOf(knobs: KnobSet): TableCard[] {
+  let cards = cardsMemo.get(knobs);
+  if (!cards) cardsMemo.set(knobs, (cards = stateCards(controlConsts(knobs), unrestConsts(knobs), FISCAL_CONSTS, popConsts(knobs), councilConsts(knobs))));
+  return cards;
+}
 /**
  * 存下来的表(接着推时填回):算出来的几张(三样收入几年才算一次、国库和乡村人口接着上一年的,都得存),和事件层还要读的几张输入表。
  * 岁入、岁出每年重算,不用存(应缴要存:看邻国时读国库攒到几成)
@@ -324,6 +334,10 @@ const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', ...POP_TABL
  * saved:接着推时存档里政局数表的状态(null = 从头推;undefined = 存档里没有,接着推的那一刻现算一次)
  */
 function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | null | undefined, noted: Map<number, Year>): ControlModel | undefined {
+  const { GUIDE_UNREST } = sim.knobs.get(POLICY_KNOBS);
+  const UK = sim.knobs.get(UNREST_KNOBS);
+  const CK = sim.knobs.get(COUNCIL_RULES_KNOBS);
+  const { BIG_RATIO, REMOTE_MAX, LEVY_0, TIER_DIRECT, TIER_PROXY } = sim.knobs.get(CONTROL_KNOBS);
   const api = civApi(sim);
   const pm = polityModelOf(sim);
   const wm = warModelOf(sim);
@@ -344,7 +358,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   // ---- 政局的数表(管得到几成、离国都多远、动荡;规则见 stateTables.ts):每年年初填好输入、算一步,这一年里的事件读它 ----
   const eng = new TableEngine({
     seed: subSeed(seed, 'civ-state'),
-    cards: STATE_CARDS,
+    cards: stateCardsOf(sim.knobs),
     units: {
       // 乡村人口、地力按地块算(population.ts)
       tile: { count: tiles.count, adjStart: tiles.adjStart, adj: tiles.adj },
@@ -663,8 +677,8 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     const N = eng.value('州数', p);
     if (!(N > 0)) return 0;
     const n0 = eng.value('饥荒', p);
-    const full = Math.max(UNREST_CONSTS.FAMINE_FULL_MIN, UNREST_CONSTS.FAMINE_FULL * N);
-    const add = UNREST_CONSTS.FAMINE_W * (Math.min(1, (n0 + n) / full) - Math.min(1, n0 / full));
+    const full = Math.max(UK.FAMINE_FULL_MIN, UK.FAMINE_FULL * N);
+    const add = UK.FAMINE_W * (Math.min(1, (n0 + n) / full) - Math.min(1, n0 / full));
     // 压到 0 以上之前加(新朝初立减的那一点先抵掉)
     const u0 = eng.value('动荡底', p);
     return Math.max(0, u0 + add) - Math.max(0, u0);
@@ -711,7 +725,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       sums[o + 2] += trade[r];
       const c = tCtl[r];
       const tier = lord[r] ? 3 : c >= TIER_DIRECT ? 0 : c >= TIER_PROXY ? 1 : 2;
-      const remit = lord[r] ? 0 : fief[p] && c < COUNCIL_CONSTS.FIEF_C ? COUNCIL_CONSTS.FIEF_REMIT : REMIT_0 + (1 - REMIT_0) * Math.min(1, c + lift[p]);
+      const remit = lord[r] ? 0 : fief[p] && c < CK.FIEF_C ? CK.FIEF_REMIT : REMIT_0 + (1 - REMIT_0) * Math.min(1, c + lift[p]);
       sums[o + 3 + tier] += tax[r] * (1 - remit);
     }
     dev.book.trim(t);

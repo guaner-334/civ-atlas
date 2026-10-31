@@ -5,13 +5,17 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { COUNCIL_CONSTS, COUNCIL_GATE, councilModelOf, courtRulesAt } from '../src/gen/civ/council';
+import { councilConsts, councilGate, councilModelOf, courtRulesAt } from '../src/gen/civ/council';
 import { LORD_BYTE, controlAt, controlShare } from '../src/gen/civ/control';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
 import { courtEmpty, courtEvents, courtRowNote, courtView, formChangeSay, isFiefRegion, levySay, lordFoot, regimeSays } from '../src/ui/courtInfo';
 import { formChangesAt, formDims, polityFormAt } from '../src/gen/civ/story/polityForm';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
+
+const COUNCIL_CONSTS = councilConsts(OFFICIAL_KNOBS);
+const COUNCIL_GATE = councilGate(OFFICIAL_KNOBS);
 
 let cached: { world: World; civ: Civ } | null = null;
 function seed7() {
@@ -109,7 +113,7 @@ describe('朝政', () => {
   }, 120_000);
 
   it('没议过事那一句:会议的几类事都列着(征税、分封、削藩、兵权、任免、分镇、脱离)', () => {
-    const s = courtEmpty();
+    const s = courtEmpty(seed7().civ);
     for (const w of ['改征税的法子', '分封或收回边地', '削藩', '收放兵权', '收放任免', '分镇', '脱离']) expect(s).toContain(w);
     expect(s).toContain(`${COUNCIL_GATE.size} 个州`);
   });

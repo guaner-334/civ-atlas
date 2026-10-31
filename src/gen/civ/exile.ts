@@ -24,7 +24,7 @@ import type { CivApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const EXILE_KNOBS = defineKnobs('exile', {
   /**
    * 邻国:亡国以前的国土往外这么多步以内(多半是被灭他的国家四面围住才亡的,紧挨着的往往只剩它;
@@ -36,7 +36,6 @@ export const EXILE_KNOBS = defineKnobs('exile', {
   /** 和灭他的国家这么多年内打过仗,算敌对 */
   FOE_YEARS: 30,
 });
-const { HOPS, LOOKBACK, FOE_YEARS } = EXILE_KNOBS.values;
 
 // 随机数用途
 const U_PICK = 1;
@@ -61,6 +60,7 @@ export function refugeFinder(
   owner: ArrayLike<number>,
   inPact: (y: number, q: number) => boolean,
 ): (x: number, y: number, t: Year) => Refuge | null {
+  const { HOPS, LOOKBACK, FOE_YEARS } = pm.knobs.get(EXILE_KNOBS);
   const reg = pm.terrain.regions;
   const R = owner.length;
   const base = subSeed(pm.seed, 'civ-exile');

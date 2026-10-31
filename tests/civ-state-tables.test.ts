@@ -7,11 +7,17 @@ import { describe, expect, it } from 'vitest';
 import { TableEngine, type Backend } from '../src/gen/civ/engine/tables';
 import { stateCards } from '../src/gen/civ/stateTables';
 import { NEVER } from '../src/gen/civ/devTables';
-import { CONTROL_CONSTS as C, FISCAL_CONSTS as F } from '../src/gen/civ/control';
-import { UNREST_CONSTS as U } from '../src/gen/civ/unrest';
-import { POP_CONSTS as H } from '../src/gen/civ/population';
-import { COUNCIL_CONSTS as K } from '../src/gen/civ/councilRules';
+import { FISCAL_CONSTS as F, controlConsts } from '../src/gen/civ/control';
+import { unrestConsts } from '../src/gen/civ/unrest';
+import { popConsts } from '../src/gen/civ/population';
+import { councilConsts } from '../src/gen/civ/councilRules';
 import { fpow, keyed } from '../src/gen/civ/engine/rand';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
+
+const C = controlConsts(OFFICIAL_KNOBS);
+const U = unrestConsts(OFFICIAL_KNOBS);
+const H = popConsts(OFFICIAL_KNOBS);
+const K = councilConsts(OFFICIAL_KNOBS);
 
 const R = 40;
 const NP = 5;

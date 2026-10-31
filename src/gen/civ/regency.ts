@@ -26,21 +26,13 @@ import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
 import { KEEP_REGENT, reignStart, type Reign } from './rulers';
 import {
-  MARCH_FADE,
-  MARCH_SUPPLY,
-  MARCH_WAR,
   REGENCY_KINDS,
+  REGENTS_KNOBS,
   RG_DIED,
   RG_PURGE,
   RG_RETURN,
   RG_START,
   RG_USURP,
-  STRONG_GAIN,
-  STRONG_LOSS,
-  STRONG_P,
-  STRONG_TIER,
-  STRONG_YEARS,
-  YOUNG,
   IV_GONE,
   IV_HELD,
   IV_NO_THRONE,
@@ -104,6 +96,7 @@ export function resumeRegency(sim: CivSim, _civ: Civ): void {
 }
 
 function hook(sim: CivSim, pm: PolityModel): RegencyModel {
+  const { MARCH_WAR, YOUNG, STRONG_TIER, STRONG_YEARS, STRONG_LOSS, STRONG_GAIN, STRONG_P, MARCH_FADE, MARCH_SUPPLY } = pm.knobs.get(REGENTS_KNOBS);
   const api = civApi(sim);
   const wm = warModelOf(sim);
   if (!wm) throw new Error('installRegency:先 installWars');

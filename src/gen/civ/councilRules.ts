@@ -6,10 +6,10 @@
  */
 import type { Annal, Year } from './types';
 import type { CouncilRuleConsts } from './stateTables';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const COUNCIL_RULES_KNOBS = defineKnobs('councilRules', {
   /** 分封:管得到几成不到 FIEF_C 的州只交 FIEF_REMIT;"离国都远"那一项动荡乘 FIEF_FAR */
   FIEF_C: 0.35,
@@ -21,8 +21,8 @@ export const COUNCIL_RULES_KNOBS = defineKnobs('councilRules', {
   /** 改组(分镇)妥协时,那处割据的地盘留几州(办成只留起事那一州) */
   REORG_HALF: 2,
 });
-const { FIEF_FAR, BORDER_ARMY } = COUNCIL_RULES_KNOBS.values;
-export const { FIEF_C, FIEF_REMIT, BORDER_C, REORG_HALF } = COUNCIL_RULES_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type CouncilRulesKnobs = typeof COUNCIL_RULES_KNOBS.values;
 
 /** 议题(Annal.war) */
 export const enum Issue {
@@ -64,8 +64,11 @@ export const ISSUES = 15;
 /** 改制的几种议题(立宪、扩大参与、废君立共和、还政;reform.ts) */
 export const isReformIssue = (i: number) => i >= Issue.Charter && i <= Issue.Return;
 
-/** 政局数表里归议事管的常数(stateTables.ts) */
-export const COUNCIL_CONSTS: CouncilRuleConsts = { FIEF_C, FIEF_REMIT, FIEF_FAR, BORDER_C, BORDER_ARMY };
+/** 政局数表里归议事管的常数(stateTables.ts;按这个世界的那套数) */
+export function councilConsts(knobs: KnobSet): CouncilRuleConsts {
+  const { FIEF_C, FIEF_REMIT, FIEF_FAR, BORDER_C, BORDER_ARMY } = knobs.get(COUNCIL_RULES_KNOBS);
+  return { FIEF_C, FIEF_REMIT, FIEF_FAR, BORDER_C, BORDER_ARMY };
+}
 
 /** 史事 council 是不是"削藩办成"(那一处割据了结;control.ts 重建割据时用) */
 export function cutDone(e: Annal): boolean {
@@ -73,9 +76,9 @@ export function cutDone(e: Annal): boolean {
 }
 
 /** 史事 council 是"改组办成 / 妥协"时,那一处割据的地盘从此最多几州(control.ts 重建割据时用);不是 = undefined */
-export function reorgCap(e: Annal): number | undefined {
+export function reorgCap(knobs: KnobSet, e: Annal): number | undefined {
   if (e.kind !== 'council' || e.war !== Issue.Reorg) return undefined;
-  return e.n === Outcome.Done ? 1 : e.n === Outcome.Half ? REORG_HALF : undefined;
+  return e.n === Outcome.Done ? 1 : e.n === Outcome.Half ? knobs.get(COUNCIL_RULES_KNOBS).REORG_HALF : undefined;
 }
 
 /** 一国议定的规矩 */

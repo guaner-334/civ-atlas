@@ -28,6 +28,7 @@ import { computeHabitat } from './habitat';
 import { buildRegions, reshapeRegions } from './regions';
 import { ownersAt } from './engine/timeline';
 import { type CivSim } from './engine/sim';
+import type { KnobSet } from './engine/knobs';
 import { endPolity, findPorts, moveCapital, polityModelOf, siteFactor } from './polities';
 import { bestCapital, warModelOf, type War } from './wars';
 import { capitalAt, populationAt } from './growth';
@@ -321,6 +322,7 @@ function terrainAt(past: readonly TerrainEra[], y: Year, r: number): CultureTerr
  * 返回新的城镇表:变了的城换成新对象,不改传进来的
  */
 export function reshapeCities(
+  knobs: KnobSet,
   settlements: readonly Settlement[],
   past: readonly TerrainEra[],
   w1: World,
@@ -344,8 +346,8 @@ export function reshapeCities(
     const last = s.reshaped?.[s.reshaped.length - 1];
     const port0 = last ? last.port : s.port;
     const port = port1[r] === 1;
-    const f0 = Math.max(SITE_MIN, siteFactor(terrainAt(past, last ? last.year : s.founded, r), port0, r));
-    const f1 = Math.max(SITE_MIN, siteFactor(T1, port, r));
+    const f0 = Math.max(SITE_MIN, siteFactor(knobs, terrainAt(past, last ? last.year : s.founded, r), port0, r));
+    const f1 = Math.max(SITE_MIN, siteFactor(knobs, T1, port, r));
     if (!(f0 > 0)) return s;
     const k = f1 / f0;
     if (port === port0 && Math.abs(k - 1) < RESHAPE_MIN) return s;
@@ -362,13 +364,13 @@ export function reshapeCities(
  * 同一年已经有的大事:地形算在"之前"里(预览只看再加的这几笔改了什么);州停在那一年以前
  * (再加的一件和它合成一件,推演里从那一年以前的州一次划到底,预览也一样)
  */
-export function upheavalBase(world: World, steps: readonly UpheavalStep[], year: Year, regionArea: number, seed = world.params.seed): { world: World; regions: Regions } {
+export function upheavalBase(knobs: KnobSet, world: World, steps: readonly UpheavalStep[], year: Year, regionArea: number, seed = world.params.seed): { world: World; regions: Regions } {
   let w = world;
-  let r = buildRegions(w, computeHabitat(w), { regionArea, seed });
+  let r = buildRegions(w, computeHabitat(w), { regionArea, seed, knobs });
   for (const s of steps) {
     if (s.year > year) break;
     w = s.world;
-    if (s.year < year) r = reshapeRegions(w, computeHabitat(w), r, { regionArea, seed });
+    if (s.year < year) r = reshapeRegions(w, computeHabitat(w), r, { regionArea, seed, knobs });
   }
   return { world: w, regions: r };
 }
@@ -387,8 +389,8 @@ const CONE_FRAC = 0.12;
 const CONE_MIN = 40;
 
 /** w0、r0 = 那一年的地形和州(upheavalBase;同一年已经有大事时 r0 是那以前的州);w1 = 再套上这几笔(ops)生成的世界 */
-export function previewUpheaval(w0: World, r0: Regions, w1: World, ops: readonly TerrainOp[], regionArea: number, seed = w0.params.seed): UpheavalPreview {
-  const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea, seed });
+export function previewUpheaval(knobs: KnobSet, w0: World, r0: Regions, w1: World, ops: readonly TerrainOp[], regionArea: number, seed = w0.params.seed): UpheavalPreview {
+  const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea, seed, knobs });
   const impact = upheavalImpact(w0, r0, w1, r1, ops);
   const sunkCells: number[] = [];
   const risenCells: number[] = [];

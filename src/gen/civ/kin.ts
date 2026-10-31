@@ -13,10 +13,10 @@
  */
 import type { Person, Year } from './types';
 import { subSeed } from './engine/rand';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参 ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const KIN_KNOBS = defineKnobs('kin', {
   /** 父辈生他时的岁数 */
   PARENT_AGE: [20, 42] as [number, number],
@@ -25,8 +25,6 @@ export const KIN_KNOBS = defineKnobs('kin', {
   K_HOUSE_GENERAL: 0,
   K_HOUSE_MINISTER: 1,
 });
-const { MAX_KIDS } = KIN_KNOBS.values;
-export const { PARENT_AGE, K_HOUSE_GENERAL, K_HOUSE_MINISTER } = KIN_KNOBS.values;
 /** 有合适的父辈时,新出道的将领、名臣是他孩子的机会 */
 export const HEIR = { general: 0.32, minister: 0.36 } as const;
 
@@ -48,9 +46,10 @@ export interface HouseCand {
 
 /**
  * 按出道先后一位位看(同一国里,先出道的才能做父亲):孩子 → 父辈。
- * list 里各国混在一起也行,会按出道先后(一样早的照原来的次序)排
+ * list 里各国混在一起也行,会按出道先后(一样早的照原来的次序)排。knobs = 这个世界的那套数
  */
-export function pickHouses(list: readonly HouseCand[], rate: number): Map<Person, Person> {
+export function pickHouses(knobs: KnobSet, list: readonly HouseCand[], rate: number): Map<Person, Person> {
+  const { PARENT_AGE, MAX_KIDS } = knobs.get(KIN_KNOBS);
   const out = new Map<Person, Person>();
   const kids = new Map<Person, number>();
   const seen = new Map<number, HouseCand[]>();

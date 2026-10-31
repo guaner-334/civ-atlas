@@ -41,8 +41,8 @@ import { Layer, type Civ, type Polity, type Year } from './types';
 import { fexp, fpow, keyed, subSeed } from './engine/rand';
 import { LOOK_K, quantize, type CivSim } from './engine/sim';
 import { dynastyReign, moveCapital, polityModelOf, unrestShiftOf, type PolityModel } from './polities';
-import { GUIDE_DYNASTY } from './policy';
-import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';
+import { POLICY_KNOBS } from './policy';
+import { WARS_KNOBS, warModelOf, type WarModel } from './wars';
 import { politicsModelOf } from './politics';
 import { TIER_REGIONS, capitalAt, populationAt } from './growth';
 import { KEEP_COURT, KEEP_RISE } from './rulers';
@@ -52,7 +52,7 @@ import { Ev } from './events';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以统计数为准,见 scripts/gen-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const DYNASTY_KNOBS = defineKnobs('dynasty', {
   /** 立国后多少年开始看王朝;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
   DYN_FIRST: 80,
@@ -103,8 +103,6 @@ export const DYNASTY_KNOBS = defineKnobs('dynasty', {
   MOVE_POP: 0.2,
   MOVE_P: 0.7,
 });
-const { DYN_FIRST, DYN_EVERY, BIG_TIER, MIN_SIZE, OLD_SIZE, ODDS, AGE_REF, AGE_SCALE, CRISIS_YEARS, C_WAR, C_LOSS, LOSS_FULL, C_CAPITAL, C_SPLIT, RECENT_SPLIT, DECLINE, C_DECLINE, SETTLE, KEEP_DIRE, POP_EXP, FAR_W, FAR_MAX, FAR_REACH, COURT, CAP_GAP, MOVE_POP, MOVE_P } = DYNASTY_KNOBS.values;
-export const { OLD_AGE, MIN_AGE } = DYNASTY_KNOBS.values;
 
 
 // 随机数用途编号
@@ -135,6 +133,7 @@ export function dynastyModelOf(sim: CivSim): DynastyModel | undefined {
 
 /** 国家 p 第 k 次看王朝的时刻 */
 function checkTime(dm: DynastyModel, p: number, k: number): number {
+  const { DYN_FIRST, DYN_EVERY } = dm.pm.knobs.get(DYNASTY_KNOBS);
   return dm.pm.polities[p].founded + DYN_FIRST + DYN_EVERY * (k + 0.2 + 0.6 * keyed(dm.base, dm.pm.ptag[p], k, U_CHECK_T));
 }
 
@@ -149,6 +148,7 @@ export function dynastyStart(p: Polity): Year {
  * 当朝已经很老(OLD_AGE)的,到过第 1 档("国")、还有 OLD_SIZE 州就行
  */
 function eligible(pm: PolityModel, p: number, age: number): boolean {
+  const { OLD_AGE, OLD_SIZE, BIG_TIER, MIN_SIZE } = pm.knobs.get(DYNASTY_KNOBS);
   const n = pm.size[p];
   if (age >= OLD_AGE && pm.tier[p] >= 1 && n >= OLD_SIZE) return true;
   return pm.tier[p] >= BIG_TIER && n >= MIN_SIZE;
@@ -167,6 +167,9 @@ export function installDynasty(sim: CivSim, pm: PolityModel): DynastyModel {
 }
 
 function hook(sim: CivSim, dm: DynastyModel): void {
+  const { CAPITAL_GRACE } = dm.pm.knobs.get(WARS_KNOBS);
+  const { GUIDE_DYNASTY } = dm.pm.knobs.get(POLICY_KNOBS);
+  const { C_WAR, CRISIS_YEARS, C_LOSS, LOSS_FULL, C_CAPITAL, RECENT_SPLIT, C_SPLIT, DECLINE, C_DECLINE, CAP_GAP, SETTLE, COURT, FAR_W, FAR_MAX, FAR_REACH, POP_EXP, MIN_AGE, ODDS, AGE_REF, AGE_SCALE, KEEP_DIRE, MOVE_POP, MOVE_P } = dm.pm.knobs.get(DYNASTY_KNOBS);
   models.set(sim, dm);
   const { pm, wm } = dm;
   const reg = pm.terrain.regions;

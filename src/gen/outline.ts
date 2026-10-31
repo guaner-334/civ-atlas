@@ -30,7 +30,7 @@
  * 纯计算,不碰 DOM;在 worker 和 Node 里都能跑。
  */
 import type { World } from './world';
-import { generateCiv, startContinue } from './civ';
+import { continueParams, generateCiv, startContinue } from './civ';
 import type { Annal, Civ, CivParams } from './civ/types';
 import { playStop } from './civ/play';
 import { capitalAt, polityAlive } from './civ/growth';
@@ -262,7 +262,9 @@ function advance(ctx: Ctx, st: State, t: number, full: boolean): Civ {
     if (!best || s.civ.endYear > best.civ.endYear || (s.civ.endYear === best.civ.endYear && s.n > best.n)) best = s;
   }
   const list = st.list;
-  const params = { ...ctx.params, interventions: list.length ? list : undefined, endYear: t };
+  // 一套数没给的照接着推的那份历史带着的(接不上、从第 0 年重推也按它,见 continueParams)
+  const raw = { ...ctx.params, interventions: list.length ? list : undefined, endYear: t };
+  const params = best ? continueParams(best.civ, raw) : raw;
   if (best && best.civ.endYear === t) {
     if (best.n === list.length) return best.civ;
     // 同一刻、后面接上的干预都还没生效:历史一样,只是带着的干预列表长了

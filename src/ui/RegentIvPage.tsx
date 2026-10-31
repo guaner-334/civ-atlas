@@ -21,7 +21,8 @@ import { brideNameOf } from '../gen/civ/people';
 import { drawLeanings } from '../gen/civ/rulers';
 import { keyed4, subSeed } from '../gen/civ/engine/rand';
 import { polityShort } from '../gen/civ/story/regentInfo';
-import { KIN_FADE } from '../gen/civ/marriages';
+import { MARRIAGES_KNOBS } from '../gen/civ/marriages';
+import { knobsOf } from '../gen/civ/knobs';
 import { REGENT_YEARS_MAX, personKey, polityKey, type Intervention, type MarryHow, type RegentEnd, type RegentHow } from '../gen/edits';
 import { eraText, spaced, yearAt, yearShortAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
@@ -323,7 +324,7 @@ export function MarryIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; yea
           <span>结亲</span>
           <span>{wed}</span>
           <span>邦交</span>
-          <span>两国 {KIN_FADE} 年里少开战、更容易结盟，越往后越淡</span>
+          <span>两国 {knobsOf(civ).get(MARRIAGES_KNOBS).KIN_FADE} 年里少开战、更容易结盟，越往后越淡</span>
           {how !== 'give' && (
             <>
               <span>子女</span>

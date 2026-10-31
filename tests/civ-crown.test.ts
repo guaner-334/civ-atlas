@@ -22,6 +22,7 @@ import { kinOf } from '../src/gen/civ/story/peopleText';
 import { interventionFate, laterInterventions, rewindStepwise, startStepwise } from '../src/gen/stepwise';
 import { EMPTY_EDITS, cleanIntervention, cleanInterventions, polityKey, regionKey, type Intervention, type WorldEdits } from '../src/gen/edits';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
@@ -343,8 +344,8 @@ describe('即位 · 在位表(rulers.ts)', () => {
 
   it('同一刻改朝换代:他当新朝的第一位(顶替,不留在位 0 天的新君)', () => {
     const p: ReignPolity = { founded: 100, kind: 'river', lineage: 'realm', dynasties: [{ year: 100, name: '', seat: 0 }, { year: 400, name: '', seat: 0 }] };
-    const plain = reignBook(base, tag, { ...p }, 600);
-    const list = reignBook(base, tag, p, 600, [c(400)]);
+    const plain = reignBook(OFFICIAL_KNOBS, base, tag, { ...p }, 600);
+    const list = reignBook(OFFICIAL_KNOBS, base, tag, p, 600, [c(400)]);
     const i = list.findIndex((r) => r.crown);
     expect(list[i]).toMatchObject({ dynasty: 1, j: 0, from: 400 });
     expect(list[i].k).toBe(plain.findIndex((r) => r.dynasty === 1));
@@ -356,18 +357,18 @@ describe('即位 · 在位表(rulers.ts)', () => {
 
   it('同一刻立国 / 刚交接的新君:那一位留在表里在位 0 天(推演里那一刻还是他),作者君主从下一刻起', () => {
     const p: ReignPolity = { founded: 300, kind: 'river', lineage: 'realm' };
-    const list = reignBook(base, tag, p, 500, [c(300)]);
+    const list = reignBook(OFFICIAL_KNOBS, base, tag, p, 500, [c(300)]);
     expect(list[0]).toMatchObject({ k: 0, from: 300, cut: 300 });
     expect(list[1]).toMatchObject({ k: 1, from: 300, crown: { t: 300 } });
     // 同一刻两位作者君主:后一位顶替前一位
-    const two = reignBook(base, tag, { ...p }, 500, [c(300), c(300, { char: 2, iv: 1 })]);
+    const two = reignBook(OFFICIAL_KNOBS, base, tag, { ...p }, 500, [c(300), c(300, { char: 2, iv: 1 })]);
     expect(two.filter((r) => r.crown).map((r) => r.crown!.char)).toEqual([2]);
     expect(two[1]).toMatchObject({ k: 1, crown: { char: 2 } });
   });
 
   it('作者君主被后来的作者君主取代、在位年数按位次的随机数、一生不超过 88 岁', () => {
     const p: ReignPolity = { founded: 0, kind: 'river', lineage: 'realm' };
-    const list = reignBook(base, tag, p, 2000, [c(500, { until: 540 }), c(520, { char: 2, iv: 1, born: 440 })]);
+    const list = reignBook(OFFICIAL_KNOBS, base, tag, p, 2000, [c(500, { until: 540 }), c(520, { char: 2, iv: 1, born: 440 })]);
     const a = list.find((r) => r.crown?.char === 1)!;
     const b = list.find((r) => r.crown?.char === 2)!;
     expect(a).toMatchObject({ from: 500, cut: 520 });

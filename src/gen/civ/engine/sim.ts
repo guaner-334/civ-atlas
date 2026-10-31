@@ -34,6 +34,7 @@
 import { MinHeap } from '../../util';
 import { ANNAL_EXTRAS, Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from '../types';
 import type { Calamity } from '../calamity';
+import { OFFICIAL_KNOBS, knobSetOf, type KnobSet } from './knobs';
 
 /** 检查点间隔(年) */
 export const CHECKPOINT_EVERY = 100;
@@ -215,6 +216,11 @@ export class CivSim {
   floor: Year = -Infinity;
   /** 「天灾」设定(calamity.ts;平常 = undefined):瘟疫、饥荒更多,会自己闹地震水旱、全球大疫。装各层之前定下 */
   calamity: Calamity | undefined = undefined;
+  /**
+   * 这次推演用的那套数(knobs.ts):各子系统装上、接着推时从这里取自己那张旋钮表。装各层之前定下(不给 = 官方);
+   * 接着推时照 Civ.knobs
+   */
+  knobs: KnobSet = OFFICIAL_KNOBS;
   /** 各层的当前归属(按 Layer 下标);只读,改归属一律走 setOwner */
   readonly owners: [Int16Array, Int16Array];
   /** 各州的版本号:归属(任何一层)每变一次 +1 */
@@ -338,6 +344,7 @@ export class CivSim {
     sim.checkpoints = civ.checkpoints.slice();
     sim.now = civ.endYear;
     sim.calamity = civ.calamity;
+    sim.knobs = knobSetOf(civ.knobs);
     // 下一个检查点:最后一个检查点之后的那个整百年(推到整百年的前一刻切开时,那个整百年的检查点还没存,接着推时补上)
     const cps = civ.checkpoints;
     sim.nextCheckpoint = cps.length ? cps[cps.length - 1].year + CHECKPOINT_EVERY : CHECKPOINT_EVERY;

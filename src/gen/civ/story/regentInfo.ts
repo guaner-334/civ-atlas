@@ -10,7 +10,8 @@
  */
 import type { Annal, Civ, Person, PersonRegency, PersonSpouse, Year } from '../types';
 import { polityName, polityShortTitle, polityTierAt } from '../growth';
-import { KIN_FADE, kinKey } from '../marriages';
+import { MARRIAGES_KNOBS, kinKey } from '../marriages';
+import { knobsOf } from '../knobs';
 import { actsFrom, reignBook, rulerBase, rulerTags, type RulerAct } from '../rulers';
 import { broodOf } from '../royals';
 
@@ -108,9 +109,10 @@ export function heirBornOf(civ: Civ, N: Person): Year | undefined {
     bookCache.set(civ.annals, cx);
   }
   const at = N.from + 1 / 512;
-  const book = reignBook(cx.base, cx.tag[N.polity], P, at, cx.acts.get(N.polity));
+  const knobs = knobsOf(civ);
+  const book = reignBook(knobs, cx.base, cx.tag[N.polity], P, at, cx.acts.get(N.polity));
   const r = book.find((x) => Math.abs(x.from - N.from!) < 1e-6 && !x.crown);
-  return r ? broodOf(cx.base, cx.tag[N.polity], r, P).heir : undefined;
+  return r ? broodOf(knobs, cx.base, cx.tag[N.polity], r, P).heir : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +163,7 @@ function kinIndex(civ: Civ): KinIndex {
 export function kinAt(civ: Civ, a: number, b: number, t: Year, before = false): number {
   const list = kinIndex(civ).pairs.get(kinKey(a, b));
   if (!list) return -1;
+  const { KIN_FADE } = knobsOf(civ).get(MARRIAGES_KNOBS);
   for (let i = list.length - 1; i >= 0; i--) {
     const e = list[i];
     if (before ? !(e.t < t) : e.t > t) continue;

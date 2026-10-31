@@ -32,14 +32,14 @@
 import { Layer, type Annal, type ChangeLog, type Person, type PersonDeed, type PersonFate, type PersonPost, type Polity, type Settlement, type UpheavalFact, type Year } from './types';
 import { keyed4, subSeed } from './engine/rand';
 import { capitalAt, polityTierAt, polityTitles } from './growth';
-import { HEIR, K_HOUSE_MINISTER, houseBase, pickHouses, withParentSurname, type HouseCand } from './kin';
+import { HEIR, KIN_KNOBS, houseBase, pickHouses, withParentSurname, type HouseCand } from './kin';
 import { splitSurname } from './surname';
 import { royalAt, segLineage } from './regime';
 import { dynastyIndexAt } from './polityRoot';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参 ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const OFFICIALS_KNOBS = defineKnobs('officials', {
   /** 一位最多经手几件事 */
   DEEDS_MAX: 3,
@@ -74,7 +74,6 @@ export const OFFICIALS_KNOBS = defineKnobs('officials', {
   SLOT_Q: 8,
   TICK: 256,
 });
-const { DEEDS_MAX, ENTER_AGE, CALL_AGE, RETIRE_AGE, LIFE, FOUND_AGE, PRIO_NEW, PRIO_MINOR, MINOR_NEW, DISMISS, MARTYR, YIELD, HOME_CAPITAL, ART, CAPPED, K_MINISTER, K_GENERAL, K_GAP, SLOT_Q, TICK } = OFFICIALS_KNOBS.values;
 /** 一朝里没人在朝这么些年就补一位(王国、帝国 / 国):在朝几十年、没经手大事的守成之臣 */
 const GAP: [number, number][] = [
   [30, 50],
@@ -97,7 +96,11 @@ const U_DEPT = 11;
 const U_POSTS = 12;
 const U_CAP = 13;
 
-const q = (x: number) => Math.round(x * TICK) / TICK;
+/** 这张表的值(一套数里取出来的) */
+export type OfficialsKnobs = typeof OFFICIALS_KNOBS.values;
+
+/** 取整到 1/tick 年 */
+const quant = (x: number, tick: number) => Math.round(x * tick) / tick;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 
 // ---------------------------------------------------------------------------
@@ -218,6 +221,8 @@ export function artName(city: string, tail: string): string {
 // ---------------------------------------------------------------------------
 
 export interface OfficialsInput {
+  /** 这个世界的那套数 */
+  knobs: KnobSet;
   seed: number;
   endYear: Year;
   polities: readonly Polity[];
@@ -316,6 +321,9 @@ interface Draft {
  * 没人在朝的空当长了补一位。起谁都在那一年入仕,所以后来的历史变了(作者干预某一年),先前入仕的大臣还是那几位。
  */
 export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, generals: readonly Person[]): Officials {
+  const { K_HOUSE_MINISTER } = input.knobs.get(KIN_KNOBS);
+  const { TICK, K_MINISTER, SLOT_Q, FOUND_AGE, ENTER_AGE, CALL_AGE, LIFE, RETIRE_AGE, K_GAP, PRIO_NEW, PRIO_MINOR, MINOR_NEW, DEEDS_MAX, ART, K_GENERAL } = input.knobs.get(OFFICIALS_KNOBS);
+  const q = (x: number) => quant(x, TICK);
   const { polities, settlements, annals, endYear } = input;
   const base = subSeed(input.seed, 'civ-officials');
   const fixups: [PersonDeed, Person][] = [];
@@ -445,7 +453,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
         x.until = ended.until;
         if (ended.fate) x.fate = ended.fate;
         if (ended.died !== undefined) x.died = ended.died;
-        x.posts = civilPosts(p, sys, d, ended.until ?? endYear, tops[p.id], r);
+        x.posts = civilPosts(input.knobs.get(OFFICIALS_KNOBS), p, sys, d, ended.until ?? endYear, tops[p.id], r);
         const sur = f?.surname;
         nameAt.set(x, (a) => (sur ?? namer.surname(ctx.tag[p.id], 3, i, d.slot, a)) + namer.given(ctx.tag[p.id], 3, i, d.slot, a));
         if (f) forcedOut.set(f, x);
@@ -464,7 +472,7 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
   }
 
   // ---- 世家(kin.ts):名臣有机会是本国先前一位名臣的孩子,随父姓 ----
-  const houses = pickHouses(cands, HEIR.minister);
+  const houses = pickHouses(input.knobs, cands, HEIR.minister);
   for (const [x, f] of houses) {
     const at = nameAt.get(x);
     if (at && ctx.namerOf(polities[x.polity]).surnamed) nameAt.set(x, withParentSurname(at, f, splitSurname));
@@ -508,7 +516,8 @@ export function buildOfficials(input: OfficialsInput, ctx: OfficialsCtx, general
 }
 
 /** 这一朝里能经手的事(按年份) */
-function anchorsOf(input: Pick<OfficialsInput, 'annals' | 'polities' | 'upheavals'>, p: Polity, dyn: number, s: Year, e: Year, rs: readonly Person[], sys: System): Anchor[] {
+function anchorsOf(input: Pick<OfficialsInput, 'knobs' | 'annals' | 'polities' | 'upheavals'>, p: Polity, dyn: number, s: Year, e: Year, rs: readonly Person[], sys: System): Anchor[] {
+  const { TICK } = input.knobs.get(OFFICIALS_KNOBS);
   const { annals } = input;
   const out: Anchor[] = [];
   const inSeg = (y: Year) => y >= s && y < e;
@@ -575,6 +584,7 @@ function endOf(
   input: OfficialsInput,
   r: (use: number) => number,
 ): { until?: Year; fate?: PersonFate; died?: Year } {
+  const { DISMISS, MARTYR, YIELD } = input.knobs.get(OFFICIALS_KNOBS);
   const died = d.life <= endYear ? d.life : undefined;
   if (d.leave < e) {
     // 一朝里去职:卒于任上 / 新君即位后不久罢官 / 致仕
@@ -597,7 +607,9 @@ function endOf(
 }
 
 /** 文官的官职:入仕的官、中间几级、最高的那级(经手第一件大事前后升到);同时最高的官只一位 */
-function civilPosts(p: Polity, sys: System, d: Draft, until: Year, tops: [Year, Year][], r: (use: number) => number): PersonPost[] {
+function civilPosts(K: OfficialsKnobs, p: Polity, sys: System, d: Draft, until: Year, tops: [Year, Year][], r: (use: number) => number): PersonPost[] {
+  const { CAPPED } = K;
+  const q = (x: number) => quant(x, K.TICK);
   const T = Math.max(1, until - d.enter);
   const first = d.anchors[0];
   // 升到最高那级:佐命的开国时;辅政、劝进、拥立那一刻;别的在朝过半前后
@@ -689,7 +701,7 @@ export function generalPosts(p: Polity, g: Person, annals: readonly Annal[], r: 
  * dyn = 他在朝那一朝;rs = 这国的君主(即位先后)。who = 记在 deed.person 上的人(排好编号再换)
  */
 export function courtDeeds(
-  input: Pick<OfficialsInput, 'annals' | 'polities' | 'upheavals'>,
+  input: Pick<OfficialsInput, 'knobs' | 'annals' | 'polities' | 'upheavals'>,
   p: Polity,
   dyn: number,
   from: Year,
@@ -710,9 +722,10 @@ export const AUTHOR_MINISTER_BELOW = 2;
  * 最高的官同一时间只有一位:升到那一刻 reachTop(官名, 那一刻) 说了算 —— 返回 true = 已有作者的名臣做着,他写次一级(TOP_ALT);
  * 推演里的名臣正做着的不拦(那位在人物卡上写次一级,people.ts 改)。
  * 东方帝国级的尚书按升他做尚书的那件事挑哪一部(入朝就是尚书的:经手的第一件事;都没有 = 吏部)。同一个官名接连两级的合并。
- * 返回官职、升到最高那级的那一刻(没升到 = 不给)
+ * 返回官职、升到最高那级的那一刻(没升到 = 不给)。knobs = 这个世界的那套数
  */
-export function deedPosts(p: Polity, from: Year, deeds: readonly PersonDeed[], reachTop: (title: string, t: Year) => boolean): { posts: PersonPost[]; top?: { title: string; at: Year } } {
+export function deedPosts(knobs: KnobSet, p: Polity, from: Year, deeds: readonly PersonDeed[], reachTop: (title: string, t: Year) => boolean): { posts: PersonPost[]; top?: { title: string; at: Year } } {
+  const tick = knobs.get(OFFICIALS_KNOBS).TICK;
   const ladderAt = (y: Year) => CIVIL[systemAt(p, y)][clampTier(polityTierAt(p, y))] ?? CIVIL[systemAt(p, y)][1] ?? [];
   const out: PersonPost[] = [];
   let top: { title: string; at: Year } | undefined;
@@ -735,7 +748,7 @@ export function deedPosts(p: Polity, from: Year, deeds: readonly PersonDeed[], r
   if (!at(below, from)) {
     for (const d of deeds) {
       below = Math.max(0, below - 1);
-      if (at(below, q(d.year + 1 / TICK), d.kind)) break;
+      if (at(below, quant(d.year + 1 / tick, tick), d.kind)) break;
     }
   }
   return top ? { posts: out, top } : { posts: out };
@@ -757,6 +770,7 @@ export function topAltAt(p: Polity, t: Year): string {
 
 /** 籍贯:那一年本国的城里挑一座(国都的机会大些);按年份扫一遍日志 */
 function resolveHomes(input: OfficialsInput, asks: { x: Person; year: Year; u: number }[]): void {
+  const { HOME_CAPITAL } = input.knobs.get(OFFICIALS_KNOBS);
   const { settlements, log, polities } = input;
   const owner = new Int16Array(input.regionCount).fill(-1);
   asks.sort((a, b) => a.year - b.year || a.x.polity - b.x.polity || a.x.born - b.x.born || a.u - b.u);

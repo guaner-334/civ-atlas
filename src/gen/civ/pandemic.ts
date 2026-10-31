@@ -43,7 +43,7 @@ import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/pandemic-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const PANDEMIC_KNOBS = defineKnobs('pandemic', {
   /** 看全球大疫:每隔多少年;上一场起疫后这么多年内不再自己起 */
   PAN_CHECK: 50,
@@ -64,8 +64,8 @@ export const PANDEMIC_KNOBS = defineKnobs('pandemic', {
   QUAKE_CHECK: 20,
   QUAKE_LEVELS: [0.5, 0.35] as readonly number[],
 });
-const { PAN_CHECK, PAN_GAP, ORIGIN_MIN, SLUMP_LOSS, SLUMP_FADE, FLOOR, DESOLATE, DESOLATE_YEARS, DESOLATE_MAX, QUAKE_CHECK, QUAKE_LEVELS } = PANDEMIC_KNOBS.values;
-export const { SLUMP_EVERY } = PANDEMIC_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type PandemicKnobs = typeof PANDEMIC_KNOBS.values;
 
 // 随机数用途编号(calamity.ts 的 naturalPandemic 用 9)
 const U_T = 1;
@@ -78,6 +78,8 @@ const U_QUAKE_AT = 7;
 const U_QUAKE_LV = 8;
 
 interface Runner {
+  /** 这次推演的那套数里全球大疫这张表 */
+  k: PandemicKnobs;
   sim: CivSim;
   pm: PolityModel;
   base: number;
@@ -90,26 +92,26 @@ interface Runner {
 const runners = new WeakMap<CivSim, Runner>();
 
 /** 第 k 次看全球大疫、看地震水旱的时刻 */
-function panTime(base: number, k: number): number {
-  return PAN_CHECK * (k + 0.2 + 0.6 * keyed(base, k, 0, U_T));
+function panTime(K: PandemicKnobs, base: number, k: number): number {
+  return K.PAN_CHECK * (k + 0.2 + 0.6 * keyed(base, k, 0, U_T));
 }
-function quakeTime(base: number, k: number): number {
-  return QUAKE_CHECK * (k + 0.2 + 0.6 * keyed(base, k, 1, U_QUAKE_T));
+function quakeTime(K: PandemicKnobs, base: number, k: number): number {
+  return K.QUAKE_CHECK * (k + 0.2 + 0.6 * keyed(base, k, 1, U_QUAKE_T));
 }
 
 /** 一场全球大疫的第 j 次复作(j ≥ 1)的时刻;凋敝结束以后的没有(= Infinity) */
-function relapseTime(p: Pandemic, j: number): number {
-  const t = p.t0 + SLUMP_EVERY * j;
+function relapseTime(K: PandemicKnobs, p: Pandemic, j: number): number {
+  const t = p.t0 + K.SLUMP_EVERY * j;
   return t < p.end ? t : Infinity;
 }
 
 /** 登记全球大疫这一层(installPlague 之后调用);「天灾」多 / 很多时预约第一次看全球大疫、看地震水旱 */
 export function installPandemic(sim: CivSim, pm: PolityModel, seed: number): void {
-  const run: Runner = { sim, pm, base: pandemicBase(seed), state: { list: [] }, calamity: sim.calamity, booked: new Set() };
+  const run: Runner = { k: sim.knobs.get(PANDEMIC_KNOBS), sim, pm, base: pandemicBase(seed), state: { list: [] }, calamity: sim.calamity, booked: new Set() };
   hook(run);
   if (calamityRates(run.calamity)) {
-    sim.schedule(panTime(run.base, 0), Ev.PandemicCheck, 0, 0);
-    sim.schedule(quakeTime(run.base, 0), Ev.QuakeCheck, 0, 0);
+    sim.schedule(panTime(run.k, run.base, 0), Ev.PandemicCheck, 0, 0);
+    sim.schedule(quakeTime(run.k, run.base, 0), Ev.QuakeCheck, 0, 0);
   }
 }
 
@@ -143,7 +145,7 @@ export function startPandemic(sim: CivSim, r: number, level: number, k: number, 
 /** 预约一场全球大疫此刻以后的复作(同一刻已约过的不再约) */
 function bookRelapses(run: Runner, p: Pandemic, now: Year): void {
   for (let j = 1; ; j++) {
-    const t = relapseTime(p, j);
+    const t = relapseTime(run.k, p, j);
     if (t === Infinity) break;
     const tick = Math.round(quantize(t) * 256);
     if (quantize(t) <= now || run.booked.has(tick)) continue;
@@ -153,6 +155,8 @@ function bookRelapses(run: Runner, p: Pandemic, now: Year): void {
 }
 
 function hook(run: Runner): void {
+  const K = run.k;
+  const { PAN_GAP, PAN_CHECK, ORIGIN_MIN, SLUMP_LOSS, SLUMP_FADE, FLOOR, DESOLATE, DESOLATE_YEARS, DESOLATE_MAX, QUAKE_CHECK, QUAKE_LEVELS, SLUMP_EVERY } = K;
   const { sim, pm, base, state } = run;
   runners.set(sim, run);
   setPandemicModel(sim, state);
@@ -185,7 +189,7 @@ function hook(run: Runner): void {
 
   // ---- 自己发生的全球大疫 ----
   sim.on(Ev.PandemicCheck, (k, _b, t) => {
-    sim.schedule(panTime(base, k + 1), Ev.PandemicCheck, k + 1, 0);
+    sim.schedule(panTime(K, base, k + 1), Ev.PandemicCheck, k + 1, 0);
     if (!rate || !run.calamity) return;
     if (anySlump(state, t)) return;
     const last = state.list.length ? state.list[state.list.length - 1].t0 : -Infinity;
@@ -218,7 +222,7 @@ function hook(run: Runner): void {
     for (const p of state.list) {
       if (!(p.t0 < t && t < p.end)) continue;
       const j = Math.round((t - p.t0) / SLUMP_EVERY);
-      if (j < 1 || quantize(relapseTime(p, j)) !== tq) continue;
+      if (j < 1 || quantize(relapseTime(K, p, j)) !== tq) continue;
       relapse(p, j, t);
     }
   });
@@ -255,7 +259,7 @@ function hook(run: Runner): void {
 
   // ---- 自己发生的地震水旱 ----
   sim.on(Ev.QuakeCheck, (k, _b, t) => {
-    sim.schedule(quakeTime(base, k + 1), Ev.QuakeCheck, k + 1, 0);
+    sim.schedule(quakeTime(K, base, k + 1), Ev.QuakeCheck, k + 1, 0);
     if (!rate) return;
     // 各国在国土里挑一处有城的州当震中(掷得最小的那州)
     const at = new Map<number, [number, number]>();
@@ -293,7 +297,7 @@ function hook(run: Runner): void {
 export function resumePandemic(sim: CivSim, civ: Civ, list: readonly Intervention[] = civ.interventions ?? []): void {
   const pm = polityModelOf(sim);
   if (!pm) return;
-  const run: Runner = { sim, pm, base: pandemicBase(civ.seed), state: { list: [] }, calamity: sim.calamity, booked: new Set() };
+  const run: Runner = { k: sim.knobs.get(PANDEMIC_KNOBS), sim, pm, base: pandemicBase(civ.seed), state: { list: [] }, calamity: sim.calamity, booked: new Set() };
   const R = pm.terrain.R;
   for (const e of civ.annals) {
     if (e.kind !== 'pandemic') continue;
@@ -320,11 +324,11 @@ export function resumePandemic(sim: CivSim, civ: Civ, list: readonly Interventio
   for (const p of run.state.list) bookRelapses(run, p, sim.now);
   if (calamityRates(run.calamity)) {
     let k = 0;
-    while (quantize(panTime(run.base, k)) <= sim.now) k++;
-    sim.schedule(panTime(run.base, k), Ev.PandemicCheck, k, 0);
+    while (quantize(panTime(run.k, run.base, k)) <= sim.now) k++;
+    sim.schedule(panTime(run.k, run.base, k), Ev.PandemicCheck, k, 0);
     let q = 0;
-    while (quantize(quakeTime(run.base, q)) <= sim.now) q++;
-    sim.schedule(quakeTime(run.base, q), Ev.QuakeCheck, q, 0);
+    while (quantize(quakeTime(run.k, run.base, q)) <= sim.now) q++;
+    sim.schedule(quakeTime(run.k, run.base, q), Ev.QuakeCheck, q, 0);
   }
 }
 

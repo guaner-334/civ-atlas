@@ -20,6 +20,7 @@ import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { interventionFate } from '../src/gen/stepwise';
 import { cleanIntervention, cleanInterventions, polityKey, type Intervention } from '../src/gen/edits';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 type Policy = Extract<Intervention, { kind: 'policy' }>;
 
@@ -100,12 +101,12 @@ describe('方针 · 清理', () => {
     const l = { expand: 40, war: 90, develop: 50, trade: 60 };
     const v = policy(a, 1, { war: 25, expand: -50, coast: 10, peace: -20 });
     expect(withPolicy(l, v)).toEqual({ leanings: { expand: 0, war: 100, develop: 50, trade: 70 }, settle: 95 });
-    const e = policyEffect(l, v);
+    const e = policyEffect(OFFICIAL_KNOBS, l, v);
     const plain = leaningEffect({ expand: 0, war: 100, develop: 50, trade: 70 }, 95);
     expect({ ...e, declare: 0 }).toEqual({ ...plain, declare: 0 });
     expect(e.declare).toBeGreaterThan(plain.declare);
     // 没拧滑条:倍数和君主自己的一样
-    expect(policyEffect(l, policy(a, 1, { foes: [b] }))).toEqual(leaningEffect(l));
+    expect(policyEffect(OFFICIAL_KNOBS, l, policy(a, 1, { foes: [b] }))).toEqual(leaningEffect(l));
   });
 });
 
@@ -134,7 +135,7 @@ describe.each([7, 2024])('方针 · seed=%i', (seed) => {
     for (const t of [T + 1 / 256, T + 50]) {
       if (civ.polities[pid].ended !== undefined && civ.polities[pid].ended! <= t) break;
       expect(policyAt(pm, pid, t)).toEqual(v);
-      expect(effOf(pm, pid, t)).toEqual(policyEffect(rulerOf(pm, pid, t).leanings, v));
+      expect(effOf(pm, pid, t)).toEqual(policyEffect(OFFICIAL_KNOBS, rulerOf(pm, pid, t).leanings, v));
     }
   }, 120_000);
 

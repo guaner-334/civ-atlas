@@ -66,9 +66,10 @@ import { BookWriter } from './fiscalBook';
 import { keyed, subSeed } from './engine/rand';
 import { type CivSim } from './engine/sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
-import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt, type PolicySeg } from './policy';
+import { POLICY_KNOBS, focusIndex, segAt, type PolicySeg } from './policy';
 import { cultureModelOf } from './cultures';
-import { TableEngine } from './engine/tables';
+import { TableEngine, type TableCard } from './engine/tables';
+import type { KnobSet } from './engine/knobs';
 import { NEVER, devCards } from './devTables';
 import { warModelOf } from './wars';
 import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
@@ -651,7 +652,8 @@ function tierNow(titles: { year: Year; tier: number }[] | undefined): number {
  * 前四样"自己长"的倍数(挑中的 FOCUS_UP、别的 FOCUS_DOWN、没挑 1,按各段管了多久加权平均)、挑动员的时间占几成(第 5 个数)。
  * 这一步里一直没挑发展重点 = null
  */
-function focusShare(segs: readonly PolicySeg[], t0: Year, y: Year): number[] | null {
+function focusShare(knobs: KnobSet, segs: readonly PolicySeg[], t0: Year, y: Year): number[] | null {
+  const { FOCUS_UP, FOCUS_DOWN } = knobs.get(POLICY_KNOBS);
   const dt = y - t0;
   const out = [0, 0, 0, 0, 0];
   let any = false;
@@ -674,53 +676,61 @@ function focusShare(segs: readonly PolicySeg[], t0: Year, y: Year): number[] | n
   return any ? out : null;
 }
 
-/** 发展度的数表:规则里的常数都取这个文件里的 */
-const DEV_CARDS = devCards(
-  {
-    RESOURCES,
-    CAPS,
-    ERA_YEARS,
-    LEVEL_MAX,
-    LEARN,
-    SAME_STATE,
-    ADMIN_ABROAD,
-    LINK,
-    SEA_ROUTE,
-    SEA_PER_TRANSPORT,
-    OVERSHOOT,
-    OVERSHOOT_LEARN,
-    OVERSHOOT_SLOW,
-    GATE_NEAR,
-    GATE_SLOW,
-    RECOVER,
-    SLUMP_LEARN,
-    WAR_KEEP,
-    SETTLE_CARRY,
-    ABANDON_KEEP,
-    ADMIN_SIZE,
-    TRIBAL_ADMIN_MAX,
-    ERA_WEIGHT,
-    ADMIN_GAP,
-    WAR_CALM,
-    FOCUS_MOB,
-    DISCOVER_AT,
-    LIFE,
-    DEPLETE,
-    REGROW,
-    GATE_RES: [Res.Copper, Res.Iron, Res.Coal, Res.Oil, Res.Rare],
-    TIMBER: Res.Timber,
-    FISH: Res.Fish,
-    GRAIN: Res.Grain,
-  },
-  STEP,
-);
+/** 发展度的数表:规则里的常数都取这个文件里的(发展重点的动员取这个世界的那套数;同一套数只编一次) */
+const devCardsMemo = new WeakMap<KnobSet, TableCard[]>();
+function devCardsOf(knobs: KnobSet): TableCard[] {
+  let cards = devCardsMemo.get(knobs);
+  if (cards) return cards;
+  const { FOCUS_MOB } = knobs.get(POLICY_KNOBS);
+  cards = devCards(
+    {
+      RESOURCES,
+      CAPS,
+      ERA_YEARS,
+      LEVEL_MAX,
+      LEARN,
+      SAME_STATE,
+      ADMIN_ABROAD,
+      LINK,
+      SEA_ROUTE,
+      SEA_PER_TRANSPORT,
+      OVERSHOOT,
+      OVERSHOOT_LEARN,
+      OVERSHOOT_SLOW,
+      GATE_NEAR,
+      GATE_SLOW,
+      RECOVER,
+      SLUMP_LEARN,
+      WAR_KEEP,
+      SETTLE_CARRY,
+      ABANDON_KEEP,
+      ADMIN_SIZE,
+      TRIBAL_ADMIN_MAX,
+      ERA_WEIGHT,
+      ADMIN_GAP,
+      WAR_CALM,
+      FOCUS_MOB,
+      DISCOVER_AT,
+      LIFE,
+      DEPLETE,
+      REGROW,
+      GATE_RES: [Res.Copper, Res.Iron, Res.Coal, Res.Oil, Res.Rare],
+      TIMBER: Res.Timber,
+      FISH: Res.Fish,
+      GRAIN: Res.Grain,
+    },
+    STEP,
+  );
+  devCardsMemo.set(knobs, cards);
+  return cards;
+}
 
 /** 建好发展度的数表,填上模型此刻的状态(接着推时从上一步算到的那一年接上) */
 function devEngine(d: DevModel): TableEngine {
   const reg = d.pm.terrain.regions;
   const eng = new TableEngine({
     seed: d.seed,
-    cards: DEV_CARDS,
+    cards: devCardsOf(d.pm.knobs),
     units: { region: { count: d.R, adjStart: reg.adjStart, adj: reg.adj, adjKind: reg.adjKind, seat: reg.seat } },
     owner: '国',
   });
@@ -817,7 +827,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   const focusMob = eng.input('重点动员').fill(0);
   if (dt > 0) {
     for (const [p, segs] of pm.policies) {
-      const mul = focusShare(segs, d.last, y);
+      const mul = focusShare(pm.knobs, segs, d.last, y);
       if (!mul || p >= P) continue;
       for (let c = 0; c < 4; c++) focus[p * 4 + c] = mul[c];
       focusMob[p] = mul[Cap.Mobilization];

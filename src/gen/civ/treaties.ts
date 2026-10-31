@@ -78,7 +78,7 @@ import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const TREATIES_KNOBS = defineKnobs('treaties', {
   /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
   TREATY_ODDS: 0.2,
@@ -130,7 +130,6 @@ export const TREATIES_KNOBS = defineKnobs('treaties', {
   ASK_ODDS: 0.3,
   ASK_MAX: 0.95,
 });
-const { TREATY_ODDS, REASON, CALM, FOE_FIRST, TREATY_RATIO, STALE_YEARS, STALE_NET, FEAR, TREATY_REST, JOIN, JOIN_RATIO, MAX_PARTIES, TERM_PAIR, TERM_MULTI, TERM_RENEW, MULTI_ZONE, PEACE_TREATY, PEACE_ZONE, BREACH_AGE, BREACH_PREY, CHAOS_YEARS, BREACH_ODDS, RENEW_RATIO, RENEW_P, RENEW_FOE, RENEW_MAX, RENEW_DECAY, EXILE_P, ZONE_CAP, EXILE_STAY, TERM_DECREE, ASK_ODDS, ASK_MAX } = TREATIES_KNOBS.values;
 
 
 
@@ -202,8 +201,13 @@ export interface Zone {
   until?: Year;
 }
 
+/** 这张表的值(一套数里取出来的) */
+export type TreatiesKnobs = typeof TREATIES_KNOBS.values;
+
 export class TreatyModel {
   readonly pm: PolityModel;
+  /** 这次推演的那套数里立约这张表 */
+  readonly k: TreatiesKnobs;
   readonly dm: DiplomacyModel;
   readonly base: number;
   treaties: Treaty[] = [];
@@ -222,6 +226,7 @@ export class TreatyModel {
 
   constructor(pm: PolityModel, dm: DiplomacyModel) {
     this.pm = pm;
+    this.k = pm.knobs.get(TREATIES_KNOBS);
     this.dm = dm;
     this.base = subSeed(pm.seed, 'civ-treaty');
     this.zoneAt = new Int32Array(pm.terrain.R).fill(-1);
@@ -266,7 +271,7 @@ export class TreatyModel {
   /** 中立地 z 此刻还住着几人(EXILE_STAY 年内徙来的) */
   residents(z: Zone, t: Year): number {
     let n = 0;
-    for (const y of z.exiles) if (t - y < EXILE_STAY) n++;
+    for (const y of z.exiles) if (t - y < this.k.EXILE_STAY) n++;
     return n;
   }
 
@@ -280,7 +285,7 @@ export class TreatyModel {
           if (!x) return;
           x.parties = ps;
           x.since = e.year;
-          x.term = e.n ?? TERM_RENEW;
+          x.term = e.n ?? this.k.TERM_RENEW;
           x.renewals++;
           return;
         }
@@ -291,7 +296,7 @@ export class TreatyModel {
           parties: ps,
           start: e.year,
           since: e.year,
-          term: e.n ?? TERM_PAIR,
+          term: e.n ?? this.k.TERM_PAIR,
           multi: decree ? (opt & OPT_LIMITED) !== 0 : ps.length >= 3,
           keep: decree && (opt & OPT_KEEP) !== 0,
           decree,
@@ -359,6 +364,7 @@ export function treatyModelOf(sim: CivSim): TreatyModel | undefined {
 
 /** 登记立约的事件处理,把规则挂到邦交、战争、国家扩张上(installDiplomacy、installUnrest 之后调用) */
 export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?: TreatyModel): TreatyModel {
+  const { STALE_YEARS, STALE_NET, FEAR, TERM_MULTI, TERM_PAIR, TREATY_REST, TREATY_RATIO, REASON, FOE_FIRST, TREATY_ODDS, CALM, MAX_PARTIES, JOIN_RATIO, JOIN, MULTI_ZONE, BREACH_AGE, BREACH_PREY, CHAOS_YEARS, BREACH_ODDS, PEACE_TREATY, PEACE_ZONE, RENEW_MAX, RENEW_P, RENEW_FOE, RENEW_DECAY, RENEW_RATIO, TERM_RENEW, ZONE_CAP, EXILE_P, ASK_ODDS, ASK_MAX, TERM_DECREE } = pm.knobs.get(TREATIES_KNOBS);
   const api = civApi(sim);
   const wm = warModelOf(sim);
   const dm = diplomacyModelOf(sim);
@@ -856,10 +862,10 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
       return false;
     }
     // 同一朝里交接(和宗室据地争位同样的条件):先君寿终、不是遇弑、不是作者让他去世
-    if (R.death || R.cut !== undefined || R.natural !== t || X.j === 0 || murderedAt(pm.rbase, pm.rtag[pid], R.k)) return false;
+    if (R.death || R.cut !== undefined || R.natural !== t || X.j === 0 || murderedAt(pm.knobs, pm.rbase, pm.rtag[pid], R.k)) return false;
     // 先君晚年新君已引兵入朝、杀过一轮兄弟(regency.ts):和宗室据地争位一样不另看
     if (pm.regents.get(pid)?.some((g) => g.kind === 'march' && g.k === R.k)) return false;
-    const sons = claimants(pm.rbase, pm.rtag[pid], R, P, t);
+    const sons = claimants(pm.knobs, pm.rbase, pm.rtag[pid], R, P, t);
     if (!sons.length || keyed4(base, pm.ptag[pid], k, 0, U_HEIR) >= EXILE_P) return false;
     exile(pid, z, 'heir', sons[0]);
     return true;
