@@ -34,6 +34,7 @@ import type { NameMix } from '../names';
 import { HABITABLE_SUIT, KIND_EXPANSIONISM } from './kinds';
 import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
 import { regionOfKey, simInterventions, type Intervention } from '../edits';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图效果为准) ----
 /** 治所宜居分 ≥ 这个值的州才算可居(和"城址"显示的门槛一致;定义在 kinds.ts,界面也用) */
@@ -1176,3 +1177,15 @@ function settlers(log: Readonly<ChangeLog>, R: number): { culture: Int16Array; y
   }
   return { culture, year };
 }
+
+/** 模块:民族扩张(清单和次序见 modules.ts) */
+export const culturesModule: CivModule = {
+  id: 'cultures',
+  install: (c) => {
+    if (c.cm) installCultures(c.sim, c.cm);
+  },
+  // 地形大事以后补备的新民族(干预立国用):国家那一层也要认得它们(民族表接在后面)
+  resume: (c) => {
+    c.extra = resumeCultures(c.sim, c.world, c.civ, c.interventions);
+  },
+};

@@ -59,6 +59,7 @@ import {
 } from './regents';
 import { IV_NOT_HIM } from './rulers';
 import { royalAt, royalSeg } from './regime';
+import type { CivModule } from './modules';
 
 export interface RegencyModel {
   pm: PolityModel;
@@ -284,3 +285,12 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
   };
   return rm;
 }
+
+/** 模块:掌实权:引兵入朝、太子监国、宗室摄政、名臣辅政、大臣大将专权(清单和次序见 modules.ts) */
+export const regencyModule: CivModule = {
+  id: 'regency',
+  install: (c) => {
+    if (c.pm) installRegency(c.sim, c.pm);
+  },
+  resume: (c) => resumeRegency(c.sim, c.civ),
+};

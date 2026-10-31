@@ -98,6 +98,7 @@ import { trekModelOf } from './migration';
 import { assimModelOf } from './assimilation';
 import { APPOINT_AGE, IV_REIGNING, appointEnd, authorLeadsNow, skillPower, type AppointInput, type AppointIv, type AuthorLead } from './appoint';
 import { IV_GONE, authorRegentEnd, regentAt } from './regents';
+import type { CivModule } from './modules';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -767,3 +768,14 @@ function authorLed(sim: CivSim, pm: PolityModel, iv: InterventionModel): (w: War
 export function resumeInterventions(sim: CivSim, iv: InterventionModel): void {
   installInterventions(sim, iv);
 }
+
+/** 模块:干预:不许灭、结盟、宣战、禁止分裂……(各规则在决策点查干预模型)(清单和次序见 modules.ts) */
+export const interventionsModule: CivModule = {
+  id: 'interventions',
+  install: (c) => {
+    if (c.iv) installInterventions(c.sim, c.iv);
+  },
+  resume: (c) => {
+    if (c.iv) resumeInterventions(c.sim, c.iv);
+  },
+};

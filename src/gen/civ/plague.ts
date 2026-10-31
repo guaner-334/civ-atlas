@@ -59,6 +59,7 @@ import {
   type CalamityRates,
 } from './calamity';
 import type { DisasterLevel, Intervention } from '../edits';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 看疫情:第一次在哪一年,之后每隔多少年 */
@@ -535,3 +536,12 @@ export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonl
   while (quantize(checkTime(pl.base, k)) <= sim.now) k++;
   sim.schedule(checkTime(pl.base, k), Ev.PlagueCheck, k, 0);
 }
+
+/** 模块:瘟疫(清单和次序见 modules.ts) */
+export const plagueModule: CivModule = {
+  id: 'plague',
+  install: (c) => {
+    if (c.pm) installPlague(c.sim, c.pm, c.seed);
+  },
+  resume: (c) => resumePlague(c.sim, c.world, c.civ, c.iv?.list),
+};

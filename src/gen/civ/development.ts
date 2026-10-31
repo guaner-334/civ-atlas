@@ -73,6 +73,7 @@ import { NEVER, devCards } from './devTables';
 import { warModelOf } from './wars';
 import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
 import { CAPS, INVENTIONS } from './inventions';
+import type { CivModule } from './modules';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -1382,3 +1383,16 @@ const WOOD = biomeColumn('timber');
 const BOG_IRON = biomeTagged('bogIron');
 const COAL_BASIN = biomeTagged('coalBasin');
 const DESERT = biomeMask((b) => b.desert !== undefined);
+
+/** 模块:发展度:每 20 年算各州的能力,影响人口上限、军力、远洋(清单和次序见 modules.ts) */
+export const developmentModule: CivModule = {
+  id: 'development',
+  install: (c) => {
+    if (c.pm) installDevelopment(c.sim, c.world, c.pm, c.habitat, c.seed);
+  },
+  resume: (c) => resumeDevelopment(c.sim, c.world, c.civ),
+  finish: (c) => {
+    const dev = finishDevelopment(c.sim, c.endYear);
+    if (dev) c.civ.development = dev;
+  },
+};

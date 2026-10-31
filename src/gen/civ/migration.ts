@@ -67,6 +67,7 @@ import { devModelOf } from './development';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } from './trekRoute';
 import type { InterventionModel } from './interventions';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */
@@ -833,3 +834,12 @@ export function trekStats(civ: Civ): TrekStats {
   for (const e of civ.annals) if (e.kind === 'trek' && e.n === 1) out.raids++;
   return out;
 }
+
+/** 模块:大迁徙:草原、寒地的民族分出一支举族远走,到了立国、开战,打进国都(清单和次序见 modules.ts) */
+export const migrationModule: CivModule = {
+  id: 'migration',
+  install: (c) => {
+    if (c.pm) installMigration(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumeMigration(c.sim, c.world, c.civ),
+};

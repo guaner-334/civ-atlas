@@ -64,6 +64,7 @@ import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';
 import { BOOK_WIDTH } from './fiscalBook';
 import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
 import { COUNCIL_CONSTS, cutDone, reorgCap } from './councilRules';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -818,3 +819,12 @@ export function controlStats(civ: Civ): { warlords: number; reclaims: number; de
   }
   return { warlords, reclaims, defies, lordSplits };
 }
+
+/** 模块:中央管到什么程度:割据、抗命不出兵(清单和次序见 modules.ts) */
+export const controlModule: CivModule = {
+  id: 'control',
+  install: (c) => {
+    if (c.pm) installControl(c.sim, c.seed);
+  },
+  resume: (c) => resumeControl(c.sim, c.civ),
+};

@@ -25,19 +25,12 @@ import type { Annal, ChangeLog, Civ, CivBase, CivParams, Culture, Habitat, Plane
 import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
 import { CivSim, quantize } from './engine/sim';
-import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
+import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, planCultures } from './cultures';
 import { buildRoutes, usedLanes } from './routes';
-import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities, ruinGaps } from './polities';
+import { capacityNorm, finishPolities, planPolities, polityModelOf, routeCities, ruinGaps } from './polities';
 import { findPlaces, keepPlaceNames, nameRefs, type NameRef } from './places';
 import { passSites } from './passSites';
-import { installWars } from './wars';
-import { installPolitics } from './politics';
-import { installDynasty } from './dynasty';
-import { installAssimilation } from './assimilation';
-import { installCities } from './cities';
-import { installDiplomacy } from './diplomacy';
-import { warModelOf } from './wars';
-import { installInterventions, scheduleInterventions } from './interventions';
+import { scheduleInterventions } from './interventions';
 import { buildPeople } from './people';
 import { installUpheaval, reshapeCities, scheduleUpheaval, upheavalImpact, type TerrainEra } from './upheaval';
 import type { CultureModel } from './cultures';
@@ -45,24 +38,15 @@ import type { PolityModel } from './polities';
 import type { InterventionModel } from './interventions';
 import type { CivEra, NamePins, Regions, UpheavalFact } from './types';
 import { YEAR_TICKS, cleanInterventions, sameInterventions, type Intervention, type TerrainOp } from '../edits';
-import { finishReligion, installReligion } from './religion';
-import { finishDevelopment, installDevelopment } from './development';
-import { finishIdeology, installIdeology } from './ideology';
-import { finishTrade, installTrade } from './trade';
-import { installUnrest } from './unrest';
-import { installControl } from './control';
-import { installCouncil } from './council';
-import { installRegency } from './regency';
-import { installMarriage } from './marriage';
-import { installPlague } from './plague';
-import { installPandemic } from './pandemic';
+import { finishDevelopment } from './development';
+import { finishIdeology } from './ideology';
+import { finishTrade } from './trade';
 import { breakRoads } from './pandemicRoads';
 import { cleanCalamity } from './calamity';
-import { installTreaties } from './treaties';
-import { installMigration, migrationsOf } from './migration';
+import { migrationsOf } from './migration';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
-import { resumeCiv } from './modules';
+import { finishModules, installModules, resumeCiv } from './modules';
 
 export * from './types';
 
@@ -235,28 +219,9 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const pm = model ? planPolities(world, model, { polities: p.polities, pace: p.pace, capNorm: tempo?.capNorm, expand: frontier?.expand }) : null;
   // 阶段 4 干预(interventions.ts):事件最先预约(同一刻里只排在地形大事和看王朝、新君即位、迁都后重看边地后面,干预之前的历史一字不差)
   const iv = pm ? scheduleInterventions(sim, seed, p.interventions) : null;
-  if (model) installCultures(sim, model);
-  if (pm) installPolities(sim, pm);
-  if (pm) installWars(sim, pm, world); // 阶段 3 战争与攻占(wars.ts):宣战、攻占、迁都、灭亡、议和
-  if (pm) installPolitics(sim, pm, world); // 阶段 3 分与合(politics.ts):分裂、合并、复国、主动迁都、部落地带补立国
-  if (pm) installDynasty(sim, pm); // 阶段 3 王朝更替(dynasty.ts):改朝换代、王室更迭,新朝定都根据地
-  if (pm) installAssimilation(sim, pm, world); // 阶段 3 同化与迁徙(assimilation.ts):同化、随征服而来的移民、避兵外迁、民族消亡
-  if (pm) installCities(sim, pm, warModelOf(sim)!); // 阶段 3 城市兴衰(cities.ts):洗劫、毁城、重建、旧都衰落
-  if (pm) installDiplomacy(sim, pm); // 邦交(diplomacy.ts):称臣纳贡、结盟、背盟、援盟、讨伐叛藩
-  if (pm) installDevelopment(sim, world, pm, habitat, seed); // 发展度(development.ts):每 20 年算各州的能力,影响人口上限、军力、远洋
-  if (pm) installIdeology(sim, seed); // 思潮(ideology.ts):跟着发展度每 20 年算各州各说的接受度,只算不用
-  if (pm) installTrade(sim, seed); // 商道(trade.ts):跟着发展度每 20 年算一步,只读推演、不改历史
-  if (pm) installUnrest(sim, pm, seed, world); // 动荡(unrest.ts):饥荒、民变、大崩解
-  if (pm) installControl(sim, seed); // 中央管到什么程度(control.ts):割据、抗命不出兵
-  if (pm) installCouncil(sim, seed); // 议事(council.ts):直征、分封、削藩
-  if (pm) installRegency(sim, pm); // 掌实权(regency.ts):引兵入朝、太子监国、宗室摄政、名臣辅政、大臣大将专权
-  if (pm) installMarriage(sim, pm); // 联姻(marriage.ts):两国宗室结亲,少开战、易结盟
-  if (pm) installPlague(sim, pm, seed); // 瘟疫(plague.ts)
-  if (pm) installPandemic(sim, pm, seed); // 全球大疫、疫后凋敝;「天灾」多 / 很多时自己发生的全球大疫、地震水旱(pandemic.ts)
-  if (pm) installTreaties(sim, pm, world); // 立约与中立地(treaties.ts):互不侵犯 / 有限竞争之约、背约、续约,共建中立地、放逐
-  if (pm) installMigration(sim, pm, world); // 大迁徙(migration.ts):草原、寒地的民族分出一支举族远走,到了立国、开战,打进国都
-  if (model && pm) installReligion(sim, seed, model, pm, regions); // 信仰(religion.ts):每 5 年算一步(只算着,别的规则还不读它;不预约事件)
-  if (iv) installInterventions(sim, iv); // 阶段 4 干预:不许灭、结盟、宣战、禁止分裂(各机制在决策点查 WarModel.iv)
+  // 各模块照清单的次序装上(modules.ts 的 CIV_MODULES:民族、国家、战争、分合、王朝、同化与迁徙、城市兴衰、邦交、发展度、思潮、商道、
+  // 动荡、中央管辖、议事、掌实权、联姻、瘟疫、全球大疫、立约、大迁徙、信仰、干预)
+  installModules({ sim, world, habitat, regions, seed, cm: model, pm, iv });
   progress('民族推演', 0.85);
   // 地形大事:推到第一件的前一刻,之后每件套上新地形接着推(upheaval.ts)
   const ups = pm ? (p.upheavals ?? []).filter((u) => u.year > 0 && u.year < p.endYear) : [];
@@ -523,17 +488,8 @@ function finishCiv(x: Finish): Civ {
     ...(facts.length ? { upheavals: facts, eras } : {}),
     ...(mix ? { names: mix } : {}),
   };
-  // ⑦ religion.ts:推演里算好的,补上名字和皈依的国君(要起好名、排好人物的整份 civ)
-  if (viable && cultures.length) civ.religion = finishReligion(fin.sim, fin.world, civ);
-  // 发展度:推演里算好的,整理一份(和推演结束那一刻的状态)
-  if (viable && cultures.length) {
-    const dev = finishDevelopment(fin.sim, p.endYear);
-    if (dev) civ.development = dev;
-    const ideo = finishIdeology(fin.sim, p.endYear);
-    if (ideo) civ.ideology = ideo;
-    const trade = finishTrade(fin.sim, fin.regions);
-    if (trade) civ.trade = trade;
-  }
+  // 推演里算好的,各模块往结果上补自己的那一份(modules.ts 的 CIV_FINISH:信仰要起好名、排好人物的整份 civ,排最前;再发展度、思潮、商道)
+  if (viable && cultures.length) finishModules({ sim: fin.sim, world: fin.world, endYear: p.endYear, regions: fin.regions, civ });
   return civ;
 }
 

@@ -29,13 +29,14 @@
 import type { ChangeLog, Civ, Culture, Faith, FaithEvent, FaithForm, Polity, Regions, Religion, Settlement, StateFaith, Year } from './types';
 import type { World } from '../world';
 import type { CivSim } from './engine/sim';
-import type { CultureModel } from './cultures';
-import type { PolityModel } from './polities';
+import { cultureModelOf, type CultureModel } from './cultures';
+import { polityModelOf, type PolityModel } from './polities';
 import { AdjKind, Layer } from './types';
 import { ownersAt, type Owners } from './engine/timeline';
 import { capitalAt, populationAt } from './growth';
 import { personNamers } from './naming';
 import { keyed, subSeed } from '../util';
+import type { CivModule } from './modules';
 
 /** 每多少年算一步 */
 const STEP = 5;
@@ -881,3 +882,21 @@ export function faithCounts(civ: Civ, year: Year, faiths?: Int16Array, own?: Own
   }
   return { n, folk, total };
 }
+
+/** 模块:信仰:每 5 年算一步(只算着,别的规则还不读它;不预约事件)(清单和次序见 modules.ts) */
+export const religionModule: CivModule = {
+  id: 'religion',
+  install: (c) => {
+    if (c.cm && c.pm) installReligion(c.sim, c.seed, c.cm, c.pm, c.regions);
+  },
+  // 不存状态,照 civ 的历史从第 0 年重放到 civ.endYear,之后接着每 5 年算一步
+  resume: (c) => {
+    const cm = cultureModelOf(c.sim);
+    const pm = polityModelOf(c.sim);
+    if (cm && pm) resumeReligion(c.sim, c.civ, cm, pm, c.eras);
+  },
+  // 推演里算好的,补上名字和皈依的国君(要起好名、排好人物的整份 civ)
+  finish: (c) => {
+    c.civ.religion = finishReligion(c.sim, c.world, c.civ);
+  },
+};

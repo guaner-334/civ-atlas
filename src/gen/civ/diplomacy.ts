@@ -54,6 +54,7 @@ import { KIN_JOIN, KIN_PACT } from './marriages';
 import { polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { capitalAt, polityAlive, populationAt } from './growth';
 import { politicsModelOf } from './politics';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邦交;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -726,3 +727,12 @@ export function diplomacyStats(civ: Civ): DiplomacyStats {
     pactsAtEnd: rel.pacts.length,
   };
 }
+
+/** 模块:邦交:称臣纳贡、结盟、背盟、援盟、讨伐叛藩(清单和次序见 modules.ts) */
+export const diplomacyModule: CivModule = {
+  id: 'diplomacy',
+  install: (c) => {
+    if (c.pm) installDiplomacy(c.sim, c.pm);
+  },
+  resume: (c) => resumeDiplomacy(c.sim, c.world, c.civ),
+};
