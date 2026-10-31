@@ -265,7 +265,7 @@ import {
   useTerrainTool,
   type TerrainStatus,
 } from './TerrainTools';
-import { SourceLayer, isImageFile, startImport, useImportOn, useSourceView } from './ImportImage';
+import { SourceLayer, useImportOn, useSourceView } from './ImportImage';
 import { NewWorldDialog } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
@@ -289,6 +289,7 @@ import { setDiagContext } from '../diag/watch';
 import { worldMessages } from './world/worldMessages';
 import { useWorldLoad } from './world/useWorldLoad';
 import { useWorldPages } from './world/useWorldPages';
+import { useFileDrop } from './world/useFileDrop';
 import { useStoryFinder } from './world/useStoryFinder';
 import { firstRoute, readUrl, writeViewUrl } from './world/pageUrl';
 import { useRouteNav, useViewUrl } from './world/useRouteNav';
@@ -1357,7 +1358,6 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     terrain: { endNamesHold, setTerrainStatus, setShownTerrain, setShownSketch },
     view: viewRefs,
     page: { init, route, wall, landing, presetLink, setLanding, setNewDlg, setSharedFor, setDraftTitle, setReplay, setReplayOn },
-    sim,
     send,
     later: {
       showHome: () => showHome(),
@@ -1373,6 +1373,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       navRef,
     },
   });
+  // 页面卸下时关掉后台线程(排着的试推演一起作废)。放在 useWorldLoad 后面:卸下时先收它「打开网页时打开世界」那个 effect(不再记前进后退、不再听地址栏的 #),再关线程
+  useEffect(() => () => sim.dispose(), []);
 
   // ---- 改地形(阶段 4):地形修改、草图一变,就在后台带着新地形重新生成世界(连同当时的干预重推文明;
   // 州、历史整个重来,改名和干预按稳定键尽量套上)。写在干预的前面:同时变了的话,干预跟着这次生成一起推 ----
@@ -1737,38 +1739,8 @@ ${s.image.cells}` : null);
     shownRaw,
     navRef,
   });
-  // 把 .json 拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(随机生成的新建不收图片,松手时说一句)
-  const [dropping, setDropping] = useState<false | 'save' | 'image'>(false);
-  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
-  /** 新建中拖进来图片:照手绘图的收下,随机生成的不收 */
-  const imageDrop = (): 'image' | false | null => (getStage().stage !== 'draft' ? null : draftModeOf(targetRef.current) === 'image' ? 'image' : false);
-  const onDragOver = (e: React.DragEvent) => {
-    if (!hasFiles(e)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-    const img = imageDrop();
-    const kind = img !== null && e.dataTransfer.items?.[0]?.type.startsWith('image/') ? img : 'save';
-    if (dropping !== kind) setDropping(kind);
-  };
-  const onDragLeave = (e: React.DragEvent) => {
-    if (!e.relatedTarget || !(e.currentTarget as Node).contains(e.relatedTarget as Node)) setDropping(false);
-  };
-  const onDrop = (e: React.DragEvent) => {
-    if (!hasFiles(e)) return;
-    e.preventDefault();
-    setDropping(false);
-    const f = e.dataTransfer.files[0];
-    if (!f) return;
-    const img = imageDrop();
-    if (img !== null && isImageFile(f)) {
-      if (img) return void startImport(f);
-      return void notify({ kind: 'warn', text: '随机生成的世界不能导入图片，想照图生成就新建一个' });
-    }
-    f.text().then(
-      (t) => openText(t, f.name),
-      () => notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] }),
-    );
-  };
+  // 把 .json 拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(./world/useFileDrop.ts)
+  const { dropping, onDragOver, onDragLeave, onDrop } = useFileDrop({ targetRef, openText });
 
   // ---- 渲染 ----
   // 画好的整张图按「画风 / 图层」各存一份(离屏画布),同一个世界里切回去直接贴上;
