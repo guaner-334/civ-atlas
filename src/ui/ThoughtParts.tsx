@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { THOUGHTS, THOUGHT_COUNT, ideologyAt, thoughtOrigin } from '../gen/civ/ideology';
 import { yearAt, spaced } from '../gen/era';
-import { THOUGHT_BAND_NAMES, THOUGHT_COLORS, thoughtBand, thoughtEmerged, thoughtFocus } from '../render/civ/thoughts';
+import { THOUGHT_LAYER, thoughtBand, thoughtEmerged, thoughtFocus } from '../render/civ/thoughts';
 import { useEra } from './editsStore';
 import { setThought, useCivShow } from './civView';
 import { openInfoPage, setSheet } from './panelStore';
@@ -22,19 +22,20 @@ import { useYear } from './WorldOverviewMarks';
 import { TREND_NAMES, cheng, polityThoughtFoot, polityThoughtRows, regionThoughts, thoughtShort, thoughtSide } from './thoughtInfo';
 import './thoughts.css';
 
-/** 五档色标:半成、一成、三成、五成、七成 */
+/** 五档色标:半成、一成、三成、五成、七成(档名、颜色见 render/civ/thoughts.ts 的 THOUGHT_LAYER) */
 export function ThoughtBands() {
+  const bands = THOUGHT_LAYER.bands;
   return (
     <div className="th-bands">
       <div className="th-bar">
-        {THOUGHT_COLORS.map((c, i) => (
-          <i key={i} style={{ background: rgb(c) }} />
+        {bands.map((b, i) => (
+          <i key={i} style={{ background: rgb(b.color) }} />
         ))}
       </div>
       <div className="th-ticks">
-        {THOUGHT_BAND_NAMES.map((t, i) => (
-          <span key={t} style={{ left: `${(i * 100) / THOUGHT_BAND_NAMES.length}%` }}>
-            {t}
+        {bands.map((b, i) => (
+          <span key={b.name} style={{ left: `${(i * 100) / bands.length}%` }}>
+            {b.name}
           </span>
         ))}
       </div>

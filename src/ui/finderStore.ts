@@ -8,7 +8,7 @@
  * - 结果:选中一个(地图换成那个世界开场那年,App 照 sel 生成)、点开看细节、排序、放宽一点(换门槛,不用重推)
  * 不碰 DOM(切到后台暂停用 finderPool 的 pauseWhenHidden,在浏览器里才挂上)。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import {
   FINDER_PRESETS,
   nextSeeds,
@@ -93,10 +93,8 @@ let state: FinderUi = {
   sel: null,
   nearOpen: false,
 };
-const subs = new Set<() => void>();
-const emit = () => {
-  for (const f of subs) f();
-};
+const subs = createListeners();
+const emit = subs.emit;
 const set = (patch: Partial<FinderUi>) => {
   state = { ...state, ...patch };
   emit();
@@ -107,16 +105,11 @@ export function getFinder(): FinderUi {
 }
 
 export function useFinder(): FinderUi {
-  return useSyncExternalStore(
-    (f) => (subs.add(f), () => void subs.delete(f)),
-    () => state,
-    () => state,
-  );
+  return subs.use(() => state);
 }
 
 export function subscribeFinder(f: () => void): () => void {
-  subs.add(f);
-  return () => void subs.delete(f);
+  return subs.subscribe(f);
 }
 
 // ---- 后台在搜的这一批 ----

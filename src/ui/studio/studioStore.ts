@@ -5,7 +5,7 @@
  *          App 按它摆地图的舞台、把视图放回 1 倍并转到这条经线;null = 地图照常铺满(新建界面里藏起来)
  *   geom   App 告诉新建界面平常的地图现在的样子(收起平面地图时星球从这里接着变形)
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from '../createStore';
 import type { Box } from './layout';
 import type { FlatGeom } from './scene';
 import type { GraticuleStep, MapProjection } from '../projectionStore';
@@ -20,7 +20,7 @@ export interface StudioFlat {
 
 let flat: StudioFlat | null = null;
 let seq = 0;
-const subs = new Set<() => void>();
+const subs = createListeners();
 
 export function setStudioFlat(rect: Box | null, lon?: number): void {
   if (!rect) {
@@ -31,7 +31,7 @@ export function setStudioFlat(rect: Box | null, lon?: number): void {
     if (same) return;
     flat = { rect, lon: lon ?? flat?.lon, seq: lon !== undefined || !flat ? ++seq : flat.seq };
   }
-  for (const f of subs) f();
+  subs.emit();
 }
 
 export function getStudioFlat(): StudioFlat | null {
@@ -39,11 +39,7 @@ export function getStudioFlat(): StudioFlat | null {
 }
 
 export function useStudioFlat(): StudioFlat | null {
-  return useSyncExternalStore(
-    (f) => (subs.add(f), () => subs.delete(f)),
-    () => flat,
-    () => flat,
-  );
+  return subs.use(() => flat);
 }
 
 /**

@@ -11,7 +11,7 @@
  * - "这台电脑约 N 秒":按这台电脑刚才推演用的时间估(生成世界时推文明那一步、上一次再推的实测毫秒数);估不出来 = null。
  * 不碰 DOM(浏览器存储读写包了 try),单测直接测(tests/extend-years.test.ts)。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import { END_YEAR_MAX } from '../gen/edits';
 import { yearFull, type Era } from '../gen/era';
 import { momentFull, momentTail } from './stepTime';
@@ -92,23 +92,17 @@ function cleanOwn(v: unknown): number | null {
 // 共享状态
 
 let S: ExtendState = { open: false, ...load(), busy: null, fresh: null };
-const subs = new Set<() => void>();
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => {
-    subs.delete(f);
-  };
-};
+const subs = createListeners();
 function patch(p: Partial<ExtendState>) {
   S = { ...S, ...p };
-  for (const f of subs) f();
+  subs.emit();
 }
 
 export function getExtend(): ExtendState {
   return S;
 }
 export function useExtend(): ExtendState {
-  return useSyncExternalStore(subscribe, getExtend, getExtend);
+  return subs.use(getExtend);
 }
 
 /** 打开 / 收起选几年的弹层 */
@@ -167,7 +161,7 @@ export function extendStop() {
 export function _resetExtendForTest() {
   S = { open: false, pick: EXTEND_DEFAULT, own: null, busy: null, fresh: null };
   speedK = null;
-  for (const f of subs) f();
+  subs.emit();
 }
 
 // ---------------------------------------------------------------------------

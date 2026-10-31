@@ -7,7 +7,7 @@
  * - 挑地方(picking):出生地 / 这段经历在哪。新建的人物没有出生地、新加的经历时自动开始挑;「换一处」也开始挑。
  *   挑的时候点地图:城镇符号、城名 = 那座城,陆地 = 那一州,海上 = 那一点(App 按 pickPlace 交过来);顶部提示条能取消(Esc)
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { RulerLeanings } from '../gen/civ/types';
 import { MARK_COLORS, type Intervention, type MarkColor } from '../gen/edits';
 import {
@@ -80,10 +80,10 @@ export interface CharUi {
 }
 
 let state: CharUi = { draft: null, picking: null };
-const subs = new Set<() => void>();
+const subs = createListeners();
 function set(patch: Partial<CharUi>) {
   state = { ...state, ...patch };
-  for (const f of subs) f();
+  subs.emit();
 }
 
 export function getCharUi(): CharUi {
@@ -91,19 +91,11 @@ export function getCharUi(): CharUi {
 }
 
 export function useCharUi(): CharUi {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getCharUi,
-    getCharUi,
-  );
+  return subs.use(getCharUi);
 }
 
 export function subscribeCharUi(f: () => void): () => void {
-  subs.add(f);
-  return () => subs.delete(f);
+  return subs.subscribe(f);
 }
 
 /** 年份 → 输入框里的字 */

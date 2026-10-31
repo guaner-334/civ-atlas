@@ -8,7 +8,7 @@
  * base = 新建这一步是"以某个世界为底稿新建"(种子锁住,参数、地形照它填好,改名和干预跟过去)。
  * 纯状态,不碰 DOM。哪一步由 App 决定(网址、存档、按钮),别的组件只读。
  */
-import { useSyncExternalStore } from 'react';
+import { createStore } from './createStore';
 
 export type Stage = 'home' | 'draft' | 'world';
 
@@ -26,29 +26,23 @@ export interface StageState {
   base: DraftBase | null;
 }
 
-let state: StageState = { stage: 'world', base: null };
-const subs = new Set<() => void>();
+const store = createStore<StageState>({ stage: 'world', base: null });
 
 export function getStage(): StageState {
-  return state;
+  return store.get();
 }
 
 export function setStage(stage: Stage, base: DraftBase | null = null) {
+  const state = store.get();
   if (state.stage === stage && state.base === base) return;
-  state = { stage, base: stage === 'draft' ? base : null };
-  for (const f of subs) f();
+  store.set({ stage, base: stage === 'draft' ? base : null });
 }
 
 /** 换了阶段时调 f(返回取消函数) */
 export function subscribeStage(f: () => void): () => void {
-  subs.add(f);
-  return () => void subs.delete(f);
+  return store.subscribe(f);
 }
 
 export function useStage(): StageState {
-  return useSyncExternalStore(
-    (f) => (subs.add(f), () => subs.delete(f)),
-    () => state,
-    () => state,
-  );
+  return store.use();
 }
