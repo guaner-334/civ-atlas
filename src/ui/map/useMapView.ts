@@ -381,7 +381,8 @@ export function useMapView({ view, setView, stageRef, data, dataRef, narrow, pan
       setMapMoving(true);
       clearTimeout(panIdle.current);
       panIdle.current = window.setTimeout(() => !drag.current && setMapMoving(false), 150);
-      const pxPerDeg = view.k * (box.w / mp.W) * mp.s * mp.def.kx(0) * (Math.PI / 180);
+      // 每度几像素按最新的缩放算(viewRef:这一帧里刚滚轮缩放过、还没重画也算上,和 zoomAt 一样)
+      const pxPerDeg = viewRef.current.k * (box.w / mp.W) * mp.s * mp.def.kx(0) * (Math.PI / 180);
       if (pxPerDeg > 0 && dx) scheduleCenter((centerFrame.current.lon ?? getMapCenter()) + dx / pxPerDeg);
       if (dy) setView((v) => clampRef.current({ k: v.k, x: v.x, y: v.y - dy }, rect.width, rect.height));
       return;
