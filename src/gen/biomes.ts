@@ -197,7 +197,8 @@ export const BIOMES: readonly BiomeInfo[] = [
     id: Biome.Ice,
     name: '冰原',
     real: hex('#f3f6f8'),
-    paint: hex('#f4f2ea'),
+    /** 雪:像羊皮纸上的留白,略带一点冷调(和纸色混合后接近山丘符号的底色) */
+    paint: hex('#ebe6d8'),
     when: [
       { on: 'land', t: { below: -9 } },
       { on: 'lake', t: { below: -6 } },

@@ -62,8 +62,6 @@ const INK = hexRGB('#3a2d22');
 const INK_CSS = 'rgba(58,45,34,';
 /** 山 / 丘陵符号的底色(和 drawSymbols 里的 paper 一致) */
 const GLYPH_PAPER: RGB = [236, 224, 193];
-/** 雪:像羊皮纸上的留白,略带一点冷调(和纸色混合后接近符号底色) */
-const SNOW_PAINT = hexRGB('#ebe6d8');
 /** 雪地背光面的淡蓝灰晕染 */
 const SNOW_SHADOW = hexRGB('#aebbc3');
 /** 海冰:纸色上再提亮一点、略偏冷的淡灰白 */
@@ -528,7 +526,7 @@ function regionFieldSteps(r: Raster, region: PixelBox, calm: Uint8Array, ice: Ic
         for (let dx = -br; dx <= br; dx++) {
           const xx = x + dx < 0 ? x + dx + W : x + dx >= W ? x + dx - W : x + dx;
           const bi = biome[row + xx];
-          const c = bi === Biome.Ice ? SNOW_PAINT : BIOMES[bi].paint;
+          const c = BIOMES[bi].paint;
           sr += c[0];
           sg += c[1];
           sb += c[2];
@@ -844,7 +842,7 @@ function paintBase(ctx: CanvasRenderingContext2D, world: World, r: Raster, patch
   const pg = new Float32Array(N);
   const pb = new Float32Array(N);
   for (let k = 0; k < N; k++) {
-    const c = biome[k] === Biome.Ice ? SNOW_PAINT : BIOMES[biome[k]].paint;
+    const c = BIOMES[biome[k]].paint;
     pr[k] = c[0];
     pg[k] = c[1];
     pb[k] = c[2];
@@ -912,7 +910,7 @@ export function fantasyBoxPixels(r: Raster, u: number) {
   const pg = new Float32Array(N);
   const pb = new Float32Array(N);
   for (let k = 0; k < N; k++) {
-    const c = biome[k] === Biome.Ice ? SNOW_PAINT : BIOMES[biome[k]].paint;
+    const c = BIOMES[biome[k]].paint;
     pr[k] = c[0];
     pg[k] = c[1];
     pb[k] = c[2];
