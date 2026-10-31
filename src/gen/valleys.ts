@@ -6,9 +6,12 @@
 import { riverGeometry } from './riverGeometry';
 import { smoothstep } from './util';
 
-/** 写实风画河的参数(src/render/realistic.ts):河谷宽度跟着画出来的河宽走 */
-const RIVER_STYLE = { minW: 0.5, maxW: 7.5, fluxRef: 1000 };
-const RIVER_FLARE = 1.7;
+/**
+ * 河宽随流量怎么长、河口张多大和写实风画河一样(src/render/realistic.ts 的 realisticRiverStyle、riverOpts:fluxRef、mouthFlare、widthPower),
+ * 河谷宽度跟着画出来的河宽走、谷口正好在画出来的河口下面;粗细的上下限是河谷自己的(谷底比河面宽)
+ */
+const RIVER_STYLE = { minW: 0.5, maxW: 7.5, fluxRef: 1400 };
+const RIVER_FLARE = 1.5;
 const RIVER_POWER = 0.65;
 
 /** 刻河谷用的河道几何(世界单位;河道的 x 已展开成连续的,可能出左右边) */
