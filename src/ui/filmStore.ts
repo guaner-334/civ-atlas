@@ -24,7 +24,8 @@ import { openLong } from './longStore';
 import { getFilmSource, getFilmViewport, whenFilmReady, type FilmSource } from './filmSource';
 import { FilmRenderer, type FilmRegion, type FilmSetup } from './filmRun';
 import { FilmCancelled, encodeFilm } from './filmEncode';
-import { clampRange, filmClock, filmFileName, filmRanges, filmSize, frameYear, outlineRange, type FilmArea, type FilmPlot, type FilmRange, type FilmSeconds, type FilmShape } from './filmPlan';
+import { clampRange, filmClock, filmFileName, filmRanges, filmSize, outlineRange, type FilmPlot, type FilmRange, type FilmSeconds } from './filmPlan';
+import { frameYear, type FilmArea, type FilmShape } from '../render/filmFrames';
 import { directorPlots, type OutlineCtx } from './outlineInfo';
 
 export type FilmMode = 'video' | 'long';

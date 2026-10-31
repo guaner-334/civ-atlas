@@ -1,9 +1,9 @@
 /**
  * 河谷:沿河(和放大后的小溪)刻出谷底、谷壁,写入下切深度和"离河多近"。
- * 河道几何用画河的同一套(render/common.ts 的 riverGeometry:平滑、样条、弯一弯、支流接到干流上),谷底正好在画出来的河下面。
+ * 河道几何用画河的同一套(riverGeometry.ts:平滑、样条、弯一弯、支流接到干流上),谷底正好在画出来的河下面。
  * 纯计算:不碰页面,worker / Node 都能跑(细沟的帮手线程也用:只带这一小块,不带整个铺像素)。
  */
-import { riverGeometry } from '../render/common';
+import { riverGeometry } from './riverGeometry';
 import { smoothstep } from './util';
 
 /** 写实风画河的参数(src/render/realistic.ts):河谷宽度跟着画出来的河宽走 */

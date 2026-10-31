@@ -30,7 +30,12 @@ export function createListeners(): Listeners {
   const emit = () => {
     for (const f of subs) f();
   };
-  const use = <S>(get: () => S): S => useSyncExternalStore(subscribe, get, get);
+  const use = <S>(get: () => S): S => {
+    // 取值函数每次渲染都新包一层:React 18 的 useSyncExternalStore 在组件渲染途中 setState、重跑一遍组件时,
+    // 订阅函数和取值函数都没换就不再记下这次渲染取到的值,之后再变回原来的值不会重画(漏一次通知)
+    const snap = () => get();
+    return useSyncExternalStore(subscribe, snap, snap);
+  };
   return { subscribe, emit, use };
 }
 
