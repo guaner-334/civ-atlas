@@ -188,27 +188,41 @@ describe('人物页 · 几处写法', () => {
       const famous = new Set(famousPeople(civ).map((f) => f.id));
       const hits = searchCiv(civ, '末帝', 2600);
       if (!hits.some((h) => h.kind === 'person' && famous.has(h.id))) continue;
-      const reigns = reignEntries(civ);
       for (const h of hits) {
         if (h.kind !== 'person') continue;
         const x = P[h.id];
+        if (x.role === 'ruler' && x.title === '末帝' && civ.polities[x.polity].eastern) return { civ, x, hits, famous };
+      }
+    }
+    return null;
+  };
+  /**
+   * 接祖父的位、即位那条写了辅政的名臣(那条写到的正好三个人)的东方君主(称号不限)。GENERATOR_VERSION 57(湿地)以后
+   * 种子 1–120 里都没有同时是末帝的(种子 1–20 里接祖父位的末帝只剩 1 位,他即位那条没写辅政),和上面的末帝分开找
+   */
+  const grandson = () => {
+    for (const seed of [2024, 7, 11, 42, 3, 5, 6, 38, 39, 44, 22]) {
+      const civ = civOf(seed);
+      const P = civ.people!;
+      const reigns = reignEntries(civ);
+      for (const x of P) {
+        if (x.role !== 'ruler' || x.rise !== 'heir' || !civ.polities[x.polity].eastern) continue;
         const prev = rulerNeighbors(civ, x).prev;
-        if (x.role !== 'ruler' || x.title !== '末帝' || x.rise !== 'heir' || !prev || kinOf(civ, x, prev) !== '祖父') continue;
+        if (!prev || kinOf(civ, x, prev) !== '祖父') continue;
         const e = reigns.find((r) => r.people?.[1] === x.id);
         if (!e || e.people!.length !== 3 || e.people![0] !== prev.id || P[e.people![2]].role !== 'minister' || !e.text.includes('辅政')) continue;
-        return { civ, x, prev, e, hits, famous };
+        return { civ, x, prev, e };
       }
     }
     return null;
   };
 
-  it('继祖父即位、称号"末帝"的君主(按条件现找):搜"末帝"名人排在前面;即位那条前一位连国名一起切、他和辅政的名臣切名字', () => {
+  it('称号"末帝"的君主(按条件现找):搜"末帝"名人排在前面;接祖父位、辅政的名臣写进即位那条的(按条件现找):前一位连国名一起切、他和辅政的名臣切名字', () => {
     const found = lastEmperor();
-    expect(found, '几个种子里要有这样一位').toBeTruthy();
-    const { civ, x, prev, e, hits, famous } = found!;
+    expect(found, '几个种子里要有这样一位末帝').toBeTruthy();
+    const { civ, x, hits, famous } = found!;
     expect(personName(civ, x)).toBe(`末帝${x.name}`);
     expect(rulerRole(civ, x)).toMatch(/皇帝$/);
-    expect(riseText(civ, x)).toMatch(/^继祖父/);
     // 名人在前:头一个是名人;名人都排在不是名人的前面
     expect(hits[0].kind === 'person' && famous.has(hits[0].id)).toBe(true);
     const fame = hits.map((h) => h.kind === 'person' && famous.has(h.id));
@@ -218,9 +232,13 @@ describe('人物页 · 几处写法', () => {
     expect(k).toBeGreaterThanOrEqual(0);
     const s = personSpan(x);
     expect(hits[k]).toMatchObject({ kind: 'person', id: x.id, name: `末帝${x.name}`, sub: `${rulerRole(civ, x)}，${Math.floor(s.from)}–${Math.floor(s.until!)}` });
-    // 编年史里写他即位的那条("大辰怀宗崩……其孙江溟即位,是为末帝,……丞相墨渺缈辅政"):前一位连国名一起切、他和辅政的名臣切名字
-    const ms = personMentions(civ, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
+    // 编年史里写他即位的那条("大辰怀宗崩……其孙江溟即位,……丞相墨渺缈辅政"):前一位连国名一起切、他和辅政的名臣切名字
+    const g = grandson();
+    expect(g, '几个种子里要有这样一位接祖父位的').toBeTruthy();
+    const { civ: c2, x: y, prev, e } = g!;
+    expect(riseText(c2, y)).toMatch(/^继祖父/);
+    const ms = personMentions(c2, e.text, e.people, -1, e.year).filter((m) => m.person !== undefined);
     expect(ms.map((m) => m.person)).toEqual(e.people);
-    expect(ms.map((m) => m.text)).toEqual([rulerRef(civ, prev, e.year), x.name, civ.people![e.people![2]].name]);
+    expect(ms.map((m) => m.text)).toEqual([rulerRef(c2, prev, e.year), y.name, c2.people![e.people![2]].name]);
   }, 120_000);
 });

@@ -482,16 +482,22 @@ describe('助手', () => {
   it('立国:能用经纬度指地方(挑离它最近、有人住的一州);结果里写明那一州在哪、多大、什么地貌', () => {
     const rctx = { world, civ, year: 2000, edits: EMPTY };
     const R = civ.regions;
-    // 种子 7 的 R153:大洋中间只有一州的小岛(北纬 43° 一带;GENERATOR_VERSION 18)
-    const seat = R.seat[153];
+    // 只有一州、第 2500 年有人住的小岛,按条件现找(GENERATOR_VERSION 18 起写死种子 7 的 R153;
+    // 57 湿地以后州的划分、编号变了,R153 落到了最大的大陆上)
+    const own = ownersAt(civ, 2500);
+    const isle = Array.from({ length: R.count }, (_, r) => r).find((r) => own.culture[r] >= 0 && R.landmass.filter((m) => m === R.landmass[r]).length === 1)!;
+    expect(isle).toBeDefined();
+    const seat = R.seat[isle];
     const lon = (world.mesh.x[seat] / world.width) * 360 - 180;
     const lat = 90 - (world.mesh.y[seat] / world.height) * 180;
     const p = parseRewrite(JSON.stringify({ edits: [{ op: 'found', at: [lon + 0.1, lat - 0.1], from: 2500, why: '…' }] }), rctx);
     expect(p.ok).toBe(true);
     if (!p.ok) return;
     const it = p.items[0];
-    expect(it.change).toMatchObject({ kind: 'intervention', v: { kind: 'found', region: regionKey(civ, 153), from: 2500 } });
-    expect(it.where).toMatch(/^R153 在 \(165\.\d, 43\.\d\),小岛\(这块陆地 1 州\)上/);
+    expect(it.change).toMatchObject({ kind: 'intervention', v: { kind: 'found', region: regionKey(civ, isle), from: 2500 } });
+    // 坐标写那一州的州治,保留一位小数
+    const deg = (v: number) => String(Math.round(v * 10) / 10).replace(/[.-]/g, '\\$&');
+    expect(it.where).toMatch(new RegExp(`^R${isle} 在 \\(${deg(lon)}, ${deg(lat)}\\),小岛\\(这块陆地 1 州\\)上`));
     // 北极点附近:一千五百公里内没人住,说明原因和最近有人住的州
     const pole = parseRewrite(JSON.stringify({ edits: [{ op: 'found', at: [0, 89.9], from: 2500, why: '…' }] }), rctx);
     if (!pole.ok) throw new Error('看不懂');

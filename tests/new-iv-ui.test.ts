@@ -38,7 +38,9 @@ import {
 import { interventionText, nameAt } from '../src/ui/Interventions';
 
 const seed = 7;
-const T = 1500;
+// GENERATOR_VERSION 57(湿地)以后种子 7 第 1500 年各国之间只隔着海峡、海路(那时还不会远航),没有一国挑得出并入谁;
+// 换成 1600 年(州最多的那国和一个邻国接壤)
+const T = 1600;
 let w: World | null = null;
 let b: Civ | null = null;
 const world = () => (w ??= generateWorld({ ...DEFAULT_PARAMS, seed }));

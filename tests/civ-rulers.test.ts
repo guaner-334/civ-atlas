@@ -10,6 +10,7 @@ import { cultureTerrain } from '../src/gen/civ/cultures';
 import { LEANINGS, leaningEffect, reignAt, reignStart, rulerBase, rulerTags } from '../src/gen/civ/rulers';
 import { resumeCiv } from '../src/gen/civ/modules';
 import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
+import { royalSeg } from '../src/gen/civ/regime';
 
 const worlds = new Map<string, World>();
 function world(seed: number, cells = DEFAULT_PARAMS.cells): World {
@@ -60,7 +61,8 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
     }
     const warOf = (nomad: boolean) => {
       const v = rulers
-        .filter((x) => (civ.polities[x.polity].kind === 'nomad') === nomad && civ.polities[x.polity].kind !== 'sea' && civ.polities[x.polity].lineage !== 'republic')
+        // 共和国的执政(连同改制改成共和、军政府那几段的)按共和国的偏移取倾向,不算
+        .filter((x) => (civ.polities[x.polity].kind === 'nomad') === nomad && civ.polities[x.polity].kind !== 'sea' && royalSeg(civ.polities[x.polity], x.dynasty ?? 0))
         .map((x) => x.leanings!.war);
       return v.reduce((a, b) => a + b, 0) / v.length;
     };

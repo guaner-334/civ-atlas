@@ -11,6 +11,7 @@ import type { Person } from '../src/gen/civ/types';
 import { splitSurname } from '../src/gen/civ/story/peopleText';
 import { createPersonNamer } from '../src/gen/names/persons';
 import { dynastyRows, fallenLabel, fromFallen, hasLineage, layoutDynasty, lineageText, restoredFrom } from '../src/gen/civ/story/lineageInfo';
+import { royalSeg } from '../src/gen/civ/regime';
 
 const worlds = new Map<number, ReturnType<typeof generateWorld>>();
 const worldOf = (seed: number) => {
@@ -101,13 +102,14 @@ describe.each([7, 2024])('复国之君接上故国世系 · seed=%i', (seed) => 
       linked++;
       const f = P[F.parent];
       expect(f.polity).toBe(fallen.id);
-      const lastDyn = Math.max(...P.filter((x) => x.role === 'ruler' && x.polity === fallen.id).map((x) => x.dynasty ?? 0));
+      // 末代那一朝:有君主的最后一朝(改制改成共和、军政府的那几段没有王室)
+      const lastDyn = Math.max(...P.filter((x) => x.role === 'ruler' && x.polity === fallen.id && royalSeg(fallen, x.dynasty ?? 0)).map((x) => x.dynasty ?? 0));
       expect(f.dynasty ?? 0).toBe(lastDyn);
       const age = F.born - f.born;
       expect(age).toBeGreaterThanOrEqual(14 - 1 / 128);
       expect(age).toBeLessThanOrEqual(55 + 1 / 128);
       // 补的宗室(为他补的,编号排在他后面):在复国以前去世,随末代的姓
-      const L = P.filter((x) => x.role === 'ruler' && x.polity === fallen.id).sort((a, b) => a.from! - b.from!).at(-1)!;
+      const L = P.filter((x) => x.role === 'ruler' && x.polity === fallen.id && royalSeg(fallen, x.dynasty ?? 0)).sort((a, b) => a.from! - b.from!).at(-1)!;
       for (let d: Person | undefined = f; d && d.role === 'prince' && d.id > F.id; d = d.parent !== undefined ? P[d.parent] : undefined) {
         expect(d.died!).toBeLessThan(F.from!);
         if (surnamed(c, L) && surnamed(c, d)) expect(splitSurname(d.name)).toBe(splitSurname(L.name));

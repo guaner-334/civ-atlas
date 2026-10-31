@@ -36,12 +36,13 @@ function same(a: Civ, b: Civ, label: string) {
 }
 
 /**
- * seed 3 的随机大纲里第 2872 年那条开战(和它前面的几条):照常推没发生,引几版能引成
+ * seed 1 的随机大纲里第 1554 年那条开战(和它前面的几条):照常推没发生,引几版能引成
  * (GENERATOR_VERSION 43 仗打得密以后 seed 7 第 1574 年那条照常推就打起来了,换成 seed 1 第 1554 年那条;56 滚雪球以后那条硬改也改不成了,
- * seed 7、2 随机大纲里的开战也都是照常推就打起来了或硬改不成,换成这条)
+ * seed 7、2 随机大纲里的开战也都是照常推就打起来了或硬改不成,换成 seed 3 第 2872 年那条;57 湿地以后 seed 3 的随机大纲里没有那条了,
+ * seed 1 第 1554 年那条又引得成,换回它)
  */
-const GUIDED_SEED = 3;
-const GUIDED_YEAR = 2872;
+const GUIDED_SEED = 1;
+const GUIDED_YEAR = 1554;
 const guidedCase = () => samplePlots(baseCiv(GUIDED_SEED), GUIDED_SEED, 20).filter((p) => p.year <= GUIDED_YEAR && p.kind !== 'peace' && p.kind !== 'submit');
 
 describe('不引 = 和以前一样', () => {
@@ -140,15 +141,17 @@ describe('顺着引了一把', () => {
 });
 
 /**
- * seed 7 第 1500 年:c693 本来不打 c16152;引它更好战、国力更强、主攻 c16152,窗口里多看几眼邻国就打了,不多看就不打
- * (GENERATOR_VERSION 43 以前是 c6045 打 c16152;46 大迁徙以前是 c16152 打 c6760;47 季节进推演是 c693 打 c4912,48 时代做法以后又是 c693 打 c16152)
+ * seed 7 第 1600 年:c24493 本来不打 c12572;引它更好战、国力更强、主攻 c12572,窗口里多看几眼邻国就打了,不多看就不打
+ * (GENERATOR_VERSION 43 以前是 c6045 打 c16152;46 大迁徙以前是 c16152 打 c6760;47 季节进推演是 c693 打 c4912,48 时代做法以后又是 c693 打 c16152;
+ * 57 湿地以后第 1500 年挨着的只有 c24493 和 c12572 两国(隔着海峡、海路),多看几眼也不打,换成第 1600 年)
  */
 const LOOK_SEED = 7;
-const LOOK_A = 'polity:c693#0';
-const LOOK_B = 'polity:c16152#0';
+const LOOK_Y = 1600;
+const LOOK_A = 'polity:c24493#0';
+const LOOK_B = 'polity:c12572#0';
 const lookList = (look: boolean): Intervention[] => [
-  { kind: 'policy', a: LOOK_A, from: 1500, war: 35, power: 70, foes: [LOOK_B], ...(look ? { look: { kind: 'war' as const, years: [1500, 1505, 1510, 1515, 1520] } } : {}), plot: 1, guide: true },
-  { kind: 'policy', a: LOOK_A, from: 1521, plot: 1, guide: true },
+  { kind: 'policy', a: LOOK_A, from: LOOK_Y, war: 35, power: 70, foes: [LOOK_B], ...(look ? { look: { kind: 'war' as const, years: [0, 5, 10, 15, 20].map((d) => LOOK_Y + d) } } : {}), plot: 1, guide: true },
+  { kind: 'policy', a: LOOK_A, from: LOOK_Y + 21, plot: 1, guide: true },
 ];
 
 describe('国力、动荡加减,多看几眼', () => {
@@ -169,12 +172,13 @@ describe('国力、动荡加减,多看几眼', () => {
     expect(unrestShift({ kind: 'policy', a: 'polity:c1#0', from: 900, unrest: 25 })).toBe(0.5);
   });
 
-  it(`seed ${LOOK_SEED} 第 1500 年:多看几眼邻国就打了,不多看不打`, () => {
+  it(`seed ${LOOK_SEED} 第 ${LOOK_Y} 年:多看几眼邻国就打了,不多看不打`, () => {
     const w = world(LOOK_SEED);
     const war = (c: Civ) => {
       const a = c.polities.findIndex((_, i) => polityKey(c, i) === LOOK_A);
       const b = c.polities.findIndex((_, i) => polityKey(c, i) === LOOK_B);
-      return c.annals.some((e) => e.kind === 'war' && e.a === a && e.b === b && e.year >= 1500 && e.year < 1521);
+      expect(a >= 0 && b >= 0, '两国都在').toBe(true);
+      return c.annals.some((e) => e.kind === 'war' && e.a === a && e.b === b && e.year >= LOOK_Y && e.year < LOOK_Y + 21);
     };
     expect(war(baseCiv(LOOK_SEED))).toBe(false);
     expect(war(generateCiv(w, { interventions: lookList(false) }))).toBe(false);
@@ -186,11 +190,11 @@ describe('国力、动荡加减,多看几眼', () => {
     // 再引一国:动荡加、国力减,多看几眼内政和王朝
     const list: Intervention[] = [
       ...lookList(true),
-      { kind: 'policy', a: LOOK_B, from: 1490, unrest: 50, power: -40, look: { kind: 'politics', years: [1495, 1502, 1509] }, plot: 2, guide: true },
-      { kind: 'policy', a: LOOK_A, from: 1530, unrest: 50, look: { kind: 'dynasty', years: [1530, 1540] }, plot: 3, guide: true },
+      { kind: 'policy', a: LOOK_B, from: LOOK_Y - 10, unrest: 50, power: -40, look: { kind: 'politics', years: [-5, 2, 9].map((d) => LOOK_Y + d) }, plot: 2, guide: true },
+      { kind: 'policy', a: LOOK_A, from: LOOK_Y + 30, unrest: 50, look: { kind: 'dynasty', years: [30, 40].map((d) => LOOK_Y + d) }, plot: 3, guide: true },
     ];
     const whole = generateCiv(w, { interventions: list });
-    for (const T of [1400, 1497, 1503, 1535]) same(continueCiv(w, generateCiv(w, { interventions: list, endYear: playStop(T) }), { interventions: list }), whole, `停在第 ${T} 年`);
+    for (const T of [LOOK_Y - 100, LOOK_Y - 3, LOOK_Y + 3, LOOK_Y + 35]) same(continueCiv(w, generateCiv(w, { interventions: list, endYear: playStop(T) }), { interventions: list }), whole, `停在第 ${T} 年`);
   }, 240_000);
 });
 

@@ -229,7 +229,7 @@ describe('分与合', () => {
   // 没有复国的世界前后都有(20 个里 2–3 个):单个世界的分裂 + 复国按 2 次起算,另要两个世界合计 8 次以上;复国按两个世界合计算
   // 君主有了好战倾向以后,20 个种子(1–19、2024)平均分裂 2.7 次、复国 1.4 次;分裂 + 复国最少的是种子 17(0 次)、
   // 12(1 次)、11(2 次),其余 17 个世界都 ≥ 3 次:两个世界合计从 8 次放到 6 次
-  it('默认参数 seed 7 / 2024:分裂 1–30 次、分裂 + 复国 ≥ 2 次(两个世界合计 ≥ 6)、合并 ≤ 20 次、复国 ≤ 30 次(复国、合并、主动迁都两个世界里都有);结束时在世 8–30 国;政区图成片、前线会拉锯', () => {
+  it('默认参数 seed 7 / 2024:分裂 1–30 次、分裂 + 复国 ≥ 2 次(两个世界合计 ≥ 6)、合并 ≤ 20 次、复国 ≤ 45 次(复国、合并、主动迁都两个世界里都有);结束时在世 8–30 国;政区图成片、前线会拉锯', () => {
     // 合并、主动迁都是少见的事(各个种子 0–4 次):按两个世界合计至少一次算,不要求每个世界都有
     let merges = 0;
     let moves = 0;
@@ -250,8 +250,9 @@ describe('分与合', () => {
       restorations += ps.restorations;
       // GENERATOR_VERSION 15(立国更早、边缘立国)以后小国多了:20 个种子合并 4–14 次、复国 0–10 次、结束时在世 15–25 国
       expect(ps.merges, tag).toBeLessThanOrEqual(20);
-      // GENERATOR_VERSION 20(大崩解、民变以后亡国、复国都多了)以后 20 个种子复国 7–24 次
-      expect(ps.restorations, tag).toBeLessThanOrEqual(30);
+      // GENERATOR_VERSION 20(大崩解、民变以后亡国、复国都多了)以后 20 个种子复国 7–24 次;
+      // 57(湿地)以后 20 个种子(1–20)13–43 次(15 号 43 次),2024 号 35 次:上限放到 45
+      expect(ps.restorations, tag).toBeLessThanOrEqual(45);
       expect(ws.alive, tag).toBeGreaterThanOrEqual(8);
       expect(ws.alive, tag).toBeLessThanOrEqual(30);
       // 拉锯州来自战争(HOLD 只有几年),分合不添:GENERATOR_VERSION 19 以后 20 个种子各 2–19 个
@@ -318,8 +319,12 @@ describe('分与合', () => {
       const great = (id: number) => Math.max(0, ...(civ.polities[id]?.titles ?? []).map((t) => t.tier)) >= GREAT_TIER;
       const list = buildChronicle(civ);
       const splits = list.filter((e) => e.kind === 'split');
-      // 大崩解散出来的国家折进大崩解那一条
-      expect(splits.length).toBe(civ.annals.filter((e) => e.kind === 'split' && e.cause !== 'collapse').length);
+      // 大崩解散出来的国家折进大崩解那一条;改制谈崩、起兵打不进国都据地自立的(cause = revolution)写成一条"革命"
+      // (GENERATOR_VERSION 57(湿地)以后种子 9 有两回,以前这五个世界都没有)
+      expect(splits.length).toBe(civ.annals.filter((e) => e.kind === 'split' && e.cause !== 'collapse' && e.cause !== 'revolution').length);
+      civ.annals.forEach((e, i) => {
+        if (e.kind === 'split' && e.cause === 'revolution') expect(list.find((x) => x.id === i)?.kind, `seed ${seed} 第 ${e.year} 年`).toBe('revolution');
+      });
       // 分出来的国家日后长成大国的(不常见,GENERATOR_VERSION 13 以后种子 1–20、2024 里只有 9 一个世界有:五个世界里至少有一个,见循环后)
       if (splits.some((e) => e.importance === MAJOR)) majorSplit = true;
       for (const e of splits) {

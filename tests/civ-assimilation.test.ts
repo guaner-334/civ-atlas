@@ -359,10 +359,11 @@ describe('同化与迁徙', () => {
       // GENERATOR_VERSION 22 大国崩了又被重新统一,亡国更多:20 个种子 3–19 条,2024 号 19 条;
       // GENERATOR_VERSION 46 大迁徙一次一条大事(也记成 migrate),迁来立的国反被同化五州以上也是大事:20 个种子 7–31 条、2024 号 35 条,
       // 大事 84–191 条(seed 3 189 条):上限放到 200、40;
-      // GENERATOR_VERSION 56 滚雪球(破都纳降,纳降的那一仗算大事)以后大事 20 个种子 86–199 条、2024 号 140 条:上限放到 210)
+      // GENERATOR_VERSION 56 滚雪球(破都纳降,纳降的那一仗算大事)以后大事 20 个种子 86–199 条、2024 号 140 条:上限放到 210;
+      // 57(湿地)以后大事 20 个种子(1–20)84–198 条;同化与迁徙自己的大事 11–55 条(15 号 55 条、3 号 41 条),2024 号 29 条:上限放到 60)
       expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(210);
       const mineMajor = filterChronicle(list, { major: true }).filter((e) => e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish');
-      expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(40);
+      expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(60);
     }
   }, 60_000);
 });

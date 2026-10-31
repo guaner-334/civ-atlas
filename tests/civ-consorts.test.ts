@@ -167,7 +167,9 @@ describe.each([7, 2024])('后妃 · seed=%i', (seed) => {
 
   it('接着往后推:先出道的后妃名字、生年、丈夫不变', () => {
     const full = civOf(seed);
-    const part = generateCiv(worldOf(seed), { endYear: 1600 });
+    // 以前停在第 1600 年;GENERATOR_VERSION 57(湿地)以后 seed 2024 到那年只出道 4 位后妃(种子 1–20 是 8–33 位),
+    // 改停在第 2000 年(种子 1–20 是 11–47 位,2024 号 11 位)
+    const part = generateCiv(worldOf(seed), { endYear: 2000 });
     let n = 0;
     for (const x of part.people!.filter((y) => y.role === 'consort')) {
       const y = full.people![x.id];

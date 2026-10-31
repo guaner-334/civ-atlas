@@ -236,18 +236,42 @@ describe('大迁徙', () => {
     expect(trekDir(geo, far)).toBe('西');
   });
 
-  it('seed 7 的克拉尔族一路往西走:记成西,编年史、动身那件都写西徙 / 西去', () => {
+  // 以前看的是 seed 7 的克拉尔族(一路往西、大圆初始朝向偏南);GENERATOR_VERSION 57(湿地)以后它改往北走了,
+  // 换成按条件现找:出发地到落脚地的大圆初始朝向南北比东西大、地图上整条路线东西却走得比南北远一倍以上的几支
+  // (57 以后是南纬 34°–46° 一带往东走 160°–172° 的居仑族、东居仑族,共 3 支)
+  it('seed 7 高纬度一路往东 / 西走得远的(大圆初始朝向偏向极地):记成东 / 西,编年史、动身那件都写东徙 / 西徙、东去 / 西去', () => {
+    const w = world(7);
     const civ = civOf(7);
+    const geo = geometryOf(w.mesh);
+    const { x, y, width: W, height: H } = w.mesh;
+    const seat = civ.regions.seat;
     const list = buildChronicle(civ);
-    const treks = (civ.migrations ?? []).map((M, m) => ({ M, m })).filter(({ M }) => cultureLabel(civ.cultures[M.culture]) === '克拉尔族');
-    expect(treks.length).toBeGreaterThanOrEqual(1);
-    for (const { M, m } of treks) {
-      expect(M.dir, `第 ${m} 次`).toBe('西');
+    const d = [0, 0];
+    let n = 0;
+    (civ.migrations ?? []).forEach((M, m) => {
+      const cells = M.route.map((r) => seat[r]);
+      const a = cells[0];
+      const b = cells[cells.length - 1];
+      geo.pointOffset(x[a], y[a], x[b], y[b], d);
+      // 地图上一段一段的经度差加起来、首尾的纬度差(度)
+      let dx = 0;
+      for (let j = 1; j < cells.length; j++) {
+        const q = x[cells[j]] - x[cells[j - 1]];
+        dx += q > W / 2 ? q - W : q < -W / 2 ? q + W : q;
+      }
+      const lon = (dx * 360) / W;
+      const lat = ((y[b] - y[a]) * 180) / H;
+      if (!(Math.abs(d[1]) > Math.abs(d[0]) && Math.abs(lon) > 2 * Math.abs(lat))) return;
+      n++;
+      const dir = lon < 0 ? '西' : '东';
+      const tag = `第 ${m} 次(${cultureLabel(civ.cultures[M.culture])})`;
+      expect(M.dir, tag).toBe(dir);
       const i = civ.annals.findIndex((e) => e.kind === 'trek' && e.war === m);
-      const e = list.find((x) => x.id === i)!;
-      expect(e.text).toMatch(/一支举族西徙/);
-      expect(e.children![0].text).toMatch(/西去$/);
-    }
+      const e = list.find((v) => v.id === i)!;
+      expect(e.text, tag).toMatch(new RegExp(`一支举族${dir}徙`));
+      expect(e.children![0].text, tag).toMatch(new RegExp(`${dir}去$`));
+    });
+    expect(n).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
   it('打进国都、那国没整个归它:迁来的一方占着国都一带,那国迁都、议和(大国紧跟着大崩解,崩得成的话)', () => {

@@ -90,9 +90,10 @@ describe('政体名', () => {
     expect(formName(f({ tier: 3, fief: true }))).toBe('封建帝国');
   });
 
-  it('种子 7、2024:立国时的名字、议事改出来的集权 / 封建、游牧一系、改制改出来的共和国 / 军政府都有,历次改制接得上', () => {
-    // 历史重排以后国家会变,按条件找例子(不写死哪一国)
-    const all = [7, 2024].flatMap((seed) => {
+  it('种子 7、2024、3:立国时的名字、议事改出来的集权 / 封建、游牧一系、改制改出来的共和国 / 军政府都有,历次改制接得上', () => {
+    // 历史重排以后国家会变,按条件找例子(不写死哪一国)。
+    // GENERATOR_VERSION 57(湿地)以后种子 7、2024 里没有一个汗国升到第 3 档(游牧帝国),添上种子 3(种子 1–20 里有游牧帝国的 11 个,3 是头一个)
+    const all = [7, 2024, 3].flatMap((seed) => {
       const civ = civOf(seed);
       return civ.polities.filter((P) => polityAlive(P, P.founded)).map((P) => ({ civ, P, changes: formChangesAt(civ, P.id, civ.endYear) }));
     });
