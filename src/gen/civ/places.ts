@@ -38,7 +38,7 @@ import { createNamer, NAME_STYLES, pickStyle, type GeneratedName, type NameMix, 
 import type { Culture, Place, Regions } from './types';
 import { passSince, type PassSite } from './passSites';
 import { adjLengths, cellAreas, refCellArea, refSpacing } from './geo';
-import { keyed, round24 } from './rand';
+import { keyed, round24 } from './engine/rand';
 
 /** 按当地民族切换语感时要的数据(有民族数据时传进来;不传 = 整个世界一种语感) */
 export interface PlaceNaming {

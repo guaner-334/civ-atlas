@@ -7,7 +7,7 @@
  *   (按"民族先、国家后,再按州号、民族 / 国家号"排,见 arrivalOrder)。头尾这两类和预约先后无关 —— 接着推时它们是
  *   按日志重新预约 / 重放的,预约先后和一口气推完时不一样,同一刻撞上了也要按同样的次序处理。
  *   中间那一类(看邻国、看内政、下一仗、建城、立国……)接着推时由各层补上,补的时候说明一口气推时它是哪一刻预约的
- *   (schedule 的 booked),fromCiv 按预约的时刻排好先后再放进事件堆:同一刻撞上的几件,先后和一口气推完一样。
+ *   (schedule 的 booked),resumeCiv 按预约的时刻排好先后再放进事件堆:同一刻撞上的几件,先后和一口气推完一样。
  * - **州的版本号**:州的归属(任何一层)一变就 +1。事件预约时记下州 a 的版本号,弹出时对不上就是过期了,
  *   直接丢掉 —— 不用去堆里找、删事件。哪些类型要核对版本号,见 EVENT_INFO。
  * - **唯一改归属的入口** setOwner(层, 州, 新值, 原因):写变化日志、版本号 +1、通知这一层的监听者
@@ -18,7 +18,7 @@
  * - **检查点**:每 100 年存一份各州的归属,时间轴一下跳到很远时不用从头翻。
  * - **隔几年看一眼**(everyYears):在整几年那一刻的事件都办完、下一刻的还没办时调一次,和检查点同一个时机。
  *   信仰(religion.ts)每 5 年在这里算一步;它只读、只记自己的账,不预约事件、不改归属,事件的先后和不挂它时一样。
- * - **不保存事件堆**:CivSim.fromCiv(world, civ) 由 Civ 数据本身重建"接下来该发生什么",从 civ.endYear 接着推。
+ * - **不保存事件堆**:resumeCiv(world, civ) 由 Civ 数据本身重建"接下来该发生什么",从 civ.endYear 接着推。
  *   进行中的战争、厌战、停战冷却也一样(由史事 + 日志 + 国家表重建,见 wars.ts 的 resumeWars);
  *   分裂、合并、复国、主动迁都的冷却同样(见 politics.ts 的 resumePolitics);王朝更替也一样(dynasty.ts 的 resumeDynasty);
  *   同化与迁徙同样(见 assimilation.ts 的 resumeAssimilation);大迁徙在路上的队伍按 Civ.migrations 接着走(migration.ts 的 resumeMigration);
@@ -27,39 +27,13 @@
  *   思潮也一样(Civ.ideology.state,ideology.ts 的 resumeIdeology);
  *   政局的数表也存在那里(state.tables,control.ts 的 resumeControl);议事定下的规矩由史事重建(council.ts 的 resumeCouncil)。
  *   信仰不存状态:照历史从第 0 年重放到 civ.endYear(religion.ts 的 resumeReligion)。
- *   阶段 4 的干预不存进事件堆:fromCiv(world, civ, 干预列表)按列表补上还没到的干预(interventions.ts 的 resumeInterventions)。
+ *   阶段 4 的干预不存进事件堆:resumeCiv(world, civ, 干预列表)按列表补上还没到的干预(interventions.ts 的 resumeInterventions)。
  *
  * 纯计算,不碰 DOM。
  */
-import type { World } from '../world';
-import { MinHeap } from '../util';
-import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from './types';
-import { resumeCultures } from './cultures';
-import { resumePolities } from './polities';
-import { resumeWars } from './wars';
-import { resumePolitics } from './politics';
-import { resumeDynasty } from './dynasty';
-import { resumeAssimilation } from './assimilation';
-import { resumeCities } from './cities';
-import { resumeDiplomacy } from './diplomacy';
-import { resumeDevelopment } from './development';
-import { resumeIdeology } from './ideology';
-import { resumeTrade } from './trade';
-import { resumeUnrest } from './unrest';
-import { resumeControl } from './control';
-import { resumeCouncil } from './council';
-import { resumeRegency } from './regency';
-import { resumeMarriage } from './marriage';
-import { resumePlague } from './plague';
-import { resumePandemic } from './pandemic';
-import type { Calamity } from './calamity';
-import { resumeTreaties } from './treaties';
-import { resumeMigration } from './migration';
-import { resumeInterventions, scheduleInterventions } from './interventions';
-import { resumeReligion, type FaithEra } from './religion';
-import { cultureModelOf } from './cultures';
-import { polityModelOf } from './polities';
-import type { Intervention } from '../edits';
+import { MinHeap } from '../../util';
+import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from '../types';
+import type { Calamity } from '../calamity';
 
 // ---------------------------------------------------------------------------
 // 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19(新君即位 16),
@@ -514,7 +488,7 @@ export class CivSim {
   private evCount = 0;
   private free: number[] = [];
   private seq = 0;
-  /** 接着推时各层补上的、同一刻里按预约先后排的事件(fromCiv 补完以后按一口气推时的预约先后放进事件堆,见 releaseHeld);平常 = null */
+  /** 接着推时各层补上的、同一刻里按预约先后排的事件(resumeCiv 补完以后按一口气推时的预约先后放进事件堆,见 releaseHeld);平常 = null */
   private held: HeldEvent[] | null = null;
 
   private handlers: (EventHandler | undefined)[] = [];
@@ -536,20 +510,11 @@ export class CivSim {
   }
 
   /**
-   * 由 Civ 数据重建推演状态(各层归属、版本号、日志、检查点),再让各层重建待发生的事件,
-   * 然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,阶段 4 的存档也只存 Civ。
-   * interventions = 接着推时带着的干预(阶段 4;默认 = 这份历史推出来时带着的 civ.interventions):
-   * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(逐年推演时下的新命令,civ/play.ts)。
-   * first = 最先预约的事件(地形大事那一刻接着推时:大事本身)。
-   * eras = 地形大事以前各段的州(信仰照历史重放时,大事以前按那时的州;默认 = civ.eras)。地形大事那一刻接着推时由 generateCiv 给
+   * 由 Civ 数据重建引擎的状态(各层归属、版本号、日志、史事、检查点、推到的年份),不含各子系统:
+   * 各子系统重建自己的状态和待发生的事件由规则那一边做(modules.ts 的 resumeCiv),然后就能从 civ.endYear 接着推。
+   * 不需要保存事件堆,存档也只存 Civ。
    */
-  static fromCiv(
-    world: World,
-    civ: Civ,
-    interventions: readonly Intervention[] = civ.interventions ?? [],
-    first?: (sim: CivSim) => void,
-    eras: readonly FaithEra[] = civ.eras ?? [],
-  ): CivSim {
+  static restore(civ: Civ): CivSim {
     const sim = new CivSim(civ.regions.count);
     sim.owners[Layer.Culture].set(civ.culture);
     sim.owners[Layer.Polity].set(civ.polity);
@@ -562,51 +527,21 @@ export class CivSim {
     // 下一个检查点:最后一个检查点之后的那个整百年(推到整百年的前一刻切开时,那个整百年的检查点还没存,接着推时补上)
     const cps = civ.checkpoints;
     sim.nextCheckpoint = cps.length ? cps[cps.length - 1].year + CHECKPOINT_EVERY : CHECKPOINT_EVERY;
-    // 各层重建自己的事件(和 generateCiv 里 install 的顺序一样:先民族,再城镇和国家,再战争,再分合,再王朝,再同化与迁徙,
-    // 再城市兴衰 —— 它要挂在战争模型上(攻城)、要国家模型的迁都回调;再邦交 —— 要挂在战争模型上)
-    if (civ.viable && civ.cultures.length) {
-      // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里地形大事最先,干预只排在新君即位、迁都后重看边地后面)
-      first?.(sim);
-      const iv = scheduleInterventions(sim, civ.seed, interventions, true);
-      // 各层补上的"按预约先后排"的事件先攒着,补完按一口气推时预约的时刻排好再放进事件堆(见 schedule 的 booked)。
-      // 干预在一口气推时最先预约(generateCiv 里装各层之前),这里也在攒之前直接放进去,同一刻里排在补上的事件前面
-      sim.held = [];
-      // 地形大事以后补备的新民族(干预立国用):国家那一层也要认得它们(民族表接在后面)
-      const extra = resumeCultures(sim, world, civ, interventions);
-      resumePolities(sim, world, extra.length ? { ...civ, cultures: [...civ.cultures, ...extra] } : civ, iv);
-      resumeWars(sim, world, civ);
-      resumePolitics(sim, world, civ);
-      resumeDynasty(sim, world, civ);
-      resumeAssimilation(sim, world, civ);
-      resumeCities(sim, world, civ);
-      resumeDiplomacy(sim, world, civ);
-      resumeDevelopment(sim, world, civ);
-      resumeIdeology(sim, civ);
-      resumeTrade(sim, civ);
-      resumeUnrest(sim, world, civ);
-      resumeControl(sim, civ);
-      resumeCouncil(sim, civ);
-      resumeRegency(sim, civ);
-      resumeMarriage(sim, civ);
-      resumePlague(sim, world, civ, iv?.list);
-      resumePandemic(sim, civ, iv?.list);
-      resumeTreaties(sim, world, civ);
-      resumeMigration(sim, world, civ);
-      // 信仰:不存状态,照 civ 的历史从第 0 年重放到 civ.endYear,之后接着每 5 年算一步(不预约事件)
-      const cm = cultureModelOf(sim);
-      const pm = polityModelOf(sim);
-      if (cm && pm) resumeReligion(sim, civ, cm, pm, eras);
-      if (iv) resumeInterventions(sim, iv);
-      sim.releaseHeld();
-    }
     return sim;
+  }
+
+  /**
+   * 接着推、各子系统补事件之前调:之后预约的"按预约先后排"的事件先攒着,releaseHeld 时再按一口气推时预约的时刻排好放进事件堆(见 schedule 的 booked)
+   */
+  holdBookings(): void {
+    this.held = [];
   }
 
   /**
    * 接着推时攒着的事件按一口气推时的预约先后放进事件堆:同一时刻的几件,先按预约链(预约的时刻;一样的再看预约它的那件事是哪一刻预约的……),
    * 还一样的按 sub(同一刻立的几国:按国家号,一国的几件挨在一起),最后按补上的先后(各层的先后和 generateCiv 里装各层的先后一样)
    */
-  private releaseHeld(): void {
+  releaseHeld(): void {
     const held = this.held;
     this.held = null;
     if (!held) return;
@@ -652,7 +587,7 @@ export class CivSim {
   /**
    * 预约一个事件。t 早于现在(或 floor)就按现在(floor)算;取整到 1/256 年;超出 65536 年或不是有限数就不预约。
    * 要核对版本号的类型,记下州 a 此刻的版本号。
-   * booked、sub 只在接着推(fromCiv 里各层补事件)时用:一口气推完时这件事是哪一刻预约的(装各层时就预约的 = BOOKED_AT_START;
+   * booked、sub 只在接着推(resumeCiv 里各层补事件)时用:一口气推完时这件事是哪一刻预约的(装各层时就预约的 = BOOKED_AT_START;
    * 隔一阵子一次的事件给预约链,见 bookChain),同一刻预约的几件按 sub、再按补上的先后排(见 releaseHeld)。推演中途预约的不用给(就是现在)
    */
   schedule(t: number, kind: number, a: number, b: number, booked: number | readonly number[] = BOOKED_AT_START, sub = 0): void {

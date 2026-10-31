@@ -19,7 +19,7 @@
  */
 import type { Civ, Polity, Year } from './types';
 import { Layer } from './types';
-import { Ev, quantize, type CivSim } from './sim';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { bookOf, dynastyReign, polityModelOf, regencyCtx, rulerOf, type PolityModel } from './polities';
 import { warModelOf, type War } from './wars';
 import { dynastyModelOf } from './dynasty';
@@ -59,6 +59,7 @@ import {
 } from './regents';
 import { IV_NOT_HIM } from './rulers';
 import { royalAt, royalSeg } from './regime';
+import type { CivModule } from './modules';
 
 export interface RegencyModel {
   pm: PolityModel;
@@ -83,7 +84,7 @@ export function installRegency(sim: CivSim, pm: PolityModel): RegencyModel {
 }
 
 /**
- * 接着推(CivSim.fromCiv,在 resumeCouncil 之后):掌权的几段 resumePolities 已经由史事推出来了;
+ * 接着推(resumeCiv,在 resumeCouncil 之后):掌权的几段 resumePolities 已经由史事推出来了;
  * 补上此刻在位的君主晚年的候选、还掌着权的那段的结局(重复预约的什么都不做)
  */
 export function resumeRegency(sim: CivSim, _civ: Civ): void {
@@ -284,3 +285,12 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
   };
   return rm;
 }
+
+/** 模块:掌实权:引兵入朝、太子监国、宗室摄政、名臣辅政、大臣大将专权(清单和次序见 modules.ts) */
+export const regencyModule: CivModule = {
+  id: 'regency',
+  install: (c) => {
+    if (c.pm) installRegency(c.sim, c.pm);
+  },
+  resume: (c) => resumeRegency(c.sim, c.civ),
+};

@@ -18,19 +18,20 @@
  *   5. 每条商道记路线(经过的州,产地 → 买方国都所在州;路线变了另记一版)、运过的货、通断的大事(通、断、复通、废)。
  *      没有确切年份的(这一步才看出来通了、断了)按 keyed 在这一步的 20 年里定一个年份。
  *
- * 结果是 Civ.trade(finishTrade 整理,起好名字);接着推(CivSim.fromCiv)从 Civ.trade.state 接上,和一口气推完一样。
+ * 结果是 Civ.trade(finishTrade 整理,起好名字);接着推(resumeCiv)从 Civ.trade.state 接上,和一口气推完一样。
  * 只用加减乘除和比较,跨 CPU 逐位一致。
  */
 import type { Civ, Regions, Year } from './types';
 import { AdjKind, Layer } from './types';
 import { Biome } from '../biomes';
 import { MinHeap } from '../util';
-import { keyed, subSeed } from './rand';
-import type { CivSim } from './sim';
+import { keyed, subSeed } from './engine/rand';
+import type { CivSim } from './engine/sim';
 import { Cap, CAP_COUNT, DISCOVER_AT, GATE_NEAR, RESOURCE_COUNT, devModelOf, gateNeed, type DevModel } from './development';
 import { warModelOf, type WarModel } from './wars';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { capitalAt } from './growth';
+import type { CivModule } from './modules';
 
 /** 一步多少年(和发展度同一步) */
 const STEP = 20;
@@ -148,7 +149,7 @@ export function installTrade(sim: CivSim, seed: number): void {
   hook(sim, subSeed(seed, 'civ-trade'), null);
 }
 
-/** 接着推(CivSim.fromCiv,resumeDevelopment 之后):从 Civ.trade 接上;没有的(旧版本的历史)从现在起算 */
+/** 接着推(resumeCiv,resumeDevelopment 之后):从 Civ.trade 接上;没有的(旧版本的历史)从现在起算 */
 export function resumeTrade(sim: CivSim, civ: Civ): void {
   hook(sim, subSeed(civ.seed, 'civ-trade'), civ);
 }
@@ -696,3 +697,16 @@ function direction(mesh: { x: Float32Array; y: Float32Array }, a: number, b: num
   if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? '东' : '西';
   return dy >= 0 ? '南' : '北';
 }
+
+/** 模块:商道:跟着发展度每 20 年算一步,只读推演、不改历史(清单和次序见 modules.ts) */
+export const tradeModule: CivModule = {
+  id: 'trade',
+  install: (c) => {
+    if (c.pm) installTrade(c.sim, c.seed);
+  },
+  resume: (c) => resumeTrade(c.sim, c.civ),
+  finish: (c) => {
+    const trade = finishTrade(c.sim, c.regions);
+    if (trade) c.civ.trade = trade;
+  },
+};

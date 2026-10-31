@@ -6,7 +6,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { councilModelOf } from '../src/gen/civ/council';
 import { controlModelOf } from '../src/gen/civ/control';
 import { CAP_COUNT, INVENTIONS, LEVEL_SCALE, eraLevel } from '../src/gen/civ/development';
@@ -16,6 +15,7 @@ import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chroni
 import { developmentEntries } from '../src/gen/civ/story/developmentText';
 import { polityName } from '../src/gen/civ/growth';
 import { courtLocks, courtView } from '../src/ui/courtInfo';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -61,7 +61,7 @@ describe('时代做法', () => {
   it('推演里:数表的"做法"和事件层现算的一样;直征、禁军和监军、铨选和参半都是有了前提才办成的', () => {
     const seed = 7;
     const half = generateCiv(world(seed), { endYear: 1500 });
-    const sim = CivSim.fromCiv(world(seed), half);
+    const sim = resumeCiv(world(seed), half);
     const cm = controlModelOf(sim)!;
     const council = councilModelOf(sim)!;
     const checked = [0, 0, 0];

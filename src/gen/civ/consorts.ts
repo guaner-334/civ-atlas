@@ -16,7 +16,7 @@
  * 随机数:keyed4(subSeed(seed, 'civ-consort'), 国家的位置锚, 那一刻, 身份, 用途) —— 只看结亲 / 掌权那一刻定得下来的事,
  * 接着往后推、后面的年份干预以后重推,先前的后妃不变。名字在 women.ts 和别的女性一起起。纯计算,不碰 DOM。
  */
-import { keyed4, subSeed } from './rand';
+import { keyed4, subSeed } from './engine/rand';
 import type { Year } from './types';
 
 // ---- 调参 ----

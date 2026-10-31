@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { populationAt } from '../src/gen/civ/growth';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { cityEntries, entriesUpTo, firstOwned, ownerSpans, placeFacts, popPeak, popSeries, regionEntries, kmText, areaText } from '../src/ui/panelData';

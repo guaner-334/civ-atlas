@@ -62,8 +62,8 @@ import type { World } from '../world';
 import { COLDEST_NORTH, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { Biome } from '../biomes';
-import { fexp, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, keyed, keyed4, subSeed } from './engine/rand';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -74,6 +74,7 @@ import type { UnrestRuleConsts } from './stateTables';
 import { claimants, murderedAt } from './royals';
 import { anySlump, inSlump, pandemicModelOf } from './pandemicState';
 import { royalSeg } from './regime';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
@@ -694,7 +695,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
 }
 
 /**
- * 由 Civ 重建动荡的推演状态(CivSim.fromCiv 调用,在 resumeDevelopment 之后):
+ * 由 Civ 重建动荡的推演状态(resumeCiv 调用,在 resumeDevelopment 之后):
  * 饥荒、讨伐民变的战争、大崩解从史事里读;再算出下一次看年景,补进引擎。
  */
 export function resumeUnrest(sim: CivSim, world: World, civ: Civ): void {
@@ -764,3 +765,12 @@ export function unrestStats(civ: Civ): UnrestStats {
   });
   return out;
 }
+
+/** 模块:动荡:饥荒、民变、大崩解(清单和次序见 modules.ts) */
+export const unrestModule: CivModule = {
+  id: 'unrest',
+  install: (c) => {
+    if (c.pm) installUnrest(c.sim, c.pm, c.seed, c.world);
+  },
+  resume: (c) => resumeUnrest(c.sim, c.world, c.civ),
+};

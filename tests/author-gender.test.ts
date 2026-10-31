@@ -15,7 +15,7 @@ import { EMPTY_EDITS, polityKey, type Intervention, type WorldEdits } from '../s
 import { applyCharacters, cleanCharacter, cleanCharacters, type AuthorCharacter } from '../src/gen/characters';
 import { heOrShe, isFemale } from '../src/gen/civ/story/gender';
 import { peopleIndex } from '../src/gen/civ/story/peopleInfo';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityName } from '../src/gen/civ/growth';
 import { dynastyRows, layoutDynasty, treeLabel } from '../src/gen/civ/story/lineageInfo';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';

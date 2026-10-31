@@ -16,8 +16,8 @@ import { Layer } from './types';
 import { parsePersonKey, type Intervention } from '../edits';
 import { IV_NOT_HIM } from './rulers';
 import { IV_NO_THRONE } from './regents';
-import { keyed4, subSeed } from './rand';
-import type { CivSim } from './sim';
+import { keyed4, subSeed } from './engine/rand';
+import type { CivSim } from './engine/sim';
 import { bookOf, polityModelOf, rulerOf, type PolityModel } from './polities';
 import { warModelOf, type War } from './wars';
 import { diplomacyModelOf } from './diplomacy';
@@ -49,6 +49,7 @@ import {
   type MatchCtx,
 } from './marriages';
 import { royalAt } from './regime';
+import type { CivModule } from './modules';
 
 // 随机数用途
 const U_MARRY = 1;
@@ -107,7 +108,7 @@ export function installMarriage(sim: CivSim, pm: PolityModel): MarriageModel {
   return mm;
 }
 
-/** 接着推(CivSim.fromCiv,在 resumeRegency 之后):结过的亲由史事推出来 */
+/** 接着推(resumeCiv,在 resumeRegency 之后):结过的亲由史事推出来 */
 export function resumeMarriage(sim: CivSim, civ: Civ): void {
   const pm = polityModelOf(sim);
   if (!pm || !warModelOf(sim) || !diplomacyModelOf(sim)) return;
@@ -268,3 +269,12 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   };
   wm.kinBetray = (p: number, q: number, t: Year): number => 1 - (1 - KIN_BETRAY) * bond(p, q, t);
 }
+
+/** 模块:联姻:两国宗室结亲,少开战、易结盟(清单和次序见 modules.ts) */
+export const marriageModule: CivModule = {
+  id: 'marriage',
+  install: (c) => {
+    if (c.pm) installMarriage(c.sim, c.pm);
+  },
+  resume: (c) => resumeMarriage(c.sim, c.civ),
+};

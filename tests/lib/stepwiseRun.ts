@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../../src/gen/civ';
 import { extendCiv } from '../../src/gen/civ/extend';
-import { ownersAt } from '../../src/gen/civ/timeline';
+import { ownersAt } from '../../src/gen/civ/engine/timeline';
 import { playCiv, playStop, playTurn } from '../../src/gen/civ/play';
 import { advanceOf, cleanAdvance, endYearOf, polityKey, regionKey, settlementKey, type AdvanceSettings, type Intervention, type WorldEdits } from '../../src/gen/edits';
 import { makeSave, parseSave, saveText } from '../../src/gen/savefile';

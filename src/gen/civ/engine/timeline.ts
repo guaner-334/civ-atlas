@@ -4,7 +4,7 @@
  * 约定:某一年的归属 = 日志里年份 ≤ 这一年的变化全部生效之后的样子。
  * 检查点 year = Y 存的也是这个状态(Y 年及以前的变化都已生效)。
  */
-import { Layer, type ChangeLog, type Civ, type OwnersAt, type Year } from './types';
+import { Layer, type ChangeLog, type Civ, type OwnersAt, type Year } from '../types';
 
 export interface Owners {
   culture: Int16Array;

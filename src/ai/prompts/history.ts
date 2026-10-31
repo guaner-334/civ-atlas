@@ -22,7 +22,7 @@ import { generalRole, ministerRole, personName, rulerShort, rulerTitle } from '.
 import { isFemale } from '../../gen/civ/story/gender';
 import { generalTally, peopleIndex } from '../../gen/civ/story/peopleInfo';
 import { deedsShort } from '../../gen/civ/story/officialText';
-import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { polityKey, resolveKey } from '../../gen/edits';
 import type { AiMessage } from '../types';
 

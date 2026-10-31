@@ -15,7 +15,7 @@ import { polityName } from '../growth';
 import { regionLabel } from './display';
 import { rulerAt } from './peopleInfo';
 import { rulerBare } from './peopleText';
-import { ownersAt, type Owners } from '../timeline';
+import { ownersAt, type Owners } from '../engine/timeline';
 import { IDEO_SCALE, THOUGHTS, THOUGHT_COUNT } from '../ideology';
 import { tradeEntries } from './tradeText';
 

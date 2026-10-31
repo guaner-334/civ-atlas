@@ -13,7 +13,7 @@ import type { Civ } from '../gen/civ/types';
 import type { CivShow } from '../render/civ/overlay';
 import { HABITAT_RAMP } from '../render/civ/debug';
 import { KIND_INFO, cultureLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { faithRows } from '../gen/civ/story/religionText';
 import { yearFull } from '../gen/era';
 import { useEra } from './editsStore';

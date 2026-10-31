@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { IDEO_SCALE, THOUGHTS, THOUGHT_COUNT, ideologyAt, thoughtOrigin } from '../src/gen/civ/ideology';
 import { THOUGHT_TAG, ideologyEntries } from '../src/gen/civ/story/ideologyText';
 import { fullChronicle } from '../src/gen/civ/story/religionText';

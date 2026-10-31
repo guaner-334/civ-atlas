@@ -3,7 +3,7 @@
  * 面板上写的罗盘方向、漂移快慢。改动是什么意思见 plateEdits.ts 的文件头;生成时怎么套上也在那边。
  * 和它分开放:读存档(首页上也要读)只用得到这里的,不用跟着下载生成地形用的几何。纯计算,不碰 DOM。
  */
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 import { clamp } from './util';
 import { TERRAIN_H, nearLon, wrapLon } from './terrainOps';
 import { SKETCH_IMAGE_NAME_MAX, decodeLayer } from './sketch';

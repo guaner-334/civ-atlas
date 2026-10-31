@@ -57,7 +57,7 @@ describe('推演规则不引讲故事的文件', () => {
   it('查得出来:规则文件里引 story/(含只引类型、在子目录里)的会被拦,引规则那一边的不拦', () => {
     const probe = (rel: string, src: string) => storyImports([{ file: path.join(CIV, ...rel.split('/')), src }]);
     expect(probe('wars.ts', "import { regionLabel } from './story/display';")).toEqual(['src/gen/civ/wars.ts → src/gen/civ/story/display']);
-    expect(probe('tables/cards.ts', "import type { Owners } from '../story/religionText';")).toEqual(['src/gen/civ/tables/cards.ts → src/gen/civ/story/religionText']);
+    expect(probe('engine/tables/cards.ts', "import type { Owners } from '../../story/religionText';")).toEqual(['src/gen/civ/engine/tables/cards.ts → src/gen/civ/story/religionText']);
     expect(probe('wars.ts', "const m = await import('./story/chronicle');")).toHaveLength(1);
     expect(probe('wars.ts', "import { ownersAt } from './timeline';\nimport { storyline } from './storyline';")).toEqual([]);
   });

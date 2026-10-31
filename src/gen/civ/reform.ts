@@ -43,8 +43,8 @@
  * 随机数:keyed4(subSeed(seed, 'civ-reform'), 国家锚, 第几次看内政, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
 import { Layer, type Annal, type Polity, type RulerLeanings, type Year } from './types';
-import { keyed4 } from './rand';
-import type { CivSim } from './sim';
+import { keyed4 } from './engine/rand';
+import type { CivSim } from './engine/sim';
 import { dynastyReign, rulerOf, type PolityModel } from './polities';
 import type { PoliticsModel } from './politics';
 import type { WarModel } from './wars';

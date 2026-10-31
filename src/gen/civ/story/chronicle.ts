@@ -109,7 +109,7 @@ import {
 } from '../growth';
 import { pandemicsOf } from './pandemicInfo';
 import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './display';
-import { ownersAt } from '../timeline';
+import { ownersAt } from '../engine/timeline';
 import { plagueSpans } from './plagueSpans';
 import { Issue, REFORM_COUP, REFORM_REVOLUTION, councilBefore, isReformIssue, rulesAt } from '../councilRules';
 import { reformedSeg, royalSeg } from '../regime';

@@ -4,9 +4,10 @@ import { Biome } from '../src/gen/biomes';
 import { MinHeap } from '../src/gen/util';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
-import { CivSim, Ev, CHECKPOINT_EVERY, quantize } from '../src/gen/civ/sim';
-import { ownersAt, ownersFromScratch } from '../src/gen/civ/timeline';
+import { CivSim, Ev, CHECKPOINT_EVERY, quantize } from '../src/gen/civ/engine/sim';
+import { ownersAt, ownersFromScratch } from '../src/gen/civ/engine/timeline';
 import { planCultures, travelYears, cultureTerrain, type CultureModel } from '../src/gen/civ/cultures';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -258,12 +259,12 @@ describe('民族扩张', () => {
     for (let i = 1; i < civ.log.size; i++) expect(civ.log.year[i]).toBeGreaterThanOrEqual(civ.log.year[i - 1]);
   });
 
-  it('CivSim.fromCiv 接着推:先推到第 1200 年再接着推到 3000 年,和一口气推到 3000 年完全一样', () => {
+  it('resumeCiv 接着推:先推到第 1200 年再接着推到 3000 年,和一口气推到 3000 年完全一样', () => {
     for (const seed of [7, 2024]) {
       const w = world({ ...small, seed });
       const whole = generateCiv(w, { endYear: 3000 });
       const half = generateCiv(w, { endYear: 1200 });
-      const sim = CivSim.fromCiv(w, half);
+      const sim = resumeCiv(w, half);
       sim.run(3000);
       const res = sim.result();
       expect(Array.from(res.culture)).toEqual(Array.from(whole.culture));
@@ -281,12 +282,12 @@ describe('民族扩张', () => {
     }
   });
 
-  it('推演前就结束(endYear 早于部分民族诞生)时,fromCiv 会补上还没诞生的民族', () => {
+  it('推演前就结束(endYear 早于部分民族诞生)时,resumeCiv 会补上还没诞生的民族', () => {
     const w = world({ ...small, seed: 7 });
     const whole = generateCiv(w, { endYear: 1000 });
     const early = generateCiv(w, { endYear: 30 });
     expect(early.cultures.some((c) => c.born > 30)).toBe(true);
-    const sim = CivSim.fromCiv(w, early);
+    const sim = resumeCiv(w, early);
     sim.run(1000);
     expect(Array.from(sim.result().culture)).toEqual(Array.from(whole.culture));
   });

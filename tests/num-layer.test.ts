@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { CIV_SHOW_OFF } from '../src/render/civ/show';
 import { numBase, numCiv, numColors, numLayerOf, numLegendRows } from '../src/render/civ/numLayer';
 import { NUM_LAYERS, numLayerDrawn, numLayerShown } from '../src/render/civ/numLayers';

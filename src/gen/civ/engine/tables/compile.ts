@@ -28,7 +28,7 @@
 import { parseFormula, FormulaError, type BinOp, type Node, type Program } from './formula';
 import { colCount, type TableCard, type Unit } from './cards';
 import { fexp, flog, fpow } from '../rand';
-import { keyed } from '../../util';
+import { keyed } from '../../../util';
 
 export { FormulaError };
 

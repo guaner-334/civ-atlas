@@ -7,10 +7,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { polityAlive } from '../src/gen/civ/growth';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle, chronicleDocument, reignEntries } from '../src/gen/civ/story/chronicle';
 import { GREAT_COLORS, buildReligion, faithAt, faithCounts, faithFromScratch, faithRoot, faithSimOf, stateFaithAt, statesOfFaith } from '../src/gen/civ/religion';
 import { FOLK_ROW_NAME, faithEntries, faithHistory, faithRows, fullChronicle } from '../src/gen/civ/story/religionText';
@@ -24,6 +23,7 @@ import { faithFocusOf, selectionOnMap } from '../src/ui/faithSelection';
 import { getCivShow, pickChronicleEntry, setCivShow } from '../src/ui/civView';
 import { sameInBoth } from '../src/ui/assistantStore';
 import { faithLegendRows } from '../src/render/export';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -304,7 +304,7 @@ describe('信仰 · 推演里逐步算', () => {
     const w = world(2024);
     const full = civOf(2024);
     const rel = full.religion!;
-    const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: 1502 }));
+    const sim = resumeCiv(w, generateCiv(w, { endYear: 1502 }));
     const fs = faithSimOf(sim)!;
     const check = (y: number) => {
       expect(fs.year).toBe(y);

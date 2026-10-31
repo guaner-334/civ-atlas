@@ -51,12 +51,13 @@ import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type Civ, type Culture, type MigrationDir, type Polity, type Year } from './types';
-import { fexp, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, keyed, keyed4, subSeed } from './engine/rand';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { addCulture, cultureModelOf } from './cultures';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capitalAt } from './growth';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看民族;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -207,7 +208,7 @@ function enclaveTime(am: AssimModel, k: number): number {
 
 const models = new WeakMap<CivSim, AssimModel>();
 
-/** 推演引擎上挂着的同化与迁徙模型(测试、统计用;fromCiv 接着推之后的民族表也在这里) */
+/** 推演引擎上挂着的同化与迁徙模型(测试、统计用;resumeCiv 接着推之后的民族表也在这里) */
 export function assimModelOf(sim: CivSim): AssimModel | undefined {
   return models.get(sim);
 }
@@ -613,7 +614,7 @@ function hook(sim: CivSim, am: AssimModel): void {
 }
 
 /**
- * 由 Civ 重建同化与迁徙的推演状态(CivSim.fromCiv 调用,在 resumePolitics 之后):
+ * 由 Civ 重建同化与迁徙的推演状态(resumeCiv 调用,在 resumePolitics 之后):
  * 各州上次改换民族的年份从变化日志里读,各民族的州数现数;民族表用 cultures.ts 复制的那一份(消亡、迁徙照原样);
  * 再按"国家 + 第几次"算出还没到的看民族,补进引擎。
  */
@@ -738,3 +739,12 @@ export function assimStats(civ: Civ): AssimStats {
     flippy,
   };
 }
+
+/** 模块:同化与迁徙:同化、随征服而来的移民、避兵外迁、民族消亡(清单和次序见 modules.ts) */
+export const assimilationModule: CivModule = {
+  id: 'assimilation',
+  install: (c) => {
+    if (c.pm) installAssimilation(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumeAssimilation(c.sim, c.world, c.civ),
+};

@@ -23,7 +23,7 @@ import type { Mesh } from '../../gen/mesh';
 import type { Raster } from '../../gen/raster';
 import type { Civ } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
-import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { tiedPair, vassalTies } from './vassals';
 import { nearX, valueNoise, wrapShifts, type WorkStep } from '../common';
 import { addToPath, chaikin, cullLines, meshWrap, sphereMean, xRange } from './lines';

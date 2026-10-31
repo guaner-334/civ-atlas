@@ -19,7 +19,7 @@
  *     不另存,接着推时也一样。界面、编年史按发展度的快照算(practiceInfo.ts)。
  * 只放数据和小函数,不依赖推演模块(数表在模块加载时就要读它)。纯计算,不碰 DOM。
  */
-import type { TableCard } from './tables';
+import type { TableCard } from './engine/tables';
 import { CAPS, INVENTIONS } from './inventions';
 
 /** 做法(下标就是 PRACTICES 里第几行、"做法"表第几栏) */

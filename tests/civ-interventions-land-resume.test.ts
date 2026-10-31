@@ -1,10 +1,9 @@
 /**
  * 干预(gen/civ/interventions.ts):划州、立国、迁都、不许扩张四种一起下的确定性(按内容从 civ-interventions 分出来,好并行跑):
- * 两次推演逐字节相同;fromCiv 在干预之前 / 当年 / 之后切开接着推都和一口气推完一致
+ * 两次推演逐字节相同;resumeCiv 在干预之前 / 当年 / 之后切开接着推都和一口气推完一致
  */
 import { describe, expect, it } from 'vitest';
 import { generateCiv } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { polityKey, regionKey, settlementKey, type Intervention } from '../src/gen/edits';
 import {
@@ -18,9 +17,10 @@ import {
   bigPolityCity,
   expansion,
 } from './lib/interventions';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
-  it('确定性:四种一起下,两次推演逐字节相同;fromCiv 在干预之前 / 当年 / 之后切开接着推都和一口气推完一致', () => {
+  it('确定性:四种一起下,两次推演逐字节相同;resumeCiv 在干预之前 / 当年 / 之后切开接着推都和一口气推完一致', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
       const civ = base(seed);
@@ -39,7 +39,7 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
       const cuts = new Set([999, 1000, 1200, 1400, 1450, 1500, 1501, bd.y, 2000, 2400, hp.a - 1, hp.a, hp.a + 400]);
       for (const cut of [...cuts].sort((x, y) => x - y)) {
         const half = generateCiv(w, { endYear: cut, interventions: list });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;

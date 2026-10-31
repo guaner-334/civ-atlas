@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { treatyBook, treatyMembersAt, zonesAt, IV_REFUSED } from '../src/gen/civ/story/treatyInfo';
 import { buildChronicle, interventionOutcome } from '../src/gen/civ/story/chronicle';
 import { cleanIntervention, polityKey, regionKey, type Intervention } from '../src/gen/edits';

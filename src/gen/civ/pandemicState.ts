@@ -2,7 +2,7 @@
  * 全球大疫的推演状态(pandemic.ts 维护;发展度、乡村人口、城市兴衰、瘟疫按它看哪些州在凋敝)。
  * 单独一个小文件,只放状态和查询:几层都要读它,又不想互相引用推演代码。纯计算,不碰 DOM。
  */
-import type { CivSim } from './sim';
+import type { CivSim } from './engine/sim';
 import type { Year } from './types';
 
 /** 染疫那城死几成折成"轻重"时的基准(死四成 = 1,重灾) */

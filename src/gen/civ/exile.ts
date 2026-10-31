@@ -14,7 +14,7 @@
  * 接着推和一口气推完一样。纯计算,不碰 DOM。
  */
 import type { Year } from './types';
-import { keyed4, subSeed } from './rand';
+import { keyed4, subSeed } from './engine/rand';
 import { capitalAt } from './growth';
 import { bookOf, hates, type PolityModel } from './polities';
 import type { WarModel } from './wars';

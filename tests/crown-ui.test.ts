@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityName } from '../src/gen/civ/growth';
 import { cleanIntervention, foundedPolityKey, polityKey, regionKey, resolveKey, type Intervention } from '../src/gen/edits';
 import { CHAR_LEANING_DEFAULT, characterLeanings, cleanCharacter } from '../src/gen/characters';

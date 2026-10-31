@@ -7,7 +7,7 @@ import { regionPopulationAt } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { cnNumber, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { faithAt } from '../gen/civ/religion';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { fullChronicle } from '../gen/civ/story/religionText';
 import { ownersOf } from './panelData';
 

@@ -14,7 +14,7 @@
  *
  * 第 y 年那一步在第 y 年那一刻的事件都办完以后算(CivSim.everyYears),只读那一刻(含)以前的历史:归属按日志,城的人口、国都、亡国按那时的;
  * 名字(民族、城推完才起名)和皈依的国君(人物推完才排)整理时补上。所以推演里逐步算的和推完照历史再算一遍(buildReligion)逐字节一样。
- * 接着推(CivSim.fromCiv)不存状态:照历史从第 0 年重放到接着推的那一刻(resumeReligion),之后接着逐步算。
+ * 接着推(resumeCiv)不存状态:照历史从第 0 年重放到接着推的那一刻(resumeReligion),之后接着逐步算。
  * 推演里的规则经 faithSimOf(sim) 问"这州眼下信什么(FaithSim.faith)、这国眼下的国教(FaithSim.stateFaith)"
  * —— 眼下 = 已经算过的最近一步:第 y 年那一刻的事件看到的是第 y − STEP 年那一步,y 以后的才看到第 y 年的。
  *
@@ -28,14 +28,15 @@
  */
 import type { ChangeLog, Civ, Culture, Faith, FaithEvent, FaithForm, Polity, Regions, Religion, Settlement, StateFaith, Year } from './types';
 import type { World } from '../world';
-import type { CivSim } from './sim';
-import type { CultureModel } from './cultures';
-import type { PolityModel } from './polities';
+import type { CivSim } from './engine/sim';
+import { cultureModelOf, type CultureModel } from './cultures';
+import { polityModelOf, type PolityModel } from './polities';
 import { AdjKind, Layer } from './types';
-import { ownersAt, type Owners } from './timeline';
+import { ownersAt, type Owners } from './engine/timeline';
 import { capitalAt, populationAt } from './growth';
 import { personNamers } from './naming';
 import { keyed, subSeed } from '../util';
+import type { CivModule } from './modules';
 
 /** 每多少年算一步 */
 const STEP = 5;
@@ -631,7 +632,7 @@ export function installReligion(sim: CivSim, civSeed: number, cm: CultureModel, 
 }
 
 /**
- * 接着推(CivSim.fromCiv 调用,在各层 resume 之后):不存状态,照引擎上的历史(和 civ 一样,外加补备的干预立国民族)
+ * 接着推(resumeCiv 调用,在各层 resume 之后):不存状态,照引擎上的历史(和 civ 一样,外加补备的干预立国民族)
  * 从第 0 年重放到 civ.endYear,之后接着每 STEP 年一步。eras = 地形大事以前的各段(按那时的州)
  */
 export function resumeReligion(sim: CivSim, civ: Civ, cm: CultureModel, pm: PolityModel, eras: readonly FaithEra[]): void {
@@ -881,3 +882,21 @@ export function faithCounts(civ: Civ, year: Year, faiths?: Int16Array, own?: Own
   }
   return { n, folk, total };
 }
+
+/** 模块:信仰:每 5 年算一步(只算着,别的规则还不读它;不预约事件)(清单和次序见 modules.ts) */
+export const religionModule: CivModule = {
+  id: 'religion',
+  install: (c) => {
+    if (c.cm && c.pm) installReligion(c.sim, c.seed, c.cm, c.pm, c.regions);
+  },
+  // 不存状态,照 civ 的历史从第 0 年重放到 civ.endYear,之后接着每 5 年算一步
+  resume: (c) => {
+    const cm = cultureModelOf(c.sim);
+    const pm = polityModelOf(c.sim);
+    if (cm && pm) resumeReligion(c.sim, c.civ, cm, pm, c.eras);
+  },
+  // 推演里算好的,补上名字和皈依的国君(要起好名、排好人物的整份 civ)
+  finish: (c) => {
+    c.civ.religion = finishReligion(c.sim, c.world, c.civ);
+  },
+};
