@@ -4,10 +4,11 @@ import { Biome } from '../src/gen/biomes';
 import { MinHeap } from '../src/gen/util';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
-import { CivSim, Ev, CHECKPOINT_EVERY, quantize } from '../src/gen/civ/engine/sim';
+import { CivSim, CHECKPOINT_EVERY, quantize } from '../src/gen/civ/engine/sim';
 import { ownersAt, ownersFromScratch } from '../src/gen/civ/engine/timeline';
 import { planCultures, travelYears, cultureTerrain, type CultureModel } from '../src/gen/civ/cultures';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { CIV_EVENTS, Ev } from '../src/gen/civ/events';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -106,7 +107,7 @@ function bytes(a: ArrayBufferView) {
 
 describe('推演引擎(合成的小例子)', () => {
   it('同一时刻的事件按预约先后处理;州的归属变了,之前预约到这个州的事件过期作废', () => {
-    const sim = new CivSim(3);
+    const sim = new CivSim(3, CIV_EVENTS);
     const seen: string[] = [];
     sim.on(Ev.CultureArrive, (r, c, t) => {
       seen.push(`${t}:${r}←${c}`);
@@ -128,7 +129,7 @@ describe('推演引擎(合成的小例子)', () => {
   });
 
   it('同一时刻:地形大事最先,再是看王朝、新君即位、迁都后重看边地(按国家号),别的事件按预约先后,民族、国家到达最后(民族先,再按州号),和预约先后无关', () => {
-    const sim = new CivSim(3);
+    const sim = new CivSim(3, CIV_EVENTS);
     const seen: string[] = [];
     for (const [kind, name] of [
       [Ev.Reign, '即位'],
@@ -156,7 +157,7 @@ describe('推演引擎(合成的小例子)', () => {
   });
 
   it('检查点存"那一年及以前的变化全部生效后"的状态;run 只推到给定年份', () => {
-    const sim = new CivSim(2);
+    const sim = new CivSim(2, CIV_EVENTS);
     // 自定义一个不核对版本号的事件类型(阶段 3 的"攻占"之类):州 0 先归 7,250 年后改归 9
     const TAKE = 60;
     sim.on(TAKE, (r, c) => sim.setOwner(Layer.Culture, r, c, TAKE), { watch: false });
@@ -178,7 +179,7 @@ describe('推演引擎(合成的小例子)', () => {
   });
 
   it('setOwner 写日志、版本号 +1、通知监听者;新值等于旧值时什么都不做', () => {
-    const sim = new CivSim(2);
+    const sim = new CivSim(2, CIV_EVENTS);
     const heard: number[][] = [];
     sim.onChange(Layer.Culture, (r, v, prev, cause) => heard.push([r, v, prev, cause]));
     sim.setOwner(Layer.Culture, 1, 3, Ev.CultureBorn);

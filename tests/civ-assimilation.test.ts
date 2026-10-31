@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer, type Annal, type AnnalKind, type Culture, type Polity } from '../src/gen/civ/types';
-import { Ev } from '../src/gen/civ/engine/sim';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { HOLD, assimModelOf, assimStats } from '../src/gen/civ/assimilation';
@@ -23,6 +22,7 @@ import {
   type ChronicleEntry,
 } from '../src/gen/civ/story/chronicle';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { Ev } from '../src/gen/civ/events';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 

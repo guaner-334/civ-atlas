@@ -57,7 +57,7 @@ import { geometryOf, type Geometry } from '../geometry';
 import { TREK_DIR_NAMES, regionOfKey, type Intervention, type TrekReach } from '../edits';
 import { AdjKind, Layer, type Civ, type Culture, type Migration, type MigrationDir, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './engine/rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
+import { BOOKED_AT_START, bookChain, quantize, type CivSim } from './engine/sim';
 import { addPolity, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { bestCapital, polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -68,6 +68,7 @@ import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } from './trekRoute';
 import type { InterventionModel } from './interventions';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */

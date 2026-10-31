@@ -64,7 +64,7 @@ import { MAJOR_RIVER } from './habitat';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { BookWriter } from './fiscalBook';
 import { keyed, subSeed } from './engine/rand';
-import { Ev, type CivSim } from './engine/sim';
+import { type CivSim } from './engine/sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
 import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt, type PolicySeg } from './policy';
 import { cultureModelOf } from './cultures';
@@ -74,6 +74,7 @@ import { warModelOf } from './wars';
 import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
 import { CAPS, INVENTIONS } from './inventions';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;

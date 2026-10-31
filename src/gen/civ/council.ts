@@ -65,7 +65,7 @@
  */
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { flog, keyed4, subSeed } from './engine/rand';
-import { Ev, type CivSim } from './engine/sim';
+import { type CivSim } from './engine/sim';
 import { polityModelOf, rulingLeanings, type PolityModel } from './polities';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { warModelOf, type WarModel } from './wars';
@@ -76,6 +76,7 @@ import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, apply
 import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */

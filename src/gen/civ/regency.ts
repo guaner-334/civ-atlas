@@ -19,7 +19,7 @@
  */
 import type { Civ, Polity, Year } from './types';
 import { Layer } from './types';
-import { Ev, quantize, type CivSim } from './engine/sim';
+import { quantize, type CivSim } from './engine/sim';
 import { bookOf, dynastyReign, polityModelOf, regencyCtx, rulerOf, type PolityModel } from './polities';
 import { warModelOf, type War } from './wars';
 import { dynastyModelOf } from './dynasty';
@@ -60,6 +60,7 @@ import {
 import { IV_NOT_HIM } from './rulers';
 import { royalAt, royalSeg } from './regime';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 export interface RegencyModel {
   pm: PolityModel;

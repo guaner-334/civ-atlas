@@ -32,253 +32,8 @@
  * 纯计算,不碰 DOM。
  */
 import { MinHeap } from '../../util';
-import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from '../types';
+import { ANNAL_EXTRAS, Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from '../types';
 import type { Calamity } from '../calamity';
-
-// ---------------------------------------------------------------------------
-// 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19(新君即位 16),
-// 民族同化与迁徙 20–24,城市兴衰 25–29;阶段 4 干预 30–35;邦交 40–44)
-
-export const enum Ev {
-  /** 没有原因(初始状态) */
-  None = 0,
-  /** 民族诞生:a = 发源州,b = 民族。发源州已被别族占了,就近找一个空的可居州 */
-  CultureBorn = 1,
-  /** 民族到达:a = 州,b = 民族。州还没人住就归属这个民族;不可居的州只是路过 */
-  CultureArrive = 2,
-  /** 建城(polities.ts):a = 州,b = 城镇 */
-  SettlementFound = 3,
-  /** 立国(polities.ts):a = 国都所在州,b = 国家 */
-  PolityFound = 4,
-  /** 国家到达(polities.ts):a = 州,b = 国家。州有人住、还没归别国,就归这个国家 */
-  PolityArrive = 5,
-  /** 升格(polities.ts):a = 国都所在州,b = 国家。国土跨过一档(部 → 国 → 王国 → 帝国),国号升一级,记进 Polity.titles */
-  PolityRank = 6,
-  /**
-   * 看邻国(阶段 3 战争,wars.ts):a = 立国后第几次看(按年份段编号),b = 国家。
-   * 国家隔几十年看一眼接壤的邻国:国力比、扩张性、是不是异族、上次议和过了多久,决定要不要宣战
-   */
-  WarCheck = 7,
-  /**
-   * 战役(wars.ts):a = 这场战争的第几仗,b = 战争编号。攻方打一个和自己国土接壤的敌州,
-   * 打不下来守方可能反攻、夺回这场战争里丢的州;打完看要不要议和,不议和就预约下一仗
-   */
-  Campaign = 8,
-  /** 攻占(wars.ts):不单独预约,是战役里改归属(setOwner)时变化日志记的原因 */
-  Conquer = 9,
-  /**
-   * 看内政(阶段 3 分合,politics.ts):a = 立国后第几次看(按年份段编号),b = 国家。
-   * 国家隔几十年看一眼自己:边远的州会不会起兵自立(分裂)、国都要不要迁到国土中部(主动迁都)、
-   * 小国会不会并入接壤的同族大国(合并)
-   */
-  PoliticsCheck = 10,
-  /** 分裂 / 复国(politics.ts):不单独预约,是起兵自立的州改归新国家时变化日志记的原因 */
-  Split = 11,
-  /** 合并(politics.ts):不单独预约,是小国的州并入大国时变化日志记的原因 */
-  Merge = 12,
-  /**
-   * 看复国(politics.ts):a = 亡国后第几次看,b = 亡国的国家。故国国都一带仍是同族人住、
-   * 当前的宗主又弱(在打仗 / 刚分裂 / 刚迁都)时,遗民举旗复国
-   */
-  RestoreCheck = 13,
-  /**
-   * 看部落地带(politics.ts):a = 第几次看。阶段 2 里因为离别国国都太近没能立国的城,
-   * 那个国都灭亡 / 迁走以后,在这里再试一次立国
-   */
-  TribalCheck = 14,
-  /**
-   * 看王朝(阶段 3 王朝更替,dynasty.ts):a = 立国后第几次看(按年份段编号),b = 国家。
-   * 大国隔几十年看一眼:当朝立了多久(越久越容易亡)、国势动荡(战败失地、国都失守、刚分裂),决定会不会改朝换代。
-   * 改朝换代不改归属(同一个国家编号),新朝定都根据地时迁都
-   */
-  DynastyCheck = 15,
-  /**
-   * 新君即位(polities.ts;在位表见 rulers.ts):a = 本国第几位君主,b = 国家。门槛比上一位低的(扩张算账),
-   * 从现有国土往外重新看一遍边上的部落地带;再预约下一位。改朝换代后在位表重排,对不上的丢掉
-   */
-  Reign = 16,
-  /** 迁都的下一刻(polities.ts 的 moveCapital):b = 国家。按新国都的路程从现有国土往外重新预约扩张 */
-  Respread = 17,
-  /**
-   * 航海时代(polities.ts):这一刻起,有港口的普通国家也能沿航线往海外扩张(海洋国家从来就能)。
-   * 在世的普通国家这一刻从现有国土往外重新预约一遍扩张(同一刻里排在地形大事后面、别的事件前面)
-   */
-  AgeOfSail = 18,
-  /**
-   * 看民族(阶段 3 同化与迁徙,assimilation.ts;编号 20–24):a = 立国后第几次看(按年份段编号),b = 国家。
-   * 国家隔几十年看一眼治下的各州:异族州被统治久了、离核心近、四周同族多,就改换成统治民族(同化);
-   * 统治民族太少时反过来被多数民族同化;这些年打下来的州,游牧民族会迁人进来,被征服的民族会外迁
-   */
-  CultureCheck = 20,
-  /** 同化(assimilation.ts):不单独预约,是一州改换民族时变化日志记的原因 */
-  Assimilate = 21,
-  /** 迁徙(assimilation.ts):不单独预约,是迁入的州改换民族时变化日志记的原因 */
-  Migrate = 22,
-  /**
-   * 看孤地(assimilation.ts):a = 第几次看。每隔几十年看一眼部落地带(没有国家的州)里被别族团团围住的孤地:
-   * 久了会被四邻同化(日志原因记 Assimilate)
-   */
-  EnclaveCheck = 23,
-  /**
-   * 看重建(阶段 3 城市兴衰,cities.ts):a = 城被毁后第几次看,b = 被毁的城。
-   * 州里有人住、战火已息,就有机会在故址上重建一座新城;看够次数都没建 = 就此荒废
-   */
-  CityRebuild = 25,
-  /**
-   * 看旧都(cities.ts):a = 这座城的第几段国都(Settlement.capitalSpans 的下标),b = 城。
-   * 失去国都之位约一百多年后,人口明显回落的记一条"旧都渐衰"
-   */
-  CityDecline = 26,
-  /**
-   * 干预(阶段 4,interventions.ts;编号 30–35):a = 第几条干预(干预列表的下标)。在它的年份(from)那一刻生效:
-   * 记一条史事 intervene,结盟时正在交战的两国当即议和,宣战的强制开战,划州、立国、迁都当即改归属 / 国都,
-   * 不许扩张的国家挑起的战争当即议和。在所有别的事件之前预约(同一刻里只排在 earlyOrder 那几类后面)
-   */
-  Intervene = 30,
-  /** 划州(interventions.ts):不单独预约,是干预"划州"(和立国时带走的余州)改归属时变化日志记的原因 */
-  Cede = 31,
-  /**
-   * 不许扩张到期(interventions.ts):a = 第几条干预。到 until 那一刻,这国从现有国土重新预约往外扩张
-   * (禁令期间的"国家到达"都丢掉了)。在所有别的事件之前预约(同一刻里比干预事件还早)
-   */
-  HaltEnd = 32,
-  /**
-   * 地形大事(upheaval.ts):a = 第几件大事。在它的年份那一刻(同一刻里最先)处理后果:城沉入海 / 毁于火山,
-   * 淹掉的州国家和民族撤出(变化日志原因也记这个),国都没了的迁都、亡国
-   */
-  Upheaval = 33,
-  /**
-   * 多看一眼(interventions.ts):a = 第几条干预(照大纲顺着引的方针,带 look),b = 它的第几眼。
-   * 到那一年的年中替那国多看一眼邻国 / 内政 / 王朝(随机数按 LOOK_K 往上的"第几次"取,不接着预约)。装各层时就预约
-   */
-  Look = 34,
-  /**
-   * 看邦交(diplomacy.ts;编号 40–44):a = 立国后第几次看(按年份段编号),b = 国家。
-   * 国家隔几十年看一眼:藩属要不要自立、宗主收不收藩属的国土、盟约废不废、畏不畏强邻(称臣 / 结盟)
-   */
-  DiplomacyCheck = 40,
-  /**
-   * 约满(立约,treaties.ts):a = 约的编号。立约 / 续约那一刻预约在期满那一刻:看几国续不续约,不续就约废、中立地撤销
-   */
-  TreatyEnd = 41,
-  /** 中立地(treaties.ts):不单独预约,是一州划为中立地(归属 → −1)、中立地撤销还给原主时变化日志记的原因 */
-  Neutral = 42,
-  /** 中立地到期(treaties.ts):a = 中立地的编号。作者下令划的中立地选了"到某一年",划的那一刻预约在那一年:撤销 */
-  ZoneEnd = 43,
-  /**
-   * 看分化(民族分化,assimilation.ts;编号 45–49):a = 第几次看。每隔一百年看一眼各民族:被海峡、山脉隔开,
-   * 或分属不同国家几百年的一支,有机会分化成新民族(亲缘民族,族名带母族的名字)
-   */
-  DivergeCheck = 45,
-  /** 分化(assimilation.ts):不单独预约,是分出去的州改换成新民族时变化日志记的原因 */
-  Diverge = 46,
-  /**
-   * 发展度(development.ts;编号 50):每 20 年一刻,算各州的五种能力、时代、物产,再让它们影响推演
-   * (城的人口上限、打仗的军力、普通国家能不能远洋)。同一刻里排在地形大事、航海时代后面,别的事件前面(见 earlyOrder)
-   */
-  DevTick = 50,
-  /**
-   * 政局的数表(control.ts;编号 51):每年一刻,按此刻的归属、国都、行政能力、危机……算各州管得到几成、离国都多远、各国的动荡,
-   * 这一年里的事件读它。同一刻里排在发展度后面(读这一刻刚算的行政能力),别的事件前面(见 earlyOrder)
-   */
-  TableTick = 51,
-  /**
-   * 掌实权(regency.ts;编号 52):b = 国家。到那一刻办这国的事:掌着权的人到期了办结局(还政、伏诛、篡位、卒),
-   * 君主晚年该有的引兵入朝、太子监国看成不成。重复预约、预约了却对不上的什么都不做。
-   * 同一刻里排在看王朝、新君即位、迁都后重看边地后面(同一国),别的事件前面(见 earlyOrder)
-   */
-  Regency = 52,
-  /**
-   * 看年景(动荡、饥荒、民变、大崩解,unrest.ts;编号 55–57):a = 第几次看。每隔十来年,世上几处闹灾年(干旱、寒冷的地方多),
-   * 人口顶到上限的城闹饥荒、人口掉一截;闹了饥荒又动荡的大国,饥民可能起事(民变)
-   */
-  FamineCheck = 55,
-  /** 散回部落(unrest.ts 的大崩解):不单独预约,是大国崩解时散回部落地带的州(国家归属 → −1)变化日志记的原因 */
-  Collapse = 57,
-  /**
-   * 看疫情(瘟疫,plague.ts;编号 58–59):a = 第几次看。每隔几十年看一次,偶尔从一座大城或港口起疫
-   */
-  PlagueCheck = 58,
-  /** 疫情传开(plague.ts):a = 第几场瘟疫(起疫那次看疫情的编号),b = 起疫后第几年。染疫的州往外传一圈,预约下一年 */
-  PlagueStep = 59,
-  /**
-   * 看全球大疫(pandemic.ts;编号 60–62):a = 第几次看。只有「天灾」设成多、很多的世界才有:世上有国家能远洋以后,
-   * 隔几十年看一次,偶尔从一座大港起一场全球大疫
-   */
-  PandemicCheck = 60,
-  /** 疫后凋敝(pandemic.ts):这一刻有全球大疫"疫气复作"(人口再掉一截、村镇荒废)。同一刻几场一起处理 */
-  SlumpStep = 61,
-  /** 看地震水旱(pandemic.ts):a = 第几次看。只有「天灾」设成多、很多的世界才有:各国偶尔闹一场地震、大水、大旱 */
-  QuakeCheck = 62,
-  /**
-   * 看大迁徙(migration.ts;编号 63–64):a = 第几次看。每隔几十年看一眼草原、寒地的民族:老家挤、闹灾年、本族的国刚散了(推),
-   * 走得到的地方有大乱、疫后空了、富庶的地(拉),就可能分出一支举族远走(一次看最多走一支)
-   */
-  TrekCheck = 63,
-  /** 迁徙的队伍走到路线上的下一州(migration.ts):a = 第几次大迁徙(Civ.migrations 的下标),b = 路线上的第几州;最后一州 = 落脚立国 */
-  TrekStep = 64,
-  /** 落脚(migration.ts):不单独预约,是大迁徙落脚的几州改换成迁来的民族时变化日志记的原因 */
-  TrekSettle = 65,
-}
-
-export interface EventInfo {
-  id: number;
-  name: string;
-  /** 弹出时是否核对州 a 的版本号(预约之后州 a 的归属变过 → 过期丢掉) */
-  watch: boolean;
-}
-
-/** 事件类型表。阶段 3 在末尾往下加(宣战、战役、攻占、分裂、合并、灭亡、迁都、瘟疫……) */
-export const EVENT_INFO: EventInfo[] = [
-  { id: Ev.None, name: '无', watch: false },
-  { id: Ev.CultureBorn, name: '民族诞生', watch: false },
-  { id: Ev.CultureArrive, name: '民族到达', watch: true },
-  { id: Ev.SettlementFound, name: '建城', watch: false },
-  { id: Ev.PolityFound, name: '立国', watch: false },
-  { id: Ev.PolityArrive, name: '国家到达', watch: true },
-  { id: Ev.PolityRank, name: '升格', watch: false },
-  { id: Ev.WarCheck, name: '看邻国', watch: false },
-  { id: Ev.Campaign, name: '战役', watch: false },
-  { id: Ev.Conquer, name: '攻占', watch: false },
-  { id: Ev.PoliticsCheck, name: '看内政', watch: false },
-  { id: Ev.Split, name: '分裂', watch: false },
-  { id: Ev.Merge, name: '合并', watch: false },
-  { id: Ev.RestoreCheck, name: '看复国', watch: false },
-  { id: Ev.TribalCheck, name: '看部落地带', watch: false },
-  { id: Ev.DynastyCheck, name: '看王朝', watch: false },
-  { id: Ev.Reign, name: '新君即位', watch: false },
-  { id: Ev.AgeOfSail, name: '航海时代', watch: false },
-  { id: Ev.CultureCheck, name: '看民族', watch: false },
-  { id: Ev.Assimilate, name: '同化', watch: false },
-  { id: Ev.Migrate, name: '迁徙', watch: false },
-  { id: Ev.EnclaveCheck, name: '看孤地', watch: false },
-  { id: Ev.CityRebuild, name: '看重建', watch: false },
-  { id: Ev.CityDecline, name: '看旧都', watch: false },
-  { id: Ev.Intervene, name: '干预', watch: false },
-  { id: Ev.Cede, name: '划州', watch: false },
-  { id: Ev.HaltEnd, name: '解除禁扩', watch: false },
-  { id: Ev.Upheaval, name: '地形大事', watch: false },
-  { id: Ev.Look, name: '多看一眼', watch: false },
-  { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
-  { id: Ev.TreatyEnd, name: '约满', watch: false },
-  { id: Ev.Neutral, name: '中立地', watch: false },
-  { id: Ev.ZoneEnd, name: '中立地到期', watch: false },
-  { id: Ev.DivergeCheck, name: '看分化', watch: false },
-  { id: Ev.Diverge, name: '分化', watch: false },
-  { id: Ev.DevTick, name: '发展度', watch: false },
-  { id: Ev.TableTick, name: '政局', watch: false },
-  { id: Ev.Regency, name: '掌实权', watch: false },
-  { id: Ev.FamineCheck, name: '看年景', watch: false },
-  { id: Ev.Collapse, name: '散回部落', watch: false },
-  { id: Ev.PlagueCheck, name: '看疫情', watch: false },
-  { id: Ev.PlagueStep, name: '疫情传开', watch: false },
-  { id: Ev.PandemicCheck, name: '看全球大疫', watch: false },
-  { id: Ev.SlumpStep, name: '疫后凋敝', watch: false },
-  { id: Ev.QuakeCheck, name: '看地震水旱', watch: false },
-  { id: Ev.TrekCheck, name: '看大迁徙', watch: false },
-  { id: Ev.TrekStep, name: '迁徙的队伍', watch: false },
-  { id: Ev.TrekSettle, name: '迁徙落脚', watch: false },
-];
 
 /** 检查点间隔(年) */
 export const CHECKPOINT_EVERY = 100;
@@ -286,8 +41,8 @@ export const CHECKPOINT_EVERY = 100;
 /** 事件时间精度:1/256 年(约一天半) */
 const TICKS_PER_YEAR = 256;
 /**
- * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:地形大事、看王朝、新君即位、迁都后重看边地 = earlyOrder(< EARLY_SPAN,排在最前);
- * 别的事件 = EARLY_SPAN + 编号(预约先后,< SEQ_SPAN);民族、国家到达 = SEQ_SPAN + arrivalOrder(排在最后)。
+ * 优先级 = 时刻 × TICK_SPAN + 同一刻里的次序:登记了排在最前的几类 = earlyOrder(< EARLY_SPAN);
+ * 别的事件 = EARLY_SPAN + 编号(预约先后,< SEQ_SPAN);到达 = SEQ_SPAN + arrivalOrder(排在最后)。见 EventOrder。
  * 都是整数,拼起来不超过 2^53 − 1,Float64 里精确
  */
 const EARLY_SPAN = 2 ** 15;
@@ -296,45 +51,37 @@ const TICK_SPAN = 2 ** 29;
 /** 能预约的最远时刻:65536 年(Float32 的变化日志在这个范围内也能精确存下 1/256 年) */
 const MAX_TICK = 2 ** 24;
 
-/**
- * 民族、国家到达在同一刻里的次序(0 起,< SEQ_SPAN):民族先、国家后,再按州号、民族 / 国家号。
- * 不是到达、或州号 / 编号超出能编的范围(极大的世界),返回 −1(按预约先后)
- */
-function arrivalOrder(kind: number, a: number, b: number): number {
-  if (kind !== Ev.CultureArrive && kind !== Ev.PolityArrive) return -1;
-  if (!(a >= 0 && a < 2 ** 15 && b >= 0 && b < 2 ** 12)) return -1;
-  return (kind === Ev.PolityArrive ? 2 ** 27 : 0) + a * 2 ** 12 + b;
-}
+/** 同一刻里排在最前面那一段的长度(固定次序 early、末尾 earlyEnd、按国家 perPolity 都在这一段里) */
+/** 按国家排的几类:从这个次序起,每国占 PER_POLITY_SLOTS 格(同一国依次是槽位 0、1、2……) */
+const PER_POLITY_BASE = 4;
+const PER_POLITY_SLOTS = 4;
+/** 末尾那几类(earlyEnd)最多几类 */
+const EARLY_END_MAX = 12;
 
 /**
- * 排在同一刻最前面的事件的次序(0 起,< EARLY_SPAN):
- * - 地形大事 = 0:同一刻的别的事都按大事以后的地形和归属算(一次推演里只有一件,见 index.ts)
- * - 航海时代 = 1:同一刻的别的事都按"已经能走航线"算(polities.ts 的 sailsOcean)
- * - 发展度 = 2:只读这一刻以前的事;它改的人口上限、军力、远洋,同一刻的别的事都按改过的算(接着推时按 Civ 里存的状态接上)
- * - 政局的数表 = 3:按发展度刚算的行政能力算;同一刻的别的事都读它算出来的值
- * - 看王朝、新君即位、迁都后重看边地、掌实权 = 4 起:按国家号,同一国依次是看王朝、即位、重看、掌实权。
- *   看王朝在前:同一刻改朝换代了,旧朝原定这一刻即位的那位就不即位了(在位表重排,Ev.Reign 对不上就丢掉);
- *   即位、重看只从现有国土往外预约扩张、不改归属,排在别的事件前面 —— 接着推时 resumePolities 也是在同一刻的日志
- *   (大事改的归属除外)之前重放。掌实权的事从下一刻起才算数(regents.ts),同一国同一刻预约几次也只办一回
- * - 看地震水旱、看全球大疫、疫后凋敝、看疫情、疫情传开 = EARLY_SPAN − 5 … − 1(这几类之后、别的事件之前):接着推时它们最后才补进引擎,
- *   排在固定的位置,同一刻的别的事件(攻占、毁城)在它前还是在它后,和一口气推完一样(同一刻每类至多一件)
- * 不是这几类、或国家号超出能编的范围,返回 −1(按预约先后)
+ * 一类事件在同一刻里排在哪(登记事件种类时给;不给 = 按预约先后):
+ * - early:排在同一刻最前面,按给的次序(0 起,< PER_POLITY_BASE)
+ * - perPolity:接着按国家号排(事件的 b = 国家),同一国依次按槽位(0 起,< PER_POLITY_SLOTS);国家号超出能编的范围 = 按预约先后
+ * - earlyEnd:最前面那一段的末尾,倒数第 n 个(1 起,≤ EARLY_END_MAX;同一刻每类至多一件)
+ * - arrival:排在同一刻最后(到达),先按组(0、1),再按州号(a)、编号(b);州号 / 编号超出能编的范围 = 按预约先后
  */
-const EARLY_KINDS: Partial<Record<number, number>> = { [Ev.DynastyCheck]: 0, [Ev.Reign]: 1, [Ev.Respread]: 2, [Ev.Regency]: 3 };
-function earlyOrder(kind: number, b: number): number {
-  if (kind === Ev.Upheaval) return 0;
-  if (kind === Ev.AgeOfSail) return 1;
-  if (kind === Ev.DevTick) return 2;
-  if (kind === Ev.TableTick) return 3;
-  if (kind === Ev.QuakeCheck) return EARLY_SPAN - 5;
-  if (kind === Ev.PandemicCheck) return EARLY_SPAN - 4;
-  if (kind === Ev.SlumpStep) return EARLY_SPAN - 3;
-  if (kind === Ev.PlagueCheck) return EARLY_SPAN - 2;
-  if (kind === Ev.PlagueStep) return EARLY_SPAN - 1;
-  const i = EARLY_KINDS[kind];
-  if (i === undefined || !(b >= 0 && b < (EARLY_SPAN - 12) / 4 - 1)) return -1;
-  return 4 + b * 4 + i;
+export type EventOrder = { early: number } | { perPolity: number } | { earlyEnd: number } | { arrival: 0 | 1 };
+
+/** 一类事件(规则那一边登记给引擎:官方推演的在 civ/events.ts) */
+export interface EventKind {
+  /** 编号(0–255;变化日志的 cause 用同一套编号) */
+  id: number;
+  name: string;
+  /** 弹出时是否核对州 a 的版本号(预约之后州 a 的归属变过 → 过期丢掉) */
+  watch: boolean;
+  order?: EventOrder;
 }
+
+const ORDER_NONE = 0;
+const ORDER_EARLY = 1;
+const ORDER_EARLY_END = 2;
+const ORDER_PER_POLITY = 3;
+const ORDER_ARRIVAL = 4;
 
 /** 多看一眼(Ev.Look)用的"第几次"从这里往上数(看邻国、内政、王朝的寻常第几次到不了这么大) */
 export const LOOK_K = 1 << 20;
@@ -493,6 +240,10 @@ export class CivSim {
 
   private handlers: (EventHandler | undefined)[] = [];
   private watch = new Uint8Array(256);
+  /** 登记过的事件种类、同一刻里排在哪(见 EventOrder) */
+  private kindSeen = new Uint8Array(256);
+  private orderKind = new Uint8Array(256);
+  private orderArg = new Int32Array(256);
   private listeners: ChangeListener[][] = [[], []];
   /** 隔几年看一眼的(everyYears):下一次的年份、间隔、回调 */
   private yearly: { next: Year; every: number; fn: (year: Year) => void }[] = [];
@@ -502,11 +253,71 @@ export class CivSim {
   /** 推演过程中处理了多少个事件(含过期丢掉的),调参 / 测试用 */
   processed = 0;
 
-  constructor(regionCount: number) {
+  /**
+   * kinds = 登记的事件种类(编号、名字、要不要核对版本号、同一刻里排在哪;官方推演的在 civ/events.ts 的 CIV_EVENTS)。
+   * 没登记的种类:不核对版本号、按预约先后
+   */
+  constructor(regionCount: number, kinds: readonly EventKind[] = []) {
     this.R = regionCount;
     this.owners = [new Int16Array(regionCount).fill(-1), new Int16Array(regionCount).fill(-1)];
     this.version = new Int32Array(regionCount);
-    for (const e of EVENT_INFO) this.watch[e.id] = e.watch ? 1 : 0;
+    for (const e of kinds) this.defineKind(e);
+  }
+
+  /** 登记一类事件(构造时逐个调) */
+  private defineKind(e: EventKind): void {
+    if (!(Number.isInteger(e.id) && e.id >= 0 && e.id < 256)) throw new Error(`CivSim:事件编号 ${e.id} 超出 0–255`);
+    if (this.kindSeen[e.id]) throw new Error(`CivSim:事件编号 ${e.id} 登记了两次`);
+    this.kindSeen[e.id] = 1;
+    this.watch[e.id] = e.watch ? 1 : 0;
+    const o = e.order;
+    if (!o) return;
+    const bad = (what: string) => new Error(`CivSim:事件 ${e.name} 的次序 ${what} 超出范围`);
+    if ('early' in o) {
+      if (!(Number.isInteger(o.early) && o.early >= 0 && o.early < PER_POLITY_BASE)) throw bad('early');
+      this.orderKind[e.id] = ORDER_EARLY;
+      this.orderArg[e.id] = o.early;
+    } else if ('perPolity' in o) {
+      if (!(Number.isInteger(o.perPolity) && o.perPolity >= 0 && o.perPolity < PER_POLITY_SLOTS)) throw bad('perPolity');
+      this.orderKind[e.id] = ORDER_PER_POLITY;
+      this.orderArg[e.id] = o.perPolity;
+    } else if ('earlyEnd' in o) {
+      if (!(Number.isInteger(o.earlyEnd) && o.earlyEnd >= 1 && o.earlyEnd <= EARLY_END_MAX)) throw bad('earlyEnd');
+      this.orderKind[e.id] = ORDER_EARLY_END;
+      this.orderArg[e.id] = o.earlyEnd;
+    } else {
+      if (o.arrival !== 0 && o.arrival !== 1) throw bad('arrival');
+      this.orderKind[e.id] = ORDER_ARRIVAL;
+      this.orderArg[e.id] = o.arrival;
+    }
+  }
+
+  /**
+   * 同一刻里排在最前面那一段的次序(0 起,< EARLY_SPAN);不是这几类、或国家号超出能编的范围 = −1(按预约先后)。
+   * 段里依次是:early(0 起)、perPolity(PER_POLITY_BASE + 国家号 × PER_POLITY_SLOTS + 槽位)、earlyEnd(EARLY_SPAN − n)
+   */
+  private earlyOrder(kind: number, b: number): number {
+    switch (this.orderKind[kind]) {
+      case ORDER_EARLY:
+        return this.orderArg[kind];
+      case ORDER_EARLY_END:
+        return EARLY_SPAN - this.orderArg[kind];
+      case ORDER_PER_POLITY:
+        if (!(b >= 0 && b < (EARLY_SPAN - EARLY_END_MAX) / PER_POLITY_SLOTS - 1)) return -1;
+        return PER_POLITY_BASE + b * PER_POLITY_SLOTS + this.orderArg[kind];
+      default:
+        return -1;
+    }
+  }
+
+  /**
+   * 到达在同一刻里的次序(0 起,< SEQ_SPAN):先按组(组 1 从 2^27 起),再按州号、编号。
+   * 不是到达、或州号 / 编号超出能编的范围(极大的世界),返回 −1(按预约先后)
+   */
+  private arrivalOrder(kind: number, a: number, b: number): number {
+    if (this.orderKind[kind] !== ORDER_ARRIVAL) return -1;
+    if (!(a >= 0 && a < 2 ** 15 && b >= 0 && b < 2 ** 12)) return -1;
+    return (this.orderArg[kind] ? 2 ** 27 : 0) + a * 2 ** 12 + b;
   }
 
   /**
@@ -514,8 +325,8 @@ export class CivSim {
    * 各子系统重建自己的状态和待发生的事件由规则那一边做(modules.ts 的 resumeCiv),然后就能从 civ.endYear 接着推。
    * 不需要保存事件堆,存档也只存 Civ。
    */
-  static restore(civ: Civ): CivSim {
-    const sim = new CivSim(civ.regions.count);
+  static restore(civ: Civ, kinds: readonly EventKind[] = []): CivSim {
+    const sim = new CivSim(civ.regions.count, kinds);
     sim.owners[Layer.Culture].set(civ.culture);
     sim.owners[Layer.Polity].set(civ.polity);
     sim.log = LogBuffer.from(civ.log);
@@ -549,7 +360,7 @@ export class CivSim {
     for (const e of held) this.push(e.tick, e.kind, e.a, e.b, e.ver);
   }
 
-  /** 登记某类事件的处理函数。watch 不给就按 EVENT_INFO 表 */
+  /** 登记某类事件的处理函数。watch 不给就按构造时登记的事件种类 */
   on(kind: number, handler: EventHandler, opts: { watch?: boolean } = {}): void {
     this.handlers[kind] = handler;
     if (opts.watch !== undefined) this.watch[kind] = opts.watch ? 1 : 0;
@@ -596,7 +407,7 @@ export class CivSim {
     if (tick >= MAX_TICK) return;
     const ver = this.watch[kind] && a >= 0 && a < this.R ? this.version[a] : -1;
     // 接着推时补的、同一刻里按预约先后排的事件:先攒着(见 releaseHeld)
-    if (this.held && earlyOrder(kind, b) < 0 && arrivalOrder(kind, a, b) < 0) {
+    if (this.held && this.earlyOrder(kind, b) < 0 && this.arrivalOrder(kind, a, b) < 0) {
       const chain = typeof booked === 'number' ? [booked] : booked;
       this.held.push({ tick, kind, a, b, ver, booked: chain.map((y) => Math.round(y * TICKS_PER_YEAR)), sub, i: this.held.length });
       return;
@@ -618,8 +429,8 @@ export class CivSim {
     this.evA[id] = a;
     this.evB[id] = b;
     this.evVer[id] = ver;
-    const early = earlyOrder(kind, b);
-    const order = arrivalOrder(kind, a, b);
+    const early = this.earlyOrder(kind, b);
+    const order = this.arrivalOrder(kind, a, b);
     this.heap.push(id, tick * TICK_SPAN + (early >= 0 ? early : order >= 0 ? SEQ_SPAN + order : EARLY_SPAN + this.seq++));
   }
 
@@ -673,14 +484,11 @@ export class CivSim {
       settlement: f.settlement ?? -1,
       war: f.war ?? -1,
     };
-    if (f.via !== undefined) e.via = f.via;
-    if (f.cause !== undefined) e.cause = f.cause;
-    if (f.foe !== undefined) e.foe = f.foe;
-    if (f.n !== undefined) e.n = f.n;
-    if (f.ps !== undefined) e.ps = f.ps.slice();
-    if (f.by !== undefined) e.by = f.by;
-    if (f.opt !== undefined) e.opt = f.opt;
-    if (f.until !== undefined) e.until = f.until;
+    // 可有可无的几列照 ANNAL_EXTRAS 的次序抄(数组抄一份)
+    for (const k of ANNAL_EXTRAS) {
+      const v = f[k];
+      if (v !== undefined) (e as unknown as Record<string, unknown>)[k] = Array.isArray(v) ? v.slice() : v;
+    }
     this.annals.push(e);
   }
 
