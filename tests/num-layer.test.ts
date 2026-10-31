@@ -3,7 +3,7 @@ import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { CIV_SHOW_OFF } from '../src/render/civ/show';
-import { numBase, numCiv, numColors, numLayerOf, numLegendRows } from '../src/render/civ/numLayer';
+import { numBase, numCiv, numColors, numCounts, numHoverAt, numLayerOf, numLegendRows, numSampleYear } from '../src/render/civ/numLayer';
 import { NUM_LAYERS, numLayerDrawn, numLayerShown } from '../src/render/civ/numLayers';
 import { ERA_LAYER } from '../src/render/civ/era';
 import { CONTROL_LAYER } from '../src/render/civ/control';
@@ -58,7 +58,7 @@ describe('数值填色图层的定义', () => {
     let said = 0;
     for (let r = 0; r < civ.regions.count; r++) {
       for (const l of NUM_LAYERS) {
-        const h = l.hover(civ, y, r, own, {});
+        const h = l.hover(civ, y, r, own, l.focus(civ, {}, y));
         if (!h) continue;
         said++;
         expect(h.sub.length).toBeGreaterThan(0);
@@ -78,5 +78,35 @@ describe('数值填色图层的定义', () => {
     expect(numLayerDrawn(civ, show({ ideology: true, faiths: true }))).toBeNull();
     expect(numLayerShown(civ, show({ ideology: true, faiths: true }))).toBe(THOUGHT_LAYER);
     expect(numLayerDrawn(civ, show({ eras: true, faiths: true }))).toBe(ERA_LAYER);
+    // 这个世界没有信仰:信仰开着也铺不出来,思潮不让
+    const noFaith = { ...civ, religion: undefined };
+    expect(numLayerDrawn(noFaith, show({ ideology: true, faiths: true }))).toBe(THOUGHT_LAYER);
+  });
+
+  it('取样那一年:每 step 年一次,最后一次在结束年份', () => {
+    const c = { endYear: 1234 };
+    expect([0, 19, 20, 39, 40, 1219, 1220, 1233, 1234, 1300].map((y) => numSampleYear(ERA_LAYER, c, y))).toEqual([0, 0, 20, 20, 40, 1200, 1220, 1220, 1234, 1234]);
+  });
+
+  it('图例州数、悬停和地图色块同一次取样:两次取样之间说的和地图上画的一样', () => {
+    for (const y of [1234, 2019, civ.endYear]) {
+      const own = ownersAt(civ, y);
+      for (const l of NUM_LAYERS) {
+        const k = l.focus(civ, {}, y);
+        // 地图上这一年各州的档 = 换出来的 Civ 这一年"民族"那一层
+        const drawn = ownersAt(numCiv(l, civ, k), y).culture;
+        const n = new Array<number>(l.bands.length).fill(0);
+        for (let r = 0; r < drawn.length; r++) if (drawn[r] >= 0) n[drawn[r]]++;
+        expect(numCounts(l, civ, y, k), `${l.id} ${y}`).toEqual(n);
+        let said = 0;
+        for (let r = 0; r < civ.regions.count; r++) {
+          const h = numHoverAt(l, civ, y, r, own, {});
+          if (!h) continue;
+          said++;
+          expect(h.band, `${l.id} ${y} 州 ${r}`).toBe(drawn[r]);
+        }
+        expect(said).toBeGreaterThan(0);
+      }
+    }
   });
 });

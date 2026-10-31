@@ -12,7 +12,8 @@ import { ARRIVE, THOUGHTS, THOUGHT_COUNT, ideologyAt, polityIdeologyAt, polityTh
 import { polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/story/display';
 import { yearAt, yearFull, type Era } from '../gen/era';
-import { thoughtBand, thoughtCounts, thoughtEmerged } from '../render/civ/thoughts';
+import { THOUGHT_LAYER, thoughtBand, thoughtCounts, thoughtEmerged } from '../render/civ/thoughts';
+import { numSampleYear } from '../render/civ/numLayer';
 
 /** 比百年前差不到这么多个百分点算持平(按卡片上写的百分数比) */
 export const FLAT = 3;
@@ -75,7 +76,8 @@ export interface ThoughtSide {
 
 export function thoughtSide(civ: Civ, year: Year, era?: Era | null): ThoughtSide {
   const ideo = civ.ideology;
-  const n = thoughtCounts(civ, year);
+  // 各说几州:和地图上的色块同一次取样(两次取样之间地图不动,这里也不动)
+  const n = thoughtCounts(civ, numSampleYear(THOUGHT_LAYER, civ, year));
   const rows: ThoughtSideRow[] = [];
   const never: number[] = [];
   for (let k = 0; k < THOUGHT_COUNT; k++) {

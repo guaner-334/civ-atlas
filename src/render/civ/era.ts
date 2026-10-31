@@ -9,7 +9,7 @@
 import type { Civ, Year } from '../../gen/civ/types';
 import { ERAS, developmentAt, eraLevel, eraOf } from '../../gen/civ/development';
 import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
-import { numCiv, type NumLayer } from './numLayer';
+import { numCiv, numSampleYear, type NumLayer } from './numLayer';
 
 /** 九个时代的颜色(石器 → 未来) */
 export const ERA_COLORS: readonly (readonly [number, number, number])[] = [
@@ -47,8 +47,7 @@ export function eraLevelsAt(civ: Civ, year: Year, own?: Owners, out?: Float32Arr
 
 /** 时代图层在这一年用的是哪一年取的时代:每 ERA_STEP 年取一次,最后一次在结束年份(和 eraCiv 的取法一样) */
 export function eraSampleYear(civ: Civ, year: Year): Year {
-  if (year >= civ.endYear) return civ.endYear;
-  return Math.max(0, Math.floor(year / ERA_STEP) * ERA_STEP);
+  return numSampleYear(ERA_LAYER, civ, year);
 }
 
 let own: Owners | undefined;

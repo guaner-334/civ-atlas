@@ -13,6 +13,7 @@ import { ERA_LAYER } from '../render/civ/era';
 import { RESOURCE_COLORS, RESOURCE_GLYPHS, resourceTier } from '../render/civ/resources';
 import { cnNumber } from '../gen/civ/story/chronicle';
 import { CONTROL_LAYER, lordsAt } from '../render/civ/control';
+import { numCounts } from '../render/civ/numLayer';
 
 export interface EraRow {
   era: number;
@@ -23,11 +24,11 @@ export interface EraRow {
   n: number;
 }
 
-/** 这一年的时代列表(新的在上;没有州在的时代不列;档名、颜色、州数见 era.ts 的 ERA_LAYER) */
+/** 这一年的时代列表(新的在上;没有州在的时代不列;档名、颜色见 era.ts 的 ERA_LAYER,州数和地图同一次取样,见 numCounts) */
 export function eraRows(civ: Civ, year: Year, era?: Era | null): EraRow[] {
   const dev = civ.development;
   if (!dev) return [];
-  const n = ERA_LAYER.counts(civ, year, 0);
+  const n = numCounts(ERA_LAYER, civ, year, 0);
   const rows: EraRow[] = [];
   for (let k = ERAS.length - 1; k >= 0; k--) {
     if (!n[k]) continue;
@@ -126,10 +127,10 @@ export interface LordRow {
   years: number;
 }
 
-/** 这一年的管辖:四档各几州(都列,没有的写 0 州;档名、颜色、州数见 control.ts 的 CONTROL_LAYER)、现在的割据(先起的在上);没有快照 = null */
+/** 这一年的管辖:四档各几州(都列,没有的写 0 州;档名、颜色见 control.ts 的 CONTROL_LAYER,州数和地图同一次取样)、现在的割据(先起的在上);没有快照 = null */
 export function controlRows(civ: Civ, year: Year, era?: Era | null, narrow = false): { tiers: ControlRow[]; lords: LordRow[] } | null {
   if (!civ.development?.controlYears?.length) return null;
-  const n = CONTROL_LAYER.counts(civ, year, 0);
+  const n = numCounts(CONTROL_LAYER, civ, year, 0);
   const rows = CONTROL_LAYER.bands.map(({ name, color }, k): ControlRow => ({ tier: k, name, color, sub: narrow && k === 3 ? LORD_NOTE_SHORT : CONTROL_NOTES[k], n: n[k] }));
   const lords = lordsAt(civ, year).map((w): LordRow => {
     const k = w.regions.length;

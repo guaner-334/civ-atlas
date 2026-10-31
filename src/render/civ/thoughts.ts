@@ -126,9 +126,8 @@ export const THOUGHT_LAYER: NumLayer = {
     keepEmpty: true,
     rowName: (b) => (b === THOUGHT_BANDS.length - 1 ? `${THOUGHT_BAND_NAMES[b]}以上` : `${THOUGHT_BAND_NAMES[b]}到${THOUGHT_BAND_NAMES[b + 1]}`),
   },
-  hover(civ, year, r, own, show) {
+  hover(civ, year, r, own, th) {
     if (!civ.ideology || !civ.cultures[own.culture[r]]) return null;
-    const th = thoughtFocus(civ, show, year);
     if (th < 0) return null;
     const a = thoughtShare(civ, year, r, th);
     return { band: thoughtBand(a), sub: `${THOUGHTS[th].name} ${Math.round(a * 100)}%` };
