@@ -72,16 +72,16 @@ import { warModelOf, type WarModel } from './wars';
 import { capitalAt, populationAt } from './growth';
 import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
 import type { ControlModel, Warlord } from './control';
-import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, replayRule, rulesAnnal, type Rules } from './councilRules';
+import { COUNCIL_RULES_KNOBS, ISSUES, Issue, Outcome, applyRule, newRules, replayRule, rulesAnnal, type Rules } from './councilRules';
 import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi, type CivApi } from './api';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const COUNCIL_KNOBS = defineKnobs('council', {
   /** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */
   MIN_SIZE: 8,
@@ -157,7 +157,6 @@ export const COUNCIL_KNOBS = defineKnobs('council', {
   FIEF_WAR: 0.4,
   FIEF_LOSS: 2,
 });
-const { MIN_SIZE, MIN_AGE, REST, REST_SHELVED, ADMIN_FULL, LIFT, COST, REMIT_0, SHOCK, SHOCK_YEARS, REBEL_MIN, SETTLE, JITTER, PURSE_LOW, UNTAX_0, UNTAX_BROKE, UNTAX_DEV, CUT_AGE, PURSE_CUT, CUT_U, CUT_0, CUT_ADMIN, CUT_WAR, CUT_U_W, CUT_SHARE, CUT_DONE, CUT_SHELVE, GAIN_MIN, PURSE_TAX, DEV_TAX, TAX_0, TAX_ADMIN, TAX_DEV, TAX_BROKE, TAX_U, TAX_STAKE, TAX_LORD, TAX_DONE, TAX_HALF, TAX_SHELVE, UNFIEF_AGE, AF_UNFIEF, UNFIEF_U, PURSE_UNFIEF, UNFIEF_0, UNFIEF_ADMIN, UNFIEF_U_W, UNFIEF_DEV, UNFIEF_DONE, UNFIEF_SHELVE, FIEF_U, FIEF_SHARE, FIEF_SIZE, FIEF_0, FIEF_UW, FIEF_WAR, FIEF_LOSS } = COUNCIL_KNOBS.values;
 
 
 // ---- 改军制 ----
@@ -265,7 +264,10 @@ const LEAVE_KEEP = 0;
 const LEAVE_BREAK = -0.9;
 
 // 议题、结果的编号,定下的规矩怎么随史事改(Rules、applyRule),分封、边镇、分镇的几个常数在 councilRules.ts
-export { COUNCIL_CONSTS, cutDone, reorgCap, councilBefore } from './councilRules';
+export { councilConsts, cutDone, reorgCap, councilBefore } from './councilRules';
+
+/** 这张表的值(一套数里取出来的) */
+export type CouncilKnobs = typeof COUNCIL_KNOBS.values;
 
 export interface CouncilModel {
   /** 国家 p 此刻的规矩(没议过 = 原样) */
@@ -298,10 +300,14 @@ function rulesOf(book: Map<number, Rules>, p: number): Rules {
 }
 
 /** 议得起来的国家:至少几州、立国满几年;割据满几年才议削藩(界面上说明用) */
-export const COUNCIL_GATE = { size: MIN_SIZE, age: MIN_AGE, cutAge: CUT_AGE } as const;
+export function councilGate(knobs: KnobSet): { size: number; age: number; cutAge: number } {
+  const { MIN_SIZE, MIN_AGE, CUT_AGE } = knobs.get(COUNCIL_KNOBS);
+  return { size: MIN_SIZE, age: MIN_AGE, cutAge: CUT_AGE };
+}
 
 /** 国家 p 在 year 这一年够不够格议事(州数 n;不看打不打仗) */
-export function councilAble(P: Pick<Polity, 'founded'>, n: number, year: Year): boolean {
+export function councilAble(knobs: KnobSet, P: Pick<Polity, 'founded'>, n: number, year: Year): boolean {
+  const { MIN_SIZE, MIN_AGE } = knobs.get(COUNCIL_KNOBS);
   return n >= MIN_SIZE && year - P.founded >= MIN_AGE;
 }
 
@@ -359,6 +365,7 @@ export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): C
 }
 
 function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel | undefined {
+  const { LIFT, COST, SHOCK_YEARS, SHOCK } = sim.knobs.get(COUNCIL_KNOBS);
   const api = civApi(sim);
   const pm = polityModelOf(sim);
   const pol = politicsModelOf(sim);
@@ -390,7 +397,7 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
       if (p >= NP || !(pm.size[p] > 0)) continue;
       // 有了人口普查(做法表):多收一截、开销打折
       const census = r.tax > 0 && hasPractice(cm.practices(p, t), Practice.Census);
-      lift[p] = LIFT[r.tax] * af(admin[p]) * (census ? CENSUS_LIFT : 1);
+      lift[p] = LIFT[r.tax] * af(sim.knobs.get(COUNCIL_KNOBS), admin[p]) * (census ? CENSUS_LIFT : 1);
       cost[p] = COST[r.tax] * (census ? CENSUS_COST : 1);
       fief[p] = r.fief !== undefined ? 1 : 0;
       const age = t - r.shock;
@@ -414,11 +421,13 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
 }
 
 /** 行政能力 → 管得满几成 */
-function af(admin: number): number {
-  return Math.min(1, Math.max(0, admin) / ADMIN_FULL);
+function af(K: CouncilKnobs, admin: number): number {
+  return Math.min(1, Math.max(0, admin) / K.ADMIN_FULL);
 }
 
 function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, cm: ControlModel, dev: DevModel, base: number, rbase: number, book: Map<number, Rules>, P: Polity, k: number, t: number): void {
+  const { BORDER_C, FIEF_C, REORG_HALF, FIEF_REMIT } = pm.knobs.get(COUNCIL_RULES_KNOBS);
+  const { MIN_SIZE, MIN_AGE, REST_SHELVED, REST, JITTER, REMIT_0, LIFT, PURSE_LOW, COST, UNTAX_0, UNTAX_BROKE, UNTAX_DEV, PURSE_CUT, CUT_U, CUT_AGE, CUT_0, CUT_ADMIN, CUT_WAR, CUT_U_W, CUT_SHARE, CUT_DONE, CUT_SHELVE, PURSE_TAX, DEV_TAX, GAIN_MIN, TAX_0, TAX_ADMIN, TAX_DEV, TAX_BROKE, TAX_U, TAX_STAKE, TAX_LORD, TAX_DONE, TAX_HALF, TAX_SHELVE, UNFIEF_AGE, AF_UNFIEF, UNFIEF_U, PURSE_UNFIEF, UNFIEF_0, UNFIEF_ADMIN, UNFIEF_U_W, UNFIEF_DEV, UNFIEF_DONE, UNFIEF_SHELVE, FIEF_U, FIEF_SIZE, FIEF_SHARE, FIEF_0, FIEF_UW, FIEF_WAR, FIEF_LOSS } = pm.knobs.get(COUNCIL_KNOBS);
   const api = civApi(sim);
   const p = P.id;
   if (pm.size[p] < MIN_SIZE || t - P.founded < MIN_AGE) return;
@@ -434,7 +443,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const capR = pm.settlements[capitalAt(P, t)].region;
   // 国都所在州的行政能力(发展度;不读数表的输入表:接着推时它要到下一年年初才填)
   const admin = dev.cur[capR * CAP_COUNT + Cap.Administration] || 0;
-  const a = af(admin);
+  const a = af(pm.knobs.get(COUNCIL_KNOBS), admin);
   // 说了算的人的倾向:在位的君主,有人掌着实权就是掌权的人(regents.ts)
   const ruler = rulingLeanings(pm, p, t);
   const keen = (ruler.develop - 50) / 50;
@@ -660,7 +669,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const register = has(Practice.Register);
   if (r.tax < (register ? 2 : 1) && ready(Issue.Tax) && (broke > 0 || purse < PURSE_TAX || ruler.develop >= DEV_TAX)) {
     // 朝廷按行政能力高估一档来算
-    const guess = shift(r.tax, 2, af(admin + 1)) - (COST[2] - COST[r.tax]) * costK * owed;
+    const guess = shift(r.tax, 2, af(pm.knobs.get(COUNCIL_KNOBS), admin + 1)) - (COST[2] - COST[r.tax]) * costK * owed;
     if (guess >= GAIN_MIN * owed) {
       const stake = shift(r.tax, 2, a) / owed;
       const foe = best;
@@ -758,11 +767,12 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
 
 /** 谈崩时地方能不能在 r 州割据:有这州、这些年没换过国家(和分裂、割据一样要 SETTLE 年)、不是干预永久划给这国的、国家没被禁止分裂 */
 function canRise(wm: WarModel, cm: ControlModel, p: number, r: number, t: number): boolean {
-  return r >= 0 && t - wm.since[r] >= SETTLE && !wm.iv?.locked(r, t) && !wm.iv?.unites(p, t) && cm.canRaise(p, r, t);
+  return r >= 0 && t - wm.since[r] >= wm.pm.knobs.get(COUNCIL_KNOBS).SETTLE && !wm.iv?.locked(r, t) && !wm.iv?.unites(p, t) && cm.canRaise(p, r, t);
 }
 
 /** 削藩谈崩:割据 w 带着地盘(连同被切断的碎块)起兵自立的州组(升序)和国都;起不了兵(起事的州或碎块里有刚换过国家的州……)= null */
 function rebelPlan(api: CivApi, pol: PoliticsModel, wm: WarModel, w: Warlord, dom: number[], t: number): { group: number[]; sid: number } | null {
+  const { SETTLE, REBEL_MIN } = wm.pm.knobs.get(COUNCIL_KNOBS);
   if (!api.politics.secede || !api.politics.cutOff || !api.politics.biggestCity || wm.iv?.unites(w.p, t)) return null;
   // 和分裂一样:SETTLE 年内换过国家的州、干预永久划给这国的州不跟着起兵
   const group = dom.filter((q) => t - wm.since[q] >= SETTLE && !wm.iv?.locked(q, t)).sort((x, y) => x - y);
@@ -778,6 +788,7 @@ function rebelPlan(api: CivApi, pol: PoliticsModel, wm: WarModel, w: Warlord, do
  * 走不成(起事的州不在里面、碎块里有刚换过国家的州、剩下的州已经不挨着邻国 q)= null
  */
 function leaveGroup(api: CivApi, pol: PoliticsModel, wm: WarModel, reg: PolityModel['terrain']['regions'], owner: ArrayLike<number>, w: Warlord, dom: number[], q: number, t: number): number[] | null {
+  const { SETTLE } = wm.pm.knobs.get(COUNCIL_KNOBS);
   if (!api.politics.cutOff) return null;
   const group = dom.filter((x) => t - wm.since[x] >= SETTLE && !wm.iv?.locked(x, t)).sort((x, y) => x - y);
   if (!group.includes(w.region)) return null;

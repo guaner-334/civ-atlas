@@ -36,10 +36,10 @@ import type { TableEngine } from './engine/tables';
 import type { PopRuleConsts } from './stateTables';
 import { fpow } from './engine/rand';
 import { civApi } from './api';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const POPULATION_KNOBS = defineKnobs('population', {
   /** 几年算一步(搬家要算每条邻边,每年算太慢;钱粮每 10 年读一次、快照每 10 年一份,都对得齐) */
   POP_EVERY: 5,
@@ -64,31 +64,33 @@ export const POPULATION_KNOBS = defineKnobs('population', {
   SLUMP_HOLD: 0.7,
   RIVER_SILT: 0.5,
 });
-const { POP_EVERY, MIG, FLEE, HIT, FADE, ABROAD, MOUNTAIN_W, STRAIT_W, LAND_REST, WEAR, SCORCH, BLIGHT, LAND_FLOOR, SLUMP_HOLD, RIVER_SILT } = POPULATION_KNOBS.values;
 /** 往"该有的"靠拢:每年缺口(或多出来的)的 1 / RECOVER(和城被洗劫后长回来一样快) */
 const RECOVER = SACK_RECOVER;
 /** 地经不经得住种(按地块的生物群落,见地貌表的 soilFragility);流着、挨着大河的有淤泥补,乘 RIVER_SILT */
 const FRAGILE = biomeColumn('soilFragility');
 
-/** 乡村人口的常数(见 stateTables.ts) */
-export const POP_CONSTS: PopRuleConsts = {
-  GROWTH_A,
-  POP_EVERY,
-  RECOVER,
-  MIG,
-  FLEE,
-  HIT,
-  FADE,
-  FADE_STEP: fpow(FADE, POP_EVERY),
-  ABROAD,
-  MOUNTAIN_W,
-  STRAIT_W,
-  LAND_REST,
-  WEAR,
-  SCORCH,
-  BLIGHT,
-  LAND_FLOOR,
-};
+/** 乡村人口的常数(见 stateTables.ts;按这个世界的那套数) */
+export function popConsts(knobs: KnobSet): PopRuleConsts {
+  const { POP_EVERY, MIG, FLEE, HIT, FADE, ABROAD, MOUNTAIN_W, STRAIT_W, LAND_REST, WEAR, SCORCH, BLIGHT, LAND_FLOOR } = knobs.get(POPULATION_KNOBS);
+  return {
+    GROWTH_A,
+    POP_EVERY,
+    RECOVER,
+    MIG,
+    FLEE,
+    HIT,
+    FADE,
+    FADE_STEP: fpow(FADE, POP_EVERY),
+    ABROAD,
+    MOUNTAIN_W,
+    STRAIT_W,
+    LAND_REST,
+    WEAR,
+    SCORCH,
+    BLIGHT,
+    LAND_FLOOR,
+  };
+}
 
 /** 存档要存的表(接着推时填回) */
 export const POP_TABLES = ['垦', '兵祸', '地力', '乡民', '乡口', '州地力'] as const;
@@ -190,6 +192,7 @@ export interface PopLayer {
  * 乡村人口最后一步(不晚于它的整 POP_EVERY 年)以前的折损、兵灾算过了(一步只看那一刻以前的),之后的接着看
  */
 export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: TableEngine, resumed: Year | null): PopLayer {
+  const { POP_EVERY, RIVER_SILT, SLUMP_HOLD } = sim.knobs.get(POPULATION_KNOBS);
   const api = civApi(sim);
   const R = dev.R;
   const from = resumed === null ? null : Math.floor(resumed / POP_EVERY) * POP_EVERY;

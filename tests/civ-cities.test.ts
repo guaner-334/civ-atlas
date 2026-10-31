@@ -18,6 +18,7 @@ import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { describeCiv, nearestSettlement } from '../src/ui/civDescribe';
 import { setCivTime } from '../src/ui/civView';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 const worlds = new Map<string, World>();
 function world(p: WorldParams): World {
@@ -271,7 +272,7 @@ describe('城市兴衰 · 推演', () => {
       }
       for (const r of civ.routes) if (r.abandoned !== undefined) expect(r.abandoned).toBeGreaterThan(r.built);
       // 修路用的城:同一处城址先后的城合成一座,毁了没重建的记 ended
-      const rc = routeCities(civ.settlements, civ.polities, civ.endYear);
+      const rc = routeCities(OFFICIAL_KNOBS, civ.settlements, civ.polities, civ.endYear);
       expect(new Set(rc.map((c) => c.cell)).size).toBe(rc.length);
       for (const c of rc) if (c.ended !== undefined) expect(ruins.has(c.cell)).toBe(true);
       expect(w.mesh.n).toBeGreaterThan(0);

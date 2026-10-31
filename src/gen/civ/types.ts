@@ -8,6 +8,7 @@
  */
 import type { World, Progress } from '../world';
 import type { Intervention } from '../edits';
+import type { KnobPatch, KnobValue } from './engine/knobs';
 
 /** 文明纪年:0 = 第一批定居者;界面显示方式另定 */
 export type Year = number;
@@ -617,6 +618,11 @@ export interface Civ {
   /** 「天灾」设定(CivParams.calamity;平常 = 不写)。resumeCiv 接着推时要用 */
   calamity?: import('./calamity').Calamity;
   /**
+   * 这个世界用的一套数(CivParams.knobs,清理过的;官方 = 不写)。接着推、讲故事、界面里现算的(人物的岁数、在位年数……)都按它取
+   * (civ/knobs.ts 的 knobsOf)
+   */
+  knobs?: KnobPatch;
+  /**
    * 大迁徙(migration.ts):按动身先后,每一次一条(下标 = 史事 trek 的 war 列)。还在路上的那支,路线和到每一州的年份
    * 动身时就定了(可能比 endYear 晚);落脚、结局到了那一刻才填。resumeCiv 接着推时要用。旧版本的历史、没有文明 = 不给
    */
@@ -1219,6 +1225,8 @@ export interface CivBase {
   seed: number;
   /** 划州用的每州目标面积(CivParams.regionArea) */
   regionArea: number;
+  /** 划州用的那张旋钮表(regions.ts 的 REGIONS_KNOBS 在这个世界的那套数里的值;对不上也不用) */
+  regionKnobs: Readonly<Record<string, KnobValue>>;
   habitat: Habitat;
   regions: Regions;
 }
@@ -1276,6 +1284,12 @@ export interface CivParams {
    * 照原样打开的旧版本世界,按现在的生成器生成的"没改过的星球"不一定是它原来那一颗。不给 = 照着起;没改过地形的世界不看它
    */
   placeRef?: false;
+  /**
+   * 这个世界的一套数(engine/knobs.ts):推演里各子系统"调参"那一段的数,只写和官方不一样的项(表 id → 项名 → 值;推演前先清理,
+   * 认不出的表、项,值不合用的当没有)。不给 / 清理完是空的 = 官方(和没有这一项逐字节一样)。
+   * 接着推(continueCiv、startContinue)时不给 = 照 civ 带着的那一套
+   */
+  knobs?: KnobPatch;
 }
 
 /**

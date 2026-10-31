@@ -67,7 +67,7 @@ import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const POLITICS_KNOBS = defineKnobs('politics', {
   /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
   POL_FIRST: 60,
@@ -173,13 +173,13 @@ export const POLITICS_KNOBS = defineKnobs('politics', {
   EDGE_SPACING: 0.6,
   EDGE_P: 0.12,
 });
-const { POL_FIRST, POL_EVERY, SETTLE, SPLIT_MIN_SIZE, SPLIT_AGE, SPLIT_REST, SPLIT_REACH, FOREIGN_D, RECENT, RECENT_D, CRISIS_YEARS, CRISIS_CAPITAL, CRISIS_WAR, CRISIS_LOSS, SIZE_D, DYNASTY_YEARS, CRISIS_DYNASTY, SPLIT_ODDS, SPLIT_K, SPLIT_D0, RISE_JITTER, LORD_D, GROUP_DROP, GROUP_MIN_D, GROUP_KIN, GROUP_COMPACT, SPLIT_MIN_GROUP, SPLIT_MAX_GROUP, SPLIT_FRAC, MERGE_SMALL, MERGE_AGE, MERGE_RATIO, MERGE_ODDS, CAPMOVE_MIN, CAPMOVE_AGE, CAPMOVE_REST, ECC_RATIO, ECC_PRE, FRONT_RATIO, CAPMOVE_POP, CENTER_L, CAPMOVE_TOP, CAPMOVE_P, RESTORE_FIRST, RESTORE_EVERY, RESTORE_TRIES, RESTORE_ODDS, RESTORE_FOREIGN, W_WAR, W_SPLIT, W_CAP, W_LOSS, RECENT_SPLIT, RESTORE_MIN_OWNER, RESTORE_MIN_GROUP, RESTORE_MAX_GROUP, RESTORE_FRAC, TRIBAL_FIRST, TRIBAL_EVERY, EDGE_MENTOR_AGE, EDGE_MENTOR_SIZE, EDGE_CAP, EDGE_POP, EDGE_AGE, EDGE_SPACING, EDGE_P } = POLITICS_KNOBS.values;
 
 
 
 
 
-const EDGE_P_FOREIGN = EDGE_P / 2;
+/** 这张表的值(一套数里取出来的) */
+export type PoliticsKnobs = typeof POLITICS_KNOBS.values;
 
 // 随机数用途编号
 const U_CHECK_T = 1;
@@ -196,6 +196,8 @@ const U_EDGE = 9;
 // 模型
 
 export interface PoliticsModel {
+  /** 这次推演的那套数里分合这张表 */
+  k: PoliticsKnobs;
   pm: PolityModel;
   wm: WarModel;
   base: number;
@@ -220,6 +222,7 @@ function newModel(pm: PolityModel, wm: WarModel, world: World): PoliticsModel {
   let area = 0;
   for (let r = 0; r < R; r++) area += reg.area[r];
   return {
+    k: pm.knobs.get(POLITICS_KNOBS),
     pm,
     wm,
     base: subSeed(pm.seed, 'civ-politics'),
@@ -233,16 +236,19 @@ function newModel(pm: PolityModel, wm: WarModel, world: World): PoliticsModel {
 
 /** 国家 p 第 k 次看内政的时刻 */
 function checkTime(pol: PoliticsModel, p: number, k: number): number {
+  const { POL_FIRST, POL_EVERY } = pol.k;
   return pol.pm.polities[p].founded + POL_FIRST + POL_EVERY * (k + 0.2 + 0.6 * keyed(pol.base, pol.pm.ptag[p], k, U_CHECK_T));
 }
 
 /** 亡国 f(亡于 ended 年)第 k 次看复国的时刻 */
 function restoreTime(pol: PoliticsModel, f: number, ended: Year, k: number): number {
+  const { RESTORE_FIRST, RESTORE_EVERY } = pol.k;
   return ended + RESTORE_FIRST + RESTORE_EVERY * (k + 0.2 + 0.6 * keyed(pol.base, pol.pm.ptag[f], k, U_RESTORE_T));
 }
 
 /** 第 k 次看部落地带的时刻 */
 function tribalTime(pol: PoliticsModel, k: number): number {
+  const { TRIBAL_FIRST, TRIBAL_EVERY } = pol.k;
   return TRIBAL_FIRST + TRIBAL_EVERY * (k + 0.2 + 0.6 * keyed(pol.base, k, 0, U_TRIBAL_T));
 }
 
@@ -272,6 +278,7 @@ export function installPolitics(sim: CivSim, pm: PolityModel, world: World): Pol
 }
 
 function hook(sim: CivSim, pol: PoliticsModel): void {
+  const { CRISIS_YEARS, SETTLE, SIZE_D, SPLIT_MIN_SIZE, CRISIS_CAPITAL, CRISIS_WAR, CRISIS_LOSS, SPLIT_AGE, SPLIT_REST, DYNASTY_YEARS, CRISIS_DYNASTY, SPLIT_REACH, LORD_D, FOREIGN_D, RECENT, RECENT_D, RISE_JITTER, SPLIT_ODDS, SPLIT_K, SPLIT_D0, SPLIT_MAX_GROUP, SPLIT_MIN_GROUP, SPLIT_FRAC, GROUP_MIN_D, GROUP_DROP, GROUP_KIN, GROUP_COMPACT, MERGE_SMALL, MERGE_AGE, MERGE_RATIO, MERGE_ODDS, CAPMOVE_MIN, CAPMOVE_AGE, CAPMOVE_REST, ECC_PRE, CENTER_L, CAPMOVE_POP, CAPMOVE_TOP, ECC_RATIO, FRONT_RATIO, CAPMOVE_P, RESTORE_MIN_OWNER, W_WAR, RECENT_SPLIT, W_SPLIT, W_CAP, W_LOSS, RESTORE_FOREIGN, RESTORE_ODDS, RESTORE_MAX_GROUP, RESTORE_MIN_GROUP, RESTORE_FRAC, RESTORE_TRIES, EDGE_MENTOR_AGE, EDGE_MENTOR_SIZE, EDGE_CAP, EDGE_AGE, EDGE_POP, EDGE_P, EDGE_SPACING } = pol.k;
   const api = civApi(sim);
   models.set(sim, pol);
   const { pm, wm } = pol;
@@ -815,7 +822,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
       const r = s.region;
       if (s.capitalFrom !== undefined || s.ended !== undefined || owner[r] >= 0 || culture[r] < 0 || api.polity.closed?.(r, -1, t)) continue;
       // 自己的"立国"事件已经处理过(当时没立成);同一刻的还在排队,不重复预约
-      if (pm.near[r] === 0 && quantize(foundingYear(s)) < t) {
+      if (pm.near[r] === 0 && quantize(foundingYear(pm.knobs, s)) < t) {
         sim.schedule(t, Ev.PolityFound, r, s.id);
         continue;
       }
@@ -824,7 +831,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
       const m = mentorOf(r, t);
       if (m < 0) continue;
       const M = pm.polities[m];
-      if (keyed(pol.base, pm.stag[s.id], k, U_EDGE) >= (culture[r] === M.culture ? EDGE_P : EDGE_P_FOREIGN)) continue;
+      if (keyed(pol.base, pm.stag[s.id], k, U_EDGE) >= (culture[r] === M.culture ? EDGE_P : EDGE_P / 2)) continue;
       if (!caps) {
         caps = new Uint8Array(R);
         for (const P of pm.polities) if (P.ended === undefined) caps[capRegion(P.id, t)] = 1;
@@ -846,6 +853,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
  * 再按"国家 + 第几次"算出还没到的看内政、看复国、看部落地带,补进引擎。
  */
 export function resumePolitics(sim: CivSim, world: World, civ: Civ): void {
+  const { RESTORE_TRIES } = sim.knobs.get(POLITICS_KNOBS);
   const pm = polityModelOf(sim);
   const wm = warModelOf(sim);
   if (!pm || !wm) return;

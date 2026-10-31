@@ -25,22 +25,7 @@ import { capitalAt } from './growth';
 import { reignBorn, type Reign } from './rulers';
 import { broodOf } from './royals';
 import {
-  BRIDE_FATHER,
-  GROOM_AGE,
-  GROOM_SELF,
-  IV_AT_WAR,
-  IV_NO_BRIDE,
-  IV_NO_GROOM,
-  IV_NO_PARTNER,
-  KIN_BETRAY,
-  KIN_DECLARE,
-  MARRY_ALLY,
-  MARRY_MAX,
-  MARRY_PER,
-  MUTUAL,
-  PEACE_MATCH,
-  UNCLE_DECLARE,
-  YOUNG_RULER,
+  MARRIAGES_KNOBS,
   bondOf,
   kinKey,
   lastMatch,
@@ -86,7 +71,7 @@ export function marriageModelOf(sim: CivSim): MarriageModel | undefined {
 }
 
 function newModel(pm: PolityModel): MarriageModel {
-  const cx: MatchCtx = { rbase: pm.rbase, tag: pm.rtag, polities: pm.polities, book: (pid, t) => bookOf(pm, pid, t) };
+  const cx: MatchCtx = { knobs: pm.knobs, rbase: pm.rbase, tag: pm.rtag, polities: pm.polities, book: (pid, t) => bookOf(pm, pid, t) };
   return { pm, cx, base: subSeed(pm.seed, 'civ-marriage'), list: [], pair: new Map(), groom: new Map() };
 }
 
@@ -119,6 +104,7 @@ export function resumeMarriage(sim: CivSim, civ: Civ): void {
 }
 
 function hook(sim: CivSim, mm: MarriageModel): void {
+  const { KIN_FADE, GROOM_AGE, YOUNG_RULER, GROOM_SELF, BRIDE_FATHER, MARRY_MAX, MARRY_PER, MARRY_ALLY, MUTUAL, IV_NO_PARTNER, IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, PEACE_MATCH, KIN_DECLARE, UNCLE_DECLARE, KIN_BETRAY } = mm.pm.knobs.get(MARRIAGES_KNOBS);
   const api = civApi(sim);
   models.set(sim, mm);
   const { pm } = mm;
@@ -136,7 +122,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
     }
     return false;
   };
-  const bond = (p: number, q: number, t: Year) => bondOf(mm.pair.get(kinKey(p, q)), t, fought(p, q));
+  const bond = (p: number, q: number, t: Year) => bondOf(KIN_FADE, mm.pair.get(kinKey(p, q)), t, fought(p, q));
   const married = (p: number, born: Year) => mm.groom.has(`${p}:${born}`);
   /** 君主 r(国家 p)的母亲出自哪国(她是联姻嫁来的;不是 = −1) */
   const mothers = new WeakMap<Reign, number>();
@@ -146,7 +132,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
     let out = -1;
     const P = pm.polities[p];
     const f = r.k > 0 ? bookOf(pm, p, r.from)[r.k - 1] : undefined;
-    if (f && !r.crown && !r.seize && !f.crown && f.dynasty === r.dynasty && r.from === f.natural && broodOf(pm.rbase, pm.rtag[p], f, P).heir === reignBorn(r)) {
+    if (f && !r.crown && !r.seize && !f.crown && f.dynasty === r.dynasty && r.from === f.natural && broodOf(pm.knobs, pm.rbase, pm.rtag[p], f, P).heir === reignBorn(r)) {
       const fb = reignBorn(f);
       out = lastMatch(mm.groom.get(`${p}:${fb}`), p, fb, reignBorn(r))?.b ?? -1;
     }
@@ -161,7 +147,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
     const r = rulerOf(pm, p, t);
     if (r.crown) return null;
     const ok = (born: Year) => t - born >= GROOM_AGE[0] && t - born <= GROOM_AGE[1] && !married(p, born);
-    const br = broodOf(pm.rbase, pm.rtag[p], r, P);
+    const br = broodOf(pm.knobs, pm.rbase, pm.rtag[p], r, P);
     if (br.heir !== undefined && ok(br.heir)) return { code: r.k * 16, born: br.heir };
     const self = reignBorn(r);
     if (t - self <= YOUNG_RULER && ok(self)) return { code: r.k * 16 + GROOM_SELF, born: self };
@@ -223,7 +209,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
     const book = bookOf(pm, p, t);
     for (let k = r.k; k >= 0 && book[k] && book[k].dynasty === r.dynasty; k--) {
       if (book[k].crown) continue;
-      const br = broodOf(pm.rbase, pm.rtag[p], book[k], P);
+      const br = broodOf(pm.knobs, pm.rbase, pm.rtag[p], book[k], P);
       // 预定的继承人:在位君主的;先前几位的(父亲被作者让他去世、让位,他没即位)也算,接着即了位的不算(他就是后来的君主)
       const hb = br.heir;
       if (hb !== undefined && Math.round(hb) === who.born && (k === r.k || Math.round(reignBorn(book[k + 1])) !== who.born)) return { code: k * 16, born: hb };

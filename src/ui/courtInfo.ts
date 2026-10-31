@@ -11,7 +11,8 @@
  *   直征 / 监军和禁军 / 参半和铨选比现在那档高的画斜纹,下面一句写要等什么。
  */
 import type { Annal, Civ, Year } from '../gen/civ/types';
-import { COUNCIL_CONSTS, COUNCIL_GATE, councilAble, courtRulesAt, type CourtRules } from '../gen/civ/council';
+import { councilAble, councilConsts, councilGate, courtRulesAt, type CourtRules } from '../gen/civ/council';
+import { knobsOf } from '../gen/civ/knobs';
 import { councilBefore } from '../gen/civ/councilRules';
 import { LORD_BYTE, controlAt, controlShare } from '../gen/civ/control';
 import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
@@ -117,18 +118,20 @@ export function courtView(civ: Civ, p: number, year: Year): CourtView {
   const own = owners.polity;
   let n = 0;
   for (let r = 0; r < own.length; r++) if (own[r] === p) n++;
-  const able = councilAble(civ.polities[p], n, year);
+  const knobs = knobsOf(civ);
+  const able = councilAble(knobs, civ.polities[p], n, year);
   const fiefs: number[] = [];
   const snap = rules.fiefBy >= 0 ? controlAt(civ, year) : null;
   if (snap) {
-    for (let r = 0; r < own.length; r++) if (own[r] === p && isFief(snap[r])) fiefs.push(r);
+    const { FIEF_C } = councilConsts(knobs);
+    for (let r = 0; r < own.length; r++) if (own[r] === p && isFief(FIEF_C, snap[r])) fiefs.push(r);
     const named = src.annals[rules.fiefBy].region;
     const pop = new Map(fiefs.map((r) => [r, regionPopulationAt(civ, r, year)]));
     fiefs.sort((a, b) => Number(b === named) - Number(a === named) || pop.get(b)! - pop.get(a)! || a - b);
   }
   const lords = lordsAt(civ, year).filter((w) => w.p === p);
   const row = fiscalAt(civ, p, year)?.values;
-  const { FIEF_REMIT } = COUNCIL_CONSTS;
+  const { FIEF_REMIT } = councilConsts(knobs);
   return {
     rules,
     annals: src.annals,
@@ -143,15 +146,15 @@ export function courtView(civ: Civ, p: number, year: Year): CourtView {
   };
 }
 
-/** 快照里的一个数是不是封地的样子(在国家里、不是割据、管得到三成半以下);国家分封着没有另看 */
-function isFief(v: number): boolean {
-  return v > 0 && v !== LORD_BYTE && controlShare(v) < COUNCIL_CONSTS.FIEF_C;
+/** 快照里的一个数是不是封地的样子(在国家里、不是割据、管得到 fiefC 以下;这个世界的 FIEF_C);国家分封着没有另看 */
+function isFief(fiefC: number, v: number): boolean {
+  return v > 0 && v !== LORD_BYTE && controlShare(v) < fiefC;
 }
 
 /** 州卡片:r 州第 year 年是不是封地(归 p 国、p 国分封着、管得到三成半以下) */
 export function isFiefRegion(civ: Civ, p: number, r: number, year: Year): boolean {
   const v = controlAt(civ, year)?.[r];
-  if (p < 0 || !v || !isFief(v)) return false;
+  if (p < 0 || !v || !isFief(councilConsts(knobsOf(civ)).FIEF_C, v)) return false;
   return courtRulesAt(civ.history ?? civ, p, year).fiefBy >= 0;
 }
 
@@ -417,7 +420,7 @@ export function lordName(civ: Civ, w: LordNow): string {
 
 /** 割据底下一句:名义上还归本国、一文不交;议没议过削藩 */
 export function lordFoot(civ: Civ, p: number, v: CourtView, year: Year, era?: Era | null): string {
-  const age = COUNCIL_GATE.cutAge;
+  const age = councilGate(knobsOf(civ)).cutAge;
   if (!v.lords.length) return `割据满 ${age} 年,朝廷才会议削藩。`;
   const P = civ.polities[p];
   const k = wan(v.lordKept);
@@ -522,8 +525,9 @@ function revoltThen(civ: Civ, e: Annal): string | null {
 }
 
 /** 没议过事时那一块写什么(列的是会议的几类事,和 ISSUE_NAMES 对得上:征税、分封 / 改土归流、削藩、兵权、任免、分镇、脱离) */
-export function courtEmpty(): string {
-  return `还没议过事。国家到 ${COUNCIL_GATE.size} 个州、立国满 ${COUNCIL_GATE.age} 年,不打仗的年份里朝廷隔些年会议一件事:改征税的法子、分封或收回边地、削藩、收放兵权、收放任免、分镇、脱离。`;
+export function courtEmpty(civ: Civ): string {
+  const gate = councilGate(knobsOf(civ));
+  return `还没议过事。国家到 ${gate.size} 个州、立国满 ${gate.age} 年,不打仗的年份里朝廷隔些年会议一件事:改征税的法子、分封或收回边地、削藩、收放兵权、收放任免、分镇、脱离。`;
 }
 
 /** 地图上圈亮时的小牌子:"关右等 31 州封地"、"崇门之野等 7 州割据" */

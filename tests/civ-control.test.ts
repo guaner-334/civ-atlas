@@ -9,6 +9,7 @@ import { finishDevelopment } from '../src/gen/civ/development';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlStats, controlTier } from '../src/gen/civ/control';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -50,7 +51,7 @@ describe('中央管到什么程度', () => {
           if (own.polity[r] < 0) expect(v, `seed ${seed} 第 ${y} 年 州 ${r}`).toBe(0);
           else {
             expect(v === LORD_BYTE || (v >= 1 && v <= 101), `seed ${seed} 第 ${y} 年 州 ${r}:${v}`).toBe(true);
-            seen[controlTier(v)]++;
+            seen[controlTier(OFFICIAL_KNOBS, v)]++;
           }
         }
       }

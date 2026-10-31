@@ -49,6 +49,8 @@ import { sketchGrid, type SketchEdit } from './gen/sketch';
 import { mergeUpheavals, previewUpheaval, type UpheavalPreview, type UpheavalStep } from './gen/civ/upheaval';
 import { computeHabitat } from './gen/civ/habitat';
 import { buildRegions, reshapeRegions } from './gen/civ/regions';
+// 地形大事各段的州(画地图、预览用)按官方的那套数划:世界还不带自己的一套数
+import { OFFICIAL_KNOBS } from './gen/civ/engine/knobs';
 import { applyPatch, composeOnto, cutExact, diffRaster, exactDiff, exactDiffBefore, patchTransferables, type RasterPatch } from './gen/rasterPatch';
 import { rasterizePatch, rasterizePatchSteps, type PatchJob, type PatchProgress, type RasterKeep } from './gen/rasterEdit';
 import type { PixelBox } from './gen/pixelBox';
@@ -602,7 +604,7 @@ function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: S
   // 照原样读进来的旧世界和现在的版本生成的同一个世界键一样、地形不一样:州分开记;同一张地图上的几段历史州也不一样(文明种子)
   const k0 = `${frozen?.key === keyOf(params, terrain, sketch) ? 'frozen:' : ''}${seed === params.seed ? '' : `civ${seed}:`}${keyOf(params, terrain, sketch)}`;
   let w = worldOf(params, terrain, sketch);
-  let r = regionsMemo.get(k0) ?? remember(k0, buildRegions(w, computeHabitat(w), { regionArea: REGION_AREA, seed }));
+  let r = regionsMemo.get(k0) ?? remember(k0, buildRegions(w, computeHabitat(w), { regionArea: REGION_AREA, seed, knobs: OFFICIAL_KNOBS }));
   let ops: TerrainOp[] = [...(terrain ?? [])];
   let chain = k0;
   for (const s of steps) {
@@ -612,7 +614,7 @@ function baseAt(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: S
     if (s.year === year) break;
     const prev = r;
     chain = `${chain}>${s.key}`;
-    r = regionsMemo.get(chain) ?? remember(chain, reshapeRegions(w, computeHabitat(w), prev, { regionArea: REGION_AREA, seed }));
+    r = regionsMemo.get(chain) ?? remember(chain, reshapeRegions(w, computeHabitat(w), prev, { regionArea: REGION_AREA, seed, knobs: OFFICIAL_KNOBS }));
   }
   return { world: w, regions: r, ops };
 }
@@ -1301,7 +1303,7 @@ async function handle(m: Queued): Promise<void> {
       const seed = m.civSeed ?? m.params.seed;
       const at = baseAt(m.params, m.terrain, m.sketch, steps, m.year, seed);
       const w1 = cachedWorld(m.params, [...at.ops, ...m.ops], m.sketch).world;
-      return { preview: previewUpheaval(at.world, at.regions, w1, m.ops, REGION_AREA, seed), water: w1.water.slice() };
+      return { preview: previewUpheaval(OFFICIAL_KNOBS, at.world, at.regions, w1, m.ops, REGION_AREA, seed), water: w1.water.slice() };
     };
     // 照原样打开的旧世界上预览新的大事:大事以后的地形只能按现在的版本生成,前后都按现在的版本算(和另存出来的新版一致),不拿两颗星球比
     const pinned = frozen;

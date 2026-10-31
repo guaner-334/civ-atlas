@@ -30,6 +30,7 @@ import { computeHabitat } from '../src/gen/civ/habitat';
 import { reshapeRegions } from '../src/gen/civ/regions';
 import { buildRoutes } from '../src/gen/civ/routes';
 import { searchCiv } from '../src/ui/searchIndex';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
 /** 种子 7 上的三件大事(GENERATOR_VERSION 18):天灵国都一带海水漫进来、埃维里亚的国都莫兰维尔一带火山喷发、哈尔温和对岸之间的海峡隆起 */
@@ -292,7 +293,7 @@ describe('地形大事 · 推演', () => {
       for (const y of [s.founded, Y - 300, Y - 1, Y - 1 / 256]) expect(populationAt(s, y)).toBe(populationAt(a.settlements[s.id], y));
     }
     // 最后一段的道路、航线按新的港口算
-    const rc = new Map(routeCities(b.settlements, b.polities, b.endYear).map((c) => [c.cell, c]));
+    const rc = new Map(routeCities(OFFICIAL_KNOBS, b.settlements, b.polities, b.endYear).map((c) => [c.cell, c]));
     for (const s of moved) if (rc.has(s.cell) && b.settlements.filter((x) => x.cell === s.cell).length === 1) expect(rc.get(s.cell)!.port).toBe(portAt(s, Infinity));
   }, 300_000);
 
@@ -338,13 +339,13 @@ describe('地形大事 · 推演', () => {
     expect(populationAt(back, again - 0.01)).toBeLessThan(32);
     expect(populationAt(back, again + 0.01)).toBeGreaterThanOrEqual(32);
     // 立国:上限够 32 的城,建城满 120 年、人口过 10 就立(第 100 年建城,第 218 年人口过 10,等到第 220 年)
-    expect(foundingYear(fast)).toBe(220);
+    expect(foundingYear(OFFICIAL_KNOBS, fast)).toBe(220);
     // 上限不够 32 的立不了;第 700 年上限往 96 涨(60 年里线性涨),涨到 32 的那一刻起立得了(人口早过了 10)
     const small = { ...fast, capacity: 24 };
-    expect(foundingYear(small)).toBe(Infinity);
-    expect(foundingYear({ ...small, reshaped: [{ year: 700, capacity: 96, port: true }] })).toBeCloseTo(700 + (60 * 8) / 72, 9);
+    expect(foundingYear(OFFICIAL_KNOBS, small)).toBe(Infinity);
+    expect(foundingYear(OFFICIAL_KNOBS, { ...small, reshaped: [{ year: 700, capacity: 96, port: true }] })).toBeCloseTo(700 + (60 * 8) / 72, 9);
     // 还没满 120 年,第 150 年上限就降到 24:立不了
-    expect(foundingYear({ ...fast, reshaped: [{ year: 150, capacity: 24, port: false }] })).toBe(Infinity);
+    expect(foundingYear(OFFICIAL_KNOBS, { ...fast, reshaped: [{ year: 150, capacity: 24, port: false }] })).toBe(Infinity);
     // 城的"最盛":上限涨上去一年就又降下来、那时人口本在往下走(旧都衰落),高点就在降之前那一刻
     const spike: Settlement = {
       ...fast,
@@ -367,17 +368,17 @@ describe('地形大事 · 推演', () => {
     while (!(c.regions.capacity[r] > 0 && W.water[c.regions.seat[r]] === 0)) r++;
     const s: Settlement = { id: 0, cell: c.regions.seat[r], region: r, culture: 0, name: '', founded: 0, capacity: 30, growth: 0.002, port: ports[r] === 1 };
     const zero = { ...c.regions, capacity: c.regions.capacity.map((v, i) => (i === r ? 0 : v)) };
-    const [a] = reshapeCities([s], [{ from: -Infinity, terrain: T }], W, c.habitat, zero, 100, []);
+    const [a] = reshapeCities(OFFICIAL_KNOBS, [s], [{ from: -Infinity, terrain: T }], W, c.habitat, zero, 100, []);
     expect(a.reshaped).toHaveLength(1);
     expect(capacityAt(a, 100)).toBeLessThan(1e-3);
-    const [b] = reshapeCities([a], [{ from: -Infinity, terrain: T }, { from: 100, terrain: cultureTerrain(W, c.habitat, zero) }], W, c.habitat, c.regions, 200, []);
+    const [b] = reshapeCities(OFFICIAL_KNOBS, [a], [{ from: -Infinity, terrain: T }, { from: 100, terrain: cultureTerrain(W, c.habitat, zero) }], W, c.habitat, c.regions, 200, []);
     expect(b.reshaped).toHaveLength(2);
     expect(portAt(b, 200)).toBe(s.port);
     expect(b.reshaped![1].capacity).toBeCloseTo(30, 6);
     // 港口城在大事以前就毁了,大事以后在原址重建的不是港口:航线按重建的那座
     const old: Settlement = { ...s, port: true, ended: 500 };
     const again: Settlement = { ...s, id: 1, port: false, founded: 600, rebuilds: 0 };
-    const [rc] = routeCities([old, again], [], 1000);
+    const [rc] = routeCities(OFFICIAL_KNOBS, [old, again], [], 1000);
     expect(rc.port).toBe(false);
   }, 120_000);
 
@@ -391,7 +392,7 @@ describe('地形大事 · 推演', () => {
     const s: Settlement = { id: 0, cell: c.regions.seat[r], region: r, culture: 0, name: '', founded: 0, capacity: 30, growth: 0.002, port: ports[r] === 1 };
     // 州 r 的人口上限乘 m 时城址系数的变化:找出让系数每次只变 1.5% 的 m
     const scaled = (m: number) => ({ ...c.regions, capacity: c.regions.capacity.map((v, i) => (i === r ? v * m : v)) });
-    const fOf = (regions: typeof c.regions) => siteFactor(cultureTerrain(W, c.habitat, regions), s.port, r);
+    const fOf = (regions: typeof c.regions) => siteFactor(OFFICIAL_KNOBS, cultureTerrain(W, c.habitat, regions), s.port, r);
     const f0 = fOf(c.regions);
     const e = Math.log(fOf(scaled(1.1)) / f0) / Math.log(1.1);
     const step = Math.pow(1.015, 1 / e);
@@ -401,8 +402,8 @@ describe('地形大事 · 推演', () => {
       const year = 100 * k;
       const regions = scaled(Math.pow(step, k));
       // 和紧挨着的前一段比,每件都只变 1.5%
-      expect(fOf(regions) / siteFactor(past[past.length - 1].terrain, s.port, r)).toBeCloseTo(1.015, 3);
-      [city] = reshapeCities([city], past, W, c.habitat, regions, year, []);
+      expect(fOf(regions) / siteFactor(OFFICIAL_KNOBS, past[past.length - 1].terrain, s.port, r)).toBeCloseTo(1.015, 3);
+      [city] = reshapeCities(OFFICIAL_KNOBS, [city], past, W, c.habitat, regions, year, []);
       past.push({ from: year, terrain: cultureTerrain(W, c.habitat, regions) });
       // 每件都记的话上限 = 建城时的 × 现在的系数 ÷ 建城时的系数;只记攒够了的,差不到 2%
       const every = (s.capacity * fOf(regions)) / f0;
@@ -424,45 +425,45 @@ describe('地形大事 · 推演', () => {
     const suitability = Float32Array.from(c.habitat.suitability);
     suitability[s.cell] = 0;
     expect(cultureTerrain(W, { ...c.habitat, suitability }, c.regions).habitable[r]).toBe(0);
-    const [a] = reshapeCities([s], [{ from: -Infinity, terrain: T }], W, { ...c.habitat, suitability }, c.regions, 100, []);
+    const [a] = reshapeCities(OFFICIAL_KNOBS, [s], [{ from: -Infinity, terrain: T }], W, { ...c.habitat, suitability }, c.regions, 100, []);
     expect(portAt(a, Infinity)).toBe(true);
     // 一直没长成镇的小城,第 700 年地形大事以后成了港口:够格修路从 700 年起(不是建城那年)
     const late: Settlement = { ...s, port: false, capacity: 5, reshaped: [{ year: 700, capacity: 5, port: true }] };
-    const [rc] = routeCities([late], [], 1000);
+    const [rc] = routeCities(OFFICIAL_KNOBS, [late], [], 1000);
     expect(rc.port).toBe(true);
     /** 航线够格的年份(routes.ts:成港口那年和 founded 里晚的那个) */
     const seaFrom = (x: { founded: number; portFrom?: number }) => Math.max(x.founded, x.portFrom ?? x.founded);
     expect(rc.founded).toBe(700);
     expect(seaFrom(rc)).toBe(700);
-    const always = routeCities([{ ...late, reshaped: undefined, port: true }], [], 1000)[0];
+    const always = routeCities(OFFICIAL_KNOBS, [{ ...late, reshaped: undefined, port: true }], [], 1000)[0];
     expect(always.founded).toBe(0);
     expect(always.portFrom).toBeUndefined();
     // 早就长成镇、700 年才成港口的:陆路照长成镇那年,航线另记成港口那年
     const grown: Settlement = { ...late, capacity: 3000, growth: 0.02, reshaped: [{ year: 700, capacity: 3000, port: true }] };
-    const [gc] = routeCities([grown], [], 1000);
+    const [gc] = routeCities(OFFICIAL_KNOBS, [grown], [], 1000);
     expect(gc.founded).toBeLessThan(700);
     expect(seaFrom(gc)).toBe(700);
     // 内陆的镇毁了,地形大事以后原址重建成了港口:陆路照老城,航线从重建那年起;一直是港口的城址不另记
     const inlandTown: Settlement = { ...grown, reshaped: undefined, port: false, ended: 500 };
     const rebuiltPort: Settlement = { ...inlandTown, id: 1, port: true, founded: 650, ended: undefined, rebuilds: 0 };
-    const [rp] = routeCities([inlandTown, rebuiltPort], [], 1000);
+    const [rp] = routeCities(OFFICIAL_KNOBS, [inlandTown, rebuiltPort], [], 1000);
     expect(rp.founded).toBeLessThan(500);
     expect(seaFrom(rp)).toBe(650);
-    expect(routeCities([{ ...inlandTown, port: true }, rebuiltPort], [], 1000)[0].portFrom).toBeUndefined();
+    expect(routeCities(OFFICIAL_KNOBS, [{ ...inlandTown, port: true }, rebuiltPort], [], 1000)[0].portFrom).toBeUndefined();
     // 早就长成镇、地形大事把上限降到村子大小的:长成镇那年修的路照样在(不因为结束时不是镇就一条都不修)
     const shrunk: Settlement = { ...grown, port: false, reshaped: [{ year: 700, capacity: 5, port: false }] };
-    const [sc] = routeCities([shrunk], [], 1000);
+    const [sc] = routeCities(OFFICIAL_KNOBS, [shrunk], [], 1000);
     expect(sc).toBeDefined();
     expect(sc.founded).toBe(gc.founded);
     // 快长成镇时被洗劫、人口还没缓过来就碰上地形大事降了上限:从来没当过镇,不修路
     const townish: Settlement = { ...shrunk, capacity: 100, reshaped: undefined };
-    const tY = routeCities([townish], [], 1000)[0].founded;
+    const tY = routeCities(OFFICIAL_KNOBS, [townish], [], 1000)[0].founded;
     expect(tY).toBeGreaterThan(10);
     const sacked: Settlement = { ...townish, sacks: [{ year: tY - 1, loss: 0.95 }], reshaped: [{ year: tY + 5, capacity: 5, port: false }] };
-    expect(routeCities([{ ...sacked, sacks: undefined }], [], 1000)[0].founded).toBe(tY);
-    expect(routeCities([sacked], [], 1000)).toHaveLength(0);
+    expect(routeCities(OFFICIAL_KNOBS, [{ ...sacked, sacks: undefined }], [], 1000)[0].founded).toBe(tY);
+    expect(routeCities(OFFICIAL_KNOBS, [sacked], [], 1000)).toHaveLength(0);
     // 两座港口城之间的航线:有一座 700 年才成港口的,航线从 700 年起
-    const pc = routeCities(c.settlements, c.polities, 3000).filter((x) => x.port && x.ended === undefined);
+    const pc = routeCities(OFFICIAL_KNOBS, c.settlements, c.polities, 3000).filter((x) => x.port && x.ended === undefined);
     const lm = (x: { cell: number }) => c.regions.landmass[c.regions.of[x.cell]];
     let checked = false;
     for (let i = 0; i < pc.length && !checked; i++) {
@@ -470,7 +471,7 @@ describe('地形大事 · 推演', () => {
       if (j < 0) continue;
       const A = { cell: pc[i].cell, major: false, port: true, founded: 0 };
       const B = { cell: pc[j].cell, major: false, port: true, founded: 0 };
-      const seaOf = (cities: (typeof A & { portFrom?: number })[]) => buildRoutes(W, c.habitat, c.regions, { cities }).filter((x) => x.kind === 'sea');
+      const seaOf = (cities: (typeof A & { portFrom?: number })[]) => buildRoutes(W, c.habitat, c.regions, { knobs: OFFICIAL_KNOBS, cities }).filter((x) => x.kind === 'sea');
       const before = seaOf([A, B]);
       if (!before.length) continue;
       expect(before.every((x) => x.built === 0)).toBe(true);
@@ -662,11 +663,11 @@ describe('地形大事 · 推演', () => {
     const civ = civOf([FLOOD]);
     const prior = steps([FLOOD]);
     const both = steps([FLOOD, VOLCANO]);
-    const { world: w0, regions: r0 } = upheavalBase(world(), prior, VOLCANO.year, DEFAULT_CIV_PARAMS.regionArea);
+    const { world: w0, regions: r0 } = upheavalBase(OFFICIAL_KNOBS, world(), prior, VOLCANO.year, DEFAULT_CIV_PARAMS.regionArea);
     expect(w0).toBe(prior[0].world);
     expect(r0.count).toBe(civ.regions.count);
     expect(Array.from(r0.of)).toEqual(Array.from(civ.regions.of));
-    const pv = previewUpheaval(w0, r0, both[1].world, VOLCANO.ops, DEFAULT_CIV_PARAMS.regionArea);
+    const pv = previewUpheaval(OFFICIAL_KNOBS, w0, r0, both[1].world, VOLCANO.ops, DEFAULT_CIV_PARAMS.regionArea);
     const real = civOf([FLOOD, VOLCANO]);
     const f = real.upheavals![1];
     expect([pv.region, pv.drowned, pv.shrunk, pv.grown, pv.added, pv.sunk, pv.risen]).toEqual([f.region, f.drowned, f.shrunk, f.grown, f.added, f.sunk, f.risen]);
@@ -680,13 +681,13 @@ describe('地形大事 · 推演', () => {
   it('预览同一年的第二件:州和两件合成一件真发生以后一样(只算再加的这几笔改了什么)', () => {
     // 第 1600 年已经有海水漫进来,同一年再在同一处抬升:真发生时两件合成一件,从那一年以前的州一次划到底
     const UP: Upheaval = { year: FLOOD.year, ops: [{ kind: 'raise', pts: FLOOD.ops[0].pts, r: 44, s: 1.6 }] };
-    const { world: w0, regions: r0 } = upheavalBase(world(), steps([FLOOD]), FLOOD.year, DEFAULT_CIV_PARAMS.regionArea);
+    const { world: w0, regions: r0 } = upheavalBase(OFFICIAL_KNOBS, world(), steps([FLOOD]), FLOOD.year, DEFAULT_CIV_PARAMS.regionArea);
     expect(w0).toBe(steps([FLOOD])[0].world);
     expect(r0.count).toBe(base().regions.count);
     const w1 = steps([FLOOD, UP])[0].world;
-    const pv = previewUpheaval(w0, r0, w1, UP.ops, DEFAULT_CIV_PARAMS.regionArea);
+    const pv = previewUpheaval(OFFICIAL_KNOBS, w0, r0, w1, UP.ops, DEFAULT_CIV_PARAMS.regionArea);
     const real = civOf([FLOOD, UP]);
-    const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea: DEFAULT_CIV_PARAMS.regionArea, seed: w1.params.seed });
+    const r1 = reshapeRegions(w1, computeHabitat(w1), r0, { regionArea: DEFAULT_CIV_PARAMS.regionArea, seed: w1.params.seed, knobs: OFFICIAL_KNOBS });
     expect(r1.count).toBe(real.regions.count);
     expect(Array.from(r1.of)).toEqual(Array.from(real.regions.of));
     expect(pv.added).toEqual(real.upheavals![0].added);

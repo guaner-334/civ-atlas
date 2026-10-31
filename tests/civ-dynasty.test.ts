@@ -6,7 +6,7 @@ import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../
 import { generateCiv, type Civ, type Polity } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
-import { MIN_AGE, OLD_AGE, dynastyModelOf, dynastyStats } from '../src/gen/civ/dynasty';
+import { DYNASTY_KNOBS, dynastyModelOf, dynastyStats } from '../src/gen/civ/dynasty';
 import { opensSeg } from '../src/gen/civ/regime';
 import {
   capitalAt,
@@ -28,6 +28,8 @@ import { polityLabels } from '../src/render/labels/polity';
 import { REF_MAP_CSS } from '../src/render/labels/draw';
 import { rasterize } from '../src/gen/raster';
 import { resumeCiv } from '../src/gen/civ/modules';
+
+const { MIN_AGE, OLD_AGE } = DYNASTY_KNOBS.values;
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 

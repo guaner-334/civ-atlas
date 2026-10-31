@@ -26,10 +26,10 @@ import type { Person, Polity, Year } from './types';
 import { keyed4 } from './engine/rand';
 import { K_RULER, reignBorn, reignStep, type Reign } from './rulers';
 import { royalSeg, segLineage } from './regime';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参 ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const ROYALS_KNOBS = defineKnobs('royals', {
   /** 亲生儿子 0、1、2……个的机会 */
   SONS: [0.15, 0.25, 0.25, 0.17, 0.11, 0.07] as readonly number[],
@@ -71,8 +71,8 @@ export const ROYALS_KNOBS = defineKnobs('royals', {
   K_SON: 3,
   TICK: 256,
 });
-const { SONS, SON_AGE, SON_GAP, SON_LIFE, HEIR_AFTER, ADOPT, ADOPT_AT, ADOPT_GAP, RIVAL_AGE, MERIT_MIN, CONTEST_ELDER, CONTEST_MERIT, CONTEST_USURP, COUP_KILL, MURDER, CLAIM_AGE, K_SON, TICK } = ROYALS_KNOBS.values;
-export const { POSTHUMOUS, PRINCE_AGE, PRINCE_LEAD, HEIR_WEIGHT } = ROYALS_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type RoyalsKnobs = typeof ROYALS_KNOBS.values;
 
 // 随机数用途
 const U_COUNT = 1;
@@ -85,7 +85,8 @@ const U_MARCH = 7;
 /** 君主的随机数里遇弑那一项(K_RULER;别的用途见 rulers.ts、people.ts) */
 const U_MURDER = 3;
 
-const q = (x: number) => Math.round(x * TICK) / TICK;
+/** 取整到 1/TICK 年 */
+const quant = (x: number, tick: number) => Math.round(x * tick) / tick;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 
 /** 一个儿子 */
@@ -103,8 +104,8 @@ export interface Son {
 }
 
 /** 第 k 位君主在位时遇弑(people.ts 写成 fate murdered) */
-export function murderedAt(base: number, tag: number, k: number): boolean {
-  return keyed4(base, tag, k, U_MURDER, K_RULER) < MURDER;
+export function murderedAt(knobs: KnobSet, base: number, tag: number, k: number): boolean {
+  return keyed4(base, tag, k, U_MURDER, K_RULER) < knobs.get(ROYALS_KNOBS).MURDER;
 }
 
 /** 一位君主命里该有的亲生儿子(和推到哪一年、他哪年去世无关;用的时候再去掉还没出生、他去世以后才生的) */
@@ -116,11 +117,14 @@ export interface Brood {
 }
 
 /** r = 这位君主在在位表里的那一项(寻常君主);p = 他的国家 */
-export function broodOf(base: number, tag: number, r: Reign, p: Pick<Polity, 'lineage' | 'kind' | 'dynasties'>): Brood {
+export function broodOf(knobs: KnobSet, base: number, tag: number, r: Reign, p: Pick<Polity, 'lineage' | 'kind' | 'dynasties'>): Brood {
+  const K = knobs.get(ROYALS_KNOBS);
+  const { SONS, SON_AGE, SON_GAP, K_SON } = K;
+  const q = (x: number) => quant(x, K.TICK);
   const U = (s: number, use: number) => keyed4(base, tag, r.k * 16 + s, use, K_SON);
   const fb = reignBorn(r);
   // 预定的继承人:在位表里的下一位(他不被打断时下台的那一刻即位),年纪合得上他的儿子
-  const next = reignStep(base, tag, r.k + 1, r.j + 1, r.natural, segLineage(p, r.dynasty), p.kind);
+  const next = reignStep(knobs, base, tag, r.k + 1, r.j + 1, r.natural, segLineage(p, r.dynasty), p.kind);
   const hb = q(r.natural - next.age);
   const gap = hb - fb;
   const heir = gap >= 14 && gap < 40;
@@ -138,22 +142,23 @@ export function broodOf(base: number, tag: number, r: Reign, p: Pick<Polity, 'li
     for (let t = 0; t < 8 && births.some((o) => Math.abs(o - b) < SON_GAP); t++) b = q(b + SON_GAP);
     if (births.some((o) => Math.abs(o - b) < SON_GAP)) continue;
     births.push(b);
-    extra.push({ s, born: b, life: sonLife(base, tag, r.k, s, b) });
+    extra.push({ s, born: b, life: sonLife(K, base, tag, r.k, s, b) });
   }
   return heir ? { heir: hb, extra } : { extra };
 }
 
 /** 第 k 位君主的第 s 个儿子(生于 born)寿数到哪年 */
-function sonLife(base: number, tag: number, k: number, s: number, born: Year): Year {
-  return q(born + lerp(SON_LIFE, Math.pow(keyed4(base, tag, k * 16 + s, U_LIFE, K_SON), 0.7)));
+function sonLife(K: RoyalsKnobs, base: number, tag: number, k: number, s: number, born: Year): Year {
+  return quant(born + lerp(K.SON_LIFE, Math.pow(keyed4(base, tag, k * 16 + s, U_LIFE, K.K_SON), 0.7)), K.TICK);
 }
 
 /**
  * 推演里的据地争位(unrest.ts):先君 r 在 t 那一刻寿终、在位表里的下一位即位,先君的儿子里 CLAIM_AGE 岁之间、
  * 还在世的(不算预定的继承人)按长幼排。没有 = 空。人物里起兵的就是其中最年长的那位(people.ts 按生年认)
  */
-export function claimants(base: number, tag: number, r: Reign, p: Pick<Polity, 'lineage' | 'kind'>, t: Year): Year[] {
-  return broodOf(base, tag, r, p)
+export function claimants(knobs: KnobSet, base: number, tag: number, r: Reign, p: Pick<Polity, 'lineage' | 'kind'>, t: Year): Year[] {
+  const { CLAIM_AGE } = knobs.get(ROYALS_KNOBS);
+  return broodOf(knobs, base, tag, r, p)
     .extra.filter((x) => x.born + CLAIM_AGE[0] <= t && x.born + CLAIM_AGE[1] >= t && x.life > t)
     .map((x) => x.born)
     .sort((a, b) => a - b);
@@ -168,10 +173,13 @@ export function buildSons(
   rulers: readonly Person[][],
   reignOf: ReadonlyMap<Person, Reign>,
   /** heirName = 预定的继承人的名字(people.ts 照他接着即位时的起名方法先起好) */
-  opts: { base: number; tag: readonly number[]; endYear: Year; heirName: (ruler: Person) => string },
+  opts: { knobs: KnobSet; base: number; tag: readonly number[]; endYear: Year; heirName: (ruler: Person) => string },
 ): Map<Person, Son[]> {
   const out = new Map<Person, Son[]>();
-  const { base, tag, endYear } = opts;
+  const { knobs, base, tag, endYear } = opts;
+  const K = knobs.get(ROYALS_KNOBS);
+  const { POSTHUMOUS, HEIR_AFTER, ADOPT, ADOPT_AT, ADOPT_GAP, K_SON } = K;
+  const q = (x: number) => quant(x, K.TICK);
   for (const p of polities) {
     if (p.lineage === 'republic') continue;
     const list = rulers[p.id];
@@ -189,9 +197,9 @@ export function buildSons(
         }
         return x;
       };
-      const lifeOf = (s: number, born: Year) => sonLife(base, tag[p.id], r.k, s, born);
+      const lifeOf = (s: number, born: Year) => sonLife(K, base, tag[p.id], r.k, s, born);
       // 先排出所有该有的儿子的生年(和推到哪一年、父亲哪年去世无关),再去掉还没出生、父亲去世以后才生的:往后推不改早先有的儿子
-      const { heir: hb, extra } = broodOf(base, tag[p.id], r, p);
+      const { heir: hb, extra } = broodOf(knobs, base, tag[p.id], r, p);
       const born = (b: Year) => b <= fatherEnd && b <= endYear;
       if (hb !== undefined && born(hb)) {
         const X = list[idx + 1];
@@ -245,8 +253,9 @@ export function contest(
   T: Year,
   sons: readonly Son[],
   k: number,
-  opts: { base: number; tag: number; merit: MeritOf; armed: (p: Person) => boolean; spare?: (p: Person) => boolean },
+  opts: { knobs: KnobSet; base: number; tag: number; merit: MeritOf; armed: (p: Person) => boolean; spare?: (p: Person) => boolean },
 ): ContestResult | null {
+  const { RIVAL_AGE, POSTHUMOUS, CONTEST_USURP, MERIT_MIN, CONTEST_ELDER, CONTEST_MERIT, COUP_KILL, K_SON } = opts.knobs.get(ROYALS_KNOBS);
   const U = (s: number, use: number) => keyed4(opts.base, opts.tag, k * 16 + s, use, K_SON);
   // 日后要摄政的叔父、要结亲的宗室(推演里还要用到他,regents.ts、marriages.ts)不卷进来
   const alive = sons.filter((s) => s.p !== X && s.p.role === 'prince' && s.p.born + RIVAL_AGE <= T && s.end > T && !opts.spare?.(s.p));
@@ -298,8 +307,9 @@ export function march(
   T: Year,
   sons: readonly Son[],
   k: number,
-  opts: { base: number; tag: number; merit: MeritOf; spare?: (p: Person) => boolean },
+  opts: { knobs: KnobSet; base: number; tag: number; merit: MeritOf; spare?: (p: Person) => boolean },
 ): ContestResult {
+  const { RIVAL_AGE, COUP_KILL, K_SON } = opts.knobs.get(ROYALS_KNOBS);
   const U = (s: number, use: number) => keyed4(opts.base, opts.tag, k * 16 + s, use, K_SON);
   const mx = opts.merit(X.p);
   const threats = sons.filter(

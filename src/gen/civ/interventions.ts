@@ -88,7 +88,7 @@ import { bestCapital, polityBorders, warModelOf, type War } from './wars';
 import { politicsModelOf } from './politics';
 import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
-import { REBUILD_GROWTH } from './cities';
+import { CITIES_KNOBS } from './cities';
 import { pioneerArrives } from './cultures';
 import { treatyModelOf } from './treaties';
 import { regencyModelOf } from './regency';
@@ -482,7 +482,7 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     if (sid < 0) {
       let ruin = -1;
       for (const s of S) if (s.region === r && s.ended !== undefined) ruin = s.id;
-      sid = foundCity(sim, pm, r, t, ruin >= 0 ? { of: ruin, growth: REBUILD_GROWTH } : undefined).id;
+      sid = foundCity(sim, pm, r, t, ruin >= 0 ? { of: ruin, growth: pm.knobs.get(CITIES_KNOBS).REBUILD_GROWTH } : undefined).id;
     }
     const extra: Partial<Polity> = {};
     if (v.name) extra.name = v.name;
@@ -731,7 +731,7 @@ function authorLed(sim: CivSim, pm: PolityModel, iv: InterventionModel): (w: War
   /** 让作者的人物掌权的几条:作者人物 → 掌权最晚了结的那一刻 */
   const regentEnd = new Map<number, number>();
   iv.list.forEach((v) => {
-    if (v.kind === 'regent' && v.char !== undefined) regentEnd.set(v.char, Math.max(regentEnd.get(v.char) ?? -Infinity, authorRegentEnd(v, v.from).stop));
+    if (v.kind === 'regent' && v.char !== undefined) regentEnd.set(v.char, Math.max(regentEnd.get(v.char) ?? -Infinity, authorRegentEnd(pm.knobs, v, v.from).stop));
   });
   /** 生效了的带能力任将:哪国、上任那一刻、最晚可能卸任的那一刻 */
   const took: { pid: number; from: number; end: number }[] = [];
