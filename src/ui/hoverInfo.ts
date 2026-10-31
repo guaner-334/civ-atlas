@@ -27,13 +27,11 @@ import { VERDICT_TEXT, getPolityPick, pickVerdict, type PolityPick } from './Int
 import { getPanel } from './panelStore';
 import { currentEra } from './editsStore';
 import { vassalTies } from '../render/civ/vassals';
-import { ERA_COLORS, eraLevelsAt, eraName } from '../render/civ/era';
-import { CONTROL_COLORS, controlOf, lordOf } from '../render/civ/control';
-import { THOUGHT_COLORS, thoughtBand, thoughtFocus, thoughtShare } from '../render/civ/thoughts';
-import { THOUGHTS } from '../gen/civ/ideology';
+import type { NumLayer } from '../render/civ/numLayer';
+import { ERA_LAYER } from '../render/civ/era';
+import { CONTROL_LAYER } from '../render/civ/control';
+import { THOUGHT_LAYER } from '../render/civ/thoughts';
 import { getCivShow } from './civView';
-import { CONTROL_TIERS } from '../gen/civ/control';
-import { eraOf } from '../gen/civ/development';
 
 export interface HoverInfo {
   /** 颜色块(国家 / 民族的颜色) */
@@ -85,12 +83,23 @@ function regionCounts(civ: Civ, year: number, own: Owners): Int32Array {
 
 /** 各州这一年信的教(同一个 civ、同一年只算一次) */
 let faiths: { civ: Civ; year: number; f: Int16Array } | null = null;
-let levels: Float32Array | undefined;
 
 function faithsAt(civ: Civ, year: number): Int16Array {
   if (faiths && faiths.civ === civ && faiths.year === year) return faiths.f;
   faiths = { civ, year, f: faithAt(civ, year, faiths?.f) };
   return faiths.f;
+}
+
+/** 悬停按这个先后找开着的数值填色(思潮在前) */
+const NUM_HOVER: readonly NumLayer[] = [THOUGHT_LAYER, ERA_LAYER, CONTROL_LAYER];
+
+/** 开着的数值填色里头一个说得出这州的:颜色块的颜色(没有 = undefined)、小字;都说不出 = null */
+function numHover(def: { eras?: boolean; control?: boolean; ideology?: boolean }, civ: Civ, year: number, r: number, own: Owners): { color?: string; sub: string } | null {
+  for (const l of NUM_HOVER) {
+    const h = def[l.id] ? l.hover(civ, year, r, own, getCivShow()) : null;
+    if (h) return { color: h.band >= 0 ? rgb(l.bands[h.band].color) : undefined, sub: h.sub };
+  }
+  return null;
 }
 
 export function hoverInfo(p: {
@@ -146,23 +155,10 @@ export function hoverInfo(p: {
       const po = owners.polity[r] >= 0 ? civ.polities[owners.polity[r]] : undefined;
       const cu = owners.culture[r] >= 0 ? civ.cultures[owners.culture[r]] : undefined;
       const fa = def.faiths && civ.religion ? civ.religion.faiths[faithsAt(civ, year)[r]] : undefined;
-      const lv = def.eras && civ.development && cu ? (levels = eraLevelsAt(civ, year, owners, levels))[r] : -1;
-      // 管辖:州名 + 档位(割据写名义上属哪国)
-      const ctl = def.control && po ? controlOf(civ, year, r) : null;
-      // 思潮:州名 + 看的那一说几成(有人住的州;世上还没有思潮时照国家写)
-      const th = def.ideology && civ.ideology && cu ? thoughtFocus(civ, getCivShow(), year) : -1;
-      if (th >= 0) {
-        const a = thoughtShare(civ, year, r, th);
-        const b = thoughtBand(a);
-        info = { color: b >= 0 ? rgb(THOUGHT_COLORS[b]) : undefined, name: regionLabel(civ, r), sub: `${THOUGHTS[th].name} ${Math.round(a * 100)}%` };
-      } else if (lv >= 0) {
-        const { era, progress } = eraOf(lv);
-        info = { color: rgb(ERA_COLORS[era]), name: regionLabel(civ, r), sub: `${eraName(era)} ${Math.floor(progress * 100)}%` };
-      } else if (ctl) {
-        const lord = ctl.tier === 3 ? lordOf(civ, year, r) : null;
-        const nominal = lord && civ.polities[lord.p] ? civ.polities[lord.p] : po!;
-        info = { color: rgb(CONTROL_COLORS[ctl.tier]), name: regionLabel(civ, r), sub: ctl.tier === 3 ? `割据，名义上属${polityName(nominal, year)}` : CONTROL_TIERS[ctl.tier] };
-      } else if (fa) info = { color: rgb(fa.color), name: fa.name, sub: po ? polityName(po, year) : '部落地带' };
+      // 数值填色(思潮、时代、管辖):州名 + 这一层的那句小字(见各层定义的 hover;这州不按那一层说就往下照别的写)
+      const num = numHover(def, civ, year, r, owners);
+      if (num) info = { color: num.color, name: regionLabel(civ, r), sub: num.sub };
+      else if (fa) info = { color: rgb(fa.color), name: fa.name, sub: po ? polityName(po, year) : '部落地带' };
       else if (def.cultures && !def.polities && cu) info = { color: rgb(cu.color), name: cultureLabel(cu), sub: po ? polityName(po, year) : '部落地带' };
       else if (po) info = polityInfo(civ, po, year, owners);
       else if (cu) info = { color: rgb(cu.color), name: cultureLabel(cu), sub: '部落地带' };

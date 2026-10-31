@@ -1,14 +1,15 @@
 /**
  * 时代图层:地图按各州此刻所处的时代上色(色块画法和信仰图层一样,见 territory.ts),留国界、国名。
  *
+ * - 一份数值填色图层的定义(ERA_LAYER,见 numLayer.ts):色块、图例、悬停都从它读。
  * - 色块:把各州的时代换进"民族"那一层(eraCiv)再画 —— 罩染、晕边、按界线判归属、刚进新时代的州慢慢洇开,都沿用民族色块那一套。
  *   时代按 ERA_STEP 年取一次(前后两份快照插值,见 development.ts 的 developmentAt),只有人住的州上色。
  * - 颜色:早的浅、暖,晚的深、冷(ERA_COLORS)。
  */
-import type { Civ, Culture, Year } from '../../gen/civ/types';
-import { Layer } from '../../gen/civ/types';
-import { ERAS, developmentAt, eraLevel } from '../../gen/civ/development';
+import type { Civ, Year } from '../../gen/civ/types';
+import { ERAS, developmentAt, eraLevel, eraOf } from '../../gen/civ/development';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { numCiv, type NumLayer } from './numLayer';
 
 /** 九个时代的颜色(石器 → 未来) */
 export const ERA_COLORS: readonly (readonly [number, number, number])[] = [
@@ -25,9 +26,6 @@ export const ERA_COLORS: readonly (readonly [number, number, number])[] = [
 
 /** 时代图层多少年取一次各州的时代 */
 const ERA_STEP = 20;
-
-const views = new WeakMap<Civ, Civ>();
-const bases = new WeakMap<Civ, Civ>();
 
 /** 时代的全名:"中古时代" */
 export function eraName(era: number): string {
@@ -66,104 +64,47 @@ export function erasAt(civ: Civ, year: Year, out?: Int16Array): Int16Array {
   return res;
 }
 
+let countLv: Float32Array | undefined;
+let hoverLv: Float32Array | undefined;
+
 /**
- * 把时代换进"民族"那一层的 Civ(只给画色块用):民族列表换成九个时代(颜色 = ERA_COLORS),
- * 日志和检查点里民族那一层换成各州的时代(每 ERA_STEP 年取一次);国家那一层、州、城一样不变。按 civ 缓存
+ * 时代图层:九档 = 九个时代(名字 eraName、颜色 ERA_COLORS)。
+ * 图例按这一年列有州在的时代(新的在上)和州数;悬停写"中古时代 53%"(走了几成)
  */
+export const ERA_LAYER: NumLayer = {
+  id: 'eras',
+  bands: ERA_COLORS.map((color, i) => ({ name: eraName(i), color })),
+  has: (civ) => !!civ.development,
+  focus: () => 0,
+  step: ERA_STEP,
+  sampler(civ) {
+    const R = civ.regions.count;
+    let own: Owners | undefined;
+    let level: Float32Array | undefined;
+    return (y, into) => {
+      own = ownersAt(civ, y, own);
+      level = eraLevelsAt(civ, y, own, level);
+      for (let r = 0; r < R; r++) into[r] = level[r] < 0 ? -1 : Math.min(ERAS.length - 1, Math.floor(level[r]));
+    };
+  },
+  counts(civ, year) {
+    countLv = eraLevelsAt(civ, year, undefined, countLv);
+    const n = new Array<number>(ERA_COLORS.length).fill(0);
+    for (let r = 0; r < countLv.length; r++) if (countLv[r] >= 0) n[Math.min(ERA_COLORS.length - 1, Math.floor(countLv[r]))]++;
+    return n;
+  },
+  title: () => '时代',
+  legend: { desc: true, keepEmpty: false },
+  hover(civ, year, r, own) {
+    if (!civ.development || !civ.cultures[own.culture[r]]) return null;
+    const level = (hoverLv = eraLevelsAt(civ, year, own, hoverLv))[r];
+    if (!(level >= 0)) return null;
+    const { era, progress } = eraOf(level);
+    return { band: era, sub: `${eraName(era)} ${Math.floor(progress * 100)}%` };
+  },
+};
+
+/** 把时代换进"民族"那一层的 Civ(只给画色块用,见 numLayer.ts 的 numCiv)。按 civ 缓存 */
 export function eraCiv(civ: Civ): Civ {
-  const hit = views.get(civ);
-  if (hit) return hit;
-  const R = civ.regions.count;
-  let own: Owners | undefined;
-  let level: Float32Array | undefined;
-  const view = swapCiv(civ, ERA_STEP, ERA_COLORS.map((c, id) => [eraName(id), c] as const), (y, into) => {
-    own = ownersAt(civ, y, own);
-    level = eraLevelsAt(civ, y, own, level);
-    for (let r = 0; r < R; r++) into[r] = level[r] < 0 ? -1 : Math.min(ERAS.length - 1, Math.floor(level[r]));
-  });
-  views.set(civ, view);
-  bases.set(view, civ);
-  return view;
-}
-
-/**
- * 把每州的一个"类别"换进"民族"那一层的 Civ(时代图层、管辖图层用):民族列表换成 kinds(名字、颜色),
- * 日志和检查点里民族那一层换成各州的类别(从第 0 年起每 step 年取一次,最后一次在结束年份;at 写进 into,−1 = 不上色);
- * 国家那一层、州、城一样不变
- */
-export function swapCiv(
-  civ: Civ,
-  step: number,
-  kinds: readonly (readonly [string, readonly [number, number, number]])[],
-  at: (y: Year, into: Int16Array) => void,
-): Civ {
-  const R = civ.regions.count;
-  const L = civ.log;
-  const cur = new Int16Array(R).fill(-1);
-  const ys: number[] = [];
-  const rs: number[] = [];
-  const vs: number[] = [];
-  const next = new Int16Array(R);
-  for (let y = 0; ; y = Math.min(civ.endYear, y + step)) {
-    at(y, next);
-    for (let r = 0; r < R; r++) {
-      if (next[r] === cur[r]) continue;
-      ys.push(y);
-      rs.push(r);
-      vs.push(next[r]);
-      cur[r] = next[r];
-    }
-    if (y >= civ.endYear) break;
-  }
-  // 国家那一层的条目和换进来的条目按年份并成一本(同一年国家的在前)
-  let n = 0;
-  for (let i = 0; i < L.size; i++) if (L.layer[i] !== Layer.Culture) n++;
-  const size = n + ys.length;
-  const log = {
-    size,
-    year: new Float32Array(size),
-    region: new Int32Array(size),
-    layer: new Uint8Array(size),
-    value: new Int16Array(size),
-    cause: new Uint8Array(size),
-  };
-  let i = 0;
-  let j = 0;
-  for (let k = 0; k < size; k++) {
-    while (i < L.size && L.layer[i] === Layer.Culture) i++;
-    if (i < L.size && (j >= ys.length || L.year[i] <= ys[j])) {
-      log.year[k] = L.year[i];
-      log.region[k] = L.region[i];
-      log.layer[k] = L.layer[i];
-      log.value[k] = L.value[i];
-      i++;
-    } else {
-      log.year[k] = ys[j];
-      log.region[k] = rs[j];
-      log.layer[k] = Layer.Culture;
-      log.value[k] = vs[j];
-      j++;
-    }
-  }
-  // 检查点:那一年(含)以前最后一次取到的类别
-  const checkpoints = civ.checkpoints.map((cp) => {
-    const c = new Int16Array(R).fill(-1);
-    for (let q = 0; q < ys.length && ys[q] <= cp.year; q++) c[rs[q]] = vs[q];
-    return { year: cp.year, culture: c, polity: cp.polity };
-  });
-  const base = civ.cultures[0];
-  const cultures = kinds.map(([name, color], id): Culture => ({ ...base, id, name, color: [color[0], color[1], color[2]] }));
-  return { ...civ, cultures, log, checkpoints, culture: cur.slice() };
-}
-
-/** eraCiv 换出来的 Civ → 原来的 Civ(不是换出来的 = null) */
-export function eraBase(view: Civ): Civ | null {
-  return bases.get(view) ?? null;
-}
-
-/** 九个时代的颜色(colors[时代 × 3 …]) */
-export function eraColors(): Uint8Array {
-  const out = new Uint8Array(ERA_COLORS.length * 3);
-  ERA_COLORS.forEach((c, i) => out.set(c, i * 3));
-  return out;
+  return numCiv(ERA_LAYER, civ, 0);
 }

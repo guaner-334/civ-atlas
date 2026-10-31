@@ -2,15 +2,17 @@
  * 管辖图层:地图按各州中央管得到几成上色(直辖、代管、自治三档紫色由深到浅,割据橙色),留国界、国名;
  * 割据的州名义上还归原国,国界照旧画在原国里。
  *
- * - 色块:把各州的档位换进"民族"那一层(controlCiv,和时代图层同一套,见 era.ts 的 swapCiv)再画;
+ * - 一份数值填色图层的定义(CONTROL_LAYER,见 numLayer.ts):色块、图例、悬停都从它读。
+ * - 色块:把各州的档位换进"民族"那一层(controlCiv,和时代图层同一套,见 numLayer.ts 的 numCiv)再画;
  *   档位取推演里每 20 年存的一份快照(gen/civ/control.ts 的 controlAt),只有在国家里的州上色。
  * - 现在的割据(lordsAt):快照里割据的州,按离哪处割据的那座城近分给它(同一国里、相邻的割据州连着走)。
  */
 import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlTier } from '../../gen/civ/control';
 import { cutDone } from '../../gen/civ/councilRules';
+import { polityName } from '../../gen/civ/growth';
 import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
-import { swapCiv } from './era';
+import { numBase, numCiv, type NumLayer } from './numLayer';
 
 /** 四档的颜色(直辖、代管、自治、割据) */
 export const CONTROL_COLORS: readonly (readonly [number, number, number])[] = [
@@ -22,9 +24,6 @@ export const CONTROL_COLORS: readonly (readonly [number, number, number])[] = [
 
 /** 推演里多少年存一份快照(发展度那一步) */
 const CONTROL_STEP = 20;
-
-const views = new WeakMap<Civ, Civ>();
-const bases = new WeakMap<Civ, Civ>();
 
 /** 这一年用的是哪一年的快照(没有 = null) */
 export function controlSampleYear(civ: Civ, year: Year): Year | null {
@@ -56,33 +55,51 @@ export function controlOf(civ: Civ, year: Year, r: number): { share: number; tie
   return { share: controlShare(v), tier: controlTier(v) };
 }
 
+let countTiers: Int16Array | undefined;
+
 /**
- * 把各州的档位换进"民族"那一层的 Civ(只给画色块用):民族列表换成四档(颜色 = CONTROL_COLORS),
- * 日志和检查点里民族那一层换成各州的档位;国家那一层、州、城一样不变。按 civ 缓存
+ * 管辖图层:四档 = 直辖、代管、自治、割据(名字 CONTROL_TIERS、颜色 CONTROL_COLORS),只有在国家里的州上色。
+ * 图例按这一年列四档各几州(一州都没有的档不列);悬停写档名,割据的写名义上属哪国
  */
+export const CONTROL_LAYER: NumLayer = {
+  id: 'control',
+  bands: CONTROL_COLORS.map((color, i) => ({ name: CONTROL_TIERS[i], color })),
+  has: (civ) => !!civ.development?.controlYears?.length,
+  focus: () => 0,
+  step: CONTROL_STEP,
+  sampler(civ) {
+    const R = civ.regions.count;
+    return (y, into) => {
+      const snap = controlAt(civ, y);
+      for (let r = 0; r < R; r++) into[r] = !snap || !snap[r] ? -1 : controlTier(snap[r]);
+    };
+  },
+  counts(civ, year) {
+    countTiers = controlTiersAt(civ, year, countTiers);
+    const n = new Array<number>(CONTROL_TIERS.length).fill(0);
+    for (let r = 0; r < countTiers.length; r++) if (countTiers[r] >= 0) n[countTiers[r]]++;
+    return n;
+  },
+  title: () => '管辖',
+  legend: { desc: false, keepEmpty: false },
+  hover(civ, year, r, own) {
+    const po = own.polity[r] >= 0 ? civ.polities[own.polity[r]] : undefined;
+    const ctl = po ? controlOf(civ, year, r) : null;
+    if (!ctl) return null;
+    const lord = ctl.tier === 3 ? lordOf(civ, year, r) : null;
+    const nominal = lord && civ.polities[lord.p] ? civ.polities[lord.p] : po!;
+    return { band: ctl.tier, sub: ctl.tier === 3 ? `割据，名义上属${polityName(nominal, year)}` : CONTROL_TIERS[ctl.tier] };
+  },
+};
+
+/** 把各州的档位换进"民族"那一层的 Civ(只给画色块用,见 numLayer.ts 的 numCiv)。按 civ 缓存 */
 export function controlCiv(civ: Civ): Civ {
-  const hit = views.get(civ);
-  if (hit) return hit;
-  const R = civ.regions.count;
-  const view = swapCiv(civ, CONTROL_STEP, CONTROL_COLORS.map((c, i) => [CONTROL_TIERS[i], c] as const), (y, into) => {
-    const snap = controlAt(civ, y);
-    for (let r = 0; r < R; r++) into[r] = !snap || !snap[r] ? -1 : controlTier(snap[r]);
-  });
-  views.set(civ, view);
-  bases.set(view, civ);
-  return view;
+  return numCiv(CONTROL_LAYER, civ, 0);
 }
 
 /** controlCiv 换出来的 Civ → 原来的 Civ(不是换出来的 = null) */
 export function controlBase(view: Civ): Civ | null {
-  return bases.get(view) ?? null;
-}
-
-/** 四档的颜色(colors[档 × 3 …]) */
-export function controlColors(): Uint8Array {
-  const out = new Uint8Array(CONTROL_COLORS.length * 3);
-  CONTROL_COLORS.forEach((c, i) => out.set(c, i * 3));
-  return out;
+  return numBase(view, CONTROL_LAYER);
 }
 
 /** 一处还在的割据 */

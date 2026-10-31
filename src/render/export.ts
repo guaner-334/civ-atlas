@@ -28,11 +28,8 @@ import { renderLayer, type LayerId } from './layers';
 import { dataLegend, dataLegendText, isGradientLegend, type DataLegend, type GradientLegend } from './dataLegend';
 import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
 import { RESOURCE_COLORS, drawResourceLayer, resourceTier, type ResourceLook } from './civ/resources';
-import { ERA_COLORS, eraLevelsAt, eraName } from './civ/era';
-import { CONTROL_COLORS, controlTiersAt } from './civ/control';
-import { THOUGHT_BANDS, THOUGHT_BAND_NAMES, THOUGHT_COLORS, thoughtBand, thoughtFocus } from './civ/thoughts';
-import { THOUGHTS, THOUGHT_COUNT, ideologyAt } from '../gen/civ/ideology';
-import { CONTROL_TIERS } from '../gen/civ/control';
+import { numLegendRows } from './civ/numLayer';
+import { numLayerShown } from './civ/numLayers';
 import { RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
@@ -642,46 +639,6 @@ export function faithLegendRows(civ: Civ, year: Year): LegendRow[] {
   });
 }
 
-/** 时代图层的图例:这一年有州在的时代(新的在上)和州数 */
-export function eraLegendRows(civ: Civ, year: Year): LegendRow[] {
-  const lv = eraLevelsAt(civ, Math.floor(year));
-  const n = new Array<number>(ERA_COLORS.length).fill(0);
-  for (let r = 0; r < lv.length; r++) if (lv[r] >= 0) n[Math.min(ERA_COLORS.length - 1, Math.floor(lv[r]))]++;
-  const out: LegendRow[] = [];
-  for (let k = n.length - 1; k >= 0; k--) if (n[k]) out.push({ color: [...ERA_COLORS[k]] as [number, number, number], name: eraName(k), note: `${n[k]} 州` });
-  return out;
-}
-
-/** 管辖图层的图例:四档的颜色,这一年各几州(一州都没有的档不列) */
-export function controlLegendRows(civ: Civ, year: Year): LegendRow[] {
-  const t = controlTiersAt(civ, Math.floor(year));
-  const n = new Array<number>(CONTROL_TIERS.length).fill(0);
-  for (let r = 0; r < t.length; r++) if (t[r] >= 0) n[t[r]]++;
-  const out: LegendRow[] = [];
-  CONTROL_TIERS.forEach((name, k) => {
-    if (n[k]) out.push({ color: [...CONTROL_COLORS[k]] as [number, number, number], name, note: `${n[k]} 州` });
-  });
-  return out;
-}
-
-/** 思潮图层的图例:看的那一说(k)五档的颜色(深的在上),这一年各几州;一州都没有的档照样列(看得出还没传到) */
-export function thoughtLegendRows(civ: Civ, year: Year, k: number): LegendRow[] {
-  const n = new Array<number>(THOUGHT_BANDS.length).fill(0);
-  if (civ.ideology && k >= 0) {
-    const v = ideologyAt(civ.ideology, Math.floor(year));
-    for (let r = 0; r * THOUGHT_COUNT < v.length; r++) {
-      const b = thoughtBand(v[r * THOUGHT_COUNT + k]);
-      if (b >= 0) n[b]++;
-    }
-  }
-  const out: LegendRow[] = [];
-  for (let b = THOUGHT_BANDS.length - 1; b >= 0; b--) {
-    const name = b === THOUGHT_BANDS.length - 1 ? `${THOUGHT_BAND_NAMES[b]}以上` : `${THOUGHT_BAND_NAMES[b]}到${THOUGHT_BAND_NAMES[b + 1]}`;
-    out.push({ color: [...THOUGHT_COLORS[b]] as [number, number, number], name, note: `${n[b]} 州` });
-  }
-  return out;
-}
-
 /** 物产图层的图例:十一样物产的颜色,这一年几州能用(哪州都还没发现的不列) */
 export function resourceLegendRows(civ: Civ, year: Year): LegendRow[] {
   const dev = civ.development;
@@ -882,29 +839,24 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   // 信仰图层:地图铺的是信仰(国家只画国界),图例列国家(空心框)和信仰
   const faithOn = show.faiths && !!civ.religion?.faiths.length;
   const faiths = faithOn ? faithLegendRows(civ, y) : [];
-  // 时代图层:地图铺的是时代(国家只画国界),图例列国家(空心框)和时代;物产图层:列物产(不列国家、民族)
-  const eraOn = !faithOn && show.eras && !!civ.development;
-  const eras = eraOn ? eraLegendRows(civ, y) : [];
-  // 管辖图层:地图铺的是四档(国家只画国界),图例列国家(空心框)和四档
-  const ctlOn = !faithOn && !eraOn && show.control && !!civ.development?.controlYears?.length;
-  const ctls = ctlOn ? controlLegendRows(civ, y) : [];
-  // 思潮图层:地图铺的是看的那一说的五档(国家只画国界),图例列国家(空心框)和五档;世上还没有思潮时写一句
-  const ideoOn = !faithOn && !eraOn && !ctlOn && show.ideology && !!civ.ideology;
-  const thought = ideoOn ? thoughtFocus(civ, show, y) : -1;
-  const ideos = thought >= 0 ? thoughtLegendRows(civ, y, thought) : [];
-  const ideoTitle = thought >= 0 ? `思潮:${THOUGHTS[thought].name}各州有几成人信` : '思潮';
+  // 数值填色(时代、管辖、思潮,见 civ/numLayers.ts):地图铺的是各州的档(国家只画国界),图例列国家(空心框)和各档;
+  // 思潮看的那一说世上还没有时写一句。物产图层:列物产(不列国家、民族)
+  const num = faithOn ? null : numLayerShown(civ, show);
+  const numK = num ? num.focus(civ, show, y) : -1;
+  const nums = num && numK >= 0 ? numLegendRows(num, civ, y, numK) : [];
+  const numTitle = num ? num.title(numK) : '';
   const resOn = show.resources && !!civ.development;
   const res = resOn ? resourceLegendRows(civ, y) : [];
-  const wantPol = !resOn && (show.polities || (!data && !show.cultures && !faithOn && !eraOn && !ctlOn && !ideoOn));
-  const wantCul = !resOn && !faithOn && !eraOn && !ctlOn && !ideoOn && (show.cultures || (!data && !show.polities));
-  const outline = show.cultures || faithOn || eraOn || ctlOn || ideoOn;
+  const wantPol = !resOn && (show.polities || (!data && !show.cultures && !faithOn && !num));
+  const wantCul = !resOn && !faithOn && !num && (show.cultures || (!data && !show.polities));
+  const outline = show.cultures || faithOn || !!num;
   const withMarks = show.polities || show.routes;
   const withRoutes = show.routes;
 
   const allText =
-    [...rows.polities, ...rows.cultures, ...faiths, ...eras, ...ctls, ...ideos, ...res].map((r) => r.name + r.note).join('') +
+    [...rows.polities, ...rows.cultures, ...faiths, ...nums, ...res].map((r) => r.name + r.note).join('') +
     '图例第年国家民族信仰教派时代管辖思潮物产城镇道路大路小路航线部落地带种子州都还没有' +
-    ideoTitle +
+    numTitle +
     yearFull(y, p.era) +
     (data ? dataLegendText(p.layer ?? 'biomes') : '');
   await ensureFonts(style, allText, 15000);
@@ -914,14 +866,12 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const COL = 300;
   const ROW = 26;
   const HEAD = 34;
-  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' | 'era' | 'ctl' | 'ideo' | 'res' };
+  type Block = { title: string; rows: LegendRow[]; kind: 'pol' | 'cul' | 'faith' | 'num' | 'res' };
   const blocks: Block[] = [];
   if (wantPol) blocks.push({ title: '国家', rows: rows.polities, kind: 'pol' });
   if (wantCul) blocks.push({ title: '民族', rows: rows.cultures, kind: 'cul' });
   if (faithOn) blocks.push({ title: '信仰', rows: faiths, kind: 'faith' });
-  if (eraOn) blocks.push({ title: '时代', rows: eras, kind: 'era' });
-  if (ctlOn) blocks.push({ title: '管辖', rows: ctls, kind: 'ctl' });
-  if (ideoOn) blocks.push({ title: ideoTitle, rows: ideos, kind: 'ideo' });
+  if (num) blocks.push({ title: numTitle, rows: nums, kind: 'num' });
   if (resOn) blocks.push({ title: '物产', rows: res, kind: 'res' });
   const most = Math.max(1, ...blocks.map((b) => b.rows.length));
   const cols = most > 14 ? 2 : 1;
