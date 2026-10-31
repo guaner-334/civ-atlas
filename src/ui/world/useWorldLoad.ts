@@ -6,7 +6,7 @@
  *   - enterStage    换到新建 / 世界 / 我的世界
  *   - openTarget    打开一个世界(要的就是正在看的这张图就不重新生成);openStored 我的世界里的、openText 文件、openShare 分享链接、openShortShare 分享短链接
  * App 的状态按块传进来(见 ./worldRefs.ts);这里的函数每次渲染新建(和原来写在 App 里一样),generate 只建一次。
- * App 里在这个 hook 后面才定义的几样(回我的世界、打开作品、按新版另存、作品墙、后退前进)经 later 调
+ * App 里在这个 hook 后面才定义的几样(回我的世界、打开作品、按新版另存、作品墙、后退前进;前几样在 ./useWorldPages.ts)经 later 调
  */
 import { useCallback, useEffect, useRef } from 'react';
 import type { WorkerRequest } from '../../worker';
@@ -50,7 +50,7 @@ import { clearEdits, getEdits, setEdits } from '../editsStore';
 import { resetExtend } from '../extendStore';
 import { closeSaveAsNew } from '../FrozenWorld';
 import { setPolityPick } from '../Interventions';
-import { layerParts, type BaseId, type FillId, type SatLook } from '../mapLayers';
+import { layerParts } from '../mapLayers';
 import { publishMapCenter, requestMapCenter } from '../mapWrap';
 import { resetMarkUi } from '../markStore';
 import { showMapInWorlds } from '../MyWorlds';
@@ -72,7 +72,7 @@ import type { ToastAction } from '../toastStore';
 import { closeUpheaval } from '../upheavalStore';
 import type { SimClient } from '../sim/simClient';
 import { lostRenames, lostRenamesNote } from '../sim/useSimResults';
-import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter } from './worldRefs';
+import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
   aliveAtEnd,
   goneToast,
@@ -191,14 +191,7 @@ export interface WorldLoadDeps {
     setShownTerrain: Setter<readonly TerrainOp[]>;
     setShownSketch: Setter<SketchEdit | undefined>;
   };
-  /** 地图现在的底图、填色,进新建时换掉的那一份;换底图、收起悬停卡片 */
-  view: {
-    mapViewRef: Ref<{ base: BaseId; fill: FillId; sat: SatLook }>;
-    draftViewRef: Ref<{ base: BaseId; fill: FillId } | null>;
-    drawKey: Ref<string>;
-    applyMapView: (patch: Partial<{ base: BaseId; fill: FillId; sat: SatLook }>) => void;
-    setHover: (h: null) => void;
-  };
+  view: WorldViewRefs;
   /** 网址、打开网页时去哪,页面上的弹窗、说明、回放 */
   page: {
     init: { share: string | null; preset: string | null; shortShare: string | null; moment: SaveMoment | null };

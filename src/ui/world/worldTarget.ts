@@ -1,16 +1,16 @@
 /**
  * 要打开的世界(Target)和围着它的几样小东西,App 和 ./useWorldLoad.ts 都用:
- *   - Target 从哪来:存着的(storedTarget)、朋友的预设链接打开的新建弹窗(presetDialog)
+ *   - Target 从哪来:存着的(storedTarget)、新建中的(draftTarget、yearsEdits)、朋友的预设链接打开的新建弹窗(presetDialog)
  *   - 写进网址:这个世界(writeWorldUrl)、回我的世界(writeHomeUrl)、作品墙(writeGalleryUrl)
  *   - 推文明的请求里带的地形大事、地名风格、推演年数、拓荒起源(upsOpt、namesOpt、yearsOpt、setupOpt;这一步带哪些见 yearsFor、setupFor)
- *   - 打开网页时去哪(FirstRoute)、作品墙那一页(WallView)、新建弹窗、分享说明、分享短链接那一页的状态类型
+ *   - 打开网页时去哪(FirstRoute)、作品墙那一页(WallView)、新建弹窗、分享说明、世界作品、分享短链接那一页的状态类型
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import { polityAlive } from '../../gen/civ/growth';
 import { cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../../gen/civ/frontier';
-import { GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, type Upheaval, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, type Upheaval, type WorldEdits } from '../../gen/edits';
 import type { NameMix } from '../../gen/names/mix';
 import { GEN_KEY, worldKey, type ResolvedMoment, type SaveFile, type SaveMoment, type SaveOrigin, type SaveView } from '../../gen/savefile';
 import { galleryHref, type GalleryItem } from '../../account/gallery';
@@ -20,7 +20,7 @@ import type { NewWorldInit, NewWorldMode } from '../NewWorldDialog';
 import { OWN_KEY } from '../oldSite';
 import type { SharedPreset } from '../presetStore';
 import { randomSeedValue } from '../homeStart';
-import { isStored, loadWorld, type StoredWorld, type WorldKind } from '../saveStore';
+import { isStored, loadWorld, newWorldId, type StoredWorld, type WorldKind } from '../saveStore';
 import type { DraftBase, Stage } from '../stageStore';
 import { showToast } from '../Toast';
 
@@ -86,6 +86,9 @@ export type NewDlg = { init?: NewWorldInit; shared?: SharedPreset; stamp?: numbe
 /** 打开别人分享的世界时地图下那条说明(App 的 sharedFor):哪个世界、短链接还是长链接、署名;at = 链接带着"这一刻"、打开停在了那里 */
 export type SharedFor = { id: string; short: boolean; by: string; own: boolean; at?: { year: number; sel: ResolvedMoment['selected'] | null } | null };
 
+/** 正在看的世界是从作品墙打开的世界作品:那个世界的编号和作品(App 的 workFor) */
+export type WorkFor = { id: string; work: GalleryItem };
+
 /** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
 export type Landing = 'loading' | 'gone' | { error: string } | null;
 
@@ -112,6 +115,18 @@ export function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target
     save: w.save,
     origin: w.save.origin ?? null,
   };
+}
+
+/** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)的修改 */
+export function yearsEdits(endYear: number | undefined, frontier?: Frontier): WorldEdits {
+  const y = cleanEndYear(endYear);
+  const f = cleanFrontier(frontier);
+  return y || f ? { ...EMPTY_EDITS, ...(y ? { endYear: y } : {}), ...(f ? { frontier: f } : {}) } : EMPTY_EDITS;
+}
+
+/** 一个新建中的世界(还没动过) */
+export function draftTarget(params: WorldParams, base: DraftBase | null = null, edits: WorldEdits = EMPTY_EDITS, title?: string): Target {
+  return { id: newWorldId(), kind: 'draft', params, edits, pristine: true, base, title };
 }
 
 /** 朋友的预设链接打开的新建弹窗:第 2 步(随机生成),参数照链接填好;没带种子的随机给一个 */
