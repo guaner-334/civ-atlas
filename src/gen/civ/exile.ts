@@ -1,5 +1,5 @@
 /**
- * 亡国之君出奔邻国:国家亡于战争的那一刻(WarModel.onFall,treaties.ts 挂上),末代之君的下场是"出奔"的
+ * 亡国之君出奔邻国:国家亡于战争的那一刻(接口 war.onFall,treaties.ts 挂上),末代之君的下场是"出奔"的
  * (rulers.ts 的 fallFate,和 people.ts 排人物同一个判据;有中立地可去的约国先奔中立地,见 treaties.ts),
  * 给他找一个去处,记史事 exile(cause = fled,war = −1,b = 去的国家,州和城 = 那国的国都,Annal.n = 投奔的缘由)。
  * 只记"去了哪国",推演里不因此多出别的事;人物(people.ts)照它填 Person.exile.to / tie。

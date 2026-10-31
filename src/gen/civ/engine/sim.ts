@@ -250,6 +250,9 @@ export class CivSim {
   /** yearly 里最早的下一次(没有 = Infinity) */
   private nextYearly = Infinity;
 
+  /** 子系统之间的具名接口表:按名字分组,内容由规则那一边定(官方推演的见 civ/api.ts);每次推演一份 */
+  readonly api: Record<string, object> = {};
+
   /** 推演过程中处理了多少个事件(含过期丢掉的),调参 / 测试用 */
   processed = 0;
 

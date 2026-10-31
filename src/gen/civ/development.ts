@@ -75,6 +75,7 @@ import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
 import { CAPS, INVENTIONS } from './inventions';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { warApi } from './api';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -514,6 +515,7 @@ function padTo32(a: Float32Array, n: number): Float32Array {
 
 /** 挂到推演引擎上:归属监听、事件处理;城的人口上限倍数交给国家模型(新建的城从它记起) */
 function hook(sim: CivSim, d: DevModel): void {
+  const api = warApi(sim);
   models.set(sim, d);
   d.eng = devEngine(d);
   d.pm.capFactor = d.capF;
@@ -521,8 +523,8 @@ function hook(sim: CivSim, d: DevModel): void {
   // 打仗看物产(wars.ts):州里有哪几样;国家缺哪几样
   const wm = warModelOf(sim);
   if (wm) {
-    wm.resOf = (r) => resBitsOf(d, r);
-    wm.wantOf = (p) => wantsOf(sim, d, p);
+    api.resOf = (r) => resBitsOf(d, r);
+    api.wantOf = (p) => wantsOf(sim, d, p);
   }
   sim.onChange(Layer.Culture, (r) => {
     if (r < d.R) d.sinceC[r] = sim.now;

@@ -11,10 +11,10 @@ import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { treatyModelOf, treatyStats } from '../src/gen/civ/treaties';
 import { treatyBook, treatyMembersAt, treatyName, zonesAt, type ZoneInfo } from '../src/gen/civ/story/treatyInfo';
 import { endPolity, polityModelOf } from '../src/gen/civ/polities';
-import { warModelOf } from '../src/gen/civ/wars';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { warApi } from '../src/gen/civ/api';
 
 const SEEDS = [1, 2, 3];
 const worlds = new Map<number, World>();
@@ -132,7 +132,7 @@ describe('立约与中立地', () => {
       expect(tm.zones[z.id].ended, `seed ${seed} 第 ${cut} 年中立地 ${z.id} 还在`).toBeUndefined();
       const n = sim.annalCount;
       endPolity(pm, y, sim.now);
-      warModelOf(sim)!.onFall!({ id: -1, a: x, b: y, start: sim.now, takes: [] }, x, y, sim.now);
+      warApi(sim).onFall!({ id: -1, a: x, b: y, start: sim.now, takes: [] }, x, y, sim.now);
       const got = Array.from({ length: sim.annalCount - n }, (_, i) => sim.annal(n + i));
       expect(got.map((e) => `${e.kind}:${e.cause ?? ''}`), `seed ${seed}`).toEqual(['exile:fled', 'expire:lapse', 'neutral:lapse']);
       expect(got[0]).toMatchObject({ a: y, war: z.id, region: z.region, year: cut });
