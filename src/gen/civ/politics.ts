@@ -432,8 +432,10 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     cause?: AnnalCause,
   ): Polity => {
     const capR = pm.settlements[sid].region;
-    // 从能远洋的国家分出去的,带着船走:立国那一刻起就能远洋(Polity.sail)
-    const sail = pm.cultures[culture[capR]].kind !== 'sea' && sailsOcean(pm, pm.polities[parent], t) ? { sail: t } : {};
+    // 从能远洋的国家分出去的,带着船走:立国那一刻起就能远洋(Polity.sail)。普通国家永不出海(SAIL_LEVEL = Infinity)时,
+    // 从海洋国家分出去的普通国家也不带
+    const P0 = pm.polities[parent];
+    const sail = pm.cultures[culture[capR]].kind !== 'sea' && sailsOcean(pm, P0, t) && (P0.kind !== 'sea' || Number.isFinite(pm.k.SAIL_LEVEL)) ? { sail: t } : {};
     const p = addPolity(pm, sid, culture[capR], t, { parent, ...sail, ...extra });
     sim.setOwner(Layer.Polity, capR, p.id, Ev.Split);
     for (const r of group) if (r !== capR) sim.setOwner(Layer.Polity, r, p.id, Ev.Split);
