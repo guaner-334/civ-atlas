@@ -46,8 +46,8 @@
 import type { World } from '../world';
 import { YEAR_TICKS, resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
-import { fpow, keyed, keyed4, subSeed } from './rand';
-import { bookChain, Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { FRIEND_JOIN, FRIEND_PACT } from './policy';
 import { KIN_JOIN, KIN_PACT } from './marriages';
@@ -606,7 +606,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
 }
 
 /**
- * 由 Civ 重建邦交的推演状态(CivSim.fromCiv 调用,在 resumeCities 之后):结着的盟、藩属、断盟 / 自立的年份都从史事里读,
+ * 由 Civ 重建邦交的推演状态(resumeCiv 调用,在 resumeCities 之后):结着的盟、藩属、断盟 / 自立的年份都从史事里读,
  * 再按"国家 + 第几次"算出还没到的看邦交,补进引擎
  */
 export function resumeDiplomacy(sim: CivSim, _world: World, civ: Civ): void {

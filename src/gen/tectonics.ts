@@ -40,7 +40,7 @@ import { blurField, type Mesh } from './mesh';
 import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from './util';
 import { geometryOf, type PlateMotion, type SurfaceNoise } from './geometry';
 import { connectInlandSeas } from './inlandSea';
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, decodeLayer, sketchAt, sketchPainted, type Sketch } from './sketch';
 import { PLATE_IMAGE_MAX, applyPlateImage, applyPlateOps, type PlateEdit, type PlateState } from './plateEdits';
 

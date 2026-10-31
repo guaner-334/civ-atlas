@@ -19,7 +19,7 @@ import { heOrShe, heirWord, isFemale, mateWord, wedVerb, type Sexed } from '../g
 import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { brideNameOf } from '../gen/civ/people';
 import { drawLeanings } from '../gen/civ/rulers';
-import { keyed4, subSeed } from '../gen/civ/rand';
+import { keyed4, subSeed } from '../gen/civ/engine/rand';
 import { polityShort } from '../gen/civ/story/regentInfo';
 import { KIN_FADE } from '../gen/civ/marriages';
 import { REGENT_YEARS_MAX, personKey, polityKey, type Intervention, type MarryHow, type RegentEnd, type RegentHow } from '../gen/edits';

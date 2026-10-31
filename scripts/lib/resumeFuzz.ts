@@ -14,7 +14,7 @@ import { generateCiv, type Civ, type CivParams } from '../../src/gen/civ';
 import { playCiv, playStop, playTurn } from '../../src/gen/civ/play';
 import { upheavalSteps } from '../../src/gen/civ/upheaval';
 import { UPHEAVALS_MAX } from '../../src/gen/terrainEdits';
-import { mulberry32, subSeed } from '../../src/gen/civ/rand';
+import { mulberry32, subSeed } from '../../src/gen/civ/engine/rand';
 import { capitalAt } from '../../src/gen/civ/growth';
 import {
   DEATH_ROLES,

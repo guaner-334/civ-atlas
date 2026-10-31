@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { capitalAt, regionPopulationAt } from '../src/gen/civ/growth';
 import { PLAGUE_IV, quakeRing } from '../src/gen/civ/calamity';
 import { plagueSpans } from '../src/gen/civ/story/plagueSpans';

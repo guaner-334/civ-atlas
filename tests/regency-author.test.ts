@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
-import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf, rulingLeanings } from '../src/gen/civ/polities';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { holderAt } from '../src/gen/civ/story/regentInfo';
@@ -17,6 +16,7 @@ import { IV_GONE, IV_HELD, IV_NO_THRONE } from '../src/gen/civ/regents';
 import { applyCharacters } from '../src/gen/characters';
 import { makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { EMPTY_EDITS, cleanIntervention, polityKey, type Intervention } from '../src/gen/edits';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const PARAMS = (seed: number) => ({ ...DEFAULT_PARAMS, cells: 12000, seed });
 const worlds = new Map<number, World>();
@@ -88,7 +88,7 @@ for (const seed of [7, 2024]) {
       expect(holderAt(civ, c.pid, c.T + 0.5)?.x).toBe(X);
       expect(holderAt(civ, c.pid, c.T + 5.5)).toBeNull();
       // 推演里:掌权那一刻的下一刻起照他的性格,还政以后照君主的
-      const pm = polityModelOf(CivSim.fromCiv(w, civ))!;
+      const pm = polityModelOf(resumeCiv(w, civ))!;
       expect(rulingLeanings(pm, c.pid, c.T)).not.toEqual(BOLD);
       for (const t of [c.T + 1 / 256, c.T + 2.5, c.T + 5 - 1 / 256]) expect(rulingLeanings(pm, c.pid, t), `${t}`).toEqual(BOLD);
       expect(rulingLeanings(pm, c.pid, c.T + 5 + 1 / 256)).not.toEqual(BOLD);

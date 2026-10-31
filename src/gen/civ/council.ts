@@ -64,8 +64,8 @@
  * 随机数:keyed4(subSeed(seed, 'civ-council'), 国家锚, 第几次看内政, 议题),和处理顺序无关。纯计算,不碰 DOM。
  */
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
-import { flog, keyed4, subSeed } from './rand';
-import { Ev, type CivSim } from './sim';
+import { flog, keyed4, subSeed } from './engine/rand';
+import { Ev, type CivSim } from './engine/sim';
 import { polityModelOf, rulingLeanings, type PolityModel } from './polities';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { warModelOf, type WarModel } from './wars';
@@ -276,7 +276,7 @@ export function installCouncil(sim: CivSim, seed: number): CouncilModel | undefi
   return hook(sim, seed, new Map());
 }
 
-/** 接着推(CivSim.fromCiv,在 resumeControl 之后):各国的规矩由史事重建 */
+/** 接着推(resumeCiv,在 resumeControl 之后):各国的规矩由史事重建 */
 export function resumeCouncil(sim: CivSim, civ: Civ): void {
   const book = new Map<number, Rules>();
   for (const e of civ.annals) if (rulesAnnal(e)) replayRule(rulesOf(book, e.a), e);

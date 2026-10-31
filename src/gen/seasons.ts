@@ -15,7 +15,7 @@
  */
 import type { World } from './world';
 import { annualRange, CONT_GH, CONT_GW, continentalityAt, continentalityGrid } from './koppen';
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 
 /** 年内气温估算的版本:算法变了加一 */
 export const YEAR_CLIMATE_VERSION = 1;

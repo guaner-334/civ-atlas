@@ -9,7 +9,7 @@
  */
 import { generateWorld, type WorldParams } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { CAP_COUNT, developmentAt } from '../src/gen/civ/development';
 import { POLICY_PRESETS } from '../src/gen/civ/policy';
 import { POLICY_FOCI, POLICY_PRESETS_KEYS, polityKey, type Intervention, type PolicyPreset } from '../src/gen/edits';

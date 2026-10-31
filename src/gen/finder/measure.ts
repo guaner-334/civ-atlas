@@ -11,7 +11,7 @@
 import { generateWorld, type World } from '../world';
 import { DEFAULT_PARAMS } from '../params';
 import { DEFAULT_CIV_PARAMS, generateCiv } from '../civ';
-import { ownersAt } from '../civ/timeline';
+import { ownersAt } from '../civ/engine/timeline';
 import { developmentAt, eraLevel, eraOf } from '../civ/development';
 import { capitalAt, polityName, portAt } from '../civ/growth';
 import { crossings, measureCrossings, mergeCrossings, type Crossings, type PassMeasure } from '../civ/passes';

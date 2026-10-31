@@ -21,7 +21,7 @@ import { developmentAt } from '../development';
 import { BOOK_COLS, fiscalAt } from '../fiscalBook';
 import { polityAlive, polityName, portAt } from '../growth';
 import { faithAt } from '../religion';
-import { ownersAt } from '../timeline';
+import { ownersAt } from '../engine/timeline';
 import type { Civ, Culture, CultureKind, Year } from '../types';
 
 /** 往前读几年 */

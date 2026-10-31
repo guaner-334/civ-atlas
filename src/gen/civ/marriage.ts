@@ -16,8 +16,8 @@ import { Layer } from './types';
 import { parsePersonKey, type Intervention } from '../edits';
 import { IV_NOT_HIM } from './rulers';
 import { IV_NO_THRONE } from './regents';
-import { keyed4, subSeed } from './rand';
-import type { CivSim } from './sim';
+import { keyed4, subSeed } from './engine/rand';
+import type { CivSim } from './engine/sim';
 import { bookOf, polityModelOf, rulerOf, type PolityModel } from './polities';
 import { warModelOf, type War } from './wars';
 import { diplomacyModelOf } from './diplomacy';
@@ -107,7 +107,7 @@ export function installMarriage(sim: CivSim, pm: PolityModel): MarriageModel {
   return mm;
 }
 
-/** 接着推(CivSim.fromCiv,在 resumeRegency 之后):结过的亲由史事推出来 */
+/** 接着推(resumeCiv,在 resumeRegency 之后):结过的亲由史事推出来 */
 export function resumeMarriage(sim: CivSim, civ: Civ): void {
   const pm = polityModelOf(sim);
   if (!pm || !warModelOf(sim) || !diplomacyModelOf(sim)) return;

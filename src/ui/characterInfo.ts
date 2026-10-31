@@ -16,7 +16,7 @@ import { polityName } from '../gen/civ/growth';
 import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { personName, personRoleShort } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { keyCells, polityKey, regionKey, regionOfKey, resolveKey, settlementKey } from '../gen/edits';
 import { characterAge, lifeInOrder, lifeStops, personKey, resolvePersonKey, sameWhere, stopAt, type AuthorCharacter, type Where } from '../gen/characters';
 import { MARK_HEX } from '../render/marks';

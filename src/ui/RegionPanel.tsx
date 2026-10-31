@@ -34,7 +34,7 @@ import { CONTROL_TIERS } from '../gen/civ/control';
 import { controlOf, lordOf } from '../render/civ/control';
 import { isFiefRegion } from './courtInfo';
 import { RegionThoughtRow, RegionThoughts } from './ThoughtParts';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
 import { cleanName, polityKey, regionKey, type Intervention } from '../gen/edits';

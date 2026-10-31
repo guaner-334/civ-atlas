@@ -7,7 +7,7 @@
  * 只读 Civ,不碰推演引擎。纯计算,不碰 DOM。
  */
 import type { Civ, Regions, Route, Year } from './types';
-import { keyed, subSeed } from './rand';
+import { keyed, subSeed } from './engine/rand';
 import { PLAGUE_IV, PANDEMIC_K } from './calamity';
 
 /** 一场全球大疫 */

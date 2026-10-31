@@ -15,7 +15,7 @@ import type { World } from '../gen/world';
 import type { TerrainOp } from '../gen/edits';
 import { UPHEAVALS_MAX } from '../gen/terrainEdits';
 import { mergeUpheavals, previewVictims, type UpheavalPreview, type UpheavalVictim } from '../gen/civ/upheaval';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { polityName } from '../gen/civ/growth';
 import { Icon } from './icons';
 import { pausePlayback, setCivTime, useCivTime } from './civView';

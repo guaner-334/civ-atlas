@@ -7,7 +7,7 @@ import { AdjKind, type Civ, type Year } from '../types';
 import { CAP_COUNT, LEVEL_SCALE, eraLevel } from '../development';
 import { capitalAt } from '../growth';
 import { regionLabel, regionNamed } from './display';
-import { ownersAt, type Owners } from '../timeline';
+import { ownersAt, type Owners } from '../engine/timeline';
 import { practiceMask } from '../practices';
 
 const row = new Float64Array(CAP_COUNT);

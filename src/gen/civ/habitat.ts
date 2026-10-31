@@ -20,7 +20,7 @@ import { Biome, biomeColumn } from '../biomes';
 import type { World } from '../world';
 import type { Habitat } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refCellArea } from './geo';
-import { flog2 } from './rand';
+import { flog2 } from './engine/rand';
 
 /** 群落宜居底分(按 Biome 编号;见地貌表的 habitability) */
 export const BIOME_HABITABILITY = biomeColumn('habitability');

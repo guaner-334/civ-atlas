@@ -12,7 +12,7 @@
  * (沙漠 = 热荒漠、温带荒漠、寒荒漠一起)。纯计算,不碰 DOM。
  */
 import { BIOMES, type Biome, type BiomeTerrainGroup } from '../biomes';
-import { fpow } from './rand';
+import { fpow } from './engine/rand';
 import { TERRAIN_H, TERRAIN_W } from '../terrainOps';
 import type { World } from '../world';
 import type { Regions } from './types';

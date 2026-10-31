@@ -18,7 +18,7 @@
  */
 import type { Civ, Polity } from '../gen/civ/types';
 import { chronicleEraYears, filterChronicle, type ChronicleEntry } from '../gen/civ/story/chronicle';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { entryWeight } from './timelineLayout';
 
 /** 某年各州归哪国(到最后一年 = civ.polity) */

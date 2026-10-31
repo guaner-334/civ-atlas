@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { civLabelItems, civMapLayer, labelViewExtras } from '../src/render/civ/labels';
 import { CIV_SHOW_DEFAULT, type CivDrawParams, type CivStyle } from '../src/render/civ/overlay';
 import { placedMarkBox, placeMap, type LabelView, type Placement } from '../src/render/labels/draw';

@@ -56,8 +56,8 @@ import type { World } from '../world';
 import { geometryOf, type Geometry } from '../geometry';
 import { TREK_DIR_NAMES, regionOfKey, type Intervention, type TrekReach } from '../edits';
 import { AdjKind, Layer, type Civ, type Culture, type Migration, type MigrationDir, type Year } from './types';
-import { fexp, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, keyed, keyed4, subSeed } from './engine/rand';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { addPolity, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { bestCapital, polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -754,7 +754,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
 }
 
 /**
- * 由 Civ 重建大迁徙的推演状态(CivSim.fromCiv 调用,在 resumeTreaties 之后):
+ * 由 Civ 重建大迁徙的推演状态(resumeCiv 调用,在 resumeTreaties 之后):
  * 每一次的经过从 Civ.migrations 复制一份;还在路上的补上没走完的几步(动身那一刻预约的);再算出下一次看大迁徙,补进引擎。
  */
 export function resumeMigration(sim: CivSim, world: World, civ: Civ): void {

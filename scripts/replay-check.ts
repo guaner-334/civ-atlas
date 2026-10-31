@@ -3290,7 +3290,7 @@ if (part('干预保护')) {
   {
     const { DEFAULT_PARAMS, generateWorld } = await import('../src/gen/world');
     const { generateCiv } = await import('../src/gen/civ');
-    const { ownersAt } = await import('../src/gen/civ/timeline');
+    const { ownersAt } = await import('../src/gen/civ/engine/timeline');
     const w7 = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
     const c7 = generateCiv(w7);
     seatAt = (r) => {

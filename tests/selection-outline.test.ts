@@ -5,7 +5,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { drawSelectionLabels, selectionLines } from '../src/render/civ/highlight';
 import { PROJECTION_IDS, mapProj, projectLinePts, projector } from '../src/render/projection';
 import type { LabelView, Placement } from '../src/render/labels/draw';

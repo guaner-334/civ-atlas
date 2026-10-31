@@ -22,7 +22,7 @@ import type { Raster } from '../gen/raster';
 import type { World, WorldParams } from '../gen/world';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
 import { KIND_INFO, cultureLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { filterChronicle } from '../gen/civ/story/chronicle';
 import { faithRows, fullChronicle } from '../gen/civ/story/religionText';
 import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscribeCivTime, useCivShow, useResourceView, useSelection } from './civView';

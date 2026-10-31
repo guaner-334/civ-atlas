@@ -62,8 +62,8 @@ import type { World } from '../world';
 import { COLDEST_NORTH, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { biomeColumn } from '../biomes';
-import { fexp, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, keyed, keyed4, subSeed } from './engine/rand';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -686,7 +686,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
 }
 
 /**
- * 由 Civ 重建动荡的推演状态(CivSim.fromCiv 调用,在 resumeDevelopment 之后):
+ * 由 Civ 重建动荡的推演状态(resumeCiv 调用,在 resumeDevelopment 之后):
  * 饥荒、讨伐民变的战争、大崩解从史事里读;再算出下一次看年景,补进引擎。
  */
 export function resumeUnrest(sim: CivSim, world: World, civ: Civ): void {

@@ -18,7 +18,7 @@ import { MinHeap } from '../util';
 import { AdjKind, type Habitat, type Regions } from './types';
 import { adjLengths, cellAreas, REF_MESH_CELLS, refSpacing, REGION_AREA_SCALE } from './geo';
 import { MAJOR_RIVER, frozenSea } from './habitat';
-import { flog2, fpow, keyed, subSeed } from './rand';
+import { flog2, fpow, keyed, subSeed } from './engine/rand';
 import { neighborGraph, roadPassable, seaPassable, urquhart, type Link } from './routes';
 
 export interface RegionParams {

@@ -14,7 +14,7 @@ import type { Annal, Civ, Year } from '../gen/civ/types';
 import { COUNCIL_CONSTS, COUNCIL_GATE, councilAble, courtRulesAt, type CourtRules } from '../gen/civ/council';
 import { councilBefore } from '../gen/civ/councilRules';
 import { LORD_BYTE, controlAt, controlShare } from '../gen/civ/control';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { regionLabel } from '../gen/civ/story/display';
 import { polityName, regionPopulationAt } from '../gen/civ/growth';
 import { fiscalAt } from '../gen/civ/fiscalBook';

@@ -21,7 +21,7 @@ import { createNamer, createPersonNamer, mixStyles, NAME_STYLES, type GeneratedN
 import { BIOMES } from '../biomes';
 import type { Culture, CultureKind, MigrationDir, Polity, Settlement, Year } from './types';
 import { polityRootAt } from './growth';
-import { keyed, subSeed } from './rand';
+import { keyed, subSeed } from './engine/rand';
 
 /** 各语感适合的民族:发源地年均温区间(°C)、民族类型;发源州的群落对不对口见地貌表的 nameStyles */
 const AFFINITY: Record<string, { t: [number, number]; kinds: CultureKind[] }> = {

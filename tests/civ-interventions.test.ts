@@ -4,12 +4,11 @@
  * 划州、立国、迁都、不许扩张在 civ-interventions-land,四种一起下的确定性在 civ-interventions-land-resume;共用的准备代码在 lib/interventions.ts
  * - 干预年份之前的日志、史事、国家表、城镇表和不干预时逐字节一致
  * - 不许灭:原本亡于战争的国家到第 3000 年仍在;保护到某一年的,那之前不亡
- * - 确定性:同样的干预两次推演逐字节相同;fromCiv 接着推(切在干预之前 / 之后)和一口气推完一致
+ * - 确定性:同样的干预两次推演逐字节相同;resumeCiv 接着推(切在干预之前 / 之后)和一口气推完一致
  * - 改名按稳定键照样套得上;键指不到时不报错
  */
 import { describe, expect, it } from 'vitest';
 import { generateCiv } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { InterventionModel } from '../src/gen/civ/interventions';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
@@ -28,6 +27,7 @@ import {
   rivals,
   idOf,
 } from './lib/interventions';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 describe('干预 · 推演', () => {
   it('没有干预时和原来一样;干预年份之前的日志、史事、国家表、城镇表和不干预时逐字节一致', () => {
@@ -110,7 +110,7 @@ describe('干预 · 推演', () => {
     }
   }, 120_000);
 
-  it('确定性:同样的干预两次推演逐字节相同;fromCiv 接着推(切在干预之前 / 之后)和一口气推完一致', () => {
+  it('确定性:同样的干预两次推演逐字节相同;resumeCiv 接着推(切在干预之前 / 之后)和一口气推完一致', () => {
     for (const seed of FALL_SEEDS) {
       const w = world(seed);
       const civ = base(seed);
@@ -125,7 +125,7 @@ describe('干预 · 推演', () => {
       expect(fingerprint(generateCiv(w, { interventions: list.map((v) => ({ ...v })) }))).toBe(fingerprint(whole));
       for (const cut of [allyFrom - 1, allyFrom, Math.floor((from + allyFrom) / 2), 2450, 2500, 2700]) {
         const half = generateCiv(w, { endYear: cut, interventions: list });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;

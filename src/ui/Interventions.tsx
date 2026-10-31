@@ -18,7 +18,7 @@ import type { Civ, Polity } from '../gen/civ/types';
 import { canCross } from '../gen/civ/polities';
 import { polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import {
   AUTHOR_REGENT_AGE_END,
   DISASTER_LEVEL_NAMES,
