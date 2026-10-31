@@ -79,7 +79,7 @@
 import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
 import { Layer, type Culture, type Polity } from './types';
 import { subSeed } from './engine/rand';
-import { Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
+import { LOOK_K, quantize, type CivSim } from './engine/sim';
 import { addPolity, bookOf, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, crownOf, reignBorn } from './rulers';
 import { strikeDisaster } from './disaster';
@@ -99,6 +99,7 @@ import { assimModelOf } from './assimilation';
 import { APPOINT_AGE, IV_REIGNING, appointEnd, authorLeadsNow, skillPower, type AppointInput, type AppointIv, type AuthorLead } from './appoint';
 import { IV_GONE, authorRegentEnd, regentAt } from './regents';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;

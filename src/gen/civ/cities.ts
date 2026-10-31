@@ -31,12 +31,13 @@
 import type { World } from '../world';
 import { Layer, type Civ, type Settlement, type Year } from './types';
 import { fexp, fpow, keyed, keyed4, subSeed } from './engine/rand';
-import { bookChain, Ev, quantize, type CivSim } from './engine/sim';
+import { bookChain, quantize, type CivSim } from './engine/sim';
 import { foundCity, onCapitalLost, polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settlementRank } from './growth';
 import { inSlump, pandemicModelOf } from './pandemicState';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
 /** 攻下一州时城被洗劫、被毁的基础机会 */

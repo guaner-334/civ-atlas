@@ -63,7 +63,7 @@ import { COLDEST_NORTH, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
 import { biomeColumn } from '../biomes';
 import { fexp, keyed, keyed4, subSeed } from './engine/rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
+import { BOOKED_AT_START, bookChain, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -75,6 +75,7 @@ import { claimants, murderedAt } from './royals';
 import { anySlump, inSlump, pandemicModelOf } from './pandemicState';
 import { royalSeg } from './regime';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */

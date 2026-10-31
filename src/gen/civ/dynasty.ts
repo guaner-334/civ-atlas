@@ -39,7 +39,7 @@
 import type { World } from '../world';
 import { Layer, type Civ, type Polity, type Year } from './types';
 import { fexp, fpow, keyed, subSeed } from './engine/rand';
-import { Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
+import { LOOK_K, quantize, type CivSim } from './engine/sim';
 import { dynastyReign, moveCapital, polityModelOf, unrestShiftOf, type PolityModel } from './polities';
 import { GUIDE_DYNASTY } from './policy';
 import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';
@@ -48,6 +48,7 @@ import { TIER_REGIONS, capitalAt, populationAt } from './growth';
 import { KEEP_COURT, KEEP_RISE } from './rulers';
 import { royalAt } from './regime';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看王朝;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */

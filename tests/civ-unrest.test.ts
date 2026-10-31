@@ -5,13 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
-import { Ev } from '../src/gen/civ/engine/sim';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { unrestStats } from '../src/gen/civ/unrest';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { Ev } from '../src/gen/civ/events';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {

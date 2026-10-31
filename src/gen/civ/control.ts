@@ -49,7 +49,7 @@
  */
 import { Layer, AdjKind, type Civ, type Polity, type TablesState, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './engine/rand';
-import { Ev, type CivSim } from './engine/sim';
+import { type CivSim } from './engine/sim';
 import { polityModelOf, powerScaleOf, unrestShiftOf, type PolityModel } from './polities';
 import { GUIDE_UNREST } from './policy';
 import { warModelOf, type War, type WarModel } from './wars';
@@ -65,6 +65,7 @@ import { BOOK_WIDTH } from './fiscalBook';
 import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTiles, spreadRural, tilesToCells } from './population';
 import { COUNCIL_CONSTS, cutDone, reorgCap } from './councilRules';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */

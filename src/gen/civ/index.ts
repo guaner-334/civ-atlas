@@ -47,6 +47,7 @@ import { migrationsOf } from './migration';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
 import { finishModules, installModules, resumeCiv } from './modules';
+import { CIV_EVENTS } from './events';
 
 export * from './types';
 
@@ -206,7 +207,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   // ② 民族扩张 + 回放引擎(cultures.ts / sim.ts):定民族 → 按年推演到 endYear → 按最终疆域配色、起名。
   // ③ 城市成长 + 国家(polities.ts):在 sim.run 之前装上自己的事件(建城、立国、国家到达、升格),
   //    同一个引擎、同一本日志
-  const sim = new CivSim(R);
+  const sim = new CivSim(R, CIV_EVENTS);
   // 「天灾」(calamity.ts):平常 = undefined,和没有这一项逐字节一样
   sim.calamity = cleanCalamity(p.calamity);
   const birthSpan = p.birthSpan ?? BIRTH_SPAN;

@@ -88,7 +88,7 @@ import type { World } from '../world';
 import { coldShare, coldSpellEnd, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, fpow, keyed, keyed4, round24, subSeed } from './engine/rand';
-import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
+import { bookChain, LOOK_K, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, regentOf, rulerOf, type PolityModel } from './polities';
 import { reignBorn } from './rulers';
 import { ADULT } from './regents';
@@ -99,6 +99,7 @@ import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
 import { royalAt } from './regime';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
