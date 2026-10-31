@@ -16,10 +16,10 @@ import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf, rulerOf } from '../src/gen/civ/polities';
 import { reignBook, reignStart, rulerBase, type Crown, type ReignPolity } from '../src/gen/civ/rulers';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { applyCharacters } from '../src/gen/characters';
-import { kinOf } from '../src/gen/civ/peopleText';
+import { kinOf } from '../src/gen/civ/story/peopleText';
 import { interventionFate, laterInterventions, rewindStepwise, startStepwise } from '../src/gen/stepwise';
 import { EMPTY_EDITS, cleanIntervention, cleanInterventions, polityKey, regionKey, type Intervention, type WorldEdits } from '../src/gen/edits';
 

@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { cultureLabel, regionLabel } from '../src/gen/civ/display';
+import { cultureLabel, regionLabel } from '../src/gen/civ/story/display';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { cultureKey } from '../src/gen/edits';
 import { shade } from '../src/gen/civ/religion';

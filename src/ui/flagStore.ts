@@ -8,7 +8,7 @@
 import { useSyncExternalStore } from 'react';
 import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
-import { flagBook, flagOverrides, polityFlagAt, type FlagBook, type FlagEra, type FlagSpec } from '../gen/civ/flags';
+import { flagBook, flagOverrides, polityFlagAt, type FlagBook, type FlagEra, type FlagSpec } from '../gen/civ/story/flags';
 
 export interface FlagView {
   world: World;

@@ -12,7 +12,7 @@
  * - 字幕按大纲(outlineEvents):照大纲推演推过的每条情节一条字幕,写作者写的那句,比哪件大事都先排;
  *   编年史里对上情节的那件不再另放,情节之间只放头等大事(和导播照大纲放一样稀)。
  */
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import { eraText, yearFull, yearShort, type Era } from '../gen/era';
 import { entryWeight, evType, playRate, type EvType } from './timelineLayout';

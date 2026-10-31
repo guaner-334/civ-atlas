@@ -22,11 +22,11 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
-import { regionLabel } from '../gen/civ/display';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
+import { regionLabel } from '../gen/civ/story/display';
 import { yearAt, yearFull, yearShort } from '../gen/era';
-import { formChangesAt, polityFormAt, type FormChange } from '../gen/civ/polityForm';
+import { formChangesAt, polityFormAt, type FormChange } from '../gen/civ/story/polityForm';
 import { CONTROL_COLORS } from '../render/civ/control';
 import { useEra } from './editsStore';
 import { openInfoPage, setSheet } from './panelStore';
@@ -64,7 +64,7 @@ import {
   ruleSeg,
   type CourtView,
 } from './courtInfo';
-import { formDims } from '../gen/civ/polityForm';
+import { formDims } from '../gen/civ/story/polityForm';
 import { FlagIcon } from './Flag';
 import { useFlags } from './flagStore';
 import './fiscal.css';

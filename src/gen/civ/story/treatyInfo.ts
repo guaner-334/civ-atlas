@@ -7,13 +7,13 @@
  * - 中立地:哪州、依哪份约、几国共建(或议和划的缓冲)、谁让出的、撤销的年份和还给了谁、住过谁(Person.exile)
  * 按 civ 缓存(同一份史事只整理一次)。
  */
-import type { Civ, Person, Year } from './types';
-import { polityAlive, polityName } from './growth';
-import { ownersAt } from './timeline';
-import { treatyBook, type TreatyInfo, type ZoneInfo } from './treatyBook';
+import type { Civ, Person, Year } from '../types';
+import { polityAlive, polityName } from '../growth';
+import { ownersAt } from '../timeline';
+import { treatyBook, type TreatyInfo, type ZoneInfo } from '../treatyBook';
 
 // 每份约、每处中立地的来龙去脉(treatyBook)、立约选项和干预没生效的原因码在 treatyBook.ts;原来从这里 import 的照旧能用
-export * from './treatyBook';
+export * from '../treatyBook';
 
 
 /** 约名:用户改过的名字;没改过 = "丹枫关之约"(会盟的城;没有城 = 空串) */

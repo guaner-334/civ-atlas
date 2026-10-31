@@ -21,7 +21,7 @@
  * 不碰 DOM;算一步、存回推演模式、从某一年开始由 App 实现(setStepwiseActions)。
  */
 import { useSyncExternalStore } from 'react';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { cleanPlay, commandsNow, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
 import { stepwiseToNormal } from '../gen/stepwise';
 import type { PauseWhy, StepPlan, StepReviewItem } from './stepwisePlan';

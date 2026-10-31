@@ -14,10 +14,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Civ, Faith } from '../gen/civ/types';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
-import { cultureLabel } from '../gen/civ/display';
+import { cultureLabel } from '../gen/civ/story/display';
 import { faithKey } from '../gen/edits';
 import { faithCounts, statesOfFaith } from '../gen/civ/religion';
-import { FORM_NOTE, eventRoot, faithHistory, fullChronicle } from '../gen/civ/religionText';
+import { FORM_NOTE, eventRoot, faithHistory, fullChronicle } from '../gen/civ/story/religionText';
 import { setSelection } from './civView';
 import { NameEdit } from './NameEdit';
 import { entriesUpTo, ownersOf } from './panelData';

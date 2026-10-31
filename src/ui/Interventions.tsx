@@ -17,7 +17,7 @@ import type { ToastAction } from './toastStore';
 import type { Civ, Polity } from '../gen/civ/types';
 import { canCross } from '../gen/civ/polities';
 import { polityAlive, polityName } from '../gen/civ/growth';
-import { cultureLabel, regionLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import {
   AUTHOR_REGENT_AGE_END,
@@ -37,11 +37,11 @@ import {
   type RegentHow,
 } from '../gen/edits';
 import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
-import { rulerAt } from '../gen/civ/peopleInfo';
-import { cnNumber } from '../gen/civ/chronicle';
+import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { cnNumber } from '../gen/civ/story/chronicle';
 import { foesAt } from '../gen/civ/fiscalBook';
-import { leaningsChange, personName } from '../gen/civ/peopleText';
-import { heOrShe, heirWord, mateWord, wedVerb, type Sexed } from '../gen/civ/gender';
+import { leaningsChange, personName } from '../gen/civ/story/peopleText';
+import { heOrShe, heirWord, mateWord, wedVerb, type Sexed } from '../gen/civ/story/gender';
 import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
 import { postLine } from './authorIvInfo';

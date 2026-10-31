@@ -21,7 +21,7 @@ import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import type { AuthorCharacter } from '../gen/characters';
 import { polityName } from '../gen/civ/growth';
-import { cnNumber } from '../gen/civ/chronicle';
+import { cnNumber } from '../gen/civ/story/chronicle';
 import {
   campaignText,
   commandFoes,
@@ -32,10 +32,10 @@ import {
   peopleIndex,
   personSpan,
   riseText,
-} from '../gen/civ/peopleInfo';
-import { generalRole, isConsul, ministerRole, personName, rulerFateWord } from '../gen/civ/peopleText';
-import { deedLine } from '../gen/civ/officialText';
-import { hasLineage, lineageText } from '../gen/civ/lineageInfo';
+} from '../gen/civ/story/peopleInfo';
+import { generalRole, isConsul, ministerRole, personName, rulerFateWord } from '../gen/civ/story/peopleText';
+import { deedLine } from '../gen/civ/story/officialText';
+import { hasLineage, lineageText } from '../gen/civ/story/lineageInfo';
 import { closeOverview, setPeople, usePeople, type PeopleList } from './overviewStore';
 import { seedTag, useEdits } from './editsStore';
 import { setSelection } from './civView';

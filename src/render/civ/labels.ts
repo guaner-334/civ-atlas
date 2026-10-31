@@ -23,7 +23,7 @@ import { MIN_LABEL_PX, REF_MAP_CSS, SURFACE, type LabelItem, type LabelMark, typ
 import { ownerAtPoint, polityCandidates, polityLabels, polityOwnerGrid, territoryGrid, type ShapeFit } from '../labels/polity';
 import { shapeLabelFit } from '../labels/shape';
 import { cellPolygons } from '../marks';
-import { cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
+import { cultureLabel, regionLabel, regionNamed } from '../../gen/civ/story/display';
 import { NAME_GROW, NAME_MIN_ZOOM, NAME_PRIORITY, NAME_SIZE, SYMBOL_MIN_ZOOM, SYMBOL_PRIORITY, settlementNameItem } from '../labels/settlements';
 import { RUIN, SYMBOL_BOX, SYMBOL_GROW, ruinsAt, settlementsAt, type SettlementMarkInfo } from './settlements';
 import type { CivDrawParams, CivStyle } from './overlay';
@@ -36,7 +36,7 @@ import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
 import { faithAt } from '../../gen/civ/religion';
 import { ERA_COLORS, eraName, eraSampleYear, erasAt } from './era';
 import { passLabels } from './passes';
-import { treatyBook, zonesAt } from '../../gen/civ/treatyInfo';
+import { treatyBook, zonesAt } from '../../gen/civ/story/treatyInfo';
 import { neutralShown } from './neutral';
 
 const MIN_ZOOM = [1, 1, 1.8, 3];

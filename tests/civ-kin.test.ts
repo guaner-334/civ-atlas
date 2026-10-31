@@ -8,9 +8,9 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
-import { splitSurname } from '../src/gen/civ/peopleText';
+import { splitSurname } from '../src/gen/civ/story/peopleText';
 import { createPersonNamer } from '../src/gen/names/persons';
-import { dynastyRows, fallenLabel, fromFallen, hasLineage, layoutDynasty, lineageText, restoredFrom } from '../src/gen/civ/lineageInfo';
+import { dynastyRows, fallenLabel, fromFallen, hasLineage, layoutDynasty, lineageText, restoredFrom } from '../src/gen/civ/story/lineageInfo';
 
 const worlds = new Map<number, ReturnType<typeof generateWorld>>();
 const worldOf = (seed: number) => {

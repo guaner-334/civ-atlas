@@ -16,7 +16,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { ADVANCE_COUNTDOWNS, ADVANCE_EVERY_CHOICES, BRANCH_NAME_MAX, END_YEAR_MAX, YEAR_TICKS, advanceOf, cleanPlay, commandAt, momentAt as tickMoment, playAt, type Advance, type Intervention } from '../gen/edits';
 import { branchList, laterInterventions, rewindStepwise } from '../gen/stepwise';
-import { fullChronicle } from '../gen/civ/religionText';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { eraText, spaced, yearAt, yearFull } from '../gen/era';
 import { getEdits, setAdvance, useEdits, useEra, useMonths } from './editsStore';
 import { getPending } from './pendingStore';

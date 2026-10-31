@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import type { Annal, Person, Polity } from '../src/gen/civ/types';
-import { buildChronicle, interventionOutcome, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, interventionOutcome, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { IV_REIGNING, authorPostsFrom, type AuthorPost } from '../src/gen/civ/appoint';
 import { IV_NOT_HIM } from '../src/gen/civ/rulers';
 import { IV_GONE } from '../src/gen/civ/regents';

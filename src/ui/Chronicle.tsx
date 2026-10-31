@@ -18,11 +18,11 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { chronicleText, filterChronicle, polityChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
+import { chronicleText, filterChronicle, polityChronicle, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { monthLabel, monthOf, yearFull, yearShort } from '../gen/era';
 import { seedTag, useEra, useMonthNames, useMonths } from './editsStore';
 import { JumpField } from './JumpYear';
-import { fullChronicle } from '../gen/civ/religionText';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { polityName } from '../gen/civ/growth';
 import { getCivTime, pickChronicleEntry, setChronicle, subscribeCivTime, useChronicle, useChroniclePick, type CivTime } from './civView';
 import { evLabel, evType } from './timelineLayout';

@@ -3,9 +3,9 @@
  * 手工造的纪事(挂在 seed 7 真实的城上)测规则;再用 seed 7、2024 的真实编年史核对:每次排得一样、大事不漏、一步一步排和整段排一样、够快。
  */
 import { describe, expect, it } from 'vitest';
-import type { ChronicleEntry } from '../src/gen/civ/chronicle';
-import { MAJOR, entryInvolves, mergeChronicle, reignEntries } from '../src/gen/civ/chronicle';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import type { ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { MAJOR, entryInvolves, mergeChronicle, reignEntries } from '../src/gen/civ/story/chronicle';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { generateCiv } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import type { Era } from '../src/gen/era';

@@ -11,10 +11,10 @@
  * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。君号、身份词、身后称号、亲属词分男女(Person.female),换哪个字见 gender.ts。
  * - 君主的倾向:名字和一句说明(LEANING_TEXT),复制生平的一行(leaningsText)
  */
-import type { Civ, Person, PersonRegency, Polity, RulerLeanings, Year } from './types';
-import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from './growth';
+import type { Civ, Person, PersonRegency, Polity, RulerLeanings, Year } from '../types';
+import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from '../growth';
 import { childWord, dowagerWord, eastRank, isFemale, khanWord, postTitle, princeWord, westRank } from './gender';
-import { reformedSeg, royalSeg } from './regime';
+import { reformedSeg, royalSeg } from '../regime';
 
 function polityOfPerson(civ: Civ, x: Person): Polity | null {
   return x.polity >= 0 && x.polity < civ.polities.length ? civ.polities[x.polity] : null;
@@ -382,7 +382,7 @@ export function leaningsText(l: RulerLeanings): string {
 }
 
 /** 东方中式的全名拆出姓(复姓两个字;推演起名也用,定义在 surname.ts) */
-export { splitSurname } from './surname';
+export { splitSurname } from '../surname';
 
 /** 改过的倾向:"开拓 53→78、好战 50→20"(只写变了的;不知道原来的 = "开拓 78、好战 20";都没变 = 空串) */
 export function leaningsChange(from: RulerLeanings | undefined, to: RulerLeanings): string {

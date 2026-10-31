@@ -5,8 +5,8 @@
  * 算好了一次交过去,主线程拆包也要一百来毫秒。所以在线程里算,按份量切成小块一块一块交:每块拆包只占主线程几毫秒,
  * 块与块之间界面照样响应。交过去的就是 buildChronicle / fullChronicle 的结果本身,主线程记进缓存,和在主线程上算的逐条一样。
  */
-import { buildChronicle, type ChronicleEntry } from './gen/civ/chronicle';
-import { fullChronicle } from './gen/civ/religionText';
+import { buildChronicle, type ChronicleEntry } from './gen/civ/story/chronicle';
+import { fullChronicle } from './gen/civ/story/religionText';
 import { applyNames } from './gen/edits';
 import type { Civ } from './gen/civ';
 

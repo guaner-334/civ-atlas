@@ -10,7 +10,7 @@
 import type { Civ, Year } from '../gen/civ/types';
 import { ARRIVE, THOUGHTS, THOUGHT_COUNT, ideologyAt, polityIdeologyAt, polityThoughts, thoughtArrival, thoughtOrigin } from '../gen/civ/ideology';
 import { polityName } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { yearAt, yearFull, type Era } from '../gen/era';
 import { thoughtBand, thoughtCounts, thoughtEmerged } from '../render/civ/thoughts';
 

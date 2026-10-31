@@ -2,10 +2,10 @@
  * 界面显示用的小工具:民族类型的中文名、族名、州名。
  * 单独放一个文件,不引入起名器和推演代码 —— 主线程(面板、悬停信息)只用得到这些,打包时不用把地名词库带上。
  */
-import type { Civ, Culture, CultureKind, Place } from './types';
+import type { Civ, Culture, CultureKind, Place } from '../types';
 
 /** 治所宜居分 ≥ 这个值的州才算可居(推演用的数,定义在 kinds.ts;界面从这里取) */
-export { HABITABLE_SUIT } from './kinds';
+export { HABITABLE_SUIT } from '../kinds';
 
 /** 七种民族类型:中文名、一句话说明(扩张性基数是推演用的数,在 kinds.ts 的 KIND_EXPANSIONISM) */
 export const KIND_INFO: Record<CultureKind, { name: string; hint: string }> = {

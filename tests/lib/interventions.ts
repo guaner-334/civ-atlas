@@ -8,7 +8,7 @@ import { generateCiv, type Civ } from '../../src/gen/civ';
 import type { Annal } from '../../src/gen/civ/types';
 import { canCross } from '../../src/gen/civ/polities';
 import { ownersAt } from '../../src/gen/civ/timeline';
-import { buildChronicle } from '../../src/gen/civ/chronicle';
+import { buildChronicle } from '../../src/gen/civ/story/chronicle';
 import { capitalAt } from '../../src/gen/civ/growth';
 import { resolveKey, type Intervention } from '../../src/gen/edits';
 

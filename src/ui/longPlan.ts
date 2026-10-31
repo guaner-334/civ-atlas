@@ -13,7 +13,7 @@
  * 排版、画法在 render/longImage.ts,地图由 longRun.ts 按这里给的年份拍。同一个世界、同样的选项永远得到同样的内容。
  */
 import type { Civ, Polity } from '../gen/civ/types';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { eraText, yearFull, yearSpanAt, type Era } from '../gen/era';
 import { cnPunct } from './filmPlan';
 import { polityNameAt, polityUsedNames } from './searchIndex';

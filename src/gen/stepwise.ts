@@ -23,7 +23,7 @@
  * 一步走几年、走完停不停在 ui/stepwisePlan.ts。
  */
 import type { Civ } from './civ/types';
-import { interventionOutcome } from './civ/chronicle';
+import { interventionOutcome } from './civ/story/chronicle';
 import { polityName } from './civ/growth';
 import {
   BRANCH_ID_MAX,

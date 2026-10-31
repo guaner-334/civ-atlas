@@ -8,7 +8,7 @@
 import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
-import { seatPolity } from '../gen/civ/peopleText';
+import { seatPolity } from '../gen/civ/story/peopleText';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cultureKey, faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, tradeKey, treatyKey, type AuthorMark } from '../gen/edits';
 import { personKey, resolvePersonKey } from '../gen/characters';

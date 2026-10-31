@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { buildChronicle, entryInvolves, entryYearLabel, filterChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle, entryInvolves, entryYearLabel, filterChronicle } from '../src/gen/civ/story/chronicle';
 import { polityAlive, polityName } from '../src/gen/civ/growth';
 import { applyNames, polityKey, settlementKey } from '../src/gen/edits';
 import { NAME_STYLES } from '../src/gen/names';

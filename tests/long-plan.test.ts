@@ -5,8 +5,8 @@
  * 量字用一个假的(每个字一样宽),不用画布。
  */
 import { describe, expect, it } from 'vitest';
-import { filterChronicle } from '../src/gen/civ/chronicle';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { filterChronicle } from '../src/gen/civ/story/chronicle';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { generateCiv } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { buildHistoryPrompts, partName } from '../src/ai/prompts/history';

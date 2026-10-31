@@ -12,7 +12,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityName } from '../src/gen/civ/growth';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { authorPostsFrom } from '../src/gen/civ/appoint';
 import { applyCharacters, type AuthorCharacter } from '../src/gen/characters';
 import { AUTHOR_IV_KINDS, cleanIntervention, polityKey, type Intervention } from '../src/gen/edits';

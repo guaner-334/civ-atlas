@@ -12,10 +12,10 @@
  */
 import type { Annal, Civ, Person, RulerLeanings, Year } from '../gen/civ/types';
 import { interventionFate } from '../gen/stepwise';
-import { rulerAt } from '../gen/civ/peopleInfo';
+import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { royalAt } from '../gen/civ/regime';
-import { personName, rulerFateWord } from '../gen/civ/peopleText';
-import { heOrShe } from '../gen/civ/gender';
+import { personName, rulerFateWord } from '../gen/civ/story/peopleText';
+import { heOrShe } from '../gen/civ/story/gender';
 import {
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
@@ -31,12 +31,12 @@ import {
   type RegentHow,
 } from '../gen/edits';
 import { foesAt } from '../gen/civ/fiscalBook';
-import { heirBornOf } from '../gen/civ/regentInfo';
+import { heirBornOf } from '../gen/civ/story/regentInfo';
 import { eraText, spaced, yearAt, type Era } from '../gen/era';
 import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, populationAt, portAt, regionCityAt, regionPopulationAt, ruralPopulationAt } from '../gen/civ/growth';
 import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calamity';
-import { plagueSpans } from '../gen/civ/plagueSpans';
-import { regionLabel } from '../gen/civ/display';
+import { plagueSpans } from '../gen/civ/story/plagueSpans';
+import { regionLabel } from '../gen/civ/story/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { authorRegentEndWord, cultureKeyName, interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
 import { boostDoneText } from './boostInfo';

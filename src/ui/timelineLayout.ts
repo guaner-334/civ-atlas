@@ -17,11 +17,11 @@
  *   设了纪年的刻度对准元年:字写在元年和它前后整千年(整大格)的地方("前2000""元年""1000"),两头写起止,离两头太近的不写。
  * - 播放:推得比 3000 年久的世界,播放速度、自动播放放的那一段、方向键一次走的年数跟着年数放大(放完整段的时间不变)。
  */
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
-import { standPass } from '../gen/civ/display';
+import { standPass } from '../gen/civ/story/display';
 import { nearX, wrapOf } from '../render/common';
 import { END_YEAR_DEFAULT, YEAR_TICKS } from '../gen/edits';
 import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era';

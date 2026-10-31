@@ -9,11 +9,11 @@
  * 西幻的国家"改朝换代"写"王室更迭"。挡下的那几回是史事 keep(b 列:豪强起兵 / 国都权臣篡位 / 掌实权的人篡位)。
  */
 import type { Annal, Civ, Person, Polity } from '../gen/civ/types';
-import { cnNumber } from '../gen/civ/chronicle';
+import { cnNumber } from '../gen/civ/story/chronicle';
 import { KEEP_RISE } from '../gen/civ/rulers';
-import { rulerAt } from '../gen/civ/peopleInfo';
+import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { regimeAt, royalAt } from '../gen/civ/regime';
-import { heOrShe, type Sexed } from '../gen/civ/gender';
+import { heOrShe, type Sexed } from '../gen/civ/story/gender';
 import { polityName, polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import { interventionFate } from '../gen/stepwise';
 import { YEAR_TICKS, commandAt, polityKey, resolveKey, type Intervention } from '../gen/edits';

@@ -6,7 +6,7 @@
 import type { Civ, Place } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import type { World } from '../../gen/world';
-import { regionLabel, regionNamed } from '../../gen/civ/display';
+import { regionLabel, regionNamed } from '../../gen/civ/story/display';
 import type { ReliefBox } from '../../render/terrain3d/box';
 import { metersText, placeFacts } from '../panelData';
 

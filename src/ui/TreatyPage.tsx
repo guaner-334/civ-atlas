@@ -27,7 +27,7 @@ import type { WorldToClient } from './EventPins';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { polityAlive } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { END_YEAR_MAX, TREATY_OTHERS_MAX, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
@@ -45,7 +45,7 @@ import { useRole } from './roleStore';
 import { rolePolity } from './policyInfo';
 import { nationsWord } from './treatyRows';
 import { mediatorFor, setZonePlates, sharedTreaty, treatyPreview, useZonePlates, zoneChoiceAt, zoneChoiceText, zoneChoices, zonePlateText, zonePreview, type ZoneChoice } from './treatyIv';
-import { treatyTitle } from '../gen/civ/treatyInfo';
+import { treatyTitle } from '../gen/civ/story/treatyInfo';
 import './policy.css';
 import './treaty.css';
 

@@ -6,7 +6,7 @@
 import { Fragment, useMemo } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import type { Era } from '../gen/era';
-import { reignRecord } from '../gen/civ/reignRecord';
+import { reignRecord } from '../gen/civ/story/reignRecord';
 import { Row } from './panelParts';
 
 export function ReignRecord({ civ, x, era }: { civ: Civ; x: Person; era: Era | undefined }) {

@@ -13,7 +13,7 @@ import { useNotesVersion } from '../ai/library';
 import { BOOK_LENGTHS, BOOK_STYLES, HISTORY_LENGTHS, HISTORY_STYLES, type HistoryLength, type HistoryStyle } from '../ai/prompts/history';
 import { LIFE_STYLES, bookNoteKey, bookPrompts, bookStoreScope, houseName, isLifeScope, lifeLength, lifeOptionLabel, type BookOptions, type LifeScope } from '../ai/prompts/lives';
 import { BOOK_VERSIONS_MAX, bookHowText, bookVersions, historyNoteStatus, historyStyleLabel, listHistoryNotes, shortDate, shortDay } from '../ai/history';
-import { personName } from '../gen/civ/peopleText';
+import { personName } from '../gen/civ/story/peopleText';
 import { getCivTime, useSelection } from './civView';
 import { currentWorld, useSavesVersion } from './saveStore';
 import { bookTitleText, closeHistoryBook, getBook, getBookSource, openBookReader, setBookPrefs, setLifeStyle, startBook, useBook } from './bookStore';

@@ -15,7 +15,7 @@ import type { Raster } from '../gen/raster';
 import type { Civ, Place } from '../gen/civ/types';
 import { BIOMES } from '../gen/biomes';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { cultureLabel, regionLabel, regionNamed } from '../gen/civ/display';
+import { cultureLabel, regionLabel, regionNamed } from '../gen/civ/story/display';
 import { faithAt } from '../gen/civ/religion';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, populationLabel, settlementRank } from '../gen/civ/growth';
 import { latitudeAt } from '../gen/climate';

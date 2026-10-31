@@ -5,11 +5,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { personName } from '../src/gen/civ/peopleText';
+import { personName } from '../src/gen/civ/story/peopleText';
 import { applyNames, cleanName, EMPTY_EDITS, resolveKey } from '../src/gen/edits';
 import { personKey, resolvePersonKey } from '../src/gen/characters';
 import { searchCiv } from '../src/ui/searchIndex';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { makeSave, parseSave, saveText } from '../src/gen/savefile';
 
 let civ7: Civ | undefined;

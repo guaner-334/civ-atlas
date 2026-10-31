@@ -9,13 +9,13 @@
  *   peakEraAt(civ, 州, 年)  州到那年为止到过的最高时代数值(国家卡片"时代写曾到哪")
  *   城荒废:Settlement.ended + 史事 desolate;路断:Route.abandoned / 修回的那一段(breakRoads)
  */
-import type { Civ, Year } from './types';
-import { SEV_REF, pandemicsOf } from './pandemicRoads';
-import { ruralPopulationAt } from './growth';
-import { CAP_COUNT, LEVEL_SCALE, developmentAt, eraLevel } from './development';
+import type { Civ, Year } from '../types';
+import { SEV_REF, pandemicsOf } from '../pandemicRoads';
+import { ruralPopulationAt } from '../growth';
+import { CAP_COUNT, LEVEL_SCALE, developmentAt, eraLevel } from '../development';
 
 /** 起过的全球大疫(定义在 pandemicRoads.ts,推完以后断路也用;原来从这里 import 的照旧能用) */
-export { pandemicsOf, type PandemicInfo } from './pandemicRoads';
+export { pandemicsOf, type PandemicInfo } from '../pandemicRoads';
 
 /** 第 year 年各州凋敝的程度(0–1:染了疫、凋敝还没结束的州 = 城里死几成 ÷ 0.4,最多 1;几场叠着的取重的);这年没有凋敝 = null */
 export function slumpAt(civ: Civ, year: Year): Float32Array | null {

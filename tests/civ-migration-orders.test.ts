@@ -11,7 +11,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { trekModelOf } from '../src/gen/civ/migration';
 import { IV_NO_WAY, searchTrek, trekPaths, trekRouteTo } from '../src/gen/civ/trekRoute';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { cleanIntervention, cleanInterventions, cultureKey, regionKey, type Intervention } from '../src/gen/edits';
 import { decodeShare, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
 

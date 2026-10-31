@@ -15,20 +15,20 @@ import { COUNCIL_CONSTS, COUNCIL_GATE, councilAble, courtRulesAt, type CourtRule
 import { councilBefore } from '../gen/civ/councilRules';
 import { LORD_BYTE, controlAt, controlShare } from '../gen/civ/control';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { polityName, regionPopulationAt } from '../gen/civ/growth';
 import { fiscalAt } from '../gen/civ/fiscalBook';
-import { rulerAt } from '../gen/civ/peopleInfo';
-import { rulerBare, rulerRef } from '../gen/civ/peopleText';
-import { cnNumber, reformText } from '../gen/civ/chronicle';
+import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { rulerBare, rulerRef } from '../gen/civ/story/peopleText';
+import { cnNumber, reformText } from '../gen/civ/story/chronicle';
 import { dynastyIndexAt } from '../gen/civ/polityRoot';
 import { Issue, REFORM_REVOLUTION } from '../gen/civ/councilRules';
 import { yearAt, yearShort, yearShortAt, type Era } from '../gen/era';
 import { lordsAt, type LordNow } from '../render/civ/control';
 import { Outcome, applyRule, newRules } from '../gen/civ/councilRules';
-import { FEUDAL_SHARE, formDims, lordShare, type FormChange, type FormFacts, type FormLook, type FormName } from '../gen/civ/polityForm';
+import { FEUDAL_SHARE, formDims, lordShare, type FormChange, type FormFacts, type FormLook, type FormName } from '../gen/civ/story/polityForm';
 import { wan } from './fiscalInfo';
-import { practicesAt } from '../gen/civ/practiceInfo';
+import { practicesAt } from '../gen/civ/story/practiceInfo';
 import { PRACTICES, Practice, hasPractice } from '../gen/civ/practices';
 
 /** 征税的三种法子(征法 0、1、2) */

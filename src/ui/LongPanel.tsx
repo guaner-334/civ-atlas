@@ -10,7 +10,7 @@
  */
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { chronicleEraYears } from '../gen/civ/chronicle';
+import { chronicleEraYears } from '../gen/civ/story/chronicle';
 import type { Style } from './mapLayers';
 import { PolityFlag } from './Flag';
 import { Seg, Switch } from './FilmPanel';

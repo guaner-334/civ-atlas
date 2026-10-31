@@ -11,7 +11,7 @@ import { LORD_BYTE, controlAt, controlShare } from '../src/gen/civ/control';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
 import { courtEmpty, courtEvents, courtRowNote, courtView, formChangeSay, isFiefRegion, levySay, lordFoot, regimeSays } from '../src/ui/courtInfo';
-import { formChangesAt, formDims, polityFormAt } from '../src/gen/civ/polityForm';
+import { formChangesAt, formDims, polityFormAt } from '../src/gen/civ/story/polityForm';
 
 let cached: { world: World; civ: Civ } | null = null;
 function seed7() {

@@ -18,7 +18,7 @@ import type { Annal } from '../src/gen/civ/types';
 import { CivSim } from '../src/gen/civ/sim';
 import { polityAlive, polityName } from '../src/gen/civ/growth';
 import { diplomacyModelOf, diplomacyStats, polityTies, relationsAt } from '../src/gen/civ/diplomacy';
-import { buildChronicle, interventionOutcome, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, interventionOutcome, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { polityKey, type Intervention } from '../src/gen/edits';
 
 const worlds = new Map<string, World>();

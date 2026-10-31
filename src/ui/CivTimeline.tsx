@@ -26,8 +26,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Civ, Polity } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
-import { filterChronicle } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { filterChronicle } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import {
   clearChroniclePick,
   getCivTime,
@@ -42,8 +42,8 @@ import {
   useSelection,
 } from './civView';
 import { TimelineMarks, type TimelineLife, type TimelinePandemic } from './TimelineMarks';
-import { pandemicsOf } from '../gen/civ/pandemicInfo';
-import { regionLabel } from '../gen/civ/display';
+import { pandemicsOf } from '../gen/civ/story/pandemicInfo';
+import { regionLabel } from '../gen/civ/story/display';
 import { usePlotTicks } from './OutlineMap';
 import { TimelineYear } from './JumpYear';
 import { baseRegions } from './eras';

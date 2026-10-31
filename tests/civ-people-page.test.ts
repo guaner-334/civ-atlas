@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { reignEntries } from '../src/gen/civ/chronicle';
+import { reignEntries } from '../src/gen/civ/story/chronicle';
 import {
   FAME_MIN,
   commandFoes,
@@ -19,8 +19,8 @@ import {
   riseText,
   rulerAt,
   rulerNeighbors,
-} from '../src/gen/civ/peopleInfo';
-import { kinOf, personName, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../src/gen/civ/peopleText';
+} from '../src/gen/civ/story/peopleInfo';
+import { kinOf, personName, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../src/gen/civ/story/peopleText';
 import { searchCiv } from '../src/ui/searchIndex';
 import { mapTarget, personKey, resolvePersonKey, selectionKey } from '../src/ui/flyTo';
 import { royalSeg } from '../src/gen/civ/regime';

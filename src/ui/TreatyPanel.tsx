@@ -13,9 +13,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
-import { envoyOf, treatyBook, treatyLine, treatyTitle, type TreatyInfo } from '../gen/civ/treatyInfo';
-import { fullChronicle } from '../gen/civ/religionText';
+import { regionLabel } from '../gen/civ/story/display';
+import { envoyOf, treatyBook, treatyLine, treatyTitle, type TreatyInfo } from '../gen/civ/story/treatyInfo';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { treatyKey } from '../gen/edits';
 import { yearAt, yearFull, yearSpanAt, type Era } from '../gen/era';
 import { useEra } from './editsStore';

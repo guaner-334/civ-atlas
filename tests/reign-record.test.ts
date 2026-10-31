@@ -10,7 +10,7 @@ import type { Person } from '../src/gen/civ/types';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { populationLabel, regionPopulationAt } from '../src/gen/civ/growth';
 import { fillOf, fiscalAt, fiscalMood, warSpans } from '../src/gen/civ/fiscalBook';
-import { SHORT_REIGN, reignFacts, reignRecord, reignRecordOf, reignText, type ReignFacts } from '../src/gen/civ/reignRecord';
+import { SHORT_REIGN, reignFacts, reignRecord, reignRecordOf, reignText, type ReignFacts } from '../src/gen/civ/story/reignRecord';
 import { yearShortAt, type Era } from '../src/gen/era';
 
 const civs = new Map<number, Civ>();

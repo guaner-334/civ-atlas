@@ -7,9 +7,9 @@
  * 换范围、换画风这类要重拍的,预览上写"正在画疆域图,第几张,共几张"。
  * 世界写过 AI 史书的,每段配上史书里那一章开头的一段(longBookOf 挑哪一部;史书写完以后又改了世界的不放)。
  */
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
-import { fullChronicle } from '../gen/civ/religionText';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { ownersAt } from '../gen/civ/timeline';
 import { fileBaseName } from '../gen/savefile';
 import { historyNoteStatus, listHistoryNotes, type HistoryNote } from '../ai/history';

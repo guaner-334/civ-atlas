@@ -108,7 +108,7 @@ import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainOps';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
 import type { PlateEdit } from './plateOps';
-import { decodeFlag } from './civ/flagSpec';
+import { decodeFlag } from './civ/story/flagSpec';
 import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './characters';
 import { MONTHS_MAX, cleanEra, cleanMonthName, cleanMonthNames, cleanMonths, sameEra, sameMonthNames } from './era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins } from './civ/frontier';

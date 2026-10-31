@@ -4,11 +4,11 @@
  * 历史改写过(干预、改地形)以后标"写于历史改写前"(customsStamp 对不上)。
  */
 import type { Civ } from '../../gen/civ/types';
-import type { ChronicleEntry } from '../../gen/civ/chronicle';
+import type { ChronicleEntry } from '../../gen/civ/story/chronicle';
 import { BIOMES } from '../../gen/biomes';
-import { KIND_INFO, cultureLabel, regionLabel } from '../../gen/civ/display';
+import { KIND_INFO, cultureLabel, regionLabel } from '../../gen/civ/story/display';
 import { polityName, populationLabel } from '../../gen/civ/growth';
-import { cultureTraits } from '../../gen/civ/cultureTraits';
+import { cultureTraits } from '../../gen/civ/story/cultureTraits';
 import { cultureKey } from '../../gen/edits';
 import { evText } from '../../ui/timelineLayout';
 import { cultureBranches, cultureEntries, cultureNow, culturePopSeries, cultureShownYear, cultureWaves, waveText } from '../../ui/cultureInfo';

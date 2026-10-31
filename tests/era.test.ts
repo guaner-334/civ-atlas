@@ -48,7 +48,7 @@ import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { decodeShare, editCount, editsLost, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { currentMonthNames, currentMonths, getEdits, revertEdits, setEdits, setEra, setMonthNames, setMonths } from '../src/ui/editsStore';
-import { chronicleDocument, chronicleText, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { chronicleDocument, chronicleText, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import type { Civ } from '../src/gen/civ/types';
 import { parseChapter } from '../src/ui/BookReader';
 import { draftProblem, type MarkDraft } from '../src/ui/markStore';

@@ -10,7 +10,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { unrestStats } from '../src/gen/civ/unrest';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {

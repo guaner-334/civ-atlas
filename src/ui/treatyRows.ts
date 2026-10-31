@@ -3,10 +3,10 @@
  * 中立地那一州的卡片(RegionPanel.tsx)、人物卡「放逐」(PersonPanel.tsx)。数据全按史事整理(gen/civ/treatyInfo.ts),不改推演。
  */
 import type { Annal, Civ, ExileTie, Person, Year } from '../gen/civ/types';
-import { cnNumber, exiledTo, type ChronicleEntry } from '../gen/civ/chronicle';
+import { cnNumber, exiledTo, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { polityAlive, polityName } from '../gen/civ/growth';
 import { yearAt, type Era } from '../gen/era';
-import { treatyBook, zonesAt, type TreatyInfo, type ZoneInfo } from '../gen/civ/treatyInfo';
+import { treatyBook, zonesAt, type TreatyInfo, type ZoneInfo } from '../gen/civ/story/treatyInfo';
 
 /** 约的种类:"有限竞争之约"(三国以上)/ "互不侵犯之约" */
 export const treatyKindWord = (x: TreatyInfo): string => (x.kind === 'limited' ? '有限竞争之约' : '互不侵犯之约');

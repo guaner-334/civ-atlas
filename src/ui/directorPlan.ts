@@ -29,13 +29,13 @@
  *   (对上的那条不再另放),停得和头等大事一样久,不略过、不和别的合成一段;情节之间只放头等大事,其余进"略过的"(crowd)。
  * - 同样的输入每次排得一样:不用随机数,排序都有确定的先后(分量、年份、编号)。
  */
-import { MAJOR, entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
+import { MAJOR, entryInvolves, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ, Person } from '../gen/civ/types';
-import { personSpan } from '../gen/civ/peopleInfo';
-import { seatPolity } from '../gen/civ/peopleText';
+import { personSpan } from '../gen/civ/story/peopleInfo';
+import { seatPolity } from '../gen/civ/story/peopleText';
 import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { yearFull, type Era } from '../gen/era';
 import { nearX } from '../render/common';
 import { eventOver, filmEvents, type FilmEvent } from './filmPlan';

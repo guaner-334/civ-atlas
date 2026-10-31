@@ -4,7 +4,7 @@
  * 地图上的旗只有二十来像素宽,按小尺寸的画法画(犬牙少而大,纹样画大一点)。
  */
 import { useSyncExternalStore } from 'react';
-import { encodeFlag, type FlagSpec } from '../gen/civ/flags';
+import { encodeFlag, type FlagSpec } from '../gen/civ/story/flags';
 import { flagSvg } from '../render/flag/flagSvg';
 
 const cache = new Map<string, HTMLImageElement>();

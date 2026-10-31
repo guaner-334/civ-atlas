@@ -12,7 +12,7 @@
  * 只在开着"国家"时画。
  */
 import { Layer, type Civ, type Year } from '../../gen/civ/types';
-import { zonesAt } from '../../gen/civ/treatyInfo';
+import { zonesAt } from '../../gen/civ/story/treatyInfo';
 import { pixOf } from './highlight';
 import { STRIPE_ALPHA, STRIPE_GAP, STRIPE_LINE, inkOf, stripeAt, washLayer } from './territory';
 import type { CivDrawParams } from './overlay';

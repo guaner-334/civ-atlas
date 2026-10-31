@@ -4,9 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
-import { brideName, heldOver, holderAt, inLawsAt, kinAt, polityShort } from '../src/gen/civ/regentInfo';
-import { lineageKin, lineageTag } from '../src/gen/civ/lineageInfo';
+import { buildChronicle, reignEntries } from '../src/gen/civ/story/chronicle';
+import { brideName, heldOver, holderAt, inLawsAt, kinAt, polityShort } from '../src/gen/civ/story/regentInfo';
+import { lineageKin, lineageTag } from '../src/gen/civ/story/lineageInfo';
 import { evLabel } from '../src/ui/timelineLayout';
 
 const civs = new Map<number, Civ>();
