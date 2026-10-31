@@ -29,7 +29,7 @@ import { dataLegend, dataLegendText, isGradientLegend, type DataLegend, type Gra
 import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
 import { RESOURCE_COLORS, drawResourceLayer, resourceTier, type ResourceLook } from './civ/resources';
 import { numLegendRows } from './civ/numLayer';
-import { numLayerShown } from './civ/numLayers';
+import { numLayerDrawn } from './civ/numLayers';
 import { RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
@@ -836,12 +836,12 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const rows = legendRows(civ, y);
   // 数据图层:图例先画这张图层的色阶 / 色块,不再把国家、民族列在头里(除非地图上确实叠了它们)
   const data = style === 'data' ? dataLegend(p.layer ?? 'biomes') : null;
-  // 信仰图层:地图铺的是信仰(国家只画国界),图例列国家(空心框)和信仰
-  const faithOn = show.faiths && !!civ.religion?.faiths.length;
-  const faiths = faithOn ? faithLegendRows(civ, y) : [];
   // 数值填色(时代、管辖、思潮,见 civ/numLayers.ts):地图铺的是各州的档(国家只画国界),图例列国家(空心框)和各档;
-  // 思潮看的那一说世上还没有时写一句。物产图层:列物产(不列国家、民族)
-  const num = faithOn ? null : numLayerShown(civ, show);
+  // 和地图同一个挑法(思潮在信仰铺着时让给信仰)。思潮看的那一说世上还没有时写一句。物产图层:列物产(不列国家、民族)
+  const num = numLayerDrawn(civ, show);
+  // 信仰图层:地图铺的是信仰(国家只画国界),图例列国家(空心框)和信仰
+  const faithOn = !num && show.faiths && !!civ.religion?.faiths.length;
+  const faiths = faithOn ? faithLegendRows(civ, y) : [];
   const numK = num ? num.focus(civ, show, y) : -1;
   const nums = num && numK >= 0 ? numLegendRows(num, civ, y, numK) : [];
   const numTitle = num ? num.title(numK) : '';
