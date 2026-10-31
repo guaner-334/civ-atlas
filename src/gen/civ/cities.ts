@@ -38,7 +38,7 @@ import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settle
 import { inSlump, pandemicModelOf } from './pandemicState';
 import type { CivModule } from './modules';
 import { Ev } from './events';
-import { warApi } from './api';
+import { civApi } from './api';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
 /** 攻下一州时城被洗劫、被毁的基础机会 */
@@ -144,14 +144,14 @@ function declineTime(cm: CityModel, s: Settlement, k: number, until: Year): numb
 
 /** 登记城市兴衰的事件处理(installDynasty 之后调用) */
 export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: CityModel = newModel(pm, wm)): CityModel {
-  const api = warApi(sim);
+  const api = civApi(sim);
   models.set(sim, cm);
   const culture = sim.owners[Layer.Culture];
   const owner = sim.owners[Layer.Polity];
   const base = cm.base;
 
   // ---- 攻城:洗劫 / 毁城 ----
-  api.onAssault = (w, x, y, r, sid, t, capital) => {
+  api.war.onAssault = (w, x, y, r, sid, t, capital) => {
     const s = pm.settlements[sid];
     if (!s || s.ended !== undefined) return;
     const X = pm.polities[x];

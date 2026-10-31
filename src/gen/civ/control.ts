@@ -66,7 +66,7 @@ import { POP_CONSTS, POP_TABLES, POP_TILE_TABLES, cellsToTiles, popLayer, popTil
 import { COUNCIL_CONSTS, cutDone, reorgCap } from './councilRules';
 import type { CivModule } from './modules';
 import { Ev } from './events';
-import { warApi } from './api';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
@@ -319,7 +319,7 @@ const SAVED_TABLES = ['国', '饥荒', '州数', '管辖', '边远', ...POP_TABL
  * saved:接着推时存档里政局数表的状态(null = 从头推;undefined = 存档里没有,接着推的那一刻现算一次)
  */
 function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | null | undefined, noted: Map<number, Year>): ControlModel | undefined {
-  const api = warApi(sim);
+  const api = civApi(sim);
   const pm = polityModelOf(sim);
   const wm = warModelOf(sim);
   const pol = politicsModelOf(sim);
@@ -543,11 +543,11 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   pol.lordCheck = (P, k, t) => check(P, k, t);
 
   // ---- 打仗:出兵的几成、抗命 ----
-  api.levy = (p, t) => {
+  api.war.levy = (p, t) => {
     const lordsN = mark(p, t);
     return (r: number) => (lordsN && inLord(r) ? 0 : Math.min(1, raw(p, r, t) + LEVY_0));
   };
-  api.onMuster = (w: War, t: number) => {
+  api.war.onMuster = (w: War, t: number) => {
     for (const x of [w.a, w.b]) {
       const ls = lordsOf(x, t);
       if (!ls.length) continue;
@@ -630,25 +630,25 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     return g ? Math.max(0, u + GUIDE_UNREST * g) : u;
   };
   pol.unrest = (P, t) => guided(P.id, t, P.id < tU.length ? tU[P.id] : 0);
-  api.unrest = (p, t) => guided(p, t, p < tU.length ? tU[p] : 0);
+  api.war.unrest = (p, t) => guided(p, t, p < tU.length ? tU[p] : 0);
   // ---- 钱粮:国用不足(窘迫)让宣战少、战事早罢(wars.ts) ----
-  api.broke = (p, _t) => (p < tBroke.length ? tBroke[p] : 0);
+  api.war.broke = (p, _t) => (p < tBroke.length ? tBroke[p] : 0);
   // ---- 国力(wars.ts、diplomacy.ts):上一步算的;那一步还没有地的国家(这一年里才立的)让那边现算 ----
-  api.power = (p) => (powReady && p < tPow.length && tSize[p] > 0 ? tPow[p] : -1);
-  api.purse = (p, _t) => {
+  api.war.power = (p) => (powReady && p < tPow.length && tSize[p] > 0 ? tPow[p] : -1);
+  api.war.purse = (p, _t) => {
     if (p >= tBroke.length) return 1;
     const full = RESERVE * eng.value('应缴', p);
     return full > 0 ? Math.min(1, eng.value('国库', p) / full) : 1;
   };
   // ---- 为掠夺而战(wars.ts):一州的收入比本国每州平均高几倍 ----
-  api.rich = (p, r) => {
+  api.war.rich = (p, r) => {
     if (p >= tBroke.length) return 0;
     const due = eng.value('应缴', p);
     const n = eng.value('州数', p);
     return due > 0 && n > 0 ? eng.get('税')[r] / (due / n) : 0;
   };
   // ---- 割据招邻国趁虚而入(wars.ts):几处、最早起的那处 ----
-  api.lords = (p, t) => {
+  api.war.lords = (p, t) => {
     const ls = lordsOf(p, t);
     return { n: ls.length, region: ls.length ? ls[0].region : -1 };
   };

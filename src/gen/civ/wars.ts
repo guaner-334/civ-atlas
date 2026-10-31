@@ -94,7 +94,7 @@ import type { DiplomacyModel } from './diplomacy';
 import { royalAt } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
-import { warApi } from './api';
+import { civApi } from './api';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -386,7 +386,7 @@ export function warModelOf(sim: CivSim): WarModel | undefined {
 
 /** 登记战争的事件处理和监听(installPolities 之后调用) */
 export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarModel = newModel(pm)): WarModel {
-  const api = warApi(sim);
+  const api = civApi(sim);
   models.set(sim, wm);
   const T = pm.terrain;
   const reg = T.regions;
@@ -414,14 +414,14 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     const pow = new Float64Array(pm.polities.length);
     for (const p of who) {
       if (pow[p] > 0) continue; // 重复的
-      const tab = api.power ? api.power(p) : -1;
+      const tab = api.war.power ? api.war.power(p) : -1;
       if (tab >= 0) {
         pow[p] = tab;
         continue;
       }
       let sum = 0;
       // 管不到的州出兵打折、割据的州不出兵(control.ts;没挂 = 都出)
-      const lv = api.levy?.(p, t);
+      const lv = api.war.levy?.(p, t);
       for (const r of pm.lands[p]) {
         const c = pm.cityOf[r];
         if (c >= 0) sum += lv ? popAt(pm.settlements[c], t) * lv(r) : popAt(pm.settlements[c], t);
@@ -445,20 +445,20 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     let sx = pow[x] * fexp(-reachOf(wm, x)[r] / (PROJECT * (pm.military?.[x] ?? 1)));
     let sy = pow[y] * fexp(-reachOf(wm, y)[r] / (PROJECT * (pm.military?.[y] ?? 1))) * def;
     // 士气(讨伐民变:见 接口 war.morale)
-    if (w && api.morale) {
-      sx *= api.morale(w, x, t);
-      sy *= api.morale(w, y, t);
+    if (w && api.war.morale) {
+      sx *= api.war.morale(w, x, t);
+      sy *= api.war.morale(w, y, t);
     }
     // 粮饷为掌权的人所制(引兵入朝那一刻正在打的仗;regency.ts)
-    if (w && api.supply) {
-      sx *= api.supply(w, x, t);
-      sy *= api.supply(w, y, t);
+    if (w && api.war.supply) {
+      sx *= api.war.supply(w, x, t);
+      sy *= api.war.supply(w, y, t);
     }
     // 作者的良将 / 名将挂帅(见 接口 war.led):本方兵力乘上去
-    if (w && api.led) {
-      const kx = api.led(w, x, t);
+    if (w && api.war.led) {
+      const kx = api.war.led(w, x, t);
       if (kx !== 1) sx = round24(sx * kx);
-      const ky = api.led(w, y, t);
+      const ky = api.war.led(w, y, t);
       if (ky !== 1) sy = round24(sy * ky);
     }
     if (culture[r] === X.culture) sx *= KIN_ATTACK;
@@ -483,7 +483,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     const cand: [number, number, number][] = [];
     // 刚迁都的国家,新国都 CAPITAL_GRACE 年内攻不下(残兵收拢、新都严防):不会几年里一迁再迁
     // 讨伐民变不等(见 接口 war.revolt)
-    const free = !!api.revolt?.(w);
+    const free = !!api.war.revolt?.(w);
     const graceR = !free && t - pm.capMoved[y] < CAPITAL_GRACE ? pm.settlements[capitalAt(pm.polities[y], t)].region : -1;
     // 阶段 4 干预"不许灭":国都和紧挨着国都的州(京畿)攻不下(不会亡国、不会因丢了国都被并掉残部);只剩几州时一州都攻不下
     let guardR = -1;
@@ -494,7 +494,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     const Y = pm.polities[y];
     const hold = free ? 0 : HOLD;
     // 物产:攻方先打有本国缺的物产的州(不论这场仗为什么打;守方反攻只管夺回失地)
-    const want = !retake && x === w.a && api.wantOf && api.resOf ? api.wantOf(x).want : 0;
+    const want = !retake && x === w.a && api.war.wantOf && api.war.resOf ? api.war.wantOf(x).want : 0;
     for (const r of pm.lands[y]) {
       if (t - wm.since[r] < hold || r === graceR || r === guardR) continue;
       if (wm.iv?.locked(r, t)) continue; // 阶段 4 干预:永久划给它的州攻不下
@@ -515,7 +515,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       const frac = tot > 0 ? att / tot : 0.5;
       const toward = dy[r] < Infinity ? fexp(-dy[r] / PROJECT) : 0;
       const score =
-        3 * frac + 0.6 * toward - 0.8 * flog(def) + (wm.prev[r] === x ? REGAIN : 0) + (want && api.resOf!(r) & want ? RES_TARGET : 0) + 0.5 * warRand(wm, w, reg.seat[r] * 1024 + (i & 1023), U_TARGET);
+        3 * frac + 0.6 * toward - 0.8 * flog(def) + (wm.prev[r] === x ? REGAIN : 0) + (want && api.war.resOf!(r) & want ? RES_TARGET : 0) + 0.5 * warRand(wm, w, reg.seat[r] * 1024 + (i & 1023), U_TARGET);
       cand.push([r, def, score]);
     }
     // 分数从高往低,挑第一个"打下来不会把 y 的国土切出一大块飞地"的
@@ -613,7 +613,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     // n 列记其中最前面几条是罢兵割地
     sim.record('peace', { a: w.a, b: w.b, war: w.id, region: ceded > 0 ? ceded : -1, ...(yielded > 0 ? { n: yielded } : {}) });
     // 记恨赢了自己的那一国;停战期满后几年替输的一方多看一眼邻国(复仇之战)
-    const g = grudgeOf(w, !!api.revolt?.(w));
+    const g = grudgeOf(w, !!api.war.revolt?.(w));
     if (g) {
       wm.grudge.set(g.lose * 32768 + g.win, t);
       if (pm.polities[g.lose].ended === undefined) sim.schedule(revengeTime(wm, w, t), Ev.WarCheck, REVENGE_K + w.id, g.lose);
@@ -625,7 +625,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     endPolity(pm, y, t);
     sim.record('fall', { a: y, b: x, region: r, war: w.id });
     for (const v of warsOf(y)) makePeace(v, t);
-    api.onFall?.(w, x, y, t);
+    api.war.onFall?.(w, x, y, t);
   };
 
   /**
@@ -637,7 +637,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     const capital = pm.settlements[capitalAt(Y, t)].region === r;
     const city = pm.cityOf[r];
     sim.setOwner(Layer.Polity, r, x, Ev.Conquer);
-    if (assault && city >= 0) api.onAssault?.(w, x, y, r, city, t, capital);
+    if (assault && city >= 0) api.war.onAssault?.(w, x, y, r, city, t, capital);
     sim.record('conquer', { a: x, b: y, region: r, settlement: city, war: w.id });
     w.takes.push({ year: t, region: r, by: x });
     if (!capital) return false;
@@ -647,16 +647,16 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     }
     // 起事的饥民攻破都城:余下的州一并归它,亡国(unrest.ts)
     // 朝廷还守着永久割让的州时不能整个吞掉,照常迁都(下面 keep 那条)
-    if (api.overthrow?.(w, x, y, t) && !wm.iv?.holdsLock(y, t)) return annex(w, x, y, r, t);
+    if (api.war.overthrow?.(w, x, y, t) && !wm.iv?.holdsLock(y, t)) return annex(w, x, y, r, t);
     // 迁来的一支打进大国国都(migration.ts):占着国都一带,那国迁都、大崩解
-    if (api.storm?.(w, x, y, r, t)) return true;
+    if (api.war.storm?.(w, x, y, r, t)) return true;
     // 丢了国都只剩不到 MIN_STATE 州(而且都不是刚易手的):撑不下去,残部一并归攻方,亡国
     let left = 0;
     let settled = true;
     for (let q = 0; q < R; q++) {
       if (owner[q] !== y) continue;
       left++;
-      if (t - wm.since[q] < HOLD && !api.revolt?.(w)) settled = false;
+      if (t - wm.since[q] < HOLD && !api.war.revolt?.(w)) settled = false;
     }
     // 阶段 4 干预:手里有永久划给它的州的,不被并掉残部(迁都到剩下的城,那一块里没城就到别的块里挑)
     const keep = !!wm.iv?.holdsLock(y, t);
@@ -721,11 +721,11 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       }
     }
     // 邦交:y 的盟国援盟 / 坐视不救,y 的宗主来救(diplomacy.ts)
-    if (ally < 0) api.onDeclare?.(w, x, y, t);
+    if (ally < 0) api.war.onDeclare?.(w, x, y, t);
     return w;
   };
-  api.declare = declare;
-  api.makePeace = (w, t) => makePeace(w, t);
+  api.war.declare = declare;
+  api.war.makePeace = (w, t) => makePeace(w, t);
 
   /**
    * 第 k 次看邻国;k ≥ LOOK_K = 照大纲顺着引时多看的一眼(不接着预约下一次,见 interventions.ts 的 Ev.Look);
@@ -766,12 +766,12 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     // 国家方针(policy.ts):亲国不打,仇国先打(没有方针 = null)
     const pol = pm.policies.size ? policyAt(pm, p, t) : null;
     // 物产:本国缺、又想要的(没挂发展度 = 都不缺)
-    const lack = api.wantOf && api.resOf ? api.wantOf(p) : null;
+    const lack = api.war.wantOf && api.war.resOf ? api.war.wantOf(p) : null;
     // 钱粮:国用不足、国库没攒满的打折(国库空竭的,对边境对面有富州的邻国按 PLUNDER_FLOOR 算:为掠夺而战)
     let money = 1;
-    if (api.broke) money *= 1 - BROKE_CUT * api.broke(p, t);
-    if (api.purse) money *= PURSE_0 + (1 - PURSE_0) * api.purse(p, t);
-    const needy = money < PLUNDER_FLOOR && !!api.rich;
+    if (api.war.broke) money *= 1 - BROKE_CUT * api.war.broke(p, t);
+    if (api.war.purse) money *= PURSE_0 + (1 - PURSE_0) * api.war.purse(p, t);
+    const needy = money < PLUNDER_FLOOR && !!api.war.rich;
     let target = -1;
     let odds = 0;
     let traitor = false;
@@ -803,7 +803,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
         } else if (dm.vassalTie(p, q)) continue;
       }
       // 立约(treaties.ts):约期内不打立约国;立约满几年、有由头的才可能背约去打
-      const oath = api.treaty ? api.treaty(p, q, t, pow) : -1;
+      const oath = api.war.treaty ? api.war.treaty(p, q, t, pow) : -1;
       if (oath === 0) continue;
       // 边境上的胜算(和打仗时一样按局部国力算,远征打折):强国的边远处打得过,就会有弱国来收复失地
       let sum = 0;
@@ -814,10 +814,10 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       o *= 1 + REVANCHE * Math.min(4, claims(q));
       // 小国(一场仗就能吞下)格外招人
       if (pm.size[q] <= PREY) o *= PREY_ODDS;
-      if (betray) o *= dm!.betrayOdds * (api.kinBetray?.(p, q, t) ?? 1);
+      if (betray) o *= dm!.betrayOdds * (api.war.kinBetray?.(p, q, t) ?? 1);
       if (oath > 0) o *= oath;
       // 联姻(marriage.ts):两国结着亲少开战,在位的君主不打舅家
-      if (api.kin) o *= api.kin(p, q, t);
+      if (api.war.kin) o *= api.war.kin(p, q, t);
       // 邻国内忧(大乱、割据、疫后凋敝、幼主权臣):趁虚而入
       const wq = weakness(q, t);
       o *= wq.odds;
@@ -827,7 +827,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       // 边境对面有本国缺的物产:盯上它(门槛要的那样算两样)
       let got = 0;
       if (lack && lack.want) {
-        for (const y of front.get(q)!.keys()) got |= api.resOf!(y);
+        for (const y of front.get(q)!.keys()) got |= api.war.resOf!(y);
         got &= lack.want;
         if (got) o *= 1 + RES_WANT * Math.min(RES_MAX, bits(got) + (got & lack.gate ? 1 : 0));
       }
@@ -836,7 +836,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       if (needy) {
         let most = RICH;
         for (const y of front.get(q)!.keys()) {
-          const v = api.rich!(p, y);
+          const v = api.war.rich!(p, y);
           if (v > most || (v === most && rich >= 0 && reg.seat[y] < reg.seat[rich])) {
             most = v;
             rich = y;
@@ -857,7 +857,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (target < 0) return;
     // 越好战的君主越容易开战(加上方针的打仗胆量);国内越乱越想对外开战转移矛盾(乱到 DIVERT_U 再上调一档)
     odds *= effOf(pm, p, t).declare;
-    const up = api.unrest ? api.unrest(p, t) : 0;
+    const up = api.war.unrest ? api.war.unrest(p, t) : 0;
     odds *= 1 + DIVERT * up + (up >= DIVERT_U ? DIVERT_STEP : 0);
     if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
@@ -885,16 +885,16 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     let best = -1;
     let most = 0;
     for (const y of front.get(target)!.keys()) {
-      const n = bits(api.resOf!(y) & covet);
+      const n = bits(api.war.resOf!(y) & covet);
       if (n > most || (n === most && n > 0 && reg.seat[y] < reg.seat[best])) {
         most = n;
         best = y;
       }
     }
-    declare(p, target, t, -1, cause, { region: best, want: api.resOf!(best) & covet });
+    declare(p, target, t, -1, cause, { region: best, want: api.war.resOf!(best) & covet });
   };
   sim.on(Ev.WarCheck, warCheck);
-  api.look = (p, k, t) => warCheck(k, p, t);
+  api.war.look = (p, k, t) => warCheck(k, p, t);
 
   /**
    * p 向 q 开战的由头:收复故土 > 乘乱(q 正和别国交兵、刚丢了国都 / 迁都、刚改朝换代)> 乘 q 的内忧(内乱 / 大疫之后 / 幼主 / 权臣,见 weakness)
@@ -920,7 +920,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
    * 疫后凋敝(plagued)> 幼主在位(minor)/ 权臣当政(regent)> 动荡到 PREY_HIGH(unrest,不记州)
    */
   const weakness = (q: number, t: number): Woe => {
-    const u = api.unrest ? api.unrest(q, t) : 0;
+    const u = api.war.unrest ? api.war.unrest(q, t) : 0;
     let odds = 1 + PREY_UNREST * Math.max(0, u - PREY_CALM);
     let cause: AnnalCause | undefined = u >= PREY_HIGH ? 'unrest' : undefined;
     let region = -1;
@@ -929,12 +929,12 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       odds *= 1 + WEAK_PREY;
       cause = k;
     }
-    const b = api.blight ? api.blight(q, t) : 0;
+    const b = api.war.blight ? api.war.blight(q, t) : 0;
     if (b >= BLIGHT_MIN) {
       odds *= 1 + BLIGHT_PREY * Math.min(1, b / BLIGHT_FULL);
       cause = 'plagued';
     }
-    const L = api.lords ? api.lords(q, t) : null;
+    const L = api.war.lords ? api.war.lords(q, t) : null;
     if (L && L.n) {
       odds *= 1 + LORD_PREY * Math.min(LORD_PREY_MAX, L.n);
       cause = 'unrest';
@@ -980,7 +980,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
    * x 有 STAND 的机会守住关隘,追兵到此为止(记一条 stand)。返回 true = 守住了。u = 这一仗里的第几下(取随机数用)
    */
   const holdPass = (w: War, x: number, y: number, q: number, from: number, u: number, t: number): boolean => {
-    if (from < 0 || api.revolt?.(w)) return false;
+    if (from < 0 || api.war.revolt?.(w)) return false;
     let k = gateOf(q, y, t);
     let hold = q;
     if (k < 0) {
@@ -1020,7 +1020,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
         return;
       }
     }
-    if (i === 0) api.onMuster?.(w, t);
+    if (i === 0) api.war.onMuster?.(w, t);
     const pow = powers(t, [w.a, w.b]);
     let capitalFell = false;
     /** 丢了国都的是守方(攻方打下的) */
@@ -1044,7 +1044,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       if (warRand(wm, w, i, U_COUNTER) < COUNTER) {
         // 守方反攻:夺回被攻方占去的州。守方只能从关隘打进那州、或者攻方是经关隘打过来的(败兵只能经关隘退回):
         // 败退的攻方可能据险断后,夺不回
-        const [q, qdef] = pickTarget(w, i, w.b, w.a, t, !api.revolt?.(w));
+        const [q, qdef] = pickTarget(w, i, w.b, w.a, t, !api.war.revolt?.(w));
         if (q >= 0) {
           if (warRand(wm, w, i, U_RETAKE) < chance(w.b, w.a, q, qdef, t, pow, w)) {
             if (!holdPass(w, w.a, w.b, q, r, i * 8, t)) capitalFell = take(w, w.b, w.a, q, t, true);
@@ -1054,18 +1054,18 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     }
     if (w.end !== undefined) return; // 有一方亡国,已经议和
     // 邦交:守方打得很惨时可能奉表称臣、攻方受降罢兵(diplomacy.ts;成了就已经议和)
-    if (api.sue?.(w, i, t, pow, defCapital)) return;
+    if (api.war.sue?.(w, i, t, pow, defCapital)) return;
     // 议和?
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
     // 攻方此刻在位的君主:越好战越不轻易罢兵、想多拿几州,好战低的打不了多久就想议和(rulers.ts;加上方针的胆量、和谈底线)
     const eff = effOf(pm, w.a, t);
     const length = lengthOf(wm, w) * eff.war;
     // 攻方国用不足到 BROKE_PEACE 以上、仗打过了年限的 BROKE_LENGTH:罢兵
-    let peace = t - w.start >= length || t - last >= STALL || (t - w.start >= BROKE_LENGTH * length && (api.broke?.(w.a, t) ?? 0) >= BROKE_PEACE);
+    let peace = t - w.start >= length || t - last >= STALL || (t - w.start >= BROKE_LENGTH * length && (api.war.broke?.(w.a, t) ?? 0) >= BROKE_PEACE);
     /** 厌战、僵持、国用不足罢兵(攻方没达成目标):议和后两国可能顺带立约(treaties.ts) */
     let weary = peace;
     // 讨伐民变:不到厌战(REVOLT_LENGTH 倍的年限)不罢兵,直到一方亡(讨平,或攻破都城)
-    if (api.revolt?.(w)) {
+    if (api.war.revolt?.(w)) {
       peace = t - w.start >= REVOLT_LENGTH * length;
       weary = false;
     } else if (!peace) {
@@ -1077,10 +1077,10 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     }
     if (peace) {
       // 罢兵割地:攻方这场仗净得了州(讨伐民变的不算),守方再割 CEDE 州
-      const g = grudgeOf(w, !!api.revolt?.(w));
+      const g = grudgeOf(w, !!api.war.revolt?.(w));
       makePeace(w, t, g && g.win === w.a ? CEDE : 0);
-      api.onPeace?.(w, t);
-      if (weary) api.onTruce?.(w, t);
+      api.war.onPeace?.(w, t);
+      if (weary) api.war.onTruce?.(w, t);
     } else sim.schedule(t + gapOf(wm, w, i + 1), Ev.Campaign, i + 1, id);
   });
 

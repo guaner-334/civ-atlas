@@ -2,7 +2,7 @@
  * 推演的子系统之间的具名接口:一个子系统提供,别的子系统取用,按名字分组(war = 战争那一组:别的子系统挂给战争的攻城、立约、
  * 钱粮、动荡……,和战争提供给别人的宣战、议和、多看一眼)。
  * 接口放在引擎的 CivSim.api 上(引擎不认识内容),每次推演一份;后提供的顶替先提供的,要接着调先前那个的自己先取出来:
- *   const prev = warApi(sim).onFall;  warApi(sim).onFall = (w, x, y, t) => { prev?.(w, x, y, t); … }
+ *   const prev = civApi(sim).war.onFall;  civApi(sim).war.onFall = (w, x, y, t) => { prev?.(w, x, y, t); … }
  * 都是可选的:没有子系统提供 = undefined,取用的一方照没有处理(和原来一样)。
  */
 import type { CivSim } from './engine/sim';
@@ -94,7 +94,14 @@ export interface WarApi {
   onPeace?: (w: War, t: Year) => void;
 }
 
-/** 这次推演的战争那一组接口(没有就建一份空的) */
-export function warApi(sim: CivSim): WarApi {
-  return (sim.api.war ??= {}) as WarApi;
+/** 一次推演的全部具名接口,按组 */
+export interface CivApi {
+  war: WarApi;
+}
+
+/** 这次推演的具名接口(第一次取时建好各组的空表) */
+export function civApi(sim: CivSim): CivApi {
+  const a = sim.api as Partial<CivApi>;
+  if (!a.war) a.war = {};
+  return a as CivApi;
 }

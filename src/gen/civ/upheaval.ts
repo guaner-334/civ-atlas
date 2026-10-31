@@ -34,7 +34,7 @@ import { capitalAt, populationAt } from './growth';
 import { scheduleRebuild } from './cities';
 import { cultureTerrain, type CultureTerrain } from './cultures';
 import { Ev } from './events';
-import { warApi } from './api';
+import { civApi } from './api';
 
 /** 推演里的一件地形大事(同一年的已合成一件):年份、这件的地形修改、合进来的是作者列表里的哪几件、改后的世界 */
 export interface UpheavalStep {
@@ -506,6 +506,6 @@ export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impa
       for (const r of lands) sim.setOwner(Layer.Polity, r, -1, Ev.Upheaval);
       fallen(p, lands.length ? lands[lands.length - 1] : cap.region);
     }
-    for (const w of ending) warApi(sim).makePeace!(w, t);
+    for (const w of ending) civApi(sim).war.makePeace!(w, t);
   });
 }

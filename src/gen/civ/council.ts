@@ -77,7 +77,7 @@ import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
 import type { CivModule } from './modules';
 import { Ev } from './events';
-import { warApi } from './api';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */
@@ -413,7 +413,7 @@ function af(admin: number): number {
 }
 
 function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, cm: ControlModel, dev: DevModel, base: number, rbase: number, book: Map<number, Rules>, P: Polity, k: number, t: number): void {
-  const api = warApi(sim);
+  const api = civApi(sim);
   const p = P.id;
   if (pm.size[p] < MIN_SIZE || t - P.founded < MIN_AGE) return;
   for (const w of wm.active) if (w.a === p || w.b === p) return;
@@ -423,8 +423,8 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const r = rulesOf(book, p);
   const ready = (i: Issue) => t - r.last[i] >= (r.shelved[i] ? REST_SHELVED : REST);
   const u = pol.unrest ? pol.unrest(P, t) : 0;
-  const broke = api.broke ? api.broke(p, t) : 0;
-  const purse = api.purse ? api.purse(p, t) : 1;
+  const broke = api.war.broke ? api.war.broke(p, t) : 0;
+  const purse = api.war.purse ? api.war.purse(p, t) : 1;
   const capR = pm.settlements[capitalAt(P, t)].region;
   // 国都所在州的行政能力(发展度;不读数表的输入表:接着推时它要到下一年年初才填)
   const admin = dev.cur[capR * CAP_COUNT + Cap.Administration] || 0;
@@ -544,7 +544,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
 
   // ④ 脱离:割据久了的地方要转投邻国(肯收它的:和那州同族而本国不是,或国力比本国强)
   if (lordsN && ready(Issue.Leave) && !wm.iv?.unites(p, t)) {
-    const powP = api.power ? api.power(p) : -1;
+    const powP = api.war.power ? api.war.power(p) : -1;
     let pick: { w: Warlord; dom: number[]; q: number; pull: number } | null = null;
     for (const w of cm.lordsOf(p, t)) {
       if (t - w.start < LEAVE_AGE) continue;
@@ -557,7 +557,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
           const o = owner[reg.adj[e]];
           if (o < 0 || o === p || pm.size[o] < LEAVE_Q_MIN || pm.polities[o].ended !== undefined) continue;
           const kin = pm.polities[o].culture === cu && P.culture !== cu ? 1 : 0;
-          const powQ = api.power ? api.power(o) : -1;
+          const powQ = api.war.power ? api.war.power(o) : -1;
           const ratio = powP > 0 && powQ > 0 ? powQ / powP : 0;
           if (!kin && !(ratio > 1)) continue;
           if (wm.dm?.friendly(p, o) || wm.iv?.allied(p, o, t) || wm.iv?.halted(o, t)) continue;

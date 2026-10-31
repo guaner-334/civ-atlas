@@ -74,7 +74,7 @@ import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, 
 import { royalSeg } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
-import { warApi } from './api';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
@@ -354,7 +354,7 @@ export function treatyModelOf(sim: CivSim): TreatyModel | undefined {
 
 /** 登记立约的事件处理,把规则挂到邦交、战争、国家扩张上(installDiplomacy、installUnrest 之后调用) */
 export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?: TreatyModel): TreatyModel {
-  const api = warApi(sim);
+  const api = civApi(sim);
   const wm = warModelOf(sim);
   const dm = diplomacyModelOf(sim);
   if (!wm || !dm) throw new Error('installTreaties:先 installWars、installDiplomacy');
@@ -379,7 +379,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   const fighting = (p: number, q: number) => wm.active.some((w) => (w.a === p && w.b === q) || (w.a === q && w.b === p));
   /** 国力:政局数表里的(control.ts);这一年里才立的国家现算(城的人口 × 军力系数 × 方针的倍数) */
   const powerOf = (p: number, t: Year): number => {
-    const tab = api.power ? api.power(p) : -1;
+    const tab = api.war.power ? api.war.power(p) : -1;
     if (tab >= 0) return tab;
     let sum = 0;
     for (const r of pm.lands[p]) {
@@ -718,7 +718,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
 
   // ---- 背约(看邻国时)----
-  api.treaty = (p, q, t, pow) => {
+  api.war.treaty = (p, q, t, pow) => {
     if (!m.live.length) return -1;
     const x = m.bound(p, q);
     if (!x) return -1;
@@ -739,7 +739,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
 
   // ---- 议和顺带立约 ----
-  api.onTruce = (w, t) => {
+  api.war.onTruce = (w, t) => {
     const a = w.a;
     const b = w.b;
     if (!alive(a) || !alive(b) || dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || fighting(a, b) || friendly(a, b, t) || enemies(a, b, t)) return;
@@ -809,7 +809,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
 
   // ---- 亡国之君出奔:有中立地可去的先奔中立地,不然末代之君出奔的奔邻国(exile.ts);再查一遍约(两国之约剩一国就废、中立地跟着撤)----
   const refuge = refugeFinder(pm, wm, dm, owner, (y, q) => m.live.some((x) => m.held(x, y) && m.member(x, q)));
-  api.onFall = (_w, x, y, t) => {
+  api.war.onFall = (_w, x, y, t) => {
     const z = m.live.length ? zoneFor(y, t, true) : undefined;
     if (z) exile(y, z, 'fled', -1);
     else {
@@ -883,7 +883,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
   /** 几国两两之间正在打的仗当即议和 */
   const truce = (ps: readonly number[], t: Year) => {
-    for (const w of wm.active.filter((x) => ps.includes(x.a) && ps.includes(x.b))) api.makePeace!(w, t);
+    for (const w of wm.active.filter((x) => ps.includes(x.a) && ps.includes(x.b))) api.war.makePeace!(w, t);
   };
   /** 几国前两国共同的强邻(没有 = −1) */
   const foeOf = (ps: readonly number[], t: Year) => (ps.length >= 2 ? commonFoe(ps[0], ps[1], landNeighbors(ps[0]), landNeighbors(ps[1]), t) : -1);
