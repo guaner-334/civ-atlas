@@ -6,7 +6,8 @@
  * 都是可选的:没有子系统提供 = undefined,取用的一方照没有处理(和原来一样)。
  */
 import type { CivSim } from './engine/sim';
-import type { AnnalCause, Year } from './types';
+import type { Annal, AnnalCause, Polity, Year } from './types';
+import type { Reign } from './rulers';
 import type { War } from './wars';
 
 /** 战争那一组 */
@@ -94,8 +95,89 @@ export interface WarApi {
   onPeace?: (w: War, t: Year) => void;
 }
 
+/** polity那一组(原来挂在 PolityModel 上) */
+export interface PolityApi {
+  /**
+   * 新君即位那一刻(Ev.Reign;k = 他在在位表 list 里第几位,k ≥ 1)、处理完扩张以后调(unrest.ts 提供:先君的儿子据地争位)
+   */
+  onReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
+  /**
+   * 新君即位那一刻、onReign(宗室争位、放逐失势的宗室)之后调,不管那边有没有截住(regency.ts 提供:
+   * 预约他晚年的引兵入朝、太子监国;继位的幼主当即定摄政 / 辅政)
+   */
+  afterReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
+  /**
+   * 立约与中立地(treaties.ts 提供):无主的州 r 此刻进不去 —— 是中立地(谁都不扩张进去、不在那里立国;pid = −1 = 立国),
+   * 或者 pid 和邻国立了"有限竞争"之约,r 挨着约国的国土(各守今疆)
+   */
+  closed?: (r: number, pid: number, t: Year) => boolean;
+}
+
+/** politics那一组(原来挂在 PoliticsModel 上) */
+export interface PoliticsApi {
+  /**
+   * 国家此刻的危机(hook 里填):国土太大、刚丢了国都 / 迁了都、正在打仗、这些年接连丢州。
+   * 动荡(control.ts 的数表,规则见 stateTables.ts)在它上面再加边远、异族、王朝老了、饥荒、民变、割据
+   */
+  strain?: (P: Polity, t: Year) => number;
+  /** 动荡(control.ts 提供,读每年年初算的数表;没挂 = 只看危机):分裂的"动荡"那一项用它 */
+  unrest?: (P: Polity, t: Year) => number;
+  /** 这一年里又有 n 州闹了饥荒,动荡再加多少(control.ts 提供;表里下一年才算进去,民变当时就要算上) */
+  famineBump?: (P: Polity, n: number) => number;
+  /** 看内政时最先看的大崩解(unrest.ts 提供):崩了 = true,这一次看内政就到此为止 */
+  crisis?: (P: Polity, k: number, t: Year) => boolean;
+  /**
+   * 迁来的一支打进大国国都时当即大崩解(unrest.ts 提供;migration.ts 用):不看国土、立国年数、动荡,崩法照常挑。
+   * k = 取随机数用的"第几次"(和看内政的错开);禁止分裂的干预护着、散不成几块 = false
+   */
+  shatter?: (P: Polity, k: number, t: Year) => boolean;
+  /** 照大纲顺着引时替国家 p 多看一眼内政(installPolitics 填):只看大崩解、分裂(k ≥ LOOK_K,随机数按它取,不接着预约) */
+  look?: (p: number, k: number, t: Year) => void;
+  /**
+   * 州组从 parent 分出去,立新国(国都 sid,起事的州 rising;hook 里填):记一条 kind(split / revolt;split 带 cause),
+   * 新国都是某个同族亡国的故都时算复国(宗室据地争位 cause = heir 的不算)。州组不用连着国都以外的碎块(要的先用 cutOff 补上);
+   * extra = 新国家另带的字段(不是复国时;如宗室争位的 Polity.prince)
+   */
+  secede?: (parent: number, group: number[], sid: number, rising: number, t: Year, kind: 'split' | 'revolt', cause?: AnnalCause, extra?: Partial<Polity>) => Polity;
+  /** 州组(升序)从 pid 分出去以后,pid 和国都断开的碎块也并进来(hook 里填;碎块太大、有刚换过国家的州 = null) */
+  cutOff?: (pid: number, group: number[], t: Year, cap: number) => number[] | null;
+  /** 州组里人口最多的城(hook 里填;没有城 = −1) */
+  biggestCity?: (group: readonly number[], t: Year) => number;
+  /** 看内政时分裂没成之后:收回割据、新起割据(control.ts 提供);出了一件事 = true */
+  lordCheck?: (P: Polity, k: number, t: Year) => boolean;
+  /** 看内政最后(分裂、割据、合并、迁都都没出事):议一件事(council.ts 提供) */
+  councilCheck?: (P: Polity, k: number, t: Year) => void;
+}
+
+/** diplomacy那一组(原来挂在 DiplomacyModel 上) */
+export interface DiplomacyApi {
+  /** 记一条邦交的史事并更新模型(installDiplomacy 提供;wars.ts 背盟时用) */
+  note?: (kind: Annal['kind'], f: Partial<Omit<Annal, 'year' | 'kind'>>) => void;
+  /**
+   * x 向 y 宣战、记 war 之前(installDiplomacy 提供;wars.ts 的 declare 调,war = 这场战争的编号):
+   * 两国结着盟、有宗藩之分的,就此断了;同是一国的藩属的,攻方先自立。
+   * 自然开战都先避开了这些(背盟先记了 unally),只有作者下令的宣战会走到这里
+   */
+  sever?: (x: number, y: number, t: Year, war: number) => void;
+  /** 接壤的在世邻国(installDiplomacy 提供;联姻挑亲家用) */
+  neighborsOf?: (p: number) => number[];
+  /** 看邦交时(第 k 次)先看要不要和别国结亲(marriage.ts 提供) */
+  marry?: (p: number, k: number, t: Year) => void;
+  /** 两国结着亲的分量(marriage.ts 提供;0 = 没有 / 断了,1 = 刚结亲,KIN_FADE 年里淡到 0):挑盟友、援盟照它加 */
+  bond?: (p: number, q: number, t: Year) => number;
+  /** 立约(treaties.ts 提供):两国此刻在同一份约里(约期内互不宣战,和结盟一样算友好) */
+  bound?: (p: number, q: number) => boolean;
+  /** 立约(treaties.ts 提供):q 和 L 立了有限竞争之约,不收 L 的藩属(刚脱离 L 的国家来称臣也不收) */
+  limits?: (q: number, L: number) => boolean;
+  /** 立约(treaties.ts 提供):看邦交时称臣、结盟都没成,接着看要不要和邻国立约(threat = 最怕的强邻,−1 = 没有) */
+  onCheck?: (p: number, k: number, t: Year, threat: number) => void;
+}
+
 /** 一次推演的全部具名接口,按组 */
 export interface CivApi {
+  diplomacy: DiplomacyApi;
+  politics: PoliticsApi;
+  polity: PolityApi;
   war: WarApi;
 }
 
@@ -103,5 +185,8 @@ export interface CivApi {
 export function civApi(sim: CivSim): CivApi {
   const a = sim.api as Partial<CivApi>;
   if (!a.war) a.war = {};
+  if (!a.diplomacy) a.diplomacy = {};
+  if (!a.politics) a.politics = {};
+  if (!a.polity) a.polity = {};
   return a as CivApi;
 }

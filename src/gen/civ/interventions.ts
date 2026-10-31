@@ -699,7 +699,7 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     if (p < 0 || !alive(p) || segAt(pm.policies.get(p), t)?.iv !== i) return;
     const k = LOOK_K + i * GUIDE_LOOK_MAX + j;
     if (v.look.kind === 'war') api.war.look?.(p, k, t);
-    else if (v.look.kind === 'politics') politicsModelOf(sim)?.look?.(p, k, t);
+    else if (v.look.kind === 'politics') api.politics.look?.(p, k, t);
     else dynastyModelOf(sim)?.look?.(p, k, t);
   });
 

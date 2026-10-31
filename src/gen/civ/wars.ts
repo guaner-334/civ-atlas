@@ -703,7 +703,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
   const declare = (x: number, y: number, t: number, ally = -1, cause?: AnnalCause, res?: { region: number; want: number }): War => {
     const w: War = { id: wm.wars.length, a: x, b: y, start: t, takes: [] };
     // 邦交:作者下令盟国、宗藩之间开战,盟约、宗藩之分先断了(diplomacy.ts)
-    wm.dm?.sever?.(x, y, t, w.id);
+    api.diplomacy.sever?.(x, y, t, w.id);
     wm.wars.push(w);
     wm.active.push(w);
     // 为夺物产:region 列记由头里那一州,n 列记想要的物产(按位);乘内乱、为掠夺而战:region 列记割据的那州、要掠的富州
@@ -862,11 +862,11 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战
-      dm!.note!('unally', { a: p, b: target, war: wm.wars.length, cause: 'betray' });
+      api.diplomacy.note!('unally', { a: p, b: target, war: wm.wars.length, cause: 'betray' });
       declare(p, target, t, -1, 'betray');
       return;
     }
-    // 背约(treaties.ts;背约那一条在宣战时记,见 DiplomacyModel.sever)
+    // 背约(treaties.ts;背约那一条在宣战时记,见 接口 diplomacy.sever)
     if (breaker) {
       declare(p, target, t, -1, 'breach');
       return;

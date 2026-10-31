@@ -399,7 +399,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       admin[p] = dev.cur[r * CAP_COUNT + Cap.Administration] || 0;
       for (let c = 0; c < CAP_COUNT; c++) capab[p * CW + c] = dev.cur[r * CAP_COUNT + c] || 0;
       capab[p * CW + ERA_COL] = eraLevel(dev.cur, r) || 0;
-      crisis[p] = pol.strain!(P, t);
+      crisis[p] = api.politics.strain!(P, t);
       const x = unrestInputs(um, P, t);
       age[p] = x.age;
       famine[p] = x.famine;
@@ -540,7 +540,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
 
   // ---- 挂到分裂(离心力)、动荡、看内政 ----
   pol.control = cm;
-  pol.lordCheck = (P, k, t) => check(P, k, t);
+  api.politics.lordCheck = (P, k, t) => check(P, k, t);
 
   // ---- 打仗:出兵的几成、抗命 ----
   api.war.levy = (p, t) => {
@@ -577,7 +577,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   const check = (P: Polity, k: number, t: number): boolean => {
     const p = P.id;
     const ls = lordsOf(p, t);
-    const u = pol.unrest ? pol.unrest(P, t) : 0;
+    const u = api.politics.unrest ? api.politics.unrest(P, t) : 0;
     // 收回(有了铁路的机会大些)
     const capR = capRegion(P, t);
     const rail = ls.length > 0 && hasPractice(practices(p, t), Practice.Rail);
@@ -629,7 +629,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     const g = unrestShiftOf(pm, p, t);
     return g ? Math.max(0, u + GUIDE_UNREST * g) : u;
   };
-  pol.unrest = (P, t) => guided(P.id, t, P.id < tU.length ? tU[P.id] : 0);
+  api.politics.unrest = (P, t) => guided(P.id, t, P.id < tU.length ? tU[P.id] : 0);
   api.war.unrest = (p, t) => guided(p, t, p < tU.length ? tU[p] : 0);
   // ---- 钱粮:国用不足(窘迫)让宣战少、战事早罢(wars.ts) ----
   api.war.broke = (p, _t) => (p < tBroke.length ? tBroke[p] : 0);
@@ -652,7 +652,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     const ls = lordsOf(p, t);
     return { n: ls.length, region: ls.length ? ls[0].region : -1 };
   };
-  pol.famineBump = (P, n) => {
+  api.politics.famineBump = (P, n) => {
     const p = P.id;
     if (p >= tU.length) return 0;
     const N = eng.value('州数', p);

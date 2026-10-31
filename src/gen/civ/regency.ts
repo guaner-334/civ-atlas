@@ -215,7 +215,7 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
   });
 
   // 新君即位(unrest.ts 的宗室争位、treaties.ts 的放逐之后,那边截住了也照样看):预约他晚年的候选;继位的幼主当即定摄政 / 辅政
-  pm.afterReign = (pid, k, list, t) => {
+  api.polity.afterReign = (pid, k, list, t) => {
     const P = pm.polities[pid];
     if (P.ended !== undefined) return;
     const r = list[k];

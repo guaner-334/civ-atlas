@@ -185,13 +185,13 @@ function hook(sim: CivSim, mm: MarriageModel): void {
 
   // ---- 看邦交时结亲 ----
   if (dm) {
-    dm.bond = bond;
-    dm.marry = (p: number, k: number, t: Year) => {
+    api.diplomacy.bond = bond;
+    api.diplomacy.marry = (p: number, k: number, t: Year) => {
       const P = pm.polities[p];
       if (!P || !royalAt(P, t)) return;
       const g = groomOf(p, t);
       if (!g) return;
-      const near = new Set<number>(dm.neighborsOf?.(p) ?? []);
+      const near = new Set<number>(api.diplomacy.neighborsOf?.(p) ?? []);
       for (const z of dm.alliesOf(p)) near.add(z);
       const L = dm.liegeOf(p);
       if (L >= 0) near.add(L);

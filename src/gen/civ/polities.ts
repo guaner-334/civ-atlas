@@ -50,6 +50,7 @@ import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect,
 import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } from './regents';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -201,20 +202,6 @@ export interface PolityModel {
   /** 国家 → 已经预约过君主交接(Ev.Reign)了 */
   reigned: boolean[];
   /**
-   * 新君即位那一刻(Ev.Reign;k = 他在在位表 list 里第几位,k ≥ 1)、处理完扩张以后调(unrest.ts 挂上:先君的儿子据地争位)
-   */
-  onReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
-  /**
-   * 新君即位那一刻、onReign(宗室争位、放逐失势的宗室)之后调,不管那边有没有截住(regency.ts 挂上:
-   * 预约他晚年的引兵入朝、太子监国;继位的幼主当即定摄政 / 辅政)
-   */
-  afterReign?: (pid: number, k: number, list: readonly Reign[], t: Year) => void;
-  /**
-   * 立约与中立地(treaties.ts 挂上):无主的州 r 此刻进不去 —— 是中立地(谁都不扩张进去、不在那里立国;pid = −1 = 立国),
-   * 或者 pid 和邻国立了"有限竞争"之约,r 挨着约国的国土(各守今疆)
-   */
-  closed?: (r: number, pid: number, t: Year) => boolean;
-  /**
    * 国家 → 改在位表的干预(即位、让君主去世、改君主倾向生效了的,按先后;rulers.ts 的 RulerAct)。在位表按它排(bookOf);
    * 接着推时由史事推出来(rulers.ts 的 actsFrom),不存进 Civ
    */
@@ -231,6 +218,7 @@ export interface PolityModel {
    * 照掌权的人的倾向(effOf);接着推时由史事 regent 推出来(regency.ts 的 regentsFrom),不存进 Civ
    */
   regents: Map<number, Regency[]>;
+  // 别的子系统挂过来的回调不在这里,在具名接口表 civ/api.ts 的 polity 那一组
 }
 
 /** 升序数组里的位置(第一个 ≥ r 的下标) */
@@ -982,6 +970,7 @@ export function polityModelOf(sim: CivSim): PolityModel | undefined {
 
 /** 登记城镇、国家的事件处理和监听(民族的 installCultures 之后调用) */
 export function installPolities(sim: CivSim, m: PolityModel): void {
+  const api = civApi(sim);
   models.set(sim, m);
   simOf.set(m, sim);
   const T = m.terrain;
@@ -1033,7 +1022,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   sim.on(Ev.PolityFound, (r, sid, t) => {
     const s = m.settlements[sid];
     // 阶段 3 城市兴衰:城已经被毁了(cities.ts)就立不成
-    if (!s || s.region !== r || s.ended !== undefined || polity[r] >= 0 || m.near[r] > 0 || culture[r] < 0 || m.closed?.(r, -1, t)) return;
+    if (!s || s.region !== r || s.ended !== undefined || polity[r] >= 0 || m.near[r] > 0 || culture[r] < 0 || api.polity.closed?.(r, -1, t)) return;
     const p = addPolity(m, sid, culture[r], t);
     sim.setOwner(Layer.Polity, r, p.id, Ev.PolityFound);
     sim.record('found', { a: p.id, region: r, settlement: sid });
@@ -1044,7 +1033,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     // 阶段 4 干预"不许扩张":不进无主的州(禁令到期时 respread 从现有国土重新预约)
     if (m.iv?.halted(pid, t)) return;
     // 中立地、有限竞争之约(treaties.ts):不进
-    if (m.closed?.(r, pid, t)) return;
+    if (api.polity.closed?.(r, pid, t)) return;
     // 战争里丢了出发的那一州(或者已经灭亡),又没有和国都连成一片的州挨着这一州:不去了(不长出、不扩大飞地)
     if (m.polities[pid].ended !== undefined || !bordersCore(m, polity, pid, r, t)) return;
     sim.setOwner(Layer.Polity, r, pid, Ev.PolityArrive);
@@ -1084,8 +1073,8 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
       // 和方针一起算:上一位在上一刻的方针下 → 这一位在此刻的方针下(同一刻刚定了方针的,比的是原来的方针;没有方针 = 两位君主自己的倍数)
       const prev = effFor(m, pid, list[k - 1], t - 1 / 256);
       if (widens(prev, effFor(m, pid, list[k], t))) respread(sim, m, pid, prev);
-      m.onReign?.(pid, k, list, t);
-      m.afterReign?.(pid, k, list, t);
+      api.polity.onReign?.(pid, k, list, t);
+      api.polity.afterReign?.(pid, k, list, t);
     }
   });
 
@@ -1168,7 +1157,7 @@ export function reopen(sim: CivSim, m: PolityModel, rs: readonly number[]): void
 
 /**
  * Ev.Respread 的 a 从这里往上 = 立约与中立地(treaties.ts)解禁了几州:a − REOPEN = 那条史事的下标(见 reopenedBy)。
- * 那一刻的下一刻(b = 0)四周的国家重新往那几州预约扩张(reopen);中立地、有限竞争之约在的时候进那里的"国家到达"都丢掉了(PolityModel.closed)。
+ * 那一刻的下一刻(b = 0)四周的国家重新往那几州预约扩张(reopen);中立地、有限竞争之约在的时候进那里的"国家到达"都丢掉了(接口 polity.closed)。
  * 接着推时 resumePolities 按史事在同一刻重放
  */
 export const REOPEN = 1 << 24;

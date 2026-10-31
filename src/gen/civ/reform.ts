@@ -54,6 +54,7 @@ import { drawLeanings, reignBorn } from './rulers';
 import { Issue, Outcome, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION, REVOLT_CHARTER, REVOLT_FRANCHISE, applyReform, type Rules } from './councilRules';
 import { segRegime } from './regime';
 import { ideoModelOf, nationalNow } from './ideology';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/reform-stats.ts) ----
 /** 推力:均产算几成、天命扣几成;到 PUSH_MIN 才议改制 */
@@ -307,6 +308,7 @@ function openSeg(cx: ReformCtx, seg: { regime?: 'republic' | 'junta'; house?: nu
  */
 function revolt(cx: ReformCtx, issue: Issue, push: number, R: (use: number) => number): boolean {
   const { sim, pm, pol, wm, cm, P, t, capR } = cx;
+  const api = civApi(sim);
   const p = P.id;
   if (cx.u < REVOLT_U || wm.iv?.unites(p, t)) return false;
   // 起事的州:城民最多的那州(不是国都、SETTLE 年没换过国家、地方起得了兵)
@@ -332,7 +334,7 @@ function revolt(cx: ReformCtx, issue: Issue, push: number, R: (use: number) => n
     return true;
   }
   // 打不进国都:起事的州连同近处几州(同国、SETTLE 年没换过国家、不是国都)据地自立
-  if (!pol.secede || !pol.cutOff || !pol.biggestCity) return false;
+  if (!api.politics.secede || !api.politics.cutOff || !api.politics.biggestCity) return false;
   const reg = pm.terrain.regions;
   const owner = sim.owners[Layer.Polity];
   const cap = Math.max(REBEL_MIN, Math.floor(REV_SHARE * pm.size[p]));
@@ -349,11 +351,11 @@ function revolt(cx: ReformCtx, issue: Issue, push: number, R: (use: number) => n
     }
   }
   group.sort((a, b) => a - b);
-  const sid = pol.biggestCity(group, t);
-  const full = sid >= 0 ? pol.cutOff(p, group, t, group.length * 2 + 4) : null;
+  const sid = api.politics.biggestCity(group, t);
+  const full = sid >= 0 ? api.politics.cutOff(p, group, t, group.length * 2 + 4) : null;
   if (!full || full.length < REBEL_MIN || full.includes(capR)) return false;
   cx.record(issue, Outcome.Break, rise);
-  const q = pol.secede(p, full, sid, rise, t, 'split', 'revolution', { lineage: P.lineage, dynasties: [{ year: t, name: '', seat: sid, regime: 'republic' }] });
+  const q = api.politics.secede(p, full, sid, rise, t, 'split', 'revolution', { lineage: P.lineage, dynasties: [{ year: t, name: '', seat: sid, regime: 'republic' }] });
   // 新国家立国就设议会、有产者能议政(和接着推时由那条 split 重建的一样,councilRules.ts 的 replayRule)
   const nr = cx.rulesOf(q.id);
   nr.charter = REVOLT_CHARTER;

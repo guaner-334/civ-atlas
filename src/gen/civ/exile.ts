@@ -20,6 +20,7 @@ import { bookOf, hates, type PolityModel } from './polities';
 import type { WarModel } from './wars';
 import type { DiplomacyModel } from './diplomacy';
 import { fallFate, lastReign } from './rulers';
+import type { CivApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /**
@@ -48,6 +49,7 @@ export interface Refuge {
  * inPact(y, q) = y 亡以前和 q 同在一份约里(约还没因为它亡了作废)
  */
 export function refugeFinder(
+  api: CivApi,
   pm: PolityModel,
   wm: WarModel,
   dm: DiplomacyModel,
@@ -110,7 +112,7 @@ export function refugeFinder(
     let best: { q: number; tie: number; d: number; u: number } | null = null;
     for (const [q, d] of [...hops].sort((a, b) => a[0] - b[0])) {
       if (q === x || !alive(q) || dm.pactOf(q, x) || dm.vassalTie(q, x) || fought(q, y, t - LOOKBACK)) continue;
-      const kin = (dm.bond?.(y, q, t) ?? 0) > 0;
+      const kin = (api.diplomacy.bond?.(y, q, t) ?? 0) > 0;
       const ally = dm.pacts.some((v) => (v.a === y && v.b === q) || (v.a === q && v.b === y));
       const tie = kin
         ? 0
