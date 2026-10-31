@@ -47,21 +47,27 @@ import type { Intervention } from '../edits';
 export type { RulerLeanings };
 import { anchorTag, fexp, fpow, keyed4, subSeed } from './engine/rand';
 import { segLineage } from './regime';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参 ----
-/** 开国之君、新朝之君即位的年纪(随机) */
-export const FOUNDER_AGE: [number, number] = [28, 50];
-/** 继位的年纪:HEIR_AGE[0] + 跨度 × u^HEIR_EXP(偏年轻,偶有幼主) */
-export const HEIR_AGE: [number, number] = [10, 40];
-const HEIR_EXP = 1.3;
-/** 在位年数:1 + REIGN_MAX × u^REIGN_EXP(中位数十几年,偶有四五十年) */
-const REIGN_MAX = 50;
-const REIGN_EXP = 1.3;
-/** 共和国执政官:就任的年纪、任期 */
-export const CONSUL_AGE: [number, number] = [40, 62];
-const TERM: [number, number] = [4, 20];
-/** 一生最多这么多岁 */
-export const MAX_AGE = 88;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const RULERS_KNOBS = defineKnobs('rulers', {
+  /** 开国之君、新朝之君即位的年纪(随机) */
+  FOUNDER_AGE: [28, 50] as [number, number],
+  /** 继位的年纪:HEIR_AGE[0] + 跨度 × u^HEIR_EXP(偏年轻,偶有幼主) */
+  HEIR_AGE: [10, 40] as [number, number],
+  HEIR_EXP: 1.3,
+  /** 在位年数:1 + REIGN_MAX × u^REIGN_EXP(中位数十几年,偶有四五十年) */
+  REIGN_MAX: 50,
+  REIGN_EXP: 1.3,
+  /** 共和国执政官:就任的年纪、任期 */
+  CONSUL_AGE: [40, 62] as [number, number],
+  TERM: [4, 20] as [number, number],
+  /** 一生最多这么多岁 */
+  MAX_AGE: 88,
+});
+const { HEIR_EXP, REIGN_MAX, REIGN_EXP, TERM } = RULERS_KNOBS.values;
+export const { FOUNDER_AGE, HEIR_AGE, CONSUL_AGE, MAX_AGE } = RULERS_KNOBS.values;
 
 /** 倾向的名字(RulerLeanings 的键;人物卡片上的名字和说明在 peopleText.ts 的 LEANING_TEXT) */
 export const LEANINGS = ['expand', 'war', 'develop', 'trade'] as const;

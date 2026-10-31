@@ -32,6 +32,7 @@ import type { Progress, World } from '../world';
 import { AdjKind, Layer, type ChangeLog, type Culture, type Habitat, type Regions, type Route, type Year } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refSpacing } from './geo';
 import { geometryOf } from '../geometry';
+import { defineKnobs } from './engine/knobs';
 
 /** 修路用的"城"。由城镇列表生成(polities.ts 的 routeCities;大城 = 国都,port = 城镇的港口标记) */
 export interface RouteCity {
@@ -76,33 +77,37 @@ export interface RouteOptions {
 }
 
 // ---- 调参(以截图效果为准) ----
-/** 宜居分低于这个值的治所不算城(和"城址"显示一致) */
-const CITY_MIN_SUIT = 1;
-/** 大城约占城数的这个比例(没有城镇列表时代替国都) */
-const MAJOR_SHARE = 1 / 40;
-/** 大城彼此至少隔开 √(陆地面积 / 大城数) × 这个系数(沿陆地走) */
-const MAJOR_SPACING = 0.6;
-/** 已有路的地块之间走:打几折 */
-const REUSE = 0.5;
-/** 不是城的地块:代价乘几 */
-const NO_CITY = 2;
-/** 坡度(米 / 公里)到这个值时,代价翻倍;按平方增长 */
-const SLOPE_REF = 2.5;
-const SLOPE_MAX = 40;
-/** 平均海拔每多这么多米,代价多一倍 */
-const ELEV_REF = 3000;
-/** 沿着河道本身走(两块都是河):代价乘几。路走在河边,不压在河上 */
-const RIVER_ALONG = 1.5;
-/** 跨河:一侧是河的一步多走几成路,按河的大小 √(流量 / 阈值) 放大 */
-const RIVER_CROSS = 0.25;
-/** 航线:离岸第 1、2、3、4、5+ 块海的代价倍数(近岸便宜、远洋贵) */
-const SEA_DEPTH = [1, 1, 1.4, 2, 3];
-/** 航线最长多少个地块间距(势力范围洇染的上限) */
-const SEA_MAX_STEPS = 45;
-/** 同陆地两港:陆路代价 > 海路代价 × 这个倍数才开航线 */
-const SEA_VS_LAND = 2.5;
-/** 冗余小路:另一条路不超过它长度的这个倍数,而且它的每一块都挨着那条路,就不修 */
-const PARALLEL_RATIO = 1.6;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const ROUTES_KNOBS = defineKnobs('routes', {
+  /** 宜居分低于这个值的治所不算城(和"城址"显示一致) */
+  CITY_MIN_SUIT: 1,
+  /** 大城约占城数的这个比例(没有城镇列表时代替国都) */
+  MAJOR_SHARE: 1 / 40,
+  /** 大城彼此至少隔开 √(陆地面积 / 大城数) × 这个系数(沿陆地走) */
+  MAJOR_SPACING: 0.6,
+  /** 已有路的地块之间走:打几折 */
+  REUSE: 0.5,
+  /** 不是城的地块:代价乘几 */
+  NO_CITY: 2,
+  /** 坡度(米 / 公里)到这个值时,代价翻倍;按平方增长 */
+  SLOPE_REF: 2.5,
+  SLOPE_MAX: 40,
+  /** 平均海拔每多这么多米,代价多一倍 */
+  ELEV_REF: 3000,
+  /** 沿着河道本身走(两块都是河):代价乘几。路走在河边,不压在河上 */
+  RIVER_ALONG: 1.5,
+  /** 跨河:一侧是河的一步多走几成路,按河的大小 √(流量 / 阈值) 放大 */
+  RIVER_CROSS: 0.25,
+  /** 航线:离岸第 1、2、3、4、5+ 块海的代价倍数(近岸便宜、远洋贵) */
+  SEA_DEPTH: [1, 1, 1.4, 2, 3],
+  /** 航线最长多少个地块间距(势力范围洇染的上限) */
+  SEA_MAX_STEPS: 45,
+  /** 同陆地两港:陆路代价 > 海路代价 × 这个倍数才开航线 */
+  SEA_VS_LAND: 2.5,
+  /** 冗余小路:另一条路不超过它长度的这个倍数,而且它的每一块都挨着那条路,就不修 */
+  PARALLEL_RATIO: 1.6,
+});
+const { CITY_MIN_SUIT, MAJOR_SHARE, MAJOR_SPACING, REUSE, NO_CITY, SLOPE_REF, SLOPE_MAX, ELEV_REF, RIVER_ALONG, RIVER_CROSS, SEA_DEPTH, SEA_MAX_STEPS, SEA_VS_LAND, PARALLEL_RATIO } = ROUTES_KNOBS.values;
 
 /** 路段类别在 slot 数组里的编号(0 = 没有路) */
 const KIND_CODE = { road: 1, trail: 2, sea: 1 } as const;

@@ -13,19 +13,25 @@
  */
 import type { Person, Year } from './types';
 import { subSeed } from './engine/rand';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参 ----
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const KIN_KNOBS = defineKnobs('kin', {
+  /** 父辈生他时的岁数 */
+  PARENT_AGE: [20, 42] as [number, number],
+  /** 一位父辈名下最多几个孩子当了将领(名臣) */
+  MAX_KIDS: 2,
+  K_HOUSE_GENERAL: 0,
+  K_HOUSE_MINISTER: 1,
+});
+const { MAX_KIDS } = KIN_KNOBS.values;
+export const { PARENT_AGE, K_HOUSE_GENERAL, K_HOUSE_MINISTER } = KIN_KNOBS.values;
 /** 有合适的父辈时,新出道的将领、名臣是他孩子的机会 */
 export const HEIR = { general: 0.32, minister: 0.36 } as const;
-/** 父辈生他时的岁数 */
-export const PARENT_AGE: [number, number] = [20, 42];
-/** 一位父辈名下最多几个孩子当了将领(名臣) */
-const MAX_KIDS = 2;
 
 // 随机数:keyed4(houseBase(seed), 国家的位置锚, 键, 用途, 种类)。将领的键 = 本国第几位将领;名臣照 officials.ts 的键(第几朝、起他的那一年和缘由)
 export const houseBase = (seed: number) => subSeed(seed, 'civ-kin');
-export const K_HOUSE_GENERAL = 0;
-export const K_HOUSE_MINISTER = 1;
 // 用途(u 的参数)
 const U_HEIR = 0;
 const U_PICK = 1;

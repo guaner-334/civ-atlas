@@ -65,31 +65,43 @@ import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, consortDeath, consortR
 import { HEIR, K_HOUSE_GENERAL, houseBase, pickHouses, withParentSurname } from './kin';
 import { opensSeg, reformedSeg, royalSeg } from './regime';
 import { Issue, REFORM_RESTORE } from './councilRules';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参 ----
-// 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
-/** 被废、出降、出奔、归附、卸任以后最多再活这么多年 */
-const AFTERLIFE = 15;
-// 亡国之君殉国、出降、出奔的机会在 rulers.ts 的 fallFate(推演里出奔邻国用同一个判据)
-/** 好战到顶的君主每场仗亲征的机会(再乘倾向折算的倍数,好战 50 以下不亲征,见 rulers.ts);亲征的年纪 */
-const LEAD = 0.5;
-const LEAD_AGE: [number, number] = [18, 58];
-/** 将领:领兵的年纪、寿命、卸甲的年纪 */
-const GENERAL_AGE: [number, number] = [24, 42];
-const GENERAL_LIFE: [number, number] = [45, 82];
-const RETIRE: [number, number] = [58, 70];
-/** 输了的一仗统帅战死的机会:攻方没打下来 / 守方丢了州 */
-const FALL_ATTACK = 0.06;
-const FALL_DEFEND = 0.08;
-/** 据险断后:这一方正由宗室领兵时,由他亲自守关隘的机会 */
-const PRINCE_REAR = 0.5;
-/** 西幻:继位的君主沿用本朝用过的名字的机会(同名多了才有"三世""四世") */
-const REUSE = 0.55;
-/** 帝国里开疆这么多州以上的君主,开疆最多的一位称"大帝" */
-const GREAT_GAINS = 12;
-/** 将领、名臣起名最多试几次、不和前后几年里的同名人物撞(见 NameBook) */
-const NAME_TRIES = 40;
-const NAME_GAP = 300;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const PEOPLE_KNOBS = defineKnobs('people', {
+  // 即位的年纪、在位年数、执政官任期、一生最多多少岁在 rulers.ts(推演里也要知道谁在位)
+  /** 被废、出降、出奔、归附、卸任以后最多再活这么多年 */
+  AFTERLIFE: 15,
+  // 亡国之君殉国、出降、出奔的机会在 rulers.ts 的 fallFate(推演里出奔邻国用同一个判据)
+  /** 好战到顶的君主每场仗亲征的机会(再乘倾向折算的倍数,好战 50 以下不亲征,见 rulers.ts);亲征的年纪 */
+  LEAD: 0.5,
+  LEAD_AGE: [18, 58] as [number, number],
+  /** 将领:领兵的年纪、寿命、卸甲的年纪 */
+  GENERAL_AGE: [24, 42] as [number, number],
+  GENERAL_LIFE: [45, 82] as [number, number],
+  RETIRE: [58, 70] as [number, number],
+  /** 输了的一仗统帅战死的机会:攻方没打下来 / 守方丢了州 */
+  FALL_ATTACK: 0.06,
+  FALL_DEFEND: 0.08,
+  /** 据险断后:这一方正由宗室领兵时,由他亲自守关隘的机会 */
+  PRINCE_REAR: 0.5,
+  /** 西幻:继位的君主沿用本朝用过的名字的机会(同名多了才有"三世""四世") */
+  REUSE: 0.55,
+  /** 帝国里开疆这么多州以上的君主,开疆最多的一位称"大帝" */
+  GREAT_GAINS: 12,
+  /** 将领、名臣起名最多试几次、不和前后几年里的同名人物撞(见 NameBook) */
+  NAME_TRIES: 40,
+  NAME_GAP: 300,
+  /** keyed4 最后一位:君主(K_RULER = 0,在 rulers.ts)/ 将领 / 战争 */
+  K_GENERAL: 1,
+  /** keyed4 最后一位:作者的将领(任将,只挑"前后左右"将军) */
+  K_AUTHOR: 7,
+  /** 起姓的第二位:改出来的共和那几段的执政(东方中式,各有各的姓) */
+  K_CONSUL_SUR: 9,
+  TICK: 256,
+});
+const { AFTERLIFE, LEAD, LEAD_AGE, GENERAL_AGE, GENERAL_LIFE, RETIRE, FALL_ATTACK, FALL_DEFEND, PRINCE_REAR, REUSE, GREAT_GAINS, NAME_TRIES, NAME_GAP, K_GENERAL, K_AUTHOR, K_CONSUL_SUR, TICK } = PEOPLE_KNOBS.values;
 
 // 随机数用途(1、2、14–19 是年纪、在位年数、倾向,在 rulers.ts)
 // 3 = 遇弑(royals.ts 的 murderedAt);4 = 亡国之君的下场(rulers.ts 的 fallFate)
@@ -106,14 +118,7 @@ const U_PRINCE = 22;
 const U_PRINCE_PICK = 23;
 /** 据险断后:领兵的宗室亲自断后 */
 const U_PRINCE_REAR = 24;
-/** keyed4 最后一位:君主(K_RULER = 0,在 rulers.ts)/ 将领 / 战争 */
-const K_GENERAL = 1;
-/** keyed4 最后一位:作者的将领(任将,只挑"前后左右"将军) */
-const K_AUTHOR = 7;
-/** 起姓的第二位:改出来的共和那几段的执政(东方中式,各有各的姓) */
-const K_CONSUL_SUR = 9;
 
-const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 

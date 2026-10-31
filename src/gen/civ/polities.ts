@@ -51,80 +51,86 @@ import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } fro
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图效果为准) ----
-/** 州有人定居后,过这么多年建城(随机) */
-const FOUND_DELAY: [number, number] = [5, 40];
-/**
- * 城的人口上限(千人)= CAP_REF × (州的人口上限 / 基准)^CAP_EXP × 港口 / 大河加成 × 随机 0.8–1.25。
- * 基准 = 这个世界可居州人口上限的第 90 百分位 ÷ CAP_P90(默认世界约 100):换精细度、气候时城市的大小分布不变。
- * 指数 > 1:沃野里的城比贫瘠处的城大得多,少数大城、大量村镇(城市规模的"长尾")。
- * CAP_REF 和立国门槛 FOUND_POP 同比例定:两个一起放大,城都变大,哪座城先够立国不变
- */
-const CAP_REF = 17.6;
-const CAP_P90 = 2.07;
-const CAP_EXP = 1.6;
-const PORT_CAP = 1.3;
-const RIVER_CAP = 1.35;
-/** 成长速度(每年):GROWTH × 随机 0.75–1.25 */
-const GROWTH = 0.0022;
-/**
- * 立国:人口上限够 FOUND_POP(千人)的城才立得了国(哪些城能立国由它定),人口越过 FOUND_AT、而且建城满 MIN_AGE 年就立国。
- * 立国看的是"够不够一方之主",不必等城长到很大:第一批国家在几百年里出现,前一千年不再几乎没有历史
- */
-export const FOUND_POP = 32;
-const FOUND_AT = 10;
-const MIN_AGE = 120;
-/** 自动国家数:每多少个可居州一个(只用来定国都间距;实际数量由推演决定) */
-const REGIONS_PER_POLITY = 60;
-/** 国都间距(州图跳数)= SPACING × √(可居州数 / 目标国家数) */
-const SPACING = 0.85;
-/** 过界系数(按 AdjKind 下标:平地、跨河、翻山、海峡、航线);海峡、航线:海洋国家从来就能走,普通国家到航海时代才能走(见 sailsOcean) */
-const CROSS = [1, 1.3, 2, 2, 3];
-/**
- * 航海时代(见 sailsOcean):从标定的推演进程(cultures.ts 的 REF_YEAR)的这个比例起,有港口的普通国家也能沿航线往海外扩张
- * (20 个种子调的:取 0.6 = 默认第 1800.5 年,立国高峰已过、本土大多占满,出海的多是沿海大国;
- * 0.5 来得太早,0.7 留给海外扩张的年份太少,普通国家的海外领土少了三成)
- */
-const SAIL_FRAC = 0.6;
-/**
- * 航海时代的普通国家走海峡、航线:过界系数再乘这么多,比海洋国家难走(海洋国家不乘)。
- * 20 个种子:1.5 时航海时代以后有海外领土的普通国家约占国·年的 3.6%,1 时约 5.2%,取中间
- */
-const SAIL_CROSS = 1.2;
-/** 进异族的州 */
-const OTHER_CULTURE = 2.5;
-/** 国家走一个标准路程要几年(国都旁边;离国都越远越慢) */
-const STEP_YEARS = 60;
-/** 离国都越远越慢:× e^(路程 / REACH),路程以"标准路程"计 */
-const REACH = 12;
-/** 群落系数 = (通行代价 / 70) ^ BIOME_EXP */
-const BIOME_EXP = 0.6;
-/**
- * 扩张算账(国家要不要去一州,由当时在位的君主定;见 wants):
- *   值 = 州的平均宜居分 × 民族类型的偏好(游牧看重草原荒漠、海洋看重沿海……)× 港口 PORT_VALUE / 大河 RIVER_VALUE
- *   代价 = e^(离国都的路程 / WORTH_REACH) × 异族 WORTH_FOREIGN × (1 − ENCLAVE × 四邻里已是本国的比例)
- *          × 不是山地民族时上高山 (1 + 高出 HIGH_COST 米的部分 / HIGH_SCALE)
- *   值 ≥ WORTH × 代价 × 君主倾向折算的门槛倍数(rulers.ts 的 leaningEffect)才去。荒漠、苔原、高山、离国都太远的州不划算,留给部落
- *   (20 个种子,第 3000 年:有人住的地方没有国家的从近两成到三成多,中位两成半;立国更早、有了边缘立国以后国家更多,门槛相应提高)
- */
-const WORTH = 11;
-const WORTH_REACH = 9;
-const WORTH_FOREIGN = 1.4;
-const ENCLAVE = 0.6;
-const HIGH_COST = 800;
-const HIGH_SCALE = 1200;
-const PORT_VALUE = 1.3;
-const RIVER_VALUE = 1.2;
-/** 民族类型的偏好:游牧在草原荒漠、山地在高处(海拔 ≥ HIGH 米)、海洋在沿海、河谷 / 湖滨 / 林地在各自的地方 × PREFER(游牧 × NOMAD_PREFER);海洋民族进内陆、游牧进林地 × AVOID */
-const PREFER = 1.4;
-const NOMAD_PREFER = 2.2;
-const AVOID = 0.6;
-const HIGH = 600;
-/** 修路:到结束年份至少长到这一级(1 = 镇)的城镇才连路(国都、港口总是连) */
-const ROUTE_MIN_RANK = 1;
-/** 海洋国家走城邦共和一系的概率(其余走农耕一系) */
-const REPUBLIC_P = 0.75;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const POLITIES_KNOBS = defineKnobs('polities', {
+  /** 州有人定居后,过这么多年建城(随机) */
+  FOUND_DELAY: [5, 40] as [number, number],
+  /**
+   * 城的人口上限(千人)= CAP_REF × (州的人口上限 / 基准)^CAP_EXP × 港口 / 大河加成 × 随机 0.8–1.25。
+   * 基准 = 这个世界可居州人口上限的第 90 百分位 ÷ CAP_P90(默认世界约 100):换精细度、气候时城市的大小分布不变。
+   * 指数 > 1:沃野里的城比贫瘠处的城大得多,少数大城、大量村镇(城市规模的"长尾")。
+   * CAP_REF 和立国门槛 FOUND_POP 同比例定:两个一起放大,城都变大,哪座城先够立国不变
+   */
+  CAP_REF: 17.6,
+  CAP_P90: 2.07,
+  CAP_EXP: 1.6,
+  PORT_CAP: 1.3,
+  RIVER_CAP: 1.35,
+  /** 成长速度(每年):GROWTH × 随机 0.75–1.25 */
+  GROWTH: 0.0022,
+  /**
+   * 立国:人口上限够 FOUND_POP(千人)的城才立得了国(哪些城能立国由它定),人口越过 FOUND_AT、而且建城满 MIN_AGE 年就立国。
+   * 立国看的是"够不够一方之主",不必等城长到很大:第一批国家在几百年里出现,前一千年不再几乎没有历史
+   */
+  FOUND_POP: 32,
+  FOUND_AT: 10,
+  MIN_AGE: 120,
+  /** 自动国家数:每多少个可居州一个(只用来定国都间距;实际数量由推演决定) */
+  REGIONS_PER_POLITY: 60,
+  /** 国都间距(州图跳数)= SPACING × √(可居州数 / 目标国家数) */
+  SPACING: 0.85,
+  /** 过界系数(按 AdjKind 下标:平地、跨河、翻山、海峡、航线);海峡、航线:海洋国家从来就能走,普通国家到航海时代才能走(见 sailsOcean) */
+  CROSS: [1, 1.3, 2, 2, 3],
+  /**
+   * 航海时代(见 sailsOcean):从标定的推演进程(cultures.ts 的 REF_YEAR)的这个比例起,有港口的普通国家也能沿航线往海外扩张
+   * (20 个种子调的:取 0.6 = 默认第 1800.5 年,立国高峰已过、本土大多占满,出海的多是沿海大国;
+   * 0.5 来得太早,0.7 留给海外扩张的年份太少,普通国家的海外领土少了三成)
+   */
+  SAIL_FRAC: 0.6,
+  /**
+   * 航海时代的普通国家走海峡、航线:过界系数再乘这么多,比海洋国家难走(海洋国家不乘)。
+   * 20 个种子:1.5 时航海时代以后有海外领土的普通国家约占国·年的 3.6%,1 时约 5.2%,取中间
+   */
+  SAIL_CROSS: 1.2,
+  /** 进异族的州 */
+  OTHER_CULTURE: 2.5,
+  /** 国家走一个标准路程要几年(国都旁边;离国都越远越慢) */
+  STEP_YEARS: 60,
+  /** 离国都越远越慢:× e^(路程 / REACH),路程以"标准路程"计 */
+  REACH: 12,
+  /** 群落系数 = (通行代价 / 70) ^ BIOME_EXP */
+  BIOME_EXP: 0.6,
+  /**
+   * 扩张算账(国家要不要去一州,由当时在位的君主定;见 wants):
+   *   值 = 州的平均宜居分 × 民族类型的偏好(游牧看重草原荒漠、海洋看重沿海……)× 港口 PORT_VALUE / 大河 RIVER_VALUE
+   *   代价 = e^(离国都的路程 / WORTH_REACH) × 异族 WORTH_FOREIGN × (1 − ENCLAVE × 四邻里已是本国的比例)
+   *          × 不是山地民族时上高山 (1 + 高出 HIGH_COST 米的部分 / HIGH_SCALE)
+   *   值 ≥ WORTH × 代价 × 君主倾向折算的门槛倍数(rulers.ts 的 leaningEffect)才去。荒漠、苔原、高山、离国都太远的州不划算,留给部落
+   *   (20 个种子,第 3000 年:有人住的地方没有国家的从近两成到三成多,中位两成半;立国更早、有了边缘立国以后国家更多,门槛相应提高)
+   */
+  WORTH: 11,
+  WORTH_REACH: 9,
+  WORTH_FOREIGN: 1.4,
+  ENCLAVE: 0.6,
+  HIGH_COST: 800,
+  HIGH_SCALE: 1200,
+  PORT_VALUE: 1.3,
+  RIVER_VALUE: 1.2,
+  /** 民族类型的偏好:游牧在草原荒漠、山地在高处(海拔 ≥ HIGH 米)、海洋在沿海、河谷 / 湖滨 / 林地在各自的地方 × PREFER(游牧 × NOMAD_PREFER);海洋民族进内陆、游牧进林地 × AVOID */
+  PREFER: 1.4,
+  NOMAD_PREFER: 2.2,
+  AVOID: 0.6,
+  HIGH: 600,
+  /** 修路:到结束年份至少长到这一级(1 = 镇)的城镇才连路(国都、港口总是连) */
+  ROUTE_MIN_RANK: 1,
+  /** 海洋国家走城邦共和一系的概率(其余走农耕一系) */
+  REPUBLIC_P: 0.75,
+});
+const { FOUND_DELAY, CAP_REF, CAP_P90, CAP_EXP, PORT_CAP, RIVER_CAP, GROWTH, FOUND_AT, MIN_AGE, REGIONS_PER_POLITY, SPACING, CROSS, SAIL_FRAC, SAIL_CROSS, OTHER_CULTURE, STEP_YEARS, REACH, BIOME_EXP, WORTH, WORTH_REACH, WORTH_FOREIGN, ENCLAVE, HIGH_COST, HIGH_SCALE, PORT_VALUE, RIVER_VALUE, PREFER, NOMAD_PREFER, AVOID, HIGH, ROUTE_MIN_RANK, REPUBLIC_P } = POLITIES_KNOBS.values;
+export const { FOUND_POP } = POLITIES_KNOBS.values;
 
 const BIOME_F = BIOME_COST.map((c) => fpow(Math.max(1, c) / 70, BIOME_EXP));
 /** 按 Biome 下标查的群落集合(哪些群落算哪一类见地貌表的标签):开阔干地(草原、稀树草原、荒漠)、密林 */

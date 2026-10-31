@@ -13,43 +13,48 @@
 import type { Annal, Polity, Year } from './types';
 import { reignBorn, type Reign } from './rulers';
 import { broodOf } from './royals';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(推荐值,按 20 个种子的统计调) ----
-/**
- * 看邦交时结亲的机会:每个合格的亲家 MARRY_PER,最多 MARRY_MAX;挑中的是盟国再加 MARRY_ALLY。
- * (起初定的 10%、最多 30%:各国接壤的邻国不多,一次看邦交平均不到两个合格的亲家,种子 7 只结了二十来门;调到 30%、最多 60%)
- */
-export const MARRY_PER = 0.3;
-export const MARRY_MAX = 0.6;
-export const MARRY_ALLY = 0.15;
-/** 互嫁的机会(对方的太子同时娶这边的宗室女) */
-export const MUTUAL = 0.25;
-/** 议和时以和亲作结的机会 */
-export const PEACE_MATCH = 0.2;
-/** 结亲的加成(见文件头)和淡回的年数 */
-export const KIN_DECLARE = 0.4;
-export const KIN_FADE = 40;
-export const KIN_PACT = 3;
-export const KIN_JOIN = 1.3;
-export const KIN_BETRAY = 0.5;
-/** 君主对舅家宣战的赔率倍数 */
-export const UNCLE_DECLARE = 0.6;
-/** 娶亲的宗室、太子的年纪;年轻的在位君主不过这么多岁;嫁女的君主至少这么多岁 */
-export const GROOM_AGE: [number, number] = [16, 40];
-export const YOUNG_RULER = 30;
-export const BRIDE_FATHER = 30;
-/** n 列里"君主本人" */
-export const GROOM_SELF = 15;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const MARRIAGES_KNOBS = defineKnobs('marriages', {
+  /**
+   * 看邦交时结亲的机会:每个合格的亲家 MARRY_PER,最多 MARRY_MAX;挑中的是盟国再加 MARRY_ALLY。
+   * (起初定的 10%、最多 30%:各国接壤的邻国不多,一次看邦交平均不到两个合格的亲家,种子 7 只结了二十来门;调到 30%、最多 60%)
+   */
+  MARRY_PER: 0.3,
+  MARRY_MAX: 0.6,
+  MARRY_ALLY: 0.15,
+  /** 互嫁的机会(对方的太子同时娶这边的宗室女) */
+  MUTUAL: 0.25,
+  /** 议和时以和亲作结的机会 */
+  PEACE_MATCH: 0.2,
+  /** 结亲的加成(见文件头)和淡回的年数 */
+  KIN_DECLARE: 0.4,
+  KIN_FADE: 40,
+  KIN_PACT: 3,
+  KIN_JOIN: 1.3,
+  KIN_BETRAY: 0.5,
+  /** 君主对舅家宣战的赔率倍数 */
+  UNCLE_DECLARE: 0.6,
+  /** 娶亲的宗室、太子的年纪;年轻的在位君主不过这么多岁;嫁女的君主至少这么多岁 */
+  GROOM_AGE: [16, 40] as [number, number],
+  YOUNG_RULER: 30,
+  BRIDE_FATHER: 30,
+  /** n 列里"君主本人" */
+  GROOM_SELF: 15,
+  /**
+   * 为他联姻(干预)没生效时史事 intervene 的 b 列(别的同 rulers.ts:−3 那一年这国已亡、−4 他不是能娶亲的宗室;
+   * regents.ts:−12 有一国是共和国):−13 对方那一年没有 / 已亡;−14 两国正在交战;−15 嫁女的那国在位的君主不到 BRIDE_FATHER 岁(没有成年的女儿);
+   * −16 本国宗室女嫁过去、对方没有能娶亲的人
+   */
+  IV_NO_PARTNER: -13,
+  IV_AT_WAR: -14,
+  IV_NO_BRIDE: -15,
+  IV_NO_GROOM: -16,
+});
+export const { MARRY_PER, MARRY_MAX, MARRY_ALLY, MUTUAL, PEACE_MATCH, KIN_DECLARE, KIN_FADE, KIN_PACT, KIN_JOIN, KIN_BETRAY, UNCLE_DECLARE, GROOM_AGE, YOUNG_RULER, BRIDE_FATHER, GROOM_SELF, IV_NO_PARTNER, IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM } = MARRIAGES_KNOBS.values;
 
-/**
- * 为他联姻(干预)没生效时史事 intervene 的 b 列(别的同 rulers.ts:−3 那一年这国已亡、−4 他不是能娶亲的宗室;
- * regents.ts:−12 有一国是共和国):−13 对方那一年没有 / 已亡;−14 两国正在交战;−15 嫁女的那国在位的君主不到 BRIDE_FATHER 岁(没有成年的女儿);
- * −16 本国宗室女嫁过去、对方没有能娶亲的人
- */
-export const IV_NO_PARTNER = -13;
-export const IV_AT_WAR = -14;
-export const IV_NO_BRIDE = -15;
-export const IV_NO_GROOM = -16;
 
 /** 一门亲 */
 export interface Match {

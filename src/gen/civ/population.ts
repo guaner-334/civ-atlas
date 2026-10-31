@@ -36,35 +36,40 @@ import type { TableEngine } from './engine/tables';
 import type { PopRuleConsts } from './stateTables';
 import { fpow } from './engine/rand';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 几年算一步(搬家要算每条邻边,每年算太慢;钱粮每 10 年读一次、快照每 10 年一份,都对得齐) */
-const POP_EVERY = 5;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const POPULATION_KNOBS = defineKnobs('population', {
+  /** 几年算一步(搬家要算每条邻边,每年算太慢;钱粮每 10 年读一次、快照每 10 年一份,都对得齐) */
+  POP_EVERY: 5,
+  /** 人往不挤的地方去:挤的差每年搬几成 */
+  MIG: 0.01,
+  /** 逃兵灾:兵祸的差每年搬几成(分给有人住的邻州) */
+  FLEE: 0.05,
+  /** 兵祸:每件兵灾加几成;每年留几成 */
+  HIT: 0.5,
+  FADE: 0.7,
+  /** 跨国、翻山、过海峡打的折 */
+  ABROAD: 0.3,
+  MOUNTAIN_W: 0.5,
+  STRAIT_W: 0.3,
+  /** 地力:每年养回来缺的几成;种满了每年耗几成(再乘 脆);兵祸每年耗几成;一件饥荒、大水、大旱扣几成;最低多少 */
+  LAND_REST: 0.01,
+  WEAR: 0.0035,
+  SCORCH: 0.01,
+  BLIGHT: 0.05,
+  LAND_FLOOR: 0.5,
+  /** 全球大疫的凋敝里乡民往"该有的"长回去的少几成(无人收拾,几乎不长;复作的折损见 pandemic.ts) */
+  SLUMP_HOLD: 0.7,
+  FRAGILE_ELSE: 0.2,
+  RIVER_SILT: 0.5,
+});
+const { POP_EVERY, MIG, FLEE, HIT, FADE, ABROAD, MOUNTAIN_W, STRAIT_W, LAND_REST, WEAR, SCORCH, BLIGHT, LAND_FLOOR, SLUMP_HOLD, FRAGILE_ELSE, RIVER_SILT } = POPULATION_KNOBS.values;
 /** 往"该有的"靠拢:每年缺口(或多出来的)的 1 / RECOVER(和城被洗劫后长回来一样快) */
 const RECOVER = SACK_RECOVER;
-/** 人往不挤的地方去:挤的差每年搬几成 */
-const MIG = 0.01;
-/** 逃兵灾:兵祸的差每年搬几成(分给有人住的邻州) */
-const FLEE = 0.05;
-/** 兵祸:每件兵灾加几成;每年留几成 */
-const HIT = 0.5;
-const FADE = 0.7;
-/** 跨国、翻山、过海峡打的折 */
-const ABROAD = 0.3;
-const MOUNTAIN_W = 0.5;
-const STRAIT_W = 0.3;
-/** 地力:每年养回来缺的几成;种满了每年耗几成(再乘 脆);兵祸每年耗几成;一件饥荒、大水、大旱扣几成;最低多少 */
-const LAND_REST = 0.01;
-const WEAR = 0.0035;
-const SCORCH = 0.01;
-const BLIGHT = 0.05;
-const LAND_FLOOR = 0.5;
-/** 全球大疫的凋敝里乡民往"该有的"长回去的少几成(无人收拾,几乎不长;复作的折损见 pandemic.ts) */
-const SLUMP_HOLD = 0.7;
 /** 地经不经得住种(按地块的生物群落,见地貌表的 soilFragility;表外的编号 FRAGILE_ELSE);流着、挨着大河的有淤泥补,乘 RIVER_SILT */
 const FRAGILE = biomeColumn('soilFragility');
-const FRAGILE_ELSE = 0.2;
-const RIVER_SILT = 0.5;
 
 /** 乡村人口的常数(见 stateTables.ts) */
 export const POP_CONSTS: PopRuleConsts = {
