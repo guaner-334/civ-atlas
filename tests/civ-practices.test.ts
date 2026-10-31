@@ -11,9 +11,9 @@ import { councilModelOf } from '../src/gen/civ/council';
 import { controlModelOf } from '../src/gen/civ/control';
 import { CAP_COUNT, INVENTIONS, LEVEL_SCALE, eraLevel } from '../src/gen/civ/development';
 import { ERA_COL, PRACTICES, Practice, hasPractice, practiceCards, practiceMask, practiceNeed } from '../src/gen/civ/practices';
-import { farRegion, practicesAt } from '../src/gen/civ/practiceInfo';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
-import { developmentEntries } from '../src/gen/civ/developmentText';
+import { farRegion, practicesAt } from '../src/gen/civ/story/practiceInfo';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { developmentEntries } from '../src/gen/civ/story/developmentText';
 import { polityName } from '../src/gen/civ/growth';
 import { courtLocks, courtView } from '../src/ui/courtInfo';
 

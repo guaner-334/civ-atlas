@@ -10,8 +10,8 @@
  */
 import type { Civ, Person } from '../gen/civ/types';
 import { personKey, polityKey, resolveKey, resolvePersonKey, type FollowRef } from '../gen/edits';
-import { personSpan, rulerNeighbors } from '../gen/civ/peopleInfo';
-import { consortRole, dowagerSpans, generalRole, isConsul, ministerRole, rulerFateWord, rulerRole, seatPolity } from '../gen/civ/peopleText';
+import { personSpan, rulerNeighbors } from '../gen/civ/story/peopleInfo';
+import { consortRole, dowagerSpans, generalRole, isConsul, ministerRole, rulerFateWord, rulerRole, seatPolity } from '../gen/civ/story/peopleText';
 import { yearAt, type Era } from '../gen/era';
 import type { DirectorFocus } from './directorPlan';
 

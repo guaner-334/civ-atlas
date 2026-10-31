@@ -14,7 +14,7 @@
  */
 import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { cnNumber } from '../gen/civ/chronicle';
+import { cnNumber } from '../gen/civ/story/chronicle';
 import { capitalAt, polityAlive } from '../gen/civ/growth';
 import { ERAS } from '../gen/civ/development';
 import { ownersAt } from '../gen/civ/timeline';

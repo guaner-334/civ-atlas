@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { polityAlive } from '../src/gen/civ/growth';
-import { rulerAt } from '../src/gen/civ/peopleInfo';
+import { rulerAt } from '../src/gen/civ/story/peopleInfo';
 import { reformedSeg } from '../src/gen/civ/regime';
 import { alivePolities } from '../src/ui/crownInfo';
 import { keepWhy } from '../src/ui/keepInfo';

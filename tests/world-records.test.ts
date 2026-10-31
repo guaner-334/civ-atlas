@@ -6,9 +6,9 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { annexedRemnants, populationAt } from '../src/gen/civ/growth';
-import { peopleIndex } from '../src/gen/civ/peopleInfo';
+import { peopleIndex } from '../src/gen/civ/story/peopleInfo';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { RECORD_COUNTER, RECORD_GROUPS, recordBook, recordHistory, recordsAt, tieNote, type RecordKey, type RecordRef } from '../src/gen/civ/records';
+import { RECORD_COUNTER, RECORD_GROUPS, recordBook, recordHistory, recordsAt, tieNote, type RecordKey, type RecordRef } from '../src/gen/civ/story/records';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {

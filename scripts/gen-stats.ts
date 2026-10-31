@@ -15,7 +15,7 @@ import { warStats } from '../src/gen/civ/wars';
 import { politicsStats } from '../src/gen/civ/politics';
 import { dynastyStats } from '../src/gen/civ/dynasty';
 import { cityStats } from '../src/gen/civ/cities';
-import { buildChronicle, filterChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle, filterChronicle } from '../src/gen/civ/story/chronicle';
 import { polityName } from '../src/gen/civ/growth';
 import { assimStats } from '../src/gen/civ/assimilation';
 import { diplomacyStats } from '../src/gen/civ/diplomacy';

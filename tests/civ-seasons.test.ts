@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { COLDEST_NORTH, coldShare, coldSpellEnd, monthTemp, yearClimate } from '../src/gen/seasons';
 

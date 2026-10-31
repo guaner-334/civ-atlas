@@ -4,8 +4,8 @@
  * 挑的是分量最重的、同一种子结果相同;推了六千年的世界(和推到六万年的假世界)段数照样受控。
  */
 import { describe, expect, it } from 'vitest';
-import { chronicleEraYears, entryInvolves, filterChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { chronicleEraYears, entryInvolves, filterChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { generateCiv, type Civ, type Polity } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { defaultPolity, longPolities, polityLastYear } from '../src/ui/longPlan';

@@ -17,7 +17,7 @@
  */
 import type { World } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
-import { buildChronicle, entryInvolves, entryYearLabel, MAJOR, type ChronicleEntry } from '../../gen/civ/chronicle';
+import { buildChronicle, entryInvolves, entryYearLabel, MAJOR, type ChronicleEntry } from '../../gen/civ/story/chronicle';
 import { capitalAt, polityAlive, polityRoots, polityTitleChain } from '../../gen/civ/growth';
 import { ownersAt } from '../../gen/civ/timeline';
 import { DISASTER_LEVEL_NAMES, DISASTER_NAMES, applyNames, cleanIntervention, resolveKey, type Intervention, type WorldEdits } from '../../gen/edits';
@@ -41,7 +41,7 @@ import {
 import type { AiMessage, AiRequest, AiToolCall, AiUsage } from '../types';
 import { looksUnfinished, runAgent, type AgentEvent, type AgentStep, type AgentTool } from './loop';
 import { landLabel, lookupLand, lookupPeople, peopleLabel, polityOf, yearArg } from './lookup';
-import { regionLabel, regionNamed } from '../../gen/civ/display';
+import { regionLabel, regionNamed } from '../../gen/civ/story/display';
 import { compareTrial, noteDeclares, sameFate, trialText, trialUnchanged, type Fate, type FateChange, type TrialDiff, type TrialEvent } from './trial';
 
 /** 调用记录里的功能名 */

@@ -15,8 +15,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { filterChronicle } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { filterChronicle } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { getCivTime, subscribeCivTime, useChronicle, useChroniclePick } from './civView';
 import { useThemeCompat } from './CivTimeline';
 import {

@@ -10,13 +10,13 @@
  *   "大渭始入工业时代,铁路成,自京师至瑞州旬日可达" / "……,电报通,瑞州有变,朝廷当日即知"(瑞州 = 离国都最远的州)。
  * 国名用事发当年的国号,地方先写城名、没有城写州名;没有国家的写"某某人"。
  */
-import type { Civ, DevEvent, Year } from './types';
-import { polityName } from './growth';
+import type { Civ, DevEvent, Year } from '../types';
+import { polityName } from '../growth';
 import { regionLabel } from './display';
-import { ERAS, INVENTIONS } from './development';
+import { ERAS, INVENTIONS } from '../development';
 import { rulerAt } from './peopleInfo';
 import { farName, farRegion, practicesAt } from './practiceInfo';
-import { Practice, hasPractice } from './practices';
+import { Practice, hasPractice } from '../practices';
 import { rulerBare } from './peopleText';
 import type { ChronicleEntry, Importance } from './chronicle';
 

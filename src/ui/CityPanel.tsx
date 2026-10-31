@@ -14,7 +14,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { Civ, Settlement } from '../gen/civ/types';
-import { cultureLabel, regionLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { SETTLEMENT_RANKS, capitalAt, polityAlive, populationAt, populationLabel, portAt, settlementRank } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { polityKey, settlementKey, type Intervention } from '../gen/edits';

@@ -18,7 +18,7 @@
  * - 往回翻(stepPage):时间轴只放一段,以前的按这次演绎停过的那几刻切段,再往前按"每隔几年"切到第 0 年;
  *   从某一年重新演绎时弹窗里"不要了的历史"列几件大事的短句(rewindBrief)。
  */
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import { polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import type { World } from '../gen/world';

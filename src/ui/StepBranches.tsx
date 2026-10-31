@@ -13,8 +13,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Civ } from '../gen/civ/types';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { BRANCH_NAME_MAX, BRANCH_NOTE_MAX, YEAR_TICKS, commandAt, ticksAt, type Intervention } from '../gen/edits';
 import { branchList, deleteBranch, renameBranch, type BranchInfo } from '../gen/stepwise';
 import { eraText, spaced, yearAt, yearFull, yearShort, yearShortAt, type Era } from '../gen/era';

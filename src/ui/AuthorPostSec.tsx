@@ -12,9 +12,9 @@
 import { useState, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
-import { personName } from '../gen/civ/peopleText';
-import { heOrShe } from '../gen/civ/gender';
-import { peopleIndex, rulerAt } from '../gen/civ/peopleInfo';
+import { personName } from '../gen/civ/story/peopleText';
+import { heOrShe } from '../gen/civ/story/gender';
+import { peopleIndex, rulerAt } from '../gen/civ/story/peopleInfo';
 import { APPOINT_SKILL_POWER, advanceOf, type Intervention } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
 import { spaced, yearAt, yearShort, yearSpanAt, type Era } from '../gen/era';
@@ -25,7 +25,7 @@ import { openOverview } from './overviewStore';
 import { EventList, Link, Row, jumpTo } from './panelParts';
 import { personEvents } from './PersonPanel';
 import { newReignName } from './crownInfo';
-import { polityShort } from '../gen/civ/regentInfo';
+import { polityShort } from '../gen/civ/story/regentInfo';
 import {
   AUTHOR_HOW_NAMES,
   RESULT_WORD,

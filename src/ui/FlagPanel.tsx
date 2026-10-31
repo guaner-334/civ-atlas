@@ -9,7 +9,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { polityName } from '../gen/civ/growth';
-import { flagNote, flagRows } from '../gen/civ/flagText';
+import { flagNote, flagRows } from '../gen/civ/story/flagText';
 import {
   DE,
   DE_EDGE,
@@ -36,7 +36,7 @@ import {
   type Layout,
   type Tinct,
   underCharge,
-} from '../gen/civ/flags';
+} from '../gen/civ/story/flags';
 import { markButtonSvg, symbolButtonSvg } from '../render/flag/flagSvg';
 import { setFlags, useEdits, useEra } from './editsStore';
 import { yearAt } from '../gen/era';

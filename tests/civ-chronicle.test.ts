@@ -20,7 +20,7 @@ import {
   entryYearLabel,
   filterChronicle,
   type ChronicleEntry,
-} from '../src/gen/civ/chronicle';
+} from '../src/gen/civ/story/chronicle';
 
 // ---------------------------------------------------------------------------
 // 手工造的世界:10 个州、6 个国家、九种史事都有

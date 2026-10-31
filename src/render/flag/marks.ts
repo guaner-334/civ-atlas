@@ -3,7 +3,7 @@
  * 100 × 100 的格子里画;col = 纹样的颜色(外层 <g> 的 fill / stroke),u = 底色(钱的方孔、太极的阴面这些"抠出来"的地方)。
  * 神兽在 beasts.ts。
  */
-import { isBeast, type Emblem, type Mark } from '../../gen/civ/flags';
+import { isBeast, type Emblem, type Mark } from '../../gen/civ/story/flags';
 import { beastSvg } from './beasts';
 
 const NS = 'stroke="none"';

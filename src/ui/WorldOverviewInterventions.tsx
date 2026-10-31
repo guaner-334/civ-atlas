@@ -11,8 +11,8 @@
  */
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { interventionOutcome } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { interventionOutcome } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { polityAlive, polityName, populationAt } from '../gen/civ/growth';
 import { cleanIntervention, keyCells, regionOfKey, resolvePersonKey, resolveKey, type Intervention, type Upheaval } from '../gen/edits';
 import { regionName } from './outlineInfo';

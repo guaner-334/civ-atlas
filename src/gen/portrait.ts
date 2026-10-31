@@ -20,7 +20,7 @@
 import type { Civ, Person, Year } from './civ/types';
 import { mulberry32, subSeed, type Rng } from './util';
 import { polityTierAt } from './civ/growth';
-import { isConsul } from './civ/peopleText';
+import { isConsul } from './civ/story/peopleText';
 import { personKey } from './characters';
 import { PORTRAIT_PARTS } from './portraitParts';
 

@@ -36,11 +36,11 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { capitalAt, polityName } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
-import { LEANING_KEYS, LEANING_TEXT, personName, rulerFateWord } from '../gen/civ/peopleText';
-import { heOrShe, type Sexed } from '../gen/civ/gender';
-import { commandFoes, rulerAt, rulerNeighbors } from '../gen/civ/peopleInfo';
-import { hasLineage } from '../gen/civ/lineageInfo';
+import { regionLabel } from '../gen/civ/story/display';
+import { LEANING_KEYS, LEANING_TEXT, personName, rulerFateWord } from '../gen/civ/story/peopleText';
+import { heOrShe, type Sexed } from '../gen/civ/story/gender';
+import { commandFoes, rulerAt, rulerNeighbors } from '../gen/civ/story/peopleInfo';
+import { hasLineage } from '../gen/civ/story/lineageInfo';
 import type { Person, RulerLeanings } from '../gen/civ/types';
 import { MARK_COLORS, advanceOf, cleanPlay, polityKey, type Intervention, type MarkColor } from '../gen/edits';
 import {

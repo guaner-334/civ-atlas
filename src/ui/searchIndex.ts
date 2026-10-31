@@ -12,10 +12,10 @@
  */
 import type { Civ, Place, Polity } from '../gen/civ/types';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { cultureLabel } from '../gen/civ/display';
+import { cultureLabel } from '../gen/civ/story/display';
 import { capitalAt, polityAlive, polityName, populationAt } from '../gen/civ/growth';
-import { personFame, personSpan } from '../gen/civ/peopleInfo';
-import { consortRole, generalRole, ministerRole, personName, rulerRole, rulerShort, rulerTitle } from '../gen/civ/peopleText';
+import { personFame, personSpan } from '../gen/civ/story/peopleInfo';
+import { consortRole, generalRole, ministerRole, personName, rulerRole, rulerShort, rulerTitle } from '../gen/civ/story/peopleText';
 import { faithCounts } from '../gen/civ/religion';
 import type { AuthorMark } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';

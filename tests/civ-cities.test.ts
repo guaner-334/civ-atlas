@@ -10,7 +10,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { cityModelOf, cityStats } from '../src/gen/civ/cities';
 import { CAPITAL_BOOST, CAPITAL_DECLINE, CAPITAL_RAMP, SACK_RECOVER, capitalLevel, populationAt, ruinSites } from '../src/gen/civ/growth';
-import { buildChronicle, filterChronicle, MAJOR } from '../src/gen/civ/chronicle';
+import { buildChronicle, filterChronicle, MAJOR } from '../src/gen/civ/story/chronicle';
 import { routeCities, ruinGaps } from '../src/gen/civ/polities';
 import { rasterize } from '../src/gen/raster';
 import { civMapLayer } from '../src/render/civ/labels';

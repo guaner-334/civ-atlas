@@ -19,8 +19,8 @@ import {
   polityFlagAt,
   polityFlagKeys,
   type FlagSpec,
-} from '../src/gen/civ/flags';
-import { flagNote, flagRows } from '../src/gen/civ/flagText';
+} from '../src/gen/civ/story/flags';
+import { flagNote, flagRows } from '../src/gen/civ/story/flagText';
 import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
 import { editCount, makeSave, parseSave } from '../src/gen/savefile';
 import { revertEdits } from '../src/ui/editsStore';

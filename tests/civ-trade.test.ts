@@ -8,9 +8,9 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { CivSim } from '../src/gen/civ/sim';
 import { finishTrade } from '../src/gen/civ/trade';
-import { tradeEntries } from '../src/gen/civ/tradeText';
+import { tradeEntries } from '../src/gen/civ/story/tradeText';
 import { applyNames, resolveKey, tradeKey } from '../src/gen/edits';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {

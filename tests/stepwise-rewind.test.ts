@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { advanceOf, playFromOf, polityKey, type Intervention, type PlayState, type WorldEdits } from '../src/gen/edits';
 import { rewindStepwise, startStepwise } from '../src/gen/stepwise';

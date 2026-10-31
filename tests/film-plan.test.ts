@@ -3,9 +3,9 @@
  * 手工造的大事测规则;再用真实世界(seed 7)核对:字幕不重叠、都在中间那一段里、没打完的战争只写开头。
  */
 import { describe, expect, it } from 'vitest';
-import type { ChronicleEntry } from '../src/gen/civ/chronicle';
-import { filterChronicle } from '../src/gen/civ/chronicle';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import type { ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { filterChronicle } from '../src/gen/civ/story/chronicle';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { generateCiv } from '../src/gen/civ';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import {

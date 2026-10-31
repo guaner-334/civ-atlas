@@ -5,16 +5,16 @@
  *   创教、教派分立是大事(重要度 3);当年州数前五的国家立国教是 2;小国立国教、传入是 1。
  *   不放进 buildChronicle(那里只有史事,AI 的材料用它);编年史、时间轴、卡片里的大事用 fullChronicle(史事 + 继位以外的宗教大事)。
  */
-import type { Civ, Faith, FaithEvent, FaithEventKind, FaithForm, Year } from './types';
-import { polityName } from './growth';
-import { ownersAt, type Owners } from './timeline';
+import type { Civ, Faith, FaithEvent, FaithEventKind, FaithForm, Year } from '../types';
+import { polityName } from '../growth';
+import { ownersAt, type Owners } from '../timeline';
 import { rulerRef } from './peopleText';
 import { chronicleCached, chronicleSteps, mergeChronicle, runSteps, type ChronicleEntry, type Importance } from './chronicle';
-import { faithCounts, faithRoot, FOLK_COLOR } from './religion';
+import { faithCounts, faithRoot, FOLK_COLOR } from '../religion';
 import { developmentEntries } from './developmentText';
 import { tradeEntries } from './tradeText';
 import { ideologyEntries } from './ideologyText';
-import { yearAt, type Era } from '../era';
+import { yearAt, type Era } from '../../era';
 
 /** 类型的说明(宗教卡片「类型」一行的小字) */
 export const FORM_NOTE: Record<FaithForm, string> = {

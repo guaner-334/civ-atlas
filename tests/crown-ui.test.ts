@@ -15,8 +15,8 @@ import { polityName } from '../src/gen/civ/growth';
 import { cleanIntervention, foundedPolityKey, polityKey, regionKey, resolveKey, type Intervention } from '../src/gen/edits';
 import { CHAR_LEANING_DEFAULT, characterLeanings, cleanCharacter } from '../src/gen/characters';
 import { alivePolities, characterCrowns, crownDeleteAsk, crownDoneText, crownEditAsk, crownLine, newReignName } from '../src/ui/crownInfo';
-import { peopleIndex } from '../src/gen/civ/peopleInfo';
-import { dynastyRows, layoutDynasty, lineageText, treeLabel } from '../src/gen/civ/lineageInfo';
+import { peopleIndex } from '../src/gen/civ/story/peopleInfo';
+import { dynastyRows, layoutDynasty, lineageText, treeLabel } from '../src/gen/civ/story/lineageInfo';
 import type { Pending } from '../src/ui/pendingStore';
 
 const seed = 7;

@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
-import { buildChronicle } from '../src/gen/civ/chronicle';
-import { heirBornOf, holderAt } from '../src/gen/civ/regentInfo';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
+import { heirBornOf, holderAt } from '../src/gen/civ/story/regentInfo';
 import { IV_NOT_HIM } from '../src/gen/civ/rulers';
 import { cleanIntervention, personKey, polityKey, resolvePersonKey, type Intervention } from '../src/gen/edits';
 

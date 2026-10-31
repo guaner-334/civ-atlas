@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateCiv } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { buildChronicle, interventionOutcome } from '../src/gen/civ/chronicle';
+import { buildChronicle, interventionOutcome } from '../src/gen/civ/story/chronicle';
 import { capitalAt } from '../src/gen/civ/growth';
 import { applyNames, cleanInterventions, polityKey, regionKey, settlementKey, type Intervention } from '../src/gen/edits';
 import {

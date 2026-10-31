@@ -9,12 +9,12 @@
  * 编年史里都是小事(重要度 1,只在「全部」里),kind = 'era'(和时代、物产一类),标签"商"(界面上叫"商道")。
  * 纯函数,主线程用。
  */
-import type { Annal, Civ, Year } from './types';
+import type { Annal, Civ, Year } from '../types';
 import type { ChronicleEntry } from './chronicle';
-import type { TradeEvent, TradeRoute } from './trade';
-import { capitalAt, polityName } from './growth';
+import type { TradeEvent, TradeRoute } from '../trade';
+import { capitalAt, polityName } from '../growth';
 import { regionLabel } from './display';
-import { ownersAt, type Owners } from './timeline';
+import { ownersAt, type Owners } from '../timeline';
 
 /** 编年史的标签 */
 export const TRADE_TAG = '商';

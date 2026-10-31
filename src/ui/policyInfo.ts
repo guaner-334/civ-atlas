@@ -9,7 +9,7 @@
  * - 演一国:别国的干预入口变灰(roleLock)
  */
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
-import { heOrShe, type Sexed } from '../gen/civ/gender';
+import { heOrShe, type Sexed } from '../gen/civ/story/gender';
 import { POLICY_KNOBS, POLICY_PICK_MAX, cleanIntervention, polityKey, resolveKey, type PolicyFocus, type PolicyKnob, type PolicyPreset } from '../gen/edits';
 import { POLICY_PRESETS, POLICY_PRESET_NAMES, emptyPolicy, policiesFrom, policyName, withPolicy, type PolicyIv } from '../gen/civ/policy';
 import { interventionFate } from '../gen/stepwise';

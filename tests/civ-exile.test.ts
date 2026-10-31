@@ -6,10 +6,10 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { polityAlive, polityName } from '../src/gen/civ/growth';
 import { EXILE_TIES } from '../src/gen/civ/types';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { diedAbroad, exileHostName, exileReturns, exileTieText } from '../src/ui/treatyRows';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 

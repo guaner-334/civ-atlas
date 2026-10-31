@@ -14,7 +14,7 @@
 import type { Civ, Migration, Year } from '../../gen/civ/types';
 import type { World } from '../../gen/world';
 import { ownersAt } from '../../gen/civ/timeline';
-import { cultureLabel, regionLabel } from '../../gen/civ/display';
+import { cultureLabel, regionLabel } from '../../gen/civ/story/display';
 import { yearShort, type Era } from '../../gen/era';
 import { nearX } from '../common';
 import { civFillOf } from './show';

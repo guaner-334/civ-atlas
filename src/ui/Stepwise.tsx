@@ -17,8 +17,8 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { entryInvolves, type ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { YEAR_TICKS, advanceOf, cleanPlay, commandsNow, type Advance } from '../gen/edits';
 import { eraText, yearShort, type Era } from '../gen/era';
 import { directorPlan, type DirectorPlan, type DirectorShot } from './directorPlan';

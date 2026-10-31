@@ -14,8 +14,8 @@
 import type { Civ, Year } from '../../gen/civ/types';
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
-import { plagueSpans } from '../../gen/civ/plagueSpans';
-import { wasteAt } from '../../gen/civ/pandemicInfo';
+import { plagueSpans } from '../../gen/civ/story/plagueSpans';
+import { wasteAt } from '../../gen/civ/story/pandemicInfo';
 import { pixOf } from './highlight';
 import type { CivDrawParams, CivStyle } from './overlay';
 import { reprojectImage } from '../projection';

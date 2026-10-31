@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
-import { buildChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
+import { buildChronicle, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { capitalAt, polityAlive, polityAllTitles, polityName } from '../gen/civ/growth';
 import { openAiSettings, useAiStatus } from '../ai/client';
 import { stepsSummary, type TrialRow, type TrialView } from '../ai/agent/assistant';

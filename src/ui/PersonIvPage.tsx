@@ -13,8 +13,8 @@
  */
 import { Fragment, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
-import { LEANING_KEYS, LEANING_TEXT } from '../gen/civ/peopleText';
-import { heOrShe } from '../gen/civ/gender';
+import { LEANING_KEYS, LEANING_TEXT } from '../gen/civ/story/peopleText';
+import { heOrShe } from '../gen/civ/story/gender';
 import { personKey, polityKey, type Intervention } from '../gen/edits';
 import { eraText, spaced, yearFull, yearShort, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
