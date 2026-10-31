@@ -6,9 +6,9 @@
  *   新建时选中的是 { kind: 'mark', id: 0 }(还没有编号);选中别的东西 = 扔掉正在填的
  * - 几个州的标记:编辑时点地图上的州 = 加进来 / 再点一下去掉;一个点的标记:编辑时拖图钉挪位置
  */
-import { useSyncExternalStore } from 'react';
 import { INTERVENTION_YEAR_MAX, MARKS_MAX, MARK_COLORS, MARK_REGIONS_MAX, MARK_REGIONS_TOTAL, markRegionTotal, type AuthorMark, type MarkSizeSet, type MarkTint } from '../gen/edits';
 import { addMark, getEdits, subscribeEdits, updateMark } from './editsStore';
+import { createListeners } from './createStore';
 import { noYearZero, yearTooEarly, yearTooLate } from '../gen/era';
 import { clearSelection, getSelection, setSelection, subscribeSelection } from './civView';
 import { clearToast, showToast } from './toastStore';
@@ -42,10 +42,10 @@ export interface MarkUi {
 }
 
 let state: MarkUi = { placing: false, draft: null, dragging: false };
-const subs = new Set<() => void>();
+const subs = createListeners();
 function set(patch: Partial<MarkUi>) {
   state = { ...state, ...patch };
-  for (const f of subs) f();
+  subs.emit();
 }
 
 export function getMarkUi(): MarkUi {
@@ -53,19 +53,11 @@ export function getMarkUi(): MarkUi {
 }
 
 export function useMarkUi(): MarkUi {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getMarkUi,
-    getMarkUi,
-  );
+  return subs.use(getMarkUi);
 }
 
 export function subscribeMarkUi(f: () => void): () => void {
-  subs.add(f);
-  return () => subs.delete(f);
+  return subs.subscribe(f);
 }
 
 // ---- 放标记 ----

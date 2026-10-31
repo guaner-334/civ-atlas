@@ -6,7 +6,7 @@
  * 地图上怎么放:火山喷发点一下放一座;地震抬升、海水漫进来按住拖动涂一笔(和编辑地形的画笔一样,点和点隔开小半个半径;
  * 跨 180° 经线接着涂)。几笔合成一件大事,「加入待推演」时整件进待推演的单子(pendingStore.ts),「全部推演」时加进修改。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { TerrainOp, Upheaval } from '../gen/edits';
 import { TERRAIN_MAX_PTS, UPHEAVAL_OPS_MAX, UPHEAVAL_YEARS, nearLon } from '../gen/terrainEdits';
 import type { UpheavalPreview } from '../gen/civ/upheaval';
@@ -71,21 +71,17 @@ export interface UpUi {
 
 const sizes = () => ({ volcano: UP_SIZE.volcano[2], raise: UP_SIZE.raise[2], sink: UP_SIZE.sink[2] });
 let ui: UpUi = { on: false, kind: 'volcano', size: sizes(), ops: [] };
-const subs = new Set<() => void>();
+const subs = createListeners();
 function put(next: UpUi) {
   ui = next;
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 export function getUpUi(): UpUi {
   return ui;
 }
 export function useUpUi(): UpUi {
-  return useSyncExternalStore(
-    (f) => (subs.add(f), () => subs.delete(f)),
-    () => ui,
-    () => ui,
-  );
+  return subs.use(() => ui);
 }
 
 /** 打开卡片(从火山喷发开始,什么也没放) */
@@ -146,17 +142,13 @@ export interface UpDraft {
 let draft: UpDraft = { pts: null, cursor: null };
 /** 这一笔是什么时候按下的(第二根手指紧跟着按下 = 想捏合,不是在涂) */
 let draftT0 = 0;
-const draftSubs = new Set<() => void>();
+const draftSubs = createListeners();
 function setDraft(d: UpDraft) {
   draft = d;
-  draftSubs.forEach((f) => f());
+  draftSubs.emit();
 }
 export function useUpDraft(): UpDraft {
-  return useSyncExternalStore(
-    (f) => (draftSubs.add(f), () => draftSubs.delete(f)),
-    () => draft,
-    () => draft,
-  );
+  return draftSubs.use(() => draft);
 }
 
 /** 地图上按下:涂的两种开始涂(返回 true = 这一下归地形大事管,不平移) */
@@ -225,17 +217,13 @@ export interface UpPreviewState {
 }
 let pv: UpPreviewState = { sig: '', busy: false, result: null };
 let pid = 0;
-const pvSubs = new Set<() => void>();
+const pvSubs = createListeners();
 function setPv(next: UpPreviewState) {
   pv = next;
-  pvSubs.forEach((f) => f());
+  pvSubs.emit();
 }
 export function useUpPreview(): UpPreviewState {
-  return useSyncExternalStore(
-    (f) => (pvSubs.add(f), () => pvSubs.delete(f)),
-    () => pv,
-    () => pv,
-  );
+  return pvSubs.use(() => pv);
 }
 
 /**

@@ -1,5 +1,6 @@
 /**
- * 生成管线用的噪声:simplex 噪声(2D / 3D)和它的分形叠加、山脊噪声,可无缝平铺的噪声贴图。
+ * 生成管线用的噪声:simplex 噪声(2D / 3D)和它的分形叠加、山脊噪声,可无缝平铺的噪声贴图,
+ * 廉价的哈希噪声、值噪声(画风的纸张纹理、抖动也用)。
  * 和 util.ts 分开放:首页读存档、列世界只用得到 util.ts 里的随机数、小工具,不用跟着下载噪声库。
  */
 import { createNoise2D, createNoise3D } from 'simplex-noise';
@@ -166,4 +167,27 @@ export function tileableFbm(seed: number, size: number, cells: number, octaves: 
   const inv = 1 / Math.sqrt(Math.max(1e-12, s2 / out.length - mean * mean));
   for (let i = 0; i < out.length; i++) out[i] = (out[i] - mean) * inv;
   return out;
+}
+
+/** 廉价的确定性哈希噪声 [0,1)(纸张纹理 / 随机抖动)。 */
+export function hash2(x: number, y: number, s = 0): number {
+  let h = (x * 374761393 + y * 668265263 + s * 982451653) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** 平滑的值噪声(双线性插值哈希),freq = 每像素多少格。 */
+export function valueNoise(x: number, y: number, s: number): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const fx = x - xi;
+  const fy = y - yi;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(xi, yi, s);
+  const b = hash2(xi + 1, yi, s);
+  const c = hash2(xi, yi + 1, s);
+  const d = hash2(xi + 1, yi + 1, s);
+  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
 }

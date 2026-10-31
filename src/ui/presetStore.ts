@@ -9,7 +9,7 @@
  * 另外记着上次选的是哪个(下次打开弹窗停在它上面;选的是分享的那一套时记的还是之前那个)。
  * 都存在这个浏览器里(和存档一样换电脑带不走);浏览器不让存(隐私模式)就只在这次打开的页面里有效。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import { PARAM_RANGE } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { contBrief } from './genesisSliders';
@@ -115,7 +115,7 @@ function load(): PresetState {
 }
 
 let state: PresetState | null = null;
-const subs = new Set<() => void>();
+const subs = createListeners();
 const get = () => (state ??= load());
 
 /** 浏览器里记着的"上次选的"(选了分享的那一套时不换:它不存进浏览器) */
@@ -132,16 +132,11 @@ function set(next: PresetState) {
   } catch {
     /* 隐私模式、存满了:只管这一次 */
   }
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => subs.delete(f);
-};
-
 export function usePresets(): PresetState {
-  return useSyncExternalStore(subscribe, get, get);
+  return subs.use(get);
 }
 
 export function getPresets(): PresetState {

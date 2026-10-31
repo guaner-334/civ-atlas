@@ -1,5 +1,5 @@
 /**
- * 回放视频的纯计算(src/ui/filmPlan.ts):年份范围、每一帧放到哪一年、字幕排在哪几秒、竖屏下面那一栏、文字和文件名。
+ * 回放视频的纯计算(src/ui/filmPlan.ts、src/render/filmFrames.ts):年份范围、每一帧放到哪一年、字幕排在哪几秒、竖屏下面那一栏、文字和文件名。
  * 手工造的大事测规则;再用真实世界(seed 7)核对:字幕不重叠、都在中间那一段里、没打完的战争只写开头。
  */
 import { describe, expect, it } from 'vitest';
@@ -13,7 +13,6 @@ import {
   FILM_FPS,
   FILM_INTRO,
   FILM_OUTRO,
-  captionAt,
   captionSlots,
   clampRange,
   cnPunct,
@@ -22,17 +21,15 @@ import {
   filmFileName,
   filmMegabytes,
   filmRanges,
-  frameYear,
   lengthText,
   rangeText,
   rateText,
-  recentRows,
-  yearFrame,
   FILM_PLOT_WEIGHT,
   OUTLINE_KEEP_WEIGHT,
   outlineEvents,
   outlineRange,
 } from '../src/ui/filmPlan';
+import { captionAt, frameYear, recentRows, yearFrame } from '../src/render/filmFrames';
 import { wrapText } from '../src/render/film';
 import type { Era } from '../src/gen/era';
 

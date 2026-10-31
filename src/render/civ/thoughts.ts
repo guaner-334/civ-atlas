@@ -1,14 +1,15 @@
 /**
  * 思潮图层:一次看一说,各州按信这一说的有几成分五档上一种玫红(半成、一成、三成、五成、七成以上;不到半成不上色),留国界、国名。
  *
- * - 色块:把各州的档换进"民族"那一层(thoughtCiv,和时代、管辖图层同一套,见 era.ts 的 swapCiv)再画;
+ * - 一份数值填色图层的定义(THOUGHT_LAYER,见 numLayer.ts):色块、图例、悬停都从它读。
+ * - 色块:把各州的档换进"民族"那一层(thoughtCiv,和时代、管辖图层同一套,见 numLayer.ts 的 numCiv)再画;
  *   每 THOUGHT_STEP 年取一次(gen/civ/ideology.ts 的 ideologyAt,每 20 年一份快照)。按 civ + 哪一说缓存。
  * - 看哪一说(thoughtFocus):CivShow.thought;没给、或那说这一年还没有人倡 = 这一年到半成的州最多的那说;世上还没有思潮 = −1。
  * - 和别的填色分开靠:信仰、民族是多色并排,管辖是紫色三档加橙,思潮是一种颜色的深浅。
  */
 import type { Civ, Year } from '../../gen/civ/types';
 import { THOUGHTS, THOUGHT_COUNT, ideologyAt, thoughtOrigin } from '../../gen/civ/ideology';
-import { swapCiv } from './era';
+import { numBase, numCiv, type NumLayer } from './numLayer';
 
 /** 五档的下限(接受度):半成、一成、三成、五成、七成 */
 export const THOUGHT_BANDS: readonly number[] = [0.05, 0.1, 0.3, 0.5, 0.7];
@@ -77,28 +78,27 @@ export function thoughtFocus(civ: Civ, show: { thought?: number }, year: Year): 
   return thoughtAuto(civ, year);
 }
 
-const views = new WeakMap<Civ, Civ[]>();
-const bases = new WeakMap<Civ, Civ>();
+let countBuf: Float32Array | undefined;
 
 /**
- * 把第 k 说各州的档换进"民族"那一层的 Civ(只给画色块用):民族列表换成五档(颜色 = THOUGHT_COLORS),
- * 日志和检查点里民族那一层换成各州的档;国家那一层、州、城一样不变。按 civ + 哪一说缓存(k < 0 = 一州都不上色)
+ * 思潮图层:一次看一说(k = thoughtFocus),五档 = 信这一说的有半成、一成、三成、五成、七成以上(颜色 THOUGHT_COLORS)。
+ * 地图上信仰也开着时让给信仰。图例按这一年列五档各几州(深的在上,一州都没有的档照样列,看得出还没传到);
+ * 悬停写"某说 23%"(有人住的州;世上还没有思潮时不按这一层说)
  */
-export function thoughtCiv(civ: Civ, k: number): Civ {
-  const K = THOUGHT_COUNT;
-  const at = Math.max(0, Math.min(K - 1, k));
-  let list = views.get(civ);
-  if (!list) views.set(civ, (list = []));
-  const hit = list[k < 0 ? K : at];
-  if (hit) return hit;
-  const R = civ.regions.count;
-  const ideo = civ.ideology;
-  let v: Float32Array | undefined;
-  const view = swapCiv(
-    civ,
-    THOUGHT_STEP,
-    THOUGHT_COLORS.map((c, i) => [`${THOUGHTS[at].name}${THOUGHT_BAND_NAMES[i]}`, c] as const),
-    (y, into) => {
+export const THOUGHT_LAYER: NumLayer = {
+  id: 'ideology',
+  bands: THOUGHT_COLORS.map((color, i) => ({ name: THOUGHT_BAND_NAMES[i], color })),
+  has: (civ) => !!civ.ideology,
+  belowFaith: true,
+  focus: thoughtFocus,
+  step: THOUGHT_STEP,
+  sampler(civ, k) {
+    const K = THOUGHT_COUNT;
+    const at = Math.max(0, Math.min(K - 1, k));
+    const R = civ.regions.count;
+    const ideo = civ.ideology;
+    let v: Float32Array | undefined;
+    return (y, into) => {
       if (!ideo || k < 0) {
         into.fill(-1);
         return;
@@ -106,23 +106,46 @@ export function thoughtCiv(civ: Civ, k: number): Civ {
       v = ideologyAt(ideo, y, v);
       const n = Math.min(R, v.length / K);
       for (let r = 0; r < R; r++) into[r] = r < n ? thoughtBand(v[r * K + at]) : -1;
-    },
-  );
-  list[k < 0 ? K : at] = view;
-  bases.set(view, civ);
-  return view;
+    };
+  },
+  kindName: (b, k) => `${THOUGHTS[Math.max(0, Math.min(THOUGHT_COUNT - 1, k))].name}${THOUGHT_BAND_NAMES[b]}`,
+  counts(civ, year, k) {
+    const n = new Array<number>(THOUGHT_BANDS.length).fill(0);
+    if (civ.ideology && k >= 0) {
+      const v = (countBuf = ideologyAt(civ.ideology, year, countBuf));
+      for (let r = 0; r * THOUGHT_COUNT < v.length; r++) {
+        const b = thoughtBand(v[r * THOUGHT_COUNT + k]);
+        if (b >= 0) n[b]++;
+      }
+    }
+    return n;
+  },
+  title: (k) => (k >= 0 ? `思潮:${THOUGHTS[k].name}各州有几成人信` : '思潮'),
+  legend: {
+    desc: true,
+    keepEmpty: true,
+    rowName: (b) => (b === THOUGHT_BANDS.length - 1 ? `${THOUGHT_BAND_NAMES[b]}以上` : `${THOUGHT_BAND_NAMES[b]}到${THOUGHT_BAND_NAMES[b + 1]}`),
+  },
+  hover(civ, year, r, own, show) {
+    if (!civ.ideology || !civ.cultures[own.culture[r]]) return null;
+    const th = thoughtFocus(civ, show, year);
+    if (th < 0) return null;
+    const a = thoughtShare(civ, year, r, th);
+    return { band: thoughtBand(a), sub: `${THOUGHTS[th].name} ${Math.round(a * 100)}%` };
+  },
+};
+
+/**
+ * 把第 k 说各州的档换进"民族"那一层的 Civ(只给画色块用,见 numLayer.ts 的 numCiv)。
+ * 按 civ + 哪一说缓存(k < 0 = 一州都不上色;k 超出说数按最后一说)
+ */
+export function thoughtCiv(civ: Civ, k: number): Civ {
+  return numCiv(THOUGHT_LAYER, civ, k < 0 ? -1 : Math.min(THOUGHT_COUNT - 1, k));
 }
 
 /** thoughtCiv 换出来的 Civ → 原来的 Civ(不是换出来的 = null) */
 export function thoughtBase(view: Civ): Civ | null {
-  return bases.get(view) ?? null;
-}
-
-/** 五档的颜色(colors[档 × 3 …]) */
-export function thoughtColors(): Uint8Array {
-  const out = new Uint8Array(THOUGHT_COLORS.length * 3);
-  THOUGHT_COLORS.forEach((c, i) => out.set(c, i * 3));
-  return out;
+  return numBase(view, THOUGHT_LAYER);
 }
 
 /** 某年某州第 k 说的接受度(0–1;没有思潮 = 0) */

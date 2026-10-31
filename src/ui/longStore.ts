@@ -4,7 +4,7 @@
  * 画好的图(整张、切开的几页、压好的 JPEG)在 longRun.ts;面板(LongPanel.tsx)和预览(LongStage.tsx)都读这里。
  * 导出菜单里点「故事长图」时由 filmStore 的 openFilm 打开(和回放视频同一个"导出模式")。
  */
-import { useSyncExternalStore } from 'react';
+import { createStore } from './createStore';
 import type { LongScope } from './longPlan';
 
 /** 分几段:最多 4 / 6 / 8 段 */
@@ -53,24 +53,16 @@ const INIT: LongUi = {
   ver: 0,
 };
 
-let state: LongUi = INIT;
-const subs = new Set<() => void>();
+const store = createStore<LongUi>(INIT);
 
-export const getLong = () => state;
+export const getLong = () => store.get();
 
 export function setLong(patch: Partial<LongUi>) {
-  state = { ...state, ...patch };
-  for (const f of subs) f();
+  store.update((state) => ({ ...state, ...patch }));
 }
 
 export function useLong(): LongUi {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    () => state,
-  );
+  return store.use();
 }
 
 /** 打开长图面板:地图上选中了一个国家时,范围默认是"一国"、就是它 */

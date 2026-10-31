@@ -9,7 +9,7 @@
  * 地区模式写进网址(框、哪一面、立体的角度和起伏,见 areaLink.ts):刷新、复制网址、分享链接打开还是这一块的这一面(App 打开世界后调 openAreaLink)。
  * 导出立体这一面:立体那一面开着时登记怎么导出(setReliefExporter),导出菜单(电脑)和立体上的「导出」(手机)调 exportReliefView。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import { clampBox, type ReliefBox } from '../render/terrain3d/box';
 import type { ReliefAngle } from '../render/terrain3d/camera';
 import { getProjection, setProjection } from './projection';
@@ -38,12 +38,12 @@ export interface ReliefUi {
 }
 
 let state: ReliefUi = { phase: 'off', box: null, at: 0, face: 'flat', title: null, year: null, ghost: null };
-const subs = new Set<() => void>();
+const subs = createListeners();
 function set(next: ReliefUi) {
   const prev = state;
   state = next;
   if (prev.phase !== next.phase || prev.box !== next.box || prev.face !== next.face) syncUrl();
-  for (const f of subs) f();
+  subs.emit();
 }
 
 /** 网址带来的立体角度、起伏:立体那一面打开时用一次(takeLinkAngle) */
@@ -126,14 +126,7 @@ export function getRelief(): ReliefUi {
 }
 
 export function useRelief(): ReliefUi {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getRelief,
-    getRelief,
-  );
+  return subs.use(getRelief);
 }
 
 const sameBox = (a: ReliefBox | null, b: ReliefBox | null) => !!a && !!b && a.cx === b.cx && a.cy === b.cy && a.w === b.w && a.h === b.h;

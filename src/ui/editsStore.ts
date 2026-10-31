@@ -10,7 +10,7 @@
  * 纪年、月份(一年几个月、月份的名字)也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
  * 逐年推演的进度、从第几年起、推进设置、导播跟着谁也不记(撤销别的时照现在的留着)。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import {
   EMPTY_EDITS,
   MARKS_MAX,
@@ -53,10 +53,8 @@ import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, 
 import { cleanCalamity, type Calamity } from '../gen/civ/calamity';
 
 let state: WorldEdits = EMPTY_EDITS;
-const subs = new Set<() => void>();
-const emit = () => {
-  for (const f of subs) f();
-};
+const subs = createListeners();
+const emit = subs.emit;
 
 export function getEdits(): WorldEdits {
   return state;
@@ -67,15 +65,14 @@ export function setEdits(next: WorldEdits) {
   past = [];
   future = [];
   era++;
-  for (const f of resetSubs) f();
+  resetSubs.emit();
   put(next, false);
 }
 
 /** 整个换掉时(换世界、读档)要跟着清的东西(比如待推演的单子) */
-const resetSubs = new Set<() => void>();
+const resetSubs = createListeners();
 export function onEditsReset(f: () => void): () => void {
-  resetSubs.add(f);
-  return () => resetSubs.delete(f);
+  return resetSubs.subscribe(f);
 }
 
 /** 整个换掉过几次(换了世界、读档):记着"这一笔是什么时候加的"的地方据此作废旧记录 */
@@ -308,21 +305,12 @@ export function clearEditHistory() {
 }
 
 export function useEdits(): WorldEdits {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getEdits,
-    getEdits,
-  );
+  return subs.use(getEdits);
 }
 
 /** 不经过 React 订阅 */
 export function subscribeEdits(f: (e: WorldEdits) => void): () => void {
-  const g = () => f(state);
-  subs.add(g);
-  return () => subs.delete(g);
+  return subs.subscribe(() => f(state));
 }
 
 // ---- 能不能改(助手"先在地图上看看"时) ----
@@ -616,14 +604,7 @@ const getEra = () => state.era;
 
 /** 当前世界的纪年(没设 = undefined:按第几年写);只在纪年变了时重新渲染 */
 export function useEra(): Era | undefined {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getEra,
-    getEra,
-  );
+  return subs.use(getEra);
 }
 
 /** 不经过 React 订阅时读纪年 */
@@ -645,14 +626,7 @@ const getMonths = () => monthsOf(state.months);
 
 /** 当前世界一年几个月(0 = 只写年);只在它变了时重新渲染 */
 export function useMonths(): number {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getMonths,
-    getMonths,
-  );
+  return subs.use(getMonths);
 }
 
 /** 不经过 React 订阅时读一年几个月 */
@@ -673,28 +647,14 @@ const getMonthNameSet = () => state.monthNames;
 
 /** 记着的月份名字(世界设定里填的那一份,换回了「数字」的也在);只在它变了时重新渲染 */
 export function useMonthNameSet(): MonthNames | undefined {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getMonthNameSet,
-    getMonthNameSet,
-  );
+  return subs.use(getMonthNameSet);
 }
 
 const getMonthNames = () => monthNamesInUse(state.monthNames);
 
 /** 现在写出来用的月份名字(第 i 个 = 第 i + 1 月;'' / 没有 = 写数字);没起名、选了「数字」= undefined */
 export function useMonthNames(): readonly string[] | undefined {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getMonthNames,
-    getMonthNames,
-  );
+  return subs.use(getMonthNames);
 }
 
 /** 不经过 React 订阅时读现在用的月份名字 */

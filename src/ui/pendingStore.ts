@@ -7,7 +7,7 @@
  * - 推演:editsStore.addEditsBatch 一次加进去(⌘Z 一次撤掉整批)。只有一条、从国家 / 城下的令,照原来那样
  *   推演时面板先藏起、地图上浮出两国名牌(panelStore.startRun);几条一起时不浮名牌。推完的提示在 App.tsx。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import { cleanIntervention, type Intervention, type Upheaval, type WorldEdits } from '../gen/edits';
 import { cleanUpheaval, UPHEAVALS_MAX } from '../gen/terrainEdits';
 import { addEditsBatch, editBlock, getEdits, interventionKeys, onEditsReset } from './editsStore';
@@ -28,10 +28,10 @@ export type Pending = {
 
 let items: readonly Pending[] = [];
 let nextId = 1;
-const subs = new Set<() => void>();
+const subs = createListeners();
 const set = (next: readonly Pending[]) => {
   items = next;
-  for (const f of subs) f();
+  subs.emit();
 };
 
 onEditsReset(() => {
@@ -43,14 +43,7 @@ export function getPending(): readonly Pending[] {
 }
 
 export function usePending(): readonly Pending[] {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getPending,
-    getPending,
-  );
+  return subs.use(getPending);
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
