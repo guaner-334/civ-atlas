@@ -18,7 +18,7 @@
 import type { Civ, Person, Year } from '../types';
 import type { Era } from '../../era';
 import { yearShortAt, yearSpan } from '../../era';
-import { ownersAt } from '../timeline';
+import { ownersAt } from '../engine/timeline';
 import { capitalAt, polityName, populationLabel, regionPopulationAt } from '../growth';
 import { fiscalAt, fiscalMood, fillOf, warSpans, type BookRow } from '../fiscalBook';
 import { ERAS, INVENTIONS, RESOURCES } from '../development';

@@ -23,7 +23,7 @@
  * 随机数一律 keyed4(subSeed(seed, 'civ-people'), 国家的位置锚, 第几位君主 × 16 + 第几个儿子, 用途, K_SON)。纯计算,不碰 DOM。
  */
 import type { Person, Polity, Year } from './types';
-import { keyed4 } from './rand';
+import { keyed4 } from './engine/rand';
 import { K_RULER, reignBorn, reignStep, type Reign } from './rulers';
 import { royalSeg, segLineage } from './regime';
 

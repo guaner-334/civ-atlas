@@ -14,7 +14,7 @@ import { Layer } from '../src/gen/civ/types';
 import { Biome } from '../src/gen/biomes';
 import { HABITABLE_SUIT } from '../src/gen/civ/story/display';
 import { cleanFrontier, cleanOrigins, filledYear, frontierBrief, frontierFx, sameFrontier, speedText, terrainBrief, terrainText, TERRAIN_GROUPS } from '../src/gen/civ/frontier';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle, interventionOutcome } from '../src/gen/civ/story/chronicle';
 import { regionKey, type Intervention } from '../src/gen/edits';
 import { fullChronicle } from '../src/gen/civ/story/religionText';

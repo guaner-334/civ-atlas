@@ -33,7 +33,7 @@ import {
 } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
 import { entryInvolves, type ChronicleEntry } from '../gen/civ/story/chronicle';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import type { DirectorPlot } from './directorPlan';
 import { nameAt } from './Interventions';
 import { yearAt, type Era } from '../gen/era';

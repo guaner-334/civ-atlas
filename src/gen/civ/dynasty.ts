@@ -38,8 +38,8 @@
  */
 import type { World } from '../world';
 import { Layer, type Civ, type Polity, type Year } from './types';
-import { fexp, fpow, keyed, subSeed } from './rand';
-import { Ev, LOOK_K, quantize, type CivSim } from './sim';
+import { fexp, fpow, keyed, subSeed } from './engine/rand';
+import { Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
 import { dynastyReign, moveCapital, polityModelOf, unrestShiftOf, type PolityModel } from './polities';
 import { GUIDE_DYNASTY } from './policy';
 import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';
@@ -297,7 +297,7 @@ function hook(sim: CivSim, dm: DynastyModel): void {
 }
 
 /**
- * 由 Civ 重建王朝更替的推演状态(CivSim.fromCiv 调用,在 resumePolitics 之后):
+ * 由 Civ 重建王朝更替的推演状态(resumeCiv 调用,在 resumePolitics 之后):
  * 当朝从哪年起、国都都在国家表里;按"国家 + 第几次"算出还没到的看王朝,补进引擎。
  */
 export function resumeDynasty(sim: CivSim, _world: World, _civ: Civ): void {

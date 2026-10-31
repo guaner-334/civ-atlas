@@ -4,11 +4,11 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { finishDevelopment } from '../src/gen/civ/development';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlStats, controlTier } from '../src/gen/civ/control';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -111,7 +111,7 @@ describe('中央管到什么程度', () => {
     expect(all.some((x) => x.tag === '据')).toBe(true);
   }, 120_000);
 
-  it('fromCiv 接着推:在割据、收回、抗命那一刻和之后切开,和一口气推完逐字节一致(连同快照)', () => {
+  it('resumeCiv 接着推:在割据、收回、抗命那一刻和之后切开,和一口气推完逐字节一致(连同快照)', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
       const whole = civOf(seed);
@@ -127,7 +127,7 @@ describe('中央管到什么程度', () => {
       expect(cuts.size, `seed ${seed}`).toBeGreaterThanOrEqual(4);
       for (const cut of cuts) {
         const half = generateCiv(w, { endYear: cut });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;

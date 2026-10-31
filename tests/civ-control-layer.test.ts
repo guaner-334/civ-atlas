@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { Layer } from '../src/gen/civ/types';
 import { LORD_BYTE, controlAt } from '../src/gen/civ/control';
 import { cutDone } from '../src/gen/civ/council';

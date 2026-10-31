@@ -5,7 +5,7 @@
  */
 import type { Civ } from '../../src/gen/civ/types';
 import { polityAlive } from '../../src/gen/civ/growth';
-import { ownersAt } from '../../src/gen/civ/timeline';
+import { ownersAt } from '../../src/gen/civ/engine/timeline';
 import { personKey, polityKey, regionKey, settlementKey, type Plot, type PlotKind } from '../../src/gen/edits';
 
 const KINDS: PlotKind[] = ['found', 'fall', 'hold', 'war', 'ally', 'capital', 'death', 'split', 'disaster', 'submit', 'peace', 'dynasty', 'revolt', 'collapse', 'story'];

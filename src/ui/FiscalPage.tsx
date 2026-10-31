@@ -14,7 +14,7 @@
 import { useMemo } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { polityName } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { CONTROL_TIERS } from '../gen/civ/control';
 import { yearAt, yearFull, yearShort } from '../gen/era';
 import { CONTROL_COLORS, controlTiersAt } from '../render/civ/control';

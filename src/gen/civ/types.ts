@@ -635,38 +635,38 @@ export interface Civ {
   /**
    * 民族扩张的时间标定:走一个"标准路程"(平地、普通地形、扩张性 1)要多少年。
    * 按世界自动标定(默认到第 3000 年约九成可居州有人住;改过地形的世界按没改地形时的同一颗星球标定,见 index.ts 的 planetTempo),
-   * CivSim.fromCiv 接着推时要用。
+   * resumeCiv 接着推时要用。
    */
   spreadYears?: number;
   /**
    * 城的人口上限按哪个数折算(polities.ts 的 capacityNorm:可居州人口上限的第 90 百分位折算)。
-   * 改过地形的世界沿用没改地形时的同一颗星球的(见 index.ts 的 planetTempo)。CivSim.fromCiv 接着推时要用
+   * 改过地形的世界沿用没改地形时的同一颗星球的(见 index.ts 的 planetTempo)。resumeCiv 接着推时要用
    */
   capNorm?: number;
   /**
    * 国家扩张的快慢:国家在国都旁边走一个"标准路程"要多少年(见 polities.ts,离国都越远越慢)。
-   * CivSim.fromCiv 接着推时要用
+   * resumeCiv 接着推时要用
    */
   polityYears?: number;
   /**
-   * 国都彼此至少隔几跳(polities.ts 的 capitalSpacing,按 CivParams.polities 定)。CivSim.fromCiv 接着推时要用;
+   * 国都彼此至少隔几跳(polities.ts 的 capitalSpacing,按 CivParams.polities 定)。resumeCiv 接着推时要用;
    * 没有(旧版本的历史)= 按"自动"的国家数重算
    */
   capSpacing?: number;
   /** 全世界统一的航海时代从哪一刻起(旧版本的历史;现在各国自己进,见 Polity.sail,这里是 Infinity。polities.ts 的 sailsOcean;接着推时沿用) */
   sailFrom?: Year;
-  /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。CivSim.fromCiv 接着推时要用 */
+  /** 拓荒设定(CivParams.frontier,清理过的;默认 = 不写)。resumeCiv 接着推时要用 */
   frontier?: import('./frontier').Frontier;
-  /** 「天灾」设定(CivParams.calamity;平常 = 不写)。CivSim.fromCiv 接着推时要用 */
+  /** 「天灾」设定(CivParams.calamity;平常 = 不写)。resumeCiv 接着推时要用 */
   calamity?: import('./calamity').Calamity;
   /**
    * 大迁徙(migration.ts):按动身先后,每一次一条(下标 = 史事 trek 的 war 列)。还在路上的那支,路线和到每一州的年份
-   * 动身时就定了(可能比 endYear 晚);落脚、结局到了那一刻才填。CivSim.fromCiv 接着推时要用。旧版本的历史、没有文明 = 不给
+   * 动身时就定了(可能比 endYear 晚);落脚、结局到了那一刻才填。resumeCiv 接着推时要用。旧版本的历史、没有文明 = 不给
    */
   migrations?: Migration[];
   /**
    * 阶段 4 干预:这份历史是带着哪些干预推出来的(清理过的列表,见 gen/edits.ts;史事 intervene 的 war 列是它的下标)。
-   * 没有干预 = 不给。CivSim.fromCiv 接着推时默认带着它
+   * 没有干预 = 不给。resumeCiv 接着推时默认带着它
    */
   interventions?: Intervention[];
   /**
@@ -878,7 +878,7 @@ export interface Development {
   /** 按年份排好 */
   events: DevEvent[];
   /**
-   * 推演到结束那一刻的内部状态(全精度),接着推(CivSim.fromCiv)时从这里接着算;界面不用。
+   * 推演到结束那一刻的内部状态(全精度),接着推(resumeCiv)时从这里接着算;界面不用。
    * 最后一份快照不在整百年上时(结束年份不是整百年)它是补的,接着推时去掉(见 tail)
    */
   state?: DevState;
@@ -953,7 +953,7 @@ export interface Ideology {
   arrive: Float64Array;
   /** 按年份排好 */
   events: IdeoEvent[];
-  /** 推演到结束那一刻的内部状态(全精度),接着推(CivSim.fromCiv)时从这里接着算;界面不用 */
+  /** 推演到结束那一刻的内部状态(全精度),接着推(resumeCiv)时从这里接着算;界面不用 */
   state?: IdeoState;
 }
 

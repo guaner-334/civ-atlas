@@ -9,7 +9,7 @@ import type { Civ } from '../src/gen/civ/types';
 import { MARK_COLORS, personKey, polityKey, settlementKey, type Upheaval, type WorldEdits } from '../src/gen/edits';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import type { AuthorCharacter } from '../src/gen/characters';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityAlive, populationLabel, regionPopulationAt } from '../src/gen/civ/growth';
 import { regionLabel } from '../src/gen/civ/story/display';
 import { peopleIndex, rulerAt } from '../src/gen/civ/story/peopleInfo';

@@ -52,7 +52,7 @@
  * 算到一半时扣战乱折损,算完记大事、反过来影响推演。DevModel 里的 cur、era 这些是表的副本(每步算完抄一份),给别处读、存档用。
  *
  * 结果是 Civ.development:物产的底子和发现年份、每 SNAP 年一份的各州能力和眼下能用的物产(加结束那年)、大事,
- * 还有接着推(CivSim.fromCiv)要用的全精度状态(state)。任意年份用 developmentAt、resourcesAt 查(前后两份线性插值)。
+ * 还有接着推(resumeCiv)要用的全精度状态(state)。任意年份用 developmentAt、resourcesAt 查(前后两份线性插值)。
  * 每一步只读这一刻以前已经发生的事。只用加减乘除(IEEE 精确舍入)和推演里已经舍入过的人口,跨 CPU 逐位一致。
  * 随机数一律 keyed(subSeed(seed, 'civ-development'), 治所地块, …)。
  */
@@ -63,12 +63,12 @@ import { Biome } from '../biomes';
 import { MAJOR_RIVER } from './habitat';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { BookWriter } from './fiscalBook';
-import { keyed, subSeed } from './rand';
-import { Ev, type CivSim } from './sim';
+import { keyed, subSeed } from './engine/rand';
+import { Ev, type CivSim } from './engine/sim';
 import { grantSail, polityModelOf, type PolityModel } from './polities';
 import { FOCUS_DOWN, FOCUS_MOB, FOCUS_UP, focusIndex, segAt, type PolicySeg } from './policy';
 import { cultureModelOf } from './cultures';
-import { TableEngine } from './tables';
+import { TableEngine } from './engine/tables';
 import { NEVER, devCards } from './devTables';
 import { warModelOf } from './wars';
 import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
@@ -412,7 +412,7 @@ export function installDevelopment(sim: CivSim, world: World, pm: PolityModel, h
 }
 
 /**
- * 接着推(CivSim.fromCiv 调用,在各层 resume 之后):从 Civ.development.state 接上(地形大事以后州多了的补齐、物产按新地形重新分档);
+ * 接着推(resumeCiv 调用,在各层 resume 之后):从 Civ.development.state 接上(地形大事以后州多了的补齐、物产按新地形重新分档);
  * 没存状态的(旧版本的历史)从头开始的状态接着算
  */
 export function resumeDevelopment(sim: CivSim, world: World, civ: Civ): void {

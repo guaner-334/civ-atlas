@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { capitalAt } from '../src/gen/civ/growth';
 import { ERAS, developmentAt, eraLevel, eraOf } from '../src/gen/civ/development';
 import { BOOST_N } from '../src/gen/civ/boost';

@@ -5,12 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
-import { CivSim, Ev } from '../src/gen/civ/sim';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { Ev } from '../src/gen/civ/engine/sim';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { unrestStats } from '../src/gen/civ/unrest';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -37,7 +38,7 @@ function flat(list: readonly ChronicleEntry[]): ChronicleEntry[] {
 }
 
 describe('动荡、饥荒、民变、大崩解', () => {
-  it('fromCiv 接着推:在饥荒、民变、大崩解那一刻和之后切开,和一口气推完逐字节一致', () => {
+  it('resumeCiv 接着推:在饥荒、民变、大崩解那一刻和之后切开,和一口气推完逐字节一致', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
       const whole = civOf(seed);
@@ -53,7 +54,7 @@ describe('动荡、饥荒、民变、大崩解', () => {
       expect(cuts.size, `seed ${seed}`).toBeGreaterThanOrEqual(4);
       for (const cut of cuts) {
         const half = generateCiv(w, { endYear: cut });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;

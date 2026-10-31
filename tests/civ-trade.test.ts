@@ -6,11 +6,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { finishTrade } from '../src/gen/civ/trade';
 import { tradeEntries } from '../src/gen/civ/story/tradeText';
 import { applyNames, resolveKey, tradeKey } from '../src/gen/edits';
 import { fullChronicle } from '../src/gen/civ/story/religionText';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -39,7 +39,7 @@ describe.each([7, 2024])('商道 · seed=%i', (seed) => {
     expect(again.trade).toEqual(civ.trade);
     for (const cut of [1200, 1655.5]) {
       const half = generateCiv(world(seed), { endYear: cut });
-      const sim = CivSim.fromCiv(world(seed), half);
+      const sim = resumeCiv(world(seed), half);
       sim.run(civ.endYear);
       const t = finishTrade(sim, civ.regions)!;
       expect(t.routes, `从第 ${cut} 年接着推`).toEqual(civ.trade!.routes);

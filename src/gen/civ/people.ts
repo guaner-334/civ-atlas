@@ -48,7 +48,7 @@
  */
 import { EXILE_TIES, type Annal, type Civ, type Person, type PersonCommand, type PersonDeed, type PersonFate, type PersonPost, type PersonRegency, type PersonSpouse, type Polity, type RulerLeanings, type RulerRise, type Year } from './types';
 import { parsePersonKey, type Intervention } from '../edits';
-import { keyed4, subSeed } from './rand';
+import { keyed4, subSeed } from './engine/rand';
 import { personNamers } from './naming';
 import { annexedRemnants, capitalAt, polityTierAt } from './growth';
 import { buildLineage } from './lineage';

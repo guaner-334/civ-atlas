@@ -28,8 +28,8 @@
 import type { Civ, Year } from './types';
 import { Layer } from './types';
 import type { Intervention } from '../edits';
-import { fpow, keyed, keyed4 } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4 } from './engine/rand';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { plagueModelOf } from './plague';
 import { capitalAt, populationAt, settlementRank } from './growth';
@@ -279,7 +279,7 @@ function hook(run: Runner): void {
 }
 
 /**
- * 由 Civ 重建全球大疫这一层(CivSim.fromCiv 调用,在 resumePlague 之后):史事 pandemic 是起过的几场,
+ * 由 Civ 重建全球大疫这一层(resumeCiv 调用,在 resumePlague 之后):史事 pandemic 是起过的几场,
  * 城镇表里 cause = plague、带 pan(= 第几场)的折损是各场染上的州;再补上还没到的复作、看全球大疫、看地震水旱
  */
 export function resumePandemic(sim: CivSim, civ: Civ, list: readonly Intervention[] = civ.interventions ?? []): void {

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { capitalAt, regionPopulationAt } from '../src/gen/civ/growth';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityTies } from '../src/gen/civ/diplomacy';
 import { stateFaithAt } from '../src/gen/civ/religion';
 import { countryRows, lastAliveYear, popCell } from '../src/ui/WorldOverviewCountries';

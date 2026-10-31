@@ -12,7 +12,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { mergeUpheavals, previewUpheaval, previewVictims, reshapeCities, upheavalBase, upheavalSteps, type TerrainEra, type UpheavalStep } from '../src/gen/civ/upheaval';
 import { DEFAULT_CIV_PARAMS } from '../src/gen/civ';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { RESHAPE_RAMP, capacityAt, capitalAt, populationAt, portAt, ruinSites, yearReaching } from '../src/gen/civ/growth';
 import type { Place, Polity, Settlement } from '../src/gen/civ/types';
 import { findPorts, foundingYear, routeCities, siteFactor } from '../src/gen/civ/polities';

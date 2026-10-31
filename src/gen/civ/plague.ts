@@ -39,8 +39,8 @@
  */
 import type { World } from '../world';
 import { AdjKind, Layer, type Civ, type Year } from './types';
-import { fpow, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { unrestModelOf } from './unrest';
 import { populationAt } from './growth';
@@ -450,7 +450,7 @@ function maxYears(ob: { great: boolean; pan?: Year }): number {
 }
 
 /**
- * 由 Civ 重建瘟疫的推演状态(CivSim.fromCiv 调用,在 resumeUnrest 之后):
+ * 由 Civ 重建瘟疫的推演状态(resumeCiv 调用,在 resumeUnrest 之后):
  * 最后一场瘟疫(史事 plague 的 war 列)还在传的话,从城镇表里 cause = plague 的折损找回它染过的州和最后一年染上的几州;
  * 再算出下一次看疫情,补进引擎。
  */

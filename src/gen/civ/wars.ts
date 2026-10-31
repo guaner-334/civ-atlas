@@ -75,7 +75,7 @@
  *   (迁都到剩下的城,那一块里没城就到别的块里挑;一座城都没有才照旧被并 —— 极少见);
  *   不许扩张的国家不主动宣战、不援盟(被打时照常防守、反攻夺回自己的州)。
  *
- * **不存内存状态**:进行中的战争、厌战、停战冷却都能由 Civ 重建(resumeWars,CivSim.fromCiv 调用)——
+ * **不存内存状态**:进行中的战争、厌战、停战冷却都能由 Civ 重建(resumeWars,resumeCiv 调用)——
  *   战争 = 史事里的 war(没有对应 peace 的就还在打);每场战争攻占了哪些州 = 带战争编号的 conquer;
  *   冷却 = 最近一次 peace 的年份;记恨 = 每场 peace 时这场战争里谁净丢了州(攻占都在史事里);一州多久没易手 = 变化日志;
  *   连续吞并 = 每场 peace 时这场战争里赢家净得了几州(它的冷却作废、多看的那一眼照样补);
@@ -87,8 +87,8 @@
 import type { World } from '../world';
 import { coldShare, coldSpellEnd, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Polity, type Year } from './types';
-import { fexp, flog, fpow, keyed, keyed4, round24, subSeed } from './rand';
-import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './sim';
+import { fexp, flog, fpow, keyed, keyed4, round24, subSeed } from './engine/rand';
+import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, regentOf, rulerOf, type PolityModel } from './polities';
 import { reignBorn } from './rulers';
 import { ADULT } from './regents';
@@ -1208,7 +1208,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
 }
 
 /**
- * 由 Civ 重建战争的推演状态(CivSim.fromCiv 调用,在 resumePolities 之后):
+ * 由 Civ 重建战争的推演状态(resumeCiv 调用,在 resumePolities 之后):
  * 战争、每场战争攻占的州、议和(冷却)都从史事里读;一州多久没易手从变化日志里读;
  * 再按"国家 + 第几次""战争 + 第几仗"算出还没到的看邻国、下一仗,补进引擎。
  */

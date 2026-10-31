@@ -4,13 +4,13 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { polityAlive } from '../src/gen/civ/growth';
 import { plagueSpans, plagueStats } from '../src/gen/civ/story/plagueSpans';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { plagueZone } from '../src/render/civ/plague';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -33,7 +33,7 @@ const strip = <T extends { name: string; color?: unknown; dynasties?: { name: st
   a.map((x) => ({ ...x, name: '', color: 0, eastern: undefined, dynasties: x.dynasties?.map((d) => ({ ...d, name: '' })) }));
 
 describe('瘟疫', () => {
-  it('fromCiv 接着推:在起疫那一刻、传到一半时切开,和一口气推完逐字节一致', () => {
+  it('resumeCiv 接着推:在起疫那一刻、传到一半时切开,和一口气推完逐字节一致', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
       const whole = civOf(seed);
@@ -45,7 +45,7 @@ describe('瘟疫', () => {
       const cuts = new Set([sp.start, sp.start + 1, Math.floor((sp.start + sp.end) / 2) + 0.5]);
       for (const cut of cuts) {
         const half = generateCiv(w, { endYear: cut });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;

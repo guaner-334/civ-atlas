@@ -11,7 +11,7 @@
  * - 什么都没输:列出这一年最大的几个国家
  */
 import type { Civ, Place, Polity } from '../gen/civ/types';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { cultureLabel } from '../gen/civ/story/display';
 import { capitalAt, polityAlive, polityName, populationAt } from '../gen/civ/growth';
 import { personFame, personSpan } from '../gen/civ/story/peopleInfo';

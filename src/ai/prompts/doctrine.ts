@@ -8,7 +8,7 @@
 import type { Civ, Faith, FaithEvent, Religion } from '../../gen/civ/types';
 import { KIND_INFO, cultureLabel } from '../../gen/civ/story/display';
 import { capitalAt, polityAlive, polityName } from '../../gen/civ/growth';
-import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { faithAt, faithRoot } from '../../gen/civ/religion';
 import { FORM_NOTE, faithEventText } from '../../gen/civ/story/religionText';
 import { faithKey } from '../../gen/edits';

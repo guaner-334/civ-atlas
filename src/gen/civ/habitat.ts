@@ -20,7 +20,7 @@ import { Biome } from '../biomes';
 import type { World } from '../world';
 import type { Habitat } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refCellArea } from './geo';
-import { flog2 } from './rand';
+import { flog2 } from './engine/rand';
 
 /**
  * 群落宜居底分(按 Biome 枚举下标;水面为 0)。按开垦以后养得活多少人排:

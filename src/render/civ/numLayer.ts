@@ -9,7 +9,7 @@
  */
 import type { Civ, Culture, Year } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
-import type { Owners } from '../../gen/civ/timeline';
+import type { Owners } from '../../gen/civ/engine/timeline';
 
 export type Rgb = readonly [number, number, number];
 

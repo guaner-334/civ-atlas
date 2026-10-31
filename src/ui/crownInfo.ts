@@ -10,7 +10,7 @@
  */
 import type { Civ, Person, Polity } from '../gen/civ/types';
 import { dynastyTitle, polityAlive, polityName, polityShortTitle, polityTierAt, polityTitles } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { peopleIndex, rulerAt } from '../gen/civ/story/peopleInfo';
 import { royalAt } from '../gen/civ/regime';
 import { personName } from '../gen/civ/story/peopleText';

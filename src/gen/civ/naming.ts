@@ -21,7 +21,7 @@ import { createNamer, createPersonNamer, mixStyles, NAME_STYLES, type GeneratedN
 import { Biome } from '../biomes';
 import type { Culture, CultureKind, MigrationDir, Polity, Settlement, Year } from './types';
 import { polityRootAt } from './growth';
-import { keyed, subSeed } from './rand';
+import { keyed, subSeed } from './engine/rand';
 
 const B = Biome;
 const DRY = [B.HotDesert, B.TemperateDesert, B.ColdDesert, B.Steppe, B.Savanna];

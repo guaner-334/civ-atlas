@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { polityAlive } from '../src/gen/civ/growth';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { runOutline, type OutlineCache } from '../src/gen/outline';
 import {

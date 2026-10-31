@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { crossings, measureCrossings, mergeCrossings } from '../src/gen/civ/passes';
 import { finderPlan, searchCiv, searchSeed } from '../src/gen/finder/measure';
 import {

@@ -13,7 +13,7 @@ import { cleanIntervention, cleanPlot, settlementKey, EMPTY_EDITS, type Interven
 import { makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { populationAt, regionPopulationAt, ruinSites } from '../src/gen/civ/growth';
 import { developmentAt, eraLevel } from '../src/gen/civ/development';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { pandemicsOf, peakEraAt, slumpAt, wasteAt } from '../src/gen/civ/story/pandemicInfo';
 import { wasteShown, wasteZone } from '../src/render/civ/plague';
 import { CIV_SHOW_DEFAULT } from '../src/render/civ/show';

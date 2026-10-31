@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ, type Person } from '../src/gen/civ';
 import { holderAt } from '../src/gen/civ/story/regentInfo';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { KEEP_REGENT } from '../src/gen/civ/rulers';

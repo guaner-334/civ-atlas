@@ -5,13 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { COUNCIL_CONSTS, COUNCIL_GATE, councilModelOf, courtRulesAt } from '../src/gen/civ/council';
 import { LORD_BYTE, controlAt, controlShare } from '../src/gen/civ/control';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
 import { courtEmpty, courtEvents, courtRowNote, courtView, formChangeSay, isFiefRegion, levySay, lordFoot, regimeSays } from '../src/ui/courtInfo';
 import { formChangesAt, formDims, polityFormAt } from '../src/gen/civ/story/polityForm';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 let cached: { world: World; civ: Civ } | null = null;
 function seed7() {
@@ -26,7 +26,7 @@ describe('朝政', () => {
   it('某一年的规矩:由史事重建的和推演到那一年时模型里的一样', () => {
     const { world, civ } = seed7();
     const Y = 2500;
-    const sim = CivSim.fromCiv(world, generateCiv(world, { endYear: 1500 }));
+    const sim = resumeCiv(world, generateCiv(world, { endYear: 1500 }));
     sim.run(Y);
     const cm = councilModelOf(sim)!;
     let checked = 0;

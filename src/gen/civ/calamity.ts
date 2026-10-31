@@ -3,7 +3,7 @@
  */
 import { Biome } from '../biomes';
 import { AdjKind, type Regions } from './types';
-import { keyed, subSeed } from './rand';
+import { keyed, subSeed } from './engine/rand';
 
 /** 作者下的瘟疫(干预"天灾"):第几场 = PLAGUE_IV + 干预下标(和自己起疫的编号错开,plague.ts) */
 export const PLAGUE_IV = 1_000_000;

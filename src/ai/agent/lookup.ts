@@ -20,7 +20,7 @@ import type { Civ, Person, Polity, Regions } from '../../gen/civ/types';
 import { BIOMES } from '../../gen/biomes';
 import { regionLabel, regionNamed } from '../../gen/civ/story/display';
 import { polityAlive, polityRoots, polityTitleChain, populationAt, populationLabel, regionPopulationAt } from '../../gen/civ/growth';
-import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { ERAS, RESOURCES, RESOURCE_COUNT, developmentAt, eraLevel, eraOf, resourcesAt } from '../../gen/civ/development';
 import { campaignText, commandFoes, fameLine, famousPeople, foesText, generalTally, peopleIndex, personFame, personSpan, riseText, rulerAt } from '../../gen/civ/story/peopleInfo';
 import { ageAt, consortRole, dowagerSpans, generalRole, isConsul, leaningsText, ministerRole, personName, princeRole, rulerFateWord, rulerRef, rulerRole } from '../../gen/civ/story/peopleText';

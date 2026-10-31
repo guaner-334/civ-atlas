@@ -39,7 +39,7 @@ import { drawTradeLines, drawTradeNames, tradeShown } from './civ/trade';
 import { REF_MAP_CSS, drawPlacedLabels, placeMap, type LabelMark, type LabelView, type PlacedMark, type Placement } from './labels/draw';
 import { ensureFonts, familyFor, fontCss } from './labels/fonts';
 import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { KIND_INFO, cultureLabel } from '../gen/civ/story/display';
 import { faithRows } from '../gen/civ/story/religionText';
 import { yearFull, type Era } from '../gen/era';

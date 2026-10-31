@@ -5,13 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind } from '../src/gen/civ/types';
-import { CivSim } from '../src/gen/civ/sim';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { trekDir, trekFolk, trekModelOf, trekStats } from '../src/gen/civ/migration';
 import { geometryOf } from '../src/gen/geometry';
 import { cultureLabel } from '../src/gen/civ/story/display';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -38,7 +38,7 @@ function flat(list: readonly ChronicleEntry[]): ChronicleEntry[] {
 }
 
 describe('大迁徙', () => {
-  it('fromCiv 接着推:在动身、路上、落脚、打进国都那一刻和之后切开,和一口气推完逐字节一致(连同 Civ.migrations)', () => {
+  it('resumeCiv 接着推:在动身、路上、落脚、打进国都那一刻和之后切开,和一口气推完逐字节一致(连同 Civ.migrations)', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
       const whole = civOf(seed);
@@ -56,7 +56,7 @@ describe('大迁徙', () => {
       }
       for (const cut of cuts) {
         const half = generateCiv(w, { endYear: cut });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;
