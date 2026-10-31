@@ -162,7 +162,7 @@ export const UNREST_KNOBS = defineKnobs('unrest', {
   COLLAPSE_MIN: 30,
   COLLAPSE_AGE: 150,
   COLLAPSE_REST: 300,
-  /** 大崩解的赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0)) */
+  /** 大崩解的赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0));0 = 没有大崩解(大迁徙打进国都也不崩,见 api.politics.shatter) */
   COLLAPSE_ODDS: 0.05,
   COLLAPSE_K: 2.5,
   COLLAPSE_U0: 2.35,
@@ -580,7 +580,8 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     return collapse(P, k, t);
   };
 
-  api.politics.shatter = (P: Polity, k: number, t: number): boolean => (wm.iv?.unites(P.id, t) ? false : collapse(P, k, t));
+  // COLLAPSE_ODDS = 0 的世界没有大崩解:大迁徙打进国都也不崩(migration.ts)
+  api.politics.shatter = (P: Polity, k: number, t: number): boolean => (wm.iv?.unites(P.id, t) || !(COLLAPSE_ODDS > 0) ? false : collapse(P, k, t));
 
   const collapse = (P: Polity, k: number, t: number): boolean => {
     const pid = P.id;

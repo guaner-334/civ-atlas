@@ -32,7 +32,7 @@ export type KnobPatch = { readonly [table: string]: { readonly [name: string]: K
 
 /**
  * v 能不能当这一项的值(official = 官方的值):官方是一个数的,要一个数;官方是一串数的,要同样个数的一串数(都不能是 NaN)。
- * 只管形状;每一项合理的范围由开放给用的人调的那一层定
+ * 只管形状;每一项合理的范围由开放给用的人调的那一层定(civ/tuning.ts:只开放其中几十项,范围、步长、取整都在那里)
  */
 export function knobValueOk(official: KnobValue, v: unknown): v is KnobValue {
   const num = (x: unknown) => typeof x === 'number' && !Number.isNaN(x);

@@ -302,6 +302,8 @@ function hook(sim: CivSim, pl: PlagueModel): void {
   // ---- 起疫 ----
   sim.on(Ev.PlagueCheck, (k, _b, t) => {
     sim.schedule(checkTime(K, base, k + 1), Ev.PlagueCheck, k + 1, 0);
+    // ORIGIN_NORM = Infinity:这个世界不自己起疫(下面 0 × Infinity 是 NaN,掷出 0 的那城会漏过去,先挡在这里)
+    if (!(ORIGIN_NORM < Infinity)) return;
     if (t - pl.last < GREAT_YEARS + 2) return;
     // 全球大疫的凋敝里不自己起疫
     if (pl.quiet?.(t)) return;
@@ -325,7 +327,10 @@ function hook(sim: CivSim, pl: PlagueModel): void {
     }
     if (r0 < 0) return;
     const sail = !!pm.port[r0] && sailsOcean(pm, pm.polities[owner[r0]], t);
-    const ob: Outbreak = { k, t0: t, great: sail && keyed(base, k, 1, U_GREAT) < (rate ? rate.great : GREAT_ODDS), level: 0, hit: new Uint8Array(R), front: [] };
+    // 「天灾」多 / 很多:大瘟疫的几率是 CalamityRates.great(官方的 GREAT_ODDS 时),这个世界调过 GREAT_ODDS 的跟着按比例变
+    // (没调过时 GREAT_ODDS ÷ 官方值 = 1,和原来一样)
+    const great = rate ? rate.great * (GREAT_ODDS / PLAGUE_KNOBS.values.GREAT_ODDS) : GREAT_ODDS;
+    const ob: Outbreak = { k, t0: t, great: sail && keyed(base, k, 1, U_GREAT) < great, level: 0, hit: new Uint8Array(R), front: [] };
     pl.now = ob;
     pl.last = t;
     infect(ob, [r0], t);
