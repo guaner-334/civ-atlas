@@ -9,14 +9,14 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { trekModelOf } from '../src/gen/civ/migration';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { runOutline } from '../src/gen/outline';
 import { TREK_DIRS, TREK_DIR_NAMES, cleanIntervention, cleanPlot, cultureKey, plotNeedsRedo, resolveKey, type Plot, type TrekDir, type TrekReach } from '../src/gen/edits';
 import { checkText, resultText, whatCell, whoCell, type OutlineCtx } from '../src/ui/outlineInfo';
 import { interventionText } from '../src/ui/Interventions';
 import { moveOutline, outlineFrom } from '../src/ui/outlineMove';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const SEED = 7;
 /** 下令的那一年(不是 5、20 的倍数:那一刻没有隔几年一次的事件抢在前面) */
@@ -41,7 +41,7 @@ const dirOf = (name: string) => TREK_DIRS.find((d) => TREK_DIR_NAMES[d] === name
  */
 function scenes(civ: Civ) {
   const half = generateCiv(world(), { endYear: 1200 });
-  const sim = CivSim.fromCiv(world(), half, []);
+  const sim = resumeCiv(world(), half, []);
   sim.run(Y - 1 / 256);
   const tm = trekModelOf(sim)!;
   const cu = ownersAt(civ, Y).culture;

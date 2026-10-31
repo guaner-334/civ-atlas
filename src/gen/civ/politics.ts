@@ -55,12 +55,13 @@ import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
-import { fexp, flog, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, flog, keyed, keyed4, subSeed } from './engine/rand';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capacityAt, capitalAt, populationAt } from './growth';
 import type { ControlModel } from './control';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -863,7 +864,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
 }
 
 /**
- * 由 Civ 重建分合的推演状态(CivSim.fromCiv 调用,在 resumeWars 之后):
+ * 由 Civ 重建分合的推演状态(resumeCiv 调用,在 resumeWars 之后):
  * 最近一次分裂、被并掉的国家从史事里读,复过国的亡国从国家表里读;
  * 再按"国家 + 第几次"算出还没到的看内政、看复国、看部落地带,补进引擎。
  */
@@ -939,3 +940,12 @@ export function politicsStats(civ: Civ): PoliticsStats {
   const shortLived = civ.polities.filter((p) => p.parent !== undefined && p.ended !== undefined && p.ended - p.founded < 100).length;
   return { polities: civ.polities.length, splits, claims, restorations, merges, capitalMoves, shortLived };
 }
+
+/** 模块:分与合:分裂、合并、复国、主动迁都、部落地带补立国(清单和次序见 modules.ts) */
+export const politicsModule: CivModule = {
+  id: 'politics',
+  install: (c) => {
+    if (c.pm) installPolitics(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumePolitics(c.sim, c.world, c.civ),
+};

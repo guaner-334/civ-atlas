@@ -23,7 +23,7 @@ import { Delaunay } from 'd3-delaunay';
 import type { Mesh } from './mesh';
 import { clamp, type Rng } from './util';
 import { fbm3, noise3, ridged3, type Noise3 } from './noise';
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 
 /**
  * 定义在世界表面上的噪声:在单位向量 p 上取 3D 噪声,频率换算 F = f·R(波长仍以世界单位计)。

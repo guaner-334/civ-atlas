@@ -1,7 +1,7 @@
 /**
  * 改制(reform.ts):立宪、废君立共和、革命、政变、复辟、还政。
  * 每件改制在国家表里开一段(Polity.dynasties)、国号只在君主没了 / 回来了的时候变、旗跟着换、编年史写得出来;
- * 接着推(fromCiv)在改制那一刻以后切开,和一口气推完一样。例子按条件现找(历史重排以后国家会变)。
+ * 接着推(resumeCiv)在改制那一刻以后切开,和一口气推完一样。例子按条件现找(历史重排以后国家会变)。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';

@@ -19,7 +19,7 @@ import type { World } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import { buildChronicle, entryInvolves, entryYearLabel, MAJOR, type ChronicleEntry } from '../../gen/civ/story/chronicle';
 import { capitalAt, polityAlive, polityRoots, polityTitleChain } from '../../gen/civ/growth';
-import { ownersAt } from '../../gen/civ/timeline';
+import { ownersAt } from '../../gen/civ/engine/timeline';
 import { DISASTER_LEVEL_NAMES, DISASTER_NAMES, applyNames, cleanIntervention, resolveKey, type Intervention, type WorldEdits } from '../../gen/edits';
 import {
   REWRITE_OPS,

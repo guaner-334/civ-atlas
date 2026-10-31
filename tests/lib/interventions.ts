@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../../src/gen/world';
 import { generateCiv, type Civ } from '../../src/gen/civ';
 import type { Annal } from '../../src/gen/civ/types';
 import { canCross } from '../../src/gen/civ/polities';
-import { ownersAt } from '../../src/gen/civ/timeline';
+import { ownersAt } from '../../src/gen/civ/engine/timeline';
 import { buildChronicle } from '../../src/gen/civ/story/chronicle';
 import { capitalAt } from '../../src/gen/civ/growth';
 import { resolveKey, type Intervention } from '../../src/gen/edits';

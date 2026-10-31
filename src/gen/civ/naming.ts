@@ -18,31 +18,25 @@
  * 种子来自 subSeed(seed, 'civ-names…'),其余随机数用 keyed。
  */
 import { createNamer, createPersonNamer, mixStyles, NAME_STYLES, type GeneratedName, type NameMix, type Namer, type PersonNamer } from '../names';
-import { Biome } from '../biomes';
+import { BIOMES } from '../biomes';
 import type { Culture, CultureKind, MigrationDir, Polity, Settlement, Year } from './types';
 import { polityRootAt } from './growth';
-import { keyed, subSeed } from './rand';
+import { keyed, subSeed } from './engine/rand';
 
-const B = Biome;
-const DRY = [B.HotDesert, B.TemperateDesert, B.ColdDesert, B.Steppe, B.Savanna];
-const COLD = [B.Taiga, B.Tundra, B.ColdDesert];
-const LUSH = [B.Rainforest, B.TropicalDryForest, B.TemperateRainforest];
-const TEMPERATE = [B.TemperateForest, B.TemperateRainforest, B.Steppe];
-
-/** 各语感适合的民族:发源地年均温区间(°C)、民族类型、发源州的群落 */
-const AFFINITY: Record<string, { t: [number, number]; kinds: CultureKind[]; biomes: number[] }> = {
-  imperial: { t: [12, 22], kinds: ['farm', 'river', 'sea'], biomes: [B.TemperateForest, B.TropicalDryForest] },
-  kingdom: { t: [5, 16], kinds: ['farm', 'river', 'forest'], biomes: TEMPERATE },
-  nordic: { t: [-8, 7], kinds: ['sea', 'forest', 'highland'], biomes: COLD },
-  slavic: { t: [-6, 9], kinds: ['farm', 'forest', 'river'], biomes: [B.Taiga, B.TemperateForest] },
-  hellenic: { t: [14, 25], kinds: ['sea', 'lake'], biomes: [B.TemperateForest, B.TropicalDryForest, B.Savanna] },
-  desert: { t: [18, 34], kinds: ['nomad', 'river'], biomes: DRY },
-  steppe: { t: [-6, 16], kinds: ['nomad', 'highland'], biomes: [B.Steppe, B.ColdDesert, B.TemperateDesert] },
-  elven: { t: [6, 28], kinds: ['forest', 'lake'], biomes: [...LUSH, B.TemperateForest] },
-  central: { t: [8, 20], kinds: ['farm', 'river'], biomes: TEMPERATE },
-  xianxia: { t: [14, 27], kinds: ['river', 'lake', 'highland'], biomes: LUSH },
-  frontier: { t: [2, 18], kinds: ['nomad', 'highland'], biomes: DRY },
-  mythic: { t: [10, 30], kinds: ['forest', 'highland', 'lake'], biomes: LUSH },
+/** 各语感适合的民族:发源地年均温区间(°C)、民族类型;发源州的群落对不对口见地貌表的 nameStyles */
+const AFFINITY: Record<string, { t: [number, number]; kinds: CultureKind[] }> = {
+  imperial: { t: [12, 22], kinds: ['farm', 'river', 'sea'] },
+  kingdom: { t: [5, 16], kinds: ['farm', 'river', 'forest'] },
+  nordic: { t: [-8, 7], kinds: ['sea', 'forest', 'highland'] },
+  slavic: { t: [-6, 9], kinds: ['farm', 'forest', 'river'] },
+  hellenic: { t: [14, 25], kinds: ['sea', 'lake'] },
+  desert: { t: [18, 34], kinds: ['nomad', 'river'] },
+  steppe: { t: [-6, 16], kinds: ['nomad', 'highland'] },
+  elven: { t: [6, 28], kinds: ['forest', 'lake'] },
+  central: { t: [8, 20], kinds: ['farm', 'river'] },
+  xianxia: { t: [14, 27], kinds: ['river', 'lake', 'highland'] },
+  frontier: { t: [2, 18], kinds: ['nomad', 'highland'] },
+  mythic: { t: [10, 30], kinds: ['forest', 'highland', 'lake'] },
 };
 /** 打分权重:类型对口、气温合适、群落对口、随机、全世界已用过(每次)、和邻族撞了 */
 const W_KIND = 1.5;
@@ -60,7 +54,7 @@ function affinity(id: string, kind: CultureKind, t: number, biome: number): numb
   if (a.kinds.includes(kind)) s += W_KIND;
   const [lo, hi] = a.t;
   s += W_TEMP * (t < lo ? Math.max(-1, 1 - (lo - t) / 6) : t > hi ? Math.max(-1, 1 - (t - hi) / 6) : 1);
-  if (a.biomes.includes(biome)) s += W_BIOME;
+  if (BIOMES[biome]?.nameStyles.includes(id)) s += W_BIOME;
   return s;
 }
 

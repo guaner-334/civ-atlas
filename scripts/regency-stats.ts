@@ -9,7 +9,7 @@
 import { writeFileSync } from 'node:fs';
 import { generateWorld, type WorldParams } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { politicsStats } from '../src/gen/civ/politics';
 import { controlStats } from '../src/gen/civ/control';
 

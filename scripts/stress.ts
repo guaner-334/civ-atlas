@@ -16,7 +16,7 @@ import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { rasterize } from '../src/gen/raster';
 import { generateCiv, planetTempo } from '../src/gen/civ';
 import { Biome } from '../src/gen/biomes';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { HABITABLE_SUIT } from '../src/gen/civ/cultures';
 import { labelImage, pixelRegions, washPixels } from '../src/render/civ/territory';
 import { borderLines } from '../src/render/civ/borders';

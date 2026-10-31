@@ -7,7 +7,7 @@
  * from 年以后才立的国家,立国年份差太多的不算同一个。只在试推演里有的国家没有编号(id = −1),不能对它下命令。
  */
 import type { Civ } from '../../gen/civ/types';
-import { ownersAt } from '../../gen/civ/timeline';
+import { ownersAt } from '../../gen/civ/engine/timeline';
 import { buildChronicle } from '../../gen/civ/story/chronicle';
 import { resolveKey } from '../../gen/edits';
 import { nameAt } from '../prompts/rewrite';

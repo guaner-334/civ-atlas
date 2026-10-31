@@ -23,7 +23,7 @@
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { ChangeLog, Civ, Year } from '../../gen/civ/types';
-import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityShortTitle, polityTierAt } from '../../gen/civ/growth';
 import { Polyline, type Candidate, type Glyph } from './layout';
 import { pathToCanvas, type LabelView } from './draw';

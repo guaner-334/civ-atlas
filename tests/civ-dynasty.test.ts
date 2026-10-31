@@ -4,8 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ, type Polity } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { MIN_AGE, OLD_AGE, dynastyModelOf, dynastyStats } from '../src/gen/civ/dynasty';
 import { opensSeg } from '../src/gen/civ/regime';
@@ -28,6 +27,7 @@ import { DYNASTY_TIER, buildChronicle, filterChronicle, MAJOR } from '../src/gen
 import { polityLabels } from '../src/render/labels/polity';
 import { REF_MAP_CSS } from '../src/render/labels/draw';
 import { rasterize } from '../src/gen/raster';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -54,10 +54,10 @@ function bytes(a: ArrayBufferView) {
 const strip = <T extends { name: string; color?: unknown; dynasties?: { name: string }[] }>(a: T[]) =>
   a.map((x) => ({ ...x, name: '', color: 0, eastern: undefined, dynasties: x.dynasties?.map((d) => ({ ...d, name: '' })) }));
 
-/** 先推到 cut 年、fromCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
+/** 先推到 cut 年、resumeCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
 function expectResumeSame(w: World, whole: Civ, cut: number) {
   const half = generateCiv(w, { endYear: cut });
-  const sim = CivSim.fromCiv(w, half);
+  const sim = resumeCiv(w, half);
   sim.run(whole.endYear);
   const res = sim.result();
   const L = whole.log;
@@ -72,7 +72,7 @@ function expectResumeSame(w: World, whole: Civ, cut: number) {
   const m = polityModelOf(sim)!;
   expect(JSON.stringify(strip(m.polities)), `${tag}:国家表`).toBe(JSON.stringify(strip(whole.polities)));
   expect(JSON.stringify(strip(m.settlements)), `${tag}:城镇表`).toBe(JSON.stringify(strip(whole.settlements)));
-  // 接着推的时候没有动过切开那一刻的国家表(fromCiv 复制了一份)
+  // 接着推的时候没有动过切开那一刻的国家表(resumeCiv 复制了一份)
   expect(JSON.stringify(half.polities.map((p) => p.dynasties?.length ?? 0))).toBe(
     JSON.stringify(generateCiv(w, { endYear: cut }).polities.map((p) => p.dynasties?.length ?? 0)),
   );
@@ -83,7 +83,7 @@ function expectResumeSame(w: World, whole: Civ, cut: number) {
 const EPS = 1 / 512;
 
 describe('王朝更替', () => {
-  it('fromCiv 接着推:先推到第 1200 年、以及在改朝换代那一刻 / 那一年切开,和一口气推完逐字节一致', () => {
+  it('resumeCiv 接着推:先推到第 1200 年、以及在改朝换代那一刻 / 那一年切开,和一口气推完逐字节一致', () => {
     let cutAtDynasty = 0;
     for (const seed of [7, 2024]) {
       const w = world({ ...small, seed });

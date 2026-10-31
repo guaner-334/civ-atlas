@@ -17,7 +17,7 @@ import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { polityAlive, polityName, populationLabel } from '../gen/civ/growth';
 import { personRoleShort } from '../gen/civ/story/peopleText';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import {
   RECORD_GROUPS,
   RECORD_NONE,

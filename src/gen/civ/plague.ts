@@ -39,8 +39,8 @@
  */
 import type { World } from '../world';
 import { AdjKind, Layer, type Civ, type Year } from './types';
-import { fpow, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { unrestModelOf } from './unrest';
 import { populationAt } from './growth';
@@ -59,6 +59,7 @@ import {
   type CalamityRates,
 } from './calamity';
 import type { DisasterLevel, Intervention } from '../edits';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 看疫情:第一次在哪一年,之后每隔多少年 */
@@ -450,7 +451,7 @@ function maxYears(ob: { great: boolean; pan?: Year }): number {
 }
 
 /**
- * 由 Civ 重建瘟疫的推演状态(CivSim.fromCiv 调用,在 resumeUnrest 之后):
+ * 由 Civ 重建瘟疫的推演状态(resumeCiv 调用,在 resumeUnrest 之后):
  * 最后一场瘟疫(史事 plague 的 war 列)还在传的话,从城镇表里 cause = plague 的折损找回它染过的州和最后一年染上的几州;
  * 再算出下一次看疫情,补进引擎。
  */
@@ -535,3 +536,12 @@ export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonl
   while (quantize(checkTime(pl.base, k)) <= sim.now) k++;
   sim.schedule(checkTime(pl.base, k), Ev.PlagueCheck, k, 0);
 }
+
+/** 模块:瘟疫(清单和次序见 modules.ts) */
+export const plagueModule: CivModule = {
+  id: 'plague',
+  install: (c) => {
+    if (c.pm) installPlague(c.sim, c.pm, c.seed);
+  },
+  resume: (c) => resumePlague(c.sim, c.world, c.civ, c.iv?.list),
+};

@@ -32,7 +32,7 @@ import {
   portAt,
   settlementRank,
 } from '../../gen/civ/growth';
-import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { MAJOR, buildChronicle, cnNumber, type ChronicleEntry } from '../../gen/civ/story/chronicle';
 import { NAME_MAX, cleanName, cultureKey, dynastyKey, placeKeyOf, polityKey, regionKey, settlementKey, type KeyKind } from '../../gen/edits';
 import { habitatScore, habitatWord } from '../../ui/civDescribe';

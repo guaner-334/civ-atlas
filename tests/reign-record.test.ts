@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { populationLabel, regionPopulationAt } from '../src/gen/civ/growth';
 import { fillOf, fiscalAt, fiscalMood, warSpans } from '../src/gen/civ/fiscalBook';
 import { SHORT_REIGN, reignFacts, reignRecord, reignRecordOf, reignText, type ReignFacts } from '../src/gen/civ/story/reignRecord';

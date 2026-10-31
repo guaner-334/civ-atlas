@@ -9,10 +9,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { effOf, polityModelOf, rulerOf } from '../src/gen/civ/polities';
 import { IV_PROTECTED, leaningEffect } from '../src/gen/civ/rulers';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { capitalAt } from '../src/gen/civ/growth';
 import { rulerAt } from '../src/gen/civ/story/peopleInfo';
@@ -22,6 +21,7 @@ import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { interventionFate } from '../src/gen/stepwise';
 import { cleanIntervention, cleanInterventions, personKey, polityKey, regionKey, resolvePersonKey, settlementKey, type Intervention } from '../src/gen/edits';
 import type { Person } from '../src/gen/civ/types';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
@@ -243,7 +243,7 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
     expect(next).toHaveLength(1);
     expect(next[0].rise).toBe('heir');
     // 推演里:那一刻还是他,下一刻起是下一位
-    const pm = polityModelOf(CivSim.fromCiv(w, civ))!;
+    const pm = polityModelOf(resumeCiv(w, civ))!;
     expect(rulerOf(pm, pid, T).from).toBe(x.from);
     expect(rulerOf(pm, pid, T + 1 / 256).from).toBe(T);
     expect(ivLines(civ, T)[0].text).toMatch(/^【干预】.+(暴|猝然).+(在位.+年|即位当年)$/);
@@ -341,7 +341,7 @@ describe.each([7, 2024])('新干预 · seed=%i', (seed) => {
     const him = civ.people![resolvePersonKey(civ, key)];
     expect(him.leanings).toEqual(x.leanings);
     expect(him.moods).toEqual([{ year: T, leanings: to, iv: 0 }]);
-    const pm = polityModelOf(CivSim.fromCiv(w, civ))!;
+    const pm = polityModelOf(resumeCiv(w, civ))!;
     expect(effOf(pm, pid, T)).toEqual(leaningEffect(x.leanings!));
     if ((him.until ?? Infinity) > T + 1) expect(effOf(pm, pid, T + 1 / 256)).toEqual(leaningEffect(to));
     expect(ivLines(civ, T)[0].text).toMatch(/性情大变/);

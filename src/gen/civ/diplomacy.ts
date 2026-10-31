@@ -46,14 +46,15 @@
 import type { World } from '../world';
 import { YEAR_TICKS, resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
-import { fpow, keyed, keyed4, subSeed } from './rand';
-import { bookChain, Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { FRIEND_JOIN, FRIEND_PACT } from './policy';
 import { KIN_JOIN, KIN_PACT } from './marriages';
 import { polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { capitalAt, polityAlive, populationAt } from './growth';
 import { politicsModelOf } from './politics';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邦交;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -606,7 +607,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
 }
 
 /**
- * 由 Civ 重建邦交的推演状态(CivSim.fromCiv 调用,在 resumeCities 之后):结着的盟、藩属、断盟 / 自立的年份都从史事里读,
+ * 由 Civ 重建邦交的推演状态(resumeCiv 调用,在 resumeCities 之后):结着的盟、藩属、断盟 / 自立的年份都从史事里读,
  * 再按"国家 + 第几次"算出还没到的看邦交,补进引擎
  */
 export function resumeDiplomacy(sim: CivSim, _world: World, civ: Civ): void {
@@ -726,3 +727,12 @@ export function diplomacyStats(civ: Civ): DiplomacyStats {
     pactsAtEnd: rel.pacts.length,
   };
 }
+
+/** 模块:邦交:称臣纳贡、结盟、背盟、援盟、讨伐叛藩(清单和次序见 modules.ts) */
+export const diplomacyModule: CivModule = {
+  id: 'diplomacy',
+  install: (c) => {
+    if (c.pm) installDiplomacy(c.sim, c.pm);
+  },
+  resume: (c) => resumeDiplomacy(c.sim, c.world, c.civ),
+};

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { polityAlive } from '../src/gen/civ/growth';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { runOutline } from '../src/gen/outline';
 import { capitalAt } from '../src/gen/civ/growth';
 import { cleanOutline, cleanPlot, plotNeedsRedo, polityKey, regionKey, settlementKey, type Plot } from '../src/gen/edits';

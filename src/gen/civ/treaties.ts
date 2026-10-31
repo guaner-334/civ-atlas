@@ -58,8 +58,8 @@
  */
 import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
-import { keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { keyed, keyed4, subSeed } from './engine/rand';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { REOPEN, hates, limitedEnd, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
@@ -72,6 +72,7 @@ import { regionOfKey, type Intervention } from '../edits';
 import type { InterventionModel } from './interventions';
 import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, OPT_QUIET } from './treatyBook';
 import { royalSeg } from './regime';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
@@ -957,7 +958,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
 }
 
 /**
- * 由 Civ 重建立约的推演状态(CivSim.fromCiv 调用,在 resumePlague 之后):约、中立地、背约退出的都从史事里读,
+ * 由 Civ 重建立约的推演状态(resumeCiv 调用,在 resumePlague 之后):约、中立地、背约退出的都从史事里读,
  * 还没到期的约补上期满(立约 / 续约那一刻预约的)
  */
 export function resumeTreaties(sim: CivSim, world: World, civ: Civ): void {
@@ -1050,3 +1051,12 @@ export function treatyStats(civ: Civ): TreatyStats {
   for (const [id, y] of zFrom) out.zoneYears += (zEnd.get(id) ?? civ.endYear) - y;
   return out;
 }
+
+/** 模块:立约与中立地:互不侵犯 / 有限竞争之约、背约、续约,共建中立地、放逐(清单和次序见 modules.ts) */
+export const treatiesModule: CivModule = {
+  id: 'treaties',
+  install: (c) => {
+    if (c.pm) installTreaties(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumeTreaties(c.sim, c.world, c.civ),
+};

@@ -16,12 +16,12 @@
  * 分两步:worldFacts 把这一段里各族的数一次数好(按世界和年份缓存),readTraits 只看一族的数、按门槛定特质和来由
  * (纯函数,单测拿造出来的数逐条试门槛)。门槛按 20 个种子各族的分布定(多数族读出一到三条,七种都出得来)。
  */
-import { Biome } from '../../biomes';
+import { biomeTagged } from '../../biomes';
 import { developmentAt } from '../development';
 import { BOOK_COLS, fiscalAt } from '../fiscalBook';
 import { polityAlive, polityName, portAt } from '../growth';
 import { faithAt } from '../religion';
-import { ownersAt } from '../timeline';
+import { ownersAt } from '../engine/timeline';
 import type { Civ, Culture, CultureKind, Year } from '../types';
 
 /** 往前读几年 */
@@ -114,8 +114,8 @@ export interface CultureFacts {
   foreign: number;
 }
 
-/** 草原、荒漠(善骑) */
-const STEPPE = new Set<number>([Biome.Steppe, Biome.Savanna, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert]);
+/** 草原、荒漠(善骑;按 Biome 下标,见地貌表的标签 arid) */
+const STEPPE = biomeTagged('arid');
 
 const COL_LAND = BOOK_COLS.indexOf('田赋');
 const COL_CRAFT = BOOK_COLS.indexOf('工商');
@@ -178,7 +178,7 @@ function worldFacts(civ: Civ, win: TraitWindow): WorldFacts {
     regions[c]++;
     const po = cultureOf(own.polity[r]);
     if (po >= 0 && po !== c) foreign[c]++;
-    if (STEPPE.has(civ.regions.biome[r])) steppe[c]++;
+    if (STEPPE[civ.regions.biome[r]]) steppe[c]++;
     const f = faith[r];
     if (f >= 0 && rel?.faiths[f] && rel.faiths[f].kind !== 'folk') great[c]++;
   }

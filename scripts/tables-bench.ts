@@ -6,7 +6,7 @@
  */
 import { generateWorld, type WorldParams } from '../src/gen/world';
 import { computeHabitat } from '../src/gen/civ/habitat';
-import { TableEngine, type TableCard, type Backend } from '../src/gen/civ/tables';
+import { TableEngine, type TableCard, type Backend } from '../src/gen/civ/engine/tables';
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`${k}=`))?.slice(k.length + 1);

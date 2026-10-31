@@ -30,12 +30,13 @@
  */
 import type { World } from '../world';
 import { Layer, type Civ, type Settlement, type Year } from './types';
-import { fexp, fpow, keyed, keyed4, subSeed } from './rand';
-import { bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { foundCity, onCapitalLost, polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settlementRank } from './growth';
 import { inSlump, pandemicModelOf } from './pandemicState';
+import type { CivModule } from './modules';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
 /** 攻下一州时城被洗劫、被毁的基础机会 */
@@ -235,7 +236,7 @@ function newModel(pm: PolityModel, wm: WarModel): CityModel {
 }
 
 /**
- * 由 Civ 重建城市兴衰的推演状态(CivSim.fromCiv 调用,在 resumeDynasty 之后):
+ * 由 Civ 重建城市兴衰的推演状态(resumeCiv 调用,在 resumeDynasty 之后):
  * 每场战争毁了几座城从史事里读;毁了还没重建的城、没到"看旧都"的旧都从城镇表里读;
  * 再按"城 + 第几次"算出还没到的看重建、看旧都,补进引擎。
  */
@@ -331,3 +332,12 @@ export function cityStats(civ: Civ): CityStats {
   out.ruinsAtEnd = ruinSites(civ, civ.endYear).length;
   return out;
 }
+
+/** 模块:城市兴衰:洗劫、毁城、重建、旧都衰落(挂在战争模型上)(清单和次序见 modules.ts) */
+export const citiesModule: CivModule = {
+  id: 'cities',
+  install: (c) => {
+    if (c.pm) installCities(c.sim, c.pm, warModelOf(c.sim)!);
+  },
+  resume: (c) => resumeCities(c.sim, c.world, c.civ),
+};

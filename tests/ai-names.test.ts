@@ -14,7 +14,7 @@ import { aiChat, setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import { WESTERN_STYLES } from '../src/gen/names/western';
 import { transcribe } from '../src/gen/names/transcribe';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import {
   EXPLAIN_CHARS,
   FIXED_LATIN,

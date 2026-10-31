@@ -9,7 +9,7 @@ import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import type { Era } from '../gen/era';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
 import type { SurfaceLook } from '../render/surface';
 import { drawFilmFrame, filmMapRect, type FilmLook } from '../render/film';

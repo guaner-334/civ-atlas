@@ -22,22 +22,22 @@
  *     迁都后"离国都的路程"按新国都算(迁都那一刻之后预约的才按新的);迁都的下一刻从现有国土往外重新预约一遍
  *     (Ev.Respread:扩张算账按新国都的路程重算,原来嫌远的边地可能值得去了)
  *   - 阶段 4 干预"不许扩张"(interventions.ts,挂在 PolityModel.iv 上):"国家到达"触发时这国在禁令里就不去;
- *     禁令到期那一刻从现有国土重新预约(respread;fromCiv 接着推时 resumePolities 按日志把那一刻的预约也补上)
+ *     禁令到期那一刻从现有国土重新预约(respread;resumeCiv 接着推时 resumePolities 按日志把那一刻的预约也补上)
  *
- * 由 Civ 能重建"接下来该发生什么"(resumePolities,CivSim.fromCiv 调用),不用存事件堆。
+ * 由 Civ 能重建"接下来该发生什么"(resumePolities,resumeCiv 调用),不用存事件堆。
  * 随机数:subSeed(seed, 'civ-polity…') + keyed(按实体取),和处理顺序无关。纯计算,不碰 DOM。
  * keyed 的"实体"一律是位置锚(见 rand.ts):州 = 治所地块,城 / 国家 = PolityModel.stag / ptag(地块 + 这州第几个),
  * 改地形后多一个、少一个州或国家,别处的随机数不跟着错位。
  */
-import { Biome } from '../biomes';
+import { Biome, biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf } from '../geometry';
 import { AdjKind, Layer, type Annal, type ChangeLog, type Civ, type Culture, type NamePins, type Polity, type PolityLineage, type Regions, type RulerLeanings, type Settlement, type Year } from './types';
 import { BIOME_COST } from './habitat';
-import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
+import { anchorTag, fexp, fpow, keyed, subSeed } from './engine/rand';
 import { WORTH_EXP } from './frontier';
-import { quantize, Ev, type CivSim } from './sim';
+import { quantize, Ev, type CivSim } from './engine/sim';
 import { KIND_EXPANSIONISM } from './kinds';
 import { OwnerReplay, REF_YEAR, cultureModelOf, cultureTerrain, ownersNear, type CultureModel, type CultureTerrain } from './cultures';
 import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, portAt, portSince, tierOf, yearReaching, yearReachingPop } from './growth';
@@ -48,6 +48,7 @@ import type { Intervention } from '../edits';
 import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign, type RulerAct } from './rulers';
 import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
 import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } from './regents';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -124,13 +125,9 @@ const ROUTE_MIN_RANK = 1;
 const REPUBLIC_P = 0.75;
 
 const BIOME_F = BIOME_COST.map((c) => fpow(Math.max(1, c) / 70, BIOME_EXP));
-const biomeSet = (list: number[]) => {
-  const t = new Uint8Array(16);
-  for (const b of list) t[b] = 1;
-  return t;
-};
-const STEPPE_DESERT = biomeSet([Biome.Steppe, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert, Biome.Savanna]);
-const FOREST = biomeSet([Biome.TemperateForest, Biome.TemperateRainforest, Biome.Rainforest, Biome.TropicalDryForest, Biome.Taiga]);
+/** 按 Biome 下标查的群落集合(哪些群落算哪一类见地貌表的标签):开阔干地(草原、稀树草原、荒漠)、密林 */
+const STEPPE_DESERT = biomeTagged('arid');
+const FOREST = biomeTagged('forest');
 
 // ---------------------------------------------------------------------------
 // 模型:推演要用的全部东西(可以由 Civ 重建,见 resumePolities)
@@ -397,7 +394,7 @@ function frozen(world: World, i: number): boolean {
 
 /**
  * 这一刻预约国家 pid 的扩张用哪张"离国都的路程"表:迁都那一刻(同一个时刻)还按旧国都算,之后按新国都。
- * 这样同一时刻里迁都和扩张谁先谁后都一样,fromCiv 按日志重放时能算出同样的到达年份
+ * 这样同一时刻里迁都和扩张谁先谁后都一样,resumeCiv 按日志重放时能算出同样的到达年份
  */
 function distFor(m: PolityModel, pid: number, now: number): Float32Array {
   return now > m.capMoved[pid] ? m.capDist[pid] : m.capDistPrev[pid] ?? m.capDist[pid];
@@ -973,7 +970,7 @@ export function planPolities(world: World, cm: CultureModel, p: PolityPlanParams
 
 const models = new WeakMap<CivSim, PolityModel>();
 
-/** 推演引擎上挂着的城镇 / 国家模型(推演中途、或 fromCiv 接着推之后,拿到最新的城镇和国家表) */
+/** 推演引擎上挂着的城镇 / 国家模型(推演中途、或 resumeCiv 接着推之后,拿到最新的城镇和国家表) */
 export function polityModelOf(sim: CivSim): PolityModel | undefined {
   return models.get(sim);
 }
@@ -1340,7 +1337,7 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
 }
 
 /**
- * 由 Civ 重建城镇、国家层的推演状态(CivSim.fromCiv 调用,在 resumeCultures 之后):
+ * 由 Civ 重建城镇、国家层的推演状态(resumeCiv 调用,在 resumeCultures 之后):
  * 登记事件处理,再按日志重算所有还没发生的"建城""立国""国家到达"。
  *
  * "国家到达"按日志从头重放:每次有国家拿下一州、每次有州新定居,当时预约了哪些到达、各在哪一年,
@@ -1837,3 +1834,12 @@ export function ruinGaps(settlements: readonly Settlement[]): Map<number, [Year,
   }
   return out;
 }
+
+/** 模块:城镇和国家(清单和次序见 modules.ts) */
+export const politiesModule: CivModule = {
+  id: 'polities',
+  install: (c) => {
+    if (c.pm) installPolities(c.sim, c.pm);
+  },
+  resume: (c) => resumePolities(c.sim, c.world, c.extra.length ? { ...c.civ, cultures: [...c.civ.cultures, ...c.extra] } : c.civ, c.iv),
+};

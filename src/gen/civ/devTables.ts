@@ -12,7 +12,7 @@
  * 归了现在的民族 / 国家是哪一年;物产的底子、物产从哪一年起有;各国的国号档位、有几州、立国的年份、发展重点的倍数;
  * 这一步里全球大疫的凋敝占几成(pandemic.ts;没有全球大疫时全是 0,规则走平常那一支);推一把发展的倍数(boost.ts;没推的州全是 1,规则算出来逐位不变)。
  */
-import type { TableCard } from './tables';
+import type { TableCard } from './engine/tables';
 
 /** 物产还没发现(发现的年份记成这个;表里不许存无穷大) */
 export const NEVER = 1e12;

@@ -5,7 +5,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { CIV_SHOW_DEFAULT, CIV_SHOW_OFF, type CivDrawParams } from '../src/render/civ/overlay';
 import { AFTER, drawWarfare, frontTeeth, warFront, warMarkPoints, warScene, warsShown, warSpans } from '../src/render/civ/warfare';

@@ -12,7 +12,7 @@
  * 先出道的人父子关系不变。纯计算,不碰 DOM。
  */
 import type { Person, Year } from './types';
-import { subSeed } from './rand';
+import { subSeed } from './engine/rand';
 
 // ---- 调参 ----
 /** 有合适的父辈时,新出道的将领、名臣是他孩子的机会 */

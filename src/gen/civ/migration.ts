@@ -51,13 +51,13 @@
  *   开的那一仗由 Migration.war 认;看大迁徙的时刻由"第几次"算出来(resumeMigration)。
  * 随机数:keyed(subSeed(seed, 'civ-trek'), 第几次 / 民族的发源州 / 州的治所…, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
-import { Biome } from '../biomes';
+import { biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { geometryOf, type Geometry } from '../geometry';
 import { TREK_DIR_NAMES, regionOfKey, type Intervention, type TrekReach } from '../edits';
 import { AdjKind, Layer, type Civ, type Culture, type Migration, type MigrationDir, type Year } from './types';
-import { fexp, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, keyed, keyed4, subSeed } from './engine/rand';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { addPolity, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { bestCapital, polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -67,6 +67,7 @@ import { devModelOf } from './development';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } from './trekRoute';
 import type { InterventionModel } from './interventions';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */
@@ -163,13 +164,8 @@ const U_LOSS = 5;
 const U_GROW = 6;
 const U_SHATTER = 7;
 
-const biomeSet = (list: number[]) => {
-  const t = new Uint8Array(16);
-  for (const b of list) t[b] = 1;
-  return t;
-};
-/** 发源在这些地方的民族会迁:苔原、针叶林(寒地) */
-const COLD = biomeSet([Biome.Tundra, Biome.Taiga]);
+/** 发源在这些地方的民族会迁:苔原、针叶林(寒地;按 Biome 下标,见地貌表的标签 cold) */
+const COLD = biomeTagged('cold');
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -759,7 +755,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
 }
 
 /**
- * 由 Civ 重建大迁徙的推演状态(CivSim.fromCiv 调用,在 resumeTreaties 之后):
+ * 由 Civ 重建大迁徙的推演状态(resumeCiv 调用,在 resumeTreaties 之后):
  * 每一次的经过从 Civ.migrations 复制一份;还在路上的补上没走完的几步(动身那一刻预约的);再算出下一次看大迁徙,补进引擎。
  */
 export function resumeMigration(sim: CivSim, world: World, civ: Civ): void {
@@ -838,3 +834,12 @@ export function trekStats(civ: Civ): TrekStats {
   for (const e of civ.annals) if (e.kind === 'trek' && e.n === 1) out.raids++;
   return out;
 }
+
+/** 模块:大迁徙:草原、寒地的民族分出一支举族远走,到了立国、开战,打进国都(清单和次序见 modules.ts) */
+export const migrationModule: CivModule = {
+  id: 'migration',
+  install: (c) => {
+    if (c.pm) installMigration(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumeMigration(c.sim, c.world, c.civ),
+};

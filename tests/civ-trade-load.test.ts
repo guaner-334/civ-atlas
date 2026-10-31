@@ -4,7 +4,7 @@
  * 这里照那个先后引一遍,看值都在。
  */
 import { RESOURCES } from '../src/gen/civ/development';
-import { CivSim } from '../src/gen/civ/sim';
+import { CivSim } from '../src/gen/civ/engine/sim';
 import { describe, expect, it } from 'vitest';
 import { TRADE_GOODS } from '../src/gen/civ/trade';
 import { GOOD_NAME } from '../src/gen/civ/story/tradeText';

@@ -20,7 +20,7 @@ import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/story/display';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { getSelection, useCivHighlight, useCivTime, useSelection } from './civView';
 import { finishPick, getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
 import { endRun, getPanel, requestFly, setPanelTab, setSheet, usePanel } from './panelStore';

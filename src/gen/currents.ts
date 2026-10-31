@@ -21,7 +21,7 @@
 import { blurField, type Mesh } from './mesh';
 import { geometryOf } from './geometry';
 import { piecewise, smoothstep } from './util';
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 
 /** 每世界单位多少公里(赤道一圈 4 万公里 = 地图宽 2048) */
 const KM = 40000 / 2048;

@@ -1,10 +1,10 @@
 /**
- * 数表引擎(gen/civ/tables):公式语言拆得对、写错了说得清哪里错;按频率算、读"这一步开头"的值;
+ * 数表引擎(gen/civ/engine/tables):公式语言拆得对、写错了说得清哪里错;按频率算、读"这一步开头"的值;
  * 两种跑法(拼函数 / 闭包)逐位一样;搬家总量不变、流向记得上;全 0 跳过和全算一样;护栏拦得住不是数和震荡;
  * 快照接上和一口气算完一样;随机数和先后无关。用一张小网格当地块、4×4 一块当州,不用生成世界。
  */
 import { describe, expect, it } from 'vitest';
-import { parseFormula, FormulaError, TableEngine, TableSetupError, budgetOf, cardProblems, type TableCard, type EngineUnits, type Backend } from '../src/gen/civ/tables';
+import { parseFormula, FormulaError, TableEngine, TableSetupError, budgetOf, cardProblems, type TableCard, type EngineUnits, type Backend } from '../src/gen/civ/engine/tables';
 
 /** W × H 的环面网格(四邻),每 B × B 一个州 */
 function grid(W = 16, H = 12, B = 4): EngineUnits & { W: number; H: number } {

@@ -21,7 +21,7 @@
  * 只用加减乘除和舍入过的超越函数(rand.ts),随机数按"种子、表、位置、年份、栏"取,不同电脑、不同先后都逐位一致。
  * 纯计算,不碰 DOM,能在后台线程和 Node 里跑。
  */
-import { subSeed } from '../../util';
+import { subSeed } from '../../../util';
 import { cardProblems, colCount, FREQUENCIES, type TableCard, type Unit } from './cards';
 import { buildKernels, compileCard, evalAllowed, RuleError, type Backend, type CardCode, type CardKernels, type Frame } from './compile';
 

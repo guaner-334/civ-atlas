@@ -21,19 +21,20 @@
  * 州、民族一律用位置锚(州 = 治所地块,民族 = 发源州的治所地块;见 rand.ts),不用编号:
  * 改地形后多几个州、州号全都错开,远处的发源地、类型、扩张快慢照旧。纯计算,不碰 DOM。
  */
-import { Biome } from '../biomes';
+import { biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { AdjKind, Layer, type ChangeLog, type Civ, type CivParams, type Culture, type CultureKind, type Habitat, type NamePins, type Regions, type Year } from './types';
 import { BIOME_COST, MAJOR_RIVER } from './habitat';
-import { fpow, keyed, subSeed } from './rand';
+import { fpow, keyed, subSeed } from './engine/rand';
 import { refCellArea, refSpacing } from './geo';
-import { quantize, Ev, type CivSim } from './sim';
+import { quantize, Ev, type CivSim } from './engine/sim';
 import { assignStyles, lastIfPioneer, nameCultures, nameKin, nameRegions } from './naming';
 import type { NameMix } from '../names';
 import { HABITABLE_SUIT, KIND_EXPANSIONISM } from './kinds';
 import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
 import { regionOfKey, simInterventions, type Intervention } from '../edits';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图效果为准) ----
 /** 治所宜居分 ≥ 这个值的州才算可居(和"城址"显示的门槛一致;定义在 kinds.ts,界面也用) */
@@ -79,16 +80,15 @@ const BIG_LAKE = 5;
 /** 群落系数表(按 Biome 下标) */
 const BIOME_F = BIOME_COST.map((c) => fpow(c / 70, BIOME_EXP));
 
-/** 群落集合 → 按 Biome 下标查的表(推演里查得很频繁) */
-const biomeSet = (list: number[]) => {
-  const t = new Uint8Array(16);
-  for (const b of list) t[b] = 1;
-  return t;
-};
-const STEPPE_DESERT = biomeSet([Biome.Steppe, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert]);
-const FOREST = biomeSet([Biome.TemperateForest, Biome.TemperateRainforest, Biome.Rainforest, Biome.TropicalDryForest, Biome.Taiga]);
+// 群落集合 → 按 Biome 下标查的表(推演里查得很频繁;哪些群落算哪一类见地貌表的标签)
+/** 游牧之地:草原、荒漠 */
+const STEPPE_DESERT = biomeTagged('nomad');
+/** 开阔干地:草原、荒漠再加稀树草原 */
+const ARID = biomeTagged('arid');
+/** 密林 */
+const FOREST = biomeTagged('forest');
 /** 山林民族的家:密林、苔原、湿地(Azgaar 的 Hunting) */
-const WILDS = biomeSet([Biome.Taiga, Biome.Rainforest, Biome.TemperateRainforest, Biome.Tundra, Biome.Wetland]);
+const WILDS = biomeTagged('wilds');
 
 // ---------------------------------------------------------------------------
 // 州级地形特征(由 World + Regions 现算,不存进 Civ)
@@ -255,8 +255,8 @@ function edgeCost(T: CultureTerrain, cu: Culture, home: number, b: number, k: nu
   let mod = 1;
   switch (kind) {
     case 'nomad':
-      if (STEPPE_DESERT[bi] || bi === Biome.Savanna) {
-        mod = bi === Biome.Savanna ? 1 : 0.8;
+      if (ARID[bi]) {
+        mod = STEPPE_DESERT[bi] ? 0.8 : 1;
         habF = 1; // 草原荒漠对游牧民族不算贫瘠
       } else if (FOREST[bi]) mod = 4;
       if (adjKind === AdjKind.Strait) cross *= 4;
@@ -341,7 +341,7 @@ function archetypeMatch(T: CultureTerrain, a: Archetype, r: number): number {
     case 'coast':
       return T.coastal[r] ? (T.harborSeat[r] ? 1 : 0.6) : 0.05;
     case 'steppe':
-      return STEPPE_DESERT[b] ? 1 : b === Biome.Savanna ? 0.3 : 0.04;
+      return STEPPE_DESERT[b] ? 1 : ARID[b] ? 0.3 : 0.04;
     case 'forest':
       return WILDS[b] && T.inland[r] ? 1 : WILDS[b] ? 0.5 : 0.08;
     case 'highland':
@@ -684,7 +684,7 @@ const models = new WeakMap<CivSim, CultureModel>();
 
 /**
  * 推演引擎上挂着的民族模型。同化与迁徙(assimilation.ts)要改民族表(消亡年份、迁徙),和这里用同一份:
- * generateCiv 里就是 planCultures 定的那一份;fromCiv 接着推时是 civ.cultures 的副本(不改传进来的 civ)
+ * generateCiv 里就是 planCultures 定的那一份;resumeCiv 接着推时是 civ.cultures 的副本(不改传进来的 civ)
  */
 export function cultureModelOf(sim: CivSim): CultureModel | undefined {
   return models.get(sim);
@@ -784,7 +784,7 @@ export function pioneerArrives(sim: CivSim, r: number, i: number, t: number): nu
 }
 
 /**
- * 由 Civ 重建民族层的推演状态(CivSim.fromCiv 调用):登记事件处理,重建"路过"记录和所有待发生的到达。
+ * 由 Civ 重建民族层的推演状态(resumeCiv 调用):登记事件处理,重建"路过"记录和所有待发生的到达。
  *
  * 做法:日志里每一次"某州归了某民族"(定居,以及阶段 3 的同化、迁徙改换民族)都预约过邻州的到达,
  * 从每一次出发重算一遍洇染 —— 早于 civ.endYear 的只可能是路过不可居的州(早于 endYear 到达空的可居州的,当时就定居了),
@@ -1177,3 +1177,15 @@ function settlers(log: Readonly<ChangeLog>, R: number): { culture: Int16Array; y
   }
   return { culture, year };
 }
+
+/** 模块:民族扩张(清单和次序见 modules.ts) */
+export const culturesModule: CivModule = {
+  id: 'cultures',
+  install: (c) => {
+    if (c.cm) installCultures(c.sim, c.cm);
+  },
+  // 地形大事以后补备的新民族(干预立国用):国家那一层也要认得它们(民族表接在后面)
+  resume: (c) => {
+    c.extra = resumeCultures(c.sim, c.world, c.civ, c.interventions);
+  },
+};

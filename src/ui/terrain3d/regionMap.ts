@@ -29,7 +29,7 @@ import { strokeRegionLines } from '../../render/civ/debug';
 import { strokeRoutes, routeLines } from '../../render/civ/routes';
 import { realisticRiverStyle } from '../../render/realistic';
 import { fantasyBoxRiverStyle } from '../../render/fantasy';
-import { ownersAt } from '../../gen/civ/timeline';
+import { ownersAt } from '../../gen/civ/engine/timeline';
 import { polityName } from '../../gen/civ/growth';
 import { reliefImage, reliefPrepare, type ReliefImage } from './jobs';
 

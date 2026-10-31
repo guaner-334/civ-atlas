@@ -12,7 +12,7 @@
  */
 import { latitudeAt, windAt } from './climate';
 import type { Raster } from './raster';
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 
 export interface ClimateClass {
   /** 代号:柯本 - 盖格写法,温带、冷温带省掉第二个字母 */

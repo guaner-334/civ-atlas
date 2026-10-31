@@ -16,7 +16,7 @@
  */
 import type { Mesh } from './mesh';
 import { geometryOf } from './geometry';
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 import { keyed, subSeed } from './util';
 import { TERRAIN_H, TERRAIN_W, wrapLon } from './terrainOps';
 import { LAYER_H, LAYER_W } from './sketch';

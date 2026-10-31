@@ -10,7 +10,7 @@ import { Biome } from '../src/gen/biomes';
 import { AdjKind, type Civ } from '../src/gen/civ/types';
 import { capitalAt, polityAlive, polityTitleChain } from '../src/gen/civ/growth';
 import { regionLabel, regionNamed } from '../src/gen/civ/story/display';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { TERRAIN_MAX_OPS, TERRAIN_PRESETS } from '../src/gen/terrainEdits';
 import {
   cultureKey,

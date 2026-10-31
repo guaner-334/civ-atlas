@@ -5,7 +5,7 @@
  *   1. 用原来的地形推到大事那一年的前一刻(和没有大事时同一次推演,所以之前的日志、史事逐字节相同)
  *   2. 套上这次的地形修改重新生成世界(upheavalSteps;gen/terrainEdits.ts:改动只在附近,远处的地块逐位不变),
  *      州沿用原来的划分和编号,只改地形变了的地方(regions.ts 的 reshapeRegions)
- *   3. CivSim.fromCiv 按新地形重建"接下来该发生什么",大事那一刻(同一刻里最先)按这里的规则处理后果,再接着推
+ *   3. resumeCiv 按新地形重建"接下来该发生什么",大事那一刻(同一刻里最先)按这里的规则处理后果,再接着推
  *
  * 大事那一刻的后果:
  *   - 记一条史事 upheaval(a = 第几件大事,region = 受灾最重的州),经过(哪些州沉了、连起了哪两块陆地……)记进 Civ.upheavals
@@ -26,8 +26,8 @@ import type { TerrainOp, Upheaval } from '../edits';
 import { Layer, type Civ, type Habitat, type Polity, type Regions, type Settlement, type UpheavalFact, type Year } from './types';
 import { computeHabitat } from './habitat';
 import { buildRegions, reshapeRegions } from './regions';
-import { ownersAt } from './timeline';
-import { Ev, type CivSim } from './sim';
+import { ownersAt } from './engine/timeline';
+import { Ev, type CivSim } from './engine/sim';
 import { endPolity, findPorts, moveCapital, polityModelOf, siteFactor } from './polities';
 import { bestCapital, warModelOf, type War } from './wars';
 import { capitalAt, populationAt } from './growth';
@@ -423,13 +423,13 @@ export function previewVictims(civ: Civ, world: Pick<World, 'mesh' | 'width'>, w
   return upheavalVictims(alive, civ.polities, own.polity, year, { mesh: world.mesh, width: world.width, water: water1 as World['water'] }, ops);
 }
 
-/** 预约第 k 件大事(fromCiv 的 first 回调里调用:同一刻里先于别的一切事件) */
+/** 预约第 k 件大事(resumeCiv 的 first 回调里调用:同一刻里先于别的一切事件) */
 export function scheduleUpheaval(sim: CivSim, k: number, year: number): void {
   sim.schedule(year, Ev.Upheaval, k, 0);
 }
 
 /**
- * 登记第 k 件大事的处理(fromCiv 之后调用)。impact = upheavalImpact 比出来的;fact = 这件大事的经过,
+ * 登记第 k 件大事的处理(resumeCiv 之后调用)。impact = upheavalImpact 比出来的;fact = 这件大事的经过,
  * 那一刻填上当时的国家(Civ.upheavals[k]);before = 大事以前的地形(只用它的 water)
  */
 export function installUpheaval(sim: CivSim, k: number, step: UpheavalStep, impact: UpheavalImpact, fact: UpheavalFact, before: Pick<World, 'water'>): void {

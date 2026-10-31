@@ -9,7 +9,7 @@
  */
 import type { Civ, Person, Year } from '../types';
 import { polityAlive, polityName } from '../growth';
-import { ownersAt } from '../timeline';
+import { ownersAt } from '../engine/timeline';
 import { treatyBook, type TreatyInfo, type ZoneInfo } from '../treatyBook';
 
 // 每份约、每处中立地的来龙去脉(treatyBook)、立约选项和干预没生效的原因码在 treatyBook.ts;原来从这里 import 的照旧能用

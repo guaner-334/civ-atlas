@@ -6,14 +6,14 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { trekModelOf } from '../src/gen/civ/migration';
 import { IV_NO_WAY, searchTrek, trekPaths, trekRouteTo } from '../src/gen/civ/trekRoute';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { cleanIntervention, cleanInterventions, cultureKey, regionKey, type Intervention } from '../src/gen/edits';
 import { decodeShare, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const SEED = 7;
 /** 下令的那一年(不是 5、20 的倍数:那一刻没有隔几年一次的事件抢在干预前面) */
@@ -96,7 +96,7 @@ describe('作者下令大迁徙', () => {
     const { c } = scene(civ);
     // 下令那一刻以前的样子:切在那一刻的前一格接着推
     const half = generateCiv(world(), { endYear: 1200 });
-    const sim = CivSim.fromCiv(world(), half, []);
+    const sim = resumeCiv(world(), half, []);
     sim.run(Y - 1 / 256);
     const tm = trekModelOf(sim)!;
     const pm = polityModelOf(sim)!;
@@ -170,7 +170,7 @@ describe('作者下令大迁徙', () => {
     const M = whole.migrations!.find((x) => x.iv === 0)!;
     for (const cut of [Y, Math.floor((M.year + M.settled!) / 2), M.settled!]) {
       const half = generateCiv(world(), { endYear: cut, interventions: [v] });
-      const sim = CivSim.fromCiv(world(), half, [v]);
+      const sim = resumeCiv(world(), half, [v]);
       sim.run(whole.endYear);
       const res = sim.result();
       const tag = `从第 ${cut} 年接着推`;
