@@ -36,6 +36,7 @@ import { treatiesModule } from './treaties';
 import { migrationModule } from './migration';
 import { religionModule, type FaithEra } from './religion';
 import { interventionsModule, scheduleInterventions, type InterventionModel } from './interventions';
+import { CIV_EVENTS } from './events';
 
 /** 一口气推时装模块拿到的东西 */
 export interface InstallCtx {
@@ -135,7 +136,7 @@ export function resumeCiv(
   first?: (sim: CivSim) => void,
   eras: readonly FaithEra[] = civ.eras ?? [],
 ): CivSim {
-  const sim = CivSim.restore(civ);
+  const sim = CivSim.restore(civ, CIV_EVENTS);
   if (civ.viable && civ.cultures.length) {
     // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里地形大事最先,干预只排在新君即位、迁都后重看边地后面)
     first?.(sim);

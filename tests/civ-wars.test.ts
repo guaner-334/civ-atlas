@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind, Layer, type Annal } from '../src/gen/civ/types';
-import { Ev } from '../src/gen/civ/engine/sim';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { CAPITAL_GRACE, HOLD, exclaveMask, warModelOf, warStats } from '../src/gen/civ/wars';
@@ -10,6 +9,7 @@ import { annexedRemnants, capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { regionPasses } from '../src/gen/civ/passes';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { Ev } from '../src/gen/civ/events';
 
 /**
  * 州 r 是不是国家 pid 灭国时一并收下的残部(wars.ts 的 annex:"隔海的残部最后一并归 x"):

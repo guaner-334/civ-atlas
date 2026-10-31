@@ -56,12 +56,13 @@ import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
 import { fexp, flog, keyed, keyed4, subSeed } from './engine/rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
+import { BOOKED_AT_START, bookChain, quantize, type CivSim } from './engine/sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capacityAt, capitalAt, populationAt } from './growth';
 import type { ControlModel } from './control';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */

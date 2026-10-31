@@ -59,7 +59,7 @@
 import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
 import { keyed, keyed4, subSeed } from './engine/rand';
-import { Ev, quantize, type CivSim } from './engine/sim';
+import { quantize, type CivSim } from './engine/sim';
 import { REOPEN, hates, limitedEnd, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
@@ -73,6 +73,7 @@ import type { InterventionModel } from './interventions';
 import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, OPT_QUIET } from './treatyBook';
 import { royalSeg } from './regime';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
