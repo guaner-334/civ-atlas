@@ -17,7 +17,8 @@ import { evLabel, evType } from '../src/ui/timelineLayout';
 import { flagAt, flagBook } from '../src/gen/civ/story/flags';
 import { flagNote } from '../src/gen/civ/story/flagText';
 
-const SEEDS = [7, 13, 2024];
+// 种子 2 是 GENERATOR_VERSION 56 以后补的(以前是 13):滚雪球以后复辟少见了,种子 1–13、2024 里只有 2 号有
+const SEEDS = [7, 2, 2024];
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
   let w = worlds.get(seed);

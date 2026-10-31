@@ -108,7 +108,15 @@ describe('推一把发展(boost)', () => {
   it('快 10 倍管 50 年:进下一个时代的州比不推、快 3 倍多;编年史写到哪一年', () => {
     const c0 = baseCiv();
     const T = 1500;
-    const p = biggestAt(c0, T);
+    // T 年州最多、治下有铜锡的国家(治下没有铜锡的推不进青铜时代,见下一条;最大的那国不一定有)
+    const res = c0.development!.resources;
+    const own0 = ownersAt(c0, T).polity;
+    const sizes = new Map<number, number>();
+    for (const o of own0) if (o >= 0) sizes.set(o, (sizes.get(o) ?? 0) + 1);
+    const p = [...sizes.entries()]
+      .sort((x, y) => y[1] - x[1] || x[0] - y[0])
+      .map((x) => x[0])
+      .find((q) => own0.some((o, r) => o === q && res[r * 11 + 2] > 0))!;
     const a = polityKey(c0, p);
     const ahead = (c: Civ, y: number) => {
       const lv = developmentAt(c.development!, y);
@@ -144,7 +152,7 @@ describe('推一把发展(boost)', () => {
       return true;
     });
     expect(stuck.length).toBeGreaterThan(0);
-    // 推的那 50 年里国都没挪、也没打下有铜锡的州的那一国(挪了、打下了,规矩就管不着了;GENERATOR_VERSION 46 以后头一个这样的国家国都挪了):
+    // 推的那 50 年里国都没挪、也没打下有铜锡的州的那一国(挪了、打下了,规矩就管不着了;头一个这样的国家国都可能挪了,挨个往下找):
     // 国都的生产推不过青铜门口
     let checked = 0;
     for (const q of stuck) {

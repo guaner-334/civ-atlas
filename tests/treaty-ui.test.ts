@@ -13,18 +13,20 @@ import { diedInExile, treatyEntries, treatyPeriod, zoneOfRegionAt, zoneResidents
 import { neutralZones } from '../src/render/civ/neutral';
 import { stripeAt } from '../src/render/civ/territory';
 
-// 种子 13(GENERATOR_VERSION 48 的历史;第 47 版是种子 60,第 46 版是种子 50,以前是种子 10、31;第 48 版种子 1–13 里三样都有的只有 13):
-// 三国以上立约、设了中立地的一份(three),设了中立地又背约的一份(broken),有人被放逐到中立地
-const world = generateWorld({ ...DEFAULT_PARAMS, seed: 13 });
+// 种子 158(GENERATOR_VERSION 56 的历史):三国以上立约、设了中立地的一份(three),有人被放逐到中立地;
+// 设了中立地又背约的一份(broken)在种子 1 里。第 56 版种子 1–200 里三样都有的一个也没有(三国立约设中立地的只有 158、159、177),分两个世界找
+// (第 48 版是种子 13,第 47 版是种子 60,第 46 版是种子 50,以前是种子 10、31)
+const world = generateWorld({ ...DEFAULT_PARAMS, seed: 158 });
 const civ = generateCiv(world);
 const book = treatyBook(civ);
 const three = book.treaties.find((x) => x && x.parties.length >= 3 && x.zone >= 0)!;
-const broken = book.treaties.find((x) => x && x.zone >= 0 && x.breaches.length > 0)!;
 // 出奔邻国的(Person.exile.to,没有中立地)不算
 const exiled = (civ.people ?? []).filter((x) => x.exile && x.exile.zone >= 0);
+const civB = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 1 }));
+const broken = treatyBook(civB).treaties.find((x) => x && x.zone >= 0 && x.breaches.length > 0)!;
 
 describe('立约与中立地的界面', () => {
-  it('种子 13 里有三国立约、设了中立地的约,有设了中立地又背约的约,有人被放逐到中立地(GENERATOR_VERSION 47 是种子 60,46 是种子 50)', () => {
+  it('种子 158 里有三国立约、设了中立地的约,有人被放逐到中立地;种子 1 里有设了中立地又背约的约', () => {
     expect(three).toBeTruthy();
     expect(broken).toBeTruthy();
     expect(exiled.length).toBeGreaterThan(0);
@@ -37,12 +39,12 @@ describe('立约与中立地的界面', () => {
       expect(k.startsWith('treaty:')).toBe(true);
       expect(resolveKey(civ, k)).toEqual({ kind: 'treaty', id: x.id });
     }
-    const named = applyNames(civ, { [treatyKey(civ, broken.id)]: '弭兵之约' });
-    expect(named).not.toBe(civ);
+    const named = applyNames(civB, { [treatyKey(civB, broken.id)]: '弭兵之约' });
+    expect(named).not.toBe(civB);
     expect(treatyName(named, broken.id)).toBe('弭兵之约');
     expect(treatyTitle(named, broken.id)).toBe('弭兵之约');
     // 没改名的照旧;原来的那份不动
-    expect(treatyName(civ, broken.id)).not.toBe('弭兵之约');
+    expect(treatyName(civB, broken.id)).not.toBe('弭兵之约');
     const texts = fullChronicle(named)
       .filter((e) => e.kind === 'breach')
       .map((e) => e.text)
@@ -69,7 +71,7 @@ describe('立约与中立地的界面', () => {
     expect(kinds).toContain('neutral');
     for (let i = 1; i < es.length; i++) expect(es[i].year).toBeGreaterThanOrEqual(es[i - 1].year);
     // 背了的约:议和时划缓冲中立地、顺带立的约,头一件就是设中立地那条(写着"约若干年互不侵犯"),后面有背约
-    const bs = treatyEntries(civ, broken, all).map((e) => e.kind);
+    const bs = treatyEntries(civB, broken, fullChronicle(civB)).map((e) => e.kind);
     expect(bs[0]).toBe(broken.how === 'peace' ? 'neutral' : 'treaty');
     expect(bs).toContain('breach');
     for (const x of book.treaties) {
