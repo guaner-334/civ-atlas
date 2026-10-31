@@ -186,6 +186,20 @@ const OCEAN_ATLAS: [number, RGB][] = ATLAS_SEA.flatMap((c, i): [number, RGB][] =
   ];
 });
 
+/** 湿地(Raster.wet,适宜度 × 255):从 WET_LO 到 WET_HI 渐变进来(湿地门槛 0.5 在中间) */
+const WET_LO = 0.42 * 255;
+const WET_HI = 0.6 * 255;
+/** 往湿地颜色拉几成;暖的地方深绿(苏德、奥卡万戈、美索不达米亚沼泽),冷的地方褐绿(西西伯利亚、哈德逊湾低地的泥炭地) */
+const WET_TINT = 0.6;
+const WET_WARM = hexRGB('#2c4626');
+const WET_COLD = hexRGB('#4e4530');
+/** 小水塘的颜色;细纹理(约 −1 ~ 1)过 WET_POND0 开始有、到 WET_POND1 满 */
+const WET_POND = hexRGB('#1a2a2a');
+const WET_POND0 = 0.45;
+const WET_POND1 = 0.66;
+/** 地图册的沼泽短横 */
+const WET_ATLAS = hexRGB('#4f86b4');
+
 /** 卫星照片的几种地面颜色:浓密植被(热带 / 温带 / 寒带)、草地(暖 / 冷)、裸地(沙、红褐岩、寒漠) */
 const PH_FOREST_TROP = hexRGB('#1f3f18');
 const PH_FOREST_TEMP = hexRGB('#2d4821');
@@ -1322,6 +1336,7 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
   const wxOf = (px: number) => (colOf(px) + 0.5) / r.scale;
   const bank = r.bank;
   const vein = r.vein;
+  const wetB = r.wet;
   const geo = new RowNoise(GEO_OCT, 101, w, wxOf, Ww, pxW);
   const fine = new RowNoise(FINE_OCT, 201, w, wxOf, Ww, pxW, 1, TEX_BIG_PX);
   const streak = new RowNoise(STREAK_OCT, 301, w, wxOf, Ww, pxW, STREAK_SX, TEX_BIG_PX);
@@ -1384,6 +1399,38 @@ function paintRealistic(ctx: CanvasRenderingContext2D, r: Raster, cap?: GlobeCap
     let cr = col[0] * v;
     let cg = col[1] * v;
     let cb = col[2] * v;
+    // 湿地:往湿地的颜色拉(暖的地方深绿、冷的地方褐绿的泥炭地),再撒一些小水塘;边上按适宜度渐变
+    const wk = wetB[k];
+    if (wk > WET_LO) {
+      const a = smoothstep(WET_LO, WET_HI, wk);
+      if (MODEL === 'hypso') {
+        // 地图册的沼泽符号:一道道蓝色短横(每 7×4 像素一格里一道 3 像素长的)
+        const gxp = colOf(px);
+        const gyp = wy0 + py;
+        const cx = Math.floor(gxp / 7);
+        const cy = Math.floor(gyp / 4);
+        const ox = gxp - cx * 7 - ((hash2(cx, cy, 81) * 4) | 0);
+        if (gyp - cy * 4 === 1 && ox >= 0 && ox < 3 && hash2(cx, cy, 82) < a) {
+          cr += (WET_ATLAS[0] - cr) * 0.75;
+          cg += (WET_ATLAS[1] - cg) * 0.75;
+          cb += (WET_ATLAS[2] - cb) * 0.75;
+        }
+      } else {
+        const kt = smoothstep(-2, 12, temp[k]);
+        const lit = (0.8 + 0.4 * tb) * v;
+        const am = a * WET_TINT;
+        cr += ((WET_COLD[0] + (WET_WARM[0] - WET_COLD[0]) * kt) * lit - cr) * am;
+        cg += ((WET_COLD[1] + (WET_WARM[1] - WET_COLD[1]) * kt) * lit - cg) * am;
+        cb += ((WET_COLD[2] + (WET_WARM[2] - WET_COLD[2]) * kt) * lit - cb) * am;
+        // 小水塘:细纹理最亮的那些点(越靠湿地中间越多)
+        const pond = smoothstep(WET_POND0, WET_POND1, fn + 0.5 * (wk / 255 - 0.5)) * a;
+        if (pond > 0) {
+          cr += (WET_POND[0] - cr) * pond;
+          cg += (WET_POND[1] - cg) * pond;
+          cb += (WET_POND[2] - cb) * pond;
+        }
+      }
+    }
     // 高山 / 陡坡:裸岩。坡度直接按海拔梯度算(和光照方向无关),
     // 不再用"明暗偏离平地多少"来估计 —— 那样背光面一律被当成陡坡,暗面会发灰
     const gx = (relief[kr] - relief[kl]) * gxk;

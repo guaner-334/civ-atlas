@@ -21,7 +21,8 @@
 import type { World } from './world';
 import type { Mesh } from './mesh';
 import { blurField } from './mesh';
-import { classifyBiome } from './biomes';
+import { Biome, classifyBiome, LAND_ICE_BELOW } from './biomes';
+import { WETLAND_CUT, wetlandSuitability } from './wetland';
 import { SEA_ICE_MIN, seaIceNodes, seaIcePixels } from './seaice';
 import { Gullies, gullyHeights, type GullyInput } from './gully';
 export { gullyHeights } from './gully';
@@ -93,6 +94,11 @@ export interface Raster {
   rivTint?: Uint8Array;
   rivCore?: Uint8Array;
   /**
+   * 湿地适宜度 × 255(地块的适宜度插值到像素、加了细节噪声;见 gen/wetland.ts),只有陆地像素可能非 0:
+   * 到 WETLAND_CUT 的陆地像素群落是湿地。写实风据此把湿地边上画得渐变、按浓淡撒小水塘
+   */
+  wet: Uint8Array;
+  /**
    * 等距圆柱主图东西相连 —— 第 0 列和最后一列相邻,邻域操作的列下标取模;
    * 第 py 行像素中心的纬度 = 90° − (py + 0.5) / h × 180°(上边是北极、下边是南极)
    */
@@ -116,14 +122,16 @@ const COAST_FINE = 2.1;
 const COAST_STEP = 2.85;
 /** 加满一份时这层弯曲的幅度(世界单位,和下面 D 同一个量纲) */
 const COAST_BEND = 5;
+/** 像素的湿地适宜度加多少细节噪声(细节噪声标准差约 DETAIL_STD):湿地的边弯弯曲曲,不是地块插值出来的一圈圆弧 */
+const WET_NOISE = 0.3;
 /** 小于这么多像素(1 倍主图)、四面都是海的陆地碎点去掉:多是近岸噪声撒出来的,不是板块算出来的岛 */
 const SPECK_MAX = 4;
 
 /**
- * 每个三角形存 7 个字段(依次为湖泊比例、细节幅度、海岸标记、海平面等效温度、降水、海岸陡峭度、平滑海冰程度),
+ * 每个三角形存 8 个字段(依次为湖泊比例、细节幅度、海岸标记、海平面等效温度、降水、海岸陡峭度、平滑海冰程度、湿地适宜度),
  * 每个字段 3 个数:重心权重的线性函数 v = P₀·w_A + P₁·w_B + P₂
  */
-export const PLANE = 21;
+export const PLANE = 24;
 
 /** 当地起伏(米)→ 陆地细节噪声幅度(米):平原几米,山地几百米 */
 function landAmp(rel: number): number {
@@ -151,6 +159,8 @@ export interface CellFields {
   rug: Float32Array;
   /** 平滑海冰程度(见 seaIceNodes) */
   ice: Float32Array;
+  /** 湿地适宜度(见 gen/wetland.ts) */
+  wet: Float32Array;
 }
 
 export function cellFields(world: World): CellFields {
@@ -202,7 +212,7 @@ export function cellFields(world: World): CellFields {
     coast[i] = coastal ? 1 : sea ? 1e-3 : 0;
     rug[i] = rugged(rel[i]);
   }
-  return { sElev, lake, t0, precip: precipitation, amp, coast, rug, ice: seaIceNodes(world) };
+  return { sElev, lake, t0, precip: precipitation, amp, coast, rug, ice: seaIceNodes(world), wet: wetlandSuitability(world) };
 }
 
 /** 噪声贴图只和种子有关:记住上一次的,只调参数不换种子时直接复用 */
@@ -633,6 +643,7 @@ function* rasterizeRawSteps(world: World, scale: number, gully: boolean, lines?:
     precip: new Float32Array(N),
     water: new Uint8Array(N),
     biome: new Uint8Array(N),
+    wet: new Uint8Array(N),
     cell: b.cell,
     ice: new Float32Array(N),
     iceConc: new Uint8Array(N),
@@ -671,7 +682,7 @@ function* rasterizeRawSteps(world: World, scale: number, gully: boolean, lines?:
  * 只管整张主图;温度按海面改回(陆地像素按海拔降过温),群落重分
  */
 function dropSpecks(r: Raster, max: number) {
-  const { w, h, water, elev, temp, precip, biome, ice } = r;
+  const { w, h, water, elev, temp, precip, biome, ice, wet } = r;
   const seen = new Uint8Array(w * h);
   const comp: number[] = [];
   const stack: number[] = [];
@@ -706,6 +717,7 @@ function dropSpecks(r: Raster, max: number) {
       elev[k] = -2;
       water[k] = 1;
       biome[k] = classifyBiome(temp[k], precip[k], 1, 0);
+      wet[k] = 0;
     }
   }
 }
@@ -715,7 +727,7 @@ function dropSpecks(r: Raster, max: number) {
  * 调用方保证框比要的那块四周各多出几个像素(碎点最多 max 个像素,离框边远的那块里结果和整张图一起做一样),多出的那圈另外换回原样
  */
 export function dropSpecksIn(r: Raster, max: number, box: PixelBox) {
-  const { w, h, water, elev, temp, precip, biome, ice } = r;
+  const { w, h, water, elev, temp, precip, biome, ice, wet } = r;
   const { x0: bx, y0: by, w: bw, h: bh } = box;
   // 框里的像素按框里的下标记"看过了":(y − by) × bw + 列在框里的第几列
   const seen = new Uint8Array(bw * bh);
@@ -766,6 +778,7 @@ export function dropSpecksIn(r: Raster, max: number, box: PixelBox) {
           elev[k] = -2;
           water[k] = 1;
           biome[k] = classifyBiome(temp[k], precip[k], 1, 0);
+          wet[k] = 0;
         }
       }
     }
@@ -857,12 +870,12 @@ export function cellPlanes(mesh: Mesh, f: CellFields): Float32Array {
   const { triangles } = mesh;
   const nt = triangles.length / 3;
   const planes = new Float32Array(nt * PLANE);
-  const fields = [f.lake, f.amp, f.coast, f.t0, f.precip, f.rug, f.ice];
+  const fields = [f.lake, f.amp, f.coast, f.t0, f.precip, f.rug, f.ice, f.wet];
   for (let t = 0; t < nt; t++) {
     const a = triangles[3 * t];
     const b = triangles[3 * t + 1];
     const c = triangles[3 * t + 2];
-    for (let q = 0; q < 7; q++) {
+    for (let q = 0; q < fields.length; q++) {
       const fv = fields[q];
       const o = t * PLANE + q * 3;
       planes[o] = fv[a] - fv[c];
@@ -1143,7 +1156,7 @@ export function shadeSphere(
   const ry1 = rect ? rect.y0 + rect.h : h;
   const rx0 = rect ? rect.x0 : 0;
   const rw = rect ? rect.w : w;
-  const { elev: oElev, temp: oTemp, precip: oPrecip, water: oWater, biome: oBiome, ice: oIce } = out;
+  const { elev: oElev, temp: oTemp, precip: oPrecip, water: oWater, biome: oBiome, ice: oIce, wet: oWet } = out;
   const gl = zoom?.gullies ?? null;
   const { cosLon, sinLon, cosLat, sinLat } = g;
   // 贴图频率(每世界单位几个贴图像素):细节 1(波长约 14)、海岸低频 1/3、山地细纹理 2.37、气候抖动(波长约 40)
@@ -1288,6 +1301,14 @@ export function shadeSphere(
       const pr = (P[o + 12] * fx + P[o + 13] * fy + P[o + 14]) * (1 + 0.22 * j);
       oPrecip[k] = pr;
       oBiome[k] = classifyBiome(t, pr, wtr, 0);
+      // 湿地:地块的适宜度插值过来,加一点细节噪声(边上不是一圈圆弧);冰原上没有
+      let wk = 0;
+      if (wtr === 0 && t >= LAND_ICE_BELOW) {
+        const wv = P[o + 21] * fx + P[o + 22] * fy + P[o + 23] + WET_NOISE * d;
+        if (wv >= WETLAND_CUT) oBiome[k] = Biome.Wetland;
+        wk = wv <= 0 ? 0 : wv >= 1 ? 255 : Math.round(wv * 255);
+      }
+      oWet[k] = wk;
       if (wtr === 1 && tv > 0) {
         const c0 = P[o + 18] * fx + P[o + 19] * fy + P[o + 20];
         if (c0 > SEA_ICE_MIN) oIce[k] = c0;

@@ -11,7 +11,8 @@
 import type { Raster } from './raster';
 import type { ValleyLines } from './valleys';
 import type { World } from './world';
-import { classifyBiome } from './biomes';
+import { Biome, classifyBiome } from './biomes';
+import { WETLAND_CUT } from './wetland';
 import { sampleSpline } from './raster';
 import { clamp, smoothstep, subSeed } from './util';
 import { valueNoise } from './noise';
@@ -32,6 +33,9 @@ const DELTA_F = 250;
 const PLUME_R = 1.36;
 /** 三角洲外的浅滩到场 = -DELTA_FADE 处接回原来的海底 */
 const DELTA_FADE = 1.3;
+/** 三角洲上的地的湿地适宜度 × 255(Raster.wet;过了湿地门槛,湿地的颜色画满);到 WET_BYTE 的陆地像素群落是湿地 */
+const DELTA_WET = Math.round(0.62 * 255);
+const WET_BYTE = Math.ceil(WETLAND_CUT * 255);
 /** 河道终点离岸超过这么远(世界单位)就不补 */
 const BRIDGE_MAX = 8;
 
@@ -621,7 +625,7 @@ function pixelsOf(b: Box, sh: number, S: number, x0: number, y0: number, w: numb
  * 有河口的块多几份颜色系数:Raster.plume(浑水)、Raster.rivTint(河水颜色)、Raster.rivCore(其中河道本身的那份)
  */
 export function stampEstuaries(out: Raster, mouths: readonly Mouth[], threshold: number, width: number, S: number, x0: number, y0: number): void {
-  const { w, h, elev, water, temp, precip, biome, ice, iceConc } = out;
+  const { w, h, elev, water, temp, precip, biome, ice, iceConc, wet } = out;
   const mid = (x0 + 0.5 * w) / S;
   let pv: Float32Array | null = null;
   let tv: Float32Array | null = null;
@@ -630,6 +634,7 @@ export function stampEstuaries(out: Raster, mouths: readonly Mouth[], threshold:
   const toWater = (k: number) => {
     water[k] = 1;
     biome[k] = classifyBiome(temp[k], precip[k], 1, 0);
+    wet[k] = 0;
   };
   for (const m of mouths) {
     // 东西相连:挪到离这一块最近的那一圈;像素的坐标减掉 sh 再算(和挪了几圈无关)
@@ -657,13 +662,14 @@ export function stampEstuaries(out: Raster, mouths: readonly Mouth[], threshold:
             if (F < -DELTA_FADE) continue;
             if (water[k] === 1) {
               if (F > 0) {
-                // 三角洲上的地:贴着海面(过 0 处就是岸,两边的海拔连着);是湿地,按多两成的雨水上色(稍绿)
+                // 三角洲上的地:贴着海面(过 0 处就是岸,两边的海拔连着);是湿地(见 gen/wetland.ts),按多两成的雨水上色(稍绿)
                 elev[k] = Math.min(2.5, 3 * F);
                 water[k] = 0;
                 ice[k] = 0;
                 iceConc[k] = 0;
                 precip[k] *= 1.2;
-                biome[k] = classifyBiome(temp[k], precip[k], 0, 0);
+                wet[k] = DELTA_WET;
+                biome[k] = Biome.Wetland;
               } else {
                 // 水下浅滩:越近越浅,往外慢慢接回原来的海底(浅水那几米颜色变得最快,坡要缓)
                 const t = -F;
@@ -678,7 +684,9 @@ export function stampEstuaries(out: Raster, mouths: readonly Mouth[], threshold:
                 const e0 = Math.max(0.3, Math.min(2.5, 3 * F));
                 if (elev[k] > e0) elev[k] += (e0 - elev[k]) * wv;
                 precip[k] *= 1 + 0.2 * wv;
-                biome[k] = classifyBiome(temp[k], precip[k], 0, 0);
+                const dw = Math.round(DELTA_WET * wv);
+                if (dw > wet[k]) wet[k] = dw;
+                biome[k] = wet[k] >= WET_BYTE ? Biome.Wetland : classifyBiome(temp[k], precip[k], 0, 0);
               }
             }
             if (F < -0.35 || qx < cb[0] || qx > cb[2] || qy < cb[1] || qy > cb[3]) continue;

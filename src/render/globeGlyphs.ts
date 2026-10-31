@@ -13,7 +13,7 @@
  * 规划、投影、挑选是纯计算(单测在 Node 里跑);画用 fantasy.ts 的 drawGlyph(和平面主图同一份画法)。
  */
 import type { World } from '../gen/world';
-import { G_DUNE, G_HILL, G_MOUNTAIN, G_TUFT, G_VOLCANO, drawGlyph, glyphScale, planGlyphs, type Glyph } from './fantasy';
+import { G_DUNE, G_HILL, G_MARSH, G_MOUNTAIN, G_TUFT, G_VOLCANO, MARSH_RAD, drawGlyph, glyphScale, planGlyphs, type Glyph } from './fantasy';
 import type { GlyphMetric } from './projection';
 import type { GlobeProjector } from './globeLines';
 
@@ -43,11 +43,11 @@ export interface GlobeGlyphSet {
   ridge: Float32Array;
   /** 规划时的占位半径(世界单位,缩放 1 倍时) */
   rad: Float32Array;
-  /** 挑选顺序:先出现的级别、火山 → 山 → 丘陵 → 沙丘 → 草丛、大的在前(下标) */
+  /** 挑选顺序:先出现的级别、火山 → 山 → 丘陵 → 沙丘 → 草丛 / 沼泽、大的在前(下标) */
   order: Int32Array;
 }
 
-const KIND_RANK: Record<number, number> = { [G_VOLCANO]: 0, [G_MOUNTAIN]: 1, [G_HILL]: 2, [G_DUNE]: 3, [G_TUFT]: 4 };
+const KIND_RANK: Record<number, number> = { [G_VOLCANO]: 0, [G_MOUNTAIN]: 1, [G_HILL]: 2, [G_DUNE]: 3, [G_TUFT]: 4, [G_MARSH]: 4 };
 
 /** 规划时的占位半径(和 planGlyphs 一致;山的主脊 / 侧脊不分,取中间) */
 function planRadius(g: Glyph): number {
@@ -60,6 +60,8 @@ function planRadius(g: Glyph): number {
       return g.s * 2;
     case G_DUNE:
       return 5;
+    case G_MARSH:
+      return MARSH_RAD;
     default:
       return 2.6;
   }

@@ -70,6 +70,7 @@ export function paintFantasyBox(ctx: CanvasRenderingContext2D, world: World, f: 
     ice: new Float32Array(0),
     iceConc: new Uint8Array(0),
     iceTone: new Uint8Array(0),
+    wet: new Uint8Array(0),
     wrap: true,
     win: { x0: x0 - pad, y0: y0 - pad, W: Wpx, H: Hpx },
   } as Raster;

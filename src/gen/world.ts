@@ -15,7 +15,8 @@ import { blurField, buildMesh, type Mesh } from './mesh';
 import { buildTectonics, type Tectonics } from './tectonics';
 import { erodeSteps, drainage, accumulate } from './erosion';
 import { computeClimate, type ClimateParams } from './climate';
-import { classifyBiome } from './biomes';
+import { Biome, classifyBiome } from './biomes';
+import { WETLAND_CUT, wetlandSuitability } from './wetland';
 import { computeSeaIce } from './seaice';
 import { mulberry32, subSeed, clamp, keyed, smoothstep } from './util';
 import { geometryOf, sphereSpacing } from './geometry';
@@ -665,6 +666,9 @@ export function* generateWorldSteps(params: WorldParams, progress: Progress = ()
   progress('生物群落', 0.9);
   const biome = new Uint8Array(n);
   for (let i = 0; i < n; i++) biome[i] = classifyBiome(clim.temperature[i], clim.precipitation[i], water[i], seaIce[i]);
+  // 湿地:低平、排水差、有水来(本地的水蒸发不完 / 大河漫滩 / 湖边)的陆地块盖成湿地(见 wetland.ts;冰原上没有)
+  const wet = wetlandSuitability({ mesh, elevation, water, temperature: clim.temperature, precipitation: clim.precipitation, flux, riverThreshold });
+  for (let i = 0; i < n; i++) if (water[i] === 0 && wet[i] >= WETLAND_CUT) biome[i] = Biome.Wetland;
   // 最高海拔(山名、山峰符号的门槛按它定):改过地形、画了草图的世界(草图改了板块的除外)照没改地形的同一颗星球的
   // (TerrainBase.peak;后一半只挖湖、填洼地、把海平面以下的垫平,陆地最高处不变),涂一道高山、放一座大火山、
   // 用高度笔堆高、把最高的山压平都不改远处山名、山峰符号的门槛

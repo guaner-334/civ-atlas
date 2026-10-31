@@ -16,7 +16,7 @@ import { boxOfCols, boxSpans, type PixelBox } from './pixelBox';
 
 /** 补丁里有的字段(cell 只由网格定,各段一样,不存) */
 const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
-const U8 = ['water', 'biome', 'iceConc', 'iceTone', 'bank', 'vein'] as const;
+const U8 = ['water', 'biome', 'iceConc', 'iceTone', 'wet', 'bank', 'vein'] as const;
 type F32Key = (typeof F32)[number];
 type U8Key = (typeof U8)[number];
 
@@ -317,6 +317,7 @@ export function composeRaster(base: Raster, patches: readonly RasterPatch[]): Ra
     ice: base.ice.slice(),
     iceConc: base.iceConc.slice(),
     iceTone: base.iceTone.slice(),
+    wet: base.wet.slice(),
     gully: base.gully?.slice(),
     bank: base.bank?.slice(),
     vein: base.vein?.slice(),
@@ -401,6 +402,7 @@ export function cutRaster(r: Raster, x0: number, y0: number, w: number, h: numbe
     ice: cut(r.ice, f32(o?.ice)),
     iceConc: cut(r.iceConc, u8(o?.iceConc)),
     iceTone: cut(r.iceTone, u8(o?.iceTone)),
+    wet: cut(r.wet, u8(o?.wet)),
     gully: r.gully && cut(r.gully, f32(o?.gully)),
     bank: r.bank && cut(r.bank, u8(o?.bank)),
     vein: r.vein && cut(r.vein, u8(o?.vein)),

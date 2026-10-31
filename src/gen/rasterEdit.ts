@@ -133,6 +133,7 @@ export function* rasterizePatchSteps(world: World, prev: RasterKeep, maxFrac = 0
     ice: own(r0.ice),
     iceConc: own(r0.iceConc),
     iceTone: own(r0.iceTone),
+    wet: own(r0.wet),
     bank: r0.bank ? own(r0.bank) : new Uint8Array(N),
     wrap: true,
   };
@@ -159,7 +160,7 @@ export function* rasterizePatchSteps(world: World, prev: RasterKeep, maxFrac = 0
     // W3 比 W2 多出的那圈:换回原来的(那里本来就没变,去碎点只在 W2 里算得准)。就地改的,原来的取自改之前记下的那块
     const was = before?.box;
     const src = was
-      ? { elev: was.f32.elev!, temp: was.f32.temp!, precip: was.f32.precip!, water: was.u8.water!, biome: was.u8.biome!, ice: was.f32.ice!, iceConc: was.u8.iceConc!, iceTone: was.u8.iceTone! }
+      ? { elev: was.f32.elev!, temp: was.f32.temp!, precip: was.f32.precip!, water: was.u8.water!, biome: was.u8.biome!, ice: was.f32.ice!, iceConc: was.u8.iceConc!, iceTone: was.u8.iceTone!, wet: was.u8.wet! }
       : r0;
     forRows(w3, W, (a, b) => {
       const y = (a / W) | 0;
@@ -177,6 +178,7 @@ export function* rasterizePatchSteps(world: World, prev: RasterKeep, maxFrac = 0
         raster.ice[k] = src.ice[j];
         raster.iceConc[k] = src.iceConc[j];
         raster.iceTone[k] = src.iceTone[j];
+        raster.wet[k] = src.wet[j];
       }
     });
     // 河岸(同 bankBytes)
