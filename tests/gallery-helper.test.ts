@@ -174,6 +174,11 @@ describe('帮手列的名字和几样数', () => {
     expect(fj.input.interventions).toEqual([{ kind: 'found', region: found.region, from: 1200 }]);
     expect(fj.input.play?.commands).toEqual([{ kind: 'found', region: found.region, from: 1300 }]);
     expect(JSON.stringify(fj.input)).not.toContain('作者国');
+    // 新建世界时定的拓荒、天灾照存档带上(封面上的历史和作者的世界一样)
+    const set = helperJob({ id: 'd', kind: 'world', save: makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, frontier: { spread: 2 }, calamity: 'many' }, 'c7') });
+    expect(set.input.calamity).toBe('many');
+    expect(set.input.frontier).toEqual({ spread: 2 });
+    expect(job.input).not.toHaveProperty('calamity');
     // 地图作品:不停在哪年、中央经线 0°(封面贴在地球仪上)
     const map = helperJob({ id: 'b', kind: 'map', save: { ...save, moment: { year } } });
     expect(map.moment).toBeUndefined();

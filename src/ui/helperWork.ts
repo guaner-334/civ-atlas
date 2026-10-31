@@ -19,6 +19,7 @@ import type { Civ, Person, Place, Polity } from '../gen/civ/types';
 import type { WorkerRequest } from '../worker';
 import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
+import { cleanCalamity } from '../gen/civ/calamity';
 import { ruleTuning } from '../gen/civ/ruleSet';
 import { parseSave } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
@@ -65,6 +66,7 @@ export function helperJob(r: RenderRequest): HelperJob {
   const endYear = endParamOf(e);
   const frontier = cleanFrontier(e.frontier);
   const origins = cleanOrigins(e.origins);
+  const calamity = cleanCalamity(e.calamity);
   const civSeed = cleanCivSeed(e.civSeed);
   const tuning = ruleTuning(e.rules);
   const played = cleanPlay(e.play);
@@ -80,6 +82,7 @@ export function helperJob(r: RenderRequest): HelperJob {
     ...(endYear ? { endYear } : {}),
     ...(frontier ? { frontier } : {}),
     ...(origins ? { origins } : {}),
+    ...(calamity ? { calamity } : {}),
     ...(tuning ? { tuning } : {}),
     ...(civSeed !== undefined ? { civSeed } : {}),
     ...(play ? { play } : {}),
