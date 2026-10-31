@@ -10,7 +10,7 @@
  *                 只列这一年在位、领兵、在朝的人;点一行跟他、回到设置
  *   FollowAct     人物卡按钮一排里的「关注他 / 不关注」(宗室没有)
  */
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { personKey } from '../gen/edits';
 import { polityName } from '../gen/civ/growth';
@@ -127,11 +127,11 @@ export function FollowPlate({ civ, phone }: { civ: Civ; phone: boolean }) {
   const era = useEra();
   const st = useStepwise();
   const start = useMemo(() => (follow?.kind === 'person' ? resolveFollow(civ, follow) : null), [civ, follow]);
-  // 年份每帧都变:只在整年、跟的人换了的时候重画
-  const snap = useCallback(() => {
+  // 年份每帧都变:只在整年、跟的人换了的时候重画(取值函数每次渲染新包一层,见 createStore.ts 的 createListeners.use)
+  const snap = () => {
     const y = yearOf(civ);
     return `${F(y)}|${legKey(civ, followAt(civ, start, y))}`;
-  }, [civ, start]);
+  };
   const key = useSyncExternalStore(subscribeCivTime, snap, snap);
   const year = yearOf(civ);
   const leg = useMemo(() => followAt(civ, start, year), [civ, start, key]); // eslint-disable-line react-hooks/exhaustive-deps

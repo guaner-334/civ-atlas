@@ -41,12 +41,13 @@ export function isCoarse(): boolean {
   return media(COARSE_Q)?.matches ?? false;
 }
 
+// 取值函数每次渲染新包一层:订阅函数、取值函数都不换时 React 18 在渲染途中 setState 重跑组件后会漏一次通知(见 createStore.ts)
 export function useNarrow(): boolean {
-  return useSyncExternalStore(subNarrow, isNarrow, () => false);
+  return useSyncExternalStore(subNarrow, () => isNarrow(), () => false);
 }
 
 export function useCoarse(): boolean {
-  return useSyncExternalStore(subCoarse, isCoarse, () => false);
+  return useSyncExternalStore(subCoarse, () => isCoarse(), () => false);
 }
 
 let insetProbe: HTMLDivElement | null = null;

@@ -571,7 +571,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const studioFlat = useStudioFlat();
   // 宽屏左边的卡片收起了(sideStore.ts):新建世界那一步左边是新建世界的卡片,不算收起(sideRoom 照常让出它)
   const sideUi = useSide();
-  setSideHold(stage !== 'world');
+  // 在 layout effect 里设(变了要通知订阅者,不在渲染途中通知);换上以后、画出来之前跟着重画一遍
+  useLayoutEffect(() => setSideHold(stage !== 'world'), [stage]);
   /** 正在打开 / 已经打开的世界(生成完按它套上修改、交给自动存) */
   const targetRef = useRef<Target | null>(route.target);
   /**
