@@ -209,7 +209,8 @@ export function useMapGestures({ view, setView, viewRef, stageRef, globeApi, mp,
       // 移动没超过点击的容差前不转:还算"点一下"时转了中心,停着的那一版就得按投影整张重画(几百毫秒),马上又被拖动盖掉
       if (moved.current) {
         setMapMoving(true);
-        const pxPerDeg = view.k * (box.w / mp.W) * mp.s * mp.def.kx(0) * (Math.PI / 180);
+        // 每度几像素按最新的缩放算(viewRef:拖着的时候刚滚轮缩放过、还没重画也算上)
+        const pxPerDeg = viewRef.current.k * (box.w / mp.W) * mp.s * mp.def.kx(0) * (Math.PI / 180);
         if (pxPerDeg > 0) scheduleCenter(d.lon - (e.clientX - d.x) / pxPerDeg);
       }
       setView((v) => clampRef.current({ k: v.k, x: v.x, y: d.vy + e.clientY - d.y }, rect.width, rect.height));

@@ -14,6 +14,7 @@ import { closeRelief, getRelief, useRelief } from '../terrain3dStore';
 import { reliefRelease } from './jobs';
 import { RegionView, dropRegionCache } from './RegionView';
 import { ReliefView } from './View';
+import { isTyping } from '../useShortcuts';
 
 interface Props {
   world: World;
@@ -38,8 +39,7 @@ export function AreaView(props: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || getRelief().phase !== 'view') return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (isTyping(e.target)) return;
       closeRelief();
     };
     window.addEventListener('keydown', onKey);

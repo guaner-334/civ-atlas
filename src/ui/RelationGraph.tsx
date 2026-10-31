@@ -47,6 +47,7 @@ import {
   useRelation,
   type RelStep,
 } from './relationStore';
+import { isTyping } from './useShortcuts';
 import './relation.css';
 
 // ---------------------------------------------------------------------------
@@ -460,8 +461,7 @@ function RelationPanel({ civ, world, raster, phone, center }: RelationGraphProps
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (isTyping(e.target)) return;
       // 卡片上的「更多」菜单开着:先收菜单(PopMenu 自己管)
       if (document.querySelector('.pm-menu')) return;
       e.stopPropagation();
