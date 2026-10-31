@@ -39,56 +39,62 @@ import { inSlump, pandemicModelOf } from './pandemicState';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
-/** 攻下一州时城被洗劫、被毁的基础机会 */
-const SACK_P = 0.1;
-const RUIN_P = 0.055;
-/** 机会的上限 */
-const P_MAX = 0.75;
-/** 破坏系数:攻方是游牧国家;攻异族的城 / 同族的城 */
-const NOMAD = 2.2;
-const FOREIGN = 1.4;
-const KIN = 0.55;
-/** 久攻不下:攻方在这场战争里连着 SIEGE_FROM 年以上没拿下一州,之后每多 SIEGE_YEARS 年 × e(最多 SIEGE_MAX 倍) */
-const SIEGE_FROM = 6;
-const SIEGE_YEARS = 10;
-const SIEGE_MAX = 2.5;
-/** 破坏更重的战争:每场战争有 BRUTAL_P 的机会是;洗劫、毁城的机会 × BRUTAL */
-const BRUTAL_P = 0.15;
-const BRUTAL = 2.5;
-/** 国都被攻破:洗劫 × CAPITAL_SACK;毁 × CAPITAL_RUIN */
-const CAPITAL_SACK = 3;
-const CAPITAL_RUIN = 1.5;
-/** 城越大越难毁(按被攻下时的级别:村、镇、城、大城) */
-const RUIN_RANK = [1.3, 1, 0.7, 0.5];
-/** 同一场战争里每毁一座城,再毁的机会 × RUIN_AGAIN(不要打一次仗毁一片) */
-const RUIN_AGAIN = 0.2;
-/** 刚被洗劫过(SACK_REST 年内)的城没什么可抢的:洗劫的机会 × SACK_AGAIN */
-const SACK_REST = 40;
-const SACK_AGAIN = 0.3;
-/** 洗劫的人口折损(随机,含两头);破坏更重的战争、攻方是游牧国家时再多几成 */
-const LOSS: [number, number] = [0.3, 0.6];
-const LOSS_HARSH = 0.15;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const CITIES_KNOBS = defineKnobs('cities', {
+  /** 攻下一州时城被洗劫、被毁的基础机会 */
+  SACK_P: 0.1,
+  RUIN_P: 0.055,
+  /** 机会的上限 */
+  P_MAX: 0.75,
+  /** 破坏系数:攻方是游牧国家;攻异族的城 / 同族的城 */
+  NOMAD: 2.2,
+  FOREIGN: 1.4,
+  KIN: 0.55,
+  /** 久攻不下:攻方在这场战争里连着 SIEGE_FROM 年以上没拿下一州,之后每多 SIEGE_YEARS 年 × e(最多 SIEGE_MAX 倍) */
+  SIEGE_FROM: 6,
+  SIEGE_YEARS: 10,
+  SIEGE_MAX: 2.5,
+  /** 破坏更重的战争:每场战争有 BRUTAL_P 的机会是;洗劫、毁城的机会 × BRUTAL */
+  BRUTAL_P: 0.15,
+  BRUTAL: 2.5,
+  /** 国都被攻破:洗劫 × CAPITAL_SACK;毁 × CAPITAL_RUIN */
+  CAPITAL_SACK: 3,
+  CAPITAL_RUIN: 1.5,
+  /** 城越大越难毁(按被攻下时的级别:村、镇、城、大城) */
+  RUIN_RANK: [1.3, 1, 0.7, 0.5],
+  /** 同一场战争里每毁一座城,再毁的机会 × RUIN_AGAIN(不要打一次仗毁一片) */
+  RUIN_AGAIN: 0.2,
+  /** 刚被洗劫过(SACK_REST 年内)的城没什么可抢的:洗劫的机会 × SACK_AGAIN */
+  SACK_REST: 40,
+  SACK_AGAIN: 0.3,
+  /** 洗劫的人口折损(随机,含两头);破坏更重的战争、攻方是游牧国家时再多几成 */
+  LOSS: [0.3, 0.6] as [number, number],
+  LOSS_HARSH: 0.15,
+  /** 重建:毁后多少年开始看、每隔多少年看一次(每段里随机一个时刻)、一共看几次(按城随机,含两头) */
+  REBUILD_FIRST: 25,
+  REBUILD_EVERY: 45,
+  REBUILD_TRIES: [1, 7] as [number, number],
+  /** 每次看的机会 = REBUILD_P × 城址好坏(√(人口上限 ÷ SITE_REF),夹在 0.5–1.5) */
+  REBUILD_P: 0.18,
+  /** 和城的人口上限同比例(polities.ts 的 CAP_REF) */
+  SITE_REF: 48,
+  /** 这么多年里换过国家的州(战火未息)先不重建 */
+  REBUILD_SETTLE: 15,
+  /** 重建的城长得比一般的城快这么多倍(故址上重建,人口回流) */
+  REBUILD_GROWTH: 2.5,
+  /** 看旧都:失去国都之位后这么多年(再加 0–DECLINE_JITTER 年随机)看一次 */
+  DECLINE_NOTE: 110,
+  DECLINE_JITTER: 20,
+  /** 人口不到失去国都之位时的这么多、当时至少是"城"(千人),记"旧都渐衰" */
+  DECLINE_RATIO: 0.85,
+});
+const { SACK_P, RUIN_P, P_MAX, NOMAD, FOREIGN, KIN, SIEGE_FROM, SIEGE_YEARS, SIEGE_MAX, BRUTAL_P, BRUTAL, CAPITAL_SACK, CAPITAL_RUIN, RUIN_RANK, RUIN_AGAIN, SACK_REST, SACK_AGAIN, LOSS, LOSS_HARSH, REBUILD_FIRST, REBUILD_EVERY, REBUILD_TRIES, REBUILD_P, SITE_REF, REBUILD_SETTLE, DECLINE_NOTE, DECLINE_JITTER, DECLINE_RATIO } = CITIES_KNOBS.values;
+export const { REBUILD_GROWTH } = CITIES_KNOBS.values;
 
-/** 重建:毁后多少年开始看、每隔多少年看一次(每段里随机一个时刻)、一共看几次(按城随机,含两头) */
-const REBUILD_FIRST = 25;
-const REBUILD_EVERY = 45;
-const REBUILD_TRIES: [number, number] = [1, 7];
-/** 每次看的机会 = REBUILD_P × 城址好坏(√(人口上限 ÷ SITE_REF),夹在 0.5–1.5) */
-const REBUILD_P = 0.18;
-/** 和城的人口上限同比例(polities.ts 的 CAP_REF) */
-const SITE_REF = 48;
-/** 这么多年里换过国家的州(战火未息)先不重建 */
-const REBUILD_SETTLE = 15;
-/** 重建的城长得比一般的城快这么多倍(故址上重建,人口回流) */
-export const REBUILD_GROWTH = 2.5;
 
-/** 看旧都:失去国都之位后这么多年(再加 0–DECLINE_JITTER 年随机)看一次 */
-const DECLINE_NOTE = 110;
-const DECLINE_JITTER = 20;
-/** 人口不到失去国都之位时的这么多、当时至少是"城"(千人),记"旧都渐衰" */
-const DECLINE_RATIO = 0.85;
 const DECLINE_MIN_POP = SETTLEMENT_RANKS[2].min;
 
 // 随机数用途编号

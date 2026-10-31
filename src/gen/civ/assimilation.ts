@@ -59,88 +59,94 @@ import { warModelOf, type WarModel } from './wars';
 import { capitalAt } from './growth';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 立国后多少年开始看民族;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
-const CHECK_FIRST = 50;
-const CHECK_EVERY = 50;
-/** 一州改换民族(含最初定居)后,这么多年内不再改换(不闪烁) */
-export const HOLD = 150;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const ASSIMILATION_KNOBS = defineKnobs('assimilation', {
+  /** 立国后多少年开始看民族;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
+  CHECK_FIRST: 50,
+  CHECK_EVERY: 50,
+  /** 一州改换民族(含最初定居)后,这么多年内不再改换(不闪烁) */
+  HOLD: 150,
+  /** 同化:统治满 MIN_RULE 年才开始,FULL_RULE 年满速 */
+  MIN_RULE: 100,
+  FULL_RULE: 300,
+  /** 同化速率的底数(每年);离国都的路程(标准路程)每 REACH 衰减到 1/e */
+  RATE: 1 / 10,
+  REACH: 5,
+  /** 国都所在的异族州:四周统治民族的边界占比至少按这么多算(国都一带先同化) */
+  CAPITAL_KIN: 0.5,
+  /** 统治民族在本国的人口占比到这么多,同化就是满速 */
+  STRONG_SHARE: 0.6,
+  /** 原民族越大越难同化、越小越快被同化(残部很快融进四邻):× √(SIZE_REF ÷ 州数),夹在 [SIZE_MIN, SIZE_MAX] */
+  SIZE_REF: 25,
+  SIZE_MIN: 0.4,
+  SIZE_MAX: 2,
+  /** 反向同化:统治民族占本国人口不到 REVERSE_SHARE、另有一族到 REVERSE_MAJ;速率乘 REVERSE_K */
+  REVERSE_SHARE: 0.35,
+  REVERSE_MAJ: 0.5,
+  REVERSE_K: 0.8,
+  /**
+   * 大迁徙迁来立的国(Polity.trek,migration.ts):统治民族在本国占不到 TREK_SHARE(少数)、另有一族到 TREK_MAJ 就反过来被同化,
+   * 速率再乘 TREK_K —— 入主中原的一支两三百年里多半渐染当地之俗(北魏、诺曼人、保加尔人那样),国还在、国号不变
+   */
+  TREK_SHARE: 0.55,
+  TREK_MAJ: 0.3,
+  TREK_K: 8,
+  /** 地形:草原荒漠上的游牧民族、高山(海拔 > HIGH_ELEV)上的高原民族、林中的山林民族、小岛上的海洋民族难同化 */
+  RESIST_STEPPE: 0.2,
+  RESIST_HIGH: 0.35,
+  HIGH_ELEV: 900,
+  RESIST_FOREST: 0.4,
+  RESIST_ISLAND: 0.5,
+  /** 游牧国家同化草原荒漠以外的地方(牧人很少把农夫变成牧人,多是迁人进来,见 ①) */
+  NOMAD_FARMLAND: 0.35,
+  /** 看孤地:每隔多少年看一次;四周某一族的边界占比至少多少;定居多少年以上;速率的底数(每年) */
+  ENCLAVE_EVERY: 50,
+  ENCLAVE_F: 0.5,
+  ENCLAVE_HOLD: 300,
+  ENCLAVE_RATE: 1 / 80,
+  /** 看孤地时,隔海峡的邻州算多长的边界(标准路程) */
+  STRAIT_BORDER: 0.3,
+  /** 看分化:第一次在哪一年附近、之后每隔多少年;隔山隔海 / 分属不同国家时至少几州;定居满几年的州要占几成;归现在的国家满几年;每次的机会;一个世界最多分出几支 */
+  DIV_FIRST: 300,
+  DIV_EVERY: 100,
+  DIV_MIN_GEO: 6,
+  DIV_MIN_POL: 10,
+  DIV_AGE: 500,
+  DIV_SETTLED: 0.8,
+  DIV_AGE_GEO: 300,
+  DIV_SETTLED_GEO: 0.5,
+  DIV_RULE: 500,
+  DIV_P: 0.12,
+  DIV_MAX: 12,
+  /** 随征服而来的移民(游牧国家):每州的机会、林地打折、一次最多几州 */
+  SETTLE_P: 0.45,
+  SETTLE_FOREST: 0.3,
+  SETTLE_MAX: 6,
+  /** 避兵外迁:赔率底数(× 丢的州数)、游牧征服者、亡国 */
+  FLIGHT_ODDS: 0.06,
+  FLIGHT_NOMAD: 2,
+  FLIGHT_FALL: 3,
+  /** 外迁的州数 = 丢的州数 × FLIGHT_RATIO(至少 1、最多 FLIGHT_MAX);路程(标准路程)不超过 FLIGHT_REACH */
+  FLIGHT_RATIO: 0.8,
+  FLIGHT_MAX: 6,
+  FLIGHT_REACH: 8,
+  /** 找迁入地时的路程系数:无人之地、部落地带、同族国家治下的异族州 */
+  TO_EMPTY: 0.7,
+  TO_TRIBAL: 1,
+  TO_KIN_STATE: 1.3,
+  /** 过界系数(按 AdjKind:平地、跨河、翻山、海峡、航线) */
+  CROSS: [1, 1.2, 2, 2, 3],
+});
+const { CHECK_FIRST, CHECK_EVERY, MIN_RULE, FULL_RULE, RATE, REACH, CAPITAL_KIN, STRONG_SHARE, SIZE_REF, SIZE_MIN, SIZE_MAX, REVERSE_SHARE, REVERSE_MAJ, REVERSE_K, TREK_SHARE, TREK_MAJ, TREK_K, RESIST_STEPPE, RESIST_HIGH, HIGH_ELEV, RESIST_FOREST, RESIST_ISLAND, NOMAD_FARMLAND, ENCLAVE_EVERY, ENCLAVE_F, ENCLAVE_HOLD, ENCLAVE_RATE, STRAIT_BORDER, DIV_FIRST, DIV_EVERY, DIV_MIN_GEO, DIV_MIN_POL, DIV_AGE, DIV_SETTLED, DIV_AGE_GEO, DIV_SETTLED_GEO, DIV_RULE, DIV_P, SETTLE_P, SETTLE_FOREST, SETTLE_MAX, FLIGHT_ODDS, FLIGHT_NOMAD, FLIGHT_FALL, FLIGHT_RATIO, FLIGHT_MAX, FLIGHT_REACH, TO_EMPTY, TO_TRIBAL, TO_KIN_STATE, CROSS } = ASSIMILATION_KNOBS.values;
+export const { HOLD, DIV_MAX } = ASSIMILATION_KNOBS.values;
 
-/** 同化:统治满 MIN_RULE 年才开始,FULL_RULE 年满速 */
-const MIN_RULE = 100;
-const FULL_RULE = 300;
-/** 同化速率的底数(每年);离国都的路程(标准路程)每 REACH 衰减到 1/e */
-const RATE = 1 / 10;
-const REACH = 5;
-/** 国都所在的异族州:四周统治民族的边界占比至少按这么多算(国都一带先同化) */
-const CAPITAL_KIN = 0.5;
-/** 统治民族在本国的人口占比到这么多,同化就是满速 */
-const STRONG_SHARE = 0.6;
-/** 原民族越大越难同化、越小越快被同化(残部很快融进四邻):× √(SIZE_REF ÷ 州数),夹在 [SIZE_MIN, SIZE_MAX] */
-const SIZE_REF = 25;
-const SIZE_MIN = 0.4;
-const SIZE_MAX = 2;
-/** 反向同化:统治民族占本国人口不到 REVERSE_SHARE、另有一族到 REVERSE_MAJ;速率乘 REVERSE_K */
-const REVERSE_SHARE = 0.35;
-const REVERSE_MAJ = 0.5;
-const REVERSE_K = 0.8;
-/**
- * 大迁徙迁来立的国(Polity.trek,migration.ts):统治民族在本国占不到 TREK_SHARE(少数)、另有一族到 TREK_MAJ 就反过来被同化,
- * 速率再乘 TREK_K —— 入主中原的一支两三百年里多半渐染当地之俗(北魏、诺曼人、保加尔人那样),国还在、国号不变
- */
-const TREK_SHARE = 0.55;
-const TREK_MAJ = 0.3;
-const TREK_K = 8;
-/** 地形:草原荒漠上的游牧民族、高山(海拔 > HIGH_ELEV)上的高原民族、林中的山林民族、小岛上的海洋民族难同化 */
-const RESIST_STEPPE = 0.2;
-const RESIST_HIGH = 0.35;
-const HIGH_ELEV = 900;
-const RESIST_FOREST = 0.4;
-const RESIST_ISLAND = 0.5;
-/** 游牧国家同化草原荒漠以外的地方(牧人很少把农夫变成牧人,多是迁人进来,见 ①) */
-const NOMAD_FARMLAND = 0.35;
 
-/** 看孤地:每隔多少年看一次;四周某一族的边界占比至少多少;定居多少年以上;速率的底数(每年) */
-const ENCLAVE_EVERY = 50;
-const ENCLAVE_F = 0.5;
-const ENCLAVE_HOLD = 300;
-const ENCLAVE_RATE = 1 / 80;
-/** 看孤地时,隔海峡的邻州算多长的边界(标准路程) */
-const STRAIT_BORDER = 0.3;
 
-/** 看分化:第一次在哪一年附近、之后每隔多少年;隔山隔海 / 分属不同国家时至少几州;定居满几年的州要占几成;归现在的国家满几年;每次的机会;一个世界最多分出几支 */
-const DIV_FIRST = 300;
-const DIV_EVERY = 100;
-const DIV_MIN_GEO = 6;
-const DIV_MIN_POL = 10;
-const DIV_AGE = 500;
-const DIV_SETTLED = 0.8;
-const DIV_AGE_GEO = 300;
-const DIV_SETTLED_GEO = 0.5;
-const DIV_RULE = 500;
-const DIV_P = 0.12;
-export const DIV_MAX = 12;
 
-/** 随征服而来的移民(游牧国家):每州的机会、林地打折、一次最多几州 */
-const SETTLE_P = 0.45;
-const SETTLE_FOREST = 0.3;
-const SETTLE_MAX = 6;
 
-/** 避兵外迁:赔率底数(× 丢的州数)、游牧征服者、亡国 */
-const FLIGHT_ODDS = 0.06;
-const FLIGHT_NOMAD = 2;
-const FLIGHT_FALL = 3;
-/** 外迁的州数 = 丢的州数 × FLIGHT_RATIO(至少 1、最多 FLIGHT_MAX);路程(标准路程)不超过 FLIGHT_REACH */
-const FLIGHT_RATIO = 0.8;
-const FLIGHT_MAX = 6;
-const FLIGHT_REACH = 8;
-/** 找迁入地时的路程系数:无人之地、部落地带、同族国家治下的异族州 */
-const TO_EMPTY = 0.7;
-const TO_TRIBAL = 1;
-const TO_KIN_STATE = 1.3;
-/** 过界系数(按 AdjKind:平地、跨河、翻山、海峡、航线) */
-const CROSS = [1, 1.2, 2, 2, 3];
 
 // 随机数用途编号
 const U_CHECK_T = 1;

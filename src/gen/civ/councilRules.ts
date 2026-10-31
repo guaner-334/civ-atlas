@@ -6,17 +6,23 @@
  */
 import type { Annal, Year } from './types';
 import type { CouncilRuleConsts } from './stateTables';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 分封:管得到几成不到 FIEF_C 的州只交 FIEF_REMIT;"离国都远"那一项动荡乘 FIEF_FAR */
-export const FIEF_C = 0.35;
-export const FIEF_REMIT = 0.2;
-const FIEF_FAR = 0.4;
-/** 边镇(军制 −1):管得到几成不到 BORDER_C 的州全数出兵,打仗的军费乘 BORDER_ARMY(边将自筹军饷) */
-export const BORDER_C = 0.35;
-const BORDER_ARMY = 0.6;
-/** 改组(分镇)妥协时,那处割据的地盘留几州(办成只留起事那一州) */
-export const REORG_HALF = 2;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const COUNCIL_RULES_KNOBS = defineKnobs('councilRules', {
+  /** 分封:管得到几成不到 FIEF_C 的州只交 FIEF_REMIT;"离国都远"那一项动荡乘 FIEF_FAR */
+  FIEF_C: 0.35,
+  FIEF_REMIT: 0.2,
+  FIEF_FAR: 0.4,
+  /** 边镇(军制 −1):管得到几成不到 BORDER_C 的州全数出兵,打仗的军费乘 BORDER_ARMY(边将自筹军饷) */
+  BORDER_C: 0.35,
+  BORDER_ARMY: 0.6,
+  /** 改组(分镇)妥协时,那处割据的地盘留几州(办成只留起事那一州) */
+  REORG_HALF: 2,
+});
+const { FIEF_FAR, BORDER_ARMY } = COUNCIL_RULES_KNOBS.values;
+export const { FIEF_C, FIEF_REMIT, BORDER_C, REORG_HALF } = COUNCIL_RULES_KNOBS.values;
 
 /** 议题(Annal.war) */
 export const enum Issue {

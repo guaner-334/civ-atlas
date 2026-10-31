@@ -64,116 +64,121 @@ import type { ControlModel } from './control';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
-const POL_FIRST = 60;
-const POL_EVERY = 40;
-/** 起兵、合并、复国的州要这么多年没换过国家(刚在战争里易手的州不马上又分出去) */
-const SETTLE = 30;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const POLITICS_KNOBS = defineKnobs('politics', {
+  /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
+  POL_FIRST: 60,
+  POL_EVERY: 40,
+  /** 起兵、合并、复国的州要这么多年没换过国家(刚在战争里易手的州不马上又分出去) */
+  SETTLE: 30,
+  /** 分裂:国土至少这么多州、立国满这么多年;同一国分裂后这么多年内不再分裂 */
+  SPLIT_MIN_SIZE: 16,
+  SPLIT_AGE: 120,
+  SPLIT_REST: 120,
+  /** 离心力:离国都的路程(标准路程)÷ SPLIT_REACH;异族;刚被征服(RECENT 年内,随年数淡去) */
+  SPLIT_REACH: 12,
+  FOREIGN_D: 0.7,
+  RECENT: 150,
+  RECENT_D: 0.6,
+  /** 动荡:CRISIS_YEARS 年内迁过都(多半是丢了国都)、正在打仗、接连丢州(最多加满 CRISIS_LOSS);国土大(每大 e 倍加 SIZE_D) */
+  CRISIS_YEARS: 50,
+  CRISIS_CAPITAL: 0.5,
+  CRISIS_WAR: 0.25,
+  CRISIS_LOSS: 0.5,
+  SIZE_D: 0.4,
+  /** 动荡:DYNASTY_YEARS 年内改朝换代过(阶段 3 王朝更替,dynasty.ts):新朝初立,边远之地更容易割据自立 */
+  DYNASTY_YEARS: 60,
+  CRISIS_DYNASTY: 0.25,
+  /** 起兵的赔率:SPLIT_ODDS × e^(SPLIT_K × (离心力 + 动荡 − SPLIT_D0)) */
+  SPLIT_ODDS: 0.04,
+  SPLIT_K: 2,
+  SPLIT_D0: 1.8,
+  /** 挑起事的州时,离心力加一点随机(不总是同一州) */
+  RISE_JITTER: 0.3,
+  /** 割据的州(control.ts)起兵的离心力再加这么多:割据久了的地方先自立 */
+  LORD_D: 0.8,
+  /** 一起自立的州:离心力不低于起事那州 − GROUP_DROP,也不低于 GROUP_MIN_D */
+  GROUP_DROP: 0.9,
+  GROUP_MIN_D: 1.0,
+  /** 一起自立的州先挑谁:离心力 + 和起事的州同族 GROUP_KIN − 离起事的州每隔一州 GROUP_COMPACT */
+  GROUP_KIN: 0.3,
+  GROUP_COMPACT: 0.25,
+  /** 自立的国土:至少几州、最多几州、最多占原国的几成 */
+  SPLIT_MIN_GROUP: 5,
+  SPLIT_MAX_GROUP: 25,
+  SPLIT_FRAC: 0.35,
+  /** 合并:小国不超过几州、立国满几年;大国的州数至少是小国的几倍;赔率 */
+  MERGE_SMALL: 10,
+  MERGE_AGE: 60,
+  MERGE_RATIO: 2.5,
+  MERGE_ODDS: 0.25,
+  /** 主动迁都:国土至少几州、立国满几年;上次迁都(含国都失守)后多少年内不再主动迁 */
+  CAPMOVE_MIN: 10,
+  CAPMOVE_AGE: 150,
+  CAPMOVE_REST: 400,
+  /**
+   * 国都偏在一隅:各州离国都的平均距离 ≥ 离新国都的 ECC_RATIO 倍;
+   * 国都是前线(离正在交战的敌国不到两州)时,新国都不比现在偏太多(FRONT_RATIO)就迁
+   */
+  ECC_RATIO: 1.2,
+  /** 粗筛(省时间):各州离国都的平均距离不到离国土重心的 ECC_PRE 倍、国都也不是前线,就不挑新国都了 */
+  ECC_PRE: 1.1,
+  FRONT_RATIO: 1.15,
+  /**
+   * 新国都的人口至少是现国都的几成;挑新国都:按"人口 × e^(−离国土重心的距离 ÷ CENTER_L 个州的间距)"挑前 CAPMOVE_TOP 座,
+   * 其中各州离它平均最近的那座
+   */
+  CAPMOVE_POP: 0.35,
+  CENTER_L: 3,
+  CAPMOVE_TOP: 5,
+  /** 看到该迁了,这一次真迁的机会 */
+  CAPMOVE_P: 0.35,
+  /** 复国:亡国后多少年开始看,每隔多少年看一次,一共看几次 */
+  RESTORE_FIRST: 30,
+  RESTORE_EVERY: 40,
+  RESTORE_TRIES: 12,
+  /**
+   * 复国的赔率 = RESTORE_ODDS × 宗主的虚弱 × 异族统治 × 离宗主国都远近
+   * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)
+   */
+  RESTORE_ODDS: 0.022,
+  RESTORE_FOREIGN: 2,
+  /** 宗主的虚弱 = 1 + 在打仗 W_WAR + RECENT_SPLIT 年内分裂过 W_SPLIT + CRISIS_YEARS 年内迁过都 W_CAP + 接连丢州 W_LOSS */
+  W_WAR: 1.5,
+  W_SPLIT: 1.5,
+  W_CAP: 1,
+  W_LOSS: 1,
+  RECENT_SPLIT: 80,
+  /** 宗主至少几州才能从它手里分出去;复国的国土最少几州、最多几州、最多占宗主的几成 */
+  RESTORE_MIN_OWNER: 8,
+  RESTORE_MIN_GROUP: 2,
+  RESTORE_MAX_GROUP: 16,
+  RESTORE_FRAC: 0.3,
+  /** 看部落地带:第一次在哪一年,之后每隔多少年 */
+  TRIBAL_FIRST: 0,
+  TRIBAL_EVERY: 50,
+  /**
+   * 边缘立国(次生国家):影响它的国家要立国满 EDGE_MENTOR_AGE 年、至少 EDGE_MENTOR_SIZE 州;
+   * 城的人口上限至少 EDGE_CAP(千人)、人口过 EDGE_POP、建城满 EDGE_AGE 年;离各国国都至少 EDGE_SPACING × 国都间距(州图跳数);
+   * 每次看的机会:和影响它的国家同族 EDGE_P,异族 EDGE_P_FOREIGN
+   */
+  EDGE_MENTOR_AGE: 100,
+  EDGE_MENTOR_SIZE: 4,
+  EDGE_CAP: 20,
+  EDGE_POP: 6,
+  EDGE_AGE: 80,
+  EDGE_SPACING: 0.6,
+  EDGE_P: 0.12,
+});
+const { POL_FIRST, POL_EVERY, SETTLE, SPLIT_MIN_SIZE, SPLIT_AGE, SPLIT_REST, SPLIT_REACH, FOREIGN_D, RECENT, RECENT_D, CRISIS_YEARS, CRISIS_CAPITAL, CRISIS_WAR, CRISIS_LOSS, SIZE_D, DYNASTY_YEARS, CRISIS_DYNASTY, SPLIT_ODDS, SPLIT_K, SPLIT_D0, RISE_JITTER, LORD_D, GROUP_DROP, GROUP_MIN_D, GROUP_KIN, GROUP_COMPACT, SPLIT_MIN_GROUP, SPLIT_MAX_GROUP, SPLIT_FRAC, MERGE_SMALL, MERGE_AGE, MERGE_RATIO, MERGE_ODDS, CAPMOVE_MIN, CAPMOVE_AGE, CAPMOVE_REST, ECC_RATIO, ECC_PRE, FRONT_RATIO, CAPMOVE_POP, CENTER_L, CAPMOVE_TOP, CAPMOVE_P, RESTORE_FIRST, RESTORE_EVERY, RESTORE_TRIES, RESTORE_ODDS, RESTORE_FOREIGN, W_WAR, W_SPLIT, W_CAP, W_LOSS, RECENT_SPLIT, RESTORE_MIN_OWNER, RESTORE_MIN_GROUP, RESTORE_MAX_GROUP, RESTORE_FRAC, TRIBAL_FIRST, TRIBAL_EVERY, EDGE_MENTOR_AGE, EDGE_MENTOR_SIZE, EDGE_CAP, EDGE_POP, EDGE_AGE, EDGE_SPACING, EDGE_P } = POLITICS_KNOBS.values;
 
-/** 分裂:国土至少这么多州、立国满这么多年;同一国分裂后这么多年内不再分裂 */
-const SPLIT_MIN_SIZE = 16;
-const SPLIT_AGE = 120;
-const SPLIT_REST = 120;
-/** 离心力:离国都的路程(标准路程)÷ SPLIT_REACH;异族;刚被征服(RECENT 年内,随年数淡去) */
-const SPLIT_REACH = 12;
-const FOREIGN_D = 0.7;
-const RECENT = 150;
-const RECENT_D = 0.6;
-/** 动荡:CRISIS_YEARS 年内迁过都(多半是丢了国都)、正在打仗、接连丢州(最多加满 CRISIS_LOSS);国土大(每大 e 倍加 SIZE_D) */
-const CRISIS_YEARS = 50;
-const CRISIS_CAPITAL = 0.5;
-const CRISIS_WAR = 0.25;
-const CRISIS_LOSS = 0.5;
-const SIZE_D = 0.4;
-/** 动荡:DYNASTY_YEARS 年内改朝换代过(阶段 3 王朝更替,dynasty.ts):新朝初立,边远之地更容易割据自立 */
-const DYNASTY_YEARS = 60;
-const CRISIS_DYNASTY = 0.25;
-/** 起兵的赔率:SPLIT_ODDS × e^(SPLIT_K × (离心力 + 动荡 − SPLIT_D0)) */
-const SPLIT_ODDS = 0.04;
-const SPLIT_K = 2;
-const SPLIT_D0 = 1.8;
-/** 挑起事的州时,离心力加一点随机(不总是同一州) */
-const RISE_JITTER = 0.3;
-/** 割据的州(control.ts)起兵的离心力再加这么多:割据久了的地方先自立 */
-const LORD_D = 0.8;
-/** 一起自立的州:离心力不低于起事那州 − GROUP_DROP,也不低于 GROUP_MIN_D */
-const GROUP_DROP = 0.9;
-const GROUP_MIN_D = 1.0;
-/** 一起自立的州先挑谁:离心力 + 和起事的州同族 GROUP_KIN − 离起事的州每隔一州 GROUP_COMPACT */
-const GROUP_KIN = 0.3;
-const GROUP_COMPACT = 0.25;
-/** 自立的国土:至少几州、最多几州、最多占原国的几成 */
-const SPLIT_MIN_GROUP = 5;
-const SPLIT_MAX_GROUP = 25;
-const SPLIT_FRAC = 0.35;
 
-/** 合并:小国不超过几州、立国满几年;大国的州数至少是小国的几倍;赔率 */
-const MERGE_SMALL = 10;
-const MERGE_AGE = 60;
-const MERGE_RATIO = 2.5;
-const MERGE_ODDS = 0.25;
 
-/** 主动迁都:国土至少几州、立国满几年;上次迁都(含国都失守)后多少年内不再主动迁 */
-const CAPMOVE_MIN = 10;
-const CAPMOVE_AGE = 150;
-const CAPMOVE_REST = 400;
-/**
- * 国都偏在一隅:各州离国都的平均距离 ≥ 离新国都的 ECC_RATIO 倍;
- * 国都是前线(离正在交战的敌国不到两州)时,新国都不比现在偏太多(FRONT_RATIO)就迁
- */
-const ECC_RATIO = 1.2;
-/** 粗筛(省时间):各州离国都的平均距离不到离国土重心的 ECC_PRE 倍、国都也不是前线,就不挑新国都了 */
-const ECC_PRE = 1.1;
-const FRONT_RATIO = 1.15;
-/**
- * 新国都的人口至少是现国都的几成;挑新国都:按"人口 × e^(−离国土重心的距离 ÷ CENTER_L 个州的间距)"挑前 CAPMOVE_TOP 座,
- * 其中各州离它平均最近的那座
- */
-const CAPMOVE_POP = 0.35;
-const CENTER_L = 3;
-const CAPMOVE_TOP = 5;
-/** 看到该迁了,这一次真迁的机会 */
-const CAPMOVE_P = 0.35;
 
-/** 复国:亡国后多少年开始看,每隔多少年看一次,一共看几次 */
-const RESTORE_FIRST = 30;
-const RESTORE_EVERY = 40;
-const RESTORE_TRIES = 12;
-/**
- * 复国的赔率 = RESTORE_ODDS × 宗主的虚弱 × 异族统治 × 离宗主国都远近
- * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)
- */
-const RESTORE_ODDS = 0.022;
-const RESTORE_FOREIGN = 2;
-/** 宗主的虚弱 = 1 + 在打仗 W_WAR + RECENT_SPLIT 年内分裂过 W_SPLIT + CRISIS_YEARS 年内迁过都 W_CAP + 接连丢州 W_LOSS */
-const W_WAR = 1.5;
-const W_SPLIT = 1.5;
-const W_CAP = 1;
-const W_LOSS = 1;
-const RECENT_SPLIT = 80;
-/** 宗主至少几州才能从它手里分出去;复国的国土最少几州、最多几州、最多占宗主的几成 */
-const RESTORE_MIN_OWNER = 8;
-const RESTORE_MIN_GROUP = 2;
-const RESTORE_MAX_GROUP = 16;
-const RESTORE_FRAC = 0.3;
 
-/** 看部落地带:第一次在哪一年,之后每隔多少年 */
-const TRIBAL_FIRST = 0;
-const TRIBAL_EVERY = 50;
-/**
- * 边缘立国(次生国家):影响它的国家要立国满 EDGE_MENTOR_AGE 年、至少 EDGE_MENTOR_SIZE 州;
- * 城的人口上限至少 EDGE_CAP(千人)、人口过 EDGE_POP、建城满 EDGE_AGE 年;离各国国都至少 EDGE_SPACING × 国都间距(州图跳数);
- * 每次看的机会:和影响它的国家同族 EDGE_P,异族 EDGE_P_FOREIGN
- */
-const EDGE_MENTOR_AGE = 100;
-const EDGE_MENTOR_SIZE = 4;
-const EDGE_CAP = 20;
-const EDGE_POP = 6;
-const EDGE_AGE = 80;
-const EDGE_SPACING = 0.6;
-const EDGE_P = 0.12;
 const EDGE_P_FOREIGN = EDGE_P / 2;
 
 // 随机数用途编号

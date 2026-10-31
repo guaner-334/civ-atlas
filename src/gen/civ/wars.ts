@@ -101,159 +101,165 @@ import { royalAt } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
-const CHECK_FIRST = 40;
-const CHECK_EVERY = 15;
-/** 宣战赔率的底数(国家之间常隔着部落、接壤的不多,底数取得高些);边境胜算(胜率 ÷ 败率)的指数;对异族 */
-const WAR_ODDS = 0.3;
-const LOCAL_EXP = 0.65;
-const FOREIGN = 1.6;
-/** 边界不到这么多段(州与州相邻的对数)时,赔率按比例打折 */
-const BORDER_FULL = 4;
-/** 打完仗至少歇多少年才会再主动宣战;同一对国家议和后多少年内不再开战 */
-const REST = 4;
-const TRUCE = 5;
-/** 一国最多同时打几场仗(被别国趁火打劫算在内);国土到这么多州(帝国一档)的大国可以同时主动开两场仗 */
-const MAX_WARS = 2;
-const TWO_FRONTS = 70;
-/** 两仗之间隔几年(随机) */
-const GAP: [number, number] = [0.7, 2];
-/** 厌战:一场战争最多打多少年(随机) */
-const LENGTH: [number, number] = [5, 18];
-/** 僵持:连着这么多年没攻下一州就议和 */
-const STALL = 6;
-/** 小国:不超过这么多州的邻国,宣战赔率 × PREY_ODDS */
-const PREY = 4;
-const PREY_ODDS = 2.5;
-/** 分裂 / 复国出来的国家(Polity.parent),这么多年内别国不对它宣战(站稳期;原先 60 年,缩短以后强国吞并得快些) */
-export const NEWBORN = 30;
-/** 迁都后这么多年内新国都攻不下(不会几年里一迁再迁) */
-export const CAPITAL_GRACE = 20;
-/** 丢了国都后剩下不到这么多州的国家撑不下去,残部归攻方、亡国 */
-const MIN_STATE = 4;
-/**
- * 破都纳降:攻下国都时攻方国力是守方 SURRENDER_POWER 倍以上、守方余下的州不超过攻方国土(连同刚打下的国都)的 SURRENDER_SHARE,
- * 守方余下的国土一并归降攻方、亡国(更大的照旧迁都接着撑:不会一仗吞掉一个大国)
- */
-const SURRENDER_POWER = 2.5;
-const SURRENDER_SHARE = 0.5;
-/** 打下一州会把守方的国土切出去超过这么多州(和守方国都不再连成一片)的,先不打(不打出大块飞地) */
-const MAX_CUT = 2;
-/** 一州换了国家以后,这么多年内不会再在战争里易手(前线不闪烁) */
-export const HOLD = 6;
-/** 远征打折:国力 × e^(−离本国国都的路程 / PROJECT)(路程以"标准路程"计,见 polities.ts 的 capDist) */
-const PROJECT = 18;
-/** 守方的过界加成(按 AdjKind:平地、跨河、翻山、海峡、航线):攻方从最好打的那条边打进来 */
-const DEFENSE = [1, 1.35, 1.9, 1.6, 2.2];
-/** 守国都;守本族的州;攻方打同族的州 */
-const CAPITAL_DEF = 1.8;
-const HOME_DEF = 1.25;
-const KIN_ATTACK = 1.15;
-/** 胜率的上下限(再强也有失手,再弱也有侥幸) */
-const P_MIN = 0.04;
-const P_MAX = 0.9;
-/** 攻方没打下来时,守方反攻(夺回被攻方占去的州)的机会 */
-const COUNTER = 0.85;
-/** 乘胜:一仗打下一州后,接着再打下一州的机会 = BREAK × 那一州的胜率,最多再连下 BREAK_MAX 州(一仗最多拿下 1 + BREAK_MAX 州,势如破竹) */
-const BREAK = 0.9;
-const BREAK_MAX = 6;
-/** 战争目标:这场战争想拿下几州(随机,含两头);拿到就议和 */
-const GOAL: [number, number] = [3, 20];
-/** 灭国之战:攻方国力是守方的这么多倍(原先 3 倍);战争目标翻几倍(Infinity = 不设目标) */
-const CRUSH = 2.5;
-const CRUSH_GOAL = Infinity;
-/** 收复失地:邻国手里每有一州原是本国的,宣战赔率 × (1 + REVANCHE)(最多算 4 州);打仗时先打这些州 */
-const REVANCHE = 0.8;
-const REGAIN = 2.5;
-/** 阶段 4 结盟:盟国被第三国宣战时,另一方(和攻方接壤)援盟参战的机会 */
-const ALLY_JOIN = 0.8;
-/** 阶段 4 不许灭:国都攻不下;国土只剩这么多州(含)以下时,一州都攻不下(保住国都一带的几州,不至于缩成孤城) */
-const PROTECT_KEEP = 3;
-/** 阶段 4 不许灭:守方国力 × 这么多(天命所归,守得格外牢:国土会缩,但不至于一路缩到只剩国都) */
-const PROTECT_DEF = 1.6;
-/** 开战的由头"乘乱":对方正和别国交兵,或这么多年内丢了国都 / 迁都、改朝换代 */
-const CHAOS_YEARS = 20;
-/**
- * 动荡(unrest.ts):邻国动荡超过 PREY_CALM 的部分每一点,开战的赔率 × (1 + PREY_UNREST)(趁虚而入);
- * 自己动荡每一点 × (1 + DIVERT)(对外开战转移矛盾)
- */
-const PREY_CALM = 1;
-/**
- * 钱粮(control.ts):国用不足(0–1)时宣战的赔率 × (1 − BROKE_CUT × 窘迫);攻方窘迫到 BROKE_PEACE 以上、仗打过了年限的 BROKE_LENGTH 就罢兵(讨伐民变除外);
- * 国库没攒满的,赔率再 × (PURSE_0 + (1 − PURSE_0) × 国库攒到几成)(刚因没钱罢兵的不会转头又开战)
- */
-const BROKE_CUT = 1;
-const BROKE_PEACE = 0.8;
-const BROKE_LENGTH = 0.5;
-const PURSE_0 = 0.4;
-/** 讨伐民变的战争最多打几倍的年限(见 接口 war.revolt):打不完就议和,起事的一方割据一方 */
-const REVOLT_LENGTH = 1.5;
-const PREY_UNREST = 0.35;
-const DIVERT = 0.15;
-/** 转移矛盾:自己动荡到这么高,开战的赔率再 × (1 + DIVERT_STEP)(上调一档),由头写"国中多事,欲以外战安内" */
-const DIVERT_U = 1.5;
-const DIVERT_STEP = 0.25;
-/**
- * 趁虚而入:邻国动荡到 PREY_HIGH 以上,由头写"乘某国内乱"(赔率照上面的 PREY_UNREST);
- * 有割据的每处 × (1 + LORD_PREY)(最多算 LORD_PREY_MAX 处;割据的州不出兵,国力本就弱了,这里只算"内乱招人");
- * 疫后凋敝(unrest.ts 的 blight:近年染疫的州占国土几成)到 BLIGHT_MIN 以上 × (1 + BLIGHT_PREY × 几成 ÷ BLIGHT_FULL,最多加满);
- * 幼主在位(不满 ADULT 岁)、权臣当政(regents.ts 的宗室摄政、名臣辅政、大臣专权、大将专权)× (1 + WEAK_PREY)
- */
-const PREY_HIGH = 2;
-const LORD_PREY = 0.25;
-const LORD_PREY_MAX = 2;
-const BLIGHT_MIN = 0.15;
-const BLIGHT_FULL = 0.5;
-const BLIGHT_PREY = 0.6;
-const WEAK_PREY = 0.4;
-/**
- * 为掠夺而战:钱粮那一截(窘迫、国库没攒满的打折乘起来)不到 PLUNDER_FLOOR、边境对面有富州(收入是本国每州平均的 RICH 倍以上)的,
- * 对这个邻国按 PLUNDER_FLOOR 算(打不起,但抢得到);由头写"府库空竭,欲掠某国某州"
- */
-const PLUNDER_FLOOR = 0.3;
-const RICH = 2;
-/** 物产:边境对面有本国缺的物产,每样开战的赔率 × (1 + RES_WANT),最多算 RES_MAX 样;攻方挑州时有本国缺的物产的州加 RES_TARGET 分 */
-const RES_WANT = 1.5;
-const RES_MAX = 2;
-const RES_TARGET = 1.5;
-/**
- * 据险断后:追兵只能从关隘打进那州、或者败兵只能经关隘退回时,败退的一方守住关隘的机会;
- * 守了几日(随机挑一个);守将力战而死、力竭被擒的机会(其余全师而退)
- */
-const STAND = 0.35;
-const STAND_DAYS = [2, 2, 3, 3, 3, 4, 4, 5, 6, 7];
-const STAND_SLAIN = 0.6;
-const STAND_TAKEN = 0.15;
-/**
- * 议和了还会再打:净丢了州的一方记恨赢它的那一国,这么多年内对它开战的赔率 × GRUDGE;
- * 停战期满(TRUCE)后再过这么多年(随机)替输的一方多看一眼邻国
- */
-const GRUDGE = 2;
-const GRUDGE_YEARS = 80;
-const REVENGE_LOOK: [number, number] = [2, 8];
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const WARS_KNOBS = defineKnobs('wars', {
+  /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
+  CHECK_FIRST: 40,
+  CHECK_EVERY: 15,
+  /** 宣战赔率的底数(国家之间常隔着部落、接壤的不多,底数取得高些);边境胜算(胜率 ÷ 败率)的指数;对异族 */
+  WAR_ODDS: 0.3,
+  LOCAL_EXP: 0.65,
+  FOREIGN: 1.6,
+  /** 边界不到这么多段(州与州相邻的对数)时,赔率按比例打折 */
+  BORDER_FULL: 4,
+  /** 打完仗至少歇多少年才会再主动宣战;同一对国家议和后多少年内不再开战 */
+  REST: 4,
+  TRUCE: 5,
+  /** 一国最多同时打几场仗(被别国趁火打劫算在内);国土到这么多州(帝国一档)的大国可以同时主动开两场仗 */
+  MAX_WARS: 2,
+  TWO_FRONTS: 70,
+  /** 两仗之间隔几年(随机) */
+  GAP: [0.7, 2] as [number, number],
+  /** 厌战:一场战争最多打多少年(随机) */
+  LENGTH: [5, 18] as [number, number],
+  /** 僵持:连着这么多年没攻下一州就议和 */
+  STALL: 6,
+  /** 小国:不超过这么多州的邻国,宣战赔率 × PREY_ODDS */
+  PREY: 4,
+  PREY_ODDS: 2.5,
+  /** 分裂 / 复国出来的国家(Polity.parent),这么多年内别国不对它宣战(站稳期;原先 60 年,缩短以后强国吞并得快些) */
+  NEWBORN: 30,
+  /** 迁都后这么多年内新国都攻不下(不会几年里一迁再迁) */
+  CAPITAL_GRACE: 20,
+  /** 丢了国都后剩下不到这么多州的国家撑不下去,残部归攻方、亡国 */
+  MIN_STATE: 4,
+  /**
+   * 破都纳降:攻下国都时攻方国力是守方 SURRENDER_POWER 倍以上、守方余下的州不超过攻方国土(连同刚打下的国都)的 SURRENDER_SHARE,
+   * 守方余下的国土一并归降攻方、亡国(更大的照旧迁都接着撑:不会一仗吞掉一个大国)
+   */
+  SURRENDER_POWER: 2.5,
+  SURRENDER_SHARE: 0.5,
+  /** 打下一州会把守方的国土切出去超过这么多州(和守方国都不再连成一片)的,先不打(不打出大块飞地) */
+  MAX_CUT: 2,
+  /** 一州换了国家以后,这么多年内不会再在战争里易手(前线不闪烁) */
+  HOLD: 6,
+  /** 远征打折:国力 × e^(−离本国国都的路程 / PROJECT)(路程以"标准路程"计,见 polities.ts 的 capDist) */
+  PROJECT: 18,
+  /** 守方的过界加成(按 AdjKind:平地、跨河、翻山、海峡、航线):攻方从最好打的那条边打进来 */
+  DEFENSE: [1, 1.35, 1.9, 1.6, 2.2],
+  /** 守国都;守本族的州;攻方打同族的州 */
+  CAPITAL_DEF: 1.8,
+  HOME_DEF: 1.25,
+  KIN_ATTACK: 1.15,
+  /** 胜率的上下限(再强也有失手,再弱也有侥幸) */
+  P_MIN: 0.04,
+  P_MAX: 0.9,
+  /** 攻方没打下来时,守方反攻(夺回被攻方占去的州)的机会 */
+  COUNTER: 0.85,
+  /** 乘胜:一仗打下一州后,接着再打下一州的机会 = BREAK × 那一州的胜率,最多再连下 BREAK_MAX 州(一仗最多拿下 1 + BREAK_MAX 州,势如破竹) */
+  BREAK: 0.9,
+  BREAK_MAX: 6,
+  /** 战争目标:这场战争想拿下几州(随机,含两头);拿到就议和 */
+  GOAL: [3, 20] as [number, number],
+  /** 灭国之战:攻方国力是守方的这么多倍(原先 3 倍);战争目标翻几倍(Infinity = 不设目标) */
+  CRUSH: 2.5,
+  CRUSH_GOAL: Infinity,
+  /** 收复失地:邻国手里每有一州原是本国的,宣战赔率 × (1 + REVANCHE)(最多算 4 州);打仗时先打这些州 */
+  REVANCHE: 0.8,
+  REGAIN: 2.5,
+  /** 阶段 4 结盟:盟国被第三国宣战时,另一方(和攻方接壤)援盟参战的机会 */
+  ALLY_JOIN: 0.8,
+  /** 阶段 4 不许灭:国都攻不下;国土只剩这么多州(含)以下时,一州都攻不下(保住国都一带的几州,不至于缩成孤城) */
+  PROTECT_KEEP: 3,
+  /** 阶段 4 不许灭:守方国力 × 这么多(天命所归,守得格外牢:国土会缩,但不至于一路缩到只剩国都) */
+  PROTECT_DEF: 1.6,
+  /** 开战的由头"乘乱":对方正和别国交兵,或这么多年内丢了国都 / 迁都、改朝换代 */
+  CHAOS_YEARS: 20,
+  /**
+   * 动荡(unrest.ts):邻国动荡超过 PREY_CALM 的部分每一点,开战的赔率 × (1 + PREY_UNREST)(趁虚而入);
+   * 自己动荡每一点 × (1 + DIVERT)(对外开战转移矛盾)
+   */
+  PREY_CALM: 1,
+  /**
+   * 钱粮(control.ts):国用不足(0–1)时宣战的赔率 × (1 − BROKE_CUT × 窘迫);攻方窘迫到 BROKE_PEACE 以上、仗打过了年限的 BROKE_LENGTH 就罢兵(讨伐民变除外);
+   * 国库没攒满的,赔率再 × (PURSE_0 + (1 − PURSE_0) × 国库攒到几成)(刚因没钱罢兵的不会转头又开战)
+   */
+  BROKE_CUT: 1,
+  BROKE_PEACE: 0.8,
+  BROKE_LENGTH: 0.5,
+  PURSE_0: 0.4,
+  /** 讨伐民变的战争最多打几倍的年限(见 接口 war.revolt):打不完就议和,起事的一方割据一方 */
+  REVOLT_LENGTH: 1.5,
+  PREY_UNREST: 0.35,
+  DIVERT: 0.15,
+  /** 转移矛盾:自己动荡到这么高,开战的赔率再 × (1 + DIVERT_STEP)(上调一档),由头写"国中多事,欲以外战安内" */
+  DIVERT_U: 1.5,
+  DIVERT_STEP: 0.25,
+  /**
+   * 趁虚而入:邻国动荡到 PREY_HIGH 以上,由头写"乘某国内乱"(赔率照上面的 PREY_UNREST);
+   * 有割据的每处 × (1 + LORD_PREY)(最多算 LORD_PREY_MAX 处;割据的州不出兵,国力本就弱了,这里只算"内乱招人");
+   * 疫后凋敝(unrest.ts 的 blight:近年染疫的州占国土几成)到 BLIGHT_MIN 以上 × (1 + BLIGHT_PREY × 几成 ÷ BLIGHT_FULL,最多加满);
+   * 幼主在位(不满 ADULT 岁)、权臣当政(regents.ts 的宗室摄政、名臣辅政、大臣专权、大将专权)× (1 + WEAK_PREY)
+   */
+  PREY_HIGH: 2,
+  LORD_PREY: 0.25,
+  LORD_PREY_MAX: 2,
+  BLIGHT_MIN: 0.15,
+  BLIGHT_FULL: 0.5,
+  BLIGHT_PREY: 0.6,
+  WEAK_PREY: 0.4,
+  /**
+   * 为掠夺而战:钱粮那一截(窘迫、国库没攒满的打折乘起来)不到 PLUNDER_FLOOR、边境对面有富州(收入是本国每州平均的 RICH 倍以上)的,
+   * 对这个邻国按 PLUNDER_FLOOR 算(打不起,但抢得到);由头写"府库空竭,欲掠某国某州"
+   */
+  PLUNDER_FLOOR: 0.3,
+  RICH: 2,
+  /** 物产:边境对面有本国缺的物产,每样开战的赔率 × (1 + RES_WANT),最多算 RES_MAX 样;攻方挑州时有本国缺的物产的州加 RES_TARGET 分 */
+  RES_WANT: 1.5,
+  RES_MAX: 2,
+  RES_TARGET: 1.5,
+  /**
+   * 据险断后:追兵只能从关隘打进那州、或者败兵只能经关隘退回时,败退的一方守住关隘的机会;
+   * 守了几日(随机挑一个);守将力战而死、力竭被擒的机会(其余全师而退)
+   */
+  STAND: 0.35,
+  STAND_DAYS: [2, 2, 3, 3, 3, 4, 4, 5, 6, 7],
+  STAND_SLAIN: 0.6,
+  STAND_TAKEN: 0.15,
+  /**
+   * 议和了还会再打:净丢了州的一方记恨赢它的那一国,这么多年内对它开战的赔率 × GRUDGE;
+   * 停战期满(TRUCE)后再过这么多年(随机)替输的一方多看一眼邻国
+   */
+  GRUDGE: 2,
+  GRUDGE_YEARS: 80,
+  REVENGE_LOOK: [2, 8] as [number, number],
+  /** 罢兵割地:攻方这场仗净得了州,议和时守方再割这么多州 */
+  CEDE: 1,
+  /** 罢兵割地挑州时 pickTarget 的"第几仗"(取随机数用;一场仗打不到这么多仗) */
+  CEDE_I: 1000,
+  /**
+   * 连续吞并:一场仗议和时净得了 CHAIN_MIN 州以上的一方(大胜)不歇(打完歇 REST 年那条对它不算),
+   * 再过 CHAIN_LOOK 里随机的几年替它多看一眼邻国,只挑国力不到本国 1 / CRUSH 的
+   */
+  CHAIN_MIN: 3,
+  CHAIN_LOOK: [2, 6] as [number, number],
+  /**
+   * 出兵避冬:轮到下一仗时要打的那州正在冬天里(月温低于 WINTER_T °C,年内气温估算见 gen/seasons.ts),这一仗顺延到那州开春,
+   * 再隔 0–WINTER_JITTER 年(约三周,随机)才打;一年里 WINTER_ALWAYS 以上的日子都这么冷的地方(常年冰封)照旧打
+   */
+  WINTER_T: 3,
+  WINTER_JITTER: 0.06,
+  WINTER_ALWAYS: 0.9,
+});
+const { CHECK_FIRST, CHECK_EVERY, WAR_ODDS, LOCAL_EXP, FOREIGN, BORDER_FULL, REST, TRUCE, MAX_WARS, TWO_FRONTS, GAP, LENGTH, STALL, PREY, PREY_ODDS, MIN_STATE, SURRENDER_POWER, SURRENDER_SHARE, MAX_CUT, PROJECT, DEFENSE, CAPITAL_DEF, HOME_DEF, KIN_ATTACK, P_MIN, P_MAX, COUNTER, BREAK, BREAK_MAX, GOAL, CRUSH, CRUSH_GOAL, REVANCHE, REGAIN, ALLY_JOIN, PROTECT_KEEP, PROTECT_DEF, CHAOS_YEARS, PREY_CALM, BROKE_CUT, BROKE_PEACE, BROKE_LENGTH, PURSE_0, REVOLT_LENGTH, PREY_UNREST, DIVERT, DIVERT_U, DIVERT_STEP, PREY_HIGH, LORD_PREY, LORD_PREY_MAX, BLIGHT_MIN, BLIGHT_FULL, BLIGHT_PREY, WEAK_PREY, PLUNDER_FLOOR, RICH, RES_WANT, RES_MAX, RES_TARGET, STAND, STAND_DAYS, STAND_SLAIN, STAND_TAKEN, GRUDGE, GRUDGE_YEARS, REVENGE_LOOK, CEDE, CEDE_I, CHAIN_MIN, CHAIN_LOOK, WINTER_T, WINTER_JITTER, WINTER_ALWAYS } = WARS_KNOBS.values;
+export const { NEWBORN, CAPITAL_GRACE, HOLD } = WARS_KNOBS.values;
 /** 复仇多看的那一眼的"第几次"从这里往上数(+ 战争编号;和照大纲多看的一眼 LOOK_K 往上那一段分开) */
 const REVENGE_K = 1 << 28;
-/** 罢兵割地:攻方这场仗净得了州,议和时守方再割这么多州 */
-const CEDE = 1;
-/** 罢兵割地挑州时 pickTarget 的"第几仗"(取随机数用;一场仗打不到这么多仗) */
-const CEDE_I = 1000;
-/**
- * 连续吞并:一场仗议和时净得了 CHAIN_MIN 州以上的一方(大胜)不歇(打完歇 REST 年那条对它不算),
- * 再过 CHAIN_LOOK 里随机的几年替它多看一眼邻国,只挑国力不到本国 1 / CRUSH 的
- */
-const CHAIN_MIN = 3;
-const CHAIN_LOOK: [number, number] = [2, 6];
 /** 连续吞并多看的那一眼的"第几次"从这里往上数(+ 战争编号;和复仇之眼 REVENGE_K 往上那一段分开) */
 const CHAIN_K = REVENGE_K + (1 << 27);
-/**
- * 出兵避冬:轮到下一仗时要打的那州正在冬天里(月温低于 WINTER_T °C,年内气温估算见 gen/seasons.ts),这一仗顺延到那州开春,
- * 再隔 0–WINTER_JITTER 年(约三周,随机)才打;一年里 WINTER_ALWAYS 以上的日子都这么冷的地方(常年冰封)照旧打
- */
-const WINTER_T = 3;
-const WINTER_JITTER = 0.06;
-const WINTER_ALWAYS = 0.9;
 
 // 随机数用途编号
 const U_CHECK_T = 1;

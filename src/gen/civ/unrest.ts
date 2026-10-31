@@ -77,105 +77,110 @@ import { royalSeg } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
-const REACH = 12;
-const FAR_0 = 0.6;
-const FAR_W = 0.5;
-/** 动荡:异族州的比例 × FOREIGN_W */
-const FOREIGN_W = 0.6;
-/** 动荡:当朝 AGE_0 年以后渐涨,再过 AGE_SPAN 年涨满 AGE_W;新朝初立 NEW_YEARS 年内减 NEW_W */
-const AGE_0 = 150;
-const AGE_SPAN = 250;
-const AGE_W = 0.6;
-const NEW_YEARS = 30;
-const NEW_W = 0.3;
-/** 动荡:FAMINE_YEARS 年内闹饥荒的州,占国土 FAMINE_FULL(至少 FAMINE_FULL_MIN 州)就加满 FAMINE_W */
-const FAMINE_YEARS = 30;
-const FAMINE_FULL = 0.12;
-const FAMINE_FULL_MIN = 3;
-const FAMINE_W = 0.9;
-/** 动荡:PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL(至少 FAMINE_FULL_MIN 州)就加满 PLAGUE_W */
-const PLAGUE_YEARS = 20;
-const PLAGUE_FULL = 0.25;
-const PLAGUE_W = 0.6;
-/** 疫后凋敝(wars.ts 的 blight,邻国趁虚而入):这么多年内染疫的州占国土几成;全球大疫凋敝还没过的州一并算 */
-const BLIGHT_YEARS = 20;
-/** 动荡:民变还没平 */
-const REVOLT_W = 0.4;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const UNREST_KNOBS = defineKnobs('unrest', {
+  /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
+  REACH: 12,
+  FAR_0: 0.6,
+  FAR_W: 0.5,
+  /** 动荡:异族州的比例 × FOREIGN_W */
+  FOREIGN_W: 0.6,
+  /** 动荡:当朝 AGE_0 年以后渐涨,再过 AGE_SPAN 年涨满 AGE_W;新朝初立 NEW_YEARS 年内减 NEW_W */
+  AGE_0: 150,
+  AGE_SPAN: 250,
+  AGE_W: 0.6,
+  NEW_YEARS: 30,
+  NEW_W: 0.3,
+  /** 动荡:FAMINE_YEARS 年内闹饥荒的州,占国土 FAMINE_FULL(至少 FAMINE_FULL_MIN 州)就加满 FAMINE_W */
+  FAMINE_YEARS: 30,
+  FAMINE_FULL: 0.12,
+  FAMINE_FULL_MIN: 3,
+  FAMINE_W: 0.9,
+  /** 动荡:PLAGUE_YEARS 年内染疫的州,占国土 PLAGUE_FULL(至少 FAMINE_FULL_MIN 州)就加满 PLAGUE_W */
+  PLAGUE_YEARS: 20,
+  PLAGUE_FULL: 0.25,
+  PLAGUE_W: 0.6,
+  /** 疫后凋敝(wars.ts 的 blight,邻国趁虚而入):这么多年内染疫的州占国土几成;全球大疫凋敝还没过的州一并算 */
+  BLIGHT_YEARS: 20,
+  /** 动荡:民变还没平 */
+  REVOLT_W: 0.4,
+  /** 看年景:第一次在哪一年,之后每隔多少年 */
+  FAMINE_FIRST: 0,
+  FAMINE_EVERY: 10,
+  /** 有城的州每这么多个闹一处灾年(按世界大小;再随机多一处或少一处) */
+  CLUSTER_PER: 450,
+  /** 一处灾年从一州往外最多几州 */
+  CLUSTER_HOPS: 3,
+  /** 灾情(每处灾年随机):SEV 里;离灾年中心每远一州打 HOP_FADE 的折 */
+  SEV: [0.3, 1] as readonly [number, number],
+  HOP_FADE: 0.2,
+  /** 闹饥荒的赔率 = 灾情 × 气候 × (P_BASE + P_FULL × 人口顶到上限的几成⁴) */
+  P_BASE: 0.02,
+  P_FULL: 0.6,
+  /** 地薄的州更容易闹饥荒:赔率再乘 1 + SOIL_W × (1 − 地力)(地力见 population.ts) */
+  SOIL_W: 2,
+  /** 人口掉几成(按赔率在里面取,再加一点随机) */
+  LOSS: [0.08, 0.3] as readonly [number, number],
+  /** 闹过饥荒的城这么多年内不再闹 */
+  FAMINE_REST: 30,
+  /**
+   * 春荒:冬夏分明的地方(年较差的一半 ≥ SPRING_HALF °C,即年较差 8°C 以上;年内气温是估算,见 gen/seasons.ts)
+   * 不在看年景那一刻闹灾年,等到当地青黄不接的时候 —— 最冷那一刻往后 SPRING 里随机的几成年(北半球四五月前后),
+   * 北半球、南半球各一刻(这一次看年景按"第几次 + 哪个半球"随机)
+   */
+  SPRING_HALF: 4,
+  SPRING: [0.2, 0.4] as readonly [number, number],
+  /** 民变:国家至少几州;赔率;起事的最多几州、不超过国土的几成 */
+  REVOLT_STATE: 8,
+  REVOLT_ODDS: 0.12,
+  REVOLT_K: 1.6,
+  REVOLT_U0: 1.5,
+  REVOLT_MAX: 8,
+  REVOLT_MIN: 2,
+  REVOLT_FRAC: 0.15,
+  /** 讨伐民变:起事的一方国力 × (1 + (REBEL_MORALE − 1) × e^(−年数 ÷ REBEL_FADE)),朝廷一方 × COURT_MORALE */
+  REBEL_MORALE: 8,
+  REBEL_FADE: 12,
+  COURT_MORALE: 0.6,
+  /** 宗室争位:国家至少几州;赔率;起兵的州组占国土的几成、最多 / 最少几州 */
+  CLAIM_STATE: 10,
+  CLAIM_ODDS: 0.08,
+  CLAIM_MORE: 0.5,
+  CLAIM_K: 1.2,
+  CLAIM_U0: 1,
+  CLAIM_FRAC: 0.25,
+  CLAIM_MAX: 10,
+  CLAIM_MIN: 3,
+  /** 讨伐争位的宗室:宗室一方国力 × (1 + (CLAIM_MORALE − 1) × e^(−年数 ÷ CLAIM_FADE)),朝廷一方 × CLAIM_COURT */
+  CLAIM_MORALE: 3,
+  CLAIM_FADE: 15,
+  CLAIM_COURT: 0.85,
+  /** 大崩解:国土至少几州、立国满几年;同一国这么多年内不再崩 */
+  COLLAPSE_MIN: 30,
+  COLLAPSE_AGE: 150,
+  COLLAPSE_REST: 300,
+  /** 大崩解的赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0)) */
+  COLLAPSE_ODDS: 0.05,
+  COLLAPSE_K: 2.5,
+  COLLAPSE_U0: 2.35,
+  /** 盛极而衰:占所在大陆有人住的州不到几成的不崩;超过 HEG_0 的部分每多 HEG_SPAN,崩解时的动荡多 HEG_W(加满为止) */
+  HEG_GATE: 0.25,
+  HEG_0: 0.3,
+  HEG_SPAN: 0.3,
+  HEG_W: 2,
+  /** 大崩解:国都一带留给原来的国家的几成(KEEP 里随机);散出去的每块大约几州;每块至少几州 */
+  KEEP: [0.25, 0.4] as readonly [number, number],
+  PIECE_SIZE: 12,
+  PIECE_MIN: 3,
+});
+const { REACH, FAR_0, FAR_W, FOREIGN_W, AGE_0, AGE_SPAN, AGE_W, NEW_YEARS, NEW_W, FAMINE_YEARS, FAMINE_FULL, FAMINE_FULL_MIN, FAMINE_W, PLAGUE_YEARS, PLAGUE_FULL, PLAGUE_W, BLIGHT_YEARS, REVOLT_W, FAMINE_FIRST, FAMINE_EVERY, CLUSTER_PER, CLUSTER_HOPS, SEV, HOP_FADE, P_BASE, P_FULL, SOIL_W, LOSS, FAMINE_REST, SPRING_HALF, SPRING, REVOLT_STATE, REVOLT_ODDS, REVOLT_K, REVOLT_U0, REVOLT_MAX, REVOLT_MIN, REVOLT_FRAC, REBEL_MORALE, REBEL_FADE, COURT_MORALE, CLAIM_STATE, CLAIM_ODDS, CLAIM_MORE, CLAIM_K, CLAIM_U0, CLAIM_FRAC, CLAIM_MAX, CLAIM_MIN, CLAIM_MORALE, CLAIM_FADE, CLAIM_COURT, COLLAPSE_MIN, COLLAPSE_AGE, COLLAPSE_REST, COLLAPSE_ODDS, COLLAPSE_K, COLLAPSE_U0, HEG_GATE, HEG_0, HEG_SPAN, HEG_W, KEEP, PIECE_SIZE, PIECE_MIN } = UNREST_KNOBS.values;
 
-/** 看年景:第一次在哪一年,之后每隔多少年 */
-const FAMINE_FIRST = 0;
-const FAMINE_EVERY = 10;
-/** 有城的州每这么多个闹一处灾年(按世界大小;再随机多一处或少一处) */
-const CLUSTER_PER = 450;
-/** 一处灾年从一州往外最多几州 */
-const CLUSTER_HOPS = 3;
-/** 灾情(每处灾年随机):SEV 里;离灾年中心每远一州打 HOP_FADE 的折 */
-const SEV: readonly [number, number] = [0.3, 1];
-const HOP_FADE = 0.2;
-/** 闹饥荒的赔率 = 灾情 × 气候 × (P_BASE + P_FULL × 人口顶到上限的几成⁴) */
-const P_BASE = 0.02;
-const P_FULL = 0.6;
-/** 地薄的州更容易闹饥荒:赔率再乘 1 + SOIL_W × (1 − 地力)(地力见 population.ts) */
-const SOIL_W = 2;
-/** 人口掉几成(按赔率在里面取,再加一点随机) */
-const LOSS: readonly [number, number] = [0.08, 0.3];
-/** 闹过饥荒的城这么多年内不再闹 */
-const FAMINE_REST = 30;
-/**
- * 春荒:冬夏分明的地方(年较差的一半 ≥ SPRING_HALF °C,即年较差 8°C 以上;年内气温是估算,见 gen/seasons.ts)
- * 不在看年景那一刻闹灾年,等到当地青黄不接的时候 —— 最冷那一刻往后 SPRING 里随机的几成年(北半球四五月前后),
- * 北半球、南半球各一刻(这一次看年景按"第几次 + 哪个半球"随机)
- */
-const SPRING_HALF = 4;
-const SPRING: readonly [number, number] = [0.2, 0.4];
 
-/** 民变:国家至少几州;赔率;起事的最多几州、不超过国土的几成 */
-const REVOLT_STATE = 8;
-const REVOLT_ODDS = 0.12;
-const REVOLT_K = 1.6;
-const REVOLT_U0 = 1.5;
-const REVOLT_MAX = 8;
-const REVOLT_MIN = 2;
-const REVOLT_FRAC = 0.15;
-/** 讨伐民变:起事的一方国力 × (1 + (REBEL_MORALE − 1) × e^(−年数 ÷ REBEL_FADE)),朝廷一方 × COURT_MORALE */
-const REBEL_MORALE = 8;
-const REBEL_FADE = 12;
-const COURT_MORALE = 0.6;
 
-/** 宗室争位:国家至少几州;赔率;起兵的州组占国土的几成、最多 / 最少几州 */
-const CLAIM_STATE = 10;
-const CLAIM_ODDS = 0.08;
-const CLAIM_MORE = 0.5;
-const CLAIM_K = 1.2;
-const CLAIM_U0 = 1;
-const CLAIM_FRAC = 0.25;
-const CLAIM_MAX = 10;
-const CLAIM_MIN = 3;
-/** 讨伐争位的宗室:宗室一方国力 × (1 + (CLAIM_MORALE − 1) × e^(−年数 ÷ CLAIM_FADE)),朝廷一方 × CLAIM_COURT */
-const CLAIM_MORALE = 3;
-const CLAIM_FADE = 15;
-const CLAIM_COURT = 0.85;
 
-/** 大崩解:国土至少几州、立国满几年;同一国这么多年内不再崩 */
-const COLLAPSE_MIN = 30;
-const COLLAPSE_AGE = 150;
-const COLLAPSE_REST = 300;
-/** 大崩解的赔率 = COLLAPSE_ODDS × e^(COLLAPSE_K × (动荡 − COLLAPSE_U0)) */
-const COLLAPSE_ODDS = 0.05;
-const COLLAPSE_K = 2.5;
-const COLLAPSE_U0 = 2.35;
-/** 盛极而衰:占所在大陆有人住的州不到几成的不崩;超过 HEG_0 的部分每多 HEG_SPAN,崩解时的动荡多 HEG_W(加满为止) */
-const HEG_GATE = 0.25;
-const HEG_0 = 0.3;
-const HEG_SPAN = 0.3;
-const HEG_W = 2;
-/** 大崩解:国都一带留给原来的国家的几成(KEEP 里随机);散出去的每块大约几州;每块至少几州 */
-const KEEP: readonly [number, number] = [0.25, 0.4];
-const PIECE_SIZE = 12;
-const PIECE_MIN = 3;
 
 /** 干旱、寒冷的地方更容易闹灾年(按州的生物群落;见地貌表的 famineRisk) */
 const CLIMATE = biomeColumn('famineRisk');

@@ -57,91 +57,96 @@ import { politicsModelOf } from './politics';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi, type DiplomacyApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 立国后多少年开始看邦交;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
-const DIP_FIRST = 50;
-const DIP_EVERY = 40;
-/** 强邻:国力是自己的这么多倍以上(正在交兵的不论强弱都算) */
-const THREAT = 1.5;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const DIPLOMACY_KNOBS = defineKnobs('diplomacy', {
+  /** 立国后多少年开始看邦交;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
+  DIP_FIRST: 50,
+  DIP_EVERY: 40,
+  /** 强邻:国力是自己的这么多倍以上(正在交兵的不论强弱都算) */
+  THREAT: 1.5,
+  /** 称臣:强邻国力是自己的这么多倍以上、自己不超过这么多州才考虑;赔率 × (倍数 ÷ SUBMIT_RATIO)^SUBMIT_EXP × 强邻的扩张性 */
+  SUBMIT_RATIO: 4,
+  SUBMIT_MAX: 30,
+  SUBMIT_ODDS: 0.12,
+  SUBMIT_EXP: 0.5,
+  /** 自立以后这么多年内不再向同一个宗主主动称臣 */
+  RESUBMIT_REST: 80,
+  /** 结盟:一国最多同时结几个盟;盟国至少要有强邻的几成国力(不然帮不上);两国盟约断了以后多少年内不再结盟 */
+  MAX_PACTS: 2,
+  PACT_MIN_POWER: 0.25,
+  PACT_REST: 100,
+  /** 结盟的赔率;对方也受这个强邻威胁(强邻国力是它的 PACT_FEAR 倍以上)才肯结;正同在和强邻交兵 × PACT_COWAR */
+  PACT_ODDS: 0.35,
+  PACT_FEAR: 0.9,
+  PACT_COWAR: 3,
+  /** 盟约渐废:结盟满这么多年,共御的强邻已亡、或国力已不到两国中较强一方的 LAPSE_RATIO 倍;那时废掉的机会 */
+  LAPSE_AGE: 60,
+  LAPSE_RATIO: 1,
+  LAPSE_P: 0.35,
+  /**
+   * 背盟:结盟满这么多年,而且共御的强邻已不足为患(亡了,或国力不如自己)、或者盟国已弱到自己的 1 / BETRAY_PREY 以下(有利可图),
+   * 才可能去打盟国;宣战赔率 × BETRAY_ODDS
+   */
+  BETRAY_AGE: 30,
+  BETRAY_PREY: 2.5,
+  BETRAY_ODDS: 0.5,
+  /** 援盟:盟国被宣战时来援的机会(不来 = 坐视不救,盟约断);宗主发兵救藩属的机会 */
+  PACT_JOIN: 0.7,
+  RESCUE: 0.75,
+  /** 战败称臣:攻方国力是守方的这么多倍以上;守方丢了国都、或丢了这么多成国土(至少 SUE_MIN 州)算打得很惨 */
+  SUE_RATIO: 2,
+  SUE_FRAC: 0.3,
+  SUE_MIN: 2,
+  /**
+   * 打得很惨时守方求和称臣的机会 × 攻方受降的机会(异族 × SUE_FOREIGN,同族 × SUE_KIN;攻方另有战事、守方国都离攻方国都远各 × 1.4;
+   * 攻方国力是守方 SUE_CRUSH 倍以上的同族之战 × SUE_UNIFY:一心要并掉同族小国,多半不受降)
+   */
+  SUE_OFFER: 0.3,
+  SUE_ACCEPT: 0.45,
+  SUE_FOREIGN: 1.5,
+  SUE_KIN: 0.7,
+  SUE_CRUSH: 3,
+  SUE_UNIFY: 0.35,
+  /** 守方国都离攻方国都的路程(标准路程)超过这么多算"远" */
+  SUE_FAR: 14,
+  /** 守方只剩这么多州(含)以下的,攻方索性并掉,不受降 */
+  SUE_LEFT: 4,
+  /** 藩属自立:称臣满这么多年才会;赔率 = DEFECT_ODDS × 宗主的虚弱 × e^(DEFECT_K × (国力比 − DEFECT_R0)) × 不接壤 × 异族 */
+  DEFECT_MIN: 30,
+  DEFECT_ODDS: 0.04,
+  DEFECT_K: 4,
+  DEFECT_R0: 0.25,
+  DEFECT_FAR: 2.5,
+  DEFECT_FOREIGN: 1.3,
+  /** 宗主的虚弱 = 1 + 在打仗 + 这么多年内丢了国都 / 迁都、改朝换代、分裂过 + 接连丢州(各 + 1) */
+  WEAK_YEARS: 30,
+  WEAK_LOSS: 2,
+  /** 藩属自立后宗主发兵讨伐的机会 */
+  PUNISH: 0.6,
+  /** 纳土归附:称臣满这么多年、藩属不超过这么多州、宗主至少是它这么多倍大;赔率(异族 × ABSORB_FOREIGN) */
+  ABSORB_AGE: 100,
+  ABSORB_MAX: 14,
+  ABSORB_RATIO: 2.5,
+  ABSORB_ODDS: 0.25,
+  ABSORB_FOREIGN: 0.4,
+  /** 归附的州要这么多年没换过国家(和合并一样) */
+  ABSORB_SETTLE: 30,
+  /** 一国最多同时打几场仗(和 wars.ts 的 MAX_WARS 一样):手上的仗打满了的不来援盟,不算坐视不救 */
+  MAX_WARS: 2,
+});
+const { DIP_FIRST, DIP_EVERY, THREAT, SUBMIT_RATIO, SUBMIT_MAX, SUBMIT_ODDS, SUBMIT_EXP, RESUBMIT_REST, MAX_PACTS, PACT_MIN_POWER, PACT_REST, PACT_ODDS, PACT_FEAR, PACT_COWAR, LAPSE_AGE, LAPSE_RATIO, LAPSE_P, BETRAY_AGE, BETRAY_PREY, BETRAY_ODDS, PACT_JOIN, RESCUE, SUE_RATIO, SUE_FRAC, SUE_MIN, SUE_OFFER, SUE_ACCEPT, SUE_FOREIGN, SUE_KIN, SUE_CRUSH, SUE_UNIFY, SUE_FAR, SUE_LEFT, DEFECT_MIN, DEFECT_ODDS, DEFECT_K, DEFECT_R0, DEFECT_FAR, DEFECT_FOREIGN, WEAK_YEARS, WEAK_LOSS, PUNISH, ABSORB_AGE, ABSORB_MAX, ABSORB_RATIO, ABSORB_ODDS, ABSORB_FOREIGN, ABSORB_SETTLE, MAX_WARS } = DIPLOMACY_KNOBS.values;
 
-/** 称臣:强邻国力是自己的这么多倍以上、自己不超过这么多州才考虑;赔率 × (倍数 ÷ SUBMIT_RATIO)^SUBMIT_EXP × 强邻的扩张性 */
-const SUBMIT_RATIO = 4;
-const SUBMIT_MAX = 30;
-const SUBMIT_ODDS = 0.12;
-const SUBMIT_EXP = 0.5;
-/** 自立以后这么多年内不再向同一个宗主主动称臣 */
-const RESUBMIT_REST = 80;
 
-/** 结盟:一国最多同时结几个盟;盟国至少要有强邻的几成国力(不然帮不上);两国盟约断了以后多少年内不再结盟 */
-const MAX_PACTS = 2;
-const PACT_MIN_POWER = 0.25;
-const PACT_REST = 100;
-/** 结盟的赔率;对方也受这个强邻威胁(强邻国力是它的 PACT_FEAR 倍以上)才肯结;正同在和强邻交兵 × PACT_COWAR */
-const PACT_ODDS = 0.35;
-const PACT_FEAR = 0.9;
-const PACT_COWAR = 3;
 
-/** 盟约渐废:结盟满这么多年,共御的强邻已亡、或国力已不到两国中较强一方的 LAPSE_RATIO 倍;那时废掉的机会 */
-const LAPSE_AGE = 60;
-const LAPSE_RATIO = 1;
-const LAPSE_P = 0.35;
 
-/**
- * 背盟:结盟满这么多年,而且共御的强邻已不足为患(亡了,或国力不如自己)、或者盟国已弱到自己的 1 / BETRAY_PREY 以下(有利可图),
- * 才可能去打盟国;宣战赔率 × BETRAY_ODDS
- */
-const BETRAY_AGE = 30;
-const BETRAY_PREY = 2.5;
-const BETRAY_ODDS = 0.5;
 
-/** 援盟:盟国被宣战时来援的机会(不来 = 坐视不救,盟约断);宗主发兵救藩属的机会 */
-const PACT_JOIN = 0.7;
-const RESCUE = 0.75;
 
-/** 战败称臣:攻方国力是守方的这么多倍以上;守方丢了国都、或丢了这么多成国土(至少 SUE_MIN 州)算打得很惨 */
-const SUE_RATIO = 2;
-const SUE_FRAC = 0.3;
-const SUE_MIN = 2;
-/**
- * 打得很惨时守方求和称臣的机会 × 攻方受降的机会(异族 × SUE_FOREIGN,同族 × SUE_KIN;攻方另有战事、守方国都离攻方国都远各 × 1.4;
- * 攻方国力是守方 SUE_CRUSH 倍以上的同族之战 × SUE_UNIFY:一心要并掉同族小国,多半不受降)
- */
-const SUE_OFFER = 0.3;
-const SUE_ACCEPT = 0.45;
-const SUE_FOREIGN = 1.5;
-const SUE_KIN = 0.7;
-const SUE_CRUSH = 3;
-const SUE_UNIFY = 0.35;
-/** 守方国都离攻方国都的路程(标准路程)超过这么多算"远" */
-const SUE_FAR = 14;
-/** 守方只剩这么多州(含)以下的,攻方索性并掉,不受降 */
-const SUE_LEFT = 4;
 
-/** 藩属自立:称臣满这么多年才会;赔率 = DEFECT_ODDS × 宗主的虚弱 × e^(DEFECT_K × (国力比 − DEFECT_R0)) × 不接壤 × 异族 */
-const DEFECT_MIN = 30;
-const DEFECT_ODDS = 0.04;
-const DEFECT_K = 4;
-const DEFECT_R0 = 0.25;
-const DEFECT_FAR = 2.5;
-const DEFECT_FOREIGN = 1.3;
-/** 宗主的虚弱 = 1 + 在打仗 + 这么多年内丢了国都 / 迁都、改朝换代、分裂过 + 接连丢州(各 + 1) */
-const WEAK_YEARS = 30;
-const WEAK_LOSS = 2;
-/** 藩属自立后宗主发兵讨伐的机会 */
-const PUNISH = 0.6;
 
-/** 纳土归附:称臣满这么多年、藩属不超过这么多州、宗主至少是它这么多倍大;赔率(异族 × ABSORB_FOREIGN) */
-const ABSORB_AGE = 100;
-const ABSORB_MAX = 14;
-const ABSORB_RATIO = 2.5;
-const ABSORB_ODDS = 0.25;
-const ABSORB_FOREIGN = 0.4;
-/** 归附的州要这么多年没换过国家(和合并一样) */
-const ABSORB_SETTLE = 30;
 
-/** 一国最多同时打几场仗(和 wars.ts 的 MAX_WARS 一样):手上的仗打满了的不来援盟,不算坐视不救 */
-const MAX_WARS = 2;
 
 // 随机数用途编号
 const U_CHECK_T = 1;

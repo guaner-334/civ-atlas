@@ -32,60 +32,72 @@ import { MAX_AGE, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep,
 import { POSTHUMOUS, broodOf } from './royals';
 import { polityTierAt } from './growth';
 import { royalSeg, segLineage } from './regime';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(推荐值,按 20 个种子的统计调,见 scripts/gen-stats.ts) ----
-/**
- * 引兵入朝:君主年过这么多岁;机会;原定去世前几年里的某一刻。
- * (起初定的 55 岁、15%:统计下来晚年还有成年太子、成年兄弟、又在打仗的君主很少,种子 7 一次也没有;调到 50 岁、50%)
- */
-export const MARCH_AGE = 50;
-export const MARCH_P = 0.5;
-const MARCH_LEAD: [number, number] = [1, 6];
-/**
- * "本国正在打仗":正在打,或这么多年内打过(太子还在军中)。
- * (起初只算"正在打仗";推演里一国在打仗的年份不多,够条件的十几回里一回也没赶上,放宽到 20 年内打过)
- */
-export const MARCH_WAR = 20;
-/**
- * 太子监国:君主年过这么多岁;机会;原定在位的最后几年里的某一刻(和引兵入朝都有候选、又在它之前的,让给引兵入朝)。
- * (起初定的 68 岁、30%:老君主的下一位多半是孙辈,年过 68 还有成年太子的很少,种子 7 只有三次;调到 55 岁、50%)
- */
-export const HEIR_AGE = 55;
-export const HEIR_P = 0.5;
-const HEIR_LEAD: [number, number] = [1, 5];
-/** 继承人、叔父算"成年"的岁数;引兵入朝要有别的兄弟到了这么多岁 */
-const GROWN = 18;
-const BROTHER = 16;
-/** 幼主:即位不满这么多岁;到这么多岁还政(和 officials.ts 的辅政一样) */
-export const YOUNG = 12;
-export const ADULT = 18;
-/** 先君有成年在世的兄弟时,叔父摄政的机会(其余名臣辅政) */
-export const UNCLE_P = 0.4;
-/** 幼主成年时:还政、伏诛的机会(其余篡位) */
-const CHILD_END: [number, number] = [0.75, 0.15];
-/** 名臣受命辅政时的年纪 */
-const MINISTER_AGE: [number, number] = [32, 55];
-/** 大臣、大将专权:国号到这一档(王国)以上;这么多年内战败失地 STRONG_LOSS 州以上、丢过国都(大臣),或开疆 STRONG_GAIN 州以上(大将) */
-export const STRONG_TIER = 2;
-export const STRONG_YEARS = 30;
-export const STRONG_LOSS = 4;
-export const STRONG_GAIN = 8;
-/** 看王朝时出一位权臣的机会;掌权几年;掌权时的年纪 */
-export const STRONG_P = 0.3;
-const STRONG_LEN: [number, number] = [5, 25];
-const STRONG_AGE: [number, number] = [35, 55];
-/** 大臣专权到期:篡位、伏诛的机会(其余卒于位);大将专权到期:伏诛的机会(其余卒于位) */
-const CHANCELLOR_END: [number, number] = [0.35, 0.3];
-/** 篡位的人即位时最多这么大(和别的君主一样即位不过 62 岁):幼主成年时摄政的人已过这个年纪的还政,大臣专权要篡位的到这个年纪就动手 */
-const USURP_AGE = 62;
-const GENERAL_PURGE = 0.3;
-/** 大将的好战比照常取法高这么多 */
-const GENERAL_WAR = 15;
-/** 叔父篡位以后在位多少年:1 + SEIZE_REIGN × u^1.3(同 rulers.ts 的在位年数),到 MAX_AGE 岁为止 */
-const SEIZE_REIGN = 50;
-/** 引兵入朝那一刻本国正在打的仗:本国国力 × MARCH_SUPPLY,MARCH_FADE 年里淡回(wars.ts 的胜率) */
-export const MARCH_SUPPLY = 0.85;
-export const MARCH_FADE = 3;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const REGENTS_KNOBS = defineKnobs('regents', {
+  /**
+   * 引兵入朝:君主年过这么多岁;机会;原定去世前几年里的某一刻。
+   * (起初定的 55 岁、15%:统计下来晚年还有成年太子、成年兄弟、又在打仗的君主很少,种子 7 一次也没有;调到 50 岁、50%)
+   */
+  MARCH_AGE: 50,
+  MARCH_P: 0.5,
+  MARCH_LEAD: [1, 6] as [number, number],
+  /**
+   * "本国正在打仗":正在打,或这么多年内打过(太子还在军中)。
+   * (起初只算"正在打仗";推演里一国在打仗的年份不多,够条件的十几回里一回也没赶上,放宽到 20 年内打过)
+   */
+  MARCH_WAR: 20,
+  /**
+   * 太子监国:君主年过这么多岁;机会;原定在位的最后几年里的某一刻(和引兵入朝都有候选、又在它之前的,让给引兵入朝)。
+   * (起初定的 68 岁、30%:老君主的下一位多半是孙辈,年过 68 还有成年太子的很少,种子 7 只有三次;调到 55 岁、50%)
+   */
+  HEIR_AGE: 55,
+  HEIR_P: 0.5,
+  HEIR_LEAD: [1, 5] as [number, number],
+  /** 继承人、叔父算"成年"的岁数;引兵入朝要有别的兄弟到了这么多岁 */
+  GROWN: 18,
+  BROTHER: 16,
+  /** 幼主:即位不满这么多岁;到这么多岁还政(和 officials.ts 的辅政一样) */
+  YOUNG: 12,
+  ADULT: 18,
+  /** 先君有成年在世的兄弟时,叔父摄政的机会(其余名臣辅政) */
+  UNCLE_P: 0.4,
+  /** 幼主成年时:还政、伏诛的机会(其余篡位) */
+  CHILD_END: [0.75, 0.15] as [number, number],
+  /** 名臣受命辅政时的年纪 */
+  MINISTER_AGE: [32, 55] as [number, number],
+  /** 大臣、大将专权:国号到这一档(王国)以上;这么多年内战败失地 STRONG_LOSS 州以上、丢过国都(大臣),或开疆 STRONG_GAIN 州以上(大将) */
+  STRONG_TIER: 2,
+  STRONG_YEARS: 30,
+  STRONG_LOSS: 4,
+  STRONG_GAIN: 8,
+  /** 看王朝时出一位权臣的机会;掌权几年;掌权时的年纪 */
+  STRONG_P: 0.3,
+  STRONG_LEN: [5, 25] as [number, number],
+  STRONG_AGE: [35, 55] as [number, number],
+  /** 大臣专权到期:篡位、伏诛的机会(其余卒于位);大将专权到期:伏诛的机会(其余卒于位) */
+  CHANCELLOR_END: [0.35, 0.3] as [number, number],
+  /** 篡位的人即位时最多这么大(和别的君主一样即位不过 62 岁):幼主成年时摄政的人已过这个年纪的还政,大臣专权要篡位的到这个年纪就动手 */
+  USURP_AGE: 62,
+  GENERAL_PURGE: 0.3,
+  /** 大将的好战比照常取法高这么多 */
+  GENERAL_WAR: 15,
+  /** 叔父篡位以后在位多少年:1 + SEIZE_REIGN × u^1.3(同 rulers.ts 的在位年数),到 MAX_AGE 岁为止 */
+  SEIZE_REIGN: 50,
+  /** 引兵入朝那一刻本国正在打的仗:本国国力 × MARCH_SUPPLY,MARCH_FADE 年里淡回(wars.ts 的胜率) */
+  MARCH_SUPPLY: 0.85,
+  MARCH_FADE: 3,
+  /** keyed4 最后一位:君主的位次 / 叔伯名臣的倾向 / 大臣大将 / 大臣大将的倾向 */
+  K_REIGN: 0,
+  K_LEAN: 1,
+  K_STRONG: 2,
+  K_STRONG_LEAN: 3,
+  TICK: 256,
+});
+const { MARCH_LEAD, HEIR_LEAD, GROWN, BROTHER, CHILD_END, MINISTER_AGE, STRONG_LEN, STRONG_AGE, CHANCELLOR_END, USURP_AGE, GENERAL_PURGE, GENERAL_WAR, SEIZE_REIGN, K_REIGN, K_LEAN, K_STRONG, K_STRONG_LEAN, TICK } = REGENTS_KNOBS.values;
+export const { MARCH_AGE, MARCH_P, MARCH_WAR, HEIR_AGE, HEIR_P, YOUNG, ADULT, UNCLE_P, STRONG_TIER, STRONG_YEARS, STRONG_LOSS, STRONG_GAIN, STRONG_P, MARCH_SUPPLY, MARCH_FADE } = REGENTS_KNOBS.values;
 
 // 随机数用途
 const U_MARCH = 1;
@@ -99,13 +111,7 @@ const U_STRONG = 8;
 const U_KIND = 9;
 const U_LEN = 10;
 const U_REIGN = 11;
-/** keyed4 最后一位:君主的位次 / 叔伯名臣的倾向 / 大臣大将 / 大臣大将的倾向 */
-const K_REIGN = 0;
-const K_LEAN = 1;
-const K_STRONG = 2;
-const K_STRONG_LEAN = 3;
 
-const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 

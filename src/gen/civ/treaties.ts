@@ -75,58 +75,63 @@ import { royalSeg } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
-const TREATY_ODDS = 0.2;
-const REASON = 2;
-const CALM = 1.5;
-/** 几个邻国都够格时,有共同强邻的那一项分数再乘这么多(先找它) */
-const FOE_FIRST = 1.5;
-/** 两国国力差不到这么多倍才立约(议和顺带立约、拉进来的第三国也一样) */
-const TREATY_RATIO = 2;
-/** 由头一:近这么多年里两国打过一场谁也没占到便宜(双方攻下的州数差不超过 STALE_NET)的仗 */
-const STALE_YEARS = 30;
-const STALE_NET = 1;
-/** 由头二:共同的强邻,国力是两国各自的这么多倍以上 */
-const FEAR = 1.5;
-/** 两国上次约废 / 背约以后,这么多年内不再立约(议和顺带立约也一样) */
-const TREATY_REST = 80;
-/** 拉进第三、第四国的机会;最多几国 */
-const JOIN = 0.6;
-/** 拉进来的国家和其中一国国力差不到这么多倍 */
-const JOIN_RATIO = 2.5;
-const MAX_PARTIES = 4;
-/** 期限:两国之约(互不侵犯)、三国以上(有限竞争)、续约 */
-const TERM_PAIR = 20;
-const TERM_MULTI = 30;
-const TERM_RENEW = 20;
-/** 三国以上立约时同时设中立地的机会 */
-const MULTI_ZONE = 0.5;
-/** 议和顺带立约的机会;其中同时划缓冲中立地的机会 */
-const PEACE_TREATY = 0.15;
-const PEACE_ZONE = 0.5;
-/** 背约:立约(续约)满这么多年;自己国力是对方这么多倍以上、对方这么多年内迁都 / 改朝换代算由头;宣战赔率 × BREACH_ODDS */
-const BREACH_AGE = 10;
-const BREACH_PREY = 2.5;
-const CHAOS_YEARS = 30;
-const BREACH_ODDS = 0.5;
-/** 续约:几国国力差不到这么多倍;机会;共同的强邻还在 × RENEW_FOE;最多;已经续过几次的,每续过一次再 × RENEW_DECAY(不至于一续几百年) */
-const RENEW_RATIO = 2.5;
-const RENEW_P = 0.6;
-const RENEW_FOE = 1.3;
-const RENEW_MAX = 0.9;
-const RENEW_DECAY = 0.5;
-/** 放逐:机会;一处中立地同时最多几人;徙来这么多年内算还住着 */
-const EXILE_P = 0.5;
-const ZONE_CAP = 3;
-const EXILE_STAY = 40;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const TREATIES_KNOBS = defineKnobs('treaties', {
+  /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
+  TREATY_ODDS: 0.2,
+  REASON: 2,
+  CALM: 1.5,
+  /** 几个邻国都够格时,有共同强邻的那一项分数再乘这么多(先找它) */
+  FOE_FIRST: 1.5,
+  /** 两国国力差不到这么多倍才立约(议和顺带立约、拉进来的第三国也一样) */
+  TREATY_RATIO: 2,
+  /** 由头一:近这么多年里两国打过一场谁也没占到便宜(双方攻下的州数差不超过 STALE_NET)的仗 */
+  STALE_YEARS: 30,
+  STALE_NET: 1,
+  /** 由头二:共同的强邻,国力是两国各自的这么多倍以上 */
+  FEAR: 1.5,
+  /** 两国上次约废 / 背约以后,这么多年内不再立约(议和顺带立约也一样) */
+  TREATY_REST: 80,
+  /** 拉进第三、第四国的机会;最多几国 */
+  JOIN: 0.6,
+  /** 拉进来的国家和其中一国国力差不到这么多倍 */
+  JOIN_RATIO: 2.5,
+  MAX_PARTIES: 4,
+  /** 期限:两国之约(互不侵犯)、三国以上(有限竞争)、续约 */
+  TERM_PAIR: 20,
+  TERM_MULTI: 30,
+  TERM_RENEW: 20,
+  /** 三国以上立约时同时设中立地的机会 */
+  MULTI_ZONE: 0.5,
+  /** 议和顺带立约的机会;其中同时划缓冲中立地的机会 */
+  PEACE_TREATY: 0.15,
+  PEACE_ZONE: 0.5,
+  /** 背约:立约(续约)满这么多年;自己国力是对方这么多倍以上、对方这么多年内迁都 / 改朝换代算由头;宣战赔率 × BREACH_ODDS */
+  BREACH_AGE: 10,
+  BREACH_PREY: 2.5,
+  CHAOS_YEARS: 30,
+  BREACH_ODDS: 0.5,
+  /** 续约:几国国力差不到这么多倍;机会;共同的强邻还在 × RENEW_FOE;最多;已经续过几次的,每续过一次再 × RENEW_DECAY(不至于一续几百年) */
+  RENEW_RATIO: 2.5,
+  RENEW_P: 0.6,
+  RENEW_FOE: 1.3,
+  RENEW_MAX: 0.9,
+  RENEW_DECAY: 0.5,
+  /** 放逐:机会;一处中立地同时最多几人;徙来这么多年内算还住着 */
+  EXILE_P: 0.5,
+  ZONE_CAP: 3,
+  EXILE_STAY: 40,
+  /** 作者下令划中立地、几国还没有约时同时立的互不侵犯之约几年 */
+  TERM_DECREE: 30,
+  /** 演一国时它提出立约,对方肯不肯的赔率底数(国力相近、都怕同一个强邻、近年打成僵持各 × REASON,方针守成和平的 × CALM;最多 ASK_MAX) */
+  ASK_ODDS: 0.3,
+  ASK_MAX: 0.95,
+});
+const { TREATY_ODDS, REASON, CALM, FOE_FIRST, TREATY_RATIO, STALE_YEARS, STALE_NET, FEAR, TREATY_REST, JOIN, JOIN_RATIO, MAX_PARTIES, TERM_PAIR, TERM_MULTI, TERM_RENEW, MULTI_ZONE, PEACE_TREATY, PEACE_ZONE, BREACH_AGE, BREACH_PREY, CHAOS_YEARS, BREACH_ODDS, RENEW_RATIO, RENEW_P, RENEW_FOE, RENEW_MAX, RENEW_DECAY, EXILE_P, ZONE_CAP, EXILE_STAY, TERM_DECREE, ASK_ODDS, ASK_MAX } = TREATIES_KNOBS.values;
 
-/** 作者下令划中立地、几国还没有约时同时立的互不侵犯之约几年 */
-const TERM_DECREE = 30;
-/** 演一国时它提出立约,对方肯不肯的赔率底数(国力相近、都怕同一个强邻、近年打成僵持各 × REASON,方针守成和平的 × CALM;最多 ASK_MAX) */
-const ASK_ODDS = 0.3;
-const ASK_MAX = 0.95;
 
 
 // 随机数用途

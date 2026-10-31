@@ -78,82 +78,87 @@ import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, P
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi, type CivApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */
-const MIN_SIZE = 8;
-const MIN_AGE = 60;
-const REST = 100;
-const REST_SHELVED = 200;
-/** 行政能力到 ADMIN_FULL 算管得满(af = 1) */
-const ADMIN_FULL = 4;
-/** 征法 0 代收、1 分成、2 直征:管得到几成加 LIFT × af,岁出多 COST × 应缴 */
-const LIFT = [0, 0.15, 0.35];
-const COST = [0, 0.03, 0.07];
-/** 交上来几成的底(和 control.ts 的 REMIT_0 一样) */
-const REMIT_0 = 0.3;
-/** 改制的余波:动荡多 SHOCK,SHOCK_YEARS 年淡去 */
-const SHOCK = 0.15;
-const SHOCK_YEARS = 30;
-/** 削藩谈崩起兵自立:连同碎块至少几州(和分裂一样,不够就算搁置) */
-const REBEL_MIN = 5;
-/** 谈崩时起事的州要这么多年没换过国家(和分裂、割据一样) */
-const SETTLE = 30;
-/** 随机的那一截(x 加上 JITTER × (u − 0.5)) */
-const JITTER = 0.8;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const COUNCIL_KNOBS = defineKnobs('council', {
+  /** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */
+  MIN_SIZE: 8,
+  MIN_AGE: 60,
+  REST: 100,
+  REST_SHELVED: 200,
+  /** 行政能力到 ADMIN_FULL 算管得满(af = 1) */
+  ADMIN_FULL: 4,
+  /** 征法 0 代收、1 分成、2 直征:管得到几成加 LIFT × af,岁出多 COST × 应缴 */
+  LIFT: [0, 0.15, 0.35],
+  COST: [0, 0.03, 0.07],
+  /** 交上来几成的底(和 control.ts 的 REMIT_0 一样) */
+  REMIT_0: 0.3,
+  /** 改制的余波:动荡多 SHOCK,SHOCK_YEARS 年淡去 */
+  SHOCK: 0.15,
+  SHOCK_YEARS: 30,
+  /** 削藩谈崩起兵自立:连同碎块至少几州(和分裂一样,不够就算搁置) */
+  REBEL_MIN: 5,
+  /** 谈崩时起事的州要这么多年没换过国家(和分裂、割据一样) */
+  SETTLE: 30,
+  /** 随机的那一截(x 加上 JITTER × (u − 0.5)) */
+  JITTER: 0.8,
+  /** 罢直征:国库不到几成(或国用不足)才议;x = UNTAX_0 + UNTAX_BROKE × 窘迫 − UNTAX_DEV × (发展 − 50) / 50 */
+  PURSE_LOW: 0.5,
+  UNTAX_0: 0.3,
+  UNTAX_BROKE: 0.6,
+  UNTAX_DEV: 0.3,
+  /** 削藩:割据满几年、国库攒到几成、动荡不到多少;x = CUT_0 + CUT_ADMIN × af + CUT_WAR × (好战 − 50) / 50 − CUT_U_W × 动荡 − CUT_SHARE × 地盘的税占应缴几成 */
+  CUT_AGE: 30,
+  PURSE_CUT: 0.4,
+  CUT_U: 1,
+  CUT_0: 0.2,
+  CUT_ADMIN: 0.5,
+  CUT_WAR: 0.3,
+  CUT_U_W: 0.5,
+  CUT_SHARE: 2,
+  /** 削藩的门槛:办成、搁置(再低谈崩) */
+  CUT_DONE: 0.2,
+  CUT_SHELVE: -0.35,
+  /** 直征:多收的扣掉开销至少占应缴几成;国库不到几成或君主发展倾向到多少才议 */
+  GAIN_MIN: 0.03,
+  PURSE_TAX: 0.6,
+  DEV_TAX: 75,
+  /** 直征的分:x = TAX_0 + TAX_ADMIN × af + TAX_DEV × (发展 − 50) / 50 + TAX_BROKE × 窘迫 − TAX_U × 动荡 − TAX_STAKE × 地方要丢的占应缴几成 − TAX_LORD × 割据几处 */
+  TAX_0: 0.2,
+  TAX_ADMIN: 0.5,
+  TAX_DEV: 0.3,
+  TAX_BROKE: 0.3,
+  TAX_U: 0.35,
+  TAX_STAKE: 2,
+  TAX_LORD: 0.2,
+  /** 直征的门槛:办成、妥协、搁置(再低谈崩) */
+  TAX_DONE: 0.35,
+  TAX_HALF: 0,
+  TAX_SHELVE: -0.5,
+  /** 改土归流:分封满几年、af、动荡、国库;x = UNFIEF_0 + UNFIEF_ADMIN × af − UNFIEF_U_W × 动荡 + UNFIEF_DEV × (发展 − 50) / 50 */
+  UNFIEF_AGE: 80,
+  AF_UNFIEF: 0.6,
+  UNFIEF_U: 0.8,
+  PURSE_UNFIEF: 0.4,
+  UNFIEF_0: -0.2,
+  UNFIEF_ADMIN: 0.5,
+  UNFIEF_U_W: 0.4,
+  UNFIEF_DEV: 0.3,
+  UNFIEF_DONE: 0,
+  UNFIEF_SHELVE: -0.5,
+  /** 分封:动荡到多少、管不到的州占几成、至少几州;x = FIEF_0 + FIEF_UW × (动荡 − FIEF_U) − FIEF_WAR × (好战 − 50) / 50 − FIEF_LOSS × 少收的占应缴几成 */
+  FIEF_U: 1.1,
+  FIEF_SHARE: 0.3,
+  FIEF_SIZE: 12,
+  FIEF_0: 0.1,
+  FIEF_UW: 0.5,
+  FIEF_WAR: 0.4,
+  FIEF_LOSS: 2,
+});
+const { MIN_SIZE, MIN_AGE, REST, REST_SHELVED, ADMIN_FULL, LIFT, COST, REMIT_0, SHOCK, SHOCK_YEARS, REBEL_MIN, SETTLE, JITTER, PURSE_LOW, UNTAX_0, UNTAX_BROKE, UNTAX_DEV, CUT_AGE, PURSE_CUT, CUT_U, CUT_0, CUT_ADMIN, CUT_WAR, CUT_U_W, CUT_SHARE, CUT_DONE, CUT_SHELVE, GAIN_MIN, PURSE_TAX, DEV_TAX, TAX_0, TAX_ADMIN, TAX_DEV, TAX_BROKE, TAX_U, TAX_STAKE, TAX_LORD, TAX_DONE, TAX_HALF, TAX_SHELVE, UNFIEF_AGE, AF_UNFIEF, UNFIEF_U, PURSE_UNFIEF, UNFIEF_0, UNFIEF_ADMIN, UNFIEF_U_W, UNFIEF_DEV, UNFIEF_DONE, UNFIEF_SHELVE, FIEF_U, FIEF_SHARE, FIEF_SIZE, FIEF_0, FIEF_UW, FIEF_WAR, FIEF_LOSS } = COUNCIL_KNOBS.values;
 
-/** 罢直征:国库不到几成(或国用不足)才议;x = UNTAX_0 + UNTAX_BROKE × 窘迫 − UNTAX_DEV × (发展 − 50) / 50 */
-const PURSE_LOW = 0.5;
-const UNTAX_0 = 0.3;
-const UNTAX_BROKE = 0.6;
-const UNTAX_DEV = 0.3;
-/** 削藩:割据满几年、国库攒到几成、动荡不到多少;x = CUT_0 + CUT_ADMIN × af + CUT_WAR × (好战 − 50) / 50 − CUT_U_W × 动荡 − CUT_SHARE × 地盘的税占应缴几成 */
-const CUT_AGE = 30;
-const PURSE_CUT = 0.4;
-const CUT_U = 1;
-const CUT_0 = 0.2;
-const CUT_ADMIN = 0.5;
-const CUT_WAR = 0.3;
-const CUT_U_W = 0.5;
-const CUT_SHARE = 2;
-/** 削藩的门槛:办成、搁置(再低谈崩) */
-const CUT_DONE = 0.2;
-const CUT_SHELVE = -0.35;
-/** 直征:多收的扣掉开销至少占应缴几成;国库不到几成或君主发展倾向到多少才议 */
-const GAIN_MIN = 0.03;
-const PURSE_TAX = 0.6;
-const DEV_TAX = 75;
-/** 直征的分:x = TAX_0 + TAX_ADMIN × af + TAX_DEV × (发展 − 50) / 50 + TAX_BROKE × 窘迫 − TAX_U × 动荡 − TAX_STAKE × 地方要丢的占应缴几成 − TAX_LORD × 割据几处 */
-const TAX_0 = 0.2;
-const TAX_ADMIN = 0.5;
-const TAX_DEV = 0.3;
-const TAX_BROKE = 0.3;
-const TAX_U = 0.35;
-const TAX_STAKE = 2;
-const TAX_LORD = 0.2;
-/** 直征的门槛:办成、妥协、搁置(再低谈崩) */
-const TAX_DONE = 0.35;
-const TAX_HALF = 0;
-const TAX_SHELVE = -0.5;
-/** 改土归流:分封满几年、af、动荡、国库;x = UNFIEF_0 + UNFIEF_ADMIN × af − UNFIEF_U_W × 动荡 + UNFIEF_DEV × (发展 − 50) / 50 */
-const UNFIEF_AGE = 80;
-const AF_UNFIEF = 0.6;
-const UNFIEF_U = 0.8;
-const PURSE_UNFIEF = 0.4;
-const UNFIEF_0 = -0.2;
-const UNFIEF_ADMIN = 0.5;
-const UNFIEF_U_W = 0.4;
-const UNFIEF_DEV = 0.3;
-const UNFIEF_DONE = 0;
-const UNFIEF_SHELVE = -0.5;
-/** 分封:动荡到多少、管不到的州占几成、至少几州;x = FIEF_0 + FIEF_UW × (动荡 − FIEF_U) − FIEF_WAR × (好战 − 50) / 50 − FIEF_LOSS × 少收的占应缴几成 */
-const FIEF_U = 1.1;
-const FIEF_SHARE = 0.3;
-const FIEF_SIZE = 12;
-const FIEF_0 = 0.1;
-const FIEF_UW = 0.5;
-const FIEF_WAR = 0.4;
-const FIEF_LOSS = 2;
 
 // ---- 改军制 ----
 /** 禁军、监军:各州出兵的几成多 ARMY_LIFT × 军制,岁出多 ARMY_COST × 军制 × 应缴;新起割据的赔率乘 1 − ARMY_LORD × 军制 */
