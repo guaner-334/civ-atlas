@@ -59,7 +59,7 @@
 import type { Civ, DevEvent, DevState, Development, Settlement, TablesState, Year } from './types';
 import type { World } from '../world';
 import { AdjKind, Layer } from './types';
-import { Biome } from '../biomes';
+import { biomeColumn, biomeMask, biomeTagged } from '../biomes';
 import { MAJOR_RIVER } from './habitat';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { BookWriter } from './fiscalBook';
@@ -1319,14 +1319,14 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
       ore += (conv > 0 ? Math.min(1, conv) : 0) + (h > 1500 ? 0.6 : h > 800 ? 0.3 : 0);
       // 铁:丘陵山地常见,沼泽、针叶林里的沼铁也算
       hills += h > 400 ? Math.min(1, (h - 400) / 1200) : 0;
-      bog += bi === Biome.Wetland || bi === Biome.Taiga ? 0.5 : 0;
+      bog += BOG_IRON[bi] ? 0.5 : 0;
       // 煤:古老的低地盆地(森林、温带,海拔不高)
-      basin += h < 1000 && (bi === Biome.TemperateForest || bi === Biome.Taiga || bi === Biome.TemperateRainforest || bi === Biome.Wetland || bi === Biome.Steppe) ? 1 : 0;
+      basin += h < 1000 && COAL_BASIN[bi] ? 1 : 0;
       wood += WOOD[bi];
       // 盐:暖而干的海岸(晒盐)、荒漠盆地(盐湖)
       const coast = habitat.coastDist[i] === 1;
       if (coast && temperature[i] > 14 && precipitation[i] < 1000) salt += 1;
-      if (bi === Biome.HotDesert || bi === Biome.TemperateDesert || bi === Biome.ColdDesert) salt += h < 1500 ? 0.6 : 0.2;
+      if (DESERT[bi]) salt += h < 1500 ? 0.6 : 0.2;
       // 石油:低地的沉积盆地(荒漠、沼泽、草原、海边)
       if (h < 600) oil += OIL[bi] + (coast ? 0.4 : 0);
       // 稀有矿:板块剧烈碰撞带(火山弧)、张裂带
@@ -1375,17 +1375,15 @@ export function computeResources(world: World, civ: Pick<Civ, 'regions' | 'habit
   return out;
 }
 
-/** 群落 → 能种多少粮(乘在宜居分上)、能放多少牧、有多少木材 */
-const FARM: readonly number[] = biomeTable({ TemperateForest: 1, TropicalDryForest: 1, TemperateRainforest: 0.7, Savanna: 0.6, Steppe: 0.5, Rainforest: 0.5, Wetland: 0.5, Taiga: 0.3, TemperateDesert: 0.3, HotDesert: 0.3, ColdDesert: 0.2 });
-const GRAZE: readonly number[] = biomeTable({ Steppe: 1, Savanna: 0.8, ColdDesert: 0.5, TemperateDesert: 0.4, Tundra: 0.3, TemperateForest: 0.2, TropicalDryForest: 0.2, HotDesert: 0.1 });
-const OIL: readonly number[] = biomeTable({ HotDesert: 1, TemperateDesert: 0.9, ColdDesert: 0.6, Wetland: 0.8, Steppe: 0.5, Tundra: 0.4, Savanna: 0.3, Taiga: 0.2 });
-const WOOD: readonly number[] = biomeTable({ Taiga: 1, TemperateForest: 1, TemperateRainforest: 1, Rainforest: 0.8, TropicalDryForest: 0.7, Wetland: 0.3, Savanna: 0.2 });
-
-function biomeTable(v: Partial<Record<keyof typeof Biome, number>>): number[] {
-  const t = new Array<number>(16).fill(0);
-  for (const [k, x] of Object.entries(v)) t[Biome[k as keyof typeof Biome]] = x!;
-  return t;
-}
+/** 群落 → 能种多少粮(乘在宜居分上)、能放多少牧、有多少木材、石油(见地貌表的 grain、pasture、timber、oil) */
+const FARM = biomeColumn('grain');
+const GRAZE = biomeColumn('pasture');
+const OIL = biomeColumn('oil');
+const WOOD = biomeColumn('timber');
+/** 出沼铁的、成煤盆地的、荒漠(盐)(见地貌表的标签 bogIron、coalBasin 和 desert) */
+const BOG_IRON = biomeTagged('bogIron');
+const COAL_BASIN = biomeTagged('coalBasin');
+const DESERT = biomeMask((b) => b.desert !== undefined);
 
 /** 模块:发展度:每 20 年算各州的能力,影响人口上限、军力、远洋(清单和次序见 modules.ts) */
 export const developmentModule: CivModule = {

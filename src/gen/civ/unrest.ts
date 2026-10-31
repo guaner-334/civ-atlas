@@ -61,7 +61,7 @@
 import type { World } from '../world';
 import { COLDEST_NORTH, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
-import { Biome } from '../biomes';
+import { biomeColumn } from '../biomes';
 import { fexp, keyed, keyed4, subSeed } from './engine/rand';
 import { BOOKED_AT_START, bookChain, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, type PolityModel } from './polities';
@@ -176,16 +176,8 @@ const KEEP: readonly [number, number] = [0.25, 0.4];
 const PIECE_SIZE = 12;
 const PIECE_MIN = 3;
 
-/** 干旱、寒冷的地方更容易闹灾年(按州的生物群落) */
-const CLIMATE: readonly number[] = (() => {
-  const c = new Array<number>(16).fill(1);
-  c[Biome.HotDesert] = c[Biome.TemperateDesert] = c[Biome.ColdDesert] = 1.7;
-  c[Biome.Steppe] = c[Biome.Savanna] = 1.4;
-  c[Biome.Tundra] = c[Biome.Taiga] = 1.3;
-  c[Biome.TropicalDryForest] = 1.1;
-  c[Biome.TemperateRainforest] = c[Biome.Rainforest] = c[Biome.Wetland] = 0.8;
-  return c;
-})();
+/** 干旱、寒冷的地方更容易闹灾年(按州的生物群落;见地貌表的 famineRisk) */
+const CLIMATE = biomeColumn('famineRisk');
 
 // 随机数用途编号
 const U_FAM_T = 1;
