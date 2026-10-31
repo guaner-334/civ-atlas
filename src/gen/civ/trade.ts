@@ -23,7 +23,7 @@
  */
 import type { Civ, Regions, Year } from './types';
 import { AdjKind, Layer } from './types';
-import { Biome } from '../biomes';
+import { biomeTagged } from '../biomes';
 import { MinHeap } from '../util';
 import { keyed, subSeed } from './engine/rand';
 import type { CivSim } from './engine/sim';
@@ -63,8 +63,8 @@ export const TRADE_GOODS: readonly number[] = [G.Salt, G.Iron, G.Copper, G.Coal,
 /** 每样货的分量(排名、"按运得最多的那样起名"用) */
 const WEIGHT: Readonly<Record<number, number>> = { [G.Salt]: 1, [G.Iron]: 0.9, [G.Copper]: 0.9, [G.Coal]: 0.9, [G.Oil]: 0.9, [G.Livestock]: 0.8, [G.Rare]: 0.7, [G.Gold]: 0.6 };
 const GOODS_MASK = TRADE_GOODS.reduce((m, g) => m | (1 << g), 0);
-/** 马:牲畜要在这些群落里才算(草原、荒漠) */
-const HORSE_BIOMES = new Set<number>([Biome.Steppe, Biome.Savanna, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert]);
+/** 马:牲畜要在这些群落里才算(草原、荒漠;按 Biome 下标,见地貌表的标签 arid) */
+const HORSE_BIOMES = biomeTagged('arid');
 
 // ---------------------------------------------------------------------------
 // 数据(Civ.trade)
@@ -265,7 +265,7 @@ function step(sim: CivSim, m: TradeModel, t: Year): void {
     const o = r * RESOURCE_COUNT;
     let b = 0;
     for (const g of TRADE_GOODS) if (availNow[o + g] > 0) b |= 1 << g;
-    if (b & (1 << G.Livestock) && !HORSE_BIOMES.has(reg.biome[r])) b &= ~(1 << G.Livestock);
+    if (b & (1 << G.Livestock) && !HORSE_BIOMES[reg.biome[r]]) b &= ~(1 << G.Livestock);
     prod[r] = b;
   }
 

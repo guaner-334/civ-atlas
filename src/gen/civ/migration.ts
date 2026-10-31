@@ -51,7 +51,7 @@
  *   开的那一仗由 Migration.war 认;看大迁徙的时刻由"第几次"算出来(resumeMigration)。
  * 随机数:keyed(subSeed(seed, 'civ-trek'), 第几次 / 民族的发源州 / 州的治所…, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
-import { Biome } from '../biomes';
+import { biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { geometryOf, type Geometry } from '../geometry';
 import { TREK_DIR_NAMES, regionOfKey, type Intervention, type TrekReach } from '../edits';
@@ -164,13 +164,8 @@ const U_LOSS = 5;
 const U_GROW = 6;
 const U_SHATTER = 7;
 
-const biomeSet = (list: number[]) => {
-  const t = new Uint8Array(16);
-  for (const b of list) t[b] = 1;
-  return t;
-};
-/** 发源在这些地方的民族会迁:苔原、针叶林(寒地) */
-const COLD = biomeSet([Biome.Tundra, Biome.Taiga]);
+/** 发源在这些地方的民族会迁:苔原、针叶林(寒地;按 Biome 下标,见地貌表的标签 cold) */
+const COLD = biomeTagged('cold');
 
 // ---------------------------------------------------------------------------
 // 模型
