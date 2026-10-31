@@ -45,7 +45,8 @@ import { fuzzResume, fuzzUpheavalResume, type FuzzCase } from './lib/resumeFuzz'
 import { historyProblems, oddNumbers } from './lib/historyCheck';
 import { REGENCY_KINDS } from '../src/gen/civ/regents';
 import { REFORM_COUP, REFORM_RESTORE } from '../src/gen/civ/councilRules';
-import { TUNING_ITEMS, tuningEnds, tuningItem, tuningPatch, type TuningValues } from '../src/gen/civ/tuning';
+import { TUNING_ITEMS, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
+import { tuningPatch } from '../src/gen/civ/tuningPatch';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {

@@ -1,6 +1,7 @@
 /**
  * 开放给用的人调的「规则项」:推演的旋钮(engine/knobs.ts,八百多项)里挑出来的 70 项,按大家理解的事分 7 组。
- * 一个世界用的一套规则 = 这 70 项里改过的那些项的值(TuningValues:编号 → 值,没写的 = 官方);推演前换成一套旋钮的改动(tuningPatch → KnobPatch)。
+ * 一个世界用的一套规则 = 这 70 项里改过的那些项的值(TuningValues:编号 → 值,没写的 = 官方);推演前换成一套旋钮的改动
+ * (tuningPatch.ts 的 tuningPatch → KnobPatch;放在另一个文件:这里不引用旋钮表,存档、首页读一套规则时不用把整个推演载进来)。
  *
  * - **编号**(war.odds、war.truce……)是存档、链接、文件里存的,和代码里的旋钮名脱钩:旋钮改名、拆开、合并,编号不变;定了就不改
  * - **三种项**:
@@ -16,8 +17,6 @@
  * 读进来的值(存档、链接、文件)先过 cleanTuning:认不出的编号丢掉、不在档位上的吸到最近一档、超出范围的拉回来、区间前大后小的对调,每处一句提示。
  * 纯计算,不碰 DOM。
  */
-import { CIV_KNOBS } from './knobs';
-import type { KnobPatch, KnobValue } from './engine/knobs';
 
 // ---------------------------------------------------------------------------
 // 组、档位
@@ -321,16 +320,7 @@ const byId = new Map(ITEMS.map((x) => [x.id, x]));
 export const tuningItem = (id: string): TuningItem | undefined => byId.get(id);
 
 // ---------------------------------------------------------------------------
-// 旋钮
-
-const tables = new Map(CIV_KNOBS.map((t) => [t.id, t]));
-/** "表.项" 官方的值(登记表里没有就报错:编号对不上旋钮是写错了) */
-function officialKnob(k: string): KnobValue {
-  const [t, name] = k.split('.');
-  const v = tables.get(t)?.values[name];
-  if (v === undefined) throw new Error(`规则项改的旋钮 ${k} 不在旋钮表里`);
-  return v;
-}
+// 档位、两头
 
 /** 一项的官方值:倍数档 = 1 */
 export function officialValue(x: TuningItem): TuningValue {
@@ -347,42 +337,6 @@ export function tuningEnds(x: TuningItem): [TuningValue, TuningValue] {
   if (x.kind === 'mult') return [x.off ? 0 : MULT_STEPS[0], MULT_STEPS[MULT_STEPS.length - 1]];
   if (x.kind === 'range') return [[x.min, x.min], [x.max, x.max]];
   return [x.offable ? 'off' : x.min, x.never ? 'never' : x.max];
-}
-
-/** 一项的值换成它改的那几处旋钮的值(值是清理过的) */
-function knobValues(x: TuningItem, v: TuningValue): [string, KnobValue][] {
-  if (x.kind === 'mult') {
-    const m = v as number;
-    return x.knobs.map((k) => {
-      const o = officialKnob(k) as number;
-      return [k, x.inv ? (m === 0 ? Infinity : o / m) : o * m];
-    });
-  }
-  if (x.kind === 'range') {
-    const [a, b] = v as readonly [number, number];
-    return x.knobs.map((k) => [k, [a, b]]);
-  }
-  const kv = v === 'never' ? x.neverKnob! : v === 'off' ? x.offKnob! : (v as number);
-  return x.knobs.map((k) => [k, kv]);
-}
-
-/**
- * 一套规则 → 推演用的一套旋钮改动(CivParams.knobs)。先过 cleanTuning(读进来的乱值不会变成乱旋钮);
- * 什么都没改 = undefined(官方)
- */
-export function tuningPatch(values: unknown): KnobPatch | undefined {
-  const clean = cleanTuning(values).values;
-  const out: Record<string, Record<string, KnobValue>> = {};
-  let any = false;
-  for (const x of ITEMS) {
-    if (!(x.id in clean)) continue;
-    for (const [k, kv] of knobValues(x, clean[x.id])) {
-      const [t, name] = k.split('.');
-      (out[t] ??= {})[name] = kv;
-      any = true;
-    }
-  }
-  return any ? out : undefined;
 }
 
 // ---------------------------------------------------------------------------

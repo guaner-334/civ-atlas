@@ -1486,7 +1486,7 @@ ${s.image.cells}` : null);
     const plain = plainDraft();
     const endYear = plain ? civYears.current : endParamOf(edits);
     const sameYears = fresh.current || endYear === civYears.current;
-    // 拓荒、起源:同推演年数,新建中的世界一律按默认推;创建以后按世界自己的,整段历史从第 0 年重推(文明种子新建中就照它推)
+    // 拓荒、起源、天灾、规则:同推演年数,新建中的世界一律按默认推;创建以后按世界自己的,整段历史从第 0 年重推(文明种子新建中就照它推)
     const setup = setupFor(plain, edits);
     const sameSet = fresh.current || sameSetup(setup, civSetup.current);
     // 逐年推演的进度:打开逐年推演的世界、开始逐年推演时按它推到"现在";一步步走的时候进度和推好的那份一样,不重推
@@ -1570,7 +1570,7 @@ ${s.image.cells}` : null);
       ...(play ? { play } : {}),
       have: [...eraPatches.current.keys()],
     });
-  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.endTick, edits.frontier, edits.origins, edits.civSeed, edits.calamity, edits.play, draft, baseData, send]);
+  }, [edits.interventions, edits.upheavals, edits.nameMix, edits.endYear, edits.endTick, edits.frontier, edits.origins, edits.civSeed, edits.calamity, edits.rules, edits.play, draft, baseData, send]);
   // 地图上这份历史的摘要(检查脚本对比逐年推演、存回推演模式以后是不是同一段历史用):before 年以前的史事条数和指纹、立过几国
   useEffect(() => {
     const c = rawCiv;

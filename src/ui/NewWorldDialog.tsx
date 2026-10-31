@@ -30,6 +30,7 @@ import { createPortal } from 'react-dom';
 import { PresetPicker, SavePreset, type PresetPick } from './PresetPicker';
 import { changedKeys, choiceParams, getPresets, usePresets, type SharedPreset } from './presetStore';
 import { terrainChangedCount, type Frontier } from '../gen/civ/frontier';
+import type { RuleSet } from '../gen/civ/ruleSet';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, terrainValue, withSpeed, withTerrain, withoutTerrain } from './frontierUi';
 import { isImageFile, loadImage, type LoadedImage } from './imageFile';
 import { Icon } from './icons';
@@ -47,6 +48,8 @@ export interface NewWorldStart {
   endYear?: number;
   /** 拓荒(都是默认 = 不给) */
   frontier?: Frontier;
+  /** 用哪一套规则(官方 = 不给;整套存进新世界,本机「我的规则」里的那一套带着本机编号) */
+  rules?: RuleSet;
 }
 
 /** 从哪一步开始(刷新了照手绘图还没选好图的新建:回到它的第 2 步,参数、推演年数照网址) */

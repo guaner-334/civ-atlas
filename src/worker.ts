@@ -60,6 +60,8 @@ import type { SurfaceLook } from './render/surface';
 import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
+import type { TuningValues } from './gen/civ/tuning';
+import { tuningPatch } from './gen/civ/tuningPatch';
 import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, recipeText, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
 import { playStop, playTicks, playTurn } from './gen/civ/play';
 import { subSeed } from './gen/util';
@@ -101,6 +103,8 @@ interface CivInput {
   origins?: Origins;
   /** 「天灾」(gen/edits.ts 的 WorldEdits.calamity;不给 = 平常) */
   calamity?: Calamity;
+  /** 这个世界的规则里改过的规则项(gen/edits.ts 的 WorldEdits.rules,gen/civ/ruleSet.ts 的 ruleTuning;不给 = 官方规则):推演前换成一套旋钮 */
+  tuning?: TuningValues;
   /** 文明种子(gen/edits.ts 的 WorldEdits.civSeed;不给 = 地图种子) */
   civSeed?: number;
   /** 逐年推演的进度(gen/edits.ts 的 WorldEdits.play;不给 = 没在逐年推演):推到进度那一刻,命令接在干预后面 */
@@ -511,13 +515,20 @@ const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
 /** 推文明时带的推演年数(3000 = 不带) */
 const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
 
-/** 推文明时带的拓荒、起源、天灾(默认 = 不带) */
-const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed' | 'calamity'>) => ({
-  ...(m.frontier ? { frontier: m.frontier } : {}),
-  ...(m.origins ? { origins: m.origins } : {}),
-  ...(m.civSeed !== undefined ? { civSeed: m.civSeed } : {}),
-  ...(m.calamity ? { calamity: m.calamity } : {}),
-});
+/**
+ * 推文明时带的拓荒、起源、天灾、规则(默认 = 不带)。规则换成一套旋钮(CivParams.knobs):推演、接着推、逐年推演、照大纲推演都经这里,
+ * 同一套规则的旋钮内容一样(gen/civ/knobs.ts 按内容认同一套)
+ */
+const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed' | 'calamity' | 'tuning'>) => {
+  const knobs = m.tuning ? tuningPatch(m.tuning) : undefined;
+  return {
+    ...(m.frontier ? { frontier: m.frontier } : {}),
+    ...(m.origins ? { origins: m.origins } : {}),
+    ...(m.civSeed !== undefined ? { civSeed: m.civSeed } : {}),
+    ...(m.calamity ? { calamity: m.calamity } : {}),
+    ...(knobs ? { knobs } : {}),
+  };
+};
 
 /** 推文明时带的逐年推演进度(没在逐年推演 = 不带):推到进度那一刻(年 + 第几格),命令接在干预后面(放在最后,盖过干预、推演年数) */
 const playOpt = (m: Pick<CivInput, 'play'> & { interventions?: Intervention[] }) =>
@@ -536,7 +547,7 @@ let held: { key: string; civ?: Civ; part?: SnapshotPart } | null = null;
 /** 上一次照大纲推演每一步的样子(gen/outline.ts 的 OutlineCache):改了几条情节再推时,前面没改的直接用 */
 let outlineCache: OutlineCache | null = null;
 function heldKey(m: CivRecipe, play: PlayState | undefined): string {
-  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, calamity: m.calamity, civSeed: m.civSeed, play };
+  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, calamity: m.calamity, tuning: m.tuning, civSeed: m.civSeed, play };
   return `${frozen?.key === keyOf(m.params, m.terrain, m.sketch) ? 'frozen:' : ''}${recipeText(r)}`;
 }
 /** 推好了一份历史(复制的那一份,交给主线程之前调用;没复制成 = null):记下来 */
@@ -746,7 +757,7 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
     let eras: SnapshotPart;
     let civPart: SnapshotPart;
     try {
-      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, civSeed: m.civSeed, play: m.play });
+      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, tuning: m.tuning, civSeed: m.civSeed, play: m.play });
       const map = await mapPart(baseKey, world);
       eras = await makePart('eras', { baseKey, eras: eraWorlds(steps) ?? [] });
       civPart = await makePart('civ', civ);

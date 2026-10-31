@@ -33,6 +33,7 @@ import { setNewCivHandler, setOpenWorldHandler } from '../newCivAction';
 import type { NewWorldStart } from '../NewWorldDialog';
 import { openOverview } from '../overviewStore';
 import { chosenGallery, getPresets, pickSharedPreset, rememberLast, type SharedPreset } from '../presetStore';
+import { noteRulesUsed } from '../rulesStore';
 import {
   briefError,
   currentWorld,
@@ -232,7 +233,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     // 作品墙上新建参数作品「用这套参数新建」打开的弹窗:新的世界出处写这个作品(和另存世界作品一样);换成了别的预设就不写
     const g = chosenGallery(getPresets(), newDlg?.shared);
     setNewDlg(null);
-    const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier));
+    const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier, s.rules));
     const d = g?.id && isWorkId(g.id) ? { ...plain, origin: workOrigin({ id: g.id, by: g.by, title: g.title ?? '' }) } : plain;
     if (s.mode === 'random') return openTarget(d);
     openTarget({ ...d, mode: 'image' });
@@ -268,15 +269,16 @@ export function useWorldPages(deps: WorldPagesDeps) {
       !st.edits.endYear &&
       !st.edits.frontier &&
       !st.edits.calamity &&
+      !st.edits.rules &&
       !st.edits.origins &&
       st.edits.civSeed === undefined &&
       !st.edits.era &&
       st.edits.months === undefined &&
       !st.edits.monthNames &&
       worldKey({ ...base, seed: 0 }) === worldKey({ ...DEFAULT_PARAMS, seed: 0 });
-    // 地名风格、推演年数、拓荒和参数一样是这一类星球的设定,换一颗照旧;选的起源按位置照旧(新星球上那里住不了人的,推演时跳过);
+    // 地名风格、推演年数、拓荒、天灾、规则和参数一样是这一类星球的设定,换一颗照旧;选的起源按位置照旧(新星球上那里住不了人的,推演时跳过);
     // 纪年、月份(年份的写法)也照旧,按一件事定的换成按年份(那件事是原来那颗星球上的)
-    const { nameMix, endYear, frontier, calamity, origins, civSeed, era, months, monthNames } = st.edits;
+    const { nameMix, endYear, frontier, calamity, rules, origins, civSeed, era, months, monthNames } = st.edits;
     const kept: WorldEdits = sketch ? { ...EMPTY_EDITS, sketch, terrain: st.edits.terrain } : EMPTY_EDITS;
     const edits = {
       ...kept,
@@ -284,6 +286,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
       ...(endYear ? { endYear } : {}),
       ...(frontier ? { frontier } : {}),
       ...(calamity ? { calamity } : {}),
+      ...(rules ? { rules } : {}),
       ...(origins ? { origins } : {}),
       ...(civSeed !== undefined ? { civSeed } : {}),
       ...(era ? { era: { name: era.name, epoch: era.epoch } } : {}),
@@ -326,6 +329,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
     // 记成预设里的「上次用的」(不含种子)
     rememberLast(t.params, cleanEndYear(getEdits().endYear), clean ?? '');
+    // 用的是「我的规则」里的一套:记一笔用它建过一个世界(这一版用过了,之后再改就是新的一版)
+    noteRulesUsed(getEdits().rules);
     // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下,或者浏览器不让存 = 只在这一页里)
     const stored = markCreated() && persistent();
     // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)
@@ -415,7 +420,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
   };
   /**
    * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、推演年数、拓荒、起源、
-   * 名字、地名风格)。用的是它一开始的地图(参数、地形修改、草图;不带地形大事),原来的国家、人物、干预、改名……都不带;原来的不动。
+   * 名字、地名风格)。用的是它一开始的地图(参数、地形修改、草图;不带地形大事)和它的规则,原来的国家、人物、干预、改名……都不带;原来的不动。
    * 文明种子先随机给一个;名字先填"原名(二)"。旧版本建的世界:生成出来的地图和它存的对不上就不让打造(见 ./useWorldLoad.ts 的 readyRef)
    */
   const startNewCiv = (id: string) => {
@@ -428,7 +433,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
    * 同一张地图上打造的文明在我的世界的「地图」里排在一起
    */
   const newCivOn = (save: SaveFile, from: string, title: string | undefined, origin: SaveOrigin | null) => {
-    const edits = newHistoryEdits(save.edits, { civSeed: randomSeedValue(), from, sum: save.edits.map?.sum });
+    const edits = newHistoryEdits(save.edits, { civSeed: randomSeedValue(), from, sum: save.edits.map?.sum, ...(save.edits.rules ? { rules: save.edits.rules } : {}) });
     const mapCheck = save.generator < GENERATOR_VERSION && save.check ? save.check : undefined;
     setNewDlg(null);
     // 一开始就存成没建完的(刷新、后退再前进都回得来;地图出自哪个世界、文明种子都在存档里),底稿出处跟着;什么都没动就返回,这一份删掉

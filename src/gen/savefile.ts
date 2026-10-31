@@ -18,7 +18,8 @@
  * - format:存档格式的版本(字段有不兼容的变化时加一;读到比自己新的格式就不读,提示更新页面)。
  *   2 = 进度、命令、支线、干预、推到哪一刻(endTick)里有落在年中的时刻(年 + 年内第几格,edits.ts 文件头"时刻"):只认识年份的版本会把它当成年初,
  *   所以写成 2,让那些版本提示更新页面、不悄悄读错。只到年初的存档照旧写 1(和加年内第几格以前一模一样,旧版本照常打开)。
- *   1、2 都照读(saveFormatOf 定写哪一版)
+ *   3 = 用了非官方规则(edits.rules):不认得规则的版本会按官方规则推出另一段历史,所以写成 3,让那些版本提示更新页面;
+ *   用官方规则的世界照旧写 1 / 2,一字不差。1、2、3 都照读(saveFormatOf 定写哪一版)
  * - generator:生成器版本(edits.ts 的 GENERATOR_VERSION);和当前的不同 = 同样的参数可能生成不同的世界
  * - check:地形的短哈希(worldCheck);读档生成完再算一遍,对不上也说明地形变了。两种情况都照样打开,
  *   提示"改过的名字会尽量套上"(稳定键按州、地块定位,地形变化不大时大多还能对上)
@@ -51,6 +52,10 @@
  *   读档时过 cleanOrigins:坐标取整、去重,最多 16 处;认不出的按自动,提示一句
  * - edits.calamity(可选):「天灾」(edits.ts 文件头"天灾"、civ/calamity.ts),`"more"` 多 / `"many"` 很多;平常时不写。
  *   读档时过 cleanCalamity:认不出的按平常,提示一句
+ * - edits.rules(可选):这个世界用的一套规则(civ/ruleSet.ts),整套存下(名字、第几版、基于谁、署名、介绍、改过的规则项、地貌的叫法、本机编号),
+ *   `{ "id": "rmh3k2x9a4f", "name": "战乱年代", "version": 2, "values": { "war.odds": 2, "war.length": [3, 20] }, "biomes": { "temperateDesert": "灰烬荒原" } }`;
+ *   自包含:本机删了这一套、作者出了新版,世界照样一模一样。和官方一样(没改规则项、没改地貌的叫法)时不写;写了的存档是格式 3(见上)。
+ *   读档时过 cleanRuleSet:认不出的项丢掉、超出范围的拉回来、太长的字截断,几处提示并成一句
  * - edits.civSeed(可选):文明种子(edits.ts 文件头"文明种子"),`52817`;等于地图种子时不写(加这一项以前的存档都没写)。
  *   读档时过 cleanCivSeed:不是整数的去掉(按地图种子推),提示一句
  * - edits.map(可选):在别的世界的地图上新开的历史,用的是哪张地图(edits.ts 文件头"文明种子"),
@@ -113,18 +118,27 @@ import { CHARACTERS_MAX, cleanCharacters, type AuthorCharacter } from './charact
 import { MONTHS_MAX, cleanEra, cleanMonthName, cleanMonthNames, cleanMonths, sameEra, sameMonthNames } from './era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins } from './civ/frontier';
 import { cleanCalamity } from './civ/calamity';
+import { SIGNATURE_MAX, cleanSignature } from './signature';
+import { RULES_FILE_ERROR, cleanRuleSet, isOfficialRules, isRulesFileLike, ruleNotesLine, sameRuleSet, worldRules } from './civ/ruleSet';
+
+export { SIGNATURE_MAX, SIGNATURE_UNITS, cleanSignature } from './signature';
 
 export const SAVE_APP = '文明与地图';
 /**
- * 存档格式版本:读得了的最新一版(见文件头 format)。加一时注意:旧版网站读不了更新格式的存档,打开文件、分享链接读进来的存档已经换成了现在的格式,
- * 「看原样」(ui/oldSite.ts)交给旧版网站之前要换回它认得的格式
+ * 存档格式版本:读得了的最新一版(见文件头 format)。加一时注意:旧版网站读不了更新格式的存档,打开文件、分享链接读进来的存档已经换成了现在的格式
+ * (saveFormatOf 按内容定:用得着新格式的才写新的),「看原样」(ui/oldSite.ts)交给旧版网站的是那一版自己存的那一份,格式是它认得的。
+ * 带规则的世界(格式 3)只有认得格式 3 的版本才存得出来,交回那一版的旧网站照样认得;万一交给了不认得的版本,那边提示刷新、不读,
+ * 不会把它当成官方规则的世界推出另一段历史(所以不能为了让旧版本打开而去掉规则、换回 1 或 2)
  */
-export const SAVE_FORMAT = 2;
+export const SAVE_FORMAT = 3;
 /** 只到年初的存档写的格式(加年内第几格以前的那一版,旧版本照常打开) */
 const SAVE_FORMAT_YEARS = 1;
+/** 有落在年中的时刻的存档写的格式(加规则以前的那一版) */
+const SAVE_FORMAT_TICKS = 2;
 
-/** 存档该写哪一版格式:修改里有落在年中的时刻(第几格不是 0)= 2,不然 = 1(见文件头 format) */
-export function saveFormatOf(edits: WorldEdits): 1 | 2 {
+/** 存档该写哪一版格式:用了非官方规则 = 3;修改里有落在年中的时刻(第几格不是 0)= 2;都没有 = 1(见文件头 format) */
+export function saveFormatOf(edits: WorldEdits): 1 | 2 | 3 {
+  if (!isOfficialRules(edits.rules)) return SAVE_FORMAT;
   const iv = (list: readonly Intervention[] | undefined) => !!list?.some((v) => v.fromTick);
   const b = edits.branches;
   const sub =
@@ -134,12 +148,12 @@ export function saveFormatOf(edits: WorldEdits): 1 | 2 {
     iv(edits.interventions) ||
     !!b?.forkTick ||
     !!b?.list?.some((x) => x.fromTick || x.tick || x.forkTick || iv(x.commands));
-  return sub ? SAVE_FORMAT : SAVE_FORMAT_YEARS;
+  return sub ? SAVE_FORMAT_TICKS : SAVE_FORMAT_YEARS;
 }
 
 export interface SaveFile {
   app: '文明与地图';
-  format: 1 | 2;
+  format: 1 | 2 | 3;
   /** 生成器版本(GENERATOR_VERSION) */
   generator: number;
   seed: number;
@@ -231,48 +245,9 @@ export function cleanView(raw: unknown): SaveView | null {
   return v;
 }
 
-/** 署名最长几个字 */
-export const SIGNATURE_MAX = 20;
 /** 来自作品墙的出处:作品名、署名最长几个字(和作品墙上一样长,见 account/gallery.ts;比世界名、分享的署名长) */
 export const GALLERY_TITLE_MAX = 60;
 export const GALLERY_BY_MAX = 40;
-
-/** 看不见、但组合表情和连写离不开的字符:零宽连接(👩‍💻)、零宽不连接、各种变体选择(❤️、蒙古文的)、表情旗帜里的标签 */
-const JOINERS = /[\u200C\u200D\p{Variation_Selector}\u{E0020}-\u{E007F}]/u;
-const JOINERS_ALL = new RegExp(JOINERS.source, 'gu');
-/** 开头的这些字符和空白(前面没有字可以组合,没有用) */
-const LEADING = new RegExp(`^(?:${JOINERS.source}|\\s)+`, 'u');
-/** 署名最多占多长(UTF-16 码元;一个字后面挂上一长串看不见的字符也只算一个字,得另外限住) */
-export const SIGNATURE_UNITS = 320;
-
-/**
- * 署名:去掉控制字符和别的看不见的字符(换行、制表这类算空白;零宽空格、改文字方向的都去掉,组合表情要用的留着)、首尾空白,
- * 开头的组合用字符去掉,连续空白并成一个,超长截断(按看到的字数,另外总长不超过 SIGNATURE_UNITS);空(只剩组合用的字符也算)= 没署名
- */
-export function cleanSignature(raw: unknown, max: number = SIGNATURE_MAX): string {
-  if (typeof raw !== 'string') return '';
-  const s = raw
-    .replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, (c) => (/\s/.test(c) ? ' ' : JOINERS.test(c) ? c : ''))
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(LEADING, '');
-  let t = '';
-  let n = 0;
-  // 只分前面够用的一段(超出总长的反正放不下)
-  for (const g of graphemes(s.slice(0, SIGNATURE_UNITS + 1))) {
-    if (n >= max || t.length + g.length > SIGNATURE_UNITS) break;
-    t += g;
-    n++;
-  }
-  t = t.trimEnd();
-  return t.replace(JOINERS_ALL, '').trim() ? t : '';
-}
-
-/** 按看到的字分开(一个组合表情、一个带变体选择的 ❤️ 都算一个字);太旧的浏览器没有这个功能就按码位分 */
-function graphemes(s: string): string[] {
-  if (typeof Intl === 'undefined' || typeof Intl.Segmenter !== 'function') return [...s];
-  return Array.from(new Intl.Segmenter('zh', { granularity: 'grapheme' }).segment(s), (x) => x.segment);
-}
 
 /** 分享短链接的样子:http(s)://网站地址/s/<码>(网站可以在子目录里) */
 const ORIGIN_CHARS = /^https?:\/\/[^\s"'<>\\]+$/;
@@ -576,7 +551,7 @@ export function worldKey(params: WorldParams): string {
     .join('&');
 }
 
-/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、文明种子、纪年、月份、逐年推演进度(各算一处)+ 逐年推演另开的几支(每支一处)*/
+/** 改了几处:改名条数 + 干预条数 + 地形修改处数 + 草图(画了算一处)+ 地形大事件数 + 作者标记个数 + 改过的旗面数 + 作者的人物个数 + 地名风格、推演年数、拓荒、起源、天灾、规则、文明种子、纪年、月份、逐年推演进度(各算一处)+ 逐年推演另开的几支(每支一处)*/
 export function editCount(edits: WorldEdits): number {
   return (
     Object.keys(edits.names).length +
@@ -592,6 +567,7 @@ export function editCount(edits: WorldEdits): number {
     (cleanFrontier(edits.frontier) ? 1 : 0) +
     (cleanOrigins(edits.origins) ? 1 : 0) +
     (cleanCalamity(edits.calamity) ? 1 : 0) +
+    (isOfficialRules(edits.rules) ? 0 : 1) +
     (cleanCivSeed(edits.civSeed) !== undefined ? 1 : 0) +
     (cleanEra(edits.era) ? 1 : 0) +
     (cleanMonths(edits.months) !== undefined ? 1 : 0) +
@@ -669,6 +645,8 @@ export function makeSave(
   if (origins) save.edits.origins = origins;
   const calamity = cleanCalamity(edits.calamity);
   if (calamity) save.edits.calamity = calamity;
+  const rules = worldRules(edits.rules);
+  if (rules) save.edits.rules = rules;
   const civSeed = cleanCivSeed(edits.civSeed);
   if (civSeed !== undefined) save.edits.civSeed = civSeed;
   const map = cleanMapRef(edits.map);
@@ -754,6 +732,7 @@ export function parseSave(text: string): ParseResult {
     return { ok: false, error: '读不懂这个文件:它不是「文明与地图」的存档(.json)' };
   }
   if (!isObj(raw) || raw.app !== SAVE_APP) return { ok: false, error: '这不是「文明与地图」的存档文件' };
+  if (isRulesFileLike(raw)) return { ok: false, error: RULES_FILE_ERROR };
   const format = raw.format;
   if (typeof format !== 'number' || !Number.isInteger(format) || format < 1) return { ok: false, error: '存档文件坏了:缺少格式版本' };
   if (format > SAVE_FORMAT) return { ok: false, error: `这个存档来自更新版本的「文明与地图」(存档格式 ${format}),请刷新页面换到最新版再打开` };
@@ -940,6 +919,11 @@ export function parseSave(text: string): ParseResult {
   // 天灾:多 / 很多,认不出的按平常
   const calamity = cleanCalamity(E.calamity);
   if (E.calamity !== undefined && !calamity) warnings.push('天灾设定认不出来,按平常推演');
+  // 规则:过 cleanRuleSet(认不出的丢、超出范围的拉回来……),几处提示并成一句;清理完和官方一样的不留
+  const ruleRead = cleanRuleSet(E.rules);
+  const rulesNote = ruleNotesLine(ruleRead.notes);
+  if (rulesNote) warnings.push(rulesNote);
+  const rules = ruleRead.rules && !isOfficialRules(ruleRead.rules) ? ruleRead.rules : undefined;
   // 文明种子:不是整数的按地图种子推
   const civSeed = cleanCivSeed(E.civSeed);
   if (E.civSeed !== undefined && civSeed === undefined) warnings.push('文明种子认不出来,按地图种子推演');
@@ -1009,6 +993,7 @@ export function parseSave(text: string): ParseResult {
       ...(frontier ? { frontier } : {}),
       ...(origins ? { origins } : {}),
       ...(calamity ? { calamity } : {}),
+      ...(rules ? { rules } : {}),
       ...(civSeed !== undefined ? { civSeed } : {}),
       ...(map ? { map } : {}),
       ...(era ? { era } : {}),
@@ -1307,6 +1292,11 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
     }
     if (k === 'calamity') {
       if (cleanCalamity(lv) !== cleanCalamity(iv)) n++;
+      continue;
+    }
+    // 规则整套算一处
+    if (k === 'rules') {
+      if (!sameRuleSet(lv, iv)) n++;
       continue;
     }
     if (k === 'months') {

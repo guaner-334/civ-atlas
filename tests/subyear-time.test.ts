@@ -137,7 +137,7 @@ describe('存档:旧档照读,年中的写新格式', () => {
     ];
     for (const e of cases) {
       const r = roundTrip(e);
-      expect(r.format, JSON.stringify(e)).toBe(SAVE_FORMAT);
+      expect(r.format, JSON.stringify(e)).toBe(2);
       expect(saveFormatOf(e)).toBe(2);
       for (const k of ['play', 'interventions', 'branches'] as const) expect(r.edits[k], k).toEqual(e[k]);
     }

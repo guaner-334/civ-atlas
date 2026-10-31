@@ -15,11 +15,11 @@ import {
   tuningCounts,
   tuningEnds,
   tuningItem,
-  tuningPatch,
   tuningSummary,
   tuningValueText,
   type TuningValues,
 } from '../src/gen/civ/tuning';
+import { tuningPatch } from '../src/gen/civ/tuningPatch';
 import { CIV_KNOBS, cleanKnobs } from '../src/gen/civ/knobs';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
