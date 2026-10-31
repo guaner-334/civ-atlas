@@ -7,10 +7,15 @@
  * 得按参数重新生成,反而更慢)。编辑地形时只换地形的生成(skipCiv)也不关线程:线程自己半路放下它(见 worker.ts 文件头),
  * 记着的网格、整图留给新的一笔。
  *
+ * 线程出错(onerror):线程手上那件活不会再有回音了 —— 出错的那件活线程不交结果,真死掉(内存不够)的线程更是什么都不回。
+ * 当它坏了:关掉,开一个新的,把还没回音的活按原来的先后再发一遍(请求本身带齐了参数,新线程按参数重新生成,结果一样,只是慢一点)。
+ * 只重发一次:最前面那件(出错时线程正在做的)已经重发过、又出错了,就不再发它,交给 lost 让界面收起它(其余的照旧再发);
+ * 换下来的线程后来的消息照第 1 条不管。
+ *
  * 收到一条消息,按这个先后:
  *   1. 已被换掉的线程发来的:不管
  *   2. 交历史之前先交的几段历史(civPart,src/civParts.ts):收着;交历史的那条到了先拼回去,别处拿到的都是整份
- *   3. 记账:算一件回音的(见 QUIET)手上的活少一件;都回完了"在忙什么"清掉
+ *   3. 记账:算一件回音的(见 QUIET)手上最早的那件活回完了;都回完了"在忙什么"清掉
  *   4. 半路放下的生成(aborted):只是一声回音,到此为止
  *   5. 记下线程回报的扩张节拍(tempo),下次发请求带回去
  *   6. 试推演(trial):交给等着它的那一次,到此为止
@@ -45,6 +50,11 @@ export interface SimClientOptions {
   /** 现在这个世界的请求编号:消息带的编号对不上就是上一个世界的,不交给 on */
   currentId: () => number;
   on: SimHandlers;
+  /**
+   * 线程出错、重发过一次的活又出错了,不再发(见文件头「线程出错」):界面上收起这件活(地图上还是原来那份)。
+   * 只交现在这个世界的(编号对不上的不交);试推演不交,这里直接 reject
+   */
+  lost: (req: WorkerRequest) => void;
 }
 
 /** 线程上的活,问题记录里的说法 */
@@ -55,6 +65,10 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
   history: '回放世界形成',
   trial: '助手试推演',
   upPreview: '预览地形大事',
+  load: '打开世界',
+  turn: '逐年推演',
+  extend: '再推',
+  outline: '照大纲推演',
 };
 
 /**
@@ -63,6 +77,12 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
  */
 const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'extendProgress', 'outlineProgress', 'chronicle', 'map']);
 
+/** 发给线程、还没回音的一件活;tries = 已经重发过几次(线程出错时) */
+interface Pending {
+  req: WorkerRequest;
+  tries: number;
+}
+
 interface Trial {
   resolve: (c: Civ) => void;
   reject: (e: Error) => void;
@@ -70,8 +90,8 @@ interface Trial {
 
 export class SimClient {
   private w: SimWorker | null = null;
-  /** 发给当前线程、还没回音的活(生成世界 / 回放帧 / 重推文明)有几件 */
-  private busyN = 0;
+  /** 发给当前线程、还没回音的活(生成世界 / 回放帧 / 重推文明……),按发出的先后;线程按这个先后一件件做、一件件回 */
+  private pending: Pending[] = [];
   /**
    * 其中线程能半路放下的(编辑地形时只换地形、不推历史的生成):后面来了新的世界,线程自己不算完它(回音 aborted),
    * 只有这种活在忙时换世界不用关掉线程重开(记着的网格、板块、整图都还在)
@@ -91,7 +111,7 @@ export class SimClient {
 
   /** 线程手上还没回音的活有几件 */
   get busy(): number {
-    return this.busyN;
+    return this.pending.length;
   }
 
   /** 线程在忙什么(问题记录用;闲着 = null) */
@@ -104,24 +124,22 @@ export class SimClient {
    * 没有线程就开一个
    */
   ensure(abort: boolean): SimWorker {
-    if (abort && this.w && this.busyN > this.soft.size) {
+    if (abort && this.w && this.pending.length > this.soft.size) {
       this.w.terminate();
       this.w = null;
       // 线程上排着的试推演(助手)一起作废
-      for (const t of this.trials.values()) t.reject(new Error('世界换了,试推演作废'));
-      this.trials.clear();
+      this.dropTrials('世界换了,试推演作废');
     }
     if (!this.w) {
       const w = this.opts.spawn();
       dropChronicleParts();
       this.parts.drop();
-      w.onerror = (e) => {
-        if (this.w === w) recordWorkerError(e, '生成世界的线程');
-      };
+      w.onerror = (e) => this.broke(w, e);
       w.onmessage = (e) => this.take(w, e.data);
       this.w = w;
-      this.busyN = 0;
+      this.pending = [];
       this.soft.clear();
+      this.doing = null;
     }
     return this.w;
   }
@@ -131,13 +149,55 @@ export class SimClient {
    * 改名之类要带的东西调用方先放进 req
    */
   send(req: WorkerRequest): void {
-    const w = this.ensure(req.type === 'generate' || req.type === 'load');
+    this.post(this.ensure(req.type === 'generate' || req.type === 'load'), { req, tries: 0 });
+  }
+
+  /** 把一件活交给线程 w、记账(发、重发都走这里) */
+  private post(w: SimWorker, p: Pending): void {
+    const { req } = p;
     if (req.type === 'generate' && req.skipCiv) this.soft.add(req.id);
-    this.busyN++;
+    this.pending.push(p);
     // 问题记录:意外关闭时记下线程在忙什么
     this.doing = WORK_LABEL[req.type] ?? this.doing;
     diagBeat();
     w.postMessage(req.type === 'history' || req.type === 'upPreview' || !this.tempo ? req : ({ ...req, tempo: this.tempo } as WorkerRequest));
+  }
+
+  /** 线程 w 出错(先后见文件头「线程出错」):关掉,还没回音的活重发给新开的线程,重发过又出错的那件交给 lost */
+  private broke(w: SimWorker, e: ErrorEvent): void {
+    if (this.w !== w) return; // 已被换掉的线程
+    recordWorkerError(e, '生成世界的线程');
+    w.terminate();
+    this.w = null;
+    const left = this.pending;
+    this.pending = [];
+    this.soft.clear();
+    this.doing = null;
+    const give = left.length && left[0].tries ? left.shift()! : null;
+    if (left.length) {
+      const nw = this.ensure(false);
+      for (const p of left) this.post(nw, { req: p.req, tries: p.tries + 1 });
+    }
+    // 重发完了再交 lost:界面收起它时要是接着发了新的活,排在重发的后面
+    if (give) this.lose(give.req);
+    diagBeat();
+  }
+
+  /** 不再重发的一件活:试推演 reject,现在这个世界的交给 lost */
+  private lose(req: WorkerRequest): void {
+    if (req.type === 'trial') {
+      const t = this.trials.get(req.tid);
+      this.trials.delete(req.tid);
+      t?.reject(new Error('后台线程出错,试推演没算成'));
+      return;
+    }
+    if (req.id === this.opts.currentId()) this.opts.lost(req);
+  }
+
+  /** 排着的试推演都作废(why = reject 的说法) */
+  private dropTrials(why: string): void {
+    for (const t of this.trials.values()) t.reject(new Error(why));
+    this.trials.clear();
   }
 
   /** 不算一件活、线程不回音的(改名、换上了、叫停、放掉整图):有线程就直接发,没有就算了 */
@@ -173,10 +233,14 @@ export class SimClient {
     return tid;
   }
 
-  /** 关掉线程(页面卸下时) */
+  /** 关掉线程(页面卸下时);排着的试推演一起作废 */
   dispose(): void {
     this.w?.terminate();
     this.w = null;
+    this.pending = [];
+    this.soft.clear();
+    this.doing = null;
+    this.dropTrials('页面关了,试推演作废');
   }
 
   /** 收到线程 w 的一条消息(先后见文件头) */
@@ -185,8 +249,8 @@ export class SimClient {
     if (m.type === 'civPart') return void this.parts.take(m);
     if ('split' in m && m.split) this.parts.join(m.civ!, m.split);
     if (!QUIET.has(m.type)) {
-      this.busyN = Math.max(0, this.busyN - 1);
-      if (!this.busyN) {
+      this.pending.shift();
+      if (!this.pending.length) {
         this.doing = null;
         diagBeat();
       }

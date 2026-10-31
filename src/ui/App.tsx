@@ -68,6 +68,7 @@ import {
   setStepGesture,
   saveBackEdits,
   setStepwiseActions,
+  stepLost,
   stepWheel,
   branchSwitching,
   subscribeStepwise,
@@ -1116,6 +1117,29 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         outlineStopped: (m) => {
           if (outlineRef.current?.oid === m.oid) endOutline();
         },
+      },
+      // 线程出错、重发过一次又出错的活(见 ./sim/simClient.ts 文件头「线程出错」):不再算它,界面上收起,地图上还是原来那份。
+      // 生成、读档、回放帧、地形大事预览不在这里收:再点一次就是新的一件活,交给新开的线程
+      lost: (req) => {
+        if (req.type === 'resim') {
+          if (req.seq !== resimSeq.current) return;
+          resimInfo.current = null;
+          setResim(null);
+          // 这次重推推完要说的、要做的,不留给下一次
+          rewindNote.current = switchNote.current = null;
+          storyAfterYears.current = null;
+        } else if (req.type === 'turn') stepLost();
+        else if (req.type === 'extend') {
+          if (extendRef.current?.xid === req.xid) {
+            extendRef.current = null;
+            setExtendBusy(null);
+          }
+        } else if (req.type === 'outline') {
+          if (outlineRef.current?.oid === req.oid) endOutline();
+        } else if (req.type === 'civOnly' && naming.current?.nid === req.nid) {
+          naming.current = null;
+          setNamingPct(null);
+        }
       },
     });
     return client;
