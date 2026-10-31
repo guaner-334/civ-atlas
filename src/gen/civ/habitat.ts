@@ -16,7 +16,7 @@
  *   宜居分 = max(0, s) / 5;群落底分为 0(冰原)的地块直接不可居
  *   人口上限 = 宜居分 × 本块面积 / 默认精细度下的地块面积
  */
-import { Biome, biomeColumn } from '../biomes';
+import { biomeColumn, biomeTagged } from '../biomes';
 import type { World } from '../world';
 import type { Habitat } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refCellArea } from './geo';
@@ -63,9 +63,13 @@ export function irrigation(precip: number): number {
   return 1 - ((1 - IRRIGATE_MIN) * (precip - IRRIGATE_DRY)) / (IRRIGATE_WET - IRRIGATE_DRY);
 }
 
+/** 海冰、冰原(冻住的湖)群落(地貌表的标签 seaIce、ice) */
+const SEA_ICE = biomeTagged('seaIce');
+const ICE = biomeTagged('ice');
+
 /** 冻住的海(不能靠港、不能航行):海冰群落,或年均温低于 −8°C 的海面 */
 export function frozenSea(world: World, i: number): boolean {
-  return world.water[i] === 1 && (world.biome[i] === Biome.SeaIce || world.temperature[i] < -8);
+  return world.water[i] === 1 && (SEA_ICE[world.biome[i]] === 1 || world.temperature[i] < -8);
 }
 
 export function computeHabitat(world: World): Habitat {
@@ -126,7 +130,7 @@ export function computeHabitat(world: World): Habitat {
         seaN++;
         if (!frozenSea(world, j)) openSea = true;
       } else if (wj === 2) {
-        lake = Math.max(lake, biome[j] === Biome.Ice ? FROZEN_LAKE_SHORE : LAKE_SHORE);
+        lake = Math.max(lake, ICE[biome[j]] ? FROZEN_LAKE_SHORE : LAKE_SHORE);
       } else {
         if (flux[j] >= MAJOR_RIVER * riverThreshold && flux[j] > bank) bank = flux[j];
         const dh = Math.abs(elevation[j] - elevation[i]);

@@ -7,7 +7,7 @@ import { riverGeometry } from './riverGeometry';
 import { smoothstep } from './util';
 
 /** 写实风画河的参数(src/render/realistic.ts):河谷宽度跟着画出来的河宽走 */
-const RIVER_STYLE = { color: '', minW: 0.5, maxW: 7.5, fluxRef: 1000 };
+const RIVER_STYLE = { minW: 0.5, maxW: 7.5, fluxRef: 1000 };
 const RIVER_FLARE = 1.7;
 const RIVER_POWER = 0.65;
 

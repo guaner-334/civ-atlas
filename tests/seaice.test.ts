@@ -95,7 +95,7 @@ describe('河网画法', () => {
   it('支流终点正好落在它汇入的那条河上(汇合处不断开)', () => {
     const w = generateWorld({ ...small, seed: 8 });
     const { n, x, y } = w.mesh;
-    const lines = riverGeometry(w.rivers, w.riverThreshold, { color: '', minW: 0.5, maxW: 6, fluxRef: 1000 }, 1.7, 0.65);
+    const lines = riverGeometry(w.rivers, w.riverThreshold, { minW: 0.5, maxW: 6, fluxRef: 1000 }, 1.7, 0.65);
     let joins = 0;
     for (const d of lines) {
       const m = d.x.length;

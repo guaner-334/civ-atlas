@@ -26,7 +26,7 @@
  * 距离和启发函数一律来自几何层(geo.ts / gen/geometry.ts),只沿 mesh 邻接走,不用 x、y 直接算间距。
  * 没有随机数:结果只由世界决定;并列时按地块 / 城的编号定先后。
  */
-import { Biome, biomeColumn } from '../biomes';
+import { biomeColumn, biomeTagged } from '../biomes';
 import { MinHeap } from '../util';
 import type { Progress, World } from '../world';
 import { AdjKind, Layer, type ChangeLog, type Culture, type Habitat, type Regions, type Route, type Year } from './types';
@@ -115,14 +115,18 @@ const KIND_CODE = { road: 1, trail: 2, sea: 1 } as const;
 /** 群落修路难度(乘在代价上;冰原不能走;见地貌表的 roadCost) */
 const BIOME_ROAD = biomeColumn('roadCost');
 
+/** 海冰、冰原群落(地貌表的标签 seaIce、ice) */
+const SEA_ICE = biomeTagged('seaIce');
+const ICE = biomeTagged('ice');
+
 /** 结冰的水面:海冰 ≥ 0.5,或海冰群落 */
 export function icyWater(world: World, i: number): boolean {
-  return world.seaIce[i] >= 0.5 || world.biome[i] === Biome.SeaIce;
+  return world.seaIce[i] >= 0.5 || SEA_ICE[world.biome[i]] === 1;
 }
 
 /** 路能走的地块:陆地,且不是冰原 */
 export function roadPassable(world: World, i: number): boolean {
-  return world.water[i] === 0 && world.biome[i] !== Biome.Ice;
+  return world.water[i] === 0 && !ICE[world.biome[i]];
 }
 
 /** 航线能走的地块:海面(不含湖),且没结冰 */

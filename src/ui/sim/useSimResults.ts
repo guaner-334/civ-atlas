@@ -199,19 +199,26 @@ export function useSimResults(d: SimResultsDeps) {
     else if (id !== sel.id) setSelection({ kind: 'place', id });
   }, [shownRaw]);
   /**
+   * 推好的一份历史换上之前(重推、逐年推演走一步、再推):州、宜居度沿用 old(地图上这一份;地理没变,时间轴、地图按它认"还是同一个世界";
+   * 没有 = 原样用 next),记下这份带的地形大事;地形大事以后各段的世界和现在一样(只改了干预)就不换,地图不用重画
+   */
+  const adoptCiv = (old: Civ | null, next: Civ, eras: EraWorld[] | undefined, baseKey: string): Civ => {
+    const sameUps = sameUpheavals(civUps.current, rawUps.current);
+    const civ: Civ = old ? reuseRegions(old, next, sameUps, true) : next;
+    rawUps.current = civUps.current;
+    const base = baseRef.current;
+    const cur = eraMapsRef.current;
+    if (!eras?.length || !base) setEraMaps(null);
+    else if (!cur || cur.baseKey !== baseKey || cur.keys.join('|') !== eras.map((e) => e.key).join('|')) setEraMaps(eraMapsOf(base.world, baseKey, eras));
+    return civ;
+  };
+  /**
    * 重推好的文明换上去(阶段 4 干预):州、宜居度沿用原来那一份(地理没变;时间轴、地图按它认"还是同一个世界"),
    * 选中的东西、编年史的国家筛选按稳定键换成新历史里的编号(指不到就取消),时间轴从干预那一年接着放(地形大事卡片开着时不动)
    */
   const applyResim = (next: Civ, workerMs: number, eras: EraWorld[] | undefined, baseKey: string) => {
     const old = rawRef.current;
-    const sameUps = sameUpheavals(civUps.current, rawUps.current);
-    const civ: Civ = old ? reuseRegions(old, next, sameUps, true) : next;
-    rawUps.current = civUps.current;
-    // 地形大事以后各段的世界:和现在一样(只改了干预)就不换,地图不用重画
-    const base = baseRef.current;
-    const cur = eraMapsRef.current;
-    if (!eras?.length || !base) setEraMaps(null);
-    else if (!cur || cur.baseKey !== baseKey || cur.keys.join('|') !== eras.map((e) => e.key).join('|')) setEraMaps(eraMapsOf(base.world, baseKey, eras));
+    const civ = adoptCiv(old, next, eras, baseKey);
     if (old) remapSelection(old, civ);
     clearChroniclePick();
     setPolityPick(null);
@@ -413,14 +420,7 @@ export function useSimResults(d: SimResultsDeps) {
     const now = cleanPlay(getEdits().play);
     // 换了世界、另开了一次逐年推演、这一步不是接着现在这份进度走的:不要
     if (!now || !getStepwise().on || !getStepwise().busy || playAt(play) <= playAt(now)) return stepLost();
-    const old = rawRef.current;
-    const sameUps = sameUpheavals(civUps.current, rawUps.current);
-    const civ: Civ = old ? reuseRegions(old, next, sameUps, true) : next;
-    rawUps.current = civUps.current;
-    const base = baseRef.current;
-    const cur = eraMapsRef.current;
-    if (!eras?.length || !base) setEraMaps(null);
-    else if (!cur || cur.baseKey !== baseKey || cur.keys.join('|') !== eras.map((e) => e.key).join('|')) setEraMaps(eraMapsOf(base.world, baseKey, eras));
+    const civ = adoptCiv(rawRef.current, next, eras, baseKey);
     civPlay.current = play;
     putPlay(play);
     setRawCiv(civ);
@@ -445,13 +445,7 @@ export function useSimResults(d: SimResultsDeps) {
     }
     extendRef.current = null;
     setExtendBusy(null);
-    const sameUps = sameUpheavals(civUps.current, rawUps.current);
-    const civ: Civ = reuseRegions(old, next, sameUps, true);
-    rawUps.current = civUps.current;
-    const base = baseRef.current;
-    const cur = eraMapsRef.current;
-    if (!eras?.length || !base) setEraMaps(null);
-    else if (!cur || cur.baseKey !== baseKey || cur.keys.join('|') !== eras.map((e) => e.key).join('|')) setEraMaps(eraMapsOf(base.world, baseKey, eras));
+    const civ = adoptCiv(old, next, eras, baseKey);
     // 有地形大事的世界是从第 0 年整段推的
     noteExtendSpeed(civUps.current?.length ? 0 : x.from, to, ms);
     // 先记下推到哪年,修改里的推演年数跟着换时不再重推一遍

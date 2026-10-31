@@ -31,7 +31,7 @@
  * Place.rank:1 = 总览就显示;2 = 放大到约 1.8 倍显示;3 = 放大到约 3 倍显示(见 render/civ/labels.ts)。
  */
 import type { World } from '../world';
-import { BIOMES, Biome, biomeMask } from '../biomes';
+import { BIOMES, biomeMask, biomeTagged } from '../biomes';
 import { MinHeap, hypot2, mulberry32, subSeed } from '../util';
 import { geometryOf, type Chart, type Geometry } from '../geometry';
 import { createNamer, NAME_STYLES, pickStyle, type GeneratedName, type NameMix, type Namer } from '../names';
@@ -1177,10 +1177,13 @@ const blobAt = (world: World, ctx: Ctx, dist: Float32Array) => (c: { cells: numb
 // ---------------------------------------------------------------------------
 // 湖泊 / 岛屿 / 荒漠:连通片 + 离边缘最远的一点
 
+/** 冰原群落(冻住的湖不起湖名;地貌表的标签 ice) */
+const ICE = biomeTagged('ice');
+
 function findLakes(world: World, ctx: Ctx, ns: Namers): Place[] {
   const n = ctx.n;
   const lake = new Uint8Array(n);
-  for (let i = 0; i < n; i++) lake[i] = world.water[i] === 2 && world.biome[i] !== Biome.Ice ? 1 : 0;
+  for (let i = 0; i < n; i++) lake[i] = world.water[i] === 2 && !ICE[world.biome[i]] ? 1 : 0;
   const dist = distanceField(world, ctx, lake);
   const all = components(world, lake)
     .map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }))

@@ -8,7 +8,8 @@ import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { capitalAt } from '../gen/civ/growth';
 import { PROJECTIONS, PROJECTION_IDS, type ProjectionId } from '../render/projection';
-import { formatLon, lonOfX, requestMapCenter, useMapCenter } from './mapWrap';
+import { lonOfX, requestMapCenter, useMapCenter } from './mapWrap';
+import { lonText } from '../render/projection';
 import { GLOBE_READY, GRATICULE_STEPS, setGraticule, setGraticuleStep, setMapMoving, setProjection, useGraticule, useGraticuleStep, useProjection, type MapProjection } from './projection';
 import type { MapSelection } from './civView';
 import { cultureFocus, mapTarget, selectionFocus } from './flyTo';
@@ -81,7 +82,7 @@ export function ProjectionSection() {
       <label className="lp-center proj-center" title="地图正中是哪条经线;所有投影共用">
         <span className="lp-row">
           <span>中央经线</span>
-          <b>{formatLon(shown)}</b>
+          <b>{lonText(shown)}</b>
         </span>
         <input
           type="range"

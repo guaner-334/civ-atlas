@@ -24,7 +24,7 @@ export const trekLand = (kind: number) => kind === AdjKind.Flat || kind === AdjK
 
 /** 走进州 j(从邻州过界,边的种类 kind)要几年(不含随机) */
 export function trekPace(reg: Pick<Regions, 'biome' | 'elevation'>, j: number, kind: number): number {
-  return STEP_YEARS * (PACE[reg.biome[j]] ?? 1) * (reg.elevation[j] > HIGH_ELEV ? HIGH_PACE : 1) + (kind === AdjKind.Mountain ? CLIMB : 0);
+  return STEP_YEARS * PACE[reg.biome[j]] * (reg.elevation[j] > HIGH_ELEV ? HIGH_PACE : 1) + (kind === AdjKind.Mountain ? CLIMB : 0);
 }
 
 /** 找路用的几张表:到每一州要几年、几州远、从哪一州走进来(−1 = 起点 / 走不到) */

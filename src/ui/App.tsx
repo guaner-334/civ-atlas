@@ -79,7 +79,7 @@ import { branchList, rewindBranch, startStepwise, switchBranch } from '../gen/st
 import { StepBranchDeleteDialog, branchNote, branchRef } from './StepBranches';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
-import { AccountHost, ShareGone, SharedHint, useTrashView } from './AccountDialogs';
+import { AccountHost, ShareGone, SharedHint } from './AccountDialogs';
 import {
   clearChroniclePick,
   clearSelection,
@@ -148,7 +148,7 @@ import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
 import { civAtEra, eraData, peekEraData, eraIndex, eraReady, eraShown, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { namedHistory, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
-import { condList, summarize } from '../gen/finder/query';
+import { summarize } from '../gen/finder/query';
 import { addMark, askHistory, getEdits, putEditsQuiet, setEditGate, setOutlinePlots, useEdits } from './editsStore';
 import { spaced, yearAt, yearFull } from '../gen/era';
 import { ShortcutsHost } from './ShortcutsDialog';
@@ -781,7 +781,6 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   );
   /** 第一次打开的操作提示(第一次拖动 / 缩放 / 点击之后不再出现) */
   const [hintOn, setHintOn] = useState(() => !hintSeen());
-  const trashView = useTrashView();
   /** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
   const [landing, setLanding] = useState<Landing>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
   /** 作品墙那一页 / 正在打开的作品 / 地图作品(见 WallView;不在作品墙 = null) */
@@ -2683,7 +2682,7 @@ ${s.image.cells}` : null);
   /** 某一点的完整读数(群落、海拔、国家、最近城市……;冒烟检查经 window.__wfProbe 读,下面悬停那里填) */
   const probeRef = useRef<(cx: number, cy: number) => string[] | null>(() => null);
   // 舞台和地图框的大小、平移范围、中心经度、滚轮和按钮缩放、双击复位,见 ./map/useMapView.ts
-  const { box, stageSize, drag, pinch, wrapW, padB, geo, curvedRef, clampRef, sb, viewRef, centerFrame, scheduleCenter, flyRaf, stopFly, zoomAt, zoomRef, zoomButton, resetView, zoomToCluster } = useMapView({
+  const { box, stageSize, drag, pinch, wrapW, geo, curvedRef, clampRef, sb, viewRef, centerFrame, scheduleCenter, flyRaf, stopFly, zoomRef, zoomButton, resetView, zoomToCluster } = useMapView({
     view,
     setView,
     stageRef,
@@ -3469,7 +3468,6 @@ ${s.image.cells}` : null);
     showToast({ id: 'world', kind: 'warn', text: '这个世界没有文明', more: ['宜居的陆地太少'] });
   }, [noCivToast]);
 
-  const civReady = !!civ && civ.viable;
   /** 正在重推 / 按新地形重新生成 / 生成新世界:助手这时发不了话、确认单也不能执行 */
   const worldBusy = !!resim || terrainStatus.busy || !!progress || namingPct !== null;
   // 助手:换了世界、世界建好了,对话跟着换;离开建好的世界(回我的世界、新建)不再看试推演。

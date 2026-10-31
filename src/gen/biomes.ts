@@ -69,8 +69,10 @@ export interface BiomeForest {
  *   cold       苦寒之地(苔原、针叶林):发源在这儿的民族遇灾年会举族迁徙(migration.ts),编年史写"苦寒"(story/chronicle.ts)
  *   bogIron    出沼铁:铁的底子加一点(development.ts)
  *   coalBasin  海拔 1000 米以下是古老的成煤盆地(development.ts)
+ *   ice        冰原(陆上的冰盖、冻住的湖):路不通(routes.ts)、湖岸算冻住的湖(habitat.ts)、不起湖名(places.ts)
+ *   seaIce     海冰:冻住的海,不能靠港、不能航行(habitat.ts、polities.ts、routes.ts)
  */
-export const BIOME_TAGS = ['arid', 'nomad', 'forest', 'wetland', 'wilds', 'cold', 'bogIron', 'coalBasin'] as const;
+export const BIOME_TAGS = ['arid', 'nomad', 'forest', 'wetland', 'wilds', 'cold', 'bogIron', 'coalBasin', 'ice', 'seaIce'] as const;
 export type BiomeTag = (typeof BIOME_TAGS)[number];
 
 /** 拓荒设定里"地形难走程度"的分组(frontier.ts 的 TERRAIN_GROUPS;那边另有不按群落的"高山") */
@@ -190,7 +192,7 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     habitability: 0, travelCost: 5000, roadCost: 1, trekPace: 1, famineRisk: 1, soilFragility: 0.2,
     grain: 0, pasture: 0, timber: 0, oil: 0,
-    tags: [],
+    tags: ['seaIce'],
     nameStyles: [],
   },
   {
@@ -206,7 +208,7 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     habitability: 0, travelCost: 5000, roadCost: 1, trekPace: 1, famineRisk: 1, soilFragility: 0.2,
     grain: 0, pasture: 0, timber: 0, oil: 0,
-    tags: [],
+    tags: ['ice'],
     nameStyles: [],
   },
   {
@@ -511,6 +513,13 @@ const {
  * 按 BIOMES 的出现条件判群落。water:0 陆地 / 1 海洋 / 2 湖泊;ice:海冰覆盖 0–1(见 seaice.ts),只对海洋有意义。
  * 数据缺失(NaN)时温度、降水落最高一档,海冰按没有冰算。
  */
+/** 陆上冰原的年均温门槛(°C;低于它是冰原,见地貌表冰原那一条) */
+export const LAND_ICE_BELOW: number = (() => {
+  const t = BIOMES.find((b) => b.id === Biome.Ice)?.when.find((w) => w.on === 'land')?.t;
+  if (t?.below === undefined) throw new Error('地貌表里冰原没有陆上的温度门槛');
+  return t.below;
+})();
+
 export function classifyBiome(t: number, p: number, water: number, ice = 0): Biome {
   let k = water === 1 ? 1 : water === 2 ? 2 : 0;
   let i = ICE_OFF[k];
