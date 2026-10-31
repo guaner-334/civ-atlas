@@ -2,7 +2,8 @@
  * 经纬网的度数(src/ui/graticuleLabels.ts):写法、隔几条写一个随缩放变、字和刻度对着线、东西相连时转一圈还是同一套。
  */
 import { describe, expect, it } from 'vitest';
-import { latText, layoutGratLabels, lonText, type GratSpec } from '../src/ui/graticuleLabels';
+import { layoutGratLabels, type GratSpec } from '../src/ui/graticuleLabels';
+import { latText, lonText } from '../src/render/projection';
 import { mapProj } from '../src/render/projection';
 import { worldToStage, type StageBox } from '../src/ui/mapWrap';
 

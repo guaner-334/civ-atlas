@@ -23,14 +23,12 @@ import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { standPass } from '../gen/civ/display';
 import { nearX, wrapOf } from '../render/common';
+import type { EvType } from '../render/eventTypes';
 import { END_YEAR_DEFAULT, YEAR_TICKS } from '../gen/edits';
 import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era';
 
 // ---------------------------------------------------------------------------
-// 事件类型
-
-/** 五类事件 + 宗教(faith)+ 时代(era)+ 思潮(thought)+ 灾异(calamity)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
-export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'thought' | 'calamity' | 'order';
+// 事件类型(EvType 在 render/eventTypes.ts)
 
 const KIND_TYPE: Readonly<Record<string, EvType>> = {
   war: 'war',

@@ -10,7 +10,7 @@
  *
  * 一页按 CSS 像素排,画的时候整页放大 D 倍(屏幕上、导出 2 倍是 D = 2,导出 4 倍是 D = 4),字和图的比例不变。
  */
-import { PROJECTIONS, type MapProj, type ProjectionDef, type ProjectionId } from './projection';
+import { PROJECTIONS, latText, lonText, type MapProj, type ProjectionDef, type ProjectionId } from './projection';
 import { boxKm, kmPerUnitX, latOfY, type ReliefBox } from './terrain3d/box';
 import { toCanvas, type LabelItem, type LabelMark, type LabelView, type PlacedMark } from './labels/draw';
 import type { Candidate } from './labels/layout';
@@ -18,7 +18,6 @@ import { familyFor, fontCss } from './labels/fonts';
 import type { CivStyle } from './civ/overlay';
 import { drawSettlementMarks, SYMBOL_BOX, SYMBOL_GROW, type SettlementKind } from './civ/settlements';
 import type { RegionLook } from './shot';
-import { latText, lonText } from '../ui/graticuleLabels';
 
 const DEG = Math.PI / 180;
 
