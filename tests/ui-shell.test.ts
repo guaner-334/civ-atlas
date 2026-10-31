@@ -27,7 +27,7 @@ import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesLead, namesOn,
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, dismissOverview, getOverview, getOverviewHold, openOverview, setOverviewTab } from '../src/ui/overviewStore';
 import { civShowFromQuery, clearSelection, getChronicle, getCivTime, getSelection, namesUrl, pausePlayback, setChronicle, setCivTime, setSelection } from '../src/ui/civView';
-import { collapseSide, expandSide, getSide, setSideHold } from '../src/ui/sideStore';
+import { collapseSide, expandSide, getSide, setSideHold, subscribeSide } from '../src/ui/sideStore';
 import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui/flyTo';
 
 describe('图层换算', () => {
@@ -428,10 +428,10 @@ describe('侧栏收起', () => {
     expandSide();
   });
   it('收起:卡片占掉的宽度只剩左边距(和 desktop.css 的 --side-room 一致);窄屏照旧是 0;展开回到原来', () => {
-    expect(getSide()).toEqual({ collapsed: false, peek: false });
+    expect(getSide()).toEqual({ collapsed: false, peek: false, hold: false });
     expect(sideRoom(1440)).toBe(400);
     collapseSide();
-    expect(getSide()).toEqual({ collapsed: true, peek: false });
+    expect(getSide()).toEqual({ collapsed: true, peek: false, hold: false });
     expect(sideRoom(1440)).toBe(14);
     expect(sideRoom(1024)).toBe(14);
     expect(sideRoom(390)).toBe(0);
@@ -447,7 +447,7 @@ describe('侧栏收起', () => {
     setSelection({ kind: 'settlement', id: 5 });
     expect(getSide().peek).toBe(true);
     clearSelection();
-    expect(getSide()).toEqual({ collapsed: true, peek: false });
+    expect(getSide()).toEqual({ collapsed: true, peek: false, hold: false });
     expect(sideRoom(1440)).toBe(14);
   });
   it('弹出来时点收起:收回去,选中的留着;再点同一个又弹出来;展开着选中不算弹出', () => {
@@ -461,14 +461,21 @@ describe('侧栏收起', () => {
     expect(getSide().peek).toBe(true);
     expandSide();
     setSelection({ kind: 'polity', id: 4 });
-    expect(getSide()).toEqual({ collapsed: false, peek: false });
+    expect(getSide()).toEqual({ collapsed: false, peek: false, hold: false });
   });
-  it('新建世界这一步:左边是新建世界的卡片,收起着也照常让出它', () => {
+  it('新建世界这一步:左边是新建世界的卡片,收起着也照常让出它;变了通知订阅者,没变不通知', () => {
     collapseSide();
+    let n = 0;
+    const off = subscribeSide(() => n++);
     setSideHold(true);
     expect(sideRoom(1440)).toBe(400);
+    expect(getSide().hold).toBe(true);
+    setSideHold(true);
+    expect(n).toBe(1);
     setSideHold(false);
     expect(sideRoom(1440)).toBe(14);
+    expect(n).toBe(2);
+    off();
   });
 });
 

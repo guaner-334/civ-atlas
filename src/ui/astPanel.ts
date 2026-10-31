@@ -39,7 +39,9 @@ export function getAstOpen(): boolean {
   return open;
 }
 export function useAstOpen(): boolean {
-  return useSyncExternalStore(subscribe, get, get);
+  // 取值函数每次渲染新包一层:订阅函数、取值函数都不换时 React 18 在渲染途中 setState 重跑组件后会漏一次通知(见 createStore.ts)
+  const snap = () => get();
+  return useSyncExternalStore(subscribe, snap, snap);
 }
 
 /**
