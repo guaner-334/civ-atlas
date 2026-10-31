@@ -28,13 +28,14 @@ import { AdjKind, Layer, type ChangeLog, type Civ, type CivParams, type Culture,
 import { BIOME_COST, MAJOR_RIVER } from './habitat';
 import { fpow, keyed, subSeed } from './engine/rand';
 import { refCellArea, refSpacing } from './geo';
-import { quantize, Ev, type CivSim } from './engine/sim';
+import { quantize, type CivSim } from './engine/sim';
 import { assignStyles, lastIfPioneer, nameCultures, nameKin, nameRegions } from './naming';
 import type { NameMix } from '../names';
 import { HABITABLE_SUIT, KIND_EXPANSIONISM } from './kinds';
 import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
 import { regionOfKey, simInterventions, type Intervention } from '../edits';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以截图效果为准) ----
 /** 治所宜居分 ≥ 这个值的州才算可居(和"城址"显示的门槛一致;定义在 kinds.ts,界面也用) */

@@ -27,12 +27,13 @@ import { Layer, type Civ, type Habitat, type Polity, type Regions, type Settleme
 import { computeHabitat } from './habitat';
 import { buildRegions, reshapeRegions } from './regions';
 import { ownersAt } from './engine/timeline';
-import { Ev, type CivSim } from './engine/sim';
+import { type CivSim } from './engine/sim';
 import { endPolity, findPorts, moveCapital, polityModelOf, siteFactor } from './polities';
 import { bestCapital, warModelOf, type War } from './wars';
 import { capitalAt, populationAt } from './growth';
 import { scheduleRebuild } from './cities';
 import { cultureTerrain, type CultureTerrain } from './cultures';
+import { Ev } from './events';
 
 /** 推演里的一件地形大事(同一年的已合成一件):年份、这件的地形修改、合进来的是作者列表里的哪几件、改后的世界 */
 export interface UpheavalStep {

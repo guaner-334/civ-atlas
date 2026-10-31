@@ -7,11 +7,11 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind, Layer } from '../src/gen/civ/types';
-import { Ev } from '../src/gen/civ/engine/sim';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { seaPassable, usedLanes } from '../src/gen/civ/routes';
 import { ruinSites } from '../src/gen/civ/growth';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { Ev } from '../src/gen/civ/events';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 

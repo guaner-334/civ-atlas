@@ -37,7 +37,7 @@ import { AdjKind, Layer, type Annal, type ChangeLog, type Civ, type Culture, typ
 import { BIOME_COST } from './habitat';
 import { anchorTag, fexp, fpow, keyed, subSeed } from './engine/rand';
 import { WORTH_EXP } from './frontier';
-import { quantize, Ev, type CivSim } from './engine/sim';
+import { quantize, type CivSim } from './engine/sim';
 import { KIND_EXPANSIONISM } from './kinds';
 import { OwnerReplay, REF_YEAR, cultureModelOf, cultureTerrain, ownersNear, type CultureModel, type CultureTerrain } from './cultures';
 import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, portAt, portSince, tierOf, yearReaching, yearReachingPop } from './growth';
@@ -49,6 +49,7 @@ import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type L
 import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
 import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } from './regents';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
