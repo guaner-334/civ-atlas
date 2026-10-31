@@ -1,9 +1,10 @@
 /**
- * 生成、打开世界的代码(./worldMessages.ts、./useWorldLoad.ts)要读要改的 App 状态,按块收拢成对象传:
+ * 生成、打开世界的代码(./worldMessages.ts、./useWorldLoad.ts、./useWorldPages.ts)要读要改的 App 状态,按块收拢成对象传:
  *   GenRefs   这个世界是按什么生成的、正在生成的那一次
  *   CivRefs   最近一次请求的文明带着什么(干预、地形大事、地名风格、推演年数、拓荒起源、逐年推演的进度)
  *   MapRefs   地图上那张整图、各段的主图补丁、地图现在怎么画
  *   ResimRefs 重推、再推、逐年推演那边的(换世界时作废)
+ *   WorldViewRefs 地图现在怎么画、换底图
  *   OpenRefs  只有打开世界的代码用的(useOpenRefs 建)
  * 前几块里的 ref、setter 还在 App 里(别的地方也用),App 收拢成对象传进来;收拢的对象每次渲染新建,里面的 ref、setter 不换
  */
@@ -17,6 +18,7 @@ import type { Intervention, PlayState, TerrainOp, Upheaval } from '../../gen/edi
 import type { SketchEdit } from '../../gen/sketch';
 import type { NameMix } from '../../gen/names/mix';
 import type { EraMaps } from '../eras';
+import type { BaseId, FillId, MapLayer, SatLook } from '../mapLayers';
 import type { PatchStats, PatchView, PreProjected } from '../terrainPatch';
 import type { ExtendJob, RenameCheck, ResimInfo, SwitchNote, useSimResults } from '../sim/useSimResults';
 import type { CivSetup, Target } from './worldTarget';
@@ -123,12 +125,24 @@ export interface ResimRefs {
   resimText: Ref<string | null>;
   switchNote: Ref<SwitchNote | null>;
   storyAfterYears: Ref<boolean | null>;
+  /** 逐年推演的世界推好以后要不要马上往下走 */
+  stepAuto: Ref<boolean>;
   restoredIv: Ref<readonly Intervention[] | null>;
   restoredUps: Ref<readonly Upheaval[] | undefined | null>;
   renameCheck: Ref<RenameCheck | null>;
   extendRef: Ref<ExtendJob | null>;
   extendDone: ReturnType<typeof useSimResults>['extendDone'];
   dropExtendUndo: () => void;
+}
+
+/** 地图现在的底图、填色,进新建时换掉的那一份,这种底图在缓存里的键;换底图(按旧的图层名换)、收起悬停卡片 */
+export interface WorldViewRefs {
+  mapViewRef: Ref<{ base: BaseId; fill: FillId; sat: SatLook }>;
+  draftViewRef: Ref<{ base: BaseId; fill: FillId } | null>;
+  drawKey: Ref<string>;
+  applyMapView: (patch: Partial<{ base: BaseId; fill: FillId; sat: SatLook }>) => void;
+  applyLayer: (id: MapLayer) => void;
+  setHover: (h: null) => void;
 }
 
 /** 只有打开世界的代码用的 ref(App 在开线程之前建好,线程的消息处理和 useWorldLoad 都要) */
