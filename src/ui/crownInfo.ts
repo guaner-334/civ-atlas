@@ -21,11 +21,22 @@ import { AUTHOR_RULER_DEFAULT, characterLeanings, type AuthorCharacter } from '.
 import { eraText, spaced, yearAt, yearFull, yearSpanAt, type Era } from '../gen/era';
 import type { Pending } from './pendingStore';
 import { KEEP_CROWN } from './keepInfo';
+import { knobsOf } from '../gen/civ/knobs';
+import { WARS_KNOBS } from '../gen/civ/wars';
 
 export type CrownIv = Extract<Intervention, { kind: 'crown' }>;
 
 /** 另立一国、还没推演时,单子和人物卡上新国叫什么 */
 export const NEW_POLITY = '新国';
+
+/**
+ * 在别国的州里另立的新国(从那国分出来,推演里算新立的国)几年内别国不打它(这个世界的 wars.ts 的 NEWBORN):
+ * 提示"新国一开始只有这一州,几十年后常被母国收回"里那一截
+ */
+export function newbornWait(civ: Civ): string {
+  const n = knobsOf(civ).get(WARS_KNOBS).NEWBORN;
+  return n < 1 ? '一立国就' : n < 10 ? '几年后' : n < 100 ? '几十年后' : `${n} 年后`;
+}
 
 /** 那一年的国名(那一年还没立国 / 已亡:立国时 / 亡国前的国号) */
 function nameAt(p: Polity, year: number): string {

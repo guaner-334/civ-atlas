@@ -27,7 +27,7 @@ export const CALAMITY_NAMES: Record<Calamity, string> = { more: '多', many: '�
 export interface CalamityRates {
   /** 瘟疫起疫的几率 × */
   plague: number;
-  /** 起疫时是大瘟疫的几率(平常 0.3) */
+  /** 起疫时是大瘟疫的几率(平常 0.3 = plague.ts 的 GREAT_ODDS;世界调过 GREAT_ODDS 的,这里跟着按比例变) */
   great: number;
   /** 瘟疫死几成 ×(一城一次最多死 PLAGUE_LOSS_CAP) */
   plagueLoss: number;

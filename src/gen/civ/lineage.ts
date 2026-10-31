@@ -31,8 +31,6 @@ import { royalSeg } from './regime';
 const GEN_AGE: [number, number] = [14, 55];
 /** 父亲去世后最多这么久出生(遗腹子) */
 const POSTHUMOUS = 0.75;
-/** 一生最多这么多岁(同 people.ts) */
-const MAX_AGE = 88;
 /** 补出来的开国之君的父亲:比两个儿子里年长的那个大多少岁(年纪差太大时少一些) */
 const FOUNDER_FATHER_AGE = 30;
 /** 补出来的宗室起名最多试几次(和那时本国已有的君主、将领、名臣、别的宗室都不重名) */
@@ -86,6 +84,8 @@ export function buildLineage(
     surnameOf: (ruler: Person) => string;
     /** 君主的诸子(royals.ts;没即位的在这里起名、算进返回的宗室,出道那一刻 = Son.debut) */
     sons?: ReadonlyMap<Person, readonly Son[]>;
+    /** 一生最多几岁(这个世界的 rulers.ts 的 MAX_AGE) */
+    maxAge: number;
   },
 ): { princes: Person[]; parentOf: Map<Person, Person>; debut: Map<Person, Year>; descent: Map<Person, { from: Person; gen: number }> } {
   const princes: Person[] = [];
@@ -135,7 +135,7 @@ export function buildLineage(
       const hi = Math.min(f.died + POSTHUMOUS, x.born - GEN_AGE[0]);
       if (lo > hi) return false;
       const b = (lo + hi) / 2;
-      const m = prince(b, Math.max(x.born, Math.min(from - 1, b + MAX_AGE)), x.p.dynasty ?? 0, from);
+      const m = prince(b, Math.max(x.born, Math.min(from - 1, b + opts.maxAge)), x.p.dynasty ?? 0, from);
       adopt(f, m);
       adopt(m, x);
       return true;

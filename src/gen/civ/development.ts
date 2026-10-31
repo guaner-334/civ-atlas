@@ -41,7 +41,7 @@
  *   - 城和乡村的人口上限 × popFactor(本州的生产能力):石器时代 POP_BASE 倍,往上每一档 + POP_PER,最多 POP_MAX 倍。
  *     每步看一次,变了才记进 Settlement.devCap(20 年里渐渐变过去,见 growth.ts 的 devFactorAt);立国的时机不随它变。
  *   - 打仗的国力 × 军力系数(PolityModel.military):1 + MIL_PER × 国都所在州的动员能力,最多 MIL_MAX。
- *   - 普通国家国都所在州的运输能力到了 SAIL_LEVEL,从这一刻起能走远洋(polities.ts 的 grantSail;没有全世界统一的航海时代了)。
+ *   - 普通国家国都所在州的运输能力到了 SAIL_LEVEL(polities.ts 的旋钮),从这一刻起能走远洋(polities.ts 的 grantSail;没有全世界统一的航海时代了)。
  *
  * **大事**:世界上第一次有州进入某个时代(first,记州、民族、国家、城);各国国都所在的州第一次进入某个时代(enter;立国时已在的时代不记);
  *   储量多的州发现一样矿(discover)、一样物产采空或吃空(deplete);世界上第一次有州的某样能力到了某样发明那一档(invent,见 INVENTIONS)。
@@ -249,8 +249,6 @@ const POP_QUANT = 32;
 /** 军力系数 = 1 + MIL_PER × 国都所在州的动员能力,MIL_MAX 封顶 */
 const MIL_PER = 0.12;
 const MIL_MAX = 1.6;
-/** 普通国家国都所在州的运输能力到这么多,从这一刻起能走远洋 */
-const SAIL_LEVEL = 1.7;
 /** 跨时代的门槛(见文件头):本州行政能力比要进的时代低这么多以内;近年战乱(war)不超过这么多算太平;平原 = 治所海拔低于这么多米 */
 const ADMIN_GAP = 1.3;
 const WAR_CALM = 0.5;
@@ -989,6 +987,7 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
     if (dc[dc.length - 1] !== f) dc.push(y, f);
   }
   const mil = pm.military!;
+  const { SAIL_LEVEL } = pm.k;
   for (let p = 0; p < P; p++) {
     const r = capR[p];
     if (r < 0) continue;

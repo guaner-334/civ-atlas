@@ -60,6 +60,7 @@ import { CharacterRefs } from './CharacterPanel';
 import { DisasterPage } from './DisasterPage';
 import { TrekPage } from './TrekPage';
 import { regionDisasterMark } from './newIvInfo';
+import { newbornWait } from './crownInfo';
 import { treatyBook, treatyTitle, type ZoneInfo } from '../gen/civ/story/treatyInfo';
 import { personName } from '../gen/civ/story/peopleText';
 import { nationsWord, treatyPeriod, untilText, zoneColors, zoneOfRegionAt, zoneResidentsAt, zoneStripeCss, zonesOfRegion } from './treatyRows';
@@ -546,7 +547,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
           </span>
           {page === 'found' && O && (at.size.get(O.id) ?? 0) > 1 && (
             <span className="cp-note" data-hint="found-protect">
-              新国一开始只有这一州,几十年后常被母国收回。想让它留下来,立国后给它下「保护」。
+              新国一开始只有这一州,{newbornWait(civ)}常被母国收回。想让它留下来,立国后给它下「保护」。
             </span>
           )}
         </div>

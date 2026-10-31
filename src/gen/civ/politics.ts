@@ -142,7 +142,8 @@ export const POLITICS_KNOBS = defineKnobs('politics', {
   RESTORE_TRIES: 12,
   /**
    * 复国的赔率 = RESTORE_ODDS × 宗主的虚弱 × 异族统治 × 离宗主国都远近
-   * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)
+   * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)。
+   * 0 = 不复国:分裂、大崩解时起兵的新国都正好是同族亡国的故都,也只算立新国(见 heirOf)
    */
   RESTORE_ODDS: 0.022,
   RESTORE_FOREIGN: 2,
@@ -531,8 +532,9 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     return true;
   };
 
-  /** 城 sid 当过哪个(还能复国的)同族亡国的国都:有几个取最近亡的;没有 = null */
+  /** 城 sid 当过哪个(还能复国的)同族亡国的国都:有几个取最近亡的;没有 = null。RESTORE_ODDS = 0 的世界不复国:分裂出去的照样立新国 */
   const heirOf = (sid: number, t: number): Polity | null => {
+    if (!(RESTORE_ODDS > 0)) return null;
     const cu = culture[pm.settlements[sid].region];
     let best: Polity | null = null;
     for (const F of pm.polities) {
