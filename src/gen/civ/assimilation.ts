@@ -46,7 +46,7 @@
  * 随机数:keyed(subSeed(seed, 'civ-assim'), 国家 / 州…, 第几次, 用途),和处理顺序无关。
  * 国家、民族、州一律用位置锚(PolityModel.ptag、发源州 / 州的治所地块;见 rand.ts),不用编号。纯计算,不碰 DOM。
  */
-import { Biome } from '../biomes';
+import { biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
@@ -152,13 +152,10 @@ const U_ENCLAVE = 6;
 const U_DIVERGE_T = 7;
 const U_DIVERGE = 8;
 
-const biomeSet = (list: number[]) => {
-  const t = new Uint8Array(16);
-  for (const b of list) t[b] = 1;
-  return t;
-};
-const STEPPE_DESERT = biomeSet([Biome.Steppe, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert]);
-const FOREST = biomeSet([Biome.TemperateForest, Biome.TemperateRainforest, Biome.Rainforest, Biome.TropicalDryForest, Biome.Taiga, Biome.Wetland]);
+/** 按 Biome 下标查的群落集合(哪些群落算哪一类见地貌表的标签):游牧之地(草原、荒漠)、开阔干地(再加稀树草原)、林地(密林、湿地) */
+const STEPPE_DESERT = biomeTagged('nomad');
+const ARID = biomeTagged('arid');
+const FOREST = biomeTagged('forest', 'wetland');
 
 // ---------------------------------------------------------------------------
 // 模型
@@ -437,7 +434,7 @@ function hook(sim: CivSim, am: AssimModel): void {
       const near = d[r] < Infinity ? fexp(-d[r] / REACH) : 0;
       let e = ease(c, g, r);
       const bi = reg.biome[r];
-      if (!reverse && nomadRuler && !STEPPE_DESERT[bi] && bi !== Biome.Savanna) e *= NOMAD_FARMLAND;
+      if (!reverse && nomadRuler && !ARID[bi]) e *= NOMAD_FARMLAND;
       // 迁来立的国反被同化:统治满 MIN_RULE 年就是满速(不等到 FULL_RULE)
       const ramp = reverse && trek ? 1 : Math.min(1, (rule - MIN_RULE) / (FULL_RULE - MIN_RULE));
       const rate = RATE * ramp * f * near * strength * e;

@@ -25,7 +25,7 @@
  */
 import type { Year } from './types';
 import { MAJOR_RIVER } from './habitat';
-import { Biome } from '../biomes';
+import { biomeColumn } from '../biomes';
 import { quakeWord } from './calamity';
 import type { CivSim } from './engine/sim';
 import type { PolityModel } from './polities';
@@ -60,15 +60,8 @@ const BLIGHT = 0.05;
 const LAND_FLOOR = 0.5;
 /** 全球大疫的凋敝里乡民往"该有的"长回去的少几成(无人收拾,几乎不长;复作的折损见 pandemic.ts) */
 const SLUMP_HOLD = 0.7;
-/** 地经不经得住种(按地块的生物群落;没写的 FRAGILE_ELSE);流着、挨着大河的有淤泥补,乘 RIVER_SILT */
-const FRAGILE: readonly number[] = (() => {
-  const c = new Array<number>(16).fill(0.2);
-  c[Biome.HotDesert] = c[Biome.TemperateDesert] = c[Biome.ColdDesert] = 1;
-  c[Biome.Steppe] = c[Biome.Savanna] = 0.7;
-  c[Biome.TropicalDryForest] = c[Biome.Rainforest] = 0.5;
-  c[Biome.Tundra] = c[Biome.Taiga] = 0.4;
-  return c;
-})();
+/** 地经不经得住种(按地块的生物群落,见地貌表的 soilFragility;表外的编号 FRAGILE_ELSE);流着、挨着大河的有淤泥补,乘 RIVER_SILT */
+const FRAGILE = biomeColumn('soilFragility');
 const FRAGILE_ELSE = 0.2;
 const RIVER_SILT = 0.5;
 

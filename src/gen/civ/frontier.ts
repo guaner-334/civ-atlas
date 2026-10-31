@@ -11,13 +11,14 @@
  * 显示值和系数:各组的 def 是把那组代表群落的系数(cultures.ts 的 (通行代价 / 70)^0.9)取到一位小数;一组里的几种群落按同一个比例缩放
  * (沙漠 = 热荒漠、温带荒漠、寒荒漠一起)。纯计算,不碰 DOM。
  */
-import { Biome } from '../biomes';
+import { BIOMES, type Biome, type BiomeTerrainGroup } from '../biomes';
 import { fpow } from './engine/rand';
 import { TERRAIN_H, TERRAIN_W } from '../terrainOps';
 import type { World } from '../world';
 import type { Regions } from './types';
 
-export type TerrainGroup = 'grass' | 'forest' | 'rainforest' | 'wetland' | 'desert' | 'taiga' | 'tundra' | 'mountain';
+/** 地形分组:按群落分的几组(哪种群落归哪组见地貌表的 frontier),加上不按群落的高山 */
+export type TerrainGroup = BiomeTerrainGroup | 'mountain';
 
 /** 拓荒三样(清理过的:和默认一样的项不写;都没调 = 整个不给) */
 export interface Frontier {
@@ -32,21 +33,24 @@ export interface Frontier {
 export interface TerrainGroupInfo {
   key: TerrainGroup;
   name: string;
-  /** 这一组的群落(高山不按群落,是翻山和海拔) */
+  /** 这一组的群落(照地貌表的 frontier;高山不按群落,是翻山和海拔) */
   biomes: readonly Biome[];
   /** 默认的显示值(森林 = 1) */
   def: number;
 }
 
+/** 归这一组的群落 */
+const groupBiomes = (g: TerrainGroup): Biome[] => BIOMES.filter((b) => b.frontier === g).map((b) => b.id);
+
 /** 地形难走程度的分组(界面上按这个先后列) */
 export const TERRAIN_GROUPS: readonly TerrainGroupInfo[] = [
-  { key: 'grass', name: '草原', biomes: [Biome.Steppe, Biome.Savanna], def: 0.8 },
-  { key: 'forest', name: '森林', biomes: [Biome.TemperateForest, Biome.TropicalDryForest], def: 1 },
-  { key: 'rainforest', name: '雨林', biomes: [Biome.Rainforest, Biome.TemperateRainforest], def: 1.1 },
-  { key: 'wetland', name: '湿地', biomes: [Biome.Wetland], def: 2 },
-  { key: 'desert', name: '沙漠', biomes: [Biome.HotDesert, Biome.TemperateDesert, Biome.ColdDesert], def: 2.6 },
-  { key: 'taiga', name: '针叶林', biomes: [Biome.Taiga], def: 2.6 },
-  { key: 'tundra', name: '冻土', biomes: [Biome.Tundra], def: 11 },
+  { key: 'grass', name: '草原', biomes: groupBiomes('grass'), def: 0.8 },
+  { key: 'forest', name: '森林', biomes: groupBiomes('forest'), def: 1 },
+  { key: 'rainforest', name: '雨林', biomes: groupBiomes('rainforest'), def: 1.1 },
+  { key: 'wetland', name: '湿地', biomes: groupBiomes('wetland'), def: 2 },
+  { key: 'desert', name: '沙漠', biomes: groupBiomes('desert'), def: 2.6 },
+  { key: 'taiga', name: '针叶林', biomes: groupBiomes('taiga'), def: 2.6 },
+  { key: 'tundra', name: '冻土', biomes: groupBiomes('tundra'), def: 11 },
   { key: 'mountain', name: '高山', biomes: [], def: 2.2 },
 ];
 
@@ -122,8 +126,8 @@ const STATE_EXP = 2 / 3;
 
 /** 拓荒设定 → 推演用的系数(没调地形 = 全是 1) */
 export function frontierFx(f: Frontier | undefined): FrontierFx {
-  const people = new Float64Array(16).fill(1);
-  const state = new Float64Array(16).fill(1);
+  const people = new Float64Array(BIOMES.length).fill(1);
+  const state = new Float64Array(BIOMES.length).fill(1);
   let peopleMtn = 1;
   let stateMtn = 1;
   for (const g of TERRAIN_GROUPS) {

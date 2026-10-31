@@ -1,9 +1,11 @@
 /**
  * 生物群落(地貌)总表:每种一条记录 —— 名字、两种画风的颜色、出现条件(按"年均温 × 年降水"查 Whittaker 图)、
- * 画图要的林块 / 地面符号和卫星色阶、图例里列不列。
- * 加一种 = 在 Biome 末尾加一个编号、在 BIOMES 末尾加一条记录;改名、改色、改门槛都只改这一处。
+ * 画图要的林块 / 地面符号和卫星色阶、图例里列不列,以及推演要的各项数(宜居、通行和修路代价、迁徙快慢、灾年、地力、物产、
+ * 各条规则认的地貌标签、拓荒分组、地名语感)。
+ * 加一种 = 在 Biome 末尾加一个编号、在 BIOMES 末尾加一条记录;改名、改色、改门槛、改推演的数都只改这一处。
  *
  * 编号存进了存档,各处数组也按编号索引:已有的编号不许改,新的只往后加。
+ * 推演在逐地块、逐步的循环里不读记录,载入时用 biomeColumn / biomeTagged 按编号排成一张类型化数组再查。
  */
 
 export enum Biome {
@@ -53,6 +55,31 @@ export interface BiomeForest {
   threshold: number;
 }
 
+/**
+ * 推演里各条规则认的地貌标签(一种地貌可以有好几个;规则按标签挑地貌,不按编号):
+ *   arid       开阔干地(草原、稀树草原、荒漠):国家扩张(游牧国家走得快、更想要,polities.ts)、养得了马(trade.ts)、
+ *              闹旱灾而不是地震(calamity.ts)、民族善骑(story/cultureTraits.ts)、旗帜的干地图案(story/flags.ts);
+ *              民族扩散、同化里开阔干地却不是 nomad 的(稀树草原)另有一档(cultures.ts、assimilation.ts)
+ *   nomad      游牧之地(草原、荒漠;稀树草原不算):发源在这儿的是游牧民族、游牧民族走得快(cultures.ts),
+ *              游牧民族在这儿难被同化(assimilation.ts)
+ *   forest     密林(温带森林、温带雨林、热带雨林、热带季雨林、针叶林):游牧民族、游牧国家走得慢,林地民族走得快(cultures.ts、polities.ts),
+ *              林地民族难被同化、游牧移民少来(assimilation.ts,连同 wetland),旗帜的林中图案(story/flags.ts)
+ *   wetland    沼泽湿地:同化里和 forest 一样算林地(assimilation.ts)
+ *   wilds      山林民族的家(针叶林、雨林、苔原、湿地):发源在这儿、不靠海的是林地民族(cultures.ts)
+ *   cold       苦寒之地(苔原、针叶林):发源在这儿的民族遇灾年会举族迁徙(migration.ts),编年史写"苦寒"(story/chronicle.ts)
+ *   bogIron    出沼铁:铁的底子加一点(development.ts)
+ *   coalBasin  海拔 1000 米以下是古老的成煤盆地(development.ts)
+ */
+export const BIOME_TAGS = ['arid', 'nomad', 'forest', 'wetland', 'wilds', 'cold', 'bogIron', 'coalBasin'] as const;
+export type BiomeTag = (typeof BIOME_TAGS)[number];
+
+/** 拓荒设定里"地形难走程度"的分组(frontier.ts 的 TERRAIN_GROUPS;那边另有不按群落的"高山") */
+export type BiomeTerrainGroup = 'grass' | 'forest' | 'rainforest' | 'wetland' | 'desert' | 'taiga' | 'tundra';
+
+/** 推演用的数字段(每种地貌都要填;biomeColumn 按它排成数组) */
+export const BIOME_SIM_NUMBERS = ['habitability', 'travelCost', 'roadCost', 'trekPace', 'famineRisk', 'soilFragility', 'grain', 'pasture', 'timber', 'oil'] as const;
+export type BiomeSimNumber = (typeof BIOME_SIM_NUMBERS)[number];
+
 export interface BiomeInfo {
   /** 编号,等于这条记录在 BIOMES 里的位置 */
   id: Biome;
@@ -78,6 +105,48 @@ export interface BiomeInfo {
    * 按亮度排序,七个分位数段各取中位色。怎么用见 realistic.ts 的 biomeRamp;不写 = 整片一个颜色
    */
   satRamp?: readonly string[];
+
+  // ---- 推演用的数(按地块或州的主导群落查;水面、冰的那几格多半用不上,也照样填) ----
+  /**
+   * 宜居底分(0–100,温带森林 100;habitat.ts):地块宜居分从它起算,再加淡水、海岸,减海拔、坡度;0 = 不可居。
+   * 按开垦以后养得活多少人排:温带森林(砍了林子就是良田)最高,热带季雨林(雨季种稻)次之,温带雨林多在迎风的山坡上;
+   * 草原、稀树草原雨水不够,不靠河只能放牧;热带雨林土薄、多病、难开垦,比季雨林低得多
+   */
+  habitability: number;
+  /**
+   * 通行代价(温带森林 70;水面 0,由各自规则另算):民族扩散(cultures.ts,(代价 / 70)^0.9)、
+   * 国家扩张(polities.ts,(max(1, 代价) / 70)^0.6)换算成群落系数;拓荒设定的地形难走程度乘在它换算出的系数上
+   */
+  travelCost: number;
+  /** 修路难度(倍数,1 = 平常;routes.ts:一段路两头地块的平均值乘在代价上) */
+  roadCost: number;
+  /** 大迁徙走一州的地形系数(倍数,乘在走一州的年数上;trekRoute.ts,界面上估迁徙路线也用):草原荒漠快,林地、湿地慢 */
+  trekPace: number;
+  /** 闹灾年的倍数(1 = 平常;unrest.ts,按州的主导群落):干旱、寒冷的地方更容易闹 */
+  famineRisk: number;
+  /**
+   * 地经不经得住种(population.ts):种满了每年耗地力的倍数,越大越不经种;流着、挨着大河的地块另有淤泥补
+   */
+  soilFragility: number;
+  /** 物产・粮(development.ts):乘在地块的宜居分上累加(草原、荒漠不靠河种不了多少) */
+  grain: number;
+  /** 物产・牧(development.ts):逐地块累加 */
+  pasture: number;
+  /** 物产・木材(development.ts):逐地块累加 */
+  timber: number;
+  /** 物产・石油(development.ts):海拔 600 米以下的地块累加 */
+  oil: number;
+  /** 推演各条规则认的标签,见 BiomeTag;没有就写空 */
+  tags: readonly BiomeTag[];
+  /**
+   * 荒漠的冷热:写了就是荒漠 —— 荒漠地名的连通片按它圈,后缀看哪种占多(热的叫沙漠、冷的叫荒原、其余叫荒漠;places.ts),
+   * 荒漠盆地出盐(development.ts);不写 = 不是荒漠
+   */
+  desert?: 'hot' | 'temperate' | 'cold';
+  /** 拓荒设定里归哪一组地形(frontier.ts);不写 = 不归哪组(水面、冰) */
+  frontier?: BiomeTerrainGroup;
+  /** 地名语感(names 里语感的 id):发源在这种群落的民族挑这几种语感时加分(naming.ts);没有就写空 */
+  nameStyles: readonly string[];
 }
 
 const hex = (s: string): [number, number, number] => [
@@ -94,6 +163,10 @@ export const BIOMES: readonly BiomeInfo[] = [
     paint: hex('#a9c1c0'),
     when: [{ on: 'sea', ice: { below: 0.5 } }],
     legend: false,
+    habitability: 0, travelCost: 0, roadCost: 1, trekPace: 1, famineRisk: 1, soilFragility: 0.2,
+    grain: 0, pasture: 0, timber: 0, oil: 0,
+    tags: [],
+    nameStyles: [],
   },
   {
     id: Biome.Lake,
@@ -102,6 +175,10 @@ export const BIOMES: readonly BiomeInfo[] = [
     paint: hex('#9fbcc0'),
     when: [{ on: 'lake', t: { from: -6 } }],
     legend: true,
+    habitability: 0, travelCost: 0, roadCost: 1, trekPace: 1, famineRisk: 1, soilFragility: 0.2,
+    grain: 0, pasture: 0, timber: 0, oil: 0,
+    tags: [],
+    nameStyles: [],
   },
   {
     id: Biome.SeaIce,
@@ -111,6 +188,10 @@ export const BIOMES: readonly BiomeInfo[] = [
     // 海冰覆盖过半
     when: [{ on: 'sea', ice: { from: 0.5 } }],
     legend: true,
+    habitability: 0, travelCost: 5000, roadCost: 1, trekPace: 1, famineRisk: 1, soilFragility: 0.2,
+    grain: 0, pasture: 0, timber: 0, oil: 0,
+    tags: [],
+    nameStyles: [],
   },
   {
     id: Biome.Ice,
@@ -122,6 +203,10 @@ export const BIOMES: readonly BiomeInfo[] = [
       { on: 'lake', t: { below: -6 } },
     ],
     legend: true,
+    habitability: 0, travelCost: 5000, roadCost: 1, trekPace: 1, famineRisk: 1, soilFragility: 0.2,
+    grain: 0, pasture: 0, timber: 0, oil: 0,
+    tags: [],
+    nameStyles: [],
   },
   {
     id: Biome.Tundra,
@@ -132,6 +217,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     ground: 'tuft',
     satRamp: ['#272312', '#332f19', '#3c3520', '#413b24', '#494129', '#616058', '#7f7d7a'],
+    habitability: 4, travelCost: 1000, roadCost: 1.25, trekPace: 1.2, famineRisk: 1.3, soilFragility: 0.4,
+    grain: 0, pasture: 0.3, timber: 0, oil: 0.4,
+    tags: ['wilds', 'cold'],
+    frontier: 'tundra',
+    nameStyles: ['nordic'],
   },
   {
     id: Biome.Taiga,
@@ -142,6 +232,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     forest: { kind: 'pine', threshold: 0.44 },
     satRamp: ['#161a09', '#1c1e0d', '#202311', '#262818', '#2e3021', '#3b3e30', '#515348'],
+    habitability: 12, travelCost: 200, roadCost: 1.2, trekPace: 1.5, famineRisk: 1.3, soilFragility: 0.4,
+    grain: 0.3, pasture: 0, timber: 1, oil: 0.2,
+    tags: ['forest', 'wilds', 'cold', 'bogIron', 'coalBasin'],
+    frontier: 'taiga',
+    nameStyles: ['nordic', 'slavic'],
   },
   {
     id: Biome.ColdDesert,
@@ -154,6 +249,12 @@ export const BIOMES: readonly BiomeInfo[] = [
     ],
     legend: true,
     satRamp: ['#735e3d', '#7e6746', '#856e4d', '#8b7554', '#917b5b', '#978363', '#a08e71'],
+    habitability: 10, travelCost: 150, roadCost: 1.15, trekPace: 0.7, famineRisk: 1.7, soilFragility: 1,
+    grain: 0.2, pasture: 0.5, timber: 0, oil: 0.6,
+    tags: ['arid', 'nomad'],
+    desert: 'cold',
+    frontier: 'desert',
+    nameStyles: ['nordic', 'desert', 'steppe', 'frontier'],
   },
   {
     id: Biome.TemperateDesert,
@@ -164,6 +265,12 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     ground: 'dune',
     satRamp: ['#664d31', '#745b3e', '#816a4b', '#8d785c', '#97846a', '#a49373', '#ab9b7b'],
+    habitability: 7, travelCost: 170, roadCost: 1.15, trekPace: 0.7, famineRisk: 1.7, soilFragility: 1,
+    grain: 0.3, pasture: 0.4, timber: 0, oil: 0.9,
+    tags: ['arid', 'nomad'],
+    desert: 'temperate',
+    frontier: 'desert',
+    nameStyles: ['desert', 'steppe', 'frontier'],
   },
   {
     id: Biome.Steppe,
@@ -174,6 +281,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     ground: 'tuft',
     satRamp: ['#4d4326', '#56482b', '#5b4c2e', '#624f31', '#6b5436', '#785b3c', '#876544'],
+    habitability: 35, travelCost: 50, roadCost: 1, trekPace: 0.7, famineRisk: 1.4, soilFragility: 0.7,
+    grain: 0.5, pasture: 1, timber: 0, oil: 0.5,
+    tags: ['arid', 'nomad', 'coalBasin'],
+    frontier: 'grass',
+    nameStyles: ['kingdom', 'desert', 'steppe', 'central', 'frontier'],
   },
   {
     id: Biome.TemperateForest,
@@ -184,6 +296,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     forest: { kind: 'broad', threshold: 0.43 },
     satRamp: ['#1c230b', '#21270f', '#252b12', '#293015', '#2f3518', '#373b1d', '#464526'],
+    habitability: 100, travelCost: 70, roadCost: 1.1, trekPace: 1.2, famineRisk: 1, soilFragility: 0.2,
+    grain: 1, pasture: 0.2, timber: 1, oil: 0,
+    tags: ['forest', 'coalBasin'],
+    frontier: 'forest',
+    nameStyles: ['imperial', 'kingdom', 'slavic', 'hellenic', 'elven', 'central'],
   },
   {
     id: Biome.TemperateRainforest,
@@ -194,6 +311,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     forest: { kind: 'pine', threshold: 0.36 },
     satRamp: ['#0d1405', '#111909', '#151e0d', '#1a2513', '#222e1b', '#323a27', '#55584d'],
+    habitability: 60, travelCost: 90, roadCost: 1.25, trekPace: 1.5, famineRisk: 0.8, soilFragility: 0.2,
+    grain: 0.7, pasture: 0, timber: 1, oil: 0,
+    tags: ['forest', 'wilds', 'coalBasin'],
+    frontier: 'rainforest',
+    nameStyles: ['kingdom', 'elven', 'central', 'xianxia', 'mythic'],
   },
   {
     id: Biome.HotDesert,
@@ -204,6 +326,12 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     ground: 'dune',
     satRamp: ['#7c5134', '#9f7e59', '#b39067', '#bb986c', '#c09e72', '#c5a577', '#cbad81'],
+    habitability: 4, travelCost: 200, roadCost: 1.3, trekPace: 0.7, famineRisk: 1.7, soilFragility: 1,
+    grain: 0.3, pasture: 0.1, timber: 0, oil: 1,
+    tags: ['arid', 'nomad'],
+    desert: 'hot',
+    frontier: 'desert',
+    nameStyles: ['desert', 'frontier'],
   },
   {
     id: Biome.Savanna,
@@ -214,6 +342,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     ground: 'tuft',
     satRamp: ['#3f3f1e', '#564a2b', '#615031', '#695637', '#745e3e', '#856c49', '#a0825a'],
+    habitability: 30, travelCost: 60, roadCost: 1, trekPace: 0.7, famineRisk: 1.4, soilFragility: 0.7,
+    grain: 0.6, pasture: 0.8, timber: 0.2, oil: 0.3,
+    tags: ['arid'],
+    frontier: 'grass',
+    nameStyles: ['hellenic', 'desert', 'frontier'],
   },
   {
     id: Biome.TropicalDryForest,
@@ -224,6 +357,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     forest: { kind: 'broad', threshold: 0.52 },
     satRamp: ['#2c3313', '#353a1a', '#3c3e1e', '#424222', '#474526', '#50492b', '#605133'],
+    habitability: 75, travelCost: 70, roadCost: 1.1, trekPace: 1.2, famineRisk: 1.1, soilFragility: 0.5,
+    grain: 1, pasture: 0.2, timber: 0.7, oil: 0,
+    tags: ['forest'],
+    frontier: 'forest',
+    nameStyles: ['imperial', 'hellenic', 'elven', 'xianxia', 'mythic'],
   },
   {
     id: Biome.Rainforest,
@@ -234,6 +372,11 @@ export const BIOMES: readonly BiomeInfo[] = [
     legend: true,
     forest: { kind: 'jungle', threshold: 0.32 },
     satRamp: ['#142208', '#16250a', '#18270a', '#19280c', '#1a2a0c', '#1c2c0d', '#1f2f10'],
+    habitability: 35, travelCost: 80, roadCost: 1.4, trekPace: 1.5, famineRisk: 0.8, soilFragility: 0.5,
+    grain: 0.5, pasture: 0, timber: 0.8, oil: 0,
+    tags: ['forest', 'wilds'],
+    frontier: 'rainforest',
+    nameStyles: ['elven', 'xianxia', 'mythic'],
   },
   {
     id: Biome.Wetland,
@@ -243,8 +386,41 @@ export const BIOMES: readonly BiomeInfo[] = [
     // 还没有出现条件:目前不会生成
     when: [],
     legend: false,
+    habitability: 12, travelCost: 150, roadCost: 1.5, trekPace: 1.5, famineRisk: 0.8, soilFragility: 0.2,
+    grain: 0.5, pasture: 0, timber: 0.3, oil: 0.8,
+    tags: ['wetland', 'wilds', 'bogIron', 'coalBasin'],
+    frontier: 'wetland',
+    nameStyles: [],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// 推演查表:载入时按编号排成类型化数组,逐地块、逐步的循环里查它,不逐次读记录
+
+/**
+ * 地貌表的一个数字段按编号排成一张数组。type = 要的数组类型(默认 Float64Array:和普通数组里的数逐位一样;
+ * 原来按 Float32Array、Uint8Array 存的表照原类型建,舍入才不变)
+ */
+export function biomeColumn(key: BiomeSimNumber): Float64Array;
+export function biomeColumn<A>(key: BiomeSimNumber, type: { from(src: ArrayLike<number>): A }): A;
+export function biomeColumn(key: BiomeSimNumber, type: { from(src: ArrayLike<number>): unknown } = Float64Array): unknown {
+  return type.from(BIOMES.map((b) => b[key]));
+}
+
+/** 满足条件的地貌 = 1、别的 = 0(按编号) */
+export function biomeMask(test: (b: BiomeInfo) => boolean): Uint8Array {
+  return Uint8Array.from(BIOMES, (b) => (test(b) ? 1 : 0));
+}
+
+/** 带这几个标签之一的地貌 = 1、别的 = 0(按编号) */
+export function biomeTagged(...tags: BiomeTag[]): Uint8Array {
+  return biomeMask((b) => tags.some((t) => b.tags.includes(t)));
+}
+
+/** 编号 b 的地貌带不带这个标签(不在表里的编号,比如 −1,算不带);只在不常调的地方用,循环里用 biomeTagged 的表 */
+export function biomeHas(b: number, tag: BiomeTag): boolean {
+  return BIOMES[b]?.tags.includes(tag) ?? false;
+}
 
 // ---------------------------------------------------------------------------
 // 出现条件编成三层查找表(逐像素调用,不能在热路径上遍历记录):

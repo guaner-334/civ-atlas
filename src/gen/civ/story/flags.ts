@@ -28,7 +28,7 @@
  */
 import type { World } from '../../world';
 import type { Civ, Polity } from '../types';
-import { Biome } from '../../biomes';
+import { biomeTagged } from '../../biomes';
 import { mulberry32, subSeed, type Rng } from '../../util';
 import { cultureKey, dynastyKey, polityKey } from '../../edits';
 import { BEASTS, decodeFlag, EDIT_LAYOUTS, isBeast, isEastern, isMetal, MARKS, type ChargeAt, type FlagSpec, type Layout, type Mark, type Shape, type Sym, type Tinct } from './flagSpec';
@@ -159,6 +159,10 @@ export function culturePalette(seed: number, civ: Civ, cu: number): Tinct[] {
   return out;
 }
 
+/** 林中、草原沙漠的城(按 Biome 下标,见地貌表的标签 forest、arid) */
+const FOREST = biomeTagged('forest');
+const DRY = biomeTagged('arid');
+
 /** 城是哪一类:港口、海拔 1100 米以上、大河边、林中、草原沙漠、平原 */
 export function seatOf(world: World, civ: Civ, sid: number): Seat {
   const s = civ.settlements[sid];
@@ -169,8 +173,8 @@ export function seatOf(world: World, civ: Civ, sid: number): Seat {
   if (el > 1100) return 'mountain';
   if ((world.flux[s.cell] ?? 0) > world.riverThreshold * 2) return 'river';
   const b = civ.regions.biome[r];
-  if (b === Biome.TemperateForest || b === Biome.TemperateRainforest || b === Biome.Taiga || b === Biome.Rainforest || b === Biome.TropicalDryForest) return 'forest';
-  if (b === Biome.Steppe || b === Biome.HotDesert || b === Biome.TemperateDesert || b === Biome.ColdDesert || b === Biome.Savanna) return 'dry';
+  if (FOREST[b]) return 'forest';
+  if (DRY[b]) return 'dry';
   return 'plain';
 }
 
