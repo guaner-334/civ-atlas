@@ -1033,7 +1033,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       return { ...x, p };
     };
     const sons = new Map([...sonsOf].map(([k, ss]) => [k, ss.map(copy)]));
-    const { parentOf } = buildLineage(polities, rulers, [], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons });
+    const { parentOf } = buildLineage(polities, rulers, [], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons, maxAge: MAX_AGE });
     return (early = { parentOf, orig, women: pickWomen(rulers.flat(), wctx0, new Set(), (x) => parentOf.get(x)) });
   };
   /** 幼主的父亲 H(出道时认不出的)是不是女的:没即位的宗室出道时就认得出;继位的君主照先连的世系认 */
