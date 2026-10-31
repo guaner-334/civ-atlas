@@ -142,7 +142,8 @@ export const POLITICS_KNOBS = defineKnobs('politics', {
   RESTORE_TRIES: 12,
   /**
    * 复国的赔率 = RESTORE_ODDS × 宗主的虚弱 × 异族统治 × 离宗主国都远近
-   * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)
+   * (GENERATOR_VERSION 43 仗打得密以后亡国多了两成多,这里从 0.025 调低一些,复国不至于跟着多出三四成)。
+   * 0 = 不复国:分裂、大崩解时起兵的新国都正好是同族亡国的故都,也只算立新国(见 heirOf)
    */
   RESTORE_ODDS: 0.022,
   RESTORE_FOREIGN: 2,
@@ -491,8 +492,10 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const d0 = dis[r0];
     const odds = SPLIT_ODDS * fexp(SPLIT_K * (d0 + g - SPLIT_D0));
     if (keyed(pol.base, pm.ptag[pid], k, U_SPLIT) >= odds / (1 + odds)) return false;
+    // 自立出去的最多占国土的 SPLIT_FRAC,凑不够 SPLIT_MIN_GROUP 州的不起兵(官方的数下,够分裂的国家都凑得够)
+    if (Math.floor(N * SPLIT_FRAC) < SPLIT_MIN_GROUP) return false;
     // 从起事的州往外长:离心力大的先并进来,只走陆路(国土成片)
-    const limit = Math.min(SPLIT_MAX_GROUP, Math.max(SPLIT_MIN_GROUP, Math.floor(N * SPLIT_FRAC)));
+    const limit = Math.min(SPLIT_MAX_GROUP, Math.floor(N * SPLIT_FRAC));
     const thr = Math.max(GROUP_MIN_D, d0 - GROUP_DROP);
     // 先挑:离心力大的、和起事的州同族的、离起事的州近的(每隔一州扣 GROUP_COMPACT:国土成团,不沿着边远一圈拉成长条)
     const stamp = ++gStamp;
@@ -531,8 +534,9 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     return true;
   };
 
-  /** 城 sid 当过哪个(还能复国的)同族亡国的国都:有几个取最近亡的;没有 = null */
+  /** 城 sid 当过哪个(还能复国的)同族亡国的国都:有几个取最近亡的;没有 = null。RESTORE_ODDS = 0 的世界不复国:分裂出去的照样立新国 */
   const heirOf = (sid: number, t: number): Polity | null => {
+    if (!(RESTORE_ODDS > 0)) return null;
     const cu = culture[pm.settlements[sid].region];
     let best: Polity | null = null;
     for (const F of pm.polities) {

@@ -797,8 +797,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (k < LOOK_K) sim.schedule(checkTime(wm, p, k + 1), Ev.WarCheck, k + 1, p);
     // 阶段 4 干预"不许扩张":不主动宣战
     if (wm.iv?.halted(p, t)) return;
-    // 正在打仗的不再开新仗(帝国级的大国可以两线作战);刚议和的歇几年
-    if (warsOf(p).length >= (pm.size[p] >= TWO_FRONTS ? 2 : 1) || t - (wm.rest.get(p) ?? -Infinity) < REST) return;
+    // 正在打仗的不再开新仗(帝国级的大国可以两线作战,一国同时打的仗不超过 MAX_WARS);刚议和的歇几年
+    if (warsOf(p).length >= Math.min(MAX_WARS, pm.size[p] >= TWO_FRONTS ? 2 : 1) || t - (wm.rest.get(p) ?? -Infinity) < REST) return;
     // 接壤的邻国:边界长短(州与州相邻的对数)、边境上对方的州(和最好打的那条边);邻国手里有几州是从本国夺去的(收复失地)
     const border = new Map<number, number>();
     const front = new Map<number, Map<number, number>>();

@@ -79,6 +79,11 @@ export const REGENTS_KNOBS = defineKnobs('regents', {
   STRONG_AGE: [35, 55] as [number, number],
   /** 大臣专权到期:篡位、伏诛的机会(其余卒于位);大将专权到期:伏诛的机会(其余卒于位) */
   CHANCELLOR_END: [0.35, 0.3] as [number, number],
+  /**
+   * 篡位的机会倍数:大臣专权到期篡位的机会(CHANCELLOR_END[0])× USURP;幼主成年时摄政、辅政的人篡位(CHILD_END 余下的那一截)
+   * 在 USURP 不到 1 时按比例少(1 以上照旧)。0 = 掌实权的人不篡位(名臣、大臣篡位是改朝换代,关掉它才是万世一系)
+   */
+  USURP: 1,
   /** 篡位的人即位时最多这么大(和别的君主一样即位不过 62 岁):幼主成年时摄政的人已过这个年纪的还政,大臣专权要篡位的到这个年纪就动手 */
   USURP_AGE: 62,
   GENERAL_PURGE: 0.3,
@@ -271,9 +276,15 @@ export interface ChildPlan {
   uncle?: { k: number; s: number };
 }
 
-/** 幼主成年时的结局;到那时摄政的人已过 USURP_AGE 岁的不篡位(还政) */
-const childEnd = ({ CHILD_END, USURP_AGE }: RegentsKnobs, u: number, born: Year, stop: Year): RegencyOutcome =>
-  u < CHILD_END[0] ? 'return' : u < CHILD_END[0] + CHILD_END[1] ? 'purge' : stop - born > USURP_AGE ? 'return' : 'usurp';
+/** 幼主成年时的结局;到那时摄政的人已过 USURP_AGE 岁的不篡位(还政);USURP 不到 1 时篡位的那一截按比例改成还政 */
+const childEnd = ({ CHILD_END, USURP_AGE, USURP }: RegentsKnobs, u: number, born: Year, stop: Year): RegencyOutcome =>
+  u < CHILD_END[0]
+    ? 'return'
+    : u < CHILD_END[0] + CHILD_END[1]
+      ? 'purge'
+      : stop - born > USURP_AGE || (USURP < 1 && u - (CHILD_END[0] + CHILD_END[1]) >= (1 - CHILD_END[0] - CHILD_END[1]) * USURP)
+        ? 'return'
+        : 'usurp';
 
 /**
  * 第 k 位君主 r(国家 pid)是继位的幼主:谁摄政 / 辅政(见文件头);不是幼主、没人可用 = null。
@@ -338,13 +349,13 @@ export function strongRolls(cx: RegencyCtx, pid: number, t: Year): { u: number; 
 /** 大臣、大将 t 那一刻掌权:到哪一刻、结局、生年、倾向 */
 export function strongPlan(cx: RegencyCtx, pid: number, kind: 'chancellor' | 'general', t: Year): Omit<ChildPlan, 'kind' | 'uncle'> {
   const P = cx.polities[pid];
-  const { TICK, K_STRONG, GENERAL_PURGE, CHANCELLOR_END, STRONG_AGE, STRONG_LEN, USURP_AGE, K_STRONG_LEAN, GENERAL_WAR } = cx.knobs.get(REGENTS_KNOBS);
+  const { TICK, K_STRONG, GENERAL_PURGE, CHANCELLOR_END, STRONG_AGE, STRONG_LEN, USURP_AGE, K_STRONG_LEAN, GENERAL_WAR, USURP } = cx.knobs.get(REGENTS_KNOBS);
   const q = (x: number) => quant(x, TICK);
   const key = Math.round(t * TICK);
   const R = (use: number) => rnd(cx, pid, key, use, K_STRONG);
   const u = R(U_END);
   const outcome: RegencyOutcome =
-    kind === 'general' ? (u < GENERAL_PURGE ? 'purge' : 'died') : u < CHANCELLOR_END[0] ? 'usurp' : u < CHANCELLOR_END[0] + CHANCELLOR_END[1] ? 'purge' : 'died';
+    kind === 'general' ? (u < GENERAL_PURGE ? 'purge' : 'died') : u < CHANCELLOR_END[0] * USURP ? 'usurp' : u < CHANCELLOR_END[0] * USURP + CHANCELLOR_END[1] ? 'purge' : 'died';
   const born = q(t - lerp(STRONG_AGE, R(U_AGE)));
   const stop = q(t + lerp(STRONG_LEN, R(U_LEN)));
   return {
