@@ -3,7 +3,7 @@
  * 记成以后新建世界一进来的样子。只管新建页一进来的样子(和创建以后地图用的投影);打开存档、分享链接都照它们自己的。
  * 没设过 = 原来的样子(实景、地球仪、经纬网照旧)。存在这个浏览器里。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { MapLayer } from './mapLayers';
 import type { PlanetProjection } from '../render/planet';
 import { isGraticuleStep, type GraticuleStep } from './projection';
@@ -37,19 +37,15 @@ function load(): NewView | null {
 }
 
 let state: NewView | null | undefined;
-const subs = new Set<() => void>();
+const subs = createListeners();
 const get = () => (state === undefined ? (state = load()) : state);
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => subs.delete(f);
-};
 
 export function getNewView(): NewView | null {
   return get();
 }
 
 export function useNewView(): NewView | null {
-  return useSyncExternalStore(subscribe, get, get);
+  return subs.use(get);
 }
 
 /** 记下(null = 回到没设过) */
@@ -61,7 +57,7 @@ export function setNewView(v: NewView | null) {
   } catch {
     /* 隐私模式:只管这一次 */
   }
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 export const sameView = (a: NewView | null, b: NewView) =>

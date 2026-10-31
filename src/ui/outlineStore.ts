@@ -11,7 +11,7 @@
  *   时间轴上那一条的记号放大写号;换选了别的、取消选中就不看了。
  * 不碰 DOM,单测直接测。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import { OUTLINE_TRIES_MAX, PLOT_ID_MAX, type Plot, type PlotKind, type PlotRedo, type PlotReview, type PlotStatus } from '../gen/edits';
 import { onEditsReset } from './editsStore';
 import type { MapSelection } from './civView';
@@ -63,22 +63,19 @@ export interface OutlineState {
 }
 
 let S: OutlineState = { run: null, ask: false, edit: null, filter: 'all', focus: null };
-const subs = new Set<() => void>();
+const subs = createListeners();
 function patch(p: Partial<OutlineState>) {
   S = { ...S, ...p };
-  for (const f of subs) f();
+  subs.emit();
 }
 export function getOutlineUi(): OutlineState {
   return S;
 }
 export function subscribeOutlineUi(f: () => void): () => void {
-  subs.add(f);
-  return () => {
-    subs.delete(f);
-  };
+  return subs.subscribe(f);
 }
 export function useOutlineUi(): OutlineState {
-  return useSyncExternalStore(subscribeOutlineUi, getOutlineUi, getOutlineUi);
+  return subs.use(getOutlineUi);
 }
 
 // ---------------------------------------------------------------------------

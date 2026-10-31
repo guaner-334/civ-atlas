@@ -14,6 +14,7 @@
  *   拖时间轴跳到别的年份、关掉导播、换世界时清空。
  */
 import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import { directorAt, directorNext, directorYear, type DirectorCaption, type DirectorPlan, type DirectorSkip } from './directorPlan';
 // 逐年推演(Stepwise.tsx)也用这里:历史一步步算出来,排期一份份接着放(directorFeed / directorStep),开关另记一份(setDirectorMode)
 import type { Focus } from './flyTo';
@@ -104,20 +105,14 @@ function save() {
 // 共享状态
 
 let S: DirectorState = { ...load(), shown: null, held: false, list: [], folded: false, panel: null, picking: false, outline: true };
-const subs = new Set<() => void>();
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => {
-    subs.delete(f);
-  };
-};
+const subs = createListeners();
 
 function patch(p: Partial<DirectorState>) {
   let changed = false;
   for (const k in p) if (p[k as keyof DirectorState] !== S[k as keyof DirectorState]) changed = true;
   if (!changed) return;
   S = { ...S, ...p };
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 export function getDirector(): DirectorState {
@@ -130,41 +125,28 @@ export function setDirectorOutline(outline: boolean) {
 }
 
 export function useDirector(): DirectorState {
-  return useSyncExternalStore(subscribe, getDirector, getDirector);
+  return subs.use(getDirector);
 }
 
 /** 只看开关(App 用:字幕换一件时不跟着重新渲染) */
 export function useDirectorOn(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => S.on,
-    () => S.on,
-  );
+  return subs.use(() => S.on);
 }
 
 // ---- 请地图飞过去(App 订阅;每次请求 stamp 都不同) ----
 
 let flyReq: { focus: Focus; stamp: number } | null = null;
-const flySubs = new Set<() => void>();
+const flySubs = createListeners();
 function fly(focus: Focus | null) {
   if (!focus) return;
   flyReq = { focus, stamp: (flyReq?.stamp ?? 0) + 1 };
-  flySubs.forEach((f) => f());
+  flySubs.emit();
 }
 export function getDirectorFly(): { focus: Focus; stamp: number } | null {
   return flyReq;
 }
 export function useDirectorFly(): { focus: Focus; stamp: number } | null {
-  return useSyncExternalStore(
-    (f) => {
-      flySubs.add(f);
-      return () => {
-        flySubs.delete(f);
-      };
-    },
-    () => flyReq,
-    () => flyReq,
-  );
+  return flySubs.use(() => flyReq);
 }
 
 // ---- 字幕底下那道进度线:每帧都变,不经过 React ----
@@ -341,16 +323,13 @@ export function directorReset(keepList = false) {
 /** 用的人自己动了地图(拖、缩放、点):放着的话停下,镜头交还 */
 export function directorHandBack() {
   if (E.driving && getCivTime().playing) pausePlayback();
-  handSubs.forEach((f) => f());
+  handSubs.emit();
 }
 
 /** 用的人一动地图就调 f(逐年推演停一下时一件件飞过去的那串,一动地图就不再自己飞) */
-const handSubs = new Set<() => void>();
+const handSubs = createListeners();
 export function onDirectorHandBack(f: () => void): () => void {
-  handSubs.add(f);
-  return () => {
-    handSubs.delete(f);
-  };
+  return handSubs.subscribe(f);
 }
 
 /** 这一刻正在放一段(镜头在飞或字幕在走):逐年推演等下一步时不放慢这一段 */
@@ -434,7 +413,7 @@ export function setStepDirectorOn(on: boolean) {
   if (stepMode) return setDirectorOn(on);
   onStep = on;
   save();
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 /** 逐年推演那一份开关(开始设置里显示) */

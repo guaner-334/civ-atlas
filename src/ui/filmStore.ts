@@ -3,7 +3,7 @@
  * 导出菜单里点「回放视频」「故事长图」打开,左边面板(手机:底部卡片)换成导出的选项,地图上压暗、出预览或框。
  * 视频导出本身(一帧一帧画、编码、下载)也在这里跑:面板、地图上的预览、时间轴都读同一份状态。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { Civ } from '../gen/civ/types';
 import { filterChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
 import { fullChronicle } from '../gen/civ/religionText';
@@ -85,8 +85,8 @@ const INIT: FilmUi = {
 };
 
 let state: FilmUi = INIT;
-const subs = new Set<() => void>();
-const emit = () => subs.forEach((f) => f());
+const subs = createListeners();
+const emit = subs.emit;
 
 export const getFilm = () => state;
 
@@ -100,13 +100,7 @@ export function setFilm(patch: Partial<FilmUi>) {
 }
 
 export function useFilm(): FilmUi {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    () => state,
-  );
+  return subs.use(() => state);
 }
 
 /** 打开视频 / 长图面板:停下播放;地球仪开着时先切回平面地图(视频按平面地图拍)。长图:地图上选中了一国,范围默认是那一国 */

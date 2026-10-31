@@ -20,7 +20,7 @@
  *
  * 不碰 DOM;算一步、存回推演模式、从某一年开始由 App 实现(setStepwiseActions)。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import { cleanPlay, commandsNow, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
 import { stepwiseToNormal } from '../gen/stepwise';
@@ -102,20 +102,14 @@ export interface StepSwitch {
 const INIT: StepwiseState = { on: false, start: 0, since: 0, now: 0, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks: [], fresh: false, down: false, switching: null };
 
 let S: StepwiseState = INIT;
-const subs = new Set<() => void>();
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => {
-    subs.delete(f);
-  };
-};
+const subs = createListeners();
 
 function patch(p: Partial<StepwiseState>) {
   let changed = false;
   for (const k in p) if (p[k as keyof StepwiseState] !== S[k as keyof StepwiseState]) changed = true;
   if (!changed) return;
   S = { ...S, ...p };
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 export function getStepwise(): StepwiseState {
@@ -123,29 +117,21 @@ export function getStepwise(): StepwiseState {
 }
 
 export function useStepwise(): StepwiseState {
-  return useSyncExternalStore(subscribe, getStepwise, getStepwise);
+  return subs.use(getStepwise);
 }
 
 /** 只看在不在逐年推演(地图、侧栏按它换样子;别的变了不重新渲染) */
 export function useStepwiseOn(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => S.on,
-    () => S.on,
-  );
+  return subs.use(() => S.on);
 }
 
 /** 只看是不是停着看这一段的大事(手机上这时时间轴胶囊让开) */
 export function useStepwiseStopped(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => !!S.stop,
-    () => !!S.stop,
-  );
+  return subs.use(() => !!S.stop);
 }
 
 export function subscribeStepwise(f: () => void): () => void {
-  return subscribe(f);
+  return subs.subscribe(f);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,21 +139,18 @@ export function subscribeStepwise(f: () => void): () => void {
 // 往下走时地图的年份(civView 的 year)按整年换(讲一件事时停在那件事那一刻):一年只重画一次地图;播放头照样平滑地走
 
 let head: number | null = null;
-const headSubs = new Set<() => void>();
+const headSubs = createListeners();
 /** 往下走时播放头在哪年(没在走 = null,按时间轴的年份画) */
 export function setStepHead(y: number | null) {
   if (y === head) return;
   head = y;
-  headSubs.forEach((f) => f());
+  headSubs.emit();
 }
 export function getStepHead(): number | null {
   return head;
 }
 export function subscribeStepHead(f: () => void): () => void {
-  headSubs.add(f);
-  return () => {
-    headSubs.delete(f);
-  };
+  return headSubs.subscribe(f);
 }
 
 // ---------------------------------------------------------------------------
@@ -176,11 +159,11 @@ export function subscribeStepHead(f: () => void): () => void {
 // 往下走时播放头比算好的"现在"慢一两年,平常暂停不算往回看
 
 let seen = 0;
-const seenSubs = new Set<() => void>();
+const seenSubs = createListeners();
 function putSeen(y: number) {
   if (y === seen) return;
   seen = y;
-  seenSubs.forEach((f) => f());
+  seenSubs.emit();
 }
 /** 播放头往下走到了 y(只往后挪) */
 export function markSeen(y: number) {
@@ -190,10 +173,7 @@ export function getSeen(): number {
   return seen;
 }
 export function subscribeSeen(f: () => void): () => void {
-  seenSubs.add(f);
-  return () => {
-    seenSubs.delete(f);
-  };
+  return seenSubs.subscribe(f);
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +370,7 @@ export function openStepDialog(d: StepDialog | null) {
 
 /** 中途改了"每隔几年停一下":这一段还从同一年数起(nextStep 自己按新的算) */
 export function stepwiseChanged() {
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 /**
