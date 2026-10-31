@@ -1158,7 +1158,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   }
 
   // ---- 世系:谁是谁的父亲,补上没即位的宗室(不和本国的君主、将领、名臣重名)----
-  const { princes, parentOf, debut, descent } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons: sonsOf });
+  const { princes, parentOf, debut, descent } = buildLineage(polities, rulers, [...generals, ...ministers], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons: sonsOf, maxAge: MAX_AGE });
   // 据地争位的宗室和他立的国的开国之君并成一人:名字、父亲、早先领的兵都是做宗室时的(推到那一刻以前,他已经以宗室的身份在了)
   const merged = new Map<Person, Person>();
   // 摄政篡位的叔父同样并成一人(在本国,同一朝接着即位)

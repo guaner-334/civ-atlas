@@ -41,9 +41,11 @@ import { useNarrow } from './device';
 import { getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick } from './Interventions';
 import { characterPolity, placeOf } from './characterInfo';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
-import { NEW_POLITY, alivePolities, crownLine } from './crownInfo';
+import { NEW_POLITY, alivePolities, crownLine, newbornWait } from './crownInfo';
 import { rulerEndText } from './newIvInfo';
 import { KEEP_CROWN, crownKeepHint, keepWhy } from './keepInfo';
+import { knobsOf } from '../gen/civ/knobs';
+import { RULERS_KNOBS } from '../gen/civ/rulers';
 import { LifeHead } from './LifeHead';
 import type { LifeTag } from './lifeTag';
 import './newIv.css';
@@ -483,7 +485,7 @@ export function CrownPage({
               {reg !== null && (
                 <span className="cp-note">
                   {O
-                    ? `这州${yearFull(y, era)}属${nameAt(O, y)}，立国后从它分出来，${c.name}是开国之君。${oSize > 1 ? '新国一开始只有这一州，几十年后常被母国收回；想让它留下来，再给新国下「保护」。' : `${nameAt(O, y)}只有这一州，会就此亡国。`}`
+                    ? `这州${yearFull(y, era)}属${nameAt(O, y)}，立国后从它分出来，${c.name}是开国之君。${oSize > 1 ? `新国一开始只有这一州，${newbornWait(civ)}常被母国收回；想让它留下来，再给新国下「保护」。` : `${nameAt(O, y)}只有这一州，会就此亡国。`}`
                     : `这州${yearFull(y, era)}无主${owners.culture[reg] < 0 ? '、还没人住，立国时会有一支新的民族在这里落脚' : ''}，${c.name}是开国之君。`}
                 </span>
               )}
@@ -522,7 +524,7 @@ export function CrownPage({
             </>
           )}
           <span className="cp-note">
-            {c.died === undefined && !byYear ? '人物卡上没写卒年：在位多久照寻常君主算，最多活到 88 岁。' : ''}
+            {c.died === undefined && !byYear ? `人物卡上没写卒年：在位多久照寻常君主算，最多活到 ${knobsOf(civ).get(RULERS_KNOBS).MAX_AGE} 岁。` : ''}
             {keepable && keep
               ? `之后照常有人继位。推演里亡国会让${he}提前下台（写出降或出奔），卒年照人物卡不变。`
               : `之后照常有人继位。推演里亡国、改朝换代会让${he}提前下台（写出降、出奔或被废），卒年照人物卡不变。`}

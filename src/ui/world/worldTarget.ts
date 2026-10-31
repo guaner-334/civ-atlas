@@ -2,7 +2,7 @@
  * 要打开的世界(Target)和围着它的几样小东西,App 和 ./useWorldLoad.ts 都用:
  *   - Target 从哪来:存着的(storedTarget)、新建中的(draftTarget、yearsEdits)、朋友的预设链接打开的新建弹窗(presetDialog)
  *   - 写进网址:这个世界(writeWorldUrl)、回我的世界(writeHomeUrl)、作品墙(writeGalleryUrl)
- *   - 推文明的请求里带的地形大事、地名风格、推演年数、拓荒起源(upsOpt、namesOpt、yearsOpt、setupOpt;这一步带哪些见 yearsFor、setupFor)
+ *   - 推文明的请求里带的地形大事、地名风格、推演年数、拓荒起源天灾规则(upsOpt、namesOpt、yearsOpt、setupOpt;这一步带哪些见 yearsFor、setupFor)
  *   - 打开网页时去哪(FirstRoute)、作品墙那一页(WallView)、新建弹窗、分享说明、世界作品、分享短链接那一页的状态类型
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
@@ -11,6 +11,8 @@ import { polityAlive } from '../../gen/civ/growth';
 import { cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../../gen/civ/frontier';
 import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, type Upheaval, type WorldEdits } from '../../gen/edits';
+import { ruleTuning, worldRules, type RuleSet } from '../../gen/civ/ruleSet';
+import type { TuningValues } from '../../gen/civ/tuning';
 import type { NameMix } from '../../gen/names/mix';
 import { GEN_KEY, worldKey, type ResolvedMoment, type SaveFile, type SaveMoment, type SaveOrigin, type SaveView } from '../../gen/savefile';
 import { galleryHref, type GalleryItem } from '../../account/gallery';
@@ -117,11 +119,12 @@ export function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target
   };
 }
 
-/** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)的修改 */
-export function yearsEdits(endYear: number | undefined, frontier?: Frontier): WorldEdits {
+/** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)、规则(官方 = 什么都没有)的修改 */
+export function yearsEdits(endYear: number | undefined, frontier?: Frontier, rules?: RuleSet): WorldEdits {
   const y = cleanEndYear(endYear);
   const f = cleanFrontier(frontier);
-  return y || f ? { ...EMPTY_EDITS, ...(y ? { endYear: y } : {}), ...(f ? { frontier: f } : {}) } : EMPTY_EDITS;
+  const r = worldRules(rules);
+  return y || f || r ? { ...EMPTY_EDITS, ...(y ? { endYear: y } : {}), ...(f ? { frontier: f } : {}), ...(r ? { rules: r } : {}) } : EMPTY_EDITS;
 }
 
 /** 一个新建中的世界(还没动过) */
@@ -206,30 +209,36 @@ export const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } 
  * 创建以后再按世界自己的推演年数接着推(App 里干预、地形大事变了就重推的那段)
  */
 export const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear' | 'endTick'>) => (draft ? undefined : endParamOf(edits));
-/** 推文明时带的拓荒、起源、文明种子、「天灾」(默认 = undefined) */
-export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity };
+/** 推文明时带的拓荒、起源、文明种子、「天灾」、规则里改过的规则项(默认 = undefined) */
+export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity; tuning?: TuningValues };
 export const setupOpt = (s: CivSetup | undefined) => ({
   ...(s?.frontier ? { frontier: s.frontier } : {}),
   ...(s?.origins ? { origins: s.origins } : {}),
   ...(s?.civSeed !== undefined ? { civSeed: s.civSeed } : {}),
   ...(s?.calamity ? { calamity: s.calamity } : {}),
+  ...(s?.tuning ? { tuning: s.tuning } : {}),
 });
 /**
- * 这一步带的拓荒、起源、文明种子、「天灾」:拓荒、起源、天灾和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
- * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)
+ * 这一步带的拓荒、起源、文明种子、「天灾」、规则:拓荒、起源、天灾、规则和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
+ * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)。规则只带推演用的那部分(改过的规则项;名字、地貌的叫法不改历史)
  */
-export function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity'>): CivSetup | undefined {
+export function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity' | 'rules'>): CivSetup | undefined {
   const civSeed = cleanCivSeed(edits.civSeed);
   if (draft) return civSeed !== undefined ? { civSeed } : undefined;
   const frontier = cleanFrontier(edits.frontier);
   const origins = cleanOrigins(edits.origins);
   const calamity = cleanCalamity(edits.calamity);
-  return frontier || origins || civSeed !== undefined || calamity
-    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}) }
+  const tuning = ruleTuning(edits.rules);
+  return frontier || origins || civSeed !== undefined || calamity || tuning
+    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}), ...(tuning ? { tuning } : {}) }
     : undefined;
 }
 export const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
-  sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins) && a?.civSeed === b?.civSeed && a?.calamity === b?.calamity;
+  sameFrontier(a?.frontier, b?.frontier) &&
+  sameOrigins(a?.origins, b?.origins) &&
+  a?.civSeed === b?.civSeed &&
+  a?.calamity === b?.calamity &&
+  JSON.stringify(a?.tuning ?? null) === JSON.stringify(b?.tuning ?? null);
 
 /** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */
 export function aliveAtEnd(civ: Civ): number {

@@ -207,9 +207,11 @@ export function selectFinder(sel: FinderSel | null) {
   set({ sel });
 }
 
-/** 这次搜要用的生成设定 */
+/** 这次搜要用的生成设定(每个种子换一张地图的:不带这张地图改过的地形、草图;规则照带) */
 function setupOf(base: FinderBase, map: FinderMapMode): FinderSetup {
-  return map === 'fixed' ? { ...base.setup, map: 'fixed' } : { world: base.setup.world, ...(base.setup.civ ? { civ: base.setup.civ } : {}), map: 'each' };
+  return map === 'fixed'
+    ? { ...base.setup, map: 'fixed' }
+    : { world: base.setup.world, ...(base.setup.civ ? { civ: base.setup.civ } : {}), ...(base.setup.tuning ? { tuning: base.setup.tuning } : {}), map: 'each' };
 }
 
 /** 开一批:推 seeds 这几个种子,结果接着加进 run */

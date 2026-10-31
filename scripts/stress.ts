@@ -1,5 +1,5 @@
 /**
- * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/3 只跑其中一份,STRESS_DRY=1 只列出怎么分,见 group)
+ * 极端参数压力测试:npx tsx scripts/stress.ts(出现 NaN 则退出码 1;STRESS_PART=1/4 只跑其中一份,STRESS_DRY=1 只列出怎么分,见 group)
  * 每行打印:生成 / 铺像素 / 文明(其中宜居度 + 划州、推演(民族 + 城镇 + 国家 + 战争)、回放一帧、道路)耗时,
  * 州数、民族数、占据率、国家数、城镇数、路段数,战争统计(场数、攻占、灭亡、迁都、飞地、易手频繁的州),
  * 分合统计(分裂、合并、复国、主动迁都),王朝更替(东方改朝换代 / 西幻王室更迭),信仰(大教、教派、宗教大事),
@@ -11,10 +11,12 @@
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
  * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);\n * 带地形大事的世界 6 组(大事那一刻接着推和一口气推完一样);不一样也退出码 1。
+ * 规则项(src/gen/civ/tuning.ts,开放给用的人调的 70 项):每一项的两头各推一遍,全部拉到最左 / 最右各推一遍 ——
+ * 推得完、NaN / Infinity 不进历史、编年史写得出、关掉的事一次也没有(见那一段)。
  */
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { rasterize } from '../src/gen/raster';
-import { generateCiv, planetTempo } from '../src/gen/civ';
+import { DEFAULT_CIV_PARAMS, generateCiv, planetTempo, type Civ } from '../src/gen/civ';
 import { Biome } from '../src/gen/biomes';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { HABITABLE_SUIT } from '../src/gen/civ/cultures';
@@ -40,6 +42,11 @@ import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { LAYER_W, LAYER_H, encodeLayer, sketchGrid, type SketchEdit, type SketchKind } from '../src/gen/sketch';
 import { PLATE_IMAGE_MAX, type PlateEdit, type PlateOp } from '../src/gen/plateEdits';
 import { fuzzResume, fuzzUpheavalResume, type FuzzCase } from './lib/resumeFuzz';
+import { historyProblems, oddNumbers } from './lib/historyCheck';
+import { REGENCY_KINDS } from '../src/gen/civ/regents';
+import { REFORM_COUP, REFORM_RESTORE } from '../src/gen/civ/councilRules';
+import { TUNING_ITEMS, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
+import { tuningPatch } from '../src/gen/civ/tuningPatch';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -153,18 +160,19 @@ const caseName = (c: (typeof cases)[number]) =>
       ? `{"改地形":"${c.terrain[0].kind === 'sink' && c.terrain.length === 6 ? '整片沉成海' : c.terrain[0].kind === 'raise' ? '整片抬成陆地' : '大杂烩'} ${c.terrain.length} 处"}`
       : JSON.stringify(c);
 /**
- * 只跑其中一份:STRESS_PART=1/3 跑第 1 份、2/3 跑第 2 份、3/3 跑第 3 份(PR 检查上分三台机器同时跑);不设就全跑。
+ * 只跑其中一份:STRESS_PART=1/4 跑第 1 份、2/4 跑第 2 份……(PR 检查上分四台机器同时跑);不设就全跑。
  * 下面每一组(参数组合 + 种子)先用 group 登记,各带一个估的耗时(秒);全部登记完再分(在速度汇总前面):
- * 从估时最长的组往下,每组给当前累计最少的那份(各份跑同一段代码,分得一样),三份合起来正好是全部,长短差不多;
+ * 从估时最长的组往下,每组给当前累计最少的那份(各份跑同一段代码,分得一样),几份合起来正好是全部,长短差不多;
  * 每份里各组仍按登记的先后跑。
  * 估时是 GitHub 常见那一档机器上的秒数,照 2026 年 10 月下旬 15 轮检查算:GitHub 的机器有快有慢(快的那档同一组只要六成多的时间),
  * 先把每台机器的快慢和每组本身的长短分开,再取各组的中位数 —— 直接拿各轮的秒数取中位数,哪份碰巧多分到快机器,那份的组就显得短。
  * 每份跑完最后写一行:估多少秒、实际多少秒、这台机器是估时的几倍,以及按这个倍数折算后和估时差得最多的几组;某一份总是偏长,照这行改估时。
  * STRESS_DRY=1 空跑:只列出每组分到第几份、估多少秒和各份合计,什么都不算(改了估时或加了组,先用它看分得匀不匀)。
+ * STRESS_ONLY=某段字 只登记名字里有这段字的组(本地查某一项报的错用,比如 STRESS_ONLY=规则项、STRESS_ONLY=war.truce)。
  */
 const [PART, PARTS] = (process.env.STRESS_PART ?? '1/1').split('/').map(Number);
 if (!(Number.isInteger(PART) && Number.isInteger(PARTS) && PART >= 1 && PART <= PARTS)) {
-  throw new Error(`STRESS_PART 要写成"第几份/共几份",比如 1/3;现在是 ${process.env.STRESS_PART}`);
+  throw new Error(`STRESS_PART 要写成"第几份/共几份",比如 1/4;现在是 ${process.env.STRESS_PART}`);
 }
 const DRY = process.env.STRESS_DRY === '1';
 if (PARTS > 1 && !DRY) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)
@@ -172,8 +180,9 @@ if (PARTS > 1 && !DRY) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)
 /** 登记的各组:名字(和这组打印的那行开头一样)、估的耗时(秒)、要跑的检查 */
 const groups: { name: string; sec: number; run: () => void }[] = [];
 /** 登记一组;分份、跑本份的各组在速度汇总前面 */
+const ONLY = process.env.STRESS_ONLY;
 const group = (name: string, sec: number, run: () => void) => {
-  groups.push({ name, sec, run });
+  if (!ONLY || name.includes(ONLY)) groups.push({ name, sec, run });
 };
 
 /**
@@ -322,13 +331,13 @@ for (const c of cases) {
         if (civ.polity[civ.settlements[capitalAt(po, civ.endYear)].region] !== po.id) cn++;
       } else if (!Number.isFinite(po.ended) || civ.polity.includes(po.id)) cn++;
     }
-    // 战争(阶段 3):史事的年份有限且有序、编号在范围内(同化与迁徙的史事 a、b 是民族,war 列是国家)
+    // 战争(阶段 3):史事的年份有限且有序、编号在范围内(同化与迁徙、民族分化的史事 a、b 是民族,war 列是国家;大迁徙的 a 是民族、b 是国家)
     for (let i = 0; i < civ.annals.length; i++) {
       const e = civ.annals[i];
       if (!Number.isFinite(e.year) || (i && e.year < civ.annals[i - 1].year)) cn++;
-      if (e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish') {
+      if (e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish' || e.kind === 'diverge') {
         if (e.a < 0 || e.a >= civ.cultures.length || e.b >= civ.cultures.length || e.war >= civ.polities.length || !(e.region >= 0 && e.region < R.count)) cn++;
-      } else if (e.a >= civ.polities.length || e.b >= civ.polities.length) cn++;
+      } else if (e.kind === 'trek' ? e.a < 0 || e.a >= civ.cultures.length || e.b >= civ.polities.length : e.a >= civ.polities.length || e.b >= civ.polities.length) cn++;
     }
     // 同化与迁徙(阶段 3):消亡的民族一州不剩、消亡年份有限;迁徙记录的方位合法
     const asm = assimStats(civ);
@@ -629,6 +638,105 @@ for (const seed of [2, 4, 9, 13, 27, 64]) group(`{"大事那一刻接着推随�
     r.diff ? `和一口气推完不一样!\n${r.diff}` : '逐项一致',
   );
 });
+
+// ---- 规则项(src/gen/civ/tuning.ts,开放给用的人调的 70 项):每一项的两头各推一遍 —— 倍数档最左(能关的是「关」,不能关的 ×¼)、最右 ×4,
+// 数值最小、最大(或「永不」;能关的最左是「关」),区间两个数都取最小 / 都取最大;再全部拉到最左、全部拉到最右各推一遍。
+// 看:推得完 3000 年、不出错;NaN / Infinity 不进历史(只许出现在官方那套数也会有的字段,scripts/lib/historyCheck.ts);
+// 编年史写得出;能关的事关掉以后一次也没有(TUNE_OFF 里列的);推演速度算进上面的汇总(每秒至少 80 年)。
+// 每项的两头在小世界(1.2 万地块)上推,单数的项用种子 3、双数的用种子 99:要查的是"这一档推不推得下去、会不会推出坏数",
+// 毛病出在旋钮怎么用(除数、间隔取 0、次数不是整数、一直找不到目标……),和世界大小、哪个种子关系不大 ——
+// 开放这些项时在默认精细度(3.6 万地块)、3 个种子上把每一档都推过一遍,和小世界上的结果一样;
+// 全部拉到最左 / 最右是几项叠在一起的最坏情形,用默认精细度、两个种子 ----
+const TUNE_CELLS = 12000;
+/** 推规则项用的世界和官方那套数推出来时有 NaN、Infinity 的字段(按种子、地块数记着,同一份里只生成一次) */
+const tuneBases = new Map<string, { w: ReturnType<typeof generateWorld>; allow: { nan: Set<string>; inf: Set<string> } }>();
+const tuneBase = (seed: number, cells?: number) => {
+  const key = `${seed}/${cells ?? 'default'}`;
+  let b = tuneBases.get(key);
+  if (!b) {
+    const w = generateWorld({ ...DEFAULT_PARAMS, seed, ...(cells ? { cells } : {}) });
+    const odd = oddNumbers(generateCiv(w));
+    tuneBases.set(key, (b = { w, allow: { nan: new Set(odd.nan.keys()), inf: new Set(odd.inf.keys()) } }));
+  }
+  return b;
+};
+const strongKinds = new Set([REGENCY_KINDS.indexOf('chancellor'), REGENCY_KINDS.indexOf('general')]);
+/**
+ * 关掉(0 / 'off')以后一次也不该有的事:这份历史里有几次。没列的:收复失地的心、入主的一支被同化、种地耗地力不是一件件的事;
+ * 藩属纳土归附和小国并入大国记的是同一种史事(并掉自己的藩属也写纳土归附),分不开
+ */
+const TUNE_OFF: Record<string, (c: Civ) => number> = {
+  'realm.sail': (c) => c.polities.filter((p) => p.sail !== undefined).length,
+  'war.winter': (c) => c.annals.filter((e) => e.kind === 'winter').length,
+  'war.sack': (c) => c.annals.filter((e) => e.kind === 'sack').length,
+  'war.ruin': (c) => c.annals.filter((e) => e.kind === 'ruin').length,
+  'war.rebuild': (c) => c.annals.filter((e) => e.kind === 'rebuild').length,
+  'split.odds': (c) => c.annals.filter((e) => e.kind === 'split' && e.cause === undefined && c.polities[e.a]?.restores === undefined).length,
+  'split.restore': (c) => c.polities.filter((p) => p.restores !== undefined).length,
+  'split.collapse': (c) => c.annals.filter((e) => e.kind === 'collapse').length,
+  'split.revolt': (c) => c.annals.filter((e) => e.kind === 'revolt').length,
+  'split.dynasty': (c) => c.annals.filter((e) => e.kind === 'dynasty').length,
+  'split.claim': (c) => c.annals.filter((e) => e.kind === 'split' && e.cause === 'heir').length,
+  'split.merge': (c) => c.annals.filter((e) => e.kind === 'merge' && e.cause !== 'vassal').length,
+  'split.capMove': (c) => politicsStats(c).capitalMoves,
+  'split.edge': (c) => c.annals.filter((e) => e.kind === 'found' && e.b >= 0).length,
+  'diplo.pact': (c) => c.annals.filter((e) => e.kind === 'alliance').length,
+  'diplo.submit': (c) => c.annals.filter((e) => e.kind === 'submit').length,
+  'diplo.treaty': (c) => c.annals.filter((e) => e.kind === 'treaty').length,
+  'diplo.marry': (c) => c.annals.filter((e) => e.kind === 'marry').length,
+  'diplo.betray': (c) => c.annals.filter((e) => e.kind === 'war' && e.cause === 'betray').length,
+  'diplo.defect': (c) => c.annals.filter((e) => e.kind === 'defect').length,
+  'diplo.breach': (c) => c.annals.filter((e) => e.kind === 'breach').length,
+  'folk.treks': (c) => c.migrations?.length ?? 0,
+  'folk.diverge': (c) => c.annals.filter((e) => e.kind === 'diverge').length,
+  'folk.flight': (c) => c.annals.filter((e) => e.kind === 'migrate').length,
+  'disaster.plague': (c) => c.annals.filter((e) => e.kind === 'plague' && e.cause !== 'pandemic').length,
+  'disaster.famine': (c) => c.annals.filter((e) => e.kind === 'famine').length,
+  'court.strongman': (c) => c.annals.filter((e) => e.kind === 'regent' && strongKinds.has(e.b)).length,
+  'court.murder': (c) => (c.people ?? []).filter((x) => x.fate === 'murdered').length,
+  'court.coup': (c) => c.annals.filter((e) => e.kind === 'reform' && e.n === REFORM_COUP).length,
+  'court.restore': (c) => c.annals.filter((e) => e.kind === 'reform' && e.n === REFORM_RESTORE).length,
+  'court.contest': (c) => (c.people ?? []).filter((x) => x.claim && ['revolt', 'coup', 'intrigue'].includes(x.claim.how)).length,
+};
+/** 按一套规则推一遍,查一遍,打一行 */
+const tuneRun = (label: string, values: TuningValues, seed: number, cells?: number) => {
+  const { w, allow } = tuneBase(seed, cells);
+  const t0 = performance.now();
+  let civ: Civ;
+  try {
+    civ = generateCiv(w, { knobs: tuningPatch(values) });
+  } catch (e) {
+    process.exitCode = 1;
+    console.log(`{"规则项":"${label}"}`, 'seed', seed, `推演出错!${String((e as Error)?.stack ?? e).slice(0, 400)}`);
+    return;
+  }
+  const ms = performance.now() - t0;
+  if (civ.viable) noteRate(civ.endYear, ms, `{"规则项":"${label}"} seed ${seed}${cells ? ` ${cells} 地块` : ''}`);
+  const probs = historyProblems(civ, DEFAULT_CIV_PARAMS.endYear, allow);
+  if (!civ.viable) probs.push('没有文明');
+  for (const [id, v] of Object.entries(values)) {
+    const n = v === 0 || v === 'off' ? TUNE_OFF[id]?.(civ) : 0;
+    if (n) probs.push(`关了「${tuningItem(id)!.name}」还有 ${n} 次`);
+  }
+  if (probs.length) process.exitCode = 1;
+  const ws = warStats(civ);
+  console.log(
+    `{"规则项":"${label}"}`, 'seed', seed,
+    `文明 ${Math.round(ms)}ms(每秒 ${Math.round(civ.endYear / (ms / 1000))} 年)国家 ${civ.polities.length}(在世 ${ws.alive})战争 ${ws.wars} 史事 ${civ.annals.length} 人物 ${civ.people?.length ?? 0}`,
+    probs.length ? `有毛病!${probs.join(';')}` : '',
+  );
+};
+TUNING_ITEMS.forEach((x, i) => {
+  const seed = i % 2 ? 99 : 3;
+  group(`{"规则项":"${x.id}"} seed ${seed}`, 4.5, () => {
+    for (const v of tuningEnds(x)) tuneRun(`${x.id}=${typeof v === 'string' ? v : JSON.stringify(v)}`, { [x.id]: v }, seed, TUNE_CELLS);
+  });
+});
+for (const side of [0, 1] as const)
+  for (const seed of [3, 99])
+    group(`{"规则项":"全部拉到${side ? '最右' : '最左'}"} seed ${seed}`, 9, () => {
+      tuneRun(`全部拉到${side ? '最右' : '最左'}`, Object.fromEntries(TUNING_ITEMS.map((x) => [x.id, tuningEnds(x)[side]])), seed);
+    });
 
 // ---- 分份(见 group):从估时最长的组往下,每组给当前累计最少的那份 ----
 /** 各份已分到的估计耗时(秒) */
