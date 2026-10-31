@@ -38,6 +38,7 @@ import { scheduleRebuild } from './cities';
 import { afflict } from './disaster';
 import { IV_LOSS, PANDEMIC_K, PLAGUE_IV, calamityRates, naturalPandemic, pandemicBase, quakeRing, type Calamity } from './calamity';
 import { anySlump, newPandemic, notePandemicHit, pandemicModelOf, setPandemicModel, type Pandemic, type PandemicModel } from './pandemicState';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/pandemic-stats.ts) ----
 /** 看全球大疫:每隔多少年;上一场起疫后这么多年内不再自己起 */
@@ -322,3 +323,12 @@ export function resumePandemic(sim: CivSim, civ: Civ, list: readonly Interventio
 
 /** 推演引擎上的全球大疫(测试、统计用) */
 export { pandemicModelOf };
+
+/** 模块:全球大疫、疫后凋敝;「天灾」多 / 很多时自己发生的全球大疫、地震水旱(清单和次序见 modules.ts) */
+export const pandemicModule: CivModule = {
+  id: 'pandemic',
+  install: (c) => {
+    if (c.pm) installPandemic(c.sim, c.pm, c.seed);
+  },
+  resume: (c) => resumePandemic(c.sim, c.civ, c.iv?.list),
+};

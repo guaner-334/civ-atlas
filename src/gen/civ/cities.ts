@@ -36,6 +36,7 @@ import { foundCity, onCapitalLost, polityModelOf, type PolityModel } from './pol
 import { warModelOf, type War, type WarModel } from './wars';
 import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settlementRank } from './growth';
 import { inSlump, pandemicModelOf } from './pandemicState';
+import type { CivModule } from './modules';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
 /** 攻下一州时城被洗劫、被毁的基础机会 */
@@ -331,3 +332,12 @@ export function cityStats(civ: Civ): CityStats {
   out.ruinsAtEnd = ruinSites(civ, civ.endYear).length;
   return out;
 }
+
+/** 模块:城市兴衰:洗劫、毁城、重建、旧都衰落(挂在战争模型上)(清单和次序见 modules.ts) */
+export const citiesModule: CivModule = {
+  id: 'cities',
+  install: (c) => {
+    if (c.pm) installCities(c.sim, c.pm, warModelOf(c.sim)!);
+  },
+  resume: (c) => resumeCities(c.sim, c.world, c.civ),
+};

@@ -49,6 +49,7 @@ import {
   type MatchCtx,
 } from './marriages';
 import { royalAt } from './regime';
+import type { CivModule } from './modules';
 
 // 随机数用途
 const U_MARRY = 1;
@@ -268,3 +269,12 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   };
   wm.kinBetray = (p: number, q: number, t: Year): number => 1 - (1 - KIN_BETRAY) * bond(p, q, t);
 }
+
+/** 模块:联姻:两国宗室结亲,少开战、易结盟(清单和次序见 modules.ts) */
+export const marriageModule: CivModule = {
+  id: 'marriage',
+  install: (c) => {
+    if (c.pm) installMarriage(c.sim, c.pm);
+  },
+  resume: (c) => resumeMarriage(c.sim, c.civ),
+};

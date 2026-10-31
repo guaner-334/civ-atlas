@@ -48,6 +48,7 @@ import type { Intervention } from '../edits';
 import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign, type RulerAct } from './rulers';
 import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
 import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } from './regents';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图效果为准) ----
 /** 州有人定居后,过这么多年建城(随机) */
@@ -1837,3 +1838,12 @@ export function ruinGaps(settlements: readonly Settlement[]): Map<number, [Year,
   }
   return out;
 }
+
+/** 模块:城镇和国家(清单和次序见 modules.ts) */
+export const politiesModule: CivModule = {
+  id: 'polities',
+  install: (c) => {
+    if (c.pm) installPolities(c.sim, c.pm);
+  },
+  resume: (c) => resumePolities(c.sim, c.world, c.extra.length ? { ...c.civ, cultures: [...c.civ.cultures, ...c.extra] } : c.civ, c.iv),
+};
