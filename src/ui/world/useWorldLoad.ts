@@ -70,7 +70,6 @@ import { setTerrainTool, type TerrainStatus } from '../TerrainTools';
 import { clearToast, showToast } from '../Toast';
 import type { ToastAction } from '../toastStore';
 import { closeUpheaval } from '../upheavalStore';
-import type { SimClient } from '../sim/simClient';
 import { lostRenames, lostRenamesNote } from '../sim/useSimResults';
 import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
@@ -206,13 +205,12 @@ export interface WorldLoadDeps {
     setReplay: (r: null) => void;
     setReplayOn: Setter<boolean>;
   };
-  sim: SimClient;
   send: (req: WorkerRequest) => void;
   later: LoadLater;
 }
 
 export function useWorldLoad(deps: WorldLoadDeps) {
-  const { sim, send } = deps;
+  const { send } = deps;
   const { reqId, targetRef, genParams, genTerrain, genSketch, fresh, regenRef, mapFirst, setMapEarly, lastReady, rawRef, setParams, setProgress } = deps.gen;
   const { civEdits, civUps, genUps, civNames, civYears, civSetup, civPlay } = deps.civ;
   const { frozenLoad, frozenBroken, loadedFrozen, genReq, savedCopy, shareErr, readyRef } = deps.open;
@@ -400,7 +398,6 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     return () => {
       stopNav();
       window.removeEventListener('hashchange', onHash);
-      sim.dispose();
     };
     // 只在首次挂载时自动生成;之后由操作触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
