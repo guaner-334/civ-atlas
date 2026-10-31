@@ -93,6 +93,12 @@ export function removePending(id: number) {
   if (items.some((x) => x.id === id)) set(items.filter((x) => x.id !== id));
 }
 
+/** 交出去的那几条没推成(逐年推演的一步没算成):放回单子最前面,照原来的先后(还在单子里的不重复放) */
+export function restorePending(list: readonly Pending[]) {
+  const back = list.filter((x) => !items.some((y) => y.id === x.id));
+  if (back.length) set([...back, ...items]);
+}
+
 export function clearPending() {
   if (items.length) set([]);
 }

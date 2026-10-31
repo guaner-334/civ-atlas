@@ -312,7 +312,7 @@ import { switchedToast, useSimResults, type ExtendJob, type ExtendUndo, type Out
 import { closeUpheaval, getUpUi, setUpRunner, upClick, upMove, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
-import { getPending, removePending, takePendingBatch } from './pendingStore';
+import { getPending, removePending, restorePending, takePendingBatch } from './pendingStore';
 import { tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource } from './filmSource';
@@ -1128,8 +1128,13 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           // 这次重推推完要说的、要做的,不留给下一次
           rewindNote.current = switchNote.current = null;
           storyAfterYears.current = null;
-        } else if (req.type === 'turn') stepLost();
-        else if (req.type === 'extend') {
+        } else if (req.type === 'turn') {
+          // 这一步没算成:随它交出去的干预放回单子;停下播放,不然播放头一走到"现在"又交一步,一直重算
+          const items = getStepwise().busy?.items;
+          stepLost();
+          if (items) restorePending(items);
+          setCivTime({ playing: false });
+        } else if (req.type === 'extend') {
           if (extendRef.current?.xid === req.xid) {
             extendRef.current = null;
             setExtendBusy(null);

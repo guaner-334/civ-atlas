@@ -7,6 +7,7 @@
  *   - 先交的几段历史拼回去以后才交给回调;回调是收到消息当场调的(不绕异步)
  *   - 试推演:交回来给等着的那一次(编号对不上世界也给);停下、线程被换掉、页面卸下都 reject
  *   - 线程出错:关掉,还没回音的活按先后重发给新线程;重发过又出错的那件不再发,交给 lost(试推演 reject)
+ *   - 照原样打开的世界:线程被重开过(出错、叫停再推)时先发 pin 重新钉住;换了世界、打开那件还没回音 / 不再发了不钉
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { splitCiv } from '../src/civParts';
@@ -318,6 +319,34 @@ describe('后台线程客户端(SimClient)', () => {
     expect(workers[5].sent.map((m) => m.type)).toEqual(['resim']);
     fail(workers[5]);
     expect(lost.map((m) => m.type)).toEqual(['resim', 'turn']);
+  });
+
+  it('照原样打开的世界:线程被重开过时先发 pin 钉住它,再重发;换了世界不再钉', () => {
+    const { sim, workers } = setup();
+    const load = { type: 'load', id: 1, scale: 1, parts: [], params: PARAMS } as unknown as WorkerRequest;
+    sim.send(load);
+    // 打开那件还没回音就出错:重发它就行,不先钉
+    fail(workers[0]);
+    expect(workers[1].sent.map((m) => m.type)).toEqual(['load']);
+    workers[1].reply({ type: 'done', id: 1 } as unknown as WorkerResponse);
+    sim.send(resim(1));
+    fail(workers[1]);
+    expect(workers[2].sent.map((m) => m.type)).toEqual(['pin', 'resim']);
+    expect((workers[2].sent[0] as { load: WorkerRequest }).load).toBe(load);
+    workers[2].reply(civMsg(1, fakeCiv()));
+    // 叫停再推换线程:一样先钉
+    sim.send({ type: 'extend', id: 1, xid: 1, to: 4000, params: PARAMS });
+    sim.ensure(true);
+    expect(workers[3].sent.map((m) => m.type)).toEqual(['pin']);
+    // 换了世界:不再钉
+    sim.send(gen(2));
+    fail(workers[3]);
+    expect(workers[4].sent.map((m) => m.type)).toEqual(['generate']);
+    workers[4].reply({ type: 'done', id: 2 } as unknown as WorkerResponse);
+    sim.ensure(true);
+    sim.send(resim(2));
+    fail(workers[4]);
+    expect(workers[5].sent.map((m) => m.type)).toEqual(['resim']);
   });
 
   it('页面卸下(dispose):排着的试推演 reject', () => {

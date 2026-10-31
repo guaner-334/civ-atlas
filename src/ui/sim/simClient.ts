@@ -7,10 +7,14 @@
  * 得按参数重新生成,反而更慢)。编辑地形时只换地形的生成(skipCiv)也不关线程:线程自己半路放下它(见 worker.ts 文件头),
  * 记着的网格、整图留给新的一笔。
  *
- * 线程出错(onerror):线程手上那件活不会再有回音了 —— 出错的那件活线程不交结果,真死掉(内存不够)的线程更是什么都不回。
- * 当它坏了:关掉,开一个新的,把还没回音的活按原来的先后再发一遍(请求本身带齐了参数,新线程按参数重新生成,结果一样,只是慢一点)。
+ * 线程出错(onerror):线程手上那件活不会再有回音了 —— 出错的那件活线程不交结果、排着的也不再做(worker.ts 的 broken),
+ * 真死掉(内存不够)的线程更是什么都不回。当它坏了:关掉,开一个新的,把还没回音的活按原来的先后再发一遍
+ * (请求本身带齐了参数,新线程按参数重新生成,结果一样,只是慢一点)。
  * 只重发一次:最前面那件(出错时线程正在做的)已经重发过、又出错了,就不再发它,交给 lost 让界面收起它(其余的照旧再发);
  * 换下来的线程后来的消息照第 1 条不管。
+ *
+ * 照原样打开的旧世界(读档 load,地形按原件、不按现在的生成器):线程被重开过(出错、叫停再推)时先发 pin 把它重新钉住,
+ * 不然新线程按参数生成的是另一颗星球。
  *
  * 收到一条消息,按这个先后:
  *   1. 已被换掉的线程发来的:不管
@@ -27,7 +31,7 @@
 import { CivPartInbox } from '../../civParts';
 import { diagBeat, recordWorkerError } from '../../diag/watch';
 import type { Civ } from '../../gen/civ';
-import type { TempoNote, WorkerRequest, WorkerResponse } from '../../worker';
+import type { LoadRequest, TempoNote, WorkerRequest, WorkerResponse } from '../../worker';
 import { adoptChronicle, dropChronicleParts, takeChroniclePart } from '../chronicleHandoff';
 
 /** 线程:浏览器的 Worker,测试里换成假的 */
@@ -106,6 +110,8 @@ export class SimClient {
   private trialSeq = 0;
   /** 线程交历史之前先交的几段;换了线程就清掉 */
   private parts = new CivPartInbox();
+  /** 照原样打开的世界(打开它的那件读档;换了世界 = null):重开线程时先发 pin 重新钉住(见文件头) */
+  private loaded: LoadRequest | null = null;
 
   constructor(private opts: SimClientOptions) {}
 
@@ -130,18 +136,23 @@ export class SimClient {
       // 线程上排着的试推演(助手)一起作废
       this.dropTrials('世界换了,试推演作废');
     }
-    if (!this.w) {
-      const w = this.opts.spawn();
-      dropChronicleParts();
-      this.parts.drop();
-      w.onerror = (e) => this.broke(w, e);
-      w.onmessage = (e) => this.take(w, e.data);
-      this.w = w;
-      this.pending = [];
-      this.soft.clear();
-      this.doing = null;
-    }
-    return this.w;
+    return this.w ?? this.open(true);
+  }
+
+  /** 开一个新线程(换下手上的账);pin = 照原样打开的世界先重新钉住 */
+  private open(pin: boolean): SimWorker {
+    const w = this.opts.spawn();
+    dropChronicleParts();
+    this.parts.drop();
+    w.onerror = (e) => this.broke(w, e);
+    w.onmessage = (e) => this.take(w, e.data);
+    this.w = w;
+    this.pending = [];
+    this.soft.clear();
+    this.doing = null;
+    // 不算一件活、线程不回音
+    if (pin && this.loaded) w.postMessage({ type: 'pin', id: this.loaded.id, load: this.loaded });
+    return w;
   }
 
   /**
@@ -149,7 +160,10 @@ export class SimClient {
    * 改名之类要带的东西调用方先放进 req
    */
   send(req: WorkerRequest): void {
-    this.post(this.ensure(req.type === 'generate' || req.type === 'load'), { req, tries: 0 });
+    const fresh = req.type === 'generate' || req.type === 'load';
+    if (fresh) this.loaded = null;
+    this.post(this.ensure(fresh), { req, tries: 0 });
+    if (req.type === 'load') this.loaded = req;
   }
 
   /** 把一件活交给线程 w、记账(发、重发都走这里) */
@@ -174,8 +188,11 @@ export class SimClient {
     this.soft.clear();
     this.doing = null;
     const give = left.length && left[0].tries ? left.shift()! : null;
+    // 打开世界那件不再发了:也不再拿它的原件去钉
+    if (give?.req.type === 'load') this.loaded = null;
     if (left.length) {
-      const nw = this.ensure(false);
+      // 打开世界那件还没回音(要重发):不用先钉,它自己会读原件
+      const nw = this.open(!left.some((p) => p.req.type === 'load'));
       for (const p of left) this.post(nw, { req: p.req, tries: p.tries + 1 });
     }
     // 重发完了再交 lost:界面收起它时要是接着发了新的活,排在重发的后面
@@ -237,6 +254,7 @@ export class SimClient {
   dispose(): void {
     this.w?.terminate();
     this.w = null;
+    this.loaded = null;
     this.pending = [];
     this.soft.clear();
     this.doing = null;
