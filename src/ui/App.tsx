@@ -3,8 +3,8 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { createPortal, flushSync } from 'react-dom';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { dropRealisticBasesExcept, realisticRiverSteps, renderRealistic, takeRealisticPainted } from '../render/realistic';
-import { adoptPlan, dropFantasyBasesExcept, renderFantasy } from '../render/fantasy';
+import { realisticRiverSteps, renderRealistic } from '../render/realistic';
+import { renderFantasy } from '../render/fantasy';
 import { DETAIL_K } from '../render/detail';
 import { TerrainDetail } from './TerrainDetail';
 import { MapDecor } from './MapDecor';
@@ -17,7 +17,6 @@ import {
   getMapCenter,
   mirrorCanvas,
   publishMapCenter,
-  requestMapCenter,
   useMapCenter,
   viewCentredAt,
   worldToStage,
@@ -50,12 +49,12 @@ import {
 import { LAYERS, renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
 import { ThoughtLegend } from './ThoughtParts';
-import type { WorkerRequest, WorkerResponse } from '../worker';
+import type { WorkerRequest } from '../worker';
 import type { Civ } from '../gen/civ/types';
 import { CivLayer, civOpenSteps } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
 import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
-import { extendProgress, getExtend, noteExtendSpeed, resetExtend, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
+import { extendProgress, getExtend, noteExtendSpeed, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
 import { EventPins, type WorldToClient } from './EventPins';
 import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
 import { directorHandBack, setDirectorMode, useDirectorOn } from './directorStore';
@@ -79,12 +78,9 @@ import { branchList, rewindBranch, startStepwise, switchBranch } from '../gen/st
 import { StepBranchDeleteDialog, branchNote, branchRef } from './StepBranches';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
-import { AccountHost, ShareGone, SharedHint, closeTrash, openLogin, setGoHome, useTrashView } from './AccountDialogs';
-import { openBundleText } from './bundle';
+import { AccountHost, ShareGone, SharedHint, setGoHome, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
-import { getSession, takeInviteFromUrl } from '../account/session';
 import { setReloadHandler, startSync } from '../account/sync';
-import { SHARE_CODE_RE, openShareCode, shortLink } from '../account/cloud';
 import { ServerError } from '../account/server';
 import {
   clearChroniclePick,
@@ -129,7 +125,6 @@ import {
   endParamOf,
   extendedEndYear,
   issueCommands,
-  keySeats,
   ownInterventions,
   namesWithoutAi,
   newHistoryEdits,
@@ -140,7 +135,6 @@ import {
   regionKey,
   resolveKey,
   sameInterventions,
-  upgradeLegacyKeys,
   writtenEndAt,
   type Intervention,
   type PlayState,
@@ -151,63 +145,46 @@ import {
 import { sameTerrain, sameUpheavals } from '../gen/terrainEdits';
 import { multisetDiff } from '../gen/util';
 import { sameMix, type NameMix } from '../gen/names/mix';
-import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
-import { cleanCalamity, type Calamity } from '../gen/civ/calamity';
+import { cleanFrontier, cleanOrigins, type Frontier } from '../gen/civ/frontier';
+import { cleanCalamity } from '../gen/civ/calamity';
 import type { RasterPatch } from '../gen/rasterPatch';
-import { cancelTerrainPatch, patchSourceOf, startTerrainFull, startTerrainPatch, type PatchStats, type PatchView, type PreProjected } from './terrainPatch';
+import { cancelTerrainPatch, type PatchView, type PreProjected } from './terrainPatch';
 import { baseReady, later, overlayReady, thumbPrepSteps } from './thumbPrep';
 import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
-import { civAtEra, composedOf, dropComposed, eraData, peekEraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
+import { civAtEra, eraData, peekEraData, eraIndex, eraReady, eraShown, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { namedHistory, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
 import { condList, summarize } from '../gen/finder/query';
-import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, setEditGate, setEdits, setHistoryGate, setOutlinePlots, useEdits } from './editsStore';
+import { addMark, askHistory, clearEditHistory, getEdits, putEditsQuiet, setEditGate, setHistoryGate, setOutlinePlots, useEdits } from './editsStore';
 import { spaced, yearAt, yearFull } from '../gen/era';
 import { ShortcutsHost } from './ShortcutsDialog';
 import { DiagHost } from './DiagDialog';
 import { TipLayer } from './Tips';
 import { replayStart } from './timelineLayout';
 import {
-  checkWarning,
-  cleanMoment,
-  cleanSignature,
   cleanTitle,
   decodeMomentHash,
-  decodeShare,
-  editCount,
   GEN_KEY,
   isContourKind,
   isMomentHash,
   isShareHash,
-  momentYearMax,
   PARAM_RANGE,
   parseSave,
   resolveMoment,
-  versionNote,
-  editedWorld,
   worldCheck,
   worldKey,
-  type ParseResult,
-  type ResolvedMoment,
   type SaveCamera,
   type SaveFile,
   type SaveMoment,
   type SaveOrigin,
-  type SaveView,
 } from '../gen/savefile';
 import {
   THUMB_H,
   THUMB_W,
-  attachWorld,
   briefError,
-  briefWarning,
-  currentOriginal,
   currentUnsaved,
   currentWorld,
   deleteWorld,
-  detachWorld,
-  flushThumb,
-  importSave,
   isStored,
   isWorldId,
   keepWorld,
@@ -215,7 +192,6 @@ import {
   listWorlds,
   loadWorld,
   markCreated,
-  markOpened,
   newWorldId,
   nextTitle,
   notify,
@@ -223,7 +199,6 @@ import {
   refreshThumb,
   overwriteWorld,
   renameWorld,
-  sameOrigin,
   saveAsNewVersion,
   saveCurrentAs,
   saveCurrentAsMap,
@@ -238,12 +213,10 @@ import {
   updateCheck,
   useSavesVersion,
   viewChanged,
-  type StoredWorld,
-  type WorldKind,
 } from './saveStore';
-import { getStage, setStage, useStage, type DraftBase, type Stage } from './stageStore';
+import { getStage, setStage, useStage, type DraftBase } from './stageStore';
 import { setNewCivHandler, setOpenWorldHandler } from './newCivAction';
-import { polityAlive, polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/civ/growth';
 import { CIV_SHOW_OFF, civOverlaySteps, drawCivOverlay, type CivDrawParams } from '../render/civ/overlay';
 import { finishPick, getPolityPick, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { RoleBar } from './RoleBar';
@@ -252,7 +225,7 @@ import { TargetLayer } from './TargetPlates';
 import { TrekPlanLayer } from './TrekPlanLayer';
 import { freeArea, selectionKey, shownYearOf, sideRoom } from './flyTo';
 import { setMomentSource, type MomentNow } from './shareMoment';
-import { decodePresetHash, isPresetHash, type PresetLinkResult } from './presetLink';
+import { decodePresetHash, isPresetHash } from './presetLink';
 import { MarkLayer, markHitAt, markPinAt, markPinTip, type MarkApi } from './MarkLayer';
 import { getMarkUi, newMarkDraft, patchDraft, resetMarkUi, setMarkDragging, stopPlacing, toggleDraftRegion, useMarkUi } from './markStore';
 import { markHover, markSpot, ownerName } from './markInfo';
@@ -281,7 +254,7 @@ import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds, showMapInWorlds } from './MyWorlds';
 import { GalleryPage, WorkGone, workWho } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
-import { fetchWork, galleryHref, galleryOfUrl, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
+import { fetchWork, galleryOfUrl, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
 import { mapBriefOf } from './mapGroups';
 import { useCoarse, useNarrow } from './device';
 import { useMapView } from './map/useMapView';
@@ -298,7 +271,7 @@ import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
 import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, newConversation, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { closeBookReader, closeHistoryBook, stopBook, useBookReader } from './bookStore';
-import { getNav, isNavState, navAdopt, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, startNav, type NavHooks, type NavInfo, type NavState } from './nav';
+import { getNav, isNavState, navBack, navLayer, navReplace, navSettled, navTitle, navTo, navUrl, type NavHooks, type NavState } from './nav';
 import { applyLayer as applyNavLayer, layerNow } from './navView';
 import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
@@ -306,12 +279,10 @@ import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
 import { closeRelief, openAreaLink, urlHasArea, useRelief } from './terrain3dStore';
-import { AREA_KEYS } from './areaLink';
-import { frozenResult, noteMapSum, offerSnapshot, startResults, toldFrozen } from './resultStore';
+import { startResults } from './resultStore';
 import { FrozenAsk, askSaveAsNew, closeSaveAsNew, setSaveAsNew } from './FrozenWorld';
 import { copyNotes } from '../ai/library';
-import { BETA_SITE, OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from './oldSite';
-import type { ToastAction } from './toastStore';
+import { BETA_SITE, OLD_SITE } from './oldSite';
 import { Sidebar } from './Sidebar';
 import { PhoneSheet } from './PhoneSheet';
 import { useLayerThumbs } from './LayerPopover';
@@ -355,12 +326,12 @@ import {
   type TerrainStatus,
 } from './TerrainTools';
 import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSourceView } from './ImportImage';
-import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
+import { NewWorldDialog, type NewWorldStart } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
 import { SimClient } from './sim/simClient';
-import { lostRenames, lostRenamesNote, switchedToast, useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
-import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, upClick, upMove, useUpUi } from './upheavalStore';
+import { switchedToast, useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
+import { closeUpheaval, getUpUi, setUpRunner, upClick, upMove, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
 import { getPending, removePending, takePendingBatch } from './pendingStore';
@@ -372,11 +343,37 @@ import { FilmPanel } from './FilmPanel';
 import { FilmStage } from './FilmStage';
 import { LongPanel } from './LongPanel';
 import { LongStage } from './LongStage';
-import { noteGenSpeed } from './genSpeed';
 import { cancelTimeout, holdMark } from './holdMark';
-import { getNewView } from './newViewStore';
 import { chosenGallery, getPresets, pickSharedPreset, rememberLast, type SharedPreset } from './presetStore';
 import { setDiagContext } from '../diag/watch';
+import { worldMessages } from './world/worldMessages';
+import { useWorldLoad } from './world/useWorldLoad';
+import { useOpenRefs, type CivRefs, type GenProgress, type GenRefs, type MapFirst, type MapRefs, type RegenJob } from './world/worldRefs';
+import {
+  aliveAtEnd,
+  draftModeOf,
+  goneToast,
+  namesOpt,
+  presetDialog,
+  sameScreen,
+  sameSetup,
+  setupFor,
+  setupOpt,
+  storedTarget,
+  upsOpt,
+  writeGalleryUrl,
+  writeHomeUrl,
+  writeWorldUrl,
+  yearsFor,
+  yearsOpt,
+  type CivSetup,
+  type FirstRoute,
+  type Landing,
+  type NewDlg,
+  type SharedFor,
+  type Target,
+  type WallView,
+} from './world/worldTarget';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -435,20 +432,6 @@ function readUrl() {
   return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, gallery, proj, lon, grat, iso, gen, years };
 }
 
-/** 作品墙那一页(id = '')/ 一个作品的网址:世界的种子、参数这些去掉,图层、投影这些看法留着 */
-function writeGalleryUrl(id: string) {
-  navUrl(galleryHref(location.pathname, location.search, id, HOME_DROP));
-}
-
-/**
- * 作品墙盖在我的世界的位置上(和分享停了那一页一样):
- *   list  作品墙那一页(preset = 开着的新建参数作品,打开它的网址时)
- *   work  打开一个作品的网址:正在取 / 撤下了 / 取不到
- *   map   地图作品:整屏一颗星球
- * 世界作品打开就是平常的世界(只是看看,左上一条写作品;见 workFor)
- */
-type WallView = { kind: 'list'; preset?: GalleryItem } | { kind: 'work'; id: string; state: 'loading' | 'gone' | { error: string } } | { kind: 'map'; work: GalleryItem };
-
 /** 作品墙上的作品另存时写进存档的出处:作品的署名、作品名、作品的网址 */
 function workOrigin(w: Pick<GalleryWork, 'id' | 'by' | 'title'>): SaveOrigin {
   return { ...(w.by ? { by: w.by } : {}), title: w.title, url: workLink(w.id), gallery: w.id };
@@ -468,66 +451,6 @@ export function baseKeyOf(style: Style, layer: LayerId, look: SurfaceLook): stri
   if (style === 'data') return `data:${layer}`;
   if (style === 'realistic') return look === 'classic' ? 'realistic' : `realistic:${look}`;
   return style;
-}
-
-/**
- * 新建中的世界让生成线程顺手画好的写实像素层(见 worker.ts 的 paint):新建界面的星球贴的是卫星画法 sat 那一种
- * (studioBase 的「实景」);地图现在的底图(key,baseKeyOf 的键)是写实的另一种画法的,那一种也画
- */
-function paintLooks(key: string, sat: SurfaceLook): SurfaceLook[] {
-  const look = key === 'realistic' ? 'classic' : key.startsWith('realistic:') ? (key.slice(10) as SurfaceLook) : null;
-  return look && look !== sat ? [sat, look] : [sat];
-}
-
-/** 一个要打开的世界:生成(或直接用正在看的这一个)→ 套上修改 → 交给 saveStore 自动存 */
-interface Target {
-  id: string;
-  kind: WorldKind;
-  params: WorldParams;
-  edits: WorldEdits;
-  /** 已经存下的修改(套上的和它是同一个对象就不重写) */
-  saved?: WorldEdits;
-  title?: string;
-  /** 新建中、作者还没动过(不存) */
-  pristine?: boolean;
-  /** 以某个世界为底稿新建 */
-  base?: DraftBase | null;
-  /** 换成存档里的投影和中央经线(undefined = 不动;null = 等距圆柱、0°) */
-  view?: SaveView | null;
-  /** 从哪打开的(生成完的提示按它说) */
-  from?: 'file' | 'link' | 'stored' | 'restore' | 'url';
-  /** 网址里带的生成器版本(from = 'url':打开带种子的网址) */
-  gen?: number;
-  /** 打开的存档(核对版本、地形) */
-  save?: SaveFile;
-  /** 读档时的警告 */
-  warnings?: string[];
-  /** 从分享短链接打开的:它的码(还没存进我的世界时留在网址里,刷新再取一次,看到分享的人最新的改动) */
-  shareCode?: string;
-  /** 从作品墙打开的世界作品:作品编号(还没存进我的世界时留在网址里,刷新再取一次) */
-  gallery?: string;
-  /** 分享链接带着的"打开时看哪"(停在哪一年、选中什么、镜头;gen/savefile.ts 的 SaveMoment) */
-  moment?: SaveMoment | null;
-  /** 底稿出处(存档里带着的;打开别人的分享短链接时是那个链接,改了另存时写进去) */
-  origin?: SaveOrigin | null;
-  /** 新建时选的照手绘图生成(还没照图长出星球时靠它认;存下以后看草图里有没有那张图) */
-  mode?: 'image';
-  /**
-   * 在旧版本建的世界的地图上打造文明:那个世界存的地形校验。生成出来的地图和它对不上(现在的版本算出来不一样了)就不让打造
-   */
-  mapCheck?: string;
-  /**
-   * 照故事找世界选中的一个结果(新建中的世界换成它):推文明带上拓荒、起源、「天灾」(新建界面平时一律按默认推),
-   * 和搜的时候推的一模一样
-   */
-  fullCiv?: true;
-}
-
-/** 新建中的世界是哪一种:照手绘图(选的就是它,或者草图里有照着长的图;旧的没建完的世界也这样认)/ 随机 */
-function draftModeOf(t: Target | null): NewWorldMode {
-  // 在一张地图上打造文明(地图锁着):不管地图是不是照手绘图长的,都是「打造文明」那一页
-  if (t?.edits.map) return 'random';
-  return t && (t.mode === 'image' || !!t.edits.sketch?.image) ? 'image' : 'random';
 }
 
 /** 生成这张地图用的(参数、地形、草图):照故事找世界「用这个世界」以后,这几样变了就不再是找到的那个世界 */
@@ -554,72 +477,10 @@ function draftTarget(params: WorldParams, base: DraftBase | null = null, edits: 
   return { id: newWorldId(), kind: 'draft', params, edits, pristine: true, base, title };
 }
 
-/**
- * 读档提示条上的按钮:最新版里打开旧版本的世界 =「看原样」(到那一版的旧网站里看,新页面;没有那一版的旧网站就不放);
- * 旧网站里打开更新的版本存的 =「到最新版打开」。orig:这个世界原来那一份
- */
-function versionAction(orig: SaveFile | null): ToastAction | undefined {
-  if (!orig) return undefined;
-  if (OLD_SITE !== null) {
-    if (!(orig.generator > GENERATOR_VERSION)) return undefined;
-    return { label: '到最新版打开', act: 'open-latest', onClick: () => void openInLatest(orig).then((ok) => ok || openFailed()) };
-  }
-  const site = oldSiteFor(orig.generator);
-  if (!site) return undefined;
-  return { label: '看原样', act: 'see-original', onClick: () => void openOriginal(orig).then((ok) => ok || openFailed(site.href)) };
-}
-
-/** 交不过去(浏览器太旧,压缩不了存档):说一声怎么自己打开 */
-function openFailed(site?: string) {
-  notify({ kind: 'error', text: '这个浏览器打不开', more: [site ? `请把世界存成文件，到 ${site} 打开` : '请把世界存成文件，到最新版打开'] });
-}
-
-/** 存着的一个世界(刷新页面回到它时投影照网址,不换) */
-function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target {
-  return {
-    id: w.id,
-    kind: w.draft ? 'draft' : 'created',
-    params: w.save.params,
-    edits: w.save.edits,
-    saved: w.save.edits,
-    title: w.save.title,
-    base: w.base ?? null,
-    pristine: false,
-    view: from === 'restore' ? undefined : (w.save.view ?? null),
-    from,
-    save: w.save,
-    origin: w.save.origin ?? null,
-  };
-}
-
-/**
- * 存在"我的世界"里、旧版本建的世界(打开时先找它那一版的原件,照原样打开):存着的那份存档;别的 = null。
- * 从文件打开、和存着的一模一样的(读档时认成了同一个)也算
- */
-function oldStored(t: Target): SaveFile | null {
-  if (t.kind !== 'created') return null;
-  const w = loadWorld(t.id);
-  if (!w || w.draft || !(w.save.generator < GENERATOR_VERSION)) return null;
-  // 从文件打开、认成存着的这一个:文件也得是那一版的(更新版本的文件照文件里的版本打开)
-  if (t.save && t.save.generator !== w.save.generator) return null;
-  return worldKey(w.save.params) === worldKey(t.params) && JSON.stringify(w.save.edits) === JSON.stringify(t.edits) ? w.save : null;
-}
-
-/** 存档原文里记的生成器版本(读不出 = null) */
-function genOfText(text: string): number | null {
-  const r = parseSave(text);
-  return r.ok ? r.save.generator : null;
-}
-
 /** 网址里带种子的(别人发的网址、截图脚本):直接看这个世界,先不存,改了才存 */
 function visitTarget(params: WorldParams, gen: number | null = null): Target {
   const t: Target = { id: newWorldId(), kind: 'visit', params, edits: EMPTY_EDITS };
   return gen === null ? t : { ...t, from: 'url', gen };
-}
-
-/** 朋友的预设链接打开的新建弹窗:第 2 步(随机生成),参数照链接填好;没带种子的随机给一个 */
-function presetDialog(p: SharedPreset): { init: NewWorldInit; shared: SharedPreset } {
-  return { init: { mode: 'random', params: { ...p.params, seed: p.seed ?? randomSeedValue() }, step: 2, endYear: p.endYear }, shared: p };
 }
 
 /**
@@ -636,7 +497,7 @@ function presetDialog(p: SharedPreset): { init: NewWorldInit; shared: SharedPres
  *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球);
  *                        # 后面是朋友的预设链接(#preset=)时,上面开着新建弹窗第 2 步、参数照链接填好(presetDialog)
  */
-function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit } {
+function firstRoute(init: ReturnType<typeof readUrl>): FirstRoute {
   const q = new URLSearchParams(location.search);
   if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
   // 作品墙那一页、作品的网址(世界作品只是看看、还没存下时刷新,网址里也是它):先停在我的世界的位置,去服务器取
@@ -667,35 +528,6 @@ function firstRoute(init: ReturnType<typeof readUrl>): { stage: Stage; target: T
   return { stage: 'home', target: null };
 }
 
-/** 浏览器后退记的这一步是哪个画面(nav.ts):我的世界 / 新建(哪颗星球)/ 某个世界 */
-function navInfo(stage: Stage, t: Target | null | undefined): NavInfo {
-  if (stage === 'home' || !t) return { page: 'home' };
-  return stage === 'draft' ? { page: 'draft', id: t.id, seed: t.params.seed, title: t.title } : { page: 'world', id: t.id, title: t.title };
-}
-
-/** 网址里的看法(画风、图层、投影、中央经线、经纬网、等值线):不算一步,按后退 / 前进时照现在的(nav.ts 的 url) */
-const VIEW_KEYS = ['style', 'layer', 'map', 'fill', 'sat', 'civ', 'proj', 'view', 'lon', 'grat', 'iso'];
-function keepView(from: string, to: string): string {
-  const a = new URL(from);
-  const b = new URL(to);
-  for (const k of VIEW_KEYS) {
-    const v = a.searchParams.get(k);
-    if (v === null) b.searchParams.delete(k);
-    else b.searchParams.set(k, v);
-  }
-  return b.href;
-}
-
-/** 还在 b 那个画面(同一个画面里开卡片多记的几步也算);去解开 / 取回分享的世界,拿到时看一眼 */
-function sameScreen(a: NavState | null, b: NavState | null): boolean {
-  return !!a && !!b && a.bare === b.bare && a.page === b.page && a.id === b.id;
-}
-
-/** 按后退 / 前进要回的世界已经删掉了(停在我的世界) */
-function goneToast(title: string | undefined) {
-  showToast({ id: 'nav-gone', kind: 'warn', text: `回不到「${title || '未命名世界'}」`, more: ['这个世界已经删掉了'] });
-}
-
 /** 新建时能看的样式(不用历史的那几种) */
 const STUDIO_LAYERS: MapLayer[] = STUDIO_STYLES.map((x) => x.id);
 
@@ -706,52 +538,6 @@ function studioView(v: { base: BaseId; fill: FillId }): boolean {
 }
 
 
-/**
- * 把世界写进网址:种子 + 参数(和默认值相同的省略,别人打开是同一颗星球);存着的加 w=编号,新建中还没存的加 new=1
- * (照手绘图新建、还没照图长出星球的加 new=image)
- */
-function writeWorldUrl(t: Target) {
-  const q = new URLSearchParams(location.search);
-  for (const k of Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]) {
-    if (k === 'seed' || t.params[k] !== DEFAULT_PARAMS[k]) q.set(k, String(t.params[k]));
-    else q.delete(k);
-  }
-  q.delete('w');
-  q.delete('new');
-  q.delete('s');
-  q.delete('gallery');
-  q.delete(OWN_KEY);
-  // 分享短链接、作品墙打开的、还没存进我的世界:码 / 作品编号留在网址里(刷新再取一次)
-  if (t.shareCode && t.kind === 'visit' && !isStored(t.id)) q.set('s', t.shareCode);
-  if (t.gallery && t.kind === 'visit' && !isStored(t.id)) q.set('gallery', t.gallery);
-  // 存着的记录还是换参数之前的(新建中换了种子、参数,正在生成):先不指向它,存好了再换成 w=
-  const w = isStored(t.id) ? loadWorld(t.id) : null;
-  if (w && worldKey(w.save.params) === worldKey(t.params)) q.set('w', t.id);
-  else if (t.kind === 'draft') q.set('new', draftModeOf(t) === 'image' && !t.edits.sketch?.image ? 'image' : '1');
-  // 还没存下的新建:弹窗里开的推演年数也写上(存下以后在存档里)
-  const years = q.has('new') ? cleanEndYear(t.edits.endYear) : undefined;
-  if (years) q.set('years', String(years));
-  else q.delete('years');
-  // 生成器版本:复制这个网址发给别人,以后版本更新了对方打开会说清变了什么。
-  // 网址来自更新的版本(页面是旧的)就留着那个号:刷新还是旧页面照样提示,换到新页面就对上了。
-  // 新建中还没存的(new=1)不带:打开这种网址是接着新建,用的总是现在的版本
-  if (q.has('new')) q.delete(GEN_KEY);
-  else q.set(GEN_KEY, String(t.gen !== undefined && t.gen > GENERATOR_VERSION ? t.gen : GENERATOR_VERSION));
-  const next = `?${q}`;
-  if (next !== location.search) navUrl(next);
-}
-
-/** 回到"我的世界"时网址里去掉的:这个世界(种子、参数、编号、年份……) */
-const HOME_DROP = [...Object.keys(DEFAULT_PARAMS), 'w', 'new', 'years', 's', GEN_KEY, 'civYear', 'play', 'chron', ...AREA_KEYS];
-
-/** 回到"我的世界":网址里去掉这个世界(种子、参数、编号、年份……)、作品墙,留着图层、投影这些看法 */
-function writeHomeUrl() {
-  const q = new URLSearchParams(location.search);
-  for (const k of [...HOME_DROP, 'gallery']) q.delete(k);
-  const rest = q.toString();
-  navUrl(rest ? `?${rest}` : location.pathname);
-}
-
 /** 创建完要不要从第 0 年起放一遍历史(网址给了 play=0、无头浏览器里不放;play=1 一定放) */
 function storyOk(): boolean {
   const play = new URLSearchParams(location.search).get('play');
@@ -760,54 +546,10 @@ function storyOk(): boolean {
   return !(typeof navigator !== 'undefined' && navigator.webdriver);
 }
 
-/** 主线程最多留多少块各段的主图补丁(换了地形大事、撤销回去时用得上;先丢最早的) */
-const PATCH_KEEP = 24;
 /** 同一个世界画好的整张图留几张(地形大事前后各一张;见下面的 mapsOf) */
 const MAP_KEEP = 2;
 /** 时间轴换段前在后台备那一段的地图的活名(detailJobs.ts) */
 const ERA_WARM_JOB = 'era-warm';
-
-/** 请求里带的地形大事(没有 = 不带) */
-const upsOpt = (u: readonly Upheaval[] | undefined) => (u?.length ? { upheavals: [...u] } : {});
-/** 推文明时带的地名风格(自动 = 不带) */
-const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
-/** 推文明时带的推演年数(3000 = 不带) */
-const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
-/**
- * 这一步要推到第几年(3000 = undefined):新建界面里只看星球,一律先推 3000 年(换种子、调参数不用等);
- * 创建以后再按世界自己的推演年数接着推(见下面重推的那段)
- */
-const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear' | 'endTick'>) => (draft ? undefined : endParamOf(edits));
-/** 推文明时带的拓荒、起源、文明种子、「天灾」(默认 = undefined) */
-type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity };
-const setupOpt = (s: CivSetup | undefined) => ({
-  ...(s?.frontier ? { frontier: s.frontier } : {}),
-  ...(s?.origins ? { origins: s.origins } : {}),
-  ...(s?.civSeed !== undefined ? { civSeed: s.civSeed } : {}),
-  ...(s?.calamity ? { calamity: s.calamity } : {}),
-});
-/**
- * 这一步带的拓荒、起源、文明种子、「天灾」:拓荒、起源、天灾和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
- * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)
- */
-function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity'>): CivSetup | undefined {
-  const civSeed = cleanCivSeed(edits.civSeed);
-  if (draft) return civSeed !== undefined ? { civSeed } : undefined;
-  const frontier = cleanFrontier(edits.frontier);
-  const origins = cleanOrigins(edits.origins);
-  const calamity = cleanCalamity(edits.calamity);
-  return frontier || origins || civSeed !== undefined || calamity
-    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}) }
-    : undefined;
-}
-const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
-  sameFrontier(a?.frontier, b?.frontier) && sameOrigins(a?.origins, b?.origins) && a?.civSeed === b?.civSeed && a?.calamity === b?.calamity;
-
-
-/** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */
-function aliveAtEnd(civ: Civ): number {
-  return civ.viable ? civ.polities.filter((x) => polityAlive(x, civ.endYear)).length : 0;
-}
 
 /** 切支线的时候,修改里已经是切到的那一支,地图、面板上还是原来那支:先不许下令、改名(用的键可能指到那一支里别的东西) */
 const SWITCH_EDIT_BLOCK = '正在切到别的一支，切完再改';
@@ -899,7 +641,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (r?.ok) pickSharedPreset(r.preset);
     return r;
   })[0];
-  const [newDlg, setNewDlg] = useState<{ init?: NewWorldInit; shared?: SharedPreset; stamp?: number } | null>(() =>
+  const [newDlg, setNewDlg] = useState<NewDlg | null>(() =>
     route.dialog ? { init: route.dialog } : presetLink?.ok && route.stage === 'home' ? presetDialog(presetLink.preset) : null,
   );
   /** 生成出来的世界和主图(地形大事以前的;地图上画的是 data:时间轴那一段的) */
@@ -1045,7 +787,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const narrowRef = useRef(narrow);
   narrowRef.current = narrow;
   /** 生成进度(提示条"正在生成世界"):regen = 按新地形重新生成;seed = 正在生成的种子 */
-  const [progress, setProgress] = useState<{ stage: string; pct: number; regen?: boolean; seed?: number } | null>(null);
+  const [progress, setProgress] = useState<GenProgress | null>(null);
   /** 悬停小卡片:内容 + 鼠标位置(视口坐标) */
   const [hover, setHoverState] = useState<{ info: HoverInfo; x: number; y: number; place?: 'above' | 'left' } | null>(null);
   // 选目标时鼠标下的可选对象:名牌反色(TargetPlates)
@@ -1092,7 +834,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const [hintOn, setHintOn] = useState(() => !hintSeen());
   const trashView = useTrashView();
   /** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
-  const [landing, setLanding] = useState<'loading' | 'gone' | { error: string } | null>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
+  const [landing, setLanding] = useState<Landing>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
   /** 作品墙那一页 / 正在打开的作品 / 地图作品(见 WallView;不在作品墙 = null) */
   const [wall, setWall] = useState<WallView | null>(() =>
     route.stage !== 'home' || init.gallery === null || landing ? null : init.gallery ? { kind: 'work', id: init.gallery, state: 'loading' } : { kind: 'list' },
@@ -1107,7 +849,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 打开别人分享的世界:地图下那条说明(这个世界的编号;点了"知道了"、改了存进我的世界以后不再显示)。
    * at = 链接带着"这一刻"、打开停在了那里:说明开头说清停在哪一年、选中的哪国(点了「从头放」就不再说)
    */
-  const [sharedFor, setSharedFor] = useState<{ id: string; short: boolean; by: string; own: boolean; at?: { year: number; sel: ResolvedMoment['selected'] | null } | null } | null>(null);
+  const [sharedFor, setSharedFor] = useState<SharedFor | null>(null);
   const touchRef = useRef(() => {});
   touchRef.current = () => {
     if (getStage().stage !== 'world') return;
@@ -1145,18 +887,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   useEffect(() => {
     sim.tell({ type: 'renames', id: reqId.current, names: edits.names } satisfies WorkerRequest);
   }, [edits.names]);
-  /**
-   * 照原样打开的旧世界(读存着的原件,不重新生成):正在读的是哪个世界、建它的生成器版本;
-   * 原件读不出来、改成按新版生成的是哪个世界(提示条上说一句)。见 resultStore.frozenResult / worker 的 load
-   */
-  const frozenLoad = useRef<{ id: string; gen: number } | null>(null);
-  const frozenBroken = useRef<string | null>(null);
-  /** 线程里现在这个世界是读原件来的(同样的参数也不能拿来当新版的世界用,反过来也一样) */
-  const loadedFrozen = useRef(false);
-  /** 等原件的这一会儿要发的生成请求(读不出来就照它生成) */
-  const genReq = useRef<WorkerRequest | null>(null);
-  /** 刚另存的新版:打开它以后提示"已另存为…"(from = 原来那一份的名字) */
-  const savedCopy = useRef<{ id: string; from: string; more: string[] } | null>(null);
+  /** 只有打开世界的代码用的(照原样打开的旧世界、等原件时要发的生成请求、刚另存的新版、打不开的分享链接、世界生成完的处理;见 ./world/worldRefs.ts) */
+  const openRefs = useOpenRefs();
   /**
    * 打开世界时还没核对的改名:地图上先出来的历史还没带上存档里的干预等(要在后台重推),改名的人物这时还没长出来,
    * 等重推完按推好的历史再核对(applyResim);对不上的用 show 补进打开时那条提示。terrain = 打开时的地形(改了地形就作废)
@@ -1246,20 +978,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   /** 换了新世界、还没套上它的修改(自动恢复 / 读档)之前:这时的修改不属于这个世界,不按它重新生成 */
   const fresh = useRef(false);
   /** 正在进行的"按新地形重新生成"(编号 = 那次生成的请求编号);t0 = 发出去的时刻 */
-  const regenRef = useRef<{
-    id: number;
-    t0: number;
-    terrain: readonly TerrainOp[];
-    sketch?: SketchEdit;
-    workerMs?: number;
-    arrived?: number;
-    /** 线程交回来的时刻(毫秒,从发出去算起)、线程里铺像素用了多久、按块换上的备料统计(冒烟检查、测速用) */
-    got?: number;
-    rasterMs?: number;
-    patch?: PatchStats;
-    /** 地形图换上以后的下一帧(从发出去算起,毫秒) */
-    shown?: number;
-  } | null>(null);
+  const regenRef = useRef<RegenJob | null>(null);
   /** 地图上那张整图(baseRef)是哪个世界的(线程的 baseKey;编辑地形时线程按它判断能不能只交回变了的那块) */
   const baseKeyRef = useRef<string | null>(null);
   /** 最近一次发出去的生成请求(按块重铺对不上时按整张重新要) */
@@ -1289,7 +1008,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
    * 地图先交的生成(新建中的世界,mapFirst):先到的世界、地图换上了没有、地图换上之前先到了的历史(done)。
    * mapEarly = 地图换上了、历史还在推(新建界面的星球这时就换上新的一颗;按钮照旧等历史)
    */
-  const mapFirst = useRef<{ id: number; world: World; shown: boolean; done: Extract<WorkerResponse, { type: 'done' }> | null } | null>(null);
+  const mapFirst = useRef<MapFirst | null>(null);
   const [mapEarly, setMapEarly] = useState(false);
   /** 补推完、地名刚换上(那一次的编号;淡入完 = 0):地图上的字淡入 */
   const [namesIn, setNamesIn] = useState(0);
@@ -1343,10 +1062,6 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const stageRef = useRef<HTMLDivElement>(null);
   /** 最近生成完的世界(打开的世界就是正在看的这一个时,不用重新生成) */
   const lastReady = useRef<{ world: World; civ: Civ } | null>(null);
-  /** 打不开的分享链接(世界还在生成时解开的):生成完再提示 */
-  const shareErr = useRef<string | null>(null);
-  /** 世界生成完的处理(存档:自动恢复 / 读档套修改);线程回调里经 ref 调,拿到的总是最新的 */
-  const readyRef = useRef<(world: World, civ: Civ) => void>(() => {});
   const dataRef = useRef(data);
   dataRef.current = data;
   /** 生成出来的世界(地形大事以前的;线程回调里用) */
@@ -1409,172 +1124,29 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- patchVer:补丁变了要换的那一段的主图跟着变;previewRaw / rawCiv 只在换段时取
   }, [baseData, eraMaps, patchVer, eraK, eraNext, warmKey]);
 
+  // 生成、打开世界的代码(线程交回的生成、打开那几种消息,./world/useWorldLoad.ts)要读要改的状态,按块收拢(见 ./world/worldRefs.ts)
+  const genRefs: GenRefs = { reqId, targetRef, genParams, genTerrain, genSketch, fresh, regenRef, genSent, baseKeyRef, preProj, mapFirst, setMapEarly, lastReady, rawRef, setParams, setProgress };
+  const civRefs: CivRefs = { civEdits, civUps, genUps, rawUps, civNames, civYears, civSetup, civPlay, civMsLast, civLater, setRawCiv };
+  const mapRefs: MapRefs = { baseRef, setData, editedRef, eraPatches, setPatchVer, eraMapsRef, setEraMaps, eraAt, eraWarm, drawView, drawKey };
+
   // ---- 后台线程 ----
   // 开线程、关线程、发请求、记账、收消息先做的公共几步都在 ./sim/simClient.ts(为什么忙时换世界要关掉线程重开,也见那里);
   // 这里接收到的各种消息。回调在第一次渲染时定下、之后不换(和这些回调要用的 ref 一样),要用每次渲染新的函数时经 xxxRef.current 调
   const [sim] = useState(() => {
-    /** 历史到了(和地图一起到的;地图先交了的,是地图换上以后):记下速度,换上历史,套上要打开的那个世界的修改 */
-    const takeCiv = (d: { id: number; civ: Civ | null; ms: number; genMs: number; civMs?: number; reused?: true }, world: World) => {
-      // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
-      if (!frozenLoad.current && !d.reused) noteGenSpeed(world.params.cells, d.genMs, d.ms);
-      // 推文明那一步用了多久:「再推」的弹层拿它估这台电脑再推几年要多久
-      if (d.civMs && d.civ) {
-        noteExtendSpeed(0, d.civ.endYear, d.civMs);
-        civMsLast.current = d.civMs;
-      }
-      setRawCiv(d.civ);
-      // 编辑地形时生成的(没推历史):收起编辑地形时补推
-      civLater.current = !d.civ;
-      setProgress(null);
-      setMapEarly(false);
-      const rg = regenRef.current;
-      if (rg && rg.id === d.id) terrainDoneRef.current(world, d.civ, d.ms);
-      else {
-        fresh.current = false;
-        if (d.civ) readyRef.current(world, d.civ);
-      }
-    };
-    /** 地图先换上了的(mapFirst)历史到了:接上;检查脚本看的"世界齐了"这时才算(地图画好时没算,见地图那一层的 __wf) */
-    const civAfterMap = (d: Extract<WorkerResponse, { type: 'done' }>, world: World) => {
-      mapFirst.current = null;
-      takeCiv(d, world);
-      const w = (window as unknown as { __wf?: { ready: boolean } }).__wf;
-      if (w) w.ready = true;
-    };
-    /** 世界和地图到了(done 没先交地图的;map = 地图先交、还没推文明):照常备好、换上地图,历史等随后的 done */
-    const takeMap = (m: Exclude<Extract<WorkerResponse, { type: 'done' }>, { mapSent: true }> | Extract<WorkerResponse, { type: 'map' }>) => {
-      const early = m.type === 'map';
-      const civ = early ? null : m.civ;
-      if (early) mapFirst.current = { id: m.id, world: m.world, shown: false, done: null };
-      const rg0 = regenRef.current;
-      if (rg0 && rg0.id === m.id) {
-        rg0.got = performance.now() - rg0.t0;
-        rg0.rasterMs = m.rasterMs;
-      }
-      // 各段的世界(有地形大事的;换上时 setEraMaps 用同一份:备好的那一段的世界、拼好的主图对得上)
-      const maps = m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null;
-      /** 换上时画第几段(打开世界时备好了的那一段;按块换上的 = null,换上时照常定) */
-      let openK: number | null = null;
-      const finish = (raster: Raster) => {
-        // 换了世界:别的世界的各段主图补丁都作废(这个世界的几段在备地图的时候可能已经先到了,留着)
-        const chain = new Set((m.eras ?? []).map((e, i, a) => patchKey(i ? a[i - 1].key : m.baseKey, e.key)));
-        for (const k of [...eraPatches.current.keys()]) if (!chain.has(k)) eraPatches.current.delete(k);
-        dropComposed(raster);
-        // 换了主图:各画风缓存里别的主图的像素层连旧主图现在就放掉,不等下次画那种画风(按块换上的留着它是从哪张改来的;
-        // 打开时拼好、备好了的那一段的主图也留着)
-        const keepBases = [raster, patchSourceOf(raster)?.r0, ...composedOf(raster)];
-        dropRealisticBasesExcept(keepBases);
-        dropFantasyBasesExcept(keepBases);
-        baseRef.current = { world: m.world, raster };
-        baseKeyRef.current = m.baseKey;
-        editedRef.current = regenRef.current?.id === m.id ? baseRef.current : null;
-        setData(baseRef.current);
-        setEraMaps(maps);
-        // 备好的是第几段:换上以后时间轴要的那一段要是还没备(备的时候又到了补丁),先画备好的这段,另一段在后台备好再换(eraK)
-        eraAt.current = openK === null ? null : { maps, base: baseRef.current, k: openK };
-        eraWarm.current = null;
-        rawUps.current = genUps.current;
-        if (!early) return takeCiv(m, m.world);
-        // 地图先换上:上一个世界的历史不能留在新地图上;提示条照旧("文明"那一步),历史到了才收
-        setRawCiv(null);
-        civLater.current = false;
-        setMapEarly(true);
-        const mf = mapFirst.current;
-        if (!mf || mf.id !== m.id) return;
-        mf.shown = true;
-        if (mf.done) civAfterMap(mf.done, mf.world);
-      };
-      if (m.raster) {
-        // 整张交回来的(打开世界、换世界、刷新、新建……):现在这种底图的整张图先分小步在后台备好再换上,
-        // 不在换上那一下在主线程上一口气画半秒到几秒;备的时候加载画面照旧
-        const raster = m.raster;
-        // 线程算好的手绘符号规划(推了文明的才带)
-        if (m.plan) adoptPlan(m.world, m.plan);
-        // 线程画好的写实像素层(新建中的世界):下面备这种底图、新建界面的星球要那一张时直接贴上
-        if (m.type === 'map' && m.painted) takeRealisticPainted(raster, m.painted);
-        // 换上时画的那一段:有地形大事、时间轴在大事以后、那一段的主图补丁已经在手里的,是拼好的那张(拼也放在后台的一步里)。
-        // 那一段的整张底图、写实 / 卫星画风整张图上的河(矢量,换上时描)、文明层第一次要画的,都一起备好,和地图一起换上
-        const view = drawView.current;
-        const civ0 = civ;
-        const k = civ0 ? eraShown(maps, eraPatches.current, eraIndex(civ0, getCivTime().year)) : 0;
-        openK = k;
-        const base = { world: m.world, raster };
-        const stepsFor = (d: { world: World; raster: Raster }) => [
-          ...thumbPrepSteps(drawKey.current, d.world, d.raster),
-          ...(view.style === 'realistic' ? realisticRiverSteps(d.world, d.raster, view.look) : []),
-          ...(civ0 ? civOpenSteps({ world: d.world, raster: d.raster, civ: civAtEra(civ0, k), style: view.style as Style, mp: view.mp }) : []),
-        ];
-        let shown = base;
-        const prep = k > 0 ? [() => void (shown = eraData(base, maps, eraPatches.current, k)), later(() => stepsFor(shown))] : stepsFor(base);
-        startTerrainFull({ world: m.world, raster, view, prep, shown: () => shown }, (st, pre) => {
-          if (m.id !== reqId.current) return;
-          (window as unknown as { __wfOpenPrep: unknown }).__wfOpenPrep = st;
-          preProj.current = pre;
-          finish(raster);
-        });
-      } else {
-        // 编辑地形按块重铺的:只带回变了的那块,贴到地图上那张整图上;按块重画的像素层分小步备好再一次换上
-        const b = baseRef.current;
-        if (!b || baseKeyRef.current !== m.from) {
-          // 地图上那张不是线程比的那张(不该发生):这次按整张重新要一遍
-          const req = genSent.current;
-          if (req?.type === 'generate' && req.id === m.id) sendRef.current({ ...req, from: undefined });
-          return;
-        }
-        adoptPlan(m.world, m.plan);
-        startTerrainPatch({ w0: b.world, r0: b.raster, w1: m.world, patch: m.patch, view: drawView.current }, (r1, st, pre) => {
-          if (m.id !== reqId.current) return;
-          const rg = regenRef.current;
-          if (rg && rg.id === m.id) rg.patch = st;
-          preProj.current = pre;
-          finish(r1);
-          // 换上了:线程不用再留着怎么改回上一张(还没换上就又涂了一笔时,线程照上一张接着按块重铺要用)
-          client.tell({ type: 'shown', id: m.id, key: m.baseKey } satisfies WorkerRequest);
-        });
-      }
-    };
     const client = new SimClient({
       spawn: () => new Worker(WORKER_URL, { type: 'module' }),
       currentId: () => reqId.current,
       on: {
-        eraPatch: (m) => {
-          // 一段的主图补丁:记下,地图那一段换上(eras.ts);最多留 PATCH_KEEP 块,先丢最早的(现在这份历史要用的不丢;
-          // 丢了的以后又要用,下一次推演时线程看 have 里没有会重新铺)
-          const map = eraPatches.current;
-          const k = patchKey(m.prev, m.key);
-          map.delete(k);
-          map.set(k, m.patch);
-          const cur = eraMapsRef.current;
-          const keep = new Set(cur ? cur.keys.map((key, i) => patchKey(i ? cur.keys[i - 1] : cur.baseKey, key)) : []);
-          for (const old of [...map.keys()]) if (map.size > PATCH_KEEP && !keep.has(old)) map.delete(old);
-          setPatchVer((v) => v + 1);
-        },
-        upPreview: (m) => takeUpPreview(m.pid, m.preview, m.water, m.ms),
-        // 原件读不出来:按现在的规则生成(提示条上说一句)
-        loadFailed: () => {
-          const req = genReq.current;
-          frozenBroken.current = frozenLoad.current?.id ?? null;
-          frozenLoad.current = genReq.current = null;
-          loadedFrozen.current = false;
-          civEdits.current = EMPTY_EDITS.interventions;
-          civUps.current = genUps.current = undefined;
-          if (req) sendRef.current(req);
-        },
-        // 这次生成 / 重推的原件:对得上存着的存档就存进浏览器(resultStore.ts)
-        snapshot: (m) => {
-          void offerSnapshot(m.snapshot);
-          void noteMapSum(m.snapshot);
-        },
-        progress: (m) => setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed })),
-        done: (m) => {
-          if (!m.mapSent) return takeMap(m);
-          // 地图先交了的(mapFirst):地图换上了就接上历史;还在备地图的,换上时再接
-          const mf = mapFirst.current;
-          if (!mf || mf.id !== m.id) return;
-          if (!mf.shown) return void (mf.done = m);
-          civAfterMap(m, mf.world);
-        },
-        map: takeMap,
+        // 生成、打开世界那几种(世界和地图、进度、原件读不出来、原件、主图补丁、地形大事预览):见 ./world/worldMessages.ts
+        ...worldMessages({
+          gen: genRefs,
+          civ: civRefs,
+          map: mapRefs,
+          open: openRefs,
+          send: (req) => sendRef.current(req),
+          tell: (req) => client.tell(req),
+          terrainDone: (world, rc, ms) => terrainDoneRef.current(world, rc, ms),
+        }),
         history: (m) => setReplay({ w: m.w, h: m.h, frames: m.frames, mya: m.mya, idx: 0 }),
         civ: (m) => {
           if (m.seq !== resimSeq.current) return; // 又下了新的干预,等最新的那一次
@@ -1945,190 +1517,36 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     return () => setOutlineRunner(null);
   }, [send]);
 
-  // ---- 生成 ----
-  /** 按 t 的参数、地形修改生成世界;生成完(readyRef)套上 t 的修改 */
-  const generate = useCallback(
-    (t: Target) => {
-      // 原来那个世界等着截的缩略图(编辑地形停笔没多久)先截下来,换走以后就截不到了
-      flushThumb();
-      targetRef.current = t;
-      const p = t.params;
-      const id = ++reqId.current;
-      genParams.current = p;
-      setParams(p);
-      setProgress({ stage: '准备', pct: 0, seed: p.seed });
-      // 手机:新世界、打开存档都要看地图 —— 拉到顶的世界卡片先收起来
-      setWorldSheet('peek');
-      // 改过地形、画过草图的世界直接带着它们生成,不用先生成原样再重新生成一遍
-      const terrain = t.edits.terrain;
-      genTerrain.current = terrain;
-      genSketch.current = t.edits.sketch;
-      fresh.current = true;
-      regenRef.current = null;
-      // 换了世界:编辑地形时不起名的那一段、要补推的历史都不算了(新世界带着历史生成)
-      endNamesHold();
-      setTerrainStatus({ busy: false });
-      setShownTerrain(terrain);
-      setShownSketch(t.edits.sketch);
-      setTerrainTool({ on: false });
-      closeUpheaval();
-      closeSaveAsNew();
-      // 地名风格也直接带着(只管起名,和改名、干预不同:生成完不用再重推一遍)
-      civNames.current = t.edits.nameMix;
-      // 推演年数同样直接带着(新建中的世界先推 3000 年)
-      civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
-      civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
-      storyAfterYears.current = null;
-      // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块。
-      // 新建界面先看的是地图(星球),推几千年的历史比生成地形、铺像素慢:地图先交、先换上,历史随后(mapFirst);
-      // 写实画风的整张像素层也让线程画好随地图交来(paint),换上之前主线程不用自己再分小步画
-      const req: WorkerRequest = { type: 'generate', id, params: p, scale: 1, terrain: [...terrain], sketch: t.edits.sketch, ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(t.kind === 'draft' ? { keep: true, mapFirst: true as const, paint: paintLooks(drawKey.current, mapViewRef.current.sat) } : {}), renames: t.edits.names };
-      mapFirst.current = null;
-      setMapEarly(false);
-      frozenLoad.current = null;
-      genReq.current = null;
-      const save = oldStored(t);
-      // 存着的、旧版本建的世界:浏览器里有它那一版的原件就照原样打开(读原件,不重新生成);没有才按现在的规则生成
-      if (save) {
-        genReq.current = req;
-        void frozenResult(t.id, save).then((r) => {
-          if (id !== reqId.current) return;
-          if (!r || r === 'broken') {
-            if (r) frozenBroken.current = t.id;
-            genReq.current = null;
-            return send(req);
-          }
-          // 原件里的历史就是带着存档里的干预、地形大事(逐年推演的:推到"现在")推出来的:套上以后不用重推
-          frozenLoad.current = { id: t.id, gen: save.generator };
-          loadedFrozen.current = true;
-          civEdits.current = t.edits.interventions;
-          civUps.current = genUps.current = t.edits.upheavals;
-          const play = cleanPlay(t.edits.play);
-          civPlay.current = play;
-          // 带上进度:线程按它记下这份历史,下一步从这里接着推(不从第 0 年重推)
-          send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}), renames: t.edits.names });
-        });
-      } else send(req);
-      loadedFrozen.current = false;
-      // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
-      detachWorld();
-      leaveStepwise();
-      switchNote.current = null;
-      resimText.current = null;
-      civEdits.current = EMPTY_EDITS.interventions;
-      civUps.current = genUps.current = undefined;
-      civPlay.current = undefined;
-      resimSeq.current++;
-      resimInfo.current = null;
-      setResim(null);
-      // 再推:正在推的不要了,弹层收起,刚推的那段不标,旧世界的「撤销」作废
-      extendRef.current = null;
-      extendDone.current = null;
-      resetExtend();
-      dropExtendUndo();
-      clearToast('extend-done');
-      setPolityPick(null);
-      clearEdits();
-      clearSelection();
-      if (getPeople().polity !== null) setPeople({ polity: null });
-      // 正在进行 / 已算好的回放都属于旧世界,一起作废
-      setReplay(null);
-      setReplayOn(false);
-      // 种子、参数写进网址(分享链接时对方看到的是同一个世界);存着的世界带上编号
-      writeWorldUrl(t);
+  // ---- 生成、打开世界(./world/useWorldLoad.ts):生成新世界、生成完套上修改,打开网页时、打开存档 / 文件 / 分享链接,换到新建 / 世界 / 我的世界 ----
+  // 下面几样在后面才定义(回我的世界、按新版另存一份、作品墙、浏览器的后退前进),经 ref 调;定义的地方填 .current
+  const showHomeRef = useRef<() => void>(() => {});
+  const saveAsNewRef = useRef<(edits?: WorldEdits) => void>(() => {});
+  const wallRef = useRef<{ open: (id: string) => void; list: () => void }>({ open: () => {}, list: () => {} });
+  const navRef = useRef<NavHooks>(null as unknown as NavHooks);
+  const { generate, enterStage, openTarget, openStored, openText, openShortShare } = useWorldLoad({
+    gen: genRefs,
+    civ: civRefs,
+    open: openRefs,
+    resim: { resimSeq, resimInfo, setResim, resimText, switchNote, storyAfterYears, restoredIv, restoredUps, renameCheck, extendRef, extendDone, dropExtendUndo },
+    terrain: { endNamesHold, setTerrainStatus, setShownTerrain, setShownSketch },
+    view: { mapViewRef, draftViewRef, drawKey, applyMapView, setHover },
+    page: { init, route, wall, landing, presetLink, setLanding, setNewDlg, setSharedFor, setDraftTitle, setReplay, setReplayOn },
+    sim,
+    send,
+    later: {
+      showHome: () => showHome(),
+      openWork: (id) => openWork(id),
+      holdMoment: (id, moment) => {
+        pendingMoment.current = { id, moment };
+        // 打开的就是正在看的这张图(地址栏里又贴了一个分享链接):画面不会再变一次,也要停过去
+        setMomentTick((n) => n + 1);
+      },
+      showHomeRef,
+      saveAsNewRef,
+      wallRef,
+      navRef,
     },
-    [send],
-  );
-
-  useEffect(() => {
-    // 邀请链接(invite=):记下邀请码,从网址里去掉(在记第一步之前去掉,按后退时不会再带回来)
-    const invited = takeInviteFromUrl();
-    // 浏览器的后退、前进:这一页记成第一步,之后每换一个画面记一步(nav.ts)
-    const stopNav = startNav(wall ? { page: 'gallery', ...(wall.kind === 'work' ? { id: wall.id } : {}) } : navInfo(route.stage, route.target), {
-      route: (to, from, dir) => navRef.current.route(to, from, dir),
-      describe: () => navRef.current.describe(),
-      settled: () => navRef.current.settled(),
-      apply: (l) => navRef.current.apply(l),
-      url: keepView,
-    });
-    // 分享链接:先把 # 那段从地址栏去掉(刷新不会重复导入),解开以后走读档流程;
-    // 链接里的种子、参数和网址上的一样,所以照常先按网址生成,不用等
-    if (init.share) {
-      // own=1:最新版和旧网站之间交过来的自己的世界(看原样、到最新版打开),不说成别人分享的;标记用过就从地址栏去掉
-      const q = new URLSearchParams(location.search);
-      const own = q.get(OWN_KEY) === '1';
-      q.delete(OWN_KEY);
-      const rest = `${q}`;
-      navUrl(location.pathname + (rest ? `?${rest}` : ''));
-      const at = getNav();
-      // 解开之前按了后退 / 前进(到了别的画面):不打开
-      decodeShare(init.share).then((r) => {
-        if (sameScreen(getNav(), at)) openShareRef.current(r, undefined, own);
-      });
-    }
-    // 朋友的预设链接:先把 # 那段从地址栏去掉(刷新不会再来一遍)。短链接后面的"打开时看哪"等取到存档再去掉(没取到、刷新重来时还在)
-    if (init.preset) navUrl(location.pathname + location.search);
-    if (presetLink) presetOpened(presetLink);
-    // 邀请链接:弹出登录窗(已经登录了就算了)
-    if (invited && serverBase() && !getSession()) openLogin();
-    if (route.target) generate(route.target);
-    else if (landing === 'loading') openShortShare(init.shortShare ?? '');
-    // 作品墙:网址换成 ?gallery(=编号)的写法(# 后面写的也换过来);带编号的去取那个作品
-    else if (wall) {
-      if (wall.kind === 'work') openWork(wall.id);
-      else writeGalleryUrl('');
-    }
-    // 刷新回来的照图新建(new=image)留着,弹窗点了「开始」或「取消」才换掉,再刷新还能回到弹窗
-    else if (!route.dialog) writeHomeUrl();
-    if (route.gone !== undefined) goneToast(route.gone);
-    // 页面开着时又粘贴了一个只有 # 不同的分享链接(浏览器不刷新页面)
-    const onHash = () => {
-      const h = location.hash;
-      // 页面开着时又粘贴了朋友的预设链接:回到我的世界,打开填好参数的新建弹窗
-      if (isPresetHash(h)) {
-        navAdopt(navInfo(getStage().stage, targetRef.current));
-        navUrl(location.pathname + location.search);
-        const r = decodePresetHash(h);
-        if (r.ok) {
-          if (getStage().stage !== 'home') showHomeRef.current();
-          // 新开一个弹窗(开着的那个里填的东西不留)
-          setNewDlg({ ...presetDialog(r.preset), stamp: performance.now() });
-        }
-        presetOpened(r);
-        return;
-      }
-      // 页面开着时又贴了作品墙的地址(#gallery、#gallery=<编号>):到作品墙那一页 / 打开那个作品。
-      // 浏览器为这个 # 记的那一步直接记成作品墙的,下面换过去时只改这一步(不再多记一步,按一次后退就回到原来的画面)
-      const gid = galleryOfUrl(new URLSearchParams(), h);
-      if (gid !== null) {
-        navAdopt({ page: 'gallery', ...(gid ? { id: gid } : {}) });
-        navUrl(location.pathname + location.search);
-        if (gid) wallRef.current.open(gid);
-        else wallRef.current.list();
-        return;
-      }
-      if (!isShareHash(h)) {
-        // 地址栏里自己加了别的 #:浏览器记了一步、这个网站没记过,也记成一步(不然收起卡片退回去时会落到它上面)
-        if (!isNavState(history.state)) navAdopt(navInfo(getStage().stage, targetRef.current));
-        return;
-      }
-      // 浏览器为这个 # 记了一步:当成新的一步(打开分享的世界时换成它)
-      navAdopt(navInfo(getStage().stage, targetRef.current));
-      navUrl(location.pathname + location.search);
-      const at = getNav();
-      decodeShare(h).then((r) => {
-        if (sameScreen(getNav(), at)) openShareRef.current(r);
-      });
-    };
-    window.addEventListener('hashchange', onHash);
-    return () => {
-      stopNav();
-      window.removeEventListener('hashchange', onHash);
-      sim.dispose();
-    };
-    // 只在首次挂载时自动生成;之后由操作触发
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
 
   // ---- 改地形(阶段 4):地形修改、草图一变,就在后台带着新地形重新生成世界(连同当时的干预重推文明;
   // 州、历史整个重来,改名和干预按稳定键尽量套上)。写在干预的前面:同时变了的话,干预跟着这次生成一起推 ----
@@ -2228,17 +1646,6 @@ ${s.image.cells}` : null);
   const namesDoneRef = useRef(namesDone);
   namesDoneRef.current = namesDone;
 
-  /**
-   * 地图上这份历史推的时候带的(干预、地形大事、地名风格、推演年数、拓荒起源、逐年推演的进度)和这份修改不一样 = 下面那段要在后台重推。
-   * 和下面那段开头的判断一样(新建中的世界不看年数、拓荒起源、进度);读档时用:要重推的,改名等推完再核对
-   */
-  const historyBehind = (e: WorldEdits, isDraft: boolean) =>
-    !sameInterventions(e.interventions, civEdits.current) ||
-    !sameUpheavals(e.upheavals, civUps.current) ||
-    !sameMix(e.nameMix, civNames.current) ||
-    (!(isDraft && !targetRef.current?.fullCiv) && endParamOf(e) !== civYears.current) ||
-    !sameSetup(setupFor(isDraft && !targetRef.current?.fullCiv, e), civSetup.current) ||
-    JSON.stringify((isDraft ? undefined : cleanPlay(e.play)) ?? null) !== JSON.stringify(civPlay.current ?? null);
   // ---- 干预(阶段 4)、地形大事:干预列表或地形大事一变,就在后台带着新的重推文明(地形不动;变了的那一年以前和原来一样) ----
   useEffect(() => {
     const list = edits.interventions;
@@ -2515,139 +1922,6 @@ ${s.image.cells}` : null);
     if (!rawCiv || !cur || cur.kind === 'draft' || cur.id !== targetRef.current?.id || fresh.current) return;
     setWorldStats(aliveAtEnd(rawCiv));
   }, [rawCiv]);
-  /**
-   * 世界生成完(或要打开的就是正在看的这一个):套上 targetRef 的修改,交给 saveStore 自动存;
-   * 核对版本和地形,有问题就提示
-   */
-  readyRef.current = (world: World, rc: Civ) => {
-    lastReady.current = { world, civ: rc };
-    const t = targetRef.current;
-    if (!t || currentWorld()?.id === t.id) return;
-    renameCheck.current = null;
-    // 打不开的分享链接(世界还在生成时解开的):现在提示(单独一条,"已恢复"之类的排在它下面,关掉它再露出来)
-    const err = shareErr.current;
-    shareErr.current = null;
-    if (err) showToast({ id: 'share', kind: 'error', text: '打不开这个分享链接', more: [err] });
-    /** 提示条上的「看原样」/「到最新版打开」(世界变了样才有,见下面) */
-    let act: ToastAction | undefined;
-    const say = (n: Parameters<typeof notify>[0]) => n && notify({ ...n, more: n.more?.map((w) => briefWarning(oldSiteNote(w))), action: n.action ?? act });
-    const check = worldCheck(world);
-    // 投影和中央经线跟着世界存:换成存档里的(旧存档没有 = 等距圆柱、0°)
-    if (t.view !== undefined) applyView(t.view ?? undefined);
-    // 旧格式的键(r + 州号:GENERATOR_VERSION 2 以前的存档、链接)就地换成按地块的 c 格式,按这一刻的世界解析;
-    // 换过的话自动存会写回去(套上的修改和存下的不是同一个对象就会重写)
-    const sameT = sameTerrain(t.edits.terrain, genTerrain.current) && sameSketch(t.edits.sketch, genSketch.current);
-    const edits = sameT ? upgradeLegacyKeys(t.edits, keySeats(rc.regions)) : t.edits;
-    restoredIv.current = edits.interventions;
-    restoredUps.current = edits.upheavals;
-    // 同一张图换一份修改(打开同种子的另一份存档、分享链接)也算换了世界:正在填的标记、选中的标记作废
-    resetMarkUi();
-    resetCharacterUi();
-    setEdits(edits);
-    // 还没存着的旧版本世界(分享链接、旧网址、存不进浏览器的文件):原来那一份跟着(看原样;改了存进来时原样留着)
-    const original = t.from === 'url' ? (t.gen !== undefined ? plainSave(world.params, t.gen) : null) : t.from === 'link' || t.from === 'file' ? (t.save ?? null) : null;
-    // 照原样打开的旧世界:存档照旧记建它的那一版
-    const frozen = frozenLoad.current?.id === t.id ? frozenLoad.current.gen : undefined;
-    frozenLoad.current = null;
-    // 照原样打开的逐年推演的世界:原件就推到了"现在",不重推,直接停在"现在"
-    const fp = civPlay.current;
-    if (frozen !== undefined && fp && cleanPlay(edits.play)?.year === fp.year) {
-      enterStepwise(playFromOf(edits), playAt(fp) / YEAR_TICKS);
-      setCivTime({ year: playAt(fp) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
-    }
-    // 在旧版本建的世界的地图上打造文明:现在算出来的地图和它不一样,不让打造(这一份还没存,回到我的世界)
-    if (t.kind === 'draft' && t.mapCheck && t.mapCheck !== check) {
-      targetRef.current = null;
-      showHomeRef.current();
-      notify({ kind: 'error', text: '没法在这张地图上打造文明', more: ['这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
-      return;
-    }
-    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen });
-    if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
-    // 分享链接带着"这一刻":画面出来、带着的干预和逐年推演的进度重推完以后,停到那一年、选中、镜头飞过去(见 pendingMoment);
-    // 停在某一年就不再自动播放
-    if (t.from === 'link' && t.moment) {
-      if (t.moment.year !== undefined) takeAutoplay();
-      pendingMoment.current = { id: t.id, moment: t.moment };
-      // 打开的就是正在看的这张图(地址栏里又贴了一个分享链接):画面不会再变一次,也要停过去
-      setMomentTick((n) => n + 1);
-    }
-    const save = t.save;
-    // 刚另存的新版:说一声另存好了(原来那一份照原样留着)
-    const copy = savedCopy.current?.id === t.id ? savedCopy.current : null;
-    savedCopy.current = null;
-    if (copy) {
-      // 另存的那份带着要推演的命令时,接着就是"正在重新推演"那条:这条不自动收,推完露出来(右边可以关)
-      showToast({ id: 'save', kind: copy.more.length ? 'warn' : 'ok', dot: true, ttl: 0, dismissible: true, text: `已另存为「${t.title ?? ''}」`, more: [`原来的「${copy.from}」照原样留在我的世界里`, ...copy.more] });
-      return;
-    }
-    // 带种子的网址(别人发的普通链接):是旧版本画的就说清现在变了什么
-    if (t.from === 'url') {
-      const note = t.gen !== undefined ? versionNote(t.gen, false) : null;
-      act = versionAction(t.gen !== undefined ? plainSave(world.params, t.gen) : null);
-      if (note) say({ kind: 'warn', text: `已打开「种子 ${world.params.seed}」`, more: [note] });
-      return;
-    }
-    if (!save || !t.from) return;
-    // 照原样打开的:读档时"来自旧版本…"那句不对了(看到的就是原样)
-    const more: string[] = (t.warnings ?? []).filter((w) => frozen === undefined || !w.startsWith('来自旧版本'));
-    // 照原样打开的:看到的就是原来的样子,不说"变了什么"、不放「看原样」;同一个世界在这一版网站里只说一次(自动恢复的也说"已打开")
-    const told = frozen !== undefined && !toldFrozen(t.id);
-    if (told) {
-      more.push('这个世界是旧版本建的，照原样打开，新版的改动不影响它');
-      // 手机上按钮折成两行(按新版 / 另存一份,phone.css),中间留一个看不见的断点
-      act = { label: '按新版\u200b另存一份', act: 'save-new', onClick: () => saveAsNewRef.current() };
-    }
-    if (frozenBroken.current === t.id) more.push('原样的存档读不出来，按新版打开了');
-    frozenBroken.current = null;
-    const note = frozen !== undefined ? null : versionNote(save.generator, editedWorld(save.edits));
-    // 从文件、分享链接打开的,这句已经在读档的警告里
-    if (note && (t.from === 'stored' || t.from === 'restore')) more.push(note);
-    // 世界变了样(有"来自旧版本"这一句)才放「看原样」;旧网站里来自更新版本的放「到最新版打开」
-    if (note && more.includes(note)) act = versionAction(OLD_SITE !== null ? save : currentOriginal());
-    // 地形校验只在"生成时带的地形修改就是存档里的"时才核对
-    const cw = sameT ? checkWarning(save, check) : null;
-    if (cw) more.push(cw);
-    // 改名对不上的:这份历史还要按存档里的干预、地形大事、逐年推演的进度等在后台重推时(地图上先出来的是没带它们的),
-    // 改名的人物(和别的重推以后才有的)这会儿还没长出来,不在这里数,重推完按推好的历史再核对(renameCheck)
-    const later = sameT && Object.keys(edits.names).length > 0 && historyBehind(edits, getStage().stage === 'draft');
-    const lost = later ? 0 : lostRenames(rc, edits.names);
-    if (lost) more.push(lostRenamesNote(lost));
-    // 文明种子是打造文明时定的,不算"修改"
-    const n = editCount(save.edits) - (cleanCivSeed(save.edits.civSeed) !== undefined ? 1 : 0);
-    const name = save.title || `种子 ${world.params.seed}`;
-    // 提示条第一行。没有要说的就不提示的:没建完的世界接着建、分享的世界(地图下面那条说明已经讲了)、
-    // 从我的世界点开的(看到的就是它)、没改过的;从文件打开的、恢复了上次修改的照样说一声
-    const text =
-      t.kind === 'draft'
-        ? `已打开「${name}」`
-        : t.from === 'file'
-          ? `已打开存档「${name}」${n ? `(改了 ${n} 处)` : ''}`
-          : t.from === 'link'
-            ? `已打开分享的世界「${name}」`
-            : t.from === 'stored' || told || !n
-              ? `已打开「${name}」`
-              : `已恢复上次的修改(${n} 处)`;
-    const always = t.kind !== 'draft' && (t.from === 'file' || (t.from !== 'link' && t.from !== 'stored' && !told && n > 0));
-    // 重推完核对出对不上的:同一条提示补上那一句(打开时没提示的,这时提示)
-    if (later) renameCheck.current = { id: t.id, terrain: genTerrain.current, show: (line) => say({ kind: 'warn', text, more: [...more, line] }) };
-    if (more.length || always) say({ kind: more.length ? 'warn' : 'ok', text, more });
-  };
-  /** 换成存档里的投影和中央经线(没有 = 等距圆柱、0°;认不出的投影、还没做好的地球仪 = 等距圆柱);存档记了经纬网就换成它的 */
-  const applyView = (v: SaveView | undefined) => {
-    const want = v?.projection;
-    const p: MapProjection = isMapProjection(want) && (want !== 'globe' || GLOBE_READY) ? want : 'equirect';
-    const lon = v && Number.isFinite(v.center) ? wrapLon(v.center) : 0;
-    if (v?.graticule !== undefined) {
-      setGraticule(v.graticule > 0);
-      if (isGraticuleStep(v.graticule)) setGraticuleStep(v.graticule);
-    }
-    if (v?.contours !== undefined) setContourKind(v.contours || null);
-    // 先放中心(换投影时按它摆视图),再换投影;等距圆柱再把视图转过去
-    publishMapCenter(lon);
-    setProjection(p);
-    if (!isCurved(p)) requestMapCenter(lon);
-  };
   // 投影 / 中心 / 经纬网停下来约半秒:写进网址(刷新、复制网址都还在),已经存着的世界跟着重存一次
   useEffect(() => {
     const t = setTimeout(() => {
@@ -2668,178 +1942,6 @@ ${s.image.cells}` : null);
     }, 450);
     return cancelTimeout(t);
   }, [projection, mapCenter, graticule, contourKind]);
-  /** 现在这张图(或正在生成的)就是这组参数 + 草图 + 地形修改 */
-  const sameGen = (p: WorldParams, terrain: readonly TerrainOp[], sketch: SketchEdit | undefined) =>
-    !!genParams.current && worldKey(genParams.current) === worldKey(p) && sameTerrain(terrain, genTerrain.current) && sameSketch(sketch, genSketch.current);
-  /**
-   * 换到哪一步:新建 / 世界 / 我的世界。进新建时政区、民族换成地形(还没有历史),
-   * 离开新建时换回来;选中、概览、改地形属于上一步的,一起收起
-   */
-  const enterStage = (next: Stage, base: DraftBase | null = null) => {
-    const was = getStage().stage;
-    if (next !== 'home') closeTrash();
-    if (next !== was) {
-      clearSelection();
-      setPolityPick(null);
-      closeOverview();
-      setTerrainTool({ on: false });
-      closeUpheaval();
-      setHover(null);
-      clearToast('created');
-    }
-    // 进新建:默认实景(新建界面的开场就是实景;设过「新建时的默认」就是那个样式);原来的图层记下,不建就离开时换回来
-    if (next === 'draft' && was !== 'draft') {
-      pausePlayback();
-      const { base, fill } = mapViewRef.current;
-      // 原来就是卫星也记下:新建里换了别的样式、没建就离开,也换回卫星
-      draftViewRef.current ??= { base, fill };
-      const first = layerParts(getNewView()?.style ?? 'realistic');
-      if (base !== first.base || fill !== 'none') applyMapView({ base: first.base, fill: 'none' });
-    }
-    if (next !== 'draft' && draftViewRef.current) {
-      applyMapView(draftViewRef.current);
-      draftViewRef.current = null;
-    }
-    setStage(next, base);
-  };
-  /**
-   * 打开一个世界:要的就是正在看的这一张图(参数、地形都一样,比如从我的世界打开同一个种子的另一份、以它为底稿新建)就不重新生成,
-   * 直接换上它的修改;正在生成的就是它:等生成完;否则按它的参数生成
-   */
-  const openTarget = (t: Target, step: 'push' | 'replace' = 'push') => {
-    // 原来那个世界等着截的缩略图先截下来(同 generate)
-    flushThumb();
-    const info = navInfo(t.kind === 'draft' ? 'draft' : 'world', t);
-    if (step === 'push') navTo(info);
-    else navReplace(info);
-    setWorldSheet('peek');
-    enterStage(t.kind === 'draft' ? 'draft' : 'world', t.kind === 'draft' ? (t.base ?? null) : null);
-    if (t.kind === 'draft') setDraftTitle(t.title ?? '');
-    setParams(t.params);
-    // 照原样打开的旧世界和按新版生成的世界参数一样也不是同一个:都重新打开(旧的读原件;正在找原件、读原件的也不接着用)
-    if (sameGen(t.params, t.edits.terrain, t.edits.sketch) && !loadedFrozen.current && !genReq.current && !oldStored(t)) {
-      if (fresh.current) {
-        targetRef.current = t;
-        writeWorldUrl(t);
-        return;
-      }
-      const last = lastReady.current;
-      if (!regenRef.current && last && rawRef.current) {
-        detachWorld();
-        leaveStepwise();
-        targetRef.current = t;
-        readyRef.current(last.world, rawRef.current);
-        writeWorldUrl(t);
-        return;
-      }
-    }
-    generate(t);
-  };
-  /** 打开"我的世界"里的一个(没建完的回到新建) */
-  const openStored = (id: string) => {
-    const w = loadWorld(id);
-    if (!w) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
-    // 只存了地图的:不当世界打开,在我的世界的「地图」页签里选中它
-    if (w.map) {
-      showMapInWorlds(id);
-      if (getStage().stage !== 'home') showHome();
-      return;
-    }
-    navTo({ page: w.draft ? 'draft' : 'world', id, seed: w.draft ? w.save.params.seed : undefined, title: w.save.title });
-    // 下面一直开着的就是它、存的和开着的一样(没在别的页面里改过):不用重新打开
-    const cur = currentWorld();
-    const same =
-      !!cur &&
-      (cur.kind === 'draft') === w.draft &&
-      worldKey(cur.params) === worldKey(w.save.params) &&
-      (cur.title ?? '') === (w.save.title ?? '') &&
-      sameOrigin(cur.origin, w.save.origin) &&
-      JSON.stringify(getEdits()) === JSON.stringify(w.save.edits) &&
-      // 版本也得一样:开着的是照原样读的旧世界,存着的也得还是那一版;别的页面里换成了别的版本的存档(新版的、旧版的)= 重新打开
-      (cur.frozen === undefined || cur.frozen === w.save.generator) &&
-      (cur.wrote == null || genOfText(cur.wrote) === w.save.generator);
-    if (cur?.id === id && targetRef.current?.id === id && same) {
-      markOpened(id);
-      enterStage(w.draft ? 'draft' : 'world', w.draft ? (w.base ?? null) : null);
-      if (w.draft) setDraftTitle(w.save.title ?? '');
-      writeWorldUrl(targetRef.current);
-      return;
-    }
-    openTarget(storedTarget(w, 'stored'));
-  };
-  /** 从文件打开:存进"我的世界"(算建好的),再打开它;存不下就只打开、不存。「全部存成文件」存的:全部放回我的世界,不打开 */
-  const openText = (text: string, fileName?: string) => {
-    if (openBundleText(text, fileName)) return;
-    const r = parseSave(text);
-    if (!r.ok) {
-      notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个存档', more: [briefError(r.error)] });
-      return;
-    }
-    const id = importSave(r.save);
-    const w = id ? loadWorld(id) : null;
-    const t: Target = w
-      ? { ...storedTarget(w, 'stored'), view: r.save.view ?? null }
-      : { id: newWorldId(), kind: 'visit', params: r.save.params, edits: r.save.edits, title: r.save.title, view: r.save.view ?? null, save: r.save, origin: r.save.origin ?? null };
-    openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings });
-  };
-  /**
-   * 打开分享链接(解开以后):别人的世界,先不存;改了(或起了名)才存进"我的世界"。
-   * 短链接(short):改了另存时写明底稿出处(署名、这时的世界名、这个链接);长链接里没有分享人,不写。
-   * own:最新版和旧网站之间交过来的自己的世界:最新版里不出"别人分享给你的世界"那条说明(旧网站上那条换成旧网站的说法,照常出)
-   */
-  const openShare = (r: ParseResult, short?: { code: string; by?: string; moment?: SaveMoment | null }, own = false) => {
-    if (!r.ok) {
-      const msg = briefError(r.error);
-      // 世界还在生成:等生成完再说(生成时提示条上是进度)
-      if (currentWorld()) showToast({ id: 'share', kind: 'error', text: '打不开这个分享链接', more: [msg] });
-      else shareErr.current = msg;
-      return;
-    }
-    const sv = r.save;
-    const id = newWorldId();
-    const by = short ? cleanSignature(short.by) : '';
-    setSharedFor(own && OLD_SITE === null ? null : { id, short: !!short, by, own });
-    const origin: SaveOrigin | null = short ? { ...(by ? { by } : {}), title: sv.title ?? '', url: shortLink(short.code) } : null;
-    // 打开网页时、地址栏里贴的分享链接:浏览器已经记了这一步,换成这个世界
-    // 打开时看哪:长链接在存档里(读档时清理过);短链接在链接的 # 后面,按取到的存档再清理一次(年份超出这个世界的历史就不要)
-    const moment = sv.moment ?? (short?.moment ? cleanMoment(short.moment, momentYearMax(sv.edits)) : null);
-    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin, moment }, 'replace');
-  };
-  /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
-  const openShortShare = (code: string, still?: () => boolean) => {
-    if (!serverBase() || !SHARE_CODE_RE.test(code)) return setLanding('gone');
-    showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界' });
-    openShareCode(code)
-      .then((r) => {
-        // 按后退 / 前进取的:取回来之前又换到了别的画面,不打开(提示条那边换画面时已经收掉了)
-        if (still && !still()) return;
-        clearToast('share');
-        const p = parseSave(JSON.stringify(r.save));
-        if (!p.ok) return setLanding({ error: briefError(p.error) });
-        setLanding(null);
-        // 短链接后面带的"打开时看哪"只在打开网页时那一次用(按后退、前进再取的照平常打开);用了就从地址栏去掉
-        const moment = shortMoment.current;
-        shortMoment.current = null;
-        if (moment && isMomentHash(location.hash)) navUrl(location.pathname + location.search);
-        openShareRef.current(p, { code, by: r.by, moment });
-      })
-      .catch((e) => {
-        if (still && !still()) return;
-        clearToast('share');
-        if (e instanceof ServerError && (e.code === 'share-gone' || e.code === 'not-found')) setLanding('gone');
-        else setLanding({ error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后刷新再试。' : e instanceof Error ? e.message : String(e) });
-      });
-  };
-  const openShareRef = useRef(openShare);
-  openShareRef.current = openShare;
-  /** 打开网页时短链接后面带的"打开时看哪"(取到存档时用掉) */
-  const shortMoment = useRef<SaveMoment | null>(init.moment);
-  /** 朋友的预设链接解开以后:选上分享来的那一套(不存);打不开的说一声(照常停在我的世界),有个别参数不对的也说一声 */
-  const presetOpened = (r: PresetLinkResult) => {
-    if (!r.ok) return notify({ kind: 'error', text: '打不开这个预设链接', more: [r.error] });
-    pickSharedPreset(r.preset);
-    if (r.warnings.length) notify({ kind: 'warn', text: `已打开朋友分享的预设「${r.preset.name}」`, more: r.warnings });
-  };
   /** 换到作品墙的一页(盖在我的世界的位置上):停下正在放的,网址换成作品墙的 */
   const enterWall = (v: WallView, id: string) => {
     wallSeq.current++;
@@ -2911,7 +2013,6 @@ ${s.image.cells}` : null);
     pickSharedPreset(p);
     setNewDlg({ ...presetDialog(p), stamp: performance.now() });
   };
-  const wallRef = useRef({ open: openWork, list: showGallery });
   wallRef.current = { open: openWork, list: showGallery };
   /** 新建世界(我的世界右上、第一次来、分享停了的那一页):先弹窗选怎么生成、定基础参数 */
   const startDraft = () => setNewDlg({});
@@ -3192,7 +2293,6 @@ ${s.image.cells}` : null);
     writeHomeUrl();
   };
   const goHome = showHome;
-  const showHomeRef = useRef(showHome);
   showHomeRef.current = showHome;
   const openStoredRef = useRef(openStored);
   openStoredRef.current = openStored;
@@ -3208,10 +2308,9 @@ ${s.image.cells}` : null);
     const id = saveAsNewVersion(c.id, edits ?? getEdits());
     if (!id) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
     const more = copyNotes(c.id, id) ? [] : ['AI 写的史书、名字由来没能一起存下（浏览器存储已满）'];
-    savedCopy.current = { id, from, more };
+    openRefs.savedCopy.current = { id, from, more };
     openStoredRef.current(id);
   };
-  const saveAsNewRef = useRef(saveAsNewNow);
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
     setSaveAsNew((e) => saveAsNewRef.current(e));
@@ -3729,7 +2828,6 @@ ${s.image.cells}` : null);
     if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
     return showHome();
   };
-  const navRef = useRef<NavHooks>(null as unknown as NavHooks);
   navRef.current = { route: routeNav, describe: describeNav, settled: settledId, apply: (l) => (shownRaw ? applyNavLayer(shownRaw, l) : {}) };
   // 只是看看的世界改了第一笔、新建中的动了第一下,就存下了:网址换成 w=编号,刷新还回到它
   useEffect(() => {
