@@ -91,8 +91,8 @@ import { fexp, flog, fpow, keyed, keyed4, round24, subSeed } from './engine/rand
 import { bookChain, LOOK_K, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, regentOf, rulerOf, type PolityModel } from './polities';
 import { reignBorn } from './rulers';
-import { ADULT } from './regents';
-import { FOE_ODDS, FRIEND_JOIN } from './policy';
+import { REGENTS_KNOBS } from './regents';
+import { POLICY_KNOBS } from './policy';
 import { capitalAt, populationAt } from './growth';
 import { regionPasses } from './passes';
 import type { InterventionModel } from './interventions';
@@ -104,7 +104,7 @@ import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const WARS_KNOBS = defineKnobs('wars', {
   /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
   CHECK_FIRST: 40,
@@ -254,8 +254,8 @@ export const WARS_KNOBS = defineKnobs('wars', {
   WINTER_JITTER: 0.06,
   WINTER_ALWAYS: 0.9,
 });
-const { CHECK_FIRST, CHECK_EVERY, WAR_ODDS, LOCAL_EXP, FOREIGN, BORDER_FULL, REST, TRUCE, MAX_WARS, TWO_FRONTS, GAP, LENGTH, STALL, PREY, PREY_ODDS, MIN_STATE, SURRENDER_POWER, SURRENDER_SHARE, MAX_CUT, PROJECT, DEFENSE, CAPITAL_DEF, HOME_DEF, KIN_ATTACK, P_MIN, P_MAX, COUNTER, BREAK, BREAK_MAX, GOAL, CRUSH, CRUSH_GOAL, REVANCHE, REGAIN, ALLY_JOIN, PROTECT_KEEP, PROTECT_DEF, CHAOS_YEARS, PREY_CALM, BROKE_CUT, BROKE_PEACE, BROKE_LENGTH, PURSE_0, REVOLT_LENGTH, PREY_UNREST, DIVERT, DIVERT_U, DIVERT_STEP, PREY_HIGH, LORD_PREY, LORD_PREY_MAX, BLIGHT_MIN, BLIGHT_FULL, BLIGHT_PREY, WEAK_PREY, PLUNDER_FLOOR, RICH, RES_WANT, RES_MAX, RES_TARGET, STAND, STAND_DAYS, STAND_SLAIN, STAND_TAKEN, GRUDGE, GRUDGE_YEARS, REVENGE_LOOK, CEDE, CEDE_I, CHAIN_MIN, CHAIN_LOOK, WINTER_T, WINTER_JITTER, WINTER_ALWAYS } = WARS_KNOBS.values;
-export const { NEWBORN, CAPITAL_GRACE, HOLD } = WARS_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type WarsKnobs = typeof WARS_KNOBS.values;
 /** 复仇多看的那一眼的"第几次"从这里往上数(+ 战争编号;和照大纲多看的一眼 LOOK_K 往上那一段分开) */
 const REVENGE_K = 1 << 28;
 /** 连续吞并多看的那一眼的"第几次"从这里往上数(+ 战争编号;和复仇之眼 REVENGE_K 往上那一段分开) */
@@ -299,6 +299,8 @@ export interface War {
 }
 
 export interface WarModel {
+  /** 这次推演的那套数里战争这张表 */
+  k: WarsKnobs;
   pm: PolityModel;
   base: number;
   wars: War[];
@@ -341,6 +343,7 @@ const pairKey = (a: number, b: number) => Math.min(a, b) * 32768 + Math.max(a, b
 /** 国家 p 第 k 次看邻国的时刻 */
 function checkTime(wm: WarModel, p: number, k: number): number {
   const P = wm.pm.polities[p];
+  const { CHECK_FIRST, CHECK_EVERY } = wm.k;
   return P.founded + CHECK_FIRST + CHECK_EVERY * (k + 0.2 + 0.6 * keyed(wm.base, wm.pm.ptag[p], k, U_CHECK_T));
 }
 
@@ -352,21 +355,25 @@ function warRand(wm: WarModel, w: War, x: number, use: number): number {
 
 /** 第 i 仗之前隔几年 */
 function gapOf(wm: WarModel, w: War, i: number): number {
+  const { GAP } = wm.k;
   return GAP[0] + (GAP[1] - GAP[0]) * warRand(wm, w, i, U_GAP);
 }
 
 /** 这场战争想拿下几州(战争目标;达成就议和,灭国之战除外) */
 function goalOf(wm: WarModel, w: War): number {
+  const { GOAL } = wm.k;
   return GOAL[0] + Math.floor((GOAL[1] - GOAL[0] + 1) * warRand(wm, w, 0, U_GOAL));
 }
 
 /** 这场战争最多打几年 */
 function lengthOf(wm: WarModel, w: War): number {
+  const { LENGTH } = wm.k;
   return LENGTH[0] + (LENGTH[1] - LENGTH[0]) * warRand(wm, w, 0, U_LENGTH);
 }
 
 function newModel(pm: PolityModel): WarModel {
   return {
+    k: pm.knobs.get(WARS_KNOBS),
     pm,
     base: subSeed(pm.seed, 'civ-war'),
     wars: [],
@@ -393,16 +400,18 @@ function grudgeOf(w: War, civil: boolean): { lose: number; win: number; n: numbe
 
 /** 战争 w 议和(t 那一刻)后,替输的一方多看一眼邻国的时刻:停战期满后再过 REVENGE_LOOK 里随机的几年 */
 function revengeTime(wm: WarModel, w: War, t: Year): number {
+  const { TRUCE, REVENGE_LOOK } = wm.k;
   return t + TRUCE + REVENGE_LOOK[0] + (REVENGE_LOOK[1] - REVENGE_LOOK[0]) * warRand(wm, w, 0, U_REVENGE);
 }
 
 /** 连续吞并:这场仗议和时赢家净得的州够多(大胜),它不歇、几年后再看一眼邻国 */
-function chains(g: { n: number } | null): boolean {
-  return !!g && g.n >= CHAIN_MIN;
+function chains(wm: WarModel, g: { n: number } | null): boolean {
+  return !!g && g.n >= wm.k.CHAIN_MIN;
 }
 
 /** 战争 w 议和(t 那一刻)后,替大胜的一方多看一眼邻国的时刻:再过 CHAIN_LOOK 里随机的几年 */
 function chainTime(wm: WarModel, w: War, t: Year): number {
+  const { CHAIN_LOOK } = wm.k;
   return t + CHAIN_LOOK[0] + (CHAIN_LOOK[1] - CHAIN_LOOK[0]) * warRand(wm, w, 0, U_CHAIN);
 }
 
@@ -423,6 +432,9 @@ export function warModelOf(sim: CivSim): WarModel | undefined {
 
 /** 登记战争的事件处理和监听(installPolities 之后调用) */
 export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarModel = newModel(pm)): WarModel {
+  const { PROJECT, KIN_ATTACK, HOME_DEF, CAPITAL_DEF, PROTECT_DEF, P_MAX, P_MIN, CAPITAL_GRACE, PROTECT_KEEP, HOLD, DEFENSE, REGAIN, RES_TARGET, MAX_CUT, MIN_STATE, CEDE_I, SURRENDER_SHARE, SURRENDER_POWER, ALLY_JOIN, TWO_FRONTS, REST, BROKE_CUT, PURSE_0, PLUNDER_FLOOR, TRUCE, NEWBORN, MAX_WARS, CRUSH, WAR_ODDS, LOCAL_EXP, BORDER_FULL, FOREIGN, REVANCHE, PREY, PREY_ODDS, GRUDGE_YEARS, GRUDGE, RES_WANT, RES_MAX, RICH, DIVERT, DIVERT_U, DIVERT_STEP, CHAOS_YEARS, PREY_UNREST, PREY_CALM, PREY_HIGH, WEAK_PREY, BLIGHT_MIN, BLIGHT_PREY, BLIGHT_FULL, LORD_PREY, LORD_PREY_MAX, STAND, STAND_DAYS, STAND_SLAIN, STAND_TAKEN, WINTER_T, WINTER_ALWAYS, WINTER_JITTER, BREAK_MAX, BREAK, COUNTER, STALL, BROKE_LENGTH, BROKE_PEACE, REVOLT_LENGTH, CRUSH_GOAL, CEDE } = wm.k;
+  const { FOE_ODDS, FRIEND_JOIN } = pm.knobs.get(POLICY_KNOBS);
+  const { ADULT } = pm.knobs.get(REGENTS_KNOBS);
   const api = civApi(sim);
   models.set(sim, wm);
   const T = pm.terrain;
@@ -656,7 +668,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       if (pm.polities[g.lose].ended === undefined) sim.schedule(revengeTime(wm, w, t), Ev.WarCheck, REVENGE_K + w.id, g.lose);
     }
     // 连续吞并:大胜的一方不歇,几年后再看一眼邻国
-    if (chains(g) && pm.polities[g!.win].ended === undefined) {
+    if (chains(wm, g) && pm.polities[g!.win].ended === undefined) {
       wm.rest.delete(g!.win);
       sim.schedule(chainTime(wm, w, t), Ev.WarCheck, CHAIN_K + w.id, g!.win);
     }
@@ -1179,7 +1191,7 @@ export function resumeWars(sim: CivSim, world: World, civ: Civ): void {
       }
       // 连续吞并:大胜的一方(议和那一刻还在)不歇
       const W = g ? pm.polities[g.win] : undefined;
-      if (chains(g) && W && (W.ended === undefined || W.ended > e.year)) {
+      if (chains(wm, g) && W && (W.ended === undefined || W.ended > e.year)) {
         wm.rest.delete(g!.win);
         looks.push([w!, g!.win, e.year, true]);
       }

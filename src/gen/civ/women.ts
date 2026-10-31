@@ -36,10 +36,10 @@ import { broodOf, type Son } from './royals';
 import { leaningEffect, reignBorn, reignStep, type Reign } from './rulers';
 import type { Person, Polity, Year } from './types';
 import { royalSeg, segLineage } from './regime';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参 ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const WOMEN_KNOBS = defineKnobs('women', {
   /** 女君亲生的孩子要生在她这个岁数之间 */
   FERTILE: [16, 45] as [number, number],
@@ -54,7 +54,6 @@ export const WOMEN_KNOBS = defineKnobs('women', {
   /** 名字少的语感用满了以后:至少和前后这么多年里出生的同名人物错开(同 people.ts) */
   NAME_GAP: 300,
 });
-const { FERTILE, GEN_AGE, BRIDGE_GAP, POSTHUMOUS, REUSE, NAME_TRIES, NAME_GAP } = WOMEN_KNOBS.values;
 
 /** 语感分几类(讨论比例用) */
 type Group = 'central' | 'xianxia' | 'frontier' | 'mythic' | 'western';
@@ -95,6 +94,8 @@ const groupOf = (style: string): Group =>
   style === 'central' || style === 'xianxia' || style === 'frontier' || style === 'mythic' ? style : 'western';
 
 export interface WomenCtx {
+  /** 这个世界的那套数 */
+  knobs: KnobSet;
   seed: number;
   polities: readonly Polity[];
   /** 国家的位置锚(同 rulers.ts) */
@@ -167,14 +168,15 @@ export function debutSex(x: Person, ctx: WomenCtx): 'male' | 'female' | undefine
  * (临朝的太后的丈夫里出道时说不准的那几位,people.ts 给)
  */
 export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: ReadonlySet<Person> = new Set()): Set<Person> {
-  const { polities, tag } = ctx;
+  const { polities, tag, knobs } = ctx;
+  const { FERTILE, GEN_AGE, BRIDGE_GAP, POSTHUMOUS } = knobs.get(WOMEN_KNOBS);
   const women = new Set<Person>();
   if (!people.length) return women;
   const { sonOf, exMinister, kind, R, group, reignsOf } = prep(ctx);
   /** 一位寻常君主命里该有的儿子的生年;寿数(预定的继承人不知道,当一直在世) */
   const broodYears = (r: Reign | undefined, pid: number): { born: Year; life: Year }[] => {
     if (!r || r.crown || !polities[pid]) return [];
-    const b = broodOf(ctx.rbase, tag[pid] ?? 0, r, polities[pid]);
+    const b = broodOf(knobs, ctx.rbase, tag[pid] ?? 0, r, polities[pid]);
     return [...(b.heir !== undefined ? [{ born: b.heir, life: Infinity }] : []), ...b.extra.map((e) => ({ born: e.born, life: e.life }))];
   };
   const same = (a: Year, b: Year) => Math.abs(a - b) < 1e-6;
@@ -187,7 +189,7 @@ export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: Re
     if (!r || r.crown || !P) return true;
     const ok = (b: Year) => b - x.born >= FERTILE[0] && b - x.born <= FERTILE[1] && b <= r.natural;
     if (!broodYears(r, x.polity).every((c) => ok(c.born))) return false;
-    const hb = r.natural - reignStep(ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).age;
+    const hb = r.natural - reignStep(knobs, ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).age;
     if (hb - x.born < BRIDGE_GAP) return true;
     const lo = Math.max(x.born + GEN_AGE[0], hb - GEN_AGE[1]);
     const hi = Math.min(r.natural + POSTHUMOUS, hb - GEN_AGE[0]);
@@ -218,7 +220,7 @@ export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: Re
     const r = ctx.reignOf.get(s.father);
     const P = polities[s.father.polity];
     if (!r || !P) return undefined;
-    const st = reignStep(ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind);
+    const st = reignStep(knobs, ctx.rbase, tag[P.id] ?? 0, r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind);
     const next: Reign = { k: r.k + 1, dynasty: r.dynasty, j: r.j + 1, from: r.natural, age: st.age, natural: st.natural, leanings: st.leanings, eff: leaningEffect(st.leanings) };
     return same(reignBorn(next), s.p.born) ? next : undefined;
   };
@@ -269,6 +271,7 @@ export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: Re
  */
 export function nameWomen(people: Person[], ctx: WomenCtx, women: ReadonlySet<Person>, consorts: ReadonlyMap<Person, ConsortName> = new Map()): void {
   const { polities, tag } = ctx;
+  const { REUSE, NAME_TRIES, NAME_GAP } = ctx.knobs.get(WOMEN_KNOBS);
   if (!people.length || (!women.size && !consorts.size)) return;
   const { sonOf, exMinister, home, kind, R, reignsOf } = prep(ctx);
   const reigns = reignsOf(people);

@@ -32,6 +32,7 @@ import {
   type AppointIv,
 } from '../src/ui/authorIvInfo';
 import type { Pending } from '../src/ui/pendingStore';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 const LEAN = { expand: 35, war: 25, develop: 70, trade: 60 };
 
@@ -198,16 +199,16 @@ describe('名臣的官(照推演里名臣的升法)', () => {
     expect(lad.start).not.toBe(lad.top);
     const d = (year: number): PersonDeed => ({ kind: 'peace', year });
     // 没经手事:就是入朝那个官
-    expect(deedPosts(P, T, [], () => false)).toEqual({ posts: [{ title: lad.start, from: T }] });
+    expect(deedPosts(OFFICIAL_KNOBS, P, T, [], () => false)).toEqual({ posts: [{ title: lad.start, from: T }] });
     // 经手两件:做到最高(议和升的尚书是礼部)
-    const two = deedPosts(P, T, [d(T + 3), d(T + 9), d(T + 12)], () => false);
+    const two = deedPosts(OFFICIAL_KNOBS, P, T, [d(T + 3), d(T + 9), d(T + 12)], () => false);
     expect(two.posts.length).toBe(3);
     expect(two.posts[1].from).toBeCloseTo(T + 3 + 1 / 256, 9);
     expect(two.posts[2]).toEqual({ title: lad.top, from: T + 9 + 1 / 256 });
     expect(two.top).toEqual({ title: lad.top, at: T + 9 + 1 / 256 });
     if (lad.start === '侍郎') expect(two.posts[1].title).toBe('礼部尚书');
     // 已有作者的名臣做着最高的:写次一级,不算升到最高
-    const held = deedPosts(P, T, [d(T + 3), d(T + 9)], () => true);
+    const held = deedPosts(OFFICIAL_KNOBS, P, T, [d(T + 3), d(T + 9)], () => true);
     expect(held.posts.at(-1)!.title).not.toBe(lad.top);
     expect(held.top).toBeUndefined();
   });

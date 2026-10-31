@@ -26,6 +26,7 @@ import { personName, rulerShort } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';
 import { postAt } from '../gen/civ/story/officialText';
 import { authorMinisterLadder, courtDeeds } from '../gen/civ/officials';
+import { knobsOf } from '../gen/civ/knobs';
 import { regimeAt, royalAt } from '../gen/civ/regime';
 import { appointEnd, appointPreview, type AuthorPost } from '../gen/civ/appoint';
 import {
@@ -774,7 +775,7 @@ export function MinisterPage({ civ, raster, world, year, c, polity, from: preset
   const deeds = useMemo(() => {
     if (!pre || !P) return [];
     const rs = peopleIndex(civ).rulers[P.id] ?? [];
-    return courtDeeds({ annals: civ.annals, polities: civ.polities, upheavals: civ.upheavals }, P, pre.dynasty, pre.from, pre.until ?? civ.endYear, rs).map((d) => d.deed);
+    return courtDeeds({ knobs: knobsOf(civ), annals: civ.annals, polities: civ.polities, upheavals: civ.upheavals }, P, pre.dynasty, pre.from, pre.until ?? civ.endYear, rs).map((d) => d.deed);
   }, [civ, pre, P]);
   // 那年在朝的推演名臣
   const court = useMemo(

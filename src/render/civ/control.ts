@@ -10,6 +10,7 @@
 import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlTier } from '../../gen/civ/control';
 import { cutDone } from '../../gen/civ/councilRules';
+import { knobsOf } from '../../gen/civ/knobs';
 import { polityName } from '../../gen/civ/growth';
 import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { numBase, numCiv, type NumLayer } from './numLayer';
@@ -44,7 +45,8 @@ export function controlTiersAt(civ: Civ, year: Year, out?: Int16Array): Int16Arr
   const R = civ.regions.count;
   const res = out && out.length === R ? out : new Int16Array(R);
   const snap = controlAt(civ, year);
-  for (let r = 0; r < R; r++) res[r] = !snap || !snap[r] ? -1 : controlTier(snap[r]);
+  const knobs = knobsOf(civ);
+  for (let r = 0; r < R; r++) res[r] = !snap || !snap[r] ? -1 : controlTier(knobs, snap[r]);
   return res;
 }
 
@@ -52,7 +54,7 @@ export function controlTiersAt(civ: Civ, year: Year, out?: Int16Array): Int16Arr
 export function controlOf(civ: Civ, year: Year, r: number): { share: number; tier: number } | null {
   const v = controlAt(civ, year)?.[r];
   if (!v) return null;
-  return { share: controlShare(v), tier: controlTier(v) };
+  return { share: controlShare(v), tier: controlTier(knobsOf(civ), v) };
 }
 
 let countTiers: Int16Array | undefined;
@@ -69,9 +71,10 @@ export const CONTROL_LAYER: NumLayer = {
   step: CONTROL_STEP,
   sampler(civ) {
     const R = civ.regions.count;
+    const knobs = knobsOf(civ);
     return (y, into) => {
       const snap = controlAt(civ, y);
-      for (let r = 0; r < R; r++) into[r] = !snap || !snap[r] ? -1 : controlTier(snap[r]);
+      for (let r = 0; r < R; r++) into[r] = !snap || !snap[r] ? -1 : controlTier(knobs, snap[r]);
     };
   },
   counts(civ, year) {

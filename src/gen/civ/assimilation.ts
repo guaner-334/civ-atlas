@@ -62,7 +62,7 @@ import { Ev } from './events';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const ASSIMILATION_KNOBS = defineKnobs('assimilation', {
   /** 立国后多少年开始看民族;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
   CHECK_FIRST: 50,
@@ -140,8 +140,6 @@ export const ASSIMILATION_KNOBS = defineKnobs('assimilation', {
   /** 过界系数(按 AdjKind:平地、跨河、翻山、海峡、航线) */
   CROSS: [1, 1.2, 2, 2, 3],
 });
-const { CHECK_FIRST, CHECK_EVERY, MIN_RULE, FULL_RULE, RATE, REACH, CAPITAL_KIN, STRONG_SHARE, SIZE_REF, SIZE_MIN, SIZE_MAX, REVERSE_SHARE, REVERSE_MAJ, REVERSE_K, TREK_SHARE, TREK_MAJ, TREK_K, RESIST_STEPPE, RESIST_HIGH, HIGH_ELEV, RESIST_FOREST, RESIST_ISLAND, NOMAD_FARMLAND, ENCLAVE_EVERY, ENCLAVE_F, ENCLAVE_HOLD, ENCLAVE_RATE, STRAIT_BORDER, DIV_FIRST, DIV_EVERY, DIV_MIN_GEO, DIV_MIN_POL, DIV_AGE, DIV_SETTLED, DIV_AGE_GEO, DIV_SETTLED_GEO, DIV_RULE, DIV_P, SETTLE_P, SETTLE_FOREST, SETTLE_MAX, FLIGHT_ODDS, FLIGHT_NOMAD, FLIGHT_FALL, FLIGHT_RATIO, FLIGHT_MAX, FLIGHT_REACH, TO_EMPTY, TO_TRIBAL, TO_KIN_STATE, CROSS } = ASSIMILATION_KNOBS.values;
-export const { HOLD, DIV_MAX } = ASSIMILATION_KNOBS.values;
 
 
 
@@ -181,6 +179,7 @@ export interface AssimModel {
 }
 
 function newModel(pm: PolityModel, wm: WarModel, cultures: Culture[], world: World): AssimModel {
+  const { DIV_MAX } = pm.knobs.get(ASSIMILATION_KNOBS);
   const reg = pm.terrain.regions;
   const R = reg.count;
   return {
@@ -197,16 +196,19 @@ function newModel(pm: PolityModel, wm: WarModel, cultures: Culture[], world: Wor
 
 /** 第 k 次看分化的时刻 */
 function divergeTime(am: AssimModel, k: number): number {
+  const { DIV_FIRST, DIV_EVERY } = am.pm.knobs.get(ASSIMILATION_KNOBS);
   return DIV_FIRST + DIV_EVERY * (k + 0.2 + 0.6 * keyed(am.base, k, 0, U_DIVERGE_T));
 }
 
 /** 国家 p 第 k 次看民族的时刻 */
 function checkTime(am: AssimModel, p: number, k: number): number {
+  const { CHECK_FIRST, CHECK_EVERY } = am.pm.knobs.get(ASSIMILATION_KNOBS);
   return am.pm.polities[p].founded + CHECK_FIRST + CHECK_EVERY * (k + 0.2 + 0.6 * keyed(am.base, am.pm.ptag[p], k, U_CHECK_T));
 }
 
 /** 第 k 次看孤地的时刻 */
 function enclaveTime(am: AssimModel, k: number): number {
+  const { ENCLAVE_EVERY } = am.pm.knobs.get(ASSIMILATION_KNOBS);
   return ENCLAVE_EVERY * (k + 0.2 + 0.6 * keyed(am.base, k, 0, U_ENCLAVE_T));
 }
 
@@ -233,6 +235,7 @@ export function installAssimilation(sim: CivSim, pm: PolityModel, world: World):
 }
 
 function hook(sim: CivSim, am: AssimModel): void {
+  const { HOLD, SETTLE_P, SETTLE_FOREST, SETTLE_MAX, TO_EMPTY, TO_TRIBAL, TO_KIN_STATE, CROSS, FLIGHT_REACH, RESIST_STEPPE, HIGH_ELEV, RESIST_HIGH, RESIST_FOREST, RESIST_ISLAND, SIZE_MAX, SIZE_MIN, SIZE_REF, DIV_MAX, TREK_SHARE, TREK_MAJ, REVERSE_SHARE, REVERSE_MAJ, REVERSE_K, TREK_K, STRONG_SHARE, MIN_RULE, CAPITAL_KIN, REACH, NOMAD_FARMLAND, FULL_RULE, RATE, FLIGHT_ODDS, FLIGHT_NOMAD, FLIGHT_FALL, FLIGHT_MAX, FLIGHT_RATIO, ENCLAVE_HOLD, STRAIT_BORDER, ENCLAVE_F, ENCLAVE_RATE, DIV_MIN_GEO, DIV_MIN_POL, DIV_AGE_GEO, DIV_AGE, DIV_RULE, DIV_SETTLED_GEO, DIV_SETTLED, DIV_P } = am.pm.knobs.get(ASSIMILATION_KNOBS);
   models.set(sim, am);
   const { pm, wm, cultures, since, count } = am;
   const T = pm.terrain;

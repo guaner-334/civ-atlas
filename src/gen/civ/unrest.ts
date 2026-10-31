@@ -77,10 +77,10 @@ import { royalSeg } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const UNREST_KNOBS = defineKnobs('unrest', {
   /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
   REACH: 12,
@@ -176,7 +176,6 @@ export const UNREST_KNOBS = defineKnobs('unrest', {
   PIECE_SIZE: 12,
   PIECE_MIN: 3,
 });
-const { REACH, FAR_0, FAR_W, FOREIGN_W, AGE_0, AGE_SPAN, AGE_W, NEW_YEARS, NEW_W, FAMINE_YEARS, FAMINE_FULL, FAMINE_FULL_MIN, FAMINE_W, PLAGUE_YEARS, PLAGUE_FULL, PLAGUE_W, BLIGHT_YEARS, REVOLT_W, FAMINE_FIRST, FAMINE_EVERY, CLUSTER_PER, CLUSTER_HOPS, SEV, HOP_FADE, P_BASE, P_FULL, SOIL_W, LOSS, FAMINE_REST, SPRING_HALF, SPRING, REVOLT_STATE, REVOLT_ODDS, REVOLT_K, REVOLT_U0, REVOLT_MAX, REVOLT_MIN, REVOLT_FRAC, REBEL_MORALE, REBEL_FADE, COURT_MORALE, CLAIM_STATE, CLAIM_ODDS, CLAIM_MORE, CLAIM_K, CLAIM_U0, CLAIM_FRAC, CLAIM_MAX, CLAIM_MIN, CLAIM_MORALE, CLAIM_FADE, CLAIM_COURT, COLLAPSE_MIN, COLLAPSE_AGE, COLLAPSE_REST, COLLAPSE_ODDS, COLLAPSE_K, COLLAPSE_U0, HEG_GATE, HEG_0, HEG_SPAN, HEG_W, KEEP, PIECE_SIZE, PIECE_MIN } = UNREST_KNOBS.values;
 
 
 
@@ -235,11 +234,13 @@ export function unrestModelOf(sim: CivSim): UnrestModel | undefined {
 
 /** 第 k 次看年景的时刻 */
 function famineTime(um: UnrestModel, k: number): number {
+  const { FAMINE_FIRST, FAMINE_EVERY } = um.pm.knobs.get(UNREST_KNOBS);
   return FAMINE_FIRST + FAMINE_EVERY * (k + 0.2 + 0.6 * keyed(um.base, k, 0, U_FAM_T));
 }
 
 /** 第 k 次看年景之后,半球 h(1 = 北,2 = 南)冬夏分明的地方闹春荒的时刻:看年景那一刻以后头一个春荒 */
 function springTime(um: UnrestModel, k: number, h: number): number {
+  const { SPRING } = um.pm.knobs.get(UNREST_KNOBS);
   const t0 = famineTime(um, k);
   const at = Math.floor(t0) + COLDEST_NORTH + (h === 2 ? 0.5 : 0) + SPRING[0] + (SPRING[1] - SPRING[0]) * keyed(um.base, k, h, U_SPRING);
   return quantize(at) > quantize(t0) ? at : at + 1;
@@ -251,11 +252,15 @@ function dynastyStart(p: Polity): Year {
   return d && d.length ? d[d.length - 1].year : p.founded;
 }
 
-/** 动荡的规则用到的常数(stateTables.ts 的「动荡」) */
-export const UNREST_CONSTS: UnrestRuleConsts = { FAR_0, FAR_W, FOREIGN_W, AGE_0, AGE_SPAN, AGE_W, NEW_YEARS, NEW_W, FAMINE_FULL, FAMINE_FULL_MIN, FAMINE_W, PLAGUE_FULL, PLAGUE_W, REVOLT_W };
+/** 动荡的规则用到的常数(stateTables.ts 的「动荡」;按这个世界的那套数) */
+export function unrestConsts(knobs: KnobSet): UnrestRuleConsts {
+  const { FAR_0, FAR_W, FOREIGN_W, AGE_0, AGE_SPAN, AGE_W, NEW_YEARS, NEW_W, FAMINE_FULL, FAMINE_FULL_MIN, FAMINE_W, PLAGUE_FULL, PLAGUE_W, REVOLT_W } = knobs.get(UNREST_KNOBS);
+  return { FAR_0, FAR_W, FOREIGN_W, AGE_0, AGE_SPAN, AGE_W, NEW_YEARS, NEW_W, FAMINE_FULL, FAMINE_FULL_MIN, FAMINE_W, PLAGUE_FULL, PLAGUE_W, REVOLT_W };
+}
 
 /** 动荡的输入里归这里管的几样(此刻):当朝几年、近年闹饥荒 / 染疫的州数、在讨伐的民变有几处 */
 export function unrestInputs(um: UnrestModel, P: Polity, t: Year): { age: number; famine: number; plague: number; quell: number } {
+  const { FAMINE_YEARS, PLAGUE_YEARS } = um.pm.knobs.get(UNREST_KNOBS);
   const pid = P.id;
   const recent = (l: { year: Year; n: number }[] | undefined, span: number) => {
     let n = 0;
@@ -282,6 +287,7 @@ export function installUnrest(sim: CivSim, pm: PolityModel, seed: number, world:
 }
 
 function hook(sim: CivSim, um: UnrestModel, world: World): void {
+  const { SPRING_HALF, BLIGHT_YEARS, CLAIM_MORALE, CLAIM_FADE, REBEL_MORALE, REBEL_FADE, CLAIM_COURT, COURT_MORALE, CLAIM_STATE, CLAIM_ODDS, CLAIM_MORE, CLAIM_K, CLAIM_U0, REACH, CLAIM_MAX, CLAIM_MIN, CLAIM_FRAC, CLUSTER_PER, CLUSTER_HOPS, SEV, FAMINE_REST, HOP_FADE, P_BASE, P_FULL, SOIL_W, LOSS, REVOLT_STATE, REVOLT_ODDS, REVOLT_K, REVOLT_U0, REVOLT_MAX, REVOLT_MIN, REVOLT_FRAC, COLLAPSE_MIN, COLLAPSE_AGE, COLLAPSE_REST, HEG_GATE, HEG_W, HEG_0, HEG_SPAN, COLLAPSE_ODDS, COLLAPSE_K, COLLAPSE_U0, KEEP, PIECE_SIZE, PIECE_MIN, FAMINE_YEARS, FAMINE_FULL_MIN, FAMINE_FULL } = um.pm.knobs.get(UNREST_KNOBS);
   const api = civApi(sim);
   models.set(sim, um);
   const { pm, wm, pol } = um;
@@ -351,11 +357,11 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     if (P.ended !== undefined || !royalSeg(P, X.dynasty) || pm.size[pid] < CLAIM_STATE) return;
     // 先君寿终、同一朝里交接(遇弑的由名臣迎立新君;作者立的、作者让他去世的不算)
     if (R.crown || X.crown || R.death || R.cut !== undefined || R.natural !== t || R.dynasty !== X.dynasty || X.j === 0) return;
-    if (murderedAt(pm.rbase, pm.rtag[pid], R.k)) return;
+    if (murderedAt(pm.knobs, pm.rbase, pm.rtag[pid], R.k)) return;
     // 先君晚年新君已引兵入朝、杀过一轮兄弟(regency.ts):不再起兵争位
     if (pm.regents.get(pid)?.some((g) => g.kind === 'march' && g.k === R.k)) return;
     if (rebelNow(pid) || quelling(pid) || wm.iv?.unites(pid, t)) return;
-    const sons = claimants(pm.rbase, pm.rtag[pid], R, P, t);
+    const sons = claimants(pm.knobs, pm.rbase, pm.rtag[pid], R, P, t);
     if (!sons.length) return;
     const u = api.politics.unrest?.(P, t) ?? 0;
     const odds = CLAIM_ODDS * (1 + CLAIM_MORE * (sons.length - 1)) * fexp(CLAIM_K * (u - CLAIM_U0));

@@ -18,10 +18,10 @@
  */
 import { keyed4, subSeed } from './engine/rand';
 import type { Year } from './types';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参 ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const CONSORTS_KNOBS = defineKnobs('consorts', {
   /** 当母亲的岁数(同 women.ts 的 FERTILE) */
   FERTILE: [16, 45] as [number, number],
@@ -33,8 +33,8 @@ export const CONSORTS_KNOBS = defineKnobs('consorts', {
   /** 寿数 */
   LIFE: [42, 82] as [number, number],
 });
-const { BRIDE_AGE, BRIDE_MIN, PARENT_AGE, LIFE } = CONSORTS_KNOBS.values;
-export const { FERTILE } = CONSORTS_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type ConsortsKnobs = typeof CONSORTS_KNOBS.values;
 /** 名臣辅政换成太后临朝的机会(按语感:中原像史书,太后临朝常见) */
 const DOWAGER: Record<string, number> = { central: 0.6, frontier: 0.5, western: 0.5, xianxia: 0.4, mythic: 0.4 };
 
@@ -59,11 +59,14 @@ const groupOf = (style: string) => (style === 'central' || style === 'xianxia' |
 export interface ConsortRand {
   /** 一门亲 / 一段临朝的随机数:国家的位置锚、那一刻、身份、用途 */
   (tag: number, t: Year, kind: number, use: number): number;
+  /** 这个世界的这张旋钮表 */
+  readonly k: ConsortsKnobs;
 }
 
-export function consortRand(seed: number): ConsortRand {
+export function consortRand(seed: number, knobs: KnobSet): ConsortRand {
   const base = subSeed(seed, 'civ-consort');
-  return (tag, t, kind, use) => keyed4(base, tag, qi(t), kind * 16 + use, 0);
+  const R = (tag: number, t: Year, kind: number, use: number) => keyed4(base, tag, qi(t), kind * 16 + use, 0);
+  return Object.assign(R, { k: knobs.get(CONSORTS_KNOBS) });
 }
 
 /**
@@ -71,6 +74,7 @@ export function consortRand(seed: number): ConsortRand {
  * (丈夫娶她以后生的儿子,生在她 FERTILE 岁之间、她在世时的才记她是母亲)
  */
 export function brideBorn(R: ConsortRand, tag: number, t: Year, fatherBorn: Year | undefined): Year {
+  const { PARENT_AGE, BRIDE_MIN, BRIDE_AGE } = R.k;
   const lo = fatherBorn !== undefined ? fatherBorn + PARENT_AGE[0] : -Infinity;
   const hi = Math.min(t - BRIDE_MIN, fatherBorn !== undefined ? fatherBorn + PARENT_AGE[1] : Infinity);
   const born = t - lerp(BRIDE_AGE, R(tag, t, K_BRIDE, U_AGE));
@@ -78,7 +82,8 @@ export function brideBorn(R: ConsortRand, tag: number, t: Year, fatherBorn: Year
 }
 
 /** 她能不能是这个孩子的母亲(孩子生在她 FERTILE 岁之间、她在世时) */
-export function bears(born: Year, died: Year | undefined, kid: Year): boolean {
+export function bears(R: ConsortRand, born: Year, died: Year | undefined, kid: Year): boolean {
+  const { FERTILE } = R.k;
   return kid - born >= FERTILE[0] && kid - born <= FERTILE[1] && (died === undefined || kid <= died);
 }
 
@@ -87,7 +92,7 @@ export function bears(born: Year, died: Year | undefined, kid: Year): boolean {
  * key = 结亲 / 掌权那一刻,kind = 身份
  */
 export function consortDeath(R: ConsortRand, tag: number, key: Year, kind: number, born: Year, floor: Year): Year {
-  return q(Math.max(born + lerp(LIFE, R(tag, key, kind, U_LIFE)), floor));
+  return q(Math.max(born + lerp(R.k.LIFE, R(tag, key, kind, U_LIFE)), floor));
 }
 
 /** 名臣辅政(幼主即位那一刻 t 起)换不换成太后:按语感的机会(幼主要生在她 FERTILE 岁之间另看,见 bears) */

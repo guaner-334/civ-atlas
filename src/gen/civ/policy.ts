@@ -26,7 +26,7 @@ import { POLICY_FOCI } from '../edits';
 import type { Annal, RulerLeanings, Year } from './types';
 import { leaningEffect, type LeaningEffect, type Reign } from './rulers';
 import { fexp } from './engine/rand';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 export type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
 
@@ -39,7 +39,7 @@ export const POLICY_PRESETS: Record<PolicyPreset, Partial<Record<PolicyKnob, num
 };
 
 // ---- 调参(scripts/policy-stats.ts 的 20 个种子统计) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const POLICY_KNOBS = defineKnobs('policy', {
   /** 打仗胆量另乘在宣战赔率上的倍数:e^(POLICY_DECLARE·胆量/50) —— 胆量 +25 约 × 2.1,−45 约 × 0.26 */
   POLICY_DECLARE: 1.5,
@@ -62,7 +62,8 @@ export const POLICY_KNOBS = defineKnobs('policy', {
   /** Ev.Respread 的 a:定了方针的下一刻(门槛放低了才从现有国土往外重新看) */
   POLICY_RESPREAD: 1,
 });
-export const { POLICY_DECLARE, FOE_ODDS, FRIEND_PACT, FRIEND_JOIN, FOCUS_UP, FOCUS_DOWN, FOCUS_MOB, GUIDE_UNREST, GUIDE_DYNASTY, POLICY_RESPREAD } = POLICY_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type PolicyKnobs = typeof POLICY_KNOBS.values;
 
 
 
@@ -93,11 +94,11 @@ export function withPolicy(l: RulerLeanings, v: PolicyIv): { leanings: RulerLean
   };
 }
 
-/** 君主倾向加上方针以后推演里的倍数 */
-export function policyEffect(l: RulerLeanings, v: PolicyIv): LeaningEffect {
+/** 君主倾向加上方针以后推演里的倍数(knobs = 这个世界的那套数) */
+export function policyEffect(knobs: KnobSet, l: RulerLeanings, v: PolicyIv): LeaningEffect {
   const c = withPolicy(l, v);
   const e = leaningEffect(c.leanings, c.settle);
-  if (v.war) e.declare *= fexp((POLICY_DECLARE * v.war) / 50);
+  if (v.war) e.declare *= fexp((knobs.get(POLICY_KNOBS).POLICY_DECLARE * v.war) / 50);
   return e;
 }
 
@@ -122,10 +123,10 @@ export function segAt(segs: readonly PolicySeg[] | undefined, t: Year): PolicySe
 }
 
 /** 君主 r(此刻的倾向,见 rulers.ts 的 leaningsAt)在这段方针下的倍数(没有方针 / 没拧滑条 = 他自己的) */
-export function segEffect(seg: PolicySeg | null, r: Pick<Reign, 'leanings' | 'eff'>): LeaningEffect {
+export function segEffect(knobs: KnobSet, seg: PolicySeg | null, r: Pick<Reign, 'leanings' | 'eff'>): LeaningEffect {
   if (!seg || !knobbed(seg.v)) return r.eff;
   let e = seg.memo.get(r);
-  if (!e) seg.memo.set(r, (e = policyEffect(r.leanings, seg.v)));
+  if (!e) seg.memo.set(r, (e = policyEffect(knobs, r.leanings, seg.v)));
   return e;
 }
 

@@ -62,7 +62,7 @@ import { addPolity, moveCapital, polityModelOf, type PolityModel } from './polit
 import { bestCapital, polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { unrestModelOf } from './unrest';
-import { HOLD, assimModelOf } from './assimilation';
+import { ASSIMILATION_KNOBS, assimModelOf } from './assimilation';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } from './trekRoute';
 import type { InterventionModel } from './interventions';
@@ -72,7 +72,7 @@ import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const MIGRATION_KNOBS = defineKnobs('migration', {
   /** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */
   CHECK_FIRST: 300,
@@ -147,17 +147,18 @@ export const MIGRATION_KNOBS = defineKnobs('migration', {
   SHATTER_0: 0.25,
   SHATTER_U: 0.3,
 });
-const { CHECK_FIRST, CHECK_EVERY, LIVE, MAX, GAP, MIN_FOLK, SHARE, SIZE_MIN, SIZE_MAX, CROWD_0, W_CROWD, FAMINE_YEARS, FAMINE_FULL, W_FAMINE, SCATTER_YEARS, W_SCATTER, PUSH_0, HOPS_MIN, HOPS_MAX, HOPS_FADE, HOPS_FLOOR, SHORT_FADE, POP_REF, GOOD_MAX, WEAK_TRIBAL, WEAK_0, WEAK_UNREST, CHAOS_YEARS, WEAK_CHAOS, WEAK_PLAGUE, WEAK_WAR, HEART_W, HEART_REACH, LATE_BIG, ODDS, HALF, PACE_YEARS, PACE_W, STEP_JITTER, RAID_P, RAID_TRIBAL, RAID_LOSS, MORALE, FADE, COURT, SMALL_K, SMALL_MIN, BIG, GRAB_FRAC, GRAB_MIN, GRAB_MAX, SHATTER_0, SHATTER_U } = MIGRATION_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type MigrationKnobs = typeof MIGRATION_KNOBS.values;
 const SHATTER_K = 1 << 22;
 /**
  * 作者下令"推演挑"时走多远(干预 trek 的 reach):[几州远起值不打折, 最远几州, 最近几州]。
  * 中 = 推演自己起的那样;远只有下令才有(横穿大陆)
  */
-const REACH: Record<TrekReach, readonly [number, number, number]> = {
+const reachOf = ({ HOPS_FLOOR, HOPS_MIN, HOPS_MAX }: MigrationKnobs): Record<TrekReach, readonly [number, number, number]> => ({
   near: [HOPS_FLOOR, HOPS_MIN, 2],
   mid: [HOPS_MIN, HOPS_MAX, HOPS_FLOOR],
   far: [HOPS_MAX, 2 * HOPS_MAX, HOPS_MIN],
-};
+});
 /** 往某个方位的令,那一档没有地方可去时依次放宽到的几档 */
 const TREK_ORDER: readonly TrekReach[] = ['mid', 'near', 'far'];
 
@@ -222,6 +223,7 @@ export function migrationsOf(sim: CivSim): Migration[] | undefined {
 
 /** 第 k 次看大迁徙的时刻 */
 function checkTime(tm: TrekModel, k: number): number {
+  const { CHECK_FIRST, CHECK_EVERY } = tm.pm.knobs.get(MIGRATION_KNOBS);
   return CHECK_FIRST + CHECK_EVERY * (k + 0.2 + 0.6 * keyed(tm.base, k, 0, U_CHECK_T));
 }
 
@@ -265,6 +267,8 @@ export function installMigration(sim: CivSim, pm: PolityModel, world: World): Tr
 }
 
 function hook(sim: CivSim, tm: TrekModel): void {
+  const { HOLD } = tm.pm.knobs.get(ASSIMILATION_KNOBS);
+  const { WEAK_TRIBAL, CHAOS_YEARS, WEAK_UNREST, WEAK_CHAOS, WEAK_WAR, WEAK_PLAGUE, WEAK_0, HOPS_MAX, FAMINE_YEARS, SCATTER_YEARS, CROWD_0, FAMINE_FULL, W_CROWD, W_FAMINE, W_SCATTER, GOOD_MAX, POP_REF, HOPS_FADE, SHORT_FADE, BIG, LATE_BIG, HEART_W, HEART_REACH, MAX, LIVE, MIN_FOLK, GAP, HOPS_MIN, HOPS_FLOOR, PUSH_0, CHECK_FIRST, PACE_YEARS, ODDS, HALF, PACE_W, SIZE_MIN, SIZE_MAX, SHARE, STEP_JITTER, RAID_P, RAID_TRIBAL, RAID_LOSS, COURT, MORALE, FADE, SMALL_MIN, SMALL_K, SHATTER_0, SHATTER_U, GRAB_MIN, GRAB_MAX, GRAB_FRAC } = tm.pm.knobs.get(MIGRATION_KNOBS);
   const api = civApi(sim);
   models.set(sim, tm);
   const { pm, wm, pol, list } = tm;
@@ -527,7 +531,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     depart(c, target, pushOf(st, c).why, pull, st.n[c], t, i);
   };
   tm.pick = (c, t, reach, start, out, dir) => {
-    const [lo, hi, floor] = REACH[reach];
+    const [lo, hi, floor] = reachOf(tm.pm.knobs.get(MIGRATION_KNOBS))[reach];
     paths(c, start, hi);
     const best = bestTarget(c, t, lo, hi, floor, list.some((M) => M.big), out, dir);
     return { target: best.target, why: best.why, hops: best.target >= 0 ? P.hops[best.target] : -1 };

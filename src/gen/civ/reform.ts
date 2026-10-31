@@ -58,7 +58,7 @@ import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/reform-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const REFORM_KNOBS = defineKnobs('reform', {
   /** 推力:均产算几成、天命扣几成;到 PUSH_MIN 才议改制 */
   PUSH_EQ: 0.5,
@@ -127,7 +127,6 @@ export const REFORM_KNOBS = defineKnobs('reform', {
   /** 政变的将军、革命起兵的人:年纪(随机)、倾向偏移(将军好战) */
   LEADER_AGE: [36, 58] as [number, number],
 });
-const { PUSH_EQ, PUSH_SKY, PUSH_MIN, SKY_REF, SMALL, RIGHT_MIN, DEFEAT_YEARS, LOST_FULL, ABOLISH_MIN, WIDEN_MIN, X_0, X_PUSH, X_CRISIS, X_SKY, X_ARMY, ABOLISH_HARD, ABOLISH_BIG, BIG_SIZE, JITTER, POLAR_U, POLAR, DONE, HALF, SHELVE, REVOLT_U, REV_0, REV_U, REV_PUSH, REV_ARMY, REBEL_MIN, REV_SHARE, SETTLE, OPEN_PUSH, REFORM_GAP, COUP_ODDS, COUP_ARMY, SEA_COUP, RESTORE_YEARS, RESTORE_SKY, RESTORE_ODDS, HOUSE_YEARS, RETURN_AGE, RET_0, RET_PUSH, RET_WAR, LEADER_AGE } = REFORM_KNOBS.values;
 const GENERAL_SHIFT = { war: 15, expand: 5 };
 const REBEL_SHIFT = { develop: 15, war: 5 };
 
@@ -141,6 +140,9 @@ const U_AGE = 5;
 const U_LEAN = 64;
 
 /** 议事那边传过来的(council.ts 的 check 里算好的) */
+/** 这张表的值(一套数里取出来的) */
+export type ReformKnobs = typeof REFORM_KNOBS.values;
+
 export interface ReformCtx {
   sim: CivSim;
   pm: PolityModel;
@@ -167,6 +169,7 @@ export interface ReformCtx {
 
 /** 推演里:国家 p 被打下的州(DEFEAT_YEARS 年内,别国打下的;一州只算一次) */
 function lostLately(wm: WarModel, p: number, t: Year): number {
+  const { DEFEAT_YEARS } = wm.pm.knobs.get(REFORM_KNOBS);
   const seen = new Set<number>();
   for (let i = wm.wars.length - 1; i >= 0; i--) {
     const w = wm.wars[i];
@@ -179,6 +182,8 @@ function lostLately(wm: WarModel, p: number, t: Year): number {
 
 /** 看一回改制;出了一件事(议了、起兵、政变、复辟)= true,议事那边就不再议别的 */
 export function reformCheck(cx: ReformCtx): boolean {
+  const K = cx.pm.knobs.get(REFORM_KNOBS);
+  const { PUSH_EQ, PUSH_SKY, LOST_FULL, PUSH_MIN, SMALL, ABOLISH_MIN, WIDEN_MIN, RIGHT_MIN, X_0, X_PUSH, X_CRISIS, X_SKY, SKY_REF, X_ARMY, JITTER, ABOLISH_HARD, ABOLISH_BIG, BIG_SIZE, POLAR, POLAR_U, DONE, HALF, SHELVE, REFORM_GAP, RESTORE_YEARS, RESTORE_SKY, RESTORE_ODDS, HOUSE_YEARS, COUP_ODDS, COUP_ARMY, SEA_COUP, RETURN_AGE, RET_0, RET_PUSH, RET_WAR } = K;
   const { sim, pm, P, k, t } = cx;
   const p = P.id;
   const seg = (P.dynasties?.length ?? 1) - 1;
@@ -214,7 +219,7 @@ export function reformCheck(cx: ReformCtx): boolean {
     if (out === Outcome.Half && r.charter >= 1) out = Outcome.Shelve;
     if (issue === Issue.Widen && out === Outcome.Half) out = Outcome.Shelve;
     if (out === Outcome.Break) return (issue !== Issue.Widen && revolt(cx, issue, push, R)) || (cx.record(issue, Outcome.Shelve, cx.capR), true);
-    const opt = issue === Issue.Abolish && out === Outcome.Done ? openness(push, r.franchise, 0) : undefined;
+    const opt = issue === Issue.Abolish && out === Outcome.Done ? openness(K, push, r.franchise, 0) : undefined;
     cx.record(issue, out, cx.capR, opt);
     if (issue === Issue.Abolish && out === Outcome.Done) openSeg(cx, { regime: 'republic' });
     return true;
@@ -269,7 +274,8 @@ export function reformCheck(cx: ReformCtx): boolean {
 }
 
 /** 办成废君、革命以后能议政的有几档(at least = 现在的;革命再多 extra 档) */
-function openness(push: number, now: number, extra: number): number {
+function openness(K: ReformKnobs, push: number, now: number, extra: number): number {
+  const { OPEN_PUSH } = K;
   return Math.min(3, Math.max(now, push >= OPEN_PUSH ? 1 : 0) + extra);
 }
 
@@ -283,6 +289,7 @@ function lastCrown(P: Polity, seg: number): number {
 
 /** 政变的将军、革命起兵的人:生年、倾向 */
 function leader(cx: ReformCtx, R: (use: number) => number, shift: Partial<Record<'expand' | 'war' | 'develop' | 'trade', number>>) {
+  const { LEADER_AGE } = cx.pm.knobs.get(REFORM_KNOBS);
   const age = LEADER_AGE[0] + (LEADER_AGE[1] - LEADER_AGE[0]) * R(U_AGE);
   return { born: Math.round((cx.t - age) * 256) / 256, leanings: drawLeanings((use) => R(U_LEAN + use), 'republic', cx.P.kind, shift) };
 }
@@ -312,6 +319,7 @@ function openSeg(cx: ReformCtx, seg: { regime?: 'republic' | 'junta'; house?: nu
  * 议立宪 / 废君谈崩、动荡大:有人起兵。打进国都 = 革命(整国改共和);打不进 = 据地自立为共和国;起不了兵 = false(那边记搁置)
  */
 function revolt(cx: ReformCtx, issue: Issue, push: number, R: (use: number) => number): boolean {
+  const { REVOLT_U, SETTLE, REV_0, REV_U, REV_PUSH, REV_ARMY, JITTER, REBEL_MIN, REV_SHARE } = cx.pm.knobs.get(REFORM_KNOBS);
   const { sim, pm, pol, wm, cm, P, t, capR } = cx;
   const api = civApi(sim);
   const p = P.id;
@@ -331,7 +339,7 @@ function revolt(cx: ReformCtx, issue: Issue, push: number, R: (use: number) => n
   if (rise < 0) return false;
   const army = Math.max(0, cx.rules.army);
   const y = REV_0 + REV_U * (cx.u - REVOLT_U) + REV_PUSH * push - REV_ARMY * army + JITTER * (R(U_REV) - 0.5);
-  const opt = openness(push, cx.rules.franchise, 1);
+  const opt = openness(cx.pm.knobs.get(REFORM_KNOBS), push, cx.rules.franchise, 1);
   if (y > 0) {
     cx.record(issue, Outcome.Break, rise);
     note(cx, { b: -1, region: rise, settlement: pm.cityOf[rise], n: REFORM_REVOLUTION, opt });

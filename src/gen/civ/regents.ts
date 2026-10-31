@@ -28,14 +28,14 @@
 import type { Annal, Polity, RulerLeanings, Year } from './types';
 import { AUTHOR_REGENT_AGE_END, parsePersonKey, type Intervention } from '../edits';
 import { fpow, keyed4, subSeed } from './engine/rand';
-import { MAX_AGE, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep, type LeaningEffect, type Reign } from './rulers';
-import { POSTHUMOUS, broodOf } from './royals';
+import { RULERS_KNOBS, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep, type LeaningEffect, type Reign } from './rulers';
+import { ROYALS_KNOBS, broodOf } from './royals';
 import { polityTierAt } from './growth';
 import { royalSeg, segLineage } from './regime';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(推荐值,按 20 个种子的统计调,见 scripts/gen-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const REGENTS_KNOBS = defineKnobs('regents', {
   /**
    * 引兵入朝:君主年过这么多岁;机会;原定去世前几年里的某一刻。
@@ -96,8 +96,8 @@ export const REGENTS_KNOBS = defineKnobs('regents', {
   K_STRONG_LEAN: 3,
   TICK: 256,
 });
-const { MARCH_LEAD, HEIR_LEAD, GROWN, BROTHER, CHILD_END, MINISTER_AGE, STRONG_LEN, STRONG_AGE, CHANCELLOR_END, USURP_AGE, GENERAL_PURGE, GENERAL_WAR, SEIZE_REIGN, K_REIGN, K_LEAN, K_STRONG, K_STRONG_LEAN, TICK } = REGENTS_KNOBS.values;
-export const { MARCH_AGE, MARCH_P, MARCH_WAR, HEIR_AGE, HEIR_P, YOUNG, ADULT, UNCLE_P, STRONG_TIER, STRONG_YEARS, STRONG_LOSS, STRONG_GAIN, STRONG_P, MARCH_SUPPLY, MARCH_FADE } = REGENTS_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type RegentsKnobs = typeof REGENTS_KNOBS.values;
 
 // 随机数用途
 const U_MARCH = 1;
@@ -112,7 +112,8 @@ const U_KIND = 9;
 const U_LEN = 10;
 const U_REIGN = 11;
 
-const q = (x: number) => Math.round(x * TICK) / TICK;
+/** 取整到 1/tick 年 */
+const quant = (x: number, tick: number) => Math.round(x * tick) / tick;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 
 /** 六种掌权(史事 regent 的 b 列是下标) */
@@ -160,6 +161,8 @@ export interface Regency {
 
 /** 推算要用的那几样:君主随机数的根(rulers.ts 的 rulerBase)、掌实权自己的根、各国的位置锚、国家表、在位表 */
 export interface RegencyCtx {
+  /** 这个世界的那套数 */
+  knobs: KnobSet;
   rbase: number;
   base: number;
   tag: readonly number[];
@@ -231,17 +234,20 @@ export interface LatePlan {
 export function latePlans(cx: RegencyCtx, pid: number, r: Reign): LatePlan[] {
   const P = cx.polities[pid];
   if (!P || !royalSeg(P, r.dynasty) || r.crown || !(r.natural < Infinity)) return [];
+  const K = cx.knobs.get(REGENTS_KNOBS);
+  const { K_REIGN, MARCH_P, HEIR_P, MARCH_LEAD, MARCH_AGE, GROWN, BROTHER, HEIR_LEAD, HEIR_AGE } = K;
+  const q = (x: number) => quant(x, K.TICK);
   const R = (use: number) => rnd(cx, pid, r.k * 16, use, K_REIGN);
   const march = R(U_MARCH) < MARCH_P;
   const heir = R(U_HEIR) < HEIR_P;
   if (!march && !heir) return [];
-  const br = broodOf(cx.rbase, cx.tag[pid], r, P);
+  const br = broodOf(cx.knobs, cx.rbase, cx.tag[pid], r, P);
   const hb = br.heir;
   if (hb === undefined) return [];
   const fb = reignBorn(r);
   const from = reignStart(r);
   let lean: RulerLeanings | null = null;
-  const heirLean = () => (lean ??= reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
+  const heirLean = () => (lean ??= reignStep(cx.knobs, cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
   const out: LatePlan[] = [];
   if (march) {
     const t = q(r.natural - lerp(MARCH_LEAD, R(U_MARCH_T)));
@@ -266,7 +272,7 @@ export interface ChildPlan {
 }
 
 /** 幼主成年时的结局;到那时摄政的人已过 USURP_AGE 岁的不篡位(还政) */
-const childEnd = (u: number, born: Year, stop: Year): RegencyOutcome =>
+const childEnd = ({ CHILD_END, USURP_AGE }: RegentsKnobs, u: number, born: Year, stop: Year): RegencyOutcome =>
   u < CHILD_END[0] ? 'return' : u < CHILD_END[0] + CHILD_END[1] ? 'purge' : stop - born > USURP_AGE ? 'return' : 'usurp';
 
 /**
@@ -275,6 +281,9 @@ const childEnd = (u: number, born: Year, stop: Year): RegencyOutcome =>
  */
 export function childPlan(cx: RegencyCtx, pid: number, r: Reign, marched: (k: number) => boolean): ChildPlan | null {
   const P = cx.polities[pid];
+  const K = cx.knobs.get(REGENTS_KNOBS);
+  const { YOUNG, K_REIGN, ADULT, K_LEAN, GROWN, UNCLE_P, MINISTER_AGE, TICK } = K;
+  const q = (x: number) => quant(x, TICK);
   if (!P || !royalSeg(P, r.dynasty) || r.crown || r.seize || r.j === 0 || !(r.age < YOUNG)) return null;
   const t = reignStart(r);
   const key = r.k * 16 + 1;
@@ -298,7 +307,8 @@ export function childPlan(cx: RegencyCtx, pid: number, r: Reign, marched: (k: nu
     prev.from === f.natural &&
     !marched(f.k)
   ) {
-    const br = broodOf(cx.rbase, cx.tag[pid], f, P);
+    const br = broodOf(cx.knobs, cx.rbase, cx.tag[pid], f, P);
+    const { POSTHUMOUS } = cx.knobs.get(ROYALS_KNOBS);
     if (br.heir === reignBorn(prev)) {
       for (const x of br.extra) {
         // 父亲去世以后(遗腹子除外)才生的不算(和 royals.ts 的 buildSons 一样:人物里没有这个儿子)
@@ -310,16 +320,17 @@ export function childPlan(cx: RegencyCtx, pid: number, r: Reign, marched: (k: nu
   }
   if (uncle && R(U_UNCLE) < UNCLE_P) {
     const died = uncle.life < adult;
-    return { kind: 'uncle', born: uncle.born, stop: died ? uncle.life : adult, outcome: died ? 'died' : childEnd(R(U_END), uncle.born, adult), leanings: leanings(), uncle: { k: f!.k, s: uncle.s } };
+    return { kind: 'uncle', born: uncle.born, stop: died ? uncle.life : adult, outcome: died ? 'died' : childEnd(K, R(U_END), uncle.born, adult), leanings: leanings(), uncle: { k: f!.k, s: uncle.s } };
   }
   // 部落没有大臣(按这一刻以前的国号:同一刻稍后才升格的不算,接着推时看到的也一样)
   if (polityTierAt(P, t - 1 / (2 * TICK)) < 1) return null;
   const born = q(t - lerp(MINISTER_AGE, R(U_AGE)));
-  return { kind: 'minister', born, stop: adult, outcome: childEnd(R(U_END), born, adult), leanings: leanings() };
+  return { kind: 'minister', born, stop: adult, outcome: childEnd(K, R(U_END), born, adult), leanings: leanings() };
 }
 
 /** 看王朝那一刻(t)出不出权臣:机会、大臣还是大将(都是 0–1 的随机数) */
 export function strongRolls(cx: RegencyCtx, pid: number, t: Year): { u: number; kind: number } {
+  const { TICK, K_STRONG } = cx.knobs.get(REGENTS_KNOBS);
   const key = Math.round(t * TICK);
   return { u: rnd(cx, pid, key, U_STRONG, K_STRONG), kind: rnd(cx, pid, key, U_KIND, K_STRONG) };
 }
@@ -327,6 +338,8 @@ export function strongRolls(cx: RegencyCtx, pid: number, t: Year): { u: number; 
 /** 大臣、大将 t 那一刻掌权:到哪一刻、结局、生年、倾向 */
 export function strongPlan(cx: RegencyCtx, pid: number, kind: 'chancellor' | 'general', t: Year): Omit<ChildPlan, 'kind' | 'uncle'> {
   const P = cx.polities[pid];
+  const { TICK, K_STRONG, GENERAL_PURGE, CHANCELLOR_END, STRONG_AGE, STRONG_LEN, USURP_AGE, K_STRONG_LEAN, GENERAL_WAR } = cx.knobs.get(REGENTS_KNOBS);
+  const q = (x: number) => quant(x, TICK);
   const key = Math.round(t * TICK);
   const R = (use: number) => rnd(cx, pid, key, use, K_STRONG);
   const u = R(U_END);
@@ -345,9 +358,10 @@ export function strongPlan(cx: RegencyCtx, pid: number, kind: 'chancellor' | 'ge
 
 /** 摄政的叔父 t 那一刻篡位:不被打断时在位到哪年(至少一年,到 MAX_AGE 岁为止) */
 export function seizeUntil(cx: RegencyCtx, g: Regency, t: Year): Year {
+  const { K_REIGN, SEIZE_REIGN, TICK } = cx.knobs.get(REGENTS_KNOBS);
   const u = rnd(cx, g.pid, g.k * 16 + 1, U_REIGN, K_REIGN);
   const L = 1 + SEIZE_REIGN * fpow(u, 1.3);
-  return q(Math.max(t + 1, Math.min(t + L, g.born + MAX_AGE)));
+  return quant(Math.max(t + 1, Math.min(t + L, g.born + cx.knobs.get(RULERS_KNOBS).MAX_AGE)), TICK);
 }
 
 /**
@@ -390,9 +404,11 @@ export const IV_REGENT_AGE = 16;
 
 /**
  * 让作者的人物掌权(干预带 char)t 那一刻起到哪一刻、怎么了结:给了还政年数 = t + years 还政;没给 = 到卒年(died 那一年年初,卒于位);
- * 卒年也没有 = 到他 AUTHOR_REGENT_AGE_END 岁还政(至少一年);卒年早于还政的,到卒年为止
+ * 卒年也没有 = 到他 AUTHOR_REGENT_AGE_END 岁还政(至少一年);卒年早于还政的,到卒年为止。knobs = 这个世界的那套数
  */
-export function authorRegentEnd(v: AuthorRegentIv, t: Year): { stop: Year; outcome: RegencyOutcome } {
+export function authorRegentEnd(knobs: KnobSet, v: AuthorRegentIv, t: Year): { stop: Year; outcome: RegencyOutcome } {
+  const tick = knobs.get(REGENTS_KNOBS).TICK;
+  const q = (x: number) => quant(x, tick);
   const back = v.years !== undefined ? q(t + v.years) : v.died === undefined ? q(Math.max(t + 1, v.born + AUTHOR_REGENT_AGE_END)) : Infinity;
   return v.died !== undefined && v.died <= back ? { stop: v.died, outcome: 'died' } : { stop: back, outcome: 'return' };
 }
@@ -413,18 +429,18 @@ export function ivRegency(cx: RegencyCtx, pid: number, v: RegentIv, iv: number, 
   if (!P) return null;
   if (v.char !== undefined) {
     if (v.born > t || (v.died !== undefined && v.died <= t) || t - v.born < IV_REGENT_AGE) return null;
-    return { pid, kind: v.how, k: r.k, start: t, dyn: dynastyAtTick(P, t), closed: false, annal, iv, ...authorRegentEnd(v, t), born: v.born, leanings: v.leanings, eff: leaningEffect(v.leanings) };
+    return { pid, kind: v.how, k: r.k, start: t, dyn: dynastyAtTick(P, t), closed: false, annal, iv, ...authorRegentEnd(cx.knobs, v, t), born: v.born, leanings: v.leanings, eff: leaningEffect(v.leanings) };
   }
   const who = parsePersonKey(v.person);
   if (!who) return null;
   const base = { pid, kind: v.how, k: r.k, start: t, dyn: dynastyAtTick(P, t), closed: false, annal, iv };
-  const stop = v.end === 'succeed' ? Infinity : q(t + (v.years ?? 1));
+  const stop = v.end === 'succeed' ? Infinity : quant(t + (v.years ?? 1), cx.knobs.get(REGENTS_KNOBS).TICK);
   const outcome: RegencyOutcome | undefined = v.end === 'succeed' ? undefined : v.end === 'return' ? 'return' : 'usurp';
   const tail = (born: Year, leanings: RulerLeanings) => (t - born < IV_REGENT_AGE ? null : { stop, ...(outcome ? { outcome } : {}), born, leanings, eff: leaningEffect(leanings) });
   if (v.how === 'march' || v.how === 'heir') {
-    const hb = broodOf(cx.rbase, cx.tag[pid], r, P).heir;
+    const hb = broodOf(cx.knobs, cx.rbase, cx.tag[pid], r, P).heir;
     if (hb === undefined || Math.round(hb) !== who.born) return null;
-    const rest = tail(hb, reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
+    const rest = tail(hb, reignStep(cx.knobs, cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
     return rest && { ...base, ...rest };
   }
   const lean = v.leanings ?? { expand: 50, war: 50, develop: 50, trade: 50 };
@@ -433,7 +449,7 @@ export function ivRegency(cx: RegencyCtx, pid: number, v: RegentIv, iv: number, 
     const book = cx.book(pid, t);
     for (let k = r.k - 1; k >= 0 && book[k] && book[k].dynasty === r.dynasty; k--) {
       if (book[k].crown) continue;
-      const x = broodOf(cx.rbase, cx.tag[pid], book[k], P).extra.find((e) => Math.round(e.born) === who.born);
+      const x = broodOf(cx.knobs, cx.rbase, cx.tag[pid], book[k], P).extra.find((e) => Math.round(e.born) === who.born);
       if (!x) continue;
       const rest = x.life > t ? tail(x.born, lean) : null;
       return rest && { ...base, ...rest, uncle: { k, s: x.s } };

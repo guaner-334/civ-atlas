@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CIV_KNOBS } from '../src/gen/civ/knobs';
-import { WARS_KNOBS, HOLD } from '../src/gen/civ/wars';
+import { WARS_KNOBS } from '../src/gen/civ/wars';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 describe('旋钮表', () => {
   it('表名不重复;每张表至少一项;各项是数或一串数(都是有限数或 ±Infinity,没有 NaN)', () => {
@@ -26,8 +27,8 @@ describe('旋钮表', () => {
     for (const t of CIV_KNOBS) for (const n of t.names) expect(n.startsWith('U_'), `${t.id}.${n}`).toBe(false);
   });
 
-  it('推演用的常量就是表里的值', () => {
-    expect(HOLD).toBe(WARS_KNOBS.values.HOLD);
+  it('官方那套数取出来的就是表本身的值(不复制)', () => {
+    for (const t of CIV_KNOBS) expect(OFFICIAL_KNOBS.get(t), t.id).toBe(t.values);
     expect(WARS_KNOBS.values.WAR_ODDS).toBe(0.3);
     expect(WARS_KNOBS.values.GAP).toEqual([0.7, 2]);
   });

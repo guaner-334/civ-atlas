@@ -13,10 +13,10 @@
 import type { Annal, Polity, Year } from './types';
 import { reignBorn, type Reign } from './rulers';
 import { broodOf } from './royals';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(推荐值,按 20 个种子的统计调) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const MARRIAGES_KNOBS = defineKnobs('marriages', {
   /**
    * 看邦交时结亲的机会:每个合格的亲家 MARRY_PER,最多 MARRY_MAX;挑中的是盟国再加 MARRY_ALLY。
@@ -53,7 +53,8 @@ export const MARRIAGES_KNOBS = defineKnobs('marriages', {
   IV_NO_BRIDE: -15,
   IV_NO_GROOM: -16,
 });
-export const { MARRY_PER, MARRY_MAX, MARRY_ALLY, MUTUAL, PEACE_MATCH, KIN_DECLARE, KIN_FADE, KIN_PACT, KIN_JOIN, KIN_BETRAY, UNCLE_DECLARE, GROOM_AGE, YOUNG_RULER, BRIDE_FATHER, GROOM_SELF, IV_NO_PARTNER, IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM } = MARRIAGES_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type MarriagesKnobs = typeof MARRIAGES_KNOBS.values;
 
 
 /** 一门亲 */
@@ -73,6 +74,8 @@ export interface Match {
 
 /** 推算要用的那几样(和 regents.ts 的 RegencyCtx 同一份) */
 export interface MatchCtx {
+  /** 这个世界的那套数 */
+  knobs: KnobSet;
   rbase: number;
   tag: readonly number[];
   polities: readonly Polity[];
@@ -81,8 +84,8 @@ export interface MatchCtx {
 
 /** 君主 r 的第 s 个儿子(0 = 预定的继承人,GROOM_SELF = 他本人;别的是 royals.ts 的 Brood.extra 的 s)的生年;对不上 = undefined */
 export function groomBorn(cx: MatchCtx, pid: number, r: Reign, s: number): Year | undefined {
-  if (s === GROOM_SELF) return reignBorn(r);
-  const br = broodOf(cx.rbase, cx.tag[pid], r, cx.polities[pid]);
+  if (s === cx.knobs.get(MARRIAGES_KNOBS).GROOM_SELF) return reignBorn(r);
+  const br = broodOf(cx.knobs, cx.rbase, cx.tag[pid], r, cx.polities[pid]);
   if (s === 0) return br.heir;
   return br.extra.find((x) => x.s === s)?.born;
 }
@@ -104,16 +107,17 @@ export function matchesFrom(cx: MatchCtx, annals: readonly Annal[]): Match[] {
 export const kinKey = (a: number, b: number) => Math.min(a, b) * 32768 + Math.max(a, b);
 
 /**
- * 两国结着亲的分量(见文件头):list = 这两国之间的几门亲(按先后),fought(t0) = 两国 t0 以后(到此刻)开过战。没有 = 0
+ * 两国结着亲的分量(见文件头):list = 这两国之间的几门亲(按先后),fought(t0) = 两国 t0 以后(到此刻)开过战。没有 = 0。
+ * fade = 淡回的年数(这个世界的 KIN_FADE)
  */
-export function bondOf(list: readonly Match[] | undefined, t: Year, fought: (t0: Year) => boolean): number {
+export function bondOf(fade: number, list: readonly Match[] | undefined, t: Year, fought: (t0: Year) => boolean): number {
   if (!list) return 0;
   for (let i = list.length - 1; i >= 0; i--) {
     const m = list[i];
     if (!(m.t < t)) continue;
     const age = t - m.t;
-    if (age >= KIN_FADE || fought(m.t)) return 0;
-    return 1 - age / KIN_FADE;
+    if (age >= fade || fought(m.t)) return 0;
+    return 1 - age / fade;
   }
   return 0;
 }

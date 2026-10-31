@@ -8,7 +8,7 @@
  * 纯计算,不碰 DOM;在 worker 和 Node 里都能跑。
  */
 import type { World } from '../world';
-import { generateCiv, startContinue } from './index';
+import { continueParams, generateCiv, startContinue } from './index';
 import type { Civ, CivParams } from './types';
 
 /** 一段最多推多久(毫秒):推满就停下来报进度、看要不要停 */
@@ -48,9 +48,11 @@ export async function extendCiv(world: World, base: Civ | null, params: Partial<
   const stop = hooks.stop ?? (() => false);
   const now = hooks.now ?? (() => performance.now());
   if (stop()) return null;
-  const run = base ? startContinue(world, base, params) : null;
+  // 一套数没给的照 base 带着的(接不上、从第 0 年重推也按它,见 continueParams)
+  const q = base ? continueParams(base, params) : params;
+  const run = base ? startContinue(world, base, q) : null;
   if (!run) {
-    const civ = generateCiv(world, params);
+    const civ = generateCiv(world, q);
     hooks.progress?.(civ.endYear, 1);
     return civ;
   }
