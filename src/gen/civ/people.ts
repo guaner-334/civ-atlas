@@ -1216,6 +1216,41 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     if (D.home !== undefined) F.home = D.home;
     dowagerF.set(D, F);
   }
+  // 专权的大将率兵废君、改军政府(reform.ts 的君主国政变):和军政府的首任执政并成一人 —— 名字、字号、籍贯、官职、领兵打过的仗都是做将领时的,
+  // 编号排在他做将领时的位置。没有合适的将领、由一位大臣顶上的,和上面篡位的名臣一样并
+  /** 专权的大将(做将领时的那一份,不收进人物)→ 军政府首任执政 */
+  const coupOf = new Map<Person, Person>();
+  /** 军政府首任执政 → 专权的大将 */
+  const coupBy = new Map<Person, Person>();
+  for (const s of spans) {
+    if (s.g.kind !== 'general' || s.end !== 'fallen' || s.until === undefined) continue;
+    const d = polities[s.pid].dynasties?.[s.g.dyn + 1];
+    if (!d || d.regime !== 'junta' || d.year !== s.until || d.usurper?.born !== s.g.born) continue;
+    const F = rulers[s.pid].find((x) => (x.dynasty ?? 0) === s.g.dyn + 1);
+    const G = strongGenerals.get(s);
+    const f = forcedOf.get(s);
+    const S = G ?? (f && forcedPeople.get(f));
+    if (!F || F.rise !== 'reform' || !S || S.killed !== undefined) continue;
+    F.name = S.name;
+    if (S.courtesy) F.courtesy = S.courtesy;
+    if (S.art) F.art = S.art;
+    if (S.home !== undefined) F.home = S.home;
+    if (S.posts) F.posts = S.posts;
+    if (S.deeds) F.deeds = S.deeds;
+    if (G) {
+      if (G.commands?.length) F.commands = [...G.commands, ...(F.commands ?? [])].sort((a, b) => a.from - b.from);
+      coupOf.set(G, F);
+      coupBy.set(F, G);
+    } else {
+      usurpers.set(F, S);
+      usurperOf.set(S, F);
+    }
+    titleRulers(polities[F.polity], rulers[F.polity], facts[F.polity], base, tag[F.polity]);
+  }
+  if (coupOf.size) {
+    for (let i = generals.length - 1; i >= 0; i--) if (coupOf.has(generals[i])) generals.splice(i, 1);
+    for (const F of coupBy.keys()) renameClashes(F);
+  }
   if (usurpers.size) {
     const gone = new Set(usurpers.values());
     for (let i = ministers.length - 1; i >= 0; i--) if (gone.has(ministers[i])) ministers.splice(i, 1);
@@ -1344,6 +1379,7 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       kind = 'dowager';
     } else {
       holder = strongGenerals.get(s);
+      if (holder) holder = coupOf.get(holder) ?? holder;
       if (!holder) {
         const f = forcedOf.get(s);
         const S = f && forcedPeople.get(f);
@@ -1404,6 +1440,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       const s = asSon.get(x);
       const m = usurpers.get(x);
       const d = dowagerAt.get(x);
+      const c = coupBy.get(x);
+      if (c) return { x, T: c.commands?.[0]?.from ?? x.from!, r: 1, pid: x.polity };
       return s ? { x, T: s.debut, r: 2, pid: s.father.polity } : m ? { x, T: m.from!, r: 3, pid: x.polity } : d !== undefined ? { x, T: d, r: 4, pid: x.polity } : { x, T: x.from!, r: 0, pid: x.polity };
     }),
     ...generals.map((x) => ({ x, T: x.commands![0].from, r: 1, pid: x.polity })),
@@ -1419,6 +1457,8 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     all.sort(order);
     const list = all.map((e) => e.x);
     list.forEach((p, i) => (p.id = i));
+    // 并进军政府首任执政的大将:别处记着他的(父子、对手、经手的事)都指到并成的那一位
+    for (const [G, F] of coupOf) G.id = F.id;
     for (const [x, f] of parentOf) x.parent = f.id;
     for (const [x, d] of descent) x.descent = { from: d.from.id, gen: d.gen };
     for (const [x, c] of claims) x.claim = { how: c.how, rivals: c.rivals.map((r) => r.id) };

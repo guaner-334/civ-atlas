@@ -47,7 +47,8 @@
  *        FIEF 分封边地:动荡到 FIEF_U、管得到几成不到 FIEF_C 的州占 FIEF_SHARE 以上、至少 FIEF_SIZE 州 → 办成或搁置。
  *
  *   **改制**(reform.ts):③ 罢铨选之后、④ 脱离之前先看改制 —— 立宪、扩大参与、废君立共和、还政(议题 11–14,结果照上面四种),
- *     谈崩、动荡大的起兵革命;共和国的政变、新制不到五十年的复辟。出了一件就不再议别的。
+ *     谈崩、动荡大的起兵革命;政变(共和国,和兵权在将军手里的君主国)、新制不到五十年的复辟;再看变法(议题 15,学邻国之长)。
+ *     出了一件就不再议别的。
  *
  *   **定下来以后怎么样**(每年填进政局数表的输入,公式见 stateTables.ts):
  *     征法 0 代收(原样)、1 分成、2 直征:实收里各州管得到几成先加 LIFT[征法] × af(征升,最多到 1),岁出多 COST[征法] × 应缴(征费);
@@ -72,7 +73,7 @@ import { warModelOf, type WarModel } from './wars';
 import { capitalAt, populationAt } from './growth';
 import { Cap, CAP_COUNT, devModelOf, type DevModel } from './development';
 import type { ControlModel, Warlord } from './control';
-import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, replayRule, rulesAnnal, type Rules } from './councilRules';
+import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, LEARN_MUL, Outcome, REORG_HALF, applyRule, newRules, replayRule, rulesAnnal, type Rules } from './councilRules';
 import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
 
@@ -334,7 +335,7 @@ export function courtRulesAt(civ: Pick<Civ, 'annals'>, p: number, year: Year): C
     }
     const tax = r.tax;
     const fief = r.fief;
-    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year, e.opt);
+    applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year, e.opt, e.b);
     out.events.push(i);
     if (r.tax !== tax) {
       out.taxBy = i;
@@ -400,6 +401,22 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
     return a < 0 ? BORDER_LORD : 1 - ARMY_LORD * a;
   };
 
+  // 变法(reform.ts 议):办成 / 妥协的那几年,学的那一样向邻居学快 LEARN_MUL 倍(按这一步里管了几成折算),
+  // 学的那一国国都也算一个邻居(teacher:它此刻那一样的能力;那国亡了就不算)
+  dev.learnFill = (t0, y, mul, teacher) => {
+    const dt = y - t0;
+    const NP = mul.length / 4;
+    for (const [p, r] of book) {
+      if (r.learnCol < 0 || p >= NP || !(pm.size[p] > 0)) continue;
+      const span = Math.min(y, r.learnUntil) - Math.max(t0, r.learnFrom);
+      if (!(span > 0)) continue;
+      mul[p * 4 + r.learnCol] += ((LEARN_MUL - 1) * span) / dt;
+      const Q = pm.polities[r.learnOf];
+      if (!Q || Q.ended !== undefined || !(pm.size[r.learnOf] > 0)) continue;
+      const qR = pm.settlements[capitalAt(Q, t0)]?.region ?? -1;
+      if (qR >= 0) teacher[p * 4 + r.learnCol] = dev.cur[qR * CAP_COUNT + r.learnCol] || 0;
+    }
+  };
   pol.councilCheck = (P, k, t) => check(sim, pm, pol, wm, cm, dev, base, rbase, book, P, k, t);
   return model;
 }
@@ -448,7 +465,7 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   const jit = (i: Issue) => JITTER * (keyed4(base, pm.ptag[p], k, i, 0) - 0.5);
   /** broke:直征是因为国用不足才议的(记 cause = broke;不然是君主锐意兴革);b:脱离时想转投的邻国;opt:废君办成以后能议政的有几档 */
   const record = (i: Issue, out: Outcome, region: number, broke = false, b = -1, opt?: number) => {
-    applyRule(r, i, out, t, opt);
+    applyRule(r, i, out, t, opt, b);
     sim.record('council', { a: p, ...(b >= 0 ? { b } : {}), region, settlement: pm.cityOf[region], war: i, n: out, ...(broke ? { cause: 'broke' as const } : {}), ...(opt !== undefined ? { opt } : {}) });
   };
   /** 边地(管得到几成不到 BORDER_C;国都、割据的地盘不算):几州、城民占全国几成、城民最多的那州(有城;没有 = −1) */
@@ -536,7 +553,10 @@ function check(sim: CivSim, pm: PolityModel, pol: PoliticsModel, wm: WarModel, c
   }
 
   // 改制(reform.ts):立宪、扩大参与、废君立共和(谈崩起兵革命)、政变、复辟、还政;出了一件就不再议别的
-  if (reformCheck({ sim, pm, pol, wm, cm, base: rbase, P, k, t, rules: r, rulesOf: (q) => rulesOf(book, q), u, broke, capR, ready, record: (i, out, region, opt) => record(i, out, region, false, -1, opt) })) return;
+  if (
+    reformCheck({ sim, pm, pol, wm, cm, dev, base: rbase, P, k, t, rules: r, rulesOf: (q) => rulesOf(book, q), u, broke, capR, af: a, keen, lords: lordsN, ready, record: (i, out, region, opt, b = -1) => record(i, out, region, false, b, opt) })
+  )
+    return;
 
   // ④ 脱离:割据久了的地方要转投邻国(肯收它的:和那州同族而本国不是,或国力比本国强)
   if (lordsN && ready(Issue.Leave) && !wm.iv?.unites(p, t)) {

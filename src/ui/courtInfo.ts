@@ -71,7 +71,7 @@ export function courtLocks(civ: Civ, p: number, year: Year, rules: Pick<CourtRul
   return { tax, army, office, note: says.length ? `${says.join('；')}（斜纹的那几档现在还议不了）` : '' };
 }
 /** 议题(史事的 war 列;5–8 按议之前的军制、官制分两种叫法,见 issueName) */
-export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地', '收兵权', '设边镇', '行铨选', '许自辟', '分镇', '脱离', '立宪', '扩大参与', '废王立共和', '还政'] as const;
+export const ISSUE_NAMES = ['罢直征', '削藩', '直征', '改土归流', '分封边地', '收兵权', '设边镇', '行铨选', '许自辟', '分镇', '脱离', '立宪', '扩大参与', '废王立共和', '还政', '变法'] as const;
 
 /** 一条议事的议题名:收兵权 / 罢边镇、设边镇 / 罢禁军、行铨选 / 收回辟署、许自辟 / 罢铨选(b = 议之前那国的军制、官制) */
 function issueName(e: Annal, b: { army: number; office: number } | undefined): string {
@@ -507,6 +507,12 @@ function thenText(civ: Civ, e: Annal, out: number, name: string): string | null 
       return out === 0 ? '从此能议政的人多了一档' : null;
     case Issue.Return:
       return out === 0 ? '从此复行共和' : null;
+    case Issue.Reform: {
+      // 变法:学了谁的哪一样(b = 那一国,opt = 0 生产、1 运输、2 信息、3 行政)
+      const what = ['生产', '运输', '信息', '行政'][e.opt ?? -1];
+      const who = civ.polities[e.b] ? polityName(civ.polities[e.b], e.year) : '邻国';
+      return out === 0 || out === 1 ? `从此${out === 1 ? '稍' : ''}学${who}的${what ?? '长处'}` : out === 3 ? '国中大扰' : null;
+    }
     default:
       return null;
   }

@@ -95,6 +95,7 @@ import { holderAt, kinAt, strongHeld } from './regentInfo';
 import {
   TIER_REGIONS,
   annexedRemnants,
+  capitalAt,
   dynastyIndexAt,
   dynastyTitle,
   polityAlive,
@@ -129,7 +130,7 @@ import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
 import { foesAt } from './fiscalBook';
 import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_LASTING, envoyOf, treatyBook, treatyCallName, treatyLine } from './treatyInfo';
 import { BOOST_N, IV_TOP_ERA } from './boost';
-import { ERAS } from './development';
+import { CAP_COUNT, ERAS, developmentAt } from './development';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;
@@ -1997,7 +1998,7 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       // 大国办成的改制是大事;搁置、谈崩(后面紧跟着割据、自立那一条)和小国的只在"全部"里。
       // 第二批里只有脱离转投(国土易手)算大事;改军制、改官制、分镇只在"全部"里(大国一个种子十来次,放进大事时间轴就挤了)
       const who = reigning(ctx.ix, e.a, y);
-      const imp = e.n === 0 && (e.war <= 4 || e.war === 10) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
+      const imp = e.n === 0 && (e.war <= 4 || e.war === 10 || e.war === Issue.Reform) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
       // 改制的议题办成了(立宪、废君立共和、还政):单列一种(立宪、改制,蓝色)
       if (e.n === 0 && (e.war === Issue.Charter || e.war === Issue.Abolish || e.war === Issue.Return)) return reformDoneEntry(ctx, e, id);
       let t = councilText(civ, e, id, who, ctx.ix);
@@ -3170,10 +3171,12 @@ function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
  * "大渭太宗分瑞州之镇,守将所领诸州尽归朝廷,只留瑞州一州" / "大渭瑞州守将举所领诸州归附大燕,朝廷不能制"
  * 有了时代做法(practices.ts)以后同一件事换个说法,不另加条目:一国头一回直征、收兵权(禁军)、收任免(铨选)办成,
  * 写"编定户籍,改由官吏按户征税""始置常备之军……不复征发于州郡""始行考选,州县之官由朝廷选授"(推演里这几件要有了户籍、
- * 常备军、文官考选才办得成);国都进了火药时代以后改土归流、罢边镇办成,这国以后再没分封、设边镇的,写"分封之制遂废""边镇之制遂废"
+ * 常备军、文官考选才办得成);国都进了火药时代以后改土归流、罢边镇办成,这国以后再没分封、设边镇的,写"分封之制遂废""边镇之制遂废"。
+ * 变法(学邻国之长,b = 学的那一国、opt = 学哪一样)见 learnText
  */
 function councilText(civ: Civ, e: Annal, id: number, who: Person | null, ix: PeopleIndex | null = null): string {
   if (isReformIssue(e.war)) return reformCouncilText(civ, e, id, who, ix);
+  if (e.war === Issue.Reform) return learnText(civ, e, id);
   const y = e.year;
   const A = pn(civ, e.a, y);
   const P = polityOf(civ, e.a);
@@ -3327,6 +3330,51 @@ function woeOf(civ: Civ, p: number, id: number): string {
   return out.join(',');
 }
 
+/**
+ * 变法学了哪一样的说法(opt:0 生产、1 运输、2 信息、3 行政);那国那一样到了工业时代的换成机器、铁路的说法。
+ * 西幻同一种口气
+ */
+const LEARN_WHAT: readonly (readonly [string, string])[] = [
+  ['习其冶铁之法', '习其机器之法'],
+  ['仿其驿传舟车', '仿其铁路轮船'],
+  ['遣子弟游学,译其书', '遣子弟游学,译其书'],
+  ['仿其官制律令', '仿其官制律令'],
+];
+/** 工业时代(ERAS 的下标) */
+const ERA_INDUSTRY = 5;
+
+/**
+ * 变法(议事,council.ts 的议题 15;reform.ts 议):b = 学的那一国,opt = 学哪一样。
+ * 办成:"大靖屡败于萨利卡,议变法,遣使入萨利卡,仿其官制律令";妥协:"大靖议变法,稍行新法而止";
+ * 搁置:"大靖议变法,守旧之臣力阻,事寝";谈崩:"大靖议变法,守旧之臣群起攻之,国中大扰"
+ */
+function learnText(civ: Civ, e: Annal, id: number): string {
+  const y = e.year;
+  const A = pn(civ, e.a, y);
+  const east = !!polityOf(civ, e.a)?.eastern;
+  const B = e.b >= 0 ? pn(civ, e.b, y) : '';
+  // 吃了那国的亏(WOE_YEARS 年里被它打下过州):"屡败于萨利卡";不然照一般的窘境
+  let bitten = 0;
+  for (let k = id - 1; k >= 0 && y - civ.annals[k].year < WOE_YEARS; k--) {
+    const a = civ.annals[k];
+    if (a.kind === 'conquer' && a.b === e.a && a.a === e.b && a.war >= 0) bitten++;
+  }
+  const woe = bitten && B ? `${bitten >= 2 ? '屡败于' : '败于'}${B}` : woeOf(civ, e.a, id);
+  const lead = woe ? `${A}${woe},议变法` : `${A}议变法`;
+  const out = e.n ?? 2;
+  if (out === 0) {
+    const col = Math.max(0, Math.min(3, e.opt ?? 3));
+    const lv = civ.development && e.b >= 0 ? developmentAt(civ.development, y) : null;
+    const Q = polityOf(civ, e.b);
+    const qR = Q && lv ? (civ.settlements[capitalAt(Q, y)]?.region ?? -1) : -1;
+    const modern = qR >= 0 && lv ? lv[qR * CAP_COUNT + col] >= ERA_INDUSTRY : false;
+    return `${lead}${B ? `,遣使入${B}` : ''},${LEARN_WHAT[col][modern ? 1 : 0]}`;
+  }
+  if (out === 1) return `${lead},稍行新法而止`;
+  if (out === 2) return `${lead},${east ? '守旧之臣力阻,事寝' : '守旧的大臣力阻,作罢'}`;
+  return `${lead},${east ? '守旧之臣群起攻之,国中大扰' : '守旧的大臣群起反对,国中大乱'}`;
+}
+
 /** 议事的地方:设了议会的东方写"议院"、西幻写"议会",没设的写"议事会"(year 这一刻以后的规矩) */
 function bodyOf(civ: Civ, p: number, year: Year): string {
   if (rulesAt(civ.annals, p, year).charter < 2) return '议事会';
@@ -3460,6 +3508,17 @@ function reformEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     t += `${nu ? nu.name : east ? '义军' : '起义者'}起兵${r ? `于${r}` : ''}${capital ? `,入${capital}` : ''}${king ? `,废${king}` : ''}`;
     t += `${east ? `,罢${P && polityTierAt(P, y - 1 / 512) >= 3 ? '帝' : '王'}号` : ''},立共和,国号${after}${nu ? ',自为执政' : ''}`;
     return entry(t, '革', 'revolution', nu, old);
+  }
+  if (e.n === REFORM_COUP && P && royalSeg(P, dynastyIndexAt(P, y - 1 / 512))) {
+    // 君主国的政变:"大靖大将军田继徽率兵入桂陵,废光宗,国事决于军中";正在专权的大将:"大靖大将军田继徽专权十二年,遂废光宗,国事决于军中"
+    const king = old ? (east ? rulerBare(civ, old, y) : old.name) : '';
+    const seg = nu?.regencies?.find((g) => g.kind === 'general' && g.until === y);
+    const years = seg ? Math.round(y - seg.from) : 0;
+    const general = `${east ? '大将军' : '将军'}${nu ? nu.name : ''}`;
+    const t = seg
+      ? `${before}${general}专权${years >= 1 ? `${cnNumber(years)}年` : ''},遂废${king || (east ? '其君' : '国王')},国事决于军中`
+      : `${before}${woe ? `${woe},` : ''}${general}率兵入${capital || '国都'}${king ? `,废${king}` : ''},国事决于军中`;
+    return entry(t, '政', 'coup', nu, old);
   }
   if (e.n === REFORM_COUP) {
     // "博戈维纳共和国大疫之后国用不足,议事会久议不决;将军米列斯拉娃率兵入莫尔格勒,散议事会,自为执政,国事决于军中"

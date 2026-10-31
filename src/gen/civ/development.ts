@@ -33,6 +33,9 @@
  *   - 推一把发展(干预 boost,boost.ts):快几倍的那些州"自己长"(卡在时代门口时除外,也不一步跨过门口)和"向邻居学"再 × 倍数
  *     (一步里至多追平最高的邻居;生产到了门口、缺物产的州都不乘),按这一步里管了几成折算;和发展重点相乘。
  *     直接进下一个时代 = 那一刻把那些州四样能力拉到那个时代开头(jumpEra)。没推的州不变。
+ *   - 变法(议事 council.ts 的一种议题,reform.ts 议):办成的国家治下各州,学的那一样"向邻居学"× 倍数,学的那一国的国都也算一个邻居
+ *     (一步里至多追平最高的邻居 / 那国国都),按这一步里管了几成折算;和推一把发展相乘。由议事的史事推出来(councilRules.ts 的 Rules.learnCol),
+ *     没变法的国家不变。
  *   - 没人住的州不长;刚有人住的州带着邻居的本事来(取最高邻居的 SETTLE_CARRY)。
  *
  * **时代** = 生产、运输、信息、行政四样的"偏短板"平均(调和平均,见 eraLevel):整数部分是哪个时代,小数部分是走到这个时代的几成。
@@ -338,6 +341,8 @@ export interface DevModel {
   eng?: TableEngine;
   /** 推一把发展(boost.ts 挂上;没有快几倍的干预 = 不挂):(t0, y] 这一步里各州的倍数填进 out(没推的州留 1) */
   boostFill?: (t0: Year, y: Year, out: Float64Array) => void;
+  /** 变法(council.ts 挂上):(t0, y] 这一步里各国四样能力"向邻居学"的倍数填进 mul(国家 × 4;没变法的留 1),学的那一国国都的能力填进 teacher(没有留 0) */
+  learnFill?: (t0: Year, y: Year, mul: Float64Array, teacher: Float64Array) => void;
   /** 每步算完(大事、快照都记好了)以后调(思潮挂上,见 ideology.ts;在 afterTick 之前):prev = 这一步开头各州的能力(州 × CAP_COUNT) */
   afterStep?: (y: Year, prev: Float64Array) => void;
   /** 每一步算完以后(商道 trade.ts 挂上;只读,不改推演) */
@@ -831,6 +836,10 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   // 推一把发展(boost.ts):这一步里各州"自己长""向邻居学"的倍数,按这一步里管了几成折算。没推的州 1,什么都不变
   const boostIn = eng.input('推').fill(1);
   if (dt > 0) d.boostFill?.(d.last, y, boostIn);
+  // 变法(council.ts / reform.ts):这一步里各国学的那一样"向邻居学"的倍数,按这一步里管了几成折算。没变法的国家 1,什么都不变
+  const learnIn = eng.input('学法').fill(1);
+  const teacherIn = eng.input('法师').fill(0);
+  if (dt > 0) d.learnFill?.(d.last, y, learnIn, teacherIn);
 
   // 全球大疫(pandemic.ts):这一步里各州凋敝占了几成(没有全球大疫的世界全是 0)
   const pan = pandemicModelOf(sim);

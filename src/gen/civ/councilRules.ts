@@ -17,6 +17,9 @@ export const BORDER_C = 0.35;
 const BORDER_ARMY = 0.6;
 /** 改组(分镇)妥协时,那处割据的地盘留几州(办成只留起事那一州) */
 export const REORG_HALF = 2;
+/** 变法办成:学的那样能力几年里、向邻居学快几倍(妥协年数减半;以 20 个种子的统计为准,见 scripts/reform-stats.ts) */
+export const LEARN_YEARS = 60;
+export const LEARN_MUL = 3;
 
 /** 议题(Annal.war) */
 export const enum Issue {
@@ -45,6 +48,11 @@ export const enum Issue {
   Abolish = 13,
   /** 还政(军政府交还议事会,复行共和) */
   Return = 14,
+  /**
+   * 变法(学邻国之长;reform.ts):b = 学的那一国,opt = 学哪一样能力(0 生产、1 运输、2 信息、3 行政)。
+   * 办成 = 那样能力 LEARN_YEARS 年里向邻居学快 LEARN_MUL 倍;妥协 = 年数减半;谈崩 = 守旧的一方反扑,动荡跳一截(同集权改制的余波)
+   */
+  Reform = 15,
 }
 /** 结果(Annal.n) */
 export const enum Outcome {
@@ -54,7 +62,7 @@ export const enum Outcome {
   Break = 3,
 }
 /** 议题有几种 */
-export const ISSUES = 15;
+export const ISSUES = 16;
 /** 改制的几种议题(立宪、扩大参与、废君立共和、还政;reform.ts) */
 export const isReformIssue = (i: number) => i >= Issue.Charter && i <= Issue.Return;
 
@@ -93,6 +101,11 @@ export interface Rules {
   franchise: number;
   /** 上回改制(废君、还政办成,革命、政变、复辟)的年份;没改过 = −Infinity */
   reformed: Year;
+  /** 变法办成 / 妥协:学的那样能力(没有 = −1)、学的那一国、从哪年到哪年(不含)向邻居学快 LEARN_MUL 倍 */
+  learnCol: number;
+  learnOf: number;
+  learnFrom: Year;
+  learnUntil: Year;
   /** 各议题上次议的年份、上次搁置了没有 */
   last: Year[];
   shelved: boolean[];
@@ -100,15 +113,16 @@ export interface Rules {
 
 /** 没议过事的国家:原样 */
 export function newRules(): Rules {
-  return { tax: 0, army: 0, office: 0, shock: -Infinity, charter: 0, franchise: 0, reformed: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity), shelved: new Array<boolean>(ISSUES).fill(false) };
+  return { tax: 0, army: 0, office: 0, shock: -Infinity, charter: 0, franchise: 0, reformed: -Infinity, learnCol: -1, learnOf: -1, learnFrom: -Infinity, learnUntil: -Infinity, last: new Array<Year>(ISSUES).fill(-Infinity), shelved: new Array<boolean>(ISSUES).fill(false) };
 }
 
 /**
  * 议了一件事以后规矩怎么变(收兵权、收任免:从让了权的 −1 收回到 0,不然办成到 1、妥协到 0.5;
  * 放兵权、放任免:收着权的(> 0)放回 0,不然办成到 −1)。
- * 改制:立宪办成设议会、妥协设议事会;扩大参与办成多一档;废君办成至少设议事会、参与照 opt(那条史事的 Annal.opt),妥协设议事会
+ * 改制:立宪办成设议会、妥协设议事会;扩大参与办成多一档;废君办成至少设议事会、参与照 opt(那条史事的 Annal.opt),妥协设议事会。
+ * 变法:办成 / 妥协学 opt 那一样(LEARN_YEARS 年 / 一半),谈崩有余波(和集权改制一样)
  */
-export function applyRule(r: Rules, issue: number, out: number, t: Year, opt?: number): void {
+export function applyRule(r: Rules, issue: number, out: number, t: Year, opt?: number, b = -1): void {
   r.last[issue] = t;
   r.shelved[issue] = out === Outcome.Shelve;
   const done = out === Outcome.Done;
@@ -136,6 +150,14 @@ export function applyRule(r: Rules, issue: number, out: number, t: Year, opt?: n
     if (done && opt !== undefined) r.franchise = Math.max(r.franchise, opt);
     if (done) r.reformed = t;
   } else if (issue === Issue.Return && done) r.reformed = t;
+  else if (issue === Issue.Reform) {
+    if ((done || half) && opt !== undefined) {
+      r.learnCol = opt;
+      r.learnOf = b;
+      r.learnFrom = t;
+      r.learnUntil = t + (done ? LEARN_YEARS : LEARN_YEARS / 2);
+    } else if (out === Outcome.Break) r.shock = t;
+  }
 }
 
 /** 改制(史事 reform)以后规矩怎么变:革命设议会、参与照 Annal.opt;复辟回到君主独断;政变不改(议会散了看政体) */
@@ -163,7 +185,7 @@ export function rulesAnnal(e: Annal): boolean {
 
 /** 一条史事要不要照着改规矩(议事、改制):议事 → applyRule,改制 → applyReform,革命据地自立 → 新国家设议会;别的不管。返回改没改 */
 export function replayRule(r: Rules, e: Annal): boolean {
-  if (e.kind === 'council') applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year, e.opt);
+  if (e.kind === 'council') applyRule(r, e.war, e.n ?? Outcome.Shelve, e.year, e.opt, e.b);
   else if (e.kind === 'reform') applyReform(r, e);
   else if (e.kind === 'split' && e.cause === 'revolution') {
     r.charter = REVOLT_CHARTER;

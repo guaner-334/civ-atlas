@@ -42,10 +42,10 @@
  * **不存内存状态**:政体在 Polity.dynasties,议政、参与、上回改制的年份由史事重建(resumeCouncil)。
  * 随机数:keyed4(subSeed(seed, 'civ-reform'), 国家锚, 第几次看内政, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
-import { Layer, type Annal, type Polity, type RulerLeanings, type Year } from './types';
+import { AdjKind, Layer, type Annal, type Polity, type RulerLeanings, type Year } from './types';
 import { keyed4 } from './rand';
 import type { CivSim } from './sim';
-import { dynastyReign, rulerOf, type PolityModel } from './polities';
+import { dynastyReign, regentOf, rulerOf, type PolityModel } from './polities';
 import type { PoliticsModel } from './politics';
 import type { WarModel } from './wars';
 import type { ControlModel } from './control';
@@ -54,6 +54,8 @@ import { drawLeanings, reignBorn } from './rulers';
 import { Issue, Outcome, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION, REVOLT_CHARTER, REVOLT_FRANCHISE, applyReform, type Rules } from './councilRules';
 import { segRegime } from './regime';
 import { ideoModelOf, nationalNow } from './ideology';
+import { CAP_COUNT, eraNowAt, type DevModel } from './development';
+import { ADULT } from './regents';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/reform-stats.ts) ----
 /** 推力:均产算几成、天命扣几成;到 PUSH_MIN 才议改制 */
@@ -123,6 +125,25 @@ const RET_WAR = 0.3;
 /** 政变的将军、革命起兵的人:年纪(随机)、倾向偏移(将军好战) */
 const LEADER_AGE: [number, number] = [36, 58];
 const GENERAL_SHIFT = { war: 15, expand: 5 };
+/** 君主国的政变:幼主在位、大臣专权(君主弱)时赔率乘几 */
+const WEAK_COUP = 2;
+/**
+ * 变法:邻国(接壤,或 LEARN_WAR 年内交过兵)国都的时代比本国国都高 LEARN_GAP 以上才议;
+ * 分 x = L_0 + L_GAP × min(1, 时代差 − LEARN_GAP) + L_LOST × (LEARN_WAR 年内被那国打下过州) + L_CRISIS × 窘迫
+ *        + L_ART × 技艺 + L_LAW × 律法 + L_DEV × (发展 − 50) / 50 + L_ADMIN × af − L_SKY × (天命 − SKY_REF) − L_LORD × 割据几处(至多 3)+ 随机
+ */
+const LEARN_GAP = 1;
+const LEARN_WAR = 30;
+const L_0 = -0.35;
+const L_GAP = 0.3;
+const L_LOST = 0.15;
+const L_CRISIS = 0.15;
+const L_ART = 0.8;
+const L_LAW = 0.4;
+const L_DEV = 0.2;
+const L_ADMIN = 0.15;
+const L_SKY = 0.6;
+const L_LORD = 0.1;
 const REBEL_SHIFT = { develop: 15, war: 5 };
 
 // 随机数用途(keyed4 第四位)
@@ -131,6 +152,7 @@ const U_REV = 2;
 const U_COUP = 3;
 const U_RESTORE = 4;
 const U_AGE = 5;
+const U_LEARN = 6;
 /** 倾向的随机数从这里起(drawLeanings 的用途号加上去) */
 const U_LEAN = 64;
 
@@ -141,6 +163,7 @@ export interface ReformCtx {
   pol: PoliticsModel;
   wm: WarModel;
   cm: ControlModel;
+  dev: DevModel;
   /** subSeed(seed, 'civ-reform') */
   base: number;
   P: Polity;
@@ -154,25 +177,34 @@ export interface ReformCtx {
   u: number;
   broke: number;
   capR: number;
+  /** 朝廷的底气(国都行政能力折成 0–1)、说了算的人的发展倾向((发展 − 50) / 50)、割据几处 */
+  af: number;
+  keen: number;
+  lords: number;
   ready: (i: Issue) => boolean;
-  /** 记一条议事(opt = 之后能议政的有几档) */
-  record: (i: Issue, out: Outcome, region: number, opt?: number) => void;
+  /** 记一条议事(opt = 之后能议政的有几档 / 变法学哪一样;b = 变法学的那一国) */
+  record: (i: Issue, out: Outcome, region: number, opt?: number, b?: number) => void;
 }
 
-/** 推演里:国家 p 被打下的州(DEFEAT_YEARS 年内,别国打下的;一州只算一次) */
-function lostLately(wm: WarModel, p: number, t: Year): number {
+/** 推演里:国家 p 被打下的州(DEFEAT_YEARS 年内,别国打下的;by ≥ 0 = 只算那一国打下的;一州只算一次) */
+function lostLately(wm: WarModel, p: number, t: Year, by = -1): number {
   const seen = new Set<number>();
   for (let i = wm.wars.length - 1; i >= 0; i--) {
     const w = wm.wars[i];
     if (!w || (w.a !== p && w.b !== p)) continue;
+    if (by >= 0 && w.a !== by && w.b !== by) continue;
     if (w.end !== undefined && t - w.end >= DEFEAT_YEARS) continue;
-    for (const e of w.takes) if (e.by !== p && t - e.year < DEFEAT_YEARS) seen.add(e.region);
+    for (const e of w.takes) if (e.by !== p && (by < 0 || e.by === by) && t - e.year < DEFEAT_YEARS) seen.add(e.region);
   }
   return seen.size;
 }
 
-/** 看一回改制;出了一件事(议了、起兵、政变、复辟)= true,议事那边就不再议别的 */
+/** 看一回改制,再看变法;出了一件事(议了、起兵、政变、复辟)= true,议事那边就不再议别的 */
 export function reformCheck(cx: ReformCtx): boolean {
+  return regimeCheck(cx) || learnCheck(cx);
+}
+
+function regimeCheck(cx: ReformCtx): boolean {
   const { sim, pm, P, k, t } = cx;
   const p = P.id;
   const seg = (P.dynasties?.length ?? 1) - 1;
@@ -191,6 +223,23 @@ export function reformCheck(cx: ReformCtx): boolean {
   const since = t - cx.rules.reformed;
 
   if (regime === 'crown') {
+    // 君主国的政变:兵权在将军手里(设了禁军 / 监军,或者正有大将专权),又窘迫或败仗 —— 将军率兵入都,废君,改军政府(国号、旗不变)
+    if (P.lineage !== 'republic' && since >= REFORM_GAP && crisis > 0) {
+      const now = rulerOf(pm, p, t);
+      const g = regentOf(pm, p, t, now);
+      const general = g?.kind === 'general';
+      if (army > 0 || general) {
+        // 君主弱:幼主在位(或有人辅政幼主)、大臣专权
+        const weak = t - reignBorn(now) < ADULT || g?.kind === 'chancellor' || g?.kind === 'minister' || g?.kind === 'uncle';
+        const odds = COUP_ODDS * (1 + COUP_ARMY * Math.max(army, general ? 1 : 0)) * (1 + crisis) * (weak ? WEAK_COUP : 1);
+        if (R(U_COUP) < odds / (1 + odds)) {
+          note(cx, { b: -1, region: cx.capR, settlement: capitalAt(P, t), n: REFORM_COUP });
+          // 正在专权的大将就是他(人物接上:people.ts 把他和军政府的首任执政认成同一人)
+          openSeg(cx, { regime: 'junta', usurper: general ? { born: g.born, leanings: { ...g.leanings } } : leader(cx, R, GENERAL_SHIFT) });
+          return true;
+        }
+      }
+    }
     if (push < PUSH_MIN) return false;
     const r = cx.rules;
     let issue: Issue | null = null;
@@ -359,5 +408,77 @@ function revolt(cx: ReformCtx, issue: Issue, push: number, R: (use: number) => n
   nr.charter = REVOLT_CHARTER;
   nr.franchise = Math.max(nr.franchise, REVOLT_FRANCHISE);
   nr.reformed = t;
+  return true;
+}
+
+/**
+ * 变法:接壤(或 LEARN_WAR 年内交过兵)的邻国里国都的时代比本国国都高 LEARN_GAP 以上的,学其中时代最高的那一国、
+ * 四样能力(生产、运输、信息、行政)里本国国都差它最多的那一样。议了 = true
+ */
+function learnCheck(cx: ReformCtx): boolean {
+  if (!cx.ready(Issue.Reform)) return false;
+  const { sim, pm, wm, P, t, capR, dev } = cx;
+  const p = P.id;
+  const mine = eraNowAt(sim, capR);
+  if (mine < 0) return false;
+  // 邻国:接壤的(航线不算),和 LEARN_WAR 年内交过兵的
+  const reg = pm.terrain.regions;
+  const owner = sim.owners[Layer.Polity];
+  const near = new Set<number>();
+  for (const r of pm.lands[p]) {
+    for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) {
+      const q = owner[reg.adj[e]];
+      if (q >= 0 && q !== p && reg.adjKind[e] !== AdjKind.SeaRoute) near.add(q);
+    }
+  }
+  for (const w of wm.wars) if ((w.a === p || w.b === p) && (w.end === undefined || t - w.end < LEARN_WAR)) near.add(w.a === p ? w.b : w.a);
+  let best = -1;
+  let bestEra = mine + LEARN_GAP;
+  let bestR = -1;
+  for (const q of near) {
+    const Q = pm.polities[q];
+    if (!Q || Q.ended !== undefined || !(pm.size[q] > 0)) continue;
+    const qR = pm.settlements[capitalAt(Q, t)]?.region ?? -1;
+    const e = eraNowAt(sim, qR);
+    if (e > bestEra || (e === bestEra && best >= 0 && q < best) || (e === bestEra && best < 0)) {
+      best = q;
+      bestEra = e;
+      bestR = qR;
+    }
+  }
+  if (best < 0) return false;
+  // 学哪一样:本国国都差那国国都最多的那一样
+  let col = -1;
+  let gap = 0;
+  for (let c = 0; c < 4; c++) {
+    const d = (dev.cur[bestR * CAP_COUNT + c] || 0) - (dev.cur[capR * CAP_COUNT + c] || 0);
+    if (d > gap) {
+      gap = d;
+      col = c;
+    }
+  }
+  if (col < 0) return false;
+  const im = ideoModelOf(sim);
+  const sh = im ? nationalNow(im, p) : null;
+  const sky = sh ? sh[0] : 0;
+  const law = sh ? sh[1] : 0;
+  const art = sh ? sh[3] : 0;
+  const crisis = cx.broke + Math.min(1, lostLately(wm, p, t) / LOST_FULL);
+  const bitten = lostLately(wm, p, t, best) > 0 ? 1 : 0;
+  const R = (use: number) => keyed4(cx.base, pm.ptag[p], cx.k, use, 0);
+  const x =
+    L_0 +
+    L_GAP * Math.min(1, bestEra - mine - LEARN_GAP) +
+    L_LOST * bitten +
+    L_CRISIS * crisis +
+    L_ART * art +
+    L_LAW * law +
+    L_DEV * cx.keen +
+    L_ADMIN * cx.af -
+    L_SKY * (sky - SKY_REF) -
+    L_LORD * Math.min(3, cx.lords) +
+    JITTER * (R(U_LEARN) - 0.5);
+  const out = x > DONE ? Outcome.Done : x > HALF ? Outcome.Half : x > SHELVE ? Outcome.Shelve : Outcome.Break;
+  cx.record(Issue.Reform, out, capR, col, best);
   return true;
 }

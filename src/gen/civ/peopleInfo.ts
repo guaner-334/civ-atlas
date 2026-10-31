@@ -15,7 +15,7 @@ import type { Annal, Civ, Person, PersonCommand, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
 import { dowagerSpans, dowagerWordOf, isConsul, kinOf, personName, rulerRef, rulerShort, rulerTitle } from './peopleText';
-import { opensSeg } from './regime';
+import { opensSeg, royalSeg } from './regime';
 import { Issue, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION } from './councilRules';
 
 /** 够这么多分算名人 */
@@ -232,7 +232,8 @@ export function riseText(civ: Civ, x: Person): string {
       const e = civ.annals.find((a) => a.a === p.id && a.year === y0 && opensSeg(a));
       if (e?.kind === 'council') return e.war === Issue.Return ? '军政府还政，推为执政' : '废君立共和，推为执政';
       if (e?.n === REFORM_REVOLUTION) return '起兵革命，自为执政';
-      if (e?.n === REFORM_COUP) return '率兵政变，自为执政';
+      // 君主国的政变(前一段是王室的):废君
+      if (e?.n === REFORM_COUP) return (x.dynasty ?? 0) > 0 && royalSeg(p, (x.dynasty ?? 0) - 1) ? '率兵入都废君，国事决于军中' : '率兵政变，自为执政';
       if (e?.n === REFORM_RESTORE) return e.b >= 0 ? '复辟，迎回旧王室即位' : '废议事会，自立为君';
       return consul ? '就任' : '即位';
     }

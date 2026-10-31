@@ -93,6 +93,8 @@ export function devCards(k: DevRuleConsts, step: number): TableCard[] {
     pol('重点动员', '发展重点:挑动员的时间占几成', 0),
     num('凋敝', '这一步里全球大疫的凋敝占了几成(0–1;没有 = 0)'),
     num('推', '推一把发展:这一步里自己长、向邻居学的倍数(没推 = 1)', undefined, 1),
+    pol('学法', '变法:这一步里向邻居学的倍数(没变法 = 1)', 1, [生产, 运输, 信息, 行政]),
+    pol('法师', '变法:学的那一国国都此刻的能力(也算一个邻居;没变法 = 0)', 0, [生产, 运输, 信息, 行政]),
   ];
 
   // 有人住的邻州(动力、学、带着本事来,都只看有人住的邻居)
@@ -134,8 +136,11 @@ export function devCards(k: DevRuleConsts, step: number): TableCard[] {
     `let 门产 = floor(能力.${生产}) + 1`,
     `let 产缺 = 能力.${生产} > 门产 - GATE_NEAR and if(门产 == 1, ${lack(0)}, if(门产 == 2, ${lack(1)}, if(门产 == 5, ${lack(2)} or ${lack(1)}, if(门产 == 6, ${lack(3)}, if(门产 == 7, ${lack(4)}, 0)))))`,
     'let 长 = if(推 == 1, 长0 * if(近门 and 卡, GATE_SLOW, 1), if(近门 and 卡, 长0 * GATE_SLOW, if(产缺, 长0, if(卡, min(长0 * 推, max(长0, (门 - GATE_NEAR - 能力) / dt)), 长0 * 推))))',
-    // 向邻居学:推一把发展的乘「推」,一步里至多追平最高的邻居(没推的 = 学,逐位不变;生产缺物产的州不乘,照常慢慢等邻居传过来)
-    `let 得 = if(推 == 1 or 产缺, 学, min(学 * 推, nbmax(nb.能力 - 能力, 0, ${nbLive} and nb.能力 - 能力 > 0) / dt)) * if(能力 > 时代 + OVERSHOOT_LEARN, OVERSHOOT_SLOW, 1)`,
+    // 向邻居学:推一把发展的乘「推」、变法的乘「学法」,一步里至多追平最高的邻居(都没有的 = 学,逐位不变;生产缺物产的州不乘,照常慢慢等邻居传过来)
+    // 变法的另把学的那一国国都当一个邻居(同一国里那么快),一步里至多追平它
+    'let 师 = if(法师 > 能力, (法师 - 能力) * LEARN[col] * SAME_STATE, 0)',
+    'let 倍 = 推 * 学法',
+    `let 得 = if(倍 == 1 or 产缺, 学, min(max(学, 师) * 倍, max(nbmax(nb.能力 - 能力, 0, ${nbLive} and nb.能力 - 能力 > 0), 法师 - 能力) / dt)) * if(能力 > 时代 + OVERSHOOT_LEARN, OVERSHOOT_SLOW, 1)`,
     // 跌下去的按到过的最高值较快地恢复
     'let 复 = (最高[col] - 能力) * RECOVER',
     'let 平常 = 能力 + dt * (长 + 得 + if(复 > 0, 复, 0))',
