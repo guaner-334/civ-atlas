@@ -21,7 +21,7 @@
  * 州、民族一律用位置锚(州 = 治所地块,民族 = 发源州的治所地块;见 rand.ts),不用编号:
  * 改地形后多几个州、州号全都错开,远处的发源地、类型、扩张快慢照旧。纯计算,不碰 DOM。
  */
-import { Biome } from '../biomes';
+import { biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { AdjKind, Layer, type ChangeLog, type Civ, type CivParams, type Culture, type CultureKind, type Habitat, type NamePins, type Regions, type Year } from './types';
@@ -80,16 +80,15 @@ const BIG_LAKE = 5;
 /** 群落系数表(按 Biome 下标) */
 const BIOME_F = BIOME_COST.map((c) => fpow(c / 70, BIOME_EXP));
 
-/** 群落集合 → 按 Biome 下标查的表(推演里查得很频繁) */
-const biomeSet = (list: number[]) => {
-  const t = new Uint8Array(16);
-  for (const b of list) t[b] = 1;
-  return t;
-};
-const STEPPE_DESERT = biomeSet([Biome.Steppe, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert]);
-const FOREST = biomeSet([Biome.TemperateForest, Biome.TemperateRainforest, Biome.Rainforest, Biome.TropicalDryForest, Biome.Taiga]);
+// 群落集合 → 按 Biome 下标查的表(推演里查得很频繁;哪些群落算哪一类见地貌表的标签)
+/** 游牧之地:草原、荒漠 */
+const STEPPE_DESERT = biomeTagged('nomad');
+/** 开阔干地:草原、荒漠再加稀树草原 */
+const ARID = biomeTagged('arid');
+/** 密林 */
+const FOREST = biomeTagged('forest');
 /** 山林民族的家:密林、苔原、湿地(Azgaar 的 Hunting) */
-const WILDS = biomeSet([Biome.Taiga, Biome.Rainforest, Biome.TemperateRainforest, Biome.Tundra, Biome.Wetland]);
+const WILDS = biomeTagged('wilds');
 
 // ---------------------------------------------------------------------------
 // 州级地形特征(由 World + Regions 现算,不存进 Civ)
@@ -256,8 +255,8 @@ function edgeCost(T: CultureTerrain, cu: Culture, home: number, b: number, k: nu
   let mod = 1;
   switch (kind) {
     case 'nomad':
-      if (STEPPE_DESERT[bi] || bi === Biome.Savanna) {
-        mod = bi === Biome.Savanna ? 1 : 0.8;
+      if (ARID[bi]) {
+        mod = STEPPE_DESERT[bi] ? 0.8 : 1;
         habF = 1; // 草原荒漠对游牧民族不算贫瘠
       } else if (FOREST[bi]) mod = 4;
       if (adjKind === AdjKind.Strait) cross *= 4;
@@ -342,7 +341,7 @@ function archetypeMatch(T: CultureTerrain, a: Archetype, r: number): number {
     case 'coast':
       return T.coastal[r] ? (T.harborSeat[r] ? 1 : 0.6) : 0.05;
     case 'steppe':
-      return STEPPE_DESERT[b] ? 1 : b === Biome.Savanna ? 0.3 : 0.04;
+      return STEPPE_DESERT[b] ? 1 : ARID[b] ? 0.3 : 0.04;
     case 'forest':
       return WILDS[b] && T.inland[r] ? 1 : WILDS[b] ? 0.5 : 0.08;
     case 'highland':
