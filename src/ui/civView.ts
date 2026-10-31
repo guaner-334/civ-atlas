@@ -19,7 +19,7 @@ import { useSyncExternalStore } from 'react';
 import { CIV_FILLS, CIV_NAME_KINDS, CIV_SHOW_DEFAULT, civFillOf, namesDefault, type CivFill, type CivNameKind, type CivShow } from '../render/civ/show';
 import { mapViewFromUrl } from './mapLayers';
 import { navUrl } from './nav';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 
 /** 网址 civ= 里「地图上写」的那几项(国名 polityNames、族名 cultureNames、教名 faithNames、时代名 eraNames),后面可以跟 .填色 */
 const NAME_KEY: Record<CivNameKind, string> = { polities: 'polityNames', cultures: 'cultureNames', faiths: 'faithNames', eras: 'eraNames' };

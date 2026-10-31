@@ -11,7 +11,7 @@
 import { useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { personPortrait, portraitLayers, type Portrait, type PortraitMood } from '../gen/portrait';
-import { isFemale } from '../gen/civ/gender';
+import { isFemale } from '../gen/civ/story/gender';
 import './portrait.css';
 
 const BASE = `${import.meta.env.BASE_URL}portraits/`;

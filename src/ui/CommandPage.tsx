@@ -58,7 +58,7 @@ import { CrownPage } from './CrownPage';
 import { AuthorRegentPage, GeneralPage, MinisterPage, type AuthorIvRole } from './AuthorIvPages';
 import { characterPosts, holdsPost, leadOrders, overlapWhy, postLine } from './authorIvInfo';
 import { keepWhy } from './keepInfo';
-import { heOrShe } from '../gen/civ/gender';
+import { heOrShe } from '../gen/civ/story/gender';
 import { NationLifeHead } from './LifeHead';
 import { getLifeTag, lifeTagFor } from './lifeTag';
 import { CharAvatar } from './CharacterPanel';

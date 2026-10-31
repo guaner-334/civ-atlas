@@ -12,7 +12,7 @@ import { generateCiv } from '../src/gen/civ';
 import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { InterventionModel } from '../src/gen/civ/interventions';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { polityName } from '../src/gen/civ/growth';
 import { applyNames, polityKey, type Intervention } from '../src/gen/edits';
 import {

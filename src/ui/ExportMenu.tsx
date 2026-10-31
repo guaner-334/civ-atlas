@@ -25,8 +25,8 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import { rasterize, type Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
-import { chronicleDocument } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { chronicleDocument } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { chronicleInSlices } from './chronicleHandoff';
 import { AZGAAR_SEA_GRAY, heightmapNote, type HeightmapBits } from '../gen/heightmap';
 import { isGradientLegend } from '../render/dataLegend';

@@ -11,8 +11,8 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { capitalAt, regionPopulationAt } from '../src/gen/civ/growth';
 import { PLAGUE_IV, quakeRing } from '../src/gen/civ/calamity';
-import { plagueSpans } from '../src/gen/civ/plagueSpans';
-import { regionLabel } from '../src/gen/civ/display';
+import { plagueSpans } from '../src/gen/civ/story/plagueSpans';
+import { regionLabel } from '../src/gen/civ/story/display';
 import { personKey, polityKey, regionKey, settlementKey, type Intervention } from '../src/gen/edits';
 import type { Person } from '../src/gen/civ/types';
 import {

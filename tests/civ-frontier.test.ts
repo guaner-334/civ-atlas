@@ -12,12 +12,12 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
 import { Biome } from '../src/gen/biomes';
-import { HABITABLE_SUIT } from '../src/gen/civ/display';
+import { HABITABLE_SUIT } from '../src/gen/civ/story/display';
 import { cleanFrontier, cleanOrigins, filledYear, frontierBrief, frontierFx, sameFrontier, speedText, terrainBrief, terrainText, TERRAIN_GROUPS } from '../src/gen/civ/frontier';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { buildChronicle, interventionOutcome } from '../src/gen/civ/chronicle';
+import { buildChronicle, interventionOutcome } from '../src/gen/civ/story/chronicle';
 import { regionKey, type Intervention } from '../src/gen/edits';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { originCiv, originSpots } from '../src/ui/studio/origins';
 

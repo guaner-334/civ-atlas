@@ -24,7 +24,7 @@ import {
   polityTitleChain,
   polityTitles,
 } from '../src/gen/civ/growth';
-import { DYNASTY_TIER, buildChronicle, filterChronicle, MAJOR } from '../src/gen/civ/chronicle';
+import { DYNASTY_TIER, buildChronicle, filterChronicle, MAJOR } from '../src/gen/civ/story/chronicle';
 import { polityLabels } from '../src/render/labels/polity';
 import { REF_MAP_CSS } from '../src/render/labels/draw';
 import { rasterize } from '../src/gen/raster';

@@ -14,7 +14,7 @@ import { DEFAULT_PARAMS, generateWorld, type WorldParams } from '../src/gen/worl
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { rasterize } from '../src/gen/raster';
 import { buildHistoryFrames } from '../src/gen/history';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { polityKey, regionKey, settlementKey, type Intervention, type TerrainOp } from '../src/gen/edits';
 
 const f64 = new Float64Array(1);

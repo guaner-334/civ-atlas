@@ -9,7 +9,7 @@ import { rasterize, type Raster } from '../src/gen/raster';
 import { generateCiv } from '../src/gen/civ';
 import { AZGAAR_SEA_GRAY, AZGAAR_WATER_MAX, heightmapGray, heightmapNote, heightmapPng } from '../src/gen/heightmap';
 import { crc32, encodeGrayPng } from '../src/gen/png';
-import { buildChronicle, chronicleDocument, chronicleEraYears, filterChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle, chronicleDocument, chronicleEraYears, filterChronicle } from '../src/gen/civ/story/chronicle';
 import type { Civ } from '../src/gen/civ/types';
 
 /** pngjs 读回:16 位用 skipRescale 保留原值;灰度图读出来是 RGBA,取 R 通道 */

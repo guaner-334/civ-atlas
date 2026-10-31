@@ -6,9 +6,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { treatyBook, treatyCallName, treatyName, treatyTitle, zonesAt } from '../src/gen/civ/treatyInfo';
+import { treatyBook, treatyCallName, treatyName, treatyTitle, zonesAt } from '../src/gen/civ/story/treatyInfo';
 import { applyNames, resolveKey, treatyKey } from '../src/gen/edits';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { diedInExile, treatyEntries, treatyPeriod, zoneOfRegionAt, zoneResidentsAt, zoneStripeCss, zonesOfAt } from '../src/ui/treatyRows';
 import { neutralZones } from '../src/render/civ/neutral';
 import { stripeAt } from '../src/render/civ/territory';

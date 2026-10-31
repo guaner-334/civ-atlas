@@ -58,10 +58,9 @@ import {
 import { LAYERS, renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
 import { ThoughtLegend } from './ThoughtParts';
-import type { EraWorld, TempoNote, WorkerRequest, WorkerResponse } from '../worker';
+import type { EraWorld, WorkerRequest, WorkerResponse } from '../worker';
 import type { Civ } from '../gen/civ/types';
 import { CivLayer, civOpenSteps } from './CivLayer';
-import { CivPartInbox } from '../civParts';
 import { CivTimeline } from './CivTimeline';
 import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
 import { extendProgress, getExtend, noteExtendSpeed, resetExtend, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
@@ -185,7 +184,7 @@ import { cancelTerrainPatch, patchSourceOf, startTerrainFull, startTerrainPatch,
 import { baseReady, later, overlayReady, thumbPrepSteps } from './thumbPrep';
 import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
 import { baseRegions, civAtEra, composedOf, dropComposed, eraData, peekEraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
-import { adoptChronicle, dropChronicleParts, namedHistory, takeChroniclePart, useNamedHistory } from './chronicleHandoff';
+import { namedHistory, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
 import { condList, summarize } from '../gen/finder/query';
 import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, putOutlineResult, putPlay, removeEditsBatch, removeIntervention, removeUpheaval, setEditGate, setEdits, setEndYear, setHistoryGate, setOutlinePlots, undoTerrainOp, useEdits } from './editsStore';
@@ -297,7 +296,7 @@ import { characterHover, placeOf, whereOfCity, whereOfRegion } from './character
 import { applyCharacters, lifeStops, type Where } from '../gen/characters';
 import { crownDoneText, crownWho, takeCrownResim, type CrownResimNote } from './crownInfo';
 import { postDoneText } from './authorIvInfo';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { NAME_ZOOM } from '../render/marks';
 import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
 import { getPanel, setSheet, setWorldSheet, usePanel } from './panelStore';
@@ -328,8 +327,8 @@ import { mapTextBoxes, passAt, pickLabelAt } from './mapPick';
 import { setTradeHover, tradeAtClient, tradeHoverInfo } from './tradePick';
 import { ownersAt } from '../gen/civ/timeline';
 import { faithAt } from '../gen/civ/religion';
-import { filterChronicle, interventionOutcome } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { filterChronicle, interventionOutcome } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { takeRewriteNote, type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
@@ -399,6 +398,7 @@ import { SourceLayer, beginImport, isImageFile, startImport, useImportOn, useSou
 import { NewWorldDialog, type NewWorldInit, type NewWorldMode, type NewWorldStart } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
+import { SimClient } from './sim/simClient';
 import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, timelineAfterResim, undoUpOp, upCancel, upClick, upDown, upMove, upUp, upheavalName, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
@@ -415,7 +415,7 @@ import { noteGenSpeed } from './genSpeed';
 import { cancelTimeout, holdMark } from './holdMark';
 import { getNewView } from './newViewStore';
 import { chosenGallery, getPresets, pickSharedPreset, rememberLast, type SharedPreset } from './presetStore';
-import { diagBeat, recordWorkerError, setDiagContext } from '../diag/watch';
+import { setDiagContext } from '../diag/watch';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -801,8 +801,6 @@ function storyOk(): boolean {
 
 /** 主线程最多留多少块各段的主图补丁(换了地形大事、撤销回去时用得上;先丢最早的) */
 const PATCH_KEEP = 24;
-/** 后台线程交历史之前先交的几段(src/civParts.ts);换了线程就清掉 */
-const civParts = new CivPartInbox();
 /** 同一个世界画好的整张图留几张(地形大事前后各一张;见下面的 mapsOf) */
 const MAP_KEEP = 2;
 /** 时间轴换段前在后台备那一段的地图的活名(detailJobs.ts) */
@@ -856,16 +854,6 @@ const lostRenamesNote = (n: number) => `${n} 处改名没对上,先保留`;
 function aliveAtEnd(civ: Civ): number {
   return civ.viable ? civ.polities.filter((x) => polityAlive(x, civ.endYear)).length : 0;
 }
-
-/** 线程上的活,问题记录里的说法 */
-const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
-  generate: '生成世界',
-  resim: '推演历史',
-  civOnly: '推演历史',
-  history: '回放世界形成',
-  trial: '助手试推演',
-  upPreview: '预览地形大事',
-};
 
 /** 逐年推演切到了别的一支:from = 原来那支的编号,fromRef / toRef = 两支在句子里的叫法,year = 切到的那一支的"现在" */
 interface SwitchNote {
@@ -1203,25 +1191,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const canvasCopyRef = useRef<HTMLCanvasElement>(null);
   const overlayCopyRef = useRef<HTMLCanvasElement>(null);
 
-  const workerRef = useRef<Worker | null>(null);
-  /** 助手的试推演:发给线程、还没回音的(编号 → 等着的那一次) */
-  const trials = useRef(new Map<number, { resolve: (c: Civ) => void; reject: (e: Error) => void }>());
-  const trialSeq = useRef(0);
-  /** 发给当前线程、还没回音的活(生成世界 / 回放帧 / 重推文明)有几件 */
-  const busyRef = useRef(0);
-  /**
-   * 其中线程能半路放下的(编辑地形时只换地形、不推历史的生成):后面来了新的世界,线程自己不算完它(回音 aborted),
-   * 只有这种活在忙时换世界不用关掉线程重开(记着的网格、板块、整图都还在)
-   */
-  const softRef = useRef(new Set<number>());
-  /** 线程在忙什么(问题记录用;闲下来 = null) */
-  const workLabel = useRef<string | null>(null);
   const layerRef = useRef(layer);
   layerRef.current = layer;
   // 问题记录:出错、意外关闭时带上线程在忙什么、在看哪一年、哪个世界、哪个图层
   useEffect(() => {
     setDiagContext(() => ({
-      doing: workLabel.current ?? undefined,
+      doing: sim.label ?? undefined,
       year: getCivTime().year ?? undefined,
       world: genParams.current ? worldKey(genParams.current) : undefined,
       layer: layerRef.current,
@@ -1231,7 +1206,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const reqId = useRef(0);
   // 改了名告诉后台线程(不排队、没有回音):正在推的那一次推完,编年史按现在的改名算,换上时不用再算一遍
   useEffect(() => {
-    workerRef.current?.postMessage({ type: 'renames', id: reqId.current, names: edits.names } satisfies WorkerRequest);
+    sim.tell({ type: 'renames', id: reqId.current, names: edits.names } satisfies WorkerRequest);
   }, [edits.names]);
   /**
    * 照原样打开的旧世界(读存着的原件,不重新生成):正在读的是哪个世界、建它的生成器版本;
@@ -1520,57 +1495,134 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   }, [baseData, eraMaps, patchVer, eraK, eraNext, warmKey]);
 
   // ---- 后台线程 ----
-  // 线程一次只能算一个世界。连续改参数时,与其排队把每个中间世界都算完,
-  // 不如直接终止还在忙的旧线程、另开一个(启动只要几十毫秒),只算最后一次。
-  // 回放帧、重推文明这些短活不打断线程,排在后面(打断了,线程手上的世界就没了,得按参数重新生成,反而更慢)。
-  // 编辑地形时只换地形的生成(skipCiv)也不关线程:线程自己半路放下它(见 worker.ts 文件头),记着的网格、整图留给新的一笔。
-  /** 线程回报的扩张节拍(改过地形的世界推文明要用):下次生成、重推时带回去,线程被重开过也不用多生成一遍原来的地形 */
-  const tempoNote = useRef<TempoNote | null>(null);
-  const idleWorker = useCallback((abort: boolean) => {
-    if (abort && workerRef.current && busyRef.current > softRef.current.size) {
-      workerRef.current.terminate();
-      workerRef.current = null;
-      // 线程上排着的试推演(助手)一起作废
-      for (const t of trials.current.values()) t.reject(new Error('世界换了,试推演作废'));
-      trials.current.clear();
-    }
-    if (!workerRef.current) {
-      const w = new Worker(WORKER_URL, { type: 'module' });
-      dropChronicleParts();
-      civParts.drop();
-      w.onerror = (e) => {
-        if (workerRef.current === w) recordWorkerError(e, '生成世界的线程');
+  // 开线程、关线程、发请求、记账、收消息先做的公共几步都在 ./sim/simClient.ts(为什么忙时换世界要关掉线程重开,也见那里);
+  // 这里接收到的各种消息。回调在第一次渲染时定下、之后不换(和这些回调要用的 ref 一样),要用每次渲染新的函数时经 xxxRef.current 调
+  const [sim] = useState(() => {
+    /** 历史到了(和地图一起到的;地图先交了的,是地图换上以后):记下速度,换上历史,套上要打开的那个世界的修改 */
+    const takeCiv = (d: { id: number; civ: Civ | null; ms: number; genMs: number; civMs?: number; reused?: true }, world: World) => {
+      // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
+      if (!frozenLoad.current && !d.reused) noteGenSpeed(world.params.cells, d.genMs, d.ms);
+      // 推文明那一步用了多久:「再推」的弹层拿它估这台电脑再推几年要多久
+      if (d.civMs && d.civ) {
+        noteExtendSpeed(0, d.civ.endYear, d.civMs);
+        civMsLast.current = d.civMs;
+      }
+      setRawCiv(d.civ);
+      // 编辑地形时生成的(没推历史):收起编辑地形时补推
+      civLater.current = !d.civ;
+      setProgress(null);
+      setMapEarly(false);
+      const rg = regenRef.current;
+      if (rg && rg.id === d.id) terrainDoneRef.current(world, d.civ, d.ms);
+      else {
+        fresh.current = false;
+        if (d.civ) readyRef.current(world, d.civ);
+      }
+    };
+    /** 地图先换上了的(mapFirst)历史到了:接上;检查脚本看的"世界齐了"这时才算(地图画好时没算,见地图那一层的 __wf) */
+    const civAfterMap = (d: Extract<WorkerResponse, { type: 'done' }>, world: World) => {
+      mapFirst.current = null;
+      takeCiv(d, world);
+      const w = (window as unknown as { __wf?: { ready: boolean } }).__wf;
+      if (w) w.ready = true;
+    };
+    /** 世界和地图到了(done 没先交地图的;map = 地图先交、还没推文明):照常备好、换上地图,历史等随后的 done */
+    const takeMap = (m: Exclude<Extract<WorkerResponse, { type: 'done' }>, { mapSent: true }> | Extract<WorkerResponse, { type: 'map' }>) => {
+      const early = m.type === 'map';
+      const civ = early ? null : m.civ;
+      if (early) mapFirst.current = { id: m.id, world: m.world, shown: false, done: null };
+      const rg0 = regenRef.current;
+      if (rg0 && rg0.id === m.id) {
+        rg0.got = performance.now() - rg0.t0;
+        rg0.rasterMs = m.rasterMs;
+      }
+      // 各段的世界(有地形大事的;换上时 setEraMaps 用同一份:备好的那一段的世界、拼好的主图对得上)
+      const maps = m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null;
+      /** 换上时画第几段(打开世界时备好了的那一段;按块换上的 = null,换上时照常定) */
+      let openK: number | null = null;
+      const finish = (raster: Raster) => {
+        // 换了世界:别的世界的各段主图补丁都作废(这个世界的几段在备地图的时候可能已经先到了,留着)
+        const chain = new Set((m.eras ?? []).map((e, i, a) => patchKey(i ? a[i - 1].key : m.baseKey, e.key)));
+        for (const k of [...eraPatches.current.keys()]) if (!chain.has(k)) eraPatches.current.delete(k);
+        dropComposed(raster);
+        // 换了主图:各画风缓存里别的主图的像素层连旧主图现在就放掉,不等下次画那种画风(按块换上的留着它是从哪张改来的;
+        // 打开时拼好、备好了的那一段的主图也留着)
+        const keepBases = [raster, patchSourceOf(raster)?.r0, ...composedOf(raster)];
+        dropRealisticBasesExcept(keepBases);
+        dropFantasyBasesExcept(keepBases);
+        baseRef.current = { world: m.world, raster };
+        baseKeyRef.current = m.baseKey;
+        editedRef.current = regenRef.current?.id === m.id ? baseRef.current : null;
+        setData(baseRef.current);
+        setEraMaps(maps);
+        // 备好的是第几段:换上以后时间轴要的那一段要是还没备(备的时候又到了补丁),先画备好的这段,另一段在后台备好再换(eraK)
+        eraAt.current = openK === null ? null : { maps, base: baseRef.current, k: openK };
+        eraWarm.current = null;
+        rawUps.current = genUps.current;
+        if (!early) return takeCiv(m, m.world);
+        // 地图先换上:上一个世界的历史不能留在新地图上;提示条照旧("文明"那一步),历史到了才收
+        setRawCiv(null);
+        civLater.current = false;
+        setMapEarly(true);
+        const mf = mapFirst.current;
+        if (!mf || mf.id !== m.id) return;
+        mf.shown = true;
+        if (mf.done) civAfterMap(mf.done, mf.world);
       };
-      w.onmessage = (e: MessageEvent<WorkerResponse>) => {
-        const m = e.data;
-        if (workerRef.current !== w) return; // 已被换掉的线程
-        // 交历史之前先交的几段历史(条数多的列表,src/civParts.ts):收着;交历史的那条到了先拼回去,别处拿到的都是整份
-        if (m.type === 'civPart') return void civParts.take(m);
-        if ('split' in m && m.split) civParts.join(m.civ!, m.split);
-        // 主图补丁、原件是后台自己排的活,不算一件回音(再推的进度、先交的编年史、先交的地图也不算:推完 / 停下才算)
-        if (m.type !== 'progress' && m.type !== 'eraPatch' && m.type !== 'snapshot' && m.type !== 'extendProgress' && m.type !== 'outlineProgress' && m.type !== 'chronicle' && m.type !== 'map') {
-          busyRef.current = Math.max(0, busyRef.current - 1);
-          if (!busyRef.current) {
-            workLabel.current = null;
-            diagBeat();
-          }
-          if (m.type === 'done' || m.type === 'aborted') softRef.current.delete(m.id);
-        }
-        // 半路放下的生成(被新的一笔顶掉了):只是一声回音
-        if (m.type === 'aborted') return;
-        if ((m.type === 'done' || m.type === 'civ' || m.type === 'trial') && m.tempo) tempoNote.current = m.tempo;
-        if (m.type === 'trial') {
-          // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要
-          const t = trials.current.get(m.tid);
-          trials.current.delete(m.tid);
-          t?.resolve(m.civ);
+      if (m.raster) {
+        // 整张交回来的(打开世界、换世界、刷新、新建……):现在这种底图的整张图先分小步在后台备好再换上,
+        // 不在换上那一下在主线程上一口气画半秒到几秒;备的时候加载画面照旧
+        const raster = m.raster;
+        // 线程算好的手绘符号规划(推了文明的才带)
+        if (m.plan) adoptPlan(m.world, m.plan);
+        // 线程画好的写实像素层(新建中的世界):下面备这种底图、新建界面的星球要那一张时直接贴上
+        if (m.type === 'map' && m.painted) takeRealisticPainted(raster, m.painted);
+        // 换上时画的那一段:有地形大事、时间轴在大事以后、那一段的主图补丁已经在手里的,是拼好的那张(拼也放在后台的一步里)。
+        // 那一段的整张底图、写实 / 卫星画风整张图上的河(矢量,换上时描)、文明层第一次要画的,都一起备好,和地图一起换上
+        const view = drawView.current;
+        const civ0 = civ;
+        const k = civ0 ? eraShown(maps, eraPatches.current, eraIndex(civ0, getCivTime().year)) : 0;
+        openK = k;
+        const base = { world: m.world, raster };
+        const stepsFor = (d: { world: World; raster: Raster }) => [
+          ...thumbPrepSteps(drawKey.current, d.world, d.raster),
+          ...(view.style === 'realistic' ? realisticRiverSteps(d.world, d.raster, view.look) : []),
+          ...(civ0 ? civOpenSteps({ world: d.world, raster: d.raster, civ: civAtEra(civ0, k), style: view.style as Style, mp: view.mp }) : []),
+        ];
+        let shown = base;
+        const prep = k > 0 ? [() => void (shown = eraData(base, maps, eraPatches.current, k)), later(() => stepsFor(shown))] : stepsFor(base);
+        startTerrainFull({ world: m.world, raster, view, prep, shown: () => shown }, (st, pre) => {
+          if (m.id !== reqId.current) return;
+          (window as unknown as { __wfOpenPrep: unknown }).__wfOpenPrep = st;
+          preProj.current = pre;
+          finish(raster);
+        });
+      } else {
+        // 编辑地形按块重铺的:只带回变了的那块,贴到地图上那张整图上;按块重画的像素层分小步备好再一次换上
+        const b = baseRef.current;
+        if (!b || baseKeyRef.current !== m.from) {
+          // 地图上那张不是线程比的那张(不该发生):这次按整张重新要一遍
+          const req = genSent.current;
+          if (req?.type === 'generate' && req.id === m.id) sendRef.current({ ...req, from: undefined });
           return;
         }
-        if (m.id !== reqId.current) return; // 过时的请求(上一个世界的)
-        // 交历史之前先交的编年史:收着,交历史的那条到了一起记下(换上时不在主线程上整段重算)
-        if (m.type === 'chronicle') return void takeChroniclePart(m);
-        if (m.type === 'done' || m.type === 'civ' || m.type === 'civOnly' || m.type === 'turn' || m.type === 'extended' || m.type === 'outlined') adoptChronicle(m.civ, m.chron);
-        if (m.type === 'eraPatch') {
+        adoptPlan(m.world, m.plan);
+        startTerrainPatch({ w0: b.world, r0: b.raster, w1: m.world, patch: m.patch, view: drawView.current }, (r1, st, pre) => {
+          if (m.id !== reqId.current) return;
+          const rg = regenRef.current;
+          if (rg && rg.id === m.id) rg.patch = st;
+          preProj.current = pre;
+          finish(r1);
+          // 换上了:线程不用再留着怎么改回上一张(还没换上就又涂了一笔时,线程照上一张接着按块重铺要用)
+          client.tell({ type: 'shown', id: m.id, key: m.baseKey } satisfies WorkerRequest);
+        });
+      }
+    };
+    const client = new SimClient({
+      spawn: () => new Worker(WORKER_URL, { type: 'module' }),
+      currentId: () => reqId.current,
+      on: {
+        eraPatch: (m) => {
           // 一段的主图补丁:记下,地图那一段换上(eras.ts);最多留 PATCH_KEEP 块,先丢最早的(现在这份历史要用的不丢;
           // 丢了的以后又要用,下一次推演时线程看 have 里没有会重新铺)
           const map = eraPatches.current;
@@ -1581,11 +1633,10 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           const keep = new Set(cur ? cur.keys.map((key, i) => patchKey(i ? cur.keys[i - 1] : cur.baseKey, key)) : []);
           for (const old of [...map.keys()]) if (map.size > PATCH_KEEP && !keep.has(old)) map.delete(old);
           setPatchVer((v) => v + 1);
-          return;
-        }
-        if (m.type === 'upPreview') return void takeUpPreview(m.pid, m.preview, m.water, m.ms);
+        },
+        upPreview: (m) => takeUpPreview(m.pid, m.preview, m.water, m.ms),
         // 原件读不出来:按现在的规则生成(提示条上说一句)
-        if (m.type === 'loadFailed') {
+        loadFailed: () => {
           const req = genReq.current;
           frozenBroken.current = frozenLoad.current?.id ?? null;
           frozenLoad.current = genReq.current = null;
@@ -1593,172 +1644,48 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           civEdits.current = EMPTY_EDITS.interventions;
           civUps.current = genUps.current = undefined;
           if (req) sendRef.current(req);
-          return;
-        }
+        },
         // 这次生成 / 重推的原件:对得上存着的存档就存进浏览器(resultStore.ts)
-        if (m.type === 'snapshot') {
+        snapshot: (m) => {
           void offerSnapshot(m.snapshot);
           void noteMapSum(m.snapshot);
-          return;
-        }
-        /** 历史到了(和地图一起到的;地图先交了的,是地图换上以后):记下速度,换上历史,套上要打开的那个世界的修改 */
-        const takeCiv = (d: { id: number; civ: Civ | null; ms: number; genMs: number; civMs?: number; reused?: true }, world: World) => {
-          // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
-          if (!frozenLoad.current && !d.reused) noteGenSpeed(world.params.cells, d.genMs, d.ms);
-          // 推文明那一步用了多久:「再推」的弹层拿它估这台电脑再推几年要多久
-          if (d.civMs && d.civ) {
-            noteExtendSpeed(0, d.civ.endYear, d.civMs);
-            civMsLast.current = d.civMs;
-          }
-          setRawCiv(d.civ);
-          // 编辑地形时生成的(没推历史):收起编辑地形时补推
-          civLater.current = !d.civ;
-          setProgress(null);
-          setMapEarly(false);
-          const rg = regenRef.current;
-          if (rg && rg.id === d.id) terrainDoneRef.current(world, d.civ, d.ms);
-          else {
-            fresh.current = false;
-            if (d.civ) readyRef.current(world, d.civ);
-          }
-        };
-        /** 地图先换上了的(mapFirst)历史到了:接上;检查脚本看的"世界齐了"这时才算(地图画好时没算,见地图那一层的 __wf) */
-        const civAfterMap = (d: Extract<WorkerResponse, { type: 'done' }>, world: World) => {
-          mapFirst.current = null;
-          takeCiv(d, world);
-          const w = (window as unknown as { __wf?: { ready: boolean } }).__wf;
-          if (w) w.ready = true;
-        };
-        if (m.type === 'progress') setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
-        else if (m.type === 'done' && m.mapSent) {
+        },
+        progress: (m) => setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed })),
+        done: (m) => {
+          if (!m.mapSent) return takeMap(m);
           // 地图先交了的(mapFirst):地图换上了就接上历史;还在备地图的,换上时再接
           const mf = mapFirst.current;
           if (!mf || mf.id !== m.id) return;
           if (!mf.shown) return void (mf.done = m);
           civAfterMap(m, mf.world);
-        } else if (m.type === 'done' || m.type === 'map') {
-          // map = 地图先交(还没推文明):照常备好、换上地图,历史等随后的 done
-          const early = m.type === 'map';
-          const civ = early ? null : m.civ;
-          if (early) mapFirst.current = { id: m.id, world: m.world, shown: false, done: null };
-          const rg0 = regenRef.current;
-          if (rg0 && rg0.id === m.id) {
-            rg0.got = performance.now() - rg0.t0;
-            rg0.rasterMs = m.rasterMs;
-          }
-          // 各段的世界(有地形大事的;换上时 setEraMaps 用同一份:备好的那一段的世界、拼好的主图对得上)
-          const maps = m.eras ? eraMapsOf(m.world, m.baseKey, m.eras) : null;
-          /** 换上时画第几段(打开世界时备好了的那一段;按块换上的 = null,换上时照常定) */
-          let openK: number | null = null;
-          const finish = (raster: Raster) => {
-            // 换了世界:别的世界的各段主图补丁都作废(这个世界的几段在备地图的时候可能已经先到了,留着)
-            const chain = new Set((m.eras ?? []).map((e, i, a) => patchKey(i ? a[i - 1].key : m.baseKey, e.key)));
-            for (const k of [...eraPatches.current.keys()]) if (!chain.has(k)) eraPatches.current.delete(k);
-            dropComposed(raster);
-            // 换了主图:各画风缓存里别的主图的像素层连旧主图现在就放掉,不等下次画那种画风(按块换上的留着它是从哪张改来的;
-            // 打开时拼好、备好了的那一段的主图也留着)
-            const keepBases = [raster, patchSourceOf(raster)?.r0, ...composedOf(raster)];
-            dropRealisticBasesExcept(keepBases);
-            dropFantasyBasesExcept(keepBases);
-            baseRef.current = { world: m.world, raster };
-            baseKeyRef.current = m.baseKey;
-            editedRef.current = regenRef.current?.id === m.id ? baseRef.current : null;
-            setData(baseRef.current);
-            setEraMaps(maps);
-            // 备好的是第几段:换上以后时间轴要的那一段要是还没备(备的时候又到了补丁),先画备好的这段,另一段在后台备好再换(eraK)
-            eraAt.current = openK === null ? null : { maps, base: baseRef.current, k: openK };
-            eraWarm.current = null;
-            rawUps.current = genUps.current;
-            if (!early) return takeCiv(m, m.world);
-            // 地图先换上:上一个世界的历史不能留在新地图上;提示条照旧("文明"那一步),历史到了才收
-            setRawCiv(null);
-            civLater.current = false;
-            setMapEarly(true);
-            const mf = mapFirst.current;
-            if (!mf || mf.id !== m.id) return;
-            mf.shown = true;
-            if (mf.done) civAfterMap(mf.done, mf.world);
-          };
-          if (m.raster) {
-            // 整张交回来的(打开世界、换世界、刷新、新建……):现在这种底图的整张图先分小步在后台备好再换上,
-            // 不在换上那一下在主线程上一口气画半秒到几秒;备的时候加载画面照旧
-            const raster = m.raster;
-            // 线程算好的手绘符号规划(推了文明的才带)
-            if (m.plan) adoptPlan(m.world, m.plan);
-            // 线程画好的写实像素层(新建中的世界):下面备这种底图、新建界面的星球要那一张时直接贴上
-            if (m.type === 'map' && m.painted) takeRealisticPainted(raster, m.painted);
-            // 换上时画的那一段:有地形大事、时间轴在大事以后、那一段的主图补丁已经在手里的,是拼好的那张(拼也放在后台的一步里)。
-            // 那一段的整张底图、写实 / 卫星画风整张图上的河(矢量,换上时描)、文明层第一次要画的,都一起备好,和地图一起换上
-            const view = drawView.current;
-            const civ0 = civ;
-            const k = civ0 ? eraShown(maps, eraPatches.current, eraIndex(civ0, getCivTime().year)) : 0;
-            openK = k;
-            const base = { world: m.world, raster };
-            const stepsFor = (d: { world: World; raster: Raster }) => [
-              ...thumbPrepSteps(drawKey.current, d.world, d.raster),
-              ...(view.style === 'realistic' ? realisticRiverSteps(d.world, d.raster, view.look) : []),
-              ...(civ0 ? civOpenSteps({ world: d.world, raster: d.raster, civ: civAtEra(civ0, k), style: view.style as Style, mp: view.mp }) : []),
-            ];
-            let shown = base;
-            const prep = k > 0 ? [() => void (shown = eraData(base, maps, eraPatches.current, k)), later(() => stepsFor(shown))] : stepsFor(base);
-            startTerrainFull({ world: m.world, raster, view, prep, shown: () => shown }, (st, pre) => {
-              if (m.id !== reqId.current) return;
-              (window as unknown as { __wfOpenPrep: unknown }).__wfOpenPrep = st;
-              preProj.current = pre;
-              finish(raster);
-            });
-          } else {
-            // 编辑地形按块重铺的:只带回变了的那块,贴到地图上那张整图上;按块重画的像素层分小步备好再一次换上
-            const b = baseRef.current;
-            if (!b || baseKeyRef.current !== m.from) {
-              // 地图上那张不是线程比的那张(不该发生):这次按整张重新要一遍
-              const req = genSent.current;
-              if (req?.type === 'generate' && req.id === m.id) sendRef.current({ ...req, from: undefined });
-              return;
-            }
-            adoptPlan(m.world, m.plan);
-            startTerrainPatch({ w0: b.world, r0: b.raster, w1: m.world, patch: m.patch, view: drawView.current }, (r1, st, pre) => {
-              if (m.id !== reqId.current) return;
-              const rg = regenRef.current;
-              if (rg && rg.id === m.id) rg.patch = st;
-              preProj.current = pre;
-              finish(r1);
-              // 换上了:线程不用再留着怎么改回上一张(还没换上就又涂了一笔时,线程照上一张接着按块重铺要用)
-              workerRef.current?.postMessage({ type: 'shown', id: m.id, key: m.baseKey } satisfies WorkerRequest);
-            });
-          }
-        } else if (m.type === 'history') {
-          setReplay({ w: m.w, h: m.h, frames: m.frames, mya: m.mya, idx: 0 });
-        } else if (m.type === 'civ') {
+        },
+        map: takeMap,
+        history: (m) => setReplay({ w: m.w, h: m.h, frames: m.frames, mya: m.mya, idx: 0 }),
+        civ: (m) => {
           if (m.seq !== resimSeq.current) return; // 又下了新的干预,等最新的那一次
           applyResimRef.current(m.civ, m.ms, m.eras, m.baseKey);
-        } else if (m.type === 'civOnly') {
-          namesDoneRef.current(m.nid, m.civ, m.civMs);
-        } else if (m.type === 'turn') {
-          applyTurnRef.current(m.civ, m.play, m.rejected, m.eras, m.baseKey);
-        } else if (m.type === 'extendProgress') {
+        },
+        civOnly: (m) => namesDoneRef.current(m.nid, m.civ, m.civMs),
+        turn: (m) => applyTurnRef.current(m.civ, m.play, m.rejected, m.eras, m.baseKey),
+        extendProgress: (m) => {
           if (extendRef.current?.xid === m.xid) extendProgress(m.xid, m.year, m.pct);
-        } else if (m.type === 'extended') {
-          applyExtendedRef.current(m.xid, m.civ, m.to, m.ms, m.eras, m.baseKey);
-        } else if (m.type === 'extendStopped') {
+        },
+        extended: (m) => applyExtendedRef.current(m.xid, m.civ, m.to, m.ms, m.eras, m.baseKey),
+        extendStopped: (m) => {
           if (extendRef.current?.xid === m.xid) {
             extendRef.current = null;
             setExtendBusy(null);
           }
-        } else if (m.type === 'outlineProgress') {
-          outlineProgressRef.current(m.oid, m.done, m.total, m.review, m.at);
-        } else if (m.type === 'outlined') {
-          applyOutlinedRef.current(m.oid, m.civ, m.interventions, m.review, m.ms, m.eras, m.baseKey);
-        } else if (m.type === 'outlineStopped') {
+        },
+        outlineProgress: (m) => outlineProgressRef.current(m.oid, m.done, m.total, m.review, m.at),
+        outlined: (m) => applyOutlinedRef.current(m.oid, m.civ, m.interventions, m.review, m.ms, m.eras, m.baseKey),
+        outlineStopped: (m) => {
           if (outlineRef.current?.oid === m.oid) endOutline();
-        }
-      };
-      workerRef.current = w;
-      busyRef.current = 0;
-      softRef.current.clear();
-    }
-    return workerRef.current;
-  }, []);
+        },
+      },
+    });
+    return client;
+  });
   const send = useCallback(
     (req: WorkerRequest) => {
       // 换了世界、读档、重推、逐年推演走一步:正在再推的那一次线程会自己停下(推了一半的不要),界面上跟着收起
@@ -1768,23 +1695,18 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       }
       // 照大纲推演同样:线程看到排着的新请求就不推了(交回 outlineStopped),界面上先收起
       if (outlineRef.current && (req.type === 'generate' || req.type === 'load' || req.type === 'resim' || req.type === 'turn' || req.type === 'extend')) endOutline();
-      const w = idleWorker(req.type === 'generate' || req.type === 'load');
       if (req.type === 'generate') genSent.current = req;
-      if (req.type === 'generate' && req.skipCiv) softRef.current.add(req.id);
       // 又要了一个新世界:还在后台备着换上的那一次已经过时了(线程交回的旧结果本来也不认)
       if (req.type === 'generate' || req.type === 'load') {
         cancelTerrainPatch();
         dropPreparedRivers();
       }
-      busyRef.current++;
-      // 问题记录:意外关闭时记下线程在忙什么
-      workLabel.current = WORK_LABEL[req.type] ?? workLabel.current;
-      diagBeat();
       // 交回历史的请求带上现在的改名:线程先交套上它的编年史(打开世界时那两种自己带着存档里的改名;试推演不换上,不用)
       const named = (req.type === 'generate' || req.type === 'civOnly' || req.type === 'resim' || req.type === 'turn' || req.type === 'extend') && !req.renames ? { ...req, renames: getEdits().names } : req;
-      w.postMessage(named.type === 'history' || named.type === 'upPreview' || !tempoNote.current ? named : { ...named, tempo: tempoNote.current });
+      // 生成、读档先关掉还在忙的线程;记账、带上扩张节拍
+      sim.send(named);
     },
-    [idleWorker],
+    [sim],
   );
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -1797,30 +1719,22 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
           if (!p || !rawRef.current) return reject(new Error('世界还没生成好'));
           // 逐年推演只看得到"现在"以前:不在后台试推演以后会怎样
           if (getStepwise().on || cleanPlay(getEdits().play)) return reject(new Error('逐年推演里不试推演：以后的事还没发生。想试，先存回推演模式'));
-          const tid = ++trialSeq.current;
-          const onAbort = () => {
-            trials.current.delete(tid);
-            reject(new Error('已停下'));
-          };
-          if (signal?.aborted) return onAbort();
-          signal?.addEventListener('abort', onAbort, { once: true });
           const ups = civUps.current;
-          trials.current.set(tid, {
-            resolve: (next) => {
-              signal?.removeEventListener('abort', onAbort);
+          // 登记了等交回来(signal 停下、线程被换掉都会 reject);signal 已经停了的不发
+          const tid = sim.trial(
+            signal,
+            (next) => {
               const old = rawRef.current;
               resolve(old ? reuseRegions(old, next, sameUpheavals(ups, rawUps.current)) : next);
             },
-            reject: (e) => {
-              signal?.removeEventListener('abort', onAbort);
-              reject(e);
-            },
-          });
+            reject,
+          );
+          if (tid === null) return;
           send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
         }),
     );
     return () => setTrialRunner(null);
-  }, [send]);
+  }, [send, sim]);
   // 逐年推演:算一步(worker 的 turn)、从推演模式某一年开始、存回推演模式、重新演绎、切支线
   useEffect(() => {
     /**
@@ -2418,12 +2332,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         setExtendBusy(null);
         // 从第 0 年整段推的(有地形大事、线程被重开过:一直没有分段进度)中途停不下来:线程手上只剩这一件活时换一个新的线程
         // (手上的世界下次用到时按参数重算),不然要等它整段推完才空出来
-        if (b?.xid === x.xid && b.year === null && busyRef.current === 1) {
-          idleWorker(true);
+        if (b?.xid === x.xid && b.year === null && sim.busy === 1) {
+          sim.ensure(true);
           return;
         }
         // 叫停不算一件活(线程不回音):直接发
-        workerRef.current?.postMessage({ type: 'extendStop', id: reqId.current, xid: x.xid } satisfies WorkerRequest);
+        sim.tell({ type: 'extendStop', id: reqId.current, xid: x.xid } satisfies WorkerRequest);
       },
     });
     return () => setExtendRunner(null);
@@ -2477,7 +2391,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     if (!o) return;
     endOutline();
     // 叫停不算一件活(线程不回音):直接发
-    workerRef.current?.postMessage({ type: 'outlineStop', id: reqId.current, oid: o.oid } satisfies WorkerRequest);
+    sim.tell({ type: 'outlineStop', id: reqId.current, oid: o.oid } satisfies WorkerRequest);
   };
   // 「照大纲推演」:接到后台线程上(大纲页、侧栏先问多认真地试(OutlineRunAsk),再调 startOutline / stopOutline)
   useEffect(() => {
@@ -2703,8 +2617,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     return () => {
       stopNav();
       window.removeEventListener('hashchange', onHash);
-      workerRef.current?.terminate();
-      workerRef.current = null;
+      sim.dispose();
     };
     // 只在首次挂载时自动生成;之后由操作触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3607,7 +3520,7 @@ ${s.image.cells}` : null);
     // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)
     clearEditHistory();
     // 地形锁住了:后台线程为编辑地形留着的整图放掉(没有回音,不算一件活)
-    workerRef.current?.postMessage({ type: 'release', id: 0 } satisfies WorkerRequest);
+    sim.tell({ type: 'release', id: 0 } satisfies WorkerRequest);
     targetRef.current = { ...t, kind: 'created', base: null, pristine: false, title: clean, from: undefined, save: undefined };
     // 这一步换成建好的世界;前面换过的几颗星球(同一个编号)按后退时跳过(见 routeNav)
     navReplace({ page: 'world', id: t.id, title: clean });

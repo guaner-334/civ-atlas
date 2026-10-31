@@ -11,11 +11,11 @@ import type { Annal } from '../src/gen/civ/types';
 import { dynastyIndexAt, polityName } from '../src/gen/civ/growth';
 import { Issue, Outcome, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION } from '../src/gen/civ/councilRules';
 import { lineageAt, opensSeg, regimeAt } from '../src/gen/civ/regime';
-import { polityFormAt } from '../src/gen/civ/polityForm';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { polityFormAt } from '../src/gen/civ/story/polityForm';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { evLabel, evType } from '../src/ui/timelineLayout';
-import { flagAt, flagBook } from '../src/gen/civ/flags';
-import { flagNote } from '../src/gen/civ/flagText';
+import { flagAt, flagBook } from '../src/gen/civ/story/flags';
+import { flagNote } from '../src/gen/civ/story/flagText';
 
 // 种子 2 是 GENERATOR_VERSION 56 以后补的(以前是 13):滚雪球以后复辟少见了,种子 1–13、2024 里只有 2 号有
 const SEEDS = [7, 2, 2024];

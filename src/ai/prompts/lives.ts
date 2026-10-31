@@ -17,14 +17,14 @@
  * 和写史书合在一处的入口(bookPrompts、bookStoreScope……):"写什么"是一国一段历史的走 history.ts,是一个人、一朝的走这里
  */
 import type { Civ, Person, Year } from '../../gen/civ/types';
-import { buildChronicle, cnNumber, entryYearLabel, filterChronicle, reignEntries, type ChronicleEntry } from '../../gen/civ/chronicle';
+import { buildChronicle, cnNumber, entryYearLabel, filterChronicle, reignEntries, type ChronicleEntry } from '../../gen/civ/story/chronicle';
 import { polityName } from '../../gen/civ/growth';
-import { personName, personRoleShort, splitSurname } from '../../gen/civ/peopleText';
-import { riseText, rulerNeighbors } from '../../gen/civ/peopleInfo';
-import { heldOver } from '../../gen/civ/regentInfo';
-import { reignRecord } from '../../gen/civ/reignRecord';
-import { heOrShe } from '../../gen/civ/gender';
-import { dynastyEnd, dynastyLines, dynastyMembers, dynastyNote, dynastyRows, fatherOf, kidsOf, secededFrom, type DynastyRow } from '../../gen/civ/lineageInfo';
+import { personName, personRoleShort, splitSurname } from '../../gen/civ/story/peopleText';
+import { riseText, rulerNeighbors } from '../../gen/civ/story/peopleInfo';
+import { heldOver } from '../../gen/civ/story/regentInfo';
+import { reignRecord } from '../../gen/civ/story/reignRecord';
+import { heOrShe } from '../../gen/civ/story/gender';
+import { dynastyEnd, dynastyLines, dynastyMembers, dynastyNote, dynastyRows, fatherOf, kidsOf, secededFrom, type DynastyRow } from '../../gen/civ/story/lineageInfo';
 import { personNamers } from '../../gen/civ/naming';
 import { personKey, polityKey, resolveKey, resolvePersonKey } from '../../gen/edits';
 import {

@@ -11,7 +11,7 @@
 import type { KeyboardEvent } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { LifeEntry, AuthorCharacter } from '../gen/characters';
-import { heOrShe } from '../gen/civ/gender';
+import { heOrShe } from '../gen/civ/story/gender';
 import { spaced, yearAt, yearShort } from '../gen/era';
 import { useEra } from './editsStore';
 import { nameAt } from './Interventions';

@@ -31,7 +31,7 @@
 import type { PersonNamer } from '../names';
 import { keyed4, subSeed } from './rand';
 import { courtesyName } from './officials';
-import { splitSurname } from './peopleText';
+import { splitSurname } from './surname';
 import { broodOf, type Son } from './royals';
 import { leaningEffect, reignBorn, reignStep, type Reign } from './rulers';
 import type { Person, Polity, Year } from './types';

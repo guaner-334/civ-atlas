@@ -14,9 +14,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CultureKind } from '../gen/civ/types';
-import { KIND_INFO, cultureLabel, regionLabel } from '../gen/civ/display';
+import { KIND_INFO, cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { polityName, populationLabel } from '../gen/civ/growth';
-import { cultureTraits } from '../gen/civ/cultureTraits';
+import { cultureTraits } from '../gen/civ/story/cultureTraits';
 import { cultureKey } from '../gen/edits';
 import { spaced, yearAt, yearShortAt, yearSpanAt } from '../gen/era';
 import { useAiOn } from '../ai/client';

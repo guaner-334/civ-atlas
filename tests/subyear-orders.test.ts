@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { playCiv, playTicks, playTo } from '../src/gen/civ/play';
-import { peopleIndex } from '../src/gen/civ/peopleInfo';
+import { peopleIndex } from '../src/gen/civ/story/peopleInfo';
 import { polityAlive } from '../src/gen/civ/growth';
 import { polityTies } from '../src/gen/civ/diplomacy';
 import { ownersAt } from '../src/gen/civ/timeline';

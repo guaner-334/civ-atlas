@@ -33,7 +33,7 @@ import { Layer, type Annal, type ChangeLog, type Person, type PersonDeed, type P
 import { keyed4, subSeed } from './rand';
 import { capitalAt, polityTierAt, polityTitles } from './growth';
 import { HEIR, K_HOUSE_MINISTER, houseBase, pickHouses, withParentSurname, type HouseCand } from './kin';
-import { splitSurname } from './peopleText';
+import { splitSurname } from './surname';
 import { royalAt, segLineage } from './regime';
 import { dynastyIndexAt } from './polityRoot';
 

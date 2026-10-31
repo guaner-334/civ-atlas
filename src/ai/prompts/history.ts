@@ -15,13 +15,13 @@
  *   界面就给旧史书标"写于历史改变之前"
  */
 import type { Civ, Person, Polity, Year } from '../../gen/civ/types';
-import { buildChronicle, cnNumber, entryInvolves, entryYearLabel, yearText, type ChronicleEntry } from '../../gen/civ/chronicle';
+import { buildChronicle, cnNumber, entryInvolves, entryYearLabel, yearText, type ChronicleEntry } from '../../gen/civ/story/chronicle';
 import { capitalAt, dynastyTitle, polityName, polityShortTitle, polityTierAt, polityTitleChain } from '../../gen/civ/growth';
-import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
-import { generalRole, ministerRole, personName, rulerShort, rulerTitle } from '../../gen/civ/peopleText';
-import { isFemale } from '../../gen/civ/gender';
-import { generalTally, peopleIndex } from '../../gen/civ/peopleInfo';
-import { deedsShort } from '../../gen/civ/officialText';
+import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/story/display';
+import { generalRole, ministerRole, personName, rulerShort, rulerTitle } from '../../gen/civ/story/peopleText';
+import { isFemale } from '../../gen/civ/story/gender';
+import { generalTally, peopleIndex } from '../../gen/civ/story/peopleInfo';
+import { deedsShort } from '../../gen/civ/story/officialText';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { polityKey, resolveKey } from '../../gen/edits';
 import type { AiMessage } from '../types';

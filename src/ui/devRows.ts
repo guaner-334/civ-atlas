@@ -7,11 +7,11 @@
 import type { Civ, Year } from '../gen/civ/types';
 import { ERAS, RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
 import { polityName } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { yearAt, type Era } from '../gen/era';
 import { ERA_LAYER } from '../render/civ/era';
 import { RESOURCE_COLORS, RESOURCE_GLYPHS, resourceTier } from '../render/civ/resources';
-import { cnNumber } from '../gen/civ/chronicle';
+import { cnNumber } from '../gen/civ/story/chronicle';
 import { CONTROL_LAYER, lordsAt } from '../render/civ/control';
 
 export interface EraRow {

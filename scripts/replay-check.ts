@@ -813,7 +813,7 @@ if (part('人物')) person: {
 // 点一场仗 → 编年史只看攻方;点一朝 → 世系图;复制全文。例子按 Node 里同一份历史现找(某条纪录刚被刷新的那一年),历史变了照样找得到
 if (part('世界之最')) records: {
   const { civOfSeed } = await import('./lib/smokeExamples');
-  const { recordBook, recordsAt, recordName } = await import('../src/gen/civ/records');
+  const { recordBook, recordsAt, recordName } = await import('../src/gen/civ/story/records');
   const civ = civOfSeed(7);
   const book = recordBook(civ);
   let Y = -1;
@@ -2206,7 +2206,7 @@ if (part('时间轴')) {
   // 宽屏左边被侧栏卡片挡住一截,只露出大半个世界:先算出 2640 年以后第一件大事的事发地,打开后把地图挪过去(播放经过它时标签才在地图里)
   const { DEFAULT_PARAMS: DP, generateWorld: genW } = await import('../src/gen/world');
   const { generateCiv: genC } = await import('../src/gen/civ');
-  const { buildChronicle: buildC, filterChronicle: filterC } = await import('../src/gen/civ/chronicle');
+  const { buildChronicle: buildC, filterChronicle: filterC } = await import('../src/gen/civ/story/chronicle');
   const { entryAnchor } = await import('../src/ui/timelineLayout');
   const wT = genW({ ...DP, seed: 7 });
   const cT = genC(wT);

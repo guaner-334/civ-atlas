@@ -21,7 +21,7 @@ import {
   buildChronicle,
   filterChronicle,
   type ChronicleEntry,
-} from '../src/gen/civ/chronicle';
+} from '../src/gen/civ/story/chronicle';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 

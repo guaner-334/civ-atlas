@@ -4023,13 +4023,11 @@ export const G_VOLCANO = 7;
 const F_BROAD = 1;
 const F_PINE = 2;
 const F_JUNGLE = 3;
-const FOREST_OF: Record<number, [kind: number, threshold: number]> = {
-  [Biome.TemperateForest]: [F_BROAD, 0.43],
-  [Biome.TropicalDryForest]: [F_BROAD, 0.52],
-  [Biome.Taiga]: [F_PINE, 0.44],
-  [Biome.TemperateRainforest]: [F_PINE, 0.36],
-  [Biome.Rainforest]: [F_JUNGLE, 0.32],
-};
+const F_KIND = { broad: F_BROAD, pine: F_PINE, jungle: F_JUNGLE } as const;
+/** 按群落编号:[林块种类, 成林门槛](见 BIOMES[].forest);不长林子的是 undefined */
+const FOREST_OF: readonly ([kind: number, threshold: number] | undefined)[] = BIOMES.map((b) => (b.forest ? [F_KIND[b.forest.kind], b.forest.threshold] : undefined));
+/** 按群落编号:不在林子里的地块撒的小符号(G_DUNE / G_TUFT,见 BIOMES[].ground);0 = 不撒 */
+const GROUND_OF: readonly number[] = BIOMES.map((b) => (b.ground === 'dune' ? G_DUNE : b.ground === 'tuft' ? G_TUFT : 0));
 
 export type Plan = { glyphs: Glyph[]; forest: Uint8Array };
 
@@ -4373,10 +4371,9 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
   const dKind = new Int8Array(n);
   for (let i = 0; i < n; i++) {
     if (!land[i] || forest[i]) continue;
-    const b = biome[i];
-    if (b === Biome.HotDesert || b === Biome.TemperateDesert) dKind[i] = G_DUNE;
-    else if (b === Biome.Steppe || b === Biome.Savanna || b === Biome.Tundra) dKind[i] = G_TUFT;
-    else continue;
+    const g = GROUND_OF[biome[i]];
+    if (!g) continue;
+    dKind[i] = g;
     dCand.push(i);
   }
 

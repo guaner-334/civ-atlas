@@ -3,7 +3,7 @@
  * 100 × 100 的格子,身体都用"脊线 + 粗细"生成(像毛笔一笔拉出来),再加头、角、爪。
  * col = 神兽的颜色(外层 <g> 的 fill),u = 底色(眼睛、斑纹这些"抠出来"的地方)
  */
-import type { Beast } from '../../gen/civ/flags';
+import type { Beast } from '../../gen/civ/story/flags';
 
 type P = [number, number];
 

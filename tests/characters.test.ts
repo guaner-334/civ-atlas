@@ -22,7 +22,7 @@ import {
   stopAt,
   type AuthorCharacter,
 } from '../src/gen/characters';
-import { personName } from '../src/gen/civ/peopleText';
+import { personName } from '../src/gen/civ/story/peopleText';
 import { decodeShare, editCount, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { addCharacter, clearEdits, commitEdits, getEdits, removeCharacter, restoreCharacter, updateCharacter } from '../src/ui/editsStore';
 import { redoLastEdit, undoLastEdit } from '../src/ui/undo';

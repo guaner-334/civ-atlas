@@ -9,9 +9,9 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { dynastyIndexAt, polityShortTitle, polityTierAt } from '../src/gen/civ/growth';
-import { buildChronicle, filterChronicle, mergeChronicle, polityChronicle, reignEntries, type ChronicleEntry } from '../src/gen/civ/chronicle';
-import { kinOf, rulerRef, rulerTitle } from '../src/gen/civ/peopleText';
-import { regionLabel } from '../src/gen/civ/display';
+import { buildChronicle, filterChronicle, mergeChronicle, polityChronicle, reignEntries, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { kinOf, rulerRef, rulerTitle } from '../src/gen/civ/story/peopleText';
+import { regionLabel } from '../src/gen/civ/story/display';
 import { polityKey } from '../src/gen/edits';
 import { royalSeg } from '../src/gen/civ/regime';
 

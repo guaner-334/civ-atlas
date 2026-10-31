@@ -25,7 +25,7 @@ import { markBox, MIN_LABEL_PX, placeMap, REF_MAP_CSS, type LabelItem, type Labe
 import { GRID, polityLabels, territoryField } from '../src/render/labels/polity';
 import { pieces } from '../src/render/labels/groups';
 import { faithAt } from '../src/gen/civ/religion';
-import { cultureLabel } from '../src/gen/civ/display';
+import { cultureLabel } from '../src/gen/civ/story/display';
 import { eraCiv, erasAt } from '../src/render/civ/era';
 import { glyphBox } from '../src/render/labels/layout';
 import { NAME_MIN_ZOOM, SYMBOL_MIN_ZOOM } from '../src/render/labels/settlements';

@@ -11,7 +11,7 @@ import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { NEWBORN, warStats } from '../src/gen/civ/wars';
 import { politicsModelOf, politicsStats } from '../src/gen/civ/politics';
 import { capitalAt, polityAlive, polityRootAt, polityTitles, polityShortTitle, tierOf } from '../src/gen/civ/growth';
-import { GREAT_TIER, MAJOR, buildChronicle } from '../src/gen/civ/chronicle';
+import { GREAT_TIER, MAJOR, buildChronicle } from '../src/gen/civ/story/chronicle';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 

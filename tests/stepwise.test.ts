@@ -12,8 +12,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { extendCiv } from '../src/gen/civ/extend';
-import { fullChronicle } from '../src/gen/civ/religionText';
-import type { ChronicleEntry } from '../src/gen/civ/chronicle';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
+import type { ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { playCiv, playTurn } from '../src/gen/civ/play';
 import {
   ADVANCE_DEFAULT,

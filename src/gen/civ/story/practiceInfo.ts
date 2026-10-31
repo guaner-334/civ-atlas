@@ -3,12 +3,12 @@
  * 国都那州的能力按发展度的快照插值(推演里按国都那州此刻的能力现算,快照之间可能差几年);只读推演结果,不改历史。
  * 纯计算,不碰 DOM。
  */
-import { AdjKind, type Civ, type Year } from './types';
-import { CAP_COUNT, LEVEL_SCALE, eraLevel } from './development';
-import { capitalAt } from './growth';
+import { AdjKind, type Civ, type Year } from '../types';
+import { CAP_COUNT, LEVEL_SCALE, eraLevel } from '../development';
+import { capitalAt } from '../growth';
 import { regionLabel, regionNamed } from './display';
-import { ownersAt, type Owners } from './timeline';
-import { practiceMask } from './practices';
+import { ownersAt, type Owners } from '../timeline';
+import { practiceMask } from '../practices';
 
 const row = new Float64Array(CAP_COUNT);
 

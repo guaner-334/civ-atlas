@@ -12,7 +12,7 @@ import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';
 import { AGENT_MAX_ROUNDS, FINAL_NUDGE, TOOL_RESULT_MAX, looksUnfinished, parseToolArgs, runAgent, type AgentEvent, type AgentTool, type AgentToolResult } from '../src/ai/agent/loop';
 import { compareTrial, fateText, matchPolities, trialText } from '../src/ai/agent/trial';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { polityTitleChain } from '../src/gen/civ/growth';
 import {
   ASSISTANT_FEATURE,

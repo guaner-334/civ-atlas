@@ -8,8 +8,8 @@ import { CivSim } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { polityAlive } from '../src/gen/civ/growth';
-import { plagueSpans, plagueStats } from '../src/gen/civ/plagueSpans';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { plagueSpans, plagueStats } from '../src/gen/civ/story/plagueSpans';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { plagueZone } from '../src/render/civ/plague';
 
 const worlds = new Map<number, World>();

@@ -2,8 +2,8 @@
  * 瘟疫(plague.ts)的整理:按史事 plague 和城镇表里 cause = plague 的折损,把每一场瘟疫染了哪些城、哪一年染上的理出来。
  * 编年史、地图上的疫区、统计都用它;只读 Civ,不碰推演引擎(界面里用不会把推演代码带进来)。
  */
-import type { Civ, Year } from './types';
-import { PLAGUE_IV } from './calamity';
+import type { Civ, Year } from '../types';
+import { PLAGUE_IV } from '../calamity';
 
 /** 一场瘟疫 */
 export interface PlagueSpan {

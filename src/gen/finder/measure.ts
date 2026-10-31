@@ -15,7 +15,7 @@ import { ownersAt } from '../civ/timeline';
 import { developmentAt, eraLevel, eraOf } from '../civ/development';
 import { capitalAt, polityName, portAt } from '../civ/growth';
 import { crossings, measureCrossings, mergeCrossings, type Crossings, type PassMeasure } from '../civ/passes';
-import { buildChronicle, entryInvolves, MAJOR, type ChronicleEntry } from '../civ/chronicle';
+import { buildChronicle, entryInvolves, MAJOR, type ChronicleEntry } from '../civ/story/chronicle';
 import { AdjKind, type Civ } from '../civ/types';
 import {
   ALT_KEEP,

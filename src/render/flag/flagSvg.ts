@@ -5,7 +5,7 @@
  * 小尺寸简化:显示宽度不到 60 像素时牙旗的犬牙变少变大,不到 30 像素时纹样画大一点(朝代表、首屏列表那么小)。
  * 外面那圈 0.5 像素的淡边由界面的 CSS 加(燕尾旗的缺口 CSS 描不出来,燕尾旗在 SVG 里描)。
  */
-import { TINCT, underCharge, type FlagSpec, type Mark, type Shape, type Sym, type Tinct } from '../../gen/civ/flags';
+import { TINCT, underCharge, type FlagSpec, type Mark, type Shape, type Sym, type Tinct } from '../../gen/civ/story/flags';
 import { markSvg } from './marks';
 
 const W = 300;

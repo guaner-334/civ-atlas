@@ -12,11 +12,11 @@
 import { useMemo, useState } from 'react';
 import type { TradeRoute } from '../gen/civ/trade';
 import { polityName } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { tradeKey } from '../gen/edits';
-import { goodsAt, goodsText, tradeCapital, tradeHistory, tradeStateAt, warPair } from '../gen/civ/tradeText';
+import { goodsAt, goodsText, tradeCapital, tradeHistory, tradeStateAt, warPair } from '../gen/civ/story/tradeText';
 import { TRADE_INK } from '../render/civ/trade';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { pickChronicleEntry, setSelection } from './civView';
 import { NameEdit } from './NameEdit';
 import { entriesUpTo, ownersOf } from './panelData';

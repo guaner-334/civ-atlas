@@ -38,7 +38,7 @@ import { BIOME_COST } from './habitat';
 import { anchorTag, fexp, fpow, keyed, subSeed } from './rand';
 import { WORTH_EXP } from './frontier';
 import { quantize, Ev, type CivSim } from './sim';
-import { KIND_INFO } from './display';
+import { KIND_EXPANSIONISM } from './kinds';
 import { OwnerReplay, REF_YEAR, cultureModelOf, cultureTerrain, ownersNear, type CultureModel, type CultureTerrain } from './cultures';
 import { RESHAPE_RAMP, SETTLEMENT_RANKS, capacityAt, capitalAt, portAt, portSince, tierOf, yearReaching, yearReachingPop } from './growth';
 import { namePolities, nameSettlements, type RestoreDirection } from './naming';
@@ -1317,7 +1317,7 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
     capital: sid,
     founded: t,
     kind,
-    expansionism: KIND_INFO[kind].expansionism * (0.8 + 0.5 * keyed(m.base, seat, 5)),
+    expansionism: KIND_EXPANSIONISM[kind] * (0.8 + 0.5 * keyed(m.base, seat, 5)),
     color: [128, 128, 128],
     lineage: lineageOf(m.base, kind, seat),
     titles: [],

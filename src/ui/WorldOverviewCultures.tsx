@@ -9,7 +9,7 @@
 import { useMemo } from 'react';
 import type { Civ, Culture } from '../gen/civ/types';
 import { polityName, populationLabel, regionPopulationAt } from '../gen/civ/growth';
-import { KIND_INFO, cultureLabel } from '../gen/civ/display';
+import { KIND_INFO, cultureLabel } from '../gen/civ/story/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { setCivTime } from './civView';
 import { closeOverview } from './overviewStore';

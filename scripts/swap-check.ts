@@ -107,8 +107,8 @@ async function civShown(page: Page) {
 /** 界面用的编年史(整段历史的 fullChronicle;已经算过就是缓存里那份)和在这一页上从头重算的(浅拷一层,不走缓存)逐条一样吗 */
 async function chronicleNow(page: Page): Promise<{ list: unknown; same: boolean; n: number }> {
   return page.evaluate(async () => {
-    const rt = await import('/src/gen/civ/religionText.ts' as string);
-    const ch = await import('/src/gen/civ/chronicle.ts' as string);
+    const rt = await import('/src/gen/civ/story/religionText.ts' as string);
+    const ch = await import('/src/gen/civ/story/chronicle.ts' as string);
     const civ = (window as any).__swapFs.getFilmSource()?.full;
     const shown = rt.fullChronicle(civ);
     const build = ch.buildChronicle(civ);

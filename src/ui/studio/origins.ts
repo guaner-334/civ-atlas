@@ -4,7 +4,7 @@
  */
 import { BIOMES } from '../../gen/biomes';
 import type { Civ } from '../../gen/civ/types';
-import { HABITABLE_SUIT, regionLabel } from '../../gen/civ/display';
+import { HABITABLE_SUIT, regionLabel } from '../../gen/civ/story/display';
 import { ORIGINS_MAX, nearestCell, originRegion } from '../../gen/civ/frontier';
 import type { World } from '../../gen/world';
 import { lonLatToScreen, screenToLonLat } from '../../render/globe';

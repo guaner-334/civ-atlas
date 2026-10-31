@@ -14,7 +14,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { capitalAt } from '../src/gen/civ/growth';
 import { ERAS, developmentAt, eraLevel, eraOf } from '../src/gen/civ/development';
 import { BOOST_N } from '../src/gen/civ/boost';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { interventionFate } from '../src/gen/stepwise';
 import { cleanIntervention, polityKey, regionKey, type Intervention } from '../src/gen/edits';
 
