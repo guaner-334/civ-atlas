@@ -26,11 +26,11 @@
  * 改的是"这一国从这一朝起"的旗:之后换朝代时照改过的那面往下配(东方从改过的底色按五德往下推,西幻换图案、颜色样式照改过的)。
  * 旧存档没有这一项 = 全部自动配。
  */
-import type { World } from '../world';
-import type { Civ, Polity } from './types';
-import { Biome } from '../biomes';
-import { mulberry32, subSeed, type Rng } from '../util';
-import { cultureKey, dynastyKey, polityKey } from '../edits';
+import type { World } from '../../world';
+import type { Civ, Polity } from '../types';
+import { Biome } from '../../biomes';
+import { mulberry32, subSeed, type Rng } from '../../util';
+import { cultureKey, dynastyKey, polityKey } from '../../edits';
 import { BEASTS, decodeFlag, EDIT_LAYOUTS, isBeast, isEastern, isMetal, MARKS, type ChargeAt, type FlagSpec, type Layout, type Mark, type Shape, type Sym, type Tinct } from './flagSpec';
 
 // 颜色、样式、图案的名字、FlagSpec 和存档里的写法在 flagSpec.ts;原来从这里 import 的照旧能用

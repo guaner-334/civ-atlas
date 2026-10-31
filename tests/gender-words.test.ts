@@ -25,10 +25,10 @@ import {
   spouseWord,
   wedVerb,
   westRank,
-} from '../src/gen/civ/gender';
-import { kinOf, personName, princeTitle, rulerBare, rulerRef, rulerRole, rulerShort, rulerTitle } from '../src/gen/civ/peopleText';
-import { reignEntries } from '../src/gen/civ/chronicle';
-import { lineageKin, lineageTag } from '../src/gen/civ/lineageInfo';
+} from '../src/gen/civ/story/gender';
+import { kinOf, personName, princeTitle, rulerBare, rulerRef, rulerRole, rulerShort, rulerTitle } from '../src/gen/civ/story/peopleText';
+import { reignEntries } from '../src/gen/civ/story/chronicle';
+import { lineageKin, lineageTag } from '../src/gen/civ/story/lineageInfo';
 
 const F = { female: true } as const;
 const M = {};

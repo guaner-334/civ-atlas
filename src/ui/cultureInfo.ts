@@ -4,11 +4,11 @@
  */
 import type { Civ, Culture, MigrationDir } from '../gen/civ/types';
 import { regionPopulationAt } from '../gen/civ/growth';
-import { cultureLabel, regionLabel } from '../gen/civ/display';
-import { cnNumber, type ChronicleEntry } from '../gen/civ/chronicle';
+import { cultureLabel, regionLabel } from '../gen/civ/story/display';
+import { cnNumber, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { faithAt } from '../gen/civ/religion';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
-import { fullChronicle } from '../gen/civ/religionText';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { ownersOf } from './panelData';
 
 /** 民族在 y 年之前最后还在的那一年(已消亡的 = 消亡前一年;还没出现的 = 出现那年;还在的 = y) */

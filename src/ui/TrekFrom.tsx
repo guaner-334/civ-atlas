@@ -3,7 +3,7 @@
  * 和点编年史里那一件一样,地图上那一州闪、标签钉在那里,箭头从那里往外长。
  */
 import type { Civ } from '../gen/civ/types';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { pickChronicleEntry } from './civView';
 import { departureEntry } from './migrationInfo';
 

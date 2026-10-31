@@ -5,8 +5,8 @@
  */
 import { createListeners } from './createStore';
 import type { Civ } from '../gen/civ/types';
-import { filterChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { filterChronicle, type ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { fileBaseName } from '../gen/savefile';
 import type { CivStyle } from '../render/civ/overlay';
 import type { LayerId } from '../render/layers';

@@ -13,8 +13,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Civ } from '../gen/civ/types';
-import { MAJOR, type ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import { MAJOR, type ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 import { ERA_DEFAULT, ERA_NAME_MAX, ERA_ZERO_MAX, cleanEraName, epochOfZero, eraText, eraZero, yearFull, yearShort, type Era } from '../gen/era';
 import { setEra, useEra } from './editsStore';
 import { evLabel, evText, evType } from './timelineLayout';

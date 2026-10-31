@@ -10,15 +10,15 @@
  * 复国之君(接上故国世系,lineage.ts)两头都画:故国那一朝的树里,他挂在补的宗室(或末帝的儿子、末帝)下面,照据地自立的画法;
  * 他自己那一国第一朝的树,树根是他在故国的父辈,再往上几代(到故国的一位君主为止)画在树顶上(LineageTree.up),衬故国的颜色。
  */
-import type { Civ, Person, Year } from './types';
-import { polityName } from './growth';
+import type { Civ, Person, Year } from '../types';
+import { polityName } from '../growth';
 import { peopleIndex, riseText } from './peopleInfo';
 import { personName, rulerShort } from './peopleText';
 import { heOrShe, kinWord, spouseWord } from './gender';
 import { brideMatchOf, heldOver, polityShort } from './regentInfo';
 import { cnNumber } from './chronicle';
-import { yearAt, yearShort, yearSpanAt, type Era } from '../era';
-import { royalSeg } from './regime';
+import { yearAt, yearShort, yearSpanAt, type Era } from '../../era';
+import { royalSeg } from '../regime';
 
 interface LineageIndex {
   /** 人物编号 → 子嗣(按出生先后) */

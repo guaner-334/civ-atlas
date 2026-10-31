@@ -11,7 +11,7 @@ import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { playStop } from '../src/gen/civ/play';
 import { emptyPolicy, powerScale, unrestShift } from '../src/gen/civ/policy';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { runOutline } from '../src/gen/outline';
 import { cleanIntervention, cleanOutline, guideNotes, polityKey, type Intervention, type Plot } from '../src/gen/edits';
 import { samplePlots } from '../scripts/lib/outlineSample';

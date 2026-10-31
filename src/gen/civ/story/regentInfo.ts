@@ -8,11 +8,11 @@
  * - brideMatchOf           嫁来的宗室女嫁过来的那一门亲
  * - REGENCY_VERB / REGENCY_END  几种掌权、几种结局的说法
  */
-import type { Annal, Civ, Person, PersonRegency, PersonSpouse, Year } from './types';
-import { polityName, polityShortTitle, polityTierAt } from './growth';
-import { KIN_FADE, kinKey } from './marriages';
-import { actsFrom, reignBook, rulerBase, rulerTags, type RulerAct } from './rulers';
-import { broodOf } from './royals';
+import type { Annal, Civ, Person, PersonRegency, PersonSpouse, Year } from '../types';
+import { polityName, polityShortTitle, polityTierAt } from '../growth';
+import { KIN_FADE, kinKey } from '../marriages';
+import { actsFrom, reignBook, rulerBase, rulerTags, type RulerAct } from '../rulers';
+import { broodOf } from '../royals';
 
 /** 掌权的一段连同掌权的人 */
 export interface Held {

@@ -17,7 +17,7 @@
  * 同一个世界、同样的选项永远得到同样的结果(不用随机数,排序都有确定的先后)。
  */
 import type { Civ, Polity } from '../gen/civ/types';
-import { chronicleEraYears, filterChronicle, type ChronicleEntry } from '../gen/civ/chronicle';
+import { chronicleEraYears, filterChronicle, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { ownersAt } from '../gen/civ/timeline';
 import { entryWeight } from './timelineLayout';
 

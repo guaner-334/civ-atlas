@@ -14,13 +14,13 @@
  */
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
-import { kinOf, rulerShort } from '../gen/civ/peopleText';
-import { heOrShe, heirWord, isFemale, mateWord, wedVerb, type Sexed } from '../gen/civ/gender';
-import { rulerAt } from '../gen/civ/peopleInfo';
+import { kinOf, rulerShort } from '../gen/civ/story/peopleText';
+import { heOrShe, heirWord, isFemale, mateWord, wedVerb, type Sexed } from '../gen/civ/story/gender';
+import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { brideNameOf } from '../gen/civ/people';
 import { drawLeanings } from '../gen/civ/rulers';
 import { keyed4, subSeed } from '../gen/civ/rand';
-import { polityShort } from '../gen/civ/regentInfo';
+import { polityShort } from '../gen/civ/story/regentInfo';
 import { KIN_FADE } from '../gen/civ/marriages';
 import { REGENT_YEARS_MAX, personKey, polityKey, type Intervention, type MarryHow, type RegentEnd, type RegentHow } from '../gen/edits';
 import { eraText, spaced, yearAt, yearShortAt, yearSpanAt } from '../gen/era';

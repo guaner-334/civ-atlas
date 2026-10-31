@@ -11,12 +11,12 @@
  *     将领:攻下 3 州以上 +2×州数;击退来攻 3 次以上 +2×次数;战死 +3
  *   名人的"事迹"(卡片概况第一行)只写为什么出名;人物页的一行(fameLine)前面加国名和身份、伐谁抗谁。名臣不算名人(有自己的一档)。
  */
-import type { Annal, Civ, Person, PersonCommand, Year } from './types';
-import { polityName, polityShortTitle, polityTierAt } from './growth';
+import type { Annal, Civ, Person, PersonCommand, Year } from '../types';
+import { polityName, polityShortTitle, polityTierAt } from '../growth';
 import { cnNumber } from './chronicle';
 import { dowagerSpans, dowagerWordOf, isConsul, kinOf, personName, rulerRef, rulerShort, rulerTitle } from './peopleText';
-import { opensSeg } from './regime';
-import { Issue, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION } from './councilRules';
+import { opensSeg } from '../regime';
+import { Issue, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION } from '../councilRules';
 
 /** 够这么多分算名人 */
 export const FAME_MIN = 6;

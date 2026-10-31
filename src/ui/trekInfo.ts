@@ -8,12 +8,12 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { polityName } from '../gen/civ/growth';
 import { ownersAt } from '../gen/civ/timeline';
 import { searchTrek, trekPaths, trekRouteTo, type TrekPaths } from '../gen/civ/trekRoute';
 import { interventionFate } from '../gen/stepwise';
-import { cnNumber } from '../gen/civ/chronicle';
+import { cnNumber } from '../gen/civ/story/chronicle';
 import { eraText, spaced, yearAt, type Era } from '../gen/era';
 import type { Intervention, TrekReach } from '../gen/edits';
 

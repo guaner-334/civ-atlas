@@ -18,7 +18,7 @@ import { capitalAt, populationAt, settlementRank } from '../../gen/civ/growth';
 import { ruinRank, ruinSites } from '../../gen/civ/growth';
 import type { PlacedMark } from '../labels/draw';
 import type { CivStyle } from './overlay';
-import type { Shape } from '../../gen/civ/flags';
+import type { Shape } from '../../gen/civ/story/flags';
 import { shapePath } from '../flag/flagSvg';
 
 /** 符号类别:0 村 / 1 镇 / 2 城 / 3 大城 / 4 国都 / 5 故城遗址(RUIN)/ 6 关隘(PASS) */

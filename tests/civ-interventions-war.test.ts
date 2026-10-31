@@ -10,7 +10,7 @@ import { generateCiv } from '../src/gen/civ';
 import { InterventionModel } from '../src/gen/civ/interventions';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { relationsAt } from '../src/gen/civ/diplomacy';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { cleanInterventions, polityKey, sameInterventions, settlementKey, type Intervention } from '../src/gen/edits';
 import { world, base, bordering, rivals, warsBetween, idOf } from './lib/interventions';
 

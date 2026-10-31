@@ -19,10 +19,10 @@ import type { World } from '../../gen/world';
 import type { Civ, Place, Polity } from '../../gen/civ/types';
 import { canCross } from '../../gen/civ/polities';
 import { BIOMES } from '../../gen/biomes';
-import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/display';
+import { HABITABLE_SUIT, KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/story/display';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polityRoots, polityTitleChain, populationAt, populationLabel } from '../../gen/civ/growth';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
-import { cnNumber } from '../../gen/civ/chronicle';
+import { cnNumber } from '../../gen/civ/story/chronicle';
 import { KM_PER_UNIT } from '../../gen/civ/geo';
 import { eraNote } from '../../gen/era';
 import {

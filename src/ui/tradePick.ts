@@ -11,8 +11,8 @@ import type { Civ } from '../gen/civ/types';
 import type { TradeHit } from '../render/civ/trade';
 import type { LabelView } from '../render/labels/draw';
 import { TRADE_INK } from '../render/civ/trade';
-import { regionLabel } from '../gen/civ/display';
-import { goodsAt, goodsText, tradeCapital, tradeStateAt } from '../gen/civ/tradeText';
+import { regionLabel } from '../gen/civ/story/display';
+import { goodsAt, goodsText, tradeCapital, tradeStateAt } from '../gen/civ/story/tradeText';
 import { yearAt, type Era } from '../gen/era';
 import type { HoverInfo } from './hoverInfo';
 

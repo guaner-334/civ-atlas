@@ -7,9 +7,9 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
-import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
+import { buildChronicle, reignEntries } from '../src/gen/civ/story/chronicle';
 import { personKey, polityKey, resolvePersonKey } from '../src/gen/edits';
-import { princeRef, princeTitle } from '../src/gen/civ/peopleText';
+import { princeRef, princeTitle } from '../src/gen/civ/story/peopleText';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {

@@ -15,15 +15,15 @@
  * 账本和"国用不足"那几条(fiscalBook.ts)、打仗的起止(warSpans)、发展度的大事(development.ts)、城的兴废和受灾、国号和国都的变迁。
  * 即位、退位那一刻前后归属、人口会跳(改朝换代、亡国),两头各往里收 EDGE 年再取。
  */
-import type { Civ, Person, Year } from './types';
-import type { Era } from '../era';
-import { yearShortAt, yearSpan } from '../era';
-import { ownersAt } from './timeline';
-import { capitalAt, polityName, populationLabel, regionPopulationAt } from './growth';
-import { fiscalAt, fiscalMood, fillOf, warSpans, type BookRow } from './fiscalBook';
-import { ERAS, INVENTIONS, RESOURCES } from './development';
+import type { Civ, Person, Year } from '../types';
+import type { Era } from '../../era';
+import { yearShortAt, yearSpan } from '../../era';
+import { ownersAt } from '../timeline';
+import { capitalAt, polityName, populationLabel, regionPopulationAt } from '../growth';
+import { fiscalAt, fiscalMood, fillOf, warSpans, type BookRow } from '../fiscalBook';
+import { ERAS, INVENTIONS, RESOURCES } from '../development';
 import { regionLabel } from './display';
-import { quakeWord } from './calamity';
+import { quakeWord } from '../calamity';
 
 /** 在位不满几年的缩成一句 */
 export const SHORT_REIGN = 3;

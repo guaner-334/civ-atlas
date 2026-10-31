@@ -6,11 +6,11 @@
  * 历史改写过(干预、改地形)以后标"写于历史改写前"(doctrineStamp 对不上)。
  */
 import type { Civ, Faith, FaithEvent, Religion } from '../../gen/civ/types';
-import { KIND_INFO, cultureLabel } from '../../gen/civ/display';
+import { KIND_INFO, cultureLabel } from '../../gen/civ/story/display';
 import { capitalAt, polityAlive, polityName } from '../../gen/civ/growth';
 import { ownersAt, type Owners } from '../../gen/civ/timeline';
 import { faithAt, faithRoot } from '../../gen/civ/religion';
-import { FORM_NOTE, faithEventText } from '../../gen/civ/religionText';
+import { FORM_NOTE, faithEventText } from '../../gen/civ/story/religionText';
 import { faithKey } from '../../gen/edits';
 import { styleGuide } from './names';
 import type { AiMessage, AiRequest } from '../types';

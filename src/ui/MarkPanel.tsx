@@ -23,7 +23,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { regionLabel } from '../gen/civ/display';
+import { regionLabel } from '../gen/civ/story/display';
 import { MARKS_MAX, MARK_COLORS, MARK_NOTE_MAX, MARK_REGIONS_TOTAL, MARK_TITLE_DEFAULT, MARK_TITLE_MAX, markShownAt, regionKey, type AuthorMark, type MarkSizeSet, type MarkTint } from '../gen/edits';
 import { MARK_HEX } from '../render/marks';
 import { getEdits, removeMark, restoreMark, useEdits, useEra } from './editsStore';

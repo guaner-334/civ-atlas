@@ -10,8 +10,8 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { trekDir, trekFolk, trekModelOf, trekStats } from '../src/gen/civ/migration';
 import { geometryOf } from '../src/gen/geometry';
-import { cultureLabel } from '../src/gen/civ/display';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { cultureLabel } from '../src/gen/civ/story/display';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {

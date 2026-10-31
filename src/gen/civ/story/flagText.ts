@@ -2,10 +2,10 @@
  * 旗帜详情里的字:旗上每样东西的意思(一行一样)、底下那句"这面旗怎么来的"。规则见 flags.ts。
  * 名字(国名、城名、朝代、民族)按传进来的 Civ 现写:改了名,这里跟着变。纯计算,不碰 DOM。
  */
-import type { Civ } from './types';
-import { polityName } from './growth';
-import { opensSeg } from './regime';
-import { Issue } from './councilRules';
+import type { Civ } from '../types';
+import { polityName } from '../growth';
+import { opensSeg } from '../regime';
+import { Issue } from '../councilRules';
 import { DE, LAYOUT_NAME, MARK_NAME, MARK_NOTE, SYM_NAME, TINCT, deOf, isEastern, type FlagBook, type FlagEra, type FlagSpec, type Seat, type Tinct } from './flags';
 
 /** 一行:左边是什么(带色块的是颜色),右边什么意思 */

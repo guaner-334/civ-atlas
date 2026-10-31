@@ -8,9 +8,9 @@
  *     "克拉尔族;1899 年随族自诺敏塔拉西徙,1911 年随众立国"(路上生的写"生于西徙途中");领头立国的那位写"率克拉尔族西徙,立萨热汗国"
  */
 import { useRef } from 'react';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
-import { peopleIndex } from '../gen/civ/peopleInfo';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
+import { peopleIndex } from '../gen/civ/story/peopleInfo';
 import type { Civ, Migration, Person } from '../gen/civ/types';
 import { useChroniclePick } from './civView';
 

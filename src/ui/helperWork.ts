@@ -23,9 +23,9 @@ import { parseSave } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { decodePresetHash } from './presetLink';
 import { dynastyAt, polityAlive, polityName } from '../gen/civ/growth';
-import { cultureLabel, regionLabel } from '../gen/civ/display';
-import { consortRole, generalRole, ministerRole, princeRole, rulerRole } from '../gen/civ/peopleText';
-import { personArt } from '../gen/civ/officialText';
+import { cultureLabel, regionLabel } from '../gen/civ/story/display';
+import { consortRole, generalRole, ministerRole, princeRole, rulerRole } from '../gen/civ/story/peopleText';
+import { personArt } from '../gen/civ/story/officialText';
 import { TEXTS_MAX, type HelperKind, type HelperText, type RenderRequest } from './helperProtocol';
 
 /**

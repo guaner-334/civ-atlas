@@ -5,7 +5,7 @@
  * - 地形大事把历史分成几段:放到下一段时换一个 MapShot(那一段的地形只画一次)。
  * - 拍框里一块时,字幕只写框里看得到的国家的大事:事发的州在框里(有一块地在框里就算),或者事情牵涉的国家那一年在框里有地。
  */
-import type { ChronicleEntry } from '../gen/civ/chronicle';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import type { Era } from '../gen/era';

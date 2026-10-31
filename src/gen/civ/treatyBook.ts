@@ -10,6 +10,11 @@ export const OPT_KEEP = 2;
 export const OPT_QUIET = 4;
 export const OPT_LASTING = 8;
 
+/** 干预立约 / 划中立地没生效的原因(推演 treaties.ts 记、编年史读;史事 intervene 的 b 列;−1 = 生效了,−2 州键指不到,−3 下令的国家已亡) */
+export const IV_NOBODY = -8;
+export const IV_REFUSED = -9;
+export const IV_NO_ZONE = -10;
+
 /** 一份约 */
 export interface TreatyInfo {
   /** 约的编号(史事 treaty 的 war 列) */

@@ -10,7 +10,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Faith } from '../src/gen/civ/types';
 import { polityAlive, polityName } from '../src/gen/civ/growth';
 import { faithCounts } from '../src/gen/civ/religion';
-import { FORM_NOTE, faithEventText } from '../src/gen/civ/religionText';
+import { FORM_NOTE, faithEventText } from '../src/gen/civ/story/religionText';
 import { applyNames, faithKey } from '../src/gen/edits';
 import {
   DOCTRINE_CHARS,

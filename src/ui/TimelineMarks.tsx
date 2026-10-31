@@ -23,7 +23,7 @@
  *   这时只能拖到推之前的结束年份(limit)。推完以后刚推的那段(fresh)底下垫一道浅蓝、起点一条细线。
  */
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { entryInvolves, type ChronicleEntry } from '../gen/civ/chronicle';
+import { entryInvolves, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { eraText, yearAt, yearFull, yearShort, yearSpanAt, type Era } from '../gen/era';
 import { useMonthNames, useMonths } from './editsStore';
 import { getCivTime, pickChronicleEntry, setCivTime, stepYear } from './civView';

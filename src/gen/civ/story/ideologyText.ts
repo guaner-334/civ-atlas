@@ -9,14 +9,14 @@
  *   "埃维里亚帝国天命之说渐衰,律法之说代兴"。门槛是免得两说相持时来回记;小国里最盛的换了不记,只记下现在是哪说(长成大国时不补记老账)。
  * 盛于、渐衰记在国中那一份的年份上;国名用当年的国号。纯计算,主线程用。
  */
-import type { Civ, Year } from './types';
+import type { Civ, Year } from '../types';
 import type { ChronicleEntry, Importance } from './chronicle';
-import { polityName } from './growth';
+import { polityName } from '../growth';
 import { regionLabel } from './display';
 import { rulerAt } from './peopleInfo';
 import { rulerBare } from './peopleText';
-import { ownersAt, type Owners } from './timeline';
-import { IDEO_SCALE, THOUGHTS, THOUGHT_COUNT } from './ideology';
+import { ownersAt, type Owners } from '../timeline';
+import { IDEO_SCALE, THOUGHTS, THOUGHT_COUNT } from '../ideology';
 import { tradeEntries } from './tradeText';
 
 /** 一字标签(界面上的类型名见 timelineLayout.ts 的 TAG_LABEL:思潮) */

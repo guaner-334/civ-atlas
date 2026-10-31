@@ -15,8 +15,8 @@ import { populationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { KM_PER_UNIT } from '../gen/civ/geo';
 import { geometryOf } from '../gen/geometry';
-import type { ChronicleEntry } from '../gen/civ/chronicle';
-import { fullChronicle } from '../gen/civ/religionText';
+import type { ChronicleEntry } from '../gen/civ/story/chronicle';
+import { fullChronicle } from '../gen/civ/story/religionText';
 
 // ---------------------------------------------------------------------------
 // 这一年各州的归属(面板共用一份;下一次换了年份再查会覆盖掉,要用的数当场取出来)

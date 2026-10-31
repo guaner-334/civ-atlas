@@ -39,7 +39,7 @@ import { FaithPanel } from './FaithPanel';
 import { CulturePanel } from './CulturePanel';
 import { TreatyPanel } from './TreatyPanel';
 import { TradePanel } from './TradePanel';
-import { treatyBook } from '../gen/civ/treatyInfo';
+import { treatyBook } from '../gen/civ/story/treatyInfo';
 import { MarkPanel } from './MarkPanel';
 import { useMarkUi } from './markStore';
 import { CharacterPanel } from './CharacterPanel';

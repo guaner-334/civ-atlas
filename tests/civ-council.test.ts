@@ -7,7 +7,7 @@ import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { CivSim } from '../src/gen/civ/sim';
 import { councilModelOf, councilStats } from '../src/gen/civ/council';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
 
 const worlds = new Map<number, World>();

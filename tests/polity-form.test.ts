@@ -17,7 +17,7 @@ import {
   polityFormAt,
   type FormFacts,
   type FormName,
-} from '../src/gen/civ/polityForm';
+} from '../src/gen/civ/story/polityForm';
 import { armySay, courtView, formChangeSay, formWhy, levySay, officeSay, ruleSeg } from '../src/ui/courtInfo';
 
 const civs = new Map<number, Civ>();

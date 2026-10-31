@@ -16,7 +16,7 @@
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { polityAlive, polityName, populationLabel } from '../gen/civ/growth';
-import { personRoleShort } from '../gen/civ/peopleText';
+import { personRoleShort } from '../gen/civ/story/peopleText';
 import { ownersAt } from '../gen/civ/timeline';
 import {
   RECORD_GROUPS,
@@ -31,7 +31,7 @@ import {
   type RecordAt,
   type RecordKey,
   type RecordRef,
-} from '../gen/civ/records';
+} from '../gen/civ/story/records';
 import { spaced, yearAt, yearShort, yearShortAt, type Era } from '../gen/era';
 import { closeOverview, openLineage, openOverview } from './overviewStore';
 import { seedTag, useEdits } from './editsStore';

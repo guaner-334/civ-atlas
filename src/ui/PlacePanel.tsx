@@ -14,7 +14,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { Place } from '../gen/civ/types';
-import { cultureLabel, regionLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { polityName } from '../gen/civ/growth';
 import { placeKeyOf } from '../gen/edits';
 import { NameEdit } from './NameEdit';

@@ -7,7 +7,7 @@ import { ownersAt } from '../src/gen/civ/timeline';
 import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { CAPITAL_GRACE, HOLD, exclaveMask, warModelOf, warStats } from '../src/gen/civ/wars';
 import { annexedRemnants, capitalAt, polityAlive } from '../src/gen/civ/growth';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { regionPasses } from '../src/gen/civ/passes';
 
 /**

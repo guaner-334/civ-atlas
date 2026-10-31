@@ -8,7 +8,7 @@ import { CivSim } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { finishDevelopment } from '../src/gen/civ/development';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlStats, controlTier } from '../src/gen/civ/control';
-import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/chronicle';
+import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {

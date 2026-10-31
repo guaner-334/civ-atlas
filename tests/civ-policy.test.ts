@@ -14,7 +14,7 @@ import { effOf, policyAt, polityModelOf, rulerOf } from '../src/gen/civ/polities
 import { leaningEffect } from '../src/gen/civ/rulers';
 import { POLICY_PRESETS, policyEffect, policyName, withPolicy } from '../src/gen/civ/policy';
 import { ownersAt } from '../src/gen/civ/timeline';
-import { buildChronicle } from '../src/gen/civ/chronicle';
+import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { relationsAt } from '../src/gen/civ/diplomacy';
 import { CAP_COUNT, developmentAt } from '../src/gen/civ/development';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';

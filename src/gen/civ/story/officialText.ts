@@ -11,14 +11,14 @@
  *
  * 写年份的(personBio、ministerFate)多一个参数 era:年份照这个纪年写("公元前 850 年卒");不给 = "850 年卒"
  */
-import type { Civ, Person, PersonDeed, PersonPost, Polity, Year } from './types';
-import { polityName, polityShortTitle, polityTierAt } from './growth';
+import type { Civ, Person, PersonDeed, PersonPost, Polity, Year } from '../types';
+import { polityName, polityShortTitle, polityTierAt } from '../growth';
 import { cnNumber } from './chronicle';
 import { ageAt, ministerRole, personName, rulerTitle } from './peopleText';
 import { commandFoes, generalTally } from './peopleInfo';
-import { artName, postLadder } from './officials';
+import { artName, postLadder } from '../officials';
 import { childWord, kinWord } from './gender';
-import { yearAt, yearSpanAt, type Era } from '../era';
+import { yearAt, yearSpanAt, type Era } from '../../era';
 
 const F = Math.floor;
 const clampTier = (t: number) => Math.max(0, Math.min(3, t));

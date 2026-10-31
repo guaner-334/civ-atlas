@@ -11,10 +11,10 @@
  * 国名一律按年份现查(growth.ts),作者改了国名,称呼跟着变。君号、身份词、身后称号、亲属词分男女(Person.female),换哪个字见 gender.ts。
  * - 君主的倾向:名字和一句说明(LEANING_TEXT),复制生平的一行(leaningsText)
  */
-import type { Civ, Person, PersonRegency, Polity, RulerLeanings, Year } from './types';
-import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from './growth';
+import type { Civ, Person, PersonRegency, Polity, RulerLeanings, Year } from '../types';
+import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from '../growth';
 import { childWord, dowagerWord, eastRank, isFemale, khanWord, postTitle, princeWord, westRank } from './gender';
-import { reformedSeg, royalSeg } from './regime';
+import { reformedSeg, royalSeg } from '../regime';
 
 function polityOfPerson(civ: Civ, x: Person): Polity | null {
   return x.polity >= 0 && x.polity < civ.polities.length ? civ.polities[x.polity] : null;
@@ -381,12 +381,8 @@ export function leaningsText(l: RulerLeanings): string {
   return LEANING_KEYS.map((k) => `${LEANING_TEXT[k].name} ${l[k]}`).join('，');
 }
 
-/** 东方中式的全名拆出姓(复姓两个字) */
-export function splitSurname(full: string): string {
-  const two = full.slice(0, 2);
-  return COMPOUND.has(two) && full.length > 2 ? two : full.slice(0, 1);
-}
-const COMPOUND = new Set(['司马', '欧阳', '上官', '慕容', '宇文', '长孙', '独孤', '皇甫', '令狐', '尉迟', '南宫', '司空', '东方', '端木', '百里']);
+/** 东方中式的全名拆出姓(复姓两个字;推演起名也用,定义在 surname.ts) */
+export { splitSurname } from '../surname';
 
 /** 改过的倾向:"开拓 53→78、好战 50→20"(只写变了的;不知道原来的 = "开拓 78、好战 20";都没变 = 空串) */
 export function leaningsChange(from: RulerLeanings | undefined, to: RulerLeanings): string {

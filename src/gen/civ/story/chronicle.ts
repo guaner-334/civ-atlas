@@ -88,9 +88,9 @@
  *
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
  */
-import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from './types';
-import { IV_GONE, IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
-import { IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, IV_NO_PARTNER } from './marriages';
+import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from '../types';
+import { IV_GONE, IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from '../regents';
+import { IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, IV_NO_PARTNER } from '../marriages';
 import { holderAt, kinAt, strongHeld } from './regentInfo';
 import {
   TIER_REGIONS,
@@ -106,30 +106,30 @@ import {
   populationAt,
   regionPopulationAt,
   settlementRank,
-} from './growth';
+} from '../growth';
 import { pandemicsOf } from './pandemicInfo';
 import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './display';
-import { ownersAt } from './timeline';
+import { ownersAt } from '../timeline';
 import { plagueSpans } from './plagueSpans';
-import { Issue, REFORM_COUP, REFORM_REVOLUTION, councilBefore, isReformIssue, rulesAt } from './councilRules';
-import { reformedSeg, royalSeg } from './regime';
-import { IV_REIGNING, authorPostsFrom } from './appoint';
+import { Issue, REFORM_COUP, REFORM_REVOLUTION, councilBefore, isReformIssue, rulesAt } from '../councilRules';
+import { reformedSeg, royalSeg } from '../regime';
+import { IV_REIGNING, authorPostsFrom } from '../appoint';
 import { practicesAt } from './practiceInfo';
-import { Practice, hasPractice } from './practices';
+import { Practice, hasPractice } from '../practices';
 import { ageAt, dowagerSpans, dowagerWordOf, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
 import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, westRank, type Sexed } from './gender';
-import { eraText, monthTail, type Era } from '../era';
-import { TREK_DIR_NAMES, keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
-import { IV_NO_WAY } from './trekRoute';
-import { emptyPolicy, policyName, type PolicyIv } from './policy';
-import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from './rulers';
-import { personNamers } from './naming';
+import { eraText, monthTail, type Era } from '../../era';
+import { TREK_DIR_NAMES, keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../../edits';
+import { IV_NO_WAY } from '../trekRoute';
+import { emptyPolicy, policyName, type PolicyIv } from '../policy';
+import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from '../rulers';
+import { personNamers } from '../naming';
 
-import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from './calamity';
-import { foesAt } from './fiscalBook';
+import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from '../calamity';
+import { foesAt } from '../fiscalBook';
 import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_LASTING, envoyOf, treatyBook, treatyCallName, treatyLine } from './treatyInfo';
-import { BOOST_N, IV_TOP_ERA } from './boost';
-import { ERAS } from './development';
+import { BOOST_N, IV_TOP_ERA } from '../boost';
+import { ERAS } from '../development';
 
 /** 重要度:3 最重要 */
 export type Importance = 1 | 2 | 3;

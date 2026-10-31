@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { REGENCY_KINDS, RG_START } from '../src/gen/civ/regents';
-import { buildChronicle, reignEntries } from '../src/gen/civ/chronicle';
-import { dowagerSpans, dowagerWordOf, kinOf } from '../src/gen/civ/peopleText';
+import { buildChronicle, reignEntries } from '../src/gen/civ/story/chronicle';
+import { dowagerSpans, dowagerWordOf, kinOf } from '../src/gen/civ/story/peopleText';
 import { personCard } from '../src/ui/PersonPanel';
 import { parsePersonKey, personKey, resolvePersonKey } from '../src/gen/edits';
 

@@ -7,7 +7,7 @@ import { RESOURCES } from '../src/gen/civ/development';
 import { CivSim } from '../src/gen/civ/sim';
 import { describe, expect, it } from 'vitest';
 import { TRADE_GOODS } from '../src/gen/civ/trade';
-import { GOOD_NAME } from '../src/gen/civ/tradeText';
+import { GOOD_NAME } from '../src/gen/civ/story/tradeText';
 
 describe('商道:先引发展度也装载得了', () => {
   it('货的下标、货名都在', () => {

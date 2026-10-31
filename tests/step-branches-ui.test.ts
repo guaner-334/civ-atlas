@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { generateCiv } from '../src/gen/civ';
-import { fullChronicle } from '../src/gen/civ/religionText';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { BRANCH_NOTE_MAX, type PlayState, type WorldEdits } from '../src/gen/edits';
 import { branchList, deleteBranch, renameBranch, rewindBranch } from '../src/gen/stepwise';
 import { branchLabel, branchNote, branchRef, branchSpan } from '../src/ui/StepBranches';

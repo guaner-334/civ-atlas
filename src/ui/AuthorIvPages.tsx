@@ -21,10 +21,10 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from
 import type { Civ, Person } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { rulerAt, peopleIndex } from '../gen/civ/peopleInfo';
-import { personName, rulerShort } from '../gen/civ/peopleText';
-import { heOrShe } from '../gen/civ/gender';
-import { postAt } from '../gen/civ/officialText';
+import { rulerAt, peopleIndex } from '../gen/civ/story/peopleInfo';
+import { personName, rulerShort } from '../gen/civ/story/peopleText';
+import { heOrShe } from '../gen/civ/story/gender';
+import { postAt } from '../gen/civ/story/officialText';
 import { authorMinisterLadder, courtDeeds } from '../gen/civ/officials';
 import { regimeAt, royalAt } from '../gen/civ/regime';
 import { appointEnd, appointPreview, type AuthorPost } from '../gen/civ/appoint';
