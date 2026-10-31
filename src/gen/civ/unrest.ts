@@ -415,7 +415,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
       if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < odds) centres.push(r);
     }
     if (!centres.length) return;
-    const soil = devModelOf(sim)?.soilNow?.();
+    const soil = api.dev.soilNow?.();
     /** 这一次闹了饥荒的州:国家 → [州, 折损] */
     const hits = new Map<number, [number, number][]>();
     for (const c0 of centres) {

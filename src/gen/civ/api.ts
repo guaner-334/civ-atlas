@@ -6,7 +6,7 @@
  * 都是可选的:没有子系统提供 = undefined,取用的一方照没有处理(和原来一样)。
  */
 import type { CivSim } from './engine/sim';
-import type { Annal, AnnalCause, Polity, Year } from './types';
+import type { Annal, AnnalCause, Polity, TablesState, Year } from './types';
 import type { Reign } from './rulers';
 import type { War } from './wars';
 
@@ -173,8 +173,25 @@ export interface DiplomacyApi {
   onCheck?: (p: number, k: number, t: Year, threat: number) => void;
 }
 
+/** dev那一组(原来挂在 DevModel 上) */
+export interface DevApi {
+  /** 乡村人口此刻的表、上一步算到哪一年(population.ts 提供) */
+  ruralNow?: () => { year: Year; data: Float64Array };
+  /** 各州此刻的地力(0–1,population.ts 提供;饥荒的赔率读它) */
+  soilNow?: () => Float64Array;
+  /** 存档时一并存下的政局数表(control.ts 提供) */
+  saveTables?: () => TablesState;
+  /** 推一把发展(boost.ts 提供;没有快几倍的干预 = 不挂):(t0, y] 这一步里各州的倍数填进 out(没推的州留 1) */
+  boostFill?: (t0: Year, y: Year, out: Float64Array) => void;
+  /** 每步算完(大事、快照都记好了)以后调(思潮挂上,见 ideology.ts;在 afterTick 之前):prev = 这一步开头各州的能力(州 × CAP_COUNT) */
+  afterStep?: (y: Year, prev: Float64Array) => void;
+  /** 每一步算完以后(商道 trade.ts 提供;只读,不改推演) */
+  afterTick?: (y: Year) => void;
+}
+
 /** 一次推演的全部具名接口,按组 */
 export interface CivApi {
+  dev: DevApi;
   diplomacy: DiplomacyApi;
   politics: PoliticsApi;
   polity: PolityApi;
@@ -185,6 +202,7 @@ export interface CivApi {
 export function civApi(sim: CivSim): CivApi {
   const a = sim.api as Partial<CivApi>;
   if (!a.war) a.war = {};
+  if (!a.dev) a.dev = {};
   if (!a.diplomacy) a.diplomacy = {};
   if (!a.politics) a.politics = {};
   if (!a.polity) a.polity = {};

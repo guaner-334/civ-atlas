@@ -63,7 +63,6 @@ import { bestCapital, polityBorders, warModelOf, type War, type WarModel } from 
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { unrestModelOf } from './unrest';
 import { HOLD, assimModelOf } from './assimilation';
-import { devModelOf } from './development';
 import { capitalAt, populationAt, ruralCapacity } from './growth';
 import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } from './trekRoute';
 import type { InterventionModel } from './interventions';
@@ -333,7 +332,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     const hungry = new Int32Array(cultures.length);
     const crowd = new Float64Array(cultures.length);
     const crowdN = new Int32Array(cultures.length);
-    const rural = devModelOf(sim)?.ruralNow?.()?.data;
+    const rural = api.dev.ruralNow?.()?.data;
     for (let r = 0; r < R; r++) {
       const c = culture[r];
       if (c < 0 || c >= cultures.length) continue;

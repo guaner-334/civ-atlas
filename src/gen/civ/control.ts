@@ -754,7 +754,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     sim.schedule(t + 1, Ev.TableTick, 0, 0);
   });
   // 按地块的表按世界上的地块存(地形大事以后哪些块养得了人会变)
-  dev.saveTables = () => ({
+  api.dev.saveTables = () => ({
     last,
     data: Object.fromEntries(SAVED_TABLES.map((id) => [id, tileTable.has(id) ? tilesToCells(tiles, N, eng.get(id), id === '地力' ? 1 : 0) : eng.get(id).slice()])),
   });
