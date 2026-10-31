@@ -68,6 +68,7 @@ import {
   setStepGesture,
   saveBackEdits,
   setStepwiseActions,
+  stepLost,
   stepWheel,
   branchSwitching,
   subscribeStepwise,
@@ -311,7 +312,7 @@ import { switchedToast, useSimResults, type ExtendJob, type ExtendUndo, type Out
 import { closeUpheaval, getUpUi, setUpRunner, upClick, upMove, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
-import { getPending, removePending, takePendingBatch } from './pendingStore';
+import { getPending, removePending, restorePending, takePendingBatch } from './pendingStore';
 import { tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource } from './filmSource';
@@ -1117,6 +1118,44 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         outlineStopped: (m) => {
           if (outlineRef.current?.oid === m.oid) endOutline();
         },
+      },
+      // 线程出错、重发过一次又出错的活(见 ./sim/simClient.ts 文件头「线程出错」):不再算它,界面上收起,地图上还是原来那份。
+      // 生成、读档、回放帧、地形大事预览不在这里收:再点一次就是新的一件活,交给新开的线程
+      lost: (req) => {
+        if (req.type === 'resim') {
+          if (req.seq !== resimSeq.current) return;
+          resimInfo.current = null;
+          setResim(null);
+          // 这次重推推完要说的、要做的,不留给下一次
+          rewindNote.current = switchNote.current = null;
+          storyAfterYears.current = null;
+          // 正在切到别的一支(照那一支从第 0 年重推)没推成:回到原来那一支(地图上还是它的历史),停在它的"现在"
+          const sw = getStepwise().switching;
+          const back = sw ? switchBranch(getEdits(), sw.from, sw.last) : null;
+          if (back?.play) {
+            civPlay.current = back.play;
+            putEditsQuiet(back);
+            enterStepwise(playFromOf(back), playAt(back.play) / YEAR_TICKS);
+            setCivTime({ year: playAt(back.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
+          } else if (sw) branchSwitching(null);
+        } else if (req.type === 'turn') {
+          // 这一步没算成:随它交出去的干预先放回单子,再收起这一步(等着这一步算完的切支线、重新演绎照单子里的算,不丢);
+          // 停下播放,不然播放头一走到"现在"又交一步,一直重算
+          const items = getStepwise().busy?.items;
+          if (items) restorePending(items);
+          stepLost();
+          setCivTime({ playing: false });
+        } else if (req.type === 'extend') {
+          if (extendRef.current?.xid === req.xid) {
+            extendRef.current = null;
+            setExtendBusy(null);
+          }
+        } else if (req.type === 'outline') {
+          if (outlineRef.current?.oid === req.oid) endOutline();
+        } else if (req.type === 'civOnly' && naming.current?.nid === req.nid) {
+          naming.current = null;
+          setNamingPct(null);
+        }
       },
     });
     return client;

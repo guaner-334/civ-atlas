@@ -458,7 +458,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       const cmds = commandsNow(cleanPlay(getEdits().play) ?? { year: s.now }, queued.flatMap((x) => (x.kind === 'iv' ? [x.v] : [])));
       if (!stepwiseActions()?.turn(plan.ticks, cmds)) return;
       for (const x of queued) removePending(x.id);
-      stepSent(s.now, plan, cmds);
+      stepSent(s.now, plan, cmds, queued);
     };
     /**
      * 播放头走到"现在"、这一刻该停:列出这一段的大事,停下来;一件也没有(只是到了"每隔几年")就不停;

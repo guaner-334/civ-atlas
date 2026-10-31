@@ -25,6 +25,7 @@ import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { cleanPlay, commandsNow, issueCommands, type Advance, type Intervention, type WorldEdits } from '../gen/edits';
 import { stepwiseToNormal } from '../gen/stepwise';
 import type { PauseWhy, StepPlan, StepReviewItem } from './stepwisePlan';
+import type { Pending } from './pendingStore';
 
 /** 停在哪:这一段(from 到 to 那一刻)、为什么停、这一段的大事(和导播放这一段时挑的一样) */
 export interface StepStop {
@@ -67,8 +68,11 @@ export interface StepwiseState {
   since: number;
   /** 推到哪一刻了("现在";历史算到这一刻之前;年份带小数) */
   now: number;
-  /** 正在算的一步:从哪一刻起、照哪份打算走(走多久、走完停不停)、随这一步交出去的干预(在 from 那一刻生效;没在算 = null) */
-  busy: { from: number; to: number; plan: StepPlan; t0: number; commands: readonly Intervention[] } | null;
+  /**
+   * 正在算的一步:从哪一刻起、照哪份打算走(走多久、走完停不停)、随这一步交出去的干预(在 from 那一刻生效)、
+   * 它们在单子上的那几条(这一步没算成时放回单子;没在算 = null)
+   */
+  busy: { from: number; to: number; plan: StepPlan; t0: number; commands: readonly Intervention[]; items?: readonly Pending[] } | null;
   /** 推到的这一年要停一下(走完的那一步说的):播放头走到这里就停 */
   due: { why: PauseWhy; big: readonly ChronicleEntry[] } | null;
   /** 停着看这一段的大事 */
@@ -287,9 +291,12 @@ function withMark(at: number): readonly number[] {
   return S.marks.includes(at) ? S.marks : [...S.marks, at].sort((a, b) => a - b);
 }
 
-/** 一步交出去了:从第 from 年起,照 plan 走;commands = 随这一步交出去的干预(还在算时存回推演模式也要带上) */
-export function stepSent(from: number, plan: StepPlan, commands: readonly Intervention[] = []) {
-  patch({ busy: { from, to: plan.to, plan, t0: performance.now(), commands } });
+/**
+ * 一步交出去了:从第 from 年起,照 plan 走;commands = 随这一步交出去的干预(还在算时存回推演模式也要带上),
+ * items = 它们在单子上的那几条(已经从单子里拿掉;这一步没算成时放回去)
+ */
+export function stepSent(from: number, plan: StepPlan, commands: readonly Intervention[] = [], items?: readonly Pending[]) {
+  patch({ busy: { from, to: plan.to, plan, t0: performance.now(), commands, ...(items?.length ? { items } : {}) } });
 }
 
 /**

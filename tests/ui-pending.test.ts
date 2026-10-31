@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { EMPTY_EDITS, type Intervention, type Upheaval } from '../src/gen/edits';
 import { addIntervention, addUpheaval, clearEdits, getEdits, removeEditsBatch, setEdits } from '../src/ui/editsStore';
-import { clearPending, getPending, pendingHas, pushPending, queueIntervention, queueUpheaval, removePending, takePendingBatch } from '../src/ui/pendingStore';
+import { clearPending, getPending, pendingHas, pushPending, queueIntervention, queueUpheaval, removePending, restorePending, takePendingBatch } from '../src/ui/pendingStore';
 import { UPHEAVALS_MAX } from '../src/gen/terrainEdits';
 import { getPanel, endRun } from '../src/ui/panelStore';
 import { undoLastEdit } from '../src/ui/undo';
@@ -34,6 +34,17 @@ describe('待推演的单子', () => {
     expect(queueIntervention(protect(3), '丙国:保护')).toBe('这条命令已经下过了');
     removePending(getPending()[0].id);
     expect(getPending().map((x) => x.text)).toEqual(['乙国:保护']);
+  });
+
+  it('交出去没推成的几条放回单子最前面(照原来的先后,还在单子里的不重复放)', () => {
+    queueIntervention(protect(1), '甲国:保护');
+    queueIntervention(protect(2), '乙国:保护');
+    const sent = getPending();
+    for (const x of sent) removePending(x.id);
+    queueIntervention(protect(3), '丙国:保护');
+    restorePending(sent);
+    restorePending(sent);
+    expect(getPending().map((x) => x.text)).toEqual(['甲国:保护', '乙国:保护', '丙国:保护']);
   });
 
   it('全部推演:一次加进修改、清空单子;推演时面板先藏起;⌘Z 一次撤掉整批', () => {

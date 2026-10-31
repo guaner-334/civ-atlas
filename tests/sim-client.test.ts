@@ -5,7 +5,9 @@
  *   - 生成、读档时线程手上还有活:关掉旧线程另开一个,旧线程后来的消息不管;手上只有能半路放下的生成时不关
  *   - 不是现在这个世界的请求编号:记账照记,不交给回调;半路放下的回音不交给回调
  *   - 先交的几段历史拼回去以后才交给回调;回调是收到消息当场调的(不绕异步)
- *   - 试推演:交回来给等着的那一次(编号对不上世界也给);停下、线程被换掉都 reject
+ *   - 试推演:交回来给等着的那一次(编号对不上世界也给);停下、线程被换掉、页面卸下都 reject
+ *   - 线程出错:关掉,还没回音的活按先后重发给新线程;重发过又出错的那件不再发,交给 lost(试推演 reject)
+ *   - 照原样打开的世界:线程被重开过(出错、叫停再推)时先发 pin 重新钉住;换了世界、打开那件还没回音 / 不再发了不钉
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { splitCiv } from '../src/civParts';
@@ -41,10 +43,11 @@ class FakeWorker implements SimWorker {
   }
 }
 
-/** 开好的假线程(按开的先后)、每种消息交到回调的记录(按收到的先后) */
+/** 开好的假线程(按开的先后)、每种消息交到回调的记录(按收到的先后)、交给 lost 的活 */
 function setup(id = 1) {
   const workers: FakeWorker[] = [];
   const got: WorkerResponse[] = [];
+  const lost: WorkerRequest[] = [];
   const cur = { id };
   const on = new Proxy({} as SimHandlers, { get: () => (m: WorkerResponse) => got.push(m) });
   const sim = new SimClient({
@@ -55,9 +58,13 @@ function setup(id = 1) {
     },
     currentId: () => cur.id,
     on,
+    lost: (req) => void lost.push(req),
   });
-  return { sim, workers, got, cur };
+  return { sim, workers, got, cur, lost };
 }
+
+/** 线程出错(onerror) */
+const fail = (w: FakeWorker, message = 'boom') => w.onerror?.({ message } as ErrorEvent);
 
 const PARAMS = { seed: 7 } as unknown as Extract<WorkerRequest, { type: 'generate' }>['params'];
 const gen = (id: number, extra: Partial<Extract<WorkerRequest, { type: 'generate' }>> = {}): WorkerRequest => ({ type: 'generate', id, scale: 1, params: PARAMS, ...extra });
@@ -233,6 +240,124 @@ describe('后台线程客户端(SimClient)', () => {
     expect(workers.length).toBe(2);
     sim.send(resim(1));
     expect(workers.length).toBe(3);
+  });
+
+  it('"在忙什么":读档、逐年推演、再推、照大纲推演都有说法;关掉重开(叫停再推)时清掉', () => {
+    const { sim } = setup();
+    const labels: (string | null)[] = [];
+    for (const req of [
+      { type: 'load', id: 1, scale: 1, parts: [], params: PARAMS },
+      { type: 'turn', id: 1, play: {}, commands: [], years: 1, params: PARAMS },
+      { type: 'extend', id: 1, xid: 1, to: 4000, params: PARAMS },
+      { type: 'outline', id: 1, oid: 1, plots: [], params: PARAMS },
+    ] as unknown as WorkerRequest[]) {
+      sim.send(req);
+      labels.push(sim.label);
+    }
+    expect(labels).toEqual(['打开世界', '逐年推演', '再推', '照大纲推演']);
+    sim.ensure(true);
+    expect(sim.label).toBeNull();
+  });
+
+  it('线程出错:关掉,还没回音的活按先后重发给新线程(带上扩张节拍),旧线程后来的消息不管', () => {
+    const { sim, workers, got, lost } = setup();
+    sim.send(resim(1));
+    workers[0].reply(civMsg(1, fakeCiv(), { tempo: TEMPO }));
+    sim.send(resim(1, 2));
+    sim.send({ type: 'extend', id: 1, xid: 1, to: 4000, params: PARAMS });
+    fail(workers[0]);
+    expect(diag.errors).toEqual(['生成世界的线程:boom']);
+    expect(workers[0].terminated).toBe(true);
+    expect(workers.length).toBe(2);
+    expect(workers[1].sent.map((m) => m.type)).toEqual(['resim', 'extend']);
+    expect((workers[1].sent[0] as { seq: number; tempo?: TempoNote }).seq).toBe(2);
+    expect((workers[1].sent[0] as { tempo?: TempoNote }).tempo).toBe(TEMPO);
+    expect(sim.busy).toBe(2);
+    expect(sim.label).toBe('再推');
+    expect(lost).toEqual([]);
+    // 换下来的线程后来的消息不管
+    workers[0].reply(civMsg(1, fakeCiv()));
+    expect(got.length).toBe(1);
+    expect(sim.busy).toBe(2);
+    workers[1].reply(civMsg(1, fakeCiv(), { seq: 2 }));
+    workers[1].reply({ type: 'extended', id: 1, xid: 1, civ: fakeCiv(), to: 4000, ms: 1, baseKey: 'k' });
+    expect(got.map((m) => m.type)).toEqual(['civ', 'civ', 'extended']);
+    expect(sim.busy).toBe(0);
+    expect(sim.label).toBeNull();
+    // 闲着时出错:关掉,下次发请求另开
+    fail(workers[1]);
+    expect(workers[1].terminated).toBe(true);
+    expect(workers.length).toBe(2);
+    sim.send(resim(1, 3));
+    expect(workers.length).toBe(3);
+  });
+
+  it('线程出错:重发过的那件又出错就不再发,交给 lost(只交现在这个世界的),后面的照旧再发;试推演 reject', () => {
+    const { sim, workers, lost, cur } = setup();
+    sim.send(resim(1));
+    sim.send({ type: 'turn', id: 1, play: {}, commands: [], years: 1, params: PARAMS } as unknown as WorkerRequest);
+    fail(workers[0]);
+    fail(workers[1]);
+    // 正在做的那件(重推)重发过、又出错:交给 lost;逐年推演那件再发一次
+    expect(lost.map((m) => m.type)).toEqual(['resim']);
+    expect(workers[2].sent.map((m) => m.type)).toEqual(['turn']);
+    fail(workers[2]);
+    expect(lost.map((m) => m.type)).toEqual(['resim', 'turn']);
+    expect(workers.length).toBe(3);
+    expect(sim.busy).toBe(0);
+    expect(sim.label).toBeNull();
+
+    // 别的世界的活不交给 lost;试推演 reject
+    const errs: string[] = [];
+    const tid = sim.trial(undefined, () => {}, (e) => errs.push(e.message))!;
+    sim.send({ type: 'trial', id: 1, tid, params: PARAMS, interventions: [] });
+    sim.send(resim(1, 2));
+    cur.id = 2;
+    fail(workers[3]);
+    fail(workers[4]);
+    expect(errs).toEqual(['后台线程出错,试推演没算成']);
+    expect(workers[5].sent.map((m) => m.type)).toEqual(['resim']);
+    fail(workers[5]);
+    expect(lost.map((m) => m.type)).toEqual(['resim', 'turn']);
+  });
+
+  it('照原样打开的世界:线程被重开过时先发 pin 钉住它,再重发;换了世界不再钉', () => {
+    const { sim, workers } = setup();
+    const load = { type: 'load', id: 1, scale: 1, parts: [], params: PARAMS } as unknown as WorkerRequest;
+    sim.send(load);
+    // 打开那件还没回音就出错:重发它就行,不先钉
+    fail(workers[0]);
+    expect(workers[1].sent.map((m) => m.type)).toEqual(['load']);
+    workers[1].reply({ type: 'done', id: 1 } as unknown as WorkerResponse);
+    sim.send(resim(1));
+    fail(workers[1]);
+    expect(workers[2].sent.map((m) => m.type)).toEqual(['pin', 'resim']);
+    expect((workers[2].sent[0] as { load: WorkerRequest }).load).toBe(load);
+    workers[2].reply(civMsg(1, fakeCiv()));
+    // 叫停再推换线程:一样先钉
+    sim.send({ type: 'extend', id: 1, xid: 1, to: 4000, params: PARAMS });
+    sim.ensure(true);
+    expect(workers[3].sent.map((m) => m.type)).toEqual(['pin']);
+    // 换了世界:不再钉
+    sim.send(gen(2));
+    fail(workers[3]);
+    expect(workers[4].sent.map((m) => m.type)).toEqual(['generate']);
+    workers[4].reply({ type: 'done', id: 2 } as unknown as WorkerResponse);
+    sim.ensure(true);
+    sim.send(resim(2));
+    fail(workers[4]);
+    expect(workers[5].sent.map((m) => m.type)).toEqual(['resim']);
+  });
+
+  it('页面卸下(dispose):排着的试推演 reject', () => {
+    const { sim } = setup();
+    const errs: string[] = [];
+    const tid = sim.trial(undefined, () => {}, (e) => errs.push(e.message))!;
+    sim.send({ type: 'trial', id: 1, tid, params: PARAMS, interventions: [] });
+    sim.dispose();
+    expect(errs).toEqual(['页面关了,试推演作废']);
+    expect(sim.busy).toBe(0);
+    expect(sim.label).toBeNull();
   });
 
   it('问题记录:发请求、活都回完了各写一次记号;只记现在这个线程出的错', () => {
