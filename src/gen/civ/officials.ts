@@ -36,38 +36,50 @@ import { HEIR, K_HOUSE_MINISTER, houseBase, pickHouses, withParentSurname, type 
 import { splitSurname } from './surname';
 import { royalAt, segLineage } from './regime';
 import { dynastyIndexAt } from './polityRoot';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参 ----
-/** 一位最多经手几件事 */
-const DEEDS_MAX = 3;
-/** 入仕的年纪、因一件事起用的年纪、致仕的年纪、寿命 */
-const ENTER_AGE: [number, number] = [20, 30];
-const CALL_AGE: [number, number] = [28, 50];
-const RETIRE_AGE: [number, number] = [62, 76];
-const LIFE: [number, number] = [58, 86];
-/** 佐命之臣:开国时的年纪 */
-const FOUND_AGE: [number, number] = [26, 44];
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const OFFICIALS_KNOBS = defineKnobs('officials', {
+  /** 一位最多经手几件事 */
+  DEEDS_MAX: 3,
+  /** 入仕的年纪、因一件事起用的年纪、致仕的年纪、寿命 */
+  ENTER_AGE: [20, 30] as [number, number],
+  CALL_AGE: [28, 50] as [number, number],
+  RETIRE_AGE: [62, 76] as [number, number],
+  LIFE: [58, 86] as [number, number],
+  /** 佐命之臣:开国时的年纪 */
+  FOUND_AGE: [26, 44] as [number, number],
+  /** 已经有人在朝、可他们经手的事满了:这么要紧的事(越小越要紧)才另起一位 */
+  PRIO_NEW: 1,
+  /** 寻常的事(打仗、运粮、一般的议和、国都失守):没人在朝时只有 MINOR_NEW 的机会起一位 */
+  PRIO_MINOR: 4,
+  MINOR_NEW: 0.5,
+  /** 新君即位后一年内去职的,罢官的机会 */
+  DISMISS: 0.4,
+  /** 一朝终了时还在朝:殉国、降的机会(其余归隐) */
+  MARTYR: 0.35,
+  YIELD: 0.4,
+  /** 籍贯是国都的机会(其余按城的大小挑) */
+  HOME_CAPITAL: 0.2,
+  /** 有号的机会:大臣 / 将领 */
+  ART: [0.4, 0.12] as [number, number],
+  /** 没经手大事的大臣做到次一级就止的机会 */
+  CAPPED: 0.45,
+  /** keyed4 最后一位:大臣 / 将领 / 空当多长 */
+  K_MINISTER: 0,
+  K_GENERAL: 1,
+  K_GAP: 2,
+  /** 大臣的随机数按起他的那一年(× SLOT_Q 取整)和缘由(经手的事 / 补空当 / 一朝终了),不按第几位 */
+  SLOT_Q: 8,
+  TICK: 256,
+});
+const { DEEDS_MAX, ENTER_AGE, CALL_AGE, RETIRE_AGE, LIFE, FOUND_AGE, PRIO_NEW, PRIO_MINOR, MINOR_NEW, DISMISS, MARTYR, YIELD, HOME_CAPITAL, ART, CAPPED, K_MINISTER, K_GENERAL, K_GAP, SLOT_Q, TICK } = OFFICIALS_KNOBS.values;
 /** 一朝里没人在朝这么些年就补一位(王国、帝国 / 国):在朝几十年、没经手大事的守成之臣 */
 const GAP: [number, number][] = [
   [30, 50],
   [50, 90],
 ];
-/** 已经有人在朝、可他们经手的事满了:这么要紧的事(越小越要紧)才另起一位 */
-const PRIO_NEW = 1;
-/** 寻常的事(打仗、运粮、一般的议和、国都失守):没人在朝时只有 MINOR_NEW 的机会起一位 */
-const PRIO_MINOR = 4;
-const MINOR_NEW = 0.5;
-/** 新君即位后一年内去职的,罢官的机会 */
-const DISMISS = 0.4;
-/** 一朝终了时还在朝:殉国、降的机会(其余归隐) */
-const MARTYR = 0.35;
-const YIELD = 0.4;
-/** 籍贯是国都的机会(其余按城的大小挑) */
-const HOME_CAPITAL = 0.2;
-/** 有号的机会:大臣 / 将领 */
-const ART: [number, number] = [0.4, 0.12];
-/** 没经手大事的大臣做到次一级就止的机会 */
-const CAPPED = 0.45;
 
 // 随机数用途
 const U_GAP = 0;
@@ -84,14 +96,7 @@ const U_ART2 = 10;
 const U_DEPT = 11;
 const U_POSTS = 12;
 const U_CAP = 13;
-/** keyed4 最后一位:大臣 / 将领 / 空当多长 */
-const K_MINISTER = 0;
-const K_GENERAL = 1;
-const K_GAP = 2;
-/** 大臣的随机数按起他的那一年(× SLOT_Q 取整)和缘由(经手的事 / 补空当 / 一朝终了),不按第几位 */
-const SLOT_Q = 8;
 
-const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 

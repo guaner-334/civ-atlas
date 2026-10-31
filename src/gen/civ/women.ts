@@ -36,20 +36,25 @@ import { broodOf, type Son } from './royals';
 import { leaningEffect, reignBorn, reignStep, type Reign } from './rulers';
 import type { Person, Polity, Year } from './types';
 import { royalSeg, segLineage } from './regime';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参 ----
-/** 女君亲生的孩子要生在她这个岁数之间 */
-const FERTILE: [number, number] = [16, 45];
-/** 世系里连父子的年纪、隔代的年纪差、遗腹子最多晚几年(同 lineage.ts):原定接她位的那一位怎么连到她身上 */
-const GEN_AGE: [number, number] = [14, 55];
-const BRIDGE_GAP = 40;
-const POSTHUMOUS = 0.75;
-/** 西幻女王沿用本朝女王名字的机会(同男王,people.ts 的 REUSE) */
-const REUSE = 0.55;
-/** 起女名最多试几次 */
-const NAME_TRIES = 40;
-/** 名字少的语感用满了以后:至少和前后这么多年里出生的同名人物错开(同 people.ts) */
-const NAME_GAP = 300;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const WOMEN_KNOBS = defineKnobs('women', {
+  /** 女君亲生的孩子要生在她这个岁数之间 */
+  FERTILE: [16, 45] as [number, number],
+  /** 世系里连父子的年纪、隔代的年纪差、遗腹子最多晚几年(同 lineage.ts):原定接她位的那一位怎么连到她身上 */
+  GEN_AGE: [14, 55] as [number, number],
+  BRIDGE_GAP: 40,
+  POSTHUMOUS: 0.75,
+  /** 西幻女王沿用本朝女王名字的机会(同男王,people.ts 的 REUSE) */
+  REUSE: 0.55,
+  /** 起女名最多试几次 */
+  NAME_TRIES: 40,
+  /** 名字少的语感用满了以后:至少和前后这么多年里出生的同名人物错开(同 people.ts) */
+  NAME_GAP: 300,
+});
+const { FERTILE, GEN_AGE, BRIDGE_GAP, POSTHUMOUS, REUSE, NAME_TRIES, NAME_GAP } = WOMEN_KNOBS.values;
 
 /** 语感分几类(讨论比例用) */
 type Group = 'central' | 'xianxia' | 'frontier' | 'mythic' | 'western';

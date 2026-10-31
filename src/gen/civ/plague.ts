@@ -61,57 +61,63 @@ import {
 import type { DisasterLevel, Intervention } from '../edits';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 看疫情:第一次在哪一年,之后每隔多少年 */
-const PLAGUE_FIRST = 0;
-const PLAGUE_EVERY = 30;
-/** 起疫:人口至少 ORIGIN_MIN(千人)的城每次各掷一次,几率 = 人口 ÷ ORIGIN_NORM(港口再 × PORT_W) */
-const ORIGIN_MIN = 25;
-const ORIGIN_NORM = 30000;
-const PORT_W = 2;
-/** 大瘟疫的几率(起疫时掷;只有起疫的是港口、它的主人能远洋时才会是大瘟疫:循着航线传遍几块大陆) */
-const GREAT_ODDS = 0.3;
-/** 传开:一州一年传给相邻一州的几率 = SPREAD × 毒力 × KIND[边] × 人烟 */
-const SPREAD = 0.8;
-const GREAT_SPREAD = 1.5;
-/** 边的难易:平地、跨河(沿河舟楫往来,更容易)、翻山、海峡、航线 */
-const KIND: readonly number[] = [1, 1.15, 0.35, 0.6, 0.8];
-/** 毒力每过一年乘上的数 */
-const DECAY = 0.8;
-const GREAT_DECAY = 0.95;
-/** 染疫的那州人口(千人,城加乡下)不到 DENSE 的,传出去的几率按比例降(最低 DENSE_MIN) */
-const DENSE = 12;
-const DENSE_MIN = 0.25;
-/** 最多传几年 */
-const MAX_YEARS = 10;
-const GREAT_YEARS = 24;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const PLAGUE_KNOBS = defineKnobs('plague', {
+  /** 看疫情:第一次在哪一年,之后每隔多少年 */
+  PLAGUE_FIRST: 0,
+  PLAGUE_EVERY: 30,
+  /** 起疫:人口至少 ORIGIN_MIN(千人)的城每次各掷一次,几率 = 人口 ÷ ORIGIN_NORM(港口再 × PORT_W) */
+  ORIGIN_MIN: 25,
+  ORIGIN_NORM: 30000,
+  PORT_W: 2,
+  /** 大瘟疫的几率(起疫时掷;只有起疫的是港口、它的主人能远洋时才会是大瘟疫:循着航线传遍几块大陆) */
+  GREAT_ODDS: 0.3,
+  /** 传开:一州一年传给相邻一州的几率 = SPREAD × 毒力 × KIND[边] × 人烟 */
+  SPREAD: 0.8,
+  GREAT_SPREAD: 1.5,
+  /** 边的难易:平地、跨河(沿河舟楫往来,更容易)、翻山、海峡、航线 */
+  KIND: [1, 1.15, 0.35, 0.6, 0.8] as readonly number[],
+  /** 毒力每过一年乘上的数 */
+  DECAY: 0.8,
+  GREAT_DECAY: 0.95,
+  /** 染疫的那州人口(千人,城加乡下)不到 DENSE 的,传出去的几率按比例降(最低 DENSE_MIN) */
+  DENSE: 12,
+  DENSE_MIN: 0.25,
+  /** 最多传几年 */
+  MAX_YEARS: 10,
+  GREAT_YEARS: 24,
+  /** 死几成:一般 LOSS、大瘟疫 GREAT_LOSS 里随机,再按城的大小、港口加减(lossOf) */
+  LOSS: [0.08, 0.2] as readonly [number, number],
+  GREAT_LOSS: [0.24, 0.38] as readonly [number, number],
+  /** 作者下的瘟疫:传开的几率倍数(轻 / 中 / 重) */
+  IV_SPREAD: [0, 0.7, 1, 1.3] as readonly number[],
+  /** 全球大疫:传开的几率(同 SPREAD,再按边的难易、人烟折算)、毒力每年乘上的数、一年往外传几圈、最多传几年 */
+  PAN_SPREAD: 1,
+  PAN_DECAY: 0.97,
+  PAN_HOPS: 6,
+  PAN_YEARS: 8,
+  /** 全球大疫:染疫的州人烟再稀,传出去的几率最低也按这么多算 */
+  PAN_DENSE_MIN: 0.6,
+  /** 全球大疫:隔着一州没人住的地方(荒漠、深山)循商路传过去,几率再打这个折 */
+  PAN_CROSS: 0.5,
+  /** 全球大疫:远洋商船把疫带到别处港口 —— 去年染上的能远洋的港口每有一座,别处每个港口这一年多 PAN_SHIP 的几率染上(最多算 PAN_SHIP_MAX 座) */
+  PAN_SHIP: 0.015,
+  PAN_SHIP_MAX: 30,
+  /** 全球大疫:各州有这么多的几率这一场躲过去(闭门自守、隔绝往来;孤岛、深山、部落地带另外还有传不到的) */
+  PAN_SPARE: 0.1,
+  /** 全球大疫越往后传死得越少:起疫后每过一年少几成(最多算 PAN_FADE_YEARS 年) */
+  PAN_FADE: 0.02,
+  PAN_FADE_YEARS: 10,
+});
+const { PLAGUE_FIRST, PLAGUE_EVERY, ORIGIN_MIN, ORIGIN_NORM, PORT_W, GREAT_ODDS, SPREAD, GREAT_SPREAD, KIND, DECAY, GREAT_DECAY, DENSE, DENSE_MIN, MAX_YEARS, GREAT_YEARS, LOSS, GREAT_LOSS, IV_SPREAD, PAN_SPREAD, PAN_DECAY, PAN_HOPS, PAN_DENSE_MIN, PAN_CROSS, PAN_SHIP, PAN_SHIP_MAX, PAN_SPARE, PAN_FADE, PAN_FADE_YEARS } = PLAGUE_KNOBS.values;
+export const { PAN_YEARS } = PLAGUE_KNOBS.values;
 /** 上一场起疫后这么多年内不再起疫(比最长的传得久,两场不会同时在传;只看起疫的年份,改了别处的地形这里照旧) */
 const GAP = GREAT_YEARS + 2;
-/** 死几成:一般 LOSS、大瘟疫 GREAT_LOSS 里随机,再按城的大小、港口加减(lossOf) */
-const LOSS: readonly [number, number] = [0.08, 0.2];
-const GREAT_LOSS: readonly [number, number] = [0.24, 0.38];
 
-/** 作者下的瘟疫:传开的几率倍数(轻 / 中 / 重) */
-const IV_SPREAD: readonly number[] = [0, 0.7, 1, 1.3];
 
-/** 全球大疫:传开的几率(同 SPREAD,再按边的难易、人烟折算)、毒力每年乘上的数、一年往外传几圈、最多传几年 */
-const PAN_SPREAD = 1;
-const PAN_DECAY = 0.97;
-const PAN_HOPS = 6;
-export const PAN_YEARS = 8;
-/** 全球大疫:染疫的州人烟再稀,传出去的几率最低也按这么多算 */
-const PAN_DENSE_MIN = 0.6;
-/** 全球大疫:隔着一州没人住的地方(荒漠、深山)循商路传过去,几率再打这个折 */
-const PAN_CROSS = 0.5;
-/** 全球大疫:远洋商船把疫带到别处港口 —— 去年染上的能远洋的港口每有一座,别处每个港口这一年多 PAN_SHIP 的几率染上(最多算 PAN_SHIP_MAX 座) */
-const PAN_SHIP = 0.015;
-const PAN_SHIP_MAX = 30;
-/** 全球大疫:各州有这么多的几率这一场躲过去(闭门自守、隔绝往来;孤岛、深山、部落地带另外还有传不到的) */
-const PAN_SPARE = 0.1;
-/** 全球大疫越往后传死得越少:起疫后每过一年少几成(最多算 PAN_FADE_YEARS 年) */
-const PAN_FADE = 0.02;
-const PAN_FADE_YEARS = 10;
 
 // 随机数用途编号
 const U_T = 1;

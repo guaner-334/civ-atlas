@@ -20,6 +20,7 @@ import { adjLengths, cellAreas, REF_MESH_CELLS, refSpacing, REGION_AREA_SCALE } 
 import { MAJOR_RIVER, frozenSea } from './habitat';
 import { flog2, fpow, keyed, subSeed } from './engine/rand';
 import { neighborGraph, roadPassable, seaPassable, urquhart, type Link } from './routes';
+import { defineKnobs } from './engine/knobs';
 
 export interface RegionParams {
   /** 每州目标面积(世界单位²) */
@@ -29,44 +30,48 @@ export interface RegionParams {
 }
 
 // ---- 调参(以截图效果为准) ----
-/** 撒种子半径 = √目标面积 × 这个系数 × 宜居度系数 × 随机抖动 */
-const SEED_RADIUS = 0.8;
-/** 宜居度系数 = ((S_REF + 1) / (s + 1)) ^ SIZE_EXP,夹在 [SIZE_MIN, SIZE_MAX] */
-const SIZE_REF = 12;
-const SIZE_EXP = 0.35;
-const SIZE_MIN = 0.7;
-const SIZE_MAX = 2.3;
-/** 分地块时种子势力范围 = 个头 ^ REACH_EXP(0 = 不按个头,纯按地形代价分) */
-const REACH_EXP = 0.8;
-/** 每爬升 / 下降多少米,相当于多走一个地块的路 */
-const CLIMB_METERS_PER_STEP = 550;
-/**
- * 撒种子时计入几成地形代价(翻山、换群落;跨大河总是计入)。取 0:种子疏密只由宜居度和距离决定。
- * 地形代价会随精细度变(细网格起伏更多),计入它会让州数随精细度漂移;州界贴山脊靠第 2 步分地块。
- */
-const SEED_TERRAIN = 0;
-/** 跨大河:每跨一次相当于多走几个地块;按流量取 log2(流量 / 阈值) − 1,夹在 [0, 4] */
-const RIVER_STEPS = 0.9;
-/** 换群落:这一步多走几成路 */
-const BIOME_CHANGE = 0.3;
-/** 小于目标面积的这个比例的州,并进邻区(孤岛除外) */
-const MIN_AREA_FRAC = 0.22;
-/** 海上连接:海路不超过几个地块间距算"海峡",出海口之间不超过多少算"航线"(见 seaLanes) */
-const STRAIT_STEPS = 4;
-const ROUTE_STEPS = 30;
-/** 同一块陆地上的两州:陆路比航线远这么多倍才连航线(和 routes.ts 画航线的 SEA_VS_LAND 同一个意思) */
-const LANE_VS_LAND = 2.5;
-/** 州界两侧治所都比山口低这么多米 → 翻山;或者较低的一侧低这么多 */
-const MOUNTAIN_ABOVE_HIGHER = 350;
-const MOUNTAIN_ABOVE_LOWER = 1100;
-/** 州界上这么大比例的地块对挨着大河 → 跨河 */
-const RIVER_BORDER_FRAC = 0.4;
-/**
- * 精细度修正:细网格的海岸、湖泊更曲折,洇染绕路更多,同样的半径会撒出更多种子(约 ∝ 地块数^0.13)。
- * 半径乘 (地块数 / 默认精细度下的地块数)^RES_EXP 抵消,让改"精细度"时州数大致不变。
- * 默认精细度下的地块数见 geo.ts 的 REF_MESH_CELLS
- */
-const RES_EXP = 0.07;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const REGIONS_KNOBS = defineKnobs('regions', {
+  /** 撒种子半径 = √目标面积 × 这个系数 × 宜居度系数 × 随机抖动 */
+  SEED_RADIUS: 0.8,
+  /** 宜居度系数 = ((S_REF + 1) / (s + 1)) ^ SIZE_EXP,夹在 [SIZE_MIN, SIZE_MAX] */
+  SIZE_REF: 12,
+  SIZE_EXP: 0.35,
+  SIZE_MIN: 0.7,
+  SIZE_MAX: 2.3,
+  /** 分地块时种子势力范围 = 个头 ^ REACH_EXP(0 = 不按个头,纯按地形代价分) */
+  REACH_EXP: 0.8,
+  /** 每爬升 / 下降多少米,相当于多走一个地块的路 */
+  CLIMB_METERS_PER_STEP: 550,
+  /**
+   * 撒种子时计入几成地形代价(翻山、换群落;跨大河总是计入)。取 0:种子疏密只由宜居度和距离决定。
+   * 地形代价会随精细度变(细网格起伏更多),计入它会让州数随精细度漂移;州界贴山脊靠第 2 步分地块。
+   */
+  SEED_TERRAIN: 0,
+  /** 跨大河:每跨一次相当于多走几个地块;按流量取 log2(流量 / 阈值) − 1,夹在 [0, 4] */
+  RIVER_STEPS: 0.9,
+  /** 换群落:这一步多走几成路 */
+  BIOME_CHANGE: 0.3,
+  /** 小于目标面积的这个比例的州,并进邻区(孤岛除外) */
+  MIN_AREA_FRAC: 0.22,
+  /** 海上连接:海路不超过几个地块间距算"海峡",出海口之间不超过多少算"航线"(见 seaLanes) */
+  STRAIT_STEPS: 4,
+  ROUTE_STEPS: 30,
+  /** 同一块陆地上的两州:陆路比航线远这么多倍才连航线(和 routes.ts 画航线的 SEA_VS_LAND 同一个意思) */
+  LANE_VS_LAND: 2.5,
+  /** 州界两侧治所都比山口低这么多米 → 翻山;或者较低的一侧低这么多 */
+  MOUNTAIN_ABOVE_HIGHER: 350,
+  MOUNTAIN_ABOVE_LOWER: 1100,
+  /** 州界上这么大比例的地块对挨着大河 → 跨河 */
+  RIVER_BORDER_FRAC: 0.4,
+  /**
+   * 精细度修正:细网格的海岸、湖泊更曲折,洇染绕路更多,同样的半径会撒出更多种子(约 ∝ 地块数^0.13)。
+   * 半径乘 (地块数 / 默认精细度下的地块数)^RES_EXP 抵消,让改"精细度"时州数大致不变。
+   * 默认精细度下的地块数见 geo.ts 的 REF_MESH_CELLS
+   */
+  RES_EXP: 0.07,
+});
+const { SEED_RADIUS, SIZE_REF, SIZE_EXP, SIZE_MIN, SIZE_MAX, REACH_EXP, CLIMB_METERS_PER_STEP, SEED_TERRAIN, RIVER_STEPS, BIOME_CHANGE, MIN_AREA_FRAC, STRAIT_STEPS, ROUTE_STEPS, LANE_VS_LAND, MOUNTAIN_ABOVE_HIGHER, MOUNTAIN_ABOVE_LOWER, RIVER_BORDER_FRAC, RES_EXP } = REGIONS_KNOBS.values;
 
 /** 河的阻隔系数:流量 ≥ 2 倍河流阈值开始算,log2(流量 / 阈值) − 1,夹在 [0, 4];大河(6 倍)约 1.6 */
 function riverSize(flux: number, thr: number): number {

@@ -40,26 +40,32 @@ import { anySlump, newPandemic, notePandemicHit, pandemicModelOf, setPandemicMod
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/pandemic-stats.ts) ----
-/** 看全球大疫:每隔多少年;上一场起疫后这么多年内不再自己起 */
-const PAN_CHECK = 50;
-const PAN_GAP = 150;
-/** 起疫的港口人口至少多少(千人;同 plague.ts 的 ORIGIN_MIN) */
-const ORIGIN_MIN = 25;
-/** 疫气复作:起疫后每隔几年一次;城里再死几成(× 轻重);一次比一次轻(× SLUMP_FADE) */
-export const SLUMP_EVERY = 8;
-const SLUMP_LOSS = 0.03;
-const SLUMP_FADE = 0.85;
-/** 保底:天下人口不到疫前这么多,不再复作 */
-const FLOOR = 0.55;
-/** 村镇荒废:凋敝 DESOLATE_YEARS 年里村、镇荒废几成(× 轻重;一次最多 DESOLATE_MAX) */
-const DESOLATE: readonly number[] = [0.22, 0.11];
-const DESOLATE_YEARS = 30;
-const DESOLATE_MAX = 0.9;
-/** 看地震水旱:每隔多少年;轻、中的几率(余下是重) */
-const QUAKE_CHECK = 20;
-const QUAKE_LEVELS: readonly number[] = [0.5, 0.35];
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const PANDEMIC_KNOBS = defineKnobs('pandemic', {
+  /** 看全球大疫:每隔多少年;上一场起疫后这么多年内不再自己起 */
+  PAN_CHECK: 50,
+  PAN_GAP: 150,
+  /** 起疫的港口人口至少多少(千人;同 plague.ts 的 ORIGIN_MIN) */
+  ORIGIN_MIN: 25,
+  /** 疫气复作:起疫后每隔几年一次;城里再死几成(× 轻重);一次比一次轻(× SLUMP_FADE) */
+  SLUMP_EVERY: 8,
+  SLUMP_LOSS: 0.03,
+  SLUMP_FADE: 0.85,
+  /** 保底:天下人口不到疫前这么多,不再复作 */
+  FLOOR: 0.55,
+  /** 村镇荒废:凋敝 DESOLATE_YEARS 年里村、镇荒废几成(× 轻重;一次最多 DESOLATE_MAX) */
+  DESOLATE: [0.22, 0.11] as readonly number[],
+  DESOLATE_YEARS: 30,
+  DESOLATE_MAX: 0.9,
+  /** 看地震水旱:每隔多少年;轻、中的几率(余下是重) */
+  QUAKE_CHECK: 20,
+  QUAKE_LEVELS: [0.5, 0.35] as readonly number[],
+});
+const { PAN_CHECK, PAN_GAP, ORIGIN_MIN, SLUMP_LOSS, SLUMP_FADE, FLOOR, DESOLATE, DESOLATE_YEARS, DESOLATE_MAX, QUAKE_CHECK, QUAKE_LEVELS } = PANDEMIC_KNOBS.values;
+export const { SLUMP_EVERY } = PANDEMIC_KNOBS.values;
 
 // 随机数用途编号(calamity.ts 的 naturalPandemic 用 9)
 const U_T = 1;

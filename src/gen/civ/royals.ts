@@ -26,44 +26,53 @@ import type { Person, Polity, Year } from './types';
 import { keyed4 } from './engine/rand';
 import { K_RULER, reignBorn, reignStep, type Reign } from './rulers';
 import { royalSeg, segLineage } from './regime';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参 ----
-/** 亲生儿子 0、1、2……个的机会 */
-const SONS: readonly number[] = [0.15, 0.25, 0.25, 0.17, 0.11, 0.07];
-/** 父亲生儿子的年纪 */
-const SON_AGE: [number, number] = [17, 50];
-/** 兄弟出生至少差几年 */
-const SON_GAP = 1;
-/** 一生多少岁(不战死、不在争储里被杀) */
-const SON_LIFE: [number, number] = [24, 78];
-/** 预定的继承人没接上君位的:预定即位那年以后至少再活这么多年 */
-const HEIR_AFTER = 1;
-/** 遗腹子:父亲去世以后最多这么久出生(同 lineage.ts) */
-export const POSTHUMOUS = 0.75;
-/** 一个亲生儿子也没有的君主收养子的机会;收养时养子几岁、父亲比养子大多少岁 */
-const ADOPT = 0.6;
-const ADOPT_AT: [number, number] = [4, 16];
-const ADOPT_GAP: [number, number] = [18, 45];
-/** 领兵的年纪 */
-export const PRINCE_AGE: [number, number] = [16, 60];
-/** 每个能领兵的儿子替父出征的机会(n 个儿子:1 - (1 - PRINCE_LEAD)^n) */
-export const PRINCE_LEAD = 0.5;
-/** 几个儿子里派谁:预定即位以前的继承人(太子)算这么多份,别的一份 */
-export const HEIR_WEIGHT = 3;
-/** 争储里算"成年"的岁数 */
-const RIVAL_AGE = 16;
-/** 以战功越过兄长:战功至少这么多 */
-const MERIT_MIN = 1;
-/** 争起来的机会:有兄长在 / 自己最年长但有兄弟战功更多 / 不是先君的儿子 */
-const CONTEST_ELDER = 0.3;
-const CONTEST_MERIT = 0.25;
-const CONTEST_USURP = 0.15;
-/** 举兵夺位时每个对手被杀的机会(至少杀一个) */
-const COUP_KILL = 0.7;
-/** 在位时遇弑的机会(people.ts;遇弑的先君由名臣迎立新君,不争储,推演里也不起兵争位) */
-const MURDER = 0.07;
-/** 推演里据地争位(unrest.ts)的宗室多少岁之间 */
-const CLAIM_AGE: [number, number] = [20, 60];
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const ROYALS_KNOBS = defineKnobs('royals', {
+  /** 亲生儿子 0、1、2……个的机会 */
+  SONS: [0.15, 0.25, 0.25, 0.17, 0.11, 0.07] as readonly number[],
+  /** 父亲生儿子的年纪 */
+  SON_AGE: [17, 50] as [number, number],
+  /** 兄弟出生至少差几年 */
+  SON_GAP: 1,
+  /** 一生多少岁(不战死、不在争储里被杀) */
+  SON_LIFE: [24, 78] as [number, number],
+  /** 预定的继承人没接上君位的:预定即位那年以后至少再活这么多年 */
+  HEIR_AFTER: 1,
+  /** 遗腹子:父亲去世以后最多这么久出生(同 lineage.ts) */
+  POSTHUMOUS: 0.75,
+  /** 一个亲生儿子也没有的君主收养子的机会;收养时养子几岁、父亲比养子大多少岁 */
+  ADOPT: 0.6,
+  ADOPT_AT: [4, 16] as [number, number],
+  ADOPT_GAP: [18, 45] as [number, number],
+  /** 领兵的年纪 */
+  PRINCE_AGE: [16, 60] as [number, number],
+  /** 每个能领兵的儿子替父出征的机会(n 个儿子:1 - (1 - PRINCE_LEAD)^n) */
+  PRINCE_LEAD: 0.5,
+  /** 几个儿子里派谁:预定即位以前的继承人(太子)算这么多份,别的一份 */
+  HEIR_WEIGHT: 3,
+  /** 争储里算"成年"的岁数 */
+  RIVAL_AGE: 16,
+  /** 以战功越过兄长:战功至少这么多 */
+  MERIT_MIN: 1,
+  /** 争起来的机会:有兄长在 / 自己最年长但有兄弟战功更多 / 不是先君的儿子 */
+  CONTEST_ELDER: 0.3,
+  CONTEST_MERIT: 0.25,
+  CONTEST_USURP: 0.15,
+  /** 举兵夺位时每个对手被杀的机会(至少杀一个) */
+  COUP_KILL: 0.7,
+  /** 在位时遇弑的机会(people.ts;遇弑的先君由名臣迎立新君,不争储,推演里也不起兵争位) */
+  MURDER: 0.07,
+  /** 推演里据地争位(unrest.ts)的宗室多少岁之间 */
+  CLAIM_AGE: [20, 60] as [number, number],
+  /** keyed4 最后一位(0 君主、1 将领在 people.ts) */
+  K_SON: 3,
+  TICK: 256,
+});
+const { SONS, SON_AGE, SON_GAP, SON_LIFE, HEIR_AFTER, ADOPT, ADOPT_AT, ADOPT_GAP, RIVAL_AGE, MERIT_MIN, CONTEST_ELDER, CONTEST_MERIT, CONTEST_USURP, COUP_KILL, MURDER, CLAIM_AGE, K_SON, TICK } = ROYALS_KNOBS.values;
+export const { POSTHUMOUS, PRINCE_AGE, PRINCE_LEAD, HEIR_WEIGHT } = ROYALS_KNOBS.values;
 
 // 随机数用途
 const U_COUNT = 1;
@@ -73,12 +82,9 @@ const U_ADOPT = 4;
 const U_CONTEST = 5;
 const U_KILL = 6;
 const U_MARCH = 7;
-/** keyed4 最后一位(0 君主、1 将领在 people.ts) */
-const K_SON = 3;
 /** 君主的随机数里遇弑那一项(K_RULER;别的用途见 rulers.ts、people.ts) */
 const U_MURDER = 3;
 
-const TICK = 256;
 const q = (x: number) => Math.round(x * TICK) / TICK;
 const lerp = (r: [number, number], u: number) => r[0] + (r[1] - r[0]) * u;
 

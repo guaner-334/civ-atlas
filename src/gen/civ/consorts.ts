@@ -18,17 +18,23 @@
  */
 import { keyed4, subSeed } from './engine/rand';
 import type { Year } from './types';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参 ----
-/** 当母亲的岁数(同 women.ts 的 FERTILE) */
-export const FERTILE: [number, number] = [16, 45];
-/** 嫁过来时的岁数 */
-const BRIDE_AGE: [number, number] = [15, 22];
-/** 嫁过来时至少这么大;她出生时父亲这么大(同世系里连父子的年纪,lineage.ts) */
-const BRIDE_MIN = 14;
-const PARENT_AGE: [number, number] = [16, 55];
-/** 寿数 */
-const LIFE: [number, number] = [42, 82];
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const CONSORTS_KNOBS = defineKnobs('consorts', {
+  /** 当母亲的岁数(同 women.ts 的 FERTILE) */
+  FERTILE: [16, 45] as [number, number],
+  /** 嫁过来时的岁数 */
+  BRIDE_AGE: [15, 22] as [number, number],
+  /** 嫁过来时至少这么大;她出生时父亲这么大(同世系里连父子的年纪,lineage.ts) */
+  BRIDE_MIN: 14,
+  PARENT_AGE: [16, 55] as [number, number],
+  /** 寿数 */
+  LIFE: [42, 82] as [number, number],
+});
+const { BRIDE_AGE, BRIDE_MIN, PARENT_AGE, LIFE } = CONSORTS_KNOBS.values;
+export const { FERTILE } = CONSORTS_KNOBS.values;
 /** 名臣辅政换成太后临朝的机会(按语感:中原像史书,太后临朝常见) */
 const DOWAGER: Record<string, number> = { central: 0.6, frontier: 0.5, western: 0.5, xianxia: 0.4, mythic: 0.4 };
 
