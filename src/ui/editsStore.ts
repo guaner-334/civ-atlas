@@ -6,7 +6,7 @@
  * 读档时 App 先按存档的参数生成,再 setEdits(存档里的修改)。
  *
  * 撤销 / 重做(⌘Z / ⇧⌘Z,见 undo.ts):改名、改旗、干预、地形大事、作者标记、作者的人物、AI 改写每次都记一步(改之前、改之后两份),只记这次打开网页以后、这个世界上的;
- * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源不记:只在新建世界时能改,工具有自己的"撤销一笔"。
+ * 读档、换世界(setEdits / clearEdits)、创建世界(clearEditHistory)清空。地形修改、草图、地名风格、推演年数、拓荒、起源、天灾、规则不记:只在新建世界时能改,工具有自己的"撤销一笔"。
  * 纪年、月份(一年几个月、月份的名字)也不记:只换年份的写法,在世界设定里随时改回来。文明种子、用的哪张地图在新开历史时定,之后不改(只在第一次推完时补上地图的校验)。
  * 逐年推演的进度、从第几年起、推进设置、导播跟着谁也不记(撤销别的时照现在的留着)。
  */
@@ -51,6 +51,7 @@ import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
 import { cleanEra, cleanMonthNames, cleanMonths, monthNamesInUse, monthsOf, sameEra, sameMonthNames, type Era, type MonthNames } from '../gen/era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import { cleanCalamity, type Calamity } from '../gen/civ/calamity';
+import { sameRuleSet, worldRules, type RuleSet } from '../gen/civ/ruleSet';
 
 let state: WorldEdits = EMPTY_EDITS;
 const subs = createListeners();
@@ -98,7 +99,7 @@ let historyGate: ((next: WorldEdits) => boolean) | null = null;
 export function setHistoryGate(f: ((next: WorldEdits) => boolean) | null) {
   historyGate = f;
 }
-const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'endTick', 'frontier', 'origins', 'civSeed', 'calamity'] as const;
+const HISTORY_KEYS = ['interventions', 'upheavals', 'terrain', 'sketch', 'nameMix', 'endYear', 'endTick', 'frontier', 'origins', 'civSeed', 'calamity', 'rules'] as const;
 /** 两份修改里,推演用到的部分不一样 */
 export function historyDiffers(a: WorldEdits, b: WorldEdits): boolean {
   return HISTORY_KEYS.some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
@@ -198,6 +199,7 @@ export function revertEdits(now: WorldEdits, from: WorldEdits, to: WorldEdits): 
   if (now.endTick) out.endTick = now.endTick;
   if (now.frontier) out.frontier = now.frontier;
   if (now.calamity) out.calamity = now.calamity;
+  if (now.rules) out.rules = now.rules;
   if (now.origins) out.origins = now.origins;
   if (now.civSeed !== undefined) out.civSeed = now.civSeed;
   if (now.map) out.map = now.map;
@@ -518,6 +520,17 @@ export function setCalamity(c: Calamity | undefined) {
   const { calamity: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, calamity: next } : rest);
+}
+
+/**
+ * 这个世界用的一套规则(新建世界时定,不记撤销步;整套存进世界,gen/civ/ruleSet.ts);undefined / 和官方一样 = 官方规则,去掉这一项
+ */
+export function setRules(r: RuleSet | undefined) {
+  const next = worldRules(r);
+  if (sameRuleSet(next, state.rules)) return;
+  const { rules: _old, ...rest } = state;
+  void _old;
+  put(next ? { ...rest, rules: next } : rest);
 }
 
 /** 自己选的文明起源(新建世界时定,不记撤销步);undefined / 一处也没有 = 自动,去掉这一项 */

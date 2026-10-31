@@ -5,21 +5,9 @@
  * 每一项两头的极端值推不推得完、出不出 NaN,在压力测试里(scripts/stress.ts 的「规则项」)
  */
 import { describe, expect, it } from 'vitest';
-import {
-  MULT_STEPS,
-  TUNING_GROUPS,
-  TUNING_ITEMS,
-  cleanTuning,
-  multSteps,
-  officialValue,
-  tuningCounts,
-  tuningEnds,
-  tuningItem,
-  tuningPatch,
-  tuningSummary,
-  tuningValueText,
-  type TuningValues,
-} from '../src/gen/civ/tuning';
+import { MULT_STEPS, TUNING_ITEMS, cleanTuning, multSteps, officialValue, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
+import { TUNING_GROUPS, TUNING_TEXT_IDS, tuningCounts, tuningSummary, tuningText, tuningValueText } from '../src/gen/civ/tuningText';
+import { TUNING_KNOB_IDS, tuningKnobs, tuningPatch } from '../src/gen/civ/tuningPatch';
 import { CIV_KNOBS, cleanKnobs } from '../src/gen/civ/knobs';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
@@ -41,16 +29,23 @@ describe('规则项表', () => {
       expect(x.id.split('.')[0]).toBe(x.group);
       expect(tuningItem(x.id)).toBe(x);
       expect(x.name.length).toBeGreaterThan(0);
-      expect(x.desc.length).toBeGreaterThan(0);
+      // 给人看的字在另一个文件(tuningText.ts):每项都有说明;倍数档有摘要里的叫法、能关的有关掉时的说法,数值、区间有摘要的写法
+      const t = tuningText(x);
+      expect(t?.desc.length, x.id).toBeGreaterThan(0);
+      if (x.kind === 'mult') {
+        expect(t.short, x.id).toBeTruthy();
+        expect(!!t.offText, x.id).toBe(x.off);
+      } else expect(typeof (x.kind === 'num' ? t.brief : t.span), x.id).toBe('function');
     }
+    expect(TUNING_TEXT_IDS).toEqual(ids);
     for (const g of TUNING_GROUPS) expect(TUNING_ITEMS.some((x) => x.group === g.id && x.common), g.id).toBe(true);
   });
 
   it('改的旋钮都在旋钮表里、是数(区间是两个数);一处旋钮只归一项', () => {
     const seen = new Map<string, string>();
     for (const x of TUNING_ITEMS) {
-      expect(x.knobs.length, x.id).toBeGreaterThan(0);
-      for (const k of x.knobs) {
+      expect(tuningKnobs(x).knobs.length, x.id).toBeGreaterThan(0);
+      for (const k of tuningKnobs(x).knobs) {
         const v = table(k);
         expect(v, `${x.id} → ${k}`).toBeDefined();
         if (x.kind === 'range') expect(Array.isArray(v) && v.length === 2, k).toBe(true);
@@ -59,6 +54,8 @@ describe('规则项表', () => {
         seen.set(k, x.id);
       }
     }
+    // 旋钮映射(tuningPatch.ts)和项表一一对得上
+    expect(TUNING_KNOB_IDS).toEqual(TUNING_ITEMS.map((x) => x.id));
   });
 
   it('数值、区间:官方值就是旋钮的官方值,落在档上;范围、步长合理;倍数档能关的 35 样(连「最多 0 次」的大迁徙、关掉的避冬)', () => {
@@ -69,10 +66,10 @@ describe('规则项表', () => {
       expect(onGrid(x.max), `${x.id} 最大值在档上`).toBe(true);
       if (x.kind === 'range') {
         expect(x.official.every(onGrid), x.id).toBe(true);
-        for (const k of x.knobs) expect(table(k), x.id).toEqual(x.official);
+        for (const k of tuningKnobs(x).knobs) expect(table(k), x.id).toEqual(x.official);
       } else {
         expect(onGrid(x.official), x.id).toBe(true);
-        for (const k of x.knobs) expect(x.official, x.id).toBe(table(k));
+        for (const k of tuningKnobs(x).knobs) expect(x.official, x.id).toBe(table(k));
       }
     }
     const offs = TUNING_ITEMS.filter((x) => (x.kind === 'mult' && x.off) || (x.kind === 'num' && x.offable) || (x.kind === 'num' && x.min === 0 && x.id === 'folk.treks'));

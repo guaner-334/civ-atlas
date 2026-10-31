@@ -343,6 +343,13 @@
  * 世上有国家能远洋以后会自己起全球大疫(多约每 600 年、很多约每 300 年一场;保底文明不断绝,见 civ/pandemic.ts)。
  * 和拓荒一样新建世界时定,创建以后不再改;平常的不写,不写时推演和没有这一项逐字节一样。
  *
+ * ## 规则
+ *
+ * WorldEdits.rules(可选,没有 = 官方规则):这个世界用的一套规则(civ/ruleSet.ts),整套存在世界里(名字、第几版、基于谁、改过的规则项、地貌的叫法……),
+ * 推演时改过的规则项换成一套旋钮(civ/tuningPatch.ts → CivParams.knobs)。一个世界只用一套:和拓荒一样新建世界时定,创建以后不再改;
+ * 新建界面里先按官方规则推(只看星球),创建以后才按它推。在这张地图上打造新文明(newHistoryEdits)时跟着走。
+ * 和官方一样的不写,不写时推演和没有这一项逐字节一样。
+ *
  * ## 文明种子
  *
  * WorldEdits.civSeed(可选,没有 = 等于地图种子):推演用的随机数从它取(州的划分、民族、国家、人物、地名、旗……),
@@ -613,6 +620,7 @@ import type { NameMix } from './names/mix';
 import type { Era, MonthNames } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
+import type { RuleSet } from './civ/ruleSet';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 56;
@@ -957,6 +965,8 @@ export interface WorldEdits {
   origins?: Origins;
   /** 「天灾」多 / 很多(见文件头"天灾");没有 = 平常 */
   calamity?: Calamity;
+  /** 这个世界用的一套规则(见文件头"规则");没有 = 官方规则 */
+  rules?: RuleSet;
   /** 文明种子(见文件头"文明种子");没有 = 等于地图种子 */
   civSeed?: number;
   /** 这段历史用的是哪张地图(见文件头"文明种子");没有 = 不是在别的世界的地图上新开的 */
@@ -1175,6 +1185,8 @@ export interface NewHistoryOptions {
   civSeed: number;
   nameMix?: NameMix;
   endYear?: number;
+  /** 这段历史用的一套规则(没有 = 官方规则) */
+  rules?: RuleSet;
   /** 地图的校验(知道就给) */
   sum?: string;
   /** 从哪个世界新开的 */
@@ -1182,7 +1194,7 @@ export interface NewHistoryOptions {
 }
 
 /**
- * 在 base 这个世界的地图上新开一段历史的修改:只带初始地图(地形修改、草图),外加新的文明种子、地图记录和另选的地名风格、推演年数。
+ * 在 base 这个世界的地图上新开一段历史的修改:只带初始地图(地形修改、草图),外加新的文明种子、地图记录和另选的地名风格、推演年数、规则。
  * 原来的国家、人物、干预、地形大事、纪年、月份、改名、AI 起名、作者标记和人物、改过的旗、拓荒和起源一律不带。
  * base 自己是新开的(有 map.from)时,from 记最早那个世界
  */
@@ -1196,6 +1208,7 @@ export function newHistoryEdits(base: WorldEdits, o: NewHistoryOptions): WorldEd
   if (o.nameMix) out.nameMix = { ...o.nameMix };
   const endYear = cleanEndYear(o.endYear);
   if (endYear) out.endYear = endYear;
+  if (o.rules) out.rules = JSON.parse(JSON.stringify(o.rules)) as RuleSet;
   out.civSeed = o.civSeed;
   out.map = cleanMapRef({ sum: o.sum, from: cleanMapRef(base.map)?.from ?? o.from });
   return out;

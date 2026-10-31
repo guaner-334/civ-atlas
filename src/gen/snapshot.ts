@@ -10,7 +10,7 @@
  * - civ:推演好的整段历史(Civ)
  * 每块单独压缩、单独算校验(SHA-256,压缩前的字节),读的时候对不上就不认;以后加别的内容就多加一块,认不出的块原样留着。
  *
- * 配方指纹(recipeKey):生成这份结果用到的全部输入(参数、地形修改、草图、干预、地形大事、地名风格、推演年数、拓荒、起源、文明种子、逐年推演进度),
+ * 配方指纹(recipeKey):生成这份结果用到的全部输入(参数、地形修改、草图、干预、地形大事、地名风格、推演年数、拓荒、起源、天灾、规则、文明种子、逐年推演进度),
  * 规范成一个字符串再算 SHA-256。存档里的输入和它一样,这份原件才是这个存档的结果(改了干预、还没推完的不算)。
  *
  * 一块的字节(packValue):
@@ -26,6 +26,8 @@ import type { SketchEdit } from './sketch';
 import type { NameMix } from './names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './civ/frontier';
 import { cleanCalamity, type Calamity } from './civ/calamity';
+import { ruleTuning } from './civ/ruleSet';
+import type { TuningValues } from './civ/tuning';
 import type { SaveFile } from './savefile';
 import type { WorldParams } from './world';
 
@@ -74,6 +76,8 @@ export interface Recipe {
   origins?: Origins;
   /** 「天灾」(平常 = 不给,和加这一项以前的指纹一样) */
   calamity?: Calamity;
+  /** 规则里改过的规则项(推演只看这一部分;官方 = 不给,和加这一项以前的指纹一样) */
+  tuning?: TuningValues;
   /** 文明种子(没给 = 地图种子;不给时和加这一项以前的指纹一样) */
   civSeed?: number;
   /** 逐年推演的进度(推到哪年 + 命令串;没在逐年推演 = 不给,和加这一项以前的指纹一样) */
@@ -120,6 +124,7 @@ export function recipeOfSave(save: SaveFile): Recipe {
     frontier: cleanFrontier(e.frontier),
     origins: cleanOrigins(e.origins),
     calamity: cleanCalamity(e.calamity),
+    tuning: ruleTuning(e.rules),
     civSeed: cleanCivSeed(e.civSeed),
     play: cleanPlay(e.play),
   };

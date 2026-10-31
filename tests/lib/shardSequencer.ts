@@ -135,6 +135,7 @@ const SECONDS: Record<string, number> = {
   'court-ui': 10,
   'polity-form': 10,
   'pixel-drain': 10,
+  'rules-world': 10,
   snapshot: 10,
   'civ-royals': 9,
   'terrain-edits': 9,
@@ -158,7 +159,7 @@ const QUICK = new Set(
   film-plan frozen-world gallery gallery-helper gen-speed geometry globe globe-lines globe-redraw
   grat-labels home-start ice-edge inland-sea inline-icons labels-layout labels-polity load-screen
   long-plan map-groups map-wrap multiset-diff nav old-site outline-store play-quality preset-link presets
-  projection projection-redraw realistic-shores result-store river-shape role-store sea-lines share
+  projection projection-redraw realistic-shores result-store river-shape role-store rule-set rules-store sea-lines share
   sketch-image step-branches-ui studio-planet styles-list tectonics terrain-full terrain-tools
   timeline-layout treaty-ui ui-book-search ui-mobile ui-outline-map ui-pending ui-shell ui-shortcuts
   ui-wheel ui-worlds upheaval-ui
