@@ -16,54 +16,17 @@
  *   宜居分 = max(0, s) / 5;群落底分为 0(冰原)的地块直接不可居
  *   人口上限 = 宜居分 × 本块面积 / 默认精细度下的地块面积
  */
-import { Biome } from '../biomes';
+import { Biome, biomeColumn } from '../biomes';
 import type { World } from '../world';
 import type { Habitat } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refCellArea } from './geo';
 import { flog2 } from './rand';
 
-/**
- * 群落宜居底分(按 Biome 枚举下标;水面为 0)。按开垦以后养得活多少人排:
- * 温带森林(四季分明、雨量适中,砍了林子就是良田)最高;热带季雨林(雨季种稻)次之;
- * 温带雨林多在迎风的山坡上;草原、稀树草原雨水不够,不靠河只能放牧;热带雨林土薄、多病、难开垦,比季雨林低得多
- */
-export const BIOME_HABITABILITY: readonly number[] = (() => {
-  const t = new Array<number>(16).fill(0);
-  t[Biome.Ice] = 0;
-  t[Biome.Tundra] = 4;
-  t[Biome.Taiga] = 12;
-  t[Biome.ColdDesert] = 10;
-  t[Biome.TemperateDesert] = 7;
-  t[Biome.Steppe] = 35;
-  t[Biome.TemperateForest] = 100;
-  t[Biome.TemperateRainforest] = 60;
-  t[Biome.HotDesert] = 4;
-  t[Biome.Savanna] = 30;
-  t[Biome.TropicalDryForest] = 75;
-  t[Biome.Rainforest] = 35;
-  t[Biome.Wetland] = 12;
-  return t;
-})();
+/** 群落宜居底分(按 Biome 编号;见地貌表的 habitability) */
+export const BIOME_HABITABILITY = biomeColumn('habitability');
 
-/** 群落通行代价(民族 / 国家扩张用;水面为 0,由各自规则另算) */
-export const BIOME_COST: readonly number[] = (() => {
-  const t = new Array<number>(16).fill(0);
-  t[Biome.SeaIce] = 5000;
-  t[Biome.Ice] = 5000;
-  t[Biome.Tundra] = 1000;
-  t[Biome.Taiga] = 200;
-  t[Biome.ColdDesert] = 150;
-  t[Biome.TemperateDesert] = 170;
-  t[Biome.Steppe] = 50;
-  t[Biome.TemperateForest] = 70;
-  t[Biome.TemperateRainforest] = 90;
-  t[Biome.HotDesert] = 200;
-  t[Biome.Savanna] = 60;
-  t[Biome.TropicalDryForest] = 70;
-  t[Biome.Rainforest] = 80;
-  t[Biome.Wetland] = 150;
-  return t;
-})();
+/** 群落通行代价(民族 / 国家扩张用;水面为 0,由各自规则另算;见地貌表的 travelCost) */
+export const BIOME_COST = biomeColumn('travelCost');
 
 const FRESHWATER_K = 12;
 const FRESHWATER_MAX = 40;

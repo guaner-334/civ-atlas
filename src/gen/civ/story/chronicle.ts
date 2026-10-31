@@ -119,6 +119,7 @@ import { Practice, hasPractice } from '../practices';
 import { ageAt, dowagerSpans, dowagerWordOf, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
 import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, westRank, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../../era';
+import { biomeHas } from '../../biomes';
 import { TREK_DIR_NAMES, keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../../edits';
 import { IV_NO_WAY } from '../trekRoute';
 import { emptyPolicy, policyName, type PolicyIv } from '../policy';
@@ -3957,12 +3958,12 @@ function migrationEntry(ctx: Ctx, ids: number[], dirUsed: Map<number, number>): 
   };
 }
 
-/** 大迁徙为什么走(Migration.push):灾年(发源在苔原、针叶林的"苦寒",别的"苦旱")、老家挤、本族的国散了 */
+/** 大迁徙为什么走(Migration.push):灾年(发源在苔原、针叶林这类苦寒之地的"苦寒",别的"苦旱";见地貌表的标签 cold)、老家挤、本族的国散了 */
 function trekWhy(civ: Civ, push: string | undefined, c: number): string {
   if (push === 'famine') {
     const cu = cultureOf(civ, c);
     const b = cu && cu.hearth >= 0 && cu.hearth < civ.regions.count ? civ.regions.biome[cu.hearth] : -1;
-    return b === 4 || b === 5 ? '苦寒' : '苦旱';
+    return biomeHas(b, 'cold') ? '苦寒' : '苦旱';
   }
   return push === 'crowd' ? '生齿日繁' : push === 'scatter' ? '部落离散' : '';
 }

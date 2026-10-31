@@ -29,7 +29,7 @@
  * keyed 的"实体"一律是位置锚(见 rand.ts):州 = 治所地块,城 / 国家 = PolityModel.stag / ptag(地块 + 这州第几个),
  * 改地形后多一个、少一个州或国家,别处的随机数不跟着错位。
  */
-import { Biome } from '../biomes';
+import { Biome, biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf } from '../geometry';
@@ -124,13 +124,9 @@ const ROUTE_MIN_RANK = 1;
 const REPUBLIC_P = 0.75;
 
 const BIOME_F = BIOME_COST.map((c) => fpow(Math.max(1, c) / 70, BIOME_EXP));
-const biomeSet = (list: number[]) => {
-  const t = new Uint8Array(16);
-  for (const b of list) t[b] = 1;
-  return t;
-};
-const STEPPE_DESERT = biomeSet([Biome.Steppe, Biome.ColdDesert, Biome.TemperateDesert, Biome.HotDesert, Biome.Savanna]);
-const FOREST = biomeSet([Biome.TemperateForest, Biome.TemperateRainforest, Biome.Rainforest, Biome.TropicalDryForest, Biome.Taiga]);
+/** 按 Biome 下标查的群落集合(哪些群落算哪一类见地貌表的标签):开阔干地(草原、稀树草原、荒漠)、密林 */
+const STEPPE_DESERT = biomeTagged('arid');
+const FOREST = biomeTagged('forest');
 
 // ---------------------------------------------------------------------------
 // 模型:推演要用的全部东西(可以由 Civ 重建,见 resumePolities)

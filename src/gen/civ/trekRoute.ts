@@ -3,7 +3,7 @@
  * 只走陆路(平地、跨河、翻山,不过海),按走的年数最短 —— 草原荒漠快,林地、湿地慢,高山再慢,翻山另加。
  * 纯计算,不碰 DOM;只引地形的表,不引推演引擎(界面上用不着把推演打包进来)。
  */
-import { Biome } from '../biomes';
+import { biomeColumn } from '../biomes';
 import { MinHeap } from '../util';
 import { AdjKind, type Regions } from './types';
 
@@ -12,15 +12,8 @@ export const IV_NO_WAY = -18;
 
 /** 走一州要几年(× 地形,推演里再 ± 一点随机) */
 export const STEP_YEARS = 1;
-/** 走一州的地形系数:草原荒漠快,林地、湿地慢 */
-const PACE: readonly number[] = (() => {
-  const c = new Array<number>(16).fill(1);
-  c[Biome.Steppe] = c[Biome.ColdDesert] = c[Biome.TemperateDesert] = c[Biome.HotDesert] = c[Biome.Savanna] = 0.7;
-  c[Biome.TemperateForest] = c[Biome.TropicalDryForest] = 1.2;
-  c[Biome.Taiga] = c[Biome.TemperateRainforest] = c[Biome.Rainforest] = c[Biome.Wetland] = 1.5;
-  c[Biome.Tundra] = 1.2;
-  return c;
-})();
+/** 走一州的地形系数:草原荒漠快,林地、湿地慢(见地貌表的 trekPace) */
+const PACE = biomeColumn('trekPace');
 /** 高山(海拔超过这么多)再慢 HIGH_PACE 倍;翻山再加 CLIMB 年 */
 const HIGH_ELEV = 1500;
 const HIGH_PACE = 1.5;
