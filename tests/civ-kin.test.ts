@@ -45,9 +45,10 @@ describe.each([7, 2024])('将门、世家 · seed=%i', (seed) => {
         if (surnamed(c, x)) expect(splitSurname(x.name), `${f.name} → ${x.name}`).toBe(splitSurname(f.name));
         expect(x.home).toBe(f.home);
       }
-      // 将领一成上下、名臣半成到一成(20 个种子:将领 5.5%–16%,名臣 3.7%–10%)
+      // 将领一成上下、名臣半成到一成(20 个种子:将领 5.5%–16%,名臣 3.7%–10%;
+      // GENERATOR_VERSION 56 滚雪球以后亡国快,父辈那一国先亡了的多:种子 1–20 将领 2.7%–13.7%(7 号最少)、名臣 3.4%–9.6%,将领的下限放到 2.5%)
       const share = kin.length / all.length;
-      expect(share, role).toBeGreaterThan(role === 'general' ? 0.05 : 0.03);
+      expect(share, role).toBeGreaterThan(role === 'general' ? 0.025 : 0.03);
       expect(share, role).toBeLessThan(role === 'general' ? 0.2 : 0.13);
       // 一位父辈名下至多两个
       const n = new Map<number, number>();
@@ -73,7 +74,8 @@ describe.each([7, 2024])('将门、世家 · seed=%i', (seed) => {
         if (x.parent !== undefined) n++;
       }
     }
-    expect(n).toBeGreaterThan(20);
+    // (GENERATOR_VERSION 56 以后种子 1–20 是 11–60 个,7 号 13 个;以前下限 20)
+    expect(n).toBeGreaterThan(10);
   }, 60_000);
 });
 

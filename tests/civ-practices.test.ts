@@ -159,7 +159,8 @@ describe('时代做法', () => {
 
   it('朝政页:还没有常备军、文官考选时,监军禁军、参半铨选画斜纹,下面一句写要等什么;都有了就不画', () => {
     const civ = civOf(7);
-    const P = civ.polities.find((q) => polityName(q, 3000) === '博戈维纳王国')!;
+    // (GENERATOR_VERSION 56 以后博戈维纳到第 3000 年已改制成共和国,以前是王国)
+    const P = civ.polities.find((q) => polityName(q, 3000) === '博戈维纳共和国')!;
     const at = (y: number) => courtLocks(civ, P.id, y, courtView(civ, P.id, y).rules);
     expect(at(1850)).toEqual({
       tax: [],

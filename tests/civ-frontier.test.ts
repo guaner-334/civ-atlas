@@ -280,7 +280,8 @@ describe('没人住的州立国', () => {
   it('州里已经有人住:照常以当地民族立国,备的新民族没用上(一州也没有,史书里不列)', () => {
     const seed = 7;
     const c0 = base(seed);
-    const y = 2800;
+    // GENERATOR_VERSION 56 以后第 2800 年那一州立的国改了西罗斯皇帝后来的战绩,早先编年史里他的称号跟着变(二世 → 大帝),换成第 2700 年
+    const y = 2700;
     const own = ownersAt(c0, y - 0.01);
     let r = 0;
     while (own.culture[r] < 0) r++;

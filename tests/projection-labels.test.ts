@@ -105,7 +105,8 @@ describe('多种投影:文字按投影排', () => {
         // 国名:按投影后的国土拟合(planar),字中心在本国国土上
         const own = polityOwnerGrid(world, raster, civ, civ.endYear);
         const pols = placed.labels.filter((l) => l.item.pick?.kind === 'polity');
-        expect(pols.length).toBeGreaterThanOrEqual(3);
+        // (GENERATOR_VERSION 56 滚雪球以后到第 3000 年在世的国家少了,墨卡托下排得下的国名只有两个,以前至少 3 个)
+        expect(pols.length).toBeGreaterThanOrEqual(2);
         for (const l of pols) {
           expect(l.item.planar).toBe(true);
           let on = 0;

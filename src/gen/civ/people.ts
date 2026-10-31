@@ -1163,6 +1163,14 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
       taken.add(F.name);
       const at = genName.get(g) ?? nameAt.get(g);
       for (let a = 1; at && a < NAME_TRIES && taken.has(g.name); a++) g.name = at(a);
+      // 名字少的语感,本国此前的名字都用过了(试完了还是撞):退一步,只求不和他、本国此前即位的君主、
+      // 那以前出道的前后 NAME_GAP 年里出生的同名人物撞(和 NameBook 的第二轮一样)
+      if (at && taken.has(g.name)) {
+        const near = (x: string) =>
+          x === F.name ||
+          [...rulers.flat(), ...generals, ...ministers].some((o) => o !== g && o.name === x && start(o) <= T && ((o.role === 'ruler' && o.polity === g.polity) || Math.abs(o.born - g.born) < NAME_GAP));
+        for (let a = 0; a < NAME_TRIES && near(g.name); a++) g.name = at(a);
+      }
     }
   };
   const seizers = new Set(seizes.map((s) => s.F));

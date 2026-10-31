@@ -307,8 +307,9 @@ export function nameWomen(people: Person[], ctx: WomenCtx, women: ReadonlySet<Pe
       const near = (n: string) => mine[pid].has(n) || !!used.get(n)?.some((y) => Math.abs(y - x.born) < NAME_GAP);
       const cands: string[] = [];
       const cand = (a: number) => (cands[a] ??= at(a));
-      for (let a = 0; a < NAME_TRIES && !name; a++) if (!used.has(cand(a)) && !mine[pid].has(cand(a))) name = cand(a);
-      for (let a = 0; a < NAME_TRIES && !name; a++) if (!near(cand(a))) name = cand(a);
+      // 女名不取和他原来的男名一样的(两边的字库有重的字,东方带姓的名字偶尔撞上)
+      for (let a = 0; a < NAME_TRIES && !name; a++) if (cand(a) !== x.name && !used.has(cand(a)) && !mine[pid].has(cand(a))) name = cand(a);
+      for (let a = 0; a < NAME_TRIES && !name; a++) if (cand(a) !== x.name && !near(cand(a))) name = cand(a);
       name ||= cand(0);
     }
     if (queen) {

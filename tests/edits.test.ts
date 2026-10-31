@@ -8,6 +8,7 @@ import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
 import { buildChronicle, chronicleDocument, chronicleText } from '../src/gen/civ/chronicle';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityRootAt, polityTitleChain } from '../src/gen/civ/growth';
+import { rootSegIndex } from '../src/gen/civ/polityRoot';
 import { legendRows } from '../src/render/export';
 import {
   EMPTY_EDITS,
@@ -302,7 +303,8 @@ describe.each([7, 2024])('用户的修改 · seed=%i', (seed) => {
       const base = p.eastern && [...last].length === 2 && last[0] === '大' ? last.slice(1) : last;
       if (!(p.name.length === base.length + 1 && p.name.endsWith(base))) continue; // 前缀都被占了、另起国名的
       const d = fallen.dynasties;
-      const key = fallen.eastern && d && d.length >= 2 ? dynastyKey(civ, fallen.id, d.length - 1) : polityKey(civ, fallen.id);
+      // 亡国时那一段是改制开的共和 / 军政府(国号照上一朝)的,改的是国号所照的那一朝(GENERATOR_VERSION 56 以后 2024 号就有)
+      const key = fallen.eastern && d && d.length >= 2 ? dynastyKey(civ, fallen.id, rootSegIndex(fallen, d.length - 1)) : polityKey(civ, fallen.id);
       const named = applyNames(civ, { [key]: '霆' });
       expect(named.polities[p.id].name).toBe(`${p.name[0]}霆`);
       const own = applyNames(civ, { [key]: '霆', [polityKey(civ, p.id)]: '雩' });
