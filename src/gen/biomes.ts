@@ -251,6 +251,7 @@ export const BIOMES: readonly BiomeInfo[] = [
 // 先按地表分(陆地 / 海洋 / 湖泊各一个根),再依次按海冰、温度、降水切。每层的每个格子把下一层的门槛平铺在一起:
 // 第 k 格的门槛是 THR[OFF[k] .. OFF[k+1]),落在第 b 档就进下一层的第 OFF[k] + k + b 格;最后一层的格子直接是群落编号。
 
+/** 三个根的顺序(classifyBiome 按 water 挑根:0 陆地 / 1 海洋 / 2 湖泊) */
 const SURFACE = ['land', 'sea', 'lake'] as const;
 const AXES = ['ice', 't', 'p'] as const;
 
