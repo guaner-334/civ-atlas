@@ -1,11 +1,11 @@
 /**
- * 河道的样子(render/common.ts 的 riverGeometry):
+ * 河道的样子(gen/riverGeometry.ts 的 riverGeometry):
  *   - 弯一弯:同一组河每次一样;中间弯出去一些(不远),入海的一头不挪
  *   - 上游多接一段小溪,下游的弯不变(放大前后同一条河弯得一样)
  *   - 河谷沿着弯过的河刻(gen/valleys.ts):画出来的河底下就是谷底
  */
 import { describe, expect, it } from 'vitest';
-import { riverGeometry } from '../src/render/common';
+import { riverGeometry } from '../src/gen/riverGeometry';
 import { carveValleys, valleyLines } from '../src/gen/valleys';
 
 const STYLE = { color: '', minW: 0.5, maxW: 6, fluxRef: 1000 };

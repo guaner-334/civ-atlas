@@ -259,6 +259,22 @@ export function graticuleLines(mp: MapProj, step = 30): { meridians: number[][];
   return { meridians, parallels, equator: [e0, ey, e1, ey] };
 }
 
+/** 经度写成 "120°E" / "60°W" / "0°" / "180°"(和悬停信息、投影面板的写法一样) */
+export function lonText(lon: number): string {
+  const t = (lon + 180) / 360;
+  const v = (t - Math.floor(t)) * 360 - 180;
+  const a = Math.round(Math.abs(v));
+  if (a === 0) return '0°';
+  if (a === 180) return '180°';
+  return `${a}°${v > 0 ? 'E' : 'W'}`;
+}
+
+/** 纬度写成 "30°N" / "60°S" / "0°" */
+export function latText(lat: number): string {
+  const a = Math.round(lat);
+  return a === 0 ? '0°' : `${Math.abs(a)}°${a > 0 ? 'N' : 'S'}`;
+}
+
 // ---------------------------------------------------------------------------
 // 整图重投影:按行从等距圆柱主图取像素
 

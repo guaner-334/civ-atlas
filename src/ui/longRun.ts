@@ -18,7 +18,7 @@ import { isLifeScope } from '../ai/prompts/lives';
 import { flagSvg } from '../render/flag/flagSvg';
 import { highlightBox } from '../render/civ/highlight';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
-import { canvasMeasureFont, drawLong, layoutLong, longPages, LONG_W, MAP_W, mapHeight, PAGE_H, PAGE_PAD, type LongLayout } from '../render/longImage';
+import { canvasMeasureFont, drawLong, layoutLong, longPages, LONG_W, MAP_W, mapHeight, PAGE_H, PAGE_PAD, type LongDoc, type LongLayout, type LongMap } from '../render/longImage';
 import type { FilmSource } from './filmSource';
 import type { FilmSetup } from './filmRun';
 import { filmMajors } from './filmStore';
@@ -27,7 +27,7 @@ import { currentWorld } from './saveStore';
 import { getEdits } from './editsStore';
 import { bookTitleText } from './bookStore';
 import { getLong, setLong } from './longStore';
-import { bookChapters, defaultPolity, longDoc, longFileName, polityLastYear, type BookSection, type LongBook, type LongDoc, type LongMap } from './longPlan';
+import { bookChapters, defaultPolity, longDoc, longFileName, polityLastYear, type BookSection, type LongBook } from './longPlan';
 import { polityNameAt } from './searchIndex';
 import { showToast } from './toastStore';
 

@@ -11,7 +11,7 @@
  * 投影:等距圆柱(mp = null,东西相连)、墨卡托(外轮廓是长方形)按经纬线横平竖直算;弯边投影(罗宾森、自然地球、摩尔魏德)见 layoutCurved。
  * 纯计算,不碰 DOM。
  */
-import type { MapProj } from '../render/projection';
+import { latText, lonText, type MapProj } from '../render/projection';
 import { stageToWorld, worldToStage, windowSpan, type MapView, type StageBox } from './mapWrap';
 
 /** 每隔几度的网格,字挤不下时隔几条写一条:只取这些倍数(10° 跳成每 20° / 30° / 60°,15° 跳成每 30° / 60° / 90°,30° 跳成每 60° / 90°) */
@@ -63,22 +63,6 @@ export interface GratSpec {
   lonInRight?: number;
   /** 框外的经度字左右不出这个范围(舞台 x;手机框两边只留十几像素,贴边的字往里挪一点,刻度不动) */
   outX?: [number, number];
-}
-
-/** 经度写成 "120°E" / "60°W" / "0°" / "180°"(和悬停信息、投影面板的写法一样) */
-export function lonText(lon: number): string {
-  const t = (lon + 180) / 360;
-  const v = (t - Math.floor(t)) * 360 - 180;
-  const a = Math.round(Math.abs(v));
-  if (a === 0) return '0°';
-  if (a === 180) return '180°';
-  return `${a}°${v > 0 ? 'E' : 'W'}`;
-}
-
-/** 纬度写成 "30°N" / "60°S" / "0°" */
-export function latText(lat: number): string {
-  const a = Math.round(lat);
-  return a === 0 ? '0°' : `${Math.abs(a)}°${a > 0 ? 'N' : 'S'}`;
 }
 
 /** 隔几度写一个:从小到大试整齐的倍数,相邻两个字的间距(gap(度) → 像素)够 need 就用它;都不够用最大的那个 */

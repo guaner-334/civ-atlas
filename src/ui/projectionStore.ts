@@ -2,9 +2,9 @@
  * 主图的投影、经纬网、等值线这些界面状态(小 store,不画东西;画图的部分和这些一起从 projection.ts 导出,说明见那边的文件头)。
  * 单独一个文件:存档(saveStore.ts)、首页只用到这些状态,不用带上按投影画地图的代码。
  */
-import { useSyncExternalStore } from 'react';
 import { GRATICULE_STEPS, type ContourKind } from '../gen/savefile';
 import { isProjectionId, type ProjectionId } from '../render/projectionDefs';
+import { createStore } from './createStore';
 
 /** 主图的投影;'globe' = 3D 地球仪(单独的视图) */
 export type MapProjection = ProjectionId | 'globe';
@@ -29,26 +29,7 @@ export function isCurved(p: MapProjection): p is Exclude<ProjectionId, 'equirect
 // ---------------------------------------------------------------------------
 // 小 store
 
-function store<T>(init: T) {
-  let v = init;
-  const subs = new Set<() => void>();
-  return {
-    get: () => v,
-    set: (x: T) => {
-      if (Object.is(x, v)) return;
-      v = x;
-      for (const f of subs) f();
-    },
-    use: () =>
-      useSyncExternalStore(
-        (f) => (subs.add(f), () => subs.delete(f)),
-        () => v,
-        () => v,
-      ),
-  };
-}
-
-const projection = store<MapProjection>('equirect');
+const projection = createStore<MapProjection>('equirect');
 export const getProjection = projection.get;
 export const useProjection = projection.use;
 /** 切到地球仪之前用的平面投影(从地球仪切回平面时回到它) */
@@ -67,7 +48,7 @@ export function lastFlatProjection(): ProjectionId {
 }
 
 /** 经纬网:平面投影和地球仪共用一个开关("图层与投影"弹层、新建世界的"投影"里的"经纬网"改它;网址 grat=1) */
-const graticule = store(false);
+const graticule = createStore(false);
 export const getGraticule = graticule.get;
 export const useGraticule = graticule.use;
 export const setGraticule = graticule.set;
@@ -78,7 +59,7 @@ export type GraticuleStep = (typeof GRATICULE_STEPS)[number];
 export function isGraticuleStep(x: unknown): x is GraticuleStep {
   return GRATICULE_STEPS.includes(x as GraticuleStep);
 }
-const gratStep = store<GraticuleStep>(30);
+const gratStep = createStore<GraticuleStep>(30);
 export const getGraticuleStep = gratStep.get;
 export const useGraticuleStep = gratStep.use;
 export const setGraticuleStep = gratStep.set;
@@ -94,12 +75,12 @@ export function useGraticuleLines(): number {
 }
 
 /** 等值线:叠哪一种(null = 不画;"图层与投影"弹层里的"等值线"改它;网址 iso=elev / temp / precip) */
-const contours = store<ContourKind | null>(null);
+const contours = createStore<ContourKind | null>(null);
 export const getContourKind = contours.get;
 export const useContourKind = contours.use;
 export const setContourKind = contours.set;
 
-const moving = store(false);
+const moving = createStore(false);
 export const getMapMoving = moving.get;
 export const useMapMoving = moving.use;
 export const setMapMoving = moving.set;

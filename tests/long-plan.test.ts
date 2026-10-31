@@ -22,10 +22,9 @@ import {
   regionCounts,
   type BookSection,
   type LongBook,
-  type LongDoc,
   type LongOptions,
 } from '../src/ui/longPlan';
-import { BRAND_NAME, BRAND_URL, LONG_W, PAGE_H, PAGE_PAD, layoutLong, longPages } from '../src/render/longImage';
+import { BRAND_NAME, BRAND_URL, LONG_W, PAGE_H, PAGE_PAD, layoutLong, longPages, type LongDoc } from '../src/render/longImage';
 
 const civ = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 7 }));
 const all = fullChronicle(civ);

@@ -38,8 +38,10 @@ import { capitalAt } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/story/display';
 import { yearFull, type Era } from '../gen/era';
 import { nearX } from '../render/common';
-import { eventOver, filmEvents, type FilmEvent } from './filmPlan';
-import { entrySpot, entryWeight, evLabel, playRate, type EntrySpot, type EvType } from './timelineLayout';
+import type { EvType } from '../render/eventTypes';
+import { eventOver, type FilmEvent } from '../render/filmFrames';
+import { filmEvents } from './filmPlan';
+import { entrySpot, entryWeight, evLabel, playRate, type EntrySpot } from './timelineLayout';
 import type { Focus } from './flyTo';
 import { followLegs } from './followInfo';
 

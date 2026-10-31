@@ -18,7 +18,7 @@
  * 刷新以后点"先在地图上看看"再推一遍。试推演由 App 交给 worker(setTrialRunner)。
  * 网址带 ai=mock 时用 assistant.ts 的假 AI 按固定步骤走(冒烟检查、截图用)。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
@@ -144,29 +144,25 @@ export interface AssistantState {
 }
 
 let state: AssistantState = { world: null, turns: [], preview: null };
-const subs = new Set<() => void>();
+const subs = createListeners();
 function set(next: AssistantState) {
   state = next;
-  subs.forEach((f) => f());
+  subs.emit();
 }
 const patch = (id: number, p: Partial<AsTurn> | ((t: AsTurn) => Partial<AsTurn>)) =>
   set({ ...state, turns: state.turns.map((t) => (t.id === id ? { ...t, ...(typeof p === 'function' ? p(t) : p) } : t)) });
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => subs.delete(f);
-};
 const get = () => state;
 
 export function getAssistant(): AssistantState {
   return state;
 }
 export function useAssistant(): AssistantState {
-  return useSyncExternalStore(subscribe, get, get);
+  return subs.use(get);
 }
 const getPreview = () => state.preview;
 /** 只看"在地图上看哪一轮"(App 用:对话一字一字更新时不跟着重画整个页面) */
 export function useAssistantPreview(): AssistantState['preview'] {
-  return useSyncExternalStore(subscribe, getPreview, getPreview);
+  return subs.use(getPreview);
 }
 
 // ---------------------------------------------------------------------------

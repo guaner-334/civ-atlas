@@ -17,7 +17,7 @@
  * 写、存、比对历史指纹都在 ai/history.ts;这里只管"哪一部在写、写到哪、写完了没"。
  * 界面:BookDialog.tsx(选项窗口)、BookReader.tsx(阅读)、Corners.tsx 的 BookChip(右上的进度)。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { Civ } from '../gen/civ/types';
 import { getAiStatus, openAiSettings } from '../ai/client';
 import { AiError } from '../ai/types';
@@ -103,10 +103,10 @@ const initial = (): BookState => ({
 });
 
 let state: BookState = initial();
-const subs = new Set<() => void>();
+const subs = createListeners();
 function set(patch: Partial<BookState>) {
   state = { ...state, ...patch };
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 export function getBook(): BookState {
@@ -114,26 +114,12 @@ export function getBook(): BookState {
 }
 
 export function useBook(): BookState {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    getBook,
-    getBook,
-  );
+  return subs.use(getBook);
 }
 
 /** React:只看阅读开没开、读哪一部(写作进度变了不跟着重新渲染;浏览器的后退记不记一步看它,见 nav.ts) */
 export function useBookReader(): BookState['reader'] {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    () => state.reader,
-    () => state.reader,
-  );
+  return subs.use(() => state.reader);
 }
 
 // ---------------------------------------------------------------------------
@@ -437,5 +423,5 @@ export function _resetBook() {
   ctx = null;
   kept = null;
   state = initial();
-  subs.forEach((f) => f());
+  subs.emit();
 }

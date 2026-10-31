@@ -15,10 +15,11 @@
 import type { Civ, Polity } from '../gen/civ/types';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { eraText, yearFull, yearSpanAt, type Era } from '../gen/era';
+import type { LongDoc, LongRow, LongSection } from '../render/longImage';
 import { cnPunct } from './filmPlan';
 import { polityNameAt, polityUsedNames } from './searchIndex';
 import { polityEntries, polityLastYear, regionCounts, storyStrip, type StripPlan } from './storyStrip';
-import { entryWeight, evType, type EvType } from './timelineLayout';
+import { entryWeight, evType } from './timelineLayout';
 
 export { polityEntries, polityLastYear, regionCounts };
 
@@ -72,56 +73,6 @@ export interface LongOptions {
   seed: number;
   /** 纪年(没设 = 按第几年写) */
   era?: Era;
-}
-
-/** 一张地图:拍哪一年;一国版裁到这一国、描红边 */
-export interface LongMap {
-  year: number;
-  polity?: number;
-}
-
-export interface LongRow {
-  /** "第 1199 年""第 2478—2514 年";说明行 = '' */
-  label: string;
-  /** 小圆点的颜色(和时间轴上一样);说明行 = null(灰点) */
-  type: EvType | null;
-  text: string;
-  /** 说明行(灰字,没有年份) */
-  note?: boolean;
-  /** 放不下时先去掉轻的(timelineLayout 的 entryWeight) */
-  weight: number;
-}
-
-export interface LongSection {
-  /** "第 500—999 年" */
-  title: string;
-  /** 右上角"1 / 6" */
-  no: string;
-  map: LongMap | null;
-  cap: string;
-  /** AI 写的段落和出处("摘自《九州通史》第三章") */
-  ai: { text: string; src: string } | null;
-  rows: LongRow[];
-  /** 这一段还有几件大事没列出 */
-  more: number;
-}
-
-export interface LongDoc {
-  title: string;
-  /** 一国版的国旗(那一国最后一年的那一面) */
-  flag: { polity: number; year: number } | null;
-  lead: string;
-  /** 一国版:历代国号 */
-  lead2: string | null;
-  head: LongMap;
-  headCap: string;
-  /** 一段多少年 */
-  span: number;
-  sections: LongSection[];
-  /** 结尾那句:标题、种子、架空声明 */
-  foot: string;
-  /** 最底下一条网站名和网址 */
-  brand: boolean;
 }
 
 /** 州数从多到少(一样多按编号) */

@@ -14,7 +14,7 @@ import type { World } from './world';
 import { classifyBiome } from './biomes';
 import { sampleSpline } from './raster';
 import { clamp, smoothstep, subSeed } from './util';
-import { valueNoise } from '../render/common';
+import { valueNoise } from './noise';
 
 /** 喇叭口:口宽 = FUNNEL_K × √流量(世界单位) */
 const FUNNEL_K = 0.15;

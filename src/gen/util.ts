@@ -71,6 +71,11 @@ export function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** 把 x 挪到离 ref 最近的那一份(差整圈 W);W = 0 不动 */
+export function nearX(x: number, ref: number, W: number): number {
+  return W ? x - W * Math.round((x - ref) / W) : x;
+}
+
 /** 分段线性查表:table 为 [x0,y0,x1,y1,...],x 递增。 */
 export function piecewise(table: number[], x: number): number {
   if (x <= table[0]) return table[1];

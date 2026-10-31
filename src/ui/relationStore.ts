@@ -10,7 +10,7 @@
  *
  * 推演人物记下稳定键(重推以后编号变了按它找回);左边卡片跟着中心换人由 RelationGraph.tsx 照 stamp 做。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { Civ } from '../gen/civ/types';
 import { personKey } from '../gen/characters';
 import type { RelRef } from './relationInfo';
@@ -34,11 +34,11 @@ export interface RelState {
 }
 
 let state: RelState = { open: false, path: [], at: 0, deep: null, peek: null, stamp: 0 };
-const subs = new Set<() => void>();
+const subs = createListeners();
 
 function set(patch: Partial<RelState>) {
   state = { ...state, ...patch };
-  subs.forEach((f) => f());
+  subs.emit();
 }
 
 export function getRelation(): RelState {
@@ -46,14 +46,7 @@ export function getRelation(): RelState {
 }
 
 export function useRelation(): RelState {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    () => state,
-    () => state,
-  );
+  return subs.use(() => state);
 }
 
 /** 两步是不是同一个人(推演人物有键的按键认) */
