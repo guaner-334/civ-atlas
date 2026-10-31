@@ -5006,7 +5006,24 @@ if (part('东西相连')) {
       )
       .then(() => true, () => false);
     const before = (await view()).lon;
-    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+    // 双击在正中附近点不到文字的一处(正中可能正好是国名、地名:第一下单击就选中它、飞过去,看不出双击复位了没有)
+    const [dx, dy] = (await page.evaluate(
+      ([cx, cy, w, h]) => {
+        const hit = (window as any).__wfPickAt as ((x: number, y: number) => boolean) | undefined;
+        for (let r = 0; r <= 10; r++) {
+          const n = Math.max(1, r * 8);
+          for (let a = 0; a < n; a++) {
+            const x = cx + Math.cos((2 * Math.PI * a) / n) * r * w * 0.03;
+            const y = cy + Math.sin((2 * Math.PI * a) / n) * r * h * 0.03;
+            // 双击的两下各点一次,周围几像素也不要压着字
+            if (!hit || [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]].every(([ox, oy]) => !hit(x + ox, y + oy))) return [x, y];
+          }
+        }
+        return [cx, cy];
+      },
+      [box.x + box.width / 2, box.y + box.height / 2, box.width, box.height],
+    )) as [number, number];
+    await page.mouse.dblclick(dx, dy);
     await page.waitForTimeout(200);
     const vr = await view();
     const dl = Math.abs(((vr.lon - before + 540) % 360) - 180);

@@ -171,4 +171,9 @@ export function pickables(): { kind: string; id: number; text: string; x: number
   return out;
 }
 
-if (typeof window !== 'undefined') (window as unknown as { __wfPickables: typeof pickables }).__wfPickables = pickables;
+if (typeof window !== 'undefined') {
+  const w = window as unknown as { __wfPickables: typeof pickables; __wfPickAt: (x: number, y: number) => boolean };
+  w.__wfPickables = pickables;
+  /** 冒烟检查用:屏幕上这一点点得到文字层上的东西(城镇符号、城名、国名、地名、关隘)= true */
+  w.__wfPickAt = (x, y) => !!pickLabelAt(x, y) || passAt(x, y) >= 0;
+}
