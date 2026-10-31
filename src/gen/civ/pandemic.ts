@@ -29,7 +29,7 @@ import type { Civ, Year } from './types';
 import { Layer } from './types';
 import type { Intervention } from '../edits';
 import { fpow, keyed, keyed4 } from './engine/rand';
-import { Ev, quantize, type CivSim } from './engine/sim';
+import { quantize, type CivSim } from './engine/sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { plagueModelOf } from './plague';
 import { capitalAt, populationAt, settlementRank } from './growth';
@@ -39,6 +39,7 @@ import { afflict } from './disaster';
 import { IV_LOSS, PANDEMIC_K, PLAGUE_IV, calamityRates, naturalPandemic, pandemicBase, quakeRing, type Calamity } from './calamity';
 import { anySlump, newPandemic, notePandemicHit, pandemicModelOf, setPandemicModel, type Pandemic, type PandemicModel } from './pandemicState';
 import type { CivModule } from './modules';
+import { Ev } from './events';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/pandemic-stats.ts) ----
 /** 看全球大疫:每隔多少年;上一场起疫后这么多年内不再自己起 */

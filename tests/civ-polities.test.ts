@@ -4,7 +4,6 @@ import { rasterize } from '../src/gen/raster';
 import { Biome } from '../src/gen/biomes';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind, Layer } from '../src/gen/civ/types';
-import { Ev } from '../src/gen/civ/engine/sim';
 import { ownersAt, ownersFromScratch } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { warModelOf } from '../src/gen/civ/wars';
@@ -16,6 +15,7 @@ import type { CivDrawParams, CivShow } from '../src/render/civ/overlay';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { hasReform } from '../src/gen/civ/regime';
 import { resumeCiv } from '../src/gen/civ/modules';
+import { Ev } from '../src/gen/civ/events';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
