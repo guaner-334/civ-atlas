@@ -14,15 +14,8 @@
  * - **最多 MAX_MY_RULES 套**:满了新建、复制、加进来都不成(返回 null,界面说一声),不为它删别的
  */
 import { createListeners } from './createStore';
-import {
-  RULES_VERSION_MAX,
-  cleanRuleSet,
-  deriveRuleSet,
-  newRuleSet,
-  sameRuleContent,
-  type BiomeNames,
-  type RuleSet,
-} from '../gen/civ/ruleSet';
+import { RULES_VERSION_MAX, cleanRuleSet, type BiomeNames, type RuleSet } from '../gen/civ/ruleSet';
+import { deriveRuleSet, newRuleSet, sameRuleContent } from '../gen/civ/ruleSetEdit';
 import type { TuningValue, TuningValues } from '../gen/civ/tuning';
 
 /** 「我的规则」里的一套 */

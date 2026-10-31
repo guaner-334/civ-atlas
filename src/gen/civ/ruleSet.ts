@@ -21,6 +21,7 @@
  *
  * 「和官方一样」= 没改规则项、也没改地貌的叫法(名字、署名、介绍、基于谁不算):这样的世界存档里不写这一项,和不用规则的世界一模一样。
  * 读进来的一套(存档、分享链接、文件、本机存的)都过 cleanRuleSet:认不出的丢、超长的截、坏的按默认,每处一句中文提示。
+ * 这里只放读、清理要的(存档、首页的「我的世界」读存档时引用它);新建、复制、比较、写成字在 ruleSetEdit.ts(本机「我的规则」和界面用)。
  * 纯计算,不碰 DOM;不引用推演本身(换成推演用的旋钮在 tuningPatch.ts),存档、首页读它不用把整个推演载进来。
  */
 import { Biome, BIOMES } from '../biomes';
@@ -65,8 +66,6 @@ export const RULES_LINEAGE_MAX = 4;
 export const RULES_VERSION_MAX = 99999;
 /** 没起名字的一套叫什么 */
 export const UNNAMED_RULES = '未命名规则';
-/** 官方规则的名字 */
-export const OFFICIAL_RULES_NAME = '官方规则';
 /** 本机编号的样子 */
 const RULES_ID = /^[a-z0-9]{4,24}$/;
 
@@ -104,11 +103,6 @@ export const biomeKey = (b: Biome): string => keyByBiome.get(b) ?? '';
 /** 键 → 地貌(认不出 = undefined) */
 export const biomeOfKey = (k: string): Biome | undefined => biomeByKey.get(k);
 
-/** 一种地貌在这套规则里叫什么(没另起名字 = 官方的叫法) */
-export function biomeName(r: Pick<RuleSet, 'biomes'> | null | undefined, b: Biome): string {
-  return r?.biomes?.[biomeKey(b)] || BIOMES[b].name;
-}
-
 // ---------------------------------------------------------------------------
 // 清理
 
@@ -116,7 +110,7 @@ const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object
 const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 
 /** 一段字:和署名一样清理(去掉看不见的字符、并掉多余的空白),最多 max 个字;cut = 超长截掉了 */
-function cleanText(raw: unknown, max: number): { text: string; cut: boolean } {
+export function cleanText(raw: unknown, max: number): { text: string; cut: boolean } {
   const full = cleanSignature(raw, Infinity);
   // 码位数不超过 max 的,看到的字数更不超过(多半是这样,不用再分一遍字)
   if ([...full].length <= max) return { text: full, cut: false };
@@ -241,55 +235,6 @@ export function ruleTuning(raw: unknown): TuningValues | undefined {
 /** 两套规则一模一样(清理以后比;本机编号也算) */
 export function sameRuleSet(a: unknown, b: unknown): boolean {
   return JSON.stringify(cleanRuleSet(a).rules) === JSON.stringify(cleanRuleSet(b).rules);
-}
-
-/** 两套规则的内容一样(名字、第几版、署名、介绍、基于谁、规则项、地貌的叫法;本机编号不算) */
-export function sameRuleContent(a: RuleSet, b: RuleSet): boolean {
-  const strip = (r: RuleSet) => {
-    const { id: _id, ...rest } = cleanRuleSet(r).rules ?? r;
-    return JSON.stringify(rest);
-  };
-  return strip(a) === strip(b);
-}
-
-// ---------------------------------------------------------------------------
-// 新建、复制
-
-/** 从官方规则开始的一套(没改任何项;基于官方规则) */
-export function newRuleSet(name: string): RuleSet {
-  return { name: cleanText(name, RULES_NAME_MAX).text || UNNAMED_RULES, version: 1, values: {} };
-}
-
-/**
- * 基于 src 的一套(复制一份、加进别人分享来的):规则项、地貌的叫法、介绍照搬;src 记在基于谁的最前面(连同它基于谁一路传下来);
- * 第几版从 1 起;署名空着(是自己的了);没有本机编号(存进「我的规则」时另起)。name 不给 = 和 src 同名
- */
-export function deriveRuleSet(src: RuleSet, name?: string): RuleSet {
-  const c = cleanRuleSet(src).rules ?? newRuleSet(src.name);
-  const from: RuleSource = { name: c.name, ...(c.by ? { by: c.by } : {}), version: c.version };
-  return {
-    name: (name !== undefined && cleanText(name, RULES_NAME_MAX).text) || c.name,
-    version: 1,
-    ...(c.about ? { about: c.about } : {}),
-    basedOn: trimLineage([from, ...(c.basedOn ?? [])]),
-    values: { ...c.values },
-    ...(c.biomes ? { biomes: { ...c.biomes } } : {}),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 写成字
-
-/** 「战乱年代(第 2 版)」 */
-export function ruleSetLabel(r: Pick<RuleSet, 'name' | 'version'>): string {
-  return `${r.name}（第 ${r.version} 版）`;
-}
-
-/** 基于谁:「基于 砚山 的《群雄并起》」(没署名的「基于《群雄并起》」);没有 = 「基于官方规则」 */
-export function basedOnText(r: Pick<RuleSet, 'basedOn'>): string {
-  const s = r.basedOn?.[0];
-  if (!s) return `基于${OFFICIAL_RULES_NAME}`;
-  return s.by ? `基于 ${s.by} 的《${s.name}》` : `基于《${s.name}》`;
 }
 
 /**

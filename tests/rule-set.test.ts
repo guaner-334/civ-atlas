@@ -12,22 +12,17 @@ import {
   RULES_LINEAGE_MAX,
   RULES_NAME_MAX,
   UNNAMED_RULES,
-  basedOnText,
   biomeKey,
-  biomeName,
   biomeOfKey,
   cleanRuleSet,
-  deriveRuleSet,
   isOfficialRules,
-  newRuleSet,
   ruleNotesLine,
-  ruleSetLabel,
   ruleTuning,
-  sameRuleContent,
   trimLineage,
   worldRules,
   type RuleSet,
 } from '../src/gen/civ/ruleSet';
+import { basedOnText, biomeName, deriveRuleSet, newRuleSet, ruleSetLabel, sameRuleContent } from '../src/gen/civ/ruleSetEdit';
 import { RULES_LINK_BROKEN, decodeRulesHash, isRulesHash, parseRulesFile, rulesFileName, rulesFileText, rulesHash } from '../src/gen/civ/ruleShare';
 import { TUNING_ITEMS, tuningEnds, type TuningValues } from '../src/gen/civ/tuning';
 import { PRESET_NAME_MAX } from '../src/ui/presetLink';
