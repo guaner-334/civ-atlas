@@ -159,6 +159,8 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   const { tab: tab0, pick } = useView();
   const rulesOn = rulesUiOn();
   const tab = tab0 === 'rules' && !rulesOn ? 'maps' : tab0;
+  /** 看的是「规则」页签(一个世界都没有时也能看:规则和世界各存各的) */
+  const rulesTab = rulesOn && tab === 'rules';
   const fileRef = useRef<HTMLInputElement>(null);
   /** 菜单开在哪张卡片上 */
   const [menu, setMenu] = useState<string | null>(null);
@@ -324,7 +326,24 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           </div>
         )}
       </header>
-      {empty && (
+      {/* 页签:有世界时才有;调规则的入口开着时一个世界都没有也有(「规则」页签里的规则不跟着世界走) */}
+      {(!empty || rulesOn) && (
+        <div className="mw-seg" role="tablist" aria-label="看地图还是文明">
+          <button role="tab" aria-selected={tab === 'maps'} className={tab === 'maps' ? 'on' : ''} data-tab="maps" onClick={() => setView({ tab: 'maps' })}>
+            地图<i>{groups.length}</i>
+          </button>
+          <button role="tab" aria-selected={tab === 'civs'} className={tab === 'civs' ? 'on' : ''} data-tab="civs" onClick={() => setView({ tab: 'civs' })}>
+            文明<i>{civs.length}</i>
+          </button>
+          {rulesOn && (
+            <button role="tab" aria-selected={tab === 'rules'} className={tab === 'rules' ? 'on' : ''} data-tab="rules" onClick={() => setView({ tab: 'rules' })}>
+              规则
+            </button>
+          )}
+        </div>
+      )}
+      {rulesTab && <RulesTabHost phone={phone} fileBtn={!empty} />}
+      {empty && !rulesTab && (
         <div className={`mw-empty${feOn ? ' with-fe' : ''}`}>
           <HomeGlobe size={feOn ? (phone ? 104 : 150) : phone ? 150 : 188} />
           <h2>还没有世界</h2>
@@ -357,23 +376,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           )}
         </div>
       )}
-      {feOn && <GalleryFeatured phone={phone} onOpen={onOpenWork!} onGallery={onGallery!} />}
-      {!empty && (
-        <div className="mw-seg" role="tablist" aria-label="看地图还是文明">
-          <button role="tab" aria-selected={tab === 'maps'} className={tab === 'maps' ? 'on' : ''} data-tab="maps" onClick={() => setView({ tab: 'maps' })}>
-            地图<i>{groups.length}</i>
-          </button>
-          <button role="tab" aria-selected={tab === 'civs'} className={tab === 'civs' ? 'on' : ''} data-tab="civs" onClick={() => setView({ tab: 'civs' })}>
-            文明<i>{civs.length}</i>
-          </button>
-          {rulesOn && (
-            <button role="tab" aria-selected={tab === 'rules'} className={tab === 'rules' ? 'on' : ''} data-tab="rules" onClick={() => setView({ tab: 'rules' })}>
-              规则
-            </button>
-          )}
-        </div>
-      )}
-      {!empty && tab === 'rules' && rulesOn && <RulesTabHost phone={phone} />}
+      {feOn && !rulesTab && <GalleryFeatured phone={phone} onOpen={onOpenWork!} onGallery={onGallery!} />}
       {!empty && tab === 'maps' && <MapGrid groups={groups} phone={phone} pick={pick} onPick={(k) => setView({ pick: k })} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} />}
       {!empty && tab === 'civs' && !civs.length && <p className="mw-none">还没有文明。到「地图」里选一张地图打造文明，或者新建世界。</p>}
       {!empty && tab === 'civs' && civs.length > 0 && (

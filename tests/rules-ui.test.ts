@@ -23,7 +23,7 @@ import {
   ticksOf,
   valueAt,
 } from '../src/ui/rules/sliderMath';
-import { cnCount, groupItems, modifiedCount, modifiedSections, renamedBiomes, rulesLine, searchRules } from '../src/ui/rules/rulesView';
+import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, rulesLine, searchRules } from '../src/ui/rules/rulesView';
 
 const item = (id: string) => tuningItem(id)!;
 
@@ -159,6 +159,19 @@ describe('改过的、搜规则、改了几项', () => {
     expect(modifiedSections({})).toEqual([]);
     expect(cnCount(3)).toBe('三');
     expect(cnCount(2)).toBe('两');
+  });
+
+  it('只看改过的:列过的改回了官方也接着列(拖滑条路过官方那一格不丢那一行),离开这一页清掉', () => {
+    const kept = new Set<string>();
+    keepModified(kept, { values, biomes: { steppe: '马场' } });
+    // 战争多少拖回了 ×1、草原的叫法清空了:还在
+    const after = cleanTuning({ ...values, 'war.odds': 1 }).values;
+    const keep = keepModified(kept, { values: after, biomes: {} });
+    expect(modifiedSections(after, keep)[0].items.map((x) => x.id)).toEqual(['war.odds', 'war.truce', 'war.sack']);
+    expect(renamedBiomes({ biomes: {} }, keep)).toEqual([Biome.Steppe]);
+    expect(modifiedSections(after)[0].items.map((x) => x.id)).toEqual(['war.truce', 'war.sack']);
+    kept.clear();
+    expect(modifiedSections(after, keepModified(kept, { values: after }))[0].items.map((x) => x.id)).toEqual(['war.truce', 'war.sack']);
   });
 
   it('改了几项:规则项 + 地貌的叫法;改过叫法的地貌照总表的先后', () => {

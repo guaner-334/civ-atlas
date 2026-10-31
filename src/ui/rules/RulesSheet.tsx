@@ -19,7 +19,7 @@
  *
  * 关闭:右上角的关闭 / Esc / 点大卡外面(手机上点左上的返回)。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { useNarrow } from '../device';
 import { notify } from '../saveStore';
@@ -32,7 +32,7 @@ import type { TuningGroup, TuningItem, TuningValue } from '../../gen/civ/tuning'
 import { deleteRules, editRules, renameRules, setBiomeName, setRuleValue, useMyRules, type MyRules } from '../rulesStore';
 import { closeRulesSheet, getRulesSheet, openRulesSheet, useRulesSheet } from './sheetStore';
 import { BiomeRow, MoreMenu, NameInput, RuleBlock, RuleRow, type MenuItem } from './RuleRows';
-import { cnCount, groupItems, modifiedCount, modifiedSections, renamedBiomes, searchRules, type ItemSection, type RulesPage } from './rulesView';
+import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, searchRules, type ItemSection, type RulesPage } from './rulesView';
 import { adoptRules, downloadRules, duplicateRules, shareRules } from './rulesActions';
 
 /** 官方规则(一项没改) */
@@ -188,7 +188,7 @@ export function mineMenu(m: MyRules, after?: () => void): (MenuItem | 'sep')[] {
   ];
 }
 
-/** 只看改过的那一页的说明 */
+/** 只看改过的那一页的说明(sec、biomes 是改过的;改回了还接着列的不算) */
 function modifiedNote(sh: Shown, sec: ItemSection[], biomes: number): string {
   const n = sec.reduce((a, s) => a + s.items.length, 0) + biomes;
   if (!n) return sh.kind === 'official' ? '官方规则没有改过的项。左边点一组，能看各项官方的数。' : '还没改过哪一项。改过的项不管在哪一组，都会列在这里。';
@@ -216,9 +216,16 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
   const [more, setMore] = useState<ReadonlySet<TuningGroup>>(() => new Set());
   const [naming, setNaming] = useState(name0);
   const searching = q.trim() !== '';
+  /** 「只看改过的」上列过的(改回了也接着列,离开这一页再清) */
+  const kept = useRef(new Set<string>());
   const go = (p: RulesPage) => {
     setQ('');
     setPage(p);
+    kept.current.clear();
+  };
+  const resetAll = () => {
+    kept.current.clear();
+    acts?.resetAll();
   };
   const setValue = (item: string, v: TuningValue | undefined) => acts?.setValue(item, v);
   const row = (x: TuningItem) => <RuleRow key={x.id} x={x} values={r.values} ro={ro} onSet={setValue} />;
@@ -226,19 +233,20 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
   let body: JSX.Element;
   if (searching) body = <SearchPage q={q} r={r} row={row} ro={ro} acts={acts} />;
   else if (page === 'modified') {
-    const sec = modifiedSections(r.values);
-    const bs = renamedBiomes(r);
+    const keep = keepModified(kept.current, r);
+    const sec = modifiedSections(r.values, keep);
+    const bs = renamedBiomes(r, keep);
     body = (
       <>
         <div className="rs-grp-h">
           <h2>只看改过的</h2>
           {acts && n.total > 0 && (
-            <button className="rs-btn ghost" data-act="rules-reset-all" onClick={acts.resetAll}>
+            <button className="rs-btn ghost" data-act="rules-reset-all" onClick={resetAll}>
               全部改回官方
             </button>
           )}
         </div>
-        <p className="rs-grp-d">{modifiedNote(sh, sec, bs.length)}</p>
+        <p className="rs-grp-d">{modifiedNote(sh, modifiedSections(r.values), n.biomes)}</p>
         {sec.map((s) => (
           <section key={s.group}>
             {/* 都在一组(说明里已经写了是哪一组):不再写组名 */}
@@ -510,8 +518,11 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
   const setValue = (item: string, v: TuningValue | undefined) => acts?.setValue(item, v);
   const block = (x: TuningItem) => <RuleBlock key={x.id} x={x} values={r.values} ro={ro} onSet={setValue} />;
   const searching = page === 'root' && q.trim() !== '';
+  /** 「只看改过的」上列过的(同电脑) */
+  const kept = useRef(new Set<string>());
   const go = (p: PhonePage) => {
     setPage(p);
+    kept.current.clear();
     document.querySelector('.rs-ph-body')?.scrollTo(0, 0);
   };
 
@@ -556,10 +567,11 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
       </>
     );
   } else if (page === 'modified') {
-    const sec = modifiedSections(r.values);
-    const bs = renamedBiomes(r);
+    const keep = keepModified(kept.current, r);
+    const sec = modifiedSections(r.values, keep);
+    const bs = renamedBiomes(r, keep);
     title = '只看改过的';
-    sub = modifiedNote(sh, sec, bs.length);
+    sub = modifiedNote(sh, modifiedSections(r.values), n.biomes);
     body = (
       <>
         {sec.map((s) => (
@@ -583,7 +595,14 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
           </section>
         )}
         {acts && n.total > 0 && (
-          <button className="rs-btn wide" data-act="rules-reset-all" onClick={acts.resetAll}>
+          <button
+            className="rs-btn wide"
+            data-act="rules-reset-all"
+            onClick={() => {
+              kept.current.clear();
+              acts.resetAll();
+            }}
+          >
             全部改回官方
           </button>
         )}

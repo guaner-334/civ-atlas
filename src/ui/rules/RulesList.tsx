@@ -16,7 +16,10 @@ import { duplicateRules, newRules } from './rulesActions';
 /** 用它建过几个世界 */
 const usedText = (e: MyRules) => (e.worlds ? `用它建过 ${e.worlds} 个世界` : '还没用过');
 
-export function RulesTab({ phone }: { phone: boolean }) {
+/**
+ * fileBtn:「打开存档文件」在哪(电脑在右上、手机在列表下面;一个世界都没有时没有这个按钮,说拖进来)
+ */
+export function RulesTab({ phone, fileBtn }: { phone: boolean; fileBtn: boolean }) {
   const list = useMyRules();
   /** 键盘选中一行按回车 / 空格:打开(焦点在行里的按钮上时归按钮) */
   const open = (e: React.KeyboardEvent, f: () => void) => {
@@ -91,7 +94,8 @@ export function RulesTab({ phone }: { phone: boolean }) {
         )}
       </div>
       <p className="rs-note">
-        别人发来的规则链接，打开时会问你要不要加进来；规则文件用{phone ? '下面' : '右上'}「打开存档文件」打开。
+        别人发来的规则链接，打开时会问你要不要加进来；
+        {fileBtn ? `规则文件用${phone ? '下面' : '右上'}「打开存档文件」打开。` : '规则文件拖进这一页就能打开。'}
       </p>
     </div>
   );

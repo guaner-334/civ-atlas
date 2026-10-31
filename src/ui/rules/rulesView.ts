@@ -28,14 +28,27 @@ function sections(items: readonly TuningItem[]): ItemSection[] {
   return TUNING_GROUPS.map((g) => ({ group: g.id, name: g.name, items: TUNING_ITEMS.filter((x) => x.group === g.id && items.includes(x)) })).filter((s) => s.items.length);
 }
 
-/** 改过的项,按组列(只看改过的) */
-export function modifiedSections(values: TuningValues): ItemSection[] {
-  return sections(TUNING_ITEMS.filter((x) => x.id in values));
+/**
+ * 改过的项,按组列(只看改过的)。keep:这一页上已经列出来过的(编号),改回官方了也接着列 ——
+ * 拖滑条路过官方那一格、点了改回,那一行不会一下子没了(拖着的把手也不会丢)
+ */
+export function modifiedSections(values: TuningValues, keep?: ReadonlySet<string>): ItemSection[] {
+  return sections(TUNING_ITEMS.filter((x) => x.id in values || keep?.has(x.id)));
 }
 
-/** 改过叫法的地貌(照地貌总表的先后) */
-export function renamedBiomes(r: Pick<RuleSet, 'biomes'>): Biome[] {
-  return BIOME_KEYS.filter((k) => r.biomes?.[k]).map((k) => biomeOfKey(k)!);
+/** 改过叫法的地貌(照地貌总表的先后);keep 同上(地貌的键):打字时清空了框,那一行也不会没了 */
+export function renamedBiomes(r: Pick<RuleSet, 'biomes'>, keep?: ReadonlySet<string>): Biome[] {
+  return BIOME_KEYS.filter((k) => r.biomes?.[k] || keep?.has(k)).map((k) => biomeOfKey(k)!);
+}
+
+/**
+ * 「只看改过的」这一页上列过哪些(规则项的编号、地貌的键):每画一次把现在改过的加进去,离开这一页、全部改回官方时清掉。
+ * 返回这一次要列的(改过的 + 列过的)
+ */
+export function keepModified(kept: Set<string>, r: Pick<RuleSet, 'values' | 'biomes'>): Set<string> {
+  for (const id of Object.keys(r.values)) kept.add(id);
+  for (const k of Object.keys(r.biomes ?? {})) kept.add(k);
+  return kept;
 }
 
 /** 改了几项:规则项 + 地貌的叫法 */

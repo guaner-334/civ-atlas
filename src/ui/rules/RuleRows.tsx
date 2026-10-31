@@ -228,7 +228,7 @@ export function BiomeRow({ b, name, ro, phone, onSet }: { b: Biome; name: string
         }}
         onBlur={() => setDraft(null)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) (e.target as HTMLInputElement).blur();
         }}
       />
       <ResetBtn
@@ -269,6 +269,8 @@ export function NameInput({ initial, max, onDone, className }: { initial: string
       data-act="rules-name-input"
       onChange={(e) => setText(e.target.value)}
       onKeyDown={(e) => {
+        // 输入法正在拼字时的回车、Esc 归输入法(确认、取消候选字),不算改完
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === 'Enter') finish(text);
         else if (e.key === 'Escape') {
           e.stopPropagation();

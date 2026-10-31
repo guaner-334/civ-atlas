@@ -21,10 +21,10 @@ export function RulesHost() {
 }
 
 /** 「我的世界」的「规则」分段 */
-export function RulesTabHost({ phone }: { phone: boolean }) {
+export function RulesTabHost({ phone, fileBtn }: { phone: boolean; fileBtn: boolean }) {
   return (
     <Suspense fallback={null}>
-      <Tab phone={phone} />
+      <Tab phone={phone} fileBtn={fileBtn} />
     </Suspense>
   );
 }
