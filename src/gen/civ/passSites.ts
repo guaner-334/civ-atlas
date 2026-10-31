@@ -20,7 +20,7 @@ import { geometryOf } from '../geometry';
 import { MinHeap } from '../util';
 import { refSpacing } from './geo';
 import { findPass, regionPasses } from './passes';
-import { ownersAt } from './timeline';
+import { ownersAt } from './engine/timeline';
 import type { Annal, Civ, Regions, Route } from './types';
 
 /** 同一处口子:相隔这么多个地块间距以内 */

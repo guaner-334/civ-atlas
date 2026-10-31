@@ -14,7 +14,7 @@
  *   Math.exp / log 在不同版本的 V8 上最后一位可能不同;推演里算出来、之后要比较或存下来的量都过一遍这几个函数,
  *   同一个种子在任何电脑、浏览器上都得到逐位一致的世界。加减乘除、开方是 IEEE 精确舍入的,本来就一致。
  */
-import { keyed, keyed4, mulberry32, subSeed } from '../util';
+import { keyed, keyed4, mulberry32, subSeed } from '../../util';
 
 export { keyed, keyed4, mulberry32, subSeed };
 

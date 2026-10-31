@@ -7,7 +7,7 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { applyNames, polityKey, settlementKey } from '../src/gen/edits';
 import { polityAlive } from '../src/gen/civ/growth';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError } from '../src/ai/types';
 import { listHistoryNotes } from '../src/ai/history';

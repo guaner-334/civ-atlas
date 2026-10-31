@@ -9,17 +9,17 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { effOf, policyAt, polityModelOf, rulerOf } from '../src/gen/civ/polities';
 import { leaningEffect } from '../src/gen/civ/rulers';
 import { POLICY_PRESETS, policyEffect, policyName, withPolicy } from '../src/gen/civ/policy';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { relationsAt } from '../src/gen/civ/diplomacy';
 import { CAP_COUNT, developmentAt } from '../src/gen/civ/development';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { interventionFate } from '../src/gen/stepwise';
 import { cleanIntervention, cleanInterventions, polityKey, type Intervention } from '../src/gen/edits';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 type Policy = Extract<Intervention, { kind: 'policy' }>;
 
@@ -128,7 +128,7 @@ describe.each([7, 2024])('方针 · seed=%i', (seed) => {
     const line = buildChronicle(civ).find((x) => x.year === T && x.text.startsWith('【干预】'));
     expect(line?.text).toMatch(/^【干预】.+定方针:扩张$/);
     // 推演里(接着推时重建的同一份):定方针那一刻照旧,下一刻起照方针
-    const pm = polityModelOf(CivSim.fromCiv(w, civ))!;
+    const pm = polityModelOf(resumeCiv(w, civ))!;
     expect(policyAt(pm, pid, T)).toBeNull();
     expect(effOf(pm, pid, T)).toBe(rulerOf(pm, pid, T).eff);
     for (const t of [T + 1 / 256, T + 50]) {

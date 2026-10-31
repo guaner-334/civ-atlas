@@ -37,7 +37,7 @@ import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, populationAt, portAt, regionCity
 import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calamity';
 import { plagueSpans } from '../gen/civ/story/plagueSpans';
 import { regionLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { authorRegentEndWord, cultureKeyName, interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
 import { boostDoneText } from './boostInfo';
 import { trekDoneText } from './trekInfo';

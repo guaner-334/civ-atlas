@@ -28,18 +28,18 @@
  * **怎么算**:合、思潮、国中各是一张数表(ideoTables.ts,规则用数表的公式语言写),由数表引擎(tables/)每 STEP 年算一步;
  *   这里是事件层:每步把归属、能力、人口、城、物产填进输入表,算之前把移民写进去,算完找冒出来的、记各国的接受度、存快照。
  * 结果是 Civ.ideology:每 SNAP 年一份的各州接受度(加结束那年)、各国每 STEP 年一份的接受度、各国各说传进本国的年份、冒出来的大事,
- *   还有接着推(CivSim.fromCiv)要用的全精度状态。任意年份用 ideologyAt、polityIdeologyAt 查(前后两份线性插值)。
+ *   还有接着推(resumeCiv)要用的全精度状态。任意年份用 ideologyAt、polityIdeologyAt 查(前后两份线性插值)。
  * 只用加减乘除,跨 CPU 逐位一致;不用随机数。
  */
 import type { Civ, IdeoEvent, Ideology, IdeoState, Year } from './types';
-import type { TableCard } from './tables';
+import type { TableCard } from './engine/tables';
 import { AdjKind, Layer } from './types';
-import type { CivSim } from './sim';
-import { TableEngine } from './tables';
+import type { CivSim } from './engine/sim';
+import { TableEngine } from './engine/tables';
 import { CAP_COUNT, CAPS, INVENTIONS, RESOURCE_COUNT, Res, devModelOf, type DevModel } from './development';
 import { populationAt } from './growth';
 import { ideoCards } from './ideoTables';
-import { subSeed } from './rand';
+import { subSeed } from './engine/rand';
 
 /** 一说一行 */
 export interface Thought {
@@ -318,7 +318,7 @@ export function installIdeology(sim: CivSim, seed: number): void {
 }
 
 /**
- * 接着推(CivSim.fromCiv 调用,在 resumeDevelopment 之后):从 Civ.ideology.state 接上(地形大事以后州多了的补 0);
+ * 接着推(resumeCiv 调用,在 resumeDevelopment 之后):从 Civ.ideology.state 接上(地形大事以后州多了的补 0);
  * 没存状态的(加思潮以前的历史)从现在起算,还没冒出来的照常冒
  */
 export function resumeIdeology(sim: CivSim, civ: Civ): void {

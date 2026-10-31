@@ -12,7 +12,7 @@ import { peopleIndex, personSpan, rulerAt, rulerNeighbors } from '../../src/gen/
 import { generalRole, isConsul, kinOf, personName, princeRole, rulerRole } from '../../src/gen/civ/story/peopleText';
 import { dynastyNote, dynastyRowAt, dynastyRows, kidsOf, layoutDynasty, reignOrder, secededFrom } from '../../src/gen/civ/story/lineageInfo';
 import { searchCiv } from '../../src/ui/searchIndex';
-import { ownersAt } from '../../src/gen/civ/timeline';
+import { ownersAt } from '../../src/gen/civ/engine/timeline';
 import { capitalAt, polityAlive, polityName } from '../../src/gen/civ/growth';
 import { regionLabel } from '../../src/gen/civ/story/display';
 import { polityKey, regionKey, settlementKey, type Plot } from '../../src/gen/edits';

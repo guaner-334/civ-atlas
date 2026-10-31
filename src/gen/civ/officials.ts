@@ -30,7 +30,7 @@
  * 将领按"国家的位置锚 + 本国第几位将领"。名字和将领一起按出道先后起,不和此前的人物重名(people.ts 的 NameBook)。
  */
 import { Layer, type Annal, type ChangeLog, type Person, type PersonDeed, type PersonFate, type PersonPost, type Polity, type Settlement, type UpheavalFact, type Year } from './types';
-import { keyed4, subSeed } from './rand';
+import { keyed4, subSeed } from './engine/rand';
 import { capitalAt, polityTierAt, polityTitles } from './growth';
 import { HEIR, K_HOUSE_MINISTER, houseBase, pickHouses, withParentSurname, type HouseCand } from './kin';
 import { splitSurname } from './surname';

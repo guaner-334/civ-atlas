@@ -17,7 +17,7 @@ import { AdjKind } from '../../gen/civ/types';
 import type { TradeRoute } from '../../gen/civ/trade';
 import type { Mesh } from '../../gen/mesh';
 import { capitalAt } from '../../gen/civ/growth';
-import { ownersAt } from '../../gen/civ/timeline';
+import { ownersAt } from '../../gen/civ/engine/timeline';
 import { MinHeap } from '../../gen/util';
 import { chaikin, unwrapLine } from './lines';
 import type { CivDrawParams } from './overlay';

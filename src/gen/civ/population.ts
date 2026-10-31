@@ -27,14 +27,14 @@ import type { Year } from './types';
 import { MAJOR_RIVER } from './habitat';
 import { Biome } from '../biomes';
 import { quakeWord } from './calamity';
-import type { CivSim } from './sim';
+import type { CivSim } from './engine/sim';
 import type { PolityModel } from './polities';
 import { RURAL_SNAP, ruralTargets, type DevModel } from './development';
 import { GROWTH_A, RURAL_WAR, SACK_RECOVER, ruralShare } from './growth';
 import { pandemicModelOf, slumpIn } from './pandemicState';
-import type { TableEngine } from './tables';
+import type { TableEngine } from './engine/tables';
 import type { PopRuleConsts } from './stateTables';
-import { fpow } from './rand';
+import { fpow } from './engine/rand';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 几年算一步(搬家要算每条邻边,每年算太慢;钱粮每 10 年读一次、快照每 10 年一份,都对得齐) */

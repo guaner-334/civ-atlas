@@ -49,7 +49,7 @@
  * **做法**(practices.ts 的做法表):各国国都所在州的五种能力和时代(国都能力,每年填)→ 有了哪几样做法(做法,一样一栏);
  * 有了铁路的,管得到几成里管得到的远近再乘 RAIL_REACH。别的做法改的是议事、割据(事件层按同一张表现算)。
  */
-import type { TableCard } from './tables';
+import type { TableCard } from './engine/tables';
 import { NEVER } from './devTables';
 import { RAIL_REACH, practiceCards } from './practices';
 

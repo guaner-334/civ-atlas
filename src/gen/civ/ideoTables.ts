@@ -8,7 +8,7 @@
  * 输入表(事件层每步填好):民族、国(编号表;国 = 州 → 国);五种能力、城的人口、一州的人口(城加乡村,千人)、港口、
  * 粮和矿眼下能用多少;各国的国号档位、有几州。民族只用来看这州有没有人住,不进接受度的算法。
  */
-import type { TableCard } from './tables';
+import type { TableCard } from './engine/tables';
 
 /** 规则里用的常数(ideology.ts 给;名字和那边一样) */
 export interface IdeoRuleConsts {

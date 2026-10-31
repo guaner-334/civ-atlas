@@ -13,7 +13,7 @@ import { useSyncExternalStore } from 'react';
 import { AdjKind, type Civ, type Year } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive, populationAt, regionPopulationAt } from '../gen/civ/growth';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { regionLabel } from '../gen/civ/story/display';
 import { regionPasses } from '../gen/civ/passes';
 import { cnNumber } from '../gen/civ/story/chronicle';

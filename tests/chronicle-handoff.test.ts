@@ -12,7 +12,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { buildChronicle, chronicleCached, claimsOf, openFoes, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { fullChronicle, fullChronicleCached } from '../src/gen/civ/story/religionText';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import type { Annal } from '../src/gen/civ/types';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { applyNames, polityKey, type Upheaval } from '../src/gen/edits';

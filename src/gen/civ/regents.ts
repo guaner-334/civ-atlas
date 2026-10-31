@@ -27,7 +27,7 @@
  */
 import type { Annal, Polity, RulerLeanings, Year } from './types';
 import { AUTHOR_REGENT_AGE_END, parsePersonKey, type Intervention } from '../edits';
-import { fpow, keyed4, subSeed } from './rand';
+import { fpow, keyed4, subSeed } from './engine/rand';
 import { MAX_AGE, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep, type LeaningEffect, type Reign } from './rulers';
 import { POSTHUMOUS, broodOf } from './royals';
 import { polityTierAt } from './growth';

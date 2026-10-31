@@ -10,7 +10,7 @@
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import { fullChronicle } from '../gen/civ/story/religionText';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { fileBaseName } from '../gen/savefile';
 import { historyNoteStatus, listHistoryNotes, type HistoryNote } from '../ai/history';
 import { buildHistoryPrompts, loadScope, partName, type HistoryScope } from '../ai/prompts/history';

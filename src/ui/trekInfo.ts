@@ -10,7 +10,7 @@ import { useSyncExternalStore } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { regionLabel } from '../gen/civ/story/display';
 import { polityName } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { searchTrek, trekPaths, trekRouteTo, type TrekPaths } from '../gen/civ/trekRoute';
 import { interventionFate } from '../gen/stepwise';
 import { cnNumber } from '../gen/civ/story/chronicle';

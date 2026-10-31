@@ -16,7 +16,7 @@
  *   动荡(unrest.ts 的数表,control.ts 读的时候加上:分裂、大崩解、民变、趁虚而入都看它)+ GUIDE_UNREST × unrest/50,改朝换代的动荡(dynasty.ts)× e^(GUIDE_DYNASTY × unrest/50)。
  *
  * **从哪一刻起**:from 那一刻(干预事件)登记,下一刻(1/256 年后)起照新方针算 —— 同一刻里先发生的事照旧,
- * 接着推(fromCiv)按史事重放时也一样(和作者立的君主同一个做法,见 rulers.ts)。门槛放低了的,下一刻从现有国土往外重新看一遍
+ * 接着推(resumeCiv)按史事重放时也一样(和作者立的君主同一个做法,见 rulers.ts)。门槛放低了的,下一刻从现有国土往外重新看一遍
  * (polities.ts 的 Ev.Respread,a = POLICY_RESPREAD)。
  * 生效了的方针推演里登记在 PolityModel.policies(polities.ts 的 setPolicy);不存进 Civ:接着推、排人物时由史事 intervene 推出来(policiesFrom)。
  * 没有方针的国家什么都不变(只多一次判空),所以没有方针的世界逐字节不变。纯计算,不碰 DOM。
@@ -25,7 +25,7 @@ import type { Intervention, PolicyFocus, PolicyKnob, PolicyPreset } from '../edi
 import { POLICY_FOCI } from '../edits';
 import type { Annal, RulerLeanings, Year } from './types';
 import { leaningEffect, type LeaningEffect, type Reign } from './rulers';
-import { fexp } from './rand';
+import { fexp } from './engine/rand';
 
 export type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
 

@@ -7,10 +7,11 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind, Layer } from '../src/gen/civ/types';
-import { CivSim, Ev } from '../src/gen/civ/sim';
+import { Ev } from '../src/gen/civ/engine/sim';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { seaPassable, usedLanes } from '../src/gen/civ/routes';
 import { ruinSites } from '../src/gen/civ/growth';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -115,7 +116,7 @@ describe('航线与航海时代', () => {
     expect(after).toBeGreaterThan(0);
   }, 60_000);
 
-  it('fromCiv 接着推:在最早有普通国家能远洋的那一刻前后切开,和一口气推完逐字节一致', () => {
+  it('resumeCiv 接着推:在最早有普通国家能远洋的那一刻前后切开,和一口气推完逐字节一致', () => {
     for (const seed of [7, 2024]) {
       const w = world({ ...small, seed });
       const whole = civOf({ ...small, seed });
@@ -123,7 +124,7 @@ describe('航线与航海时代', () => {
       expect(S).toBeLessThan(whole.endYear);
       for (const cut of [S - 1 / 256, S, S + 200]) {
         const half = generateCiv(w, { endYear: cut });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;

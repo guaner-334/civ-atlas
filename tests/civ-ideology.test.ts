@@ -9,11 +9,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { populationAt, regionPopulationAt } from '../src/gen/civ/growth';
 import { CAP_COUNT, INVENTIONS, developmentAt } from '../src/gen/civ/development';
 import { ARRIVE, IDEO_SCALE, THOUGHTS, THOUGHT_COUNT, ideologyAt, polityIdeologyAt, polityThoughts, ideoTableCards, thoughtArrival, thoughtOrigin } from '../src/gen/civ/ideology';
-import { TableEngine, type Backend } from '../src/gen/civ/tables';
+import { TableEngine, type Backend } from '../src/gen/civ/engine/tables';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { AdjKind } from '../src/gen/civ/types';
 

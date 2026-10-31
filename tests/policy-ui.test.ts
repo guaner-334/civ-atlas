@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { POLICY_PRESETS, emptyPolicy, policyName, type PolicyIv } from '../src/gen/civ/policy';
 import { POLICY_PICK_MAX, polityKey } from '../src/gen/edits';
 import {

@@ -15,7 +15,7 @@ import { blurField, type Mesh } from './mesh';
 import { piecewise, subSeed, clamp, smoothstep, orderByKey } from './util';
 import { geometryOf } from './geometry';
 import type { Currents } from './currents';
-import { round24 } from './civ/rand';
+import { round24 } from './civ/engine/rand';
 
 export interface ClimateParams {
   seed: number;

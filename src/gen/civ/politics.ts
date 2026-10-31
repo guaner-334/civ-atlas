@@ -55,8 +55,8 @@ import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf, type Geometry } from '../geometry';
 import { AdjKind, Layer, type AnnalCause, type Civ, type Polity, type Year } from './types';
-import { fexp, flog, keyed, keyed4, subSeed } from './rand';
-import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, flog, keyed, keyed4, subSeed } from './engine/rand';
+import { BOOKED_AT_START, bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capacityAt, capitalAt, populationAt } from './growth';
@@ -863,7 +863,7 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
 }
 
 /**
- * 由 Civ 重建分合的推演状态(CivSim.fromCiv 调用,在 resumeWars 之后):
+ * 由 Civ 重建分合的推演状态(resumeCiv 调用,在 resumeWars 之后):
  * 最近一次分裂、被并掉的国家从史事里读,复过国的亡国从国家表里读;
  * 再按"国家 + 第几次"算出还没到的看内政、看复国、看部落地带,补进引擎。
  */

@@ -11,7 +11,7 @@ import { Layer, type Civ, type Year } from '../../gen/civ/types';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlTier } from '../../gen/civ/control';
 import { cutDone } from '../../gen/civ/councilRules';
 import { polityName } from '../../gen/civ/growth';
-import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { numBase, numCiv, type NumLayer } from './numLayer';
 
 /** 四档的颜色(直辖、代管、自治、割据) */

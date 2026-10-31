@@ -8,7 +8,7 @@
  */
 import type { Civ, Year } from '../../gen/civ/types';
 import { ERAS, developmentAt, eraLevel, eraOf } from '../../gen/civ/development';
-import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { numCiv, type NumLayer } from './numLayer';
 
 /** 九个时代的颜色(石器 → 未来) */

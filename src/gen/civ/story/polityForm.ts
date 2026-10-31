@@ -35,7 +35,7 @@ import { Outcome, applyRule, isReformIssue, newRules, replayRule, rulesAnnal } f
 import { reformedSeg, segRegime, type Regime } from '../regime';
 import { dynastyIndexAt } from '../polityRoot';
 import { LORD_BYTE, controlAt } from '../control';
-import { logIndexAfter, ownersAt } from '../timeline';
+import { logIndexAfter, ownersAt } from '../engine/timeline';
 import { polityTierAt } from '../growth';
 
 /** 国号到这一档算帝国那一头 */

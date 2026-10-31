@@ -12,16 +12,16 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ, type Person } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf, rulerOf } from '../src/gen/civ/polities';
 import { reignBook, reignStart, rulerBase, type Crown, type ReignPolity } from '../src/gen/civ/rulers';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { playCiv, playStop, playTurn } from '../src/gen/civ/play';
 import { applyCharacters } from '../src/gen/characters';
 import { kinOf } from '../src/gen/civ/story/peopleText';
 import { interventionFate, laterInterventions, rewindStepwise, startStepwise } from '../src/gen/stepwise';
 import { EMPTY_EDITS, cleanIntervention, cleanInterventions, polityKey, regionKey, type Intervention, type WorldEdits } from '../src/gen/edits';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
@@ -102,7 +102,7 @@ describe.each([7, 2024])('即位 · seed=%i', (seed) => {
     expect(kinOf(civ, me, rs[k + 1])).toBe('');
     expect(authorsOf(civ)).toHaveLength(1);
     // 推演里的在位表(接着推时重建的同一份):他从即位的下一刻起在位,到下台那一刻;即位那一刻还算原来那位
-    const pm = polityModelOf(CivSim.fromCiv(w, civ))!;
+    const pm = polityModelOf(resumeCiv(w, civ))!;
     expect(rulerOf(pm, pid, T).leanings).toEqual(rs[k - 1].leanings);
     for (const t of [T + 1 / 256, T + 0.5, T + 15, end - 1 / 256]) expect(rulerOf(pm, pid, t).leanings, `${t}`).toEqual(BOLD);
     // 新朝的第一位从改朝换代的下一刻起在位
@@ -173,7 +173,7 @@ describe.each([7, 2024])('即位 · seed=%i', (seed) => {
     for (const x of rs) expect(x.until === undefined || x.until > x.from!, x.name).toBe(true);
     if (rs[1]) expect(rs[1]).toMatchObject({ from: rs[0].until, rise: 'heir' });
     // 推演里:立国那一刻还是生成的开国之君(在位 0 天,人物里不列),下一刻起是他
-    const pm = polityModelOf(CivSim.fromCiv(w, civ))!;
+    const pm = polityModelOf(resumeCiv(w, civ))!;
     expect(rulerOf(pm, made, T).crown).toBeUndefined();
     expect(rulerOf(pm, made, T + 1 / 256).leanings).toEqual(BOLD);
     // 推到 T + 20 再接着推到 T + 200,和一口气推到 T + 200 一样(接着推时重放立国那一刻的扩张预约)

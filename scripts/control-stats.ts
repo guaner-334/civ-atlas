@@ -7,7 +7,7 @@
  */
 import { generateWorld, type WorldParams } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { politicsStats } from '../src/gen/civ/politics';
 import { controlAt, controlTier } from '../src/gen/civ/control';
 import { councilStats } from '../src/gen/civ/council';

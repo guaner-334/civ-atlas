@@ -6,7 +6,7 @@
 import type { Civ } from '../gen/civ/types';
 import { AdjKind } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { capitalAt, polityName } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/story/display';
 import { condList, type FinderCand, type FinderPlace, type FinderQuery } from '../gen/finder/query';
