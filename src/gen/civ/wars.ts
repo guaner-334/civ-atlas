@@ -699,7 +699,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     if (left < MIN_STATE && settled && !keep) return annex(w, x, y, r, t);
     // 破都纳降:攻方国力是守方 SURRENDER_POWER 倍以上、守方余下的州不超过攻方的 SURRENDER_SHARE,余下的国土一并归降,亡国
     // (讨伐民变、宗室争位的内战不算;阶段 4 干预不许灭的国家不降)
-    if (!keep && left <= SURRENDER_SHARE * pm.size[x] && !wm.revolt?.(w) && !wm.iv?.protects(y, t)) {
+    if (!keep && left <= SURRENDER_SHARE * pm.size[x] && !api.war.revolt?.(w) && !wm.iv?.protects(y, t)) {
       const pw = powers(t, [x, y]);
       if (pw[x] >= SURRENDER_POWER * pw[y]) return annex(w, x, y, r, t, true);
     }
