@@ -262,9 +262,10 @@ describe('分与合', () => {
       const rebels = new Set(civ.annals.filter((x) => x.kind === 'revolt' || (x.kind === 'split' && x.cause === 'heir')).map((x) => x.a));
       const attacked = new Set(civ.annals.filter((x) => x.kind === 'war').map((x) => x.a));
       expect(born.filter((p) => !rebels.has(p.id) && !attacked.has(p.id) && p.ended !== undefined && p.ended - p.founded < NEWBORN)).toEqual([]);
-      // 大帝国不会一夜碎成十几块:同一国同一年最多分裂一次(大崩解一次散成 2–4 国,算一次)
+      // 大帝国不会一夜碎成十几块:同一国同一年最多分裂一次(大崩解一次散成 2–4 国,算一次;
+      // 复国是各处的遗民各自起兵,不算 —— 有了破都纳降以后一国治下的故国多了,种子 2024 第 2503 年一国先后有两处复国)
       const once = new Set<string>();
-      for (const e of civ.annals.filter((x) => x.kind === 'split' && x.cause !== 'collapse' && x.cause !== 'heir')) {
+      for (const e of civ.annals.filter((x) => x.kind === 'split' && x.cause !== 'collapse' && x.cause !== 'heir' && civ.polities[x.a].restores === undefined)) {
         const k = `${e.b}|${Math.floor(e.year)}`;
         expect(once.has(k), `${tag} ${k}`).toBe(false);
         once.add(k);

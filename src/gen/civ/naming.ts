@@ -503,7 +503,12 @@ export function namePolities(seed: number, polities: Polity[], cultures: Culture
   events.sort((x, y) => x.t - y.t || x.kind - y.kind || at[x.p.id].cell - at[y.p.id].cell || at[x.p.id].n - at[y.p.id].n || x.p.id - y.p.id || x.i - y.i);
   const seen = new Set<number>();
   for (const { t, kind, p, i } of events) {
-    while (nextKin < kin.length && kin[nextKin].born <= t) claim(kin[nextKin++].name);
+    // 分化出来的民族,族名和早先的国名撞了(复国的"西昌"、后来分化出"西昌族"):这一族立的国不再直接用族名,另起
+    while (nextKin < kin.length && kin[nextKin].born <= t) {
+      const cu = kin[nextKin++];
+      if (taken.has(cu.name) || takenBare.has(bare(cu.name))) seen.add(cu.id);
+      claim(cu.name);
+    }
     if (kind === 0 && !p.name) {
       const cu = cultures[p.culture];
       if (p.restores !== undefined) p.name = restored(p) || fresh(p);

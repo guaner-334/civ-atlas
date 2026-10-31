@@ -15,8 +15,11 @@ import { alivePolities } from '../src/ui/crownInfo';
 import { keepWhy } from '../src/ui/keepInfo';
 import { IV_ROYAL_AGE, marryChoice, marryPartners, regentChoice } from '../src/ui/newIvInfo';
 
-/** 3:改出来的共和 → 军政府;6:复辟;7:共和 → 复辟(一个种子里没有的,换别的种子照样找得到就行) */
-const SEEDS = [3, 6, 7];
+/**
+ * 2:改出来的共和、军政府、复辟都有;3、7:改共和(一个种子里没有的,换别的种子照样找得到就行;
+ * GENERATOR_VERSION 56 滚雪球以后军政府、复辟少见了,种子 1–13 里两样都有的只有 2 号,以前是 3、6、7)
+ */
+const SEEDS = [2, 3, 7];
 const civs = new Map<number, Civ>();
 const civOf = (seed: number) => {
   let c = civs.get(seed);

@@ -480,10 +480,10 @@ describe.each([7, 2024])('作者的人物 · 在这个世界里 · seed=%i', (se
     expect(characterLine(civ, world, raster, c, y, chars)).toMatch(/书记官，16 岁$/);
     expect(characterLine(civ, world, raster, kid, y, chars)).toMatch(/林小满的女儿，\d+ 年出生$/);
     expect(characterLine(civ, world, raster, c, y + 41, chars)).toMatch(/卒，享年 56 岁$/);
-    // 推演人物的卡片:勾了他的,经历里他的名字换成"他"
+    // 推演人物的卡片:勾了他的,经历里他的名字换成"他"(女的换成"她";GENERATOR_VERSION 56 以后两个种子的头一场都是女将)
     const refs = charactersOfPerson(civ, chars, g);
     expect(refs.map((r) => r.c.id)).toEqual([1]);
-    expect(refs[0].text).toBe(`${y} 年随他出征`);
+    expect(refs[0].text).toBe(`${y} 年随${civ.people![g].female ? '她' : '他'}出征`);
     // 城的卡片:生在这里、在这里去世
     const at = charactersAt(civ, world, raster, chars, { city: s.id });
     expect(at.map((r) => r.text)).toEqual([`${c.born} 年生在这里，${c.died} 年在这里去世`]);
