@@ -57,6 +57,7 @@ import { addCulture, cultureModelOf } from './cultures';
 import { polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type WarModel } from './wars';
 import { capitalAt } from './growth';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看民族;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -738,3 +739,12 @@ export function assimStats(civ: Civ): AssimStats {
     flippy,
   };
 }
+
+/** 模块:同化与迁徙:同化、随征服而来的移民、避兵外迁、民族消亡(清单和次序见 modules.ts) */
+export const assimilationModule: CivModule = {
+  id: 'assimilation',
+  install: (c) => {
+    if (c.pm) installAssimilation(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumeAssimilation(c.sim, c.world, c.civ),
+};

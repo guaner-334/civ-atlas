@@ -98,6 +98,7 @@ import { regionPasses } from './passes';
 import type { InterventionModel } from './interventions';
 import type { DiplomacyModel } from './diplomacy';
 import { royalAt } from './regime';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邻国;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -1445,3 +1446,12 @@ export function warStats(civ: Civ): WarStats {
     exclaveShare: owned ? exclaves / owned : 0,
   };
 }
+
+/** 模块:战争与攻占:宣战、攻占、迁都、灭亡、议和(清单和次序见 modules.ts) */
+export const warsModule: CivModule = {
+  id: 'wars',
+  install: (c) => {
+    if (c.pm) installWars(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumeWars(c.sim, c.world, c.civ),
+};

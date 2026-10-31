@@ -31,6 +31,7 @@ import { Cap, CAP_COUNT, DISCOVER_AT, GATE_NEAR, RESOURCE_COUNT, devModelOf, gat
 import { warModelOf, type WarModel } from './wars';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { capitalAt } from './growth';
+import type { CivModule } from './modules';
 
 /** 一步多少年(和发展度同一步) */
 const STEP = 20;
@@ -696,3 +697,16 @@ function direction(mesh: { x: Float32Array; y: Float32Array }, a: number, b: num
   if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? '东' : '西';
   return dy >= 0 ? '南' : '北';
 }
+
+/** 模块:商道:跟着发展度每 20 年算一步,只读推演、不改历史(清单和次序见 modules.ts) */
+export const tradeModule: CivModule = {
+  id: 'trade',
+  install: (c) => {
+    if (c.pm) installTrade(c.sim, c.seed);
+  },
+  resume: (c) => resumeTrade(c.sim, c.civ),
+  finish: (c) => {
+    const trade = finishTrade(c.sim, c.regions);
+    if (trade) c.civ.trade = trade;
+  },
+};
