@@ -110,7 +110,7 @@ export function dataLegend(layer: LayerId): DataLegend {
       return {
         kind: 'keys',
         title: '生物群落',
-        keys: BIOMES.slice(1, -1).map((b) => ({ name: b.name, color: b.real })),
+        keys: BIOMES.filter((b) => b.legend).map((b) => ({ name: b.name, color: b.real })),
       };
   }
 }

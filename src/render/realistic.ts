@@ -1642,36 +1642,21 @@ const DETAIL_E1 = 1400;
 // 从 BIOMES[].real 出发,按 classifyBiome 的阈值铺满 Whittaker 图,再做高斯模糊,
 // 这样群落交界处是连续渐变;每条色带的中间那档仍是 BIOMES 表里的颜色,和数据图层的分区对得上。
 
-/**
- * 同一种群落里从暗到亮的七档颜色:取自 NASA「蓝色弹珠」(Blue Marble)卫星合成图(公有领域)上真实地区的陆地像素 ——
- * 每种群落挑几块典型地区(热带荒漠:撒哈拉、阿拉伯、澳洲中部;热带雨林:亚马孙、刚果、婆罗洲……),去掉雪,
- * 按亮度排序,七个分位数段各取中位色。卫星图整体偏暗,只用它的"形状":每档除以中间那档,再乘到群落颜色上 ——
- * 群落的平均色不变,暗处偏什么色(荒漠的暗处是红褐的岩石、亮处是浅色的沙)照卫星图
- */
-const SAT_RAMPS: Partial<Record<Biome, string[]>> = {
-  [Biome.HotDesert]: ['#7c5134', '#9f7e59', '#b39067', '#bb986c', '#c09e72', '#c5a577', '#cbad81'],
-  [Biome.Savanna]: ['#3f3f1e', '#564a2b', '#615031', '#695637', '#745e3e', '#856c49', '#a0825a'],
-  [Biome.TropicalDryForest]: ['#2c3313', '#353a1a', '#3c3e1e', '#424222', '#474526', '#50492b', '#605133'],
-  [Biome.Rainforest]: ['#142208', '#16250a', '#18270a', '#19280c', '#1a2a0c', '#1c2c0d', '#1f2f10'],
-  [Biome.TemperateDesert]: ['#664d31', '#745b3e', '#816a4b', '#8d785c', '#97846a', '#a49373', '#ab9b7b'],
-  [Biome.Steppe]: ['#4d4326', '#56482b', '#5b4c2e', '#624f31', '#6b5436', '#785b3c', '#876544'],
-  [Biome.TemperateForest]: ['#1c230b', '#21270f', '#252b12', '#293015', '#2f3518', '#373b1d', '#464526'],
-  [Biome.TemperateRainforest]: ['#0d1405', '#111909', '#151e0d', '#1a2513', '#222e1b', '#323a27', '#55584d'],
-  [Biome.Taiga]: ['#161a09', '#1c1e0d', '#202311', '#262818', '#2e3021', '#3b3e30', '#515348'],
-  [Biome.Tundra]: ['#272312', '#332f19', '#3c3520', '#413b24', '#494129', '#616058', '#7f7d7a'],
-  [Biome.ColdDesert]: ['#735e3d', '#7e6746', '#856e4d', '#8b7554', '#917b5b', '#978363', '#a08e71'],
-};
 /** 色带档数(中间那档 = 群落颜色) */
 const RK = 7;
 /** 每档和中间那档的比值最多偏多少(卫星图很暗的地方比值会很极端) */
 const RAMP_LO = 0.45;
 const RAMP_HI = 1.7;
 
-/** 群落 b 的色带(RK 档 RGB);地理图换一套底色、深浅压扁(主要靠底色分地区) */
+/**
+ * 群落 b 的色带(RK 档 RGB);地理图换一套底色、深浅压扁(主要靠底色分地区)。
+ * 色带的形状取自 BIOMES[].satRamp(卫星图上从暗到亮的七档)。卫星图整体偏暗,只用它的"形状":每档除以中间那档,
+ * 再乘到群落颜色上 —— 群落的平均色不变,暗处偏什么色(荒漠的暗处是红褐的岩石、亮处是浅色的沙)照卫星图
+ */
 function biomeRamp(b: Biome, m: Material): RGB[] {
   const own = m.biomes?.[b];
   const base = own ? hexRGB(own) : BIOMES[b].real;
-  const sat = SAT_RAMPS[b];
+  const sat = BIOMES[b].satRamp;
   if (!sat) return Array.from({ length: RK }, () => base);
   const mid = hexRGB(sat[(RK - 1) >> 1]);
   const sq = m.rampSquash;
