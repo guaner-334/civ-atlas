@@ -20,7 +20,7 @@ import {
   type FilmClock,
   type FilmEvent,
   type FilmShape,
-} from '../ui/filmPlan';
+} from './filmFrames';
 import { yearFull, type Era } from '../gen/era';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;

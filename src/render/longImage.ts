@@ -1,6 +1,6 @@
 /**
  * 故事长图的排版和画法(1080 宽,白底黑字,和界面同一套字;地图照屏幕上的画风,由调用方拍好交进来)。
- * 内容(写什么)在 ui/longPlan.ts;这里只管放在哪、多大、怎么画:
+ * 内容(写什么)在 ui/longPlan.ts,写成这里的 LongDoc 交进来;这里只管放在哪、多大、怎么画:
  *   layoutLong —— 算出每一样东西的位置(一串画的指令)、整张多高、哪些地方能切开(切成 3:4 时用)
  *   drawLong   —— 按指令画(整张,或者切开的一页)
  *   longPages  —— 切成 1080×1440 的几页:在两段之间或两件大事之间切,不切断一行字,不把段标题和它的图分开
@@ -9,9 +9,60 @@
  * 结尾:一道线、标题和种子、架空声明;最底下一条浅灰的带子写网站名和网址(能关)。
  * 不碰 DOM:画布、量字的函数都由调用方给。
  */
-import type { LongDoc, LongMap } from '../ui/longPlan';
-import type { EvType } from '../ui/timelineLayout';
+import type { EvType } from './eventTypes';
 import { OUTRO_URL, wrapText } from './film';
+
+// 长图的内容:写什么由 ui/longPlan.ts 的 longDoc 按这几样写好交进来,这里照着排版
+
+/** 一张地图:拍哪一年;一国版裁到这一国、描红边 */
+export interface LongMap {
+  year: number;
+  polity?: number;
+}
+
+export interface LongRow {
+  /** "第 1199 年""第 2478—2514 年";说明行 = '' */
+  label: string;
+  /** 小圆点的颜色(和时间轴上一样);说明行 = null(灰点) */
+  type: EvType | null;
+  text: string;
+  /** 说明行(灰字,没有年份) */
+  note?: boolean;
+  /** 放不下时先去掉轻的(timelineLayout 的 entryWeight) */
+  weight: number;
+}
+
+export interface LongSection {
+  /** "第 500—999 年" */
+  title: string;
+  /** 右上角"1 / 6" */
+  no: string;
+  map: LongMap | null;
+  cap: string;
+  /** AI 写的段落和出处("摘自《九州通史》第三章") */
+  ai: { text: string; src: string } | null;
+  rows: LongRow[];
+  /** 这一段还有几件大事没列出 */
+  more: number;
+}
+
+export interface LongDoc {
+  title: string;
+  /** 一国版的国旗(那一国最后一年的那一面) */
+  flag: { polity: number; year: number } | null;
+  lead: string;
+  /** 一国版:历代国号 */
+  lead2: string | null;
+  head: LongMap;
+  headCap: string;
+  /** 一段多少年 */
+  span: number;
+  sections: LongSection[];
+  /** 结尾那句:标题、种子、架空声明 */
+  foot: string;
+  /** 最底下一条网站名和网址 */
+  brand: boolean;
+}
 
 export const LONG_W = 1080;
 /** 切成 3:4 时一页多高 */

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS } from '../src/gen/world';
 import { rasterize } from '../src/gen/raster';
 import { Biome } from '../src/gen/biomes';
-import { riverGeometry } from '../src/render/common';
+import { riverGeometry } from '../src/gen/riverGeometry';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
