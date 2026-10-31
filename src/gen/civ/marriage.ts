@@ -50,6 +50,7 @@ import {
 } from './marriages';
 import { royalAt } from './regime';
 import type { CivModule } from './modules';
+import { civApi } from './api';
 
 // 随机数用途
 const U_MARRY = 1;
@@ -118,6 +119,7 @@ export function resumeMarriage(sim: CivSim, civ: Civ): void {
 }
 
 function hook(sim: CivSim, mm: MarriageModel): void {
+  const api = civApi(sim);
   models.set(sim, mm);
   const { pm } = mm;
   const wm = warModelOf(sim)!;
@@ -248,7 +250,7 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   };
 
   // ---- 议和时以和亲作结 ----
-  wm.onPeace = (w: War, t: Year) => {
+  api.war.onPeace = (w: War, t: Year) => {
     if (!alive(w.a) || !alive(w.b)) return;
     if (keyed4(mm.base, pm.ptag[w.a], pm.ptag[w.b], Math.round(w.start * 256), U_PEACE) >= PEACE_MATCH) return;
     let held = 0;
@@ -260,14 +262,14 @@ function hook(sim: CivSim, mm: MarriageModel): void {
   };
 
   // ---- 宣战、背盟 ----
-  wm.kin = (p: number, q: number, t: Year): number => {
+  api.war.kin = (p: number, q: number, t: Year): number => {
     let f = 1;
     const b = bond(p, q, t);
     if (b > 0) f *= 1 - (1 - KIN_DECLARE) * b;
     if (motherOf(p, rulerOf(pm, p, t)) === q) f *= UNCLE_DECLARE;
     return f;
   };
-  wm.kinBetray = (p: number, q: number, t: Year): number => 1 - (1 - KIN_BETRAY) * bond(p, q, t);
+  api.war.kinBetray = (p: number, q: number, t: Year): number => 1 - (1 - KIN_BETRAY) * bond(p, q, t);
 }
 
 /** 模块:联姻:两国宗室结亲,少开战、易结盟(清单和次序见 modules.ts) */

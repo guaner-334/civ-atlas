@@ -61,6 +61,7 @@ import { IV_NOT_HIM } from './rulers';
 import { royalAt, royalSeg } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 export interface RegencyModel {
   pm: PolityModel;
@@ -103,6 +104,7 @@ export function resumeRegency(sim: CivSim, _civ: Civ): void {
 }
 
 function hook(sim: CivSim, pm: PolityModel): RegencyModel {
+  const api = civApi(sim);
   const wm = warModelOf(sim);
   if (!wm) throw new Error('installRegency:先 installWars');
   const cx = regencyCtx(pm);
@@ -274,7 +276,7 @@ function hook(sim: CivSim, pm: PolityModel): RegencyModel {
   };
 
   // 引兵入朝那一刻正在打的仗:粮饷为掌权的人所制
-  wm.supply = (w: War, x: number, t: Year): number => {
+  api.war.supply = (w: War, x: number, t: Year): number => {
     const list = listOf(x);
     if (!list) return 1;
     for (let i = list.length - 1; i >= 0; i--) {

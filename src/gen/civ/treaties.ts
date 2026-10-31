@@ -15,13 +15,13 @@
  *     没在和约国打仗的邻国各有 JOIN 的机会拉进来,最多 MAX_PARTIES 国。
  *     两国之约是"互不侵犯"(TERM_PAIR 年),三国以上是"有限竞争"(TERM_MULTI 年;再加各守今疆:不进约国旁边的无主之地、不收约国的藩属),
  *     三国以上的有 MULTI_ZONE 的机会同时设一处中立地。
- *   **议和顺带立约**(厌战、僵持罢兵之后;WarModel.onTruce):两国国力差不到 TREATY_RATIO 倍、陆上接壤、上次约废过了 TREATY_REST 年 → PEACE_TREATY 的机会
+ *   **议和顺带立约**(厌战、僵持罢兵之后;接口 war.onTruce):两国国力差不到 TREATY_RATIO 倍、陆上接壤、上次约废过了 TREATY_REST 年 → PEACE_TREATY 的机会
  *     立互不侵犯之约(TERM_PAIR 年),其中 PEACE_ZONE 的机会同时划一州做缓冲中立地。
  *   **居间**:和立约各国都没在打仗、至少和其中两国接壤的国家里国力最大的(没有就没有);编年史写它当时在朝的名臣(treatyInfo.ts)。
  *   **会盟地**:有中立地的会于中立地的城;没有就挑国界上(和别的约国接壤的州里)离几国国都路程之和最近的一座城。约名照这座城起("丹枫关之约")。
  *   **约的效果**:约期内立约几国互不宣战(DiplomacyModel.friendly 算上它:看邻国时跳过,不援盟来打约国,不把约国当强邻);
  *     有限竞争的还不进约国旁边的无主之地(PolityModel.closed)、不收约国的藩属(DiplomacyModel.limits)。不互相出兵相救(那是结盟)。
- *   **背约**(看邻国时;WarModel.treaty):立约(或续约)满 BREACH_AGE 年以后才可能,还要有由头 —— 自己国力已是对方 BREACH_PREY 倍以上、
+ *   **背约**(看邻国时;接口 war.treaty):立约(或续约)满 BREACH_AGE 年以后才可能,还要有由头 —— 自己国力已是对方 BREACH_PREY 倍以上、
  *     对方正乱(在和别国打仗、CHAOS_YEARS 年内迁过都 / 改朝换代)、或者共同的强邻已经亡了;宣战赔率 × BREACH_ODDS。
  *     国家方针(policy.ts)把对方当仇国的不和它立约;立了约以后才定的仇国,约拦不住,不等满年就可能背约。
  *     宣战那一刻(DiplomacyModel.sever)先记 breach:背约的一方退出这份约,约的中立地当即撤销、州还给原主,剩下两国以上的约照旧。
@@ -39,7 +39,7 @@
  *     立约国新君即位(先君寿终、同一朝里交接、先君晚年新君没有引兵入朝,PolityModel.onReign;在 unrest.ts 的宗室争位之前看),先君还有成年在世的儿子:
  *       EXILE_P 的机会把最年长的那位徙到中立地(记 exile,cause = heir),这一回不再有宗室据地争位;
  *     改朝换代、旧朝末代之君被废(新朝的根据地就是原来的国都,和 people.ts 判"被废"同一个判据):EXILE_P 的机会徙去(cause = deposed);
- *     立约国亡于战争(WarModel.onFall):亡以前它还在约里、约里还有别国、约的中立地还在(没被谁占了、没住满、不是"不送人去"的),
+ *     立约国亡于战争(接口 war.onFall):亡以前它还在约里、约里还有别国、约的中立地还在(没被谁占了、没住满、不是"不送人去"的),
  *     亡国之君先出奔中立地(cause = fled),再照常查一遍约 —— 两国之约剩一国就废、中立地跟着撤(他这一刻就离开中立地,人物照 Person.exile 的规矩写)。
  *     没有中立地可去的(不是约国也一样):末代之君的下场是出奔的,奔一个邻国(exile.ts;记 exile,cause = fled,war = −1,b = 那国)。
  *     人物(people.ts)照这几条史事填 Person.exile。
@@ -74,6 +74,7 @@ import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, 
 import { royalSeg } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 立约的赔率底数;每有一种由头 × REASON;方针是守成 / 和平发展的,每国 × CALM */
@@ -353,6 +354,7 @@ export function treatyModelOf(sim: CivSim): TreatyModel | undefined {
 
 /** 登记立约的事件处理,把规则挂到邦交、战争、国家扩张上(installDiplomacy、installUnrest 之后调用) */
 export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?: TreatyModel): TreatyModel {
+  const api = civApi(sim);
   const wm = warModelOf(sim);
   const dm = diplomacyModelOf(sim);
   if (!wm || !dm) throw new Error('installTreaties:先 installWars、installDiplomacy');
@@ -377,7 +379,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   const fighting = (p: number, q: number) => wm.active.some((w) => (w.a === p && w.b === q) || (w.a === q && w.b === p));
   /** 国力:政局数表里的(control.ts);这一年里才立的国家现算(城的人口 × 军力系数 × 方针的倍数) */
   const powerOf = (p: number, t: Year): number => {
-    const tab = wm.power ? wm.power(p) : -1;
+    const tab = api.war.power ? api.war.power(p) : -1;
     if (tab >= 0) return tab;
     let sum = 0;
     for (const r of pm.lands[p]) {
@@ -716,7 +718,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
 
   // ---- 背约(看邻国时)----
-  wm.treaty = (p, q, t, pow) => {
+  api.war.treaty = (p, q, t, pow) => {
     if (!m.live.length) return -1;
     const x = m.bound(p, q);
     if (!x) return -1;
@@ -737,7 +739,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
 
   // ---- 议和顺带立约 ----
-  wm.onTruce = (w, t) => {
+  api.war.onTruce = (w, t) => {
     const a = w.a;
     const b = w.b;
     if (!alive(a) || !alive(b) || dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || fighting(a, b) || friendly(a, b, t) || enemies(a, b, t)) return;
@@ -807,7 +809,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
 
   // ---- 亡国之君出奔:有中立地可去的先奔中立地,不然末代之君出奔的奔邻国(exile.ts);再查一遍约(两国之约剩一国就废、中立地跟着撤)----
   const refuge = refugeFinder(pm, wm, dm, owner, (y, q) => m.live.some((x) => m.held(x, y) && m.member(x, q)));
-  wm.onFall = (_w, x, y, t) => {
+  api.war.onFall = (_w, x, y, t) => {
     const z = m.live.length ? zoneFor(y, t, true) : undefined;
     if (z) exile(y, z, 'fled', -1);
     else {
@@ -881,7 +883,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   };
   /** 几国两两之间正在打的仗当即议和 */
   const truce = (ps: readonly number[], t: Year) => {
-    for (const w of wm.active.filter((x) => ps.includes(x.a) && ps.includes(x.b))) wm.makePeace!(w, t);
+    for (const w of wm.active.filter((x) => ps.includes(x.a) && ps.includes(x.b))) api.war.makePeace!(w, t);
   };
   /** 几国前两国共同的强邻(没有 = −1) */
   const foeOf = (ps: readonly number[], t: Year) => (ps.length >= 2 ? commonFoe(ps[0], ps[1], landNeighbors(ps[0]), landNeighbors(ps[1]), t) : -1);

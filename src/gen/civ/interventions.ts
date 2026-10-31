@@ -56,7 +56,7 @@
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
  *   任将任臣 appoint 推演里只在 from 那一刻记一笔史事(b 列见 appoint.ts 的 IV_REIGNING 那几样),历史一字不变;
  *                   他在任的年份、挂帅哪几仗由 appoint.ts 按史事推出来,人物、编年史照它排。
- *                   将领带了能力(良将 / 名将)的例外:他挂帅的仗本方兵力加成(wars.ts 的 WarModel.led,见下面的 authorLed)
+ *                   将领带了能力(良将 / 名将)的例外:他挂帅的仗本方兵力加成(接口 war.led,见下面的 authorLed)
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
  *   推一把发展 boost  快几倍:那些州发展度的"自己长""向邻居学"乘上去,管到 until;直接进:那一刻拉到国都的下一个时代开头(boost.ts)
  *   立约   treaty    from 那一刻几国立约(treaties.ts 的 decree;两两之间正在交战的当即议和),之后照立约的规矩续约、背约、约满;
@@ -100,6 +100,7 @@ import { APPOINT_AGE, IV_REIGNING, appointEnd, authorLeadsNow, skillPower, type 
 import { IV_GONE, authorRegentEnd, regentAt } from './regents';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -391,6 +392,7 @@ const LOOK_AT = 0.5;
 
 /** 登记干预的事件处理,把规则挂到战争模型、城镇国家模型上(installCities / resumeCities 之后调用) */
 export function installInterventions(sim: CivSim, iv: InterventionModel): void {
+  const api = civApi(sim);
   const pm = polityModelOf(sim);
   const wm = warModelOf(sim);
   if (!pm || !wm) return;
@@ -410,7 +412,7 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
   /** 国家 o 没了最后一州(被划走 / 在那里另立新国;by = 得到它的国家):亡国,它打着的仗全部结束(和战争里亡国一样记 fall) */
   const fallen = (o: number, r: number, t: number, by: number) => {
     sim.record('fall', { a: o, b: by, region: r });
-    for (const w of wm.active.filter((x) => x.a === o || x.b === o)) wm.makePeace!(w, t);
+    for (const w of wm.active.filter((x) => x.a === o || x.b === o)) api.war.makePeace!(w, t);
   };
 
   /**
@@ -673,18 +675,18 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     sim.record('intervene', { a, b, region: S[sid]?.region ?? -1, settlement: sid, war: i });
     if (v.kind === 'halt') {
       // 不许扩张:它挑起的战争当即议和
-      if (alive(a)) for (const w of wm.active.filter((x) => x.a === a)) wm.makePeace!(w, t);
+      if (alive(a)) for (const w of wm.active.filter((x) => x.a === a)) api.war.makePeace!(w, t);
       return;
     }
     if (b < 0) return;
     const fighting = wm.active.filter((w) => (w.a === a && w.b === b) || (w.a === b && w.b === a));
     if (v.kind === 'ally') {
       // 结盟:正在交战的当即议和
-      for (const w of fighting) wm.makePeace!(w, t);
+      for (const w of fighting) api.war.makePeace!(w, t);
     } else if (v.kind === 'declare') {
       // 宣战:两国都在、没在交战、接壤,才打得成
       if (!alive(a) || !alive(b) || fighting.length || !polityBorders(pm, owner, a, b, t)) return;
-      wm.declare!(a, b, t);
+      api.war.declare!(a, b, t);
     }
   });
 
@@ -696,7 +698,7 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     const p = iv.resolve(v.a);
     if (p < 0 || !alive(p) || segAt(pm.policies.get(p), t)?.iv !== i) return;
     const k = LOOK_K + i * GUIDE_LOOK_MAX + j;
-    if (v.look.kind === 'war') wm.look?.(p, k, t);
+    if (v.look.kind === 'war') api.war.look?.(p, k, t);
     else if (v.look.kind === 'politics') politicsModelOf(sim)?.look?.(p, k, t);
     else dynastyModelOf(sim)?.look?.(p, k, t);
   });
@@ -711,11 +713,11 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
   // 推一把发展的快几倍:已经生效的按史事推出来,发展度每一步照着乘(没有快几倍的不挂)
   installBoosts(sim, iv);
   // 作者的良将 / 名将挂帅的仗:本方兵力加成(没有带能力的任将不挂 —— 寻常的、没任过作者将领的世界一点不变)
-  if (iv.stored.some((v) => v.kind === 'appoint' && v.skill)) wm.led = authorLed(sim, pm, iv);
+  if (iv.stored.some((v) => v.kind === 'appoint' && v.skill)) api.war.led = authorLed(sim, pm, iv);
 }
 
 /**
- * 作者的良将 / 名将挂帅的仗(WarModel.led):打仗那一刻,按 appoint.ts 的 authorLeadsNow 问此刻谁领着哪场 ——
+ * 作者的良将 / 名将挂帅的仗(接口 war.led):打仗那一刻,按 appoint.ts 的 authorLeadsNow 问此刻谁领着哪场 ——
  * 史事记到此刻为止,和事后排人物是同一份规则。先粗筛:这一方有生效了的带能力任将、此刻还没过他最晚可能卸任的那一刻
  * (到期卸任;让他掌权、掌权比任期长的,到掌权最晚了结),才算一遍;同一刻、史事条数没变的几次问只算一遍。
  * 生效了哪几条按史事 intervene 扫出来(接着推时从头扫一遍),不存别的状态

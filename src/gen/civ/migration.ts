@@ -29,10 +29,10 @@
  *     改换成迁来的民族(HOLD 年内刚改换过民族的、原民族最后一州的不改,照样归它),以里面人口最多的城为都立国(Polity.trek;记 trek n = 2,紧跟着 found,cause = trek),
  *     当即和那里的国家开战(记 war,cause = trek;落脚的那州是部落地带的,和接壤的、动身时冲着的那国开战,不接壤就挑接壤最长的那国)。
  *     一座城都没有 = 不立国,散居那几州(trek n = 4,结局败散)。
- *     这一仗像讨伐民变那样打(WarModel.revolt):不到厌战的几倍年限不罢兵,不受降;迁来的一方初起声势大
+ *     这一仗像讨伐民变那样打(接口 war.revolt):不到厌战的几倍年限不罢兵,不受降;迁来的一方初起声势大
  *     (国力 × (1 + (MORALE − 1) × e^(−年数 ÷ FADE)),从立国或最近一次攻下一州那年起淡去),守方 × COURT。
- *     打进那国的国都:比它小的(不到迁来的国的 SMALL_K 倍,或不到 SMALL_MIN 州)亡国、余下的州一并归它(WarModel.overthrow);
- *     别的(WarModel.storm):迁来的一方占着国都一带(那国国土的 GRAB_FRAC,GRAB_MIN–GRAB_MAX 州),那国迁都、议和(记 trek n = 3);
+ *     打进那国的国都:比它小的(不到迁来的国的 SMALL_K 倍,或不到 SMALL_MIN 州)亡国、余下的州一并归它(接口 war.overthrow);
+ *     别的(接口 war.storm):迁来的一方占着国都一带(那国国土的 GRAB_FRAC,GRAB_MIN–GRAB_MAX 州),那国迁都、议和(记 trek n = 3);
  *     丢国都以前还有 BIG 州的大国,有 SHATTER_0 + SHATTER_U × 动荡 的机会当即大崩解(politics.ts 的 shatter,紧跟着记 collapse)。
  *     开战时那国有 BIG 州以上、打进了它的国都(亡国或迁都)= 打进大国(Migration.big)。
  *     迁来的国亡于这一仗 = 败散,落脚的几州留下一块异族。
@@ -69,6 +69,7 @@ import { IV_NO_WAY, searchTrek, trekLand, trekPace, trekPaths, trekRouteTo } fro
 import type { InterventionModel } from './interventions';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */
@@ -260,6 +261,7 @@ export function installMigration(sim: CivSim, pm: PolityModel, world: World): Tr
 }
 
 function hook(sim: CivSim, tm: TrekModel): void {
+  const api = civApi(sim);
   models.set(sim, tm);
   const { pm, wm, pol, list } = tm;
   const T = pm.terrain;
@@ -304,7 +306,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     const col = um()?.collapsed.get(o);
     // 近年大崩解过,或者是崩出来的一块(自立不久)
     const chaos = (col !== undefined && t - col < CHAOS_YEARS) || (P.parent !== undefined && t - P.founded < CHAOS_YEARS && (um()?.collapsed.get(P.parent) ?? -Infinity) >= P.founded - 1e-6);
-    const blight = wm.blight?.(o, t) ?? 0;
+    const blight = api.war.blight?.(o, t) ?? 0;
     const war = wm.active.some((w) => w.a === o || w.b === o);
     const vChaos = WEAK_UNREST * Math.max(0, u) + (chaos ? WEAK_CHAOS : 0) + (war ? WEAK_WAR : 0);
     const vPlague = WEAK_PLAGUE * blight;
@@ -643,7 +645,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
     }
     if (foe >= 0 && !wm.iv?.halted(P.id, t)) {
       M.foeSize = foe === y ? ySize : pm.size[foe];
-      const w = wm.declare!(P.id, foe, t, -1, 'trek');
+      const w = api.war.declare!(P.id, foe, t, -1, 'trek');
       M.war = w.id;
       tm.wars.set(w.id, m);
     }
@@ -655,8 +657,8 @@ function hook(sim: CivSim, tm: TrekModel): void {
     const m = tm.wars.get(w.id);
     return m === undefined ? undefined : list[m];
   };
-  const prevMorale = wm.morale;
-  wm.morale = (w, x, t) => {
+  const prevMorale = api.war.morale;
+  api.war.morale = (w, x, t) => {
     const base = prevMorale ? prevMorale(w, x, t) : 1;
     if (!trekOf(w)) return base;
     if (x !== w.a) return base * COURT;
@@ -669,10 +671,10 @@ function hook(sim: CivSim, tm: TrekModel): void {
     }
     return base * (1 + (MORALE - 1) * fexp(-(t - since) / FADE));
   };
-  const prevRevolt = wm.revolt;
-  wm.revolt = (w) => !!trekOf(w) || (prevRevolt?.(w) ?? false);
-  const prevOverthrow = wm.overthrow;
-  wm.overthrow = (w, x, y, t) => {
+  const prevRevolt = api.war.revolt;
+  api.war.revolt = (w) => !!trekOf(w) || (prevRevolt?.(w) ?? false);
+  const prevOverthrow = api.war.overthrow;
+  api.war.overthrow = (w, x, y, t) => {
     if (prevOverthrow?.(w, x, y, t)) return true;
     const M = trekOf(w);
     // 比它小的国家:亡国、余下的州一并归迁来的国(pm.size 已经不算刚丢的国都)
@@ -680,7 +682,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
   };
   /** 丢了国都的 y 比迁来的 x 小(不到 x 的 SMALL_K 倍,或者不到 SMALL_MIN 州) */
   const small = (x: number, y: number) => pm.size[y] + 1 <= Math.max(SMALL_MIN, SMALL_K * pm.size[x]);
-  wm.storm = (w, x, y, r, t) => {
+  api.war.storm = (w, x, y, r, t) => {
     const M = trekOf(w);
     if (!M || x !== w.a || y !== w.b || small(x, y)) return false;
     if (wm.iv?.holdsLock(y, t)) return false;
@@ -733,12 +735,12 @@ function hook(sim: CivSim, tm: TrekModel): void {
     M.outcomeYear = t;
     M.stormed = y;
     if ((M.foeSize ?? 0) >= BIG) M.big = true;
-    wm.makePeace!(w, t);
+    api.war.makePeace!(w, t);
     if (shatter) pol.shatter?.(Y, SHATTER_K + w.id, t);
     return true;
   };
-  const prevFall = wm.onFall;
-  wm.onFall = (w, x, y, t) => {
+  const prevFall = api.war.onFall;
+  api.war.onFall = (w, x, y, t) => {
     prevFall?.(w, x, y, t);
     const M = trekOf(w);
     if (!M) return;

@@ -31,7 +31,7 @@
  *     立一个新势力(记 revolt),原来的国家当即发兵讨伐(记 war,cause = quell)。
  *     打这一仗时饥民初起声势大(国力 × REBEL_MORALE,从起事或最近一次攻下一州那年起 REBEL_FADE 年里淡去),
  *     朝廷一方人心不附(× COURT_MORALE);朝廷刚丢的州马上就能去打,起事的一方往都城打(不限于夺回失地);
- *     不到 REVOLT_LENGTH 倍的厌战年限不罢兵(见 wars.ts 的 WarModel.revolt)。
+ *     不到 REVOLT_LENGTH 倍的厌战年限不罢兵(见 接口 war.revolt)。
  *     结局照打仗的规矩:被讨平(起事的国家亡)、割据一方(议和)、或者打进都城 —— 原来的国家余下的州一并归起事的一方,亡国
  *     (wars.ts 的 overthrow,像农民起义攻破京城、建立新朝)。
  *
@@ -76,6 +76,7 @@ import { anySlump, inSlump, pandemicModelOf } from './pandemicState';
 import { royalSeg } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以 20 个种子的统计为准) ----
 /** 动荡:各州离国都的路程 ÷ REACH(最多 4)的平均,超过 FAR_0 的部分 × FAR_W */
@@ -276,6 +277,7 @@ export function installUnrest(sim: CivSim, pm: PolityModel, seed: number, world:
 }
 
 function hook(sim: CivSim, um: UnrestModel, world: World): void {
+  const api = civApi(sim);
   models.set(sim, um);
   const { pm, wm, pol } = um;
   const reg = pm.terrain.regions;
@@ -295,7 +297,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
   // ---- 动荡:按国一张数表,每年算一次(规则见 stateTables.ts;control.ts 建引擎、填输入,挂 pol.unrest、wm.unrest) ----
 
   // ---- 疫后凋敝(wars.ts:邻国趁虚而入):BLIGHT_YEARS 年内染疫的州、全球大疫凋敝还没过的州(取多的)占国土几成 ----
-  wm.blight = (p: number, t: number) => {
+  api.war.blight = (p: number, t: number) => {
     const N = pm.size[p];
     if (!N) return 0;
     let n = 0;
@@ -311,7 +313,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
   };
 
   // ---- 讨伐民变:士气、攻破都城 ----
-  wm.morale = (w: War, x: number, t: number) => {
+  api.war.morale = (w: War, x: number, t: number) => {
     const claim = um.claims.get(w.id);
     const rebel = claim ?? um.quell.get(w.id);
     if (rebel === undefined) return 1;
@@ -328,8 +330,8 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     }
     return claim !== undefined ? CLAIM_COURT : COURT_MORALE;
   };
-  wm.overthrow = (w, x) => um.quell.get(w.id) === x || um.claims.get(w.id) === x;
-  wm.revolt = (w) => um.quell.has(w.id) || um.claims.has(w.id);
+  api.war.overthrow = (w, x) => um.quell.get(w.id) === x || um.claims.get(w.id) === x;
+  api.war.revolt = (w) => um.quell.has(w.id) || um.claims.has(w.id);
 
   /** 国家 p 此刻是不是还在被讨伐的民变(起事的一方) */
   const rebelNow = (p: number) => wm.active.some((w) => w.b === p && um.quell.get(w.id) === p);
@@ -376,7 +378,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const full = pol.cutOff!(pid, group.slice().sort((a, b) => a - b), t, limit * 2 + 2);
     if (!full) return;
     const rival = pol.secede!(pid, full, sid, r0, t, 'split', 'heir', { prince: sons[0], lineage: P.lineage });
-    const w = wm.declare!(pid, rival.id, t, -1, 'heir');
+    const w = api.war.declare!(pid, rival.id, t, -1, 'heir');
     um.claims.set(w.id, rival.id);
   };
 
@@ -502,7 +504,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const full = pol.cutOff!(pid, group.slice().sort((a, b) => a - b), t, limit * 2 + 2);
     if (!full) return false;
     const rebel = pol.secede!(pid, full, sid, r0, t, 'revolt');
-    const w = wm.declare!(pid, rebel.id, t, -1, 'quell');
+    const w = api.war.declare!(pid, rebel.id, t, -1, 'quell');
     um.quell.set(w.id, rebel.id);
     return true;
   };

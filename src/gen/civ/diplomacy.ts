@@ -17,13 +17,13 @@
  *   ⑤ 称臣、结盟都没成(或者没有强邻):看要不要和邻国立约(treaties.ts 挂上的 onCheck;约国之间也算友好,见 friendly)。
  *
  *   战争里(wars.ts 调这里挂上的回调):
- *   - 宣战时(WarModel.onDeclare):守方的盟国(和攻方接壤、没在和攻方打、手上的仗没打满)有 PACT_JOIN 的机会援盟参战,
+ *   - 宣战时(接口 war.onDeclare):守方的盟国(和攻方接壤、没在和攻方打、手上的仗没打满)有 PACT_JOIN 的机会援盟参战,
  *     不来就是坐视不救,盟约就此断了(unally,cause = abandon);守方的宗主(和攻方接壤)有 RESCUE 的机会发兵来救。
  *     盟国的方针把守方当亲国的,援盟的机会是 FRIEND_JOIN;当仇国的不救(盟约断了);把攻方当亲国的不出兵(policy.ts)。
  *     援盟、救藩参战的不再连锁。
  *   联姻(marriage.ts):看邦交时先看要不要结亲(不占"一次最多出一件事");结着亲的两国挑盟友时分数 × KIN_PACT、援盟的机会 × KIN_JOIN
  *     (都随结亲的年数淡回,见 marriages.ts 的 bond)。
- *   - 每一仗之后(WarModel.sue):守方打得很惨(丢了国都,或丢了 SUE_FRAC 以上国土)、攻方国力是它 SUE_RATIO 倍以上
+ *   - 每一仗之后(接口 war.sue):守方打得很惨(丢了国都,或丢了 SUE_FRAC 以上国土)、攻方国力是它 SUE_RATIO 倍以上
  *     (守方在位的君主好战越低越肯称臣、越高越宁可打下去,rulers.ts),
  *     守方可能奉表称臣、攻方受降罢兵:当即议和(占了的州照旧归攻方),紧跟着记 submit(守方正和攻方的藩属交兵时不受降)。异族、攻方另有战事、离攻方国都远,攻方更肯受降。
  *   - 看邻国(wars.ts):不打盟国、自己的宗主 / 藩属、同一个宗主的藩属;结盟满 BETRAY_AGE 年、共御的强邻已不足为患的盟国,
@@ -56,6 +56,7 @@ import { capitalAt, polityAlive, populationAt } from './growth';
 import { politicsModelOf } from './politics';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看邦交;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -314,6 +315,7 @@ function checkTime(dm: DiplomacyModel, p: number, k: number): number {
 
 /** 登记邦交的事件处理,把规则挂到战争模型上(installCities 之后、installInterventions 之前调用) */
 export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyModel = new DiplomacyModel(pm)): DiplomacyModel {
+  const api = civApi(sim);
   const wm = warModelOf(sim);
   if (!wm) throw new Error('installDiplomacy:先 installWars');
   models.set(sim, dm);
@@ -348,14 +350,14 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     const hit = powMemo.get(p);
     if (hit !== undefined) return hit;
     // 国力的数表(control.ts;这一年里才立的国家现算)
-    const tab = wm.power ? wm.power(p) : -1;
+    const tab = api.war.power ? api.war.power(p) : -1;
     if (tab >= 0) {
       powMemo.set(p, tab);
       return tab;
     }
     let sum = 0;
     // 管不到的州出兵打折、割据的州不出兵(control.ts,和 wars.ts 一样)
-    const lv = wm.levy?.(p, t);
+    const lv = api.war.levy?.(p, t);
     for (const r of pm.lands[p]) {
       const c = pm.cityOf[r];
       if (c >= 0) sum += lv ? populationAt(pm.settlements[c], t) * lv(r) : populationAt(pm.settlements[c], t);
@@ -425,7 +427,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     record('defect', { a: v, b: L, region: capRegion(v, t), settlement: capitalAt(pm.polities[v], t) });
     // 宗主发兵讨伐:接壤、没在和它打、没被下令和它结盟、手上的仗没打满、没被下令不许扩张
     if (!halted(L, t) && !fighting(L, v) && !friendly(L, v, t) && !befriends(pm, L, v, t) && !busy(L) && borders(L, v) && keyed4(dm.base, pm.ptag[L], pm.ptag[v], k, U_PUNISH) < PUNISH) {
-      wm.declare!(L, v, t, -1, 'punish');
+      api.war.declare!(L, v, t, -1, 'punish');
     }
     return true;
   };
@@ -561,28 +563,28 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
   };
 
   /** x 向 y 宣战(不是援盟)之后:y 的盟国援盟 / 坐视不救,y 的宗主发兵来救 */
-  wm.onDeclare = (w: War, x: number, y: number, t: number) => {
+  api.war.onDeclare = (w: War, x: number, y: number, t: number) => {
     for (const z of dm.alliesOf(y)) {
       // 国家方针(policy.ts):z 把攻方当亲国的不出兵(盟约不断);把守方当亲国的更肯出兵,当仇国的不救(盟约就此断了)
       if (z === x || !alive(z) || friendly(z, x, t) || befriends(pm, z, x, t) || fighting(z, x) || halted(z, t) || busy(z) || !borders(z, x)) continue;
       let join = hates(pm, z, y, t) ? 0 : befriends(pm, z, y, t) ? FRIEND_JOIN : PACT_JOIN;
       // 结着亲的更肯出兵(marriage.ts)
       if (join > 0 && dm.bond) join *= 1 + (KIN_JOIN - 1) * dm.bond(z, y, t);
-      if (keyed4(dm.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_JOIN) < join) wm.declare!(z, x, t, y, 'ally');
+      if (keyed4(dm.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_JOIN) < join) api.war.declare!(z, x, t, y, 'ally');
       else record('unally', { a: z, b: y, war: w.id, cause: 'abandon' });
     }
     const L = dm.liegeOf(y);
     if (L >= 0 && L !== x && !friendly(L, x, t) && !befriends(pm, L, x, t) && !fighting(L, x) && !halted(L, t) && !busy(L) && borders(L, x)) {
-      if (keyed4(dm.base, pm.ptag[L], pm.ptag[x], Math.round(t * 256), U_RESCUE) < RESCUE) wm.declare!(L, x, t, y, 'rescue');
+      if (keyed4(dm.base, pm.ptag[L], pm.ptag[x], Math.round(t * 256), U_RESCUE) < RESCUE) api.war.declare!(L, x, t, y, 'rescue');
     }
   };
 
   /** 第 i 仗之后:守方打得很惨时奉表称臣、攻方受降罢兵(当即议和,紧跟着记 submit)。成了 = true */
-  wm.sue = (w: War, i: number, t: number, pow: Float64Array, capitalFell: boolean): boolean => {
+  api.war.sue = (w: War, i: number, t: number, pow: Float64Array, capitalFell: boolean): boolean => {
     const a = w.a;
     const b = w.b;
     // 讨伐民变不受降:义军要么被讨平、要么割据、要么攻破都城(unrest.ts)
-    if (wm.revolt?.(w) || !alive(a) || !alive(b) || pow[a] < SUE_RATIO * pow[b]) return false;
+    if (api.war.revolt?.(w) || !alive(a) || !alive(b) || pow[a] < SUE_RATIO * pow[b]) return false;
     if (dm.liegeOf(a) >= 0 || dm.liegeOf(b) >= 0 || dm.vassalsOf(b).length || halted(a, t) || fightsBloc(b, a)) return false;
     // 这场战争里攻方占下、此刻还在手里的州(同一州反复易手只算一次)
     const won = new Set<number>();
@@ -598,7 +600,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     // 守方此刻在位的君主:好战越低越肯奉表称臣,越高越宁可打下去(rulers.ts;加上方针的胆量、和谈底线)
     const offer = SUE_OFFER * effOf(pm, b, t).sue;
     if (keyed4(dm.base, pm.ptag[a], pm.ptag[b], Math.round(w.start * 256) * 64 + (i & 63), U_SUE) >= offer * Math.min(0.9, accept)) return false;
-    wm.makePeace!(w, t);
+    api.war.makePeace!(w, t);
     if (!alive(b)) return true;
     swear(b, a, t, w.id);
     return true;

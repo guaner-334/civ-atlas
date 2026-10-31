@@ -5,7 +5,7 @@
  *
  * 流程(index.ts 在 installDynasty 之后调用 installCities):
  *
- *   攻城(wars.ts 的 WarModel.onAssault):战役里攻下一州(攻方打下来、守方反攻夺回;议和割让、亡国残部不算),州里有城:
+ *   攻城(接口 war.onAssault):战役里攻下一州(攻方打下来、守方反攻夺回;议和割让、亡国残部不算),州里有城:
  *     先掷"毁城":机会 = RUIN_P × 破坏系数 × 城的大小(RUIN_RANK:村镇好毁、大城难毁)× 国都 CAPITAL_RUIN × RUIN_AGAIN^(这场战争里已经毁了几座);
  *     没毁再掷"洗劫":机会 = SACK_P × 破坏系数 × 国都 CAPITAL_SACK(国都被攻破更容易被洗劫)× 刚被洗劫过的 SACK_AGAIN。
  *     破坏系数 = 攻方是游牧国家 NOMAD × 攻异族 FOREIGN / 同族 KIN × 久攻不下(攻方在这场战争里多年没拿下一州)× 破坏更重的战争 BRUTAL
@@ -38,6 +38,7 @@ import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settle
 import { inSlump, pandemicModelOf } from './pandemicState';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { civApi } from './api';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
 /** 攻下一州时城被洗劫、被毁的基础机会 */
@@ -143,13 +144,14 @@ function declineTime(cm: CityModel, s: Settlement, k: number, until: Year): numb
 
 /** 登记城市兴衰的事件处理(installDynasty 之后调用) */
 export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: CityModel = newModel(pm, wm)): CityModel {
+  const api = civApi(sim);
   models.set(sim, cm);
   const culture = sim.owners[Layer.Culture];
   const owner = sim.owners[Layer.Polity];
   const base = cm.base;
 
   // ---- 攻城:洗劫 / 毁城 ----
-  wm.onAssault = (w, x, y, r, sid, t, capital) => {
+  api.war.onAssault = (w, x, y, r, sid, t, capital) => {
     const s = pm.settlements[sid];
     if (!s || s.ended !== undefined) return;
     const X = pm.polities[x];
