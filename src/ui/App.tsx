@@ -1,7 +1,7 @@
 import './theme.css';
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
+import type { World, WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import { realisticRiverSteps, renderRealistic } from '../render/realistic';
 import { renderFantasy } from '../render/fantasy';
@@ -26,13 +26,11 @@ import {
 } from './mapWrap';
 import { projectWorld, unprojectWorld, wrapLon, type MapProj } from '../render/projection';
 import {
-  GLOBE_READY,
   ProjLayer,
   curvedProj,
   getProjection,
   isCurved,
   isGraticuleStep,
-  isMapProjection,
   pageColor,
   presentTerrain,
   terrainRefining,
@@ -44,9 +42,8 @@ import {
   useGraticuleLines,
   useMapMoving,
   useProjection,
-  type MapProjection,
 } from './projection';
-import { LAYERS, renderLayer, type LayerId } from '../render/layers';
+import { renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
 import { ThoughtLegend } from './ThoughtParts';
 import type { WorkerRequest } from '../worker';
@@ -156,12 +153,6 @@ import { DiagHost } from './DiagDialog';
 import { TipLayer } from './Tips';
 import { replayStart } from './timelineLayout';
 import {
-  decodeMomentHash,
-  GEN_KEY,
-  isContourKind,
-  isMomentHash,
-  isShareHash,
-  PARAM_RANGE,
   resolveMoment,
   worldCheck,
   worldKey,
@@ -169,15 +160,10 @@ import {
   type SaveMoment,
 } from '../gen/savefile';
 import {
-  currentUnsaved,
   currentWorld,
-  deleteWorld,
   isStored,
-  isWorldId,
-  legacyWorld,
   listWorlds,
   loadWorld,
-  newWorldId,
   nextTitle,
   notify,
   overwriteWorld,
@@ -186,7 +172,6 @@ import {
   setThumbEditing,
   storageFullWhy,
   updateCheck,
-  viewChanged,
 } from './saveStore';
 import { getStage, setStage, useStage } from './stageStore';
 import { polityName } from '../gen/civ/growth';
@@ -197,7 +182,7 @@ import { TargetLayer } from './TargetPlates';
 import { TrekPlanLayer } from './TrekPlanLayer';
 import { freeArea, selectionKey, shownYearOf, sideRoom } from './flyTo';
 import { setMomentSource, type MomentNow } from './shareMoment';
-import { decodePresetHash, isPresetHash } from './presetLink';
+import { decodePresetHash } from './presetLink';
 import { MarkLayer, markHitAt, markPinAt, markPinTip, type MarkApi } from './MarkLayer';
 import { getMarkUi, newMarkDraft, patchDraft, resetMarkUi, setMarkDragging, stopPlacing, toggleDraftRegion, useMarkUi } from './markStore';
 import { markHover, markSpot, ownerName } from './markInfo';
@@ -223,10 +208,10 @@ import type { StudioFound } from './studio/Studio';
 import { carryStudioView, takeStudioView } from './studio/studioStore';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
-import { MyWorlds, showMapInWorlds } from './MyWorlds';
+import { MyWorlds } from './MyWorlds';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
-import { galleryOfUrl, type GalleryItem } from '../account/gallery';
+import type { GalleryItem } from '../account/gallery';
 import { mapBriefOf } from './mapGroups';
 import { useCoarse, useNarrow } from './device';
 import { useMapView } from './map/useMapView';
@@ -243,8 +228,8 @@ import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
 import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { closeBookReader, closeHistoryBook, stopBook, useBookReader } from './bookStore';
-import { getNav, isNavState, navLayer, navReplace, navSettled, navUrl, type NavHooks, type NavState } from './nav';
-import { applyLayer as applyNavLayer, layerNow } from './navView';
+import { navLayer, navReplace, navSettled, type NavHooks } from './nav';
+import { layerNow } from './navView';
 import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
@@ -271,8 +256,6 @@ import {
   layerOf,
   layerParts,
   paintLook,
-  mapViewFromUrl,
-  writeMapView,
   type BaseId,
   type FillId,
   type MapLayer,
@@ -318,27 +301,23 @@ import { setDiagContext } from '../diag/watch';
 import { worldMessages } from './world/worldMessages';
 import { useWorldLoad } from './world/useWorldLoad';
 import { useWorldPages } from './world/useWorldPages';
+import { firstRoute, readUrl, writeViewUrl } from './world/pageUrl';
+import { useRouteNav, useViewUrl } from './world/useRouteNav';
 import { useAutoSave, useSaveThumbs } from './world/useWorldSave';
 import { useOpenRefs, type CivRefs, type GenProgress, type GenRefs, type MapFirst, type MapRefs, type RegenJob, type ResimRefs, type WorldViewRefs } from './world/worldRefs';
 import {
   draftModeOf,
   draftTarget,
-  goneToast,
   namesOpt,
   presetDialog,
-  sameScreen,
   sameSetup,
   setupFor,
   setupOpt,
-  storedTarget,
   upsOpt,
   writeGalleryUrl,
-  writeWorldUrl,
-  yearsEdits,
   yearsFor,
   yearsOpt,
   type CivSetup,
-  type FirstRoute,
   type Landing,
   type NewDlg,
   type SharedFor,
@@ -348,70 +327,6 @@ import {
 } from './world/worldTarget';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
-
-function readUrl() {
-  const q = new URLSearchParams(location.search);
-  const params: WorldParams = { ...DEFAULT_PARAMS };
-  for (const k of Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]) {
-    const v = q.get(k);
-    // 和读存档一样:超出合理范围的调回范围内(手改的网址里可能是 0 或特别大的数)
-    const n = v === null || v.trim() === '' ? NaN : Number(v);
-    if (Number.isFinite(n)) params[k] = Math.min(PARAM_RANGE[k][1], Math.max(PARAM_RANGE[k][0], n));
-  }
-  // 底图 / 填色:新链接是 map=、fill=、sat=;旧链接的 style=、layer=、civ= 照旧认(实景 = 经典卫星;见 mapLayers.ts)
-  const qs = q.get('style');
-  const ql = q.get('layer');
-  const mapView = mapViewFromUrl(q);
-  let style: Style = qs === 'realistic' || qs === 'data' ? qs : 'fantasy';
-  let layer: LayerId = LAYERS.some((l) => l.id === ql) ? (ql as LayerId) : 'biomes';
-  // 卫星画法:网址里有就照它;旧链接的写实按经典;都没有 = 细节(新的默认)
-  const sat: SatLook = mapView?.sat ?? (qs === 'realistic' ? 'classic' : 'detail');
-  let surface: SurfaceLook = sat;
-  if (mapView) {
-    const b = baseLook(mapView.base, sat);
-    style = b.style;
-    if (b.data) layer = b.data;
-    if (b.look) surface = b.look;
-  }
-  // 分享链接:# 后面是整份存档(gen/savefile.ts 的 encodeShare)
-  const share = isShareHash(location.hash) ? location.hash : null;
-  // 分享短链接(网站/s/<码> 转过来的 ?s=<码>):存档在服务器上,打开时去取;# 后面可以带着"打开时看哪"(#at=…,不经服务器)
-  const shortShare = q.get('s');
-  const moment = shortShare !== null && isMomentHash(location.hash) ? decodeMomentHash(location.hash) : null;
-  // 朋友的预设链接(#preset=…,ui/presetLink.ts):打开就是填好参数的新建弹窗
-  const preset = isPresetHash(location.hash) ? location.hash : null;
-  // 作品墙(Gallery.tsx):作品墙那一页 / 打开一个作品
-  const gallery = galleryOfUrl(q, location.hash);
-  // 投影、中央经线(改了就写进网址,刷新、复制网址都还在)
-  // 地球仪以前写的是 view=globe,照样认
-  const pq = q.get('proj') ?? (q.get('view') === 'globe' ? 'globe' : null);
-  const proj: MapProjection = isMapProjection(pq) && (pq !== 'globe' || GLOBE_READY) ? pq : 'equirect';
-  const lq = Number(q.get('lon'));
-  const lon = q.get('lon') !== null && Number.isFinite(lq) ? wrapLon(lq) : null;
-  // 经纬网:grat=1 = 每 30°(旧网址就是这样),grat=10 / 15 / 30 = 每隔几度;没有 = 关
-  const gq0 = q.get('grat');
-  const grat: number = gq0 === '1' ? 30 : isGraticuleStep(Number(gq0)) ? Number(gq0) : 0;
-  // 等值线:iso=elev / temp / precip;没有 = 不画
-  const iq = q.get('iso');
-  const iso = isContourKind(iq) ? iq : null;
-  // 生成器版本(gen=):这个网址是哪一版画出来的世界;和现在的不同,打开时说清变了什么。旧网址没有 = 不知道,不提示;
-  // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
-  const gq = q.get(GEN_KEY);
-  const gen = gq === null ? null : /^\d{1,6}$/.test(gq) ? Number(gq) : 0;
-  // 推演年数(years=):新建中、还没存下的世界(new=)刷新、后退回来还记得弹窗里开的年数
-  const yq = q.get('years');
-  const years = yq === null ? undefined : cleanEndYear(Number(yq));
-  return { params, style, layer, surface, sat, mapView, share, shortShare, moment, preset, gallery, proj, lon, grat, iso, gen, years };
-}
-
-/**
- * 换了底图 / 填色 / 卫星画法:写进网址(map=、fill=、sat=;去掉旧的 style=、layer=,civ= 里的国家 / 民族 / 信仰开关交给填色管),
- * 刷新、复制网址都还在
- */
-function writeViewUrl(v: { base: BaseId; fill: FillId; sat: SatLook }) {
-  const next = `?${writeMapView(new URLSearchParams(location.search), v)}`;
-  if (next !== location.search) navUrl(next);
-}
 
 /** 底图在缓存里的键:手绘 / 写实(经典 = realistic,其余 realistic:画法)/ data:数据图层 */
 export function baseKeyOf(style: Style, layer: LayerId, look: SurfaceLook): string {
@@ -423,57 +338,6 @@ export function baseKeyOf(style: Style, layer: LayerId, look: SurfaceLook): stri
 /** 生成这张地图用的(参数、地形、草图):照故事找世界「用这个世界」以后,这几样变了就不再是找到的那个世界 */
 function genSigOf(params: WorldParams, edits: Pick<WorldEdits, 'terrain' | 'sketch'>): string {
   return JSON.stringify([worldKey(params), edits.terrain, edits.sketch ?? null]);
-}
-
-/** 网址里带种子的(别人发的网址、截图脚本):直接看这个世界,先不存,改了才存 */
-function visitTarget(params: WorldParams, gen: number | null = null): Target {
-  const t: Target = { id: newWorldId(), kind: 'visit', params, edits: EMPTY_EDITS };
-  return gen === null ? t : { ...t, from: 'url', gen };
-}
-
-/**
- * 打开网页时去哪(只算一次):
- *   分享短链接(s=)    → 先是一页空白,去服务器取存档;取到了打开那个世界,停了显示"这个分享已经停止了"
- *   作品墙(gallery=)  → 作品墙那一页;带作品编号的先是一页空白,取到了打开那个作品,撤下了显示"这个作品已经撤下了"
- *   分享链接(#)       → 那个世界(先按网址生成,解开以后套上修改)
- *   w=世界编号(存着)   → 这个世界(没建完的回到新建);
- *                        这一步记的就是这个世界(刷新、按后退 / 前进从别的网址回来),现在不在了(在别的页面里删掉了)
- *                        → 我的世界,提示删掉了(gone = 世界名;网址里有 w= 就是存过)
- *   new=1             → 新建(网址里的种子、参数)
- *   new=image         → 我的世界 + 新建弹窗停在照手绘图选图那一步(照图新建还没长出星球时刷新)
- *   带种子的网址       → 直接看这个世界(改版前存过的就回到那个存档)
- *   都没有             → 我的世界(第一次来是空的那一页:一颗地球、一句话、「新建世界」;点了才生成星球);
- *                        # 后面是朋友的预设链接(#preset=)时,上面开着新建弹窗第 2 步、参数照链接填好(presetDialog)
- */
-function firstRoute(init: ReturnType<typeof readUrl>): FirstRoute {
-  const q = new URLSearchParams(location.search);
-  if (init.shortShare !== null && !init.share) return { stage: 'home', target: null };
-  // 作品墙那一页、作品的网址(世界作品只是看看、还没存下时刷新,网址里也是它):先停在我的世界的位置,去服务器取
-  if (init.gallery !== null && !init.share) return { stage: 'home', target: null };
-  if (init.share) return { stage: 'world', target: visitTarget(init.params) };
-  const w = q.get('w');
-  const stored = isWorldId(w) ? loadWorld(w) : null;
-  // 只存了地图的:不当世界打开,回到我的世界的「地图」页签、选中它
-  if (stored?.map) {
-    showMapInWorlds(stored.id);
-    return { stage: 'home', target: null };
-  }
-  if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
-  const was: unknown = history.state;
-  if (isWorldId(w) && isNavState(was) && was.page !== 'home' && was.id === w) return { stage: 'home', target: null, gone: was.title ?? '' };
-  // 这一步记的世界存着,网址是存下之前的那一版(开着卡片时改了第一笔才存下,退回来的这一步网址里还没有 w=):打开存着的
-  const mine = !isWorldId(w) && isNavState(was) && was.page === 'world' && was.id ? loadWorld(was.id) : null;
-  if (mine && !mine.draft) return { stage: 'world', target: storedTarget(mine, 'restore') };
-  if (q.get('new') === '1') return { stage: 'draft', target: draftTarget(init.params, null, yearsEdits(init.years)) };
-  // 照手绘图新建、还没照图长出星球(图不存,刷新就没了):回到我的世界,弹窗停在照手绘图的第 2 步(参数照网址)重新选图
-  if (q.get('new') === 'image') return { stage: 'home', target: null, dialog: { mode: 'image', params: init.params, step: 2, endYear: init.years } };
-  if (q.has('seed')) {
-    // 改版前自动存的世界:那时的网址只带种子、参数,刷新照旧回到它(带 gen= 的是改版后的网址,不是它)
-    const old = init.gen === null ? legacyWorld(init.params) : null;
-    if (old) return { stage: old.draft ? 'draft' : 'world', target: storedTarget(old, 'restore') };
-    return { stage: 'world', target: visitTarget(init.params, init.gen) };
-  }
-  return { stage: 'home', target: null };
 }
 
 /** 新建时能看的样式(不用历史的那几种) */
@@ -1830,26 +1694,8 @@ ${s.image.cells}` : null);
     rawCiv,
     later: { mapsOf: (d) => mapsOf(d), baseCanvas: (key, d) => baseCanvas(key, d) },
   });
-  // 投影 / 中心 / 经纬网停下来约半秒:写进网址(刷新、复制网址都还在),已经存着的世界跟着重存一次
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const q = new URLSearchParams(location.search);
-      if (projection !== 'equirect') q.set('proj', projection);
-      else q.delete('proj');
-      q.delete('view'); // 旧的地球仪开关,换成 proj=globe
-      if (graticule) q.set('grat', graticule === 30 ? '1' : String(graticule));
-      else q.delete('grat');
-      if (contourKind) q.set('iso', contourKind);
-      else q.delete('iso');
-      const lon = Math.round(mapCenter * 100) / 100;
-      if (Math.abs(lon) >= 0.005) q.set('lon', String(lon));
-      else q.delete('lon');
-      const next = `?${q}`;
-      if (next !== location.search) navUrl(next);
-      viewChanged();
-    }, 450);
-    return cancelTimeout(t);
-  }, [projection, mapCenter, graticule, contourKind]);
+  // 投影 / 中心 / 经纬网停下来约半秒:写进网址(刷新、复制网址都还在),已经存着的世界跟着重存一次(./world/useRouteNav.ts)
+  useViewUrl({ projection, mapCenter, graticule, contourKind });
   // ---- 作品墙、新建世界(以底稿新建、在地图上打造新文明)、回我的世界、按新版另存一份(./world/useWorldPages.ts) ----
   const {
     showGallery,
@@ -2204,139 +2050,17 @@ ${s.image.cells}` : null);
   // (改了世界参数、地形、草图也不算:国家、地方对不上了)
   const foundNow =
     found && draft && !finderOn && found.gen === genSigOf(params, edits) && (cleanCivSeed(edits.civSeed) ?? params.seed) === found.civSeed ? found : null;
-  // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步 ----
-  /** 离开时还没存着的世界(只是看看的、别人分享的):退回来时照原样打开(只记在这一页里,刷新就没了) */
-  const navTargets = useRef(new Map<string, Target>());
-  /** 要离开这个画面了:名字、存没存着;没存着的世界记下它 */
-  const describeNav = () => {
-    const t = targetRef.current;
-    // 在我的世界:targetRef 还是上一个世界(可能已经删了),不算
-    if (!t || getStage().stage === 'home') return {};
-    const cw = currentWorld();
-    const live = cw?.id === t.id;
-    const title = (live ? cw.title : t.title) || undefined;
-    const stored = isStored(t.id);
-    // 没存着的、最近的修改没写进浏览器的(存储满了):记下现在的样子(修改、名字用手上的),回来时照这个打开;存好了的不用记。
-    // 新建中的只记动过、没写进去的(还在生成就起了名的也算;没动过的按网址里的种子新建就是原样)
-    const unsaved = live && currentUnsaved();
-    const touched = live ? !cw.pristine : !t.pristine;
-    if ((!stored && (t.kind !== 'draft' || touched)) || unsaved) navTargets.current.set(t.id, { ...t, ...(live ? { edits: getEdits(), title } : {}), ...(unsaved && t.kind === 'draft' ? { pristine: false } : {}), view: undefined, warnings: undefined });
-    else navTargets.current.delete(t.id);
-    return { title, stored };
-  };
-  /** 现在这个世界生成好、历史推完了(干预、地形大事都推进去了):它的编号;还没好 = null */
-  const settledId = (): string | null => {
-    const t = targetRef.current;
-    const cw = currentWorld();
-    if (getStage().stage !== 'world' || !t || !cw || cw.id !== t.id || !rawRef.current || fresh.current || regenRef.current) return null;
-    if (!sameInterventions(getEdits().interventions, civEdits.current) || !sameUpheavals(getEdits().upheavals, civUps.current)) return null;
-    const ri = resimInfo.current;
-    return ri && ri.arrived === undefined ? null : t.id;
-  };
-  /**
-   * 按后退 / 前进到了 to 这一步:
-   *   我的世界  回我的世界
-   *   新建      还是这次新建(同一个编号):种子、参数换回那一步的(那一步的网址里记着);存着、没建完的:打开它(同样换回;
-   *             这一页里记着的、存储满了没写进去的,照这一页里的样子打开);
-   *             已经建成了世界的:后退时跳过(前面没有这个网站的一步了就回我的世界),前进时打开那个世界;
-   *             存过、没建完就删掉了的(以它为底稿新建、什么都没动就返回的那一份):后退时同样跳过;没存过的:按网址里的种子新建
-   *             (照手绘图、还没照图长出星球的:图没留下,回我的世界、弹窗停在选图那一步)
-   *   世界      这一页里看过、没存着的(或最近的修改没写进浏览器,存储满了):照这一页里的样子打开;存着的:打开它;
-   *             存过、现在不在了:回我的世界,提示删掉了;
-   *             别的(网址里带种子的、分享短链接):按网址打开
-   * 从"以它为底稿新建"离开、什么都没动:那一份删掉(和左上的返回一样)
-   */
-  const routeNav = (to: NavState, from: NavState, dir: -1 | 1): void | 'skip' => {
-    if (from.page === 'draft') {
-      const left = derivedUntouched();
-      if (left && !(to.page === 'draft' && to.id === left)) deleteWorld(left);
-    }
-    // 分享链接打不开的那一页、正在取的分享、「新建世界」弹窗、写史书的窗口(选的是那个世界的国家)、读着的史书:换了画面就不留
-    // (到了世界、那一步记着史书的,世界好了再打开)
-    setLanding(null);
-    setNewDlg(null);
-    clearToast('share');
-    closeHistoryBook();
-    closeBookReader();
-    if (to.page === 'home') return showHome();
-    // 作品墙那一页、一个作品(取的时候换了画面,取回来不再打开)
-    if (to.page === 'gallery') return to.id ? openWork(to.id) : showGallery();
-    wallSeq.current++;
-    setWall(null);
-    // 回到从作品墙打开的世界作品:左上那一条照旧
-    const wi = to.page === 'world' && to.id ? workItems.current.get(to.id) : undefined;
-    setWorkFor(wi && to.id ? { id: to.id, work: wi } : null);
-    const back = dir < 0;
-    const skip = (): void | 'skip' => (back && to.prev ? 'skip' : showHome());
-    const url = readUrl();
-    const q = new URLSearchParams(location.search);
-    if (to.page === 'draft') {
-      const seed = to.seed ?? url.params.seed;
-      const want = { ...url.params, seed };
-      const d = draftNow();
-      if (d && d.id === to.id) {
-        if (worldKey(want) !== worldKey(d.params) && !d.base) draftSeed(seed, want);
-        return;
-      }
-      const w = to.id ? loadWorld(to.id) : null;
-      if (w && !w.draft) return back ? skip() : openStored(w.id);
-      const once = to.stored || (!!to.id && q.get('w') === to.id);
-      const mem = to.id ? navTargets.current.get(to.id) : undefined;
-      // 这一页里记着的(最近的修改没写进浏览器,存储满了)比存着的新;同样换回那一步的种子、参数
-      if (mem?.kind === 'draft' && (w || !once)) {
-        openTarget(mem);
-        if (worldKey(want) !== worldKey(mem.params) && !mem.base) draftSeed(seed, want);
-        return;
-      }
-      if (w) {
-        openStored(w.id);
-        if (worldKey(want) !== worldKey(w.save.params) && !w.base) draftSeed(seed, want);
-        return;
-      }
-      // 存过(离开时记着,或那一步的网址里有 w=编号)、现在不在了:跳过
-      if (once) return skip();
-      // 照手绘图新建、还没照图长出星球(图不存,离开就没了):和刷新时一样,回我的世界,弹窗停在照手绘图选图那一步
-      if (q.get('new') === 'image') {
-        showHome();
-        setNewDlg({ init: { mode: 'image', params: url.params, step: 2, endYear: url.years } });
-        return;
-      }
-      return openTarget({ ...draftTarget({ ...url.params, seed }, null, yearsEdits(url.years)), id: to.id ?? newWorldId() });
-    }
-    const w = to.id ? loadWorld(to.id) : null;
-    const once = to.stored || isWorldId(q.get('w'));
-    const mem = to.id ? navTargets.current.get(to.id) : undefined;
-    // 这一页里记着的(没存着的、最近的修改没写进浏览器的)比存着的新;存过、现在不在了的是删掉了
-    if (mem && (w || !once)) return openTarget(mem);
-    if (w) return openStored(w.id);
-    if (once) {
-      showHome();
-      goneToast(to.title);
-      return;
-    }
-    const code = q.get('s');
-    if (code) {
-      // 刷新过(手上没有这个世界):和打开分享短链接时一样,先到"正在打开"那一页,停了、打不开也显示在那一页
-      pausePlayback();
-      setReplayOn(false);
-      enterStage('home');
-      setLanding('loading');
-      return openShortShare(code, () => sameScreen(getNav(), to));
-    }
-    // 从作品墙打开、还没存下的世界作品(刷新过,手上没有这个世界):和打开作品的网址一样再取一次
-    const gid = q.get('gallery');
-    if (gid) return openWork(gid);
-    if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
-    return showHome();
-  };
-  navRef.current = { route: routeNav, describe: describeNav, settled: settledId, apply: (l) => (shownRaw ? applyNavLayer(shownRaw, l) : {}) };
-  // 只是看看的世界改了第一笔、新建中的动了第一下,就存下了:网址换成 w=编号,刷新还回到它
-  useEffect(() => {
-    const t = targetRef.current;
-    const cur = currentWorld();
-    if (home || !t || !cur || cur.id !== t.id) return;
-    if (isStored(t.id) && new URLSearchParams(location.search).get('w') !== t.id) writeWorldUrl(t);
-  }, [v, home]);
+  // ---- 浏览器的后退、前进(nav.ts):换到记着的那一步;只是看看的、新建中的世界存下了改写网址(./world/useRouteNav.ts) ----
+  useRouteNav({
+    gen: genRefs,
+    civ: civRefs,
+    resim: resimRefs,
+    load: { enterStage, openTarget, openStored, openShortShare },
+    pages: { showHome, showGallery, openWork, derivedUntouched, draftNow, draftSeed, v },
+    page: { home, setLanding, setNewDlg, setWall, wallSeq, workItems, setWorkFor, setReplayOn },
+    shownRaw,
+    navRef,
+  });
   // 把 .json 拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(随机生成的新建不收图片,松手时说一句)
   const [dropping, setDropping] = useState<false | 'save' | 'image'>(false);
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
