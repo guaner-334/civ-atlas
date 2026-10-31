@@ -13,6 +13,7 @@ import { ownersAt } from '../gen/civ/timeline';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
 import type { SurfaceLook } from '../render/surface';
 import { drawFilmFrame, filmMapRect, type FilmLook } from '../render/film';
+import { yearFrame, type FilmArea, type FilmClock, type FilmShape } from '../render/filmFrames';
 import { labelProjection, type MapProj } from '../render/projection';
 import type { MarkItem } from '../render/marks';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
@@ -27,12 +28,8 @@ import {
   filmSize,
   outlineEvents,
   rangeText,
-  yearFrame,
-  type FilmArea,
-  type FilmClock,
   type FilmPlot,
   type FilmRange,
-  type FilmShape,
 } from './filmPlan';
 
 /** 拍框里一块:地图平面上的范围(等距圆柱 = 展开的世界坐标)、屏幕上的缩放倍数、缩放 1 倍时地图多宽 */
