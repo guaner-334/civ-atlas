@@ -41,7 +41,7 @@
  * 界面、地图、编年史就都跟着年份变;不给年份 = 第一朝(立国时的国名)。
  */
 import type { Civ, Polity, PolityLineage, PopulationAt, Regions, Settlement, Year } from './types';
-import { fexp, flog, fpow } from './rand';
+import { fexp, flog, fpow } from './engine/rand';
 import { KM_PER_UNIT, REF_CELLS } from './scale';
 import { dynastyIndexAt, polityRootAt } from './polityRoot';
 import { hasReform, reformedSeg, titleSeg } from './regime';

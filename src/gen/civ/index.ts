@@ -24,7 +24,7 @@ import type { Sketch } from '../sketch';
 import type { Annal, ChangeLog, Civ, CivBase, CivParams, Culture, Habitat, PlanetTempo, Place, Polity, Route, Settlement } from './types';
 import { computeHabitat } from './habitat';
 import { buildRegions, emptyRegions, reshapeRegions } from './regions';
-import { CivSim, quantize } from './sim';
+import { CivSim, quantize } from './engine/sim';
 import { BIRTH_SPAN, cultureKey, cultureModelOf, finishCultures, installCultures, planCultures } from './cultures';
 import { buildRoutes, usedLanes } from './routes';
 import { capacityNorm, finishPolities, installPolities, planPolities, polityModelOf, routeCities, ruinGaps } from './polities';

@@ -25,7 +25,7 @@ import type { Intervention, PolicyFocus, PolicyKnob, PolicyPreset } from '../edi
 import { POLICY_FOCI } from '../edits';
 import type { Annal, RulerLeanings, Year } from './types';
 import { leaningEffect, type LeaningEffect, type Reign } from './rulers';
-import { fexp } from './rand';
+import { fexp } from './engine/rand';
 
 export type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
 

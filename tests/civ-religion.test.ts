@@ -9,7 +9,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { polityAlive } from '../src/gen/civ/growth';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle, chronicleDocument, reignEntries } from '../src/gen/civ/story/chronicle';
 import { GREAT_COLORS, buildReligion, faithAt, faithCounts, faithFromScratch, faithRoot, faithSimOf, stateFaithAt, statesOfFaith } from '../src/gen/civ/religion';
 import { FOLK_ROW_NAME, faithEntries, faithHistory, faithRows, fullChronicle } from '../src/gen/civ/story/religionText';

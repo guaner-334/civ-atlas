@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { finishDevelopment } from '../src/gen/civ/development';
 import { CONTROL_TIERS, LORD_BYTE, controlAt, controlShare, controlStats, controlTier } from '../src/gen/civ/control';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';

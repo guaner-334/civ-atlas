@@ -31,9 +31,9 @@
  *
  * 纯计算,不碰 DOM。
  */
-import { MinHeap } from '../util';
-import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from './types';
-import type { Calamity } from './calamity';
+import { MinHeap } from '../../util';
+import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from '../types';
+import type { Calamity } from '../calamity';
 
 // ---------------------------------------------------------------------------
 // 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19(新君即位 16),

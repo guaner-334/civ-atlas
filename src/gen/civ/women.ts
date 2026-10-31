@@ -29,7 +29,7 @@
  * 名字在这里和别的女性一起按出道先后起(nameWomen)。纯计算,不碰 DOM。
  */
 import type { PersonNamer } from '../names';
-import { keyed4, subSeed } from './rand';
+import { keyed4, subSeed } from './engine/rand';
 import { courtesyName } from './officials';
 import { splitSurname } from './surname';
 import { broodOf, type Son } from './royals';

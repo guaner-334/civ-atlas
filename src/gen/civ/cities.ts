@@ -30,8 +30,8 @@
  */
 import type { World } from '../world';
 import { Layer, type Civ, type Settlement, type Year } from './types';
-import { fexp, fpow, keyed, keyed4, subSeed } from './rand';
-import { bookChain, Ev, quantize, type CivSim } from './sim';
+import { fexp, fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { foundCity, onCapitalLost, polityModelOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { SETTLEMENT_RANKS, capacityAt, populationAt, ruinRank, ruinSites, settlementRank } from './growth';

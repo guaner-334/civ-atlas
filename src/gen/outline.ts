@@ -34,7 +34,7 @@ import { generateCiv, startContinue } from './civ';
 import type { Annal, Civ, CivParams } from './civ/types';
 import { playStop } from './civ/play';
 import { capitalAt, polityAlive } from './civ/growth';
-import { logIndexAfter, ownersAt } from './civ/timeline';
+import { logIndexAfter, ownersAt } from './civ/engine/timeline';
 import { polityTies, relationsAt } from './civ/diplomacy';
 import { nearestCell } from './civ/frontier';
 import { IV_NO_WAY } from './civ/trekRoute';

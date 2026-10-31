@@ -81,8 +81,8 @@
 import type { World } from '../world';
 import { coldShare, coldSpellEnd, yearClimate } from '../seasons';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Polity, type Year } from './types';
-import { fexp, flog, fpow, keyed, keyed4, round24, subSeed } from './rand';
-import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './sim';
+import { fexp, flog, fpow, keyed, keyed4, round24, subSeed } from './engine/rand';
+import { bookChain, Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, coreOf, effOf, endPolity, moveCapital, picks, policyAt, polityModelOf, powerScaleOf, regentOf, rulerOf, type PolityModel } from './polities';
 import { reignBorn } from './rulers';
 import { ADULT } from './regents';

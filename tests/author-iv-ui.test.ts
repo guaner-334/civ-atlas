@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { PersonDeed } from '../src/gen/civ/types';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityName } from '../src/gen/civ/growth';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { appointPreview, authorPostsFrom } from '../src/gen/civ/appoint';

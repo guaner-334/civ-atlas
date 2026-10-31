@@ -39,7 +39,7 @@ import { cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { treatiesOfAt, treatyMembersAt, treatyTitle } from '../gen/civ/story/treatyInfo';
 import { nationsWord, treatyPeriod, untilText, zonesOfAt } from './treatyRows';
 import { capitalAt, dynastyIndexAt, polityAlive, polityName, polityTitleChain, populationLabel, regionPopulationAt } from '../gen/civ/growth';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { filterChronicle, polityChronicle } from '../gen/civ/story/chronicle';
 import { fullChronicle } from '../gen/civ/story/religionText';
 import { stateFaithAt } from '../gen/civ/religion';

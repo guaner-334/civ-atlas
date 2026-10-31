@@ -32,14 +32,14 @@
  * 只用加减乘除,跨 CPU 逐位一致;不用随机数。
  */
 import type { Civ, IdeoEvent, Ideology, IdeoState, Year } from './types';
-import type { TableCard } from './tables';
+import type { TableCard } from './engine/tables';
 import { AdjKind, Layer } from './types';
-import type { CivSim } from './sim';
-import { TableEngine } from './tables';
+import type { CivSim } from './engine/sim';
+import { TableEngine } from './engine/tables';
 import { CAP_COUNT, CAPS, INVENTIONS, RESOURCE_COUNT, Res, devModelOf, type DevModel } from './development';
 import { populationAt } from './growth';
 import { ideoCards } from './ideoTables';
-import { subSeed } from './rand';
+import { subSeed } from './engine/rand';
 
 /** 一说一行 */
 export interface Thought {

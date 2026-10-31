@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { polityAlive } from '../src/gen/civ/growth';
 import { plagueSpans, plagueStats } from '../src/gen/civ/story/plagueSpans';

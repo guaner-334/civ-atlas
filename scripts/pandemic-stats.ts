@@ -12,7 +12,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { settlementKey, type Intervention } from '../src/gen/edits';
 import { populationAt, polityAlive, regionPopulationAt, ruinSites, settlementRank } from '../src/gen/civ/growth';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { sailsOcean } from '../src/gen/civ/polities';
 import { developmentAt, eraLevel } from '../src/gen/civ/development';
 import { pandemicsOf, wasteAt } from '../src/gen/civ/story/pandemicInfo';

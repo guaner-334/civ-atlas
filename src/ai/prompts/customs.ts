@@ -12,7 +12,7 @@ import { cultureTraits } from '../../gen/civ/story/cultureTraits';
 import { cultureKey } from '../../gen/edits';
 import { evText } from '../../ui/timelineLayout';
 import { cultureBranches, cultureEntries, cultureNow, culturePopSeries, cultureShownYear, cultureWaves, waveText } from '../../ui/cultureInfo';
-import { ownersAt, type Owners } from '../../gen/civ/timeline';
+import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { faithAt } from '../../gen/civ/religion';
 import { nameStamp, styleGuide } from './names';
 import type { AiMessage, AiRequest } from '../types';

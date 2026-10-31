@@ -7,7 +7,7 @@ import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { COUNCIL_CONSTS, COUNCIL_GATE, councilModelOf, courtRulesAt } from '../src/gen/civ/council';
 import { LORD_BYTE, controlAt, controlShare } from '../src/gen/civ/control';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
 import { courtEmpty, courtEvents, courtRowNote, courtView, formChangeSay, isFiefRegion, levySay, lordFoot, regimeSays } from '../src/ui/courtInfo';
 import { formChangesAt, formDims, polityFormAt } from '../src/gen/civ/story/polityForm';

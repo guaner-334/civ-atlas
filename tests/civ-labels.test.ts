@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { rasterize, type Raster } from '../src/gen/raster';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import {
   capitalAt,
   easternTitles,

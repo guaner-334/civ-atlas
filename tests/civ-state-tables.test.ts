@@ -4,14 +4,14 @@
  * 用一串连着的州(邻边的类型轮着来;每州 TPR 个地块,也连成一串)、随机填的输入,不用生成世界。
  */
 import { describe, expect, it } from 'vitest';
-import { TableEngine, type Backend } from '../src/gen/civ/tables';
+import { TableEngine, type Backend } from '../src/gen/civ/engine/tables';
 import { stateCards } from '../src/gen/civ/stateTables';
 import { NEVER } from '../src/gen/civ/devTables';
 import { CONTROL_CONSTS as C, FISCAL_CONSTS as F } from '../src/gen/civ/control';
 import { UNREST_CONSTS as U } from '../src/gen/civ/unrest';
 import { POP_CONSTS as H } from '../src/gen/civ/population';
 import { COUNCIL_CONSTS as K } from '../src/gen/civ/councilRules';
-import { fpow, keyed } from '../src/gen/civ/rand';
+import { fpow, keyed } from '../src/gen/civ/engine/rand';
 
 const R = 40;
 const NP = 5;

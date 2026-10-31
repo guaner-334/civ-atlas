@@ -16,7 +16,7 @@
  */
 import { regionOfKey, type Intervention } from '../edits';
 import { Layer, type Year } from './types';
-import type { CivSim } from './sim';
+import type { CivSim } from './engine/sim';
 import type { InterventionModel } from './interventions';
 import type { PolityModel } from './polities';
 import { plagueModelOf } from './plague';

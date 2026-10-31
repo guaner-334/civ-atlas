@@ -28,8 +28,8 @@
 import type { Civ, Year } from './types';
 import { Layer } from './types';
 import type { Intervention } from '../edits';
-import { fpow, keyed, keyed4 } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4 } from './engine/rand';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { plagueModelOf } from './plague';
 import { capitalAt, populationAt, settlementRank } from './growth';

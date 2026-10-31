@@ -6,7 +6,7 @@
 import type { World } from '../world';
 import type { Intervention } from '../edits';
 import type { Civ } from './types';
-import { CivSim } from './sim';
+import { CivSim } from './engine/sim';
 import { cultureModelOf, resumeCultures } from './cultures';
 import { polityModelOf, resumePolities } from './polities';
 import { resumeWars } from './wars';

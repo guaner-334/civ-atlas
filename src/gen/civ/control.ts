@@ -48,8 +48,8 @@
  * 随机数:keyed(subSeed(seed, 'civ-control'), 国家锚, 第几次看内政, 用途),和处理顺序无关。纯计算,不碰 DOM。
  */
 import { Layer, AdjKind, type Civ, type Polity, type TablesState, type Year } from './types';
-import { fexp, keyed, keyed4, subSeed } from './rand';
-import { Ev, type CivSim } from './sim';
+import { fexp, keyed, keyed4, subSeed } from './engine/rand';
+import { Ev, type CivSim } from './engine/sim';
 import { polityModelOf, powerScaleOf, unrestShiftOf, type PolityModel } from './polities';
 import { GUIDE_UNREST } from './policy';
 import { warModelOf, type War, type WarModel } from './wars';
@@ -57,7 +57,7 @@ import { politicsModelOf, type PoliticsModel } from './politics';
 import { Cap, CAP_COUNT, cityPopulationsAt, devModelOf, eraLevel, type DevModel } from './development';
 import { ERA_COL, Practice, RAIL_RECLAIM, WIRE_LORD, hasPractice, practiceMask } from './practices';
 import { capacityAt, capitalAt, populationAt } from './growth';
-import { TableEngine } from './tables';
+import { TableEngine } from './engine/tables';
 import { NEVER } from './devTables';
 import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './stateTables';
 import { UNREST_CONSTS, unrestInputs, unrestModelOf } from './unrest';

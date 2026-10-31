@@ -7,7 +7,7 @@
  */
 import type { Civ, Faith, FaithEvent, FaithEventKind, FaithForm, Year } from '../types';
 import { polityName } from '../growth';
-import { ownersAt, type Owners } from '../timeline';
+import { ownersAt, type Owners } from '../engine/timeline';
 import { rulerRef } from './peopleText';
 import { chronicleCached, chronicleSteps, mergeChronicle, runSteps, type ChronicleEntry, type Importance } from './chronicle';
 import { faithCounts, faithRoot, FOLK_COLOR } from '../religion';

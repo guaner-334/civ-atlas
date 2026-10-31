@@ -32,7 +32,7 @@ import type { MapProj } from '../projection';
 import type { Candidate } from '../labels/layout';
 import { groupLabels, groupOwnerGrid, type GroupSource } from '../labels/groups';
 import { namesLead, namesOn, polityNamesLead, polityNamesOn, type CivNameKind } from './show';
-import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/timeline';
+import { logIndexAfter, ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 import { faithAt } from '../../gen/civ/religion';
 import { ERA_COLORS, eraName, eraSampleYear, erasAt } from './era';
 import { passLabels } from './passes';

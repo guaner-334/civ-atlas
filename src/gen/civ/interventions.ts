@@ -78,8 +78,8 @@
  */
 import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
 import { Layer, type Culture, type Polity } from './types';
-import { subSeed } from './rand';
-import { Ev, LOOK_K, quantize, type CivSim } from './sim';
+import { subSeed } from './engine/rand';
+import { Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
 import { addPolity, bookOf, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, crownOf, reignBorn } from './rulers';
 import { strikeDisaster } from './disaster';

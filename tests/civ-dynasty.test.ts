@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ, type Polity } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { MIN_AGE, OLD_AGE, dynastyModelOf, dynastyStats } from '../src/gen/civ/dynasty';
 import { opensSeg } from '../src/gen/civ/regime';

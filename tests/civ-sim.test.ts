@@ -4,8 +4,8 @@ import { Biome } from '../src/gen/biomes';
 import { MinHeap } from '../src/gen/util';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
-import { CivSim, Ev, CHECKPOINT_EVERY, quantize } from '../src/gen/civ/sim';
-import { ownersAt, ownersFromScratch } from '../src/gen/civ/timeline';
+import { CivSim, Ev, CHECKPOINT_EVERY, quantize } from '../src/gen/civ/engine/sim';
+import { ownersAt, ownersFromScratch } from '../src/gen/civ/engine/timeline';
 import { planCultures, travelYears, cultureTerrain, type CultureModel } from '../src/gen/civ/cultures';
 import { resumeCiv } from '../src/gen/civ/modules';
 

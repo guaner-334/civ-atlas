@@ -17,7 +17,7 @@ import type { Civ } from '../gen/civ/types';
 import { cnNumber } from '../gen/civ/story/chronicle';
 import { capitalAt, polityAlive } from '../gen/civ/growth';
 import { ERAS } from '../gen/civ/development';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { BOOST_REGIONS_MAX, BOOST_YEARS, BOOST_YEARS_DEFAULT, polityKey, regionKey, type BoostMul, type Intervention } from '../gen/edits';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';

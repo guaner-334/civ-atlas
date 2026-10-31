@@ -14,7 +14,7 @@ import type { ChronicleEntry } from './chronicle';
 import type { TradeEvent, TradeRoute } from '../trade';
 import { capitalAt, polityName } from '../growth';
 import { regionLabel } from './display';
-import { ownersAt, type Owners } from '../timeline';
+import { ownersAt, type Owners } from '../engine/timeline';
 
 /** 编年史的标签 */
 export const TRADE_TAG = '商';

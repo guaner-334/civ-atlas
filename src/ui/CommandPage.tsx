@@ -41,7 +41,7 @@ import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
-import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
 import { regimeAt, royalAt } from '../gen/civ/regime';
 import { END_YEAR_MAX, cleanPlay, playInterventions, polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
 import { useNarrow } from './device';

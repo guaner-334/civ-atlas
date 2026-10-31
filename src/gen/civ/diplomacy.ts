@@ -46,8 +46,8 @@
 import type { World } from '../world';
 import { YEAR_TICKS, resolveKey } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
-import { fpow, keyed, keyed4, subSeed } from './rand';
-import { bookChain, Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { bookChain, Ev, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
 import { FRIEND_JOIN, FRIEND_PACT } from './policy';
 import { KIN_JOIN, KIN_PACT } from './marriages';

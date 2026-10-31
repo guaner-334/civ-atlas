@@ -58,8 +58,8 @@
  */
 import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
-import { keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { keyed, keyed4, subSeed } from './engine/rand';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { REOPEN, hates, limitedEnd, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';

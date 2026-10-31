@@ -28,11 +28,11 @@
  */
 import type { ChangeLog, Civ, Culture, Faith, FaithEvent, FaithForm, Polity, Regions, Religion, Settlement, StateFaith, Year } from './types';
 import type { World } from '../world';
-import type { CivSim } from './sim';
+import type { CivSim } from './engine/sim';
 import type { CultureModel } from './cultures';
 import type { PolityModel } from './polities';
 import { AdjKind, Layer } from './types';
-import { ownersAt, type Owners } from './timeline';
+import { ownersAt, type Owners } from './engine/timeline';
 import { capitalAt, populationAt } from './growth';
 import { personNamers } from './naming';
 import { keyed, subSeed } from '../util';

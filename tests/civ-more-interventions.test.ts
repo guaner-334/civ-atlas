@@ -11,7 +11,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { effOf, polityModelOf, rulerOf } from '../src/gen/civ/polities';
 import { IV_PROTECTED, leaningEffect } from '../src/gen/civ/rulers';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { capitalAt } from '../src/gen/civ/growth';
 import { rulerAt } from '../src/gen/civ/story/peopleInfo';

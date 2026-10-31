@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { trekModelOf } from '../src/gen/civ/migration';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { runOutline } from '../src/gen/outline';
 import { TREK_DIRS, TREK_DIR_NAMES, cleanIntervention, cleanPlot, cultureKey, plotNeedsRedo, resolveKey, type Plot, type TrekDir, type TrekReach } from '../src/gen/edits';
 import { checkText, resultText, whatCell, whoCell, type OutlineCtx } from '../src/ui/outlineInfo';

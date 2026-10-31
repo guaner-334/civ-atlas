@@ -13,7 +13,7 @@
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ, Year } from '../../gen/civ/types';
-import { ownersAt } from '../../gen/civ/timeline';
+import { ownersAt } from '../../gen/civ/engine/timeline';
 import { STRIPE_ALPHA, STRIPE_GAP, STRIPE_LINE, regionPixels, stripeAt } from './territory';
 import { mergeChains, regionChains, type SidedLine } from './borders';
 import { addToPath, chaikin, meshWrap, unwrapLine, type Polyline } from './lines';

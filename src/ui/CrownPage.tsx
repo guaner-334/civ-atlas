@@ -26,7 +26,7 @@ import type { World } from '../gen/world';
 import { BIOMES } from '../gen/biomes';
 import { HABITABLE_SUIT, regionLabel } from '../gen/civ/story/display';
 import { populationAt } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, personName } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';

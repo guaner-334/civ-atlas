@@ -3,7 +3,7 @@ import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { Biome } from '../src/gen/biomes';
 import { generateCiv, civTransferables, type Civ } from '../src/gen/civ';
 import { AdjKind } from '../src/gen/civ/types';
-import { keyed } from '../src/gen/civ/rand';
+import { keyed } from '../src/gen/civ/engine/rand';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 

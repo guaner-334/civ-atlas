@@ -15,7 +15,7 @@ import { playCiv, playTicks, playTo } from '../src/gen/civ/play';
 import { peopleIndex } from '../src/gen/civ/story/peopleInfo';
 import { polityAlive } from '../src/gen/civ/growth';
 import { polityTies } from '../src/gen/civ/diplomacy';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import {
   YEAR_TICKS,
   basePolicy,

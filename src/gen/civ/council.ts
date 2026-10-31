@@ -64,8 +64,8 @@
  * 随机数:keyed4(subSeed(seed, 'civ-council'), 国家锚, 第几次看内政, 议题),和处理顺序无关。纯计算,不碰 DOM。
  */
 import { AdjKind, Layer, type Civ, type Polity, type Year } from './types';
-import { flog, keyed4, subSeed } from './rand';
-import { Ev, type CivSim } from './sim';
+import { flog, keyed4, subSeed } from './engine/rand';
+import { Ev, type CivSim } from './engine/sim';
 import { polityModelOf, rulingLeanings, type PolityModel } from './polities';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { warModelOf, type WarModel } from './wars';

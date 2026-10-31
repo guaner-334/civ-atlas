@@ -38,8 +38,8 @@
  */
 import type { World } from '../world';
 import { Layer, type Civ, type Polity, type Year } from './types';
-import { fexp, fpow, keyed, subSeed } from './rand';
-import { Ev, LOOK_K, quantize, type CivSim } from './sim';
+import { fexp, fpow, keyed, subSeed } from './engine/rand';
+import { Ev, LOOK_K, quantize, type CivSim } from './engine/sim';
 import { dynastyReign, moveCapital, polityModelOf, unrestShiftOf, type PolityModel } from './polities';
 import { GUIDE_DYNASTY } from './policy';
 import { CAPITAL_GRACE, warModelOf, type WarModel } from './wars';

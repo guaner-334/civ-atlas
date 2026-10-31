@@ -45,7 +45,7 @@ import type { Annal, CultureKind, Polity, PolityLineage, RulerLeanings, Year } f
 import type { Intervention } from '../edits';
 
 export type { RulerLeanings };
-import { anchorTag, fexp, fpow, keyed4, subSeed } from './rand';
+import { anchorTag, fexp, fpow, keyed4, subSeed } from './engine/rand';
 import { segLineage } from './regime';
 
 // ---- 调参 ----

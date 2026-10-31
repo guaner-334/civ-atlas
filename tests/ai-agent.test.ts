@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { applyNames, polityKey, regionKey, settlementKey, type WorldEdits } from '../src/gen/edits';
 import { setActiveProvider, setMockResponder } from '../src/ai/client';
 import { AiError, type AiRequest } from '../src/ai/types';

@@ -326,7 +326,7 @@ import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
 import { mapTextBoxes, passAt, pickLabelAt } from './mapPick';
 import { setTradeHover, tradeAtClient, tradeHoverInfo } from './tradePick';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import { faithAt } from '../gen/civ/religion';
 import { filterChronicle, interventionOutcome } from '../gen/civ/story/chronicle';
 import { fullChronicle } from '../gen/civ/story/religionText';

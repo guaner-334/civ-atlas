@@ -18,7 +18,7 @@ import type { Civ } from '../gen/civ/types';
 import { capitalAt, polityAlive, populationLabel, portAt } from '../gen/civ/growth';
 import { SLUMP_CHOICES, SLUMP_DEFAULT } from '../gen/civ/calamity';
 import { regionLabel } from '../gen/civ/story/display';
-import { ownersAt } from '../gen/civ/timeline';
+import { ownersAt } from '../gen/civ/engine/timeline';
 import {
   DISASTER_NAMES,
   DISASTER_REGIONS_MAX,

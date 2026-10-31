@@ -39,8 +39,8 @@
  */
 import type { World } from '../world';
 import { AdjKind, Layer, type Civ, type Year } from './types';
-import { fpow, keyed, keyed4, subSeed } from './rand';
-import { Ev, quantize, type CivSim } from './sim';
+import { fpow, keyed, keyed4, subSeed } from './engine/rand';
+import { Ev, quantize, type CivSim } from './engine/sim';
 import { polityModelOf, sailsOcean, type PolityModel } from './polities';
 import { unrestModelOf } from './unrest';
 import { populationAt } from './growth';

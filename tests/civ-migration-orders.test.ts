@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { ownersAt } from '../src/gen/civ/timeline';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { trekModelOf } from '../src/gen/civ/migration';
 import { IV_NO_WAY, searchTrek, trekPaths, trekRouteTo } from '../src/gen/civ/trekRoute';
