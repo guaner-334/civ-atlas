@@ -67,32 +67,37 @@ import { COUNCIL_CONSTS, cutDone, reorgCap } from './councilRules';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
-/** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
-const REACH = 3.3;
-const ADMIN_GAIN = 0.2;
-/** 异族的州、刚被征服的州(RECENT 年内,随年数淡去)、当地有大城(城的人口上限有国都的 BIG_RATIO 以上)打的折 */
-const FOREIGN = 0.6;
-const RECENT = 150;
-const RECENT_CUT = 0.35;
-const BIG_RATIO = 0.5;
-const BIG_CITY = 0.85;
-/** 四档:直辖 ≥ TIER_DIRECT,代管 ≥ TIER_PROXY,再低是自治;割据另算 */
-const TIER_DIRECT = 0.6;
-const TIER_PROXY = 0.35;
-/**
- * 分裂的离心力、动荡里"离国都远"的那一项:路程 ÷ (FAR_REACH × 行政折算),最多 REMOTE_MAX;
- * 行政折算 = (1 + ADMIN_GAIN × 行政能力) ÷ (1 + ADMIN_GAIN × ADMIN_REF):行政能力在 ADMIN_REF 时和原来"路程 ÷ 12"一样
- */
-const FAR_REACH = 12;
-const ADMIN_REF = 1;
-const REMOTE_MAX = 4;
-/** 动荡:每有一处割据加 LORD_U,最多加 LORD_U_MAX */
-const LORD_U = 0.08;
-const LORD_U_MAX = 0.24;
-/** 出兵的几成 = min(1, c + LEVY_0);割据的州 0 */
-const LEVY_0 = 0.45;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const CONTROL_KNOBS = defineKnobs('control', {
+  /** 管得到的远近:REACH × (1 + ADMIN_GAIN × 行政能力)(标准路程) */
+  REACH: 3.3,
+  ADMIN_GAIN: 0.2,
+  /** 异族的州、刚被征服的州(RECENT 年内,随年数淡去)、当地有大城(城的人口上限有国都的 BIG_RATIO 以上)打的折 */
+  FOREIGN: 0.6,
+  RECENT: 150,
+  RECENT_CUT: 0.35,
+  BIG_RATIO: 0.5,
+  BIG_CITY: 0.85,
+  /** 四档:直辖 ≥ TIER_DIRECT,代管 ≥ TIER_PROXY,再低是自治;割据另算 */
+  TIER_DIRECT: 0.6,
+  TIER_PROXY: 0.35,
+  /**
+   * 分裂的离心力、动荡里"离国都远"的那一项:路程 ÷ (FAR_REACH × 行政折算),最多 REMOTE_MAX;
+   * 行政折算 = (1 + ADMIN_GAIN × 行政能力) ÷ (1 + ADMIN_GAIN × ADMIN_REF):行政能力在 ADMIN_REF 时和原来"路程 ÷ 12"一样
+   */
+  FAR_REACH: 12,
+  ADMIN_REF: 1,
+  REMOTE_MAX: 4,
+  /** 动荡:每有一处割据加 LORD_U,最多加 LORD_U_MAX */
+  LORD_U: 0.08,
+  LORD_U_MAX: 0.24,
+  /** 出兵的几成 = min(1, c + LEVY_0);割据的州 0 */
+  LEVY_0: 0.45,
+});
+const { REACH, ADMIN_GAIN, FOREIGN, RECENT, RECENT_CUT, BIG_RATIO, BIG_CITY, TIER_DIRECT, TIER_PROXY, FAR_REACH, ADMIN_REF, REMOTE_MAX, LORD_U, LORD_U_MAX, LEVY_0 } = CONTROL_KNOBS.values;
 
 // ---- 钱粮(公式见 stateTables.ts;以 20 个种子的统计为准) ----
 /** 各州三样收入:田赋(乡村人口)、工商(城的人口)、市税(城的人口,看运输、港口、大河);每样随生产 / 运输能力涨 */

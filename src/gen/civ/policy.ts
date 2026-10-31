@@ -26,6 +26,7 @@ import { POLICY_FOCI } from '../edits';
 import type { Annal, RulerLeanings, Year } from './types';
 import { leaningEffect, type LeaningEffect, type Reign } from './rulers';
 import { fexp } from './engine/rand';
+import { defineKnobs } from './engine/knobs';
 
 export type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
 
@@ -38,28 +39,32 @@ export const POLICY_PRESETS: Record<PolicyPreset, Partial<Record<PolicyKnob, num
 };
 
 // ---- 调参(scripts/policy-stats.ts 的 20 个种子统计) ----
-/** 打仗胆量另乘在宣战赔率上的倍数:e^(POLICY_DECLARE·胆量/50) —— 胆量 +25 约 × 2.1,−45 约 × 0.26 */
-export const POLICY_DECLARE = 1.5;
-/** 仇国:看邻国时挑它的赔率倍数 */
-export const FOE_ODDS = 3;
-/** 亲国:结盟挑对象时的分数倍数 */
-export const FRIEND_PACT = 3;
-/** 亲国挨打:结着盟的援盟机会(寻常 PACT_JOIN 0.7) */
-export const FRIEND_JOIN = 0.95;
-/** 发展重点:挑中的那一样"自己长"的倍数、别的几样的倍数;挑动员的,动员的目标多这么多 */
-export const FOCUS_UP = 1.6;
-export const FOCUS_DOWN = 0.9;
-export const FOCUS_MOB = 0.3;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const POLICY_KNOBS = defineKnobs('policy', {
+  /** 打仗胆量另乘在宣战赔率上的倍数:e^(POLICY_DECLARE·胆量/50) —— 胆量 +25 约 × 2.1,−45 约 × 0.26 */
+  POLICY_DECLARE: 1.5,
+  /** 仇国:看邻国时挑它的赔率倍数 */
+  FOE_ODDS: 3,
+  /** 亲国:结盟挑对象时的分数倍数 */
+  FRIEND_PACT: 3,
+  /** 亲国挨打:结着盟的援盟机会(寻常 PACT_JOIN 0.7) */
+  FRIEND_JOIN: 0.95,
+  /** 发展重点:挑中的那一样"自己长"的倍数、别的几样的倍数;挑动员的,动员的目标多这么多 */
+  FOCUS_UP: 1.6,
+  FOCUS_DOWN: 0.9,
+  FOCUS_MOB: 0.3,
+  /**
+   * 顺着引的动荡加减拧到头(±50)时:动荡加减多少(一般国家 0–3,大崩解的门槛 2.35 上下;看内政 40 年一次,窗口里多半只看一两次,
+   * 得一下子推到门槛上才引得动);改朝换代的动荡(≥ 1)乘 e^(±GUIDE_DYNASTY)(约 × 5 / ÷ 5)
+   */
+  GUIDE_UNREST: 3,
+  GUIDE_DYNASTY: 1.6,
+  /** Ev.Respread 的 a:定了方针的下一刻(门槛放低了才从现有国土往外重新看) */
+  POLICY_RESPREAD: 1,
+});
+export const { POLICY_DECLARE, FOE_ODDS, FRIEND_PACT, FRIEND_JOIN, FOCUS_UP, FOCUS_DOWN, FOCUS_MOB, GUIDE_UNREST, GUIDE_DYNASTY, POLICY_RESPREAD } = POLICY_KNOBS.values;
 
-/**
- * 顺着引的动荡加减拧到头(±50)时:动荡加减多少(一般国家 0–3,大崩解的门槛 2.35 上下;看内政 40 年一次,窗口里多半只看一两次,
- * 得一下子推到门槛上才引得动);改朝换代的动荡(≥ 1)乘 e^(±GUIDE_DYNASTY)(约 × 5 / ÷ 5)
- */
-export const GUIDE_UNREST = 3;
-export const GUIDE_DYNASTY = 1.6;
 
-/** Ev.Respread 的 a:定了方针的下一刻(门槛放低了才从现有国土往外重新看) */
-export const POLICY_RESPREAD = 1;
 
 const clamp = (x: number) => Math.min(100, Math.max(0, x));
 

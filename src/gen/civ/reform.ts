@@ -55,74 +55,79 @@ import { Issue, Outcome, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION, REVOLT_
 import { segRegime } from './regime';
 import { ideoModelOf, nationalNow } from './ideology';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/reform-stats.ts) ----
-/** 推力:均产算几成、天命扣几成;到 PUSH_MIN 才议改制 */
-const PUSH_EQ = 0.5;
-const PUSH_SKY = 0.6;
-const PUSH_MIN = 0.2;
-/** 天命之说到这么多算寻常(多了扣分、少了加分) */
-const SKY_REF = 0.4;
-/** 还没设议事会的小国(不到 SMALL 州)共治盛就直接议废君;大国先议立宪 */
-const SMALL = 20;
-/** 立宪要办成(设议会)民权至少多少;不够最多妥协(设议事会) */
-const RIGHT_MIN = 0.12;
-/** 败仗:几年内被打下的州、几州算满 */
-const DEFEAT_YEARS = 30;
-const LOST_FULL = 6;
-/** 议废君:共治 + 民权至少多少(设了议事会、议会以后还要窘迫) */
-const ABOLISH_MIN = 0.4;
-/** 议扩大参与:民权 + 均产至少多少 */
-const WIDEN_MIN = 0.35;
-/** 改制的分 */
-const X_0 = 0.05;
-const X_PUSH = 1;
-const X_CRISIS = 0.2;
-const X_SKY = 0.6;
-const X_ARMY = 0.25;
-/** 废君比立宪难:先扣 ABOLISH_HARD,国土越大越难(到 BIG_SIZE 州扣满 ABOLISH_BIG) */
-const ABOLISH_HARD = 0.2;
-const ABOLISH_BIG = 0.3;
-const BIG_SIZE = 40;
-const JITTER = 0.8;
-/** 动荡到 POLAR_U 以上,两边越吵越僵:每多 1 扣 POLAR 分(谈崩、起兵多一点) */
-const POLAR_U = 0.5;
-const POLAR = 0.4;
-/** 门槛:办成、妥协、搁置(再低谈崩) */
-const DONE = 0.25;
-const HALF = 0;
-const SHELVE = -0.5;
-/** 谈崩起兵:动荡至少多少;打不打得进国都 */
-const REVOLT_U = 0.6;
-const REV_0 = -0.2;
-const REV_U = 0.6;
-const REV_PUSH = 0.6;
-const REV_ARMY = 0.4;
-/** 打不进国都、据地自立:至少几州(和削藩谈崩一样)、最多占国土几成 */
-const REBEL_MIN = 5;
-const REV_SHARE = 0.3;
-/** 起事的州这么多年没换过国家(和分裂、割据一样) */
-const SETTLE = 30;
-/** 办成废君 / 革命以后,推力到这么多的至少到有产者能议政 */
-const OPEN_PUSH = 0.45;
-/** 政变、复辟、还政:上回改制至少隔几年 */
-const REFORM_GAP = 12;
-/** 政变的赔率 */
-const COUP_ODDS = 0.06;
-const COUP_ARMY = 2;
-const SEA_COUP = 0.3;
-/** 复辟:改制多少年以内、天命至少多少;赔率;旧王室还有人的年数 */
-const RESTORE_YEARS = 50;
-const RESTORE_SKY = 0.1;
-const RESTORE_ODDS = 0.45;
-const HOUSE_YEARS = 35;
-/** 还政:军政府满几年才议;分 */
-const RETURN_AGE = 15;
-const RET_0 = -0.1;
-const RET_PUSH = 0.8;
-const RET_WAR = 0.3;
-/** 政变的将军、革命起兵的人:年纪(随机)、倾向偏移(将军好战) */
-const LEADER_AGE: [number, number] = [36, 58];
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const REFORM_KNOBS = defineKnobs('reform', {
+  /** 推力:均产算几成、天命扣几成;到 PUSH_MIN 才议改制 */
+  PUSH_EQ: 0.5,
+  PUSH_SKY: 0.6,
+  PUSH_MIN: 0.2,
+  /** 天命之说到这么多算寻常(多了扣分、少了加分) */
+  SKY_REF: 0.4,
+  /** 还没设议事会的小国(不到 SMALL 州)共治盛就直接议废君;大国先议立宪 */
+  SMALL: 20,
+  /** 立宪要办成(设议会)民权至少多少;不够最多妥协(设议事会) */
+  RIGHT_MIN: 0.12,
+  /** 败仗:几年内被打下的州、几州算满 */
+  DEFEAT_YEARS: 30,
+  LOST_FULL: 6,
+  /** 议废君:共治 + 民权至少多少(设了议事会、议会以后还要窘迫) */
+  ABOLISH_MIN: 0.4,
+  /** 议扩大参与:民权 + 均产至少多少 */
+  WIDEN_MIN: 0.35,
+  /** 改制的分 */
+  X_0: 0.05,
+  X_PUSH: 1,
+  X_CRISIS: 0.2,
+  X_SKY: 0.6,
+  X_ARMY: 0.25,
+  /** 废君比立宪难:先扣 ABOLISH_HARD,国土越大越难(到 BIG_SIZE 州扣满 ABOLISH_BIG) */
+  ABOLISH_HARD: 0.2,
+  ABOLISH_BIG: 0.3,
+  BIG_SIZE: 40,
+  JITTER: 0.8,
+  /** 动荡到 POLAR_U 以上,两边越吵越僵:每多 1 扣 POLAR 分(谈崩、起兵多一点) */
+  POLAR_U: 0.5,
+  POLAR: 0.4,
+  /** 门槛:办成、妥协、搁置(再低谈崩) */
+  DONE: 0.25,
+  HALF: 0,
+  SHELVE: -0.5,
+  /** 谈崩起兵:动荡至少多少;打不打得进国都 */
+  REVOLT_U: 0.6,
+  REV_0: -0.2,
+  REV_U: 0.6,
+  REV_PUSH: 0.6,
+  REV_ARMY: 0.4,
+  /** 打不进国都、据地自立:至少几州(和削藩谈崩一样)、最多占国土几成 */
+  REBEL_MIN: 5,
+  REV_SHARE: 0.3,
+  /** 起事的州这么多年没换过国家(和分裂、割据一样) */
+  SETTLE: 30,
+  /** 办成废君 / 革命以后,推力到这么多的至少到有产者能议政 */
+  OPEN_PUSH: 0.45,
+  /** 政变、复辟、还政:上回改制至少隔几年 */
+  REFORM_GAP: 12,
+  /** 政变的赔率 */
+  COUP_ODDS: 0.06,
+  COUP_ARMY: 2,
+  SEA_COUP: 0.3,
+  /** 复辟:改制多少年以内、天命至少多少;赔率;旧王室还有人的年数 */
+  RESTORE_YEARS: 50,
+  RESTORE_SKY: 0.1,
+  RESTORE_ODDS: 0.45,
+  HOUSE_YEARS: 35,
+  /** 还政:军政府满几年才议;分 */
+  RETURN_AGE: 15,
+  RET_0: -0.1,
+  RET_PUSH: 0.8,
+  RET_WAR: 0.3,
+  /** 政变的将军、革命起兵的人:年纪(随机)、倾向偏移(将军好战) */
+  LEADER_AGE: [36, 58] as [number, number],
+});
+const { PUSH_EQ, PUSH_SKY, PUSH_MIN, SKY_REF, SMALL, RIGHT_MIN, DEFEAT_YEARS, LOST_FULL, ABOLISH_MIN, WIDEN_MIN, X_0, X_PUSH, X_CRISIS, X_SKY, X_ARMY, ABOLISH_HARD, ABOLISH_BIG, BIG_SIZE, JITTER, POLAR_U, POLAR, DONE, HALF, SHELVE, REVOLT_U, REV_0, REV_U, REV_PUSH, REV_ARMY, REBEL_MIN, REV_SHARE, SETTLE, OPEN_PUSH, REFORM_GAP, COUP_ODDS, COUP_ARMY, SEA_COUP, RESTORE_YEARS, RESTORE_SKY, RESTORE_ODDS, HOUSE_YEARS, RETURN_AGE, RET_0, RET_PUSH, RET_WAR, LEADER_AGE } = REFORM_KNOBS.values;
 const GENERAL_SHIFT = { war: 15, expand: 5 };
 const REBEL_SHIFT = { develop: 15, war: 5 };
 

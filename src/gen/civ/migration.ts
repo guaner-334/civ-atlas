@@ -69,80 +69,85 @@ import type { InterventionModel } from './interventions';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */
-const CHECK_FIRST = 300;
-const CHECK_EVERY = 50;
-/** 全世界同时最多几支在路上;一个世界最多几次;同一个民族多少年内只走一次 */
-const LIVE = 2;
-const MAX = 6;
-const GAP = 200;
-/** 民族至少几州才分得出一支;分出几成;到了能占几州 */
-const MIN_FOLK = 5;
-const SHARE = 0.3;
-const SIZE_MIN = 3;
-const SIZE_MAX = 8;
-/** 推:老家挤(乡村人口 ÷ 上限的平均,CROWD_0 以上的部分);灾年(FAMINE_YEARS 年内闹过饥荒的城,占有城的州 FAMINE_FULL 算满);本族的国散了 */
-const CROWD_0 = 0.6;
-const W_CROWD = 1;
-const FAMINE_YEARS = 30;
-const FAMINE_FULL = 0.2;
-const W_FAMINE = 1.5;
-const SCATTER_YEARS = 60;
-const W_SCATTER = 1.2;
-const PUSH_0 = 0.3;
-/** 拉:走得到的范围(陆路几州远);远一点打的折 */
-const HOPS_MIN = 10;
-const HOPS_MAX = 20;
-const HOPS_FADE = 15;
-/** 小块陆地上走不了那么远:最近 HOPS_FLOOR 州,不到 HOPS_MIN 州的值打折 e^(−差几州 ÷ SHORT_FADE) */
-const HOPS_FLOOR = 5;
-const SHORT_FADE = 3;
-/** 地好:城的人口(千人)÷ POP_REF 开方,最多 GOOD_MAX */
-const POP_REF = 30;
-const GOOD_MAX = 2.5;
-/** 守得弱:部落地带;国家的底数、动荡、近年大乱、疫后凋敝、正打着仗 */
-const WEAK_TRIBAL = 0.5;
-const WEAK_0 = 0.2;
-const WEAK_UNREST = 0.35;
-const CHAOS_YEARS = 100;
-const WEAK_CHAOS = 0.9;
-const WEAK_PLAGUE = 1.2;
-const WEAK_WAR = 0.25;
-/** 大国腹地:离国都近的州值再乘 1 + HEART_W × e^(−路程 ÷ HEART_REACH) */
-const HEART_W = 1.5;
-const HEART_REACH = 6;
-/** 这个世界已经有一支打进过大国国都(Migration.big)以后,大国的地的值打这么多折(腹地不另加) */
-const LATE_BIG = 0.1;
-/** 赔率底数(各族一次看一次;× s ÷ (s + HALF),s = (PUSH_0 + 推) × 拉);每 PACE_YEARS 年该有一次,落后一次赔率多乘 PACE_W */
-const ODDS = 0.06;
-const HALF = 0.3;
-const PACE_YEARS = 600;
-const PACE_W = 3;
-/** 走一州的年数(trekRoute.ts 的 trekPace)再 ± STEP_JITTER 随机 */
-const STEP_JITTER = 0.25;
-/** 路上洗劫:有城的州每州的机会、部落地带打的折、人口掉几成 */
-const RAID_P = 0.35;
-const RAID_TRIBAL = 0.5;
-const RAID_LOSS: readonly [number, number] = [0.08, 0.25];
-/** 到了以后那一仗:迁来的一方初起声势(倍数)、几年里淡去;守方的倍数 */
-const MORALE = 10;
-const FADE = 25;
-const COURT = 0.6;
-/**
- * 打进国都:那国(丢国都以前)不到迁来的国的 SMALL_K 倍、或者不到 SMALL_MIN 州 = 比它小,亡国、州归它;
- * 到 BIG 州的算大国,大崩解;中间的迁都、议和。迁来的占着国都一带的几成、最少 / 最多几州
- */
-const SMALL_K = 1.5;
-const SMALL_MIN = 6;
-const BIG = 25;
-const GRAB_FRAC = 0.12;
-const GRAB_MIN = 2;
-const GRAB_MAX = 10;
-/** 打进大国国都时大崩解的机会 = SHATTER_0 + SHATTER_U × 那国的动荡;取随机数用的"第几次"(和看内政的错开) */
-const SHATTER_0 = 0.25;
-const SHATTER_U = 0.3;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const MIGRATION_KNOBS = defineKnobs('migration', {
+  /** 第一次看大迁徙在哪一年附近;之后每隔多少年(每段里 20%–80% 处随机一个时刻) */
+  CHECK_FIRST: 300,
+  CHECK_EVERY: 50,
+  /** 全世界同时最多几支在路上;一个世界最多几次;同一个民族多少年内只走一次 */
+  LIVE: 2,
+  MAX: 6,
+  GAP: 200,
+  /** 民族至少几州才分得出一支;分出几成;到了能占几州 */
+  MIN_FOLK: 5,
+  SHARE: 0.3,
+  SIZE_MIN: 3,
+  SIZE_MAX: 8,
+  /** 推:老家挤(乡村人口 ÷ 上限的平均,CROWD_0 以上的部分);灾年(FAMINE_YEARS 年内闹过饥荒的城,占有城的州 FAMINE_FULL 算满);本族的国散了 */
+  CROWD_0: 0.6,
+  W_CROWD: 1,
+  FAMINE_YEARS: 30,
+  FAMINE_FULL: 0.2,
+  W_FAMINE: 1.5,
+  SCATTER_YEARS: 60,
+  W_SCATTER: 1.2,
+  PUSH_0: 0.3,
+  /** 拉:走得到的范围(陆路几州远);远一点打的折 */
+  HOPS_MIN: 10,
+  HOPS_MAX: 20,
+  HOPS_FADE: 15,
+  /** 小块陆地上走不了那么远:最近 HOPS_FLOOR 州,不到 HOPS_MIN 州的值打折 e^(−差几州 ÷ SHORT_FADE) */
+  HOPS_FLOOR: 5,
+  SHORT_FADE: 3,
+  /** 地好:城的人口(千人)÷ POP_REF 开方,最多 GOOD_MAX */
+  POP_REF: 30,
+  GOOD_MAX: 2.5,
+  /** 守得弱:部落地带;国家的底数、动荡、近年大乱、疫后凋敝、正打着仗 */
+  WEAK_TRIBAL: 0.5,
+  WEAK_0: 0.2,
+  WEAK_UNREST: 0.35,
+  CHAOS_YEARS: 100,
+  WEAK_CHAOS: 0.9,
+  WEAK_PLAGUE: 1.2,
+  WEAK_WAR: 0.25,
+  /** 大国腹地:离国都近的州值再乘 1 + HEART_W × e^(−路程 ÷ HEART_REACH) */
+  HEART_W: 1.5,
+  HEART_REACH: 6,
+  /** 这个世界已经有一支打进过大国国都(Migration.big)以后,大国的地的值打这么多折(腹地不另加) */
+  LATE_BIG: 0.1,
+  /** 赔率底数(各族一次看一次;× s ÷ (s + HALF),s = (PUSH_0 + 推) × 拉);每 PACE_YEARS 年该有一次,落后一次赔率多乘 PACE_W */
+  ODDS: 0.06,
+  HALF: 0.3,
+  PACE_YEARS: 600,
+  PACE_W: 3,
+  /** 走一州的年数(trekRoute.ts 的 trekPace)再 ± STEP_JITTER 随机 */
+  STEP_JITTER: 0.25,
+  /** 路上洗劫:有城的州每州的机会、部落地带打的折、人口掉几成 */
+  RAID_P: 0.35,
+  RAID_TRIBAL: 0.5,
+  RAID_LOSS: [0.08, 0.25] as readonly [number, number],
+  /** 到了以后那一仗:迁来的一方初起声势(倍数)、几年里淡去;守方的倍数 */
+  MORALE: 10,
+  FADE: 25,
+  COURT: 0.6,
+  /**
+   * 打进国都:那国(丢国都以前)不到迁来的国的 SMALL_K 倍、或者不到 SMALL_MIN 州 = 比它小,亡国、州归它;
+   * 到 BIG 州的算大国,大崩解;中间的迁都、议和。迁来的占着国都一带的几成、最少 / 最多几州
+   */
+  SMALL_K: 1.5,
+  SMALL_MIN: 6,
+  BIG: 25,
+  GRAB_FRAC: 0.12,
+  GRAB_MIN: 2,
+  GRAB_MAX: 10,
+  /** 打进大国国都时大崩解的机会 = SHATTER_0 + SHATTER_U × 那国的动荡;取随机数用的"第几次"(和看内政的错开) */
+  SHATTER_0: 0.25,
+  SHATTER_U: 0.3,
+});
+const { CHECK_FIRST, CHECK_EVERY, LIVE, MAX, GAP, MIN_FOLK, SHARE, SIZE_MIN, SIZE_MAX, CROWD_0, W_CROWD, FAMINE_YEARS, FAMINE_FULL, W_FAMINE, SCATTER_YEARS, W_SCATTER, PUSH_0, HOPS_MIN, HOPS_MAX, HOPS_FADE, HOPS_FLOOR, SHORT_FADE, POP_REF, GOOD_MAX, WEAK_TRIBAL, WEAK_0, WEAK_UNREST, CHAOS_YEARS, WEAK_CHAOS, WEAK_PLAGUE, WEAK_WAR, HEART_W, HEART_REACH, LATE_BIG, ODDS, HALF, PACE_YEARS, PACE_W, STEP_JITTER, RAID_P, RAID_TRIBAL, RAID_LOSS, MORALE, FADE, COURT, SMALL_K, SMALL_MIN, BIG, GRAB_FRAC, GRAB_MIN, GRAB_MAX, SHATTER_0, SHATTER_U } = MIGRATION_KNOBS.values;
 const SHATTER_K = 1 << 22;
 /**
  * 作者下令"推演挑"时走多远(干预 trek 的 reach):[几州远起值不打折, 最远几州, 最近几州]。

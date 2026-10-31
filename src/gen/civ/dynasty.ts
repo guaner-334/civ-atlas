@@ -49,57 +49,63 @@ import { KEEP_COURT, KEEP_RISE } from './rulers';
 import { royalAt } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以统计数为准,见 scripts/gen-stats.ts) ----
-/** 立国后多少年开始看王朝;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
-const DYN_FIRST = 80;
-const DYN_EVERY = 30;
-/**
- * 只有大国会改朝换代(不要每个小国都在换):国号到过第 BIG_TIER 档(王国 / 二十五州),眼下国土还有 MIN_SIZE 州。
- * 王朝的"岁数"从当朝开始算(开国的那一朝从立国算:立国几百年才长成大国的,长成之后不久就可能易代)
- */
-const BIG_TIER = 2;
-const MIN_SIZE = 25;
-/**
- * 当朝立了 OLD_AGE 年以上的,国土还有 OLD_SIZE 州也会易代(曾经的大国如今国土缩了、或者几百年一直是十几二十州的中等国家):
- * 不会一朝上千年
- */
-export const OLD_AGE = 450;
-const OLD_SIZE = 15;
-/** 当朝至少立了这么多年(乱世里短命的王朝也有,但不会几年一换) */
-export const MIN_AGE = 50;
-/** 赔率 = 王朝岁数为 AGE_REF 年时为 ODDS,每多 AGE_SCALE 年 × e */
-const ODDS = 0.12;
-const AGE_REF = 310;
-const AGE_SCALE = 70;
-/** 动荡:正在打仗;CRISIS_YEARS 年内战败失地(每丢 LOSS_FULL 州加满 C_LOSS);迁过都;有州分裂出去;国势衰微 */
-const CRISIS_YEARS = 50;
-const C_WAR = 0.4;
-const C_LOSS = 1.5;
-const LOSS_FULL = 8;
-const C_CAPITAL = 1;
-const C_SPLIT = 1;
-const RECENT_SPLIT = 60;
-const DECLINE = 0.7;
-const C_DECLINE = 0.8;
-/** 根据地的州要这么多年没换过国家(刚打下来的地方出不了新朝) */
-const SETTLE = 30;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const DYNASTY_KNOBS = defineKnobs('dynasty', {
+  /** 立国后多少年开始看王朝;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
+  DYN_FIRST: 80,
+  DYN_EVERY: 30,
+  /**
+   * 只有大国会改朝换代(不要每个小国都在换):国号到过第 BIG_TIER 档(王国 / 二十五州),眼下国土还有 MIN_SIZE 州。
+   * 王朝的"岁数"从当朝开始算(开国的那一朝从立国算:立国几百年才长成大国的,长成之后不久就可能易代)
+   */
+  BIG_TIER: 2,
+  MIN_SIZE: 25,
+  /**
+   * 当朝立了 OLD_AGE 年以上的,国土还有 OLD_SIZE 州也会易代(曾经的大国如今国土缩了、或者几百年一直是十几二十州的中等国家):
+   * 不会一朝上千年
+   */
+  OLD_AGE: 450,
+  OLD_SIZE: 15,
+  /** 当朝至少立了这么多年(乱世里短命的王朝也有,但不会几年一换) */
+  MIN_AGE: 50,
+  /** 赔率 = 王朝岁数为 AGE_REF 年时为 ODDS,每多 AGE_SCALE 年 × e */
+  ODDS: 0.12,
+  AGE_REF: 310,
+  AGE_SCALE: 70,
+  /** 动荡:正在打仗;CRISIS_YEARS 年内战败失地(每丢 LOSS_FULL 州加满 C_LOSS);迁过都;有州分裂出去;国势衰微 */
+  CRISIS_YEARS: 50,
+  C_WAR: 0.4,
+  C_LOSS: 1.5,
+  LOSS_FULL: 8,
+  C_CAPITAL: 1,
+  C_SPLIT: 1,
+  RECENT_SPLIT: 60,
+  DECLINE: 0.7,
+  C_DECLINE: 0.8,
+  /** 根据地的州要这么多年没换过国家(刚打下来的地方出不了新朝) */
+  SETTLE: 30,
+  /** 保住王室挡下的那一刻动荡到这么高:编年史写"国势危殆"(史事 keep 的 n = 1) */
+  KEEP_DIRE: 1.5,
+  /** 挑根据地:城的人口 ^ POP_EXP × (1 + FAR_W × min(FAR_MAX, 离国都的路程 ÷ FAR_REACH));国都(权臣篡位)× COURT */
+  POP_EXP: 0.8,
+  FAR_W: 0.6,
+  FAR_MAX: 3,
+  FAR_REACH: 8,
+  COURT: 2.5,
+  /**
+   * 新朝定都根据地:根据地的城人口至少是国都的这么多,再掷一次;
+   * 根据地离别国的国都不到 CAP_GAP 州(紧挨着别国的都城)就不迁,入主旧都
+   */
+  CAP_GAP: 3,
+  MOVE_POP: 0.2,
+  MOVE_P: 0.7,
+});
+const { DYN_FIRST, DYN_EVERY, BIG_TIER, MIN_SIZE, OLD_SIZE, ODDS, AGE_REF, AGE_SCALE, CRISIS_YEARS, C_WAR, C_LOSS, LOSS_FULL, C_CAPITAL, C_SPLIT, RECENT_SPLIT, DECLINE, C_DECLINE, SETTLE, KEEP_DIRE, POP_EXP, FAR_W, FAR_MAX, FAR_REACH, COURT, CAP_GAP, MOVE_POP, MOVE_P } = DYNASTY_KNOBS.values;
+export const { OLD_AGE, MIN_AGE } = DYNASTY_KNOBS.values;
 
-/** 保住王室挡下的那一刻动荡到这么高:编年史写"国势危殆"(史事 keep 的 n = 1) */
-const KEEP_DIRE = 1.5;
-/** 挑根据地:城的人口 ^ POP_EXP × (1 + FAR_W × min(FAR_MAX, 离国都的路程 ÷ FAR_REACH));国都(权臣篡位)× COURT */
-const POP_EXP = 0.8;
-const FAR_W = 0.6;
-const FAR_MAX = 3;
-const FAR_REACH = 8;
-const COURT = 2.5;
-/**
- * 新朝定都根据地:根据地的城人口至少是国都的这么多,再掷一次;
- * 根据地离别国的国都不到 CAP_GAP 州(紧挨着别国的都城)就不迁,入主旧都
- */
-const CAP_GAP = 3;
-const MOVE_POP = 0.2;
-const MOVE_P = 0.7;
 
 // 随机数用途编号
 const U_CHECK_T = 1;

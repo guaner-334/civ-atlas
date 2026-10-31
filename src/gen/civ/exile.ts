@@ -21,17 +21,22 @@ import type { WarModel } from './wars';
 import type { DiplomacyModel } from './diplomacy';
 import { fallFate, lastReign } from './rulers';
 import type { CivApi } from './api';
+import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/**
- * 邻国:亡国以前的国土往外这么多步以内(多半是被灭他的国家四面围住才亡的,紧挨着的往往只剩它;
- * 20 个种子里 2 步以内能找到去处的出奔不到一半,4 步八成多)
- */
-const HOPS = 4;
-/** 亡国以前的国土:这么多年内结束的(和亡国这一刻才议和的)仗里丢的州;这么多年内和他打过仗的国家不去 */
-const LOOKBACK = 30;
-/** 和灭他的国家这么多年内打过仗,算敌对 */
-const FOE_YEARS = 30;
+/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+export const EXILE_KNOBS = defineKnobs('exile', {
+  /**
+   * 邻国:亡国以前的国土往外这么多步以内(多半是被灭他的国家四面围住才亡的,紧挨着的往往只剩它;
+   * 20 个种子里 2 步以内能找到去处的出奔不到一半,4 步八成多)
+   */
+  HOPS: 4,
+  /** 亡国以前的国土:这么多年内结束的(和亡国这一刻才议和的)仗里丢的州;这么多年内和他打过仗的国家不去 */
+  LOOKBACK: 30,
+  /** 和灭他的国家这么多年内打过仗,算敌对 */
+  FOE_YEARS: 30,
+});
+const { HOPS, LOOKBACK, FOE_YEARS } = EXILE_KNOBS.values;
 
 // 随机数用途
 const U_PICK = 1;
