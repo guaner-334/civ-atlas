@@ -17,11 +17,12 @@
  * 登录了的:标题下那句话说世界存在账号里(不再提醒,「全部存成文件」照样在);卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
  * 账号窗里点「最近删除」,这一页换成最近删除(30 天内能找回,点一张卡片找回)。
  *
- * 两个页签(分段控件,默认「地图」;回到这一页还是上次看的那个):
+ * 两个页签(分段控件,默认「地图」;回到这一页还是上次看的那个;调规则的入口开着时多一个「规则」,见 rules/flag.ts):
  *   地图     一张地图一张卡片(实景、没有国界和地名的地图缩略图,名字"种子 7",下面写这张地图上有几个文明;分组见 mapGroups.ts)。
  *            点一张选中(描蓝边),它那一行下面展开:这张地图上的文明(点一个打开)和「打造新文明」;
  *            还没有文明的(新建时只保存了地图)展开里是「打造文明」「删除这张地图」。再点一下收起
  *   文明     一个文明一张卡片(就是原来的我的世界);"···"菜单里多一项「在这张地图上打造新文明」
+ *   规则     官方规则和本机「我的规则」里的几套,点一套打开调规则的大卡(rules/RulesList.tsx;代码和样式点到这一页才下载)
  * 手机上页签铺满一行,地图两列,展开的那块里文明一行一个,底下一个大的「打造新文明」。
  *
  * 刚打开网站、地图程序还没下完时点了打开(opening,见 HomeShell.tsx):点的那张卡片蒙一层浅白、正中一个下载进度圈,
@@ -56,10 +57,13 @@ import { YEAR_TICKS, cleanPlay, playAt } from '../gen/edits';
 import { monthNamesInUse, monthTail, monthsOf, yearFull } from '../gen/era';
 import { loadGallery, useGallery, type GalleryWork } from '../account/gallery';
 import { GalleryFeatured } from './Gallery';
+import { rulesUiOn } from './rules/flag';
+import { RulesTabHost } from './rules/RulesHost';
+import { openRulesText } from './rules/sheetStore';
 import './worlds.css';
 
 /** 我的世界看的是哪个页签、「地图」里选中了哪张(组的编号);回到这一页照旧 */
-type WorldsTab = 'maps' | 'civs';
+type WorldsTab = 'maps' | 'civs' | 'rules';
 let view: { tab: WorldsTab; pick: string | null } = { tab: 'maps', pick: null };
 const viewSubs = new Set<() => void>();
 function setView(v: Partial<typeof view>) {
@@ -76,6 +80,10 @@ function useView() {
 /** 回到我的世界时看「地图」页签、选中这张地图(刚保存的地图) */
 export function showMapInWorlds(key: string) {
   setView({ tab: 'maps', pick: key });
+}
+/** 回到我的世界时看「规则」页签(加进了别人分享的规则) */
+export function showRulesInWorlds() {
+  setView({ tab: 'rules' });
 }
 
 export interface MyWorldsProps {
@@ -148,7 +156,9 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   const list = useMemo(() => listWorlds(), [v]);
   const groups = useMemo(() => mapGroups(list), [list]);
   const civs = useMemo(() => list.filter((w) => !w.map), [list]);
-  const { tab, pick } = useView();
+  const { tab: tab0, pick } = useView();
+  const rulesOn = rulesUiOn();
+  const tab = tab0 === 'rules' && !rulesOn ? 'maps' : tab0;
   const fileRef = useRef<HTMLInputElement>(null);
   /** 菜单开在哪张卡片上 */
   const [menu, setMenu] = useState<string | null>(null);
@@ -172,7 +182,9 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
     e.target.value = '';
     if (!f) return;
     try {
-      onOpenText(await f.text(), f.name);
+      const text = await f.text();
+      // 一套规则的文件:打开调规则的大卡(只能看),不当世界的存档
+      if (!openRulesText(text, f.name)) onOpenText(text, f.name);
     } catch {
       notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] });
     }
@@ -354,8 +366,14 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           <button role="tab" aria-selected={tab === 'civs'} className={tab === 'civs' ? 'on' : ''} data-tab="civs" onClick={() => setView({ tab: 'civs' })}>
             文明<i>{civs.length}</i>
           </button>
+          {rulesOn && (
+            <button role="tab" aria-selected={tab === 'rules'} className={tab === 'rules' ? 'on' : ''} data-tab="rules" onClick={() => setView({ tab: 'rules' })}>
+              规则
+            </button>
+          )}
         </div>
       )}
+      {!empty && tab === 'rules' && rulesOn && <RulesTabHost phone={phone} />}
       {!empty && tab === 'maps' && <MapGrid groups={groups} phone={phone} pick={pick} onPick={(k) => setView({ pick: k })} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} />}
       {!empty && tab === 'civs' && !civs.length && <p className="mw-none">还没有文明。到「地图」里选一张地图打造文明，或者新建世界。</p>}
       {!empty && tab === 'civs' && civs.length > 0 && (

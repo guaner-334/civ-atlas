@@ -38,6 +38,8 @@ import { randomSeedValue, type HomeStart } from './homeStart';
 import { isNavState, navAdopt, navMark, navPushEarly, navReplace, navUrl } from './nav';
 import { galleryHref, galleryOfUrl } from '../account/gallery';
 import { useAppPercent } from './loadScreen';
+import { RulesHost } from './rules/RulesHost';
+import { openRulesHash, openRulesText } from './rules/sheetStore';
 
 /** 打开存档文件、等主程序下完时顶上那条提示 */
 const WAIT_TOAST = 'home-wait';
@@ -180,6 +182,8 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
       const gid = galleryOfUrl(new URLSearchParams(), location.hash);
       if (gid !== null) return pastedRef.current(gid);
       if (!isNavState(history.state)) navAdopt({ page: 'home' });
+      // 贴的是规则链接(调规则的入口开着时):就在这一页打开调规则的大卡,# 那段从地址栏去掉
+      if (openRulesHash(location.hash)) return navUrl(location.pathname + location.search);
       if (isShareHash(location.hash)) onLeave(null);
     };
     window.addEventListener('popstate', onPop);
@@ -230,7 +234,8 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     const f = e.dataTransfer.files[0];
     if (!f) return;
     f.text().then(
-      (text) => leave({ kind: 'text', text, fileName: f.name }),
+      // 一套规则的文件:就在这一页打开调规则的大卡,不等主程序
+      (text) => openRulesText(text, f.name) || leave({ kind: 'text', text, fileName: f.name }),
       () => notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] }),
     );
   };
@@ -270,6 +275,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
           onOpenWork={(w) => openWork(w.id)}
         />
       )}
+      <RulesHost />
       <ToastBar />
       <AiSettingsHost />
       <AccountHost phone={narrow} />
