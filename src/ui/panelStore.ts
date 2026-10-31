@@ -13,7 +13,7 @@
  *
  * 纯状态,不碰 DOM。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { SheetSnap, WorldSnap } from './gestures';
 
 export type PanelTab = 'info' | 'cmd';
@@ -59,14 +59,10 @@ interface PanelState {
 
 let state: PanelState = { tab: 'info', page: null, sub: null, run: null, fly: null, sheet: 'half', world: 'peek', drag: false };
 let stamp = 0;
-const subs = new Set<() => void>();
+const subs = createListeners();
 const set = (patch: Partial<PanelState>) => {
   state = { ...state, ...patch };
-  for (const f of subs) f();
-};
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => subs.delete(f);
+  subs.emit();
 };
 
 export function getPanel(): PanelState {
@@ -74,7 +70,7 @@ export function getPanel(): PanelState {
 }
 
 export function usePanel(): PanelState {
-  return useSyncExternalStore(subscribe, getPanel, getPanel);
+  return subs.use(getPanel);
 }
 
 export function setPanelTab(tab: PanelTab) {

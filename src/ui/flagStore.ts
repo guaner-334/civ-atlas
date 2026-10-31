@@ -5,10 +5,10 @@
  * 预览:「换一面」点一面、「自己改」边改边看时,那一面先"假装"已经改了(卡片和地图马上换成它),
  * 点「用这面」「完成」才记进修改(editsStore 的 setFlags,能撤销);关掉不点 = 不换。
  */
-import { useSyncExternalStore } from 'react';
 import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
 import { flagBook, flagOverrides, polityFlagAt, type FlagBook, type FlagEra, type FlagSpec } from '../gen/civ/flags';
+import { createStore } from './createStore';
 
 export interface FlagView {
   world: World;
@@ -16,29 +16,19 @@ export interface FlagView {
   book: FlagBook;
 }
 
-let view: FlagView | null = null;
-const viewSubs = new Set<() => void>();
+const view = createStore<FlagView | null>(null);
 
 /** App 算好以后放进来 */
 export function setFlagView(v: FlagView | null) {
-  if (v === view) return;
-  view = v;
-  for (const f of viewSubs) f();
+  view.set(v);
 }
 
 /** 现在这个世界的旗(还没有历史 = null;不跟着重画时用) */
-export const getFlags = (): FlagView | null => view;
+export const getFlags = (): FlagView | null => view.get();
 
 /** 现在这个世界的旗(还没有历史 = null) */
 export function useFlags(): FlagView | null {
-  return useSyncExternalStore(
-    (f) => {
-      viewSubs.add(f);
-      return () => viewSubs.delete(f);
-    },
-    () => view,
-    () => view,
-  );
+  return view.use();
 }
 
 /** 某国某年的那一面(没立国 = 第一面,已亡 = 最后一面) */
@@ -53,24 +43,14 @@ export interface FlagPreview {
   spec: FlagSpec;
 }
 
-let preview: FlagPreview | null = null;
-const subs = new Set<() => void>();
+const preview = createStore<FlagPreview | null>(null);
 
 export function setFlagPreview(p: FlagPreview | null) {
-  if (p === preview) return;
-  preview = p;
-  for (const f of subs) f();
+  preview.set(p);
 }
 
 export function useFlagPreview(): FlagPreview | null {
-  return useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    () => preview,
-    () => preview,
-  );
+  return preview.use();
 }
 
 /** 算旗:作者改过的 + 正在预览的那一面。geo = 按哪份地形配(有地形大事时是第一件以前的那一份;不给 = world、civ) */

@@ -3,7 +3,7 @@
  * 这次的条件(「再找」带着它回去接着找)。按世界编号记着;也记在这个浏览器里(刷新以后那一组还在)。
  * 标记本身(隘口、交界)在世界的修改里(作者标记),删了标记这一组照旧在,只是那一行不再写「标记」。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import type { WorldParams } from '../gen/params';
 import { condList, judgeCond, type FinderCand, type FinderPlace, type FinderQuery } from '../gen/finder/query';
 import type { FoundDetail } from './finderInfo';
@@ -99,7 +99,7 @@ export function findAgain(p: FoundPick) {
 
 const KEY = 'finder-found:';
 const mem = new Map<string, FoundPick | null>();
-const subs = new Set<() => void>();
+const subs = createListeners();
 let ver = 0;
 
 function read(id: string): FoundPick | null {
@@ -129,14 +129,10 @@ export function putFound(id: string, pick: FoundPick) {
     // 存不下(浏览器不让存、满了):只记在这一页里
   }
   ver++;
-  for (const f of subs) f();
+  subs.emit();
 }
 
 export function useFound(id: string | null | undefined): FoundPick | null {
-  useSyncExternalStore(
-    (f) => (subs.add(f), () => void subs.delete(f)),
-    () => ver,
-    () => ver,
-  );
+  subs.use(() => ver);
   return getFound(id);
 }

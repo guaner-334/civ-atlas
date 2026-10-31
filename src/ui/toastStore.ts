@@ -16,7 +16,7 @@
  * 进行中写"正在…"(不加省略号,进度条 / 转圈已经说明在进行),做完写"已…",失败写"…失败""打不开…""没写完";
  * 按钮用动词短语("撤销""重试""去设置""用链接里的""保留本地")。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 
 export type ToastKind = 'info' | 'progress' | 'ok' | 'warn' | 'error';
 
@@ -63,8 +63,8 @@ export const OK_TTL = 7000;
 let list: Toast[] = [];
 let seq = 0;
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
-const subs = new Set<() => void>();
-const emit = () => subs.forEach((f) => f());
+const subs = createListeners();
+const emit = subs.emit;
 
 function stopTimer(id: string) {
   const t = timers.get(id);
@@ -120,23 +120,19 @@ export function peekToast(id: string): Toast | null {
 }
 
 export function useToast(): Toast | null {
-  return useSyncExternalStore(
-    (f) => (subs.add(f), () => subs.delete(f)),
-    getToast,
-    getToast,
-  );
+  return subs.use(getToast);
 }
 
 /** 某个来源的那条还在不在(不管是不是正在显示;给了 act 就只认右边是这个按钮的)。只在有 / 没有变了时重画 */
 export function useToastOpen(id: string, act?: string): boolean {
   const has = () => list.some((x) => x.id === id && (act === undefined || x.action?.act === act));
-  return useSyncExternalStore((f) => (subs.add(f), () => subs.delete(f)), has, has);
+  return subs.use(has);
 }
 
 /** 某个来源那条的进度(不管是不是正在显示;没有这一条、没给进度 = null)。只在进度变了时重画 */
 export function useToastProgress(id: string): number | null {
   const get = () => list.find((x) => x.id === id)?.progress ?? null;
-  return useSyncExternalStore((f) => (subs.add(f), () => subs.delete(f)), get, get);
+  return subs.use(get);
 }
 
 /** 单测用 */

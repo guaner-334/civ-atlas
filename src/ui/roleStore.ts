@@ -9,7 +9,7 @@
  * 开始演绎时还没有那个世界(另存出来以后才打开):先记下要演哪国(armRole),进了逐年推演再认到新世界上(bindArmedRole)。
  * 纯状态,不碰 DOM(浏览器存储读写失败就只记在这次打开的页面里)。
  */
-import { useSyncExternalStore } from 'react';
+import { createListeners } from './createStore';
 import { currentWorld } from './saveStore';
 
 const KEY = 'wenming-ditu:play-role';
@@ -36,11 +36,11 @@ let roles: Roles = typeof window !== 'undefined' ? load() : {};
 /** 开始演绎时挑好的那一国(还没有新世界);undefined = 没有要认的 */
 let armed: { polity: string | null; from: string } | undefined;
 let version = 0;
-const subs = new Set<() => void>();
+const subs = createListeners();
 
 function emit() {
   version++;
-  for (const f of subs) f();
+  subs.emit();
 }
 
 function save() {
@@ -87,14 +87,7 @@ export function bindArmedRole(): string | null | undefined {
 }
 
 export function useRole(): string | null {
-  useSyncExternalStore(
-    (f) => {
-      subs.add(f);
-      return () => subs.delete(f);
-    },
-    () => version,
-    () => version,
-  );
+  subs.use(() => version);
   return getRole();
 }
 

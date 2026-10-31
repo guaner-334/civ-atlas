@@ -33,7 +33,6 @@
  * - 登录了网站账号的,世界还会同步进账号(account/sync.ts):这里给它原样读写一个世界(rawWorld / putSyncedWorld),
  *   用户删掉一个世界时告诉它(setDeleteHook);为了腾地方删掉的旧世界不算删除(账号里的还在)。
  */
-import { useSyncExternalStore } from 'react';
 import type { WorldParams } from '../gen/world';
 import { GENERATOR_VERSION, newHistoryEdits, type NewHistoryOptions, type WorldEdits } from '../gen/edits';
 import {
@@ -53,6 +52,7 @@ import {
   type SaveView,
 } from '../gen/savefile';
 import { getEdits, subscribeEdits } from './editsStore';
+import { createListeners } from './createStore';
 import type { DraftBase } from './stageStore';
 import { getContourKind, getGraticuleLines, getProjection } from './projectionStore';
 import { getMapCenter } from './mapWrap';
@@ -256,10 +256,10 @@ export function legacyWorld(params: WorldParams): StoredWorld | null {
 // 订阅(菜单里的列表、提示)
 
 let version = 0;
-const subs = new Set<() => void>();
+const subs = createListeners();
 function changed() {
   version++;
-  for (const f of subs) f();
+  subs.emit();
 }
 // 别的标签页存了、删了世界(同步取回来的也算):这里跟着刷新"我的世界",云同步也看一眼
 if (typeof window !== 'undefined') {
@@ -324,13 +324,12 @@ export function otherTabChanged(key: string | null, newValue: string | null): vo
 
 /** 存档有变化时调 f(返回取消函数) */
 export function subscribe(f: () => void) {
-  subs.add(f);
-  return () => void subs.delete(f);
+  return subs.subscribe(f);
 }
 
 /** 存档有变化时重新渲染(返回一个递增的版本号) */
 export function useSavesVersion(): number {
-  return useSyncExternalStore(subscribe, () => version, () => version);
+  return subs.use(() => version);
 }
 
 export interface SaveNotice {

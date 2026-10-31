@@ -19,9 +19,6 @@ import { eraText, yearFull, type Era } from '../gen/era';
 import { eventOver, yearFrame, type CaptionSlot, type FilmClock, type FilmEvent, type FilmShape } from '../render/filmFrames';
 import { entryWeight, evType, playRate } from './timelineLayout';
 
-/** 第几帧放到哪一年、画幅、拍整个世界还是一块(在 render/filmFrames.ts) */
-export { frameYear, type FilmArea, type FilmShape } from '../render/filmFrames';
-
 export type FilmSeconds = 30 | 60 | 120;
 
 export const FILM_FPS = 30;

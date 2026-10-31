@@ -21,8 +21,8 @@
  * 两边保持一致 —— setChronicle({ open: true }) 等于打开概览的编年史页,setChronicle({ open: false }) 在编年史页时收起概览;
  * 网址 chron=1 / chron=all 打开网页时就停在编年史页。
  */
-import { useSyncExternalStore } from 'react';
 import { getChronicle, getCivTime, pausePlayback, setChronicle, setCivTime, subscribeChronicle, subscribeCivTime, type ChronicleView, type CivTime } from './civView';
+import { createListeners, createStore } from './createStore';
 
 export type OverviewTab = 'countries' | 'cultures' | 'chronicle' | 'people' | 'records' | 'marks' | 'outline' | 'interventions' | 'genesis';
 
@@ -44,7 +44,7 @@ export interface OverviewOpts {
 
 const chron0 = getChronicle();
 let state: OverviewState = { open: chron0.open, tab: chron0.open ? 'chronicle' : 'countries' };
-const subs = new Set<() => void>();
+const subs = createListeners();
 
 /** 打开概览时停下的播放:停在哪一年(显示的那一年)、快慢、是不是"回放世界形成"接着放文明的那一段;null = 不是概览停的 */
 let hold: { year: number; speed: CivTime['speed']; story: boolean } | null = null;
@@ -63,7 +63,7 @@ function holdPlayback() {
 subscribeCivTime((t) => {
   if (!hold || (!t.playing && !t.scrubbing && t.speed === hold.speed && t.year !== null && t.year >= hold.year && t.year < hold.year + 1)) return;
   hold = null;
-  subs.forEach((f) => f());
+  subs.emit();
 });
 
 function set(next: OverviewState, resume = false) {
@@ -73,7 +73,7 @@ function set(next: OverviewState, resume = false) {
   const back = closing ? hold : null;
   if (closing) hold = null;
   state = next;
-  subs.forEach((f) => f());
+  subs.emit();
   // 编年史"开着" = 概览开在编年史页(同步到 civView 的编年史状态:App 根元素的 chron-open 读它);
   // 收起概览时"只看这一国"一起清掉:时间轴上的事件点跟着编年史的筛选,收起后回到全部国家。两样一次改(分两次改,下面的订阅会在中间把概览又打开)
   const shown = state.open && state.tab === 'chronicle';
@@ -99,11 +99,7 @@ export function getOverview(): OverviewState {
 }
 
 export function useOverview(): OverviewState {
-  return useSyncExternalStore(
-    (f) => (subs.add(f), () => subs.delete(f)),
-    getOverview,
-    getOverview,
-  );
+  return subs.use(getOverview);
 }
 
 /** 打开概览(不给 tab = 停在上次那一页);opts 给编年史页设筛选 */
@@ -132,11 +128,7 @@ export function getOverviewHold(): boolean {
 }
 
 export function useOverviewHold(): boolean {
-  return useSyncExternalStore(
-    (f) => (subs.add(f), () => subs.delete(f)),
-    getOverviewHold,
-    getOverviewHold,
-  );
+  return subs.use(getOverviewHold);
 }
 
 /** 换页(开着时) */
@@ -161,31 +153,26 @@ export interface PeopleView {
   focus: number | null;
 }
 
-let people: PeopleView = { list: null, polity: null, tree: false, dynasty: null, focus: null };
-const peopleSubs = new Set<() => void>();
+const people = createStore<PeopleView>({ list: null, polity: null, tree: false, dynasty: null, focus: null });
 
 export function getPeople(): PeopleView {
-  return people;
+  return people.get();
 }
 
 export function setPeople(patch: Partial<PeopleView>) {
-  const next = { ...people, ...patch };
+  const prev = people.get();
+  const next = { ...prev, ...patch };
   // 世系图只在「君主」、只看一国时有:换成全部国家或别的档,回到列表;换了国家,看哪一朝、圈出谁作废
   if (next.polity === null || next.list !== 'rulers') next.tree = false;
-  if (next.polity !== people.polity) {
+  if (next.polity !== prev.polity) {
     if (patch.dynasty === undefined) next.dynasty = null;
     if (patch.focus === undefined) next.focus = null;
   }
-  people = next;
-  peopleSubs.forEach((f) => f());
+  people.set(next);
 }
 
 export function usePeople(): PeopleView {
-  return useSyncExternalStore(
-    (f) => (peopleSubs.add(f), () => peopleSubs.delete(f)),
-    getPeople,
-    getPeople,
-  );
+  return people.use();
 }
 
 /** 打开概览的人物页(国家卡片的"全部 N 位" = 这国的历代君主,照列表看) */
