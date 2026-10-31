@@ -4,17 +4,13 @@
  */
 import { nearX } from './util';
 
-export interface RiverStyle {
-  color: string;
+/** 河宽随流量怎么变(河网几何按它算每点线宽;画河另有颜色、细节层级,见 render/common.ts 的 RiverStyle) */
+export interface RiverWidth {
   /** 最细的河宽(世界单位) */
   minW: number;
   /** 最粗的河宽(世界单位) */
   maxW: number;
   fluxRef: number;
-  /** 细节层级:只画流量 ≥ 这个值的河段(全图时小溪不画,放大才出现);不给 = 全画 */
-  minFlux?: number;
-  /** 细水那一份宽度(minW)再乘这个数:放大时小溪不跟着变粗,大河的宽度照样按世界单位放大 → 主干显得粗 */
-  thin?: number;
 }
 
 /** 一条河加密后的折线:坐标和线宽都是世界单位(画的时候再乘 scale) */
@@ -43,7 +39,7 @@ export interface DenseRiver {
 export function riverGeometry(
   rivers: { pts: Float32Array }[],
   threshold: number,
-  style: RiverStyle,
+  style: RiverWidth,
   flare: number,
   power: number,
   wrap = 0,

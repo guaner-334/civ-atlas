@@ -29,7 +29,7 @@
  * keyed 的"实体"一律是位置锚(见 rand.ts):州 = 治所地块,城 / 国家 = PolityModel.stag / ptag(地块 + 这州第几个),
  * 改地形后多一个、少一个州或国家,别处的随机数不跟着错位。
  */
-import { Biome, biomeTagged } from '../biomes';
+import { biomeTagged } from '../biomes';
 import type { World } from '../world';
 import { MinHeap } from '../util';
 import { geometryOf } from '../geometry';
@@ -383,8 +383,11 @@ export function findPorts(world: World, T: CultureTerrain, also?: Uint8Array): U
   return port;
 }
 
+/** 海冰群落(地貌表的标签 seaIce) */
+const SEA_ICE = biomeTagged('seaIce');
+
 function frozen(world: World, i: number): boolean {
-  return world.seaIce[i] >= 0.5 || world.biome[i] === Biome.SeaIce;
+  return world.seaIce[i] >= 0.5 || SEA_ICE[world.biome[i]] === 1;
 }
 
 /**
