@@ -13,7 +13,6 @@
 import type { Annal, Civ, Year } from '../gen/civ/types';
 import { councilAble, councilConsts, councilGate, courtRulesAt, type CourtRules } from '../gen/civ/council';
 import { knobsOf } from '../gen/civ/knobs';
-import type { KnobSet } from '../gen/civ/engine/knobs';
 import { councilBefore } from '../gen/civ/councilRules';
 import { LORD_BYTE, controlAt, controlShare } from '../gen/civ/control';
 import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
@@ -124,7 +123,8 @@ export function courtView(civ: Civ, p: number, year: Year): CourtView {
   const fiefs: number[] = [];
   const snap = rules.fiefBy >= 0 ? controlAt(civ, year) : null;
   if (snap) {
-    for (let r = 0; r < own.length; r++) if (own[r] === p && isFief(knobs, snap[r])) fiefs.push(r);
+    const { FIEF_C } = councilConsts(knobs);
+    for (let r = 0; r < own.length; r++) if (own[r] === p && isFief(FIEF_C, snap[r])) fiefs.push(r);
     const named = src.annals[rules.fiefBy].region;
     const pop = new Map(fiefs.map((r) => [r, regionPopulationAt(civ, r, year)]));
     fiefs.sort((a, b) => Number(b === named) - Number(a === named) || pop.get(b)! - pop.get(a)! || a - b);
@@ -146,15 +146,15 @@ export function courtView(civ: Civ, p: number, year: Year): CourtView {
   };
 }
 
-/** 快照里的一个数是不是封地的样子(在国家里、不是割据、管得到三成半以下);国家分封着没有另看 */
-function isFief(knobs: KnobSet, v: number): boolean {
-  return v > 0 && v !== LORD_BYTE && controlShare(v) < councilConsts(knobs).FIEF_C;
+/** 快照里的一个数是不是封地的样子(在国家里、不是割据、管得到 fiefC 以下;这个世界的 FIEF_C);国家分封着没有另看 */
+function isFief(fiefC: number, v: number): boolean {
+  return v > 0 && v !== LORD_BYTE && controlShare(v) < fiefC;
 }
 
 /** 州卡片:r 州第 year 年是不是封地(归 p 国、p 国分封着、管得到三成半以下) */
 export function isFiefRegion(civ: Civ, p: number, r: number, year: Year): boolean {
   const v = controlAt(civ, year)?.[r];
-  if (p < 0 || !v || !isFief(knobsOf(civ), v)) return false;
+  if (p < 0 || !v || !isFief(councilConsts(knobsOf(civ)).FIEF_C, v)) return false;
   return courtRulesAt(civ.history ?? civ, p, year).fiefBy >= 0;
 }
 
