@@ -26,7 +26,7 @@
  * 距离和启发函数一律来自几何层(geo.ts / gen/geometry.ts),只沿 mesh 邻接走,不用 x、y 直接算间距。
  * 没有随机数:结果只由世界决定;并列时按地块 / 城的编号定先后。
  */
-import { Biome } from '../biomes';
+import { Biome, biomeColumn } from '../biomes';
 import { MinHeap } from '../util';
 import type { Progress, World } from '../world';
 import { AdjKind, Layer, type ChangeLog, type Culture, type Habitat, type Regions, type Route, type Year } from './types';
@@ -107,23 +107,8 @@ const PARALLEL_RATIO = 1.6;
 /** 路段类别在 slot 数组里的编号(0 = 没有路) */
 const KIND_CODE = { road: 1, trail: 2, sea: 1 } as const;
 
-/** 群落修路难度(乘在代价上;冰原不能走) */
-const BIOME_ROAD: readonly number[] = (() => {
-  const t = new Array<number>(16).fill(1);
-  t[Biome.Tundra] = 1.25;
-  t[Biome.Taiga] = 1.2;
-  t[Biome.ColdDesert] = 1.15;
-  t[Biome.TemperateDesert] = 1.15;
-  t[Biome.Steppe] = 1;
-  t[Biome.TemperateForest] = 1.1;
-  t[Biome.TemperateRainforest] = 1.25;
-  t[Biome.HotDesert] = 1.3;
-  t[Biome.Savanna] = 1;
-  t[Biome.TropicalDryForest] = 1.1;
-  t[Biome.Rainforest] = 1.4;
-  t[Biome.Wetland] = 1.5;
-  return t;
-})();
+/** 群落修路难度(乘在代价上;冰原不能走;见地貌表的 roadCost) */
+const BIOME_ROAD = biomeColumn('roadCost');
 
 /** 结冰的水面:海冰 ≥ 0.5,或海冰群落 */
 export function icyWater(world: World, i: number): boolean {

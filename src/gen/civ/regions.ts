@@ -13,6 +13,7 @@
  * 只沿 mesh 邻接走,距离一律来自 geo.ts,不用 x、y 算间距。
  */
 import type { World } from '../world';
+import { BIOMES } from '../biomes';
 import { MinHeap } from '../util';
 import { AdjKind, type Habitat, type Regions } from './types';
 import { adjLengths, cellAreas, REF_MESH_CELLS, refSpacing, REGION_AREA_SCALE } from './geo';
@@ -453,7 +454,7 @@ function finishRegions(
   const rBiome = new Uint8Array(count);
   const rElev = new Float32Array(count);
   const landmass = new Int32Array(count);
-  const bArea = new Float64Array(16);
+  const bArea = new Float64Array(BIOMES.length);
   for (let r = 0; r < count; r++) {
     let a = 0;
     let cap = 0;
@@ -468,7 +469,7 @@ function finishRegions(
       bArea[biome[i]] += ca;
     }
     let bb = 0;
-    for (let b = 1; b < 16; b++) if (bArea[b] > bArea[bb]) bb = b;
+    for (let b = 1; b < BIOMES.length; b++) if (bArea[b] > bArea[bb]) bb = b;
     area[r] = a;
     capacity[r] = cap;
     rBiome[r] = bb;

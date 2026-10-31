@@ -31,7 +31,7 @@
  * Place.rank:1 = 总览就显示;2 = 放大到约 1.8 倍显示;3 = 放大到约 3 倍显示(见 render/civ/labels.ts)。
  */
 import type { World } from '../world';
-import { Biome } from '../biomes';
+import { BIOMES, Biome, biomeMask } from '../biomes';
 import { MinHeap, hypot2, mulberry32, subSeed } from '../util';
 import { geometryOf, type Chart, type Geometry } from '../geometry';
 import { createNamer, NAME_STYLES, pickStyle, type GeneratedName, type NameMix, type Namer } from '../names';
@@ -1239,12 +1239,14 @@ function passPlaces(world: World, ns: Namers, sites: readonly PassSite[]): Place
   return out;
 }
 
+/** 荒漠群落(按 Biome 下标,见地貌表的 desert) */
+const DESERT_BIOME = biomeMask((b) => b.desert !== undefined);
+
 function findDeserts(world: World, ctx: Ctx, ns: Namers): Place[] {
   const n = ctx.n;
   const desert = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    const b = world.biome[i];
-    desert[i] = world.water[i] === 0 && (b === Biome.HotDesert || b === Biome.TemperateDesert || b === Biome.ColdDesert) ? 1 : 0;
+    desert[i] = world.water[i] === 0 && DESERT_BIOME[world.biome[i]] ? 1 : 0;
   }
   const all = components(world, desert)
     .map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }))
@@ -1259,8 +1261,9 @@ function findDeserts(world: World, ctx: Ctx, ns: Namers): Place[] {
     let hot = 0;
     let cold = 0;
     for (const k of c.cells) {
-      if (world.biome[k] === Biome.HotDesert) hot++;
-      else if (world.biome[k] === Biome.ColdDesert) cold++;
+      const kind = BIOMES[world.biome[k]].desert;
+      if (kind === 'hot') hot++;
+      else if (kind === 'cold') cold++;
     }
     const other = c.cells.length - hot - cold;
     const suffix = hot >= other && hot >= cold ? '沙漠' : cold > other ? '荒原' : '荒漠';
