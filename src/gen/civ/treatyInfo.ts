@@ -12,13 +12,9 @@ import { polityAlive, polityName } from './growth';
 import { ownersAt } from './timeline';
 import { treatyBook, type TreatyInfo, type ZoneInfo } from './treatyBook';
 
-// 每份约、每处中立地的来龙去脉(treatyBook)在 treatyBook.ts;原来从这里 import 的照旧能用
+// 每份约、每处中立地的来龙去脉(treatyBook)、立约选项和干预没生效的原因码在 treatyBook.ts;原来从这里 import 的照旧能用
 export * from './treatyBook';
 
-/** 干预立约 / 划中立地没生效的原因(史事 intervene 的 b 列;−1 = 生效了,−2 州键指不到,−3 下令的国家已亡) */
-export const IV_NOBODY = -8;
-export const IV_REFUSED = -9;
-export const IV_NO_ZONE = -10;
 
 /** 约名:用户改过的名字;没改过 = "丹枫关之约"(会盟的城;没有城 = 空串) */
 export function treatyName(civ: Civ, id: number): string {

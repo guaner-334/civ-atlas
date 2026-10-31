@@ -56,7 +56,7 @@ import { installRegency } from './regency';
 import { installMarriage } from './marriage';
 import { installPlague } from './plague';
 import { installPandemic } from './pandemic';
-import { breakRoads } from './pandemicInfo';
+import { breakRoads } from './pandemicRoads';
 import { cleanCalamity } from './calamity';
 import { installTreaties } from './treaties';
 import { installMigration, migrationsOf } from './migration';
@@ -455,7 +455,7 @@ function finishCiv(x: Finish): Civ {
   const settlements: Settlement[] = fin.pm?.settlements ?? []; // ③ polities.ts
   const polities: Polity[] = fin.pm?.polities ?? []; // ③ polities.ts
   // ④ routes.ts:城镇列表交给道路(国都之间修大路,路的修建年份取两端较晚者);推演里走过的航线一定画(usedLanes)
-  // 全球大疫的凋敝里失修断掉、后来修回的路(pandemicInfo.ts 的 breakRoads;没有全球大疫 = 原样)
+  // 全球大疫的凋敝里失修断掉、后来修回的路(pandemicRoads.ts 的 breakRoads;没有全球大疫 = 原样)
   const routes: Route[] = viable
     ? breakRoads(
         { seed, annals, settlements, regions: fin.regions },

@@ -59,7 +59,7 @@ import { RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP, regencyBase, regentsF
 import { GROOM_SELF, matchesFrom, type Match } from './marriages';
 import { IV_PEOPLE, K_RULER, MAX_AGE, U_AGE, actsFrom, fallFate, leaningEffect, reignBook, rulerBase, rulerTags, type Crown, type Reign } from './rulers';
 import { policiesFrom, policyEffect, segAt } from './policy';
-import { splitSurname } from './peopleText';
+import { splitSurname } from './surname';
 import { debutSex, nameWomen, pickWomen, type ConsortName } from './women';
 import { K_BRIDE, K_DOWAGER, U_SURNAME, bears, brideBorn, consortDeath, consortRand, dowagerHomeU, isDowager, otherSurname } from './consorts';
 import { HEIR, K_HOUSE_GENERAL, houseBase, pickHouses, withParentSurname } from './kin';

@@ -31,12 +31,12 @@ import { refCellArea, refSpacing } from './geo';
 import { quantize, Ev, type CivSim } from './sim';
 import { assignStyles, lastIfPioneer, nameCultures, nameKin, nameRegions } from './naming';
 import type { NameMix } from '../names';
-import { HABITABLE_SUIT, KIND_INFO } from './display';
+import { HABITABLE_SUIT, KIND_EXPANSIONISM } from './kinds';
 import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
 import { regionOfKey, simInterventions, type Intervention } from '../edits';
 
 // ---- 调参(以截图效果为准) ----
-/** 治所宜居分 ≥ 这个值的州才算可居(和"城址"显示的门槛一致;定义在 display.ts,界面也用) */
+/** 治所宜居分 ≥ 这个值的州才算可居(和"城址"显示的门槛一致;定义在 kinds.ts,界面也用) */
 export { HABITABLE_SUIT };
 /** 标定:到这一年,可居州里有 TARGET_OCCUPIED 被占(和 endYear 无关;endYear 只决定推到哪一年) */
 export const REF_YEAR = 3000;
@@ -89,9 +89,6 @@ const STEPPE_DESERT = biomeSet([Biome.Steppe, Biome.ColdDesert, Biome.TemperateD
 const FOREST = biomeSet([Biome.TemperateForest, Biome.TemperateRainforest, Biome.Rainforest, Biome.TropicalDryForest, Biome.Taiga]);
 /** 山林民族的家:密林、苔原、湿地(Azgaar 的 Hunting) */
 const WILDS = biomeSet([Biome.Taiga, Biome.Rainforest, Biome.TemperateRainforest, Biome.Tundra, Biome.Wetland]);
-
-/** 七种民族类型的中文名、扩张性基数(定义在 display.ts,界面也用) */
-export { KIND_INFO };
 
 // ---------------------------------------------------------------------------
 // 州级地形特征(由 World + Regions 现算,不存进 Civ)
@@ -514,7 +511,7 @@ export function planCultures(world: World, habitat: Habitat, regions: Regions, p
       kind,
       hearth,
       born: id === 0 || slot < U ? 0 : Math.round(births[slot] * p.birthSpan),
-      expansionism: KIND_INFO[kind].expansionism * (1 + 0.5 * keyed(base, regions.seat[hearth], 7)),
+      expansionism: KIND_EXPANSIONISM[kind] * (1 + 0.5 * keyed(base, regions.seat[hearth], 7)),
       color: [128, 128, 128],
     };
   });
@@ -558,7 +555,7 @@ function planPioneers(m: CultureModel, list: readonly Intervention[], base: numb
       kind,
       hearth: r,
       born: v.from,
-      expansionism: KIND_INFO[kind].expansionism * (1 + 0.5 * keyed(base, reg.seat[r], 7)),
+      expansionism: KIND_EXPANSIONISM[kind] * (1 + 0.5 * keyed(base, reg.seat[r], 7)),
       color: [128, 128, 128],
       ended: v.from,
       unborn: true,

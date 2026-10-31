@@ -45,7 +45,7 @@
  *     人物(people.ts)照这几条史事填 Person.exile。
  *
  *   **作者下令**(干预「立约」「划中立地」,interventions.ts 在干预那一刻调 TreatyModel.decree):记史事 intervene,
- *     生效了紧跟着记 treaty / neutral(cause = decree;选项记在 Annal.opt、Annal.until,位见 treatyInfo.ts 的 OPT_*):
+ *     生效了紧跟着记 treaty / neutral(cause = decree;选项记在 Annal.opt、Annal.until,位见 treatyBook.ts 的 OPT_*):
  *     立约:约里的国家、期限(0 = 一直,不预约期满)、互不侵犯还是有限竞争、约期内不许背约(看邻国时不背约)、居间的国家照作者的;
  *     会盟的城照推演挑;同时划的中立地那州要有人住、不是国都、原属约里一国或无主,不然只立约。之后照常续约、约满。
  *     划中立地:几国已同在一份还没设过中立地的约里就依它设,不然同时立一个互不侵犯之约(TERM_DECREE 年);
@@ -70,7 +70,7 @@ import { refugeFinder } from './exile';
 import type { Reign } from './rulers';
 import { regionOfKey, type Intervention } from '../edits';
 import type { InterventionModel } from './interventions';
-import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, OPT_QUIET } from './treatyInfo';
+import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_KEEP, OPT_LASTING, OPT_LIMITED, OPT_QUIET } from './treatyBook';
 import { royalSeg } from './regime';
 
 // ---- 调参(以 20 个种子的统计为准) ----
