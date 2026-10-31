@@ -32,7 +32,7 @@ import {
   type MapView,
   type StageBox,
 } from './mapWrap';
-import { projectWorld, projectWorldNear, unprojectRel, unprojectWorld, wrapLon, type MapProj } from '../render/projection';
+import { projectWorld, unprojectRel, unprojectWorld, wrapLon, type MapProj } from '../render/projection';
 import {
   GLOBE_READY,
   ProjLayer,
@@ -66,8 +66,8 @@ import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
 import { extendProgress, getExtend, noteExtendSpeed, resetExtend, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
 import { EventPins, type WorldToClient } from './EventPins';
 import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
-import { directorHandBack, setDirectorMode, useDirectorFly, useDirectorOn } from './directorStore';
-import { StepDock, StepPins, StepReviewSheet, StepTimeline, StepwiseEngine, stepwiseNudge, stepwiseToggle, useStepCard, useStepReplay, useStepStrip } from './Stepwise';
+import { directorHandBack, setDirectorMode, useDirectorOn } from './directorStore';
+import { StepDock, StepPins, StepReviewSheet, StepTimeline, StepwiseEngine, useStepCard, useStepReplay, useStepStrip } from './Stepwise';
 import { SAVE_SUFFIX, StepRewindDialog, StepSaveDialog, StepStartDialog } from './StepwiseDialogs';
 import {
   enterStepwise,
@@ -94,7 +94,6 @@ import { getSession, takeInviteFromUrl } from '../account/session';
 import { setReloadHandler, startSync } from '../account/sync';
 import { SHARE_CODE_RE, openShareCode, shortLink } from '../account/cloud';
 import { ServerError } from '../account/server';
-import { highlightBox, highlightMarks } from '../render/civ/highlight';
 import {
   clearChroniclePick,
   clearSelection,
@@ -115,10 +114,7 @@ import {
   setSelection,
   setSelectionRedirect,
   startCivReplay,
-  stepYear,
-  togglePlayback,
   useChronicle,
-  useCivHighlight,
   setCivHighlight,
   useChroniclePick,
   useCivShow,
@@ -173,19 +169,14 @@ import { civAtEra, composedOf, dropComposed, eraData, peekEraData, eraIndex, era
 import { namedHistory, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
 import { condList, summarize } from '../gen/finder/query';
-import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, setEditGate, setEdits, setHistoryGate, setOutlinePlots, undoTerrainOp, useEdits } from './editsStore';
+import { addMark, askHistory, clearEditHistory, clearEdits, getEdits, putEditsQuiet, setEditGate, setEdits, setHistoryGate, setOutlinePlots, useEdits } from './editsStore';
 import { spaced, yearAt, yearFull } from '../gen/era';
-import { redoLastEdit, undoLastEdit } from './undo';
-import { useShortcuts } from './useShortcuts';
-import { openJump } from './JumpYear';
-import { ShortcutsHost, openShortcuts } from './ShortcutsDialog';
+import { ShortcutsHost } from './ShortcutsDialog';
 import { DiagHost } from './DiagDialog';
 import { TipLayer } from './Tips';
-import { openSaveMenu } from './SaveMenu';
 import { replayStart } from './timelineLayout';
 import {
   checkWarning,
-  cleanCamera,
   cleanMoment,
   cleanSignature,
   cleanTitle,
@@ -267,20 +258,20 @@ import { RoleBar } from './RoleBar';
 import { Inspector } from './Inspector';
 import { TargetLayer } from './TargetPlates';
 import { TrekPlanLayer } from './TrekPlanLayer';
-import { FLY_MS, animProgress, cultureFocus, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, pointsFocus, selectionFocus, selectionKey, shownYearOf, sideRoom, phoneFree, type FlyGoal, type Focus } from './flyTo';
+import { animProgress, easeOutCubic, freeArea, selectionKey, shownYearOf, sideRoom, phoneFree } from './flyTo';
 import { setMomentSource, type MomentNow } from './shareMoment';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from './presetLink';
 import { MarkLayer, markHitAt, markPinAt, markPinTip, type MarkApi } from './MarkLayer';
-import { cancelDraft, getMarkUi, newMarkDraft, patchDraft, resetMarkUi, setMarkDragging, stopPlacing, toggleDraftRegion, useMarkUi } from './markStore';
+import { getMarkUi, newMarkDraft, patchDraft, resetMarkUi, setMarkDragging, stopPlacing, toggleDraftRegion, useMarkUi } from './markStore';
 import { markHover, markSpot, ownerName } from './markInfo';
 import { CharacterLayer, characterPinAt, characterPinTip } from './CharacterLayer';
-import { draftAsCharacter, escapeCharacter, getCharUi, parseYear as parseCharYear, pickPlace, resetCharacterUi, stopPicking, useCharUi } from './characterStore';
+import { getCharUi, parseYear as parseCharYear, pickPlace, resetCharacterUi, stopPicking, useCharUi } from './characterStore';
 import { characterHover, placeOf, whereOfCity, whereOfRegion } from './characterInfo';
-import { lifeStops, type Where } from '../gen/characters';
+import type { Where } from '../gen/characters';
 import { takeCrownResim } from './crownInfo';
 import { regionLabel } from '../gen/civ/story/display';
 import { NAME_ZOOM } from '../render/marks';
-import { collapseSide, expandSide, getSide, setSideHold, useSide } from './sideStore';
+import { setSideHold, useSide } from './sideStore';
 import { setSheet, setWorldSheet, usePanel } from './panelStore';
 import { closeOverview, getPeople, openOverview, setPeople, useOverview } from './overviewStore';
 import { setOutlineFinder, setOutlineRun, setOutlineRunner } from './outlineStore';
@@ -301,9 +292,12 @@ import { GalleryPage, WorkGone, workWho } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import { fetchWork, galleryHref, galleryOfUrl, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../account/gallery';
 import { mapBriefOf } from './mapGroups';
-import { NARROW_MAX, useCoarse, useNarrow } from './device';
+import { useCoarse, useNarrow } from './device';
 import { isDoubleTap, pinchStep, type Pt, type Tap } from './gestures';
 import { createPinchGuard, createWheelReader, inGesturePinch, setGesturePinch, wheelSample } from './wheel';
+import { useMapFly } from './map/useMapFly';
+import { useAppShortcuts } from './useAppShortcuts';
+import type { MapGeo } from './map/types';
 import { mapTextBoxes, passAt, pickLabelAt } from './mapPick';
 import { setTradeHover, tradeAtClient, tradeHoverInfo } from './tradePick';
 import { ownersAt } from '../gen/civ/engine/timeline';
@@ -320,7 +314,7 @@ import { useAiOn } from '../ai/client';
 import { Globe, getGlobeOn, setGlobeOn, useGlobeOn, type GlobeApi } from './Globe';
 import { setupAi } from '../ai/setup';
 import { ToastBar, clearToast, showToast } from './Toast';
-import { DRAFT_SEG, FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
+import { FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
 import { closeRelief, openAreaLink, urlHasArea, useRelief } from './terrain3dStore';
 import { AREA_KEYS } from './areaLink';
 import { frozenResult, noteMapSum, offerSnapshot, startResults, toldFrozen } from './resultStore';
@@ -336,7 +330,6 @@ import { RelationBack, RelationGraph, useRelationBack } from './RelationGraph';
 import { getRelation } from './relationStore';
 import { hoverInfo, probeLines, type HoverInfo } from './hoverInfo';
 import {
-  FILL_KEYS,
   baseDark,
   baseLook,
   baseName,
@@ -380,7 +373,7 @@ import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
 import { SimClient } from './sim/simClient';
 import { lostRenames, lostRenamesNote, switchedToast, useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
-import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, undoUpOp, upCancel, upClick, upDown, upMove, upUp, useUpUi } from './upheavalStore';
+import { closeUpheaval, getUpUi, setUpRunner, takeUpPreview, upCancel, upClick, upDown, upMove, upUp, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
 import { getPending, removePending, takePendingBatch } from './pendingStore';
@@ -4051,7 +4044,7 @@ ${s.image.cells}` : null);
    * 地图可以往上推进这一截(见 mapWrap.ts 的 StageBox.padB),下半截的国家也能飞到上方看得见的地方;卡片收回去后慢慢回到原来的范围
    */
   const padB = !narrow || !stageSize.h ? 0 : Math.max(0, stageSize.h - phoneFree(stageSize.h, panelOpen)[1]);
-  const geo = useRef<{ wrap: number; bw: number; bh: number; W: number; H: number; padB: number }>({ wrap: 0, bw: 0, bh: 0, W: 1, H: 1, padB: 0 });
+  const geo = useRef<MapGeo>({ wrap: 0, bw: 0, bh: 0, W: 1, H: 1, padB: 0 });
   geo.current = { wrap: wrapW, bw: box.w, bh: box.h, W: data?.world.width ?? 1, H: data?.world.height ?? 1, padB };
   const curvedRef = useRef(curved);
   curvedRef.current = curved;
@@ -4365,7 +4358,6 @@ ${s.image.cells}` : null);
     zoomAt(cx, cy, f);
   };
 
-  // ---- 编年史点一条:事发地不在视野里,就把地图平移过去(不改缩放,约 0.4 秒滑过去) ----
   const chron = useChronicle();
   // 世界里开着的(选中、概览、史书)变了:画好以后报给 nav.ts(多打开一张算一步);世界好了再打开退回来的那一步记着的
   const ovNow = useOverview();
@@ -4378,7 +4370,6 @@ ${s.image.cells}` : null);
   useEffect(() => {
     navSettled(navRef.current.settled());
   }, [stage, rawCiv, resim, edits, shownRaw]);
-  const hl = useCivHighlight();
   const picking = usePolityPick();
   const viewRef = useRef(view);
   // 只在视图状态真的变了时跟上:滚轮缩放先改 viewRef 再 setView,改中心(store)触发的那次重画可能还没带上这次 setView,
@@ -4416,345 +4407,28 @@ ${s.image.cells}` : null);
     });
     return () => setFlatGeomSource(null);
   }, []);
-  const hlStamp = hl?.stamp;
-  /**
-   * 编年史跳转时"看得见的地方"的上、下和目标放在哪个高度(舞台坐标):上面留出世界名、提示条,下面留出时间轴;
-   * 窄屏:让出底部的卡片和时间轴胶囊(详情卡片开着时是它上方那一截)
-   */
-  const jumpBand = (H: number): [number, number, number] => {
-    if (!narrow) return [80, H - 110, (H - 16) / 2];
-    const [t, b] = phoneFree(H, panelOpen);
-    return [t + 8, b - 16, (t + b) / 2];
-  };
-  /**
-   * 弯边投影里的编年史跳转:事发地横向不在视野里就转中央经线过去(走短边),纵向不在就上下平移;约 0.4 秒转过去。
-   * b = 事发地的外接框(世界坐标)
-   */
-  const curvedJump = (b: [number, number, number, number], m: MapProj, W: number, H: number) => {
-    const g = geo.current;
-    const v0 = viewRef.current;
-    const sbx = { sw: W, sh: H, bw: box.w, bh: box.h };
-    const bx = (b[0] + b[2]) / 2;
-    const by = (b[1] + b[3]) / 2;
-    const corners: [number, number][] = [
-      [b[0], b[1]],
-      [b[2], b[1]],
-      [b[0], b[3]],
-      [b[2], b[3]],
-      [bx, by],
-      [bx, b[1]],
-      [bx, b[3]],
-    ];
-    const pts = corners.map(([x, y]) => {
-      const [mx, my] = projectWorldNear(m, x, y, bx);
-      return worldToStage(mx, my, v0, sbx, g.W, g.H);
-    });
-    const xs = pts.map((p) => p[0]);
-    const ys = pts.map((p) => p[1]);
-    const [bandT, bandB, midY] = jumpBand(H);
-    // 宽屏左边被侧栏卡片、右边被助手面板挡住的那一截不算看得见;转过去以后事发地落在两边中间那一块的正中(按赤道上每度多少像素估)
-    const L = sideRoom(W);
-    const R = astRoom(W);
-    const inX = Math.min(...xs) >= L + 30 && Math.max(...xs) <= W - R - 30;
-    const inY = Math.min(...ys) >= bandT && Math.max(...ys) <= bandB;
-    if (inX && inY) return;
-    const pxPerDeg = v0.k * (box.w / m.W) * m.s * m.def.kx(0) * (Math.PI / 180);
-    const dLon = inX ? 0 : wrapLon(lonOfX(bx, g.W) - m.lon0 - (pxPerDeg > 0 ? (L - R) / 2 / pxPerDeg : 0));
-    const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-    const toY = inY ? v0.y : Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy));
-    if (Math.abs(dLon) < 0.5 && Math.abs(toY - v0.y) < 1) return;
-    (window as unknown as { __wfPan: unknown }).__wfPan = { dLon, dy: toY - v0.y, stamp: hlStamp };
-    const lon0 = m.lon0;
-    const t0 = performance.now();
-    let raf = 0;
-    setMapMoving(true);
-    const step = (now: number) => {
-      const t = animProgress(now, t0, 400);
-      const e = 1 - (1 - t) ** 3;
-      if (dLon) publishMapCenter(wrapLon(lon0 + dLon * e));
-      setView(clampRef.current({ k: v0.k, x: v0.x, y: v0.y + (toY - v0.y) * e }, W, H));
-      if (t < 1) raf = requestAnimationFrame(step);
-      else setMapMoving(false);
-    };
-    raf = requestAnimationFrame(step);
-    return () => {
-      cancelAnimationFrame(raf);
-      setMapMoving(false);
-    };
-  };
-  useEffect(() => {
-    const el = stageRef.current;
-    if (!hl || !data || !civ || !el || civ.regions.of.length !== data.world.mesh.n || getGlobeOn()) return;
-    // 照故事找世界标两国:地图自己飞过去看全两国(不在这里另平移,两边同时挪会打架)
-    if (getFinder().open && getStage().stage === 'draft') return;
-    let b = highlightBox(data.world, civ, highlightMarks(civ, hl));
-    if (!b) return;
-    const W = el.clientWidth;
-    const H = el.clientHeight;
-    const v0 = viewRef.current;
-    const ww = wrapOf(data.world);
-    const m = mpRef.current;
-    if (m && box.w) return curvedJump(b, m, W, H);
-    // 宽屏左边被侧栏卡片、右边被助手面板挡住的那一截不算看得见,平移到两边中间那一块的正中
-    const L = sideRoom(W);
-    const R = astRoom(W);
-    if (box.w) {
-      // 事发地取离看得见那一块的中心最近的那一份 —— 平移走短边(不会绕地球大半圈)
-      // 那一块的中心(展开的世界坐标,和 sx 同一套:主图那一份左边起算)
-      const c = stageToWorld((L + W - R) / 2, 0, v0, { sw: W, sh: H, bw: box.w, bh: box.h }, ww, 1)[0];
-      const bc = (b[0] + b[2]) / 2;
-      const sh = nearX(bc, c, ww) - bc;
-      b = [b[0] + sh, b[1], b[2] + sh, b[3]];
-    }
-    // 世界坐标 → 舞台上的屏幕坐标(地图框在舞台里居中,再整体平移 x/y、放大 k)
-    const sx = (wx: number) => v0.x + ((W - box.w) / 2 + (wx / data.world.width) * box.w) * v0.k;
-    const sy = (wy: number) => v0.y + ((H - box.h) / 2 + (wy / data.world.height) * box.h) * v0.k;
-    const x0 = sx(b[0]);
-    const x1 = sx(b[2]);
-    const y0 = sy(b[1]);
-    const y1 = sy(b[3]);
-    // 上面留出提示条,下面留出时间轴(窄屏:底部卡片和时间轴胶囊上方)
-    const [bandT, bandB, midY] = jumpBand(H);
-    if (x0 >= L + 30 && x1 <= W - R - 30 && y0 >= bandT && y1 <= bandB) return;
-    const cx = (x0 + x1) / 2;
-    const cy = (y0 + y1) / 2;
-    // 左右不夹(每一帧再挪整数圈,画面是连着的);上下夹在两极以内
-    const to = { k: v0.k, x: v0.x + (L + W - R) / 2 - cx, y: Math.min(0, Math.max(H - H * v0.k, v0.y + midY - cy)) };
-    // 事发地差不多在背面时,让开侧栏那一点会让平移超过半圈:东西相连,改走另一边(差一整圈)
-    if (box.w) {
-      const turn = v0.k * box.w;
-      if (to.x - v0.x > turn / 2) to.x -= turn;
-      else if (to.x - v0.x < -turn / 2) to.x += turn;
-    }
-    if (Math.abs(to.x - v0.x) < 1 && Math.abs(to.y - v0.y) < 1) return;
-    (window as unknown as { __wfPan: unknown }).__wfPan = { dx: to.x - v0.x, dy: to.y - v0.y, stamp: hlStamp };
-    const t0 = performance.now();
-    let raf = 0;
-    const step = (now: number) => {
-      const t = animProgress(now, t0, 400);
-      const e = 1 - (1 - t) ** 3;
-      const v = { k: v0.k, x: v0.x + (to.x - v0.x) * e, y: v0.y + (to.y - v0.y) * e };
-      setView(clampRef.current(v, W, H));
-      if (t < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-    // 只在点了新的一条时平移
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hlStamp]);
-
-  // ---- 选中 → 暂停 + 地图飞过去(国家面板):不管选中来自点地图、面板里的链接、概览还是搜索 ----
-  // 国家:平移缩放到能看全当年的疆域,右边让出面板;城 / 州 / 地理实体:平移过去,缩放不变或适度放大;0.6 秒,ease-out 三次方。
-  // 地球仪用它自己的 flyTo。选目标时 / 下了令之后缩回整张图('home')
-  const flyNow = (to: 'sel' | 'home' | 'culture') => {
-    stopFly();
-    const el = stageRef.current;
-    if (!data || !el || !box.w || replayOn || getTerrainTool().on) return;
-    const sel = getSelection().sel;
-    const year = civ ? Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear)) : 0;
-    // 民族:飞到它这一年人最多的州(侧栏、世界概览、搜索里点民族;点地图、卡片里的族名不飞),和点州一样只平移
-    const focus =
-      to === 'culture'
-        ? sel?.kind === 'culture' && civ
-          ? cultureFocus(data.world, civ, sel.id, year)
-          : null
-        : to === 'sel' && sel && civ
-          ? sel.kind === 'mark'
-            ? selectedMarkFocus(civ, sel.id)
-            : sel.kind === 'character'
-              ? selectedCharacterFocus(civ, sel.id)
-              : selectionFocus(data.world, civ, sel, year)
-          : null;
-    if (to !== 'home' && (!focus || !sel)) return;
-    // 人物按他的国家飞(看全疆域)
-    const goal: FlyGoal = { focus, kind: to === 'culture' ? 'region' : to === 'sel' && sel ? (sel.kind === 'person' ? 'polity' : sel.kind) : 'home' };
-    if (getGlobeOn()) {
-      // 作者标记:已经在球的正面、看得见的地方就不转
-      if (focus && sel?.kind === 'mark') {
-        const p = globeApi.current?.worldToClient(focus.x, focus.y);
-        const r = el.getBoundingClientRect();
-        if (p && p[0] > r.left + sideRoom(r.width) + 60 && p[0] < r.right - 60 && p[1] > r.top + 80 && p[1] < r.bottom - 110) return;
-      }
-      if (focus) globeApi.current?.flyTo(focus.lon, focus.lat);
-      return;
-    }
-    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h, padB: geo.current.padB };
-    const W = data.world.width;
-    const H = data.world.height;
-    const m = mpRef.current;
-    const flat = m ? null : flatFly(viewRef.current, b, W, H, goal);
-    const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal) : flat && ((e: number) => ({ v: flat(e), lon: null }));
-    if (!step) return;
-    runFly(step, !!m);
-  };
-  /** 一帧帧飞过去(FLY_MS,ease-out 三次方);用户自己拖动 / 缩放时 stopFly 让给用户(按下地图、滚轮、右下的 + −) */
-  const runFly = (step: (e: number) => { v: MapView; lon: number | null }, curvedNow: boolean) => {
-    let t0 = -1;
-    const frame = (now: number) => {
-      // 第一帧地图不动:点选时刚打开的面板先画到屏幕上(反馈不等地图重画),下一帧起飞,时长不变
-      if (t0 < 0) {
-        t0 = now;
-        flyRaf.current = requestAnimationFrame(frame);
-        return;
-      }
-      if (curvedNow) setMapMoving(true);
-      const t = animProgress(now, t0, FLY_MS);
-      const r = step(easeOutCubic(t));
-      if (r.lon !== null) publishMapCenter(wrapLon(r.lon));
-      viewRef.current = r.v;
-      setView(r.v);
-      if (t < 1) flyRaf.current = requestAnimationFrame(frame);
-      else stopFly();
-    };
-    flyRaf.current = requestAnimationFrame(frame);
-  };
-  /**
-   * 导播请地图飞到一段事上(Director.tsx):看全事发地周围几个州,放在字幕条上面那块地方的正中;
-   * 事发地已经在那块的中间一半里、缩放也差不多(不到 1.4 倍)就不动。地球仪转过去
-   */
-  const flyDirector = (focus: Focus) => {
-    const el = stageRef.current;
-    if (!data || !el || !box.w || replayOn || getTerrainTool().on) return;
-    const r = el.getBoundingClientRect();
-    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h, padB: geo.current.padB };
-    // 看得见的地方:宽屏让开侧栏、助手、顶上的按钮;手机让开收起的世界卡片;都让开时间轴和它上面的字幕条
-    const phoneNow = b.sw <= NARROW_MAX;
-    const [l, t, rr, bb] = freeArea(b, !phoneNow);
-    const row = document.querySelector('.app .bottom-row')?.getBoundingClientRect();
-    // 逐年推演停一下:让开"这一段的大事"卡片(宽屏在时间轴上面,手机是底部卡片)
-    const card = document.querySelector('.app .sw-review, .app .sw-sheet')?.getBoundingClientRect();
-    const capTop = card && card.height ? card.top - r.top - 12 : row && row.height ? row.top - r.top - (phoneNow ? 115 : 100) : bb;
-    const area: [number, number, number, number] = [l, t, rr, Math.max(t + 80, Math.min(bb, capTop))];
-    const near = (p: [number, number] | null | undefined) => {
-      if (!p) return false;
-      const x = p[0] - r.left;
-      const y = p[1] - r.top;
-      const qw = (area[2] - area[0]) / 4;
-      const qh = (area[3] - area[1]) / 4;
-      return x > area[0] + qw && x < area[2] - qw && y > area[1] + qh && y < area[3] - qh;
-    };
-    if (getGlobeOn()) {
-      if (!near(globeApi.current?.worldToClient(focus.x, focus.y))) globeApi.current?.flyTo(focus.lon, focus.lat);
-      return;
-    }
-    stopFly();
-    const goal: FlyGoal = { focus, kind: 'polity' };
-    const W = data.world.width;
-    const H = data.world.height;
-    const m = mpRef.current;
-    const flat = m ? null : flatFly(viewRef.current, b, W, H, goal, area);
-    const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal, area) : flat && ((e: number) => ({ v: flat(e), lon: null }));
-    if (!step) return;
-    const k = step(1).v.k / viewRef.current.k;
-    if (k < 1.4 && k > 1 / 1.4 && near(worldToClient.current?.(focus.x, focus.y))) return;
-    runFly(step, !!m);
-  };
-  const flyDirectorRef = useRef(flyDirector);
-  flyDirectorRef.current = flyDirector;
-  const directorFly = useDirectorFly();
+  // 飞到某处(选中、导播、分享链接的镜头、照故事找世界)和编年史跳转时的平移,见 ./map/useMapFly.ts
+  const { flyRef, flyCamera, flyCameraRef, flyToPoints, cameraNow } = useMapFly({
+    data,
+    dataRef,
+    civ,
+    box,
+    replayOn,
+    narrow,
+    panelOpen,
+    stageRef,
+    globeApi,
+    worldToClient,
+    mpRef,
+    viewRef,
+    geo,
+    clampRef,
+    setView,
+    flyRaf,
+    stopFly,
+  });
   const directorOnPref = useDirectorOn();
   const civStory = useCivStory();
-  useEffect(() => {
-    if (directorFly) flyDirectorRef.current(directorFly.focus);
-  }, [directorFly]);
-  /** 选中的作者标记(正在填的那一份优先:新建的还没存)在地图上的位置 */
-  const selectedMarkFocus = (civ: Civ, id: number) => {
-    if (!data) return null;
-    const d = getMarkUi().draft;
-    if (d && d.id === id) return markFocus(data.world, civ, d.scope === 'point' ? { at: d.at ?? undefined } : { regions: d.regions });
-    const m = getEdits().marks?.find((x) => x.id === id);
-    return m ? markFocus(data.world, civ, m) : null;
-  };
-  /** 选中的作者人物(正在填的那一份优先)一生去过的地方的范围 */
-  const selectedCharacterFocus = (civ: Civ, id: number) => {
-    if (!data) return null;
-    const d = getCharUi().draft;
-    const year = Math.min(civ.endYear, Math.max(0, getCivTime().year ?? civ.endYear));
-    const c = d && d.id === id ? draftAsCharacter(d, year) : getEdits().characters?.find((x) => x.id === id);
-    if (!c) return null;
-    const pts = lifeStops(c)
-      .map((s) => placeOf(civ, data.world, data.raster, s.where, s.year).at)
-      .filter((p): p is [number, number] => !!p);
-    return pointsFocus(data.world, pts);
-  };
-  const flyRef = useRef(flyNow);
-  flyRef.current = flyNow;
-  useEffect(() => () => stopFly(), []);
-
-  // ---- 分享链接的"这一刻"(shareMoment.tsx、gen/savefile.ts 的 SaveMoment):复制时取下现在的,打开时照它停好 ----
-  /**
-   * 现在的镜头:看得见的那一块(宽屏让开侧栏;手机让开底部卡片和胶囊,见 flyTo.ts 的 freeArea)正中的经纬度,
-   * 放大倍数按宽度算(整圈经线正好占满画面的宽 = 1;电脑发给手机,横着看到的差不多一样宽)。地球仪:球心的经纬度、它自己的倍数
-   */
-  const cameraNow = (): SaveCamera | null => {
-    if (getGlobeOn()) {
-      const c = globeApi.current?.camera();
-      return c ? cleanCamera({ lon: c.lon, lat: c.lat, zoom: c.k }) : null;
-    }
-    const el = stageRef.current;
-    const g = geo.current;
-    if (!el || !g.bw || !dataRef.current) return null;
-    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: g.bw, bh: g.bh, padB: g.padB };
-    const [l, t, r, btm] = freeArea(b, panelOpenRef.current);
-    const v = viewRef.current;
-    let [x, y] = stageToWorld((l + r) / 2, (t + btm) / 2, v, b, g.W, g.H);
-    const m = mpRef.current;
-    if (m) {
-      const u = unprojectWorld(m, x, y);
-      [x, y] = u ?? [xOfLon(getMapCenter(), g.W), g.H / 2];
-    }
-    return cleanCamera({ lon: lonOfX(x, g.W), lat: 90 - (y / g.H) * 180, zoom: (v.k * g.bw) / b.sw });
-  };
-  /** 镜头飞到分享的人那时的样子(倍数换算成这块屏幕的,夹在能放的范围里);地球仪还没出来就等它出来 */
-  const flyCamera = (cam: SaveCamera, tries = 0) => {
-    stopFly();
-    const el = stageRef.current;
-    if (!data || !el || !box.w || replayOn) return;
-    if (getGlobeOn()) {
-      const api = globeApi.current;
-      if (api?.viewSig()) return api.flyTo(cam.lon, cam.lat, cam.zoom);
-      if (tries < 120) requestAnimationFrame(() => flyCameraRef.current(cam, tries + 1));
-      return;
-    }
-    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h, padB: geo.current.padB };
-    const W = data.world.width;
-    const H = data.world.height;
-    const x = xOfLon(cam.lon, W);
-    const y = ((90 - cam.lat) / 180) * H;
-    const goal: FlyGoal = { focus: { box: null, x, y, lon: cam.lon, lat: cam.lat }, kind: 'polity', zoom: Math.min(12, Math.max(1, (cam.zoom * b.sw) / b.bw)) };
-    const area = freeArea(b, panelOpenRef.current);
-    const m = mpRef.current;
-    const flat = m ? null : flatFly(viewRef.current, b, W, H, goal, area);
-    const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal, area) : flat && ((e: number) => ({ v: flat(e), lon: null }));
-    if (step) runFly(step, !!m);
-  };
-  const flyCameraRef = useRef(flyCamera);
-  flyCameraRef.current = flyCamera;
-  /**
-   * 照故事找世界:地图飞过去看全这几个点(故事里两国的州、隘口、交界)。where = 'finder' 让开找世界的卡片(电脑左边、手机底部卡片),
-   * 'world' 照平常的侧栏让;zoom = 只飞到一个点时放大几倍
-   */
-  const flyToPoints = (pts: readonly (readonly [number, number])[], where: 'finder' | 'world', zoom?: number) => {
-    stopFly();
-    const el = stageRef.current;
-    if (!data || !el || !box.w || replayOn) return;
-    const focus = pointsFocus(data.world, pts);
-    if (!focus) return;
-    if (getGlobeOn()) return globeApi.current?.flyTo(focus.lon, focus.lat);
-    const b: StageBox = { sw: el.clientWidth, sh: el.clientHeight, bw: box.w, bh: box.h, padB: geo.current.padB };
-    const W = data.world.width;
-    const H = data.world.height;
-    const phoneNow = b.sw <= NARROW_MAX;
-    const area: [number, number, number, number] =
-      where === 'world' ? freeArea(b, false) : phoneNow ? [12, 56, b.sw - 12, Math.round(b.sh * 0.5) - 10] : [448, 64, b.sw - 24, b.sh - 24];
-    const goal: FlyGoal = { focus, kind: 'polity', ...(zoom ? { zoom } : {}) };
-    const m = mpRef.current;
-    const flat = m ? null : flatFly(viewRef.current, b, W, H, goal, area);
-    const step = m ? curvedFly(viewRef.current, b, m, (lon) => curvedProj(getProjection(), lon, W, H) ?? m, goal, area) : flat && ((e: number) => ({ v: flat(e), lon: null }));
-    if (step) runFly(step, !!m);
-  };
-  const panelOpenRef = useRef(panelOpen);
-  panelOpenRef.current = panelOpen;
   /** 打开带"这一刻"的分享链接:要停到的那一刻(画面出来、历史重推完以后用掉) */
   const pendingMoment = useRef<{ id: string; moment: SaveMoment } | null>(null);
   const [momentTick, setMomentTick] = useState(0);
@@ -5547,114 +5221,8 @@ ${s.image.cells}` : null);
       window.removeEventListener('wheel', pageZoom, { capture: true });
     };
   }, []);
-  // Esc:先取消"在地图上点一个国家 / 城",再取消选中(在输入框里打字时不管)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (escapeCharacter()) return;
-      if (getUpUi().on) return closeUpheaval();
-      const mk = getMarkUi();
-      if (mk.placing) return stopPlacing();
-      if (mk.draft) return cancelDraft();
-      if (getPolityPick()) return setPolityPick(null);
-      clearSelection();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-  // 键盘快捷键(按键对照见 shortcuts.ts;光标在输入框里、弹窗开着时不管,见 useShortcuts.ts)。返回 false = 这一下不归快捷键管
-  useShortcuts((a) => {
-    if (home || !data) return false;
-    const end = civ?.endYear ?? 0;
-    // 有历史可放:建好的世界、长出了文明、不在回放世界形成
-    const history = !draft && !!civ && civ.viable && !replayOn;
-    // 宽屏、建好的世界:左边的卡片能收起(sideStore.ts);收起着要用卡片里的搜索框、存档时先展开
-    const foldable = !narrow && !!world && stage === 'world';
-    const sideHidden = () => foldable && getSide().collapsed && !getSide().peek;
-    const showSide = () => sideHidden() && flushSync(expandSide);
-    switch (a) {
-      case 'play':
-        if (!history) return false;
-        // 逐年推演:播放 / 暂停只管这一段(停着的时候 = 接着演绎)
-        if (getStepwise().on) stepwiseToggle();
-        else togglePlayback(end, replayStart(end));
-        return true;
-      case 'back':
-      case 'forward':
-      case 'back100':
-      case 'forward100':
-        if (!history) return false;
-        if (getStepwise().on) stepwiseNudge((a === 'back' || a === 'back100' ? -1 : 1) * (a.endsWith('100') ? 100 : 10));
-        else stepYear(end, (a === 'back' || a === 'back100' ? -1 : 1) * (a.endsWith('100') ? 100 : 10));
-        return true;
-      case 'jump':
-        // 时间轴上的年份变成输入框(JumpYear.tsx);时间轴藏着、锁着时不管
-        return history && openJump();
-      case 'zoomIn':
-      case 'zoomOut':
-        zoomButton(a === 'zoomIn' ? 1.5 : 1 / 1.5);
-        return true;
-      case 'layer1':
-      case 'layer2':
-      case 'layer3':
-      case 'layer4':
-      case 'layer5': {
-        const i = Number(a.slice(5)) - 1;
-        if (draft) {
-          const id = DRAFT_SEG[i];
-          if (!id) return false;
-          applyLayer(id);
-          return true;
-        }
-        // 平常:1–4 = 填色(国家 / 民族 / 信仰 / 不填)
-        const f = FILL_KEYS[i];
-        if (!f || !data) return false;
-        applyMapView({ fill: f });
-        return true;
-      }
-      case 'search': {
-        showSide();
-        const box = [...document.querySelectorAll<HTMLInputElement>('input.search-input')].find(
-          (el) => !el.disabled && el.getClientRects().length > 0 && !el.closest('[inert]'),
-        );
-        if (!box) return false;
-        box.focus();
-        box.select();
-        return true;
-      }
-      case 'undo':
-      case 'redo':
-        // 改地形工具开着:它自己管(撤销一笔);新建世界时 ⌘Z 也是撤销一笔地形
-        if (getTerrainTool().on) return false;
-        // 地形大事的卡片开着:撤销这一件里的最后一笔
-        if (getUpUi().on) {
-          if (a === 'undo') undoUpOp();
-          return true;
-        }
-        if (draft) {
-          if (a === 'undo') undoTerrainOp();
-          return true;
-        }
-        if (a === 'undo') undoLastEdit();
-        else redoLastEdit();
-        return true;
-      case 'save':
-        if (draft) return false;
-        showSide();
-        return openSaveMenu();
-      case 'side':
-        // 和卡片上的收起按钮、收起后左上角的小按钮一样(卡片弹出来显示选中的东西时 = 收回去)
-        if (!foldable) return false;
-        if (sideHidden()) expandSide();
-        else collapseSide();
-        return true;
-      case 'help':
-        openShortcuts();
-        return true;
-    }
-  });
+  // Esc 和键盘快捷键,见 ./useAppShortcuts.ts
+  useAppShortcuts({ home, draft, stage, data, civ, replayOn, narrow, zoomButton, applyLayer, applyMapView });
 
   /** 平面主图 ⇄ 地球仪:两边的中心经度接上(地球仪从主图当前的中心转起;切回主图时转到地球仪正对着的经度) */
   const toggleGlobe = () => {
