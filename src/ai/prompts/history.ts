@@ -760,8 +760,8 @@ interface Clip {
  */
 function polityLine(civ: Civ, p: Polity, detail: boolean, ends: ReturnType<typeof endings>, clip: Clip, main = false): string {
   const until = Math.min(lastMoment(civ, p), clip.to);
-  // 这一段盖住了它的一生 = 写"极盛";只盖住一部分 = "这一段最大时"
-  const whole = clip.from <= p.founded && until >= lastMoment(civ, p);
+  // 这一段盖住了它的一生 = 写"极盛";只盖住一部分 = "这一段最大时"(按整年比:国史写到亡国那年为止,亡国的那一刻在那年年中)
+  const whole = clip.from <= p.founded && clip.to >= Y(lastMoment(civ, p));
   const stat = rangeStats(civ, clip.from, clip.to)[p.id];
   const cap = cityName(civ, p.capital);
   const head = `- ${nameAt(civ, p, Math.min(stat && stat.peak > 0 ? stat.peakYear : p.founded, until))}(${polityFlavor(civ, p)})`;

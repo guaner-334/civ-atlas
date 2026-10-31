@@ -236,8 +236,9 @@ describe.each([7, 2024])('时代、物产写进编年史和图层 · seed=%i', (
     const all = fullChronicle(civ);
     expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
     for (let i = 1; i < all.length; i++) expect(all[i].year).toBeGreaterThanOrEqual(all[i - 1].year);
-    // 同一国同一年只有一条
-    const keys = dev.filter((e) => e.importance < 3 && e.polities.length).map((e) => `${e.polities[0]}:${Math.floor(e.year)}`);
+    // 各国的(进时代、发现、采空)同一国同一年只有一条;世上第一次的发明("……始创字母,为天下之先")另算,
+    // 那一国同一年又发现了别的,各是一条(GENERATOR_VERSION 56 以后 2024 号第 1936 年就是)
+    const keys = dev.filter((e) => e.importance < 3 && e.polities.length && !e.text.endsWith('为天下之先')).map((e) => `${e.polities[0]}:${Math.floor(e.year)}`);
     expect(new Set(keys).size).toBe(keys.length);
   });
 

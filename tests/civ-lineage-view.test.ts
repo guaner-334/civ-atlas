@@ -103,7 +103,7 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
 describe('世系图 · seed=7 的几处写法(例子按条件现找)', () => {
   // 例子按条件现找,历史变了不用跟着改朝名、人名(GENERATOR_VERSION 40 时找到的写在各段的注释里;种子 7 里找不到就换种子 2024)
   const seeds = [7, 2024];
-  /** 西幻(不是汗国、共和国)、到结束还在、第一朝是立国的国家里,篡位开出的一朝(不是第一朝、也不是最后一朝,下一朝不是篡位来的) */
+  /** 西幻(不是汗国、共和国)、到结束还在、第一朝是立国的国家里,篡位开出的一朝(不是第一朝、也不是最后一朝,下一朝不是篡位来的;临朝的太后废帝自立的另写,不挑) */
   const usurped = () => {
     for (const seed of seeds) {
       const civ = civOf(seed);
@@ -111,7 +111,7 @@ describe('世系图 · seed=7 的几处写法(例子按条件现找)', () => {
         if (p.eastern || p.lineage === 'khanate' || p.lineage === 'republic' || p.ended !== undefined) continue;
         const rows = dynastyRows(civ, p.id);
         if (rows[0]?.rulers[0].rise !== 'found') continue;
-        const i = rows.findIndex((r, k) => k > 0 && k < rows.length - 1 && r.rulers[0].rise === 'usurp' && rows[k + 1].rulers[0].rise !== 'usurp');
+        const i = rows.findIndex((r, k) => k > 0 && k < rows.length - 1 && r.rulers[0].rise === 'usurp' && !r.rulers[0].female && rows[k + 1].rulers[0].rise !== 'usurp');
         if (i > 0) return { civ, rows, i };
       }
     }
