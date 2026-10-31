@@ -155,7 +155,7 @@ describe('清理读进来的值', () => {
       'war.goal': [1, 60],
       'war.capital': 2,
       'split.odds': 0,
-      'court.maxAge': 60,
+      'court.maxAge': 65,
     });
     expect(notes).toContain('「nope.x」不是能调的项，略过');
     expect(notes).toContain('「战争多少」×2.2 不在档位上，按 ×2 算');
@@ -165,6 +165,7 @@ describe('清理读进来的值', () => {
     expect(notes).toContain('「海边城邦多是共和国」6.3 成不在档位上，按 6.5 成算');
     // 吸到档上正好是官方值的不写(war.rest 4.2 → 4)
     expect('war.rest' in values).toBe(false);
+    expect(notes).toContain('「一生最多几岁」59.4 岁超出范围（65–120 岁），按 65 岁算');
     expect(notes.length).toBe(11);
   });
 

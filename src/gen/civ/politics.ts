@@ -492,8 +492,10 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     const d0 = dis[r0];
     const odds = SPLIT_ODDS * fexp(SPLIT_K * (d0 + g - SPLIT_D0));
     if (keyed(pol.base, pm.ptag[pid], k, U_SPLIT) >= odds / (1 + odds)) return false;
+    // 自立出去的最多占国土的 SPLIT_FRAC,凑不够 SPLIT_MIN_GROUP 州的不起兵(官方的数下,够分裂的国家都凑得够)
+    if (Math.floor(N * SPLIT_FRAC) < SPLIT_MIN_GROUP) return false;
     // 从起事的州往外长:离心力大的先并进来,只走陆路(国土成片)
-    const limit = Math.min(SPLIT_MAX_GROUP, Math.max(SPLIT_MIN_GROUP, Math.floor(N * SPLIT_FRAC)));
+    const limit = Math.min(SPLIT_MAX_GROUP, Math.floor(N * SPLIT_FRAC));
     const thr = Math.max(GROUP_MIN_D, d0 - GROUP_DROP);
     // 先挑:离心力大的、和起事的州同族的、离起事的州近的(每隔一州扣 GROUP_COMPACT:国土成团,不沿着边远一圈拉成长条)
     const stamp = ++gStamp;

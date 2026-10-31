@@ -301,7 +301,7 @@ add(
 );
 common = false;
 add(
-  num({ id: 'court.maxAge', name: '一生最多几岁', desc: '人物最多活到这么多岁。' }, 'rulers.MAX_AGE', { official: 88, min: 60, max: 120, step: 1, unit: '岁' }, (v) => `最多活到 ${n(v)} 岁`),
+  num({ id: 'court.maxAge', name: '一生最多几岁', desc: '人物最多活到这么多岁。' }, 'rulers.MAX_AGE', { official: 88, min: 65, max: 120, step: 1, unit: '岁' }, (v) => `最多活到 ${n(v)} 岁`),
   mult({ id: 'court.murder', name: '君主遇弑', desc: '君主被弑的多少。' }, 'royals.MURDER', '君主遇弑', { off: '君主不遇弑' }),
   mult({ id: 'court.contest', name: '争储', desc: '新君即位时，兄长、战功更多的兄弟起来争位（拥兵、政变、被谮杀）的多少。' }, ['royals.CONTEST_ELDER', 'royals.CONTEST_MERIT'], '争储', { off: '不争储' }),
   mult({ id: 'court.coup', name: '政变', desc: '军中起事、夺取朝政的多少。' }, 'reform.COUP_ODDS', '政变', { off: '没有政变' }),

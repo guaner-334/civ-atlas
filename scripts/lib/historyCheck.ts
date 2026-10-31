@@ -102,7 +102,10 @@ export function historyProblems(civ: Civ, endYear: number, allow: { nan: Readonl
   }
   const words = /undefined|NaN/;
   for (const x of civ.people ?? []) {
-    if (!Number.isFinite(x.born) || [x.died, x.from, x.until].some((y) => y !== undefined && !Number.isFinite(y))) bad(`人物 ${x.id} 生卒 ${x.born}/${x.died} 在位 ${x.from}/${x.until}`);
+    const life = `人物 ${x.id}(${x.role})生卒 ${x.born}/${x.died} 在位 ${x.from}/${x.until}`;
+    if (!Number.isFinite(x.born) || [x.died, x.from, x.until].some((y) => y !== undefined && !Number.isFinite(y))) bad(life);
+    // 生、即位、下台、卒的先后对得上(没即位就卒、卒了还在位的不行)
+    else if ((x.died !== undefined && x.died < x.born) || (x.from !== undefined && (x.from < x.born || (x.died !== undefined && x.died < x.from) || (x.until !== undefined && x.until < x.from))) || (x.until !== undefined && x.died !== undefined && x.died < x.until - 1e-9)) bad(`${life} 先后对不上`);
     if (!x.name || words.test(x.name) || (x.title !== undefined && words.test(x.title))) bad(`人物 ${x.id} 名字 ${x.name}`);
   }
   for (const s of warSpans(civ)) if (!(s.end >= s.start)) bad(`战事 ${s.start}–${s.end}`);
