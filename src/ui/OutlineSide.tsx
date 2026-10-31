@@ -58,7 +58,7 @@ export function useOutlineCtx(civ: Civ | null): OutlineCtx | null {
 }
 
 /**
- * 点一条:地图上看它说的那件事 —— 跳到那一年(推过了 = 落定的那年),选中它说的国家(立起来的国家;亡国 = 并了它的那国)/ 州 / 城
+ * 点一条:地图上看它说的那件事 —— 跳到那一年(推过了 = 落定的那年),选中它说的国家(立起来的国家;亡国 = 并了它的那国)/ 州 / 城 / 民族(大迁徙)
  * (说不出选什么的留着现在选中的),记下从大纲点过来的是哪一条(卡片顶上一条、地图上的小牌子)
  */
 export function goToPlot(o: OutlineCtx, p: Plot, r: PlotReview | undefined) {
@@ -86,6 +86,11 @@ export function plotTarget(o: OutlineCtx, p: Plot, r: PlotReview | undefined): M
   if ((p.kind === 'capital' || (p.kind === 'disaster' && p.type === 'plague')) && p.city) {
     const c = resolveKey(civ, p.city);
     if (c?.kind === 'settlement') return { kind: 'settlement', id: c.id };
+  }
+  // 大迁徙:选中那一族
+  if (p.kind === 'trek' && p.folk) {
+    const f = resolveKey(civ, p.folk);
+    if (f?.kind === 'culture') return { kind: 'culture', id: f.id };
   }
   // 亡国:选中并了它的那国(亡了的国家地图上已经没有了)
   const b = p.kind === 'fall' ? plotPolityId(o, p.b) : -1;

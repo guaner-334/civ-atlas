@@ -237,7 +237,6 @@ describe.each([7, 2024])('即位 · seed=%i', (seed) => {
     const w = world(seed);
     const base = baseOf(seed);
     // Y 年年初(之前的历史一样)陆上接壤、没在交战的两国,挑最大的那一国。Y 从 T 年起找;那年各国只隔海相邻的,往后每 50 年再找
-    // (GENERATOR_VERSION 46 以后种子 2024 第 1500 年就是这样)
     const reg = base.regions;
     let Y = T;
     let pid = -1;

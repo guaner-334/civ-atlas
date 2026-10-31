@@ -19,7 +19,7 @@ import { yearAt, eraText, yearShort } from '../gen/era';
 import type { Intervention, Plot, PlotReview, PlotStatus } from '../gen/edits';
 import { useEdits } from './editsStore';
 import { getCivHighlight, getCivTime, setCivHighlight } from './civView';
-import { closeOverview, openOverview } from './overviewStore';
+import { dismissOverview, openOverview } from './overviewStore';
 import { askOutline, editPlot, findForOutline, setOutlineFilter, stopOutline, useOutlineUi } from './outlineStore';
 import { usePolityPick, interventionText, nameAt } from './Interventions';
 import { MenuItem, MenuSep, PopMenu } from './PopMenu';
@@ -74,7 +74,7 @@ function ResultCell({ o, p, r, list, era, onFound }: { o: OutlineCtx; p: Plot; r
       <PlotStatusTag s={r.status} />
       <small>
         {eraText(resultText(o, p, r, list, ivBase(o.civ)), era)}
-        {needsFound(r) && (
+        {needsFound(r, p) && (
           <>
             {' '}
             <button
@@ -423,7 +423,7 @@ export function OutlinePhone({ civ }: { civ: Civ | null }) {
     <div className="ol-ph" role="dialog" aria-label="大纲" data-testid="outline-phone">
       <div className="grab" />
       <div className="ol-ph-hd">
-        <button className="back" data-act="outline-back" onClick={closeOverview}>
+        <button className="back" data-act="outline-back" onClick={dismissOverview}>
           <Icon name="back" size={16} />
           世界
         </button>

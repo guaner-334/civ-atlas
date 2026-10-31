@@ -15,10 +15,14 @@ on:
       - '**/*.md'
   workflow_dispatch:
 
-# PR 上有新推送就取消还在跑的旧一轮;合进 main 的每个提交各占一组、互不取消
-# (连着合几个 PR 时每个提交都有结果;同一组里排队的会被后来的顶掉,所以按提交分组)
+# PR 上有新推送就取消还在跑的旧一轮(同一分支只留最新推送的那一轮)。
+# 合进 main 的那一轮:所有 main 上的提交同属一组,不打断正在跑的(cancel-in-progress 为 false,
+# 跑到一半取消既浪费已花的时间,也可能让 main 一直没有完整结果);排队时一组里最多只留一个等着的,
+# 后来的会顶掉先排着的旧一轮,所以连着合几个 PR 时只有"正在跑的一轮 + 最新的一轮"。
+# 被顶掉的旧一轮可以不跑:每个 PR 合并前自己已经全绿过,而最新的 main 一定有一轮完整检查,
+# 它包含了前面所有提交合起来的样子。
 concurrency:
-  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  group: ${{ github.event_name == 'push' && 'ci-main' || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 # 几项检查在几台机器上同时跑,总时长 ≈ 最慢的那项。
@@ -98,11 +102,11 @@ jobs:
       - name: 单元测试(第 ${{ matrix.shard }} 份)
         run: pnpm test --shard=${{ matrix.shard }}
 
-  # 压力测试分 3 份同时跑(各组参数按估的耗时均匀分,见 scripts/stress.ts 的 STRESS_PART)
+  # 压力测试分 3 份同时跑(各组按估的耗时从长到短、每组给累计最少的那份,见 scripts/stress.ts 的 group)
   stress:
     name: 压力测试 ${{ matrix.part }}
     runs-on: ubuntu-latest
-    # 三份各约 9 分钟(从头跑到尾约 26 分钟),留足余量
+    # 三份各约 9.5 分钟(从头跑到尾约 28 分钟;GitHub 快的那档机器上约 6 分钟),留足余量
     timeout-minutes: 20
     strategy:
       fail-fast: false

@@ -21,7 +21,7 @@ interface Case {
 const cases = new Map<number, Case>();
 
 beforeAll(() => {
-  for (const seed of [7, 2024, 12, 17]) {
+  for (const seed of [7, 2024, 12, 3]) {
     const world = generateWorld({ ...DEFAULT_PARAMS, seed });
     const raster = rasterize(world, 1);
     const civ = generateCiv(world);
@@ -97,8 +97,8 @@ describe('地图文字(展开的视窗)', () => {
     for (const [wx, wy] of [[3, 500], [W - 2, 300], [1024, 600]]) expect(ownerAtPoint(f0, wx + W, wy)).toBe(ownerAtPoint(f0, wx, wy));
   });
 
-  // 这两个世界都有跨 180° 经线的国家,国名正好骑在 180° 经线上(GENERATOR_VERSION 15 时挑的;粗网格海岸加弯曲以后 17 不再骑线,换成 3;30 有了钱粮,3 又不骑线,换成 12;31 乡村人口改成表,27 不骑线,换成 13;38 有了掌实权、联姻,13 不骑线,换成 17)
-  for (const seed of [12, 17]) {
+  // 这两个世界都有跨 180° 经线的国家,国名正好骑在 180° 经线上(GENERATOR_VERSION 15 时挑的;粗网格海岸加弯曲以后 17 不再骑线,换成 3;30 有了钱粮,3 又不骑线,换成 12;31 乡村人口改成表,27 不骑线,换成 13;38 有了掌实权、联姻,13 不骑线,换成 17;48 时代做法,17 的手绘不骑线,换回 3)
+  for (const seed of [12, 3]) {
     for (const style of ['fantasy', 'realistic'] as const) {
       it(`seed ${seed} · ${style}:视窗中心转到 180° 经线,跨接缝的国家国名只出现一次、完整、落在本国国土上`, () => {
         const c = cases.get(seed)!;

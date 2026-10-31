@@ -5,21 +5,32 @@
  *     单子里的 "保住  待推演"(逐年推演 "下一步生效")
  *   - 人物卡君位「王室」一行下面一段:"在位期间保住王室：1529、1558 年两回有人要起兵代大澜，都没成。到卒年下台以后照常继位，也照常会改朝换代。"
  *   - 即位页勾下面一句:"大澜王朝这一朝已立 400 年，照常推演 1529 年就会改朝换代。保住以后，他下台后几十年里多半还是会换。"
+ *   - 那一年是共和国 / 军政府(按那一年的政体,改制以后的也算)用不上:干预页那一条变淡写"共和国没有王室，用不上" / "军政府没有王室，用不上",即位页没有这个勾
  * 西幻的国家"改朝换代"写"王室更迭"。挡下的那几回是史事 keep(b 列:豪强起兵 / 国都权臣篡位 / 掌实权的人篡位)。
  */
 import type { Annal, Civ, Person, Polity } from '../gen/civ/types';
 import { cnNumber } from '../gen/civ/chronicle';
 import { KEEP_RISE } from '../gen/civ/rulers';
 import { rulerAt } from '../gen/civ/peopleInfo';
-import { heOrShe } from '../gen/civ/gender';
+import { regimeAt, royalAt } from '../gen/civ/regime';
+import { heOrShe, type Sexed } from '../gen/civ/gender';
 import { polityName, polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import { interventionFate } from '../gen/stepwise';
-import { polityKey, resolveKey, type Intervention } from '../gen/edits';
+import { YEAR_TICKS, commandAt, polityKey, resolveKey, type Intervention } from '../gen/edits';
 import { spaced, yearAt, type Era } from '../gen/era';
 import type { Pending } from './pendingStore';
 
 /** 即位带的那一句 */
 export const KEEP_CROWN = '在位期间保住王室';
+
+/**
+ * 那一年用不上「保住王室」的原因(干预页那一条变淡写它;即位页的勾不出现):那年是共和国 / 军政府就没有王室 ——
+ * 海洋城邦共和一系,和改制以后的共和、军政府那些年(推演里本来就不改朝换代);复辟以后照君主国 = null
+ */
+export function keepWhy(p: Polity, year: number): string | null {
+  if (royalAt(p, year)) return null;
+  return `${regimeAt(p, year) === 'junta' ? '军政府' : '共和国'}没有王室，用不上`;
+}
 
 /** 第 i 条干预(Civ.interventions 的下标)挡下的那几回(史事 keep,按先后) */
 export function keepBlocks(civ: Civ, i: number): Annal[] {
@@ -73,7 +84,8 @@ export function keepRow(civ: Civ, id: number, year: number, pending: readonly Pe
   const list = civ.interventions ?? [];
   for (let i = 0; i < list.length; i++) {
     const v = list[i];
-    if (v.kind !== 'keep' || year < v.from || (v.until !== undefined && year >= v.until)) continue;
+    // 年中下的(逐年推演停在年中时)到那一格才算
+    if (v.kind !== 'keep' || year < commandAt(v) / YEAR_TICKS || (v.until !== undefined && year >= v.until)) continue;
     if (polityOfKey(civ, v.a) !== id || interventionFate(civ, i).state !== 'done') continue;
     return { note: v.until !== undefined ? `到${spaced(yearAt(v.until, era))}` : '一直有效' };
   }
@@ -104,11 +116,11 @@ export function keepReignNote(civ: Civ, x: Person, i: number, toDeath: boolean, 
 }
 
 /**
- * 即位页勾下面那一句(这份历史里这国从 start 那一刻起的样子;end = 他原定哪年下台,不知道 = undefined):
+ * 即位页勾下面那一句(这份历史里这国从 start 那一刻起的样子;end = 他原定哪年下台,不知道 = undefined;who = 要即位的人物,"他 / 她"按它):
  * "大澜王朝这一朝已立 400 年，照常推演 1529 年就会改朝换代。保住以后，他下台后几十年里多半还是会换。"
  * 他在位那些年里照常推演不改朝换代的:"……这一朝已立 400 年，照常推演他在位时不会改朝换代。保住以后，有人篡位也会挡下。"
  */
-export function crownKeepHint(civ: Civ, pid: number, start: number, end: number | undefined, era: Era | undefined): string {
+export function crownKeepHint(civ: Civ, pid: number, start: number, end: number | undefined, era: Era | undefined, who?: Sexed): string {
   const p = civ.polities[pid];
   if (!p) return '';
   const d = p.dynasties ?? [];
@@ -122,6 +134,6 @@ export function crownKeepHint(civ: Civ, pid: number, start: number, end: number 
   const word = changeWord(p);
   const age = Math.max(0, Math.floor(start) - Math.floor(from));
   if (next !== undefined && (end === undefined || next < end))
-    return `${name}这一朝已立 ${age} 年，照常推演${spaced(yearAt(next, era))}就会${word}。保住以后，他下台后几十年里多半还是会换。`;
-  return `${name}这一朝已立 ${age} 年，照常推演他在位时不会${word}。保住以后，有人篡位也会挡下。`;
+    return `${name}这一朝已立 ${age} 年，照常推演${spaced(yearAt(next, era))}就会${word}。保住以后，${heOrShe(who)}下台后几十年里多半还是会换。`;
+  return `${name}这一朝已立 ${age} 年，照常推演${heOrShe(who)}在位时不会${word}。保住以后，有人篡位也会挡下。`;
 }

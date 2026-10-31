@@ -11,10 +11,11 @@
  * - 亲属词:按世系说"b 是 a 的什么人"的整套在 peopleText.ts 的 kinOf;这里是单个词的男女对照(kinWord),
  *   给"找不到亲属时的默认称呼"和把短称呼说全(父 → 父亲)用
  * - 联姻:这个人那一边 —— 男的娶对方的宗室女,女的嫁对方的宗室子;配偶是"妻" / "夫"
+ * - 临朝的太后(只有女的):东方帝国、国 太后,王国 王太后,汗国 可敦;西幻帝国 皇太后,别的 王太后(dowagerWord)
  *
  * 纯函数,只引 types.ts
  */
-import type { Person } from './types';
+import type { Person, Polity } from './types';
 
 /** 带性别的人物(没有这个人 / 没写性别 = 男) */
 export type Sexed = Pick<Person, 'female'> | null | undefined;
@@ -121,6 +122,9 @@ const KIN_F: Readonly<Record<string, string>> = {
   从叔父: '从姑母',
   族兄: '族姐',
   族弟: '族妹',
+  外祖父: '外祖母',
+  岳父: '岳母',
+  外孙: '外孙女',
 };
 
 /** 亲属词按 x 的性别:kinWord(她, '兄') = '姐';没有对照的词照原样 */
@@ -152,4 +156,14 @@ export function rivalsWord(group: readonly Sexed[], east: boolean): string {
   if (!f) return east ? '诸子争立' : '诸子争位';
   if (f === group.length) return east ? '诸女争立' : '诸公主争位';
   return east ? '兄妹争立' : '王子公主争位';
+}
+
+/** 临朝的太后的身份词(不带国名),按国号档位:东方帝国、国 太后,王国 王太后,汗国 可敦;西幻帝国 皇太后,别的 王太后 */
+export function dowagerWord(p: Pick<Polity, 'eastern' | 'lineage'> | null | undefined, tier: number): string {
+  if (!p) return '太后';
+  if (p.eastern) {
+    if (p.lineage === 'khanate') return '可敦';
+    return tier === 2 ? '王太后' : '太后';
+  }
+  return tier >= 3 ? '皇太后' : '王太后';
 }

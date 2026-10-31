@@ -4,6 +4,7 @@
  *   头部  世界名;一行"种子 7，当前 2679 年，未干预"(设了纪年:"当前公元前 850 年");一行汇总(现存几国、历来几国、民族、城镇、州,跟着时间轴的当前年份);
  *         关闭。存档、导出、AI 设置、写成史书不放这里:宽屏在侧栏和地图右上,手机在底部世界卡片的按钮和「···」里
  *   页签  国家(WorldOverviewCountries.tsx)/ 民族(WorldOverviewCultures.tsx)/ 编年史(Chronicle.tsx)/ 人物(WorldOverviewPeople.tsx:名人、君主、将领)/
+ *         之最(WorldOverviewRecords.tsx:在位最久、疆域最大、打得最久……15 条纪录,跟着时间轴)/
  *         标记(WorldOverviewMarks.tsx:作者在地图上放的标记)/
  *         大纲(OutlinePage.tsx:作者先写下的故事,照大纲推演;手机上不要概览的头和页签,整页是大纲)/
  *         我的干预(WorldOverviewInterventions.tsx)/
@@ -11,6 +12,8 @@
  *   世界名旁边"改名"(点了就地变成输入框)
  *   底部  一行小字:源代码、隐私政策、用户协议(新标签页打开;网址在 links.ts)
  * 关闭:右上角的关闭 / Esc / 点浮层外面。窄屏铺满全屏。开没开、在哪一页见 overviewStore.ts(别处用 openOverview(tab, opts) 打开某一页)。
+ * 打开时时间轴在放:先停下,头部年份那行末尾一枚「已暂停,关掉接着放」(窄屏单起一行,在汇总那行下面);这三种方式关掉就接着放,
+ * 从概览里点进别处(点一国、一个人、一件事)以后停着(overviewStore.ts 的 dismissOverview / closeOverview)。
  */
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { World, WorldParams } from '../gen/world';
@@ -19,6 +22,8 @@ import type { Civ } from '../gen/civ/types';
 import { polityAlive, populationAt } from '../gen/civ/growth';
 import { Chronicle } from './Chronicle';
 import { PeoplePage } from './WorldOverviewPeople';
+import { RecordsPage } from './WorldOverviewRecords';
+import { recordBook } from '../gen/civ/records';
 import { MarksPage } from './WorldOverviewMarks';
 import { CountriesPage } from './WorldOverviewCountries';
 import { CulturesPage } from './WorldOverviewCultures';
@@ -32,7 +37,7 @@ import { useEdits, useEra } from './editsStore';
 import { spaced, yearAt } from '../gen/era';
 import { cleanCivSeed } from '../gen/edits';
 import { currentWorld, renameWorld, useSavesVersion } from './saveStore';
-import { closeOverview, getOverview, setOverviewTab, useOverview, type OverviewTab } from './overviewStore';
+import { closeOverview, dismissOverview, getOverview, setOverviewTab, useOverview, useOverviewHold, type OverviewTab } from './overviewStore';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { useNarrow } from './device';
@@ -64,6 +69,7 @@ const TABS: { id: OverviewTab; name: string }[] = [
   { id: 'cultures', name: '民族' },
   { id: 'chronicle', name: '编年史' },
   { id: 'people', name: '人物' },
+  { id: 'records', name: '之最' },
   { id: 'marks', name: '标记' },
   { id: 'outline', name: '大纲' },
   { id: 'interventions', name: '我的干预' },
@@ -84,6 +90,19 @@ export function WorldOverview(p: WorldOverviewProps) {
   const narrow = useNarrow();
   // 大纲在地图上点完、取消:回到「大纲」页接着编
   useOutlinePickReturn();
+  // 概览开着、手上空闲时先把世界之最整理好(扫一遍历史要几十毫秒),翻到「之最」页时只查表
+  const civ = p.civ;
+  useEffect(() => {
+    if (!open || !civ?.viable) return;
+    const w = window as Window & { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
+    const prep = () => void recordBook(civ);
+    if (w.requestIdleCallback) {
+      const h = w.requestIdleCallback(prep, { timeout: 3000 });
+      return () => w.cancelIdleCallback?.(h);
+    }
+    const h = setTimeout(prep, 400);
+    return () => clearTimeout(h);
+  }, [open, civ]);
 
   // Esc 收起(先于页面上别的 Esc:不顺手取消地图上的选中)。输入框里打字时不管;
   // 存档 / 导出菜单、AI 设置开着时先让它们收
@@ -97,7 +116,7 @@ export function WorldOverview(p: WorldOverviewProps) {
       e.stopPropagation();
       // 大纲正在编一条:先收起那一栏
       if (getOverview().tab === 'outline' && getOutlineUi().edit) closeEdit();
-      else closeOverview();
+      else dismissOverview();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -110,18 +129,18 @@ export function WorldOverview(p: WorldOverviewProps) {
   if (open && narrow && tab === 'outline')
     return (
       <div className="ov-root">
-        <div className="ov-scrim" onClick={closeOverview} />
+        <div className="ov-scrim" onClick={dismissOverview} />
         <OutlinePhone civ={p.civ} />
       </div>
     );
   return (
     <div className="ov-root" hidden={!open}>
-      <div className="ov-scrim" onClick={closeOverview} />
+      <div className="ov-scrim" onClick={dismissOverview} />
       <div className="ov" role="dialog" aria-modal="true" aria-label="世界概览" onPointerDown={stop} onDoubleClick={stop} onWheel={stop}>
         <header className="ov-head">
           {open ? <OverviewSummary civ={p.civ} seed={p.data ? p.data.world.params.seed : null} /> : <span className="ov-summary" />}
           <div className="ov-actions">
-            <button className="ov-x" data-act="ov-close" onClick={closeOverview} title="关闭(Esc)" aria-label="关闭">
+            <button className="ov-x" data-act="ov-close" onClick={dismissOverview} title="关闭(Esc)" aria-label="关闭">
               <Icon name="close" size={14} />
             </button>
           </div>
@@ -189,6 +208,8 @@ function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
       return <Chronicle civ={p.civ} />;
     case 'people':
       return <PeoplePage civ={p.civ} data={p.data} />;
+    case 'records':
+      return <RecordsPage civ={p.civ} />;
     case 'marks':
       return <MarksPage civ={p.civ} data={p.data} />;
     case 'outline':
@@ -216,12 +237,17 @@ function OverviewPage(p: WorldOverviewProps & { tab: OverviewTab }) {
   }
 }
 
-/** 头部左边:世界名、种子 · 当前年份 · 干预数(连地形大事);汇总数字(跟着时间轴当前年份) */
+/**
+ * 头部左边:世界名、种子 · 当前年份 · 干预数(连地形大事);汇总数字(跟着时间轴当前年份)。
+ * 时间轴是打开概览时停下的:年份那行末尾一枚「已暂停,关掉接着放」;窄屏那行放不下,单起一行放在汇总那行下面
+ */
 function OverviewSummary({ civ, seed }: { civ: Civ | null; seed: number | null }) {
   useSavesVersion();
   const edits = useEdits();
   const era = useEra();
   const year = useYear(civ);
+  const held = useOverviewHold();
+  const narrow = useNarrow();
   const cur = currentWorld();
   const title = cur?.title;
   const [naming, setNaming] = useState(false);
@@ -266,13 +292,34 @@ function OverviewSummary({ civ, seed }: { civ: Civ | null; seed: number | null }
             )}
           </span>
         )}
-        <span className="ov-subline">{sub}</span>
+        <span className="ov-subline">
+          {sub}
+          {held && !narrow && <PausedChip />}
+        </span>
         {stats && (
           <span className="ov-subline ov-stats">
             现存 {stats.alive} 国（历来 {stats.founded} 国），{stats.cultures} 个民族，{stats.towns} 座城镇，{stats.regions} 州
           </span>
         )}
+        {held && narrow && (
+          <span className="ov-paused-row">
+            <PausedChip />
+          </span>
+        )}
       </div>
     </div>
+  );
+}
+
+/** 「已暂停,关掉接着放」:打开概览时停下了时间轴(关掉接着放) */
+function PausedChip() {
+  return (
+    <span className="ov-paused" data-testid="ov-paused">
+      <svg viewBox="0 0 10 10" aria-hidden="true">
+        <rect x="1.5" y="1" width="2.4" height="8" rx=".6" />
+        <rect x="6.1" y="1" width="2.4" height="8" rx=".6" />
+      </svg>
+      已暂停，关掉接着放
+    </span>
   );
 }

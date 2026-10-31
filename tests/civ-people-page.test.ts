@@ -23,6 +23,7 @@ import {
 import { kinOf, personName, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../src/gen/civ/peopleText';
 import { searchCiv } from '../src/ui/searchIndex';
 import { mapTarget, personKey, resolvePersonKey, selectionKey } from '../src/ui/flyTo';
+import { royalSeg } from '../src/gen/civ/regime';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {
@@ -81,9 +82,10 @@ describe.each([7, 2024])('人物页 · seed=%i', (seed) => {
         // 同一朝的上一位传给他:编年史那一条写"其弟 / 其孙 / 其侄 / 太子 / 其子……",人物页写"继兄 / 继祖父 / 继叔父……某某即位"
         if (prev && x.rise === 'heir') {
           const e = reigns.find((r) => r.people?.[0] === prev.id && r.people?.[1] === x.id);
-          if (!e || civ.polities[x.polity].lineage === 'republic') continue;
+          if (!e || !royalSeg(civ.polities[x.polity], x.dynasty ?? 0)) continue;
           const k = kinOf(civ, prev, x);
           if (k === '子') expect(e.text).toMatch(/太子|世子|其子|长子|次子|[三四五六七八九十]+子/);
+          else if (k === '女') expect(e.text).toMatch(/皇太女|王太女|其女|长女|次女|[三四五六七八九十]+女/);
           else if (k) expect(e.text).toContain(`其${k}`);
           expect(riseText(civ, x)).toMatch(new RegExp(`^继${kinOf(civ, x, prev)}`));
           kinChecked++;
@@ -176,10 +178,11 @@ describe('人物页 · 几处写法', () => {
    * 这个世界里搜"末帝"搜得到他,搜到的里面有名人。GENERATOR_VERSION 43 时前七个种子里都没有,是种子 38 的末帝林霜云
    * (种子 1–45 里还有 39、44);41 时是种子 6 的末帝季工(前面几个种子里,
    * 种子 2024 的江溟还在,但那个世界搜"末帝"没有名人了);40 时是种子 2024 的大辰末帝江溟(不是名人;
-   * 搜"末帝"头一个是名人大岳末帝百里玄衍),39 时是种子 2024 的大澜末帝燕溟(是名人,搜"末帝"头一个就是他)
+   * 搜"末帝"头一个是名人大岳末帝百里玄衍),39 时是种子 2024 的大澜末帝燕溟(是名人,搜"末帝"头一个就是他);
+   * 48 时前面这些种子里都没有了,种子 1–22 里头一个是种子 22 的末帝婆陵
    */
   const lastEmperor = () => {
-    for (const seed of [2024, 7, 11, 42, 3, 5, 6, 38, 39, 44]) {
+    for (const seed of [2024, 7, 11, 42, 3, 5, 6, 38, 39, 44, 22]) {
       const civ = civOf(seed);
       const P = civ.people!;
       const famous = new Set(famousPeople(civ).map((f) => f.id));

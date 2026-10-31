@@ -25,6 +25,7 @@
 import type { Person, Polity, Year } from './types';
 import { keyed4 } from './rand';
 import { K_RULER, reignBorn, reignStep, type Reign } from './rulers';
+import { royalSeg, segLineage } from './regime';
 
 // ---- 调参 ----
 /** 亲生儿子 0、1、2……个的机会 */
@@ -109,11 +110,11 @@ export interface Brood {
 }
 
 /** r = 这位君主在在位表里的那一项(寻常君主);p = 他的国家 */
-export function broodOf(base: number, tag: number, r: Reign, p: Pick<Polity, 'lineage' | 'kind'>): Brood {
+export function broodOf(base: number, tag: number, r: Reign, p: Pick<Polity, 'lineage' | 'kind' | 'dynasties'>): Brood {
   const U = (s: number, use: number) => keyed4(base, tag, r.k * 16 + s, use, K_SON);
   const fb = reignBorn(r);
   // 预定的继承人:在位表里的下一位(他不被打断时下台的那一刻即位),年纪合得上他的儿子
-  const next = reignStep(base, tag, r.k + 1, r.j + 1, r.natural, p.lineage, p.kind);
+  const next = reignStep(base, tag, r.k + 1, r.j + 1, r.natural, segLineage(p, r.dynasty), p.kind);
   const hb = q(r.natural - next.age);
   const gap = hb - fb;
   const heir = gap >= 14 && gap < 40;
@@ -170,7 +171,7 @@ export function buildSons(
     const list = rulers[p.id];
     list.forEach((R, idx) => {
       const r = reignOf.get(R);
-      if (!r || R.author !== undefined) return;
+      if (!r || R.author !== undefined || !royalSeg(p, r.dynasty)) return;
       const U = (s: number, use: number) => keyed4(base, tag[p.id], r.k * 16 + s, use, K_SON);
       const fatherEnd = (R.died ?? Infinity) + POSTHUMOUS;
       const sons: Son[] = [];

@@ -2,27 +2,35 @@
  * 世系图要用的:谁是谁的父亲、子嗣,一国有几朝,一朝的家谱树怎么排、标题和结尾怎么写、复制成文字。
  * 只读推演记下的 Person.parent(lineage.ts),纯计算;人物页的世系图(PeopleLineage.tsx)、人物卡片的「父亲」「子嗣」用它。
  *
- * 一朝一棵树:这一朝即位的君主 + 推演补上的没即位的宗室(role = 'prince',dynasty 同一朝)。
+ * 一朝一棵树:这一朝即位的君主 + 推演补上的没即位的宗室(role = 'prince',dynasty 同一朝)+ 嫁到别国的女儿(后妃,role = 'consort',挂在父亲下面)。
  * 树的排法:一代一行;兄弟按长幼从左往右;父亲在传下去的那一支(子孙里有最后即位的君主)正上方,所以主干是一条直线往下;
  * 子树之间按每一代的左右边缘挤紧(位置以"一格"为单位,一格 = 一个方框宽加间距)。
  * 找不到合年纪的父亲、兜底成"宗室"的君主连不上这一朝开国的那一支:另起一小棵(远支)。
  * 争位不成、据地自立做了别国之君的儿子(Person.claim.how = secede)也挂在父亲下面(只他一个,他的子孙在他自己那一国的树里),不算这一朝的君主。
+ * 复国之君(接上故国世系,lineage.ts)两头都画:故国那一朝的树里,他挂在补的宗室(或末帝的儿子、末帝)下面,照据地自立的画法;
+ * 他自己那一国第一朝的树,树根是他在故国的父辈,再往上几代(到故国的一位君主为止)画在树顶上(LineageTree.up),衬故国的颜色。
  */
 import type { Civ, Person, Year } from './types';
 import { polityName } from './growth';
 import { peopleIndex, riseText } from './peopleInfo';
 import { personName, rulerShort } from './peopleText';
 import { heOrShe, kinWord, spouseWord } from './gender';
-import { heldOver, polityShort } from './regentInfo';
+import { brideMatchOf, heldOver, polityShort } from './regentInfo';
+import { cnNumber } from './chronicle';
 import { yearAt, yearShort, yearSpanAt, type Era } from '../era';
+import { royalSeg } from './regime';
 
 interface LineageIndex {
   /** 人物编号 → 子嗣(按出生先后) */
   kids: Map<number, Person[]>;
-  /** 国家 → 没即位的宗室 */
+  /** 国家 → 没即位的宗室(连同嫁到别国的女儿) */
   princes: Person[][];
+  /** 人物编号 → 母亲是她的子女(Person.mom;按出生先后) */
+  borne: Map<number, Person[]>;
   /** 国家 → 据地自立、做了别国之君的儿子(按父亲那一国) */
   seceders: Person[][];
+  /** 国家 → 复这一国的复国之君(父辈在这一国:接上故国世系) */
+  restorers: Person[][];
 }
 
 const cache = new WeakMap<object, LineageIndex>();
@@ -31,16 +39,23 @@ function lineageIndex(civ: Civ): LineageIndex {
   const key = civ.people ?? civ.annals;
   const hit = cache.get(key);
   if (hit && hit.princes.length === civ.polities.length) return hit;
-  const ix: LineageIndex = { kids: new Map(), princes: civ.polities.map(() => []), seceders: civ.polities.map(() => []) };
+  const ix: LineageIndex = { kids: new Map(), princes: civ.polities.map(() => []), seceders: civ.polities.map(() => []), restorers: civ.polities.map(() => []), borne: new Map() };
   for (const x of civ.people ?? []) {
-    if (x.role === 'prince' && ix.princes[x.polity]) ix.princes[x.polity].push(x);
+    if ((x.role === 'prince' || (x.role === 'consort' && x.parent !== undefined)) && ix.princes[x.polity]) ix.princes[x.polity].push(x);
+    if (x.mom !== undefined) {
+      const l = ix.borne.get(x.mom);
+      if (l) l.push(x);
+      else ix.borne.set(x.mom, [x]);
+    }
     if (x.parent === undefined) continue;
     const f = civ.people![x.parent];
     if (f && f.polity !== x.polity && x.claim?.how === 'secede') ix.seceders[f.polity]?.push(x);
+    if (f && f.polity !== x.polity && x.rise === 'restore') ix.restorers[f.polity]?.push(x);
     if (!ix.kids.has(x.parent)) ix.kids.set(x.parent, []);
     ix.kids.get(x.parent)!.push(x);
   }
   for (const ks of ix.kids.values()) ks.sort((a, b) => a.born - b.born || a.id - b.id);
+  for (const ks of ix.borne.values()) ks.sort((a, b) => a.born - b.born || a.id - b.id);
   cache.set(key, ix);
   return ix;
 }
@@ -50,15 +65,33 @@ export function fatherOf(civ: Civ, x: Person): Person | undefined {
   return x.parent !== undefined ? civ.people?.[x.parent] : undefined;
 }
 
-/** 子嗣(按出生先后;只有世系图里有的人:即位的君主和他们没即位的父辈) */
+/** 子嗣(按出生先后;只有世系图里有的人:即位的君主和他们没即位的父辈、嫁到别国的女儿) */
 export function kidsOf(civ: Civ, x: Person): Person[] {
   return lineageIndex(civ).kids.get(x.id) ?? [];
+}
+
+/** 母亲(Person.mom:联姻嫁来的宗室女、临朝的太后;没记 = undefined) */
+export function motherOf(civ: Civ, x: Person): Person | undefined {
+  return x.mom !== undefined ? civ.people?.[x.mom] : undefined;
+}
+
+/** 她生的子女(母亲记成她的,按出生先后;世系只按父亲连,这些人多半在丈夫那一国的世系图里) */
+export function borneOf(civ: Civ, x: Person): Person[] {
+  return lineageIndex(civ).borne.get(x.id) ?? [];
+}
+
+/** 子嗣连同她生的(女的:世系里在她名下的 + 母亲记成她的,不重复,按出生先后) */
+export function childrenOf(civ: Civ, x: Person): Person[] {
+  const a = kidsOf(civ, x);
+  const b = borneOf(civ, x);
+  if (!b.length) return a;
+  return [...a, ...b.filter((k) => !a.includes(k))].sort((u, v) => u.born - v.born || u.id - v.id);
 }
 
 /** 这国有没有世系图:不是共和国、有君主 */
 export function hasLineage(civ: Civ, polity: number): boolean {
   const p = civ.polities[polity];
-  return !!p && p.lineage !== 'republic' && (peopleIndex(civ).rulers[polity]?.length ?? 0) > 0;
+  return !!p && p.lineage !== 'republic' && (peopleIndex(civ).rulers[polity] ?? []).some((x) => royalSeg(p, x.dynasty ?? 0));
 }
 
 /** 一国的一朝(只列有君主的) */
@@ -82,6 +115,8 @@ export function dynastyRows(civ: Civ, polity: number): DynastyRow[] {
   const by = new Map<number, Person[]>();
   for (const r of peopleIndex(civ).rulers[polity] ?? []) {
     const d = r.dynasty ?? 0;
+    // 改制开的共和、军政府那几段不算一朝
+    if (!royalSeg(p, d)) continue;
     if (!by.has(d)) by.set(d, []);
     by.get(d)!.push(r);
   }
@@ -126,6 +161,8 @@ export function dynastyEnd(civ: Civ, rows: readonly DynastyRow[], i: number, era
   if (!row || row.to === undefined) return '';
   const p = civ.polities[row.rulers[0].polity];
   const y = yearAt(row.to, era);
+  // 下一段是改制开的共和、军政府:写改了国号
+  if (p.dynasties?.[row.index + 1]?.regime) return `${y}，改称${polityName(p, row.to)}`;
   const next = rows[i + 1];
   if (!next) return `${y}，${polityName(p, row.to - 1 / 512)}亡`;
   const nu = next.rulers[0];
@@ -134,18 +171,61 @@ export function dynastyEnd(civ: Civ, rows: readonly DynastyRow[], i: number, era
   return `${y}，${p.lineage === 'khanate' ? '汗位易主' : '王室更迭'}，${next.name}兴`;
 }
 
-/** 一朝树里的人:这一朝的君主 + 同一朝补上的宗室 + 据地自立的儿子(父亲是这一朝的君主) */
+/**
+ * 一朝树里的人:这一朝的君主 + 同一朝补上的宗室 + 据地自立的儿子(父亲是这一朝的君主)+ 复这一国的复国之君(父辈是这一朝的人);
+ * 复国的这一国第一朝再加上树根:复国之君(和接到同一位父辈下面的兄弟子侄)在故国的父辈
+ */
 export function dynastyMembers(civ: Civ, row: DynastyRow): Person[] {
   const polity = row.rulers[0]?.polity ?? -1;
   const ix = lineageIndex(civ);
   const princes = ix.princes[polity] ?? [];
   const sec = (ix.seceders[polity] ?? []).filter((x) => row.rulers.includes(civ.people![x.parent!]));
-  return [...row.rulers, ...princes.filter((x) => (x.dynasty ?? 0) === row.index), ...sec];
+  const res = (ix.restorers[polity] ?? []).filter((x) => (civ.people![x.parent!].dynasty ?? 0) === row.index);
+  const own = [...row.rulers, ...princes.filter((x) => (x.dynasty ?? 0) === row.index), ...sec, ...res];
+  const fallen = row.index === 0 ? civ.polities[polity]?.restores : undefined;
+  if (fallen === undefined) return own;
+  const roots = new Set<Person>();
+  for (const x of own) {
+    const f = fatherOf(civ, x);
+    if (f && f.polity === fallen && x.polity === polity) roots.add(f);
+  }
+  return [...own, ...roots];
 }
 
 /** 父亲那一国的世系图里,他是不是据地自立、做了别国之君的儿子 */
 export function secededFrom(civ: Civ, x: Person, polity: number): boolean {
   return x.polity !== polity && x.claim?.how === 'secede';
+}
+
+/** 故国的世系图里,他是不是复了这一国的复国之君 */
+export function restoredFrom(civ: Civ, x: Person, polity: number): boolean {
+  return x.polity !== polity && x.rise === 'restore';
+}
+
+/** 复国之君那一国的世系图里,他是不是故国的人(树顶上衬故国颜色的那几代) */
+export function fromFallen(civ: Civ, x: Person, polity: number): boolean {
+  return x.polity !== polity && civ.polities[polity]?.restores === x.polity;
+}
+
+/** 几代孙:2 孙子、3 曾孙、4 玄孙、再往下"五世孙""十二世孙"(女的:孙女、曾孙女……);1 = 子 / 女 */
+export function descentWord(x: Pick<Person, 'female'>, gen: number): string {
+  if (gen === 2) return x.female ? '孙女' : '孙子';
+  const w = gen <= 1 ? '子' : gen === 3 ? '曾孙' : gen === 4 ? '玄孙' : `${cnNumber(gen)}世孙`;
+  if (!x.female) return w;
+  return gen <= 1 ? '女' : `${w}女`;
+}
+
+/** 复国之君出自故国哪位君主、是他的第几代孙(没有 = null) */
+export function descentOf(civ: Civ, x: Person): { from: Person; gen: number } | null {
+  const d = x.descent;
+  const from = d ? civ.people?.[d.from] : undefined;
+  return d && from ? { from, gen: d.gen } : null;
+}
+
+/** 这位君主是不是他那一国的末代(最后一位即位的;还在的国家也算它目前最后一位) */
+export function isLastRuler(civ: Civ, x: Person): boolean {
+  const rs = peopleIndex(civ).rulers[x.polity] ?? [];
+  return x.role === 'ruler' && rs[rs.length - 1] === x;
 }
 
 /**
@@ -168,12 +248,19 @@ export function lineageTag(civ: Civ, x: Person, polity: number): string {
 /** 算"虚位"的几种:被儿子引兵入朝架空、被大臣大将专权(幼主有人辅政、太子监国不算) */
 const VOID_KINDS: ReadonlySet<string> = new Set(['march', 'chancellor', 'general']);
 
-/** 世系图第二行的小标:娶了别国宗室女 "妻大澜"、母亲是别国宗室女 "母大澜"(只写一样,妻子优先;polity = 那一国,画它的颜色);没有 = null */
+/**
+ * 世系图第二行的小标:娶了别国宗室女 "妻大澜"、母亲是别国宗室女 "母大澜"、嫁到了别国的女儿 "嫁埃维里亚"
+ * (只写一样,妻子优先;polity = 那一国,画它的颜色);没有 = null
+ */
 export function lineageKin(civ: Civ, x: Person): { text: string; polity: number } | null {
   const s = x.spouses?.[0];
   if (s) return { text: `${spouseWord(x)}${polityShort(civ, s.polity, s.year)}`, polity: s.polity };
-  const m = x.mother;
-  if (m) return { text: `母${polityShort(civ, m.polity, m.year)}`, polity: m.polity };
+  const w = brideMatchOf(civ, x);
+  const H = x.husband !== undefined ? civ.people?.[x.husband] : undefined;
+  if (w && H && H.polity !== x.polity) return { text: `嫁${polityShort(civ, H.polity, w.year)}`, polity: H.polity };
+  const M = motherOf(civ, x);
+  const mw = M ? brideMatchOf(civ, M) : undefined;
+  if (M && mw && M.polity !== x.polity) return { text: `母${polityShort(civ, M.polity, mw.year)}`, polity: M.polity };
   return null;
 }
 
@@ -184,10 +271,14 @@ export interface PlacedPerson {
   depth: number;
 }
 
-/** 一朝的一棵树;distant = 连不上开国那一支的远支 */
+/**
+ * 一朝的一棵树;distant = 连不上开国那一支的远支。
+ * up = 复国之君那一国第一朝的第一棵:树根是故国的人(他在故国的父辈),再往上的几代(从上往下,到故国的一位君主为止;不含树根)
+ */
 export interface LineageTree {
   nodes: PlacedPerson[];
   distant: boolean;
+  up?: Person[];
 }
 
 /**
@@ -260,7 +351,37 @@ export function layoutDynasty(civ: Civ, row: DynastyRow): LineageTree[] {
   const rest = roots.filter((r) => r !== top).sort((a, b) => firstReign(a) - firstReign(b));
   return [top, ...rest]
     .filter((r): r is Person => !!r)
-    .map((r) => ({ nodes: lay(r).pos.map(([p, x, depth]) => ({ p, x, depth })), distant: r !== top }));
+    .map((r) => {
+      const t: LineageTree = { nodes: lay(r).pos.map(([p, x, depth]) => ({ p, x, depth })), distant: r !== top };
+      if (r === top && fromFallen(civ, r, polity)) t.up = upLine(civ, r);
+      return t;
+    });
+}
+
+/** 树根(故国的人)往上几代,从上往下:到故国的一位君主为止(他自己是君主就不往上) */
+function upLine(civ: Civ, root: Person): Person[] {
+  const out: Person[] = [];
+  for (let x = root; x.role !== 'ruler'; ) {
+    const f = fatherOf(civ, x);
+    if (!f || f.polity !== root.polity || out.includes(f)) break;
+    out.unshift(f);
+    x = f;
+  }
+  return out;
+}
+
+/** 树顶故国那一块左上角写的:"故国大嘉王室";国名本来带"国"字的不重复:"故滦国王室" */
+export function fallenLabel(civ: Civ, polity: number): string {
+  const p = civ.polities[polity];
+  if (!p) return '';
+  const name = polityShort(civ, polity, (p.ended ?? civ.endYear) - 1 / 512);
+  return name.endsWith('国') ? `故${name}王室` : `故国${name}王室`;
+}
+
+/** 复国之君那条连线旁写的:他自己那一国的树 "2527 年复国";故国的树 "2527 年复国，立后嘉" */
+export function restoreCaption(civ: Civ, x: Person, inFallen: boolean, era?: Era): string {
+  const at = x.from ?? x.born;
+  return `${yearAt(at, era)}复国${inFallen ? `，立${polityShort(civ, x.polity, at)}` : ''}`;
 }
 
 /**
@@ -270,32 +391,48 @@ export function layoutDynasty(civ: Civ, row: DynastyRow): LineageTree[] {
 export function lineageText(civ: Civ, polity: number, era?: Era): string {
   const rows = dynastyRows(civ, polity);
   const out: string[] = [];
-  rows.forEach((row, i) => {
-    out.push(`${row.name}(${dynastyNote(civ, rows, i, era)})`);
-    const trees = layoutDynasty(civ, row);
-    trees.forEach((t, ti) => {
-      const label = treeLabel(row, trees, ti);
-      if (label) out.push(label);
-      const inTree = new Set(t.nodes.map((n) => n.p));
-      const walk = (x: Person, depth: number) => {
-        const pad = '  '.repeat(depth);
-        const k = reignOrder(row, x);
-        const from = x.from ?? x.born;
-        const reign = `${!era ? `${Math.floor(from)}–${x.until !== undefined ? Math.floor(x.until) : ''} 年` : x.until !== undefined ? yearSpanAt(from, x.until, era) : `${yearAt(from, era)}起`}在位`;
-        if (k) out.push(`${pad}${k} ${personName(civ, x)} ${reign}`);
-        else if (secededFrom(civ, x, polity)) out.push(`${pad}${personName(civ, x)} 自立为${polityName(civ.polities[x.polity], from)}之君 ${reign}`);
-        else {
-          const tag = lineageTag(civ, x, polity);
-          out.push(`${pad}${personName(civ, x)} 未即位${tag ? `(${tag})` : ''} ${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`);
-        }
-        for (const c of kidsOf(civ, x)) if (inTree.has(c)) walk(c, depth + 1);
-      };
-      const root = t.nodes.find((n) => n.depth === 0);
-      if (root) walk(root.p, 0);
-    });
-    const end = dynastyEnd(civ, rows, i, era);
-    if (end) out.push(end);
-    out.push('');
-  });
+  rows.forEach((_, i) => out.push(...dynastyLines(civ, polity, rows, i, era), ''));
   return out.join('\n').trim();
+}
+
+/** 一朝的那一段(lineageText 的一段;AI 写家传的材料也用它):标题行、一人一行(下一代多缩两格)、结尾那句 */
+export function dynastyLines(civ: Civ, polity: number, rows: readonly DynastyRow[], i: number, era?: Era): string[] {
+  const row = rows[i];
+  if (!row) return [];
+  const out: string[] = [`${row.name}(${dynastyNote(civ, rows, i, era)})`];
+  const trees = layoutDynasty(civ, row);
+  trees.forEach((t, ti) => {
+    const label = treeLabel(row, trees, ti);
+    if (label) out.push(label);
+    const inTree = new Set(t.nodes.map((n) => n.p));
+    const walk = (x: Person, depth: number) => {
+      const pad = '  '.repeat(depth);
+      const k = reignOrder(row, x);
+      const from = x.from ?? x.born;
+      const reign = `${!era ? `${Math.floor(from)}–${x.until !== undefined ? Math.floor(x.until) : ''} 年` : x.until !== undefined ? yearSpanAt(from, x.until, era) : `${yearAt(from, era)}起`}在位`;
+      if (k) out.push(`${pad}${k} ${personName(civ, x)} ${reign}`);
+      else if (secededFrom(civ, x, polity)) out.push(`${pad}${personName(civ, x)} 自立为${polityName(civ.polities[x.polity], from)}之君 ${reign}`);
+      else if (restoredFrom(civ, x, polity)) out.push(`${pad}${personName(civ, x)} ${restoreCaption(civ, x, true, era)}，${reign}`);
+      else {
+        const tag = lineageTag(civ, x, polity);
+        // 嫁到别国的女儿写"嫁某国"
+        const wed = x.role === 'consort' ? (lineageKin(civ, x)?.text ?? '') : '';
+        out.push(`${pad}${personName(civ, x)} ${wed || '未即位'}${tag ? `(${tag})` : ''} ${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`);
+      }
+      for (const c of kidsOf(civ, x)) if (inTree.has(c)) walk(c, depth + 1);
+    };
+    const root = t.nodes.find((n) => n.depth === 0);
+    if (root && fromFallen(civ, root.p, polity)) {
+      // 树顶故国那几代写成一行,再从复国之君(和他的兄弟子侄)往下
+      const line = [...(t.up ?? []), root.p].map((x) => {
+        const span = x.role === 'ruler' ? `${isLastRuler(civ, x) ? '末帝，' : ''}${yearShort(x.from ?? x.born, era)}–${x.until !== undefined ? yearShort(x.until, era) : ''} 在位` : `${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`;
+        return `${personName(civ, x)}(${span})`;
+      });
+      out.push(`${fallenLabel(civ, root.p.polity)}：${line.join(' — ')}`);
+      for (const c of kidsOf(civ, root.p)) if (inTree.has(c)) walk(c, 0);
+    } else if (root) walk(root.p, 0);
+  });
+  const end = dynastyEnd(civ, rows, i, era);
+  if (end) out.push(end);
+  return out;
 }

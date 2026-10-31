@@ -102,7 +102,7 @@ describe.each(worlds)('种子 $seed', (w) => {
   it('国家 + 年份:那年在位的君主、在位第几年、几岁,和那年在世的作者的人物', () => {
     const r = lookupPeople(ctx, { country: `P${big}`, year: Y });
     expect(r.summary).toBe(`第 ${Y} 年在位的是${personName(civ, ruler)}`);
-    // 那国是共和国的(GENERATOR_VERSION 46 以后种子 7 第 2000 年最大的国家就是):写"执政""在任"
+    // 那国是共和国的写"执政""在任",君主国写"君主""在位"(种子 7 第 2000 年最大的国家在有的版本里是共和国)
     const consul = isConsul(civ, ruler);
     expect(r.result).toContain(`在位的:${consul ? '执政' : '君主'} ${personName(civ, ruler)}`);
     expect(r.result).toContain(`第 ${Y} 年时${consul ? '在任' : '在位'}第 ${Y - F(ruler.from!) + 1} 年、${F(Y - ruler.born)} 岁`);

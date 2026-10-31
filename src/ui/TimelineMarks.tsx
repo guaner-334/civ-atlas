@@ -12,7 +12,8 @@
  * - 手机(small):点一下不跳年份,胶囊上面升起一张卡片列出这一处的每一件(能往下滑);点卡片里的一行才跳到那一年、地图上闪出事发地;
  *   点 ×、点地图(这一下不再当成地图上的单击)、拖时间轴收起。
  * - 合并进来的几件里有新国家立起来(立国、自立、复国、大崩解分出来的、饥民起事立的),点本身的颜色又不是立国的:上面叠一颗小绿点。
- * - 选中了国家(life):从它立国到亡(还在 = 到头)铺一道它的国色,立国那头一颗绿点;宽屏写"2391 立国""2837 亡";和它无关的圆点变淡,
+ * - 选中了国家(life):从它立国到亡(还在 = 到头)铺一道它的国色,立国那头一颗绿点;宽屏写"2391 立国""2837 亡";
+ *   改制改了国号的那几年一颗蓝点,宽屏写"2794 改称共和国"(和立国、亡的字挤着就不写;悬停、点它就是底下那颗事件的点);和它无关的圆点变淡,
  *   这时不叠小绿点(它的立国已经有一颗大绿点,别的点里叠的是别国的立国)。
  * - 键盘:← → 前后 10 年(按住 Shift 100 年),Home / End 到头 / 到尾。
  * - 只在换世界 / 换筛选 / 轨道宽度变了时重排。
@@ -117,12 +118,21 @@ export interface TimelinePandemic {
 const PAN_FONT = 11;
 const PAN_GAP = 6;
 
-/** 选中的国家:哪一国、哪年立国、哪年亡(还在 = null)、国色 */
+/** 选中的国家:哪一国、哪年立国、哪年亡(还在 = null)、国色;改制改了国号的那几年(废君、革命改共和,复辟复称旧国号)和一句 */
 export interface TimelineLife {
   polity: number;
   founded: number;
   ended: number | null;
   color: readonly [number, number, number];
+  renames?: readonly { year: number; text: string }[];
+}
+
+/** 改国号那几年的字离别的字至少这么远(像素) */
+const RENAME_GAP = 6;
+
+/** 一行字(x 处、靠左 / 居中 / 靠右)占的横向范围 */
+function spanOf(x: number, align: 'start' | 'mid' | 'end', w: number): [number, number] {
+  return align === 'start' ? [x, x + w] : align === 'end' ? [x - w, x] : [x - w / 2, x + w / 2];
 }
 
 /** 正在再推那段上面的字:离轨道两头至少这么远(像素) */
@@ -423,6 +433,23 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       const fa = `${rulerLabel(life.founded, era)} 立国`;
       const fb = life.ended !== null ? `${rulerLabel(life.ended, era)} 亡` : '';
       const L = lifeLabels(a, life.ended !== null ? b : null, textWidth(fa, LIFE_FONT, LIFE_PAD), textWidth(fb, LIFE_FONT, LIFE_PAD), width);
+      // 改国号那几年的字:和立国、亡的字(还有前一个改国号的字)挤着就不写
+      const taken: [number, number][] = [spanOf(L.found.x, L.found.align, textWidth(fa, LIFE_FONT, LIFE_PAD))];
+      if (L.end) taken.push(spanOf(L.end.x, L.end.align, textWidth(fb, LIFE_FONT, LIFE_PAD)));
+      const renameLabs = (life.renames ?? []).flatMap((n) => {
+        const t = `${rulerLabel(n.year, era)} ${n.text}`;
+        const w = textWidth(t, LIFE_FONT, LIFE_PAD);
+        const x = X(n.year);
+        const align = x - w / 2 < 0 ? 'start' : x + w / 2 > width ? 'end' : 'mid';
+        const sp = spanOf(x, align, w);
+        if (taken.some(([l, r]) => sp[0] < r + RENAME_GAP && sp[1] > l - RENAME_GAP)) return [];
+        taken.push(sp);
+        return [
+          <span key={n.year} className={`tb-life-lab rename ${align}`} style={{ left: x }}>
+            {t}
+          </span>,
+        ];
+      });
       labs = (
         <>
           <span className={`tb-life-lab ${L.found.align}`} style={{ left: L.found.x }}>
@@ -433,6 +460,7 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
               {fb}
             </span>
           )}
+          {renameLabs}
         </>
       );
     }
@@ -441,6 +469,9 @@ export const TimelineMarks = memo(function TimelineMarks({ entries, end, dock, y
       top: (
         <>
           <i className="tb-life-found" style={{ left: a }} />
+          {(life.renames ?? []).map((n) => (
+            <i key={n.year} className="tb-life-rename" data-year={Math.floor(n.year)} style={{ left: X(n.year) }} />
+          ))}
           {labs}
         </>
       ),

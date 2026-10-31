@@ -12,6 +12,7 @@
  * - 倾向(君主、执政官才有)→ 打扮:哪一项特别高,衣服、饰物优先挑对应的那件(好战的甲领、重商的华服……)
  *
  * 随机数都从 subSeed(seed, '人物头像') 再按人物的稳定键(personKey)派生:干预、重推以后还是同一个人的,脸就不变。
+ * 女的还没有部件(personPortrait 给 null,界面写名字);血缘按她原来的男名(Person.maleName)算,她的后人长相不跟着变。
  * 作者的人物按编号派生,再加上"换一张"换过几次(AuthorCharacter.portrait)。
  *
  * portraitMood:时间轴那一年他该是什么神情(卡片上的头像按它换表情、点头、低头)。
@@ -179,7 +180,7 @@ function personGenes(civ: Civ, x: Person, group: PortraitGroupId, g: PortraitGro
   }
   for (let i = chain.length - 1; i >= 0; i--) {
     const p = chain[i];
-    const rng = mulberry32(subSeed(seed, `${personKey(civ, p.id)}|血缘`));
+    const rng = mulberry32(subSeed(seed, `${bloodKey(civ, p)}|血缘`));
     if (!genes) genes = randomGenes(rng, g);
     else {
       const fresh = randomGenes(rng, g);
@@ -318,10 +319,22 @@ function leanOf(x: Person): PortraitLean | undefined {
   return top[1] >= 70 ? top[0] : undefined;
 }
 
-/** 推演里的人在某一年的头像(去世以后 = 去世那年的样子);部件还没有 = null */
+/**
+ * 血缘(长相往下传)按哪个键算:一般就是人物的稳定键;女的按她原来的男名(推演先按男的排过一遍,见 civ/women.ts),
+ * 这样换成女的以后,她的子孙长相和原来一样
+ */
+function bloodKey(civ: Civ, p: Person): string {
+  const k = personKey(civ, p.id);
+  if (!p.maleName) return k;
+  const parts = k.split('|');
+  if (parts.length >= 4) parts[2] = p.maleName;
+  return parts.join('|');
+}
+
+/** 推演里的人在某一年的头像(去世以后 = 去世那年的样子);部件还没有(女性的部件还没画)= null */
 export function personPortrait(civ: Civ, id: number, year: Year): Portrait | null {
   const x = civ.people?.[id];
-  if (!x) return null;
+  if (!x || x.female) return null;
   const want = polityGroup(civ, x.polity);
   const found = partsOf(want);
   if (!found) return null;

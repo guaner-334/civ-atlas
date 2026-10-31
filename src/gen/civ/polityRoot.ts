@@ -1,0 +1,55 @@
+/**
+ * 某一年是第几朝、那年的那一朝、那年的国名词根(东方语感改朝换代换国号,西幻国名不变;见 growth.ts 文件头"王朝更替")。
+ * 单独放:存档里的改名(edits.ts)只用得到这几样,不用跟着带上人口、国号那一整套。纯函数。
+ */
+import type { Polity, Year } from './types';
+
+/**
+ * 某一年是第几朝(Polity.dynasties 的下标,改朝换代那一刻起算新朝;没改朝换代过 = 0)。
+ * 年份早于立国 = 第一朝
+ */
+export function dynastyIndexAt(p: Polity, year: Year): number {
+  const d = p.dynasties;
+  if (!d || d.length < 2) return 0;
+  let i = 0;
+  while (i + 1 < d.length && d[i + 1].year <= year) i++;
+  return i;
+}
+
+/** 某一年的那一朝(没改朝换代过 = undefined) */
+export function dynastyAt(p: Polity, year: Year): NonNullable<Polity['dynasties']>[number] | undefined {
+  const d = p.dynasties;
+  return d && d.length ? d[dynastyIndexAt(p, year)] : undefined;
+}
+
+/**
+ * 某一年的国名词根:东方语感按当朝(改朝换代后换国号:"昌" → "景");西幻语感国名不变(王室换了,国名照旧)。
+ * 新朝还没起名(推演中途)= 原词根
+ */
+export function polityRootAt(p: Polity, year: Year): string {
+  if (!p.eastern || !p.dynasties || p.dynasties.length < 2) return p.name;
+  return segRootOf(p, dynastyIndexAt(p, year));
+}
+
+/**
+ * 第 i 段的国名词根(东方语感):改制开的共和 / 军政府那一段照上一段(大靖王朝 → 大靖共和国),
+ * 复辟迎回旧王室的照那一朝(Polity.dynasties 的 house);作者改了那一朝的名字,这几段跟着变
+ */
+export function segRootOf(p: Polity, i: number): string {
+  const d = p.dynasties;
+  if (!d || !d[i]) return p.name;
+  return d[rootSegIndex(p, i)].name || p.name;
+}
+
+/** 第 i 段的国名词根照的是哪一段(改制开的共和 / 军政府照上一段,复辟迎回旧王室照那一朝;别的就是自己) */
+export function rootSegIndex(p: Polity, i: number): number {
+  const d = p.dynasties;
+  if (!d || !d[i]) return i;
+  for (let g = 0; g < 64; g++) {
+    const x = d[i];
+    if (x.house !== undefined && x.house < i && d[x.house]) i = x.house;
+    else if (x.regime && i > 0) i--;
+    else break;
+  }
+  return i;
+}

@@ -18,8 +18,11 @@ import type { SheetSnap, WorldSnap } from './gestures';
 
 export type PanelTab = 'info' | 'cmd';
 
-/** 干预页换上的填写页;year = 打开时的生效年份(没有 = 时间轴那一年) */
-export type CmdPage = { kind: 'policy' | 'destroy' | 'disaster' | 'treaty' | 'neutral' | 'boost'; back: PanelTab; year?: number };
+/**
+ * 干预页换上的填写页;year = 打开时的生效年份(没有 = 时间轴那一年)。
+ * ally / move = 干预页本身,打开就在地图上选结盟的国家 / 新国都(人物卡「一生」一段经历进推演选了结盟、迁都,lifeIv.ts)
+ */
+export type CmdPage = { kind: 'policy' | 'destroy' | 'disaster' | 'treaty' | 'neutral' | 'boost' | 'trek' | 'ally' | 'move'; back: PanelTab; year?: number };
 
 /** 信息页换上的看的页 */
 export type InfoPage = 'fiscal' | 'court';
@@ -38,7 +41,8 @@ export interface IvRun {
 }
 
 export interface FlyRequest {
-  to: 'sel' | 'home';
+  /** 'culture' = 选中的民族这一年人最多的州(侧栏、世界概览、搜索里点民族) */
+  to: 'sel' | 'home' | 'culture';
   stamp: number;
 }
 
@@ -114,7 +118,7 @@ export function endRun() {
   if (state.run) set({ run: null });
 }
 
-/** 让 App 把地图飞过去:'sel' = 选中的东西,'home' = 缩回整张图 */
+/** 让 App 把地图飞过去:'sel' = 选中的东西,'home' = 缩回整张图,'culture' = 选中的民族人最多的州 */
 export function requestFly(to: FlyRequest['to']) {
   set({ fly: { to, stamp: ++stamp } });
 }

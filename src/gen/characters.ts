@@ -7,6 +7,7 @@
  * | id         | 编号:这个世界里不重复的正整数(新建的 = 现有最大的 + 1;选中、撤销按它认)                |
  * | name       | 名字(CHAR_NAME_MAX 个字以内;空 = CHAR_NAME_DEFAULT)                                   |
  * | color      | 头像的颜色:和作者标记同一套六种(edits.ts 的 MARK_COLORS)                              |
+ * | female     | 女的 = true(没有 = 男的:以前建的人物都没有这一项,一律当男的;和推演人物的 Person.female 同一个意思,见 civ/gender.ts) |
  * | born, died | 生年、卒年(整数,夹到 [0, INTERVENTION_YEAR_MAX];died 早于 born 的当作没给;没有 died = 一直活着) |
  * | birthplace | 出生地(Where,见下;没有 = 没填)                                                        |
  * | polity     | 国家:国家的稳定键 `polity:c4567#0`(没有 = 出生地在生年归属的国家)                     |
@@ -32,7 +33,7 @@
  */
 import type { Civ, RulerLeanings } from './civ/types';
 import { INTERVENTION_YEAR_MAX, MARK_COLORS, freeMarkId, isCityKey, isPolityKey, isRegionKey, yearOf, type MarkColor } from './edits';
-import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
+import { TERRAIN_H, TERRAIN_W } from './terrainOps';
 
 /** 一个世界最多几个作者的人物 */
 export const CHARACTERS_MAX = 500;
@@ -85,6 +86,8 @@ export interface AuthorCharacter {
   name: string;
   color: MarkColor;
   born: number;
+  /** 女的 = true;没有 = 男的 */
+  female?: true;
   died?: number;
   birthplace?: Where;
   polity?: string;
@@ -124,7 +127,7 @@ function cleanCharLeanings(x: unknown): RulerLeanings | null {
 // 人物的稳定键(personKey、resolvePersonKey)写在 edits.ts:改名也要按它认人
 export { personKey, resolvePersonKey } from './edits';
 
-const PERSON_KEY = /^person:polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}\|(ruler|general|prince|minister)\|[^|\n]{1,32}\|-?\d{1,6}(#\d{1,4})?$/;
+const PERSON_KEY = /^person:polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}\|(ruler|general|prince|minister|consort)\|[^|\n]{1,32}\|-?\d{1,6}(#\d{1,4})?$/;
 const EVENT_KEY = /^event:\d{1,5}\|[a-z]{1,16}\|[^|\n]{1,48}\|[^|\n]{1,100}#\d{1,4}$/;
 export const isPersonKey = (k: unknown): k is string => typeof k === 'string' && PERSON_KEY.test(k);
 export const isEventKey = (k: unknown): k is string => typeof k === 'string' && EVENT_KEY.test(k);
@@ -224,6 +227,7 @@ export function cleanCharacter(x: unknown): AuthorCharacter | null {
     color: MARK_COLORS.includes(o.color as MarkColor) ? (o.color as MarkColor) : MARK_COLORS[0],
     born,
   };
+  if (o.female === true) c.female = true;
   const died = o.died === undefined ? null : yearOf(o.died);
   if (died !== null && died >= born) c.died = died;
   const birthplace = o.birthplace === undefined ? null : cleanWhere(o.birthplace);
@@ -369,22 +373,45 @@ export const CHAR_YEAR_MAX = INTERVENTION_YEAR_MAX;
 export const AUTHOR_RULER_DEFAULT = '作者的人物';
 
 /**
- * 套上作者人物的名字(干预"即位"立的君主,Person.author):按编号把人物卡上的名字填进推演人物的 name
- * (找不到 = AUTHOR_RULER_DEFAULT),再记一份"编号 → 名字"进 Civ.authorNames(编年史写没即位成的原因时用)。
- * 返回新的 Civ(原 Civ 不改);没有作者立的君主、也没有即位干预时返回原对象。界面在套完改名(edits.ts 的 applyNames)之后调用
+ * 套上作者人物的名字和性别(干预"即位"立的君主、"让他掌权"掌权的、"任将 / 任臣"任了的作者人物,Person.author):按编号把人物卡上的名字填进推演人物的 name
+ * (找不到 = AUTHOR_RULER_DEFAULT)、性别照人物卡(女的 female = true,男的、找不到的不写),再记一份"编号 → 名字"进 Civ.authorNames、
+ * 女的编号进 Civ.authorFemale(编年史写没即位成的原因时用)。推演本身不看性别,所以只在这里套,历史不变。
+ * 返回新的 Civ(原 Civ 不改);没有作者的人物、也没有即位、让作者的人物掌权、任将任臣、点了谁挂帅的宣战、记在作者人物名下的干预时返回原对象。界面在套完改名(edits.ts 的 applyNames)之后调用
  */
 export function applyCharacters(civ: Civ, characters: readonly AuthorCharacter[] | undefined): Civ {
   const people = civ.people;
   const chars = new Set<number>();
-  for (const v of civ.interventions ?? []) if (v.kind === 'crown') chars.add(v.char);
+  for (const v of civ.interventions ?? []) {
+    if (v.kind === 'crown' || v.kind === 'appoint' || (v.kind === 'regent' && v.char !== undefined)) chars.add(v.char);
+    else if (v.kind === 'declare' && v.lead !== undefined) chars.add(v.lead);
+    // 记在作者人物名下的国家的事(编年史写"(林小满之议)")
+    if (v.author !== undefined) chars.add(v.author);
+  }
   if (people) for (const x of people) if (x.author !== undefined) chars.add(x.author);
   if (!chars.size) return civ;
-  const byId = new Map<number, string>();
-  for (const c of characters ?? []) byId.set(c.id, c.name);
-  const nameOf = (id: number) => byId.get(id) || AUTHOR_RULER_DEFAULT;
+  const byId = new Map<number, AuthorCharacter>();
+  for (const c of characters ?? []) byId.set(c.id, c);
+  const nameOf = (id: number) => byId.get(id)?.name || AUTHOR_RULER_DEFAULT;
+  // 和 civ/gender.ts 的 isFemale 一样只认 true(不 import 它:这个文件跟着读存档进首页,首页的代码要省)
+  const femaleOf = (id: number) => byId.get(id)?.female === true;
   const authorNames: Record<number, string> = {};
-  for (const id of chars) authorNames[id] = nameOf(id);
-  const out: Civ = { ...civ, authorNames };
-  if (people?.some((x) => x.author !== undefined)) out.people = people.map((x) => (x.author !== undefined && x.name !== nameOf(x.author) ? { ...x, name: nameOf(x.author) } : x));
+  const authorFemale: number[] = [];
+  for (const id of chars) {
+    authorNames[id] = nameOf(id);
+    if (femaleOf(id)) authorFemale.push(id);
+  }
+  // 套过一次的历史再套(人物卡改了):上次记的女的编号不留,按这次的人物卡重记
+  const { authorFemale: _, ...rest } = civ;
+  const out: Civ = { ...rest, authorNames };
+  if (authorFemale.length) out.authorFemale = authorFemale.sort((a, b) => a - b);
+  if (people?.some((x) => x.author !== undefined))
+    out.people = people.map((x) => {
+      if (x.author === undefined) return x;
+      const name = nameOf(x.author);
+      const female = femaleOf(x.author);
+      if (x.name === name && (x.female === true) === female) return x;
+      const { female: __, ...bare } = x;
+      return female ? { ...bare, name, female: true } : { ...bare, name };
+    });
   return out;
 }

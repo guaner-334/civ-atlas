@@ -1,0 +1,813 @@
+/*
+ * 立体地形:框一块(.rp,在地图舞台里)和立体模式(.rv,盖住地图那一块;手机占满整屏)。
+ * 点「立体」时才跟着这部分代码一起下载。
+ */
+
+/* ==== 框一块(电脑) ==== */
+.rp {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  cursor: crosshair;
+  touch-action: none;
+  font-family: var(--font-sans);
+}
+.rp-dim {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.36);
+  pointer-events: none;
+}
+.rp-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.25) inset;
+  cursor: move;
+}
+.rp-h {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.rp-size {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  margin-top: -8px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--ink);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  font: 600 12.5px/1.3 var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* 底下一条:在地图那一块(左边卡片右边)的正中,和第一次打开的操作提示一样 */
+.rp-bar {
+  position: absolute;
+  left: var(--map-mid, 50%);
+  bottom: 104px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font: 13px/1.4 var(--font-sans);
+  white-space: nowrap;
+  cursor: default;
+}
+.rp-bar button {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 13px/1 var(--font-sans);
+}
+.rp-bar button:hover {
+  background: var(--hover-bg);
+}
+.rp-bar button.pri,
+.rp-act button.pri {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.rp-bar button.pri:hover {
+  background: var(--accent-hover);
+}
+
+/* ==== 框一块(手机):框不动、地图动,框上不接手指 ==== */
+.rp.phone {
+  pointer-events: none;
+  cursor: auto;
+}
+.rp.phone .rp-box {
+  cursor: auto;
+}
+.rp-cn {
+  position: absolute;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 4px solid #fff;
+  pointer-events: none;
+}
+.rp-cn.tl {
+  border-right: 0;
+  border-bottom: 0;
+}
+.rp-cn.tr {
+  border-left: 0;
+  border-bottom: 0;
+}
+.rp-cn.bl {
+  border-right: 0;
+  border-top: 0;
+}
+.rp-cn.br {
+  border-left: 0;
+  border-top: 0;
+}
+.rp.phone .rp-size {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.rp-chip {
+  position: absolute;
+  left: calc(16px + var(--safe-l, 0px));
+  top: calc(16px + var(--safe-t, 0px));
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100% - 90px);
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-panel);
+  font: 500 13px/1.4 var(--font-sans);
+}
+.rp-act {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--peek-h, 108px) + var(--capsule-gap, 10px) + var(--capsule-h, 52px) + 22px);
+  display: flex;
+  gap: 10px;
+  pointer-events: auto;
+}
+.rp-act button {
+  flex: 1;
+  height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--ink);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-panel);
+  font: 600 15px/1 var(--font-sans);
+}
+.rp-act button.pri {
+  flex: 1.6;
+}
+
+/* 立着看时时间轴的位置换成立体的控件条;框的时候、立着看时不出第一次打开的操作提示 */
+.app.relief-on > .bottom-row,
+.app.relief-on > .first-hint,
+.app.relief-pick > .first-hint {
+  display: none;
+}
+
+/* ==== 立体模式(电脑):盖住地图那一块,天色底 ==== */
+.rv {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  background: linear-gradient(#b0c4da, #e2e8ee);
+  font-family: var(--font-sans);
+  --rv-track: rgba(118, 118, 128, 0.24);
+}
+[data-theme='dark'] .rv {
+  --rv-track: rgba(255, 255, 255, 0.22);
+}
+.rv canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+.rv canvas:active {
+  cursor: grabbing;
+}
+/* 右下:「立体」(按下的)、指南针、远近 —— 和平常地图右下那一列同一套样子,底下的控件条矮一些,整列往下挪 */
+.app.has-side .map-controls.rv-ctl {
+  bottom: 92px;
+}
+.app.has-side .map-controls .rv-north {
+  width: 38px;
+  padding: 0;
+}
+.rv-north svg {
+  width: 24px;
+  height: 24px;
+}
+/* 时间轴的位置:一条控件 */
+.rv-bar {
+  position: absolute;
+  left: var(--side-room, 14px);
+  right: calc(14px + var(--ast-room, 0px));
+  bottom: 14px;
+  height: 64px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 16px 0 10px;
+  border-radius: 16px;
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  font: 13px/1.3 var(--font-sans);
+  white-space: nowrap;
+  transition: left 0.2s ease;
+}
+.rv-bar .b {
+  height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 13px/1 var(--font-sans);
+}
+.rv-bar .b:hover {
+  background: var(--hover-bg);
+}
+.rv-t {
+  min-width: 0;
+}
+.rv-t b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.rv-t small {
+  display: block;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.rv-sep {
+  width: 0.5px;
+  align-self: stretch;
+  margin: 14px 0;
+  background: var(--line);
+}
+.rv-lab {
+  color: var(--ink-2);
+}
+.rv-val {
+  min-width: 34px;
+  font-weight: 600;
+}
+.rv-hint {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+/* 起伏滑条:细轨道,走过的一段主色,白色圆钮 */
+.rv-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 180px;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.rv-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) 0 0 / var(--p, 0%) 100% no-repeat,
+    var(--rv-track);
+}
+.rv-range::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) 0 0 / var(--p, 0%) 100% no-repeat,
+    var(--rv-track);
+}
+.rv-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.22);
+}
+.rv-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.22);
+}
+.rv-range:disabled {
+  opacity: 0.5;
+}
+
+/* ==== 立体模式(手机):占满整屏 ==== */
+.rv.phone {
+  position: fixed;
+  z-index: 20;
+}
+[data-theme='dark'] .rv.phone {
+  --rv-track: rgba(255, 255, 255, 0.2);
+}
+.rv-top {
+  position: absolute;
+  left: calc(12px + var(--safe-l, 0px));
+  right: calc(12px + var(--safe-r, 0px));
+  top: calc(12px + var(--safe-t, 0px));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rv-rb {
+  flex: none;
+  height: 40px;
+  min-width: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--panel);
+  color: var(--ink);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-panel);
+  font: 600 14px/1 var(--font-sans);
+}
+.rv-ttl {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  color: #1d1d1f;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+.rv-ttl b {
+  display: block;
+  font: 600 16px/1.2 var(--font-sans);
+}
+.rv-ttl small {
+  display: block;
+  font: 12px/1.3 var(--font-sans);
+  color: #3a3a3c;
+}
+.rv-compass {
+  position: absolute;
+  right: calc(12px + var(--safe-r, 0px));
+  top: calc(64px + var(--safe-t, 0px));
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--ink);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-panel);
+}
+.rv-compass svg {
+  width: 22px;
+  height: 22px;
+}
+.rv-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(196px + var(--safe-b, 0px));
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(30, 30, 32, 0.72);
+  color: #f5f5f7;
+  font: 12.5px/1.4 var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rv-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 16px calc(28px + var(--safe-b, 0px));
+  border-radius: 16px 16px 0 0;
+  background: var(--panel-solid);
+  color: var(--ink);
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+  font: 14px/1.3 var(--font-sans);
+}
+.rv-grab {
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line-strong);
+  margin: 0 auto 12px;
+}
+.rv-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.rv-line + .rv-line {
+  margin-top: 14px;
+}
+.rv-sheet .rv-lab {
+  width: 34px;
+}
+.rv-sheet .rv-range {
+  flex: 1;
+  width: auto;
+}
+.rv-sheet .rv-val {
+  width: 34px;
+  min-width: 0;
+  text-align: right;
+}
+.rv-sheet .b {
+  flex: 1;
+  height: 42px;
+  border: 0;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 14px/1 var(--font-sans);
+}
+
+/* 山名立在山顶上:白底小牌子 + 一根细杆 + 山顶一个小圆点(转到哪都朝着人)。
+   立体的天色不跟着深浅主题变,字色照浅色的那一套;紧跟在画布后面,控件条、按钮盖在它上面 */
+.rv-peak {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  translate: -50% -100%;
+}
+.rv-peak b {
+  font: 600 15px/1.2 var(--font-sans);
+  color: #1d1d1f;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+}
+.rv-peak b small {
+  font-weight: 500;
+  color: #6e6e73;
+  font-size: 12px;
+  margin-left: 5px;
+}
+.rv-peak i {
+  width: 1.5px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.rv-peak u {
+  width: 7px;
+  height: 7px;
+  margin-top: -1px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(29, 29, 31, 0.7);
+}
+
+/* ==== 地区模式两面共用:「平面图 | 立体」、标题(平面图上点了能改名) ==== */
+.ab-seg {
+  flex: none;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--btn);
+}
+.ab-seg button {
+  height: 32px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: 500 13px/1 var(--font-sans);
+  cursor: pointer;
+}
+.ab-seg button.on {
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  font-weight: 600;
+}
+[data-theme='dark'] .ab-seg button.on {
+  background: #636366;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.rv-sheet .ab-seg {
+  display: flex;
+  width: 100%;
+}
+.rv-sheet .ab-seg button {
+  flex: 1;
+  justify-content: center;
+  height: 34px;
+  font-size: 14px;
+}
+.ab-name {
+  cursor: pointer;
+}
+.ab-pen {
+  margin-left: 5px;
+  vertical-align: -1px;
+  color: var(--ink-2);
+}
+.ab-edit input {
+  display: block;
+  width: 190px;
+  height: 22px;
+  padding: 0 6px;
+  margin: -2px 0 0 -6px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--field, var(--btn));
+  color: var(--ink);
+  font: 600 15px/1 var(--font-sans);
+  outline: 2px solid var(--accent);
+}
+.rv-ttl.ab-edit input {
+  width: 100%;
+  margin: 0;
+  text-align: center;
+  font-size: 16px;
+}
+
+/* ==== 地区模式的平面图:中性灰底(像看图软件)上一页纸 ==== */
+.rv.rgm {
+  background: #dedee3;
+  touch-action: none;
+  cursor: grab;
+}
+.rv.rgm:active {
+  cursor: grabbing;
+}
+[data-theme='dark'] .rv.rgm {
+  background: #29292b;
+}
+[data-theme='dark'] .rv.rgm.phone {
+  background: #1c1c1e;
+}
+.rgm-sheet,
+.rgm-wait {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: 0 0;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.18),
+    0 10px 40px rgba(0, 0, 0, 0.22);
+}
+.rgm-wait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  color: #6e6e73;
+  font: 13px/1.4 var(--font-sans);
+}
+.rv.rgm.phone .rv-ttl {
+  color: var(--ink);
+  text-shadow: none;
+}
+.rv.rgm.phone .rv-ttl small {
+  color: var(--ink-2);
+}
+.rgm-tip {
+  bottom: auto;
+}
+.rgm-note {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+/* 回到地图时刚才的框:白色虚线,淡淡留一会儿再淡掉 */
+.rp-ghost {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  border: 1.5px dashed rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: rp-ghost linear forwards;
+}
+@keyframes rp-ghost {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ==== 地区图「导出这一页」:电脑贴在底条右上的卡片,手机底部卡片 ==== */
+.rv-bar .b.pri {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-weight: 600;
+}
+.rv-bar .b.pri:hover {
+  filter: brightness(1.06);
+}
+.rgm.exp .rgm-sheet {
+  filter: brightness(0.82);
+}
+.rx {
+  position: absolute;
+  right: calc(14px + var(--ast-room, 0px));
+  bottom: 88px;
+  z-index: 6;
+  width: 400px;
+  box-sizing: border-box;
+  padding: 16px 16px 14px;
+  border-radius: 14px;
+  background: var(--panel-solid);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 12px 40px rgba(0, 0, 0, 0.22);
+  color: var(--ink);
+  font: 13px/1.4 var(--font-sans);
+  cursor: default;
+}
+.rx h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.rx-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.rx-row + .rx-row {
+  margin-top: 12px;
+}
+.rx-lab {
+  width: 56px;
+  flex: none;
+  color: var(--ink-2);
+}
+.rx-field {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--field, var(--btn));
+  color: var(--ink);
+  font: 500 14px/1 var(--font-sans);
+}
+.rx-field:focus {
+  outline: 2px solid var(--accent);
+}
+.rx .rx-seg {
+  flex: 1;
+  display: flex;
+}
+.rx .rx-seg button {
+  flex: 1;
+  justify-content: center;
+  height: 30px;
+  padding: 0 6px;
+  font-size: 12.5px;
+}
+.rx-small {
+  margin: 12px 0 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+.rx-go {
+  width: 100%;
+  margin-top: 14px;
+  height: 36px;
+  border: 0;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font: 600 14px/1 var(--font-sans);
+  cursor: pointer;
+}
+.rx-go:disabled,
+.rx-b:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.rx-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.4);
+}
+/* 手机上压暗的只是那一页,顶上一排照旧亮着 */
+.rgm.phone .rv-top {
+  z-index: 6;
+}
+.rx.rx-phone {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  padding: 12px 16px calc(28px + var(--safe-b, 0px));
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+}
+.rx-phone h3 {
+  margin: 0 0 14px;
+  font-size: 17px;
+  text-align: center;
+}
+.rx-phone .rx-row + .rx-row {
+  margin-top: 14px;
+}
+.rx-phone .rx-lab {
+  width: 52px;
+  font-size: 13.5px;
+}
+.rx-phone .rx-seg button {
+  height: 34px;
+  padding: 0 4px;
+  font-size: 13px;
+}
+.rx-warn {
+  margin: 8px 0 0 64px;
+  color: var(--warn, #ff9f0a);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.rx-phone .rx-acts {
+  margin-top: 18px;
+}
+.rx-b {
+  flex: 1;
+  height: 42px;
+  border: 0;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--btn);
+  color: var(--ink);
+  font: 500 14px/1 var(--font-sans);
+}
+.rx-b.pri {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-weight: 600;
+}

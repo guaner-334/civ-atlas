@@ -3,8 +3,8 @@
  *
  *   持续到  一直有效 | 到某一年(−100 −10 [年份] +10 +100,默认 = 生效年份 + 100);只管保护、保住王室、禁止扩张、结盟,到这一年止(不含)
  *
- *   加入待推演  保护(不会被灭亡)、禁止分裂、保住王室(不改朝换代、不被篡位;共和国变淡,"共和国没有王室")、禁止扩张
- *   选择对象  结盟(任意国家)、宣战(仅相邻国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
+ *   加入待推演  保护(不会被灭亡)、禁止分裂、保住王室(不改朝换代、不被篡位;那年是共和国 / 军政府的变淡,"共和国没有王室",按那一年的政体、复辟以后照君主国)、禁止扩张
+ *   选择对象  结盟(任意国家)、宣战(仅相邻、那年没在交战的国家)、迁都(本国城市)→ 在地图上选(地图压暗、可选的对象浮出名牌,见 TargetPlates.tsx)
  *
  * 不可用的命令变淡,说明换成原因。下的令先进待推演的单子(pendingStore.ts,单子在时间轴上面,PendingTray.tsx),已经在单子里的变淡、写"已在待推演里";
  * 单子里有令时底部多一个「全部推演(N 条)」。推演时面板先藏起,顶部提示条"正在重新推演 X–3000 年",推完"有鹰王朝禁止扩张,已从 X 年起重新推演"带撤销,
@@ -14,35 +14,53 @@
  * 它下面「推一把发展」(选力度 ›):卡片换成推一把那一页(BoostPage.tsx),生效年份带过去。
  *
  * 最后一条「立作者的人物为君主」(选人 ›):卡片换成选人那一页 —— 只列那一年在世的作者人物(头像、生卒、那年几岁、身份),不在世的放下面、变淡、
- * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「即位…」同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
+ * 写原因;点一位进让他即位那一页(CrownPage.tsx,和人物卡「进推演…」里当君主同一页,国家先选好、年份是这里的生效年份);一个都没有时写明要什么样的人物、
  * 「新建人物」直接开新建(国家填好)。
+ *
+ * 它下面「任作者的人物为将」「任作者的人物为臣」「让作者的人物掌权」(选人 ›):同一张选人页,点一位进当将领 / 当名臣 / 掌权那一页
+ * (AuthorIvPages.tsx,和人物卡「进推演…」里是同一页),国家先选好、年份是这里的生效年份;那年是共和国 / 军政府的「让作者的人物掌权」变淡("没有君主可架空")。
+ *
+ * 「宣战」(选择对象 ›):地图上点好对象以后,那年有在世(满 16 岁)的作者人物才多一页「谁挂帅」—— 宣战(对象一行、「换一国」)、
+ * 谁挂帅(照推演派 | 一位一行:头像、名字、那年几岁、身份、是不是这国的将领;默认照推演派)、一句说明,底部 返回 / 加入待推演。
+ * 选了作者的人物:宣战带 lead = 他;他那年还不是这国将领的,同时任他为将(到卒年、能力寻常),单子里多一条(先任将、再宣战)。
+ * 一个作者人物都没有时和以前一样,点好对象直接加进单子。
+ *
+ * 人物卡「一生」一段经历进推演选了结盟、迁都(lifeIv.ts):打开这一页就在地图上选对象,页顶「照这段经历填好了」,这时候下的那一条记在他名下。
  *
  * 「灭国」(选去向 ›):卡片换成灭国那一页(DestroyPage.tsx),生效年份带过去。
  * 「立约」(选几国 ›)、「划中立地」(选地方 ›):卡片换成立约 / 划中立地那一页(TreatyPage.tsx),生效年份带过去。
  * 「天灾」(选种类 ›):卡片换成天灾那一页(DisasterPage.tsx,州卡片「更多」里也能进),生效年份带过去。
+ * 「大迁徙」(选民族 ›):卡片换成大迁徙那一页(TrekPage.tsx,州卡片「更多」里也能进;默认这国的主体民族),生效年份带过去。
  *
  * 逐年推演(Stepwise.tsx):只在"现在"干预 —— 生效年份换成"第 N 年年初(下一步)"一块,不能加减;按钮写「加入」,
  * 加的进「下一步生效的干预」(同一个单子),下一步开始时一起生效,没有「全部推演」;单子里有的写"已在下一步生效的干预里"。
  * 手机底部多一行"已加几条干预"(点开看每一条,能删)和「接着演绎」。往回看以前的一年时干预都变淡(从那一年改要先「从这里重新演绎」)。
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
+import { regimeAt, royalAt } from '../gen/civ/regime';
 import { END_YEAR_MAX, cleanPlay, playInterventions, polityKey, settlementKey, type Intervention, type InterventionKind } from '../gen/edits';
 import { useNarrow } from './device';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, STEP_QUEUED, StepCommandFoot, StepEffectTime, useStepView } from './Stepwise';
 import { useEdits, useEra } from './editsStore';
-import { cityStands, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
+import { cityStands, declareTargets, defaultYear, interventionText, nameAt, neighborsAt, polityOrders, setPolityPick, type PolityPick } from './Interventions';
 import { openCmdPage, setPanelTab } from './panelStore';
-import { pendingInterventions, pushPending, queueIntervention, usePending } from './pendingStore';
+import { getPending, pendingInterventions, pushPending, queueIntervention, removePending, usePending } from './pendingStore';
 import { setCivTime } from './civView';
 import { YearRow, YearStepper, useYearInput } from './panelParts';
 import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
 import { CrownPage } from './CrownPage';
+import { AuthorRegentPage, GeneralPage, MinisterPage, type AuthorIvRole } from './AuthorIvPages';
+import { characterPosts, holdsPost, leadOrders, overlapWhy, postLine } from './authorIvInfo';
+import { keepWhy } from './keepInfo';
+import { heOrShe } from '../gen/civ/gender';
+import { NationLifeHead } from './LifeHead';
+import { getLifeTag, lifeTagFor } from './lifeTag';
 import { CharAvatar } from './CharacterPanel';
 import { newCharacterDraft } from './characterStore';
 import type { AuthorCharacter } from '../gen/characters';
@@ -50,7 +68,7 @@ import { zoneChoices } from './treatyIv';
 
 let owners: Owners | undefined;
 
-type Cmd = 'policy' | 'boost' | 'protect' | 'unity' | 'keep' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | 'crown' | 'destroy' | 'disaster';
+type Cmd = 'policy' | 'boost' | 'protect' | 'unity' | 'keep' | 'halt' | 'ally' | 'treaty' | 'neutral' | 'declare' | 'move' | AuthorIvRole | 'destroy' | 'disaster' | 'trek';
 
 const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[] = [
   { k: 'policy', name: '方针', desc: '这国从这年起照方针自己走，直到换下一条', pick: true, go: '选方针 ›' },
@@ -62,11 +80,15 @@ const CMDS: { k: Cmd; name: string; desc: string; pick: boolean; go?: string }[]
   { k: 'ally', name: '结盟', desc: '选择一个国家,两国不再交战', pick: true },
   { k: 'treaty', name: '立约', desc: '和一国或几国约定若干年互不侵犯', pick: true, go: '选几国 ›' },
   { k: 'neutral', name: '划中立地', desc: '交界的一州不归任何一国，几国都不进兵', pick: true, go: '选地方 ›' },
-  { k: 'declare', name: '宣战', desc: '选择一个相邻国家', pick: true },
+  { k: 'declare', name: '宣战', desc: '选择一个相邻国家，可派作者的人物挂帅', pick: true },
   { k: 'move', name: '迁都', desc: '选择本国的一座城市', pick: true },
   { k: 'crown', name: '立作者的人物为君主', desc: '选一位那年在世的作者人物，从这年起当这国君主', pick: true, go: '选人 ›' },
+  { k: 'general', name: '任作者的人物为将', desc: '选一位那年在世的作者人物，从这年起当这国将领', pick: true, go: '选人 ›' },
+  { k: 'minister', name: '任作者的人物为臣', desc: '选一位，入朝当名臣，朝中的事他也经手', pick: true, go: '选人 ›' },
+  { k: 'regent', name: '让作者的人物掌权', desc: '选一位，名义上的君主照旧在位，政出于他', pick: true, go: '选人 ›' },
   { k: 'destroy', name: '灭国', desc: '这年让它亡国，国土并入一国或散成无主', pick: true, go: '选去向 ›' },
   { k: 'disaster', name: '天灾', desc: '瘟疫、饥荒、地震水旱，人口锐减', pick: true, go: '选种类 ›' },
+  { k: 'trek', name: '大迁徙', desc: '让国内一族分出一支远走、到别处立国，或不许它迁', pick: true, go: '选民族 ›' },
 ];
 
 export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster: Raster | null; world: World; id: number; year: number }) {
@@ -85,23 +107,30 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const last = Math.ceil(civ.endYear) - 1;
   const hi = Math.max(lo, Math.min(last, p.ended !== undefined ? Math.ceil(p.ended) - 1 : last));
   const [msg, setMsg] = useState<string | null>(null);
-  // 立作者的人物为君主:选人那一页('pick')/ 选好了谁(人物编号:让他即位那一页)
-  const [crown, setCrown] = useState<'pick' | number | null>(null);
-  const yi = useYearInput(defaultYear(p, year), lo, hi, () => setMsg(null));
+  // 立作者的人物为君主、任为将 / 臣、让他掌权:选人那一页(id = null)/ 选好了谁(人物编号:那一页)
+  const [who, setWho] = useState<{ role: AuthorIvRole; id: number | null } | null>(null);
+  // 宣战:地图上点好的对象(那年有在世的作者人物时多一页「谁挂帅」)
+  const [lead, setLead] = useState<number | null>(null);
+  // 人物卡一段经历进推演选了结盟、迁都:开着这一页就在地图上选(年份照那段经历)
+  const [life] = useState(() => lifeTagFor(getLifeTag(), ['ally', 'move'], { polity: id }));
+  const yi = useYearInput(life ? Math.min(hi, Math.max(lo, life.year)) : defaultYear(p, year), lo, hi, () => setMsg(null));
   const { era } = yi;
   const y = step ? nextYear(sw) : yi.y;
   const valid = step || yi.valid;
   /** 看国土、邻国、城用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   // 持续到:一直有效 / 到某一年(截止那年不含,所以至少是生效年份的下一年;逐年推演里没有上限)
   const [limited, setLimited] = useState(false);
   const ui = useYearInput(y + 100, step ? y + 1 : Math.min(y + 1, civ.endYear), step ? END_YEAR_MAX : civ.endYear, () => setMsg(null));
   const timed = (k: Cmd) => k === 'protect' || k === 'keep' || k === 'halt' || k === 'ally';
   const until = limited ? { until: ui.y } : {};
 
-  const alive = polityAlive(p, y);
+  const alive = polityAlive(p, yv);
+  const noKeep = keepWhy(p, yv);
   const { size, near } = useMemo(() => neighborsAt(civ, id, yv), [civ, id, yv]);
-  const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, y) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, y, size]);
+  // 宣战打得成的:接壤、那年没和本国在交战的(已在交战的推演里那条宣战跳过)
+  const { open: canDeclare, foes } = useMemo(() => declareTargets(civ, id, yv, near), [civ, id, yv, near]);
+  const others = useMemo(() => civ.polities.filter((q) => q.id !== id && polityAlive(q, yv) && (size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, id, yv, size]);
   // 划中立地:这一年有没有碰到两国以上、做得了中立地的州(按国家、年份记着,回放时不每帧重算)
   const zoneOk = useMemo(() => zoneChoices(civ, world, id, yv, 1).length > 0, [civ, world, id, yv]);
   // 迁都的候选:那一年本国国土里还在的、不是国都的城
@@ -116,10 +145,12 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const orders = polityOrders(civ, id, step ? playInterventions(edits.interventions, cleanPlay(edits.play)) : edits.interventions);
   // 下过同一种命令(有截止年份的,到期以后可以再下)
   const has = (kind: InterventionKind) =>
-    orders.some(({ v }) => v.kind === kind && v.kind !== 'found' && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
+    orders.some(({ v }) => v.kind === kind && 'a' in v && v.a === key && !('until' in v && v.until !== undefined && y >= v.until));
   // 待推演的单子里有本国同一种命令
-  const queued = (kind: InterventionKind) => pendingInterventions(pending).some((v) => v.kind === kind && v.kind !== 'found' && v.a === key);
+  const queued = (kind: InterventionKind) => pendingInterventions(pending).some((v) => v.kind === kind && 'a' in v && v.a === key);
   const name = nameAt(p, y);
+  // 宣战选谁挂帅:那年在世、满 16 岁的作者人物
+  const leaders = useMemo(() => (edits.characters ?? []).filter((c) => c.born + 16 <= y && (c.died === undefined || y < c.died)), [edits.characters, y]);
   /** 面板标题上的名字(时间轴当前那一年的) */
   const shown = nameAt(p, year);
 
@@ -127,9 +158,10 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   const why = (k: Cmd): string | null => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    // 共和国没有王室(推演里本来就不改朝换代)
-    if (k === 'keep' && p.lineage === 'republic') return '共和国没有王室，用不上';
-    if (!alive) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    // 那年是共和国 / 军政府的没有王室(推演里本来就不改朝换代);复辟以后照君主国
+    if (k === 'keep' && noKeep) return noKeep;
+    if (k === 'regent' && !royalAt(p, yv)) return `${regimeAt(p, yv) === 'junta' ? '军政府' : '共和国'}没有君主可架空`;
+    if (!alive) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     if (timed(k) && limited && !ui.valid) return `持续到的年份要在${spaced(yearSpanAt(ui.lo, ui.hi, era))}之间`;
     if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt') && has(k)) return '已经下过这条命令';
     if ((k === 'protect' || k === 'unity' || k === 'keep' || k === 'halt' || k === 'destroy') && queued(k)) return step ? STEP_QUEUED : '已在待推演里';
@@ -137,6 +169,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     if (k === 'treaty' && !others.length) return '该年没有别的国家';
     if (k === 'neutral' && !zoneOk) return '该年没有碰到两国以上、做得了中立地的州';
     if (k === 'declare' && !near.size) return '该年没有相邻的国家';
+    if (k === 'declare' && !canDeclare.size) return '该年相邻的国家都已在交战';
     if (k === 'move' && !cities.length) return '该年本国没有别的城市';
     return null;
   };
@@ -150,12 +183,12 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
 
   const run = (k: Cmd) => {
     setMsg(null);
-    if (k === 'crown') {
-      setCrown('pick');
+    if (k === 'crown' || k === 'general' || k === 'minister' || k === 'regent') {
+      setWho({ role: k, id: null });
       return;
     }
-    // 方针、推一把发展、灭国、天灾、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
-    if (k === 'policy' || k === 'boost' || k === 'destroy' || k === 'disaster' || k === 'treaty' || k === 'neutral') {
+    // 方针、推一把发展、灭国、天灾、大迁徙、立约、划中立地:卡片换成那一页(生效年份带过去,返回回到这里)
+    if (k === 'policy' || k === 'boost' || k === 'destroy' || k === 'disaster' || k === 'trek' || k === 'treaty' || k === 'neutral') {
       openCmdPage({ kind: k, back: 'cmd', year: y });
       return;
     }
@@ -186,7 +219,7 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
         },
       };
     } else {
-      const ok = new Set(k === 'ally' ? others : [...near]);
+      const ok = new Set(k === 'ally' ? others : canDeclare);
       pk = {
         ...base,
         prompt: k === 'ally' ? `选择与${name}结盟的国家` : `选择${name}要宣战的国家`,
@@ -194,8 +227,14 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
         accept: (q) => {
           if (q === id) return '要选另一个国家';
           const Q = civ.polities[q];
-          if (!Q || !polityAlive(Q, y) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
+          if (!Q || !polityAlive(Q, yv) || !(size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
           if (k === 'declare' && !near.has(q)) return '两国不接壤,无法宣战';
+          if (k === 'declare' && foes.has(q)) return '两国已在交战,无法宣战';
+          // 那年有在世的作者人物:先选谁挂帅
+          if (k === 'declare' && leaders.length) {
+            setLead(q);
+            return null;
+          }
           const b = polityKey(civ, q);
           return order(k === 'ally' ? { kind: k, a: key, b, from: y, ...until } : { kind: k, a: key, b, from: y }, { kind: 'polity', id: q });
         },
@@ -206,14 +245,60 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
     setPolityPick(pk);
   };
 
-  const who = typeof crown === 'number' ? edits.characters?.find((c) => c.id === crown) : undefined;
+  // 一段经历进推演选了结盟、迁都:打开就在地图上选(用不了的照旧写原因)
+  useEffect(() => {
+    if ((life?.kind === 'ally' || life?.kind === 'move') && !why(life.kind)) run(life.kind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [life]);
+
+  const picked = who?.id != null ? edits.characters?.find((c) => c.id === who.id) : undefined;
+  if (who && picked) {
+    const props = { civ, raster, world, year: y, c: picked, polity: id, from: y, onBack: () => setWho({ role: who.role, id: null }), onDone: () => setWho(null) };
+    return who.role === 'crown' ? (
+      <CrownPage {...props} />
+    ) : who.role === 'general' ? (
+      <GeneralPage {...props} />
+    ) : who.role === 'minister' ? (
+      <MinisterPage {...props} />
+    ) : (
+      <AuthorRegentPage {...props} />
+    );
+  }
   if (who)
-    return <CrownPage civ={civ} raster={raster} world={world} year={y} c={who} polity={id} onBack={() => setCrown('pick')} onDone={() => setCrown(null)} />;
-  if (crown !== null) return <CrownPick civ={civ} id={id} y={y} step={step} phone={phone} chars={edits.characters ?? []} onPick={setCrown} onBack={() => setCrown(null)} />;
+    return (
+      <AuthorPick
+        civ={civ}
+        id={id}
+        y={y}
+        role={who.role}
+        step={step}
+        phone={phone}
+        chars={edits.characters ?? []}
+        onPick={(c) => setWho({ role: who.role, id: c })}
+        onBack={() => setWho(null)}
+      />
+    );
+  if (lead !== null)
+    return (
+      <LeadPage
+        civ={civ}
+        id={id}
+        y={y}
+        yv={yv}
+        target={lead}
+        regions={size.get(lead) ?? 0}
+        chars={leaders}
+        step={step}
+        onRetarget={() => (setLead(null), run('declare'))}
+        onBack={() => setLead(null)}
+        onDone={() => setLead(null)}
+      />
+    );
 
   return (
     <>
       <div className="cp-body">
+        <NationLifeHead kinds={['ally', 'move']} polity={id} />
         {step ? <StepEffectTime phone={phone} /> : <YearStepper yi={yi} then={valid && alive && name !== shown ? `${yearAt(y, era)}时它叫${name}。` : undefined} />}
         <div className="cp-from cp-until">
           <div className="cp-until-head">
@@ -288,14 +373,23 @@ export function CommandPage({ civ, raster, world, id, year }: { civ: Civ; raster
   );
 }
 
+/** 选人页上几种的说法:标题、点一位以后填什么、新建人物以后能做什么 */
+const PICK_TEXT: Record<AuthorIvRole, { head: (A: string) => string; next: string; can: string }> = {
+  crown: { head: (A) => `立谁为${A}君主`, next: '点一位，接着填到哪年下台和性格（和人物卡上「进推演…」里当君主是同一页）。', can: '就能让他即位' },
+  general: { head: (A) => `任谁为${A}将领`, next: '点一位，接着填到哪年卸任、能力（和人物卡上「进推演…」里当将领是同一页）。', can: '就能任他为将' },
+  minister: { head: (A) => `任谁为${A}名臣`, next: '点一位，接着填到哪年去职（和人物卡上「进推演…」里当名臣是同一页）。', can: '就能让他入朝' },
+  regent: { head: (A) => `让谁掌${A}国政`, next: '点一位，接着填怎么掌权、几年后还政（和人物卡上「进推演…」里掌权是同一页）。', can: '就能让他掌权' },
+};
+
 /**
- * 立作者的人物为君主:选人。只列 y 那一年在世的作者人物(头像、生卒、那年几岁、身份;点了 onPick),不在世的放下面、变淡、写原因;
+ * 立作者的人物为君主、任为将 / 臣、让他掌权:选人。只列 y 那一年在世的作者人物(头像、生卒、那年几岁、身份;点了 onPick),不在世的放下面、变淡、写原因;
  * 一个都没有:写明要什么样的人物,「新建人物」直接开新建(国家填好,生年先填 y 之前 30 年)
  */
-function CrownPick({
+function AuthorPick({
   civ,
   id,
   y,
+  role,
   step,
   phone,
   chars,
@@ -305,6 +399,7 @@ function CrownPick({
   civ: Civ;
   id: number;
   y: number;
+  role: AuthorIvRole;
   step: boolean;
   phone: boolean;
   chars: readonly AuthorCharacter[];
@@ -313,6 +408,7 @@ function CrownPick({
 }) {
   const era = useEra();
   const name = nameAt(civ.polities[id], y);
+  const T = PICK_TEXT[role];
   const live = (c: AuthorCharacter) => c.born <= y && (c.died === undefined || y < c.died);
   const alive = chars.filter(live);
   const gone = chars.filter((c) => !live(c));
@@ -325,7 +421,7 @@ function CrownPick({
   };
   return (
     <>
-      <div className="cp-body" data-crown="pick" onKeyDown={onKey}>
+      <div className="cp-body" data-crown="pick" data-author-pick={role} onKeyDown={onKey}>
         {step ? (
           <StepEffectTime phone={phone} />
         ) : (
@@ -338,7 +434,7 @@ function CrownPick({
         )}
         <section className="cp-sec">
           <div className="cp-sec-head cp-events-head">
-            <span>立谁为{name}君主</span>
+            <span>{T.head(name)}</span>
             {alive.length > 0 && <span className="cp-num-note">只列那年在世的</span>}
           </div>
           {alive.length > 0 ? (
@@ -359,7 +455,7 @@ function CrownPick({
           ) : (
             <div className="cr-empty" data-crown="empty">
               <b>{yearFull(y, era)}没有在世的作者人物</b>
-              新建一个人物，生年早于{spaced(yearAt(y, era))}、卒年晚于{spaced(yearAt(y, era))}（或不填），就能让他即位。
+              新建一个人物，生年早于{spaced(yearAt(y, era))}、卒年晚于{spaced(yearAt(y, era))}（或不填），{T.can}。
               <br />
               <button className="cp-btn primary" data-act="crown-new-character" onClick={add}>
                 新建人物
@@ -385,7 +481,7 @@ function CrownPick({
             </div>
           </section>
         )}
-        {alive.length > 0 && <div className="cp-note cr-pick-note">点一位，接着填到哪年下台和性格（和人物卡上「即位…」是同一页）。</div>}
+        {alive.length > 0 && <div className="cp-note cr-pick-note">{T.next}</div>}
       </div>
       <div className={`cp-foot${alive.length ? ' mk-foot' : ''}`}>
         <button className={`cp-btn${alive.length ? '' : ' wide'}`} data-act="crown-pick-back" onClick={onBack}>
@@ -396,6 +492,142 @@ function CrownPick({
             新建人物
           </button>
         )}
+      </div>
+    </>
+  );
+}
+
+/**
+ * 宣战选谁挂帅(地图上点好对象以后;那年有在世、满 16 岁的作者人物才有这一页):宣战(对象一行、「换一国」、一句"2421 年，大衍王朝向后东定国宣战。")、
+ * 谁挂帅(照推演派 | 作者的人物一位一行;默认照推演派)、一句说明;底部 返回 / 加入待推演。
+ * 选了作者的人物:他那年还不是这国将领的,先任他为将(到卒年、能力寻常),再宣战点他挂帅(单子里两条)
+ */
+function LeadPage({
+  civ,
+  id,
+  y,
+  yv,
+  target,
+  regions,
+  chars,
+  step,
+  onRetarget,
+  onBack,
+  onDone,
+}: {
+  civ: Civ;
+  id: number;
+  y: number;
+  yv: number;
+  target: number;
+  regions: number;
+  chars: readonly AuthorCharacter[];
+  step: boolean;
+  onRetarget: () => void;
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const era = useEra();
+  const pending = usePending();
+  const ivs = useEdits().interventions;
+  const [pick, setPick] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const P = civ.polities[id];
+  const Q = civ.polities[target];
+  const A = nameAt(P, y);
+  // 那年已是这国将领的(推过生效了的、单子里更早下的)
+  const general = useMemo(() => {
+    const out = new Set<number>();
+    for (const c of chars) if (holdsPost(civ, characterPosts(civ, c.id, pending, ivs, step, era), 'general', id, y, yv)) out.add(c.id);
+    return out;
+  }, [civ, chars, pending, ivs, step, era, id, y, yv]);
+  const key = polityKey(civ, id);
+  const go = () => {
+    const run = { self: id, target: { kind: 'polity' as const, id: target }, shown: A };
+    const c = pick !== null ? (chars.find((x) => x.id === pick) ?? null) : null;
+    const { appoint, declare: d } = leadOrders(key, polityKey(civ, target), y, c, !!c && general.has(c.id));
+    let appointed = false;
+    if (c && appoint) {
+      // 同一时刻只有一个身份:那年他掌着别国的权就拦下
+      const ov = overlapWhy(civ, characterPosts(civ, c.id, pending, ivs, step, era), 'general', id, y, yv, heOrShe(c), era);
+      if (ov) return setMsg(ov);
+      const err = queueIntervention(appoint, postLine(c.name, A, appoint, era), { self: id, target: null, shown: A });
+      if (err) return setMsg(err);
+      appointed = true;
+    }
+    const err = queueIntervention(d, interventionText(civ, d, -1, A), run);
+    if (err) {
+      // 宣战那条加不上:任将那条也拿掉
+      const last = getPending().at(-1);
+      if (appointed && last?.kind === 'iv' && last.v.kind === 'appoint') removePending(last.id);
+      return setMsg(err);
+    }
+    onDone();
+  };
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    onBack();
+  };
+  const radio = (on: boolean) => <i className={`as-radio${on ? ' on' : ''}`} />;
+  return (
+    <>
+      <div className="cp-body cr-form" data-lead="page" onKeyDown={onKey}>
+        <div className="cp-form">
+          <span className="cp-form-title">宣战</span>
+          <div className="oc-pick cr-pick" data-lead="target">
+            <span className="oc-pick-name">
+              <i className="cr-dot" style={{ background: `rgb(${Q.color.join(',')})` }} />
+              {nameAt(Q, y)}
+              {regions > 0 && <em>{regions} 州</em>}
+            </span>
+            <span className="oc-pick-acts">
+              <button className="cp-step" data-act="lead-retarget" onClick={onRetarget}>
+                换一国
+              </button>
+            </span>
+          </div>
+          <span className="cp-note">
+            {yearAt(y, era)}，{A}向{nameAt(Q, y)}宣战。
+          </span>
+        </div>
+        <section className="cp-sec" data-lead="who">
+          <div className="cp-sec-head cp-events-head">
+            <span>谁挂帅</span>
+            <span className="cp-num-note">作者的人物只列那年在世的</span>
+          </div>
+          <div className="oc-rows oc-people">
+            <button className="oc-person cr-polity" role="radio" aria-checked={pick === null} data-lead-pick="sim" onClick={() => (setPick(null), setMsg(null))}>
+              {radio(pick === null)}
+              <span className="oc-txt">
+                <span>照推演派</span>
+                <span>推演里的将领（看谁闲着；好战的君主有时亲征）</span>
+              </span>
+            </button>
+            {chars.map((c) => (
+              <button key={c.id} className="oc-person cr-polity" role="radio" aria-checked={pick === c.id} data-lead-pick={c.id} onClick={() => (setPick(c.id), setMsg(null))}>
+                {radio(pick === c.id)}
+                <CharAvatar c={c} size={34} />
+                <span className="oc-txt">
+                  <span>{c.name}</span>
+                  <span>
+                    {Math.floor(y - c.born)} 岁{c.role ? `，${c.role}` : ''}；{general.has(c.id) ? '已是将领' : '还不是将领'}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+        <div className="cp-note cr-pick-note">选了作者的人物：这一仗他挂帅，推演原来派的将领写成副将。他还不是这国将领的，同时任他为将（到卒年，能力寻常），单子里多一条。</div>
+        {msg && <div className="cp-msg">{msg}</div>}
+      </div>
+      <div className="cp-foot mk-foot">
+        <button className="cp-btn" data-act="lead-back" onClick={onBack}>
+          返回
+        </button>
+        <button className="cp-btn primary" data-act="lead-go" onClick={go}>
+          {step ? '加入' : pick !== null && !general.has(pick) ? '加入待推演（2 条）' : '加入待推演'}
+        </button>
       </div>
     </>
   );

@@ -37,6 +37,7 @@ import { capitalAt, polityAlive } from './civ/growth';
 import { logIndexAfter, ownersAt } from './civ/timeline';
 import { polityTies, relationsAt } from './civ/diplomacy';
 import { nearestCell } from './civ/frontier';
+import { IV_NO_WAY } from './civ/trekRoute';
 import {
   END_YEAR_DEFAULT,
   OUTLINE_ALLY_YEARS,
@@ -45,8 +46,11 @@ import {
   POLICY_KNOB_MAX,
   PLOT_CHECK_ONLY,
   PLOT_SPAN_DEFAULT,
+  TREK_DIR_NAMES,
   cleanIntervention,
   cleanOutline,
+  commandAt,
+  commandYear,
   keyCells,
   ownInterventions,
   plotNeedsRedo,
@@ -56,6 +60,7 @@ import {
   regionOfKey,
   resolveKey,
   resolvePersonKey,
+  ticksAt,
   type AuthorMark,
   type GuideLook,
   type Intervention,
@@ -300,6 +305,8 @@ interface Refs {
   city: number;
   /** 一片地方的几州(占据、饥荒选的几州) */
   area: number[];
+  /** 大迁徙的那一族(民族编号) */
+  folk: number;
 }
 
 function refsOf(ctx: Ctx, civ: Civ, p: Plot, done: ReadonlyMap<number, PlotReview>): Refs {
@@ -323,6 +330,7 @@ function refsOf(ctx: Ctx, civ: Civ, p: Plot, done: ReadonlyMap<number, PlotRevie
     return r >= 0 && r < civ.regions.count ? r : -1;
   };
   const cityRef = p.city ? resolveKey(civ, p.city) : null;
+  const folkRef = p.folk ? resolveKey(civ, p.folk) : null;
   let area: number[] = [];
   if (p.regions) area = p.regions.map(reg).filter((r) => r >= 0);
   else if (p.mark !== undefined) {
@@ -343,6 +351,7 @@ function refsOf(ctx: Ctx, civ: Civ, p: Plot, done: ReadonlyMap<number, PlotRevie
     region: reg(p.region),
     city: cityRef?.kind === 'settlement' ? cityRef.id : -1,
     area: [...new Set(area)],
+    folk: folkRef?.kind === 'culture' ? folkRef.id : -1,
   };
 }
 
@@ -444,9 +453,10 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
       if (a < 0 || b < 0) return null;
       const e = findAnnal(civ, lo, hi, (e) => e.kind === 'alliance' && pair(e));
       if (e) return yearFound(e);
-      // 那几年里有一阵两国在盟(早先结的、作者下令的;窗口里散了的也算):查窗口头尾两年和作者下令结盟的那几年
+      // 那几年里有一阵两国在盟(早先结的、作者下令的;窗口里散了的也算):查窗口头尾两年和作者下令结盟的那几刻
+      // (逐年推演年中下令的,查下令的那一格:那一年年初还没结盟)
       const at = [lo, hi];
-      for (const v of civ.interventions ?? []) if (v.kind === 'ally' && v.from > lo && v.from <= hi) at.push(Math.ceil(v.from));
+      for (const v of civ.interventions ?? []) if (v.kind === 'ally' && commandAt(v) > ticksAt(lo) && commandAt(v) < ticksAt(hi + 1)) at.push(commandYear(v));
       for (const y of at) {
         if (!polityAlive(civ.polities[a], y) || !polityAlive(civ.polities[b], y)) continue;
         const x = polityTies(civ, a, y).allies.find((t) => t.id === b);
@@ -476,6 +486,12 @@ function happened(ctx: Ctx, civ: Civ, p: Plot, R: Refs, lo: number, hi: number):
     }
     case 'disaster':
       return yearFound(findAnnal(civ, lo, hi, (e) => disasterHit(civ, p, R, e)));
+    case 'trek': {
+      // 这一族那几年分出一支动身(自己走的、作者下令的都记一条 trek n = 0);给了方位的,整条路线朝那个方位
+      if (R.folk < 0) return null;
+      const dir = p.dir ? TREK_DIR_NAMES[p.dir] : null;
+      return yearFound(findAnnal(civ, lo, hi, (e) => e.kind === 'trek' && e.n === 0 && e.a === R.folk && (!dir || civ.migrations?.[e.war]?.dir === dir)));
+    }
     case 'submit': {
       if (a < 0 || b < 0) return null;
       const e = findAnnal(civ, lo, hi, (e) => e.kind === 'submit' && e.a === a && e.b === b);
@@ -607,6 +623,17 @@ function planFix(ctx: Ctx, S: Civ, C: Civ, p: Plot, R: Refs, Y: number): Interve
       const base = { kind: 'crown' as const, a: A, char: c.id, from: Y, born: c.born };
       return [c.died !== undefined ? { ...base, until: c.died, leanings: characterLeanings(c) } : { ...base, leanings: characterLeanings(c) }];
     }
+    case 'trek': {
+      // 那一族:这段历史里没有 / 那年还没出现(分化出来的晚)/ 已经不在了(那一刻一州也没有)
+      if (R.folk < 0) {
+        const later = p.folk ? resolveKey(C, p.folk) : null;
+        return later?.kind === 'culture' && C.cultures[later.id].born > Y ? { reason: 'notYet' } : { reason: 'missing' };
+      }
+      const F = S.cultures[R.folk];
+      if (F.born > Y) return { reason: 'notYet' };
+      if ((F.ended !== undefined && F.ended <= Y) || !S.culture.includes(R.folk)) return { reason: 'gone' };
+      return [{ kind: 'trek', folk: p.folk!, from: Y, ...(p.dir ? { dir: p.dir } : {}) }];
+    }
     case 'disaster': {
       const level = p.level ?? 2;
       if (p.type === 'pandemic') {
@@ -630,8 +657,15 @@ function planFix(ctx: Ctx, S: Civ, C: Civ, p: Plot, R: Refs, Y: number): Interve
   }
 }
 
-/** 硬改了没成:原因(宣战看两国那一刻是不是在打仗;别的说不清) */
-function whyNot(civ: Civ, p: Plot, R: Refs, Y: number): Fail {
+/**
+ * 硬改了没成:原因(宣战看两国那一刻是不是在打仗;大迁徙看硬改后那条令的史事:走不到 / 那一族已不在;别的说不清)。
+ * after = 带着硬改推出来的历史,i = 硬改的那条干预是第几条
+ */
+function whyNot(civ: Civ, p: Plot, R: Refs, Y: number, after: Civ, i: number): Fail {
+  if (p.kind === 'trek') {
+    const e = after.annals.find((x) => x.kind === 'intervene' && x.war === i);
+    return { reason: e?.b === IV_NO_WAY ? 'noWay' : e?.b === -3 ? 'gone' : 'noEffect' };
+  }
   if (p.kind === 'war' && R.a >= 0 && R.b >= 0) {
     const open = new Set<number>();
     for (const e of civ.annals) {
@@ -700,7 +734,7 @@ async function step(ctx: Ctx, prev: State, pick: Pick): Promise<State | null> {
   const got2 = happened(ctx, C2, loose, refsOf(ctx, C2, p, st.done), lo, hi);
   if (!got2) {
     // 没成:干预不留(试推出来的快照用不上了)
-    return fail(whyNot(C, p, R, Y), Y);
+    return fail(whyNot(C, p, R, Y, C2, st.list.length), Y);
   }
   st.list = tried.list;
   return put({ id: p.id, status: 'forced', year: got2.year, ...polity(C2, got2), ...(p.kind === 'death' && p.how ? { asDeath: true as const } : {}) });
@@ -891,10 +925,13 @@ function guideList(S: Civ, list: readonly Intervention[], who: readonly GuideOne
     const v: Record<string, unknown> = { kind: 'policy', a: g.a, from: G, war: knob(base?.war, g.war), expand: knob(base?.expand, g.expand), coast: base?.coast, peace: knob(base?.peace, g.peace), foes, friends, focus: base?.focus, power: g.power, unrest: g.unrest, look: g.look, ...tag };
     const c = cleanIntervention(v);
     if (c) add.push(c);
-    if (moved.has(g.a) || list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && x.from > G && x.from <= E)) continue;
-    const { plot: _p, guide: _g, ...back } = base ?? { kind: 'policy' as const, a: g.a, from: E };
+    // 作者的方针按生效那一刻比(逐年推演年中下的,第 E 年第几格才生效:第 E 年年初照样要换回)
+    if (moved.has(g.a) || list.some((x) => x.kind === 'policy' && x.a === g.a && !x.guide && commandAt(x) > ticksAt(G) && commandAt(x) <= ticksAt(E))) continue;
+    // 换回的那条在第 E 年年初:原来那条是年中下的,它的第几格不抄
+    const { plot: _p, guide: _g, fromTick: _t, ...back } = base ?? { kind: 'policy' as const, a: g.a, from: E };
     void _p;
     void _g;
+    void _t;
     const r = cleanIntervention({ ...back, from: E, ...tag });
     if (r) add.push(r);
   }

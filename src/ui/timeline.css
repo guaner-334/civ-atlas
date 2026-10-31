@@ -3,7 +3,7 @@
  *
  * 颜色一律用界面主题变量(浅 / 深两套,theme.css 定义):
  *   --ink --ink-2 --panel --panel-solid --line --line-strong --btn --link --accent --accent-hover --void
- *   --ev-war --ev-dynasty --ev-found --ev-empire --ev-assim --ev-faith --ev-era --ev-calamity --halo
+ *   --ev-war --ev-dynasty --ev-found --ev-empire --ev-assim --ev-faith --ev-era --ev-thought --ev-calamity --halo
  * 没定义时用浅色主题的值(下面 var() 的第二个参数)。
  * .tb-compat:主题还没加载、页面 :root 里的 --panel / --line / --accent 可能是别的样式表定的深色值时(组件自己查,见 CivTimeline.tsx 的
  * useThemeCompat),在组件里把这三个换成浅色主题的值。
@@ -50,6 +50,9 @@
 }
 [data-ev='era'] {
   --c: var(--ev-era, #a2652d);
+}
+[data-ev='thought'] {
+  --c: var(--ev-thought, #b02a6a);
 }
 [data-ev='calamity'] {
   --c: var(--ev-calamity, #66707c);
@@ -635,6 +638,22 @@
 }
 .tb-life-lab.gone {
   color: var(--ink-2, #6e6e73);
+}
+/* 选中的国家改制改了国号的那几年:一颗蓝点(和改朝、继位同色)、宽屏写"2794 改称共和国" */
+.tb-life-rename {
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--ev-dynasty, #3a6fd8);
+  box-shadow:
+    0 0 0 2px var(--surface, #fff),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.tb-life-lab.rename {
+  color: var(--ev-dynasty, #3a6fd8);
 }
 .tb-order {
   top: 4px;

@@ -25,8 +25,8 @@ import {
 } from '../src/ui/mapLayers';
 import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesLead, namesOn, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
 import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
-import { closeOverview, getOverview, openOverview } from '../src/ui/overviewStore';
-import { civShowFromQuery, clearSelection, getChronicle, getSelection, namesUrl, setChronicle, setSelection } from '../src/ui/civView';
+import { closeOverview, dismissOverview, getOverview, getOverviewHold, openOverview, setOverviewTab } from '../src/ui/overviewStore';
+import { civShowFromQuery, clearSelection, getChronicle, getCivTime, getSelection, namesUrl, pausePlayback, setChronicle, setCivTime, setSelection } from '../src/ui/civView';
 import { collapseSide, expandSide, getSide, setSideHold } from '../src/ui/sideStore';
 import { FLY_MS, animProgress, easeOutCubic, flatFly, sideRoom } from '../src/ui/flyTo';
 
@@ -46,8 +46,8 @@ describe('图层换算', () => {
   });
   it('时代、物产是第二行小字按钮:时代留国界(开着国家),物产不叠国家;网址 layer=era / layer=resources', () => {
     expect(MAP_LAYERS.filter((l) => l.dev).map((l) => l.id)).toEqual(['era', 'resources']);
-    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false, resources: false });
-    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, control: false, resources: true });
+    expect(layerShow(layerDef('era'))).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false, ideology: false, resources: false });
+    expect(layerShow(layerDef('resources'))).toEqual({ polities: false, cultures: false, faiths: false, eras: false, control: false, ideology: false, resources: true });
     expect(layerOf('fantasy', 'biomes', { polities: true, cultures: false, eras: true })).toBe('era');
     expect(layerFromUrl(new URLSearchParams('seed=7&layer=era'))).toBe('era');
     expect(layerFromUrl(new URLSearchParams('seed=7&layer=resources'))).toBe('resources');
@@ -82,10 +82,13 @@ describe('底图 × 填色', () => {
     expect(layerParts('resources')).toEqual({ base: 'fantasy', fill: 'none', resources: true });
   });
   it('填色和文明层开关互换:信仰留着国界;任何底图都能配任何填色', () => {
-    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras', 'control'] as const) expect(fillOf(fillShow(f))).toBe(f);
-    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false, control: false });
-    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false });
-    expect(fillShow('control')).toEqual({ polities: true, cultures: false, faiths: false, eras: false, control: true });
+    for (const f of ['none', 'polities', 'cultures', 'faiths', 'eras', 'control', 'ideology'] as const) expect(fillOf(fillShow(f))).toBe(f);
+    expect(fillShow('faiths')).toEqual({ polities: true, cultures: false, faiths: true, eras: false, control: false, ideology: false });
+    expect(fillShow('eras')).toEqual({ polities: true, cultures: false, faiths: false, eras: true, control: false, ideology: false });
+    expect(fillShow('control')).toEqual({ polities: true, cultures: false, faiths: false, eras: false, control: true, ideology: false });
+    expect(fillShow('ideology')).toEqual({ polities: true, cultures: false, faiths: false, eras: false, control: false, ideology: true });
+    // 思潮看哪一说不跟着填色换
+    expect('thought' in fillShow('ideology')).toBe(false);
     // 物产是叠加开关,换填色不碰它
     expect('resources' in fillShow('none')).toBe(false);
     for (const b of ['fantasy', 'satellite', 'geo', 'blank', 'elevation'] as const) {
@@ -125,6 +128,7 @@ describe('底图 × 填色', () => {
     expect(mapViewFromUrl(q('layer=resources'))).toEqual({ base: 'fantasy', fill: 'none', resources: true });
     expect(mapViewFromUrl(q('fill=eras'))?.fill).toBe('eras');
     expect(mapViewFromUrl(q('fill=control'))?.fill).toBe('control');
+    expect(mapViewFromUrl(q('fill=ideology'))?.fill).toBe('ideology');
     expect(mapViewFromUrl(q(''))).toEqual({ base: 'fantasy', fill: 'polities' });
     expect(mapViewFromUrl(q('style=realistic'))).toBeNull();
     expect(mapViewFromUrl(q('civ=cultures'))).toBeNull();
@@ -138,6 +142,7 @@ describe('底图 × 填色', () => {
     expect(w('sat=classic', { base: 'elevation', fill: 'faiths', sat: 'classic' })).toBe('map=elevation&fill=faiths');
     expect(w('civ=eras,resources', { base: 'fantasy', fill: 'eras', sat: 'detail' })).toBe('civ=resources&fill=eras');
     expect(w('civ=control,resources', { base: 'fantasy', fill: 'control', sat: 'detail' })).toBe('civ=resources&fill=control');
+    expect(w('civ=ideology,resources&ideo=1', { base: 'fantasy', fill: 'ideology', sat: 'detail' })).toBe('civ=resources&ideo=1&fill=ideology');
     for (const v of [
       { base: 'satellite', fill: 'cultures', sat: 'classic' },
       { base: 'geo', fill: 'none', sat: 'detail' },
@@ -155,8 +160,9 @@ describe('地图上写国名(每种填色各记各的)', () => {
   const q = (s: string) => new URLSearchParams(s);
   const at = (fill: FillId, names?: CivShow['names']): CivShow => ({ ...CIV_SHOW_DEFAULT, ...fillShow(fill), names });
   it('没勾过按填色的默认:国家、信仰、时代、管辖写,民族、不填不写;国家填色上是主角,别的是配角', () => {
-    expect((['polities', 'cultures', 'faiths', 'eras', 'control', 'none'] as const).map((f) => polityNamesOn(at(f)))).toEqual([true, false, true, true, true, false]);
+    expect((['polities', 'cultures', 'faiths', 'eras', 'control', 'ideology', 'none'] as const).map((f) => polityNamesOn(at(f)))).toEqual([true, false, true, true, true, true, false]);
     expect(polityNamesLead(at('control'))).toBe(false);
+    expect(polityNamesLead(at('ideology'))).toBe(false);
     expect(polityNamesLead(at('polities'))).toBe(true);
     expect(polityNamesLead(at('faiths'))).toBe(false);
     expect(polityNamesLead(at('eras'))).toBe(false);
@@ -353,6 +359,65 @@ describe('世界概览', () => {
     expect(getChronicle().polity).toBe(2);
     closeOverview();
     expect(getChronicle().polity).toBe(null);
+  });
+
+  it('在放时打开概览就停;直接关掉从停下那一年照原来的快慢接着放;点进别处、开着时时间被动过就停着', () => {
+    try {
+      // 4× 在放时打开:停在那一年,标「已暂停」;直接关掉:接着放,还是 4×
+      setCivTime({ year: 1200, playing: true, scrubbing: false, story: false, speed: 4 });
+      openOverview('countries');
+      expect(getCivTime()).toMatchObject({ year: 1200, playing: false, speed: 4 });
+      expect(getOverviewHold()).toBe(true);
+      setOverviewTab('chronicle'); // 概览里换页不算关掉
+      expect(getOverviewHold()).toBe(true);
+      dismissOverview();
+      expect(getOverview().open).toBe(false);
+      expect(getCivTime()).toMatchObject({ year: 1200, playing: true, speed: 4, story: false });
+      expect(getOverviewHold()).toBe(false);
+      // 停着时打开:不标,关掉还停着
+      pausePlayback();
+      openOverview();
+      expect(getOverviewHold()).toBe(false);
+      dismissOverview();
+      expect(getCivTime().playing).toBe(false);
+      // 从概览里点进别处(点一国、一个人、一件事都走 closeOverview):停着
+      setCivTime({ playing: true });
+      openOverview('countries');
+      expect(getCivTime().playing).toBe(false);
+      closeOverview();
+      expect(getCivTime().playing).toBe(false);
+      expect(getOverviewHold()).toBe(false);
+      // 开着时别处动了时间(跳了年份 / 自己又放起来):不再是概览停的,关掉照现在的样子
+      setCivTime({ year: 1300, playing: true });
+      openOverview();
+      setCivTime({ year: 1500, playing: false });
+      expect(getOverviewHold()).toBe(false);
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 1500, playing: false });
+      setCivTime({ year: 1300, playing: true });
+      openOverview();
+      setCivTime({ year: 900, playing: true, speed: 1 });
+      expect(getOverviewHold()).toBe(false);
+      pausePlayback();
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 900, playing: false });
+      // 逐年推演停下后把年份换成播放头真正停的那一刻(往后不到一年):还算概览停的,关掉从那一刻接着放
+      setCivTime({ year: 1700, playing: true });
+      openOverview();
+      setCivTime({ year: 1700.4 });
+      expect(getOverviewHold()).toBe(true);
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 1700.4, playing: true });
+      // "回放世界形成"接着放文明的那一段:停下、关掉接着放那一段
+      setCivTime({ year: 40, playing: true, story: true });
+      openOverview('chronicle');
+      expect(getCivTime()).toMatchObject({ year: 40, playing: false, story: false });
+      dismissOverview();
+      expect(getCivTime()).toMatchObject({ year: 40, playing: true, story: true });
+    } finally {
+      closeOverview();
+      setCivTime({ year: null, playing: false, scrubbing: false, story: false, speed: 1 });
+    }
   });
 });
 

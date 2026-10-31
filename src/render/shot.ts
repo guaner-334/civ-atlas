@@ -23,6 +23,8 @@ import { detailCache, drawCivDetail, drawSelectionDetail, releaseDetailCache, ty
 import { civLabelChars, civLabelItems, civMapLayer, labelViewExtras } from './civ/labels';
 import { drawSettlementMarks } from './civ/settlements';
 import { drawWarfare, warsShown } from './civ/warfare';
+import { drawTreks, treksShown } from './civ/migrations';
+import { drawTradeLines, drawTradeNames, tradeShown } from './civ/trade';
 import { drawHolyDot, holyCities } from './civ/faith';
 import { drawResourceLayer, type ResourceLook } from './civ/resources';
 import { drawPlacedLabels, placeMap, toCanvas, type LabelItem, type LabelView, type Placement } from './labels/draw';
@@ -31,6 +33,7 @@ import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type
 import { drawGraticule, labelProjection, projector, reprojectImage, type MapProj, type ProjectionId } from './projection';
 import { nearX, wrapOf } from './common';
 import type { SurfaceLook } from './surface';
+import type { Era } from '../gen/era';
 
 type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
 
@@ -62,6 +65,8 @@ export interface ShotScene {
   markChars?: string;
   /** 物产图层:只看哪一样、画不画还没发现的(不给 = 全部显示) */
   res?: ResourceLook;
+  /** 纪年(大迁徙路线旁的年份照它写;不给 = 第几年) */
+  era?: Era;
 }
 
 /**
@@ -72,7 +77,25 @@ export interface ShotScene {
  */
 export type ShotArea =
   | { kind: 'whole'; dpr: number }
-  | { kind: 'region'; x0: number; y0: number; x1: number; y1: number; k: number; mapCss: number; mp?: MapProj | null };
+  | ({ kind: 'region'; x0: number; y0: number; x1: number; y1: number; k: number; mapCss: number; mp?: MapProj | null } & RegionLook);
+
+/**
+ * 一块的另几样画法(地区图用;回放视频、故事长图都不给):
+ *   textK —— 字和符号按放大几倍的样子长(不给 = k;见 labels/draw.ts 的 LabelView.textK)
+ *   civK —— 文明底图的线(国界、州界、道路)按放大几倍的粗细画(不给 = k)
+ *   civAlpha —— 文明底图(色块连同线)多浓(0–1,不给 = 1)
+ *   noTerrain —— 不画地形(画到的画布上原来有什么留着;地形另外先画好)
+ *   noInk —— 手绘风的色块不给地形符号让位(地形另外画、上面没有山符号时)
+ *   extra —— 另加的地名(和别的地名一起排)
+ */
+export interface RegionLook {
+  textK?: number;
+  civK?: number;
+  civAlpha?: number;
+  noTerrain?: boolean;
+  noInk?: boolean;
+  extra?: readonly LabelItem[];
+}
 
 export interface ShotTiming {
   civ: number;
@@ -97,6 +120,8 @@ export class MapShot {
   /** 地理名(不随年份变,只算一次) */
   private geoItems: LabelItem[] | null = null;
   private fontsOk = false;
+  /** 最近一次排好的字和符号(一块;地区图的图例按它列这一页上有哪几种城镇符号) */
+  placed: Placement | null = null;
 
   constructor(scene: ShotScene, area: ShotArea, w: number, h: number) {
     this.scene = scene;
@@ -120,7 +145,7 @@ export class MapShot {
 
   private params(year: Year, civ: Civ): ExportMapParams {
     const s = this.scene;
-    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, look: s.look, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res, legend: false };
+    return { world: s.world, raster: s.raster, civ, style: s.style, layer: s.layer, look: s.look, year, show: s.show, center: s.center, projection: s.projection, graticule: s.graticule, res: s.res, legend: false, era: s.era };
   }
 
   /** 画布像素 / 世界单位、字放大几倍、画布左上角的世界坐标(一块) */
@@ -205,19 +230,36 @@ export class MapShot {
 
   /**
    * 画 year 那一年(先清空画布 ctx 的 [0, w] × [0, h])。
-   * fast:国名每隔几年才重新拟合、小城不写名字(和屏幕上回放时一样;视频每一帧都换年份,国名不会一直抖)
+   * fast:国名每隔几年才重新拟合、小城不写名字(和屏幕上回放时一样;视频每一帧都换年份,国名不会一直抖)。
+   * only:'civ' = 只画地形和文明底图(不排字);'labels' = 只排字(地区图:换了另加的地名只重排字)
    */
-  async draw(ctx: CanvasRenderingContext2D, year: Year, opt: { fast?: boolean; sel?: number } = {}): Promise<ShotTiming> {
+  async draw(ctx: CanvasRenderingContext2D, year: Year, opt: { fast?: boolean; sel?: number; only?: 'civ' | 'labels' } = {}): Promise<ShotTiming> {
     const timing: ShotTiming = { civ: 0, labels: 0 };
-    const terrain = this.terrainCanvas();
-    ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(terrain, 0, 0, this.w, this.h);
-    ctx.restore();
     const ok = this.ok;
+    if (opt.only === 'labels') {
+      // 只排字(地区图:地形、文明底图另外叠,换了另加的地名只重排字)
+      const t1 = performance.now();
+      if (ok && this.area.kind === 'region') {
+        await this.prepare();
+        this.regionLabels(ctx, year, !!opt.fast);
+      }
+      timing.labels = performance.now() - t1;
+      return timing;
+    }
+    if (!(this.area as RegionLook).noTerrain) {
+      const terrain = this.terrainCanvas();
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(terrain, 0, 0, this.w, this.h);
+      ctx.restore();
+    }
     const t0 = performance.now();
     if (ok) this.drawCiv(ctx, year, opt.sel);
+    if (opt.only === 'civ') {
+      timing.civ = performance.now() - t0;
+      return timing;
+    }
     if (this.decor) {
       ctx.save();
       ctx.imageSmoothingEnabled = true;
@@ -258,9 +300,13 @@ export class MapShot {
     const params: CivDrawParams = { world, raster, civ: geo, style, year, show };
     // 一个工作格 ≈ 一个 CSS 像素(和屏幕上停着时一样细)
     const step = Math.max(1, Math.round(v.dpr));
-    const view = { cw: this.w, ch: this.h, s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, v.k), mp: v.mp, dpr: v.dpr };
+    const look = this.area as RegionLook;
+    const view = { cw: this.w, ch: this.h, s: v.s, ox: v.ox, oy: v.oy, k: Math.max(1, look.civK ?? v.k), mp: v.mp, dpr: v.dpr, noInk: look.noInk };
     drawCivDetail(ctx2d(c), params, view, step, this.cache);
+    ctx.save();
+    ctx.globalAlpha = look.civAlpha ?? 1;
     ctx.drawImage(c, 0, 0);
+    ctx.restore();
     if (sel === undefined) return;
     // 选中一国:罩染 + 描边,和地图上选中一国一样;线总用红色(手绘画风选中时的颜色),长图里写"红线以内"
     const sc = (this.selC ??= makeCanvas(this.w, this.h));
@@ -289,9 +335,9 @@ export class MapShot {
     const params: CivDrawParams = { world, raster, civ, style, year, show };
     this.geoItems ??= civLabelItems({ ...params, year: civ.endYear });
     const layer = civMapLayer(params, { fast, proj: v.mp });
-    const items = this.geoItems.concat(layer.items);
+    const items = a.extra?.length ? this.geoItems.concat(layer.items, a.extra) : this.geoItems.concat(layer.items);
     const extras = labelViewExtras({ ...params, year: civ.endYear });
-    const lv: LabelView = { ...extras, scale: v.s, ox: v.ox, oy: v.oy, dpr: v.dpr, k: Math.max(1, v.k), mapCss: a.mapCss, canvasW: this.w, canvasH: this.h, reserved: [] };
+    const lv: LabelView = { ...extras, scale: v.s, ox: v.ox, oy: v.oy, dpr: v.dpr, k: Math.max(1, v.k), textK: a.textK, mapCss: a.mapCss, canvasW: this.w, canvasH: this.h, reserved: [] };
     if (v.mp) {
       lv.proj = labelProjection(v.mp);
       lv.wrap = 0;
@@ -301,9 +347,14 @@ export class MapShot {
       lv.frameLeft = (a.x0 + a.x1) / 2 - world.width / 2;
     }
     const placed: Placement = placeMap(items, layer.marks, lv);
+    this.placed = placed;
     if (warsShown(params)) drawWarfare(ctx, params, lv, v.mp ? projector(v.mp) : null);
+    const trade = tradeShown(params);
+    if (trade) drawTradeLines(ctx, params, lv, v.mp ? projector(v.mp) : null);
+    if (treksShown(params)) drawTreks(ctx, params, lv, v.mp ? projector(v.mp) : null, { placed, era: this.scene.era });
     drawSettlementMarks(ctx, placed.marks, style);
     drawPlacedLabels(ctx, placed.labels, lv);
+    if (trade) drawTradeNames(ctx, params, lv, v.mp ? projector(v.mp) : null, placed);
     if (show.faiths) {
       const cx = (this.w / 2 - lv.ox) / lv.scale;
       for (const hc of holyCities(geo, year, null)) {
@@ -339,7 +390,7 @@ export class MapShot {
       h: this.h / d,
       k: a.k,
       mapCss: a.mapCss,
-      textK: lv.k,
+      textK: lv.textK ?? lv.k,
       cut: mp ? (0.4 * world.width * v.s) / d : 0,
     };
     ctx.save();

@@ -4,11 +4,13 @@
  * - 选目标(干预页点了结盟 / 宣战 / 迁都,州的"划给…"):地图压暗(半透明层,不改渲染),只有可选的对象浮出名牌 ——
  *   颜色块 + 国名(宋体)+ 小字"相邻 / 本国";迁都时是本国城市的名牌。鼠标移到可选目标上(地图上或名牌上)名牌反色。
  *   点名牌或地图上的目标 = 下令(PolityPick.accept)。顶部提示条"选择与某国结盟的国家 · N 年起生效 · 取消 · Esc"。
+ *   选州时给了可选的州(大迁徙往哪去):那些州浮出州名牌(颜色块是那州的主人,摆在州里的城上,城大的先摆、挤不下的藏起来);没给的选州不浮名牌。
  * - 下了令、正在推演:地图还压着(这期间不接受点击),只留本国和对象的名牌;顶部提示条"正在重新推演 X–3000 年"(推到这个世界的结束年份)带进度。
  *   推完:面板留着、回到信息页;选对象时缩回了整张图的,地图飞回这个国家(App 从生效年份接着放,提示"…,已从 X 年起重新推演"带撤销)。
  * - 平时选中国家(或这国的人物):国都画一个直径 24 的主色圆环,旁边写"竹影城（国都）" —— 默认写在圆环下面,压着地图上的字(国名、城名、地名)
  *   就换到上面 / 右边 / 左边……挑一处不压字的(地图停稳了再挑,拖动、飞行时跟着圆环走)。
- * - 天灾页的预览(地图上涂出受灾的州,civView 的一直亮着的高亮):那一片旁边一块白底橙字的小牌子"翼门之野一带 8 州"。
+ * - 天灾页的预览(地图上涂出受灾的州,civView 的一直亮着的高亮):那一片旁边一块白底橙字的小牌子"翼门之野一带 8 州"(大迁徙页"从这里出发"),
+ *   会被右边那排按钮挡住时躲到按钮左边或地块上方。
  * - 从大纲点一条过来看:那件事在哪立一块小牌子(OutlineMap.tsx 的 PlotPin)。
  * - 名牌、圆环每帧按"世界坐标 → 屏幕坐标"重新摆(平移、缩放、左右无限拖动、弯边投影、地球仪都对;转到球背面的不显示);
  *   名牌互相压着时,小国的先让开或藏起来。
@@ -16,7 +18,8 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { capitalAt, polityAlive } from '../gen/civ/growth';
+import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
+import { regionLabel } from '../gen/civ/display';
 import { ownersAt } from '../gen/civ/timeline';
 import { getSelection, useCivHighlight, useCivTime, useSelection } from './civView';
 import { finishPick, getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
@@ -32,6 +35,7 @@ import { spaced, yearSpanAt } from '../gen/era';
 import { currentEra } from './editsStore';
 import { PlotPin } from './OutlineMap';
 import { ZonePlates } from './TreatyPage';
+import { tagBlocks, tagSpot } from './tagSpot';
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(',')})`;
 
@@ -51,7 +55,7 @@ export interface TargetLayerProps {
 
 interface Plate {
   key: string;
-  kind: 'polity' | 'settlement';
+  kind: 'polity' | 'settlement' | 'region';
   id: number;
   text: string;
   note: string;
@@ -176,6 +180,25 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
       const owner = civ.polities[pick?.self ?? run?.self ?? -1];
       out.push({ key: `s${sid}`, kind: 'settlement', id: sid, text: s.name || '某城', note, color: owner ? rgb(owner.color) : 'var(--ink-2)', self, rank, x: world.mesh.x[s.cell], y: world.mesh.y[s.cell] });
     };
+    if (pick?.target === 'region') {
+      // 可选的州(大迁徙往哪去):州名牌摆在州里的城上,颜色块是那州那年的主人(部落地带灰);城大的先摆(挤不下的藏起来)
+      if (!pick.eligible) return [];
+      const own = ownersAt(civ, year).polity;
+      const at = new Map<number, { cell: number; pop: number }>();
+      for (const s of civ.settlements) {
+        if (!pick.eligible.has(s.region) || s.founded > year || (s.ended !== undefined && s.ended <= year)) continue;
+        const pop = populationAt(s, year);
+        const cur = at.get(s.region);
+        if (!cur || pop > cur.pop) at.set(s.region, { cell: s.cell, pop });
+      }
+      for (const r of pick.eligible) {
+        const c = at.get(r);
+        const cell = c?.cell ?? civ.regions.seat[r];
+        const o = civ.polities[own[r]];
+        out.push({ key: `r${r}`, kind: 'region', id: r, text: regionLabel(civ, r), note: '', color: o ? rgb(o.color) : 'var(--ink-3)', self: false, rank: -(c?.pop ?? 0), x: world.mesh.x[cell], y: world.mesh.y[cell] });
+      }
+      return out.sort((a, b) => a.rank - b.rank || a.id - b.id);
+    }
     if (pick?.target === 'settlement') {
       const self = pick.self !== undefined ? civ.polities[pick.self] : undefined;
       if (self && polityAlive(self, year)) city(capitalAt(self, year), '国都', true, -1);
@@ -425,8 +448,8 @@ export function TargetLayer({ civ, world, toClient, resim, generating, labelAt }
 }
 
 /**
- * 天灾页的预览:受灾那一片旁边的小牌子("翼门之野一带 8 州"),摆在那个地块下面一点,每帧跟着地图走(转到球背面的不显示)。
- * blue = 圈亮是蓝色的(管辖填色下),字跟着变蓝
+ * 天灾页的预览:受灾那一片旁边的小牌子("翼门之野一带 8 州";大迁徙页是"从这里出发"),摆在那个地块下面一点,每帧跟着地图走(转到球背面的不显示);
+ * 会被右边那排按钮挡住时挪到按钮左边或翻到地块上方(见 tagSpot.ts)。blue = 圈亮是蓝色的(管辖填色下),字跟着变蓝
  */
 function MapTag({ text, x, y, blue, toClient }: { text: string; x: number; y: number; blue: boolean; toClient: MutableRefObject<WorldToClient | null> }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -437,7 +460,10 @@ function MapTag({ text, x, y, blue, toClient }: { text: string; x: number; y: nu
       const at = toClient.current?.(x, y) ?? null;
       if (el) {
         el.style.visibility = at ? '' : 'hidden';
-        if (at) el.style.transform = `translate(${Math.round(at[0] - el.offsetWidth / 2)}px, ${Math.round(at[1] + 16)}px)`;
+        if (at) {
+          const [l, t] = tagSpot(at[0], at[1], el.offsetWidth, el.offsetHeight, tagBlocks(), window.innerWidth, window.innerHeight);
+          el.style.transform = `translate(${Math.round(l)}px, ${Math.round(t)}px)`;
+        }
       }
       raf = requestAnimationFrame(tick);
     };

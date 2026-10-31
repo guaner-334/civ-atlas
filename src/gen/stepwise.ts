@@ -9,8 +9,8 @@
  * - 从这一年重新演绎(rewindStepwise):逐年推演中倒回以前的某一年,那一年和以后下过的干预不要了,从那里接着走;
  *   界面用的是 rewindBranch:原来那条留成一支(另开一支、切过去),不丢。
  * - 存回推演模式(stepwiseToNormal):"种子 + 到现在为止的干预串"变成一个普通世界的修改 —— 干预 = 作者的干预后面接上一路下过的命令
- *   (先后不变),推演年数 = 现在那一年。打开它(从第 0 年推到那一年)和逐年推演到"现在"一样
- *   (多出来的只是"现在"那一年第一刻的事:逐年推演停在那一刻之前),之后能照普通世界接着再推 N 年(worker 的 extend)。
+ *   (先后不变),推到"现在"那一刻(推演年数 = 那一年,停在年中的再带那一格)。打开它(从第 0 年推到那一刻)和逐年推演到"现在"一样
+ *   (多出来的只是"现在"那一格的事:逐年推演停在那一格之前),之后能照普通世界接着再推 N 年(worker 的 extend,停在 N 年以后的同一格)。
  *   只存当前这一支,另开的几支不带。
  * - 支线(格式见 edits.ts 文件头"支线"):从以前的某一年另开一支(forkBranch,只记一笔,不在用),切到某一支(switchBranch:
  *   那一支换成进度,原来的那一支留在列表里;之后照进度从第 0 年重推),改名(renameBranch)、删掉(deleteBranch,当前这一支不能删),
@@ -35,6 +35,7 @@ import {
   branchFromAt,
   branchPlay,
   commandAt,
+  commandYear,
   forkMoment,
   forkedAt,
   momentAt,
@@ -43,6 +44,7 @@ import {
   ticksAt,
   END_YEAR_MIN,
   cleanEndYear,
+  endFields,
   cleanIntervention,
   cleanBranchName,
   cleanBranchNote,
@@ -97,7 +99,7 @@ export function laterInterventions(edits: WorldEdits, year: number): { index: nu
 
 /**
  * 从推演模式的世界 edits 第 year 年开始逐年推演:新世界的修改(edits 不改)。另开的几支不带。
- * - 进度 play = { year: T, commands: [] }(T = stepwiseYear(year)),从第几年起 playFrom = T;推演年数(endYear)去掉(逐年推演推到哪由 play 定)
+ * - 进度 play = { year: T, commands: [] }(T = stepwiseYear(year)),从第几年起 playFrom = T;推演年数(endYear、endTick)去掉(逐年推演推到哪由 play 定)
  * - 作者的干预照带;drop = 不带的那几条(laterInterventions 的 index;T 年以前的不能去掉,给了也不管)
  * - 别的修改(改名、标记、人物、改旗、地形、草图、地形大事、纪年、推进设置……)照带
  * edits 已经在逐年推演:先照存回推演模式(stepwiseToNormal)把命令串并进干预,再从第 T 年开始
@@ -111,7 +113,7 @@ export function startStepwise(edits: WorldEdits, year: number, drop: readonly nu
     const v = cleanIntervention(x);
     return !v || v.from < T;
   }) as Intervention[];
-  const { play: _play, playFrom: _from, endYear: _end, branches: _branches, ...rest } = edits;
+  const { play: _play, playFrom: _from, endYear: _end, endTick: _tick, branches: _branches, ...rest } = edits;
   return { ...rest, interventions, play: { year: T, commands: [] }, ...(T > 0 ? { playFrom: T } : {}) };
 }
 
@@ -144,20 +146,22 @@ export function rewindStepwise(edits: WorldEdits, when: number | Moment): { edit
 
 /**
  * 存回推演模式:逐年推演中的世界 → 一个普通世界的修改(edits 不改)。干预 = 作者的干预后面接上命令串(playInterventions,先后不变),
- * 推演年数 = play.year(至少 END_YEAR_MIN:在第 0 年存回的推到第 1 年;停在年中的推到下一年年初,现在以前的事、下过的命令一件不丢);
+ * 推到进度那一刻:推演年数 = play.year,停在年中的推到那一年的那一格(endTick = play.tick,见 edits.ts 文件头"推演年数";
+ * 现在以前的事、下过的命令一件不丢,打开以后"再推 N 年"从那一格接着推)。至少推到 END_YEAR_MIN 年初(在第 0 年存回的推到第 1 年)。
  * 去掉 play、playFrom 和另开的几支(只存当前这一支),别的修改(含推进设置)照带。
  * 存成新世界还是盖掉原来的由界面定(默认存成新世界)。没在逐年推演的(没有合格的 play)原样返回(有不合格的 play、playFrom 就去掉)。
- * 进度推过了 END_YEAR_MAX 的存不回(普通世界最多推到那一年,存回去会丢掉后面的历史)= null;照 ui/stepwisePlan.ts 的 nextStep 走不会走过那一年
+ * 进度推过了 END_YEAR_MAX 年初的存不回(普通世界最多推到那一年,存回去会丢掉后面的历史)= null;照 ui/stepwisePlan.ts 的 nextStep 走不会走过那一年
  */
 export function stepwiseToNormal(edits: WorldEdits): WorldEdits | null {
   const play = cleanPlay(edits.play);
   if (!play && edits.play === undefined && edits.playFrom === undefined && edits.branches === undefined) return edits;
-  const { play: _play, playFrom: _from, branches: _branches, endYear, ...rest } = edits;
-  if (!play) return { ...rest, ...(endYear !== undefined ? { endYear } : {}) };
-  const end = play.year + (play.tick ? 1 : 0);
-  if (end > END_YEAR_MAX) return null;
-  const years = cleanEndYear(Math.max(END_YEAR_MIN, end));
-  return { ...rest, interventions: [...playInterventions(edits.interventions, play)], ...(years !== undefined ? { endYear: years } : {}) };
+  const { play: _play, playFrom: _from, branches: _branches, endYear, endTick, ...rest } = edits;
+  if (!play) return { ...rest, ...(endYear !== undefined ? { endYear } : {}), ...(endTick !== undefined ? { endTick } : {}) };
+  const at = playAt(play);
+  if (at > ticksAt(END_YEAR_MAX)) return null;
+  const { endYear: y, endTick: t } = endFields(Math.max(ticksAt(END_YEAR_MIN), at) / YEAR_TICKS);
+  const years = cleanEndYear(y);
+  return { ...rest, interventions: [...playInterventions(edits.interventions, play)], ...(years !== undefined ? { endYear: years } : {}), ...(t ? { endTick: t } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -356,15 +360,17 @@ export type InterventionFate = { state: 'later' } | { state: 'done'; annal: numb
 export function interventionFate(civ: Civ, i: number): InterventionFate {
   const v = civ.interventions?.[i];
   if (!v) return { state: 'void', annal: -1, why: '没有这条干预' };
-  if (commandAt(v) / YEAR_TICKS > civ.endYear) return { state: 'later' };
+  // 生效那一刻(年;逐年推演年中下的带着第几格)
+  const t = commandYear(v);
+  if (t > civ.endYear) return { state: 'later' };
   const r = interventionOutcome(civ, i);
   if (r.annal >= 0) return r.ok ? { state: 'done', annal: r.annal } : { state: 'void', annal: r.annal, why: r.why ?? '没有生效' };
-  if (v.kind === 'found' || !v.a) return { state: 'void', annal: -1, why: '没有生效' };
+  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || !v.a) return { state: 'void', annal: -1, why: '没有生效' };
   const k = resolveKey(civ, v.a);
   if (!k || k.kind !== 'polity') return { state: 'void', annal: -1, why: '新历史里没有这个国家' };
   const p = civ.polities[k.id];
-  if (p.founded > v.from) return { state: 'void', annal: -1, why: `${polityName(p, p.founded) || p.name}第 ${Math.floor(p.founded)} 年才立国` };
-  if (p.ended !== undefined && p.ended <= v.from) {
+  if (p.founded > t) return { state: 'void', annal: -1, why: `${polityName(p, p.founded) || p.name}第 ${Math.floor(p.founded)} 年才立国` };
+  if (p.ended !== undefined && p.ended <= t) {
     const name = polityName(p, p.ended - 1 / 512) || p.name;
     return { state: 'void', annal: -1, why: `${name}第 ${Math.floor(p.ended)} 年已亡` };
   }

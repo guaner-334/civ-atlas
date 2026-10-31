@@ -22,7 +22,7 @@ export type TileRequest =
 export interface TileResponse {
   wid: number;
   key: string;
-  /** 画好的一块(size × size);出错 = null */
+  /** 画好的一块((size + 1) × (size + 1):多一行一列,见下);出错 = null */
   bitmap: ImageBitmap | null;
   ms: number;
   error?: string;
@@ -56,12 +56,14 @@ self.onmessage = (e: MessageEvent<TileRequest>) => {
     const n = m.size + 2 * P;
     const r = rasterizeWindow(cur.src, m.S, m.x0 - P, m.y0 - P, n, n);
     const all = realisticWindowPixels(r, cur.grids, cur.look);
-    const px = new Uint8ClampedArray(m.size * m.size * 4);
-    for (let y = 0; y < m.size; y++) px.set(all.subarray(((y + P) * n + P) * 4, ((y + P) * n + P + m.size) * 4), y * m.size * 4);
-    const cv = new OffscreenCanvas(m.size, m.size);
+    // 多带一行一列(和右边、下边那一块的第一列、第一行一样):拼起来叠住接缝,缩放到小数倍时接缝不漏出底下的整张图
+    const m1 = m.size + 1;
+    const px = new Uint8ClampedArray(m1 * m1 * 4);
+    for (let y = 0; y < m1; y++) px.set(all.subarray(((y + P) * n + P) * 4, ((y + P) * n + P + m1) * 4), y * m1 * 4);
+    const cv = new OffscreenCanvas(m1, m1);
     const ctx = cv.getContext('2d') as unknown as CanvasRenderingContext2D | null;
     if (!ctx) throw new Error(NO_CANVAS);
-    ctx.putImageData(new ImageData(px, m.size, m.size), 0, 0);
+    ctx.putImageData(new ImageData(px, m1, m1), 0, 0);
     drawRealisticRivers(ctx, world, r, { s: m.S, ox: -m.x0, oy: -m.y0, k: m.k }, true, cur.look);
     const bitmap = cv.transferToImageBitmap();
     res = { wid: m.wid, key: m.key, bitmap, ms: performance.now() - t0 };

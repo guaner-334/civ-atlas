@@ -17,14 +17,14 @@
  */
 import type { Civ, Person, Place, Polity } from '../gen/civ/types';
 import type { WorkerRequest } from '../worker';
-import { cleanCivSeed, cleanEndYear, cleanPlay, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
+import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
 import { parseSave } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { decodePresetHash } from './presetLink';
 import { dynastyAt, polityAlive, polityName } from '../gen/civ/growth';
 import { cultureLabel, regionLabel } from '../gen/civ/display';
-import { generalRole, ministerRole, princeRole, rulerRole } from '../gen/civ/peopleText';
+import { consortRole, generalRole, ministerRole, princeRole, rulerRole } from '../gen/civ/peopleText';
 import { personArt } from '../gen/civ/officialText';
 import { TEXTS_MAX, type HelperKind, type HelperText, type RenderRequest } from './helperProtocol';
 
@@ -61,7 +61,7 @@ export function helperJob(r: RenderRequest): HelperJob {
   if (!p.ok) throw new Error(`存档读不出来：${p.error}`);
   const sv = p.save;
   const e = sv.edits;
-  const endYear = cleanEndYear(e.endYear);
+  const endYear = endParamOf(e);
   const frontier = cleanFrontier(e.frontier);
   const origins = cleanOrigins(e.origins);
   const civSeed = cleanCivSeed(e.civSeed);
@@ -110,6 +110,7 @@ function personRole(civ: Civ, x: Person): string {
   if (x.role === 'ruler') return rulerRole(civ, x) || '君主';
   if (x.role === 'general') return generalRole(civ, x);
   if (x.role === 'minister') return ministerRole(civ, x);
+  if (x.role === 'consort') return consortRole(civ, x);
   return princeRole(civ, x);
 }
 

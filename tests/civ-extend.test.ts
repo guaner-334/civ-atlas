@@ -1,7 +1,7 @@
 /**
  * 再推 N 年(gen/civ/extend.ts;gen/civ/index.ts 的 startContinue / continueCiv):在推完的世界上接着往后推,前面的历史一点不变。
  * - 推到 3000 年再推 500 年,和一次推到 3500 年逐字段相等;分两次再推(+300、+200)也一样(seed 7 / 2024)
- * - 分成很多段推(每段之间停下来)和一口气推一样;进度只往前走;叫停了 = 没推,传进去的历史不改
+ * - 分成很多段推(每段之间停下来)和一口气推一样;进度只往前走(停在一年中间的世界报到那一格);叫停了 = 没推,传进去的历史不改
  * - 推好的历史打包读回(原件)以后接着推一样;推演年数不是整千年的存档、分享链接、配方指纹都原样;整千年的和以前一样
  * - 带着地名风格、拓荒、起源、干预(有一条在再推的那段里才生效)、文明种子、改过地形的世界也一样
  */
@@ -11,7 +11,7 @@ import { continueCiv, generateCiv, startContinue, type Civ, type CivParams } fro
 import { extendCiv } from '../src/gen/civ/extend';
 import { polityAlive } from '../src/gen/civ/growth';
 import { packValue, recipeOfSave, recipeText, unpackValue } from '../src/gen/snapshot';
-import { polityKey, type Intervention, type TerrainOp, type WorldEdits } from '../src/gen/edits';
+import { YEAR_TICKS, polityKey, type Intervention, type TerrainOp, type WorldEdits } from '../src/gen/edits';
 import { decodeShare, encodeShare, makeSave, parseSave, saveText } from '../src/gen/savefile';
 
 const worlds = new Map<string, World>();
@@ -69,6 +69,14 @@ describe('再推 N 年', () => {
     const stopped = await extendCiv(w, base, { endYear: 3250 }, { now, pause: async () => void n++, stop: () => n >= 3 });
     expect(stopped).toBeNull();
     expect(await extendCiv(w, base, { endYear: 3250 }, { stop: () => true })).toBeNull();
+    // 停在一年中间的世界接着推:开头报原来那一刻(带小数)、中间是整十年,推演推到头报的是推到的那一刻,不按整年往下取
+    const mid = 300 + 74 / YEAR_TICKS;
+    const half = generateCiv(w, { endYear: mid });
+    const midSeen: number[] = [];
+    const midTo = mid + 30;
+    const grown = await extendCiv(w, half, { endYear: midTo }, { now, progress: (y) => midSeen.push(y) });
+    expect(grown!.endYear).toBe(midTo);
+    expect(midSeen).toEqual([mid, 310, 320, 330, midTo, midTo]);
     // startContinue 自己分段推:段落停在哪儿都一样
     const run = startContinue(w, base, { endYear: 3250 })!;
     for (const y of [3001, 3017.5, 3100, 3100, 3199, 3260]) run.advance(y);

@@ -100,8 +100,13 @@ const styleOf = (civ: Civ, p: Place) => (p.culture >= 0 ? civ.cultures[p.culture
 const geoPlaces = (c: Civ) => c.places.filter((p) => p.kind !== 'pass');
 const ratio = (xs: boolean[]) => xs.filter(Boolean).length / Math.max(1, xs.length);
 
-/** 除名字以外的世界 + 历史的指纹(名字、语感、东方 / 西幻、拉丁原形、改名前的名字不算;小数按 64 位原样) */
+/**
+ * 除名字以外的世界 + 历史的指纹(名字、语感、东方 / 西幻、拉丁原形、改名前的名字不算;人物跟着名字、性别走的几项也不算;
+ * 小数按 64 位原样)
+ */
 const NAME_FIELDS = new Set(['name', 'style', 'eastern', 'latin', 'defaultName']);
+/** 人物(有 role 的对象)上跟着名字、性别走的几项(母亲是女的,就不另记"母亲是嫁来的宗室女") */
+const PERSON_NAME_FIELDS = new Set(['female', 'maleName', 'courtesy', 'art', 'title']);
 const f64 = new Float64Array(1);
 const f64b = new Uint8Array(f64.buffer);
 function historyPrint(world: World, civ: Civ): string {
@@ -115,8 +120,9 @@ function historyPrint(world: World, civ: Civ): string {
       return void h.update(']');
     }
     if (typeof v === 'object') {
+      const person = typeof (v as { role?: unknown }).role === 'string';
       for (const k of Object.keys(v as object).sort()) {
-        if (NAME_FIELDS.has(k)) continue;
+        if (NAME_FIELDS.has(k) || (person && PERSON_NAME_FIELDS.has(k))) continue;
         h.update(`.${k}`);
         feed((v as Record<string, unknown>)[k]);
       }
@@ -132,7 +138,8 @@ function historyPrint(world: World, civ: Civ): string {
   feed({ elevation: world.elevation, water: world.water, flux: world.flux });
   // 发展度(推演后算的,不改历史)由 determinism.test.ts 钉住;这里不算它,期望值和加它以前一样
   // 地图上画的关隘(civ.places 里的 pass)是后加的,加它时别的一个没变:不算它,期望值和加它以前一样
-  const { development: _dev, ...history } = civ;
+  // 商道、思潮(推演里只读、不改历史)也由 determinism.test.ts 钉住;这里不算它们:期望值和加它们以前一样,就是历史一个字没变
+  const { development: _dev, trade: _trade, ideology: _ideo, ...history } = civ;
   feed({ ...history, places: geoPlaces(civ) });
   return h.digest('hex').slice(0, 16);
 }
@@ -141,8 +148,8 @@ function historyPrint(world: World, civ: Civ): string {
 
 describe('起名不碰推演', () => {
   it('没有改地形时,除名字外的世界、历史钉住指纹;同种子两次连名字都一样', () => {
-    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据;29 起管到几成和动荡每年算一次;35 起议事;36 起君主有了诸子、王子领兵、争储,宗室据地自立;37 起据险断后;38 起议事第二批:改军制、改官制、分镇、脱离;39 起立约与中立地;40 起有了掌实权的人和两国宗室联姻;41 起开战看内政;43 起战争节奏:议和了还会再打、仗打得密、罢兵割地;44 起亡国之君出奔邻国;46 起滚雪球:破都纳降、连续吞并)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
-    const expected: Record<number, string> = { 7: '5cbf7d5deefeb2e9', 2024: '6edcf47cd69f7037' };
+    // 期望值是 GENERATOR_VERSION 20(球面世界 + 人物、战役 + 洋流 + 君主世系 + 邦交 + 君主倾向和扩张算账(好战影响开战;迁都后按新国都重新看边地;同一刻的即位、到达排定次序) + 名臣 + 按养得活多少人算的宜居度和城的人口上限 + 封闭内海、贴海的湖、湖心小块地的处理 + 立国更早、边缘立国、民族分化 + 航线和航海时代 + 发展度反过来影响人口、打仗和远航 + 仗短而狠、乘胜连下、前线拉锯 + 饥荒、民变、大崩解,加上推演后贴上去的信仰)(GENERATOR_VERSION 22 起还有称霸大陆的大国盛极而衰;24 起走过的航线不通到遗址;27 起中央管到几成、割据;29 起管到几成和动荡每年算一次;35 起议事;36 起君主有了诸子、王子领兵、争储,宗室据地自立;37 起据险断后;38 起议事第二批:改军制、改官制、分镇、脱离;39 起立约与中立地;40 起有了掌实权的人和两国宗室联姻;41 起开战看内政;43 起战争节奏:议和了还会再打、仗打得密、罢兵割地;44 起亡国之君出奔邻国;46 起大迁徙;47 起季节进推演:出兵避冬、春荒;48 起大迁徙的方位按整条路线定,只有 migrations 里的方位变了;49 起时代做法:直征、禁军、铨选要等国中有了户籍、常备军、文官考选;50 起一部分人物换成女的,人物的性别、原来的男名、字、号、称号、母亲那一项不再算进来(期望值换成不算它们的;第 49、50 版代码算出来一样);51 起将门世家、复国之君接上故国世系:人物多了父子、补出来的宗室,将领名臣的籍贯跟着父亲;52 起嫁来的宗室女、临朝的太后成了人物(人物多了、编号挪了,名臣辅政有一部分换成太后,历史不变);56 起滚雪球:破都纳降、连续吞并)算的。推演、地形有意改了的话更新它,并把 GENERATOR_VERSION 加一
+    const expected: Record<number, string> = { 7: 'cd7df83e80ebd762', 2024: '72427d66051999fe' };
     for (const seed of [7, 2024]) {
       const P = { ...DEFAULT_PARAMS, cells: 12000, seed };
       const w = generateWorld(P);
@@ -378,7 +385,7 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     return { culture: c / n, polity: p / n };
   }
 
-  it('挖一个湖(州数变了、州号错开):远处陆地到第 3000 年民族没变 ≥ 73%、国家没变 ≥ 62%', () => {
+  it('挖一个湖(州数变了、州号错开):远处陆地到第 3000 年民族没变 ≥ 64%、国家没变 ≥ 44%', () => {
     const k = edited(seed, 'lake');
     expect(k.c1.regions.count, '州数变了(州号错开)').not.toBe(k.c0.regions.count);
     const r = kept(k, k.c0.endYear);
@@ -390,11 +397,15 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     // 民族、国家的下限放到 73% / 69%
     // GENERATOR_VERSION 43(议和了还会再打、看邻国更勤:一处改了,远处的冤家什么时候再打也跟着变)以后 7 号、2024 号的国家没变 67.2% / 63.9%:
     // 国家的下限放到 62%
-    expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.73);
-    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.62);
+    // GENERATOR_VERSION 46(大迁徙:一族分出一支走十几州、在远处落脚立国,一处改了,哪一族什么时候走、落在哪、打进哪国也跟着变)以后
+    // 7 号、2024 号的民族没变 78.9% / 67.5%,国家没变 65.8% / 60.7%:民族、国家的下限放到 64% / 57%
+    // GENERATOR_VERSION 47(季节进推演:冬天顿兵、春荒,一仗挪几个月,远处的仗跟着错开)以后 7 号、2024 号的国家没变 50.7% / 62.5%;
+    // 种子 1–20 挖同样的湖,国家没变 44.1%–90.8%(改前 47.3%–79.4%,整体差不多):国家的下限按 20 个种子的最小值放到 44%
+    expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.64);
+    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.44);
   }, 60_000);
 
-  it('海里放一座小火山:远处的地形不变(99% 以上);远处陆地到第 3000 年民族没变 ≥ 85%、国家没变 ≥ 65%;远处海、山、河的名字没变 ≥ 80%', () => {
+  it('海里放一座小火山:远处的地形不变(99% 以上);远处陆地到第 3000 年民族没变 ≥ 85%、国家没变 ≥ 41%;远处海、山、河的名字没变 ≥ 80%', () => {
     const k = edited(seed, 'volcano');
     // 地形里的随机小洼地按地块取(world.ts):远处的海陆、群落和不放火山时一样,海拔只差风带里水汽的一点点(< 1 米)
     const far = farFrom(k);
@@ -408,10 +419,10 @@ describe.each([7, 2024])('改地形以后远处的历史大多照旧 · seed=%i'
     expect(farLand).toBeGreaterThan(5000);
     expect(moved / farLand, `seed ${seed} 远处地形变了的陆地块`).toBeLessThan(0.01);
     const r = kept(k, k.c0.endYear);
+    // GENERATOR_VERSION 49(时代做法:议事的先后跟着国都的能力走,一处改了远处的议事、割据也跟着错开)以后 7 号的国家没变 67.5%(以前 88.1%);
+    // 种子 1–20 放同样的火山,国家没变 41.8%–100%(改前 41.3%–100%,整体差不多):国家的下限按 20 个种子的最小值放到 41%
     expect(r.culture, `seed ${seed} 民族`).toBeGreaterThanOrEqual(0.85);
-    // GENERATOR_VERSION 46(滚雪球:强国打下国都时余下的州一并归降,一处的变动让远处一国整个归了别国)以后
-    // 7 号、2024 号的国家没变 77.8% / 67.1%(以前都在 75% 以上):国家的下限放到 65%
-    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.65);
+    expect(r.polity, `seed ${seed} 国家`).toBeGreaterThanOrEqual(0.41);
     const shr = k.c0.places.filter((p) => far(p.cell!) && (p.kind === 'sea' || p.kind === 'mountains' || p.kind === 'river'));
     expect(ratio(shr.map((p) => counterpart(k, p)?.name === p.name)), `seed ${seed} 海山河`).toBeGreaterThanOrEqual(0.8);
   }, 60_000);

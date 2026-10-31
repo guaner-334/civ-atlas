@@ -16,6 +16,7 @@
  *   选中一种信仰时别的信仰变淡(faithColors)。
  * - 时代图层:同样把各州的时代换进民族那一层(era.ts 的 eraCiv),浓淡和信仰一样。
  * - 管辖图层:同样把各州管得到几成的档位换进民族那一层(control.ts 的 controlCiv),浓淡和信仰一样。
+ * - 思潮图层:同样把各州信看的那一说有几成(五档)换进民族那一层(thoughts.ts 的 thoughtCiv),浓淡和信仰一样。
  * - 回放 / 拖时间轴时(fast)用半分辨率,静止时用全分辨率;刚归属的州用几十年渐入,看起来像颜料慢慢洇开。
  *
  * washPixels 是纯计算(不碰 DOM),stress 脚本在 Node 里给它计时。
@@ -33,9 +34,10 @@ import { fantasyGlobeInkMask, fantasyInkMask, fantasyInkProj, fantasyWholeProjPr
 import { coastBlocks, KEEP, landCover, nearestCellPixel, nearestSide, type DetailGrid, type SegIndex } from './zoomGrid';
 import { reprojectImage } from '../projection';
 import type { CivDrawParams, CivStyle } from './overlay';
-import { faithBase, faithCiv, faithColors } from './faith';
+import { cultureFocusColors, faithBase, faithCiv, faithColors } from './faith';
 import { eraBase, eraCiv, eraColors } from './era';
 import { controlBase, controlCiv, controlColors } from './control';
+import { thoughtBase, thoughtCiv, thoughtColors, thoughtFocus } from './thoughts';
 import { vassalColors, vassalTies } from './vassals';
 import type { WashZones } from './neutral';
 
@@ -906,8 +908,8 @@ function cacheOf(p: CivDrawParams): Cache {
   let c = caches.get(civ);
   if (!c || c.raster !== raster) {
     const R = civ.regions.count;
-    // 信仰、时代、管辖图层换出来的 Civ 和原来的州一样:像素 → 州(连同借来的像素)借原来那一份
-    const base = faithBase(civ) ?? eraBase(civ) ?? controlBase(civ);
+    // 信仰、时代、管辖、思潮图层换出来的 Civ 和原来的州一样:像素 → 州(连同借来的像素)借原来那一份
+    const base = faithBase(civ) ?? eraBase(civ) ?? controlBase(civ) ?? thoughtBase(civ);
     const from = base ? cacheOf({ world, raster, civ: base } as CivDrawParams) : regionPix(world.mesh, raster, civ.regions);
     c = {
       raster,
@@ -954,11 +956,12 @@ export function fadeIn(civ: Civ, year: number, since: Float32Array, out: Float32
   return out;
 }
 
-/** 这一帧铺哪一层:信仰 / 时代 / 管辖打开就铺信仰 / 时代 / 管辖(换进民族那一层,见 faithParams),民族打开就铺民族(国家只画国界),只开国家就铺国土 */
+/** 这一帧铺哪一层:信仰 / 时代 / 管辖 / 思潮打开就铺信仰 / 时代 / 管辖 / 思潮(换进民族那一层,见 faithParams),民族打开就铺民族(国家只画国界),只开国家就铺国土 */
 export function washLayer(p: CivDrawParams): Layer | null {
   if (p.show.faiths && p.civ.religion?.faiths.length) return Layer.Culture;
   if (p.show.eras && p.civ.development) return Layer.Culture;
   if (p.show.control && p.civ.development?.controlYears?.length) return Layer.Culture;
+  if (p.show.ideology && p.civ.ideology) return Layer.Culture;
   if (p.show.cultures && p.civ.cultures.length) return Layer.Culture;
   if (p.show.polities && p.civ.polities.length) return Layer.Polity;
   return null;
@@ -1000,19 +1003,27 @@ function sameOwners(a: Int16Array, b: Int16Array): boolean {
   return true;
 }
 
-/** 信仰 / 时代 / 管辖图层:换成把信仰 / 时代 / 管辖换进民族那一层的参数(faithCiv、eraCiv、controlCiv);都不是 = null */
+/** 信仰 / 时代 / 管辖 / 思潮图层:换成把信仰 / 时代 / 管辖 / 思潮换进民族那一层的参数(faithCiv、eraCiv、controlCiv、thoughtCiv);都不是 = null */
 function faithParams(p: CivDrawParams): CivDrawParams | null {
-  if (faithBase(p.civ) || eraBase(p.civ) || controlBase(p.civ)) return null;
+  if (faithBase(p.civ) || eraBase(p.civ) || controlBase(p.civ) || thoughtBase(p.civ)) return null;
   if (p.show.eras && p.civ.development) return { ...p, civ: eraCiv(p.civ), show: { ...p.show, cultures: true, faiths: false, eras: false } };
   if (p.show.control && p.civ.development?.controlYears?.length)
     return { ...p, civ: controlCiv(p.civ), show: { ...p.show, cultures: true, faiths: false, eras: false, control: false } };
+  if (p.show.ideology && p.civ.ideology && !p.show.faiths)
+    return { ...p, civ: thoughtCiv(p.civ, thoughtFocus(p.civ, p.show, p.year)), show: { ...p.show, cultures: true, faiths: false, eras: false, control: false, ideology: false } };
   if (!p.show.faiths || !p.civ.religion?.faiths.length) return null;
   return { ...p, civ: faithCiv(p.civ), show: { ...p.show, cultures: true, faiths: false } };
 }
 
-/** washFields 的缓存键:层 + 年份 + 画风(信仰 / 时代图层再加选中的信仰) */
+/** 选中的信仰 / 民族进缓存键的那一截:信仰 / 时代图层 = 选中的信仰;民族填色 = 选中的民族;别的 = 空 */
+function focusKey(p0: CivDrawParams, fp: CivDrawParams | null, layer: Layer): string {
+  if (fp) return `|${p0.faithFocus ?? ''}`;
+  return layer === Layer.Culture && p0.cultureFocus !== undefined && p0.cultureFocus !== null ? `|c${p0.cultureFocus}` : '';
+}
+
+/** washFields 的缓存键:层 + 年份 + 画风(信仰 / 时代图层再加选中的信仰,民族填色再加选中的民族) */
 function fieldsKey(p0: CivDrawParams, fp: CivDrawParams | null, layer: Layer): string {
-  return `${layer}|${p0.year}|${p0.style}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+  return `${layer}|${p0.year}|${p0.style}${focusKey(p0, fp, layer)}`;
 }
 
 /** 这一年这一层的归属、渐入系数(都是拷贝,不怕别处改) */
@@ -1026,9 +1037,10 @@ function fieldOwners(p: CivDrawParams, c: Cache, layer: Layer) {
   return { owner, fade, fading, look };
 }
 
-/** 颜色:国土的藩属往宗主的颜色靠(vassals.ts);信仰 / 时代 / 管辖图层用信仰 / 时代 / 管辖的颜色 */
+/** 颜色:国土的藩属往宗主的颜色靠(vassals.ts);信仰 / 时代 / 管辖图层用信仰 / 时代 / 管辖的颜色;民族填色上选中了一个民族时别的变淡 */
 function fieldColors(p0: CivDrawParams, fp: CivDrawParams | null, p: CivDrawParams, layer: Layer, look: LayerLook): Uint8Array {
-  return fp ? (eraBase(fp.civ) ? eraColors() : controlBase(fp.civ) ? controlColors() : faithColors(p0.civ, p0.faithFocus)) : layer === Layer.Polity ? vassalColors(look.colors, vassalTies(p.civ, p.year)) : look.colors;
+  if (fp) return eraBase(fp.civ) ? eraColors() : controlBase(fp.civ) ? controlColors() : thoughtBase(fp.civ) ? thoughtColors() : faithColors(p0.civ, p0.faithFocus);
+  return layer === Layer.Polity ? vassalColors(look.colors, vassalTies(p.civ, p.year)) : cultureFocusColors(look.colors, p0.cultureFocus);
 }
 
 const noEdge = (): EdgeField => ({ G: 0, GW: 0, GH: 0, PAD: 0, label: new Int16Array(0), dist: new Float32Array(0) });
@@ -1184,7 +1196,7 @@ function washTarget(p0: CivDrawParams) {
   const globeInk = !!p.globeInk && p.style === 'fantasy' && !p.proj;
   // 弯边投影 · 手绘:符号遮罩按投影后的符号层合成,色块本身不乘遮罩
   const projInk = !!p.proj && p.style === 'fantasy';
-  const key = `${layer}|${p.year}|${p.style}|${projInk ? 1 : 0}${fp ? `|${p0.faithFocus ?? ''}` : ''}`;
+  const key = `${layer}|${p.year}|${p.style}|${projInk ? 1 : 0}${focusKey(p0, fp, layer)}`;
   // 存档缩略图:主图那份正好是这一张就直接用,不然单独一份(画完放掉,见 CivDrawParams.thumb)
   const slot = globeInk ? f + 10 : p.thumb && c.bufs.get(f)?.key !== key ? f + THUMB_SLOT : f;
   const b = bufOf(c, f, slot);

@@ -14,7 +14,9 @@
 import type { Annal, Civ, Person, PersonCommand, Year } from './types';
 import { polityName, polityShortTitle, polityTierAt } from './growth';
 import { cnNumber } from './chronicle';
-import { isConsul, kinOf, personName, rulerRef, rulerShort, rulerTitle } from './peopleText';
+import { dowagerSpans, dowagerWordOf, isConsul, kinOf, personName, rulerRef, rulerShort, rulerTitle } from './peopleText';
+import { opensSeg } from './regime';
+import { Issue, REFORM_COUP, REFORM_RESTORE, REFORM_REVOLUTION } from './councilRules';
 
 /** 够这么多分算名人 */
 export const FAME_MIN = 6;
@@ -51,10 +53,12 @@ export function peopleIndex(civ: Civ): PeopleIndex {
     if (x.polity < 0 || x.polity >= n) continue;
     if (x.role === 'ruler') ix.rulers[x.polity].push(x);
     else if (x.role === 'minister') ix.ministers[x.polity].push(x);
-    else if (x.commands?.length) ix.generals[x.polity].push(x);
+    else if (x.commands?.length || (x.author !== undefined && x.from !== undefined)) ix.generals[x.polity].push(x);
   }
+  // 作者的将领(任将)按上任那年排,一仗没打过的也在
+  const debut = (x: Person) => (x.author !== undefined && x.from !== undefined ? x.from : x.commands![0].from);
   for (const rs of ix.rulers) rs.sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.id - b.id);
-  for (const gs of ix.generals) gs.sort((a, b) => a.commands![0].from - b.commands![0].from || a.id - b.id);
+  for (const gs of ix.generals) gs.sort((a, b) => debut(a) - debut(b) || a.id - b.id);
   for (const ms of ix.ministers) ms.sort((a, b) => a.from! - b.from! || a.id - b.id);
   for (const e of civ.annals) {
     if (e.kind === 'war' && e.war >= 0 && !ix.wars.has(e.war)) ix.wars.set(e.war, e);
@@ -64,9 +68,17 @@ export function peopleIndex(civ: Civ): PeopleIndex {
   return ix;
 }
 
-/** 一个人在台上的年份:君主 = 即位到失位(还在位 = null);将领 = 第一次领兵到最后一次卸任;名臣 = 入仕到去职(还在朝 = null) */
+/**
+ * 一个人在台上的年份:君主 = 即位到失位(还在位 = null);将领 = 第一次领兵到最后一次卸任;名臣 = 入仕到去职(还在朝 = null);
+ * 作者的将领(任将)= 任期(还在任 = null);后妃:临朝的太后 = 临朝那几年(还在临朝 = null),嫁来的宗室女 = 一生
+ */
 export function personSpan(x: Person): { from: Year; until: Year | null } {
-  if (x.role === 'ruler' || x.role === 'minister') return { from: x.from ?? x.born, until: x.until ?? null };
+  if (x.role === 'ruler' || x.role === 'minister' || (x.author !== undefined && x.from !== undefined)) return { from: x.from ?? x.born, until: x.until ?? null };
+  if (x.role === 'consort') {
+    const gs = (x.regencies ?? []).filter((g) => g.kind === 'dowager');
+    if (gs.length) return { from: gs[0].from, until: gs[gs.length - 1].until ?? null };
+    return { from: x.born, until: x.died ?? null };
+  }
   const cs = x.commands ?? [];
   if (!cs.length) return { from: x.born, until: x.died ?? null };
   return { from: cs[0].from, until: cs[cs.length - 1].until };
@@ -144,6 +156,28 @@ export function generalTally(civ: Civ, x: Person): { took: number; held: number 
   return { took, held };
 }
 
+/**
+ * 将领经手的仗的胜负(作者的将领"胜 7 阵、败 2 阵"用):胜 = 攻下一州、守住一仗;败 = 丢了一州、攻而不克。
+ * 只数他领兵(挂帅、随驾)那几段里的仗
+ */
+export function generalRecord(civ: Civ, x: Person): { won: number; lost: number } {
+  let won = 0;
+  let lost = 0;
+  const A = civ.annals;
+  for (const c of x.commands ?? []) {
+    if (c.rear) continue;
+    for (let i = Math.max(0, c.first); i <= c.last && i < A.length; i++) {
+      const e = A[i];
+      if (e.war !== c.war || (e.kind !== 'conquer' && e.kind !== 'battle')) continue;
+      const mine = e.kind === 'conquer' ? e.a === x.polity : e.b === x.polity;
+      const theirs = e.kind === 'conquer' ? e.b === x.polity : e.a === x.polity;
+      if (mine) won++;
+      else if (theirs) lost++;
+    }
+  }
+  return { won, lost };
+}
+
 /** 君主在位时本国在战争里攻下几州 */
 export function reignGains(civ: Civ, x: Person): number {
   const ys = peopleIndex(civ).gains[x.polity] ?? [];
@@ -190,7 +224,18 @@ export function riseText(civ: Civ, x: Person): string {
     case 'restore':
       return p.restores !== undefined && civ.polities[p.restores] ? `复${polityName(civ.polities[p.restores], civ.polities[p.restores].ended ?? y)}之国` : '复国';
     case 'usurp':
-      return '篡位';
+      // 临朝的太后废了幼主自立
+      return dowagerSpans(x).length ? `以${dowagerWordOf(civ, x, x.from ?? y)}废帝自立` : '篡位';
+    case 'reform': {
+      // 改制开的那一段的第一位:哪一种改制(开这一段的那条史事)
+      const y0 = p.dynasties?.[x.dynasty ?? 0]?.year ?? y;
+      const e = civ.annals.find((a) => a.a === p.id && a.year === y0 && opensSeg(a));
+      if (e?.kind === 'council') return e.war === Issue.Return ? '军政府还政，推为执政' : '废君立共和，推为执政';
+      if (e?.n === REFORM_REVOLUTION) return '起兵革命，自为执政';
+      if (e?.n === REFORM_COUP) return '率兵政变，自为执政';
+      if (e?.n === REFORM_RESTORE) return e.b >= 0 ? '复辟，迎回旧王室即位' : '废议事会，自立为君';
+      return consul ? '就任' : '即位';
+    }
     default:
       if (!prev) return consul ? '就任' : '即位';
       if (consul) return `接${rulerShort(civ, prev)}继任`;
@@ -216,7 +261,7 @@ function fameMap(civ: Civ): Map<number, Fame> {
   const out = new Map<number, Fame>();
   const ix = peopleIndex(civ);
   for (const x of civ.people ?? []) {
-    if (x.polity < 0 || !civ.polities[x.polity] || x.role === 'prince' || x.role === 'minister') continue;
+    if (x.polity < 0 || !civ.polities[x.polity] || x.role === 'prince' || x.role === 'minister' || x.role === 'consort') continue;
     const deeds: string[] = [];
     let score = 0;
     if (x.role === 'ruler') {
@@ -241,7 +286,7 @@ function fameMap(civ: Civ): Map<number, Fame> {
         score += 3;
       }
       if (x.rise === 'usurp') {
-        deeds.push('篡位');
+        deeds.push(dowagerSpans(x).length ? `以${dowagerWordOf(civ, x, x.from ?? x.born)}废帝自立` : '篡位');
         score += 3;
       }
       const gains = reignGains(civ, x);

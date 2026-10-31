@@ -509,7 +509,12 @@ export function namePolities(seed: number, polities: Polity[], cultures: Culture
   events.sort((x, y) => x.t - y.t || x.kind - y.kind || at[x.p.id].cell - at[y.p.id].cell || at[x.p.id].n - at[y.p.id].n || x.p.id - y.p.id || x.i - y.i);
   const seen = new Set<number>();
   for (const { t, kind, p, i } of events) {
-    while (nextKin < kin.length && kin[nextKin].born <= t) claim(kin[nextKin++].name);
+    // 分化出来的民族,族名和早先的国名撞了(复国的"西昌"、后来分化出"西昌族"):这一族立的国不再直接用族名,另起
+    while (nextKin < kin.length && kin[nextKin].born <= t) {
+      const cu = kin[nextKin++];
+      if (taken.has(cu.name) || takenBare.has(bare(cu.name))) seen.add(cu.id);
+      claim(cu.name);
+    }
     if (kind === 0 && !p.name) {
       const cu = cultures[p.culture];
       if (p.restores !== undefined) p.name = restored(p) || fresh(p);
@@ -587,6 +592,16 @@ function dynastyNamer(seed: number, { settlements, regionNames }: DynastyPlaces,
     /** 这个国家第 i 朝的 keyed 随机数(同一地块立的第几国占高位,和 i 错开) */
     const rand = (i: number, use: number) => keyed(base, cell, n * 4096 + i, use);
     const d = ds[i];
+    // 改制开的一段(regime.ts):照抄上一段的名字(东方是国名词根:大靖王朝 → 大靖共和国;西幻这一段没有王室,
+    // 名字只是占位,王朝名照 growth.ts 的 dynastyTitle 写空);复辟迎回旧王室的一段:照那一朝的名字
+    if (d.house !== undefined && ds[d.house]) {
+      d.name = ds[d.house].name;
+      return;
+    }
+    if (d.regime) {
+      d.name = i > 0 ? ds[i - 1].name || p.name : p.name;
+      return;
+    }
     if (!p.eastern) {
       const used = new Set<string>([p.name, ...ds.slice(0, i).map((x) => x.name)]);
       const s = settlements[d.seat];

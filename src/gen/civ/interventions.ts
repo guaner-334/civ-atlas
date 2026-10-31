@@ -54,6 +54,9 @@
  *                   下一位从下一刻起照常继位);将领、名臣:推演里只记一笔(b 列 −5),人物那边按卒年换人(people.ts、officials.ts)
  *   改君主倾向 temper from 那一刻在位的是他才生效(同一刻已被让他去世、已让位的不算),下一刻起照新的倾向,到他下台为止(rulers.ts 的 moods);
  *                   门槛放低了的,下一刻从现有国土往外重新看一遍(和定方针一样)
+ *   任将任臣 appoint 推演里只在 from 那一刻记一笔史事(b 列见 appoint.ts 的 IV_REIGNING 那几样),历史一字不变;
+ *                   他在任的年份、挂帅哪几仗由 appoint.ts 按史事推出来,人物、编年史照它排。
+ *                   将领带了能力(良将 / 名将)的例外:他挂帅的仗本方兵力加成(wars.ts 的 WarModel.led,见下面的 authorLed)
  *   天灾   disaster  瘟疫、饥荒、地震水旱:受灾的城人口掉一截,国内更动荡,不改地形(disaster.ts)
  *   推一把发展 boost  快几倍:那些州发展度的"自己长""向邻居学"乘上去,管到 until;直接进:那一刻拉到国都的下一个时代开头(boost.ts)
  *   立约   treaty    from 那一刻几国立约(treaties.ts 的 decree;两两之间正在交战的当即议和),之后照立约的规矩续约、背约、约满;
@@ -74,14 +77,14 @@
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
 import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
-import { Layer, type Polity } from './types';
+import { Layer, type Culture, type Polity } from './types';
 import { subSeed } from './rand';
 import { Ev, LOOK_K, quantize, type CivSim } from './sim';
-import { addPolity, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
+import { addPolity, bookOf, endPolity, foundCity, moveCapital, polityModelOf, reopen, respread, rulerAct, rulerOf, setPolicy, type PolityModel } from './polities';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, crownOf, reignBorn } from './rulers';
 import { strikeDisaster } from './disaster';
 import { segAt } from './policy';
-import { bestCapital, polityBorders, warModelOf } from './wars';
+import { bestCapital, polityBorders, warModelOf, type War } from './wars';
 import { politicsModelOf } from './politics';
 import { dynastyModelOf } from './dynasty';
 import { capitalAt } from './growth';
@@ -91,6 +94,10 @@ import { treatyModelOf } from './treaties';
 import { regencyModelOf } from './regency';
 import { marriageModelOf } from './marriage';
 import { installBoosts, strikeBoost } from './boost';
+import { trekModelOf } from './migration';
+import { assimModelOf } from './assimilation';
+import { APPOINT_AGE, IV_REIGNING, appointEnd, authorLeadsNow, skillPower, type AppointInput, type AppointIv, type AuthorLead } from './appoint';
+import { IV_GONE, authorRegentEnd, regentAt } from './regents';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -101,6 +108,7 @@ type CrownIv = Extract<Intervention, { kind: 'crown' }>;
 type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
 type DestroyIv = Extract<Intervention, { kind: 'destroy' }>;
 type PersonIv = Extract<Intervention, { kind: 'death' | 'temper' }>;
+type Stay = Extract<Intervention, { kind: 'stay' }>;
 
 /** 推演里的干预:清理过的列表 + 键 → 编号的解析 + 各机制查询用的规则 */
 export class InterventionModel {
@@ -118,6 +126,7 @@ export class InterventionModel {
   private readonly unityRules: Extract<Intervention, { kind: 'unity' }>[];
   private readonly allyRules: Ally[];
   private readonly haltRules: Halt[];
+  private readonly stayRules: Stay[];
   /** 保住王室:开关(keep)的下标;即位带 keep 的有没有 */
   private readonly keepRules: number[] = [];
   private readonly crownKeeps: boolean;
@@ -144,6 +153,7 @@ export class InterventionModel {
     this.unityRules = list.filter((v): v is Extract<Intervention, { kind: 'unity' }> => v.kind === 'unity');
     this.allyRules = list.filter((v): v is Ally => v.kind === 'ally');
     this.haltRules = list.filter((v): v is Halt => v.kind === 'halt');
+    this.stayRules = list.filter((v): v is Stay => v.kind === 'stay');
     list.forEach((v, i) => {
       if (v.kind === 'keep') this.keepRules.push(i);
     });
@@ -226,6 +236,28 @@ export class InterventionModel {
       const v = this.list[k];
       if (v.kind === 'protect' && t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) return true;
     }
+    return false;
+  }
+
+  /**
+   * 民族的稳定键 → 此刻的民族编号(还没分化出来 / 新历史里没有 = −1;和 edits.ts 的 cultureKey 同一个算法:
+   * 发源州 + 这州发源的第几个(按出现先后))。cultures = 推演里此刻的民族表
+   */
+  resolveCulture(key: string, cultures: readonly Culture[]): number {
+    const k = this.ref(key);
+    const m = k ? /^culture:(-?\d+)#(\d+)$/.exec(k) : null;
+    if (!m) return -1;
+    const r = Number(m[1]);
+    const n = Number(m[2]);
+    const same: number[] = [];
+    for (let i = 0; i < cultures.length; i++) if (cultures[i].hearth === r) same.push(i);
+    same.sort((i, j) => cultures[i].born - cultures[j].born || i - j);
+    return same[n] ?? -1;
+  }
+
+  /** 民族 c 此刻"不许迁"(cultures = 推演里此刻的民族表) */
+  stays(c: number, t: number, cultures: readonly Culture[]): boolean {
+    for (const v of this.stayRules) if (t >= v.from && (v.until === undefined || t < v.until) && this.resolveCulture(v.folk, cultures) === c) return true;
     return false;
   }
 
@@ -528,6 +560,23 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     rulerAct(sim, pm, a, v.kind === 'death' ? { kind: 'death', t, iv: i } : { kind: 'temper', t, iv: i, leanings: v.leanings });
   };
 
+  /**
+   * 任将任臣:只记一笔史事,历史不变(人物、编年史照它排,见 appoint.ts)。b 列:−1 生效了 / −3 a 已亡 / −2 他还没出生 /
+   * IV_GONE 已去世 / IV_NOT_HIM 不满 APPOINT_AGE 岁 / IV_REIGNING 他此刻正是某国在位的君主(作者立的)
+   */
+  const appoint = (v: AppointIv, i: number, a: number, t: number) => {
+    const sid = capitalAt(pm.polities[a], t);
+    const reigning = () => {
+      for (const [pid, acts] of pm.acts) {
+        if (!alive(pid) || !acts.some((c) => c.kind === 'crown' && c.char === v.char)) continue;
+        if (rulerOf(pm, pid, t).crown?.char === v.char) return true;
+      }
+      return false;
+    };
+    const b = !alive(a) ? -3 : v.born > t ? -2 : v.died !== undefined && v.died <= t ? IV_GONE : t - v.born < APPOINT_AGE ? IV_NOT_HIM : reigning() ? IV_REIGNING : -1;
+    sim.record('intervene', { a, b, region: S[sid]?.region ?? -1, settlement: sid, war: i });
+  };
+
   /** 方针:a 此刻定方针(b 列:−1 生效了 / −3 a 已亡) */
   const policy = (v: PolicyIv, i: number, a: number, t: number) => {
     const sid = capitalAt(pm.polities[a], t);
@@ -547,6 +596,18 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
       strikeDisaster(sim, iv, v, i, t);
       return;
     }
+    if (v.kind === 'trek') {
+      // 大迁徙:这一刻分出一支上路(migration.ts;史事 intervene 也在那里记)
+      trekModelOf(sim)?.order?.(v, i, t, iv);
+      return;
+    }
+    if (v.kind === 'stay') {
+      // 不许迁:看大迁徙时查(InterventionModel.stays),这里只记一笔
+      const cultures = assimModelOf(sim)?.cultures ?? pm.cultures;
+      const c = iv.resolveCulture(v.folk, cultures);
+      if (c >= 0) sim.record('intervene', { a: -1, b: cultures[c].ended !== undefined ? -3 : -1, war: i, n: c });
+      return;
+    }
     const a = iv.resolve(v.a);
     if (a < 0) return; // 键指不到:这条干预在新历史里没有对象
     if (v.kind === 'cede') {
@@ -563,6 +624,10 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     }
     if (v.kind === 'policy') {
       policy(v, i, a, t);
+      return;
+    }
+    if (v.kind === 'appoint') {
+      appoint(v, i, a, t);
       return;
     }
     if (v.kind === 'destroy') {
@@ -643,6 +708,59 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
 
   // 推一把发展的快几倍:已经生效的按史事推出来,发展度每一步照着乘(没有快几倍的不挂)
   installBoosts(sim, iv);
+  // 作者的良将 / 名将挂帅的仗:本方兵力加成(没有带能力的任将不挂 —— 寻常的、没任过作者将领的世界一点不变)
+  if (iv.stored.some((v) => v.kind === 'appoint' && v.skill)) wm.led = authorLed(sim, pm, iv);
+}
+
+/**
+ * 作者的良将 / 名将挂帅的仗(WarModel.led):打仗那一刻,按 appoint.ts 的 authorLeadsNow 问此刻谁领着哪场 ——
+ * 史事记到此刻为止,和事后排人物是同一份规则。先粗筛:这一方有生效了的带能力任将、此刻还没过他最晚可能卸任的那一刻
+ * (到期卸任;让他掌权、掌权比任期长的,到掌权最晚了结),才算一遍;同一刻、史事条数没变的几次问只算一遍。
+ * 生效了哪几条按史事 intervene 扫出来(接着推时从头扫一遍),不存别的状态
+ */
+function authorLed(sim: CivSim, pm: PolityModel, iv: InterventionModel): (w: War, x: number, t: number) => number {
+  const stored = iv.stored;
+  const skilled = new Set<number>();
+  stored.forEach((v, i) => {
+    if (v.kind === 'appoint' && v.skill) skilled.add(i);
+  });
+  /** 让作者的人物掌权的几条:作者人物 → 掌权最晚了结的那一刻 */
+  const regentEnd = new Map<number, number>();
+  iv.list.forEach((v) => {
+    if (v.kind === 'regent' && v.char !== undefined) regentEnd.set(v.char, Math.max(regentEnd.get(v.char) ?? -Infinity, authorRegentEnd(v, v.from).stop));
+  });
+  /** 生效了的带能力任将:哪国、上任那一刻、最晚可能卸任的那一刻 */
+  const took: { pid: number; from: number; end: number }[] = [];
+  let seen = 0;
+  let memo: { n: number; t: number; leads: AuthorLead[] } | null = null;
+  /** 此刻让作者的人物掌权的那几段(AppointInput.holds;只问此刻在不在任:还掌着的不给了结,已了结的给此刻就够) */
+  const holdsAt = (t: number): AppointInput['holds'] => {
+    if (!regentEnd.size) return undefined;
+    const out: NonNullable<AppointInput['holds']>[number][] = [];
+    for (const [pid, list] of pm.regents) {
+      for (const g of list) {
+        const v = g.iv !== undefined ? stored[g.iv] : undefined;
+        if (v?.kind !== 'regent' || v.char === undefined || !(g.start < t)) continue;
+        const on = regentAt(pm.polities[pid], list, t, rulerOf(pm, pid, t), bookOf(pm, pid, t)) === g;
+        out.push(on ? { char: v.char, polity: pid, start: g.start } : { char: v.char, polity: pid, start: g.start, stop: t });
+      }
+    }
+    return out;
+  };
+  return (w, x, t) => {
+    const A = sim.annalsView;
+    for (; seen < A.length; seen++) {
+      const e = A[seen];
+      if (e.kind !== 'intervene' || e.b !== -1 || !skilled.has(e.war)) continue;
+      const v = stored[e.war] as AppointIv;
+      took.push({ pid: e.a, from: e.year, end: Math.max(appointEnd(v, e.year).stop, regentEnd.get(v.char) ?? -Infinity) });
+    }
+    if (!took.some((p) => p.pid === x && p.from <= t && t < p.end)) return 1;
+    if (!memo || memo.n !== A.length || memo.t !== t) {
+      memo = { n: A.length, t, leads: authorLeadsNow({ annals: A, polities: pm.polities, endYear: t, interventions: stored, holds: holdsAt(t) }, t) };
+    }
+    return skillPower(stored, memo.leads, x, w.id, w.a === x ? 0 : 1);
+  };
 }
 
 /** 接着推(CivSim.fromCiv 调用,在各层 resume 之后):和 installInterventions 一样 */

@@ -13,9 +13,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { END_YEAR_MAX } from '../gen/edits';
 import { yearFull, type Era } from '../gen/era';
-import { getEdits, useEra } from './editsStore';
+import { getEdits, useEra, useMonthNames, useMonths } from './editsStore';
+import { momentFull } from './stepTime';
 import {
   EXTEND_PRESETS,
+  busyParts,
   durationText,
   extendMs,
   extendPlan,
@@ -25,6 +27,7 @@ import {
   pickYears,
   setExtendOpen,
   setExtendPick,
+  stopTip,
   useExtend,
   type ExtendBusy,
   type ExtendPick,
@@ -34,23 +37,24 @@ import './extend.css';
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
-/** 推的时候说到哪了:"正在推,到第 3240 年" / 推演推完、还在收尾 / 有地形大事从第 0 年重推 / 还没回报 */
-export function busyNote(b: ExtendBusy, era: Era | undefined, phone = false): ReactNode {
-  if (b.slow) return phone ? '有地形大事，要从第 0 年重推，慢一些' : '正在推（这个世界有地形大事，要从第 0 年重推，慢一些）';
-  if (b.year === null) return '正在推';
-  if (b.year >= b.to) return '收尾：起名、人物、道路';
-  const y = yearFull(b.year, era);
+/** 推到的那一刻怎么写:推到一年中间的写到月("第 1549 年 9 月",起了名字的写名字),正好在年初的只写年 */
+function useMoment(): (y: number) => string {
+  const era = useEra();
+  const months = useMonths();
+  const names = useMonthNames();
+  return (y) => momentFull(y, months, era, names, false);
+}
+
+/** 推的时候说到哪了:"正在推,到第 3240 年""正在推,到第 1549 年 9 月" / 推演推完、还在收尾 / 有地形大事从第 0 年重推 / 还没回报(字见 extendStore 的 busyParts) */
+export function busyNote(b: ExtendBusy, era: Era | undefined, months: number, names: readonly string[] | undefined, phone = false): ReactNode {
+  const [a, n, c] = busyParts(b, era, months, names, phone);
+  if (!n) return a;
   // 数字标成主色(纪年时整个年份一起)
-  const m = /^(第 )(\d+)( 年)$/.exec(y);
-  return m ? (
+  return (
     <>
-      正在推，到{m[1]}
-      <b>{m[2]}</b>
-      {m[3]}
-    </>
-  ) : (
-    <>
-      正在推，到<b>{y}</b>
+      {a}
+      <b>{n}</b>
+      {c}
     </>
   );
 }
@@ -68,15 +72,17 @@ function Ring({ b }: { b: ExtendBusy }) {
 export function ExtendButton({ end, phone }: { end: number; phone: boolean }) {
   const x = useExtend();
   const era = useEra();
+  const months = useMonths();
+  const names = useMonthNames();
   const b = x.busy;
   if (b) {
     return phone ? (
-      <button className="xt-btn phone busy" data-act="extend-stop" aria-label={`停下：不推了，还是到${yearFull(b.from, era)}`} onClick={extendStop}>
+      <button className="xt-btn phone busy" data-act="extend-stop" aria-label={stopTip(b, era, months, names)} onClick={extendStop}>
         <Ring b={b} />
         <i className="xt-sq" aria-hidden="true" />
       </button>
     ) : (
-      <button className="xt-btn busy" data-act="extend-stop" data-tip={`停下：不推了，还是到${yearFull(b.from, era)}`} data-tip-side="above" onClick={extendStop}>
+      <button className="xt-btn busy" data-act="extend-stop" data-tip={stopTip(b, era, months, names)} data-tip-side="above" onClick={extendStop}>
         <Ring b={b} />
         停下
       </button>
@@ -182,7 +188,8 @@ function Seg({ pick, onPick, phone }: { pick: ExtendPick; onPick: (p: ExtendPick
 function OwnRow({ end, text, over, onType, phone }: { end: number; text: string; over: boolean; onType: (v: string) => void; phone?: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => ref.current?.focus(), []);
-  const room = extendRoom(end);
+  // 年中停下存回的世界推到的那一刻带小数:还能再推几年只写整年
+  const room = Math.floor(extendRoom(end));
   return (
     <div className={`xt-own${over ? ' over' : ''}${phone ? ' phone' : ''}`}>
       <span>再推</span>
@@ -196,13 +203,13 @@ function OwnRow({ end, text, over, onType, phone }: { end: number; text: string;
 
 /** 底下那一格:推到第几年、大约多久、推的时候怎样、时间轴怎么变 */
 function Result({ end, years, plan, phone }: { end: number; years: number | null; plan: ReturnType<typeof extendPlan> | null; phone?: boolean }) {
-  const era = useEra();
+  const moment = useMoment();
   const slow = !!getEdits().upheavals?.length;
   const ms = !phone && plan ? extendMs(end, plan.to - end, slow) : null;
   return (
     <div className="xt-res">
       <div className="xt-res-top">
-        {plan ? <b>推到{yearFull(plan.to, era)}</b> : <b className="dim">填上要再推几年</b>}
+        {plan ? <b>推到{moment(plan.to)}</b> : <b className="dim">填上要再推几年</b>}
         <span className="xt-sp" />
         {ms !== null && years && <em>这台电脑{durationText(ms)}</em>}
       </div>
@@ -211,7 +218,7 @@ function Result({ end, years, plan, phone }: { end: number; years: number | null
         {plan && (
           <>
             <br />
-            时间轴变长：原来的 {end} 年挤到左边 {plan.squeeze}%。
+            时间轴变长：原来的 {Math.floor(end)} 年挤到左边 {plan.squeeze}%。
           </>
         )}
       </div>
@@ -232,7 +239,7 @@ const POP_RIGHT = 55;
 const POP_GAP = 10;
 
 function PopBody({ end }: { end: number }) {
-  const era = useEra();
+  const moment = useMoment();
   const f = useForm(end);
   const ref = useRef<HTMLDivElement>(null);
   useKeys(true, f.go);
@@ -266,9 +273,9 @@ function PopBody({ end }: { end: number }) {
       <div className="xt-head">
         <h3>再推几年</h3>
         <span className="xt-sp" />
-        <em>现在推到{yearFull(end, era)}</em>
+        <em>现在推到{moment(end)}</em>
       </div>
-      <div className="xt-lead">从{yearFull(end, era)}接着往后推：前面的历史一点不变，只往后长。</div>
+      <div className="xt-lead">从{moment(end)}接着往后推：前面的历史一点不变，只往后长。</div>
       <Seg pick={f.x.pick} onPick={f.pick} />
       {f.x.pick === 'own' && <OwnRow end={end} text={f.text} over={over} onType={f.type} />}
       <Result end={end} years={f.years} plan={f.plan} />
@@ -294,7 +301,7 @@ export function ExtendSheet({ end, hidden }: { end: number; hidden?: boolean }) 
 }
 
 function SheetBody({ end }: { end: number }) {
-  const era = useEra();
+  const moment = useMoment();
   const f = useForm(end);
   useKeys(true, f.go);
   useOutside(true, '.xt-sheet');
@@ -320,7 +327,7 @@ function SheetBody({ end }: { end: number }) {
         <div className="xt-head">
           <h3>再推几年</h3>
           <span className="xt-sp" />
-          <em>现在推到{yearFull(end, era)}</em>
+          <em>现在推到{moment(end)}</em>
         </div>
         <div className="xt-lead">接着往后推：前面的历史一点不变，只往后长。</div>
       </div>
@@ -343,13 +350,15 @@ function SheetBody({ end }: { end: number }) {
 export function ExtendDock({ hidden }: { hidden?: boolean }) {
   const x = useExtend();
   const era = useEra();
+  const months = useMonths();
+  const names = useMonthNames();
   const b = x.busy;
   if (!b || hidden) return null;
   return (
     <div className="xt-dock" role="status" onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <div className="xt-dock-text">
         <b>再推 {b.to - b.from} 年</b>
-        <span>{busyNote(b, era, true)}</span>
+        <span>{busyNote(b, era, months, names, true)}</span>
       </div>
       <button className="xt-b dock" data-act="extend-stop-card" onClick={extendStop}>
         停下

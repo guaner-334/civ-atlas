@@ -110,9 +110,10 @@ describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
     expect(new Set(inv.map((e) => e.invention)).size).toBe(inv.length);
     for (const e of inv) {
       const x = INVENTIONS[e.invention!];
-      // 快照之间线性插值,只看下一份快照时到了没有
+      // 快照之间线性插值,只看下一份快照时到了没有;这中间本州打过仗、被攻占洗劫的,战乱折损会扣下去一点
       const next = civ.development!.snapYears.find((y) => y >= e.year)!;
-      expect(developmentAt(civ.development!, next)[e.region * CAP_COUNT + x.cap] + 1 / LEVEL_SCALE).toBeGreaterThanOrEqual(x.level);
+      const hit = civ.annals.some((a) => a.region === e.region && a.year >= e.year && a.year <= next && (a.kind === 'battle' || a.kind === 'conquer' || a.kind === 'sack' || a.kind === 'ruin'));
+      expect(developmentAt(civ.development!, next)[e.region * CAP_COUNT + x.cap] + 1 / LEVEL_SCALE + (hit ? 0.25 : 0)).toBeGreaterThanOrEqual(x.level);
     }
     // 文字比印刷术早
     const at = (name: string) => inv.find((e) => INVENTIONS[e.invention!].name === name)?.year ?? Infinity;
@@ -236,7 +237,7 @@ describe.each([7, 2024])('时代、物产写进编年史和图层 · seed=%i', (
     expect(new Set(all.map((e) => e.id)).size).toBe(all.length);
     for (let i = 1; i < all.length; i++) expect(all[i].year).toBeGreaterThanOrEqual(all[i - 1].year);
     // 各国的(进时代、发现、采空)同一国同一年只有一条;世上第一次的发明("……始创字母,为天下之先")另算,
-    // 那一国同一年又发现了别的,各是一条(GENERATOR_VERSION 46 以后 2024 号第 1549 年就是)
+    // 那一国同一年又发现了别的,各是一条(GENERATOR_VERSION 56 以后 2024 号第 1936 年就是)
     const keys = dev.filter((e) => e.importance < 3 && e.polities.length && !e.text.endsWith('为天下之先')).map((e) => `${e.polities[0]}:${Math.floor(e.year)}`);
     expect(new Set(keys).size).toBe(keys.length);
   });

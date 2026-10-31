@@ -118,9 +118,9 @@ describe('道路网与航线', () => {
       expect(cities.some((c) => c.major)).toBe(true);
       expect(cities.some((c) => c.port)).toBe(true);
       // 大路连的是真国都:同一片陆地上还有别的(城还在的)国都的国都,都在大路上
-      // 按"立国"立起来的国家,同时在世的国都各不相同;分裂 / 复国出来的国家(阶段 3 分合)常常就都于故都,同一座城可以先后是几国的国都;
-      // 一国亡了、那一州散回部落以后,也可能有新的国家在那座城立国(GENERATOR_VERSION 46 以后种子 7 就有:前一国第 1876 年亡,后一国第 2812 年立)
-      const founded = civ.polities.filter((p) => p.parent === undefined);
+      // 按"立国"立起来的国家,同时在世的国都各不相同;分裂 / 复国出来的国家(阶段 3 分合)、大迁徙迁来立的国(Polity.trek)常常就都于故都,同一座城可以先后是几国的国都;
+      // 一国亡了、那一州散回部落以后,也可能有新的国家在那座城立国(滚雪球以后亡国、散回部落的多了,碰得上)
+      const founded = civ.polities.filter((p) => p.parent === undefined && p.trek === undefined);
       for (const p of founded)
         for (const q of founded)
           if (p.id < q.id && civ.settlements[p.capital].cell === civ.settlements[q.capital].cell)

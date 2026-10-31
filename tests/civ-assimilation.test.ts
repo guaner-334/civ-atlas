@@ -15,7 +15,9 @@ import {
   ASSIM_GAP,
   ASSIM_MAJOR,
   ASSIM_SPAN,
+  COMBINE_GAP,
   MIGRATE_MAJOR,
+  TREK_ASSIM_MAJOR,
   buildChronicle,
   filterChronicle,
   type ChronicleEntry,
@@ -125,9 +127,10 @@ describe('同化与迁徙', () => {
         if (L.layer[i] !== Layer.Culture) continue;
         const r = L.region[i];
         if (cur[r] >= 0) {
-          expect([Ev.Assimilate, Ev.Migrate, Ev.Diverge], `${tag} 日志 ${i}`).toContain(L.cause[i]);
+          // 大迁徙落脚的州(migration.ts,Ev.TrekSettle)记在 Civ.migrations 里,不另记 migrate(见 civ-migration.test.ts)
+          expect([Ev.Assimilate, Ev.Migrate, Ev.Diverge, Ev.TrekSettle], `${tag} 日志 ${i}`).toContain(L.cause[i]);
           if (L.cause[i] === Ev.Diverge) diverged.set(`${L.year[i]}|${L.value[i]}`, [...(diverged.get(`${L.year[i]}|${L.value[i]}`) ?? []), [r, cur[r]]]);
-          else changes.set(`${L.year[i]}|${r}`, L.cause[i]);
+          else if (L.cause[i] !== Ev.TrekSettle) changes.set(`${L.year[i]}|${r}`, L.cause[i]);
         } else expect([Ev.CultureBorn, Ev.CultureArrive, Ev.Migrate], `${tag} 日志 ${i}`).toContain(L.cause[i]);
         expect(L.value[i], `${tag}:民族层不会变回没人住`).toBeGreaterThanOrEqual(0);
         cur[r] = L.value[i];
@@ -233,15 +236,17 @@ describe('同化与迁徙', () => {
       const s = assimStats(civ);
       const tag = `seed ${seed}`;
       expect(s.changedShare, tag).toBeGreaterThanOrEqual(0.04);
-      // GENERATOR_VERSION 15(民族分化:分出去的州也算改换过民族)以后 20 个种子 10%–39%:上限放宽到 0.45
-      expect(s.changedShare, tag).toBeLessThanOrEqual(0.45);
+      // GENERATOR_VERSION 15(民族分化:分出去的州也算改换过民族)以后 20 个种子 10%–39%:上限放宽到 0.45;
+      // GENERATOR_VERSION 47(季节进推演)以后 20 个种子 19%–46%,2024 号 45.6%:上限放到 0.5
+      expect(s.changedShare, tag).toBeLessThanOrEqual(0.5);
       expect(s.assimilated, tag).toBeGreaterThan(30);
       migrations += s.migrations;
       expect(s.migrated, tag).toBeGreaterThanOrEqual(s.migrations);
       expect(s.alive, tag).toBeGreaterThanOrEqual(Math.ceil(civ.cultures.length * 0.7));
       expect(s.alive + s.vanished, tag).toBe(civ.cultures.length);
-      // GENERATOR_VERSION 16(航海时代:大国在海外拿下别族的州)以后 20 个种子 0.70–0.98(以前 0.86–0.98),seed 2024 最低
-      expect(s.rulingShare, tag).toBeGreaterThan(0.65);
+      // GENERATOR_VERSION 16(航海时代:大国在海外拿下别族的州)以后 20 个种子 0.70–0.98(以前 0.86–0.98),seed 2024 最低;
+      // GENERATOR_VERSION 46(大迁徙:迁来入主的一族在本国是少数)以后 20 个种子(1–20)0.60–0.92,seed 7 最低:下限放宽到 0.55
+      expect(s.rulingShare, tag).toBeGreaterThan(0.55);
       expect(s.flippy, tag).toBe(0);
       // 消亡的民族:图例上还在民族表里,有消亡年份
       for (const cu of civ.cultures) if (cu.ended !== undefined) expect(cu.ended).toBeLessThanOrEqual(civ.endYear);
@@ -304,22 +309,23 @@ describe('同化与迁徙', () => {
     expect(nearSum / nearN).toBeLessThan(farSum / farN);
   }, 60_000);
 
-  it('编年史(真实世界):一波迁徙折成一条,同化按国家和年代折叠,民族消亡单列;措辞干净,"大事"不超过一百四十条', () => {
+  it('编年史(真实世界):一波迁徙折成一条,同化按国家和年代折叠,民族消亡单列;措辞干净,"大事"不超过二百条', () => {
     const BAD = /undefined|NaN|null|−1|-1|第 0 州|某国|某族|异族人|Infinity|\[object/;
     for (const seed of [7, 2024, 3]) {
       const civ = civOf({ ...DEFAULT_PARAMS, seed });
       const A = civ.annals;
       const list = buildChronicle(civ);
       const kids = (k: AnnalKind) => list.filter((e) => e.kind === k);
-      // 迁徙:同一刻、同一民族、同一起因的几州一条;子条目就是每一州
-      const waves = kids('migrate');
+      // 迁徙:同一刻、同一民族、同一起因的几州一条;子条目就是每一州(大迁徙那一条也记成 migrate,见 civ-migration.test.ts)
+      const waves = kids('migrate').filter((e) => A[e.id].kind !== 'trek');
       expect(waves.length).toBe(assimStats(civ).migrations);
       for (const e of waves) {
         expect(e.text, e.text).toMatch(/^.+族(避.+兵锋[东南西北]迁,入|随.+(南下|北上|东进|西进),徙居).+$/);
         expect(e.text).not.toMatch(BAD);
         expect(e.tag).toBe('徙');
         // 亡国后逃难的一波,"大事"里合写进那场战争("…,艾莱斯国亡,艾莱斯族南迁,入阿拉斯等五州")
-        const merged = list.some((w) => w.kind === 'war' && w.importance === 3 && w.text.includes(e.text.replace(/避.+兵锋/, '')));
+        // (同一族前后两回逃到同样几州、字一样的:只认这一回前后 COMBINE_GAP 年里的那场仗)
+        const merged = list.some((w) => w.kind === 'war' && w.importance === 3 && w.year <= e.year && e.year - w.end <= COMBINE_GAP && w.text.includes(e.text.replace(/避.+兵锋/, '')));
         expect(e.importance).toBe(e.regions.length >= MIGRATE_MAJOR && !merged ? 3 : 2);
         const n = e.children?.length ?? 1;
         expect(n).toBe(e.regions.length);
@@ -329,26 +335,31 @@ describe('同化与迁徙', () => {
       const as = kids('assimilate');
       expect(as.reduce((n, e) => n + (e.children?.length ?? 1), 0)).toBe(A.filter((e) => e.kind === 'assimilate').length);
       for (const e of as) {
-        expect(e.text, e.text).toMatch(/渐为.+人$/);
+        // 大迁徙迁来立的国反被同化写"某汗国境内的某人渐为某人,某某等五州皆说某语"
+        expect(e.text, e.text).toMatch(/渐为.+人$|境内的.+人渐为.+人,.+皆说.+语$/);
         expect(e.text).not.toMatch(BAD);
         expect(e.tag).toBe('化');
         expect(e.end - e.year).toBeLessThanOrEqual(ASSIM_SPAN);
         const ys = (e.children ?? [e]).map((c) => c.year);
         for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeLessThanOrEqual(ASSIM_GAP);
-        if (e.regions.length >= ASSIM_MAJOR) expect(e.importance).toBe(3);
+        // 大迁徙迁来立的国反被同化("…境内的…人渐为…人"):五州以上就是大事
+        if (e.regions.length >= (/境内的/.test(e.text) ? TREK_ASSIM_MAJOR : ASSIM_MAJOR)) expect(e.importance).toBe(3);
         else expect(e.importance).toBeLessThan(3);
       }
       for (const e of kids('vanish')) {
         expect(e.text).toMatch(/^.+族亡/);
         expect(e.importance).toBe(3);
       }
-      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(不超过 210;GENERATOR_VERSION 41 以后 20 个种子 67–169 条,46 以后 80–198 条);
+      // 和 civ-chronicle.test.ts 的"大事"条数上限一致(不超过 210;GENERATOR_VERSION 41 以后 20 个种子 67–169 条,56 以后 86–199 条);
       // 同化与迁徙自己的大事不超过二十条
       // (GENERATOR_VERSION 19 亡国多了,避兵锋的迁徙跟着多:种子 2024 有 11 条;
-      // GENERATOR_VERSION 22 大国崩了又被重新统一,亡国更多:20 个种子 3–19 条,2024 号 19 条)
+      // GENERATOR_VERSION 22 大国崩了又被重新统一,亡国更多:20 个种子 3–19 条,2024 号 19 条;
+      // GENERATOR_VERSION 46 大迁徙一次一条大事(也记成 migrate),迁来立的国反被同化五州以上也是大事:20 个种子 7–31 条、2024 号 35 条,
+      // 大事 84–191 条(seed 3 189 条):上限放到 200、40;
+      // GENERATOR_VERSION 56 滚雪球(破都纳降,纳降的那一仗算大事)以后大事 20 个种子 86–199 条、2024 号 140 条:上限放到 210)
       expect(filterChronicle(list, { major: true }).length, `seed ${seed}`).toBeLessThanOrEqual(210);
       const mineMajor = filterChronicle(list, { major: true }).filter((e) => e.kind === 'migrate' || e.kind === 'assimilate' || e.kind === 'vanish');
-      expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(20);
+      expect(mineMajor.length, `seed ${seed}`).toBeLessThanOrEqual(40);
     }
   }, 60_000);
 });

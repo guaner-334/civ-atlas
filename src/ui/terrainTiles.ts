@@ -150,7 +150,9 @@ function done(s: Slot, r: TileResponse) {
   if (r.fatal) return stop();
   if (r.wid === wid && r.bitmap) {
     const cv = document.createElement('canvas');
-    cv.width = cv.height = TILE;
+    // 比 TILE 多一行一列(叠住和右边、下边那一块的接缝,见 tileWorker)
+    cv.width = r.bitmap.width;
+    cv.height = r.bitmap.height;
     cv.getContext('2d')!.drawImage(r.bitmap, 0, 0);
     r.bitmap.close();
     cache.set(r.key, cv);

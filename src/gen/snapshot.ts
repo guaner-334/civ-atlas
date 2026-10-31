@@ -21,7 +21,7 @@
  *
  * 纯计算,不碰 DOM:worker 里打包,主线程、Node 里都能读。压缩用平台自带的 CompressionStream('gzip'),没有就不压缩。
  */
-import { cleanCivSeed, cleanEndYear, cleanPlay, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './edits';
+import { cleanCivSeed, cleanPlay, endParamOf, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './edits';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './civ/frontier';
@@ -68,6 +68,7 @@ export interface Recipe {
   interventions?: readonly Intervention[];
   upheavals?: readonly Upheaval[];
   names?: NameMix;
+  /** 推演年数(带小数:年中停下存回的普通世界推到那一年的那一格,edits.ts 的 endParamOf;推到年初的是整数,和加这一项以前的指纹一样) */
   endYear?: number;
   frontier?: Frontier;
   origins?: Origins;
@@ -115,7 +116,7 @@ export function recipeOfSave(save: SaveFile): Recipe {
     interventions: e.interventions,
     upheavals: e.upheavals,
     names: e.nameMix,
-    endYear: cleanEndYear(e.endYear),
+    endYear: endParamOf(e),
     frontier: cleanFrontier(e.frontier),
     origins: cleanOrigins(e.origins),
     calamity: cleanCalamity(e.calamity),

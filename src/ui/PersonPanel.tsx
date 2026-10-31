@@ -7,7 +7,7 @@
  *   按钮  即位那年 / 出征那年 / 入仕那年(主操作:时间轴跳过去;宗室换成「世系图」)、编年史(这国的编年史,滚到他在台上那段)、
  *         复制生平(纯文字,写设定用;带上「生平」那一段)、关注他(导播只讲他这一辈子,镜头跟着他;正跟着他时是「不关注」;宗室没有,
  *         见 Follow.tsx)、更多(加一个和他有关的作者人物:亲友里先填上他)。
- *         「更多」最上面:让他去世…(那年在位的君主、将领、名臣)、改他的倾向…(那年在位的君主),点了卡片换成那一页(PersonIvPage.tsx);
+ *         「更多」最上面是「关系图」(右边铺开以他为中心的关系图,RelationGraph.tsx),隔一条线;接着让他去世…(那年在位的君主、将领、名臣)、改他的倾向…(那年在位的君主),点了卡片换成那一页(PersonIvPage.tsx);
  *         接着让他掌权…(那年在世、成年、没在位的太子、君主的兄弟叔伯、在朝的名臣、领过兵的将领)、为他联姻…(那年在位的君主、
  *         在世成年的宗室),点了换成那一页(RegentIvPage.tsx);演一国时别国的人这几项变灰,写"切回造物主才能改别国"
  *   概况  君主:事迹(名人才有)、国家、生卒、在位、前任、继任(后面的小字是亲属,和编年史的"其子 / 其侄"同一个算法:按世系;
@@ -21,12 +21,16 @@
  *         宗室:国家、生卒、父亲、子嗣、领兵(替父兄出征打的仗)、效力(派他出征的君主,小字写父 / 兄)、结局(战死、争储被杀)、
  *         对手(杀他的那位新君,小字写亲属和怎么回事)
  *         (字号:西幻、汗国这类名字没有姓的不起字号,这一行不出)
+ *         跟着大迁徙迁过来的那一代人,概况最后多「来历」一行("克拉尔族；1899 年随族自诺敏塔拉西徙，1911 年随众立国",领头立国的"率克拉尔族西徙，立萨热汗国")
  *         放逐到中立地的(争储失势的宗室、被废的君主)多「放逐」一行("星河域 2303 年起，桓王所徙"),亡国出奔的写「出奔」;
  *         卒于中立地的结局写"卒于星河域"(宗室的「放逐」「结局」排在子嗣前面)
  *         掌过实权的(regentInfo.ts):「掌权」一行("2585–2587 年  父亲在位时""2602–2609 年  辅政懿公胡炜，还政";君主排在在位下面,
  *         宗室在生卒下面,名臣、将领在官职下面);引兵入朝的「争储」写"引兵还朝，杀其兄某某，不即位"、叔父篡位的写"废其侄某某自立";
  *         被架空过的君主:「实权」一行(在位下面:"彭继桓  子，2585–2587",掌权的人能点)。
- *         联姻(宗室女只写一行、不能点):「母亲」「配偶」排在父亲下面("风氏  大澜德宗之女，2610 年娶",国名能点;没有姓的语感写"某国公主")
+ *         联姻:「母亲」「配偶」排在父亲下面("风萦雪  大澜德宗之女，2610 年娶",她的名字、国名能点;娶亲的是女的,配偶是对方的宗室子,只写一行)
+ *         后妃(gen/civ/consorts.ts):临朝的太后 —— 事迹、国家、出身、生卒、临朝、配偶、子嗣、结局,主操作「临朝那年」,能关注她;
+ *         嫁来的宗室女 —— 国家(小字"嫁入某国")、生卒、父亲、出嫁、子嗣、结局,主操作「世系图」(娘家那一朝)。
+ *         幼主的「实权」写"太后某某  母，临朝 2414–2421，还政";临朝篡位的女君多「临朝」「配偶」、「争位」写"以太后废其子某某自立"
  *   掌权时 / 联姻  掌权、了结那几条(幼主即位时的摄政、篡位改朝换代、即位接着先君的那一条也算)/ 结亲那一条和那以后两国本为姻亲的结盟,新的在上
  *   放逐 / 出奔  徙居(出奔)那一条、卒于中立地(或中立地撤销、回了本国那一条),新的在上
  *   倾向  君主、执政官才有:开拓、好战、发展、重商一项一行(名字、灰色细条、0–100 的数值),下面一句说明;
@@ -41,22 +45,24 @@
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import type { Civ, Person, PersonSpouse, RulerLeanings } from '../gen/civ/types';
-import { polityName } from '../gen/civ/growth';
-import { buildChronicle, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
+import { polityName, polityTierAt } from '../gen/civ/growth';
+import { buildChronicle, cnNumber, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/peopleInfo';
-import { LEANING_KEYS, LEANING_TEXT, ageAt, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort } from '../gen/civ/peopleText';
-import { REGENCY_END, REGENCY_VERB, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
-import { heOrShe, kinWord, wedVerb } from '../gen/civ/gender';
+import { LEANING_KEYS, LEANING_TEXT, ageAt, consortRole, dowagerSpans, dowagerWordOf, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort, rulerTitle, seatPolity, splitSurname } from '../gen/civ/peopleText';
+import { REGENCY_END, REGENCY_VERB, brideMatchOf, brideName, heldOver, kinAt, overlapOf, polityShort, type Held } from '../gen/civ/regentInfo';
+import { eastRank, heOrShe, isFemale, kinWord, wedVerb, westRank } from '../gen/civ/gender';
 import { treatyBook } from '../gen/civ/treatyInfo';
 import { fullChronicle } from '../gen/civ/religionText';
 import { diedAbroad, diedInExile, exileHostName, exileReturns, exileTieText, treatyEntries } from './treatyRows';
 import { evType } from './timelineLayout';
-import { regionLabel } from '../gen/civ/display';
-import { deedsShort, ministerFate, personArt, personBio } from '../gen/civ/officialText';
-import { fatherOf, hasLineage, kidsOf } from '../gen/civ/lineageInfo';
+import { cultureLabel, regionLabel } from '../gen/civ/display';
+import { personTrek } from './migrationInfo';
+import { TrekFrom } from './TrekFrom';
+import { deedsShort, houseMentions, houseNote, ministerFate, personArt, personBio } from '../gen/civ/officialText';
+import { childrenOf, descentOf, descentWord, fatherOf, hasLineage, isLastRuler, kidsOf, motherOf } from '../gen/civ/lineageInfo';
 import { personKey } from '../gen/characters';
 import { personPortrait, portraitMood } from '../gen/portrait';
-import { PortraitView } from './Portrait';
+import { NameFace, PortraitView } from './Portrait';
 import { openLineage, openOverview } from './overviewStore';
 import { getEdits, useEdits, useEra } from './editsStore';
 import { eraText, spaced, yearAt, yearShort, yearShortAt, yearSpan, yearSpanAt, type Era } from '../gen/era';
@@ -64,7 +70,10 @@ import { newCharacterDraft } from './characterStore';
 import { charactersOfPerson } from './characterInfo';
 import { CharAvatar, CharacterRefs } from './CharacterPanel';
 import type { AuthorCharacter } from '../gen/characters';
-import { MenuItem } from './PopMenu';
+import type { PersonCard } from '../ai/prompts/lives';
+import { LifeMenuItem } from './lifeMenu';
+import { MenuItem, MenuSep } from './PopMenu';
+import { openRelationOf } from './relationStore';
 import { Icon } from './icons';
 import { NameEdit } from './NameEdit';
 import { FollowAct } from './Follow';
@@ -79,6 +88,7 @@ import { PersonIvPage, type PersonIvKind } from './PersonIvPage';
 import { leaningsThen, marryChoice, moodSince, personIvRange, regentChoice, rulerOnThrone } from './newIvInfo';
 import { MarryIvPage, RegentIvPage } from './RegentIvPage';
 import { ReignRecord } from './ReignRecord';
+import { reignRecord, reignText } from '../gen/civ/reignRecord';
 import './policy.css';
 import './newIv.css';
 
@@ -111,12 +121,25 @@ function peopleLine(civ: Civ, list: readonly Person[], max = 6): { node: ReactNo
   };
 }
 
-/** 子嗣:人名都能点,没即位的后面小字"未即位";多于 max 个只列前面的 */
-function kidsLine(civ: Civ, list: readonly Person[], max = 6): { node: ReactNode; text: string } {
+/**
+ * 子嗣:人名都能点,没即位的后面小字"未即位";嫁到别国的女儿"嫁埃维里亚";在别国即位的(她嫁过去生的)写那一国的君号。
+ * self = 这张卡片的人;多于 max 个只列前面的
+ */
+function kidsLine(civ: Civ, list: readonly Person[], max = 6, self?: Person): { node: ReactNode; text: string } {
   const shown = list.slice(0, max);
   const more = list.length - shown.length;
   // 没即位的:争储被杀的写"被杀",摄政时伏诛的写"伏诛"
-  const note = (k: Person) => (k.role !== 'prince' ? '' : k.fate !== 'purged' ? '未即位' : regentPurged(k) ? '伏诛' : '被杀');
+  const note = (k: Person) => {
+    if (k.role === 'consort') {
+      const H = k.husband !== undefined ? civ.people?.[k.husband] : undefined;
+      const w = brideMatchOf(civ, k);
+      return H && w && H.polity !== k.polity ? `嫁${polityShort(civ, H.polity, w.year)}` : '';
+    }
+    if (k.role === 'ruler' && self && k.polity !== seatPolity(civ, self)) return rulerRole(civ, k);
+    // 临朝篡位的女君:被她废了的儿子是前朝的君主
+    if (k.role === 'ruler' && self && self.role === 'ruler' && (k.dynasty ?? 0) !== (self.dynasty ?? 0)) return `前朝${rulerRank(civ, k)}`;
+    return k.role !== 'prince' ? '' : k.fate !== 'purged' ? '未即位' : regentPurged(k) ? '伏诛' : '被杀';
+  };
   return {
     node: (
       <>
@@ -182,7 +205,8 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const refs = useMemo(() => charactersOfPerson(civ, chars, id, era), [civ, chars, id, era]);
   // 头像按岁数变(年份取整),去世以后定在去世那年
   const age = x ? Math.floor((x.died !== undefined ? Math.min(year, x.died) : year) - x.born) : 0;
-  const portrait = useMemo(() => (x ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
+  // 女的头像部件还没有:国家色的方块写名字(NameFace)
+  const portrait = useMemo(() => (x && !isFemale(x) ? personPortrait(civ, x.id, x.born + age) : null), [civ, x, age]);
   const mood = useMemo(() => (x ? portraitMood(civ, x, year) : undefined), [civ, x, year]);
   // 卡片换上的填写页(让他去世 / 改他的倾向 / 让他掌权 / 为他联姻);换了人就回到卡片
   const [ivPage, setIvPage] = useState<{ id: number; kind: PersonIvKind | 'regent' | 'marry' } | null>(null);
@@ -201,10 +225,18 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const ruler = x.role === 'ruler';
   const prince = x.role === 'prince';
   const minister = x.role === 'minister';
+  const consort = x.role === 'consort';
+  // 后妃:临朝的太后(主按钮「临朝那年」、能「关注她」)、嫁来的宗室女(主按钮「世系图」,娘家那一朝)
+  const dowagerOf = consort ? dowagerSpans(x)[0] : undefined;
+  const bride = consort && !dowagerOf;
   const consul = isConsul(civ, x);
   const span = personSpan(x);
   const end = span.until ?? civ.endYear;
-  const sub = prince
+  const sub = dowagerOf
+    ? `${consortRole(civ, x)}，${span.until === null ? `${yearAt(span.from, era)}起` : yearSpanAt(span.from, span.until, era)}${civ.polities[civ.people?.[dowagerOf.ruler]?.polity ?? x.polity]?.eastern ? '临朝' : '摄政'}`
+    : bride
+      ? `${consortRole(civ, x, brideMatchOf(civ, x)?.year)}，${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`
+      : prince
     ? `${princeRole(civ, x)}，${yearShort(x.born, era)}–${x.died !== undefined ? yearShort(x.died, era) : ''}`
     : ruler
       ? span.until === null
@@ -221,13 +253,15 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
   const fallbackName = x.defaultName ?? x.name;
   const lead = name.endsWith(x.name) ? name.slice(0, name.length - x.name.length) : '';
   const nameHint = `${lead ? `只改名字，${/[宗祖]$/.test(lead) ? '庙号' : '称号'}「${lead}」不变；` : '只改名字；'}留空 = 换回「${fallbackName}」。`;
-  const head = ruler ? (consul ? '在任时' : '在位时') : minister ? '在朝时' : prince ? princeHead(x) : '领兵时';
+  const head = ruler ? (consul ? '在任时' : '在位时') : minister ? '在朝时' : prince ? princeHead(x) : consort ? '' : '领兵时';
   const lineage = () => openLineage(x.polity, { dynasty: x.dynasty ?? 0, focus: x.id });
 
   const copy = async () => {
     const out = [name, sub, ...lines.map((l) => `${l.k}：${l.text}`)];
     if (ruler && x.leanings) out.push(`倾向：${leaningsText(x.leanings)}`);
     if (bio) out.push('', `生平：${bio}`);
+    const reign = ruler ? reignRecord(civ, x, era) : null;
+    if (reign) out.push('', ...reignText(reign));
     if (events.length) out.push('', `${head}：`, ...events.map((e) => `${yearShort(e.year, era)} ${eraText(e.text.replace(/^【(?:干预|照大纲)】/, ''), era)}`));
     const text = out.join('\n');
     (window as unknown as { __wfPersonText: string }).__wfPersonText = text;
@@ -240,7 +274,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
       <PanelHead
         color={rgb(p.color)}
         icon={
-          portrait && (
+          portrait ? (
             <PortraitView
               p={portrait}
               size="card"
@@ -249,7 +283,9 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
               dark={x.fate === 'murdered' || x.fate === 'fell' || x.fate === 'battle'}
               mood={mood}
             />
-          )
+          ) : isFemale(x) ? (
+            <NameFace name={x.name} size="card" color={rgb(p.color)} dead={x.died !== undefined && year > x.died} />
+          ) : undefined
         }
       >
         {nameKey ? (
@@ -292,23 +328,27 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
     <div className="cp pp" data-person={id}>
       {headEl}
       <Acts>
-        {prince ? (
-          <Act icon="lineage" primary act="person-lineage" onClick={lineage} title="看这一朝的世系图">
+        {prince || (bride && x.parent !== undefined && hasLineage(civ, x.polity)) ? (
+          <Act icon="lineage" primary act="person-lineage" onClick={lineage} title={bride ? '看她娘家那一朝的世系图' : '看这一朝的世系图'}>
             世系图
           </Act>
         ) : (
           <Act icon="history" primary act="person-year" onClick={() => jumpTo(span.from)} title={`时间轴跳到${spaced(yearAt(span.from, era))}`}>
-            {ruler ? (consul ? '就任那年' : '即位那年') : minister ? '入仕那年' : '出征那年'}
+            {ruler ? (consul ? '就任那年' : '即位那年') : minister ? '入仕那年' : dowagerOf ? '临朝那年' : bride ? '出生那年' : '出征那年'}
           </Act>
         )}
-        <Act icon="scroll" act="person-chronicle" onClick={() => openOverview('chronicle', { polity: x.polity, major: false, at: end })}>
+        <Act icon="scroll" act="person-chronicle" onClick={() => openOverview('chronicle', { polity: seatPolity(civ, x), major: false, at: end })}>
           编年史
         </Act>
         <Act icon="copy" act="person-copy" onClick={() => void copy()}>
           {copied ? '已复制' : '复制生平'}
         </Act>
-        {!prince && <FollowAct civ={civ} x={x} year={year} />}
+        {!prince && !bride && <FollowAct civ={civ} x={x} year={year} />}
         <MoreAct>
+          <MenuItem icon={<Icon name="relation" size={16} />} act="person-relation" onClick={() => openRelationOf(civ, { kind: 'person', id })}>
+            关系图
+          </MenuItem>
+          <MenuSep />
           {canDie && (
             <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-death" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'death' })}>
               让{heOrShe(x)}去世…
@@ -325,7 +365,14 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
             </MenuItem>
           )}
           {canWed && (
-            <MenuItem icon={<Icon name="close" size={16} className="iv-blank" />} act="person-marry" disabled={locked} note={locked ? ROLE_LOCK_NOTE : undefined} onClick={() => setIvPage({ id, kind: 'marry' })}>
+            // 女方出嫁的联姻还没做:灰掉、写"以后做"
+            <MenuItem
+              icon={<Icon name="close" size={16} className="iv-blank" />}
+              act="person-marry"
+              disabled={locked || isFemale(x)}
+              note={isFemale(x) ? '以后做' : locked ? ROLE_LOCK_NOTE : undefined}
+              onClick={() => setIvPage({ id, kind: 'marry' })}
+            >
               为{heOrShe(x)}联姻…
             </MenuItem>
           )}
@@ -337,6 +384,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           <MenuItem icon={<Icon name="person" size={16} />} act="person-add-character" onClick={() => newCharacterDraft({ kin: [{ rel: '', person: personKey(civ, id) }], year })}>
             加一个和{heOrShe(x)}有关的人物
           </MenuItem>
+          {name && <LifeMenuItem civ={civ} scope={{ kind: 'person', person: id }} />}
         </MoreAct>
       </Acts>
       <div className="cp-body">
@@ -362,11 +410,11 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
           <EventList
             civ={civ}
             self={id}
-            title="掌权时"
+            title={(x.regencies ?? []).every((g) => g.kind === 'dowager') ? '临朝时' : '掌权时'}
             upTo={heldEv}
             limit={8}
             more={
-              <button className="ins-link cp-more" data-act="person-held-chronicle" onClick={() => openOverview('chronicle', { polity: x.polity, major: false, at: x.regencies![x.regencies!.length - 1].until ?? end })}>
+              <button className="ins-link cp-more" data-act="person-held-chronicle" onClick={() => openOverview('chronicle', { polity: seatPolity(civ, x), major: false, at: x.regencies![x.regencies!.length - 1].until ?? end })}>
                 在编年史中查看
               </button>
             }
@@ -397,7 +445,7 @@ export function PersonPanel({ civ, id, year }: DetailProps) {
         )}
         <CharacterRefs refs={refs} />
         {ruler && <ReignRecord civ={civ} x={x} era={era} />}
-        {(!prince || events.length > 0) && (
+        {((!prince && !consort) || events.length > 0) && (
         <EventList
           civ={civ}
           self={id}
@@ -513,6 +561,48 @@ function Leanings({ civ, x, l, year, over, onEdit, locked }: { civ: Civ; x: Pers
 
 /** 概况的每一行 */
 function personLines(civ: Civ, x: Person, era: Era | undefined): Line[] {
+  const out = personFacts(civ, x, era);
+  const from = trekLine(civ, x, era);
+  if (from) out.push(from);
+  return out;
+}
+
+/**
+ * 跟着大迁徙迁过来的那一代人(这国的人、落脚以前生的):「来历」一行,排在概况最后。领头立国的那位 "率克拉尔族西徙，立萨热汗国";
+ * 别的 "克拉尔族；1899 年随族自诺敏塔拉西徙，1911 年随众立国"(地名点了跳到动身那年),路上生的 "克拉尔族；生于西徙途中，1911 年随众立国"。
+ * 不是 = null(见 migrationInfo.ts 的 personTrek)
+ */
+function trekLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
+  const t = personTrek(civ, x);
+  if (!t) return null;
+  const folk = cultureLabel(civ.cultures[t.M.culture]);
+  const go = `${t.M.dir}徙`;
+  if (t.how === 'lead') {
+    const text = `率${folk}${go}，立${polityName(civ.polities[x.polity], t.M.settled!)}`;
+    return { k: '来历', node: text, text };
+  }
+  const settled = `${yearAt(t.M.settled!, era)}随众立国`;
+  if (t.how === 'road') {
+    const text = `${folk}；生于${go}途中，${settled}`;
+    return { k: '来历', node: text, text };
+  }
+  const left = `${folk}；${yearAt(t.M.year, era)}随族自`;
+  return {
+    k: '来历',
+    node: (
+      <>
+        {left}
+        <TrekFrom civ={civ} m={t.m} />
+        {go}，{settled}
+      </>
+    ),
+    text: `${left}${regionLabel(civ, t.M.route[0])}${go}，${settled}`,
+  };
+}
+
+/** 概况里除了「来历」的那些行(按身份) */
+function personFacts(civ: Civ, x: Person, era: Era | undefined): Line[] {
+  if (x.role === 'consort') return consortFacts(civ, x, era);
   const p = civ.polities[x.polity];
   const out: Line[] = [];
   const fame = personFame(civ, x);
@@ -537,6 +627,9 @@ function personLines(civ: Civ, x: Person, era: Era | undefined): Line[] {
       text: `${yearSpanAt(x.born, x.died, era)}，享年 ${age} 岁`,
     });
   } else out.push({ k: '生卒', node: `${yearAt(x.born, era)}生`, text: `${yearAt(x.born, era)}生` });
+  // 将门、世家:父亲(母亲)、子嗣;复国之君:故国的父亲、出自
+  if (x.role === 'minister' || x.role === 'general') houseLines(civ, x, out, era);
+  if (x.role === 'ruler') restoreLines(civ, x, out);
   if (x.role === 'prince') {
     const held = heldLine(civ, x, era);
     if (held) out.push(held);
@@ -589,6 +682,15 @@ function heldLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
     const N = g.ruler >= 0 ? civ.people?.[g.ruler] : undefined;
     const verb = REGENCY_VERB[g.kind];
     const end = (g.end && REGENCY_END[g.end]) || '';
+    if (g.kind === 'dowager') {
+      // 太后临朝:"2414–2421 年  愍帝年幼，还政";临朝篡位做了女君的 "2205–2212 年  皇太后摄政，其子在位时，篡位"
+      const east = !!(N && civ.polities[N.polity]?.eastern);
+      const t =
+        x.role === 'ruler'
+          ? [`${dowagerWordOf(civ, x, g.from)}${east ? '临朝' : '摄政'}`, N && N.mom === x.id ? '其子在位时' : '', end].filter(Boolean).join('，')
+          : [N ? `${youngName(civ, N)}年幼` : '', end].filter(Boolean).join('，');
+      return { node: <>{years}<em className="cp-num-note">{t}</em></>, text: `${years}（${t}）` };
+    }
     if (g.kind === 'march' || g.kind === 'heir') {
       const kin = N ? kinOf(civ, x, N) : '';
       const t = [verb, `${kin === '父' || kin === '母' ? `${kin}亲` : kin || '君主'}在位时`].filter(Boolean).join('，');
@@ -610,7 +712,7 @@ function heldLine(civ: Civ, x: Person, era: Era | undefined): Line | null {
     };
   });
   return {
-    k: '掌权',
+    k: gs.every((g) => g.kind === 'dowager') ? '临朝' : '掌权',
     node: items.map((v, i) => (
       <Fragment key={i}>
         {i > 0 && '；'}
@@ -626,28 +728,32 @@ function heldOverLine(civ: Civ, r: Person, hs: readonly Held[], era: Era | undef
   if (!hs.length) return null;
   const items = hs.map(({ x, g }) => {
     const o = overlapOf(g, r);
-    const kin = g.kind === 'march' || g.kind === 'heir' || g.kind === 'uncle' ? kinOf(civ, r, x) : '';
+    const kin = g.kind === 'march' || g.kind === 'heir' || g.kind === 'uncle' || g.kind === 'dowager' ? kinOf(civ, r, x) : '';
     const verb = REGENCY_VERB[g.kind];
     // 结局在他在位时才写(专权跨了几位君主的,前几位不写)
     const end = g.end && o.until === g.until ? (REGENCY_END[g.end] ?? '') : '';
     const note = [kin, `${verb}${verb ? ' ' : ''}${spanNote(o.from, o.until, era)}`, end].filter(Boolean).join('，');
-    return { x, note };
+    // 太后临朝:名字前面写"太后"
+    const pre = g.kind === 'dowager' ? dowagerWordOf(civ, x, g.from) : '';
+    return { x, note, pre };
   });
   return {
     k: '实权',
     node: items.map((v, i) => (
       <Fragment key={i}>
         {i > 0 && '；'}
+        {v.pre}
         <Link to={{ kind: 'person', id: v.x.id }}>{v.x.name}</Link>
         <em className="cp-num-note">{v.note}</em>
       </Fragment>
     )),
-    text: items.map((v) => `${v.x.name}（${v.note}）`).join('；'),
+    text: items.map((v) => `${v.pre}${v.x.name}（${v.note}）`).join('；'),
   };
 }
 
 /**
  * 宗室女一行(不成完整人物,不能点):「配偶」"风氏  大澜德宗之女，2610 年娶"(议和时结的写"和亲");「母亲」不写年份。
+ * 女的(她嫁过去,配偶是对方的宗室子):"大澜德宗之子  2610 年嫁"。
  * 国名是简称、能点;她父亲没有人物的写"大澜宗室女";没有姓的语感写"大澜公主"
  */
 function brideLine(k: string, civ: Civ, x: Person, list: readonly PersonSpouse[], era: Era | undefined, when: boolean): Line {
@@ -656,11 +762,26 @@ function brideLine(k: string, civ: Civ, x: Person, list: readonly PersonSpouse[]
     const short = polityShort(civ, s.polity, s.year);
     const who = F ? `${rulerBare(civ, F, s.year)}之女` : '宗室女';
     const tail = when ? `，${yearAt(s.year, era)}${s.peace !== undefined ? '和亲' : wedVerb(x)}` : '';
+    if (when && isFemale(x)) {
+      // 「配偶」那一行、她是女的:她是嫁过去的那一方,配偶是对方君主的儿子(宗室子),没有名字(「母亲」那一行照旧写宗室女)
+      const him = F ? `${rulerBare(civ, F, s.year)}之子` : '宗室子';
+      return {
+        node: (
+          <>
+            {civ.polities[s.polity] ? <Link to={{ kind: 'polity', id: s.polity }}>{short}</Link> : short}
+            {him}
+            {tail && <em className="cp-num-note">{tail.slice(1)}</em>}
+          </>
+        ),
+        text: `${short}${him}${tail}`,
+      };
+    }
     const name = brideName(civ, s);
+    const B = s.person !== undefined ? civ.people?.[s.person] : undefined;
     return {
       node: (
         <>
-          {name}
+          {B ? <Link to={{ kind: 'person', id: B.id }}>{name}</Link> : name}
           <em className="cp-num-note">
             {civ.polities[s.polity] ? <Link to={{ kind: 'polity', id: s.polity }}>{short}</Link> : short}
             {who}
@@ -733,9 +854,9 @@ function ministerLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
   if (fate) out.push({ k: '结局', node: fate, text: fate });
 }
 
-/** 生平里写到的人:经手的事里的君主,迎立的那件还有遇弑的先君 */
+/** 生平里写到的人:将门、世家的父辈,经手的事里的君主,迎立的那件还有遇弑的先君 */
 function bioPeople(civ: Civ, x: Person): number[] {
-  const out: number[] = [];
+  const out: number[] = houseMentions(civ, x).map((a) => a.id);
   for (const d of x.deeds ?? []) {
     const r = d.person !== undefined ? civ.people?.[d.person] : undefined;
     if (!r) continue;
@@ -748,17 +869,192 @@ function bioPeople(civ: Civ, x: Person): number[] {
   return [...new Set(out)];
 }
 
+/**
+ * 将门、世家(将领、名臣):「父亲」(女的写「母亲」)、「子嗣」(当了将领、名臣的孩子),人名能点,后面小字写他是什么人、做过什么
+ * ("大定将领，攻取六州""哈兹斯坦首相，1321–1346 年在任")。没有的不出
+ */
+function houseLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
+  const f = fatherOf(civ, x);
+  if (f) out.push(personRow(kinWord(f, '父亲'), civ, f, houseNote(civ, f, era)));
+  const ks = kidsOf(civ, x);
+  if (!ks.length) return;
+  out.push({
+    k: '子嗣',
+    node: (
+      <>
+        {ks.map((k, i) => (
+          <Fragment key={k.id}>
+            {i > 0 && '、'}
+            <Link to={{ kind: 'person', id: k.id }}>{personName(civ, k)}</Link>
+            <em className="cp-num-note">{houseNote(civ, k, era)}</em>
+          </Fragment>
+        ))}
+      </>
+    ),
+    text: ks.map((k) => `${personName(civ, k)}(${houseNote(civ, k, era)})`).join('、'),
+  });
+}
+
+/** 复国之君接上了故国世系:父亲在故国(小字"大嘉宗室""大嘉末帝"),再一行「出自」:故国哪位君主、他的第几代孙("大嘉末帝，他的曾孙") */
+function restoreLines(civ: Civ, x: Person, out: Line[]) {
+  if (x.rise !== 'restore') return;
+  const f = fatherOf(civ, x);
+  const realm = (y: Person) => {
+    const p = civ.polities[y.polity];
+    return polityShort(civ, y.polity, Math.min(civ.endYear, p?.ended ?? civ.endYear) - 1 / 512);
+  };
+  const what = (y: Person) => `${realm(y)}${y.role === 'prince' ? '宗室' : isLastRuler(civ, y) ? '末帝' : '君主'}`;
+  if (f && f.polity !== x.polity) out.push(personRow(kinWord(f, '父亲'), civ, f, what(f)));
+  const d = descentOf(civ, x);
+  if (d && d.gen >= 2) out.push(personRow('出自', civ, d.from, `${what(d.from)}，${heOrShe(d.from)}的${descentWord(x, d.gen)}`));
+}
+
 /** 父亲(收养的写「养父」;在别国的小字写那一国)、母亲 / 配偶(联姻的宗室女)、子嗣(世系图里有的人;没即位的小字"未即位") */
 function kinLines(civ: Civ, x: Person, out: Line[], era: Era | undefined) {
   const f = fatherOf(civ, x);
-  if (f) {
+  // 复国之君在故国的父亲写在生卒下面(restoreLines)
+  if (f && !(x.rise === 'restore' && f.polity !== x.polity)) {
     const away = f.polity !== x.polity ? polityName(civ.polities[f.polity], Math.min(x.from ?? x.born, f.until ?? Infinity) - 1 / 512) : '';
     out.push(personRow(kinWord(f, x.adopted ? '养父' : '父亲'), civ, f, [f.role === 'prince' ? '未即位' : '', away].filter(Boolean).join('，')));
   }
-  if (x.mother) out.push(brideLine('母亲', civ, x, [x.mother], era, false));
+  const M = motherOf(civ, x);
+  if (M) out.push(motherRow(civ, M));
   if (x.spouses?.length) out.push(brideLine('配偶', civ, x, x.spouses, era, true));
-  const ks = kidsOf(civ, x);
-  if (ks.length) out.push({ k: '子嗣', ...kidsLine(civ, ks) });
+  const H = x.husband !== undefined ? civ.people?.[x.husband] : undefined;
+  if (H) out.push(husbandRow(x, civ, H));
+  const ks = isFemale(x) ? childrenOf(civ, x) : kidsOf(civ, x);
+  if (ks.length) out.push({ k: '子嗣', ...kidsLine(civ, ks, 6, x) });
+}
+
+/** 君号(不带国名):"皇帝""国王""女王"……(按他在位的最后那年) */
+function rulerRank(civ: Civ, x: Person): string {
+  const p = civ.polities[x.polity];
+  if (!p) return '君主';
+  const tier = Math.min(3, Math.max(0, polityTierAt(p, Math.max(x.from ?? 0, (x.until ?? civ.endYear) - 1 / 512))));
+  return p.eastern ? eastRank(x, tier) : westRank(x, p.lineage, tier);
+}
+
+/** 幼主怎么称呼(太后那几行里):东方有称号的写称号("愍帝"),没有写名字;西幻 "塞尔维里努斯" */
+function youngName(civ: Civ, N: Person): string {
+  const p = civ.polities[N.polity];
+  return p?.eastern && N.title ? rulerTitle(civ, N) : rulerShort(civ, N);
+}
+
+/** 「母亲」一行(人名能点):临朝的太后小字写"太后";嫁来的宗室女小字写出自哪国谁之女("大澜德宗之女",国名能点) */
+function motherRow(civ: Civ, M: Person): Line {
+  const gs = dowagerSpans(M);
+  if (gs.length) return personRow(kinWord(M, '母亲'), civ, M, dowagerWordOf(civ, M, gs[0].from));
+  const w = brideMatchOf(civ, M);
+  const F = M.parent !== undefined ? civ.people?.[M.parent] : undefined;
+  if (!w) return personRow(kinWord(M, '母亲'), civ, M, '');
+  const short = polityShort(civ, w.polity, w.year);
+  const who = F ? `${rulerBare(civ, F, w.year)}之女` : '宗室女';
+  const n = personName(civ, M);
+  return {
+    k: '母亲',
+    node: (
+      <>
+        <Link to={{ kind: 'person', id: M.id }}>{n}</Link>
+        <em className="cp-num-note">
+          {civ.polities[w.polity] ? <Link to={{ kind: 'polity', id: w.polity }}>{short}</Link> : short}
+          {who}
+        </em>
+      </>
+    ),
+    text: `${n}（${short}${who}）`,
+  };
+}
+
+/** 「配偶」一行(后妃、临朝篡位的女君:她的丈夫;人名能点):女君的丈夫是前朝的写"前朝宗室 / 前朝",没即位的写"未即位" */
+function husbandRow(x: Person, civ: Civ, H: Person): Line {
+  const other = x.role === 'ruler' && H.polity === x.polity && (H.dynasty ?? 0) !== (x.dynasty ?? 0);
+  const note = other ? (H.role === 'prince' ? '前朝宗室' : '前朝') : H.role === 'prince' ? '未即位' : '';
+  return personRow('配偶', civ, H, note);
+}
+
+/**
+ * 后妃的概况:
+ * 临朝的太后 —— 事迹("愍帝年幼，临朝称制七年，还政")、国家(临朝的那一国)、出身(东方"江氏  银泉渡人";嫁来的写出自哪国谁之女)、
+ *   生卒、临朝、配偶、子嗣、结局("还政后居宫中，2450 年卒")
+ * 嫁来的宗室女 —— 国家(娘家,小字"嫁入某国")、生卒、父亲、出嫁(嫁给谁、哪国、哪年)、子嗣、结局("卒于埃维里亚")
+ */
+function consortFacts(civ: Civ, x: Person, era: Era | undefined): Line[] {
+  const out: Line[] = [];
+  const gs = dowagerSpans(x);
+  const w = brideMatchOf(civ, x);
+  const H = x.husband !== undefined ? civ.people?.[x.husband] : undefined;
+  const g0 = gs[0];
+  const N = g0 ? civ.people?.[g0.ruler] : undefined;
+  const east = !!civ.polities[N?.polity ?? x.polity]?.eastern;
+  const link = (pid: number, y: number) => {
+    const n = polityName(civ.polities[pid], y);
+    return { node: <Link to={{ kind: 'polity', id: pid }}>{n}</Link>, text: n };
+  };
+  if (g0) {
+    const last = gs[gs.length - 1];
+    const n = last.until !== undefined ? Math.floor(last.until) - Math.floor(g0.from) : -1;
+    const how = `${east ? '临朝称制' : '摄政'}${n >= 1 ? `${cnNumber(n)}年` : n === 0 ? '不足一年' : '至今'}`;
+    const end = (last.end && REGENCY_END[last.end]) || '';
+    const deeds = [N ? `${youngName(civ, N)}年幼` : '', how, end].filter(Boolean).join('，');
+    out.push({ k: '事迹', node: deeds, text: deeds });
+    out.push({ k: '国家', ...link(N?.polity ?? x.polity, g0.from) });
+    // 出身:嫁来的写出自哪国谁之女;别的东方带姓的写"某氏",小字籍贯
+    if (w) {
+      const F = x.parent !== undefined ? civ.people?.[x.parent] : undefined;
+      const short = polityShort(civ, w.polity, w.year);
+      const who = F ? `${rulerBare(civ, F, w.year)}之女` : '宗室女';
+      out.push({ k: '出身', node: <>{civ.polities[w.polity] ? <Link to={{ kind: 'polity', id: w.polity }}>{short}</Link> : short}{who}</>, text: `${short}${who}` });
+    } else {
+      const home = x.home !== undefined ? civ.settlements[x.home] : undefined;
+      const sur = east && /^[\u4e00-\u9fff]{2,4}$/.test(x.name) ? `${splitSurname(x.name)}氏` : '';
+      const from = home?.name ? `${home.name}人` : '';
+      if (sur || from)
+        out.push({
+          k: '出身',
+          node: sur ? <>{sur}{from && <em className="cp-num-note">{from}</em>}</> : from,
+          text: [sur, from].filter(Boolean).join('，'),
+        });
+    }
+  } else {
+    const y = w?.year ?? x.born;
+    const own = link(x.polity, y);
+    const to = H && H.polity !== x.polity ? link(H.polity, y) : null;
+    out.push({
+      k: '国家',
+      node: (
+        <>
+          {own.node}
+          {to && <em className="cp-num-note">嫁入{to.node}</em>}
+        </>
+      ),
+      text: to ? `${own.text}，嫁入${to.text}` : own.text,
+    });
+  }
+  if (x.died !== undefined) {
+    const age = ageAt(x, x.died);
+    out.push({ k: '生卒', node: <>{yearSpanAt(x.born, x.died, era)}<em className="cp-num-note">享年 {age} 岁</em></>, text: `${yearSpanAt(x.born, x.died, era)}，享年 ${age} 岁` });
+  } else out.push({ k: '生卒', node: `${yearAt(x.born, era)}生`, text: `${yearAt(x.born, era)}生` });
+  if (g0) {
+    const held = heldLine(civ, x, era);
+    if (held) out.push(held);
+    if (H) out.push(husbandRow(x, civ, H));
+  } else {
+    const f = fatherOf(civ, x);
+    if (f) out.push(personRow(kinWord(f, '父亲'), civ, f, ''));
+    if (H && w) {
+      const t = `${polityName(civ.polities[H.polity], w.year)}，${yearAt(w.year, era)}${w.peace !== undefined ? '和亲' : ''}`;
+      const n = personName(civ, H);
+      out.push({ k: '出嫁', node: <><Link to={{ kind: 'person', id: H.id }}>{n}</Link><em className="cp-num-note">{t}</em></>, text: `${n}（${t}）` });
+    }
+  }
+  const ks = childrenOf(civ, x);
+  if (ks.length) out.push({ k: '子嗣', ...kidsLine(civ, ks, 6, x) });
+  let fate = '';
+  if (x.fate === 'purged') fate = `被废，幽死${x.died !== undefined ? `（${yearAt(x.died, era)}）` : ''}`;
+  else if (g0 && gs[gs.length - 1].end === 'return') fate = x.died !== undefined ? `还政后居宫中，${yearAt(x.died, era)}卒` : '还政后居宫中';
+  else if (x.died !== undefined) fate = !g0 && H ? `卒于${polityShort(civ, H.polity, x.died)}` : `${yearAt(x.died, era)}卒`;
+  if (fate) out.push({ k: '结局', node: fate, text: fate });
+  return out;
 }
 
 function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | undefined, held: Line | null) {
@@ -790,7 +1086,9 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
   const sameDyn = (a: Person, b: Person) => (a.dynasty ?? 0) === (b.dynasty ?? 0);
   if (prev) {
     const ac = authorOf(prev);
-    const note = ac ? '作者的人物' : consul ? '' : !sameDyn(prev, x) ? '前朝' : x.rise === 'heir' ? kinOf(civ, x, prev) || '宗室' : '';
+    // 临朝篡位的女君:前任是她的儿子("子，前朝")
+    const mom = prev.mom === x.id || x.mom === prev.id ? kinOf(civ, x, prev) : '';
+    const note = ac ? '作者的人物' : consul ? '' : !sameDyn(prev, x) ? (mom ? `${mom}，前朝` : '前朝') : x.rise === 'heir' ? kinOf(civ, x, prev) || '宗室' : '';
     out.push(personRow('前任', civ, prev, note, ac));
   }
   if (next) {
@@ -799,7 +1097,7 @@ function rulerLines(civ: Civ, x: Person, out: Line[], foes: Foe[], era: Era | un
     out.push(personRow('继任', civ, next, note, ac));
   }
   if (!consul) kinLines(civ, x, out, era);
-  const claim = claimLine(civ, x);
+  const claim = claimLine(civ, x) ?? dowagerClaimLine(civ, x);
   if (claim) out.push(claim);
   const fate = rulerFateWord(civ, x);
   // 被废徙居、亡国出奔到中立地 / 邻国的:「放逐」/「出奔」一行排在结局前面,结局写"卒于某地 / 某国"
@@ -964,6 +1262,16 @@ function princeHead(x: Person): string {
   return led && purged ? '领兵、争储' : purged ? '争储' : '领兵时';
 }
 
+/** 临朝篡位的女君:「争位  以皇太后废其子 塞尔维里努斯 自立，改朝换代」(被废的幼主能点);不是 = null */
+function dowagerClaimLine(civ: Civ, x: Person): Line | null {
+  const g = dowagerSpans(x).find((v) => v.end === 'usurp');
+  const N = g ? civ.people?.[g.ruler] : undefined;
+  if (!g || !N) return null;
+  const head = `以${dowagerWordOf(civ, x, g.until ?? g.from)}废${N.mom === x.id ? '其子' : '幼主'}`;
+  const n = personName(civ, N);
+  return { k: '争位', node: <>{head} <Link to={{ kind: 'person', id: N.id }}>{n}</Link> 自立，改朝换代</>, text: `${head}${n}自立，改朝换代` };
+}
+
 /** 掌着实权时被诛(摄政的叔父、专权的大臣大将):结局是伏诛,不是争储被杀 */
 function regentPurged(x: Person): boolean {
   return x.fate === 'purged' && !!x.regencies?.some((g) => g.end === 'purged');
@@ -1075,7 +1383,9 @@ export function heldEvents(civ: Civ, x: Person): ChronicleEntry[] {
   const gs = x.regencies ?? [];
   if (!gs.length) return [];
   const near = (a: number, b: number | undefined) => b !== undefined && Math.abs(a - b) < 1e-6;
-  return polityEntries(civ, x.polity).filter((e) =>
+  // 嫁来的宗室女做了太后:临朝的是丈夫那一国(幼主那一国),不是她娘家
+  const pid = civ.people?.[gs[0].ruler]?.polity ?? x.polity;
+  return polityEntries(civ, pid).filter((e) =>
     gs.some(
       (g) =>
         (e.kind === 'regent' && (e.id === g.annal || e.id === g.endAnnal)) ||
@@ -1087,7 +1397,10 @@ export function heldEvents(civ: Civ, x: Person): ChronicleEntry[] {
 
 /** 「联姻」那几条(按先后):结亲那一条(互嫁的并在前一门那一条里),那以后两国本为姻亲时的结盟 */
 export function marryEvents(civ: Civ, x: Person): ChronicleEntry[] {
-  const ss = x.spouses ?? [];
+  // 嫁来的宗室女:她嫁过来的那一门亲,亲家是丈夫那一国
+  const w = brideMatchOf(civ, x);
+  const H = w && x.husband !== undefined ? civ.people?.[x.husband] : undefined;
+  const ss = H && w ? [{ ...w, polity: H.polity }] : (x.spouses ?? []);
   if (!ss.length) return [];
   return polityEntries(civ, x.polity).filter((e) =>
     ss.some(
@@ -1125,4 +1438,23 @@ export function personEvents(civ: Civ, x: Person): ChronicleEntry[] {
   const mine = all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.id >= c.first && e.id <= c.last && civ.annals[e.id]?.war === c.war));
   if (mine.length) return mine;
   return all.filter((e) => e.kind !== 'reign' && cs.some((c) => e.year >= c.from - eps && e.year <= c.until + eps));
+}
+
+/**
+ * AI 写列传、家传要的人物卡(ai/prompts/lives.ts 的 PersonCard;经 lifeSource.ts 交给写书的那一套):
+ * 概况一行一项、倾向、生平,在位 / 在朝 / 领兵时本国的事连同掌权、联姻、放逐那几条。年份照推演写("2325–2354 年"),不按纪年
+ */
+export function personCard(civ: Civ, x: Person): PersonCard {
+  const lines = personLines(civ, x, undefined).map(({ k, text }) => ({ k, text }));
+  const exile = x.exile ? polityEntries(civ, x.polity).filter((e) => e.kind === 'exile' && e.id === x.exile!.annal) : [];
+  const seen = new Set<string>();
+  const events = [...personEvents(civ, x), ...heldEvents(civ, x), ...marryEvents(civ, x), ...exile]
+    .filter((e) => {
+      const k = `${e.kind}:${e.id}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a.year - b.year || a.id - b.id);
+  return { lines, leanings: x.role === 'ruler' && x.leanings ? leaningsText(x.leanings) : '', bio: personBio(civ, x), events };
 }

@@ -13,6 +13,7 @@ import { cleanUpheaval, UPHEAVALS_MAX } from '../gen/terrainEdits';
 import { addEditsBatch, editBlock, getEdits, interventionKeys, onEditsReset } from './editsStore';
 import { startRun, type IvRun } from './panelStore';
 import { showToast } from './toastStore';
+import { lifeTagUsed, stampLife } from './lifeTag';
 
 /** 只推这一条时,推演中地图上浮出的名牌(下令的国家、对象;同 panelStore.IvRun) */
 export type PendingRun = Omit<IvRun, 't0' | 'from'>;
@@ -72,6 +73,9 @@ export function pendingUpheavals(list: readonly Pending[] = items): number {
 
 /** 加一条干预进单子:加上了 = null,加不了 = 原因(现在不能改、已经下过、已经在单子里) */
 export function queueIntervention(v: Intervention, text: string, run?: PendingRun): string | null {
+  // 照人物卡上一段经历开的国家的事那一页:记在他名下(lifeTag.ts)
+  const st = stampLife(v, text);
+  if (st) ({ v, text } = st);
   const c = cleanIntervention(v);
   if (!c) return '这条命令下不了';
   const blocked = editBlock(interventionKeys(c));
@@ -79,6 +83,7 @@ export function queueIntervention(v: Intervention, text: string, run?: PendingRu
   if (getEdits().interventions.some((x) => same(x, c))) return '这条命令已经下过了';
   if (pendingHas(c)) return '这条命令已经在待推演里了';
   set([...items, { id: nextId++, from: c.from, text, kind: 'iv', v: c, run }]);
+  if (st) lifeTagUsed();
   return null;
 }
 

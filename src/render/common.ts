@@ -1,6 +1,7 @@
 /** 渲染共用:明暗(山体阴影)、距离变换、颜色工具。 */
 import type { Raster } from '../gen/raster';
-import { boxBlur, noise3 } from '../gen/util';
+import { boxBlur } from '../gen/util';
+import { noise3 } from '../gen/noise';
 import { reprojectImage, type Projector } from './projection';
 export { boxBlur };
 
@@ -592,6 +593,8 @@ interface DenseRiver {
   /** 每点的流量、形状系数(源头收细、河口张开):细节层按缩放倍数重新算河宽用(宽 = 河宽(流量) × 形状系数) */
   f: number[];
   m: number[];
+  /** 入海 / 入湖的河:岸上那一点(原来最后一个顶点)在加密后的第几个点(之后是伸进水里的一段) */
+  mouth?: number;
 }
 
 /**
@@ -773,6 +776,7 @@ export function riverGeometry(
     // 弯一弯:平滑的样条只有地块那么大的弯,真实的河各种尺度都有弯。
     // 汇入别的河的一段最后贴到干流弯过之后的位置;入海、出湖的一头不弯(河口、湖口不挪)
     const off = joinPos ? moved.get(last) : undefined;
+    if (mouth) d.mouth = at[M - 2];
     meander(d.x, d.y, hashXY(vx[last], vy[last], vx[c[m - 2]], vy[c[m - 2]]), fromLake, off);
     for (let i = 1; i < m - 1; i++) {
       const j = at[i + first];

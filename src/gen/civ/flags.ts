@@ -12,6 +12,10 @@
  * - 东方牙旗:底色按五德(木青、火红、土黄、金白、水黑),立国那朝随机,之后每换一朝按相生(木 → 火 → 土 → 金 → 水 → 木)换;
  *   旗上不写字,中间一只神兽或一样纹样(古代旗帜、器物上用过的),和犬牙边同色,换朝代换一样、和上一朝不重样。
  * - 换朝代:西幻换图案(颜色、样式不变);东方换底色和图案;汗国换烙印。
+ * - 改制(regime.ts):只在"君主没了 / 回来了"的时候换旗 —— 废君、革命改共和:西幻和汗国颜色、城的图案留着,
+ *   样式换成共和国常用的(条纹、三色竖条、十字、左上角方块),王冠、剑、烙印这类王室的东西拿掉;东方牙旗改方旗、底色留着,
+ *   神兽换成纹样(避开日、日月这类像现实国旗的)。立宪、政变、还政不换。复辟迎回旧王室:用回改制前那面;
+ *   旧王室没人了、拥立的人自己做君主:当成换了一朝(西幻在共和的旗上换成新王室的图案,东方方旗改回牙旗、按五德往下推一德、换一只神兽)。
  * - 分家:西幻沿用母国当时的旗,换一个颜色、左上角加星(第几个分出来就几颗,最多三颗);
  *   东方沿用母国当时的德和图案,加一道镶边;汗国在母国的烙印上加一笔。复国:用回故国亡国前的最后那面旗。
  * - 随机数都从 subSeed(种子, 'flag:' + 国家的稳定键 …) 取:同一个种子永远同一面旗。
@@ -27,239 +31,10 @@ import type { Civ, Polity } from './types';
 import { Biome } from '../biomes';
 import { mulberry32, subSeed, type Rng } from '../util';
 import { cultureKey, dynastyKey, polityKey } from '../edits';
+import { BEASTS, decodeFlag, EDIT_LAYOUTS, isBeast, isEastern, isMetal, MARKS, type ChargeAt, type FlagSpec, type Layout, type Mark, type Shape, type Sym, type Tinct } from './flagSpec';
 
-// ---------------------------------------------------------------------------
-// 颜色
-
-/** 旗的颜色:W 白、Y 金、R 红、M 绛、B 蓝、S 天蓝、G 绿、T 青、K 黑、P 紫、O 橙、N 褐 */
-export type Tinct = 'W' | 'Y' | 'R' | 'M' | 'B' | 'S' | 'G' | 'T' | 'K' | 'P' | 'O' | 'N';
-
-/** 色板:比地图的国家色深、饱和(旗要醒目);白、金是"金属色" */
-export const TINCT: Record<Tinct, { hex: string; name: string; metal?: true }> = {
-  W: { hex: '#F3F0E8', name: '白', metal: true },
-  Y: { hex: '#E3A92E', name: '金', metal: true },
-  R: { hex: '#B8322C', name: '红' },
-  M: { hex: '#7E2131', name: '绛' },
-  B: { hex: '#21508F', name: '蓝' },
-  S: { hex: '#5C97CD', name: '天蓝' },
-  G: { hex: '#2F6B3F', name: '绿' },
-  T: { hex: '#1D6563', name: '青' },
-  K: { hex: '#25272C', name: '黑' },
-  P: { hex: '#5B3374', name: '紫' },
-  O: { hex: '#D4692A', name: '橙' },
-  N: { hex: '#7A5133', name: '褐' },
-};
-
-/** 色板的顺序(改旗时一排色点) */
-export const TINCTS = Object.keys(TINCT) as Tinct[];
-
-export const isMetal = (t: Tinct) => !!TINCT[t].metal;
-
-// ---------------------------------------------------------------------------
-// 旗的样子
-
-/** 旗形:方旗、燕尾旗、牙旗(犬牙边) */
-export type Shape = 'rect' | 'swallow' | 'banner';
-
-/** 底子的分法 */
-export type Layout =
-  | 'plain'
-  | 'bi-h'
-  | 'bi-v'
-  | 'tri-h'
-  | 'tri-v'
-  | 'fess'
-  | 'pale'
-  | 'nordic'
-  | 'cross'
-  | 'saltire'
-  | 'per-bend'
-  | 'chevron'
-  | 'canton'
-  | 'stripes'
-  | 'bordure'
-  | 'quarterly'
-  | 'disc'
-  | 'wavy'
-  | 'hoist';
-
-export const LAYOUT_NAME: Record<Layout, string> = {
-  plain: '纯色',
-  'bi-h': '上下两色',
-  'bi-v': '左右两色',
-  'tri-h': '三色横条',
-  'tri-v': '三色竖条',
-  fess: '中间一道横条',
-  pale: '中间一道竖条',
-  nordic: '偏十字',
-  cross: '十字',
-  saltire: '斜十字',
-  'per-bend': '斜分两色',
-  chevron: '旗杆边三角',
-  canton: '左上角方块',
-  stripes: '条纹',
-  bordure: '镶边',
-  quarterly: '四格',
-  disc: '圆',
-  wavy: '波纹',
-  hoist: '旗杆边竖条',
-};
-
-/** 改旗时能挑的样式(按这个顺序排) */
-export const EDIT_LAYOUTS: Layout[] = ['tri-h', 'tri-v', 'bi-h', 'bi-v', 'plain', 'fess', 'pale', 'nordic', 'cross', 'saltire', 'per-bend', 'chevron', 'canton', 'stripes', 'bordure', 'quarterly', 'disc', 'wavy'];
-
-/** 每种样式用几块颜色(按顺序:上 / 中 / 下,或 底 / 图形 / 第三色) */
-export const LAYOUT_COLORS: Record<Layout, number> = {
-  plain: 1,
-  'bi-h': 2,
-  'bi-v': 2,
-  'tri-h': 3,
-  'tri-v': 3,
-  fess: 2,
-  pale: 2,
-  nordic: 3,
-  cross: 2,
-  saltire: 2,
-  'per-bend': 2,
-  chevron: 3,
-  canton: 2,
-  stripes: 3,
-  bordure: 2,
-  quarterly: 2,
-  disc: 2,
-  wavy: 2,
-  hoist: 2,
-};
-
-/** 西幻、汗国旗上的图案 */
-export type Sym =
-  | 'star'
-  | 'star8'
-  | 'sun'
-  | 'crescent'
-  | 'tower'
-  | 'crown'
-  | 'mountain'
-  | 'ship'
-  | 'anchor'
-  | 'trident'
-  | 'tree'
-  | 'leaf'
-  | 'rose'
-  | 'key'
-  | 'sword'
-  | 'wheat'
-  | 'fish'
-  | 'bird'
-  | 'bow'
-  | 'tamga';
-
-export const SYM_NAME: Record<Sym, string> = {
-  star: '五角星',
-  star8: '八角星',
-  sun: '太阳',
-  crescent: '新月',
-  tower: '塔楼',
-  crown: '王冠',
-  mountain: '山',
-  ship: '帆船',
-  anchor: '锚',
-  trident: '三叉戟',
-  tree: '松树',
-  leaf: '叶子',
-  rose: '玫瑰',
-  key: '钥匙',
-  sword: '剑',
-  wheat: '麦穗',
-  fish: '鱼',
-  bird: '飞鸟',
-  bow: '弓',
-  tamga: '烙印',
-};
-
-/** 改旗时能挑的图案(按这个顺序排) */
-export const EDIT_SYMS: Sym[] = ['crown', 'tower', 'star', 'star8', 'sun', 'crescent', 'mountain', 'ship', 'anchor', 'trident', 'tree', 'leaf', 'rose', 'key', 'sword', 'wheat', 'fish', 'bird', 'bow', 'tamga'];
-
-/** 东方旗上的纹样:都从古代旗帜、器物上用过的标志抽象出来 */
-export type Emblem = 'ri' | 'riyue' | 'dou' | 'san' | 'lei' | 'huo' | 'taiji' | 'qian' | 'ling' | 'shui';
-/** 东方旗上的神兽:四灵和《山海经》里的几种,一色剪影 */
-export type Beast = 'long' | 'feng' | 'baihu' | 'hu' | 'gui' | 'yao' | 'bifang' | 'taotie';
-/** 东方旗中间画的:神兽或纹样 */
-export type Mark = Emblem | Beast;
-
-export const BEASTS: Beast[] = ['long', 'feng', 'baihu', 'gui', 'hu', 'yao', 'bifang', 'taotie'];
-export const EMBLEMS: Emblem[] = ['ri', 'riyue', 'dou', 'san', 'huo', 'lei', 'shui', 'ling', 'qian', 'taiji'];
-/** 改旗时能挑的(神兽在前) */
-export const MARKS: Mark[] = [...BEASTS, ...EMBLEMS];
-export const isBeast = (m: Mark): m is Beast => (BEASTS as Mark[]).includes(m);
-
-export const MARK_NAME: Record<Mark, string> = {
-  long: '龙',
-  feng: '凤',
-  baihu: '白虎',
-  hu: '九尾狐',
-  gui: '旋龟',
-  yao: '文鳐鱼',
-  bifang: '毕方',
-  taotie: '饕餮',
-  ri: '日',
-  riyue: '日月',
-  dou: '北斗',
-  san: '三星',
-  lei: '雷纹',
-  huo: '火',
-  taiji: '太极',
-  qian: '钱纹',
-  ling: '菱纹',
-  shui: '水纹',
-};
-
-/** 神兽、纹样从哪来(旗帜详情里那一行的后半句) */
-export const MARK_NOTE: Record<Mark, string> = {
-  long: '取自《周礼》九旗“交龙为旂”，清代黄龙旗上的龙戏珠',
-  feng: '取自《山海经·南山经》丹穴山“五采而文”的凤皇',
-  baihu: '取自古代行军“左青龙而右白虎”的白虎旗（《礼记·曲礼》）',
-  gui: '取自《山海经·南山经》“其状如龟而鸟首虺尾”的旋龟',
-  hu: '取自《山海经·南山经》青丘山的九尾狐',
-  yao: '取自《山海经·西山经》“鱼身而鸟翼”、游于东海的文鳐鱼',
-  bifang: '取自《山海经·西山经》“其状如鹤，一足”的火鸟毕方',
-  taotie: '取自商周青铜器上的兽面纹（饕餮）',
-  ri: '取自古代天子旗上的日月（《周礼》“日月为常”）',
-  riyue: '取自《周礼》九旗里天子的旗“常”，上画日月',
-  dou: '取自古代行军时中军的北斗旗（《礼记》“招摇在上”）',
-  san: '取自参宿的三颗星，古代熊虎旗对应的星（《考工记》“熊旗六斿以象伐”）',
-  huo: '取自五行里的火',
-  lei: '取自商周青铜器上的雷纹',
-  shui: '取自彩陶、铜镜上的水波纹',
-  taiji: '取自宋明以来的太极图',
-  qian: '取自圆钱方孔的钱纹',
-  ling: '取自汉代织锦上的菱纹',
-};
-
-/** 图案放在哪:旗中间、旗杆边、左上角 */
-export type ChargeAt = 'center' | 'hoist' | 'canton';
-
-/** 一面旗 */
-export interface FlagSpec {
-  shape: Shape;
-  layout: Layout;
-  /** 底子的颜色(按 layout 用前几块,见 LAYOUT_COLORS) */
-  c: Tinct[];
-  /** 西幻、汗国的图案;烙印的样子在 tamga(主干 + 一两笔,见 render/flag 的烙印) */
-  charge?: { sym: Sym; t: Tinct; at: ChargeAt; tamga?: number };
-  /** 左上角的小星(分出来的国家用来区别母国):颜色、几颗 */
-  mullet?: Tinct;
-  mullets?: number;
-  /** 东方旗:犬牙边和中间图案的颜色(有这一项 = 东方旗) */
-  edge?: Tinct;
-  /** 东方旗:中间的神兽或纹样;没有 = 不画 */
-  mark?: Mark;
-  /** 东方旗:镶边(从别国分出来的,像清代八旗的"镶") */
-  trim?: Tinct;
-}
-
-/** 东方旗(牙旗,或东方的方旗 / 燕尾旗):中间画神兽、纹样,颜色按五德 */
-export const isEastern = (s: FlagSpec) => s.edge !== undefined;
+// 颜色、样式、图案的名字、FlagSpec 和存档里的写法在 flagSpec.ts;原来从这里 import 的照旧能用
+export * from './flagSpec';
 
 // ---------------------------------------------------------------------------
 // 各语感的偏好
@@ -280,6 +55,8 @@ const TASTE: Record<string, { colors: Tinct[]; layouts: Layout[] }> = {
 const tasteOf = (style: string) => TASTE[style] ?? TASTE.kingdom;
 
 const REPUBLIC_LAYOUTS: Layout[] = ['stripes', 'tri-v', 'cross', 'canton'];
+/** 改共和以后东方方旗上的纹样(避开日、日月、太极这类像现实国旗的) */
+const REPUBLIC_MARKS: Mark[] = ['dou', 'san', 'lei', 'qian', 'ling', 'shui', 'huo'];
 
 /** 王室兴起的城是哪一类 */
 export type Seat = 'sea' | 'mountain' | 'river' | 'forest' | 'dry' | 'plain';
@@ -338,6 +115,13 @@ export interface FlagWhy {
   nomadParent?: boolean;
   /** 复国:用回了哪个故国的旗(只在第一面) */
   restores?: number;
+  /**
+   * 改制(这一面是改制那一刻起的):republic 废君 / 革命改共和换的;keep 政变、还政没换(和上一面一样);
+   * restore 复辟迎回旧王室,用回改制前那面;crown 复辟时拥立的人自己做君主,当成换了一朝。寻常的不给
+   */
+  reform?: 'republic' | 'keep' | 'restore' | 'crown';
+  /** 改制以前用的是第几面(eras 的下标;旗帜详情里"改制以前用的是这面") */
+  prior?: number;
 }
 
 export interface FlagEra {
@@ -516,7 +300,7 @@ export function flagAt(eras: readonly FlagEra[], year: number): FlagEra {
 }
 
 /** 历朝:没改朝换代过 = 一朝(立国那年、国都) */
-function dynastiesOf(p: Polity): { year: number; name: string; seat: number }[] {
+function dynastiesOf(p: Polity): { year: number; name: string; seat: number; regime?: 'republic' | 'junta'; house?: number }[] {
   return p.dynasties && p.dynasties.length ? p.dynasties : [{ year: p.founded, name: p.name, seat: p.capital }];
 }
 
@@ -596,14 +380,17 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
         if (inherit.trim === trim) trim = trim === 'R' ? 'Y' : 'R';
       }
     }
-    const shape: Shape = p.lineage === 'republic' ? 'rect' : 'banner';
+    const republic = p.lineage === 'republic' || !!dyn[0].regime;
+    const shape: Shape = republic ? 'rect' : 'banner';
     const seat = seatOf(world, civ, p.capital);
     const drng = mulberry32(subSeed(seed, `flag:${key}/0`));
     let mark: Mark = inherit?.mark ? inherit.mark : pick(drng, SEAT_MARKS[seat]);
     // 白底红日太像别处的国旗:金德(白底)改画日月
     if (mark === 'ri' && DE_TINCT[de] === 'W') mark = 'riyue';
+    // 革命自立的共和国:神兽换成纹样
+    if (dyn[0].regime && isBeast(mark)) mark = republicMark(drng, seat, undefined);
     push(0, { shape, layout: 'plain', c: [DE_TINCT[de]], edge: trim ?? DE_EDGE[de], mark, trim }, { ...why0('east'), inheritMark: !!inherit?.mark });
-  } else if (!eras.length && nomadic(civ, p)) {
+  } else if (!eras.length && nomadic(civ, p) && !dyn[0].regime) {
     // 汗国:燕尾旗 + 烙印
     let code = tamgaCode(rng);
     let spec: FlagSpec;
@@ -627,7 +414,10 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
     // 西幻王国 / 共和国
     let base: FlagSpec;
     let split: Pick<FlagWhy, 'nth' | 'swap'> | null = null;
-    if (parent && !parent.eastern && parent.lineage !== 'khanate') {
+    if (parent && dyn[0].regime && !parent.eastern && parent.lineage !== 'khanate') {
+      // 革命据地自立的共和国:母国的颜色留着,样式换成共和国常用的,王冠、剑拿掉(和废君改共和一样)
+      base = republicStep(specOf(ctx, parent.id, p.founded), seatOf(world, civ, p.capital), pal, mulberry32(subSeed(seed, `flag:${key}/0`)));
+    } else if (parent && !parent.eastern && parent.lineage !== 'khanate') {
       // 沿用母国的样式,换一种颜色,左上角加星
       const at = specOf(ctx, parent.id, p.founded);
       const c = at.c.slice();
@@ -648,7 +438,7 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
       }
     } else {
       let layout: Layout;
-      if (p.lineage === 'republic') layout = pick(rng, REPUBLIC_LAYOUTS);
+      if (p.lineage === 'republic' || dyn[0].regime) layout = pick(rng, REPUBLIC_LAYOUTS);
       else {
         layout = pickFront(rng, taste.layouts);
         if ((cu.kind === 'river' || cu.kind === 'lake') && rng() < 0.4) layout = 'wavy';
@@ -657,7 +447,7 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
     }
     const drng = mulberry32(subSeed(seed, `flag:${key}/0`));
     const seat = seatOf(world, civ, p.capital);
-    const spec = westStep(base, undefined, seat, p, pal, drng);
+    const spec = westStep(base, undefined, seat, p, pal, drng, !!dyn[0].regime);
     // 分出来的:图案沿用母国的,只重新挑颜色
     if (split && base.charge) spec.charge = { ...base.charge, t: contrast(drng, underCharge(base, chargeAt(base.layout)), [...pal, ...base.c]) };
     push(0, spec, { ...why0('west'), ...split });
@@ -670,6 +460,46 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
     const seat = seatOf(world, civ, city);
     const drng = mulberry32(subSeed(seed, `flag:${key}/${i}`));
     const why: FlagWhy = { kind: 'west', dyn: i, city, seat };
+    const d = dyn[i];
+    const kindOf = (x: FlagSpec): FlagWhy['kind'] => (isEastern(x) ? 'east' : x.charge?.sym === 'tamga' ? 'khan' : 'west');
+    if (d.regime && (d.regime === 'junta' || dyn[i - 1].regime)) {
+      // 政变、还政:君主没变(本来就没有),旗不换
+      push(i, copy(prev), { ...why, kind: kindOf(prev), reform: 'keep', prior: i - 1 });
+      continue;
+    }
+    if (d.regime) {
+      // 废君、革命改共和
+      if (isEastern(prev)) {
+        const mark = prev.mark && !isBeast(prev.mark) && REPUBLIC_MARKS.includes(prev.mark) ? prev.mark : republicMark(drng, seat, prev.mark);
+        push(i, { shape: 'rect', layout: 'plain', c: [prev.c[0]], edge: prev.edge, mark, ...(prev.trim ? { trim: prev.trim } : {}) }, { ...why, kind: 'east', reform: 'republic', prior: i - 1 });
+      } else push(i, republicStep(prev, seat, pal, drng), { ...why, reform: 'republic', prior: i - 1 });
+      continue;
+    }
+    if (d.house !== undefined) {
+      // 复辟迎回旧王室:用回改制前那面(改制以前最后一段王室的旗)
+      let j = i - 1;
+      while (j > 0 && dyn[j].regime) j--;
+      push(i, copy(eras[j].spec), { ...why, kind: kindOf(eras[j].spec), reform: 'restore', prior: j });
+      continue;
+    }
+    if (dyn[i - 1].regime) {
+      // 复辟、旧王室没人了:拥立的人自己做君主,当成换了一朝
+      let spec: FlagSpec;
+      if (isEastern(prev)) {
+        const d0 = deOf(prev.c[0]);
+        const de = d0 < 0 ? -1 : (d0 + 1) % 5;
+        const c0 = de < 0 ? prev.c[0] : DE_TINCT[de];
+        const beasts = SEAT_MARKS[seat].filter(isBeast);
+        const mark: Mark = pick(drng, beasts.length ? beasts : BEASTS);
+        spec = { shape: 'banner', layout: 'plain', c: [c0], edge: prev.trim ?? (de < 0 ? prev.edge : DE_EDGE[de]), mark, ...(prev.trim ? { trim: prev.trim } : {}) };
+      } else if (nomadic(civ, p)) {
+        const layout: Layout = pick(drng, ['plain', 'hoist'] as Layout[]);
+        const c = arrange(drng, layout, pal);
+        spec = { shape: 'swallow', layout, c, charge: { sym: 'tamga', t: contrast(drng, c[0], pal), at: layout === 'hoist' ? 'center' : 'hoist', tamga: tamgaCode(drng) } };
+      } else spec = westStep({ ...prev, charge: undefined }, prev.charge?.sym, seat, p, pal, drng);
+      push(i, spec, { ...why, kind: kindOf(spec), reform: 'crown', prior: i - 1 });
+      continue;
+    }
     if (isEastern(prev)) {
       // 东方:按五德相生换底色,换一样图案(和上一朝不重样)
       const d0 = deOf(prev.c[0]);
@@ -692,10 +522,34 @@ function polityEras(ctx: Ctx, id: number): FlagEra[] {
   return eras;
 }
 
-/** 西幻换一朝:按王室兴起的城挑一样图案(和上一朝不重样),颜色挑和底子有反差的 */
-function westStep(base: FlagSpec, prevSym: Sym | undefined, seat: Seat, p: Polity, pal: Tinct[], drng: Rng): FlagSpec {
+/** 改共和以后东方方旗上的纹样:先挑这座城那一类里的纹样,没有就从共和的几样里挑;和上一面不重样 */
+function republicMark(drng: Rng, seat: Seat, prev: Mark | undefined): Mark {
+  const own = SEAT_MARKS[seat].filter((m) => REPUBLIC_MARKS.includes(m) && m !== prev);
+  const list = own.length ? own : REPUBLIC_MARKS.filter((m) => m !== prev);
+  return pick(drng, list);
+}
+
+/**
+ * 西幻、汗国废君改共和:颜色留着(按共和国常用的样式重排),样式换成共和国常用的;
+ * 城的图案留着,王冠、剑、烙印这类王室的东西拿掉,换一样这座城那一类的图案
+ */
+function republicStep(prev: FlagSpec, seat: Seat, pal: Tinct[], drng: Rng): FlagSpec {
+  const own = [...new Set(prev.c)];
+  const colors = own.some((t) => !isMetal(t)) && own.some(isMetal) ? own : [...own, ...pal.filter((t) => !own.includes(t))];
+  const layout = pick(drng, REPUBLIC_LAYOUTS.filter((l) => l !== prev.layout));
+  const base: FlagSpec = { shape: 'rect', layout, c: arrange(drng, layout, colors) };
+  const keep = prev.charge && prev.charge.sym !== 'crown' && prev.charge.sym !== 'sword' && prev.charge.sym !== 'tamga' ? prev.charge.sym : undefined;
+  if (keep) {
+    const at = chargeAt(layout);
+    return { ...base, charge: { sym: keep, t: contrast(drng, underCharge(base, at), [...pal, ...base.c]), at } };
+  }
+  return westStep(base, prev.charge?.sym, seat, null, pal, drng, true);
+}
+
+/** 西幻换一朝:按王室兴起的城挑一样图案(和上一朝不重样),颜色挑和底子有反差的;共和国(republic)不用王冠、剑 */
+function westStep(base: FlagSpec, prevSym: Sym | undefined, seat: Seat, p: Polity | null, pal: Tinct[], drng: Rng, republic = false): FlagSpec {
   let syms = SEAT_SYMS[seat].slice();
-  if (p.lineage === 'republic') syms = syms.filter((s) => s !== 'crown' && s !== 'sword');
+  if (republic || p?.lineage === 'republic') syms = syms.filter((s) => s !== 'crown' && s !== 'sword');
   let sym: Sym = pickFront<Sym>(drng, syms.length ? syms : ['star']);
   if (prevSym === sym) sym = syms.find((x) => x !== prevSym) ?? (prevSym === 'crown' ? 'tower' : 'crown');
   const at = base.shape === 'swallow' && base.layout === 'plain' ? 'hoist' : chargeAt(base.layout);
@@ -740,6 +594,8 @@ export function flagAlternatives(world: World, civ: Civ, id: number, era: FlagEr
   const taste = tasteOf(civ.cultures[p.culture].style);
   const seat = era.why.seat;
   const cur = era.spec;
+  // 共和国(海洋城邦共和一系、改制开的共和 / 军政府那一段):共和国常用的样式,不用王冠、剑
+  const republic = p.lineage === 'republic' || !!p.dynasties?.[era.dyn]?.regime;
   const out: FlagSpec[] = [];
   const seen = new Set([sameKey(cur)]);
   for (let k = 0; out.length < n && k < 80; k++) {
@@ -761,11 +617,11 @@ export function flagAlternatives(world: World, civ: Civ, id: number, era: FlagEr
       spec = { shape: 'swallow', layout, c, charge: { sym: 'tamga', t: contrast(rng, underCharge({ layout, c }, at), pal), at, tamga: tamgaCode(rng) } };
     } else {
       // 先照本族常用的样式配;本族的样式太少、配不满一批,再从全部样式里挑
-      const layouts = p.lineage === 'republic' ? REPUBLIC_LAYOUTS : taste.layouts;
+      const layouts = republic ? REPUBLIC_LAYOUTS : taste.layouts;
       const layout = j < layouts.length ? layouts[j] : pick(rng, k < 40 ? layouts : EDIT_LAYOUTS);
       const c = arrange(rng, layout, pal);
       let syms = SEAT_SYMS[seat];
-      if (p.lineage === 'republic') syms = syms.filter((s) => s !== 'crown' && s !== 'sword');
+      if (republic) syms = syms.filter((s) => s !== 'crown' && s !== 'sword');
       const sym = pick(rng, syms);
       const at = chargeAt(layout);
       spec = { shape: 'rect', layout, c, charge: { sym, t: contrast(rng, underCharge({ layout, c }, at), pal), at } };
@@ -781,67 +637,6 @@ export function flagAlternatives(world: World, civ: Civ, id: number, era: FlagEr
 /** 两面旗看起来差不多(候选里不重复):样式 + 图案 + 旗形 */
 function sameKey(s: FlagSpec): string {
   return isEastern(s) ? `e/${s.shape}/${s.mark ?? ''}/${s.edge}` : `${s.shape}/${s.layout}/${s.charge?.sym ?? ''}/${s.charge?.tamga ?? ''}`;
-}
-
-// ---------------------------------------------------------------------------
-// 存档里的写法(WorldEdits.flags 的值):一面十几个字
-//
-//   形/样式/颜色[/c=图案.颜色.位置[.烙印]][/m=星的颜色几颗][/e=犬牙边][/k=神兽或纹样][/t=镶边]
-//   形:r 方旗、s 燕尾旗、b 牙旗;位置:c 中间、h 旗杆边、k 左上角
-//   例:"b/plain/W/e=R/k=long"(白底红犬牙边的龙旗)、"r/tri-h/RWB/c=leaf.R.c"(红白蓝三色横条,中间一片红叶子)
-
-const SHAPE_CODE: Record<Shape, string> = { rect: 'r', swallow: 's', banner: 'b' };
-const AT_CODE: Record<ChargeAt, string> = { center: 'c', hoist: 'h', canton: 'k' };
-const ALL_LAYOUTS = Object.keys(LAYOUT_NAME) as Layout[];
-const ALL_SYMS = Object.keys(SYM_NAME) as Sym[];
-/** 存档里一面旗最长多少字 */
-export const FLAG_CODE_MAX = 80;
-
-export function encodeFlag(s: FlagSpec): string {
-  const parts = [SHAPE_CODE[s.shape], s.layout, s.c.join('')];
-  if (s.charge) parts.push(`c=${s.charge.sym}.${s.charge.t}.${AT_CODE[s.charge.at]}${s.charge.tamga !== undefined ? `.${s.charge.tamga}` : ''}`);
-  if (s.mullet) parts.push(`m=${s.mullet}${s.mullets ?? 1}`);
-  if (s.edge) parts.push(`e=${s.edge}`);
-  if (s.mark) parts.push(`k=${s.mark}`);
-  if (s.trim) parts.push(`t=${s.trim}`);
-  return parts.join('/');
-}
-
-const isTinct = (x: string): x is Tinct => x.length === 1 && x in TINCT;
-const keyOf = <T extends string>(rec: Record<T, string>, v: string): T | undefined => (Object.keys(rec) as T[]).find((k) => rec[k] === v);
-
-/** 存档里的写法 → 旗;格式不对 = null */
-export function decodeFlag(code: unknown): FlagSpec | null {
-  if (typeof code !== 'string' || !code || code.length > FLAG_CODE_MAX) return null;
-  const [sh, layout, cs, ...rest] = code.split('/');
-  const shape = keyOf(SHAPE_CODE, sh);
-  if (!shape || !ALL_LAYOUTS.includes(layout as Layout) || !cs || cs.length > 3) return null;
-  const c = [...cs];
-  if (!c.every(isTinct)) return null;
-  const s: FlagSpec = { shape, layout: layout as Layout, c: c as Tinct[] };
-  for (const part of rest) {
-    const [k, v] = [part.slice(0, 2), part.slice(2)];
-    if (k === 'c=') {
-      const [sym, t, at, tg] = v.split('.');
-      const a = keyOf(AT_CODE, at);
-      if (!ALL_SYMS.includes(sym as Sym) || !isTinct(t) || !a) return null;
-      s.charge = { sym: sym as Sym, t, at: a };
-      if (tg !== undefined) {
-        const n = Number(tg);
-        if (!/^\d{1,3}$/.test(tg) || n > 0o777) return null;
-        s.charge.tamga = n;
-      }
-    } else if (k === 'm=') {
-      const n = Number(v.slice(1));
-      if (!isTinct(v[0]) || !/^[1-3]$/.test(v.slice(1))) return null;
-      s.mullet = v[0] as Tinct;
-      s.mullets = n;
-    } else if (k === 'e=' && isTinct(v)) s.edge = v;
-    else if (k === 'k=' && (MARKS as string[]).includes(v)) s.mark = v as Mark;
-    else if (k === 't=' && isTinct(v)) s.trim = v;
-    else return null;
-  }
-  return s;
 }
 
 /** WorldEdits.flags(键 → 写法)→ 能用的(格式不对的跳过) */

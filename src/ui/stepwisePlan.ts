@@ -1,56 +1,151 @@
 /**
- * 逐年推演的节奏(纯计算):一步走几年、走完停不停 —— 照推进设置(gen/edits.ts 文件头"推进设置",advanceOf 取)。
+ * 逐年推演的节奏(纯计算):一步走多久、走完停不停 —— 照推进设置(gen/edits.ts 文件头"推进设置",advanceOf 取)。
  * 不碰 DOM,单测直接测(tests/stepwise.test.ts)。从第几年开始、存回推演模式在 gen/stepwise.ts。
  *
- * - 一步走 step 年,但不跨过下一次该停的那年(正好停在那一年年初):since = 上一次停下来的那一年(开始逐年推演的那年、
- *   每停一下、读档打开时都从"现在"重新数),下一次停在 since 以后第一个 since + k·every(比现在晚的)。
- *   推进设置中途改了,下一步起照新的算(since 不变)。到能推的最后一年(END_YEAR_MAX)停下、不再往下走。
+ * 时刻都按"格"算(一年 YEAR_TICKS 格,见 edits.ts 文件头"时刻"):界面上的年份带小数,第 y 年第 k 格 = y + k / YEAR_TICKS(正好能用小数表示)。
+ * - 一步走多久(stepEnd):按年走的走到几年以后的同一格;按格走的走几格;按月走的走到第几个月的月初
+ *   (一年 N 个月,第 m 月从那一年第 ⌈(m − 1)·YEAR_TICKS / N⌉ 格起,和写到月的算法 era.ts 的 monthOf 对得上;停在月中的第一步只走到下个月初)。
+ *   一步最长 5 年。
+ * - 不跨过下一次该停的那一刻(正好停在那一刻):since = 上一次停下来的那一刻(开始逐年推演的那年、
+ *   每停一下、读档打开时都从"现在"重新数),下一次停在 since 以后第一个 since + k·every 年(比现在晚的;年中停下的,every 年后同一格停);
+ *   every = 0(每一步都停):每一步走完都停。推进设置中途改了,下一步起照新的算(since 不变)。到能推的最后一年(END_YEAR_MAX)停下、不再往下走。
  * - 勾了"出大事也停":这一步([从, 到),和导播排期一样含头不含尾)里出了头等大事就停 ——
  *   分量照导播排期(directorPlan.ts 的 tierOf:亡国、改朝换代、大战、分裂、大崩解、民变、民族消亡)。算这一步里的:
  *   这一步里开始的头等大事;前几步就开始了、跨年的条目(打了好几年的仗),这一步里才成了头等大事的(打下的州够多了、
  *   灭了大国……;要给走这一步以前的编年史才看得出来),或者这一步里有一件头等大事的(仗里亡了国)。
  *   干预、地形大事不算:是作者自己安排的,本来就知道;刚停下来加的干预下一步就生效,算进去的话每加一次干预就又停一次。
  * - 同一步里几样都碰上了,按 到头 > 每隔几年 > 出大事 说。
- * - 往回翻(stepPage):时间轴只放一段,以前的按这次演绎停过的那几年切段,再往前按"每隔几年"切到第 0 年;
+ * - 往回翻(stepPage):时间轴只放一段,以前的按这次演绎停过的那几刻切段,再往前按"每隔几年"切到第 0 年;
  *   从某一年重新演绎时弹窗里"不要了的历史"列几件大事的短句(rewindBrief)。
  */
 import type { ChronicleEntry } from '../gen/civ/chronicle';
 import type { Civ } from '../gen/civ/types';
 import { polityShortTitle, polityTierAt } from '../gen/civ/growth';
 import type { World } from '../gen/world';
-import type { Era } from '../gen/era';
-import { END_YEAR_MAX, type Advance } from '../gen/edits';
+import { MONTHS_DEFAULT, type Era } from '../gen/era';
+import { ADVANCE_STEP_MAX, ADVANCE_TICKS_MAX, END_YEAR_MAX, YEAR_TICKS, type Advance } from '../gen/edits';
 import { directorCards, tierOf, type DirectorCaption, type DirectorShot } from './directorPlan';
 import { entryWeight } from './timelineLayout';
 
 /** 下一步 */
 export interface StepPlan {
-  /** 走几年(整数,1–ADVANCE_STEP_MAX;0 = 已经到 END_YEAR_MAX,走不动了) */
+  /** 走几格(1–ADVANCE_TICKS_MAX;0 = 已经到 END_YEAR_MAX,走不动了) */
+  ticks: number;
+  /** 走几年(= ticks / YEAR_TICKS,带小数) */
   years: number;
-  /** 走完停在第几年年初 */
+  /** 走完停在哪一刻(年份带小数,见文件头) */
   to: number;
-  /** 走完要不要停一下:'every' = 到了"每隔几年";'end' = 到了能推的最后一年;null = 不用(勾了"出大事也停"的,走完用 stepPause 再看) */
+  /** 走完要不要停一下:'every' = 到了"每隔几年"(每一步都停的每一步都是);'end' = 到了能推的最后一年;null = 不用(勾了"出大事也停"的,走完用 stepPause 再看) */
   pause: 'every' | 'end' | null;
 }
 
 /** 停一下的原因:到头了 / 到了"每隔几年" / 出了大事 */
 export type PauseWhy = 'end' | 'every' | 'big';
 
-/** 从第 since 年数起,下一次按"每隔几年"停在哪年(比 now 晚的第一个 since + k·every,k ≥ 1;到 END_YEAR_MAX 为止) */
-export function pauseYear(advance: Pick<Advance, 'every'>, since: number, now: number): number {
-  const every = Math.max(1, Math.round(advance.every));
-  const k = now < since ? 1 : Math.floor((now - since) / every) + 1;
-  return Math.min(END_YEAR_MAX, since + k * every);
+/** 能推到的最后一刻(第几格) */
+const END_TICK = END_YEAR_MAX * YEAR_TICKS;
+
+/** 年份(带小数)→ 第几格(从第 0 年年初数起,取最近的整格) */
+export const tickOf = (y: number): number => Math.round(y * YEAR_TICKS);
+
+/** 按月走时一年几个月:只写年的世界(0)照 12 个月算 */
+export const stepMonths = (months: number): number => (months > 0 ? Math.round(months) : MONTHS_DEFAULT);
+
+/** 第 j 个月(从第 0 年第 1 月数起,0 起;一年 n 个月)从第几格起 */
+export function monthStart(j: number, n: number): number {
+  const y = Math.floor(j / n);
+  return y * YEAR_TICKS + Math.ceil(((j - y * n) * YEAR_TICKS) / n);
 }
 
-/** 现在停在第 now 年年初、上一次停在第 since 年:下一步走几年、走完停不停(出大事的走完再看) */
-export function nextStep(advance: Pick<Advance, 'step' | 'every'>, since: number, now: number): StepPlan {
-  const at = Math.round(now);
-  if (at >= END_YEAR_MAX) return { years: 0, to: at, pause: 'end' };
-  const stop = pauseYear(advance, Math.round(since), at);
-  const years = Math.max(1, Math.min(Math.round(advance.step), stop - at, END_YEAR_MAX - at));
-  const to = at + years;
-  return { years, to, pause: to >= END_YEAR_MAX ? 'end' : to === stop ? 'every' : null };
+/** 第 t 格落在第几个月(0 起,同 monthStart) */
+export function monthIndex(t: number, n: number): number {
+  const y = Math.floor(t / YEAR_TICKS);
+  return y * n + Math.floor(((t - y * YEAR_TICKS) * n) / YEAR_TICKS);
+}
+
+/** 从第 t 格走一步走到第几格(没管该不该停、到没到头;最长 5 年)。months = 这个世界一年几个月(0 = 只写年,照 12 个月) */
+export function stepEnd(advance: Pick<Advance, 'step' | 'unit'>, months: number, t: number): number {
+  const k = Math.max(1, Math.round(advance.step) || 1);
+  let to: number;
+  if (advance.unit === 'tick') to = t + k;
+  else if (advance.unit === 'month') {
+    const n = stepMonths(months);
+    to = monthStart(monthIndex(t, n) + Math.min(k, ADVANCE_STEP_MAX * n), n);
+  } else to = t + Math.min(k, ADVANCE_STEP_MAX) * YEAR_TICKS;
+  return Math.min(to, t + ADVANCE_TICKS_MAX);
+}
+
+/** 一步大约几年(说后果、画刻度用;按月走的按 1/月数 年算,最长 5 年) */
+export function stepYears(advance: Pick<Advance, 'step' | 'unit'>, months: number): number {
+  const k = Math.max(1, Math.round(advance.step) || 1);
+  const y = advance.unit === 'tick' ? k / YEAR_TICKS : advance.unit === 'month' ? k / stepMonths(months) : k;
+  return Math.min(ADVANCE_STEP_MAX, y);
+}
+
+/**
+ * 从 since 那一刻数起,下一次该停在哪一刻(第几格;比 now 晚的第一个;到能推的最后一刻为止):
+ * 每隔 every 年的 = since + k·every 年(k ≥ 1);每一步都停的(every = 0)= 从 since 走一步走到的那一刻(已经过了就从 now 再走一步)
+ */
+export function pauseTick(advance: Pick<Advance, 'every'> & Partial<Pick<Advance, 'step' | 'unit'>>, months: number, since: number, now: number): number {
+  const every = Math.round(advance.every);
+  if (!(every > 0)) {
+    const a = { step: advance.step ?? 1, unit: advance.unit ?? 'year' };
+    const p = stepEnd(a, months, since);
+    return Math.min(END_TICK, p > now ? p : stepEnd(a, months, now));
+  }
+  const e = every * YEAR_TICKS;
+  const k = now < since ? 1 : Math.floor((now - since) / e) + 1;
+  return Math.min(END_TICK, since + k * e);
+}
+
+/** 同 pauseTick,按年份(带小数)给、按年份返回:从 since 数起,下一次按"每隔几年"停在哪一刻 */
+export function pauseYear(
+  advance: Pick<Advance, 'every'> & Partial<Pick<Advance, 'step' | 'unit'>>,
+  since: number,
+  now: number,
+  months: number = MONTHS_DEFAULT,
+): number {
+  return pauseTick(advance, months, tickOf(since), tickOf(now)) / YEAR_TICKS;
+}
+
+/** 现在停在 now 那一刻、上一次停在 since:下一步走多久、走完停不停(出大事的走完再看)。months = 这个世界一年几个月 */
+export function nextStep(advance: Pick<Advance, 'step' | 'unit' | 'every'>, since: number, now: number, months: number = MONTHS_DEFAULT): StepPlan {
+  const at = tickOf(now);
+  if (at >= END_TICK) return { ticks: 0, years: 0, to: at / YEAR_TICKS, pause: 'end' };
+  const stop = pauseTick(advance, months, tickOf(since), at);
+  const to = Math.min(stepEnd(advance, months, at), stop, END_TICK);
+  const ticks = to - at;
+  return { ticks, years: ticks / YEAR_TICKS, to: to / YEAR_TICKS, pause: to >= END_TICK ? 'end' : to === stop ? 'every' : null };
+}
+
+/**
+ * 往下走时地图在哪一刻重画(播放头在 y):一步一年以上的一年重画一次(整年);一步短于一年的一步重画一次 ——
+ * 按月走的每个月初,按格走的每一步的那几格(从第 0 年数起对齐)
+ */
+export function redrawAt(advance: Pick<Advance, 'step' | 'unit'>, months: number, y: number): number {
+  // 一步一年以上(按月的 12 个月以上也算):整年
+  if (stepYears(advance, months) >= 1) return Math.floor(y + 1e-9);
+  const t = Math.floor(y * YEAR_TICKS + 1e-6);
+  if (advance.unit === 'month') {
+    const n = stepMonths(months);
+    return monthStart(monthIndex(t, n), n) / YEAR_TICKS;
+  }
+  const k = advance.unit === 'tick' ? Math.max(1, Math.round(advance.step)) : YEAR_TICKS;
+  if (k >= YEAR_TICKS) return Math.floor(y + 1e-9);
+  return (Math.floor(t / k) * k) / YEAR_TICKS;
+}
+
+/**
+ * 时间轴上一步一格的小刻度落在哪些时刻([from, to] 这一段里,不含两头;年份带小数):从 from 起一步一步走。
+ * 一步不到这一段的 minShare(放不下)= 不画,返回空
+ */
+export function stepMarks(advance: Pick<Advance, 'step' | 'unit'>, months: number, from: number, to: number, minShare: number): number[] {
+  if (!(to > from)) return [];
+  if (stepYears(advance, months) / (to - from) < minShare) return [];
+  const out: number[] = [];
+  const end = tickOf(to);
+  for (let t = stepEnd(advance, months, tickOf(from)); t < end && out.length < 4096; t = stepEnd(advance, months, t)) out.push(t / YEAR_TICKS);
+  return out;
 }
 
 /** 作者自己安排的(干预、地形大事):出大事也停不算 */
@@ -105,11 +200,17 @@ export const STEP_RATE: Readonly<Record<1 | 4, number>> = { 1: 2, 4: 8 };
 /** 放的速度最多是"算一步"速度的几成(留一点余量,播放头不追上还在算的那一步) */
 export const STEP_RATE_SHARE = 0.85;
 
-/** 实际用的速度:想要的 want(每秒几年);算得比它慢时按算的速度打折(computed = 最近几步每秒算几年;还不知道 = null) */
-export function stepRate(want: number, computed: number | null): number {
+/**
+ * 实际用的速度:想要的 want(每秒几年);算得比它慢时按算的速度打折(computed = 最近几步每秒算几年;还不知道 = null)。
+ * 最慢 low 年 / 秒(一步一年以上 0.25;一步很短时跟着算的速度再慢下去,不追上还在算的那一步一顿一顿地走)
+ */
+export function stepRate(want: number, computed: number | null, low = 0.25): number {
   if (computed === null || !(computed > 0)) return want;
-  return Math.max(0.25, Math.min(want, computed * STEP_RATE_SHARE));
+  return Math.max(Math.min(0.25, low), Math.min(want, computed * STEP_RATE_SHARE));
 }
+
+/** 每一步都停、这一步全世界没有大事:只停几秒(不管倒计时设的多少),写一句"全世界没有大事" */
+export const EMPTY_STOP_SECS = 3;
 
 /**
  * 播放头快追上还在算的那一步了:放慢一点等它,不一下子停住。gap = 离算好的最后一年还剩几年,rate = 每秒几年;
@@ -169,9 +270,9 @@ export function stepPage(y: number, cur: { from: number; to: number }, marks: re
   return { from: Math.max(0, from), to, current: false };
 }
 
-/** 上一段(「‹」;已经到第 0 年 = null) */
+/** 上一段(「‹」;已经到第 0 年 = null):找这一段开头前半格落在哪一段(一段可能只有一个月、几格) */
 export function prevPage(p: StepPage, cur: { from: number; to: number }, marks: readonly number[], every: number): StepPage | null {
-  return p.from <= 0 ? null : stepPage(p.from - 0.5, cur, marks, every);
+  return p.from <= 0 ? null : stepPage(p.from - 1 / (2 * YEAR_TICKS), cur, marks, every);
 }
 
 /** 下一段(「›」;已经是"现在"这一段 = null) */

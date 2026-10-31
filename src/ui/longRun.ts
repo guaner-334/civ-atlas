@@ -14,6 +14,7 @@ import { ownersAt } from '../gen/civ/timeline';
 import { fileBaseName } from '../gen/savefile';
 import { historyNoteStatus, listHistoryNotes, type HistoryNote } from '../ai/history';
 import { buildHistoryPrompts, loadScope, partName, type HistoryScope } from '../ai/prompts/history';
+import { isLifeScope } from '../ai/prompts/lives';
 import { flagSvg } from '../render/flag/flagSvg';
 import { highlightBox } from '../render/civ/highlight';
 import { MapShot, type ShotArea, type ShotScene } from '../render/shot';
@@ -98,7 +99,7 @@ export function longBookOf(full: Civ, polity: number | null): LongBookState {
   if (!v) {
     const name = bookTitleText(note.book.title, note.book.scope, world.title, era);
     const st = historyNoteStatus(full, note);
-    v = st.stale || !st.scope ? { kind: 'stale', name } : { kind: 'ok', name, book: { name, chapters: bookChapters(note.text, note.book.range, bookSections(full, st.scope, note)) } };
+    v = st.stale || !st.scope || isLifeScope(st.scope) ? { kind: 'stale', name } : { kind: 'ok', name, book: { name, chapters: bookChapters(note.text, note.book.range, bookSections(full, st.scope, note)) } };
     m.set(key, v);
   }
   return v;
@@ -194,6 +195,7 @@ function sceneOf(src: FilmSource, look: LongLook, year: number): ShotScene {
     graticule: look.graticule,
     marks: look.marks ? (y) => look.marks!(sc.civ, sc.world, y) : undefined,
     markChars: look.markChars,
+    era: getEdits().era,
   };
 }
 

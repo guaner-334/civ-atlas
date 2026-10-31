@@ -23,14 +23,14 @@ import type { World } from '../gen/world';
 import { capitalAt } from '../gen/civ/growth';
 import { standPass } from '../gen/civ/display';
 import { nearX, wrapOf } from '../render/common';
-import { END_YEAR_DEFAULT } from '../gen/edits';
+import { END_YEAR_DEFAULT, YEAR_TICKS } from '../gen/edits';
 import { yearShort, yearSpanAt, yearAt, yearMonthAt, type Era } from '../gen/era';
 
 // ---------------------------------------------------------------------------
 // 事件类型
 
-/** 五类事件 + 宗教(faith)+ 时代(era)+ 灾异(calamity)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
-export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'calamity' | 'order';
+/** 五类事件 + 宗教(faith)+ 时代(era)+ 思潮(thought)+ 灾异(calamity)+ 干预(order);CSS 里 [data-ev=war] 等配色 */
+export type EvType = 'war' | 'dynasty' | 'found' | 'empire' | 'assim' | 'faith' | 'era' | 'thought' | 'calamity' | 'order';
 
 const KIND_TYPE: Readonly<Record<string, EvType>> = {
   war: 'war',
@@ -65,6 +65,7 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   diverge: 'assim',
   faith: 'faith',
   era: 'era',
+  thought: 'thought',
   intervene: 'order',
   upheaval: 'order',
   famine: 'calamity',
@@ -79,6 +80,10 @@ const KIND_TYPE: Readonly<Record<string, EvType>> = {
   regent: 'dynasty',
   marry: 'empire',
   keep: 'dynasty',
+  // 改制:立宪、改制(废君、还政)、复辟和改朝、继位一类(蓝);革命、政变动了兵,和战争一类(红)
+  reform: 'dynasty',
+  revolution: 'war',
+  coup: 'war',
 };
 
 /** 这条纪事归哪一类(不认识的种类算"改朝":蓝色,和普通链接一样不抢眼) */
@@ -91,6 +96,7 @@ export function evType(e: Pick<ChronicleEntry, 'kind'> & Partial<Pick<ChronicleE
 /** 一字标签 → 卡片上的类型名 */
 const TAG_LABEL: Readonly<Record<string, string>> = {
   立: '立国',
+  兴: '兴起',
   升: '升格',
   降: '衰微',
   战: '战争',
@@ -122,6 +128,8 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   派: '教派',
   圣: '圣城',
   代: '时代',
+  思: '思潮',
+  商: '商道',
   臣: '称臣',
   盟: '结盟',
   绝: '盟绝',
@@ -151,6 +159,11 @@ const TAG_LABEL: Readonly<Record<string, string>> = {
   篡: '篡位',
   亲: '亲政',
   姻: '结亲',
+  宪: '立宪',
+  制: '改制',
+  革: '革命',
+  政: '政变',
+  辟: '复辟',
 };
 
 /** 卡片 / 最近事件 / 提示里的类型名:"战争""改朝""称帝"…… */
@@ -199,6 +212,7 @@ const KIND_WEIGHT: Readonly<Record<string, number>> = {
   sack: 1,
   faith: 2,
   era: 2,
+  thought: 2,
   intervene: 9,
   upheaval: 9,
   collapse: 6,
@@ -319,6 +333,15 @@ export function countUpTo(entries: readonly ChronicleEntry[], y: number): number
     else hi = m;
   }
   return lo;
+}
+
+/**
+ * 侧栏「最近大事」列到哪(countUpTo 的 y):历史不是推到年初的(mid:故事模式 —— 历史推到停下那一刻的前一格,停在年初的推到上一年最后一格;
+ * 普通世界推到一年中间)、看的是推到的那一刻(atEnd)时,历史推到的那一格(end 所在的那一格,那一格的事也推完了)以前的都列上;
+ * 别的照旧列到看的那一年(year,取过整)
+ */
+export function recentUpTo(year: number, end: number, mid: boolean, atEnd: boolean): number {
+  return mid && atEnd ? (Math.floor(end * YEAR_TICKS + 1e-6) + 1) / YEAR_TICKS : year;
 }
 
 /** 最近事件:到第 y 年为止(含)最近的 n 条,旧的在前 */

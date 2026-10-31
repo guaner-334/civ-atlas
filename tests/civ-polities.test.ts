@@ -14,6 +14,7 @@ import { BAND, mergeChains, traceChains, borderLines, type SidedLine } from '../
 import { labelImage, pixelRegions } from '../src/render/civ/territory';
 import type { CivDrawParams, CivShow } from '../src/render/civ/overlay';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
+import { hasReform } from '../src/gen/civ/regime';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -90,8 +91,8 @@ describe('城市成长 + 国家', () => {
       expect(civ.polities.length, `seed ${seed}`).toBeGreaterThanOrEqual(8);
       // GENERATOR_VERSION 15(立国更早、边缘立国)以后国家多了:20 个种子(1–19、2024)先后立国 35–68 个、结束时在世 15–25 个
       // GENERATOR_VERSION 20(大崩解散出几国、民变自立)以后 20 个种子先后立国 61–129 个(种子 99 84 个)
-      // GENERATOR_VERSION 46(滚雪球:亡国多了,复国也多了)以后种子 1–60 先后立国 89–176 个(种子 3 162 个;改前种子 1–20 已是 76–157 个):
-      // 上限放到 190
+      // GENERATOR_VERSION 46(大迁徙:迁来立的国、打进国都引起的大崩解多了几国)以后 seed 3 151 个:上限放到 180;
+      // GENERATOR_VERSION 56(滚雪球:亡国多了,复国也多了)以后种子 1–20 先后立国 100–181 个(seed 3 164 个、7 100 个、99 100 个、2024 106 个):上限放到 190
       expect(civ.polities.length, `seed ${seed}`).toBeLessThanOrEqual(190);
       // 阶段 3 有了战争、分合:有的国家灭亡了、被并了,也有分出来的
       const alive = civ.polities.filter((p) => polityAlive(p, civ.endYear)).length;
@@ -119,13 +120,13 @@ describe('城市成长 + 国家', () => {
       for (let r = 0; r < reg.count; r++) if (civ.culture[r] >= 0) occupied++;
       expect(civ.settlements.length).toBeGreaterThan(0.95 * occupied);
       // 立国时的国都之间至少隔 3 跳(灭亡的国家撤掉了国都间距标记:只比立国时对方还在世的;
-      // 分裂 / 复国出来的国家不看国都间距,国都标记还跟着迁都走:只比按"立国"立起来的国家和对方立国时的国都)
+      // 分裂 / 复国出来的国家、大迁徙迁来立的国(Polity.trek)不看国都间距,国都标记还跟着迁都走:只比按"立国"立起来的国家和对方立国时的国都)
       const caps = civ.polities.map((p) => civ.settlements[p.capital].region);
       for (let i = 0; i < caps.length; i++) {
         const d = hops(civ, caps[i]);
         for (let j = i + 1; j < caps.length; j++) {
           if (!polityAlive(civ.polities[i], civ.polities[j].founded)) continue;
-          if (civ.polities[j].parent !== undefined || capitalAt(civ.polities[i], civ.polities[j].founded) !== civ.polities[i].capital) continue;
+          if (civ.polities[j].parent !== undefined || civ.polities[j].trek !== undefined || capitalAt(civ.polities[i], civ.polities[j].founded) !== civ.polities[i].capital) continue;
           expect(d[caps[j]], `seed ${seed} 国都 ${i}–${j}`).toBeGreaterThanOrEqual(3);
         }
       }
@@ -251,7 +252,8 @@ describe('城市成长 + 国家', () => {
           const split = A.filter((e) => (e.kind === 'split' || e.kind === 'revolt') && e.a === p.id);
           expect(split).toHaveLength(1);
           expect(split[0]).toMatchObject({ year: p.founded, b: p.parent, settlement: cap.id, war: -1 });
-        } else expect(found).toEqual([{ year: p.founded, kind: 'found', a: p.id, b: p.mentor ?? -1, region: cap.region, settlement: cap.id, war: -1 }]);
+          // 大迁徙迁来立的国:"立国"带 cause = trek
+        } else expect(found).toEqual([{ year: p.founded, kind: 'found', a: p.id, b: p.mentor ?? -1, region: cap.region, settlement: cap.id, war: -1, ...(p.trek !== undefined ? { cause: 'trek' } : {}) }]);
         const ranks = A.filter((e) => e.kind === 'rank' && e.a === p.id).map((e) => e.year);
         expect(ranks).toEqual(p.titles!.slice(1).map((t) => t.year));
         // 国都变迁:第一条是立国时的国都,之后每条对应一条"迁都"史事,或一条新朝定都根据地的"改朝换代"(阶段 3 王朝更替)
@@ -305,6 +307,9 @@ describe('城市成长 + 国家', () => {
           'expire',
           'neutral',
           'exile',
+          'trek',
+          'winter',
+          'reform',
         ]).toContain(e.kind);
       }
     }
@@ -333,12 +338,12 @@ describe('城市成长 + 国家', () => {
     expect(ranks.every((n) => n > 0)).toBe(true);
     expect(ranks[3]).toBeLessThan(ranks[2]);
     expect(ranks[2]).toBeLessThan(ranks[0] + ranks[1]);
-    // 国号:第一条是立国那年、第 0 档(分裂 / 复国出来的国家:按起事那年的州数定档);之后只升不降
+    // 国号:第一条是立国那年、第 0 档(分裂 / 复国出来的国家、大迁徙迁来一下占了几州立的国:按立国那年的州数定档);之后只升不降
     // (打了败仗、国土缩小也不降:历史上缩小的帝国照样叫帝国);结束时的档位 ≥ 州数对应的档位
     let empires = 0;
     for (const p of civ.polities) {
       const t = p.titles!;
-      if (p.parent === undefined) expect(t[0]).toEqual({ year: p.founded, tier: 0 });
+      if (p.parent === undefined && p.trek === undefined) expect(t[0]).toEqual({ year: p.founded, tier: 0 });
       else {
         const own = ownersAt(civ, p.founded);
         let n = 0;
@@ -361,7 +366,8 @@ describe('城市成长 + 国家', () => {
       if (p.ended === undefined) expect(tier).toBeGreaterThanOrEqual(tierOf(n));
       else expect(n).toBe(0);
       expect(polityName(p, civ.endYear)).toBe(polityTitles(p, civ.endYear)[tier]);
-      if (!p.eastern) expect(polityName(p, civ.endYear)).toBe(p.name + POLITY_FORMS[p.lineage!][tier]);
+      // 改制以后的共和国不分档,写"某共和国"(见 civ-reform.test.ts)
+      if (!p.eastern && !hasReform(p)) expect(polityName(p, civ.endYear)).toBe(p.name + POLITY_FORMS[p.lineage!][tier]);
       if (tier === 3) empires++;
       if (p.kind === 'nomad') expect(p.lineage).toBe('khanate');
     }

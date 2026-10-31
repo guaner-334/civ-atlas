@@ -113,6 +113,7 @@ jobs:
           sed -i 's#<meta charset="UTF-8" />#&\n    <meta name="robots" content="noindex" />#' dist/index.html
           grep -q 'name="robots" content="noindex"' dist/index.html
           # 有人手敲 /v9(少了结尾的斜杠)时,有的服务器配置直接给出页面、不跳到 /v9/,页面里的相对路径就指错了地方:先补上斜杠再加载
+          # (发布正式网站前 deploy.yml 也靠这一行里的目录名认出旧版网站已经发好)
           sed -i "s#<meta charset=\"UTF-8\" />#&\n    <script>if (location.pathname.endsWith('/$DIR')) location.replace(location.pathname + '/' + location.search + location.hash);</script>#" dist/index.html
           grep -qF "endsWith('/$DIR')" dist/index.html
       - name: 准备 SSH

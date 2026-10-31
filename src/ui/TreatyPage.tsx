@@ -33,10 +33,11 @@ import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { useNarrow } from './device';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { defaultYear, getPolityPick, interventionText, nameAt, setPolityPick, usePolityPick, type PolityPick } from './Interventions';
 import { YearRow, jumpTo, rgb, useYearInput } from './panelParts';
+import { NationLifeHead } from './LifeHead';
 import { closeCmdPage } from './panelStore';
 import { getCivHighlight, setCivHighlight } from './civView';
 import { alivePolities } from './crownInfo';
@@ -77,7 +78,7 @@ function useForm(civ: Civ, id: number, year: number, from?: number) {
   const yi = useYearInput(from ?? defaultYear(p, year), lo, hi, clear);
   const y = step ? nextYear(sw) : yi.y;
   /** 看国土、谁跟谁接壤用哪一年(逐年推演的下一步还没算出来:按"现在"看) */
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   const name = nameAt(p, y);
   const shown = nameAt(p, year);
   // 演一国时下的:对方肯不肯照推演的规矩定
@@ -87,7 +88,7 @@ function useForm(civ: Civ, id: number, year: number, from?: number) {
   const base = (() => {
     if (step && look !== null) return STEP_LOOK_WHY;
     if (!step && !yi.valid) return `生效年份要在${spaced(yearSpanAt(lo, hi, era))}之间`;
-    if (!polityAlive(p, y)) return y < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
+    if (!polityAlive(p, yv)) return yv < p.founded ? `${yearAt(y, era)}还没立国` : `${yearAt(y, era)}已亡`;
     return null;
   })();
   return { era, phone, step, sw, p, key, yi, y, yv, name, shown, ask, base, msg, setMsg, clear };
@@ -285,6 +286,7 @@ export function TreatyPage({ civ, world, id, year, from }: PageProps) {
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form tr-form" data-treaty="form">
+        <NationLifeHead kinds={['treaty']} polity={id} />
         <EffectYear f={f} note="从这年起立约，之前的历史不变。" />
         <Group title="和谁立约" act="parties">
           <span className="pol-chips">
@@ -470,6 +472,7 @@ export function ZonePage({ civ, world, id, year, from }: PageProps) {
   return (
     <div className="cr-page" onKeyDown={onKey}>
       <div className="cp-body cr-form tr-form" data-neutral="form">
+        <NationLifeHead kinds={['neutral']} polity={id} />
         <EffectYear f={f} note="从这年起是中立地，之前的历史不变。" />
         <Group title="放在哪" em="按推演数据挑的，碰到的国家越多越靠前" act="where">
           <div className="cp-cmds tr-picks">

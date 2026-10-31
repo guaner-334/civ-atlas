@@ -45,6 +45,8 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
           expect(k.from).toBe(father.until);
           continue;
         }
+        // 复国之君是末帝的儿子(接上故国世系,见 lineage.ts)
+        if (civ.polities[k.polity].restores === father.polity) continue;
         expect(k.polity).toBe(father.polity);
         expect(k.dynasty ?? 0).toBe(father.dynasty ?? 0);
         if (k.adopted) {
@@ -80,7 +82,12 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
         expect(age).toBeGreaterThanOrEqual(16 - 1e-9);
         expect(age).toBeLessThanOrEqual(60 + 1e-9);
         if (x.died !== undefined) expect(c.until).toBeLessThanOrEqual(x.died);
-        // 派他出征的:父亲,或者父亲的继位者(他的兄弟)
+        // 派他出征的:父亲,或者父亲的继位者(他的兄弟)。亲自断后(rear)记在那一任领兵里头,看那一任开头就够了
+        // (那一仗打到下一位君主手里时断后,下一位已经不是父亲的继位者)
+        if (c.rear) {
+          expect(x.commands.some((m) => !m.rear && m.war === c.war && m.side === c.side && m.from <= c.from && c.from <= m.until), x.name).toBe(true);
+          continue;
+        }
         const ruler = P.find((r) => r.role === 'ruler' && r.polity === x.polity && r.from! <= c.from && (r.until === undefined || c.from < r.until));
         expect(ruler, x.name).toBeDefined();
         const prev = P.find((r) => r.role === 'ruler' && r.polity === x.polity && r.until === ruler!.from);
@@ -149,7 +156,8 @@ describe.each([7, 2024])('诸子 · seed=%i', (seed) => {
           expect(r.rival).toBe(x.id);
         }
       }
-      if (x.claim.how === 'coup' || x.claim.how === 'intrigue') expect(e.text).toMatch(/诸子争(立|位)/);
+      // 争的人里有女的换说法("兄妹争立""王子公主争位"……)
+      if (x.claim.how === 'coup' || x.claim.how === 'intrigue') expect(e.text).toMatch(/(诸子|兄妹|诸女)争立|(诸子|王子公主|诸公主)争位/);
     }
     expect(n).toBeGreaterThan(10);
     // 以军功得立、举兵夺位、宫中争立至少两种(GENERATOR_VERSION 40 时种子 7 只有两种)

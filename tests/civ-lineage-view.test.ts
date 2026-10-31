@@ -7,8 +7,9 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { peopleIndex } from '../src/gen/civ/peopleInfo';
+import { royalSeg } from '../src/gen/civ/regime';
 import { personName, princeRole, rulerShort } from '../src/gen/civ/peopleText';
-import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText, reignOrder } from '../src/gen/civ/lineageInfo';
+import { dynastyEnd, dynastyMembers, dynastyNote, dynastyRowAt, dynastyRows, fatherOf, hasLineage, kidsOf, layoutDynasty, lineageText, reignOrder, restoredFrom } from '../src/gen/civ/lineageInfo';
 
 const civs = new Map<number, Civ>();
 function civOf(seed: number): Civ {
@@ -22,12 +23,14 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
     const civ = civOf(seed);
     const ix = peopleIndex(civ);
     for (const p of civ.polities) {
+      // 改制开的共和、军政府那几段的执政不进世系图
+      const royal = (ix.rulers[p.id] ?? []).filter((x) => royalSeg(p, x.dynasty ?? 0));
       if (!hasLineage(civ, p.id)) {
-        expect(p.lineage === 'republic' || !ix.rulers[p.id]?.length).toBe(true);
+        expect(p.lineage === 'republic' || !royal.length).toBe(true);
         continue;
       }
       const rows = dynastyRows(civ, p.id);
-      expect(rows.flatMap((r) => r.rulers)).toEqual(ix.rulers[p.id]);
+      expect(rows.flatMap((r) => r.rulers)).toEqual(royal);
       for (let i = 1; i < rows.length; i++) expect(rows[i].from).toBeGreaterThanOrEqual(rows[i - 1].from);
       expect(dynastyRowAt(rows, -1e9)).toBe(0);
       expect(dynastyRowAt(rows, 1e9)).toBe(rows.length - 1);
@@ -55,7 +58,8 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
         // 第一棵是开国那一支
         expect(trees[0].distant).toBe(false);
         expect(trees[0].nodes.some((n) => n.p === row.rulers[0])).toBe(true);
-        distant += trees.filter((t) => t.distant).length;
+        // (复国之君的宗室远支 —— 隔得太远、只补了一位父亲的那一支 —— 不算)
+        distant += trees.filter((t) => t.distant && !t.nodes.some((n) => restoredFrom(civ, n.p, p.id))).length;
         for (const t of trees) {
           const at = new Map(t.nodes.map((n) => [n.p, n]));
           const cells = new Set(t.nodes.map((n) => `${n.x},${n.depth}`));
@@ -89,7 +93,8 @@ describe.each([7, 2024])('世系图 · seed=%i', (seed) => {
       const end = dynastyEnd(civ, rows, i);
       if (end) expect(lines).toContain(end);
     }
-    const people = lines.filter((l) => /年在位$|未即位/.test(l));
+    // 嫁到别国的女儿写"嫁某国"
+    const people = lines.filter((l) => /年在位$|未即位| 嫁[^ ]+ /.test(l));
     expect(people).toHaveLength(rows.reduce((n, r) => n + dynastyMembers(civ, r).length, 0));
     expect(text).not.toMatch(/undefined|NaN/);
   });
@@ -155,7 +160,8 @@ describe('世系图 · seed=7 的几处写法(例子按条件现找)', () => {
     expect(dynastyNote(civ, rows, i)).toBe(`${span}，${row.rulers.length} 位君主；${rulerShort(civ, founder)}篡位`);
     expect(dynastyEnd(civ, rows, i)).toBe(`${Math.floor(row.to!)} 年，王室更迭，${rows[i + 1].name}兴`);
     expect(dynastyEnd(civ, rows, i - 1)).toBe(`${Math.floor(row.from)} 年，${rulerShort(civ, founder)}篡位`);
-    expect(dynastyEnd(civ, rows, rows.length - 1)).toBe('');
+    // 最后一朝:还在 = 空串;后来改制改共和的写改了国号
+    expect(dynastyEnd(civ, rows, rows.length - 1)).toMatch(/^$|改称/);
     expect(dynastyNote(civ, rows, 0)).toMatch(/；.+立国$/);
     expect(dynastyRowAt(rows, (row.from + row.to!) / 2)).toBe(i);
     // 篡位的权臣没有连上父亲:这一朝的树从他起

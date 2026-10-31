@@ -124,8 +124,7 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
   it('划州:那一年这州归该国(原主照常);"永久"的到第 3000 年仍属该国;没人住的州划不成,写明原因', () => {
     for (const seed of [7, 2024]) {
       const civ = base(seed);
-      const y = 1800;
-      const { r, o, q } = borderRegion(civ, y);
+      const { r, o, q, y } = borderRegion(civ, 1800);
       const kq = polityKey(civ, q);
       const ko = polityKey(civ, o);
       for (const permanent of [false, true]) {
@@ -203,7 +202,7 @@ describe('干预 · 划州 / 立国 / 迁都 / 不许扩张 · 推演', () => {
         ).toEqual([]);
         // 到期后又能扩张、主动开战(GENERATOR_VERSION 43 仗打得密以后,到期后有的国家先扩张、后来又被邻国打得只剩几州:
         // 不再只比第 b 年的州数,看到期后的两百年里有没有长过、开过战)
-        // 禁令期间可能被强国打下国都、余下的州一并归降(GENERATOR_VERSION 46 以后 2024 号的那国第 1380 年亡了):亡了的不看到期后
+        // 禁令期间可能被强国打下国都、余下的州一并归降,亡了国:亡了的不看到期后
         const gone = !!until && c.polities[id].ended !== undefined && c.polities[id].ended! <= until;
         if (until && !gone) {
           after++;

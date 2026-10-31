@@ -13,7 +13,7 @@
  *
  * 纯计算 + 着色器源码,不碰 DOM;WebGL 的部分在 ui/studio/planetGL.ts。
  */
-import { PROJECTIONS, type ProjectionId } from './projection';
+import { PROJECTIONS, type ProjectionId } from './projectionDefs';
 
 export type PlanetProjection = ProjectionId | 'globe';
 

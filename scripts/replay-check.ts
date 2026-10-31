@@ -269,6 +269,7 @@ const REPLAY_BUDGET = process.env.CI ? 60 : 30;
 const PART_STARTS = ['点选改名', '搜索', '地球仪', '手机布局'];
 const MOVED: Record<string, number> = {
   写实风放大: 5,
+  立体地形: 4,
   第一次来: 3,
   新建时让助手改: 4,
   隐私模式: 5,
@@ -278,6 +279,7 @@ const MOVED: Record<string, number> = {
   各种状态: 5,
   编辑地形: 5,
   成书: 4,
+  世界之最: 3,
 };
 const [PART, PARTS] = (process.env.SMOKE_PART ?? '1/1').split('/').map(Number);
 if (!(PARTS === 1 || PARTS === PART_STARTS.length + 1) || !(PART >= 1 && PART <= PARTS)) {
@@ -584,6 +586,19 @@ if (part('键盘快捷键')) {
   const ps = (await page.evaluate('window.__wfPickables()')) as Pick[];
   const city = ps.find((c) => c.kind === 'settlement' && ps.some((m) => m.kind === 'mark' && m.id === c.id && m.x > SIDE_ROOM + 60 && m.x < vp.width - 60 && m.y > 120 && m.y < vp.height - 160));
   const has = (n: string) => page.evaluate((t) => ((window as any).__wfLabels?.texts ?? []).includes(t), n);
+  /**
+   * 等地图上的字成了 want 写的样子(哪些名字在、哪些不在),最多 5 秒;等了多久记进 waits。
+   * 改名以后地图上的字不是当下就换:编年史按新名字分小块重算、新的字在后台备好再换上;点城时地图还在飞过去的话,
+   * 要等飞完、细节层画完才轮到,CI 的虚拟机上要半秒上下(固定等 400 毫秒会偶发没等到)
+   */
+  const waits: number[] = [];
+  const labelsAre = async (want: Record<string, boolean>) => {
+    const t0 = performance.now();
+    await page
+      .waitForFunction((w) => Object.entries(w).every(([t, on]) => ((window as any).__wfLabels?.texts ?? []).includes(t) === on), want, { timeout: 5000, polling: 50 })
+      .catch(() => {});
+    waits.push(Math.round(performance.now() - t0));
+  };
   let undo = '';
   let redo = '';
   const named: boolean[] = [];
@@ -593,15 +608,15 @@ if (part('键盘快捷键')) {
     await page.click('.inspector .ins-name');
     await page.fill('.inspector .ins-edit input', '快捷键城');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(400);
+    await labelsAre({ 快捷键城: true });
     named.push(await has('快捷键城'));
     await page.keyboard.press('Control+z');
     undo = await toastText(page, 'resim-done');
-    await page.waitForTimeout(400);
+    await labelsAre({ 快捷键城: false, [city.text]: true });
     named.push(await has('快捷键城'), await has(city.text));
     await page.keyboard.press('Control+Shift+z');
     redo = await toastText(page, 'resim-done');
-    await page.waitForTimeout(400);
+    await labelsAre({ 快捷键城: true });
     named.push(await has('快捷键城'));
   }
   // 收起按钮的提示框;Ctrl+\ 收起、再按展开;收起着按 / :卡片展开、光标在搜索框里
@@ -628,7 +643,7 @@ if (part('键盘快捷键')) {
     `快捷键:年份 ${y0} → ← ${y1} → Shift+← ${y2} → → ${y3};空格 ${play1}/${play2},点播放键 ${play3} 后空格 ${play4};缩放 ${k0.toFixed(2)} → ${k1.toFixed(2)} → ${k2.toFixed(2)};` +
       `2 → ${l2}、1 → ${l1};/ 进搜索框 ${searchFocused}、打「${typed}」图层 ${lTyped};? 一览「${help.slice(0, 30)}…」、开着时空格播放 ${playUnderHelp}、Esc 收起 ${helpClosed};` +
       `Ctrl+S 存档菜单 ${saveMenu}、拦下 ${savePrevented};提示「${tip}」;更多菜单「${menu}」→ 一览 ${menuOpens};` +
-      `改名「${city?.text}」→ 快捷键城 ${named.join('/')}、撤销「${undo}」、重做「${redo}」;收起按钮提示「${tipSide}」;Ctrl+\\ 收起 ${fold1} → 展开 ${!fold2};收起着按 / → 展开 ${!fold3}、进搜索框 ${searchAfterFold}`,
+      `改名「${city?.text}」→ 快捷键城 ${named.join('/')}(地图上的字等了 ${waits.join(' / ')} ms)、撤销「${undo}」、重做「${redo}」;收起按钮提示「${tipSide}」;Ctrl+\\ 收起 ${fold1} → 展开 ${!fold2};收起着按 / → 展开 ${!fold3}、进搜索框 ${searchAfterFold}`,
   );
   if (!(y1 === y0 - 10 && y2 === y0 - 110 && y3 === y0 - 100)) errs.push(`快捷键:← → 没有按 10 年 / Shift 100 年走(${y0} → ${y1} → ${y2} → ${y3})`);
   if (!play1 || play2) errs.push(`快捷键:空格没有播放 / 暂停(${play1}、${play2})`);
@@ -644,7 +659,7 @@ if (part('键盘快捷键')) {
   if (!/键盘快捷键\s*\?/.test(menu) || !menuOpens) errs.push(`快捷键:"更多"菜单里没有"键盘快捷键",或点了没打开一览(${menu})`);
   if (!city) errs.push('快捷键:没找到能点的城');
   else if (named.join() !== 'true,false,true,true' || undo !== '已撤销改名' || redo !== '已重做改名')
-    errs.push(`快捷键:改名后 Ctrl+Z / Ctrl+Shift+Z 不对(${named.join('/')};${undo};${redo})`);
+    errs.push(`快捷键:改名后 Ctrl+Z / Ctrl+Shift+Z 不对(${named.join('/')},各等了最多 5 秒;${undo};${redo})`);
   if (!/收起侧栏\s*(Ctrl\+|⌘)\\/.test(tipSide)) errs.push(`快捷键:收起按钮的提示框没写键(${tipSide})`);
   if (!fold1 || fold2) errs.push(`快捷键:Ctrl+\\ 没有收起 / 展开左边的卡片(${fold1}、${fold2})`);
   if (fold3 || !searchAfterFold) errs.push(`快捷键:卡片收起着按 / ,应先展开再跳进搜索框(${fold3}、${searchAfterFold})`);
@@ -777,7 +792,9 @@ if (part('人物')) person: {
   )
     errs.push(`人物:君主卡片的倾向不对(${leanRows} 行;${leans.slice(0, 80)};复制里 ${/倾向：.*/.exec(copied)?.[0]})`);
   if (genLeans || princeLeans) errs.push(`人物:将领 / 宗室的卡片上不该有倾向(${genLeans};${princeLeans})`);
-  if (!new RegExp(`${reEsc(G.name)}\\s*${reEsc(G.role)}，${G.from}–${G.until} 年领兵`).test(card2) || y1 !== G.from)
+  // 起止同一年只写一个年份("2874 年领兵")
+  const gSpan = G.until > G.from ? `${G.from}–${G.until}` : `${G.from}`;
+  if (!new RegExp(`${reEsc(G.name)}\\s*${reEsc(G.role)}，${gSpan} 年领兵`).test(card2) || y1 !== G.from)
     errs.push(`人物:将领卡片 / 出征那年不对(${card2.slice(0, 60)};${y1})`);
   if (!chronOpen || names < 3 || !closed || pickId < 0 || card3Id !== pickId || y2 !== y1) errs.push(`人物:编年史里的人名点不开,或点了跳了年份(${chronOpen};${names};${closed};${card3Id}/${pickId};${y1} → ${y2})`);
   if (!famousOn || famous < 20 || !card4) errs.push(`人物:人物页的名人不对,或点一行没打开卡片(${famousOn};${famous};${card4.slice(0, 30)})`);
@@ -790,6 +807,144 @@ if (part('人物')) person: {
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
   await page.evaluate(() => localStorage.clear());
+}
+
+// 世界之最:世界概览「之最」页(人物后面)15 条纪录,跟着时间轴;刚被刷新的那条淡蓝、标「新纪录」;「历来 N 任」就地展开(键盘回车也行),点名字开他的卡片;
+// 点一场仗 → 编年史只看攻方;点一朝 → 世系图;复制全文。例子按 Node 里同一份历史现找(某条纪录刚被刷新的那一年),历史变了照样找得到
+if (part('世界之最')) records: {
+  const { civOfSeed } = await import('./lib/smokeExamples');
+  const { recordBook, recordsAt, recordName } = await import('../src/gen/civ/records');
+  const civ = civOfSeed(7);
+  const book = recordBook(civ);
+  let Y = -1;
+  for (let y = 1000; y <= Math.min(2600, civ.endYear) && Y < 0; y += 10) {
+    const r = recordsAt(book, y).get('took');
+    if (r && r.count > 2 && y - r.since <= 20 && y - r.since >= 3) Y = y;
+  }
+  if (Y < 0) {
+    errs.push('世界之最:种子 7 里找不到"攻下州最多的将领"刚被刷新的年份');
+    break records;
+  }
+  const at = recordsAt(book, Y);
+  const took = at.get('took')!;
+  const tookName = recordName(civ, took.ref, Y);
+  const prevName = took.prev ? recordName(civ, took.prev.ref, took.since) : '';
+  const war = at.get('war');
+  const dyn = at.get('dynasty');
+  const rctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  const rp = await rctx.newPage();
+  rp.on('pageerror', (e) => errs.push(`世界之最:${e.message}`));
+  await rp.goto(`${dev.url}/?seed=7&civYear=${Y}`);
+  await rp.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  const text = (sel: string) => rp.locator(sel).first().innerText().then((t) => t.replace(/\s+/g, ' ')).catch(() => '');
+  const t0 = Date.now();
+  await openOverview(rp, 'records');
+  await rp.locator('.rec-row').first().waitFor({ timeout: 5000 });
+  const openMs = Date.now() - t0;
+  const tabAfter = await rp.locator('.ov-tabs .ov-tab').evaluateAll((els) => els.map((e) => e.getAttribute('data-tab')).join(','));
+  const rows = await rp.locator('.rec-row').count();
+  const groups = await rp.locator('.rec .pp-group').count();
+  const tookRow = await text('.rec-row[data-key=took]');
+  const tookNew = await rp.locator('.rec-row[data-key=took].rec-new .rec-pill').count();
+  // 用键盘展开:焦点在「历来 N 任」上按回车(不是打开这一行的卡片)
+  await rp.focus('.rec-row[data-key=took] [data-act=record-history]');
+  await rp.keyboard.press('Enter');
+  await rp.waitForTimeout(200);
+  const chain = await rp.locator('.rec-chain[data-chain=took] .rec-ch').count();
+  const chainTop = await text('.rec-chain[data-chain=took] .rec-ch');
+  await rp.locator('.rec-chain[data-chain=took] [data-act=record-holder]').nth(1).click();
+  await rp.waitForTimeout(500);
+  const closed = !(await rp.locator('.ov-root:not([hidden])').count());
+  const card = await text('.inspector .cp.pp .ins-name');
+  await openOverview(rp);
+  await rp.click('[data-act=records-copy]');
+  await rp.waitForTimeout(200);
+  const copied = ((await rp.evaluate(() => (window as any).__wfRecordsText)) as string) ?? '';
+  let warOk = true;
+  if (war && war.ref.kind === 'war') {
+    await rp.click('.rec-row[data-key=war]');
+    await rp.waitForTimeout(500);
+    const on = await rp.locator('.ov-tab.on[data-tab=chronicle]').count();
+    const pick = await rp.locator('.chron-pick select').first().inputValue().catch(() => '');
+    warOk = on === 1 && pick === String(war.ref.a);
+    await rp.click('.ov-tab[data-tab=records]');
+    await rp.waitForTimeout(300);
+  }
+  let dynOk = true;
+  if (dyn) {
+    await rp.click('.rec-row[data-key=dynasty]');
+    await rp.waitForTimeout(600);
+    dynOk = (await rp.locator('.ov-tab.on[data-tab=people]').count()) === 1 && (await rp.locator('.lg-box').count()) === 1;
+  }
+  console.log(
+    `世界之最:种子 7 第 ${Y} 年,页签 ${tabAfter};${rows} 行 ${groups} 组(${openMs} ms 出来);攻下州最多「${tookRow.slice(0, 60)}」新纪录 ${tookNew};` +
+      `历来 ${chain} 任「${chainTop.slice(0, 30)}」→ 点上一任:收起 ${closed}、卡片「${card}」;复制「${copied.split('\n')[0]}」;仗 → 编年史 ${warOk};一朝 → 世系图 ${dynOk}`,
+  );
+  if (!tabAfter.includes('people,records,marks')) errs.push(`世界之最:「之最」页签没有放在「人物」后面(${tabAfter})`);
+  if (rows !== 15 || groups !== 3) errs.push(`世界之最:不是 15 条、三组(${rows} 行;${groups} 组)`);
+  if (!tookRow.includes(tookName) || !tookRow.includes(`${took.value} 州`) || !tookRow.includes(`历来 ${took.count} 任`) || tookNew !== 1)
+    errs.push(`世界之最:"攻下州最多的将领"那行不对,或没标新纪录(${tookRow};应是 ${tookName} ${took.value} 州、历来 ${took.count} 任;${tookNew})`);
+  if (chain !== took.count || !chainTop.includes(tookName) || !chainTop.includes('保持至今')) errs.push(`世界之最:「历来」展开不对(${chain} 行,应 ${took.count};${chainTop})`);
+  if (!closed || card !== prevName) errs.push(`世界之最:点历来的名字没有收起概览、打开他的卡片(${closed};${card};应是 ${prevName})`);
+  if (!copied.startsWith(`世界之最 · 到 ${Y} 年为止 · 种子 7`) || !copied.includes(`攻下州最多的将领：${tookName}`)) errs.push(`世界之最:复制全文不对(${copied.slice(0, 80)})`);
+  if (!warOk) errs.push('世界之最:点打得最久的仗没有打开编年史、只看攻方');
+  if (!dynOk) errs.push('世界之最:点国祚最长的一朝没有打开世系图');
+  await rctx.close();
+}
+
+// 人物关系图:君主卡片「更多」最上面「关系图」→ 右边铺开以他为中心的图(左边卡片留着);点图上一位 → 换他居中、左边卡片跟着换、路径两段;
+// ‹ 退回;× 收起 → 地图左上「回到关系图」→ 再打开(中心还在);Esc 收起、卡片还开着
+if (part('人物关系图')) relation: {
+  const { findPersonExample } = await import('./lib/smokeExamples');
+  const ex = findPersonExample();
+  if (!ex) break relation;
+  await page.goto(`${dev.url}/?seed=${ex.seed}&civYear=${ex.year}`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  await page.evaluate((id) => (window as any).__wfSelect('polity', id), ex.polity);
+  await page.waitForTimeout(500);
+  await page.click('.inspector .cp-rulers .cp-dyn-row.on');
+  await page.waitForTimeout(400);
+  const id = await page.locator('.inspector .cp.pp').getAttribute('data-person');
+  await page.click('.inspector .cp.pp [data-act=more]');
+  const first = await page.locator('.pm-menu .pm-item').first().getAttribute('data-act');
+  await page.click('.pm-menu [data-act=person-relation]');
+  await page.waitForTimeout(500);
+  const center = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  const nodes = await page.locator('.rg-canvas > .rg-node[data-relation]').count();
+  const blocks = await page.locator('.rg-block').count();
+  const next = page.locator('.rg-canvas > .rg-node[data-relation^="p"]').first();
+  const nextK = await next.getAttribute('data-relation');
+  await next.click();
+  await page.waitForTimeout(700);
+  const center2 = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  const card2 = await page.locator('.inspector .cp.pp').getAttribute('data-person').catch(() => null);
+  const crumbs = await page.locator('.rg-crumbs b, .rg-crumbs .lnk').count();
+  await page.click('.rg [data-act=relation-back-step]');
+  await page.waitForTimeout(600);
+  const center3 = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  const card3 = await page.locator('.inspector .cp.pp').getAttribute('data-person').catch(() => null);
+  await page.click('.rg [data-act=relation-close]');
+  await page.waitForTimeout(300);
+  const back = await page.locator('.corner-tl [data-act=relation-back]').count();
+  await page.click('.corner-tl [data-act=relation-back]').catch(() => {});
+  await page.waitForTimeout(500);
+  const reopened = await page.locator('.rg').getAttribute('data-relation-graph').catch(() => null);
+  await page.mouse.move(5, 5);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  const closed = !(await page.locator('.rg').count());
+  const cardKept = await page.locator('.inspector .cp.pp').getAttribute('data-person').catch(() => null);
+  console.log(
+    `人物关系图:「更多」第一项 ${first};${center} ${nodes} 人、${blocks} 簇;点 ${nextK} → ${center2}、卡片 ${card2}、路径 ${crumbs} 段;‹ → ${center3}、卡片 ${card3};` +
+      `× → 回到关系图 ${back} → ${reopened};Esc 收起 ${closed}、卡片 ${cardKept}`,
+  );
+  if (first !== 'person-relation') errs.push(`人物关系图:「更多」最上面不是「关系图」(${first})`);
+  if (center !== `p${id}` || nodes < 2) errs.push(`人物关系图:没有以他为中心打开(${center};p${id};${nodes} 人)`);
+  if (!nextK || center2 !== nextK || `p${card2}` !== nextK || crumbs !== 2) errs.push(`人物关系图:点一位没有换他居中、卡片没跟着换(${nextK};${center2};${card2};${crumbs})`);
+  if (center3 !== `p${id}` || card3 !== id) errs.push(`人物关系图:‹ 没有退回(${center3};${card3})`);
+  if (back !== 1 || reopened !== `p${id}`) errs.push(`人物关系图:收起后「回到关系图」不对(${back};${reopened})`);
+  if (!closed || cardKept !== id) errs.push(`人物关系图:Esc 没收起、或者把卡片也关了(${closed};${cardKept})`);
+  await page.keyboard.press('Escape');
 }
 
 // 作者标记:右下角「标记」→ 顶部提示条"点地图放标记",点城的位置放下 → 填写卡片(名字、年份、说明)→ 完成:地图上有图钉和名字、
@@ -1311,6 +1466,158 @@ if (part('写实风放大')) {
   const back = await zp.evaluate(() => ({ k: (window as any).__wfView?.k, on: (window as any).__wfDetail?.on, dom: document.querySelectorAll('.detail-tiles canvas.tile').length }));
   if (back.on || back.dom) errs.push(`放大现算:缩回 1 倍后细节层 / 现算的块没有撤掉(${JSON.stringify(back)})`);
   await zp.close();
+}
+
+// 地区(地区图、立体):右下「地区」→ 地图上出一个框(写着多大)、按钮按下去;看这一块 = 地区图(一页:先粗后细,标题是框里的山名,
+// 2 倍清晰度,图例列出这一页上的城镇、线和山峰);底条切到立体:先粗后细都画出来,时间轴的位置换成控件条;
+// 框和角度写进网址、新页面打开那个网址是同一个角度;导出菜单里导出立体这一面;
+// 拖着转、换画风(重新上色)不出错;「回到地图」→ 收起、时间轴回来、刚才的框淡淡留一会儿
+if (part('立体地形')) {
+  const rp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
+  rp.on('pageerror', (e) => errs.push(`立体地形:${e.message}`));
+  rp.on('console', (m) => m.type() === 'error' && errs.push(`立体地形:${m.text()}`));
+  await rp.goto(`${dev.url}/?seed=7&map=satellite&sat=detail&fill=none`);
+  await rp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await rp.click('.map-controls [data-act=relief]');
+  const picking = await rp
+    .waitForSelector('.rp-box', { timeout: 30000 })
+    .then(() => true, () => false);
+  const pressed = await rp.locator('.map-controls [data-act=relief]').getAttribute('aria-pressed');
+  const size = await rp.locator('.rp-size').innerText().catch(() => '');
+  // 玉屏山一带的一小块(约 580 公里见方):先看地区图
+  const tr = Date.now();
+  await rp.evaluate(() => (window as any).__wfReliefPick?.open({ cx: 1478, cy: 436, w: 30, h: 30 }));
+  const paged = await rp
+    .waitForFunction(() => (window as any).__wfRegion?.drawn === 'fine', null, { timeout: 90000 })
+    .then(() => true, () => false);
+  const rg = await rp.evaluate(() => ({
+    dbg: (window as any).__wfRegion,
+    title: document.querySelector('.rv-t b')?.textContent ?? '',
+    cv: (() => {
+      const c = document.querySelector('.rgm-sheet') as HTMLCanvasElement | null;
+      return c ? [c.width, c.height] : null;
+    })(),
+    face: document.querySelector('.ab-seg button.on')?.getAttribute('data-face'),
+    timeline: !!document.querySelector('.bottom-row') && getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none',
+  }));
+  console.log(`地区图:${Date.now() - tr} ms(粗的 ${rg.dbg?.coarseMs} ms、细的 ${rg.dbg?.fineMs} ms),「${rg.title}」${rg.cv?.join('×')},山峰 ${rg.dbg?.peaks} 座,图例 ${rg.dbg?.lines?.join('、')}`);
+  if (!paged || rg.title !== '玉屏山一带' || rg.face !== 'flat' || rg.timeline || !rg.cv || rg.cv[0] !== 2560 || !(rg.dbg?.peaks > 0) || !rg.dbg?.lines?.includes('河'))
+    errs.push(`立体地形:看这一块没出地区图 / 标题、清晰度、图例不对(${JSON.stringify({ paged, ...rg })})`);
+  // 导出这一页:底条右边「导出图片」→ 卡片(标题、版式、清晰度、格式)→ 导出 2 倍 PNG(就是屏幕上那一页)
+  await rp.click('.rv-bar [data-act=region-export]');
+  const rx = await rp.evaluate(() => ({
+    title: (document.querySelector('.rx .rx-field') as HTMLInputElement | null)?.value ?? '',
+    sizes: [...document.querySelectorAll('.rx .rx-seg button')].map((b) => b.textContent ?? ''),
+    name: document.querySelector('.rx .rx-small')?.textContent ?? '',
+  }));
+  await rp.click('[data-act=region-save]');
+  const saved = await rp
+    .waitForFunction(() => (window as any).__wfRegionExport?.bytes > 0 && !document.querySelector('.rx'), null, { timeout: 30000 })
+    .then(() => rp.evaluate(() => (window as any).__wfRegionExport), () => null);
+  console.log(`地区图导出:「${rx.title}」${rx.sizes.join(' / ')};${saved?.name} ${Math.round((saved?.bytes ?? 0) / 1e3)} KB`);
+  if (rx.title !== '玉屏山一带' || !rx.sizes.includes(`${rg.cv?.[0]}×${rg.cv?.[1]}`) || !saved || !/^文明与地图-种子7-玉屏山一带-第\d+年-.+\.png$/.test(saved.name) || saved.type !== 'image/png')
+    errs.push(`立体地形:地区图导出卡片 / 导出的文件不对(${JSON.stringify({ rx, saved })})`);
+  // 底条切到立体:同一个框立起来
+  const t0 = Date.now();
+  await rp.click('.ab-seg [data-face=relief]');
+  const fine = await rp
+    .waitForFunction(() => (window as any).__wfRelief?.level === 'fine', null, { timeout: 90000 })
+    .then(() => true, () => false);
+  const took = Date.now() - t0;
+  const rv = await rp.evaluate(() => ({
+    dbg: (window as any).__wfRelief,
+    title: document.querySelector('.rv-t b')?.textContent ?? '',
+    sub: document.querySelector('.rv-t small')?.textContent ?? '',
+    timeline: !!document.querySelector('.bottom-row') && getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none',
+    controls: [...document.querySelectorAll('.rv .map-controls button')].length,
+  }));
+  console.log(`立体地形:框上写「${size}」;立起来 ${took} ms(粗的 ${rv.dbg?.coarseMs} ms、细的 ${rv.dbg?.fineMs} ms,贴图 ${rv.dbg?.tex}、${rv.dbg?.verts} 个点、起伏 ×${rv.dbg?.ex});「${rv.title}」${rv.sub}`);
+  if (!picking || pressed !== 'true' || !/^约 \d+/.test(size)) errs.push(`立体地形:点「立体」没出框 / 按钮没按下 / 框上没写多大(${picking} ${pressed}「${size}」)`);
+  if (!fine) errs.push(`立体地形:细的一档没画出来(${JSON.stringify(rv.dbg)})`);
+  if (rv.title !== '玉屏山一带' || rv.timeline || rv.controls < 4) errs.push(`立体地形:控件条 / 右下一列不对(「${rv.title}」,时间轴还在 ${rv.timeline},右下 ${rv.controls} 个按钮)`);
+  // 拖着转一下、换成地理图(只重新上色)
+  const cv = await rp.locator('.rv canvas').boundingBox();
+  if (cv) {
+    await rp.mouse.move(cv.x + cv.width * 0.6, cv.y + cv.height * 0.5);
+    await rp.mouse.down();
+    await rp.mouse.move(cv.x + cv.width * 0.6 - 120, cv.y + cv.height * 0.5 + 30, { steps: 6 });
+    await rp.mouse.up();
+  }
+  // 框和角度写进网址(停下约半秒);导出菜单里「导出立体这一面」→ PNG(看得见的那一块,两倍像素密度);
+  // 同一个网址在新页面打开:直接进这一块的立体,角度一样
+  await rp.waitForTimeout(900);
+  const linkUrl = await rp.evaluate(() => location.href);
+  const ang = await rp.evaluate(() => (window as any).__wfRelief?.angle);
+  await rp.click('.export-btn');
+  await rp.click('.export-item[data-job=relief]');
+  const shot = await rp
+    .waitForFunction(() => (window as any).__wfExport?.job === 'relief' && (window as any).__wfExport.bytes > 0, null, { timeout: 30000 })
+    .then(() => rp.evaluate(() => (window as any).__wfExport), () => null);
+  console.log(`立体导出:${shot?.name} ${shot?.w}×${shot?.h} ${Math.round((shot?.bytes ?? 0) / 1e3)} KB;网址 ${linkUrl.replace(/^.*?\?/, '?')}`);
+  if (!/[?&]area=[\d.,%C-]+/.test(linkUrl) || !/[?&]face=3d/.test(linkUrl) || !/[?&]ang=/.test(linkUrl) || !ang)
+    errs.push(`立体地形:框、角度没写进网址(${linkUrl})`);
+  if (!shot || !/^文明与地图-种子7-玉屏山一带-第\d+年-立体-.+\.png$/.test(shot.name) || !(shot.w > 1000))
+    errs.push(`立体地形:导出立体这一面不对(${JSON.stringify(shot)})`);
+  const lp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
+  lp.on('pageerror', (e) => errs.push(`立体地形(链接):${e.message}`));
+  await lp.goto(linkUrl);
+  const linked = await lp
+    .waitForFunction(() => (window as any).__wfRelief?.level === 'fine' && (window as any).__wfRelief?.angle, null, { timeout: 120000 })
+    .then(() => lp.evaluate(() => ({ angle: (window as any).__wfRelief?.angle, title: document.querySelector('.rv-t b')?.textContent ?? '', face: document.querySelector('.ab-seg button.on')?.getAttribute('data-face') })), () => null);
+  console.log(`立体链接:${JSON.stringify(linked)}(原来 ${JSON.stringify(ang)})`);
+  if (!linked || linked.face !== 'relief' || linked.title !== '玉屏山一带' || !ang || Math.abs(linked.angle.yaw - ang.yaw) > 0.2 || Math.abs(linked.angle.pitch - ang.pitch) > 0.2 || Math.abs(linked.angle.zoom / ang.zoom - 1) > 0.02)
+    errs.push(`立体地形:网址打开没进同一个角度的立体(${JSON.stringify({ linked, ang })})`);
+  await lp.close();
+  const f0 = await rp.evaluate(() => (window as any).__wfRelief?.frames ?? 0);
+  await pickLayer(rp, 'geo');
+  await rp.waitForTimeout(3000);
+  const f1 = await rp.evaluate(() => (window as any).__wfRelief?.frames ?? 0);
+  if (!(f1 > f0)) errs.push(`立体地形:换成地理图以后立体没有重画(${f0} → ${f1} 帧)`);
+  // 换成手绘:按这一块的大小重画(整块画一张)
+  await pickLayer(rp, 'terrain');
+  const drawn = await rp
+    .waitForFunction(() => (window as any).__wfRelief?.look === 'fantasy', null, { timeout: 60000 })
+    .then(() => true, () => false);
+  if (!drawn) errs.push(`立体地形:换成手绘以后立体没有按手绘重画(${JSON.stringify(await rp.evaluate(() => (window as any).__wfRelief))})`);
+  await rp.click('.rv-bar .b');
+  await rp.waitForTimeout(400);
+  const closed = await rp.evaluate(() => ({ rv: document.querySelectorAll('.rv').length, timeline: getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none', ghost: !!document.querySelector('.rp-ghost') }));
+  if (closed.rv || !closed.timeline || !closed.ghost) errs.push(`立体地形:点「回到地图」以后没收起 / 时间轴没回来 / 刚才的框没留下(${JSON.stringify(closed)})`);
+  // 导出菜单里的「地区图」:进框一块
+  await rp.click('.export-btn');
+  await rp.click('.export-item[data-job=region]');
+  const picked = await rp
+    .waitForSelector('.rp-box', { timeout: 15000 })
+    .then(() => true, () => false);
+  if (!picked) errs.push('立体地形:导出菜单里点「地区图」没进框一块');
+  await rp.keyboard.press('Escape');
+  // 山脉卡片「看立体」:搜玉屏山点开卡片 → 直接立起来(手绘),山名和最高峰的海拔立在山顶
+  await rp.fill('[data-act=search]', '玉屏山');
+  await rp.waitForTimeout(400);
+  await rp.press('[data-act=search]', 'Enter');
+  const card = await rp
+    .waitForSelector('[data-act=view-relief]', { timeout: 15000 })
+    .then(() => true, () => false);
+  if (!card) errs.push('立体地形:玉屏山的卡片上没有「看立体」');
+  else {
+    const peak = await rp.evaluate(() => document.querySelector('[data-stat="最高峰"]')?.textContent ?? '');
+    await rp.click('[data-act=view-relief]');
+    const up = await rp
+      .waitForFunction(() => (window as any).__wfRelief?.level === 'fine' && document.querySelector('.rv-peak b'), null, { timeout: 90000 })
+      .then(() => true, () => false);
+    const rv2 = await rp.evaluate(() => ({
+      title: document.querySelector('.rv-t b')?.textContent ?? '',
+      peaks: [...document.querySelectorAll('.rv-peak b')].map((e) => e.textContent ?? ''),
+      shown: [...document.querySelectorAll('.rv-peak')].filter((e) => (e as HTMLElement).style.visibility !== 'hidden').length,
+      look: (window as any).__wfRelief?.look,
+    }));
+    console.log(`立体地形:卡片「看立体」→「${rv2.title}」,山名 ${rv2.peaks.join('、')}(卡片上最高峰 ${peak})`);
+    const m = peak.match(/(\d+)/);
+    if (!up || rv2.title !== '玉屏山一带' || rv2.look !== 'fantasy' || !rv2.shown || !rv2.peaks.some((t) => t.startsWith('玉屏山') && (!m || t.includes(`${m[1]} 米`))))
+      errs.push(`立体地形:卡片上点「看立体」没立起来 / 山名不对(${JSON.stringify({ up, peak, ...rv2 })})`);
+    await rp.click('.rv-bar .b');
+  }
+  await rp.close();
 }
 
 // 回放中点概览"世界设定"页的"以它为底稿新建…":概览收起,换成新建界面(不弹新建窗口;左边设定:种子锁着,地形、参数带过去);
@@ -3088,8 +3395,15 @@ if (part('干预保护')) {
     orders = await page.locator('.timebar .tb-order').count();
     // 已生效的提示(带撤销)
     ivToast = await toastText(page, 'resim-done');
-    // 放得快,停下时已经过了好些年:这国后来的大事会把干预那条挤出面板(只列最近 5 件),按 ← 一次退 10 年,退到干预那年附近;
-    // 不退到干预那年之前(那时面板里还没有这条)
+    // 放得快,停下时已经过了好些年:这国后来的大事会把干预那条挤出面板(只列最近 5 件)。按 G 打年份,跳到干预的下一年;
+    // 打不了的话按 ← 一次退 10 年,退到干预那年附近(不退到干预那年之前:那时面板里还没有这条)
+    await page.keyboard.press('g');
+    const jumpIn = page.locator('.timebar .jy-in');
+    if (await jumpIn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await jumpIn.fill(String(Y + 1));
+      await jumpIn.press('Enter');
+      await page.waitForTimeout(300);
+    }
     for (let i = 0; i < 20; i++) {
       const y = Number((await page.locator('.timebar .tb-year').innerText().catch(() => '')).replace(/[^\d]/g, ''));
       if (!(y >= Y + 10)) break;
@@ -3160,7 +3474,7 @@ if (part('干预保护')) {
 }
 
 // 国家面板:点国家 → 暂停、地图飞过去(疆域在面板左边)、国都圆环;信息页(三格数字、朝代条、疆域、邻国、相关事件、2×2 按钮)
-// → 干预历史 → 干预页(生效年份、十四条命令)→ 宣战:只有相邻国家浮出名牌 → Esc 回到干预页 → 结盟:地图压暗、提示条"选择与…结盟的国家"、
+// → 干预历史 → 干预页(生效年份、十五条命令)→ 宣战:只有相邻国家浮出名牌 → Esc 回到干预页 → 结盟:地图压暗、提示条"选择与…结盟的国家"、
 // 悬停名牌反色、悬停国土"点击选择" → 点名牌 → 推演时面板藏起,推完面板还在(回到信息页)、地图飞回这国、"…结盟,已从 N 年起重新推演"带撤销、
 // 从 N 年接着放 → 撤销 →"已撤销"
 if (part('国家面板')) {
@@ -3295,7 +3609,7 @@ if (part('国家面板')) {
       errs.push(`国家面板:信息页内容不全(${info.slice(0, 200)})`);
     if (!moved) errs.push(`国家面板:点国家后地图没有飞过去(${flown})`);
     if (!mark) errs.push('国家面板:选中国家后国都没有圆环');
-    if (cmds !== 14 || !/生效年份.*年.*该年之前的历史不变/.test(cmdText)) errs.push(`国家面板:干预页不对(${cmds} 条命令,「${cmdText}」)`);
+    if (cmds !== 18 || !/生效年份.*年.*该年之前的历史不变/.test(cmdText)) errs.push(`国家面板:干预页不对(${cmds} 条命令,「${cmdText}」)`);
     if (!/持续到.*到某一年.*\d+.*年.*只对保护、保住王室、禁止扩张、结盟有效/.test(untilText) || !untilOff) errs.push(`国家面板:「持续到」不对(「${untilText}」,切回一直有效后收起 ${untilOff})`);
     if (warNames.some((n) => !near.includes(n))) errs.push(`国家面板:宣战时浮出了不相邻国家的名牌(${warNames.join('、')};邻国 ${near.join('、')})`);
     if (!backToCmd) errs.push('国家面板:选目标时按 Esc 没有回到干预页');
@@ -3311,6 +3625,105 @@ if (part('国家面板')) {
     if (!(ty >= Y - 1 && ty <= Y + 40) || !playingAfter) errs.push(`国家面板:下令后没有从生效年份接着放(${tlAfter}${playingAfter ? '' : ',没在放'})`);
     if (!/^已撤销/.test(undoToast)) errs.push(`国家面板:撤销后没有"已撤销"(${undoToast})`);
   }
+  await page.evaluate(() => localStorage.clear());
+}
+
+// 政体和朝政页:国家卡片「国都」下面一行「政体」(政体名 + 哪年起),点了换成朝政页:政体名(大字)、为什么叫这个、
+// 征税 / 兵制 / 官制三条分段条(现在那档亮着,各一句)、共用的"地方 ↔ 朝廷"轴;「历次改制」一条时间条 + 一条一行,点一条打开编年史;
+// 拖时间轴(换年份)政体跟着变;够不上议事的小国(没有「朝政」一行)也能点「政体」进朝政页
+if (part('政体和朝政页')) {
+  await page.evaluate(() => localStorage.clear()).catch(() => {});
+  await page.goto(`${dev.url}/?seed=7`);
+  await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+  const rowText = () => page.locator('.inspector .ct-form-row').innerText().then((t) => t.replace(/\s+/g, ' '), () => '');
+  const pickPolity = async (id: number) => {
+    await page.evaluate((i) => (window as any).__wfSelect('polity', i), id);
+    await page.locator(`.inspector .cp[data-polity="${id}"] .cp-k`).first().waitFor({ timeout: 10000 });
+  };
+  const changeRows = page.locator('.inspector [data-sec=form-changes] [data-act=form-change]');
+  // 挑前几国里改过制的那一国(历次改制除了立国还有几条):不认死某一国,推演改了历史也照样能查
+  let id = -1;
+  let row = '';
+  let ms = NaN;
+  for (let i = 0; i < 12 && id < 0; i++) {
+    await pickPolity(i);
+    row = await rowText();
+    const t0 = performance.now();
+    await page.click('.inspector [data-act=court-form]');
+    await page.locator('.inspector .ct-page .ct-gov').waitFor({ timeout: 5000 }).catch(() => {});
+    ms = performance.now() - t0;
+    if ((await changeRows.count()) >= 3) id = i;
+    else await page.click('.inspector [data-act=court-back]').catch(() => {});
+  }
+  timing('点「政体」→ 朝政页', ms, 800);
+  const name = row.split(' ')[0];
+  const gov = (await page.locator('.inspector .ct-gov').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  // 征税、兵制、官制一块,继任、议政、参与一块(.ct-bars2),各三条、一条轴
+  const segs = await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-seg').count();
+  const lit = await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-seg span.on').allInnerTexts();
+  const says = await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-say').allInnerTexts();
+  const axis = (await page.locator('.inspector .ct-bars:not(.ct-bars2) .ct-axis').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const segs2 = await page.locator('.inspector .ct-bars2 .ct-seg').count();
+  const lit2 = await page.locator('.inspector .ct-bars2 .ct-seg span.on').allInnerTexts();
+  const axis2 = (await page.locator('.inspector .ct-bars2 .ct-axis').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const changes = (await changeRows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  const bar = await page.locator('.inspector [data-sec=form-changes] .ct-tbar i').count();
+  // 最近两次改制的年份;拖到这两次中间,政体应是最近那次改之前的名字
+  const ys = (await changeRows.locator('.ct-y').allInnerTexts()).map(Number);
+  const from = changes[0]?.match(/(\S+) → /)?.[1] ?? '';
+  const mid = Math.floor((ys[0] + ys[1]) / 2);
+  await changeRows.first().click().catch(() => {});
+  const chron = await page.locator('.ov-root:not([hidden]) .ov').isVisible({ timeout: 3000 }).catch(() => false);
+  if (chron) await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  let early = '';
+  if (id >= 0 && Number.isFinite(mid)) {
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(`${dev.url}/?seed=7&civYear=${mid}`);
+    await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
+    await pickPolity(id);
+    early = await rowText();
+  }
+  // 够不上议事的小国(没有「朝政」一行)也有「政体」,点得进朝政页
+  const small = ((await page.evaluate('window.__wfPickables()')) as { kind: string; id: number }[]).filter((q) => q.kind === 'polity').map((q) => q.id);
+  let smallRow = '';
+  let smallPage = '';
+  // 先在能点的国名里挨个看(前 40 个);都够得上议事(小国的名字常常没标在图上)就按国家编号挨个选:这一年还在、有「政体」一行的
+  const tryPolity = async (q: number, quick: boolean) => {
+    if (quick) await pickPolity(q);
+    else {
+      await page.evaluate((i) => (window as any).__wfSelect('polity', i), q);
+      if (!(await page.locator(`.inspector .cp[data-polity="${q}"] .cp-k`).first().waitFor({ timeout: 1500 }).then(() => true, () => false))) return false;
+    }
+    if (await page.locator('.inspector [data-act=court]').count()) return false;
+    const r = await rowText();
+    if (!r) return false;
+    smallRow = r;
+    await page.click('.inspector [data-act=court-form]').catch(() => {});
+    smallPage = (await page.locator('.inspector .ct-page').innerText({ timeout: 3000 }).catch(() => '')).replace(/\s+/g, ' ');
+    return true;
+  };
+  let found = false;
+  for (const q of small.slice(0, 40)) if ((found = await tryPolity(q, true))) break;
+  for (let q = 0; q < 150 && !found; q++) found = await tryPolity(q, false);
+  console.log(
+    `政体和朝政页:第 ${id} 国「${row}」→ 朝政页「${gov}」,${segs} 条分段条亮着「${lit.join('、')}」,轴「${axis}」;` +
+      `历次改制 ${changes.length} 条、时间条 ${bar} 段(最新「${(changes[0] ?? '').slice(0, 60)}」),点了打开编年史 ${chron};` +
+      `拖到 ${mid} 年「${early}」(应是${from});小国「${smallRow}」→「${smallPage.slice(0, 80)}…」`,
+  );
+  if (id < 0) errs.push('政体和朝政页:前 12 国里没找到改过制的国家');
+  else {
+    if (!/^\S+ \d+ 年起$/.test(row)) errs.push(`政体和朝政页:国家卡片「政体」一行不对(${row})`);
+    if (gov !== row) errs.push(`政体和朝政页:朝政页上面的政体名、哪年起和卡片上的对不上(${gov} / ${row})`);
+    if (segs !== 3 || lit.length !== 3 || says.length !== 3 || says.some((x) => !x.trim())) errs.push(`政体和朝政页:征税、兵制、官制三条不全(${segs} 条,亮着 ${lit.join('、')},${says.length} 句)`);
+    if (axis !== '地方说了算 朝廷说了算') errs.push(`政体和朝政页:三条下面的轴不对(${axis})`);
+    if (segs2 !== 3 || lit2.length !== 3) errs.push(`政体和朝政页:继任、议政、参与三条不全(${segs2} 条,亮着 ${lit2.join('、')})`);
+    if (axis2 !== '少数人说了算 众人说了算') errs.push(`政体和朝政页:继任、议政、参与下面的轴不对(${axis2})`);
+    if (bar !== changes.length || !(changes[0] ?? '').includes(`→ ${name}`) || !(ys[0] >= ys[1])) errs.push(`政体和朝政页:历次改制不对(${changes.length} 条、时间条 ${bar} 段;${changes[0]})`);
+    if (!chron) errs.push('政体和朝政页:点历次改制的一条没有打开编年史');
+    if (!from || !early.startsWith(`${from} `)) errs.push(`政体和朝政页:拖到 ${mid} 年政体没跟着变(${early},应是${from})`);
+  }
+  if (!/^\S+ \d+ 年起$/.test(smallRow) || !/征税.*兵制.*官制.*历次改制/.test(smallPage)) errs.push(`政体和朝政页:小国的「政体」点不进朝政页(${smallRow};${smallPage.slice(0, 80)})`);
   await page.evaluate(() => localStorage.clear());
 }
 
@@ -4574,13 +4987,34 @@ if (part('东西相连')) {
     console.log(`编年史跳转(东西相连):点了 ${n} 条,平移了 ${pans.length} 次,最大横向平移 ${worst.toFixed(0)} 像素(半圈 ${half.toFixed(0)} 像素)`);
     if (!pans.length) errs.push('东西相连:编年史点了好几条,地图一次都没平移过去');
     if (worst > half + 2) errs.push(`东西相连:编年史跳转绕了远路(平移 ${worst.toFixed(0)} 像素 > 半圈 ${half.toFixed(0)})`);
-    // 双击:缩放复位,中央经线不变(它是这个世界的设置)
+    // 双击:缩放复位,中央经线不变(它是这个世界的设置)。
+    // 点一条编年史地图要飞 600 毫秒(机器忙时起飞也晚),上面每条只等 550 毫秒:最后一条可能还在飞,
+    // 这时记下的中心不是停下来的中心。先等平移、缩放连着 300 毫秒没变(最多 5 秒)再记
+    const lonEarly = (await view()).lon;
+    const still = await page
+      .waitForFunction(
+        () => {
+          const w = window as any;
+          const v = w.__wfView;
+          const key = `${v.k.toFixed(4)},${v.x.toFixed(1)},${v.y.toFixed(1)}`;
+          const now = performance.now();
+          if (w.__stillKey !== key) (w.__stillKey = key), (w.__stillAt = now);
+          return now - w.__stillAt > 300;
+        },
+        null,
+        { timeout: 5000, polling: 50 },
+      )
+      .then(() => true, () => false);
     const before = (await view()).lon;
     await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(200);
     const vr = await view();
     const dl = Math.abs(((vr.lon - before + 540) % 360) - 180);
-    if (!(vr.k === 1 && dl < 0.5)) errs.push(`东西相连:双击没有只复位缩放(k=${vr.k},中心 ${before.toFixed(1)}° → ${vr.lon.toFixed(1)}°)`);
+    console.log(
+      `双击复位(东西相连):编年史最后一条点完 550 毫秒时中心 ${lonEarly.toFixed(1)}°,停稳${still ? '' : '(没等到)'}后 ${before.toFixed(1)}° → 双击 k=${vr.k}、中心 ${vr.lon.toFixed(1)}°`,
+    );
+    if (!(vr.k === 1 && dl < 0.5))
+      errs.push(`东西相连:双击没有只复位缩放(k=${vr.k},中心 ${before.toFixed(1)}° → ${vr.lon.toFixed(1)}°${still ? '' : ';双击前地图 5 秒没停稳'})`);
   }
 
   // 5. 手绘风:外框、罗盘、纸边做旧画在视窗上(视窗装饰层画了,地形图本身没有外框)
@@ -5650,9 +6084,19 @@ if (part('手机布局')) {
     await mp.keyboard.press('Escape');
     await mp.waitForTimeout(400);
   }
+  // 上面撤销结盟、重推完以后时间轴从 2600 年接着放;国家表按那一年的州数排,两国州数交错的那几年先后跟着换,
+  // 读第一行和点下去之间可能已经换了一国(放到哪一年看机器快慢,偶发)。
+  // 先点胶囊上的暂停键,让表停在一年上;点的时候也按国家编号点读到的那一行
+  const ovPlaying = (await mp.locator('.bottom-row .tb-play.on:not([disabled])').count()) > 0;
+  if (ovPlaying) {
+    await mp.tap('.bottom-row .tb-play.on').catch(() => {});
+    await mp.locator('.bottom-row .tb-play.on').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+  }
+  const ovYear = (await mp.locator('.bottom-row .tb-year').first().innerText().catch(() => '')).replace(/\s+/g, '');
   await mp.tap('.psheet [data-act=overview]', { timeout: 5000 }).catch(() => {});
   await mp.waitForTimeout(400);
-  const ovRow = mp.locator('.ov-row').first();
+  const ovId = await mp.locator('.ov-row').first().getAttribute('data-polity', { timeout: 5000 }).catch(() => null);
+  const ovRow = mp.locator(`.ov-row[data-polity="${ovId}"]`);
   const ovName = await ovRow.locator('.ov-name').innerText().catch(() => '');
   const ovRowText = (await ovRow.innerText().catch(() => '')).replace(/\n/g, ' ');
   await ovRow.tap().catch(() => {});
@@ -5706,7 +6150,7 @@ if (part('手机布局')) {
       `捏合 k ${k0.toFixed(2)} → ${k1.toFixed(2)}(中点下 ${mid0?.map((v: number) => v.toFixed(0))} → ${mid1?.map((v: number) => v.toFixed(0))});单指拖动 ${panned};点两下回正 k ${kReset.toFixed(2)};` +
       `点「${pol?.text}」→ 详情卡片 ${JSON.stringify(sheet0)}、胶囊 ${JSON.stringify(row1)}、国都圆环 ${JSON.stringify(ring)}、悬停卡片 ${hover};上拖 → 拉到顶 ${full} ${JSON.stringify(sheet1)}、胶囊藏起 ${fullCapsuleHidden};` +
       `干预页 ${cmds} 条;结盟提示「${pickToast}」、卡片藏起 ${hiddenWhilePicking};点「${tgtText}」→「${doneToast}」;撤销 →「${undoToast}」;` +
-      `图层抽屉 ${JSON.stringify(lp)} → 卫星 ${dark}、收起 ${lpClosed};概览「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」;` +
+      `图层抽屉 ${JSON.stringify(lp)} → 卫星 ${dark}、收起 ${lpClosed};概览(${ovYear}${ovPlaying ? ',在放 → 先暂停' : ''})「${ovRowText}」→ 收起 ${ovClosed};搜索框 ${JSON.stringify(sb)} 拉到顶 ${searchFull} → 「${hitName}」;` +
       `拉到顶 ${homeFull} 点我的世界 → ${JSON.stringify(homeBox)}、${homeCards} 个世界;新建 → 卡片 ${JSON.stringify(nwBox)};改地形 → 工具 ${nwTools};完成 → 退回 ${nwBack}`,
   );
   if (!ws0 || Math.abs(ws0.y - (VH - PEEK)) > 2 || Math.abs(ws0.y + ws0.height - VH) > 1 || ws0.width !== VW) errs.push(`手机:世界卡片没有收在最底(${JSON.stringify(ws0)})`);
@@ -5714,8 +6158,8 @@ if (part('手机布局')) {
     errs.push(`手机:时间轴胶囊不在世界卡片上面 / 不是一行(${JSON.stringify(row)})`);
   if (!track || !row || track.height < 32 || track.y < row.y || track.y + track.height > row.y + row.height) errs.push(`手机:时间轴轨道不在胶囊里 / 太矮(${JSON.stringify(track)})`);
   if (!/^种子 7，现存 \d+ 国$/.test(sub)) errs.push(`手机:世界名后面的副标不对(${sub})`);
-  if (btnActs !== 'layers,mark,globe,director,assistant' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 160)
-    errs.push(`手机:右上不是竖排的图层、标记、地球、导播、助手五个按钮(${btnActs} ${JSON.stringify(btns)})`);
+  if (btnActs !== 'layers,mark,globe,director,assistant,relief' || !btns || Math.abs(btns.x + btns.width - (VW - 12)) > 1 || btns.y > 20 || btns.height < 160)
+    errs.push(`手机:右上不是竖排的图层、标记、地球、导播、助手、立体六个按钮(${btnActs} ${JSON.stringify(btns)})`);
   if (!wsFull || Math.abs(wsFull.y - 0.08 * VH) > 8 || tiles !== 4 || !capsuleHidden) errs.push(`手机:往上拖世界卡片没有拉到顶(${JSON.stringify(wsFull)},大按钮 ${tiles},胶囊藏起 ${capsuleHidden})`);
   if (!ws1 || Math.abs(ws1.y - (VH - PEEK)) > 2) errs.push(`手机:点拖动条没有收起世界卡片(${JSON.stringify(ws1)},点了 ${gripTaps} 次、收到 click ${gripClicks} 次)`);
   if (!hint0.includes('双指缩放') || hint1 !== 0) errs.push(`手机:操作提示不对 / 捏合后没消失(${hint0})`);
@@ -5734,7 +6178,7 @@ if (part('手机布局')) {
     if (!ring || !row1 || !(ring.y > 20 && ring.y + ring.height < row1.y)) errs.push(`手机:选中的国家没有落在时间轴胶囊上方(国都圆环 ${JSON.stringify(ring)})`);
     if (hover) errs.push('手机:点了以后出了悬停卡片');
     if (!full || !sheet1 || Math.abs(sheet1.y - 0.08 * VH) > 8 || !fullCapsuleHidden) errs.push(`手机:往上拖没有拉到顶 / 胶囊没藏起来(${JSON.stringify(sheet1)})`);
-    if (cmds !== 14) errs.push(`手机:干预页不对(${cmds} 条命令)`);
+    if (cmds !== 18) errs.push(`手机:干预页不对(${cmds} 条命令)`);
     if (!/^选择与.+结盟的国家 \d+ 年起生效 取消$/.test(pickToast) || !hiddenWhilePicking) errs.push(`手机:选目标的提示条 / 卡片收起不对(${pickToast})`);
     if (!/^.+与.+结盟,已从 \d+ 年起重新推演( \d+ 年时它叫.+)? 撤销$/.test(doneToast))
       errs.push(`手机:点名牌后没有生效(${doneToast};点的「${tgtText}」,看得见的名牌 ${plateN} 个${pickLeft ? ',还停在选目标' : ''})`);
@@ -5743,7 +6187,7 @@ if (part('手机布局')) {
   if (!lp || Math.abs(lp.y + lp.height - VH) > 1 || lp.width !== VW) errs.push(`手机:图层弹层不是底部抽屉(${JSON.stringify(lp)})`);
   if (dark !== 'dark' || !lpClosed) errs.push(`手机:图层抽屉里切到卫星不对 / 收不起来(${dark},${lpClosed})`);
   if (!afterX.sheet) errs.push(`手机:关掉详情卡片后没有回到世界卡片(${JSON.stringify(afterX)})`);
-  if (!ovClosed || !ovName || !ovIns.includes(ovName)) errs.push(`手机:概览的国家列表点一国没有打开这国(${ovName})`);
+  if (!ovClosed || !ovName || !ovIns.includes(ovName)) errs.push(`手机:概览的国家列表点一国没有打开这国(${ovName};${ovYear},详情卡片「${ovIns.slice(0, 20).replace(/\n/g, ' ')}」)`);
   if (!sb || sb.width < VW - 40 || !searchFull) errs.push(`手机:搜索时世界卡片没有拉到顶(${JSON.stringify(sb)})`);
   if (!hitName || !searchIns.includes(hitName)) errs.push(`手机:搜索点一条没有打开它(${hitName})`);
   if (!homeFull || !homeBox || homeBox.width !== VW || homeCards !== 1) errs.push(`手机:拉到顶的世界卡片里点"我的世界"没有整屏换成我的世界(${JSON.stringify(homeBox)},${homeCards} 个世界)`);

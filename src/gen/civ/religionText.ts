@@ -12,6 +12,8 @@ import { rulerRef } from './peopleText';
 import { chronicleCached, chronicleSteps, mergeChronicle, runSteps, type ChronicleEntry, type Importance } from './chronicle';
 import { faithCounts, faithRoot, FOLK_COLOR } from './religion';
 import { developmentEntries } from './developmentText';
+import { tradeEntries } from './tradeText';
+import { ideologyEntries } from './ideologyText';
 import { yearAt, type Era } from '../era';
 
 /** 类型的说明(宗教卡片「类型」一行的小字) */
@@ -122,7 +124,7 @@ function* faithSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
 const fullCache = new WeakMap<Civ, ChronicleEntry[]>();
 
 /**
- * 史事 + 宗教大事 + 时代和物产的大事(编年史、时间轴、最近大事、卡片里的大事用这一份;不含君主继位)。
+ * 史事 + 宗教大事 + 时代和物产的大事 + 商道的通断 + 思潮的大事(编年史、时间轴、最近大事、卡片里的大事用这一份;不含君主继位)。
  * 按 civ 缓存;地图在更早一段时按整段历史(Civ.history)算
  */
 export function fullChronicle(civ: Civ): ChronicleEntry[] {
@@ -144,7 +146,11 @@ export function* fullChronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]>
   yield;
   const merged = mergeChronicle(build, faith);
   yield;
-  const out = mergeChronicle(merged, developmentEntries(civ));
+  const dev = mergeChronicle(merged, developmentEntries(civ));
+  yield;
+  const trade = mergeChronicle(dev, tradeEntries(civ));
+  yield;
+  const out = mergeChronicle(trade, ideologyEntries(civ));
   const again = fullCache.get(civ);
   if (again) return again;
   fullCache.set(civ, out);

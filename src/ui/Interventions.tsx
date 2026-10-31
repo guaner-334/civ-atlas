@@ -17,11 +17,13 @@ import type { ToastAction } from './toastStore';
 import type { Civ, Polity } from '../gen/civ/types';
 import { canCross } from '../gen/civ/polities';
 import { polityAlive, polityName } from '../gen/civ/growth';
-import { regionLabel } from '../gen/civ/display';
+import { cultureLabel, regionLabel } from '../gen/civ/display';
 import { ownersAt, type Owners } from '../gen/civ/timeline';
 import {
+  AUTHOR_REGENT_AGE_END,
   DISASTER_LEVEL_NAMES,
   DISASTER_NAMES,
+  TREK_DIR_NAMES,
   cleanIntervention,
   keyCells,
   parsePersonKey,
@@ -37,14 +39,17 @@ import {
 import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
 import { rulerAt } from '../gen/civ/peopleInfo';
 import { cnNumber } from '../gen/civ/chronicle';
+import { foesAt } from '../gen/civ/fiscalBook';
 import { leaningsChange, personName } from '../gen/civ/peopleText';
 import { heOrShe, heirWord, mateWord, wedVerb, type Sexed } from '../gen/civ/gender';
 import { getEdits, removeIntervention, useEra } from './editsStore';
 import { crownLine } from './crownInfo';
+import { postLine } from './authorIvInfo';
 import { POLICY_PRESET_NAMES, emptyPolicy, policyName, type PolicyIv } from '../gen/civ/policy';
 import { policyKnobsText } from './policyInfo';
 import { boostText } from './boostInfo';
 import { KEEP_CROWN } from './keepInfo';
+import { TREK_REACH_NAMES } from './trekInfo';
 import { eraText, spaced, yearAt, yearShort } from '../gen/era';
 
 // ---------------------------------------------------------------------------
@@ -184,6 +189,13 @@ const regionKeyName = (civ: Civ, key: string): string => {
   return r >= 0 && r < civ.regions.count ? regionLabel(civ, r) : '(没有的州)';
 };
 
+/** 民族的稳定键 → "克拉尔族"(这份历史里没有 = 写明) */
+export const cultureKeyName = (civ: Civ, key: string): string => {
+  const r = resolveKey(civ, key);
+  const c = r && r.kind === 'culture' ? civ.cultures[r.id] : undefined;
+  return c ? cultureLabel(c) : '(新历史里没有的民族)';
+};
+
 const cityKeyName = (civ: Civ, key: string): string => {
   const id = cityIdOf(civ, key);
   return id >= 0 ? civ.settlements[id].name || '某城' : '(新历史里没有的城)';
@@ -223,6 +235,20 @@ function disasterText(civ: Civ, v: Extract<Intervention, { kind: 'disaster' }>, 
   return `${regionKeyName(civ, v.region ?? '')}一带:${word}${lv}${e && e.b > 0 ? `，${e.b} 州受灾` : ''}`;
 }
 
+/**
+ * 大迁徙、不许迁的说法:"克拉尔族:大迁徙，从诺敏塔拉往瑶渊之野""克拉尔族:大迁徙，去处推演挑（远）""克拉尔族:大迁徙，往南，去处推演挑"
+ * "克拉尔族:不许迁(至第 2100 年)"
+ */
+function trekText(civ: Civ, v: Extract<Intervention, { kind: 'trek' | 'stay' }>): string {
+  const F = cultureKeyName(civ, v.folk);
+  if (v.kind === 'stay') return `${F}:不许迁${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
+  const from = v.region ? `从${regionKeyName(civ, v.region)}` : '';
+  if (v.to) return `${F}:大迁徙，${from}往${regionKeyName(civ, v.to)}`;
+  // 照大纲下的往某个方位的令:远近照推演依次放宽,不写哪一档
+  if (v.dir) return `${F}:大迁徙，${from ? `${from}出发，` : ''}往${TREK_DIR_NAMES[v.dir]}，去处推演挑`;
+  return `${F}:大迁徙，${from ? `${from}出发，` : ''}去处推演挑（${TREK_REACH_NAMES[v.reach ?? 'mid']}）`;
+}
+
 /** 第 i 条干预(Civ.interventions 的下标)是"立国"、在这份历史里立成了:立出来的国家(没有 = −1) */
 function foundedBy(civ: Civ, i: number): number {
   if (i < 0 || civ.interventions?.[i]?.kind !== 'found') return -1;
@@ -249,15 +275,22 @@ export function civIndexes(civ: Civ, list: readonly unknown[]): number[] {
  * 一条干预的说法:"大昌:保护""大昌:保护(至第 2300 年)""大昌与索拉特结盟(至第 2000 年)""大昌向索拉特宣战""大昌:禁止分裂"
  * "瑞州划给大昌(永久)""在瑞州立国(号饕餮)""大昌迁都瑞城""大昌:禁止扩张(至第 1800 年)"。
  * i = 它在这份历史的 Civ.interventions 里是第几条(给了、立国立成了,就写出立出来的国名);
- * a = 下令的国家怎么称呼(不给 = 生效那年的名字)
+ * a = 下令的国家怎么称呼(不给 = 生效那年的名字)。记在作者人物名下的(干预带 author)后面加"（林小满之议）"
  */
 export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string): string {
+  const t = ivText(civ, v, i, a);
+  // 记在作者人物名下的国家的事:"大昌与索拉特结盟（林小满之议）"
+  return v.author !== undefined ? `${t}（${authorName(civ, v.author)}之议）` : t;
+}
+
+function ivText(civ: Civ, v: Intervention, i: number, a: string | undefined): string {
   if (v.kind === 'found') {
     const made = i >= 0 ? foundedBy(civ, i) : -1;
     const shown = made >= 0 ? `,即${nameAt(civ.polities[made], v.from)}` : v.name ? `(号${v.name})` : '';
     return `在${regionKeyName(civ, v.region)}立国${shown}`;
   }
   if (v.kind === 'disaster') return disasterText(civ, v, i, a);
+  if (v.kind === 'trek' || v.kind === 'stay') return trekText(civ, v);
   const A = a ?? keyName(civ, v.a, v.from);
   if (v.kind === 'boost') return boostText(civ, v, i, A, getEdits().era);
   switch (v.kind) {
@@ -268,7 +301,8 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
     case 'ally':
       return `${A}与${keyName(civ, v.b, v.from)}结盟${v.until !== undefined ? `(至第 ${v.until} 年)` : ''}`;
     case 'declare':
-      return `${A}向${keyName(civ, v.b, v.from)}宣战`;
+      // 宣战时点了谁挂帅(作者的将领):"大定向奥利亚宣战，林小满挂帅"
+      return `${A}向${keyName(civ, v.b, v.from)}宣战${v.lead !== undefined ? `，${authorName(civ, v.lead)}挂帅` : ''}`;
     case 'cede':
       return `${regionKeyName(civ, v.region)}划给${A}${v.permanent ? '(永久)' : ''}`;
     case 'move':
@@ -321,8 +355,12 @@ export function interventionText(civ: Civ, v: Intervention, i = -1, a?: string):
       return `${A}与${ps}以${regionKeyName(civ, v.region)}为中立地${until}`;
     }
     case 'regent':
-      // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政"
+      // "彭继桓:引兵入朝掌权，到君主去世即位""孙嵩曜:专权，5 年后还政";作者的人物 "苏晚以大臣专权掌大定国政，5 年后还政"(authorIvInfo.ts)
+      if (v.char !== undefined) return postLine(authorName(civ, v.char), A, v, getEdits().era);
       return `${personKeyName(civ, v.person)}:${regentHowWord(v.how, personOfKey(civ, v.person))}掌权，${regentEndWord(v.end, v.years)}`;
+    case 'appoint':
+      // "林小满为大定将，到 1530 年卸任""林小满入大定为臣，到卒年（1561 年）"(authorIvInfo.ts)
+      return postLine(authorName(civ, v.char), A, v, getEdits().era);
     case 'marry': {
       // "胡炜:娶大澜王朝宗室女""胡炜:本国宗室女嫁大澜王朝""胡炜:与大澜王朝互嫁"
       const B = keyName(civ, v.b, v.from) || '对方';
@@ -343,12 +381,17 @@ export function regentEndWord(end: RegentEnd, years?: number): string {
   return end === 'succeed' ? '到君主去世即位' : `${years ?? 1} 年后${end === 'return' ? '还政' : '篡位'}`;
 }
 
+/** 让作者的人物掌权到什么时候:"5 年后还政" / 没填还政年 = "到卒年"(人物卡没写卒年 = "到 70 岁还政") */
+export function authorRegentEndWord(v: { years?: number; died?: number }): string {
+  return v.years !== undefined ? regentEndWord('return', v.years) : v.died !== undefined ? '到卒年' : `到 ${AUTHOR_REGENT_AGE_END} 岁还政`;
+}
+
 /** 方针拧过旋钮(一键选的细调过,或者没从一键选起) */
 const tweakedOrCustom = (v: PolicyIv) => policyName(v) !== (v.preset ? POLICY_PRESET_NAMES[v.preset] : '');
 
-/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字,没即位成的也有;没套过 = "作者的人物") */
+/** 作者的人物在这份历史里叫什么(套过 applyCharacters 的历史里有名字,没即位成的也有;还没下过令的照人物卡;都没有 = "作者的人物") */
 function authorName(civ: Civ, char: number): string {
-  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+  return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || getEdits().characters?.find((c) => c.id === char)?.name || '作者的人物';
 }
 
 /**
@@ -357,7 +400,7 @@ function authorName(civ: Civ, char: number): string {
  * a = 下令的国家怎么称呼:国家面板下的令用面板标题上的名字(用户点的那个),不给 = 生效那年的名字
  */
 export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: string): string {
-  if (v.kind === 'found' || v.kind === 'disaster') return interventionText(civ, v, i, a);
+  if (v.kind === 'found' || v.kind === 'disaster' || v.kind === 'trek' || v.kind === 'stay') return interventionText(civ, v, i, a);
   const A = a ?? keyName(civ, v.a, v.from);
   switch (v.kind) {
     case 'protect':
@@ -376,7 +419,7 @@ export function interventionDoneText(civ: Civ, v: Intervention, i = -1, a?: stri
 
 /** 下令的国家在生效那一年叫什么(立国没有下令的国家 = null) */
 export function interventionActorThen(civ: Civ, v: Intervention): string | null {
-  return v.kind === 'found' || !v.a ? null : keyName(civ, v.a, v.from);
+  return v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || !v.a ? null : keyName(civ, v.a, v.from);
 }
 
 let owners: Owners | undefined;
@@ -400,6 +443,15 @@ export function neighborsAt(civ: Civ, id: number, y: number): { size: Map<number
     }
   }
   return { size, near };
+}
+
+/**
+ * y 年 id 宣战打得成的国家(宣战、派作者的人物出征挑对象用):接壤的 near 里那年没和它在交战的 ——
+ * 推演里两国已在交战时宣战那条跳过,下了不生效,点的挂帅也就领不了这一仗。foes = 那年和它在交战的国家
+ */
+export function declareTargets(civ: Civ, id: number, y: number, near: ReadonlySet<number>): { open: Set<number>; foes: Set<number> } {
+  const foes = new Set(foesAt(civ, id, y));
+  return { open: new Set([...near].filter((q) => !foes.has(q))), foes };
 }
 
 /** 城 s 在 y 年还在(建了、没毁) */
@@ -427,7 +479,9 @@ export function polityOrders(civ: Civ, id: number, list: readonly unknown[]): { 
     .filter(
       (e): e is { v: Intervention; i: number; c: number } =>
         !!e.v &&
-        (e.v.kind === 'found' ? foundedBy(civ, e.c) === id : e.v.a === key || ((e.v.kind === 'ally' || e.v.kind === 'declare') && e.v.b === key)),
+        (e.v.kind === 'found'
+          ? foundedBy(civ, e.c) === id
+          : e.v.kind !== 'trek' && e.v.kind !== 'stay' && (e.v.a === key || ((e.v.kind === 'ally' || e.v.kind === 'declare') && e.v.b === key))),
     );
 }
 
@@ -437,7 +491,10 @@ export function regionOrders(civ: Civ, region: number, list: readonly unknown[])
   const ci = civIndexes(civ, list);
   return list
     .map((x, i) => ({ v: cleanIntervention(x), i, c: ci[i] }))
-    .filter((e): e is { v: Intervention; i: number; c: number } => !!e.v && (e.v.kind === 'found' || e.v.kind === 'cede') && e.v.region === key);
+    .filter(
+      (e): e is { v: Intervention; i: number; c: number } =>
+        !!e.v && (((e.v.kind === 'found' || e.v.kind === 'cede') && e.v.region === key) || (e.v.kind === 'trek' && (e.v.region === key || e.v.to === key))),
+    );
 }
 
 /** 已经下了的几条(可撤销;i = editsStore 里的下标,c = 这份历史里的下标) */

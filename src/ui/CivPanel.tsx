@@ -19,12 +19,13 @@ import { yearFull } from '../gen/era';
 import { useEra } from './editsStore';
 import { getCivTime, setCivShow, setNamesShown, subscribeCivTime, useCivShow } from './civView';
 import { civFillOf, namesOn, type CivNameKind } from '../render/civ/show';
+import { TRADE_INK } from '../render/civ/trade';
 
-const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras' | 'control' | 'names'>; name: string; hint: string }[] = [
+const TOGGLES: { key: Exclude<keyof CivShow, 'polities' | 'cultures' | 'faiths' | 'eras' | 'control' | 'ideology' | 'thought' | 'names'>; name: string; hint: string }[] = [
   { key: 'labels', name: '地名', hint: '海洋、山脉、大河、湖泊、大岛、荒漠的名字;放大地图显示更多' },
   { key: 'regions', name: '州', hint: '按山脊、大河自然划分的地区,是文明扩张的基本单位' },
   { key: 'sites', name: '城址', hint: '每州最宜居的一块地;圆点越大,这一州能养活的人越多' },
-  { key: 'routes', name: '道路', hint: '实线是大城之间的大路,虚线是小路;海上的点线是港口之间的航线' },
+  { key: 'routes', name: '道路', hint: '实线是大城之间的大路,虚线是小路;海上的点线是港口之间的航线;紫色粗线是商道' },
   { key: 'wars', name: '战事', hint: '正在打的仗(开着国家时画):红线是战线,斜线是这场仗里易手的州,双剑是打过仗的地方' },
   { key: 'habitat', name: '宜居度', hint: '哪里适合住人:颜色越深越宜居;不上色的是冰原等不可居之地' },
   { key: 'resources', name: '物产', hint: '州治上的圆章:这一州出什么、这一年能用多少;侧栏里能只看一样' },
@@ -47,11 +48,12 @@ const NAME_TOGGLES: { kind: CivNameKind; name: string }[] = [
 
 /**
  * 「地图上写」:填色说明下面一行,地图上写哪些名字(每种填色各记各的,换填色时按那种填色记着的勾好;
- * 没勾过的按默认:国家、信仰、时代、管辖写国名,民族写族名,信仰写教名,时代写时代名,不填都不写;管辖填色只有国名可选)
+ * 没勾过的按默认:国家、信仰、时代、管辖、思潮写国名,民族写族名,信仰写教名,时代写时代名,不填都不写;管辖、思潮填色只有国名可选)
  */
 export function NameToggles() {
   const show = useCivShow();
-  const only = civFillOf(show) === 'control' ? NAME_TOGGLES.filter((t) => t.kind === 'polities') : NAME_TOGGLES;
+  const fill = civFillOf(show);
+  const only = fill === 'control' || fill === 'ideology' ? NAME_TOGGLES.filter((t) => t.kind === 'polities') : NAME_TOGGLES;
   return (
     <div className="lp-names" role="group" aria-label="地图上写">
       <span className="lp-names-k">地图上写</span>
@@ -110,6 +112,14 @@ export function CivToggles() {
               {l.name}
             </span>
           ))}
+          {/* 商道:和地图上一样的紫线,外面一圈浅边 */}
+          <span className="lp-route lp-trade">
+            <svg width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">
+              <line x1="2" y1="5" x2="20" y2="5" stroke="rgba(250,244,228,.95)" strokeWidth={6} strokeLinecap="round" />
+              <line x1="2" y1="5" x2="20" y2="5" stroke={TRADE_INK} strokeWidth={3.2} strokeLinecap="round" />
+            </svg>
+            商道
+          </span>
         </div>
       )}
       {show.wars && show.polities && (

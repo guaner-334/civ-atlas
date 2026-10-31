@@ -46,7 +46,7 @@ function civIndexes(civ: Civ, list: readonly unknown[]): number[] {
 function whyNot(civ: Civ, v: Intervention, i: number): string | null {
   const r = interventionOutcome(civ, i);
   if (r.annal >= 0) return r.ok ? null : (r.why ?? '没有生效');
-  if (v.kind === 'found' || !v.a) return '没有推演到这一条';
+  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || !v.a) return '没有推演到这一条';
   const id = polityIdOf(civ, v.a);
   if (id < 0) return '新历史里没有这个国家';
   const p = civ.polities[id];
@@ -71,10 +71,21 @@ function targetOf(civ: Civ, v: Intervention, i: number): MapSelection | null {
     const r = e && e.region >= 0 ? e.region : regionOfKey(v.region ?? v.regions?.[0] ?? '', keyCells(civ.regions));
     return r >= 0 && r < civ.regions.count ? { kind: 'region', id: r } : null;
   }
+  // 大迁徙:迁来立的国(没立成 = 目的地那州 / 出发的州);不许迁:这一族的发源州
+  if (v.kind === 'trek' || v.kind === 'stay') {
+    const M = v.kind === 'trek' && i >= 0 ? civ.migrations?.find((x) => x.iv === i) : undefined;
+    if (M?.polity !== undefined) return { kind: 'polity', id: M.polity };
+    const k = resolveKey(civ, v.folk);
+    const home = k && k.kind === 'culture' ? (civ.cultures[k.id]?.hearth ?? -1) : -1;
+    const r = M ? M.route[M.route.length - 1] : v.kind === 'trek' ? regionOfKey(v.to ?? v.region ?? '', keyCells(civ.regions)) : home;
+    const at = r >= 0 ? r : home;
+    return at >= 0 && at < civ.regions.count ? { kind: 'region', id: at } : null;
+  }
   if (!v.a) return null;
   // 让人物去世、改君主倾向、让他掌权、为他联姻:那个人(新历史里没有他 = 他的国家)
   if (v.kind === 'death' || v.kind === 'temper' || v.kind === 'regent' || v.kind === 'marry') {
-    const x = resolvePersonKey(civ, v.person);
+    // 让作者的人物掌权:那国里的他(推演里掌了权才有)
+    const x = v.kind === 'regent' && v.char !== undefined ? (civ.people?.findIndex((p) => p.author === v.char && p.polity === polityIdOf(civ, v.a)) ?? -1) : resolvePersonKey(civ, v.person ?? '');
     if (x >= 0) return { kind: 'person', id: x };
   }
   const id = polityIdOf(civ, v.a);

@@ -6,7 +6,7 @@
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
  *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
- *          什么都没选:整个世界(WorldHome:大纲(OutlineSide.tsx;逐年推演里不放)、信仰(只在信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
+ *          什么都没选:整个世界(WorldHome:大纲(OutlineSide.tsx;逐年推演里不放)、信仰(只在信仰图层)、思潮(只在思潮图层,ThoughtParts.tsx)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
  *          这颗星球(从这里演绎(逐年推演,从时间轴停的这一年起)、回放世界形成、地形大事、在这张地图上打造新文明、世界设定;
  *          从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))。
  *          在逐年推演里:副标写"逐年推演,从某某年起演绎"(演一国时"逐年推演,演某国"),"这颗星球"换成"这个故事"(推进设置、存回推演模式,见 Stepwise.tsx)
@@ -29,7 +29,7 @@ import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscrib
 import { controlRows, eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
 import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
-import { playFromOf } from '../gen/edits';
+import { cleanPlay, playFromOf } from '../gen/edits';
 import { openStepDialog, useStepwiseOn } from './stepwiseStore';
 import { StepSideGroup } from './Stepwise';
 import { StepBranches } from './StepBranches';
@@ -41,9 +41,10 @@ import { SaveMenu } from './SaveMenu';
 import { openAiSettings } from './AiSettings';
 import { openHistoryBook } from './bookStore';
 import { openOverview } from './overviewStore';
-import { cultureRegion, searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { searchCiv, searchMarks, type SearchHit } from './searchIndex';
+import { openCulture } from './faithSelection';
 import { cultureAlive } from './WorldOverviewCultures';
-import { countUpTo } from './timelineLayout';
+import { countUpTo, recentUpTo } from './timelineLayout';
 import { Icon } from './icons';
 import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
@@ -52,6 +53,7 @@ import { VersionMenuFoot } from './VersionNews';
 import { PlayQualityItem } from './PlayQualityMenu';
 import { useCoarse, useNarrow } from './device';
 import { CONTROL_COLORS } from '../render/civ/control';
+import { ThoughtSide } from './ThoughtParts';
 import { keyLabel } from './shortcuts';
 import { openShortcuts } from './ShortcutsDialog';
 import { openDiag } from './DiagDialog';
@@ -183,7 +185,9 @@ export function useSearch(civ: Civ | null): SearchState {
   }, [sel]);
   const pick = useCallback((h: SearchHit) => {
     setQ('');
-    setSelection(h.select);
+    // 民族:开民族卡片,地图转到人最多的州
+    if (h.select.kind === 'culture') openCulture(h.select.id);
+    else setSelection(h.select);
   }, []);
   return { q, setQ, hits, active, setActive, pick, searching: q.trim() !== '', enabled: civOk };
 }
@@ -431,6 +435,15 @@ function ResourceList({ civ, year, era }: { civ: Civ; year: number; era?: Era | 
   );
 }
 
+/** 时间轴停在历史推到的那一刻(没拖动过、拖到了头):播放的时候不每一帧都变 */
+function useAtEnd(civ: Civ | null): boolean {
+  const end = civ?.endYear ?? 0;
+  return useSyncExternalStore(
+    (f) => subscribeCivTime(() => f()),
+    () => (getCivTime().year ?? end) >= end,
+  );
+}
+
 /** 什么都没选时的整个世界:信仰(信仰图层)、国家按大小排、民族按大小排、最近大事、我的干预、这颗星球(宽屏侧栏、手机的世界卡片拉到顶时共用) */
 export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'generating' | 'replay' | 'onReplay'>) {
   const { civ } = p;
@@ -483,8 +496,14 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   const narrow = useNarrow();
   const ctlOn = show.control && ok;
   const ctl = useMemo(() => (ctlOn ? controlRows(civ!, year, era, narrow) : null), [ctlOn, civ, year, era, narrow]);
+  // 思潮图层:「国家」上面一组「思潮」(七说一说一行,点一行换一说)
+  const ideoOn = show.ideology && ok && !!civ!.ideology;
   const resOn = show.resources && ok && !!civ!.development;
-  const k = countUpTo(entries, year);
+  // 看的是"现在":故事模式(历史推到停下那一刻的前一格,停在年初的也是上一年最后一格)、普通世界推到年中的,列到推到的那一格
+  // (这一年、停在年初的上一年里已经发生的也列上)
+  const play = cleanPlay(edits.play);
+  const atEnd = useAtEnd(civ);
+  const k = countUpTo(entries, recentUpTo(year, civ?.endYear ?? 0, !!play || !!edits.endTick, atEnd));
   const recent = entries.slice(Math.max(0, k - RECENT_N), k).reverse();
   // 我的干预:干预和地形大事一起数(概览"我的干预"页列在一起;照大纲硬改的一条情节算一处)
   const nUp = edits.upheavals?.length ?? 0;
@@ -588,6 +607,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
           </div>
         </section>
       )}
+      {ideoOn && <ThoughtSide civ={civ!} year={year} />}
       {ok && !step && <FoundSide id={now?.id} />}
       {ok && !step && <OutlineSide civ={civ} era={era} />}
       {resOn && <ResourceList civ={civ!} year={year} era={era} />}
@@ -655,7 +675,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
                   key={cu.id}
                   className="sb-row two"
                   data-culture={cu.id}
-                  onClick={() => setSelection({ kind: 'region', id: cultureRegion(civ!, cu.id, year, ownersAt(civ!, year)) })}
+                  onClick={() => openCulture(cu.id)}
                 >
                   <i className="sb-sw as-flag" style={{ background: rgb(cu.color) }} />
                   <span className="sb-row-main">

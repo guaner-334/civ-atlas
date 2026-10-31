@@ -10,7 +10,8 @@ import { COUNCIL_CONSTS, COUNCIL_GATE, councilModelOf, courtRulesAt } from '../s
 import { LORD_BYTE, controlAt, controlShare } from '../src/gen/civ/control';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityAlive } from '../src/gen/civ/growth';
-import { courtEmpty, courtEvents, courtRowNote, courtView, isFiefRegion, levySay, lordFoot } from '../src/ui/courtInfo';
+import { courtEmpty, courtEvents, courtRowNote, courtView, formChangeSay, isFiefRegion, levySay, lordFoot, regimeSays } from '../src/ui/courtInfo';
+import { formChangesAt, formDims, polityFormAt } from '../src/gen/civ/polityForm';
 
 let cached: { world: World; civ: Civ } | null = null;
 function seed7() {
@@ -80,9 +81,9 @@ describe('朝政', () => {
         expect(lordFoot(civ, P.id, v, Y)).toMatch(/^名义上还归.+一文不交/);
       }
       if (!v.shown) continue;
-      // 征税那句话:代收 / 分成 / 直征各有各的写法
-      const say = levySay(civ, P.id, v);
-      expect(say, say).toMatch([/代收/, /分成/, /直征/][v.rules.tax]);
+      // 征税那句话:代收(各州自己收税)/ 分成 / 直征各有各的写法
+      const say = levySay(v);
+      expect(say, say).toMatch([/自己收税/, /分成/, /直征/][v.rules.tax]);
       // 历次议事:新的在上;规矩变了的有"从此……"
       const evs = courtEvents(civ, v);
       expect(evs.length).toBe(v.rules.events.length);
@@ -111,5 +112,29 @@ describe('朝政', () => {
     const s = courtEmpty();
     for (const w of ['改征税的法子', '分封或收回边地', '削藩', '收放兵权', '收放任免', '分镇', '脱离']) expect(s).toContain(w);
     expect(s).toContain(`${COUNCIL_GATE.size} 个州`);
+  });
+
+  it('改制:继任、议政、参与三条各一句;历次改制里革命、复辟开头写是哪一种,复辟写旗用回哪年以前那面', () => {
+    const { civ } = seed7();
+    let n = 0;
+    for (const P of civ.polities) {
+      if (!P.dynasties?.some((d) => d.regime)) continue;
+      for (const c of formChangesAt(civ, P.id, civ.endYear)) {
+        if (c.cause !== 'reform') continue;
+        n++;
+        const e = civ.annals[c.event];
+        const say = formChangeSay(civ, P.id, c, false);
+        expect(say.length, say).toBeGreaterThan(6);
+        if (e.kind === 'reform') expect(say).toMatch(e.n === 0 ? /^革命：/ : e.n === 1 ? /^政变：/ : /^复辟：/);
+        if (e.kind === 'reform' && e.n === 2 && e.b >= 0) expect(say).toMatch(/旗用回.+以前那面$/);
+        const form = polityFormAt(civ, P.id, c.year)!;
+        const d = formDims(form.facts);
+        const [a, b, v] = regimeSays(civ, P.id, c.year, form);
+        for (const t of [a, b, v]) expect(t).toMatch(/。$/);
+        if (form.facts.regime === 'republic') expect([d.succession, a]).toEqual([3, expect.stringContaining('执政')]);
+        if (form.facts.regime === 'crown') expect(d.succession).toBe(1);
+      }
+    }
+    expect(n).toBeGreaterThan(0);
   });
 });

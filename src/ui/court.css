@@ -35,11 +35,56 @@
   background: rgb(232, 112, 32);
 }
 
-/* 征税:三档分段条,现在那档亮着;两头一行小字 */
-.ct-h {
-  margin: 8px 0 5px;
+/* 概况「政体」一行:政体名 + 小字哪年起 */
+.cp-v.ct-form-row {
+  gap: 8px;
+}
+
+/* 朝政页上面:政体名(大字)、哪年起;下面一句为什么叫这个 */
+.ct-gov {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+}
+.ct-gov b {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--ink);
+}
+.ct-gov small {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.ct-why {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* 征税、兵制、官制:三条分段条叠在一起(左边一列名目),现在那档亮着;每条下面一句;最底下共用一条"地方 ↔ 朝廷"的轴 */
+.ct-bars {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.ct-bk {
+  padding-top: 2px;
   font-size: 12px;
   color: var(--ink-2);
+}
+.ct-bars .ct-say {
+  grid-column: 2;
+  margin: 3px 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.ct-bars .ct-axis {
+  margin-top: -4px;
 }
 .ct-seg {
   display: flex;
@@ -51,7 +96,7 @@
   flex: 1;
   border-radius: 6px;
   font-size: 13px;
-  line-height: 26px;
+  line-height: 24px;
   text-align: center;
   color: var(--ink-2);
 }
@@ -78,8 +123,28 @@
   font-size: 11px;
   color: var(--ink-3);
 }
-.ct-page .fs-say {
-  margin-top: 8px;
+/* 还议不了的几档:斜纹;三条下面一句写要等什么(前面一小块同样的斜纹) */
+.ct-seg span.lock {
+  color: var(--ink-3);
+  background: repeating-linear-gradient(135deg, transparent 0 4px, rgba(118, 118, 128, 0.16) 4px 5.5px);
+}
+.ct-lock {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.ct-lock i {
+  flex: none;
+  width: 14px;
+  height: 10px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(135deg, transparent 0 3px, rgba(118, 118, 128, 0.35) 3px 4.5px);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
 }
 
 /* 分封的州名;一节底下的一句说明 */
@@ -178,6 +243,80 @@
   margin-top: 2px;
   font-size: 12px;
   color: var(--ink-2);
+}
+/* 历次改制:一条时间条(按政体名分段,宽过一成半的写名字,现在那段是蓝的)+ 两头和中间的年份;一条一行同历次议事,下面一句因为什么 */
+.ct-tl {
+  padding: 2px 4px;
+}
+.ct-tbar {
+  display: flex;
+  gap: 2px;
+  height: 18px;
+}
+.ct-tbar i {
+  display: block;
+  min-width: 3px;
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(118, 118, 128, 0.2);
+  font: 500 11px/18px var(--font-sans);
+  font-style: normal;
+  color: var(--ink-2);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ct-tbar i.alt {
+  background: rgba(118, 118, 128, 0.32);
+}
+.ct-tbar i.cur {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.ct-ticks {
+  position: relative;
+  height: 16px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ct-ticks span {
+  position: absolute;
+  top: 2px;
+  left: 0;
+}
+.ct-ticks span.m {
+  transform: translateX(-50%);
+}
+.ct-ticks span.r {
+  left: auto;
+  right: 0;
+}
+.ct-chg-text {
+  grid-column: 2;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+/* 改制换了旗的那一条:"旗 旧 → 新"(两面小旗) */
+.ct-chg-flag {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.ct-chg-fl {
+  width: 22px;
+  height: 15px;
+}
+/* 继任、议政、参与三条:接在征税、兵制、官制那一块下面,另起一组 */
+.ct-bars2 {
+  margin-top: 12px;
 }
 .ct-empty {
   padding: 12px;

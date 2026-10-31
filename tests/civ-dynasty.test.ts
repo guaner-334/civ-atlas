@@ -8,6 +8,7 @@ import { CivSim } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { MIN_AGE, OLD_AGE, dynastyModelOf, dynastyStats } from '../src/gen/civ/dynasty';
+import { opensSeg } from '../src/gen/civ/regime';
 import {
   capitalAt,
   dynastyAt,
@@ -154,16 +155,20 @@ describe('王朝更替', () => {
           continue;
         }
         changed++;
-        // 第一条 = 立国那年、立国时的国都;之后每条对应一条 dynasty 史事
+        // 第一条 = 立国那年、立国时的国都;之后每条对应一条 dynasty 史事(改制开的那几段对应改制的史事,见 regime.ts 的 opensSeg)
+        const reform = new Set(A.filter((x) => x.a === p.id && opensSeg(x)).map((x) => x.year));
         expect(d[0]).toMatchObject({ year: p.founded, seat: p.capital });
-        expect(d.slice(1).map((x) => x.year)).toEqual(ys);
+        expect(d.slice(1).map((x) => x.year).filter((y) => !reform.has(y))).toEqual(ys);
+        expect(d.slice(1).length).toBe(ys.length + d.slice(1).filter((x) => reform.has(x.year)).length);
         for (let i = 1; i < d.length; i++) {
+          if (reform.has(d[i].year)) continue;
           const e = A.find((x) => x.kind === 'dynasty' && x.a === p.id && x.year === d[i].year)!;
           expect(civ.settlements[d[i].seat].region).toBe(e.region);
           // 一朝至少几十年(掌实权的名臣、大臣篡位不看这一条,regents.ts)
           if (A[A.indexOf(e) - 1]?.kind !== 'regent') expect(d[i].year - d[i - 1].year).toBeGreaterThanOrEqual(MIN_AGE);
         }
-        for (const x of d) expect(x.name.length, p.name).toBeGreaterThan(0);
+        // 改制开的共和、军政府那一段没有王室:西幻不起王室名(东方照抄上一段的国名词根)
+        for (const x of d) if (!x.regime || p.eastern) expect(x.name.length, p.name).toBeGreaterThan(0);
       }
       expect(changed, `seed ${seed}`).toBeGreaterThanOrEqual(3);
     }
@@ -276,8 +281,9 @@ describe('王朝更替', () => {
           // 当时第 DYNASTY_TIER 档以上的是大事
           expect(e.importance).toBe(polityTierAt(p, e.year) >= DYNASTY_TIER ? MAJOR : 2);
         } else {
-          // "索拉特王国王室更迭,塞伦纳王朝享国 312 年而终,卡诺王朝兴,阿尔德里克三世即位"(掌实权的首相篡位:"…,首相某某废黜某某,自立为王")
-          expect(e.text).toMatch(/^.+(王室更迭|汗位易主),.+王朝享国 \d+ 年而终,.+王朝兴,(.+即位|.+自立为王)(,迁都.+)?$/);
+          // "索拉特王国王室更迭,塞伦纳王朝享国 312 年而终,卡诺王朝兴,阿尔德里克三世即位"(掌实权的首相篡位:"…,首相某某废黜某某,自立为王";
+          // 临朝的皇太后篡位:"…,皇太后某某废黜其子某某,自立为女皇")
+          expect(e.text).toMatch(/^.+(王室更迭|汗位易主),.+王朝享国 \d+ 年而终,.+王朝兴,(.+即位|.+自立为(女?王|女皇|女汗|女大汗))(,迁都.+)?$/);
           expect(e.text).toContain(dynastyTitle(p, i));
           expect(e.importance).toBeLessThan(MAJOR);
         }

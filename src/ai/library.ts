@@ -27,6 +27,8 @@ const PREFIX = 'civ-atlas:ai-notes:';
 const mem = new Map<string, AiNote[]>();
 /** 内存里那份对应的浏览器原文(别的标签页改了,原文就对不上了,重读) */
 const seen = new Map<string, string | null>();
+/** 存储满了、页面里有没写进浏览器的笔记的世界(写成功一次、或换成浏览器里的原文就去掉) */
+const behind = new Set<string>();
 const subs = new Set<() => void>();
 let version = 0;
 const emit = () => {
@@ -58,6 +60,7 @@ function read(world: string): AiNote[] {
   }
   mem.set(world, list);
   seen.set(world, raw ?? null);
+  behind.delete(world);
   return list;
 }
 
@@ -70,10 +73,12 @@ function write(world: string, list: AiNote[]): boolean {
     if (raw) localStorage.setItem(PREFIX + world, raw);
     else localStorage.removeItem(PREFIX + world);
     seen.set(world, raw);
+    behind.delete(world);
   } catch {
     /* 存不下 / 隐私模式:只留在内存里(浏览器里还是原来那份,别的标签页没改它就一直用内存里的) */
     ok = !persistent();
     seen.set(world, stored(world) ?? null);
+    if (!ok) behind.add(world);
   }
   emit();
   return ok;
@@ -95,12 +100,13 @@ export function getNote(world: string, key: string): AiNote | undefined {
   return read(world).find((n) => n.key === key);
 }
 
-/** 存一条(同 key 覆盖) */
-export function putNote(world: string, note: AiNote): void {
+/** 存一条(同 key 覆盖);返回写进浏览器没有(存储满了 = false,这一条只在页面里) */
+export function putNote(world: string, note: AiNote): boolean {
   const list = read(world).filter((n) => n.key !== note.key);
   list.push(note);
-  write(world, list);
+  const ok = write(world, list);
   keepWorld(world);
+  return ok;
 }
 
 /**
@@ -119,8 +125,10 @@ export function copyNotes(from: string, to: string): boolean {
     const raw = JSON.stringify(list);
     localStorage.setItem(PREFIX + to, raw);
     seen.set(to, raw);
+    behind.delete(to);
     return true;
   } catch {
+    if (persistent()) behind.add(to);
     return false;
   }
 }
@@ -147,6 +155,23 @@ export function notesSaved(world: string): boolean {
   return (list.length ? JSON.stringify(list) : null) === raw;
 }
 
+/**
+ * 存储满了、这个世界有没写进浏览器的笔记:返回浏览器里存着的那份(界面拿它对出哪些只在页面里);
+ * 都写进去了、浏览器本来就不让存 = null
+ */
+export function notesBehind(world: string): AiNote[] | null {
+  read(world);
+  if (!behind.has(world)) return null;
+  const raw = stored(world);
+  if (raw === undefined || !persistent()) return null;
+  try {
+    const v = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v.filter((x) => x && typeof x.key === 'string' && typeof x.text === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 /** 同步下来的笔记换上(null / 空 = 没有);不存这个世界(它已经在"我的世界"里了)。返回写进浏览器没有(存储满了 = false) */
 export function replaceNotes(world: string, list: AiNote[] | null): boolean {
   const clean = (list ?? []).filter((x) => x && typeof x.key === 'string' && typeof x.text === 'string');
@@ -158,9 +183,11 @@ export function forgetNotes(world?: string): void {
   if (world === undefined) {
     mem.clear();
     seen.clear();
+    behind.clear();
   } else {
     mem.delete(world);
     seen.delete(world);
+    behind.delete(world);
   }
   emit();
 }

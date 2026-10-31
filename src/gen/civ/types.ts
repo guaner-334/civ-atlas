@@ -125,6 +125,61 @@ export interface Culture {
 /** 迁徙的方位 */
 export type MigrationDir = '东' | '南' | '西' | '北';
 
+/**
+ * 一次大迁徙(migration.ts):草原、寒地的一个民族分出一支(约三成的人),举族远走,一路走一路抢,
+ * 到了落脚地占几州立国、和那里的国家开战。老家照旧。下标 = 史事 trek 的 war 列。
+ */
+export interface Migration {
+  /** 迁徙的民族 */
+  culture: number;
+  /** 动身那一刻(= years[0]) */
+  year: Year;
+  /**
+   * 路线:依次走过的州。第一个是出发的州(在老家边上集结),最后一个是落脚的州。只走陆路(平地、跨河、翻山),
+   * 一般 10–20 州远。队伍不占地,只是路过
+   */
+  route: number[];
+  /** 到 route 里每一州的那一刻(和 route 一样长,严格递增;years[0] = 动身,最后一个 = 落脚) */
+  years: Year[];
+  /** 一路往哪个方位走:整条路线在地图上的总体走向(各段的经度差、纬度差加起来,哪个大取哪个;见 migration.ts 的 trekDir) */
+  dir: MigrationDir;
+  /** 这一支有多少人:到了能占几州(本族州数的三成,3–8 州) */
+  size: number;
+  /** 为什么走(推):crowd 老家挤、famine 灾年、scatter 本族的国刚散回部落 / 亡了 */
+  push: 'crowd' | 'famine' | 'scatter';
+  /** 冲着什么去(拉):chaos 那边的国家大乱(崩了、动荡高、正打着仗)、plague 疫后空了、rich 富庶、tribal 部落地带 */
+  pull: 'chaos' | 'plague' | 'rich' | 'tribal';
+  /** 动身时落脚那片地的主人(冲着哪国去;−1 = 部落地带) */
+  target: number;
+  /** 落脚那一刻(= years 的最后一个;还在路上 = 不给) */
+  settled?: Year;
+  /**
+   * 结局:found 立了国(和那里的国家议和、割据一方,或者仗还没打完)/ conquer 入主(打进那国的国都:小国亡、州归它,
+   * 大国大崩解、迁来的占着国都一带)/ rout 败散(立的国亡于到了以后的那一仗,或者根本没立成国),落脚的几州留下一块异族。
+   * 还在路上 = 不给。先是 found,入主、败散那一刻改过来(outcomeYear 跟着改)
+   */
+  outcome?: 'found' | 'conquer' | 'rout';
+  /** 结局那一刻(立国 = settled;入主、败散 = 那一仗的那一刻) */
+  outcomeYear?: Year;
+  /** 立的国(没立成 = 不给) */
+  polity?: number;
+  /** 到了以后当即开的那一仗(战争编号;没开仗 = 不给) */
+  war?: number;
+  /** 入主:打进了哪国的国都 */
+  stormed?: number;
+  /** 到了以后开仗的那国有几州(落脚那一刻、迁来的占走几州以前;没开仗 = 不给) */
+  foeSize?: number;
+  /**
+   * 打进大国:开仗时对方有 25 州以上,打进了它的国都(结局 conquer)。丢国都时那国还有 25 州的大崩解(史事 trek n = 3 后面紧跟着 collapse,
+   * 崩得成的话),迁来的占着国都一带;已经被打得只剩不多的整个归它。别的 = 不给
+   */
+  big?: true;
+  /** 落脚时改换成迁来的民族的几州(州号升序;立的国一开始的国土可能多几州:刚改换过民族的、原民族最后一州的,归它但民族不变) */
+  lands?: number[];
+  /** 作者下令的(干预「大迁徙」):Civ.interventions 里第几条;推演自己起的没有 */
+  iv?: number;
+}
+
 /** 城镇 */
 export interface Settlement {
   id: number;
@@ -217,6 +272,11 @@ export interface Polity {
    */
   prince?: Year;
   /**
+   * 大迁徙(migration.ts):迁来的一支到了落脚地立的国 —— Civ.migrations 的下标。统治民族在本国只占少数时,
+   * 被多数民族同化得快(assimilation.ts)。别的国家不给
+   */
+  trek?: number;
+  /**
    * 宗室摄政篡位(regency.ts;史事 regent n = 3、b = 2):year 那一刻幼主(在位表第 k 位)下台,摄政的叔父接着在位(同一朝,在位表第 k + 1 位):
    * 他的生年、倾向(和摄政时一样)、不被打断时在位到哪年。在位表照它排(rulers.ts);没有 = 不给
    */
@@ -233,9 +293,14 @@ export interface Polity {
    *   第一朝东方 = 国名词根 name,西幻 = 按立国时的国都起
    * - seat:这一朝兴起的城(Settlement id,王室的根据地;第一朝 = 立国时的国都)。西幻的王朝名借它的城名
    * 某一年是哪一朝用 growth.ts 的 dynastyAt(p, 年份) 查
-   * - usurper:掌实权的名臣、大臣篡位开的这一朝(regency.ts):他的生年、倾向(和掌权时一样),这一朝的第一位就是他(在位表照它排,rulers.ts);别的朝不给
+   * - usurper:掌实权的名臣、大臣篡位开的这一朝(regency.ts):他的生年、倾向(和掌权时一样),这一朝的第一位就是他(在位表照它排,rulers.ts);
+   *   改制(reform.ts)开的那几段也借它:政变的将军、革命起兵的人、复辟时自立为君的执政 / 将军;别的朝不给
+   * - regime:改制(reform.ts)开的一段 —— 不是换了一家王室,是改了政体:republic 共和(议事会推举执政,有任期)、
+   *   junta 军政府(将军执政)。这一段没有王室(不结亲、不立储、不摄政),东方语感的国名词根照抄上一段;
+   *   王室的那几段(立国那一朝、改朝换代、复辟)不给。某一年是什么政体用 regime.ts 的 regimeAt / lineageAt 查
+   * - house:复辟迎回的是第几朝的王室(这一段的国名词根、旗照那一朝);拥立的人自己做君主的复辟、寻常改朝换代不给
    */
-  dynasties?: { year: Year; name: string; seat: number; usurper?: { born: Year; leanings: RulerLeanings } }[];
+  dynasties?: { year: Year; name: string; seat: number; usurper?: { born: Year; leanings: RulerLeanings }; regime?: 'republic' | 'junta'; house?: number }[];
 }
 
 /** 国号一系 */
@@ -349,7 +414,7 @@ export interface Place {
  * | reclaim   | 收回割据(control.ts):中央重新管住了那一带 | 国家 | −1 | 割据的那座城所在的州 | 那座城 | **割据了几年**(借用这一列) |
  * | defy      | 抗命不出兵(control.ts):开战点兵时,割据的地方拥兵不出 | 国家 | 和它交战的国家 | 割据的那座城所在的州 | 那座城 | 那场战争 |
  * | fiscal    | 国用不足(control.ts 的钱粮):国库空了、入不敷出 | 国家 | −1 | 国都所在州 | 国都 | **主要因为什么**(借用这一列):0 = 连年用兵,1 = 地方拖欠 |
- * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩、军制、官制、分镇,地方提脱离;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩、改组、脱离谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流、收兵权、收任免谈崩紧跟着记 warlord) | 国家 | 脱离:想转投的邻国;别的 −1 | 罢直征、罢禁军、罢铨选:国都所在州;削藩、改组、脱离:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);收兵权、设边镇:边地城民最多的那州;收任免、许自辟:豪族把持的州里税最多的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地、5 收兵权(设了边镇的是罢边镇)、6 放兵权(收着兵权的是罢禁军,不然是设边镇)、7 收任免(许了自辟的是收回辟署)、8 放任免(铨选着的是罢铨选,不然是许自辟)、9 改组(分镇)、10 脱离。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
+ * | council   | 议事(council.ts):朝廷议改征收之法、分封、削藩、军制、官制、分镇,地方提脱离;**结果在 Annal.n**:0 办成、1 妥协、2 搁置、3 谈崩(削藩、改组、脱离谈崩紧跟着记那处割据自立的 split,cause = warlord;直征、改土归流、收兵权、收任免谈崩紧跟着记 warlord) | 国家 | 脱离:想转投的邻国;别的 −1 | 罢直征、罢禁军、罢铨选:国都所在州;削藩、改组、脱离:割据的那州;直征、改土归流:最吃亏的那州(没有 = 国都所在州);收兵权、设边镇:边地城民最多的那州;收任免、许自辟:豪族把持的州里税最多的那州(没有 = 国都所在州);分封:最远的那州 | 那州的城 | **议题**(借用这一列):0 罢直征、1 削藩、2 直征、3 改土归流、4 分封边地、5 收兵权(设了边镇的是罢边镇)、6 放兵权(收着兵权的是罢禁军,不然是设边镇)、7 收任免(许了自辟的是收回辟署)、8 放任免(铨选着的是罢铨选,不然是许自辟)、9 改组(分镇)、10 脱离、11 立宪、12 扩大参与、13 废君立共和、14 还政(军政府交还议事会;11–14 见 reform.ts:改制议题国都所在州;立宪 / 废君谈崩时紧跟着记革命 reform 或自立 split,cause = revolution)。直征因为国用不足才议的,cause = broke(不然是君主锐意兴革) |
  * | stand     | 据险断后(wars.ts):败退的一方留一支兵守住关隘(见 passes.ts),挡住追兵(追兵本来能再打下的那一州没打下来),大军退保关隘后面那州(**Annal.foe**);**守了几日在 Annal.n**,守将的结局在 cause:slain 力战而死、captured 力竭被擒、withdrew 全师而退 | 断后的一方 | 追兵的一方 | 关隘所在的州(口子那块地所在的州;可能是刚丢给追兵的那州) | −1 | 战争编号 |
  * | regent    | 掌实权(regency.ts):名义上的君主照旧在位,政出于另一个人;**哪一步在 Annal.n**:0 掌权、1 还政、2 伏诛、3 篡位(名臣、大臣篡位紧跟着记那条 dynasty)、4 掌权的人卒于位 | 国家 | **哪一种**:0 引兵入朝、1 太子监国、2 宗室摄政、3 名臣辅政、4 大臣专权、5 大将专权(见 regency.ts 的 REGENCY_KINDS) | 国都所在州 | 国都 | **名义君主**在在位表里第几位(rulers.ts 的 Reign.k,借用这一列) |
  * | marry     | 结亲(marriage.ts):两国宗室联姻,娶亲的一方 a、嫁女的一方 b;互嫁的另一门紧跟着记(a、b 对调,同一刻) | 娶亲的国家 | 嫁女的国家 | 娶亲一方的国都所在州 | 国都 | 议和时以和亲作结:那场战争;别的 = −1 |
@@ -358,7 +423,10 @@ export interface Place {
  * | expire    | 约满不续 / 约废:cause 没有 = 约满、几国不续;lapse = 约里剩不到两国(亡了、被并、称臣、背约退出),约就此作废。**还在约里的几国在 Annal.ps**,**立约时几国在 Annal.n**(三国以上的有限竞争之约废了,下一刻约国旁边的无主之地解禁,见 polities.ts 的 REOPEN) | ps 的第一国 | ps 的第二国(没有 = −1) | −1 | −1 | **约的编号** |
  * | neutral   | 设中立地 / 中立地撤销:一州不归任何一国(归属记成无主,变化日志原因 Ev.Neutral),几国都不进兵、不扩张进去。设的那条:**共建的几国在 Annal.ps**,cause:peace 议和时划的缓冲中立地、decree 作者下令划的(**Annal.opt** 的位:4 不送人去、8 一直留着,约废了也不撤;**到哪年撤在 Annal.until**)、没有 = 立约时几国共建;**约的编号在 Annal.n**。撤销那条 cause = lapse,a = 州还给了哪国(−1 = 没还,成了无主之地) | 设:让出那州的国家(−1 = 原是无主之地);撤:州还给的国家 | −1 | 中立地那州 | 州里的城(没有 = −1) | **中立地的编号**(借用这一列;0 起,按设立先后) |
  * | exile     | 放逐到中立地 / 出奔:cause:heir 新君即位时把争储失势的宗室徙到中立地(**那位宗室的生年在 Annal.n**,他是先君之子;推演里他不再据地自立)、deposed 改朝换代时被废的末代之君徙到中立地(**被废的年份在 Annal.n**)、fled 国亡、亡国之君出奔中立地;**出奔邻国**(exile.ts:war 列 = −1,b = 去的国家,州和城 = 那国当时的国都,**投奔它的缘由在 Annal.n**,EXILE_TIES 的下标)。人物里写在 Person.exile | 那位人物是哪国的 | −1(出奔邻国:去的国家) | 中立地那州 | 州里的城 | **中立地的编号**(出奔邻国 = −1) |
+ * | trek      | 大迁徙(migration.ts;经过见 Civ.migrations 里的那一条):**哪一步在 Annal.n**:0 动身(region = 出发的州)、1 路过洗劫(b = 那州当时的主人,−1 = 部落地带;region / settlement = 被洗劫的州和城,折损见 Settlement.sacks 同一年的那一条)、2 落脚立国(b = 立的国;紧跟着记这国的 found,cause = trek;到了以后开的仗是 war,cause = trek)、3 打进国都、那国没整个归它(b = 那国;region / settlement = 打下的国都所在州和那座城;前面同一刻依次记打下国都的 conquer、那国迁都的 capital、占下国都一带的几条 conquer,后面记议和;那国是大国的再记 collapse,崩得成的话)、4 没立成国、散居落脚的几州(b = −1) | **民族**:迁徙的民族 | 见 n | 见 n | 见 n | **第几次大迁徙**(Civ.migrations 的下标,借用这一列) |
  * | keep      | 保住王室挡下的一回(干预「保住王室」、即位带的「在位期间保住王室」;dynasty.ts、regency.ts):本该改朝换代 / 篡位,挡下了,历史照旧(只记一句未遂)。**国势危殆(那时动荡)在 Annal.n**:1 = 是 | 国家 | **哪一种**:0 豪强起兵代之、1 国都权臣篡位(看王朝时)、2 掌实权的人篡位(regency.ts:紧跟着记那条 regent 的结局,名臣、大臣伏诛,叔父还政) | 根据地 / 国都所在州 | 那州的城 | **第几条干预**(Civ.interventions 的下标,借用这一列) |
+ * | winter    | 顿兵过冬(wars.ts 的出兵避冬):轮到下一仗时要打的那州正在冬天里,这一仗顺延到那州开春;**开春再打的时刻在 Annal.until** | 攻方 | 守方 | 要打的那州 | −1 | 战争编号 |
+ * | reform    | 改制(reform.ts):**哪一种在 Annal.n**:0 革命(议立宪 / 废君谈崩、动荡大,有人起兵打进国都,整国改共和;紧跟在那条 council 后面)、1 政变(统兵的将军夺权,改军政府)、2 复辟(迎回旧王室,或执政 / 将军自立为君);同一刻往 Polity.dynasties 加一段。**之后能议政的有几档(参与)在 Annal.opt**(革命) | 国家 | 复辟:迎回第几朝的王室(Polity.dynasties 的下标;−1 = 拥立的人自己做君主);别的 −1 | 起兵的州(政变、复辟:国都所在州) | 那州的城 | −1 |
  *
  * 洗劫、毁城和那一次攻占同一刻,记在那条 conquer **前面**(conquer、被迫迁都、灭亡照旧紧挨着,编年史里排回攻占后面)。
  * 议和割让的州也各记一条 conquer(a = 得到的一方,b = 割出的一方),连着记在那条 peace 前面,条数记在 peace 的 region 列。
@@ -384,6 +452,9 @@ export interface Place {
  *   让人物去世 / 改君主倾向:a = 国家,b = −1(生效了)/ −3(那一年这国已亡)/ −4(此刻在位的不是他)/ −5(将领、名臣:推演里不管,
  *     生没生效看人物的 killed),region / settlement = A 当时的国都所在州 / 国都
  *   天灾:见 disaster.ts(b = 受灾的州数,瘟疫 1 = 起了一场新的 / 2 = 并进正在传的那一场,0 = 没生效);紧跟着记它引起的 plague / famine
+ *   大迁徙、不许迁:a = −1(不是国家),**民族在 n**;大迁徙 b = −1 动身了(region / settlement = 目的地那州和它的城,紧跟着记 trek n = 0)/
+ *     −3 那一刻这一族已消亡 / −18 走不成(陆路走不到指定的那一州、推演挑没有可去的地方;region = 出发的州,没给 = −1);
+ *     不许迁 b = −1 登记了 / −3 这一族已消亡(见 migration.ts)。民族键指不到就不记
  *   推一把发展:见 boost.ts(b = −1 生效了 / −3 那一年这国已亡 / −17 直接进时国都已在最后一个时代;n = 推了几州 × 16 + 直接进到第几个时代)
  *   国家 A 的键指不到(新历史里没有这国 / 那一刻还没立国)就不记(立国、天灾除外:立国一定记;天灾只有饥荒选的那国指不到时不记)。
  * battle(人物与战役,wars.ts 的战役):每一仗都算过胜负,打下来的记 conquer,没打下来的(攻方败退、守方反攻没夺回)记一条 battle;
@@ -446,7 +517,10 @@ export type AnnalKind =
   | 'expire'
   | 'neutral'
   | 'exile'
-  | 'keep';
+  | 'keep'
+  | 'trek'
+  | 'winter'
+  | 'reform';
 
 /**
  * 战争的起因(史事 war 的 cause;阶段 4 干预的强制宣战不给)和盟约怎么断的(unally 的 cause):
@@ -462,9 +536,12 @@ export type AnnalKind =
  *   decree 作者下令立的约、划的中立地(干预「立约」「划中立地」;treaty、neutral 的 cause);
  *   开战看内政(wars.ts,war 的 cause):divert 国中动荡、对外开战以安内(转移矛盾)/ unrest 乘对方内乱(动荡高或有割据;region 列 = 割据的那州,没有 = −1)/
  *   plagued 乘对方大疫之后 / minor 乘对方幼主在位 / regent 乘对方权臣当政 / plunder 国库空竭、为掠夺而战(region 列 = 边境上最富的那州);
+ *   trek:大迁徙(migration.ts)迁来的一支落脚立的国(史事 found 的 cause)和它到了以后当即开的那一仗(war 的 cause);
+ *   spring:冬夏分明的地方闹的春荒(史事 famine 的 cause,unrest.ts);
+ *   revolution:议立宪 / 废君谈崩、起兵的人打不进国都,据地自立为共和国(史事 split 的 cause,reform.ts;紧跟在那条 council 后面);
  *   surrender 强国打下国都,余下的州一并归降、亡国(破都纳降,wars.ts;fall 的 cause)
  */
-export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder' | 'surrender';
+export type AnnalCause = 'expand' | 'claim' | 'chaos' | 'prey' | 'resource' | 'betray' | 'punish' | 'ally' | 'rescue' | 'lapse' | 'abandon' | 'vassal' | 'quell' | 'collapse' | 'great' | 'quake' | 'warlord' | 'broke' | 'heir' | 'slain' | 'captured' | 'withdrew' | 'pandemic' | 'breach' | 'peace' | 'renew' | 'deposed' | 'fled' | 'decree' | 'divert' | 'unrest' | 'plagued' | 'minor' | 'regent' | 'plunder' | 'trek' | 'spring' | 'revolution' | 'surrender';
 
 /**
  * 一条史事(阶段 3):推演里各事件处理函数用 CivSim.record 往 Civ.annals 里记,编年史(界面上的事件列表)只读它。
@@ -497,9 +574,12 @@ export interface Annal {
   ps?: number[];
   /** 立约(treaty)才有:居间的国家(−1 = 没有;它当时在朝的名臣出使,见 treatyInfo.ts 的 envoyOf) */
   by?: number;
-  /** 作者下令立的约、划的中立地(cause = decree)才有:几样选项按位(见 AnnalKind 的表;treaties.ts 的 OPT_*) */
+  /**
+   * 作者下令立的约、划的中立地(cause = decree)才有:几样选项按位(见 AnnalKind 的表;treaties.ts 的 OPT_*);
+   * 改制借用(议事 council 的废君立共和办成、史事 reform 的革命):之后能议政的有几档(参与,councilRules.ts 的 Rules.franchise)
+   */
   opt?: number;
-  /** 作者下令划的中立地(neutral,cause = decree)选了"到某一年":那一年撤销 */
+  /** 作者下令划的中立地(neutral,cause = decree)选了"到某一年":那一年撤销;顿兵过冬(winter)借用:开春再打的时刻 */
   until?: number;
 }
 
@@ -580,6 +660,11 @@ export interface Civ {
   /** 「天灾」设定(CivParams.calamity;平常 = 不写)。CivSim.fromCiv 接着推时要用 */
   calamity?: import('./calamity').Calamity;
   /**
+   * 大迁徙(migration.ts):按动身先后,每一次一条(下标 = 史事 trek 的 war 列)。还在路上的那支,路线和到每一州的年份
+   * 动身时就定了(可能比 endYear 晚);落脚、结局到了那一刻才填。CivSim.fromCiv 接着推时要用。旧版本的历史、没有文明 = 不给
+   */
+  migrations?: Migration[];
+  /**
    * 阶段 4 干预:这份历史是带着哪些干预推出来的(清理过的列表,见 gen/edits.ts;史事 intervene 的 war 列是它的下标)。
    * 没有干预 = 不给。CivSim.fromCiv 接着推时默认带着它
    */
@@ -589,6 +674,11 @@ export interface Civ {
    * 编年史写"某某即某国君位"、没即位成的原因时用;生成的 Civ 里没有
    */
   authorNames?: Record<number, string>;
+  /**
+   * 作者的人物里哪些是女的(编号,从小到大;applyCharacters 写入,同 authorNames;一个女的都没有 = 不给)。
+   * 编年史写没即位成的原因("她第 N 年才出生")时用;生成的 Civ 里没有
+   */
+  authorFemale?: number[];
   /**
    * 用户改过的州名(阶段 4,gen/edits.ts 的 applyNames 写入;下标 = 州编号,空串 = 用 regions.name)。
    * 不改 regions 本身:画国土、国界的缓存按 civ.regions 存,改州名不用重画
@@ -606,7 +696,7 @@ export interface Civ {
   people?: Person[];
   /**
    * 信仰(religion.ts):各族的民间信仰、几个大教的创立和传播、各国的国教、教派分立。
-   * 推演结束后按历史"贴"上去,国界、兴亡、战争、人物一个都不变。没有文明 = 不给
+   * 推演里每 5 年算一步(别的规则还不读它,国界、兴亡、战争、人物一个都不变),推完补上名字和皈依的国君。没有文明 = 不给
    */
   religion?: Religion;
   /**
@@ -614,6 +704,16 @@ export interface Civ {
    * 没有文明 = 不给
    */
   development?: Development;
+  /**
+   * 思潮(ideology.ts):各州、各国各说的接受度,各说世上头一处冒在哪。推演里每 20 年算一步,只算不用:国界、兴亡、战争、人物一个都不变。
+   * 没有文明 = 不给
+   */
+  ideology?: Ideology;
+  /**
+   * 商道(trade.ts):要紧的货从哪个产地沿哪条路运到哪国国都、哪年通哪年断。推演里每 20 年算一步,只读推演,历史一个字都不变。
+   * 没有文明 = 不给
+   */
+  trade?: import('./trade').Trade;
   /**
    * 地形大事(upheaval.ts;gen/edits.ts 文件头"地形大事"):按年份排,同一年的合成一件。下标 = 史事 upheaval 的 a。
    * 没有 = 不给。regions、places、routes 是最后一件大事以后的;更早的各段见 eras
@@ -841,14 +941,61 @@ export interface DevEvent {
   settlement: number;
 }
 
+/** 思潮(ideology.ts;说的下标见那里的 THOUGHTS) */
+export interface Ideology {
+  /** 各州各说的接受度:每份 = 州 × 说数,存的是接受度 × IDEO_SCALE;和 snapYears 一一对应 */
+  snaps: Uint8Array[];
+  /** 每份快照的年份(递增;每 20 年一份,最后一份是结束那年) */
+  snapYears: Year[];
+  /** 各国各说的接受度(按人口加权):下标 = 国家编号;那国从没在整 20 年上在过 = null */
+  polities: (IdeoSeries | null)[];
+  /** 各国各说传进本国的年份:国 × 说数(没传进 = NaN) */
+  arrive: Float64Array;
+  /** 按年份排好 */
+  events: IdeoEvent[];
+  /** 推演到结束那一刻的内部状态(全精度),接着推(CivSim.fromCiv)时从这里接着算;界面不用 */
+  state?: IdeoState;
+}
+
+/** 一国各说的接受度:from 年起每 20 年一份,每份说数个字节(接受度 × IDEO_SCALE);中间亡过国的那几份是 0 */
+export interface IdeoSeries {
+  from: Year;
+  v: Uint8Array;
+}
+
+/** 思潮的大事:origin = 这一说世上头一处冒出来(那州、那城、那族、那国;那一刻的) */
+export interface IdeoEvent {
+  year: Year;
+  kind: 'origin';
+  thought: number;
+  region: number;
+  settlement: number;
+  culture: number;
+  polity: number;
+}
+
+/** 思潮推演的内部状态(ideology.ts) */
+export interface IdeoState {
+  /** 上一步算到哪一年;史事读到第几条 */
+  last: Year;
+  annals: number;
+  /** 快照里最后一份是补的(结束那年不在整 20 年上) */
+  tail: boolean;
+  /** 数表:合、思潮(州 × 说数)、国中(国 × 说数) */
+  tables: TablesState;
+}
+
 /**
  * 人物:君主或统帅。名字、生卒、在位都是推演结束后按国家的兴亡、王朝更替、战争排出来的(people.ts),
  * 随机数按国家的位置锚 + 第几位取:干预某一年之前已经下台的君主和不干预时一样(称号、编号可能变,见 people.ts)。
  */
 export interface Person {
   id: number;
-  /** ruler 君主、general 将领、prince 没即位的宗室(君主的诸子、养子见 royals.ts,世系里补出来的见 lineage.ts)、minister 名臣(文臣,见 officials.ts) */
-  role: 'ruler' | 'general' | 'prince' | 'minister';
+  /**
+   * ruler 君主、general 将领、prince 没即位的宗室(君主的诸子、养子见 royals.ts,世系里补出来的见 lineage.ts)、minister 名臣(文臣,见 officials.ts)、
+   * consort 后妃(consorts.ts:联姻嫁来的宗室女、临朝的太后;都是女的)
+   */
+  role: 'ruler' | 'general' | 'prince' | 'minister' | 'consort';
   /** 哪国的人 */
   polity: number;
   /** 本名:东方中式 = 姓 + 名("李昭");东方边塞、山海和西幻 = 名("咄苾""阿尔德里克") */
@@ -858,14 +1005,19 @@ export interface Person {
    * 身后称号、嫁娶)都照它取,见 gender.ts
    */
   female?: true;
+  /**
+   * 女的:推演里先按男的给这个位置起的名字(civ/women.ts;不显示)。头像的长相按它一代代往下传,换成女的以后她的后人长相不变。
+   * 男的不给
+   */
+  maleName?: string;
   born: Year;
   /** 卒年;到结束年份还在世 = 不给 */
   died?: Year;
   /** 结局(君主:怎么失去君位的;统帅:寿终还是战死)。还在位 / 还在世 = 不给 */
   fate?: PersonFate;
-  /** 君主:即位的年份;名臣:入仕的年份 */
+  /** 君主:即位的年份;名臣:入仕的年份;作者的将领(任将):上任的年份 */
   from?: Year;
-  /** 君主:失去君位(去世、被废、亡国)的年份;名臣:去职的年份;到结束年份还在位 / 在朝 = 不给 */
+  /** 君主:失去君位(去世、被废、亡国)的年份;名臣:去职的年份;作者的将领:卸任的年份;到结束年份还在位 / 在朝 = 不给 */
   until?: Year;
   /** 君主、名臣:第几朝(Polity.dynasties 的下标;没改朝换代过 = 0) */
   dynasty?: number;
@@ -878,9 +1030,10 @@ export interface Person {
   /** 作者让他去世(干预"让人物去世"):第几条干预;卒年 = died。君主改了历史,将领、名臣只改人物(他后来该领的仗、该经手的事换了人) */
   killed?: number;
   /**
-   * 作者的人物(干预"即位"立的君主,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
-   * 这样的君主 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
-   * 不写 died(生死归人物卡管)、没有称号;别的人物不给
+   * 作者的人物(干预"即位"立的君主、干预"让他掌权"掌了权的名臣、干预"任将 / 任臣"任了的将领名臣,见 gen/edits.ts):作者人物的编号(AuthorCharacter.id)。
+   * 这样的人物 name 是空串(界面按编号填上人物卡的名字,见 gen/characters.ts 的 applyCharacters)、born 照干预里写的、
+   * 不写 died(生死归人物卡管)、没有称号;别的人物不给。同一个作者人物可以有几位(为将一位、为相一位、即位一位……),按编号合起来看。
+   * 任将任臣的:from / until = 任期(到结束年份还在任 = until 不给),fate = 怎么卸任的(见 PersonFate)
    */
   author?: number;
   /**
@@ -888,10 +1041,21 @@ export interface Person {
    * 西幻 = 同名君主的序数("三世")或"大帝"。称呼的写法见 peopleText.ts
    */
   title?: string;
-  /** 领兵打过的仗(君主亲征也记在这里) */
+  /**
+   * 领兵打过的仗(君主亲征也记在这里)。作者的将领(任将):他挂帅的那几段 —— 同一场仗那一方推演原来派的统帅照旧在,编年史写成副将;
+   * 那一刻统帅是亲征的君主的,君主为帅、他随驾(chronicle.ts 的 commander)
+   */
   commands?: PersonCommand[];
-  /** 父亲(Person.id;君主和宗室才有;一朝的第一位、共和国执政官、将领没有) */
+  /**
+   * 父亲(Person.id;女的父辈也记在这里,界面上写"母亲"):君主和宗室按世系(lineage.ts;一朝的第一位、共和国执政官没有,
+   * 复国之君的是故国的宗室或末帝);将门、世家的将领、名臣是本国先前的一位将领、名臣(kin.ts);别的没有
+   */
   parent?: number;
+  /**
+   * 复国之君出自故国哪位君主(from = Person.id,一般是末帝)、是他的第几代孙(gen:1 = 子、2 = 孙、3 = 曾孙……)。
+   * 中间几代都在世系里(Person.parent 一路连上去)的和隔得太远、只补了一位父亲的(宗室远支)都记;别的人没有
+   */
+  descent?: { from: number; gen: number };
   /** parent 是养父(这人是收养的 / 过继的养子,见 royals.ts、lineage.ts);亲生的不给 */
   adopted?: true;
   /** 宗室在争储里被杀(fate purged):杀他的那位新君(Person.id) */
@@ -909,8 +1073,13 @@ export interface Person {
   regencies?: PersonRegency[];
   /** 联姻娶的宗室女(marriage.ts;按先后)。没有 = 不给 */
   spouses?: PersonSpouse[];
-  /** 母亲是联姻嫁来的宗室女(父亲娶她以后出生的儿子才有,marriage.ts)。别的不给 */
-  mother?: PersonSpouse;
+  /**
+   * 母亲(Person.id;consorts.ts):联姻嫁来的宗室女所生(父亲娶她以后出生、生在她 16–45 岁之间的子女),临朝的太后所辅的幼主。
+   * 别的不给(世系只按父亲连,Person.parent)
+   */
+  mom?: number;
+  /** 后妃:丈夫(Person.id;嫁来的宗室女 = 娶她的人,太后 = 幼主的父亲;找不到 = 不给)。临朝篡位做了女君的也有。别的不给 */
+  husband?: number;
   /** 放逐到中立地 / 出奔中立地 / 出奔邻国(史事 exile;people.ts 照它填):没有 = 不给 */
   exile?: PersonExile;
   /** 作者改过名时,生成时的名字(稳定键按它算,见 gen/edits.ts 的 personKey);没改过 = 不给 */
@@ -930,7 +1099,7 @@ export interface Person {
 /**
  * 掌实权的一段(regency.ts):
  * - kind:march 引兵入朝(先君在位、太子掌权)、heir 太子监国、uncle 宗室摄政(幼主的叔父)、minister 名臣辅政(幼主)、
- *   chancellor 大臣专权、general 大将专权
+ *   dowager 太后临朝(幼主的母亲;推演里是名臣辅政那一段,掌权的人换成了她,consorts.ts)、chancellor 大臣专权、general 大将专权
  * - from / until:从哪年到哪年(到结束年份还在掌权 = until 不给)
  * - ruler:名义上的君主(掌权开始时在位的那位,Person.id);大臣、大将专权跨了几位君主的,后几位按年份查在位表
  * - end:怎么结束的 —— succeed 先君去世、他即位(引兵入朝、太子监国)/ return 还政 / purged 伏诛 / usurp 篡位 /
@@ -938,7 +1107,7 @@ export interface Person {
  * - annal:掌权那一条史事(regent,n = 0)的下标;endAnnal:还政、伏诛、篡位、卒那一条的下标(没有 = 不给)
  */
 export interface PersonRegency {
-  kind: 'march' | 'heir' | 'uncle' | 'minister' | 'chancellor' | 'general';
+  kind: 'march' | 'heir' | 'uncle' | 'minister' | 'dowager' | 'chancellor' | 'general';
   from: Year;
   until?: Year;
   ruler: number;
@@ -948,11 +1117,12 @@ export interface PersonRegency {
 }
 
 /**
- * 联姻的宗室女(marriage.ts;不是完整的人物,只记一行):
+ * 联姻的一门亲(marriage.ts;记在娶亲的人身上):
  * - polity:她出自哪国;father:她的父亲(那一刻那国在位的君主,Person.id;没有人物 = −1)
- * - name:东方带姓的语感 = 父姓 + 氏("风氏");别的语感 = 空串(界面写"某国公主")
+ * - name:东方带姓的语感 = 父姓 + 氏("风氏");别的语感 = 空串(界面写"某国公主")。有 person 的界面写她的名字
  * - year:结亲那年;peace:议和时以和亲作结的那场战争(没有 = 不给)
  * - annal:那条史事 marry 的下标
+ * - person:嫁来的宗室女本人(后妃,Person.id;consorts.ts)。娶亲的是女的(她嫁过去,对方是宗室子,只记一行)、作者立的君主 = 不给
  */
 export interface PersonSpouse {
   polity: number;
@@ -961,6 +1131,7 @@ export interface PersonSpouse {
   year: Year;
   peace?: number;
   annal: number;
+  person?: number;
 }
 
 /**
@@ -1043,6 +1214,9 @@ export interface PersonCommand {
  * - 宗室:died 寿终、battle 领兵战死、purged 争储被杀(Person.rival 是杀他的新君)/ 摄政的叔父伏诛(Person.rival 是亲政的幼主)
  * - 名臣:掌实权伏诛 purged
  * - 君主:被摄政的叔父废了(regents.ts)也是 deposed
+ * - 作者的将领、名臣(干预"任将 / 任臣",Person.author;不写卒年,结局只说怎么卸任的):retired 到期卸任(卸任年、卸甲致仕的岁数)/
+ *   died 到人物卡的卒年(卒于任上、卒于军中)/ surrendered 亡国出降 / fled 亡国出奔 / merged 随国归附 / deposed 改朝换代去职(名臣)/
+ *   yielded 又任了别的、即了位
  */
 export type PersonFate = 'died' | 'murdered' | 'deposed' | 'overthrown' | 'fell' | 'surrendered' | 'fled' | 'merged' | 'retired' | 'battle' | 'yielded' | 'purged';
 
@@ -1060,9 +1234,10 @@ export interface RulerLeanings {
 
 /**
  * 君主怎么即位的:found 立国、rebel 叛离自立(分裂)、restore 复国(故国王室之后)、usurp 权臣篡位、rise 起兵代之(改朝换代)、heir 继位、
- * crown 作者立的(干预"即位",Person.author 是那个人物)
+ * crown 作者立的(干预"即位",Person.author 是那个人物)、reform 改制(reform.ts)开的那一段的第一位:改共和后的首任执政、
+ * 政变的将军、革命起兵的人、复辟迎立的君主 / 自立为君的执政
  */
-export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir' | 'crown';
+export type RulerRise = 'found' | 'rebel' | 'restore' | 'usurp' | 'rise' | 'heir' | 'crown' | 'reform';
 
 /**
  * 一颗星球(没改地形)定下的、改过地形的世界沿用的两个数(index.ts 的 planetTempo):

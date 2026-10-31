@@ -131,8 +131,9 @@ describe('战争与攻占', () => {
           case 'war': {
             expect(e.war).toBe(war.size); // 按宣战先后编号
             expect(polityAlive(P[e.a], e.year) && polityAlive(P[e.b], e.year)).toBe(true);
-            // 宣战时两国接壤(经攻方能走的边);讨伐民变、据地争位的宗室紧跟在起事后面,看起事以后的国土
-            const own = e.cause === 'quell' || e.cause === 'heir' ? after : before;
+            // 宣战时两国接壤(经攻方能走的边);讨伐民变、据地争位的宗室紧跟在起事后面,看起事以后的国土;大迁徙迁来的一支落脚立国当即开战,也看立国以后的
+            // 打的是同一刻刚立的国(大迁徙落脚、民变、据地自立……,救它的盟国、宗主也一样):看立国以后的
+            const own = e.cause === 'quell' || e.cause === 'heir' || e.cause === 'trek' || P[e.b].founded === e.year ? after : before;
             let touch = false;
             for (let r = 0; r < reg.count && !touch; r++) {
               if (own[r] !== e.a) continue;
@@ -224,8 +225,8 @@ describe('战争与攻占', () => {
       // 按日志顺序重放国家层的归属:每条"攻占"之前,攻方的国土要挨着这一州(同一时刻先攻下的州也算:丢了国都撑不下去的小国,残部挨着国都)。
       // 例外:丢了国都撑不下去、残部一并归攻方(wars.ts 的 annex)时,和国都不连着的残部(隔海的、被别国围住的飞地)最后一并归攻方
       const fellAt = new Set(civ.annals.filter((e) => e.kind === 'fall').map((e) => `${e.year}|${e.a}`));
-      // 讨伐民变、据地争位的宗室的仗不看 HOLD(起事的州刚换主,官军、义军你来我往)
-      const quell = new Set(civ.annals.filter((e) => e.kind === 'war' && (e.cause === 'quell' || e.cause === 'heir')).map((e) => e.war));
+      // 讨伐民变、据地争位的宗室、大迁徙迁来的一支到了以后的仗不看 HOLD(起事 / 落脚的州刚换主,两边你来我往)
+      const quell = new Set(civ.annals.filter((e) => e.kind === 'war' && (e.cause === 'quell' || e.cause === 'heir' || e.cause === 'trek')).map((e) => e.war));
       const quellAt = new Set(civ.annals.filter((e) => e.kind === 'conquer' && quell.has(e.war)).map((e) => `${e.year}|${e.region}`));
       const own = new Int16Array(reg.count).fill(-1);
       for (let i = 0; i < L.size; i++) {
@@ -304,8 +305,10 @@ describe('战争与攻占', () => {
         const ceded = pk > i && A[pk].year === e.year && A.slice(i + 1, pk).some((x) => x.kind === 'conquer' && x.war === e.war && x.region === hold && x.a === e.b);
         expect(ceded || own[hold] === e.a, tag).toBe(true);
         const gate = regionPasses(world({ ...DEFAULT_PARAMS, seed }), reg);
+        // 关隘外那州同一刻(议和割地、划界)又从追兵手里易手的,断后那一刻还是追兵的(GENERATOR_VERSION 56 时种子 7 有一处)
+        const lostAfter = new Set(A.slice(i + 1).filter((x) => x.year === e.year && x.kind === 'conquer' && x.war === e.war && x.b === e.b).map((x) => x.region));
         let pass = false;
-        for (let k = reg.adjStart[hold]; k < reg.adjStart[hold + 1]; k++) if (own[reg.adj[k]] === e.b && gate[k] >= 0 && reg.of[gate[k]] === e.region) pass = true;
+        for (let k = reg.adjStart[hold]; k < reg.adjStart[hold + 1]; k++) if ((own[reg.adj[k]] === e.b || lostAfter.has(reg.adj[k])) && gate[k] >= 0 && reg.of[gate[k]] === e.region) pass = true;
         expect(pass, tag).toBe(true);
         expect(e.n! >= 2 && e.n! <= 7, tag).toBe(true);
         expect(['slain', 'captured', 'withdrew']).toContain(e.cause);

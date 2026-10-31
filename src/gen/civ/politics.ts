@@ -212,6 +212,11 @@ export interface PoliticsModel {
   famineBump?: (P: Polity, n: number) => number;
   /** 看内政时最先看的大崩解(unrest.ts 挂上):崩了 = true,这一次看内政就到此为止 */
   crisis?: (P: Polity, k: number, t: Year) => boolean;
+  /**
+   * 迁来的一支打进大国国都时当即大崩解(unrest.ts 挂上;migration.ts 用):不看国土、立国年数、动荡,崩法照常挑。
+   * k = 取随机数用的"第几次"(和看内政的错开);禁止分裂的干预护着、散不成几块 = false
+   */
+  shatter?: (P: Polity, k: number, t: Year) => boolean;
   /** 照大纲顺着引时替国家 p 多看一眼内政(installPolitics 填):只看大崩解、分裂(k ≥ LOOK_K,随机数按它取,不接着预约) */
   look?: (p: number, k: number, t: Year) => void;
   /**
@@ -451,8 +456,8 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     return p;
   };
   pol.secede = (parent, group, sid, rising, t, kind, cause, extra) => {
-    // 新国都是某个同族亡国的故都:这一次起兵就是复国(宗室据地争位的不算)
-    const f = kind === 'split' && cause !== 'heir' ? heirOf(sid, t) : null;
+    // 新国都是某个同族亡国的故都:这一次起兵就是复国(宗室据地争位、革命据地自立的不算)
+    const f = kind === 'split' && cause !== 'heir' && cause !== 'revolution' ? heirOf(sid, t) : null;
     const p = secede(parent, group, sid, rising, t, f ? { restores: f.id, lineage: f.lineage } : (extra ?? {}), kind, cause);
     if (f) pol.restored.add(f.id);
     return p;

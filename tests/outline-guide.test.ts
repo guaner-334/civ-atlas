@@ -36,11 +36,12 @@ function same(a: Civ, b: Civ, label: string) {
 }
 
 /**
- * seed 7 的随机大纲里第 1562 年那条开战(和它前面的几条):照常推没发生,引几版能引成
- * (GENERATOR_VERSION 43 仗打得密以后 seed 7 第 1574 年那条照常推就打起来了,换成 seed 1 第 1554 年那条;46 滚雪球以后那条硬改也改不成了,换成这条)
+ * seed 3 的随机大纲里第 2872 年那条开战(和它前面的几条):照常推没发生,引几版能引成
+ * (GENERATOR_VERSION 43 仗打得密以后 seed 7 第 1574 年那条照常推就打起来了,换成 seed 1 第 1554 年那条;56 滚雪球以后那条硬改也改不成了,
+ * seed 7、2 随机大纲里的开战也都是照常推就打起来了或硬改不成,换成这条)
  */
-const GUIDED_SEED = 7;
-const GUIDED_YEAR = 1562;
+const GUIDED_SEED = 3;
+const GUIDED_YEAR = 2872;
 const guidedCase = () => samplePlots(baseCiv(GUIDED_SEED), GUIDED_SEED, 20).filter((p) => p.year <= GUIDED_YEAR && p.kind !== 'peace' && p.kind !== 'submit');
 
 describe('不引 = 和以前一样', () => {
@@ -140,7 +141,7 @@ describe('顺着引了一把', () => {
 
 /**
  * seed 7 第 1500 年:c693 本来不打 c16152;引它更好战、国力更强、主攻 c16152,窗口里多看几眼邻国就打了,不多看就不打
- * (GENERATOR_VERSION 46 以前是 c16152 打 c6760,43 以前是 c6045 打 c16152)
+ * (GENERATOR_VERSION 43 以前是 c6045 打 c16152;46 大迁徙以前是 c16152 打 c6760;47 季节进推演是 c693 打 c4912,48 时代做法以后又是 c693 打 c16152)
  */
 const LOOK_SEED = 7;
 const LOOK_A = 'polity:c693#0';

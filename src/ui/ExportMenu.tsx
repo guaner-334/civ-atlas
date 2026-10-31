@@ -9,6 +9,7 @@
  *   编年史:Markdown / 纯文本(按时代分节,大事在前、全部附后)
  *   图例(PNG):国家 / 民族 + 颜色、城镇符号、道路,配地图用
  *   地球仪这一面(PNG,只在地球仪开着时有):现在看到的样子,见 Globe.tsx 的 exportGlobeView
+ *   立体这一面(PNG,只在地区模式看着立体时有):现在看到的样子(看得见的那一块,不带按钮),见 terrain3d/View.tsx
  *
  * 重活在后台线程(src/exportWorker.ts,每次导出临时开一个)里做,界面不卡;主线程只画文字(要用页面里加载好的字体)、编码 PNG。
  * 用的是 App 当前显示的 civ(套过改名等修改的那份),不重新生成。
@@ -17,6 +18,7 @@
  * (AI 起的名字换回挑之前的,见 gen/edits.ts 的 namesWithoutAi)。
  * 有作者标记时再多一行"作者标记:带上 / 不带"(默认带上):地图图片、地球仪这一面画上那一年有的标记(都写名字,见 render/marks.ts)。
  * 正选着一个作者的人物时,地图图片、地球仪这一面带上他的足迹(和地图上看到的一样,见 render/trail.ts)。
+ * 地区图:点了进「地区」框一块(ui/terrain3d/),框好看那一页时导出。
  * 文件名带世界名(没起名 = 种子)、年份、画风:文明与地图-九州大陆-第3000年-手绘.png、文明与地图-种子7-第3000年-手绘.png(JPEG 是 .jpg)
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -57,10 +59,11 @@ import { noteDismiss } from './dismissClick';
 import { fileBaseName, type ContourKind } from '../gen/savefile';
 import { currentWorld } from './saveStore';
 import { openFilm } from './filmStore';
+import { exportReliefView, openReliefPick, useRelief } from './terrain3dStore';
 import { useNarrow } from './device';
 import { Icon } from './icons';
 
-type Job = 'map' | 'mapjpg' | 'height16' | 'height8' | 'md' | 'txt' | 'legend' | 'globe';
+type Job = 'map' | 'mapjpg' | 'height16' | 'height8' | 'md' | 'txt' | 'legend' | 'globe' | 'relief';
 
 
 interface Status {
@@ -286,7 +289,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   detail.worker = t1 - t0;
   const t2 = performance.now();
   const iso = m.contours ? contoursOf(m.world, m.raster, m.contours) : null;
-  const n = await drawMapLabels(ctx, { ...m }, scale, {
+  const n = await drawMapLabels(ctx, { ...m, era: getEdits().era }, scale, {
     beforeDraw: iso
       ? (placed) => {
           drawExportContours(ctx, m, scale, iso, !!m.contourDark, placed ? placedTextBoxes(placed) : []);
@@ -334,6 +337,8 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
   const busy = useExportStatus()?.kind === 'busy';
   const time = useCivTime();
   const globeOn = useGlobeOn();
+  const relief = useRelief();
+  const reliefOn = relief.phase === 'view' && relief.face === 'relief';
   const narrow = useNarrow();
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -403,6 +408,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
       txt: '编年史(纯文本)',
       legend: `图例(${scale}×)`,
       globe: '地球仪这一面',
+      relief: '立体这一面',
     };
     setStatus({ kind: 'busy', text: `正在导出${what[job]}` });
     // 无色标记用地图的字体写:画地图、地球仪的先把字体加载好(先显示在导出,等字体时不能再点一次)
@@ -412,7 +418,14 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
     const t0 = performance.now();
     try {
       let dbg: ExportDebug;
-      if (job === 'globe') {
+      if (job === 'relief') {
+        const r = await exportReliefView();
+        if (!r) throw new Error('立体没有打开');
+        download(r.blob, r.name);
+        dbg = { job, name: r.name, bytes: r.blob.size, w: r.w, h: r.h, ms: performance.now() - t0 };
+        const rmb = r.blob.size >= 1e6 ? `${(r.blob.size / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(r.blob.size / 1e3))} KB`;
+        setStatus({ kind: 'ok', text: `已导出 ${r.name}`, more: `${r.w}×${r.h}，${rmb}，用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒` });
+      } else if (job === 'globe') {
         // 地球仪这一面:标记照屏幕上的规矩(缩得小时不写名字、挨得近的合起来)
         const r = await exportGlobeView(
           markItems.length || trail
@@ -498,6 +511,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
 
   const items: { job: Job; title: string; sub: string; need?: boolean }[] = [
     ...(globeOn ? [{ job: 'globe' as const, title: '导出地球仪这一面', sub: '现在看到的样子，PNG' }] : []),
+    ...(reliefOn ? [{ job: 'relief' as const, title: '导出立体这一面', sub: '现在看到的样子，PNG' }] : []),
     { job: 'map', title: '地图图片(PNG)', sub: `整张地图，${styleName(style, layer, look)}，${yearFull(year, edits.era)}${style !== 'data' ? '' : isGradientLegend(layer) ? '，左上带色阶' : '，色块另在图例图片里'}，${W}×${H}`, need: true },
     { job: 'mapjpg', title: '地图图片(JPEG)', sub: `同上,文件小好几倍(质量 ${Math.round(IMAGE_FORMATS.jpeg.quality! * 100)}%)`, need: true },
     {
@@ -562,6 +576,20 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
           >
             <b>故事长图</b>
             <span>按时代分段：那时的地图和几件大事，拼成长图</span>
+          </button>
+          {/* 地区图:进「地区」框一块(和右下「地区」同一套),看这一块的那一页上导出 */}
+          <button
+            className="export-item go"
+            role="menuitem"
+            data-job="region"
+            disabled={busy || !ok}
+            onClick={() => {
+              setOpen(false);
+              openReliefPick();
+            }}
+          >
+            <b>地区图</b>
+            <span>在地图上框一块，出一张带标题、比例尺、图例的图</span>
           </button>
           <div className="export-hr" />
           <div className="export-scale">

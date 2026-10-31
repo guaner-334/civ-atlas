@@ -1,6 +1,6 @@
 /**
  * 人物头像(gen/portrait.ts):同一个种子同一张脸、一家人长得像、身份对得上衣服和头饰、年龄对得上胡子皱纹白发、
- * 每一层的图都在 public/portraits 里、神情按那一年的事换。
+ * 每一层的图都在 public/portraits 里、神情按那一年的事换。女性还没有部件(给 null),她的后人长相照她原来的男名往下传。
  */
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -8,8 +8,11 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { characterPortrait, personPortrait, polityGroup, portraitLayers, portraitMood, STYLE_GROUP, type Portrait } from '../src/gen/portrait';
 import { PORTRAIT_PARTS } from '../src/gen/portraitParts';
+import { royalSeg } from '../src/gen/civ/regime';
 
 const civs = new Map<number, Civ>();
+/** 男的(女性的部件还没画,没有头像) */
+const men = (c: Civ) => c.people!.filter((x) => !x.female);
 function civOf(seed: number): Civ {
   let c = civs.get(seed);
   if (!c) civs.set(seed, (c = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }))));
@@ -39,10 +42,13 @@ describe('部件表', () => {
 });
 
 describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
-  it('每个人都有头像,同一个种子算两次一样', () => {
+  it('每个男的都有头像(女的还没有),同一个种子算两次一样', () => {
     const civ = civOf(seed);
     const again = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed }));
-    for (const x of civ.people!) {
+    const women = civ.people!.filter((x) => x.female);
+    expect(women.length).toBeGreaterThan(10);
+    for (const x of women) expect(personPortrait(civ, x.id, x.died ?? civ.endYear)).toBeNull();
+    for (const x of men(civ)) {
       const a = personPortrait(civ, x.id, x.died ?? civ.endYear);
       expect(a, x.name).not.toBeNull();
       expect(a!.layers.length).toBeGreaterThanOrEqual(3);
@@ -56,13 +62,13 @@ describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
 
   it('身份对得上衣服、头饰;戴盔戴帽的不画头发', () => {
     const civ = civOf(seed);
-    for (const x of civ.people!) {
+    for (const x of men(civ)) {
       const p = personPortrait(civ, x.id, x.died ?? civ.endYear)!;
       const P = PORTRAIT_PARTS[p.group]!.parts;
       const clothes = layerOf(p, 'clothes');
       expect(clothes.length).toBe(1);
       const roles = P.find((q) => q.id === clothes[0])!.roles!;
-      const want = x.role === 'general' ? 'general' : x.role === 'minister' ? 'minister' : x.role === 'prince' ? 'royal' : civ.polities[x.polity].lineage === 'republic' ? 'consul' : 'ruler';
+      const want = x.role === 'general' ? 'general' : x.role === 'minister' ? 'minister' : x.role === 'prince' ? 'royal' : !royalSeg(civ.polities[x.polity], x.dynasty ?? 0) ? 'consul' : 'ruler';
       expect(roles).toContain(want);
       const hat = layerOf(p, 'hat')[0];
       if (hat && part(p, hat).hides) expect(layerOf(p, 'hair')).toEqual([]);
@@ -77,20 +83,35 @@ describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
     let same = 0;
     let pairs = 0;
     for (const x of people) {
-      if (x.parent === undefined || polityGroup(civ, people[x.parent].polity) !== polityGroup(civ, x.polity)) continue;
+      if (x.female || x.parent === undefined || people[x.parent].female || polityGroup(civ, people[x.parent].polity) !== polityGroup(civ, x.polity)) continue;
       pairs++;
       if (at(x.id).face === at(x.parent).face) same++;
     }
     expect(pairs).toBeGreaterThan(10);
     expect(same / pairs).toBeGreaterThan(0.85);
-    const founders = people.filter((x) => x.role === 'ruler' && x.parent === undefined && polityGroup(civ, x.polity) === 'zhongyuan');
+    const founders = people.filter((x) => !x.female && x.role === 'ruler' && x.parent === undefined && polityGroup(civ, x.polity) === 'zhongyuan');
     const faces = new Set(founders.map((x) => at(x.id).face));
     if (founders.length >= 8) expect(faces.size).toBeGreaterThan(1);
   });
 
+  it('换成女的以后,她的后人长相不变(血缘照她原来的男名往下传)', () => {
+    const civ = civOf(seed);
+    const people = civ.people!;
+    // 把女的都换回原来的男的:后人的头像应该一模一样
+    const asMen: Civ = { ...civ, people: people.map((x) => (x.female ? { ...x, name: x.maleName!, female: undefined, maleName: undefined } : x)) };
+    let n = 0;
+    for (const x of people) {
+      if (x.female || x.parent === undefined || !people[x.parent].female) continue;
+      n++;
+      const y = x.died ?? civ.endYear;
+      expect(personPortrait(civ, x.id, y), x.name).toEqual(personPortrait(asMen, x.id, y));
+    }
+    expect(n).toBeGreaterThan(3);
+  });
+
   it('年龄:少年用年轻的脸、没胡子;老了有皱纹、头发白', () => {
     const civ = civOf(seed);
-    const x = civ.people!.find((p) => p.role === 'ruler' && (p.died ?? civ.endYear) - p.born > 65)!;
+    const x = men(civ).find((p) => p.role === 'ruler' && (p.died ?? civ.endYear) - p.born > 65)!;
     expect(x).toBeDefined();
     const young = personPortrait(civ, x.id, x.born + 16)!;
     expect(layerOf(young, 'body')).toEqual(['body-young']);
@@ -107,7 +128,7 @@ describe.each([7, 2024])('人物头像 · seed=%i', (seed) => {
 
   it('表情换眉眼嘴,别的层不动;神情按那一年的事', () => {
     const civ = civOf(seed);
-    const x = civ.people!.find((p) => p.role === 'general' && p.commands?.length)!;
+    const x = men(civ).find((p) => p.role === 'general' && p.commands?.length)!;
     const p = personPortrait(civ, x.id, x.commands![0].from)!;
     for (const e of ['smile', 'frown', 'angry', 'surprise'] as const) {
       const ls = portraitLayers(p, e);

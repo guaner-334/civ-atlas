@@ -15,7 +15,7 @@ import { ownersAt, type Owners } from '../gen/civ/timeline';
 import { cultureLabel } from '../gen/civ/display';
 import { capitalAt, polityAlive, polityName, populationAt } from '../gen/civ/growth';
 import { personFame, personSpan } from '../gen/civ/peopleInfo';
-import { generalRole, ministerRole, personName, rulerRole, rulerShort, rulerTitle } from '../gen/civ/peopleText';
+import { consortRole, generalRole, ministerRole, personName, rulerRole, rulerShort, rulerTitle } from '../gen/civ/peopleText';
 import { faithCounts } from '../gen/civ/religion';
 import type { AuthorMark } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
@@ -230,7 +230,7 @@ export function searchCiv(
       kind: 'person',
       id: x.id,
       name: personName(civ, x),
-      sub: `${x.role === 'ruler' ? rulerRole(civ, x) : x.role === 'minister' ? ministerRole(civ, x) : generalRole(civ, x)}，${years}`,
+      sub: `${x.role === 'ruler' ? rulerRole(civ, x) : x.role === 'minister' ? ministerRole(civ, x) : x.role === 'consort' ? consortRole(civ, x) : generalRole(civ, x)}，${years}`,
       color: rgb(P.color),
       select: { kind: 'person', id: x.id },
       score: m,
@@ -251,7 +251,7 @@ export function searchCiv(
       name: label,
       sub: '民族',
       color: rgb(cu.color),
-      select: { kind: 'region', id: cultureRegion(civ, cu.id, year, owners) },
+      select: { kind: 'culture', id: cu.id },
       score: m,
       weight: n,
     });

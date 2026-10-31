@@ -26,11 +26,12 @@
  *   键 = 名义君主的位次 × 16(+ 1 幼主)/ 掌权那一刻 × 256(大臣、大将);诸子的生年、寿数、日后即位的倾向用 royals.ts、rulers.ts 那一份。纯计算。
  */
 import type { Annal, Polity, RulerLeanings, Year } from './types';
-import { parsePersonKey, type Intervention } from '../edits';
+import { AUTHOR_REGENT_AGE_END, parsePersonKey, type Intervention } from '../edits';
 import { fpow, keyed4, subSeed } from './rand';
 import { MAX_AGE, drawLeanings, leaningEffect, reignBorn, reignStart, reignStep, type LeaningEffect, type Reign } from './rulers';
 import { POSTHUMOUS, broodOf } from './royals';
 import { polityTierAt } from './growth';
+import { royalSeg, segLineage } from './regime';
 
 // ---- 调参(推荐值,按 20 个种子的统计调,见 scripts/gen-stats.ts) ----
 /**
@@ -223,7 +224,7 @@ export interface LatePlan {
 /** 君主 r(国家 pid)晚年的候选,按时刻(同一刻引兵入朝在前);没有 = 空 */
 export function latePlans(cx: RegencyCtx, pid: number, r: Reign): LatePlan[] {
   const P = cx.polities[pid];
-  if (!P || P.lineage === 'republic' || r.crown || !(r.natural < Infinity)) return [];
+  if (!P || !royalSeg(P, r.dynasty) || r.crown || !(r.natural < Infinity)) return [];
   const R = (use: number) => rnd(cx, pid, r.k * 16, use, K_REIGN);
   const march = R(U_MARCH) < MARCH_P;
   const heir = R(U_HEIR) < HEIR_P;
@@ -234,7 +235,7 @@ export function latePlans(cx: RegencyCtx, pid: number, r: Reign): LatePlan[] {
   const fb = reignBorn(r);
   const from = reignStart(r);
   let lean: RulerLeanings | null = null;
-  const heirLean = () => (lean ??= reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, P.lineage, P.kind).leanings);
+  const heirLean = () => (lean ??= reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
   const out: LatePlan[] = [];
   if (march) {
     const t = q(r.natural - lerp(MARCH_LEAD, R(U_MARCH_T)));
@@ -268,12 +269,12 @@ const childEnd = (u: number, born: Year, stop: Year): RegencyOutcome =>
  */
 export function childPlan(cx: RegencyCtx, pid: number, r: Reign, marched: (k: number) => boolean): ChildPlan | null {
   const P = cx.polities[pid];
-  if (!P || P.lineage === 'republic' || r.crown || r.seize || r.j === 0 || !(r.age < YOUNG)) return null;
+  if (!P || !royalSeg(P, r.dynasty) || r.crown || r.seize || r.j === 0 || !(r.age < YOUNG)) return null;
   const t = reignStart(r);
   const key = r.k * 16 + 1;
   const R = (use: number) => rnd(cx, pid, key, use, K_REIGN);
   const adult = q(reignBorn(r) + ADULT);
-  const leanings = () => drawLeanings((use) => rnd(cx, pid, key, use, K_LEAN), P.lineage, P.kind);
+  const leanings = () => drawLeanings((use) => rnd(cx, pid, key, use, K_LEAN), segLineage(P, r.dynasty), P.kind);
   // 叔父:先君的兄弟(先君是他父亲的预定继承人、接着即位的),成年、在世、没据地自立,挑最年长的
   const list = cx.book(pid, t);
   const prev = list[r.k - 1];
@@ -372,25 +373,44 @@ export function makeRegency(cx: RegencyCtx, pid: number, kind: RegencyKind, k: n
 /** 作者下令"让他掌权"的一条 */
 export type RegentIv = Extract<Intervention, { kind: 'regent' }>;
 /**
- * 让他掌权没生效时史事 intervene 的 b 列(别的同 rulers.ts:−3 那一年这国已亡、−4 他不是那样的人):
- * −11 那一刻已有人掌着权;−12 共和国、在位的是作者立的君主(不会被架空)
+ * 让他掌权没生效时史事 intervene 的 b 列(别的同 rulers.ts:−2 他还没出生(作者的人物)、−3 那一年这国已亡、−4 他不是那样的人):
+ * −11 那一刻已有人掌着权;−12 共和国、在位的是作者立的君主(不会被架空);−19 他那时已去世(作者的人物,照干预里抄的卒年)
  */
 export const IV_HELD = -11;
 export const IV_NO_THRONE = -12;
+export const IV_GONE = -19;
 /** 让他掌权:宗室要到这么多岁 */
 export const IV_REGENT_AGE = 16;
+
+/**
+ * 让作者的人物掌权(干预带 char)t 那一刻起到哪一刻、怎么了结:给了还政年数 = t + years 还政;没给 = 到卒年(died 那一年年初,卒于位);
+ * 卒年也没有 = 到他 AUTHOR_REGENT_AGE_END 岁还政(至少一年);卒年早于还政的,到卒年为止
+ */
+export function authorRegentEnd(v: AuthorRegentIv, t: Year): { stop: Year; outcome: RegencyOutcome } {
+  const back = v.years !== undefined ? q(t + v.years) : v.died === undefined ? q(Math.max(t + 1, v.born + AUTHOR_REGENT_AGE_END)) : Infinity;
+  return v.died !== undefined && v.died <= back ? { stop: v.died, outcome: 'died' } : { stop: back, outcome: 'return' };
+}
+
+/** 作者下令"让作者的人物掌权"的一条 */
+export type AuthorRegentIv = Extract<RegentIv, { char: number }>;
 
 /**
  * 作者下令"让他掌权"(干预第 iv 条)t 那一刻、名义君主 r(此刻在位的)的这一段;他对不上 = null:
  *   引兵入朝、太子监国:他得是 r 的预定继承人(royals.ts 的 heir,按人物键里的生年认),倾向照他日后即位时的(和推演里自己出的一样);
  *   摄政:他得是同一朝先前几位君主的儿子(不是预定继承人的那几个,royals.ts 的 extra),在世;
  *   专权:名臣、将领的生年照人物键。摄政、专权的倾向照干预里写的。都要年过 IV_REGENT_AGE 岁。
- * 到期(还政、篡位)= t + years;到君主去世即位 = 不到期(跟着名义君主了结)
+ *   作者的人物(干预带 char):照名臣、将领的专权,生年、性格照干预里抄的;那一刻还没出生、已去世(卒年照干预)= null。
+ * 到期(还政、篡位)= t + years;到君主去世即位 = 不到期(跟着名义君主了结);作者的人物见 authorRegentEnd
  */
 export function ivRegency(cx: RegencyCtx, pid: number, v: RegentIv, iv: number, r: Reign, t: Year, annal: number): Regency | null {
   const P = cx.polities[pid];
+  if (!P) return null;
+  if (v.char !== undefined) {
+    if (v.born > t || (v.died !== undefined && v.died <= t) || t - v.born < IV_REGENT_AGE) return null;
+    return { pid, kind: v.how, k: r.k, start: t, dyn: dynastyAtTick(P, t), closed: false, annal, iv, ...authorRegentEnd(v, t), born: v.born, leanings: v.leanings, eff: leaningEffect(v.leanings) };
+  }
   const who = parsePersonKey(v.person);
-  if (!P || !who) return null;
+  if (!who) return null;
   const base = { pid, kind: v.how, k: r.k, start: t, dyn: dynastyAtTick(P, t), closed: false, annal, iv };
   const stop = v.end === 'succeed' ? Infinity : q(t + (v.years ?? 1));
   const outcome: RegencyOutcome | undefined = v.end === 'succeed' ? undefined : v.end === 'return' ? 'return' : 'usurp';
@@ -398,7 +418,7 @@ export function ivRegency(cx: RegencyCtx, pid: number, v: RegentIv, iv: number, 
   if (v.how === 'march' || v.how === 'heir') {
     const hb = broodOf(cx.rbase, cx.tag[pid], r, P).heir;
     if (hb === undefined || Math.round(hb) !== who.born) return null;
-    const rest = tail(hb, reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, P.lineage, P.kind).leanings);
+    const rest = tail(hb, reignStep(cx.rbase, cx.tag[pid], r.k + 1, r.j + 1, r.natural, segLineage(P, r.dynasty), P.kind).leanings);
     return rest && { ...base, ...rest };
   }
   const lean = v.leanings ?? { expand: 50, war: 50, develop: 50, trade: 50 };

@@ -46,6 +46,9 @@
  *   "大渭治下,瑞州等五州的居兰人渐为渭人";统治民族反被同化写"大渭的居兰人渐染渭俗,…渐为渭人";
  *   部落地带的孤地(没有国家)写"瑞州的居兰人渐为渭人"。民族消亡单列一条"乌耐族亡"(大事)。
  *   迁入 ≥ MIGRATE_MAJOR 州的迁徙、同化 ≥ ASSIM_MAJOR 州的一段、民族消亡是大事。
+ *   大迁徙(migration.ts,史事 trek)一次一条大事(种类记成 migrate,标签"徙";写法见 trekEntry),展开看经过;
+ *   到了以后那一仗照旧单列一条战争,打进大国国都引起的大崩解写成"萨热汗国破星邑,百尾皇朝大崩解,……";
+ *   迁来立的国的统治民族渐为当地多数所化写"萨热汗国境内的克拉尔人渐为桑人,瑶渊之野等五州皆说桑语"(≥ TREK_ASSIM_MAJOR 州是大事)。
  * - **干预**(阶段 4,史事 intervene;哪一条干预见 Civ.interventions[e.war]):"【干预】大昌与索拉特结盟"
  *   "【干预】大昌自此不亡"(有截止年份的加",至第 2750 年")"【干预】大昌向索拉特宣战"(没打成的写原因:"…,然两国不接壤,未能成行");
  *   划州"【干预】瑞州自大渭划归大昌,永为大昌之土";立国"【干预】瑞州脱大渭自立,号瑞国,都于瑞城"(紧跟着的 found 并进这一条);
@@ -53,7 +56,14 @@
  *   没生效的写原因("…,然其地无人居住""…,然瑞城属大渭");界面上的干预列表也用它(interventionOutcome)。标签"干",一律是大事。
  *   照大纲硬改出来的(干预带 plot,gen/edits.ts 文件头"大纲")前面标【照大纲】,别的写法一样:"【照大纲】大昌向索拉特宣战";
  *   同一条情节同一刻划给同一国的几州并成一条:"【照大纲】瑞州、汾州、雪西三州划归大昌"。
+ *   记在作者人物名下的国家的事(干预带 author)后面写"(林小满之议)":"【干预】大昌与索拉特结盟(林小满之议)"。
  *   援盟参战的战争(史事 war 的 settlement 列 = 盟国)写"索拉特应大昌之约伐某国"。
+ * - **作者的将领、名臣**(干预"任将 / 任臣",Person.author;appoint.ts):他挂帅的仗统帅写他、推演原来派的那位写成副将 ——
+ *   "大定以林小满为将、司玄为副,起兵伐奥利亚""奥利亚以林小满为将、司玄为副拒之",后面几仗的统帅也写他("…,副将司玄战死");
+ *   那一刻君主亲征的,君主为帅、他随驾("大定太宗亲征奥利亚,林小满随驾")。作者的名臣在朝时议和、劝进写上他(写在推演里经手的那位后面:
+ *   "大定遣礼部尚书百里青、侍郎林小满与奥利亚议和"),议事后面加一句"…,丞相林小满与议"(西幻"参与其议")。
+ *   【干预】:"以林小满为大定将""以林小满为大定侍郎"(入朝拜的官);从本国将领任上入朝的"大定将林小满入朝为侍郎,副将司玄代领其军"
+ *   (手上正领着的那场仗由推演原来派的那位接着领);宣战点了谁挂帅的"大定向奥利亚宣战,以林小满为帅"。
  * - **名臣**(Person.deeds):经手的事写上他(官职按那一年):议和"大景王朝遣礼部尚书百里青与萨尔斯坦帝国议和"
  *   (对方的使臣写在对方国名后面);称王称帝"…,丞相某某劝进"(西幻"…,首相某某力主其事");幼主即位"…,时年 11 岁,丞相某某辅政"
  *   (西幻"摄政");先君遇弑"…;丞相某某迎立其兄柳清瑶,是为睿宗"(西幻、汗国"拥立")。
@@ -79,7 +89,7 @@
  * buildChronicle 按 civ 缓存(同一个 civ 只算一次)。
  */
 import type { Annal, AnnalCause, AnnalKind, Civ, Culture, MigrationDir, Person, PersonRegency, PersonSpouse, Polity, Year } from './types';
-import { IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
+import { IV_GONE, IV_HELD, IV_NO_THRONE, REGENCY_KINDS, RG_DIED, RG_PURGE, RG_RETURN, RG_START, RG_USURP } from './regents';
 import { IV_AT_WAR, IV_NO_BRIDE, IV_NO_GROOM, IV_NO_PARTNER } from './marriages';
 import { holderAt, kinAt, strongHeld } from './regentInfo';
 import {
@@ -101,11 +111,16 @@ import { pandemicsOf } from './pandemicInfo';
 import { HABITABLE_SUIT, cultureLabel, regionLabel, standPassName } from './display';
 import { ownersAt } from './timeline';
 import { plagueSpans } from './plagueSpans';
-import { councilBefore } from './councilRules';
-import { ageAt, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
-import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord } from './gender';
+import { Issue, REFORM_COUP, REFORM_REVOLUTION, councilBefore, isReformIssue, rulesAt } from './councilRules';
+import { reformedSeg, royalSeg } from './regime';
+import { IV_REIGNING, authorPostsFrom } from './appoint';
+import { practicesAt } from './practiceInfo';
+import { Practice, hasPractice } from './practices';
+import { ageAt, dowagerSpans, dowagerWordOf, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
+import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, westRank, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../era';
-import { parsePersonKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { TREK_DIR_NAMES, keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../edits';
+import { IV_NO_WAY } from './trekRoute';
 import { emptyPolicy, policyName, type PolicyIv } from './policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from './rulers';
 import { personNamers } from './naming';
@@ -150,12 +165,15 @@ export const ASSIM_MAJOR = 10;
 export const ASSIM_MINOR = 3;
 /** 一波迁徙迁入这么多州以上是大事 */
 export const MIGRATE_MAJOR = 5;
+/** 大迁徙迁来立的国,统治民族一段里被同化了这么多州以上是大事 */
+export const TREK_ASSIM_MAJOR = 5;
 
 /**
  * 纪事的种类:史事的种类,加上按人物排出来的君主继位(reign,不是史事,见 reignEntries)、
  * 信仰的大事(faith,不是史事,见 religionText.ts 的 faithEntries)、时代和物产的大事(era,见 developmentText.ts 的 developmentEntries)
  */
-export type EntryKind = AnnalKind | 'reign' | 'faith' | 'era';
+/** 纪事的种类(见上);改制里动了兵的革命、政变单列(时间轴上归战争那一类的红色) */
+export type EntryKind = AnnalKind | 'reign' | 'faith' | 'era' | 'thought' | 'revolution' | 'coup';
 
 export interface ChronicleEntry {
   /** 这一条(第一条)史事在 civ.annals 里的下标;列表里唯一,当 key 用(君主继位 = civ.annals.length + 新君的 Person.id) */
@@ -167,7 +185,7 @@ export interface ChronicleEntry {
   end: Year;
   /** 纪事正文(不带年份) */
   text: string;
-  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代 */
+  /** 一个字的标签(界面上的小印章):立 升 降 战 占 征 和 割 亡 迁 分 复 合 朝 徙 化 湮 掠 毁 建 衰 干 役 变 没 嗣 饥 起 崩 平 疫 权 姻;立约:约 续 满 违 中 逐 奔;信仰:创 皈 传 派 圣;时代:代;商道:商;思潮:思 */
   tag: string;
   importance: Importance;
   /** 相关国家(按国家筛选、地图高亮用;先主后次,不含 −1) */
@@ -186,6 +204,10 @@ export interface ChronicleEntry {
   people?: number[];
   /** 信仰的大事:哪种信仰(civ.religion.faiths 的下标;教派分立 = 新的教派) */
   faith?: number;
+  /** 商道的大事:哪几条商道(civ.trade.routes 的下标;见 tradeText.ts) */
+  trade?: number[];
+  /** 思潮的大事:哪一说(始倡、盛于的那说,渐衰里代兴的那说;THOUGHTS 的下标,见 ideologyText.ts) */
+  thought?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +279,7 @@ function regionName(civ: Civ, r: number): string {
 }
 
 /** 一串州:"瑞州"、"瑞州、青州"、"瑞州等五州"(人口上限大的写在前面) */
-function regionList(civ: Civ, rs: readonly number[]): string {
+export function regionList(civ: Civ, rs: readonly number[]): string {
   const ok = rs.filter((r) => r >= 0 && r < civ.regions.count);
   if (!ok.length) return '';
   const cap = civ.regions.capacity;
@@ -344,6 +366,8 @@ interface Command {
   /** 经手的第一件、最后一件事(史事下标,见 PersonCommand) */
   first: number;
   last: number;
+  /** 卸下这一任的那一刻(见 PersonCommand) */
+  until: Year;
   person: Person;
 }
 
@@ -362,10 +386,15 @@ interface PeopleIndex {
   rear: Map<number, Person>;
   /** 史事下标(掌实权的掌权、还政、伏诛、篡位、卒那一条)→ 掌权的人、那一段(Person.regencies) */
   power: Map<number, { x: Person; g: PersonRegency }>;
-  /** 幼主(Person.id)→ 摄政的叔父 */
+  /** 幼主(Person.id)→ 摄政的叔父 / 临朝的太后 */
   uncle: Map<number, Person>;
+  dowager: Map<number, Person>;
   /** 史事下标(结亲那一条)→ 娶亲的人、那一门亲(Person.spouses) */
   wed: Map<number, { x: Person; s: PersonSpouse }>;
+  /** 国家 → 作者的名臣(任臣、掌权的作者人物;Person.author);没有 = 不在里面 */
+  court: Map<number, Person[]>;
+  /** 史事(统帅按史事位置找那一刻的年份) */
+  annals: readonly Annal[];
 }
 
 const peopleCache = new WeakMap<object, PeopleIndex>();
@@ -385,7 +414,10 @@ function peopleOf(civ: Civ): PeopleIndex | null {
     rear: new Map(),
     power: new Map(),
     uncle: new Map(),
+    dowager: new Map(),
     wed: new Map(),
+    court: new Map(),
+    annals: civ.annals,
   };
   for (const x of list) {
     if (x.parent !== undefined) {
@@ -399,8 +431,14 @@ function peopleOf(civ: Civ): PeopleIndex | null {
       if (g.endAnnal !== undefined) ix.power.set(g.endAnnal, { x, g });
       // 幼主即位那一刻起摄政的叔父(写在即位那一条);作者下令、后来才摄政的不算(那一条 regent 自己写)
       if (g.kind === 'uncle' && civ.annals[g.annal]?.foe === undefined) ix.uncle.set(g.ruler, x);
+      if (g.kind === 'dowager') ix.dowager.set(g.ruler, x);
     }
     for (const s of x.spouses ?? []) ix.wed.set(s.annal, { x, s });
+    if (x.author !== undefined && x.role === 'minister') {
+      const cs = ix.court.get(x.polity);
+      if (cs) cs.push(x);
+      else ix.court.set(x.polity, [x]);
+    }
     // 名臣经手的事(篡位做了新朝第一位的名臣,做名臣时经手的事也在他身上)
     for (const d of x.role === 'minister' || x.role === 'ruler' ? (x.deeds ?? []) : []) {
       if ((d.kind === 'peace' || d.kind === 'rank') && d.annal !== undefined) {
@@ -416,7 +454,7 @@ function peopleOf(civ: Civ): PeopleIndex | null {
       }
       let m = ix.commands.get(c.war);
       if (!m) ix.commands.set(c.war, (m = []));
-      m.push({ side: c.side, first: c.first, last: c.last, person: x });
+      m.push({ side: c.side, first: c.first, last: c.last, until: c.until, person: x });
     }
   }
   for (const rs of ix.rulers) rs.sort((a, b) => (a.from ?? 0) - (b.from ?? 0) || a.id - b.id);
@@ -439,10 +477,18 @@ const classical = (p: Polity | null | undefined) => !!p?.eastern && p.lineage !=
 /** 议和的开头:"甲遣礼部尚书某某与乙议和"(乙方的使臣:"甲与乙首相某某议和");people = 写到的名臣 */
 function peaceHead(civ: Civ, ix: PeopleIndex | null, e: Annal, i: number, y: Year): { text: string; people: Person[] } {
   const ms = ix?.envoys.get(i) ?? [];
-  const ma = ms.find((m) => m.polity === e.a);
-  const mb = ms.find((m) => m.polity === e.b);
-  const text = `${pn(civ, e.a, y)}${ma ? `遣${ministerRef(ma, y)}` : ''}与${pn(civ, e.b, y)}${mb ? ministerRef(mb, y) : ''}议和`;
-  return { text, people: [ma, mb].filter((m): m is Person => !!m) };
+  const ma = envoysOf(ms, e.a);
+  const mb = envoysOf(ms, e.b);
+  const refs = (xs: Person[]) => xs.map((m) => ministerRef(m, y)).join('、');
+  const text = `${pn(civ, e.a, y)}${ma.length ? `遣${refs(ma)}` : ''}与${pn(civ, e.b, y)}${refs(mb)}议和`;
+  return { text, people: [...ma, ...mb] };
+}
+
+/** 经手这件事的一国的名臣:推演里经手的那一位在前,再加作者的名臣(任臣) */
+function envoysOf(ms: readonly Person[], p: number): Person[] {
+  const own = ms.find((m) => m.polity === p && m.author === undefined);
+  const out = ms.filter((m) => m.polity === p && m.author !== undefined);
+  return own ? [own, ...out] : out;
 }
 
 /** 某一刻在位的君主(即位那一刻起算) */
@@ -464,12 +510,42 @@ function endedAt(ix: PeopleIndex | null, p: number, t: Year): Person | null {
   return null;
 }
 
-/** 某场战争某一方(0 = 攻方,1 = 守方)打第 i 条史事(宣战、战役、攻占)的统帅 */
+/**
+ * 某场战争某一方(0 = 攻方,1 = 守方)打第 i 条史事(宣战、战役、攻占)的统帅。作者的将领(任将)挂帅的那几段是他
+ * (推演原来派的那位是副将,见 deputyOf);那一刻推演派的是亲征的君主的,君主为帅(作者的将领随驾,见 escortOf)
+ */
 function commander(ix: PeopleIndex | null, war: number, side: number, i: number): Person | null {
+  const { lead, own } = leadersAt(ix, war, side, i);
+  return lead && !(own && reigningAt(own, ix!.annals[i]?.year ?? -Infinity)) ? lead : own;
+}
+
+/** 作者的将领(任将;作者立的君主亲征不算,他占的是推演派统帅的那个位置) */
+const authorGeneral = (x: Person | null | undefined): boolean => !!x && x.author !== undefined && x.role === 'general';
+
+/** 这一方第 i 条史事那一刻:推演派的统帅(own)、挂帅的作者将领(lead,没有 = null) */
+function leadersAt(ix: PeopleIndex | null, war: number, side: number, i: number): { own: Person | null; lead: Person | null } {
+  let own: Person | null = null;
+  let lead: Person | null = null;
   const m = ix?.commands.get(war);
-  if (!m || side < 0) return null;
-  for (const c of m) if (c.side === side && c.first <= i && i <= c.last) return c.person;
-  return null;
+  if (!m || side < 0) return { own, lead };
+  for (const c of m) {
+    if (c.side !== side || c.first > i || i > c.last) continue;
+    if (authorGeneral(c.person)) lead ??= c.person;
+    else own ??= c.person;
+  }
+  return { own, lead };
+}
+
+/** 作者的将领挂帅时推演原来派的那位(副将);不是作者的将领挂帅 = null */
+function deputyOf(ix: PeopleIndex | null, war: number, side: number, i: number): Person | null {
+  const { lead, own } = leadersAt(ix, war, side, i);
+  return lead && commander(ix, war, side, i) === lead ? own : null;
+}
+
+/** 君主亲征时随驾的作者将领;没有 = null */
+function escortOf(ix: PeopleIndex | null, war: number, side: number, i: number): Person | null {
+  const { lead } = leadersAt(ix, war, side, i);
+  return lead && commander(ix, war, side, i) !== lead ? lead : null;
 }
 
 /** 在第 i 条史事(战役、攻占)里战死的那一方统帅 */
@@ -566,7 +642,7 @@ function rankEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   else {
     const titles = polityTitles(p, e.year);
     const [b, a] = rankTiers(ctx, e, p);
-    const adviser = ctx.ix?.envoys.get(id)?.find((m) => m.polity === p.id);
+    const advisers = envoysOf(ctx.ix?.envoys.get(id) ?? [], p.id);
     const oldName = titles[Math.min(3, Math.max(0, b))];
     const newName = titles[Math.min(3, Math.max(0, a))];
     if (a > b) {
@@ -582,9 +658,9 @@ function rankEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         // (帝国的一生读起来是"立国 → 称帝",不再夹一条"称王");部 → 国是小事
         importance = a >= GREAT_TIER ? (a >= peakTier(p) ? 3 : 2) : 1;
       }
-      if (adviser && newName !== oldName) {
-        text += `,${ministerRef(adviser, e.year)}${classical(p) ? '劝进' : '力主其事'}`;
-        return withPeople(base(e, id, text, importance, [e.a], [], tag), adviser);
+      if (advisers.length && newName !== oldName) {
+        text += `,${advisers.map((m) => ministerRef(m, e.year)).join('、')}${classical(p) ? '劝进' : '力主其事'}`;
+        return withPeople(base(e, id, text, importance, [e.a], [], tag), ...advisers);
       }
     } else if (a < b) {
       tag = '降';
@@ -643,6 +719,9 @@ const TAG: Record<AnnalKind, string> = {
   neutral: '中',
   exile: '逐',
   keep: '保',
+  trek: '徙',
+  winter: '冬',
+  reform: '制',
 };
 
 function base(
@@ -768,7 +847,11 @@ function dynastyText(civ: Civ, e: Annal, ix: PeopleIndex | null = null, usurped 
     // 被废的末代:"权臣赵高废少帝自立"(称号本身带"废"字的写名字)
     const ousted = old ? (old.title && !old.title.startsWith('废') ? rulerTitle(civ, old) : old.name) : '';
     // 掌实权的名臣、大臣篡位:"丞相契鸾废幼主季工,自立为君"(带他做名臣时的官职;末代未成年写"幼主")
-    if (usurped && nu) {
+    if (usurped && nu && dowagerSpans(nu).length) {
+      // 临朝的太后废了幼主(她的儿子)自立:"太后燕晚歌废其子厉公,自立为君"
+      const son = old && old.mom === nu.id ? '其子' : old && ageAt(old, y) < 18 ? '幼主' : '';
+      t += `,${dowagerWordOf(civ, nu, y - 1 / 512)}${nu.name}${ousted ? `废${son}${ousted}` : ''},自立为君`;
+    } else if (usurped && nu) {
       const young = old && ageAt(old, y) < 18 ? '幼主' : '';
       t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${ousted ? `废${young}${ousted}` : ''},自立为君`;
     } else if (coup || !r) t += nu ? `,权臣${nu.name}${ousted ? `废${ousted}` : ''}自立` : `,权臣${house}篡位`;
@@ -781,7 +864,11 @@ function dynastyText(civ: Civ, e: Annal, ix: PeopleIndex | null = null, usurped 
   const realm = pn(civ, p.id, y);
   const what = p.lineage === 'khanate' ? '汗位易主' : '王室更迭';
   let t = `${realm}${what},${oldName}${lasted ? `${lasted}而终` : '绝嗣'},${reignName(civ, p, i, y)}兴`;
-  if (usurped && nu) t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${old ? `废黜${old.name}` : ''},自立为${bySex(nu, '王', '女王')}`;
+  if (usurped && nu && dowagerSpans(nu).length) {
+    // 皇太后废黜她的儿子,自立为女皇 / 女王
+    const son = old && old.mom === nu.id ? '其子' : '';
+    t += `,${dowagerWordOf(civ, nu, y - 1 / 512)}${nu.name}${old ? `废黜${son}${old.name}` : ''},自立为${westRank(nu, p.lineage, Math.max(1, polityTierAt(p, y)))}`;
+  } else if (usurped && nu) t += `,${nu.posts?.length ? ministerRef(nu, y - 1 / 512) : `权臣${nu.name}`}${old ? `废黜${old.name}` : ''},自立为${bySex(nu, '王', '女王')}`;
   else if (nu) t += `,${rulerShort(civ, nu)}即位`;
   if (moved && city) t += `,迁都${city}`;
   return t;
@@ -891,8 +978,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
   };
   // 照大纲硬改出来的(gen/edits.ts 文件头"大纲")标【照大纲】
   const tag = v?.plot !== undefined ? '【照大纲】' : '【干预】';
-  const fail = (text: string, why: string): IvStory => ({ text: `${tag}${text}`, ok: false, why });
-  const done = (text: string): IvStory => ({ text: `${tag}${text}`, ok: true });
+  // 记在作者人物名下的国家的事:后面写"(林小满之议)"
+  const by = authorBy(civ, v);
+  const fail = (text: string, why: string): IvStory => ({ text: `${tag}${text}${by}`, ok: false, why });
+  const done = (text: string): IvStory => ({ text: `${tag}${text}${by}`, ok: true });
   /** 紧跟在这条干预后面(同一刻)的史事 */
   const next = (k = 1) => {
     const n = civ.annals[id + k];
@@ -932,7 +1021,7 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
         ((cut.kind === 'unally' && ((cut.a === e.a && cut.b === e.b) || (cut.a === e.b && cut.b === e.a))) ||
           (cut.kind === 'defect' && (cut.a === e.a || cut.a === e.b)));
       const n = tie ? next(2) : cut;
-      if (n && n.kind === 'war' && n.a === e.a && n.b === e.b) return done(`${A}向${B}宣战`);
+      if (n && n.kind === 'war' && n.a === e.a && n.b === e.b) return done(`${A}向${B}宣战${v.lead !== undefined ? leadTail(civ, v.lead, A, n.war, id + (tie ? 2 : 1)) : ''}`);
       if (dead(e.a)) return fail(`欲令${A}伐${B},然${A}已亡`, `那一年${A}已亡`);
       if (dead(e.b)) return fail(`${A}欲伐${B},然${B}已亡`, `那一年${B}已亡`);
       if (atWarBefore(civ, e.a, e.b, id)) return fail(`${A}欲伐${B},然两国已在交战`, '两国那时已在交战');
@@ -965,7 +1054,7 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
     case 'crown': {
       const who = authorName(civ, v.char);
       if (e.b === -3) return fail(`欲立${who}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
-      if (e.b === -2) return fail(`欲立${who}为${A}之主,然其人尚未出生`, `他第 ${v.born} 年才出生`);
+      if (e.b === -2) return fail(`欲立${who}为${A}之主,然其人尚未出生`, `${heOrShe(authorSex(civ, v.char))}第 ${v.born} 年才出生`);
       // 等在位的那位下台再即位:登记的这一条(真即位另记一条 b = −1,interventionOutcome 先找它)
       if (e.b === IV_WAIT) return waitStory(civ, e, who, A, fail, done);
       // 同一刻后面又给这国立了作者的人物(哪怕是同一个人):后立的顶替先立的(rulers.ts),先立的那条算没即位
@@ -991,10 +1080,15 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       return personStory(civ, e, v, A, fail, done);
     case 'regent':
       return regentStory(civ, e, id, v, A, fail, done);
+    case 'appoint':
+      return appointStory(civ, e, id, v, A, fail, done);
     case 'marry':
       return marryStory(civ, e, v, A, fail, done);
     case 'disaster':
       return disasterStory(civ, e, v, A, R, fail, done);
+    case 'trek':
+    case 'stay':
+      return trekStory(civ, e, v, next()?.kind === 'trek' ? next() : undefined, fail, done);
     case 'move': {
       const city = cityName(civ, e.settlement);
       if (!city) return fail(`${A}欲迁都,然其城尚未建起`, '那一年还没有这座城');
@@ -1102,7 +1196,7 @@ function decreeEntry(ctx: Ctx, e: Annal, id: number, v: Extract<Intervention, { 
       const r = resolveKey(civ, k);
       if (r && r.kind === 'polity' && !ps.has(r.id)) no.push(pn(civ, r.id, y));
     }
-  const text = `${tag}${subs.map((s) => s.text).join(';')}${no.length ? `;${no.join('、')}不肯` : ''}`;
+  const text = `${tag}${subs.map((s) => s.text).join(';')}${no.length ? `;${no.join('、')}不肯` : ''}${authorBy(civ, v)}`;
   const out = base(e, id, text, 3, [...ps], regions.length ? regions : e.region >= 0 ? [e.region] : []);
   const people = [...new Set(subs.flatMap((s) => s.people ?? []))];
   if (people.length) out.people = people;
@@ -1196,17 +1290,24 @@ function personStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'death
 
 /**
  * 让他掌权:"【干预】令彭继桓掌大承国政"(掌权的经过紧跟着那一条 regent 写);没生效的写原因
- * (这国已亡、共和国 / 作者立的君主、已有人掌着权、他不是太子 / 叔伯 / 不在世)
+ * (这国已亡、共和国 / 作者立的君主、已有人掌着权、他不是太子 / 叔伯 / 不在世;作者的人物:还没出生、已去世、不满 16 岁)
  */
 function regentStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { kind: 'regent' }>, A: string, fail: Say, done: Done): IvStory {
   const holder = civ.people?.find((x) => x.regencies?.some((g) => g.annal === id + 1));
-  const want = holder?.name || parsePersonKey(v.person)?.name || '其人';
+  const want = holder?.name || (v.char !== undefined ? authorName(civ, v.char) : parsePersonKey(v.person)?.name) || '其人';
   const verb = `欲令${want}掌${A}国政`;
   if (e.b === -3) return fail(`${verb},然${A}已亡`, `那一年${A}已亡`);
+  if (v.char !== undefined && e.b !== -1) {
+    // 作者的人物:先看他自己,再看这国(同 regency.ts 查的先后)
+    const he = heOrShe(holder ?? authorSex(civ, v.char));
+    if (e.b === -2) return fail(`${verb},然其人尚未出生`, `${he}第 ${v.born} 年才出生`);
+    if (e.b === IV_GONE) return fail(`${verb},然其人已卒`, `第 ${v.died ?? Math.floor(e.year)} 年${he}已去世`);
+    if (e.b === IV_NOT_HIM) return fail(`${verb},然其人尚幼`, `${he}那一年不满 16 岁`);
+  }
   if (e.b === IV_NO_THRONE) return fail(`${verb},然${A}无君可架空`, `${A}那一年是共和国,或在位的是作者立的君主`);
   if (e.b === IV_HELD) return fail(`${verb},然其时已有人秉政`, '那一年已经有人掌着实权');
   if (e.b !== -1) {
-    const he = heOrShe(holder ?? civ.people?.[resolvePersonKey(civ, v.person)]);
+    const he = heOrShe(holder ?? (v.char !== undefined ? authorSex(civ, v.char) : civ.people?.[resolvePersonKey(civ, v.person)]));
     const why =
       v.how === 'march' || v.how === 'heir'
         ? `${he}那一年不是在位君主的预定继承人(或不满 16 岁)`
@@ -1216,6 +1317,64 @@ function regentStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { 
     return fail(`${verb},未成`, why);
   }
   return done(`令${want}掌${A}国政`);
+}
+
+/**
+ * 任将 / 任臣:"【干预】以林小满为大定将""【干预】以林小满为大定侍郎";从本国将领任上入朝的"【干预】大定将林小满入朝为侍郎,副将司玄代领其军"。
+ * 没生效的写原因(先看他自己,再看这国;同 interventions.ts 查的先后)。
+ * 史事记着生效了、同一刻他又任了别的 / 又即了位的(appoint.ts 的 skip),这一条算没生效
+ */
+function appointStory(civ: Civ, e: Annal, id: number, v: Extract<Intervention, { kind: 'appoint' }>, A: string, fail: Say, done: Done): IvStory {
+  const who = authorName(civ, v.char);
+  const he = heOrShe(authorSex(civ, v.char));
+  const general = v.role === 'general';
+  const verb = general ? `欲拜${who}为${A}之将` : `欲令${who}入仕${A}`;
+  if (e.b === -3) return fail(`${verb},然${A}已亡`, `那一年${A}已亡`);
+  if (e.b === -2) return fail(`${verb},然其人尚未出生`, `${he}第 ${v.born} 年才出生`);
+  if (e.b === IV_GONE) return fail(`${verb},然其人已卒`, `第 ${v.died ?? Math.floor(e.year)} 年${he}已去世`);
+  if (e.b === IV_NOT_HIM) return fail(`${verb},然其人尚幼`, `${he}那一年不满 16 岁`);
+  if (e.b === IV_REIGNING) return fail(`${verb},然${he}方为人君`, `${he}那一年正是在位的君主`);
+  const skip = authorPostsFrom(civ).find((p) => p.annal === id)?.skip;
+  if (skip === 'replaced') return fail(`${verb},然同时又另有任命`, `同一年又给${he}任了别的`);
+  if (skip === 'crowned') return fail(`${verb},然同时${he}即位`, `同一年${he}又即了位`);
+  if (general) return done(`以${who}为${A}将`);
+  // 名臣:写入朝拜的官;刚从本国将领任上下来的写"大定将林小满入朝为侍郎",手上那场仗由推演原来派的那位接着领
+  const y = e.year;
+  const { me, was, deputy } = appointPeople(civ, e, v);
+  const title = me?.posts?.[0]?.title ?? '';
+  if (!was) return done(`以${who}为${A}${title || '臣'}`);
+  return done(`${generalRef(civ, was, y)}入朝${title ? `为${title}` : ''}${deputy ? `,副将${leaderName(civ, deputy, y)}代领其军` : ''}`);
+}
+
+/**
+ * 任将任臣那一条写到的人:me = 这一任的他(作者的人物);was = 刚卸任的本国将领那一任(从将领任上入朝的;没有 = null);
+ * deputy = 他手上那场仗接着领兵的推演将领(副将;没有 = null)
+ */
+function appointPeople(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'appoint' }>): { me: Person | null; was: Person | null; deputy: Person | null } {
+  const y = e.year;
+  const mine = (civ.people ?? []).filter((x) => x.author === v.char && x.polity === e.a);
+  const me = mine.find((x) => x.role === v.role && x.from === y) ?? null;
+  const was = v.role === 'minister' ? (mine.find((x) => x.role === 'general' && x.until === y) ?? null) : null;
+  const c = was?.commands?.at(-1);
+  const ix = peopleOf(civ);
+  const deputy =
+    c && c.until === y
+      ? (ix?.commands.get(c.war)?.find((m) => m.side === c.side && !authorGeneral(m.person) && (ix.annals[m.first]?.year ?? Infinity) <= y && m.until >= y && !reigningAt(m.person, y))?.person ?? null)
+      : null;
+  return { me, was, deputy };
+}
+
+/**
+ * 宣战点了谁挂帅(declare 带 lead):",以林小满为帅";那一刻君主亲征 ",林小满随驾";他那时不是这国的将领(没任将、已卸任)
+ * ";欲以林小满为帅,然其时他非大定之将"(仗照打,统帅照推演派)。war = 打起来的那场,i = 宣战那一条的位置
+ */
+function leadTail(civ: Civ, char: number, A: string, war: number, i: number): string {
+  const ix = peopleOf(civ);
+  const who = authorName(civ, char);
+  const c = commander(ix, war, 0, i);
+  if (c?.author === char) return `,以${who}为帅`;
+  if (escortOf(ix, war, 0, i)?.author === char) return `,${who}随驾`;
+  return `;欲以${who}为帅,然其时${heOrShe(authorSex(civ, char))}非${A}之将`;
 }
 
 /** 为他联姻:"【干预】令胡炜与大澜王朝结亲"(结亲的经过紧跟着那一条 marry 写);没生效的写原因 */
@@ -1254,6 +1413,32 @@ function waitStory(civ: Civ, e: Annal, who: string, A: string, fail: Say, done: 
   if (p?.ended !== undefined && p.ended <= cur.until) return fail(`欲立${who}继${curName}为${A}之主,然${A}已亡`, `那一年${A}已亡`);
   const how = cur.fate === 'deposed' || cur.fate === 'overthrown' ? '被废(改朝换代)' : cur.fate === 'yielded' ? '让位' : '下台';
   return fail(`欲立${who}继${curName}为${A}之主,然${curName}${how},未及即位`, `${curName} ${Math.floor(cur.until)} 年${how},没等到${heOrShe(cur)}下台`);
+}
+
+/**
+ * 大迁徙:"【干预】克拉尔族一支举族西徙,往瑶渊之野"(经过、结局另有大迁徙那一条大事);走不成的"欲令克拉尔族徙往瑶渊之野,然陆路不通"。
+ * 不许迁:"【干预】克拉尔族自此安居故土,不复远徙,至第 2100 年"。民族在 Annal.n;动身紧跟着记 trek n = 0(go)
+ */
+function trekStory(civ: Civ, e: Annal, v: Extract<Intervention, { kind: 'trek' | 'stay' }>, go: Annal | undefined, fail: Say, done: Done): IvStory {
+  const F = e.n !== undefined && e.n >= 0 ? cn(civ, e.n) : '其族';
+  if (v.kind === 'stay') {
+    if (e.b === -3) return fail(`欲令${F}安居故土,然${F}已不在`, `那一年${F}已消亡`);
+    const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
+    return done(`${F}自此安居故土,不复远徙${until}`);
+  }
+  const to = v.to !== undefined ? regionName(civ, regionOfKey(v.to, keyCells(civ.regions))) : '';
+  if (e.b === -3) return fail(`欲令${F}远徙,然${F}已不在`, `那一年${F}已消亡`);
+  if (e.b === IV_NO_WAY) {
+    if (to) return fail(`欲令${F}徙往${to},然陆路不通`, `陆路走不到${to}`);
+    if (v.dir) {
+      const d = TREK_DIR_NAMES[v.dir];
+      return fail(`欲令${F}${d}徙,然${d}向无地可往`, `往${d}走得到的地方里没有能去的(有城、不是本族的州)`);
+    }
+    return fail(`欲令${F}远徙,然无地可往`, '走得到的地方里没有能去的(有城、不是本族的州)');
+  }
+  const M = go ? civ.migrations?.[go.war] : undefined;
+  const dest = regionName(civ, e.region) || to;
+  return done(`${F}一支举族${M ? `${M.dir}徙` : '远徙'}${dest ? `,往${dest}` : ''}`);
 }
 
 /** 天灾:"【干预】星邑大疫,死者十之五""【干预】有桑皇朝大饥,民多饿死,死者十之三""【干预】翼门之野一带地震,城郭多圮,死者十之三" */
@@ -1315,6 +1500,16 @@ function policyTail(civ: Civ, v: PolicyIv, y: Year): string {
  */
 function authorName(civ: Civ, char: number): string {
   return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
+}
+
+/** 国家的事记在作者人物名下(干预带 author):"(林小满之议)";没带 = '' */
+function authorBy(civ: Civ, v: Intervention | undefined): string {
+  return v?.author !== undefined ? `(${authorName(civ, v.author)}之议)` : '';
+}
+
+/** 作者的人物是男是女:套过人物卡的历史里记着(Civ.authorFemale);没套过 = 男 */
+function authorSex(civ: Civ, char: number): Sexed {
+  return civ.authorFemale?.includes(char) ? { female: true } : null;
 }
 
 /** 干预"即位"立的那位君主(作者的人物;第 e 条史事那一刻在国家 e.a 即位的) */
@@ -1425,6 +1620,8 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
     case 'quell':
     case 'heir':
       return general ? `${A}遣${general}讨${B}` : `${A}发兵讨${B}`;
+    case 'trek':
+      return general ? `${A}甫立,遣${general}伐${B}` : `${A}甫立,即伐${B}`;
     case 'rescue':
       return ally ? `${A}救其藩属${ally},${go(B)}` : `${A}${go(B)}`;
     default:
@@ -1679,16 +1876,23 @@ function declareEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
   const v = warVerb(e);
   const ca = commander(ix, e.war, 0, id);
   const cd = commander(ix, e.war, 1, id);
+  // 作者的将领挂帅:推演原来派的那位是副将;君主亲征:作者的将领随驾
+  const [da, dd] = [deputyOf(ix, e.war, 0, id), deputyOf(ix, e.war, 1, id)];
+  const [ea, ed] = [escortOf(ix, e.war, 0, id), escortOf(ix, e.war, 1, id)];
+  const vice = (d: Person | null) => (d ? `、${leaderName(civ, d, y)}为副` : '');
+  const escort = (x: Person | null) => (x ? `,${leaderName(civ, x, y)}随驾` : '');
   const to = e.cause && NAMES_FOE.has(e.cause) ? '之' : B;
   let t: string;
-  if (ca && reigningAt(ca, y)) t = `${rulerRef(civ, ca, y)}${pact}亲征${to}`;
+  if (ca && reigningAt(ca, y)) t = `${rulerRef(civ, ca, y)}${pact}亲征${to}${escort(ea)}`;
+  else if (ca && authorGeneral(ca)) t = `${A}${pact}以${leaderName(civ, ca, y)}为将${vice(da)},起兵${v}${to}`;
   else if (ca) t = `${A}${pact}以${leaderName(civ, ca, y)}为将,起兵${v}${to}`;
   else t = `${A}${pact}起兵${v}${to}`;
-  if (cd && reigningAt(cd, y)) t += `;${rulerRef(civ, cd, y)}亲自领兵拒之`;
+  if (cd && reigningAt(cd, y)) t += `;${rulerRef(civ, cd, y)}亲自领兵拒之${escort(ed)}`;
+  else if (cd && authorGeneral(cd)) t += `;${B}以${leaderName(civ, cd, y)}为将${vice(dd)}拒之`;
   else if (cd) t += `;${B}遣${leaderName(civ, cd, y)}拒之`;
   const x = base(e, id, t, 2, ally >= 0 ? [e.a, e.b, ally] : [e.a, e.b], []);
   if (ally >= 0) x.settlement = -1;
-  return withPeople(x, ca, cd);
+  return withPeople(x, ca, cd, da, dd, ea, ed);
 }
 
 function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
@@ -1734,7 +1938,11 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         : `${pn(civ, e.a, y)}迁都`;
       return base(e, id, text, p && polityTierAt(p, y) >= CAPITAL_TIER ? 3 : 2, [e.a], [e.region]);
     }
+    case 'reform':
+      return reformEntry(ctx, e, id);
     case 'split': {
+      // 革命据地自立
+      if (e.cause === 'revolution') return revolutionSplitEntry(ctx, e, id);
       const A = pn(civ, e.a, y);
       const r = regionName(civ, e.region);
       const P = polityOf(civ, e.a);
@@ -1790,11 +1998,16 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       // 第二批里只有脱离转投(国土易手)算大事;改军制、改官制、分镇只在"全部"里(大国一个种子十来次,放进大事时间轴就挤了)
       const who = reigning(ctx.ix, e.a, y);
       const imp = e.n === 0 && (e.war <= 4 || e.war === 10) && isGreat(polityOf(civ, e.a)) ? 3 : 2;
-      const t = councilText(civ, e, id, who);
+      // 改制的议题办成了(立宪、废君立共和、还政):单列一种(立宪、改制,蓝色)
+      if (e.n === 0 && (e.war === Issue.Charter || e.war === Issue.Abolish || e.war === Issue.Return)) return reformDoneEntry(ctx, e, id);
+      let t = councilText(civ, e, id, who, ctx.ix);
       // 搁置的几种写法不写君主
       const named = who && (t.includes(who.name) || (!!who.title && t.includes(rulerTitle(civ, who))));
+      // 作者的名臣这时在朝(任臣、掌权的作者人物):"…,丞相林小满与议"(西幻"参与其议")
+      const court = (ctx.ix?.court.get(e.a) ?? []).filter((x) => (x.from ?? Infinity) <= y && (x.until === undefined || x.until > y));
+      if (court.length) t += `,${court.map((x) => ministerRef(x, y)).join('、')}${classical(polityOf(civ, e.a)) ? '与议' : '参与其议'}`;
       // 脱离:b = 想转投的邻国
-      return withPeople(base(e, id, t, imp, e.b >= 0 ? [e.a, e.b] : [e.a], [e.region]), named ? who : null);
+      return withPeople(base(e, id, t, imp, e.b >= 0 ? [e.a, e.b] : [e.a], [e.region]), named ? who : null, ...court);
     }
     case 'merge': {
       // 并掉的是大国才是大事
@@ -1885,7 +2098,9 @@ function simpleEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
       if (who && who.author === undefined) x.text += `,奉${who.name}为主`;
       // 即位:记上作者立的那位君主
       const crowned = story.ok && v?.kind === 'crown' ? crownedAt(ctx.ix, e, v.char) : null;
-      return withPeople(x, who && who.author === undefined ? who : null, crowned);
+      // 任将任臣:记上这一任的他(编年史里点他的名字开作者的人物卡)、代领其军的副将
+      const ap = story.ok && v?.kind === 'appoint' ? appointPeople(civ, e, v) : null;
+      return withPeople(x, who && who.author === undefined ? who : null, crowned, ap?.me, ap?.deputy);
     }
     case 'regent':
       return regentEntry(ctx, id) ?? base(e, id, `${pn(civ, e.a, y)}权臣秉政`, 1, [e.a], [e.region]);
@@ -1963,6 +2178,8 @@ function holderRef(civ: Civ, x: Person, kind: PersonRegency['kind'], y: Year, N?
   const p = polityOf(civ, x.polity);
   const east = classical(p);
   if (kind === 'march' || kind === 'heir') return `${heirOf(p, y, x)}${x.name}`;
+  // 临朝的太后:"太后江晚萦""皇太后维斯佩丽娜"
+  if (kind === 'dowager') return `${dowagerWordOf(civ, x, y)}${x.name}`;
   if (kind === 'uncle') {
     if (!east) return `摄政${x.name}`;
     // 兄终弟及时幼主和先君同辈:"其兄某某"
@@ -1995,7 +2212,7 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
   const n = e.n ?? RG_START;
   // 作者下令"让他掌权"来的(掌权那一条 foe 列记着第几条干预):摄政不在幼主即位那一条里,这里写;太子到期篡位也在这里写
   const byIv = (n === RG_START ? e : g ? civ.annals[g.annal] : undefined)?.foe !== undefined;
-  if (n === RG_START && (kind === 'uncle' || kind === 'minister') && !byIv) return null;
+  if (n === RG_START && (kind === 'uncle' || kind === 'minister' || kind === 'dowager') && !byIv) return null;
   if (n === RG_USURP && kind !== 'uncle' && !(byIv && (kind === 'march' || kind === 'heir'))) return null;
   const y = e.year;
   // 名义君主:掌权那一刻在位的那位;大臣、大将专权跨了几位君主的,了结那一条写那时在位的
@@ -2055,11 +2272,13 @@ function regentEntry(ctx: Ctx, i: number): ChronicleEntry | null {
   } else if (n === RG_RETURN) {
     const age = N ? ageAt(N, y) : 18;
     // 幼主成年还政;作者下令掌权的太子、大臣大将到期还政于君主
-    if (kind === 'uncle' || kind === 'minister') text = east ? `${ruler}年${cnNumber(age)},${who}还政` : `${ruler}年满 ${age} 岁,${who}交还大权`;
+    if (kind === 'uncle' || kind === 'minister' || kind === 'dowager') text = east ? `${ruler}年${cnNumber(age)},${who}还政` : `${ruler}年满 ${age} 岁,${who}交还大权`;
     else text = east ? `${P}${who}还政于${bare}` : `${P}${who}将大权交还${bare}`;
   } else if (n === RG_PURGE) {
     const child = kind === 'uncle' || kind === 'minister';
-    text = child
+    // 太后被亲政的幼主废黜、幽禁至死
+    if (kind === 'dowager') text = east ? `${ruler}亲政,废${who},幽死` : `${ruler}亲政,废黜${who},将她幽禁至死`;
+    else text = child
       ? east
         ? `${ruler}亲政,以谋逆诛${who}`
         : `${ruler}亲政,以谋逆罪处死${who}`
@@ -2138,6 +2357,7 @@ const REGENT_TAG: Readonly<Record<number, string>> = { [RG_START]: '权', [RG_RE
 /**
  * 结亲(史事 marry,marriages.ts),标签"姻":"南漓、大澜结亲:大澜德宗以女风氏妻南漓懿公胡炜"(互嫁的紧跟着那一条并进来:
  * ";南漓懿公亦以女胡氏妻大澜太子风某,两国互为婚姻");议和时 "南漓、大澜议和,大澜德宗以宗室女风氏妻南漓懿公胡炜,是为和亲"。
+ * 这一方是女的:"南漓女君胡某嫁大澜德宗之子"(西幻"…嫁给了大澜国王某某的儿子")。
  * 两个大国之间的算大事。西幻 "南漓与大澜联姻:大澜国王某某将女儿嫁给南漓国王某某"
  */
 function marryEntry(ctx: Ctx, i: number): ChronicleEntry {
@@ -2161,7 +2381,12 @@ function marryEntry(ctx: Ctx, i: number): ChronicleEntry {
     // 在位的君主:东方有庙号的称呼不带名字("南漓懿公"),补上名字;西幻、汗国的称呼里已经有名字("奥利亚国王佩尔梅内斯二世"),不再补
     const ref = groom && reigningAt(groom, y) ? rulerRef(civ, groom, y) : '';
     const gr = !groom ? pn(civ, f.a, y) : ref ? (ref.includes(groom.name) ? ref : ref + groom.name) : princeRef(civ, groom, y);
-    const her = w?.s.name ?? '';
+    // 女的那一方:她嫁过去,配偶是对方君主的儿子
+    if (groom && isFemale(groom)) return east ? `${gr}${also ? '亦' : ''}嫁${fa}之子` : `${gr}${also ? '也' : ''}嫁给了${fa}的儿子`;
+    // 嫁来的宗室女是人物的写她的名字(能点)
+    const B = w && w.s.person !== undefined ? civ.people?.[w.s.person] : undefined;
+    if (B) people.push(B);
+    const her = B?.name ?? w?.s.name ?? '';
     if (!east) return `${fa}${also ? '也' : ''}将女儿${her}嫁给${gr}`;
     return `${fa}${also ? '亦' : ''}以${f.war >= 0 ? '宗室女' : '女'}${her}妻${gr}`;
   };
@@ -2642,6 +2867,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     }
     if (e.kind === 'battle') return battleChild(battles.get(i) ?? [i]);
     if (e.kind === 'stand') return standChild(i);
+    if (e.kind === 'winter') return winterChild(i);
     if (e.kind === 'conquer') {
       // 这场战争里被夺走又打回来的,或者以前就是攻方的(议和割让、分裂出去、上一场战争丢掉的)
       const retake = (e.region >= 0 && firstOwner.get(e.region) === e.a) || ctx.retake.has(i);
@@ -2652,7 +2878,9 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       let t = conquerText(civ, e, [atk, def], retake, fresh ? generalRef(civ, fresh, e.year) : undefined);
       // 守方统帅战死:"…,守将王翦战死"(领兵的宗室:"…,公子胡翔战死")
       const lost = s >= 0 ? fallenAt(ix, e.war, 1 - s, i) : null;
-      if (lost) t += `,${lost.role === 'prince' ? princeTitle(civ, lost, e.year) : '守将'}${lost.name}战死`;
+      // 守方由作者的将领挂帅时战死的是副将
+      const vice = !!lost && authorGeneral(commander(ix, e.war, 1 - s, i));
+      if (lost) t += `,${lost.role === 'prince' ? princeTitle(civ, lost, e.year) : vice ? '副将' : '守将'}${lost.name}战死`;
       return withPeople(base(e, i, t, e.b >= 0 ? 2 : 1, [e.a, e.b], [e.region]), fresh, lost);
     }
     if (e.kind === 'unally') {
@@ -2730,7 +2958,8 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       const r = regionName(civ, e.region) || '边境';
       t = `${r}之战,${who}${times}${VIA[e.via ?? 0] ?? ''}${counter ? '反攻' : '来攻'},${all}为${cd ? generalRef(civ, cd, y) : `${pn(civ, e.b, y)}守军`}所败`;
     }
-    if (dead) t += `,${dead.name}战死`;
+    // 作者的将领挂帅时战死的是副将
+    if (dead) t += `,${authorGeneral(ca) && dead !== ca ? '副将' : ''}${dead.name}战死`;
     for (const x of [ca, cd]) if (x) named.add(x.id);
     return withPeople({ ...base(e, ids[0], t, 2, [e.a, e.b], [e.region]), end: last.year }, ca, cd);
   }
@@ -2758,7 +2987,10 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     const s = sideOf(e.a);
     const rear = ix?.rear.get(i) ?? null;
     // 掩护的是这一方的统帅:这一刻以前就在领兵的才写名字(这一刻才换上来的写"大军")
-    let lc = s >= 0 ? (ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last) ?? null) : null;
+    let lc = s >= 0 ? (ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last && !authorGeneral(c.person)) ?? null) : null;
+    // 作者的将领挂帅(那一刻不是君主亲征):掩护的是他
+    const al = s >= 0 ? ix?.commands.get(e.war)?.find((c) => c.side === s && c.first < i && i <= c.last && authorGeneral(c.person)) : undefined;
+    if (al && !(lc && reigningAt(lc.person, y))) lc = al;
     // 领兵的宗室亲自断后(people.ts 的 princeRear):大军没有别人领着,写"大军""主力"
     if (lc && rear && lc.person === rear) lc = null;
     const lead = lc ? (named.has(lc.person.id) && lc.person.role === 'general' ? lc.person.name : generalRef(civ, lc.person, y)) : '';
@@ -2784,6 +3016,34 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     t += east || khan ? `;${lead ? `${lead}得以收兵` : '大军得以'}退保${back || '后方'}` : `;${lead ? `${lead}得以率主力` : '主力得以'}撤回${back || '后方'}`;
     for (const x of [rear, lc?.person]) if (x) named.add(x.id);
     return withPeople(base(e, i, t, 2, [e.a, e.b], [e.region, hold]), rear, lc?.person);
+  }
+
+  /**
+   * 顿兵过冬(wars.ts 的出兵避冬):要打的那州正在冬天里,攻方的兵顿在那里,开春再打。
+   * 东方 "冬,大渭将李牧顿兵瑞州,待春复攻";汗国 "天寒地冻,大渭军在瑞州一带驻冬,待开春再战";
+   * 西幻 "天寒地冻,大渭大军在瑞州一带扎营过冬,待开春再攻"。这一刻有统帅领兵的写统帅
+   */
+  function winterChild(i: number): ChronicleEntry {
+    const e = A[i];
+    const y = e.year;
+    const P = polityOf(civ, e.a);
+    const east = classical(P);
+    const khan = !!P?.eastern && !east;
+    const r = regionName(civ, e.region) || (east ? '边境' : '边境一带');
+    const s = sideOf(e.a);
+    // 领兵的统帅:这一方在这一条以前接手的最后一位(那时还在世的)。只看以前的事 —— 统帅的任期"到哪一件为止"要等往后的仗才知道,
+    // 不按它找,推到这里和推得更远写的一样
+    let c: Person | null = null;
+    if (s >= 0) for (const m of ix?.commands.get(e.war) ?? []) if (m.side === s && m.first < i && !authorGeneral(m.person)) c = m.person;
+    if (c && c.died !== undefined && c.died < y) c = null;
+    // 作者的将领这时挂着帅(那一刻不是君主亲征):顿兵的是他
+    const al = s >= 0 ? ix?.commands.get(e.war)?.find((m) => m.side === s && m.first < i && m.until >= y && authorGeneral(m.person)) : undefined;
+    if (al && !(c && reigningAt(c, y))) c = al.person;
+    const who = c ? generalRef(civ, c, y) : `${pn(civ, e.a, y)}${east || khan ? '军' : '大军'}`;
+    const at = r.endsWith('一带') ? r : `${r}一带`;
+    const t = east ? `冬,${who}顿兵${r},待春复攻` : khan ? `天寒地冻,${who}在${at}驻冬,待开春再战` : `天寒地冻,${who}在${at}扎营过冬,待开春再攻`;
+    if (c) named.add(c.id);
+    return withPeople(base(e, i, t, 1, [e.a, e.b], [e.region]), c);
   }
 
   // 标题:"大渭伐昌,得瑞州等五州";攻方先得后失:"得瑞州等三州而失雪西"(只有攻方的得失不带主语,别的一律点名)
@@ -2920,8 +3180,12 @@ function fiscalText(civ: Civ, e: Annal, foes: number[]): string {
  * "大渭太宗削藩,收回割据四十年的瑞州" / "大渭边地难制,群臣请分封瑞州等边州,太宗不许"(西幻:贵族、领主,写得平实些);
  * 第二批:"大渭太宗收诸将兵权,精兵尽隶禁军" / "大渭议行铨选,瑞州等地豪族力阻,改为铨选、荐举各半" /
  * "大渭太宗分瑞州之镇,守将所领诸州尽归朝廷,只留瑞州一州" / "大渭瑞州守将举所领诸州归附大燕,朝廷不能制"
+ * 有了时代做法(practices.ts)以后同一件事换个说法,不另加条目:一国头一回直征、收兵权(禁军)、收任免(铨选)办成,
+ * 写"编定户籍,改由官吏按户征税""始置常备之军……不复征发于州郡""始行考选,州县之官由朝廷选授"(推演里这几件要有了户籍、
+ * 常备军、文官考选才办得成);国都进了火药时代以后改土归流、罢边镇办成,这国以后再没分封、设边镇的,写"分封之制遂废""边镇之制遂废"
  */
-function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string {
+function councilText(civ: Civ, e: Annal, id: number, who: Person | null, ix: PeopleIndex | null = null): string {
+  if (isReformIssue(e.war)) return reformCouncilText(civ, e, id, who, ix);
   const y = e.year;
   const A = pn(civ, e.a, y);
   const P = polityOf(civ, e.a);
@@ -2968,6 +3232,7 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
       // 直征:国用不足才议的(cause = broke),不然是君主锐意兴革
       const head = e.cause === 'broke' ? `${A}${east ? '国用不足' : '国库空虚'},${bare}` : who ? `${ref}${east ? '锐意兴革,' : '有意革新,'}` : A;
       const foes = `${r}等地${east ? '豪族' : '贵族'}力阻`;
+      if (out === 0 && firstDone(civ, id)) return east ? `${head}编定户籍,改由官吏按户征税,遣官至${r}等地` : `${head}编定户籍,改由王室官吏按户征税,派员前往${r}等地`;
       if (out === 0) return east ? `${head}行直征之法,遣官至${r}等地自收赋税` : `${head}改由王室官吏直接征税,派员前往${r}等地`;
       if (out === 1) return east ? `${head}议行直征,${foes},改与地方分成` : `${head}议由王室直接征税,${foes},改为与地方分成`;
       if (out === 3) return east ? `${head}强行直征,${r}${lord}拒不奉诏` : `${head}强推直接征税,${r}${lord}拒不从命`;
@@ -2975,6 +3240,7 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
     }
     case 3: {
       // 改土归流
+      if (out === 0 && lastOfKind(civ, id)) return east ? `${ref}改土归流,${r}等边州归朝廷直辖,分封之制遂废` : `${ref}收回边地封授,${r}等地归王室直辖,分封之制就此废止`;
       if (out === 0) return east ? `${ref}改土归流,${r}等边州归朝廷直辖` : `${ref}收回边地封授,${r}等地归王室直辖`;
       if (out === 3) return east ? `${ref}改土归流,${r}${lord}拒不奉诏` : `${ref}收回边地封授,${r}${lord}拒不从命`;
       return east ? `${A}议改土归流,${r}等地土官力阻,事寝` : `${A}议收回边地封授,${r}等地领主力阻,作罢`;
@@ -2987,10 +3253,12 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
     case 5: {
       // 收兵权:设了边镇的是罢边镇
       if (before(civ, id).army < 0) {
+        if (out === 0 && lastOfKind(civ, id)) return east ? `${ref}罢边镇,${r}等地兵归朝廷,边镇之制遂废` : `${ref}撤销边境军镇,${r}等地兵马重归王室调遣,军镇之制就此废止`;
         if (out === 0) return east ? `${ref}罢边镇,${r}等地兵马归朝廷节制` : `${ref}撤销边境军镇,${r}等地兵马重归王室调遣`;
         if (out === 3) return east ? `${ref}罢边镇,${r}${lord}拥兵不受代` : `${ref}撤销边境军镇,${r}${lord}拥兵抗命`;
         return east ? `${A}议罢边镇,${r}等地边将力阻,事寝` : `${A}议撤销边境军镇,${r}等地将领力阻,作罢`;
       }
+      if (out === 0 && firstDone(civ, id)) return east ? `${ref}始置常备之军,收诸将兵权,不复征发于州郡` : `${ref}始置常备之军,收回各地领主的兵权,不复征发于州郡`;
       if (out === 0) return east ? `${ref}收诸将兵权,精兵尽隶禁军` : `${ref}收回各地领主的兵权,组建王室常备军`;
       if (out === 1) return east ? `${A}议收兵权,${r}等地守将力阻,改遣监军` : `${A}议收回各地兵权,${r}等地领主力阻,改为派员监军`;
       if (out === 3) return east ? `${ref}欲收兵权,${r}${lord}拥兵抗命` : `${ref}要收回兵权,${r}${lord}举兵抗命`;
@@ -3012,6 +3280,7 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
         if (out === 3) return east ? `${ref}收辟署之权,${r}豪族据城抗命` : `${ref}收回地方自选官员之权,${r}贵族据城抗命`;
         return east ? `${A}议收辟署之权,${r}等地豪族力阻,事寝` : `${A}议收回地方自选官员之权,${r}等地贵族力阻,作罢`;
       }
+      if (out === 0 && firstDone(civ, id)) return east ? `${ref}始行考选,州县之官由朝廷选授,${r}等地长吏不复由豪族世守` : `${ref}始行考选,州县之官由王室选授,${r}等地不再由贵族把持`;
       if (out === 0) return east ? `${ref}行铨选之法,${r}等地长吏皆由朝廷选派` : `${ref}改由王室任命各地官员,${r}等地不再由贵族把持`;
       if (out === 1) return east ? `${A}议行铨选,${r}等地豪族力阻,改为铨选、荐举各半` : `${A}议由王室任命各地官员,${r}等地贵族力阻,改为王室和贵族各任一半`;
       if (out === 3) return east ? `${ref}强行铨选,${r}豪族据城抗命` : `${ref}强行任命地方官员,${r}贵族据城抗命`;
@@ -3043,6 +3312,222 @@ function councilText(civ: Civ, e: Annal, id: number, who: Person | null): string
   }
 }
 
+// ---------------------------------------------------------------------------
+// 改制(reform.ts):立宪、扩大参与、废君立共和、还政(议事),革命、政变、复辟(史事 reform)
+
+/** 窘境写到几年以前 */
+const WOE_YEARS = 30;
+
+/** 某国此刻(第 id 条史事之前 WOE_YEARS 年里)的窘境:"连年兵败,府库空竭""大疫之后国用不足";没有 = 空串 */
+function woeOf(civ: Civ, p: number, id: number): string {
+  const A = civ.annals;
+  const y = A[id]?.year ?? civ.endYear;
+  let lost = 0;
+  let broke = false;
+  let plague = false;
+  for (let k = id - 1; k >= 0 && y - A[k].year < WOE_YEARS; k--) {
+    const a = A[k];
+    if (a.kind === 'conquer' && a.b === p && a.war >= 0) lost++;
+    else if (a.kind === 'fiscal' && a.a === p) broke = true;
+    else if (a.kind === 'plague' && a.a === p && (a.cause === 'great' || a.cause === 'pandemic')) plague = true;
+  }
+  const out: string[] = [];
+  if (lost >= 2) out.push('连年兵败');
+  else if (lost) out.push('兵败失地');
+  if (plague) out.push(broke ? '大疫之后国用不足' : '大疫之后');
+  else if (broke) out.push('府库空竭');
+  return out.join(',');
+}
+
+/** 议事的地方:设了议会的东方写"议院"、西幻写"议会",没设的写"议事会"(year 这一刻以后的规矩) */
+function bodyOf(civ: Civ, p: number, year: Year): string {
+  if (rulesAt(civ.annals, p, year).charter < 2) return '议事会';
+  return polityOf(civ, p)?.eastern ? '议院' : '议会';
+}
+
+/** 君位的叫法:东方"帝制"(王国"王位"),西幻"王位""帝位",汗国"汗位" */
+function throneWord(P: Polity | null, y: Year): string {
+  const tier = P ? polityTierAt(P, y) : 2;
+  if (P?.lineage === 'khanate') return '汗位';
+  if (P?.eastern) return tier >= 3 ? '帝制' : '王位';
+  return tier >= 3 ? '帝位' : '王位';
+}
+
+/** 不复独断的那位:东方"天子"(王国"国君"),西幻"国王""皇帝",汗国"可汗" */
+function sovereignWord(P: Polity | null, y: Year): string {
+  const tier = P ? polityTierAt(P, y) : 2;
+  if (P?.lineage === 'khanate') return '可汗';
+  if (P?.eastern) return tier >= 3 ? '天子' : '国君';
+  return tier >= 3 ? '皇帝' : '国王';
+}
+
+/** 能议政的人多到哪一档的说法(扩大参与) */
+const FRANCHISE_WHO = ['王族贵族', '有产者', '男子', '成年人'];
+
+/** 改制的议事(立宪、扩大参与、废君立共和、还政)正文;办成的立宪、废君、还政单列一条(reformDoneEntry),这里多半写妥协、搁置 */
+function reformCouncilText(civ: Civ, e: Annal, id: number, who: Person | null, ix: PeopleIndex | null): string {
+  const y = e.year;
+  const A = pn(civ, e.a, y);
+  const P = polityOf(civ, e.a);
+  const east = !!P?.eastern;
+  const ref = who ? rulerRef(civ, who, y) : A;
+  const out = e.n ?? 2;
+  const woe = woeOf(civ, e.a, id);
+  const lead = woe ? `${A}${woe},` : A;
+  const stop = east ? '守旧之臣力阻,事寝' : '守旧的大臣力阻,作罢';
+  switch (e.war) {
+    case Issue.Charter:
+      if (out === 0) return reformDoneText(civ, e, ix);
+      if (out === 1) return east ? `${ref}下诏设议事会,国事先咨议事会,君权照旧` : `${ref}设议事会,大事先咨议事会,王权照旧`;
+      return `${lead}群臣请立宪,${stop}`;
+    case Issue.Widen: {
+      // 海洋城邦共和一系本来就有产者能议政(和政体那三条一样,polityForm.ts 的 formDims)
+      const to = rulesAt(civ.annals, e.a, y).franchise + (P?.lineage === 'republic' ? 1 : 0);
+      const body = bodyOf(civ, e.a, y);
+      const whom = FRANCHISE_WHO[Math.max(1, Math.min(3, out === 0 ? to : to + 1))];
+      const verb = whom === '有产者' ? '入' : '皆得推举';
+      if (out === 0) return `${A}许${whom}${verb}${body},与闻国事`;
+      return `${A}议许${whom}${verb}${body},议不合,${east ? '事寝' : '作罢'}`;
+    }
+    case Issue.Abolish:
+      if (out === 0) return reformDoneText(civ, e, ix);
+      if (out === 1) return `${lead}议废${throneWord(P, y)},不成,改设议事会,君权稍减`;
+      return `${lead}议废${throneWord(P, y)},${stop}`;
+    default:
+      // 还政(军政府交还议事会)
+      if (out === 0) return reformDoneText(civ, e, ix);
+      return `${A}议还政于议事会,${who ? `执政${who.name}` : '将领'}不许,${east ? '事寝' : '作罢'}`;
+  }
+}
+
+/** 办成的立宪、废君立共和、还政 */
+function reformDoneText(civ: Civ, e: Annal, ix: PeopleIndex | null): string {
+  const y = e.year;
+  const A = pn(civ, e.a, y - 1 / 512);
+  const P = polityOf(civ, e.a);
+  const east = !!P?.eastern;
+  if (e.war === Issue.Charter) {
+    const who = reigning(ix, e.a, y);
+    const ref = who ? rulerRef(civ, who, y) : A;
+    const body = east ? '议院' : '议会';
+    return `${ref}${east ? '下诏立宪' : '颁行宪章'},开${body},国事经${body}议定,${sovereignWord(P, y)}不复独断`;
+  }
+  const body = bodyOf(civ, e.a, y);
+  const old = endedAt(ix, e.a, y);
+  if (e.war === Issue.Return) return `${A}议还政,议成:${old ? `执政${old.name}去位,` : ''}国事复由${body}议定、推举执政`;
+  // 废君立共和:"博戈维纳王国议废王位,议成:国王斯坦波尔克逊位,国事改由议事会议定、推举执政,国号改称博戈维纳共和国"
+  const tier = Math.max(1, P ? polityTierAt(P, y - 1 / 512) : 2);
+  const king = old ? (east ? rulerBare(civ, old, y) : `${westRank(old, P?.lineage, tier)}${old.name}`) : '';
+  return `${A}议废${throneWord(P, y - 1 / 512)},议成:${king ? `${king}逊位,` : ''}国事改由${body}议定、推举执政,国号改称${pn(civ, e.a, y)}`;
+}
+
+/** 改制办成的那一条(立宪,改制:废君立共和、还政):蓝色 */
+function reformDoneEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const imp = isGreat(polityOf(civ, e.a)) ? 3 : 2;
+  const text = reformDoneText(civ, e, ctx.ix);
+  const who = e.war === Issue.Charter ? reigning(ctx.ix, e.a, y) : endedAt(ctx.ix, e.a, y);
+  return withPeople(base(e, id, text, imp, [e.a], [e.region], e.war === Issue.Charter ? '宪' : '制'), who && text.includes(who.name) ? who : null);
+}
+
+/** 议立宪 / 废君谈崩、紧跟着起兵(革命、据地自立):议事那一条并进起兵那一条 */
+function revolutionAfter(A: readonly Annal[], i: number): boolean {
+  const e = A[i];
+  const n = A[i + 1];
+  if (e.kind !== 'council' || e.n !== 3 || (e.war !== Issue.Charter && e.war !== Issue.Abolish) || !n || n.year !== e.year) return false;
+  return (n.kind === 'reform' && n.n === REFORM_REVOLUTION && n.a === e.a) || (n.kind === 'split' && n.cause === 'revolution' && n.b === e.a);
+}
+
+/** 议什么不成(起兵那一条的开头):"议废帝制,不成;""议立宪,不成;" */
+function failedAsk(civ: Civ, A: readonly Annal[], i: number, p: number): string {
+  const c = A[i - 1];
+  if (!c || c.kind !== 'council' || c.a !== p || c.year !== A[i].year) return '';
+  return c.war === Issue.Charter ? '议立宪,不成;' : `议废${throneWord(polityOf(civ, p), c.year)},不成;`;
+}
+
+/** 史事 reform:革命(红)、政变(红)、复辟(蓝) */
+function reformEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const P = polityOf(civ, e.a);
+  const east = !!P?.eastern;
+  const before = pn(civ, e.a, y - 1 / 512);
+  const after = pn(civ, e.a, y);
+  const nu = founderOf(ctx.ix, e.a, P ? dynastyIndexAt(P, y) : 0);
+  const old = endedAt(ctx.ix, e.a, y);
+  const woe = woeOf(civ, e.a, id);
+  const capital = P ? cityName(civ, capitalBefore(P, y)) : '';
+  const imp = isGreat(P) ? 3 : 2;
+  const entry = (text: string, tag: string, kind: EntryKind, ...ps: (Person | null)[]) => {
+    const x = base(e, id, text, imp, [e.a], [e.region], tag);
+    x.kind = kind;
+    return withPeople(x, ...ps.filter((z) => !!z && text.includes(z.name)));
+  };
+  if (e.n === REFORM_REVOLUTION) {
+    // "大靖王朝兵败失地,议废帝制,不成;田继徽起兵于玉舞之野,入桂陵,废光宗,罢帝号,立共和,国号大靖共和国,自为执政"
+    const r = regionName(civ, e.region);
+    const king = old ? (east ? rulerBare(civ, old, y) : old.name) : '';
+    let t = `${before}${woe ? `${woe},` : ''}${failedAsk(civ, civ.annals, id, e.a)}`;
+    t += `${nu ? nu.name : east ? '义军' : '起义者'}起兵${r ? `于${r}` : ''}${capital ? `,入${capital}` : ''}${king ? `,废${king}` : ''}`;
+    t += `${east ? `,罢${P && polityTierAt(P, y - 1 / 512) >= 3 ? '帝' : '王'}号` : ''},立共和,国号${after}${nu ? ',自为执政' : ''}`;
+    return entry(t, '革', 'revolution', nu, old);
+  }
+  if (e.n === REFORM_COUP) {
+    // "博戈维纳共和国大疫之后国用不足,议事会久议不决;将军米列斯拉娃率兵入莫尔格勒,散议事会,自为执政,国事决于军中"
+    const body = bodyOf(civ, e.a, y - 1 / 512);
+    const t = `${before}${woe ? `${woe},` : ''}${body}久议不决;将军${nu ? nu.name : ''}率兵入${capital || '国都'},散${body},自为执政,国事决于军中`;
+    return entry(t, '政', 'coup', nu, old);
+  }
+  // 复辟
+  const head = woe ? `${before}${woe};` : before;
+  if (e.b >= 0) {
+    // "大靖共和国连年兵败,府库空竭;宗室、旧臣迎光宗之子蔡安钧即位,罢共和,复称大靖王朝"
+    const rs = ctx.ix?.rulers[e.a] ?? [];
+    let last: Person | undefined;
+    for (let k = rs.length - 1; k >= 0 && !last; k--) if ((rs[k].from ?? Infinity) < y && P && royalSeg(P, rs[k].dynasty ?? 0)) last = rs[k];
+    const kin = nu && last ? (nu.parent === last.id ? `之${childWord(nu)}` : '之后') : '';
+    const lastRef = last ? (east ? rulerBare(civ, last, y) : last.name) : '';
+    const t = `${head}${woe ? '' : ','}${east ? '宗室、旧臣' : '王党'}迎${lastRef ? `${lastRef}${kin}` : '旧王室之后'}${nu ? nu.name : ''}即位,罢共和,复称${after}`;
+    return entry(t, '辟', 'reform', nu, last ?? null);
+  }
+  // 旧王室没人了:执政 / 将军自立为君,当成换了一朝
+  const rank = east ? (P && polityTierAt(P, y) >= 3 ? '帝' : '王') : nu ? westRank(nu, P?.lineage, Math.max(1, P ? polityTierAt(P, y) : 2)) : '王';
+  const same = !!P && polityRootAt(P, y) === polityRootAt(P, y - 1 / 512);
+  const ruler = P && reformedSeg(P, P ? dynastyIndexAt(P, y - 1 / 512) : 0) ? '执政' : '将军';
+  const t = `${head}${woe ? '' : ','}${ruler}${nu ? nu.name : ''}废${bodyOf(civ, e.a, y - 1 / 512)},自立为${rank},国号${same ? '复称' : '改称'}${after}`;
+  return entry(t, '辟', 'reform', nu);
+}
+
+/** 革命起兵打不进国都、据地自立:"大靖王朝议废帝制,不成;田继徽据玉舞之野自立,号玉舞共和国,都于某城" */
+function revolutionSplitEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
+  const { civ } = ctx;
+  const y = e.year;
+  const woe = woeOf(civ, e.b, id);
+  const lead = founderOf(ctx.ix, e.a, 0);
+  const r = regionName(civ, e.region);
+  const city = cityName(civ, e.settlement);
+  let t = `${pn(civ, e.b, y)}${woe ? `${woe},` : ''}${failedAsk(civ, civ.annals, id, e.b)}${lead ? lead.name : '起事的人'}${r ? `据${r}` : ''}自立,号${pn(civ, e.a, y)}`;
+  if (city) t += `,都于${city}`;
+  const x = base(e, id, t, isGreat(polityOf(civ, e.a)) || isGreat(polityOf(civ, e.b)) ? 3 : 2, [e.a, e.b], [e.region], '革');
+  x.kind = 'revolution';
+  return withPeople(x, lead);
+}
+
+/**
+ * 改制那一条的正文(朝政页「历次改制」用,和编年史里那一条一样):第 id 条史事是议事(立宪、废君、还政、扩大参与)、
+ * 改制(革命、政变、复辟)或革命据地自立(split,cause = revolution);别的 = 空串
+ */
+export function reformText(civ: Civ, id: number): string {
+  const e = civ.annals[id];
+  if (!e) return '';
+  const ctx = { civ, ix: peopleOf(civ) } as Ctx;
+  if (e.kind === 'reform') return reformEntry(ctx, e, id).text;
+  if (e.kind === 'split' && e.cause === 'revolution') return revolutionSplitEntry(ctx, e, id).text;
+  if (e.kind === 'council' && isReformIssue(e.war)) return councilText(civ, e, id, reigning(ctx.ix, e.a, e.year), ctx.ix);
+  return '';
+}
+
 /** 各条议事议之前那国的军制、官制(council.ts 的 councilBefore;按史事数组缓存,接着推长了就重算) */
 const beforeCache = new WeakMap<readonly Annal[], ReturnType<typeof councilBefore>>();
 function before(civ: Civ, id: number): { army: number; office: number } {
@@ -3050,6 +3535,46 @@ function before(civ: Civ, id: number): { army: number; office: number } {
   if (!b || b.length !== civ.annals.length) beforeCache.set(civ.annals, (b = councilBefore(civ.annals)));
   return b[id] ?? { army: 0, office: 0 };
 }
+
+/**
+ * 时代做法换说法要用的(按史事数组缓存,接着推长了就重算):
+ * first:一国头一回办成的直征、收兵权(禁军,不算罢边镇)、收任免(铨选,不算收回辟署)那几条议事;
+ * last:国都进了火药时代(做法表的"封镇渐废")以后办成的改土归流、罢边镇,这国以后再没分封、设边镇的那几条
+ */
+const practiceCache = new WeakMap<readonly Annal[], { n: number; first: Set<number>; last: Set<number> }>();
+function practiceMarks(civ: Civ): { first: Set<number>; last: Set<number> } {
+  const A = civ.annals;
+  const hit = practiceCache.get(A);
+  if (hit && hit.n === A.length) return hit;
+  const first = new Set<number>();
+  const last = new Set<number>();
+  const seen = new Set<string>();
+  /** 罢边镇 / 改土归流办成的那条,等着看这国以后还设不设边镇、分不分封 */
+  const open = new Map<string, number>();
+  A.forEach((e, i) => {
+    if (e.kind !== 'council' || e.n !== 0) return;
+    const b = before(civ, i);
+    // 直征(2)、收兵权(5,议之前不是边镇)、收任免(7,议之前不是自辟)
+    if (e.war === 2 || (e.war === 5 && b.army >= 0) || (e.war === 7 && b.office >= 0)) {
+      const key = `${e.a}:${e.war}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        first.add(i);
+      }
+    }
+    // 改土归流(3)、罢边镇(5,议之前是边镇);以后又分封(4)、设边镇(6,议之前是征发)的,上一条不算废
+    if (e.war === 3 || (e.war === 5 && b.army < 0)) {
+      if (hasPractice(practicesAt(civ, e.a, e.year) ?? 0, Practice.FiefLess)) open.set(`${e.a}:${e.war}`, i);
+    } else if (e.war === 4) open.delete(`${e.a}:3`);
+    else if (e.war === 6 && b.army === 0) open.delete(`${e.a}:5`);
+  });
+  for (const i of open.values()) last.add(i);
+  const m = { n: A.length, first, last };
+  practiceCache.set(A, m);
+  return m;
+}
+const firstDone = (civ: Civ, id: number) => practiceMarks(civ).first.has(id);
+const lastOfKind = (civ: Civ, id: number) => practiceMarks(civ).last.has(id);
 
 /** 一州闹饥荒(地震水旱:cause = quake)时城里的人口折损(Settlement.sacks 里同一种、同一年的那一条;找不到 = 0) */
 function famineLoss(civ: Civ, e: Annal): number {
@@ -3066,7 +3591,7 @@ function famineToll(loss: number): string {
 }
 
 /**
- * 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥")。
+ * 饥荒:"大渭瑞州等三州大饥,死者十之二"(标签"饥");冬夏分明的地方闹的春荒(cause = spring)前面写"春,"。
  * 「天灾」多 / 很多时自己发生的地震水旱(cause = quake,没有干预那一条可并):"大渭瑞州一带地震,城郭多圮,死者十之二"
  */
 function famineText(civ: Civ, e: Annal): string {
@@ -3080,7 +3605,7 @@ function famineText(civ: Civ, e: Annal): string {
     return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${r || '境内'}一带${what}${e.b > 1 ? `,${cnNumber(e.b)}州受灾` : ''}${k >= 1 ? `,死者十之${cnNumber(k)}` : ''}`;
   }
   const where = e.b > 1 ? `${r || '诸州'}等${cnNumber(e.b)}州` : r || '境内';
-  return `${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
+  return `${e.cause === 'spring' ? '春,' : ''}${e.a >= 0 ? pn(civ, e.a, e.year) : ''}${where}大饥${famineToll(famineLoss(civ, e))}`;
 }
 
 /**
@@ -3161,15 +3686,25 @@ function collapseEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   const keep = city ? `,${P}仅保${city}一隅` : '';
   const pieces = ids.slice(1).map((i) => A[i]);
   const children = ids.slice(1).map((i) => simpleEntry(ctx, A[i], i));
+  // 大迁徙迁来的一支打进国都引起的(同一刻、紧挨在前面几条里有 trek n = 3):"萨热汗国破星邑,百尾皇朝大崩解,……各自立国"
+  let storm: Annal | undefined;
+  for (let i = ids[0] - 1; i >= 0 && A[i].year === y; i--) {
+    if (A[i].kind === 'trek' && A[i].n === 3 && A[i].b === e.a) {
+      storm = A[i];
+      break;
+    }
+  }
+  const civM = storm ? civ.migrations?.[storm.war]?.polity : undefined;
+  const lead = storm && civM !== undefined ? `${pn(civ, civM, y)}破${cityName(civ, storm.settlement) || regionName(civ, storm.region) || '其都'},` : '';
   let text: string;
-  if (e.b === 2) text = `${P}土崩瓦解,${e.war > 0 ? `${cnNumber(e.war)}州` : '诸州'}散为部落${keep}`;
+  if (e.b === 2) text = lead ? `${lead}${P}土崩瓦解,${e.war > 0 ? `${cnNumber(e.war)}州` : '诸州'}散为部落${keep}` : `${P}土崩瓦解,${e.war > 0 ? `${cnNumber(e.war)}州` : '诸州'}散为部落${keep}`;
   else {
     const names = uniq(pieces.map((s) => s.region)).map((r) => regionName(civ, r)).filter(Boolean);
     const rose = names.length ? `${names.join('、')}各自立国` : '诸州各自立国';
-    text = `${P}大乱,${e.b === 1 ? '诸州残破,' : ''}${rose}${keep}`;
+    text = lead ? `${lead}${P}大崩解,${e.b === 1 ? '诸州残破,' : ''}${rose}${keep}` : `${P}大乱,${e.b === 1 ? '诸州残破,' : ''}${rose}${keep}`;
   }
   return {
-    ...base(e, ids[0], text, 3, uniq([e.a, ...pieces.map((s) => s.a)]), uniq(pieces.map((s) => s.region))),
+    ...base(e, ids[0], text, 3, uniq([...(civM !== undefined ? [e.a, civM] : [e.a]), ...pieces.map((s) => s.a)]), uniq(pieces.map((s) => s.region))),
     ...(children.length ? { children } : {}),
   };
 }
@@ -3434,6 +3969,146 @@ function migrationEntry(ctx: Ctx, ids: number[], dirUsed: Map<number, number>): 
   };
 }
 
+/** 大迁徙为什么走(Migration.push):灾年(发源在苔原、针叶林的"苦寒",别的"苦旱")、老家挤、本族的国散了 */
+function trekWhy(civ: Civ, push: string | undefined, c: number): string {
+  if (push === 'famine') {
+    const cu = cultureOf(civ, c);
+    const b = cu && cu.hearth >= 0 && cu.hearth < civ.regions.count ? civ.regions.biome[cu.hearth] : -1;
+    return b === 4 || b === 5 ? '苦寒' : '苦旱';
+  }
+  return push === 'crowd' ? '生齿日繁' : push === 'scatter' ? '部落离散' : '';
+}
+
+/**
+ * 大迁徙(migration.ts;史事 trek 按 war 列 = 第几次大迁徙折成一条,经过见 Civ.migrations):
+ * 一句话写谁、为什么、往哪、经过哪、结果:"克拉尔族苦寒,一支举族西徙,过梅尔郡,入百尾皇朝,据瑶渊之野等五州,立萨热汗国";
+ * 败了的再写";为大定王朝所败,部众散亡";没立成国的"……,散居瑶渊之野等三州";还在路上的"……,尚在途中"。
+ * 年份写起止两头:动身那年到落脚那年(败了的到亡国那年)。标签"徙",种类记成 migrate(时间轴上和别的迁徙同归「同化」一类),一律是大事。
+ * 展开看经过:动身("克拉尔族苦寒,分出一支约三成,自诺敏塔拉西去")、路上洗劫("过梅尔郡,掠之")、攻进去("入百尾皇朝,破瑶渊之野、长舞之野")、
+ * 立国("据瑶渊之野等五州,立萨热汗国,都青都,与百尾皇朝开战")、打进国都("萨热汗国破星邑,百尾皇朝大崩解";没崩的"……,百尾皇朝迁都某城";
+ * 小国"……,某国亡")/ 被打败("为大定王朝所败,焉支汗国亡,部众散亡,余众留居乐和郡")。
+ * 到了以后那一仗照旧另记一条战争(war,cause = trek),打进大国国都引起的大崩解也照旧另记一条;立国那条 found(cause = trek)并进这一条的经过
+ */
+function trekEntry(ctx: Ctx, ids: number[], warIds: number[] | undefined): ChronicleEntry {
+  const { civ } = ctx;
+  const A = civ.annals;
+  const list = ids.map((i) => A[i]);
+  const e0 = list[0];
+  const M = civ.migrations?.[e0.war];
+  const c = e0.a;
+  const who = cn(civ, c);
+  const dir = M?.dir ?? null;
+  const why = trekWhy(civ, M?.push, c);
+  const wl = (warIds ?? []).map((i) => ({ e: A[i], i }));
+  const kids: ChronicleEntry[] = [];
+  /** 子条目(kind、标签照它是哪一种事:迁徙、洗劫、攻占、立国、崩解、灭亡) */
+  const kid = (e: Annal, i: number, t: string, ps: number[], rs: number[], kind: EntryKind, tag: string): ChronicleEntry => ({ ...base(e, i, t, 2, ps, rs, tag), kind });
+  const raided: string[] = [];
+  let settle: { e: Annal; i: number } | undefined;
+  let storm: { e: Annal; i: number } | undefined;
+  let scatter: { e: Annal; i: number } | undefined;
+  ids.forEach((i) => {
+    const e = A[i];
+    const r = regionName(civ, e.region);
+    if (e.n === 0) kids.push(kid(e, i, `${who}${why ? `${why},` : ''}分出一支约三成,自${r || '故地'}${dir ? `${dir}去` : '远去'}`, [], e.region >= 0 ? [e.region] : [], 'migrate', '徙'));
+    else if (e.n === 1) {
+      if (r && !raided.includes(r)) raided.push(r);
+      kids.push(kid(e, i, `过${r || '一州'},掠之`, e.b >= 0 ? [e.b] : [], e.region >= 0 ? [e.region] : [], 'sack', '掠'));
+    } else if (e.n === 2) settle = { e, i };
+    else if (e.n === 3) storm = { e, i };
+    else if (e.n === 4) scatter = { e, i };
+  });
+  const lands = M?.lands ?? [];
+  const where = regionList(civ, lands);
+  let text = `${who}${why ? `${why},` : ''}一支举族${dir ? `${dir}徙` : '远徙'}`;
+  if (raided.length) text += `,过${raided.slice(0, 2).join('、')}`;
+  let end = e0.year;
+  let ongoing = false;
+  const polities: number[] = [];
+  const regions: number[] = [];
+  let settlement = -1;
+  if (settle) {
+    const se = settle.e;
+    const y = se.year;
+    const p = se.b;
+    const P = pn(civ, p, y);
+    const city = cityName(civ, se.settlement);
+    settlement = se.settlement;
+    end = y;
+    polities.push(p);
+    const decl = wl.find((x) => x.e.kind === 'war');
+    const foe = decl ? decl.e.b : -1;
+    // 攻进去:立国那一刻从那国手里占下的州
+    if (foe >= 0) {
+      polities.push(foe);
+      const now = ownersAt(civ, y).polity;
+      const was = ownersAt(civ, y - 1 / 512).polity;
+      const taken: number[] = [];
+      for (let r = 0; r < now.length; r++) if (now[r] === p && was[r] === foe) taken.push(r);
+      if (taken.length) {
+        const names = taken.sort((u, v) => civ.regions.capacity[v] - civ.regions.capacity[u] || u - v).map((r) => regionName(civ, r)).filter(Boolean);
+        const shown = names.length > 3 ? `${names.slice(0, 2).join('、')}等${cnNumber(names.length)}州` : names.join('、');
+        kids.push(kid(se, settle.i, `入${pn(civ, foe, y)},破${shown}`, [p, foe], taken.slice(), 'conquer', '占'));
+      }
+    }
+    text += `${foe >= 0 ? `,入${pn(civ, foe, y)}` : `,至${regionName(civ, se.region) || '其地'}`},据${where || '其地'},立${P}`;
+    // 立国那条记在紧跟着的 found 上(攻进去那条用 trek 本身,两条的 id 不重)
+    const fi = A[settle.i + 1]?.kind === 'found' && A[settle.i + 1].cause === 'trek' ? settle.i + 1 : settle.i;
+    kids.push(kid(A[fi], fi, `据${where || '其地'},立${P}${city ? `,都${city}` : ''}${foe >= 0 ? `,与${pn(civ, foe, y)}开战` : ''}`, [p], lands.slice(), 'found', '立'));
+    regions.push(...lands);
+    if (foe >= 0) {
+      const fallR = wl.find((x) => x.e.kind === 'fall' && x.e.a === p);
+      const fallC = wl.find((x) => x.e.kind === 'fall' && x.e.a === foe && x.e.b === p);
+      if (storm) {
+        const sy = storm.e.year;
+        const cap = cityName(civ, storm.e.settlement) || regionName(civ, storm.e.region) || '国都';
+        const F = pn(civ, foe, sy);
+        // 那国大崩解(另有一条大事)写"大崩解";没崩的写迁都到哪
+        const broke = A.some((x) => x.kind === 'collapse' && x.a === foe && x.year === sy);
+        const moved = wl.find((x) => x.e.kind === 'capital' && x.e.a === foe && x.e.year === sy);
+        const to = moved ? cityName(civ, moved.e.settlement) : '';
+        kids.push(kid(storm.e, storm.i, `${pn(civ, p, sy)}破${cap},${F}${broke ? '大崩解' : `迁都${to}`}`, [p, foe], storm.e.region >= 0 ? [storm.e.region] : [], broke ? 'collapse' : 'conquer', broke ? '崩' : '占'));
+        regions.push(storm.e.region);
+      } else if (fallC) {
+        const C = polityOf(civ, foe);
+        const cap = C ? cityName(civ, capitalBefore(C, fallC.e.year)) : '';
+        kids.push(kid(fallC.e, fallC.i, `${pn(civ, p, fallC.e.year)}破${cap || '其都'},${pn(civ, foe, fallC.e.year)}亡`, [p, foe], fallC.e.region >= 0 ? [fallC.e.region] : [], 'fall', '亡'));
+      } else if (fallR) {
+        const fy = fallR.e.year;
+        text += `;为${pn(civ, foe, fy)}所败,部众散亡`;
+        end = fy;
+        kids.push(kid(fallR.e, fallR.i, `为${pn(civ, foe, fy)}所败,${pn(civ, p, fy - 1 / 512)}亡,部众散亡${where ? `,余众留居${where}` : ''}`, [foe, p], lands.slice(), 'fall', '亡'));
+      }
+    }
+  } else if (scatter) {
+    end = scatter.e.year;
+    text += where ? `,至${regionName(civ, scatter.e.region) || '其地'},散居${where}` : `,至${regionName(civ, scatter.e.region) || '远方'}一带,部众散亡`;
+    kids.push(kid(scatter.e, scatter.i, where ? `未能立国,散居${where}` : '部众散亡', [], lands.slice(), 'migrate', '徙'));
+    regions.push(...lands);
+  } else {
+    // 还在路上
+    text += ',尚在途中';
+    ongoing = true;
+    end = civ.endYear;
+  }
+  const children = kids.sort((a, b) => a.year - b.year || a.id - b.id);
+  const rs = uniq(regions.filter((r) => r >= 0));
+  return {
+    id: ids[0],
+    kind: 'migrate',
+    year: e0.year,
+    end,
+    text,
+    tag: '徙',
+    importance: 3,
+    polities: uniq(polities.filter((p) => p >= 0)),
+    regions: rs.length ? rs : e0.region >= 0 ? [e0.region] : [],
+    settlement,
+    children,
+    ...(ongoing ? { ongoing: true } : {}),
+  };
+}
+
 /** 同化:同一国治下、同一对民族,相隔不到 ASSIM_GAP 年的折成一段(一段最长 ASSIM_SPAN 年) */
 function assimEntries(ctx: Ctx, groups: Map<string, number[]>, out: ChronicleEntry[]) {
   const { civ } = ctx;
@@ -3448,10 +4123,13 @@ function assimEntries(ctx: Ctx, groups: Map<string, number[]>, out: ChronicleEnt
       const where = regionList(civ, regions) || '一州';
       const P = polityOf(civ, first.war);
       let text: string;
-      if (P && P.culture === first.b) text = `${pn(civ, first.war, first.year)}的${folk(civ, first.b)}渐染${cultureOf(civ, first.a)?.name ?? '异族'}俗,${where}渐为${folk(civ, first.a)}`;
+      // 大迁徙迁来立的国(Polity.trek),统治民族渐为当地多数所化:"萨热汗国境内的克拉尔人渐为桑人,瑶渊之野等五州皆说桑语"(五州以上是大事)
+      const trek = !!P && P.trek !== undefined && P.culture === first.b;
+      if (trek) text = `${pn(civ, first.war, first.year)}境内的${folk(civ, first.b)}渐为${folk(civ, first.a)},${where}皆说${cultureOf(civ, first.a)?.name ?? '当地'}语`;
+      else if (P && P.culture === first.b) text = `${pn(civ, first.war, first.year)}的${folk(civ, first.b)}渐染${cultureOf(civ, first.a)?.name ?? '异族'}俗,${where}渐为${folk(civ, first.a)}`;
       else if (P) text = `${pn(civ, first.war, first.year)}治下,${where}的${folk(civ, first.b)}渐为${folk(civ, first.a)}`;
       else text = `${where}的${folk(civ, first.b)}渐为${folk(civ, first.a)}`;
-      const importance: Importance = regions.length >= ASSIM_MAJOR ? 3 : regions.length >= ASSIM_MINOR ? 2 : 1;
+      const importance: Importance = regions.length >= (trek ? TREK_ASSIM_MAJOR : ASSIM_MAJOR) ? 3 : regions.length >= ASSIM_MINOR ? 2 : 1;
       const kids = group.map((i) => assimChild(civ, A[i], i));
       out.push({
         id: group[0],
@@ -3640,8 +4318,13 @@ function* introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicl
     const y = e.year;
     const pids = e.polities.filter((id) => polityOf(civ, id));
     const personNames = (e.people ?? []).map((k) => civ.people?.[k]?.name ?? '').filter(Boolean);
-    // 立国、分裂、复国这一条本身就是来历(干预"立国"那一条也是)
-    const founding = e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt' || (e.kind === 'intervene' && civ.interventions?.[A[e.id]?.war]?.kind === 'found');
+    // 立国、分裂、复国这一条本身就是来历(干预"立国"那一条、大迁徙落脚立国的那一条也是:立的国排在 polities 第一个)
+    const founding =
+      e.kind === 'found' ||
+      e.kind === 'split' ||
+      e.kind === 'revolt' ||
+      (e.kind === 'intervene' && civ.interventions?.[A[e.id]?.war]?.kind === 'found') ||
+      (e.kind === 'migrate' && A[e.id]?.kind === 'trek');
     if (founding && pids.length) shown.set(pids[0], polityRootAt(civ.polities[pids[0]], y));
     const also = told.get(e);
     if (also !== undefined && polityOf(civ, also)) shown.set(also, polityRootAt(civ.polities[also], y));
@@ -3744,6 +4427,16 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
   // 同化与迁徙:一波迁徙(同一刻、同一民族、同一起因);同一国治下同一对民族的同化
   const waves = new Map<string, number[]>();
   const assim = new Map<string, number[]>();
+  // 大迁徙:第几次 → 它的几条史事;到了以后开的那一仗(战争编号 → 第几次:立的国 = trek n = 2 的 b,那一仗 = 它开的 war,cause = trek)
+  const treks = new Map<number, number[]>();
+  const trekWar = new Map<number, number>();
+  {
+    const byPolity = new Map<number, number>();
+    for (const e of A) {
+      if (e.kind === 'trek' && e.n === 2 && e.b >= 0) byPolity.set(e.b, e.war);
+      else if (e.kind === 'war' && e.cause === 'trek' && byPolity.has(e.a)) trekWar.set(e.war, byPolity.get(e.a)!);
+    }
+  }
   // 分裂出来的国家不再记"立国";并入别国的不再记"瓦解"(合并那条已经说了)
   const splitOf = new Set<number>();
   const mergedAt = new Set<string>();
@@ -3827,7 +4520,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
         e.kind === 'ruin' ||
         e.kind === 'submit' ||
         e.kind === 'unally' ||
-        e.kind === 'stand');
+        e.kind === 'stand' ||
+        e.kind === 'winter');
     if (inWar) {
       let g = wars.get(e.war);
       if (!g) wars.set(e.war, (g = []));
@@ -3836,6 +4530,8 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       if (e.kind !== 'fall' && e.kind !== 'ruin') continue;
     }
     if (e.kind === 'found' && splitOf.has(e.a)) continue;
+    // 议立宪 / 废君谈崩、紧跟着起兵:并进起兵那一条(革命)
+    if (e.kind === 'council' && revolutionAfter(A, i)) continue;
     // 作者下令立的约、划的中立地并进干预那一条
     if ((e.kind === 'treaty' || e.kind === 'neutral') && e.cause === 'decree' && foldedIntoDecree(civ, i)) continue;
     // 干预引起的立国、迁都并进干预那一条
@@ -3864,6 +4560,14 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
       if (!mutualTail(A, i)) out.push(marryEntry(ctx, i));
       continue;
     }
+    // 大迁徙:同一次的几条(war 列 = 第几次)折成一条;它立国那条 found 并进来
+    if (e.kind === 'trek') {
+      let g = treks.get(e.war);
+      if (!g) treks.set(e.war, (g = []));
+      g.push(i);
+      continue;
+    }
+    if (e.kind === 'found' && e.cause === 'trek') continue;
     if (e.kind === 'migrate' || e.kind === 'assimilate') {
       const map = e.kind === 'migrate' ? waves : assim;
       const key = e.kind === 'migrate' ? `${e.year}|${e.a}|${e.war}` : `${e.a}|${e.b}|${e.war}`;
@@ -3874,9 +4578,17 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
     }
     out.push(simpleEntry(ctx, e, i));
   }
-  for (const ids of wars.values()) {
+  // 大迁徙到了以后那一仗照旧单列一条战争;它的几件事(宣战、亡国、迁都)也写进大迁徙的经过
+  const trekWars = new Map<number, number[]>();
+  for (const [w, ids] of wars) {
     if (++n % 8 === 0) yield;
+    const m = trekWar.get(w);
+    if (m !== undefined) trekWars.set(m, ids);
     out.push(A[ids[0]].kind === 'revolt' ? revoltEntry(ctx, ids) : warEntry(ctx, ids));
+  }
+  for (const [m, ids] of treks) {
+    if (++n % 8 === 0) yield;
+    out.push(trekEntry(ctx, ids, trekWars.get(m)));
   }
   for (const ids of plagues.values()) {
     if (++n % 32 === 0) yield;
@@ -3958,7 +4670,7 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
       const ref = rulerRef(civ, prev, y);
       const minis: Person[] = [];
       let text: string;
-      if (p.lineage === 'republic') text = `${ref}任满,${x.name}继任`;
+      if (!royalSeg(p, x.dynasty ?? 0)) text = `${ref}任满,${x.name}继任`;
       else if (prev.author !== undefined) {
         // 作者立的君主到期退位(生死归人物卡管),继他之位的不连成他的儿子
         const then = p.eastern && (p.lineage === 'khanate' || tier <= 0) ? `${x.name}继为${p.lineage === 'khanate' && tier > 0 ? khanWord(x) : '首领'}` : p.eastern ? `${x.name}即位${x.title ? `,是为${rulerTitle(civ, x)}` : ''}` : `${rulerShort(civ, x)}即位`;
@@ -4016,12 +4728,25 @@ export function reignEntries(civ: Civ): ChronicleEntry[] {
         // 叔父摄政(regents.ts):"…,时年 9 岁,叔父某某摄政"
         const uncle = ix?.uncle.get(x.id);
         const uk = uncle ? kinOf(civ, x, uncle) || kinWord(uncle, '叔父') : '';
-        const aid = uncle ? `,${uk.length === 1 ? '其' : ''}${uk}${uncle.name}摄政` : !regent ? '' : regent === by ? (east ? ',遂辅政' : ',并摄政') : `,${ministerRef(regent, y)}${east ? '辅政' : '摄政'}`;
+        // 太后临朝(consorts.ts):"…,时年 11 岁,太后江晚萦临朝称制"(西幻"…,皇太后某某摄政")
+        const dowager = ix?.dowager.get(x.id);
+        const aid = uncle
+          ? `,${uk.length === 1 ? '其' : ''}${uk}${uncle.name}摄政`
+          : dowager
+            ? `,${dowagerWordOf(civ, dowager, y)}${dowager.name}${east ? '临朝称制' : '摄政'}`
+            : !regent
+              ? ''
+              : regent === by
+                ? east
+                  ? ',遂辅政'
+                  : ',并摄政'
+                : `,${ministerRef(regent, y)}${east ? '辅政' : '摄政'}`;
         // 作者让他去世的:那一年的干预那一条已经写了"暴崩,在位几年"
         text = prev.killed !== undefined ? `${ref}既${died};${then}${young}${aid}${tail}` : `${ref}${prev.fate === 'murdered' ? killed : died}${span};${then}${young}${aid}${tail}`;
         if (by) minis.push(by);
         if (regent && regent !== by && !uncle) minis.push(regent);
         if (uncle) minis.push(uncle);
+        if (dowager) minis.push(dowager);
       }
       out.push({
         id: n0 + x.id,

@@ -50,6 +50,7 @@ import { noteDismiss } from './dismissClick';
 import { terrainPatchPending } from './terrainPatch';
 import { baseReady, dropThumbPrep } from './thumbPrep';
 import { terrainStroking } from './TerrainTools';
+import { ThoughtPicker } from './ThoughtParts';
 
 /** 缩略图大小(显示时 88×44 左右,按两倍像素做) */
 const TW = 192;
@@ -381,6 +382,7 @@ export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSa
             ))}
           </div>
           <div className="lp-hint">{FILLS.find((f) => f.id === fill)!.hint}</div>
+          {fill === 'ideology' && <ThoughtPicker civ={civ} />}
           <NameToggles />
           {fill === 'cultures' && <CultureLegend civ={civ} />}
           {fill === 'faiths' && <FaithLegend civ={civ} />}

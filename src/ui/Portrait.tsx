@@ -6,10 +6,12 @@
  *   mini  世系图格子里 30 像素的圆头像;row 人物页名字前 26 像素的圆头像。都只显示脸、不动
  * 系统设了"减少动态效果"的只显示不动的头像(portrait.css)。部件是同样大小的透明图,左上角对齐叠放;
  * 头发、胡须的白用滤镜(grayscale + brightness + contrast)。
+ * 还没有画像部件的人(女性的头像部件以后补上)用 NameFace:同样大小的颜色方块 / 小圆,上面写名字(卡片写后两个字,小圆头像写最后一个字)。
  */
 import { useEffect, useMemo, type CSSProperties, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { personPortrait, portraitLayers, type Portrait, type PortraitMood } from '../gen/portrait';
+import { isFemale } from '../gen/civ/gender';
 import './portrait.css';
 
 const BASE = `${import.meta.env.BASE_URL}portraits/`;
@@ -39,11 +41,13 @@ export interface PortraitViewProps {
   mood?: PortraitMood;
   /** 右下角的小按钮(作者人物的"换一张") */
   corner?: ReactNode;
+  /** card 大小但不眨眼、不动(关系图中间那张卡片) */
+  still?: boolean;
 }
 
-export function PortraitView({ p, size, color, dead, dark, mood, corner }: PortraitViewProps) {
+export function PortraitView({ p, size, color, dead, dark, mood, corner, still }: PortraitViewProps) {
   const card = size === 'card';
-  const live = card && !dead;
+  const live = card && !dead && !still;
   const expr = live ? (mood?.expr ?? 'calm') : 'calm';
   const layers = useMemo(() => portraitLayers(p, expr, live), [p, expr, live]);
   const filter = whiten(p.white);
@@ -84,13 +88,40 @@ export function PortraitView({ p, size, color, dead, dark, mood, corner }: Portr
 
 /**
  * 世系图、人物页里推演人物的小头像:时间轴那一年的岁数,但不早于上台那年(还没即位、还没出生的按上台那年),
- * 不晚于去世那年。时间轴在他一生以外拖动时,年龄不变、不重算
+ * 不晚于去世那年。时间轴在他一生以外拖动时,年龄不变、不重算。女的(头像部件还没有)写名字的最后一个字(NameFace)
  */
 export function PersonFace({ civ, x, year, size }: { civ: Civ; x: Person; year: number; size: 'mini' | 'row' }) {
   const from = x.from ?? x.commands?.[0]?.from ?? x.born + 20;
   const age = Math.floor(Math.min(Math.max(year, from), x.died ?? Infinity) - x.born);
-  const p = useMemo(() => personPortrait(civ, x.id, x.born + age), [civ, x, age]);
+  const p = useMemo(() => (isFemale(x) ? null : personPortrait(civ, x.id, x.born + age)), [civ, x, age]);
   const pol = civ.polities[x.polity];
-  if (!p || !pol) return null;
+  if (!pol) return null;
+  if (isFemale(x)) return <NameFace name={x.name} size={size} color={`rgb(${pol.color.join(',')})`} />;
+  if (!p) return null;
   return <PortraitView p={p} size={size} color={`rgb(${pol.color.join(',')})`} />;
+}
+
+/**
+ * 头像上写的字:卡片写名字的后两个字(只有一个字就一个),小圆头像(small)写最后一个字;空白、间隔号不算。
+ * 名字里没有汉字(拉丁字母之类)的写第一个字母(大写)
+ */
+export function nameFaceText(name: string, small: boolean): string {
+  const cs = [...name.replace(/[\s·・•.]/g, '')];
+  if (!cs.length) return '';
+  if (!cs.some((ch) => /\p{Script=Han}/u.test(ch))) return cs[0].toUpperCase();
+  return cs.slice(small ? -1 : -2).join('');
+}
+
+/**
+ * 没有画像的头像:颜色方块(卡片)/ 小圆(世系图、人物页)上写名字,大小、圆角、去世后的白框和 PortraitView 一样;
+ * color = 底色(国家颜色、作者人物的颜色)。别处放大了的(关系图的圆头像、中间那张卡片):chars 写几个字、px 字号(和头像大小成比例)
+ */
+export function NameFace({ name, size, color, dead, chars, px }: { name: string; size: 'card' | 'mini' | 'row'; color: string; dead?: boolean; chars?: 1 | 2; px?: number }) {
+  const text = nameFaceText(name, chars ? chars === 1 : size !== 'card');
+  const style = { '--c': color, ...(px ? { fontSize: px } : {}) } as CSSProperties;
+  return (
+    <span className={`pt pt-${size} pt-name${[...text].length > 1 ? '' : ' pt-name-1'}${dead ? ' pt-dead' : ''}`} style={style} aria-hidden="true">
+      {text}
+    </span>
+  );
 }

@@ -27,7 +27,7 @@ import { eraText, spaced, yearAt, yearShortAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';
 import { useNarrow } from './device';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { interventionText, nameAt, regentEndWord, regentHowWord } from './Interventions';
 import { YearRow, rgb, useYearInput, type YearInput } from './panelParts';
@@ -129,7 +129,7 @@ export function RegentIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; ye
   const [msg, setMsg] = useState<string | null>(null);
   const clear = () => setMsg(null);
   // 能怎么掌、能下的年份按卡片那一年定(那几年君主是同一位)
-  const open = regentChoice(civ, x, step ? nextYear(sw) : year);
+  const open = regentChoice(civ, x, step ? nextAt(sw) : year);
   const span = open?.span ?? { lo: 1, hi: 0 };
   const yi = useYearInput(Math.min(Math.max(year, span.lo), Math.max(span.lo, span.hi)), span.lo, Math.max(span.lo, span.hi), clear);
   const y = step ? nextYear(sw) : yi.y;
@@ -328,7 +328,7 @@ export function MarryIvPage({ civ, x, year, onBack }: { civ: Civ; x: Person; yea
             <>
               <span>子女</span>
               <span>
-                之后生的儿子算{nameAt(P, y)}的人，卡片上写母亲出自{Bshort}
+                之后生的子女算{nameAt(P, y)}的人，卡片上写母亲出自{Bshort}
               </span>
             </>
           )}

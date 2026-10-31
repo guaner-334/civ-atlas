@@ -3,19 +3,22 @@
  *
  *   顶部  颜色块(当年所属国)、州名(可改)、"州，属 大昌，第 12 州"(没有国家 = "无主之地")、关闭
  *   按钮  在这里立国(主操作)/ 划给… / 改名 / 更多(天灾… / 在这里加标记 / 在这里加人物、设为中心、让 AI 讲名字由来)(每个面板只有一个主操作,和国家面板一样)
- *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州)
+ *         「天灾…」换成天灾那一页(DisasterPage.tsx,默认这一州);「大迁徙…」换成大迁徙那一页(TrekPage.tsx,默认这州的主体民族、从这州出发)
  *         演一国时别国的州:在这里立国、划给…、天灾…变灰,按钮下面写一句(和别国的国家卡片一样,RoleBar.tsx 的 RoleLockNote)
- *   概况  主体民族(族名可改)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
+ *   概况  主体民族(族名可点,开民族卡片;改族名在民族卡片里)、宜居度、人口(州里的总人口 = 治所的城 + 乡村,growth.ts 的 regionPopulationAt;一州同一时刻最多一座城;
  *         作者下的天灾以后还没长回来:"约 45 万人 ~~64 万人~~ 1500 年地震",newIvInfo.ts 的 regionDisasterMark)、
- *         管辖(中央管得到几成 + 档位,"52% 代管";分封出去的边州 "11% 自治,封地";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、州里的城(可点;故城标出来)、地貌、
- *         民族(族名由来 / 起族名)、来历(分化出来的民族:哪年从哪族分出,母族可点;母族已消亡的不可点)
+ *         管辖(中央管得到几成 + 档位,"52% 代管";分封出去的边州 "11% 自治,封地";割据写"割据 名义上属某国,某年起";不在国家里的州没有这一行)、信仰(可点)、
+ *         思潮(最盛那说几成,小字"另有某说等 N 说";都不到半成不显示)、州里的城(可点;故城标出来)、地貌、
+ *         民族(族名由来 / 起族名,和民族卡片里的是同一份)、来历(分化出来的民族:哪年从哪族分出,母族可点、开它的民族卡片)
  *   中立地(几国共建、议和划出,不归任何一国;gen/civ/treatyInfo.ts):色块换成共建几国颜色的细横纹,名字下面写"中立地，某国、某国 2301 年共建"
  *         (手机上写"三国");概况最前面多「共建」「来历」(依哪份约设,约名可点开条约卡片)「期限」(手机上不写)「住着」(徙居、出奔来的人),
  *         管辖写"几国都不驻兵";历任归属里中立地那几年画细横纹
+ *   思潮  开着思潮图层时才有:这州到半成的几说,小条 + 百分数 + 比百年前;地图上正看的那说标出来,点一行换看那说(ThoughtParts.tsx)
  *   作者的人物  生在这里、经历写在这里的作者人物(没有就不显示)
  *   历任归属 按时长分段的色条,点一段跳到它开始的那年
  *   大事  最近 5 条(可点)、这一州的干预(可撤销)
  *
+ * 人物卡「一生」一段经历进推演选了划州、立国(lifeIv.ts):换到这一州,一打开就是那一页,页顶「照这段经历填好了」,那一条记在他名下。
  * "在这里立国""划给…"换到干预页:生效年份(−100 −10 [年份] +10)+ 国名(可不填)/ 永久;
  * 立国:那一年没人住、但住得了人的州也能立(推演时一支新的民族来这里落脚),住不了人的写明是什么地形、按钮点不了;
  * 在别国(不止这一州的)领土里立国,多一句提示:新国只有一州,几十年后常被原主收回,要留下来得再下「保护」;
@@ -30,13 +33,14 @@ import { SETTLEMENT_RANKS, capitalAt, polityAlive, polityName, populationAt, pop
 import { CONTROL_TIERS } from '../gen/civ/control';
 import { controlOf, lordOf } from '../render/civ/control';
 import { isFiefRegion } from './courtInfo';
+import { RegionThoughtRow, RegionThoughts } from './ThoughtParts';
 import { ownersAt } from '../gen/civ/timeline';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { faithAt } from '../gen/civ/religion';
-import { cleanName, cultureKey, polityKey, regionKey, type Intervention } from '../gen/edits';
+import { cleanName, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { useEdits, useEra } from './editsStore';
 import { queueIntervention } from './pendingStore';
-import { nextYear, useStepwise } from './stepwiseStore';
+import { nextAt, nextYear, useStepwise } from './stepwiseStore';
 import { STEP_LOOK_WHY, StepEffectTime, useStepView } from './Stepwise';
 import { useNarrow } from './device';
 import { roleLock } from './policyInfo';
@@ -53,8 +57,8 @@ import { newMarkDraft } from './markStore';
 import { newCharacterDraft } from './characterStore';
 import { charactersAt, whereOfRegion } from './characterInfo';
 import { CharacterRefs } from './CharacterPanel';
-import { cultureRegion } from './searchIndex';
 import { DisasterPage } from './DisasterPage';
+import { TrekPage } from './TrekPage';
 import { regionDisasterMark } from './newIvInfo';
 import { treatyBook, treatyTitle, type ZoneInfo } from '../gen/civ/treatyInfo';
 import { personName } from '../gen/civ/peopleText';
@@ -84,12 +88,19 @@ import {
   useRevealAi,
   useYearInput,
 } from './panelParts';
+import { NationLifeHead } from './LifeHead';
+import { getLifeTag, lifeTagFor } from './lifeTag';
 
-type Page = 'found' | 'cede' | 'disaster';
+type Page = 'found' | 'cede' | 'disaster' | 'trek';
 
 export function RegionPanel(props: DetailProps) {
   const { civ, raw, raster, world, id, year, names } = props;
-  const [page, setPage] = useState<Page | null>(null);
+  // 人物卡一段经历进推演选了划州、立国:打开就是那一页(年份照那段经历,lifeTag.ts)
+  const [page, setPage] = useState<Page | null>(() => (lifeTagFor(getLifeTag(), ['cede', 'found'], { region: id })?.kind as Page | undefined) ?? null);
+  useEffect(() => {
+    if (page === 'cede' || page === 'found') setSheet('full');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [renaming, setRenaming] = useState(false);
   const { ai, aiRef } = useRevealAi({ civ, raw, raster, target: { kind: 'region', id }, lazy: true });
   const own = ownersOf(civ, year);
@@ -137,6 +148,8 @@ export function RegionPanel(props: DetailProps) {
       </PanelHead>
       {page === 'disaster' && canAct && !lock ? (
         <DisasterPage key={id} civ={civ} region={id} year={year} onBack={() => setPage(null)} />
+      ) : page === 'trek' && canAct && !lock ? (
+        <TrekPage key={id} civ={civ} region={id} year={year} onBack={() => setPage(null)} />
       ) : page && canAct && !lock ? (
         <RegionOrder civ={civ} id={id} year={year} page={page} back={() => setPage(null)} />
       ) : (
@@ -169,6 +182,17 @@ export function RegionPanel(props: DetailProps) {
                   天灾…
                 </MenuItem>
               )}
+              {canAct && (
+                <MenuItem
+                  icon={<Icon name="close" size={16} className="iv-blank" />}
+                  act="region-trek"
+                  disabled={!!lock}
+                  note={lock ? ROLE_LOCK_NOTE : undefined}
+                  onClick={() => (setPage('trek'), setSheet('full'))}
+                >
+                  大迁徙…
+                </MenuItem>
+              )}
               <MenuItem icon={<Icon name="pin" size={16} />} act="add-mark" onClick={() => newMarkDraft({ regions: [regionKey(civ, id)], year })}>
                 在这里加标记
               </MenuItem>
@@ -192,7 +216,7 @@ export function RegionPanel(props: DetailProps) {
 // ---------------------------------------------------------------------------
 // 信息页
 
-function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: DetailProps & Pick<ReturnType<typeof useRevealAi>, 'ai' | 'aiRef'>) {
+function RegionInfo({ civ, raw, raster, world, id, year, ai, aiRef }: DetailProps & Pick<ReturnType<typeof useRevealAi>, 'ai' | 'aiRef'>) {
   const edits = useEdits();
   const chars = edits.characters;
   const refs = useMemo(() => charactersAt(civ, world, raster, chars, { region: id }, edits.era), [civ, world, raster, chars, id, edits.era]);
@@ -237,20 +261,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
         items={[
           {
             k: '主体民族',
-            v: cu ? (
-              <NameEdit
-                k={cultureKey(civ, cid)}
-                kind="culture"
-                shown={cultureLabel(cu)}
-                current={cu.name}
-                fallback={raw.cultures[cid].name}
-                names={names}
-                preview={(v) => `${v}族`}
-                hint="族名(不带“族”字)"
-              />
-            ) : (
-              '—'
-            ),
+            v: cu ? <Link to={{ kind: 'culture', id: cid }}>{cultureLabel(cu)}</Link> : '—',
           },
           { k: '宜居度', v: score, note: habitatWord(score) },
           {
@@ -278,6 +289,7 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
             {faith ? <Link to={{ kind: 'faith', id: faith.id }}>{faith.name}</Link> : '—'}
           </Row>
         )}
+        <RegionThoughtRow civ={civ} id={id} year={year} />
         {cities.length > 0 && (
           <Row k="城" className="cp-links">
             {cities.map((s) => {
@@ -315,12 +327,13 @@ function RegionInfo({ civ, raw, raster, world, id, year, names, ai, aiRef }: Det
           <Row k="来历">
             <span>
               {yearAt(cu.born, edits.era)}从
-              {pa.ended !== undefined && pa.ended <= year ? cultureLabel(pa) : <Link to={{ kind: 'region', id: cultureRegion(civ, pa.id, year, own) }}>{cultureLabel(pa)}</Link>}
+              <Link to={{ kind: 'culture', id: pa.id }}>{cultureLabel(pa)}</Link>
               分出
             </span>
           </Row>
         )}
       </Stats>
+      <RegionThoughts civ={civ} id={id} year={year} polity={own.polity[id]} />
       <CharacterRefs refs={refs} />
       <OwnerBar civ={civ} spans={spans} year={year} zones={zoneSpans} />
       <EventList upTo={upTo} civ={civ} />
@@ -423,7 +436,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   const phone = useNarrow();
   const y = step ? nextYear(sw) : yi.y;
   const valid = step || yi.valid;
-  const yv = step ? Math.min(y, civ.endYear) : y;
+  const yv = step ? Math.min(nextAt(sw), civ.endYear) : y;
   // 离开这一页(返回、选了别的东西):在地图上选到一半的收起
   useEffect(
     () => () => {
@@ -441,7 +454,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
     for (let k = reg.adjStart[id]; k < reg.adjStart[id + 1]; k++) if (o.polity[reg.adj[k]] >= 0) near.add(o.polity[reg.adj[k]]);
     return { owner: o.polity[id], peopled: o.culture[id] >= 0, size, near };
   }, [civ, id, yv]);
-  const others = useMemo(() => civ.polities.filter((q) => q.id !== at.owner && polityAlive(q, y) && (at.size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, y, at]);
+  const others = useMemo(() => civ.polities.filter((q) => q.id !== at.owner && polityAlive(q, yv) && (at.size.get(q.id) ?? 0) > 0).map((q) => q.id), [civ, yv, at]);
   const R = regionLabel(civ, id);
   const O = at.owner >= 0 ? civ.polities[at.owner] : undefined;
   /** 原主会怎样:这州是它的国都 → 迁都;它只有这一州 → 亡国 */
@@ -475,7 +488,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   /** 划给国家 q:合格就下干预,不合格返回原因 */
   const cedeTo = (q: number): string | null => {
     const Q = civ.polities[q];
-    if (!Q || !polityAlive(Q, y) || !(at.size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
+    if (!Q || !polityAlive(Q, yv) || !(at.size.get(q)! > 0)) return `${yearAt(y, era)}${Q ? nameAt(Q, y) : '这个国家'}不在`;
     if (q === at.owner && !forever) return `${yearAt(y, era)}${R}本来就属${nameAt(Q, y)}`;
     return add(forever ? { kind: 'cede', a: polityKey(civ, q), region: key, from: y, permanent: true } : { kind: 'cede', a: polityKey(civ, q), region: key, from: y });
   };
@@ -502,6 +515,7 @@ function RegionOrder({ civ, id, year, page, back }: { civ: Civ; id: number; year
   return (
     <>
       <div className="cp-body">
+        <NationLifeHead kinds={[page === 'found' ? 'found' : 'cede']} region={id} />
         {step ? <StepEffectTime phone={phone} /> : <YearStepper yi={yi} />}
         <div className="cp-form">
           <span className="cp-form-title">{page === 'found' ? '在这里立国' : '划给…'}</span>

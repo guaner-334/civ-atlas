@@ -61,7 +61,7 @@
  * |-----------|----------|-----------------------------------|-------------------------------------------|-------------------------------|
  * | `protect` | 不许灭   | a = 国家                          | 从这一年起:国都攻不下、不会被并掉(国土照样会丢、会分裂、会改朝换代) | until:到这一年止(不含;不给 = 一直) |
  * | `ally`    | 结盟     | a = 国家,b = 另一国               | 从这一年起两国不互相宣战(那一刻正在交战的当即议和);一方被第三国攻打,另一方多半参战 | until:到这一年止(不含;不给 = 一直) |
- * | `declare` | 宣战     | a = 攻方,b = 守方                 | 这一年年初强制开战(两国不接壤 / 已在交战 / 有一方已亡 = 打不成,编年史照记一条) | —   |
+ * | `declare` | 宣战     | a = 攻方,b = 守方                 | 这一年年初强制开战(两国不接壤 / 已在交战 / 有一方已亡 = 打不成,编年史照记一条) | lead:谁挂帅(作者人物的编号;他那时是 a 的将领(干预 appoint)才由他挂帅,不然照推演派将;推演不看它,见表下) |
  * | `unity`   | 禁止分裂 | a = 国家                          | 从这一年起不会有州叛离(分裂、遗民复国都不会从它的国土里起事) | —                     |
  * | `cede`    | 划州     | a = 得到它的国家,region = 州      | 这一年年初这州归 a(州里有人住才行;原主国照常,不算战争;划走的是原主的国都就迁都,原主只剩这一州就亡) | permanent: true = 永久:之后战争、分裂、复国、合并、议和割地都拿不走它(只要还在 a 手里) |
  * | `found`   | 立国     | region = 州                       | 这一年年初以这州的城为国都立一个新国家(州里没城就先建城;民族 = 当地民族;州原来有主的,算从原主分出来) | name:国名(国名词根,同改名) |
@@ -75,10 +75,13 @@
  * | `temper`  | 改君主倾向 | a = 国家,person = 人物键(君主),leanings = 新的倾向 | 这一年年初起此刻在位的这位君主照新的倾向,到他下台为止(此刻在位的不是他 = 不生效) | — |
  * | `treaty`  | 立约     | a = 国家,ps = 另几国(1–3 国)       | 这一年年初几国立约互不侵犯(两两之间那一刻正在交战的当即议和),到期照推演看续不续、可能背约(civ/treaties.ts);会盟的城照推演挑。对方都不在了 = 不生效 | term:期限(年;不给 = 一直);limited: true = 有限竞争(再加各守今疆);keep: true = 约里的国家不背约;by:居间的国家;zone:同时以哪一州为中立地(州键);ask: true = 演一国时下的,对方照推演的规矩定肯不肯(不肯的不入约,都不肯 = 不生效) |
  * | `neutral` | 划中立地 | a = 国家,region = 州,ps = 一起共建的另几国(1–3 国) | 这一年年初这州不归任何一国,几国都不进兵(州原属共建的一国或无主,不能是国都;州里要有人住)。几国已同在一份约里、那份约还没有中立地的,依那份约设;不然同时立一个互不侵犯之约(三十年) | quiet: true = 不送人去(不把失势的宗室徙到这里);lasting: true = 一直留着(约废了也不撤);until:到这一年撤(不含);ask:同立约 |
- * | `regent`  | 让他掌权 | a = 国家,person = 人物键,how = march 引兵入朝 / heir 太子监国(此刻在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯,宗室)/ chancellor 专权(名臣)/ general 专权(将领);end = succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯:君主下台,他接着在位,同一朝);years = 还政、篡位过几年;leanings = 摄政、专权的人的倾向 | 这一年年初起名义上的君主照旧在位,开战、议和、扩张照他的倾向(引兵入朝、太子监国照他日后即位时的倾向);引兵入朝那一刻杀兄长和战功比他多的兄弟。这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、他不是那样的人 = 不生效 | — |
+ * | `regent`  | 让他掌权 | a = 国家,person = 人物键,how = march 引兵入朝 / heir 太子监国(此刻在位君主的预定继承人)/ uncle 摄政(君主的兄弟叔伯,宗室)/ chancellor 专权(名臣)/ general 专权(将领);end = succeed 到君主去世、他即位(只有太子)/ return 几年后还政 / usurp 几年后篡位(太子、叔伯:君主下台,他接着在位,同一朝);years = 还政、篡位过几年;leanings = 摄政、专权的人的倾向。**作者的人物**不给 person,给 char、born(、died),见表下 | 这一年年初起名义上的君主照旧在位,开战、议和、扩张照他的倾向(引兵入朝、太子监国照他日后即位时的倾向);引兵入朝那一刻杀兄长和战功比他多的兄弟。这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、他不是那样的人(作者的人物:还没出生、已去世、不满 16 岁)= 不生效 | — |
+ * | `appoint` | 任将 / 任臣 | a = 国家,char = 作者人物的编号,role = general 将领 / minister 名臣,born = 他的生年 | 这一年年初起他是这国的将领 / 名臣,**只改人物和编年史,不改历史**(将领带了能力 skill 的除外:他挂帅的仗改历史,见表下):将领 = 本国的仗由他挂帅(推演原来派的那位照旧随军,写成副将),名臣 = 朝中的事他也经手(推演里的名臣照旧)。这国那年已亡、他还没出生、已去世、不满 16 岁、那时他正是某国在位的君主 = 不生效。见表下 | died:他的卒年(人物卡上写了才有);until:这一年年初卸任(不含;不给 = 到卒年,卒年也没有 = 将领到 AUTHOR_GENERAL_AGE_END 岁卸甲、名臣到 AUTHOR_MINISTER_AGE_END 岁致仕);skill:将领的能力(不给 = 寻常,见表下) |
  * | `marry`   | 为他联姻 | a = 国家,person = 人物键(此刻在位的君主,或君主的儿子、兄弟叔伯),b = 对方国家 | 这一年年初两国结亲:他娶 b 在位君主的女儿(那位君主要年过 30);两国 40 年里少开战、易结盟(和推演里结的亲一样)。两国有一国已亡、是共和国、正在交战、他不是宗室 = 不生效 | how:give = 本国宗室女嫁给 b 的太子(没有就挑年轻的君主、别的宗室)/ mutual = 互嫁 |
  * | `disaster`| 天灾     | type = plague 瘟疫(city = 从哪座城起)/ famine 饥荒(a = 一国,或 regions = 几州)/ quake 地震水旱(region = 哪一处,连同附近一圈州)/ pandemic 全球大疫(city = 从哪座城起);level = 1 轻 / 2 中 / 3 重 | 这一年年初受灾的城人口掉一截(城里约死一成半 / 三成 / 五成),几十年慢慢长回来,其间国内更动荡;瘟疫照瘟疫的规矩往外传(那年已在闹瘟疫 = 并进那一场)。全球大疫传遍各洲(城里死两成 / 三四成 / 五成),之后疫后无人收拾那些年人口接着掉、发展度和时代往回掉、村镇荒废(civ/pandemic.ts)。不改地形 | slump:全球大疫疫后无人收拾几年(10 / 30 / 60,不给 = 30) |
  * | `boost`   | 推一把发展 | a = 国家;mul = 快几倍(3 / 10;不给 = 直接进下一个时代) | 快几倍:从这一年起到 until(不含)那些州四样能力的"自己长"和"向邻居学"都 × mul(卡在时代门口时自己长不乘),到期照常长、长上去的不退;直接进:这一年年初以 a 的国都所在州为准进它的下一个时代,那些州四样能力都拉到那个时代开头(不看物产等门槛;国都已在最后一个时代 = 不生效)。a 那年已亡 = 不生效(civ/boost.ts) | until:快几倍管到哪一年(不给 = from + 50);regions = 只推这几州(最多 BOOST_REGIONS_MAX 州,换了主也照推;不给 = 整国,每一刻归 a 的州) |
+ * | `trek`    | 大迁徙   | folk = 民族(`culture:…`);region = 从哪一州出发(可选);to = 往哪一州去(可选,不给 = 推演挑) | 这一年年初这一族分出一支(约三成的人,到了能占 3–8 州)举族远走,沿陆路(草原快,林地、山地慢,不过海)走到那一州,路上洗劫,到了立国、开战,和推演自己起的大迁徙一样(civ/migration.ts)。出发:给了 region、那年那州还是这一族的就从那州走,不然从本族离目的地最近的一州走。推演挑 = 走得到的、不是本族的、有城的州里"地好 × 守得弱"最高的那一州。不管全世界同时几支在路上、这个世界已经走过几次、这一族多久前走过。这一族那年已消亡 / 走不到(陆路不通、推演挑没有可去的地方)= 不生效 | reach:推演挑时走多远(near 近 / far 远;不给 = 中,见 TREK_REACHES);dir:推演挑时只挑这个方位上的地方(east 东 / south 南 / west 西 / north 北;按整条路线在地图上的走向,同 Civ.migrations 的 dir;那一档没有就依次放宽到中、近、远里别的几档。照大纲推演硬改「大迁徙」情节时下的) |
+ * | `stay`    | 不许迁   | folk = 民族                       | 从这一年起推演不让这一族大迁徙(已经在路上的照走;避兵外迁、随征服而来的移民这类小股的照旧;作者下令的大迁徙照走) | until:到这一年止(不含;不给 = 一直) |
  *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
@@ -95,14 +98,40 @@
  * 邻国(war)/ 内政(politics:大崩解、分裂)/ 王朝(dynasty)—— 寻常二三十年才看一次,窗口里常常一眼都没看;years 是整数年,
  * 不早于 from,升序去重,最多 GUIDE_LOOK_MAX 个,没有 = 去掉。作者自己定的方针没有这几项(带了也去掉)。
  *
+ * 让作者的人物掌权(regent 带 char,不带 person):char = 作者人物的编号,born = 他的生年,died = 他的卒年(人物卡上写了才有),
+ * leanings = 他的性格(同即位,都抄进干预,推演不读人物卡);how 只能 chancellor(以名臣的身份专权)/ general(以将领的身份专权),
+ * end 只能 return(掌权以后篡位还没有)。到哪一刻:years 给了 = from + years 还政;不给 = 到卒年(died 那一年年初,编年史写"卒");
+ * 卒年也没有 = 到他 AUTHOR_REGENT_AGE_END 岁还政(至少一年)。给了 years、卒年又更早的,到卒年为止。
+ * 推演照推演人物的大臣 / 大将专权算(civ/regents.ts 的 ivRegency):这国那年已亡、共和国、在位的是作者立的君主、已有人掌着权、
+ * 他那年还没出生、已去世、不满 16 岁 = 不生效。人物里多一位(Person.author = 人物编号,见 civ/people.ts):那时他正任着这国的将领 / 名臣
+ * (任将任臣 appoint)的,挂在任职的那一位上(将领 = 大将专权);没任职的单起一位名臣(推演里照样记下 how)。旧存档里的掌权都带 person,照旧。
+ *
+ * 任将 / 任臣(appoint,civ/appoint.ts):char、born、died 同让作者的人物掌权(都抄进干预,推演不读人物卡);role 只认 general / minister。
+ * 推演里只在 from 那一刻记一笔史事 intervene(b 列:−1 生效了 / −2 他还没出生 / −3 那一年这国已亡 / −4 不满 16 岁 / −19 他已去世 /
+ * −20 那时他正是某国在位的君主,见 civ/appoint.ts 的 IV_REIGNING),历史一字不变(带能力的将领见下);人物、编年史照它排(civ/people.ts、chronicle.ts)。
+ * 任期:from 那一刻起,到 until / 卒年 / 卸甲致仕的岁数(见上)为止;中途这国亡了 = 出降(有灭它的国家)/ 出奔 / 随国归附;
+ * 名臣遇改朝换代去职(想留任就再任一次),将领照旧在任;他后来又任了别的(哪国都算)、即了位 = 前一个到那一刻为止
+ * (同一刻又任、又即位的,前一个算没生效)。将领挂帅哪几仗(不取随机数):上任时本国正在打的仗里最先开打的那场,没有就等下一场开打;
+ * 那场打完换到还在打的里最先开打的那场;宣战(declare)带 lead = 他、本国是攻方的那场一开打就换去那场(派他出征)。
+ * 君主亲征的那几仗君主为帅,他随驾。宣战的 lead 是新字段:旧版网站读到会去掉它,宣战照旧(只是统帅换回推演派的)。
+ * 将领的能力 skill(只认 general 带的 good 良将 / great 名将;不给 = 寻常):**这一项改历史** —— 他挂帅的那几仗(上面那份,君主亲征时他随驾的也算)
+ * 本方兵力乘 APPOINT_SKILL_POWER(攻守都算;civ/wars.ts 的胜率),只从他上任那一刻起,之前一字不变;推演里的将领照旧不分良莠,
+ * 寻常的、没任过作者将领的世界一点不变。旧存档、旧版网站没有这个字段 = 寻常。
+ * 让作者的人物掌权(regent 带 char)时他正任着这国的将领 / 名臣:掌权那几段挂在他任职的那一位上(将领 = 大将专权、名臣 = 大臣专权);
+ * 没任职的照旧单起一位名臣。旧存档没有任将任臣,照旧。
  * 即位(crown)可以带 after: true = 等此刻(from 那一年年初)在位的那位君主下台再即位:他到期驾崩 / 退位、或被作者让他去世时由作者的人物继位
  * (年份到时才定;那位先因改朝换代、亡国、被作者另立的君主取代而下台 = 不生效)。旧存档没有这个字段,照旧。
  * 即位(crown)可以带 keep: true = 他在位期间保住王室(同 keep 那一条,只管他在位的那些年;即位页的勾,新下的默认勾上)。
  * 没有这个字段 = 不保(旧存档里的即位都没有,照旧)。
+ * 国家的事记在作者人物名下(人物卡「一生」一段经历旁「进推演…」下的):结盟、立约、划中立地、迁都、划州、灭国、立国、方针、天灾、大迁徙(连同不许迁)
+ * 可以带 author = 作者人物的编号(AUTHOR_IV_KINDS;同即位的编号)。**推演不看它**(历史和不带一样),只管说法:编年史这一条后面写"(林小满之议)"。
+ * 别的种类带了去掉;旧版网站读到会去掉它,干预照旧。
  * 让人物去世(death)、改君主倾向(temper)用人物键(personKey)认人,键里的国家要是 a;推演里按"国家 + 生年 + 此刻在位"认君主
  * (作者立的君主不在此列:他的生死、性格归人物卡管)。同一年同一位君主又去世又改倾向:去世为准。
  * 天灾(disaster)只给它那一种用的字段(瘟疫 city、饥荒 a 或 regions(最多 DISASTER_REGIONS_MAX 州,去重)、地震水旱 region、
  * 全球大疫 city 和 slump(吸到最近的一档,30 不写)),别的去掉。
+ * 大迁徙(trek)、不许迁(stay):folk 是民族键(格式不对 = 不合格)。大迁徙的 region、to 是州键(格式不对的去掉);给了 to 就不要 reach,
+ * reach 只认 near / far(mid 是默认,不写);dir 只认 TREK_DIRS 里的,给了 to 就不要 dir。不许迁只多一个 until。
  * 推一把发展(boost):mul 吸到最近的一档(BOOST_MULS;不是大于 1 的数 = 不给,直接进);直接进不要 until;快几倍的 until 不晚于 from 的
  * 换成 from + BOOST_YEARS_DEFAULT;regions 去重、去掉格式不对的、最多 BOOST_REGIONS_MAX 个(给了却一个都不合格 = 不合格)。
  * fromTick(可选,哪一种都能带):在 from 那一年的第几格(见"时刻";1–YEAR_TICKS−1,没有 = 年初)。逐年推演停在年中时下的命令带着它;
@@ -212,9 +241,10 @@
  *
  * ## 作者的人物
  *
- * WorldEdits.characters(可选,没有 = 一个也没有):作者放进这个世界的自己的人物 —— 名字、生卒、出生地、国家、身份、简介、
+ * WorldEdits.characters(可选,没有 = 一个也没有):作者放进这个世界的自己的人物 —— 名字、性别、生卒、出生地、国家、身份、简介、
  * 一生的几段经历(每段可以勾上推演里的事和人)、亲友。和作者标记一样只是记下来:不改变世界、不参与推演、和生成器版本无关。
- * 字段、上限、怎么清理见 characters.ts。要让他进推演用干预"即位"(crown,见"干预"那一节):生年、倾向抄进干预,推演只看干预。
+ * 字段、上限、怎么清理见 characters.ts。要让他进推演用干预"即位"(crown,见"干预"那一节):生年、倾向抄进干预,推演只看干预
+ * (性别不进干预、不影响推演:即了位的那位君主是男是女,界面按人物卡套上,见 characters.ts 的 applyCharacters)。
  *
  * ## 大纲
  *
@@ -239,6 +269,8 @@
  * | city     | 城键(迁都迁到哪;瘟疫从哪座城起)                                                                      |
  * | person   | 人物键(去世的那一位:君主、将领、名臣;国家看键里的那一国)                                             |
  * | char     | 作者人物的编号(即位的那一位;生年、性格照人物卡)                                                       |
+ * | folk     | 民族键 `culture:…`(大迁徙的那一族)                                                                    |
+ * | dir      | 方位:east 东 / south 南 / west 西 / north 北(大迁徙往哪走;不给 = 不限)                               |
  *
  * | kind       | 情节           | 要的字段                   | 怎么查(那几年的史事、归属)                         | 没发生时怎么硬改                     |
  * |------------|----------------|----------------------------|------------------------------------------------------|--------------------------------------|
@@ -252,6 +284,7 @@
  * | `crown`    | 作者的人物即位 | a,char                     | 他即 a 的君位                                        | 即位 crown                           |
  * | `split`    | 分裂 / 独立    | region(a 可选:从哪国分出) | 那州起事自立(从 a 分出)                             | 立国 found(那州要在 a 手里)         |
  * | `disaster` | 天灾           | type、level(1–3,不给 = 2);瘟疫、全球大疫 city / 饥荒 a 或 regions / 地震水旱 region;全球大疫可带 slump(疫后无人收拾几年) | 那里闹了那种灾 | 天灾 disaster            |
+ * | `trek`     | 大迁徙         | folk(dir 可选:往哪个方位) | 这一族分出一支动身远走(往那个方位:整条路线的走向,同 Civ.migrations 的 dir) | 大迁徙 trek(去处推演挑,只挑那个方位上的;那年这一族已不在 = 做不到,那个方位上走不到 = 做不到 noWay) |
  * | `submit`   | 称臣           | a 向 b 称臣                | a 称臣于 b,或那几年 a 是 b 的藩属                   | 推演里还不能直接让它发生(只查)     |
  * | `peace`    | 议和           | a,b                        | 两国议和                                             | 同上                                 |
  * | `dynasty`  | 改朝换代       | a                          | a 改朝换代                                           | 同上                                 |
@@ -267,7 +300,7 @@
  * 做不到 failed / 只讲故事 story,落在哪一年,做不到的原因,立起来的国家,硬改的、做不到的先顺着引试了几版 tried)。只是记下来;改了大纲以后界面去掉它,再照大纲推演时重新算。
  *
  * **要重新指**(Plot.redo,可选):大纲从一个世界搬到另一个世界(照故事找世界,从大纲页来的)时,国家换成找到的那几国,
- * 别的对不上的几项(没对上的国家、州、城、人物、作者的人物、作者标记)从情节里去掉,记进 redo:哪一项 → 原来那个世界里它叫什么
+ * 别的对不上的几项(没对上的国家、州、城、人物、作者的人物、作者标记、民族)从情节里去掉,记进 redo:哪一项 → 原来那个世界里它叫什么
  * (`{ "a": "奥利亚王国", "city": "东定城" }`,作者对照着重新指)。记在 redo 里的要填的几项可以缺着(这条照样收下);
  * 照大纲推演时缺着要填的那条标"做不到"(reason = redo),只缺可有可无的几项照常查。重新指了的那一项不再记在 redo 里。
  *
@@ -280,9 +313,15 @@
  * 推得更久的世界照样从第 0 年推起,前 3000 年和推 3000 年的世界几乎一样;扩张节拍、民族诞生、大宗教创立都按前 3000 年排,
  * 之后只是各国接着兴亡更替。新建世界时选(END_YEAR_DEFAULT 起,一格 END_YEAR_STEP 即整千年),当作第一次推到哪;推完以后可以再推 N 年
  * (worker 的 extend,gen/civ/index.ts 的 continueCiv:前面的历史一点不变,只往后长),所以年数不限整千年,到 END_YEAR_MAX 为止。
- * 逐年推演存回成普通世界(gen/stepwise.ts 的 stepwiseToNormal)推到"现在"那一年,可以不到 3000 年(END_YEAR_MIN 起)。
+ * 逐年推演存回成普通世界(gen/stepwise.ts 的 stepwiseToNormal)推到"现在"那一刻,可以不到 3000 年(END_YEAR_MIN 起)。
  * 推到第 T 年再推到第 T' 年,和一次推到第 T' 年结果一样:存档只记推到哪一年,读档照它推(或读原件)得出同一个世界。
  * 3000 年的不写。以前只有 3000 年起的整千年(存档、链接里写的都是),照旧读出同一个数。
+ *
+ * WorldEdits.endTick(可选,没有 = 年初):推到那一年的第几格(见"时刻";1–YEAR_TICKS−1 的整数)。逐年推演停在年中时存回成普通世界才有:
+ * 推到第 endYear 年第 endTick 格(那一格的事也推完,和推到年初的世界推完"那一年第一刻"的事一样),"再推 N 年"推到 N 年以后的同一格。
+ * 推演用的是折成带小数的年份(endAtOf:endYear + endTick / YEAR_TICKS,浮点里精确);endYear 没写(3000)时照样能带。
+ * 推到 END_YEAR_MAX 的不带(再往后推不到)。0 和不合格的不写(读档时不合格的提示一句,按那一年年初推)。
+ * 有它的存档写格式 2(savefile.ts),只认识年份的版本读到会提示更新页面,不悄悄推到年初。
  *
  * ## 地名风格
  *
@@ -394,12 +433,14 @@
  *
  * | 字段      | 意思                                         | 取值                                                      | 默认 |
  * |-----------|----------------------------------------------|-----------------------------------------------------------|------|
- * | step      | 一步走几年                                   | 1–ADVANCE_STEP_MAX 的整数(取整、夹回范围)               | 1    |
- * | every     | 每隔几年停一下(从上一次停下的那年数起)     | 1–END_YEAR_MAX 的整数(取整、夹回范围);常用 10 / 25 / 50 / 100 | 25   |
+ * | step      | 一步走多久:几个 unit                         | 正整数(取整、夹回范围):年 1–ADVANCE_STEP_MAX,月 1–ADVANCE_MONTHS_MAX,格 1–ADVANCE_TICKS_MAX | 1    |
+ * | unit      | step 的单位:'month' = 月(按这个世界一年几个月算,只写年的世界照 12 个月),'tick' = 格(见"时刻") | 没有 = 年 | 年   |
+ * | every     | 每隔几年停一下(从上一次停下的那一刻数起)   | 0 = 每一步都停;1–END_YEAR_MAX 的整数(取整、夹回范围);常用 10 / 25 / 50 / 100 | 25   |
  * | big       | 出大事也停(亡国、改朝换代、大战这类,ui/stepwisePlan.ts) | 只认 true                                       | 不停 |
  * | countdown | 停下以后倒计时几秒再接着走                   | ADVANCE_COUNTDOWNS 里的一个:30 / 60 / 120;0 = 不倒计时(等人点) | 60   |
  *
- * 认不出的项(不是数、不在可选的几个里)按默认;多余的字段去掉。都是能原样转成 JSON 的数和布尔值。
+ * 一季、半年存成 64 格、128 格;一步最长 5 年(按月算的到用的时候再按这个世界一年几个月夹,见 ui/stepwisePlan.ts 的 stepTicks)。
+ * 认不出的项(不是数、不在可选的几个里)按默认;多余的字段去掉。都是能原样转成 JSON 的数、字符串和布尔值。
  *
  * ## 导播跟着谁
  *
@@ -535,15 +576,38 @@
  *      复国那一条写起事的人"自某国还"。疆域、兴亡、人物的下场不变,编年史多了出奔那一条
  *  45:地形大事以后城的港口、人口上限和这座城最后一次记下的那一段比(civ/upheaval.ts 的 reshapeCities;以前和紧挨着的前一段比,
  *      几件大事各变一点、每件都不到 2% 的一直不记,差别攒下来)。只有带地形大事的世界变了:城的人口上限有一点变化,历史重新推演
- *  46:滚雪球(civ/wars.ts):强国打下国都、守方余下的州不超过攻方一半时,余下的州一并归降、亡国(更大的照旧迁都);
+ *  46:大迁徙(civ/migration.ts):草原、寒地的民族老家挤、闹灾年、本族的国散了,附近又有大乱、疫后空了、富庶的地时,
+ *      分出一支举族远走(每个世界三千年里三到六次),一路走一路抢,到了占几州立国、当即开战;打进国都的,比它小的国家亡国、
+ *      大国大崩解,迁来的占着国都一带;入主以后统治民族是少数的,两三百年里多半渐染当地之俗。编年史一次一条大事。历史重新推演
+ *  47:季节进推演(gen/seasons.ts 估算一年里各地的月温):出兵避冬(civ/wars.ts:要打的那州正在冬天里就顿兵到开春再打,编年史记"顿兵过冬"),
+ *      冬夏分明的地方饥荒挪到当地青黄不接的春荒(civ/unrest.ts,编年史写"春,某州大饥");还没即位的预定继承人的名字从他出道那一刻就算用过
+ *      (civ/lineage.ts:同一刻出道的兄弟不再推到一半时和他同名)。历史重新推演
+ *  48:大迁徙的方位按整条路线在地图上的走向定(civ/migration.ts 的 trekDir;以前按出发地到落脚地的大圆初始朝向,
+ *      高纬度往西走得远的会写成"南徙")。疆域、兴亡不变,只有编年史、国家卡片、人物卡上大迁徙的方位字变了
+ *  49:时代做法(civ/practices.ts 的做法表):国都那州有了户籍才能议成直征(没有时最多和地方分成),有了常备军才议收兵权,
+ *      有了文官考选才议铨选;人口普查、铁路、电报、火药以后分封边镇渐废也接进议事和割据。编年史里头一回直征、禁军、铨选换说法,
+ *      进新时代那条接上铁路、电报。历史重新推演
+ *  50:推演里有了女性(civ/women.ts):按语感的规矩和比例,一部分君主、没即位的宗室、将领、名臣是女的,用女名(将领、名臣的字跟着另起;
+ *      西幻同名的国王里有一位成了女王的,后面那几位的"几世"跟着变)。疆域、兴亡、战争、人物的生卒和父子一样不变,男的名字一个不变
+ *  51:将门、世家(civ/kin.ts):一部分将领、名臣是本国先前一位将领、名臣的孩子,随父姓、籍贯同父亲;复国之君接上故国世系
+ *      (lineage.ts:中间补几代故国宗室,隔得太远的补一位父亲)。疆域、兴亡、战争不变,将领名臣的名字、籍贯和人物的编号会变
+ *  52:后妃(civ/consorts.ts):联姻嫁来的宗室女成了能点开的人物;名臣辅政的一部分换成幼主的母亲临朝(篡位的就是开国的女君),
+ *      名臣那边不再为这几段起人(同一朝的名臣、经手的事跟着重排,名字可能变)。疆域、兴亡、战争、君主将领宗室的生卒和父子不变
+ *  53:思潮(civ/ideology.ts)的数:技艺、民权两说传得快、前提差一点的地方也学得进一点,各说退潮快一倍,天命之说到了印刷的时代更合不来。
+ *      只算不用,地形、历史一个字段不变,只有 civ.ideology 变了
+ *  54:思潮上了编年史(civ/ideologyText.ts):某城始倡某说(大事)、某说盛于某大国、大国里某说渐衰某说代兴;
+ *      各州的思潮从每 100 年存一份改成每 20 年一份(思潮图层传开的边缘照真推的走)。疆域、兴亡、战争、人物一样不变
+ *  55:改制(civ/reform.ts):国中思潮和政体对不上、国用不足、刚打败仗时议立宪、废君立共和,谈崩起兵革命;共和国政变、新制不到五十年复辟;
+ *      国号只在君主没了 / 回来了时变(某共和国),旗跟着换。历史重排
+ *  56:滚雪球(civ/wars.ts):强国打下国都、守方余下的州不超过攻方一半时,余下的州一并归降、亡国(更大的照旧迁都);
  *      大胜的一方不歇、几年后再看一眼弱得多的邻国(连续吞并);灭国之战的门槛从国力 3 倍降到 2.5 倍,分裂、复国出来的国家站稳期 60 → 30 年。
  *      编年史写"破某城,某国余州皆降"。历史重新推演
  */
-import type { Civ, Culture, Faith, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
+import type { Civ, Culture, Faith, MigrationDir, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
-import { polityRootAt } from './civ/growth';
-import { treatyBook } from './civ/treatyInfo';
-import { TERRAIN_H, TERRAIN_W } from './terrainEdits';
+import { polityRootAt } from './civ/polityRoot';
+import { treatyBook } from './civ/treatyBook';
+import { TERRAIN_H, TERRAIN_W } from './terrainOps';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names/mix';
 import type { Era, MonthNames } from './era';
@@ -551,11 +615,13 @@ import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 46;
+export const GENERATOR_VERSION = 56;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
+ *   ideology   地形、历史不变,各州的思潮重算了
  *   names      地形、历史不变,默认的名字换了
+ *   people     地形、历史不变,人物有些改动(一部分换成女的、将领名臣有了父子相承……),名字跟着换了
  *   chronicle  疆域、兴亡不变,编年史里添了内容
  *   routes     地形、历史不变,道路和航线变了
  *   history    地形、气候不变,历史重新推演
@@ -563,7 +629,7 @@ export const GENERATOR_VERSION = 46;
  *   terrain    地形有局部变化,历史重新推演
  *   planet     整颗星球重新生成
  */
-export type GeneratorChange = 'names' | 'chronicle' | 'routes' | 'history' | 'climate' | 'terrain' | 'planet';
+export type GeneratorChange = 'ideology' | 'names' | 'people' | 'chronicle' | 'routes' | 'history' | 'climate' | 'terrain' | 'planet';
 
 /**
  * 每一版(加到这个号时)改了什么;edited = 只有改过地形(地形修改、草图)的世界变了,没改地形的和上一版一样;
@@ -616,6 +682,16 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   44: { change: 'chronicle' },
   45: { change: 'history', only: 'upheavals' },
   46: { change: 'history' },
+  47: { change: 'history' },
+  48: { change: 'chronicle' },
+  49: { change: 'history' },
+  50: { change: 'people' },
+  51: { change: 'people' },
+  52: { change: 'people' },
+  53: { change: 'ideology' },
+  54: { change: 'chronicle' },
+  55: { change: 'history' },
+  56: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
@@ -639,7 +715,23 @@ export type InterventionKind =
   | 'regent'
   | 'marry'
   | 'keep'
-  | 'boost';
+  | 'boost'
+  | 'trek'
+  | 'stay'
+  | 'appoint';
+
+/**
+ * 大迁徙(trek)"推演挑"时走多远:near 近(五到十州)/ mid 中(十到二十州,和推演自己起的一样)/ far 远(二三十州,横穿大陆,只有下令才有)。
+ * 中是默认,不写
+ */
+export const TREK_REACHES = ['near', 'mid', 'far'] as const;
+export type TrekReach = (typeof TREK_REACHES)[number];
+
+/** 大迁徙往哪个方位(干预 trek 的 dir、大纲「大迁徙」情节的 dir):东、南、西、北 */
+export const TREK_DIRS = ['east', 'south', 'west', 'north'] as const;
+export type TrekDir = (typeof TREK_DIRS)[number];
+/** 方位 → Civ.migrations 里记的那个字(trekDir 算出来的) */
+export const TREK_DIR_NAMES: Record<TrekDir, MigrationDir> = { east: '东', south: '南', west: '西', north: '北' };
 
 /** 推一把发展快几倍的几档(干预 boost 的 mul;不给 = 直接进下一个时代) */
 export const BOOST_MULS = [3, 10] as const;
@@ -661,6 +753,22 @@ export const REGENT_ENDS = ['succeed', 'return', 'usurp'] as const;
 export type RegentEnd = (typeof REGENT_ENDS)[number];
 /** 还政、篡位最多过几年 */
 export const REGENT_YEARS_MAX = 40;
+/** 让作者的人物掌权(regent 带 char)能怎么掌:chancellor 以名臣的身份专权 / general 以将领的身份专权 */
+export const AUTHOR_REGENT_HOWS = ['chancellor', 'general'] as const;
+export type AuthorRegentHow = (typeof AUTHOR_REGENT_HOWS)[number];
+/** 让作者的人物掌权:没填还政年、人物卡也没写卒年时,掌权到他这么多岁还政 */
+export const AUTHOR_REGENT_AGE_END = 70;
+/** 任将 / 任臣(appoint)当什么:general 将领 / minister 名臣 */
+export const APPOINT_ROLES = ['general', 'minister'] as const;
+export type AppointRole = (typeof APPOINT_ROLES)[number];
+/** 任将 / 任臣:没填卸任年、人物卡也没写卒年时,将领到这么多岁卸甲、名臣到这么多岁致仕(推演里寻常的 58–70 岁、62–76 岁取中) */
+export const AUTHOR_GENERAL_AGE_END = 65;
+export const AUTHOR_MINISTER_AGE_END = 70;
+/** 任将(appoint,将领)的能力:不给 = 寻常;good 良将 / great 名将 */
+export const APPOINT_SKILLS = ['good', 'great'] as const;
+export type AppointSkill = (typeof APPOINT_SKILLS)[number];
+/** 良将 / 名将挂帅的那几仗本方兵力乘这个数(只对作者的将领,见文件头) */
+export const APPOINT_SKILL_POWER: Readonly<Record<AppointSkill, number>> = { good: 1.15, great: 1.3 };
 /** 为他联姻怎么结:不给 = 他娶对方的宗室女;give = 本国宗室女嫁给对方;mutual = 互嫁 */
 export const MARRY_HOWS = ['give', 'mutual'] as const;
 export type MarryHow = (typeof MARRY_HOWS)[number];
@@ -701,12 +809,13 @@ export const POLICY_PICK_MAX = 3;
 /**
  * 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`)。
  * 照大纲推演硬改出来的多一个 plot = 哪一条情节(Plot.id,见文件头"大纲");推演不看它,只管说法和"改了大纲再推时先去掉"。
- * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它;只有它能带 power、unrest(国力、动荡加减)
+ * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它;只有它能带 power、unrest(国力、动荡加减)。
+ * author = 记在哪位作者人物名下(只有 AUTHOR_IV_KINDS 那几种;推演不看它,见文件头)
  */
 export type Intervention = (
   | { kind: 'protect'; a: string; from: number; until?: number }
   | { kind: 'ally'; a: string; b: string; from: number; until?: number }
-  | { kind: 'declare'; a: string; b: string; from: number }
+  | { kind: 'declare'; a: string; b: string; from: number; lead?: number }
   | { kind: 'unity'; a: string; from: number }
   | { kind: 'cede'; a: string; region: string; from: number; permanent?: true }
   | { kind: 'found'; region: string; from: number; name?: string }
@@ -720,9 +829,25 @@ export type Intervention = (
   | { kind: 'disaster'; type: DisasterKind; level: DisasterLevel; from: number; city?: string; a?: string; regions?: string[]; region?: string; slump?: number }
   | { kind: 'treaty'; a: string; ps: string[]; from: number; term?: number; limited?: true; keep?: true; by?: string; zone?: string; ask?: true }
   | { kind: 'neutral'; a: string; region: string; ps: string[]; from: number; quiet?: true; lasting?: true; until?: number; ask?: true }
-  | { kind: 'regent'; a: string; person: string; from: number; how: RegentHow; end: RegentEnd; years?: number; leanings?: RulerLeanings }
+  | { kind: 'regent'; a: string; person: string; char?: undefined; from: number; how: RegentHow; end: RegentEnd; years?: number; leanings?: RulerLeanings }
+  | {
+      kind: 'regent';
+      a: string;
+      person?: undefined;
+      char: number;
+      born: number;
+      died?: number;
+      from: number;
+      how: AuthorRegentHow;
+      end: 'return';
+      years?: number;
+      leanings: RulerLeanings;
+    }
   | { kind: 'marry'; a: string; person: string; b: string; from: number; how?: MarryHow }
+  | { kind: 'appoint'; a: string; char: number; role: AppointRole; born: number; died?: number; from: number; until?: number; skill?: AppointSkill }
   | { kind: 'boost'; a: string; from: number; mul?: BoostMul; until?: number; regions?: string[] }
+  | { kind: 'trek'; folk: string; from: number; region?: string; to?: string; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir }
+  | { kind: 'stay'; folk: string; from: number; until?: number }
   | {
       kind: 'policy';
       a: string;
@@ -739,7 +864,10 @@ export type Intervention = (
       unrest?: number;
       look?: GuideLook;
     }
-) & { plot?: number; guide?: true; fromTick?: number };
+) & { plot?: number; guide?: true; fromTick?: number; author?: number };
+
+/** 能记在作者人物名下的几种(国家的事;Intervention.author,见文件头) */
+export const AUTHOR_IV_KINDS: readonly InterventionKind[] = ['ally', 'treaty', 'neutral', 'move', 'cede', 'destroy', 'found', 'policy', 'disaster', 'trek', 'stay'];
 
 /** 顺着引的方针替这国多看几眼的那一种:war 看邻国(开战)、politics 看内政(大崩解、分裂)、dynasty 看王朝 */
 export const GUIDE_LOOKS = ['war', 'politics', 'dynasty'] as const;
@@ -821,6 +949,8 @@ export interface WorldEdits {
   nameMix?: NameMix;
   /** 历史推到第几年(见文件头"推演年数");没有 = 3000 */
   endYear?: number;
+  /** 推到那一年的第几格(1–YEAR_TICKS−1,见文件头"推演年数");没有 = 年初 */
+  endTick?: number;
   /** 拓荒:民族扩散、国家扩张快慢,地形难走程度(见文件头"拓荒与起源");没有 = 默认 */
   frontier?: Frontier;
   /** 自己选的文明起源(见文件头"拓荒与起源");没有 = 自动 */
@@ -903,9 +1033,11 @@ export interface PlayBranch {
 
 /** 推进设置(存进修改的样子:默认的项不写;字段见文件头"推进设置") */
 export interface AdvanceSettings {
-  /** 一步走几年(1–ADVANCE_STEP_MAX) */
+  /** 一步走几个 unit(年 1–ADVANCE_STEP_MAX,月 1–ADVANCE_MONTHS_MAX,格 1–ADVANCE_TICKS_MAX) */
   step?: number;
-  /** 每隔几年停一下(1–END_YEAR_MAX) */
+  /** step 的单位(没有 = 年) */
+  unit?: 'month' | 'tick';
+  /** 每隔几年停一下(1–END_YEAR_MAX;0 = 每一步都停) */
   every?: number;
   /** 出大事也停 */
   big?: true;
@@ -916,6 +1048,7 @@ export interface AdvanceSettings {
 /** 推进设置,每一项都填上(没写的照默认;advanceOf 返回这个) */
 export interface Advance {
   step: number;
+  unit: AdvanceUnit;
   every: number;
   big: boolean;
   countdown: number;
@@ -969,12 +1102,38 @@ export function cleanEndYear(v: unknown): number | undefined {
 }
 
 /**
- * 推到第 endYear 年的世界再推 years 年,推到第几年:years 取整、至少 1 年,到 END_YEAR_MAX 为止
- * (已经推到 END_YEAR_MAX 的 = END_YEAR_MAX,推不动了)。years 不是有限数 = 不再推(返回 endYear 本身,清理过)
+ * 推到哪一刻的清理(带小数的年份,见文件头"时刻""推演年数";交给推演、比推好的历史推到哪用):不是数字 = undefined;
+ * 按格取整(最近的一格),夹在 END_YEAR_MIN–END_YEAR_MAX;正好 3000 年 = undefined(不写)。整数年和 cleanEndYear 一样
+ */
+export function cleanEndAt(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  const t = Math.min(END_YEAR_MAX * YEAR_TICKS, Math.max(END_YEAR_MIN * YEAR_TICKS, Math.round(v * YEAR_TICKS)));
+  return t === END_YEAR_DEFAULT * YEAR_TICKS ? undefined : t / YEAR_TICKS;
+}
+
+/** 推到那一年的第几格的清理(见文件头"推演年数"):1–YEAR_TICKS−1 的整数原样返回;0、不合格的、推到 END_YEAR_MAX 的(再往后推不到)= undefined(年初,不写) */
+export function cleanEndTick(v: unknown, endYear: number): number | undefined {
+  const t = cleanTick(v);
+  return t && endYear < END_YEAR_MAX ? t : undefined;
+}
+
+/** 推到 at 那一刻(带小数的年份,先照 cleanEndAt 取整、夹回;不是数字 = 3000 年)写进修改的两项:endYear 是整数年(3000 照写),年初的不带 endTick */
+export function endFields(at: number): { endYear: number; endTick?: number } {
+  const t = Math.round((cleanEndAt(at) ?? END_YEAR_DEFAULT) * YEAR_TICKS);
+  const year = Math.floor(t / YEAR_TICKS);
+  const tick = t - year * YEAR_TICKS;
+  return tick ? { endYear: year, endTick: tick } : { endYear: year };
+}
+
+/**
+ * 推到第 endYear 年(带小数:年中停下存回的普通世界,见文件头"推演年数")的世界再推 years 年,推到哪一刻:years 取整、至少 1 年,
+ * 停在 years 年以后的同一格;到 END_YEAR_MAX 为止(差不到一整年就到头的也推到那一年;已经推到 END_YEAR_MAX 的 = END_YEAR_MAX,推不动了)。
+ * years 不是有限数 = 不再推(返回 endYear 本身,清理过)
  */
 export function extendedEndYear(endYear: number, years: number): number {
-  const from = cleanEndYear(endYear) ?? END_YEAR_DEFAULT;
+  const from = cleanEndAt(endYear) ?? END_YEAR_DEFAULT;
   if (!Number.isFinite(years)) return from;
+  if (from + years >= END_YEAR_MAX) return END_YEAR_MAX;
   return Math.min(END_YEAR_MAX, from + Math.max(1, Math.round(years)));
 }
 
@@ -1047,6 +1206,22 @@ export function endYearOf(edits: Pick<WorldEdits, 'endYear'>): number {
   return cleanEndYear(edits.endYear) ?? END_YEAR_DEFAULT;
 }
 
+/** 这个世界推到哪一刻(带小数的年份:推演年数 + 年内第几格 / YEAR_TICKS,见文件头"推演年数";没写 = 默认那一年年初) */
+export function endAtOf(edits: Pick<WorldEdits, 'endYear' | 'endTick'>): number {
+  const y = endYearOf(edits);
+  return y + (cleanEndTick(edits.endTick, y) ?? 0) / YEAR_TICKS;
+}
+
+/** 推文明时交给推演的推演年数(带小数,见 endAtOf);正好 3000 年 = undefined(和没写一样;推到年初的世界和 cleanEndYear(edits.endYear) 一样) */
+export function endParamOf(edits: Pick<WorldEdits, 'endYear' | 'endTick'>): number | undefined {
+  return cleanEndAt(endAtOf(edits));
+}
+
+/** 修改里写着的推到哪一刻(带小数的年份);推演年数、第几格都没写 = undefined(撤销"再推"时照它改回去:原来没写的照样不写) */
+export function writtenEndAt(edits: Pick<WorldEdits, 'endYear' | 'endTick'>): number | undefined {
+  return edits.endYear === undefined && !edits.endTick ? undefined : endAtOf(edits);
+}
+
 /** 作者标记的颜色(界面上的六种:红、橙、绿、蓝、紫、青) */
 export const MARK_COLORS = ['red', 'orange', 'green', 'blue', 'purple', 'teal'] as const;
 export type MarkColor = (typeof MARK_COLORS)[number];
@@ -1086,7 +1261,7 @@ export const EMPTY_EDITS: WorldEdits = Object.freeze({
   terrain: Object.freeze([]) as unknown as TerrainOp[],
 });
 
-export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person' | 'treaty';
+export type KeyKind = 'polity' | 'settlement' | 'place' | 'culture' | 'dynasty' | 'region' | 'faith' | 'person' | 'treaty' | 'trade';
 
 export interface ResolvedKey {
   kind: KeyKind;
@@ -1256,14 +1431,16 @@ export function resolvePersonKey(civ: Civ, key: string): number {
   const hit = ix.byKey.get(key);
   if (hit !== undefined) return hit;
   // 预定的继承人、摄政篡位的叔父:推到他即位以前记下的是宗室(prince),接着推过了即位那年他是君主(ruler);
-  // 掌实权篡位的名臣:以前是名臣(minister),篡位以后是新朝的第一位(ruler);往回推反过来
+  // 掌实权篡位的名臣:以前是名臣(minister),篡位以后是新朝的第一位(ruler);临朝篡位的太后:以前是后妃(consort);往回推反过来
   const swaps = key.includes('|prince|')
     ? [key.replace('|prince|', '|ruler|')]
     : key.includes('|minister|')
       ? [key.replace('|minister|', '|ruler|')]
-      : key.includes('|ruler|')
-        ? [key.replace('|ruler|', '|prince|'), key.replace('|ruler|', '|minister|')]
-        : [];
+      : key.includes('|consort|')
+        ? [key.replace('|consort|', '|ruler|')]
+        : key.includes('|ruler|')
+          ? [key.replace('|ruler|', '|prince|'), key.replace('|ruler|', '|minister|'), key.replace('|ruler|', '|consort|')]
+          : [];
   for (const s of swaps) {
     const hit = ix.byKey.get(s);
     if (hit !== undefined) return hit;
@@ -1299,6 +1476,18 @@ export function treatyKey(civ: Civ, id: number): string {
   const ps = x.parties.slice(0, 2).map((p) => polityKey(civ, p));
   if (ps.some((k) => !k)) return '';
   return `treaty:${ps.map((k) => k.slice(k.indexOf(':') + 1)).join('+')}@${Math.round(x.start * 256)}`;
+}
+
+/**
+ * 商道的稳定键:买方国家的稳定键 + 产地州的键 + 开通那一刻(1/256 年为单位)(`trade:c4567#0>c890@410907`)。
+ * 重推历史后同一国、从同一州、同一刻开通的还是它;对不上就算了(和约一样)。没有这条商道 = 空串
+ */
+export function tradeKey(civ: Civ, id: number): string {
+  const r = civ.trade?.routes[id];
+  if (!r || !civ.polities[r.buyer] || !r.events.length) return '';
+  const p = polityKey(civ, r.buyer);
+  if (!p) return '';
+  return `trade:${p.slice(p.indexOf(':') + 1)}>${regionKey(civ, r.from).slice('region:'.length)}@${Math.round(r.events[0].year * 256)}`;
 }
 
 export function regionKey(civ: Civ, region: number): string {
@@ -1364,6 +1553,10 @@ export function resolveKey(civ: Civ, key: string): ResolvedKey | null {
     const x = treatyBook(civ).treaties.find((t) => t && treatyKey(civ, t.id) === key);
     return x ? { kind: 'treaty', id: x.id } : null;
   }
+  if (key.startsWith('trade:')) {
+    const x = civ.trade?.routes.find((r) => tradeKey(civ, r.id) === key);
+    return x ? { kind: 'trade', id: x.id } : null;
+  }
   if (key.startsWith('dynasty:')) {
     const cut = key.lastIndexOf('/');
     if (cut < 0) return null;
@@ -1416,7 +1609,7 @@ export function upgradeLegacyKeys(edits: WorldEdits, seat: ArrayLike<number>): W
   const list = edits.interventions.map((v) => {
     const o = v as unknown as Record<string, unknown>;
     let w: Record<string, unknown> | null = null;
-    for (const f of ['a', 'b', 'region', 'city']) {
+    for (const f of ['a', 'b', 'region', 'city', 'folk', 'to']) {
       const c = upgradeKey(o[f], seat);
       if (c === null) continue;
       w ??= { ...o };
@@ -1544,6 +1737,7 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
   const faith = new Map<number, string>();
   const person = new Map<number, string>();
   const treaty = new Map<number, string>();
+  const trade = new Map<number, string>();
   for (const key in names) {
     const name = names[key];
     if (typeof name !== 'string' || !name) continue;
@@ -1557,13 +1751,14 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     else if (r.kind === 'faith') faith.set(r.id, name);
     else if (r.kind === 'person') person.set(r.id, name);
     else if (r.kind === 'treaty') treaty.set(r.id, name);
+    else if (r.kind === 'trade') trade.set(r.id, name);
     else {
       let m = dynasty.get(r.id);
       if (!m) dynasty.set(r.id, (m = new Map()));
       m.set(r.index!, name);
     }
   }
-  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size && !treaty.size) return civ;
+  if (!polityRoot.size && !dynasty.size && !settlement.size && !place.size && !culture.size && !region.size && !faith.size && !person.size && !treaty.size && !trade.size) return civ;
 
   let changed = false;
   // 州名:另起一份 regionNames(civ.regions 不动,见文件头)
@@ -1685,9 +1880,23 @@ export function applyNames(civ: Civ, names: Record<string, string>): Civ {
     for (const [id, name] of treaty) treatyNames[id] = name;
     changed = true;
   }
+  // 商道:换名字(路线、通断不动)
+  let tradeData = civ.trade;
+  if (trade.size && tradeData) {
+    const T0 = tradeData.routes;
+    const T = T0.map((r) => {
+      const name = trade.get(r.id);
+      return name && name !== r.name ? { ...r, name } : r;
+    });
+    if (T.some((r, i) => r !== T0[i])) {
+      tradeData = { ...tradeData, routes: T };
+      changed = true;
+    }
+  }
   if (!changed) return civ;
   const out: Civ = { ...civ, cultures, places, settlements, polities };
   if (treatyNames) out.treatyNames = treatyNames;
+  if (tradeData) out.trade = tradeData;
   if (people) out.people = people;
   if (regionNames) out.regionNames = regionNames;
   if (religion) out.religion = religion;
@@ -1708,7 +1917,7 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost'];
+const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost', 'trek', 'stay', 'appoint'];
 
 /** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
 export interface PersonKeyParts {
@@ -1719,7 +1928,7 @@ export interface PersonKeyParts {
   n: number;
 }
 
-const PERSON_KEY = /^person:(polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5})\|(ruler|general|prince|minister)\|([^|]*)\|(-?\d{1,6})(?:#(\d{1,5}))?$/;
+const PERSON_KEY = /^person:(polity:(?:r-?\d{1,7}|c\d{1,7})#\d{1,5})\|(ruler|general|prince|minister|consort)\|([^|]*)\|(-?\d{1,6})(?:#(\d{1,5}))?$/;
 
 /** 拆开人物键(personKey 的反过来) */
 export function parsePersonKey(key: unknown): PersonKeyParts | null {
@@ -1758,6 +1967,21 @@ function cleanDisaster(o: Record<string, unknown>, from: number): Intervention |
   if (!rs.length) return null;
   const regions = rs.length === o.regions.length && rs.every((k, i) => k === (o.regions as unknown[])[i]) ? (o.regions as string[]) : rs;
   return { kind: 'disaster', type, level, from, regions };
+}
+
+/** 大迁徙(trek)/ 不许迁(stay):见文件头"大迁徙"的清理 */
+function cleanTrek(o: Record<string, unknown>, kind: 'trek' | 'stay', from: number, until: number | null): Intervention | null {
+  if (!isCultureKey(o.folk)) return null;
+  const folk = o.folk;
+  if (kind === 'stay') return until !== null ? { kind, folk, from, until } : { kind, folk, from };
+  const v: Extract<Intervention, { kind: 'trek' }> = { kind, folk, from };
+  if (isRegionKey(o.region)) v.region = o.region;
+  if (isRegionKey(o.to)) v.to = o.to;
+  else {
+    if (o.reach === 'near' || o.reach === 'far') v.reach = o.reach;
+    if ((TREK_DIRS as readonly unknown[]).includes(o.dir)) v.dir = o.dir as TrekDir;
+  }
+  return v;
 }
 
 /** 推一把发展(boost):见文件头"推一把发展"的清理 */
@@ -1808,6 +2032,7 @@ function cleanLeanings(x: unknown): RulerLeanings {
  * 摄政、专权的要 leanings(掌权的人的倾向,同即位的取整夹回范围),引兵入朝、太子监国不带(推演里照他日后即位时的倾向)。不合格 = null
  */
 function cleanRegent(o: Record<string, unknown>, a: string, from: number): Intervention | null {
+  if (typeof o.person !== 'string' && o.char !== undefined) return cleanAuthorRegent(o, a, from);
   const p = parsePersonKey(o.person);
   const how = o.how as RegentHow;
   const end = o.end as RegentEnd;
@@ -1824,6 +2049,45 @@ function cleanRegent(o: Record<string, unknown>, a: string, from: number): Inter
   }
   const base = years !== undefined ? { kind: 'regent' as const, a, person, from, how, end, years } : { kind: 'regent' as const, a, person, from, how, end };
   return how === 'march' || how === 'heir' ? base : { ...base, leanings: cleanLeanings(o.leanings) };
+}
+
+/**
+ * 让作者的人物掌权(regent 带 char,见文件头):char 同即位的编号;born 要有、died 早于等于 born 的去掉;how 只认名臣、将领的专权;
+ * end 只能还政(不给 = 还政);years 给了取整夹到 1…REGENT_YEARS_MAX(不是数 = 不合格),不给 = 到卒年;leanings 同即位。不合格 = null
+ */
+function cleanAuthorRegent(o: Record<string, unknown>, a: string, from: number): Intervention | null {
+  const char = o.char;
+  const born = yearOf(o.born);
+  const how = o.how as AuthorRegentHow;
+  if (typeof char !== 'number' || !Number.isInteger(char) || char < 1 || char > CROWN_CHAR_MAX || born === null) return null;
+  if (!(AUTHOR_REGENT_HOWS as readonly unknown[]).includes(how) || (o.end !== undefined && o.end !== 'return')) return null;
+  const d = o.died === undefined ? null : yearOf(o.died);
+  const died = d !== null && d > born ? { died: d } : {};
+  let years: { years: number } | Record<string, never> = {};
+  if (o.years !== undefined) {
+    const n = o.years;
+    if (typeof n !== 'number' || !Number.isFinite(n)) return null;
+    years = { years: Math.min(REGENT_YEARS_MAX, Math.max(1, Math.round(n))) };
+  }
+  return { kind: 'regent', a, char, born, ...died, from, how, end: 'return', ...years, leanings: cleanLeanings(o.leanings) };
+}
+
+/** 作者人物的编号(即位、掌权、任将任臣、宣战谁挂帅):1–CROWN_CHAR_MAX 的整数 */
+const isCharId = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 1 && x <= CROWN_CHAR_MAX;
+
+/**
+ * 任将 / 任臣(appoint,见文件头):char 同即位的编号;role 只认 general / minister;born 要有、died 早于等于 born 的去掉;
+ * until 同别的干预(不晚于 from 的当作没给);skill 只留将领带的 good / great(别的 = 寻常,去掉)。不合格 = null
+ */
+function cleanAppoint(o: Record<string, unknown>, a: string, from: number, until: number | null): Intervention | null {
+  const char = o.char;
+  const born = yearOf(o.born);
+  const role = o.role as AppointRole;
+  if (!isCharId(char) || born === null || !(APPOINT_ROLES as readonly unknown[]).includes(role)) return null;
+  const d = o.died === undefined ? null : yearOf(o.died);
+  const died = d !== null && d > born ? { died: d } : {};
+  const skill = role === 'general' && (APPOINT_SKILLS as readonly unknown[]).includes(o.skill) ? { skill: o.skill as AppointSkill } : {};
+  return { kind: 'appoint', a, char, role, born, ...died, from, ...(until !== null ? { until } : {}), ...skill };
 }
 
 /**
@@ -1934,6 +2198,7 @@ function cleanTreatyIv(o: Record<string, unknown>, kind: 'treaty' | 'neutral', a
 export const isPolityKey = (k: unknown): k is string => typeof k === 'string' && /^polity:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
 export const isRegionKey = (k: unknown): k is string => typeof k === 'string' && REGION_KEY.test(k);
 export const isCityKey = (k: unknown): k is string => typeof k === 'string' && /^settlement:[rc]\d{1,7}#\d{1,5}$/.test(k);
+export const isCultureKey = (k: unknown): k is string => typeof k === 'string' && /^culture:(r-?\d{1,7}|c\d{1,7})#\d{1,5}$/.test(k);
 /** 年份:取整、夹到 [0, INTERVENTION_YEAR_MAX];不是有限数 = null */
 export const yearOf = (y: unknown): number | null =>
   typeof y === 'number' && Number.isFinite(y) ? Math.min(INTERVENTION_YEAR_MAX, Math.max(0, Math.floor(y))) : null;
@@ -1976,6 +2241,10 @@ export function cleanIntervention(x: unknown): Intervention | null {
     const d = cleanDisaster(o, from);
     if (!d) return null;
     v = d;
+  } else if (kind === 'trek' || kind === 'stay') {
+    const t = cleanTrek(o, kind, from, untilOf());
+    if (!t) return null;
+    v = t;
   } else {
     if (!isPolityKey(o.a)) return null;
     const a = o.a;
@@ -2025,6 +2294,10 @@ export function cleanIntervention(x: unknown): Intervention | null {
       const r = cleanRegent(o, a, from);
       if (!r) return null;
       v = r;
+    } else if (kind === 'appoint') {
+      const r = cleanAppoint(o, a, from, untilOf());
+      if (!r) return null;
+      v = r;
     } else if (kind === 'marry') {
       const p = parsePersonKey(o.person);
       if (!p || p.polity !== a || (p.role !== 'ruler' && p.role !== 'prince') || !isPolityKey(o.b) || o.b === a) return null;
@@ -2032,7 +2305,7 @@ export function cleanIntervention(x: unknown): Intervention | null {
       v = how ? { kind, a, person: o.person as string, b: o.b, from, how } : { kind, a, person: o.person as string, b: o.b, from };
     } else {
       if (!isPolityKey(o.b) || o.b === a) return null;
-      if (kind === 'declare') v = { kind, a, b: o.b, from };
+      if (kind === 'declare') v = isCharId(o.lead) ? { kind, a, b: o.b, from, lead: o.lead } : { kind, a, b: o.b, from };
       else {
         const until = untilOf();
         v = until !== null ? { kind, a, b: o.b, from, until } : { kind, a, b: o.b, from };
@@ -2044,6 +2317,8 @@ export function cleanIntervention(x: unknown): Intervention | null {
   // 年中的时刻(见文件头"时刻"):1–YEAR_TICKS−1 的整数才记,别的当年初
   const ft = cleanTick(o.fromTick);
   if (ft) v = { ...v, fromTick: ft };
+  // 记在作者人物名下(国家的事;推演不看它)
+  if (isCharId(o.author) && AUTHOR_IV_KINDS.includes(v.kind)) v = { ...v, author: o.author };
   const keys = Object.keys(o);
   const w = v as Record<string, unknown>;
   const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);
@@ -2098,6 +2373,22 @@ export function issueCommands(play: PlayState, commands: readonly unknown[]): { 
   }
   return { play: playState(play.year, play.tick ?? 0, [...play.commands, ...accepted]), accepted, rejected };
 }
+
+/**
+ * 几条干预改成下在进度的"现在"(play 那一刻)的命令:from = play.year,停在年中的带上 fromTick = play.tick
+ * (年初的不写,原来带着的第几格去掉);别的字段照旧、字段先后不变,不清理(交给 issueCommands 收)。
+ * 界面把单子里还没交出去的干预交给逐年推演(算下一步、存回推演模式、重新演绎时留下原来那一支)时用
+ */
+export function commandsNow(play: Pick<PlayState, 'year' | 'tick'>, list: readonly Intervention[]): Intervention[] {
+  return list.map((v) => {
+    const { fromTick: _t, ...rest } = v;
+    void _t;
+    return (play.tick ? { ...rest, from: play.year, fromTick: play.tick } : { ...rest, from: play.year }) as Intervention;
+  });
+}
+
+/** 一条干预(命令)生效的那一刻折成年(from + fromTick / YEAR_TICKS;1/256 的整数倍,浮点里精确;年初的 = from) */
+export const commandYear = (v: Pick<Intervention, 'from' | 'fromTick'>): number => commandAt(v) / YEAR_TICKS;
 
 /**
  * 推演里面用的干预(civ/ 下的规则读它):清理过(cleanInterventions);年中的(带 fromTick)把 from 换成那一刻
@@ -2272,14 +2563,22 @@ export function cleanBranches(raw: unknown, play: unknown): PlayBranches | undef
   return JSON.stringify(out) === JSON.stringify(raw) ? (raw as PlayBranches) : out;
 }
 
+/** 推进设置:一步的单位(年 / 月 / 格) */
+export type AdvanceUnit = 'year' | 'month' | 'tick';
 /** 推进设置:一步最多走几年 */
 export const ADVANCE_STEP_MAX = 5;
+/** 推进设置:一步按月算时最多几个月(一年最多 36 个月 × 5 年;用的时候再按这个世界一年几个月夹到 5 年) */
+export const ADVANCE_MONTHS_MAX = 180;
+/** 推进设置:一步按格算时最多几格(5 年) */
+export const ADVANCE_TICKS_MAX = ADVANCE_STEP_MAX * YEAR_TICKS;
+/** 推进设置:每个单位 step 最多多少 */
+export const ADVANCE_UNIT_MAX: Readonly<Record<AdvanceUnit, number>> = { year: ADVANCE_STEP_MAX, month: ADVANCE_MONTHS_MAX, tick: ADVANCE_TICKS_MAX };
 /** 推进设置:倒计时可选的秒数(0 = 不倒计时,等人点) */
 export const ADVANCE_COUNTDOWNS: readonly number[] = [30, 60, 120, 0];
 /** 推进设置:"每隔几年停一下"常用的几档(界面上的按钮;别的数也认,见 cleanAdvance) */
 export const ADVANCE_EVERY_CHOICES: readonly number[] = [10, 25, 50, 100];
 /** 推进设置的默认值 */
-export const ADVANCE_DEFAULT: Readonly<Advance> = Object.freeze({ step: 1, every: 25, big: false, countdown: 60 });
+export const ADVANCE_DEFAULT: Readonly<Advance> = Object.freeze({ step: 1, unit: 'year', every: 25, big: false, countdown: 60 });
 
 /** 推进设置清理(读档、存进修改前用;见文件头"推进设置"):认不出的项按默认,默认的项不写;一项都不剩 = undefined。全都合格时返回原对象 */
 export function cleanAdvance(raw: unknown): AdvanceSettings | undefined {
@@ -2287,9 +2586,11 @@ export function cleanAdvance(raw: unknown): AdvanceSettings | undefined {
   const o = raw as Record<string, unknown>;
   const num = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : undefined);
   const out: AdvanceSettings = {};
-  const step = num(o.step, 1, ADVANCE_STEP_MAX);
-  if (step !== undefined && step !== ADVANCE_DEFAULT.step) out.step = step;
-  const every = num(o.every, 1, END_YEAR_MAX);
+  const unit: AdvanceUnit = o.unit === 'month' || o.unit === 'tick' ? o.unit : 'year';
+  const step = num(o.step, 1, ADVANCE_UNIT_MAX[unit]);
+  if (step !== undefined && (step !== ADVANCE_DEFAULT.step || unit !== 'year')) out.step = step;
+  if (unit !== 'year') out.unit = unit;
+  const every = num(o.every, 0, END_YEAR_MAX);
   if (every !== undefined && every !== ADVANCE_DEFAULT.every) out.every = every;
   if (o.big === true) out.big = true;
   if (typeof o.countdown === 'number' && ADVANCE_COUNTDOWNS.includes(o.countdown) && o.countdown !== ADVANCE_DEFAULT.countdown) out.countdown = o.countdown;
@@ -2304,6 +2605,7 @@ export function advanceOf(edits: Pick<WorldEdits, 'advance'>): Advance {
   const a = cleanAdvance(edits.advance);
   return {
     step: a?.step ?? ADVANCE_DEFAULT.step,
+    unit: a?.unit ?? ADVANCE_DEFAULT.unit,
     every: a?.every ?? ADVANCE_DEFAULT.every,
     big: a?.big ?? ADVANCE_DEFAULT.big,
     countdown: a?.countdown ?? ADVANCE_DEFAULT.countdown,
@@ -2314,7 +2616,7 @@ export function advanceOf(edits: Pick<WorldEdits, 'advance'>): Advance {
 export function sameAdvance(a: unknown, b: unknown): boolean {
   const x = advanceOf({ advance: a as AdvanceSettings });
   const y = advanceOf({ advance: b as AdvanceSettings });
-  return x.step === y.step && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
+  return x.step === y.step && x.unit === y.unit && x.every === y.every && x.big === y.big && x.countdown === y.countdown;
 }
 
 /** 导播跟着谁:稳定键最长几个字(人物键 = 国家键 + 身份 + 名字 + 生年,名字再长也够) */
@@ -2342,7 +2644,7 @@ export function sameFollow(a: unknown, b: unknown): boolean {
  * 天灾只有选了一国闹饥荒的才有)
  */
 export function interventionKeys(v: Intervention): string[] {
-  if (v.kind === 'found') return [];
+  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay') return [];
   if (v.kind === 'disaster') return v.a ? [v.a] : [];
   if (v.kind === 'destroy') return v.b ? [v.a, v.b] : [v.a];
   if (v.kind === 'treaty') return v.by ? [v.a, ...v.ps, v.by] : [v.a, ...v.ps];
@@ -2521,7 +2823,7 @@ export const OUTLINE_ALLY_YEARS = 60;
 /** 照大纲推演时每条情节最多试几版引法(gen/outline.ts;界面上"自己填"的上限) */
 export const OUTLINE_TRIES_MAX = 100;
 
-export const PLOT_KINDS = ['found', 'fall', 'hold', 'war', 'ally', 'capital', 'death', 'crown', 'split', 'disaster', 'submit', 'peace', 'dynasty', 'revolt', 'collapse', 'story'] as const;
+export const PLOT_KINDS = ['found', 'fall', 'hold', 'war', 'ally', 'capital', 'death', 'crown', 'split', 'disaster', 'trek', 'submit', 'peace', 'dynasty', 'revolt', 'collapse', 'story'] as const;
 export type PlotKind = (typeof PLOT_KINDS)[number];
 /** 推演里还不能直接让它发生的几种(只查不改) */
 export const PLOT_CHECK_ONLY: readonly PlotKind[] = ['submit', 'peace', 'dynasty', 'revolt', 'collapse'];
@@ -2551,12 +2853,16 @@ export interface Plot {
   level?: DisasterLevel;
   /** 全球大疫:疫后无人收拾几年(不给 = 30) */
   slump?: number;
+  /** 大迁徙:哪一族(民族键 `culture:…`) */
+  folk?: string;
+  /** 大迁徙:往哪个方位(不给 = 不限) */
+  dir?: TrekDir;
   /** 搬到别的世界以后对不上、要作者重新指的几项(见文件头"大纲"里的"要重新指") */
   redo?: PlotRedo;
 }
 
 /** 搬大纲时可能对不上的几项 */
-export const PLOT_REDO_FIELDS = ['a', 'b', 'region', 'regions', 'city', 'person', 'char', 'mark'] as const;
+export const PLOT_REDO_FIELDS = ['a', 'b', 'region', 'regions', 'city', 'person', 'char', 'mark', 'folk'] as const;
 export type PlotRedoField = (typeof PLOT_REDO_FIELDS)[number];
 /** 要重新指的几项:哪一项 → 原来那个世界里它叫什么(作者对照着重新指;说不出 = 空串) */
 export type PlotRedo = Partial<Record<PlotRedoField, string>>;
@@ -2573,9 +2879,10 @@ export type PlotStatus = (typeof PLOT_STATUSES)[number];
  *   empty 那里没人住 / notOwned 那州、那城不在这国手里 / ruined 城已毁 / border 两国不接壤 / atWar 两国已在交战 /
  *   dead 那年他已不在世 / unborn 那年他还没出生 / notReigning 那年他不在位 / unsupported 推演里还不能直接让它发生 /
  *   crowded 前面的情节已经把这段时间定下了 / beyond 年份超出了推演年数 / refFailed 它跟着的那条情节没立起国家 / noEffect 硬改了也没成 /
- *   redo 大纲搬到这个世界以后,这条要的国家、州、城、人物……对不上,还没重新指
+ *   redo 大纲搬到这个世界以后,这条要的国家、州、城、人物……对不上,还没重新指 / noWay 大迁徙走不到(那个方位上陆路走得到的地方里没有能去的)。
+ *   大迁徙的 notYet / gone / missing 说的是那一族(那年还没出现 / 已经不在了 / 这段历史里没有)
  */
-export const PLOT_REASONS = ['notYet', 'gone', 'missing', 'empty', 'notOwned', 'ruined', 'border', 'atWar', 'dead', 'unborn', 'notReigning', 'unsupported', 'crowded', 'beyond', 'refFailed', 'noEffect', 'redo'] as const;
+export const PLOT_REASONS = ['notYet', 'gone', 'missing', 'empty', 'notOwned', 'ruined', 'border', 'atWar', 'dead', 'unborn', 'notReigning', 'unsupported', 'crowded', 'beyond', 'refFailed', 'noEffect', 'redo', 'noWay'] as const;
 export type PlotReason = (typeof PLOT_REASONS)[number];
 
 /** 一条情节的批改 */
@@ -2629,6 +2936,7 @@ const PLOT_NEEDS: Record<PlotKind, readonly (keyof Plot)[]> = {
   crown: ['a', 'char'],
   split: ['region'],
   disaster: ['type'],
+  trek: ['folk'],
   submit: ['a', 'b'],
   peace: ['a', 'b'],
   dynasty: ['a'],
@@ -2648,6 +2956,7 @@ const PLOT_OPTIONAL: Record<PlotKind, readonly (keyof Plot)[]> = {
   crown: [],
   split: ['a'],
   disaster: ['level', 'city', 'a', 'regions', 'region', 'slump'],
+  trek: ['dir'],
   submit: [],
   peace: [],
   dynasty: [],
@@ -2684,6 +2993,10 @@ function plotField(k: keyof Plot, v: unknown): unknown {
       return levelOf(v) ?? undefined;
     case 'slump':
       return slumpOf(v);
+    case 'folk':
+      return isCultureKey(v) ? v : undefined;
+    case 'dir':
+      return (TREK_DIRS as readonly unknown[]).includes(v) ? v : undefined;
     case 'regions': {
       if (!Array.isArray(v)) return undefined;
       const out: string[] = [];
@@ -2843,10 +3156,14 @@ export function cleanOutline(raw: unknown): Outline | undefined {
   return same ? (raw as Outline) : { plots, ...(review ? { review } : {}) };
 }
 
-/** 一国 t 那一刻照的作者的方针(干预列表里它最后一条 from 不晚于 t、不是顺着引出来的;没有 = null) */
+/**
+ * 一国 t 那一刻(年)照的作者的方针(干预列表里它最后一条生效时刻不晚于 t、不是顺着引出来的;没有 = null)。
+ * 生效时刻按年 + 第几格比(逐年推演年中下的方针在那一格才生效)
+ */
 export function basePolicy(list: readonly Intervention[], a: string, t: number): Extract<Intervention, { kind: 'policy' }> | null {
+  const at = ticksAt(t);
   let best: Extract<Intervention, { kind: 'policy' }> | null = null;
-  for (const v of list) if (v.kind === 'policy' && v.a === a && !v.guide && v.from <= t && (!best || v.from >= best.from)) best = v;
+  for (const v of list) if (v.kind === 'policy' && v.a === a && !v.guide && commandAt(v) <= at && (!best || commandAt(v) >= commandAt(best))) best = v;
   return best;
 }
 

@@ -54,6 +54,19 @@
 .cp-ev .oc-sub .ins-link {
   font-size: 12.5px;
 }
+/* 一生:每段右边常驻的「进推演…」(点了换成经历进推演那一页,不跳年份) */
+.cp-ev .as-life-go {
+  margin-left: auto;
+  align-self: center;
+  flex: none;
+  padding-left: 8px;
+  color: var(--link);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.cp-ev .as-life-go:hover {
+  text-decoration: underline;
+}
 .cpanel .cp-ev[data-st='future'] {
   opacity: 0.45;
 }
@@ -581,6 +594,28 @@
   color: var(--accent);
 }
 .cr-fail {
+  background: rgba(185, 124, 12, 0.14);
+  color: var(--warn);
+}
+/* 为将:挂帅的每一仗后面的胜 / 无功 / 兵败(样子同上面两个标) */
+.as-res {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font: 500 11.5px/18px var(--font-sans);
+  font-style: normal;
+  vertical-align: 1px;
+}
+.as-win {
+  background: rgba(46, 154, 88, 0.13);
+  color: var(--ok);
+}
+.as-even {
+  background: var(--btn);
+  color: var(--ink-2);
+}
+.as-lose {
   background: rgba(185, 124, 12, 0.14);
   color: var(--warn);
 }
