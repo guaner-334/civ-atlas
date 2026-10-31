@@ -47,10 +47,10 @@ import type { Intervention } from '../edits';
 export type { RulerLeanings };
 import { anchorTag, fexp, fpow, keyed4, subSeed } from './engine/rand';
 import { segLineage } from './regime';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参 ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const RULERS_KNOBS = defineKnobs('rulers', {
   /** 开国之君、新朝之君即位的年纪(随机) */
   FOUNDER_AGE: [28, 50] as [number, number],
@@ -66,8 +66,8 @@ export const RULERS_KNOBS = defineKnobs('rulers', {
   /** 一生最多这么多岁 */
   MAX_AGE: 88,
 });
-const { HEIR_EXP, REIGN_MAX, REIGN_EXP, TERM } = RULERS_KNOBS.values;
-export const { FOUNDER_AGE, HEIR_AGE, CONSUL_AGE, MAX_AGE } = RULERS_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type RulersKnobs = typeof RULERS_KNOBS.values;
 
 /** 倾向的名字(RulerLeanings 的键;人物卡片上的名字和说明在 peopleText.ts 的 LEANING_TEXT) */
 export const LEANINGS = ['expand', 'war', 'develop', 'trade'] as const;
@@ -172,9 +172,10 @@ export const COMMONWEALTH_SHIFT: Partial<RulerLeanings> = { war: -10 };
 
 /**
  * 第 k 位君主(这一朝第 j 位)从 from 年即位:即位的年纪、不被打断时在位到哪年、倾向。
- * born = 生年已经定了的开国之君(宗室争位、据地自立的那位,Polity.prince):即位的年纪照它算
+ * born = 生年已经定了的开国之君(宗室争位、据地自立的那位,Polity.prince):即位的年纪照它算。knobs = 这个世界的那套数
  */
 export function reignStep(
+  knobs: KnobSet,
   base: number,
   tag: number,
   k: number,
@@ -185,6 +186,7 @@ export function reignStep(
   born?: Year,
   shift?: Partial<RulerLeanings>,
 ): { age: number; natural: Year; leanings: RulerLeanings } {
+  const { FOUNDER_AGE, HEIR_AGE, HEIR_EXP, REIGN_MAX, REIGN_EXP, CONSUL_AGE, TERM, MAX_AGE } = knobs.get(RULERS_KNOBS);
   const R = (use: number) => keyed4(base, tag, k, use, K_RULER);
   const republic = lineage === 'republic';
   let A: number;
@@ -324,7 +326,8 @@ export function actsFrom(annals: readonly Annal[], list: readonly Intervention[]
  * 即位时已年近(或过了)MAX_AGE 岁的至少在位一年(和寻常君主的规矩一样;要别的年份就在干预里写 until)。
  * 等前一位下台再即位的,到即位时 until 已经过了的当作没给
  */
-function crownNatural(base: number, tag: number, k: number, from: Year, c: Crown, lineage: PolityLineage | undefined): Year {
+function crownNatural(K: RulersKnobs, base: number, tag: number, k: number, from: Year, c: Crown, lineage: PolityLineage | undefined): Year {
+  const { TERM, REIGN_MAX, REIGN_EXP, MAX_AGE } = K;
   if (c.until !== undefined && q(c.until) > from) return q(c.until);
   const u = keyed4(base, tag, k, U_REIGN, K_RULER);
   let L = lineage === 'republic' ? lerp(TERM, u) : 1 + REIGN_MAX * fpow(u, REIGN_EXP);
@@ -386,6 +389,8 @@ export function leaningsAt(r: Reign, t: Year): Pick<Reign, 'leanings' | 'eff'> {
  * 一位接一位往后排,最后一朝只排到够用为止(在位到 t 以后的那一位),要更晚的再往后排
  */
 interface Book {
+  /** 按哪一套数排的(这张表的值;换了就重排) */
+  k: RulersKnobs;
   tag: number;
   dyn: number;
   /** 排的时候有哪几条改在位表的干预(按先后;和传进来的逐个比,不一样就重排) */
@@ -419,12 +424,13 @@ const sameActs = (a: readonly RulerAct[], b: readonly RulerAct[]) => a.length ==
  *     落在前一位身上的(他那一刻本来就下台了)只记 death
  *   改倾向:记在他身上(moods),下一刻起照新的;落在前一位身上的不起作用
  */
-export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, acts: readonly RulerAct[] = NO_ACTS): readonly Reign[] {
+export function reignBook(knobs: KnobSet, base: number, tag: number, p: ReignPolity, t: Year, acts: readonly RulerAct[] = NO_ACTS): readonly Reign[] {
+  const K = knobs.get(RULERS_KNOBS);
   const segs = p.dynasties?.length ? p.dynasties : null;
   const dyn = segs ? segs.length : 1;
   const sz = p.seizes?.length ?? 0;
   let b = books.get(p);
-  if (!b || b.dyn !== dyn || b.tag !== tag || b.sz !== sz || !sameActs(b.acts, acts)) {
+  if (!b || b.k !== K || b.dyn !== dyn || b.tag !== tag || b.sz !== sz || !sameActs(b.acts, acts)) {
     const own = acts.length ? acts.slice() : NO_ACTS;
     let all: (RulerAct | RulerSeize)[] = own as RulerAct[];
     if (sz) {
@@ -432,7 +438,7 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
       const seizes: RulerSeize[] = p.seizes!.map((x) => ({ kind: 'seize', t: x.year, k: x.k, born: x.born, until: x.until, leanings: x.leanings }));
       all = [...seizes, ...own].map((c, i) => ({ c, i })).sort((u, v) => u.c.t - v.c.t || (u.c.kind === 'seize' ? 0 : 1) - (v.c.kind === 'seize' ? 0 : 1) || u.i - v.i).map((x) => x.c);
     }
-    b = { tag, dyn, acts: own, sz, all, reigns: [], i: 0, j: 0, from: p.founded, heir: null, ci: 0 };
+    b = { k: K, tag, dyn, acts: own, sz, all, reigns: [], i: 0, j: 0, from: p.founded, heir: null, ci: 0 };
     books.set(p, b);
   }
   /** 第 i 朝到哪一刻为止(最后一朝 = 不断) */
@@ -443,7 +449,7 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
     // 改制开的共和、军政府那几段照共和一系排(执政有任期);军政府的执政好战
     const regime = segs?.[dynasty]?.regime;
     const shift = regime === 'junta' ? JUNTA_SHIFT : regime === 'republic' && p.lineage !== 'republic' ? COMMONWEALTH_SHIFT : undefined;
-    const s = reignStep(base, tag, k, j, from, segLineage(p, dynasty), p.kind, u ? u.born : k === 0 ? p.prince : undefined, shift);
+    const s = reignStep(knobs, base, tag, k, j, from, segLineage(p, dynasty), p.kind, u ? u.born : k === 0 ? p.prince : undefined, shift);
     const leanings = u ? { ...u.leanings } : s.leanings;
     return { k, dynasty, j, from, age: s.age, natural: s.natural, leanings, eff: leaningEffect(leanings) };
   };
@@ -466,7 +472,7 @@ export function reignBook(base: number, tag: number, p: ReignPolity, t: Year, ac
     j,
     from,
     age: from - c.born,
-    natural: crownNatural(base, tag, k, from, c, segLineage(p, dynasty)),
+    natural: crownNatural(K, base, tag, k, from, c, segLineage(p, dynasty)),
     leanings: c.leanings,
     eff: leaningEffect(c.leanings),
     crown: c,
@@ -574,8 +580,8 @@ export function lastReign(book: readonly Reign[], dynasty: number, end: Year): R
 }
 
 /** 推演里 t 这一刻在位的君主(下标 = Reign.k);t 早于立国 = 第一位 */
-export function reignAt(base: number, tag: number, p: ReignPolity, t: Year, crowns: readonly RulerAct[] = NO_ACTS): Reign {
-  const list = reignBook(base, tag, p, t, crowns);
+export function reignAt(knobs: KnobSet, base: number, tag: number, p: ReignPolity, t: Year, crowns: readonly RulerAct[] = NO_ACTS): Reign {
+  const list = reignBook(knobs, base, tag, p, t, crowns);
   let lo = 0;
   let hi = list.length - 1;
   while (lo < hi) {

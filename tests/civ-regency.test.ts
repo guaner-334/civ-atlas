@@ -14,6 +14,7 @@ import { REGENCY_KINDS, RG_START, RG_USURP, holds, regencyBase, regentAt, regent
 import { matchesFrom } from '../src/gen/civ/marriages';
 import { actsFrom, leaningEffect, reignAt, reignBook, rulerBase, rulerTags, type Reign } from '../src/gen/civ/rulers';
 import { personKey, polityKey, type Intervention } from '../src/gen/edits';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -33,12 +34,13 @@ function ctxOf(civ: Civ) {
   const tag = rulerTags(civ.polities, (sid) => civ.settlements[sid]?.cell ?? -1);
   const acts = actsFrom(civ.annals, civ.interventions);
   return {
+    knobs: OFFICIAL_KNOBS,
     rbase: base,
     base: regencyBase(civ.seed),
     tag,
     polities: civ.polities,
-    book: (pid: number, t: number) => reignBook(base, tag[pid], civ.polities[pid], t, acts.get(pid)),
-    at: (pid: number, t: number): Reign => reignAt(base, tag[pid], civ.polities[pid], t, acts.get(pid)),
+    book: (pid: number, t: number) => reignBook(OFFICIAL_KNOBS, base, tag[pid], civ.polities[pid], t, acts.get(pid)),
+    at: (pid: number, t: number): Reign => reignAt(OFFICIAL_KNOBS, base, tag[pid], civ.polities[pid], t, acts.get(pid)),
   };
 }
 

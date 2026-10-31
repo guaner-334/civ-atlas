@@ -5,6 +5,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { buildRoutes, icyWater, roadPassable, seatCities, type RouteCity } from '../src/gen/civ/routes';
 import { edgeLen } from '../src/gen/civ/geo';
 import { routeCities } from '../src/gen/civ/polities';
+import { OFFICIAL_KNOBS } from '../src/gen/civ/engine/knobs';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -16,7 +17,7 @@ function adjacent(w: World, a: number, b: number): boolean {
 
 /** 修路用的城:有城镇时是城镇(见 polities.ts 的 routeCities),没有城镇时是各州治所 */
 function citiesOf(w: World, civ: Civ): RouteCity[] {
-  return civ.settlements.length ? routeCities(civ.settlements, civ.polities, civ.endYear) : seatCities(w, civ.habitat, civ.regions);
+  return civ.settlements.length ? routeCities(OFFICIAL_KNOBS, civ.settlements, civ.polities, civ.endYear) : seatCities(OFFICIAL_KNOBS, w, civ.habitat, civ.regions);
 }
 
 /** 路段的基本不变量:前后相邻;陆路不下水、不穿冰原;航线只走没结冰的海,陆地只在两端(港口);修建年份在文明史之内 */
@@ -361,8 +362,8 @@ describe('道路网与航线', () => {
   it('built = 两端城市建城年份里较晚的那个(传入城镇时)', () => {
     const w = generateWorld({ ...small, seed: 6 });
     const civ = generateCiv(w);
-    const cities: RouteCity[] = seatCities(w, civ.habitat, civ.regions).map((c, i) => ({ ...c, founded: 100 + (i % 7) * 10 }));
-    const routes = buildRoutes(w, civ.habitat, civ.regions, { cities });
+    const cities: RouteCity[] = seatCities(OFFICIAL_KNOBS, w, civ.habitat, civ.regions).map((c, i) => ({ ...c, founded: 100 + (i % 7) * 10 }));
+    const routes = buildRoutes(w, civ.habitat, civ.regions, { knobs: OFFICIAL_KNOBS, cities });
     expect(routes.length).toBeGreaterThan(50);
     for (const r of routes) {
       expect(r.built).toBeGreaterThanOrEqual(100);
@@ -373,15 +374,15 @@ describe('道路网与航线', () => {
   it('航线停用以后,推演里又走过这片海:从走过的那年起重新开一段,停用的那段照旧停在停用那年', () => {
     const w = generateWorld({ ...small, seed: 6 });
     const civ = generateCiv(w);
-    const base: RouteCity[] = seatCities(w, civ.habitat, civ.regions).map((c) => ({ ...c, founded: 100 }));
+    const base: RouteCity[] = seatCities(OFFICIAL_KNOBS, w, civ.habitat, civ.regions).map((c) => ({ ...c, founded: 100 }));
     const at = new Set(base.map((c) => c.cell));
-    const sea = buildRoutes(w, civ.habitat, civ.regions, { cities: base }).find((r) => r.kind === 'sea' && at.has(r.cells[0]) && at.has(r.cells[r.cells.length - 1]))!;
+    const sea = buildRoutes(w, civ.habitat, civ.regions, { knobs: OFFICIAL_KNOBS, cities: base }).find((r) => r.kind === 'sea' && at.has(r.cells[0]) && at.has(r.cells[r.cells.length - 1]))!;
     expect(sea).toBeTruthy();
     const a = sea.cells[0];
     const b = sea.cells[sea.cells.length - 1];
     // a 那座港口第 200 年被毁;第 300 年推演里走过 a–b 这片海
     const cities = base.map((c) => (c.cell === a ? { ...c, ended: 200 } : c));
-    const routes = buildRoutes(w, civ.habitat, civ.regions, { cities, lanes: [{ a, b, built: 300 }] });
+    const routes = buildRoutes(w, civ.habitat, civ.regions, { knobs: OFFICIAL_KNOBS, cities, lanes: [{ a, b, built: 300 }] });
     const spans = (x: number, y: number) =>
       routes
         .filter((r) => r.kind === 'sea' && r.cells.some((c, t) => t > 0 && ((r.cells[t - 1] === x && c === y) || (r.cells[t - 1] === y && c === x))))
@@ -396,9 +397,9 @@ describe('道路网与航线', () => {
   it('推演里走过的航线登岸处是故址:城空着的那些年不画,原址重建以后照原路重新画;没重建的从毁城那年起不画', () => {
     const w = generateWorld({ ...small, seed: 6 });
     const civ = generateCiv(w);
-    const base: RouteCity[] = seatCities(w, civ.habitat, civ.regions).map((c) => ({ ...c, founded: 100 }));
+    const base: RouteCity[] = seatCities(OFFICIAL_KNOBS, w, civ.habitat, civ.regions).map((c) => ({ ...c, founded: 100 }));
     const at = new Set(base.map((c) => c.cell));
-    const sea = buildRoutes(w, civ.habitat, civ.regions, { cities: base }).find((r) => r.kind === 'sea' && at.has(r.cells[0]) && at.has(r.cells[r.cells.length - 1]))!;
+    const sea = buildRoutes(w, civ.habitat, civ.regions, { knobs: OFFICIAL_KNOBS, cities: base }).find((r) => r.kind === 'sea' && at.has(r.cells[0]) && at.has(r.cells[r.cells.length - 1]))!;
     expect(sea).toBeTruthy();
     const a = sea.cells[0];
     const b = sea.cells[sea.cells.length - 1];
@@ -406,7 +407,7 @@ describe('道路网与航线', () => {
     const cities = base.map((c) => (c.cell === a ? { ...c, port: false } : c));
     const lanes = [{ a, b, built: 150 }];
     const toA = (ruins?: Map<number, [number, number][]>) =>
-      buildRoutes(w, civ.habitat, civ.regions, { cities, lanes, ruins })
+      buildRoutes(w, civ.habitat, civ.regions, { knobs: OFFICIAL_KNOBS, cities, lanes, ruins })
         .filter((r) => r.kind === 'sea' && (r.cells[0] === a || r.cells[r.cells.length - 1] === a))
         .map((r) => ({ span: [r.built, r.abandoned ?? Infinity], cells: [...r.cells] }))
         .sort((p, q) => p.span[0] - q.span[0]);

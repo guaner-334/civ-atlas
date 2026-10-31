@@ -32,7 +32,7 @@ import type { Progress, World } from '../world';
 import { AdjKind, Layer, type ChangeLog, type Culture, type Habitat, type Regions, type Route, type Year } from './types';
 import { KM_PER_UNIT, adjLengths, cellAreas, refSpacing } from './geo';
 import { geometryOf } from '../geometry';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 /** 修路用的"城"。由城镇列表生成(polities.ts 的 routeCities;大城 = 国都,port = 城镇的港口标记) */
 export interface RouteCity {
@@ -67,6 +67,8 @@ export interface UsedLane {
 }
 
 export interface RouteOptions {
+  /** 这个世界的那套数(修路按其中的 ROUTES_KNOBS) */
+  knobs: KnobSet;
   /** 不传 = 每州治所一座城(见 seatCities) */
   cities?: RouteCity[];
   /** 推演里走过的海峡、航线(usedLanes):两头的海岸之间一定画一条航线,从 built 那年起(和港口之间的航线一起修,重合的并成一条) */
@@ -77,7 +79,7 @@ export interface RouteOptions {
 }
 
 // ---- 调参(以截图效果为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const ROUTES_KNOBS = defineKnobs('routes', {
   /** 宜居分低于这个值的治所不算城(和"城址"显示一致) */
   CITY_MIN_SUIT: 1,
@@ -107,7 +109,6 @@ export const ROUTES_KNOBS = defineKnobs('routes', {
   /** 冗余小路:另一条路不超过它长度的这个倍数,而且它的每一块都挨着那条路,就不修 */
   PARALLEL_RATIO: 1.6,
 });
-const { CITY_MIN_SUIT, MAJOR_SHARE, MAJOR_SPACING, REUSE, NO_CITY, SLOPE_REF, SLOPE_MAX, ELEV_REF, RIVER_ALONG, RIVER_CROSS, SEA_DEPTH, SEA_MAX_STEPS, SEA_VS_LAND, PARALLEL_RATIO } = ROUTES_KNOBS.values;
 
 /** 路段类别在 slot 数组里的编号(0 = 没有路) */
 const KIND_CODE = { road: 1, trail: 2, sea: 1 } as const;
@@ -138,7 +139,8 @@ export function seaPassable(world: World, i: number): boolean {
  * 没有城镇列表时的城:每州治所一座(不可居 / 冰原上的除外)。
  * 大城 = 人口上限最大、彼此隔得开的一批;港口 = 挨着能通航的海。
  */
-export function seatCities(world: World, habitat: Habitat, regions: Regions): RouteCity[] {
+export function seatCities(knobs: KnobSet, world: World, habitat: Habitat, regions: Regions): RouteCity[] {
+  const { CITY_MIN_SUIT, MAJOR_SHARE, MAJOR_SPACING } = knobs.get(ROUTES_KNOBS);
   const { mesh } = world;
   const { adjStart, adj } = mesh;
   const list: { cell: number; cap: number }[] = [];
@@ -310,10 +312,11 @@ class Finder {
   }
 }
 
-export function buildRoutes(world: World, habitat: Habitat, regions: Regions, opts: RouteOptions = {}): Route[] {
+export function buildRoutes(world: World, habitat: Habitat, regions: Regions, opts: RouteOptions): Route[] {
+  const { REUSE, NO_CITY, SLOPE_REF, SLOPE_MAX, ELEV_REF, RIVER_ALONG, RIVER_CROSS, SEA_DEPTH, SEA_MAX_STEPS, SEA_VS_LAND, PARALLEL_RATIO } = opts.knobs.get(ROUTES_KNOBS);
   const progress = opts.progress ?? (() => {});
   progress('道路', 0.85);
-  const cities = opts.cities ?? seatCities(world, habitat, regions);
+  const cities = opts.cities ?? seatCities(opts.knobs, world, habitat, regions);
   if (cities.length < 2 && !opts.lanes?.length) return [];
 
   const { mesh, water, biome, elevation, flux, riverThreshold } = world;

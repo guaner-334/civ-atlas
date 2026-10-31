@@ -46,15 +46,15 @@ import type { RouteCity } from './routes';
 import type { InterventionModel } from './interventions';
 import type { Intervention } from '../edits';
 import { actsFrom, leaningsAt, reignAt, reignBook, reignStart, rulerBase, type LeaningEffect, type Reign, type RulerAct } from './rulers';
-import { POLICY_RESPREAD, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
+import { POLICY_KNOBS, policiesFrom, policySeg, powerScale, segAt, segEffect, unrestShift, type PolicyIv, type PolicySeg } from './policy';
 import { regencyBase, regentAt, regentsFrom, type Regency, type RegencyCtx } from './regents';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 // ---- 调参(以截图效果为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const POLITIES_KNOBS = defineKnobs('polities', {
   /** 州有人定居后,过这么多年建城(随机) */
   FOUND_DELAY: [5, 40] as [number, number],
@@ -129,10 +129,11 @@ export const POLITIES_KNOBS = defineKnobs('polities', {
   /** 海洋国家走城邦共和一系的概率(其余走农耕一系) */
   REPUBLIC_P: 0.75,
 });
-const { FOUND_DELAY, CAP_REF, CAP_P90, CAP_EXP, PORT_CAP, RIVER_CAP, GROWTH, FOUND_AT, MIN_AGE, REGIONS_PER_POLITY, SPACING, CROSS, SAIL_FRAC, SAIL_CROSS, OTHER_CULTURE, STEP_YEARS, REACH, BIOME_EXP, WORTH, WORTH_REACH, WORTH_FOREIGN, ENCLAVE, HIGH_COST, HIGH_SCALE, PORT_VALUE, RIVER_VALUE, PREFER, NOMAD_PREFER, AVOID, HIGH, ROUTE_MIN_RANK, REPUBLIC_P } = POLITIES_KNOBS.values;
-export const { FOUND_POP } = POLITIES_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type PolitiesKnobs = typeof POLITIES_KNOBS.values;
 
-const BIOME_F = BIOME_COST.map((c) => fpow(Math.max(1, c) / 70, BIOME_EXP));
+/** 各群落的难走程度(按 BIOME_EXP 折算;Biome 下标) */
+const biomeFactors = (exp: number) => BIOME_COST.map((c) => fpow(Math.max(1, c) / 70, exp));
 /** 按 Biome 下标查的群落集合(哪些群落算哪一类见地貌表的标签):开阔干地(草原、稀树草原、荒漠)、密林 */
 const STEPPE_DESERT = biomeTagged('arid');
 const FOREST = biomeTagged('forest');
@@ -141,6 +142,11 @@ const FOREST = biomeTagged('forest');
 // 模型:推演要用的全部东西(可以由 Civ 重建,见 resumePolities)
 
 export interface PolityModel {
+  /** 这次推演的那套数(和引擎上挂的 CivSim.knobs 是同一套);k = 其中国家这张表 */
+  knobs: KnobSet;
+  k: PolitiesKnobs;
+  /** 各群落的难走程度(按 k.BIOME_EXP 折算;Biome 下标) */
+  biomeF: ReturnType<typeof biomeFactors>;
   terrain: CultureTerrain;
   cultures: Culture[];
   /** keyed 随机数的根 */
@@ -267,6 +273,7 @@ export function cultureTag(m: PolityModel, c: number): number {
 
 /** 州 r 的城:人口上限(千人) */
 function cityCapacity(m: PolityModel, r: number): number {
+  const { CAP_REF, CAP_EXP, PORT_CAP, RIVER_CAP } = m.k;
   const T = m.terrain;
   let cap = CAP_REF * fpow(T.regions.capacity[r] / m.capNorm, CAP_EXP);
   if (m.port[r]) cap *= PORT_CAP;
@@ -276,9 +283,10 @@ function cityCapacity(m: PolityModel, r: number): number {
 
 /**
  * 州 r 的城址里随地形变的那几样相乘:州的人口上限 ^ CAP_EXP × 港口 × 大河(城的人口上限大体和它成正比,见 cityCapacity)。
- * 地形大事以后老城的上限按它前后之比缩放(upheaval.ts 的 reshapeCities;建城时的基准、随机部分不变)
+ * 地形大事以后老城的上限按它前后之比缩放(upheaval.ts 的 reshapeCities;建城时的基准、随机部分不变)。knobs = 这个世界的那套数
  */
-export function siteFactor(T: CultureTerrain, port: boolean, r: number): number {
+export function siteFactor(knobs: KnobSet, T: CultureTerrain, port: boolean, r: number): number {
+  const { CAP_EXP, PORT_CAP, RIVER_CAP } = knobs.get(POLITIES_KNOBS);
   let f = fpow(T.regions.capacity[r], CAP_EXP);
   if (port) f *= PORT_CAP;
   if (T.riverSeat[r]) f *= RIVER_CAP;
@@ -286,19 +294,21 @@ export function siteFactor(T: CultureTerrain, port: boolean, r: number): number 
 }
 
 function cityGrowth(m: PolityModel, r: number): number {
-  return GROWTH * (0.75 + 0.5 * keyed(m.base, m.terrain.regions.seat[r], 3));
+  return m.k.GROWTH * (0.75 + 0.5 * keyed(m.base, m.terrain.regions.seat[r], 3));
 }
 
 /** 有人定居后几年建城 */
 function foundDelay(m: PolityModel, r: number): number {
+  const { FOUND_DELAY } = m.k;
   return FOUND_DELAY[0] + (FOUND_DELAY[1] - FOUND_DELAY[0]) * keyed(m.base, m.terrain.regions.seat[r], 1);
 }
 
 /**
  * 这座城建城满 MIN_AGE 年以后、人口越过 FOUND_AT 的第一年(那时的人口上限得够 FOUND_POP);够不着 = Infinity。
- * 建城不满 MIN_AGE 年就越过了的,往后推到满 MIN_AGE 年 —— 那时人口还得够(地形大事降了上限、人口跌回去的不算)
+ * 建城不满 MIN_AGE 年就越过了的,往后推到满 MIN_AGE 年 —— 那时人口还得够(地形大事降了上限、人口跌回去的不算)。knobs = 这个世界的那套数
  */
-export function foundingYear(s: Settlement): Year {
+export function foundingYear(knobs: KnobSet, s: Settlement): Year {
+  const { FOUND_POP, FOUND_AT, MIN_AGE } = knobs.get(POLITIES_KNOBS);
   // 按地形大事切成几段(段里的上限 = 那次换成的值),只在上限够 FOUND_POP 的段里找
   const L = s.reshaped ?? [];
   for (let i = -1; i < L.length; i++) {
@@ -403,6 +413,7 @@ function distFor(m: PolityModel, pid: number, now: number): Float32Array {
  * 海峡、航线:能不能走看 sailsOcean;普通国家走航线只能从港口出发(k 的起点州 m.port)
  */
 function stepYearsWith(m: PolityModel, p: Polity, k: number, b: number, dist: Float32Array, cb: number, t: Year): number {
+  const { CROSS, SAIL_CROSS, OTHER_CULTURE } = m.k;
   const T = m.terrain;
   const reg = T.regions;
   const kind = reg.adjKind[k];
@@ -444,19 +455,19 @@ function stepYearsWith(m: PolityModel, p: Polity, k: number, b: number, dist: Fl
   const len = reg.adjLen[k] / T.refLen;
   const jitter = 0.8 + 0.4 * keyed(m.base, m.ptag[p.id], reg.seat[b], 4);
   return (
-    (m.years * len * (BIOME_F[bi] * T.fx.state[bi]) * Math.sqrt(T.poverty[b]) * cross * mod * culture * fexp(d / m.reach) * jitter) /
+    (m.years * len * (m.biomeF[bi] * T.fx.state[bi]) * Math.sqrt(T.poverty[b]) * cross * mod * culture * fexp(d / m.reach) * jitter) /
     p.expansionism
   );
 }
 
 /** 国家 pid 的在位表(rulers.ts),排到 t 时在位的那一位;带上这国改在位表的干预(PolityModel.acts) */
 export function bookOf(m: PolityModel, pid: number, t: Year): readonly Reign[] {
-  return reignBook(m.rbase, m.rtag[pid], m.polities[pid], t, m.acts.get(pid));
+  return reignBook(m.knobs, m.rbase, m.rtag[pid], m.polities[pid], t, m.acts.get(pid));
 }
 
 /** 国家 pid 在 t 这一刻在位的君主(rulers.ts 的在位表;改朝换代那一刻还算旧君) */
 export function rulerOf(m: PolityModel, pid: number, t: Year): Reign {
-  return reignAt(m.rbase, m.rtag[pid], m.polities[pid], t, m.acts.get(pid));
+  return reignAt(m.knobs, m.rbase, m.rtag[pid], m.polities[pid], t, m.acts.get(pid));
 }
 
 /** 国家 pid 在 t 这一刻照的方针(policy.ts:t 以前定的最后一条;没有 / 罢了 = null) */
@@ -476,7 +487,7 @@ export function unrestShiftOf(m: PolityModel, pid: number, t: Year): number {
 
 /** 君主 r 在国家 pid 此刻(t)的方针下的倍数(没有方针 = 他自己的,r.eff;作者改过他的倾向的按此刻的,见 rulers.ts 的 leaningsAt) */
 export function effFor(m: PolityModel, pid: number, r: Reign, t: Year): LeaningEffect {
-  return segEffect(segAt(m.policies.get(pid), t), r.moods ? leaningsAt(r, t) : r);
+  return segEffect(m.knobs, segAt(m.policies.get(pid), t), r.moods ? leaningsAt(r, t) : r);
 }
 
 /**
@@ -486,7 +497,7 @@ export function effFor(m: PolityModel, pid: number, r: Reign, t: Year): LeaningE
 export function effOf(m: PolityModel, pid: number, t: Year): LeaningEffect {
   const r = rulerOf(m, pid, t);
   const g = regentOf(m, pid, t, r);
-  return g ? segEffect(segAt(m.policies.get(pid), t), g) : effFor(m, pid, r, t);
+  return g ? segEffect(m.knobs, segAt(m.policies.get(pid), t), g) : effFor(m, pid, r, t);
 }
 
 /** 国家 pid 在 t 这一刻说了算的人的倾向:有人掌着实权 = 掌权的人的,不然 = 在位君主此刻的(作者改过的按改过的) */
@@ -505,6 +516,7 @@ export function regentOf(m: PolityModel, pid: number, t: Year, r: Reign): Regenc
 /** 掌实权推算要用的那几样(regents.ts):在位表照这国此刻的(带干预、宗室篡位) */
 export function regencyCtx(m: PolityModel, ivs?: readonly Intervention[]): RegencyCtx {
   return {
+    knobs: m.knobs,
     rbase: m.rbase,
     base: regencyBase(m.seed),
     tag: m.rtag,
@@ -549,7 +561,7 @@ export function setPolicy(sim: CivSim, m: PolityModel, pid: number, v: PolicyIv,
 function retune(sim: CivSim, m: PolityModel, pid: number, t: Year): void {
   if (m.retune.get(pid) === t) return;
   m.retune.set(pid, t);
-  sim.schedule(t + 1 / 256, Ev.Respread, POLICY_RESPREAD, pid);
+  sim.schedule(t + 1 / 256, Ev.Respread, m.knobs.get(POLICY_KNOBS).POLICY_RESPREAD, pid);
 }
 
 /** 国家 pid 定方针、改君主倾向的那几刻(按先后,不重复;接着推时重放"下一刻看门槛"用) */
@@ -575,6 +587,7 @@ function policyWidens(m: PolityModel, pid: number, t: Year): LeaningEffect | nul
  * 由当时在位的君主定:扩张高的不太计较,扩张低的只要富庶、离国都近的地方,重商高的看重沿海、大河、港口
  */
 function wants(m: PolityModel, owner: Int16Array, p: Polity, b: number, dist: Float32Array, cb: number, e: LeaningEffect): boolean {
+  const { NOMAD_PREFER, AVOID, HIGH, PREFER, PORT_VALUE, RIVER_VALUE, WORTH_REACH, WORTH_FOREIGN, ENCLAVE, HIGH_COST, HIGH_SCALE, WORTH } = m.k;
   const T = m.terrain;
   const reg = T.regions;
   const d = dist[b];
@@ -714,8 +727,8 @@ export type SailClock = { sailFrom?: Year };
  * 航海时代从哪年起:标定的推演进程(REF_YEAR)× SAIL_FRAC,按扩张快慢(pace)缩放 ——
  * 不按推演年数:推演年数改长改短,同一年以前的历史照旧。落在半年上(第 N.5 年),不和整年的地形大事、干预撞在同一刻
  */
-export function ageOfSailYear(pace: number): Year {
-  return Math.floor((SAIL_FRAC * REF_YEAR) / Math.max(1e-3, pace)) + 0.5;
+export function ageOfSailYear(knobs: KnobSet, pace: number): Year {
+  return Math.floor((knobs.get(POLITIES_KNOBS).SAIL_FRAC * REF_YEAR) / Math.max(1e-3, pace)) + 0.5;
 }
 
 /** 离国都的路程表按哪一档算(capitalDistance):0 = 不渡海,1 = 海洋国家,2 = 航海时代的普通国家 */
@@ -796,19 +809,20 @@ function bordersCore(m: PolityModel, owner: Int16Array, pid: number, r: number, 
  * 搜索时用 Float64 记路程(和堆里的优先级同一精度),最后才存成 Float32 ——
  * 阶段 2 曾直接用 Float32 记,"弹出的优先级 > 表里取整后的值"就被当成过期跳过,约一半的州没被展开,背后的州成了"走不到"
  */
-export function capitalDistance(T: CultureTerrain, from: number, sea: Voyage, port: Uint8Array): Float32Array {
-  // 按"地形 + 出发州 + 渡海的一档"缓存:迁都、复国常常回到用过的国都,不用每次重算(返回的表只读;港口由地形定)
+export function capitalDistance(K: PolitiesKnobs, T: CultureTerrain, from: number, sea: Voyage, port: Uint8Array): Float32Array {
+  // 按"地形 + 出发州 + 渡海的一档"缓存:迁都、复国常常回到用过的国都,不用每次重算(返回的表只读;港口由地形定)。
+  // 路程按这套数里的走法算:换了一套数(K 不是同一份)就另记一份
   let cache = distCache.get(T);
-  if (!cache) distCache.set(T, (cache = new Map()));
+  if (!cache || cache.k !== K) distCache.set(T, (cache = { k: K, map: new Map() }));
   const key = from * 3 + sea;
-  const hit = cache.get(key);
+  const hit = cache.map.get(key);
   if (hit) return hit;
-  const out = capitalDistanceRaw(T, from, sea, port);
-  cache.set(key, out);
+  const out = capitalDistanceRaw(K, T, from, sea, port);
+  cache.map.set(key, out);
   return out;
 }
 
-const distCache = new WeakMap<CultureTerrain, Map<number, Float32Array>>();
+const distCache = new WeakMap<CultureTerrain, { k: PolitiesKnobs; map: Map<number, Float32Array> }>();
 
 /** 两个 Dijkstra(离国都的路程、国都间距标记)共用的堆和路程表(推演是单线程的,两者不会同时跑);路程表用完都复原成 Infinity */
 const dijkstra = { heap: new MinHeap(256), d: new Float64Array(0) };
@@ -821,7 +835,8 @@ function dijkstraScratch(R: number): Float64Array {
 /** 渡海的一档(capitalDistance) */
 type Voyage = 0 | 1 | 2;
 
-function capitalDistanceRaw(T: CultureTerrain, from: number, sea: Voyage, port: Uint8Array): Float32Array {
+function capitalDistanceRaw(K: PolitiesKnobs, T: CultureTerrain, from: number, sea: Voyage, port: Uint8Array): Float32Array {
+  const { CROSS, SAIL_CROSS } = K;
   const reg = T.regions;
   const R = reg.count;
   const d = new Float64Array(R).fill(Infinity);
@@ -881,14 +896,15 @@ export function edgeTo(reg: Regions, b: number, a: number): number {
 }
 
 /** 国号一系;seatCell = 国都所在州的治所地块(位置锚) */
-function lineageOf(base: number, kind: Culture['kind'], seatCell: number): PolityLineage {
+function lineageOf(K: PolitiesKnobs, base: number, kind: Culture['kind'], seatCell: number): PolityLineage {
   if (kind === 'nomad') return 'khanate';
-  if (kind === 'sea') return keyed(base, seatCell, 6) < REPUBLIC_P ? 'republic' : 'realm';
+  if (kind === 'sea') return keyed(base, seatCell, 6) < K.REPUBLIC_P ? 'republic' : 'realm';
   return 'realm';
 }
 
 /** 可居州人口上限的第 90 百分位 ÷ CAP_P90(改过地形的世界沿用没改地形时的,见 index.ts 的 planetTempo) */
-export function capacityNorm(T: CultureTerrain): number {
+export function capacityNorm(knobs: KnobSet, T: CultureTerrain): number {
+  const { CAP_P90 } = knobs.get(POLITIES_KNOBS);
   const caps: number[] = [];
   for (let r = 0; r < T.R; r++) if (T.habitable[r]) caps.push(T.regions.capacity[r]);
   if (!caps.length) return 1;
@@ -897,15 +913,20 @@ export function capacityNorm(T: CultureTerrain): number {
 }
 
 /** 国都间距:SPACING × √(可居州数 / 目标国家数) */
-function capitalSpacing(T: CultureTerrain, polities: number | 'auto'): number {
+function capitalSpacing(K: PolitiesKnobs, T: CultureTerrain, polities: number | 'auto'): number {
+  const { REGIONS_PER_POLITY, SPACING } = K;
   let H = 0;
   for (let r = 0; r < T.R; r++) H += T.habitable[r];
   const target = polities === 'auto' ? Math.max(8, Math.min(20, H / REGIONS_PER_POLITY)) : Math.max(1, polities);
   return Math.max(2, SPACING * Math.sqrt(H / target));
 }
 
-function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: Uint8Array, spacing: number, years: number, sailFrom: Year, capNorm?: number, expand = 1): PolityModel {
+function emptyModel(knobs: KnobSet, T: CultureTerrain, cultures: Culture[], seed: number, port: Uint8Array, spacing: number, years: number, sailFrom: Year, capNorm?: number, expand = 1): PolityModel {
+  const k = knobs.get(POLITIES_KNOBS);
   return {
+    knobs,
+    k,
+    biomeF: biomeFactors(k.BIOME_EXP),
     terrain: T,
     cultures,
     base: subSeed(seed, 'civ-polity'),
@@ -926,10 +947,10 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
     pAt: new Map(),
     sAt: new Map(),
     spacing,
-    capNorm: capNorm ?? capacityNorm(T),
+    capNorm: capNorm ?? capacityNorm(knobs, T),
     years,
     worthMul: expand === 1 ? 1 : 1 / fpow(expand, WORTH_EXP),
-    reach: REACH,
+    reach: k.REACH,
     sailFrom,
     rbase: rulerBase(seed),
     rtag: [],
@@ -946,6 +967,8 @@ function emptyModel(T: CultureTerrain, cultures: Culture[], seed: number, port: 
 // 定参数
 
 export interface PolityPlanParams {
+  /** 这个世界的那套数 */
+  knobs: KnobSet;
   polities: number | 'auto';
   /** 扩张快慢总系数(和民族共用) */
   pace: number;
@@ -959,8 +982,9 @@ export interface PolityPlanParams {
 export function planPolities(world: World, cm: CultureModel, p: PolityPlanParams): PolityModel {
   const T = cm.terrain;
   const expand = p.expand ?? 1;
+  const K = p.knobs.get(POLITIES_KNOBS);
   // 远洋看各国自己的运输能力(Polity.sail),没有全世界统一的航海时代
-  return emptyModel(T, cm.cultures, cm.seed, findPorts(world, T), capitalSpacing(T, p.polities), STEP_YEARS / Math.max(1e-3, p.pace * expand), Infinity, p.capNorm, expand);
+  return emptyModel(p.knobs, T, cm.cultures, cm.seed, findPorts(world, T), capitalSpacing(K, T, p.polities), K.STEP_YEARS / Math.max(1e-3, p.pace * expand), Infinity, p.capNorm, expand);
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,7 +1117,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
     }
     const p = m.polities[pid];
     if (!p || p.ended !== undefined) return;
-    if (a === POLICY_RESPREAD) {
+    if (a === m.knobs.get(POLICY_KNOBS).POLICY_RESPREAD) {
       const prev = policyWidens(m, pid, t);
       if (prev) respread(sim, m, pid, prev);
       return;
@@ -1106,7 +1130,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   sim.on(Ev.AgeOfSail, () => {
     for (const p of m.polities) {
       if (p.ended !== undefined || p.kind === 'sea') continue;
-      m.capDist[p.id] = capitalDistance(T, m.settlements[capitalAt(p, Infinity)].region, 2, m.port);
+      m.capDist[p.id] = capitalDistance(m.k, T, m.settlements[capitalAt(p, Infinity)].region, 2, m.port);
       respread(sim, m, p.id);
     }
   });
@@ -1122,7 +1146,7 @@ export function grantSail(sim: CivSim, m: PolityModel, pid: number): void {
   if (p.kind === 'sea' || p.ended !== undefined || p.sail !== undefined) return;
   p.sail = sim.now;
   if (sim.now >= m.sailFrom) return; // 旧版本的历史:全世界已经进了航海时代
-  m.capDist[pid] = capitalDistance(m.terrain, m.settlements[capitalAt(p, Infinity)].region, 2, m.port);
+  m.capDist[pid] = capitalDistance(m.k, m.terrain, m.settlements[capitalAt(p, Infinity)].region, 2, m.port);
   respread(sim, m, pid);
 }
 
@@ -1229,7 +1253,7 @@ export function foundCity(sim: CivSim, m: PolityModel, r: number, t: Year, rebui
   m.settlements.push(s);
   m.stag.push(nextTag(m.sAt, s.cell));
   m.cityOf[r] = id;
-  const tf = foundingYear(s);
+  const tf = foundingYear(m.knobs, s);
   if (tf < Infinity) sim.schedule(tf, Ev.PolityFound, r, id);
   return s;
 }
@@ -1280,7 +1304,7 @@ export function moveCapital(m: PolityModel, pid: number, sid: number, t: Year): 
     capitalLost.get(m)?.(old, pid, t);
   }
   m.capDistPrev[pid] = m.capDist[pid];
-  m.capDist[pid] = capitalDistance(m.terrain, s.region, voyageOf(m, p, t), m.port);
+  m.capDist[pid] = capitalDistance(m.k, m.terrain, s.region, voyageOf(m, p, t), m.port);
   m.capMoved[pid] = t;
   // 迁都那一刻的预约还按旧国都算(见 distFor),下一刻起按新的
   simOf.get(m)?.schedule(t + 1 / 256, Ev.Respread, 0, pid);
@@ -1315,7 +1339,7 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
     kind,
     expansionism: KIND_EXPANSIONISM[kind] * (0.8 + 0.5 * keyed(m.base, seat, 5)),
     color: [128, 128, 128],
-    lineage: lineageOf(m.base, kind, seat),
+    lineage: lineageOf(m.k, m.base, kind, seat),
     titles: [],
     capitals: [{ year: t, settlement: sid }],
     ...extra,
@@ -1328,7 +1352,7 @@ export function addPolity(m: PolityModel, sid: number, cu: number, t: Year, extr
   m.size.push(0);
   m.lands.push([]);
   m.tier.push(-1);
-  m.capDist.push(capitalDistance(m.terrain, r, voyageOf(m, { kind, sail: p.sail }, t), m.port));
+  m.capDist.push(capitalDistance(m.k, m.terrain, r, voyageOf(m, { kind, sail: p.sail }, t), m.port));
   m.capDistPrev.push(null);
   m.capMoved.push(-Infinity);
   markNear(m.terrain.regions, r, m.spacing, m.near, 1);
@@ -1352,7 +1376,8 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   const R = T.R;
   // 国都间距:推出这份历史时定的(CivParams.polities);旧版本的历史没记,按默认的"自动"数量(和 planPolities 同一个公式)
   // 民族表用 cultures.ts 接着推时复制的那一份(推演中分化出的新民族加在那一份里)
-  const m = emptyModel(T, cultureModelOf(sim)?.cultures ?? civ.cultures, civ.seed, findPorts(world, T), civ.capSpacing ?? capitalSpacing(T, 'auto'), civ.polityYears ?? STEP_YEARS, civ.sailFrom ?? ageOfSailYear(1), civ.capNorm, civ.frontier?.expand);
+  const K = sim.knobs.get(POLITIES_KNOBS);
+  const m = emptyModel(sim.knobs, T, cultureModelOf(sim)?.cultures ?? civ.cultures, civ.seed, findPorts(world, T), civ.capSpacing ?? capitalSpacing(K, T, 'auto'), civ.polityYears ?? K.STEP_YEARS, civ.sailFrom ?? ageOfSailYear(sim.knobs, 1), civ.capNorm, civ.frontier?.expand);
   // 阶段 3 城市兴衰:国都年份段、洗劫记录接着推时会往里加,复制一份(不改传进来的 civ)
   m.settlements = civ.settlements.map((s) => {
     const c = { ...s };
@@ -1392,7 +1417,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     const sea = voyageOf(m, p, t);
     const key = r * 3 + sea;
     let d = distCache.get(key);
-    if (!d) distCache.set(key, (d = capitalDistance(T, r, sea, m.port)));
+    if (!d) distCache.set(key, (d = capitalDistance(m.k, T, r, sea, m.port)));
     return d;
   };
   for (const p of m.polities) {
@@ -1455,7 +1480,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
   // 被毁的城不补(立国事件触发时立不成)。地形大事那一刻接着推也一样
   for (const s of m.settlements) {
     if (s.ended !== undefined) continue;
-    const tf = foundingYear(s);
+    const tf = foundingYear(m.knobs, s);
     if (tf < Infinity && quantize(tf) > now) sim.schedule(tf, Ev.PolityFound, s.region, s.id, s.founded);
   }
   // "国家到达":按日志重放。预约那一刻的国都 = 在那一刻之前(不含同一时刻)最近的一次迁都后的国都,见 distFor
@@ -1586,7 +1611,7 @@ export function resumePolities(sim: CivSim, world: World, civ: Civ, iv?: Interve
     const tune = tunes[tunes.length - 1];
     if (tune !== undefined && tune + 1 / 256 > now) {
       m.retune.set(p.id, tune);
-      sim.schedule(tune + 1 / 256, Ev.Respread, POLICY_RESPREAD, p.id);
+      sim.schedule(tune + 1 / 256, Ev.Respread, m.knobs.get(POLICY_KNOBS).POLICY_RESPREAD, p.id);
     }
     const list = bookOf(m, p.id, now);
     const last = list.length - 1;
@@ -1743,7 +1768,8 @@ function restoreDirection(world: World, m: PolityModel): RestoreDirection {
  * 阶段 3 城市兴衰:同一处城址先后的城(被毁、又重建,同一地块)合成一座,每一座够格修路的城记一段在世的年份(lives):
  * 通往废城的路被毁那年荒废,原址重建的城长成镇(或立都)以后重新通路。ended = 最后一座城被毁的年份(还在 = 不给)。
  */
-export function routeCities(settlements: Settlement[], polities: Polity[], endYear: Year): RouteCity[] {
+export function routeCities(knobs: KnobSet, settlements: Settlement[], polities: Polity[], endYear: Year): RouteCity[] {
+  const { ROUTE_MIN_RANK } = knobs.get(POLITIES_KNOBS);
   const capitalFrom = new Map<number, Year>();
   for (const p of polities) {
     for (const c of p.capitals ?? [{ year: p.founded, settlement: p.capital }]) {

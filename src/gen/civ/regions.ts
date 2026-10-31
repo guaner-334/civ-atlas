@@ -20,17 +20,19 @@ import { adjLengths, cellAreas, REF_MESH_CELLS, refSpacing, REGION_AREA_SCALE } 
 import { MAJOR_RIVER, frozenSea } from './habitat';
 import { flog2, fpow, keyed, subSeed } from './engine/rand';
 import { neighborGraph, roadPassable, seaPassable, urquhart, type Link } from './routes';
-import { defineKnobs } from './engine/knobs';
+import { defineKnobs, type KnobSet } from './engine/knobs';
 
 export interface RegionParams {
   /** 每州目标面积(世界单位²) */
   regionArea: number;
   /** 文明种子(CivParams.civSeed;没给时调用方填地图种子) */
   seed: number;
+  /** 这个世界的那套数(划州按其中的 REGIONS_KNOBS) */
+  knobs: KnobSet;
 }
 
 // ---- 调参(以截图效果为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const REGIONS_KNOBS = defineKnobs('regions', {
   /** 撒种子半径 = √目标面积 × 这个系数 × 宜居度系数 × 随机抖动 */
   SEED_RADIUS: 0.8,
@@ -71,7 +73,8 @@ export const REGIONS_KNOBS = defineKnobs('regions', {
    */
   RES_EXP: 0.07,
 });
-const { SEED_RADIUS, SIZE_REF, SIZE_EXP, SIZE_MIN, SIZE_MAX, REACH_EXP, CLIMB_METERS_PER_STEP, SEED_TERRAIN, RIVER_STEPS, BIOME_CHANGE, MIN_AREA_FRAC, STRAIT_STEPS, ROUTE_STEPS, LANE_VS_LAND, MOUNTAIN_ABOVE_HIGHER, MOUNTAIN_ABOVE_LOWER, RIVER_BORDER_FRAC, RES_EXP } = REGIONS_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type RegionsKnobs = typeof REGIONS_KNOBS.values;
 
 /** 河的阻隔系数:流量 ≥ 2 倍河流阈值开始算,log2(流量 / 阈值) − 1,夹在 [0, 4];大河(6 倍)约 1.6 */
 function riverSize(flux: number, thr: number): number {
@@ -80,6 +83,8 @@ function riverSize(flux: number, thr: number): number {
 }
 
 export function buildRegions(world: World, habitat: Habitat, p: RegionParams): Regions {
+  const K = p.knobs.get(REGIONS_KNOBS);
+  const { CLIMB_METERS_PER_STEP, BIOME_CHANGE, RIVER_STEPS, SEED_TERRAIN, SEED_RADIUS, RES_EXP, SIZE_MAX, SIZE_MIN, SIZE_REF, SIZE_EXP, REACH_EXP, MIN_AREA_FRAC } = K;
   const { mesh, water, biome, elevation, flux, riverThreshold } = world;
   const { n, adjStart, adj } = mesh;
   const base = subSeed(p.seed, 'civ-regions');
@@ -232,7 +237,7 @@ export function buildRegions(world: World, habitat: Habitat, p: RegionParams): R
   for (let i = 0; i < n; i++) if (of[i] >= 0) of2[i] = newId[of[i]];
   of = of2;
 
-  return finishRegions(world, habitat, of, Int32Array.from(seat), lmOf, cellArea, len, river, step);
+  return finishRegions(K, world, habitat, of, Int32Array.from(seat), lmOf, cellArea, len, river, step);
 }
 
 /** 陆块编号:地块 → 所在陆块 / 岛(按面积从大到小编号,0 起;面积一样按第一块地块先后);水 = −1 */
@@ -431,6 +436,7 @@ function mergeSmall(
 
 /** 由最终的"地块 → 州"算出州的各项属性和邻接图 */
 function finishRegions(
+  K: RegionsKnobs,
   world: World,
   habitat: Habitat,
   of: Int32Array,
@@ -441,6 +447,7 @@ function finishRegions(
   river: Float32Array,
   step: number,
 ): Regions {
+  const { MOUNTAIN_ABOVE_HIGHER, MOUNTAIN_ABOVE_LOWER, RIVER_BORDER_FRAC, STRAIT_STEPS } = K;
   const { mesh, water, biome, elevation } = world;
   const { n, adjStart, adj } = mesh;
   const count = seat.length;
@@ -609,7 +616,7 @@ function finishRegions(
 
   // ---- 航线:州的出海口之间(见 seaLanes) ----
   const seaGate = seaGates(world, of, count, open, dSeat);
-  for (const e of seaLanes(world, edges, seaGate, open, len, step, edgeOf, landmass)) {
+  for (const e of seaLanes(K, world, edges, seaGate, open, len, step, edgeOf, landmass)) {
     const ca = seaGate[e.a];
     const cb = seaGate[e.b];
     edges.push({ a: e.a, b: e.b, pairs: 0, riverPairs: 0, pass: 0, len: dSeat[ca] + e.w + dSeat[cb], border: 0, kind: AdjKind.SeaRoute, ca, cb });
@@ -706,7 +713,8 @@ function seaGates(world: World, of: Int32Array, count: number, open: Uint8Array,
  * 和画出来的航线同一个连法(routes.ts 的 neighborGraph / urquhart):推演里能走的航线都画得出来。
  * 返回 { a < b 两州, w = 两个出海口之间的海路长 },按 (a, b) 升序
  */
-function seaLanes(world: World, edges: readonly Edge[], gate: Int32Array, open: Uint8Array, len: Float32Array, step: number, edgeOf: Map<number, number>, landmass: Int32Array): Link[] {
+function seaLanes(K: RegionsKnobs, world: World, edges: readonly Edge[], gate: Int32Array, open: Uint8Array, len: Float32Array, step: number, edgeOf: Map<number, number>, landmass: Int32Array): Link[] {
+  const { ROUTE_STEPS, LANE_VS_LAND } = K;
   const { mesh } = world;
   const { n, adjStart, adj } = mesh;
   const count = gate.length;
@@ -797,6 +805,8 @@ export function emptyRegions(n: number): Regions {
  * 之后按新地形重算各州的面积、人口上限、群落、海拔、陆块和邻接(和 buildRegions 最后一步同一套)。
  */
 export function reshapeRegions(world: World, habitat: Habitat, prev: Regions, p: RegionParams): Regions {
+  const K = p.knobs.get(REGIONS_KNOBS);
+  const { SEED_RADIUS, RES_EXP, MIN_AREA_FRAC } = K;
   const { mesh, water, flux, riverThreshold } = world;
   const { n, adjStart, adj } = mesh;
   const base = subSeed(p.seed, 'civ-regions');
@@ -917,5 +927,5 @@ export function reshapeRegions(world: World, habitat: Habitat, prev: Regions, p:
     keySeat[r] = pick;
     keyOf[pick] = r;
   }
-  return { ...finishRegions(world, habitat, of, Int32Array.from(seat), lmOf, cellArea, len, river, step), keyOf, keySeat };
+  return { ...finishRegions(K, world, habitat, of, Int32Array.from(seat), lmOf, cellArea, len, river, step), keyOf, keySeat };
 }

@@ -42,7 +42,7 @@ import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以统计数和截图为准,见 scripts/gen-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const CITIES_KNOBS = defineKnobs('cities', {
   /** 攻下一州时城被洗劫、被毁的基础机会 */
   SACK_P: 0.1,
@@ -91,8 +91,6 @@ export const CITIES_KNOBS = defineKnobs('cities', {
   /** 人口不到失去国都之位时的这么多、当时至少是"城"(千人),记"旧都渐衰" */
   DECLINE_RATIO: 0.85,
 });
-const { SACK_P, RUIN_P, P_MAX, NOMAD, FOREIGN, KIN, SIEGE_FROM, SIEGE_YEARS, SIEGE_MAX, BRUTAL_P, BRUTAL, CAPITAL_SACK, CAPITAL_RUIN, RUIN_RANK, RUIN_AGAIN, SACK_REST, SACK_AGAIN, LOSS, LOSS_HARSH, REBUILD_FIRST, REBUILD_EVERY, REBUILD_TRIES, REBUILD_P, SITE_REF, REBUILD_SETTLE, DECLINE_NOTE, DECLINE_JITTER, DECLINE_RATIO } = CITIES_KNOBS.values;
-export const { REBUILD_GROWTH } = CITIES_KNOBS.values;
 
 
 const DECLINE_MIN_POP = SETTLEMENT_RANKS[2].min;
@@ -127,21 +125,25 @@ export function cityModelOf(sim: CivSim): CityModel | undefined {
 
 /** 破坏更重的战争(按攻守双方 + 宣战时刻取随机,和战争编号无关) */
 function brutalWar(cm: CityModel, w: War): boolean {
+  const { BRUTAL_P } = cm.pm.knobs.get(CITIES_KNOBS);
   return keyed4(cm.base, cm.pm.ptag[w.a], cm.pm.ptag[w.b], Math.round(w.start * 256), U_BRUTAL) < BRUTAL_P;
 }
 
 /** 被毁的城一共看几次重建 */
 function rebuildTries(cm: CityModel, s: Settlement): number {
+  const { REBUILD_TRIES } = cm.pm.knobs.get(CITIES_KNOBS);
   return REBUILD_TRIES[0] + Math.floor((REBUILD_TRIES[1] - REBUILD_TRIES[0] + 1) * keyed(cm.base, cm.pm.stag[s.id], 0, U_TRIES));
 }
 
 /** 被毁的城 s 第 k 次看重建的时刻 */
 function rebuildTime(cm: CityModel, s: Settlement, k: number): number {
+  const { REBUILD_FIRST, REBUILD_EVERY } = cm.pm.knobs.get(CITIES_KNOBS);
   return s.ended! + REBUILD_FIRST + REBUILD_EVERY * (k + 0.2 + 0.6 * keyed(cm.base, cm.pm.stag[s.id], k, U_REBUILD_T));
 }
 
 /** 城 s 的第 k 段国都结束(until)后看旧都的时刻 */
 function declineTime(cm: CityModel, s: Settlement, k: number, until: Year): number {
+  const { DECLINE_NOTE, DECLINE_JITTER } = cm.pm.knobs.get(CITIES_KNOBS);
   return until + DECLINE_NOTE + DECLINE_JITTER * keyed(cm.base, cm.pm.stag[s.id], k, U_DECLINE_T);
 }
 
@@ -150,6 +152,7 @@ function declineTime(cm: CityModel, s: Settlement, k: number, until: Year): numb
 
 /** 登记城市兴衰的事件处理(installDynasty 之后调用) */
 export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: CityModel = newModel(pm, wm)): CityModel {
+  const { NOMAD, KIN, FOREIGN, BRUTAL, SIEGE_FROM, SIEGE_MAX, SIEGE_YEARS, P_MAX, RUIN_P, RUIN_RANK, CAPITAL_RUIN, RUIN_AGAIN, SACK_REST, SACK_P, CAPITAL_SACK, SACK_AGAIN, LOSS, LOSS_HARSH, SITE_REF, REBUILD_SETTLE, REBUILD_P, REBUILD_GROWTH, DECLINE_RATIO } = pm.knobs.get(CITIES_KNOBS);
   const api = civApi(sim);
   models.set(sim, cm);
   const culture = sim.owners[Layer.Culture];

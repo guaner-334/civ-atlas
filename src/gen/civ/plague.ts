@@ -64,7 +64,7 @@ import { Ev } from './events';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以 20 个种子的统计为准) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const PLAGUE_KNOBS = defineKnobs('plague', {
   /** 看疫情:第一次在哪一年,之后每隔多少年 */
   PLAGUE_FIRST: 0,
@@ -112,10 +112,9 @@ export const PLAGUE_KNOBS = defineKnobs('plague', {
   PAN_FADE: 0.02,
   PAN_FADE_YEARS: 10,
 });
-const { PLAGUE_FIRST, PLAGUE_EVERY, ORIGIN_MIN, ORIGIN_NORM, PORT_W, GREAT_ODDS, SPREAD, GREAT_SPREAD, KIND, DECAY, GREAT_DECAY, DENSE, DENSE_MIN, MAX_YEARS, GREAT_YEARS, LOSS, GREAT_LOSS, IV_SPREAD, PAN_SPREAD, PAN_DECAY, PAN_HOPS, PAN_DENSE_MIN, PAN_CROSS, PAN_SHIP, PAN_SHIP_MAX, PAN_SPARE, PAN_FADE, PAN_FADE_YEARS } = PLAGUE_KNOBS.values;
-export const { PAN_YEARS } = PLAGUE_KNOBS.values;
+/** 这张表的值(一套数里取出来的) */
+export type PlagueKnobs = typeof PLAGUE_KNOBS.values;
 /** 上一场起疫后这么多年内不再起疫(比最长的传得久,两场不会同时在传;只看起疫的年份,改了别处的地形这里照旧) */
-const GAP = GREAT_YEARS + 2;
 
 
 
@@ -181,7 +180,8 @@ export function plagueModelOf(sim: CivSim): PlagueModel | undefined {
 }
 
 /** 第 k 次看疫情的时刻 */
-function checkTime(base: number, k: number): number {
+function checkTime(K: PlagueKnobs, base: number, k: number): number {
+  const { PLAGUE_FIRST, PLAGUE_EVERY } = K;
   return PLAGUE_FIRST + PLAGUE_EVERY * (k + 0.2 + 0.6 * keyed(base, k, 0, U_T));
 }
 
@@ -195,7 +195,8 @@ function ivLossOf(base: number, k: number, tag: number, level: number): number {
  * 染疫的城死几成:基数随机;人口过 ORIGIN_MIN 的大城人挤死得多(最多 × 1.25),港口再 × 1.1;不超过 0.5。
  * 「天灾」多 / 很多(rate):再 × CalamityRates.plagueLoss,不超过 PLAGUE_LOSS_CAP
  */
-function lossOf(base: number, k: number, tag: number, great: boolean, pop: number, port: boolean, rate: CalamityRates | null): number {
+function lossOf(K: PlagueKnobs, base: number, k: number, tag: number, great: boolean, pop: number, port: boolean, rate: CalamityRates | null): number {
+  const { GREAT_LOSS, LOSS, ORIGIN_MIN } = K;
   const [a, b] = great ? GREAT_LOSS : LOSS;
   let x = a + (b - a) * keyed4(base, k, tag, 0, U_LOSS);
   x *= 0.85 + 0.4 * Math.min(1, pop / (4 * ORIGIN_MIN));
@@ -208,7 +209,8 @@ function lossOf(base: number, k: number, tag: number, great: boolean, pop: numbe
  * 全球大疫染上的城死几成:PAN_LOSS[轻重] × 0.85–1.15(随机);大城、港口人挤再多 PAN_CROWD;
  * 起疫后第 g 年染上的少 PAN_FADE × g(最多算 PAN_FADE_YEARS 年);一城最多 PAN_LOSS_MAX
  */
-function panLossOf(base: number, k: number, tag: number, level: number, pop: number, port: boolean, g: number): number {
+function panLossOf(K: PlagueKnobs, base: number, k: number, tag: number, level: number, pop: number, port: boolean, g: number): number {
+  const { PAN_FADE, PAN_FADE_YEARS } = K;
   let x = PAN_LOSS[level] * (0.85 + 0.3 * keyed4(base, k, tag, 0, U_LOSS));
   if (pop >= PAN_CROWD_POP || port) x += PAN_CROWD;
   x *= 1 - PAN_FADE * Math.min(PAN_FADE_YEARS, Math.max(0, g));
@@ -222,11 +224,13 @@ function panLossOf(base: number, k: number, tag: number, level: number, pop: num
 export function installPlague(sim: CivSim, pm: PolityModel, seed: number): PlagueModel {
   const pl: PlagueModel = { pm, base: subSeed(seed, 'civ-plague'), now: null, last: -Infinity };
   hook(sim, pl);
-  sim.schedule(checkTime(pl.base, 0), Ev.PlagueCheck, 0, 0);
+  sim.schedule(checkTime(pm.knobs.get(PLAGUE_KNOBS), pl.base, 0), Ev.PlagueCheck, 0, 0);
   return pl;
 }
 
 function hook(sim: CivSim, pl: PlagueModel): void {
+  const K = pl.pm.knobs.get(PLAGUE_KNOBS);
+  const { GREAT_YEARS, ORIGIN_MIN, PORT_W, ORIGIN_NORM, GREAT_ODDS, PAN_SPARE, PAN_DENSE_MIN, DENSE, KIND, PAN_CROSS, DENSE_MIN, PAN_SPREAD, PAN_DECAY, PAN_SHIP, PAN_SHIP_MAX, PAN_HOPS, GREAT_SPREAD, GREAT_DECAY, SPREAD, IV_SPREAD, DECAY } = K;
   models.set(sim, pl);
   const { pm, base } = pl;
   const reg = pm.terrain.regions;
@@ -254,7 +258,7 @@ function hook(sim: CivSim, pl: PlagueModel): void {
       const s = pm.settlements[sid];
       if (ob.pan !== undefined) {
         // 全球大疫:折损带凋敝结束那年(无人收拾,之前不长回来),记进全球大疫的状态
-        const loss = fixed ?? panLossOf(base, ob.k, reg.seat[r], ob.level, populationAt(s, t), !!pm.port[r], Math.round(t - ob.t0));
+        const loss = fixed ?? panLossOf(K, base, ob.k, reg.seat[r], ob.level, populationAt(s, t), !!pm.port[r], Math.round(t - ob.t0));
         (s.sacks ??= []).push({ year: t, loss, cause: 'plague', until: ob.pan, pan: ob.k });
         pl.onPandemicHit?.(ob.k, r, sid, t, loss);
         const p = owner[r];
@@ -265,7 +269,7 @@ function hook(sim: CivSim, pl: PlagueModel): void {
         continue;
       }
       const loss =
-        fixed ?? (ob.level ? ivLossOf(base, ob.k, reg.seat[r], ob.level) : lossOf(base, ob.k, reg.seat[r], ob.great, populationAt(s, t), !!pm.port[r], rate));
+        fixed ?? (ob.level ? ivLossOf(base, ob.k, reg.seat[r], ob.level) : lossOf(K, base, ob.k, reg.seat[r], ob.great, populationAt(s, t), !!pm.port[r], rate));
       (s.sacks ??= []).push({ year: t, loss, cause: 'plague' });
       const p = owner[r];
       if (p < 0) continue;
@@ -291,14 +295,14 @@ function hook(sim: CivSim, pl: PlagueModel): void {
 
   /** 接着传:这一年(起疫后第 g 年)还传不传;传就预约 */
   const next = (ob: Outbreak, g: number): void => {
-    if (ob.front.length && g < maxYears(ob)) sim.schedule(ob.t0 + g + 1, Ev.PlagueStep, ob.k, g + 1);
+    if (ob.front.length && g < maxYears(K, ob)) sim.schedule(ob.t0 + g + 1, Ev.PlagueStep, ob.k, g + 1);
     else pl.now = null;
   };
 
   // ---- 起疫 ----
   sim.on(Ev.PlagueCheck, (k, _b, t) => {
-    sim.schedule(checkTime(base, k + 1), Ev.PlagueCheck, k + 1, 0);
-    if (t - pl.last < GAP) return;
+    sim.schedule(checkTime(K, base, k + 1), Ev.PlagueCheck, k + 1, 0);
+    if (t - pl.last < GREAT_YEARS + 2) return;
     // 全球大疫的凋敝里不自己起疫
     if (pl.quiet?.(t)) return;
     // 各城各掷各的:随机数 < 分量 ÷ ORIGIN_NORM 算掷中;掷中的里挑 随机数 ÷ 分量 最小的
@@ -453,7 +457,8 @@ function hook(sim: CivSim, pl: PlagueModel): void {
 }
 
 /** 一场瘟疫最多传几年 */
-function maxYears(ob: { great: boolean; pan?: Year }): number {
+function maxYears(K: PlagueKnobs, ob: { great: boolean; pan?: Year }): number {
+  const { PAN_YEARS, GREAT_YEARS, MAX_YEARS } = K;
   return ob.pan !== undefined ? PAN_YEARS : ob.great ? GREAT_YEARS : MAX_YEARS;
 }
 
@@ -463,6 +468,7 @@ function maxYears(ob: { great: boolean; pan?: Year }): number {
  * 再算出下一次看疫情,补进引擎。
  */
 export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonly Intervention[] = civ.interventions ?? []): void {
+  const K = sim.knobs.get(PLAGUE_KNOBS);
   const pm = polityModelOf(sim);
   if (!pm) return;
   const pl: PlagueModel = { pm, base: subSeed(civ.seed, 'civ-plague'), now: null, last: -Infinity };
@@ -534,14 +540,14 @@ export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonl
       }
     }
     const fr = [...front].sort((a, b) => a - b);
-    if (fr.length && g < maxYears({ great, pan })) {
+    if (fr.length && g < maxYears(K, { great, pan })) {
       pl.now = { k: last, t0, great, level, ...(pan !== undefined ? { pan } : {}), hit, front: fr };
       sim.schedule(t0 + g + 1, Ev.PlagueStep, last, g + 1);
     }
   }
   let k = 0;
-  while (quantize(checkTime(pl.base, k)) <= sim.now) k++;
-  sim.schedule(checkTime(pl.base, k), Ev.PlagueCheck, k, 0);
+  while (quantize(checkTime(K, pl.base, k)) <= sim.now) k++;
+  sim.schedule(checkTime(K, pl.base, k), Ev.PlagueCheck, k, 0);
 }
 
 /** 模块:瘟疫(清单和次序见 modules.ts) */

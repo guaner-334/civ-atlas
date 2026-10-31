@@ -49,8 +49,8 @@ import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './engine/rand';
 import { bookChain, quantize, type CivSim } from './engine/sim';
 import { befriends, canCross, effOf, endPolity, hates, picks, policyAt, polityModelOf, powerScaleOf, type PolityModel } from './polities';
-import { FRIEND_JOIN, FRIEND_PACT } from './policy';
-import { KIN_JOIN, KIN_PACT } from './marriages';
+import { POLICY_KNOBS } from './policy';
+import { MARRIAGES_KNOBS } from './marriages';
 import { polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { capitalAt, polityAlive, populationAt } from './growth';
 import { politicsModelOf } from './politics';
@@ -60,7 +60,7 @@ import { civApi, type DiplomacyApi } from './api';
 import { defineKnobs } from './engine/knobs';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
-/** 这一段的旋钮(名字、默认值;推演照 values 里的数算) */
+/** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
 export const DIPLOMACY_KNOBS = defineKnobs('diplomacy', {
   /** 立国后多少年开始看邦交;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
   DIP_FIRST: 50,
@@ -137,7 +137,6 @@ export const DIPLOMACY_KNOBS = defineKnobs('diplomacy', {
   /** 一国最多同时打几场仗(和 wars.ts 的 MAX_WARS 一样):手上的仗打满了的不来援盟,不算坐视不救 */
   MAX_WARS: 2,
 });
-const { DIP_FIRST, DIP_EVERY, THREAT, SUBMIT_RATIO, SUBMIT_MAX, SUBMIT_ODDS, SUBMIT_EXP, RESUBMIT_REST, MAX_PACTS, PACT_MIN_POWER, PACT_REST, PACT_ODDS, PACT_FEAR, PACT_COWAR, LAPSE_AGE, LAPSE_RATIO, LAPSE_P, BETRAY_AGE, BETRAY_PREY, BETRAY_ODDS, PACT_JOIN, RESCUE, SUE_RATIO, SUE_FRAC, SUE_MIN, SUE_OFFER, SUE_ACCEPT, SUE_FOREIGN, SUE_KIN, SUE_CRUSH, SUE_UNIFY, SUE_FAR, SUE_LEFT, DEFECT_MIN, DEFECT_ODDS, DEFECT_K, DEFECT_R0, DEFECT_FAR, DEFECT_FOREIGN, WEAK_YEARS, WEAK_LOSS, PUNISH, ABSORB_AGE, ABSORB_MAX, ABSORB_RATIO, ABSORB_ODDS, ABSORB_FOREIGN, ABSORB_SETTLE, MAX_WARS } = DIPLOMACY_KNOBS.values;
 
 
 
@@ -163,6 +162,9 @@ const U_SUE = 10;
 // ---------------------------------------------------------------------------
 // 模型
 
+/** 这张表的值(一套数里取出来的) */
+export type DiplomacyKnobs = typeof DIPLOMACY_KNOBS.values;
+
 /** 一个盟约(自然结成的;作者下令的结盟在干预模型里) */
 export interface Pact {
   a: number;
@@ -177,6 +179,8 @@ const pairKey = (a: number, b: number) => Math.min(a, b) * 32768 + Math.max(a, b
 
 export class DiplomacyModel {
   readonly pm: PolityModel;
+  /** 这次推演的那套数里邦交这张表 */
+  readonly k: DiplomacyKnobs;
   readonly base: number;
   /** 结着的盟 */
   pacts: Pact[] = [];
@@ -189,13 +193,15 @@ export class DiplomacyModel {
   /** 两国最近一次盟约断了的年份(键见 pairKey) */
   readonly broken = new Map<number, Year>();
   /** 看邻国挑中盟国时,宣战赔率 × 这么多(wars.ts) */
-  readonly betrayOdds = BETRAY_ODDS;
+  readonly betrayOdds: number;
 
   /** 具名接口表的邦交那一组(friendly 要问立约那边的 bound);单独建模型时是空的 */
   readonly api: DiplomacyApi;
 
   constructor(pm: PolityModel, api: DiplomacyApi = {}) {
     this.pm = pm;
+    this.k = pm.knobs.get(DIPLOMACY_KNOBS);
+    this.betrayOdds = this.k.BETRAY_ODDS;
     this.api = api;
     this.base = subSeed(pm.seed, 'civ-diplomacy');
   }
@@ -256,6 +262,7 @@ export class DiplomacyModel {
    * 或者盟国已弱到 p 的 1 / BETRAY_PREY 以下(power = 现算某国国力)
    */
   betrayable(x: Pact, p: number, t: Year, power: (q: number) => number): boolean {
+    const { BETRAY_AGE, BETRAY_PREY } = this.k;
     if (t - x.since < BETRAY_AGE) return false;
     const q = x.a === p ? x.b : x.a;
     return !this.alive(x.foe) || power(x.foe) < power(p) || power(p) >= BETRAY_PREY * power(q);
@@ -296,6 +303,7 @@ export function diplomacyModelOf(sim: CivSim): DiplomacyModel | undefined {
 
 /** 国家 p 第 k 次看邦交的时刻 */
 function checkTime(dm: DiplomacyModel, p: number, k: number): number {
+  const { DIP_FIRST, DIP_EVERY } = dm.k;
   const P = dm.pm.polities[p];
   return P.founded + DIP_FIRST + DIP_EVERY * (k + 0.2 + 0.6 * keyed(dm.base, dm.pm.ptag[p], k, U_CHECK_T));
 }
@@ -305,6 +313,9 @@ function checkTime(dm: DiplomacyModel, p: number, k: number): number {
 
 /** 登记邦交的事件处理,把规则挂到战争模型上(installCities 之后、installInterventions 之前调用) */
 export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyModel = new DiplomacyModel(pm, civApi(sim).diplomacy)): DiplomacyModel {
+  const { KIN_PACT, KIN_JOIN } = pm.knobs.get(MARRIAGES_KNOBS);
+  const { FRIEND_PACT, FRIEND_JOIN } = pm.knobs.get(POLICY_KNOBS);
+  const { MAX_WARS, WEAK_YEARS, WEAK_LOSS, DEFECT_MIN, DEFECT_ODDS, DEFECT_K, DEFECT_R0, DEFECT_FAR, DEFECT_FOREIGN, PUNISH, ABSORB_AGE, ABSORB_MAX, ABSORB_RATIO, ABSORB_SETTLE, ABSORB_ODDS, ABSORB_FOREIGN, LAPSE_AGE, LAPSE_RATIO, LAPSE_P, THREAT, SUBMIT_RATIO, SUBMIT_MAX, RESUBMIT_REST, SUBMIT_ODDS, SUBMIT_EXP, MAX_PACTS, PACT_REST, PACT_MIN_POWER, PACT_FEAR, PACT_COWAR, PACT_ODDS, PACT_JOIN, RESCUE, SUE_RATIO, SUE_LEFT, SUE_MIN, SUE_FRAC, SUE_ACCEPT, SUE_KIN, SUE_FOREIGN, SUE_CRUSH, SUE_UNIFY, SUE_FAR, SUE_OFFER } = dm.k;
   const api = civApi(sim);
   const wm = warModelOf(sim);
   if (!wm) throw new Error('installDiplomacy:先 installWars');

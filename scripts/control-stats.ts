@@ -11,6 +11,7 @@ import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { politicsStats } from '../src/gen/civ/politics';
 import { controlAt, controlTier } from '../src/gen/civ/control';
 import { councilStats } from '../src/gen/civ/council';
+import { knobsOf } from '../src/gen/civ/knobs';
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`${k}=`))?.slice(k.length + 1);
@@ -52,7 +53,7 @@ for (let seed = from; seed < from + N; seed++) {
   const tiersAt = (y: number) => {
     const t = [0, 0, 0, 0];
     const c = controlAt(civ, y);
-    if (c) for (let r = 0; r < R; r++) if (c[r] > 0) t[controlTier(c[r])]++;
+    if (c) for (let r = 0; r < R; r++) if (c[r] > 0) t[controlTier(knobsOf(civ), c[r])]++;
     return t;
   };
   const mid = tiersAt(1500);
