@@ -75,6 +75,7 @@ import type { ControlModel, Warlord } from './control';
 import { BORDER_C, FIEF_C, FIEF_REMIT, ISSUES, Issue, Outcome, REORG_HALF, applyRule, newRules, replayRule, rulesAnnal, type Rules } from './councilRules';
 import { reformCheck } from './reform';
 import { CENSUS_COST, CENSUS_LIFT, EXAM_STAKE, FIEF_LESS_EASE, FIEF_LESS_ODDS, Practice, hasPractice } from './practices';
+import type { CivModule } from './modules';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 议得起来的国家:至少几州、立国满几年;同一种议题几年内不再议(上一回搁置了的隔 REST_SHELVED 年) */
@@ -797,3 +798,12 @@ export function councilStats(civ: Civ): { issues: number[]; outcomes: number[]; 
   }
   return { issues, outcomes, total, byIssue };
 }
+
+/** 模块:议事:直征、分封、削藩(清单和次序见 modules.ts) */
+export const councilModule: CivModule = {
+  id: 'council',
+  install: (c) => {
+    if (c.pm) installCouncil(c.sim, c.seed);
+  },
+  resume: (c) => resumeCouncil(c.sim, c.civ),
+};

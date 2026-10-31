@@ -47,6 +47,7 @@ import { politicsModelOf } from './politics';
 import { TIER_REGIONS, capitalAt, populationAt } from './growth';
 import { KEEP_COURT, KEEP_RISE } from './rulers';
 import { royalAt } from './regime';
+import type { CivModule } from './modules';
 
 // ---- 调参(以统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看王朝;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -356,3 +357,12 @@ export function dynastyStats(civ: Civ): DynastyStats {
   const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   return { eastern, western, meanEastern: mean(lenE), meanWestern: mean(lenW), perPolity, moved };
 }
+
+/** 模块:王朝更替:改朝换代、王室更迭,新朝定都根据地(清单和次序见 modules.ts) */
+export const dynastyModule: CivModule = {
+  id: 'dynasty',
+  install: (c) => {
+    if (c.pm) installDynasty(c.sim, c.pm);
+  },
+  resume: (c) => resumeDynasty(c.sim, c.world, c.civ),
+};

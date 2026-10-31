@@ -61,6 +61,7 @@ import { addPolity, canCross, coreOf, endPolity, foundingYear, moveCapital, poli
 import { warModelOf, type WarModel } from './wars';
 import { capacityAt, capitalAt, populationAt } from './growth';
 import type { ControlModel } from './control';
+import type { CivModule } from './modules';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 立国后多少年开始看内政;之后每隔多少年看一次(每段里 20%–80% 处随机一个时刻) */
@@ -939,3 +940,12 @@ export function politicsStats(civ: Civ): PoliticsStats {
   const shortLived = civ.polities.filter((p) => p.parent !== undefined && p.ended !== undefined && p.ended - p.founded < 100).length;
   return { polities: civ.polities.length, splits, claims, restorations, merges, capitalMoves, shortLived };
 }
+
+/** 模块:分与合:分裂、合并、复国、主动迁都、部落地带补立国(清单和次序见 modules.ts) */
+export const politicsModule: CivModule = {
+  id: 'politics',
+  install: (c) => {
+    if (c.pm) installPolitics(c.sim, c.pm, c.world);
+  },
+  resume: (c) => resumePolitics(c.sim, c.world, c.civ),
+};
