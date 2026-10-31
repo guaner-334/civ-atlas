@@ -122,6 +122,9 @@ interface PatchInput {
   from?: string;
 }
 
+/** 照原样打开(见 WorkerRequest 的 load) */
+export type LoadRequest = { type: 'load'; id: number; scale: number; parts: SnapshotPart[]; interventions?: Intervention[] } & CivInput;
+
 export type WorkerRequest =
   /**
    * 生成世界。terrain = 地形修改(不给 = 没改);sketch = 草图(不给 = 没画);interventions = 推文明时带上的干预(改地形重新生成时用;不给 = 没有);
@@ -149,7 +152,12 @@ export type WorkerRequest =
    * 照原样打开:不生成,读这个世界存着的原件(gen/snapshot.ts 的各块:地图、各段世界、整段历史),铺像素以后照 generate 一样交 done。
    * 参数、地形修改、草图、地形大事、干预是存档里的(对上原件里的键、排出各段;配方已经在主线程核对过)。读不出来交 loadFailed
    */
-  | ({ type: 'load'; id: number; scale: number; parts: SnapshotPart[]; interventions?: Intervention[] } & CivInput)
+  | LoadRequest
+  /**
+   * 线程被重开过(出错换了一个、叫停再推换了一个;见 src/ui/sim/simClient.ts):照原样打开的那个世界(load 是当初打开它的请求)
+   * 重新钉住 —— 地图、各段世界、历史那一块原件,和 load 一样,只是不铺像素、不交回什么。后面排着的活照它算。没有回音
+   */
+  | { type: 'pin'; id: number; load: LoadRequest }
   /**
    * 逐年推演的一步(gen/civ/play.ts 的 playTurn):在进度那一刻下 commands(只收正是这一刻的),接着推 years 年;
    * 给了 ticks 就按格走(playTicks:走 ticks 格,能停在年中),不看 years。
@@ -756,6 +764,37 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
 // 帮手线程(gullyPool.ts):整张主图的沟和山脊分给它们算,本线程同时推文明。开线程时就起好
 const pool = new GullyPool();
 
+/** 原件里的一块(没有就抛错) */
+function partOf(m: LoadRequest, name: string): Promise<unknown> {
+  const p = m.parts.find((x) => x.name === name);
+  if (!p) throw new Error(`原件缺 ${name}`);
+  return readPart(p);
+}
+
+/** 照原样打开的世界(load、pin):原件里的地图、各段世界(和地图同一套网格,原件里没带),每件地形大事对上一段。读不出来、对不上抛错 */
+async function frozenOf(m: LoadRequest): Promise<{ key: string; world: World; eras: Map<string, World>; steps: Step[] }> {
+  const key = keyOf(m.params, m.terrain, m.sketch);
+  const world = (await partOf(m, 'map')) as World;
+  const e = (await partOf(m, 'eras')) as { baseKey: string; eras: EraWorld[] };
+  if (e.baseKey !== key) throw new Error('原件不是这个世界的');
+  const eras = new Map(e.eras.map((x) => [x.key, { ...x.world, mesh: world.mesh } as World]));
+  let all: TerrainOp[] = [...(m.terrain ?? [])];
+  const steps = mergeUpheavals(m.upheavals ?? []).map((u) => {
+    all = [...all, ...u.ops];
+    const k = keyOf(m.params, all, m.sketch);
+    const w = eras.get(k);
+    if (!w) throw new Error('原件里少一段');
+    return { ...u, key: k, all, world: w };
+  });
+  return { key, world, eras, steps };
+}
+
+/** 照原样打开的世界:历史那一块原件留着(接着推时再读;要先钉住 frozen,键才对) */
+function holdPart(m: LoadRequest): void {
+  const civPart = m.parts.find((x) => x.name === 'civ');
+  held = civPart ? { key: heldKey(m, m.play), part: civPart } : null;
+}
+
 /** 排队处理的消息(改名不排队,见 onmessage) */
 type Queued = Exclude<WorkerRequest, { type: 'renames' | 'shown' }>;
 /**
@@ -765,7 +804,13 @@ type Queued = Exclude<WorkerRequest, { type: 'renames' | 'shown' }>;
 const fg: Queued[] = [];
 const bg: (() => Promise<void>)[] = [];
 let running = false;
+/**
+ * 处理一件活时出了错:这个线程不再接活、排着的也不做了(主线程收到 error 事件就关掉它,另开一个重发还没回音的,
+ * 见 src/ui/sim/simClient.ts)。不然后面几件照样交回,主线程分不清哪件没回音
+ */
+let broken = false;
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
+  if (broken) return;
   // 改名不排队:在推的那一次推完要按它算编年史
   if (e.data.type === 'renames') return void (renamesNow = { id: e.data.id, names: e.data.names });
   // 交回的那一笔换上了:不用留着怎么改回上一张
@@ -791,7 +836,10 @@ async function pump() {
         if (m) await handle(m);
         else await bg.shift()!();
       } catch (err) {
-        // 和以前同步处理时一样,出错报到线程的 error 事件上
+        // 和以前同步处理时一样,出错报到线程的 error 事件上;这个线程不再接活(见 broken)
+        broken = true;
+        fg.length = 0;
+        bg.length = 0;
         setTimeout(() => {
           throw err;
         });
@@ -864,8 +912,8 @@ let turnSnap: ReturnType<typeof setTimeout> | undefined;
 
 async function handle(m: Queued): Promise<void> {
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release') clearTimeout(turnSnap);
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'release') takeTempo(m.params, m.sketch, m.tempo);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin') clearTimeout(turnSnap);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'release' && m.type !== 'pin') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 后面已经排着新的世界(编辑地形连着涂了几笔):这一次不用算了
     if (superseded()) return void post({ type: 'aborted', id: m.id });
@@ -1088,26 +1136,10 @@ async function handle(m: Queued): Promise<void> {
     let civ: Civ;
     let steps: Step[];
     try {
-      const read = (name: string) => {
-        const p = m.parts.find((x) => x.name === name);
-        if (!p) throw new Error(`原件缺 ${name}`);
-        return readPart(p);
-      };
-      world = (await read('map')) as World;
-      const e = (await read('eras')) as { baseKey: string; eras: EraWorld[] };
-      civ = (await read('civ')) as Civ;
-      if (e.baseKey !== baseKey) throw new Error('原件不是这个世界的');
-      // 各段世界和原来的世界是同一套网格(原件里没带)
-      const eras = new Map(e.eras.map((x) => [x.key, { ...x.world, mesh: world.mesh } as World]));
-      let all: TerrainOp[] = [...(m.terrain ?? [])];
-      steps = mergeUpheavals(m.upheavals ?? []).map((u) => {
-        all = [...all, ...u.ops];
-        const key = keyOf(m.params, all, m.sketch);
-        const w = eras.get(key);
-        if (!w) throw new Error('原件里少一段');
-        return { ...u, key, all, world: w };
-      });
-      frozen = { key: baseKey, world, eras };
+      const f = await frozenOf(m);
+      civ = (await partOf(m, 'civ')) as Civ;
+      ({ world, steps } = f);
+      frozen = { key: baseKey, world, eras: f.eras };
     } catch {
       post({ type: 'loadFailed', id: m.id });
       return;
@@ -1128,12 +1160,21 @@ async function handle(m: Queued): Promise<void> {
     if (plan) transfer.push(plan.forest.buffer as ArrayBuffer);
     transfer.push(...civTransferables(civ));
     // 历史那一块原件留着(读出来的那份交给主线程了):接着推时再读
-    const civPart = m.parts.find((x) => x.name === 'civ');
-    held = civPart ? { key: heldKey(m, m.play), part: civPart } : null;
+    holdPart(m);
     const ms = performance.now() - t0;
     const chron = await postChronicle(m.id, civ, m.renames);
     postCiv({ type: 'done', id: m.id, world: { ...world, history: [] }, raster, ...(plan ? { plan } : {}), civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
+  } else if (m.type === 'pin') {
+    // 线程被重开过:照原样打开的世界重新钉住(地图、各段世界、历史那一块原件);读不出来就和没钉一样,按参数重新生成
+    try {
+      const f = await frozenOf(m.load);
+      regionsMemo.clear();
+      frozen = { key: f.key, world: f.world, eras: f.eras };
+      holdPart(m.load);
+    } catch {
+      frozen = null;
+    }
   } else if (m.type === 'history') {
     const h = buildHistoryFrames(formationOf(m.params, m.terrain, m.sketch));
     post({ type: 'history', id: m.id, ...h }, h.frames.map((f) => f.buffer));

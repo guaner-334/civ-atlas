@@ -7,7 +7,7 @@
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { BIOMES, Biome, classifyBiome } from '../gen/biomes';
+import { BIOMES, Biome, LAND_ICE_BELOW, classifyBiome } from '../gen/biomes';
 import {
   bakedView,
   boxBlur,
@@ -1689,8 +1689,8 @@ function biomePalette(look: SurfaceLook): Float32Array {
     const p = Math.exp(PP0 + (j / (PNP - 1)) * (PP1 - PP0));
     for (let i = 0; i < PNT; i++) {
       const t = PT0 + (i / (PNT - 1)) * (PT1 - PT0);
-      // 冰原的白色交给积雪层(按像素温度),表里按苔原 / 寒漠处理,免得白色被模糊进苔原带
-      const r = ramps[classifyBiome(Math.max(t, -8.9), p, 0)];
+      // 冰原的白色交给积雪层(按像素温度),表里按苔原 / 寒漠处理(温度夹到冰原门槛上面一点),免得白色被模糊进苔原带
+      const r = ramps[classifyBiome(Math.max(t, LAND_ICE_BELOW + 0.1), p, 0)];
       for (let q = 0; q < RK; q++) for (let c = 0; c < 3; c++) ch[q * 3 + c][j * PNT + i] = r[q][c];
     }
   }

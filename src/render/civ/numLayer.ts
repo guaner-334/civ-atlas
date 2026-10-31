@@ -4,12 +4,13 @@
  *
  * - 色块(numCiv):把各州的档换进"民族"那一层的 Civ 再画 —— 罩染、晕边、按界线判归属、刚换档的州慢慢洇开,都沿用民族色块那一套
  *   (territory.ts)。从第 0 年起每 step 年取一次各州的档,最后一次在结束年份。
- * - 图例(numLegendRows):各档的颜色、名字,这一年各几州。
- * - 悬停(NumLayer.hover):州名后面的那句小字和颜色块的颜色。
+ * - 图例(numLegendRows、numCounts):各档的颜色、名字,这一年各几州。
+ * - 悬停(numHoverAt):州名后面的那句小字和颜色块的颜色。
+ * 图例的州数、悬停都按色块那一次取样算(numSampleYear):两次取样之间地图颜色不动,说的也不动,对得上。
  */
 import type { Civ, Culture, Year } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
-import type { Owners } from '../../gen/civ/engine/timeline';
+import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
 
 export type Rgb = readonly [number, number, number];
 
@@ -52,14 +53,42 @@ export interface NumLayer {
   sampler(civ: Civ, k: number): (y: Year, into: Int16Array) => void;
   /** 色块:换进民族表时每档叫什么(不给 = 档名) */
   kindName?(band: number, k: number): string;
-  /** 图例:某年各档几州 */
+  /** 图例:某年各档几州(按取样那一年算的走 numCounts) */
   counts(civ: Civ, year: Year, k: number): number[];
   /** 图例:标题(导出图例里这一块的标题) */
   title(k: number): string;
   /** 图例怎么列:desc = 高的档在上;keepEmpty = 一州都没有的档也列;rowName = 每行的名字(不给 = 档名) */
   legend: { desc: boolean; keepEmpty: boolean; rowName?: (band: number) => string };
-  /** 悬停:某年某州(own = 那一年的归属);这州不按这一层说 = null */
-  hover(civ: Civ, year: Year, r: number, own: Owners, show: { thought?: number }): NumHover | null;
+  /** 悬停:某年某州(own = 那一年的归属,k = 看哪一份,见 focus);这州不按这一层说 = null。按取样那一年说的走 numHoverAt */
+  hover(civ: Civ, year: Year, r: number, own: Owners, k: number): NumHover | null;
+}
+
+/** 色块在 year 那一年用的是哪一年取的档:从第 0 年起每 step 年取一次,最后一次在结束年份(和 numCiv 的取法一样) */
+export function numSampleYear(layer: Pick<NumLayer, 'step'>, civ: Pick<Civ, 'endYear'>, year: Year): Year {
+  if (year >= civ.endYear) return civ.endYear;
+  return Math.max(0, Math.floor(year / layer.step) * layer.step);
+}
+
+/** 图例:year 那一年地图上各档几州(按色块那一次取样数) */
+export function numCounts(layer: NumLayer, civ: Civ, year: Year, k: number): number[] {
+  return layer.counts(civ, numSampleYear(layer, civ, year), k);
+}
+
+/** 取样那一年的归属(悬停用;同一个 civ、同一年只算一次) */
+let sampleOwn: { civ: Civ; year: Year; own: Owners } | null = null;
+
+/**
+ * 悬停:year 那一年地图上这州的样子(按色块那一次取样说;看哪一份按 year 挑,和色块一样)。
+ * own = year 那一年的归属,show = 文明层开关(思潮看哪一说);这州不按这一层说 = null
+ */
+export function numHoverAt(layer: NumLayer, civ: Civ, year: Year, r: number, own: Owners, show: { thought?: number }): NumHover | null {
+  const y = numSampleYear(layer, civ, year);
+  let o = own;
+  if (y !== year) {
+    if (!sampleOwn || sampleOwn.civ !== civ || sampleOwn.year !== y) sampleOwn = { civ, year: y, own: ownersAt(civ, y, sampleOwn?.own) };
+    o = sampleOwn.own;
+  }
+  return layer.hover(civ, y, r, o, layer.focus(civ, show, year));
 }
 
 const views = new WeakMap<Civ, Map<string, Civ>>();
@@ -104,9 +133,9 @@ export function numColors(layer: NumLayer): Uint8Array {
   return out;
 }
 
-/** 图例:各档的颜色、名字,这一年各几州(按 layer.legend 排、取舍) */
+/** 图例:各档的颜色、名字,这一年地图上各几州(按 layer.legend 排、取舍;州数见 numCounts) */
 export function numLegendRows(layer: NumLayer, civ: Civ, year: Year, k: number): NumLegendRow[] {
-  const n = layer.counts(civ, year, k);
+  const n = numCounts(layer, civ, year, k);
   const { desc, keepEmpty, rowName } = layer.legend;
   const B = layer.bands.length;
   const out: NumLegendRow[] = [];

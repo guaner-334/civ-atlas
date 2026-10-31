@@ -7,7 +7,7 @@ import { flushSync } from 'react-dom';
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
-import { useShortcuts } from './useShortcuts';
+import { isTyping, useShortcuts } from './useShortcuts';
 import { clearSelection, stepYear, togglePlayback } from './civView';
 import { escapeCharacter } from './characterStore';
 import { closeUpheaval, getUpUi, undoUpOp } from './upheavalStore';
@@ -45,12 +45,11 @@ export interface AppShortcutsDeps {
 export function useAppShortcuts({ home, draft, stage, data, civ, replayOn, narrow, zoomButton, applyLayer, applyMapView }: AppShortcutsDeps) {
   /** 建好的世界(不在首页、不在新建) */
   const world = stage === 'world';
-  // Esc:先取消"在地图上点一个国家 / 城",再取消选中(在输入框里打字时不管)
+  // Esc:先取消"在地图上点一个国家 / 城",再取消选中(在输入框里打字、焦点在下拉框里时不管,同快捷键)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (isTyping(e.target)) return;
       if (escapeCharacter()) return;
       if (getUpUi().on) return closeUpheaval();
       const mk = getMarkUi();

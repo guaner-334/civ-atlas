@@ -261,8 +261,7 @@ export function graticuleLines(mp: MapProj, step = 30): { meridians: number[][];
 
 /** 经度写成 "120°E" / "60°W" / "0°" / "180°"(和悬停信息、投影面板的写法一样) */
 export function lonText(lon: number): string {
-  const t = (lon + 180) / 360;
-  const v = (t - Math.floor(t)) * 360 - 180;
+  const v = wrapLon(lon);
   const a = Math.round(Math.abs(v));
   if (a === 0) return '0°';
   if (a === 180) return '180°';

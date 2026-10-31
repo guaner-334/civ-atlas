@@ -62,12 +62,11 @@ export const POPULATION_KNOBS = defineKnobs('population', {
   LAND_FLOOR: 0.5,
   /** 全球大疫的凋敝里乡民往"该有的"长回去的少几成(无人收拾,几乎不长;复作的折损见 pandemic.ts) */
   SLUMP_HOLD: 0.7,
-  FRAGILE_ELSE: 0.2,
   RIVER_SILT: 0.5,
 });
 /** 往"该有的"靠拢:每年缺口(或多出来的)的 1 / RECOVER(和城被洗劫后长回来一样快) */
 const RECOVER = SACK_RECOVER;
-/** 地经不经得住种(按地块的生物群落,见地貌表的 soilFragility;表外的编号 FRAGILE_ELSE);流着、挨着大河的有淤泥补,乘 RIVER_SILT */
+/** 地经不经得住种(按地块的生物群落,见地貌表的 soilFragility);流着、挨着大河的有淤泥补,乘 RIVER_SILT */
 const FRAGILE = biomeColumn('soilFragility');
 
 /** 乡村人口的常数(见 stateTables.ts;按这个世界的那套数) */
@@ -193,7 +192,7 @@ export interface PopLayer {
  * 乡村人口最后一步(不晚于它的整 POP_EVERY 年)以前的折损、兵灾算过了(一步只看那一刻以前的),之后的接着看
  */
 export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: TableEngine, resumed: Year | null): PopLayer {
-  const { POP_EVERY, FRAGILE_ELSE, RIVER_SILT, SLUMP_HOLD } = sim.knobs.get(POPULATION_KNOBS);
+  const { POP_EVERY, RIVER_SILT, SLUMP_HOLD } = sim.knobs.get(POPULATION_KNOBS);
   const api = civApi(sim);
   const R = dev.R;
   const from = resumed === null ? null : Math.floor(resumed / POP_EVERY) * POP_EVERY;
@@ -252,7 +251,7 @@ export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: Table
           const j = mesh.adj[q];
           if (water[j] === 0 && flux[j] >= major) river = true;
         }
-        fr[k] = (FRAGILE[biome[i]] ?? FRAGILE_ELSE) * (river ? RIVER_SILT : 1);
+        fr[k] = FRAGILE[biome[i]] * (river ? RIVER_SILT : 1);
       }
       filled = true;
     }

@@ -414,7 +414,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     const more = calamityRates(sim.calamity)?.famine;
     for (let r = 0; r < R; r++) {
       if (springOf[r] !== h || pm.cityOf[r] < 0 || culture[r] < 0) continue;
-      const odds = more ? ((CLIMATE[reg.biome[r]] ?? 1) * more) / CLUSTER_PER : (CLIMATE[reg.biome[r]] ?? 1) / CLUSTER_PER;
+      const odds = more ? (CLIMATE[reg.biome[r]] * more) / CLUSTER_PER : CLIMATE[reg.biome[r]] / CLUSTER_PER;
       if (keyed4(um.base, k, reg.seat[r], 0, U_CENTER) < odds) centres.push(r);
     }
     if (!centres.length) return;
@@ -455,7 +455,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
         if (rest) continue;
         const full = 1 / (1 + GROWTH_A * fexp(-s.growth * (t - s.founded)));
         const f2 = full * full;
-        const odds = sev * (1 - HOP_FADE * hop[r]) * (CLIMATE[reg.biome[r]] ?? 1) * (P_BASE + P_FULL * f2 * f2) * (soil ? 1 + SOIL_W * (1 - soil[r]) : 1);
+        const odds = sev * (1 - HOP_FADE * hop[r]) * CLIMATE[reg.biome[r]] * (P_BASE + P_FULL * f2 * f2) * (soil ? 1 + SOIL_W * (1 - soil[r]) : 1);
         const tag = reg.seat[r];
         if (keyed4(um.base, k, tag, c, U_HIT) >= odds) continue;
         const loss = LOSS[0] + (LOSS[1] - LOSS[0]) * Math.min(1, 0.5 * odds + 0.5 * keyed4(um.base, k, tag, c, U_LOSS));

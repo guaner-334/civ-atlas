@@ -22,15 +22,14 @@ import { latitudeAt } from '../gen/climate';
 import type { LabelPick } from './mapPick';
 import type { LayerDef } from './mapLayers';
 import { describeCiv } from './civDescribe';
-import { formatLon, lonOfX } from './mapWrap';
+import { lonOfX } from './mapWrap';
+import { lonText } from '../render/projection';
 import { VERDICT_TEXT, getPolityPick, pickVerdict, type PolityPick } from './Interventions';
 import { getPanel } from './panelStore';
 import { currentEra } from './editsStore';
 import { vassalTies } from '../render/civ/vassals';
-import type { NumLayer } from '../render/civ/numLayer';
-import { ERA_LAYER } from '../render/civ/era';
-import { CONTROL_LAYER } from '../render/civ/control';
-import { THOUGHT_LAYER } from '../render/civ/thoughts';
+import { numHoverAt } from '../render/civ/numLayer';
+import { numLayerDrawn } from '../render/civ/numLayers';
 import { getCivShow } from './civView';
 
 export interface HoverInfo {
@@ -90,16 +89,14 @@ function faithsAt(civ: Civ, year: number): Int16Array {
   return faiths.f;
 }
 
-/** 悬停按这个先后找开着的数值填色(思潮在前) */
-const NUM_HOVER: readonly NumLayer[] = [THOUGHT_LAYER, ERA_LAYER, CONTROL_LAYER];
-
-/** 开着的数值填色里头一个说得出这州的:颜色块的颜色(没有 = undefined)、小字;都说不出 = null */
-function numHover(def: { eras?: boolean; control?: boolean; ideology?: boolean }, civ: Civ, year: number, r: number, own: Owners): { color?: string; sub: string } | null {
-  for (const l of NUM_HOVER) {
-    const h = def[l.id] ? l.hover(civ, year, r, own, getCivShow()) : null;
-    if (h) return { color: h.band >= 0 ? rgb(l.bands[h.band].color) : undefined, sub: h.sub };
-  }
-  return null;
+/**
+ * 地图上铺着的那种数值填色(和色块同一个先后、同一次取样,见 render/civ/numLayers.ts 的 numLayerDrawn)说得出这州:
+ * 颜色块的颜色(没有 = undefined)、小字;没铺数值填色、这州不按它说 = null
+ */
+function numHover(def: { eras?: boolean; control?: boolean; ideology?: boolean; faiths?: boolean }, civ: Civ, year: number, r: number, own: Owners): { color?: string; sub: string } | null {
+  const l = numLayerDrawn(civ, def);
+  const h = l ? numHoverAt(l, civ, year, r, own, getCivShow()) : null;
+  return l && h ? { color: h.band >= 0 ? rgb(l.bands[h.band].color) : undefined, sub: h.sub } : null;
 }
 
 export function hoverInfo(p: {
@@ -155,7 +152,7 @@ export function hoverInfo(p: {
       const po = owners.polity[r] >= 0 ? civ.polities[owners.polity[r]] : undefined;
       const cu = owners.culture[r] >= 0 ? civ.cultures[owners.culture[r]] : undefined;
       const fa = def.faiths && civ.religion ? civ.religion.faiths[faithsAt(civ, year)[r]] : undefined;
-      // 数值填色(思潮、时代、管辖):州名 + 这一层的那句小字(见各层定义的 hover;这州不按那一层说就往下照别的写)
+      // 数值填色(时代、管辖、思潮):州名 + 地图上铺着的那一层的那句小字(见各层定义的 hover;这州不按那一层说就往下照别的写)
       const num = numHover(def, civ, year, r, owners);
       if (num) info = { color: num.color, name: regionLabel(civ, r), sub: num.sub };
       else if (fa) info = { color: rgb(fa.color), name: fa.name, sub: po ? polityName(po, year) : '部落地带' };
@@ -249,6 +246,6 @@ export function probeLines(world: World, r: Raster, civ: Civ | null, px: number,
   const lines = [BIOMES[r.biome[k]].name];
   lines.push(r.water[k] === 1 ? `水深 ${(-e).toLocaleString()} 米` : `海拔 ${e.toLocaleString()} 米`);
   lines.push(`年均温 ${r.temp[k].toFixed(1)}°C · 年降水 ${Math.round(r.precip[k])} mm`);
-  lines.push(`纬度 ${latS} · 经度 ${formatLon(lonOfX((px + 0.5) / r.scale, world.width))} · ${world.tect.plateContinental[plate] ? '大陆' : '大洋'}板块 #${plate + 1}`);
+  lines.push(`纬度 ${latS} · 经度 ${lonText(lonOfX((px + 0.5) / r.scale, world.width))} · ${world.tect.plateContinental[plate] ? '大陆' : '大洋'}板块 #${plate + 1}`);
   return [...lines, ...describeCiv(civ, c, currentEra())];
 }

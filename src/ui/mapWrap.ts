@@ -123,13 +123,6 @@ export function viewCentredAt(v: MapView, b: StageBox, W: number, wx: number): M
   return clampSphere({ k: v.k, x: b.sw / 2 - v.k * (boxLeft(b) + (wx / W) * b.bw), y: v.y }, b);
 }
 
-/** 经度写成 "45°E" / "120°W" / "0°" / "180°" */
-export function formatLon(lon: number): string {
-  const a = Math.round(Math.abs(lon));
-  if (a === 0) return '0°';
-  if (a === 180) return '180°';
-  return `${a}°${lon > 0 ? 'E' : 'W'}`;
-}
 
 // ---------------------------------------------------------------------------
 // 右边接的那一份:把画好的画布复制过去

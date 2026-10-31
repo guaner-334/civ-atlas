@@ -2,7 +2,7 @@
 import type { Raster } from '../gen/raster';
 import { boxBlur, nearX } from '../gen/util';
 import { hash2, noise3, valueNoise } from '../gen/noise';
-import { riverGeometry, type DenseRiver, type RiverStyle } from '../gen/riverGeometry';
+import { riverGeometry, type DenseRiver, type RiverWidth } from '../gen/riverGeometry';
 import { reprojectImage, type Projector } from './projection';
 export { boxBlur };
 
@@ -313,8 +313,14 @@ export function flushCanvas(c: OffscreenCanvas | HTMLCanvasElement | null): void
 /** 铺进地形图(整张图、缩放 1 倍)的矢量层变换 */
 export const bakedView = (scale: number): VecView => ({ s: scale, ox: 0, oy: 0, k: 1 });
 
-/** 画河的颜色、粗细:在 gen/riverGeometry.ts(河网几何按它算线宽) */
-export type { RiverStyle };
+/** 画河的颜色、粗细(粗细那几项河网几何也用,见 gen/riverGeometry.ts 的 RiverWidth) */
+export interface RiverStyle extends RiverWidth {
+  color: string;
+  /** 细节层级:只画流量 ≥ 这个值的河段(全图时小溪不画,放大才出现);不给 = 全画 */
+  minFlux?: number;
+  /** 细水那一份宽度(minW)再乘这个数:放大时小溪不跟着变粗,大河的宽度照样按世界单位放大 → 主干显得粗 */
+  thin?: number;
+}
 
 /**
  * 作者画的河(改地形的 `river`)在地图上按多大的流量画:至少是全图细节层级门槛的好几倍(全图、各种画法都画得出来),

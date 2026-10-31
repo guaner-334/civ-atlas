@@ -68,6 +68,7 @@ import {
   setStepGesture,
   saveBackEdits,
   setStepwiseActions,
+  stepLost,
   stepWheel,
   branchSwitching,
   subscribeStepwise,
@@ -78,7 +79,7 @@ import { branchList, rewindBranch, startStepwise, switchBranch } from '../gen/st
 import { StepBranchDeleteDialog, branchNote, branchRef } from './StepBranches';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
-import { AccountHost, ShareGone, SharedHint, useTrashView } from './AccountDialogs';
+import { AccountHost, ShareGone, SharedHint } from './AccountDialogs';
 import {
   clearChroniclePick,
   clearSelection,
@@ -147,7 +148,7 @@ import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
 import { civAtEra, eraData, peekEraData, eraIndex, eraReady, eraShown, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
 import { namedHistory, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, sketchGrid, type SketchEdit } from '../gen/sketch';
-import { condList, summarize } from '../gen/finder/query';
+import { summarize } from '../gen/finder/query';
 import { addMark, askHistory, getEdits, putEditsQuiet, setEditGate, setOutlinePlots, useEdits } from './editsStore';
 import { spaced, yearAt, yearFull } from '../gen/era';
 import { ShortcutsHost } from './ShortcutsDialog';
@@ -311,7 +312,7 @@ import { switchedToast, useSimResults, type ExtendJob, type ExtendUndo, type Out
 import { closeUpheaval, getUpUi, setUpRunner, upClick, upMove, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
-import { getPending, removePending, takePendingBatch } from './pendingStore';
+import { getPending, removePending, restorePending, takePendingBatch } from './pendingStore';
 import { tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource } from './filmSource';
@@ -571,7 +572,8 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   const studioFlat = useStudioFlat();
   // 宽屏左边的卡片收起了(sideStore.ts):新建世界那一步左边是新建世界的卡片,不算收起(sideRoom 照常让出它)
   const sideUi = useSide();
-  setSideHold(stage !== 'world');
+  // 在 layout effect 里设(变了要通知订阅者,不在渲染途中通知);换上以后、画出来之前跟着重画一遍
+  useLayoutEffect(() => setSideHold(stage !== 'world'), [stage]);
   /** 正在打开 / 已经打开的世界(生成完按它套上修改、交给自动存) */
   const targetRef = useRef<Target | null>(route.target);
   /**
@@ -779,7 +781,6 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   );
   /** 第一次打开的操作提示(第一次拖动 / 缩放 / 点击之后不再出现) */
   const [hintOn, setHintOn] = useState(() => !hintSeen());
-  const trashView = useTrashView();
   /** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
   const [landing, setLanding] = useState<Landing>(route.stage === 'home' && init.shortShare !== null && !init.share ? 'loading' : null);
   /** 作品墙那一页 / 正在打开的作品 / 地图作品(见 WallView;不在作品墙 = null) */
@@ -1116,6 +1117,44 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         outlineStopped: (m) => {
           if (outlineRef.current?.oid === m.oid) endOutline();
         },
+      },
+      // 线程出错、重发过一次又出错的活(见 ./sim/simClient.ts 文件头「线程出错」):不再算它,界面上收起,地图上还是原来那份。
+      // 生成、读档、回放帧、地形大事预览不在这里收:再点一次就是新的一件活,交给新开的线程
+      lost: (req) => {
+        if (req.type === 'resim') {
+          if (req.seq !== resimSeq.current) return;
+          resimInfo.current = null;
+          setResim(null);
+          // 这次重推推完要说的、要做的,不留给下一次
+          rewindNote.current = switchNote.current = null;
+          storyAfterYears.current = null;
+          // 正在切到别的一支(照那一支从第 0 年重推)没推成:回到原来那一支(地图上还是它的历史),停在它的"现在"
+          const sw = getStepwise().switching;
+          const back = sw ? switchBranch(getEdits(), sw.from, sw.last) : null;
+          if (back?.play) {
+            civPlay.current = back.play;
+            putEditsQuiet(back);
+            enterStepwise(playFromOf(back), playAt(back.play) / YEAR_TICKS);
+            setCivTime({ year: playAt(back.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
+          } else if (sw) branchSwitching(null);
+        } else if (req.type === 'turn') {
+          // 这一步没算成:随它交出去的干预先放回单子,再收起这一步(等着这一步算完的切支线、重新演绎照单子里的算,不丢);
+          // 停下播放,不然播放头一走到"现在"又交一步,一直重算
+          const items = getStepwise().busy?.items;
+          if (items) restorePending(items);
+          stepLost();
+          setCivTime({ playing: false });
+        } else if (req.type === 'extend') {
+          if (extendRef.current?.xid === req.xid) {
+            extendRef.current = null;
+            setExtendBusy(null);
+          }
+        } else if (req.type === 'outline') {
+          if (outlineRef.current?.oid === req.oid) endOutline();
+        } else if (req.type === 'civOnly' && naming.current?.nid === req.nid) {
+          naming.current = null;
+          setNamingPct(null);
+        }
       },
     });
     return client;
@@ -2643,7 +2682,7 @@ ${s.image.cells}` : null);
   /** 某一点的完整读数(群落、海拔、国家、最近城市……;冒烟检查经 window.__wfProbe 读,下面悬停那里填) */
   const probeRef = useRef<(cx: number, cy: number) => string[] | null>(() => null);
   // 舞台和地图框的大小、平移范围、中心经度、滚轮和按钮缩放、双击复位,见 ./map/useMapView.ts
-  const { box, stageSize, drag, pinch, wrapW, padB, geo, curvedRef, clampRef, sb, viewRef, centerFrame, scheduleCenter, flyRaf, stopFly, zoomAt, zoomRef, zoomButton, resetView, zoomToCluster } = useMapView({
+  const { box, stageSize, drag, pinch, wrapW, geo, curvedRef, clampRef, sb, viewRef, centerFrame, scheduleCenter, flyRaf, stopFly, zoomRef, zoomButton, resetView, zoomToCluster } = useMapView({
     view,
     setView,
     stageRef,
@@ -3429,7 +3468,6 @@ ${s.image.cells}` : null);
     showToast({ id: 'world', kind: 'warn', text: '这个世界没有文明', more: ['宜居的陆地太少'] });
   }, [noCivToast]);
 
-  const civReady = !!civ && civ.viable;
   /** 正在重推 / 按新地形重新生成 / 生成新世界:助手这时发不了话、确认单也不能执行 */
   const worldBusy = !!resim || terrainStatus.busy || !!progress || namingPct !== null;
   // 助手:换了世界、世界建好了,对话跟着换;离开建好的世界(回我的世界、新建)不再看试推演。
