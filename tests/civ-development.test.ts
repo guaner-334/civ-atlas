@@ -8,13 +8,13 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { devFactorAt, polityAlive } from '../src/gen/civ/growth';
-import { CivSim } from '../src/gen/civ/sim';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { developmentEntries } from '../src/gen/civ/story/developmentText';
 import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { eraCiv, eraLevelsAt } from '../src/render/civ/era';
 import { resourceBadges } from '../src/render/civ/resources';
 import { AVAIL_SCALE, CAP_COUNT, ERAS, LEVEL_SCALE, RESOURCES, RESOURCE_COUNT, INVENTIONS, developmentAt, finishDevelopment, popFactor, eraLevel, eraOf, resourcesAt } from '../src/gen/civ/development';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -46,7 +46,7 @@ describe.each([7, 2024])('发展度 · seed=%i', (seed) => {
     expect(again.development!.events).toEqual(civ.development!.events);
     for (const cut of [1200, 1655.5]) {
       const half = generateCiv(world(seed), { endYear: cut });
-      const sim = CivSim.fromCiv(world(seed), half);
+      const sim = resumeCiv(world(seed), half);
       sim.run(civ.endYear);
       const dev = finishDevelopment(sim, civ.endYear)!;
       const tag = `从第 ${cut} 年接着推`;

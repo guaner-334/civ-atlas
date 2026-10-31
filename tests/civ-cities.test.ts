@@ -5,7 +5,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ, type Settlement } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { cityModelOf, cityStats } from '../src/gen/civ/cities';
@@ -18,6 +17,7 @@ import { PASS, RUIN, ruinsAt } from '../src/render/civ/settlements';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { describeCiv, nearestSettlement } from '../src/ui/civDescribe';
 import { setCivTime } from '../src/ui/civView';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<string, World>();
 function world(p: WorldParams): World {
@@ -42,11 +42,11 @@ function bytes(a: ArrayBufferView) {
 const strip = <T extends { name: string; color?: unknown; dynasties?: { name: string }[] }>(a: T[]) =>
   a.map((x) => ({ ...x, name: '', color: 0, eastern: undefined, style: '', dynasties: x.dynasties?.map((d) => ({ ...d, name: '' })) }));
 
-/** 先推到 cut 年、fromCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
+/** 先推到 cut 年、resumeCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
 function expectResumeSame(w: World, whole: Civ, cut: number) {
   const half = generateCiv(w, { endYear: cut });
   const before = JSON.stringify(half.settlements);
-  const sim = CivSim.fromCiv(w, half);
+  const sim = resumeCiv(w, half);
   sim.run(whole.endYear);
   const res = sim.result();
   const L = whole.log;
@@ -115,7 +115,7 @@ describe('城市兴衰 · 人口按年份段现算', () => {
 });
 
 describe('城市兴衰 · 推演', () => {
-  it('fromCiv 接着推:在第 1200 年、毁城 / 重建 / 洗劫 / 旧都渐衰那一刻和那一年切开,和一口气推完逐字节一致', () => {
+  it('resumeCiv 接着推:在第 1200 年、毁城 / 重建 / 洗劫 / 旧都渐衰那一刻和那一年切开,和一口气推完逐字节一致', () => {
     // seed 7 一座城也没重建过(GENERATOR_VERSION 13 以后),用 seed 2024
     const p = { ...DEFAULT_PARAMS, seed: 2024 };
     const w = world(p);
@@ -130,7 +130,7 @@ describe('城市兴衰 · 推演', () => {
     const cuts = new Set([1200, ruin.year, Math.floor(ruin.year), rebuild.year, Math.floor(rebuild.year), sack.year, decline.year]);
     for (const cut of cuts) expectResumeSame(w, whole, cut);
     // 接着推之后,毁城计数(按战争)从史事里重建出来了(这个世界到 2500 年毁了三座城,其中两座毁在同一场战争里)
-    const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: 2500 }));
+    const sim = resumeCiv(w, generateCiv(w, { endYear: 2500 }));
     const razed = [...cityModelOf(sim)!.razed.values()].reduce((a, b) => a + b, 0);
     expect(razed).toBeGreaterThan(0);
     expect(razed).toBe(A.filter((e) => e.kind === 'ruin' && e.year <= 2500).length);

@@ -107,7 +107,7 @@ export function installMarriage(sim: CivSim, pm: PolityModel): MarriageModel {
   return mm;
 }
 
-/** 接着推(CivSim.fromCiv,在 resumeRegency 之后):结过的亲由史事推出来 */
+/** 接着推(resumeCiv,在 resumeRegency 之后):结过的亲由史事推出来 */
 export function resumeMarriage(sim: CivSim, civ: Civ): void {
   const pm = polityModelOf(sim);
   if (!pm || !warModelOf(sim) || !diplomacyModelOf(sim)) return;

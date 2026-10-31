@@ -1,14 +1,14 @@
 /**
  * 君主的在位表和倾向(gen/civ/rulers.ts)、扩张算账(polities.ts 的 wants):
  * 推演里"此刻在位的是谁、倾向是多少"和人物(people.ts)一位不差;倾向有高有低、游牧国家的君主更好战,越好战越常亲征、越容易开战;
- * 荒僻的州多留给部落,富庶的州多归国家;接着推(fromCiv)和一口气推完一样(新君即位、迁都以后重新预约的扩张也算上)。
+ * 荒僻的州多留给部落,富庶的州多归国家;接着推(resumeCiv)和一口气推完一样(新君即位、迁都以后重新预约的扩张也算上)。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { cultureTerrain } from '../src/gen/civ/cultures';
 import { LEANINGS, leaningEffect, reignAt, reignStart, rulerBase, rulerTags } from '../src/gen/civ/rulers';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<string, World>();
 function world(seed: number, cells = DEFAULT_PARAMS.cells): World {
@@ -118,14 +118,14 @@ describe.each([7, 2024])('君主 · seed=%i', (seed) => {
 describe('扩张算账 · 接着推', () => {
   const same = (w: World, full: Civ, cut: number) => {
     const head = generateCiv(w, { endYear: cut });
-    const sim = CivSim.fromCiv(w, head);
+    const sim = resumeCiv(w, head);
     sim.run(full.endYear);
     const r = sim.result();
     expect(Array.from(r.polity), `断在第 ${cut} 年`).toEqual(Array.from(full.polity));
     expect(JSON.stringify(r.annals), `断在第 ${cut} 年`).toBe(JSON.stringify(full.annals));
   };
 
-  it('fromCiv 接着推:在改朝换代、新君即位的那一刻断开,和一口气推完一样;断在即位那一刻,人物表里也是新君在位', () => {
+  it('resumeCiv 接着推:在改朝换代、新君即位的那一刻断开,和一口气推完一样;断在即位那一刻,人物表里也是新君在位', () => {
     const w = world(7, 12000);
     const full = generateCiv(w);
     // 断在一次改朝换代的那一刻、和一位君主即位的那一刻(这两刻的预约最容易漏)
@@ -140,7 +140,7 @@ describe('扩张算账 · 接着推', () => {
     expect(now.map((x) => [x.name, x.from])).toEqual([[heir!.name, heir!.from]]);
   });
 
-  it('fromCiv 接着推:迁都的下一刻按新国都重新预约扩张,断在迁都那一刻、迁都几年后都和一口气推完一样', () => {
+  it('resumeCiv 接着推:迁都的下一刻按新国都重新预约扩张,断在迁都那一刻、迁都几年后都和一口气推完一样', () => {
     const w = world(7, 12000);
     const full = generateCiv(w);
     // 断在后期的一次迁都那一刻(重新预约还没发生)、几年后(迁都后重新预约的扩张多半还没到)

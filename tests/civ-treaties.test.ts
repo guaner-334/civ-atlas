@@ -10,11 +10,11 @@ import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { treatyModelOf, treatyStats } from '../src/gen/civ/treaties';
 import { treatyBook, treatyMembersAt, treatyName, zonesAt, type ZoneInfo } from '../src/gen/civ/story/treatyInfo';
-import { CivSim } from '../src/gen/civ/sim';
 import { endPolity, polityModelOf } from '../src/gen/civ/polities';
 import { warModelOf } from '../src/gen/civ/wars';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { packValue, unpackValue } from '../src/gen/snapshot';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const SEEDS = [1, 2, 3];
 const worlds = new Map<number, World>();
@@ -125,7 +125,7 @@ describe('立约与中立地', () => {
       if (!z) continue;
       tried++;
       const cut = cutOf(z);
-      const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: cut }));
+      const sim = resumeCiv(w, generateCiv(w, { endYear: cut }));
       const pm = polityModelOf(sim)!;
       const tm = treatyModelOf(sim)!;
       const [x, y] = treatyMembersAt(whole, book.treaties[z.treaty], cut);

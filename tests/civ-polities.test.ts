@@ -4,7 +4,7 @@ import { rasterize } from '../src/gen/raster';
 import { Biome } from '../src/gen/biomes';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind, Layer } from '../src/gen/civ/types';
-import { CivSim, Ev } from '../src/gen/civ/sim';
+import { Ev } from '../src/gen/civ/sim';
 import { ownersAt, ownersFromScratch } from '../src/gen/civ/timeline';
 import { polityModelOf } from '../src/gen/civ/polities';
 import { warModelOf } from '../src/gen/civ/wars';
@@ -15,6 +15,7 @@ import { labelImage, pixelRegions } from '../src/render/civ/territory';
 import type { CivDrawParams, CivShow } from '../src/render/civ/overlay';
 import { CIV_SHOW_OFF } from '../src/render/civ/overlay';
 import { hasReform } from '../src/gen/civ/regime';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -200,13 +201,13 @@ describe('城市成长 + 国家', () => {
     }
   });
 
-  it('CivSim.fromCiv 接着推:先推到第 1200 年再推到 3000 年,国家、城镇、战争和一口气推完完全一样', () => {
+  it('resumeCiv 接着推:先推到第 1200 年再推到 3000 年,国家、城镇、战争和一口气推完完全一样', () => {
     for (const seed of [7, 2024]) {
       const w = world({ ...small, seed });
       const whole = civOf({ ...small, seed });
       const half = generateCiv(w, { endYear: 1200 });
       expect(half.polities.length).toBeLessThan(whole.polities.length);
-      const sim = CivSim.fromCiv(w, half);
+      const sim = resumeCiv(w, half);
       sim.run(3000);
       const res = sim.result();
       expect(Array.from(res.polity)).toEqual(Array.from(whole.polity));

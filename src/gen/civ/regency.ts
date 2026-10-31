@@ -83,7 +83,7 @@ export function installRegency(sim: CivSim, pm: PolityModel): RegencyModel {
 }
 
 /**
- * 接着推(CivSim.fromCiv,在 resumeCouncil 之后):掌权的几段 resumePolities 已经由史事推出来了;
+ * 接着推(resumeCiv,在 resumeCouncil 之后):掌权的几段 resumePolities 已经由史事推出来了;
  * 补上此刻在位的君主晚年的候选、还掌着权的那段的结局(重复预约的什么都不做)
  */
 export function resumeRegency(sim: CivSim, _civ: Civ): void {

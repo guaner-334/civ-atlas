@@ -14,7 +14,7 @@
  *
  * 第 y 年那一步在第 y 年那一刻的事件都办完以后算(CivSim.everyYears),只读那一刻(含)以前的历史:归属按日志,城的人口、国都、亡国按那时的;
  * 名字(民族、城推完才起名)和皈依的国君(人物推完才排)整理时补上。所以推演里逐步算的和推完照历史再算一遍(buildReligion)逐字节一样。
- * 接着推(CivSim.fromCiv)不存状态:照历史从第 0 年重放到接着推的那一刻(resumeReligion),之后接着逐步算。
+ * 接着推(resumeCiv)不存状态:照历史从第 0 年重放到接着推的那一刻(resumeReligion),之后接着逐步算。
  * 推演里的规则经 faithSimOf(sim) 问"这州眼下信什么(FaithSim.faith)、这国眼下的国教(FaithSim.stateFaith)"
  * —— 眼下 = 已经算过的最近一步:第 y 年那一刻的事件看到的是第 y − STEP 年那一步,y 以后的才看到第 y 年的。
  *
@@ -631,7 +631,7 @@ export function installReligion(sim: CivSim, civSeed: number, cm: CultureModel, 
 }
 
 /**
- * 接着推(CivSim.fromCiv 调用,在各层 resume 之后):不存状态,照引擎上的历史(和 civ 一样,外加补备的干预立国民族)
+ * 接着推(resumeCiv 调用,在各层 resume 之后):不存状态,照引擎上的历史(和 civ 一样,外加补备的干预立国民族)
  * 从第 0 年重放到 civ.endYear,之后接着每 STEP 年一步。eras = 地形大事以前的各段(按那时的州)
  */
 export function resumeReligion(sim: CivSim, civ: Civ, cm: CultureModel, pm: PolityModel, eras: readonly FaithEra[]): void {

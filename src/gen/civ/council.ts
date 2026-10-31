@@ -276,7 +276,7 @@ export function installCouncil(sim: CivSim, seed: number): CouncilModel | undefi
   return hook(sim, seed, new Map());
 }
 
-/** 接着推(CivSim.fromCiv,在 resumeControl 之后):各国的规矩由史事重建 */
+/** 接着推(resumeCiv,在 resumeControl 之后):各国的规矩由史事重建 */
 export function resumeCouncil(sim: CivSim, civ: Civ): void {
   const book = new Map<number, Rules>();
   for (const e of civ.annals) if (rulesAnnal(e)) replayRule(rulesOf(book, e.a), e);

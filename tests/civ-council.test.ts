@@ -5,10 +5,10 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { councilModelOf, councilStats } from '../src/gen/civ/council';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { ownersAt } from '../src/gen/civ/timeline';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -87,7 +87,7 @@ describe('议事', () => {
 
   it('定下来的规矩:最后一次办成的直征 / 分封留在模型里', () => {
     const w = world(7);
-    const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: 1500 }));
+    const sim = resumeCiv(w, generateCiv(w, { endYear: 1500 }));
     sim.run(3000);
     const res = sim.result();
     const cm = councilModelOf(sim)!;
@@ -112,7 +112,7 @@ describe('议事', () => {
     for (const [p, r] of want) expect(cm.rules(p), `国家 ${p}`).toEqual(r);
   }, 60_000);
 
-  it('fromCiv 接着推:在议事那一刻和之后切开,和一口气推完一样', () => {
+  it('resumeCiv 接着推:在议事那一刻和之后切开,和一口气推完一样', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
       const whole = civOf(seed);
@@ -135,7 +135,7 @@ describe('议事', () => {
       }
       expect(cuts.size, `seed ${seed}`).toBeGreaterThanOrEqual(2);
       for (const cut of cuts) {
-        const sim = CivSim.fromCiv(w, generateCiv(w, { endYear: cut }));
+        const sim = resumeCiv(w, generateCiv(w, { endYear: cut }));
         sim.run(whole.endYear);
         expect(JSON.stringify(sim.result().annals), `seed ${seed} 从第 ${cut} 年接着推`).toBe(JSON.stringify(A));
       }

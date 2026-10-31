@@ -251,7 +251,7 @@ export function installControl(sim: CivSim, seed: number): ControlModel | undefi
   return hook(sim, seed, [], null, new Map());
 }
 
-/** 接着推(CivSim.fromCiv,在各层 resume 之后):割据由史事重建 */
+/** 接着推(resumeCiv,在各层 resume 之后):割据由史事重建 */
 export function resumeControl(sim: CivSim, civ: Civ): void {
   const lords: Warlord[] = [];
   /** 同一国、同一州最近起的那一处(以前那州丢过又割据过的,前一处早已了结) */

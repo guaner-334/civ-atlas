@@ -4,11 +4,11 @@
 import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { CivSim } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { finishDevelopment } from '../src/gen/civ/development';
 import { FISCAL_CONSTS } from '../src/gen/civ/control';
 import { BOOK_EVERY, BOOK_RESERVE, BOOK_WIDTH, fillOf, fiscalAt, fiscalMood, fiscalSeries } from '../src/gen/civ/fiscalBook';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<number, World>();
 function world(seed: number): World {
@@ -72,7 +72,7 @@ describe('各国的账本', () => {
     }
   }, 200_000);
 
-  it('fromCiv 接着推:在国用不足那一刻和之后切开,账本和一口气推完逐字节一致', () => {
+  it('resumeCiv 接着推:在国用不足那一刻和之后切开,账本和一口气推完逐字节一致', () => {
     for (const seed of [7, 2024]) {
       const w = world(seed);
       const whole = civOf(seed);
@@ -81,7 +81,7 @@ describe('各国的账本', () => {
       const cuts = new Set([ys[0], ys[0] + 7, ys[ys.length >> 1]]);
       for (const cut of cuts) {
         const half = generateCiv(w, { endYear: cut });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const dev = finishDevelopment(sim, whole.endYear)!;
         const tag = `seed ${seed} 从第 ${cut} 年接着推`;

@@ -694,7 +694,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
 }
 
 /**
- * 由 Civ 重建动荡的推演状态(CivSim.fromCiv 调用,在 resumeDevelopment 之后):
+ * 由 Civ 重建动荡的推演状态(resumeCiv 调用,在 resumeDevelopment 之后):
  * 饥荒、讨伐民变的战争、大崩解从史事里读;再算出下一次看年景,补进引擎。
  */
 export function resumeUnrest(sim: CivSim, world: World, civ: Civ): void {

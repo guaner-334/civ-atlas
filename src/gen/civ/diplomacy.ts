@@ -606,7 +606,7 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
 }
 
 /**
- * 由 Civ 重建邦交的推演状态(CivSim.fromCiv 调用,在 resumeCities 之后):结着的盟、藩属、断盟 / 自立的年份都从史事里读,
+ * 由 Civ 重建邦交的推演状态(resumeCiv 调用,在 resumeCities 之后):结着的盟、藩属、断盟 / 自立的年份都从史事里读,
  * 再按"国家 + 第几次"算出还没到的看邦交,补进引擎
  */
 export function resumeDiplomacy(sim: CivSim, _world: World, civ: Civ): void {

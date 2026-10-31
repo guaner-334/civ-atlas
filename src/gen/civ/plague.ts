@@ -450,7 +450,7 @@ function maxYears(ob: { great: boolean; pan?: Year }): number {
 }
 
 /**
- * 由 Civ 重建瘟疫的推演状态(CivSim.fromCiv 调用,在 resumeUnrest 之后):
+ * 由 Civ 重建瘟疫的推演状态(resumeCiv 调用,在 resumeUnrest 之后):
  * 最后一场瘟疫(史事 plague 的 war 列)还在传的话,从城镇表里 cause = plague 的折损找回它染过的州和最后一年染上的几州;
  * 再算出下一次看疫情,补进引擎。
  */

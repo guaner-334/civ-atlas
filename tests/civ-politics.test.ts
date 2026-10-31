@@ -5,13 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { Layer } from '../src/gen/civ/types';
-import { CivSim, Ev } from '../src/gen/civ/sim';
+import { Ev } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { NEWBORN, warStats } from '../src/gen/civ/wars';
 import { politicsModelOf, politicsStats } from '../src/gen/civ/politics';
 import { capitalAt, polityAlive, polityRootAt, polityTitles, polityShortTitle, tierOf } from '../src/gen/civ/growth';
 import { GREAT_TIER, MAJOR, buildChronicle } from '../src/gen/civ/story/chronicle';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const small = { ...DEFAULT_PARAMS, cells: 12000 };
 
@@ -38,10 +39,10 @@ function bytes(a: ArrayBufferView) {
 const strip = <T extends { name: string; color?: unknown; dynasties?: { name: string }[] }>(a: T[]) =>
   a.map((x) => ({ ...x, name: '', color: 0, eastern: undefined, dynasties: x.dynasties?.map((d) => ({ ...d, name: '' })) }));
 
-/** 先推到 cut 年、fromCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
+/** 先推到 cut 年、resumeCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
 function expectResumeSame(w: World, whole: Civ, cut: number) {
   const half = generateCiv(w, { endYear: cut });
-  const sim = CivSim.fromCiv(w, half);
+  const sim = resumeCiv(w, half);
   sim.run(whole.endYear);
   const res = sim.result();
   const L = whole.log;
@@ -68,7 +69,7 @@ function sizesAt(civ: Civ, y: number): Map<number, number> {
 }
 
 describe('分与合', () => {
-  it('fromCiv 接着推:在分裂、合并、复国、主动迁都那一刻切开,和一口气推完逐字节一致', () => {
+  it('resumeCiv 接着推:在分裂、合并、复国、主动迁都那一刻切开,和一口气推完逐字节一致', () => {
     const seen = { split: 0, merge: 0, restore: 0, capital: 0 };
     // 种子 7、2024 的小世界没有复国:加上有复国的种子 3
     for (const seed of [7, 2024, 3]) {

@@ -70,7 +70,7 @@
  * 每条干预在 from 那一刻记一条史事 intervene(字段见 types.ts 的 AnnalKind;A 的键指不到就不记),编年史写"【干预】……"。
  * 紧跟着记它引起的事:宣战的 war(盟国、宗藩之间开战,war 前面先记盟约 / 宗藩之分断了的 unally / defect,见 diplomacy.ts)、结盟 / 不许扩张引起的 peace、立国的 found、迁都的 capital、原主国迁都的 capital / 亡国的 fall。
  *
- * **不存内存状态**:Civ + 干预列表就能接着推(CivSim.fromCiv(world, civ, 干预列表)):规则本来就只看列表和当时的归属,
+ * **不存内存状态**:Civ + 干预列表就能接着推(resumeCiv(world, civ, 干预列表)):规则本来就只看列表和当时的归属,
  *   还没到 from / until 的事件由 scheduleInterventions 按"比现在晚"补上;已经过去的"不许扩张到期"那一刻预约的扩张,
  *   由 resumePolities 按日志重放补上(haltEndsUpTo);已经生效的即位、方针由 resumePolities 按史事 intervene 推出来(rulers.ts 的 crownsFrom、policy.ts 的 policiesFrom)。
  *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
@@ -355,7 +355,7 @@ export function interventionModelOf(sim: CivSim): InterventionModel | undefined 
 /**
  * 预约各条干预的事件(在所有别的事件之前调用:同一刻里只有地形大事和看王朝、新君即位、迁都后重看边地排在干预前面;
  * "不许扩张到期"又比干预事件更早)。年中的(带 fromTick)在那一年的那一格生效(edits.ts 的 simInterventions)。
- * generateCiv 里全部预约;fromCiv 接着推(resume)时只预约比现在晚的(已经到了的在切开之前就处理过了)。
+ * generateCiv 里全部预约;resumeCiv 接着推(resume)时只预约比现在晚的(已经到了的在切开之前就处理过了)。
  * 没有(合格的)干预 = null,什么都不做
  */
 export function scheduleInterventions(
@@ -763,7 +763,7 @@ function authorLed(sim: CivSim, pm: PolityModel, iv: InterventionModel): (w: War
   };
 }
 
-/** 接着推(CivSim.fromCiv 调用,在各层 resume 之后):和 installInterventions 一样 */
+/** 接着推(resumeCiv 调用,在各层 resume 之后):和 installInterventions 一样 */
 export function resumeInterventions(sim: CivSim, iv: InterventionModel): void {
   installInterventions(sim, iv);
 }

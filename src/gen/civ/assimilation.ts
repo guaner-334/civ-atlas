@@ -207,7 +207,7 @@ function enclaveTime(am: AssimModel, k: number): number {
 
 const models = new WeakMap<CivSim, AssimModel>();
 
-/** 推演引擎上挂着的同化与迁徙模型(测试、统计用;fromCiv 接着推之后的民族表也在这里) */
+/** 推演引擎上挂着的同化与迁徙模型(测试、统计用;resumeCiv 接着推之后的民族表也在这里) */
 export function assimModelOf(sim: CivSim): AssimModel | undefined {
   return models.get(sim);
 }
@@ -613,7 +613,7 @@ function hook(sim: CivSim, am: AssimModel): void {
 }
 
 /**
- * 由 Civ 重建同化与迁徙的推演状态(CivSim.fromCiv 调用,在 resumePolitics 之后):
+ * 由 Civ 重建同化与迁徙的推演状态(resumeCiv 调用,在 resumePolitics 之后):
  * 各州上次改换民族的年份从变化日志里读,各民族的州数现数;民族表用 cultures.ts 复制的那一份(消亡、迁徙照原样);
  * 再按"国家 + 第几次"算出还没到的看民族,补进引擎。
  */

@@ -18,7 +18,7 @@
  *   5. 每条商道记路线(经过的州,产地 → 买方国都所在州;路线变了另记一版)、运过的货、通断的大事(通、断、复通、废)。
  *      没有确切年份的(这一步才看出来通了、断了)按 keyed 在这一步的 20 年里定一个年份。
  *
- * 结果是 Civ.trade(finishTrade 整理,起好名字);接着推(CivSim.fromCiv)从 Civ.trade.state 接上,和一口气推完一样。
+ * 结果是 Civ.trade(finishTrade 整理,起好名字);接着推(resumeCiv)从 Civ.trade.state 接上,和一口气推完一样。
  * 只用加减乘除和比较,跨 CPU 逐位一致。
  */
 import type { Civ, Regions, Year } from './types';
@@ -148,7 +148,7 @@ export function installTrade(sim: CivSim, seed: number): void {
   hook(sim, subSeed(seed, 'civ-trade'), null);
 }
 
-/** 接着推(CivSim.fromCiv,resumeDevelopment 之后):从 Civ.trade 接上;没有的(旧版本的历史)从现在起算 */
+/** 接着推(resumeCiv,resumeDevelopment 之后):从 Civ.trade 接上;没有的(旧版本的历史)从现在起算 */
 export function resumeTrade(sim: CivSim, civ: Civ): void {
   hook(sim, subSeed(civ.seed, 'civ-trade'), civ);
 }

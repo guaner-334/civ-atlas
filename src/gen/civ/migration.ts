@@ -759,7 +759,7 @@ function hook(sim: CivSim, tm: TrekModel): void {
 }
 
 /**
- * 由 Civ 重建大迁徙的推演状态(CivSim.fromCiv 调用,在 resumeTreaties 之后):
+ * 由 Civ 重建大迁徙的推演状态(resumeCiv 调用,在 resumeTreaties 之后):
  * 每一次的经过从 Civ.migrations 复制一份;还在路上的补上没走完的几步(动身那一刻预约的);再算出下一次看大迁徙,补进引擎。
  */
 export function resumeMigration(sim: CivSim, world: World, civ: Civ): void {

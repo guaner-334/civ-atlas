@@ -62,6 +62,7 @@ import { installTreaties } from './treaties';
 import { installMigration, migrationsOf } from './migration';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
+import { resumeCiv } from './modules';
 
 export * from './types';
 
@@ -274,9 +275,9 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     // 名字、配色、这一段的地名和道路:照"没有这件大事、照原样推到底"的那份历史(大事之前和它一模一样,见 NamePins)
     const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, seed, iv, frontier);
     same.upheavals = facts.slice(); // 早先几件大事的经过:分支里也认得出沉过海的城址(见下面 half.upheavals)
-    // 接着推和一口气推完一样(CivSim.fromCiv):这一支和"没有这件大事、照原样推到底"一模一样
+    // 接着推和一口气推完一样(resumeCiv):这一支和"没有这件大事、照原样推到底"一模一样
     // 信仰照历史重放:早先几段按那时的州(eras)
-    const branch = CivSim.fromCiv(eraWorld, same, same.interventions ?? [], undefined, eras);
+    const branch = resumeCiv(eraWorld, same, same.interventions ?? [], undefined, eras);
     branch.run(p.endYear);
     // 起名只读这一段的分支,不影响之后的推演
     const b = pinNames(pins!, eraWorld, branch, k ? ups[k - 1].year : -Infinity, u.year, k === 0, mix, iv?.stored);
@@ -309,7 +310,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     half.upheavals = facts.slice(0, k);
     // 从前一刻接着推:大事那一刻的事件照常补上(同一年下的干预、民族诞生……),排在大事后面;
     // 按新地形重算出来的、本该更早发生的事(新海路上的到达……)一律从大事那一刻起(CivSim.floor)
-    const s1 = CivSim.fromCiv(
+    const s1 = resumeCiv(
       u.world,
       half,
       half.interventions ?? [],
@@ -379,7 +380,7 @@ export function startContinue(world: World, civ: Civ, params: Partial<CivParams>
   const seed = p.civSeed ?? world.params.seed;
   progress('民族推演', 0.85);
   // 起名会写州名(regions.name):换一份州,不改传进来的 civ
-  const sim = CivSim.fromCiv(world, { ...civ, regions: { ...civ.regions } }, list);
+  const sim = resumeCiv(world, { ...civ, regions: { ...civ.regions } }, list);
   const to = p.endYear;
   let done = false;
   return {
@@ -592,7 +593,7 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
   return { cultures: bm.cultures, planned, settlements: bpm.settlements, polities: bpm.polities };
 }
 
-/** 推到一半的历史(地形大事前一刻)拼成 CivSim.fromCiv 要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
+/** 推到一半的历史(地形大事前一刻)拼成 resumeCiv 要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
 function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null, frontier?: Frontier): Civ {
   const res = sim.result();
   const dev = finishDevelopment(sim, res.endYear);

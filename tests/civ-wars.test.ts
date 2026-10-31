@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { generateWorld, DEFAULT_PARAMS, type WorldParams, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { AdjKind, Layer, type Annal } from '../src/gen/civ/types';
-import { CivSim, Ev } from '../src/gen/civ/sim';
+import { Ev } from '../src/gen/civ/sim';
 import { ownersAt } from '../src/gen/civ/timeline';
 import { canCross, polityModelOf } from '../src/gen/civ/polities';
 import { CAPITAL_GRACE, HOLD, exclaveMask, warModelOf, warStats } from '../src/gen/civ/wars';
 import { annexedRemnants, capitalAt, polityAlive } from '../src/gen/civ/growth';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { regionPasses } from '../src/gen/civ/passes';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 /**
  * 州 r 是不是国家 pid 灭国时一并收下的残部(wars.ts 的 annex:"隔海的残部最后一并归 x"):
@@ -51,10 +52,10 @@ function bytes(a: ArrayBufferView) {
 const strip = <T extends { name: string; color?: unknown; dynasties?: { name: string }[] }>(a: T[]) =>
   a.map((x) => ({ ...x, name: '', color: 0, eastern: undefined, dynasties: x.dynasties?.map((d) => ({ ...d, name: '' })) }));
 
-/** 先推到 split 年、fromCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
+/** 先推到 split 年、resumeCiv 接着推到 whole.endYear:和一口气推完逐项比(日志、检查点、归属、史事、国家表、城镇表) */
 function expectResumeSame(w: World, whole: Civ, split: number) {
   const half = generateCiv(w, { endYear: split });
-  const sim = CivSim.fromCiv(w, half);
+  const sim = resumeCiv(w, half);
   sim.run(whole.endYear);
   const res = sim.result();
   const L = whole.log;
@@ -75,7 +76,7 @@ function expectResumeSame(w: World, whole: Civ, split: number) {
 }
 
 describe('战争与攻占', () => {
-  it('fromCiv 接着推:在打仗打到一半、刚迁都、刚亡国时切开,接着推的结果和一口气推完完全一样(史事、日志、国家表)', () => {
+  it('resumeCiv 接着推:在打仗打到一半、刚迁都、刚亡国时切开,接着推的结果和一口气推完完全一样(史事、日志、国家表)', () => {
     for (const seed of [7, 2024]) {
       const w = world({ ...small, seed });
       const whole = civOf({ ...small, seed });

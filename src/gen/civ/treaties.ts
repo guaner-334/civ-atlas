@@ -957,7 +957,7 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
 }
 
 /**
- * 由 Civ 重建立约的推演状态(CivSim.fromCiv 调用,在 resumePlague 之后):约、中立地、背约退出的都从史事里读,
+ * 由 Civ 重建立约的推演状态(resumeCiv 调用,在 resumePlague 之后):约、中立地、背约退出的都从史事里读,
  * 还没到期的约补上期满(立约 / 续约那一刻预约的)
  */
 export function resumeTreaties(sim: CivSim, world: World, civ: Civ): void {

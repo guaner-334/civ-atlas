@@ -684,7 +684,7 @@ const models = new WeakMap<CivSim, CultureModel>();
 
 /**
  * 推演引擎上挂着的民族模型。同化与迁徙(assimilation.ts)要改民族表(消亡年份、迁徙),和这里用同一份:
- * generateCiv 里就是 planCultures 定的那一份;fromCiv 接着推时是 civ.cultures 的副本(不改传进来的 civ)
+ * generateCiv 里就是 planCultures 定的那一份;resumeCiv 接着推时是 civ.cultures 的副本(不改传进来的 civ)
  */
 export function cultureModelOf(sim: CivSim): CultureModel | undefined {
   return models.get(sim);
@@ -784,7 +784,7 @@ export function pioneerArrives(sim: CivSim, r: number, i: number, t: number): nu
 }
 
 /**
- * 由 Civ 重建民族层的推演状态(CivSim.fromCiv 调用):登记事件处理,重建"路过"记录和所有待发生的到达。
+ * 由 Civ 重建民族层的推演状态(resumeCiv 调用):登记事件处理,重建"路过"记录和所有待发生的到达。
  *
  * 做法:日志里每一次"某州归了某民族"(定居,以及阶段 3 的同化、迁徙改换民族)都预约过邻州的到达,
  * 从每一次出发重算一遍洇染 —— 早于 civ.endYear 的只可能是路过不可居的州(早于 endYear 到达空的可居州的,当时就定居了),

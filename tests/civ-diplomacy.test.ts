@@ -3,7 +3,7 @@
  * - 真实世界(默认参数 seed 7 / 2024):有结盟、有称臣;关系不自相矛盾(一国只有一个宗主、藩属不收藩属、藩属不结盟,
  *   盟国之间要先背盟才打仗,宗藩之间要先自立才打仗);史事里的国家当时都在
  * - relationsAt(某一年的关系)和推演里的模型一致
- * - fromCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半时切开,和一口气推完逐字节一样
+ * - resumeCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半时切开,和一口气推完逐字节一样
  * - 确定性:同一个种子推两次,邦交史事一样
  * - 作者下令(阶段 4 干预):盟国、宗藩、同一宗主的藩属之间下令开战,先断盟约 / 宗藩之分(攻方自立)再宣战,干预算生效;
  *   下令结了盟的不讨伐自立的藩属
@@ -15,11 +15,11 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World, type WorldParams } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Annal } from '../src/gen/civ/types';
-import { CivSim } from '../src/gen/civ/sim';
 import { polityAlive, polityName } from '../src/gen/civ/growth';
 import { diplomacyModelOf, diplomacyStats, polityTies, relationsAt } from '../src/gen/civ/diplomacy';
 import { buildChronicle, interventionOutcome, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { polityKey, type Intervention } from '../src/gen/edits';
+import { resumeCiv } from '../src/gen/civ/modules';
 
 const worlds = new Map<string, World>();
 function world(p: WorldParams): World {
@@ -160,7 +160,7 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
   it('推演结束时的模型和 relationsAt(结束那一年)一致', () => {
     const w = world({ ...DEFAULT_PARAMS, seed: 2024 });
     const civ = civOf({ ...DEFAULT_PARAMS, seed: 2024 });
-    const sim = CivSim.fromCiv(w, civ);
+    const sim = resumeCiv(w, civ);
     const dm = diplomacyModelOf(sim)!;
     expect(dm).toBeDefined();
     const r = relationsAt(civ, civ.endYear);
@@ -172,7 +172,7 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
     }
   }, 60_000);
 
-  it('fromCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半、藩属刚自立时切开,和一口气推完逐字节一样', () => {
+  it('resumeCiv 接着推:在刚称臣、刚结盟、援盟的仗打到一半、藩属刚自立时切开,和一口气推完逐字节一样', () => {
     // 种子 5 小世界有称臣、结盟、背盟、援盟的仗,种子 2024 小世界有称臣、结盟、藩属自立、背盟
     for (const seed of [5, 2024]) {
       const p = { ...DEFAULT_PARAMS, cells: 12000, seed };
@@ -198,7 +198,7 @@ describe('邦交:称臣纳贡、结盟、背盟', () => {
       expect(splits.size, `seed ${seed} 小世界也要有邦交`).toBeGreaterThanOrEqual(3);
       for (const split of [...splits].sort((a, b) => a - b)) {
         const half = generateCiv(w, { endYear: split });
-        const sim = CivSim.fromCiv(w, half);
+        const sim = resumeCiv(w, half);
         sim.run(whole.endYear);
         const res = sim.result();
         const tag = `seed ${seed} 从第 ${split} 年接着推`;
