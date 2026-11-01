@@ -690,7 +690,8 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
     );
   }
 
-  const back = page === 'root' ? { label: '规则', onClick: closeRulesSheet } : { label: r.name, onClick: () => go('root') };
+  // 最上一层的返回:回到打开它的地方(世界设定里点开的回世界设定,别处的回「规则」)
+  const back = page === 'root' ? { label: sh.kind === 'world' ? '世界设定' : '规则', onClick: closeRulesSheet } : { label: r.name, onClick: () => go('root') };
   return (
     <div className="rs-root phone">
       <div className="rs-ph" role="dialog" aria-modal="true" aria-label={`规则：${r.name}`} onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
