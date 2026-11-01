@@ -11,7 +11,7 @@
 import type { Raster } from './raster';
 import type { ValleyLines } from './valleys';
 import type { World } from './world';
-import { Biome, classifyBiome } from './biomes';
+import { Biome, classifyBiome, LAND_ICE_BELOW } from './biomes';
 import { WETLAND_CUT } from './wetland';
 import { sampleSpline } from './raster';
 import { clamp, smoothstep, subSeed } from './util';
@@ -668,8 +668,10 @@ export function stampEstuaries(out: Raster, mouths: readonly Mouth[], threshold:
                 ice[k] = 0;
                 iceConc[k] = 0;
                 precip[k] *= 1.2;
-                wet[k] = DELTA_WET;
-                biome[k] = Biome.Wetland;
+                // 冷到冰原的地方不是湿地(和铺像素时一样)
+                const frozen = temp[k] < LAND_ICE_BELOW;
+                wet[k] = frozen ? 0 : DELTA_WET;
+                biome[k] = frozen ? classifyBiome(temp[k], precip[k], 0, 0) : Biome.Wetland;
               } else {
                 // 水下浅滩:越近越浅,往外慢慢接回原来的海底(浅水那几米颜色变得最快,坡要缓)
                 const t = -F;
@@ -684,7 +686,7 @@ export function stampEstuaries(out: Raster, mouths: readonly Mouth[], threshold:
                 const e0 = Math.max(0.3, Math.min(2.5, 3 * F));
                 if (elev[k] > e0) elev[k] += (e0 - elev[k]) * wv;
                 precip[k] *= 1 + 0.2 * wv;
-                const dw = Math.round(DELTA_WET * wv);
+                const dw = temp[k] < LAND_ICE_BELOW ? 0 : Math.round(DELTA_WET * wv);
                 if (dw > wet[k]) wet[k] = dw;
                 biome[k] = wet[k] >= WET_BYTE ? Biome.Wetland : classifyBiome(temp[k], precip[k], 0, 0);
               }
