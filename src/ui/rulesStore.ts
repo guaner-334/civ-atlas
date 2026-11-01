@@ -4,7 +4,8 @@
  *
  *   新建       从官方规则开始的一套(createRules)
  *   复制一份   基于一套(本机的,或者官方规则)另起一套,出处记在「基于谁」里(copyRules)
- *   加进来     别人分享的(链接、文件读回来的):另起一个本机编号,分享的那一套记在「基于谁」里(addSharedRules)
+ *   加进来     别人分享的(链接、文件读回来的):另起一个本机编号,分享的那一套记在「基于谁」里(addSharedRules);
+ *              同一套已经加进来过、加进来以后没改过的,不再加一套,用原来那一套(adoptSharedRules)
  *   改         规则项、地貌的叫法、名字、署名、介绍(editRules;setRuleValue、setBiomeName、renameRules 是它的简写);删(deleteRules)
  *
  * - **本机编号**:每套一个,随用它建的世界存进存档(WorldEdits.rules.id),世界里的和这里的对得上(myRulesFor)
@@ -149,6 +150,26 @@ export function copyRules(fromId: string | null, name?: string): string | null {
  */
 export function addSharedRules(r: RuleSet): string | null {
   return add(deriveRuleSet(r), true);
+}
+
+/**
+ * 别人分享的这一套加进来过、加进来以后没改过(名字、规则项、地貌的叫法……都和这次加进来会得到的一样,出处是同一套的同一版):
+ * 本机的那一套;没有 = undefined。改过的、出处是这一套的另一版的,不算
+ */
+export function findSharedCopy(r: RuleSet): MyRules | undefined {
+  const d = deriveRuleSet(r);
+  return get().find((e) => e.shared && sameRuleContent(e.rules, d));
+}
+
+/**
+ * 「加进我的规则」「用它新建世界」:别人分享的这一套加进来过、没改过(findSharedCopy)就用原来那一套(existed = true),
+ * 不然另加一套(addSharedRules)。满了 = null
+ */
+export function adoptSharedRules(r: RuleSet): { id: string; existed: boolean } | null {
+  const had = findSharedCopy(r);
+  if (had) return { id: had.rules.id, existed: true };
+  const id = addSharedRules(r);
+  return id ? { id, existed: false } : null;
 }
 
 /**

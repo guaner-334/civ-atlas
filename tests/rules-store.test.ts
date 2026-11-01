@@ -107,9 +107,49 @@ describe('我的规则', () => {
       values: { 'split.odds': 3, 'split.restore': 2 },
       biomes: { steppe: '马场' },
     });
-    // 同一套加两次是两套
+    // 直接 addSharedRules:同一套加两次是两套(「加进我的规则」「用它新建世界」走 adoptSharedRules,见下一条)
     expect(m.addSharedRules(link.rules)).not.toBe(id);
     expect(m.getMyRules()).toHaveLength(2);
+  });
+
+  it('「加进我的规则」「用它新建世界」:同一套加进来过、没改过的用原来那一套;改过的、同一人分享的新版本另加一套', async () => {
+    const m = await fresh();
+    // 链接读回来的(没有本机编号)
+    const link = decodeRulesHash(rulesHash(SHARED));
+    expect(link.ok).toBe(true);
+    if (!link.ok) return;
+    const a = m.adoptSharedRules(link.rules)!;
+    expect(a.existed).toBe(false);
+    // 同一套加两次 → 一套
+    expect(m.adoptSharedRules(link.rules)).toEqual({ id: a.id, existed: true });
+    expect(m.findSharedCopy(link.rules)?.rules.id).toBe(a.id);
+    expect(m.getMyRules()).toHaveLength(1);
+    // 用它建过世界(用过了、没改)也还是那一套
+    m.noteRulesUsed(m.findMyRules(a.id)!.rules);
+    expect(m.adoptSharedRules(link.rules)).toEqual({ id: a.id, existed: true });
+    // 同一个人分享的新版本 → 两套
+    const v4 = decodeRulesHash(rulesHash({ ...SHARED, version: 4 }));
+    if (!v4.ok) throw new Error(v4.error);
+    const b = m.adoptSharedRules(v4.rules)!;
+    expect(b.existed).toBe(false);
+    expect(b.id).not.toBe(a.id);
+    expect(m.getMyRules()).toHaveLength(2);
+    expect(m.adoptSharedRules(v4.rules)).toEqual({ id: b.id, existed: true });
+    // 加进来以后改过(规则项、名字)→ 再加是新的一套,改过的那份不动
+    m.setRuleValue(a.id, 'war.odds', 2);
+    const c = m.adoptSharedRules(link.rules)!;
+    expect(c.existed).toBe(false);
+    expect(m.findMyRules(a.id)!.rules.values).toEqual({ 'split.odds': 3, 'split.restore': 2, 'war.odds': 2 });
+    expect(m.getMyRules()).toHaveLength(3);
+    m.renameRules(c.id, '我的群雄');
+    expect(m.adoptSharedRules(link.rules)!.existed).toBe(false);
+    expect(m.getMyRules()).toHaveLength(4);
+    // 自己新建、复制来的(不是分享来的)内容碰巧一样也不算
+    store = {};
+    const own = await fresh();
+    const x = own.copyRules(null, '群雄并起')!;
+    own.editRules(x, { values: { 'split.odds': 3, 'split.restore': 2 } });
+    expect(own.adoptSharedRules(link.rules)!.existed).toBe(false);
   });
 
   it('第几版:用它建了世界以后再改,版本加一;用过的世界存的还是那一版。用它建过几个世界数得出来;世界里的和本机的对得上', async () => {
