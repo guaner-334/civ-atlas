@@ -17,7 +17,7 @@ export const TUNING_GROUPS: readonly { readonly id: TuningGroup; readonly name: 
   { id: 'diplo', name: '邦交', desc: '结盟、称臣、立约、和亲，还有背盟、毁约、藩属自立。' },
   { id: 'folk', name: '民族与迁徙', desc: '异族同化、一族分出新的一族，还有整族远徙的大迁徙。' },
   { id: 'disaster', name: '天灾与人口', desc: '瘟疫、饥荒，城的人口长得快慢。', note: '新建世界里的「天灾 多 / 很多」再乘在这上面。' },
-  { id: 'court', name: '朝廷与人物', desc: '君主在位多久、活到几岁，权臣、政变、争储、复辟这些朝堂上的事。' },
+  { id: 'court', name: '朝廷与人物', desc: '君主在位多久，权臣、政变、争储、改制这些朝堂上的事。' },
 ];
 
 /**
