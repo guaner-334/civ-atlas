@@ -6,7 +6,7 @@
  *   顶上    名字、改名;基于谁、第几版、用它建过几个世界、「改了以后，已经建好的世界不变」;分享(复制链接)、「···」(复制一份、存成文件、删除)、关闭
  *   左边    搜规则、只看改过的(改了几项)、七组(组名后面改了几项)、地貌的名字
  *   右边    一组:常用的直接列,其余收在「更多 N 项」里(点开 / 收起);一项一行(名字、一句说明、滑条、值、改回)
- *           只看改过的:按组列,逐项改回、「全部改回官方」(能撤销);一项都没改时说一句
+ *           只看改过的:按组列,逐项改回、「全部改回官方」(只改回规则项,地貌的名字不动;能撤销);一项都没改时说一句
  *           地貌的名字:十六种各一个输入框,官方的叫法当占位字
  *           搜规则:名字、说明里有这几个字的项按组列,地貌的名字里有的也列上;搜不到说一句
  *   底下    改了几项、存成文件
@@ -32,7 +32,7 @@ import type { TuningGroup, TuningItem, TuningValue } from '../../gen/civ/tuning'
 import { deleteRules, editRules, renameRules, setBiomeName, setRuleValue, useMyRules, type MyRules } from '../rulesStore';
 import { closeRulesSheet, getRulesSheet, openRulesSheet, useRulesSheet } from './sheetStore';
 import { BiomeRow, MoreMenu, NameInput, RuleBlock, RuleRow, type MenuItem } from './RuleRows';
-import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, searchRules, type ItemSection, type RulesPage } from './rulesView';
+import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, searchRules, type ItemSection, type RulesPage } from './rulesView';
 import { adoptRules, downloadRules, duplicateRules, shareRules } from './rulesActions';
 
 /** 官方规则(一项没改) */
@@ -53,7 +53,7 @@ interface Shown {
 interface Acts {
   setValue: (id: string, v: TuningValue | undefined) => void;
   setBiome: (key: string, name: string) => void;
-  /** 全部改回官方(规则项和地貌的叫法;提示条上能撤销) */
+  /** 全部改回官方(只改回规则项,地貌的名字不动;提示条上能撤销) */
   resetAll: () => void;
 }
 
@@ -128,12 +128,13 @@ export function RulesSheet() {
         setValue: (item, v) => void setRuleValue(id, item, v),
         setBiome: (key, name) => void setBiomeName(id, key, name),
         resetAll: () => {
-          const before = shown!.rules;
-          if (!editRules(id, { values: {}, biomes: {} })) return;
+          const { change, undo } = resetToOfficial(shown!.rules);
+          if (!editRules(id, change)) return;
           notify({
             kind: 'ok',
-            text: '已全部改回官方',
-            action: { label: '撤销', act: 'rules-undo-reset', onClick: () => void (editRules(id, { values: before.values, biomes: before.biomes ?? {} }) && notify(null)) },
+            text: '已把规则全部改回官方',
+            more: Object.keys(shown!.rules.biomes ?? {}).length ? ['地貌的名字照旧'] : undefined,
+            action: { label: '撤销', act: 'rules-undo-reset', onClick: () => void (editRules(id, undo) && notify(null)) },
           });
         },
       }
@@ -240,7 +241,7 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
       <>
         <div className="rs-grp-h">
           <h2>只看改过的</h2>
-          {acts && n.total > 0 && (
+          {acts && n.items > 0 && (
             <button className="rs-btn ghost" data-act="rules-reset-all" onClick={resetAll}>
               全部改回官方
             </button>
@@ -594,7 +595,7 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
             </div>
           </section>
         )}
-        {acts && n.total > 0 && (
+        {acts && n.items > 0 && (
           <button
             className="rs-btn wide"
             data-act="rules-reset-all"

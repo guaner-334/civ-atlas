@@ -6,6 +6,7 @@ import { BIOME_KEYS, biomeKey, biomeOfKey, type RuleSet } from '../../gen/civ/ru
 import { basedOnText } from '../../gen/civ/ruleSetEdit';
 import { TUNING_ITEMS, type TuningGroup, type TuningItem, type TuningValues } from '../../gen/civ/tuning';
 import { TUNING_GROUPS, tuningSummary, tuningText } from '../../gen/civ/tuningText';
+import type { RulesChange } from '../rulesStore';
 
 /** 右边一页:一组 / 只看改过的 / 地貌的名字 */
 export type RulesPage = TuningGroup | 'modified' | 'biomes';
@@ -56,6 +57,14 @@ export function modifiedCount(r: Pick<RuleSet, 'values' | 'biomes'>): { items: n
   const items = Object.keys(r.values).length;
   const biomes = Object.keys(r.biomes ?? {}).length;
   return { items, biomes, total: items + biomes };
+}
+
+/**
+ * 「全部改回官方」:只改回 70 项规则项,地貌的名字不动(是这套规则自己起的叫法,不是"调过的数");
+ * undo = 提示条上「撤销」时放回去的
+ */
+export function resetToOfficial(r: Pick<RuleSet, 'values'>): { change: RulesChange; undo: RulesChange } {
+  return { change: { values: {} }, undo: { values: r.values } };
 }
 
 /** 搜的字:去掉首尾空白、并掉中间的空白,英文不分大小写 */

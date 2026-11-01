@@ -23,7 +23,7 @@ import {
   ticksOf,
   valueAt,
 } from '../src/ui/rules/sliderMath';
-import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, rulesLine, searchRules } from '../src/ui/rules/rulesView';
+import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, rulesLine, searchRules } from '../src/ui/rules/rulesView';
 
 const item = (id: string) => tuningItem(id)!;
 
@@ -208,6 +208,32 @@ describe('改过的、搜规则、改了几项', () => {
   it('每一项都有能用的滑条(格数 ≥ 2)', () => {
     const bad = TUNING_ITEMS.filter((x: TuningItem) => slotsOf(x).length < 2);
     expect(bad).toEqual([]);
+  });
+});
+
+describe('全部改回官方', () => {
+  it('只改回规则项,地貌的名字不动;撤销放回原来的规则项', async () => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => void (store[k] = v) });
+    vi.resetModules();
+    const m = await import('../src/ui/rulesStore');
+    const id = m.createRules('战乱年代')!;
+    m.setRuleValue(id, 'war.odds', 2);
+    m.setRuleValue(id, 'diplo.marry', 0);
+    m.setBiomeName(id, 'rainforest', '瘴林');
+    const before = m.findMyRules(id)!.rules;
+    const { change, undo } = resetToOfficial(before);
+    expect(change).toEqual({ values: {} });
+    expect(m.editRules(id, change)).toBe(true);
+    expect(m.findMyRules(id)!.rules.values).toEqual({});
+    expect(m.findMyRules(id)!.rules.biomes).toEqual({ rainforest: '瘴林' });
+    expect(m.editRules(id, undo)).toBe(true);
+    expect(m.findMyRules(id)!.rules.values).toEqual({ 'war.odds': 2, 'diplo.marry': 0 });
+    expect(m.findMyRules(id)!.rules.biomes).toEqual({ rainforest: '瘴林' });
+    // 只改了地貌的名字:没有可改回的(按钮不出,改了也不变)
+    const only = m.createRules('只起了名字')!;
+    m.setBiomeName(only, 'steppe', '马场');
+    expect(m.editRules(only, resetToOfficial(m.findMyRules(only)!.rules).change)).toBe(false);
   });
 });
 
