@@ -51,20 +51,17 @@ import type { Civ } from '../gen/civ/types';
 import { CivLayer, civOpenSteps } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
 import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
-import { extendProgress, getExtend, noteExtendSpeed, setExtendBusy, setExtendFresh, setExtendOpen, setExtendRunner } from './extendStore';
+import { extendProgress, noteExtendSpeed, setExtendBusy, setExtendOpen } from './extendStore';
 import { EventPins, type WorldToClient } from './EventPins';
 import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
 import { directorHandBack, setDirectorMode, useDirectorOn } from './directorStore';
 import { StepDock, StepPins, StepReviewSheet, StepTimeline, StepwiseEngine, useStepCard, useStepReplay, useStepStrip } from './Stepwise';
-import { SAVE_SUFFIX, StepRewindDialog, StepSaveDialog, StepStartDialog } from './StepwiseDialogs';
+import { StepRewindDialog, StepSaveDialog, StepStartDialog } from './StepwiseDialogs';
 import {
   enterStepwise,
   getStepwise,
   leaveStepwise,
-  rewoundTo,
   setStepGesture,
-  saveBackEdits,
-  setStepwiseActions,
   stepLost,
   stepWheel,
   branchSwitching,
@@ -72,8 +69,8 @@ import {
   useStepwiseOn,
   useStepwiseStopped,
 } from './stepwiseStore';
-import { branchList, rewindBranch, startStepwise, switchBranch } from '../gen/stepwise';
-import { StepBranchDeleteDialog, branchNote, branchRef } from './StepBranches';
+import { switchBranch } from '../gen/stepwise';
+import { StepBranchDeleteDialog } from './StepBranches';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
 import { AccountHost, ShareGone, SharedHint } from './AccountDialogs';
@@ -107,23 +104,15 @@ import {
   YEAR_TICKS,
   applyNames,
   aiNameKeys,
-  cleanAdvance,
   cleanPlay,
-  commandsNow,
-  endFields,
   endParamOf,
-  extendedEndYear,
-  issueCommands,
-  ownInterventions,
   namesWithoutAi,
-  momentAt,
   playAt,
   playFromOf,
   polityKey,
   regionKey,
   resolveKey,
   sameInterventions,
-  writtenEndAt,
   type Intervention,
   type PlayState,
   type TerrainOp,
@@ -137,11 +126,11 @@ import type { RasterPatch } from '../gen/rasterPatch';
 import { cancelTerrainPatch, type PatchView, type PreProjected } from './terrainPatch';
 import { later, thumbPrepSteps } from './thumbPrep';
 import { cancelDetailJob, submitDetailJob, type WorkStep } from './detailJobs';
-import { civAtEra, eraData, peekEraData, eraIndex, eraReady, eraShown, reuseRegions, useEraIndex, withHistory, type EraMaps } from './eras';
+import { civAtEra, eraData, peekEraData, eraIndex, eraReady, eraShown, useEraIndex, withHistory, type EraMaps } from './eras';
 import { namedHistory, useNamedHistory } from './chronicleHandoff';
 import { sameSketch, type SketchEdit } from '../gen/sketch';
-import { askHistory, getEdits, putEditsQuiet, setEditGate, useEdits } from './editsStore';
-import { spaced, yearAt, yearFull } from '../gen/era';
+import { getEdits, putEditsQuiet, setEditGate, useEdits } from './editsStore';
+import { yearFull } from '../gen/era';
 import { ShortcutsHost } from './ShortcutsDialog';
 import { DiagHost } from './DiagDialog';
 import { TipLayer } from './Tips';
@@ -155,16 +144,8 @@ import {
 } from '../gen/savefile';
 import {
   currentWorld,
-  isStored,
-  listWorlds,
   loadWorld,
-  nextTitle,
-  notify,
-  overwriteWorld,
-  saveCurrentAs,
-  stepOrigin,
   setThumbEditing,
-  storageFullWhy,
   updateCheck,
 } from './saveStore';
 import { getStage, setStage, useStage } from './stageStore';
@@ -189,7 +170,7 @@ import { regionLabel } from '../gen/civ/story/display';
 import { setSideHold, useSide } from './sideStore';
 import { setSheet, setWorldSheet, usePanel } from './panelStore';
 import { getPeople, setPeople, useOverview } from './overviewStore';
-import { setOutlineRun, setOutlineRunner } from './outlineStore';
+import { setOutlineRun } from './outlineStore';
 import { OutlineRunAsk } from './OutlineRunAsk';
 import { FinderPage } from './FinderPage';
 import { FinderOverlay, FinderPins } from './FinderMap';
@@ -214,7 +195,7 @@ import { interventionOutcome } from '../gen/civ/story/chronicle';
 import { takeRewriteNote, type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
-import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, setTrialRunner, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
+import { PREVIEW_EDIT_BLOCK, exitPreview, getAssistant, sameInBoth, stopAsk, syncAssistantWorld, useAssistantPreview } from './assistantStore';
 import { closeBookReader, closeHistoryBook, stopBook, useBookReader } from './bookStore';
 import { navLayer, navReplace, navSettled, type NavHooks } from './nav';
 import { layerNow } from './navView';
@@ -270,11 +251,12 @@ import { NewWorldDialog } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
 import { SimClient } from './sim/simClient';
-import { switchedToast, useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
-import { closeUpheaval, getUpUi, setUpRunner, upClick, upMove, useUpUi } from './upheavalStore';
+import { useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
+import { useExtendOutlineRunners, useSimRunners } from './sim/useSimRunners';
+import { closeUpheaval, getUpUi, upClick, upMove, useUpUi } from './upheavalStore';
 import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
-import { getPending, removePending, restorePending, takePendingBatch } from './pendingStore';
+import { restorePending, takePendingBatch } from './pendingStore';
 import { tookDismissClick } from './dismissClick';
 import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
 import { setFilmSource } from './filmSource';
@@ -1022,195 +1004,15 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
   );
   const sendRef = useRef(send);
   sendRef.current = send;
-  // 助手的试推演:和重推一样交给线程(排在别的活后面),结果单独交回、不换上去;州和宜居度沿用现在这份
-  useEffect(() => {
-    setTrialRunner(
-      (interventions, signal) =>
-        new Promise<Civ>((resolve, reject) => {
-          const p = genParams.current;
-          if (!p || !rawRef.current) return reject(new Error('世界还没生成好'));
-          // 逐年推演只看得到"现在"以前:不在后台试推演以后会怎样
-          if (getStepwise().on || cleanPlay(getEdits().play)) return reject(new Error('逐年推演里不试推演：以后的事还没发生。想试，先存回推演模式'));
-          const ups = civUps.current;
-          // 登记了等交回来(signal 停下、线程被换掉都会 reject);signal 已经停了的不发
-          const tid = sim.trial(
-            signal,
-            (next) => {
-              const old = rawRef.current;
-              resolve(old ? reuseRegions(old, next, sameUpheavals(ups, rawUps.current)) : next);
-            },
-            reject,
-          );
-          if (tid === null) return;
-          send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
-        }),
-    );
-    return () => setTrialRunner(null);
-  }, [send, sim]);
-  // 逐年推演:算一步(worker 的 turn)、从推演模式某一年开始、存回推演模式、重新演绎、切支线
-  useEffect(() => {
-    /**
-     * 重新演绎、切支线:正在算的那一步先等它算完、换上(或者没算成),再做 fn。这样原来那一支照它真走到的样子留下,
-     * 交回来的那一步也不会落到另一支上;单子里还没交出去的干预本来就在下一步开头生效,正好是那时的"现在"。
-     * 没在算 = 马上做;等的时候换了世界、不在逐年推演了 = 不做。一次只等一件(waiting 的时候两个动作都先不接)
-     */
-    let waiting = false;
-    const afterStep = (fn: () => void) => {
-      if (!getStepwise().busy) return fn();
-      if (waiting) return;
-      waiting = true;
-      const off = subscribeStepwise(() => {
-        const t = getStepwise();
-        if (t.on && t.busy) return;
-        off();
-        waiting = false;
-        if (t.on) fn();
-      });
-    };
-    /**
-     * 原来那一支要留下的样子(重新演绎、切走时):单子里还没交出去的干预(和万一还在算的那一步带走的)
-     * 都当作在"现在"下的(在进度那一刻生效:那一年年初,停在年中的是那一格;同存回推演模式)。没在逐年推演 = null
-     */
-    const keptBranch = (): WorldEdits | null => {
-      const e0 = getEdits();
-      const play = cleanPlay(e0.play);
-      if (!play) return null;
-      const later = [...(getStepwise().busy?.commands ?? []), ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))];
-      const now = commandsNow(play, later);
-      return now.length ? { ...e0, play: issueCommands(play, now).play } : e0;
-    };
-    /** 单子里还没交出去的干预已经记进原来那一支:从单子里拿掉 */
-    const dropPending = () => {
-      for (const x of getPending()) if (x.kind === 'iv') removePending(x.id);
-    };
-    setStepwiseActions({
-      turn: (ticks, commands) => {
-        const p = genParams.current;
-        const play = cleanPlay(getEdits().play);
-        // 地图上这份历史得正是按现在这份进度推的(不在重推、不在生成)
-        if (!p || !play || !rawRef.current || fresh.current || regenRef.current || resimInfo.current || JSON.stringify(play) !== JSON.stringify(civPlay.current ?? null)) return false;
-        send({
-          type: 'turn',
-          id: reqId.current,
-          play,
-          commands,
-          years: Math.max(1, Math.round(ticks / YEAR_TICKS)),
-          ticks,
-          params: p,
-          terrain: [...genTerrain.current],
-          sketch: genSketch.current,
-          interventions: [...civEdits.current],
-          ...upsOpt(civUps.current),
-          ...namesOpt(civNames.current),
-          ...setupOpt(civSetup.current),
-        });
-        return true;
-      },
-      start: (year, drop, adv) => {
-        const cur = currentWorld();
-        if (!cur || !rawRef.current) return;
-        // 推进设置只写进新的那个(原来的世界不动)
-        const { advance: _old, ...rest } = getEdits();
-        void _old;
-        const a = cleanAdvance(adv);
-        const e = startStepwise(a ? { ...rest, advance: a } : rest, year, drop);
-        // 原来的世界不动:另存一个从这一年开始演绎的(名字照旧;存回推演模式时能选覆盖原来那个)
-        const id = saveCurrentAs(e, cur.title || '', isStored(cur.id) ? cur.id : undefined);
-        if (!id) return notify({ kind: 'error', text: '没能开始演绎', more: [storageFullWhy()] });
-        stepAuto.current = true;
-        openStoredRef.current(id);
-      },
-      saveBack: (asNew, open) => {
-        const cur = currentWorld();
-        const e0 = getEdits();
-        const play = cleanPlay(e0.play);
-        if (!cur || !play) return;
-        // 正在算的那一步带走的干预、单子里还没交出去的:都当作在"现在"下的,一起存进去(在那一年年初生效;
-        // 正在算的那一步还没换上来,修改里的进度还是"现在")
-        const inflight = getStepwise().busy?.commands ?? [];
-        const normal = saveBackEdits(e0, [...inflight, ...getPending().flatMap((x) => (x.kind === 'iv' ? [x.v] : []))]);
-        if (!normal) return notify({ kind: 'error', text: '没能存回推演模式', more: ['推得太远了，普通世界最多推到第 60000 年'] });
-        const origin = stepOrigin(cur.id);
-        let id: string | null;
-        let title: string;
-        if (!asNew && origin) {
-          id = overwriteWorld(origin.id, normal) ? origin.id : null;
-          title = origin.title;
-        } else {
-          const want = `${cur.title || '未命名世界'}${SAVE_SUFFIX}`;
-          title = listWorlds().some((w) => w.save.title === want) ? nextTitle(want) : want;
-          id = saveCurrentAs(normal, title);
-        }
-        if (!id) return notify({ kind: 'error', text: '没能存回推演模式', more: [storageFullWhy()] });
-        if (open) return openStoredRef.current(id);
-        showToast({ id: 'step-saved', kind: 'ok', dot: true, text: `已存回推演模式「${title}」`, more: ['这个故事照样留着，在「我的世界」里随时能打开那一个'], ttl: 6000 });
-      },
-      rewind: (year, name) => {
-        // 正在切支线:地图、时间轴上还是原来那支,修改里已经是切到的那一支,这时另开会从切到的那一支分出去
-        // (切的时候问重新演绎的窗口本来就不开,见 openStepDialog);已经在等着做别的:这次不做
-        if (getStepwise().switching || waiting) return;
-        setCivTime({ playing: false });
-        afterStep(() => {
-          const e0 = keptBranch();
-          const play = e0 && cleanPlay(e0.play);
-          // 原来那条原样留成一支(记下它的最后一件大事),从那一年另开一支、切过去
-          // year 带小数(停在年中、一步短于一年的回到那一格)
-          const r = e0 && play && rewindBranch(e0, momentAt(Math.round(year * YEAR_TICKS)), name, branchNote(rawRef.current, play.year));
-          if (!play || !r || !r.edits.play) return notify({ kind: 'error', text: '没能从这一年重新演绎', more: ['另开的支太多了'] });
-          const T = playAt(r.edits.play) / YEAR_TICKS;
-          rewindNote.current = { year: T };
-          dropPending();
-          // 进度换成那一年年初(App 照它从第 0 年推到那一年)
-          putEditsQuiet(r.edits);
-          rewoundTo(playFromOf(r.edits), T);
-          setCivTime({ year: T, playing: false, scrubbing: false, story: false });
-        });
-      },
-      switchBranch: (id) => {
-        const s = getStepwise();
-        const all = branchList(getEdits());
-        const cur = all.find((b) => b.current);
-        const to = all.find((b) => b.id === id && !b.current);
-        // 正在切、等着重新演绎、正在重推 / 生成(地图上的历史还不是这一支的)时不切
-        if (!s.on || s.switching || waiting || resimInfo.current || regenRef.current || !cur || !to) return;
-        // 那一行先转起圈来(别的行、下令先不能点),停下;正在算的那一步算完再切
-        branchSwitching({ to: id, from: cur.id, ...(to.last ? { last: to.last } : {}) });
-        stepAuto.current = false;
-        rewindNote.current = null;
-        setCivTime({ playing: false });
-        afterStep(() => {
-          const e0 = keptBranch();
-          const play = e0 && cleanPlay(e0.play);
-          const next = e0 && play && !resimInfo.current && !regenRef.current ? switchBranch(e0, id, branchNote(rawRef.current, play.year)) : null;
-          if (!e0 || !next?.play) return branchSwitching(null);
-          dropPending();
-          const note: SwitchNote = { from: cur.id, fromRef: branchRef(cur), toRef: branchRef(to), year: next.play.year };
-          // 两支走到的一模一样(另开以后原样走回了同一年):地图上这份历史就是它的,不用重推,直接换上
-          if (JSON.stringify(next.play) === JSON.stringify(civPlay.current ?? null)) {
-            putEditsQuiet(next);
-            enterStepwise(playFromOf(next), playAt(next.play) / YEAR_TICKS);
-            setCivTime({ year: playAt(next.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
-            return switchedToast(note);
-          }
-          // 地图先留着原来那支(照样能拖),在后台照那一支从第 0 年推到它走到的那一年,推完换上、停在那一年
-          switchNote.current = note;
-          resimText.current = `正在切到${branchRef(to)}：从头推到${spaced(yearAt(next.play.year, e0.era))}`;
-          putEditsQuiet(next);
-        });
-      },
-    });
-    return () => setStepwiseActions(null);
-  }, [send]);
-  // 地形大事的"会怎么样":交给线程照"那一年的地形 + 这几笔"生成一遍。那一年的地形按卡片给的大事算(修改里现在的,和预览的键同一份):
-  // 刚加了一件、重推还没完时,线程先推完那一次才轮到这次预览,结果回来时地图上已经是新的历史
-  useEffect(() => {
-    setUpRunner((pid, year, ops, ups) => {
-      const p = genParams.current;
-      if (!p) return;
-      send({ type: 'upPreview', id: reqId.current, pid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, ...upsOpt(ups), ...(civSetup.current?.civSeed !== undefined ? { civSeed: civSetup.current.civSeed } : {}), year, ops: [...ops] });
-    });
-    return () => setUpRunner(null);
-  }, [send]);
+  // 助手的试推演、逐年推演(算一步、从某一年开始、存回推演模式、重新演绎、切支线)、地形大事的"会怎么样":接到后台线程上,见 ./sim/useSimRunners.ts
+  useSimRunners({
+    sim,
+    send,
+    gen: genRefs,
+    civ: civRefs,
+    resim: { resimInfo, resimText, switchNote, stepAuto, rewindNote },
+    later: { openStored: (id) => openStoredRef.current(id) },
+  });
 
   // 线程交回的推演结果换上界面(重推、逐年推演一步、再推、照大纲推演;历史换了一份时选中的东西跟着换),见 ./sim/useSimResults.ts
   const { remapSelection, applyResimRef, applyTurnRef, applyExtendedRef, extendDone, dropExtendUndo, outlineProgress, outlineProgressRef, applyOutlinedRef, stopOutlineRun } = useSimResults({
@@ -1243,104 +1045,16 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
     narrowRef,
     shownRaw,
   });
-  // 「再推」:接到后台线程上(ExtendYears.tsx 调 extendStart / extendStop)
-  useEffect(() => {
-    setExtendRunner({
-      start: (years) => {
-        const p = genParams.current;
-        const raw = rawRef.current;
-        if (!p || !raw || fresh.current || extendRef.current || previewOn.current || getStepwise().on || cleanPlay(getEdits().play)) return;
-        const from = raw.endYear;
-        const to = extendedEndYear(from, years);
-        if (!(to > from)) return;
-        // 照原样打开的旧世界:推演要用新版的规则,先问要不要另存一份(在那一份上推)
-        if (askHistory({ ...getEdits(), endTick: undefined, ...endFields(to) })) return;
-        const xid = ++extendSeq.current;
-        extendRef.current = { xid, from, to, t0: performance.now(), endYear: writtenEndAt(getEdits()) };
-        clearToast('extend-done');
-        dropExtendUndo();
-        // 停在"现在"(结束年份)的播放头钉在这一年:时间轴变长以后还停在原处
-        if (getCivTime().year === null) setCivTime({ year: from });
-        setExtendFresh(null);
-        setExtendBusy({ xid, from, to, year: null, pct: 0, slow: !!civUps.current?.length });
-        send({
-          type: 'extend',
-          id: reqId.current,
-          xid,
-          to,
-          params: p,
-          terrain: [...genTerrain.current],
-          sketch: genSketch.current,
-          interventions: [...civEdits.current],
-          ...upsOpt(civUps.current),
-          ...namesOpt(civNames.current),
-          ...setupOpt(civSetup.current),
-          have: [...eraPatches.current.keys()],
-        });
-      },
-      stop: () => {
-        const x = extendRef.current;
-        if (!x) return;
-        const b = getExtend().busy;
-        extendRef.current = null;
-        setExtendBusy(null);
-        // 从第 0 年整段推的(有地形大事、线程被重开过:一直没有分段进度)中途停不下来:线程手上只剩这一件活时换一个新的线程
-        // (手上的世界下次用到时按参数重算),不然要等它整段推完才空出来
-        if (b?.xid === x.xid && b.year === null && sim.busy === 1) {
-          sim.ensure(true);
-          return;
-        }
-        // 叫停不算一件活(线程不回音):直接发
-        sim.tell({ type: 'extendStop', id: reqId.current, xid: x.xid } satisfies WorkerRequest);
-      },
-    });
-    return () => setExtendRunner(null);
-  }, [send]);
-
-  // 「照大纲推演」:接到后台线程上(大纲页、侧栏先问多认真地试(OutlineRunAsk),再调 startOutline / stopOutline)
-  useEffect(() => {
-    setOutlineRunner({
-      start: (tries) => {
-        const p = genParams.current;
-        const raw = rawRef.current;
-        const e = getEdits();
-        const plots = e.outline?.plots;
-        if (!p || !raw || !plots?.length || outlineRef.current || previewOn.current || getStepwise().on || cleanPlay(e.play)) return;
-        // 世界还在生成、在重推、在再推:等它推完
-        if (fresh.current || regenRef.current || civLater.current || resimInfo.current || extendRef.current) {
-          showToast({ id: 'outline', kind: 'info', text: '世界还在推演，推完再照大纲推演', ttl: 4000 });
-          return;
-        }
-        // 照原样打开的旧世界:推演要用新版的规则,先问要不要另存一份(在那一份上推)
-        if (askHistory(e)) return;
-        const oid = ++outlineSeq.current;
-        const own = ownInterventions(e.interventions);
-        outlineRef.current = { oid, plots, own, marks: JSON.stringify(e.marks ?? null), characters: JSON.stringify(e.characters ?? null), t0: performance.now() };
-        clearToast('outline-done');
-        outlineProgress(oid, 0, plots.length, [], undefined);
-        send({
-          type: 'outline',
-          id: reqId.current,
-          oid,
-          plots,
-          tries,
-          params: p,
-          terrain: [...genTerrain.current],
-          sketch: genSketch.current,
-          interventions: [...e.interventions],
-          ...(e.characters?.length ? { characters: e.characters } : {}),
-          ...(e.marks?.length ? { marks: e.marks } : {}),
-          ...upsOpt(civUps.current),
-          ...namesOpt(civNames.current),
-          ...yearsOpt(civYears.current),
-          ...setupOpt(civSetup.current),
-          have: [...eraPatches.current.keys()],
-        });
-      },
-      stop: stopOutlineRun,
-    });
-    return () => setOutlineRunner(null);
-  }, [send]);
+  // 「再推」「照大纲推演」:接到后台线程上(ExtendYears.tsx 调 extendStart / extendStop;大纲页、侧栏调 startOutline / stopOutline),见 ./sim/useSimRunners.ts
+  useExtendOutlineRunners({
+    sim,
+    send,
+    gen: genRefs,
+    civ: civRefs,
+    map: mapRefs,
+    resim: { resimInfo, extendRef, dropExtendUndo },
+    runs: { previewOn, extendSeq, outlineRef, outlineSeq, outlineProgress, stopOutlineRun },
+  });
 
   // ---- 生成、打开世界(./world/useWorldLoad.ts):生成新世界、生成完套上修改,打开网页时、打开存档 / 文件 / 分享链接,换到新建 / 世界 / 我的世界 ----
   // 下面几样在后面才定义(回我的世界、按新版另存一份、作品墙在 ./world/useWorldPages.ts,浏览器的后退前进),经 ref 调;定义的地方填 .current
