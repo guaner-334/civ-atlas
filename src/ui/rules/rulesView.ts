@@ -1,19 +1,20 @@
 /**
  * 调规则的页要的几样现算的:改过的项按组列、搜规则、改了几项、「我的规则」一行的小字。纯计算,不碰 DOM。
+ * 页面上拿掉的项(tuning.ts 的 retired)不进分组、搜规则;调过的在「只看改过的」最下面另列(retiredModified),算在「改了几项」里
  */
 import { BIOMES, type Biome } from '../../gen/biomes';
 import { BIOME_KEYS, biomeKey, biomeOfKey, type RuleSet } from '../../gen/civ/ruleSet';
 import { basedOnText } from '../../gen/civ/ruleSetEdit';
-import { TUNING_ITEMS, type TuningGroup, type TuningItem, type TuningValues } from '../../gen/civ/tuning';
+import { SHOWN_ITEMS, TUNING_ITEMS, type TuningGroup, type TuningItem, type TuningValues } from '../../gen/civ/tuning';
 import { TUNING_GROUPS, tuningSummary, tuningText } from '../../gen/civ/tuningText';
 import type { RulesChange } from '../rulesStore';
 
 /** 右边一页:一组 / 只看改过的 / 地貌的名字 */
 export type RulesPage = TuningGroup | 'modified' | 'biomes';
 
-/** 一组里的项(常用的、其余的,照项表的先后) */
+/** 一组里的项(常用的、其余的,照项表的先后;页面上拿掉的不列) */
 export function groupItems(g: TuningGroup): { common: TuningItem[]; more: TuningItem[] } {
-  const all = TUNING_ITEMS.filter((x) => x.group === g);
+  const all = SHOWN_ITEMS.filter((x) => x.group === g);
   return { common: all.filter((x) => x.common), more: all.filter((x) => !x.common) };
 }
 
@@ -30,11 +31,16 @@ function sections(items: readonly TuningItem[]): ItemSection[] {
 }
 
 /**
- * 改过的项,按组列(只看改过的)。keep:这一页上已经列出来过的(编号),改回官方了也接着列 ——
+ * 改过的项,按组列(只看改过的;页面上拿掉的另列,见 retiredModified)。keep:这一页上已经列出来过的(编号),改回官方了也接着列 ——
  * 拖滑条路过官方那一格、点了改回,那一行不会一下子没了(拖着的把手也不会丢)
  */
 export function modifiedSections(values: TuningValues, keep?: ReadonlySet<string>): ItemSection[] {
-  return sections(TUNING_ITEMS.filter((x) => x.id in values || keep?.has(x.id)));
+  return sections(SHOWN_ITEMS.filter((x) => x.id in values || keep?.has(x.id)));
+}
+
+/** 调过的、页面上已经拿掉的项(照项表的先后);keep 同上 */
+export function retiredModified(values: TuningValues, keep?: ReadonlySet<string>): TuningItem[] {
+  return TUNING_ITEMS.filter((x) => x.retired && (x.id in values || keep?.has(x.id)));
 }
 
 /** 改过叫法的地貌(照地貌总表的先后);keep 同上(地貌的键):打字时清空了框,那一行也不会没了 */
@@ -52,15 +58,16 @@ export function keepModified(kept: Set<string>, r: Pick<RuleSet, 'values' | 'bio
   return kept;
 }
 
-/** 改了几项:规则项 + 地貌的叫法 */
-export function modifiedCount(r: Pick<RuleSet, 'values' | 'biomes'>): { items: number; biomes: number; total: number } {
+/** 改了几项:规则项(连页面上拿掉的)+ 地貌的叫法;retired = 规则项里页面上已经拿掉的几项 */
+export function modifiedCount(r: Pick<RuleSet, 'values' | 'biomes'>): { items: number; biomes: number; total: number; retired: number } {
   const items = Object.keys(r.values).length;
   const biomes = Object.keys(r.biomes ?? {}).length;
-  return { items, biomes, total: items + biomes };
+  const retired = retiredModified(r.values).length;
+  return { items, biomes, total: items + biomes, retired };
 }
 
 /**
- * 「全部改回官方」:只改回 70 项规则项,地貌的名字不动(是这套规则自己起的叫法,不是"调过的数");
+ * 「全部改回官方」:只改回 70 项规则项(连页面上拿掉的),地貌的名字不动(是这套规则自己起的叫法,不是"调过的数");
  * undo = 提示条上「撤销」时放回去的
  */
 export function resetToOfficial(r: Pick<RuleSet, 'values'>): { change: RulesChange; undo: RulesChange } {
@@ -71,14 +78,14 @@ export function resetToOfficial(r: Pick<RuleSet, 'values'>): { change: RulesChan
 const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
 
 /**
- * 搜规则:名字、一句说明、摘要里的叫法里有这几个字的项,按组列;再加上名字(官方的、这套里起的)里有这几个字的地貌。
+ * 搜规则:名字、一句说明、摘要里的叫法里有这几个字的项(页面上拿掉的不搜),按组列;再加上名字(官方的、这套里起的)里有这几个字的地貌。
  * keepBiomes:这次搜的结果里已经列出来过的地貌 —— 正在改它的叫法、改得不再含这几个字了,也接着列(输入框不会打到一半没了)
  */
 export function searchRules(q: string, r: Pick<RuleSet, 'biomes'>, keepBiomes?: ReadonlySet<Biome>): { sections: ItemSection[]; biomes: Biome[] } {
   const k = norm(q);
   if (!k) return { sections: [], biomes: [] };
   const hit = (s: string | undefined) => !!s && norm(s).includes(k);
-  const items = TUNING_ITEMS.filter((x) => {
+  const items = SHOWN_ITEMS.filter((x) => {
     const t = tuningText(x);
     return hit(x.name) || hit(t.desc) || hit(t.short) || hit(t.offText);
   });

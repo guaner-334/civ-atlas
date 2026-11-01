@@ -6,14 +6,14 @@
  * 点、拖都吸到最近一格;键盘:左右(上下)挪一格,Home / End 到两头。手机上横着拖才算拖,竖着划照样滚动页面,点一下跳到那一格。
  * 只能看的(官方规则、别人分享的)滑条不能动。
  *
- * 改过的项左边一道细蓝条,旁边「改回」(↺)。
+ * 改过的项左边一道细蓝条,旁边「改回」(↺)。页面上拿掉的项(RetiredRow)只写值、能改回,左边的细条是灰的。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../icons';
 import { BIOMES, type Biome } from '../../gen/biomes';
 import { BIOME_NAME_MAX, biomeKey } from '../../gen/civ/ruleSet';
 import { officialValue, type TuningItem, type TuningValue } from '../../gen/civ/tuning';
-import { tuningText, tuningValueText } from '../../gen/civ/tuningText';
+import { retiredText, tuningText, tuningValueText } from '../../gen/civ/tuningText';
 import { edgeLabels, fillSpan, nearestSlot, officialLabelAt, officialSlots, pickThumb, slotFrac, slotsOf, stepThumb, thumbsOf, ticksOf, valueAt } from './sliderMath';
 
 const pct = (f: number) => `${(f * 100).toFixed(3)}%`;
@@ -178,6 +178,35 @@ export function RuleRow({ x, values, ro, onSet }: RowProps) {
       </div>
       <RuleSlider x={x} value={value} ro={ro} onChange={(v) => onSet(x.id, v)} />
       <div className={`rs-val${off ? ' offv' : ''}`}>{tuningValueText(x, value)}</div>
+      <ResetBtn show={mod && !ro} label={x.name} onClick={() => onSet(x.id, undefined)} />
+    </div>
+  );
+}
+
+/**
+ * 页面上拿掉的一项(「只看改过的」最下面那一块):名字、说明(拿掉了 / 并进了哪一项)、值、改回;不给滑条,不能再调。
+ * 左边的细条是灰的(照旧起作用,只是页面上没有了)。phone = 手机上的一块
+ */
+export function RetiredRow({ x, values, ro, onSet, phone }: RowProps & { phone?: boolean }) {
+  const { value, mod } = itemState(x, values);
+  if (phone)
+    return (
+      <div className={`rs-pk rs-gone${mod ? ' mod' : ''}${ro ? ' ro' : ''}`} data-item={x.id}>
+        <div className="rs-pk-h">
+          <b>{x.name}</b>
+          <span className="rs-val">{tuningValueText(x, value)}</span>
+          {mod && !ro && <ResetBtn show label={x.name} onClick={() => onSet(x.id, undefined)} />}
+        </div>
+        <small>{retiredText(x)}</small>
+      </div>
+    );
+  return (
+    <div className={`rs-kn rs-gone${mod ? ' mod' : ''}${ro ? ' ro' : ''}`} data-item={x.id}>
+      <div className="rs-kn-t">
+        <b>{x.name}</b>
+        <small>{retiredText(x)}</small>
+      </div>
+      <div className="rs-val">{tuningValueText(x, value)}</div>
       <ResetBtn show={mod && !ro} label={x.name} onClick={() => onSet(x.id, undefined)} />
     </div>
   );

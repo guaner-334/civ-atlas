@@ -5,7 +5,7 @@
  * 每一项两头的极端值推不推得完、出不出 NaN,在压力测试里(scripts/stress.ts 的「规则项」)
  */
 import { describe, expect, it } from 'vitest';
-import { MULT_STEPS, TUNING_CALC, TUNING_ITEMS, cleanCalc, cleanTuning, multSteps, officialValue, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
+import { MULT_STEPS, SHOWN_ITEMS, TUNING_CALC, TUNING_ITEMS, cleanCalc, cleanTuning, multSteps, officialValue, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
 import { TUNING_GROUPS, TUNING_TEXT_IDS, tuningCounts, tuningSummary, tuningText, tuningValueText } from '../src/gen/civ/tuningText';
 import { CALC_COUNT, TUNING_KNOB_IDS, tuningKnobs, tuningPatch, worldPatch } from '../src/gen/civ/tuningPatch';
 import { CIV_KNOBS, cleanKnobs } from '../src/gen/civ/knobs';
@@ -44,7 +44,7 @@ describe('规则项表', () => {
   it('每一版换算:改的旋钮都在旋钮表里、是数(区间是两个数;连带改的是数);一处旋钮只归一项', () => {
     for (let calc = 1; calc <= TUNING_CALC; calc++) {
       const seen = new Map<string, string>();
-      for (const x of TUNING_ITEMS) {
+      for (const x of TUNING_ITEMS.filter((y) => !y.retired)) {
         const k = tuningKnobs(x, calc);
         expect(k.knobs.length, x.id).toBeGreaterThan(0);
         if (k.pow) expect(k.pow.length, x.id).toBe(k.knobs.length);
@@ -57,9 +57,16 @@ describe('规则项表', () => {
           seen.set(name, x.id);
         }
         for (const name of k.alsoKnobs ?? []) {
-          expect(typeof table(name), `${x.id} → ${name}`).toBe('number');
+          expect(table(name), `${x.id} → ${name}`).toBeDefined();
           expect(seen.get(name), `第 ${calc} 版 ${name} 同时归 ${seen.get(name)} 和 ${x.id}`).toBeUndefined();
           seen.set(name, x.id);
+        }
+      }
+      // 页面上拿掉的项另记:只许和它并进去的那一项改到同一处(并掉的那项调过的数盖过)
+      for (const x of TUNING_ITEMS.filter((y) => y.retired)) {
+        for (const name of tuningKnobs(x, calc).knobs) {
+          const owner = seen.get(name);
+          expect(owner === undefined || owner === x.into, `第 ${calc} 版 ${name} 同时归 ${owner} 和 ${x.id}`).toBe(true);
         }
       }
     }
@@ -171,6 +178,51 @@ describe('第 3 版换算', () => {
     const v2 = { 'war.odds': 4, 'split.odds': 4, 'split.dynasty': 4 };
     expect(tuningPatch(v2, 3)).toEqual(tuningPatch(v2, 2));
     expect(tuningPatch({ 'folk.assimilate': 4, 'war.prey': 4 }, 2)).toEqual({ assimilation: { RATE: 0.4 }, wars: { PREY_ODDS: 10 } });
+  });
+});
+
+describe('页面上拿掉的项、第 4 版换算', () => {
+  it('拿掉 14 项(都在「更多」里,并进去的那一项在同一组、页面上列着),页面上剩 56 项', () => {
+    const gone = TUNING_ITEMS.filter((x) => x.retired);
+    expect(gone.map((x) => x.id)).toEqual([
+      'war.rest', 'war.goal', 'war.break', 'war.fronts', 'war.revanche', 'war.grudge', 'split.share', 'split.age',
+      'diplo.maxPacts', 'diplo.zone', 'folk.trekAbsorb', 'disaster.wear', 'court.maxAge', 'court.restore',
+    ]);
+    expect(SHOWN_ITEMS.length).toBe(56);
+    for (const x of gone) {
+      expect(x.common, x.id).toBe(false);
+      if (!x.into) continue;
+      const to = tuningItem(x.into)!;
+      expect(to.retired, x.id).toBeUndefined();
+      expect(to.group, x.id).toBe(x.group);
+    }
+    expect(gone.filter((x) => x.into).map((x) => [x.id, x.into])).toEqual([
+      ['war.rest', 'war.truce'], ['war.goal', 'war.length'], ['split.age', 'split.dynastyAge'], ['diplo.zone', 'diplo.treaty'],
+    ]);
+  });
+
+  it('拿掉的项各版都照第 1 版换(以前调过的规则推出来不变)', () => {
+    for (const x of TUNING_ITEMS.filter((y) => y.retired)) {
+      const [lo, hi] = tuningEnds(x);
+      for (const v of [lo, hi]) for (let calc = 2; calc <= TUNING_CALC; calc++) expect(tuningPatch({ [x.id]: v }, calc), `${x.id} 第 ${calc} 版`).toEqual(tuningPatch({ [x.id]: v }, 1));
+    }
+  });
+
+  it('并进去的那一项带着改;两项都调了时并掉的那项盖过', () => {
+    expect(tuningPatch({ 'war.truce': 60 }, 4)).toEqual({ wars: { TRUCE: 60, REST: 60 } });
+    expect(tuningPatch({ 'war.truce': 60, 'war.rest': 10 }, 4)).toEqual({ wars: { TRUCE: 60, REST: 10 } });
+    expect(tuningPatch({ 'war.length': [60, 60] }, 4)).toEqual({ wars: { LENGTH: [60, 60], STALL: 20, GOAL: [10, 67] } });
+    expect(tuningPatch({ 'war.length': [1, 1] }, 4)).toEqual({ wars: { LENGTH: [1, 1], GOAL: [1, 1] } });
+    expect(tuningPatch({ 'war.length': [60, 60], 'war.goal': [2, 5] }, 4)).toEqual({ wars: { LENGTH: [60, 60], STALL: 20, GOAL: [2, 5] } });
+    expect(tuningPatch({ 'split.dynastyAge': 100, 'split.age': 0 }, 4)!.unrest.AGE_W).toBe(0);
+    expect(tuningPatch({ 'split.dynastyAge': 620 }, 4)).toEqual({ dynasty: { AGE_REF: 620 }, unrest: { AGE_0: 300, AGE_SPAN: 500, AGE_W: 0.3 } });
+    expect(tuningPatch({ 'diplo.treaty': 4 }, 4)).toEqual({ treaties: { TREATY_ODDS: 0.8, PEACE_TREATY: 0.6, MULTI_ZONE: 1, PEACE_ZONE: 1 } });
+    expect(tuningPatch({ 'diplo.treaty': 0 }, 4)).toEqual({ treaties: { TREATY_ODDS: 0, PEACE_TREATY: 0 } });
+    expect(tuningPatch({ 'diplo.treaty': 4, 'diplo.zone': 0 }, 4)!.treaties.MULTI_ZONE).toBe(0);
+    expect(tuningPatch({ 'war.project': 4 }, 4)).toEqual({ wars: { PROJECT: 1.125 } });
+    expect(tuningPatch({ 'war.project': 0.25 }, 4)).toEqual({ wars: { PROJECT: 288 } });
+    // 第 3 版照旧
+    expect(tuningPatch({ 'war.truce': 60, 'war.project': 4, 'split.dynastyAge': 100 }, 3)).toEqual({ wars: { TRUCE: 60, PROJECT: 4.5 }, dynasty: { AGE_REF: 100 } });
   });
 });
 

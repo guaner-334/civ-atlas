@@ -201,10 +201,66 @@ const KNOBS_3: Readonly<Record<string, TuningKnobs>> = {
 };
 
 /**
+ * 第 4 版:页面上拿掉了 14 项(tuning.ts 的 RETIRED;它们各版照旧按第 1 版换),其中 4 项并进同组的一项,由那一项带着改;
+ * 远征吃力加强(5 个种子、推 3000 年和官方比;括号里是第 3 版):
+ * - 议和后几年不再开战:「打完仗歇几年」并进来,打完一场仗也歇这么多年。60 年:仗少 33%(20%),国界变动少 29%
+ * - 一场仗最多打几年:「一场仗想拿几州」并进来,想拿的州按上限 ÷ 18 放大。60 年:每仗拿下的州多 56%(43%)
+ * - 王朝寿命:「王朝老了人心渐散」并进来:人心从多少年起渐散、多少年涨满按年数比例变,涨满时的量按年数反比变。
+ *   100 年:大崩解多 76%(不变),国界变动多 37%
+ * - 立约多少:「立约时划中立地」并进来,几国立约、议和立约时划中立地的机会按倍数变(最多十成)。×4:中立地 14 块(7 块)
+ * - 远征吃力:离国都远的打折按倍数的平方。×4:最大的国小 55%(23%),现存国家多 68%;往左那头照旧差不出来
+ * 两项都调了(比如旧规则里调过「打完仗歇几年」):并掉的那项的数盖过并进去那一项带着改的(tuningPatch 后换拿掉的项)
+ */
+const KNOBS_4: Readonly<Record<string, TuningKnobs>> = {
+  'war.truce': {
+    knobs: ['wars.TRUCE'],
+    also: (v) => [['wars.REST', v as number]],
+    alsoKnobs: ['wars.REST'],
+  },
+  'war.length': {
+    knobs: ['wars.LENGTH'],
+    also: (v) => {
+      const top = (v as readonly [number, number])[1];
+      const [g0, g1] = officialKnob('wars.GOAL') as readonly [number, number];
+      const r = top / (officialKnob('wars.LENGTH') as readonly [number, number])[1];
+      return [
+        ['wars.STALL', Math.max(num('wars.STALL'), Math.round(top / 3))],
+        ['wars.GOAL', [Math.max(1, Math.round(g0 * r)), Math.max(1, Math.round(g1 * r))]],
+      ];
+    },
+    alsoKnobs: ['wars.STALL', 'wars.GOAL'],
+  },
+  'split.dynastyAge': {
+    knobs: ['dynasty.AGE_REF'],
+    also: (v) => {
+      const r = (v as number) / num('dynasty.AGE_REF');
+      return [
+        ['unrest.AGE_0', num('unrest.AGE_0') * r],
+        ['unrest.AGE_SPAN', num('unrest.AGE_SPAN') * r],
+        ['unrest.AGE_W', num('unrest.AGE_W') / r],
+      ];
+    },
+    alsoKnobs: ['unrest.AGE_0', 'unrest.AGE_SPAN', 'unrest.AGE_W'],
+  },
+  'diplo.treaty': {
+    knobs: ['treaties.TREATY_ODDS', 'treaties.PEACE_TREATY'],
+    also: (v) =>
+      (v as number) > 0
+        ? [
+            ['treaties.MULTI_ZONE', Math.min(1, num('treaties.MULTI_ZONE') * (v as number))],
+            ['treaties.PEACE_ZONE', Math.min(1, num('treaties.PEACE_ZONE') * (v as number))],
+          ]
+        : [],
+    alsoKnobs: ['treaties.MULTI_ZONE', 'treaties.PEACE_ZONE'],
+  },
+  'war.project': { knobs: ['wars.PROJECT'], inv: true, pow: [2] },
+};
+
+/**
  * 各版换算:第 i 个是第 i + 1 版。第 1 版写全 70 项;以后每一版只写这一版换了的项(那一项整个换掉),没写的照上一版。
  * 加一版:在末尾加一份,tuning.ts 的 TUNING_CALC 跟着加一(单测核对两边一样);前面的不动
  */
-const CALC_TABLES: readonly Readonly<Record<string, TuningKnobs>>[] = [KNOBS, KNOBS_2, KNOBS_3];
+const CALC_TABLES: readonly Readonly<Record<string, TuningKnobs>>[] = [KNOBS, KNOBS_2, KNOBS_3, KNOBS_4];
 
 /** 有几版换算(单测核对和 TUNING_CALC 一样) */
 export const CALC_COUNT = CALC_TABLES.length;
@@ -241,7 +297,12 @@ function officialKnob(k: string): KnobValue {
 /** 一项的值按第 calc 版换成它改的那几处旋钮的值(值是清理过的) */
 function knobValues(x: TuningItem, v: TuningValue, calc: number): (readonly [string, KnobValue])[] {
   const k = tuningKnobs(x, calc);
-  return [...mainValues(x, k, v), ...(k.also ? k.also(v).filter(([name, kv]) => kv !== officialKnob(name)) : [])];
+  return [...mainValues(x, k, v), ...(k.also ? k.also(v).filter(([name, kv]) => !sameKnob(kv, officialKnob(name))) : [])];
+}
+
+/** 两个旋钮的值一样(数,或者两个数的区间) */
+function sameKnob(a: KnobValue, b: KnobValue): boolean {
+  return Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((x, i) => x === b[i]) : a === b;
 }
 
 /** knobs 那几处的值 */
@@ -250,8 +311,8 @@ function mainValues(x: TuningItem, k: TuningKnobs, v: TuningValue): [string, Kno
     const m = v as number;
     return k.knobs.flatMap((name, i): [string, KnobValue][] => {
       const o = officialKnob(name) as number;
-      if (k.inv) return [[name, m === 0 ? Infinity : o / m]];
       const p = k.pow?.[i] ?? 1;
+      if (k.inv) return [[name, m === 0 ? Infinity : p === 1 ? o / m : o / fpow(m, p)]];
       if (p === 1) return [[name, o * m]];
       // 关:次方为正的那几处是 0,为负的(冷却、门槛)照官方,不写
       if (m === 0) return p > 0 ? [[name, 0]] : [];
@@ -276,12 +337,15 @@ export function tuningPatch(values: unknown, calc: number): KnobPatch | undefine
   const clean = cleanTuning(values).values;
   const out: Record<string, Record<string, KnobValue>> = {};
   let any = false;
-  for (const x of TUNING_ITEMS) {
-    if (!(x.id in clean)) continue;
-    for (const [k, kv] of knobValues(x, clean[x.id], calc)) {
-      const [t, name] = k.split('.');
-      (out[t] ??= {})[name] = kv;
-      any = true;
+  // 先换页面上列的项,再换拿掉的:两项改到同一处时(并掉的那项和并进去的那一项),并掉的那项调过的数盖过
+  for (const retired of [false, true]) {
+    for (const x of TUNING_ITEMS) {
+      if (!!x.retired !== retired || !(x.id in clean)) continue;
+      for (const [k, kv] of knobValues(x, clean[x.id], calc)) {
+        const [t, name] = k.split('.');
+        (out[t] ??= {})[name] = kv;
+        any = true;
+      }
     }
   }
   return any ? out : undefined;

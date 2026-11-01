@@ -5,7 +5,7 @@
  * 加一项规则项时两边都要加(单测查每项都有、没有多出来的)。
  * 纯计算,不碰 DOM。
  */
-import { MULT_TEXT, TUNING_ITEMS, cleanTuning, fmt, spanText, unitText, type TuningGroup, type TuningItem, type TuningValue } from './tuning';
+import { MULT_TEXT, TUNING_ITEMS, cleanTuning, tuningItem, fmt, spanText, unitText, type TuningGroup, type TuningItem, type TuningValue } from './tuning';
 
 /**
  * 七组(照界面上的先后):组名;一句话说这组管什么(desc);note = 补一句不在这组的(调规则的页电脑上接在 desc 后面,手机上不写)
@@ -44,10 +44,10 @@ const TEXT: Readonly<Record<string, TuningText>> = {
   'realm.republic': { desc: '海洋民族立的国里，走城邦共和一路的占几成（其余是王国）。', brief: (v) => `海边城邦 ${cheng(v as number)}是共和国` },
   'realm.reach': { desc: '离国都多远还管得住：往右边远的州也直辖，往左远处多是自治、代管。', short: '国都管得远近' },
   'war.odds': { desc: '各国主动开战的多少。往右仗打得更勤，国家兴亡更快。', short: '战争' },
-  'war.truce': { desc: '同一对国家议和以后，隔多少年才会再打。', brief: (v) => `议和后 ${n(v)} 年不再开战` },
-  'war.length': { desc: '打到这么久还没打完就厌战议和（每场仗在这中间随机）。往右久攻不下也肯多耗几年。', span: (a, b) => `一场仗最多打 ${a === b ? a : `${a}–${b}`} 年` },
+  'war.truce': { desc: '同一对国家议和以后，隔多少年才会再打；打完一场仗，也要歇这么多年才再主动开战。', brief: (v) => `议和后 ${n(v)} 年不再开战` },
+  'war.length': { desc: '打到这么久还没打完就厌战议和（每场仗在这中间随机）。往右久攻不下也肯多耗几年，想拿下的州也多。', span: (a, b) => `一场仗最多打 ${a === b ? a : `${a}–${b}`} 年` },
   'war.crush': { desc: '国力是对方几倍以上，就不只是抢几州，要把它灭掉；打下国都时余下的州也照这个倍数一并归降。最右 = 永不打灭国之战，也不受降。', brief: (v) => (v === 'never' ? '不打灭国之战' : `国力 ${n(v)} 倍就要灭国`) },
-  'war.project': { desc: '离国都越远，能派出去的兵越少。往右远征更难，大国不容易跨海称霸。', short: '远征吃力' },
+  'war.project': { desc: '离国都越远，能派出去的兵越少。往右远征难得多，大国称不了霸，天下多是小国。', short: '远征吃力' },
   'war.rest': { desc: '一国打完一场仗，至少歇这么多年才会主动再开战。', brief: (v) => `打完仗歇 ${n(v)} 年` },
   'war.goal': { desc: '开战时定的目标（每场仗在这中间随机），拿到就议和。', span: (a, b) => `一场仗想拿 ${a === b ? a : `${a}–${b}`} 州` },
   'war.break': { desc: '一仗打下一州以后，最多再接着连下几州。', brief: (v) => `一仗最多再连下 ${n(v)} 州` },
@@ -66,7 +66,7 @@ const TEXT: Readonly<Record<string, TuningText>> = {
   'split.hegemon': { desc: '霸主占一块大陆越多，崩起来越狠。0 = 不管多大都一样。', brief: (v) => `盛极而衰 ${n(v)}` },
   'split.revolt': { desc: '饥荒、瘟疫、苛政之下百姓起事的多少。', short: '民变', offText: '没有民变' },
   'split.dynasty': { desc: '大国换一个王朝的多少（国势衰乱易代、权臣篡位都算）。最左 = 万世一系。', short: '改朝换代', offText: '万世一系' },
-  'split.dynastyAge': { desc: '一个王朝大约过了这么多年以后容易易代。', brief: (v) => `王朝寿命 ${n(v)} 年` },
+  'split.dynastyAge': { desc: '一个王朝大约过了这么多年以后容易易代；往左王朝没多老就人心渐散，大国也更容易崩。', brief: (v) => `王朝寿命 ${n(v)} 年` },
   'split.claim': { desc: '宗室子弟据地起兵、争夺王位的多少。', short: '宗室争位', offText: '宗室不争位' },
   'split.merge': { desc: '同族的小国被大国和平并入的多少。', short: '小国并入大国', offText: '小国不并入大国' },
   'split.share': { desc: '一次分裂，自立出去的那块最多占原来国土的几成。', brief: (v) => `自立最多占原国 ${cheng(v as number)}` },
@@ -76,7 +76,7 @@ const TEXT: Readonly<Record<string, TuningText>> = {
   'split.age': { desc: '一朝立得越久，动荡加得越多（加满时的量）。0 = 不随年数涨。', brief: (v) => `王朝老了人心渐散 ${n(v)}` },
   'diplo.pact': { desc: '受同一个强邻威胁的两国结盟的多少。', short: '结盟', offText: '不结盟' },
   'diplo.submit': { desc: '小国向强邻称臣、当藩属的多少（平时遣使称臣、打不过时奉表称臣都算）。', short: '称臣', offText: '不称臣' },
-  'diplo.treaty': { desc: '两国、几国立约互不侵犯的多少（看邦交时立约、议和时顺带立约都算）。', short: '立约', offText: '不立约' },
+  'diplo.treaty': { desc: '两国、几国立约互不侵犯的多少（看邦交时立约、议和时顺带立约都算）。往右立约时也常划一块中立地。', short: '立约', offText: '不立约' },
   'diplo.marry': { desc: '看邦交时结亲、议和时以和亲作结的多少。', short: '和亲', offText: '不和亲' },
   'diplo.maxPacts': { desc: '一国同时最多和几国结着盟。', brief: (v) => `一国最多 ${n(v)} 个盟` },
   'diplo.betray': { desc: '对盟国开战的多少。', short: '背盟', offText: '不背盟' },
@@ -140,12 +140,21 @@ export function tuningBrief(x: TuningItem, v: TuningValue): string {
 }
 
 /**
+ * 页面上拿掉的一项,「只看改过的」最下面那一块里那一行的说明:
+ * 并掉的写并进了哪一项、这里的数照旧起作用(盖过那一项带着改的);拿掉的写原来的说明加「效果太小，页面上拿掉了。」
+ */
+export function retiredText(x: TuningItem): string {
+  if (x.into) return `并进了「${tuningItem(x.into)?.name ?? x.into}」。这里记的数照旧起作用，盖过那一项带着改的这一处。`;
+  return `${tuningText(x).desc}效果太小，页面上拿掉了。`;
+}
+
+/**
  * 一句摘要:"改了 6 项：战争 ×2、议和后 2 年不再开战、大崩解 ×2……"(常用的项排前面,最多列 max 项,后面省略);
  * 什么都没改 = "照官方"
  */
 export function tuningSummary(values: unknown, max = 3): string {
   const v = cleanTuning(values).values;
-  const list = [...TUNING_ITEMS.filter((x) => x.common), ...TUNING_ITEMS.filter((x) => !x.common)].filter((x) => x.id in v);
+  const list = [...TUNING_ITEMS.filter((x) => x.common), ...TUNING_ITEMS.filter((x) => !x.common && !x.retired), ...TUNING_ITEMS.filter((x) => x.retired)].filter((x) => x.id in v);
   if (!list.length) return '照官方';
   const shown = list.slice(0, max).map((x) => tuningBrief(x, v[x.id]));
   return `改了 ${list.length} 项：${shown.join('、')}${list.length > max ? '……' : ''}`;
