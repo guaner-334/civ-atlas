@@ -1064,3 +1064,9 @@ button.rs-rst:hover {
   margin: -6px 0 0;
   line-height: 1.55;
 }
+/* 触屏:点过的那一行不留着悬停的底色(选中看打勾) */
+@media (hover: none) {
+  .studio .sb-row.rp-row:hover {
+    background: none;
+  }
+}
