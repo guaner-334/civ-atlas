@@ -14,6 +14,7 @@
  * - **最多 MAX_MY_RULES 套**:满了新建、复制、加进来都不成(返回 null,界面说一声),不为它删别的
  */
 import { createListeners } from './createStore';
+import { MY_RULES_KEY, noteMyRulesCount } from './rulesCount';
 import { RULES_VERSION_MAX, cleanRuleSet, type BiomeNames, type RuleSet } from '../gen/civ/ruleSet';
 import { deriveRuleSet, newRuleSet, sameRuleContent } from '../gen/civ/ruleSetEdit';
 import type { TuningValue, TuningValues } from '../gen/civ/tuning';
@@ -34,7 +35,7 @@ export interface MyRules {
 
 /** 最多几套 */
 export const MAX_MY_RULES = 50;
-const KEY = 'wenming-ditu:rules';
+const KEY = MY_RULES_KEY;
 
 /** 能改的几样 */
 export type RulesChange = Partial<{ name: string; by: string; about: string; values: TuningValues; biomes: BiomeNames }>;
@@ -83,6 +84,7 @@ function set(next: readonly MyRules[]) {
     /* 隐私模式、存满了:只管这一次 */
   }
   subs.emit();
+  noteMyRulesCount(next.length);
 }
 
 /** 组件里取「我的规则」(新建、复制、加进来的排在前面) */

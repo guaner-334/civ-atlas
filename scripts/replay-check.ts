@@ -10,6 +10,7 @@ import { appendFileSync } from 'node:fs';
 import { chromium, type Page } from 'playwright';
 import { startDevServer } from './lib/devserver';
 import { GENERATOR_VERSION } from '../src/gen/edits';
+import { rulesHash } from '../src/gen/civ/ruleShare';
 const dev = await startDevServer();
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 820 } });
@@ -271,6 +272,7 @@ const MOVED: Record<string, number> = {
   写实风放大: 5,
   立体地形: 4,
   第一次来: 3,
+  新建选规则: 3,
   新建时让助手改: 4,
   隐私模式: 5,
   改名等推完: 3,
@@ -1692,6 +1694,108 @@ if (part('新建界面')) {
   if (!genToast) errs.push('生成新世界时顶部提示条上没有进度');
   if (seed2 === '7' || !new RegExp(`[?&]seed=${seed2}(&|$)`).test(page.url())) errs.push(`点"换一颗"后种子 / 网址没变(${seed2},${page.url()})`);
   if (!imgNote || (await page.locator('.imp-step').count())) errs.push(`随机生成的新建:拖进图片应不导入、提示条说一句(${imgNote})`);
+}
+
+// 新建选规则:「我的规则」里放一套(没用过);一个世界都没有时「我的世界」露出「地图 / 文明 / 规则」那一排(没有规则的不露);新建第 2 步天灾下面一行「规则 官方规则」,点开左边换成选规则的一页(官方 + 那一套),
+// 选那一套 → 那一行写它的名字;确认框里列「规则 战乱年代（第 1 版）」;建好以后那一套记着用过(用它建过 1 个世界)、
+// 世界设定「文明」里一行「规则 战乱年代（第 1 版）」。「我的规则」里那一套再改一项(用过了 = 第 2 版)→ 那一行写「我的规则里已是第 2 版」,
+// 点开大卡只能看世界里的那一版(Esc 只收大卡、概览还开着);「用第 2 版另存一份重推」→ 打造文明:文明种子不变、规则是第 2 版。
+// 别人分享的规则链接「用它新建世界」→ 加进我的规则、新建弹窗,开始以后第 2 步规则是那一套
+if (part('新建选规则')) rulesNew: {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  await ctx.addInitScript(() => {
+    if (!localStorage.getItem('wenming-ditu:rules'))
+      localStorage.setItem('wenming-ditu:rules', JSON.stringify({ list: [{ rules: { id: 'rsmoke0001', name: '战乱年代', version: 1, values: { 'war.odds': 2 } }, used: false, worlds: 0, at: 1 }] }));
+  });
+  const rp = await ctx.newPage();
+  rp.on('pageerror', (e) => errs.push(`新建选规则:${e.message}`));
+  // 一个世界都没有:「我的规则」里有规则才露出「地图 / 文明 / 规则」那一排
+  await rp.goto(`${dev.url}/`);
+  await rp.locator('.mw').waitFor({ timeout: 30000 });
+  const segRules = await rp.locator('.mw-seg [data-tab=rules]').count();
+  const bare = await browser.newPage();
+  await bare.goto(`${dev.url}/`);
+  await bare.locator('.mw').waitFor({ timeout: 30000 });
+  const segBare = await bare.locator('.mw-seg').count();
+  await bare.close();
+  if (segRules !== 1 || segBare !== 0) errs.push(`新建选规则:一个世界都没有时,有规则才露出分段那一排(有规则 ${segRules}、没有 ${segBare})`);
+  await rp.goto(`${dev.url}/?new=1&seed=7`);
+  await studioReady(rp);
+  await toCivStep(rp);
+  const sideOf = () => rp.locator('.studio [data-act=rules] .sb-row-side').innerText().catch(() => '');
+  const side0 = await sideOf();
+  await rp.click('.studio [data-act=rules]');
+  const listOk = await rp.locator('.rp-list').waitFor({ timeout: 10000 }).then(() => true, () => false);
+  if (!listOk) {
+    errs.push('新建选规则:点「规则」那一行没换成选规则的一页');
+    await ctx.close();
+    break rulesNew;
+  }
+  const rows = await rp.locator('.rp-row').count();
+  const official0 = await rp.locator('.rp-row[data-rules=official][aria-checked=true]').count();
+  // 「新建一套」:大卡盖上来、一打开就在改名;起了名收起大卡,这一套选上了
+  await rp.click('[data-act=rules-pick-new]');
+  await rp.locator('.rs-root .rs-name-input').waitFor({ timeout: 10000 }).catch(() => {});
+  await rp.keyboard.type('新的一套');
+  await rp.keyboard.press('Enter');
+  await rp.keyboard.press('Escape');
+  await rp.waitForTimeout(200);
+  const newPicked = await rp.locator('.rp-row[aria-checked=true] b').innerText().catch(() => '');
+  await rp.click('.rp-row[data-rules=rsmoke0001]');
+  const checked = await rp.locator('.rp-row[data-rules=rsmoke0001][aria-checked=true]').count();
+  await rp.click('[data-act=rules-pick-back]');
+  const side1 = await sideOf();
+  await rp.click('.studio [data-act=create-world]');
+  const confirmRules = await rp.locator('.st-dlg [data-confirm=rules]').innerText({ timeout: 3000 }).catch(() => '');
+  await rp.click('.st-dlg [data-act=confirm-create]');
+  await rp.locator('.studio').waitFor({ state: 'detached', timeout: 15000 });
+  await rp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  const mine = await rp.evaluate(() => (JSON.parse(localStorage.getItem('wenming-ditu:rules') ?? '{}').list ?? []).find((e: any) => e.rules.id === 'rsmoke0001'));
+  await openOverview(rp, 'genesis');
+  await rp.click('.ov-seg [data-tab=civ]');
+  const rowOf = () => rp.locator('.ov [data-param=rules]').innerText().catch(() => '');
+  const row1 = await rowOf();
+  await rp.evaluate(async () => (await import('/src/ui/rulesStore.ts' as string)).setRuleValue('rsmoke0001', 'war.odds', 3));
+  await rp.waitForTimeout(200);
+  const row2 = await rowOf();
+  await rp.click('.ov [data-param=rules]');
+  await rp.locator('.rs-root').waitFor({ timeout: 10000 });
+  const ro = (await rp.locator('.rs-root .rs-kn.ro').count()) > 0 && !(await rp.locator('.rs-root .rs-kn:not(.ro)').count());
+  const banner = await rp.locator('.rs-root .rs-banner').innerText().catch(() => '');
+  await rp.keyboard.press('Escape');
+  await rp.waitForTimeout(200);
+  const escOk = !(await rp.locator('.rs-root').count()) && (await rp.locator('.ov-root:not([hidden])').count()) > 0;
+  await rp.click('.ov [data-param=rules]');
+  await rp.click('.rs-root [data-act=rules-redo]');
+  await studioReady(rp);
+  const redoSide = await sideOf();
+  const redoSeed = await rp.locator('.nw-seed-input').inputValue().catch(() => '');
+  const redoVer = await rp.evaluate(async () => (await import('/src/ui/editsStore.ts' as string)).getEdits().rules?.version);
+  console.log(
+    `新建选规则:一行「${side0}」→ 选了以后「${side1}」(页里 ${rows} 行,官方先选着 ${official0},新建一套选上「${newPicked}」,点了打勾 ${checked});确认框「${confirmRules}」;` +
+      `建好以后我的规则 第 ${mine?.rules?.version} 版、用过 ${mine?.used}、建过 ${mine?.worlds} 个;世界设定「${row1.replace(/\n/g, ' ')}」→ 改了以后「${row2.replace(/\n/g, ' ')}」;` +
+      `大卡只能看 ${ro}、顶上「${banner.replace(/\n/g, ' ')}」、Esc 只收大卡 ${escOk};另存一份重推:规则「${redoSide}」、文明种子 ${redoSeed}、第 ${redoVer} 版`,
+  );
+  if (side0 !== '官方规则' || side1 !== '战乱年代' || rows !== 2 || !official0 || !checked) errs.push(`新建选规则:规则那一行 / 选规则的页不对(${side0} → ${side1},${rows} 行)`);
+  if (newPicked !== '新的一套') errs.push(`新建选规则:选规则的页里「新建一套」以后应选上新的那一套(${newPicked})`);
+  if (!confirmRules.includes('战乱年代（第 1 版）')) errs.push(`新建选规则:确认框里没列规则(${confirmRules})`);
+  if (!mine?.used || mine?.worlds !== 1) errs.push(`新建选规则:建好以后那一套没记成用过(${JSON.stringify(mine)})`);
+  if (!row1.includes('战乱年代（第 1 版）') || !row2.includes('我的规则里已是第 2 版')) errs.push(`新建选规则:世界设定的规则一行不对(${row1} / ${row2})`);
+  if (!ro || !banner.includes('已是第 2 版') || !escOk) errs.push(`新建选规则:世界的规则大卡应只能看、顶上说有新版、Esc 只收大卡(${ro} / ${banner} / ${escOk})`);
+  if (redoSide !== '战乱年代' || redoSeed !== '7' || redoVer !== 2) errs.push(`新建选规则:用新版另存一份重推应进打造文明、文明种子不变、规则第 2 版(${redoSide} / ${redoSeed} / ${redoVer})`);
+  // 别人分享的规则链接「用它新建世界」
+  await rp.goto(`${dev.url}/${rulesHash({ name: '群雄并起', version: 1, by: '砚山', values: { 'split.odds': 3 } })}`);
+  const shared = await rp.locator('.rs-banner [data-act=rules-new-world]').waitFor({ timeout: 30000 }).then(() => true, () => false);
+  if (shared) {
+    await rp.click('.rs-banner [data-act=rules-new-world]');
+    await dialogStart(rp);
+    await studioReady(rp);
+    await toCivStep(rp);
+  }
+  const sharedSide = shared ? await sideOf() : '';
+  console.log(`新建选规则:别人分享的「用它新建世界」→ 第 2 步规则「${sharedSide}」`);
+  if (sharedSide !== '群雄并起') errs.push(`新建选规则:别人分享的规则「用它新建世界」以后,新建第 2 步的规则不是那一套(${sharedSide})`);
+  await ctx.close();
 }
 
 // 照故事找世界:新建第 1 步「照故事找世界 ›」→ 条件页(地图露出来、浅色);选例子「海上强国」、搜 6 个(真推,后台线程)→

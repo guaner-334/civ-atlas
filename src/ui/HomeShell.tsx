@@ -39,7 +39,8 @@ import { isNavState, navAdopt, navMark, navPushEarly, navReplace, navUrl } from 
 import { galleryHref, galleryOfUrl } from '../account/gallery';
 import { useAppPercent } from './loadScreen';
 import { RulesHost } from './rules/RulesHost';
-import { openRulesHash, openRulesText } from './rules/sheetStore';
+import { openRulesHash, openRulesText, setNewWorldHandler } from './rules/sheetStore';
+import type { RuleSet } from '../gen/civ/ruleSet';
 
 /** 打开存档文件、等主程序下完时顶上那条提示 */
 const WAIT_TOAST = 'home-wait';
@@ -75,7 +76,8 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-  const [newDlg, setNewDlg] = useState(false);
+  /** 新建弹窗开着没有(rules = 别人分享的规则「用它新建世界」:这个世界的规则先选好这一套) */
+  const [newDlg, setNewDlg] = useState<false | { rules?: RuleSet }>(false);
   const [dropping, setDropping] = useState(false);
   /** 已经点了要离开这一页的那一件、主程序还没下好(下好了这一页就换成 App) */
   const [waiting, setWaiting] = useState<HomeStart | null>(null);
@@ -164,6 +166,8 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     startSync();
     // 账号窗里点「最近删除」等回到我的世界:已经在这一页
     setGoHome(() => {});
+    // 别人分享的规则「用它新建世界」:就在这一页打开新建弹窗,规则选好那一套
+    setNewWorldHandler((rules) => setNewDlg({ rules }));
     // 浏览器的后退、前进:这一页先记成我的世界那一步(和 App 一样;App 挂上以后接着记)
     navMark({ page: 'home' });
     // 按后退 / 前进到了这个网站记的另一步:交给 App 照网址打开。
@@ -205,6 +209,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     window.addEventListener('wheel', pageZoom, { passive: false, capture: true });
     return () => {
       setGoHome(null);
+      setNewWorldHandler(null);
       window.removeEventListener('popstate', onPop);
       window.removeEventListener('hashchange', onHash);
       document.removeEventListener('gesturestart', gStart);
@@ -267,7 +272,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
         <MyWorlds
           phone={narrow}
           onOpen={(id) => leave({ kind: 'open', id })}
-          onNew={() => setNewDlg(true)}
+          onNew={() => setNewDlg({})}
           onOpenText={(text, fileName) => leave({ kind: 'text', text, fileName })}
           onNewCiv={(id) => leave({ kind: 'newCiv', id })}
           opening={waiting && (waiting.kind === 'open' || waiting.kind === 'newCiv') ? { id: waiting.id, pct } : null}
@@ -283,6 +288,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
       {newDlg && (
         <NewWorldDialog
           phone={narrow}
+          rules={newDlg.rules}
           randomSeed={randomSeedValue}
           onCancel={() => {
             setNewDlg(false);

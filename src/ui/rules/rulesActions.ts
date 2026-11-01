@@ -1,5 +1,6 @@
 /**
- * 调规则的页、「我的世界 › 规则」上点按钮做的事:分享(复制链接)、存成文件、复制一份、加进我的规则、新建一套。
+ * 调规则的页、「我的世界 › 规则」、新建世界里选规则那一页上点按钮做的事:分享(复制链接)、存成文件、复制一份、加进我的规则、
+ * 新建一套;别人分享的「用它新建世界」;世界用的那一版有了新版时「用新版另存一份重推」。
  * 做完在顶上的提示条说一声(saveStore.ts 的 notify)。
  */
 import { notify } from '../saveStore';
@@ -7,9 +8,10 @@ import { copyText } from '../clipboard';
 import { rulesFileName, rulesFileText, rulesHash } from '../../gen/civ/ruleShare';
 import { OFFICIAL_RULES_NAME } from '../../gen/civ/ruleSetEdit';
 import type { RuleSet } from '../../gen/civ/ruleSet';
-import { MAX_MY_RULES, addSharedRules, copyRules, createRules, findMyRules } from '../rulesStore';
+import { MAX_MY_RULES, addSharedRules, copyRules, createRules, findMyRules, type MyRules } from '../rulesStore';
 import { showRulesInWorlds } from '../MyWorlds';
-import { openRulesSheet } from './sheetStore';
+import { redoWithRules } from '../newCivAction';
+import { closeRulesSheet, newWorldWithRules, openRulesSheet } from './sheetStore';
 
 /** 「我的规则」满了 */
 const FULL = `「我的规则」最多 ${MAX_MY_RULES} 套，先删掉几套再来`;
@@ -45,11 +47,15 @@ export function duplicateRules(fromId: string | null) {
   notify({ kind: 'ok', text: `已复制一份「${src ? src.rules.name : OFFICIAL_RULES_NAME}」`, more: ['新的这一套能随便调，原来的不变'] });
 }
 
-/** 新建一套(从官方规则开始),打开它、一打开就在改名 */
-export function newRules() {
+/** 新建一套(从官方规则开始),打开它、一打开就在改名;返回本机编号(满了 = null) */
+export function newRules(): string | null {
   const id = createRules('');
-  if (!id) return notify({ kind: 'error', text: '没能新建', more: [FULL] });
+  if (!id) {
+    notify({ kind: 'error', text: '没能新建', more: [FULL] });
+    return null;
+  }
   openRulesSheet({ kind: 'mine', id, name: true });
+  return id;
 }
 
 /** 别人分享的加进我的规则,打开加进来的那一套(这时才能改) */
@@ -64,4 +70,21 @@ export function adoptRules(r: RuleSet): string | null {
   showRulesInWorlds();
   notify({ kind: 'ok', text: `已把「${r.name}」加进我的规则`, more: ['现在能改了；出处会一直写着'] });
   return id;
+}
+
+/** 别人分享的「用它新建世界」:先加进我的规则(出处写着),再进新建世界、规则选好加进来的这一套 */
+export function newWorldFromShared(r: RuleSet) {
+  const id = addSharedRules(r);
+  const e = id ? findMyRules(id) : undefined;
+  if (!e) return notify({ kind: 'error', text: '没能加进我的规则', more: [FULL] });
+  closeRulesSheet();
+  showRulesInWorlds();
+  const opened = newWorldWithRules(e.rules);
+  notify({ kind: 'ok', text: `已把「${r.name}」加进我的规则`, more: [opened ? '新建的世界照它推，建好以前还能换' : '新建世界时选它'] });
+}
+
+/** 世界用的那一版有了新版:用「我的规则」里现在的那一套,把这个世界另存一份重推(进「打造文明」;原来的不动) */
+export function redoWithNewer(worldId: string, mine: MyRules) {
+  closeRulesSheet();
+  redoWithRules(worldId, mine.rules);
 }

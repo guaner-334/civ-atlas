@@ -1,6 +1,6 @@
 /**
  * 世界概览的"世界设定"页:这个世界创建时定下的根,都只能看,不能再改(一改几千年的历史就要整个重来)。分两页:
- * 「文明」—— 文明种子、地名风格、推演年数、天灾、拓荒(民族扩散、国家扩张、地形难走程度)、文明起源;想换个样子:"以它为底稿新建…"
+ * 「文明」—— 文明种子、地名风格、推演年数、天灾、规则、拓荒(民族扩散、国家扩张、地形难走程度)、文明起源;想换个样子:"以它为底稿新建…"
  * (回到新建这一步,设定照原样带过去,存成另一个世界);右栏是随时能改的「纪年」(EraSettings.tsx)和「月份」(MonthSettings.tsx;窄屏放在最上面)。
  * 「地图」—— 种子、世界参数、改过的地形;右栏是这张地图上的几个文明(点了打开)、"在这张地图上打造新文明…"、"回放世界形成"。
  *
@@ -17,6 +17,11 @@ import { setEndYear, useEdits } from './editsStore';
 import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
 import { civName, mapMates } from './mapGroups';
 import { openWorldById, startNewCiv } from './newCivAction';
+import { OFFICIAL_RULES_NAME, ruleSetLabel } from '../gen/civ/ruleSetEdit';
+import type { RuleSet } from '../gen/civ/ruleSet';
+import { myRulesFor, useMyRules } from './rulesStore';
+import { rulesUiOn } from './rules/flag';
+import { openRulesSheet } from './rules/sheetStore';
 import { Icon } from './icons';
 import { mixSummary } from './nameMix';
 import { EraSection } from './EraSettings';
@@ -132,6 +137,33 @@ const calamityText = (c: unknown) => {
   const k = cleanCalamity(c);
   return k ? CALAMITY_NAMES[k] : '平常';
 };
+
+/**
+ * 「规则」那一行:官方的写「官方规则」;用了一套的写「战乱年代（第 2 版）」,本机「我的规则」里同一套已是更新的一版时
+ * 写「战乱年代（第 2 版，我的规则里已是第 3 版）」
+ */
+function rulesText(r: RuleSet | undefined): string {
+  if (!r) return OFFICIAL_RULES_NAME;
+  const m = myRulesFor(r);
+  return m?.newer ? `${r.name}（第 ${r.version} 版，我的规则里已是第 ${m.mine.rules.version} 版）` : ruleSetLabel(r);
+}
+
+/** 「规则」一行(入口开着时才有):点了用调规则的大卡看这个世界用的那一版(只能看;官方的看官方规则) */
+function RulesRow({ rules, worldId }: { rules: RuleSet | undefined; worldId: string | undefined }) {
+  // 「我的规则」里改了、加了新版,那一句跟着变
+  useMyRules();
+  return (
+    <button
+      className="ov-kv-row ov-rules-row"
+      data-param="rules"
+      onClick={() => openRulesSheet(rules ? { kind: 'world', rules, ...(worldId ? { worldId } : {}) } : { kind: 'official' })}
+    >
+      <span>规则</span>
+      <b>{rulesText(rules)}</b>
+      <Icon name="chevron" size={13} />
+    </button>
+  );
+}
 
 function originsBrief(pts: readonly number[] | undefined, world: World | null, civ: Civ | null): string {
   if (!pts?.length) return '自动';
@@ -252,6 +284,8 @@ export function SettingsPage(p: SettingsProps) {
             <span>天灾</span>
             <b>{calamityText(edits.calamity)}</b>
           </div>
+          {/* 只有建好、存着的世界能另存一份重推(别人分享来看看的、存不进浏览器的不行) */}
+          {rulesUiOn() && <RulesRow rules={edits.rules} worldId={cur?.kind === 'created' ? cur.id : undefined} />}
           <div className="ov-kv-row" data-param="spread">
             <span>民族扩散</span>
             <b>{speedText(edits.frontier?.spread ?? 1)}</b>

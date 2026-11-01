@@ -241,37 +241,40 @@ describe('全部改回官方', () => {
 });
 
 describe('入口开关和认链接、认文件', () => {
-  let store: Record<string, string>;
   beforeEach(() => {
-    store = {};
-    vi.stubGlobal('localStorage', { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => void (store[k] = v) });
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
   });
-  const fresh = async (search = '') => {
+  const fresh = async () => {
     vi.resetModules();
-    vi.stubGlobal('location', { search, hash: '' });
+    vi.stubGlobal('location', { search: '', hash: '' });
     return import('../src/ui/rules/sheetStore');
   };
   const R = { name: '群雄并起', version: 1, by: '砚山', values: { 'split.odds': 3 } };
 
-  it('开关默认关:规则链接、规则文件都不认(照旧走原来的路)', async () => {
+  it('入口开着:认规则链接、规则文件,打开大卡;世界的存档、别的链接不认', async () => {
+    const { RULES_UI, rulesUiOn } = await import('../src/ui/rules/flag');
+    expect(RULES_UI).toBe(true);
+    expect(rulesUiOn()).toBe(true);
     const m = await fresh();
-    expect(m.openRulesHash(rulesHash(R))).toBe(false);
-    expect(m.openRulesText(rulesFileText(R))).toBe(false);
-    expect(m.getRulesSheet()).toBeNull();
-  });
-
-  it('网址 ?rulesUi=1 或浏览器存储里打开:认规则链接、规则文件,打开大卡;世界的存档、别的链接不认', async () => {
-    let m = await fresh('?rulesUi=1');
     expect(m.openRulesHash('#preset=1&name=x')).toBe(false);
     expect(m.openRulesHash(rulesHash(R))).toBe(true);
     expect(m.getRulesSheet()).toMatchObject({ kind: 'link' });
-    store['wenming-ditu:rules-ui'] = '1';
-    m = await fresh();
     expect(m.openRulesText(JSON.stringify({ app: '文明与地图', seed: 7, params: {}, rules: { name: 'x' } }))).toBe(false);
     expect(m.openRulesText('不是 JSON')).toBe(false);
     expect(m.openRulesText(`﻿${rulesFileText(R)}`, '群雄并起.json')).toBe(true);
     expect(m.getRulesSheet()).toMatchObject({ kind: 'file', fileName: '群雄并起.json' });
     m.closeRulesSheet();
     expect(m.getRulesSheet()).toBeNull();
+  });
+
+  it('「用它新建世界」:首页、主程序挂上做事的那一步才进得去;拿掉以后不做', async () => {
+    const m = await fresh();
+    expect(m.newWorldWithRules(R)).toBe(false);
+    const got: unknown[] = [];
+    m.setNewWorldHandler((r) => got.push(r));
+    expect(m.newWorldWithRules(R)).toBe(true);
+    expect(got).toEqual([R]);
+    m.setNewWorldHandler(null);
+    expect(m.newWorldWithRules(R)).toBe(false);
   });
 });

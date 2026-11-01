@@ -3,9 +3,13 @@
  *
  *   openRulesSheet({ kind: 'mine', id })     本机「我的规则」里的一套(能改;name = true 时一打开就在改名)
  *   openRulesSheet({ kind: 'official' })     官方规则(只能看,能复制一份改)
+ *   openRulesSheet({ kind: 'world', rules, worldId })
+ *                                            一个世界用的那一套(世界设定里点开;只能看,世界里存的那一版;
+ *                                            本机「我的规则」里同一套已是更新的一版时,能用新版另存一份重推)
  *   openRulesHash(location.hash)             网址里是别人分享的规则链接(#rules=…)就打开它(只能看),返回打开了没有
  *   openRulesText(text, 文件名)               是规则文件就打开它(只能看),返回打开了没有;不是的照旧当世界的存档打开
  *   closeRulesSheet()
+ *   newWorldWithRules(rules)                 进新建世界、规则选好这一套(别人分享的「用它新建世界」;首页和主程序各挂一个做事的)
  *
  * 链接、文件交给大卡去解(gen/civ/ruleShare.ts):解开以后换成 { kind: 'shared', rules, from }(读不了的说一声、不打开)。
  * 入口开关见 flag.ts:关着的时候链接、文件都不认(照旧走原来的路)。
@@ -23,7 +27,9 @@ export type RulesSheetState =
   /** 还没解开的规则文件 */
   | { kind: 'file'; text: string; fileName?: string }
   /** 别人分享的一套(解开了的;from = 从链接还是从文件来的) */
-  | { kind: 'shared'; rules: RuleSet; from: 'link' | 'file'; fileName?: string };
+  | { kind: 'shared'; rules: RuleSet; from: 'link' | 'file'; fileName?: string }
+  /** 一个世界用的那一套(worldId = 那个世界在我的世界里的编号;用新版另存一份重推时要) */
+  | { kind: 'world'; rules: RuleSet; worldId?: string };
 
 const store = createStore<RulesSheetState>(null);
 
@@ -31,6 +37,20 @@ export const useRulesSheet = () => store.use();
 export const getRulesSheet = () => store.get();
 export const openRulesSheet = (s: Exclude<RulesSheetState, null>) => store.set(s);
 export const closeRulesSheet = () => store.set(null);
+
+let newWorld: ((rules: RuleSet) => void) | null = null;
+
+/** 首页(HomeShell.tsx)、主程序(useWorldPages.ts)挂上「进新建世界、规则选好这一套」真正做事的那一步 */
+export function setNewWorldHandler(f: ((rules: RuleSet) => void) | null): void {
+  newWorld = f;
+}
+
+/** 进新建世界、规则选好这一套(rules = 本机「我的规则」里的那一套,带本机编号);没挂上 = false */
+export function newWorldWithRules(rules: RuleSet): boolean {
+  if (!newWorld) return false;
+  newWorld(rules);
+  return true;
+}
 
 /** 网址的 # 那段是不是规则链接(和 gen/civ/ruleShare.ts 的 isRulesHash 一样;那个文件首页不下载) */
 const RULES_HASH = /^#?\s*rules=/;

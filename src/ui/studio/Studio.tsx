@@ -4,8 +4,8 @@
  * 随机生成(mode = 'random')。分两步(左上标着「① 地图 ② 文明」):
  *   第 1 步  地图:种子 + 换一颗、世界参数;地形(改地形工具、让助手改)。底部「保存地图」(只存地图,回我的世界的「地图」页签)
  *            和「打造文明 ›」(到第 2 步;手机上是「地图做好了，下一步」)
- *   第 2 步  文明:地图定下(左上「‹ 改地图」回第 1 步);文明种子 + 换一个(默认就是地图种子)、推演年数、拓荒、文明起源;
- *            名字(世界名、地名风格);底部「开始推演」。手机上卡片里先是文明种子、推演年数和「更多设定」(拓荒、起源、地名),名字框
+ *   第 2 步  文明:地图定下(左上「‹ 改地图」回第 1 步);文明种子 + 换一个(默认就是地图种子)、推演年数、天灾、规则、拓荒、文明起源;
+ *            名字(世界名、地名风格);底部「开始推演」。手机上卡片里先是文明种子、推演年数和「更多设定」(规则、拓荒、起源、地名),名字框
  *   打造文明 在已有的一张地图上(App 的 startNewCiv;修改里记着 map):只有第 2 步,标题「打造文明」,最上面一组「地图」锁着
  *            (哪个世界一开始的地图),文明种子先随机给一个,底下写明原来那个世界的东西都不带
  *   以别的世界为底稿新建(base):还是一页(种子锁着,世界参数里连拓荒、推演年数),底部「创建新世界」
@@ -14,6 +14,9 @@
  *   左边     设定(电脑贴着窗口左边、能收起;手机是底部卡片,平时只露种子和「创建世界」):
  *            种子 + 换一颗、世界参数(连同「拓荒」三样);地形(改地形工具、让助手改);文明(文明起源);名字(世界名、地名风格);底部「创建世界」。
  *            点「地名风格」左边换成配比例的那一页(NameMixPage.tsx),左上返回;手机上卡片里换页、拉到最高。
+ *            点「规则」左边换成选规则的那一页(rules/RulesPick.tsx,点了才下载):官方规则和「我的规则」里的几套,选一套;
+ *            「调这一套…」把调规则的大卡盖在新建界面上。选的是「我的规则」里的一套时,那一套再调,这个世界跟着用调好的
+ *            (建好以后才定下来,见 rulesStore.ts 的 noteRulesUsed)。
  *            点「文明起源」左边换成选起源的那一页(OriginsPage.tsx):星球停转,点一下放一处(带号的圆点和州名跟着星球摆,
  *            停住时才显示),点圆点拿掉,点到住不了人的地方底下提示原因;照手绘图的从第 3 步进去,地图先卷成地球仪
  *   右边     样式(不用历史的 7 种,带缩略图)和投影(地球仪 + 5 种平面)、经纬网(开关 + 间隔;编辑地形时照样能开);
@@ -28,8 +31,8 @@
  *   助手     「让助手改」打开:电脑上贴着右边,手机上是盖住设定卡片的底部卡片(上面留出星球)。
  *            新建时助手只改地形、回答问题;列出来还没执行的改地形在星球上用白色虚线圈出来、编号和清单对上,
  *            星球先转过去正对着那一块。执行后和手动改地形一样重新生成、星球淡入新样子(不放提示条)
- *   确认框   点「创建世界」先列出建好以后不能改的几样(种子 / 照的图、世界参数、推演年数、拓荒、地形、文明起源、地名风格;
- *            推演年数、拓荒、文明起源改过才列);确认后面板滑出、星球展开成平常的地图、淡出
+ *   确认框   点「创建世界」先列出建好以后不能改的几样(种子 / 照的图、世界参数、推演年数、拓荒、天灾、规则、地形、文明起源、地名风格;
+ *            推演年数、拓荒、天灾、规则、文明起源改过才列);确认后面板滑出、星球展开成平常的地图、淡出
  *
  * 没有 WebGL(或显卡丢了):中间一直是平常的平面地图;样式照样能换。
  * 系统设了"减少动态效果":地球仪不自转,换样式和投影只做很短的过渡。
@@ -42,7 +45,7 @@ import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
 import { END_YEAR_DEFAULT, advanceOf, cleanCivSeed, cleanEndYear } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, setAdvance, setCalamity, setCivSeed, setEndYear, setFrontier, setOrigins, useEdits } from '../editsStore';
+import { getEdits, setAdvance, setCalamity, setCivSeed, setEndYear, setFrontier, setOrigins, setRules, useEdits } from '../editsStore';
 import { CALAMITIES, CALAMITY_NAMES, cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { AdvanceFields } from '../StepwiseDialogs';
 import { advanceBrief } from '../advanceText';
@@ -50,6 +53,10 @@ import { cleanOrigins, frontierBrief, terrainChangedCount, terrainValue, type Or
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, withSpeed, withTerrain, withoutTerrain } from '../frontierUi';
 import { OriginsPage } from './OriginsPage';
 import { originCiv, originRefusal, originSpots, poseMap } from './origins';
+import { OFFICIAL_RULES_NAME, ruleSetLabel } from '../../gen/civ/ruleSetEdit';
+import { findMyRules, useMyRules } from '../rulesStore';
+import { rulesUiOn } from '../rules/flag';
+import { RulesPickHost } from '../rules/RulesHost';
 import {
   TerrainCaption,
   TerrainPanel,
@@ -156,7 +163,7 @@ const AST_SHEET = 0.58;
 /** 手机上照手绘图那一页的底部卡片占屏幕多高(和 studio.css 的 .sk-sheet 一致;拉到最高时盖住地图,地图不跟着挪) */
 const SK_SHEET = 0.642;
 /** 确认框里"下面几样不能再改" */
-const LOCK_COUNT = ['', '一', '两', '三', '四', '五', '六', '七', '八', '九'];
+const LOCK_COUNT = ['', '一', '两', '三', '四', '五', '六', '七', '八', '九', '十'];
 
 /** 「天灾」选了多 / 很多:下面那一句(手机短一些) */
 function calamityNote(c: Calamity, phone: boolean): string {
@@ -349,9 +356,31 @@ export function Studio(p: StudioProps) {
   const twoStep = !image && !p.base && !locked;
   /** 两步里到了第 2 步「文明」(照故事找世界「用这个世界」回来的直接在第 2 步) */
   const [civStep, setCivStep] = useState(() => !!p.found);
-  /** 照故事找的:种子、推演年数、拓荒、起源、天灾锁着(改了历史就不是找到的那样) */
+  /** 照故事找的:种子、推演年数、拓荒、起源、天灾、规则锁着(改了历史就不是找到的那样) */
   const found = twoStep ? (p.found ?? null) : null;
   const step2 = locked || (twoStep && civStep);
+  // ---- 规则:选的那一套、跟上「我的规则」里调过的 ----
+  /**
+   * 选的是「我的规则」里的哪一套(本机编号;null = 官方规则;undefined = 还没在这里选过,照修改里的那一套)。
+   * 另外记着:一项没改的一套和官方一样,写不进修改(见 editsStore.ts 的 setRules),选了它也要打勾、调了以后要跟上
+   */
+  const [rulesPick, setRulesPick] = useState<string | null | undefined>(undefined);
+  const rulesOn = rulesUiOn();
+  const myRules = useMyRules();
+  const rulesPickId = rulesPick === undefined ? (edits.rules?.id ?? null) : rulesPick;
+  const pickedRules = rulesPickId ? myRules.find((e) => e.rules.id === rulesPickId) : undefined;
+  /** 「规则」那一行右边写的:选的那一套的名字(修改里带着、不在我的规则里的,写它的名字) */
+  const rulesName = pickedRules?.rules.name ?? edits.rules?.name ?? OFFICIAL_RULES_NAME;
+  // 选的是「我的规则」里的一套:那一套调过、改了名(在调规则的大卡里、别的页面里),这个世界跟着用现在的样子(和官方一样 = 不写);
+  // 照故事找的锁着,不跟
+  useEffect(() => {
+    if (!found && pickedRules) setRules(pickedRules.rules);
+  }, [pickedRules, found, edits.rules]);
+  /** 选一套规则(null = 官方规则) */
+  const pickRules = (id: string | null) => {
+    setRulesPick(id);
+    setRules(id ? findMyRules(id)?.rules : undefined);
+  };
   /** 第 2 步「怎么推」:一口气推完(推演年数)/ 演绎(建好以后从第 0 年起逐年推演,推进设置)/ 照大纲(照常推完,建好以后先打开大纲) */
   const [how, setHow] = useState<'all' | 'step' | 'outline'>('all');
   const stepHow = step2 && how === 'step';
@@ -380,6 +409,8 @@ export function Studio(p: StudioProps) {
   const [namesPage, setNamesPage] = useState(false);
   /** 左边换成「文明起源」页 */
   const [originsPage, setOriginsPage] = useState(false);
+  /** 左边换成选「规则」的那一页 */
+  const [rulesPage, setRulesPage] = useState(false);
   /** 起源页上:星球停住时的样子(圆点按它摆;动着 = null)、底下的提示(点错了的那句和画虚线圈的地方,过几秒收起) */
   const [pinPose, setPinPose] = useState<StillPose | null>(null);
   const [originMsg, setOriginMsg] = useState<{ text: string; x: number; y: number } | null>(null);
@@ -954,7 +985,17 @@ export function Studio(p: StudioProps) {
   const openNames = () => {
     setDrawer(null);
     if (p.phone) setSheetFull(true);
+    setRulesPage(false);
     setNamesPage(true);
+  };
+  /** 选「规则」的那一页:手机上卡片拉到最高 */
+  const openRulesPage = () => {
+    setDrawer(null);
+    setStyOpen(false);
+    if (p.phone) setSheetFull(true);
+    setNamesPage(false);
+    closeOrigins();
+    setRulesPage(true);
   };
   /** 「文明起源」页:星球停转(照手绘图的卷成地球仪),圆点按星球现在的样子摆;手机上卡片拉开 */
   const openOrigins = () => {
@@ -966,6 +1007,7 @@ export function Studio(p: StudioProps) {
     setOriginCustom(!!o);
     setOriginOnly(!!o?.only);
     keptOrigins.current = undefined;
+    setRulesPage(false);
     if (p.phone) setSheetFull(true);
     if (image) {
       if (tool.on) setTerrainTool({ on: false });
@@ -988,7 +1030,10 @@ export function Studio(p: StudioProps) {
     setStyOpen(false);
     setTip(false);
     setSheetFull(false);
-    if (p.phone) setNamesPage(false);
+    if (p.phone) {
+      setNamesPage(false);
+      setRulesPage(false);
+    }
     closeOrigins();
     if (tool.on) setTerrainTool({ on: false });
     if (image) {
@@ -1420,6 +1465,17 @@ export function Studio(p: StudioProps) {
       {calamity && <div className="nw-note nw-how-note">{calamityNote(calamity, p.phone)}</div>}
     </>
   );
+  /** 「规则」:选的那一套的名字,点了左边换成选规则的那一页(入口开着时才有) */
+  const rulesRow = rulesOn && (
+    <button className="sb-row" data-act="rules" onClick={openRulesPage}>
+      <Icon name="sliders" size={ico} className="sb-ico" />
+      <span className="sb-row-main">
+        <b>规则</b>
+      </span>
+      <span className="sb-row-side sb-origin">{rulesName}</span>
+      <Icon name="chevron" size={14} className="sb-chev" />
+    </button>
+  );
   /** 选了照大纲:一句说明(放在「怎么推」下面) */
   const outlineNote = outlineHow && <div className="nw-note nw-how-note">建好以后先打开「大纲」：一条条写下故事里的大事，写完点「照大纲推演」。地形、民族、国家起源照常生成，大纲只决定后面的历史怎么走。</div>;
   const adv = advanceOf(edits);
@@ -1561,6 +1617,7 @@ export function Studio(p: StudioProps) {
     if (tool.on) setTerrainTool({ on: false });
     closeAssistant();
     setNamesPage(false);
+    setRulesPage(false);
     closeOrigins();
     setSheetFull(false);
     setCivStep(true);
@@ -1569,6 +1626,7 @@ export function Studio(p: StudioProps) {
   const toMap = () => {
     setDrawer(null);
     setNamesPage(false);
+    setRulesPage(false);
     closeOrigins();
     setSheetFull(false);
     setYearsOpen(false);
@@ -1645,13 +1703,23 @@ export function Studio(p: StudioProps) {
   );
   const footBtn = twoStep && !civStep ? mapBtns : createBtn;
   const mixShown = namesPage && !tool.on && !peek;
+  const rpShown = rulesOn && rulesPage && !tool.on && !peek && !mixShown;
   /** 文明起源按第 0 年的州看(有地形大事时是大事以前的,见 origins.ts 的 originCiv) */
   const ogRaw = p.civ ?? p.raw;
   const ogCiv = ogRaw && originCiv(ogRaw);
-  const ogShown = originsOn && !mixShown;
-  const pageShown = mixShown || ogShown;
+  const ogShown = originsOn && !mixShown && !rpShown;
+  const pageShown = mixShown || ogShown || rpShown;
   const mixPage = mixShown ? (
     <NameMixPage backLabel={heading} onBack={() => setNamesPage(false)} civ={p.raw} busy={p.busy} ready={p.ready} phone={p.phone} flush={mixFlush} />
+  ) : rpShown ? (
+    <RulesPickHost
+      phone={p.phone}
+      picked={rulesPickId}
+      rules={edits.rules}
+      onPick={pickRules}
+      onBack={() => setRulesPage(false)}
+      onCollapse={p.phone ? undefined : () => setCollapsed(true)}
+    />
   ) : (
     ogShown && (
       <OriginsPage
@@ -1724,6 +1792,7 @@ export function Studio(p: StudioProps) {
         <>
           <StepParams params={p.params} onParams={p.onParams} disabled={p.busy} />
           {rerollRow}
+          {rulesRow}
           {originsRow}
           <div className="sk-name">{nameField}</div>
           {mixRow}
@@ -1766,11 +1835,13 @@ export function Studio(p: StudioProps) {
               {lockedRow('frontier-found', '拓荒', '和找的时候一样')}
               {lockedRow('origins-found', '文明起源', '和找的时候一样')}
               {lockedRow('calamity-found', '天灾', '和找的时候一样')}
+              {rulesOn && lockedRow('rules-found', '规则', '和找的时候一样')}
             </>
           ) : (
             <>
               {stepHow ? advRow : yearsRow}
               {calamityRow}
+              {!compact && rulesRow}
             </>
           )}
           {found ? null : compact ? (
@@ -1778,7 +1849,7 @@ export function Studio(p: StudioProps) {
               <span className="sb-row-main">
                 <b>更多设定</b>
               </span>
-              <span className="sb-row-side">拓荒、起源、地名</span>
+              <span className="sb-row-side">{rulesOn ? '规则、拓荒、起源、地名' : '拓荒、起源、地名'}</span>
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
           ) : (
@@ -1842,6 +1913,7 @@ export function Studio(p: StudioProps) {
           </div>
           <div className="sb-group">
             {calamityRow}
+            {rulesRow}
             {originsRow}
           </div>
         </section>
@@ -1868,6 +1940,7 @@ export function Studio(p: StudioProps) {
       onClick={() => {
         if (sheetFull) {
           setNamesPage(false);
+          setRulesPage(false);
           closeOrigins();
         }
         setSheetFull(!sheetFull);
@@ -2250,7 +2323,7 @@ export function Studio(p: StudioProps) {
               {step2 ? (nameNow ? `开始${verb}「${nameNow}」？` : `开始${verb}这个文明？`) : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}
             </h2>
             <p>
-              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (calamity ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
+              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (calamity ? 1 : 0) + (edits.rules ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
             </p>
             <div className="sb-group">
               {image ? (
@@ -2322,6 +2395,17 @@ export function Studio(p: StudioProps) {
                   </span>
                   <span className="sb-row-side" data-confirm="calamity">
                     {CALAMITY_NAMES[calamity]}
+                  </span>
+                </div>
+              )}
+              {edits.rules && (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>规则</b>
+                  </span>
+                  <span className="sb-row-side sb-origin" data-confirm="rules">
+                    {ruleSetLabel(edits.rules)}
                   </span>
                 </div>
               )}

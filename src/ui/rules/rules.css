@@ -970,3 +970,97 @@ button.rs-rst:hover {
 .rs-rr-m {
   color: var(--ink-3);
 }
+
+/* ==== 新建世界里选规则的那一页(RulesPick.tsx;换掉左边的一页,和「地名风格」「文明起源」同一种) ==== */
+/* 标题下那句话和下面的列表各空开一点(18px) */
+.st-in .nw-intro.rp-intro {
+  margin: 4px 0 4px;
+  line-height: 1.6;
+}
+/* 一套一行:左边打勾的位置,名字,下面出处和改了什么(最多两行) */
+.studio .sb-row.rp-row {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  color: var(--ink);
+}
+.studio .rp-row .sb-row-main b {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.rp-ck {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding-top: 1px;
+  color: var(--accent);
+}
+.rp-row .sb-row-main small {
+  display: -webkit-box;
+  margin-top: 3px;
+  line-height: 1.45;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+/* 「调这一套…」「新建一套」:两个一样宽 */
+.rp-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: -2px;
+}
+.studio .rp-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.studio .rp-btn:hover {
+  background: var(--hover-bg);
+}
+.rp-note {
+  margin: -4px 4px 0;
+  line-height: 1.6;
+}
+/* 手机:字大一号,按钮高一点 */
+.studio .st-sheet .sb-row.rp-row {
+  padding: 11px 14px;
+}
+.studio .st-sheet .rp-row .sb-row-main b {
+  font-size: 15.5px;
+}
+.st-sheet .rp-row .sb-row-main small {
+  font-size: 13px;
+}
+.st-sheet .rp-ck {
+  padding-top: 2px;
+}
+.studio .st-sheet .rp-btn {
+  height: 40px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+/* 别人分享的(手机):底下两个按钮一样宽 */
+.rs-ph-foot .rs-btn.half {
+  flex: 1;
+  padding: 0 10px;
+}
+/* 手机:标题下那句话贴近标题一点(8px),和列表空开 14px */
+.st-sheet .nw-intro.rp-intro {
+  margin: -6px 0 0;
+  line-height: 1.55;
+}

@@ -2213,3 +2213,15 @@ button.ov-kv-row:hover {
 .ov-sec > h3.ov-gap:first-child {
   margin-top: 0;
 }
+/* 世界设定「创建时定下的」里的「规则」一行:能点开(字用正文的颜色、右边一个 ›) */
+.ov-kv-row.ov-rules-row {
+  gap: 4px;
+}
+.ov-rules-row b {
+  color: var(--ink);
+  text-align: right;
+}
+.ov-rules-row .icon {
+  flex: none;
+  color: var(--ink-3);
+}

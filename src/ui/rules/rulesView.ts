@@ -91,15 +91,15 @@ const CN = ['零', '一', '两', '三', '四', '五', '六', '七', '八', '九'
 export const cnCount = (n: number) => CN[n] ?? String(n);
 
 /**
- * 「我的规则」里一行的小字:出处(别人分享来的写「砚山 分享」,基于别的规则的写「基于《战乱年代》」;基于官方的不写)+ 改了什么。
- * 一项都没改的写「还没改，和官方规则一样」
+ * 「我的规则」里一行的小字:出处(别人分享来的写「砚山 分享」,基于别的规则的写「基于《战乱年代》」;基于官方的不写)+ 改了什么
+ * (最多列 max 项)。一项都没改的写「还没改，和官方规则一样」
  */
-export function rulesLine(r: RuleSet, shared: boolean): string {
+export function rulesLine(r: RuleSet, shared: boolean, max = 4): string {
   const src = r.basedOn?.[0];
   const from = shared ? `${src?.by ?? '别人'} 分享。` : src ? `${basedOnText(r)}。` : '';
   const n = modifiedCount(r);
   let what: string;
-  if (n.items) what = tuningSummary(r.values, 4);
+  if (n.items) what = tuningSummary(r.values, max);
   else if (n.biomes) what = `改了地貌的名字 ${n.biomes} 项`;
   else what = '还没改，和官方规则一样';
   return from + what;
