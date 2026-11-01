@@ -60,6 +60,7 @@ import { OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal,
 import { closeOverview, getPeople, setPeople } from '../overviewStore';
 import { setWorldSheet } from '../panelStore';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from '../presetLink';
+import { openRulesHash, openRulesText } from '../rules/sheetStore';
 import { pickSharedPreset } from '../presetStore';
 import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
 import { frozenResult, toldFrozen } from '../resultStore';
@@ -343,6 +344,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 朋友的预设链接:先把 # 那段从地址栏去掉(刷新不会再来一遍)。短链接后面的"打开时看哪"等取到存档再去掉(没取到、刷新重来时还在)
     if (init.preset) navUrl(location.pathname + location.search);
     if (presetLink) presetOpened(presetLink);
+    // 别人分享的规则链接(#rules=…;调规则的入口开着时):在我的世界上面打开调规则的大卡,# 那段从地址栏去掉
+    if (openRulesHash(location.hash)) navUrl(location.pathname + location.search);
     // 邀请链接:弹出登录窗(已经登录了就算了)
     if (invited && serverBase() && !getSession()) openLogin();
     if (route.target) generate(route.target);
@@ -358,6 +361,12 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 页面开着时又粘贴了一个只有 # 不同的分享链接(浏览器不刷新页面)
     const onHash = () => {
       const h = location.hash;
+      // 页面开着时又粘贴了规则链接:就在这一页上面打开调规则的大卡
+      if (openRulesHash(h)) {
+        navAdopt(navInfo(getStage().stage, targetRef.current));
+        navUrl(location.pathname + location.search);
+        return;
+      }
       // 页面开着时又粘贴了朋友的预设链接:回到我的世界,打开填好参数的新建弹窗
       if (isPresetHash(h)) {
         navAdopt(navInfo(getStage().stage, targetRef.current));
@@ -647,6 +656,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
   /** 从文件打开:存进"我的世界"(算建好的),再打开它;存不下就只打开、不存。「全部存成文件」存的:全部放回我的世界,不打开 */
   const openText = (text: string, fileName?: string) => {
     if (openBundleText(text, fileName)) return;
+    // 一套规则的文件(调规则的入口开着时):打开调规则的大卡(只能看),不当世界的存档
+    if (openRulesText(text, fileName)) return;
     const r = parseSave(text);
     if (!r.ok) {
       notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个存档', more: [briefError(r.error)] });

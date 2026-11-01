@@ -178,6 +178,7 @@ import { useFinder } from './finderStore';
 import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds } from './MyWorlds';
+import { RulesHost } from './rules/RulesHost';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import type { GalleryItem } from '../account/gallery';
@@ -3113,6 +3114,7 @@ ${s.image.cells}` : null);
       {/* 人物关系图(人物卡「更多 → 关系图」):电脑右边铺开、手机铺满整屏 */}
       {data && world && civ && <RelationGraph civ={civ} world={data.world} raster={data.raster} phone={narrow} />}
       {realCiv && <HistoryBook civ={realCiv} land={data?.world ?? null} raster={data?.raster ?? null} />}
+      <RulesHost />
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       <FrozenAsk phone={narrow} />
