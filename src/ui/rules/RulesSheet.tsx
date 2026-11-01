@@ -6,11 +6,13 @@
  *   顶上    名字、改名;基于谁、第几版、用它建过几个世界、「改了以后，已经建好的世界不变」;分享(复制链接)、「···」(复制一份、存成文件、删除)、关闭
  *   左边    搜规则、只看改过的(改了几项)、七组(组名后面改了几项)、地貌的名字
  *   右边    一组:常用的直接列,其余收在「更多 N 项」里(点开 / 收起);一项一行(名字、一句说明、滑条、值、改回)
- *           只看改过的:按组列,逐项改回、「全部改回官方」(只改回规则项,地貌的名字不动;能撤销);一项都没改时说一句
+ *           只看改过的:按组列,逐项改回、「全部改回官方」(只改回规则项,地貌的名字不动;能撤销);一项都没改时说一句;
+ *           调过的、页面上已经拿掉的项(tuning.ts 的 retired)列在最下面一块:只写值、能改回,不能再调(照旧起作用)
  *           地貌的名字:十六种各一个输入框,官方的叫法当占位字
  *           搜规则:名字、说明里有这几个字的项按组列,地貌的名字里有的也列上;搜不到说一句
  *   底下    改了几项、存成文件
  * 手机(学手机的设置):先是分组列表(右边改了几项),点进一组是一项一块;顶上「‹」回到上一层,最上一层回到「我的世界」。
+ * 调过页面上已经拿掉的项的规则,分组列表上「只看改过的」下面多一行「页面上已经拿掉的项」。
  *
  * 四种:
  *   我的规则里的    能改,改了就存(没有保存按钮;被世界用过的那一版再改就是新的一版,见 rulesStore.ts)
@@ -34,8 +36,8 @@ import { TUNING_GROUPS } from '../../gen/civ/tuningText';
 import type { TuningGroup, TuningItem, TuningValue } from '../../gen/civ/tuning';
 import { deleteRules, editRules, myRulesFor, renameRules, setBiomeName, setRuleValue, useMyRules, type MyRules } from '../rulesStore';
 import { closeRulesSheet, getRulesSheet, openRulesSheet, useRulesSheet } from './sheetStore';
-import { BiomeRow, MoreMenu, NameInput, RuleBlock, RuleRow, type MenuItem } from './RuleRows';
-import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, searchRules, type ItemSection, type RulesPage } from './rulesView';
+import { BiomeRow, MoreMenu, NameInput, RetiredRow, RuleBlock, RuleRow, type MenuItem } from './RuleRows';
+import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, retiredModified, searchRules, type ItemSection, type RulesPage } from './rulesView';
 import { adoptRules, downloadRules, duplicateRules, newWorldFromShared, redoWithNewer, shareRules } from './rulesActions';
 import { getCompare, openCompare } from '../compare/compareStore';
 
@@ -209,17 +211,24 @@ export function mineMenu(m: MyRules, after?: () => void): (MenuItem | 'sep')[] {
   ];
 }
 
-/** 只看改过的那一页的说明(sec、biomes 是改过的;改回了还接着列的不算) */
-function modifiedNote(sh: Shown, sec: ItemSection[], biomes: number): string {
-  const n = sec.reduce((a, s) => a + s.items.length, 0) + biomes;
+/** 只看改过的那一页的说明(sec、biomes、retired 是改过的;改回了还接着列的不算) */
+function modifiedNote(sh: Shown, sec: ItemSection[], biomes: number, retired = 0): string {
+  const shownN = sec.reduce((a, s) => a + s.items.length, 0) + biomes;
+  const n = shownN + retired;
   if (!n) return sh.kind === 'official' ? '官方规则没有改过的项。左边点一组，能看各项官方的数。' : '还没改过哪一项。改过的项不管在哪一组，都会列在这里。';
   const groups = sec.length + (biomes ? 1 : 0);
   const where = groups === 1 ? `都在「${sec[0]?.name ?? '地貌的名字'}」` : `分在${cnCount(groups)}组`;
+  // 有页面上已经拿掉的:「9 项：6 项分在三组，3 项页面上已经拿掉了。」
+  const head = !retired ? `${n} 项，${where}。` : shownN ? `${n} 项：${shownN} 项${where}，${retired} 项页面上已经拿掉了。` : `${n} 项，都是页面上已经拿掉的。`;
   const hasOff = sec.some((s) => s.items.some((x) => sh.rules.values[x.id] === 0 || sh.rules.values[x.id] === 'off'));
   const tail =
     sh.kind !== 'mine' ? '左边点别的组，能看其余没改的项（都是官方的数）。' : hasOff ? '拖到「不发生」的那项，用这套规则的世界里就没有这种事。' : '每项右边都能单独改回官方。';
-  return `${n} 项，${where}。${tail}`;
+  return `${head}${tail}`;
 }
+
+/** 「页面上已经拿掉的项」那一块的说明(ro = 只能看) */
+const retiredNote = (ro: boolean) =>
+  `这几项效果太小，页面上拿掉了（有的并进了别的项）。这套规则里还记着，照旧起作用${ro ? '。' : '；改回官方就不再列在这里。'}`;
 
 /** 搜不到时说的 */
 const notFound = (q: string) => `没有和「${q.trim()}」有关的规则。换个说法试试，比如「战争」「瘟疫」「王朝」。`;
@@ -272,6 +281,7 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
     const keep = keepModified(kept.current, r);
     const sec = modifiedSections(r.values, keep);
     const bs = renamedBiomes(r, keep);
+    const ret = retiredModified(r.values, keep);
     body = (
       <>
         <div className="rs-grp-h">
@@ -282,11 +292,11 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
             </button>
           )}
         </div>
-        <p className="rs-grp-d">{modifiedNote(sh, modifiedSections(r.values), n.biomes)}</p>
+        <p className="rs-grp-d">{modifiedNote(sh, modifiedSections(r.values), n.biomes, n.retired)}</p>
         {sec.map((s) => (
           <section key={s.group}>
             {/* 都在一组(说明里已经写了是哪一组):不再写组名 */}
-            {(sec.length > 1 || bs.length > 0) && (
+            {(sec.length > 1 || bs.length > 0 || ret.length > 0) && (
               <div className="rs-cap">
                 <span>{s.name}</span>
               </div>
@@ -302,6 +312,19 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
             <div className="rs-card">
               {bs.map((b) => (
                 <BiomeRow key={b} b={b} name={r.biomes?.[biomeKey(b)]} ro={ro} onSet={(k, v) => acts?.setBiome(k, v)} />
+              ))}
+            </div>
+          </section>
+        )}
+        {ret.length > 0 && (
+          <section data-testid="rules-retired">
+            <div className="rs-cap">
+              <span>页面上已经拿掉的项</span>
+            </div>
+            <p className="rs-grp-d">{retiredNote(ro)}</p>
+            <div className="rs-card">
+              {ret.map((x) => (
+                <RetiredRow key={x.id} x={x} values={r.values} ro={ro} onSet={setValue} />
               ))}
             </div>
           </section>
@@ -472,7 +495,11 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                   <p>
                     {n.biomes ? (
                       <>
-                        <b>改了 {n.total} 项</b>（规则 {n.items} 项，地貌的名字 {n.biomes} 项）。
+                        <b>改了 {n.total} 项</b>（规则 {n.items} 项，地貌的名字 {n.biomes} 项{n.retired ? `；${n.retired} 项页面上已经拿掉` : ''}）。
+                      </>
+                    ) : n.retired ? (
+                      <>
+                        <b>改了 {n.total} 项</b>（{n.retired} 项页面上已经拿掉）。同一张地图、同一个种子，用这套规则推出来的历史每次都一样。
                       </>
                     ) : n.total ? (
                       <>
@@ -571,8 +598,8 @@ function SearchPage({ q, r, row, ro, acts, phone }: { q: string; r: RuleSet; row
 // ---------------------------------------------------------------------------
 // 手机
 
-/** 手机上看的那一层:分组列表 / 一组 / 只看改过的 / 地貌的名字 */
-type PhonePage = 'root' | RulesPage;
+/** 手机上看的那一层:分组列表 / 一组 / 只看改过的 / 地貌的名字 / 页面上已经拿掉的项 */
+type PhonePage = 'root' | RulesPage | 'retired';
 
 function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Acts | null; naming: boolean }) {
   const r = sh.rules;
@@ -611,10 +638,10 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
           }}
         />
       );
-    const li = (p: RulesPage, label: string, count: number, act?: string) => (
+    const li = (p: RulesPage | 'retired', label: string, count: number, act?: string) => (
       <button key={p} className="rs-li" data-page={p} data-act={act} onClick={() => go(p)}>
         {label}
-        <span className={count ? 'a' : ''}>{count ? (p === 'modified' ? count : `改了 ${count} 项`) : ''}</span>
+        <span className={count ? 'a' : ''}>{count ? (p === 'modified' ? count : p === 'retired' ? `改过 ${count} 项` : `改了 ${count} 项`) : ''}</span>
         <Icon name="chevron" size={14} className="rs-chev" />
       </button>
     );
@@ -628,7 +655,15 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
           <SearchPage q={q} r={r} row={block} ro={ro} acts={acts} phone />
         ) : (
           <>
-            <div className="rs-card">{li('modified', '只看改过的', n.total)}</div>
+            <div className="rs-card">
+              {li('modified', '只看改过的', n.total)}
+              {n.retired > 0 && li('retired', '页面上已经拿掉的项', n.retired)}
+            </div>
+            {n.retired > 0 && (
+              <p className="rs-ph-note">
+                这套规则里有 {n.retired} 项页面上已经拿掉了，照旧起作用，点进去{ro ? '能看' : '能改回官方'}。
+              </p>
+            )}
             <div className="rs-card rs-gap">{TUNING_GROUPS.map((g) => li(g.id, g.name, counts[g.id]))}</div>
             <div className="rs-card rs-gap-s">{li('biomes', '地貌的名字', n.biomes)}</div>
             {/* 别人分享的、世界里那一版:底下那一条已经有别的按钮,并排试推放在这一页最下面 */}
@@ -641,8 +676,9 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
     const keep = keepModified(kept.current, r);
     const sec = modifiedSections(r.values, keep);
     const bs = renamedBiomes(r, keep);
+    const ret = retiredModified(r.values, keep);
     title = '只看改过的';
-    sub = modifiedNote(sh, modifiedSections(r.values), n.biomes);
+    sub = modifiedNote(sh, modifiedSections(r.values), n.biomes, n.retired);
     body = (
       <>
         {sec.map((s) => (
@@ -665,6 +701,18 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
             </div>
           </section>
         )}
+        {ret.length > 0 && (
+          <section>
+            <div className="rs-cap">
+              <span>页面上已经拿掉的项</span>
+            </div>
+            <div className="rs-card">
+              {ret.map((x) => (
+                <RetiredRow key={x.id} x={x} values={r.values} ro={ro} onSet={setValue} phone />
+              ))}
+            </div>
+          </section>
+        )}
         {acts && n.items > 0 && (
           <button
             className="rs-btn wide"
@@ -678,6 +726,17 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
           </button>
         )}
       </>
+    );
+  } else if (page === 'retired') {
+    const ret = retiredModified(r.values, keepModified(kept.current, r));
+    title = '页面上已经拿掉的项';
+    sub = retiredNote(ro);
+    body = (
+      <div className="rs-card">
+        {ret.map((x) => (
+          <RetiredRow key={x.id} x={x} values={r.values} ro={ro} onSet={setValue} phone />
+        ))}
+      </div>
     );
   } else if (page === 'biomes') {
     title = '地貌的名字';

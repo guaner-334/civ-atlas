@@ -17,6 +17,8 @@
  * - **范围、档位在这一层定**:旋钮那一层只查形状(engine/knobs.ts 的 knobValueOk),除数、间隔取 0、次数不是整数这类,靠这里的范围和步长挡住。
  *   范围是照极端值压力测试(scripts/stress.ts 的「规则项」那一段:每项两头各推一遍,全部拉到最左、最右各一遍)定的
  *
+ * - **页面上拿掉的项**(retired,14 项):效果太小,页面上不列;编号、存档、换算照旧(见 RETIRED)。页面上列的是 SHOWN_ITEMS(56 项)
+ *
  * 读进来的值(存档、链接、文件)先过 cleanTuning:认不出的编号丢掉、不在档位上的吸到最近一档、超出范围的拉回来、区间前大后小的对调,每处一句提示。
  * 纯计算,不碰 DOM。
  */
@@ -47,7 +49,7 @@ export type TuningValues = { readonly [id: string]: TuningValue };
  * 一个世界建成的那一刻用的是哪一版,记在它的那套规则上(ruleSet.ts 的 RuleSet.calc;没记 = 第 1 版),之后一直照那一版推:
  * 换算改了,已经建好的世界照样推出原来的历史;新建的世界、并排试推本机的和别人分享的规则,用最新的一版
  */
-export const TUNING_CALC = 3;
+export const TUNING_CALC = 4;
 
 /** 推演要的那部分:改过的规则项 + 按第几版换算 */
 export interface WorldTuning {
@@ -71,6 +73,10 @@ interface ItemBase {
   readonly common: boolean;
   /** 大白话名字(清理时的提示里用;一句说明在 tuningText.ts) */
   readonly name: string;
+  /** 页面上拿掉了(见 RETIRED;编号、换算照旧) */
+  readonly retired?: true;
+  /** 拿掉的这一项并进了哪一项(编号;没并 = 不写) */
+  readonly into?: string;
 }
 
 /** 倍数档 */
@@ -255,8 +261,37 @@ add(
   num({ id: 'court.uncle', name: '叔父摄政' }, { official: 0.4, min: 0, max: 1, step: 0.05, unit: '成' }),
 );
 
-/** 全部 70 项(照组、常用在前的先后) */
+/**
+ * 页面上拿掉的项(拉到头历史也差不到三成,又找不到能改的地方):编号 → 并进了哪一项(没并 = null)。
+ * 拿掉的只是页面上不列(分组、搜规则不列;「只看改过的」最下面列出调过的那几项,能改回官方);
+ * 编号、存档、链接、文件照认,各版换算里照旧按第 1 版换 —— 以前调过的规则、已经建好的世界推出来一模一样。
+ * 并掉的那项:并进去的那一项从换算第 4 版起带着改它管的那一处(tuningPatch.ts);两项都调了时,并掉的那项的数盖过
+ */
+const RETIRED: Readonly<Record<string, string | null>> = {
+  'war.rest': 'war.truce',
+  'war.goal': 'war.length',
+  'war.break': null,
+  'war.fronts': null,
+  'war.revanche': null,
+  'war.grudge': null,
+  'split.share': null,
+  'split.age': 'split.dynastyAge',
+  'diplo.maxPacts': null,
+  'diplo.zone': 'diplo.treaty',
+  'folk.trekAbsorb': null,
+  'disaster.wear': null,
+  'court.maxAge': null,
+  'court.restore': null,
+};
+for (let i = 0; i < ITEMS.length; i++) {
+  const into = RETIRED[ITEMS[i].id];
+  if (into !== undefined) ITEMS[i] = { ...ITEMS[i], retired: true, ...(into ? { into } : {}) };
+}
+
+/** 全部 70 项(照组、常用在前的先后;连页面上拿掉的) */
 export const TUNING_ITEMS: readonly TuningItem[] = ITEMS;
+/** 页面上列的项(拿掉的不算;照组、常用在前的先后) */
+export const SHOWN_ITEMS: readonly TuningItem[] = ITEMS.filter((x) => !x.retired);
 const byId = new Map(ITEMS.map((x) => [x.id, x]));
 /** 按编号找一项 */
 export const tuningItem = (id: string): TuningItem | undefined => byId.get(id);

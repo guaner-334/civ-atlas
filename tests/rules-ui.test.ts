@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TUNING_ITEMS, cleanTuning, officialValue, tuningItem, type TuningItem } from '../src/gen/civ/tuning';
-import { tuningValueText } from '../src/gen/civ/tuningText';
+import { TUNING_GROUPS, retiredText, tuningValueText } from '../src/gen/civ/tuningText';
 import { rulesFileText, rulesHash } from '../src/gen/civ/ruleShare';
 import { Biome } from '../src/gen/biomes';
 import {
@@ -23,7 +23,7 @@ import {
   ticksOf,
   valueAt,
 } from '../src/ui/rules/sliderMath';
-import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, rulesLine, searchRules } from '../src/ui/rules/rulesView';
+import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, retiredModified, rulesLine, searchRules } from '../src/ui/rules/rulesView';
 
 const item = (id: string) => tuningItem(id)!;
 
@@ -145,10 +145,35 @@ describe('滑条的格', () => {
 describe('改过的、搜规则、改了几项', () => {
   const values = cleanTuning({ 'war.odds': 2, 'war.truce': 2, 'war.sack': 2, 'split.collapse': 2, 'split.dynasty': 1.5, 'diplo.marry': 0 }).values;
 
-  it('一组分常用的和其余的(战争:常用 5 项,更多 12 项)', () => {
+  it('一组分常用的和其余的(战争:常用 5 项,更多 6 项;页面上拿掉的不列)', () => {
     const g = groupItems('war');
     expect(g.common.map((x) => x.id)).toEqual(['war.odds', 'war.truce', 'war.length', 'war.crush', 'war.project']);
-    expect(g.more.length).toBe(12);
+    expect(g.more.map((x) => x.id)).toEqual(['war.capital', 'war.prey', 'war.winter', 'war.sack', 'war.ruin', 'war.rebuild']);
+    // 页面上一共 56 项:常用 28,「更多」28
+    const all = TUNING_GROUPS.map((x) => groupItems(x.id));
+    expect(all.reduce((a, x) => a + x.common.length, 0)).toBe(28);
+    expect(all.reduce((a, x) => a + x.more.length, 0)).toBe(28);
+  });
+
+  it('页面上拿掉的项:不进分组、搜不到;调过的在「只看改过的」另列(列过的改回了也接着列),算在改了几项里', () => {
+    const v = cleanTuning({ ...values, 'war.rest': 0, 'war.grudge': 200, 'war.fronts': 3 }).values;
+    expect(modifiedSections(v).flatMap((s) => s.items.map((x) => x.id))).not.toContain('war.rest');
+    expect(retiredModified(v).map((x) => x.id)).toEqual(['war.rest', 'war.fronts', 'war.grudge']);
+    expect(modifiedCount({ values: v })).toEqual({ items: 9, biomes: 0, total: 9, retired: 3 });
+    expect(searchRules('记仇', {}).sections).toEqual([]);
+    expect(searchRules('歇几年', {}).sections.flatMap((s) => s.items.map((x) => x.id))).toEqual([]);
+    // 改回了官方:列过的接着列
+    const kept = keepModified(new Set<string>(), { values: v });
+    const after = cleanTuning({ ...v, 'war.grudge': 80 }).values;
+    expect(retiredModified(after, keepModified(kept, { values: after })).map((x) => x.id)).toEqual(['war.rest', 'war.fronts', 'war.grudge']);
+    expect(retiredModified(after).map((x) => x.id)).toEqual(['war.rest', 'war.fronts']);
+    // 说明:并掉的写并进了哪一项,拿掉的写原来的说明加一句
+    expect(retiredText(tuningItem('war.rest')!)).toBe('并进了「议和后几年不再开战」。这里记的数照旧起作用，盖过那一项带着改的这一处。');
+    expect(retiredText(tuningItem('war.grudge')!)).toBe('议和时丢了州的一方，这么多年内更想打回来。效果太小，页面上拿掉了。');
+    // 摘要:页面上拿掉的排在最后
+    expect(rulesLine({ name: 'x', version: 1, values: cleanTuning({ 'war.grudge': 200, 'war.capital': 3 }).values }, false)).toBe('改了 2 项：守国都 3 倍、记仇 200 年');
+    // 全部改回官方:连它们
+    expect(resetToOfficial({ values: v }).change).toEqual({ values: {} });
   });
 
   it('只看改过的:按七组的先后,组里常用的在前;没改的组不列', () => {
@@ -176,9 +201,9 @@ describe('改过的、搜规则、改了几项', () => {
 
   it('改了几项:规则项 + 地貌的叫法;改过叫法的地貌照总表的先后', () => {
     const r = { values, biomes: { rainforest: '瘴林', temperateDesert: '灰烬荒原' } };
-    expect(modifiedCount(r)).toEqual({ items: 6, biomes: 2, total: 8 });
+    expect(modifiedCount(r)).toEqual({ items: 6, biomes: 2, total: 8, retired: 0 });
     expect(renamedBiomes(r)).toEqual([Biome.TemperateDesert, Biome.Rainforest]);
-    expect(modifiedCount({ values: {} })).toEqual({ items: 0, biomes: 0, total: 0 });
+    expect(modifiedCount({ values: {} })).toEqual({ items: 0, biomes: 0, total: 0, retired: 0 });
   });
 
   it('搜规则:名字、说明、摘要里的叫法都算,按组列;地貌按官方的和起的名字;搜不到是空的', () => {

@@ -1070,3 +1070,26 @@ button.rs-rst:hover {
     background: none;
   }
 }
+
+/* ---- 页面上拿掉的项(只看改过的最下面):没有滑条;左边的细条是灰的、值写黑字(照旧起作用,只是页面上没有了) ---- */
+.rs-kn.rs-gone {
+  grid-template-columns: minmax(0, 1fr) 64px 30px;
+}
+.rs-gone.mod::before {
+  background: var(--ink-3);
+}
+.mod.rs-gone .rs-val {
+  color: var(--ink);
+}
+@media (max-width: 1180px) {
+  .rs-kn.rs-gone {
+    grid-template-areas: 't v r';
+  }
+}
+/* 手机分组页「页面上已经拿掉的项」下面那句 */
+.rs-ph-note {
+  margin: 7px 4px 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
