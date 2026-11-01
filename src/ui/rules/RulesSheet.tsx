@@ -12,10 +12,13 @@
  *   底下    改了几项、存成文件
  * 手机(学手机的设置):先是分组列表(右边改了几项),点进一组是一项一块;顶上「‹」回到上一层,最上一层回到「我的世界」。
  *
- * 三种:
+ * 四种:
  *   我的规则里的    能改,改了就存(没有保存按钮;被世界用过的那一版再改就是新的一版,见 rulesStore.ts)
  *   官方规则        只能看,底下「复制一份改」
- *   别人分享的      链接、规则文件打开的:只能看,顶上一条说谁分享的、改了几项,「加进我的规则」以后才能改(出处一直写着)
+ *   别人分享的      链接、规则文件打开的:只能看,顶上一条说谁分享的、改了几项,「加进我的规则」以后才能改(出处一直写着);
+ *                   「用它新建世界」= 加进我的规则,同时进新建世界、规则选好这一套
+ *   一个世界用的    世界设定里点开的:只能看世界里存的那一版(自包含,和本机「我的规则」里的那一套怎么改都无关);
+ *                   本机「我的规则」里同一套已是更新的一版时,顶上一条说已是第几版,能「用第 N 版另存一份重推」(原来的世界不动)
  *
  * 关闭:右上角的关闭 / Esc / 点大卡外面(手机上点左上的返回)。
  */
@@ -29,11 +32,11 @@ import { RULES_NAME_MAX, biomeKey, ruleNotesLine, type RuleSet } from '../../gen
 import { OFFICIAL_RULES_NAME, basedOnText } from '../../gen/civ/ruleSetEdit';
 import { TUNING_GROUPS } from '../../gen/civ/tuningText';
 import type { TuningGroup, TuningItem, TuningValue } from '../../gen/civ/tuning';
-import { deleteRules, editRules, renameRules, setBiomeName, setRuleValue, useMyRules, type MyRules } from '../rulesStore';
+import { deleteRules, editRules, myRulesFor, renameRules, setBiomeName, setRuleValue, useMyRules, type MyRules } from '../rulesStore';
 import { closeRulesSheet, getRulesSheet, openRulesSheet, useRulesSheet } from './sheetStore';
 import { BiomeRow, MoreMenu, NameInput, RuleBlock, RuleRow, type MenuItem } from './RuleRows';
 import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, searchRules, type ItemSection, type RulesPage } from './rulesView';
-import { adoptRules, downloadRules, duplicateRules, shareRules } from './rulesActions';
+import { adoptRules, downloadRules, duplicateRules, newWorldFromShared, redoWithNewer, shareRules } from './rulesActions';
 
 /** 官方规则(一项没改) */
 const OFFICIAL: RuleSet = { name: OFFICIAL_RULES_NAME, version: 1, values: {} };
@@ -41,12 +44,15 @@ const OFFICIAL: RuleSet = { name: OFFICIAL_RULES_NAME, version: 1, values: {} };
 /** 大卡上看的这一套 */
 interface Shown {
   rules: RuleSet;
-  kind: 'mine' | 'official' | 'shared';
+  kind: 'mine' | 'official' | 'shared' | 'world';
   /** 本机的一套(能改) */
   mine?: MyRules;
   /** 别人分享的:从链接还是从文件来的 */
   from?: 'link' | 'file';
   fileName?: string;
+  /** 一个世界用的:那个世界的编号;本机「我的规则」里同一套已是更新的一版时,那一套(用它另存一份重推) */
+  worldId?: string;
+  newer?: MyRules;
 }
 
 /** 大卡上能做的事(只能看的没有改的那几样) */
@@ -99,6 +105,11 @@ export function RulesSheet() {
     if (e) shown = { rules: e.rules, kind: 'mine', mine: e };
   } else if (s?.kind === 'official') shown = { rules: OFFICIAL, kind: 'official' };
   else if (s?.kind === 'shared') shown = { rules: s.rules, kind: 'shared', from: s.from, fileName: s.fileName };
+  else if (s?.kind === 'world') {
+    // 本机「我的规则」里同一套(本机编号对得上)已是更新的一版
+    const m = myRulesFor(s.rules);
+    shown = { rules: s.rules, kind: 'world', worldId: s.worldId, ...(m?.newer ? { newer: m.mine } : {}) };
+  }
   // 别的页面里删掉了
   const gone = s?.kind === 'mine' && !shown;
   useEffect(() => {
@@ -152,6 +163,7 @@ export function RulesSheet() {
 function subLine(sh: Shown): string {
   if (sh.kind === 'official') return '网站自带的那一套。不能改，想调就复制一份。';
   const from = basedOnText(sh.rules);
+  if (sh.kind === 'world') return `这个世界用的是第 ${sh.rules.version} 版，${from}。建好以后不能换。`;
   if (sh.kind === 'shared') {
     const who = sh.rules.by ? `${sh.rules.by} 分享的规则` : sh.from === 'file' ? '从文件打开的规则' : '别人分享的规则';
     return `${who}，${from}。`;
@@ -166,6 +178,11 @@ function bannerLine(sh: Shown, n: number): string {
   const what = n ? `改了 ${n} 项` : '和官方规则一样';
   if (sh.from === 'file') return `这套规则是从文件${sh.fileName ? `「${sh.fileName}」` : ''}打开的，${what}。`;
   return `这是${sh.rules.by ? `「${sh.rules.by}」` : '别人'}分享给你的一套规则，${what}。`;
+}
+
+/** 世界用的那一套在「我的规则」里有了新版:那一句 */
+function newerLine(sh: Shown): string {
+  return `我的规则里「${sh.newer!.rules.name}」已是第 ${sh.newer!.rules.version} 版。`;
 }
 
 /** 「···」菜单里的几项(我的规则里的一套) */
@@ -212,7 +229,7 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
   const ro = !acts;
   const n = modifiedCount(r);
   const counts = useMemo(() => countByGroup(r.values), [r.values]);
-  const [page, setPage] = useState<RulesPage>(() => (sh.kind === 'shared' && n.total ? 'modified' : 'realm'));
+  const [page, setPage] = useState<RulesPage>(() => ((sh.kind === 'shared' || sh.kind === 'world') && n.total ? 'modified' : 'realm'));
   const [q, setQ] = useState('');
   const [more, setMore] = useState<ReadonlySet<TuningGroup>>(() => new Set());
   const [naming, setNaming] = useState(name0);
@@ -407,9 +424,26 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                     <br />
                     先看看改了什么；喜欢就加进我的规则，以后新建世界时能选它。
                   </p>
+                  <button className="rs-btn" data-act="rules-new-world" onClick={() => newWorldFromShared(r)}>
+                    用它新建世界
+                  </button>
                   <button className="rs-btn pri" data-act="rules-adopt" onClick={() => adoptRules(r)}>
                     加进我的规则
                   </button>
+                </div>
+              )}
+              {sh.newer && (
+                <div className="rs-banner">
+                  <p>
+                    <b>{newerLine(sh)}</b>
+                    <br />
+                    这个世界照第 {r.version} 版推。{sh.worldId && `想看第 ${sh.newer.rules.version} 版推出来的历史，就另存一份重推，这个世界不变。`}
+                  </p>
+                  {sh.worldId && (
+                    <button className="rs-btn pri" data-act="rules-redo" onClick={() => redoWithNewer(sh.worldId!, sh.newer!)}>
+                      用第 {sh.newer.rules.version} 版另存一份重推
+                    </button>
+                  )}
                 </div>
               )}
               {body}
@@ -445,6 +479,10 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                     复制一份改
                   </button>
                 </>
+              ) : sh.kind === 'world' ? (
+                <p>
+                  <b>只能看。</b>这一版存在世界里：「我的规则」里改了、删了，这个世界都不变。
+                </p>
               ) : (
                 <p>加进我的规则以后才能改。出处会一直写着「{basedOnText({ basedOn: [{ name: r.name, ...(r.by ? { by: r.by } : {}), version: r.version }] })}」。</p>
               )}
@@ -532,7 +570,8 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
   };
 
   let title: React.ReactNode = r.name;
-  let sub: string | null = sh.kind === 'shared' ? `${subLine(sh).replace(/。$/, '')}，${n.total ? `改了 ${n.total} 项` : '和官方规则一样'}。` : subLine(sh);
+  let sub: string | null =
+    sh.kind === 'shared' ? `${subLine(sh).replace(/。$/, '')}，${n.total ? `改了 ${n.total} 项` : '和官方规则一样'}。` : sh.newer ? `${subLine(sh)}${newerLine(sh)}` : subLine(sh);
   let body: JSX.Element;
   if (page === 'root') {
     if (naming && sh.mine)
@@ -651,7 +690,8 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
     );
   }
 
-  const back = page === 'root' ? { label: '规则', onClick: closeRulesSheet } : { label: r.name, onClick: () => go('root') };
+  // 最上一层的返回:回到打开它的地方(世界设定里点开的回世界设定,别处的回「规则」)
+  const back = page === 'root' ? { label: sh.kind === 'world' ? '世界设定' : '规则', onClick: closeRulesSheet } : { label: r.name, onClick: () => go('root') };
   return (
     <div className="rs-root phone">
       <div className="rs-ph" role="dialog" aria-modal="true" aria-label={`规则：${r.name}`} onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
@@ -691,10 +731,21 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
                 复制一份改
               </button>
             </>
+          ) : sh.kind === 'world' ? (
+            <>
+              <p>只能看</p>
+              {sh.newer && sh.worldId && (
+                <button className="rs-btn pri" data-act="rules-redo" onClick={() => redoWithNewer(sh.worldId!, sh.newer!)}>
+                  用第 {sh.newer.rules.version} 版另存一份重推
+                </button>
+              )}
+            </>
           ) : (
             <>
-              <p>加进来以后才能改</p>
-              <button className="rs-btn pri" data-act="rules-adopt" onClick={() => adoptRules(r)}>
+              <button className="rs-btn half" data-act="rules-new-world" onClick={() => newWorldFromShared(r)}>
+                用它新建世界
+              </button>
+              <button className="rs-btn pri half" data-act="rules-adopt" onClick={() => adoptRules(r)}>
                 加进我的规则
               </button>
             </>

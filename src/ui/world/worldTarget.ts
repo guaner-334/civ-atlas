@@ -83,7 +83,8 @@ export type WallView = { kind: 'list'; preset?: GalleryItem } | { kind: 'work'; 
 export type FirstRoute = { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit };
 
 /** 「新建世界」弹窗:从哪一步开始、朋友分享的预设(作品墙上的新建参数作品也是)、stamp = 新开一个(开着的那个里填的东西不留) */
-export type NewDlg = { init?: NewWorldInit; shared?: SharedPreset; stamp?: number };
+/** rules = 这个世界用哪一套规则先选好(别人分享的规则「用它新建世界」;本机「我的规则」里的,带本机编号) */
+export type NewDlg = { init?: NewWorldInit; shared?: SharedPreset; rules?: RuleSet; stamp?: number };
 
 /** 打开别人分享的世界时地图下那条说明(App 的 sharedFor):哪个世界、短链接还是长链接、署名;at = 链接带着"这一刻"、打开停在了那里 */
 export type SharedFor = { id: string; short: boolean; by: string; own: boolean; at?: { year: number; sel: ResolvedMoment['selected'] | null } | null };

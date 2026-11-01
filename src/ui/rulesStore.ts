@@ -4,7 +4,8 @@
  *
  *   新建       从官方规则开始的一套(createRules)
  *   复制一份   基于一套(本机的,或者官方规则)另起一套,出处记在「基于谁」里(copyRules)
- *   加进来     别人分享的(链接、文件读回来的):另起一个本机编号,分享的那一套记在「基于谁」里(addSharedRules)
+ *   加进来     别人分享的(链接、文件读回来的):另起一个本机编号,分享的那一套记在「基于谁」里(addSharedRules);
+ *              同一套已经加进来过、加进来以后没改过的,不再加一套,用原来那一套(adoptSharedRules)
  *   改         规则项、地貌的叫法、名字、署名、介绍(editRules;setRuleValue、setBiomeName、renameRules 是它的简写);删(deleteRules)
  *
  * - **本机编号**:每套一个,随用它建的世界存进存档(WorldEdits.rules.id),世界里的和这里的对得上(myRulesFor)
@@ -14,6 +15,7 @@
  * - **最多 MAX_MY_RULES 套**:满了新建、复制、加进来都不成(返回 null,界面说一声),不为它删别的
  */
 import { createListeners } from './createStore';
+import { MY_RULES_KEY, noteMyRulesCount } from './rulesCount';
 import { RULES_VERSION_MAX, cleanRuleSet, type BiomeNames, type RuleSet } from '../gen/civ/ruleSet';
 import { deriveRuleSet, newRuleSet, sameRuleContent } from '../gen/civ/ruleSetEdit';
 import type { TuningValue, TuningValues } from '../gen/civ/tuning';
@@ -34,7 +36,7 @@ export interface MyRules {
 
 /** 最多几套 */
 export const MAX_MY_RULES = 50;
-const KEY = 'wenming-ditu:rules';
+const KEY = MY_RULES_KEY;
 
 /** 能改的几样 */
 export type RulesChange = Partial<{ name: string; by: string; about: string; values: TuningValues; biomes: BiomeNames }>;
@@ -83,6 +85,7 @@ function set(next: readonly MyRules[]) {
     /* 隐私模式、存满了:只管这一次 */
   }
   subs.emit();
+  noteMyRulesCount(next.length);
 }
 
 /** 组件里取「我的规则」(新建、复制、加进来的排在前面) */
@@ -147,6 +150,26 @@ export function copyRules(fromId: string | null, name?: string): string | null {
  */
 export function addSharedRules(r: RuleSet): string | null {
   return add(deriveRuleSet(r), true);
+}
+
+/**
+ * 别人分享的这一套加进来过、加进来以后没改过(名字、规则项、地貌的叫法……都和这次加进来会得到的一样,出处是同一套的同一版):
+ * 本机的那一套;没有 = undefined。改过的、出处是这一套的另一版的,不算
+ */
+export function findSharedCopy(r: RuleSet): MyRules | undefined {
+  const d = deriveRuleSet(r);
+  return get().find((e) => e.shared && sameRuleContent(e.rules, d));
+}
+
+/**
+ * 「加进我的规则」「用它新建世界」:别人分享的这一套加进来过、没改过(findSharedCopy)就用原来那一套(existed = true),
+ * 不然另加一套(addSharedRules)。满了 = null
+ */
+export function adoptSharedRules(r: RuleSet): { id: string; existed: boolean } | null {
+  const had = findSharedCopy(r);
+  if (had) return { id: had.rules.id, existed: true };
+  const id = addSharedRules(r);
+  return id ? { id, existed: false } : null;
 }
 
 /**

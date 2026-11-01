@@ -2,7 +2,8 @@
  * 作品墙、新建世界、回我的世界、按新版另存一份(App 用;生成、打开世界见 ./useWorldLoad.ts):
  *   - 作品墙       去作品墙那一页、打开一个作品(世界作品只是看看、地图作品整屏一颗星球、新建参数作品弹窗)、世界作品「另存一份接着改」
  *   - 新建世界     弹窗、换种子、调参数、起名、创建世界(从此锁住、一直存着)、保存地图;以正在看的世界为底稿新建;
- *                  在一个世界(或只存了地图的那一份)的地图上打造新文明;新建卡片左上的返回
+ *                  在一个世界(或只存了地图的那一份)的地图上打造新文明(连同用新版规则另存一份重推);新建卡片左上的返回;
+ *                  别人分享的规则「用它新建世界」(新建弹窗,规则选好那一套)
  *   - 回我的世界   showHome
  *   - 按新版另存   照原样打开的旧世界「按新版另存一份」;改历史前先问(setHistoryGate)
  *   - 先出来的首页上点的那一件、云同步要的打开 / 回我的世界、正在看的世界改了名记进浏览器的那一步
@@ -12,7 +13,8 @@
 import { useEffect, useRef } from 'react';
 import type { WorkerRequest } from '../../worker';
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
-import { EMPTY_EDITS, GENERATOR_VERSION, cleanEndYear, cleanPlay, endParamOf, newHistoryEdits, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, civSeedOf, cleanEndYear, cleanPlay, endParamOf, newHistoryEdits, type WorldEdits } from '../../gen/edits';
+import type { RuleSet } from '../../gen/civ/ruleSet';
 import { cleanTitle, parseSave, worldKey, type SaveFile, type SaveOrigin } from '../../gen/savefile';
 import { startStepwise } from '../../gen/stepwise';
 import { copyNotes } from '../../ai/library';
@@ -34,6 +36,7 @@ import type { NewWorldStart } from '../NewWorldDialog';
 import { openOverview } from '../overviewStore';
 import { chosenGallery, getPresets, pickSharedPreset, rememberLast, type SharedPreset } from '../presetStore';
 import { noteRulesUsed } from '../rulesStore';
+import { setNewWorldHandler } from '../rules/sheetStore';
 import {
   briefError,
   currentWorld,
@@ -220,6 +223,11 @@ export function useWorldPages(deps: WorldPagesDeps) {
   wallRef.current = { open: openWork, list: showGallery };
   /** 新建世界(我的世界右上、第一次来、分享停了的那一页):先弹窗选怎么生成、定基础参数 */
   const startDraft = () => setNewDlg({});
+  /** 别人分享的规则「用它新建世界」(已经加进了我的规则):回到我的世界,新建弹窗,这个世界的规则选好那一套 */
+  const newWorldWithRules = (rules: RuleSet) => {
+    showHome();
+    setNewDlg({ rules, stamp: performance.now() });
+  };
   /** 弹窗里点了「取消」:什么都不留下(刷新回来的照图新建,网址里的 new=image 也去掉,再刷新不再弹) */
   const cancelDialog = () => {
     setNewDlg(null);
@@ -421,19 +429,38 @@ export function useWorldPages(deps: WorldPagesDeps) {
   /**
    * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、推演年数、拓荒、起源、
    * 名字、地名风格)。用的是它一开始的地图(参数、地形修改、草图;不带地形大事)和它的规则,原来的国家、人物、干预、改名……都不带;原来的不动。
-   * 文明种子先随机给一个;名字先填"原名(二)"。旧版本建的世界:生成出来的地图和它存的对不上就不让打造(见 ./useWorldLoad.ts 的 readyRef)
+   * 文明种子先随机给一个;名字先填"原名(二)"。旧版本建的世界:生成出来的地图和它存的对不上就不让打造(见 ./useWorldLoad.ts 的 readyRef)。
+   * redo = 用这一版规则另存一份重推(世界设定里「用第 3 版另存一份重推」):文明种子、推演年数(推到年中的推到同一刻)、天灾、拓荒、起源、地名风格都照原来的,
+   * 只换规则,推出来的差别只来自规则
    */
-  const startNewCiv = (id: string) => {
+  const startNewCiv = (id: string, redo?: RuleSet) => {
     const w = loadWorld(id);
-    if (!w || w.draft) return notify({ kind: 'error', text: '打不开这张地图', more: ['可能已在别的页面里删掉了'] });
-    newCivOn(w.save, id, w.map ? undefined : nextTitle(w.save.title || '未命名世界'), w.save.origin ?? null);
+    if (!w || w.draft) return notify({ kind: 'error', text: redo ? '没能另存一份重推' : '打不开这张地图', more: ['可能已在别的页面里删掉了'] });
+    newCivOn(w.save, id, w.map ? undefined : nextTitle(w.save.title || '未命名世界'), w.save.origin ?? null, redo);
   };
   /**
    * 在一份存档的地图上打造新文明(见 startNewCiv)。from = 地图出自哪(我的世界里的编号;作品墙上的作品是 gallery:<作品编号>),
    * 同一张地图上打造的文明在我的世界的「地图」里排在一起
    */
-  const newCivOn = (save: SaveFile, from: string, title: string | undefined, origin: SaveOrigin | null) => {
-    const edits = newHistoryEdits(save.edits, { civSeed: randomSeedValue(), from, sum: save.edits.map?.sum, ...(save.edits.rules ? { rules: save.edits.rules } : {}) });
+  const newCivOn = (save: SaveFile, from: string, title: string | undefined, origin: SaveOrigin | null, redo?: RuleSet) => {
+    const e = save.edits;
+    const edits: WorldEdits = redo
+      ? {
+          ...newHistoryEdits(e, {
+            civSeed: civSeedOf(e, save.params.seed),
+            from,
+            sum: e.map?.sum,
+            rules: redo,
+            ...(e.nameMix ? { nameMix: e.nameMix } : {}),
+            ...(e.endYear !== undefined ? { endYear: e.endYear } : {}),
+          }),
+          // 推到年中的(逐年推演停在一年当中、换回推演模式的):推到同一刻
+          ...(e.endYear !== undefined && e.endTick ? { endTick: e.endTick } : {}),
+          ...(e.frontier ? { frontier: e.frontier } : {}),
+          ...(e.calamity ? { calamity: e.calamity } : {}),
+          ...(e.origins ? { origins: e.origins } : {}),
+        }
+      : newHistoryEdits(e, { civSeed: randomSeedValue(), from, sum: e.map?.sum, ...(e.rules ? { rules: e.rules } : {}) });
     const mapCheck = save.generator < GENERATOR_VERSION && save.check ? save.check : undefined;
     setNewDlg(null);
     // 一开始就存成没建完的(刷新、后退再前进都回得来;地图出自哪个世界、文明种子都在存档里),底稿出处跟着;什么都没动就返回,这一份删掉
@@ -451,12 +478,16 @@ export function useWorldPages(deps: WorldPagesDeps) {
   };
   const startNewCivRef = useRef(startNewCiv);
   startNewCivRef.current = startNewCiv;
+  const newWorldRef = useRef(newWorldWithRules);
+  newWorldRef.current = newWorldWithRules;
   useEffect(() => {
-    setNewCivHandler((id) => startNewCivRef.current(id));
+    setNewCivHandler((id, redo) => startNewCivRef.current(id, redo));
     setOpenWorldHandler((id) => openStoredRef.current(id));
+    setNewWorldHandler((rules) => newWorldRef.current(rules));
     return () => {
       setNewCivHandler(null);
       setOpenWorldHandler(null);
+      setNewWorldHandler(null);
     };
   }, []);
   // 先出来的首页上点的那一件(主程序那时还在下载):挂上以后接着做,和在这里点的一样(浏览器的后退已经在 useWorldLoad 打开网页时那一段接上了)

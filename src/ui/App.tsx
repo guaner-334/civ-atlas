@@ -2838,7 +2838,7 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       <ShortcutsHost />
       <DiagHost />
       <TipLayer />
-      {newDlg && home && <NewWorldDialog key={newDlg.stamp ?? 0} phone={narrow} init={newDlg.init} shared={newDlg.shared} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
+      {newDlg && home && <NewWorldDialog key={newDlg.stamp ?? 0} phone={narrow} init={newDlg.init} shared={newDlg.shared} rules={newDlg.rules} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
       {dropping && (
         <div className="drop-hint">
           <div>{dropping === 'image' ? '松手导入这张图' : '松手打开存档(.json)'}</div>

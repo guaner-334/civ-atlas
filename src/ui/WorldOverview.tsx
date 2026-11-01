@@ -105,14 +105,14 @@ export function WorldOverview(p: WorldOverviewProps) {
   }, [open, civ]);
 
   // Esc 收起(先于页面上别的 Esc:不顺手取消地图上的选中)。输入框里打字时不管;
-  // 存档 / 导出菜单、AI 设置开着时先让它们收
+  // 存档 / 导出菜单、AI 设置、盖在上面的调规则的大卡(世界设定里点「规则」)开着时先让它们收
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (document.querySelector('.ov .save-menu, .ov .export-menu, .ov .era-pick, .ov .pm-menu, .ai-dialog-bg')) return;
+      if (document.querySelector('.ov .save-menu, .ov .export-menu, .ov .era-pick, .ov .pm-menu, .ai-dialog-bg, .rs-root')) return;
       e.stopPropagation();
       // 大纲正在编一条:先收起那一栏
       if (getOverview().tab === 'outline' && getOutlineUi().edit) closeEdit();

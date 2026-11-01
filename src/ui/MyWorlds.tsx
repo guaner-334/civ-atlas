@@ -17,7 +17,8 @@
  * 登录了的:标题下那句话说世界存在账号里(不再提醒,「全部存成文件」照样在);卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
  * 账号窗里点「最近删除」,这一页换成最近删除(30 天内能找回,点一张卡片找回)。
  *
- * 两个页签(分段控件,默认「地图」;回到这一页还是上次看的那个;调规则的入口开着时多一个「规则」,见 rules/flag.ts):
+ * 两个页签(分段控件,默认「地图」;回到这一页还是上次看的那个;调规则的入口开着时多一个「规则」,见 rules/flag.ts。
+ * 一个世界都没有时:本机「我的规则」里有规则(或者正看着「规则」)才有这一排,不然还是原来那一页空的星球):
  *   地图     一张地图一张卡片(实景、没有国界和地名的地图缩略图,名字"种子 7",下面写这张地图上有几个文明;分组见 mapGroups.ts)。
  *            点一张选中(描蓝边),它那一行下面展开:这张地图上的文明(点一个打开)和「打造新文明」;
  *            还没有文明的(新建时只保存了地图)展开里是「打造文明」「删除这张地图」。再点一下收起
@@ -60,6 +61,7 @@ import { GalleryFeatured } from './Gallery';
 import { rulesUiOn } from './rules/flag';
 import { RulesTabHost } from './rules/RulesHost';
 import { openRulesText } from './rules/sheetStore';
+import { useMyRulesCount } from './rulesCount';
 import './worlds.css';
 
 /** 我的世界看的是哪个页签、「地图」里选中了哪张(组的编号);回到这一页照旧 */
@@ -158,6 +160,8 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   const civs = useMemo(() => list.filter((w) => !w.map), [list]);
   const { tab: tab0, pick } = useView();
   const rulesOn = rulesUiOn();
+  /** 本机「我的规则」里有几套(一个世界都没有时,有规则才露出分段控件) */
+  const myRulesN = useMyRulesCount();
   const tab = tab0 === 'rules' && !rulesOn ? 'maps' : tab0;
   /** 看的是「规则」页签(一个世界都没有时也能看:规则和世界各存各的) */
   const rulesTab = rulesOn && tab === 'rules';
@@ -326,8 +330,8 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           </div>
         )}
       </header>
-      {/* 页签:有世界时才有;调规则的入口开着时一个世界都没有也有(「规则」页签里的规则不跟着世界走) */}
-      {(!empty || rulesOn) && (
+      {/* 页签:有世界时才有;一个世界都没有、「我的规则」里有规则时也有(规则不跟着世界走;正看着「规则」时删光了也留着) */}
+      {(!empty || (rulesOn && (myRulesN > 0 || tab === 'rules'))) && (
         <div className="mw-seg" role="tablist" aria-label="看地图还是文明">
           <button role="tab" aria-selected={tab === 'maps'} className={tab === 'maps' ? 'on' : ''} data-tab="maps" onClick={() => setView({ tab: 'maps' })}>
             地图<i>{groups.length}</i>

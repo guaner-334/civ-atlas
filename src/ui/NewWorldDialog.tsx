@@ -65,6 +65,8 @@ export interface NewWorldDialogProps {
   init?: NewWorldInit;
   /** 打开朋友的预设链接来的:分享的那一套(第 2 步顶上一条说明 +「存进我的预设…」) */
   shared?: SharedPreset;
+  /** 这个世界的规则先选好这一套(别人分享的规则「用它新建世界」;原样交给 onStart,新建界面「文明」那一步里还能换) */
+  rules?: RuleSet;
   /** 随机一个种子 */
   randomSeed: () => number;
   onCancel: () => void;
@@ -245,7 +247,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     const final = mode === 'random' ? (n > 0 ? { ...params, seed: n } : params) : { ...params, ...CONT_RESET, hardness: params.hardness };
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
-    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier && mode === 'image' ? { frontier } : {}) });
+    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier && mode === 'image' ? { frontier } : {}), ...(p.rules ? { rules: p.rules } : {}) });
   };
   const next = (m: NewWorldMode = mode) => {
     setMode(m);
