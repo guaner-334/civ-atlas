@@ -12,7 +12,7 @@ import type { Civ } from '../../gen/civ/types';
 import { EMPTY_EDITS, cleanCivSeed, cleanEndYear, type WorldEdits } from '../../gen/edits';
 import { cleanCalamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins } from '../../gen/civ/frontier';
-import { ruleTuning } from '../../gen/civ/ruleSet';
+import { worldTuning } from '../../gen/civ/ruleSet';
 import { ownersAt } from '../../gen/civ/engine/timeline';
 import { summarize } from '../../gen/finder/query';
 import { worldKey } from '../../gen/savefile';
@@ -104,7 +104,7 @@ export function useStoryFinder(deps: StoryFinderDeps) {
     const frontier = cleanFrontier(e.frontier);
     const origins = cleanOrigins(e.origins);
     const calamity = cleanCalamity(e.calamity);
-    const tuning = ruleTuning(e.rules);
+    const tuning = worldTuning(e.rules);
     const civ = { ...(endYear ? { endYear } : {}), ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(calamity ? { calamity } : {}), ...(e.nameMix ? { names: e.nameMix } : {}) };
     const sketch = sketchGrid(e.sketch);
     return {

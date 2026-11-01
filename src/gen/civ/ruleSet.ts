@@ -18,15 +18,18 @@
  *   最多留 RULES_LINEAGE_MAX 层:最近的几层 + 最早的那一层(最早是谁一直留着)。没有 = 基于官方规则
  * - values:70 项规则项里改过的(tuning.ts 的 TuningValues,编号 → 值;没写的 = 官方)
  * - biomes:地貌的叫法(稳定的键 → 名字,最多 BIOME_NAME_MAX 字;只写和官方叫法不一样的)。只管叫法(图例、悬停里的字),不改历史
+ * - calc:换算版本(tuning.ts 的 TUNING_CALC:规则项按第几版换成推演的旋钮)。**只在世界里的那一套上有**:建世界的那一刻盖上当时的版本
+ *   (stampCalc),之后一直照它推;没写 = 第 1 版(加这一项以前建的世界都没写),第 1 版也不写。「我的规则」、分享链接、规则文件里的一套不带
+ *   (只是一套数,用到时按最新的一版换),cleanRuleSet 不给 world 时去掉它。和 version(这一套第几版)不是一回事
  *
- * 「和官方一样」= 没改规则项、也没改地貌的叫法(名字、署名、介绍、基于谁不算):这样的世界存档里不写这一项,和不用规则的世界一模一样。
+ * 「和官方一样」= 没改规则项、也没改地貌的叫法(名字、署名、介绍、基于谁、换算版本不算):这样的世界存档里不写这一项,和不用规则的世界一模一样。
  * 读进来的一套(存档、分享链接、文件、本机存的)都过 cleanRuleSet:认不出的丢、超长的截、坏的按默认,每处一句中文提示。
  * 这里只放读、清理要的(存档、首页的「我的世界」读存档时引用它);新建、复制、比较、写成字在 ruleSetEdit.ts(本机「我的规则」和界面用)。
  * 纯计算,不碰 DOM;不引用推演本身(换成推演用的旋钮在 tuningPatch.ts),存档、首页读它不用把整个推演载进来。
  */
 import { Biome, BIOMES } from '../biomes';
 import { cleanSignature, SIGNATURE_MAX } from '../signature';
-import { cleanTuning, type TuningValues } from './tuning';
+import { TUNING_CALC, cleanCalc, cleanTuning, type TuningValues, type WorldTuning } from './tuning';
 
 /** 基于的一套:名字、署名(没有 = 不写)、第几版 */
 export interface RuleSource {
@@ -52,6 +55,8 @@ export interface RuleSet {
   values: TuningValues;
   /** 地貌的叫法(只写改过的) */
   biomes?: BiomeNames;
+  /** 换算版本(只在世界里的那一套上有;没有 = 第 1 版,见文件头) */
+  calc?: number;
 }
 
 /** 名字最长几个字(和新建世界的预设名一样长) */
@@ -152,9 +157,11 @@ function cleanSource(raw: unknown, notes: string[]): RuleSource | null {
  * - 规则项交给 cleanTuning(认不出的编号丢掉、不在档位上的吸到最近一档、超出范围的拉回来,各记一句)
  * - 地貌:认不出的键去掉(记一句),和官方叫法一样的、空的不写
  * - 本机编号:不像的不要(不记:只是本机的记号)
+ * - 换算版本(calc):world = 读的是世界里的那一套(存档、世界的修改)才留着 —— 认不出的按第 1 版(记一句),第 1 版不写;
+ *   比现在新的照留(读档时拿它认出「来自更新的版本」,见 savefile.ts)。不给 world(分享链接、文件、本机「我的规则」)= 去掉
  * 交出去的是新的一份(字段照固定的先后),传进来的不改
  */
-export function cleanRuleSet(raw: unknown): { rules: RuleSet | null; notes: string[] } {
+export function cleanRuleSet(raw: unknown, opts: { world?: boolean } = {}): { rules: RuleSet | null; notes: string[] } {
   const notes: string[] = [];
   if (raw === undefined || raw === null) return { rules: null, notes };
   if (!isObj(raw)) {
@@ -201,6 +208,12 @@ export function cleanRuleSet(raw: unknown): { rules: RuleSet | null; notes: stri
     }
   } else if (raw.biomes !== undefined) notes.push('地貌的叫法认不出，照旧用官方的叫法');
 
+  let calc: number | undefined;
+  if (opts.world && raw.calc !== undefined) {
+    calc = cleanCalc(raw.calc);
+    if (calc === undefined) notes.push('规则的换算版本认不出，按第 1 版算');
+  }
+
   const rules: RuleSet = {
     ...(typeof raw.id === 'string' && RULES_ID.test(raw.id) ? { id: raw.id } : {}),
     name: name.text || UNNAMED_RULES,
@@ -211,6 +224,7 @@ export function cleanRuleSet(raw: unknown): { rules: RuleSet | null; notes: stri
     values: tuning.values,
     // 照地貌总表的先后排(同样的叫法写出来一样)
     ...(Object.keys(biomes).length ? { biomes: Object.fromEntries(BIOME_KEYS.filter((k) => k in biomes).map((k) => [k, biomes[k]])) } : {}),
+    ...(calc !== undefined && calc > 1 ? { calc } : {}),
   };
   return { rules, notes };
 }
@@ -220,21 +234,62 @@ export function isOfficialRules(r: RuleSet | Pick<RuleSet, 'values' | 'biomes'> 
   return !r || (!Object.keys(r.values ?? {}).length && !Object.keys(r.biomes ?? {}).length);
 }
 
-/** 世界里存的那一套:清理过;和官方一样 = undefined(存档里不写,和不用规则的世界一模一样) */
+/** 世界里存的那一套:清理过(换算版本照留);和官方一样 = undefined(存档里不写,和不用规则的世界一模一样) */
 export function worldRules(raw: unknown): RuleSet | undefined {
-  const r = cleanRuleSet(raw).rules;
+  const r = cleanRuleSet(raw, { world: true }).rules;
   return r && !isOfficialRules(r) ? r : undefined;
 }
 
-/** 推演用的那部分:改过的规则项(清理过);一项也没改 = undefined(按官方推) */
-export function ruleTuning(raw: unknown): TuningValues | undefined {
+/** 盖上现在的换算版本(建世界的那一刻;第 1 版不写):新的一份,传进来的不改 */
+export function stampCalc(r: RuleSet): RuleSet {
+  const { calc: _old, ...rest } = r;
+  void _old;
+  return TUNING_CALC > 1 ? { ...rest, calc: TUNING_CALC } : rest;
+}
+
+/**
+ * 新建的世界用的那一套:清理过、盖上现在的换算版本(本机「我的规则」里的、别人分享的、另一个世界的那一套都一样,
+ * 新世界一律照现在的换算推);和官方一样 = undefined
+ */
+export function newWorldRules(raw: unknown): RuleSet | undefined {
+  const r = worldRules(raw);
+  return r && stampCalc(r);
+}
+
+/** 世界里那一套的换算版本(没写、认不出 = 第 1 版) */
+export function worldCalc(raw: unknown): number {
+  return (isObj(raw) ? cleanCalc(raw.calc) : undefined) ?? 1;
+}
+
+/** 改过的规则项(清理过);一项也没改 = undefined */
+function tunedValues(raw: unknown): TuningValues | undefined {
   const r = isObj(raw) ? cleanTuning(raw.values).values : undefined;
   return r && Object.keys(r).length ? r : undefined;
 }
 
-/** 两套规则一模一样(清理以后比;本机编号也算) */
-export function sameRuleSet(a: unknown, b: unknown): boolean {
-  return JSON.stringify(cleanRuleSet(a).rules) === JSON.stringify(cleanRuleSet(b).rules);
+/**
+ * 推一个世界的历史用的那部分:改过的规则项 + 这个世界记的换算版本(没写 = 第 1 版);一项也没改 = undefined(按官方推)。
+ * 打开、重推、接着推、逐年推演、原件的配方、作品墙画封面、找世界、并排试推这个世界用的那一版,都从这里取
+ */
+export function worldTuning(raw: unknown): WorldTuning | undefined {
+  const values = tunedValues(raw);
+  return values && { values, calc: worldCalc(raw) };
+}
+
+/** 不在世界里的一套(本机「我的规则」、别人分享的)拿来推:改过的规则项 + 最新的换算版本;一项也没改 = undefined */
+export function latestTuning(raw: unknown): WorldTuning | undefined {
+  const values = tunedValues(raw);
+  return values && { values, calc: TUNING_CALC };
+}
+
+/** 拿一套规则来推(并排试推):inWorld = 它是一个世界用的那一版,照那个世界记的换算版本(worldTuning);别的照最新的一版(latestTuning) */
+export function rulesTuning(raw: unknown, inWorld: boolean): WorldTuning | undefined {
+  return inWorld ? worldTuning(raw) : latestTuning(raw);
+}
+
+/** 两套规则一模一样(清理以后比;本机编号也算;world = 两边都是世界里的那一套,换算版本也算) */
+export function sameRuleSet(a: unknown, b: unknown, world = false): boolean {
+  return JSON.stringify(cleanRuleSet(a, { world }).rules) === JSON.stringify(cleanRuleSet(b, { world }).rules);
 }
 
 /**

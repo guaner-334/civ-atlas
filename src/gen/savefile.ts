@@ -19,7 +19,10 @@
  *   2 = 进度、命令、支线、干预、推到哪一刻(endTick)里有落在年中的时刻(年 + 年内第几格,edits.ts 文件头"时刻"):只认识年份的版本会把它当成年初,
  *   所以写成 2,让那些版本提示更新页面、不悄悄读错。只到年初的存档照旧写 1(和加年内第几格以前一模一样,旧版本照常打开)。
  *   3 = 用了非官方规则(edits.rules):不认得规则的版本会按官方规则推出另一段历史,所以写成 3,让那些版本提示更新页面;
- *   用官方规则的世界照旧写 1 / 2,一字不差。1、2、3 都照读(saveFormatOf 定写哪一版)
+ *   用官方规则的世界照旧写 1 / 2,一字不差。
+ *   4 = 规则按第 2 版以后的换算推(edits.rules.calc,civ/ruleSet.ts):不认得换算版本的版本会按第 1 版换、推出另一段历史,所以写成 4,
+ *   让那些版本提示更新页面;按第 1 版换的照旧写 3。认得格式 4 的版本读到比自己新的换算版本(calc 大于 tuning.ts 的 TUNING_CALC)也不读,
+ *   提示更新页面。1–4 都照读(saveFormatOf 定写哪一版)
  * - generator:生成器版本(edits.ts 的 GENERATOR_VERSION);和当前的不同 = 同样的参数可能生成不同的世界
  * - check:地形的短哈希(worldCheck);读档生成完再算一遍,对不上也说明地形变了。两种情况都照样打开,
  *   提示"改过的名字会尽量套上"(稳定键按州、地块定位,地形变化不大时大多还能对上)
@@ -55,7 +58,9 @@
  * - edits.rules(可选):这个世界用的一套规则(civ/ruleSet.ts),整套存下(名字、第几版、基于谁、署名、介绍、改过的规则项、地貌的叫法、本机编号),
  *   `{ "id": "rmh3k2x9a4f", "name": "战乱年代", "version": 2, "values": { "war.odds": 2, "war.length": [3, 20] }, "biomes": { "temperateDesert": "灰烬荒原" } }`;
  *   自包含:本机删了这一套、作者出了新版,世界照样一模一样。和官方一样(没改规则项、没改地貌的叫法)时不写;写了的存档是格式 3(见上)。
- *   读档时过 cleanRuleSet:认不出的项丢掉、超出范围的拉回来、太长的字截断,几处提示并成一句
+ *   建世界时盖上的换算版本(规则项按第几版换成推演的旋钮)记在 `"calc": 2`;第 1 版不写(加这一项以前的都是第 1 版),写了的是格式 4(见上):
+ *   换算以后加强了,这个世界照样按它建成时的那一版推,历史不变。
+ *   读档时过 cleanRuleSet(world):认不出的项丢掉、超出范围的拉回来、太长的字截断,几处提示并成一句;换算版本认不出的按第 1 版
  * - edits.civSeed(可选):文明种子(edits.ts 文件头"文明种子"),`52817`;等于地图种子时不写(加这一项以前的存档都没写)。
  *   读档时过 cleanCivSeed:不是整数的去掉(按地图种子推),提示一句
  * - edits.map(可选):在别的世界的地图上新开的历史,用的是哪张地图(edits.ts 文件头"文明种子"),
@@ -119,7 +124,8 @@ import { MONTHS_MAX, cleanEra, cleanMonthName, cleanMonthNames, cleanMonths, sam
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins } from './civ/frontier';
 import { cleanCalamity } from './civ/calamity';
 import { SIGNATURE_MAX, cleanSignature } from './signature';
-import { RULES_FILE_ERROR, cleanRuleSet, isOfficialRules, isRulesFileLike, ruleNotesLine, sameRuleSet, worldRules } from './civ/ruleSet';
+import { RULES_FILE_ERROR, cleanRuleSet, isOfficialRules, isRulesFileLike, ruleNotesLine, sameRuleSet, worldCalc, worldRules, worldTuning } from './civ/ruleSet';
+import { TUNING_CALC } from './civ/tuning';
 
 export { SIGNATURE_MAX, SIGNATURE_UNITS, cleanSignature } from './signature';
 
@@ -128,17 +134,23 @@ export const SAVE_APP = '文明与地图';
  * 存档格式版本:读得了的最新一版(见文件头 format)。加一时注意:旧版网站读不了更新格式的存档,打开文件、分享链接读进来的存档已经换成了现在的格式
  * (saveFormatOf 按内容定:用得着新格式的才写新的),「看原样」(ui/oldSite.ts)交给旧版网站的是那一版自己存的那一份,格式是它认得的。
  * 带规则的世界(格式 3)只有认得格式 3 的版本才存得出来,交回那一版的旧网站照样认得;万一交给了不认得的版本,那边提示刷新、不读,
- * 不会把它当成官方规则的世界推出另一段历史(所以不能为了让旧版本打开而去掉规则、换回 1 或 2)
+ * 不会把它当成官方规则的世界推出另一段历史(所以不能为了让旧版本打开而去掉规则、换回 1 或 2)。格式 4(换算第 2 版以后的规则)同理
  */
-export const SAVE_FORMAT = 3;
+export const SAVE_FORMAT = 4;
 /** 只到年初的存档写的格式(加年内第几格以前的那一版,旧版本照常打开) */
 const SAVE_FORMAT_YEARS = 1;
 /** 有落在年中的时刻的存档写的格式(加规则以前的那一版) */
 const SAVE_FORMAT_TICKS = 2;
+/** 用了非官方规则、按第 1 版换算的存档写的格式(加换算版本以前的那一版) */
+const SAVE_FORMAT_RULES = 3;
 
-/** 存档该写哪一版格式:用了非官方规则 = 3;修改里有落在年中的时刻(第几格不是 0)= 2;都没有 = 1(见文件头 format) */
-export function saveFormatOf(edits: WorldEdits): 1 | 2 | 3 {
-  if (!isOfficialRules(edits.rules)) return SAVE_FORMAT;
+/**
+ * 存档该写哪一版格式:规则按第 2 版以后的换算推(改了规则项、记着 calc)= 4;用了非官方规则 = 3;
+ * 修改里有落在年中的时刻(第几格不是 0)= 2;都没有 = 1(见文件头 format)
+ */
+export function saveFormatOf(edits: WorldEdits): 1 | 2 | 3 | 4 {
+  if (worldTuning(edits.rules) && worldCalc(edits.rules) > 1) return SAVE_FORMAT;
+  if (!isOfficialRules(edits.rules)) return SAVE_FORMAT_RULES;
   const iv = (list: readonly Intervention[] | undefined) => !!list?.some((v) => v.fromTick);
   const b = edits.branches;
   const sub =
@@ -153,7 +165,7 @@ export function saveFormatOf(edits: WorldEdits): 1 | 2 | 3 {
 
 export interface SaveFile {
   app: '文明与地图';
-  format: 1 | 2 | 3;
+  format: 1 | 2 | 3 | 4;
   /** 生成器版本(GENERATOR_VERSION) */
   generator: number;
   seed: number;
@@ -919,11 +931,15 @@ export function parseSave(text: string): ParseResult {
   // 天灾:多 / 很多,认不出的按平常
   const calamity = cleanCalamity(E.calamity);
   if (E.calamity !== undefined && !calamity) warnings.push('天灾设定认不出来,按平常推演');
-  // 规则:过 cleanRuleSet(认不出的丢、超出范围的拉回来……),几处提示并成一句;清理完和官方一样的不留
-  const ruleRead = cleanRuleSet(E.rules);
+  // 规则:过 cleanRuleSet(认不出的丢、超出范围的拉回来……;世界里的那一套,换算版本照留),几处提示并成一句;清理完和官方一样的不留
+  const ruleRead = cleanRuleSet(E.rules, { world: true });
   const rulesNote = ruleNotesLine(ruleRead.notes);
   if (rulesNote) warnings.push(rulesNote);
   const rules = ruleRead.rules && !isOfficialRules(ruleRead.rules) ? ruleRead.rules : undefined;
+  // 规则按比现在新的换算推:这一版推不出它的历史,不读(和格式更新一样提示刷新)
+  if (worldTuning(rules) && worldCalc(rules) > TUNING_CALC) {
+    return { ok: false, error: `这个存档来自更新版本的「文明与地图」(规则换算第 ${worldCalc(rules)} 版),请刷新页面换到最新版再打开` };
+  }
   // 文明种子:不是整数的按地图种子推
   const civSeed = cleanCivSeed(E.civSeed);
   if (E.civSeed !== undefined && civSeed === undefined) warnings.push('文明种子认不出来,按地图种子推演');
@@ -1296,7 +1312,7 @@ export function editsLost(local: SaveFile, incoming: SaveFile): number {
     }
     // 规则整套算一处
     if (k === 'rules') {
-      if (!sameRuleSet(lv, iv)) n++;
+      if (!sameRuleSet(lv, iv, true)) n++;
       continue;
     }
     if (k === 'months') {

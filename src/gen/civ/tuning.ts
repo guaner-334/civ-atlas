@@ -39,6 +39,28 @@ export type TuningValue = number | readonly [number, number] | 'never' | 'off';
 export type TuningValues = { readonly [id: string]: TuningValue };
 
 // ---------------------------------------------------------------------------
+// 换算版本
+
+/**
+ * 规则项换成旋钮的换算版本(第几版;换算表在 tuningPatch.ts):滑条上同一档换出来的旋钮变了(加强一项、一项多连改几处)就加一,
+ * 以前各版的换算原样留着。官方值那一档在每一版里都什么也不改,官方规则的世界和换算版本无关。
+ * 一个世界建成的那一刻用的是哪一版,记在它的那套规则上(ruleSet.ts 的 RuleSet.calc;没记 = 第 1 版),之后一直照那一版推:
+ * 换算改了,已经建好的世界照样推出原来的历史;新建的世界、并排试推本机的和别人分享的规则,用最新的一版
+ */
+export const TUNING_CALC = 1;
+
+/** 推演要的那部分:改过的规则项 + 按第几版换算 */
+export interface WorldTuning {
+  readonly values: TuningValues;
+  readonly calc: number;
+}
+
+/** 换算版本:正整数;别的(没有、不是整数、小于 1)= undefined */
+export function cleanCalc(raw: unknown): number | undefined {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 ? raw : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // 项
 
 interface ItemBase {

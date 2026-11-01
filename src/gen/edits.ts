@@ -348,6 +348,8 @@
  * WorldEdits.rules(可选,没有 = 官方规则):这个世界用的一套规则(civ/ruleSet.ts),整套存在世界里(名字、第几版、基于谁、改过的规则项、地貌的叫法……),
  * 推演时改过的规则项换成一套旋钮(civ/tuningPatch.ts → CivParams.knobs)。一个世界只用一套:和拓荒一样新建世界时定,创建以后不再改;
  * 新建界面里先按官方规则推(只看星球),创建以后才按它推。在这张地图上打造新文明(newHistoryEdits)时跟着走。
+ * 定规则的那一刻盖上当时的换算版本(rules.calc,civ/tuning.ts 的 TUNING_CALC;第 1 版不写):换算以后加强了,这个世界照样按它那一版推;
+ * 在这张地图上打造新文明、用新版另存一份重推都是新世界,按现在的版本。
  * 和官方一样的不写,不写时推演和没有这一项逐字节一样。
  *
  * ## 文明种子
@@ -623,7 +625,7 @@ import type { NameMix } from './names/mix';
 import type { Era, MonthNames } from './era';
 import type { Frontier, Origins } from './civ/frontier';
 import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
-import type { RuleSet } from './civ/ruleSet';
+import { stampCalc, type RuleSet } from './civ/ruleSet';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
 export const GENERATOR_VERSION = 57;
@@ -1212,7 +1214,8 @@ export function newHistoryEdits(base: WorldEdits, o: NewHistoryOptions): WorldEd
   if (o.nameMix) out.nameMix = { ...o.nameMix };
   const endYear = cleanEndYear(o.endYear);
   if (endYear) out.endYear = endYear;
-  if (o.rules) out.rules = JSON.parse(JSON.stringify(o.rules)) as RuleSet;
+  // 新开的历史是一个新世界:规则照现在的换算推(盖上现在的换算版本)
+  if (o.rules) out.rules = stampCalc(JSON.parse(JSON.stringify(o.rules)) as RuleSet);
   out.civSeed = o.civSeed;
   out.map = cleanMapRef({ sum: o.sum, from: cleanMapRef(base.map)?.from ?? o.from });
   return out;

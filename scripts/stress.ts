@@ -45,7 +45,7 @@ import { fuzzResume, fuzzUpheavalResume, type FuzzCase } from './lib/resumeFuzz'
 import { historyProblems, oddNumbers } from './lib/historyCheck';
 import { REGENCY_KINDS } from '../src/gen/civ/regents';
 import { REFORM_COUP, REFORM_RESTORE } from '../src/gen/civ/councilRules';
-import { TUNING_ITEMS, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
+import { TUNING_CALC, TUNING_ITEMS, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
 import { tuningPatch } from '../src/gen/civ/tuningPatch';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
@@ -705,7 +705,7 @@ const tuneRun = (label: string, values: TuningValues, seed: number, cells?: numb
   const t0 = performance.now();
   let civ: Civ;
   try {
-    civ = generateCiv(w, { knobs: tuningPatch(values) });
+    civ = generateCiv(w, { knobs: tuningPatch(values, TUNING_CALC) });
   } catch (e) {
     process.exitCode = 1;
     console.log(`{"规则项":"${label}"}`, 'seed', seed, `推演出错!${String((e as Error)?.stack ?? e).slice(0, 400)}`);
