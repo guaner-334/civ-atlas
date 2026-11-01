@@ -7,15 +7,17 @@
  */
 import { MULT_TEXT, TUNING_ITEMS, cleanTuning, fmt, spanText, unitText, type TuningGroup, type TuningItem, type TuningValue } from './tuning';
 
-/** 七组(照界面上的先后) */
-export const TUNING_GROUPS: readonly { readonly id: TuningGroup; readonly name: string }[] = [
-  { id: 'realm', name: '立国与疆域' },
-  { id: 'war', name: '战争' },
-  { id: 'split', name: '分与合' },
-  { id: 'diplo', name: '邦交' },
-  { id: 'folk', name: '民族与迁徙' },
-  { id: 'disaster', name: '天灾与人口' },
-  { id: 'court', name: '朝廷与人物' },
+/**
+ * 七组(照界面上的先后):组名;一句话说这组管什么(desc);note = 补一句不在这组的(调规则的页电脑上接在 desc 后面,手机上不写)
+ */
+export const TUNING_GROUPS: readonly { readonly id: TuningGroup; readonly name: string; readonly desc: string; readonly note?: string }[] = [
+  { id: 'realm', name: '立国与疆域', desc: '部落什么时候立国、国家挑哪些地扩张、什么时候出海，国都管得到多远。', note: '新建世界里的「拓荒」管扩张快慢、地形难走，不在这里。' },
+  { id: 'war', name: '战争', desc: '开战、打仗、议和，还有城池在战火里的兴废。', note: '新建世界里的「拓荒」管扩张快慢，不在这里。' },
+  { id: 'split', name: '分与合', desc: '分裂、复国、大崩解、民变、改朝换代：大国怎么碎开，碎了又怎么立起来。' },
+  { id: 'diplo', name: '邦交', desc: '结盟、称臣、立约、和亲，还有背盟、毁约、藩属自立。' },
+  { id: 'folk', name: '民族与迁徙', desc: '异族同化、一族分出新的一族，还有整族远徙的大迁徙。' },
+  { id: 'disaster', name: '天灾与人口', desc: '瘟疫、饥荒，城的人口长得快慢。', note: '新建世界里的「天灾 多 / 很多」再乘在这上面。' },
+  { id: 'court', name: '朝廷与人物', desc: '君主在位多久、活到几岁，权臣、政变、争储、复辟这些朝堂上的事。' },
 ];
 
 /**
