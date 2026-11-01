@@ -127,8 +127,8 @@ export function tuningValueText(x: TuningItem, v: TuningValue): string {
   return unitText(x, v as number);
 }
 
-/** 摘要里一项怎么写("战争 ×2""不分裂""议和后 2 年不再开战") */
-function briefOf(x: TuningItem, v: TuningValue): string {
+/** 摘要里一项怎么写("战争 ×2""不分裂""议和后 2 年不再开战";并排试推推不下去时说是哪几项也这样写) */
+export function tuningBrief(x: TuningItem, v: TuningValue): string {
   const t = tuningText(x);
   if (x.kind === 'mult') return v === 0 && t.offText ? t.offText : `${t.short} ${MULT_TEXT[v as number] ?? `×${fmt(v as number)}`}`;
   if (x.kind === 'range') {
@@ -147,7 +147,7 @@ export function tuningSummary(values: unknown, max = 3): string {
   const v = cleanTuning(values).values;
   const list = [...TUNING_ITEMS.filter((x) => x.common), ...TUNING_ITEMS.filter((x) => !x.common)].filter((x) => x.id in v);
   if (!list.length) return '照官方';
-  const shown = list.slice(0, max).map((x) => briefOf(x, v[x.id]));
+  const shown = list.slice(0, max).map((x) => tuningBrief(x, v[x.id]));
   return `改了 ${list.length} 项：${shown.join('、')}${list.length > max ? '……' : ''}`;
 }
 
