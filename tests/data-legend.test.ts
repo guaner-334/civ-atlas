@@ -84,10 +84,13 @@ describe('数据图层图例', () => {
     }
   });
 
-  it('生态 14 类、气候 14 类分组齐全', () => {
+  it('生态 15 类(含湿地)、气候 14 类分组齐全', () => {
     const biomes = dataLegend('biomes');
     expect(biomes.kind).toBe('keys');
-    if (biomes.kind === 'keys') expect(biomes.keys).toHaveLength(14);
+    if (biomes.kind === 'keys') {
+      expect(biomes.keys).toHaveLength(15);
+      expect(biomes.keys.map((k) => k.name)).toContain('湿地');
+    }
     const climate = dataLegend('climate');
     expect(climate.kind).toBe('climate');
     if (climate.kind === 'climate') {

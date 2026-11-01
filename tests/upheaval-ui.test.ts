@@ -265,6 +265,7 @@ function raster(W: number, H: number): Raster {
     ice: new Float32Array(n),
     iceConc: new Uint8Array(n),
     iceTone: new Uint8Array(n),
+    wet: new Uint8Array(n),
     gully: new Float32Array(n),
   } as unknown as Raster;
 }
@@ -307,7 +308,7 @@ describe('地形大事 · 主图补丁', () => {
   /** 拷一份(各字段另开数组) */
   const copy = (r: Raster): Raster => composeRaster(r, [{ W: r.w, H: r.h, x0: 0, y0: 0, w: 0, h: 0, f32: {}, u8: {} }]);
   const F32 = ['elev', 'temp', 'precip', 'ice', 'gully'] as const;
-  const U8 = ['water', 'biome', 'iceConc', 'iceTone'] as const;
+  const U8 = ['water', 'biome', 'iceConc', 'iceTone', 'wet'] as const;
   const same = (x: Raster, y: Raster) => {
     for (const k of [...F32, ...U8]) expect(Array.from(x[k]!), k).toEqual(Array.from(y[k]!));
     expect(x.veinLines).toEqual(y.veinLines);

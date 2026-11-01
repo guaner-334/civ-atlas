@@ -13,20 +13,22 @@ import { diedInExile, treatyEntries, treatyPeriod, zoneOfRegionAt, zoneResidents
 import { neutralZones } from '../src/render/civ/neutral';
 import { stripeAt } from '../src/render/civ/territory';
 
-// 种子 158(GENERATOR_VERSION 56 的历史):三国以上立约、设了中立地的一份(three),有人被放逐到中立地;
-// 设了中立地又背约的一份(broken)在种子 1 里。第 56 版种子 1–200 里三样都有的一个也没有(三国立约设中立地的只有 158、159、177),分两个世界找
-// (第 48 版是种子 13,第 47 版是种子 60,第 46 版是种子 50,以前是种子 10、31)
-const world = generateWorld({ ...DEFAULT_PARAMS, seed: 158 });
+// 种子 26(GENERATOR_VERSION 57 湿地以后的历史):三国以上立约、设了中立地的一份(three),有人被放逐到中立地;
+// 设了中立地又背约的一份(broken)在种子 11 里。第 57 版种子 1–100 里三国立约设中立地的只有 26(没有背约的),分两个世界找
+// (第 56 版是种子 158、1,第 48 版是种子 13,第 47 版是种子 60,第 46 版是种子 50,以前是种子 10、31)
+const SEED = 26;
+const SEED_B = 11;
+const world = generateWorld({ ...DEFAULT_PARAMS, seed: SEED });
 const civ = generateCiv(world);
 const book = treatyBook(civ);
 const three = book.treaties.find((x) => x && x.parties.length >= 3 && x.zone >= 0)!;
 // 出奔邻国的(Person.exile.to,没有中立地)不算
 const exiled = (civ.people ?? []).filter((x) => x.exile && x.exile.zone >= 0);
-const civB = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: 1 }));
+const civB = generateCiv(generateWorld({ ...DEFAULT_PARAMS, seed: SEED_B }));
 const broken = treatyBook(civB).treaties.find((x) => x && x.zone >= 0 && x.breaches.length > 0)!;
 
 describe('立约与中立地的界面', () => {
-  it('种子 158 里有三国立约、设了中立地的约,有人被放逐到中立地;种子 1 里有设了中立地又背约的约', () => {
+  it(`种子 ${SEED} 里有三国立约、设了中立地的约,有人被放逐到中立地;种子 ${SEED_B} 里有设了中立地又背约的约`, () => {
     expect(three).toBeTruthy();
     expect(broken).toBeTruthy();
     expect(exiled.length).toBeGreaterThan(0);

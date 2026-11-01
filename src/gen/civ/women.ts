@@ -165,9 +165,15 @@ export function debutSex(x: Person, ctx: WomenCtx): 'male' | 'female' | undefine
 
 /**
  * 谁是女的(只定、不改):people = 排好编号、连好父亲的人物(下标 = Person.id);keepMale = 照旧是男的
- * (临朝的太后的丈夫里出道时说不准的那几位,people.ts 给)
+ * (临朝的太后的丈夫里出道时说不准的那几位,people.ts 给)。
+ * parentOf = 父亲是谁:不给 = 按 Person.parent 的编号在 people 里找;people.ts 排编号以前先认一遍时按它连好的世系给
  */
-export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: ReadonlySet<Person> = new Set()): Set<Person> {
+export function pickWomen(
+  people: readonly Person[],
+  ctx: WomenCtx,
+  keepMale: ReadonlySet<Person> = new Set(),
+  parentOf: (x: Person) => Person | undefined = (x) => (x.parent !== undefined ? people[x.parent] : undefined),
+): Set<Person> {
   const { polities, tag, knobs } = ctx;
   const { FERTILE, GEN_AGE, BRIDGE_GAP, POSTHUMOUS } = knobs.get(WOMEN_KNOBS);
   const women = new Set<Person>();
@@ -255,9 +261,10 @@ export function pickWomen(people: readonly Person[], ctx: WomenCtx, keepMale: Re
     else {
       const list = reigns[x.polity];
       const prev = list[list.indexOf(x) - 1];
-      if (prev && (prev.dynasty ?? 0) === (x.dynasty ?? 0) && x.parent !== undefined) {
-        if (x.parent === prev.id) ok = fits(x, rule, x.from!, prev, ctx.reignOf.get(x), 'child');
-        else if (prev.parent !== undefined && x.parent === prev.parent) ok = fits(x, rule, x.from!, prev, ctx.reignOf.get(x), 'sib');
+      const px = parentOf(x);
+      if (prev && (prev.dynasty ?? 0) === (x.dynasty ?? 0) && px) {
+        if (px === prev) ok = fits(x, rule, x.from!, prev, ctx.reignOf.get(x), 'child');
+        else if (px === parentOf(prev)) ok = fits(x, rule, x.from!, prev, ctx.reignOf.get(x), 'sib');
       }
     }
     if (ok && u < rate) women.add(x);

@@ -689,7 +689,8 @@ const TUNE_OFF: Record<string, (c: Civ) => number> = {
   'diplo.breach': (c) => c.annals.filter((e) => e.kind === 'breach').length,
   'folk.treks': (c) => c.migrations?.length ?? 0,
   'folk.diverge': (c) => c.annals.filter((e) => e.kind === 'diverge').length,
-  'folk.flight': (c) => c.annals.filter((e) => e.kind === 'migrate').length,
+  // 避兵外迁的是被打下来的那一族(游牧国家随征服迁来的本族是另一回事,不归这一项:迁的是征服者自己那一族)
+  'folk.flight': (c) => c.annals.filter((e) => e.kind === 'migrate' && c.polities[e.war]?.culture !== e.a).length,
   'disaster.plague': (c) => c.annals.filter((e) => e.kind === 'plague' && e.cause !== 'pandemic').length,
   'disaster.famine': (c) => c.annals.filter((e) => e.kind === 'famine').length,
   'court.strongman': (c) => c.annals.filter((e) => e.kind === 'regent' && strongKinds.has(e.b)).length,

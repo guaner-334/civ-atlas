@@ -14,7 +14,7 @@ function finish(d: { raster: Raster; job: Parameters<typeof gullyHeights>[0] & P
   return d.raster;
 }
 
-const FIELDS = ['elev', 'temp', 'precip', 'water', 'biome', 'cell', 'ice', 'iceConc', 'iceTone', 'gully', 'bank', 'vein'] as const;
+const FIELDS = ['elev', 'temp', 'precip', 'water', 'biome', 'cell', 'ice', 'iceConc', 'iceTone', 'wet', 'gully', 'bank', 'vein'] as const;
 
 /** 两张主图逐位比:第一个不一样的字段、像素(一样 = '') */
 function rasterDiff(a: Raster, b: Raster): string {
@@ -352,7 +352,7 @@ describe('编辑地形 · 一段一段铺', () => {
     const { w: W, h: H } = cover.g;
     const R = w.width / (2 * Math.PI);
     const { dTile, jTile } = noiseTiles(7);
-    const blank = (): Raster => ({ w: W, h: H, scale: 1, elev: new Float32Array(W * H), temp: new Float32Array(W * H), precip: new Float32Array(W * H), water: new Uint8Array(W * H), biome: new Uint8Array(W * H), cell: d.raster.cell, ice: new Float32Array(W * H), iceConc: new Uint8Array(W * H), iceTone: new Uint8Array(W * H), wrap: true });
+    const blank = (): Raster => ({ w: W, h: H, scale: 1, elev: new Float32Array(W * H), temp: new Float32Array(W * H), precip: new Float32Array(W * H), water: new Uint8Array(W * H), biome: new Uint8Array(W * H), cell: d.raster.cell, ice: new Float32Array(W * H), iceConc: new Uint8Array(W * H), iceTone: new Uint8Array(W * H), wet: new Uint8Array(W * H), wrap: true });
     const shade = (rects: (PixelBox | null)[]) => {
       const out = blank();
       const job = newGullyJob(subSeed(7, 'gully'), W, H, R, 1);
@@ -397,6 +397,7 @@ describe('编辑地形 · 先比出框、再决定拷不拷补丁', () => {
       ice: f(4),
       iceConc: u(3),
       iceTone: u(4),
+      wet: u(7),
       gully: f(5),
       bank: u(5),
       vein: u(6),

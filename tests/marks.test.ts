@@ -616,7 +616,8 @@ function caseOf(seed: number): Case {
 describe.each([7, 2024])('作者标记 · 在这个世界里 · seed=%i', (seed) => {
   it('一个点在哪:城旁边 = 城和州;海上 = 那片海或"海上";写成一句', () => {
     const { world, raster, civ } = caseOf(seed);
-    const s = civ.settlements.find((x) => x.founded <= civ.endYear)!;
+    // 推演结束时还在的城(一点在废城上、旁边有活着的城时,先认活着的那座)
+    const s = civ.settlements.find((x) => x.founded <= civ.endYear && (x.ended === undefined || x.ended > civ.endYear))!;
     const at: [number, number] = [world.mesh.x[s.cell], world.mesh.y[s.cell]];
     const spot = markSpot(civ, world, raster, at, civ.endYear);
     expect(spot.city).toBe(s.id);

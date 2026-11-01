@@ -16,10 +16,11 @@ import { keepWhy } from '../src/ui/keepInfo';
 import { IV_ROYAL_AGE, marryChoice, marryPartners, regentChoice } from '../src/ui/newIvInfo';
 
 /**
- * 2:改出来的共和、军政府、复辟都有;3、7:改共和(一个种子里没有的,换别的种子照样找得到就行;
- * GENERATOR_VERSION 56 滚雪球以后军政府、复辟少见了,种子 1–13 里两样都有的只有 2 号,以前是 3、6、7)
+ * 47:改出来的共和、军政府;13:改共和、复辟(一个种子里没有的,换别的种子照样找得到就行;
+ * GENERATOR_VERSION 56 滚雪球以后军政府、复辟少见了,种子 1–13 里两样都有的只有 2 号,用的是 2、3、7,再以前是 3、6、7;
+ * 57 湿地以后种子 1–80 里照下面的条件找得到军政府那一段的只有 47、63、72,复辟那一段的只有 13、21、24、62、76,两样都有的一个也没有)
  */
-const SEEDS = [2, 3, 7];
+const SEEDS = [47, 13];
 const civs = new Map<number, Civ>();
 const civOf = (seed: number) => {
   let c = civs.get(seed);

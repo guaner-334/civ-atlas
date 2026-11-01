@@ -13,7 +13,7 @@ import { ERA_COL, PRACTICES, Practice, hasPractice, practiceCards, practiceMask,
 import { farRegion, practicesAt } from '../src/gen/civ/story/practiceInfo';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { developmentEntries } from '../src/gen/civ/story/developmentText';
-import { polityName } from '../src/gen/civ/growth';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { courtLocks, courtView } from '../src/ui/courtInfo';
 import { resumeCiv } from '../src/gen/civ/modules';
 
@@ -132,7 +132,10 @@ describe('时代做法', () => {
     const civ = civOf(7);
     const dev = civ.development!;
     // 挑第 3000 年州最多的国家,把它国都那州从第 2500 年起的运输、信息改到铁路、电报那一档(只改快照,看编年史怎么写)
-    const P = civ.polities.find((q) => polityName(q, 3000) === '埃维里亚帝国')!;
+    // (按条件现找:以前写死成埃维里亚帝国,GENERATOR_VERSION 57(湿地)以后第 3000 年没有叫这个名字的国家了,州最多的是有鹰皇朝)
+    const sizes = new Map<number, number>();
+    for (const o of ownersAt(civ, 3000).polity) if (o >= 0) sizes.set(o, (sizes.get(o) ?? 0) + 1);
+    const P = civ.polities[[...sizes].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]];
     const enters = dev.events.filter((e) => e.kind === 'enter' && e.polity === P.id && e.year >= 2500);
     const snaps = dev.snaps.map((s, k) => {
       if (dev.snapYears[k] < 2500) return s;
@@ -159,8 +162,12 @@ describe('时代做法', () => {
 
   it('朝政页:还没有常备军、文官考选时,监军禁军、参半铨选画斜纹,下面一句写要等什么;都有了就不画', () => {
     const civ = civOf(7);
-    // (GENERATOR_VERSION 56 以后博戈维纳到第 3000 年已改制成共和国,以前是王国)
-    const P = civ.polities.find((q) => polityName(q, 3000) === '博戈维纳共和国')!;
+    // 第 1850 年以前立国、到第 3000 年还在,第 1850 年有了户籍、还没有常备军和文官考选,第 3000 年三样都有了的头一国
+    // (按条件现找:以前写死成博戈维纳(GENERATOR_VERSION 56 以后到第 3000 年已改制成共和国,以前是王国);
+    // 57(湿地)以后第 3000 年没有博戈维纳共和国了,这样的国家有兹拉季纳、塞雷尼亚、科里斯、有鹰几国)
+    const three = (m: number | null) => [Practice.Register, Practice.Army, Practice.Exam].map((x) => m !== null && hasPractice(m, x));
+    const P = civ.polities.find((q) => q.founded < 1850 && q.ended === undefined && `${three(practicesAt(civ, q.id, 1850))}` === 'true,false,false' && three(practicesAt(civ, q.id, 3000)).every(Boolean))!;
+    expect(P, '有这样一国').toBeDefined();
     const at = (y: number) => courtLocks(civ, P.id, y, courtView(civ, P.id, y).rules);
     expect(at(1850)).toEqual({
       tax: [],

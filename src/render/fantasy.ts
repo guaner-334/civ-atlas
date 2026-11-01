@@ -4016,6 +4016,7 @@ export const G_HILL = 1;
 export const G_DUNE = 5;
 export const G_TUFT = 6;
 export const G_VOLCANO = 7;
+export const G_MARSH = 8;
 
 /** 林块种类:0 无 / 1 阔叶 / 2 针叶 / 3 雨林 */
 const F_BROAD = 1;
@@ -4024,8 +4025,8 @@ const F_JUNGLE = 3;
 const F_KIND = { broad: F_BROAD, pine: F_PINE, jungle: F_JUNGLE } as const;
 /** 按群落编号:[林块种类, 成林门槛](见 BIOMES[].forest);不长林子的是 undefined */
 const FOREST_OF: readonly ([kind: number, threshold: number] | undefined)[] = BIOMES.map((b) => (b.forest ? [F_KIND[b.forest.kind], b.forest.threshold] : undefined));
-/** 按群落编号:不在林子里的地块撒的小符号(G_DUNE / G_TUFT,见 BIOMES[].ground);0 = 不撒 */
-const GROUND_OF: readonly number[] = BIOMES.map((b) => (b.ground === 'dune' ? G_DUNE : b.ground === 'tuft' ? G_TUFT : 0));
+/** 按群落编号:不在林子里的地块撒的小符号(G_DUNE / G_TUFT / G_MARSH,见 BIOMES[].ground);0 = 不撒 */
+const GROUND_OF: readonly number[] = BIOMES.map((b) => (b.ground === 'dune' ? G_DUNE : b.ground === 'tuft' ? G_TUFT : b.ground === 'marsh' ? G_MARSH : 0));
 
 export type Plan = { glyphs: Glyph[]; forest: Uint8Array };
 
@@ -4364,7 +4365,7 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
   }
   hCand.sort((a, b) => e0[b] + ridge[b] - (e0[a] + ridge[a]));
 
-  // ---- 沙丘 / 草丛候选:荒漠、草原、苔原里(不在林子里)的地块 ----
+  // ---- 沙丘 / 草丛 / 沼泽候选:荒漠、草原、苔原、湿地里(不在林子里)的地块 ----
   const dCand: number[] = [];
   const dKind = new Int8Array(n);
   for (let i = 0; i < n; i++) {
@@ -4528,17 +4529,17 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
       glyphs.push({ x: x[i], y: y[i], kind: G_HILL, s, v: rnd(i, R_HILL_LEAN), a: 0, c: 0, cell: i, z });
     }
 
-    // ---- 沙漠 / 草原:稀疏点缀,每升一级密一点 ----
+    // ---- 沙漠 / 草原 / 湿地:点缀(湿地密一些),每升一级密一点 ----
     for (const i of dCand) {
       if (used[i]) continue;
       const kind = dKind[i];
-      const dens = kind === G_DUNE ? 0.14 : 0.16;
+      const dens = kind === G_DUNE ? 0.14 : kind === G_MARSH ? MARSH_DENS : 0.16;
       if (rnd(i, R_DOT_PICK) > perCell(Math.min(1, dens * (1 + 0.9 * tier)))) continue;
       let px = x[i] + (rnd(i, R_DOT_X) - 0.5) * spacing * 1.2;
       const py = y[i] + (rnd(i, R_DOT_Y) - 0.5) * spacing * 1.2;
       // 东西相连:挪出左右边的放回图里(画的时候挨着边的会在另一边再画一份)
       px = px < 0 ? px + WR : px >= WR ? px - WR : px;
-      const rad = kind === G_DUNE ? 5 : 2.6;
+      const rad = kind === G_DUNE ? 5 : kind === G_MARSH ? MARSH_RAD : 2.6;
       if (near(px, py, rad)) continue;
       add(px, py, rad);
       used[i] = 1;
@@ -5013,6 +5014,9 @@ export function drawGlyph(ctx: CanvasRenderingContext2D, g: Glyph, gx: number, g
       ctx.stroke();
       break;
     }
+    case G_MARSH:
+      drawMarsh(ctx, gx, gy, g.v, S);
+      break;
     case G_TUFT: {
       ctx.beginPath();
       ctx.moveTo(gx - 1.25 * S, gy - 1.25 * S);
@@ -5027,6 +5031,45 @@ export function drawGlyph(ctx: CanvasRenderingContext2D, g: Glyph, gx: number, g
       break;
     }
   }
+}
+
+/** 沼泽符号的疏密(默认精细度下一个地块放一个的概率,往后每级放大再密一点)和占位半径(世界单位) */
+const MARSH_DENS = 0.85;
+export const MARSH_RAD = 2.3;
+/** 沼泽的水纹颜色(和河一路的蓝) */
+const MARSH_WATER = 'rgba(58,104,138,';
+
+/**
+ * 沼泽:老地图上的画法 —— 两三道长短不一的横水纹,上面一小簇草(三五根往上散开的短线)。
+ * v(0–1)决定左右翻一下、草几根、水纹几道,一片沼泽里不全长一个样
+ */
+function drawMarsh(ctx: CanvasRenderingContext2D, gx: number, gy: number, v: number, S: number) {
+  const flip = v < 0.5 ? -1 : 1;
+  // 水纹
+  ctx.beginPath();
+  ctx.moveTo(gx - 2.3 * S, gy);
+  ctx.lineTo(gx + 2.3 * S, gy);
+  ctx.moveTo(gx + flip * 0.4 * S, gy + 0.95 * S);
+  ctx.lineTo(gx + flip * 2.9 * S, gy + 0.95 * S);
+  if (v > 0.3 && v < 0.8) {
+    ctx.moveTo(gx - flip * 2.8 * S, gy + 0.9 * S);
+    ctx.lineTo(gx - flip * 1.0 * S, gy + 0.9 * S);
+  }
+  ctx.strokeStyle = MARSH_WATER + '0.8)';
+  ctx.lineWidth = 0.45 * S;
+  ctx.stroke();
+  // 草
+  const blades = v > 0.6 ? 5 : 4;
+  ctx.beginPath();
+  for (let b = 0; b < blades; b++) {
+    const t = b / (blades - 1) - 0.5; // −0.5 … 0.5
+    const h = (1.35 - 0.8 * Math.abs(t)) * S;
+    ctx.moveTo(gx + t * 0.7 * S, gy - 0.2 * S);
+    ctx.lineTo(gx + t * 2 * S, gy - 0.2 * S - h);
+  }
+  ctx.strokeStyle = INK_CSS + '0.55)';
+  ctx.lineWidth = 0.36 * S;
+  ctx.stroke();
 }
 
 /** 火山:平顶的锥(山口一圈椭圆)、背光面排线、山口冒出的一缕烟(几团往上飘、往右偏的烟卷) */

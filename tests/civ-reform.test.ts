@@ -17,8 +17,9 @@ import { evLabel, evType } from '../src/ui/timelineLayout';
 import { flagAt, flagBook } from '../src/gen/civ/story/flags';
 import { flagNote } from '../src/gen/civ/story/flagText';
 
-// 种子 2 是 GENERATOR_VERSION 56 以后补的(以前是 13):滚雪球以后复辟少见了,种子 1–13、2024 里只有 2 号有
-const SEEDS = [7, 2, 2024];
+// 种子 2 是 GENERATOR_VERSION 56 以后补的(以前是 13):滚雪球以后复辟少见了,种子 1–13、2024 里只有 2 号有;
+// 57(湿地)以后种子 1–20、2024 里只有 13 号有复辟(2 号没有了),换回 13
+const SEEDS = [7, 13, 2024];
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
   let w = worlds.get(seed);
@@ -151,7 +152,9 @@ describe('改制', () => {
   }, 120_000);
 
   it('接着推:在改制那一刻以后切开、存档读回、接着推,和一口气推完一样', () => {
-    for (const seed of [7, 13]) {
+    // GENERATOR_VERSION 57(湿地)以后 seed 7 没有改制(革命、政变、复辟)了(种子 1–20 里 4、6、9、11、13、14、18、20 有),
+    // 换成 18:头一回改制最早的(第 2028 年),切开以后接着推得最久
+    for (const seed of [18, 13]) {
       const w = world(seed);
       const full = civOf(seed);
       const e = full.annals.find((x) => x.kind === 'reform');

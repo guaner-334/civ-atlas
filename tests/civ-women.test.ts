@@ -63,7 +63,10 @@ describe.each([7, 2024])('推演里的女性 · seed=%i', (seed) => {
       expect(x.female).toBe(true);
       expect(x.maleName, x.name).toBeTruthy();
       expect(x.name).not.toBe(x.maleName);
-      if (createPersonNamer(seed, styleOf(c, x)).surnamed && c.polities[x.polity].eastern) expect(splitSurname(x.name)).toBe(splitSurname(x.maleName!));
+      // 名字照"家"的那一国起(父亲是别国君主的,照父亲那一国;women.ts 的 home)
+      const h = x.parent !== undefined && c.people![x.parent] ? c.people![x.parent].polity : x.polity;
+      const st = c.cultures[c.polities[h].culture]?.style || 'kingdom';
+      if (createPersonNamer(seed, st).surnamed && c.polities[h].eastern) expect(splitSurname(x.name), x.name).toBe(splitSurname(x.maleName!));
     }
     // 男的没有这两项
     for (const x of P.filter((y) => !y.female)) {

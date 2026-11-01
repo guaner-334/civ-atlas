@@ -99,8 +99,8 @@ export interface BiomeInfo {
   legend: boolean;
   /** 手绘风格:长什么林子;不写 = 不长 */
   forest?: BiomeForest;
-  /** 手绘风格:不在林子里的地块撒什么小符号,dune 沙丘 / tuft 草丛;不写 = 不撒 */
-  ground?: 'dune' | 'tuft';
+  /** 手绘风格:不在林子里的地块撒什么小符号,dune 沙丘 / tuft 草丛 / marsh 沼泽(水纹 + 草丛);不写 = 不撒 */
+  ground?: 'dune' | 'tuft' | 'marsh';
   /**
    * 写实风格:同一种群落里从暗到亮的七档颜色,取自 NASA「蓝色弹珠」(Blue Marble)卫星合成图(公有领域)上真实地区的陆地像素 ——
    * 每种群落挑几块典型地区(热带荒漠:撒哈拉、阿拉伯、澳洲中部;热带雨林:亚马孙、刚果、婆罗洲……),去掉雪,
@@ -384,12 +384,14 @@ export const BIOMES: readonly BiomeInfo[] = [
   {
     id: Biome.Wetland,
     name: '湿地',
-    real: hex('#4b6647'),
-    paint: hex('#b2bd98'),
-    // 还没有出现条件:目前不会生成
+    real: hex('#5c9c8e'),
+    paint: hex('#a9bca6'),
+    // 不按温度、降水查:按地势、排水、水的来路另算(gen/wetland.ts),盖在上面那些陆地群落上
     when: [],
-    legend: false,
-    habitability: 12, travelCost: 150, roadCost: 1.5, trekPace: 1.5, famineRisk: 0.8, soilFragility: 0.2,
+    legend: true,
+    ground: 'marsh',
+    // 宜居和草原、热带雨林一档:能渔猎、种稻,但要排水,远不如良田;难走、难修路
+    habitability: 35, travelCost: 150, roadCost: 1.5, trekPace: 1.5, famineRisk: 0.8, soilFragility: 0.2,
     grain: 0.5, pasture: 0, timber: 0.3, oil: 0.8,
     tags: ['wetland', 'wilds', 'bogIron', 'coalBasin'],
     frontier: 'wetland',

@@ -1019,6 +1019,29 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
   /** 太后是嫁来的宗室女的:娶她的人(照旧是男的,她才是人物) */
   const dowagerGrooms = new Set<Person>();
   const wctx0 = { knobs, seed: civ.seed, polities, tag, styleOf, namerOf: (p: Polity) => namerOf(styleOf(p)), rbase: base, reignOf, sons: sonsOf, usurped: new Map<Person, Person>(), retitle: () => {} };
+  // 出道时认不出男女的(继位的君主要按世系认先君是父亲还是兄弟):先照君主连一遍世系(只为在这里认男女,连出来的不留;
+  // 没即位的宗室换成副本,免得这里起的名字留在他们身上),照 pickWomen 同一个判法认。是女的同样不安排太后 ——
+  // 不然推到幼主即位以前她是女君,推过了这一刻她又被改成男的(接着推改了过去)
+  let early: { parentOf: Map<Person, Person>; orig: Map<Person, Person>; women: Set<Person> } | null = null;
+  const earlyLineage = () => {
+    if (early) return early;
+    const orig = new Map<Person, Person>();
+    const copy = (x: Son): Son => {
+      if (x.p.role === 'ruler') return x;
+      const p = { ...x.p };
+      orig.set(p, x.p);
+      return { ...x, p };
+    };
+    const sons = new Map([...sonsOf].map(([k, ss]) => [k, ss.map(copy)]));
+    const { parentOf } = buildLineage(polities, rulers, [], { tag, namerOf: (p) => namerOf(styleOf(p)), surnameOf: (r) => splitSurname(r.name), sons, maxAge: MAX_AGE });
+    return (early = { parentOf, orig, women: pickWomen(rulers.flat(), wctx0, new Set(), (x) => parentOf.get(x)) });
+  };
+  /** 幼主的父亲 H(出道时认不出的)是不是女的:没即位的宗室出道时就认得出;继位的君主照先连的世系认 */
+  const earlyFemale = (H: Person) => {
+    const E = earlyLineage();
+    const X = E.orig.get(H) ?? H;
+    return X.author === undefined && (debutSex(X, wctx0) ?? (E.women.has(X) ? 'female' : 'male')) === 'female';
+  };
   for (const s of spans) {
     const { g, pid, N } = s;
     if (g.kind !== 'minister' || g.iv !== undefined || N.author !== undefined) continue;
@@ -1030,6 +1053,10 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     const merging = !!F && (!!reignOf.get(F)?.seize || (seceded.has(F.polity) && rulers[F.polity][0] === F));
     const sex = F && !merging ? debutSex(F, wctx0) : undefined;
     if (sex === 'female') continue;
+    if (sex === undefined && !merging) {
+      const H = F ?? earlyLineage().parentOf.get(N);
+      if (H && earlyFemale(H)) continue;
+    }
     const mm = motherMatch(N, F);
     if (mm) {
       // 幼主的母亲本来就是嫁来的宗室女:太后就是她(生年、寿数照她自己的:幼主要生在她 16–45 岁之间、她要活过原定还政的那一年;
@@ -1176,20 +1203,18 @@ function peopleOnce(civ: PeopleInput, kills: Kills): { people: Person[]; ids: Ma
     for (const g of [...generals, ...ministers]) {
       if (g === F || g.name !== F.name || start(g) < F.from!) continue;
       if (g.polity !== F.polity && Math.abs(g.born - F.born) >= NAME_GAP) continue;
-      // 换一个他出道时他那一国还没人用的(只看那以前出道的:往后推不改他的名字)
+      // 换一个他出道时他那一国还没人用的、别国那以前出道的前后 NAME_GAP 年里出生的人也没用的(只看那以前出道的:往后推不改他的名字)
       const T = start(g);
       const taken = new Set([...rulers[g.polity], ...generals, ...ministers, ...princes].filter((o) => o.polity === g.polity && o !== g && start(o) <= T).map((o) => o.name));
       taken.add(F.name);
+      // 不和他、本国此前即位的君主、那以前出道的前后 NAME_GAP 年里出生的同名人物撞(和 NameBook 的第二轮一样)
+      const near = (x: string) =>
+        x === F.name ||
+        [...rulers.flat(), ...generals, ...ministers].some((o) => o !== g && o.name === x && start(o) <= T && ((o.role === 'ruler' && o.polity === g.polity) || Math.abs(o.born - g.born) < NAME_GAP));
       const at = genName.get(g) ?? nameAt.get(g);
-      for (let a = 1; at && a < NAME_TRIES && taken.has(g.name); a++) g.name = at(a);
-      // 名字少的语感,本国此前的名字都用过了(试完了还是撞):退一步,只求不和他、本国此前即位的君主、
-      // 那以前出道的前后 NAME_GAP 年里出生的同名人物撞(和 NameBook 的第二轮一样)
-      if (at && taken.has(g.name)) {
-        const near = (x: string) =>
-          x === F.name ||
-          [...rulers.flat(), ...generals, ...ministers].some((o) => o !== g && o.name === x && start(o) <= T && ((o.role === 'ruler' && o.polity === g.polity) || Math.abs(o.born - g.born) < NAME_GAP));
-        for (let a = 0; a < NAME_TRIES && near(g.name); a++) g.name = at(a);
-      }
+      for (let a = 1; at && a < NAME_TRIES && (taken.has(g.name) || near(g.name)); a++) g.name = at(a);
+      // 名字少的语感,本国此前的名字都用过了(试完了还是撞):退一步,只求不 near
+      if (at && (taken.has(g.name) || near(g.name))) for (let a = 0; a < NAME_TRIES && near(g.name); a++) g.name = at(a);
     }
   };
   const seizers = new Set(seizes.map((s) => s.F));

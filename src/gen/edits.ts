@@ -609,6 +609,9 @@
  *  56:滚雪球(civ/wars.ts):强国打下国都、守方余下的州不超过攻方一半时,余下的州一并归降、亡国(更大的照旧迁都);
  *      大胜的一方不歇、几年后再看一眼弱得多的邻国(连续吞并);灭国之战的门槛从国力 3 倍降到 2.5 倍,分裂、复国出来的国家站稳期 60 → 30 年。
  *      编年史写"破某城,某国余州皆降"。历史重新推演
+ *  57:湿地(gen/wetland.ts):低平、排水差、有水来(本地的水蒸发不完 / 大河漫滩 / 湖边)的陆地块成了湿地,约占陆地 5%,
+ *      推演里湿地州宜居底分 35、难走难修路;画面上手绘有沼泽符号、写实风有湿地的颜色和小水塘。
+ *      刻河谷的河宽、河口张法和写实风画河对齐(只改画面)。地形、气候、河不变,历史重新推演
  */
 import type { Civ, Culture, Faith, MigrationDir, Person, Place, Polity, Regions, RulerLeanings, Settlement } from './civ/types';
 import type { AuthorCharacter } from './characters';
@@ -623,7 +626,7 @@ import { SLUMP_CHOICES, SLUMP_DEFAULT, type Calamity } from './civ/calamity';
 import type { RuleSet } from './civ/ruleSet';
 
 /** 生成器版本:生成算法有改动、同种子会得到不同世界时加一(存档读档时核对);加一时在 GENERATOR_CHANGES 里补一条 */
-export const GENERATOR_VERSION = 56;
+export const GENERATOR_VERSION = 57;
 
 /**
  * 一版生成器的改动有多大(从小到大):打开旧存档、旧链接时,按跨过的几版里最大的那一种说清变了什么(savefile.ts 的 versionNote)
@@ -700,6 +703,7 @@ export const GENERATOR_CHANGES: Readonly<Record<number, { change: GeneratorChang
   54: { change: 'chronicle' },
   55: { change: 'history' },
   56: { change: 'history' },
+  57: { change: 'history' },
 };
 
 /** 干预的种类(见文件头的表) */
