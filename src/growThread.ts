@@ -18,7 +18,7 @@
  */
 import { generateWorld, type World, type WorldParams } from './gen/world';
 import { planetTempo, type Civ, type CivParams } from './gen/civ';
-import { startGrow, type Grower } from './gen/civ/grow';
+import { breakAt, startGrow, type Grower } from './gen/civ/grow';
 import { tuningPatch } from './gen/civ/tuningPatch';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
 import type { TerrainOp } from './gen/edits';
@@ -48,6 +48,8 @@ export interface GrowSide {
   side: number;
   key: number;
   tuning?: TuningValues;
+  /** 推到这一年以后故意出错(冒烟检查、截图看推不下去时的样子用;平常不给) */
+  failAt?: number;
 }
 
 export interface GrowRequest {
@@ -155,7 +157,7 @@ export function growMessage(m: GrowRequest, reply: (r: GrowReply) => void): Prom
       continue;
     }
     const old = running.find((r) => r.side === s.side && r.key === s.key);
-    next.push(old ?? { side: s.side, key: s.key, grower: startGrow(world, paramsOf(m.setup, s.tuning, tempo)), said: -1, saidAt: 0 });
+    next.push(old ?? { side: s.side, key: s.key, grower: startGrow(world, paramsOf(m.setup, s.tuning, tempo), s.failAt !== undefined ? { engine: breakAt(s.failAt) } : {}), said: -1, saidAt: 0 });
   }
   running = next;
   finished = keep;

@@ -58,6 +58,40 @@ const ENGINE: GrowEngine = {
   resume: (world, civ, params) => startContinue(world, civ, params),
 };
 
+/**
+ * 推到第 year 年以后故意出错的引擎(冒烟检查、截图用:看推不下去时的样子;推演里本来不会在这一年出错)。
+ * 往 year 年以后推的那一步抛错;整理(finish)不出错
+ */
+export function breakAt(year: number): GrowEngine {
+  return {
+    generate: (world, params) => {
+      if ((params.endYear ?? 0) > year) throw new Error(`推到第 ${year} 年以后故意出错`);
+      return ENGINE.generate(world, params);
+    },
+    resume: (world, civ, params) => {
+      const r = ENGINE.resume(world, civ, params);
+      if (!r) return r;
+      return {
+        get from() {
+          return r.from;
+        },
+        get to() {
+          return r.to;
+        },
+        get year() {
+          return r.year;
+        },
+        advance(y: number) {
+          if (y > year) throw new Error(`推到第 ${year} 年以后故意出错`);
+          r.advance(y);
+        },
+        finish: () => r.finish(),
+        partial: () => r.partial(),
+      };
+    },
+  };
+}
+
 export interface GrowOptions {
   /** 交历史的年份(从小到大;不给 = GROW_MARKS) */
   marks?: readonly number[];

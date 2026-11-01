@@ -9,8 +9,8 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const UI = join(__dirname, '..', 'src', 'ui');
-/** 点了才下载的那一包自己的样式(立体地形:ui/terrain3d/,App 里按需加载;调规则的页:ui/rules/,打开时才加载) */
-const ON_DEMAND = ['terrain3d/terrain3d.css', 'rules/rules.css'];
+/** 点了才下载的那一包自己的样式(立体地形:ui/terrain3d/,App 里按需加载;调规则的页:ui/rules/、并排试推:ui/compare/,打开时才加载) */
+const ON_DEMAND = ['terrain3d/terrain3d.css', 'rules/rules.css', 'compare/compare.css'];
 
 function cssFiles(dir: string): string[] {
   const out: string[] = [];

@@ -88,6 +88,23 @@ export type ShotArea =
  *   noInk —— 手绘风的色块不给地形符号让位(地形另外画、上面没有山符号时)
  *   extra —— 另加的地名(和别的地名一起排)
  */
+/** 整张地图的地形和外框(经纬网、纸边、外框罗盘),各是主图大小的一张画布 */
+export interface WholeTerrain {
+  terrain: AnyCanvas;
+  decor: AnyCanvas;
+}
+
+/** 画整张地图的地形和外框(MapShot 整张地图时自己画的就是这一份;几张同一个世界的图共用时先画好一份,各自 useTerrain) */
+export function wholeTerrain(scene: Omit<ShotScene, 'civ' | 'geo' | 'marks' | 'markChars' | 'res'>): WholeTerrain {
+  const { world, raster } = scene;
+  const p: ExportMapParams = { world, raster, civ: null, style: scene.style, layer: scene.layer, look: scene.look, year: 0, show: scene.show, center: scene.center, projection: scene.projection, graticule: scene.graticule, legend: false, era: scene.era };
+  const terrain = makeCanvas(raster.w, raster.h);
+  drawMapTerrain(ctx2d(terrain), p, makeCanvas);
+  const decor = makeCanvas(raster.w, raster.h);
+  drawMapDecor(ctx2d(decor), p);
+  return { terrain, decor };
+}
+
 export interface RegionLook {
   textK?: number;
   civK?: number;
@@ -117,6 +134,8 @@ export class MapShot {
   /** 一块:选中一国的描边(故事长图的一国版) */
   private selC: AnyCanvas | null = null;
   private selCache: DetailCache | null = null;
+  /** 地形、外框是借来的(useTerrain):放掉时不动 */
+  private borrowed = false;
   /** 地理名(不随年份变,只算一次) */
   private geoItems: LabelItem[] | null = null;
   private fontsOk = false;
@@ -161,17 +180,25 @@ export class MapShot {
     return this.area.kind === 'whole' ? this.area.dpr : this.regionView().dpr;
   }
 
+  /**
+   * 整张地图:地形、外框用现成画好的那一份(wholeTerrain 画的;并排的两张地图共用一份,不各画一遍)。
+   * 要和这张的世界、主图、画法、投影、中心一样。放掉(dispose)时不动它们,由画它的一方放
+   */
+  useTerrain(t: WholeTerrain): void {
+    if (this.area.kind !== 'whole') return;
+    this.terrain = t.terrain;
+    this.decor = t.decor;
+    this.borrowed = true;
+  }
+
   /** 地形(只画一次) */
   private terrainCanvas(): AnyCanvas {
     if (this.terrain) return this.terrain;
     const { world, raster, style, layer, look } = this.scene;
     if (this.area.kind === 'whole') {
-      const t = makeCanvas(raster.w, raster.h);
-      drawMapTerrain(ctx2d(t), this.params(0, this.scene.civ), makeCanvas);
-      const d = makeCanvas(raster.w, raster.h);
-      drawMapDecor(ctx2d(d), this.params(0, this.scene.civ));
-      this.decor = d;
-      return (this.terrain = t);
+      const w = wholeTerrain(this.scene);
+      this.decor = w.decor;
+      return (this.terrain = w.terrain);
     }
     const t = makeCanvas(this.w, this.h);
     const ctx = ctx2d(t);
@@ -404,7 +431,7 @@ export class MapShot {
 
   /** 放掉画布(显存) */
   dispose() {
-    for (const c of [this.terrain, this.decor, this.civC, this.selC]) if (c) c.width = c.height = 0;
+    for (const c of this.borrowed ? [this.civC, this.selC] : [this.terrain, this.decor, this.civC, this.selC]) if (c) c.width = c.height = 0;
     for (const k of [this.cache, this.selCache]) if (k) releaseDetailCache(k);
     this.terrain = this.decor = this.civC = this.selC = null;
     this.cache = this.selCache = null;
