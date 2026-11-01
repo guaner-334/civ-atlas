@@ -368,6 +368,11 @@ export function Studio(p: StudioProps) {
   const rulesOn = rulesUiOn();
   const myRules = useMyRules();
   const rulesPickId = rulesPick === undefined ? (edits.rules?.id ?? null) : rulesPick;
+  // 修改里带着「我的规则」里的一套进来的(别人分享的「用它新建世界」、另存一份重推、没建完接着建):记成选了它。
+  // 不然在大卡里把它全改回官方,修改里写不下(和官方一样),再调就跟不上了
+  useEffect(() => {
+    if (rulesPick === undefined && edits.rules?.id) setRulesPick(edits.rules.id);
+  }, [rulesPick, edits.rules?.id]);
   const pickedRules = rulesPickId ? myRules.find((e) => e.rules.id === rulesPickId) : undefined;
   /** 「规则」那一行右边写的:选的那一套的名字(修改里带着、不在我的规则里的,写它的名字) */
   const rulesName = pickedRules?.rules.name ?? edits.rules?.name ?? OFFICIAL_RULES_NAME;

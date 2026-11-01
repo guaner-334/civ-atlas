@@ -430,7 +430,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
    * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、推演年数、拓荒、起源、
    * 名字、地名风格)。用的是它一开始的地图(参数、地形修改、草图;不带地形大事)和它的规则,原来的国家、人物、干预、改名……都不带;原来的不动。
    * 文明种子先随机给一个;名字先填"原名(二)"。旧版本建的世界:生成出来的地图和它存的对不上就不让打造(见 ./useWorldLoad.ts 的 readyRef)。
-   * redo = 用这一版规则另存一份重推(世界设定里「用第 3 版另存一份重推」):文明种子、推演年数、天灾、拓荒、起源、地名风格都照原来的,
+   * redo = 用这一版规则另存一份重推(世界设定里「用第 3 版另存一份重推」):文明种子、推演年数(推到年中的推到同一刻)、天灾、拓荒、起源、地名风格都照原来的,
    * 只换规则,推出来的差别只来自规则
    */
   const startNewCiv = (id: string, redo?: RuleSet) => {
@@ -454,6 +454,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
             ...(e.nameMix ? { nameMix: e.nameMix } : {}),
             ...(e.endYear !== undefined ? { endYear: e.endYear } : {}),
           }),
+          // 推到年中的(逐年推演停在一年当中、换回推演模式的):推到同一刻
+          ...(e.endYear !== undefined && e.endTick ? { endTick: e.endTick } : {}),
           ...(e.frontier ? { frontier: e.frontier } : {}),
           ...(e.calamity ? { calamity: e.calamity } : {}),
           ...(e.origins ? { origins: e.origins } : {}),
