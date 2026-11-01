@@ -6,6 +6,7 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { buildChronicle, entryInvolves, entryYearLabel, filterChronicle } from '../src/gen/civ/story/chronicle';
 import { polityAlive, polityName } from '../src/gen/civ/growth';
+import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { applyNames, polityKey, settlementKey } from '../src/gen/edits';
 import { NAME_STYLES } from '../src/gen/names';
 import { styleGuide } from '../src/ai/prompts/names';
@@ -37,9 +38,22 @@ import { AiError } from '../src/ai/types';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7 });
 const civ = generateCiv(world);
-/** 改朝换代最多的东方国家(国史用它测分章、历朝) */
+/** 亡国前一年(还在的:推演结束前一年)有没有邻国(国史的四邻按这一刻、极盛时写;独占一处的没有) */
+const hasNeighbors = (id: number) => {
+  const p = civ.polities[id];
+  const o = ownersAt(civ, Math.max(p.founded, (p.ended ?? civ.endYear) - 1)).polity;
+  const { adjStart, adj } = civ.regions;
+  for (let r = 0; r < civ.regions.count; r++) {
+    if (o[r] !== id) continue;
+    for (let k = adjStart[r]; k < adjStart[r + 1]; k++) if (o[adj[k]] >= 0 && o[adj[k]] !== id) return true;
+  }
+  return false;
+};
+/** 改朝换代最多、有邻国的东方国家(国史用它测分章、历朝、四邻) */
 // 中原、江南一类的国号(边塞风的国名常和民族同名,改了国名,写民族的地方照旧)
-const east = civ.polities.filter((p) => p.eastern && civ.cultures[p.culture].style !== 'frontier').sort((a, b) => (b.dynasties?.length ?? 0) - (a.dynasties?.length ?? 0))[0];
+const east = civ.polities
+  .filter((p) => p.eastern && civ.cultures[p.culture].style !== 'frontier' && hasNeighbors(p.id))
+  .sort((a, b) => (b.dynasties?.length ?? 0) - (a.dynasties?.length ?? 0))[0];
 const LENGTHS: HistoryLength[] = ['short', 'medium', 'long'];
 const userOf = (civ: Civ, o: HistoryOptions, i = 0) => historyMessages(buildHistoryPrompts(civ, o), i)[1].content;
 

@@ -295,7 +295,9 @@ describe.each([7, 2024])('世系 · seed=%i', (seed) => {
         }
       } else {
         expect(f.polity).toBe(x.polity);
-        expect(f.dynasty ?? 0).toBe(x.dynasty ?? 0);
+        // 同一朝;复辟迎回旧王室的那一朝(Dynasty.house)接在旧王室下面,算同一家
+        const house = (d: number) => civ.polities[x.polity].dynasties?.[d]?.house ?? d;
+        expect(house(f.dynasty ?? 0)).toBe(house(x.dynasty ?? 0));
       }
       const age = x.born - f.born;
       expect(age, `${f.name} → ${x.name}`).toBeGreaterThanOrEqual(14 - 1 / 128);

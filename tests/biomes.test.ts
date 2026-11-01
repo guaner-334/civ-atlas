@@ -85,11 +85,9 @@ describe('生物群落表', () => {
     expect(classifyBiome(-20, 100, 1)).toBe(Biome.Ocean);
   });
 
-  it('湿地没有出现条件,判不出来;图例不列海洋和湿地', () => {
+  it('湿地不按温度、降水判(另算,见 wetland.test.ts);图例只不列海洋', () => {
     expect(BIOMES[Biome.Wetland].when).toEqual([]);
-    expect(BIOMES.filter((b) => b.legend).map((b) => b.id)).toEqual(
-      BIOMES.map((b) => b.id).filter((id) => id !== Biome.Ocean && id !== Biome.Wetland),
-    );
+    expect(BIOMES.filter((b) => b.legend).map((b) => b.id)).toEqual(BIOMES.map((b) => b.id).filter((id) => id !== Biome.Ocean));
   });
 
   it('出现条件有重叠、有空缺、范围写反了都在编表时报错', () => {

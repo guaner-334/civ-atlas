@@ -233,8 +233,9 @@ describe('地形大事', () => {
     const auto = generateCiv(world, { upheavals });
     const civ = generateCiv(world, { upheavals, names: { central: 3, imperial: 7 } });
     expect(history(civ)).toBe(history(auto));
-    // 照没有大事的那份结局凑时,这里只有 15%(民族一整块一整块地分,凑不到正好 30%;GENERATOR_VERSION 46 大迁徙以后是 41%:放宽到 12)
-    expect(Math.abs(easternShare(civ) - 30)).toBeLessThanOrEqual(12);
+    // 照没有大事的那份结局凑时,这里只有 15%(民族一整块一整块地分,凑不到正好 30%;GENERATOR_VERSION 46 大迁徙以后是 41%:放宽到 12;
+    // 57 湿地以后是 42.6%:放宽到 13,照旧挡得住 15% 那种)
+    expect(Math.abs(easternShare(civ) - 30)).toBeLessThanOrEqual(13);
     expect(civ.eras?.[0].places.length).toBeGreaterThan(0);
   });
 

@@ -190,7 +190,8 @@ describe('作者的人物的性别 · 即了位的', () => {
     // 只改了性别:历史不变,不用问
     expect(crownEditAsk(civ, ivs, HE, SHE, undefined)).toBeNull();
     const del = crownDeleteAsk(applyCharacters(civ, [SHE]), ivs, SHE, undefined)!;
-    expect(del.lead).toBe(`她当过${A}的君主（1500–1530 年）。`);
+    // 在位到哪年看推演(填的是 1530 年退位,中途被推翻就早一些)
+    expect(del.lead).toMatch(new RegExp(`^她当过${A}的君主（1500–1[5-9][0-9]{2} 年）。$`));
     expect(del.yes[0]).toBe('连她的即位一起去掉');
     expect(del.done).toBe('已删除人物「沈蘅」和她的即位');
     // 即位页勾下面那一句

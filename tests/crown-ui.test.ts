@@ -110,13 +110,15 @@ describe('让作者的人物即位 · 说法', () => {
 
   it('改朝换代以后新朝的称呼:东方写国号简称,西幻写王朝;没起名 = 空串', () => {
     const civ = base();
-    const east = civ.polities.find((p) => p.eastern && (p.dynasties?.length ?? 0) > 1 && p.dynasties![1].name);
+    // 第二段是改朝换代的(改制改出来的共和国 / 军政府那一段不算:不是新朝;GENERATOR_VERSION 57(湿地)以后种子 7 的第 0 国第二段是改成的共和国)
+    const reign = (p: Civ['polities'][number]) => (p.dynasties?.length ?? 0) > 1 && !!p.dynasties![1].name && !p.dynasties![1].regime;
+    const east = civ.polities.find((p) => p.eastern && reign(p));
     if (east) {
       const r = newReignName(east, 1);
       expect(r.eastern).toBe(true);
       expect(r.name).toContain(east.dynasties![1].name);
     }
-    const west = civ.polities.find((p) => !p.eastern && (p.dynasties?.length ?? 0) > 1 && p.dynasties![1].name);
+    const west = civ.polities.find((p) => !p.eastern && reign(p));
     if (west) expect(newReignName(west, 1)).toEqual({ name: `${west.dynasties![1].name}王朝`, eastern: false });
     expect(east || west).toBeTruthy();
     expect(newReignName(civ.polities[0], 99).name).toBe('');
@@ -216,7 +218,12 @@ describe('让作者的人物即位 · 改人物、删人物时问一句;世系�
     const { civ, ivs, A } = setup();
     const ask = crownDeleteAsk(civ, ivs, LIN, undefined)!;
     expect(ask.title).toBe('删除人物「林小满」');
-    expect(ask.lead).toBe(`他当过${A}的君主（1500–1530 年）。`);
+    // 写的是推演里他实际在位的那几年:照常是到退位那年;推演里中途被废(改朝换代)的到被废那年
+    // (GENERATOR_VERSION 57(湿地)以后种子 7 里他 1516 年被废,以前当到 1530 年)
+    const me = civ.people!.find((x) => x.author === 1)!;
+    expect(me.until).toBeDefined();
+    expect(me.until!).toBeLessThanOrEqual(1530);
+    expect(ask.lead).toBe(`他当过${A}的君主（1500–${Math.floor(me.until!)} 年）。`);
     expect(ask.yes).toEqual(['连他的即位一起去掉', `从第 1500 年起重新推演，${A}照原来的历史走`]);
     expect(ask.no).toEqual(['只删人物，君位留着', '推演里那位君主改叫「作者的人物」，历史不变']);
     expect(ask.ivs).toEqual([]);

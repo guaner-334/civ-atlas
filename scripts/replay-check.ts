@@ -485,8 +485,9 @@ if (part('界面骨架')) {
 }
 
 // 早年一个国家都没有:侧栏"国家"下说一句为什么、第一个国家哪年立国,不显示"全部 0 国";点"跳到 N 年"时间轴跳过去,列表里有了它
+// (种子 7 的第一个国家 GENERATOR_VERSION 57 起在 284 年立国,以前在 478 年:看第 200 年)
 if (part('早年没有国家')) {
-  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=300`);
+  await page.goto(`${dev.url}/?seed=7&style=fantasy&civYear=200`);
   await page.waitForFunction(() => (window as any).__wfCiv?.ready, null, { timeout: 60000 });
   await page.waitForTimeout(300);
   const empty = await page.locator('.sidebar .sb-no-polity').innerText({ timeout: 3000 }).then((t) => t.replace(/\n/g, ' '), () => '');
@@ -497,9 +498,9 @@ if (part('早年没有国家')) {
   const yearNow = await page.locator('.timebar .tb-year').innerText().catch(() => '');
   const rowsNow = await page.locator('.sidebar .sb-home .sb-row.two[data-polity]').count();
   const gone = (await page.locator('.sidebar .sb-no-polity').count()) === 0;
-  console.log(`早年没有国家:第 300 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
+  console.log(`早年没有国家:第 200 年「${empty}」,"全部 N 国"${allLink ? '还在' : '不显示'};点跳转 → ${yearNow},国家 ${rowsNow} 个,说明收起 ${gone}`);
   const m = empty.match(/在 \d+ 年立国.*跳到 (\d+) 年/);
-  if (!m || allLink) errs.push(`第 300 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
+  if (!m || allLink) errs.push(`第 200 年一个国家都没有时侧栏没有说明 / 还显示"全部 0 国"(「${empty}」)`);
   else if (yearNow !== `第 ${m[1]} 年` || rowsNow < 1 || !gone) errs.push(`点"跳到 ${m[1]} 年"没跳到第一个国家立国(${yearNow},国家 ${rowsNow} 个)`);
 }
 
@@ -1484,7 +1485,7 @@ if (part('立体地形')) {
     .then(() => true, () => false);
   const pressed = await rp.locator('.map-controls [data-act=relief]').getAttribute('aria-pressed');
   const size = await rp.locator('.rp-size').innerText().catch(() => '');
-  // 玉屏山一带的一小块(约 580 公里见方):先看地区图
+  // 种子 7 东边一座山一带的一小块(约 580 公里见方):先看地区图(山名跟着历史变,按标题认:「X山一带」)
   const tr = Date.now();
   await rp.evaluate(() => (window as any).__wfReliefPick?.open({ cx: 1478, cy: 436, w: 30, h: 30 }));
   const paged = await rp
@@ -1501,7 +1502,9 @@ if (part('立体地形')) {
     timeline: !!document.querySelector('.bottom-row') && getComputedStyle(document.querySelector('.bottom-row')!).display !== 'none',
   }));
   console.log(`地区图:${Date.now() - tr} ms(粗的 ${rg.dbg?.coarseMs} ms、细的 ${rg.dbg?.fineMs} ms),「${rg.title}」${rg.cv?.join('×')},山峰 ${rg.dbg?.peaks} 座,图例 ${rg.dbg?.lines?.join('、')}`);
-  if (!paged || rg.title !== '玉屏山一带' || rg.face !== 'flat' || rg.timeline || !rg.cv || rg.cv[0] !== 2560 || !(rg.dbg?.peaks > 0) || !rg.dbg?.lines?.includes('河'))
+  const MT = /^(.+山)一带$/.exec(rg.title)?.[1] ?? '';
+  const AREA = `${MT}一带`;
+  if (!paged || !MT || rg.face !== 'flat' || rg.timeline || !rg.cv || rg.cv[0] !== 2560 || !(rg.dbg?.peaks > 0) || !rg.dbg?.lines?.includes('河'))
     errs.push(`立体地形:看这一块没出地区图 / 标题、清晰度、图例不对(${JSON.stringify({ paged, ...rg })})`);
   // 导出这一页:底条右边「导出图片」→ 卡片(标题、版式、清晰度、格式)→ 导出 2 倍 PNG(就是屏幕上那一页)
   await rp.click('.rv-bar [data-act=region-export]');
@@ -1515,7 +1518,7 @@ if (part('立体地形')) {
     .waitForFunction(() => (window as any).__wfRegionExport?.bytes > 0 && !document.querySelector('.rx'), null, { timeout: 30000 })
     .then(() => rp.evaluate(() => (window as any).__wfRegionExport), () => null);
   console.log(`地区图导出:「${rx.title}」${rx.sizes.join(' / ')};${saved?.name} ${Math.round((saved?.bytes ?? 0) / 1e3)} KB`);
-  if (rx.title !== '玉屏山一带' || !rx.sizes.includes(`${rg.cv?.[0]}×${rg.cv?.[1]}`) || !saved || !/^文明与地图-种子7-玉屏山一带-第\d+年-.+\.png$/.test(saved.name) || saved.type !== 'image/png')
+  if (rx.title !== AREA || !rx.sizes.includes(`${rg.cv?.[0]}×${rg.cv?.[1]}`) || !saved || !saved.name.startsWith(`文明与地图-种子7-${AREA}-第`) || !/-第\d+年-.+\.png$/.test(saved.name) || saved.type !== 'image/png')
     errs.push(`立体地形:地区图导出卡片 / 导出的文件不对(${JSON.stringify({ rx, saved })})`);
   // 底条切到立体:同一个框立起来
   const t0 = Date.now();
@@ -1534,7 +1537,7 @@ if (part('立体地形')) {
   console.log(`立体地形:框上写「${size}」;立起来 ${took} ms(粗的 ${rv.dbg?.coarseMs} ms、细的 ${rv.dbg?.fineMs} ms,贴图 ${rv.dbg?.tex}、${rv.dbg?.verts} 个点、起伏 ×${rv.dbg?.ex});「${rv.title}」${rv.sub}`);
   if (!picking || pressed !== 'true' || !/^约 \d+/.test(size)) errs.push(`立体地形:点「立体」没出框 / 按钮没按下 / 框上没写多大(${picking} ${pressed}「${size}」)`);
   if (!fine) errs.push(`立体地形:细的一档没画出来(${JSON.stringify(rv.dbg)})`);
-  if (rv.title !== '玉屏山一带' || rv.timeline || rv.controls < 4) errs.push(`立体地形:控件条 / 右下一列不对(「${rv.title}」,时间轴还在 ${rv.timeline},右下 ${rv.controls} 个按钮)`);
+  if (rv.title !== AREA || rv.timeline || rv.controls < 4) errs.push(`立体地形:控件条 / 右下一列不对(「${rv.title}」,时间轴还在 ${rv.timeline},右下 ${rv.controls} 个按钮)`);
   // 拖着转一下、换成地理图(只重新上色)
   const cv = await rp.locator('.rv canvas').boundingBox();
   if (cv) {
@@ -1556,7 +1559,7 @@ if (part('立体地形')) {
   console.log(`立体导出:${shot?.name} ${shot?.w}×${shot?.h} ${Math.round((shot?.bytes ?? 0) / 1e3)} KB;网址 ${linkUrl.replace(/^.*?\?/, '?')}`);
   if (!/[?&]area=[\d.,%C-]+/.test(linkUrl) || !/[?&]face=3d/.test(linkUrl) || !/[?&]ang=/.test(linkUrl) || !ang)
     errs.push(`立体地形:框、角度没写进网址(${linkUrl})`);
-  if (!shot || !/^文明与地图-种子7-玉屏山一带-第\d+年-立体-.+\.png$/.test(shot.name) || !(shot.w > 1000))
+  if (!shot || !shot.name.startsWith(`文明与地图-种子7-${AREA}-第`) || !/-第\d+年-立体-.+\.png$/.test(shot.name) || !(shot.w > 1000))
     errs.push(`立体地形:导出立体这一面不对(${JSON.stringify(shot)})`);
   const lp = await browser.newPage({ viewport: { width: 1400, height: 820 } });
   lp.on('pageerror', (e) => errs.push(`立体地形(链接):${e.message}`));
@@ -1565,7 +1568,7 @@ if (part('立体地形')) {
     .waitForFunction(() => (window as any).__wfRelief?.level === 'fine' && (window as any).__wfRelief?.angle, null, { timeout: 120000 })
     .then(() => lp.evaluate(() => ({ angle: (window as any).__wfRelief?.angle, title: document.querySelector('.rv-t b')?.textContent ?? '', face: document.querySelector('.ab-seg button.on')?.getAttribute('data-face') })), () => null);
   console.log(`立体链接:${JSON.stringify(linked)}(原来 ${JSON.stringify(ang)})`);
-  if (!linked || linked.face !== 'relief' || linked.title !== '玉屏山一带' || !ang || Math.abs(linked.angle.yaw - ang.yaw) > 0.2 || Math.abs(linked.angle.pitch - ang.pitch) > 0.2 || Math.abs(linked.angle.zoom / ang.zoom - 1) > 0.02)
+  if (!linked || linked.face !== 'relief' || linked.title !== AREA || !ang || Math.abs(linked.angle.yaw - ang.yaw) > 0.2 || Math.abs(linked.angle.pitch - ang.pitch) > 0.2 || Math.abs(linked.angle.zoom / ang.zoom - 1) > 0.02)
     errs.push(`立体地形:网址打开没进同一个角度的立体(${JSON.stringify({ linked, ang })})`);
   await lp.close();
   const f0 = await rp.evaluate(() => (window as any).__wfRelief?.frames ?? 0);
@@ -1591,14 +1594,14 @@ if (part('立体地形')) {
     .then(() => true, () => false);
   if (!picked) errs.push('立体地形:导出菜单里点「地区图」没进框一块');
   await rp.keyboard.press('Escape');
-  // 山脉卡片「看立体」:搜玉屏山点开卡片 → 直接立起来(手绘),山名和最高峰的海拔立在山顶
-  await rp.fill('[data-act=search]', '玉屏山');
+  // 山脉卡片「看立体」:搜这座山点开卡片 → 直接立起来(手绘),山名和最高峰的海拔立在山顶
+  await rp.fill('[data-act=search]', MT);
   await rp.waitForTimeout(400);
   await rp.press('[data-act=search]', 'Enter');
   const card = await rp
     .waitForSelector('[data-act=view-relief]', { timeout: 15000 })
     .then(() => true, () => false);
-  if (!card) errs.push('立体地形:玉屏山的卡片上没有「看立体」');
+  if (!card) errs.push(`立体地形:${MT}的卡片上没有「看立体」`);
   else {
     const peak = await rp.evaluate(() => document.querySelector('[data-stat="最高峰"]')?.textContent ?? '');
     await rp.click('[data-act=view-relief]');
@@ -1613,7 +1616,7 @@ if (part('立体地形')) {
     }));
     console.log(`立体地形:卡片「看立体」→「${rv2.title}」,山名 ${rv2.peaks.join('、')}(卡片上最高峰 ${peak})`);
     const m = peak.match(/(\d+)/);
-    if (!up || rv2.title !== '玉屏山一带' || rv2.look !== 'fantasy' || !rv2.shown || !rv2.peaks.some((t) => t.startsWith('玉屏山') && (!m || t.includes(`${m[1]} 米`))))
+    if (!up || rv2.title !== AREA || rv2.look !== 'fantasy' || !rv2.shown || !rv2.peaks.some((t) => t.startsWith(MT) && (!m || t.includes(`${m[1]} 米`))))
       errs.push(`立体地形:卡片上点「看立体」没立起来 / 山名不对(${JSON.stringify({ up, peak, ...rv2 })})`);
     await rp.click('.rv-bar .b');
   }

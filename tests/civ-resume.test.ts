@@ -75,7 +75,9 @@ function samePast(a: Civ, b: Civ, T: number, label: string) {
   const ra = a.religion!;
   const rb = b.religion!;
   const faith = (f: (typeof ra.faiths)[number]) => [f.id, f.kind, f.name, f.color, f.founded, f.founder?.name];
-  expect(ra.faiths.map((f) => faith(rb.faiths[f.id])), `${label} 信仰`).toEqual(ra.faiths.map(faith));
+  // 推到 T 时已经有的信仰:大教、教派 T 以前创立的,民间信仰是 T 以前出现的民族的(作者在 T 以后立国带出来的民族,推到 T 时也先占着一个)
+  const had = ra.faiths.filter((f) => (f.kind === 'folk' ? (a.cultures[f.culture!]?.born ?? Infinity) <= T : (f.founded ?? Infinity) <= T));
+  expect(had.map((f) => faith(rb.faiths[f.id])), `${label} 信仰`).toEqual(had.map(faith));
   expect(rb.events.filter((e) => e.year <= T), `${label} 信仰史事`).toEqual(ra.events.filter((e) => e.year <= T));
   // 国教:T 以后才结束的,推到 T 时还没结束
   const state = (s: (typeof ra.states)[number]) => ({ ...s, until: s.until !== undefined && s.until <= T ? s.until : undefined });

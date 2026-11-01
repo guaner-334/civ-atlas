@@ -108,15 +108,19 @@ describe('推一把发展(boost)', () => {
   it('快 10 倍管 50 年:进下一个时代的州比不推、快 3 倍多;编年史写到哪一年', () => {
     const c0 = baseCiv();
     const T = 1500;
-    // T 年州最多、治下有铜锡的国家(治下没有铜锡的推不进青铜时代,见下一条;最大的那国不一定有)
+    // T 年州最多、治下有铜锡、已有州进了青铜时代的国家(治下没有铜锡的推不进青铜时代,见下一条;最大的那国不一定有)
+    // (一州都还没进青铜的:各州卡在门口时自己长不乘,只能等邻居传过来,快 3 倍的 60 年里可能一州都进不去 ——
+    // GENERATOR_VERSION 57(湿地)以后 seed 2024 第 1500 年州最多的大滦王朝就是这样:不推、快 3 倍都是 0 州,快 10 倍 9 州;
+    // 换成按条件挑的大岳王朝,不推 21 州、快 3 倍 33 州、快 10 倍 82 州)
     const res = c0.development!.resources;
     const own0 = ownersAt(c0, T).polity;
+    const lv0 = developmentAt(c0.development!, T);
     const sizes = new Map<number, number>();
     for (const o of own0) if (o >= 0) sizes.set(o, (sizes.get(o) ?? 0) + 1);
     const p = [...sizes.entries()]
       .sort((x, y) => y[1] - x[1] || x[0] - y[0])
       .map((x) => x[0])
-      .find((q) => own0.some((o, r) => o === q && res[r * 11 + 2] > 0))!;
+      .find((q) => own0.some((o, r) => o === q && res[r * 11 + 2] > 0) && own0.some((o, r) => o === q && eraLevel(lv0, r) >= 1))!;
     const a = polityKey(c0, p);
     const ahead = (c: Civ, y: number) => {
       const lv = developmentAt(c.development!, y);
@@ -152,8 +156,10 @@ describe('推一把发展(boost)', () => {
       return true;
     });
     expect(stuck.length).toBeGreaterThan(0);
-    // 推的那 50 年里国都没挪、也没打下有铜锡的州的那一国(挪了、打下了,规矩就管不着了;头一个这样的国家国都可能挪了,挨个往下找):
+    // 推的那 50 年里国都没挪、也没打下有铜锡的州、没亡的那一国(挪了、打下了,规矩就管不着了;头一个这样的国家国都可能挪了,挨个往下找):
     // 国都的生产推不过青铜门口
+    // (以前要整段历史里都没亡;GENERATOR_VERSION 57(湿地)以后 seed 2024 这样的三国(大潍、沂部、希尔维温部)
+    // 推的 50 年里国都都没挪、没打下铜锡,只是几百年后(第 2168–2509 年)亡了:只看推的那 50 年)
     let checked = 0;
     for (const q of stuck) {
       const c = generateCiv(world(), { interventions: [{ kind: 'boost', a: polityKey(c0, q.id), from: T, mul: 10, until: T + 50 }] });
@@ -161,7 +167,7 @@ describe('推一把发展(boost)', () => {
       const own50 = ownersAt(c, T + 50).polity;
       let copper = false;
       for (let x = 0; x < own50.length; x++) if (own50[x] === q.id && c.development!.resources[x * 11 + 2] > 0) copper = true;
-      if (r !== capRegion(c0, q.id, T) || copper || c.polities[q.id].ended !== undefined) continue;
+      if (r !== capRegion(c0, q.id, T) || copper || (c.polities[q.id].ended ?? Infinity) <= T + 50) continue;
       expect(developmentAt(c.development!, T + 50)[r * 5]).toBeLessThan(1);
       checked++;
       break;

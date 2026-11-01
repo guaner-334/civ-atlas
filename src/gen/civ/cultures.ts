@@ -78,7 +78,10 @@ const ISLAND_REGIONS = 6;
 /** 大湖:至少这么多个地块 */
 const BIG_LAKE = 5;
 
-/** 群落系数表(按 Biome 下标) */
+/**
+ * 群落系数表(按 Biome 下标)。湖、海的通行代价是 0(系数 0),不用像 polities.ts 那样夹到 1:州只由陆地地块组成
+ * (地形大事以后重划也只留陆地,regions.ts 的 reshapeRegions),主导群落不会是湖、海;整州淹没的州没有地块、没有邻接边,走不到
+ */
 const BIOME_F = BIOME_COST.map((c) => fpow(c / 70, BIOME_EXP));
 
 // 群落集合 → 按 Biome 下标查的表(推演里查得很频繁;哪些群落算哪一类见地貌表的标签)

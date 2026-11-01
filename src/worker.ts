@@ -326,6 +326,7 @@ function copyRaster(r: Raster, into?: Raster | null): Raster {
     ice: cp(r.ice, o?.ice),
     iceConc: cp(r.iceConc, o?.iceConc),
     iceTone: cp(r.iceTone, o?.iceTone),
+    wet: cp(r.wet, o?.wet),
     gully: r.gully && cp(r.gully, o?.gully),
     bank: r.bank && cp(r.bank, o?.bank),
     vein: r.vein && cp(r.vein, o?.vein),
@@ -344,7 +345,7 @@ let splitSeq = 0;
 /** 整张主图交给主线程时 transfer 走的数组 */
 function rasterTransferables(raster: Raster): ArrayBuffer[] {
   const vl = raster.veinLines!;
-  return [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer);
+  return [raster.elev, raster.temp, raster.precip, raster.water, raster.biome, raster.cell, raster.ice, raster.iceConc, raster.iceTone, raster.wet, raster.gully!, raster.bank!, raster.vein!, vl.off, vl.x, vl.y, vl.a].map((a) => a.buffer as ArrayBuffer);
 }
 
 /**

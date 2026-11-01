@@ -151,6 +151,7 @@ export function rasterizeWindow(src: ZoomSource, S: number, x0: number, y0: numb
     precip: new Float32Array(N),
     water: new Uint8Array(N),
     biome: new Uint8Array(N),
+    wet: new Uint8Array(N),
     cell: new Int32Array(0),
     ice: new Float32Array(N),
     iceConc: new Uint8Array(N),
