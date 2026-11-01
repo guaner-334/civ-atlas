@@ -16,6 +16,7 @@ import { recipeOfSave, recipeText } from '../src/gen/snapshot';
 import { cleanRuleSet, type RuleSet } from '../src/gen/civ/ruleSet';
 import { newRuleSet } from '../src/gen/civ/ruleSetEdit';
 import { tuningPatch, worldPatch } from '../src/gen/civ/tuningPatch';
+import { TUNING_CALC } from '../src/gen/civ/tuning';
 import { WARS_KNOBS } from '../src/gen/civ/wars';
 import { sameSetup, setupFor, setupOpt, yearsEdits } from '../src/ui/world/worldTarget';
 import { revertEdits } from '../src/ui/editsStore';
@@ -222,14 +223,15 @@ describe('规则跟着世界走', () => {
   });
 
   it('新建世界的参数里带一套规则:进了新世界的修改(官方的不带)', () => {
-    expect(yearsEdits(undefined, undefined, RULES)).toEqual({ ...EMPTY_EDITS, rules: cleanRuleSet(RULES).rules });
+    expect(yearsEdits(undefined, undefined, RULES)).toEqual({ ...EMPTY_EDITS, rules: { ...cleanRuleSet(RULES).rules, calc: TUNING_CALC } });
     expect(yearsEdits(6000, undefined, RULES).endYear).toBe(6000);
     expect(yearsEdits(undefined, undefined, newRuleSet('空的'))).toBe(EMPTY_EDITS);
   });
 
   it('在这张地图上打造新文明:规则跟着走(原来的国家、人物、干预不带)', () => {
     const e = newHistoryEdits({ ...EDITS, interventions: [] }, { civSeed: 99, from: 'wabc', rules: EDITS.rules });
-    expect(e.rules).toEqual(EDITS.rules);
+    // 新开的历史是新世界:照现在的换算版本
+    expect(e.rules).toEqual({ ...EDITS.rules, calc: TUNING_CALC });
     expect(e.rules).not.toBe(EDITS.rules);
     expect(e.names).toEqual({});
     expect(newHistoryEdits(EDITS, { civSeed: 99, from: 'wabc' }).rules).toBeUndefined();
@@ -254,23 +256,27 @@ describe('规则跟着世界走', () => {
   });
 });
 
-describe('换算版本(现在只有第 1 版;假装有第 2 版的见 rules-calc.test.ts)', () => {
-  it('新建的世界盖上第 1 版 = 不写:存档、配方指纹和加换算版本以前一字不差', () => {
-    const made = yearsEdits(undefined, undefined, RULES);
-    expect(made.rules!.calc).toBeUndefined();
-    expect(newHistoryEdits(EDITS, { civSeed: 99, from: 'wabc', rules: RULES }).rules!.calc).toBeUndefined();
+describe('换算版本(各条路照世界记的版本推,见 rules-calc.test.ts)', () => {
+  it('没记版本的世界(加换算版本以前建的)照旧是第 1 版:存档、配方指纹和以前一字不差', () => {
     const s = makeSave(PARAMS, EDITS, 'abc');
     expect(s.format).toBe(3);
     expect(saveText(s)).not.toContain('"calc"');
     expect(recipeText(recipeOfSave(s))).not.toContain('calc');
   });
 
-  it('别的版本存的、规则按第 2 版换算的世界:这一版推不出它的历史,不读(提示刷新)', () => {
+  it('新建的世界盖上现在的版本,存档写格式 4', () => {
+    const made = yearsEdits(undefined, undefined, RULES);
+    expect(made.rules!.calc).toBe(TUNING_CALC);
+    expect(newHistoryEdits(EDITS, { civSeed: 99, from: 'wabc', rules: RULES }).rules!.calc).toBe(TUNING_CALC);
+    expect(makeSave(PARAMS, { ...EDITS, rules: made.rules }, 'abc').format).toBe(4);
+  });
+
+  it('别的版本存的、规则按比现在新的换算推的世界:这一版推不出它的历史,不读(提示刷新)', () => {
     const raw = JSON.parse(saveText(makeSave(PARAMS, EDITS, 'abc'))) as { format: number; edits: { rules: Record<string, unknown> } };
     raw.format = 4;
-    raw.edits.rules.calc = 2;
+    raw.edits.rules.calc = TUNING_CALC + 1;
     const r = parseSave(JSON.stringify(raw));
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.error).toBe('这个存档来自更新版本的「文明与地图」(规则换算第 2 版),请刷新页面换到最新版再打开');
+    expect(!r.ok && r.error).toBe(`这个存档来自更新版本的「文明与地图」(规则换算第 ${TUNING_CALC + 1} 版),请刷新页面换到最新版再打开`);
   });
 });

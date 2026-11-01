@@ -1,6 +1,6 @@
 /**
  * 规则的换算版本(civ/tuning.ts 的 TUNING_CALC、civ/ruleSet.ts 的 RuleSet.calc):
- * 这里假装换算已经到了第 2 版(把 TUNING_CALC 换成 2,第 2 版的换算换成「第 1 版 + 看邻国勤一倍」),看:
+ * 换算到了第 2 版(六项加强,civ/tuningPatch.ts 的 KNOBS_2),看:
  * - 没记换算版本的世界(加换算版本以前建的,第 1 版)走每一条推历史的路 —— 按世界的修改重推、存成文件 / 浏览器里的自动存档再读、
  *   分享链接、接着推、作品墙后台画封面、找世界、并排试推这个世界用的那一版 —— 都和直接按第 1 版推的逐字节一样;原件的配方指纹不变
  * - 新建的世界(新建弹窗、打造文明里选规则、在这张地图上打造新文明、用新版另存一份重推)盖上第 2 版,照第 2 版推;
@@ -9,20 +9,7 @@
  * - 比现在新的换算版本不读(提示刷新);认不出的按第 1 版
  */
 import { createHash } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
-
-vi.mock('../src/gen/civ/tuning', async (importOriginal) => ({ ...(await importOriginal<typeof import('../src/gen/civ/tuning')>()), TUNING_CALC: 2 }));
-vi.mock('../src/gen/civ/tuningPatch', async (importOriginal) => {
-  const m = await importOriginal<typeof import('../src/gen/civ/tuningPatch')>();
-  /** 假的第 2 版:第 1 版换出来的旋钮,外加看邻国勤一倍 */
-  const tuningPatch: typeof m.tuningPatch = (values, calc) => {
-    if (calc !== 2) return m.tuningPatch(values, calc);
-    const p = m.tuningPatch(values, 1);
-    return p && { ...p, wars: { ...(p.wars ?? {}), CHECK_EVERY: 7.5 } };
-  };
-  const worldPatch: typeof m.worldPatch = (t) => (t ? tuningPatch(t.values, t.calc) : undefined);
-  return { ...m, tuningPatch, worldPatch };
-});
+import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
@@ -105,7 +92,7 @@ function push(edits: WorldEdits, endYear = END): Civ {
 
 const save = (e: WorldEdits): SaveFile => makeSave(PARAMS, e, 'abc', '乱世', '2026-11-01T08:00:00.000Z');
 
-describe('假装换算到了第 2 版', () => {
+describe('第 2 版', () => {
   it('第 2 版和第 1 版换出来的旋钮不一样,推出来的历史也不一样(下面的比较才有意义)', () => {
     expect(TUNING_CALC).toBe(2);
     expect(tuningPatch(VALUES, 2)).not.toEqual(tuningPatch(VALUES, 1));
