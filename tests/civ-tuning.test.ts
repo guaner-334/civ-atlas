@@ -147,6 +147,33 @@ describe('第 2 版换算', () => {
   });
 });
 
+describe('第 3 版换算', () => {
+  it('民族与迁徙、君主在位、小国招打连改卡住它的几处;第 2 版照旧', () => {
+    expect(tuningPatch({ 'folk.assimilate': 4 }, 3)).toEqual({ assimilation: { RATE: 1.6, MIN_RULE: 25, FULL_RULE: 75 } });
+    expect(tuningPatch({ 'folk.treks': 20 }, 3)).toEqual({ migration: { MAX: 20, ODDS: 0.2, LIVE: 7, GAP: 60 } });
+    // 上限不过官方的 6 次:只改上限
+    expect(tuningPatch({ 'folk.treks': 3 }, 3)).toEqual({ migration: { MAX: 3 } });
+    expect(tuningPatch({ 'folk.trekPace': 150 }, 3)).toEqual({ migration: { PACE_YEARS: 150, CHECK_EVERY: 25 } });
+    expect(tuningPatch({ 'folk.trekSize': 20 }, 3)).toEqual({ migration: { SIZE_MAX: 20, SHARE: 0.75 } });
+    expect(tuningPatch({ 'folk.flight': 4 }, 3)).toEqual({ assimilation: { FLIGHT_ODDS: 0.96, FLIGHT_MAX: 12 } });
+    expect(tuningPatch({ 'folk.flight': 0 }, 3)).toEqual({ assimilation: { FLIGHT_ODDS: 0 } });
+    expect(tuningPatch({ 'folk.diverge': 4 }, 3)).toEqual({ assimilation: { DIV_P: 0.48, DIV_EVERY: 50, DIV_MAX: 48 } });
+    expect(tuningPatch({ 'folk.diverge': 0 }, 3)).toEqual({ assimilation: { DIV_P: 0 } });
+    expect(tuningPatch({ 'court.reign': 100 }, 3)).toEqual({ rulers: { REIGN_MAX: 100, REIGN_EXP: 0.65 }, regents: { SEIZE_REIGN: 100 } });
+    expect(tuningPatch({ 'war.prey': 4 }, 3)).toEqual({ wars: { PREY_ODDS: 40, PREY: 8 } });
+    // 一处旋钮的值:分化的上限、外迁最多几州是整数
+    for (const v of [0.25, 0.5, 0.75, 1.5, 2, 3, 4]) {
+      const p = tuningPatch({ 'folk.diverge': v, 'folk.flight': v }, 3)!;
+      if (p.assimilation.DIV_MAX !== undefined) expect(Number.isInteger(p.assimilation.DIV_MAX)).toBe(true);
+      expect(Number.isInteger(p.assimilation.FLIGHT_MAX), String(v)).toBe(true);
+    }
+    // 第 2 版六项、别的项照第 2 版
+    const v2 = { 'war.odds': 4, 'split.odds': 4, 'split.dynasty': 4 };
+    expect(tuningPatch(v2, 3)).toEqual(tuningPatch(v2, 2));
+    expect(tuningPatch({ 'folk.assimilate': 4, 'war.prey': 4 }, 2)).toEqual({ assimilation: { RATE: 0.4 }, wars: { PREY_ODDS: 10 } });
+  });
+});
+
 describe('换成旋钮的改动(第 1 版)', () => {
   it('没改 / 都是官方值 = undefined(官方)', () => {
     expect(tuningPatch({}, 1)).toBeUndefined();

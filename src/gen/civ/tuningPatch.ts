@@ -135,11 +135,76 @@ const KNOBS_2: Readonly<Record<string, TuningKnobs>> = {
   'split.dynasty': { knobs: ['dynasty.ODDS', 'regents.USURP'], pow: [3, 1] },
 };
 
+/** 一处旋钮的官方值(数) */
+const num = (k: string) => officialKnob(k) as number;
+
+/**
+ * 第 3 版:民族与迁徙、君主在位、小国招打这几项(5 个种子、推 3000 年和官方比;括号里是第 2 版,和第 1 版一样):
+ * - 同化快慢:统治满多少年才开始同化、多少年满速,跟着倍数缩短;速度按倍数的平方乘。×4 同化多 92%(32%),×¼ 少 55%(26%)
+ * - 大迁徙:一个世界最多几次:原来远没到上限(平均 4 次),拉高上限不多出迁徙;上限调过官方的 6 次,各族也更想走
+ *   (动身的赔率跟着涨)、同时在路上的、同一族再走隔的年数跟着放宽。最多 20 次:多 41%(5%)
+ * - 大迁徙大约多少年一次:隔多久看一次能不能走,跟着按年数的 ½ 次方变。150 年:多 27%(18%);3000 年:少 68%(41%)。
+ *   次数照旧不超过「最多几次」,两项一起拉才多得多(最多 20 次、150 年一次:多 2.7 倍)
+ * - 大迁徙一支能占几州:一支原来只分出本族三成的人,多半占不满上限,分出去的几成跟着上限变。20 州:一支平均占的州多一倍(32%)
+ * - 避兵外迁:赔率按倍数的平方乘,一次最多迁几州按倍数的 ½ 次方变。×4 外迁多 72%(35%)
+ * - 民族分化:原来一个世界最多分出 12 支(×4 就到顶了),上限跟着倍数涨;隔多久看一次按倍数的 −½ 次方变。×4 分化多 1.8 倍(33%),×¼ 少 84%
+ * - 君主在位多久:在位年数多半短(年数随机,中位数十几年),只改最长几年平均差不多;往右多数在位也长,往左多数几年就换。
+ *   100 年:平均在位长 51%(29%);10 年:短 74%(64%)
+ * - 小国招打:赔率按倍数的平方乘,几州以下算小国按倍数的 ½ 次方变。×4 吞并小国之战多 29%(8%),×¼ 少 64%(23%)
+ * 试过、没救的(照第 1 版):守国都容易(连新都几年内攻不下一起改,国都失守反倒没少)、收复失地的心、记仇、新立的国站稳几年(往 0 年那头)
+ */
+const KNOBS_3: Readonly<Record<string, TuningKnobs>> = {
+  'folk.assimilate': { knobs: ['assimilation.RATE', 'assimilation.MIN_RULE', 'assimilation.FULL_RULE'], pow: [2, -1, -1] },
+  'folk.treks': {
+    knobs: ['migration.MAX'],
+    also: (v) => {
+      const r = Math.max(1, (v as number) / num('migration.MAX'));
+      return [
+        ['migration.ODDS', num('migration.ODDS') * r],
+        ['migration.LIVE', Math.round(num('migration.LIVE') * r)],
+        ['migration.GAP', num('migration.GAP') / r],
+      ];
+    },
+    alsoKnobs: ['migration.ODDS', 'migration.LIVE', 'migration.GAP'],
+  },
+  'folk.trekPace': {
+    knobs: ['migration.PACE_YEARS'],
+    also: (v) => [['migration.CHECK_EVERY', num('migration.CHECK_EVERY') * fpow((v as number) / num('migration.PACE_YEARS'), 0.5)]],
+    alsoKnobs: ['migration.CHECK_EVERY'],
+  },
+  'folk.trekSize': {
+    knobs: ['migration.SIZE_MAX'],
+    also: (v) => [['migration.SHARE', (num('migration.SHARE') * (v as number)) / num('migration.SIZE_MAX')]],
+    alsoKnobs: ['migration.SHARE'],
+  },
+  'folk.flight': {
+    knobs: ['assimilation.FLIGHT_ODDS'],
+    pow: [2],
+    also: (v) => ((v as number) > 0 ? [['assimilation.FLIGHT_MAX', Math.round(num('assimilation.FLIGHT_MAX') * fpow(v as number, 0.5))]] : []),
+    alsoKnobs: ['assimilation.FLIGHT_MAX'],
+  },
+  'folk.diverge': {
+    knobs: ['assimilation.DIV_P', 'assimilation.DIV_EVERY'],
+    pow: [1, -0.5],
+    also: (v) => [['assimilation.DIV_MAX', Math.round(num('assimilation.DIV_MAX') * Math.max(1, v as number))]],
+    alsoKnobs: ['assimilation.DIV_MAX'],
+  },
+  'court.reign': {
+    knobs: ['rulers.REIGN_MAX', 'regents.SEIZE_REIGN'],
+    also: (v) => {
+      const r = num('rulers.REIGN_MAX') / (v as number);
+      return [['rulers.REIGN_EXP', num('rulers.REIGN_EXP') * (r <= 1 ? r : fpow(r, 0.5))]];
+    },
+    alsoKnobs: ['rulers.REIGN_EXP'],
+  },
+  'war.prey': { knobs: ['wars.PREY_ODDS', 'wars.PREY'], pow: [2, 0.5] },
+};
+
 /**
  * 各版换算:第 i 个是第 i + 1 版。第 1 版写全 70 项;以后每一版只写这一版换了的项(那一项整个换掉),没写的照上一版。
  * 加一版:在末尾加一份,tuning.ts 的 TUNING_CALC 跟着加一(单测核对两边一样);前面的不动
  */
-const CALC_TABLES: readonly Readonly<Record<string, TuningKnobs>>[] = [KNOBS, KNOBS_2];
+const CALC_TABLES: readonly Readonly<Record<string, TuningKnobs>>[] = [KNOBS, KNOBS_2, KNOBS_3];
 
 /** 有几版换算(单测核对和 TUNING_CALC 一样) */
 export const CALC_COUNT = CALC_TABLES.length;

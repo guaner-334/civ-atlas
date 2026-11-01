@@ -1,10 +1,10 @@
 /**
  * 规则的换算版本(civ/tuning.ts 的 TUNING_CALC、civ/ruleSet.ts 的 RuleSet.calc):
- * 换算到了第 2 版(六项加强,civ/tuningPatch.ts 的 KNOBS_2),看:
+ * 换算有了第 1 版以后的版本(civ/tuningPatch.ts 的 CALC_TABLES),看:
  * - 没记换算版本的世界(加换算版本以前建的,第 1 版)走每一条推历史的路 —— 按世界的修改重推、存成文件 / 浏览器里的自动存档再读、
  *   分享链接、接着推、作品墙后台画封面、找世界、并排试推这个世界用的那一版 —— 都和直接按第 1 版推的逐字节一样;原件的配方指纹不变
- * - 新建的世界(新建弹窗、打造文明里选规则、在这张地图上打造新文明、用新版另存一份重推)盖上第 2 版,照第 2 版推;
- *   存档写格式 4,存了再读、分享链接打开照样是第 2 版;原件的配方带着版本
+ * - 新建的世界(新建弹窗、打造文明里选规则、在这张地图上打造新文明、用新版另存一份重推)盖上现在的版本,照它推;
+ *   存档写格式 4,存了再读、分享链接打开照样是那一版;原件的配方带着版本
  * - 「我的规则」、分享规则的链接、规则文件里的一套不带换算版本;比较两套规则(改了几处、是不是同一套)时世界里的那一套连版本一起比
  * - 比现在新的换算版本不读(提示刷新);认不出的按第 1 版
  */
@@ -72,7 +72,7 @@ const END = 900;
 
 /** 加换算版本以前建的世界:规则上没记版本(第 1 版) */
 const OLD: WorldEdits = { ...EMPTY_EDITS, civSeed: CIV_SEED, endYear: END, rules: RULES };
-/** 现在(第 2 版)新建的世界 */
+/** 现在新建的世界(盖上现在的版本) */
 const NEW: WorldEdits = { ...OLD, rules: newWorldRules(RULES) };
 
 /** 直接照第几版推的(同一张地图、同一个文明种子) */
@@ -92,11 +92,11 @@ function push(edits: WorldEdits, endYear = END): Civ {
 
 const save = (e: WorldEdits): SaveFile => makeSave(PARAMS, e, 'abc', '乱世', '2026-11-01T08:00:00.000Z');
 
-describe('第 2 版', () => {
-  it('第 2 版和第 1 版换出来的旋钮不一样,推出来的历史也不一样(下面的比较才有意义)', () => {
-    expect(TUNING_CALC).toBe(2);
-    expect(tuningPatch(VALUES, 2)).not.toEqual(tuningPatch(VALUES, 1));
-    expect(directPrint(2)).not.toBe(directPrint(1));
+describe('现在的版本', () => {
+  it('现在的版本和第 1 版换出来的旋钮不一样,推出来的历史也不一样(下面的比较才有意义)', () => {
+    expect(TUNING_CALC).toBeGreaterThan(1);
+    expect(tuningPatch(VALUES, TUNING_CALC)).not.toEqual(tuningPatch(VALUES, 1));
+    expect(directPrint(TUNING_CALC)).not.toBe(directPrint(1));
   }, 120_000);
 });
 
@@ -148,22 +148,22 @@ describe('没记换算版本的世界(第 1 版):每一条推历史的路都和�
     expect(print(c)).toBe(directPrint(1));
   }, 120_000);
 
-  it('找世界:搜的时候照世界记的那一版换(第 1 版和第 2 版搜出来的历史不一样,各自和直接推的一样)', () => {
+  it('找世界:搜的时候照世界记的那一版换(第 1 版和现在的版本搜出来的历史不一样,各自和直接推的一样)', () => {
     const q = { roles: [], together: [] };
     const run = (calc: number) => searchSeedWith(q, { world: { ...DEFAULT_PARAMS, cells: 12000 }, civ: { endYear: 600 }, tuning: { values: VALUES, calc } }, 7);
     const a = run(1);
-    const b = run(2);
+    const b = run(TUNING_CALC);
     expect(a.report.error).toBeUndefined();
     expect(print(a.civ)).toBe(print(generateCiv(a.world!, { endYear: a.civ!.endYear, knobs: tuningPatch(VALUES, 1) })));
-    expect(print(b.civ)).toBe(print(generateCiv(b.world!, { endYear: b.civ!.endYear, knobs: tuningPatch(VALUES, 2) })));
+    expect(print(b.civ)).toBe(print(generateCiv(b.world!, { endYear: b.civ!.endYear, knobs: tuningPatch(VALUES, TUNING_CALC) })));
     expect(print(a.civ)).not.toBe(print(b.civ));
   }, 120_000);
 
-  it('并排试推这个世界用的那一版:照世界记的第 1 版;本机的、别人分享的照最新的第 2 版', async () => {
+  it('并排试推这个世界用的那一版:照世界记的第 1 版;本机的、别人分享的照最新的一版', async () => {
     expect(rulesTuning(OLD.rules, true)).toEqual({ values: VALUES, calc: 1 });
-    expect(rulesTuning(NEW.rules, true)).toEqual({ values: VALUES, calc: 2 });
-    expect(rulesTuning(RULES, false)).toEqual({ values: VALUES, calc: 2 });
-    expect(latestTuning(OLD.rules)).toEqual({ values: VALUES, calc: 2 });
+    expect(rulesTuning(NEW.rules, true)).toEqual({ values: VALUES, calc: TUNING_CALC });
+    expect(rulesTuning(RULES, false)).toEqual({ values: VALUES, calc: TUNING_CALC });
+    expect(latestTuning(OLD.rules)).toEqual({ values: VALUES, calc: TUNING_CALC });
     // 后台线程那一头照交来的版本推:推完的那份和直接照第 1 版推到 3000 年的一样
     const got: GrowReply[] = [];
     await growMessage({ grow: 'start', map: { params: PARAMS }, setup: {}, sides: [{ side: 0, key: 1, tuning: rulesTuning(OLD.rules, true) }] }, (r) => got.push(r));
@@ -173,16 +173,16 @@ describe('没记换算版本的世界(第 1 版):每一条推历史的路都和�
   }, 300_000);
 });
 
-describe('新建的世界盖上现在的换算版本(第 2 版)', () => {
-  it('新建弹窗带一套规则、打造文明里选规则、在这张地图上打造新文明、用新版另存一份重推:都是第 2 版', () => {
-    expect(yearsEdits(undefined, undefined, RULES).rules!.calc).toBe(2);
+describe('新建的世界盖上现在的换算版本', () => {
+  it('新建弹窗带一套规则、打造文明里选规则、在这张地图上打造新文明、用新版另存一份重推:都是现在的版本', () => {
+    expect(yearsEdits(undefined, undefined, RULES).rules!.calc).toBe(TUNING_CALC);
     // 别的世界(第 1 版)的那一套拿来建新世界:也按现在的
-    expect(yearsEdits(undefined, undefined, OLD.rules).rules!.calc).toBe(2);
-    expect(newHistoryEdits(OLD, { civSeed: 99, from: 'wabc', rules: OLD.rules }).rules!.calc).toBe(2);
-    expect(newHistoryEdits(OLD, { civSeed: 99, from: 'wabc', rules: RULES }).rules!.calc).toBe(2);
+    expect(yearsEdits(undefined, undefined, OLD.rules).rules!.calc).toBe(TUNING_CALC);
+    expect(newHistoryEdits(OLD, { civSeed: 99, from: 'wabc', rules: OLD.rules }).rules!.calc).toBe(TUNING_CALC);
+    expect(newHistoryEdits(OLD, { civSeed: 99, from: 'wabc', rules: RULES }).rules!.calc).toBe(TUNING_CALC);
     setEdits(EMPTY_EDITS);
     setRules(RULES);
-    expect(getEdits().rules!.calc).toBe(2);
+    expect(getEdits().rules!.calc).toBe(TUNING_CALC);
     // 同一套再选一次:不变
     const before = getEdits();
     setRules(RULES);
@@ -191,12 +191,12 @@ describe('新建的世界盖上现在的换算版本(第 2 版)', () => {
     expect(getEdits().rules).toBeUndefined();
   });
 
-  it('照第 2 版推;存档写格式 4,存了再读、分享链接打开照样是第 2 版;原件的配方带着版本', async () => {
-    expect(print(push(NEW))).toBe(directPrint(2));
+  it('照现在的版本推;存档写格式 4,存了再读、分享链接打开照样是那一版;原件的配方带着版本', async () => {
+    expect(print(push(NEW))).toBe(directPrint(TUNING_CALC));
     const s = save(NEW);
     expect(s.format).toBe(4);
     expect(SAVE_FORMAT).toBe(4);
-    expect(s.edits.rules!.calc).toBe(2);
+    expect(s.edits.rules!.calc).toBe(TUNING_CALC);
     const read = parseSave(saveText(s));
     const shared = await decodeShare(await encodeShare(s));
     for (const r of [read, shared]) {
@@ -204,16 +204,16 @@ describe('新建的世界盖上现在的换算版本(第 2 版)', () => {
       if (!r.ok) continue;
       expect(r.warnings).toEqual([]);
       expect(r.save).toEqual(s);
-      expect(print(push(r.save.edits))).toBe(directPrint(2));
+      expect(print(push(r.save.edits))).toBe(directPrint(TUNING_CALC));
     }
     const recipe = recipeOfSave(s);
-    expect(recipe.calc).toBe(2);
+    expect(recipe.calc).toBe(TUNING_CALC);
     expect(recipeText(recipe)).not.toBe(recipeText(recipeOfSave(save(OLD))));
   }, 120_000);
 
   it('只改了地貌叫法的(推演照官方):换算版本不起作用,照旧写格式 3', () => {
     const biomeOnly = newWorldRules({ name: 'x', version: 1, values: {}, biomes: { ocean: '无尽之海' } })!;
-    expect(biomeOnly.calc).toBe(2);
+    expect(biomeOnly.calc).toBe(TUNING_CALC);
     expect(save({ ...EMPTY_EDITS, rules: biomeOnly }).format).toBe(3);
     expect(recipeOfSave(save({ ...EMPTY_EDITS, rules: biomeOnly })).calc).toBeUndefined();
   });
@@ -223,9 +223,9 @@ describe('换算版本只跟着世界走', () => {
   const stamped = stampCalc(cleanRuleSet(RULES).rules!);
 
   it('「我的规则」、分享规则的链接、规则文件、复制一份:不带换算版本', () => {
-    expect(stamped.calc).toBe(2);
+    expect(stamped.calc).toBe(TUNING_CALC);
     expect(cleanRuleSet(stamped).rules!.calc).toBeUndefined();
-    expect(worldRules(stamped)!.calc).toBe(2);
+    expect(worldRules(stamped)!.calc).toBe(TUNING_CALC);
     const link = decodeRulesHash(rulesHash(stamped));
     expect(link.ok && link.rules.calc).toBeUndefined();
     expect(rulesFileText(stamped)).not.toContain('calc');
@@ -242,10 +242,10 @@ describe('换算版本只跟着世界走', () => {
 
   it('读档:比现在新的换算版本不读(提示刷新);认不出的按第 1 版(提示一句)', () => {
     const raw = JSON.parse(saveText(save(NEW))) as { edits: { rules: Record<string, unknown> } };
-    raw.edits.rules.calc = 3;
+    raw.edits.rules.calc = TUNING_CALC + 1;
     const newer = parseSave(JSON.stringify(raw));
     expect(newer.ok).toBe(false);
-    expect(!newer.ok && newer.error).toBe('这个存档来自更新版本的「文明与地图」(规则换算第 3 版),请刷新页面换到最新版再打开');
+    expect(!newer.ok && newer.error).toBe(`这个存档来自更新版本的「文明与地图」(规则换算第 ${TUNING_CALC + 1} 版),请刷新页面换到最新版再打开`);
     raw.edits.rules.calc = 'x';
     const bad = parseSave(JSON.stringify(raw));
     expect(bad.ok).toBe(true);
