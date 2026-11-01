@@ -41,17 +41,26 @@ describe('规则项表', () => {
     for (const g of TUNING_GROUPS) expect(TUNING_ITEMS.some((x) => x.group === g.id && x.common), g.id).toBe(true);
   });
 
-  it('改的旋钮都在旋钮表里、是数(区间是两个数);一处旋钮只归一项', () => {
-    const seen = new Map<string, string>();
-    for (const x of TUNING_ITEMS) {
-      expect(tuningKnobs(x).knobs.length, x.id).toBeGreaterThan(0);
-      for (const k of tuningKnobs(x).knobs) {
-        const v = table(k);
-        expect(v, `${x.id} → ${k}`).toBeDefined();
-        if (x.kind === 'range') expect(Array.isArray(v) && v.length === 2, k).toBe(true);
-        else expect(typeof v, k).toBe('number');
-        expect(seen.get(k), `${k} 同时归 ${seen.get(k)} 和 ${x.id}`).toBeUndefined();
-        seen.set(k, x.id);
+  it('每一版换算:改的旋钮都在旋钮表里、是数(区间是两个数;连带改的是数);一处旋钮只归一项', () => {
+    for (let calc = 1; calc <= TUNING_CALC; calc++) {
+      const seen = new Map<string, string>();
+      for (const x of TUNING_ITEMS) {
+        const k = tuningKnobs(x, calc);
+        expect(k.knobs.length, x.id).toBeGreaterThan(0);
+        if (k.pow) expect(k.pow.length, x.id).toBe(k.knobs.length);
+        for (const name of k.knobs) {
+          const v = table(name);
+          expect(v, `${x.id} → ${name}`).toBeDefined();
+          if (x.kind === 'range') expect(Array.isArray(v) && v.length === 2, name).toBe(true);
+          else expect(typeof v, name).toBe('number');
+          expect(seen.get(name), `第 ${calc} 版 ${name} 同时归 ${seen.get(name)} 和 ${x.id}`).toBeUndefined();
+          seen.set(name, x.id);
+        }
+        for (const name of k.alsoKnobs ?? []) {
+          expect(typeof table(name), `${x.id} → ${name}`).toBe('number');
+          expect(seen.get(name), `第 ${calc} 版 ${name} 同时归 ${seen.get(name)} 和 ${x.id}`).toBeUndefined();
+          seen.set(name, x.id);
+        }
       }
     }
     // 旋钮映射(tuningPatch.ts)和项表一一对得上
@@ -64,12 +73,14 @@ describe('规则项表', () => {
       const onGrid = (v: number) => Math.abs((v - x.min) / x.step - Math.round((v - x.min) / x.step)) < 1e-9 && v >= x.min && v <= x.max;
       expect(x.min, x.id).toBeLessThan(x.max);
       expect(onGrid(x.max), `${x.id} 最大值在档上`).toBe(true);
-      if (x.kind === 'range') {
-        expect(x.official.every(onGrid), x.id).toBe(true);
-        for (const k of tuningKnobs(x).knobs) expect(table(k), x.id).toEqual(x.official);
-      } else {
-        expect(onGrid(x.official), x.id).toBe(true);
-        for (const k of tuningKnobs(x).knobs) expect(x.official, x.id).toBe(table(k));
+      for (let calc = 1; calc <= TUNING_CALC; calc++) {
+        if (x.kind === 'range') {
+          expect(x.official.every(onGrid), x.id).toBe(true);
+          for (const k of tuningKnobs(x, calc).knobs) expect(table(k), x.id).toEqual(x.official);
+        } else {
+          expect(onGrid(x.official), x.id).toBe(true);
+          for (const k of tuningKnobs(x, calc).knobs) expect(x.official, x.id).toBe(table(k));
+        }
       }
     }
     const offs = TUNING_ITEMS.filter((x) => (x.kind === 'mult' && x.off) || (x.kind === 'num' && x.offable) || (x.kind === 'num' && x.min === 0 && x.id === 'folk.treks'));
@@ -102,6 +113,37 @@ describe('换算版本', () => {
     expect(cleanCalc(1)).toBe(1);
     expect(cleanCalc(7)).toBe(7);
     for (const v of [0, -2, 1.5, '2', null, undefined, NaN, Infinity]) expect(cleanCalc(v), String(v)).toBeUndefined();
+  });
+});
+
+describe('第 2 版换算', () => {
+  it('六项连改卡住它的几处;别的项照第 1 版', () => {
+    expect(tuningPatch({ 'war.odds': 4 }, 2)).toEqual({ wars: { WAR_ODDS: 4.8, CHECK_EVERY: 7.5 } });
+    expect(tuningPatch({ 'war.odds': 0.25 }, 2)).toEqual({ wars: { WAR_ODDS: 0.01875, CHECK_EVERY: 30 } });
+    expect(tuningPatch({ 'war.length': [60, 60] }, 2)).toEqual({ wars: { LENGTH: [60, 60], STALL: 20 } });
+    // 上限不到 21 年:僵持照官方,不写
+    expect(tuningPatch({ 'war.length': [1, 1] }, 2)).toEqual({ wars: { LENGTH: [1, 1] } });
+    expect(tuningPatch({ 'war.crush': 'never' }, 2)).toEqual({ wars: { CRUSH: Infinity, SURRENDER_POWER: Infinity } });
+    expect(tuningPatch({ 'war.crush': 4 }, 2)).toEqual({ wars: { CRUSH: 4, SURRENDER_POWER: 4 } });
+    expect(tuningPatch({ 'split.odds': 4 }, 2)).toEqual({ politics: { SPLIT_ODDS: 0.16, SPLIT_REST: 30, SPLIT_MIN_SIZE: 8 } });
+    expect(tuningPatch({ 'split.odds': 0.25 }, 2)).toEqual({ politics: { SPLIT_ODDS: 0.01, SPLIT_REST: 480, SPLIT_MIN_SIZE: 32 } });
+    expect(tuningPatch({ 'split.collapse': 4 }, 2)).toEqual({ unrest: { COLLAPSE_ODDS: 0.2, COLLAPSE_REST: 75, HEG_GATE: 0.0625, COLLAPSE_MIN: 15 } });
+    expect(tuningPatch({ 'split.dynasty': 4 }, 2)).toEqual({ dynasty: { ODDS: 0.12 * 64 }, regents: { USURP: 4 } });
+    // 关:次方为负的(冷却、门槛)照官方,不写
+    expect(tuningPatch({ 'split.odds': 0, 'split.collapse': 0, 'split.dynasty': 0 }, 2)).toEqual({ politics: { SPLIT_ODDS: 0 }, unrest: { COLLAPSE_ODDS: 0 }, dynasty: { ODDS: 0 }, regents: { USURP: 0 } });
+    // 别的项两版一样
+    const rest = Object.fromEntries(TUNING_ITEMS.filter((x) => !['war.odds', 'war.length', 'war.crush', 'split.odds', 'split.collapse', 'split.dynasty'].includes(x.id)).map((x) => [x.id, tuningEnds(x)[1]]));
+    expect(tuningPatch(rest, 2)).toEqual(tuningPatch(rest, 1));
+  });
+
+  it('第 1 版照旧(已经建好的世界照它推)', () => {
+    expect(tuningPatch({ 'war.odds': 4, 'war.length': [60, 60], 'war.crush': 'never', 'split.odds': 4, 'split.collapse': 4, 'split.dynasty': 4 }, 1)).toEqual({
+      wars: { WAR_ODDS: 1.2, LENGTH: [60, 60], CRUSH: Infinity },
+      politics: { SPLIT_ODDS: 0.16 },
+      unrest: { COLLAPSE_ODDS: 0.2 },
+      dynasty: { ODDS: 0.48 },
+      regents: { USURP: 4 },
+    });
   });
 });
 

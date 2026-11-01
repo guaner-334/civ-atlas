@@ -9,19 +9,26 @@
  */
 import { CIV_KNOBS } from './knobs';
 import type { KnobPatch, KnobValue } from './engine/knobs';
+import { fpow } from './engine/rand';
 import { TUNING_CALC, TUNING_ITEMS, cleanTuning, type TuningItem, type TuningValue, type WorldTuning } from './tuning';
 
 /**
  * 一项改哪几处旋钮("表.项"):
  * - 一项可以连着改几处(同一个意思在几张表里各存一份的,「关 = 不发生」要几处一起关的),几处都按同一个值改
  * - inv:倍数档倒过来(数越大越少的:官方值 ÷ 倍数,关 = Infinity)
+ * - pow:倍数档每一处乘倍数的几次方(和 knobs 一一对应;不给 = 都是 1 次方)。负的 = 倍数越大这一处越小(冷却、门槛、隔多久看一眼);
+ *   关(倍数 0)时次方为负的那几处照官方(事都不发生了,门槛不用动)。非整数次方按 fpow 舍入(跨 CPU 一致)
  * - never、off:数值项「永不」「关」那一档旋钮取的数
+ * - also:按这一项的值连带改的几处(数值、区间项用,比如仗打得久、僵持也等得久);和官方一样的不写。alsoKnobs = 它会改哪几处
  */
 export interface TuningKnobs {
   readonly knobs: readonly string[];
   readonly inv?: boolean;
+  readonly pow?: readonly number[];
   readonly never?: number;
   readonly off?: number;
+  readonly also?: (v: TuningValue) => readonly (readonly [string, KnobValue])[];
+  readonly alsoKnobs?: readonly string[];
 }
 
 /** 第 1 版的换算(规则开放时定的;定了不改) */
@@ -99,10 +106,40 @@ const KNOBS: Readonly<Record<string, TuningKnobs>> = {
 };
 
 /**
+ * 第 2 版:六项拉到头也没怎么变的,把卡住它的那几处一起改(5 个种子、推 3000 年和官方比;括号里是第 1 版):
+ * - 战争多少:看邻国时多半已经很想打(赔率换成机会早就饱了),只乘一次倍数差不出多少,赔率改按倍数的平方乘;
+ *   隔多久看一眼邻国按倍数的 −½ 次方缩短(×4 = 7.5 年一次,×¼ = 30 年)。×4 仗多 47%(16%),×¼ 少 63%(22%)
+ * - 一场仗最多打几年:仗多半先因为「连着几年没打下一州」(僵持)罢兵,僵持跟着放宽到上限的三分之一(至少照官方)。
+ *   最多 60 年:一场仗平均 12 年(9 年)
+ * - 灭国之战:亡国多半是打下国都以后余下的州归降(破都纳降,也看国力是对方几倍),两处一起改(官方都是 2.5 倍)。
+ *   永不:亡国少 27%(4%)
+ * - 分裂多少:同一国分过以后多少年不再分(冷却)按倍数缩短,多大的国才会分(州数门槛)按倍数的 −½ 次方降。×4 分裂多 3.3 倍(60%),×¼ 少 88%
+ * - 大崩解多少:崩过以后多少年不再崩(冷却)、只看占了一块大陆几成的霸主(门槛)按倍数降,多大的国才会崩(州数门槛)按倍数的 −½ 次方降。
+ *   ×4 大崩解多一倍(18%),×¼ 少 91%
+ * - 改朝换代多少:赔率随王朝的岁数按指数涨,乘一次倍数只等于王朝早亡几十年,改按倍数的三次方乘(权臣篡位照旧按倍数)。
+ *   ×4 改朝换代多 1.4 倍(30%)。没改看王朝的间隔:那样「看一眼」多了,权臣专权也跟着多好几倍
+ */
+const KNOBS_2: Readonly<Record<string, TuningKnobs>> = {
+  'war.odds': { knobs: ['wars.WAR_ODDS', 'wars.CHECK_EVERY'], pow: [2, -0.5] },
+  'war.length': {
+    knobs: ['wars.LENGTH'],
+    also: (v) => {
+      const stall = officialKnob('wars.STALL') as number;
+      return [['wars.STALL', Math.max(stall, Math.round((v as readonly [number, number])[1] / 3))]];
+    },
+    alsoKnobs: ['wars.STALL'],
+  },
+  'war.crush': { knobs: ['wars.CRUSH', 'wars.SURRENDER_POWER'], never: Infinity },
+  'split.odds': { knobs: ['politics.SPLIT_ODDS', 'politics.SPLIT_REST', 'politics.SPLIT_MIN_SIZE'], pow: [1, -1, -0.5] },
+  'split.collapse': { knobs: ['unrest.COLLAPSE_ODDS', 'unrest.COLLAPSE_REST', 'unrest.HEG_GATE', 'unrest.COLLAPSE_MIN'], pow: [1, -1, -1, -0.5] },
+  'split.dynasty': { knobs: ['dynasty.ODDS', 'regents.USURP'], pow: [3, 1] },
+};
+
+/**
  * 各版换算:第 i 个是第 i + 1 版。第 1 版写全 70 项;以后每一版只写这一版换了的项(那一项整个换掉),没写的照上一版。
  * 加一版:在末尾加一份,tuning.ts 的 TUNING_CALC 跟着加一(单测核对两边一样);前面的不动
  */
-const CALC_TABLES: readonly Readonly<Record<string, TuningKnobs>>[] = [KNOBS];
+const CALC_TABLES: readonly Readonly<Record<string, TuningKnobs>>[] = [KNOBS, KNOBS_2];
 
 /** 有几版换算(单测核对和 TUNING_CALC 一样) */
 export const CALC_COUNT = CALC_TABLES.length;
@@ -137,13 +174,23 @@ function officialKnob(k: string): KnobValue {
 }
 
 /** 一项的值按第 calc 版换成它改的那几处旋钮的值(值是清理过的) */
-function knobValues(x: TuningItem, v: TuningValue, calc: number): [string, KnobValue][] {
+function knobValues(x: TuningItem, v: TuningValue, calc: number): (readonly [string, KnobValue])[] {
   const k = tuningKnobs(x, calc);
+  return [...mainValues(x, k, v), ...(k.also ? k.also(v).filter(([name, kv]) => kv !== officialKnob(name)) : [])];
+}
+
+/** knobs 那几处的值 */
+function mainValues(x: TuningItem, k: TuningKnobs, v: TuningValue): [string, KnobValue][] {
   if (x.kind === 'mult') {
     const m = v as number;
-    return k.knobs.map((name) => {
+    return k.knobs.flatMap((name, i): [string, KnobValue][] => {
       const o = officialKnob(name) as number;
-      return [name, k.inv ? (m === 0 ? Infinity : o / m) : o * m];
+      if (k.inv) return [[name, m === 0 ? Infinity : o / m]];
+      const p = k.pow?.[i] ?? 1;
+      if (p === 1) return [[name, o * m]];
+      // 关:次方为正的那几处是 0,为负的(冷却、门槛)照官方,不写
+      if (m === 0) return p > 0 ? [[name, 0]] : [];
+      return [[name, o * fpow(m, p)]];
     });
   }
   if (x.kind === 'range') {

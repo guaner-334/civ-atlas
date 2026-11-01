@@ -47,7 +47,7 @@ export type TuningValues = { readonly [id: string]: TuningValue };
  * 一个世界建成的那一刻用的是哪一版,记在它的那套规则上(ruleSet.ts 的 RuleSet.calc;没记 = 第 1 版),之后一直照那一版推:
  * 换算改了,已经建好的世界照样推出原来的历史;新建的世界、并排试推本机的和别人分享的规则,用最新的一版
  */
-export const TUNING_CALC = 1;
+export const TUNING_CALC = 2;
 
 /** 推演要的那部分:改过的规则项 + 按第几版换算 */
 export interface WorldTuning {
