@@ -70,8 +70,11 @@ export function resetToOfficial(r: Pick<RuleSet, 'values'>): { change: RulesChan
 /** 搜的字:去掉首尾空白、并掉中间的空白,英文不分大小写 */
 const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
 
-/** 搜规则:名字、一句说明、摘要里的叫法里有这几个字的项,按组列;再加上名字(官方的、这套里起的)里有这几个字的地貌 */
-export function searchRules(q: string, r: Pick<RuleSet, 'biomes'>): { sections: ItemSection[]; biomes: Biome[] } {
+/**
+ * 搜规则:名字、一句说明、摘要里的叫法里有这几个字的项,按组列;再加上名字(官方的、这套里起的)里有这几个字的地貌。
+ * keepBiomes:这次搜的结果里已经列出来过的地貌 —— 正在改它的叫法、改得不再含这几个字了,也接着列(输入框不会打到一半没了)
+ */
+export function searchRules(q: string, r: Pick<RuleSet, 'biomes'>, keepBiomes?: ReadonlySet<Biome>): { sections: ItemSection[]; biomes: Biome[] } {
   const k = norm(q);
   if (!k) return { sections: [], biomes: [] };
   const hit = (s: string | undefined) => !!s && norm(s).includes(k);
@@ -79,7 +82,7 @@ export function searchRules(q: string, r: Pick<RuleSet, 'biomes'>): { sections: 
     const t = tuningText(x);
     return hit(x.name) || hit(t.desc) || hit(t.short) || hit(t.offText);
   });
-  const biomes = BIOMES.filter((b) => hit(b.name) || hit(r.biomes?.[biomeKey(b.id)])).map((b) => b.id);
+  const biomes = BIOMES.filter((b) => keepBiomes?.has(b.id) || hit(b.name) || hit(r.biomes?.[biomeKey(b.id)])).map((b) => b.id);
   return { sections: sections(items), biomes };
 }
 

@@ -465,7 +465,11 @@ function countByGroup(values: RuleSet['values']): Record<TuningGroup, number> {
 
 /** 搜规则的结果(电脑、手机一样,一项的样子由 row 给) */
 function SearchPage({ q, r, row, ro, acts, phone }: { q: string; r: RuleSet; row: (x: TuningItem) => JSX.Element; ro: boolean; acts: Acts | null; phone?: boolean }) {
-  const res = searchRules(q, r);
+  // 这次搜的结果里列过的地貌:改它的叫法时不会因为不再含搜的字一下子没了(换了搜的字才重来)
+  const shownBiomes = useRef<{ q: string; set: Set<Biome> }>({ q, set: new Set() });
+  if (shownBiomes.current.q !== q) shownBiomes.current = { q, set: new Set() };
+  const res = searchRules(q, r, shownBiomes.current.set);
+  for (const b of res.biomes) shownBiomes.current.set.add(b);
   const n = res.sections.reduce((a, s) => a + s.items.length, 0) + res.biomes.length;
   return (
     <>

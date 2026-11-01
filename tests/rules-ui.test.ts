@@ -192,6 +192,9 @@ describe('改过的、搜规则、改了几项', () => {
     expect(searchRules(' 王朝 寿命 ', {}).sections.flatMap((s) => s.items.map((x) => x.id))).toEqual(['split.dynastyAge']);
     expect(searchRules('雨林', {}).biomes).toEqual([Biome.TemperateRainforest, Biome.TropicalDryForest, Biome.Rainforest]);
     expect(searchRules('瘴林', { biomes: { rainforest: '瘴林' } }).biomes).toEqual([Biome.Rainforest]);
+    // 正在改搜到的那个叫法、改得不再含搜的字:列过的接着列
+    expect(searchRules('瘴林', { biomes: { rainforest: '瘴' } }).biomes).toEqual([]);
+    expect(searchRules('瘴林', { biomes: { rainforest: '瘴' } }, new Set([Biome.Rainforest])).biomes).toEqual([Biome.Rainforest]);
     expect(searchRules('没有这种规则', {})).toEqual({ sections: [], biomes: [] });
     expect(searchRules('   ', {})).toEqual({ sections: [], biomes: [] });
   });
