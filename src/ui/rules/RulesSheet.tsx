@@ -37,6 +37,7 @@ import { closeRulesSheet, getRulesSheet, openRulesSheet, useRulesSheet } from '.
 import { BiomeRow, MoreMenu, NameInput, RuleBlock, RuleRow, type MenuItem } from './RuleRows';
 import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, searchRules, type ItemSection, type RulesPage } from './rulesView';
 import { adoptRules, downloadRules, duplicateRules, newWorldFromShared, redoWithNewer, shareRules } from './rulesActions';
+import { getCompare, openCompare } from '../compare/compareStore';
 
 /** 官方规则(一项没改) */
 const OFFICIAL: RuleSet = { name: OFFICIAL_RULES_NAME, version: 1, values: {} };
@@ -125,6 +126,8 @@ export function RulesSheet() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (document.querySelector('.rs-root .pm-menu')) return;
+      // 并排试推盖在上面:Esc 归它(回到这张大卡)
+      if (getCompare()) return;
       e.stopPropagation();
       closeRulesSheet();
     };
@@ -221,11 +224,26 @@ function modifiedNote(sh: Shown, sec: ItemSection[], biomes: number): string {
 /** 搜不到时说的 */
 const notFound = (q: string) => `没有和「${q.trim()}」有关的规则。换个说法试试，比如「战争」「瘟疫」「王朝」。`;
 
+/**
+ * 「并排试推」:同一张地图上和官方规则一起往下推(compare/ComparePage.tsx,盖在大卡上面)。
+ * 我的规则里的、别人分享的(没加进来也能)、世界里那一版都有;官方规则自己和自己比没有意思,不放
+ */
+function CompareButton({ sh, className = 'rs-btn pri' }: { sh: Shown; className?: string }) {
+  const kind = sh.kind;
+  if (kind === 'official') return null;
+  return (
+    <button className={className} data-act="rules-compare" onClick={() => openCompare({ rules: sh.rules, kind, ...(sh.mine ? { mineId: sh.mine.rules.id } : {}) })}>
+      并排试推
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 电脑
 
 function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Acts | null; naming: boolean }) {
   const r = sh.rules;
+  const compareBtn = <CompareButton sh={sh} />;
   const ro = !acts;
   const n = modifiedCount(r);
   const counts = useMemo(() => countByGroup(r.values), [r.values]);
@@ -469,6 +487,7 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                   <button className="rs-btn" data-act="rules-file" onClick={() => downloadRules(r)}>
                     存成文件
                   </button>
+                  {compareBtn}
                 </>
               ) : sh.kind === 'official' ? (
                 <>
@@ -480,11 +499,17 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                   </button>
                 </>
               ) : sh.kind === 'world' ? (
-                <p>
-                  <b>只能看。</b>这一版存在世界里：「我的规则」里改了、删了，这个世界都不变。
-                </p>
+                <>
+                  <p>
+                    <b>只能看。</b>这一版存在世界里：「我的规则」里改了、删了，这个世界都不变。
+                  </p>
+                  {compareBtn}
+                </>
               ) : (
-                <p>加进我的规则以后才能改。出处会一直写着「{basedOnText({ basedOn: [{ name: r.name, ...(r.by ? { by: r.by } : {}), version: r.version }] })}」。</p>
+                <>
+                  <p>加进我的规则以后才能改。出处会一直写着「{basedOnText({ basedOn: [{ name: r.name, ...(r.by ? { by: r.by } : {}), version: r.version }] })}」。</p>
+                  {compareBtn}
+                </>
               )}
             </footer>
           </div>
@@ -606,6 +631,8 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
             <div className="rs-card">{li('modified', '只看改过的', n.total)}</div>
             <div className="rs-card rs-gap">{TUNING_GROUPS.map((g) => li(g.id, g.name, counts[g.id]))}</div>
             <div className="rs-card rs-gap-s">{li('biomes', '地貌的名字', n.biomes)}</div>
+            {/* 别人分享的、世界里那一版:底下那一条已经有别的按钮,并排试推放在这一页最下面 */}
+            {(sh.kind === 'shared' || sh.kind === 'world') && <CompareButton sh={sh} className="rs-btn wide" />}
           </>
         )}
       </>
@@ -721,9 +748,12 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
         </div>
         <footer className="rs-ph-foot">
           {sh.kind === 'mine' ? (
-            <p>
-              <b>{n.total ? `改了 ${n.total} 项` : '还没改'}</b>
-            </p>
+            <>
+              <p>
+                <b>{n.total ? `改了 ${n.total} 项` : '还没改'}</b>
+              </p>
+              <CompareButton sh={sh} />
+            </>
           ) : sh.kind === 'official' ? (
             <>
               <p>官方规则不能改</p>

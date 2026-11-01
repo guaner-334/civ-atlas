@@ -154,4 +154,15 @@ describe('后台线程里几段轮流推', () => {
     await growMessage({ grow: 'start', map: MAP, setup: {}, sides: [{ side: 0, key: 1 }, { side: 1, key: 3, tuning: { 'split.odds': 4 } }] }, (r) => again.push(r));
     expect(again).toEqual([]);
   }, 300_000);
+
+  it('带 failAt 的那段推到那年以后故意出错:停在那一年(冒烟检查、截图看推不下去的样子用)', async () => {
+    const w = worldOf();
+    const got: GrowReply[] = [];
+    await growMessage({ grow: 'start', map: { params: { ...PARAMS, seed: 8 } }, setup: {}, sides: [{ side: 1, key: 9, failAt: 333 }] }, (r) => got.push(r));
+    const f = got.find((r): r is Extract<GrowReply, { grow: 'failed' }> => r.grow === 'failed');
+    expect(got.filter((r) => r.grow === 'civ').map((r) => (r as Extract<GrowReply, { grow: 'civ' }>).civ.endYear)).toEqual([300]);
+    expect(f?.at).toBe(333);
+    expect(f?.civ?.endYear).toBe(333);
+    expect(w).toBe(worldOf());
+  }, 120_000);
 });

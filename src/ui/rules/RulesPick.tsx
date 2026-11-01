@@ -109,7 +109,7 @@ export function RulesPick(p: RulesPickProps) {
           新建一套
         </button>
       </div>
-      {!p.phone && <div className="nm-note rp-note">自己调的、别人分享来的规则，都在「我的世界」的「规则」里。</div>}
+      {!p.phone && <div className="nm-note rp-note">自己调的、别人分享来的规则，都在「我的世界」的「规则」里。拿不准选哪套，可以先在调规则的页里和官方并排试推。</div>}
     </>
   );
 }

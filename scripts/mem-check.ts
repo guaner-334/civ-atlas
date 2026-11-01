@@ -14,6 +14,8 @@
  * director 导播 45 秒;globe 地球仪开关 3 次(每次转几下);globezoom 打开地球仪放大到 2.4 倍、5 倍;export 导出地图图片 1 倍、2 倍;switch5 回我的世界新建并创建,连换 5 个世界;
  * stepui 逐年推演的界面:世界卡片里「从这里演绎」,照默认设置往下走 60 秒(停下来就点「接着演绎」);
  * stepwise50 逐年推演走 50 步(一步 20 年;只量后台线程这一头:在空白首页里另开一个生成线程,按逐年推演的请求一步步走)。
+ * compare 首页打开别人分享的规则链接,点「并排试推」(种子 7 的地图,手机上一个线程两边轮流推)推完,再播放 15 秒;
+ * comparew 同上,先打开种子 7 的世界(世界的地图、历史都还在内存里),再在世界上面打开规则链接、并排试推。
  *
  * 每个场景一个新浏览器。量的几样(MB):
  *   JS 主     页面主线程的 JS 堆 + ArrayBuffer(Runtime.getHeapUsage 的 usedSize + backingStorageSize)
@@ -30,6 +32,7 @@ import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { preview } from 'vite';
 import { DEFAULT_PARAMS } from '../src/gen/world';
+import { rulesHash } from '../src/gen/civ/ruleShare';
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -688,6 +691,43 @@ await scenario('stepui', 'seed=7&play=0', async (rig, mark) => {
   await p.locator('[data-act=step-hold]:visible').first().tap().catch(() => {});
   await sleep(1500);
   return `演绎到第 ${s?.now ?? '?'} 年(从第 ${s?.start ?? '?'} 年起)`;
+});
+
+/** 并排试推:点开、等两边推完(推的时候照常取样),再按播放放 15 秒 */
+const COMPARE_RULES = rulesHash({ name: '战乱年代', version: 1, values: { 'war.odds': 2, 'war.truce': 2, 'split.collapse': 2 } });
+async function compareRun(rig: Rig, mark: Ctx['mark']): Promise<string> {
+  const p = rig.page;
+  await p.tap('.rs-root [data-act=rules-compare]', { timeout: 60000 });
+  const t0 = Date.now();
+  await p.waitForFunction(
+    () => {
+      const c = (window as any).__wfCompare;
+      return !!c && c.sides().every((s: { status: string }) => s.status !== 'run') && c.drawer.painted.every(Boolean);
+    },
+    null,
+    { timeout: 300000, polling: 500 },
+  );
+  const s = ((Date.now() - t0) / 1000).toFixed(1);
+  await sleep(1500);
+  await mark('两边推完');
+  await p.evaluate(() => (window as any).__wfCompare.seek(0));
+  await p.tap('.cmp-root [data-act=compare-play]');
+  await sleep(15000);
+  await mark('播放 15 s');
+  return `两边推完 3000 年 ${s} s`;
+}
+
+await scenario('compare', '', async (rig, mark) => {
+  await rig.page.evaluate((h) => (location.hash = h), COMPARE_RULES);
+  return compareRun(rig, mark);
+});
+
+await scenario('comparew', 'seed=7&play=0', async (rig, mark) => {
+  await civReady(rig);
+  await sleep(5000);
+  await mark('世界打开');
+  await rig.page.evaluate((h) => (location.hash = h), COMPARE_RULES);
+  return compareRun(rig, mark);
 });
 
 await scenario('stepwise50', '', async (rig, mark) => {

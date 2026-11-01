@@ -273,6 +273,7 @@ const MOVED: Record<string, number> = {
   立体地形: 4,
   第一次来: 3,
   新建选规则: 3,
+  并排试推: 5,
   新建时让助手改: 4,
   隐私模式: 5,
   改名等推完: 3,
@@ -1795,6 +1796,65 @@ if (part('新建选规则')) rulesNew: {
   const sharedSide = shared ? await sideOf() : '';
   console.log(`新建选规则:别人分享的「用它新建世界」→ 第 2 步规则「${sharedSide}」`);
   if (sharedSide !== '群雄并起') errs.push(`新建选规则:别人分享的规则「用它新建世界」以后,新建第 2 步的规则不是那一套(${sharedSide})`);
+  await ctx.close();
+}
+
+// 并排试推:「我的规则」里放一套(战争 ×2、议和后 0 年),调规则大卡底下点「并排试推」→ 盖上一页,左右两张地图、一根时间轴、一张表(8 行);
+// 网址带 compareFail=900:右边推到第 900 年故意出错 → 左边照样推完 3000 年,右边停在第 900 年,拖到那年盖浅白、说可能是哪两项;
+// 「这两项改回官方」→ 我的规则里那两项没了、右边从头推;Esc 回到大卡(大卡还开着)
+if (part('并排试推')) compare: {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  await ctx.addInitScript(() => {
+    if (!localStorage.getItem('wenming-ditu:rules'))
+      localStorage.setItem('wenming-ditu:rules', JSON.stringify({ list: [{ rules: { id: 'rcompare01', name: '战乱年代', version: 1, values: { 'war.odds': 2, 'war.truce': 0 } }, used: false, worlds: 0, at: 1 }] }));
+  });
+  const cp = await ctx.newPage();
+  cp.on('pageerror', (e) => errs.push(`并排试推:${e.message}`));
+  await cp.goto(`${dev.url}/?compareFail=900`);
+  await cp.locator('.mw [data-tab=rules]').click({ timeout: 60000 });
+  await cp.click('.rs-rr[data-id=rcompare01]');
+  await cp.locator('.rs-root [data-act=rules-compare]').click({ timeout: 10000 });
+  const t0 = Date.now();
+  const opened = await cp.locator('.cmp-root').waitFor({ timeout: 30000 }).then(() => true, () => false);
+  if (!opened) {
+    errs.push('并排试推:调规则大卡底下点「并排试推」没打开那一页');
+    await ctx.close();
+    break compare;
+  }
+  type Cmp = { drawer: { idle: boolean; painted: boolean[] }; sides: () => { status: string; civ: { endYear: number } | null }[]; seek: (y: number) => void };
+  const settled = await cp
+    .waitForFunction(() => {
+      const c = (window as unknown as { __wfCompare?: Cmp }).__wfCompare;
+      return !!c && c.sides().every((s) => s.status !== 'run') && c.drawer.painted.every(Boolean);
+    }, null, { timeout: 180000, polling: 250 })
+    .then(() => true, () => false);
+  const ms = Date.now() - t0;
+  const st = await cp.evaluate(() => (window as unknown as { __wfCompare: Cmp }).__wfCompare.sides().map((s) => [s.status, s.civ?.endYear ?? -1]));
+  await cp.evaluate(() => (window as unknown as { __wfCompare: Cmp }).__wfCompare.seek(900));
+  const card = await cp.locator('.cmp-pane[data-side="1"] [data-act=compare-failed]').innerText({ timeout: 5000 }).catch(() => '');
+  const status = await cp.locator('.cmp-st').innerText().catch(() => '');
+  const rows = await cp.locator('.cmp-tb .cmp-row:not(.h)').count();
+  const head = await cp.locator('.cmp-tb .cmp-row.h').innerText().catch(() => '');
+  const mapBtn = await cp.locator('.cmp-top [data-act=compare-map]').innerText().catch(() => '');
+  await cp.click('[data-act=compare-revert]').catch(() => {});
+  await cp.waitForTimeout(300);
+  const left = await cp.evaluate(() => (JSON.parse(localStorage.getItem('wenming-ditu:rules') ?? '{}').list ?? [])[0]?.rules?.values ?? null);
+  const restarted = await cp.evaluate(() => (window as unknown as { __wfCompare: Cmp }).__wfCompare.sides()[1].status);
+  await cp.keyboard.press('Escape');
+  await cp.waitForTimeout(200);
+  const back = !(await cp.locator('.cmp-root').count()) && (await cp.locator('.rs-root').count()) > 0;
+  timing('并排试推:打开到两边推完(左边 3000 年、右边停在第 900 年)', ms, 60000);
+  console.log(
+    `并排试推:两边 ${JSON.stringify(st)}(${(ms / 1000).toFixed(1)} 秒);表 ${rows} 行「${head.replace(/\n/g, ' ')}」;右上「${mapBtn.replace(/\n/g, ' ')}」;` +
+      `推不下去「${card.replace(/\n/g, ' ')}」;状态「${status}」;改回以后我的规则 ${JSON.stringify(left)}、右边 ${restarted};Esc 回大卡 ${back}`,
+  );
+  if (!settled || st[0][0] !== 'done' || st[0][1] !== 3000 || st[1][0] !== 'failed' || st[1][1] !== 900) errs.push(`并排试推:左边应推完 3000 年、右边停在第 900 年(${JSON.stringify(st)})`);
+  if (rows !== 8 || !head.includes('到第 900 年为止') || !head.includes('差多少')) errs.push(`并排试推:表应有 8 行、比到第 900 年(${rows} 行,「${head}」)`);
+  if (!mapBtn.includes('种子 7 的地图')) errs.push(`并排试推:右上换地图应写「种子 7 的地图」(${mapBtn})`);
+  if (!card.includes('推到第 900 年推不下去了') || !card.includes('「议和后 0 年不再开战」') || !card.includes('这两项改回官方')) errs.push(`并排试推:推不下去的那张卡不对(${card})`);
+  if (!status.includes('右边停在第 900 年')) errs.push(`并排试推:时间轴右边应写右边停在第 900 年(${status})`);
+  if (!left || Object.keys(left).length !== 0 || restarted !== 'run') errs.push(`并排试推:「这两项改回官方」以后我的规则里那两项应没了、右边从头推(${JSON.stringify(left)},${restarted})`);
+  if (!back) errs.push('并排试推:Esc 应回到调规则的大卡');
   await ctx.close();
 }
 

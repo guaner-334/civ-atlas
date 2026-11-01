@@ -47,6 +47,8 @@ export interface CompareOptions {
   sides: readonly (TuningValues | undefined)[];
   /** 开几个线程(1 到段数) */
   threads: number;
+  /** 第几段推到哪年以后故意出错(冒烟检查、截图用;平常不给) */
+  failAt?: readonly (number | undefined)[];
   spawn?: () => GrowThread;
   on: CompareHandlers;
 }
@@ -67,6 +69,7 @@ export class CompareRun {
   private readonly threads: (GrowThread | null)[];
   private readonly spawn: () => GrowThread;
   private readonly on: CompareHandlers;
+  private readonly failAt: readonly (number | undefined)[];
   private disposed = false;
 
   constructor(o: CompareOptions) {
@@ -79,6 +82,7 @@ export class CompareRun {
     this.threads = Array.from({ length: Math.max(1, Math.min(o.threads, this.tunings.length)) }, () => null);
     this.spawn = o.spawn ?? spawnGrowThread;
     this.on = o.on;
+    this.failAt = o.failAt ?? [];
     for (let t = 0; t < this.threads.length; t++) this.send(t);
   }
 
@@ -89,7 +93,7 @@ export class CompareRun {
 
   /** 告诉第 t 个线程它现在要推哪几段(没有要推的就关掉它) */
   private send(t: number) {
-    const sides = this.tunings.flatMap((tuning, side) => (this.slot(side) === t && this.status[side] === 'run' ? [{ side, key: this.keys[side], ...(tuning ? { tuning } : {}) }] : []));
+    const sides = this.tunings.flatMap((tuning, side) => (this.slot(side) === t && this.status[side] === 'run' ? [{ side, key: this.keys[side], ...(tuning ? { tuning } : {}), ...(this.failAt[side] !== undefined ? { failAt: this.failAt[side] } : {}) }] : []));
     if (!sides.length) {
       this.close(t);
       return;
