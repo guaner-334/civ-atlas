@@ -17,9 +17,9 @@ import {
   cleanRuleSet,
   isOfficialRules,
   ruleNotesLine,
-  ruleTuning,
   trimLineage,
   worldRules,
+  worldTuning,
   type RuleSet,
 } from '../src/gen/civ/ruleSet';
 import { basedOnText, biomeName, deriveRuleSet, newRuleSet, ruleSetLabel, sameRuleContent } from '../src/gen/civ/ruleSetEdit';
@@ -134,9 +134,9 @@ describe('一套规则的数据', () => {
     expect(worldRules({ name: 'x', version: 1, values: {}, biomes: { ocean: '海洋' } })).toBeUndefined();
     expect(worldRules(WAR)).toEqual(cleanRuleSet(WAR).rules);
     // 推演只看规则项:只改了地貌叫法的,推演照官方
-    expect(ruleTuning({ ...newRuleSet('x'), biomes: { ocean: '无尽之海' } })).toBeUndefined();
-    expect(ruleTuning(WAR)).toEqual(cleanRuleSet(WAR).rules!.values);
-    expect(ruleTuning(undefined)).toBeUndefined();
+    expect(worldTuning({ ...newRuleSet('x'), biomes: { ocean: '无尽之海' } })).toBeUndefined();
+    expect(worldTuning(WAR)).toEqual({ values: cleanRuleSet(WAR).rules!.values, calc: 1 });
+    expect(worldTuning(undefined)).toBeUndefined();
   });
 
   it('复制一份:出处记在最前面、一路往下传;从第 1 版起,署名空着,规则项、地貌叫法、介绍照搬;太长的留最近几层和最早的那层', () => {

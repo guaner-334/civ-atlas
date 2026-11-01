@@ -13,7 +13,7 @@
  * - dispose:全部关掉,之后什么也不交
  */
 import type { Civ } from '../../gen/civ/types';
-import type { TuningValues } from '../../gen/civ/tuning';
+import type { WorldTuning } from '../../gen/civ/tuning';
 import type { GrowMap, GrowReply, GrowRequest, GrowSetup } from '../../growThread';
 
 /** 后台线程(浏览器里是 Worker;测试里换成假的) */
@@ -44,7 +44,7 @@ export interface CompareOptions {
   map: GrowMap;
   setup: GrowSetup;
   /** 每段的规则(下标 = 第几段;不给 = 官方规则) */
-  sides: readonly (TuningValues | undefined)[];
+  sides: readonly (WorldTuning | undefined)[];
   /** 开几个线程(1 到段数) */
   threads: number;
   /** 第几段推到哪年以后故意出错(冒烟检查、截图用;平常不给) */
@@ -61,7 +61,7 @@ let keySeq = 0;
 export class CompareRun {
   private readonly map: GrowMap;
   private readonly setup: GrowSetup;
-  private readonly tunings: (TuningValues | undefined)[];
+  private readonly tunings: (WorldTuning | undefined)[];
   private readonly keys: number[];
   private readonly status: Status[];
   /** 每段最后报过的年份(线程坏了时停在这里) */
@@ -158,7 +158,7 @@ export class CompareRun {
   }
 
   /** 换第 side 段的规则,这一段从头推(别的段照旧) */
-  restart(side: number, tuning: TuningValues | undefined): void {
+  restart(side: number, tuning: WorldTuning | undefined): void {
     if (this.disposed || side < 0 || side >= this.tunings.length) return;
     this.tunings[side] = tuning;
     this.keys[side] = ++keySeq;

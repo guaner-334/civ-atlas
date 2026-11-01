@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Civ } from '../../gen/civ/types';
-import type { TuningValues } from '../../gen/civ/tuning';
+import type { WorldTuning } from '../../gen/civ/tuning';
 import { CompareRun } from './compareClient';
 import { makeDrawMap, type DrawMap } from './drawMap';
 import type { MapChoice } from './compareMaps';
@@ -27,7 +27,7 @@ const fresh = (): SideState => ({ civ: null, progress: 0, status: 'run' });
 
 const TOAST = 'compare-map';
 
-export function useCompareRun(choice: MapChoice, tuning: TuningValues | undefined, threads: number, failAt?: number) {
+export function useCompareRun(choice: MapChoice, tuning: WorldTuning | undefined, threads: number, failAt?: number) {
   const [map, setMap] = useState<DrawMap | null>(null);
   const [mapError, setMapError] = useState(false);
   const [sides, setSides] = useState<SideState[]>(() => [fresh(), fresh()]);
@@ -81,11 +81,11 @@ export function useCompareRun(choice: MapChoice, tuning: TuningValues | undefine
   }, [choice.key]);
 
   /** 第 side 段换一套规则(或照原样)从头推,另一段照旧 */
-  const restartSide = (side: number, t: TuningValues | undefined) => {
+  const restartSide = (side: number, t: WorldTuning | undefined) => {
     run.current?.restart(side, t);
     setSides((all) => all.map((s, i) => (i === side ? fresh() : s)));
   };
-  const restartRight = (t: TuningValues | undefined) => restartSide(1, t);
+  const restartRight = (t: WorldTuning | undefined) => restartSide(1, t);
 
   return { map, mapError, sides, restartRight, restartSide };
 }

@@ -20,7 +20,7 @@ import type { WorkerRequest } from '../worker';
 import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
 import { cleanCalamity } from '../gen/civ/calamity';
-import { ruleTuning } from '../gen/civ/ruleSet';
+import { worldTuning } from '../gen/civ/ruleSet';
 import { parseSave } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { decodePresetHash } from './presetLink';
@@ -68,7 +68,7 @@ export function helperJob(r: RenderRequest): HelperJob {
   const origins = cleanOrigins(e.origins);
   const calamity = cleanCalamity(e.calamity);
   const civSeed = cleanCivSeed(e.civSeed);
-  const tuning = ruleTuning(e.rules);
+  const tuning = worldTuning(e.rules);
   const played = cleanPlay(e.play);
   const play = played && { ...played, commands: withoutFoundNames(played.commands) };
   const input: HelperJob['input'] = {

@@ -11,7 +11,7 @@
 import { generateWorld, type World } from '../world';
 import { DEFAULT_PARAMS } from '../params';
 import { DEFAULT_CIV_PARAMS, generateCiv } from '../civ';
-import { tuningPatch } from '../civ/tuningPatch';
+import { worldPatch } from '../civ/tuningPatch';
 import { ownersAt } from '../civ/engine/timeline';
 import { developmentAt, eraLevel, eraOf } from '../civ/development';
 import { capitalAt, polityName, portAt } from '../civ/growth';
@@ -132,7 +132,7 @@ export function searchSeedWith(q: FinderQuery, setup: FinderSetup, seed: number)
     } else {
       world = generateWorld({ ...DEFAULT_PARAMS, ...setup.world, seed });
     }
-    const knobs = setup.tuning ? tuningPatch(setup.tuning) : undefined;
+    const knobs = worldPatch(setup.tuning);
     const civ = generateCiv(world, { ...setup.civ, ...(knobs ? { knobs } : {}), endYear: plan.needEnd, ...(setup.map === 'fixed' ? { civSeed: seed } : {}) });
     return { report: { seed, ...searchCiv(q, world, civ, plan), ms: Math.round(now() - t0) }, world, civ };
   } catch (e) {

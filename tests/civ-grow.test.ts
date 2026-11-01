@@ -10,6 +10,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, startContinue, type Civ, type CivParams } from '../src/gen/civ';
 import { startGrow, type GrowEngine, type GrowEvent } from '../src/gen/civ/grow';
 import { tuningPatch } from '../src/gen/civ/tuningPatch';
+import { TUNING_CALC } from '../src/gen/civ/tuning';
 import { growMessage, type GrowReply } from '../src/growThread';
 
 const PARAMS = { ...DEFAULT_PARAMS, cells: 12000, seed: 7 };
@@ -37,7 +38,7 @@ const MARKS = [120, 260, 400];
 describe('边推边交', () => {
   it('官方规则、改过的规则:每一份和一口气推到那一年逐字段一样,最后一份推完', () => {
     const w = worldOf();
-    const tuned: Partial<CivParams> = { knobs: tuningPatch({ 'war.odds': 4, 'war.truce': 0, 'diplo.marry': 0 }), civSeed: 52817, calamity: 'more' };
+    const tuned: Partial<CivParams> = { knobs: tuningPatch({ 'war.odds': 4, 'war.truce': 0, 'diplo.marry': 0 }, TUNING_CALC), civSeed: 52817, calamity: 'more' };
     for (const [label, params] of [
       ['官方', {}],
       ['改过', tuned],
@@ -134,24 +135,24 @@ describe('后台线程里几段轮流推', () => {
       // 第 0 段交了第一份以后,第 1 段换一套规则(第 0 段 key 不变)
       if (!switched && r.grow === 'civ' && r.side === 0) {
         switched = true;
-        void growMessage({ grow: 'start', map: MAP, setup: {}, sides: [{ side: 0, key: 1 }, { side: 1, key: 3, tuning: { 'split.odds': 4 } }] }, reply);
+        void growMessage({ grow: 'start', map: MAP, setup: {}, sides: [{ side: 0, key: 1 }, { side: 1, key: 3, tuning: { values: { 'split.odds': 4 }, calc: TUNING_CALC } }] }, reply);
       }
     };
-    await growMessage({ grow: 'start', map: MAP, setup: {}, sides: [{ side: 0, key: 1 }, { side: 1, key: 2, tuning: { 'war.odds': 4 } }] }, reply);
+    await growMessage({ grow: 'start', map: MAP, setup: {}, sides: [{ side: 0, key: 1 }, { side: 1, key: 2, tuning: { values: { 'war.odds': 4 }, calc: TUNING_CALC } }] }, reply);
     const civs = (side: number, key: number) => got.filter((r): r is Extract<GrowReply, { grow: 'civ' }> => r.grow === 'civ' && r.side === side && r.key === key);
     // 第 0 段没重来:每个交历史的年份只交一次
     expect(civs(0, 1).map((r) => r.civ.endYear)).toEqual([300, 700, 1300, 2100, 3000]);
     expect(civs(0, 1).at(-1)!.done).toBe(true);
     // 第 1 段换了规则以后从头推完
     expect(civs(1, 3).map((r) => r.civ.endYear)).toEqual([300, 700, 1300, 2100, 3000]);
-    sameCiv(civs(1, 3).at(-1)!.civ, generateCiv(w, { knobs: tuningPatch({ 'split.odds': 4 }) }), '换了规则的那段');
+    sameCiv(civs(1, 3).at(-1)!.civ, generateCiv(w, { knobs: tuningPatch({ 'split.odds': 4 }, TUNING_CALC) }), '换了规则的那段');
     sameCiv(civs(0, 1).at(-1)!.civ, generateCiv(w), '官方那段');
     // 推的时候报过推到哪年
     expect(got.some((r) => r.grow === 'progress' && r.side === 0)).toBe(true);
 
     // 两段都推完了,再发一样的:不再推
     const again: GrowReply[] = [];
-    await growMessage({ grow: 'start', map: MAP, setup: {}, sides: [{ side: 0, key: 1 }, { side: 1, key: 3, tuning: { 'split.odds': 4 } }] }, (r) => again.push(r));
+    await growMessage({ grow: 'start', map: MAP, setup: {}, sides: [{ side: 0, key: 1 }, { side: 1, key: 3, tuning: { values: { 'split.odds': 4 }, calc: TUNING_CALC } }] }, (r) => again.push(r));
     expect(again).toEqual([]);
   }, 300_000);
 

@@ -5,9 +5,9 @@
  * 每一项两头的极端值推不推得完、出不出 NaN,在压力测试里(scripts/stress.ts 的「规则项」)
  */
 import { describe, expect, it } from 'vitest';
-import { MULT_STEPS, TUNING_ITEMS, cleanTuning, multSteps, officialValue, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
+import { MULT_STEPS, TUNING_CALC, TUNING_ITEMS, cleanCalc, cleanTuning, multSteps, officialValue, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
 import { TUNING_GROUPS, TUNING_TEXT_IDS, tuningCounts, tuningSummary, tuningText, tuningValueText } from '../src/gen/civ/tuningText';
-import { TUNING_KNOB_IDS, tuningKnobs, tuningPatch } from '../src/gen/civ/tuningPatch';
+import { CALC_COUNT, TUNING_KNOB_IDS, tuningKnobs, tuningPatch, worldPatch } from '../src/gen/civ/tuningPatch';
 import { CIV_KNOBS, cleanKnobs } from '../src/gen/civ/knobs';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
@@ -77,42 +77,70 @@ describe('规则项表', () => {
   });
 });
 
-describe('换成旋钮的改动', () => {
+describe('换算版本', () => {
+  it('换算表的版数和 TUNING_CALC 一样;每一版里官方值那一档都换不出改动(官方规则的世界和换算版本无关)', () => {
+    expect(CALC_COUNT).toBe(TUNING_CALC);
+    const official = Object.fromEntries(TUNING_ITEMS.map((x) => [x.id, officialValue(x)]));
+    for (let calc = 1; calc <= TUNING_CALC; calc++) {
+      expect(tuningPatch(official, calc), `第 ${calc} 版`).toBeUndefined();
+      for (const x of TUNING_ITEMS) expect(tuningKnobs(x, calc).knobs.length, `${x.id} 第 ${calc} 版`).toBeGreaterThan(0);
+    }
+  });
+
+  it('不认得的换算版本(0、小数、比现在新的)报错,不悄悄换成别的版本', () => {
+    for (const calc of [0, -1, 1.5, TUNING_CALC + 1, NaN]) expect(() => tuningPatch({ 'war.odds': 2 }, calc), String(calc)).toThrow(/换算版本/);
+    expect(() => tuningKnobs({ id: 'war.odds' }, TUNING_CALC + 1)).toThrow(/换算版本/);
+  });
+
+  it('推演要的那部分(规则项 + 换算版本)照记的那一版换;没有 = 官方', () => {
+    expect(worldPatch(undefined)).toBeUndefined();
+    expect(worldPatch({ values: { 'war.odds': 2 }, calc: 1 })).toEqual(tuningPatch({ 'war.odds': 2 }, 1));
+    expect(worldPatch({ values: {}, calc: TUNING_CALC })).toBeUndefined();
+  });
+
+  it('换算版本的清理:正整数照留,别的不认', () => {
+    expect(cleanCalc(1)).toBe(1);
+    expect(cleanCalc(7)).toBe(7);
+    for (const v of [0, -2, 1.5, '2', null, undefined, NaN, Infinity]) expect(cleanCalc(v), String(v)).toBeUndefined();
+  });
+});
+
+describe('换成旋钮的改动(第 1 版)', () => {
   it('没改 / 都是官方值 = undefined(官方)', () => {
-    expect(tuningPatch({})).toBeUndefined();
-    expect(tuningPatch(undefined)).toBeUndefined();
-    expect(tuningPatch(Object.fromEntries(TUNING_ITEMS.map((x) => [x.id, officialValue(x)])))).toBeUndefined();
+    expect(tuningPatch({}, 1)).toBeUndefined();
+    expect(tuningPatch(undefined, 1)).toBeUndefined();
+    expect(tuningPatch(Object.fromEntries(TUNING_ITEMS.map((x) => [x.id, officialValue(x)])), 1)).toBeUndefined();
   });
 
   it('倍数档 = 官方值 × 倍数;倒过来的 ÷ 倍数;关 = 0(倒过来的关 = Infinity);一项连改几处', () => {
-    expect(tuningPatch({ 'war.odds': 2 })).toEqual({ wars: { WAR_ODDS: 0.6 } });
-    expect(tuningPatch({ 'split.dynasty': 0 })).toEqual({ dynasty: { ODDS: 0 }, regents: { USURP: 0 } });
-    expect(tuningPatch({ 'war.project': 2 })).toEqual({ wars: { PROJECT: 9 } });
-    expect(tuningPatch({ 'court.reform': 4 })).toEqual({ reform: { PUSH_MIN: 0.05 } });
-    expect(tuningPatch({ 'disaster.plague': 0 })).toEqual({ plague: { ORIGIN_NORM: Infinity } });
-    expect(tuningPatch({ 'realm.sail': 0 })).toEqual({ polities: { SAIL_LEVEL: Infinity } });
-    expect(tuningPatch({ 'realm.found': 2 })).toEqual({ polities: { FOUND_AT: 5, MIN_AGE: 60 } });
-    expect(tuningPatch({ 'diplo.treaty': 0 })).toEqual({ treaties: { TREATY_ODDS: 0, PEACE_TREATY: 0 } });
-    expect(tuningPatch({ 'diplo.marry': 2 })).toEqual({ marriages: { MARRY_PER: 0.6, MARRY_MAX: 1.2, MARRY_ALLY: 0.3, PEACE_MATCH: 0.4 } });
-    expect(tuningPatch({ 'disaster.famine': 0.5 })).toEqual({ unrest: { P_BASE: 0.01, P_FULL: 0.3 } });
+    expect(tuningPatch({ 'war.odds': 2 }, 1)).toEqual({ wars: { WAR_ODDS: 0.6 } });
+    expect(tuningPatch({ 'split.dynasty': 0 }, 1)).toEqual({ dynasty: { ODDS: 0 }, regents: { USURP: 0 } });
+    expect(tuningPatch({ 'war.project': 2 }, 1)).toEqual({ wars: { PROJECT: 9 } });
+    expect(tuningPatch({ 'court.reform': 4 }, 1)).toEqual({ reform: { PUSH_MIN: 0.05 } });
+    expect(tuningPatch({ 'disaster.plague': 0 }, 1)).toEqual({ plague: { ORIGIN_NORM: Infinity } });
+    expect(tuningPatch({ 'realm.sail': 0 }, 1)).toEqual({ polities: { SAIL_LEVEL: Infinity } });
+    expect(tuningPatch({ 'realm.found': 2 }, 1)).toEqual({ polities: { FOUND_AT: 5, MIN_AGE: 60 } });
+    expect(tuningPatch({ 'diplo.treaty': 0 }, 1)).toEqual({ treaties: { TREATY_ODDS: 0, PEACE_TREATY: 0 } });
+    expect(tuningPatch({ 'diplo.marry': 2 }, 1)).toEqual({ marriages: { MARRY_PER: 0.6, MARRY_MAX: 1.2, MARRY_ALLY: 0.3, PEACE_MATCH: 0.4 } });
+    expect(tuningPatch({ 'disaster.famine': 0.5 }, 1)).toEqual({ unrest: { P_BASE: 0.01, P_FULL: 0.3 } });
   });
 
   it('数值、区间原样;同一个意思两张表各一份的一起改;永不 = Infinity,避冬关 = −Infinity', () => {
-    expect(tuningPatch({ 'war.truce': 12, 'war.length': [3, 9] })).toEqual({ wars: { TRUCE: 12, LENGTH: [3, 9] } });
-    expect(tuningPatch({ 'war.fronts': 3 })).toEqual({ wars: { MAX_WARS: 3 }, diplomacy: { MAX_WARS: 3 } });
-    expect(tuningPatch({ 'court.reign': 20 })).toEqual({ rulers: { REIGN_MAX: 20 }, regents: { SEIZE_REIGN: 20 } });
-    expect(tuningPatch({ 'war.crush': 'never' })).toEqual({ wars: { CRUSH: Infinity } });
-    expect(tuningPatch({ 'war.winter': 'off' })).toEqual({ wars: { WINTER_T: -Infinity } });
-    expect(tuningPatch({ 'realm.republic': 0.5, 'disaster.plagueLoss': [0.1, 0.3] })).toEqual({ polities: { REPUBLIC_P: 0.5 }, plague: { LOSS: [0.1, 0.3] } });
+    expect(tuningPatch({ 'war.truce': 12, 'war.length': [3, 9] }, 1)).toEqual({ wars: { TRUCE: 12, LENGTH: [3, 9] } });
+    expect(tuningPatch({ 'war.fronts': 3 }, 1)).toEqual({ wars: { MAX_WARS: 3 }, diplomacy: { MAX_WARS: 3 } });
+    expect(tuningPatch({ 'court.reign': 20 }, 1)).toEqual({ rulers: { REIGN_MAX: 20 }, regents: { SEIZE_REIGN: 20 } });
+    expect(tuningPatch({ 'war.crush': 'never' }, 1)).toEqual({ wars: { CRUSH: Infinity } });
+    expect(tuningPatch({ 'war.winter': 'off' }, 1)).toEqual({ wars: { WINTER_T: -Infinity } });
+    expect(tuningPatch({ 'realm.republic': 0.5, 'disaster.plagueLoss': [0.1, 0.3] }, 1)).toEqual({ polities: { REPUBLIC_P: 0.5 }, plague: { LOSS: [0.1, 0.3] } });
   });
 
   it('每一项的两头、全部拉到最左 / 最右:换出来的改动都是旋钮那一层认的(清理以后一样)', () => {
     for (const side of [0, 1] as const) {
       const all = Object.fromEntries(TUNING_ITEMS.map((x) => [x.id, tuningEnds(x)[side]]));
-      const p = tuningPatch(all)!;
+      const p = tuningPatch(all, 1)!;
       expect(cleanKnobs(p)).toEqual(p);
       for (const x of TUNING_ITEMS) {
-        const q = tuningPatch({ [x.id]: tuningEnds(x)[side] })!;
+        const q = tuningPatch({ [x.id]: tuningEnds(x)[side] }, 1)!;
         expect(q, x.id).toBeDefined();
         expect(cleanKnobs(q), x.id).toEqual(q);
       }
@@ -124,7 +152,7 @@ describe('换成旋钮的改动', () => {
     const back = cleanTuning(JSON.parse(JSON.stringify(v)));
     expect(back.values).toEqual(v);
     expect(back.notes).toEqual([]);
-    expect(tuningPatch(JSON.parse(JSON.stringify(v)))).toEqual(tuningPatch(v));
+    expect(tuningPatch(JSON.parse(JSON.stringify(v)), 1)).toEqual(tuningPatch(v, 1));
   });
 });
 
@@ -254,7 +282,7 @@ describe('几项「关」真的不发生', () => {
     expect(official.c.polities.some((p) => p.restores !== undefined)).toBe(true);
     expect(official.n((e) => e.kind === 'plague')).toBeGreaterThan(0);
     expect(official.c.polities.some((p) => p.sail !== undefined)).toBe(true);
-    const off = kinds(tuningPatch({ 'diplo.marry': 0, 'diplo.treaty': 0, 'diplo.submit': 0, 'split.dynasty': 0, 'split.restore': 0, 'disaster.plague': 0, 'realm.sail': 0 }));
+    const off = kinds(tuningPatch({ 'diplo.marry': 0, 'diplo.treaty': 0, 'diplo.submit': 0, 'split.dynasty': 0, 'split.restore': 0, 'disaster.plague': 0, 'realm.sail': 0 }, 1));
     expect(off.n((e) => e.kind === 'marry')).toBe(0);
     expect(off.n((e) => e.kind === 'treaty')).toBe(0);
     expect(off.n((e) => e.kind === 'submit')).toBe(0);
@@ -267,7 +295,7 @@ describe('几项「关」真的不发生', () => {
   it('「天灾 很多」时大瘟疫的几率也跟着这一项:关成 0 就没有大瘟疫', () => {
     const many = kinds(undefined, 'many');
     expect(many.n((e) => e.kind === 'plague' && e.cause === 'great')).toBeGreaterThan(0);
-    const none = kinds(tuningPatch({ 'disaster.great': 0 }), 'many');
+    const none = kinds(tuningPatch({ 'disaster.great': 0 }, 1), 'many');
     expect(none.n((e) => e.kind === 'plague' && e.cause === 'great')).toBe(0);
     expect(none.n((e) => e.kind === 'plague')).toBeGreaterThan(0);
   });

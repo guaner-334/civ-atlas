@@ -19,10 +19,10 @@
 import { generateWorld, type World, type WorldParams } from './gen/world';
 import { planetTempo, type Civ, type CivParams } from './gen/civ';
 import { breakAt, startGrow, type Grower } from './gen/civ/grow';
-import { tuningPatch } from './gen/civ/tuningPatch';
+import { worldPatch } from './gen/civ/tuningPatch';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
 import type { TerrainOp } from './gen/edits';
-import type { TuningValues } from './gen/civ/tuning';
+import type { WorldTuning } from './gen/civ/tuning';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
 import type { NameMix } from './gen/names';
@@ -43,11 +43,11 @@ export interface GrowSetup {
   names?: NameMix;
 }
 
-/** 一段历史:side = 第几段(主线程定的编号),key = 这一次推的编号(规则改了换一个),tuning = 规则里改过的项(不给 = 官方规则) */
+/** 一段历史:side = 第几段(主线程定的编号),key = 这一次推的编号(规则改了换一个),tuning = 规则里改过的项和换算版本(不给 = 官方规则) */
 export interface GrowSide {
   side: number;
   key: number;
-  tuning?: TuningValues;
+  tuning?: WorldTuning;
   /** 推到这一年以后故意出错(冒烟检查、截图看推不下去时的样子用;平常不给) */
   failAt?: number;
 }
@@ -117,8 +117,8 @@ function pause(): Promise<void> {
  * 推这段历史用的参数:和推一个世界时一样(worker.ts 的 setupOpt、tempoOf):规则换成一套旋钮;
  * 改过地形、没给文明种子的,扩张节拍照没改过地形的那颗星球
  */
-function paramsOf(setup: GrowSetup, tuning: TuningValues | undefined, tempo: CivParams['tempo'] | undefined): Partial<CivParams> {
-  const knobs = tuning ? tuningPatch(tuning) : undefined;
+function paramsOf(setup: GrowSetup, tuning: WorldTuning | undefined, tempo: CivParams['tempo'] | undefined): Partial<CivParams> {
+  const knobs = worldPatch(tuning);
   return {
     ...(tempo !== undefined ? { tempo } : {}),
     ...(setup.names ? { names: setup.names } : {}),

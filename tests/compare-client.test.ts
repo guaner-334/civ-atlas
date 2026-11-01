@@ -38,7 +38,7 @@ function setup(threads: number) {
   const run = new CompareRun({
     map: MAP,
     setup: { civSeed: 3 },
-    sides: [undefined, { 'war.odds': 4 }],
+    sides: [undefined, { values: { 'war.odds': 4 }, calc: 1 }],
     threads,
     spawn: () => {
       const t = new FakeThread();
@@ -60,7 +60,7 @@ describe('并排试推的后台', () => {
     expect(made.length).toBe(2);
     expect(made[0].last().sides.map((s) => s.side)).toEqual([0]);
     expect(made[1].last().sides.map((s) => s.side)).toEqual([1]);
-    expect(made[1].last().sides[0].tuning).toEqual({ 'war.odds': 4 });
+    expect(made[1].last().sides[0].tuning).toEqual({ values: { 'war.odds': 4 }, calc: 1 });
     expect(made[0].last().setup).toEqual({ civSeed: 3 });
     const k0 = made[0].last().sides[0].key;
     const k1 = made[1].last().sides[0].key;
@@ -79,12 +79,12 @@ describe('并排试推的后台', () => {
     const first = made[0].last();
     expect(first.sides.map((s) => s.side)).toEqual([0, 1]);
     const [k0, k1] = first.sides.map((s) => s.key);
-    run.restart(1, { 'split.odds': 4 });
+    run.restart(1, { values: { 'split.odds': 4 }, calc: 2 });
     expect(made.length).toBe(1);
     const second = made[0].last();
     expect(second.sides[0].key).toBe(k0);
     expect(second.sides[1].key).not.toBe(k1);
-    expect(second.sides[1].tuning).toEqual({ 'split.odds': 4 });
+    expect(second.sides[1].tuning).toEqual({ values: { 'split.odds': 4 }, calc: 2 });
     made[0].say({ grow: 'civ', side: 1, key: k1, civ: civ(300), done: false });
     made[0].say({ grow: 'civ', side: 1, key: second.sides[1].key, civ: civ(300), done: false });
     expect(log).toEqual(['c1:300']);
@@ -101,7 +101,7 @@ describe('并排试推的后台', () => {
     const k1 = made[1].last().sides[0].key;
     made[1].say({ grow: 'civ', side: 1, key: k1, civ: civ(3000), done: true });
     expect(made[1].closed).toBe(true);
-    run.restart(1, { 'war.odds': 2 });
+    run.restart(1, { values: { 'war.odds': 2 }, calc: 1 });
     expect(made.length).toBe(3);
     expect(made[2].last().sides.map((s) => s.side)).toEqual([1]);
     const k0 = made[0].last().sides[0].key;

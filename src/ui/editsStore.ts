@@ -51,7 +51,7 @@ import { cleanMix, sameMix, type NameMix } from '../gen/names/mix';
 import { cleanEra, cleanMonthNames, cleanMonths, monthNamesInUse, monthsOf, sameEra, sameMonthNames, type Era, type MonthNames } from '../gen/era';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../gen/civ/frontier';
 import { cleanCalamity, type Calamity } from '../gen/civ/calamity';
-import { sameRuleSet, worldRules, type RuleSet } from '../gen/civ/ruleSet';
+import { newWorldRules, sameRuleSet, type RuleSet } from '../gen/civ/ruleSet';
 
 let state: WorldEdits = EMPTY_EDITS;
 const subs = createListeners();
@@ -523,11 +523,11 @@ export function setCalamity(c: Calamity | undefined) {
 }
 
 /**
- * 这个世界用的一套规则(新建世界时定,不记撤销步;整套存进世界,gen/civ/ruleSet.ts);undefined / 和官方一样 = 官方规则,去掉这一项
+ * 这个世界用的一套规则(新建世界时定,不记撤销步;整套存进世界,盖上现在的换算版本,gen/civ/ruleSet.ts);undefined / 和官方一样 = 官方规则,去掉这一项
  */
 export function setRules(r: RuleSet | undefined) {
-  const next = worldRules(r);
-  if (sameRuleSet(next, state.rules)) return;
+  const next = newWorldRules(r);
+  if (sameRuleSet(next, state.rules, true)) return;
   const { rules: _old, ...rest } = state;
   void _old;
   put(next ? { ...rest, rules: next } : rest);

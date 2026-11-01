@@ -11,8 +11,8 @@ import { polityAlive } from '../../gen/civ/growth';
 import { cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../../gen/civ/frontier';
 import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, type Upheaval, type WorldEdits } from '../../gen/edits';
-import { ruleTuning, worldRules, type RuleSet } from '../../gen/civ/ruleSet';
-import type { TuningValues } from '../../gen/civ/tuning';
+import { newWorldRules, worldTuning, type RuleSet } from '../../gen/civ/ruleSet';
+import type { WorldTuning } from '../../gen/civ/tuning';
 import type { NameMix } from '../../gen/names/mix';
 import { GEN_KEY, worldKey, type ResolvedMoment, type SaveFile, type SaveMoment, type SaveOrigin, type SaveView } from '../../gen/savefile';
 import { galleryHref, type GalleryItem } from '../../account/gallery';
@@ -120,11 +120,11 @@ export function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target
   };
 }
 
-/** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)、规则(官方 = 什么都没有)的修改 */
+/** 新建时只定了推演年数(3000 = 什么都没有)、拓荒(默认 = 什么都没有)、规则(官方 = 什么都没有;盖上现在的换算版本)的修改 */
 export function yearsEdits(endYear: number | undefined, frontier?: Frontier, rules?: RuleSet): WorldEdits {
   const y = cleanEndYear(endYear);
   const f = cleanFrontier(frontier);
-  const r = worldRules(rules);
+  const r = newWorldRules(rules);
   return y || f || r ? { ...EMPTY_EDITS, ...(y ? { endYear: y } : {}), ...(f ? { frontier: f } : {}), ...(r ? { rules: r } : {}) } : EMPTY_EDITS;
 }
 
@@ -210,8 +210,8 @@ export const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } 
  * 创建以后再按世界自己的推演年数接着推(App 里干预、地形大事变了就重推的那段)
  */
 export const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear' | 'endTick'>) => (draft ? undefined : endParamOf(edits));
-/** 推文明时带的拓荒、起源、文明种子、「天灾」、规则里改过的规则项(默认 = undefined) */
-export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity; tuning?: TuningValues };
+/** 推文明时带的拓荒、起源、文明种子、「天灾」、规则里改过的规则项和换算版本(默认 = undefined) */
+export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity; tuning?: WorldTuning };
 export const setupOpt = (s: CivSetup | undefined) => ({
   ...(s?.frontier ? { frontier: s.frontier } : {}),
   ...(s?.origins ? { origins: s.origins } : {}),
@@ -221,7 +221,7 @@ export const setupOpt = (s: CivSetup | undefined) => ({
 });
 /**
  * 这一步带的拓荒、起源、文明种子、「天灾」、规则:拓荒、起源、天灾、规则和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
- * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)。规则只带推演用的那部分(改过的规则项;名字、地貌的叫法不改历史)
+ * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)。规则只带推演用的那部分(改过的规则项、世界记的换算版本;名字、地貌的叫法不改历史)
  */
 export function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity' | 'rules'>): CivSetup | undefined {
   const civSeed = cleanCivSeed(edits.civSeed);
@@ -229,7 +229,7 @@ export function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'o
   const frontier = cleanFrontier(edits.frontier);
   const origins = cleanOrigins(edits.origins);
   const calamity = cleanCalamity(edits.calamity);
-  const tuning = ruleTuning(edits.rules);
+  const tuning = worldTuning(edits.rules);
   return frontier || origins || civSeed !== undefined || calamity || tuning
     ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}), ...(tuning ? { tuning } : {}) }
     : undefined;

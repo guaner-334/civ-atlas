@@ -12,7 +12,7 @@ import type { WorldParams } from '../params';
 import type { CivParams } from '../civ/types';
 import type { TerrainOp } from '../edits';
 import type { Sketch } from '../sketch';
-import type { TuningValues } from '../civ/tuning';
+import type { WorldTuning } from '../civ/tuning';
 
 // ---------------------------------------------------------------------------
 // 条件
@@ -119,14 +119,14 @@ export function searchQuery(q: FinderQuery): FinderQuery {
 }
 
 /**
- * 每个种子怎么生成(新建世界里设的):世界参数、推演参数、规则里改过的规则项(tuning:推的时候换成一套旋钮;不给 = 官方规则)。
+ * 每个种子怎么生成(新建世界里设的):世界参数、推演参数、规则里改过的规则项和换算版本(tuning:推的时候照那一版换成一套旋钮;不给 = 官方规则)。
  * map = 'each'(默认):每个种子换一张地图(地图种子 = 文明种子 = 这个种子);'fixed':都用 world.seed 这张地图(可带作者改过的地形、草图),
  * 只换文明种子(CivParams.civSeed = 这个种子)
  */
 export interface FinderSetup {
   world: WorldParams;
   civ?: Partial<Pick<CivParams, 'endYear' | 'cultures' | 'polities' | 'regionArea' | 'pace' | 'birthSpan' | 'names' | 'frontier' | 'origins' | 'calamity'>>;
-  tuning?: TuningValues;
+  tuning?: WorldTuning;
   map?: 'each' | 'fixed';
   terrain?: readonly TerrainOp[];
   sketch?: Sketch | null;

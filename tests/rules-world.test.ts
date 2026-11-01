@@ -15,7 +15,7 @@ import { SAVE_FORMAT, decodeShare, editCount, editsLost, encodeShare, makeSave, 
 import { recipeOfSave, recipeText } from '../src/gen/snapshot';
 import { cleanRuleSet, type RuleSet } from '../src/gen/civ/ruleSet';
 import { newRuleSet } from '../src/gen/civ/ruleSetEdit';
-import { tuningPatch } from '../src/gen/civ/tuningPatch';
+import { tuningPatch, worldPatch } from '../src/gen/civ/tuningPatch';
 import { WARS_KNOBS } from '../src/gen/civ/wars';
 import { sameSetup, setupFor, setupOpt, yearsEdits } from '../src/ui/world/worldTarget';
 import { revertEdits } from '../src/ui/editsStore';
@@ -79,7 +79,7 @@ const EDITS: WorldEdits = { ...EMPTY_EDITS, names: { 'region:c812': '九嶷州' 
  */
 function push(edits: WorldEdits, endYear = END) {
   const s = setupOpt(setupFor(false, edits));
-  const knobs = s.tuning ? tuningPatch(s.tuning) : undefined;
+  const knobs = worldPatch(s.tuning);
   return generateCiv(W(), { endYear, ...(s.civSeed !== undefined ? { civSeed: s.civSeed } : {}), ...(knobs ? { knobs } : {}) });
 }
 
@@ -119,7 +119,7 @@ describe('带规则的世界', () => {
   it('存档写格式 3,整套规则原样存下(带本机编号);读回来一模一样、没有提示', () => {
     const save = makeSave(PARAMS, EDITS, 'abc', '乱世', '2026-10-31T08:00:00.000Z');
     expect(save.format).toBe(3);
-    expect(SAVE_FORMAT).toBe(3);
+    expect(SAVE_FORMAT).toBe(4);
     expect(save.edits.rules).toEqual(cleanRuleSet(RULES).rules);
     // 存的是一份复制,之后改原来的不影响存档
     expect(save.edits.rules).not.toBe(RULES);
@@ -167,21 +167,21 @@ describe('带规则的世界', () => {
 
   /** 直接用这套规则推的(同一张地图、同一个文明种子) */
   let direct: string | undefined;
-  const directPrint = () => (direct ??= print(generateCiv(W(), { endYear: END, civSeed: CIV_SEED, knobs: tuningPatch(cleanRuleSet(RULES).rules!.values) })));
+  const directPrint = () => (direct ??= print(generateCiv(W(), { endYear: END, civSeed: CIV_SEED, knobs: tuningPatch(cleanRuleSet(RULES).rules!.values, 1) })));
   const saved = () => makeSave(PARAMS, EDITS, 'abc', '乱世');
 
   it('按世界的修改推(新建、改了以后重推)、存了再读(文件、浏览器里的自动存档):和直接用这套规则推的一位不差', () => {
     const values = cleanRuleSet(RULES).rules!.values;
     // 规则真的改了历史(同一张地图、同一个文明种子按官方推的不一样);战争多少 ×2 换成的旋钮
     expect(print(generateCiv(W(), { endYear: END, civSeed: CIV_SEED }))).not.toBe(directPrint());
-    expect(tuningPatch(values)!.wars.WAR_ODDS).toBe(WARS_KNOBS.values.WAR_ODDS * 2);
+    expect(tuningPatch(values, 1)!.wars.WAR_ODDS).toBe(WARS_KNOBS.values.WAR_ODDS * 2);
     expect(print(push(EDITS))).toBe(directPrint());
     const read = parseSave(saveText(saved()));
     expect(read.ok).toBe(true);
     if (!read.ok) return;
     expect(print(push(read.save.edits))).toBe(directPrint());
     // 原件的配方:带着规则项(和推的时候请求里带的一样)
-    expect(recipeOfSave(read.save).tuning).toEqual(setupFor(false, read.save.edits)!.tuning);
+    expect(recipeOfSave(read.save).tuning).toEqual(setupFor(false, read.save.edits)!.tuning!.values);
   });
 
   it('分享链接(#share=)打开、云存档取回(服务器原样存 JSON,取回来照样过 parseSave):一位不差', async () => {
@@ -199,8 +199,8 @@ describe('带规则的世界', () => {
   it('接着推(先推到第 800 年,再接着推到 1500 年):一位不差;不带旋钮的照历史带着的那套', () => {
     const w = W();
     const s = setupOpt(setupFor(false, EDITS));
-    const half = generateCiv(w, { endYear: 800, civSeed: s.civSeed, knobs: tuningPatch(s.tuning) });
-    expect(print(continueCiv(w, half, { endYear: END, civSeed: s.civSeed, knobs: tuningPatch(s.tuning) }))).toBe(directPrint());
+    const half = generateCiv(w, { endYear: 800, civSeed: s.civSeed, knobs: worldPatch(s.tuning) });
+    expect(print(continueCiv(w, half, { endYear: END, civSeed: s.civSeed, knobs: worldPatch(s.tuning) }))).toBe(directPrint());
     expect(print(continueCiv(w, half, { endYear: END, civSeed: s.civSeed }))).toBe(directPrint());
   });
 
@@ -215,7 +215,7 @@ describe('规则跟着世界走', () => {
   it('新建界面里先按官方推(只看星球),创建以后按世界自己的;规则变了 = 要重推', () => {
     expect(setupFor(true, EDITS)).toEqual({ civSeed: CIV_SEED });
     const made = setupFor(false, EDITS)!;
-    expect(made.tuning).toEqual(cleanRuleSet(RULES).rules!.values);
+    expect(made.tuning).toEqual({ values: cleanRuleSet(RULES).rules!.values, calc: 1 });
     expect(sameSetup(made, setupFor(false, { ...EDITS, rules: undefined }))).toBe(false);
     expect(sameSetup(made, setupFor(false, { ...EDITS, rules: { ...RULES, name: '改个名' } }))).toBe(true);
     expect(sameSetup(made, setupFor(false, { ...EDITS, rules: { ...RULES, values: { ...RULES.values, 'war.odds': 3 } } }))).toBe(false);
@@ -251,5 +251,26 @@ describe('规则跟着世界走', () => {
     const r = parseSave(saveText(s));
     expect(r.ok && r.save.edits.play).toEqual(playState(900, 0, []));
     expect(r.ok && r.save.edits.rules).toEqual(s.edits.rules);
+  });
+});
+
+describe('换算版本(现在只有第 1 版;假装有第 2 版的见 rules-calc.test.ts)', () => {
+  it('新建的世界盖上第 1 版 = 不写:存档、配方指纹和加换算版本以前一字不差', () => {
+    const made = yearsEdits(undefined, undefined, RULES);
+    expect(made.rules!.calc).toBeUndefined();
+    expect(newHistoryEdits(EDITS, { civSeed: 99, from: 'wabc', rules: RULES }).rules!.calc).toBeUndefined();
+    const s = makeSave(PARAMS, EDITS, 'abc');
+    expect(s.format).toBe(3);
+    expect(saveText(s)).not.toContain('"calc"');
+    expect(recipeText(recipeOfSave(s))).not.toContain('calc');
+  });
+
+  it('别的版本存的、规则按第 2 版换算的世界:这一版推不出它的历史,不读(提示刷新)', () => {
+    const raw = JSON.parse(saveText(makeSave(PARAMS, EDITS, 'abc'))) as { format: number; edits: { rules: Record<string, unknown> } };
+    raw.format = 4;
+    raw.edits.rules.calc = 2;
+    const r = parseSave(JSON.stringify(raw));
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toBe('这个存档来自更新版本的「文明与地图」(规则换算第 2 版),请刷新页面换到最新版再打开');
   });
 });

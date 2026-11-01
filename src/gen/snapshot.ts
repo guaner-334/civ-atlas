@@ -26,8 +26,8 @@ import type { SketchEdit } from './sketch';
 import type { NameMix } from './names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './civ/frontier';
 import { cleanCalamity, type Calamity } from './civ/calamity';
-import { ruleTuning } from './civ/ruleSet';
-import type { TuningValues } from './civ/tuning';
+import { worldTuning } from './civ/ruleSet';
+import type { TuningValues, WorldTuning } from './civ/tuning';
 import type { SaveFile } from './savefile';
 import type { WorldParams } from './world';
 
@@ -78,10 +78,17 @@ export interface Recipe {
   calamity?: Calamity;
   /** 规则里改过的规则项(推演只看这一部分;官方 = 不给,和加这一项以前的指纹一样) */
   tuning?: TuningValues;
+  /** 规则项按第几版换算(tuning.ts 的 TUNING_CALC;第 1 版、没改规则项 = 不给,和加这一项以前的指纹一样) */
+  calc?: number;
   /** 文明种子(没给 = 地图种子;不给时和加这一项以前的指纹一样) */
   civSeed?: number;
   /** 逐年推演的进度(推到哪年 + 命令串;没在逐年推演 = 不给,和加这一项以前的指纹一样) */
   play?: PlayState;
+}
+
+/** 配方里规则那两项:改过的规则项、换算版本(第 1 版不写;没有规则项 = 都不写) */
+export function recipeTuning(t: WorldTuning | undefined): Pick<Recipe, 'tuning' | 'calc'> {
+  return t ? { tuning: t.values, ...(t.calc > 1 ? { calc: t.calc } : {}) } : {};
 }
 
 /** 规范成固定的样子:对象的键排好序、去掉 undefined;顶层的空数组、空对象、3000 年(默认的推演年数)当没给 */
@@ -124,7 +131,7 @@ export function recipeOfSave(save: SaveFile): Recipe {
     frontier: cleanFrontier(e.frontier),
     origins: cleanOrigins(e.origins),
     calamity: cleanCalamity(e.calamity),
-    tuning: ruleTuning(e.rules),
+    ...recipeTuning(worldTuning(e.rules)),
     civSeed: cleanCivSeed(e.civSeed),
     play: cleanPlay(e.play),
   };

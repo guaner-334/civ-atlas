@@ -20,6 +20,7 @@ import { useMyRules, setRuleValue } from '../rulesStore';
 import { closeRulesSheet } from '../rules/sheetStore';
 import { suspectItems, type Suspect } from '../rules/suspects';
 import { cleanTuning, type TuningValues } from '../../gen/civ/tuning';
+import { latestTuning, rulesTuning } from '../../gen/civ/ruleSet';
 import { GROW_MARKS } from '../../gen/civ/grow';
 import { closeCompare, useCompare } from './compareStore';
 import { mapChoices, worldHere, type MapChoice } from './compareMaps';
@@ -51,7 +52,9 @@ export function ComparePage() {
   const mine = useMyRules();
   const rules = (open.kind === 'mine' && mine.find((e) => e.rules.id === open.mineId)?.rules) || open.rules;
   const values = useMemo(() => cleanTuning(rules.values).values, [rules.values]);
-  const tuning: TuningValues | undefined = Object.keys(values).length ? values : undefined;
+  // 一个世界用的那一版照这个世界记的换算版本推(推出来和这个世界一样);本机的、别人分享的照最新的一版
+  const inWorld = open.kind === 'world';
+  const tuning = useMemo(() => rulesTuning(rules, inWorld), [rules, inWorld]);
   const changed = Object.keys(values).length;
 
   const [phone] = useState(isNarrow);
@@ -136,7 +139,8 @@ export function ComparePage() {
     if (open.kind !== 'mine' || !open.mineId) return;
     for (const s of list) setRuleValue(open.mineId, s.id, undefined);
     const next = Object.fromEntries(Object.entries(values).filter(([k]) => !list.some((s) => s.id === k)));
-    restartRight(Object.keys(next).length ? next : undefined);
+    // 只有本机「我的规则」里的能改回:照最新的换算推
+    restartRight(latestTuning({ values: next }));
   };
 
   // Esc:回到大卡
