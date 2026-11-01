@@ -376,11 +376,6 @@ export function Studio(p: StudioProps) {
   const pickedRules = rulesPickId ? myRules.find((e) => e.rules.id === rulesPickId) : undefined;
   /** 「规则」那一行右边写的:选的那一套的名字(修改里带着、不在我的规则里的,写它的名字) */
   const rulesName = pickedRules?.rules.name ?? edits.rules?.name ?? OFFICIAL_RULES_NAME;
-  // 选的是「我的规则」里的一套:那一套调过、改了名(在调规则的大卡里、别的页面里),这个世界跟着用现在的样子(和官方一样 = 不写);
-  // 照故事找的锁着,不跟
-  useEffect(() => {
-    if (!found && pickedRules) setRules(pickedRules.rules);
-  }, [pickedRules, found, edits.rules]);
   /** 选一套规则(null = 官方规则) */
   const pickRules = (id: string | null) => {
     setRulesPick(id);
@@ -405,6 +400,11 @@ export function Studio(p: StudioProps) {
   const [confirm, setConfirm] = useState(false);
   /** 创建以后:1 = 面板滑出、星球展开;2 = 淡出 */
   const [out, setOut] = useState<0 | 1 | 2>(0);
+  // 选的是「我的规则」里的一套:那一套调过、改了名(在调规则的大卡里、别的页面里),这个世界跟着用现在的样子(和官方一样 = 不写);
+  // 照故事找的锁着,不跟;点了创建以后(面板滑出、淡出时)已经定下,不再跟
+  useEffect(() => {
+    if (!found && !out && pickedRules) setRules(pickedRules.rules);
+  }, [pickedRules, found, out, edits.rules]);
   const gone = useRef(false);
   /** 平面地图露出来了(改地形 / 没有 WebGL):星球藏起来 */
   const [flatShown, setFlatShown] = useState(false);
