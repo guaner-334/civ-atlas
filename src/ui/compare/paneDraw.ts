@@ -26,6 +26,8 @@ interface Pane {
   civ: Civ | null;
   year: number;
   shot: MapShot | null;
+  /** 换了画布、大小、历史、地图就加一(画到一半换了的,画完那一次不算数) */
+  rev: number;
   /** 这一张现在要画成什么样、画好的是什么样 */
   want: string;
   drawn: string;
@@ -35,7 +37,7 @@ interface Pane {
 export class PaneDrawer {
   private map: DrawMap | null = null;
   private terrain: WholeTerrain | null = null;
-  private readonly panes: Pane[] = [0, 1].map(() => ({ canvas: null, w: 0, h: 0, dpr: 1, civ: null, year: 0, shot: null, want: '', drawn: '', last: 0 }));
+  private readonly panes: Pane[] = [0, 1].map(() => ({ canvas: null, w: 0, h: 0, dpr: 1, civ: null, year: 0, shot: null, rev: 0, want: '', drawn: '', last: 0 }));
   private playing = false;
   private busy = false;
   private next = 0;
@@ -64,7 +66,10 @@ export class PaneDrawer {
     }
     this.map = map;
     this.terrain = map ? wholeTerrain({ world: map.world, raster: map.raster, style: 'fantasy', layer: 'biomes', show: SHOW }) : null;
-    for (const p of this.panes) p.drawn = '';
+    for (const p of this.panes) {
+      p.rev++;
+      p.want = this.wantOf(p);
+    }
     this.kick();
   }
 
@@ -85,18 +90,22 @@ export class PaneDrawer {
       p.h = H;
       p.dpr = dpr;
       p.civ = civ;
-      p.drawn = '';
+      p.rev++;
     }
     p.year = Math.floor(civ ? Math.min(year, civ.endYear) : 0);
-    p.want = `${p.year}|${this.playing ? 'fast' : 'full'}`;
+    p.want = this.wantOf(p);
     this.kick();
+  }
+
+  private wantOf(p: Pane): string {
+    return `${p.rev}|${p.year}|${this.playing ? 'fast' : 'full'}`;
   }
 
   /** 播放中:限速、字按回放时的画法;停下来补画全 */
   setPlaying(on: boolean): void {
     if (on === this.playing) return;
     this.playing = on;
-    for (const p of this.panes) p.want = `${p.year}|${on ? 'fast' : 'full'}`;
+    for (const p of this.panes) p.want = this.wantOf(p);
     this.kick();
   }
 
