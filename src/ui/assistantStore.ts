@@ -266,8 +266,10 @@ async function settleChat(w: string, saved: Saved) {
     mark = null;
     if (state.preview && old.has(state.preview.turn)) exitPreview();
     set({ ...state, turns: state.turns.filter((t) => !old.has(t.id)) });
+    // 仓库回话之前已经说了新的(存的时候连着旧对话和旧记号):新的单独存。没有新的就不动,旧的留着
+    if (state.turns.some((t) => t.status !== 'working')) write(w);
   }
-  if (fits) void stampMark(w, stored);
+  void stampMark(w, stored);
 }
 
 /** 换了世界:换成那个世界的对话;同一个世界换了阶段(点了"创建世界"):只记下新的阶段 */

@@ -515,14 +515,18 @@ describe('助手面板', () => {
     let heads: Map<string, { content: string; recipeKey: string; generator: number }>;
     let store: FakeStorage;
     let broken: boolean;
+    /** 给了就等它:仓库回话慢 */
+    let hold: Promise<void> | null;
     beforeEach(() => {
       heads = new Map();
       broken = false;
+      hold = null;
       store = new FakeStorage();
       g.localStorage = store;
       saveStore._resetForTest();
       _setWorldStore({
         caller: (async (op: string, args: unknown[]) => {
+          if (hold) await hold;
           if (broken) throw new Error('仓库坏了');
           return op === 'latestOf' ? (heads.get(args[0] as string) ?? null) : undefined;
         }) as unknown as Parameters<typeof _setWorldStore>[0]['caller'],
@@ -749,6 +753,28 @@ describe('助手面板', () => {
       await settled();
       expect(asks()).toEqual([]);
       expect(store.getItem(CHAT + 'wm16')).toBeNull();
+    });
+
+    it('旧对话先显示着,说完一轮仓库才回话说对不上:新说的单独存下来,记现在世界的记号', async () => {
+      await open('别的世界');
+      const key = await nowKey();
+      put('wm18', { gen: GENERATOR_VERSION, mark: X });
+      heads.set('wm18', { content: content('a', '另一段历史'), recipeKey: key, generator: GENERATOR_VERSION });
+      let release = () => {};
+      hold = new Promise((r) => (release = r));
+      attach('wm18');
+      expect(asks()).toEqual(['旧的']);
+      await sendAsk(ctx(), `${pickName0}在哪？`);
+      expect(saved('wm18').mark).toEqual(X);
+      hold = null;
+      release();
+      await settled();
+      expect(asks()).toEqual([`${pickName0}在哪？`]);
+      expect(saved('wm18').turns.map((t) => t.ask)).toEqual([`${pickName0}在哪？`]);
+      expect(saved('wm18').mark?.print).toBe('map:a|civ:另一段历史');
+      await open('别的世界');
+      await open('wm18');
+      expect(asks()).toEqual([`${pickName0}在哪？`]);
     });
 
     it('点了新对话以后说的话:不带旧对话的记号,记现在世界的', async () => {
