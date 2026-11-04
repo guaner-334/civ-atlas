@@ -17,7 +17,7 @@
  */
 import type { Civ, Person, Place, Polity } from '../gen/civ/types';
 import type { WorkerRequest } from '../worker';
-import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
+import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, keptMapOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
 import { cleanCalamity } from '../gen/civ/calamity';
 import { worldTuning } from '../gen/civ/ruleSet';
@@ -64,6 +64,7 @@ export function helperJob(r: RenderRequest): HelperJob {
   if (!p.ok) throw new Error(`存档读不出来：${p.error}`);
   const sv = p.save;
   const e = sv.edits;
+  if (keptMapOf(e)) throw new Error('这个世界的地图是存下来的，存档里没有，没法照存档生成');
   const endYear = endParamOf(e);
   const frontier = cleanFrontier(e.frontier);
   const origins = cleanOrigins(e.origins);

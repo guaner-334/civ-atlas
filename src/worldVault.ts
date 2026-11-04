@@ -189,6 +189,10 @@ export interface WorldPartsOffer {
   generator: number;
   recipe: string;
   parts: SnapshotPart[];
+  /** 地图留着的世界:世界记的读取版本(地形按地图长出来时那一版);不给 = 现在的 */
+  readers?: WorldReaders;
+  /** 地图留着的世界:地图那一块照原样留着,结构版本也照它原来的;不给 = 现在的 */
+  schemas?: Readonly<Record<string, number>>;
 }
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@
 import { useEffect, useRef } from 'react';
 import type { WorkerRequest } from '../../worker';
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
-import { EMPTY_EDITS, GENERATOR_VERSION, civSeedOf, cleanEndYear, cleanPlay, endParamOf, newHistoryEdits, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, civSeedOf, cleanEndYear, cleanPlay, endParamOf, keptMapOf, newHistoryEdits, type WorldEdits } from '../../gen/edits';
 import type { RuleSet } from '../../gen/civ/ruleSet';
 import { cleanTitle, parseSave, worldKey, type SaveFile, type SaveOrigin } from '../../gen/savefile';
 import { startStepwise } from '../../gen/stepwise';
@@ -85,6 +85,9 @@ import {
 function workOrigin(w: Pick<GalleryWork, 'id' | 'by' | 'title'>): SaveOrigin {
   return { ...(w.by ? { by: w.by } : {}), title: w.title, url: workLink(w.id), gallery: w.id };
 }
+
+/** 两份修改的地形(地形修改、草图、地形大事)不一样 */
+const terrainDiffers = (a: WorldEdits, b: WorldEdits) => (['terrain', 'sketch', 'upheavals'] as const).some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
 
 /** 新建中的世界现在的样子(参数、修改、名字),比较动没动过用 */
 function draftSig(params: WorldParams, edits: WorldEdits, title?: string): string {
@@ -461,7 +464,14 @@ export function useWorldPages(deps: WorldPagesDeps) {
           ...(e.origins ? { origins: e.origins } : {}),
         }
       : newHistoryEdits(e, { civSeed: randomSeedValue(), from, sum: e.map?.sum, ...(e.rules ? { rules: e.rules } : {}) });
-    const mapCheck = save.generator < GENERATOR_VERSION && save.check ? save.check : undefined;
+    if (redo && keptMapOf(e)) {
+      // 地图留着的世界按另一版规则另存:没有地图可以给「打造文明」那一页现长,照这份修改存下、打开,打开时按存下的地图推
+      const nid = saveAsNewVersion(from, { ...edits, map: e.map }, title);
+      if (!nid) return notify({ kind: 'error', text: '没能另存一份重推', more: [storageFullWhy()] });
+      return void openStoredRef.current(nid);
+    }
+    // 地图留着的世界同旧版本的世界:现长的地图和它不一样就不让打造;还没记地形校验的一定不一样
+    const mapCheck = keptMapOf(e) ? save.check || 'kept' : save.generator < GENERATOR_VERSION && save.check ? save.check : undefined;
     setNewDlg(null);
     // 一开始就存成没建完的(刷新、后退再前进都回得来;地图出自哪个世界、文明种子都在存档里),底稿出处跟着;什么都没动就返回,这一份删掉
     const d = draftTarget(save.params, null, edits, title);
@@ -556,6 +566,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     // 照原样打开的旧世界:改历史(要用现在的规则重新推演)先问要不要另存一份;别的世界照常改。
     // 逐年推演:只能在"现在"干预(下一步生效),不改以前的历史(撤销、助手执行的都算);想改以前的事先存回推演模式
     setHistoryGate((next) => {
+      // 地图留着的世界地形改不了:改了就得按种子重新长
+      if (keptMapOf(getEdits()) && terrainDiffers(getEdits(), next)) return true;
       if (cleanPlay(getEdits().play) && cleanPlay(next.play)) {
         showToast({ id: 'edit-block', kind: 'warn', text: '逐年推演里只能在「现在」干预', more: ['想改以前的事，先存回推演模式'], ttl: 5000 });
         return true;

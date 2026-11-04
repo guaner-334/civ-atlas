@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { LoadRequest, WorkerRequest } from '../../worker';
 import type { World, WorldParams } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
-import { EMPTY_EDITS, GENERATOR_VERSION, YEAR_TICKS, cleanCivSeed, cleanPlay, endParamOf, keySeats, playAt, playFromOf, sameInterventions, upgradeLegacyKeys, type TerrainOp, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, YEAR_TICKS, cleanCivSeed, cleanPlay, endParamOf, keptMapOf, keySeats, playAt, playFromOf, sameInterventions, upgradeLegacyKeys, type TerrainOp, type WorldEdits } from '../../gen/edits';
 import { sameTerrain, sameUpheavals } from '../../gen/terrainEdits';
 import { sameMix } from '../../gen/names/mix';
 import { sameSketch, type SketchEdit } from '../../gen/sketch';
@@ -67,6 +67,7 @@ import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind
 import { recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
 import { frozenResult, resultHeads, toldFrozen } from '../resultStore';
+import { settleKeptWorld } from '../worldStore';
 import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, flushThumb, importSave, loadWorld, markOpened, newWorldId, notify, sameOrigin, setWorldStats } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
@@ -283,7 +284,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       /** 读存下的内容打开。这份内容就是带着 edits 里的干预、地形大事(逐年推演的:推到"现在")推出来的:套上以后不用重推 */
       const sendLoad = (src: Pick<LoadRequest, 'parts' | 'vault' | 'original'>, gen: number, back: LoadBack) => {
         frozenLoad.current = { id: t.id, gen };
-        loadedFrozen.current = gen < GENERATOR_VERSION;
+        // 地图留着的世界不管哪一版算的都算:按参数重新生成的不是它
+        loadedFrozen.current = gen < GENERATOR_VERSION || !!keptMapOf(t.edits);
         civEdits.current = t.edits.interventions;
         civUps.current = genUps.current = t.edits.upheavals;
         const play = cleanPlay(t.edits.play);
@@ -308,8 +310,24 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         // 带上进度:线程按它记下这份历史,下一步从这里接着推(不从第 0 年重推)
         send({ type: 'load', id, params: p, scale: 1, ...src, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}), renames: t.edits.names, characters: t.edits.characters });
       };
+      /**
+       * 地图留着的世界(gen/edits.ts 文件头"地图留着的世界")读不到和存档对得上的内容:按种子长的不是它,绝不走生成。
+       * 存在「我的世界」里的先按存下的地图算一份再打开(刚另存出来的、改了还没推完的);真没有那张地图(分享链接、存档文件、别的设备同步来的)就不打开
+       */
+      const keptOpen = () => {
+        genReq.current = null;
+        void (async () => {
+          const ok = !t.keptTried && !!storedSave(t) && (await settleKeptWorld(t.id));
+          if (id !== reqId.current) return;
+          if (ok) return generate({ ...t, keptTried: true, noVault: undefined });
+          targetRef.current = null;
+          showHomeRef.current();
+          notify({ kind: 'error', text: '打不开这个世界', more: ['这个世界的地图是存下来的，这台设备上没有。打开它的世界文件才看得到'] });
+        })();
+      };
       /** 按现在的规则生成 */
       const byRecipe = () => {
+        if (keptMapOf(t.edits)) return keptOpen();
         genReq.current = null;
         send(req);
       };
@@ -682,7 +700,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     if (t.kind === 'draft') setDraftTitle(t.title ?? '');
     setParams(t.params);
     // 照原样打开的旧世界和按新版生成的世界参数一样也不是同一个:都重新打开(旧的读原件;正在找原件、读原件的也不接着用)
-    if (sameGen(t.params, t.edits.terrain, t.edits.sketch) && !loadedFrozen.current && !genReq.current && !oldStored(t)) {
+    if (sameGen(t.params, t.edits.terrain, t.edits.sketch) && !loadedFrozen.current && !genReq.current && !oldStored(t) && !keptMapOf(t.edits)) {
       if (fresh.current) {
         targetRef.current = t;
         writeWorldUrl(t);

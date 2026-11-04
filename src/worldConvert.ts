@@ -1,9 +1,11 @@
 /**
- * 把现有的世界转进世界仓库(worldVault.ts),在单独的后台线程里做(worldConvertWorker.ts;怎么排、什么时候让路见 ui/worldStore.ts)。两种:
+ * 把现有的世界转进世界仓库(worldVault.ts),在单独的后台线程里做(worldConvertWorker.ts;怎么排、什么时候让路见 ui/worldStore.ts)。三种:
  *
  * - original:浏览器里有它的原件(ui/resultStore.ts)。地图、各段世界、历史的字节直接拿来,不重算生成和推演;
  *   编年史、国旗用现在的代码算(用的人今天打开看到的就是这样)。原件只读,一个字不动
  * - recompute:没有原件,但世界就是当前版本建的:当前版本算一遍就是它原来的样子。和生成世界的线程走同一段推演代码(worldRun.ts)
+ * - keptMap:地图留着的世界(gen/edits.ts 文件头"地图留着的世界"):地图、各段世界的块照原样从仓库里拿,历史按现在的规则从第 0 年推一遍。
+ *   哪个世界存着那张地图就从哪拿(原来那个世界删了也行,只要还有世界存着这一块)。读不到、对不上、推出来校验不过的报错,不算出一个怪东西
  *
  * 没有原件的更旧版本不到这里:按现在的代码算出来不是它原来的样子,不能当它存下来。
  */
@@ -16,10 +18,12 @@ import { worldCheck, type SaveFile } from './gen/savefile';
 import { sketchGrid } from './gen/sketch';
 import { SNAPSHOT_FORMAT, makePart, partOf, readLocalPart, recipeKey, recipeOfSave, type SnapshotPart } from './gen/snapshot';
 import { generateWorld, type World } from './gen/world';
+import { openStoredParts, readTrustedParts, type PackedPart, type WorldEras } from './gen/worldFile';
 import type { AuthorContent, WorldMade } from './gen/worldFormat';
+import { validateCiv, validateEras, validateWorld } from './gen/worldValidate';
 import { indexedDbResults, type ResultBackend } from './resultDb';
 import { eraWorlds, keyOf, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
-import { VaultError, commitWorld, type CommitResult, type RevisionSource } from './worldVault';
+import { VaultError, commitWorld, readRevision, type CommitResult, type RevisionSource } from './worldVault';
 
 interface JobBase {
   id: string;
@@ -33,7 +37,9 @@ interface JobBase {
 /** 转一个世界 */
 export type ConvertJob =
   | (JobBase & { kind: 'original'; generator: number; source: Extract<RevisionSource, 'migrated' | 'archive'> })
-  | (JobBase & { kind: 'recompute'; app: string; commit: string });
+  | (JobBase & { kind: 'recompute'; app: string; commit: string })
+  /** from = 去哪几个世界找那张地图(按先后) */
+  | (JobBase & { kind: 'keptMap'; from: readonly string[]; app: string; commit: string });
 
 /** 编年史、国旗打成两块 */
 async function storyParts(world: World, civ: Civ, save: SaveFile): Promise<SnapshotPart[]> {
@@ -63,23 +69,36 @@ async function fromOriginal(job: Extract<ConvertJob, { kind: 'original' }>, resu
   return commitWorld({ id: job.id, recipe: job.save, recipeKey: s.recipe, parts, schemas: ORIGINAL_SCHEMAS, made, readers: { ...FIRST_READERS }, author: job.author, thumb: job.thumb, source: job.source });
 }
 
-/** 按存档算一遍:地图、各段世界、整段历史。结果和生成世界的线程按这份存档推出来的一样 */
-export function recomputeWorld(save: SaveFile): { world: World; civ: Civ; steps: { key: string; world: World }[] } {
+/** 地图留着的世界用的地图、各段世界(存下来的,不重新长) */
+export interface KeptWorlds {
+  map: World;
+  eras: WorldEras | null;
+}
+
+/** 按存档算一遍:地图、各段世界、整段历史。结果和生成世界的线程按这份存档推出来的一样。kept = 地图留着的世界存下的地图、各段世界,只推历史 */
+export function recomputeWorld(save: SaveFile, kept?: KeptWorlds): { world: World; civ: Civ; steps: { key: string; world: World }[] } {
   const r = recipeOfSave(save);
+  if (r.keptMap && !kept) throw new VaultError('failed', '地图留着的世界不按种子重新长');
   const params = r.params;
   const terrain = (r.terrain ?? []) as TerrainOp[];
   const sketch = sketchGrid(r.sketch);
-  const world = generateWorld(params, undefined, terrain, sketch);
-  if (save.check && save.check !== worldCheck(world)) throw new VaultError('failed', '算出来的地形和存档对不上');
+  const world = kept ? kept.map : generateWorld(params, undefined, terrain, sketch);
+  if (!kept && save.check && save.check !== worldCheck(world)) throw new VaultError('failed', '算出来的地形和存档对不上');
   let all: TerrainOp[] = [...terrain];
   const steps = mergeUpheavals(r.upheavals ?? []).map((m) => {
     all = [...all, ...m.ops];
+    const key = keyOf(params, all, r.sketch);
+    if (kept) {
+      const era = kept.eras?.eras.find((x) => x.key === key);
+      if (!era) throw new VaultError('failed', '存下的内容里少一段地形大事');
+      return { ...m, key, all, world: { ...era.world, mesh: world.mesh } as World };
+    }
     const w = generateWorld(params, undefined, all, sketch);
     w.history = [];
-    return { ...m, key: keyOf(params, all, r.sketch), all, world: w };
+    return { ...m, key, all, world: w };
   });
-  // 改过地形的:扩张节拍按没改地形时的同一颗星球(和生成世界的线程一样);另起文明种子的按地图本身
-  const tempo = !terrain.length || r.civSeed !== undefined ? undefined : (planetTempo(params, undefined, sketch) ?? null);
+  // 改过地形的:扩张节拍按没改地形时的同一颗星球(和生成世界的线程一样);另起文明种子的、地图留着的按地图本身
+  const tempo = kept || !terrain.length || r.civSeed !== undefined ? undefined : (planetTempo(params, undefined, sketch) ?? null);
   const civ = generateCiv(world, {
     interventions: r.interventions?.length ? [...r.interventions] : undefined,
     tempo,
@@ -88,6 +107,8 @@ export function recomputeWorld(save: SaveFile): { world: World; civ: Civ; steps:
     ...yearsOpt(r.endYear),
     ...setupOpt({ frontier: r.frontier, origins: r.origins, civSeed: r.civSeed, calamity: r.calamity, tuning: worldTuning(save.edits.rules) }),
     ...playOpt({ play: r.play, interventions: r.interventions }),
+    // 地名不照"没改过地形的星球"起:按现在的版本长的那一颗不是它
+    ...(kept ? { placeRef: false as const } : {}),
   });
   return { world, civ, steps };
 }
@@ -107,9 +128,69 @@ async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>): Prom
   return commitWorld({ id: job.id, recipe: job.save, recipeKey: await recipeKey(r), parts, made, readers: { ...READER_VERSIONS }, author: job.author, thumb: job.thumb, source: 'migrated' });
 }
 
+const asSnapshotPart = (p: PackedPart): SnapshotPart => ({ name: p.info.name, bytes: p.info.bytes, sum: p.info.sum, zip: p.info.zip as SnapshotPart['zip'], data: p.data instanceof Uint8Array ? (p.data.slice().buffer as ArrayBuffer) : p.data });
+
+/** 哪个世界存着这张地图:最新的修订里地图那一块就是它 */
+async function keptSource(from: readonly string[], sum: string) {
+  for (const id of new Set(from)) {
+    const head = await readRevision(id, undefined, []);
+    if (head?.manifest.parts.find((p) => p.name === 'map')?.sum !== sum) continue;
+    const rev = await readRevision(id, head.head.n, ['map', 'eras']);
+    if (rev) return rev;
+  }
+  return null;
+}
+
+/** 地图留着的世界:存下的地图上按现在的规则推一遍 */
+async function fromKeptMap(job: Extract<ConvertJob, { kind: 'keptMap' }>): Promise<CommitResult> {
+  if (job.save.generator !== GENERATOR_VERSION) throw new VaultError('failed', '存档不是当前版本');
+  const r = recipeOfSave(job.save);
+  if (!r.keptMap) throw new VaultError('failed', '不是地图留着的世界');
+  const src = await keptSource(job.from, r.keptMap);
+  if (!src) throw new VaultError('failed', '这个世界的地图不在仓库里');
+  const map = src.parts.find((p) => p.info.name === 'map')!;
+  const eras = src.parts.find((p) => p.info.name === 'eras');
+  const baseKey = keyOf(r.params, r.terrain, r.sketch);
+  let kept: KeptWorlds;
+  let civ: Civ;
+  let world: World;
+  try {
+    const opened = openStoredParts(src.text, src.parts, { readers: { ...READER_VERSIONS } });
+    const values = await readTrustedParts(opened, ['map', 'eras']);
+    validateWorld(values.map);
+    const stored = (values.eras as WorldEras | null) ?? null;
+    if (stored) {
+      validateEras(stored, values.map);
+      if (stored.baseKey !== baseKey) throw new Error('各段世界和这份配方对不上');
+    }
+    kept = { map: values.map, eras: stored };
+    ({ civ, world } = recomputeWorld(job.save, kept));
+    validateCiv(civ, world);
+  } catch (e) {
+    throw e instanceof VaultError ? e : new VaultError('failed', `这张地图上推不出历史:${e instanceof Error ? e.message : String(e)}`);
+  }
+  // 大事都去掉了(按另一版规则另存的)就不带各段世界,没去掉的照原样留着
+  const useEras = !!eras && !!r.upheavals?.length;
+  const parts = [asSnapshotPart(map), ...(useEras ? [asSnapshotPart(eras)] : []), await makePart('civ', civ), ...(await storyParts(world, civ, job.save))];
+  const made: WorldMade = { app: job.app, generator: GENERATOR_VERSION, commit: job.commit, at: new Date().toISOString() };
+  return commitWorld({
+    id: job.id,
+    recipe: job.save,
+    recipeKey: await recipeKey(r),
+    parts,
+    schemas: { map: map.info.schema, ...(useEras ? { eras: eras.info.schema } : {}) },
+    made,
+    // 地形按地图长出来时那一版读,放大的细部才不变;历史是现在算的,查询用现在的
+    readers: { terrain: src.manifest.readers.terrain, query: READER_VERSIONS.query },
+    author: job.author,
+    thumb: job.thumb,
+  });
+}
+
 /** 转一个世界;转不了抛错 */
 export function runConvert(job: ConvertJob, results?: ResultBackend): Promise<CommitResult> {
   if (job.kind === 'recompute') return fromRecipe(job);
+  if (job.kind === 'keptMap') return fromKeptMap(job);
   const db = results ?? indexedDbResults();
   if (!db) return Promise.reject(new VaultError('unavailable', '没有 IndexedDB'));
   return fromOriginal(job, db);

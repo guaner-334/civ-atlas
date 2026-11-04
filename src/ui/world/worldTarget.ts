@@ -10,7 +10,7 @@ import type { Civ } from '../../gen/civ/types';
 import { polityAlive } from '../../gen/readers/openQuery';
 import { cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../../gen/civ/frontier';
-import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, type Upheaval, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, keptMapOf, type Upheaval, type WorldEdits } from '../../gen/edits';
 import { newWorldRules, worldTuning, type RuleSet } from '../../gen/civ/ruleSet';
 import type { WorldTuning } from '../../gen/civ/tuning';
 import type { NameMix } from '../../gen/names/mix';
@@ -37,6 +37,8 @@ export interface Target {
   readonly?: { save: SaveFile; draft: Target };
   /** 不读世界仓库(只读打开没成,回到旧的路) */
   noVault?: true;
+  /** 地图留着的世界:按存下的地图算过一遍了,再打不开就不打开了 */
+  keptTried?: true;
   params: WorldParams;
   edits: WorldEdits;
   /** 已经存下的修改(套上的和它是同一个对象就不重写) */
@@ -218,27 +220,29 @@ export const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } 
  */
 export const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear' | 'endTick'>) => (draft ? undefined : endParamOf(edits));
 /** 推文明时带的拓荒、起源、文明种子、「天灾」、规则里改过的规则项和换算版本(默认 = undefined) */
-export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity; tuning?: WorldTuning };
+export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity; tuning?: WorldTuning; keptMap?: string };
 export const setupOpt = (s: CivSetup | undefined) => ({
   ...(s?.frontier ? { frontier: s.frontier } : {}),
   ...(s?.origins ? { origins: s.origins } : {}),
   ...(s?.civSeed !== undefined ? { civSeed: s.civSeed } : {}),
   ...(s?.calamity ? { calamity: s.calamity } : {}),
   ...(s?.tuning ? { tuning: s.tuning } : {}),
+  ...(s?.keptMap ? { keptMap: s.keptMap } : {}),
 });
 /**
  * 这一步带的拓荒、起源、文明种子、「天灾」、规则:拓荒、起源、天灾、规则和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
  * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)。规则只带推演用的那部分(改过的规则项、世界记的换算版本;名字、地貌的叫法不改历史)
  */
-export function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity' | 'rules'>): CivSetup | undefined {
+export function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity' | 'rules' | 'map'>): CivSetup | undefined {
   const civSeed = cleanCivSeed(edits.civSeed);
   if (draft) return civSeed !== undefined ? { civSeed } : undefined;
   const frontier = cleanFrontier(edits.frontier);
   const origins = cleanOrigins(edits.origins);
   const calamity = cleanCalamity(edits.calamity);
   const tuning = worldTuning(edits.rules);
-  return frontier || origins || civSeed !== undefined || calamity || tuning
-    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}), ...(tuning ? { tuning } : {}) }
+  const keptMap = keptMapOf(edits);
+  return frontier || origins || civSeed !== undefined || calamity || tuning || keptMap
+    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}), ...(tuning ? { tuning } : {}), ...(keptMap ? { keptMap } : {}) }
     : undefined;
 }
 export const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
@@ -246,6 +250,7 @@ export const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
   sameOrigins(a?.origins, b?.origins) &&
   a?.civSeed === b?.civSeed &&
   a?.calamity === b?.calamity &&
+  a?.keptMap === b?.keptMap &&
   JSON.stringify(a?.tuning ?? null) === JSON.stringify(b?.tuning ?? null);
 
 /** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */

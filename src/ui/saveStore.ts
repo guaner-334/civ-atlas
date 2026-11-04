@@ -774,9 +774,10 @@ export function duplicateWorld(id: string): string | null {
 
 /**
  * 照原样打开的旧世界「按新版另存一份」:复制一份(名字后面加「（新版）」,重了再编号),修改换成 edits(带着要推演的那几条),
- * 存档记现在的生成器版本,打开时按新版重新生成、推演。原来那份不动。返回新编号(存不下、满了 = null)
+ * 存档记现在的生成器版本,打开时按新版重新生成、推演(edits 记着地图留着的,地图不重新长,见 gen/edits.ts 文件头"地图留着的世界")。原来那份不动。
+ * title = 另起的名字(不给 = 上面那样)。返回新编号(存不下、满了 = null)
  */
-export function saveAsNewVersion(id: string, edits: WorldEdits): string | null {
+export function saveAsNewVersion(id: string, edits: WorldEdits, want?: string): string | null {
   const w = loadWorld(id);
   if (!w) return null;
   if (storedCount() >= MAX_WORLDS) {
@@ -787,7 +788,7 @@ export function saveAsNewVersion(id: string, edits: WorldEdits): string | null {
   const root = cleanTitle(w.save.title) || '未命名世界';
   const first = [...root].slice(0, TITLE_MAX - suffix.length).join('') + suffix;
   const taken = new Set(listWorlds().map((x) => x.save.title ?? ''));
-  const title = taken.has(first) ? nextTitle(first) : first;
+  const title = cleanTitle(want) || (taken.has(first) ? nextTitle(first) : first);
   // 地形校验留空:新版生成出来的地形可能不一样,打开后按生成出来的记上(不提示"对不上")
   const save = makeSave(w.save.params, edits, '', title, undefined, w.save.view, w.save.origin);
   const nid = newWorldId();

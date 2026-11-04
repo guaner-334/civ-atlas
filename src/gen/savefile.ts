@@ -22,7 +22,9 @@
  *   用官方规则的世界照旧写 1 / 2,一字不差。
  *   4 = 规则按第 2 版以后的换算推(edits.rules.calc,civ/ruleSet.ts):不认得换算版本的版本会按第 1 版换、推出另一段历史,所以写成 4,
  *   让那些版本提示更新页面;按第 1 版换的照旧写 3。认得格式 4 的版本读到比自己新的换算版本(calc 大于 tuning.ts 的 TUNING_CALC)也不读,
- *   提示更新页面。1–4 都照读(saveFormatOf 定写哪一版)
+ *   提示更新页面。
+ *   5 = 地图留着的世界(edits.map.grown,edits.ts 文件头"地图留着的世界"):地图是存下来的,按种子长的不是它。不认得这一项的版本会按种子长一颗别的星球,
+ *   所以写成 5,让那些版本提示更新页面;别的世界照旧写 1–4,一字不差。1–5 都照读(saveFormatOf 定写哪一版)
  * - generator:生成器版本(edits.ts 的 GENERATOR_VERSION);和当前的不同 = 同样的参数可能生成不同的世界
  * - check:地形的短哈希(worldCheck);读档生成完再算一遍,对不上也说明地形变了。两种情况都照样打开,
  *   提示"改过的名字会尽量套上"(稳定键按州、地块定位,地形变化不大时大多还能对上)
@@ -64,7 +66,8 @@
  * - edits.civSeed(可选):文明种子(edits.ts 文件头"文明种子"),`52817`;等于地图种子时不写(加这一项以前的存档都没写)。
  *   读档时过 cleanCivSeed:不是整数的去掉(按地图种子推),提示一句
  * - edits.map(可选):在别的世界的地图上新开的历史,用的是哪张地图(edits.ts 文件头"文明种子"),
- *   `{ "sum": "<地图那块原件的 SHA-256>", "from": "<从哪个世界新开的>" }`;不是新开的不写。读档时过 cleanMapRef,认不出的项去掉(不提示:只是记录)
+ *   `{ "sum": "<地图那块原件的 SHA-256>", "from": "<从哪个世界新开的>" }`;不是新开的不写。读档时过 cleanMapRef,认不出的项去掉(不提示:只是记录)。
+ *   地图留着的世界多一项 `"grown": 57`(地图是第几版生成器长的,edits.ts 文件头"地图留着的世界"):这一项就不只是记录了,地图只从存下的内容读,写了的是格式 5(见上)
  * - edits.era(可选):纪年(edits.ts 文件头"纪年"、era.ts),`{ "name": "公元", "epoch": 2500 }`;按一件事定的
  *   `{ "name": "利希历", "epoch": 1610, "by": "event", "event": { "tag": "创", "text": "利希昂于菲内拉斯创立利希教" } }`;
  *   按第几年写时不写。读档时过 cleanEra:名字、元年不合格的按第几年写,提示一句
@@ -113,7 +116,7 @@
 import type { World } from './world';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { cleanMix, sameMix } from './names/mix';
-import { END_YEAR_DEFAULT, END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, YEAR_TICKS, aiNameKeys, cleanCivSeed, cleanEndTick, cleanEndYear, endAtOf, endParamOf, playAt, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, playState, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type PlayState, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
+import { END_YEAR_DEFAULT, END_YEAR_MAX, GENERATOR_CHANGES, GENERATOR_VERSION, MARKS_MAX, MARK_REGIONS_TOTAL, NAME_MAX, YEAR_TICKS, aiNameKeys, cleanCivSeed, cleanEndTick, cleanEndYear, endAtOf, endParamOf, keptMapOf, playAt, cleanMapRef, cleanMark, cleanPlay, cleanPlayFrom, cleanBranches, branchPlay, playState, cleanAdvance, advanceOf, sameAdvance, cleanFollow, cleanOutline, endYearOf, freeMarkId, resolveKey, type AdvanceSettings, type AiNameMark, type AuthorMark, type GeneratorChange, type Intervention, type Outline, type PlayBranches, type PlayState, type TerrainOp, type Upheaval, type WorldEdits } from './edits';
 import type { Civ } from './civ/types';
 import { TERRAIN_MAX_OPS, UPHEAVALS_MAX, UPHEAVAL_KINDS, UPHEAVAL_OPS_MAX, cleanTerrainOp, cleanUpheaval } from './terrainOps';
 import { SKETCH_MAX_STROKES, cleanSketch, cleanSketchStroke, type SketchEdit } from './sketch';
@@ -136,20 +139,23 @@ export const SAVE_APP = '文明与地图';
  * 带规则的世界(格式 3)只有认得格式 3 的版本才存得出来,交回那一版的旧网站照样认得;万一交给了不认得的版本,那边提示刷新、不读,
  * 不会把它当成官方规则的世界推出另一段历史(所以不能为了让旧版本打开而去掉规则、换回 1 或 2)。格式 4(换算第 2 版以后的规则)同理
  */
-export const SAVE_FORMAT = 4;
+export const SAVE_FORMAT = 5;
 /** 只到年初的存档写的格式(加年内第几格以前的那一版,旧版本照常打开) */
 const SAVE_FORMAT_YEARS = 1;
 /** 有落在年中的时刻的存档写的格式(加规则以前的那一版) */
 const SAVE_FORMAT_TICKS = 2;
 /** 用了非官方规则、按第 1 版换算的存档写的格式(加换算版本以前的那一版) */
 const SAVE_FORMAT_RULES = 3;
+/** 规则按第 2 版以后的换算推的存档写的格式(加地图留着的世界以前的那一版) */
+const SAVE_FORMAT_CALC = 4;
 
 /**
- * 存档该写哪一版格式:规则按第 2 版以后的换算推(改了规则项、记着 calc)= 4;用了非官方规则 = 3;
+ * 存档该写哪一版格式:地图留着的世界 = 5;规则按第 2 版以后的换算推(改了规则项、记着 calc)= 4;用了非官方规则 = 3;
  * 修改里有落在年中的时刻(第几格不是 0)= 2;都没有 = 1(见文件头 format)
  */
-export function saveFormatOf(edits: WorldEdits): 1 | 2 | 3 | 4 {
-  if (worldTuning(edits.rules) && worldCalc(edits.rules) > 1) return SAVE_FORMAT;
+export function saveFormatOf(edits: WorldEdits): 1 | 2 | 3 | 4 | 5 {
+  if (keptMapOf(edits)) return SAVE_FORMAT;
+  if (worldTuning(edits.rules) && worldCalc(edits.rules) > 1) return SAVE_FORMAT_CALC;
   if (!isOfficialRules(edits.rules)) return SAVE_FORMAT_RULES;
   const iv = (list: readonly Intervention[] | undefined) => !!list?.some((v) => v.fromTick);
   const b = edits.branches;
@@ -165,7 +171,7 @@ export function saveFormatOf(edits: WorldEdits): 1 | 2 | 3 | 4 {
 
 export interface SaveFile {
   app: '文明与地图';
-  format: 1 | 2 | 3 | 4;
+  format: 1 | 2 | 3 | 4 | 5;
   /** 生成器版本(GENERATOR_VERSION) */
   generator: number;
   seed: number;

@@ -4,9 +4,10 @@
  *   2. 种子 7 的地图(默认参数、种子 7,没改过地形)
  *   3. 「我的世界」地图页签里的各张地图(最近动过的在前):参数、地形照那张地图,文明种子 = 地图种子,别的照默认
  * 同一张地图(参数、地形修改、草图都一样)只列一次,先列的算。两边一律推 3000 年(推演年数不带)。
+ * 地图留着的世界不列(gen/edits.ts 文件头"地图留着的世界"):这里的地图都是按参数现长的,长出来的不是它那张。
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/params';
-import { cleanCivSeed, type WorldEdits } from '../../gen/edits';
+import { cleanCivSeed, keptMapOf, type WorldEdits } from '../../gen/edits';
 import type { GrowMap, GrowSetup } from '../../growThread';
 import type { StoredWorld } from '../saveStore';
 import { mapGroups, mapName } from '../mapGroups';
@@ -23,7 +24,7 @@ export interface CompareHere {
  * world = 现在这个世界(saveStore 的 currentWorld:参数、名字),edits = 它的修改(editsStore 的 getEdits)
  */
 export function worldHere(inWorld: boolean, world: { params: WorldParams; title?: string } | null, edits: WorldEdits): CompareHere | null {
-  if (!inWorld || !world) return null;
+  if (!inWorld || !world || keptMapOf(edits)) return null;
   const civSeed = cleanCivSeed(edits.civSeed);
   return {
     title: world.title || '未命名世界',
@@ -73,6 +74,7 @@ export function mapChoices(here: CompareHere | null, worlds: readonly StoredWorl
   add(`种子 ${DEFAULT_MAP_SEED} 的地图`, { params: { ...DEFAULT_PARAMS, seed: DEFAULT_MAP_SEED } }, {});
   for (const g of mapGroups(worlds)) {
     const s = g.head.save;
+    if (keptMapOf(s.edits)) continue;
     add(`${mapName(g.head)}的地图`.replace(/(\d)的地图$/, '$1 的地图'), mapOf(s.params, s.edits.terrain, s.edits.sketch), {});
   }
   return out;

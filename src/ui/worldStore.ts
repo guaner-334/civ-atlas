@@ -26,8 +26,8 @@
  *
  * 第一次存世界时申请长期保存(navigator.storage.persist)。Firefox 会弹浏览器自己的询问框,只问一次;Safari、Chromium 不弹,自己定,每次打开问一次。
  */
-import { exportNotes, subscribeNotes } from '../ai/library';
-import { GENERATOR_VERSION } from '../gen/edits';
+import { copyNotes, exportNotes, subscribeNotes } from '../ai/library';
+import { GENERATOR_VERSION, keptMapEdits, keptMapOf, type WorldEdits } from '../gen/edits';
 import { READER_VERSIONS } from '../gen/readers/versions';
 import { parseSave, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
@@ -38,7 +38,7 @@ import { pendingEdit, type CommitRequest, type CommitResult, type PendingEdit, t
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
 import { isCoarse, isNarrow } from './device';
 import { dropResults, resultHeads } from './resultStore';
-import { allWorldIds, currentWorld, isStored, loadWorld, originalOf, persistent, subscribe, trashMarks, unmarkTrash } from './saveStore';
+import { allWorldIds, currentWorld, deleteWorld, isStored, loadWorld, originalOf, persistent, saveAsNewVersion, storageFullWhy, subscribe, trashMarks, unmarkTrash } from './saveStore';
 import { APP_COMMIT, APP_VERSION } from './version';
 
 /** 改完以后停多久写新清单(毫秒) */
@@ -234,7 +234,7 @@ function keepOffer(): Promise<boolean> {
       offer = null;
       const made: WorldMade = { app: APP_VERSION, generator: o.generator, commit: APP_COMMIT, at: new Date().toISOString() };
       const r = await commit(
-        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, made, readers: { ...READER_VERSIONS }, author: authorOf(c.id), thumb: thumbBytes(again.thumb) },
+        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, ...(o.schemas ? { schemas: o.schemas } : {}), made, readers: o.readers ?? { ...READER_VERSIONS }, author: authorOf(c.id), thumb: thumbBytes(again.thumb) },
         o.parts.map((p) => p.data),
       );
       return r?.status === 'saved';
@@ -417,6 +417,8 @@ async function jobFor(id: string, asked = false): Promise<ConvertJob | null> {
   if (w.save.generator === GENERATOR_VERSION) {
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
     if (!asked && (onPhone() || currentWorld()?.id === id)) return null;
+    // 地图留着的世界不按种子算:先看它自己、再看它出自的世界,再看别的世界有没有存着那张地图
+    if (keptMapOf(w.save.edits)) return { ...body, kind: 'keptMap', save: w.save, from: [id, ...(w.save.edits.map?.from ? [w.save.edits.map.from] : []), ...allWorldIds()], app: APP_VERSION, commit: APP_COMMIT };
     return { ...body, kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
   }
   if (state?.status !== 'old' || state.generator !== w.save.generator) await call('patchState', [id, { status: 'old', generator: w.save.generator }]);
@@ -558,6 +560,68 @@ export async function settleWorld(id: string): Promise<VaultErrorKind | null> {
     return errKind(e) ?? 'failed';
   }
 }
+
+/** 地图留着的世界(gen/edits.ts 文件头"地图留着的世界")还没有和存档对得上的内容:按存下的地图算一份。算好了 = true,找不到那张地图、推不出来 = false */
+export async function settleKeptWorld(id: string): Promise<boolean> {
+  await settleWorld(id);
+  return storedFresh(id);
+}
+
+/** 仓库里最新的修订就是存档这份配方、这一版算的 */
+async function storedFresh(id: string): Promise<boolean> {
+  try {
+    const w = loadWorld(id);
+    const head = await call('latestOf', [id]);
+    return !!w && !!head && head.generator === w.save.generator && head.recipeKey === (await recipeKey(recipeOfSave(w.save)));
+  } catch {
+    return false;
+  }
+}
+
+export type KeepMapTrouble =
+  /** 没有这个世界 */
+  | 'missing'
+  /** 还没建完、只存了地图 */
+  | 'draft'
+  /** 仓库里没有它的内容(没有原件的更旧版本):没有地图可留 */
+  | 'nomap'
+  /** 「我的世界」满了、浏览器存储满了 */
+  | 'full'
+  /** 推不出来、存不进去 */
+  | 'failed';
+
+export type KeptMapCopy = { ok: true; id: string; /** AI 写的史书、名字由来都带上了 */ notes: boolean } | { ok: false; kind: KeepMapTrouble; message: string };
+
+/**
+ * 另存一份,地图不变(gen/edits.ts 文件头"地图留着的世界"):用 id 这个世界存下的地图、各段世界,按现在的规则从第 0 年推历史,存成一个新世界。原来那份的存档、修订、原件都不动。
+ * edits = 新世界带的修改(不给 = 它现在的);title 不给 = 名字加「（新版）」。不抛错;推的时候不占主线程,用的人等着要,不给推演让路。
+ * 没有界面入口时走 window.__wfKeepMapCopy(检查脚本用)
+ */
+export async function keepMapCopy(id: string, o: { edits?: WorldEdits; title?: string } = {}): Promise<KeptMapCopy> {
+  const w = loadWorld(id);
+  if (!w) return { ok: false, kind: 'missing', message: '没有这个世界' };
+  if (!canKeep(w)) return { ok: false, kind: 'draft', message: '这个世界还没建完' };
+  const read = () => call('readRevision', [id, undefined, []]).catch(() => null);
+  let rev = await read();
+  // 有原件还没转进来的先转(转不了的下面就读不到);已经在仓库里的一个字不碰
+  if (!rev || rev.head.generator !== w.save.generator) {
+    await settleWorld(id);
+    rev = await read();
+  }
+  const map = rev?.manifest.parts.find((p) => p.name === 'map');
+  if (!rev || !map || rev.head.generator !== w.save.generator) return { ok: false, kind: 'nomap', message: '这个世界的地图没有存下来' };
+  const nid = saveAsNewVersion(id, keptMapEdits(o.edits ?? w.save.edits, w.save.params.seed, { sum: map.sum, grown: rev.head.generator, from: id }), o.title);
+  if (!nid) return { ok: false, kind: 'full', message: storageFullWhy() };
+  const notes = copyNotes(id, nid);
+  const stuck = await settleWorld(nid);
+  if (await storedFresh(nid)) return { ok: true, id: nid, notes };
+  // 新世界没存成:不留一个打不开的世界
+  const why = await call('stateOf', [nid]).catch(() => null);
+  deleteWorld(nid);
+  return { ok: false, kind: stuck === 'full' ? 'full' : 'failed', message: why?.error ?? '没能存下这一份' };
+}
+
+if (typeof window !== 'undefined') (window as unknown as { __wfKeepMapCopy: typeof keepMapCopy }).__wfKeepMapCopy = keepMapCopy;
 
 /** 开始转;几个标签页只有一个转,别的这次不转 */
 export async function startConversions(): Promise<void> {

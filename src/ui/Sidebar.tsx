@@ -29,7 +29,7 @@ import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscrib
 import { controlRows, eraRows, resourceRows } from './devRows';
 import { useEdits } from './editsStore';
 import { eraLabel, spaced, yearAt, yearFull, yearShort, type Era } from '../gen/era';
-import { cleanPlay, playFromOf } from '../gen/edits';
+import { cleanPlay, keptMapOf, playFromOf } from '../gen/edits';
 import { openStepDialog, useStepwiseOn } from './stepwiseStore';
 import { StepSideGroup } from './Stepwise';
 import { StepBranches } from './StepBranches';
@@ -759,7 +759,7 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
             {ok && (
-              <button className="sb-row" data-act="upheaval" disabled={!p.data || p.generating || p.replay.on} onClick={openUpheaval} title="选一年让火山喷发、地震抬升、海水漫进来">
+              <button className="sb-row" data-act="upheaval" disabled={!p.data || p.generating || p.replay.on || !!keptMapOf(edits)} onClick={openUpheaval} title="选一年让火山喷发、地震抬升、海水漫进来">
                 <Icon name="terrain" size={17} className="sb-ico" />
                 <span className="sb-row-main">
                   <b>地形大事</b>

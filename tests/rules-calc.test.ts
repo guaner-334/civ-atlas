@@ -195,7 +195,7 @@ describe('新建的世界盖上现在的换算版本', () => {
     expect(print(push(NEW))).toBe(directPrint(TUNING_CALC));
     const s = save(NEW);
     expect(s.format).toBe(4);
-    expect(SAVE_FORMAT).toBe(4);
+    expect(SAVE_FORMAT).toBe(5);
     expect(s.edits.rules!.calc).toBe(TUNING_CALC);
     const read = parseSave(saveText(s));
     const shared = await decodeShare(await encodeShare(s));

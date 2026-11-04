@@ -12,7 +12,7 @@ import type { WorkerRequest } from '../../worker';
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ } from '../../gen/civ/types';
-import { END_YEAR_DEFAULT, cleanPlay, endParamOf, resolveKey, sameInterventions, type TerrainOp, type WorldEdits } from '../../gen/edits';
+import { END_YEAR_DEFAULT, cleanPlay, endParamOf, keptMapOf, resolveKey, sameInterventions, type TerrainOp, type WorldEdits } from '../../gen/edits';
 import { sameSketch, type SketchEdit } from '../../gen/sketch';
 import { sameTerrain, sameUpheavals } from '../../gen/terrainEdits';
 import { sameMix } from '../../gen/names/mix';
@@ -85,6 +85,8 @@ export function useEditRecompute(deps: EditRecomputeDeps) {
     const t = edits.terrain;
     const sk = edits.sketch;
     if (!baseData || !genParams.current || fresh.current || (sameTerrain(t, genTerrain.current) && sameSketch(sk, genSketch.current))) return;
+    // 地图留着的世界不重新长(修改到不了这里,editsStore 的 historyGate 已经拦下;这里再防一道)
+    if (keptMapOf(edits)) return;
     const id = ++reqId.current;
     const interventions = getEdits().interventions;
     const ups = getEdits().upheavals;
