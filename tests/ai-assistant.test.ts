@@ -750,6 +750,24 @@ describe('助手面板', () => {
       expect(asks()).toEqual([]);
       expect(store.getItem(CHAT + 'wm16')).toBeNull();
     });
+
+    it('点了新对话以后说的话:不带旧对话的记号,记现在世界的', async () => {
+      // 同样的修改,配方指纹一样
+      await open('别的世界');
+      const key = await nowKey();
+      put('wm17', { gen: GENERATOR_VERSION, mark: X });
+      heads.set('wm17', { content: content('a', '另一段历史'), recipeKey: key, generator: GENERATOR_VERSION });
+      attach('wm17');
+      // 旧对话先按版本显示着,仓库还没回话就点了新对话
+      expect(asks()).toEqual(['旧的']);
+      newConversation();
+      await sendAsk(ctx(), `${pickName0}在哪？`);
+      await settled();
+      expect(saved('wm17').mark?.print).toBe('map:a|civ:另一段历史');
+      await open('别的世界');
+      await open('wm17');
+      expect(asks()).toEqual([`${pickName0}在哪？`]);
+    });
   });
 
   it('对象的叫法:编号和名字都认', () => {

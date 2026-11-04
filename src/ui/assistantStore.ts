@@ -302,6 +302,8 @@ export function newConversation() {
   stopAsk();
   trialRaw.clear();
   chatSeq++;
+  // 清掉的那份记的记号不带给新说的:还没问完仓库就点了新对话时,它可能和现在的世界对不上
+  mark = null;
   for (const t of state.turns) if (t.applied) cleared.set(t.id, { applied: t.applied, lock: t.lock });
   set({ ...state, turns: [], preview: null });
   save();
