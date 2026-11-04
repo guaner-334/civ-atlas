@@ -25,7 +25,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Civ, Polity } from '../gen/civ/types';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { filterChronicle } from '../gen/civ/story/chronicle';
 import { fullChronicle } from '../gen/civ/story/religionText';
 import {

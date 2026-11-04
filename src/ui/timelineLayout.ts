@@ -20,7 +20,7 @@
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { capitalAt } from '../gen/civ/growth';
+import { capitalAt } from '../gen/readers/openQuery';
 import { standPass } from '../gen/civ/story/display';
 import { nearX, wrapOf } from '../render/common';
 import type { EvType } from '../render/eventTypes';

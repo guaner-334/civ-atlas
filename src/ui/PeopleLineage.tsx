@@ -23,7 +23,7 @@ import { resolveKey } from '../gen/edits';
 import { characterPortrait } from '../gen/portrait';
 import { MARK_HEX } from '../render/marks';
 import { characterPolity } from './characterInfo';
-import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { rulerAt, polityName } from '../gen/readers/openQuery';
 import { personName } from '../gen/civ/story/peopleText';
 import { NameFace, PersonFace, PortraitView } from './Portrait';
 import { HouseBookButton } from './lifeMenu';
@@ -47,7 +47,6 @@ import {
   type LineageTree,
 } from '../gen/civ/story/lineageInfo';
 import { polityShort } from '../gen/civ/story/regentInfo';
-import { polityName } from '../gen/civ/growth';
 import { setPeople } from './overviewStore';
 import { selectPerson } from './panelParts';
 import { useNarrow } from './device';

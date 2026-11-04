@@ -20,7 +20,8 @@
  */
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
-import { polityShortTitle, polityTierAt } from '../gen/civ/growth';
+import { polityTierAt } from '../gen/readers/openQuery';
+import { polityShortTitle } from '../gen/civ/growth';
 import type { World } from '../gen/world';
 import { MONTHS_DEFAULT, type Era } from '../gen/era';
 import { ADVANCE_STEP_MAX, ADVANCE_TICKS_MAX, END_YEAR_MAX, YEAR_TICKS, type Advance } from '../gen/edits';

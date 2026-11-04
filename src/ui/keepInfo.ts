@@ -11,10 +11,10 @@
 import type { Annal, Civ, Person, Polity } from '../gen/civ/types';
 import { cnNumber } from '../gen/civ/story/chronicle';
 import { KEEP_RISE } from '../gen/civ/rulers';
-import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { rulerAt, polityName, polityTierAt } from '../gen/readers/openQuery';
 import { regimeAt, royalAt } from '../gen/civ/regime';
 import { heOrShe, type Sexed } from '../gen/civ/story/gender';
-import { polityName, polityShortTitle, polityTierAt } from '../gen/civ/growth';
+import { polityShortTitle } from '../gen/civ/growth';
 import { interventionFate } from '../gen/stepwise';
 import { YEAR_TICKS, commandAt, polityKey, resolveKey, type Intervention } from '../gen/edits';
 import { spaced, yearAt, type Era } from '../gen/era';

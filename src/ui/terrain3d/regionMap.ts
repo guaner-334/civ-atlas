@@ -29,8 +29,7 @@ import { strokeRegionLines } from '../../render/civ/debug';
 import { strokeRoutes, routeLines } from '../../render/civ/routes';
 import { realisticRiverStyle } from '../../render/realistic';
 import { fantasyBoxRiverStyle } from '../../render/fantasy';
-import { ownersAt } from '../../gen/civ/engine/timeline';
-import { polityName } from '../../gen/civ/growth';
+import { ownersAt, polityName } from '../../gen/readers/openQuery';
 import { reliefImage, reliefPrepare, type ReliefImage } from './jobs';
 
 /** 要画的这一页 */

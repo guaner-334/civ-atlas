@@ -11,7 +11,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { TradeRoute } from '../gen/civ/trade';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { regionLabel } from '../gen/civ/story/display';
 import { tradeKey } from '../gen/edits';
 import { goodsAt, goodsText, tradeCapital, tradeHistory, tradeStateAt, warPair } from '../gen/civ/story/tradeText';

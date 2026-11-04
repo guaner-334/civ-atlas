@@ -34,6 +34,7 @@ import {
 import { drawParts, type DrawPart } from './common';
 import { smoothstep } from '../gen/util';
 import { CREEK_FRAC, creeksOf } from '../gen/creeks';
+import { olderTerrain } from '../gen/readers/older';
 import { reprojectImage, type Projector } from './projection';
 import { boxOfCols, boxSpans, growBox, unionBox, type PixelBox } from '../gen/pixelBox';
 import { WINDOW_PAD } from '../gen/rasterWindow';
@@ -743,7 +744,7 @@ export function renderRealistic(ctx: CanvasRenderingContext2D, world: World, r: 
  * - 放大后先补齐小河,再往下是比成河门槛还小的小溪(gen/creeks.ts):放大 4 倍左右小溪都出来
  * - 放大后细水那一份宽度按 k^−0.6 收(屏幕上几乎不变粗),大河的宽度几乎按世界单位(k^−0.12,屏幕上约按 k^0.88 变粗)→ 主干越放大越显得粗
  */
-export function realisticRiverStyle(k: number, threshold: number, look: SurfaceLook = 'classic'): RiverStyle {
+export function realisticRiverStyle(k: number, threshold: number, look: SurfaceLook = 'classic', creekFrac: number = CREEK_FRAC): RiverStyle {
   const kk = Math.max(1, k);
   const m = MATERIALS[look];
   return {
@@ -752,7 +753,7 @@ export function realisticRiverStyle(k: number, threshold: number, look: SurfaceL
     maxW: m.river.minW + m.river.growW * Math.pow(kk, -0.12),
     fluxRef: 1400,
     thin: Math.pow(kk, -0.6),
-    minFlux: threshold * (kk > 1 ? Math.max(CREEK_FRAC, 4.5 * Math.pow(kk, -2.2)) : riverLod(kk)) * m.riverFlux[kk > 1 ? 1 : 0],
+    minFlux: threshold * (kk > 1 ? Math.max(creekFrac, 4.5 * Math.pow(kk, -2.2)) : riverLod(kk)) * m.riverFlux[kk > 1 ? 1 : 0],
   };
 }
 
@@ -761,7 +762,7 @@ const withCreeks = new WeakMap<World, World['rivers']>();
 function riversOf(world: World, k: number): World['rivers'] {
   if (k <= 1) return world.rivers;
   let r = withCreeks.get(world);
-  if (!r) withCreeks.set(world, (r = [...world.rivers, ...creeksOf(world)]));
+  if (!r) withCreeks.set(world, (r = [...world.rivers, ...(olderTerrain(world)?.creeksOf ?? creeksOf)(world)]));
   return r;
 }
 
@@ -770,12 +771,14 @@ function riversOf(world: World, k: number): World['rivers'] {
  * creeks = false:放大后也不画小溪(细节层上盖着现算的块、块里画了小溪时,底下这张省掉)
  */
 export function drawRealisticRivers(ctx: CanvasRenderingContext2D, world: World, r: Raster, v: VecView, creeks = true, look: SurfaceLook = 'classic') {
-  const style = realisticRiverStyle(v.k, world.riverThreshold, look);
-  drawRivers(ctx, creeks ? riversOf(world, v.k) : world.rivers, { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(r, style, look));
+  const style = realisticRiverStyle(v.k, world.riverThreshold, look, olderTerrain(world)?.CREEK_FRAC);
+  drawRivers(ctx, creeks ? riversOf(world, v.k) : world.rivers, { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(world, r, style, look));
 }
 
-function riverOpts(r: Raster, style: RiverStyle, look: SurfaceLook): RiverOptions {
+function riverOpts(world: World, r: Raster, style: RiverStyle, look: SurfaceLook): RiverOptions {
+  const older = olderTerrain(world);
   return {
+    ...(older ? { geometry: older.riverGeometry } : {}),
     water: r.water,
     w: r.w,
     h: r.h,
@@ -794,8 +797,8 @@ function riverOpts(r: Raster, style: RiverStyle, look: SurfaceLook): RiverOption
  */
 export function realisticRiverSteps(world: World, r: Raster, look: SurfaceLook = 'classic'): WorkStep[] {
   const v = bakedView(r.scale);
-  const style = realisticRiverStyle(v.k, world.riverThreshold, look);
-  return riverNetworkSteps(r.w, r.h, riversOf(world, v.k), { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(r, style, look));
+  const style = realisticRiverStyle(v.k, world.riverThreshold, look, olderTerrain(world)?.CREEK_FRAC);
+  return riverNetworkSteps(r.w, r.h, riversOf(world, v.k), { ...v, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(world, r, style, look));
 }
 
 // ---------------------------------------------------------------------------

@@ -2,11 +2,12 @@
 /**
  * 放大后按屏幕现算的一块块(写实风,见 ui/terrainTiles.ts):每个线程收到世界以后准备一次(gen/rasterWindow.ts 的 zoomSource、
  * 大尺度晕渲的粗网格),之后一次算一块 —— 铺像素(多铺一圈)→ 上色 → 裁掉多铺的那圈 → 画上河和小溪(只留在这一块自己的陆地上),
- * 交回主线程。同一块结果一样。
+ * 交回主线程。同一块结果一样。铺像素的代码按世界记的版本取(gen/readers/);老版本要下载,下载时来的块排在后面。
  */
 import type { World } from './gen/world';
 import type { Raster } from './gen/raster';
 import { WINDOW_PAD, rasterizeWindow, zoomSource, type ZoomSource } from './gen/rasterWindow';
+import { olderTerrainOf } from './gen/readers/older';
 import { drawRealisticRivers, macroGrids, realisticWindowPixels, type MacroGrids } from './render/realistic';
 import type { SurfaceLook } from './render/surface';
 
@@ -32,29 +33,47 @@ export interface TileResponse {
 
 const NO_CANVAS = '后台线程不能画图';
 
-let cur: { wid: number; world: World; look: SurfaceLook; src: ZoomSource; grids: MacroGrids } | null = null;
+/** 铺像素的几样:当前版本就是上面 import 的 */
+const NOW = { WINDOW_PAD, rasterizeWindow, zoomSource };
+
+let cur: { wid: number; world: World; look: SurfaceLook; read: typeof NOW; src: ZoomSource; grids: MacroGrids } | null = null;
+/** 正在准备的世界(取读取代码):当前版本在下一条消息之前就走完;老版本下载时来的块等它 */
+let ready: Promise<void> | null = null;
+
+/** 收到世界就准备(细节层放大到一定倍数才送世界过来,等停下来要块时多半已经准备好了);取不到代码、准备不了的,要块时报错 */
+async function prepare(m: Extract<TileRequest, { type: 'world' }>): Promise<void> {
+  try {
+    const read = (await olderTerrainOf(m.world)) ?? NOW;
+    cur = { wid: m.wid, world: m.world, look: m.look, read, src: read.zoomSource(m.world, m.whole), grids: macroGrids(m.whole as Raster) };
+  } catch {
+    // 要块时报错
+  }
+}
 
 self.onmessage = (e: MessageEvent<TileRequest>) => {
   const m = e.data;
   if (m.type === 'world') {
-    // 收到就准备(细节层放大到一定倍数才送世界过来,等停下来要块时多半已经准备好了)
     cur = null;
-    try {
-      cur = { wid: m.wid, world: m.world, look: m.look, src: zoomSource(m.world, m.whole), grids: macroGrids(m.whole as Raster) };
-    } catch {
-      // 要块时报错
-    }
+    const p: Promise<void> = prepare(m).then(() => {
+      if (ready === p) ready = null;
+    });
+    ready = p;
     return;
   }
+  if (ready) void ready.then(() => tile(m));
+  else tile(m);
+};
+
+function tile(m: Extract<TileRequest, { type: 'tile' }>) {
   const t0 = performance.now();
   let res: TileResponse;
   try {
     if (!cur || cur.wid !== m.wid) throw new Error('世界还没送到');
     const world = cur.world;
     if (typeof OffscreenCanvas === 'undefined') throw new Error(NO_CANVAS);
-    const P = WINDOW_PAD;
+    const P = cur.read.WINDOW_PAD;
     const n = m.size + 2 * P;
-    const r = rasterizeWindow(cur.src, m.S, m.x0 - P, m.y0 - P, n, n);
+    const r = cur.read.rasterizeWindow(cur.src, m.S, m.x0 - P, m.y0 - P, n, n);
     const all = realisticWindowPixels(r, cur.grids, cur.look);
     // 多带一行一列(和右边、下边那一块的第一列、第一行一样):拼起来叠住接缝,缩放到小数倍时接缝不漏出底下的整张图
     const m1 = m.size + 1;
@@ -73,4 +92,4 @@ self.onmessage = (e: MessageEvent<TileRequest>) => {
     res = { wid: m.wid, key: m.key, bitmap: null, ms: performance.now() - t0, error, fatal: error === NO_CANVAS };
     self.postMessage(res);
   }
-};
+}

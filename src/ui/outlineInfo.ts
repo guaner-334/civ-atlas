@@ -8,7 +8,7 @@ import type { Civ } from '../gen/civ/types';
 import { cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { personName } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';
-import { capitalAt } from '../gen/civ/growth';
+import { capitalAt, ownersAt } from '../gen/readers/openQuery';
 import { SLUMP_DEFAULT } from '../gen/civ/calamity';
 import {
   DISASTER_LEVEL_NAMES,
@@ -33,7 +33,6 @@ import {
 } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
 import { entryInvolves, type ChronicleEntry } from '../gen/civ/story/chronicle';
-import { ownersAt } from '../gen/civ/engine/timeline';
 import type { DirectorPlot } from './directorPlan';
 import { nameAt } from './Interventions';
 import { yearAt, type Era } from '../gen/era';

@@ -16,7 +16,7 @@ import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Civ, Person, RulerLeanings } from '../gen/civ/types';
 import { kinOf, rulerShort } from '../gen/civ/story/peopleText';
 import { heOrShe, heirWord, isFemale, mateWord, wedVerb, type Sexed } from '../gen/civ/story/gender';
-import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { rulerAt } from '../gen/readers/openQuery';
 import { brideNameOf } from '../gen/civ/people';
 import { drawLeanings } from '../gen/civ/rulers';
 import { keyed4, subSeed } from '../gen/civ/engine/rand';

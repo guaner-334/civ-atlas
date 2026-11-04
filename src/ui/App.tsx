@@ -1,5 +1,6 @@
 import './theme.css';
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { endLoadWatch, reportOpenCrash } from './openGuard';
 import { createPortal, flushSync } from 'react-dom';
 import type { World, WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
@@ -139,7 +140,7 @@ import {
 } from './saveStore';
 import { setWorldStoreSim } from './worldStore';
 import { getStage, setStage, useStage } from './stageStore';
-import { polityName } from '../gen/civ/growth';
+import { polityName, ownersAt, faithAt } from '../gen/readers/openQuery';
 import { finishPick, getPolityPick, setPickHover, setPolityPick, usePolityPick } from './Interventions';
 import { RoleBar } from './RoleBar';
 import { Inspector } from './Inspector';
@@ -179,8 +180,6 @@ import { useMapFly } from './map/useMapFly';
 import { useAppShortcuts } from './useAppShortcuts';
 import { mapTextBoxes, passAt, pickLabelAt } from './mapPick';
 import { setTradeHover, tradeAtClient, tradeHoverInfo } from './tradePick';
-import { ownersAt } from '../gen/civ/engine/timeline';
-import { faithAt } from '../gen/civ/religion';
 import { type RewriteNote } from './rewriteStore';
 import { AssistantPanel, PreviewBanner } from './Assistant';
 import { astRoom, closeAssistant, useAstOpen } from './astPanel';
@@ -315,7 +314,31 @@ const ReliefGhost = lazy(() => import('./terrain3d/relief3d').then((m) => ({ def
 export { startGalleryHelper } from './galleryHelper';
 
 /** fromHome:打开网站时先出来的首页(HomeShell.tsx)上点了要离开首页的事,挂上以后接着做(见 Boot.tsx) */
-export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
+/**
+ * 界面渲染时抛错:开着的世界是新路读的,记下来、刷新页面重开,这次走旧的路(openGuard.ts);别的错和没有这一层一样(整页没了)
+ */
+class OpenCrashGuard extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch() {
+    if (reportOpenCrash()) location.reload();
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+export function App(props: { fromHome?: HomeStart } = {}) {
+  return (
+    <OpenCrashGuard>
+      <AppBody {...props} />
+    </OpenCrashGuard>
+  );
+}
+
+function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const init = useMemo(readUrl, []);
   /** 打开网页时去哪:我的世界 / 新建 / 某个世界(见 firstRoute) */
   const route = useMemo(() => firstRoute(init), [init]);
@@ -925,7 +948,13 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
       // 线程出错、重发过一次又出错的活(见 ./sim/simClient.ts 文件头「线程出错」):不再算它,界面上收起,地图上还是原来那份。
       // 生成、读档、回放帧、地形大事预览不在这里收:再点一次就是新的一件活,交给新开的线程
       lost: (req) => {
-        if (req.type === 'resim') {
+        // 打开世界的那件重发过又出错了:退回旧的路
+        if (req.type === 'load') {
+          endLoadWatch();
+          const back = openRefs.loadBack.current;
+          openRefs.loadBack.current = null;
+          back?.('broken');
+        } else if (req.type === 'resim') {
           if (req.seq !== resimSeq.current) return;
           resimInfo.current = null;
           setResim(null);

@@ -21,7 +21,8 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from
 import type { Civ, Person } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { rulerAt, peopleIndex } from '../gen/civ/story/peopleInfo';
+import { rulerAt } from '../gen/readers/openQuery';
+import { peopleIndex } from '../gen/civ/story/peopleInfo';
 import { personName, rulerShort } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';
 import { postAt } from '../gen/civ/story/officialText';

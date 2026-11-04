@@ -20,7 +20,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExtern
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { fullChronicle } from '../gen/civ/story/religionText';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { yearAt, yearMonthAt, yearShort, type Era } from '../gen/era';
 import { advanceOf } from '../gen/edits';
 import { directorPlan, type DirectorCaption, type DirectorSkip } from './directorPlan';

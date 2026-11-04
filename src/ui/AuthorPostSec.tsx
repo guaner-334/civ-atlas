@@ -11,10 +11,10 @@
  */
 import { useState, type ReactNode } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
-import { capitalAt } from '../gen/civ/growth';
+import { capitalAt, rulerAt } from '../gen/readers/openQuery';
 import { personName } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';
-import { peopleIndex, rulerAt } from '../gen/civ/story/peopleInfo';
+import { peopleIndex } from '../gen/civ/story/peopleInfo';
 import { APPOINT_SKILL_POWER, advanceOf, type Intervention } from '../gen/edits';
 import type { AuthorCharacter } from '../gen/characters';
 import { spaced, yearAt, yearShort, yearSpanAt, type Era } from '../gen/era';

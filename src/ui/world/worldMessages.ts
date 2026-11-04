@@ -12,10 +12,10 @@
  * 发请求、按新地形重新生成完的处理经 App 的 ref 调到最新的那一份
  */
 import type { WorkerRequest, WorkerResponse } from '../../worker';
+import type { OpenRefusal } from '../../worldOpen';
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ } from '../../gen/civ/types';
-import { EMPTY_EDITS } from '../../gen/edits';
 import { dropRealisticBasesExcept, realisticRiverSteps, takeRealisticPainted } from '../../render/realistic';
 import { adoptPlan, dropFantasyBasesExcept } from '../../render/fantasy';
 import { civOpenSteps } from '../CivLayer';
@@ -26,6 +26,8 @@ import { noteGenSpeed } from '../genSpeed';
 import type { Style } from '../mapLayers';
 import { noteMapSum, offerSnapshot } from '../resultStore';
 import { offerWorldParts } from '../worldStore';
+import { adoptReaders } from '../worldReaders';
+import { endLoadWatch, kickLoadWatch, reportOpenCrash } from '../openGuard';
 import { patchSourceOf, startTerrainFull, startTerrainPatch } from '../terrainPatch';
 import { later, thumbPrepSteps } from '../thumbPrep';
 import { takeUpPreview } from '../upheavalStore';
@@ -52,9 +54,9 @@ export type WorldHandlers = Pick<SimHandlers, 'eraPatch' | 'upPreview' | 'loadFa
 export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
   const { send, tell, terrainDone } = deps;
   const { reqId, fresh, regenRef, genSent, baseKeyRef, preProj, mapFirst, setMapEarly, setProgress } = deps.gen;
-  const { civEdits, civUps, genUps, rawUps, civMsLast, civLater, setRawCiv } = deps.civ;
+  const { genUps, rawUps, civMsLast, civLater, setRawCiv } = deps.civ;
   const { baseRef, setData, editedRef, eraPatches, setPatchVer, eraMapsRef, setEraMaps, eraAt, eraWarm, drawView, drawKey } = deps.map;
-  const { frozenLoad, frozenBroken, loadedFrozen, genReq, readyRef } = deps.open;
+  const { frozenLoad, loadBack, loadMapSum, readyRef } = deps.open;
   /** 历史到了(和地图一起到的;地图先交了的,是地图换上以后):记下速度,换上历史,套上要打开的那个世界的修改 */
   const takeCiv = (d: { id: number; civ: Civ | null; ms: number; genMs: number; civMs?: number; reused?: true }, world: World) => {
     // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
@@ -175,6 +177,24 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
       });
     }
   };
+  /** 存下的内容读不了:照 generate 定好的退路走 */
+  const loadBackNow = (why: OpenRefusal, recipe?: unknown) => {
+    endLoadWatch();
+    const back = loadBack.current;
+    loadBack.current = null;
+    back?.(why, recipe);
+  };
+  /** 世界和地图一起到了,读取代码也取好了。新路读的世界换上时抛错:记下来、刷新页面重开,这次走旧的路(openGuard.ts);别的错照常抛 */
+  const openDone = (m: Exclude<Extract<WorkerResponse, { type: 'done' }>, { mapSent: true }>) => {
+    loadBack.current = null;
+    loadMapSum.current = m.mapSum ?? null;
+    try {
+      takeMap(m);
+    } catch (e) {
+      if (!reportOpenCrash()) throw e;
+      location.reload();
+    }
+  };
   return {
     eraPatch: (m) => {
       // 一段的主图补丁:记下,地图那一段换上(eras.ts);最多留 PATCH_KEEP 块,先丢最早的(现在这份历史要用的不丢;
@@ -189,31 +209,45 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
       setPatchVer((v) => v + 1);
     },
     upPreview: (m) => takeUpPreview(m.pid, m.preview, m.water, m.ms),
-    // 原件读不出来:按现在的规则生成(提示条上说一句)
-    loadFailed: () => {
-      const req = genReq.current;
-      frozenBroken.current = frozenLoad.current?.id ?? null;
-      frozenLoad.current = genReq.current = null;
-      loadedFrozen.current = false;
-      civEdits.current = EMPTY_EDITS.interventions;
-      civUps.current = genUps.current = undefined;
-      if (req) send(req);
-    },
+    // 存下的内容读不了:退回旧的路(怎么退 useWorldLoad 的 generate 定好了)
+    loadFailed: (m) => loadBackNow(m.why, m.recipe),
     // 这次生成 / 重推的原件:对得上存着的存档就存进浏览器(resultStore.ts)
     snapshot: (m) => {
       void offerSnapshot(m.snapshot);
       void noteMapSum(m.snapshot);
     },
     worldParts: (m) => void offerWorldParts(m.offer),
-    progress: (m) => setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed })),
+    progress: (m) => {
+      kickLoadWatch();
+      setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed }));
+    },
     done: (m) => {
-      if (!m.mapSent) return takeMap(m);
+      endLoadWatch();
+      if (!m.mapSent) {
+        // 世界换上之前按它记的版本取好读取代码;老版本要下载,下载不下来就退回旧的路
+        const wait = adoptReaders(m.world.readers);
+        if (wait) {
+          wait.then(
+            () => {
+              if (m.id === reqId.current) openDone(m);
+            },
+            () => {
+              if (m.id === reqId.current) loadBackNow('broken');
+            },
+          );
+          return;
+        }
+        return openDone(m);
+      }
       // 地图先交了的(mapFirst):地图换上了就接上历史;还在备地图的,换上时再接
       const mf = mapFirst.current;
       if (!mf || mf.id !== m.id) return;
       if (!mf.shown) return void (mf.done = m);
       civAfterMap(m, mf.world);
     },
-    map: takeMap,
+    map: (m) => {
+      adoptReaders(undefined);
+      takeMap(m);
+    },
   };
 }

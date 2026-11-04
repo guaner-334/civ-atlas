@@ -5,7 +5,7 @@
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { regionLabel } from '../gen/civ/story/display';
 import { lifeInOrder, resolvePersonKey, type AuthorCharacter } from '../gen/characters';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';

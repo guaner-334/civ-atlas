@@ -18,7 +18,7 @@
  */
 import type { Civ, Person, Year } from '../../gen/civ/types';
 import { buildChronicle, cnNumber, entryYearLabel, filterChronicle, reignEntries, type ChronicleEntry } from '../../gen/civ/story/chronicle';
-import { polityName } from '../../gen/civ/growth';
+import { polityName } from '../../gen/readers/openQuery';
 import { personName, personRoleShort, splitSurname } from '../../gen/civ/story/peopleText';
 import { riseText, rulerNeighbors } from '../../gen/civ/story/peopleInfo';
 import { heldOver } from '../../gen/civ/story/regentInfo';

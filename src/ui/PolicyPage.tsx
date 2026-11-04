@@ -14,8 +14,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Civ, RulerLeanings } from '../gen/civ/types';
-import { polityAlive } from '../gen/civ/growth';
-import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { polityAlive, rulerAt } from '../gen/readers/openQuery';
 import { POLICY_FOCI, POLICY_PICK_MAX, POLICY_PRESETS_KEYS, polityKey, type PolicyKnob, type PolicyPreset } from '../gen/edits';
 import { POLICY_PRESET_NAMES } from '../gen/civ/policy';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';

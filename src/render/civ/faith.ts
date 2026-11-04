@@ -7,7 +7,8 @@
  */
 import type { Civ, Culture, Year } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
-import { faithAt, faithRoot, shade } from '../../gen/civ/religion';
+import { faithAt } from '../../gen/readers/openQuery';
+import { faithRoot, shade } from '../../gen/civ/religion';
 
 /** 选中别的信仰时,民间信仰变成的颜色;大教 / 教派往白里调这么多 */
 const FADED_FOLK: [number, number, number] = [226, 221, 210];

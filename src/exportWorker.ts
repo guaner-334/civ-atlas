@@ -11,6 +11,10 @@
  */
 import type { World } from './gen/world';
 import { rasterize, type Raster } from './gen/raster';
+import { READER_VERSIONS } from './gen/readers/versions';
+import { queryReader } from './gen/readers/queryReader';
+import { setQueryReader } from './gen/readers/openQuery';
+import { olderTerrainOf } from './gen/readers/older';
 import { rasterizeWithHelpers } from './gullyPool';
 import type { Civ, Year } from './gen/civ/types';
 import type { CivShow, CivStyle } from './render/civ/overlay';
@@ -75,7 +79,7 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
     const t0 = performance.now();
     if (m.job === 'heightmap') {
       // 高度图只要海拔和水陆,不算沟壑
-      const r = m.raster ?? (m.world ? rasterize(m.world, m.scale, false) : null);
+      const r = m.raster ?? (m.world ? ((await olderTerrainOf(m.world))?.rasterize ?? rasterize)(m.world, m.scale, false) : null);
       if (!r) throw new Error('没有世界数据');
       const t1 = performance.now();
       const { png, info } = await heightmapPng(r, m.bits, m.seed);
@@ -83,7 +87,10 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
       return;
     }
     // 沟和山脊只有写实风打光用得着(分给帮手线程算)
-    const raster = m.raster ?? (m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale, m.veins) : rasterize(m.world, m.scale, false));
+    // 文明底图的查询、画河的代码按世界记的版本取(gen/readers/)
+    setQueryReader(await queryReader(m.world.readers?.query ?? READER_VERSIONS.query));
+    const older = await olderTerrainOf(m.world);
+    const raster = m.raster ?? (m.style === 'realistic' ? await rasterizeWithHelpers(m.world, m.scale, m.veins) : (older?.rasterize ?? rasterize)(m.world, m.scale, false));
     if (m.font) await loadWorkerFont(m.font);
     const t1 = performance.now();
     const cv = new OffscreenCanvas(raster.w, raster.h);

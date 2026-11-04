@@ -15,7 +15,7 @@
  */
 import type { Civ } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
-import { polityAlive } from '../../gen/civ/growth';
+import { polityAlive } from '../../gen/readers/openQuery';
 
 /** 到过这么多州的国家算大国 */
 export const BIG_REGIONS = 30;

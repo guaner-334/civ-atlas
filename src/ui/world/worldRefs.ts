@@ -10,6 +10,7 @@
  */
 import { useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { WorkerRequest, WorkerResponse } from '../../worker';
+import type { OpenRefusal } from '../../worldOpen';
 import type { World, WorldParams } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { RasterPatch } from '../../gen/rasterPatch';
@@ -145,19 +146,26 @@ export interface WorldViewRefs {
   setHover: (h: null) => void;
 }
 
+/** 存下的内容读不了(为什么、只读打开要的修订的配方):接下来走哪条路 */
+export type LoadBack = (why: OpenRefusal, recipe?: unknown) => void;
+
 /** 只有打开世界的代码用的 ref(App 在开线程之前建好,线程的消息处理和 useWorldLoad 都要) */
 export function useOpenRefs() {
   return {
     /**
-     * 照原样打开的旧世界(读存着的原件,不重新生成):正在读的是哪个世界、建它的生成器版本;
-     * 原件读不出来、改成按新版生成的是哪个世界(提示条上说一句)。见 resultStore.frozenResult / worker 的 load
+     * 读存下的内容打开(世界仓库的修订、旧世界的原件,不重新生成):正在读的是哪个世界、算它的生成器版本(比现在旧的是照原样打开的旧世界);
+     * 旧世界读不出来、改成按新版生成的是哪个世界(提示条上说一句)。见 worldOpen.ts、resultStore.frozenResult、worker 的 load
      */
     frozenLoad: useRef<{ id: string; gen: number } | null>(null),
     frozenBroken: useRef<string | null>(null),
-    /** 线程里现在这个世界是读原件来的(同样的参数也不能拿来当新版的世界用,反过来也一样) */
+    /** 线程里现在这个世界是读旧世界来的(同样的参数也不能拿来当新版的世界用,反过来也一样) */
     loadedFrozen: useRef(false),
-    /** 等原件的这一会儿要发的生成请求(读不出来就照它生成) */
+    /** 等存下的内容的这一会儿要发的生成请求 */
     genReq: useRef<WorkerRequest | null>(null),
+    /** 存下的内容读不了(线程说读不了、线程没了、卡住了、读取代码下载不下来):接下来走哪条路(useWorldLoad 的 generate 定) */
+    loadBack: useRef<LoadBack | null>(null),
+    /** 这次读世界仓库读到的地图那一块的指纹(新开的历史要记,见 resultStore.noteMapSumOf) */
+    loadMapSum: useRef<string | null>(null),
     /** 刚另存的新版:打开它以后提示"已另存为…"(from = 原来那一份的名字) */
     savedCopy: useRef<{ id: string; from: string; more: string[] } | null>(null),
     /** 打不开的分享链接(世界还在生成时解开的):生成完再提示 */

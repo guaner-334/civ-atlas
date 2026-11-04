@@ -12,7 +12,7 @@
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { regionLabel } from '../gen/civ/story/display';
 import { envoyOf, treatyBook, treatyLine, treatyTitle, type TreatyInfo } from '../gen/civ/story/treatyInfo';
 import { fullChronicle } from '../gen/civ/story/religionText';

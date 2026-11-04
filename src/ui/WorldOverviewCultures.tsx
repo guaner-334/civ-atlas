@@ -8,9 +8,10 @@
  */
 import { useMemo } from 'react';
 import type { Civ, Culture } from '../gen/civ/types';
-import { polityName, populationLabel, regionPopulationAt } from '../gen/civ/growth';
+import { polityName, regionPopulationAt, ownersAt } from '../gen/readers/openQuery';
+import { populationLabel } from '../gen/civ/growth';
 import { KIND_INFO, cultureLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { type Owners } from '../gen/civ/engine/timeline';
 import { setCivTime } from './civView';
 import { closeOverview } from './overviewStore';
 import { openCulture } from './faithSelection';

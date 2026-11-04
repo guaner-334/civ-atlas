@@ -11,6 +11,7 @@
  * 改过地形的世界换算成米时远处照没改地形的同一颗星球(planetOf),改一处不把别处的山压矮。
  * 没有地形修改、没有草图时结果逐字节不变。
  */
+import type { ReaderVersions } from './readers/versions';
 import { blurField, buildMesh, type Mesh } from './mesh';
 import { buildTectonics, type Tectonics } from './tectonics';
 import { erodeSteps, drainage, accumulate } from './erosion';
@@ -83,6 +84,11 @@ export interface River {
 }
 
 export interface World {
+  /**
+   * 读这个世界用第几版读取代码(gen/readers/)。只有存下来再读出来的世界带,跟着世界送到各个后台线程,线程按它取代码;
+   * 没有 = 这一版软件刚算的,用当前版本。不进存档、世界文件
+   */
+  readers?: ReaderVersions;
   params: WorldParams;
   width: number;
   height: number;

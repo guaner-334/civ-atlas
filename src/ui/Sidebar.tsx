@@ -20,9 +20,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World, WorldParams } from '../gen/world';
-import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
+import { capitalAt, polityAlive, polityName, ownersAt } from '../gen/readers/openQuery';
 import { KIND_INFO, cultureLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { type Owners } from '../gen/civ/engine/timeline';
 import { filterChronicle } from '../gen/civ/story/chronicle';
 import { faithRows, fullChronicle } from '../gen/civ/story/religionText';
 import { getCivTime, pickChronicleEntry, setResourceView, setSelection, subscribeCivTime, useCivShow, useResourceView, useSelection } from './civView';

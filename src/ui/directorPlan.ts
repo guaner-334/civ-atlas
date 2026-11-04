@@ -34,7 +34,7 @@ import type { Civ, Person } from '../gen/civ/types';
 import { personSpan } from '../gen/civ/story/peopleInfo';
 import { seatPolity } from '../gen/civ/story/peopleText';
 import type { World } from '../gen/world';
-import { capitalAt } from '../gen/civ/growth';
+import { capitalAt } from '../gen/readers/openQuery';
 import { regionLabel } from '../gen/civ/story/display';
 import { yearFull, type Era } from '../gen/era';
 import { nearX } from '../render/common';

@@ -18,7 +18,7 @@
 import type { Civ, Person, PersonSpouse } from '../gen/civ/types';
 import type { AuthorCharacter } from '../gen/characters';
 import { lifeInOrder, personKey, resolvePersonKey } from '../gen/characters';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { peopleIndex, personFame, personSpan } from '../gen/civ/story/peopleInfo';
 import { childrenOf, fatherOf, kidsOf, motherOf } from '../gen/civ/story/lineageInfo';
 import { brideMatchOf, brideName, heldOver, polityShort } from '../gen/civ/story/regentInfo';

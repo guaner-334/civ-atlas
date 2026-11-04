@@ -270,12 +270,32 @@ export async function openWorldFile(file: Blob | Uint8Array, options: OpenOption
       const data = files.get(p.file);
       if (!data) broken(`文件里缺 ${p.file}`);
       bytes.set(p.name, data);
-      if (!KNOWN_PARTS.has(p.name) || p.schema > currentSchema(p.name, options.migrations) || (p.zip !== 'gzip' && p.zip !== 'none')) kept.push(p);
+      if (isKept(p, options)) kept.push(p);
     }
     return { manifest, manifestBytes, bytes, kept, options };
   } catch (err) {
     throw asWorldFileError(err);
   }
+}
+
+/**
+ * 按块存着的一份(浏览器里的仓库,worldVault.ts)当成打开的文件:清单照读文件的规矩核对,块的字节直接用,不用先拼成 ZIP。
+ * parts 可以只有几块(readViewContent 要的),这时候只能读那几块
+ */
+export function openStoredParts(manifestBytes: Uint8Array, parts: readonly PackedPart[], options: OpenOptions): OpenedWorldFile {
+  try {
+    const manifest = parseManifest(manifestBytes, { readers: options.readers, migrations: options.migrations, maxBytes: options.maxBytes ?? ZIP_LOCAL_MAX_BYTES });
+    const bytes = new Map<string, Uint8Array>();
+    for (const p of parts) bytes.set(p.info.name, p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data));
+    return { manifest, manifestBytes, bytes, kept: manifest.parts.filter((p) => isKept(p, options)), options };
+  } catch (err) {
+    throw asWorldFileError(err);
+  }
+}
+
+/** 这一版软件只当字节留着的块 */
+function isKept(p: WorldPartInfo, options: OpenOptions): boolean {
+  return !KNOWN_PARTS.has(p.name) || p.schema > currentSchema(p.name, options.migrations) || (p.zip !== 'gzip' && p.zip !== 'none');
 }
 
 /** 解开的世界 */
@@ -291,24 +311,16 @@ export interface WorldContent extends WorldValues {
   skipped: string[];
 }
 
-/**
- * 解开各块、迁移到现在的结构、逐项核对。原件的字节不动,出错了 opened 还能照样另存。
- * 只当字节留着的块(opened.kept)不解开。需要的块坏了报 broken;转不了结构报 readonly
- */
-export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldContent> {
+/** 解开、迁移一块(没有、只当字节留着的 = null);decode = 字节怎么变成值(封面就是字节本身) */
+function partReader(opened: OpenedWorldFile, skipped: string[]) {
   const { manifest } = opened;
   const migrations = opened.options.migrations ?? MIGRATIONS;
-  const skipped: string[] = [];
-  const raw = async (name: string): Promise<Uint8Array | null> => {
+  return async (name: string, decode: (b: Uint8Array) => unknown = (b) => unpackValue(b, worldHeadLimit(opened.options.maxBytes))): Promise<unknown> => {
     const info = manifest.parts.find((p) => p.name === name);
     if (!info || opened.kept.includes(info)) return null;
-    return partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, opened.bytes.get(name)!, worldPartLimit(name, opened.options.maxBytes));
-  };
-  /** 解开、迁移;decode = 字节怎么变成值(封面就是字节本身) */
-  const read = async (name: string, decode: (b: Uint8Array) => unknown = (b) => unpackValue(b, worldHeadLimit(opened.options.maxBytes))): Promise<unknown> => {
-    const b = await raw(name);
-    if (!b) return null;
-    const info = manifest.parts.find((p) => p.name === name)!;
+    const data = opened.bytes.get(name);
+    if (!data) broken(`缺 ${name} 这一块`);
+    const b = await partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, data, worldPartLimit(name, opened.options.maxBytes));
     try {
       return migratePart(name, info.schema, decode(b), manifest, migrations);
     } catch (err) {
@@ -320,6 +332,31 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
       throw err;
     }
   };
+}
+
+/**
+ * 只解开这几块:核指纹、迁移,不逐项校验。只给校验器已经过了的内容用(本机再打开世界时,见 worldOpen.ts);别人给的文件要走 readWorldContent。
+ * 返回 块名 → 值(清单里没有这一块 = null)
+ */
+export async function readTrustedParts(opened: OpenedWorldFile, names: readonly string[]): Promise<Record<string, unknown>> {
+  const read = partReader(opened, []);
+  const out: Record<string, unknown> = {};
+  try {
+    for (const n of names) out[n] = await read(n);
+    return out;
+  } catch (err) {
+    throw asWorldFileError(err);
+  }
+}
+
+/**
+ * 解开各块、迁移到现在的结构、逐项核对。原件的字节不动,出错了 opened 还能照样另存。
+ * 只当字节留着的块(opened.kept)不解开。需要的块坏了报 broken;转不了结构报 readonly
+ */
+export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldContent> {
+  const { manifest } = opened;
+  const skipped: string[] = [];
+  const read = partReader(opened, skipped);
   try {
     const map = await read('map');
     validateWorld(map);

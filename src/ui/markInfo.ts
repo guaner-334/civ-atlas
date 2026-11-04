@@ -8,7 +8,7 @@ import type { World } from '../gen/world';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { fullChronicle } from '../gen/civ/story/religionText';
 import { regionLabel } from '../gen/civ/story/display';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { keyCells, markShownAt, regionOfKey, type AuthorMark } from '../gen/edits';
 import { ownersOf } from './panelData';
 import type { HoverInfo } from './hoverInfo';

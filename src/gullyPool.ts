@@ -10,6 +10,7 @@
 import { gullyHeights } from './gen/gully';
 import { finishGully, finishVeins, rasterizeDeferred, streamsOf, type GullyJob, type Raster } from './gen/raster';
 import { veinsOf, type DrainLines, type Streams, type VeinJob } from './gen/pixelDrain';
+import { olderTerrainOf } from './gen/readers/older';
 import type { World } from './gen/world';
 import type { GullyRequest, GullyResponse } from './gullyWorker';
 import { macroGrids, putRealisticRows, realisticRowBands, realisticRowsWindow, realisticWindowPaint, windowTransferables, type MacroGrids, type RealisticPainted } from './render/realistic';
@@ -24,6 +25,9 @@ const HALT = Symbol('halt');
 /** 帮手几个:留出主线程和本线程 */
 const HELPERS = Math.max(0, Math.min(3, (self.navigator?.hardwareConcurrency || 2) - 2));
 
+/** 算沟壑、细沟的几样:当前版本就是上面 import 的,老版本的世界用它记的那一版(gen/readers/) */
+const NOW = { gullyHeights, finishGully, finishVeins, streamsOf, veinsOf };
+
 export class GullyPool {
   private helpers: Worker[] = [];
   private seq = 0;
@@ -32,6 +36,9 @@ export class GullyPool {
   readonly up: Promise<void>;
   /** 交给第一个帮手先算着的河、溪浅谷(细沟用) */
   private beds: { key: number; streams: Streams; hw: Worker } | null = null;
+  /** 这张图用哪一版代码;version 随每件活带给帮手,没有 = 当前版本 */
+  private read = NOW;
+  private version: number | undefined;
 
   constructor() {
     const ups: Promise<void>[] = [];
@@ -60,6 +67,12 @@ export class GullyPool {
     this.up = Promise.race([Promise.all(ups).then(() => {}), new Promise<void>((r) => setTimeout(r, HELPER_WAIT))]);
   }
 
+  /** 接下来的图照老版本的读取代码算(打开老世界时);不给 = 当前版本 */
+  use(older?: { read: typeof NOW; version: number }): void {
+    this.read = older?.read ?? NOW;
+    this.version = older?.version;
+  }
+
   /**
    * 细沟要的河、溪浅谷只和世界有关:铺主图之前先交给第一个帮手算着(本线程铺像素的时候帮手正闲着),
    * 之后 finish 发细沟时就用它
@@ -69,9 +82,9 @@ export class GullyPool {
     this.beds = null;
     // 细沟按 1 倍算(整数倍的大图缩回 1 倍),别的倍数现算
     if (!hw || !(scale === 1 || (scale >= 2 && Number.isInteger(scale)))) return;
-    const streams = streamsOf(world);
+    const streams = this.read.streamsOf(world);
     const id = ++this.seq;
-    const req: GullyRequest = { id, beds: { streams, w: Math.round(world.width), h: Math.round(world.height), scale: 1 } };
+    const req: GullyRequest = { id, terrain: this.version, beds: { streams, w: Math.round(world.width), h: Math.round(world.height), scale: 1 } };
     hw.postMessage(req);
     this.beds = { key: id, streams, hw };
   }
@@ -91,8 +104,8 @@ export class GullyPool {
     const n = job.n;
     if (!hs.length || n < 1000) {
       const result = during?.();
-      finishGully(raster, job, gullyHeights(job, 0, n));
-      finishVeins(raster, veinsOf(vj));
+      this.read.finishGully(raster, job, this.read.gullyHeights(job, 0, n));
+      this.read.finishVeins(raster, this.read.veinsOf(vj));
       idle?.();
       return result;
     }
@@ -111,7 +124,7 @@ export class GullyPool {
     await new Promise((r) => setTimeout(r, 0));
     if (halted) return undefined;
     const result = during?.();
-    const mine = during ? null : gullyHeights(job, cut(k - 1), n);
+    const mine = during ? null : this.read.gullyHeights(job, cut(k - 1), n);
     if (halt) {
       // 本线程那段算的工夫里来的消息先收进来,不要了就不再往下做
       await yieldTask();
@@ -121,12 +134,12 @@ export class GullyPool {
     const outs = await (halt ? Promise.race([Promise.all(parts), halt]) : Promise.all(parts));
     if (outs === HALT) return undefined;
     const heights = new Float32Array(n);
-    outs.forEach((o, i) => heights.set(o ?? gullyHeights(job, cut(i), cut(i + 1)), cut(i)));
+    outs.forEach((o, i) => heights.set(o ?? this.read.gullyHeights(job, cut(i), cut(i + 1)), cut(i)));
     if (mine) heights.set(mine, cut(k - 1));
-    finishGully(raster, job, heights);
+    this.read.finishGully(raster, job, heights);
     const veins = await (halt ? Promise.race([vp, halt]) : vp);
     if (veins === HALT) return undefined;
-    finishVeins(raster, veins ?? veinsOf(vj));
+    this.read.finishVeins(raster, veins ?? this.read.veinsOf(vj));
     return result;
   }
 
@@ -254,8 +267,10 @@ export async function rasterizeWithHelpers(world: World, scale: number, lines?: 
   const pool = new GullyPool();
   try {
     await pool.up;
+    const older = await olderTerrainOf(world);
+    if (older) pool.use({ read: older, version: world.readers!.terrain });
     if (!lines) pool.prepare(world, scale);
-    const d = rasterizeDeferred(world, scale, lines);
+    const d = (older?.rasterizeDeferred ?? rasterizeDeferred)(world, scale, lines);
     await pool.finish(d);
     return d.raster;
   } finally {

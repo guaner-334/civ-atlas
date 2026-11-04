@@ -1,6 +1,7 @@
 /**
  * 生成新世界、打开世界(App 用;线程交回的生成、打开那几种消息见 ./worldMessages.ts):
- *   - generate      按一个世界的参数、地形修改生成(存着的旧版本世界:浏览器里有原件就照原样打开);换世界时旧世界的修改、选中、回放……一起作废
+ *   - generate      打开一个世界:存过内容的读存的(worldOpen.ts;世界记的版本比现在旧 = 照原样打开),读不了退回旧的路(旧版本的读原件,再不行按参数、地形修改生成);
+ *                   换世界时旧世界的修改、选中、回放……一起作废
  *   - readyRef      世界生成完(或要打开的就是正在看的这一个):套上它的修改,交给 saveStore 自动存;核对版本、地形、改名,有问题就提示
  *   - 打开网页时    分享链接、朋友的预设链接、邀请链接、网址里的世界、分享短链接、作品墙;页面开着时又贴了链接(hashchange);浏览器的后退、前进接到 nav.ts
  *   - enterStage    换到新建 / 世界 / 我的世界
@@ -9,7 +10,7 @@
  * App 里在这个 hook 后面才定义的几样(回我的世界、打开作品、按新版另存、作品墙、后退前进;前几样在 ./useWorldPages.ts)经 later 调
  */
 import { useCallback, useEffect, useRef } from 'react';
-import type { WorkerRequest } from '../../worker';
+import type { LoadRequest, WorkerRequest } from '../../worker';
 import type { World, WorldParams } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import { EMPTY_EDITS, GENERATOR_VERSION, YEAR_TICKS, cleanCivSeed, cleanPlay, endParamOf, keySeats, playAt, playFromOf, sameInterventions, upgradeLegacyKeys, type TerrainOp, type WorldEdits } from '../../gen/edits';
@@ -63,7 +64,9 @@ import { decodePresetHash, isPresetHash, type PresetLinkResult } from '../preset
 import { openRulesHash, openRulesText } from '../rules/sheetStore';
 import { pickSharedPreset } from '../presetStore';
 import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
-import { frozenResult, toldFrozen } from '../resultStore';
+import { recipeKey, recipeOfSave } from '../../gen/snapshot';
+import { endLoadWatch, markOpenBad, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
+import { frozenResult, noteMapSumOf, resultHeads, toldFrozen } from '../resultStore';
 import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, flushThumb, importSave, loadWorld, markOpened, newWorldId, notify, sameOrigin, setWorldStats } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
@@ -72,7 +75,7 @@ import { clearToast, showToast } from '../Toast';
 import type { ToastAction } from '../toastStore';
 import { closeUpheaval } from '../upheavalStore';
 import { lostRenames, lostRenamesNote } from '../sim/useSimResults';
-import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
+import type { CivRefs, GenRefs, LoadBack, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
   aliveAtEnd,
   goneToast,
@@ -127,16 +130,27 @@ function openFailed(site?: string) {
 }
 
 /**
- * 存在"我的世界"里、旧版本建的世界(打开时先找它那一版的原件,照原样打开):存着的那份存档;别的 = null。
+ * 存在"我的世界"里的建好的世界(打开时先读存下的内容):存着的那份存档;别的 = null。
  * 从文件打开、和存着的一模一样的(读档时认成了同一个)也算
  */
-function oldStored(t: Target): SaveFile | null {
+function storedSave(t: Target): SaveFile | null {
   if (t.kind !== 'created') return null;
   const w = loadWorld(t.id);
-  if (!w || w.draft || !(w.save.generator < GENERATOR_VERSION)) return null;
+  if (!w || w.draft || w.map) return null;
   // 从文件打开、认成存着的这一个:文件也得是那一版的(更新版本的文件照文件里的版本打开)
   if (t.save && t.save.generator !== w.save.generator) return null;
   return worldKey(w.save.params) === worldKey(t.params) && JSON.stringify(w.save.edits) === JSON.stringify(t.edits) ? w.save : null;
+}
+
+/** 同 storedSave,只算旧版本建的(打开时读不到仓库就找它那一版的原件,照原样打开) */
+function oldStored(t: Target): SaveFile | null {
+  const save = storedSave(t);
+  return save && save.generator < GENERATOR_VERSION ? save : null;
+}
+
+/** 这件事最多等这么久(毫秒),等不到 = fallback:读新路之前的几步卡住了也不能挡着打开世界 */
+function atMost<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
 }
 
 /** 存档原文里记的生成器版本(读不出 = null) */
@@ -214,7 +228,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
   const { send } = deps;
   const { reqId, targetRef, genParams, genTerrain, genSketch, fresh, regenRef, mapFirst, setMapEarly, lastReady, rawRef, setParams, setProgress } = deps.gen;
   const { civEdits, civUps, genUps, civNames, civYears, civSetup, civPlay } = deps.civ;
-  const { frozenLoad, frozenBroken, loadedFrozen, genReq, savedCopy, shareErr, readyRef } = deps.open;
+  const { frozenLoad, frozenBroken, loadedFrozen, genReq, loadBack, loadMapSum, savedCopy, shareErr, readyRef } = deps.open;
   const { resimSeq, resimInfo, setResim, resimText, switchNote, storyAfterYears, restoredIv, restoredUps, renameCheck, extendRef, extendDone, dropExtendUndo } = deps.resim;
   const { endNamesHold, setTerrainStatus, setShownTerrain, setShownSketch } = deps.terrain;
   const { mapViewRef, draftViewRef, drawKey, applyMapView, setHover } = deps.view;
@@ -262,28 +276,87 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       setMapEarly(false);
       frozenLoad.current = null;
       genReq.current = null;
-      const save = oldStored(t);
-      // 存着的、旧版本建的世界:浏览器里有它那一版的原件就照原样打开(读原件,不重新生成);没有才按现在的规则生成
-      if (save) {
+      loadBack.current = null;
+      loadMapSum.current = null;
+      endLoadWatch();
+      openingClear();
+      /** 读存下的内容打开。这份内容就是带着 edits 里的干预、地形大事(逐年推演的:推到"现在")推出来的:套上以后不用重推 */
+      const sendLoad = (src: Pick<LoadRequest, 'parts' | 'vault' | 'original'>, gen: number, back: LoadBack) => {
+        frozenLoad.current = { id: t.id, gen };
+        loadedFrozen.current = gen < GENERATOR_VERSION;
+        civEdits.current = t.edits.interventions;
+        civUps.current = genUps.current = t.edits.upheavals;
+        const play = cleanPlay(t.edits.play);
+        civPlay.current = play;
+        const giveUp: LoadBack = (why, recipe) => {
+          openingClear();
+          frozenLoad.current = genReq.current = null;
+          loadedFrozen.current = false;
+          civEdits.current = EMPTY_EDITS.interventions;
+          civUps.current = genUps.current = undefined;
+          civPlay.current = undefined;
+          back(why, recipe);
+        };
+        loadBack.current = giveUp;
+        // 线程一段时间没动静:当它卡住了,这个世界这一版不再走新路。下一个请求发出去时线程被关掉
+        watchLoad(() => {
+          if (src.vault) markOpenBad(t.id);
+          loadBack.current = null;
+          giveUp('broken');
+        });
+        if (src.vault) openingStart(t.id);
+        // 带上进度:线程按它记下这份历史,下一步从这里接着推(不从第 0 年重推)
+        send({ type: 'load', id, params: p, scale: 1, ...src, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}), renames: t.edits.names });
+      };
+      /** 按现在的规则生成 */
+      const byRecipe = () => {
+        genReq.current = null;
+        send(req);
+      };
+      /** 旧路:旧版本建的世界,浏览器里有它那一版的原件就照原样打开(不重新生成);没有才按现在的规则生成。vaultBad = 新路是读坏了才退回来的 */
+      const byOriginal = (vaultBad: boolean) => {
+        const save = oldStored(t);
+        if (!save) return byRecipe();
         genReq.current = req;
         void frozenResult(t.id, save).then((r) => {
           if (id !== reqId.current) return;
           if (!r || r === 'broken') {
-            if (r) frozenBroken.current = t.id;
-            genReq.current = null;
-            return send(req);
+            if (r || vaultBad) frozenBroken.current = t.id;
+            return byRecipe();
           }
-          // 原件里的历史就是带着存档里的干预、地形大事(逐年推演的:推到"现在")推出来的:套上以后不用重推
-          frozenLoad.current = { id: t.id, gen: save.generator };
-          loadedFrozen.current = true;
-          civEdits.current = t.edits.interventions;
-          civUps.current = genUps.current = t.edits.upheavals;
-          const play = cleanPlay(t.edits.play);
-          civPlay.current = play;
-          // 带上进度:线程按它记下这份历史,下一步从这里接着推(不从第 0 年重推)
-          send({ type: 'load', id, params: p, scale: 1, parts: r.parts, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}), renames: t.edits.names });
+          sendLoad({ parts: r.parts }, save.generator, () => {
+            frozenBroken.current = t.id;
+            byRecipe();
+          });
         });
-      } else send(req);
+      };
+      /** 新路读不了:只读打开那一份,或者退回旧路 */
+      const vaultBack: LoadBack = (why, recipe) => {
+        if (why === 'readonly') {
+          const r = parseSave(JSON.stringify(recipe));
+          if (r.ok) return generate({ ...t, edits: r.save.edits, saved: r.save.edits, save: r.save, readonly: { save: r.save, draft: t } });
+        }
+        byOriginal(why === 'broken');
+      };
+      const stored = t.readonly ? t.readonly.save : t.noVault ? null : storedSave(t);
+      if (stored && stored.generator <= GENERATOR_VERSION) {
+        // 新路:读世界仓库。前面几步出什么错、卡住了都退回旧路
+        genReq.current = req;
+        const rd = t.readonly;
+        const fail = rd ? () => generate({ ...rd.draft, noVault: true }) : vaultBack;
+        void (async () => {
+          await openGuardReady();
+          if (!vaultAllowed(t.id)) throw new Error('这个世界这一版不走新路');
+          const recipe = await recipeKey(recipeOfSave(stored));
+          // 这一版还没有原件的:读完存一份(旧路还留着)
+          const heads = stored.generator === GENERATOR_VERSION ? await atMost(resultHeads(t.id), 2000, null) : null;
+          const original = !!heads && !heads.some((h) => h.generator === stored.generator && h.recipe === recipe);
+          if (id !== reqId.current) return;
+          sendLoad({ vault: { id: t.id, recipe, generator: stored.generator }, ...(original ? { original } : {}) }, stored.generator, fail);
+        })().catch(() => {
+          if (id === reqId.current) fail('none');
+        });
+      } else byOriginal(false);
       loadedFrozen.current = false;
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
       detachWorld();
@@ -454,12 +527,13 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     setEdits(edits);
     // 还没存着的旧版本世界(分享链接、旧网址、存不进浏览器的文件):原来那一份跟着(看原样;改了存进来时原样留着)
     const original = t.from === 'url' ? (t.gen !== undefined ? plainSave(world.params, t.gen) : null) : t.from === 'link' || t.from === 'file' ? (t.save ?? null) : null;
-    // 照原样打开的旧世界:存档照旧记建它的那一版
-    const frozen = frozenLoad.current?.id === t.id ? frozenLoad.current.gen : undefined;
+    // 读存下的内容打开的:算它的那一版。比现在旧的是照原样打开的旧世界,存档照旧记建它的那一版
+    const loadedGen = frozenLoad.current?.id === t.id ? frozenLoad.current.gen : undefined;
+    const frozen = loadedGen !== undefined && loadedGen < GENERATOR_VERSION ? loadedGen : undefined;
     frozenLoad.current = null;
-    // 照原样打开的逐年推演的世界:原件就推到了"现在",不重推,直接停在"现在"
+    // 读存下的内容打开的逐年推演的世界:存的就推到了"现在",不重推,直接停在"现在"
     const fp = civPlay.current;
-    if (frozen !== undefined && fp && cleanPlay(edits.play)?.year === fp.year) {
+    if (loadedGen !== undefined && fp && cleanPlay(edits.play)?.year === fp.year) {
       enterStepwise(playFromOf(edits), playAt(fp) / YEAR_TICKS);
       setCivTime({ year: playAt(fp) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
     }
@@ -470,7 +544,12 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       notify({ kind: 'error', text: '没法在这张地图上打造文明', more: ['这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
       return;
     }
-    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen });
+    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen, readonly: !!t.readonly });
+    // 新路读的世界换上了:再过一会儿没事就算打开成了(openGuard.ts)。新开的历史还没记地图的,记上
+    if (loadedGen !== undefined) openingShown();
+    else openingClear();
+    if (loadMapSum.current) noteMapSumOf(loadMapSum.current);
+    loadMapSum.current = null;
     if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
     // 分享链接带着"这一刻":画面出来、带着的干预和逐年推演的进度重推完以后,停到那一年、选中、镜头飞过去(App 的 pendingMoment);
     // 停在某一年就不再自动播放

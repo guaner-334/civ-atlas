@@ -393,6 +393,8 @@ export interface RiverOptions {
   mouthFlare?: number;
   /** 线宽随流量增长的指数(默认 0.5);越大,小溪越细、大河越突出 */
   widthPower?: number;
+  /** 河网几何用哪一版代码(存下的世界按它记的版本,见 gen/readers/;不给 = 当前版本) */
+  geometry?: typeof riverGeometry;
 }
 
 /**
@@ -666,7 +668,7 @@ function netGeometry(rivers: { pts: Float32Array }[], v: VecView, threshold: num
   const wrap = v.wrap ?? 0;
   const key = `${threshold}|${flare}|${power}|${wrap}`;
   let geom = geomCache.get(rivers);
-  if (!geom || geom.key !== key) geomCache.set(rivers, (geom = { key, lines: riverGeometry(rivers, threshold, style, flare, power, wrap) }));
+  if (!geom || geom.key !== key) geomCache.set(rivers, (geom = { key, lines: (opts.geometry ?? riverGeometry)(rivers, threshold, style, flare, power, wrap) }));
   return geom.lines;
 }
 

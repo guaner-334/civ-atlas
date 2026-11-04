@@ -9,9 +9,9 @@
  * 人物卡改了,干预要不要跟着改(默认一起改 / 连即位一起去掉,重新推演)。
  */
 import type { Civ, Person, Polity } from '../gen/civ/types';
-import { dynastyTitle, polityAlive, polityName, polityShortTitle, polityTierAt, polityTitles } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/engine/timeline';
-import { peopleIndex, rulerAt } from '../gen/civ/story/peopleInfo';
+import { polityAlive, polityName, polityTierAt, ownersAt, rulerAt } from '../gen/readers/openQuery';
+import { dynastyTitle, polityShortTitle, polityTitles } from '../gen/civ/growth';
+import { peopleIndex } from '../gen/civ/story/peopleInfo';
 import { royalAt } from '../gen/civ/regime';
 import { personName } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';

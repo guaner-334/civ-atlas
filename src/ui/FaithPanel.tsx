@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Civ, Faith } from '../gen/civ/types';
-import { capitalAt, polityAlive, polityName } from '../gen/civ/growth';
+import { capitalAt, polityAlive, polityName } from '../gen/readers/openQuery';
 import { cultureLabel } from '../gen/civ/story/display';
 import { faithKey } from '../gen/edits';
 import { faithCounts, statesOfFaith } from '../gen/civ/religion';

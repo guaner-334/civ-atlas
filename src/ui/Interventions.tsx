@@ -16,9 +16,9 @@ import { useSyncExternalStore } from 'react';
 import type { ToastAction } from './toastStore';
 import type { Civ, Polity } from '../gen/civ/types';
 import { canCross } from '../gen/civ/polities';
-import { polityAlive, polityName } from '../gen/civ/growth';
+import { polityAlive, polityName, ownersAt, rulerAt } from '../gen/readers/openQuery';
 import { cultureLabel, regionLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { type Owners } from '../gen/civ/engine/timeline';
 import {
   AUTHOR_REGENT_AGE_END,
   DISASTER_LEVEL_NAMES,
@@ -37,7 +37,6 @@ import {
   type RegentHow,
 } from '../gen/edits';
 import { SLUMP_DEFAULT, quakeWord } from '../gen/civ/calamity';
-import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { cnNumber } from '../gen/civ/story/chronicle';
 import { foesAt } from '../gen/civ/fiscalBook';
 import { leaningsChange, personName } from '../gen/civ/story/peopleText';

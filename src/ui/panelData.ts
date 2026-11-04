@@ -11,8 +11,8 @@
 import type { ChangeLog, Civ, Place, Settlement } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { populationAt } from '../gen/civ/growth';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { populationAt, ownersAt } from '../gen/readers/openQuery';
+import { type Owners } from '../gen/civ/engine/timeline';
 import { KM_PER_UNIT } from '../gen/civ/geo';
 import { geometryOf } from '../gen/geometry';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';

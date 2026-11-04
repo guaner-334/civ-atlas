@@ -24,6 +24,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { DEFAULT_PARAMS, type World, type WorldParams } from '../gen/world';
 import { rasterize, type Raster } from '../gen/raster';
+import { olderTerrain } from '../gen/readers/older';
 import type { Civ } from '../gen/civ/types';
 import { chronicleDocument } from '../gen/civ/story/chronicle';
 import { fullChronicle } from '../gen/civ/story/religionText';
@@ -270,7 +271,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
     detail.draw = res.ms.draw;
   } else if (!res.ok && res.code === 'no-offscreen') {
     // 老浏览器:线程里画不了,只好在主线程画(会卡一下)
-    const raster = scale === 1 ? m.raster : rasterize(m.world, scale, m.style === 'realistic', m.raster.veinLines);
+    const raster = scale === 1 ? m.raster : (olderTerrain(m.world)?.rasterize ?? rasterize)(m.world, scale, m.style === 'realistic', m.raster.veinLines);
     const make = (w: number, h: number) => Object.assign(document.createElement('canvas'), { width: w, height: h });
     if (m.contours) {
       drawMapTerrain(ctx, { ...m, raster }, make);

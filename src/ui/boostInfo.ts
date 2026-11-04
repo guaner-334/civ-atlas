@@ -9,10 +9,10 @@
 import type { Civ } from '../gen/civ/types';
 import { BOOST_YEARS_DEFAULT, YEAR_TICKS, commandAt, keyCells, polityKey, regionOfKey, type Intervention } from '../gen/edits';
 import { BOOST_N } from '../gen/civ/boost';
-import { ERAS, RESOURCES, developmentAt, eraLevel, eraOf } from '../gen/civ/development';
-import { capitalAt, polityAlive, populationAt, regionCityAt } from '../gen/civ/growth';
+import { developmentAt, capitalAt, polityAlive, populationAt, ownersAt } from '../gen/readers/openQuery';
+import { ERAS, RESOURCES, eraLevel, eraOf } from '../gen/civ/development';
+import { regionCityAt } from '../gen/civ/growth';
 import { regionLabel } from '../gen/civ/story/display';
-import { ownersAt } from '../gen/civ/engine/timeline';
 import { interventionFate } from '../gen/stepwise';
 import { eraText, spaced, yearAt, yearSpanAt, type Era } from '../gen/era';
 import { nameAt, polityIdOf } from './Interventions';

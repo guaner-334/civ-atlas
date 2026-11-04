@@ -10,7 +10,8 @@
  */
 import type { Civ, Culture, Year } from '../../gen/civ/types';
 import { Layer } from '../../gen/civ/types';
-import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
+import { ownersAt } from '../../gen/readers/openQuery';
+import { type Owners } from '../../gen/civ/engine/timeline';
 
 export type Rgb = readonly [number, number, number];
 

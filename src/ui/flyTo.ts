@@ -7,9 +7,9 @@
  */
 import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
-import { capitalAt } from '../gen/civ/growth';
+import { capitalAt, ownersAt } from '../gen/readers/openQuery';
 import { seatPolity } from '../gen/civ/story/peopleText';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { type Owners } from '../gen/civ/engine/timeline';
 import { cultureKey, faithKey, keyCells, placeKeyOf, polityKey, regionKey, regionOfKey, settlementKey, tradeKey, treatyKey, type AuthorMark } from '../gen/edits';
 import { personKey, resolvePersonKey } from '../gen/characters';
 import { projectWorld, projectWorldNear, type MapProj } from '../render/projection';

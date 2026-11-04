@@ -12,7 +12,7 @@
  */
 import type { Annal, Civ, Person, RulerLeanings, Year } from '../gen/civ/types';
 import { interventionFate } from '../gen/stepwise';
-import { rulerAt } from '../gen/civ/story/peopleInfo';
+import { rulerAt, populationAt, portAt, regionPopulationAt, ownersAt } from '../gen/readers/openQuery';
 import { royalAt } from '../gen/civ/regime';
 import { personName, rulerFateWord } from '../gen/civ/story/peopleText';
 import { heOrShe } from '../gen/civ/story/gender';
@@ -33,11 +33,11 @@ import {
 import { foesAt } from '../gen/civ/fiscalBook';
 import { heirBornOf } from '../gen/civ/story/regentInfo';
 import { eraText, spaced, yearAt, type Era } from '../gen/era';
-import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, populationAt, portAt, regionCityAt, regionPopulationAt, ruralPopulationAt } from '../gen/civ/growth';
+import { RURAL_PLAGUE, RURAL_WAR, SACK_RECOVER, regionCityAt, ruralPopulationAt } from '../gen/civ/growth';
 import { PLAGUE_IV, SLUMP_DEFAULT, quakeRing, quakeWord } from '../gen/civ/calamity';
 import { plagueSpans } from '../gen/civ/story/plagueSpans';
 import { regionLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { type Owners } from '../gen/civ/engine/timeline';
 import { authorRegentEndWord, cultureKeyName, interventionText, nameAt, neighborsAt, polityIdOf, regentEndWord } from './Interventions';
 import { boostDoneText } from './boostInfo';
 import { trekDoneText } from './trekInfo';

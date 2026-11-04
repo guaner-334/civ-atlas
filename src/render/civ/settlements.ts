@@ -14,8 +14,7 @@
  * "国家"或"道路"打开时画(路网连着城,不画城看不出路通到哪)。
  */
 import type { Civ, Polity, Settlement } from '../../gen/civ/types';
-import { capitalAt, populationAt, settlementRank } from '../../gen/civ/growth';
-import { ruinRank, ruinSites } from '../../gen/civ/growth';
+import { capitalAt, populationAt, settlementRank, ruinRank, ruinSites } from '../../gen/readers/openQuery';
 import type { PlacedMark } from '../labels/draw';
 import type { CivStyle } from './overlay';
 import type { Shape } from '../../gen/civ/story/flags';

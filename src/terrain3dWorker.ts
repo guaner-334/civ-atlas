@@ -10,6 +10,7 @@
 import type { World } from './gen/world';
 import type { Raster } from './gen/raster';
 import { WINDOW_PAD, rasterizeWindow, zoomSource, type ZoomSource } from './gen/rasterWindow';
+import { olderTerrainOf } from './gen/readers/older';
 import { drawRealisticRivers, macroGrids, realisticWindowPixels, type MacroGrids } from './render/realistic';
 import { horizonSlopes, stripHeights, type ReliefLook } from './render/terrain3d/relief';
 import { paintFantasyBox, type BoxFields } from './render/terrain3d/fantasyBox';
@@ -60,30 +61,49 @@ export interface ReliefResponse {
 }
 
 /** plain = 不带河口的那份(手绘照旧,不凹喇叭口、不长三角洲,见 gen/estuary.ts) */
-let cur: { wid: number; world: World; src: ZoomSource; plain: ZoomSource; grids: MacroGrids } | null = null;
+/** 铺像素的几样:当前版本就是上面 import 的 */
+const NOW = { WINDOW_PAD, rasterizeWindow, zoomSource };
+
+let cur: { wid: number; world: World; read: typeof NOW; src: ZoomSource; plain: ZoomSource; grids: MacroGrids } | null = null;
+/** 正在准备的世界(取读取代码,gen/readers/):当前版本在下一条消息之前就走完;老版本下载时来的活等它 */
+let ready: Promise<void> | null = null;
 /** 最近铺过的几条留几条(粗的、细的;地区图那么大的块一个线程轮到几条) */
 const KEEP = 4;
 /** 最近铺过的几条(编号 → 铺好的像素) */
 const recent = new Map<string, Raster>();
+
+/** 收到世界就准备;取不到代码、准备不了的,要算的时候报错 */
+async function prepare(m: Extract<ReliefRequest, { type: 'world' }>): Promise<void> {
+  try {
+    const read = (await olderTerrainOf(m.world)) ?? NOW;
+    const src = read.zoomSource(m.world, m.whole);
+    cur = { wid: m.wid, world: m.world, read, src, plain: { ...src, mouths: [] }, grids: macroGrids(m.whole as Raster) };
+    // 先在一小块上走一遍(铺像素、上色、画河):小溪的线、各段代码在框的工夫里备好,立起来时粗的那一档快一些
+    const r = read.rasterizeWindow(cur.src, 4, 0, 400, 16, 16);
+    realisticWindowPixels(r, cur.grids, 'detail');
+    const ctx = typeof OffscreenCanvas === 'undefined' ? null : (new OffscreenCanvas(8, 8).getContext('2d') as unknown as CanvasRenderingContext2D | null);
+    if (ctx) drawRealisticRivers(ctx, cur.world, r, { s: 4, ox: 0, oy: -400, k: 4 * 1.46 }, false, 'detail');
+  } catch {
+    // 要算的时候报错
+  }
+}
 
 self.onmessage = (e: MessageEvent<ReliefRequest>) => {
   const m = e.data;
   if (m.type === 'world') {
     cur = null;
     recent.clear();
-    try {
-      const src = zoomSource(m.world, m.whole);
-      cur = { wid: m.wid, world: m.world, src, plain: { ...src, mouths: [] }, grids: macroGrids(m.whole as Raster) };
-      // 先在一小块上走一遍(铺像素、上色、画河):小溪的线、各段代码在框的工夫里备好,立起来时粗的那一档快一些
-      const r = rasterizeWindow(cur.src, 4, 0, 400, 16, 16);
-      realisticWindowPixels(r, cur.grids, 'detail');
-      const ctx = typeof OffscreenCanvas === 'undefined' ? null : (new OffscreenCanvas(8, 8).getContext('2d') as unknown as CanvasRenderingContext2D | null);
-      if (ctx) drawRealisticRivers(ctx, cur.world, r, { s: 4, ox: 0, oy: -400, k: 4 * 1.46 }, false, 'detail');
-    } catch {
-      // 要算的时候报错
-    }
+    const p: Promise<void> = prepare(m).then(() => {
+      if (ready === p) ready = null;
+    });
+    ready = p;
     return;
   }
+  if (ready) void ready.then(() => job(m));
+  else job(m);
+};
+
+function job(m: Exclude<ReliefRequest, { type: 'world' }>) {
   const t0 = performance.now();
   const y = m.type === 'strip' ? m.y : 0;
   try {
@@ -100,7 +120,7 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
       self.postMessage(res, { transfer: [bitmap] });
       return;
     }
-    const P = WINDOW_PAD;
+    const P = cur.read.WINDOW_PAD;
     const n = m.w + 2 * P;
     // 方框可以在左右相连的哪一圈上、也可以跨过接缝:左边挪到主图那一圈里(铺出来的一样),河按跨过的那一截再画一份
     const Wpx = Math.round(cur.world.width * m.S);
@@ -109,7 +129,7 @@ self.onmessage = (e: MessageEvent<ReliefRequest>) => {
     const key = `${m.S}/${x0}/${m.y0}/${m.w}/${m.h}/${hand ? 'f' : ''}`;
     let r = recent.get(key);
     if (!r) {
-      r = rasterizeWindow(hand ? cur.plain : cur.src, m.S, x0 - P, m.y0 - P, n, m.h + 2 * P);
+      r = cur.read.rasterizeWindow(hand ? cur.plain : cur.src, m.S, x0 - P, m.y0 - P, n, m.h + 2 * P);
       recent.set(key, r);
       while (recent.size > KEEP) recent.delete(recent.keys().next().value!);
     }

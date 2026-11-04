@@ -16,13 +16,14 @@
  */
 import type { Civ, Person, Polity, Year } from '../../gen/civ/types';
 import { buildChronicle, cnNumber, entryInvolves, entryYearLabel, yearText, type ChronicleEntry } from '../../gen/civ/story/chronicle';
-import { capitalAt, dynastyTitle, polityName, polityShortTitle, polityTierAt, polityTitleChain } from '../../gen/civ/growth';
+import { capitalAt, polityName, polityTierAt, ownersAt } from '../../gen/readers/openQuery';
+import { dynastyTitle, polityShortTitle, polityTitleChain } from '../../gen/civ/growth';
 import { KIND_INFO, cultureLabel, regionLabel, regionNamed } from '../../gen/civ/story/display';
 import { generalRole, ministerRole, personName, rulerShort, rulerTitle } from '../../gen/civ/story/peopleText';
 import { isFemale } from '../../gen/civ/story/gender';
 import { generalTally, peopleIndex } from '../../gen/civ/story/peopleInfo';
 import { deedsShort } from '../../gen/civ/story/officialText';
-import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
+import { type Owners } from '../../gen/civ/engine/timeline';
 import { polityKey, resolveKey } from '../../gen/edits';
 import type { AiMessage } from '../types';
 

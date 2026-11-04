@@ -7,7 +7,7 @@
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
-import { polityAlive } from '../../gen/civ/growth';
+import { polityAlive } from '../../gen/readers/openQuery';
 import { cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins, sameFrontier, sameOrigins, type Frontier, type Origins } from '../../gen/civ/frontier';
 import { EMPTY_EDITS, GENERATOR_VERSION, cleanCivSeed, cleanEndYear, endParamOf, type Upheaval, type WorldEdits } from '../../gen/edits';
@@ -30,6 +30,13 @@ import { showToast } from '../Toast';
 export interface Target {
   id: string;
   kind: WorldKind;
+  /**
+   * 只读打开:存档里有没推完的修改,世界又是更旧的版本算的,重算出来不是它原来的样子,只能打开仓库里那一份(edits 是那一份的),存档不动。
+   * save = 那一份的配方,draft = 原来要打开的(读不出来时照它走旧的路)
+   */
+  readonly?: { save: SaveFile; draft: Target };
+  /** 不读世界仓库(只读打开没成,回到旧的路) */
+  noVault?: true;
   params: WorldParams;
   edits: WorldEdits;
   /** 已经存下的修改(套上的和它是同一个对象就不重写) */

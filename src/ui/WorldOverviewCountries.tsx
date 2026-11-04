@@ -9,13 +9,14 @@
  */
 import { useMemo, useState } from 'react';
 import type { Civ, Polity, StateFaith } from '../gen/civ/types';
-import { capitalAt, polityName, populationLabel, regionPopulationAt } from '../gen/civ/growth';
+import { capitalAt, polityName, regionPopulationAt, ownersAt, developmentAt } from '../gen/readers/openQuery';
+import { populationLabel } from '../gen/civ/growth';
 import { cultureLabel } from '../gen/civ/story/display';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { type Owners } from '../gen/civ/engine/timeline';
 import { canCross } from '../gen/civ/polities';
 import { polityTies, type PolityTies } from '../gen/civ/diplomacy';
 import { stateFaithAt } from '../gen/civ/religion';
-import { developmentAt, eraLevel, eraOf } from '../gen/civ/development';
+import { eraLevel, eraOf } from '../gen/civ/development';
 import { ERA_COLORS, eraName } from '../render/civ/era';
 import { setCivTime, setSelection } from './civView';
 import { closeOverview } from './overviewStore';

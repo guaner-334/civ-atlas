@@ -21,8 +21,12 @@
  *
  * 不碰 DOM:在后台线程里跑(worldVaultWorker.ts、worldConvertWorker.ts),多个线程、多个标签页同时用也不会写坏。
  * 出错一律抛 VaultError;调用方接住以后世界照常用,这里出什么事都不影响旧的存档和原件。
+ *
+ * 读:打开世界时生成世界的线程直接从这里读(worldOpen.ts),不经主线程。发现哪份修订的块坏了,小状态里记一笔(corrupt):
+ * 按内容存的块不会再写第二遍,所以下一次存完整的内容时不管一样不一样,块全部重写、写新清单,坏的块就补好了。
  */
 import { LOCAL_PART_MAX_BYTES, partBytes, sha256, type SnapshotPart } from './gen/snapshot';
+import { GENERATOR_VERSION } from './gen/edits';
 import type { SaveFile } from './gen/savefile';
 import { buildManifest, knownPart, manifestBytes, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
 import { KNOWN_PARTS, type AuthorContent, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
@@ -121,6 +125,10 @@ export interface WorldState {
   archived?: number[];
   /** 最近一次写不下的时间(写成功一次就清掉) */
   full?: number;
+  /** 校验器过了的内容(RevisionRow.content):内容没变,再打开只核指纹,不再逐项校验 */
+  checked?: string;
+  /** 打开时发现这一份修订的块坏了(修订号):下一次存完整的内容时块全部重写 */
+  corrupt?: number;
 }
 
 /** 存一份修订要的东西 */
@@ -157,6 +165,19 @@ export type CommitResult =
   | { status: 'nobase' }
   /** 只改配方、作者内容,但配方变了:有待完成的修改,等推完 */
   | { status: 'draft' };
+
+/**
+ * 崩了以后拿存着的修订和配方草稿比:
+ * - none:没有待完成的修改(还没有修订的也算:没有东西可比)
+ * - recompute:修订是当前版本算的,按草稿重算就补上了
+ * - readonly:修订是别的版本算的,重算出来不是它原来的样子,只能只读打开、提示有没推完的修改
+ */
+export type PendingEdit = 'none' | 'recompute' | 'readonly';
+
+export function pendingEdit(stored: Pick<RevisionHead, 'recipeKey' | 'generator'> | null, draftKey: string, generator: number = GENERATOR_VERSION): PendingEdit {
+  if (!stored || stored.recipeKey === draftKey) return 'none';
+  return stored.generator === generator ? 'recompute' : 'readonly';
+}
 
 /** 主线程交给仓库的、后台线程打好的一份内容 */
 export interface WorldPartsOffer {
@@ -419,6 +440,8 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
     } else thumb = req.thumb;
     const fresh = [...incoming, ...(author ? [author] : []), ...(thumb ? [thumb] : [])];
     const source = req.source ?? 'made';
+    // 上次打开时发现块坏了:这次带着完整的内容来,不管一样不一样都重写一遍(只改配方、作者内容的不算,等完整的内容)
+    const rewrite = !!req.parts && source !== 'archive' && (await stateOf(req.id).catch(() => null))?.corrupt !== undefined;
 
     for (let tries = 0; tries < COMMIT_TRIES; tries++) {
       const rows = await rowsOf(req.id);
@@ -433,7 +456,8 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
         const had = rows.find((r) => r.source === 'archive' && r.generator === req.recipe.generator);
         if (had) return { status: 'same', n: had.n };
       }
-      const prev = base ? (JSON.parse(base.text) as WorldManifest) : null;
+      // 清单读不懂的(坏了):当没有上一份,带着完整内容来的照样写得进去
+      const prev = base ? manifestOf(base) : null;
       const infos = new Map<string, WorldPartInfo>((prev?.parts ?? []).map((p) => [p.name, p]));
       if (req.parts) {
         // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了)
@@ -458,11 +482,11 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       // 清单里认不出的字段(以后的版本写的)原样带着
       const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins, revision: { n, ...(parent ? { parent } : {}) } }, parts) };
       if (!req.recipe.title) delete manifest.title;
-      if (prev && sameManifest(prev, manifest)) return { status: 'same', n: base!.n };
+      if (!rewrite && prev && sameManifest(prev, manifest)) return { status: 'same', n: base!.n };
       const text = manifestBytes(manifest);
       parseManifest(text, { readers: { ...readers } });
 
-      const have = await existing(fresh.map((p) => partKey(p.info)));
+      const have = rewrite ? new Set<string>() : await existing(fresh.map((p) => partKey(p.info)));
       const seen = new Set<string>();
       for (const p of fresh) {
         const key = partKey(p.info);
@@ -482,7 +506,10 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
         at: Date.now(),
       };
       const out = await publish(row, maxN);
-      if (out === 'ok') return { status: 'saved', n };
+      if (out === 'ok') {
+        if (rewrite) await patchState(req.id, { corrupt: undefined, checked: undefined }).catch(() => undefined);
+        return { status: 'saved', n };
+      }
     }
     throw new VaultError('corrupt', '写清单时块总是不全');
   } catch (e) {
@@ -513,8 +540,21 @@ export interface StoredRevision {
   parts: PackedPart[];
 }
 
-/** 读一份修订(n 不给 = 最新的);没有 = null。清单和块在同一个事务里读,读到的是完整的一份。缺块抛 corrupt */
-export async function readRevision(id: string, n?: number): Promise<StoredRevision | null> {
+/** 一行清单解开;读不懂 = null */
+function manifestOf(row: RevisionRow): WorldManifest | null {
+  try {
+    const m = JSON.parse(row.text) as WorldManifest | null;
+    return m && Array.isArray(m.parts) ? m : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读一份修订(n 不给 = 最新的);没有 = null。清单和块在同一个事务里读,读到的是完整的一份。缺块抛 corrupt。
+ * only = 只读这几块(打开核对过的世界时看世界用不着的不读);StoredRevision.parts 只有这几块,清单照样是全的
+ */
+export async function readRevision(id: string, n?: number, only?: readonly string[]): Promise<StoredRevision | null> {
   const got = await run<{ row: RevisionRow; datas: Map<string, ArrayBuffer> } | null>(['parts', 'manifests'], 'readonly', (t, done) => {
     done(null);
     const q = t.objectStore('manifests').getAll(rangeOf(id));
@@ -524,7 +564,8 @@ export async function readRevision(id: string, n?: number): Promise<StoredRevisi
       if (!row) return;
       const datas = new Map<string, ArrayBuffer>();
       done({ row, datas });
-      for (const k of row.keys) {
+      const keys = only ? (manifestOf(row)?.parts ?? []).filter((p) => only.includes(p.name)).map(partKey) : row.keys;
+      for (const k of keys) {
         const g = t.objectStore('parts').get(k);
         g.onsuccess = () => {
           const v = g.result as PartRow | undefined;
@@ -536,8 +577,9 @@ export async function readRevision(id: string, n?: number): Promise<StoredRevisi
     throw asVaultError(e);
   });
   if (!got) return null;
-  const manifest = JSON.parse(got.row.text) as WorldManifest;
-  const parts = manifest.parts.map((info): PackedPart => {
+  const manifest = manifestOf(got.row);
+  if (!manifest) throw new VaultError('corrupt', '清单读不懂');
+  const parts = manifest.parts.filter((info) => !only || only.includes(info.name)).map((info): PackedPart => {
     const data = got.datas.get(partKey(info));
     if (!data) throw new VaultError('corrupt', `${info.name} 这一块没有了`);
     return { info, data };

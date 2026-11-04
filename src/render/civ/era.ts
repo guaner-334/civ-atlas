@@ -7,8 +7,9 @@
  * - 颜色:早的浅、暖,晚的深、冷(ERA_COLORS)。
  */
 import type { Civ, Year } from '../../gen/civ/types';
-import { ERAS, developmentAt, eraLevel, eraOf } from '../../gen/civ/development';
-import { ownersAt, type Owners } from '../../gen/civ/engine/timeline';
+import { developmentAt, ownersAt } from '../../gen/readers/openQuery';
+import { ERAS, eraLevel, eraOf } from '../../gen/civ/development';
+import { type Owners } from '../../gen/civ/engine/timeline';
 import { numCiv, numSampleYear, type NumLayer } from './numLayer';
 
 /** 九个时代的颜色(石器 → 未来) */

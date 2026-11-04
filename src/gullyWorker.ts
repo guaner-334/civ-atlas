@@ -5,6 +5,7 @@
  * 细沟(gen/pixelDrain.ts 的 veinsOf,逐像素汇流)整件交给其中一个。
  * 新建世界时写实画风的整张像素层也按整行分带子交过来上色(render/realistic.ts 的 realisticWindowPaint)。
  * 纯计算,结果和一次算完一样。
+ * 算沟壑、细沟的代码按消息带的版本取(gen/readers/;没带 = 当前版本);老版本要下载,下载时来的活排在后面,先后不乱。
  */
 import { gullyHeights, type GullyInput } from './gen/gully';
 import { streamBeds, veinsOf, type DrainLines, type StreamBeds, type Streams, type VeinJob } from './gen/pixelDrain';
@@ -19,9 +20,9 @@ import type { SurfaceLook } from './render/surface';
  * paintEnd = 这张图画完了(不回话):粗网格放掉
  */
 export type GullyRequest =
-  | { id: number; job: GullyInput }
-  | { id: number; beds: { streams: Streams; w: number; h: number; scale: number } }
-  | { id: number; veins: VeinJob; bedsKey?: number }
+  | { id: number; terrain?: number; job: GullyInput }
+  | { id: number; terrain?: number; beds: { streams: Streams; w: number; h: number; scale: number } }
+  | { id: number; terrain?: number; veins: VeinJob; bedsKey?: number }
   | { id: number; paint: { win: Raster; look: SurfaceLook; gridsKey: number; grids?: MacroGrids } }
   | { id: number; paintEnd: true };
 
@@ -42,8 +43,34 @@ let prepared: { key: number; beds: StreamBeds } | null = null;
 /** 正在画的那张图的粗网格 */
 let grids: { key: number; grids: MacroGrids } | null = null;
 
+/** 算沟壑、细沟的几样:当前版本就是上面 import 的 */
+const NOW = { gullyHeights, streamBeds, veinsOf };
+type Code = typeof NOW;
+
+/** 还在等老版本代码下载的那一串活;没有 = 收到就做 */
+let waiting: Promise<void> | null = null;
+
 self.onmessage = (e: MessageEvent<GullyRequest>) => {
   const m = e.data;
+  const version = 'terrain' in m ? m.terrain : undefined;
+  if (!waiting && version === undefined) return work(m, NOW);
+  const p: Promise<void> = (waiting ?? Promise.resolve())
+    .then(async () => (version === undefined ? NOW : (await import('./gen/readers/terrainReader')).terrainReader(version)))
+    .then((read) => {
+      work(m, read);
+      if (waiting === p) waiting = null;
+    })
+    .catch((err: unknown) => {
+      // 代码下载不下来:报到线程的 error 事件上,开它的线程不再用这个帮手、自己算(gullyPool.ts)
+      if (waiting === p) waiting = null;
+      setTimeout(() => {
+        throw err;
+      });
+    });
+  waiting = p;
+};
+
+function work(m: GullyRequest, read: Code) {
   if ('paint' in m) {
     const p = m.paint;
     if (p.grids) grids = { key: p.gridsKey, grids: p.grids };
@@ -58,18 +85,18 @@ self.onmessage = (e: MessageEvent<GullyRequest>) => {
   if ('paintEnd' in m) return;
   if ('beds' in m) {
     const { streams, w, h, scale } = m.beds;
-    prepared = { key: m.id, beds: streamBeds(streams, w, h, scale) };
+    prepared = { key: m.id, beds: read.streamBeds(streams, w, h, scale) };
     return;
   }
   if ('veins' in m) {
     const beds = m.bedsKey !== undefined && prepared?.key === m.bedsKey ? prepared.beds : undefined;
     prepared = null;
-    const v = veinsOf(m.veins, beds);
+    const v = read.veinsOf(m.veins, beds);
     const res: GullyResponse = { id: m.id, veins: v };
     self.postMessage(res, { transfer: [v.vein.buffer, v.lines.off.buffer, v.lines.x.buffer, v.lines.y.buffer, v.lines.a.buffer] });
     return;
   }
-  const out = gullyHeights(m.job, 0, m.job.idx.length);
+  const out = read.gullyHeights(m.job, 0, m.job.idx.length);
   const res: GullyResponse = { id: m.id, out };
   self.postMessage(res, { transfer: [out.buffer] });
-};
+}

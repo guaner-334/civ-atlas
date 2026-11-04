@@ -8,7 +8,8 @@
  */
 import type { Civ, Development } from '../../gen/civ/types';
 import type { World } from '../../gen/world';
-import { RESOURCE_COUNT, resourcesAt } from '../../gen/civ/development';
+import { resourcesAt } from '../../gen/readers/openQuery';
+import { RESOURCE_COUNT } from '../../gen/civ/development';
 import { toCanvas, type LabelView, type PlacedLabel } from '../labels/draw';
 import { glyphBox } from '../labels/layout';
 import { nearX } from '../common';

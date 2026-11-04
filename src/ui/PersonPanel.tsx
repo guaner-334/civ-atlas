@@ -45,7 +45,7 @@
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import type { Civ, Person, PersonSpouse, RulerLeanings } from '../gen/civ/types';
-import { polityName, polityTierAt } from '../gen/civ/growth';
+import { polityName, polityTierAt } from '../gen/readers/openQuery';
 import { buildChronicle, cnNumber, filterChronicle, reignEntries, type ChronicleEntry } from '../gen/civ/story/chronicle';
 import { commandFoes, peopleIndex, personFame, personSpan, rulerNeighbors, type Foe } from '../gen/civ/story/peopleInfo';
 import { LEANING_KEYS, LEANING_TEXT, ageAt, consortRole, dowagerSpans, dowagerWordOf, generalRole, isConsul, kinOf, leaningsText, ministerRole, personName, princeRef, princeRole, rulerBare, rulerFateWord, rulerRef, rulerRole, rulerShort, rulerTitle, seatPolity, splitSurname } from '../gen/civ/story/peopleText';

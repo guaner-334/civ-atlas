@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import type { World } from '../gen/world';
 import type { Civ } from '../gen/civ/types';
-import { capitalAt } from '../gen/civ/growth';
+import { capitalAt } from '../gen/readers/openQuery';
 import { PROJECTIONS, PROJECTION_IDS, type ProjectionId } from '../render/projection';
 import { lonOfX, requestMapCenter, useMapCenter } from './mapWrap';
 import { lonText } from '../render/projection';

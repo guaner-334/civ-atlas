@@ -8,8 +8,8 @@
  * 几成 = 接受度(0–1),"六成";比百年前(卡片上写的百分数)差不到 FLAT 个百分点算持平。
  */
 import type { Civ, Year } from '../gen/civ/types';
-import { ARRIVE, THOUGHTS, THOUGHT_COUNT, ideologyAt, polityIdeologyAt, polityThoughts, thoughtArrival, thoughtOrigin } from '../gen/civ/ideology';
-import { polityName } from '../gen/civ/growth';
+import { ideologyAt, polityName } from '../gen/readers/openQuery';
+import { ARRIVE, THOUGHTS, THOUGHT_COUNT, polityIdeologyAt, polityThoughts, thoughtArrival, thoughtOrigin } from '../gen/civ/ideology';
 import { regionLabel } from '../gen/civ/story/display';
 import { yearAt, yearFull, type Era } from '../gen/era';
 import { THOUGHT_LAYER, thoughtBand, thoughtCounts, thoughtEmerged } from '../render/civ/thoughts';

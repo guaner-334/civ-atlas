@@ -20,7 +20,7 @@ import type { Civ, Person } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import type { AuthorCharacter } from '../gen/characters';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { cnNumber } from '../gen/civ/story/chronicle';
 import {
   campaignText,

@@ -14,7 +14,7 @@
  * 它们抄着生卒(掌权还抄着性格),人物卡改了要不要一起改;删人物连这几任一起去掉,还是只删人物(那几任改叫"作者的人物",历史不变)。
  */
 import type { Civ, Person, PersonDeed, PersonRegency, Polity } from '../gen/civ/types';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { cnNumber, regionList } from '../gen/civ/story/chronicle';
 import { commandFoe, peopleIndex } from '../gen/civ/story/peopleInfo';
 import { personName } from '../gen/civ/story/peopleText';

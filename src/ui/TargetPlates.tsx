@@ -18,9 +18,8 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { capitalAt, polityAlive, populationAt } from '../gen/civ/growth';
+import { capitalAt, polityAlive, populationAt, ownersAt } from '../gen/readers/openQuery';
 import { regionLabel } from '../gen/civ/story/display';
-import { ownersAt } from '../gen/civ/engine/timeline';
 import { getSelection, useCivHighlight, useCivTime, useSelection } from './civView';
 import { finishPick, getPolityPick, nameAt, setPickHover, setPolityPick, usePickHover, usePolityPick } from './Interventions';
 import { endRun, getPanel, requestFly, setPanelTab, setSheet, usePanel } from './panelStore';

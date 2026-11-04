@@ -4,7 +4,7 @@
  */
 import type { Annal, Civ, ExileTie, Person, Year } from '../gen/civ/types';
 import { cnNumber, exiledTo, type ChronicleEntry } from '../gen/civ/story/chronicle';
-import { polityAlive, polityName } from '../gen/civ/growth';
+import { polityAlive, polityName } from '../gen/readers/openQuery';
 import { yearAt, type Era } from '../gen/era';
 import { treatyBook, zonesAt, type TreatyInfo, type ZoneInfo } from '../gen/civ/story/treatyInfo';
 

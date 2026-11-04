@@ -13,8 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { polityAlive } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/engine/timeline';
+import { polityAlive, ownersAt } from '../gen/readers/openQuery';
 import { yearAt, eraText, yearShort } from '../gen/era';
 import type { Intervention, Plot, PlotReview, PlotStatus } from '../gen/edits';
 import { useEdits } from './editsStore';

@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import type { Civ, Person } from '../gen/civ/types';
 import { personKey } from '../gen/edits';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { personSpan } from '../gen/civ/story/peopleInfo';
 import { personName } from '../gen/civ/story/peopleText';
 import { heOrShe, isFemale } from '../gen/civ/story/gender';

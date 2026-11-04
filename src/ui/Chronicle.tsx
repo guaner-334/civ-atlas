@@ -23,7 +23,7 @@ import { monthLabel, monthOf, yearFull, yearShort } from '../gen/era';
 import { seedTag, useEra, useMonthNames, useMonths } from './editsStore';
 import { JumpField } from './JumpYear';
 import { fullChronicle } from '../gen/civ/story/religionText';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { getCivTime, pickChronicleEntry, setChronicle, subscribeCivTime, useChronicle, useChroniclePick, type CivTime } from './civView';
 import { evLabel, evType } from './timelineLayout';
 import { openHistoryBook } from './HistoryBook';

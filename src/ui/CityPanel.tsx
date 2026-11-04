@@ -15,8 +15,8 @@
 import { useMemo, useState } from 'react';
 import type { Civ, Settlement } from '../gen/civ/types';
 import { cultureLabel, regionLabel } from '../gen/civ/story/display';
-import { SETTLEMENT_RANKS, capitalAt, polityAlive, populationAt, populationLabel, portAt, settlementRank } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/engine/timeline';
+import { capitalAt, polityAlive, populationAt, portAt, settlementRank, ownersAt } from '../gen/readers/openQuery';
+import { SETTLEMENT_RANKS, populationLabel } from '../gen/civ/growth';
 import { polityKey, settlementKey, type Intervention } from '../gen/edits';
 import { setSelection } from './civView';
 import { newMarkDraft } from './markStore';

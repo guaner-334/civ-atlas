@@ -26,7 +26,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { populationAt } from '../gen/civ/growth';
+import { populationAt } from '../gen/readers/openQuery';
 import { useEdits } from './editsStore';
 import { clearSelection, setSelection, useCivTime, useSelection, type MapSelection } from './civView';
 import { usePolityPick } from './Interventions';

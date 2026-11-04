@@ -8,7 +8,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { polityName } from '../gen/civ/growth';
+import { polityName } from '../gen/readers/openQuery';
 import { flagNote, flagRows } from '../gen/civ/story/flagText';
 import {
   DE,

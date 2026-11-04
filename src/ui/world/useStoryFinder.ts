@@ -13,7 +13,7 @@ import { EMPTY_EDITS, cleanCivSeed, cleanEndYear, type WorldEdits } from '../../
 import { cleanCalamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins } from '../../gen/civ/frontier';
 import { worldTuning } from '../../gen/civ/ruleSet';
-import { ownersAt } from '../../gen/civ/engine/timeline';
+import { ownersAt } from '../../gen/readers/openQuery';
 import { summarize } from '../../gen/finder/query';
 import { worldKey } from '../../gen/savefile';
 import { sketchGrid } from '../../gen/sketch';

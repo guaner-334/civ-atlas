@@ -17,8 +17,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import type { Civ } from '../gen/civ/types';
 import { KIND_INFO, cultureLabel, regionLabel } from '../gen/civ/story/display';
-import { capitalAt, polityAlive } from '../gen/civ/growth';
-import { ownersAt } from '../gen/civ/engine/timeline';
+import { capitalAt, polityAlive, ownersAt } from '../gen/readers/openQuery';
 import { END_YEAR_MAX, TREK_REACHES, cultureKey, regionKey, type Intervention, type TrekReach } from '../gen/edits';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';

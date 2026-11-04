@@ -8,7 +8,8 @@
  * - 和别的填色分开靠:信仰、民族是多色并排,管辖是紫色三档加橙,思潮是一种颜色的深浅。
  */
 import type { Civ, Year } from '../../gen/civ/types';
-import { THOUGHTS, THOUGHT_COUNT, ideologyAt, thoughtOrigin } from '../../gen/civ/ideology';
+import { ideologyAt } from '../../gen/readers/openQuery';
+import { THOUGHTS, THOUGHT_COUNT, thoughtOrigin } from '../../gen/civ/ideology';
 import { numBase, numCiv, type NumLayer } from './numLayer';
 
 /** 五档的下限(接受度):半成、一成、三成、五成、七成 */

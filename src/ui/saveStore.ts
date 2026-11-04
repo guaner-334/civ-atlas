@@ -955,6 +955,8 @@ interface Current {
   original?: SaveFile;
   /** 照原样打开的旧世界(读的是它那一版的原件,没有重新生成):建它的生成器版本,存档照旧记这一版 */
   frozen?: number;
+  /** 只读打开(见 AttachSpec.readonly) */
+  readonly?: boolean;
 }
 
 let current: Current | null = null;
@@ -1215,6 +1217,8 @@ export interface AttachSpec {
   original?: SaveFile | null;
   /** 照原样打开的旧世界(读的原件):建它的生成器版本(存档照旧记这一版;只对建好的、比现在旧的算) */
   frozen?: number;
+  /** 只读打开:看的不是存档里的这份(存档里有没推完的修改,见 ui/world/worldTarget.ts 的 Target.readonly):不自动存,存档不动 */
+  readonly?: boolean;
 }
 
 /**
@@ -1240,6 +1244,8 @@ export function attachWorld(spec: AttachSpec) {
     origin: spec.kind === 'draft' && !spec.saved?.map?.from && !spec.origin?.gallery ? undefined : (cleanOrigin(spec.origin) ?? undefined),
     original: spec.kind === 'draft' || !spec.original || spec.original.generator >= GENERATOR_VERSION ? undefined : spec.original,
     frozen: spec.kind === 'created' && spec.frozen !== undefined && spec.frozen < GENERATOR_VERSION ? spec.frozen : undefined,
+    gone: spec.readonly ? 'changed' : undefined,
+    readonly: spec.readonly || undefined,
   };
   const keep = spec.kind === 'created' || (spec.kind === 'draft' && !spec.pristine);
   const same =

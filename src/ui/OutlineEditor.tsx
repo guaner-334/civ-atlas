@@ -12,10 +12,8 @@
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { populationAt } from '../gen/civ/growth';
+import { populationAt, ownersAt, rulerAt } from '../gen/readers/openQuery';
 import { SLUMP_CHOICES, SLUMP_DEFAULT } from '../gen/civ/calamity';
-import { ownersAt } from '../gen/civ/engine/timeline';
-import { rulerAt } from '../gen/civ/story/peopleInfo';
 import { heOrShe } from '../gen/civ/story/gender';
 import {
   DISASTER_LEVEL_NAMES,

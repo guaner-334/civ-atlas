@@ -11,7 +11,8 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { THOUGHTS, THOUGHT_COUNT, ideologyAt, thoughtOrigin } from '../gen/civ/ideology';
+import { ideologyAt } from '../gen/readers/openQuery';
+import { THOUGHTS, THOUGHT_COUNT, thoughtOrigin } from '../gen/civ/ideology';
 import { yearAt, spaced } from '../gen/era';
 import { THOUGHT_LAYER, thoughtBand, thoughtEmerged, thoughtFocus } from '../render/civ/thoughts';
 import { useEra } from './editsStore';

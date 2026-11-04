@@ -5,8 +5,8 @@
  * - 管辖:四档各几州;现在的割据,每行"某州等几州 / 名义上属某国,某年起 / 割据了几年"。
  */
 import type { Civ, Year } from '../gen/civ/types';
-import { ERAS, RESOURCES, RESOURCE_COUNT, resourcesAt } from '../gen/civ/development';
-import { polityName } from '../gen/civ/growth';
+import { resourcesAt, polityName } from '../gen/readers/openQuery';
+import { ERAS, RESOURCES, RESOURCE_COUNT } from '../gen/civ/development';
 import { regionLabel } from '../gen/civ/story/display';
 import { yearAt, type Era } from '../gen/era';
 import { ERA_LAYER } from '../render/civ/era';

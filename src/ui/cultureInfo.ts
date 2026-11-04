@@ -3,11 +3,10 @@
  * 历年人口(小柱图)、支族、迁徙、大事。只读历史,不碰 DOM。
  */
 import type { Civ, Culture, MigrationDir } from '../gen/civ/types';
-import { regionPopulationAt } from '../gen/civ/growth';
+import { regionPopulationAt, faithAt, ownersAt } from '../gen/readers/openQuery';
 import { cultureLabel, regionLabel } from '../gen/civ/story/display';
 import { cnNumber, type ChronicleEntry } from '../gen/civ/story/chronicle';
-import { faithAt } from '../gen/civ/religion';
-import { ownersAt, type Owners } from '../gen/civ/engine/timeline';
+import { type Owners } from '../gen/civ/engine/timeline';
 import { fullChronicle } from '../gen/civ/story/religionText';
 import { ownersOf } from './panelData';
 

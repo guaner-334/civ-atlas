@@ -19,6 +19,7 @@ import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { civAtEra } from '../gen/civ/eraCiv';
 import { composeRaster, type RasterPatch } from '../gen/rasterPatch';
+import { olderTerrain } from '../gen/readers/older';
 import { getCivTime, subscribeCivTime } from './civView';
 
 export { civAtEra };
@@ -103,7 +104,8 @@ export interface EraMaps {
 
 /** 后台线程交来的各段世界接上网格(网格各段一样,线程不交) */
 export function eraMapsOf(base: World, baseKey: string, eras: readonly { key: string; world: World }[]): EraMaps {
-  return { baseKey, keys: eras.map((e) => e.key), worlds: eras.map((e) => ({ ...e.world, mesh: base.mesh })) };
+  // 存下来再读出来的世界:各段和原来的世界用同一版读取代码
+  return { baseKey, keys: eras.map((e) => e.key), worlds: eras.map((e) => ({ ...e.world, mesh: base.mesh, ...(base.readers ? { readers: base.readers } : {}) })) };
 }
 
 /** 补丁的键:"上一段的键>这一段的键" */
@@ -173,7 +175,7 @@ export function eraData(base: { world: World; raster: Raster }, maps: EraMaps | 
   if (!list.length) return pair(world, base.raster);
   let hit = composed.get(sig);
   if (!hit || !fresh(hit, base.raster, list)) {
-    hit = { base: base.raster, list, raster: composeRaster(base.raster, list) };
+    hit = { base: base.raster, list, raster: (olderTerrain(base.world)?.composeRaster ?? composeRaster)(base.raster, list) };
     composed.delete(sig);
     composed.set(sig, hit);
     while (composed.size > 2) composed.delete(composed.keys().next().value!);

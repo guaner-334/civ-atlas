@@ -19,7 +19,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { World, WorldParams } from '../gen/world';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
-import { polityAlive, populationAt } from '../gen/civ/growth';
+import { polityAlive, populationAt } from '../gen/readers/openQuery';
 import { Chronicle } from './Chronicle';
 import { PeoplePage } from './WorldOverviewPeople';
 import { RecordsPage } from './WorldOverviewRecords';

@@ -14,7 +14,7 @@
  * 纯计算,不碰 DOM。
  */
 import type { Civ } from '../gen/civ/types';
-import { polityAlive } from '../gen/civ/growth';
+import { polityAlive } from '../gen/readers/openQuery';
 import { interventionFate } from '../gen/stepwise';
 import type { Intervention } from '../gen/edits';
 import { eraText, yearAt, yearSpanAt, type Era } from '../gen/era';

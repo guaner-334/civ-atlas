@@ -26,7 +26,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, typ
 import type { WorldToClient } from './EventPins';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
-import { polityAlive } from '../gen/civ/growth';
+import { polityAlive } from '../gen/readers/openQuery';
 import { regionLabel } from '../gen/civ/story/display';
 import { END_YEAR_MAX, TREATY_OTHERS_MAX, polityKey, regionKey, type Intervention } from '../gen/edits';
 import { spaced, yearAt, yearSpanAt } from '../gen/era';

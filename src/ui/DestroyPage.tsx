@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import type { Civ } from '../gen/civ/types';
-import { capitalAt, polityAlive } from '../gen/civ/growth';
+import { capitalAt, polityAlive } from '../gen/readers/openQuery';
 import { polityKey, type Intervention } from '../gen/edits';
 import { spaced, yearAt, yearFull, yearSpanAt } from '../gen/era';
 import { useEra } from './editsStore';

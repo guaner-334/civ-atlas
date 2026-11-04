@@ -1,8 +1,8 @@
 /**
  * 主线程这边的世界仓库(../worldVault.ts):什么时候存、存哪个世界、现有的世界怎么转进来。
  *
- * 现在打开世界还是走旧的路(saveStore 的存档、resultStore 的原件),这里只是多存一份。所以这里任何一步出错都只记下来、不往外抛,
- * 不提示,也不碰存档和原件:旧的存档和原件怎么写、怎么读,和没有这个文件时一模一样。字节全程在后台线程里,主线程只发消息。
+ * 打开世界先读这里存的内容(../worldOpen.ts,生成世界的线程直接读),读不出来退回旧的路(saveStore 的存档、resultStore 的原件),所以旧的存档和原件照写。
+ * 这里任何一步出错都只记下来、不往外抛,不提示,也不碰存档和原件。字节全程在后台线程里,主线程只发消息。
  *
  * 什么时候存:
  * - 推完、改完:生成世界的线程把这次的内容打好交回来(offerWorldParts),对得上这个世界存着的存档才存,对不上的先放着(和原件同样的规矩)。
@@ -34,7 +34,7 @@ import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
 import type { AuthorContent, WorldMade } from '../gen/worldFormat';
 import type { ConvertJob } from '../worldConvert';
 import type { ConvertReply } from '../worldConvertWorker';
-import type { CommitRequest, CommitResult, RevisionHead, VaultErrorKind, VaultOps, WorldPartsOffer } from '../worldVault';
+import { pendingEdit, type CommitRequest, type CommitResult, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
 import { isCoarse, isNarrow } from './device';
 import { dropResults, resultHeads } from './resultStore';
@@ -287,18 +287,7 @@ async function askPersist(): Promise<void> {
 // ---------------------------------------------------------------------------
 // 待完成的修改
 
-/**
- * 崩了以后拿存着的修订和配方草稿比:
- * - none:没有待完成的修改(还没有修订的也算:没有东西可比)
- * - recompute:修订是当前版本算的,按草稿重算就补上了
- * - readonly:修订是别的版本算的,重算出来不是它原来的样子,只能只读打开、提示有没推完的修改
- */
-export type PendingEdit = 'none' | 'recompute' | 'readonly';
-
-export function pendingEdit(stored: Pick<RevisionHead, 'recipeKey' | 'generator'> | null, draftKey: string, generator: number = GENERATOR_VERSION): PendingEdit {
-  if (!stored || stored.recipeKey === draftKey) return 'none';
-  return stored.generator === generator ? 'recompute' : 'readonly';
-}
+export { pendingEdit, type PendingEdit };
 
 /** 这个世界有没有待完成的修改;读不了 = none */
 export async function pendingOf(id: string): Promise<PendingEdit> {
@@ -374,7 +363,8 @@ async function jobFor(id: string): Promise<ConvertJob | null> {
 
   const key = await recipeKey(recipeOfSave(w.save));
   const latest = await call('latestOf', [id]);
-  if (latest && latest.recipeKey === key && latest.generator === w.save.generator) return null;
+  // 打开时发现块坏了的(state.corrupt)再转一遍,commitWorld 会把块重写一遍
+  if (latest && latest.recipeKey === key && latest.generator === w.save.generator && state?.corrupt === undefined) return null;
   if (heads.some((h) => h.generator === w.save.generator && h.recipe === key)) return { ...body, kind: 'original', generator: w.save.generator, save: w.save, source: 'migrated' };
   if (w.save.generator === GENERATOR_VERSION) {
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
