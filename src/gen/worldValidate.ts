@@ -17,9 +17,11 @@ import { BOOK_COLS } from './civ/fiscalBook';
 import { CAP_COUNT, RESOURCE_COUNT } from './civ/development';
 import { THOUGHT_COUNT } from './civ/ideology';
 import { TINCTS, decodeFlag, encodeFlag, type FlagSpec } from './civ/story/flagSpec';
-import type { ChronicleEntry } from './civ/story/chronicle';
+import { ANNAL_KINDS } from './civ/annals';
+import type { ChronicleEntry, EntryKind } from './civ/story/chronicle';
 import type { FlagBook, Seat } from './civ/story/flags';
-import type { Civ, Regions } from './civ/types';
+import type { AnnalKind, Civ, CultureKind, DevEvent, ExileTie, FaithEventKind, FaithKind, Person, PersonDeed, PersonExile, PersonFate, PersonRegency, Place, Regions, Route, RulerRise } from './civ/types';
+import type { TradeEvent } from './civ/trade';
 import { END_YEAR_MAX } from './edits';
 import { PARAM_RANGE, SAVE_FORMAT, parseSave } from './savefile';
 import { SKETCH_H, SKETCH_W } from './sketch';
@@ -380,6 +382,18 @@ const CELLS_MIN = 1500;
 const CELLS_MAX = 200000;
 /** 地块间距的范围,见 checkMesh */
 const MESH_SPACING_RANGE: readonly [number, number] = [1, 64];
+/**
+ * 海拔、气候各数组的范围(都比实测留了几十倍:造山、气温、降水开到头时海拔实测 −7551–30552 米,气温 −172–68 度,降水最高 102324,径流最高 4699)。
+ * 只防离谱的数,不是说世界就该长这样
+ */
+const FIELD_RANGE: Readonly<Record<string, readonly [number, number]>> = {
+  elevation: [-1e6, 1e6],
+  waterLevel: [-1e6, 1e6],
+  temperature: [-1e4, 1e4],
+  precipitation: [-1, 1e7],
+  seaIce: [-1, 2],
+  flux: [-1, 1e12],
+};
 
 /** 网格:长度、邻接、三角形的编号都对得上 */
 function checkMesh(raw: unknown): number {
@@ -419,12 +433,16 @@ function checkWorldBody(w: Obj, n: number, at: string): void {
   }
   const climate = obj(w.climate, `${at}的 climate`);
   for (const k of Object.keys(climate)) num(climate[k], `${at}的 climate.${k}`);
-  // 海拔、气候里的非数会一路传进铺像素、算人口
-  for (const k of ['elevation', 'waterLevel', 'temperature', 'precipitation', 'seaIce', 'flux']) allFinite(typed(w[k], Float32Array, `${at}的 ${k}`, n), `${at}的 ${k}`);
+  // 海拔、气候里的非数会一路传进铺像素、算人口;数太离谱时等值线按范围一条条排(从最小到最大、一步一步走),走不到头
+  for (const k of ['elevation', 'waterLevel', 'temperature', 'precipitation', 'seaIce', 'flux']) {
+    const a = typed(w[k], Float32Array, `${at}的 ${k}`, n);
+    const [lo, hi] = FIELD_RANGE[k];
+    allIn(a, lo, hi, `${at}的 ${k}`);
+  }
   allIn(typed(w.water, Uint8Array, `${at}的 water`, n), 0, 3, `${at}的 water`);
   allIn(typed(w.biome, Uint8Array, `${at}的 biome`, n), 0, BIOMES.length, `${at}的 biome`);
   num(w.riverThreshold, `${at}的 riverThreshold`);
-  num(w.maxElevation, `${at}的 maxElevation`);
+  if (Math.abs(num(w.maxElevation, `${at}的 maxElevation`)) > FIELD_RANGE.elevation[1]) broken(`${at}的 maxElevation 超出范围`);
 
   const tect = obj(w.tect, `${at}的 tect`);
   const plates = int(tect.plateCount, 0, 1 << 15, `${at}的 tect.plateCount`);
@@ -442,7 +460,9 @@ function checkWorldBody(w: Obj, n: number, at: string): void {
     const o = obj(r, `${at}的 rivers[${i}]`);
     const cells = typed(o.cells, Int32Array, `${at}的 rivers[${i}].cells`);
     allIn(cells, 0, n, `${at}的 rivers[${i}].cells`);
-    allFinite(typed(o.pts, Float32Array, `${at}的 rivers[${i}].pts`, cells.length * 3), `${at}的 rivers[${i}].pts`);
+    const pts = typed(o.pts, Float32Array, `${at}的 rivers[${i}].pts`, cells.length * 3);
+    allFinite(pts, `${at}的 rivers[${i}].pts`);
+    pathPointsOk(pts, 3, `${at}的 rivers[${i}].pts`);
     if (o.drawn !== undefined) typed(o.drawn, Uint8Array, `${at}的 rivers[${i}].drawn`, cells.length);
   });
   list(w.volcanoes, `${at}的 volcanoes`).forEach((c, i) => int(c, 0, n, `${at}的 volcanoes[${i}]`));
@@ -454,7 +474,9 @@ function checkWorldBody(w: Obj, n: number, at: string): void {
     const ops = list(w.terrain, `${at}的 terrain`);
     if (ops.length > TERRAIN_MAX_OPS) broken(`${at}的地形修改太多`);
     ops.forEach((x, i) => {
-      if (!cleanTerrainOp(x)) broken(`${at}的 terrain[${i}] 认不出`);
+      // 世界里存的是清理过的,再清理一遍还是它;清理会改的(坐标出了地图之类)就是别人写的
+      const clean = cleanTerrainOp(x);
+      if (!clean || JSON.stringify(clean) !== JSON.stringify(x)) broken(`${at}的 terrain[${i}] 认不出`);
     });
   }
   if (w.sketch !== undefined) {
@@ -502,12 +524,37 @@ const TEXT_ONE_MAX = 256 * 1024;
 /** 一块里最多多少字(块的上限是字节,一个字至少一个字节;这个数只防撑爆后面的显示和搜索) */
 const TEXT_TOTAL_MAX = 64e6;
 
-const POLITY_KINDS = ['farm', 'nomad', 'sea', 'highland', 'river', 'lake', 'forest'];
-const PLACE_KINDS = ['sea', 'mountains', 'river', 'lake', 'island', 'desert', 'pass'];
-const ROUTE_KINDS = ['road', 'trail', 'sea'];
-const PERSON_ROLES = ['ruler', 'general', 'prince', 'minister', 'consort'];
-const FAITH_KINDS = ['folk', 'great', 'sect'];
-const TRADE_EVENT_KINDS = ['open', 'break', 'reopen', 'end'];
+/**
+ * 各种「种类」字段认得的值。界面拿它们查表(这种结局写什么字、这种关系画什么),认不出的查出 undefined 就抛错。
+ * 写成表而不是列表:类型里加了新值、这里没跟上,编译就报错,不会等到用的人的世界打不开才发现
+ */
+const kinds = <T extends string>(table: Record<T, 1>): readonly string[] => Object.keys(table);
+const POLITY_KINDS = kinds<CultureKind>({ farm: 1, nomad: 1, sea: 1, highland: 1, river: 1, lake: 1, forest: 1 });
+const PLACE_KINDS = kinds<Place['kind']>({ sea: 1, mountains: 1, river: 1, lake: 1, island: 1, desert: 1, pass: 1 });
+const ROUTE_KINDS = kinds<Route['kind']>({ road: 1, trail: 1, sea: 1 });
+const PERSON_ROLES = kinds<Person['role']>({ ruler: 1, general: 1, prince: 1, minister: 1, consort: 1 });
+const PERSON_FATES = kinds<PersonFate>({ died: 1, murdered: 1, deposed: 1, overthrown: 1, fell: 1, surrendered: 1, fled: 1, merged: 1, retired: 1, battle: 1, yielded: 1, purged: 1 });
+const RULER_RISES = kinds<RulerRise>({ found: 1, rebel: 1, restore: 1, usurp: 1, rise: 1, heir: 1, crown: 1, reform: 1 });
+const CLAIM_HOWS = kinds<NonNullable<Person['claim']>['how']>({ merit: 1, coup: 1, revolt: 1, intrigue: 1, usurp: 1, secede: 1, march: 1, seize: 1 });
+const REGENCY_KINDS = kinds<PersonRegency['kind']>({ march: 1, heir: 1, uncle: 1, minister: 1, dowager: 1, chancellor: 1, general: 1 });
+const REGENCY_ENDS = kinds<NonNullable<PersonRegency['end']>>({ succeed: 1, return: 1, purged: 1, usurp: 1, died: 1, ruler: 1, fallen: 1 });
+const EXILE_HOWS = kinds<PersonExile['how']>({ heir: 1, deposed: 1, fled: 1 });
+const EXILE_TIES_KNOWN = kinds<ExileTie>({ kin: 1, ally: 1, pact: 1, folk: 1, foe: 1, near: 1 });
+const DEED_KINDS = kinds<PersonDeed['kind']>({ found: 1, regent: 1, rank: 1, enthrone: 1, capital: 1, relief: 1, peace: 1, war: 1, defend: 1, power: 1 });
+const FAITH_KINDS = kinds<FaithKind>({ folk: 1, great: 1, sect: 1 });
+const FAITH_EVENT_KINDS = kinds<FaithEventKind>({ found: 1, enter: 1, state: 1, schism: 1, holy: 1 });
+const DEV_EVENT_KINDS = kinds<DevEvent['kind']>({ first: 1, enter: 1, discover: 1, deplete: 1, invent: 1, regress: 1 });
+const TRADE_EVENT_KINDS = kinds<TradeEvent['kind']>({ open: 1, break: 1, reopen: 1, end: 1 });
+/** 史事的种类:annals.ts 的表就是全的(编译时核对过) */
+const ANNAL_KIND_NAMES = new Set(Object.keys(ANNAL_KINDS));
+/** 编年史条目的种类:史事的种类,再加这几种 */
+const ENTRY_KIND_NAMES = new Set([...ANNAL_KIND_NAMES, ...kinds<Exclude<EntryKind, AnnalKind>>({ reign: 1, faith: 1, era: 1, thought: 1, revolution: 1, coup: 1 })]);
+/** 河、地名路径上的点:都在地图上,最多跨出去一圈(经线那边接回来的)。太离谱的点按长度细分时分不完 */
+function pathPointsOk(a: ArrayLike<number>, step: number, at: string): void {
+  for (let i = 0; i + 1 < a.length; i += step) {
+    if (!(a[i] >= -MAP_W && a[i] <= 2 * MAP_W && a[i + 1] >= -MAP_H && a[i + 1] <= 2 * MAP_H)) broken(`${at}[${i}] 出了地图`);
+  }
+}
 /** 史事里 a 列记的是民族的几种(别的都是国家;upheaval 是第几件大事),见 annals.ts */
 const ANNAL_A_CULTURE = new Set(['migrate', 'assimilate', 'vanish', 'diverge', 'trek']);
 /** 这两种史事的州、城两列按子类各记各的(annals.ts),只看是整数 */
@@ -584,8 +631,11 @@ function checkPlaces(raw: unknown, c: Counts, at: string): void {
     oneOf(p.kind, PLACE_KINDS, `${at}[${i}].kind`);
     str(p.name, `${at}[${i}].name`, NAME_TEXT_MAX);
     int(p.culture, -1, c.cultures, `${at}[${i}].culture`);
-    allFinite(typed(p.path, Float32Array, `${at}[${i}].path`), `${at}[${i}].path`);
+    const path = typed(p.path, Float32Array, `${at}[${i}].path`);
+    allFinite(path, `${at}[${i}].path`);
+    pathPointsOk(path, 2, `${at}[${i}].path`);
     num(p.rank, `${at}[${i}].rank`);
+    optNum(p.size, `${at}[${i}].size`);
     optInt(p.cell, 0, c.cells, `${at}[${i}].cell`);
     optInt(p.keyCell, 0, c.cells, `${at}[${i}].keyCell`);
     optStr(p.latin, `${at}[${i}].latin`, NAME_TEXT_MAX);
@@ -737,6 +787,7 @@ function checkAnnals(raw: unknown, c: Counts, upheavals: number): void {
     if (y < last || y > c.endYear) broken(`${at}.year 不对(要按先后排、在 0 到 ${c.endYear} 之间)`);
     last = y;
     const kind = str(a.kind, `${at}.kind`, 32);
+    if (!ANNAL_KIND_NAMES.has(kind)) broken(`${at}.kind 认不出`);
     // a 列按种类是国家、民族或第几件大事;b 列的意思各不相同(州数、第几朝……),只看是整数
     const top = kind === 'upheaval' ? upheavals : ANNAL_A_CULTURE.has(kind) ? c.cultures : c.polities;
     int(a.a, -1, top, `${at}(${kind}).a`);
@@ -824,7 +875,9 @@ function checkPeople(raw: unknown, c: Counts): void {
     oneOf(p.role, PERSON_ROLES, `${at}.role`);
     int(p.polity, 0, c.polities, `${at}.polity`);
     str(p.name, `${at}.name`, NAME_TEXT_MAX);
-    for (const k of ['maleName', 'title', 'defaultName', 'courtesy', 'art', 'fate', 'rise']) optStr(p[k], `${at}.${k}`, NAME_TEXT_MAX);
+    for (const k of ['maleName', 'title', 'defaultName', 'courtesy', 'art']) optStr(p[k], `${at}.${k}`, NAME_TEXT_MAX);
+    if (p.fate !== undefined) oneOf(p.fate, PERSON_FATES, `${at}.fate`);
+    if (p.rise !== undefined) oneOf(p.rise, RULER_RISES, `${at}.rise`);
     if (p.posts !== undefined) {
       list(p.posts, `${at}.posts`).forEach((y, k) => {
         const o = obj(y, `${at}.posts[${k}]`);
@@ -842,7 +895,11 @@ function checkPeople(raw: unknown, c: Counts): void {
     ref(p.rival, `${at}.rival`);
     optInt(p.home, 0, c.settlements, `${at}.home`);
     if (p.descent !== undefined) ref(obj(p.descent, `${at}.descent`).from, `${at}.descent.from`);
-    if (p.claim !== undefined) list(obj(p.claim, `${at}.claim`).rivals, `${at}.claim.rivals`).forEach((r, k) => ref(r, `${at}.claim.rivals[${k}]`));
+    if (p.claim !== undefined) {
+      const claim = obj(p.claim, `${at}.claim`);
+      oneOf(claim.how, CLAIM_HOWS, `${at}.claim.how`);
+      list(claim.rivals, `${at}.claim.rivals`).forEach((r, k) => ref(r, `${at}.claim.rivals[${k}]`));
+    }
     if (p.commands !== undefined) {
       list(p.commands, `${at}.commands`).forEach((y, k) => {
         const o = obj(y, `${at}.commands[${k}]`);
@@ -855,6 +912,8 @@ function checkPeople(raw: unknown, c: Counts): void {
     if (p.regencies !== undefined) {
       list(p.regencies, `${at}.regencies`).forEach((y, k) => {
         const o = obj(y, `${at}.regencies[${k}]`);
+        oneOf(o.kind, REGENCY_KINDS, `${at}.regencies[${k}].kind`);
+        if (o.end !== undefined) oneOf(o.end, REGENCY_ENDS, `${at}.regencies[${k}].end`);
         yearOk(o.from, `${at}.regencies[${k}].from`);
         optYearOk(o.until, `${at}.regencies[${k}].until`);
         ref(o.ruler, `${at}.regencies[${k}].ruler`);
@@ -875,6 +934,8 @@ function checkPeople(raw: unknown, c: Counts): void {
     }
     if (p.exile !== undefined) {
       const e = obj(p.exile, `${at}.exile`);
+      oneOf(e.how, EXILE_HOWS, `${at}.exile.how`);
+      if (e.tie !== undefined) oneOf(e.tie, EXILE_TIES_KNOWN, `${at}.exile.tie`);
       int(e.annal, 0, c.annals, `${at}.exile.annal`);
       yearOk(e.year, `${at}.exile.year`);
       optYearOk(e.until, `${at}.exile.until`);
@@ -885,6 +946,7 @@ function checkPeople(raw: unknown, c: Counts): void {
     if (p.deeds !== undefined) {
       list(p.deeds, `${at}.deeds`).forEach((y, k) => {
         const o = obj(y, `${at}.deeds[${k}]`);
+        oneOf(o.kind, DEED_KINDS, `${at}.deeds[${k}].kind`);
         yearOk(o.year, `${at}.deeds[${k}].year`);
         optYearOk(o.until, `${at}.deeds[${k}].until`);
         optInt(o.annal, 0, c.annals, `${at}.deeds[${k}].annal`);
@@ -924,6 +986,7 @@ function checkReligion(raw: unknown, c: Counts): void {
   ascendingBy(r.events, 'year', '历史的 religion.events');
   (r.events as Obj[]).forEach((e, i) => {
     const at = `历史的 religion.events[${i}]`;
+    oneOf(e.kind, FAITH_EVENT_KINDS, `${at}.kind`);
     int(e.faith, 0, F, `${at}.faith`);
     int(e.polity, -1, c.polities, `${at}.polity`);
     int(e.region, -1, c.regions, `${at}.region`);
@@ -978,6 +1041,7 @@ function checkDevelopment(raw: unknown, c: Counts): void {
   ascendingBy(d.events, 'year', '历史的 development.events');
   (d.events as Obj[]).forEach((e, i) => {
     const at = `历史的 development.events[${i}]`;
+    oneOf(e.kind, DEV_EVENT_KINDS, `${at}.kind`);
     int(e.region, -1, R, `${at}.region`);
     int(e.culture, -1, c.cultures, `${at}.culture`);
     int(e.polity, -1, c.polities, `${at}.polity`);
@@ -1129,7 +1193,7 @@ export function validateCiv(v: unknown, world: World): asserts v is Civ {
 const entry = (raw: unknown, civ: Civ, at: string, depth: number): void => {
   const e = obj(raw, at);
   if (!Number.isInteger(e.id)) broken(`${at}.id 不是整数`);
-  str(e.kind, `${at}.kind`, 32);
+  if (!ENTRY_KIND_NAMES.has(str(e.kind, `${at}.kind`, 32))) broken(`${at}.kind 认不出`);
   const year = num(e.year, `${at}.year`);
   const end = num(e.end, `${at}.end`);
   if (year < 0 || year > civ.endYear || end < 0 || end > civ.endYear) broken(`${at} 的年份不对(要在 0 到 ${civ.endYear} 之间)`);
@@ -1212,7 +1276,9 @@ export function validateFlags(v: unknown, civ: Civ): asserts v is FlagBook {
       int(why.city, -1, civ.settlements.length, `${at}.why.city`);
       optInt(why.parent, 0, civ.polities.length, `${at}.why.parent`);
       optInt(why.restores, 0, civ.polities.length, `${at}.why.restores`);
-      optInt(why.prior, 0, (raw as unknown[]).length, `${at}.why.prior`);
+      // 改制以前的那面只能往前指:讲旗的意思时顺着它往回走,指自己、指后面就走不到头
+      optInt(why.prior, 0, k, `${at}.why.prior`);
+      int(e.dyn, 0, Number.MAX_SAFE_INTEGER, `${at}.dyn`);
     });
   });
   allStrings(v, NAME_TEXT_MAX, TEXT_TOTAL_MAX, '旗');
