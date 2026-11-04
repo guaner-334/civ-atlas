@@ -210,13 +210,16 @@ function flatNumbers(v: unknown, out: number[] = []): number[] {
   return out;
 }
 
-/** 放大现算要用的线:河和小溪的河道(刻谷用)、河口、细沟 */
+/**
+ * 放大现算要用的线:河和小溪的河道(刻谷用)、河口、细沟。
+ * 河道和河口按单精度比:算河宽用了非整数幂,双精度的最后一位在不同的操作系统上不一样;铺成像素时都是单精度,结果逐位一样
+ */
 function lineItems(prefix: string, title: string, src: ZoomSource): ReadItem[] {
   const beds = src.lines.map(({ x, y, w, f, mouth }) => ({ x, y, w, f, mouth }));
   const v = src.veins;
   return [
-    arrayItem(`${prefix}lines.valley`, 'zoom', `${title}河和小溪的河道`, Float64Array.from(flatNumbers(beds))),
-    arrayItem(`${prefix}lines.mouths`, 'zoom', `${title}河口`, Float64Array.from(flatNumbers(src.mouths))),
+    arrayItem(`${prefix}lines.valley`, 'zoom', `${title}河和小溪的河道`, Float32Array.from(flatNumbers(beds))),
+    arrayItem(`${prefix}lines.mouths`, 'zoom', `${title}河口`, Float32Array.from(flatNumbers(src.mouths))),
     arrayItem(`${prefix}lines.veinOff`, 'zoom', `${title}细沟的线(每条的起点)`, v.off),
     arrayItem(`${prefix}lines.veinX`, 'zoom', `${title}细沟的线(x)`, v.x),
     arrayItem(`${prefix}lines.veinY`, 'zoom', `${title}细沟的线(y)`, v.y),

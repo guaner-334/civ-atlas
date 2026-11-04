@@ -83,5 +83,5 @@ export function frozenText(read: ReadFile, file: string, files: ReadonlySet<stri
     const rel = relative(dirname(to), t.replace(/\.tsx?$/, ''));
     out = `${out.slice(0, r.start)}'${rel.startsWith('.') ? rel : `./${rel}`}'${out.slice(r.end)}`;
   }
-  return `// @ts-nocheck\n// ${note}\n${out}`;
+  return /\.tsx?$/.test(file) ? `// @ts-nocheck\n// ${note}\n${out}` : out;
 }

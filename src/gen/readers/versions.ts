@@ -29,7 +29,8 @@ export class UnknownReaderError extends Error {
   readonly needsUpdate: boolean;
 
   constructor(kind: ReaderKind, version: unknown, current: number) {
-    const shown = String(version).slice(0, 32);
+    // 版本号可能来自别人的文件:只显示数字和字符串(截短),别的只说是什么类型
+    const shown = typeof version === 'number' || typeof version === 'string' ? String(version).slice(0, 32) : typeof version;
     const needsUpdate = typeof version === 'number' && Number.isInteger(version) && version > current;
     super(needsUpdate ? `这个世界的${KIND_NAME[kind]}要第 ${shown} 版读取代码,这个版本的软件只到第 ${current} 版,更新软件才能打开` : `认不出这个世界的${KIND_NAME[kind]}读取版本:${shown}`);
     this.name = 'UnknownReaderError';
