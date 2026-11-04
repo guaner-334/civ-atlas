@@ -1,0 +1,142 @@
+[
+ {
+  "name": "seed7",
+  "title": "种子 7",
+  "seed": 7,
+  "cells": 4000,
+  "endYear": 1000,
+  "generator": 57,
+  "upheavals": [],
+  "years": [
+   137,
+   342.5,
+   500,
+   688,
+   913,
+   1000
+  ],
+  "windows": [
+   {
+    "name": "河口",
+    "S": 4,
+    "x0": 3840,
+    "y0": 2816
+   },
+   {
+    "name": "高山",
+    "S": 8,
+    "x0": 7680,
+    "y0": 4608
+   },
+   {
+    "name": "接缝",
+    "S": 4,
+    "x0": 0,
+    "y0": 2048
+   }
+  ],
+  "parts": [
+   {
+    "name": "map",
+    "bytes": 592184,
+    "sum": "f6cbf991102f22c858a2ed15f2009e223885fc51de8526dd1c217f4a318a9358",
+    "zip": "gzip",
+    "file": "seed7.map.gz"
+   },
+   {
+    "name": "eras",
+    "bytes": 256,
+    "sum": "df6948de92f4bacc1cf5e095348b3f2523ce984a801ec9fdde75dad97297d75a",
+    "zip": "gzip",
+    "file": "seed7.eras.gz"
+   },
+   {
+    "name": "civ",
+    "bytes": 1928616,
+    "sum": "3cbd2f4e7820e7423fc2e412153d3918b7c0d12d1ce9a62cccac857232386438",
+    "zip": "gzip",
+    "file": "seed7.civ.gz"
+   }
+  ]
+ },
+ {
+  "name": "seed2024-upheaval",
+  "title": "种子 2024,带地形大事",
+  "seed": 2024,
+  "cells": 4000,
+  "endYear": 1000,
+  "generator": 57,
+  "upheavals": [
+   {
+    "year": 500,
+    "ops": [
+     {
+      "kind": "sink",
+      "pts": [
+       1509,
+       779,
+       1567,
+       736
+      ],
+      "r": 40,
+      "s": 1.1
+     },
+     {
+      "kind": "volcano",
+      "pts": [
+       1310,
+       763
+      ],
+      "r": 60,
+      "s": 1.5
+     }
+    ]
+   }
+  ],
+  "years": [
+   137,
+   342.5,
+   500,
+   688,
+   913,
+   1000
+  ],
+  "windows": [
+   {
+    "name": "河口",
+    "S": 4,
+    "x0": 6144,
+    "y0": 2816
+   },
+   {
+    "name": "大事",
+    "S": 4,
+    "x0": 5888,
+    "y0": 3072
+   }
+  ],
+  "parts": [
+   {
+    "name": "map",
+    "bytes": 586960,
+    "sum": "f94c244287ae8a735105fdc02395723a9723560d9cd16a569f5f624f748418d0",
+    "zip": "gzip",
+    "file": "seed2024-upheaval.map.gz"
+   },
+   {
+    "name": "eras",
+    "bytes": 316712,
+    "sum": "8786c57d09ee660d6e1e61abb35e38dbda9cbee6b343aa9ffdce79fa560e15ef",
+    "zip": "gzip",
+    "file": "seed2024-upheaval.eras.gz"
+   },
+   {
+    "name": "civ",
+    "bytes": 2018464,
+    "sum": "762a41d7d76492ebaa43c2594843b27f8a824c22639d6aa7581e5fae9a795626",
+    "zip": "gzip",
+    "file": "seed2024-upheaval.civ.gz"
+   }
+  ]
+ }
+]
