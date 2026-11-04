@@ -23,7 +23,7 @@ import { APP_COMMIT } from '../src/ui/version';
 import { TRASH_KEEP_MS, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
-import { _resetVault, latestOf, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
+import { _resetVault, latestOf, patchState, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
 import { FIXTURE_DIR, readSamples } from './lib/savedWorlds';
 import { bytesOf } from './lib/worldFileSample';
 
@@ -574,6 +574,21 @@ describe('把现有的世界转进来', () => {
     await startConversions();
     await startConversions();
     expect((await revisionsOf(id)).length).toBe(1);
+  }, 120_000);
+
+  it('打开时发现块坏了(记了 corrupt):有原件的再转一遍,块重写,又读得出来', async () => {
+    const o = sampleOriginal();
+    const id = storeSave(o.save);
+    const save = saveStore.loadWorld(id)!.save;
+    await putOriginal(id, o.parts, save, o.generator);
+    await startConversions();
+    const before = (await revisionsOf(id)).length;
+    await patchState(id, { corrupt: before });
+    await startConversions();
+    const heads = await revisionsOf(id);
+    expect(heads.length).toBeGreaterThan(before);
+    expect((await stateOf(id))?.corrupt).toBeUndefined();
+    await readWorldContent(await openWorldFile(await bytesOf((await revisionFile(id))!), { readers: READER_VERSIONS }));
   }, 120_000);
 
   it('存档被新版重存过、更旧的原件还在:旧的留底,不当最新的', async () => {

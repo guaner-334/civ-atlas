@@ -137,13 +137,6 @@ export async function noteMapSum(s: Snapshot): Promise<void> {
   setMapSum(sum);
 }
 
-/** 同 noteMapSum,世界是读世界仓库打开的(修订的配方已经核对过,没有新的原件):这份修订里地图那一块的指纹 */
-export function noteMapSumOf(sum: string): void {
-  const map = getEdits().map;
-  const c = currentWorld();
-  if (map && !map.sum && c && c.kind !== 'visit' && !c.gone) setMapSum(sum);
-}
-
 /** 当前打开的还是这个世界,存着的存档还是这个配方、这一版 */
 function sameWorld(id: string, text: string): boolean {
   const c = currentWorld();

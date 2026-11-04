@@ -74,7 +74,7 @@ import { eraWorlds as eraWorldsOf, keyOf, mapValue, namesOpt, playOpt, setupOpt,
 import type { WorldPartsOffer } from './worldVault';
 import { olderTerrainOf } from './gen/readers/older';
 import type { TerrainReader } from './gen/readers/terrainReader';
-import { FIRST_READERS, READER_VERSIONS, UnknownReaderError, type ReaderVersions } from './gen/readers/versions';
+import { FIRST_READERS, UnknownReaderError, type ReaderVersions } from './gen/readers/versions';
 import type { OpenRefusal, StoredOpen } from './worldOpen';
 
 /**
@@ -852,7 +852,7 @@ async function loadedOf(m: LoadRequest, wantCiv: boolean): Promise<LoadedWorld> 
       const eraPart = parts.get('eras') ?? (await makePart('eras', { baseKey: key, eras: [] }));
       snapshot = { format: SNAPSHOT_FORMAT, generator: fromVault.head.generator, recipe: fromVault.head.recipeKey, formation: false, parts: [map, eraPart, civPart] };
     }
-    return { key, world, eras, steps, civ: fromVault.civ, readers: fromVault.readers, older: fromVault.readers.terrain === READER_VERSIONS.terrain ? null : fromVault.terrain, old, civPart, fromPart: fromVault.fromCiv, mapSum: map?.sum, snapshot };
+    return { key, world, eras, steps, civ: fromVault.civ, readers: fromVault.readers, older: fromVault.older, old, civPart, fromPart: fromVault.fromCiv, mapSum: map?.sum, snapshot };
   }
   // 原件是世界文件有版本以前打的,读取代码都是第 1 版
   const readers = { ...FIRST_READERS };

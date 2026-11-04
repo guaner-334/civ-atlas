@@ -47,7 +47,7 @@ import { closeTrash, openLogin } from '../AccountDialogs';
 import { openBundleText } from '../bundle';
 import { resetCharacterUi } from '../characterStore';
 import { clearSelection, pausePlayback, setCivTime, takeAutoplay } from '../civView';
-import { clearEdits, getEdits, setEdits } from '../editsStore';
+import { clearEdits, getEdits, setEdits, setMapSum } from '../editsStore';
 import { resetExtend } from '../extendStore';
 import { closeSaveAsNew } from '../FrozenWorld';
 import { setPolityPick } from '../Interventions';
@@ -66,7 +66,7 @@ import { pickSharedPreset } from '../presetStore';
 import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
 import { recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { endLoadWatch, markOpenBad, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
-import { frozenResult, noteMapSumOf, resultHeads, toldFrozen } from '../resultStore';
+import { frozenResult, resultHeads, toldFrozen } from '../resultStore';
 import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, flushThumb, importSave, loadWorld, markOpened, newWorldId, notify, sameOrigin, setWorldStats } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
@@ -548,7 +548,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 新路读的世界换上了:再过一会儿没事就算打开成了(openGuard.ts)。新开的历史还没记地图的,记上
     if (loadedGen !== undefined) openingShown();
     else openingClear();
-    if (loadMapSum.current) noteMapSumOf(loadMapSum.current);
+    if (loadMapSum.current && edits.map && !edits.map.sum && t.kind !== 'visit' && !t.readonly) setMapSum(loadMapSum.current);
     loadMapSum.current = null;
     if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
     // 分享链接带着"这一刻":画面出来、带着的干预和逐年推演的进度重推完以后,停到那一年、选中、镜头飞过去(App 的 pendingMoment);

@@ -8,8 +8,9 @@
  *
  * 不碰 DOM。
  */
-import { readersFor, type ReaderVersions, type TerrainReader } from './gen/readers';
-import { READER_VERSIONS, UnknownReaderError } from './gen/readers/versions';
+import { olderTerrainOf } from './gen/readers/older';
+import type { TerrainReader } from './gen/readers/terrainReader';
+import { READER_VERSIONS, UnknownReaderError, type ReaderVersions } from './gen/readers/versions';
 import { GENERATOR_VERSION } from './gen/edits';
 import type { Civ } from './gen/civ';
 import { parseSave } from './gen/savefile';
@@ -56,7 +57,8 @@ export class OpenRefused extends Error {
 export interface StoredWorld {
   head: RevisionHead;
   readers: ReaderVersions;
-  terrain: TerrainReader;
+  /** 世界要老版本的地貌读取代码:下载好的那一版;当前版本 = null */
+  older: TerrainReader | null;
   world: World;
   eras: WorldEras | null;
   /** 没要历史时(见 openStoredWorld)可能是 null */
@@ -104,13 +106,13 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true): Promise<
       await patchState(req.id, { checked: rev.head.content }).catch(() => undefined);
     }
     const readers: ReaderVersions = { terrain: manifest.readers.terrain, query: manifest.readers.query };
-    const { terrain } = await readersFor(readers);
+    const older = await olderTerrainOf({ readers });
     const civInfo = manifest.parts.find((p) => p.name === 'civ');
     if (!civInfo) broken('缺 civ 这一块');
     return {
       head: rev.head,
       readers,
-      terrain,
+      older,
       world: values.map as World,
       eras: (values.eras as WorldEras | null) ?? null,
       civ: (values.civ as Civ | null) ?? null,

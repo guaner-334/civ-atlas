@@ -164,7 +164,7 @@ export function useOpenRefs() {
     genReq: useRef<WorkerRequest | null>(null),
     /** 存下的内容读不了(线程说读不了、线程没了、卡住了、读取代码下载不下来):接下来走哪条路(useWorldLoad 的 generate 定) */
     loadBack: useRef<LoadBack | null>(null),
-    /** 这次读世界仓库读到的地图那一块的指纹(新开的历史要记,见 resultStore.noteMapSumOf) */
+    /** 这次读世界仓库读到的地图那一块的指纹(新开的历史要记,见 resultStore.noteMapSum) */
     loadMapSum: useRef<string | null>(null),
     /** 刚另存的新版:打开它以后提示"已另存为…"(from = 原来那一份的名字) */
     savedCopy: useRef<{ id: string; from: string; more: string[] } | null>(null),
