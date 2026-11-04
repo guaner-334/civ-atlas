@@ -28,7 +28,7 @@
  *
  * 第一次存世界时申请长期保存(navigator.storage.persist)。Firefox 会弹浏览器自己的询问框,只问一次;Safari、Chromium 不弹,自己定,每次打开问一次。
  */
-import { flushNotes, moveNotes, tidyNotes, type NotesVault } from '../ai/library';
+import { flushNotes, moveNotes, tidyNotes, warmNotes, type NotesVault } from '../ai/library';
 import { GENERATOR_VERSION } from '../gen/edits';
 import { READER_VERSIONS } from '../gen/readers/versions';
 import { parseSave, type SaveFile } from '../gen/savefile';
@@ -633,6 +633,8 @@ export function startWorldStore(): () => void {
   const off = subscribe(() => {
     if (offer) void keepOffer();
     scheduleLight();
+    const c = currentWorld();
+    if (c) warmNotes(c.id);
   });
   if (typeof window === 'undefined' || typeof document === 'undefined') return off;
   const hidden = () => {

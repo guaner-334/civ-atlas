@@ -491,7 +491,7 @@ describe('用的人删了 / 没读到', () => {
     await _notesSettled();
     expect(KEYS('w1')).toEqual(['b', 'c']);
     expect((await authorInBlock('w1'))!.map((n) => n.key)).toEqual(['b', 'c']);
-    expect(g.localStorage.getItem(`${PREFIX}~w1`)).toBeNull();
+    expect([...g.localStorage.map.keys()].filter((k) => k.startsWith(`${PREFIX}~w1`))).toEqual([]);
   });
 
   it('读到之前删、读到之前存:都算数,读到的不会盖掉', async () => {
@@ -516,6 +516,75 @@ describe('用的人删了 / 没读到', () => {
     await _notesSettled();
     expect(KEYS('w1')).toEqual([]);
     expect(await authorInBlock('w1')).toBeNull();
+  });
+});
+
+describe('写和读、几个线程撞在一起', () => {
+  it('读到之前就写了一条,读到的时候还要并老数据:两样都进仓库', async () => {
+    await revision('w1');
+    g.localStorage.setItem(`${PREFIX}w1`, JSON.stringify([note('old')]));
+    refresh();
+    putNote('w1', note('new'));
+    await _notesSettled();
+    expect((await readAuthor('w1')).notes.map((n) => n.key).sort()).toEqual(['new', 'old']);
+    expect(KEYS('w1').sort()).toEqual(['new', 'old']);
+    expect(moved().w1.s).toBeTruthy();
+  });
+
+  it('第一次存世界的同时另一个线程在写 notes 表:新写的不会跟着被清掉', async () => {
+    for (const wait of [0, 1, 2, 3, 5, 8, 13, 21]) {
+      const id = `race${wait}`;
+      await changeAuthor(id, [{ op: 'put', note: note('a') }]);
+      const commit = revision(id);
+      await new Promise((r) => setTimeout(r, wait));
+      await changeAuthor(id, [{ op: 'put', note: note('b') }]);
+      await commit;
+      expect((await readAuthor(id)).notes.map((n) => n.key).sort(), `等 ${wait} 毫秒`).toEqual(['a', 'b']);
+    }
+  }, 60_000);
+
+  it('整份写不回 localStorage 时(仓库突然用不了):写进草稿的那一条留着,下次打开还在', async () => {
+    await revision('w1');
+    await changeAuthor('w1', [{ op: 'put', note: note('big', 'x'.repeat(5000)) }]);
+    g.localStorage = new FakeStorage(2000);
+    refresh(flaky({ change: () => new VaultError('unavailable', '不让用了') }));
+    await notesReady(['w1']);
+    expect(putNote('w1', note('small'))).toBe(true);
+    await vi.waitFor(() => expect([...g.localStorage.map.keys()].some((k) => k === `${PREFIX}w1`)).toBe(false));
+    await new Promise((r) => setTimeout(r, 0));
+    expect([...g.localStorage.map.keys()].filter((k) => k.startsWith(`${PREFIX}~w1`))).toHaveLength(1);
+    // 这次打开、下次打开仓库还是用不了:从草稿读得出来
+    refresh(flaky({ read: () => new VaultError('unavailable', '不让用了') }));
+    await notesReady(['w1']);
+    expect(KEYS('w1')).toEqual(['small']);
+    // 仓库好了:写进去
+    refresh();
+    await notesReady(['w1']);
+    await _notesSettled();
+    expect((await readAuthor('w1')).notes.map((n) => n.key).sort()).toEqual(['big', 'small']);
+  });
+
+  it('两个标签页的草稿互不相干:A 写完不删 B 还没写完的;B 关了,下次打开接着写', async () => {
+    await revision('w1');
+    await notesReady(['w1']);
+    // 第二个标签页:同一个 localStorage、同一个仓库,自己一份代码
+    vi.resetModules();
+    const b = await import('../src/ai/library');
+    const never = new Promise<never>(() => {});
+    b._resetNotes({ vault: { read: readAuthor, change: () => never } });
+    await b.notesReady(['w1']);
+    b.putNote('w1', note('from-b'));
+
+    putNote('w1', note('from-a'));
+    await _notesSettled();
+    expect([...g.localStorage.map.keys()].filter((k) => k.startsWith(`${PREFIX}~w1`))).toHaveLength(1);
+
+    // B 没写完就关了
+    refresh();
+    await notesReady(['w1']);
+    await _notesSettled();
+    expect((await readAuthor('w1')).notes.map((n) => n.key).sort()).toEqual(['from-a', 'from-b']);
+    expect([...g.localStorage.map.keys()].filter((k) => k.startsWith(`${PREFIX}~w1`))).toEqual([]);
   });
 });
 

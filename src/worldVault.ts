@@ -386,11 +386,11 @@ export function keepRows(rows: readonly Pick<RevisionRow, 'n' | 'source' | 'cont
 
 /**
  * 写清单。一个事务里:最大的修订号还是 maxN(不然别的标签页抢先了)、要的块都在(不然被清了);都对才写,顺手去掉保留规则以外的旧修订。
- * foldLoose = 这份清单的 author 块已经并进了 notes 表那一行,一起去掉
+ * folded = 这份清单的 author 块已经并进了 notes 表的这一行:还是这一行就一起去掉,又写过(别的标签页)算抢先了,从头再来
  */
-function publish(row: RevisionRow, maxN: number, foldLoose = false): Promise<'ok' | 'conflict' | 'missing'> {
+function publish(row: RevisionRow, maxN: number, folded?: LooseNotes | null): Promise<'ok' | 'conflict' | 'missing'> {
   return run<'ok' | 'conflict' | 'missing'>(
-    foldLoose ? ['parts', 'manifests', 'notes'] : ['parts', 'manifests'],
+    folded ? ['parts', 'manifests', 'notes'] : ['parts', 'manifests'],
     'readwrite',
     (t, done) => {
       const m = t.objectStore('manifests');
@@ -407,16 +407,25 @@ function publish(row: RevisionRow, maxN: number, foldLoose = false): Promise<'ok
           m.put(row);
           const keep = keepRows([...rows, row]);
           for (const r of rows) if (!keep.has(r.n)) m.delete([r.id, r.n]);
-          if (foldLoose) t.objectStore('notes').delete(row.id);
+          if (folded) t.objectStore('notes').delete(row.id);
         };
-        if (!left) return write();
-        for (const k of row.keys) {
-          const c = p.count(k);
-          c.onsuccess = () => {
-            if (!c.result) missing = true;
-            if (--left === 0) write();
-          };
-        }
+        const check = () => {
+          if (!left) return write();
+          for (const k of row.keys) {
+            const c = p.count(k);
+            c.onsuccess = () => {
+              if (!c.result) missing = true;
+              if (--left === 0) write();
+            };
+          }
+        };
+        if (!folded) return check();
+        const l = t.objectStore('notes').get(row.id);
+        l.onsuccess = () => {
+          const now = l.result as LooseNotes | undefined;
+          if (!now || !sameNotes(now.notes, folded.notes)) return done('conflict');
+          check();
+        };
       };
     },
     true,
@@ -514,7 +523,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins, revision: { n, ...(parent ? { parent } : {}) } }, parts) };
       if (!req.recipe.title) delete manifest.title;
       if (!rewrite && prev && sameManifest(prev, manifest)) {
-        if (fold?.packed) await dropLoose(req.id);
+        if (fold?.loose) await dropLoose(fold.loose);
         return { status: 'same', n: base!.n };
       }
       const text = manifestBytes(manifest);
@@ -539,7 +548,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
         source,
         at: Date.now(),
       };
-      const out = await publish(row, maxN, !!fold?.packed);
+      const out = await publish(row, maxN, fold?.loose);
       if (out === 'ok') {
         if (rewrite) await patchState(req.id, { corrupt: undefined, checked: undefined }).catch(() => undefined);
         return { status: 'saved', n };
@@ -562,9 +571,15 @@ function looseOf(id: string): Promise<LooseNotes | null> {
   });
 }
 
-function dropLoose(id: string): Promise<void> {
+/** 这一行已经并进 author 块了:去掉。这一会儿又写过的留着 */
+function dropLoose(seen: LooseNotes): Promise<void> {
   return run<void>(['notes'], 'readwrite', (t) => {
-    t.objectStore('notes').delete(id);
+    const s = t.objectStore('notes');
+    const q = s.get(seen.id);
+    q.onsuccess = () => {
+      const now = q.result as LooseNotes | undefined;
+      if (now && sameNotes(now.notes, seen.notes)) s.delete(seen.id);
+    };
   });
 }
 
@@ -600,7 +615,7 @@ async function readBlock(id: string, info: WorldPartInfo): Promise<{ kind: 'ok';
 }
 
 /** 这个世界要存的时候,notes 表里等着的怎么并进 author 块;没有要做的 = null */
-async function foldedAuthor(id: string, infos: Map<string, WorldPartInfo>, rewrite: boolean): Promise<{ packed: PackedPart | null } | null> {
+async function foldedAuthor(id: string, infos: Map<string, WorldPartInfo>, rewrite: boolean): Promise<{ packed: PackedPart; loose: LooseNotes } | null> {
   const loose = await looseOf(id);
   if (!loose && !rewrite) return null;
   const info = infos.get('author');
@@ -608,7 +623,7 @@ async function foldedAuthor(id: string, infos: Map<string, WorldPartInfo>, rewri
   if (got.kind === 'skip' || (got.kind === 'bad' && !rewrite)) return null;
   if (got.kind === 'bad') infos.delete('author');
   if (!loose) return null;
-  return { packed: await packKnown('author', { notes: mergeNotes(got.kind === 'ok' ? got.notes : [], loose.notes) }) };
+  return { packed: await packKnown('author', { notes: mergeNotes(got.kind === 'ok' ? got.notes : [], loose.notes) }), loose };
 }
 
 /** 读出来的 AI 正文 */
@@ -695,7 +710,7 @@ export async function changeAuthor(id: string, ops: readonly NoteOp[]): Promise<
         if (!next.length) return { count: 0 };
         infos.set(keptAside(info!).name, keptAside(info!));
       } else if (sameNotes(next, had)) {
-        if (loose) await dropLoose(id);
+        if (loose) await dropLoose(loose);
         return { count: next.length };
       }
       infos.delete('author');
@@ -708,7 +723,7 @@ export async function changeAuthor(id: string, ops: readonly NoteOp[]): Promise<
       parseManifest(text, { readers: { ...prev.readers } });
       if (packed && !(await existing([partKey(packed.info)])).size) await storePart(packed);
       const row: RevisionRow = { id, n, text: new TextDecoder().decode(text), keys: [...new Set(parts.map(partKey))], content: contentOf(parts), recipeKey: base.recipeKey, generator: base.generator, source: 'made', at: Date.now() };
-      if ((await publish(row, maxN, !!loose)) === 'ok') return { count: next.length };
+      if ((await publish(row, maxN, loose)) === 'ok') return { count: next.length };
     }
     throw new VaultError('corrupt', '写清单时块总是不全');
   } catch (e) {

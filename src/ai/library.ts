@@ -8,7 +8,7 @@
  * 存在哪:正文以世界仓库的 author 块为准(worldVault.ts 的 readAuthor、changeAuthor),不受 localStorage 总共 5 MB 的限制。
  * 这里的函数都是同步的,仓库在后台线程里:页面里留一份,改动先改这一份,再排队写进仓库。
  *
- * 写:改动按操作(authorNotes.ts 的 NoteOp)发给仓库,写一次一批。写之前先把排着的操作存一份草稿进 localStorage(DRAFT):
+ * 写:改动按操作(authorNotes.ts 的 NoteOp)发给仓库,写一次一批。写之前先把排着的操作存一份草稿进 localStorage(DRAFT,每个标签页一份):
  * 关页面关得快、仓库没写完,下次打开接着写。存不下草稿(太长、localStorage 满了)不算丢,等仓库写好。
  * 仓库也写不进去:整份退回写进 localStorage(和以前一样),再写不进才算只在页面里(notesBehind),过一会儿再试。
  *
@@ -52,8 +52,10 @@ export interface NotesVault {
 }
 
 const PREFIX = 'civ-atlas:ai-notes:';
-/** 排着、还没写进仓库的操作(后面跟世界编号)。世界编号不会以 ~ 开头 */
+/** 排着、还没写进仓库的操作(后面跟世界编号、~、哪个标签页)。世界编号不会以 ~ 开头 */
 const DRAFT = `${PREFIX}~`;
+/** 这个标签页这次打开的记号:几个标签页的草稿不互相盖、不互相删 */
+const TAB = `${Date.now().toString(36)}${Math.floor(Math.random() * 36 ** 4).toString(36)}`;
 /** 哪些世界的正文已经在仓库里(世界编号 → Moved) */
 const MOVED = `${PREFIX}~~moved`;
 /** 核对过的旧的那份留多久(毫秒):比正式网站跟上测试网站的间隔(一周)长,回退版本也来得及 */
@@ -149,18 +151,47 @@ function releaseOld(force: boolean, now = Date.now()): number {
   return gone;
 }
 
-function draftOf(world: string): NoteOp[] {
+/** 这个世界各个标签页留下的草稿 */
+function draftKeys(world: string): string[] {
+  const head = `${DRAFT}${world}~`;
+  const out: string[] = [];
   try {
-    const v = JSON.parse(localStorage.getItem(DRAFT + world) ?? '[]') as unknown;
-    return Array.isArray(v) ? (v as NoteOp[]) : [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(head)) out.push(k);
+    }
   } catch {
-    return [];
+    /* 看不了就当没有 */
+  }
+  return out;
+}
+
+function draftsOf(keys: readonly string[]): NoteOp[] {
+  const out: NoteOp[] = [];
+  for (const k of keys) {
+    try {
+      const v = JSON.parse(localStorage.getItem(k) ?? '[]') as unknown;
+      if (Array.isArray(v)) out.push(...(v as NoteOp[]));
+    } catch {
+      /* 坏数据:当作没有 */
+    }
+  }
+  return out;
+}
+
+function dropDrafts(keys: readonly string[]): void {
+  for (const k of keys) {
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      /* 删不掉就算了,再写一遍也一样 */
+    }
   }
 }
 
-/** 排着的操作存一份;存不下 = false(上一份草稿还在:都是还没写进去的,下次打开照样有用) */
+/** 这个标签页排着的操作存一份;存不下 = false(上一份草稿还在:都是还没写进去的,下次打开照样有用) */
 function writeDraft(world: string, ops: readonly NoteOp[]): boolean {
-  const key = DRAFT + world;
+  const key = `${DRAFT}${world}~${TAB}`;
   try {
     if (!ops.length) {
       localStorage.removeItem(key);
@@ -208,6 +239,8 @@ interface Slot {
   flying: boolean;
   /** 这次打开用的人去掉的条(核对旧的那份时不算少了) */
   removed: Set<string>;
+  /** 打开时读到的上次留下的草稿(已经在 ops 里了,写进仓库以后去掉) */
+  oldDrafts: string[];
   ready: Promise<void>;
   markReady: () => void;
   /** 等排着的都写完的 */
@@ -263,11 +296,12 @@ function channelOf(): BroadcastChannel | null {
 function slotOf(world: string): Slot {
   const had = slots.get(world);
   if (had) return had;
-  const ops = draftOf(world);
+  const oldDrafts = draftKeys(world);
+  const ops = draftsOf(oldDrafts);
   const first = cleanNoteList(parseList(stored(world)));
   let markReady = () => {};
   const ready = new Promise<void>((r) => (markReady = r));
-  const s: Slot = { list: applyNoteOps(first, ops), disk: first, loaded: false, read: false, known: false, ops, flying: false, removed: new Set(), ready, markReady, waiters: [], tries: 0, again: false, reading: false, settling: Promise.resolve() };
+  const s: Slot = { list: applyNoteOps(first, ops), disk: first, loaded: false, read: false, known: false, ops, flying: false, removed: new Set(), oldDrafts, ready, markReady, waiters: [], tries: 0, again: false, reading: false, settling: Promise.resolve() };
   slots.set(world, s);
   channelOf();
   void load(world, s);
@@ -320,8 +354,8 @@ async function load(world: string, s: Slot): Promise<void> {
 
 function readFailed(world: string, s: Slot, e: unknown): void {
   if (giveUp(e)) return goLocal();
-  // 没读到:手上这份不算数(除非这个世界的正文本来就不在仓库里)
-  s.known = !(world in movedAll());
+  // 没读到:手上这份不算数。localStorage 里没有记录也说明不了仓库里没有(满的时候记不下)
+  s.known = false;
   s.loaded = true;
   s.read = false;
   s.markReady();
@@ -381,13 +415,16 @@ function kick(world: string, s: Slot): void {
       s.flying = false;
       streak = 0;
       if (slots.get(world) !== s) return;
-      s.ops.splice(0, batch.length);
+      // 写的这一会儿前面可能又插进来操作(读到了要并的旧正文):按这一批是哪几个去掉,不按位置
+      s.ops = s.ops.filter((o) => !batch.includes(o));
       writeDraft(world, s.ops);
+      dropDrafts(s.oldDrafts.splice(0));
       s.disk = applyNoteOps(s.disk, batch);
       const was = behind.delete(world);
       channelOf()?.postMessage({ world });
       const m = movedAll()[world];
-      setMoved(world, { s: m?.s ?? null, t: m?.t ?? Date.now(), n: s.known ? r.count : (m?.n ?? 0) });
+      const mark: Moved = { s: m?.s ?? null, t: m?.t ?? Date.now(), n: s.known ? r.count : (m?.n ?? 0) };
+      if (!setMoved(world, mark) && releaseOld(true)) setMoved(world, mark);
       if (was) emit();
       if (s.ops.length) return kick(world, s);
       for (const f of s.waiters.splice(0)) f(true);
@@ -456,10 +493,8 @@ function goLocal(): void {
   down = true;
   for (const [world, s] of slots) {
     clearTimeout(s.timer);
-    if (s.ops.length) {
-      writeLocal(world, s.list);
-      writeDraft(world, []);
-    }
+    // 写不回去的:草稿留着,下次打开接着用
+    if (s.ops.length && writeLocal(world, s.list)) dropDrafts(draftKeys(world));
     s.markReady();
     for (const f of s.waiters.splice(0)) f(!behind.has(world));
   }
@@ -478,7 +513,9 @@ function readLocal(world: string): AiNote[] {
   const raw = stored(world);
   const m = mem.get(world);
   if (m && (raw === undefined || seen.get(world) === raw)) return m;
-  const list = parseList(raw);
+  const parsed = parseList(raw);
+  // 仓库用不了的时候留下的草稿(整份写不回 localStorage 的那几条)
+  const list = down ? applyNoteOps(parsed, draftsOf(draftKeys(world))) : parsed;
   mem.set(world, list);
   seen.set(world, raw ?? null);
   behind.delete(world);
@@ -495,6 +532,7 @@ function writeLocal(world: string, list: AiNote[]): boolean {
     else localStorage.removeItem(PREFIX + world);
     seen.set(world, raw);
     behind.delete(world);
+    if (down) dropDrafts(draftKeys(world));
   } catch {
     /* 存不下 / 隐私模式:只留在内存里(浏览器里还是原来那份,别的标签页没改它就一直用内存里的) */
     ok = !persistent();
@@ -641,7 +679,7 @@ export function replaceNotes(world: string, list: AiNote[] | null): boolean {
 export function forgetNotes(world?: string): void {
   if (world === undefined) {
     for (const s of slots.values()) clearTimeout(s.timer);
-    for (const id of slots.keys()) writeDraft(id, []);
+    for (const id of slots.keys()) dropDrafts(draftKeys(id));
     slots.clear();
     mem.clear();
     seen.clear();
@@ -650,7 +688,7 @@ export function forgetNotes(world?: string): void {
     const s = slots.get(world);
     if (s) {
       clearTimeout(s.timer);
-      writeDraft(world, []);
+      dropDrafts(draftKeys(world));
       slots.delete(world);
     }
     mem.delete(world);
@@ -658,6 +696,11 @@ export function forgetNotes(world?: string): void {
     behind.delete(world);
   }
   emit();
+}
+
+/** 先读好这个世界的正文(打开世界时调:等用的人点开面板,已经读好了) */
+export function warmNotes(world: string): void {
+  if (live()) slotOf(world);
 }
 
 /** 这几个世界(不给 = 全部)读过仓库了才往下走;读得太久也往下走,这时候 notesKnown 是 false */
