@@ -305,8 +305,10 @@ async function verify(type: BrowserType, tag: string) {
       w.onerror?.(new ErrorEvent('error', { message: '检查脚本叫推的线程出错' }));
     });
     await page.waitForTimeout(500);
+    const threads = await page.evaluate(() => (window as any).__workers.length);
     const b = await stored(page, id);
     await resim(page, 800);
+    check((await page.evaluate(() => (window as any).__workers.length)) > threads, '推的线程真的重开了');
     await sameMapAs(page, id, o, '线程重开过以后再重推');
     const s2 = await waitStored(page, id, b!.n);
     check(s2.map === o.map, '线程重开过以后存的还是那一块');

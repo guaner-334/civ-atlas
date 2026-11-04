@@ -27,7 +27,8 @@
  * 第一次存世界时申请长期保存(navigator.storage.persist)。Firefox 会弹浏览器自己的询问框,只问一次;Safari、Chromium 不弹,自己定,每次打开问一次。
  */
 import { copyNotes, exportNotes, subscribeNotes } from '../ai/library';
-import { GENERATOR_VERSION, keptMapEdits, keptMapOf, type WorldEdits } from '../gen/edits';
+import { stampCalc } from '../gen/civ/ruleSet';
+import { GENERATOR_VERSION, civSeedOf, cleanMapRef, keptMapOf, type WorldEdits } from '../gen/edits';
 import { READER_VERSIONS } from '../gen/readers/versions';
 import { parseSave, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
@@ -591,6 +592,20 @@ export type KeepMapTrouble =
   | 'failed';
 
 export type KeptMapCopy = { ok: true; id: string; /** AI 写的史书、名字由来都带上了 */ notes: boolean } | { ok: false; kind: KeepMapTrouble; message: string };
+
+/**
+ * base 这份修改另存成地图留着的世界:别的修改照带(作者的干预、改名放不进新历史的,和重推时一样跳过,不删),
+ * 记上地图(本来就是地图留着的:第几版、最早从哪个世界来的照旧)和文明种子,规则按现在的换算(是新世界)
+ */
+function keptMapEdits(base: WorldEdits, mapSeed: number, m: { sum: string; grown: number; from: string }): WorldEdits {
+  const had = cleanMapRef(base.map);
+  return {
+    ...base,
+    civSeed: civSeedOf(base, mapSeed),
+    ...(base.rules ? { rules: stampCalc(base.rules) } : {}),
+    map: { sum: m.sum, from: had?.from ?? m.from, grown: had?.grown ?? m.grown },
+  };
+}
 
 /**
  * 另存一份,地图不变(gen/edits.ts 文件头"地图留着的世界"):用 id 这个世界存下的地图、各段世界,按现在的规则从第 0 年推历史,存成一个新世界。原来那份的存档、修订、原件都不动。

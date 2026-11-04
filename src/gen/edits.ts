@@ -1208,21 +1208,6 @@ export function keptMapOf(edits: Pick<WorldEdits, 'map'>): string | undefined {
   return m?.grown !== undefined ? m.sum : undefined;
 }
 
-/**
- * base 这份修改另存成地图留着的世界:别的修改照带(作者的干预、改名放不进新历史的,和重推时一样跳过,不删),
- * 记上地图(本来就是地图留着的:第几版、最早从哪个世界来的照旧)和文明种子,规则按现在的换算(是新世界)。
- * 另存的世界按现在的版本重推,所以 sum、grown 都是原世界存下的那张地图的
- */
-export function keptMapEdits(base: WorldEdits, mapSeed: number, m: { sum: string; grown: number; from: string }): WorldEdits {
-  const had = cleanMapRef(base.map);
-  return {
-    ...base,
-    civSeed: civSeedOf(base, mapSeed),
-    ...(base.rules ? { rules: stampCalc(base.rules) } : {}),
-    map: { sum: m.sum, from: had?.from ?? m.from, grown: had?.grown ?? m.grown },
-  };
-}
-
 /** 在一张地图上新开一段历史时可以另选的(不给 = 默认:地名风格自动、推演 3000 年) */
 export interface NewHistoryOptions {
   civSeed: number;
