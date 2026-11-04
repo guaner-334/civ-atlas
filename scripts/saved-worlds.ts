@@ -2,22 +2,25 @@
  * 「存下的世界」测试(tests/saved-world-stable.test.ts)的样本和基准。
  *
  *   npx tsx scripts/saved-worlds.ts chronicle   编年史的写法有意改了:用现在的代码重写编年史的基准(PR 里写明为什么)
+ *   npx tsx scripts/saved-worlds.ts samples     只补新的:SPECS 里还没有的样本、已有样本里还没有的放大窗口;已有的数据不动
+ *   npx tsx scripts/saved-worlds.ts baseline    只补新的:基准里还没有的样本和项;已有的项不动
+ *   npx tsx scripts/saved-worlds.ts samples --force    重新生成全部样本
  *   npx tsx scripts/saved-worlds.ts baseline --force   重写全部基准
- *   npx tsx scripts/saved-worlds.ts samples --force    重新生成样本
  *
- * 样本是「老世界」,基准是它们该读出来的样子。除了编年史,这两样一重写,测试就看不住了:
- * 用的人存好的世界会跟着变,而测试是绿的。所以后两条要加 --force,只在第一次建立、或确实要添一个新样本时用。
+ * 样本是「老世界」,基准是它们该读出来的样子。除了编年史,已有的一重写,测试就看不住了:
+ * 用的人存好的世界会跟着变,而测试是绿的。所以重写要加 --force,平常只补新的。
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateCiv } from '../src/gen/civ';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { GENERATOR_VERSION, type TerrainOp, type Upheaval } from '../src/gen/edits';
-import { rasterize } from '../src/gen/raster';
+import { rasterize, type Raster } from '../src/gen/raster';
 import { zoomSource } from '../src/gen/rasterWindow';
+import { READER_VERSIONS } from '../src/gen/readers/versions';
 import { makePart } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld, type World, type WorldParams } from '../src/gen/world';
-import { BASELINE_FILE, CHRONICLE_FILE, FIXTURE_DIR, SAMPLES_FILE, readSample, readSamples, type SampleInfo, type WindowSpec } from '../tests/lib/savedWorlds';
+import { BASELINE_FILE, CHRONICLE_FILE, FIXTURE_DIR, SAMPLES_FILE, openSample, readSample, readSamples, type SampleInfo, type WindowSpec } from '../tests/lib/savedWorlds';
 
 /**
  * 样本的规格:小世界(4000 地块、1000 年)。一个普通的世界,一个带地形大事的:大事以后的世界是单独一块存的,读回来要接原来的网格;
@@ -51,13 +54,38 @@ const YEARS = [137, 342.5, 500, 688, 913, 1000];
 /** 256 像素一块,对齐到块的左上角 */
 const tile = (v: number) => Math.floor(v / 256) * 256;
 
-/** 在要比的那段世界上挑几块:一个河口,再加最高的山和东西接缝;带地形大事的把后两块换成大事发生的地方 */
+/** 主图上某样东西最集中的一处(64 × 64 像素的方块,隔 4 像素抽一个加起来;方块隔半个挪一次),返回方块的中心 */
+function densest(r: Raster, score: (k: number) => number): [number, number] {
+  let top = -1;
+  let at: [number, number] = [0, 0];
+  for (let y = 0; y + 64 <= r.h; y += 32) {
+    for (let x = 0; x + 64 <= r.w; x += 32) {
+      let sum = 0;
+      for (let yy = y; yy < y + 64; yy += 4) for (let xx = x; xx < x + 64; xx += 4) sum += score(yy * r.w + xx);
+      if (sum > top) {
+        top = sum;
+        at = [x + 32, y + 32];
+      }
+    }
+  }
+  return at;
+}
+
+/**
+ * 在要比的那段世界上挑几块:一个河口,再加最高的山和东西接缝;带地形大事的把后两块换成大事发生的地方。
+ * 每个样本再加三块:浮冰的边上(海冰按整张图取样,别的块碰不到冰)、湿地最多的地方、细沟最重的地方;
+ * 这样网站放大用到的四档(2、4、8、16 倍)都有
+ */
 function pickWindows(world: World, ups: Upheaval[]): WindowSpec[] {
   const whole = rasterize(world, 1);
   const src = zoomSource(world, whole);
   const out: WindowSpec[] = [];
   const mouth = src.mouths[0];
   if (mouth) out.push({ name: '河口', S: 4, x0: tile(mouth.ex * 4), y0: tile(mouth.ey * 4) });
+  const at = (name: string, S: number, [x, y]: [number, number]) => out.push({ name, S, x0: tile(x * S), y0: tile(y * S) });
+  at('冰缘', 4, densest(whole, (k) => (whole.water[k] === 1 && whole.iceConc[k] > 40 && whole.iceConc[k] < 220 ? 1 : 0)));
+  at('湿地', 2, densest(whole, (k) => (whole.water[k] === 0 ? whole.wet[k] : 0)));
+  at('细沟', 16, densest(whole, (k) => (whole.water[k] === 0 ? (whole.vein?.[k] ?? 0) : 0)));
   if (ups.length) {
     const op: TerrainOp = ups[ups.length - 1].ops[0];
     out.push({ name: '大事', S: 4, x0: tile(op.pts[0] * 4), y0: tile(op.pts[1] * 4) });
@@ -84,10 +112,19 @@ function pickWindows(world: World, ups: Upheaval[]): WindowSpec[] {
 /** 世界的键:和网站记各段世界用的同一个写法 */
 const keyOf = (p: WorldParams, terrain: readonly TerrainOp[]) => JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain, null]);
 
-async function writeSamples(): Promise<void> {
+async function writeSamples(force: boolean): Promise<void> {
   mkdirSync(FIXTURE_DIR, { recursive: true });
-  const list: SampleInfo[] = [];
+  const had = !force && existsSync(SAMPLES_FILE) ? readSamples() : [];
+  const list: SampleInfo[] = had.filter((s) => !SPECS.some((x) => x.name === s.name));
   for (const spec of SPECS) {
+    const old = had.find((s) => s.name === spec.name);
+    if (old) {
+      // 已有的样本:数据不动,只补还没有的放大窗口
+      const { world, eras } = await openSample(old);
+      const more = pickWindows(eras[eras.length - 1] ?? world, old.upheavals).filter((w) => !old.windows.some((x) => x.name === w.name));
+      list.push({ ...old, windows: [...old.windows, ...more] });
+      continue;
+    }
     const params: WorldParams = { ...DEFAULT_PARAMS, seed: spec.seed, cells: CELLS };
     const world = generateWorld(params);
     const steps = upheavalSteps(params, [], null, spec.upheavals, { endYear: END_YEAR });
@@ -112,6 +149,7 @@ async function writeSamples(): Promise<void> {
       cells: CELLS,
       endYear: END_YEAR,
       generator: GENERATOR_VERSION,
+      readers: { ...READER_VERSIONS },
       upheavals: spec.upheavals,
       years: YEARS,
       windows: pickWindows(steps[steps.length - 1]?.world ?? world, spec.upheavals),
@@ -131,24 +169,29 @@ function writeTable(file: string, table: Record<string, Record<string, unknown>>
   writeFileSync(file, `{\n${body.join(',\n')}\n}\n`);
 }
 
-async function writeBaseline(chronicleOnly: boolean): Promise<void> {
+const readTable = (file: string): Record<string, Record<string, unknown>> => (existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, Record<string, unknown>>) : {});
+
+/** 写基准。force = 全部重写;否则已有的项原样留着,只补新的。编年史只有 mode = 'chronicle' 时才重写 */
+async function writeBaseline(mode: 'chronicle' | 'add' | 'force'): Promise<void> {
+  const oldBase = mode === 'add' ? readTable(BASELINE_FILE) : {};
+  const oldChron = mode === 'add' ? readTable(CHRONICLE_FILE) : {};
   const base: Record<string, Record<string, unknown>> = {};
   const chron: Record<string, Record<string, unknown>> = {};
   for (const s of readSamples()) {
     const r = await readSample(s);
-    base[s.name] = Object.fromEntries(r.items.map((it) => [it.id, it.digest]));
-    chron[s.name] = { ...r.chronicleDigest };
+    base[s.name] = { ...Object.fromEntries(r.items.map((it) => [it.id, it.digest])), ...oldBase[s.name] };
+    chron[s.name] = oldChron[s.name] ?? { ...r.chronicleDigest };
   }
-  if (!chronicleOnly) writeTable(BASELINE_FILE, base);
+  if (mode !== 'chronicle') writeTable(BASELINE_FILE, base);
   writeTable(CHRONICLE_FILE, chron);
 }
 
 const [mode] = process.argv.slice(2);
 const force = process.argv.includes('--force');
-if (mode === 'chronicle') await writeBaseline(true);
-else if (mode === 'baseline' && (force || !existsSync(BASELINE_FILE))) await writeBaseline(false);
-else if (mode === 'samples' && (force || !existsSync(SAMPLES_FILE))) await writeSamples();
+if (mode === 'chronicle') await writeBaseline('chronicle');
+else if (mode === 'baseline') await writeBaseline(force ? 'force' : 'add');
+else if (mode === 'samples') await writeSamples(force);
 else {
-  console.error('用法见文件头。baseline、samples 会换掉已有的基准和样本,要加 --force');
+  console.error('用法见文件头');
   process.exitCode = 1;
 }
