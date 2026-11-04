@@ -5,18 +5,25 @@
  * 文件名一律 UTF-8。时间固定,同样的内容打出同样的字节(什么时候存的不归外壳记)。
  *
  * 读(readZip、parseZip):文件当成坏的看,只认最规矩的那种长法,别的一律抛 Error:
- * - 大小、条目数有上限;末尾必须正好是目录的结尾(不接受压缩包注释、尾巴上多的字节)
+ * - 大小(调用方按用途传:传上服务器 ZIP_UPLOAD_MAX_BYTES,本机存取 ZIP_LOCAL_MAX_BYTES)、条目数有上限;末尾必须正好是目录的结尾(不接受压缩包注释、尾巴上多的字节)
  * - 各条目必须从头到目录首尾相接、不留空、不重叠。先核对这条再算校验:不然几千个条目指同一段字节,光算校验就算不完
  * - 目录和各条目自己的头要说同样的话(两边不一样,不同的软件会读出不同的内容)
- * - 拒绝加密、分卷、ZIP64(64 MB 用不到)、除「不压缩」以外的压缩方式、声明大小对不上、校验(CRC-32)对不上
+ * - 拒绝加密、分卷、ZIP64(世界用不到 4 GB)、除「不压缩」以外的压缩方式、声明大小对不上、校验(CRC-32)对不上
  * - 文件名:拒绝 ..、绝对路径、反斜杠、盘符、控制字符、目录条目、每一段结尾的点和空格、重复的(只差大小写、只差 Unicode 写法的
  *   也算重复:Windows、Mac 上解压到同一个文件)、既当文件又当目录的;不是 UTF-8 的拒绝
  *
  * 纯计算,不碰 DOM:Blob 在 worker、Node 里都有。
  */
 
-/** 一个文件最大多少字节:量到的最大的世界(20 万地块、6 万年)约 58.8 MB */
-export const ZIP_MAX_BYTES = 64e6;
+/** 传上服务器的文件最大多少字节 */
+export const ZIP_UPLOAD_MAX_BYTES = 64e6;
+/**
+ * 本机存成文件、打开文件最大多少字节。本机的世界不设额度,这个数只防撑爆内存(打开别人的文件时大小都是别人说了算):
+ * 读文件要整个读进内存,再大手机上就读不动了;比最大的世界(20 万地块、6 万年、5 件地形大事)大好几倍,还给插件的附加数据留了地方
+ */
+export const ZIP_LOCAL_MAX_BYTES = 1e9;
+/** 不用 ZIP64,偏移和大小都是 32 位:传多大的上限也不能超过它 */
+const ZIP32_MAX_BYTES = 0xfffffffe;
 /** 最多几个条目:一个世界连同以后的扩展内容也就几十块,留足余量;只防条目数把目录撑得很大 */
 export const ZIP_MAX_ENTRIES = 4096;
 /** 文件名最多多少字节(连路径):世界文件里最长的也就几十字节;Windows 上路径最长也才 260 个字符 */
@@ -112,8 +119,14 @@ async function crcOf(data: Uint8Array | Blob): Promise<number> {
   }
 }
 
-/** 打成 ZIP(不压缩)。文件名不合规矩、重复,或者打出来超过 ZIP_MAX_BYTES、ZIP_MAX_ENTRIES(自己也读不回来)的抛错 */
-export async function writeZip(entries: readonly ZipInput[]): Promise<Blob> {
+/** 调用方给的上限:不是数,或者超过 32 位 ZIP 放得下的,都算写错了 */
+function checkMax(maxBytes: number): void {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > ZIP32_MAX_BYTES) throw new Error('ZIP 的大小上限不对');
+}
+
+/** 打成 ZIP(不压缩)。文件名不合规矩、重复,或者打出来超过 maxBytes、ZIP_MAX_ENTRIES(自己也读不回来)的抛错 */
+export async function writeZip(entries: readonly ZipInput[], maxBytes: number): Promise<Blob> {
+  checkMax(maxBytes);
   if (entries.length > ZIP_MAX_ENTRIES) throw new Error('ZIP 的条目太多');
   const enc = new TextEncoder();
   const noClash = nameChecker();
@@ -127,7 +140,7 @@ export async function writeZip(entries: readonly ZipInput[]): Promise<Blob> {
     noClash(e.name);
     const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data;
     const size = data instanceof Blob ? data.size : data.byteLength;
-    if (at + size > ZIP_MAX_BYTES) throw new Error('ZIP 太大');
+    if (at + size > maxBytes) throw new Error('ZIP 太大');
     const crc = await crcOf(data);
 
     const local = new Uint8Array(LOCAL_SIZE + name.length);
@@ -161,7 +174,7 @@ export async function writeZip(entries: readonly ZipInput[]): Promise<Blob> {
     at += local.length + size;
     centralSize += head.length;
   }
-  if (at + centralSize + END_SIZE > ZIP_MAX_BYTES) throw new Error('ZIP 太大');
+  if (at + centralSize + END_SIZE > maxBytes) throw new Error('ZIP 太大');
   const end = new Uint8Array(END_SIZE);
   const v = new DataView(end.buffer);
   v.setUint32(0, SIG_END, true);
@@ -190,14 +203,16 @@ function checkFlags(flags: number): void {
 }
 
 /** 读文件(Blob):大小先看,超上限的不读进内存;其余见 parseZip */
-export async function readZip(file: Blob): Promise<ZipEntry[]> {
-  if (file.size > ZIP_MAX_BYTES) throw new Error('ZIP 太大');
-  return parseZip(new Uint8Array(await file.arrayBuffer()));
+export async function readZip(file: Blob, maxBytes: number): Promise<ZipEntry[]> {
+  checkMax(maxBytes);
+  if (file.size > maxBytes) throw new Error('ZIP 太大');
+  return parseZip(new Uint8Array(await file.arrayBuffer()), maxBytes);
 }
 
 /** 读内存里的字节:交回的各块和 bytes 共用字节;坏文件抛错(规矩见文件头) */
-export function parseZip(bytes: Uint8Array): ZipEntry[] {
-  if (bytes.length > ZIP_MAX_BYTES) throw new Error('ZIP 太大');
+export function parseZip(bytes: Uint8Array, maxBytes: number): ZipEntry[] {
+  checkMax(maxBytes);
+  if (bytes.length > maxBytes) throw new Error('ZIP 太大');
   if (bytes.length < END_SIZE) throw new Error('ZIP 不完整');
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const u16 = (o: number) => dv.getUint16(o, true);

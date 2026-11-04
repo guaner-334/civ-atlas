@@ -4,9 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { mulberry32 } from '../src/gen/util';
-import { crc32, parseZip, readZip, writeZip, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, type ZipEntry } from '../src/gen/zipStore';
+import { crc32, parseZip as parseAt, readZip as readAt, writeZip as writeAt, ZIP_LOCAL_MAX_BYTES, ZIP_MAX_ENTRIES, ZIP_UPLOAD_MAX_BYTES, type ZipEntry, type ZipInput } from '../src/gen/zipStore';
 
-const text = (s: string) => new TextEncoder().encode(s);
+/** 上限由调用方传;这里的测试都按上传的上限(最严的),本机的上限在「上限由调用方定」里单独试 */
+const ZIP_MAX_BYTES = ZIP_UPLOAD_MAX_BYTES;
+const parseZip = (b: Uint8Array) => parseAt(b, ZIP_MAX_BYTES);
+const readZip = (b: Blob) => readAt(b, ZIP_MAX_BYTES);
+const writeZip = (e: readonly ZipInput[]) => writeAt(e, ZIP_MAX_BYTES);
+
+const text =(s: string) => new TextEncoder().encode(s);
 const bytesOf = async (b: Blob) => new Uint8Array(await b.arrayBuffer());
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-store-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -175,6 +181,36 @@ describe('ZIP:写', () => {
     await expect(writeZip([{ name: 'big', data: new Blob([new Uint8Array(ZIP_MAX_BYTES + 1)]) }])).rejects.toThrow();
     await expect(writeZip([{ name: 'full', data: new Blob([new Uint8Array(ZIP_MAX_BYTES)]) }])).rejects.toThrow();
     await expect(writeZip(Array.from({ length: ZIP_MAX_ENTRIES + 1 }, (_, i) => ({ name: `f${i}`, data: one })))).rejects.toThrow();
+  });
+});
+
+describe('ZIP:上限由调用方定', () => {
+  const big = new Blob([new Uint8Array(ZIP_UPLOAD_MAX_BYTES)]);
+
+  it('超过上传上限的文件:传不上去,本机照样能存能读', async () => {
+    await expect(writeAt([{ name: 'big', data: big }], ZIP_UPLOAD_MAX_BYTES)).rejects.toThrow('太大');
+    const local = await writeAt([{ name: 'big', data: big }], ZIP_LOCAL_MAX_BYTES);
+    expect(local.size).toBeGreaterThan(ZIP_UPLOAD_MAX_BYTES);
+    await expect(readAt(local, ZIP_UPLOAD_MAX_BYTES)).rejects.toThrow('太大');
+    expect(() => parseAt(new Uint8Array(ZIP_UPLOAD_MAX_BYTES + 1), ZIP_UPLOAD_MAX_BYTES)).toThrow('太大');
+    const back = await readAt(local, ZIP_LOCAL_MAX_BYTES);
+    expect(back[0].data.length).toBe(ZIP_UPLOAD_MAX_BYTES);
+  });
+
+  it('本机也有上限:打开别人的文件时大小不读进内存就拒绝', async () => {
+    const spy = vi.spyOn(Blob.prototype, 'arrayBuffer');
+    await expect(readAt(new Blob([new Uint8Array(1025)]), 1024)).rejects.toThrow('太大');
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    await expect(writeAt([{ name: 'a', data: new Uint8Array(1025) }], 1024)).rejects.toThrow('太大');
+  });
+
+  it('上限本身不对(不是数、超过 32 位 ZIP 放得下的)就报错,不当没有上限', async () => {
+    for (const max of [NaN, Infinity, -1, 1.5, 2 ** 32]) {
+      expect(() => parseAt(new Uint8Array(0), max), String(max)).toThrow('上限不对');
+      await expect(readAt(new Blob([]), max), String(max)).rejects.toThrow('上限不对');
+      await expect(writeAt([], max), String(max)).rejects.toThrow('上限不对');
+    }
   });
 });
 

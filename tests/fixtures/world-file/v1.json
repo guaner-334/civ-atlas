@@ -1,0 +1,105 @@
+{
+  "file": {
+    "sha256": "c61fd387b0eca3156f8d04ad4a924fc3381c8f14132c337bf454d072cd821096",
+    "bytes": 1037544
+  },
+  "parts": {
+    "map": {
+      "sum": "d4773465347b9ad6c3c6cc04eaa8f622e28c88ba443ca5245a64a1939f24618d",
+      "bytes": 311320,
+      "schema": 1
+    },
+    "eras": {
+      "sum": "313a67c2a174b56ad915122e6a58bf02e8b43bc295fc13fdcc072b6b782b2b82",
+      "bytes": 176576,
+      "schema": 1
+    },
+    "civ": {
+      "sum": "d76c283efeeef7ff0f09c9fc125f7c1fc2979985b201537ee784e282cde3edb2",
+      "bytes": 2608968,
+      "schema": 1
+    },
+    "chronicle": {
+      "sum": "c6ba3170f805356bb76028f1a6fa39c0f6ea0beeeac6bac0a4d1c0cbdbecc58d",
+      "bytes": 485136,
+      "schema": 1
+    },
+    "flags": {
+      "sum": "1b35e74eded45ee0fd688b8e3ff2ab193eadf1fda9315fd937dff81e0b6db7a1",
+      "bytes": 16744,
+      "schema": 1
+    },
+    "author": {
+      "sum": "9ed18323c9afdce57b3c5fb8cc5449f33afbc6ccbfcd3e3c4e4202430297a05f",
+      "bytes": 440,
+      "schema": 1
+    },
+    "thumb": {
+      "sum": "404ea2fdb2b37ec78293542a28cca124ec0f2faccbfabce4c3ef8e131ce00f91",
+      "bytes": 5553,
+      "schema": 1
+    },
+    "ext.fixture-sim": {
+      "sum": "f0d1d7d28604050f22fca2b7b0881d5b56ca5fe5c7c77cdc9196f8b1bc2f808d",
+      "bytes": 104,
+      "schema": 3
+    }
+  },
+  "world": {
+    "cells": 1884,
+    "rivers": 272,
+    "maxElevation": 6529.62548828125,
+    "elevation": "44fef37191fd91ded3a2e1e1b1155d8f5132ecd7c7a86a179d6b6d8100d26ecd",
+    "temperature": "7b0f615fbcf2b1ab60fae4d7a40ada2fce916f2451e6032814024f3cab6bfe7e",
+    "biome": "39c134142cbd16dcb0c7eb66f6d6919b205072d135d5705c32520cc2891722a8",
+    "adj": "2b78341ae107a2fab6fb99f9daf4f0ade93e14f72b91be0ec14f51ea3e0061ce"
+  },
+  "eras": {
+    "count": 1,
+    "elevation": "383ec3d2cd60797a2a5e89b965c9f5ac93862434c1de8ce801afb882bc66b1b0"
+  },
+  "civ": {
+    "seed": 7,
+    "endYear": 2000,
+    "regions": 448,
+    "cultures": 9,
+    "settlements": 386,
+    "polities": 51,
+    "annals": 1955,
+    "people": 1870,
+    "polityAtEnd": "09a5ec2d3353fa4d5810c2e32893888a1caee64eee7f3924a44f9ab5f37f03ad",
+    "firstPolity": "卡兰提亚",
+    "firstCity": "西格维克",
+    "logYears": "ed275ec418af1741d7bf1f3fa9ca9c6f3a403efcd84e24784300ec151db77d3b",
+    "annalsText": "d4e4b3340dbb392860d5b3b2a5510f0ee64fbffa08a9ec329a3d08d533e07e44"
+  },
+  "chronicle": {
+    "entries": 753,
+    "first": "塞尔薇娅娜建卡兰提亚部,都于奥雷拉",
+    "text": "a0be25cda04a8f0565fb0d0ab75df5ee08c8b04ef64f6765c4c511a88da6e060"
+  },
+  "flags": {
+    "polities": 51,
+    "faces": 66,
+    "specs": "00d2c9e0f57a092cff9b0c2f9f4a63a160e1571a332243ac57af2e47830b3e1c"
+  },
+  "author": {
+    "notes": 2,
+    "first": "饕餮本纪"
+  },
+  "thumb": {
+    "bytes": 5553,
+    "sha256": "404ea2fdb2b37ec78293542a28cca124ec0f2faccbfabce4c3ef8e131ce00f91"
+  },
+  "recipe": {
+    "title": "第一版样本",
+    "seed": 7,
+    "names": 2,
+    "characters": 1,
+    "marks": 1,
+    "origin": "https://atlas.example/?gallery=k7qm2xpa"
+  },
+  "kept": [
+    "ext.fixture-sim"
+  ]
+}

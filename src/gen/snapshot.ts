@@ -160,6 +160,12 @@ const PART_LIMITS: ReadonlyMap<string, number> = new Map([
   ['eras', 80 * MB],
   ['civ', 160 * MB],
   ['chronicle', 64 * MB],
+  // 各国历代的旗:实测最大(20 万地块、6 万年)不到 1 MB
+  ['flags', 16 * MB],
+  // AI 写的正文:量不出最大值(看作者写多少),按编年史的量级给足,别让写得多的世界打不开
+  ['author', 64 * MB],
+  // 封面:480 × 240 的 JPEG 几十 KB
+  ['thumb', 2 * MB],
 ]);
 /**
  * 认不出的块名给 16 MB。认不出的块本来就只原样留着、不用解开;真要读的只会是以后新加的块,那时在上面的表里按实测写明上限。
@@ -336,7 +342,7 @@ export function packValue(root: unknown): Uint8Array {
  * 结构的字节最深几层,超上限就拒绝(还没开始 JSON.parse):字符串里的括号不算。
  * 不是合格 JSON 的,这里算出来的层数不作数,接着 JSON.parse 会拒绝
  */
-function checkDepth(head: Uint8Array): void {
+export function checkDepth(head: Uint8Array): void {
   let depth = 0;
   let inString = false;
   for (let i = 0; i < head.length; i++) {
@@ -483,16 +489,24 @@ export async function makePart(name: string, value: unknown): Promise<SnapshotPa
  * 说好的字节数先看:超这块的上限不开始解;解的时候比说好的多就停,所以解多少由 min(上限, 说好的) 管着,压缩炸弹撑不开内存
  */
 export async function readPart(part: SnapshotPart): Promise<unknown> {
-  const { name, bytes, zip, data } = part;
-  if (Object.prototype.toString.call(data) !== '[object ArrayBuffer]') throw new Error('原件的字节不对');
+  if (Object.prototype.toString.call(part.data) !== '[object ArrayBuffer]') throw new Error('原件的字节不对');
+  return unpackValue(await partBytes(part, new Uint8Array(part.data)));
+}
+
+/**
+ * 一块解压后的字节:解不开、超上限、校验对不上抛错(规矩同 readPart)。data 是这一块压缩后的字节;没压缩的直接交回 data 本身。
+ * 不是 packValue 打的块(封面)也从这里取
+ */
+export async function partBytes(part: Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, data: Uint8Array): Promise<Uint8Array> {
+  const { name, bytes, zip } = part;
   if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > partLimit(name)) throw new Error('原件这一块超过上限');
-  let raw = new Uint8Array(data);
+  let raw = data;
   if (zip === 'gzip') {
     if (!canZip()) throw new Error('这个浏览器太旧,解不开原件');
     raw = await inflate(raw, bytes);
   } else if (zip !== 'none') throw new Error('原件的压缩方式认不出');
   if (raw.length !== bytes || (await sha256(raw)) !== part.sum) throw new Error('原件对不上校验');
-  return unpackValue(raw);
+  return raw;
 }
 
 /** 原件里叫 name 的那一块;没有 = undefined */
