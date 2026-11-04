@@ -37,7 +37,7 @@ import type { ConvertReply } from '../worldConvertWorker';
 import type { CommitRequest, CommitResult, RevisionHead, VaultErrorKind, VaultOps, WorldPartsOffer } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
 import { isCoarse, isNarrow } from './device';
-import { resultHeads } from './resultStore';
+import { dropResults, resultHeads } from './resultStore';
 import { allWorldIds, currentWorld, isStored, loadWorld, originalOf, persistent, subscribe, trashMarks, unmarkTrash } from './saveStore';
 import { APP_COMMIT, APP_VERSION } from './version';
 
@@ -534,6 +534,8 @@ export async function maintain(trashKeep: number = TRASH_KEEP_MS, grace?: number
     if (isStored(id)) unmarkTrash(id);
     else if (now - at >= trashKeep) {
       await call('purgeWorld', [id]);
+      // 划掉以后原件那边就不认得它了,一起删
+      await dropResults(id);
       unmarkTrash(id);
     }
   }

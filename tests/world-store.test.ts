@@ -410,9 +410,13 @@ describe('删世界', () => {
     saveStore.deleteWorld(id);
     await maintain(TRASH_KEEP_MS, 0);
     expect((await latestOf(id))?.n).toBe(1);
+    // 原件也存着:这个页面开了很久,没等到下次打开时清
+    const save = makeSave(PARAMS, EMPTY_EDITS, check);
+    await putOriginal(id, [await makePart('map', { a: 1 })], save, GENERATOR_VERSION);
     await maintain(0, 0);
     expect(await latestOf(id)).toBeNull();
     expect(id in saveStore.trashMarks()).toBe(false);
+    expect(await resultHeads(id)).toEqual([]);
   });
 
   it('删了以后账号里又取回来了(列表里又有了):不清,记录划掉', async () => {

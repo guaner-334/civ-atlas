@@ -253,6 +253,19 @@ export function dropOrphans(): Promise<void> {
   });
 }
 
+/** 一个世界的原件全删:用的人删了它、记录要划掉之前(划掉以后 dropOrphans 就不认得它了) */
+export function dropResults(id: string): Promise<void> {
+  return queue(async () => {
+    const b = be();
+    if (!b) return;
+    try {
+      await b.remove((await b.heads()).filter((h) => h.id === id).map((h): [string, number] => [h.id, h.generator]));
+    } catch {
+      /* 删不掉就多占点地方 */
+    }
+  });
+}
+
 /** 浏览器里的原件全删(退出登录时选了"从这台设备上删掉") */
 export function clearResults(): Promise<void> {
   pending = null;
