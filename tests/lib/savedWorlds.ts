@@ -34,10 +34,9 @@ export const BASELINE_FILE = join(FIXTURE_DIR, 'baseline.json');
 /** 编年史的基准(单独一个文件:只有它可以随写法更新) */
 export const CHRONICLE_FILE = join(FIXTURE_DIR, 'chronicle.json');
 
-/** 放大时要比的一块:第 era 段世界(0 = 原来的地形)、S 倍主图上左上角在 (x0, y0) 的 256 × 256 块(和网页按屏幕要的块一样) */
+/** 放大时要比的一块:S 倍主图上左上角在 (x0, y0) 的 256 × 256 块(和网页按屏幕要的块一样) */
 export interface WindowSpec {
   name: string;
-  era: number;
   S: number;
   x0: number;
   y0: number;
@@ -307,21 +306,19 @@ export interface SampleReading {
 /** 用当前的代码把样本读一遍:每一项的摘要和编年史。不重新生成世界 */
 export async function readSample(s: SampleInfo): Promise<SampleReading> {
   const { world, eras, civ } = await openSample(s);
-  const items: ReadItem[] = [];
-  [world, ...eras].forEach((w, k) => {
-    const prefix = k ? `era${k}.` : '';
-    const title = k ? `第 ${k} 件地形大事以后的` : '';
-    const whole = rasterize(w, 1);
-    items.push(...pixelItems('raster', `${prefix}whole`, title, whole, WHOLE_FIELDS, RASTER_BANDS, ''));
-    const wins = s.windows.filter((x) => x.era === k);
-    if (!wins.length) return;
-    const src = zoomSource(w, whole);
-    for (const win of wins) {
-      const n = 256 + 2 * WINDOW_PAD;
-      const r = rasterizeWindow(src, win.S, win.x0 - WINDOW_PAD, win.y0 - WINDOW_PAD, n, n);
-      items.push(...pixelItems('zoom', `${prefix}zoom.${win.name}`, `${title}放大 ${win.S} 倍「${win.name}」那一块的`, r, WINDOW_FIELDS, WINDOW_BANDS, '这一块'));
-    }
-  });
+  // 铺全图最费时间。带地形大事的样本只铺最后一段:原来那段的读法普通样本已经比了,这个种子的地形也只差大事附近那一块
+  const k = eras.length;
+  const w = k ? eras[k - 1] : world;
+  const prefix = k ? `era${k}.` : '';
+  const title = k ? '地形大事以后的' : '';
+  const whole = rasterize(w, 1);
+  const items = pixelItems('raster', `${prefix}whole`, title, whole, WHOLE_FIELDS, RASTER_BANDS, '');
+  const src = zoomSource(w, whole);
+  for (const win of s.windows) {
+    const n = 256 + 2 * WINDOW_PAD;
+    const r = rasterizeWindow(src, win.S, win.x0 - WINDOW_PAD, win.y0 - WINDOW_PAD, n, n);
+    items.push(...pixelItems('zoom', `${prefix}zoom.${win.name}`, `${title}放大 ${win.S} 倍「${win.name}」那一块的`, r, WINDOW_FIELDS, WINDOW_BANDS, '这一块'));
+  }
   items.push(...peopleItems(civ, s.years), ...ownerItems(civ, s.years));
   const chronicle = fullChronicle(civ);
   return { items, chronicle, chronicleDigest: chronicleDigest(chronicle) };

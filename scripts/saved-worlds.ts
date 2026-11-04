@@ -19,7 +19,10 @@ import { makePart } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld, type World, type WorldParams } from '../src/gen/world';
 import { BASELINE_FILE, CHRONICLE_FILE, FIXTURE_DIR, SAMPLES_FILE, readSample, readSamples, type SampleInfo, type WindowSpec } from '../tests/lib/savedWorlds';
 
-/** 样本的规格:小世界(4000 地块、1000 年)。一个普通的世界,一个带地形大事的:大事以后的各段世界是单独一块存的,读回来要接网格 */
+/**
+ * 样本的规格:小世界(4000 地块、1000 年)。一个普通的世界,一个带地形大事的:大事以后的世界是单独一块存的,读回来要接原来的网格;
+ * 历史也多了各段的州、宜居度(某年的归属按当时那一段读)。换个种子,再多看住一份地形和历史
+ */
 const SPECS: { name: string; title: string; seed: number; upheavals: Upheaval[] }[] = [
   { name: 'seed7', title: '种子 7', seed: 7, upheavals: [] },
   {
@@ -48,16 +51,21 @@ const YEARS = [137, 342.5, 500, 688, 913, 1000];
 /** 256 像素一块,对齐到块的左上角 */
 const tile = (v: number) => Math.floor(v / 256) * 256;
 
-/** 挑要比的几块:一个河口、最高的山、东西接缝;有地形大事的再加大事发生的地方 */
-function pickWindows(world: World, eras: World[], ups: Upheaval[]): WindowSpec[] {
+/** 在要比的那段世界上挑几块:一个河口,再加最高的山和东西接缝;带地形大事的把后两块换成大事发生的地方 */
+function pickWindows(world: World, ups: Upheaval[]): WindowSpec[] {
   const whole = rasterize(world, 1);
   const src = zoomSource(world, whole);
   const out: WindowSpec[] = [];
   const mouth = src.mouths[0];
-  if (mouth) out.push({ name: '河口', era: 0, S: 4, x0: tile(mouth.ex * 4), y0: tile(mouth.ey * 4) });
+  if (mouth) out.push({ name: '河口', S: 4, x0: tile(mouth.ex * 4), y0: tile(mouth.ey * 4) });
+  if (ups.length) {
+    const op: TerrainOp = ups[ups.length - 1].ops[0];
+    out.push({ name: '大事', S: 4, x0: tile(op.pts[0] * 4), y0: tile(op.pts[1] * 4) });
+    return out;
+  }
   let top = 0;
   for (let i = 0; i < whole.elev.length; i++) if (whole.water[i] === 0 && whole.elev[i] > whole.elev[top]) top = i;
-  out.push({ name: '高山', era: 0, S: 8, x0: tile((top % whole.w) * 8), y0: tile(Math.floor(top / whole.w) * 8) });
+  out.push({ name: '高山', S: 8, x0: tile((top % whole.w) * 8), y0: tile(Math.floor(top / whole.w) * 8) });
   // 中低纬度里第 0 列附近陆地最多的一行:这一块要跨过东西接缝取邻居
   let seam = 0;
   let best = -1;
@@ -69,15 +77,11 @@ function pickWindows(world: World, eras: World[], ups: Upheaval[]): WindowSpec[]
       seam = y;
     }
   }
-  out.push({ name: '接缝', era: 0, S: 4, x0: 0, y0: tile(seam * 4) });
-  eras.forEach((_, k) => {
-    const op: TerrainOp = ups[k].ops[0];
-    out.push({ name: '大事', era: k + 1, S: 4, x0: tile(op.pts[0] * 4), y0: tile(op.pts[1] * 4) });
-  });
+  out.push({ name: '接缝', S: 4, x0: 0, y0: tile(seam * 4) });
   return out;
 }
 
-/** 和网站打包地图那一块同一个做法 */
+/** 世界的键:和网站记各段世界用的同一个写法 */
 const keyOf = (p: WorldParams, terrain: readonly TerrainOp[]) => JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain, null]);
 
 async function writeSamples(): Promise<void> {
@@ -110,7 +114,7 @@ async function writeSamples(): Promise<void> {
       generator: GENERATOR_VERSION,
       upheavals: spec.upheavals,
       years: YEARS,
-      windows: pickWindows(world, steps.map((s) => s.world), spec.upheavals),
+      windows: pickWindows(steps[steps.length - 1]?.world ?? world, spec.upheavals),
       parts: files,
     });
     console.log(spec.name, parts.map((p) => `${p.name} ${(p.data.byteLength / 1e6).toFixed(2)} MB`).join(','));
