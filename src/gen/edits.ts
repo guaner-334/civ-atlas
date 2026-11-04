@@ -366,6 +366,19 @@
  * 新开时用的是原来那个世界的**初始**地图(参数、地形修改、草图;不带地形大事),推演从第 0 年起;
  * 原来的国家、人物、干预、地形大事、纪年、改名、作者标记和人物、改过的旗都不带(newHistoryEdits)。
  *
+ * ### 地图留着的世界
+ *
+ * 旧版本的世界想接着推:另存一份,地图不变,历史按现在的规则从第 0 年重推(ui/worldStore.ts 的 keepMapCopy)。这份世界的地图不是按种子长的,
+ * 是从存下的内容拿来的(现在的生成器长不出它),所以 WorldEdits.map 多记一项 grown(这张地图是第几版生成器长的),sum 就是那一块的校验,进配方指纹(gen/snapshot.ts)。
+ * 记了 grown 的世界:
+ * - 地图和各段世界只从世界仓库、世界文件里读,块照原样留着,一个字节不重打;按第几版读取代码读地形记在世界里(readers.terrain),查询用现在的
+ * - **绝不按种子重新长**。读不到那张地图就不打开,不拿另一颗星球顶替(ui/world/useWorldLoad.ts)
+ * - 地形大事、地形修改、草图不能再改:改了就得重新长(editsStore 的 historyGate 拦下)。原来带的地形大事照旧,各段世界同样留着
+ * - 存档只有配方,没有地图:分享链接、存档文件、别的设备同步过来的打开时找不到地图就打不开,要用世界文件(.civworld)。
+ *   存档写成格式 5(savefile.ts 文件头 format),不认得的旧版本提示更新页面,不会悄悄按种子长一颗别的星球
+ * - 总带着文明种子(等于原来用的那个):改过地形的世界扩张节拍按这张地图本身标定,不另按现在的生成器长一颗没改地形的星球
+ * - 另存出来的世界(复制、从某一年开始演绎、再按新版另存)也记着,第一次打开时按同一张地图算好存下;在这张地图上打造新文明按旧世界的办法核对地图,对不上不让新开
+ *
  * ## 纪年
  *
  * WorldEdits.era(可选,没有 = 按"第几年"写):年份的写法 —— 名字(默认「公元」)和元年是第几年,
@@ -1169,6 +1182,8 @@ export interface MapRef {
   sum?: string;
   /** 从哪个世界新开的(世界编号) */
   from?: string;
+  /** 地图留着的世界(见文件头"地图留着的世界"):这张地图是第几版生成器长的;有 sum 才算数。没有 = 地图按种子长 */
+  grown?: number;
 }
 
 /** 地图记录清理:校验是 64 位十六进制、编号是不带控制字符的短字符串才留;一样都不剩 = undefined */
@@ -1178,12 +1193,19 @@ export function cleanMapRef(v: unknown): MapRef | undefined {
   const sum = typeof o.sum === 'string' && /^[0-9a-f]{64}$/.test(o.sum) ? o.sum : undefined;
   // eslint-disable-next-line no-control-regex
   const from = typeof o.from === 'string' && o.from.length > 0 && o.from.length <= 400 && !/[\u0000-\u001f\u007f]/.test(o.from) ? o.from : undefined;
-  return sum || from ? { ...(sum ? { sum } : {}), ...(from ? { from } : {}) } : undefined;
+  const grown = sum && typeof o.grown === 'number' && Number.isSafeInteger(o.grown) && o.grown >= 1 ? o.grown : undefined;
+  return sum || from ? { ...(sum ? { sum } : {}), ...(from ? { from } : {}), ...(grown !== undefined ? { grown } : {}) } : undefined;
 }
 
 /** 两份地图记录一样(都没有也算) */
 export function sameMapRef(a: MapRef | undefined, b: MapRef | undefined): boolean {
-  return (a?.sum ?? '') === (b?.sum ?? '') && (a?.from ?? '') === (b?.from ?? '');
+  return (a?.sum ?? '') === (b?.sum ?? '') && (a?.from ?? '') === (b?.from ?? '') && a?.grown === b?.grown;
+}
+
+/** 地图留着的世界(见文件头"地图留着的世界"):地图那一块的校验;别的世界 = undefined */
+export function keptMapOf(edits: Pick<WorldEdits, 'map'>): string | undefined {
+  const m = cleanMapRef(edits.map);
+  return m?.grown !== undefined ? m.sum : undefined;
 }
 
 /** 在一张地图上新开一段历史时可以另选的(不给 = 默认:地名风格自动、推演 3000 年) */

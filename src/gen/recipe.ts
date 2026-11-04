@@ -2,7 +2,7 @@
  * 原件的格式(一份原件有哪几块)和配方指纹(生成一份结果用到的全部输入):首页的「我的世界」只要这些。
  * 打包、解开原件的代码在 snapshot.ts,首页用不着,分开放才不会跟着进首页要下载的那一份。
  */
-import { cleanCivSeed, cleanPlay, endParamOf, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './edits';
+import { cleanCivSeed, cleanPlay, endParamOf, keptMapOf, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './edits';
 import type { SketchEdit } from './sketch';
 import type { NameMix } from './names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './civ/frontier';
@@ -64,6 +64,8 @@ export interface Recipe {
   calc?: number;
   /** 文明种子(没给 = 地图种子;不给时和加这一项以前的指纹一样) */
   civSeed?: number;
+  /** 地图留着的世界:地图那一块的校验(edits.ts 文件头"地图留着的世界";别的世界 = 不给,和加这一项以前的指纹一样) */
+  keptMap?: string;
   /** 逐年推演的进度(推到哪年 + 命令串;没在逐年推演 = 不给,和加这一项以前的指纹一样) */
   play?: PlayState;
 }
@@ -115,6 +117,7 @@ export function recipeOfSave(save: SaveFile): Recipe {
     calamity: cleanCalamity(e.calamity),
     ...recipeTuning(worldTuning(e.rules)),
     civSeed: cleanCivSeed(e.civSeed),
+    keptMap: keptMapOf(e),
     play: cleanPlay(e.play),
   };
 }

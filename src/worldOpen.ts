@@ -73,6 +73,8 @@ export interface StoredWorld {
   chronicleIsCurrent: boolean;
   /** 读到的几块的字节(块名 → 块;清单里没有的不在);历史接着推时才解开,解开后用 fromCiv 转到现在的结构 */
   parts: ReadonlyMap<string, SnapshotPart>;
+  /** 地图那一块的结构版本 */
+  mapSchema: number;
   fromCiv: (value: unknown) => Civ;
 }
 
@@ -85,15 +87,16 @@ const asPart = (p: PackedPart): SnapshotPart => ({ name: p.info.name, bytes: p.i
 
 /**
  * 读一个世界。读不了抛 OpenRefused,不抛别的。
- * wantCiv = false:只要地图、各段世界(线程被重开过,重新钉住世界时用;校验过的不解开历史)
+ * wantCiv = false:只要地图、各段世界(线程被重开过,重新钉住世界时用;校验过的不解开历史)。
+ * anyRecipe = 配方变了也读(地图留着的世界重新钉住时:打开以后重推过,配方已经不是打开时那一份了,地图还是那张)
  */
-export async function openStoredWorld(req: StoredOpen, wantCiv = true): Promise<StoredWorld> {
+export async function openStoredWorld(req: StoredOpen, wantCiv = true, anyRecipe = false): Promise<StoredWorld> {
   let head: RevisionHead | null = null;
   try {
     head = await latestOf(req.id);
     if (!head) throw new OpenRefused('none', '仓库里没有这个世界');
     if (head.generator !== req.generator || head.generator > GENERATOR_VERSION) throw new OpenRefused('generator', `修订是第 ${head.generator} 版算的,存档是第 ${req.generator} 版`);
-    const pending = pendingEdit(head, req.recipe);
+    const pending = anyRecipe ? 'none' : pendingEdit(head, req.recipe);
     if (pending === 'recompute') throw new OpenRefused('recompute', '有待完成的修改');
     if (pending === 'readonly') {
       const rev = await readRevision(req.id, head.n, []);
@@ -136,6 +139,7 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true): Promise<
       flags,
       chronicleIsCurrent: manifest.parts.find((p) => p.name === 'chronicle')?.schema === currentSchema('chronicle'),
       parts: new Map(rev.parts.map((p) => [p.info.name, asPart(p)])),
+      mapSchema: manifest.parts.find((p) => p.name === 'map')?.schema ?? 1,
       fromCiv: (v) => migratePart('civ', civInfo.schema, v, manifest) as Civ,
     };
   } catch (e) {

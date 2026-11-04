@@ -77,7 +77,7 @@ import { eraWorlds as eraWorldsOf, keyOf, mapValue, namesOpt, playOpt, setupOpt,
 import type { WorldPartsOffer } from './worldVault';
 import { olderTerrainOf } from './gen/readers/older';
 import type { TerrainReader } from './gen/readers/terrainReader';
-import { FIRST_READERS, UnknownReaderError, type ReaderVersions } from './gen/readers/versions';
+import { FIRST_READERS, READER_VERSIONS, UnknownReaderError, type ReaderVersions } from './gen/readers/versions';
 import type { OpenRefusal, StoredOpen } from './worldOpen';
 
 /**
@@ -119,6 +119,8 @@ interface CivInput {
   tuning?: WorldTuning;
   /** 文明种子(gen/edits.ts 的 WorldEdits.civSeed;不给 = 地图种子) */
   civSeed?: number;
+  /** 地图留着的世界:地图那一块的校验(gen/edits.ts 文件头"地图留着的世界"):地图只从存下的内容读,线程手上没有就不算(checkKept) */
+  keptMap?: string;
   /** 逐年推演的进度(gen/edits.ts 的 WorldEdits.play;不给 = 没在逐年推演):推到进度那一刻,命令接在干预后面 */
   play?: PlayState;
   tempo?: TempoNote;
@@ -459,9 +461,15 @@ function tempoOf(params: WorldParams, terrain: TerrainOp[] | undefined, sketch: 
 /**
  * 读存下的内容打开的世界(load):地图和各段世界按键钉住,不丢、不重新生成。old = 是更旧的版本算的(照原样打开的旧世界):
  * 重新生成用的是现在的生成器,和它不一样;不是 old 的,重新生成也是它,钉住只是省得算。
- * 换世界(generate、下一次 load)时换掉
+ * 换世界(generate、下一次 load)时换掉。
+ * kept = 地图留着的世界(gen/edits.ts 文件头"地图留着的世界";old 也算,按种子长的不是它):地图那一块的字节、结构版本、世界记的读取版本,重推以后存进仓库的还是这一块
  */
-let frozen: { key: string; world: World; eras: Map<string, World>; old: boolean } | null = null;
+interface KeptPin {
+  part: SnapshotPart;
+  schema: number;
+  readers: ReaderVersions;
+}
+let frozen: { key: string; world: World; eras: Map<string, World>; old: boolean; kept?: KeptPin } | null = null;
 /** 这个键的世界是照原样打开的旧世界 */
 const frozenOld = (key: string) => !!frozen && frozen.old && frozen.key === key;
 /** 铺整张主图、比主图的几样:当前版本就是上面 import 的 */
@@ -522,6 +530,8 @@ function cachedWorld(params: WorldParams, ops: readonly TerrainOp[], sketch: Ske
   const key = keyOf(params, ops, sketch);
   const pinned = frozen?.eras.get(key);
   if (pinned) return { key, world: pinned };
+  // 地图留着的世界只有存下的那几段,新的地形长不出来(按种子长的是另一颗星球)
+  if (frozen?.kept) throw new Error('地图留着的世界没有这一段地形');
   let w = worlds.get(key);
   if (w) worlds.delete(key);
   else {
@@ -562,7 +572,7 @@ let held: { key: string; civ?: Civ; part?: SnapshotPart; fromPart?: (value: unkn
 /** 上一次照大纲推演每一步的样子(gen/outline.ts 的 OutlineCache):改了几条情节再推时,前面没改的直接用 */
 let outlineCache: OutlineCache | null = null;
 function heldKey(m: CivRecipe, play: PlayState | undefined): string {
-  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, calamity: m.calamity, ...recipeTuning(m.tuning), civSeed: m.civSeed, play };
+  const r: Recipe = { params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, frontier: m.frontier, origins: m.origins, calamity: m.calamity, ...recipeTuning(m.tuning), civSeed: m.civSeed, keptMap: m.keptMap, play };
   return `${frozenOld(keyOf(m.params, m.terrain, m.sketch)) ? 'frozen:' : ''}${recipeText(r)}`;
 }
 /** 推好了一份历史(复制的那一份,交给主线程之前调用;没复制成 = null):记下来 */
@@ -757,13 +767,15 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
   lastBlock = null;
   if (!civ) return;
   const baseKey = keyOf(m.params, m.terrain, m.sketch);
+  const pin = m.keptMap && frozen?.key === baseKey ? frozen.kept : undefined;
   bg.push(async () => {
     let snapshot: Snapshot;
     let eras: SnapshotPart;
     let civPart: SnapshotPart;
     try {
-      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, ...recipeTuning(m.tuning), civSeed: m.civSeed, play: m.play });
-      const map = await mapPart(baseKey, world);
+      const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, ...recipeTuning(m.tuning), civSeed: m.civSeed, keptMap: m.keptMap, play: m.play });
+      // 地图留着的世界:地图那一块就是存下的字节,不重打(配方里记着它的校验)
+      const map = pin ? pin.part : await mapPart(baseKey, world);
       eras = await makePart('eras', { baseKey, eras: eraWorlds(steps) ?? [] });
       civPart = await makePart('civ', civ);
       snapshot = { format: SNAPSHOT_FORMAT, generator: GENERATOR_VERSION, recipe, formation: false, parts: [map, eras, civPart] };
@@ -778,9 +790,9 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
     } catch {
       kept = null;
     }
-    // 地图那一块还记着(下次重推用),不交出去,复制一份
-    post({ type: 'snapshot', id, snapshot }, [eras.data, civPart.data]);
-    if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: kept }, world, civ, chron, m.characters);
+    // 地图那一块还记着(下次重推用),不交出去,复制一份。地图留着的世界不打原件:只存进仓库(原件是旧的路,旧的路会按种子重新长)
+    if (!pin) post({ type: 'snapshot', id, snapshot }, [eras.data, civPart.data]);
+    if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: kept, ...(pin ? { readers: { terrain: pin.readers.terrain, query: READER_VERSIONS.query }, schemas: { map: pin.schema } } : {}) }, world, civ, chron, m.characters);
   });
 }
 
@@ -840,6 +852,8 @@ interface LoadedWorld {
   mapSum?: string;
   /** 这个世界这一版的原件的几块(请求要了 original 才有) */
   snapshot?: Snapshot;
+  /** 地图留着的世界(见 frozen) */
+  kept?: KeptPin;
   /** 存的编年史、国旗(世界仓库里读到的,读不出来 = 没有;原件里没有这两块) */
   chronicle?: ChronicleBlock | null;
   flags?: FlagBook | null;
@@ -854,7 +868,7 @@ interface LoadedWorld {
 async function loadedOf(m: LoadRequest, wantCiv: boolean): Promise<LoadedWorld> {
   const key = keyOf(m.params, m.terrain, m.sketch);
   // 打开世界才要的代码(校验器、世界文件)单独一个文件,只新建世界的不用下载。下载不下来和读不了一样,退回旧的路
-  const fromVault = m.vault ? await (await import('./worldOpen')).openStoredWorld(m.vault, wantCiv) : null;
+  const fromVault = m.vault ? await (await import('./worldOpen')).openStoredWorld(m.vault, wantCiv, !wantCiv && !!m.keptMap) : null;
   const world = fromVault ? fromVault.world : ((await partOf(m, 'map')) as World);
   if (world.params.seed !== m.params.seed || world.params.cells !== m.params.cells) throw new Error('存的不是这个世界');
   const e = fromVault ? (fromVault.eras ?? { baseKey: key, eras: [] }) : ((await partOf(m, 'eras')) as { baseKey: string; eras: EraWorld[] });
@@ -872,13 +886,15 @@ async function loadedOf(m: LoadRequest, wantCiv: boolean): Promise<LoadedWorld> 
     const parts = fromVault.parts;
     const civPart = parts.get('civ');
     const map = parts.get('map');
-    const old = fromVault.head.generator < GENERATOR_VERSION;
+    if (m.keptMap && map?.sum !== m.keptMap) throw new Error('存的不是这张地图');
+    // 地图留着的世界不管是哪一版算的,都当旧世界:按参数重新生成的不是它
+    const old = fromVault.head.generator < GENERATOR_VERSION || !!m.keptMap;
     let snapshot: Snapshot | undefined;
     if (wantCiv && m.original && !old && map && civPart) {
       const eraPart = parts.get('eras') ?? (await makePart('eras', { baseKey: key, eras: [] }));
       snapshot = { format: SNAPSHOT_FORMAT, generator: fromVault.head.generator, recipe: fromVault.head.recipeKey, formation: false, parts: [map, eraPart, civPart] };
     }
-    return { key, world, eras, steps, civ: fromVault.civ, readers: fromVault.readers, older: fromVault.older, old, civPart, fromPart: fromVault.fromCiv, mapSum: map?.sum, snapshot, chronicle: fromVault.chronicle, flags: fromVault.flags, chroniclePart: fromVault.chronicleIsCurrent ? parts.get('chronicle') : undefined };
+    return { key, world, eras, steps, civ: fromVault.civ, readers: fromVault.readers, older: fromVault.older, old, civPart, fromPart: fromVault.fromCiv, mapSum: map?.sum, snapshot, chronicle: fromVault.chronicle, flags: fromVault.flags, chroniclePart: fromVault.chronicleIsCurrent ? parts.get('chronicle') : undefined, ...(m.keptMap && map ? { kept: { part: map, schema: fromVault.mapSchema, readers: fromVault.readers } } : {}) };
   }
   // 原件是世界文件有版本以前打的,读取代码都是第 1 版
   const readers = { ...FIRST_READERS };
@@ -892,7 +908,7 @@ function holdPart(m: LoadRequest, f: LoadedWorld): void {
 
 /** 换上这个读到的世界(钉住、铺像素按它记的版本) */
 function pinLoaded(f: LoadedWorld): void {
-  frozen = { key: f.key, world: f.world, eras: f.eras, old: f.old };
+  frozen = { key: f.key, world: f.world, eras: f.eras, old: f.old, ...(f.kept ? { kept: f.kept } : {}) };
   terrain = f.older ?? NOW_TERRAIN;
   pool.use(f.older ? { read: f.older, version: f.readers.terrain } : undefined);
 }
@@ -1027,7 +1043,17 @@ const dropTurnSnap = () => {
   turnSnapNow = null;
 };
 
+/**
+ * 地图留着的世界:线程手上不是那张地图(线程重开过、钉住没成)就不往下做,往下做就按种子重新长了。
+ * 抛错 = 线程出错:主线程开新线程、钉住、再发一次(sim/simClient.ts),还不行就收起这件活
+ */
+function checkKept(m: Queued): void {
+  if (m.type === 'load' || m.type === 'pin' || !('keptMap' in m) || !m.keptMap) return;
+  if (m.type === 'generate' || frozen?.kept?.part.sum !== m.keptMap) throw new Error('地图留着的世界:线程手上没有那张地图');
+}
+
 async function handle(m: Queued): Promise<void> {
+  checkKept(m);
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin') dropTurnSnap();
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'release' && m.type !== 'pin') takeTempo(m.params, m.sketch, m.tempo);
@@ -1311,7 +1337,9 @@ async function handle(m: Queued): Promise<void> {
       const f = await loadedOf(m.load, false);
       regionsMemo.clear();
       pinLoaded(f);
-      holdPart(m.load, f);
+      // 地图留着的世界打开以后可能重推过:读到的历史不是打开时那份配方的,不记
+      if (m.load.keptMap) held = null;
+      else holdPart(m.load, f);
     } catch {
       frozen = null;
     }

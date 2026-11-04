@@ -120,7 +120,7 @@ describe('带规则的世界', () => {
   it('存档写格式 3,整套规则原样存下(带本机编号);读回来一模一样、没有提示', () => {
     const save = makeSave(PARAMS, EDITS, 'abc', '乱世', '2026-10-31T08:00:00.000Z');
     expect(save.format).toBe(3);
-    expect(SAVE_FORMAT).toBe(4);
+    expect(SAVE_FORMAT).toBe(5);
     expect(save.edits.rules).toEqual(cleanRuleSet(RULES).rules);
     // 存的是一份复制,之后改原来的不影响存档
     expect(save.edits.rules).not.toBe(RULES);
