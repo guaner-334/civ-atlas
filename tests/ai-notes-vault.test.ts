@@ -7,7 +7,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _notesSettled, _resetNotes, copyNotes, deleteNote, exportNotes, flushNotes, getNote, moveNotes, notesBehind, notesKnown, notesReady, notesSaved, putNote, replaceNotes, tidyNotes, type AiNote, type NotesVault } from '../src/ai/library';
-import type { NoteOp } from '../src/authorNotes';
+import { mergeNotes, type NoteOp } from '../src/authorNotes';
 import { makeSave } from '../src/gen/savefile';
 import { partBytes, sha256, unpackValue, type SnapshotPart } from '../src/gen/snapshot';
 import { openWorldFile, packWorldFile, packWorldParts, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
@@ -591,6 +591,39 @@ describe('写和读、几个线程撞在一起', () => {
     expect(n.others.map((v) => v.text).sort()).toEqual(['第一版', '第三版!!', '第二版!'].sort());
     // 正在用的还是新写的这一版:它排在别的几版后面
     expect(n.ver).toBe(4);
+  });
+
+  it('合并两份同一部书:按写的先后排,正在用的还是赢的那版', () => {
+    const v = (i: number) => ({ text: `第${i}版${'!'.repeat(i)}`, createdAt: `2026-01-0${i}T00:00:00.000Z`, provider: 'p', model: 'm', book: { title: '书' } });
+    // 三版,翻回去在看第 2 版
+    const a = book(v(2).text, v(2).createdAt, { others: [v(1), v(3)], ver: 2 });
+    const [m] = mergeNotes([a], [book(v(4).text, v(4).createdAt)]) as (AiNote & { others: { text: string }[]; ver: number })[];
+    expect(m.text).toBe(v(4).text);
+    expect(m.others.map((x) => x.text)).toEqual([v(1).text, v(2).text, v(3).text]);
+    expect(m.ver).toBe(4);
+    // 反过来:仓库里的新,手上这份旧
+    const [n] = mergeNotes([a], [book(v(0 + 1).text, v(1).createdAt)]) as (AiNote & { others: { text: string }[]; ver: number })[];
+    expect(n.text).toBe(v(2).text);
+    expect(n.ver).toBe(2);
+  });
+
+  it('没读到时删了一条:记的条数跟着减,下次打开不当成仓库丢了东西,删的也不回来', async () => {
+    await revision('w1');
+    g.localStorage.setItem(`${PREFIX}w1`, JSON.stringify([note('a'), note('b')]));
+    await moveNotes('w1');
+    expect(moved().w1.n).toBe(2);
+    let bad = true;
+    _resetNotes({ vault: flaky({ read: () => (bad ? new VaultError('failed', '这次读不了') : null) }), timing: { retry: 100_000 } });
+    await notesReady(['w1']);
+    expect(notesKnown('w1')).toBe(false);
+    deleteNote('w1', 'a');
+    await flushNotes('w1');
+    expect(moved().w1.n).toBe(1);
+    bad = false;
+    refresh();
+    await notesReady(['w1']);
+    expect(notesKnown('w1')).toBe(true);
+    expect(KEYS('w1')).toEqual(['b']);
   });
 
   it('老数据和仓库里同一部书各有几版:都留下', async () => {

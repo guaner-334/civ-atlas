@@ -290,8 +290,12 @@ async function askPersist(): Promise<void> {
 export const notesVault: NotesVault = {
   read: (id) => call('readAuthor', [id]),
   change: async (id, ops) => {
+    const mark = clearedAt();
     try {
-      return await call('changeAuthor', [id, ops]);
+      const r = await call('changeAuthor', [id, ops]);
+      // 写的这一会儿仓库被清了(用的人在别的标签页选了从这台设备上删掉):这份不留
+      if (clearedAt() !== mark) await call('purgeWorld', [id]);
+      return r;
     } catch (e) {
       await noteFailure(id, e);
       throw e;

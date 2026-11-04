@@ -44,24 +44,35 @@ export const sameNote = (a: AuthorNote, b: AuthorNote) => a === b || JSON.string
 
 export const sameNotes = (a: readonly AuthorNote[], b: readonly AuthorNote[]) => a === b || (a.length === b.length && a.every((n, i) => sameNote(n, b[i])));
 
+/** 一部书的一版 */
+type AuthorVersion = { createdAt?: unknown; provider?: unknown; model?: unknown; text?: unknown; book?: unknown };
+
 /** 认一版用的:同一时刻、同一家 AI 写的同样长的,算同一版 */
-const versionSig = (v: { createdAt?: unknown; provider?: unknown; model?: unknown; text?: unknown }) => `${String(v.createdAt)}|${String(v.provider)}|${String(v.model)}|${typeof v.text === 'string' ? v.text.length : 0}`;
+const versionSig = (v: AuthorVersion) => `${String(v.createdAt)}|${String(v.provider)}|${String(v.model)}|${typeof v.text === 'string' ? v.text.length : 0}`;
+
+type Book = AuthorNote & { book?: unknown; others?: unknown; ver?: unknown };
+
+/** 一部书的几版,按写的先后(正在用的那版放在 ver 记的位置,见 ai/history.ts) */
+function versionsOf(n: Book): AuthorVersion[] {
+  const others: AuthorVersion[] = Array.isArray(n.others) ? n.others.filter(Boolean) : [];
+  const at = typeof n.ver === 'number' ? Math.max(0, Math.min(others.length, n.ver - 1)) : others.length;
+  return [...others.slice(0, at), { text: n.text, createdAt: n.createdAt, provider: n.provider, model: n.model, book: n.book }, ...others.slice(at)];
+}
 
 /**
- * 同一部书的两份:winner 为准,loser 里有、winner 没有的几版添到 winner 的「别的几版」里(一部书的几版存在一条里,见 ai/history.ts)。
+ * 同一部书的两份:winner 为准,loser 里有、winner 没有的几版也留下,按写的先后排(一部书的几版存在一条里,见 ai/history.ts)。
  * 没有书目信息的(不分版本的正文)就是 winner
  */
-function withVersions(winner: AuthorNote, loser: AuthorNote): AuthorNote {
-  const a = winner as AuthorNote & { book?: unknown; others?: unknown };
-  const b = loser as AuthorNote & { book?: unknown; others?: unknown };
-  if (a.book === undefined || b.book === undefined) return winner;
-  const others = Array.isArray(a.others) ? a.others : [];
-  const have = new Set([winner, ...others].map(versionSig));
-  const theirs = [{ text: b.text, createdAt: b.createdAt, provider: b.provider, model: b.model, book: b.book }, ...(Array.isArray(b.others) ? b.others : [])].filter((v) => v && !have.has(versionSig(v)));
+function withVersions(winner: Book, loser: Book): AuthorNote {
+  if (winner.book === undefined || loser.book === undefined) return winner;
+  const mine = versionsOf(winner);
+  const have = new Set(mine.map(versionSig));
+  const theirs = versionsOf(loser).filter((v) => !have.has(versionSig(v)));
   if (!theirs.length) return winner;
-  // 正在用的是第几版记在 ver 里(1 起);添到前面的要跟着挪
-  const at = typeof (a as { ver?: unknown }).ver === 'number' ? (a as unknown as { ver: number }).ver : others.length + 1;
-  return { ...a, others: [...theirs, ...others], ver: at + theirs.length } as AuthorNote;
+  const cur = versionSig(winner);
+  const all = [...mine, ...theirs].sort((a, b) => (String(a.createdAt) < String(b.createdAt) ? -1 : String(a.createdAt) > String(b.createdAt) ? 1 : 0));
+  const i = all.findIndex((v) => versionSig(v) === cur);
+  return { ...winner, others: all.filter((_, k) => k !== i), ver: i + 1 } as AuthorNote;
 }
 
 /**

@@ -442,7 +442,9 @@ function kick(world: string, s: Slot): void {
       const was = behind.delete(world);
       channelOf()?.postMessage({ world });
       const m = movedAll()[world];
-      const mark: Moved = { s: m?.s ?? null, t: m?.t ?? Date.now(), n: s.known ? r.count : (m?.n ?? 0) };
+      // 没读到时不知道一共几条,记的数只减用的人删掉的:不然下次读出来比记的少,会当成仓库丢了东西
+      const dels = batch.filter((o) => o.op === 'del').length;
+      const mark: Moved = { s: m?.s ?? null, t: m?.t ?? Date.now(), n: s.known ? r.count : Math.max(0, (m?.n ?? 0) - dels) };
       if (!setMoved(world, mark) && releaseOld(true)) setMoved(world, mark);
       if (was) emit();
       if (s.ops.length) return kick(world, s);
@@ -571,6 +573,8 @@ const read = (world: string): AiNote[] => (live() ? slotOf(world).list : readLoc
 // 别的标签页写了、删了笔记:这里跟着重画(重读时按原文对上没有)。用仓库时旧版网站写了那份旧的也要重读,别的走 BroadcastChannel
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
+    // 别的标签页选了从这台设备上删掉:手上排着的不再写回去
+    if (e.key === 'civ-atlas:vault-cleared') return forgetNotes();
     if (e.key !== null && !e.key.startsWith(PREFIX)) return;
     if (live() && e.key && !e.key.startsWith(DRAFT)) reload(e.key.slice(PREFIX.length));
     emit();

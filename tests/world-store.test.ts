@@ -20,7 +20,7 @@ import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
 import { APP_COMMIT } from '../src/ui/version';
-import { TRASH_KEEP_MS, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
+import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, changeAuthor, latestOf, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
@@ -574,6 +574,16 @@ describe('AI 正文', () => {
     expect((await readAuthor(id)).notes.map((n) => n.key)).toEqual(['a']);
     expect((await latestOf(id))!.n).toBe(n0 + 1);
     expect((await latestOf(id))!.content).toBe((await revisionsOf(id))[0].content);
+  });
+
+  it('写正文的这一会儿别的标签页把仓库清了:这份不留', async () => {
+    const id = makeWorld();
+    await offerWorldParts(await offerOf());
+    const write = notesVault.change(id, [{ op: 'put', note: note('a') }]);
+    (g.localStorage as FakeStorage).setItem('civ-atlas:vault-cleared', String(Date.now()));
+    await write;
+    expect(await latestOf(id)).toBeNull();
+    expect((await readAuthor(id)).notes).toEqual([]);
   });
 
   it('删世界真清掉的时候,等着的正文和记录一起清', async () => {
