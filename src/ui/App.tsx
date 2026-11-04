@@ -979,7 +979,12 @@ export function App({ fromHome }: { fromHome?: HomeStart } = {}) {
         dropPreparedRivers();
       }
       // 交回历史的请求带上现在的改名:线程先交套上它的编年史(打开世界时那两种自己带着存档里的改名;试推演不换上,不用)
-      const named = (req.type === 'generate' || req.type === 'civOnly' || req.type === 'resim' || req.type === 'turn' || req.type === 'extend') && !req.renames ? { ...req, renames: getEdits().names } : req;
+      const named =
+        (req.type === 'generate' || req.type === 'civOnly' || req.type === 'resim' || req.type === 'turn' || req.type === 'extend') && !req.renames
+          ? { ...req, renames: getEdits().names, characters: getEdits().characters }
+          : req.type === 'outline'
+            ? { ...req, characters: getEdits().characters }
+            : req;
       // 生成、读档先关掉还在忙的线程;记账、带上扩张节拍
       sim.send(named);
     },

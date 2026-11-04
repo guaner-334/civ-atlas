@@ -6,6 +6,9 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { isDeepStrictEqual } from 'node:util';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { restoreEntries } from '../src/gen/civ/story/nameTokens';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
+import { applyNames, polityKey } from '../src/gen/edits';
 import { makePart, readLocalPart, readPart, sha256, type SnapshotPart } from '../src/gen/snapshot';
 import { openWorldFile, packWorldFile, packWorldParts, readWorldContent, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import type { WorldManifest } from '../src/gen/worldFormat';
@@ -140,6 +143,22 @@ describe('相同内容只存一份', () => {
     expect(r!.manifest.made).toEqual(MADE);
     expect(await commitWorld({ id: sample.id, recipe: renamed, recipeKey: 'k-draft' })).toEqual({ status: 'draft' });
     expect(await commitWorld({ id: 'wnone', recipe: renamed, recipeKey: 'k1' })).toEqual({ status: 'nobase' });
+  });
+
+  it('只改名:编年史那一块一个字节不动,按新的改名换回来,以前的史事跟着变', async () => {
+    await commitWorld(fullRequest());
+    const was = (await readRevision(sample.id))!.manifest.parts.find((p) => p.name === 'chronicle')!;
+    const key = polityKey(sample.civ, 0);
+    const edits = { ...sample.recipe.edits, names: { ...sample.recipe.edits.names, [key]: '测试新名字' } };
+    const puts = spyPuts();
+    expect(await commitWorld({ id: sample.id, recipe: { ...sample.recipe, edits }, recipeKey: 'k1' })).toEqual({ status: 'saved', n: 2 });
+    expect(puts.names).toEqual([]);
+    const c = await readWorldContent(await openWorldFile(await bytesOf((await revisionFile(sample.id))!), OPEN));
+    expect((await readRevision(sample.id))!.manifest.parts.find((p) => p.name === 'chronicle')).toEqual(was);
+    const named = applyNames(c.civ, c.save.edits.names);
+    const entries = restoreEntries(c.chronicle.entries, named);
+    expect(entries.some((e) => e.text.includes('测试新名字'))).toBe(true);
+    expect(entries.map((e) => e.text)).toEqual(fullChronicle(named).map((e) => e.text));
   });
 
   it('只差存档时间不算变了', async () => {

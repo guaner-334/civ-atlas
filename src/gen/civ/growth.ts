@@ -45,6 +45,7 @@ import { fexp, flog, fpow } from './engine/rand';
 import { KM_PER_UNIT, REF_CELLS } from './scale';
 import { dynastyIndexAt, polityRootAt } from './polityRoot';
 import { hasReform, reformedSeg, titleSeg } from './regime';
+import { isNameToken, nameForm, type RootShape } from './nameToken';
 
 // 某一年是第几朝、那年的国名词根在 polityRoot.ts(存档里的改名只用得到这几样);原来从这里 import 的照旧能用
 export { dynastyAt, dynastyIndexAt, polityRootAt } from './polityRoot';
@@ -532,10 +533,49 @@ function splitRoot(root: string): [boolean, string] {
   return [false, root];
 }
 
+/** 东方国名词根是什么样(见 civ/nameToken.ts 的 RootShape):单字 = null */
+export function rootShape(root: string): RootShape | null {
+  const [single, core] = splitRoot(root);
+  return !single ? 'long' : core !== root ? 'big' : null;
+}
+
 /** 东方语感的四档全称(海洋民族也走农耕这一套:中式没有"共和国") */
 export function easternTitles(root: string, lineage: PolityLineage = 'realm'): Titles {
+  // 词根是占位符(civ/nameToken.ts):单字不单字要等换回名字才知道,和字数有关的那几档记下写法
+  if (isNameToken(root))
+    return lineage === 'khanate' ? [`${root}部`, `${root}汗国`, `${root}汗国`, nameForm(root, 't3k')] : [`${root}部`, `${root}国`, nameForm(root, 't2r'), nameForm(root, 't3r')];
   const [single, core] = splitRoot(root);
   return EASTERN_FORMS[lineage === 'khanate' ? 'khanate' : 'realm'](root, single, core);
+}
+
+/**
+ * 国号的写法(占位符里记的那几种,civ/nameToken.ts):name 是国名词根。
+ * t2r、t3r、t3k:东方全称第 2 档、第 3 档、汗国第 3 档;u:改出来的共和国;s + 档位 + r / k(+ u):东方简称(k = 汗国,u = 改出来的共和国)。
+ * 认不出的(只记着生成时的样子的 l、x)= 名字本身
+ */
+export function polityNameForm(form: string, name: string): string {
+  if (form === 't2r') return easternTitles(name)[2];
+  if (form === 't3r') return easternTitles(name)[3];
+  if (form === 't3k') return easternTitles(name, 'khanate')[3];
+  if (form === 'u') return easternRepublic(name);
+  if (form[0] === 's') return easternShort(name, Number(form[1]), form[2] === 'k', form[3] === 'u');
+  return name;
+}
+
+/** 东方改出来的共和国的全称 */
+function easternRepublic(root: string): string {
+  const [single, core] = splitRoot(root);
+  return single ? `大${core}共和国` : `${root}共和国`;
+}
+
+/** 东方的简称(见 polityShortTitle) */
+function easternShort(root: string, tier: number, khan: boolean, republic: boolean): string {
+  const [single, core] = splitRoot(root);
+  if (!single) return root;
+  // 改出来的共和国:单字国名的简称是"大X"(和全称"大X共和国"一样留着"大")
+  if (republic) return `大${core}`;
+  if (tier >= 2 && !khan) return `大${core}`;
+  return easternTitles(root, khan ? 'khanate' : 'realm')[tier] ?? root;
 }
 
 /**
@@ -574,8 +614,7 @@ function republicTitles(p: Polity, root: string): Titles {
   if (!m) titleCache.set(p, (m = new Map()));
   let t = m.get(key);
   if (!t) {
-    const [single, core] = splitRoot(root);
-    const full = p.eastern && single ? `大${core}共和国` : `${root}共和国`;
+    const full = !p.eastern ? `${root}共和国` : isNameToken(root) ? nameForm(root, 'u') : easternRepublic(root);
     t = [full, full, full, full];
     m.set(key, t);
   }
@@ -625,12 +664,9 @@ export function polityAllTitles(p: Polity): string[] {
 function shortTitle(p: Polity, root: string, tier: number, republic = false): string {
   if (tier < 0) return root;
   if (!p.eastern) return root;
-  const [single, core] = splitRoot(root);
-  if (!single) return root;
-  // 改出来的共和国:单字国名的简称是"大X"(和全称"大X共和国"一样留着"大")
-  if (republic) return `大${core}`;
-  if (tier >= 2 && p.lineage !== 'khanate') return `大${core}`;
-  return titlesOf(p, root)[tier];
+  const khan = p.lineage === 'khanate';
+  if (isNameToken(root)) return nameForm(root, `s${tier}${khan ? 'k' : 'r'}${republic ? 'u' : ''}`);
+  return easternShort(root, tier, khan, republic);
 }
 
 /**

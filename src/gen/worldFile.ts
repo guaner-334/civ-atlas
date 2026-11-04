@@ -13,7 +13,7 @@
  *
  * 纯计算,不碰 DOM:网页、worker、Node(服务器)共用。
  */
-import type { ChronicleEntry } from './civ/story/chronicle';
+import type { ChronicleBlock } from './civ/story/nameTokens';
 import type { FlagBook } from './civ/story/flags';
 import type { Civ } from './civ/types';
 import { parseSave, type SaveFile } from './savefile';
@@ -60,7 +60,7 @@ export interface WorldValues {
   /** 地形大事以后的各段;没有地形大事 = 不给,或者给空的(都不写这一块) */
   eras?: WorldEras | null;
   civ: Civ;
-  chronicle: ChronicleEntry[];
+  chronicle: ChronicleBlock;
   flags: FlagBook;
   /** 作者内容(AI 写的正文);没有 = 不给 */
   author?: AuthorContent | null;
@@ -304,13 +304,15 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
     if (!info || opened.kept.includes(info)) return null;
     return partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, opened.bytes.get(name)!, worldPartLimit(name, opened.options.maxBytes));
   };
+  /** 读好了的几块:后面的块转结构时要看(编年史要看历史) */
+  const done: { civ?: Civ } = {};
   /** 解开、迁移;decode = 字节怎么变成值(封面就是字节本身) */
   const read = async (name: string, decode: (b: Uint8Array) => unknown = (b) => unpackValue(b, worldHeadLimit(opened.options.maxBytes))): Promise<unknown> => {
     const b = await raw(name);
     if (!b) return null;
     const info = manifest.parts.find((p) => p.name === name)!;
     try {
-      return migratePart(name, info.schema, decode(b), manifest, migrations);
+      return migratePart(name, info.schema, decode(b), manifest, migrations, done);
     } catch (err) {
       // 可选的块转不了结构不碍看世界
       if (info.need === 'extra' && asWorldFileError(err).kind === 'readonly') {
@@ -327,6 +329,7 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
     if (eras) validateEras(eras, map);
     const civ = await read('civ');
     validateCiv(civ, map);
+    done.civ = civ;
     // 各段历史按下标对各段世界(有的大事还没推到,世界可以比历史多,不能少)
     if ((civ.eras?.length ?? 0) > (eras?.eras.length ?? 0)) broken('历史的各段比世界的各段多');
     const chronicle = await read('chronicle');

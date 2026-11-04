@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { generateCiv } from '../src/gen/civ';
-import { fullChronicle } from '../src/gen/civ/story/religionText';
+import { chronicleBlock } from '../src/gen/civ/story/nameTokens';
 import { flagBook } from '../src/gen/civ/story/flags';
 import { encodeFlag } from '../src/gen/civ/story/flagSpec';
 import type { Civ } from '../src/gen/civ/types';
@@ -66,7 +66,7 @@ describe('真实世界全过', () => {
     const m = { ...world, history: [] };
     validateWorld(m);
     validateCiv(history, m);
-    validateChronicle(fullChronicle(history), history);
+    validateChronicle(chronicleBlock(history), history);
     validateFlags(flagBook(world, history), history);
   }, 60_000);
 
@@ -77,7 +77,7 @@ describe('真实世界全过', () => {
     const m = { ...world, history: [] };
     validateWorld(m);
     validateCiv(history, m);
-    validateChronicle(fullChronicle(history), history);
+    validateChronicle(chronicleBlock(history), history);
     validateFlags(flagBook(world, history), history);
   }, 60_000);
 
@@ -111,7 +111,7 @@ describe('真实世界全过', () => {
     validateWorld(world);
     validateEras(eras, world);
     validateCiv(history, world);
-    validateChronicle(fullChronicle(history), history);
+    validateChronicle(chronicleBlock(history), history);
     validateFlags(flagBook(world, history), history);
   }, 60_000);
 });
@@ -481,11 +481,15 @@ describe('每条规则:编年史', () => {
     ['折叠得太深', (e) => (e[0].children = Array.from({ length: 20 }).reduce<any[]>((inner) => [{ ...e[0], children: inner }], []))],
   ];
   it.each(CASES)('%s', (label, change) => {
-    const e = structuredClone(sample.chronicle) as any[];
+    const e = structuredClone(sample.chronicle.entries) as any[];
     change(e);
-    expectBroken(() => validateChronicle(e, civ), label);
+    expectBroken(() => validateChronicle({ entries: e }, civ), label);
   });
-  it('不是列表', () => expectBroken(() => validateChronicle({}, civ), '不是列表'));
+  it('不是列表', () => {
+    expectBroken(() => validateChronicle({}, civ), '没有条目');
+    expectBroken(() => validateChronicle([], civ), '第 1 版的样子没转过');
+    expectBroken(() => validateChronicle({ entries: [], authorFemale: ['x'] }, civ), '人物编号不是整数');
+  });
 });
 
 describe('每条规则:旗', () => {

@@ -41,7 +41,6 @@ import { generateWorld, generateWorldSteps, type BaseCache, type World, type Wor
 import { dropGullyBuffers, rasterizeDeferred, rasterizeDeferredSteps, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
-import type { ChronicleEntry } from './gen/civ/story/chronicle';
 import { DEFAULT_CIV_PARAMS, civBase, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
 import { extendCiv } from './gen/civ/extend';
 import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndAt, ownInterventions, type AuthorMark, type Intervention, type PlayState, type PlotReview, type TerrainOp, type Upheaval } from './gen/edits';
@@ -117,6 +116,8 @@ interface CivInput {
   have?: string[];
   /** 用户的改名(gen/edits.ts 的 WorldEdits.names;不给 = 没有):交回历史之前先交套上它的编年史(chronicle) */
   renames?: Record<string, string>;
+  /** 作者的人物(gen/edits.ts 的 WorldEdits.characters):存进世界的编年史按人物卡的性别写 */
+  characters?: readonly AuthorCharacter[];
 }
 
 /**
@@ -378,13 +379,9 @@ function chronicleNow(id: number, civ: Civ, renames: Record<string, string> | un
   const key = ++chronSeq;
   const names = renamesNow?.id === id ? renamesNow.names : (renames ?? {});
   const parts = chronicleParts(civ, names, key);
-  // 算好的条目留给随后打包的内容(queueSnapshot),不用再算一遍
-  lastChronicle = { entries: parts.flatMap((p) => p.entries), names };
   for (const p of parts) post({ type: 'chronicle', id, ...p }, [p.build.buffer as ArrayBuffer]);
   return key;
 }
-/** 最近算好、还没打包的那份编年史和算它用的改名 */
-let lastChronicle: { entries: ChronicleEntry[]; names: Record<string, string> } | null = null;
 /** 让一下:这期间到了的消息排进来(推的时候改了名的,记下最新的改名) */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 /** 同 chronicleNow,先让一下 */
@@ -399,7 +396,6 @@ async function postChronicle(id: number, civ: Civ, renames: Record<string, strin
 async function postChronicleUnlessSuperseded(id: number, civ: Civ, renames: Record<string, string> | undefined, superseded: () => boolean): Promise<number | undefined> {
   await tick();
   if (!superseded()) return chronicleNow(id, civ, renames);
-  lastChronicle = null;
   return undefined;
 }
 
@@ -725,8 +721,6 @@ function cloneCiv(civ: Civ): Civ | null {
  * civ 要在交给主线程(transfer 以后这边的数组就空了)之前复制一份传进来;没复制成(null)就不排
  */
 function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[] }, world: World, steps: Step[], civ: Civ | null) {
-  const chron = lastChronicle;
-  lastChronicle = null;
   if (!civ) return;
   const baseKey = keyOf(m.params, m.terrain, m.sketch);
   bg.push(async () => {
@@ -752,7 +746,7 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
     }
     // 地图那一块还记着(下次重推用),不交出去,复制一份
     post({ type: 'snapshot', id, snapshot }, [eras.data, civPart.data]);
-    if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: kept }, world, civ, chron, m.renames);
+    if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: kept }, world, civ, m.characters);
   });
 }
 
@@ -760,12 +754,11 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
  * 原件打好以后,接着打世界内容里剩下的两块(编年史、国旗),连同原件那几块一起交给主线程存进世界仓库(worldVault.ts)。
  * 单独一件后台的活:换了世界、又推了一次就作废,不耽误新来的消息。这里出错只是这次没存进仓库,世界照常用,不当线程的错
  */
-function queueWorldParts(id: number, offer: WorldPartsOffer, world: World, civ: Civ, chron: typeof lastChronicle, renames: Record<string, string> | undefined) {
+function queueWorldParts(id: number, offer: WorldPartsOffer, world: World, civ: Civ, characters: readonly AuthorCharacter[] | undefined) {
   bg.push(async () => {
     try {
-      const names = chron?.names ?? (renamesNow?.id === id ? renamesNow.names : (renames ?? {}));
-      const chronicle = await makePart('chronicle', chron?.entries ?? worldChronicle(civ, names));
-      const flags = await makePart('flags', worldFlags(world, civ, names));
+      const chronicle = await makePart('chronicle', worldChronicle(civ, characters));
+      const flags = await makePart('flags', worldFlags(world, civ));
       const parts = [...offer.parts, chronicle, flags];
       post({ type: 'worldParts', id, offer: { ...offer, parts } }, parts.map((p) => p.data));
     } catch {

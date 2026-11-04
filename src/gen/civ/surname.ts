@@ -2,9 +2,11 @@
  * 东方中式全名拆姓(人物、名臣、女性人物起名时用;界面、编年史从 story/peopleText.ts 取)。
  * 单独一个小文件:推演只用得到这一样,不用跟着带上称呼、头衔那些文字。
  */
+import { isNameToken, nameForm } from './nameToken';
 
 /** 东方中式的全名拆出姓(复姓两个字) */
 export function splitSurname(full: string): string {
+  if (isNameToken(full)) return nameForm(full, 'n');
   const two = full.slice(0, 2);
   return COMPOUND.has(two) && full.length > 2 ? two : full.slice(0, 1);
 }

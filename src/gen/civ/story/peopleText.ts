@@ -13,6 +13,7 @@
  */
 import type { Civ, Person, PersonRegency, Polity, RulerLeanings, Year } from '../types';
 import { polityName, polityRootAt, polityShortTitle, polityTierAt, polityTitles } from '../growth';
+import { isNameToken, nameForm } from '../nameToken';
 import { childWord, dowagerWord, eastRank, isFemale, khanWord, postTitle, princeWord, westRank } from './gender';
 import { reformedSeg, royalSeg } from '../regime';
 
@@ -31,7 +32,8 @@ function princePolityAt(civ: Civ, x: Person, year: Year): Polity | null {
 const clampTier = (t: number) => Math.min(3, Math.max(0, t));
 
 /** 东方单字国名去掉"大":"大昌" → "昌"(王、公、帝的称号前用) */
-function core(root: string): string {
+export function coreRoot(root: string): string {
+  if (isNameToken(root)) return nameForm(root, 'c');
   const cs = [...root];
   return cs.length === 2 && cs[0] === '大' ? cs[1] : root;
 }
@@ -85,9 +87,9 @@ function refOf(civ: Civ, x: Person, year: Year, realm: boolean): string {
     if (p.lineage === 'khanate') return tier <= 0 ? `${tribe}首领${x.name}` : `${realm ? polityName(p, at) : ''}${x.name}${khanWord(x)}`;
     if (tier <= 0) return `${tribe}首领${x.name}`;
     const root = polityRootAt(p, at);
-    if (title) return !realm ? title : tier >= 3 ? `${polityShortTitle(p, 3, at)}${title}` : `${core(root)}${title}`;
+    if (title) return !realm ? title : tier >= 3 ? `${polityShortTitle(p, 3, at)}${title}` : `${coreRoot(root)}${title}`;
     if (tier >= 3) return `${realm ? polityShortTitle(p, 3, at) : ''}${eastRank(x, 3)}${x.name}`;
-    return `${core(root)}${eastRank(x, tier)}${x.name}`;
+    return `${coreRoot(root)}${eastRank(x, tier)}${x.name}`;
   }
   return `${realm ? polityRootAt(p, at) : ''}${westRank(x, p.lineage, tier)}${x.name}${title}`;
 }
@@ -170,7 +172,7 @@ export function rulerRole(civ: Civ, x: Person): string {
     if (p.lineage === 'khanate') return tier <= 0 ? `${polityTitles(p, at)[0]}首领` : `${polityName(p, at)}${khanWord(x)}`;
     if (tier <= 0) return `${polityTitles(p, at)[0]}首领`;
     if (tier >= 3) return `${polityShortTitle(p, 3, at)}${eastRank(x, 3)}`;
-    return `${core(polityRootAt(p, at))}${eastRank(x, tier)}`;
+    return `${coreRoot(polityRootAt(p, at))}${eastRank(x, tier)}`;
   }
   return `${polityRootAt(p, at)}${westRank(x, p.lineage, tier)}`;
 }
