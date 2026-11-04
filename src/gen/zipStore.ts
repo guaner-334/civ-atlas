@@ -12,6 +12,9 @@
  * - 文件名:拒绝 ..、绝对路径、反斜杠、盘符、控制字符、目录条目、每一段结尾的点和空格、重复的(只差大小写、只差 Unicode 写法的
  *   也算重复:Windows、Mac 上解压到同一个文件)、既当文件又当目录的;不是 UTF-8 的拒绝
  *
+ * 读一个可能很大、可能不完整的包(walkZip):「全部存成文件」存的那种,里面每个世界自己有校验。从头按条目走,不读进内存、不要求目录还在:
+ * 下载到一半断了、中间坏了一段,走到哪算哪,前面完整的条目照样拿得到。
+ *
  * 纯计算,不碰 DOM:Blob 在 worker、Node 里都有。
  */
 
@@ -200,6 +203,58 @@ function checkExtra(dv: DataView, from: number, to: number): void {
 function checkFlags(flags: number): void {
   if (flags & FLAG_ENCRYPTED) throw new Error('不支持加密的 ZIP');
   if (flags & ~FLAG_UTF8) throw new Error('ZIP 的标记位认不出');
+}
+
+/** 从头走到的一个条目:data 是原文件的一段,用到才读 */
+export interface ZipSlice {
+  name: string;
+  data: Blob;
+}
+
+/** 走完的结果。clean = 一路规规矩矩走到了目录;false = 中途断了、坏了(entries 里还是走到的那些) */
+export interface ZipWalk {
+  entries: ZipSlice[];
+  clean: boolean;
+}
+
+/**
+ * 从头按条目走一个 Blob(见文件头):每个条目只读头,字节留在文件里。不抛错,走不下去就停。
+ * 这里不算 CRC:整个包可能比内存大,用的人读到哪一段再核对(世界文件自己有校验)
+ */
+export async function walkZip(file: Blob, maxEntries: number = ZIP_MAX_ENTRIES): Promise<ZipWalk> {
+  const entries: ZipSlice[] = [];
+  const dec = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+  const noClash = nameChecker();
+  let at = 0;
+  let clean = true;
+  try {
+    while (entries.length < maxEntries) {
+      const head = new Uint8Array(await file.slice(at, at + LOCAL_SIZE).arrayBuffer());
+      if (head.length < 4) return { entries, clean: false };
+      const dv = new DataView(head.buffer);
+      const sig = dv.getUint32(0, true);
+      if (sig === SIG_CENTRAL) return { entries, clean };
+      if (sig !== SIG_LOCAL || head.length < LOCAL_SIZE) return { entries, clean: false };
+      const size = dv.getUint32(22, true);
+      const nameLen = dv.getUint16(26, true);
+      const dataAt = at + LOCAL_SIZE + nameLen + dv.getUint16(28, true);
+      // 压缩、加密过的、大小写在后面的(标记位认不出):走不下去
+      if (dv.getUint16(8, true) !== 0 || dv.getUint16(6, true) & ~FLAG_UTF8 || dv.getUint32(18, true) !== size || dataAt + size > file.size) return { entries, clean: false };
+      try {
+        const name = dec.decode(new Uint8Array(await file.slice(at + LOCAL_SIZE, at + LOCAL_SIZE + nameLen).arrayBuffer()));
+        checkName(name, nameLen);
+        noClash(name);
+        entries.push({ name, data: file.slice(dataAt, dataAt + size) });
+      } catch {
+        // 这一条的名字不对:不要它,后面的接着走
+        clean = false;
+      }
+      at = dataAt + size;
+    }
+    return { entries, clean: false };
+  } catch {
+    return { entries, clean: false };
+  }
 }
 
 /** 读文件(Blob):大小先看,超上限的不读进内存;其余见 parseZip */

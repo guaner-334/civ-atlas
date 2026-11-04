@@ -23,6 +23,9 @@ import { downloadApp, loadScreenDone, loadScreenFail } from './loadScreen';
 
 type AppModule = typeof import('./App');
 
+// 世界存成文件、打开文件的代码(界面接上之前,检查脚本从这里调);用到才下载
+(window as unknown as { __wfWorldFiles: () => Promise<unknown> }).__wfWorldFiles = () => import('./worldFiles');
+
 /** 网站公告(announcement.ts):页面出来以后才下载、去读有没有公告,不占首页先下的那一份 */
 const AnnouncementHost = lazy(() => import('./announcement').then((m) => ({ default: m.AnnouncementHost })));
 

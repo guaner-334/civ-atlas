@@ -28,9 +28,10 @@
 import { LOCAL_PART_MAX_BYTES, partBytes, sha256, type SnapshotPart } from './gen/snapshot';
 import { GENERATOR_VERSION } from './gen/edits';
 import type { SaveFile } from './gen/savefile';
-import { buildManifest, knownPart, manifestBytes, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
-import { KNOWN_PARTS, type AuthorContent, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
+import { buildManifest, knownPart, manifestBytes, openWorldFile, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
+import { KNOWN_PARTS, WorldFileError, asWorldFileError, type AuthorContent, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
 import { parseManifest, validateThumb } from './gen/worldValidate';
+import { writeZip, type ZipInput } from './gen/zipStore';
 
 /** 库名 */
 export const VAULT_DB = 'civ-atlas:worlds';
@@ -50,8 +51,10 @@ export type VaultErrorKind =
   | 'full'
   /** 浏览器不让用 IndexedDB */
   | 'unavailable'
-  /** 写进去读回来对不上、清单要的块没了 */
+  /** 写进去读回来对不上、清单要的块没了、交进来的文件和核对时不一样 */
   | 'corrupt'
+  /** 这台设备内存不够,读不下这么大的世界(东西不一定有问题) */
+  | 'memory'
   | 'failed';
 
 export class VaultError extends Error {
@@ -72,7 +75,9 @@ function isQuota(e: unknown): boolean {
 export function asVaultError(e: unknown): VaultError {
   if (e instanceof VaultError) return e;
   const message = e instanceof Error ? e.message : String(e);
-  return new VaultError(isQuota(e) ? 'full' : 'failed', message);
+  if (isQuota(e)) return new VaultError('full', message);
+  if (asWorldFileError(e).kind === 'memory') return new VaultError('memory', message);
+  return new VaultError(e instanceof WorldFileError ? 'corrupt' : 'failed', message);
 }
 
 /** 这一份修订怎么来的 */
@@ -415,6 +420,9 @@ const contentOf = (parts: readonly WorldPartInfo[]) =>
     .map((p) => `${p.name}:${p.sum}`)
     .join('|');
 
+/** 一份清单看世界用的几块的指纹连起来(和存下时 RevisionRow.content 一样;不管文件里的先后) */
+export const contentOfParts = (parts: readonly WorldPartInfo[]) => contentOf(sortParts(parts));
+
 /** 除了修订号、存的时间,两份清单一样 */
 function sameManifest(a: WorldManifest, b: WorldManifest): boolean {
   const norm = (m: WorldManifest) => JSON.stringify({ ...m, revision: 0, made: 0, recipe: { ...m.recipe, savedAt: '' } });
@@ -518,6 +526,80 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
 }
 
 // ---------------------------------------------------------------------------
+// 把文件收进来
+
+/** 把一个核对过的世界文件收进仓库 */
+export interface AdoptRequest {
+  /** 存在哪个世界编号下;清单里的编号换成它 */
+  id: string;
+  file: Blob;
+  /** 核对时清单字节的指纹:对不上就是文件在核对之后变了 */
+  sum: string;
+  /** 配方指纹(文件里的配方清理以后算的) */
+  recipeKey: string;
+  /** 配方的生成器版本 */
+  generator: number;
+  readers: WorldReaders;
+  /** 不给 = made */
+  source?: RevisionSource;
+}
+
+/**
+ * 校验器不解开只当字节留着的块(认不出的附加数据、结构比软件新的),它们的指纹没人核过。块是按指纹存的,没核过的就可能冒充别的世界那一块,
+ * 所以写之前核一遍(只解压算指纹,不读内容)。压缩方式认不出的解不开也就核不了,但它们的键(指纹.压缩方式)碰不到认得的块(只有 gzip、none),已经有的块也不会重写
+ */
+async function checkKept(parts: readonly PackedPart[]): Promise<void> {
+  for (const p of parts) {
+    if (p.info.zip !== 'gzip' && p.info.zip !== 'none') continue;
+    try {
+      await partBytes(p.info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data), LOCAL_PART_MAX_BYTES);
+    } catch (e) {
+      const f = asWorldFileError(e);
+      throw f.kind === 'memory' ? f : new VaultError('corrupt', `${p.info.name} 对不上指纹`);
+    }
+  }
+}
+
+/**
+ * 把核对过的世界文件原样收进仓库,成为这个编号的一份新修订:块的字节不动(认不出的附加数据也带着),清单只换编号、修订号,认不出的字段留着。
+ * 校验在调用这里之前做完(ui/worldFiles.ts),这里只拿清单的指纹确认是同一份。写法和 commitWorld 一样:块先写、读回来核对,最后写清单,断在哪都没有半截。
+ * 不看别的世界,别的世界的修订、块都不会被改:相同内容的块已经有了就不写。
+ */
+export async function adoptFile(req: AdoptRequest): Promise<{ n: number }> {
+  try {
+    const opened = await openWorldFile(req.file, { readers: req.readers });
+    if ((await sha256(opened.manifestBytes)) !== req.sum) throw new VaultError('corrupt', '文件和核对时的不一样');
+    const infos = sortParts(opened.manifest.parts);
+    const packed: PackedPart[] = infos.map((info) => ({ info, data: opened.bytes.get(info.name)! }));
+    await checkKept(packed.filter((p) => opened.kept.includes(p.info)));
+    const source = req.source ?? 'made';
+    for (let tries = 0; tries < COMMIT_TRIES; tries++) {
+      const rows = await rowsOf(req.id);
+      const maxN = rows.at(-1)?.n ?? 0;
+      const base = source === 'archive' ? undefined : chainOf(rows).at(-1);
+      const n = maxN + 1;
+      const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
+      const manifest: WorldManifest = { ...opened.manifest, id: req.id, parts: infos, revision: { n, ...(parent ? { parent } : {}) } };
+      const text = manifestBytes(manifest);
+      parseManifest(text, { readers: { ...req.readers } });
+      const have = await existing(packed.map((p) => partKey(p.info)));
+      const seen = new Set<string>();
+      for (const p of packed) {
+        const key = partKey(p.info);
+        if (have.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        await storePart(p);
+      }
+      const out = await publish({ id: req.id, n, text: new TextDecoder().decode(text), keys: [...new Set(infos.map(partKey))], content: contentOf(infos), recipeKey: req.recipeKey, generator: req.generator, source, at: Date.now() }, maxN);
+      if (out === 'ok') return { n };
+    }
+    throw new VaultError('corrupt', '写清单时块总是不全');
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 读
 
 /** 一个世界最新的修订(简要信息;留底的旧版原件不算);没有 = null */
@@ -590,10 +672,52 @@ export async function readRevision(id: string, n?: number, only?: readonly strin
   return { head: headOf(got.row), text: new TextEncoder().encode(got.row.text), manifest, parts };
 }
 
-/** 一份修订拼回 .civworld(n 不给 = 最新的);没有 = null */
-export async function revisionFile(id: string, n?: number): Promise<Blob | null> {
-  const r = await readRevision(id, n);
-  return r && zipWorld(r.text, r.parts);
+/** 读一块,变成 Blob(字节不留在内存里);verify = 先解开核对指纹 */
+async function partBlob(info: WorldPartInfo, verify: boolean): Promise<Blob> {
+  const row = await run<PartRow | undefined>(['parts'], 'readonly', (t, done) => {
+    const q = t.objectStore('parts').get(partKey(info));
+    q.onsuccess = () => done(q.result as PartRow | undefined);
+  });
+  if (!row) throw new VaultError('corrupt', `${info.name} 这一块没有了`);
+  if (verify && (info.zip === 'gzip' || info.zip === 'none')) {
+    try {
+      await partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, new Uint8Array(row.data), LOCAL_PART_MAX_BYTES);
+    } catch (e) {
+      const f = asWorldFileError(e);
+      throw f.kind === 'memory' ? f : new VaultError('corrupt', `${info.name} 这一块坏了`);
+    }
+  }
+  return new Blob([row.data]);
+}
+
+/**
+ * 一份修订拼回 .civworld(n 不给 = 最新的);没有 = null。一块读完就变成 Blob,整个世界不同时留在内存里。
+ * 清单和块不在同一个事务里读:读的这一会儿修订被换掉、用不着的旧块被清了,重新读一次清单。
+ * verify = 每块解开核对指纹再装(存成文件时用:坏了的东西不能当备份交出去)
+ */
+export async function revisionFile(id: string, n?: number, verify = false): Promise<Blob | null> {
+  for (let tries = 0; ; tries++) {
+    const rows = await rowsOf(id);
+    const row = n === undefined ? chainOf(rows).at(-1) : rows.find((r) => r.n === n);
+    if (!row) return null;
+    const manifest = manifestOf(row);
+    if (!manifest) throw new VaultError('corrupt', '清单读不懂');
+    try {
+      const parts: { info: WorldPartInfo; data: Blob }[] = [];
+      for (const info of manifest.parts) parts.push({ info, data: await partBlob(info, verify) });
+      return await zipWorld(new TextEncoder().encode(row.text), parts);
+    } catch (e) {
+      const v = asVaultError(e);
+      if (tries || v.kind !== 'corrupt') throw v;
+    }
+  }
+}
+
+/** 几块(Blob)装成一个不压缩的 ZIP:算校验时一段段读,放在后台线程里算 */
+export function zipBlobs(entries: readonly ZipInput[], maxBytes: number): Promise<Blob> {
+  return writeZip(entries, maxBytes).catch((e: unknown) => {
+    throw asVaultError(e);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -670,5 +794,5 @@ export function patchState(id: string, patch: Partial<Omit<WorldState, 'id'>>): 
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, latestOf, revisionsOf, revisionFile, sweepParts, purgeWorld, clearVault, stateOf, patchState };
+export const vaultOps = { commitWorld, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, purgeWorld, clearVault, stateOf, patchState };
 export type VaultOps = typeof vaultOps;

@@ -91,9 +91,9 @@ export interface BundleOut {
 
 /**
  * 「我的世界」里的全部世界 → 文件内容;一个都没有 = null。正在看的那个最新的改动没存进浏览器(存储满了)的,用页面里的。
- * 超过 max 的先不带 AI 写的东西,还超再不带缩略图(见文件头)
+ * 超过 max 的先不带 AI 写的东西,还超再不带缩略图(见文件头)。only = 只带这几个世界
  */
-export function bundleText(at = new Date(), max = MAX_LEN): BundleOut | null {
+export function bundleText(at = new Date(), max = MAX_LEN, only?: (id: string) => boolean): BundleOut | null {
   const cur = currentWorld();
   const fresh = cur && currentUnsaved() ? currentSave() : null;
   const one = (id: string, save: SaveFile, w: { draft: boolean; alive?: number; base?: SyncMeta['base']; map?: boolean; at?: string }, thumb: string | null) => {
@@ -115,14 +115,15 @@ export function bundleText(at = new Date(), max = MAX_LEN): BundleOut | null {
   if (cur && fresh && !list.some((w) => w.id === cur.id)) {
     worlds.unshift(one(cur.id, { ...fresh, savedAt: at.toISOString() }, { draft: cur.kind === 'draft', alive: cur.alive, base: cur.base }, null));
   }
-  if (!worlds.length) return null;
+  const picked = only ? worlds.filter((w) => only(w.id)) : worlds;
+  if (!picked.length) return null;
   const text = (notes: boolean, thumbs: boolean) =>
     JSON.stringify(
       {
         app: SAVE_APP,
         bundle: BUNDLE_FORMAT,
         savedAt: at.toISOString(),
-        worlds: worlds.map((w) => ({
+        worlds: picked.map((w) => ({
           id: w.id,
           save: w.save,
           meta: w.meta,
@@ -134,7 +135,7 @@ export function bundleText(at = new Date(), max = MAX_LEN): BundleOut | null {
       null,
       2,
     ) + '\n';
-  const count = worlds.length;
+  const count = picked.length;
   const full = text(true, true);
   if (full.length <= max) return { text: full, count };
   const noNotes = text(false, true);
@@ -144,7 +145,7 @@ export function bundleText(at = new Date(), max = MAX_LEN): BundleOut | null {
   return { text: '', count, tooBig: true };
 }
 
-function cleanNotes(v: unknown): AiNote[] {
+export function cleanNotes(v: unknown): AiNote[] {
   if (!Array.isArray(v)) return [];
   const out: AiNote[] = [];
   const keys = new Set<string>();
@@ -259,22 +260,22 @@ function fillFrom(id: string, w: BundleWorld, base: DraftBase | undefined): { fi
 }
 
 /** 同一个世界:存档一样(sameSave),生成器版本、地形哈希也一样(版本不同的同样参数可能是两个不同的世界) */
-const sameWorld = (a: SaveFile, b: SaveFile) => sameSave(a, b) && a.generator === b.generator && a.check === b.check;
+export const sameWorld = (a: SaveFile, b: SaveFile) => sameSave(a, b) && a.generator === b.generator && a.check === b.check;
 
 /** 地图出自的那个世界(edits.map.from)换成现在的编号(那个世界已经放过了才知道) */
-function withMapFrom(save: SaveFile, ids: Map<string, string>): SaveFile {
+export function withMapFrom(save: SaveFile, ids: Map<string, string>): SaveFile {
   const m = save.edits.map;
   const to = m?.from && ids.get(m.from);
   return to && to !== m.from ? { ...save, edits: { ...save.edits, map: { ...m, from: to } } } : save;
 }
 
-/** 放回「我的世界」(见文件头) */
-export function importBundle(b: Bundle): ImportResult {
+/**
+ * 放回「我的世界」(见文件头)。ids:文件里的编号 → 现在的编号;已经知道的可以传进来(同一个文件里别处放回来的世界),放完里面也有这次放的
+ */
+export function importBundle(b: Bundle, ids: Map<string, string> = new Map()): ImportResult {
   const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft, base: w.base, map: w.map }));
   let count = have.length;
   const res: ImportResult = { added: [], same: 0, filled: 0, left: 0, notesLost: false };
-  /** 文件里的编号 → 现在的编号(放进来的、原来就有的) */
-  const ids = new Map<string, string>();
   // 建好的先放:没建完的放的时候,它的底稿已经有了新编号;同理,记着地图出自哪个世界(edits.map.from)的排在后面
   const later = (w: Bundle['worlds'][number]) => (w.meta.draft ? 2 : 0) + (w.save.edits.map?.from ? 1 : 0);
   const order = b.worlds.map((w, i) => ({ w, i })).sort((a, c) => later(a.w) - later(c.w) || a.i - c.i).map((x) => x.w);

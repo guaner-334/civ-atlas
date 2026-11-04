@@ -188,10 +188,12 @@ export function newer(message: string): never {
 
 /**
  * 不管抛出来的是什么,都折成 WorldFileError:底下的解压、JSON、读包函数抛的普通错一律算文件坏了,
- * 只有开不出内存这一种(各家浏览器的说法:Array buffer allocation failed、Out of memory)算 memory
+ * 只有开不出内存这一种(各家浏览器的说法:Array buffer allocation failed、Out of memory)算 memory。
+ * 浏览器读不出文件的字节(NotReadableError)也算 memory:Chromium 内存不够时就报这个,文件被挪走了也报这个,都不能说文件坏了
  */
 export function asWorldFileError(err: unknown): WorldFileError {
   if (err instanceof WorldFileError) return err;
   const message = err instanceof Error ? err.message : String(err);
-  return new WorldFileError(err instanceof RangeError && /alloc|memory/i.test(message) ? 'memory' : 'broken', message);
+  const noRoom = (err instanceof RangeError && /alloc|memory/i.test(message)) || (err as { name?: unknown } | null)?.name === 'NotReadableError';
+  return new WorldFileError(noRoom ? 'memory' : 'broken', message);
 }

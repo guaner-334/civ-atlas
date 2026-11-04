@@ -162,8 +162,8 @@ export function manifestBytes(manifest: WorldManifest): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-/** 清单的字节和各块装成 ZIP */
-export function zipWorld(text: Uint8Array, parts: readonly PackedPart[], maxBytes: number = ZIP_LOCAL_MAX_BYTES): Promise<Blob> {
+/** 清单的字节和各块装成 ZIP;块可以是 Blob(字节不用留在内存里) */
+export function zipWorld(text: Uint8Array, parts: readonly { info: Pick<WorldPartInfo, 'file'>; data: Uint8Array | ArrayBuffer | Blob }[], maxBytes: number = ZIP_LOCAL_MAX_BYTES): Promise<Blob> {
   return writeZip([{ name: MANIFEST_FILE, data: text }, ...parts.map((p) => ({ name: p.info.file, data: p.data }))], maxBytes);
 }
 

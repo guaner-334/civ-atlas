@@ -12,8 +12,11 @@ import { openWorldFile, readWorldContent, type OpenOptions } from './worldFile';
 /** 默认的时限:量到的最大的世界在电脑上几秒内读完;低端手机慢 6 倍也来得及 */
 export const WORLD_CHECK_TIMEOUT_MS = 20_000;
 
+/** 没过:文件的问题,或者超时、线程崩了 */
+export type WorldCheckFailure = { ok: false; kind: WorldFileErrorKind | 'timeout' | 'crash'; message: string };
+
 /** 核对的结论 */
-export type WorldCheckResult = { ok: true; manifest: WorldManifest; warnings: string[] } | { ok: false; kind: WorldFileErrorKind | 'timeout' | 'crash'; message: string };
+export type WorldCheckResult = { ok: true; manifest: WorldManifest; warnings: string[] } | WorldCheckFailure;
 
 /** 核对一个文件:结论都在返回值里,不抛错 */
 export async function checkWorldFile(file: Blob | Uint8Array, options: OpenOptions): Promise<WorldCheckResult> {
@@ -34,35 +37,35 @@ export interface WorldCheckRequest {
   maxBytes?: number;
 }
 
-/** 后台线程要有的样子(单测用假的) */
-export interface WorldCheckWorker {
+/** 后台线程要有的样子(单测用假的;想多带回点东西的换一个线程,R 是它交回来的) */
+export interface WorldCheckWorker<R = WorldCheckResult> {
   postMessage(message: WorldCheckRequest): void;
   terminate(): void;
-  onmessage: ((e: { data: WorldCheckResult }) => void) | null;
+  onmessage: ((e: { data: R }) => void) | null;
   onerror: ((e: { message?: string }) => void) | null;
 }
 
-export interface WorldCheckOptions {
+export interface WorldCheckOptions<R = WorldCheckResult> {
   readers: WorldReaders;
   maxBytes?: number;
   /** 时限(毫秒) */
   timeoutMs?: number;
   /** 不给 = 开真的线程 */
-  makeWorker?: () => WorldCheckWorker;
+  makeWorker?: () => WorldCheckWorker<R>;
 }
 
 /** 开一个线程核对一个文件;拿到结论、超时、线程崩了都会把线程关掉。不抛错 */
-export function checkWorldFileInWorker(file: Blob, options: WorldCheckOptions): Promise<WorldCheckResult> {
+export function checkWorldFileInWorker<R = WorldCheckResult>(file: Blob, options: WorldCheckOptions<R>): Promise<R | WorldCheckFailure> {
   const { readers, maxBytes, timeoutMs = WORLD_CHECK_TIMEOUT_MS, makeWorker } = options;
   return new Promise((resolve) => {
-    let worker: WorldCheckWorker;
+    let worker: WorldCheckWorker<R>;
     try {
-      worker = makeWorker ? makeWorker() : (new Worker(new URL('./worldCheck.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorldCheckWorker);
+      worker = makeWorker ? makeWorker() : (new Worker(new URL('./worldCheck.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorldCheckWorker<R>);
     } catch (err) {
       resolve({ ok: false, kind: 'crash', message: err instanceof Error ? err.message : String(err) });
       return;
     }
-    const finish = (result: WorldCheckResult) => {
+    const finish = (result: R | WorldCheckFailure) => {
       clearTimeout(timer);
       worker.onmessage = null;
       worker.onerror = null;
