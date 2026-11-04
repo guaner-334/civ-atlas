@@ -36,10 +36,14 @@ interface Ready {
 const ready = new WeakMap<object, Ready>();
 /** 收到了、还没等到那份历史的块 */
 let inbox: ChroniclePart[] = [];
+/** 第几个线程:线程换了,编年史的编号又从头数,新旧两个线程的编号不能算同一份 */
+let thread = 0;
+/** 编号在这个主线程上的写法 */
+const keyOf = (key: number) => `${thread}.${key}`;
 /** 史事数组 → 它的编年史的编号 */
-const keys = new WeakMap<object, number>();
+const keys = new WeakMap<object, string>();
 /** 线程交来的最近那份历史存进世界的那一块(压缩的字节;要改名时才解开,解开一次记下) */
-let stored: { key: number; part: SnapshotPart; block?: Promise<ChronicleBlock | null> } | null = null;
+let stored: { key: string; part: SnapshotPart; block?: Promise<ChronicleBlock | null> } | null = null;
 
 /** 线程交来一块(第一块到了,之前没收齐的作废) */
 export function takeChroniclePart(p: ChroniclePart) {
@@ -52,19 +56,21 @@ export function adoptChronicle(civ: Civ | null | undefined, key: number | undefi
   const parts = inbox;
   inbox = [];
   if (!civ || key === undefined) return;
-  keys.set(civ.annals, key);
+  keys.set(civ.annals, keyOf(key));
   const got = joinChronicleParts(parts, key);
   if (got) ready.set(civ.annals, got);
 }
 
 /** 线程交来这份编年史(编号 key)存进世界的那一块 */
 export function takeChronicleBlock(key: number, part: SnapshotPart) {
-  stored = { key, part };
+  stored = { key: keyOf(key), part };
 }
 
-/** 线程换了一个(旧线程交了一半的不要了) */
+/** 线程换了一个(旧线程交了一半的不要了;旧线程交来的那一块也不要了,新线程的编号又从头数) */
 export function dropChronicleParts() {
   inbox = [];
+  stored = null;
+  thread++;
 }
 
 function sameNames(a: Record<string, string>, b: Record<string, string>): boolean {

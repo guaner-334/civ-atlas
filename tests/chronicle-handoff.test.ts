@@ -17,7 +17,7 @@ import type { Annal } from '../src/gen/civ/types';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { applyNames, polityKey, type Upheaval } from '../src/gen/edits';
 import { PART_WEIGHT, chronicleParts, joinChronicleParts, type ChroniclePart } from '../src/chronicleParts';
-import { adoptChronicle, chronicleInSlices, namedHistory, prepareChronicle, takeChronicleBlock, takeChroniclePart } from '../src/ui/chronicleHandoff';
+import { adoptChronicle, chronicleInSlices, dropChronicleParts, namedHistory, prepareChronicle, takeChronicleBlock, takeChroniclePart } from '../src/ui/chronicleHandoff';
 import { chronicleBlock, inBuildChronicle, type ChronicleBlock } from '../src/gen/civ/story/nameTokens';
 import { makePart } from '../src/gen/snapshot';
 import { reuseRegions } from '../src/ui/eras';
@@ -244,6 +244,26 @@ describe('改名直接换名字(存进世界的那一块)', () => {
     stop.abort();
     expect(await prepareChronicle(raw, {}, full, stop.signal)).toBe(false);
     expect(fullChronicleCached(full)).toBe(false);
+  }, 60_000);
+
+  it('线程换了:新线程的编号又从头数,对不上旧线程交来的那一块', async () => {
+    const before = generateCiv(world());
+    await withBlock(before, 1);
+    dropChronicleParts();
+    // 新线程交来的第一份历史,编号和旧线程的那一份一样
+    const raw = generateCiv(world());
+    adoptChronicle(raw, 1);
+    const names = { [polityKey(raw, 0)]: '丙丁国' };
+    const full = namedHistory(raw, names);
+    expect(await prepareChronicle(raw, names, full)).toBe(true);
+    expect(fullChronicle(full).some((e) => e.text.endsWith('(旧写法)')), '旧线程的那一块').toBe(false);
+    // 旧线程交来的历史,也对不上新线程的那一块
+    await withBlock(raw, 1);
+    dropChronicleParts();
+    takeChronicleBlock(1, await makePart('chronicle', { ...chronicleBlock(raw), entries: chronicleBlock(raw).entries.map((e) => ({ ...e, text: `${e.text}(新线程)` })) }));
+    const again = namedHistory(raw, { [polityKey(raw, 1)]: '戊己国' });
+    expect(await prepareChronicle(raw, { [polityKey(raw, 1)]: '戊己国' }, again)).toBe(true);
+    expect(fullChronicle(again).some((e) => e.text.endsWith('(新线程)'))).toBe(false);
   }, 60_000);
 
   it('块是别的历史的、解不开、人物卡的性别改过:退回现算', async () => {
