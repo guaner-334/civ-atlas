@@ -17,6 +17,7 @@ import { openWorldFile, packWorldFile, readWorldContent, type PackInput, type Wo
 import { WORLD_FILE_EXT, WorldFileError, asWorldFileError } from '../src/gen/worldFormat';
 import { ZIP_LOCAL_MAX_BYTES, parseZip, walkZip, writeZip, type ZipInput } from '../src/gen/zipStore';
 import { bundleText, openBundleText } from '../src/ui/bundle';
+import { clearEdits, setEdits } from '../src/ui/editsStore';
 import { _setWorldFiles, checkTimeout, keepWorldFile, lookWorldFile, lookWorldFiles, openWorldFiles, openWorldFromFile, placeWorldFile, saveAllWorldFiles, saveWorldFile, sniffWorldFile, worldFileName, type KeptWorldFile, type LookedWorldFile, type OpenedWorldFiles, type WorldFileProgress } from '../src/ui/worldFiles';
 import * as saveStore from '../src/ui/saveStore';
 import { _setResultBackend, memoryResults } from '../src/ui/resultStore';
@@ -573,6 +574,27 @@ describe('一个世界存成文件', () => {
     expect(names).toContain('recipes.json');
   });
 
+  it('正开着的世界最新的改动没能写进浏览器(存储满了):文件标明落后', async () => {
+    const id = await keepFile(file);
+    const w = saveStore.loadWorld(id)!;
+    const stop = saveStore.startAutoSave();
+    setEdits(w.save.edits);
+    saveStore.attachWorld({ id, params: w.save.params, check: w.save.check, kind: 'created', saved: w.save.edits });
+    const clean = await saveWorldFile(id);
+    expect(clean.ok && clean.stale).toBe(false);
+    vi.spyOn(g.localStorage!, 'setItem').mockImplementation(() => {
+      throw Object.assign(new Error('满了'), { name: 'QuotaExceededError' });
+    });
+    setEdits({ ...w.save.edits, names: { ...w.save.edits.names, 'polity:c2#0': '只在页面里' } });
+    expect(saveStore.currentUnsaved()).toBe(true);
+    const out = await saveWorldFile(id);
+    expect(out.ok && out.stale).toBe(true);
+    vi.restoreAllMocks();
+    stop();
+    saveStore.detachWorld();
+    clearEdits();
+  });
+
   it('封面太大放不进卡片:仓库里那份留着,再存成文件还在', async () => {
     // 带几段注释的合格 JPEG,比卡片的上限大
     const tiny = tinyJpeg();
@@ -689,6 +711,12 @@ describe('全部世界存成文件', () => {
   }
 
   const ids = (r: OpenedWorldFiles) => r.added.map((x) => x.id);
+  /** 这个世界最新的一份存成文件 */
+  async function revisionFileOf(id: string): Promise<Blob> {
+    const out = await saveWorldFile(id);
+    if (!out.ok) throw new Error(out.message);
+    return out.file;
+  }
 
   it('往返:世界、AI 正文、封面、旧修订、没建完的都回来;认得出这种文件;进度报个数和字节', async () => {
     const { a, b } = await makeSome();
@@ -989,6 +1017,52 @@ describe('全部世界存成文件', () => {
     expect(back.added).toHaveLength(1);
     expect(back.recipes).toBeNull();
     expect(back.skipped.map((x) => [x.name, x.kind])).toEqual([['recipes.json', 'broken']]);
+  }, 60_000);
+
+  it('本机有一模一样的、但没有文件里带的旧修订:说得出来,不改本机的', async () => {
+    const { b } = await makeSome();
+    const pack = (await saved()).files[0].file;
+    const cur = await revisionFileOf(b);
+    freshBrowser();
+    const one = await keepFile(cur);
+    const before = (await revisionsOf(one)).length;
+    const r = await openWorldFiles([pack]);
+    const hit = r.same.find((x) => x.id === one);
+    expect(hit?.olderMissing).toBe(1);
+    expect((await revisionsOf(one)).length).toBe(before);
+    expect(r.added).toHaveLength(2);
+  }, 60_000);
+
+  it('存了地图的世界在配方那部分里:在它上面新开的世界,编号换成放回来的那个', async () => {
+    const r = parseSave(JSON.stringify(sample.recipe));
+    if (!r.ok) throw new Error(r.error);
+    const mapId = saveStore.newWorldId();
+    saveStore.putSyncedWorld(mapId, { save: JSON.stringify({ ...r.save, title: '只存了地图' }), meta: { map: true }, thumb: null });
+    await keepFile(await packWorldFile({ ...sample, title: '新开的', recipe: { ...r.save, title: '新开的', edits: { ...r.save.edits, map: { from: mapId } } } }));
+    const pack = (await saved()).files[0].file;
+    freshBrowser();
+    const back = await openWorldFiles([pack]);
+    expect(back.recipes?.added).toHaveLength(1);
+    const list = saveStore.listWorlds();
+    const map = list.find((w) => w.save.title === '只存了地图')!;
+    expect(map.id).not.toBe(mapId);
+    expect(list.find((w) => w.save.title === '新开的')!.save.edits.map?.from).toBe(map.id);
+  }, 60_000);
+
+  it('文件比世界落后时另带的 AI 正文比世界文件里的新:放回来用新的;本机原来就有的世界不动', async () => {
+    const id = await keepFile(file);
+    const key = sample.author!.notes[0].key;
+    putNote(id, { ...sample.author!.notes[0], text: '新写的正文' });
+    const full = ((op: keyof VaultOps, args: unknown[]) => (op === 'commitWorld' ? Promise.reject(Object.assign(new Error('满了'), { kind: 'full' })) : (vaultOps[op] as (...a: unknown[]) => Promise<unknown>)(...args))) as unknown as Caller;
+    _setWorldStore({ caller: full });
+    const pack = await saveAllWorldFiles();
+    _setWorldStore({ caller: direct });
+    if (!pack.ok) throw new Error(pack.message);
+    freshBrowser();
+    const back = await openWorldFiles([pack.files[0].file]);
+    expect(back.added).toHaveLength(1);
+    expect(exportNotes(back.added[0].id).find((n) => n.key === key)?.text).toBe('新写的正文');
+    expect(saveStore.listWorlds()).toHaveLength(1);
   }, 60_000);
 
   it('单个世界和全部世界一起选也认得出', async () => {

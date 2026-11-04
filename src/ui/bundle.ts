@@ -269,13 +269,13 @@ export function withMapFrom(save: SaveFile, ids: Map<string, string>): SaveFile 
   return to && to !== m.from ? { ...save, edits: { ...save.edits, map: { ...m, from: to } } } : save;
 }
 
-/** 放回「我的世界」(见文件头) */
-export function importBundle(b: Bundle): ImportResult {
+/**
+ * 放回「我的世界」(见文件头)。ids:文件里的编号 → 现在的编号;已经知道的可以传进来(同一个文件里别处放回来的世界),放完里面也有这次放的
+ */
+export function importBundle(b: Bundle, ids: Map<string, string> = new Map()): ImportResult {
   const have = listWorlds().map((w) => ({ id: w.id, save: w.save, draft: w.draft, base: w.base, map: w.map }));
   let count = have.length;
   const res: ImportResult = { added: [], same: 0, filled: 0, left: 0, notesLost: false };
-  /** 文件里的编号 → 现在的编号(放进来的、原来就有的) */
-  const ids = new Map<string, string>();
   // 建好的先放:没建完的放的时候,它的底稿已经有了新编号;同理,记着地图出自哪个世界(edits.map.from)的排在后面
   const later = (w: Bundle['worlds'][number]) => (w.meta.draft ? 2 : 0) + (w.save.edits.map?.from ? 1 : 0);
   const order = b.worlds.map((w, i) => ({ w, i })).sort((a, c) => later(a.w) - later(c.w) || a.i - c.i).map((x) => x.w);

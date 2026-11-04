@@ -194,7 +194,7 @@ export interface SavedWorldFile {
   ok: true;
   file: Blob;
   name: string;
-  /** 文件比这个世界落后:有没推完的修改,或者刚改的名字、AI 正文、封面没能写进仓库(存储满了)。文件里是最后存进去的样子,没带上的本机还在 */
+  /** 文件比这个世界落后:有没推完的修改,或者刚改的东西没能写进浏览器、仓库(存储满了)。文件里是最后存进去的样子,没带上的本机还在 */
   stale: boolean;
 }
 
@@ -204,8 +204,9 @@ const asSaveTrouble = (e: unknown): Trouble<SaveTrouble> => {
   return trouble(k === 'timeout' || k === 'crash' || saveKinds.includes(k as VaultErrorKind) ? (k as SaveTrouble) : 'failed', errText(e));
 };
 
-/** 存档和仓库里最新的一份说的是不是同一个样子 */
+/** 仓库里最新的一份是不是比这个世界落后:存档的配方、版本不一样;正开着的这个世界最新的改动还没能写进浏览器(存储满了) */
 async function isStale(id: string, head: { recipeKey: string; generator: number }): Promise<boolean> {
+  if (currentWorld()?.id === id && currentUnsaved()) return true;
   const w = loadWorld(id);
   return !w || head.generator !== w.save.generator || head.recipeKey !== (await recipeKey(recipeOfSave(w.save)));
 }
@@ -774,8 +775,8 @@ export interface OpenedWorldFiles {
   added: { id: string; title: string | undefined }[];
   /** 本机有这个世界但内容不同,另存了一份(id);本机那个(of)没动 */
   copied: { id: string; of: string; title: string | undefined }[];
-  /** 本机原来就有一模一样的,没重复放(本机的编号) */
-  same: { id: string; title: string | undefined }[];
+  /** 本机原来就有一模一样的,没重复放(本机的编号)。olderMissing:文件里带的旧修订有几份本机没有(没放进去,文件还留着它们) */
+  same: { id: string; title: string | undefined; olderMissing?: number }[];
   /** 选了 different: 'ask' 才有:本机有这个世界但内容不同,先没放 */
   different: { id: string; title: string | undefined; looked: LookedWorldFile }[];
   /** 读不出、放不下,跳过了;别的世界不受影响 */
@@ -803,17 +804,32 @@ export interface OpenFilesOptions {
   different?: DifferentChoice;
 }
 
-/** 配方那部分放回来之前:底稿、地图出自的世界,编号换成本机的 */
-function mapBundleIds(b: Bundle, ids: Map<string, string>): void {
+/**
+ * 文件比世界落后时,配方那部分另带了一份 AI 写的东西(见 saveAllWorldFiles),比世界文件里的新。这次刚放回来的世界用这一份换掉同一条;
+ * 本机原来就有的世界不动
+ */
+function freshNotes(b: Bundle, ids: ReadonlyMap<string, string>, placed: readonly string[]): void {
   for (const w of b.worlds) {
-    w.save = withMapFrom(w.save, ids);
-    const base = w.meta.base;
-    const to = base && ids.get(base.id);
-    if (base && to) w.meta = { ...w.meta, base: { ...base, id: to } };
+    const id = w.id ? ids.get(w.id) : undefined;
+    if (!id || !placed.includes(id) || !w.notes.length) continue;
+    const keys = new Set(w.notes.map((n) => n.key));
+    replaceNotes(id, [...exportNotes(id).filter((n) => !keys.has(n.key)), ...w.notes]);
   }
 }
 
-/** 放回来的世界记着的「地图出自哪个世界」换成本机的编号(那个世界可能排在后面才放回来,所以放完再换) */
+/** 文件里带的旧修订有几份本机这个世界没有 */
+async function olderMissing(id: string, older: readonly OlderFile[]): Promise<number> {
+  if (!older.length) return 0;
+  const have = new Set((await vaultCall('revisionsOf', [id]).catch(() => [])).map((h) => h.content));
+  let missing = 0;
+  for (const old of older) {
+    const r = await look(old.file);
+    if (r.ok && !have.has(r.content)) missing++;
+  }
+  return missing;
+}
+
+/** 放回来的世界记着的「地图出自哪个世界」换成本机的编号(那个世界可能排在后面才放回来,所以全放完再换;分开打开的几个文件之间换不了) */
 function mapWorldIds(placed: readonly string[], ids: Map<string, string>): void {
   for (const id of placed) {
     const w = loadWorld(id);
@@ -891,7 +907,8 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
     }
     ids.set(r.facts.manifest.id, placed.id);
     if (placed.status === 'same') {
-      out.same.push(entry);
+      const missing = await olderMissing(placed.id, looked.older ?? []);
+      out.same.push(missing ? { ...entry, olderMissing: missing } : entry);
       continue;
     }
     placedIds.push(placed.id);
@@ -902,7 +919,6 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
     if (placed.kept.olderLost) skip('broken', `有 ${placed.kept.olderLost} 份旧修订读不了,没放回来`);
   }
   if (o.signal?.aborted) out.cancelled = true;
-  mapWorldIds(placedIds, ids);
   if (!out.cancelled) {
     for (const p of picks) {
       if (!p.recipes || p.newer) continue;
@@ -913,8 +929,8 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
       try {
         const parsed = parseBundle(await p.recipes.data.text());
         if (parsed?.ok) {
-          mapBundleIds(parsed.bundle, ids);
-          const done = importBundle(parsed.bundle);
+          freshNotes(parsed.bundle, ids, placedIds);
+          const done = importBundle(parsed.bundle, ids);
           // 选了不同批的几个文件:各有一份配方,结果加起来
           const had = out.recipes;
           out.recipes = had ? { ...done, added: [...had.added, ...done.added], same: had.same + done.same, filled: had.filled + done.filled, left: had.left + done.left, notesLost: had.notesLost || done.notesLost } : done;
@@ -925,6 +941,8 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
       }
     }
   }
+  // 配方那部分放完才换:存了地图的世界在配方那部分里,这时候才有本机的编号
+  mapWorldIds(placedIds, ids);
   o.onProgress?.({ done: worlds.length, total: worlds.length, bytes, totalBytes });
   return out;
 }

@@ -280,8 +280,15 @@ function pngDiff(a: Buffer, b: Buffer): number {
   const x = PNG.sync.read(a);
   const y = PNG.sync.read(b);
   if (x.width !== y.width || x.height !== y.height) return -1;
+  // 一个通道差 1 不算:WebKit 的画布偶尔有个别像素差 1(各块字节都一样),打印出来看得到
   let n = 0;
-  for (let i = 0; i < x.data.length; i += 4) if (x.data[i] !== y.data[i] || x.data[i + 1] !== y.data[i + 1] || x.data[i + 2] !== y.data[i + 2] || x.data[i + 3] !== y.data[i + 3]) n++;
+  let small = 0;
+  for (let i = 0; i < x.data.length; i += 4) {
+    const d = Math.max(Math.abs(x.data[i] - y.data[i]), Math.abs(x.data[i + 1] - y.data[i + 1]), Math.abs(x.data[i + 2] - y.data[i + 2]), Math.abs(x.data[i + 3] - y.data[i + 3]));
+    if (d > 1) n++;
+    else if (d) small++;
+  }
+  if (small) say(`  (${small} 个像素差 1,不算)`);
   return n;
 }
 
