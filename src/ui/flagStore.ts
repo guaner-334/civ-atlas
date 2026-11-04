@@ -53,15 +53,32 @@ export function useFlagPreview(): FlagPreview | null {
   return preview.use();
 }
 
-/** 算旗:作者改过的 + 正在预览的那一面。geo = 按哪份地形配(有地形大事时是第一件以前的那一份;不给 = world、civ) */
+/** 读存下的内容打开的世界存的那一套旗(按史事数组记:套改名出来的新对象都共用这个数组) */
+const storedBooks = new WeakMap<object, FlagBook>();
+
+/** 线程交来这份历史存的旗 */
+export function adoptStoredFlags(civ: Civ | null | undefined, book: FlagBook | undefined) {
+  if (civ && book) storedBooks.set(civ.annals, book);
+}
+
+/** 这份历史存的旗;没有(新算的、试推演的)= undefined */
+export function storedFlagsOf(civ: Civ | null | undefined): FlagBook | undefined {
+  return civ ? storedBooks.get(civ.annals) : undefined;
+}
+
+/**
+ * 算旗:作者改过的 + 正在预览的那一面。geo = 按哪份地形配(有地形大事时是第一件以前的那一份;不给 = world、civ)。
+ * stored = 存下的那一套:没受影响的国家直接用它(见 flagBook)
+ */
 export function makeFlagView(
   world: World,
   civ: Civ,
   flags: Readonly<Record<string, string>> | undefined,
   p: FlagPreview | null,
   geo?: { world: World; civ: Civ },
+  stored?: FlagBook,
 ): FlagView {
   const ov = flagOverrides(flags);
   if (p) ov[p.key] = p.spec;
-  return { world, civ, book: flagBook(geo?.world ?? world, geo?.civ ?? civ, ov) };
+  return { world, civ, book: flagBook(geo?.world ?? world, geo?.civ ?? civ, ov, stored) };
 }

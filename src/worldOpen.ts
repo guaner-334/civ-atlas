@@ -5,6 +5,7 @@
  * 能读的时候:仓库里最新的修订就是存档这份配方、这一版生成器算的。第一次打开逐项校验,过了记下来(WorldState.checked),内容没变再打开只核指纹。
  * 读不了就拒绝(OpenRefused),主线程退回旧的路(原件,再不行按存档生成),拒绝的说法见 OpenRefusal。
  * 块坏了的,小状态里记一笔(corrupt),下一次存完整的内容时块重写一遍(worldVault.ts)。
+ * 编年史、国旗能按历史重新算出来:这两块读不出来不算世界读不了,世界照样打开,这两样现算(worker.ts 的 load)。
  *
  * 不碰 DOM。
  */
@@ -13,12 +14,14 @@ import type { TerrainReader } from './gen/readers/terrainReader';
 import { READER_VERSIONS, UnknownReaderError, type ReaderVersions } from './gen/readers/versions';
 import { GENERATOR_VERSION } from './gen/edits';
 import type { Civ } from './gen/civ';
+import type { FlagBook } from './gen/civ/story/flags';
+import type { ChronicleBlock } from './gen/civ/story/nameTokens';
 import { parseSave } from './gen/savefile';
 import { recipeKey, recipeOfSave, type SnapshotPart } from './gen/snapshot';
 import type { World } from './gen/world';
-import { openStoredParts, readTrustedParts, readWorldContent, type PackedPart, type WorldEras } from './gen/worldFile';
+import { openStoredParts, readStoredContent, readTrustedParts, type OpenedWorldFile, type PackedPart, type WorldEras } from './gen/worldFile';
 import { WorldFileError, asWorldFileError, broken } from './gen/worldFormat';
-import { migratePart } from './gen/worldMigrate';
+import { currentSchema, migratePart } from './gen/worldMigrate';
 import { VaultError, latestOf, patchState, pendingEdit, readRevision, stateOf, type RevisionHead } from './worldVault';
 
 /** 要打开哪个世界 */
@@ -63,13 +66,20 @@ export interface StoredWorld {
   eras: WorldEras | null;
   /** 没要历史时(见 openStoredWorld)可能是 null */
   civ: Civ | null;
+  /** 存的编年史、国旗;没要历史、读不出来 = null(调用方现算) */
+  chronicle: ChronicleBlock | null;
+  flags: FlagBook | null;
+  /** 编年史那一块存的就是现在的结构(parts 里的字节可以直接用,不用重新打包) */
+  chronicleIsCurrent: boolean;
   /** 读到的几块的字节(块名 → 块;清单里没有的不在);历史接着推时才解开,解开后用 fromCiv 转到现在的结构 */
   parts: ReadonlyMap<string, SnapshotPart>;
   fromCiv: (value: unknown) => Civ;
 }
 
-/** 看世界要读的几块。编年史、国旗要读存的时候加在这里 */
-const VIEW = ['map', 'eras', 'civ'];
+/** 看世界要读的几块。历史排在编年史前面:第 1 版的编年史转结构时要看历史 */
+const VIEW = ['map', 'eras', 'civ', 'chronicle', 'flags'];
+/** 其中读不了也能打开世界的(能按历史重新算出来) */
+const SPARE = ['chronicle', 'flags'];
 
 const asPart = (p: PackedPart): SnapshotPart => ({ name: p.info.name, bytes: p.info.bytes, sum: p.info.sum, zip: p.info.zip as SnapshotPart['zip'], data: p.data instanceof Uint8Array ? (p.data.slice().buffer as ArrayBuffer) : p.data });
 
@@ -91,20 +101,26 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true): Promise<
     }
     const n = head.n;
     const checked = (await stateOf(req.id).catch(() => null))?.checked === head.content;
-    const rev = await readRevision(req.id, n, checked ? VIEW : undefined);
+    const rev = await readRevision(req.id, n, checked ? VIEW : undefined, SPARE);
     if (!rev) throw new OpenRefused('none', '仓库里没有这个世界');
     const opened = openStoredParts(rev.text, rev.parts, { readers: { ...READER_VERSIONS } });
     const { manifest } = opened;
-    let values: { map: unknown; eras: unknown; civ: unknown };
-    if (checked) values = (await readTrustedParts(opened, wantCiv ? VIEW : ['map', 'eras'])) as typeof values;
-    else {
-      values = await readWorldContent(opened);
+    let values: { map: unknown; eras: unknown; civ: unknown; chronicle?: unknown; flags?: unknown };
+    if (checked) {
+      values = (await readTrustedParts(opened, wantCiv ? VIEW.filter((p) => !SPARE.includes(p)) : ['map', 'eras'])) as typeof values;
+      if (wantCiv) for (const name of SPARE) values[name as 'chronicle' | 'flags'] = await spareOf(opened, name, values.civ as Civ);
+    } else {
+      values = await readStoredContent(opened);
       // 这份清单真是这份配方的(表里记的指纹和清单里的配方对得上)
       const r = parseSave(JSON.stringify(manifest.recipe));
       if (!r.ok || (await recipeKey(recipeOfSave(r.save))) !== rev.head.recipeKey) broken('清单的配方和修订记的对不上');
       // 记不下就下次再校验一遍
       await patchState(req.id, { checked: rev.head.content }).catch(() => undefined);
     }
+    const chronicle = (values.chronicle as ChronicleBlock | null | undefined) ?? null;
+    const flags = (values.flags as FlagBook | null | undefined) ?? null;
+    // 这两块坏了世界照样开(现算),下一次存完整的内容时块重写一遍。记不下也不碍事
+    if (wantCiv && (!chronicle || !flags)) await patchState(req.id, { corrupt: head.n }).catch(() => undefined);
     const readers: ReaderVersions = { terrain: manifest.readers.terrain, query: manifest.readers.query };
     const older = await olderTerrainOf({ readers });
     const civInfo = manifest.parts.find((p) => p.name === 'civ');
@@ -116,11 +132,23 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true): Promise<
       world: values.map as World,
       eras: (values.eras as WorldEras | null) ?? null,
       civ: (values.civ as Civ | null) ?? null,
+      chronicle,
+      flags,
+      chronicleIsCurrent: manifest.parts.find((p) => p.name === 'chronicle')?.schema === currentSchema('chronicle'),
       parts: new Map(rev.parts.map((p) => [p.info.name, asPart(p)])),
       fromCiv: (v) => migratePart('civ', civInfo.schema, v, manifest) as Civ,
     };
   } catch (e) {
     throw await refusal(e, req.id, head);
+  }
+}
+
+/** 读一块能重新算出来的:读不了 = null */
+async function spareOf(opened: OpenedWorldFile, name: string, civ: Civ): Promise<unknown> {
+  try {
+    return (await readTrustedParts(opened, [name], { civ }))[name];
+  } catch {
+    return null;
   }
 }
 

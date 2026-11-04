@@ -7,13 +7,16 @@
  * 改名和线程算的时候一样、也没有作者立的君主,就把这份记进缓存(线程不知道作者人物叫什么,有作者立的君主时按下面在主线程上算)。
  *
  * 线程没替它算的(改了名、AI 起名以后,线程算的时候又改了名,助手"先在地图上看看"的试推演,导出时换回原名):
+ * 这份历史有线程交来的那一块(存进世界的,文字里的名字是占位符,见 gen/civ/story/nameTokens.ts)就把名字换上;没有(试推演、块还没到)或者人物卡的性别改过,
  * 在主线程上分小块算(chronicleInSlices,每块几毫秒,块与块之间让出主线程),算的时候照旧显示原来的样子,算好了再换上
  * (useNamedHistory、prepareChronicle)。几万年的历史编年史有两万多条,一口气算完要几百毫秒(手机上一两秒),界面那么久拖不动、点不动。
  */
 import { useEffect, useMemo, useReducer, useRef } from 'react';
-import { joinChronicleParts, type ChroniclePart } from '../chronicleParts';
+import { authorsKey, joinChronicleParts, type ChroniclePart } from '../chronicleParts';
 import { buildChronicle, primeChronicle, type ChronicleEntry } from '../gen/civ/story/chronicle';
+import { blockFits, inBuildChronicle, nameRestorer, restoreEntries, type ChronicleBlock } from '../gen/civ/story/nameTokens';
 import { fullChronicle, fullChronicleCached, fullChronicleSteps, primeFullChronicle } from '../gen/civ/story/religionText';
+import { readLocalPart, type SnapshotPart } from '../gen/snapshot';
 import { applyNames } from '../gen/edits';
 import { applyCharacters, type AuthorCharacter } from '../gen/characters';
 import type { Civ } from '../gen/civ';
@@ -23,7 +26,7 @@ type Chars = readonly AuthorCharacter[] | undefined;
 
 interface Ready {
   names: Record<string, string>;
-  /** 套的作者人物的名字(authorsKey;线程算的 = 没套) */
+  /** 套的作者人物的名字(authorsKey) */
   authors: string;
   build: ChronicleEntry[];
   full: ChronicleEntry[];
@@ -33,6 +36,14 @@ interface Ready {
 const ready = new WeakMap<object, Ready>();
 /** 收到了、还没等到那份历史的块 */
 let inbox: ChroniclePart[] = [];
+/** 第几个线程:线程换了,编年史的编号又从头数,新旧两个线程的编号不能算同一份 */
+let thread = 0;
+/** 编号在这个主线程上的写法 */
+const keyOf = (key: number) => `${thread}.${key}`;
+/** 史事数组 → 它的编年史的编号 */
+const keys = new WeakMap<object, string>();
+/** 线程交来的最近那份历史存进世界的那一块(压缩的字节;要改名时才解开,解开一次记下) */
+let stored: { key: string; part: SnapshotPart; block?: Promise<ChronicleBlock | null> } | null = null;
 
 /** 线程交来一块(第一块到了,之前没收齐的作废) */
 export function takeChroniclePart(p: ChroniclePart) {
@@ -45,13 +56,21 @@ export function adoptChronicle(civ: Civ | null | undefined, key: number | undefi
   const parts = inbox;
   inbox = [];
   if (!civ || key === undefined) return;
+  keys.set(civ.annals, keyOf(key));
   const got = joinChronicleParts(parts, key);
-  if (got) ready.set(civ.annals, { ...got, authors: NO_AUTHORS });
+  if (got) ready.set(civ.annals, got);
 }
 
-/** 线程换了一个(旧线程交了一半的不要了) */
+/** 线程交来这份编年史(编号 key)存进世界的那一块 */
+export function takeChronicleBlock(key: number, part: SnapshotPart) {
+  stored = { key: keyOf(key), part };
+}
+
+/** 线程换了一个(旧线程交了一半的不要了;旧线程交来的那一块也不要了,新线程的编号又从头数) */
 export function dropChronicleParts() {
   inbox = [];
+  stored = null;
+  thread++;
 }
 
 function sameNames(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -60,11 +79,6 @@ function sameNames(a: Record<string, string>, b: Record<string, string>): boolea
   if (ka.length !== Object.keys(b).length) return false;
   return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && a[k] === b[k]);
 }
-
-/** 没套作者人物名字的历史的 authorsKey */
-const NO_AUTHORS = 'null';
-/** 套了哪些作者人物的名字和性别(编年史里写到的作者立的君主、没即位成的人物):一样的两份,编年史逐字一样;一个女的都没有时只看名字 */
-const authorsKey = (civ: Civ) => (civ.authorFemale?.length ? JSON.stringify([civ.authorNames ?? null, civ.authorFemale]) : JSON.stringify(civ.authorNames ?? null));
 
 /** 历史 raw 里会写到哪些作者人物的名字、性别(没有作者立的君主 = ''):人物卡改了别的(颜色、经历……)不用重套 */
 export function authorNamesKey(raw: Civ | null, chars: Chars): string {
@@ -87,6 +101,8 @@ export function namedHistory(raw: Civ, names: Record<string, string>, chars?: Ch
 
 /** 每一小块最多占主线程多久(毫秒) */
 const SLICE_MS = 8;
+/** 换名字时看一次时间之间换几条 */
+const RESTORE_BATCH = 64;
 
 /** 让出主线程一下:这期间界面照样画、照样响应点击拖动(用消息通道,不像 setTimeout 那样连着用会被拖到每次至少 4 毫秒) */
 function breathe(): Promise<void> {
@@ -102,10 +118,43 @@ function breathe(): Promise<void> {
 }
 
 /**
- * 在主线程上分小块算 civ 的编年史(religionText.ts 的 fullChronicleSteps:fullChronicle 连同其中的 buildChronicle,记进各自的缓存,
- * 和一口气算的逐条一样):每块约 SLICE_MS 毫秒,块与块之间让出主线程。算完(或早就算过)= true;signal 叫停了 = false(算了一半的扔掉)
+ * 这份历史有存的那一块:把名字换上,记进编年史的缓存(也分小块,每块约 SLICE_MS 毫秒)。换上了 = true;
+ * 没有那一块、解不开、人物卡的性别改过、叫停了 = false
+ */
+async function chronicleFromBlock(civ: Civ, signal?: AbortSignal): Promise<boolean> {
+  const c = civ.history ?? civ;
+  const s = stored;
+  if (!s || keys.get(c.annals) !== s.key) return false;
+  s.block ??= readLocalPart(s.part).then(
+    (v) => v as ChronicleBlock,
+    () => null,
+  );
+  const block = await s.block;
+  if (!block || !Array.isArray(block.entries) || !blockFits(block, c)) return false;
+  try {
+    const restore = nameRestorer(c);
+    const out: ChronicleEntry[] = [];
+    for (let i = 0; i < block.entries.length; ) {
+      if (signal?.aborted) return false;
+      const t0 = performance.now();
+      for (; i < block.entries.length && performance.now() - t0 < SLICE_MS; i += RESTORE_BATCH) out.push(...restoreEntries(block.entries.slice(i, i + RESTORE_BATCH), c, restore));
+      if (i < block.entries.length) await breathe();
+    }
+    primeChronicle(c, out.filter(inBuildChronicle));
+    primeFullChronicle(c, out);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 备好 civ 的编年史:有存的那一块就换上名字;没有就在主线程上分小块算(religionText.ts 的 fullChronicleSteps:fullChronicle 连同其中的 buildChronicle,
+ * 记进各自的缓存,和一口气算的逐条一样):每块约 SLICE_MS 毫秒,块与块之间让出主线程。算完(或早就算过)= true;signal 叫停了 = false(算了一半的扔掉)
  */
 export async function chronicleInSlices(civ: Civ, signal?: AbortSignal): Promise<boolean> {
+  if (fullChronicleCached(civ)) return true;
+  if (await chronicleFromBlock(civ, signal)) return true;
   const steps = fullChronicleSteps(civ);
   for (;;) {
     if (signal?.aborted) return false;

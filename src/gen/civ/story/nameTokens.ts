@@ -166,6 +166,9 @@ export interface ChronicleBlock {
   authorFemale?: number[];
 }
 
+/** 全部条目里这一条也在 buildChronicle 里:只有史事写的那些(信仰、时代和商道、思潮的大事是后来并进去的) */
+export const inBuildChronicle = (e: Pick<ChronicleEntry, 'kind'>): boolean => e.kind !== 'faith' && e.kind !== 'era' && e.kind !== 'thought';
+
 /** 算一块编年史:civ = 没套改名的历史,characters = 作者的人物(名字写成占位符,性别照它写) */
 export function chronicleBlock(civ: Civ, characters?: readonly AuthorCharacter[]): ChronicleBlock {
   const full = applyCharacters(civ.history ?? civ, characters);
@@ -178,10 +181,14 @@ export function chronicleBlock(civ: Civ, characters?: readonly AuthorCharacter[]
  * 人物卡的性别和算的时候不一样了,存的文字不能用 = null(调用方现算)
  */
 export function chronicleOfBlock(block: ChronicleBlock, named: Civ): ChronicleEntry[] | null {
+  return blockFits(block, named) ? restoreEntries(block.entries, named) : null;
+}
+
+/** 这块编年史写的性别和 named 的人物卡一样 */
+export function blockFits(block: ChronicleBlock, named: Civ): boolean {
   const want = named.authorFemale ?? [];
   const had = block.authorFemale ?? [];
-  if (want.length !== had.length || want.some((id, i) => id !== had[i])) return null;
-  return restoreEntries(block.entries, named);
+  return want.length === had.length && want.every((id, i) => id === had[i]);
 }
 
 /** 除了写到的人物(people),两条一样:没套人物卡的文字里,作者的人物名字是空的,「写到谁」的判断不作数 */

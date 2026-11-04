@@ -246,7 +246,7 @@ import { UpheavalHint, UpheavalOverlay } from './UpheavalPanel';
 import { PendingTray } from './PendingTray';
 import { restorePending } from './pendingStore';
 import { tookDismissClick } from './dismissClick';
-import { makeFlagView, setFlagView, useFlagPreview } from './flagStore';
+import { makeFlagView, setFlagView, storedFlagsOf, useFlagPreview } from './flagStore';
 import { setFilmSource } from './filmSource';
 import { closeFilm, getFilm, useFilm } from './filmStore';
 import { FilmPanel } from './FilmPanel';
@@ -513,8 +513,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   }, [previewRaw, rawCiv, baseData, preview?.names, realNames]);
   const flagView = useMemo(
     () =>
-      data && civ && civ.viable && civ.habitat.suitability.length === data.world.mesh.n ? makeFlagView(data.world, civ, edits.flags, flagPreview, flagGeo) : null,
-    [data, civ, edits.flags, flagPreview, flagGeo],
+      data && civ && civ.viable && civ.habitat.suitability.length === data.world.mesh.n ? makeFlagView(data.world, civ, edits.flags, flagPreview, flagGeo, previewRaw ? undefined : storedFlagsOf(rawCiv)) : null,
+    [data, civ, edits.flags, flagPreview, flagGeo, previewRaw, rawCiv],
   );
   useLayoutEffect(() => setFlagView(flagView), [flagView]);
   // 导出回放视频 / 故事长图:左边面板(手机:底部卡片)换成导出的选项

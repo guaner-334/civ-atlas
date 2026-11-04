@@ -26,6 +26,7 @@
  * 原件打好以后接着打编年史、国旗,连同原件那几块的一份拷贝交回去(worldParts),主线程转给世界仓库(ui/worldStore.ts、worldVault.ts);这边出错只是这次没存进仓库,原件和世界照常。
  *
  * 读存下的内容打开(load):「我的世界」里存过内容的世界不再生成,读世界仓库的修订(worldOpen.ts,没有、读不了时主线程退回读原件、按存档生成),
+ * 编年史、国旗也用存的(读不出来、人物卡的性别改过就现算);
  * 铺像素的代码按世界记的版本取(gen/readers/),比现在旧的世界就是原来的样子。读到的世界钉在线程里(frozen),后面重推、接着推都用它。
  *
  * 逐年推演(gen/civ/play.ts):请求带着进度(play:推到哪年 + 命令串)的,推到那一年年初,命令接在干预后面;
@@ -68,7 +69,9 @@ import type { WorldTuning } from './gen/civ/tuning';
 import { SNAPSHOT_FORMAT, makePart, readLocalPart, recipeKey, recipeText, recipeTuning, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
 import { playTicks, playTurn } from './gen/civ/play';
 import { subSeed } from './gen/util';
-import { chronicleParts, type ChroniclePart } from './chronicleParts';
+import { chronicleOf, type ChroniclePart } from './chronicleParts';
+import type { FlagBook } from './gen/civ/story/flags';
+import type { ChronicleBlock } from './gen/civ/story/nameTokens';
 import { splitCiv, type CivPart, type CivSplit } from './civParts';
 import { eraWorlds as eraWorldsOf, keyOf, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
 import type { WorldPartsOffer } from './worldVault';
@@ -229,6 +232,8 @@ export type WorkerResponse =
    * 交历史的那条带着同一个编号(chron)
    */
   | ({ type: 'chronicle'; id: number } & ChroniclePart)
+  /** 这份编年史(编号 key)存进世界的那一块:名字是占位符,主线程改名时直接换名字(ui/chronicleHandoff.ts)。后台自己排的活,不算回音 */
+  | { type: 'chronicleBlock'; id: number; key: number; part: SnapshotPart }
   /**
    * 下一条交历史的消息(done、civ、civOnly、turn、extended、trial)那份历史里条数多的几个列表,切成段先交(src/civParts.ts);
    * 交历史的那条带着同一个编号(split),那几个列表在它里面是空的,收齐拼回去才能用
@@ -245,7 +250,7 @@ export type WorkerResponse =
    * mapSent:请求带了 mapFirst,世界和地图已经随 map 先交了,这条只交历史(不带 world、地图)。
    * mapSum:读世界仓库打开的:地图那一块的指纹
    */
-  | ({ type: 'done'; id: number; civ: Civ | null; split?: CivSplit; chron?: number; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string; mapSum?: string } & (
+  | ({ type: 'done'; id: number; civ: Civ | null; split?: CivSplit; chron?: number; flags?: FlagBook; ms: number; genMs: number; rasterMs: number; civMs?: number; reused?: true; tempo?: TempoNote; eras?: EraWorld[]; baseKey: string; mapSum?: string } & (
       | { world: World; raster: Raster; patch?: undefined; from?: undefined; plan?: Plan; mapSent?: undefined }
       | { world: World; raster?: undefined; patch: RasterPatch | null; from: string; plan: Plan; mapSent?: undefined }
       | { world?: undefined; raster?: undefined; patch?: undefined; from?: undefined; plan?: undefined; mapSent: true }
@@ -387,27 +392,34 @@ let renamesNow: { id: number; names: Record<string, string> } | null = null;
  * 这份历史(交历史之前,数组还没 transfer 走)套上改名的编年史:分块先交给主线程(src/chronicleParts.ts),返回编号(交历史时带上)。
  * 长历史的编年史要算好一会儿,在这里算,主线程换上时不用再整段算。改名用主线程最近告诉的(同一个世界的),没有就用请求带的
  */
-function chronicleNow(id: number, civ: Civ, renames: Record<string, string> | undefined): number {
+function chronicleNow(id: number, civ: Civ, m: ChronicleAsk, stored?: ChronicleBlock | null): number {
   const key = ++chronSeq;
-  const names = renamesNow?.id === id ? renamesNow.names : (renames ?? {});
-  const parts = chronicleParts(civ, names, key);
+  const names = renamesNow?.id === id ? renamesNow.names : (m.renames ?? {});
+  const { block, parts } = chronicleOf(civ, names, key, m.characters, stored);
+  // 算好的这一块留给随后打包的内容(queueSnapshot),不用再算一遍
+  lastBlock = { key, block };
   for (const p of parts) post({ type: 'chronicle', id, ...p }, [p.build.buffer as ArrayBuffer]);
   return key;
 }
+/** 算编年史要的:改名、作者的人物 */
+type ChronicleAsk = Pick<CivInput, 'renames' | 'characters'>;
+/** 最近算好、还没打包的那一块和它的编号 */
+let lastBlock: { key: number; block: ChronicleBlock } | null = null;
 /** 让一下:这期间到了的消息排进来(推的时候改了名的,记下最新的改名) */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 /** 同 chronicleNow,先让一下 */
-async function postChronicle(id: number, civ: Civ, renames: Record<string, string> | undefined): Promise<number> {
+async function postChronicle(id: number, civ: Civ, m: ChronicleAsk, stored?: ChronicleBlock | null): Promise<number> {
   await tick();
-  return chronicleNow(id, civ, renames);
+  return chronicleNow(id, civ, m, stored);
 }
 /**
  * 同 postChronicle:让一下以后,已经排着会换掉这份历史的请求(superseded)时,主线程不会换上它,
  * 编年史就不算了(返回 undefined),好早点去推新的那一次
  */
-async function postChronicleUnlessSuperseded(id: number, civ: Civ, renames: Record<string, string> | undefined, superseded: () => boolean): Promise<number | undefined> {
+async function postChronicleUnlessSuperseded(id: number, civ: Civ, m: ChronicleAsk, superseded: () => boolean): Promise<number | undefined> {
   await tick();
-  if (!superseded()) return chronicleNow(id, civ, renames);
+  if (!superseded()) return chronicleNow(id, civ, m);
+  lastBlock = null;
   return undefined;
 }
 
@@ -741,6 +753,8 @@ function cloneCiv(civ: Civ): Civ | null {
  * civ 要在交给主线程(transfer 以后这边的数组就空了)之前复制一份传进来;没复制成(null)就不排
  */
 function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[] }, world: World, steps: Step[], civ: Civ | null) {
+  const chron = lastBlock;
+  lastBlock = null;
   if (!civ) return;
   const baseKey = keyOf(m.params, m.terrain, m.sketch);
   bg.push(async () => {
@@ -766,7 +780,7 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
     }
     // 地图那一块还记着(下次重推用),不交出去,复制一份
     post({ type: 'snapshot', id, snapshot }, [eras.data, civPart.data]);
-    if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: kept }, world, civ, m.characters);
+    if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: kept }, world, civ, chron, m.characters);
   });
 }
 
@@ -774,10 +788,11 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
  * 原件打好以后,接着打世界内容里剩下的两块(编年史、国旗),连同原件那几块一起交给主线程存进世界仓库(worldVault.ts)。
  * 单独一件后台的活:换了世界、又推了一次就作废,不耽误新来的消息。这里出错只是这次没存进仓库,世界照常用,不当线程的错
  */
-function queueWorldParts(id: number, offer: WorldPartsOffer, world: World, civ: Civ, characters: readonly AuthorCharacter[] | undefined) {
+function queueWorldParts(id: number, offer: WorldPartsOffer, world: World, civ: Civ, chron: typeof lastBlock, characters: readonly AuthorCharacter[] | undefined) {
   bg.push(async () => {
     try {
-      const chronicle = await makePart('chronicle', worldChronicle(civ, characters));
+      const chronicle = await makePart('chronicle', chron?.block ?? worldChronicle(civ, characters));
+      if (chron) postBlock(id, chron.key, chronicle);
       const flags = await makePart('flags', worldFlags(world, civ));
       const parts = [...offer.parts, chronicle, flags];
       post({ type: 'worldParts', id, offer: { ...offer, parts } }, parts.map((p) => p.data));
@@ -785,6 +800,12 @@ function queueWorldParts(id: number, offer: WorldPartsOffer, world: World, civ: 
       /* 这次没有,下次推完、下次打开再存 */
     }
   });
+}
+
+/** 编年史那一块复制一份交给主线程(改名时直接换名字用):传进来的字节这边还要用 */
+function postBlock(id: number, key: number, part: SnapshotPart) {
+  const copy = { ...part, data: part.data.slice(0) };
+  post({ type: 'chronicleBlock', id, key, part: copy }, [copy.data]);
 }
 
 // ---------------------------------------------------------------------------
@@ -819,6 +840,11 @@ interface LoadedWorld {
   mapSum?: string;
   /** 这个世界这一版的原件的几块(请求要了 original 才有) */
   snapshot?: Snapshot;
+  /** 存的编年史、国旗(世界仓库里读到的,读不出来 = 没有;原件里没有这两块) */
+  chronicle?: ChronicleBlock | null;
+  flags?: FlagBook | null;
+  /** 存的编年史那一块的字节(存的就是现在的结构才有,不用重新打包) */
+  chroniclePart?: SnapshotPart;
 }
 
 /**
@@ -852,7 +878,7 @@ async function loadedOf(m: LoadRequest, wantCiv: boolean): Promise<LoadedWorld> 
       const eraPart = parts.get('eras') ?? (await makePart('eras', { baseKey: key, eras: [] }));
       snapshot = { format: SNAPSHOT_FORMAT, generator: fromVault.head.generator, recipe: fromVault.head.recipeKey, formation: false, parts: [map, eraPart, civPart] };
     }
-    return { key, world, eras, steps, civ: fromVault.civ, readers: fromVault.readers, older: fromVault.older, old, civPart, fromPart: fromVault.fromCiv, mapSum: map?.sum, snapshot };
+    return { key, world, eras, steps, civ: fromVault.civ, readers: fromVault.readers, older: fromVault.older, old, civPart, fromPart: fromVault.fromCiv, mapSum: map?.sum, snapshot, chronicle: fromVault.chronicle, flags: fromVault.flags, chroniclePart: fromVault.chronicleIsCurrent ? parts.get('chronicle') : undefined };
   }
   // 原件是世界文件有版本以前打的,读取代码都是第 1 版
   const readers = { ...FIRST_READERS };
@@ -1153,7 +1179,7 @@ async function handle(m: Queued): Promise<void> {
       const cloned = cloneCiv(civ!);
       keepCiv(m, m.play, cloned);
       const ms = performance.now() - t0;
-      const chron = await postChronicle(m.id, civ!, m.renames);
+      const chron = await postChronicle(m.id, civ!, m);
       postCiv({ type: 'done', id: m.id, mapSent: true, civ, chron, ms, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), baseKey }, transfer);
       queuePatches(m.id, m, steps);
       queueSnapshot(m.id, m, world, steps, cloned);
@@ -1195,7 +1221,7 @@ async function handle(m: Queued): Promise<void> {
     const cloned = civ && cloneCiv(civ);
     keepCiv(m, m.play, cloned);
     const ms = performance.now() - t0;
-    const chron = civ ? await postChronicle(m.id, civ, m.renames) : undefined;
+    const chron = civ ? await postChronicle(m.id, civ, m) : undefined;
     postCiv({ type: 'done', id: m.id, world: { ...rest, history: [] }, ...map, civ, ...(chron !== undefined ? { chron } : {}), ms, genMs, rasterMs, ...(civMs !== undefined ? { civMs } : {}), ...(reused ? { reused: true as const } : {}), tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey }, transfer);
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, m, world, steps, cloned);
@@ -1210,7 +1236,7 @@ async function handle(m: Queued): Promise<void> {
     const cloned = cloneCiv(civ);
     keepCiv(m, m.play, cloned);
     const ms = performance.now() - t0;
-    const chron = await postChronicle(m.id, civ, m.renames);
+    const chron = await postChronicle(m.id, civ, m);
     postCiv({ type: 'civOnly', id: m.id, nid: m.nid, civ, chron, ms, civMs, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queueSnapshot(m.id, m, world, steps, cloned);
   } else if (m.type === 'load') {
@@ -1255,9 +1281,22 @@ async function handle(m: Queued): Promise<void> {
     // 历史那一块字节留着(读出来的那份交给主线程了):接着推时再读
     holdPart(m, f);
     const ms = performance.now() - t0;
-    const chron = await postChronicle(m.id, civ, m.renames);
-    postCiv({ type: 'done', id: m.id, world: { ...world, history: [], readers: f.readers }, raster, ...(plan ? { plan } : {}), civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey, ...(f.mapSum ? { mapSum: f.mapSum } : {}) }, transfer);
+    // 存的编年史直接换上名字;读不出来、人物卡的性别改过就现算一块
+    const chron = await postChronicle(m.id, civ, m, f.chronicle);
+    const blockNow = lastBlock;
+    lastBlock = null;
+    postCiv({ type: 'done', id: m.id, world: { ...world, history: [], readers: f.readers }, raster, ...(plan ? { plan } : {}), civ, chron, ms, genMs, rasterMs, eras: eraWorlds(steps), baseKey, ...(f.mapSum ? { mapSum: f.mapSum } : {}), ...(f.flags ? { flags: f.flags } : {}) }, transfer);
     queuePatches(m.id, m, steps);
+    // 改名时主线程直接换名字要用这一块:存的就是现在的结构时字节现成的
+    if (blockNow) {
+      bg.push(async () => {
+        try {
+          postBlock(m.id, blockNow.key, blockNow.block === f.chronicle && f.chroniclePart ? f.chroniclePart : await makePart('chronicle', blockNow.block));
+        } catch {
+          /* 没有这一块,改名时在主线程上现算 */
+        }
+      });
+    }
     // 这个世界这一版还没有原件:交一份回去存上(字节和仓库里的一样,不用重新打)。历史那块上面留着接着推用,复制一份
     const snap = f.snapshot;
     if (snap) {
@@ -1296,7 +1335,7 @@ async function handle(m: Queued): Promise<void> {
       const cloned = cloneCiv(civ);
       keepCiv(m, m.play, cloned);
       // 主线程只换上最新的一次重推;换了世界的也不换
-      const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim'));
+      const chron = await postChronicleUnlessSuperseded(m.id, civ, m, () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim'));
       postCiv({ type: 'civ', id: m.id, seq: m.seq, civ, ...(chron !== undefined ? { chron } : {}), ms, tempo, eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
       queuePatches(m.id, m, steps);
       queueSnapshot(m.id, m, world, steps, cloned);
@@ -1313,7 +1352,7 @@ async function handle(m: Queued): Promise<void> {
     const ms = performance.now() - t0;
     const cloned = cloneCiv(out.civ);
     keepCiv(m, out.play, cloned);
-    const chron = await postChronicle(m.id, out.civ, m.renames);
+    const chron = await postChronicle(m.id, out.civ, m);
     postCiv({ type: 'turn', id: m.id, civ: out.civ, chron, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
     queuePatches(m.id, m, steps);
     // 原件很大,打一份要好一会儿:一步接一步往下走的时候不每一步都打(会拖慢下一步),停下来一阵子没有下一步了才打最后这一份
@@ -1345,7 +1384,7 @@ async function handle(m: Queued): Promise<void> {
     const ms = performance.now() - t0;
     const cloned = cloneCiv(civ);
     keepCiv(m, undefined, cloned);
-    const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, stop);
+    const chron = await postChronicleUnlessSuperseded(m.id, civ, m, stop);
     postCiv({ type: 'extended', id: m.id, xid: m.xid, civ, ...(chron !== undefined ? { chron } : {}), to, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, { ...m, endYear: to }, world, steps, cloned);
@@ -1389,7 +1428,7 @@ async function handle(m: Queued): Promise<void> {
     const done = { ...m, interventions: out.interventions };
     const cloned = cloneCiv(civ);
     keepCiv(done, undefined, cloned);
-    const chron = await postChronicleUnlessSuperseded(m.id, civ, m.renames, stop);
+    const chron = await postChronicleUnlessSuperseded(m.id, civ, m, stop);
     postCiv({ type: 'outlined', id: m.id, oid: m.oid, civ, ...(chron !== undefined ? { chron } : {}), interventions: out.interventions, review: out.review, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queuePatches(m.id, m, steps);
     queueSnapshot(m.id, done, world, steps, cloned);

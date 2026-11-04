@@ -18,7 +18,7 @@
  *   worker 读原件,不重新生成)。读不出来的照旧按存档重新生成。
  */
 import { GENERATOR_VERSION } from '../gen/edits';
-import { SNAPSHOT_FORMAT, partOf, recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/snapshot';
+import { SNAPSHOT_FORMAT, partOf, recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/recipe';
 import type { SaveFile } from '../gen/savefile';
 import { currentSave, currentWorld, isStored, loadWorld, persistent, subscribe, trashMarks } from './saveStore';
 import { getEdits, setMapSum } from './editsStore';
