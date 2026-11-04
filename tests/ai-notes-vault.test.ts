@@ -535,6 +535,54 @@ describe('用的人删了 / 没读到', () => {
 });
 
 describe('写和读、几个线程撞在一起', () => {
+  const book = (text: string, createdAt: string, extra: object = {}) => ({ ...note('书', text, createdAt), book: { title: '书' }, ...extra }) as AiNote;
+
+  it('没读到时翻版本、写新版本:只并进去,仓库里手上没有的几版都留着', async () => {
+    await revision('w1');
+    const v1 = { text: '第一版', createdAt: '2026-01-01T00:00:00.000Z', provider: 'p', model: 'm', book: { title: '书' } };
+    const v2 = { text: '第二版!', createdAt: '2026-01-02T00:00:00.000Z', provider: 'p', model: 'm', book: { title: '书' } };
+    await changeAuthor('w1', [{ op: 'put', note: book('第三版!!', '2026-01-03T00:00:00.000Z', { others: [v1, v2], ver: 3 }) }]);
+    // 这次读不了:手上一条都没有,写了第四版
+    let bad = true;
+    _resetNotes({ vault: flaky({ read: () => (bad ? new VaultError('failed', '这次读不了') : null) }), timing: { retry: 5 } });
+    await notesReady(['w1']);
+    expect(KEYS('w1')).toEqual([]);
+    putNote('w1', book('第四版!!!', '2026-01-04T00:00:00.000Z'));
+    await flushNotes('w1');
+    bad = false;
+    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true));
+    await _notesSettled();
+    const n = (await readAuthor('w1')).notes[0] as AiNote & { others: { text: string }[]; ver: number };
+    expect(n.text).toBe('第四版!!!');
+    expect(n.others.map((v) => v.text).sort()).toEqual(['第一版', '第三版!!', '第二版!'].sort());
+    // 正在用的还是新写的这一版:它排在别的几版后面
+    expect(n.ver).toBe(4);
+  });
+
+  it('老数据和仓库里同一部书各有几版:都留下', async () => {
+    await revision('w1');
+    await changeAuthor('w1', [{ op: 'put', note: book('只在仓库里', '2026-01-03T00:00:00.000Z') }]);
+    g.localStorage.setItem(`${PREFIX}w1`, JSON.stringify([book('只在老数据里', '2026-01-01T00:00:00.000Z')]));
+    await moveNotes('w1');
+    const n = (await readAuthor('w1')).notes[0] as AiNote & { others: { text: string }[] };
+    expect(n.text).toBe('只在仓库里');
+    expect(n.others.map((v) => v.text)).toEqual(['只在老数据里']);
+    expect(moved().w1.s).toBeTruthy();
+  });
+
+  it('复制世界时原来那份读不了:好了以后补上', async () => {
+    await revision('w1');
+    await changeAuthor('w1', [{ op: 'set', notes: [note('a')] }]);
+    let bad = true;
+    _resetNotes({ vault: flaky({ read: (id) => (bad && id === 'w1' ? new VaultError('failed', '这次读不了') : null) }), timing: { retry: 5 } });
+    await notesReady(['w1']);
+    expect(copyNotes('w1', 'w2')).toBe(true);
+    bad = false;
+    await vi.waitFor(() => expect(KEYS('w2')).toEqual(['a']));
+    await _notesSettled();
+    expect((await readAuthor('w2')).notes.map((n) => n.key)).toEqual(['a']);
+  });
+
   it('读到之前就写了一条,读到的时候还要并老数据:两样都进仓库', async () => {
     await revision('w1');
     g.localStorage.setItem(`${PREFIX}w1`, JSON.stringify([note('old')]));

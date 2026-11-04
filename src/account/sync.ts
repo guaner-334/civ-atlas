@@ -507,6 +507,11 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
     failedNow.set(id, FULL_WHY);
     return false;
   }
+  // 等的工夫用的人把它删了:这时候还没记进同步记录,删除的钩子没记下来。这里补上,不然下一轮又取回来
+  if (!rawWorld(id)) {
+    st.deletes[id] = w.rev;
+    return false;
+  }
   if (l) st.worlds[id] = { rev: w.rev, sum: l.sum, core: l.core, at: nowIso() };
   forgetOffer(id);
   behind.delete(id);

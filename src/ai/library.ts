@@ -241,6 +241,8 @@ interface Slot {
   removed: Set<string>;
   /** 打开时读到的上次留下的草稿(已经在 ops 里了,写进仓库以后去掉) */
   oldDrafts: string[];
+  /** 还没读到就要复制的世界:读到了再带一遍 */
+  copyTo: string[];
   ready: Promise<void>;
   markReady: () => void;
   /** 等排着的都写完的 */
@@ -301,7 +303,7 @@ function slotOf(world: string): Slot {
   const first = cleanNoteList(parseList(stored(world)));
   let markReady = () => {};
   const ready = new Promise<void>((r) => (markReady = r));
-  const s: Slot = { list: applyNoteOps(first, ops), disk: first, loaded: false, read: false, known: false, ops, flying: false, removed: new Set(), oldDrafts, ready, markReady, waiters: [], tries: 0, again: false, reading: false, settling: Promise.resolve() };
+  const s: Slot = { list: applyNoteOps(first, ops), disk: first, loaded: false, read: false, known: false, ops, flying: false, removed: new Set(), oldDrafts, copyTo: [], ready, markReady, waiters: [], tries: 0, again: false, reading: false, settling: Promise.resolve() };
   slots.set(world, s);
   channelOf();
   void load(world, s);
@@ -341,6 +343,7 @@ async function load(world: string, s: Slot): Promise<void> {
     s.markReady();
     if (!sameNotes(merged, got.notes)) s.ops.unshift({ op: 'merge', notes: fromOld });
     if (changed) emit();
+    for (const to of s.copyTo.splice(0)) if (s.list.length) change(to, { op: 'merge', notes: s.list.slice() });
     if (s.ops.length) kick(world, s);
     else void settle(world, s);
   } finally {
@@ -578,7 +581,12 @@ export function getNote(world: string, key: string): AiNote | undefined {
 
 /** 存一条(同 key 覆盖);返回写进浏览器没有(存储满了 = false,这一条只在页面里) */
 export function putNote(world: string, note: AiNote): boolean {
-  const ok = live() ? change(world, { op: 'put', note: fullNote(note) }) : writeLocal(world, [...readLocal(world).filter((n) => n.key !== note.key), note]);
+  let ok: boolean;
+  if (live()) {
+    const s = slotOf(world);
+    // 没读到时这一条是照手上不全的那份改的(一部书少了几版):只并进去,不换掉
+    ok = change(world, s.read && s.known ? { op: 'put', note: fullNote(note) } : { op: 'merge', notes: [fullNote(note)] });
+  } else ok = writeLocal(world, [...readLocal(world).filter((n) => n.key !== note.key), note]);
   keepWorld(world);
   return ok;
 }
@@ -590,13 +598,9 @@ export function putNote(world: string, note: AiNote): boolean {
 export function copyNotes(from: string, to: string): boolean {
   if (live()) {
     const f = slotOf(from);
-    // 原来那份还没读到:读到了再复制,读到之前手上的先带上
-    const copy = () => {
-      if (f.list.length) change(to, { op: 'merge', notes: f.list.slice() });
-    };
-    const ok = !f.list.length || change(to, { op: 'merge', notes: f.list.slice() });
-    if (!f.loaded) void f.ready.then(copy);
-    return ok;
+    // 原来那份还没读到(读不了的过一会儿再试):读到了再复制一遍,读到之前手上的先带上
+    if (!f.read) f.copyTo.push(to);
+    return !f.list.length || change(to, { op: 'merge', notes: f.list.slice() });
   }
   const list = readLocal(from);
   if (!list.length) return true;

@@ -44,15 +44,38 @@ export const sameNote = (a: AuthorNote, b: AuthorNote) => a === b || JSON.string
 
 export const sameNotes = (a: readonly AuthorNote[], b: readonly AuthorNote[]) => a === b || (a.length === b.length && a.every((n, i) => sameNote(n, b[i])));
 
+/** 认一版用的:同一时刻、同一家 AI 写的同样长的,算同一版 */
+const versionSig = (v: { createdAt?: unknown; provider?: unknown; model?: unknown; text?: unknown }) => `${String(v.createdAt)}|${String(v.provider)}|${String(v.model)}|${typeof v.text === 'string' ? v.text.length : 0}`;
+
 /**
- * 两份合起来:什么都不去掉。同一条留新的,一样新的留 more 的(先后照 base,新的条排在后面)。
+ * 同一部书的两份:winner 为准,loser 里有、winner 没有的几版添到 winner 的「别的几版」里(一部书的几版存在一条里,见 ai/history.ts)。
+ * 没有书目信息的(不分版本的正文)就是 winner
+ */
+function withVersions(winner: AuthorNote, loser: AuthorNote): AuthorNote {
+  const a = winner as AuthorNote & { book?: unknown; others?: unknown };
+  const b = loser as AuthorNote & { book?: unknown; others?: unknown };
+  if (a.book === undefined || b.book === undefined) return winner;
+  const others = Array.isArray(a.others) ? a.others : [];
+  const have = new Set([winner, ...others].map(versionSig));
+  const theirs = [{ text: b.text, createdAt: b.createdAt, provider: b.provider, model: b.model, book: b.book }, ...(Array.isArray(b.others) ? b.others : [])].filter((v) => v && !have.has(versionSig(v)));
+  if (!theirs.length) return winner;
+  // 正在用的是第几版记在 ver 里(1 起);添到前面的要跟着挪
+  const at = typeof (a as { ver?: unknown }).ver === 'number' ? (a as unknown as { ver: number }).ver : others.length + 1;
+  return { ...a, others: [...theirs, ...others], ver: at + theirs.length } as AuthorNote;
+}
+
+/**
+ * 两份合起来:什么都不去掉。同一条留新的,一样新的留 more 的(先后照 base,新的条排在后面);同一部书两边各有的几版都留。
  * 一条新版本只在一边、删掉的版本还留在另一边这种说不清的,宁可多留
  */
 export function mergeNotes(base: readonly AuthorNote[], more: readonly AuthorNote[]): AuthorNote[] {
   const out = new Map(base.map((n) => [n.key, n]));
   for (const n of more) {
     const had = out.get(n.key);
-    if (!had || notNewer(had, n)) out.set(n.key, n);
+    if (!had) out.set(n.key, n);
+    else if (sameNote(had, n)) continue;
+    else if (notNewer(had, n)) out.set(n.key, withVersions(n, had));
+    else out.set(n.key, withVersions(had, n));
   }
   return [...out.values()];
 }
