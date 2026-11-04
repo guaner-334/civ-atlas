@@ -70,7 +70,7 @@ const THUMB = 'wenming-ditu:thumb:';
 const META = 'wenming-ditu:meta:';
 /** 地图缩略图(见文件头) */
 const MAPTHUMB = 'wenming-ditu:mapthumb:';
-/** AI 写的东西(ai/library.ts)按世界编号存的键 */
+/** AI 写的东西(ai/library.ts)按世界编号存的键:正文现在在世界仓库里,这里是搬走之前的旧副本和仓库用不了时的退路 */
 const NOTES = 'civ-atlas:ai-notes:';
 /** 以前按"种子 + 参数"当编号存的世界换成了哪个新编号(旧网址只带种子、参数,刷新还回到它) */
 const LEGACY = 'wenming-ditu:legacy:';
@@ -113,12 +113,24 @@ function openLocal(): Storage | null {
     const s = (globalThis as { localStorage?: Storage }).localStorage;
     if (!s) return null;
     const probe = 'wenming-ditu:probe';
-    s.setItem(probe, '1');
+    try {
+      s.setItem(probe, '1');
+    } catch (e) {
+      // 满了不等于不能用:连这一点都写不下时,里面存的世界还读得出来
+      if (isQuota(e)) return s;
+      throw e;
+    }
     s.removeItem(probe);
     return s;
   } catch {
     return null;
   }
+}
+
+/** AI 正文那边(ai/library.ts)接上的两样 */
+let notesHooks: { freeRoom: () => boolean; safeElsewhere: (id: string, raw: string) => boolean } = { freeRoom: () => false, safeElsewhere: () => false };
+export function setNotesHooks(h: typeof notesHooks) {
+  notesHooks = h;
 }
 
 let local: Storage | null | undefined;
@@ -143,7 +155,16 @@ function store(): KV {
             s.setItem(k, v);
             return true;
           } catch (e) {
-            if (isQuota(e)) return false;
+            if (isQuota(e)) {
+              // 写不下:AI 正文那边有已经搬走、核对过的旧副本的话清掉,再试一次
+              if (!notesHooks.freeRoom()) return false;
+              try {
+                s.setItem(k, v);
+                return true;
+              } catch {
+                return false;
+              }
+            }
             // 别的错(存储突然不让用了):退回内存
             local = null;
             mem.set(k, v);
@@ -695,7 +716,7 @@ export interface DeletedWorld {
  * 撤销删除:把删之前的几样原样写回,"我的世界"里回到原来的位置(按最近打开 / 修改的时间排)。
  * 别的页面里还开着它、删了以后又自动存过的:以那边新存的为准,只补回现在没有的。
  * 存档、打开记录(没建完的世界靠它记着还在建)、AI 写的东西有一样写不下(浏览器存储满了)
- * = false,这次写回的都撤掉;缩略图(再打开会重画)、旧版本的原样写不下就算了,不为它们挡着世界放回来
+ * = false,这次写回的都撤掉;缩略图(再打开会重画)、旧版本的原样、已经搬进世界仓库的 AI 正文的旧副本写不下就算了,不为它们挡着世界放回来
  */
 export function restoreWorld(d: DeletedWorld): boolean {
   const kv = store();
@@ -705,7 +726,7 @@ export function restoreWorld(d: DeletedWorld): boolean {
     const v = d.keys.find((e) => e[0] === k)?.[1];
     if (v === undefined || kv.get(k) !== null) continue;
     if (kv.set(k, v)) wrote.push(k);
-    else if (p !== THUMB && p !== ORIG && p !== MAPTHUMB) {
+    else if (p !== THUMB && p !== ORIG && p !== MAPTHUMB && !(p === NOTES && notesHooks.safeElsewhere(d.id, v))) {
       for (const w of wrote) kv.remove(w);
       changed();
       return false;

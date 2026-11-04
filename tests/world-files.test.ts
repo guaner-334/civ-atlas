@@ -7,7 +7,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { isDeepStrictEqual } from 'node:util';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { exportNotes, forgetNotes, putNote } from '../src/ai/library';
+import { _notesSettled, _resetNotes, deleteNote, exportNotes, forgetNotes, putNote } from '../src/ai/library';
 import { mergeUpheavals } from '../src/gen/civ/upheaval';
 import { GENERATOR_VERSION } from '../src/gen/edits';
 import { READER_VERSIONS } from '../src/gen/readers/versions';
@@ -26,7 +26,7 @@ import { runConvert } from '../src/worldConvert';
 import { lookFile } from '../src/worldFileLook';
 import { openStoredWorld } from '../src/worldOpen';
 import { keyOf } from '../src/worldRun';
-import { VAULT_DB, _resetVault, latestOf, partKey, purgeWorld, readRevision, revisionsOf, stateOf, vaultOps, type VaultOps } from '../src/worldVault';
+import { VAULT_DB, _resetVault, changeAuthor, latestOf, partKey, purgeWorld, readAuthor, readRevision, revisionsOf, stateOf, vaultOps, type VaultOps } from '../src/worldVault';
 import { bytesOf, makeSample, tinyJpeg } from './lib/worldFileSample';
 
 class FakeStorage {
@@ -77,7 +77,7 @@ beforeEach(() => {
   g.indexedDB = new IDBFactory();
   _resetVault();
   saveStore._resetForTest();
-  forgetNotes();
+  _resetNotes({ vault: { read: readAuthor, change: changeAuthor } });
   const results = memoryResults();
   _setResultBackend(results);
   _setWorldStore({ caller: direct, runner: (job) => ({ done: runConvert(job, results).then((result) => ({ ok: true as const, result })), stop: () => {} }), timing: { quiet: 0, poll: 1, pause: 0 } });
@@ -86,6 +86,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  await _notesSettled();
   await _settled();
   _setResultBackend(undefined);
   _setWorldStore({ caller: null });
@@ -99,7 +100,7 @@ function freshBrowser() {
   g.indexedDB = new IDBFactory();
   _resetVault();
   saveStore._resetForTest();
-  forgetNotes();
+  _resetNotes({ vault: { read: readAuthor, change: changeAuthor } });
 }
 
 function asLooked(x: unknown): LookedWorldFile {
@@ -192,10 +193,49 @@ describe('打开一个文件', () => {
 
   it('文件里有本机没有的 AI 正文:不算相同', async () => {
     const id = await keepFile(file);
-    forgetNotes();
-    g.localStorage!.removeItem(`civ-atlas:ai-notes:${id}`);
+    await _notesSettled();
+    for (const n of exportNotes(id)) deleteNote(id, n.key);
+    await _notesSettled();
     expect(asLooked(await lookWorldFile(file)).match.kind).toBe('new');
   });
+
+  it('超长正文的文件:能打开,只少这一块,有提示;另存字节不丢;接着写的正文也带上', async () => {
+    const big = await packWorldFile({ ...sample, author: { notes: [{ ...sample.author!.notes[0], text: 'x'.repeat(4e6 + 1) }] } });
+    const looked = asLooked(await lookWorldFile(big));
+    expect(looked.warnings.join('')).toContain('AI 写的正文');
+    const kept = asKept(await keepWorldFile(looked));
+    expect(kept.notesLost).toBe(false);
+    await _notesSettled();
+    expect(exportNotes(kept.id)).toEqual([]);
+    const was = await openWorldFile(big, OPEN);
+    const raw = was.bytes.get('author')!;
+    const saved1 = await saveWorldFile(kept.id);
+    if (!saved1.ok) throw new Error(saved1.message);
+    const again = await openWorldFile(saved1.file, OPEN);
+    expect(again.bytes.get('author')).toEqual(raw);
+
+    putNote(kept.id, NOTE);
+    const saved2 = await saveWorldFile(kept.id);
+    if (!saved2.ok) throw new Error(saved2.message);
+    const after = await openWorldFile(saved2.file, OPEN);
+    const old = after.manifest.parts.find((p) => p.name.startsWith('author.kept.'))!;
+    expect(after.bytes.get(old.name)).toEqual(raw);
+    const c = await readWorldContent(after);
+    expect(c.author!.notes.map((n) => n.key)).toEqual([NOTE.key]);
+  }, 60_000);
+
+  it('author 块字节坏了的文件:能打开,这一块不收', async () => {
+    const parts = (await walkZip(file)).entries;
+    const entries: ZipInput[] = [];
+    for (const e of parts) entries.push({ name: e.name, data: e.name === 'parts/author.gz' ? new Uint8Array([1, 2, 3, 4]) : new Uint8Array(await e.data.arrayBuffer()) });
+    const bad = await writeZip(entries, ZIP_LOCAL_MAX_BYTES);
+    const looked = asLooked(await lookWorldFile(bad));
+    expect(looked.warnings.join('')).toContain('坏了');
+    const kept = asKept(await keepWorldFile(looked));
+    await _notesSettled();
+    expect(exportNotes(kept.id)).toEqual([]);
+    expect((await readRevision(kept.id))!.manifest.parts.some((p) => p.name === 'author')).toBe(false);
+  }, 60_000);
 
   it('编号相同、内容不同:报不同、不盖掉本机的;另存成新编号以后两个都在', async () => {
     const id = await keepFile(file);

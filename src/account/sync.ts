@@ -22,7 +22,7 @@
  * - 没同步上(断网、服务器出错)的,"我的世界"卡片上写"还没同步上",下次再试
  */
 import { useSyncExternalStore } from 'react';
-import { exportNotes, forgetNotes, replaceNotes, subscribeNotes, type AiNote } from '../ai/library';
+import { exportNotes, flushNotes, forgetNotes, notesKnown, notesReady, replaceNotes, subscribeNotes, type AiNote } from '../ai/library';
 import { TITLE_MAX, cleanTitle } from '../gen/savefile';
 import {
   MAX_WORLDS,
@@ -484,6 +484,9 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
     throw e;
   }
   if (id in st.deletes) return false;
+  await notesReady([id]);
+  // 这台设备存着的正文没读到:不知道这边是什么样,先不动它
+  if (!notesKnown(id)) return false;
   if (expect !== undefined && (localWorld(id)?.sum ?? null) !== expect) return false;
   // 取的工夫用户新建了世界、放满了:新的这个先不放(下次有地方再取),算没同步上
   if (!storedIds().includes(id) && storedCount() >= MAX_WORLDS) {
@@ -494,6 +497,11 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
   const notes = Array.isArray(w.notes) ? w.notes : null;
   if (!store(id, raw, notes)) {
     // 存不进浏览器:算没同步上(不然卡片、账号窗都说同步好了,可这个世界在这里还是旧的、或者根本没有)
+    failedNow.set(id, FULL_WHY);
+    return false;
+  }
+  // 正文写稳了才算取回来了:写不进去还当同步好了的话,刷新以后那些东西没了,下一轮会当成这里删了、把账号里的也冲掉
+  if (!(await flushNotes(id))) {
     failedNow.set(id, FULL_WHY);
     return false;
   }
@@ -633,6 +641,9 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
 
 /** 一个世界:本地、上次同步(st.worlds)、服务器上(s)三方对一遍。本地按现在的样子(同步途中用户可能又改了、删了) */
 async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth = 0): Promise<void> {
+  await notesReady([id]);
+  // 这台设备存着的正文没读到:手上这份不全,这一轮不拿它比、不存上去
+  if (!notesKnown(id)) return;
   const l = localWorld(id);
   // 刚删掉、还没告诉服务器的:下一轮去删,这次不取回来
   if (!l && id in st.deletes) return;
@@ -788,8 +799,12 @@ async function cycle(full: boolean): Promise<void> {
 }
 
 async function cycleWith(st: SyncState, full: boolean): Promise<void> {
+  const order = syncOrder();
+  // 正文要读到才算数,没读到的这一轮不算在内
+  await notesReady(order);
   const local = new Map<string, Local>();
-  for (const id of syncOrder()) {
+  for (const id of order) {
+    if (!notesKnown(id)) continue;
     const l = localWorld(id);
     if (l) local.set(id, l);
   }
@@ -836,7 +851,7 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
   } else {
     for (const id of local.keys()) {
       // 按现在的样子(前面几个存上去的工夫,用户可能又改了、删了)
-      const l = localWorld(id);
+      const l = notesKnown(id) ? localWorld(id) : null;
       const k = st.worlds[id];
       if (!l || (k && k.sum === l.sum)) {
         done(id);

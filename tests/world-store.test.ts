@@ -15,7 +15,7 @@ import { makeSave, worldCheck, type SaveFile } from '../src/gen/savefile';
 import { SNAPSHOT_FORMAT, makePart, partBytes, readLocalPart, recipeKey, recipeOfSave, type Snapshot, type SnapshotPart } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { openWorldFile, readWorldContent } from '../src/gen/worldFile';
-import { deleteNote, putNote } from '../src/ai/library';
+import { _notesSettled, _resetNotes, deleteNote, exportNotes, putNote } from '../src/ai/library';
 import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
@@ -23,7 +23,7 @@ import { APP_COMMIT } from '../src/ui/version';
 import { TRASH_KEEP_MS, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
-import { _resetVault, latestOf, patchState, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
+import { _resetVault, changeAuthor, latestOf, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
 import { FIXTURE_DIR, readSamples } from './lib/savedWorlds';
 import { bytesOf } from './lib/worldFileSample';
 
@@ -96,6 +96,7 @@ beforeEach(() => {
   g.indexedDB = new IDBFactory();
   _resetVault();
   saveStore._resetForTest();
+  _resetNotes({ vault: { read: readAuthor, change: changeAuthor } });
   clearEdits();
   stopAuto = saveStore.startAutoSave();
   results = memoryResults();
@@ -107,6 +108,7 @@ afterEach(async () => {
   stopAuto?.();
   stopAuto = null;
   saveStore.detachWorld();
+  await _notesSettled();
   await _settled();
   _setResultBackend(undefined);
   _setWorldStore({ caller: null });
@@ -179,17 +181,18 @@ describe('推完存进仓库', () => {
     expect(await latestOf(visit)).toBeNull();
   });
 
-  it('作者内容和封面一起存;AI 正文原来的地方照旧', async () => {
+  it('还没有修订时写的 AI 正文,第一次存的时候并进 author 块', async () => {
     const id = makeWorld();
     putNote(id, { key: 'k', kind: '史书', title: '本纪', text: '正文', createdAt: '2026-11-04T00:00:00.000Z', provider: 'p', model: 'm' });
+    await _notesSettled();
     expect(await offerWorldParts(await offerOf())).toBe(true);
     const r = (await readRevision(id))!;
     expect(r.manifest.parts.some((p) => p.name === 'author')).toBe(true);
     const author = r.parts.find((p) => p.info.name === 'author')!;
     expect(new TextDecoder().decode(await partBytes(author.info as unknown as SnapshotPart, new Uint8Array(author.data as ArrayBuffer)))).toContain('正文');
-    // 只多存一份
     expect(saveStore.rawWorld(id)).toBeTruthy();
     expect(saveStore.loadWorld(id)).toBeTruthy();
+    expect(exportNotes(id).map((n) => n.text)).toEqual(['正文']);
     deleteNote(id, 'k');
   });
 
@@ -539,6 +542,51 @@ async function putOriginal(id: string, parts: SnapshotPart[], save: SaveFile, ge
   const recipe = await recipeKey(recipeOfSave(save));
   await results.put({ id, generator, app, at, snapshot: { format: SNAPSHOT_FORMAT, generator, recipe, formation: false, parts } }, { id, generator, recipe, sums: '', size: 1, at });
 }
+
+describe('AI 正文', () => {
+  const note = (key: string) => ({ key, kind: '史书', title: key, text: `${key} 的正文`, createdAt: '2026-11-04T00:00:00.000Z', provider: 'p', model: 'm' });
+
+  it('老正文跟着转存那一遍转进来;写不进 localStorage 的、刷新以后再改名存一次,都还在', async () => {
+    const id = makeWorld();
+    await offerWorldParts(await offerOf());
+    (g.localStorage as FakeStorage).setItem(`civ-atlas:ai-notes:${id}`, JSON.stringify([note('old')]));
+    saveStore.detachWorld();
+    await startConversions();
+    await _settled();
+    expect(await readAuthor(id)).toEqual({ notes: [note('old')] });
+
+    // 刷新以后还没读到,就有一次存(改名)
+    _resetNotes({ vault: { read: readAuthor, change: changeAuthor } });
+    (g.localStorage as FakeStorage).removeItem(`civ-atlas:ai-notes:${id}`);
+    saveStore.renameWorld(id, '新名字');
+    await _syncLight(id);
+    await _settled();
+    expect((await readAuthor(id)).notes.map((n) => n.key)).toEqual(['old']);
+    expect((await readRevision(id))!.manifest.title).toBe('新名字');
+  });
+
+  it('打开着的世界写了正文,马上进 author 块,不用等停下来、不写多余的块', async () => {
+    const id = makeWorld();
+    await offerWorldParts(await offerOf());
+    const n0 = (await latestOf(id))!.n;
+    putNote(id, note('a'));
+    await _notesSettled();
+    expect((await readAuthor(id)).notes.map((n) => n.key)).toEqual(['a']);
+    expect((await latestOf(id))!.n).toBe(n0 + 1);
+    expect((await latestOf(id))!.content).toBe((await revisionsOf(id))[0].content);
+  });
+
+  it('删世界真清掉的时候,等着的正文和记录一起清', async () => {
+    const id = makeWorld();
+    putNote(id, note('a'));
+    await _notesSettled();
+    saveStore.detachWorld();
+    saveStore.deleteWorld(id);
+    await maintain(0, 0);
+    expect((await readAuthor(id)).notes).toEqual([]);
+    expect((g.localStorage as FakeStorage).getItem('civ-atlas:ai-notes:~~moved')).toBeNull();
+  });
+});
 
 describe('把现有的世界转进来', () => {
   it('有原件的:不重算,字节直接拿来;读出的地图和历史和原件一样;编年史、国旗是现在的代码算的;版本写真实的,提交号不编', async () => {

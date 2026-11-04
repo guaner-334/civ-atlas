@@ -33,6 +33,8 @@ export interface FileFacts {
   /** 清单字节的指纹:收进仓库时确认还是这一份 */
   sum: string;
   author: AuthorContent | null;
+  /** author 那一块没读进来(见 gen/worldFile.ts 的 WorldContent) */
+  authorTrouble?: 'skipped' | 'damaged';
   thumb: Uint8Array | null;
 }
 
@@ -71,6 +73,7 @@ export async function lookFile(file: Blob | Uint8Array, options: OpenOptions): P
       content: contentOfParts(manifest.parts),
       sum: await sha256(opened.manifestBytes),
       author: content.author,
+      ...(content.authorTrouble ? { authorTrouble: content.authorTrouble } : {}),
       thumb: content.thumb,
     };
   } catch (err) {

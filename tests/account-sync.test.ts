@@ -11,7 +11,8 @@ import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, setEdits, setName } from '../src/ui/editsStore';
 import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
-import { forgetNotes, listNotes, putNote } from '../src/ai/library';
+import { _notesSettled, _resetNotes, forgetNotes, listNotes, notesKnown, putNote, type AiNote, type NotesVault } from '../src/ai/library';
+import { applyNoteOps } from '../src/authorNotes';
 import { setServerForTest, setTimeoutForTest } from '../src/account/server';
 import { _resetSessionForTest, currentAccount, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
 import { _resetSyncForTest, behindCloud, getSyncView, inAccount, pullWorld, requestSync, signOut, startSync, syncNow, unsyncedCount, worldSync } from '../src/account/sync';
@@ -1996,5 +1997,95 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     await signIn();
     expect(await signOut(false)).toEqual({ ok: true });
     expect(titles()).toEqual([]);
+  });
+});
+
+describe('AI 正文在世界仓库里', () => {
+  const note = (text: string): AiNote => ({ key: 'k', kind: '史书', title: '大昌', text, createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+  /** 存在内存里的仓库;bad = 读不了 */
+  function memVault() {
+    const data = new Map<string, AiNote[]>();
+    const state = { bad: false };
+    const vault: NotesVault = {
+      read: async (id) => {
+        if (state.bad) throw Object.assign(new Error('这次读不了'), { kind: 'failed' });
+        return { notes: data.get(id) ?? [] };
+      },
+      change: async (id, ops) => {
+        const next = applyNoteOps(data.get(id) ?? [], ops);
+        data.set(id, next);
+        return { count: next.length };
+      },
+    };
+    return { data, state, vault };
+  }
+  afterEach(() => _resetNotes({ vault: null }));
+
+  it('正文读不到:手上那份不全,不存上去、不把账号里的冲掉;读到了照常同步', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const m = memVault();
+    _resetNotes({ vault: m.vault, timing: { retry: 1 } });
+    const id = addWorld(7, '苍澜界');
+    putNote(id, note('写好的正文'));
+    await _notesSettled();
+    await signIn();
+    const inCloud = () => fake.users.get('writer@example.com')!.worlds.get(id)!.notes as AiNote[] | null;
+    expect(inCloud()!.map((n) => n.text)).toEqual(['写好的正文']);
+
+    // 刷新:这次仓库读不了
+    m.state.bad = true;
+    device(a);
+    _resetNotes({ vault: m.vault, timing: { retry: 100_000 } });
+    const v = await syncNow();
+    expect(notesKnown(id)).toBe(false);
+    expect(listNotes(id)).toEqual([]);
+    expect(v.failed.size).toBe(0);
+    expect(inCloud()!.map((n) => n.text)).toEqual(['写好的正文']);
+    // 退出选「从这台设备上删掉」也不让:这台的还没读到,说不上同步好了
+    expect((await signOut(false)).ok).toBe(false);
+
+    // 刷新:好了
+    m.state.bad = false;
+    device(a);
+    _resetNotes({ vault: m.vault });
+    await syncNow();
+    expect(notesKnown(id)).toBe(true);
+    expect(listNotes(id).map((n) => n.text)).toEqual(['写好的正文']);
+    expect(inCloud()!.map((n) => n.text)).toEqual(['写好的正文']);
+  });
+
+  it('读回来的正文和上次同步时一样:不算改过,不再存上去', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const m = memVault();
+    _resetNotes({ vault: m.vault });
+    const id = addWorld(7, '苍澜界');
+    putNote(id, note('正文'));
+    await _notesSettled();
+    await signIn();
+    const rev = fake.users.get('writer@example.com')!.worlds.get(id)!.rev;
+    device(a);
+    _resetNotes({ vault: m.vault });
+    await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.rev).toBe(rev);
+  });
+
+  it('账号里取回来的正文写进仓库;换的时候读到过了,少了的才算真少了', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const m = memVault();
+    _resetNotes({ vault: m.vault });
+    const id = addWorld(7, '苍澜界');
+    putNote(id, note('第一版'));
+    await _notesSettled();
+    await signIn();
+
+    const b = new FakeStorage();
+    device(b);
+    const n = memVault();
+    _resetNotes({ vault: n.vault });
+    await signIn();
+    expect(n.data.get(id)!.map((x) => x.text)).toEqual(['第一版']);
   });
 });

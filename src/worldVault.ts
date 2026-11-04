@@ -2,10 +2,15 @@
  * 世界仓库:每个世界完整的内容(地图、各段世界、历史、编年史、国旗、作者内容、封面)存在浏览器的 IndexedDB 里('civ-atlas:worlds' 库),
  * 格式是世界文件(gen/worldFormat.ts)拆开的样子:块和清单能原样拼回一个 .civworld(revisionFile)。
  *
- * 三张表:
+ * 四张表:
  * - parts:块。键 = 解压后字节的指纹 + 压缩方式,相同内容只存一份。值 = 压缩后的字节,带写入时间 at(有索引:清理时不用把字节读出来)
  * - manifests:清单。键 = 世界编号 + 修订号。值 = 清单原文和几项简要信息(RevisionRow)
  * - states:每个世界一行小状态(WorldState):转存到哪了、最近一次是不是写不下。不是世界内容,丢了只是多做一遍
+ * - notes:还没有修订、块读不了的世界的 AI 正文(LooseNotes)。有了修订就并进 author 块,这一行删掉
+ *
+ * AI 正文以最新修订的 author 块为准(readAuthor、changeAuthor)。改动按操作传,这里读最新的那份、改完写新修订,配方、看世界的几块都不动,
+ * 所以历史正在重推(配方变了还没推完)也照样存得下;几个标签页同时写谁也盖不掉谁。
+ * 块读不了分两种:字节好好的但这一版不认(校验没过、结构比软件新)= 另起一个名字留着,字节不动,新写的进新的 author 块;字节坏了、没了 = 不动它,新写的放进 notes 表。
  *
  * 一次写完不留半截(commitWorld):
  *   1. 新块先写,一块一个事务;写完读回来,解压、核对指纹。对不上就删掉这一块(不然以后都当它存好了),这次算没存成
@@ -25,11 +30,13 @@
  * 读:打开世界时生成世界的线程直接从这里读(worldOpen.ts),不经主线程。发现哪份修订的块坏了,小状态里记一笔(corrupt):
  * 按内容存的块不会再写第二遍,所以下一次存完整的内容时不管一样不一样,块全部重写、写新清单,坏的块就补好了。
  */
-import { LOCAL_PART_MAX_BYTES, partBytes, sha256, type SnapshotPart } from './gen/snapshot';
+import { applyNoteOps, cleanNoteList, mergeNotes, sameNotes, type NoteOp } from './authorNotes';
+import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
 import { GENERATOR_VERSION } from './gen/edits';
 import type { SaveFile } from './gen/savefile';
 import { buildManifest, knownPart, manifestBytes, openWorldFile, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
-import { KNOWN_PARTS, WorldFileError, asWorldFileError, type AuthorContent, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
+import { KNOWN_PARTS, WorldFileError, asWorldFileError, type AuthorContent, type AuthorNote, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
+import { currentSchema } from './gen/worldMigrate';
 import { parseManifest, validateThumb } from './gen/worldValidate';
 import { writeZip, type ZipInput } from './gen/zipStore';
 
@@ -134,6 +141,15 @@ export interface WorldState {
   checked?: string;
   /** 打开时发现这一份修订的块坏了(修订号):下一次存完整的内容时块全部重写 */
   corrupt?: number;
+  /** 放进来时校验没过的 author 块(指纹):字节留着,不当正文读 */
+  authorSkip?: string;
+}
+
+/** notes 表的一行:还进不了 author 块的 AI 正文 */
+interface LooseNotes {
+  id: string;
+  notes: AuthorNote[];
+  at: number;
 }
 
 /** 存一份修订要的东西 */
@@ -196,7 +212,7 @@ export interface WorldPartsOffer {
 
 let dbp: Promise<IDBDatabase> | null = null;
 
-const VAULT_STORES = ['parts', 'manifests', 'states'];
+const VAULT_STORES = ['parts', 'manifests', 'states', 'notes'];
 
 /**
  * 打开库;version 不给 = 现在是第几版就开第几版:以后的版本加了表,这一版的代码照样用(测试网站和正式网站共用一个库)。
@@ -217,6 +233,7 @@ function openDb(version?: number): Promise<IDBDatabase> {
       if (!d.objectStoreNames.contains('parts')) d.createObjectStore('parts', { keyPath: 'key' }).createIndex('at', 'at');
       if (!d.objectStoreNames.contains('manifests')) d.createObjectStore('manifests', { keyPath: ['id', 'n'] });
       if (!d.objectStoreNames.contains('states')) d.createObjectStore('states', { keyPath: 'id' });
+      if (!d.objectStoreNames.contains('notes')) d.createObjectStore('notes', { keyPath: 'id' });
     };
     r.onsuccess = () => {
       const d = r.result;
@@ -368,11 +385,12 @@ export function keepRows(rows: readonly Pick<RevisionRow, 'n' | 'source' | 'cont
 }
 
 /**
- * 写清单。一个事务里:最大的修订号还是 maxN(不然别的标签页抢先了)、要的块都在(不然被清了);都对才写,顺手去掉保留规则以外的旧修订
+ * 写清单。一个事务里:最大的修订号还是 maxN(不然别的标签页抢先了)、要的块都在(不然被清了);都对才写,顺手去掉保留规则以外的旧修订。
+ * foldLoose = 这份清单的 author 块已经并进了 notes 表那一行,一起去掉
  */
-function publish(row: RevisionRow, maxN: number): Promise<'ok' | 'conflict' | 'missing'> {
+function publish(row: RevisionRow, maxN: number, foldLoose = false): Promise<'ok' | 'conflict' | 'missing'> {
   return run<'ok' | 'conflict' | 'missing'>(
-    ['parts', 'manifests'],
+    foldLoose ? ['parts', 'manifests', 'notes'] : ['parts', 'manifests'],
     'readwrite',
     (t, done) => {
       const m = t.objectStore('manifests');
@@ -389,6 +407,7 @@ function publish(row: RevisionRow, maxN: number): Promise<'ok' | 'conflict' | 'm
           m.put(row);
           const keep = keepRows([...rows, row]);
           for (const r of rows) if (!keep.has(r.n)) m.delete([r.id, r.n]);
+          if (foldLoose) t.objectStore('notes').delete(row.id);
         };
         if (!left) return write();
         for (const k of row.keys) {
@@ -446,7 +465,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
         thumb = undefined;
       }
     } else thumb = req.thumb;
-    const fresh = [...incoming, ...(author ? [author] : []), ...(thumb ? [thumb] : [])];
+    const given = [...incoming, ...(author ? [author] : []), ...(thumb ? [thumb] : [])];
     const source = req.source ?? 'made';
     // 上次打开时发现块坏了:这次带着完整的内容来,不管一样不一样都重写一遍(只改配方、作者内容的不算,等完整的内容)
     const rewrite = !!req.parts && source !== 'archive' && (await stateOf(req.id).catch(() => null))?.corrupt !== undefined;
@@ -480,6 +499,10 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
         if (thumb) infos.set('thumb', thumb.info);
         else infos.delete('thumb');
       }
+      // 没给作者内容 = 沿用。notes 表里等着的并进来;块坏了要重写时,坏的这一块不留(读不出来,留着存不成文件)
+      const fold = source !== 'archive' && req.author === undefined ? await foldedAuthor(req.id, infos, rewrite) : null;
+      if (fold?.packed) infos.set('author', fold.packed.info);
+      const fresh = fold?.packed ? [...given, fold.packed] : given;
       const parts = sortParts(infos.values());
       const made = (req.parts ? req.made : prev?.made) ?? null;
       const readers = (req.parts ? req.readers : prev?.readers) ?? null;
@@ -490,7 +513,10 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       // 清单里认不出的字段(以后的版本写的)原样带着
       const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins, revision: { n, ...(parent ? { parent } : {}) } }, parts) };
       if (!req.recipe.title) delete manifest.title;
-      if (!rewrite && prev && sameManifest(prev, manifest)) return { status: 'same', n: base!.n };
+      if (!rewrite && prev && sameManifest(prev, manifest)) {
+        if (fold?.packed) await dropLoose(req.id);
+        return { status: 'same', n: base!.n };
+      }
       const text = manifestBytes(manifest);
       parseManifest(text, { readers: { ...readers } });
 
@@ -513,11 +539,176 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
         source,
         at: Date.now(),
       };
-      const out = await publish(row, maxN);
+      const out = await publish(row, maxN, !!fold?.packed);
       if (out === 'ok') {
         if (rewrite) await patchState(req.id, { corrupt: undefined, checked: undefined }).catch(() => undefined);
         return { status: 'saved', n };
       }
+    }
+    throw new VaultError('corrupt', '写清单时块总是不全');
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI 正文
+
+function looseOf(id: string): Promise<LooseNotes | null> {
+  return run<LooseNotes | null>(['notes'], 'readonly', (t, done) => {
+    done(null);
+    const q = t.objectStore('notes').get(id);
+    q.onsuccess = () => done((q.result as LooseNotes | undefined) ?? null);
+  });
+}
+
+function dropLoose(id: string): Promise<void> {
+  return run<void>(['notes'], 'readwrite', (t) => {
+    t.objectStore('notes').delete(id);
+  });
+}
+
+/**
+ * 读 author 块:
+ * - ok:读到了
+ * - skip:字节好好的,但是不当正文读(放进来时校验没过、结构比这一版软件新、解不开的压缩方式、结构不对)
+ * - bad:字节坏了、没了
+ * 浏览器读不出来(事务出错)照常抛:那不是块的问题,等一下再试
+ */
+async function readBlock(id: string, info: WorldPartInfo): Promise<{ kind: 'ok'; notes: AuthorNote[] } | { kind: 'skip' } | { kind: 'bad' }> {
+  if (info.schema > currentSchema('author') || (info.zip !== 'gzip' && info.zip !== 'none')) return { kind: 'skip' };
+  if ((await stateOf(id))?.authorSkip === info.sum) return { kind: 'skip' };
+  const row = await run<PartRow | undefined>(['parts'], 'readonly', (t, done) => {
+    const q = t.objectStore('parts').get(partKey(info));
+    q.onsuccess = () => done(q.result as PartRow | undefined);
+  });
+  if (!row) return { kind: 'bad' };
+  let bytes: Uint8Array;
+  try {
+    bytes = await partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, new Uint8Array(row.data), LOCAL_PART_MAX_BYTES);
+  } catch (e) {
+    if (asWorldFileError(e).kind === 'memory') throw e;
+    return { kind: 'bad' };
+  }
+  try {
+    const v = unpackValue(bytes, LOCAL_HEAD_MAX_BYTES) as { notes?: unknown } | null;
+    return Array.isArray(v?.notes) ? { kind: 'ok', notes: cleanNoteList(v.notes) } : { kind: 'skip' };
+  } catch (e) {
+    if (asWorldFileError(e).kind === 'memory') throw e;
+    return { kind: 'skip' };
+  }
+}
+
+/** 这个世界要存的时候,notes 表里等着的怎么并进 author 块;没有要做的 = null */
+async function foldedAuthor(id: string, infos: Map<string, WorldPartInfo>, rewrite: boolean): Promise<{ packed: PackedPart | null } | null> {
+  const loose = await looseOf(id);
+  if (!loose && !rewrite) return null;
+  const info = infos.get('author');
+  const got = info ? await readBlock(id, info) : ({ kind: 'ok', notes: [] } as const);
+  if (got.kind === 'skip' || (got.kind === 'bad' && !rewrite)) return null;
+  if (got.kind === 'bad') infos.delete('author');
+  if (!loose) return null;
+  return { packed: await packKnown('author', { notes: mergeNotes(got.kind === 'ok' ? got.notes : [], loose.notes) }) };
+}
+
+/** 读出来的 AI 正文 */
+export interface AuthorRead {
+  notes: AuthorNote[];
+  /** 这个世界有过正文、这次没读到(块坏了、没了,清单读不懂):notes 不是全部,不能当「用的人删了」 */
+  unread?: true;
+}
+
+/** 这个世界现在的 AI 正文:author 块加上 notes 表里等着的。不写东西 */
+export async function readAuthor(id: string): Promise<AuthorRead> {
+  try {
+    const [rows, loose] = await Promise.all([rowsOf(id), looseOf(id)]);
+    const extra = loose?.notes ?? [];
+    const base = chainOf(rows).at(-1);
+    if (!base) return { notes: extra };
+    const prev = manifestOf(base);
+    if (!prev) return { notes: extra, unread: true };
+    const info = prev.parts.find((p) => p.name === 'author');
+    if (!info) return { notes: extra };
+    const got = await readBlock(id, info);
+    if (got.kind === 'ok') return { notes: mergeNotes(got.notes, extra) };
+    return got.kind === 'bad' ? { notes: extra, unread: true } : { notes: extra };
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+/** 写好的 AI 正文:写完这个世界一共几条 */
+export interface AuthorWrote {
+  count: number;
+}
+
+/** 写进 notes 表;读回来核对 */
+async function changeLoose(id: string, ops: readonly NoteOp[]): Promise<AuthorWrote> {
+  const next = await run<AuthorNote[]>(
+    ['notes'],
+    'readwrite',
+    (t, done) => {
+      const s = t.objectStore('notes');
+      done([]);
+      const q = s.get(id);
+      q.onsuccess = () => {
+        const list = applyNoteOps((q.result as LooseNotes | undefined)?.notes ?? [], ops);
+        if (list.length) s.put({ id, notes: list, at: Date.now() } satisfies LooseNotes);
+        else s.delete(id);
+        done(list);
+      };
+    },
+    true,
+  );
+  if (!sameNotes((await looseOf(id))?.notes ?? [], next)) throw new VaultError('corrupt', 'AI 正文写进去读回来对不上');
+  return { count: next.length };
+}
+
+/** 字节好好的、不当正文读的那一块:另起一个名字留着(认不出的附加数据,谁都原样带着),字节不动 */
+function keptAside(info: WorldPartInfo): WorldPartInfo {
+  const name = `author.kept.${info.sum.slice(0, 12).toLowerCase()}`;
+  return { ...info, name, file: `parts/${name}.${info.zip === 'gzip' ? 'gz' : 'bin'}`, need: 'extra' };
+}
+
+/**
+ * 改一个世界的 AI 正文。有修订的写一份新修订:读最新的 author 块、改完换上,别的都照上一份(配方也是,有待完成的修改也不碍事);
+ * 块先写、读回来核对,最后写清单,和 commitWorld 一样断在哪都没有半截。没有修订的、块坏了的放进 notes 表。
+ * 存不下抛 VaultError,上一份修订不受影响
+ */
+export async function changeAuthor(id: string, ops: readonly NoteOp[]): Promise<AuthorWrote> {
+  try {
+    for (let tries = 0; tries < COMMIT_TRIES; tries++) {
+      const rows = await rowsOf(id);
+      const maxN = rows.at(-1)?.n ?? 0;
+      const base = chainOf(rows).at(-1);
+      const prev = base ? manifestOf(base) : null;
+      if (!base || !prev) return await changeLoose(id, ops);
+      const infos = new Map<string, WorldPartInfo>(prev.parts.map((p) => [p.name, p]));
+      const info = infos.get('author');
+      const got = info ? await readBlock(id, info) : ({ kind: 'ok', notes: [] } as const);
+      if (got.kind === 'bad') return await changeLoose(id, ops);
+      const loose = await looseOf(id);
+      const had = got.kind === 'ok' ? got.notes : [];
+      const next = applyNoteOps(loose ? mergeNotes(had, loose.notes) : had, ops);
+      if (got.kind === 'skip') {
+        // 还没有新写的:那一块不动
+        if (!next.length) return { count: 0 };
+        infos.set(keptAside(info!).name, keptAside(info!));
+      } else if (sameNotes(next, had)) {
+        if (loose) await dropLoose(id);
+        return { count: next.length };
+      }
+      infos.delete('author');
+      const packed = next.length ? await packKnown('author', { notes: next }) : null;
+      if (packed) infos.set('author', packed.info);
+      const parts = sortParts(infos.values());
+      const n = maxN + 1;
+      const manifest: WorldManifest = { ...prev, parts, revision: { n, parent: await sha256(new TextEncoder().encode(base.text)) } };
+      const text = manifestBytes(manifest);
+      parseManifest(text, { readers: { ...prev.readers } });
+      if (packed && !(await existing([partKey(packed.info)])).size) await storePart(packed);
+      const row: RevisionRow = { id, n, text: new TextDecoder().decode(text), keys: [...new Set(parts.map(partKey))], content: contentOf(parts), recipeKey: base.recipeKey, generator: base.generator, source: 'made', at: Date.now() };
+      if ((await publish(row, maxN, !!loose)) === 'ok') return { count: next.length };
     }
     throw new VaultError('corrupt', '写清单时块总是不全');
   } catch (e) {
@@ -542,6 +733,8 @@ export interface AdoptRequest {
   readers: WorldReaders;
   /** 不给 = made */
   source?: RevisionSource;
+  /** 文件里的 author 块字节坏了(对不上指纹):这个文件的世界照收,这一块不收 */
+  dropAuthor?: boolean;
 }
 
 /**
@@ -569,7 +762,7 @@ export async function adoptFile(req: AdoptRequest): Promise<{ n: number }> {
   try {
     const opened = await openWorldFile(req.file, { readers: req.readers });
     if ((await sha256(opened.manifestBytes)) !== req.sum) throw new VaultError('corrupt', '文件和核对时的不一样');
-    const infos = sortParts(opened.manifest.parts);
+    const infos = sortParts(req.dropAuthor ? opened.manifest.parts.filter((p) => p.name !== 'author') : opened.manifest.parts);
     const packed: PackedPart[] = infos.map((info) => ({ info, data: opened.bytes.get(info.name)! }));
     await checkKept(packed.filter((p) => opened.kept.includes(p.info)));
     const source = req.source ?? 'made';
@@ -751,11 +944,12 @@ export function sweepParts(grace: number = PART_GRACE_MS, now: number = Date.now
   });
 }
 
-/** 删掉一个世界的全部修订和小状态(块下次清理时清)。只有用的人删了这个世界才调 */
+/** 删掉一个世界的全部修订、小状态、等着的 AI 正文(块下次清理时清)。只有用的人删了这个世界才调 */
 export function purgeWorld(id: string): Promise<void> {
-  return run<void>(['manifests', 'states'], 'readwrite', (t) => {
+  return run<void>(['manifests', 'states', 'notes'], 'readwrite', (t) => {
     t.objectStore('manifests').delete(rangeOf(id));
     t.objectStore('states').delete(id);
+    t.objectStore('notes').delete(id);
   });
 }
 
@@ -791,5 +985,5 @@ export function patchState(id: string, patch: Partial<Omit<WorldState, 'id'>>): 
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, purgeWorld, clearVault, stateOf, patchState };
+export const vaultOps = { commitWorld, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, purgeWorld, clearVault, stateOf, patchState, readAuthor, changeAuthor };
 export type VaultOps = typeof vaultOps;

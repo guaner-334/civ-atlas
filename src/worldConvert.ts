@@ -16,7 +16,7 @@ import { worldCheck, type SaveFile } from './gen/savefile';
 import { sketchGrid } from './gen/sketch';
 import { SNAPSHOT_FORMAT, makePart, partOf, readLocalPart, recipeKey, recipeOfSave, type SnapshotPart } from './gen/snapshot';
 import { generateWorld, type World } from './gen/world';
-import type { AuthorContent, WorldMade } from './gen/worldFormat';
+import type { WorldMade } from './gen/worldFormat';
 import { indexedDbResults, type ResultBackend } from './resultDb';
 import { eraWorlds, keyOf, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
 import { VaultError, commitWorld, type CommitResult, type RevisionSource } from './worldVault';
@@ -26,7 +26,6 @@ interface JobBase {
   /** 世界的存档 */
   save: SaveFile;
   /** 作者内容、封面(和存档一样由主线程给;不给 = 没有) */
-  author?: AuthorContent | null;
   thumb?: Uint8Array;
 }
 
@@ -60,7 +59,7 @@ async function fromOriginal(job: Extract<ConvertJob, { kind: 'original' }>, resu
   const parts = [mapPart, ...(erasPart && eras?.eras.length ? [erasPart] : []), civPart, ...(await storyParts(world, civ, job.save))];
   // 真实的版本:存的时候记下的那一版;提交号当时没记,不编
   const made: WorldMade = { app: rec.app, generator: rec.generator, commit: '', at: Number.isNaN(Date.parse(rec.at)) ? job.save.savedAt : rec.at };
-  return commitWorld({ id: job.id, recipe: job.save, recipeKey: s.recipe, parts, schemas: ORIGINAL_SCHEMAS, made, readers: { ...FIRST_READERS }, author: job.author, thumb: job.thumb, source: job.source });
+  return commitWorld({ id: job.id, recipe: job.save, recipeKey: s.recipe, parts, schemas: ORIGINAL_SCHEMAS, made, readers: { ...FIRST_READERS }, thumb: job.thumb, source: job.source });
 }
 
 /** 按存档算一遍:地图、各段世界、整段历史。结果和生成世界的线程按这份存档推出来的一样 */
@@ -104,7 +103,7 @@ async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>): Prom
     ...(await storyParts(world, civ, job.save)),
   ];
   const made: WorldMade = { app: job.app, generator: GENERATOR_VERSION, commit: job.commit, at: new Date().toISOString() };
-  return commitWorld({ id: job.id, recipe: job.save, recipeKey: await recipeKey(r), parts, made, readers: { ...READER_VERSIONS }, author: job.author, thumb: job.thumb, source: 'migrated' });
+  return commitWorld({ id: job.id, recipe: job.save, recipeKey: await recipeKey(r), parts, made, readers: { ...READER_VERSIONS }, thumb: job.thumb, source: 'migrated' });
 }
 
 /** 转一个世界;转不了抛错 */

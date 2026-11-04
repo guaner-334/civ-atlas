@@ -7,9 +7,11 @@
  * 什么时候存:
  * - 推完、改完:生成世界的线程把这次的内容打好交回来(offerWorldParts),对得上这个世界存着的存档才存,对不上的先放着(和原件同样的规矩)。
  *   块按内容存,重推只会写变了的块;逐年推演不每步都存(线程那边停够了才打),页面藏起来、要关时叫线程马上打(packNow)
- * - 只改了配方以外的东西(改名、改旗、换投影、AI 写了正文、换了封面):停 LIGHT_DELAY 毫秒写一份新清单,只有作者内容、封面变了才写块。
+ * - 只改了配方以外的东西(改名、改旗、换投影、换了封面):停 LIGHT_DELAY 毫秒写一份新清单,只有封面变了才写块。
  *   换世界、页面藏起来、要关时马上写。配方变了(历史要重推)的不写:那是待完成的修改,等推完。
  *   没来得及写的(关得太快、在「我的世界」里改的别的世界),下次打开转存那一遍会补上
+ * - AI 写的正文不走这里:ai/library.ts 一有改动就写进仓库的 author 块(changeAuthor),这里存世界时不带作者内容,仓库沿用最新的那块。
+ *   转存那一遍顺手把 localStorage 里的老正文也转进去(moveNotes)
  *
  * 待完成的修改:存着的修订在仓库里,配方草稿就是存档(saveStore),两边分开放。崩了以后拿两边比(pendingEdit、pendingOf)就知道有没有没推完的修改。
  *
@@ -26,12 +28,12 @@
  *
  * 第一次存世界时申请长期保存(navigator.storage.persist)。Firefox 会弹浏览器自己的询问框,只问一次;Safari、Chromium 不弹,自己定,每次打开问一次。
  */
-import { exportNotes, subscribeNotes } from '../ai/library';
+import { flushNotes, moveNotes, tidyNotes, type NotesVault } from '../ai/library';
 import { GENERATOR_VERSION } from '../gen/edits';
 import { READER_VERSIONS } from '../gen/readers/versions';
 import { parseSave, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
-import type { AuthorContent, WorldMade } from '../gen/worldFormat';
+import type { WorldMade } from '../gen/worldFormat';
 import type { ConvertJob } from '../worldConvert';
 import type { ConvertReply } from '../worldConvertWorker';
 import { pendingEdit, type CommitRequest, type CommitResult, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
@@ -133,19 +135,6 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // ---------------------------------------------------------------------------
 // 世界的内容
 
-/** 一条正文缺的字段补成空的:老版本写的、账号同步下来的可能缺,世界文件要求都有(一条缺字段的正文不能让整个文件打不开) */
-const fullNote = <T extends object>(n: T): T => {
-  const out = { ...n } as Record<string, unknown>;
-  for (const k of ['kind', 'title', 'createdAt', 'provider', 'model']) if (typeof out[k] !== 'string') out[k] = '';
-  return out as T;
-};
-
-/** 作者内容:AI 写的正文。现在只是多存一份,原来的地方照旧 */
-function authorOf(id: string): AuthorContent | null {
-  const notes = exportNotes(id);
-  return notes.length ? { notes: notes.map(fullNote) } : null;
-}
-
 /** 封面的 dataURL 转成 JPEG 字节;没有、不是 JPEG = undefined(封面是可选的) */
 export function thumbBytes(url: string | null | undefined): Uint8Array | undefined {
   const m = url ? /^data:image\/jpeg;base64,/.exec(url) : null;
@@ -234,7 +223,7 @@ function keepOffer(): Promise<boolean> {
       offer = null;
       const made: WorldMade = { app: APP_VERSION, generator: o.generator, commit: APP_COMMIT, at: new Date().toISOString() };
       const r = await commit(
-        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, made, readers: { ...READER_VERSIONS }, author: authorOf(c.id), thumb: thumbBytes(again.thumb) },
+        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, made, readers: { ...READER_VERSIONS }, thumb: thumbBytes(again.thumb) },
         o.parts.map((p) => p.data),
       );
       return r?.status === 'saved';
@@ -250,7 +239,7 @@ function writeLight(id: string): Promise<boolean> {
     try {
       const w = loadWorld(id);
       if (!w || !canKeep(w)) return true;
-      return (await commit({ id, recipe: w.save, recipeKey: await recipeKey(recipeOfSave(w.save)), author: authorOf(id), thumb: thumbBytes(w.thumb) })) !== null;
+      return (await commit({ id, recipe: w.save, recipeKey: await recipeKey(recipeOfSave(w.save)), thumb: thumbBytes(w.thumb) })) !== null;
     } catch {
       /* 配方算不了指纹(不是 https 的网页):这次不存 */
       return false;
@@ -294,6 +283,21 @@ async function askPersist(): Promise<void> {
     /* 问不了就是普通的存储 */
   }
 }
+
+// ---------------------------------------------------------------------------
+// AI 正文(ai/library.ts 用,不排这里的队:AI 写的东西一有就写)
+
+export const notesVault: NotesVault = {
+  read: (id) => call('readAuthor', [id]),
+  change: async (id, ops) => {
+    try {
+      return await call('changeAuthor', [id, ops]);
+    } catch (e) {
+      await noteFailure(id, e);
+      throw e;
+    }
+  },
+};
 
 // ---------------------------------------------------------------------------
 // 认世界内容变没变(助手的对话靠它,../ui/assistantStore.ts)
@@ -398,7 +402,7 @@ async function jobFor(id: string, asked = false): Promise<ConvertJob | null> {
   const state = await call('stateOf', [id]);
   if (state?.status === 'failed' && state.app === APP_VERSION) return null;
   const heads = await resultHeads(id);
-  const body = { id, author: authorOf(id), thumb: thumbBytes(w.thumb) };
+  const body = { id, thumb: thumbBytes(w.thumb) };
 
   // 存档被新版重存过,原来那份还留着,也有那一版的原件
   const raw = originalOf(id);
@@ -515,6 +519,9 @@ async function runJob(job: ConvertJob, asked = false): Promise<'next' | 'yield' 
 async function convertAll(): Promise<void> {
   busyAt = Date.now();
   for (const id of allWorldIds()) {
+    if (!(await waitQuiet()) || vaultFull) return;
+    // 老的 AI 正文转进来:和世界本身转没转进来无关,没有修订的先放在 notes 表
+    await moveNotes(id).catch(() => {});
     // 一个世界最多两步:留底的旧版原件、现在的样子。多一次防循环
     for (let step = 0; step < 3; ) {
       if (!(await waitQuiet()) || vaultFull) return;
@@ -525,7 +532,7 @@ async function convertAll(): Promise<void> {
         job = null;
       }
       if (!job) {
-        // 转完了的:上次没来得及写的改名、AI 正文这时补上(内容一样的不写)
+        // 转完了的:上次没来得及写的改名这时补上(内容一样的不写)
         await syncLight(id);
         break;
       }
@@ -545,6 +552,8 @@ async function convertAll(): Promise<void> {
  */
 export async function settleWorld(id: string): Promise<VaultErrorKind | null> {
   try {
+    await moveNotes(id);
+    const notes = await flushNotes(id);
     // 一个世界最多两步,多一次防循环(同 convertAll)
     for (let step = 0; step < 3; step++) {
       const job = await jobFor(id, true);
@@ -553,7 +562,7 @@ export async function settleWorld(id: string): Promise<VaultErrorKind | null> {
       if (r === 'full') return 'full';
       if (r === 'yield') return 'failed';
     }
-    return (await writeLight(id)) ? null : vaultFull ? 'full' : 'failed';
+    return (await writeLight(id)) && notes ? null : vaultFull ? 'full' : 'failed';
   } catch (e) {
     return errKind(e) ?? 'failed';
   }
@@ -592,11 +601,13 @@ export async function maintain(trashKeep: number = TRASH_KEEP_MS, grace?: number
     if (isStored(id)) unmarkTrash(id);
     else if (now - at >= trashKeep) {
       await call('purgeWorld', [id]);
+      tidyNotes(id);
       // 划掉以后原件那边就不认得它了,一起删
       await dropResults(id);
       unmarkTrash(id);
     }
   }
+  tidyNotes();
   await call('sweepParts', grace === undefined ? [] : [grace]);
 }
 
@@ -623,13 +634,7 @@ export function startWorldStore(): () => void {
     if (offer) void keepOffer();
     scheduleLight();
   });
-  const offNotes = subscribeNotes(scheduleLight);
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return () => {
-      off();
-      offNotes();
-    };
-  }
+  if (typeof window === 'undefined' || typeof document === 'undefined') return off;
   const hidden = () => {
     if (document.visibilityState !== 'hidden') return;
     sim.packNow();
@@ -651,7 +656,6 @@ export function startWorldStore(): () => void {
   const t3 = setInterval(clean, timing.maintainEvery);
   return () => {
     off();
-    offNotes();
     document.removeEventListener('visibilitychange', hidden);
     window.removeEventListener('pagehide', leave);
     clearTimeout(t1);

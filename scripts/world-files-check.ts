@@ -368,8 +368,12 @@ async function roundtrip(browser: Browser, tag: string, list: Kind[]): Promise<{
     check(sa.probes === sb.probes, `${k.name}:地块读数(群落、海拔、国家、民族)一样`);
     const thumbB = await pb.evaluate((i) => localStorage.getItem(`wenming-ditu:thumb:${i}`), kept.id);
     check(!!thumbA && thumbA === thumbB, `${k.name}:封面一样`);
-    const notes = await pb.evaluate((i) => localStorage.getItem(`civ-atlas:ai-notes:${i}`), kept.id);
-    if (k.note) check(!!notes && (JSON.parse(notes) as { text: string }[])[0]?.text === AI_NOTE.text, `${k.name}:AI 正文回来了`);
+    const notes = await pb.evaluate(async (i) => {
+      const lib = (await (window as any).__wfNotes()).notes;
+      await lib.notesReady([i]);
+      return lib.exportNotes(i) as { text: string }[];
+    }, kept.id);
+    if (k.note) check(notes[0]?.text === AI_NOTE.text, `${k.name}:AI 正文回来了`);
     // 再存一次:字节和原来一样(清单除外,AI 正文可能重新打包)
     const back = path.join(OUT, `${tag}-${k.name}-back.civworld`);
     await saveFile(pb, kept.id, back);

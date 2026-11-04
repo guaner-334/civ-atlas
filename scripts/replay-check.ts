@@ -4528,7 +4528,7 @@ if (part('成书')) {
   await hp.click('[data-act=book-stop]').catch(() => null);
   await hp.waitForFunction(() => document.querySelector('.bk-reader .bk-info')?.textContent?.includes('已停止'), null, { timeout: 3000 }).catch(() => null);
   const stopped = await hp.locator('.bk-reader .bk-info').innerText({ timeout: 3000 }).catch(() => '');
-  const stoppedLeft = await hp.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('civ-atlas:ai-notes:')).length);
+  const stoppedLeft = await hp.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('civ-atlas:ai-notes:') && !k.includes('~')).length);
   await hp.click('[data-act=book-redo]').catch(() => null);
   const redone = await hp
     .waitForFunction(() => /\d+ 字，测试用假 AI/.test(document.querySelector('.bk-reader .bk-info')?.textContent ?? ''), null, { timeout: 20000 })

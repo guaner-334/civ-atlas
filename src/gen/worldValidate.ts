@@ -1295,12 +1295,12 @@ export function validateFlags(v: unknown, civ: Civ): asserts v is FlagBook {
 
 /** 作者内容最多几条 */
 const NOTES_MAX = 1e5;
-/** 一条正文最长多少字:AI 写的一篇史书也就几万字,留足 */
+/** 一条正文最长多少字:最长的一部史书一版也就八万多字(分 12 章写、一章最多 7000 个 token),留足 */
 const NOTE_TEXT_MAX = 4e6;
 /** 正文以外的字段最长多少字 */
 const NOTE_FIELD_MAX = 4096;
 
-/** 作者内容(author 那一块):不合格抛 broken */
+/** 作者内容(author 那一块):不合格抛 broken;读世界文件的时候接住,只跳过这一块(gen/worldFile.ts) */
 export function validateAuthor(v: unknown): asserts v is AuthorContent {
   const a = obj(v, '作者内容');
   const notes = list(a.notes, '作者内容的 notes');

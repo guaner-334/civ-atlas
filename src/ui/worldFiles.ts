@@ -33,7 +33,7 @@ import { fileBaseName, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
 import { MANIFEST_FILE, WORLD_FILE_EXT, type WorldFileErrorKind } from '../gen/worldFormat';
 import { walkZip, type ZipInput, type ZipSlice } from '../gen/zipStore';
-import { exportNotes, replaceNotes } from '../ai/library';
+import { exportNotes, notesReady, replaceNotes } from '../ai/library';
 import type { FileFacts, FileLook } from '../worldFileLook';
 import type { RevisionSource, VaultErrorKind } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
@@ -277,6 +277,7 @@ export interface LookedWorldFile {
 async function hasAll(id: string, f: FileFacts): Promise<boolean> {
   const head = await vaultCall('latestOf', [id]).catch(() => null);
   if (!head || head.content !== f.content) return false;
+  await notesReady([id]);
   const notes = new Map(exportNotes(id).map((n) => [n.key, n.text]));
   if (f.author?.notes.some((n) => notes.get(n.key) !== n.text)) return false;
   const extras = f.manifest.parts.filter((p) => p.need === 'extra' && p.name !== 'author' && p.name !== 'thumb');
@@ -343,7 +344,7 @@ function asKeepTrouble(e: unknown): Trouble<KeepTrouble> {
 }
 
 const adoptOf = (id: string, f: FileFacts, file: Blob, source: RevisionSource) =>
-  once('adoptFile', [{ id, file, sum: f.sum, recipeKey: f.recipeKey, generator: f.save.generator, readers: { ...READER_VERSIONS }, source }]);
+  once('adoptFile', [{ id, file, sum: f.sum, recipeKey: f.recipeKey, generator: f.save.generator, readers: { ...READER_VERSIONS }, source, ...(f.authorTrouble === 'damaged' ? { dropAuthor: true } : {}) }]);
 
 /**
  * 把核对过的文件存成一个新世界(总是新编号,见文件头):先写仓库,再写「我的世界」;哪一步没成都不留东西,不碰本机别的世界。
@@ -373,7 +374,9 @@ export async function keepWorldFile(looked: LookedWorldFile, o: { save?: SaveFil
       if (old.source === 'archive') original = JSON.stringify(r.save);
     }
     await adoptOf(id, f, looked.file, looked.source ?? 'made');
-    await vaultCall('patchState', [id, { checked: f.content }]).catch(() => {});
+    // 校验没过的 author 块:字节收下了,不当正文读
+    const skip = f.authorTrouble === 'skipped' ? f.manifest.parts.find((p) => p.name === 'author')?.sum : undefined;
+    await vaultCall('patchState', [id, { checked: f.content, ...(skip ? { authorSkip: skip } : {}) }]).catch(() => {});
   } catch (e) {
     await undo();
     return asKeepTrouble(e);
@@ -574,6 +577,7 @@ export async function saveAllWorldFiles(o: SaveAllOptions = {}): Promise<SavedBa
   }
   const at = new Date();
   // 一次都没能存进浏览器的那一个不在列表里,也带上
+  await notesReady();
   const out = bundleText(at, undefined, (id) => bare.has(id) || !list.some((w) => w.id === id));
   if (!groups.length && !out) return trouble('missing', '「我的世界」里还没有世界');
   if (out?.tooBig) return trouble('failed', '世界太多、太大,一个文件放不下');
@@ -808,7 +812,8 @@ export interface OpenFilesOptions {
  * 文件比世界落后时,配方那部分另带了一份 AI 写的东西(见 saveAllWorldFiles),比世界文件里的新。这次刚放回来的世界用这一份换掉同一条;
  * 本机原来就有的世界不动
  */
-function freshNotes(b: Bundle, ids: ReadonlyMap<string, string>, placed: readonly string[]): void {
+async function freshNotes(b: Bundle, ids: ReadonlyMap<string, string>, placed: readonly string[]): Promise<void> {
+  await notesReady(placed);
   for (const w of b.worlds) {
     const id = w.id ? ids.get(w.id) : undefined;
     if (!id || !placed.includes(id) || !w.notes.length) continue;
@@ -929,7 +934,8 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
       try {
         const parsed = parseBundle(await p.recipes.data.text());
         if (parsed?.ok) {
-          freshNotes(parsed.bundle, ids, placedIds);
+          await freshNotes(parsed.bundle, ids, placedIds);
+          await notesReady();
           const done = importBundle(parsed.bundle, ids);
           // 选了不同批的几个文件:各有一份配方,结果加起来
           const had = out.recipes;

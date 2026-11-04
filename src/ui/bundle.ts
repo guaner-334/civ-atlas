@@ -22,7 +22,7 @@
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界;浏览器不让存(只在内存里)的说一声。登录了的,放回来的世界照常同步进账号。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
-import { exportNotes, notesSaved, replaceNotes, type AiNote } from '../ai/library';
+import { exportNotes, notesReady, notesSaved, replaceNotes, type AiNote } from '../ai/library';
 import type { DraftBase } from './stageStore';
 import {
   MAX_WORLDS,
@@ -330,9 +330,10 @@ function download(text: string, name: string) {
 }
 
 /** 「我的世界」里点「全部存成文件」 */
-export function downloadAll() {
+export async function downloadAll() {
   // 正开着的世界等着截的缩略图(编辑地形停笔没多久)先截下来
   flushThumb();
+  await notesReady();
   const b = bundleText();
   if (!b) return notify({ kind: 'error', text: '「我的世界」里还没有世界' });
   if (b.tooBig) return notify({ kind: 'error', text: '没能存成文件', more: ['世界太多、太大，一个文件放不下'] });

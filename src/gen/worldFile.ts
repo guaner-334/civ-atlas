@@ -21,7 +21,7 @@ import { makePart, partBytes, sha256, unpackValue, type SnapshotPart } from './s
 import type { World } from './world';
 import { MIGRATIONS, currentSchema, migratePart, type MigrationTable } from './worldMigrate';
 import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validateThumb, validateWorld, worldHeadLimit, worldPartLimit } from './worldValidate';
-import { ZIP_LOCAL_MAX_BYTES, parseZip, writeZip } from './zipStore';
+import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES, parseZip, writeZip } from './zipStore';
 import {
   KNOWN_PARTS,
   MANIFEST_FILE,
@@ -309,6 +309,8 @@ export interface WorldContent extends WorldValues {
   warnings: string[];
   /** 转不了结构的可选块(need 是 extra):读不出来,字节还留着 */
   skipped: string[];
+  /** author 那一块没读进来:skipped = 字节好好的,校验没过(太长之类),字节留着;damaged = 字节坏了,对不上指纹 */
+  authorTrouble?: 'skipped' | 'damaged';
 }
 
 /**
@@ -356,6 +358,33 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
   }
 }
 
+const AUTHOR_SKIPPED = 'AI 写的正文有超长的内容,这次没有读进来,世界不受影响;另存时文件里还带着';
+const AUTHOR_DAMAGED = 'AI 写的正文这一块坏了,没有读进来,世界不受影响';
+
+/**
+ * author 是可选的,过不了校验不连累整个世界:跳过,给提示,字节还在 opened 里,另存时照样带着。
+ * 内存不够不算过不了(东西可能是好的),照常往外抛。传上服务器的文件照旧要全部合格:那边不留说不清的东西
+ */
+async function readAuthorPart(opened: OpenedWorldFile, read: ReturnType<typeof partReader>): Promise<{ author: AuthorContent | null; trouble?: 'skipped' | 'damaged' }> {
+  const info = opened.manifest.parts.find((p) => p.name === 'author');
+  if (!info || opened.kept.includes(info)) return { author: null };
+  const pass = (err: unknown) => asWorldFileError(err).kind === 'memory' || (opened.options.maxBytes ?? ZIP_LOCAL_MAX_BYTES) <= ZIP_UPLOAD_MAX_BYTES;
+  try {
+    await partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, opened.bytes.get('author')!, worldPartLimit('author', opened.options.maxBytes));
+  } catch (err) {
+    if (pass(err)) throw err;
+    return { author: null, trouble: 'damaged' };
+  }
+  try {
+    const author = (await read('author')) as AuthorContent | null;
+    if (author) validateAuthor(author);
+    return { author };
+  } catch (err) {
+    if (pass(err)) throw err;
+    return { author: null, trouble: 'skipped' };
+  }
+}
+
 /**
  * 解开各块、迁移到现在的结构、逐项核对。原件的字节不动,出错了 opened 还能照样另存。
  * 只当字节留着的块(opened.kept)不解开。需要的块坏了报 broken;转不了结构报 readonly
@@ -379,13 +408,14 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
     validateChronicle(chronicle, civ);
     const flags = await read('flags');
     validateFlags(flags, civ);
-    const author = (await read('author')) as AuthorContent | null;
-    if (author) validateAuthor(author);
+    const got = await readAuthorPart(opened, read);
+    if (got.trouble) skipped.push('author');
     const thumb = (await read('thumb', (b) => b)) as Uint8Array | null;
     if (thumb) validateThumb(thumb);
     const r = parseSave(JSON.stringify(manifest.recipe));
     if (!r.ok) broken(r.error);
-    return { map, eras, civ, chronicle, flags, author, thumb, save: r.save, warnings: r.warnings, skipped };
+    const warnings = got.trouble ? [...r.warnings, got.trouble === 'damaged' ? AUTHOR_DAMAGED : AUTHOR_SKIPPED] : r.warnings;
+    return { map, eras, civ, chronicle, flags, author: got.author, thumb, save: r.save, warnings, skipped, ...(got.trouble ? { authorTrouble: got.trouble } : {}) };
   } catch (err) {
     throw asWorldFileError(err);
   }
