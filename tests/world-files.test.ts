@@ -453,6 +453,19 @@ describe('别人的文件不可信', () => {
     expect(await sha256(new Uint8Array(after.parts.find((p) => p.info.name === 'civ')!.data as ArrayBuffer))).toBe(before);
     expect(isDeepStrictEqual((await openIt(id)).civ, (await readWorldContent(await openWorldFile(file, OPEN))).civ)).toBe(true);
 
+    // 结构比软件新的认得的块(AI 正文)同样只当字节,一样要核指纹
+    const newerAuthor = await retouch(file, (e) => {
+      const m = e.find((x) => x.name === 'manifest.json')!;
+      const j = JSON.parse(new TextDecoder().decode(m.data as Uint8Array));
+      j.recipe.title = '另一个想顶掉别人的块';
+      const a = j.parts.find((p: { name: string }) => p.name === 'author');
+      Object.assign(a, { schema: 99, sum: civInfo.sum, bytes: civInfo.bytes });
+      m.data = new TextEncoder().encode(JSON.stringify(j));
+    });
+    const r2 = await keepWorldFile(asLooked(await lookWorldFile(newerAuthor)));
+    expect(r2.ok === false && r2.kind).toBe('broken');
+    expect(saveStore.listWorlds()).toHaveLength(1);
+
     // 正常的附加数据(认不出的压缩方式也算)带着走
     const raw = new Uint8Array([1, 2, 3, 4, 5]);
     const kept = await retouch(file, async (e) => {

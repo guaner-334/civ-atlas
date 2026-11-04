@@ -463,6 +463,11 @@ interface WorldGroup {
 
 /** 给每个文件留的:小清单、配方、目录的地方 */
 const BACKUP_SPARE_BYTES = 16e6;
+/**
+ * 装 ZIP 时的硬上限(32 位 ZIP 放得下的,zipStore.ts):分文件在上面按 maxBytes 分好了,这里不再卡。
+ * 一个世界自己就快到上限时(再加小清单超了一点),打开时不用读进内存,大一点也打得开,不能为这一点让全部世界都存不成
+ */
+const BACKUP_HARD_MAX_BYTES = 4e9;
 
 /** 拼一个世界的几份修订;没有内容、读不出来 = null(只带配方) */
 async function groupOf(w: StoredWorld, index: number): Promise<{ group: WorldGroup | null; stale: boolean }> {
@@ -594,7 +599,7 @@ export async function saveAllWorldFiles(o: SaveAllOptions = {}): Promise<SavedBa
     for (const g of packs[i]) for (const f of g.files) entries.push({ name: `worlds/${g.dir}/${f.n}-${f.source}${WORLD_FILE_EXT}`, data: f.data });
     if (i === 0 && recipes) entries.push({ name: BACKUP_RECIPES, data: recipes });
     try {
-      const file = asDownload(await once('zipBlobs', [entries, maxBytes]));
+      const file = asDownload(await once('zipBlobs', [entries, BACKUP_HARD_MAX_BYTES]));
       files.push({ file, name: `${base}${packs.length > 1 ? `-${i + 1}of${packs.length}` : ''}${WORLD_FILE_EXT}`, part: i + 1, parts: packs.length, worlds: packs[i].length });
     } catch (e) {
       return asSaveTrouble(e);
@@ -900,8 +905,11 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
         const parsed = parseBundle(await p.recipes.data.text());
         if (parsed?.ok) {
           mapBundleIds(parsed.bundle, ids);
-          out.recipes = importBundle(parsed.bundle);
-          if (out.recipes.added.length && !persistent()) out.memOnly = true;
+          const done = importBundle(parsed.bundle);
+          // 选了不同批的几个文件:各有一份配方,结果加起来
+          const had = out.recipes;
+          out.recipes = had ? { ...done, added: [...had.added, ...done.added], same: had.same + done.same, filled: had.filled + done.filled, left: had.left + done.left, notesLost: had.notesLost || done.notesLost } : done;
+          if (done.added.length && !persistent()) out.memOnly = true;
         } else out.skipped.push({ name: BACKUP_RECIPES, kind: 'broken', message: parsed ? parsed.error : '读不出来' });
       } catch (e) {
         out.skipped.push({ name: BACKUP_RECIPES, kind: 'memory', message: errText(e) });

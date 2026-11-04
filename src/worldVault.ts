@@ -545,12 +545,12 @@ export interface AdoptRequest {
 }
 
 /**
- * 校验器不解开附加数据,它们的指纹没人核过。块是按指纹存的,没核过的写进去,就可能占了别的世界那一块的位置,所以写之前核一遍(只解压算指纹,不读内容)。
- * 压缩方式认不出的解不开也就核不了,但它们的键(指纹.压缩方式)碰不到认得的块(只有 gzip、none),已经有的块也不会重写
+ * 校验器不解开只当字节留着的块(认不出的附加数据、结构比软件新的),它们的指纹没人核过。块是按指纹存的,没核过的就可能冒充别的世界那一块,
+ * 所以写之前核一遍(只解压算指纹,不读内容)。压缩方式认不出的解不开也就核不了,但它们的键(指纹.压缩方式)碰不到认得的块(只有 gzip、none),已经有的块也不会重写
  */
-async function checkExtras(parts: readonly PackedPart[]): Promise<void> {
+async function checkKept(parts: readonly PackedPart[]): Promise<void> {
   for (const p of parts) {
-    if (KNOWN_PARTS.has(p.info.name) || (p.info.zip !== 'gzip' && p.info.zip !== 'none')) continue;
+    if (p.info.zip !== 'gzip' && p.info.zip !== 'none') continue;
     try {
       await partBytes(p.info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data), LOCAL_PART_MAX_BYTES);
     } catch (e) {
@@ -571,7 +571,7 @@ export async function adoptFile(req: AdoptRequest): Promise<{ n: number }> {
     if ((await sha256(opened.manifestBytes)) !== req.sum) throw new VaultError('corrupt', '文件和核对时的不一样');
     const infos = sortParts(opened.manifest.parts);
     const packed: PackedPart[] = infos.map((info) => ({ info, data: opened.bytes.get(info.name)! }));
-    await checkExtras(packed);
+    await checkKept(packed.filter((p) => opened.kept.includes(p.info)));
     const source = req.source ?? 'made';
     for (let tries = 0; tries < COMMIT_TRIES; tries++) {
       const rows = await rowsOf(req.id);
