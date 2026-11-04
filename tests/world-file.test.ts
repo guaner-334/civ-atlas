@@ -464,6 +464,16 @@ describe('世界文件:迁移', () => {
     expect(next.manifest.parts.find((p) => p.name === 'civ')!.schema).toBe(1);
   }, 30_000);
 
+  it('另存时换掉的块照现在的版本写,没换的还是原来的版本', async () => {
+    const opts = { ...OPEN, migrations: { civ: [roundTrip], chronicle: [(v: unknown) => v] } as MigrationTable };
+    const opened = await openWorldFile(good, opts);
+    const next = await openWorldFile(await rewriteWorldFile(opened, { values: { chronicle: [] } }), opts);
+    expect(next.manifest.parts.find((p) => p.name === 'chronicle')!.schema).toBe(2);
+    expect(next.manifest.parts.find((p) => p.name === 'civ')!.schema).toBe(1);
+    expect(next.bytes.get('civ')).toEqual(opened.bytes.get('civ'));
+    expect((await readWorldContent(next)).chronicle).toEqual([]);
+  }, 30_000);
+
   it('可选的块转不了:世界照样看,这一块记在 skipped 里,字节留着', async () => {
     const opts = { ...OPEN, migrations: { author: [() => { throw new Error('转不了'); }] } as MigrationTable };
     const opened = await openWorldFile(good, opts);

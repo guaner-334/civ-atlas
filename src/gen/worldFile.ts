@@ -112,16 +112,16 @@ function packedFrom(p: SnapshotPart, schema: number, need: WorldPartInfo['need']
 }
 
 /** 认得的一块打包;结构版本 = 现在的版本 */
-async function packKnown(name: string, value: unknown): Promise<PackedPart> {
+async function packKnown(name: string, value: unknown, migrations?: MigrationTable): Promise<PackedPart> {
   const known = KNOWN_PARTS.get(name);
   if (!known) throw new Error(`认不出这一块:${name}`);
-  return packedFrom(await makePart(name, value), currentSchema(name), known.need);
+  return packedFrom(await makePart(name, value), currentSchema(name, migrations), known.need);
 }
 
 /** 封面:JPEG 本身压缩过,不再压缩 */
-async function packThumb(bytes: Uint8Array): Promise<PackedPart> {
+async function packThumb(bytes: Uint8Array, migrations?: MigrationTable): Promise<PackedPart> {
   const sum = await sha256(bytes);
-  return { info: { name: 'thumb', file: fileOf('thumb', 'none'), schema: currentSchema('thumb'), sum, bytes: bytes.length, zip: 'none', need: 'extra' }, data: bytes };
+  return { info: { name: 'thumb', file: fileOf('thumb', 'none'), schema: currentSchema('thumb', migrations), sum, bytes: bytes.length, zip: 'none', need: 'extra' }, data: bytes };
 }
 
 /** 去掉回放快照(不存)、各段世界的网格(和地图同一套) */
@@ -329,14 +329,15 @@ export interface RewriteChange {
 export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteChange = {}): Promise<Blob> {
   const { manifest } = opened;
   const v = change.values ?? {};
+  const table = opened.options.migrations;
   const replaced = new Map<string, PackedPart | null>();
-  if (v.map) replaced.set('map', await packKnown('map', mapValue(v.map)));
-  if (v.eras !== undefined) replaced.set('eras', v.eras?.eras.length ? await packKnown('eras', erasValue(v.eras)) : null);
-  if (v.civ) replaced.set('civ', await packKnown('civ', v.civ));
-  if (v.chronicle) replaced.set('chronicle', await packKnown('chronicle', v.chronicle));
-  if (v.flags) replaced.set('flags', await packKnown('flags', v.flags));
-  if (v.author !== undefined) replaced.set('author', v.author ? await packKnown('author', v.author) : null);
-  if (v.thumb !== undefined) replaced.set('thumb', v.thumb ? await packThumb(v.thumb) : null);
+  if (v.map) replaced.set('map', await packKnown('map', mapValue(v.map), table));
+  if (v.eras !== undefined) replaced.set('eras', v.eras?.eras.length ? await packKnown('eras', erasValue(v.eras), table) : null);
+  if (v.civ) replaced.set('civ', await packKnown('civ', v.civ, table));
+  if (v.chronicle) replaced.set('chronicle', await packKnown('chronicle', v.chronicle, table));
+  if (v.flags) replaced.set('flags', await packKnown('flags', v.flags, table));
+  if (v.author !== undefined) replaced.set('author', v.author ? await packKnown('author', v.author, table) : null);
+  if (v.thumb !== undefined) replaced.set('thumb', v.thumb ? await packThumb(v.thumb, table) : null);
 
   const parts: PackedPart[] = [];
   for (const p of manifest.parts) {

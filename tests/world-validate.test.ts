@@ -84,11 +84,12 @@ describe('真实世界全过', () => {
   it('地形大事以前那几段的关隘:stands 记的是推演中途的下标,可以比史事的条数大,不能拦', () => {
     const c = structuredClone(civ) as any;
     c.eras[0].places.push({ kind: 'pass', name: '尼塞斯山口', culture: -1, path: new Float32Array(2), rank: 1, pass: { height: 1, ridge: 1, regions: [0, 1], stands: [c.annals.length + 100], named: false, since: 1 } });
+    const pass = c.eras[0].places.at(-1).pass;
     validateCiv(c, map);
-    c.eras[0].places.at(-1).pass.stands = ['x'];
+    pass.stands = ['x'];
     expectBroken(() => validateCiv(c, map), 'stands 不是整数');
-    c.eras[0].places.at(-1).pass.stands = [];
-    c.eras[0].places.at(-1).pass.regions = [1e7];
+    pass.stands = [];
+    pass.regions = [1e7];
     expectBroken(() => validateCiv(c, map), '关隘两边的州越界');
   });
 
