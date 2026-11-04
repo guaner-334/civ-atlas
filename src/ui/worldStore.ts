@@ -244,18 +244,20 @@ function keepOffer(): Promise<boolean> {
   });
 }
 
-/** 配方以外的东西变了:写一份新清单(内容一样的不写;还没有修订、配方变了的不写) */
-function syncLight(id: string): Promise<void> {
+/** 配方以外的东西变了:写一份新清单(内容一样的不写;还没有修订、配方变了的不写)。返回写成了没有(写满了之类 = false) */
+function writeLight(id: string): Promise<boolean> {
   return queue(async () => {
     try {
       const w = loadWorld(id);
-      if (!w || !canKeep(w)) return;
-      await commit({ id, recipe: w.save, recipeKey: await recipeKey(recipeOfSave(w.save)), author: authorOf(id), thumb: thumbBytes(w.thumb) });
+      if (!w || !canKeep(w)) return true;
+      return (await commit({ id, recipe: w.save, recipeKey: await recipeKey(recipeOfSave(w.save)), author: authorOf(id), thumb: thumbBytes(w.thumb) })) !== null;
     } catch {
       /* 配方算不了指纹(不是 https 的网页):这次不存 */
+      return false;
     }
   });
 }
+const syncLight = (id: string): Promise<void> => writeLight(id).then(() => {});
 
 let lightTimer: ReturnType<typeof setTimeout> | undefined;
 let lightId: string | null = null;
@@ -551,8 +553,7 @@ export async function settleWorld(id: string): Promise<VaultErrorKind | null> {
       if (r === 'full') return 'full';
       if (r === 'yield') return 'failed';
     }
-    await syncLight(id);
-    return null;
+    return (await writeLight(id)) ? null : vaultFull ? 'full' : 'failed';
   } catch (e) {
     return errKind(e) ?? 'failed';
   }

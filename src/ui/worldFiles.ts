@@ -51,6 +51,8 @@ const BACKUP_RECIPES = 'recipes.json';
 export const BACKUP_FORMAT = 1;
 /** 小清单最大多少字节:一个世界才一百多字节 */
 const INDEX_MAX_BYTES = 4e6;
+/** 配方那部分最大多少字节:那种格式最长 6400 万字(bundle.ts),一个字最多 3 字节。乱填的文件不能让主线程读一个几 GB 的字符串 */
+const RECIPES_MAX_BYTES = 192e6;
 /** 一个文件最多看几个世界:「我的世界」最多 60 个,多的是乱填的文件,不为它一个个开线程 */
 const BACKUP_MAX_WORLDS = 200;
 /** 一个世界最多带几份旧修订(留下的规矩最多也就三四份) */
@@ -192,7 +194,7 @@ export interface SavedWorldFile {
   ok: true;
   file: Blob;
   name: string;
-  /** 这个世界有没推完的修改:文件里是最后推完的样子,没推完的修改没带上(存档里还在) */
+  /** 文件比这个世界落后:有没推完的修改,或者刚改的名字、AI 正文、封面没能写进仓库(存储满了)。文件里是最后存进去的样子,没带上的本机还在 */
   stale: boolean;
 }
 
@@ -227,7 +229,7 @@ export async function saveWorldFile(id: string): Promise<SavedWorldFile | Troubl
       }
       const file = await once('revisionFile', [id, undefined, true]);
       if (!file) return trouble('failed', '这个世界没能转进来');
-      return { ok: true, file: asDownload(file), name: worldFileName(loadWorld(id)?.save ?? w.save), stale: await isStale(id, head) };
+      return { ok: true, file: asDownload(file), name: worldFileName(loadWorld(id)?.save ?? w.save), stale: !!stuck || (await isStale(id, head)) };
     } catch (e) {
       if (errKind(e) !== 'corrupt' || tries) return asSaveTrouble(e);
       const head = await vaultCall('latestOf', [id]).catch(() => null);
@@ -267,15 +269,18 @@ export interface LookedWorldFile {
   source?: RevisionSource;
 }
 
-/** 文件里的东西本机这个世界是不是都有:看世界的几块一样、AI 正文都有、附加数据都有。封面不算(每台设备自己截) */
+/**
+ * 文件里的东西本机这个世界是不是都有:看世界的几块一样、AI 正文都有、附加数据都有。封面不算(每台设备自己截)。
+ * 本机只有配方、没存内容的不算有:配方一样,旧版本的世界本机也算不出文件里的内容
+ */
 async function hasAll(id: string, f: FileFacts): Promise<boolean> {
   const head = await vaultCall('latestOf', [id]).catch(() => null);
-  if (head && head.content !== f.content) return false;
+  if (!head || head.content !== f.content) return false;
   const notes = new Map(exportNotes(id).map((n) => [n.key, n.text]));
   if (f.author?.notes.some((n) => notes.get(n.key) !== n.text)) return false;
   const extras = f.manifest.parts.filter((p) => p.need === 'extra' && p.name !== 'author' && p.name !== 'thumb');
   if (!extras.length) return true;
-  const r = head ? await vaultCall('readRevision', [id, head.n, []]).catch(() => null) : null;
+  const r = await vaultCall('readRevision', [id, head.n, []]).catch(() => null);
   return extras.every((x) => r?.manifest.parts.some((p) => p.name === x.name && p.sum === x.sum));
 }
 
@@ -471,7 +476,7 @@ const BACKUP_HARD_MAX_BYTES = 4e9;
 
 /** 拼一个世界的几份修订;没有内容、读不出来 = null(只带配方) */
 async function groupOf(w: StoredWorld, index: number): Promise<{ group: WorldGroup | null; stale: boolean }> {
-  await settleWorld(w.id);
+  const stuck = await settleWorld(w.id);
   const heads = await vaultCall('revisionsOf', [w.id]);
   const latest = heads.filter((h) => h.source !== 'archive').at(-1);
   if (!latest) return { group: null, stale: false };
@@ -493,7 +498,7 @@ async function groupOf(w: StoredWorld, index: number): Promise<{ group: WorldGro
     bytes += data.size;
   }
   const dir = /^[0-9a-z]{1,40}$/.test(w.id) ? w.id : `world${index}`;
-  return { group: { w, dir, files, current: latest.n, bytes }, stale: await isStale(w.id, latest) };
+  return { group: { w, dir, files, current: latest.n, bytes }, stale: !!stuck || (await isStale(w.id, latest)) };
 }
 
 /** 按顺序往文件里放,放不下开下一个;一个世界的几份修订放在同一个文件里,实在放不下只留最新的和放得下的。first = 第一个文件要先留给配方的地方 */
@@ -560,7 +565,7 @@ export async function saveAllWorldFiles(o: SaveAllOptions = {}): Promise<SavedBa
         groups.push(group);
         bytes += group.bytes;
       }
-      // 没有内容的、有没推完的修改的(文件里只有最后推完的样子):配方也带上,一点不丢
+      // 没有内容的、文件比世界落后的(有没推完的修改、刚改的东西没写进仓库):配方、AI 写的东西也带上,一点不丢
       if (!group || stale) bare.add(w.id);
     } catch {
       bare.add(w.id);
@@ -901,6 +906,10 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
   if (!out.cancelled) {
     for (const p of picks) {
       if (!p.recipes || p.newer) continue;
+      if (p.recipes.data.size > RECIPES_MAX_BYTES) {
+        out.skipped.push({ name: BACKUP_RECIPES, kind: 'broken', message: '只存了配方的那部分太大了' });
+        continue;
+      }
       try {
         const parsed = parseBundle(await p.recipes.data.text());
         if (parsed?.ok) {

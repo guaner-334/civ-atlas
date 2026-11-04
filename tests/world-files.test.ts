@@ -558,6 +558,55 @@ describe('一个世界存成文件', () => {
     expect((await lookFile(out.file, OPEN)).ok).toBe(true);
   });
 
+  it('刚改的东西写不进仓库(存储满了):文件照样给,标明落后;全部存成文件时配方、AI 正文另带一份', async () => {
+    const id = await keepFile(file);
+    putNote(id, NOTE);
+    const full = ((op: keyof VaultOps, args: unknown[]) => (op === 'commitWorld' ? Promise.reject(Object.assign(new Error('满了'), { kind: 'full' })) : (vaultOps[op] as (...a: unknown[]) => Promise<unknown>)(...args))) as unknown as Caller;
+    _setWorldStore({ caller: full });
+    const out = await saveWorldFile(id);
+    if (!out.ok) throw new Error(out.message);
+    expect(out.stale).toBe(true);
+    const all = await saveAllWorldFiles();
+    if (!all.ok) throw new Error(all.message);
+    expect(all.whole).toBe(1);
+    const names = (await walkZip(all.files[0].file)).entries.map((e) => e.name);
+    expect(names).toContain('recipes.json');
+  });
+
+  it('封面太大放不进卡片:仓库里那份留着,再存成文件还在', async () => {
+    // 带几段注释的合格 JPEG,比卡片的上限大
+    const tiny = tinyJpeg();
+    const seg = new Uint8Array(65535 + 2).fill(0x20);
+    seg[0] = 0xff;
+    seg[1] = 0xfe;
+    seg[2] = 0xff;
+    seg[3] = 0xff;
+    const n = 12;
+    const big = new Uint8Array(2 + n * seg.length + tiny.length - 2);
+    big.set(tiny.subarray(0, 2));
+    for (let i = 0; i < n; i++) big.set(seg, 2 + i * seg.length);
+    big.set(tiny.subarray(2), 2 + n * seg.length);
+    expect(big.length).toBeGreaterThan(750_000);
+    const f = await packWorldFile({ ...sample, thumb: big });
+    const id = await keepFile(f);
+    expect(saveStore.loadWorld(id)!.thumb).toBeNull();
+    const out = await saveWorldFile(id);
+    if (!out.ok) throw new Error(out.message);
+    const back = await openWorldFile(out.file, OPEN);
+    expect(await sha256(back.bytes.get('thumb')!)).toBe(await sha256(big));
+  });
+
+  it('本机只有配方、没存内容:不算相同,文件里的内容要放进来', async () => {
+    const r = parseSave(JSON.stringify(sample.recipe));
+    if (!r.ok) throw new Error(r.error);
+    saveStore.importSave(r.save);
+    forgetNotes();
+    expect(saveStore.listWorlds()).toHaveLength(1);
+    const placed = await openWorldFromFile(await packWorldFile({ ...sample, author: null }));
+    expect(placed.ok && placed.status).toBe('added');
+    expect(saveStore.listWorlds()).toHaveLength(2);
+  });
+
   it('没建完的、没有这个世界、更旧的版本又没有内容:分开报,界面照旧存 .json', async () => {
     expect((await saveWorldFile('wnothing000')) as object).toMatchObject({ ok: false, kind: 'missing' });
     const r = parseSave(JSON.stringify(sample.recipe));
@@ -924,6 +973,22 @@ describe('全部世界存成文件', () => {
     const out = await saveAllWorldFiles({ maxBytes: Math.ceil(size * 1.1) + 16e6 });
     if (!out.ok) throw new Error(`存不出来:${out.message}`);
     expect(out.files.length).toBeGreaterThan(1);
+  }, 60_000);
+
+  it('只存了配方的那部分大得离谱:不读,世界照样放回来', async () => {
+    const data = await bytesOf(file);
+    const pack = await writeZip(
+      [
+        { name: 'worlds.json', data: new TextEncoder().encode('{"kind":"backup","format":1}') },
+        { name: 'worlds/a/1-made.civworld', data },
+        { name: 'recipes.json', data: new Blob([new Uint8Array(193e6)]) },
+      ],
+      4e9,
+    );
+    const back = await openWorldFiles([pack]);
+    expect(back.added).toHaveLength(1);
+    expect(back.recipes).toBeNull();
+    expect(back.skipped.map((x) => [x.name, x.kind])).toEqual([['recipes.json', 'broken']]);
   }, 60_000);
 
   it('单个世界和全部世界一起选也认得出', async () => {

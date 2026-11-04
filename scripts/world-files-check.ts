@@ -5,7 +5,7 @@
  *   --out=<目录>                      存文件、对比图的地方(默认 snaps/world-files)
  *   --kinds=默认,改名                  往返只跑这几种世界
  *   --cross=<世界文件>                别的浏览器存的文件:打开、走存下的内容
- *   --big=<世界文件>                  再量大文件(只在 Chromium):打开、存、再打开的耗时和内存峰值
+ *   --big=<世界文件>                  再量大文件:打开、存、再打开的耗时和内存峰值
  *   --sixty=<放世界文件的目录>         再量很多世界:全部放进一个浏览器,全部存成文件,换一个干净的浏览器放回来
  *   --over=<世界文件>                 超过一个文件的上限:这个世界放 8 份(名字不同),全部存成文件该分成几个,一起选、分开选都放得回来(只在 Chromium)
  *
@@ -14,6 +14,7 @@
  * bad:      乱改的文件:不白屏、不卡死(页面一直能响应),报的错分得对
  * escape:   校验器之外打开时出事(内容缺块、配方和内容对不上):接得住,不白屏
  *
+ * 内存是这个脚本启动的浏览器全部子进程的 RSS 加起来;WebKit 的网页进程不是它的子进程,那边的内存数不算数,只看耗时。
  * 没过的打印「没过」,退出码非 0。
  */
 import { execFileSync } from 'node:child_process';
@@ -689,13 +690,13 @@ function browserPid(): number {
   const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' }).trim().split('\n');
   for (const l of rows) {
     const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l);
-    if (m && Number(m[2]) === process.pid && /chrom|headless/i.test(m[3])) return Number(m[1]);
+    if (m && Number(m[2]) === process.pid && /chrom|headless|webkit|playwright|pw_run/i.test(m[3])) return Number(m[1]);
   }
   throw new Error('找不到浏览器进程');
 }
 
 async function big(browser: Browser, file: string) {
-  say(`\n== 大文件 ${path.basename(file)}(${(statSync(file).size / 1e6).toFixed(1)} MB,Chromium)`);
+  say(`\n== 大文件 ${path.basename(file)}(${(statSync(file).size / 1e6).toFixed(1)} MB)`);
   const pid = browserPid();
   const c = await browser.newContext(VIEW);
   const page = await home(c);
@@ -776,7 +777,7 @@ async function over(browser: Browser, file: string) {
 async function sixty(browser: Browser, dir: string) {
   const files = readdirSync(dir).filter((f) => f.endsWith('.civworld')).map((f) => path.join(dir, f));
   const total = files.reduce((s, f) => s + statSync(f).size, 0);
-  say(`\n== ${files.length} 个世界(加起来 ${(total / 1e6).toFixed(1)} MB,Chromium)`);
+  say(`\n== ${files.length} 个世界(加起来 ${(total / 1e6).toFixed(1)} MB)`);
   const pid = browserPid();
   const c = await browser.newContext(VIEW);
   const page = await home(c);
@@ -836,8 +837,8 @@ for (const name of BROWSERS) {
       await page.close();
       await c.close();
     }
-    if (name === 'chromium' && opt('big')) await big(browser, opt('big')!);
-    if (name === 'chromium' && opt('sixty')) await sixty(browser, opt('sixty')!);
+    if (opt('big')) await big(browser, opt('big')!);
+    if (opt('sixty')) await sixty(browser, opt('sixty')!);
     if (name === 'chromium' && opt('over')) await over(browser, opt('over')!);
   } finally {
     await browser.close();
