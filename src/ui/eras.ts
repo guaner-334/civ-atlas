@@ -17,9 +17,11 @@ import { useSyncExternalStore } from 'react';
 import type { Civ } from '../gen/civ/types';
 import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
-import { keyCells, keySeats } from '../gen/edits';
+import { civAtEra } from '../gen/civ/eraCiv';
 import { composeRaster, type RasterPatch } from '../gen/rasterPatch';
 import { getCivTime, subscribeCivTime } from './civView';
+
+export { civAtEra };
 
 /** 第 year 年已经发生了几件大事(facts 按年份排好;year 不给 = 结束年份) */
 export function eraIndex(civ: Pick<Civ, 'upheavals' | 'endYear'> | null, year: number | null): number {
@@ -38,30 +40,6 @@ export function useEraIndex(civ: Pick<Civ, 'upheavals' | 'endYear'> | null): num
     () => eraIndex(civ, getCivTime().year),
     () => eraIndex(civ, getCivTime().year),
   );
-}
-
-const eraCivs = new WeakMap<Civ, Civ[]>();
-
-/** 第 k 段的历史:宜居度、州、地名、道路换成那一段的(最后一段 = 原样) */
-export function civAtEra(civ: Civ, k: number): Civ {
-  const eras = civ.eras;
-  if (!eras?.length || k >= eras.length) return civ;
-  let list = eraCivs.get(civ);
-  if (!list) eraCivs.set(civ, (list = []));
-  const hit = list[k];
-  if (hit) return hit;
-  const e = eras[k];
-  const R = civ.regions;
-  const out: Civ = {
-    ...civ,
-    habitat: e.habitat,
-    // 州名、稳定键按最后一段的:大事以后新划的州也有名字,键在各段一样
-    regions: { ...e.regions, name: R.name, keyOf: keyCells(R) as Int32Array, keySeat: keySeats(R) as Int32Array },
-    places: e.places,
-    routes: e.routes,
-  };
-  list[k] = out;
-  return out;
 }
 
 /** 地图上画的是更早一段时,挂上整段历史那一份(编年史、时间轴按它算;见 Civ.history)。同样的两份只拼一次 */

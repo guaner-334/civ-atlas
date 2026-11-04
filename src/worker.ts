@@ -23,6 +23,7 @@
  * 主线程对得上建好的世界存着的存档才存进浏览器(ui/resultStore.ts),以后生成器升级了也有当时的结果可读。
  * 新建中的世界也打(点了「创建」不一定再重推,那时用的就是这一份);换世界的时候排着的作废。排在各段主图补丁后面;
  * 地图那一块按世界的键记着,只重推历史时不用再打一遍。
+ * 原件打好以后接着打编年史、国旗,连同原件那几块的一份拷贝交回去(worldParts),主线程转给世界仓库(ui/worldStore.ts、worldVault.ts);这边出错只是这次没存进仓库,原件和世界照常。
  *
  * 逐年推演(gen/civ/play.ts):请求带着进度(play:推到哪年 + 命令串)的,推到那一年年初,命令接在干预后面;
  * 一步(turn)在那一刻下命令、接着推几年。上一步的结果记在线程里(held),下一步从它接着推,不从第 0 年重算。
@@ -40,9 +41,10 @@ import { generateWorld, generateWorldSteps, type BaseCache, type World, type Wor
 import { dropGullyBuffers, rasterizeDeferred, rasterizeDeferredSteps, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
+import type { ChronicleEntry } from './gen/civ/story/chronicle';
 import { DEFAULT_CIV_PARAMS, civBase, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
 import { extendCiv } from './gen/civ/extend';
-import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndAt, ownInterventions, playInterventions, type AuthorMark, type Intervention, type PlayState, type PlotReview, type TerrainOp, type Upheaval } from './gen/edits';
+import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndAt, ownInterventions, type AuthorMark, type Intervention, type PlayState, type PlotReview, type TerrainOp, type Upheaval } from './gen/edits';
 import { runOutline, type OutlineCache } from './gen/outline';
 import type { AuthorCharacter } from './gen/characters';
 import { sketchGrid, type SketchEdit } from './gen/sketch';
@@ -61,12 +63,13 @@ import type { NameMix } from './gen/names';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
 import type { WorldTuning } from './gen/civ/tuning';
-import { worldPatch } from './gen/civ/tuningPatch';
-import { SNAPSHOT_FORMAT, makePart, readPart, recipeKey, recipeText, recipeTuning, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
-import { playStop, playTicks, playTurn } from './gen/civ/play';
+import { SNAPSHOT_FORMAT, makePart, readLocalPart, recipeKey, recipeText, recipeTuning, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
+import { playTicks, playTurn } from './gen/civ/play';
 import { subSeed } from './gen/util';
 import { chronicleParts, type ChroniclePart } from './chronicleParts';
 import { splitCiv, type CivPart, type CivSplit } from './civParts';
+import { eraWorlds as eraWorldsOf, keyOf, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
+import type { WorldPartsOffer } from './worldVault';
 
 /**
  * 一组参数 + 草图(没改地形的星球)的扩张节拍和城的人口折算(gen/civ 的 planetTempo;null = 长不出文明),key = 这颗星球在线程里的键。
@@ -197,6 +200,8 @@ export type WorkerRequest =
    * 按它算(同一个世界的;比发请求时带的 renames 新),推的时候改了名,换上时就不用再算一遍。没有回音(主线程直接发,不算一件活)
    */
   | { type: 'renames'; id: number; names: Record<string, string> }
+  /** 页面藏起来、要关了:逐年推演等着打的那份原件现在就打,不等停够 TURN_SNAPSHOT_IDLE。没有回音 */
+  | { type: 'packNow'; id: number }
   /**
    * 编辑地形按块交回的那一笔(key = 它的 baseKey)主线程换上了:之后的笔照它比,线程不用再留着怎么改回上一张(见 KeptUndo)。
    * 不排队,没有回音(主线程直接发,不算一件活)
@@ -274,6 +279,8 @@ export type WorkerResponse =
   | { type: 'upPreview'; id: number; pid: number; preview: UpheavalPreview; water: Uint8Array; ms: number }
   /** 这次生成 / 重推的原件(后台打好的) */
   | { type: 'snapshot'; id: number; snapshot: Snapshot }
+  /** 这次生成 / 重推的完整内容(后台打好的,存进世界仓库用) */
+  | { type: 'worldParts'; id: number; offer: WorldPartsOffer }
   /** 原件读不出来(坏了、对不上):主线程改成按存档生成 */
   | { type: 'loadFailed'; id: number }
   /** 这次生成没算完就不算了:后面已经排着新的世界(编辑地形连着涂,新的一笔顶掉上一笔)。只是一声回音,主线程不用管 */
@@ -335,8 +342,6 @@ function copyRaster(r: Raster, into?: Raster | null): Raster {
 }
 /** 上一次生成的前一半(网格、板块、侵蚀;见 gen/world.ts 的 TerrainBase):编辑地形只改了湖、河、气候、高度时接着用 */
 const baseCache: BaseCache = { base: null };
-const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEdit) =>
-  JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain ?? [], sketch ?? null]);
 
 const post = (m: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(m, { transfer });
 
@@ -372,9 +377,14 @@ let renamesNow: { id: number; names: Record<string, string> } | null = null;
 function chronicleNow(id: number, civ: Civ, renames: Record<string, string> | undefined): number {
   const key = ++chronSeq;
   const names = renamesNow?.id === id ? renamesNow.names : (renames ?? {});
-  for (const p of chronicleParts(civ, names, key)) post({ type: 'chronicle', id, ...p }, [p.build.buffer as ArrayBuffer]);
+  const parts = chronicleParts(civ, names, key);
+  // 算好的条目留给随后打包的内容(queueSnapshot),不用再算一遍
+  lastChronicle = { entries: parts.flatMap((p) => p.entries), names };
+  for (const p of parts) post({ type: 'chronicle', id, ...p }, [p.build.buffer as ArrayBuffer]);
   return key;
 }
+/** 最近算好、还没打包的那份编年史和算它用的改名 */
+let lastChronicle: { entries: ChronicleEntry[]; names: Record<string, string> } | null = null;
 /** 让一下:这期间到了的消息排进来(推的时候改了名的,记下最新的改名) */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 /** 同 chronicleNow,先让一下 */
@@ -388,7 +398,9 @@ async function postChronicle(id: number, civ: Civ, renames: Record<string, strin
  */
 async function postChronicleUnlessSuperseded(id: number, civ: Civ, renames: Record<string, string> | undefined, superseded: () => boolean): Promise<number | undefined> {
   await tick();
-  return superseded() ? undefined : chronicleNow(id, civ, renames);
+  if (!superseded()) return chronicleNow(id, civ, renames);
+  lastChronicle = null;
+  return undefined;
 }
 
 /**
@@ -510,31 +522,6 @@ function stepsOf(params: WorldParams, terrain: readonly TerrainOp[] | undefined,
   });
 }
 
-/** 推文明时带的地名风格(自动 = 不带) */
-const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
-
-/** 推文明时带的推演年数(3000 = 不带) */
-const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } : {});
-
-/**
- * 推文明时带的拓荒、起源、天灾、规则(默认 = 不带)。规则换成一套旋钮(CivParams.knobs):推演、接着推、逐年推演、照大纲推演都经这里,
- * 同一套规则的旋钮内容一样(gen/civ/knobs.ts 按内容认同一套)
- */
-const setupOpt = (m: Pick<CivInput, 'frontier' | 'origins' | 'civSeed' | 'calamity' | 'tuning'>) => {
-  const knobs = worldPatch(m.tuning);
-  return {
-    ...(m.frontier ? { frontier: m.frontier } : {}),
-    ...(m.origins ? { origins: m.origins } : {}),
-    ...(m.civSeed !== undefined ? { civSeed: m.civSeed } : {}),
-    ...(m.calamity ? { calamity: m.calamity } : {}),
-    ...(knobs ? { knobs } : {}),
-  };
-};
-
-/** 推文明时带的逐年推演进度(没在逐年推演 = 不带):推到进度那一刻(年 + 第几格),命令接在干预后面(放在最后,盖过干预、推演年数) */
-const playOpt = (m: Pick<CivInput, 'play'> & { interventions?: Intervention[] }) =>
-  m.play ? { interventions: [...playInterventions(m.interventions ?? [], m.play)], endYear: playStop(m.play.year, m.play.tick) } : {};
-
 /** 推这个世界用的输入(推演年数、逐年推演的进度除外) */
 type CivRecipe = Omit<CivInput, 'endYear' | 'play'> & { interventions?: Intervention[] };
 
@@ -561,7 +548,7 @@ async function heldCiv(m: CivRecipe, play: PlayState | undefined): Promise<Civ |
   if (!h || h.key !== heldKey(m, play)) return null;
   if (h.civ) return h.civ;
   try {
-    const civ = (await readPart(h.part!)) as Civ;
+    const civ = (await readLocalPart(h.part!)) as Civ;
     if (held === h) held = { key: h.key, civ };
     return civ;
   } catch {
@@ -569,9 +556,6 @@ async function heldCiv(m: CivRecipe, play: PlayState | undefined): Promise<Civ |
     return null;
   }
 }
-
-/** 推文明时带的地形大事(没有 = 不带,和不加这一项逐字节一样) */
-const upOpt = (steps: Step[]) => (steps.length ? { upheavals: steps } : {});
 
 /**
  * 照原样打开的旧世界(frozen)重推时:山海湖岛的地名不照"没改过地形的星球"起 —— 按现在的版本生成的那一颗不一定是它原来的
@@ -590,16 +574,8 @@ function civOf(world: World, m: CivInput & { interventions?: Intervention[] }, s
   return c;
 }
 
-/** 各段的世界交给主线程:不带网格、回放快照 */
-function eraWorlds(steps: Step[]): EraWorld[] | undefined {
-  if (!steps.length) return undefined;
-  return steps.map((s) => {
-    const { mesh: _m, history: _h, ...rest } = s.world;
-    void _m;
-    void _h;
-    return { key: s.key, world: { ...rest, history: [] } as unknown as World };
-  });
-}
+/** 各段的世界交给主线程 */
+const eraWorlds = (steps: Step[]): EraWorld[] | undefined => eraWorldsOf(steps);
 
 /** 州的划分(按一路过来的几段世界的键记着:大事以后的沿用上一段的(reshapeRegions),同样的地形分几步走到的划分不一样) */
 const REGION_KEEP = 8;
@@ -726,9 +702,7 @@ function mapPart(key: string, world: World): Promise<SnapshotPart> {
   if (p) mapParts.delete(key);
   else {
     // 形成过程的回放快照太大,不进原件
-    const { history: _h, ...rest } = world;
-    void _h;
-    p = makePart('map', { ...rest, history: [] });
+    p = makePart('map', mapValue(world));
     // 打坏了的不留着(下次再打)
     p.catch(() => mapParts.delete(key));
   }
@@ -751,6 +725,8 @@ function cloneCiv(civ: Civ): Civ | null {
  * civ 要在交给主线程(transfer 以后这边的数组就空了)之前复制一份传进来;没复制成(null)就不排
  */
 function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[] }, world: World, steps: Step[], civ: Civ | null) {
+  const chron = lastChronicle;
+  lastChronicle = null;
   if (!civ) return;
   const baseKey = keyOf(m.params, m.terrain, m.sketch);
   bg.push(async () => {
@@ -767,8 +743,34 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
       // 打不了(不是 https 的网页算不了校验之类):这次就没有原件,世界照常用
       return;
     }
+    // 世界仓库要的再复制一份:原件的字节交出去就没了;两边不共用,这边出了什么事碍不着原件。复制不了(内存不够)就这次不存进仓库
+    let kept: SnapshotPart[] | null = null;
+    try {
+      kept = [snapshot.parts[0], ...(steps.length ? [eras] : []), civPart].map((p) => ({ ...p, data: p.data.slice(0) }));
+    } catch {
+      kept = null;
+    }
     // 地图那一块还记着(下次重推用),不交出去,复制一份
     post({ type: 'snapshot', id, snapshot }, [eras.data, civPart.data]);
+    if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: kept }, world, civ, chron, m.renames);
+  });
+}
+
+/**
+ * 原件打好以后,接着打世界内容里剩下的两块(编年史、国旗),连同原件那几块一起交给主线程存进世界仓库(worldVault.ts)。
+ * 单独一件后台的活:换了世界、又推了一次就作废,不耽误新来的消息。这里出错只是这次没存进仓库,世界照常用,不当线程的错
+ */
+function queueWorldParts(id: number, offer: WorldPartsOffer, world: World, civ: Civ, chron: typeof lastChronicle, renames: Record<string, string> | undefined) {
+  bg.push(async () => {
+    try {
+      const names = chron?.names ?? (renamesNow?.id === id ? renamesNow.names : (renames ?? {}));
+      const chronicle = await makePart('chronicle', chron?.entries ?? worldChronicle(civ, names));
+      const flags = await makePart('flags', worldFlags(world, civ, names));
+      const parts = [...offer.parts, chronicle, flags];
+      post({ type: 'worldParts', id, offer: { ...offer, parts } }, parts.map((p) => p.data));
+    } catch {
+      /* 这次没有,下次推完、下次打开再存 */
+    }
   });
 }
 
@@ -780,7 +782,7 @@ const pool = new GullyPool();
 function partOf(m: LoadRequest, name: string): Promise<unknown> {
   const p = m.parts.find((x) => x.name === name);
   if (!p) throw new Error(`原件缺 ${name}`);
-  return readPart(p);
+  return readLocalPart(p);
 }
 
 /** 照原样打开的世界(load、pin):原件里的地图、各段世界(和地图同一套网格,原件里没带),每件地形大事对上一段。读不出来、对不上抛错 */
@@ -808,7 +810,7 @@ function holdPart(m: LoadRequest): void {
 }
 
 /** 排队处理的消息(改名不排队,见 onmessage) */
-type Queued = Exclude<WorkerRequest, { type: 'renames' | 'shown' }>;
+type Queued = Exclude<WorkerRequest, { type: 'renames' | 'shown' | 'packNow' }>;
 /**
  * 消息按先后一件件处理(生成要等帮手线程,等的时候后面来的消息排着,不插进来);
  * 后台的活(各段主图)排在所有消息后面,每做完一件先看有没有新消息
@@ -825,6 +827,7 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   if (broken) return;
   // 改名不排队:在推的那一次推完要按它算编年史
   if (e.data.type === 'renames') return void (renamesNow = { id: e.data.id, names: e.data.names });
+  if (e.data.type === 'packNow') return turnSnapNow?.();
   // 交回的那一笔换上了:不用留着怎么改回上一张
   if (e.data.type === 'shown') {
     if (kept?.undo && kept.key === e.data.key) kept = { key: kept.key, keep: kept.keep };
@@ -921,10 +924,16 @@ function untilSuperseded(): { p: Promise<void>; done: () => void } {
 /** 逐年推演走完一步以后过多久(没有下一步了)才打这一份原件(毫秒);等着的那一次 */
 const TURN_SNAPSHOT_IDLE = 2500;
 let turnSnap: ReturnType<typeof setTimeout> | undefined;
+/** 逐年推演等着打的那一份,现在就打(packNow);没有等着的 = null */
+let turnSnapNow: (() => void) | null = null;
+const dropTurnSnap = () => {
+  clearTimeout(turnSnap);
+  turnSnapNow = null;
+};
 
 async function handle(m: Queued): Promise<void> {
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin') clearTimeout(turnSnap);
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin') dropTurnSnap();
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'release' && m.type !== 'pin') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 后面已经排着新的世界(编辑地形连着涂了几笔):这一次不用算了
@@ -1228,11 +1237,13 @@ async function handle(m: Queued): Promise<void> {
     postCiv({ type: 'turn', id: m.id, civ: out.civ, chron, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
     queuePatches(m.id, m, steps);
     // 原件很大,打一份要好一会儿:一步接一步往下走的时候不每一步都打(会拖慢下一步),停下来一阵子没有下一步了才打最后这一份
-    clearTimeout(turnSnap);
-    turnSnap = setTimeout(() => {
+    dropTurnSnap();
+    turnSnapNow = () => {
+      dropTurnSnap();
       queueSnapshot(m.id, { ...m, play: out.play }, world, steps, cloned);
       void pump();
-    }, TURN_SNAPSHOT_IDLE);
+    };
+    turnSnap = setTimeout(turnSnapNow, TURN_SNAPSHOT_IDLE);
   } else if (m.type === 'extend') {
     const t0 = performance.now();
     const to = cleanEndAt(m.to) ?? END_YEAR_DEFAULT;

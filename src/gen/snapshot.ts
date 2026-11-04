@@ -502,6 +502,16 @@ export async function readPart(part: SnapshotPart): Promise<unknown> {
 }
 
 /**
+ * 读回存在这台设备上的一块原件:和 readPart 一样核对,上限换成本机那两个数(LOCAL_PART_MAX_BYTES、LOCAL_HEAD_MAX_BYTES)。
+ * 上面那张表是给传上服务器的文件用的,用的人自己推出来的世界可以比它大(陆地多的最大世界,历史那一块超过 160 MB);
+ * 用那张表读,这种世界读不出来,就会退回按存档重新生成,生成器一升级它就变样了
+ */
+export async function readLocalPart(part: SnapshotPart): Promise<unknown> {
+  if (Object.prototype.toString.call(part.data) !== '[object ArrayBuffer]') throw new Error('原件的字节不对');
+  return unpackValue(await partBytes(part, new Uint8Array(part.data), LOCAL_PART_MAX_BYTES), LOCAL_HEAD_MAX_BYTES);
+}
+
+/**
  * 一块解压后的字节:解不开、超上限、校验对不上抛错(规矩同 readPart)。data 是这一块压缩后的字节;没压缩的直接交回 data 本身。
  * 不是 packValue 打的块(封面)也从这里取。limit = 这一块最多多大
  */

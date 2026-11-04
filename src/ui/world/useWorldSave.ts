@@ -1,5 +1,5 @@
 /**
- * 存档那一边要 App 接上的几样(存档本身在 ../saveStore.ts,结果的原件在 ../resultStore.ts):
+ * 存档那一边要 App 接上的几样(存档本身在 ../saveStore.ts,结果的原件在 ../resultStore.ts,完整内容在 ../worldStore.ts):
  *   useAutoSave   自动存、自动恢复、读档;建好的世界推完以后,把这次的结果(原件)存进浏览器
  *   useSaveThumbs 缩略图("我的世界"的卡片、存档菜单、「地图」页签);推演完记下结束那一年现存几国
  * 两样在 App 里分开调,各放在原来那一段的位置(和前后别的 effect 的先后不变)
@@ -13,6 +13,7 @@ import { getEdits } from '../editsStore';
 import { eraData, eraIndex, eraReady } from '../eras';
 import { THUMB_H, THUMB_W, currentWorld, setMapThumbMaker, setThumbMaker, setWorldStats, startAutoSave } from '../saveStore';
 import { startResults } from '../resultStore';
+import { startWorldStore } from '../worldStore';
 import { terrainStroking } from '../TerrainTools';
 import { baseReady, overlayReady } from '../thumbPrep';
 import type { CivRefs, GenRefs, MapRefs, Ref } from './worldRefs';
@@ -24,6 +25,8 @@ export function useAutoSave(): void {
   useEffect(() => startAutoSave(), []);
   // 建好的世界推完以后,把这次的结果(原件)存进浏览器
   useEffect(() => startResults(), []);
+  // 每个世界完整的内容多存一份(世界仓库),旧世界在后台转进来
+  useEffect(() => startWorldStore(), []);
 }
 
 /** 世界和主图(地图上画的、缩略图要画的那一段) */

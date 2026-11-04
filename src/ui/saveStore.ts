@@ -31,7 +31,9 @@
  *   存储满了留不下就不留,不为它删别的世界,也不挡着新的存进去。打开旧版本的分享链接、旧网址(还没存着)以后改了才存进来的,
  *   第一次存时把打开的那一份同样留着。「看原样」(ui/oldSite.ts)读的就是这一份(originalOf、currentOriginal)。
  * - 登录了网站账号的,世界还会同步进账号(account/sync.ts):这里给它原样读写一个世界(rawWorld / putSyncedWorld),
- *   用户删掉一个世界时告诉它(setDeleteHook);为了腾地方删掉的旧世界不算删除(账号里的还在)。
+ *   用户删掉一个世界时告诉它(setDeleteHook)。
+ * - 删世界时记一笔(trashMarks:编号 → 什么时候删的),撤销时划掉。世界的内容(ui/worldStore.ts、ui/resultStore.ts)只有在这份记录里才会被清:
+ *   清内容不看"我的世界"的列表,因为列表没了也可能是浏览器清了 localStorage。这份记录和存档存在一处,要么一起在、要么一起没,没了就什么都不清。
  */
 import type { WorldParams } from '../gen/world';
 import { GENERATOR_VERSION, newHistoryEdits, type NewHistoryOptions, type WorldEdits } from '../gen/edits';
@@ -74,6 +76,8 @@ const NOTES = 'civ-atlas:ai-notes:';
 const LEGACY = 'wenming-ditu:legacy:';
 /** 旧版本生成器存的世界,第一次按新版重存之前的原样(存档原文;见 keepOriginal) */
 const ORIG = 'wenming-ditu:orig:';
+/** 用的人删掉的世界(见文件头) */
+const TRASH = 'civ-atlas:trash';
 /** 最多存多少个世界(每个几 KB + 缩略图三十来 KB) */
 export const MAX_WORLDS = 60;
 /** 缩略图的大小("我的世界"里一张卡片宽 480) */
@@ -406,7 +410,7 @@ function saveFileAction(): ToastAction | undefined {
   };
 }
 
-/** 自动存写不下(删光别的世界也腾不出地方);写成功一次就清掉 */
+/** 自动存写不下(个数到了上限、浏览器配额满了);写成功一次就清掉 */
 let storageFull = false;
 /** 只在内存里存(浏览器不让存)的提示已经说过了 */
 let memoryWarned = false;
@@ -622,6 +626,33 @@ function writeSave(id: string, save: SaveFile, meta?: Meta, first?: SaveFile | n
   return ok;
 }
 
+/** 用的人删掉的世界:编号 → 什么时候删的(毫秒) */
+export function trashMarks(): Record<string, number> {
+  try {
+    const v = JSON.parse(store().get(TRASH) ?? '{}') as unknown;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, t] of Object.entries(v)) if (typeof t === 'number' && Number.isFinite(t)) out[k] = t;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** 记下来、划掉。写不下就算了:没记下的世界内容留着,多占点地方,不会丢东西 */
+function markTrash(id: string) {
+  store().set(TRASH, JSON.stringify({ ...trashMarks(), [id]: Date.now() }));
+}
+
+/** 划掉一条:撤销了删除、内容已经清了 */
+export function unmarkTrash(id: string) {
+  const m = trashMarks();
+  if (!(id in m)) return;
+  delete m[id];
+  if (Object.keys(m).length) store().set(TRASH, JSON.stringify(m));
+  else store().remove(TRASH);
+}
+
 /** 用户删掉了一个世界(云同步记下来,账号里跟着删) */
 let deleteHook: ((id: string) => void) | null = null;
 export function setDeleteHook(f: ((id: string) => void) | null) {
@@ -641,7 +672,10 @@ export function deleteWorld(id: string): DeletedWorld | null {
   }
   const had = keys.some(([k]) => k === PREFIX + id);
   removeKeys(id);
-  if (had) deleteHook?.(id);
+  if (had) {
+    markTrash(id);
+    deleteHook?.(id);
+  }
   if (current?.id === id) {
     current = null;
     stopThumb();
@@ -677,6 +711,8 @@ export function restoreWorld(d: DeletedWorld): boolean {
       return false;
     }
   }
+  // 放回来了才划掉:没放回来的世界还算删了
+  unmarkTrash(d.id);
   changed();
   return true;
 }
@@ -1366,6 +1402,14 @@ export interface RawWorld {
   thumb: string | null;
 }
 
+/** 浏览器里存着的全部世界的编号(老编号的也算) */
+export function allWorldIds(): string[] {
+  return store()
+    .keys()
+    .filter((k) => k.startsWith(PREFIX))
+    .map((k) => k.slice(PREFIX.length));
+}
+
 /** 浏览器里存着的世界编号(老编号"种子 + 参数"的不算:服务器只认新编号) */
 export function storedIds(): string[] {
   const out: string[] = [];
@@ -1476,6 +1520,7 @@ export function fillMissing(id: string, w: { view?: SaveView; thumb: string | nu
 
 /** 别的设备上删掉了:这里跟着删(不算这台设备上的删除) */
 export function removeSyncedWorld(id: string) {
+  if (isStored(id)) markTrash(id);
   removeKeys(id);
   if (current?.id === id) {
     current = null;

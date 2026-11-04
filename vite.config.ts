@@ -93,7 +93,7 @@ function precompress(): Plugin {
 export default defineConfig({
   base: './',
   // 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)、备案号(src/ui/beian.ts)
-  define: { __APP_VERSION__: JSON.stringify(pkg.version), __BUILD_DAY__: JSON.stringify(BUILD_DAY), __ICP_BEIAN__: JSON.stringify(ICP_BEIAN) },
+  define: { __APP_VERSION__: JSON.stringify(pkg.version), __APP_COMMIT__: JSON.stringify(buildCommit()), __BUILD_DAY__: JSON.stringify(BUILD_DAY), __ICP_BEIAN__: JSON.stringify(ICP_BEIAN) },
   plugins: [
     react(),
     // 浏览器标签上的图标写进页面(data: 网址):拖地图、换图层改网址时,浏览器不再一遍遍去要图标(scripts/lib/inlineIcons.ts)

@@ -1102,7 +1102,8 @@ export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false
       applying = false;
     }
     // 浏览器里存的原件也删掉,删完才算退出(关掉页面也不会留下)
-    if (gone) await clearResults();
+    // 世界仓库的代码不在首页那一份里,用到才下;下不来(断网)就直接删库,也不挡着退出
+    if (gone) await Promise.all([clearResults(), import('../ui/worldStore').then((m) => m.clearWorldStore()).catch(() => void indexedDB.deleteDatabase('civ-atlas:worlds'))]);
     // 浏览器不让删(存储突然不让用了之类):不退出,不然以为删干净了,刷新以后世界又都在。没删掉的同步记录还在,下次同步不会当成删了
     if (!gone) {
       // 删前每个世界都和账号里的一样(上面查过);现在不一样的 = 删了一部分又没能放回去(比如存档还在、AI 写的东西没了):

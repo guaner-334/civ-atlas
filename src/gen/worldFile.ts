@@ -2,7 +2,8 @@
  * 打包、读世界文件(格式见 worldFormat.ts)。
  *
  * 用法:
- * - 存:packWorldFile(内容) → Blob。清单的 made、readers 由调用方传进来
+ * - 存:packWorldFile(内容) → Blob。清单的 made、readers 由调用方传进来。
+ *   按块存的(浏览器里的仓库,worldVault.ts)用同一层:packWorldParts 打成清单 + 各块,zipWorld 把清单和块拼成文件,所以两边打出来的字节一样
  * - 读:openWorldFile(文件) 只看外壳和清单,很快;readWorldContent(打开的文件) 再解开各块、迁移到现在的结构、逐项核对
  * - 另存、改名:rewriteWorldFile(打开的文件, 改了什么):没改的块连字节都不动,认不出的、结构比软件新的块原样带着
  *
@@ -94,7 +95,7 @@ export interface PackInput extends WorldValues {
 }
 
 /** 一块:清单那一项 + 压缩后的字节 */
-interface PackedPart {
+export interface PackedPart {
   info: WorldPartInfo;
   data: Uint8Array | ArrayBuffer;
 }
@@ -111,15 +112,23 @@ function packedFrom(p: SnapshotPart, schema: number, need: WorldPartInfo['need']
   return { info: { name: p.name, file: fileOf(p.name, p.zip), schema, sum: p.sum, bytes: p.bytes, zip: p.zip, need, ...(by !== undefined ? { by } : {}) }, data: p.data };
 }
 
+/**
+ * 已经压缩好的一块(后台线程打的、原件里的)变成清单那一项 + 字节,不再压缩一遍。
+ * schema = 这些字节是第几版结构;不给 = 现在的版本(刚打好的)。原件里的块是世界文件有版本以前打的,调用方传 1
+ */
+export function knownPart(p: SnapshotPart, schema?: number, migrations?: MigrationTable): PackedPart {
+  const known = KNOWN_PARTS.get(p.name);
+  if (!known) throw new Error(`认不出这一块:${p.name}`);
+  return packedFrom(p, schema ?? currentSchema(p.name, migrations), known.need);
+}
+
 /** 认得的一块打包;结构版本 = 现在的版本 */
-async function packKnown(name: string, value: unknown, migrations?: MigrationTable): Promise<PackedPart> {
-  const known = KNOWN_PARTS.get(name);
-  if (!known) throw new Error(`认不出这一块:${name}`);
-  return packedFrom(await makePart(name, value), currentSchema(name, migrations), known.need);
+export async function packKnown(name: string, value: unknown, migrations?: MigrationTable): Promise<PackedPart> {
+  return knownPart(await makePart(name, value), undefined, migrations);
 }
 
 /** 封面:JPEG 本身压缩过,不再压缩 */
-async function packThumb(bytes: Uint8Array, migrations?: MigrationTable): Promise<PackedPart> {
+export async function packThumb(bytes: Uint8Array, migrations?: MigrationTable): Promise<PackedPart> {
   const sum = await sha256(bytes);
   return { info: { name: 'thumb', file: fileOf('thumb', 'none'), schema: currentSchema('thumb', migrations), sum, bytes: bytes.length, zip: 'none', need: 'extra' }, data: bytes };
 }
@@ -148,18 +157,51 @@ function recipeValue(recipe: SaveFile): SaveFile {
   return rest;
 }
 
-/** 把清单和各块装成 ZIP。写出来之前按读的规矩核对一遍清单:写得出来的就读得回来 */
-async function assemble(manifest: WorldManifest, parts: readonly PackedPart[], readers: Readonly<Record<string, number>>, maxBytes: number, migrations?: MigrationTable): Promise<Blob> {
-  const text = new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
-  parseManifest(text, { readers, migrations, maxBytes });
+/** 清单写成 manifest.json 的字节 */
+export function manifestBytes(manifest: WorldManifest): Uint8Array {
+  return new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+/** 清单的字节和各块装成 ZIP */
+export function zipWorld(text: Uint8Array, parts: readonly PackedPart[], maxBytes: number = ZIP_LOCAL_MAX_BYTES): Promise<Blob> {
   return writeZip([{ name: MANIFEST_FILE, data: text }, ...parts.map((p) => ({ name: p.info.file, data: p.data }))], maxBytes);
 }
 
-/**
- * 打成世界文件。这里不跑 validateWorld、validateCiv:存是自己的数据,万一校验器误伤,东西也得先存下来;
- * 读的时候才核对(清单除外,写坏的清单谁都读不了)
- */
-export async function packWorldFile(input: PackInput): Promise<Blob> {
+/** 把清单和各块装成 ZIP。写出来之前按读的规矩核对一遍清单:写得出来的就读得回来 */
+async function assemble(manifest: WorldManifest, parts: readonly PackedPart[], readers: Readonly<Record<string, number>>, maxBytes: number, migrations?: MigrationTable): Promise<Blob> {
+  const text = manifestBytes(manifest);
+  parseManifest(text, { readers, migrations, maxBytes });
+  return zipWorld(text, parts, maxBytes);
+}
+
+/** 清单里除了各块以外的字段 */
+export type ManifestFields = Pick<PackInput, 'id' | 'title' | 'made' | 'readers' | 'recipe' | 'plugins' | 'revision'>;
+
+/** 写清单:parts = 各块那几项,按文件里的先后 */
+export function buildManifest(input: ManifestFields, parts: readonly WorldPartInfo[]): WorldManifest {
+  return {
+    app: WORLD_APP,
+    kind: WORLD_KIND,
+    format: WORLD_FORMAT,
+    id: input.id,
+    ...(input.title ? { title: input.title } : {}),
+    made: input.made,
+    readers: input.readers,
+    parts: [...parts],
+    recipe: recipeValue(input.recipe),
+    plugins: input.plugins ?? [],
+    revision: input.revision ?? { n: 1 },
+  };
+}
+
+/** 清单 + 各块,还没装成文件 */
+export interface PackedWorld {
+  manifest: WorldManifest;
+  parts: PackedPart[];
+}
+
+/** 打成清单 + 各块(见 packWorldFile);整个文件和按块存的都从这里出 */
+export async function packWorldParts(input: PackInput): Promise<PackedWorld> {
   const parts: PackedPart[] = [await packKnown('map', mapValue(input.map))];
   if (input.eras?.eras.length) parts.push(await packKnown('eras', erasValue(input.eras)));
   parts.push(await packKnown('civ', input.civ), await packKnown('chronicle', input.chronicle), await packKnown('flags', input.flags));
@@ -169,19 +211,15 @@ export async function packWorldFile(input: PackInput): Promise<Blob> {
     if (KNOWN_PARTS.has(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
     parts.push(packedFrom(await makePart(x.name, x.value), x.schema, 'extra', x.by));
   }
-  const manifest: WorldManifest = {
-    app: WORLD_APP,
-    kind: WORLD_KIND,
-    format: WORLD_FORMAT,
-    id: input.id,
-    ...(input.title ? { title: input.title } : {}),
-    made: input.made,
-    readers: input.readers,
-    parts: parts.map((p) => p.info),
-    recipe: recipeValue(input.recipe),
-    plugins: input.plugins ?? [],
-    revision: input.revision ?? { n: 1 },
-  };
+  return { manifest: buildManifest(input, parts.map((p) => p.info)), parts };
+}
+
+/**
+ * 打成世界文件。这里不跑 validateWorld、validateCiv:存是自己的数据,万一校验器误伤,东西也得先存下来;
+ * 读的时候才核对(清单除外,写坏的清单谁都读不了)
+ */
+export async function packWorldFile(input: PackInput): Promise<Blob> {
+  const { manifest, parts } = await packWorldParts(input);
   return assemble(manifest, parts, { ...input.readers }, input.maxBytes ?? ZIP_LOCAL_MAX_BYTES);
 }
 

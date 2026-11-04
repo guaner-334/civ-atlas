@@ -5,9 +5,10 @@
  *   存档里的配方和原件的配方指纹一样(gen/snapshot.ts 的 recipeOfSave),这份原件才算它的结果,存下来;对不上(刚改了干预还没推完、
  *   旧版本的世界在新版里打开还没重存、新建中的世界)就先不存,等存档或下一份原件来了再看一次。
  * - 同一个世界、同一个生成器版本只留最新的一份(配方和各块校验都一样就不重写);不同版本的各留各的:
- *   旧版本时存下的原件不因为在新版里打开、重存而被盖掉。一个世界最多留 KEEP_PER_WORLD 份,多了丢中间的版本(最早的和最新的留着)。
+ *   旧版本时存下的原件不因为在新版里打开、重存而被盖掉。不管多少个版本都留着,不淘汰。
  * - 库里两张表:results 放整份原件(几 MB),heads 只放编号、版本、配方指纹和校验(查有没有、要不要重写不用读整份)。两张表一起写。
- * - 删掉的世界:打开页面过一会儿看一遍,"我的世界"里已经没有的世界的原件删掉(删世界时不马上删:还能撤销);
+ * - 删掉的世界:打开页面过一会儿看一遍,用的人删掉的世界(saveStore 的 trashMarks 记着)的原件删掉(删世界时不马上删:还能撤销)。
+ *   只认这份记录,不拿"我的世界"的列表反推:列表没了可能是浏览器清了 localStorage,不是用的人删的,作品不能因此丢。
  *   退出登录选了"从这台设备上删掉"时全删(clearResults)。复制世界时原件跟着复制(copyResults)。
  * - 写不下(浏览器存储满了)、浏览器不让用 IndexedDB:这次不存,不提示(原件是额外的一份,存档本身照常)。
  *
@@ -19,122 +20,15 @@
 import { GENERATOR_VERSION } from '../gen/edits';
 import { SNAPSHOT_FORMAT, partOf, recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/snapshot';
 import type { SaveFile } from '../gen/savefile';
-import { currentSave, currentWorld, loadWorld, persistent, storedIds, subscribe } from './saveStore';
+import { currentSave, currentWorld, isStored, loadWorld, persistent, subscribe, trashMarks } from './saveStore';
 import { getEdits, setMapSum } from './editsStore';
 import { APP_VERSION } from './version';
+import { indexedDbResults, type ResultBackend, type ResultHead, type ResultRecord } from '../resultDb';
 
-/** 一个世界最多留几份原件(各是一个生成器版本的) */
-export const KEEP_PER_WORLD = 3;
-
-/** 存着的一份原件 */
-export interface ResultRecord {
-  /** 世界的编号(saveStore) */
-  id: string;
-  /** 原件的生成器版本 */
-  generator: number;
-  /** 存的时候网站的版本号 */
-  app: string;
-  /** 存的时间(ISO) */
-  at: string;
-  snapshot: Snapshot;
-}
-
-/** 一份原件的简要信息(heads 表) */
-export interface ResultHead {
-  id: string;
-  generator: number;
-  recipe: string;
-  /** 各块的名字和校验("map:…|eras:…|civ:…") */
-  sums: string;
-  /** 压缩后一共多少字节 */
-  size: number;
-  at: string;
-}
-
-export interface ResultBackend {
-  heads(): Promise<ResultHead[]>;
-  put(rec: ResultRecord, head: ResultHead): Promise<void>;
-  get(id: string, generator: number): Promise<ResultRecord | undefined>;
-  remove(keys: [string, number][]): Promise<void>;
-  clear(): Promise<void>;
-}
+export { indexedDbResults, type ResultBackend, type ResultHead, type ResultRecord };
 
 const sumsOf = (s: Snapshot) => s.parts.map((p) => `${p.name}:${p.sum}`).join('|');
 const sizeOf = (s: Snapshot) => s.parts.reduce((n, p) => n + p.data.byteLength, 0);
-
-/** IndexedDB 后端;浏览器没有 IndexedDB 时返回 null */
-export function indexedDbResults(name = 'civ-atlas:results'): ResultBackend | null {
-  let idb: IDBFactory;
-  try {
-    if (typeof indexedDB === 'undefined') return null;
-    idb = indexedDB;
-  } catch {
-    return null;
-  }
-  const STORES = ['results', 'heads'];
-  /** 打开库;version 不给 = 现在是第几版就开第几版。表不全(比如别处先空开过这个库)就升一版建上 */
-  const open = (version?: number): Promise<IDBDatabase> =>
-    new Promise<IDBDatabase>((resolve, reject) => {
-      const r = version === undefined ? idb.open(name) : idb.open(name, version);
-      r.onupgradeneeded = () => {
-        const d = r.result;
-        for (const s of STORES) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: ['id', 'generator'] });
-      };
-      r.onsuccess = () => {
-        const d = r.result;
-        if (STORES.every((s) => d.objectStoreNames.contains(s))) return resolve(d);
-        const next = d.version + 1;
-        d.close();
-        open(next).then(resolve, reject);
-      };
-      r.onerror = () => reject(r.error ?? new Error('IndexedDB 打不开'));
-      r.onblocked = () => reject(new Error('IndexedDB 被占用'));
-    });
-  let dbp: Promise<IDBDatabase> | null = null;
-  const db = () =>
-    (dbp ??= open().catch((e: unknown) => {
-      // 打不开的下次再试
-      dbp = null;
-      throw e;
-    }));
-  function tx<T>(stores: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
-    return db().then(
-      (d) =>
-        new Promise<T | undefined>((resolve, reject) => {
-          const t = d.transaction(stores, mode);
-          const req = fn(t);
-          t.oncomplete = () => resolve(req ? req.result : undefined);
-          t.onerror = () => reject(t.error ?? new Error('IndexedDB 写入失败'));
-          t.onabort = () => reject(t.error ?? new Error('IndexedDB 写入中止'));
-        }),
-    );
-  }
-  return {
-    heads: async () => ((await tx<ResultHead[]>(['heads'], 'readonly', (t) => t.objectStore('heads').getAll())) ?? []) as ResultHead[],
-    put: async (rec, head) => {
-      await tx(['results', 'heads'], 'readwrite', (t) => {
-        t.objectStore('results').put(rec);
-        t.objectStore('heads').put(head);
-      });
-    },
-    get: async (id, generator) => (await tx<ResultRecord>(['results'], 'readonly', (t) => t.objectStore('results').get([id, generator]))) as ResultRecord | undefined,
-    remove: async (keys) => {
-      if (!keys.length) return;
-      await tx(['results', 'heads'], 'readwrite', (t) => {
-        for (const k of keys) {
-          t.objectStore('results').delete(k);
-          t.objectStore('heads').delete(k);
-        }
-      });
-    },
-    clear: async () => {
-      await tx(['results', 'heads'], 'readwrite', (t) => {
-        t.objectStore('results').clear();
-        t.objectStore('heads').clear();
-      });
-    },
-  };
-}
 
 /** 只在内存里的后端(单测用) */
 export function memoryResults(): ResultBackend & { records: Map<string, ResultRecord> } {
@@ -215,13 +109,6 @@ export function keepPending(): Promise<boolean> {
       const at = new Date().toISOString();
       await b.put({ id: c.id, generator: s.generator, app: APP_VERSION, at, snapshot: s }, { id: c.id, generator: s.generator, recipe: s.recipe, sums, size: sizeOf(s), at });
       if (pending === s) pending = null;
-      // 这个世界存的版本多了:丢中间的
-      const mine = heads
-        .filter((h) => h.id === c.id && h.generator !== s.generator)
-        .map((h) => h.generator)
-        .concat(s.generator)
-        .sort((x, y) => x - y);
-      if (mine.length > KEEP_PER_WORLD) await b.remove(mine.slice(1, mine.length - (KEEP_PER_WORLD - 1)).map((g): [string, number] => [c.id, g]));
       return true;
     } catch {
       return false;
@@ -350,16 +237,15 @@ export function copyResults(from: string, to: string): Promise<void> {
   });
 }
 
-/** "我的世界"里已经没有的世界的原件删掉(浏览器存储用不了、只在内存里的时候不删:看不到存着哪些世界) */
+/** 用的人删掉的世界的原件删掉(浏览器存储用不了、只在内存里的时候不删:看不到存着哪些世界);还在列表里的(撤销了、账号里取回来了)不删 */
 export function dropOrphans(): Promise<void> {
   return queue(async () => {
     const b = be();
     if (!b || !persistent()) return;
-    const live = new Set(storedIds());
+    const trash = trashMarks();
     const c = currentWorld();
-    if (c) live.add(c.id);
     try {
-      const gone = (await b.heads()).filter((h) => !live.has(h.id)).map((h): [string, number] => [h.id, h.generator]);
+      const gone = (await b.heads()).filter((h) => h.id in trash && h.id !== c?.id && !isStored(h.id)).map((h): [string, number] => [h.id, h.generator]);
       await b.remove(gone);
     } catch {
       /* 下次打开再删 */

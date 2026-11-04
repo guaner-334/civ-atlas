@@ -5,6 +5,7 @@
  *   progress     生成进度
  *   loadFailed   照原样打开的旧世界原件读不出来:按现在的规则生成
  *   snapshot     这次生成 / 重推的原件(对得上存着的存档就存进浏览器)
+ *   worldParts   这次生成 / 重推的完整内容(对得上存着的存档就存进世界仓库,../worldStore.ts)
  *   eraPatch     一段的主图补丁
  *   upPreview    地形大事的"会怎么样"
  * 回调在 App 第一次渲染时定下、之后不换;要读要改的界面状态都是 ref 和 setter(按块收拢传进来,见 ./worldRefs.ts),
@@ -24,6 +25,7 @@ import { noteExtendSpeed } from '../extendStore';
 import { noteGenSpeed } from '../genSpeed';
 import type { Style } from '../mapLayers';
 import { noteMapSum, offerSnapshot } from '../resultStore';
+import { offerWorldParts } from '../worldStore';
 import { patchSourceOf, startTerrainFull, startTerrainPatch } from '../terrainPatch';
 import { later, thumbPrepSteps } from '../thumbPrep';
 import { takeUpPreview } from '../upheavalStore';
@@ -45,7 +47,7 @@ export interface WorldMessageDeps {
 }
 
 /** 生成、打开世界那几种消息的回调 */
-export type WorldHandlers = Pick<SimHandlers, 'eraPatch' | 'upPreview' | 'loadFailed' | 'snapshot' | 'progress' | 'done' | 'map'>;
+export type WorldHandlers = Pick<SimHandlers, 'eraPatch' | 'upPreview' | 'loadFailed' | 'snapshot' | 'worldParts' | 'progress' | 'done' | 'map'>;
 
 export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
   const { send, tell, terrainDone } = deps;
@@ -202,6 +204,7 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
       void offerSnapshot(m.snapshot);
       void noteMapSum(m.snapshot);
     },
+    worldParts: (m) => void offerWorldParts(m.offer),
     progress: (m) => setProgress((s) => ({ stage: m.stage, pct: m.pct, regen: regenRef.current?.id === m.id, seed: s?.seed })),
     done: (m) => {
       if (!m.mapSent) return takeMap(m);

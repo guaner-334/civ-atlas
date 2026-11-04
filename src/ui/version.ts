@@ -4,3 +4,7 @@
  */
 declare const __APP_VERSION__: string | undefined;
 export const APP_VERSION: string = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
+
+/** 这个版本是哪个提交构建的(世界文件的清单里记一笔);不知道 = 空串 */
+declare const __APP_COMMIT__: string | undefined;
+export const APP_COMMIT: string = typeof __APP_COMMIT__ === 'string' ? __APP_COMMIT__ : '';

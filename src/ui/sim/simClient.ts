@@ -79,7 +79,7 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
  * 不算一件回音的:主图补丁、原件是后台自己排的活;再推 / 照大纲推演的进度、先交的编年史、先交的地图也不算(推完 / 停下才算)。
  * 先交的几段历史(civPart)在记账之前就收下了,也不算
  */
-const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'extendProgress', 'outlineProgress', 'chronicle', 'map']);
+const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'worldParts', 'extendProgress', 'outlineProgress', 'chronicle', 'map']);
 
 /** 发给线程、还没回音的一件活;tries = 已经重发过几次(线程出错时) */
 interface Pending {

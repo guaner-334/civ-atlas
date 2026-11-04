@@ -5,7 +5,7 @@ import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS, GENERATOR_VERSION, type WorldEdits } from '../src/gen/edits';
 import { makeSave } from '../src/gen/savefile';
 import { SNAPSHOT_FORMAT, makePart, recipeKey, recipeOfSave, type Snapshot } from '../src/gen/snapshot';
-import { KEEP_PER_WORLD, _setResultBackend, clearResults, copyResults, dropOrphans, keepPending, loadResult, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
+import { _setResultBackend, clearResults, copyResults, dropOrphans, keepPending, loadResult, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 
 /** 假的 localStorage */
 class FakeStorage {
@@ -127,20 +127,19 @@ describe('原件存进浏览器(resultStore)', () => {
     expect(mem.records.size).toBe(0);
   });
 
-  it('不同版本的各留各的,多了丢中间的;复制跟着复制;没有的世界、退出登录时删掉', async () => {
+  it('不同版本的各留各的,不淘汰;复制跟着复制;删掉的世界、退出登录时删掉', async () => {
     const id = saveStore.newWorldId();
     openWorld(id);
     saveStore.markCreated();
     const r = (await snapshotOf(EMPTY_EDITS)) as Snapshot;
     // 假装以前几个版本也存过
-    for (const gen of [GENERATOR_VERSION - 3, GENERATOR_VERSION - 2, GENERATOR_VERSION - 1]) {
+    const old = [GENERATOR_VERSION - 5, GENERATOR_VERSION - 4, GENERATOR_VERSION - 3, GENERATOR_VERSION - 2, GENERATOR_VERSION - 1];
+    for (const gen of old) {
       await mem.put({ id, generator: gen, app: 'x', at: '', snapshot: { ...r, generator: gen } }, { id, generator: gen, recipe: r.recipe, sums: String(gen), size: 1, at: '' });
     }
     expect(await offerSnapshot(r)).toBe(true);
     const gens = (await resultHeads(id)).map((h) => h.generator);
-    expect(gens.length).toBe(KEEP_PER_WORLD);
-    expect(gens[0]).toBe(GENERATOR_VERSION - 3);
-    expect(gens.at(-1)).toBe(GENERATOR_VERSION);
+    expect(gens).toEqual([...old, GENERATOR_VERSION]);
 
     const copy = saveStore.duplicateWorld(id)!;
     await copyResults(id, copy);
@@ -150,9 +149,34 @@ describe('原件存进浏览器(resultStore)', () => {
     saveStore.deleteWorld(copy);
     await dropOrphans();
     expect(await resultHeads(copy)).toEqual([]);
-    expect((await resultHeads(id)).length).toBe(KEEP_PER_WORLD);
+    expect((await resultHeads(id)).length).toBe(gens.length);
 
     await clearResults();
     expect(mem.records.size).toBe(0);
+  });
+
+  it('撤销了删除的世界,原件不删', async () => {
+    const id = saveStore.newWorldId();
+    openWorld(id);
+    saveStore.markCreated();
+    expect(await offerSnapshot(await snapshotOf(EMPTY_EDITS))).toBe(true);
+    const gone = saveStore.deleteWorld(id)!;
+    saveStore.restoreWorld(gone);
+    await dropOrphans();
+    expect((await resultHeads(id)).length).toBe(1);
+  });
+
+  it('不是用的人删的不清:列表没了(浏览器清了 localStorage)、老编号的世界,原件都留着', async () => {
+    const id = saveStore.newWorldId();
+    openWorld(id);
+    saveStore.markCreated();
+    expect(await offerSnapshot(await snapshotOf(EMPTY_EDITS))).toBe(true);
+    saveStore.detachWorld();
+    g.localStorage = new FakeStorage();
+    saveStore._resetForTest();
+    expect(saveStore.persistent()).toBe(true);
+    expect(saveStore.storedIds()).toEqual([]);
+    await dropOrphans();
+    expect((await resultHeads(id)).length).toBe(1);
   });
 });
