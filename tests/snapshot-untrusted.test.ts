@@ -381,6 +381,15 @@ describe('读一块:解压的上限', () => {
     expect(seen.bytes).toBeLessThan(60e6);
   });
 
+  it('同一块读两遍一样:解压不动存着的字节', async () => {
+    const value = { a: new Int32Array([1, 2, 3]), b: '字' };
+    const p = await makePart('civ', value);
+    const size = p.data.byteLength;
+    expect(isDeepStrictEqual(await readPart(p), value)).toBe(true);
+    expect(p.data.byteLength).toBe(size);
+    expect(isDeepStrictEqual(await readPart(p), value)).toBe(true);
+  });
+
   it('解出来比说好的小、校验不对、不压缩的长度不对', async () => {
     const raw = packValue({ a: 1 });
     const data = gz(raw);

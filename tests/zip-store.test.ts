@@ -144,7 +144,7 @@ describe('ZIP:写', () => {
 
   it('不写自己读不回来的:名字不合规矩、重复、超上限', async () => {
     const one = text('x');
-    for (const name of ['', '../a', 'a/../b', '/a', 'a\\b', 'C:/a', 'a/', 'a//b', './a', 'a\u0001', '\ud800']) await expect(writeZip([{ name, data: one }]), JSON.stringify(name)).rejects.toThrow();
+    for (const name of ['', '../a', 'a/../b', '/a', 'a\\b', 'C:/a', 'a/', 'a//b', './a', 'a.', 'a ', 'dir./a', 'dir /a', 'a\u0001', '\ud800']) await expect(writeZip([{ name, data: one }]), JSON.stringify(name)).rejects.toThrow();
     await expect(
       writeZip([
         { name: 'a', data: one },
@@ -241,8 +241,13 @@ describe('ZIP:读的时候当它是坏文件', () => {
     expect(parseZip(forge(many.slice(1))).length).toBe(ZIP_MAX_ENTRIES);
   });
 
-  it.each(['../x', 'a/../b', '..', '/etc/passwd', 'C:/x', 'C:\\x', 'a\\b', 'x/', 'a//b', './a', 'a/.', '.. /a', 'a\u0000b', 'a\nb', ''])('拒绝文件名 %j', (name) => {
+  it.each(['../x', 'a/../b', '..', '/etc/passwd', 'C:/x', 'C:\\x', 'a\\b', 'x/', 'a//b', './a', 'a/.', '.. /a', 'a.', 'a ', 'dir./a', 'dir /a', 'a\u0000b', 'a\nb', ''])('拒绝文件名 %j', (name) => {
     expect(() => parseZip(forge([{ name }]))).toThrow();
+  });
+
+  it('开头的点、中间的点和空格没事', () => {
+    const names = ['.hidden', 'parts/map.gz', 'a b/c.d e'];
+    expect(parseZip(forge(names.map((name) => ({ name })))).map((e) => e.name)).toEqual(names);
   });
 
   it('文件名不是 UTF-8:标了 UTF-8 但字节不对、没标却有非 ASCII', () => {

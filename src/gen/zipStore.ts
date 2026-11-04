@@ -9,8 +9,8 @@
  * - 各条目必须从头到目录首尾相接、不留空、不重叠。先核对这条再算校验:不然几千个条目指同一段字节,光算校验就算不完
  * - 目录和各条目自己的头要说同样的话(两边不一样,不同的软件会读出不同的内容)
  * - 拒绝加密、分卷、ZIP64(64 MB 用不到)、除「不压缩」以外的压缩方式、声明大小对不上、校验(CRC-32)对不上
- * - 文件名:拒绝 ..、绝对路径、反斜杠、盘符、控制字符、目录条目、重复的(只差大小写、只差 Unicode 写法的也算重复:
- *   Windows、Mac 上解压到同一个文件);不是 UTF-8 的拒绝
+ * - 文件名:拒绝 ..、绝对路径、反斜杠、盘符、控制字符、目录条目、每一段结尾的点和空格、重复的(只差大小写、只差 Unicode 写法的
+ *   也算重复:Windows、Mac 上解压到同一个文件);不是 UTF-8 的拒绝
  *
  * 纯计算,不碰 DOM:Blob 在 worker、Node 里都有。
  */
@@ -62,8 +62,9 @@ function checkName(name: string, nameBytes: number): void {
   if (nameBytes > NAME_MAX_BYTES) throw new Error('ZIP 里的文件名太长');
   // 反斜杠在 Windows 上是路径分隔符、冒号是盘符;\p{Cs} 是半个的代理字符(写不成 UTF-8)
   if (/[\u0000-\u001f\u007f\\:]|\p{Cs}/u.test(name)) throw new Error('ZIP 里的文件名有不许用的字符');
-  // 开头、结尾的 / 和连着两个 / 都会切出空的一段(绝对路径、目录条目);Windows 会去掉结尾的点和空格,"... " 也等于上一层
-  for (const seg of name.split('/')) if (/^[. ]*$/.test(seg)) throw new Error('ZIP 里的文件名路径不对');
+  // 开头、结尾的 / 和连着两个 / 都会切出空的一段(绝对路径、目录条目);
+  // Windows 会去掉每一段结尾的点和空格:"a." 和 "a" 解压到同一个文件,".. " 等于上一层。这样的一段一律不要(. 和 .. 也算在里面)
+  for (const seg of name.split('/')) if (!seg || /[. ]$/.test(seg)) throw new Error('ZIP 里的文件名路径不对');
 }
 
 /** 查重用的键:解压到不分大小写的磁盘上会撞的算一个 */
