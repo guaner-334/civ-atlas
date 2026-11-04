@@ -3,7 +3,7 @@
  * 只给世界文件的测试用,文件的第 1 版样本不是从这里来的(那份是做好的成品,不重新生成,见 tests/world-file-v1.test.ts)。
  */
 import { generateCiv } from '../../src/gen/civ';
-import { fullChronicle } from '../../src/gen/civ/story/religionText';
+import { chronicleBlock } from '../../src/gen/civ/story/nameTokens';
 import { flagBook } from '../../src/gen/civ/story/flags';
 import { upheavalSteps } from '../../src/gen/civ/upheaval';
 import { GENERATOR_VERSION, type Upheaval, type WorldEdits } from '../../src/gen/edits';
@@ -51,7 +51,7 @@ export function makeSample(): PackInput & { eras: WorldEras } {
     map: world,
     eras,
     civ,
-    chronicle: fullChronicle(civ),
+    chronicle: chronicleBlock(civ),
     flags: flagBook(world, civ),
     author: AUTHOR,
     thumb: tinyJpeg(),

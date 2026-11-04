@@ -30,7 +30,9 @@ export function regionLabel(civ: Civ, r: number): string {
 
 /** 这个州有没有名字(用户起的或生成时起的;没有的界面上叫"第 N 州") */
 export function regionNamed(civ: Civ, r: number): boolean {
-  return !!(civ.regionNames?.[r] || civ.regions.name?.[r]);
+  const name = civ.regionNames?.[r] || civ.regions.name?.[r];
+  // 占位符 u = 没名字的州(story/nameTokens.ts)
+  return !!name && !name.startsWith('u');
 }
 
 /** 地名表 → { 据险断后的史事下标 → 守的那处关的下标 }(同一份地名表只建一次) */

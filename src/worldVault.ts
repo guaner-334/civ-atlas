@@ -135,8 +135,8 @@ export interface CommitRequest {
    * 不给 = 只改了配方、作者内容、封面:这几块沿用最新的修订;配方指纹对不上(历史改了还没推完)就不存,等推完
    */
   parts?: SnapshotPart[];
-  /** parts 的结构版本;不给 = 现在的。原件里的块传 1 */
-  schema?: number;
+  /** parts 里这几块的结构版本(块名 → 版本);没写的 = 现在的。原件里的块写 1 */
+  schemas?: Readonly<Record<string, number>>;
   /** 什么时候用哪一版做的(给了 parts 必须给) */
   made?: WorldMade;
   readers?: WorldReaders;
@@ -406,7 +406,7 @@ function sameManifest(a: WorldManifest, b: WorldManifest): boolean {
  */
 export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
   try {
-    const incoming = (req.parts ?? []).map((p) => knownPart(p, req.schema));
+    const incoming = (req.parts ?? []).map((p) => knownPart(p, req.schemas?.[p.name]));
     const author = req.author === undefined ? undefined : req.author?.notes.length ? await packKnown('author', req.author) : null;
     let thumb: PackedPart | null | undefined;
     if (req.thumb) {

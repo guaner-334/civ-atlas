@@ -69,7 +69,7 @@ function openWorld(id: string, edits: WorldEdits = EMPTY_EDITS, kind: saveStore.
 /** 这个世界现在这样的内容(线程交回来的那一份) */
 async function offerOf(edits: WorldEdits = getEdits(), tag = 'a'): Promise<WorldPartsOffer> {
   const recipe = await recipeKey(recipeOfSave(makeSave(PARAMS, edits, check)));
-  const parts = [await makePart('map', { ...mapValue(world) }), await makePart('civ', { ...civ(), tag }), await makePart('chronicle', []), await makePart('flags', { eras: [] })];
+  const parts = [await makePart('map', { ...mapValue(world) }), await makePart('civ', { ...civ(), tag }), await makePart('chronicle', { entries: [] }), await makePart('flags', { eras: [] })];
   return { generator: GENERATOR_VERSION, recipe, parts };
 }
 
@@ -528,8 +528,8 @@ describe('把现有的世界转进来', () => {
     const history = (await readLocalPart(o.parts.find((p) => p.name === 'civ')!)) as ReturnType<typeof generateCiv>;
     expect(isDeepStrictEqual(content.map, map)).toBe(true);
     expect(isDeepStrictEqual(content.civ, history)).toBe(true);
-    expect(isDeepStrictEqual(content.chronicle, worldChronicle(history, {}))).toBe(true);
-    expect(isDeepStrictEqual(content.flags, worldFlags(map, history, {}))).toBe(true);
+    expect(isDeepStrictEqual(content.chronicle, worldChronicle(history))).toBe(true);
+    expect(isDeepStrictEqual(content.flags, worldFlags(map, history))).toBe(true);
     // 原件一个字不动
     expect((await results.get(id, o.generator))!.snapshot.parts.map((p) => p.sum)).toEqual(o.parts.map((p) => p.sum));
   }, 120_000);

@@ -9,6 +9,7 @@
  */
 import type { Civ, Person, Year } from '../types';
 import { polityAlive, polityName } from '../growth';
+import { isNameToken, nameToken } from '../nameToken';
 import { ownersAt } from '../engine/timeline';
 import { treatyBook, type TreatyInfo, type ZoneInfo } from '../treatyBook';
 
@@ -22,7 +23,9 @@ export function treatyName(civ: Civ, id: number): string {
   if (own) return own;
   const x = treatyBook(civ).treaties[id];
   const s = x && x.settlement >= 0 ? civ.settlements[x.settlement] : undefined;
-  return s?.name ? `${s.name}之约` : '';
+  if (!s?.name) return '';
+  // 编年史存的占位符:约名单独一个占位符,用的人改了约名才换得上
+  return isNameToken(s.name) ? nameToken(`t${id}`) : `${s.name}之约`;
 }
 
 /**
