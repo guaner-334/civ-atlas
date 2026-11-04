@@ -266,12 +266,13 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
     if (!info || opened.kept.includes(info)) return null;
     return partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, opened.bytes.get(name)!, worldPartLimit(name, opened.options.maxBytes));
   };
-  const read = async (name: string): Promise<unknown> => {
+  /** 解开、迁移;decode = 字节怎么变成值(封面就是字节本身) */
+  const read = async (name: string, decode: (b: Uint8Array) => unknown = (b) => unpackValue(b, worldHeadLimit(opened.options.maxBytes))): Promise<unknown> => {
     const b = await raw(name);
     if (!b) return null;
     const info = manifest.parts.find((p) => p.name === name)!;
     try {
-      return migratePart(name, info.schema, unpackValue(b, worldHeadLimit(opened.options.maxBytes)), manifest, migrations);
+      return migratePart(name, info.schema, decode(b), manifest, migrations);
     } catch (err) {
       // 可选的块转不了结构不碍看世界
       if (info.need === 'extra' && asWorldFileError(err).kind === 'readonly') {
@@ -296,7 +297,7 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
     validateFlags(flags, civ);
     const author = (await read('author')) as AuthorContent | null;
     if (author) validateAuthor(author);
-    const thumb = await raw('thumb');
+    const thumb = (await read('thumb', (b) => b)) as Uint8Array | null;
     if (thumb) validateThumb(thumb);
     const r = parseSave(JSON.stringify(manifest.recipe));
     if (!r.ok) broken(r.error);

@@ -490,6 +490,16 @@ describe('世界文件:迁移', () => {
     expect((await readWorldContent(next)).chronicle).toEqual([]);
   }, 30_000);
 
+  it('封面也走迁移:转得了读转过的,转不了记在 skipped 里', async () => {
+    const yes = await readWorldContent(await openWorldFile(good, { ...OPEN, migrations: { thumb: [() => tinyJpeg(100, 50)] } }));
+    expect(yes.thumb).toEqual(tinyJpeg(100, 50));
+    const opened = await openWorldFile(good, { ...OPEN, migrations: { thumb: [() => { throw new Error('转不了'); }] } });
+    const no = await readWorldContent(opened);
+    expect(no.thumb).toBeNull();
+    expect(no.skipped).toEqual(['thumb']);
+    expect(opened.bytes.get('thumb')).toEqual(sample.thumb);
+  }, 30_000);
+
   it('可选的块转不了:世界照样看,这一块记在 skipped 里,字节留着', async () => {
     const opts = { ...OPEN, migrations: { author: [() => { throw new Error('转不了'); }] } as MigrationTable };
     const opened = await openWorldFile(good, opts);

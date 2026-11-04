@@ -99,6 +99,13 @@ function str(v: unknown, at: string, max: number): string {
   return v;
 }
 
+/**
+ * 有就得是字符串。界面拿这些字段直接当文字显示,混进一个对象 React 就抛错、白屏(allStrings 只管字符串的长度,不管该是字符串的地方是不是字符串)
+ */
+function optStr(v: unknown, at: string, max: number): void {
+  if (v !== undefined) str(v, at, max);
+}
+
 function oneOf(v: unknown, values: readonly string[], at: string): void {
   if (typeof v !== 'string' || !values.includes(v)) broken(`${at} 认不出`);
 }
@@ -516,7 +523,11 @@ function checkRegions(raw: unknown, n: number, at: string): Regions {
   allIn(typed(r.biome, Uint8Array, `${at}.biome`, count), 0, BIOMES.length, `${at}.biome`);
   typed(r.elevation, Float32Array, `${at}.elevation`, count);
   typed(r.landmass, Int32Array, `${at}.landmass`, count);
-  if (r.name !== undefined && list(r.name, `${at}.name`).length !== count) broken(`${at}.name 的长度不对`);
+  if (r.name !== undefined) {
+    const names = list(r.name, `${at}.name`);
+    if (names.length !== count) broken(`${at}.name 的长度不对`);
+    names.forEach((x, i) => str(x, `${at}.name[${i}]`, NAME_TEXT_MAX));
+  }
   if (r.keyOf !== undefined) typed(r.keyOf, Int32Array, `${at}.keyOf`, n);
   if (r.keySeat !== undefined) typed(r.keySeat, Int32Array, `${at}.keySeat`, count);
   return r as unknown as Regions;
@@ -550,6 +561,8 @@ function checkPlaces(raw: unknown, c: Counts, at: string): void {
     num(p.rank, `${at}[${i}].rank`);
     optInt(p.cell, 0, c.cells, `${at}[${i}].cell`);
     optInt(p.keyCell, 0, c.cells, `${at}[${i}].keyCell`);
+    optStr(p.latin, `${at}[${i}].latin`, NAME_TEXT_MAX);
+    optStr(p.defaultName, `${at}[${i}].defaultName`, NAME_TEXT_MAX);
     if (p.pass !== undefined) {
       const pass = obj(p.pass, `${at}[${i}].pass`);
       list(pass.regions, `${at}[${i}].pass.regions`).forEach((r, k) => int(r, 0, c.regions, `${at}[${i}].pass.regions[${k}]`));
@@ -581,6 +594,8 @@ function checkCultures(raw: unknown, c: Counts): void {
     if (u.id !== i) broken(`${at}.id 不对`);
     str(u.name, `${at}.name`, NAME_TEXT_MAX);
     str(u.style, `${at}.style`, NAME_TEXT_MAX);
+    optStr(u.autoStyle, `${at}.autoStyle`, NAME_TEXT_MAX);
+    optStr(u.branch, `${at}.branch`, NAME_TEXT_MAX);
     oneOf(u.kind, POLITY_KINDS, `${at}.kind`);
     int(u.hearth, 0, c.regions, `${at}.hearth`);
     startYear(u.born, `${at}.born`);
@@ -645,7 +660,11 @@ function checkPolities(raw: unknown, c: Counts): void {
     optInt(p.parent, 0, c.polities, `${at}.parent`);
     optInt(p.restores, 0, c.polities, `${at}.restores`);
     optInt(p.mentor, 0, c.polities, `${at}.mentor`);
-    if (p.titles !== undefined) ascendingBy(p.titles, 'year', `${at}.titles`);
+    optStr(p.lineage, `${at}.lineage`, NAME_TEXT_MAX);
+    if (p.titles !== undefined) {
+      ascendingBy(p.titles, 'year', `${at}.titles`);
+      (p.titles as Obj[]).forEach((y, k) => num(y.tier, `${at}.titles[${k}].tier`));
+    }
     if (p.capitals !== undefined) {
       ascendingBy(p.capitals, 'year', `${at}.capitals`);
       (p.capitals as Obj[]).forEach((y, k) => int(y.settlement, 0, c.settlements, `${at}.capitals[${k}].settlement`));
@@ -699,6 +718,7 @@ function checkAnnals(raw: unknown, c: Counts, upheavals: number): void {
     else int(a.settlement, -1, c.settlements, `${at}(${kind}).settlement`);
     if (!Number.isInteger(a.war)) broken(`${at}(${kind}).war 不是整数`);
     optInt(a.via, 0, 5, `${at}.via`);
+    optStr(a.cause, `${at}.cause`, NAME_TEXT_MAX);
     if (a.ps !== undefined) list(a.ps, `${at}.ps`).forEach((p, k) => int(p, 0, c.polities, `${at}.ps[${k}]`));
   });
 }
@@ -771,6 +791,8 @@ function checkPeople(raw: unknown, c: Counts): void {
     oneOf(p.role, PERSON_ROLES, `${at}.role`);
     int(p.polity, 0, c.polities, `${at}.polity`);
     str(p.name, `${at}.name`, NAME_TEXT_MAX);
+    for (const k of ['maleName', 'title', 'defaultName', 'courtesy', 'art', 'fate', 'rise']) optStr(p[k], `${at}.${k}`, NAME_TEXT_MAX);
+    if (p.posts !== undefined) list(p.posts, `${at}.posts`).forEach((y, k) => str(obj(y, `${at}.posts[${k}]`).title, `${at}.posts[${k}].title`, NAME_TEXT_MAX));
     num(p.born, `${at}.born`);
     optNum(p.died, `${at}.died`);
     optNum(p.from, `${at}.from`);
@@ -835,6 +857,8 @@ function checkReligion(raw: unknown, c: Counts): void {
     if (f.id !== i) broken(`${at}.id 不对`);
     oneOf(f.kind, FAITH_KINDS, `${at}.kind`);
     str(f.name, `${at}.name`, NAME_TEXT_MAX);
+    optStr(f.form, `${at}.form`, NAME_TEXT_MAX);
+    if (f.founder !== undefined) str(obj(f.founder, `${at}.founder`).name, `${at}.founder.name`, NAME_TEXT_MAX);
     optInt(f.culture, 0, c.cultures, `${at}.culture`);
     optInt(f.parent, 0, F, `${at}.parent`);
     optInt(f.holy, 0, c.settlements, `${at}.holy`);
@@ -994,23 +1018,27 @@ export function validateCiv(v: unknown, world: World): asserts v is Civ {
   const upheavals = civ.upheavals === undefined ? 0 : list(civ.upheavals, '历史的 upheavals').length;
   if (civ.upheavals !== undefined) checkUpheavals(civ.upheavals, c);
   checkAnnals(civ.annals, c, upheavals);
-  if (civ.eras !== undefined) {
-    const eras = list(civ.eras, '历史的 eras');
-    if (eras.length !== upheavals) broken('历史的 eras 和 upheavals 对不上');
-    eras.forEach((x, i) => {
-      const at = `历史的 eras[${i}]`;
-      const e = obj(x, at);
-      num(e.until, `${at}.until`);
-      checkHabitat(e.habitat, n, `${at}.habitat`);
-      checkRegions(e.regions, n, `${at}.regions`);
-      checkPlaces(e.places, c, `${at}.places`);
-      checkRoutes(e.routes, n, `${at}.routes`);
-    });
-  }
+  const eras = civ.eras === undefined ? [] : list(civ.eras, '历史的 eras');
+  if (eras.length !== upheavals) broken('历史的 eras 和 upheavals 对不上');
+  eras.forEach((x, i) => {
+    const at = `历史的 eras[${i}]`;
+    const e = obj(x, at);
+    num(e.until, `${at}.until`);
+    checkHabitat(e.habitat, n, `${at}.habitat`);
+    checkRegions(e.regions, n, `${at}.regions`);
+    checkPlaces(e.places, c, `${at}.places`);
+    checkRoutes(e.routes, n, `${at}.routes`);
+  });
   if (civ.regionNames !== undefined) {
     const names = list(civ.regionNames, '历史的 regionNames');
     if (names.length > c.regions) broken('历史的 regionNames 太长');
     names.forEach((x, i) => str(x, `历史的 regionNames[${i}]`, NAME_TEXT_MAX));
+  }
+  for (const k of ['authorNames', 'treatyNames']) {
+    if (civ[k] !== undefined) {
+      const names = obj(civ[k], `历史的 ${k}`);
+      for (const id of Object.keys(names)) str(names[id], `历史的 ${k}.${id}`, NAME_TEXT_MAX);
+    }
   }
   if (civ.migrations !== undefined) checkMigrations(civ.migrations, c);
   if (civ.people !== undefined) checkPeople(civ.people, c);
