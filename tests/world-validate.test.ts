@@ -126,6 +126,11 @@ describe('每条规则:地图', () => {
     ['地图尺寸不对', (w) => (w.width = 1 << 30)],
     ['网格尺寸不对', (w) => (w.mesh.height = 1 << 30)],
     ['spacing 不对', (w) => (w.mesh.spacing = 0)],
+    ['spacing 太小(找最近地块的循环走不到头)', (w) => (w.mesh.spacing = Number.MIN_VALUE)],
+    ['spacing 太大(铺像素刷不完)', (w) => (w.mesh.spacing = 1e30)],
+    ['球面坐标不在球面上', (w) => (w.mesh.xyz[3] = 1e30)],
+    ['地块数参数太大(重新生成会卡死)', (w) => (w.params.cells = 1e12)],
+    ['参数超范围', (w) => (w.params.landFraction = 2)],
     ['坐标不是数', (w) => (w.mesh.x[3] = NaN)],
     ['坐标出了地图', (w) => (w.mesh.y[3] = 1e6)],
     ['球面坐标不是数', (w) => (w.mesh.xyz[3] = Infinity)],
@@ -207,6 +212,8 @@ describe('每条规则:地图', () => {
 });
 
 describe('每条规则:历史', () => {
+  /** 一条合格的商道 */
+  const ROUTE = { id: 0, name: 'x', buyer: 0, from: 0, goods: [{ res: 0, from: 0 }], events: [{ year: 1, kind: 'open' }], paths: [{ year: 1, regions: [0] }] };
   const CASES: [string, (c: any) => void][] = [
     ['种子不是数', (c) => (c.seed = 'x')],
     ['推演年数不是数', (c) => (c.endYear = NaN)],
@@ -386,11 +393,27 @@ describe('每条规则:历史', () => {
     ['传入年份长度不对', (c) => (c.ideology.arrive = new Float64Array(1))],
     ['思潮大事的说越界', (c) => (c.ideology.events = [{ year: 1, kind: 'origin', thought: 1e7, region: -1, settlement: -1, culture: -1, polity: -1 }])],
     // 商道
-    ['商道编号对不上', (c) => (c.trade.routes = [{ id: 3, name: 'x', buyer: 0, from: 0, goods: [], events: [], paths: [] }])],
-    ['商道的买方越界', (c) => (c.trade.routes = [{ id: 0, name: 'x', buyer: 1e7, from: 0, goods: [], events: [], paths: [] }])],
-    ['商道的产地越界', (c) => (c.trade.routes = [{ id: 0, name: 'x', buyer: 0, from: 1e7, goods: [], events: [], paths: [] }])],
-    ['商道的货认不出', (c) => (c.trade.routes = [{ id: 0, name: 'x', buyer: 0, from: 0, goods: [{ res: 1e7, from: 0 }], events: [], paths: [] }])],
-    ['商道的路线越界', (c) => (c.trade.routes = [{ id: 0, name: 'x', buyer: 0, from: 0, goods: [], events: [], paths: [{ year: 0, regions: [1e7] }] }])],
+    ['商道没有事', (c) => (c.trade.routes = [{ ...ROUTE, events: [] }])],
+    ['商道的事是空的', (c) => (c.trade.routes = [{ ...ROUTE, events: [null] }])],
+    ['商道的事认不出', (c) => (c.trade.routes = [{ ...ROUTE, events: [{ year: 1, kind: 'evil' }] }])],
+    ['商道的事没按年份排', (c) => (c.trade.routes = [{ ...ROUTE, events: [{ year: 5, kind: 'open' }, { year: 1, kind: 'end' }] }])],
+    ['商道没有货', (c) => (c.trade.routes = [{ ...ROUTE, goods: [] }])],
+    ['商道没有路线', (c) => (c.trade.routes = [{ ...ROUTE, paths: [] }])],
+    ['商道编号对不上', (c) => (c.trade.routes = [{ ...ROUTE, id: 3 }])],
+    ['商道的买方越界', (c) => (c.trade.routes = [{ ...ROUTE, buyer: 1e7 }])],
+    ['商道的产地越界', (c) => (c.trade.routes = [{ ...ROUTE, from: 1e7 }])],
+    ['商道的货认不出', (c) => (c.trade.routes = [{ ...ROUTE, goods: [{ res: 1e7, from: 0 }] }])],
+    ['商道的路线越界', (c) => (c.trade.routes = [{ ...ROUTE, paths: [{ year: 0, regions: [1e7] }] }])],
+    // 年份太离谱(界面按年份走的循环加上步长还是它,就卡死了)
+    ['人物的卒年太离谱', (c) => (c.people[0].died = 1e300)],
+    ['君主在位到的年份太离谱', (c) => (c.people[0].until = 1e300)],
+    ['亡国的年份太离谱', (c) => (c.polities[0].ended = 1e300)],
+    ['城毁的年份太离谱', (c) => (c.settlements[0].ended = 1e300)],
+    ['废路的年份太离谱', (c) => (c.routes[0].abandoned = 1e300)],
+    ['民族消亡的年份太离谱', (c) => (c.cultures[0].ended = 1e300)],
+    ['快照的年份太离谱', (c) => (c.development.snapYears[c.development.snapYears.length - 1] = 1e300)],
+    ['领兵的年份太离谱', (c) => (c.people[0].commands = [{ war: 0, side: 0, from: 0, until: 1e300, first: 0, last: 0 }])],
+    ['国教的年份太离谱', (c) => (c.religion.states = [{ polity: 0, faith: 0, from: 0, until: 1e300 }])],
     // 字
     ['哪儿都不许有太长的字', (c) => (c.spare = { deep: ['x'.repeat(300 * 1024)] })],
     ['字段名太长', (c) => (c.spare = { ['x'.repeat(300 * 1024)]: 1 })],

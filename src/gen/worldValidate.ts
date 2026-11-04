@@ -21,7 +21,7 @@ import type { ChronicleEntry } from './civ/story/chronicle';
 import type { FlagBook, Seat } from './civ/story/flags';
 import type { Civ, Regions } from './civ/types';
 import { END_YEAR_MAX } from './edits';
-import { SAVE_FORMAT, parseSave } from './savefile';
+import { PARAM_RANGE, SAVE_FORMAT, parseSave } from './savefile';
 import { SKETCH_H, SKETCH_W } from './sketch';
 import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, checkDepth, partLimit } from './snapshot';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainOps';
@@ -84,6 +84,22 @@ function int(v: unknown, lo: number, hi: number, at: string): number {
 
 const optNum = (v: unknown, at: string) => {
   if (v !== undefined) num(v, at);
+};
+
+/**
+ * 年份绝对值的上限。有的年份合法地比结束那年晚(还没诞生的民族、到期要废的路),也有早于第 0 年的(开国之君的生年),都到不了这个数。
+ * 再大的数没有真实世界用得上,而且界面上按年份走的循环(一步 20 年之类)碰到 1e300 这种数,加上步长也不变,就卡死了
+ */
+const YEAR_ABS_MAX = 1e6;
+
+function yearOk(v: unknown, at: string): number {
+  const y = num(v, at);
+  if (Math.abs(y) > YEAR_ABS_MAX) broken(`${at} 的年份太离谱`);
+  return y;
+}
+
+const optYearOk = (v: unknown, at: string) => {
+  if (v !== undefined) yearOk(v, at);
 };
 const optInt = (v: unknown, lo: number, hi: number, at: string) => {
   if (v !== undefined) int(v, lo, hi, at);
@@ -362,19 +378,24 @@ export function parseManifest(bytes: Uint8Array, opts: ManifestOptions): WorldMa
  */
 const CELLS_MIN = 1500;
 const CELLS_MAX = 200000;
+/** 地块间距的范围,见 checkMesh */
+const MESH_SPACING_RANGE: readonly [number, number] = [1, 64];
 
 /** 网格:长度、邻接、三角形的编号都对得上 */
 function checkMesh(raw: unknown): number {
   const m = obj(raw, '地图的 mesh');
   const n = int(m.n, CELLS_MIN, CELLS_MAX + 1, '地块数');
   if (m.width !== MAP_W || m.height !== MAP_H) broken('地图的尺寸不对');
-  if (num(m.spacing, '地图的 mesh.spacing') <= 0) broken('地图的 mesh.spacing 不对');
+  // 地块间距决定找最近地块的格子多大、铺像素时刷多宽:太小找不到头,太大刷不完。实际约 2(20 万地块)到 21(2000 地块)
+  const spacing = num(m.spacing, '地图的 mesh.spacing');
+  if (spacing < MESH_SPACING_RANGE[0] || spacing > MESH_SPACING_RANGE[1]) broken('地图的 mesh.spacing 不对');
   const x = typed(m.x, Float32Array, '地图的 mesh.x', n);
   const y = typed(m.y, Float32Array, '地图的 mesh.y', n);
   // 坐标决定铺像素时落在哪一格:差一点没事,离谱的会越界
   allIn(x, -1, MAP_W + 1, '地图的 mesh.x');
   allIn(y, -1, MAP_H + 1, '地图的 mesh.y');
-  allFinite(typed(m.xyz, Float32Array, '地图的 mesh.xyz', n * 3), '地图的 mesh.xyz');
+  // 单位球面上的点
+  allIn(typed(m.xyz, Float32Array, '地图的 mesh.xyz', n * 3), -1.01, 1.01, '地图的 mesh.xyz');
   const start = typed(m.adjStart, Int32Array, '地图的 mesh.adjStart', n + 1);
   const adj = typed(m.adj, Int32Array, '地图的 mesh.adj');
   if (start[0] !== 0 || start[n] !== adj.length) broken('地图的 mesh.adjStart 不对');
@@ -390,7 +411,12 @@ function checkMesh(raw: unknown): number {
 function checkWorldBody(w: Obj, n: number, at: string): void {
   if (w.width !== MAP_W || w.height !== MAP_H) broken(`${at}的尺寸不对`);
   const params = obj(w.params, `${at}的 params`);
-  for (const k of Object.keys(params)) num(params[k], `${at}的 params.${k}`);
+  for (const k of Object.keys(params)) {
+    const v = num(params[k], `${at}的 params.${k}`);
+    // 存档、网址里超范围的都调回范围内了,所以真实世界不会超;再大重新生成(看世界长出来)会慢到卡死
+    const range = Object.prototype.hasOwnProperty.call(PARAM_RANGE, k) ? PARAM_RANGE[k as keyof typeof PARAM_RANGE] : null;
+    if (range && (v < range[0] || v > range[1])) broken(`${at}的 params.${k} 超出范围`);
+  }
   const climate = obj(w.climate, `${at}的 climate`);
   for (const k of Object.keys(climate)) num(climate[k], `${at}的 climate.${k}`);
   // 海拔、气候里的非数会一路传进铺像素、算人口
@@ -481,6 +507,7 @@ const PLACE_KINDS = ['sea', 'mountains', 'river', 'lake', 'island', 'desert', 'p
 const ROUTE_KINDS = ['road', 'trail', 'sea'];
 const PERSON_ROLES = ['ruler', 'general', 'prince', 'minister', 'consort'];
 const FAITH_KINDS = ['folk', 'great', 'sect'];
+const TRADE_EVENT_KINDS = ['open', 'break', 'reopen', 'end'];
 /** 史事里 a 列记的是民族的几种(别的都是国家;upheaval 是第几件大事),见 annals.ts */
 const ANNAL_A_CULTURE = new Set(['migrate', 'assimilate', 'vanish', 'diverge', 'trek']);
 /** 这两种史事的州、城两列按子类各记各的(annals.ts),只看是整数 */
@@ -547,7 +574,7 @@ function checkRoutes(raw: unknown, n: number, at: string): void {
     oneOf(r.kind, ROUTE_KINDS, `${at}[${i}].kind`);
     allIn(typed(r.cells, Int32Array, `${at}[${i}].cells`), 0, n, `${at}[${i}].cells`);
     startYear(r.built, `${at}[${i}].built`);
-    optNum(r.abandoned, `${at}[${i}].abandoned`);
+    optYearOk(r.abandoned, `${at}[${i}].abandoned`);
   });
 }
 
@@ -583,7 +610,7 @@ function yearIn(v: unknown, c: Counts, at: string): void {
  * (还没诞生的民族、到期要废的路),这样的世界是好的
  */
 function startYear(v: unknown, at: string): void {
-  if (num(v, at) < 0) broken(`${at} 的年份是负数`);
+  if (yearOk(v, at) < 0) broken(`${at} 的年份是负数`);
 }
 
 function checkCultures(raw: unknown, c: Counts): void {
@@ -599,7 +626,7 @@ function checkCultures(raw: unknown, c: Counts): void {
     oneOf(u.kind, POLITY_KINDS, `${at}.kind`);
     int(u.hearth, 0, c.regions, `${at}.hearth`);
     startYear(u.born, `${at}.born`);
-    optNum(u.ended, `${at}.ended`);
+    optYearOk(u.ended, `${at}.ended`);
     rgb(u.color, `${at}.color`);
     optInt(u.parent, 0, c.cultures, `${at}.parent`);
   });
@@ -617,25 +644,31 @@ function checkSettlements(raw: unknown, c: Counts): void {
     int(s.culture, 0, c.cultures, `${at}.culture`);
     str(s.name, `${at}.name`, NAME_TEXT_MAX);
     startYear(s.founded, `${at}.founded`);
-    optNum(s.ended, `${at}.ended`);
+    optYearOk(s.ended, `${at}.ended`);
     // 人口按这几个数算:非数会一路传到界面上
     num(s.capacity, `${at}.capacity`);
     num(s.growth, `${at}.growth`);
     optInt(s.rebuilds, 0, c.settlements, `${at}.rebuilds`);
     if (s.capitalSpans !== undefined) {
-      list(s.capitalSpans, `${at}.capitalSpans`).forEach((y, k) => int(obj(y, `${at}.capitalSpans[${k}]`).polity, 0, c.polities, `${at}.capitalSpans[${k}].polity`));
+      list(s.capitalSpans, `${at}.capitalSpans`).forEach((y, k) => {
+        const o = obj(y, `${at}.capitalSpans[${k}]`);
+        int(o.polity, 0, c.polities, `${at}.capitalSpans[${k}].polity`);
+        yearOk(o.from, `${at}.capitalSpans[${k}].from`);
+        optYearOk(o.until, `${at}.capitalSpans[${k}].until`);
+      });
     }
     if (s.sacks !== undefined) {
       list(s.sacks, `${at}.sacks`).forEach((y, k) => {
         const o = obj(y, `${at}.sacks[${k}]`);
-        num(o.year, `${at}.sacks[${k}].year`);
+        yearOk(o.year, `${at}.sacks[${k}].year`);
+        optYearOk(o.until, `${at}.sacks[${k}].until`);
         num(o.loss, `${at}.sacks[${k}].loss`);
       });
     }
     if (s.reshaped !== undefined) {
       list(s.reshaped, `${at}.reshaped`).forEach((y, k) => {
         const o = obj(y, `${at}.reshaped[${k}]`);
-        num(o.year, `${at}.reshaped[${k}].year`);
+        yearOk(o.year, `${at}.reshaped[${k}].year`);
         num(o.capacity, `${at}.reshaped[${k}].capacity`);
       });
     }
@@ -654,7 +687,7 @@ function checkPolities(raw: unknown, c: Counts): void {
     int(p.culture, 0, c.cultures, `${at}.culture`);
     int(p.capital, 0, c.settlements, `${at}.capital`);
     startYear(p.founded, `${at}.founded`);
-    optNum(p.ended, `${at}.ended`);
+    optYearOk(p.ended, `${at}.ended`);
     oneOf(p.kind, POLITY_KINDS, `${at}.kind`);
     rgb(p.color, `${at}.color`);
     optInt(p.parent, 0, c.polities, `${at}.parent`);
@@ -689,7 +722,7 @@ function ascendingBy(raw: unknown, key: string, at: string): void {
   const a = list(raw, at);
   let last = -Infinity;
   a.forEach((x, i) => {
-    const y = num(obj(x, `${at}[${i}]`)[key], `${at}[${i}].${key}`);
+    const y = yearOk(obj(x, `${at}[${i}]`)[key], `${at}[${i}].${key}`);
     if (y < last) broken(`${at} 没按先后排`);
     last = y;
   });
@@ -768,12 +801,12 @@ function checkMigrations(raw: unknown, c: Counts): void {
     const at = `历史的 migrations[${i}]`;
     const m = obj(x, at);
     int(m.culture, 0, c.cultures, `${at}.culture`);
-    num(m.year, `${at}.year`);
+    yearOk(m.year, `${at}.year`);
     const route = list(m.route, `${at}.route`);
     route.forEach((r, k) => int(r, 0, c.regions, `${at}.route[${k}]`));
     const years = list(m.years, `${at}.years`);
     if (years.length !== route.length) broken(`${at}.years 的长度不对`);
-    years.forEach((y, k) => num(y, `${at}.years[${k}]`));
+    years.forEach((y, k) => yearOk(y, `${at}.years[${k}]`));
     int(m.target, -1, c.polities, `${at}.target`);
     optInt(m.polity, 0, c.polities, `${at}.polity`);
     optInt(m.stormed, 0, c.polities, `${at}.stormed`);
@@ -792,11 +825,17 @@ function checkPeople(raw: unknown, c: Counts): void {
     int(p.polity, 0, c.polities, `${at}.polity`);
     str(p.name, `${at}.name`, NAME_TEXT_MAX);
     for (const k of ['maleName', 'title', 'defaultName', 'courtesy', 'art', 'fate', 'rise']) optStr(p[k], `${at}.${k}`, NAME_TEXT_MAX);
-    if (p.posts !== undefined) list(p.posts, `${at}.posts`).forEach((y, k) => str(obj(y, `${at}.posts[${k}]`).title, `${at}.posts[${k}].title`, NAME_TEXT_MAX));
-    num(p.born, `${at}.born`);
-    optNum(p.died, `${at}.died`);
-    optNum(p.from, `${at}.from`);
-    optNum(p.until, `${at}.until`);
+    if (p.posts !== undefined) {
+      list(p.posts, `${at}.posts`).forEach((y, k) => {
+        const o = obj(y, `${at}.posts[${k}]`);
+        str(o.title, `${at}.posts[${k}].title`, NAME_TEXT_MAX);
+        yearOk(o.from, `${at}.posts[${k}].from`);
+      });
+    }
+    yearOk(p.born, `${at}.born`);
+    optYearOk(p.died, `${at}.died`);
+    optYearOk(p.from, `${at}.from`);
+    optYearOk(p.until, `${at}.until`);
     ref(p.parent, `${at}.parent`);
     ref(p.mom, `${at}.mom`);
     ref(p.husband, `${at}.husband`);
@@ -807,6 +846,8 @@ function checkPeople(raw: unknown, c: Counts): void {
     if (p.commands !== undefined) {
       list(p.commands, `${at}.commands`).forEach((y, k) => {
         const o = obj(y, `${at}.commands[${k}]`);
+        yearOk(o.from, `${at}.commands[${k}].from`);
+        yearOk(o.until, `${at}.commands[${k}].until`);
         int(o.first, 0, c.annals, `${at}.commands[${k}].first`);
         int(o.last, 0, c.annals, `${at}.commands[${k}].last`);
       });
@@ -814,6 +855,8 @@ function checkPeople(raw: unknown, c: Counts): void {
     if (p.regencies !== undefined) {
       list(p.regencies, `${at}.regencies`).forEach((y, k) => {
         const o = obj(y, `${at}.regencies[${k}]`);
+        yearOk(o.from, `${at}.regencies[${k}].from`);
+        optYearOk(o.until, `${at}.regencies[${k}].until`);
         ref(o.ruler, `${at}.regencies[${k}].ruler`);
         int(o.annal, 0, c.annals, `${at}.regencies[${k}].annal`);
         optInt(o.endAnnal, 0, c.annals, `${at}.regencies[${k}].endAnnal`);
@@ -825,6 +868,7 @@ function checkPeople(raw: unknown, c: Counts): void {
         int(o.polity, 0, c.polities, `${at}.spouses[${k}].polity`);
         int(o.father, -1, c.people, `${at}.spouses[${k}].father`);
         str(o.name, `${at}.spouses[${k}].name`, NAME_TEXT_MAX);
+        yearOk(o.year, `${at}.spouses[${k}].year`);
         int(o.annal, 0, c.annals, `${at}.spouses[${k}].annal`);
         ref(o.person, `${at}.spouses[${k}].person`);
       });
@@ -832,6 +876,8 @@ function checkPeople(raw: unknown, c: Counts): void {
     if (p.exile !== undefined) {
       const e = obj(p.exile, `${at}.exile`);
       int(e.annal, 0, c.annals, `${at}.exile.annal`);
+      yearOk(e.year, `${at}.exile.year`);
+      optYearOk(e.until, `${at}.exile.until`);
       int(e.region, -1, c.regions, `${at}.exile.region`);
       ref(e.by, `${at}.exile.by`);
       optInt(e.to, 0, c.polities, `${at}.exile.to`);
@@ -839,6 +885,8 @@ function checkPeople(raw: unknown, c: Counts): void {
     if (p.deeds !== undefined) {
       list(p.deeds, `${at}.deeds`).forEach((y, k) => {
         const o = obj(y, `${at}.deeds[${k}]`);
+        yearOk(o.year, `${at}.deeds[${k}].year`);
+        optYearOk(o.until, `${at}.deeds[${k}].until`);
         optInt(o.annal, 0, c.annals, `${at}.deeds[${k}].annal`);
         ref(o.person, `${at}.deeds[${k}].person`);
       });
@@ -858,7 +906,13 @@ function checkReligion(raw: unknown, c: Counts): void {
     oneOf(f.kind, FAITH_KINDS, `${at}.kind`);
     str(f.name, `${at}.name`, NAME_TEXT_MAX);
     optStr(f.form, `${at}.form`, NAME_TEXT_MAX);
-    if (f.founder !== undefined) str(obj(f.founder, `${at}.founder`).name, `${at}.founder.name`, NAME_TEXT_MAX);
+    optYearOk(f.founded, `${at}.founded`);
+    if (f.founder !== undefined) {
+      const o = obj(f.founder, `${at}.founder`);
+      str(o.name, `${at}.founder.name`, NAME_TEXT_MAX);
+      yearOk(o.born, `${at}.founder.born`);
+      yearOk(o.died, `${at}.founder.died`);
+    }
     optInt(f.culture, 0, c.cultures, `${at}.culture`);
     optInt(f.parent, 0, F, `${at}.parent`);
     optInt(f.holy, 0, c.settlements, `${at}.holy`);
@@ -882,6 +936,8 @@ function checkReligion(raw: unknown, c: Counts): void {
     const s = obj(x, at);
     int(s.polity, 0, c.polities, `${at}.polity`);
     int(s.faith, 0, F, `${at}.faith`);
+    yearOk(s.from, `${at}.from`);
+    optYearOk(s.until, `${at}.until`);
   });
   const log = obj(r.log, '历史的 religion.log');
   const year = typed(log.year, Float32Array, '历史的 religion.log.year');
@@ -898,7 +954,7 @@ function checkSnaps<T extends ArrayLike<number>>(snaps: unknown, years: unknown,
   const s = list(snaps, at);
   const y = list(years, `${at} 的年份`);
   if (s.length !== y.length) broken(`${at} 和年份对不上`);
-  y.forEach((v, i) => num(v, `${at} 的年份[${i}]`));
+  y.forEach((v, i) => yearOk(v, `${at} 的年份[${i}]`));
   ascending(y as number[], `${at} 的年份`);
   s.forEach((v, i) => typed(v, C, `${at}[${i}]`, len));
 }
@@ -929,7 +985,7 @@ function checkDevelopment(raw: unknown, c: Counts): void {
   });
   if (d.state !== undefined) {
     const s = obj(d.state, '历史的 development.state');
-    num(s.last, '历史的 development.state.last');
+    yearOk(s.last, '历史的 development.state.last');
     for (const k of ['cur', 'best']) typed(s[k], Float64Array, `历史的 development.state.${k}`, R * CAP_COUNT);
     for (const k of ['war', 'era', 'pop', 'city']) typed(s[k], Float64Array, `历史的 development.state.${k}`, R);
     for (const k of ['flags', 'road']) typed(s[k], Uint8Array, `历史的 development.state.${k}`, R);
@@ -949,7 +1005,7 @@ function checkIdeology(raw: unknown, c: Counts): void {
   series.forEach((s, i) => {
     if (s === null) return;
     const o = obj(s, `历史的 ideology.polities[${i}]`);
-    num(o.from, `历史的 ideology.polities[${i}].from`);
+    yearOk(o.from, `历史的 ideology.polities[${i}].from`);
     const v = typed(o.v, Uint8Array, `历史的 ideology.polities[${i}].v`);
     if (v.length % THOUGHT_COUNT) broken(`历史的 ideology.polities[${i}].v 的长度不对`);
   });
@@ -974,10 +1030,28 @@ function checkTrade(raw: unknown, c: Counts): void {
     str(r.name, `${at}.name`, NAME_TEXT_MAX);
     int(r.buyer, 0, c.polities, `${at}.buyer`);
     int(r.from, 0, c.regions, `${at}.from`);
-    list(r.goods, `${at}.goods`).forEach((g, k) => int(obj(g, `${at}.goods[${k}]`).res, 0, RESOURCE_COUNT, `${at}.goods[${k}].res`));
-    list(r.events, `${at}.events`);
-    list(r.paths, `${at}.paths`).forEach((p, k) => {
-      list(obj(p, `${at}.paths[${k}]`).regions, `${at}.paths[${k}].regions`).forEach((g, j) => int(g, 0, c.regions, `${at}.paths[${k}].regions[${j}]`));
+    // 界面直接取第一件事、第一条路线、第一样货:商道生下来就有,空的就白屏了
+    const goods = list(r.goods, `${at}.goods`);
+    if (!goods.length) broken(`${at}.goods 是空的`);
+    goods.forEach((g, k) => {
+      const o = obj(g, `${at}.goods[${k}]`);
+      int(o.res, 0, RESOURCE_COUNT, `${at}.goods[${k}].res`);
+      yearOk(o.from, `${at}.goods[${k}].from`);
+      optYearOk(o.until, `${at}.goods[${k}].until`);
+    });
+    ascendingBy(r.events, 'year', `${at}.events`);
+    if (!(r.events as unknown[]).length) broken(`${at}.events 是空的`);
+    (r.events as Obj[]).forEach((e, k) => {
+      oneOf(e.kind, TRADE_EVENT_KINDS, `${at}.events[${k}].kind`);
+      optStr(e.why, `${at}.events[${k}].why`, NAME_TEXT_MAX);
+      optInt(e.foe, 0, c.polities, `${at}.events[${k}].foe`);
+    });
+    const paths = list(r.paths, `${at}.paths`);
+    if (!paths.length) broken(`${at}.paths 是空的`);
+    paths.forEach((p, k) => {
+      const o = obj(p, `${at}.paths[${k}]`);
+      yearOk(o.year, `${at}.paths[${k}].year`);
+      list(o.regions, `${at}.paths[${k}].regions`).forEach((g, j) => int(g, 0, c.regions, `${at}.paths[${k}].regions[${j}]`));
     });
   });
   obj(t.state, '历史的 trade.state');
@@ -1023,7 +1097,7 @@ export function validateCiv(v: unknown, world: World): asserts v is Civ {
   eras.forEach((x, i) => {
     const at = `历史的 eras[${i}]`;
     const e = obj(x, at);
-    num(e.until, `${at}.until`);
+    yearOk(e.until, `${at}.until`);
     checkHabitat(e.habitat, n, `${at}.habitat`);
     checkRegions(e.regions, n, `${at}.regions`);
     checkPlaces(e.places, c, `${at}.places`);
@@ -1122,7 +1196,7 @@ export function validateFlags(v: unknown, civ: Civ): asserts v is FlagBook {
     list(raw, `旗的 eras[${i}]`).forEach((x, k) => {
       const at = `旗的 eras[${i}][${k}]`;
       const e = obj(x, at);
-      num(e.year, `${at}.year`);
+      yearOk(e.year, `${at}.year`);
       num(e.dyn, `${at}.dyn`);
       str(e.key, `${at}.key`, NAME_TEXT_MAX);
       checkFlagSpec(e.spec, `${at}.spec`);
