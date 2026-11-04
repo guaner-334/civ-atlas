@@ -8,7 +8,7 @@
  *
  * 读的时候出错一律抛 WorldFileError,kind 分三种(worldFormat.ts):broken 坏了、newer 要更新软件、readonly 只读。
  *
- * 大小:本机存取的文件按 ZIP_LOCAL_MAX_BYTES,传上服务器的调用方传 maxBytes = ZIP_UPLOAD_MAX_BYTES。单块解压的上限在 snapshot.ts。
+ * 大小:本机存取的文件按 ZIP_LOCAL_MAX_BYTES,传上服务器的调用方传 maxBytes = ZIP_UPLOAD_MAX_BYTES;单块解压的上限跟着它走(worldPartLimit)。
  *
  * 纯计算,不碰 DOM:网页、worker、Node(服务器)共用。
  */
@@ -19,7 +19,7 @@ import { parseSave, type SaveFile } from './savefile';
 import { makePart, partBytes, sha256, unpackValue, type SnapshotPart } from './snapshot';
 import type { World } from './world';
 import { MIGRATIONS, currentSchema, migratePart, type MigrationTable } from './worldMigrate';
-import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validateThumb, validateWorld } from './worldValidate';
+import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validateThumb, validateWorld, worldHeadLimit, worldPartLimit } from './worldValidate';
 import { ZIP_LOCAL_MAX_BYTES, parseZip, writeZip } from './zipStore';
 import {
   KNOWN_PARTS,
@@ -151,7 +151,7 @@ function recipeValue(recipe: SaveFile): SaveFile {
 /** 把清单和各块装成 ZIP。写出来之前按读的规矩核对一遍清单:写得出来的就读得回来 */
 async function assemble(manifest: WorldManifest, parts: readonly PackedPart[], readers: Readonly<Record<string, number>>, maxBytes: number, migrations?: MigrationTable): Promise<Blob> {
   const text = new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
-  parseManifest(text, { readers, migrations });
+  parseManifest(text, { readers, migrations, maxBytes });
   return writeZip([{ name: MANIFEST_FILE, data: text }, ...parts.map((p) => ({ name: p.info.file, data: p.data }))], maxBytes);
 }
 
@@ -224,7 +224,7 @@ export async function openWorldFile(file: Blob | Uint8Array, options: OpenOption
     const files = new Map(entries.map((e) => [e.name, e.data]));
     const manifestBytes = files.get(MANIFEST_FILE);
     if (!manifestBytes) broken('文件里没有清单');
-    const manifest = parseManifest(manifestBytes, { readers: options.readers, migrations: options.migrations });
+    const manifest = parseManifest(manifestBytes, { readers: options.readers, migrations: options.migrations, maxBytes });
     if (files.size !== manifest.parts.length + 1) broken('文件里的东西和清单对不上');
     const bytes = new Map<string, Uint8Array>();
     const kept: WorldPartInfo[] = [];
@@ -264,14 +264,14 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
   const raw = async (name: string): Promise<Uint8Array | null> => {
     const info = manifest.parts.find((p) => p.name === name);
     if (!info || opened.kept.includes(info)) return null;
-    return partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, opened.bytes.get(name)!);
+    return partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, opened.bytes.get(name)!, worldPartLimit(name, opened.options.maxBytes));
   };
   const read = async (name: string): Promise<unknown> => {
     const b = await raw(name);
     if (!b) return null;
     const info = manifest.parts.find((p) => p.name === name)!;
     try {
-      return migratePart(name, info.schema, unpackValue(b), manifest, migrations);
+      return migratePart(name, info.schema, unpackValue(b, worldHeadLimit(opened.options.maxBytes)), manifest, migrations);
     } catch (err) {
       // 可选的块转不了结构不碍看世界
       if (info.need === 'extra' && asWorldFileError(err).kind === 'readonly') {

@@ -23,11 +23,12 @@ import type { Civ, Regions } from './civ/types';
 import { END_YEAR_MAX } from './edits';
 import { SAVE_FORMAT, parseSave } from './savefile';
 import { SKETCH_H, SKETCH_W } from './sketch';
-import { checkDepth, partLimit } from './snapshot';
+import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, checkDepth, partLimit } from './snapshot';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainOps';
 import { MAP_H, MAP_W, type World } from './world';
 import { currentSchema, type MigrationTable } from './worldMigrate';
 import { KNOWN_PARTS, WORLD_APP, WORLD_FORMAT, WORLD_KIND, broken, newer, type AuthorContent, type WorldManifest } from './worldFormat';
+import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES } from './zipStore';
 
 // ---------------------------------------------------------------------------
 // 小工具
@@ -154,7 +155,8 @@ function allStrings(root: unknown, maxOne: number, maxTotal: number, at: string)
     } else if (v instanceof Set) v.forEach(walk);
     else {
       for (const k of Object.keys(v)) {
-        walk(k);
+        // 字段名都是代码写死的,给人看的字才算总字数(字段名加起来比字还多)
+        if (k.length > maxOne) broken(`${at} 里有太长的字`);
         walk((v as Obj)[k]);
       }
     }
@@ -209,12 +211,27 @@ function noBadKeys(root: unknown): void {
   walk(root);
 }
 
-/** 读清单要知道的:这一版软件的读取规则版本、迁移表 */
+/** 读清单要知道的:这一版软件的读取规则版本、迁移表、文件的大小上限 */
 export interface ManifestOptions {
   /** 这一版软件有的读取规则版本(terrain、query) */
   readers: Readonly<Record<string, number>>;
   /** 不给 = 现在的 MIGRATIONS(单测用假的) */
   migrations?: MigrationTable;
+  /** 这个文件的大小上限(不给 = 本机存取的上限);按它定各块解压的上限,见 worldPartLimit */
+  maxBytes?: number;
+}
+
+/**
+ * 一块解压后最多多大:传上服务器的文件照量过的表(snapshot.ts 的 partLimit),压缩炸弹撑不开内存;
+ * 本机存取的世界不设额度,只防撑爆内存(LOCAL_PART_MAX_BYTES)。封面是一张小图,哪儿都照表
+ */
+export function worldPartLimit(name: string, maxBytes: number = ZIP_LOCAL_MAX_BYTES): number {
+  return maxBytes <= ZIP_UPLOAD_MAX_BYTES || name === 'thumb' ? partLimit(name) : LOCAL_PART_MAX_BYTES;
+}
+
+/** 一块里结构(JSON)最多多大,分法同 worldPartLimit;undefined = 读包函数自己的上限 */
+export function worldHeadLimit(maxBytes: number = ZIP_LOCAL_MAX_BYTES): number | undefined {
+  return maxBytes <= ZIP_UPLOAD_MAX_BYTES ? undefined : LOCAL_HEAD_MAX_BYTES;
 }
 
 /** 配方:照存档那样读一遍,读不了的算坏;比软件新的报 newer。origin.url 只认 https(界面上它是能点的链接) */
@@ -253,7 +270,7 @@ function checkPartInfo(raw: unknown, at: string, opts: ManifestOptions): void {
     if (!known) newer(`${name} 这一块要新版软件才看得懂`);
     if (schema > currentSchema(name, opts.migrations)) newer(`${name} 这一块比软件新(第 ${schema} 版)`);
     if (zip !== 'gzip' && zip !== 'none') newer(`${name} 这一块的压缩方式要新版软件才解得开`);
-    if (bytes > partLimit(name)) broken(`${name} 这一块超过上限`);
+    if (bytes > worldPartLimit(name, opts.maxBytes)) broken(`${name} 这一块超过上限`);
   }
 }
 

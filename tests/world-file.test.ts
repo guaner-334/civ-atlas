@@ -9,13 +9,13 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TUNING_CALC } from '../src/gen/civ/tuning';
-import { makePart, sha256 } from '../src/gen/snapshot';
+import { makePart, partLimit, sha256 } from '../src/gen/snapshot';
 import { mulberry32 } from '../src/gen/util';
 import { checkWorldFile, checkWorldFileInWorker, type WorldCheckRequest, type WorldCheckResult, type WorldCheckWorker } from '../src/gen/worldCheck';
 import { openWorldFile, packWorldFile, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import { WORLD_FILE_EXT, WorldFileError, asWorldFileError, type WorldFileErrorKind } from '../src/gen/worldFormat';
 import { MIGRATIONS, currentSchema, migratePart, type MigrationTable } from '../src/gen/worldMigrate';
-import { MANIFEST_MAX_BYTES, parseManifest } from '../src/gen/worldValidate';
+import { MANIFEST_MAX_BYTES, parseManifest, worldPartLimit } from '../src/gen/worldValidate';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES, parseZip, writeZip, type ZipInput } from '../src/gen/zipStore';
 import { READERS, bytesOf, makeSample, tinyJpeg } from './lib/worldFileSample';
 
@@ -139,6 +139,22 @@ describe('世界文件:打包再读回', () => {
     expect((await openWorldFile(new Blob([good]), { ...OPEN, maxBytes: ZIP_UPLOAD_MAX_BYTES })).manifest.id).toBe('wsample');
   });
 
+  it('各块解压的上限跟着文件的上限走:传上服务器照表,本机只防撑爆内存', async () => {
+    expect(worldPartLimit('civ', ZIP_UPLOAD_MAX_BYTES)).toBe(partLimit('civ'));
+    expect(worldPartLimit('civ')).toBe(1e9);
+    expect(worldPartLimit('civ', ZIP_LOCAL_MAX_BYTES)).toBe(1e9);
+    // 封面是一张小图,哪儿都照表
+    expect(worldPartLimit('thumb')).toBe(partLimit('thumb'));
+    // 本机的世界可以比表大(陆地多的世界历史那一块就超),传上服务器的不行
+    const big = manifestOf((m) => (m.parts.find((p: any) => p.name === 'civ').bytes = partLimit('civ') + 1));
+    expect(parseManifest(big, OPEN).id).toBe('wsample');
+    expect(() => parseManifest(big, { ...OPEN, maxBytes: ZIP_UPLOAD_MAX_BYTES })).toThrow('超过上限');
+    const tooBig = manifestOf((m) => (m.parts.find((p: any) => p.name === 'civ').bytes = 1e9 + 1));
+    expect(() => parseManifest(tooBig, OPEN)).toThrow('超过上限');
+    // 读的时候也按这个算:传上服务器的说好的字节数超表就不解
+    await expectKind(async () => readWorldContent(await openWorldFile(await repack((m) => (m.parts.find((p: any) => p.name === 'author').bytes = partLimit('author') + 1)), { ...OPEN, maxBytes: ZIP_UPLOAD_MAX_BYTES })), 'broken', '超表');
+  }, 30_000);
+
   it('配方里开发环境的 http 出处写进文件时去掉,别的不动', async () => {
     const recipe = { ...sample.recipe, origin: { title: 'x', url: 'http://localhost:5173/s/abcd' } };
     const { manifest } = await openWorldFile(await bytesOf(await packWorldFile({ ...sample, recipe })), OPEN);
@@ -214,7 +230,7 @@ describe('世界文件:三种错分得开', () => {
     ['sum 不是 SHA-256', (m) => (m.parts[0].sum = 'abc')],
     ['sum 大写', (m) => (m.parts[0].sum = 'A'.repeat(64))],
     ['bytes 是负数', (m) => (m.parts[0].bytes = -1)],
-    ['bytes 超这块的上限', (m) => (m.parts[0].bytes = 41e6)],
+    ['bytes 超本机的上限', (m) => (m.parts[0].bytes = 1e9 + 1)],
     ['bytes 不是数', (m) => (m.parts[0].bytes = '1')],
     ['need 认不出', (m) => (m.parts[0].need = 'maybe')],
     ['by 不合规矩', (m) => (m.parts[0].by = 'A B')],

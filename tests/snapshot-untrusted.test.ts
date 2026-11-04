@@ -248,6 +248,12 @@ describe('读原件:坏结构', () => {
     expect(() => read('["\\"",' + '['.repeat(70) + ']'.repeat(70) + ']')).toThrow('层数太多');
   });
 
+  it('结构的上限可以由调用方给(本机存取的世界比传上服务器的大)', () => {
+    const b = packValue({ a: 'x'.repeat(1000) });
+    expect(() => unpackValue(b, 100)).toThrow('结构太大');
+    expect(unpackValue(b, 2000)).toEqual({ a: 'x'.repeat(1000) });
+  });
+
   it('结构太大:不用解析就拒绝', () => {
     const b = new Uint8Array(12 + 64e6 + 1);
     b.set(new TextEncoder().encode('CIVSNAP1'), 0);

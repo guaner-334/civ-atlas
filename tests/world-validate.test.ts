@@ -374,6 +374,7 @@ describe('每条规则:历史', () => {
     ['商道的路线越界', (c) => (c.trade.routes = [{ id: 0, name: 'x', buyer: 0, from: 0, goods: [], events: [], paths: [{ year: 0, regions: [1e7] }] }])],
     // 字
     ['哪儿都不许有太长的字', (c) => (c.spare = { deep: ['x'.repeat(300 * 1024)] })],
+    ['字段名太长', (c) => (c.spare = { ['x'.repeat(300 * 1024)]: 1 })],
     ['Map 里也算', (c) => (c.spare = new Map([['x'.repeat(300 * 1024), 1]]))],
   ];
   it.each(CASES)('%s', (label, change) => {
