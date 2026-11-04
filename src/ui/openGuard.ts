@@ -7,7 +7,9 @@
  *    正常关页面不算(页面藏起来、要关的时候划掉;卡死的页面走不到这一步);别的标签页还开着不算(打开的这一会儿页面拿着一把自己的锁,navigator.locks 查得到它还在不在)
  * 3. 打开以后界面抛错(reportOpenCrash):抛错的时候开着的世界是新路读的,就记下来,调用方刷新页面重开
  *
- * 2、3 记下来以后,这个世界在这一版软件里不再走新路(vaultAllowed = false);出一版新软件再试一次(出了问题的代码可能已经修了)。
+ * 记下来以后,这个世界在这一版软件里不再走新路(vaultAllowed = false);出一版新软件再试一次(出了问题的代码可能已经修了)。
+ * 1、2 要连着出两次事才算:只出一次多半不是世界的问题(手机太慢、系统把页面杀了、浏览器被强退),这时候退回旧的路,
+ * 世界要是没有原件又是旧版本的,就按新算法生成了,代价太大。下一次还走新路,打开成了就清零。3 是确实抛错了,一次就算。
  * 这里只记状态,不提示。localStorage 用不了就少一层保险。
  */
 import { APP_VERSION } from './version';
@@ -18,8 +20,10 @@ const LOAD_STALL_MS = 90_000;
 const SETTLE_MS = 8000;
 /** 这个页面在打开哪个世界 */
 const OPENING_KEY = 'civ-atlas:opening';
-/** 走新路出过事的世界(世界编号 → 软件版本) */
+/** 走新路出过事的世界(世界编号 → 软件版本、出了几次事) */
 const BAD_KEY = 'civ-atlas:open-bad';
+/** 连着出几次事不再走新路 */
+const STRIKES = 2;
 const PAGE_LOCK = 'civ-atlas:page:';
 /** 没有 navigator.locks 的浏览器:记录超过这么久(毫秒)才算记它的页面不在了 */
 const NO_LOCK_AGE = 60_000;
@@ -57,18 +61,42 @@ function writeJson(key: string, v: object) {
 // ---------------------------------------------------------------------------
 // 走新路出过事的世界
 
+interface BadRow {
+  app: string;
+  n: number;
+}
+
 /** 这个世界这一版可以走新路 */
 export function vaultAllowed(id: string): boolean {
-  return readJson<Record<string, string>>(BAD_KEY)[id] !== APP_VERSION;
+  const r = readJson<Record<string, BadRow>>(BAD_KEY)[id];
+  return !(r && r.app === APP_VERSION && r.n >= STRIKES);
+}
+
+function writeBad(id: string, n: number) {
+  const bad = readJson<Record<string, BadRow>>(BAD_KEY);
+  delete bad[id];
+  bad[id] = { app: APP_VERSION, n };
+  const ids = Object.keys(bad);
+  for (const k of ids.slice(0, Math.max(0, ids.length - BAD_MAX))) delete bad[k];
+  writeJson(BAD_KEY, bad);
 }
 
 /** 这个世界这一版不再走新路 */
 export function markOpenBad(id: string): void {
-  const bad = readJson<Record<string, string>>(BAD_KEY);
+  writeBad(id, STRIKES);
+}
+
+/** 这个世界走新路又出了一次事(线程卡住、主线程卡死、页面崩了):连着两次才不再走新路 */
+export function noteOpenTrouble(id: string): void {
+  const r = readJson<Record<string, BadRow>>(BAD_KEY)[id];
+  writeBad(id, r?.app === APP_VERSION ? r.n + 1 : 1);
+}
+
+/** 打开成了:出过的事清零 */
+function clearTrouble(id: string) {
+  const bad = readJson<Record<string, BadRow>>(BAD_KEY);
+  if (!bad[id] || !vaultAllowed(id)) return;
   delete bad[id];
-  bad[id] = APP_VERSION;
-  const ids = Object.keys(bad);
-  for (const k of ids.slice(0, Math.max(0, ids.length - BAD_MAX))) delete bad[k];
   writeJson(BAD_KEY, bad);
 }
 
@@ -135,7 +163,11 @@ let settle: ReturnType<typeof setTimeout> | undefined;
 /** 世界换上了:再过一会儿没事就算打开成了(卡死的话定时器不走,记录留着) */
 export function openingShown(): void {
   clearTimeout(settle);
-  settle = setTimeout(clearMine, timing.settle);
+  const id = fromVault;
+  settle = setTimeout(() => {
+    clearMine();
+    if (id) clearTrouble(id);
+  }, timing.settle);
 }
 
 /** 记录它的页面已经不在了的世界 */
@@ -168,7 +200,7 @@ async function checkCrashes(): Promise<void> {
   for (const id of dead) {
     if (now[id]?.page === rows[id].page) {
       delete now[id];
-      markOpenBad(id);
+      noteOpenTrouble(id);
     }
   }
   writeJson(OPENING_KEY, now);

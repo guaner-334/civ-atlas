@@ -15,7 +15,7 @@ import { recipeKey, recipeOfSave, type SnapshotPart } from '../src/gen/snapshot'
 import { packWorldParts, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import { VAULT_DB, _resetVault, commitWorld, latestOf, partKey, patchState, readRevision, revisionsOf, stateOf, type CommitRequest } from '../src/worldVault';
 import { OpenRefused, openStoredWorld, type OpenRefusal } from '../src/worldOpen';
-import { _setOpenGuard, endLoadWatch, kickLoadWatch, markOpenBad, openGuardReady, openingClear, openingShown, openingStart, reportOpenCrash, vaultAllowed, watchLoad } from '../src/ui/openGuard';
+import { _setOpenGuard, endLoadWatch, kickLoadWatch, markOpenBad, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, reportOpenCrash, vaultAllowed, watchLoad } from '../src/ui/openGuard';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
 
 const g = globalThis as unknown as { indexedDB: IDBFactory | undefined };
@@ -278,7 +278,25 @@ describe('打开时的几道保险', () => {
     expect(vaultAllowed('b')).toBe(true);
   });
 
-  it('打开成了划掉记录;没划掉、记录它的页面又不在了 = 下次打开时算崩了', async () => {
+  it('出事连着两次才不再走新路;打开成了清零', async () => {
+    vi.useFakeTimers();
+    noteOpenTrouble('a');
+    expect(vaultAllowed('a')).toBe(true);
+    openingStart('a');
+    openingShown();
+    await vi.advanceTimersByTimeAsync(1100);
+    noteOpenTrouble('a');
+    expect(vaultAllowed('a')).toBe(true);
+    noteOpenTrouble('a');
+    expect(vaultAllowed('a')).toBe(false);
+    // 不走新路了,打开成了也不清
+    openingStart('a');
+    openingShown();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(vaultAllowed('a')).toBe(false);
+  });
+
+  it('打开成了划掉记录;没划掉、记录它的页面又不在了 = 下次打开时算出了一次事,连着两次不再走新路', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('navigator', { ...nav(), locks: { query: async () => ({ held: [] }), request: () => Promise.resolve() } });
     openingStart('a');
@@ -288,8 +306,12 @@ describe('打开时的几道保险', () => {
     // 别的页面留下的记录:它的锁不在了
     localStorage.setItem('civ-atlas:opening', JSON.stringify({ b: { page: 'gone', at: Date.now() } }));
     await openGuardReady();
-    expect(vaultAllowed('b')).toBe(false);
+    expect(vaultAllowed('b')).toBe(true);
     expect(localStorage.getItem('civ-atlas:opening')).toBeNull();
+    localStorage.setItem('civ-atlas:opening', JSON.stringify({ b: { page: 'gone2', at: Date.now() } }));
+    _setOpenGuard({ reset: true });
+    await openGuardReady();
+    expect(vaultAllowed('b')).toBe(false);
   });
 
   it('记录它的页面还开着不算崩;自己这一页的不算', async () => {
@@ -330,7 +352,8 @@ describe('打开时的几道保险', () => {
     localStorage.setItem('civ-atlas:opening', JSON.stringify({ fresh: { page: 'x', at: Date.now() }, stale: { page: 'y', at: Date.now() - 120_000 } }));
     await openGuardReady();
     expect(vaultAllowed('fresh')).toBe(true);
-    expect(vaultAllowed('stale')).toBe(false);
+    expect(JSON.parse(localStorage.getItem('civ-atlas:open-bad')!)).toEqual({ stale: expect.objectContaining({ n: 1 }) });
+    expect(Object.keys(JSON.parse(localStorage.getItem('civ-atlas:opening')!) as object)).toEqual(['fresh']);
   });
 
   it('界面抛错:开着的是新路读的世界 = 记下来、只报一次;不是 = 不管', () => {

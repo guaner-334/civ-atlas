@@ -65,7 +65,7 @@ import { openRulesHash, openRulesText } from '../rules/sheetStore';
 import { pickSharedPreset } from '../presetStore';
 import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
 import { recipeKey, recipeOfSave } from '../../gen/snapshot';
-import { endLoadWatch, markOpenBad, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
+import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
 import { frozenResult, resultHeads, toldFrozen } from '../resultStore';
 import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, flushThumb, importSave, loadWorld, markOpened, newWorldId, notify, sameOrigin, setWorldStats } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
@@ -298,9 +298,9 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           back(why, recipe);
         };
         loadBack.current = giveUp;
-        // 线程一段时间没动静:当它卡住了,这个世界这一版不再走新路。下一个请求发出去时线程被关掉
+        // 线程一段时间没动静:当它卡住了,记一次事。下一个请求发出去时线程被关掉
         watchLoad(() => {
-          if (src.vault) markOpenBad(t.id);
+          if (src.vault) noteOpenTrouble(t.id);
           loadBack.current = null;
           giveUp('broken');
         });
