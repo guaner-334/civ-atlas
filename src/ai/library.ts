@@ -493,8 +493,12 @@ function goLocal(): void {
   down = true;
   for (const [world, s] of slots) {
     clearTimeout(s.timer);
-    // 写不回去的:草稿留着,下次打开接着用
-    if (s.ops.length && writeLocal(world, s.list)) dropDrafts(draftKeys(world));
+    // 写不回去的:草稿留着,下次打开接着用。手上读到的都留在页面里,这次打开照样看得到
+    if (s.ops.length) writeLocal(world, s.list);
+    else if (s.loaded) {
+      mem.set(world, s.list);
+      seen.set(world, stored(world) ?? null);
+    }
     s.markReady();
     for (const f of s.waiters.splice(0)) f(!behind.has(world));
   }

@@ -375,6 +375,18 @@ describe('仓库坏了', () => {
     expect(JSON.parse(g.localStorage.getItem(`${PREFIX}w2`)!).map((n: AiNote) => n.key)).toEqual(['b']);
   });
 
+  it('用着用着仓库不行了:读到过的正文这次打开还看得到', async () => {
+    await revision('w1');
+    await changeAuthor('w1', [{ op: 'put', note: note('a', 'x'.repeat(100)) }]);
+    let bad = false;
+    refresh(flaky({ read: () => (bad ? new VaultError('unavailable', '不让用了') : null) }));
+    await notesReady(['w1']);
+    expect(KEYS('w1')).toEqual(['a']);
+    bad = true;
+    await notesReady(['w2']);
+    expect(KEYS('w1')).toEqual(['a']);
+  });
+
   it('正文已经在仓库里、这次读不到:手上不全,不算知道;好了以后一条不少,这期间写的也在', async () => {
     await revision('w1');
     await changeAuthor('w1', [{ op: 'put', note: note('a') }]);
@@ -384,6 +396,9 @@ describe('仓库坏了', () => {
     saveStore._resetForTest();
     await notesReady(['w1']);
     expect(KEYS('w1')).toEqual([]);
+    expect(notesKnown('w1')).toBe(false);
+    // localStorage 里没有记录也一样不算知道(满的时候记不下)
+    g.localStorage.removeItem(MOVED);
     expect(notesKnown('w1')).toBe(false);
     // 这期间同步下来的「没有」只是并进去,不去掉
     replaceNotes('w1', null);

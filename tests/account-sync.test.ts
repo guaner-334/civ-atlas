@@ -2071,6 +2071,33 @@ describe('AI 正文在世界仓库里', () => {
     expect(fake.users.get('writer@example.com')!.worlds.get(id)!.rev).toBe(rev);
   });
 
+  it('取回来的正文还在往仓库里写的时候,用的人又写了一条:新写的这条不算同步过,下一轮存上去', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const m = memVault();
+    _resetNotes({ vault: m.vault });
+    const id = addWorld(7, '苍澜界');
+    putNote(id, note('账号里的'));
+    await _notesSettled();
+    await signIn();
+
+    device(new FakeStorage());
+    const n = memVault();
+    let open = () => {};
+    const gate = new Promise<void>((r) => (open = r));
+    let hit = () => {};
+    const reached = new Promise<void>((r) => (hit = r));
+    _resetNotes({ vault: { read: n.vault.read, change: async (w, ops) => (hit(), await gate, n.vault.change(w, ops)) } });
+    const first = signIn();
+    await reached;
+    putNote(id, { ...note('刚写的'), key: 'k2' });
+    open();
+    await first;
+    await _notesSettled();
+    await syncNow();
+    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.notes as AiNote[]).map((x) => x.text)).toEqual(['账号里的', '刚写的']);
+  });
+
   it('账号里取回来的正文写进仓库;换的时候读到过了,少了的才算真少了', async () => {
     const a = new FakeStorage();
     device(a);

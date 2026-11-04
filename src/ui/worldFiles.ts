@@ -33,7 +33,7 @@ import { fileBaseName, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
 import { MANIFEST_FILE, WORLD_FILE_EXT, type WorldFileErrorKind } from '../gen/worldFormat';
 import { walkZip, type ZipInput, type ZipSlice } from '../gen/zipStore';
-import { exportNotes, notesReady, replaceNotes } from '../ai/library';
+import { exportNotes, notesKnown, notesReady, replaceNotes } from '../ai/library';
 import type { FileFacts, FileLook } from '../worldFileLook';
 import type { RevisionSource, VaultErrorKind } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
@@ -456,6 +456,8 @@ export interface SavedBackup {
   olderLeft: string[];
   /** 配方那部分放不下、没带上的:AI 写的东西;AI 写的东西和缩略图 */
   dropped?: 'notes' | 'notes+thumbs';
+  /** 只带了配方的世界里,AI 正文这次没读出来的(文件里可能不全;界面要提示) */
+  notesUnread?: string[];
   /** 总字节数 */
   bytes: number;
 }
@@ -618,7 +620,8 @@ export async function saveAllWorldFiles(o: SaveAllOptions = {}): Promise<SavedBa
   const total = files.reduce((s, f) => s + f.file.size, 0);
   o.onProgress?.({ done: list.length, total: list.length, bytes: total, totalBytes: total });
   const recipeOnly = [...bare].filter((id) => !groups.some((g) => g.w.id === id));
-  return { ok: true, files, count: groups.length + recipeOnly.length, whole: groups.length, recipeOnly, olderLeft, ...(out?.dropped ? { dropped: out.dropped } : {}), bytes: total };
+  const notesUnread = [...bare].filter((id) => !notesKnown(id));
+  return { ok: true, files, count: groups.length + recipeOnly.length, whole: groups.length, recipeOnly, olderLeft, ...(out?.dropped ? { dropped: out.dropped } : {}), ...(notesUnread.length ? { notesUnread } : {}), bytes: total };
 }
 
 // ---------------------------------------------------------------------------

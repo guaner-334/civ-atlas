@@ -22,10 +22,11 @@
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界;浏览器不让存(只在内存里)的说一声。登录了的,放回来的世界照常同步进账号。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
-import { exportNotes, notesReady, notesSaved, replaceNotes, type AiNote } from '../ai/library';
+import { exportNotes, notesKnown, notesReady, notesSaved, replaceNotes, type AiNote } from '../ai/library';
 import type { DraftBase } from './stageStore';
 import {
   MAX_WORLDS,
+  allWorldIds,
   cleanSyncMeta,
   currentSave,
   currentUnsaved,
@@ -342,7 +343,10 @@ export async function downloadAll() {
   (window as unknown as { __wfBundle?: { name: string; count: number; bytes: number } }).__wfBundle = { name, count: b.count, bytes: new Blob([b.text]).size };
   const more = [`${name}；以后点「打开存档文件」选它，这些世界都会回来`];
   if (b.dropped) more.push(`${b.dropped === 'notes' ? 'AI 写的东西' : 'AI 写的东西和缩略图'}太多，一个文件放不下，没有带上`);
-  notify({ kind: b.dropped ? 'warn' : 'ok', dot: !b.dropped, text: `${b.count} 个世界已存成一个文件`, more });
+  const unread = allWorldIds().filter((id) => !notesKnown(id)).length;
+  if (unread) more.push(`有 ${unread} 个世界的 AI 写的东西这次没读出来，文件里可能不全；刷新页面再存一次`);
+  const warn = !!b.dropped || unread > 0;
+  notify({ kind: warn ? 'warn' : 'ok', dot: !warn, text: `${b.count} 个世界已存成一个文件`, more });
 }
 
 /** 「打开存档文件」选的是「全部存成文件」存的文件:放回来、说一声,返回 true;不是这种文件 = false(按单个世界的存档读) */

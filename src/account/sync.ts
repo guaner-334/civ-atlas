@@ -500,12 +500,13 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
     failedNow.set(id, FULL_WHY);
     return false;
   }
+  // 账号里的这一份是什么样,现在就记:等的工夫用的人又写了正文,那些没同步上
+  const l = localWorld(id);
   // 正文写稳了才算取回来了:写不进去还当同步好了的话,刷新以后那些东西没了,下一轮会当成这里删了、把账号里的也冲掉
   if (!(await flushNotes(id))) {
     failedNow.set(id, FULL_WHY);
     return false;
   }
-  const l = localWorld(id);
   if (l) st.worlds[id] = { rev: w.rev, sum: l.sum, core: l.core, at: nowIso() };
   forgetOffer(id);
   behind.delete(id);
