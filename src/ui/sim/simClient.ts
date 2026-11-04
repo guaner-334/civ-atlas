@@ -32,7 +32,8 @@ import { CivPartInbox } from '../../civParts';
 import { diagBeat, recordWorkerError } from '../../diag/watch';
 import type { Civ } from '../../gen/civ';
 import type { LoadRequest, TempoNote, WorkerRequest, WorkerResponse } from '../../worker';
-import { adoptChronicle, dropChronicleParts, takeChroniclePart } from '../chronicleHandoff';
+import { adoptChronicle, dropChronicleParts, takeChronicleBlock, takeChroniclePart } from '../chronicleHandoff';
+import { adoptStoredFlags } from '../flagStore';
 
 /** 线程:浏览器的 Worker,测试里换成假的 */
 export interface SimWorker {
@@ -44,7 +45,7 @@ export interface SimWorker {
 
 type Msg<K extends WorkerResponse['type']> = Extract<WorkerResponse, { type: K }>;
 /** 客户端自己收拾的:分段先交的历史、编年史,半路放下的回音,试推演的结果 */
-type Internal = 'civPart' | 'chronicle' | 'aborted' | 'trial';
+type Internal = 'civPart' | 'chronicle' | 'chronicleBlock' | 'aborted' | 'trial';
 /** 每种消息交给谁(现在这个世界的;记账、拼历史、记编年史都已做完) */
 export type SimHandlers = { [K in Exclude<WorkerResponse['type'], Internal>]: (m: Msg<K>) => void };
 
@@ -79,7 +80,7 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
  * 不算一件回音的:主图补丁、原件是后台自己排的活;再推 / 照大纲推演的进度、先交的编年史、先交的地图也不算(推完 / 停下才算)。
  * 先交的几段历史(civPart)在记账之前就收下了,也不算
  */
-const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'worldParts', 'extendProgress', 'outlineProgress', 'chronicle', 'map']);
+const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'worldParts', 'extendProgress', 'outlineProgress', 'chronicle', 'chronicleBlock', 'map']);
 
 /** 发给线程、还没回音的一件活;tries = 已经重发过几次(线程出错时) */
 interface Pending {
@@ -287,6 +288,8 @@ export class SimClient {
     if (m.id !== this.opts.currentId()) return; // 过时的请求(上一个世界的)
     // 交历史之前先交的编年史:收着,交历史的那条到了一起记下(换上时不在主线程上整段重算)
     if (m.type === 'chronicle') return void takeChroniclePart(m);
+    if (m.type === 'chronicleBlock') return void takeChronicleBlock(m.key, m.part);
+    if (m.type === 'done') adoptStoredFlags(m.civ, m.flags);
     if (m.type === 'done' || m.type === 'civ' || m.type === 'civOnly' || m.type === 'turn' || m.type === 'extended' || m.type === 'outlined') adoptChronicle(m.civ, m.chron);
     (this.opts.on[m.type] as (m: WorkerResponse) => void)(m);
   }

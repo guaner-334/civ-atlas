@@ -341,8 +341,7 @@ function partReader(opened: OpenedWorldFile, skipped: string[], done: { civ?: Ci
  * 只解开这几块:核指纹、迁移,不逐项校验。只给校验器已经过了的内容用(本机再打开世界时,见 worldOpen.ts);别人给的文件要走 readWorldContent。
  * 返回 块名 → 值(清单里没有这一块 = null)
  */
-export async function readTrustedParts(opened: OpenedWorldFile, names: readonly string[]): Promise<Record<string, unknown>> {
-  const done: { civ?: Civ } = {};
+export async function readTrustedParts(opened: OpenedWorldFile, names: readonly string[], done: { civ?: Civ } = {}): Promise<Record<string, unknown>> {
   const read = partReader(opened, [], done);
   const out: Record<string, unknown> = {};
   try {
@@ -356,11 +355,23 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
   }
 }
 
+/** 本机打开存的世界读到的内容:编年史、国旗读不出来 = null */
+export type StoredContent = Omit<WorldContent, 'chronicle' | 'flags'> & { chronicle: ChronicleBlock | null; flags: FlagBook | null };
+
 /**
  * 解开各块、迁移到现在的结构、逐项核对。原件的字节不动,出错了 opened 还能照样另存。
  * 只当字节留着的块(opened.kept)不解开。需要的块坏了报 broken;转不了结构报 readonly
  */
-export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldContent> {
+export function readWorldContent(opened: OpenedWorldFile): Promise<WorldContent> {
+  return readContent(opened, false) as Promise<WorldContent>;
+}
+
+/** 同 readWorldContent,只是编年史、国旗读不出来、校验不过不算世界坏了:这两块能重新算出来,读不了 = null(本机打开存的世界时用,见 worldOpen.ts) */
+export function readStoredContent(opened: OpenedWorldFile): Promise<StoredContent> {
+  return readContent(opened, true);
+}
+
+async function readContent(opened: OpenedWorldFile, spare: boolean): Promise<StoredContent> {
   const { manifest } = opened;
   const skipped: string[] = [];
   const done: { civ?: Civ } = {};
@@ -375,10 +386,19 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
     done.civ = civ;
     // 各段历史按下标对各段世界(有的大事还没推到,世界可以比历史多,不能少)
     if ((civ.eras?.length ?? 0) > (eras?.eras.length ?? 0)) broken('历史的各段比世界的各段多');
-    const chronicle = await read('chronicle');
-    validateChronicle(chronicle, civ);
-    const flags = await read('flags');
-    validateFlags(flags, civ);
+    /** 读一块、校验;spare 时读不了 = null */
+    const story = async <T>(name: string, check: (v: unknown) => asserts v is T): Promise<T | null> => {
+      try {
+        const v = await read(name);
+        check(v);
+        return v;
+      } catch (err) {
+        if (!spare) throw err;
+        return null;
+      }
+    };
+    const chronicle = await story<ChronicleBlock>('chronicle', (v) => validateChronicle(v, civ));
+    const flags = await story<FlagBook>('flags', (v) => validateFlags(v, civ));
     const author = (await read('author')) as AuthorContent | null;
     if (author) validateAuthor(author);
     const thumb = (await read('thumb', (b) => b)) as Uint8Array | null;

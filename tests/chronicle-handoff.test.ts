@@ -17,7 +17,9 @@ import type { Annal } from '../src/gen/civ/types';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { applyNames, polityKey, type Upheaval } from '../src/gen/edits';
 import { PART_WEIGHT, chronicleParts, joinChronicleParts, type ChroniclePart } from '../src/chronicleParts';
-import { adoptChronicle, chronicleInSlices, namedHistory, prepareChronicle, takeChroniclePart } from '../src/ui/chronicleHandoff';
+import { adoptChronicle, chronicleInSlices, namedHistory, prepareChronicle, takeChronicleBlock, takeChroniclePart } from '../src/ui/chronicleHandoff';
+import { chronicleBlock, inBuildChronicle, type ChronicleBlock } from '../src/gen/civ/story/nameTokens';
+import { makePart } from '../src/gen/snapshot';
 import { reuseRegions } from '../src/ui/eras';
 
 const PARAMS = { ...DEFAULT_PARAMS, seed: 7 };
@@ -209,3 +211,62 @@ describe('编年史在线程里算好交过来', () => {
     expect(foes).toBeGreaterThan(0);
   });
 });
+
+describe('改名直接换名字(存进世界的那一块)', () => {
+  /** 线程交来这份历史和它存进世界的那一块;存的文字和现在的写法不一样(每条多一句),看得出用的是存的 */
+  async function withBlock(raw: Civ, key: number, block: ChronicleBlock = chronicleBlock(raw)) {
+    const old: ChronicleBlock = { ...block, entries: block.entries.map((e) => ({ ...e, text: `${e.text}(旧写法)` })) };
+    adoptChronicle(raw, key);
+    takeChronicleBlock(key, await makePart('chronicle', old));
+  }
+
+  it('改了名:用存的文字换上新名字,不重算', async () => {
+    const raw = generateCiv(world());
+    await withBlock(raw, 901);
+    const names = { [polityKey(raw, 0)]: '丙丁国' };
+    const full = namedHistory(raw, names);
+    expect(fullChronicleCached(full)).toBe(false);
+    expect(await prepareChronicle(raw, names, full)).toBe(true);
+    expect(fullChronicleCached(full)).toBe(true);
+    const list = fullChronicle(full);
+    expect(list.every((e) => e.text.endsWith('(旧写法)'))).toBe(true);
+    expect(list.some((e) => e.text.includes('丙丁国'))).toBe(true);
+    expect(buildChronicle(full).map((e) => e.text)).toEqual(list.filter(inBuildChronicle).map((e) => e.text));
+    // 同样的改名再套一次:直接用
+    expect(fullChronicle(namedHistory(raw, { ...names }))).toBe(list);
+  }, 60_000);
+
+  it('叫停了:不记进缓存', async () => {
+    const raw = generateCiv(world());
+    await withBlock(raw, 902);
+    const full = namedHistory(raw, { [polityKey(raw, 0)]: '丙丁国' });
+    const stop = new AbortController();
+    stop.abort();
+    expect(await prepareChronicle(raw, {}, full, stop.signal)).toBe(false);
+    expect(fullChronicleCached(full)).toBe(false);
+  }, 60_000);
+
+  it('块是别的历史的、解不开、人物卡的性别改过:退回现算', async () => {
+    const raw = generateCiv(world());
+    const other = generateCiv(world());
+    await withBlock(other, 903);
+    const names = { [polityKey(raw, 0)]: '丙丁国' };
+    const a = namedHistory(raw, names);
+    expect(await prepareChronicle(raw, names, a)).toBe(true);
+    expect(fullChronicle(a).some((e) => e.text.endsWith('(旧写法)')), '别的历史的块').toBe(false);
+
+    const raw2 = generateCiv(world());
+    adoptChronicle(raw2, 904);
+    takeChronicleBlock(904, { ...(await makePart('chronicle', chronicleBlock(raw2))), sum: 'x' });
+    const b = namedHistory(raw2, names);
+    expect(await prepareChronicle(raw2, names, b)).toBe(true);
+    expect(fullChronicle(b).some((e) => e.text.includes('丙丁国')), '解不开').toBe(true);
+
+    const raw3 = generateCiv(world());
+    await withBlock(raw3, 905, { ...chronicleBlock(raw3), authorFemale: [9] });
+    const c = namedHistory(raw3, names);
+    expect(await prepareChronicle(raw3, names, c)).toBe(true);
+    expect(fullChronicle(c).some((e) => e.text.endsWith('(旧写法)')), '性别和人物卡不一样').toBe(false);
+  }, 60_000);
+});
+

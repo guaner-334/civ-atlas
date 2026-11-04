@@ -3,10 +3,11 @@
  *
  * 很长的历史(推到几万年)编年史有上万条,在主线程上整段算一遍要好几秒,界面那几秒拖不动、点不动;
  * 算好了一次交过去,主线程拆包也要一百来毫秒。所以在线程里算,按份量切成小块一块一块交:每块拆包只占主线程几毫秒,
- * 块与块之间界面照样响应。交过去的就是 buildChronicle / fullChronicle 的结果本身,主线程记进缓存,和在主线程上算的逐条一样。
+ * 块与块之间界面照样响应。交过去的是存进世界的那一块(gen/civ/story/nameTokens.ts)换回名字的样子:第一次看到的和以后打开读到的同一份文字。
  */
-import { buildChronicle, type ChronicleEntry } from './gen/civ/story/chronicle';
-import { fullChronicle } from './gen/civ/story/religionText';
+import { applyCharacters, type AuthorCharacter } from './gen/characters';
+import type { ChronicleEntry } from './gen/civ/story/chronicle';
+import { chronicleBlock, chronicleOfBlock, inBuildChronicle, type ChronicleBlock } from './gen/civ/story/nameTokens';
 import { applyNames } from './gen/edits';
 import type { Civ } from './gen/civ';
 
@@ -21,18 +22,44 @@ export interface ChroniclePart {
   of: number;
   /** 按哪份改名算的(gen/edits.ts 的 WorldEdits.names) */
   names: Record<string, string>;
+  /** 套了哪些作者人物的名字和性别(authorsKey) */
+  authors: string;
   /** fullChronicle 里按顺序的这一段 */
   entries: ChronicleEntry[];
   /** 和 entries 一一对应:1 = 这一条也在 buildChronicle 里(按顺序) */
   build: Uint8Array;
 }
 
-/** 这份历史套上改名以后的编年史(fullChronicle 和其中 buildChronicle 的那些条),切成块 */
-export function chronicleParts(civ: Civ, names: Record<string, string>, key: number, weight = PART_WEIGHT): ChroniclePart[] {
+/** 套了哪些作者人物的名字和性别(编年史里写到的作者立的君主、没即位成的人物):一样的两份,编年史逐字一样;一个女的都没有时只看名字 */
+export const authorsKey = (civ: Civ) => (civ.authorFemale?.length ? JSON.stringify([civ.authorNames ?? null, civ.authorFemale]) : JSON.stringify(civ.authorNames ?? null));
+
+/**
+ * 这份历史套上改名、人物卡以后的编年史切成块,连同算它的那一块(存进世界用)。
+ * stored = 世界里存的那一块:能用就用它,以后改了编年史的写法老世界的文字不变;人物卡的性别改过、读不懂就现算一块
+ */
+export function chronicleOf(civ: Civ, names: Record<string, string>, key: number, characters?: readonly AuthorCharacter[], stored?: ChronicleBlock | null, weight = PART_WEIGHT): { block: ChronicleBlock; parts: ChroniclePart[] } {
   // 浅拷一层再算:线程里的缓存按这个对象记,交完就放掉,不跟着线程里记着的历史一直占着内存
-  const named = applyNames({ ...civ }, names);
-  const build = new Set(buildChronicle(named));
-  const full = fullChronicle(named);
+  const named = applyCharacters(applyNames({ ...civ }, names), characters);
+  const authors = authorsKey(named);
+  if (stored) {
+    let entries: ChronicleEntry[] | null = null;
+    try {
+      entries = chronicleOfBlock(stored, named);
+    } catch {
+      entries = null;
+    }
+    if (entries) return { block: stored, parts: cutParts(entries, names, authors, key, weight) };
+  }
+  const block = chronicleBlock(civ, characters);
+  return { block, parts: cutParts(chronicleOfBlock(block, named)!, names, authors, key, weight) };
+}
+
+/** 这份历史套上改名以后的编年史,切成块(没有作者人物、不用存时) */
+export function chronicleParts(civ: Civ, names: Record<string, string>, key: number, weight = PART_WEIGHT): ChroniclePart[] {
+  return chronicleOf(civ, names, key, undefined, null, weight).parts;
+}
+
+function cutParts(full: readonly ChronicleEntry[], names: Record<string, string>, authors: string, key: number, weight: number): ChroniclePart[] {
   const cuts: number[] = [0];
   let w = 0;
   for (let i = 0; i < full.length; i++) {
@@ -46,12 +73,12 @@ export function chronicleParts(civ: Civ, names: Record<string, string>, key: num
   const of = cuts.length - 1;
   return Array.from({ length: of }, (_, k) => {
     const entries = full.slice(cuts[k], cuts[k + 1]);
-    return { key, part: k, of, names, entries, build: Uint8Array.from(entries, (e) => (build.has(e) ? 1 : 0)) };
+    return { key, part: k, of, names, authors, entries, build: Uint8Array.from(entries, (e) => (inBuildChronicle(e) ? 1 : 0)) };
   });
 }
 
 /** 收齐了的一份(同一个编号、块数对得上、按顺序)拼回去;不齐 = null */
-export function joinChronicleParts(parts: readonly ChroniclePart[], key: number): { names: Record<string, string>; build: ChronicleEntry[]; full: ChronicleEntry[] } | null {
+export function joinChronicleParts(parts: readonly ChroniclePart[], key: number): { names: Record<string, string>; authors: string; build: ChronicleEntry[]; full: ChronicleEntry[] } | null {
   if (!parts.length || parts.length !== parts[0].of || parts.some((p, i) => p.key !== key || p.part !== i)) return null;
   const full: ChronicleEntry[] = [];
   const build: ChronicleEntry[] = [];
@@ -62,5 +89,5 @@ export function joinChronicleParts(parts: readonly ChroniclePart[], key: number)
       if (p.build[i]) build.push(e);
     }
   }
-  return { names: parts[0].names, build, full };
+  return { names: parts[0].names, authors: parts[0].authors, build, full };
 }
