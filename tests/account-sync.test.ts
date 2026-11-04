@@ -2040,10 +2040,12 @@ describe('AI 正文在世界仓库里', () => {
     const v = await syncNow();
     expect(notesKnown(id)).toBe(false);
     expect(listNotes(id)).toEqual([]);
-    expect(v.failed.size).toBe(0);
+    expect([...v.failed.keys()]).toEqual([id]);
     expect(inCloud()!.map((n) => n.text)).toEqual(['写好的正文']);
-    // 退出选「从这台设备上删掉」也不让:这台的还没读到,说不上同步好了
-    expect((await signOut(false)).ok).toBe(false);
+    // 退出选「从这台设备上删掉」也不让:这台的还没读到,说不上同步好了(这台可能有还没同步的正文)
+    const out = await signOut(false);
+    expect(out.ok).toBe(false);
+    expect(saveStore.loadWorld(id)).toBeTruthy();
 
     // 刷新:好了
     m.state.bad = false;

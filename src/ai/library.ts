@@ -252,6 +252,8 @@ interface Slot {
   /** 读的时候又有了新消息:读完再读一遍 */
   again: boolean;
   reading: boolean;
+  /** 正在读的这一会儿写进仓库的操作:读到的可能是写之前的样子,要补上 */
+  sinceRead: NoteOp[];
   /** 正在核对旧的那份 */
   settling: Promise<void>;
 }
@@ -301,13 +303,25 @@ function slotOf(world: string): Slot {
   const oldDrafts = draftKeys(world);
   const ops = draftsOf(oldDrafts);
   const first = cleanNoteList(parseList(stored(world)));
+  // 上次留下的草稿里删掉的也算这次删的:核对旧的那份时不算少了,不会并回来
+  const removed = new Set<string>();
+  let before = first;
+  for (const o of ops) before = trackRemoved(removed, before, o);
   let markReady = () => {};
   const ready = new Promise<void>((r) => (markReady = r));
-  const s: Slot = { list: applyNoteOps(first, ops), disk: first, loaded: false, read: false, known: false, ops, flying: false, removed: new Set(), oldDrafts, copyTo: [], ready, markReady, waiters: [], tries: 0, again: false, reading: false, settling: Promise.resolve() };
+  const s: Slot = { list: applyNoteOps(first, ops), disk: first, loaded: false, read: false, known: false, ops, flying: false, removed, oldDrafts, copyTo: [], ready, markReady, waiters: [], tries: 0, again: false, reading: false, sinceRead: [], settling: Promise.resolve() };
   slots.set(world, s);
   channelOf();
   void load(world, s);
   return s;
+}
+
+/** 改完是什么样;这一步去掉的条记下来 */
+function trackRemoved(removed: Set<string>, list: AiNote[], op: NoteOp): AiNote[] {
+  const next = applyNoteOps(list, [op]);
+  if (op.op === 'del') removed.add(op.key);
+  if (op.op === 'set') for (const n of list) if (!next.some((x) => x.key === n.key)) removed.add(n.key);
+  return next;
 }
 
 /** 读一遍仓库,换上 */
@@ -317,6 +331,7 @@ async function load(world: string, s: Slot): Promise<void> {
     return;
   }
   s.reading = true;
+  s.sinceRead = [];
   try {
     let got: Awaited<ReturnType<NotesVault['read']>>;
     try {
@@ -332,11 +347,13 @@ async function load(world: string, s: Slot): Promise<void> {
     // 旧的那份:没核对过的并进来。核对过的不再读,除非仓库比记的少(丢过东西),拿它补
     const fromOld = raw && (hashOf(raw) !== m?.s || got.notes.length < (m?.n ?? 0)) ? cleanNoteList(parseList(raw)).filter((n) => !s.removed.has(n.key)) : [];
     const merged = fromOld.length ? mergeNotes(got.notes, fromOld) : got.notes;
-    const next = applyNoteOps(merged, s.ops);
-    const changed = !sameNotes(next, s.list);
+    const written = applyNoteOps(merged, s.sinceRead);
+    const next = applyNoteOps(written, s.ops);
+    const known = !got.unread && merged.length >= (m?.n ?? 0);
+    const changed = !sameNotes(next, s.list) || known !== s.known;
     s.list = next;
-    s.disk = merged;
-    s.known = !got.unread && merged.length >= (m?.n ?? 0);
+    s.disk = written;
+    s.known = known;
     s.loaded = true;
     s.read = true;
     s.tries = 0;
@@ -396,9 +413,7 @@ function reload(world: string): void {
 /** 改页面里这份、排队写进仓库;返回这回的改动至少有一处能留到下次打开 */
 function change(world: string, op: NoteOp): boolean {
   const s = slotOf(world);
-  const next = applyNoteOps(s.list, [op]);
-  if (op.op === 'del') s.removed.add(op.key);
-  if (op.op === 'set') for (const n of s.list) if (!next.some((x) => x.key === n.key)) s.removed.add(n.key);
+  const next = trackRemoved(s.removed, s.list, op);
   if (sameNotes(next, s.list) && !s.ops.length && s.loaded && s.known) return true;
   s.list = next;
   s.ops.push(op);
@@ -420,6 +435,7 @@ function kick(world: string, s: Slot): void {
       if (slots.get(world) !== s) return;
       // 写的这一会儿前面可能又插进来操作(读到了要并的旧正文):按这一批是哪几个去掉,不按位置
       s.ops = s.ops.filter((o) => !batch.includes(o));
+      if (s.reading) s.sinceRead.push(...batch);
       writeDraft(world, s.ops);
       dropDrafts(s.oldDrafts.splice(0));
       s.disk = applyNoteOps(s.disk, batch);

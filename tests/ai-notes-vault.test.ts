@@ -537,6 +537,40 @@ describe('用的人删了 / 没读到', () => {
 describe('写和读、几个线程撞在一起', () => {
   const book = (text: string, createdAt: string, extra: object = {}) => ({ ...note('书', text, createdAt), book: { title: '书' }, ...extra }) as AiNote;
 
+  it('读得慢、写得快:写好了读才回来(读到的是写之前的样子),写的那条不会不见', async () => {
+    await revision('w1');
+    let go = () => {};
+    const gate = new Promise<void>((r) => (go = r));
+    refresh({
+      read: async (id) => {
+        const r = await readAuthor(id);
+        await gate;
+        return r;
+      },
+      change: changeAuthor,
+    });
+    putNote('w1', note('fast'));
+    await flushNotes('w1');
+    go();
+    await notesReady(['w1']);
+    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true));
+    expect(KEYS('w1')).toEqual(['fast']);
+  });
+
+  it('上次留下的草稿里删了一条,旧的那份还没核对过:这次写完核对过,下次打开也不回来', async () => {
+    await revision('w1');
+    await changeAuthor('w1', [{ op: 'set', notes: [note('a'), note('b')] }]);
+    g.localStorage.setItem(`${PREFIX}w1`, JSON.stringify([note('a'), note('b')]));
+    g.localStorage.setItem(`${PREFIX}~w1~old`, JSON.stringify([{ op: 'del', key: 'a' }]));
+    refresh();
+    await moveNotes('w1');
+    expect(KEYS('w1')).toEqual(['b']);
+    expect(moved().w1.s).toBeTruthy();
+    refresh();
+    await moveNotes('w1');
+    expect(KEYS('w1')).toEqual(['b']);
+  });
+
   it('没读到时翻版本、写新版本:只并进去,仓库里手上没有的几版都留着', async () => {
     await revision('w1');
     const v1 = { text: '第一版', createdAt: '2026-01-01T00:00:00.000Z', provider: 'p', model: 'm', book: { title: '书' } };

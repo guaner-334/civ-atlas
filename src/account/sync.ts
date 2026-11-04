@@ -331,6 +331,7 @@ export function worldSync(id: string): WorldSync | null {
 }
 
 const FULL_WHY = '浏览器存储满了，账号里这个世界的样子没能放进来：先删掉几个世界';
+const UNREAD_WHY = '这台设备上这个世界的 AI 写的东西这次没读出来，没有同步：刷新页面再试';
 const LIST_FULL_WHY = `「我的世界」满了（最多 ${MAX_WORLDS} 个），账号里的这个世界放不进来：先删掉几个世界`;
 const LEGACY_WHY = '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号；删掉几个世界、刷新页面再试';
 
@@ -486,7 +487,10 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
   if (id in st.deletes) return false;
   await notesReady([id]);
   // 这台设备存着的正文没读到:不知道这边是什么样,先不动它
-  if (!notesKnown(id)) return false;
+  if (!notesKnown(id)) {
+    failedNow.set(id, UNREAD_WHY);
+    return false;
+  }
   if (expect !== undefined && (localWorld(id)?.sum ?? null) !== expect) return false;
   // 取的工夫用户新建了世界、放满了:新的这个先不放(下次有地方再取),算没同步上
   if (!storedIds().includes(id) && storedCount() >= MAX_WORLDS) {
@@ -648,8 +652,11 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
 /** 一个世界:本地、上次同步(st.worlds)、服务器上(s)三方对一遍。本地按现在的样子(同步途中用户可能又改了、删了) */
 async function reconcile(st: SyncState, id: string, s: CloudEntry | null, depth = 0): Promise<void> {
   await notesReady([id]);
-  // 这台设备存着的正文没读到:手上这份不全,这一轮不拿它比、不存上去
-  if (!notesKnown(id)) return;
+  // 这台设备存着的正文没读到:手上这份不全,这一轮不拿它比、不存上去(算没同步上,退出登录时不能当都同步好了删掉)
+  if (!notesKnown(id)) {
+    failedNow.set(id, UNREAD_WHY);
+    return;
+  }
   const l = localWorld(id);
   // 刚删掉、还没告诉服务器的:下一轮去删,这次不取回来
   if (!l && id in st.deletes) return;
@@ -814,7 +821,7 @@ async function cycleWith(st: SyncState, full: boolean): Promise<void> {
     const l = localWorld(id);
     if (l) local.set(id, l);
   }
-  failedNow = new Map();
+  failedNow = new Map(order.filter((id) => !notesKnown(id)).map((id) => [id, UNREAD_WHY]));
   forks = [];
   busyNow = new Set([...local].filter(([id, l]) => st.worlds[id]?.sum !== l.sum).map(([id]) => id));
   setView({ phase: 'syncing', busy: new Set(busyNow) });
