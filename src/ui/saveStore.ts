@@ -589,7 +589,7 @@ function originalToKeep(id: string, next: number): string | null {
 }
 
 /** 新的存进去了:把原来那份原样留着。写不下就算了:不为它删别的世界,也不拦着这次存 */
-function keepOriginal(id: string, text: string | null) {
+export function keepOriginal(id: string, text: string | null) {
   if (text !== null) store().set(ORIG + id, text);
 }
 
@@ -640,7 +640,7 @@ export function trashMarks(): Record<string, number> {
 }
 
 /** 记下来、划掉。写不下就算了:没记下的世界内容留着,多占点地方,不会丢东西 */
-function markTrash(id: string) {
+export function markTrash(id: string) {
   store().set(TRASH, JSON.stringify({ ...trashMarks(), [id]: Date.now() }));
 }
 

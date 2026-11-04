@@ -125,16 +125,25 @@ const call: VaultCaller = (op, args, transfer) => {
   }
 };
 
-const errKind = (e: unknown): VaultErrorKind | undefined => (e as { kind?: VaultErrorKind } | null)?.kind;
+export { call as vaultCall, type VaultCaller };
+
+export const errKind = (e: unknown): VaultErrorKind | undefined => (e as { kind?: VaultErrorKind } | null)?.kind;
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // ---------------------------------------------------------------------------
 // 世界的内容
 
+/** 一条正文缺的字段补成空的:老版本写的、账号同步下来的可能缺,世界文件要求都有(一条缺字段的正文不能让整个文件打不开) */
+const fullNote = <T extends object>(n: T): T => {
+  const out = { ...n } as Record<string, unknown>;
+  for (const k of ['kind', 'title', 'createdAt', 'provider', 'model']) if (typeof out[k] !== 'string') out[k] = '';
+  return out as T;
+};
+
 /** 作者内容:AI 写的正文。现在只是多存一份,原来的地方照旧 */
 function authorOf(id: string): AuthorContent | null {
   const notes = exportNotes(id);
-  return notes.length ? { notes } : null;
+  return notes.length ? { notes: notes.map(fullNote) } : null;
 }
 
 /** 封面的 dataURL 转成 JPEG 字节;没有、不是 JPEG = undefined(封面是可选的) */
@@ -378,9 +387,10 @@ const onPhone = () => isNarrow() || isCoarse();
 
 /**
  * 这个世界下一步要转什么;没有要转的 = null。
- * 先转比现在的存档更旧的那份原件(留底),再转现在的样子。没有原件的更旧版本只记下来
+ * 先转比现在的存档更旧的那份原件(留底),再转现在的样子。没有原件的更旧版本只记下来。
+ * asked = 用的人要用(存成文件):手机上、正开着的世界也算一遍
  */
-async function jobFor(id: string): Promise<ConvertJob | null> {
+async function jobFor(id: string, asked = false): Promise<ConvertJob | null> {
   const w = loadWorld(id);
   if (!w || !canKeep(w)) return null;
   const state = await call('stateOf', [id]);
@@ -404,7 +414,7 @@ async function jobFor(id: string): Promise<ConvertJob | null> {
   if (heads.some((h) => h.generator === w.save.generator && h.recipe === key)) return { ...body, kind: 'original', generator: w.save.generator, save: w.save, source: 'migrated' };
   if (w.save.generator === GENERATOR_VERSION) {
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
-    if (onPhone() || currentWorld()?.id === id) return null;
+    if (!asked && (onPhone() || currentWorld()?.id === id)) return null;
     return { ...body, kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
   }
   if (state?.status !== 'old' || state.generator !== w.save.generator) await call('patchState', [id, { status: 'old', generator: w.save.generator }]);
@@ -448,8 +458,8 @@ async function waitQuiet(): Promise<boolean> {
   }
 }
 
-/** 转一个世界:让路了 = 'yield';别的转完(不管成败)= 'next';写满了 = 'full' */
-async function runJob(job: ConvertJob): Promise<'next' | 'yield' | 'full'> {
+/** 转一个世界:让路了 = 'yield';别的转完(不管成败)= 'next';写满了 = 'full'。asked = 用的人等着要,不给推演让路 */
+async function runJob(job: ConvertJob, asked = false): Promise<'next' | 'yield' | 'full'> {
   setConverting(job.id);
   const mark = clearedAt();
   const h = runner(job);
@@ -458,7 +468,7 @@ async function runJob(job: ConvertJob): Promise<'next' | 'yield' | 'full'> {
     if (clearedAt() !== mark) {
       stopped = true;
       h.stop();
-    } else if (sim.busy()) {
+    } else if (!asked && sim.busy()) {
       busyAt = Date.now();
       h.stop();
     }
@@ -524,6 +534,27 @@ async function convertAll(): Promise<void> {
         await sleep(timing.pause);
       }
     }
+  }
+}
+
+/**
+ * 存成文件之前让仓库跟上这个世界:该转的现在转(还没转进来的、留底的旧版原件),配方以外的改动(改名、AI 正文、封面)写进新清单。
+ * 不抛错;没能写进去的返回为什么(仓库里可能还有上一份),别的 = null
+ */
+export async function settleWorld(id: string): Promise<VaultErrorKind | null> {
+  try {
+    // 一个世界最多两步,多一次防循环(同 convertAll)
+    for (let step = 0; step < 3; step++) {
+      const job = await jobFor(id, true);
+      if (!job) break;
+      const r = await runJob(job, true);
+      if (r === 'full') return 'full';
+      if (r === 'yield') return 'failed';
+    }
+    await syncLight(id);
+    return null;
+  } catch (e) {
+    return errKind(e) ?? 'failed';
   }
 }
 
