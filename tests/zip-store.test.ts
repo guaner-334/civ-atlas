@@ -164,6 +164,14 @@ describe('ZIP:写', () => {
         { name: 'e\u0301', data: one },
       ]),
     ).rejects.toThrow();
+    // 既当文件又当目录:解压时后一个放不下
+    await expect(
+      writeZip([
+        { name: 'parts', data: one },
+        { name: 'parts/map.gz', data: one },
+      ]),
+    ).rejects.toThrow('撞了');
+    await expect(writeZip([{ name: 'a'.repeat(256), data: one }])).rejects.toThrow('太长');
     await expect(writeZip([{ name: 'big', data: new Blob([new Uint8Array(ZIP_MAX_BYTES + 1)]) }])).rejects.toThrow();
     await expect(writeZip([{ name: 'full', data: new Blob([new Uint8Array(ZIP_MAX_BYTES)]) }])).rejects.toThrow();
     await expect(writeZip(Array.from({ length: ZIP_MAX_ENTRIES + 1 }, (_, i) => ({ name: `f${i}`, data: one })))).rejects.toThrow();
@@ -257,10 +265,22 @@ describe('ZIP:读的时候当它是坏文件', () => {
     expect(parseZip(forge([{ name: 'ascii', flags: 0 }]))[0].name).toBe('ascii');
   });
 
+  it('一个名字既当文件又当目录:先后不论、大小写不论;同一个目录下的几个文件没事', () => {
+    expect(() => parseZip(forge([{ name: 'parts' }, { name: 'parts/map.gz' }]))).toThrow('撞了');
+    expect(() => parseZip(forge([{ name: 'parts/map.gz' }, { name: 'parts' }]))).toThrow('撞了');
+    expect(() => parseZip(forge([{ name: 'a/b' }, { name: 'A/B/c' }]))).toThrow('撞了');
+    expect(parseZip(forge([{ name: 'parts/a' }, { name: 'parts/b' }, { name: 'parts/c/d' }, { name: 'partsx' }])).length).toBe(4);
+  });
+
+  it('文件名太长', () => {
+    expect(parseZip(forge([{ name: 'a'.repeat(255) }]))[0].name.length).toBe(255);
+    expect(() => parseZip(forge([{ name: 'a'.repeat(256) }]))).toThrow('太长');
+  });
+
   it('重复条目:完全一样、只差大小写、只差 Unicode 写法', () => {
-    expect(() => parseZip(forge([{ name: 'a' }, { name: 'a' }]))).toThrow('重复');
-    expect(() => parseZip(forge([{ name: 'Parts/A' }, { name: 'parts/a' }]))).toThrow('重复');
-    expect(() => parseZip(forge([{ name: '\u00e9' }, { name: 'e\u0301' }]))).toThrow('重复');
+    expect(() => parseZip(forge([{ name: 'a' }, { name: 'a' }]))).toThrow('撞了');
+    expect(() => parseZip(forge([{ name: 'Parts/A' }, { name: 'parts/a' }]))).toThrow('撞了');
+    expect(() => parseZip(forge([{ name: '\u00e9' }, { name: 'e\u0301' }]))).toThrow('撞了');
   });
 
   it('加密:三种标记都拒绝', () => {

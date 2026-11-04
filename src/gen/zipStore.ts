@@ -10,7 +10,7 @@
  * - 目录和各条目自己的头要说同样的话(两边不一样,不同的软件会读出不同的内容)
  * - 拒绝加密、分卷、ZIP64(64 MB 用不到)、除「不压缩」以外的压缩方式、声明大小对不上、校验(CRC-32)对不上
  * - 文件名:拒绝 ..、绝对路径、反斜杠、盘符、控制字符、目录条目、每一段结尾的点和空格、重复的(只差大小写、只差 Unicode 写法的
- *   也算重复:Windows、Mac 上解压到同一个文件);不是 UTF-8 的拒绝
+ *   也算重复:Windows、Mac 上解压到同一个文件)、既当文件又当目录的;不是 UTF-8 的拒绝
  *
  * 纯计算,不碰 DOM:Blob 在 worker、Node 里都有。
  */
@@ -19,8 +19,8 @@
 export const ZIP_MAX_BYTES = 64e6;
 /** 最多几个条目:一个世界连同以后的扩展内容也就几十块,留足余量;只防条目数把目录撑得很大 */
 export const ZIP_MAX_ENTRIES = 4096;
-/** 文件名最多多少字节 */
-const NAME_MAX_BYTES = 1024;
+/** 文件名最多多少字节(连路径):世界文件里最长的也就几十字节;Windows 上路径最长也才 260 个字符 */
+const NAME_MAX_BYTES = 255;
 
 const SIG_LOCAL = 0x04034b50;
 const SIG_CENTRAL = 0x02014b50;
@@ -67,8 +67,24 @@ function checkName(name: string, nameBytes: number): void {
   for (const seg of name.split('/')) if (!seg || /[. ]$/.test(seg)) throw new Error('ZIP 里的文件名路径不对');
 }
 
-/** 查重用的键:解压到不分大小写的磁盘上会撞的算一个 */
-const nameKey = (name: string) => name.normalize('NFC').toLowerCase();
+/**
+ * 查文件名撞不撞,先后不论:解压到不分大小写的磁盘上是同一个文件的不行;一个名字既当文件又当目录的(parts 和 parts/map.gz)也不行,
+ * 解压时后一个放不下。文件名长度、条目数都有上限,一个文件查下来也就几十 MB 字符
+ */
+function nameChecker(): (name: string) => void {
+  const files = new Set<string>();
+  const dirs = new Set<string>();
+  return (name) => {
+    const key = name.normalize('NFC').toLowerCase();
+    if (files.has(key) || dirs.has(key)) throw new Error(`ZIP 里的文件名撞了:${name}`);
+    files.add(key);
+    for (let i = key.indexOf('/'); i >= 0; i = key.indexOf('/', i + 1)) {
+      const dir = key.slice(0, i);
+      if (files.has(dir)) throw new Error(`ZIP 里的文件名撞了:${name}`);
+      dirs.add(dir);
+    }
+  };
+}
 
 /** 要装进文件的一块 */
 export interface ZipInput {
@@ -100,7 +116,7 @@ async function crcOf(data: Uint8Array | Blob): Promise<number> {
 export async function writeZip(entries: readonly ZipInput[]): Promise<Blob> {
   if (entries.length > ZIP_MAX_ENTRIES) throw new Error('ZIP 的条目太多');
   const enc = new TextEncoder();
-  const seen = new Set<string>();
+  const noClash = nameChecker();
   const parts: BlobPart[] = [];
   const central: Uint8Array[] = [];
   let at = 0;
@@ -108,9 +124,7 @@ export async function writeZip(entries: readonly ZipInput[]): Promise<Blob> {
   for (const e of entries) {
     const name = enc.encode(e.name);
     checkName(e.name, name.length);
-    const key = nameKey(e.name);
-    if (seen.has(key)) throw new Error(`ZIP 里的文件名重复:${e.name}`);
-    seen.add(key);
+    noClash(e.name);
     const data = e.data instanceof ArrayBuffer ? new Uint8Array(e.data) : e.data;
     const size = data instanceof Blob ? data.size : data.byteLength;
     if (at + size > ZIP_MAX_BYTES) throw new Error('ZIP 太大');
@@ -202,7 +216,7 @@ export function parseZip(bytes: Uint8Array): ZipEntry[] {
   if (centralAt + centralSize !== endAt) throw new Error('ZIP 的目录位置不对');
 
   const dec = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-  const seen = new Set<string>();
+  const noClash = nameChecker();
   const found: { name: string; at: number; dataAt: number; size: number; crc: number }[] = [];
   let p = centralAt;
   for (let i = 0; i < count; i++) {
@@ -231,9 +245,7 @@ export function parseZip(bytes: Uint8Array): ZipEntry[] {
     if (!(flags & FLAG_UTF8) && nameBytes.some((b) => b >= 0x80)) throw new Error('ZIP 里的文件名不是 UTF-8');
     const name = dec.decode(nameBytes);
     checkName(name, nameLen);
-    const key = nameKey(name);
-    if (seen.has(key)) throw new Error(`ZIP 里的文件名重复:${name}`);
-    seen.add(key);
+    noClash(name);
 
     // 这个条目自己的头,要和目录说的一样
     if (at + LOCAL_SIZE > centralAt || u32(at) !== SIG_LOCAL) throw new Error('ZIP 的条目位置不对');
