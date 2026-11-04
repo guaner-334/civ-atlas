@@ -285,6 +285,42 @@ async function askPersist(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// 认世界内容变没变(助手的对话靠它,../ui/assistantStore.ts)
+
+/** 一份世界内容的记号 */
+export interface WorldMark {
+  /** 地图、历史两块的指纹。改名、改旗只动编年史、国旗那两块,这个不变 */
+  print: string;
+  /** 这份内容的配方指纹 */
+  recipe: string;
+  /** 这份内容是哪一版生成器算的 */
+  generator: number;
+}
+
+/**
+ * 两个记号说的是不是同一段历史:地图、历史两块一样;或者同一个配方、同一版算的
+ * (同一个世界会有不同的路算出来,比如后台转存和打开时推的,字节万一有出入,不算重推过)
+ */
+export function sameHistory(a: WorldMark, b: WorldMark): boolean {
+  return a.print === b.print || (a.recipe === b.recipe && a.generator === b.generator);
+}
+
+/** 这个世界在仓库里最新一份的记号;仓库里还没有、读不了 = null */
+export async function worldMark(id: string): Promise<WorldMark | null> {
+  try {
+    const h = await call('latestOf', [id]);
+    if (!h) return null;
+    const print = h.content
+      .split('|')
+      .filter((x) => x.startsWith('map:') || x.startsWith('civ:'))
+      .join('|');
+    return { print, recipe: h.recipeKey, generator: h.generator };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 待完成的修改
 
 /**

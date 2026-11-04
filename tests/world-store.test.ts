@@ -20,7 +20,7 @@ import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
 import { APP_COMMIT } from '../src/ui/version';
-import { TRASH_KEEP_MS, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, type ConvertRunner } from '../src/ui/worldStore';
+import { TRASH_KEEP_MS, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, latestOf, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
@@ -111,6 +111,39 @@ afterEach(async () => {
   _setResultBackend(undefined);
   _setWorldStore({ caller: null });
   _resetVault();
+});
+
+describe('世界内容的记号', () => {
+  it('编年史、国旗变了(改名)记号不变;历史变了(重推过)记号变;仓库里没有、读不了 = null', async () => {
+    const id = makeWorld();
+    expect(await worldMark(id)).toBeNull();
+    const o = await offerOf();
+    expect(await offerWorldParts(o)).toBe(true);
+    const a = (await worldMark(id))!;
+    const sumOf = (name: string) => o.parts.find((p) => p.name === name)!.sum;
+    expect(a).toEqual({ print: `map:${sumOf('map')}|civ:${sumOf('civ')}`, recipe: o.recipe, generator: GENERATOR_VERSION });
+
+    const renamed = await offerOf();
+    renamed.parts = [...renamed.parts.filter((p) => p.name !== 'chronicle'), await makePart('chronicle', [{ year: 1, text: '改了名' }])];
+    expect(await offerWorldParts(renamed)).toBe(true);
+    expect((await readRevision(id))!.manifest.revision.n).toBe(2);
+    expect((await worldMark(id))!.print).toBe(a.print);
+
+    const again = await offerOf(getEdits(), 'b');
+    expect(await offerWorldParts(again)).toBe(true);
+    const b = (await worldMark(id))!;
+    expect(b.print).not.toBe(a.print);
+    // 同一个配方、同一版:算同一段历史;换了配方、换了版本又不一样:不算
+    expect(sameHistory(a, b)).toBe(true);
+    expect(sameHistory(a, { ...b, recipe: 'r2' })).toBe(false);
+    expect(sameHistory(a, { ...b, generator: GENERATOR_VERSION + 1 })).toBe(false);
+    expect(sameHistory(a, { ...a, recipe: 'r2', generator: GENERATOR_VERSION + 1 })).toBe(true);
+
+    _setWorldStore({
+      caller: (() => Promise.reject(new Error('仓库坏了'))) as unknown as Parameters<typeof _setWorldStore>[0]['caller'],
+    });
+    expect(await worldMark(id)).toBeNull();
+  });
 });
 
 describe('推完存进仓库', () => {
