@@ -108,7 +108,6 @@ function clearMine() {
 /** 正要打开这个世界(走新路):记一笔。一个页面同时只打开一个 */
 export function openingStart(id: string): void {
   clearTimeout(settle);
-  holdPageLock();
   if (!hooked && typeof window !== 'undefined') {
     hooked = true;
     window.addEventListener('pagehide', clearMine);
@@ -118,6 +117,7 @@ export function openingStart(id: string): void {
     });
   }
   clearMine();
+  holdPageLock();
   fromVault = id;
   const rows = readJson<Record<string, OpeningRow>>(OPENING_KEY);
   rows[id] = { page, at: Date.now() };

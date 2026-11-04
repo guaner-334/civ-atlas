@@ -303,6 +303,28 @@ describe('打开时的几道保险', () => {
     openingClear();
   });
 
+  it('打开的这一会儿一直拿着页面的锁,打开成了才放掉', async () => {
+    vi.useFakeTimers();
+    const held: string[] = [];
+    const locks = {
+      query: async () => ({ held: held.map((name) => ({ name })) }),
+      request: (name: string, f: () => Promise<void>) => {
+        held.push(name);
+        return f().then(() => void held.splice(held.indexOf(name), 1));
+      },
+    };
+    vi.stubGlobal('navigator', { ...nav(), locks });
+    openingStart('a');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(held.length).toBe(1);
+    openingShown();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(held.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(held.length).toBe(0);
+    expect(localStorage.getItem('civ-atlas:opening')).toBeNull();
+  });
+
   it('没有 navigator.locks 的浏览器按时间算', async () => {
     vi.stubGlobal('navigator', { ...nav(), locks: undefined });
     localStorage.setItem('civ-atlas:opening', JSON.stringify({ fresh: { page: 'x', at: Date.now() }, stale: { page: 'y', at: Date.now() - 120_000 } }));
