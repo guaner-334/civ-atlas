@@ -19,6 +19,10 @@
  * 还有 JSON 写不了的几种也换成带 "$$" 的小对象:Map、Set、undefined、NaN、±Infinity、-0、同一个对象第二次出现(引用)、
  * 本身就有 "$$" 键的对象。字节序一律小端(大端的机器读写都拒绝)。
  *
+ * 读的时候把字节当成别人写的(以后世界可以从文件读进来,每个数字、每个字都可能是乱填的):解压边解边数,超上限立刻停;
+ * 对象的键不许是 __proto__、constructor、prototype;引用只能指已经读完的对象;层数、结构大小都有上限。出错一律抛 Error,不卡死。
+ * 这些上限只管「能不能安全读完」,读出来的内容对不对(编号在不在范围里之类)不归这里管。
+ *
  * 纯计算,不碰 DOM:worker 里打包,主线程、Node 里都能读。压缩用平台自带的 CompressionStream('gzip'),没有就不压缩。
  */
 import { cleanCivSeed, cleanPlay, endParamOf, type Intervention, type PlayState, type TerrainOp, type Upheaval } from './edits';
@@ -143,6 +147,48 @@ export function recipeKey(r: Recipe): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// 读的时候的上限
+
+/** 上限里的 MB 按 100 万字节算,和量世界大小时的算法一样 */
+const MB = 1e6;
+/**
+ * 各块解压后最多多大。按量到的最大的世界(20 万地块、6 万年、5 件地形大事)留余量:地图实测 27.5 MB,各段世界(最多 5 段)52.6 MB,
+ * 历史 142.1 MB,编年史 35.1 MB
+ */
+const PART_LIMITS: ReadonlyMap<string, number> = new Map([
+  ['map', 40 * MB],
+  ['eras', 80 * MB],
+  ['civ', 160 * MB],
+  ['chronicle', 64 * MB],
+]);
+/**
+ * 认不出的块名给 16 MB。认不出的块本来就只原样留着、不用解开;真要读的只会是以后新加的块,那时在上面的表里按实测写明上限。
+ * 没量过的东西不能照最大的给:别人的文件里块名是随便写的,给大了等于让它挑最大的额度来撑内存;给小了最多是这一块读不出来
+ */
+const UNKNOWN_PART_LIMIT = 16 * MB;
+/** 一块里结构(JSON)最多多大:实测最大 45 MB */
+const MAX_HEAD_BYTES = 64 * MB;
+/** 结构最多几层:真实世界不到 20 层(单测盯着)。限了层数,读的时候递归才不会把栈撑爆 */
+const MAX_DEPTH = 64;
+/**
+ * 把引用都展开成一棵树,最多多少个值(不带引用的结构再大也到不了:64 MB 的 JSON 最多三千多万个值;真实世界的引用只有几十个,展开也多不了多少)。
+ * 几十层、每层引用上一层两次,文件才几 KB,展开有几万亿个值;后面哪段代码按树走一遍就卡死了,所以读的时候就拒绝
+ */
+const MAX_NODES = 1e8;
+
+/** 这一块解压后最多多大 */
+export function partLimit(name: string): number {
+  return PART_LIMITS.get(name) ?? UNKNOWN_PART_LIMIT;
+}
+
+/**
+ * 不许当对象键的几个名字:读回来会换掉对象的原型、盖掉谁都默认有的字段,后面的代码就读到文件里明面上没写的东西。
+ * 真实数据里对象的键只有代码写死的字段名、数表名和数字编号:用户起的名字(国名、城名、人名、改名……)都在值里,不当键,
+ * 用户叫 constructor 也读得开。按名字索引的表一律用 Map(Map 的键不受这条限制)。packValue 也拒绝这几个键,写得出来的就读得回来
+ */
+const isBadKey = (k: string) => k === '__proto__' || k === 'constructor' || k === 'prototype';
+
+// ---------------------------------------------------------------------------
 // 校验、压缩
 
 /** SHA-256(十六进制) */
@@ -155,9 +201,48 @@ export async function sha256(data: Uint8Array): Promise<string> {
 
 const canZip = () => typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
 
-async function through(data: Uint8Array, ts: CompressionStream | DecompressionStream): Promise<Uint8Array> {
+async function through(data: Uint8Array, ts: CompressionStream): Promise<Uint8Array> {
   const stream = new Blob([data]).stream().pipeThrough(ts);
   return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** 解压时一次喂多少压缩的字节 */
+const INFLATE_SLICE = 64 * 1024;
+
+/**
+ * 解压,一边解一边数:比 expect 多一个字节就停,后面的不再解(压缩炸弹撑不开内存)。
+ * 比 expect 少的,交回解出来的那些(读的地方核对长度时拒绝)。
+ * 压缩的字节自己切成小段、要一段喂一段:浏览器的 Blob 流一次给多少由它定,一次给得多,解压那一步在交回来之前就可能撑开几十 GB;
+ * 这样不管哪个浏览器,多解的也就一段的量(gzip 最多放大约 1000 倍,不到 70 MB,而且这些字节不留)
+ */
+async function inflate(data: Uint8Array, expect: number): Promise<Uint8Array> {
+  let at = 0;
+  const source = new ReadableStream<Uint8Array>(
+    {
+      pull(c) {
+        if (at >= data.length) return c.close();
+        c.enqueue(data.subarray(at, at + INFLATE_SLICE));
+        at += INFLATE_SLICE;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const reader = (source.pipeThrough(new DecompressionStream('gzip')) as ReadableStream<Uint8Array>).getReader();
+  const out = new Uint8Array(expect);
+  let n = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return out.subarray(0, n);
+      if (value.length > expect - n) throw new Error('原件解压出来比说好的大');
+      out.set(value, n);
+      n += value.length;
+    }
+  } catch (err) {
+    // 上游的解压、读字节一起停下;已经出错的流再取消也会出错,不用管
+    reader.cancel().catch(() => undefined);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +312,10 @@ export function packValue(root: unknown): Uint8Array {
     const proto = Object.getPrototypeOf(v);
     if (proto !== Object.prototype && proto !== null) throw new Error('原件里不能有类的实例');
     const out: Record<string, unknown> = {};
-    for (const k of Object.keys(v)) out[k] = enc((v as Record<string, unknown>)[k]);
+    for (const k of Object.keys(v)) {
+      if (isBadKey(k)) throw new Error(`原件里不能有叫 ${k} 的键`);
+      out[k] = enc((v as Record<string, unknown>)[k]);
+    }
     return '$$' in out ? { $$: 'o', v: out } : out;
   };
   const head = new TextEncoder().encode(JSON.stringify(enc(root)));
@@ -244,70 +332,130 @@ export function packValue(root: unknown): Uint8Array {
   return bytes;
 }
 
-/** packValue 打的字节读回成值(数组各自复制一份,不和这些字节共用);格式不对抛错 */
+/**
+ * 结构的字节最深几层,超上限就拒绝(还没开始 JSON.parse):字符串里的括号不算。
+ * 不是合格 JSON 的,这里算出来的层数不作数,接着 JSON.parse 会拒绝
+ */
+function checkDepth(head: Uint8Array): void {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < head.length; i++) {
+    const c = head[i];
+    if (inString) {
+      if (c === 0x5c) i++; // 反斜杠:下一个字节是转义的
+      else if (c === 0x22) inString = false;
+    } else if (c === 0x22) inString = true;
+    else if (c === 0x5b || c === 0x7b) {
+      if (++depth > MAX_DEPTH) throw new Error('原件的结构层数太多');
+    } else if (c === 0x5d || c === 0x7d) depth--;
+  }
+}
+
+/** packValue 打的字节读回成值(数组各自复制一份,不和这些字节共用);格式不对、超上限抛错。字节当别人写的看(见文件头) */
 export function unpackValue(bytes: Uint8Array): unknown {
   if (!littleEndian()) throw new Error('大端的机器不支持');
   if (bytes.length < MAGIC.length + 4) throw new Error('原件不完整');
   for (let i = 0; i < MAGIC.length; i++) if (bytes[i] !== MAGIC.charCodeAt(i)) throw new Error('不是原件');
   const len = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(MAGIC.length, true);
+  if (len > MAX_HEAD_BYTES) throw new Error('原件的结构太大');
   if (MAGIC.length + 4 + len > bytes.length) throw new Error('原件不完整');
-  const raw = JSON.parse(new TextDecoder().decode(bytes.subarray(MAGIC.length + 4, MAGIC.length + 4 + len))) as unknown;
+  const head = bytes.subarray(MAGIC.length + 4, MAGIC.length + 4 + len);
+  checkDepth(head);
+  const raw = JSON.parse(new TextDecoder().decode(head)) as unknown;
   const start = pad8(MAGIC.length + 4 + len);
+  // 读到过的对象,编号按第一次遇到的先后(和 packValue 一样)
   const objs: unknown[] = [];
+  // 各对象展开成树有多少个值;还没读完的是 -1(这时候引用它就成环了)
+  const sizes: number[] = [];
+  // 到现在一共读了多少个值(引用按展开算)
+  let nodes = 0;
+  // 各个数组一共要多少字节:几个数组指同一段字节不会更占地方,但结构里写上几百万遍就能把内存撑爆;老实打的包不重叠,加起来放得下
+  let arrayBytes = 0;
+  const open = (out: unknown) => {
+    sizes.push(-1);
+    return objs.push(out) - 1;
+  };
+  const object = (o: Record<string, unknown>) => {
+    const out: Record<string, unknown> = {};
+    const id = open(out);
+    const from = nodes;
+    for (const k of Object.keys(o)) {
+      if (isBadKey(k)) throw new Error(`原件里有不许用的键 ${k}`);
+      out[k] = dec(o[k]);
+    }
+    sizes[id] = nodes - from;
+    return out;
+  };
   const dec = (v: unknown): unknown => {
+    nodes++;
     if (v === null || typeof v !== 'object') return v;
     if (Array.isArray(v)) {
       const out: unknown[] = [];
-      objs.push(out);
+      const id = open(out);
+      const from = nodes;
       for (const x of v) out.push(dec(x));
+      sizes[id] = nodes - from;
       return out;
     }
     const o = v as Record<string, unknown>;
     switch (o.$$) {
-      case undefined: {
-        const out: Record<string, unknown> = {};
-        objs.push(out);
-        for (const k of Object.keys(o)) out[k] = dec(o[k]);
-        return out;
-      }
+      case undefined:
+        return object(o);
       case 'o': {
-        const out: Record<string, unknown> = {};
-        objs.push(out);
-        const inner = o.v as Record<string, unknown>;
-        for (const k of Object.keys(inner)) out[k] = dec(inner[k]);
-        return out;
+        if (o.v === null || typeof o.v !== 'object' || Array.isArray(o.v)) throw new Error('原件里的对象不对');
+        return object(o.v as Record<string, unknown>);
       }
       case 'u':
         return undefined;
       case 'n':
-        return o.v === 'NaN' ? NaN : o.v === 'Inf' ? Infinity : o.v === '-Inf' ? -Infinity : -0;
+        if (o.v === 'NaN') return NaN;
+        if (o.v === 'Inf') return Infinity;
+        if (o.v === '-Inf') return -Infinity;
+        if (o.v === '-0') return -0;
+        throw new Error('原件里的数字不对');
       case 'r': {
         const i = o.i as number;
-        if (!(i >= 0 && i < objs.length)) throw new Error('原件里的引用指不到');
+        if (!Number.isInteger(i) || i < 0 || i >= objs.length) throw new Error('原件里的引用指不到');
+        if (sizes[i] < 0) throw new Error('原件里的引用成环');
+        nodes += sizes[i];
+        if (nodes > MAX_NODES) throw new Error('原件里的引用展开太多');
         return objs[i];
       }
       case 'a': {
-        const C = ARRAYS[o.t as ArrayTag];
+        const t = o.t;
+        const C = typeof t === 'string' && Object.prototype.hasOwnProperty.call(ARRAYS, t) ? ARRAYS[t as ArrayTag] : null;
         const n = o.n as number;
         const off = o.o as number;
         if (!C || !Number.isInteger(n) || n < 0 || !Number.isInteger(off) || off < 0) throw new Error('原件里的数组不对');
-        const end = start + off + n * C.BYTES_PER_ELEMENT;
+        const size = n * C.BYTES_PER_ELEMENT;
+        const end = start + off + size;
         if (end > bytes.length) throw new Error('原件不完整');
+        arrayBytes += size;
+        if (arrayBytes > bytes.length - start) throw new Error('原件里的数组重叠');
         const out = new C(n);
         new Uint8Array(out.buffer).set(bytes.subarray(start + off, end));
-        objs.push(out);
+        sizes[open(out)] = 1;
         return out;
       }
       case 'm': {
+        if (!Array.isArray(o.v)) throw new Error('原件里的 Map 不对');
         const out = new Map<unknown, unknown>();
-        objs.push(out);
-        for (const [k, x] of o.v as [unknown, unknown][]) out.set(dec(k), dec(x));
+        const id = open(out);
+        const from = nodes;
+        for (const e of o.v as unknown[]) {
+          if (!Array.isArray(e) || e.length !== 2) throw new Error('原件里的 Map 不对');
+          out.set(dec(e[0]), dec(e[1]));
+        }
+        sizes[id] = nodes - from;
         return out;
       }
       case 's': {
+        if (!Array.isArray(o.v)) throw new Error('原件里的 Set 不对');
         const out = new Set<unknown>();
-        objs.push(out);
+        const id = open(out);
+        const from = nodes;
         for (const x of o.v as unknown[]) out.add(dec(x));
+        sizes[id] = nodes - from;
         return out;
       }
       default:
@@ -330,14 +478,20 @@ export async function makePart(name: string, value: unknown): Promise<SnapshotPa
   return { name, bytes: raw.length, sum, zip: zipped ? 'gzip' : 'none', data: buf };
 }
 
-/** 读回一块原件;解不开、校验对不上抛错 */
+/**
+ * 读回一块原件;解不开、超上限、校验对不上抛错。
+ * 说好的字节数先看:超这块的上限不开始解;解的时候比说好的多就停,所以解多少由 min(上限, 说好的) 管着,压缩炸弹撑不开内存
+ */
 export async function readPart(part: SnapshotPart): Promise<unknown> {
-  let raw = new Uint8Array(part.data);
-  if (part.zip === 'gzip') {
+  const { name, bytes, zip, data } = part;
+  if (Object.prototype.toString.call(data) !== '[object ArrayBuffer]') throw new Error('原件的字节不对');
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > partLimit(name)) throw new Error('原件这一块超过上限');
+  let raw = new Uint8Array(data);
+  if (zip === 'gzip') {
     if (!canZip()) throw new Error('这个浏览器太旧,解不开原件');
-    raw = await through(raw, new DecompressionStream('gzip'));
-  } else if (part.zip !== 'none') throw new Error('原件的压缩方式认不出');
-  if (raw.length !== part.bytes || (await sha256(raw)) !== part.sum) throw new Error('原件对不上校验');
+    raw = await inflate(raw, bytes);
+  } else if (zip !== 'none') throw new Error('原件的压缩方式认不出');
+  if (raw.length !== bytes || (await sha256(raw)) !== part.sum) throw new Error('原件对不上校验');
   return unpackValue(raw);
 }
 
