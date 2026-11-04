@@ -638,9 +638,10 @@ function manifestOf(row: RevisionRow): WorldManifest | null {
 
 /**
  * 读一份修订(n 不给 = 最新的);没有 = null。清单和块在同一个事务里读,读到的是完整的一份。缺块抛 corrupt。
- * only = 只读这几块(打开核对过的世界时看世界用不着的不读);StoredRevision.parts 只有这几块,清单照样是全的
+ * only = 只读这几块(打开核对过的世界时看世界用不着的不读);StoredRevision.parts 只有这几块,清单照样是全的。
+ * spare = 这几块没有了不算坏(能重新算出来的),StoredRevision.parts 里就没有它
  */
-export async function readRevision(id: string, n?: number, only?: readonly string[]): Promise<StoredRevision | null> {
+export async function readRevision(id: string, n?: number, only?: readonly string[], spare?: readonly string[]): Promise<StoredRevision | null> {
   const got = await run<{ row: RevisionRow; datas: Map<string, ArrayBuffer> } | null>(['parts', 'manifests'], 'readonly', (t, done) => {
     done(null);
     const q = t.objectStore('manifests').getAll(rangeOf(id));
@@ -665,10 +666,12 @@ export async function readRevision(id: string, n?: number, only?: readonly strin
   if (!got) return null;
   const manifest = manifestOf(got.row);
   if (!manifest) throw new VaultError('corrupt', '清单读不懂');
-  const parts = manifest.parts.filter((info) => !only || only.includes(info.name)).map((info): PackedPart => {
+  const parts = manifest.parts.flatMap((info): PackedPart[] => {
+    if (only && !only.includes(info.name)) return [];
     const data = got.datas.get(partKey(info));
-    if (!data) throw new VaultError('corrupt', `${info.name} 这一块没有了`);
-    return { info, data };
+    if (data) return [{ info, data }];
+    if (spare?.includes(info.name)) return [];
+    throw new VaultError('corrupt', `${info.name} 这一块没有了`);
   });
   return { head: headOf(got.row), text: new TextEncoder().encode(got.row.text), manifest, parts };
 }

@@ -4289,15 +4289,44 @@ function namesOf(p: Polity, year: Year): string[] {
   return [...out].filter(Boolean).sort((a, b) => b.length - a.length);
 }
 
-/** 名字在正文里第一次出现的位置(不算嵌在别国名字里的:"后高弥汗国"里的"高弥汗国");没有 = null */
-function firstMention(text: string, mine: string[], others: string[]): { at: number; len: number } | null {
+/** 往两头看几个字,找这一处是不是别的名字的一部分(名字最多十几个字,推演起的不超过这么长) */
+const NAME_REACH = 8;
+
+/**
+ * 正文里写得到的、不是国家和人物的名字:民族、州、城、地名、信仰。国名碰巧是它们的一部分时,那一处写的不是这个国家
+ * ("西拉瓦尼亚族"里的"拉瓦尼亚")。名字是占位符时用不着:占位符不会碰巧是别的占位符的一部分
+ */
+function otherNames(civ: Civ): ReadonlySet<string> {
+  const out = new Set<string>();
+  if (isNameToken(civ.polities[0]?.name ?? '')) return out;
+  const add = (s: string | undefined) => void (s && out.add(s));
+  for (const c of civ.cultures ?? []) add(c.name);
+  for (const s of civ.settlements ?? []) add(s.name);
+  for (const p of civ.places ?? []) add(p.name);
+  for (const f of civ.religion?.faiths ?? []) add(f.name);
+  for (let r = 0; r < civ.regions.count; r++) add(civ.regionNames?.[r] || civ.regions.name?.[r]);
+  return out;
+}
+
+/** text 的 [at, end) 这一处是不是 known 里某个更长的名字的一部分 */
+function insideName(text: string, at: number, end: number, known: ReadonlySet<string>): boolean {
+  for (let a = at; a >= Math.max(0, at - NAME_REACH); a--) {
+    for (let b = end; b <= Math.min(text.length, end + NAME_REACH); b++) {
+      if ((a < at || b > end) && known.has(text.slice(a, b))) return true;
+    }
+  }
+  return false;
+}
+
+/** 名字在正文里第一次出现的位置(不算嵌在别国名字里的:"后高弥汗国"里的"高弥汗国";也不算嵌在民族、州、城这些名字里的);没有 = null */
+function firstMention(text: string, mine: string[], others: string[], known: ReadonlySet<string>): { at: number; len: number } | null {
   const spans: [number, number][] = [];
   for (const n of others) for (let i = text.indexOf(n); i >= 0; i = text.indexOf(n, i + 1)) spans.push([i, i + n.length]);
   let best: { at: number; len: number } | null = null;
   for (const n of mine) {
     for (let i = text.indexOf(n); i >= 0; i = text.indexOf(n, i + 1)) {
       const end = i + n.length;
-      if (spans.some(([s, e]) => s <= i && e >= end && e - s > n.length)) continue;
+      if (spans.some(([s, e]) => s <= i && e >= end && e - s > n.length) || insideName(text, i, end, known)) continue;
       if (!best || i < best.at || (i === best.at && n.length > best.len)) best = { at: i, len: n.length };
       break;
     }
@@ -4318,6 +4347,7 @@ function* introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicl
   for (const e of A) if ((e.kind === 'found' || e.kind === 'split' || e.kind === 'revolt') && e.a >= 0 && !origin.has(e.a)) origin.set(e.a, e);
   /** 国家 → 大事里最近一次出现时的国号词根 */
   const shown = new Map<number, string>();
+  const known = otherNames(civ);
   let n = 0;
   for (const e of list) {
     if (++n % 512 === 0) yield;
@@ -4351,7 +4381,7 @@ function* introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicl
     for (const id of pids) {
       const p = civ.polities[id];
       // 只管正文里写到的(战争的子条目里才有的第三国不算出现过);嵌在人名里的不算
-      const m = firstMention(e.text, nameAt(id), [...pids.filter((x) => x !== id).flatMap(nameAt), ...personNames]);
+      const m = firstMention(e.text, nameAt(id), [...pids.filter((x) => x !== id).flatMap(nameAt), ...personNames], known);
       if (!m) continue;
       // 改朝换代这一条写的是旧朝的国号:按前一刻算
       const at = e.kind === 'dynasty' && id === pids[0] ? y - 1 / 512 : y;

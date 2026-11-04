@@ -8,8 +8,10 @@
 import { describe, expect, it } from 'vitest';
 import { applyCharacters, type AuthorCharacter } from '../src/gen/characters';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { flagBook } from '../src/gen/civ/story/flags';
-import { chronicleBlock, chronicleFromV1, chronicleOfBlock, restoreEntries } from '../src/gen/civ/story/nameTokens';
+import { flagBook, type FlagBook, type FlagSpec } from '../src/gen/civ/story/flags';
+import { chronicleBlock, chronicleFromV1, chronicleOfBlock, inBuildChronicle, restoreEntries, type ChronicleBlock } from '../src/gen/civ/story/nameTokens';
+import { chronicleOf, type ChroniclePart } from '../src/chronicleParts';
+import { makePart, readLocalPart } from '../src/gen/snapshot';
 import { buildChronicle, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { treatyBook } from '../src/gen/civ/treatyBook';
@@ -301,6 +303,81 @@ describe('坏文字', () => {
   }, SLOW);
 });
 
+describe('国旗:读存的', () => {
+  /** 找到一个有后人的国家(复国、分家、仿它的);它和它的后人受影响,别的不受影响 */
+  function withHeirs(civ: Civ) {
+    const heirs = (id: number) => civ.polities.filter((p) => p.restores === id || p.parent === id || (p.parent === undefined && p.mentor === id));
+    const root = civ.polities.find((p) => heirs(p.id).length) ?? civ.polities[0];
+    return { root, heirs };
+  }
+  const SPEC = { shape: 'rect', layout: 'plain', c: ['W'] } as unknown as FlagSpec;
+  /** 几种改旗:第一朝、最后一朝、有后人的国家、好几国一起 */
+  function overrideSets(civ: Civ): Record<string, FlagSpec>[] {
+    const { root } = withHeirs(civ);
+    const dyn = civ.polities.find((p) => (p.dynasties?.length ?? 0) >= 2);
+    const sets: Record<string, FlagSpec>[] = [{}, { [polityKey(civ, 0)]: SPEC }, { [polityKey(civ, root.id)]: SPEC }];
+    if (dyn) {
+      sets.push({ [dynastyKey(civ, dyn.id, 1)]: SPEC });
+      sets.push({ [dynastyKey(civ, dyn.id, dyn.dynasties!.length - 1)]: SPEC, [polityKey(civ, root.id)]: SPEC });
+    }
+    return sets;
+  }
+
+  async function check(world: World, civ: Civ, label: string) {
+    // 存的一样读回来(和世界里存的一样过一遍打包)
+    const stored = (await readLocalPart(await makePart('flags', worldFlags(world, civ)))) as FlagBook;
+    const geo = civAtEra(civ, 0);
+    for (const ov of overrideSets(civ)) {
+      expect(flagBook(world, geo, ov, stored), `${label} 改旗 ${Object.keys(ov).length} 面`).toEqual(flagBook(world, geo, ov));
+    }
+  }
+
+  it.each([7, 2024])('种子 %i:读存的和现算逐面一样,改了旗的也一样', async (seed) => check(worldOf(seed), civOf(seed), `种子 ${seed}`), SLOW);
+
+  it('样本世界:同样', async () => {
+    for (const s of readSamples()) {
+      const { world, civ } = await openSample(s);
+      await check(world, civ, s.name);
+    }
+  }, SLOW);
+
+  it('没受影响的国家用存的,受影响的(后面的朝、分家、复国)现算', () => {
+    const world = worldOf(7);
+    const civ = civOf(7);
+    const real = flagBook(world, civ);
+    // 存的那一套和现在的规矩不一样了:每面都换成 SPEC
+    const old: FlagBook = { eras: real.eras.map((list) => list.map((e) => ({ ...e, spec: SPEC }))) };
+    expect(flagBook(world, civ, {}, old), '没改旗:全用存的').toEqual(old);
+    const { root, heirs } = withHeirs(civ);
+    const ov = { [polityKey(civ, root.id)]: { ...SPEC, c: ['R'] } as unknown as FlagSpec };
+    const got = flagBook(world, civ, ov, old);
+    const touched = new Set<number>([root.id]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const id of [...touched]) {
+        for (const h of heirs(id)) {
+          if (!touched.has(h.id)) {
+            touched.add(h.id);
+            grew = true;
+          }
+        }
+      }
+    }
+    expect(touched.size, '测试用的国家有后人').toBeGreaterThan(1);
+    civ.polities.forEach((p) => {
+      if (touched.has(p.id)) expect(got.eras[p.id], `${p.id} 受影响:不是存的`).not.toBe(old.eras[p.id]);
+      else expect(got.eras[p.id], `${p.id} 没受影响:用存的`).toBe(old.eras[p.id]);
+    });
+    expect(got.eras[root.id][0].how).toBe('edited');
+  }, SLOW);
+
+  it('存的旗和国家对不上:不用', () => {
+    const world = worldOf(7);
+    const civ = civOf(7);
+    expect(flagBook(world, civ, {}, { eras: [] })).toEqual(flagBook(world, civ));
+  }, SLOW);
+});
+
 describe('国旗', () => {
   /** 界面上算的:没有地形大事 = 整段历史;有 = 第一件以前的地形(ui/App.tsx 的 flagGeo) */
   function shownFlags(world: World, civ: Civ, names: Record<string, string>, chars?: readonly AuthorCharacter[]) {
@@ -333,12 +410,82 @@ describe('国旗', () => {
 });
 
 describe('buildChronicle 那一份', () => {
-  it('全部条目里种类不是信仰、时代、思潮的就是 buildChronicle 那几条,按顺序', () => {
+  const same = (civ: Civ, label: string) => {
+    const c = { ...civ };
+    expect(lines(fullChronicle(c).filter(inBuildChronicle)), label).toEqual(lines(buildChronicle(c)));
+  };
+  it.each([7, 2024])('种子 %i:全部条目按种类筛出来的就是 buildChronicle 那几条,按顺序', (seed) => same(civOf(seed), `种子 ${seed}`), SLOW);
+  it('样本世界、带作者人物的世界:同样', async () => {
+    for (const s of readSamples()) same((await openSample(s)).civ, s.name);
+    same(applyCharacters(authored(7), CHARS), '作者人物');
+  }, SLOW);
+});
+
+describe('第一次新建和再次打开', () => {
+  /** 第一次:线程算的;再次打开:存下的那一块打包、读回来再换名字。都和直接算比 */
+  async function roundTrip(civ: Civ, names: Record<string, string>, chars: readonly AuthorCharacter[] | undefined, label: string) {
+    const first = chronicleOf(civ, names, 1, chars);
+    const part = await makePart('chronicle', first.block);
+    const block = (await readLocalPart(part)) as ChronicleBlock;
+    const again = chronicleOf(civ, names, 2, chars, block);
+    expect(again.block, `${label}:用的是存的那一块`).toBe(block);
+    const text = (parts: readonly ChroniclePart[]) => lines(parts.flatMap((p) => p.entries));
+    expect(text(again.parts), label).toEqual(text(first.parts));
+    expect(text(first.parts), label).toEqual(lines(fullChronicle(applyCharacters(applyNames({ ...civ }, names), chars))));
+    expect(again.parts[0].authors, label).toBe(first.parts[0].authors);
+    expect(again.parts.flatMap((p) => [...p.build]), label).toEqual(first.parts.flatMap((p) => [...p.build]));
+  }
+
+  it.each([7, 2024])('种子 %i:编年史逐条一样', async (seed) => {
+    await roundTrip(civOf(seed), {}, undefined, `种子 ${seed}`);
+    await roundTrip(authored(seed), {}, CHARS, `种子 ${seed} 作者人物`);
+  }, SLOW);
+
+  it('样本世界:编年史逐条一样,改了名的也一样', async () => {
+    for (const s of readSamples()) {
+      const { civ } = await openSample(s);
+      await roundTrip(civ, {}, undefined, s.name);
+    }
+  }, SLOW);
+
+  it('人物卡的性别改过、块读不懂:退回现算', () => {
+    const civ = authored(7);
+    const block = chronicleBlock(civ, CHARS);
+    const chars = CHARS.map((c) => (c.id === 2 ? ({ id: 2, name: c.name } as AuthorCharacter) : c));
+    const changed = chronicleOf(civ, {}, 1, chars, block);
+    expect(changed.block, '性别改过:现算了一块').not.toBe(block);
+    expect(changed.block.authorFemale).toEqual([3]);
+    expect(lines(changed.parts.flatMap((p) => p.entries))).toEqual(lines(fullChronicle(applyCharacters(civ, chars))));
+    for (const bad of [{}, { entries: 'x' }, { entries: [{}] }, null] as unknown as ChronicleBlock[]) {
+      const got = chronicleOf(civ, {}, 1, CHARS, bad);
+      expect(got.block).not.toBe(bad);
+      expect(lines(got.parts.flatMap((p) => p.entries))).toEqual(lines(fullChronicle(applyCharacters(civ, CHARS))));
+    }
+  }, SLOW);
+
+  it('存的文字和现在的写法不一样:用存的,改名照样跟着变', () => {
     const civ = civOf(7);
-    const full = fullChronicle({ ...civ });
-    const build = buildChronicle({ ...civ });
-    const left = full.filter((e) => e.kind !== 'faith' && e.kind !== 'era' && e.kind !== 'thought');
-    expect(left.map((e) => e.text)).toEqual(build.map((e) => e.text));
+    const block = chronicleBlock(civ);
+    const changed: ChronicleBlock = { entries: block.entries.map((e) => ({ ...e, text: `${e.text}(旧写法)` })) };
+    const key = polityKey(civ, changed.entries.find((e) => e.polities.length)!.polities[0]);
+    const entries = chronicleOf(civ, { [key]: '测试新名字' }, 1, undefined, changed).parts.flatMap((p) => p.entries);
+    expect(entries.every((e) => e.text.endsWith('(旧写法)'))).toBe(true);
+    expect(entries.some((e) => e.text.includes('测试新名字'))).toBe(true);
+  }, SLOW);
+});
+
+describe('来历不插到别的名字中间', () => {
+  it('国名碰巧是民族名字的一部分:来历写在真正写到国家的地方,和占位符算的一样', () => {
+    const civ = civOf(8);
+    const direct = fullChronicle({ ...civ });
+    expectSame(restoreEntries(chronicleBlock(civ).entries, civ), direct, '种子 8');
+    const names = civ.cultures.map((c) => c.name);
+    const inside = direct.filter((e) => names.some((n) => [...e.text.matchAll(/\((第 \d+ 年|原)[^)]*\)族/g)].length && e.text.includes(`${n}(`)));
+    expect(inside.map((e) => e.text)).toEqual([]);
+  }, SLOW);
+
+  it('种子 7、2024 上一条不变(基准见存下的世界的测试):只动了碰巧的那种', () => {
+    for (const seed of [7, 2024]) expectSame(restoreEntries(chronicleBlock(civOf(seed)).entries, civOf(seed)), fullChronicle({ ...civOf(seed) }), `种子 ${seed}`);
   }, SLOW);
 });
 

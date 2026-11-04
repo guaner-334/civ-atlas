@@ -7,11 +7,13 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { isDeepStrictEqual } from 'node:util';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GENERATOR_VERSION } from '../src/gen/edits';
+import { restoreEntries } from '../src/gen/civ/story/nameTokens';
+import { fullChronicle } from '../src/gen/civ/story/religionText';
+import { GENERATOR_VERSION, applyNames } from '../src/gen/edits';
 import { READER_VERSIONS } from '../src/gen/readers/versions';
 import { currentQuery, type QueryReader } from '../src/gen/readers/queryReader';
 import { ownersAt, polityName, setQueryReader } from '../src/gen/readers/openQuery';
-import { recipeKey, recipeOfSave, type SnapshotPart } from '../src/gen/snapshot';
+import { makePart, recipeKey, recipeOfSave, type SnapshotPart } from '../src/gen/snapshot';
 import { packWorldParts, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import { VAULT_DB, _resetVault, commitWorld, latestOf, partKey, patchState, readRevision, revisionsOf, stateOf, type CommitRequest } from '../src/worldVault';
 import { OpenRefused, openStoredWorld, type OpenRefusal } from '../src/worldOpen';
@@ -105,21 +107,42 @@ describe('读存下的内容', () => {
     expect(got.world.history).toEqual([]);
     expect(got.civ?.polities.length).toBe(sample.civ.polities.length);
     expect(got.eras?.eras.map((e) => e.key)).toEqual(sample.eras.eras.map((e) => e.key));
-    expect([...got.parts.keys()]).toEqual(expect.arrayContaining(['map', 'eras', 'civ']));
+    expect([...got.parts.keys()]).toEqual(expect.arrayContaining(['map', 'eras', 'civ', 'chronicle', 'flags']));
     expect(got.fromCiv(got.civ)).toBe(got.civ);
+    expect(isDeepStrictEqual(got.chronicle, sample.chronicle)).toBe(true);
+    expect(isDeepStrictEqual(got.flags, sample.flags)).toBe(true);
+    expect(got.chronicleIsCurrent).toBe(true);
+    // 校验过的再打开:读到的一样
+    const again = await openStoredWorld(ask());
+    expect(isDeepStrictEqual(again.chronicle, sample.chronicle)).toBe(true);
+    expect(isDeepStrictEqual(again.flags, sample.flags)).toBe(true);
+    expect((await stateOf(sample.id))?.corrupt).toBeUndefined();
   });
 
-  it('第一次校验,过了记下来;内容没变再打开只读看世界的几块(编年史坏了也打得开),换了内容再校验一次', async () => {
+  it('存的是第 1 版的编年史(算好的文字):读进来转成第 2 版,换回名字和存的一样', async () => {
+    const names = sample.recipe.edits.names;
+    const v1 = fullChronicle(applyNames(sample.civ, names));
+    const parts = copies(viewParts.map((p) => p));
+    const made = await makePart('chronicle', v1);
+    await commitWorld(request({ parts: parts.map((p) => (p.name === 'chronicle' ? made : p)), schemas: { chronicle: 1 } }));
+    for (let round = 0; round < 2; round++) {
+      const got = await openStoredWorld(ask());
+      expect(got.chronicleIsCurrent).toBe(false);
+      expect(restoreEntries(got.chronicle!.entries, applyNames(got.civ!, names)).map((e) => e.text)).toEqual(v1.map((e) => e.text));
+      expect(got.chronicle!.entries.some((e) => e.text.includes('\uE000'))).toBe(true);
+    }
+  });
+
+  it('第一次校验,过了记下来;内容没变再打开只读看世界的几块,换了内容再校验一次', async () => {
     await commitWorld(request());
     const h = (await latestOf(sample.id))!;
     expect((await stateOf(sample.id))?.checked).toBeUndefined();
     await openStoredWorld(ask());
     expect((await stateOf(sample.id))?.checked).toBe(h.content);
-    await flipPart('chronicle');
-    await dropPart('flags');
+    await dropPart('thumb');
     const again = await openStoredWorld(ask());
     expect(again.civ).not.toBeNull();
-    expect([...again.parts.keys()].sort()).toEqual(['civ', 'eras', 'map']);
+    expect([...again.parts.keys()].sort()).toEqual(['chronicle', 'civ', 'eras', 'flags', 'map']);
     // 校验过的也核指纹:看世界那几块坏了照样读不了
     await flipPart('civ');
     expect(await whyOf(openStoredWorld(ask()))).toBe('broken');
@@ -129,9 +152,13 @@ describe('读存下的内容', () => {
   it('不要历史时(重新钉住世界),校验过的不解开历史,字节留着', async () => {
     await commitWorld(request());
     await openStoredWorld(ask());
+    await flipPart('chronicle');
     const got = await openStoredWorld(ask(), false);
     expect(got.civ).toBeNull();
     expect(got.parts.get('civ')).toBeDefined();
+    // 不要历史也不看编年史、国旗:坏了不算什么
+    expect(got.chronicle).toBeNull();
+    expect((await stateOf(sample.id))?.corrupt).toBeUndefined();
   });
 
   it('没有这个世界 = none', async () => {
@@ -164,14 +191,40 @@ describe('读存下的内容', () => {
     expect(got.civ).not.toBeNull();
   });
 
-  it.each(['map', 'eras', 'civ', 'chronicle', 'flags'])('%s 这一块的字节坏了 = broken,记下来', async (name) => {
+  it.each(['chronicle', 'flags'] as const)('%s 这一块读不出来:世界照样打开,这一块 = null(调用方现算),记下来', async (name) => {
+    await commitWorld(request());
+    await flipPart(name);
+    const first = await openStoredWorld(ask());
+    expect(first.civ).not.toBeNull();
+    expect(first[name]).toBeNull();
+    expect(first[name === 'flags' ? 'chronicle' : 'flags']).not.toBeNull();
+    expect((await stateOf(sample.id))?.corrupt).toBe(1);
+    // 校验过的再打开:同样
+    expect((await stateOf(sample.id))?.checked).toBeDefined();
+    const again = await openStoredWorld(ask());
+    expect(again.civ).not.toBeNull();
+    expect(again[name]).toBeNull();
+  });
+
+  it.each(['chronicle', 'flags'] as const)('缺 %s 这一块:世界照样打开,这一块 = null,记下来', async (name) => {
+    await commitWorld(request());
+    await dropPart(name);
+    const first = await openStoredWorld(ask());
+    expect(first.civ).not.toBeNull();
+    expect(first[name]).toBeNull();
+    expect((await stateOf(sample.id))?.corrupt).toBe(1);
+    const again = await openStoredWorld(ask());
+    expect(again[name]).toBeNull();
+  });
+
+  it.each(['map', 'eras', 'civ'])('%s 这一块的字节坏了 = broken,记下来', async (name) => {
     await commitWorld(request());
     await flipPart(name);
     expect(await whyOf(openStoredWorld(ask()))).toBe('broken');
     expect((await stateOf(sample.id))?.corrupt).toBe(1);
   });
 
-  it.each(['map', 'civ', 'flags'])('缺 %s 这一块 = broken,记下来', async (name) => {
+  it.each(['map', 'civ'])('缺 %s 这一块 = broken,记下来', async (name) => {
     await commitWorld(request());
     await dropPart(name);
     expect(await whyOf(openStoredWorld(ask()))).toBe('broken');

@@ -319,6 +319,23 @@ interface Ctx {
   seed: number;
   overrides: FlagOverrides;
   memo: Map<number, FlagEra[]>;
+  /** 存下的那一套(自动配的,见 flagBook);不给 = 全部现算 */
+  stored?: FlagBook;
+  touched: Map<number, boolean>;
+}
+
+/** 这国的旗受不受作者改旗的影响:自己哪一朝改过,或者母国、故国、仿的那一国受影响(后面的朝、分家、复国都照它往下配) */
+function touchedByEdit(ctx: Ctx, id: number): boolean {
+  const hit = ctx.touched.get(id);
+  if (hit !== undefined) return hit;
+  // 先占位:母国、故国的链再长也不会绕回自己(保险起见)
+  ctx.touched.set(id, false);
+  const { civ, overrides } = ctx;
+  const p = civ.polities[id];
+  const up = [p.restores, p.parent, p.parent === undefined ? p.mentor : undefined];
+  const out = dynastiesOf(p).some((_, i) => overrides[flagKey(civ, id, i)] !== undefined) || up.some((o) => o !== undefined && !!civ.polities[o] && touchedByEdit(ctx, o));
+  ctx.touched.set(id, out);
+  return out;
 }
 
 /** 某国在某年的那一面(分家、复国要看母国 / 故国当时的旗) */
@@ -336,6 +353,11 @@ const copy = (s: FlagSpec): FlagSpec => ({ ...s, c: s.c.slice(), charge: s.charg
 function polityEras(ctx: Ctx, id: number): FlagEra[] {
   const hit = ctx.memo.get(id);
   if (hit) return hit;
+  const had = ctx.stored && !touchedByEdit(ctx, id) ? ctx.stored.eras[id] : undefined;
+  if (had) {
+    ctx.memo.set(id, had);
+    return had;
+  }
   // 先占位:母国、故国的链再长也不会绕回自己(保险起见)
   ctx.memo.set(id, []);
   const { world, civ, seed } = ctx;
@@ -565,9 +587,14 @@ export interface FlagBook {
   eras: FlagEra[][];
 }
 
-/** 算出所有国家历代的旗;overrides = 作者改过的(键 → 旗) */
-export function flagBook(world: World, civ: Civ, overrides: FlagOverrides = {}): FlagBook {
-  const ctx: Ctx = { world, civ, seed: civ.seed, overrides, memo: new Map() };
+/**
+ * 算出所有国家历代的旗;overrides = 作者改过的(键 → 旗)。
+ * stored = 存进世界的那一套(没有作者改的、自动配的,和 flagBook(world, civ) 算出来的一样):没受作者改旗影响的国家直接用它,
+ * 受影响的(见 touchedByEdit)现算。这样以后改了配旗的规矩,老世界的旗不变
+ */
+export function flagBook(world: World, civ: Civ, overrides: FlagOverrides = {}, stored?: FlagBook): FlagBook {
+  const fits = stored && stored.eras.length === civ.polities.length ? stored : undefined;
+  const ctx: Ctx = { world, civ, seed: civ.seed, overrides, memo: new Map(), stored: fits, touched: new Map() };
   return { eras: civ.polities.map((p) => polityEras(ctx, p.id)) };
 }
 
