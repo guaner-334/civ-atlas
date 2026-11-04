@@ -8,7 +8,8 @@
  * - 推完、改完:生成世界的线程把这次的内容打好交回来(offerWorldParts),对得上这个世界存着的存档才存,对不上的先放着(和原件同样的规矩)。
  *   块按内容存,重推只会写变了的块;逐年推演不每步都存(线程那边停够了才打),页面藏起来、要关时叫线程马上打(packNow)
  * - 只改了配方以外的东西(改名、改旗、换投影、AI 写了正文、换了封面):停 LIGHT_DELAY 毫秒写一份新清单,只有作者内容、封面变了才写块。
- *   页面藏起来、要关时马上写。配方变了(历史要重推)的不写:那是待完成的修改,等推完
+ *   换世界、页面藏起来、要关时马上写。配方变了(历史要重推)的不写:那是待完成的修改,等推完。
+ *   没来得及写的(关得太快、在「我的世界」里改的别的世界),下次打开转存那一遍会补上
  *
  * 待完成的修改:存着的修订在仓库里,配方草稿就是存档(saveStore),两边分开放。崩了以后拿两边比(pendingEdit、pendingOf)就知道有没有没推完的修改。
  *
@@ -21,6 +22,7 @@
  * 删世界(maintain):只认 saveStore 的 trashMarks,用的人删的、又过了 TRASH_KEEP_MS 才清内容。撤销了、账号里取回来了的不清。
  * 不拿「我的世界」的列表反推:浏览器清了 localStorage、读不出列表时,一个世界也不清。退出登录选了「从这台设备上删掉」时全清(clearWorldStore)。
  * 写不下时先清用的人删掉超过 FULL_TRASH_AGE 的,再清没人引用的块,这一次就不存了,不删任何还在的世界。
+ * 全清时记一笔(CLEARED),别的标签页看到了就停下正在转的;正好在这时候写完的,这个世界的修订删掉,不留在清过的仓库里。
  *
  * 第一次存世界时申请长期保存(navigator.storage.persist)。Firefox 会弹浏览器自己的询问框,只问一次;Safari、Chromium 不弹,自己定,每次打开问一次。
  */
@@ -66,6 +68,16 @@ const timing = {
 const CONVERTING = 'civ-atlas:converting';
 /** Firefox 问过长期保存了 */
 const PERSIST_ASKED = 'civ-atlas:persist-asked';
+/** 最近一次全清的时间(几个标签页靠它知道仓库被清了) */
+const CLEARED = 'civ-atlas:vault-cleared';
+
+function clearedAt(): string | null {
+  try {
+    return localStorage.getItem(CLEARED);
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 调仓库(后台线程)
@@ -160,8 +172,14 @@ let vaultFull = false;
 
 /** 存一份;存不下记下来,不往外抛 */
 async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<CommitResult | null> {
+  const mark = clearedAt();
   try {
     const r = await call('commitWorld', [req], transfer);
+    // 写的这一会儿仓库被清了(用的人在别的标签页选了从这台设备上删掉):这份不留
+    if (clearedAt() !== mark) {
+      await call('purgeWorld', [req.id]);
+      return null;
+    }
     if (r.status === 'saved') {
       vaultFull = false;
       void askPersist();
@@ -235,6 +253,8 @@ let lightId: string | null = null;
 function scheduleLight() {
   const c = currentWorld();
   if (!c || c.kind === 'draft') return;
+  // 换了世界:上一个世界等着的先写,不能被这个顶掉
+  if (lightId && lightId !== c.id) flushLight();
   clearTimeout(lightTimer);
   lightId = c.id;
   lightTimer = setTimeout(flushLight, LIGHT_DELAY);
@@ -405,12 +425,17 @@ async function waitQuiet(): Promise<boolean> {
 /** 转一个世界:让路了 = 'yield';别的转完(不管成败)= 'next';写满了 = 'full' */
 async function runJob(job: ConvertJob): Promise<'next' | 'yield' | 'full'> {
   setConverting(job.id);
+  const mark = clearedAt();
   const h = runner(job);
   converting = h;
   const watch = setInterval(() => {
-    if (!sim.busy()) return;
-    busyAt = Date.now();
-    h.stop();
+    if (clearedAt() !== mark) {
+      stopped = true;
+      h.stop();
+    } else if (sim.busy()) {
+      busyAt = Date.now();
+      h.stop();
+    }
   }, timing.poll);
   let out: ConvertReply | 'stopped';
   try {
@@ -419,6 +444,12 @@ async function runJob(job: ConvertJob): Promise<'next' | 'yield' | 'full'> {
     clearInterval(watch);
     converting = null;
     setConverting(null);
+  }
+  // 转的这一会儿仓库被清了(也可能是别的标签页清的):线程可能正好写完了,这个世界的修订不留
+  if (clearedAt() !== mark) {
+    stopped = true;
+    await call('purgeWorld', [job.id]);
+    return 'yield';
   }
   if (out === 'stopped') return 'yield';
   if (out.ok) {
@@ -455,7 +486,11 @@ async function convertAll(): Promise<void> {
       } catch {
         job = null;
       }
-      if (!job) break;
+      if (!job) {
+        // 转完了的:上次没来得及写的改名、AI 正文这时补上(内容一样的不写)
+        await syncLight(id);
+        break;
+      }
       const r = await runJob(job);
       if (r === 'full') return;
       if (r === 'next') {
@@ -507,6 +542,11 @@ export async function maintain(trashKeep: number = TRASH_KEEP_MS, grace?: number
 
 /** 全清(退出登录时选了「从这台设备上删掉」):先停下正在转的、丢掉手上的,排在正在写的后面;清不了也不挡着退出 */
 export async function clearWorldStore(): Promise<void> {
+  try {
+    localStorage.setItem(CLEARED, String(Date.now()));
+  } catch {
+    /* 记不下:别的标签页这时候正在转的可能留下一份 */
+  }
   offer = null;
   lightId = null;
   clearTimeout(lightTimer);

@@ -20,7 +20,7 @@ import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
 import { APP_COMMIT } from '../src/ui/version';
-import { TRASH_KEEP_MS, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, setWorldStoreSim, startConversions, thumbBytes, type ConvertRunner } from '../src/ui/worldStore';
+import { TRASH_KEEP_MS, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, latestOf, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
@@ -199,6 +199,109 @@ describe('推完存进仓库', () => {
     expect(thumbBytes('data:image/png;base64,AAAA')).toBeUndefined();
     expect(thumbBytes('data:image/jpeg;base64,!!!')).toBeUndefined();
     expect(thumbBytes(null)).toBeUndefined();
+  });
+});
+
+describe('改名这种小改动', () => {
+  it('改完马上换世界:上一个世界等着的先写,不被顶掉', async () => {
+    const off = startWorldStore();
+    try {
+      const a = makeWorld();
+      await offerWorldParts(await offerOf());
+      const b = makeWorld();
+      await offerWorldParts(await offerOf());
+      openWorld(a);
+      saveStore.renameWorld(a, '甲的新名字');
+      openWorld(b);
+      await _settled();
+      expect((await readRevision(a))!.manifest.title).toBe('甲的新名字');
+    } finally {
+      off();
+    }
+  });
+
+  it('没来得及写的(在我的世界里改别的世界的名字、关得太快),下次打开补上', async () => {
+    const a = makeWorld();
+    await offerWorldParts(await offerOf());
+    const recipe = (await readRevision(a))!.head.recipeKey;
+    openWorld(makeWorld());
+    saveStore.renameWorld(a, '关之前改的');
+    expect((await readRevision(a))!.manifest.title).toBeUndefined();
+    await startConversions();
+    await _settled();
+    const r = (await readRevision(a))!;
+    expect(r.manifest.title).toBe('关之前改的');
+    expect(r.head.recipeKey).toBe(recipe);
+    // 再转一遍不多存
+    const n = r.head.n;
+    await startConversions();
+    await _settled();
+    expect((await latestOf(a))!.n).toBe(n);
+  });
+});
+
+describe('别的标签页把仓库全清了', () => {
+  const clearFromOtherTab = () => (g.localStorage as FakeStorage).setItem('civ-atlas:vault-cleared', String(Date.now()));
+
+  it('正在写的这一份写完了也不留', async () => {
+    const id = makeWorld();
+    const real = direct!;
+    _setWorldStore({
+      caller: ((op: keyof VaultOps, args: never) => {
+        const p = (real as never as (o: string, a: never) => Promise<unknown>)(op, args);
+        return op === 'commitWorld' ? p.then((r) => (clearFromOtherTab(), r)) : p;
+      }) as never,
+    });
+    expect(await offerWorldParts(await offerOf())).toBe(false);
+    await _settled();
+    expect(await latestOf(id)).toBeNull();
+  });
+
+  it('正在转的停下来,写完了也不留,这次不再转别的', async () => {
+    const o = sampleOriginal();
+    const ids = [storeSave(o.save), storeSave({ ...o.save, title: '第二个' })];
+    for (const id of ids) await putOriginal(id, o.parts, saveStore.loadWorld(id)!.save, o.generator);
+    const seen: string[] = [];
+    _setWorldStore({
+      runner: (job) => {
+        seen.push(job.id);
+        return {
+          done: runConvert(job, results).then((result) => {
+            clearFromOtherTab();
+            return { ok: true as const, result };
+          }),
+          stop: () => {},
+        };
+      },
+    });
+    await startConversions();
+    expect(seen).toEqual([ids[0]]);
+    expect(await latestOf(ids[0])).toBeNull();
+    expect(await latestOf(ids[1])).toBeNull();
+  }, 120_000);
+
+  it('转到一半看到清了:关掉线程', async () => {
+    const o = sampleOriginal();
+    const id = storeSave(o.save);
+    await putOriginal(id, o.parts, saveStore.loadWorld(id)!.save, o.generator);
+    let stops = 0;
+    _setWorldStore({
+      runner: () => {
+        let end: (v: 'stopped') => void = () => {};
+        const done = new Promise<'stopped'>((r) => (end = r));
+        setTimeout(clearFromOtherTab, 5);
+        return {
+          done,
+          stop: () => {
+            stops++;
+            end('stopped');
+          },
+        };
+      },
+    });
+    await startConversions();
+    expect(stops).toBeGreaterThan(0);
+    expect(await latestOf(id)).toBeNull();
   });
 });
 
