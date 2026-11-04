@@ -5,7 +5,7 @@
  *   编年史、国旗用现在的代码算(用的人今天打开看到的就是这样)。原件只读,一个字不动
  * - recompute:没有原件,但世界就是当前版本建的:当前版本算一遍就是它原来的样子。和生成世界的线程走同一段推演代码(worldRun.ts)
  * - keptMap:地图留着的世界(gen/edits.ts 文件头"地图留着的世界"):地图、各段世界的块照原样从仓库里拿,历史按现在的规则从第 0 年推一遍。
- *   哪个世界存着那张地图就从哪拿(原来那个世界删了也行,只要还有世界存着这一块)。读不到、对不上、推出来校验不过的报错,不算出一个怪东西
+ *   哪个世界存着那张地图(和要的各段世界)就从哪拿,原来那个世界删了也行。读不到、对不上、推出来校验不过的报错,不算出一个怪东西
  *
  * 没有原件的更旧版本不到这里:按现在的代码算出来不是它原来的样子,不能当它存下来。
  */
@@ -16,14 +16,14 @@ import { GENERATOR_VERSION, type TerrainOp } from './gen/edits';
 import { FIRST_READERS, READER_VERSIONS } from './gen/readers/versions';
 import { worldCheck, type SaveFile } from './gen/savefile';
 import { sketchGrid } from './gen/sketch';
-import { SNAPSHOT_FORMAT, makePart, partOf, readLocalPart, recipeKey, recipeOfSave, type SnapshotPart } from './gen/snapshot';
+import { SNAPSHOT_FORMAT, makePart, partOf, readLocalPart, recipeKey, recipeOfSave, type Recipe, type SnapshotPart } from './gen/snapshot';
 import { generateWorld, type World } from './gen/world';
 import { openStoredParts, readTrustedParts, type PackedPart, type WorldEras } from './gen/worldFile';
 import type { AuthorContent, WorldMade } from './gen/worldFormat';
 import { validateCiv, validateEras, validateWorld } from './gen/worldValidate';
 import { indexedDbResults, type ResultBackend } from './resultDb';
 import { eraWorlds, keyOf, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
-import { VaultError, commitWorld, readRevision, type CommitResult, type RevisionSource } from './worldVault';
+import { VaultError, commitWorld, readRevision, type CommitResult, type RevisionSource, type StoredRevision } from './worldVault';
 
 interface JobBase {
   id: string;
@@ -130,15 +130,49 @@ async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>): Prom
 
 const asSnapshotPart = (p: PackedPart): SnapshotPart => ({ name: p.info.name, bytes: p.info.bytes, sum: p.info.sum, zip: p.info.zip as SnapshotPart['zip'], data: p.data instanceof Uint8Array ? (p.data.slice().buffer as ArrayBuffer) : p.data });
 
-/** 哪个世界存着这张地图:最新的修订里地图那一块就是它 */
-async function keptSource(from: readonly string[], sum: string) {
+/** 这份配方的各段世界的键(按先后) */
+function eraKeysOf(r: Recipe): string[] {
+  let all: TerrainOp[] = [...((r.terrain ?? []) as TerrainOp[])];
+  return mergeUpheavals(r.upheavals ?? []).map((m) => {
+    all = [...all, ...m.ops];
+    return keyOf(r.params, all, r.sketch);
+  });
+}
+
+/** 读出一份修订里的地图、各段世界,看是不是这份配方要的。读不懂、少一段抛错 */
+async function keptWorldsIn(src: StoredRevision, r: Recipe): Promise<KeptWorlds> {
+  const opened = openStoredParts(src.text, src.parts, { readers: { ...READER_VERSIONS } });
+  const values = await readTrustedParts(opened, ['map', 'eras']);
+  validateWorld(values.map);
+  const eras = (values.eras as WorldEras | null) ?? null;
+  if (eras) validateEras(eras, values.map);
+  const need = eraKeysOf(r);
+  if (need.length && eras?.baseKey !== keyOf(r.params, r.terrain, r.sketch)) throw new VaultError('failed', '存下的内容里少一段地形大事');
+  if (need.some((k) => !eras?.eras.some((x) => x.key === k))) throw new VaultError('failed', '存下的内容里少一段地形大事');
+  return { map: values.map, eras };
+}
+
+/**
+ * 找存着这张地图、这份配方要的各段世界的那一份修订。同一张地图可能有好几个世界存着(地形大事不一样),不合适的接着找;
+ * 有地图但都用不了的报最后那个原因
+ */
+async function keptSource(from: readonly string[], r: Recipe): Promise<{ src: StoredRevision; kept: KeptWorlds }> {
+  let why: unknown = new VaultError('failed', '这个世界的地图不在仓库里');
   for (const id of new Set(from)) {
     const head = await readRevision(id, undefined, []);
-    if (head?.manifest.parts.find((p) => p.name === 'map')?.sum !== sum) continue;
-    const rev = await readRevision(id, head.head.n, ['map', 'eras']);
-    if (rev) return rev;
+    if (!head || head.manifest.parts.find((p) => p.name === 'map')?.sum !== r.keptMap) continue;
+    const src = await readRevision(id, head.head.n, ['map', 'eras']).catch((e: unknown) => {
+      why = e;
+      return null;
+    });
+    if (!src) continue;
+    try {
+      return { src, kept: await keptWorldsIn(src, r) };
+    } catch (e) {
+      why = e;
+    }
   }
-  return null;
+  throw why;
 }
 
 /** 地图留着的世界:存下的地图上按现在的规则推一遍 */
@@ -146,29 +180,19 @@ async function fromKeptMap(job: Extract<ConvertJob, { kind: 'keptMap' }>): Promi
   if (job.save.generator !== GENERATOR_VERSION) throw new VaultError('failed', '存档不是当前版本');
   const r = recipeOfSave(job.save);
   if (!r.keptMap) throw new VaultError('failed', '不是地图留着的世界');
-  const src = await keptSource(job.from, r.keptMap);
-  if (!src) throw new VaultError('failed', '这个世界的地图不在仓库里');
-  const map = src.parts.find((p) => p.info.name === 'map')!;
-  const eras = src.parts.find((p) => p.info.name === 'eras');
-  const baseKey = keyOf(r.params, r.terrain, r.sketch);
-  let kept: KeptWorlds;
+  let src: StoredRevision;
   let civ: Civ;
   let world: World;
   try {
-    const opened = openStoredParts(src.text, src.parts, { readers: { ...READER_VERSIONS } });
-    const values = await readTrustedParts(opened, ['map', 'eras']);
-    validateWorld(values.map);
-    const stored = (values.eras as WorldEras | null) ?? null;
-    if (stored) {
-      validateEras(stored, values.map);
-      if (stored.baseKey !== baseKey) throw new Error('各段世界和这份配方对不上');
-    }
-    kept = { map: values.map, eras: stored };
-    ({ civ, world } = recomputeWorld(job.save, kept));
+    const found = await keptSource(job.from, r);
+    src = found.src;
+    ({ civ, world } = recomputeWorld(job.save, found.kept));
     validateCiv(civ, world);
   } catch (e) {
     throw e instanceof VaultError ? e : new VaultError('failed', `这张地图上推不出历史:${e instanceof Error ? e.message : String(e)}`);
   }
+  const map = src.parts.find((p) => p.info.name === 'map')!;
+  const eras = src.parts.find((p) => p.info.name === 'eras');
   // 大事都去掉了(按另一版规则另存的)就不带各段世界,没去掉的照原样留着
   const useEras = !!eras && !!r.upheavals?.length;
   const parts = [asSnapshotPart(map), ...(useEras ? [asSnapshotPart(eras)] : []), await makePart('civ', civ), ...(await storyParts(world, civ, job.save))];

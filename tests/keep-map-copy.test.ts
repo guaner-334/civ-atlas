@@ -328,6 +328,31 @@ describe('新世界以后再改,地图都不按种子重新长', () => {
     expect(isDeepStrictEqual((await openOf(dup)).world, old.map)).toBe(true);
   }, 120_000);
 
+  it('同一张地图有好几个世界存着:找得到要的各段世界才用,不合适的接着找', async () => {
+    const old = await putOldWorld(UPS);
+    const { id } = okCopy(await keepMapCopy(old.id));
+    const save = saveStore.loadWorld(id)!.save;
+    // 同一张地图、大事去掉的一份:没有各段世界
+    const { upheavals: _u, ...rest } = save.edits;
+    void _u;
+    const bare = okCopy(await keepMapCopy(id, { edits: rest, title: '没有大事' }));
+    expect((await readRevision(bare.id))!.manifest.parts.some((p) => p.name === 'eras')).toBe(false);
+    saveStore.deleteWorld(old.id);
+    await purgeWorld(old.id);
+    const dup = saveStore.duplicateWorld(id)!;
+    const dupSave = saveStore.loadWorld(dup)!.save;
+    // 先碰到没有各段世界的那一份
+    await runConvert({ kind: 'keptMap', id: dup, save: dupSave, from: [dup, old.id, bare.id, id], app: 'x', commit: '' });
+    expect(await partSum(dup, 'eras')).toBe(await partSum(id, 'eras'));
+    expect(await partSum(dup, 'map')).toBe(old.mapSum);
+    // 哪一份都没有:报少一段
+    const out = await runConvert({ kind: 'keptMap', id: dup, save: dupSave, from: [bare.id], app: 'x', commit: '' }).then(
+      () => 'saved',
+      (e: Error) => e.message,
+    );
+    expect(out).toContain('少一段');
+  }, 120_000);
+
   it('存成文件,换一个什么都没有的浏览器打开:没有原世界也能开,地图不变;再按存下的地图重推也行', async () => {
     const old = await putOldWorld(PLAIN);
     const { id } = okCopy(await keepMapCopy(old.id));
