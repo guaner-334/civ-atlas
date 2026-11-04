@@ -3609,20 +3609,23 @@ if (part('干预保护')) {
     // 推演只要比播放快(每秒 80 年以上),整局重推不用卡得太紧
     const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
     if (resim) timing('干预保护:重推到画完', resim.paintedMs, RESIM_BUDGET);
-    // 干预也自动存:刷新页面 → 自动恢复修改 → 按存下的干预重推一次
+    // 干预也自动存:刷新页面 → 自动恢复修改。推完的内容存下来了就直接读(不重推),还没存下来就按存下的干预重推一次
     await page.waitForTimeout(1500);
     await page.reload();
     await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
-    const again = await page
-      .waitForFunction(() => ((window as any).__wfResim?.seq ?? 0) > 0, null, { timeout: 20000 })
-      .then(() => true, () => false);
+    const fromStored = await page.evaluate(() => (window as any).__wfLoad === 'stored');
+    const again =
+      fromStored ||
+      (await page
+        .waitForFunction(() => ((window as any).__wfResim?.seq ?? 0) > 0, null, { timeout: 20000 })
+        .then(() => true, () => false));
     await page.waitForTimeout(300);
     const tlAgain = await page.locator('.timebar .tb-year').innerText().catch(() => '');
     const playAgain = (await page.locator('.timebar .tb-play.on').count()) > 0;
     await openOverview(page, 'interventions');
     const listedAgain = await page.locator('.ov-ivs .ov-iv').count();
-    console.log(`干预:刷新后自动恢复、重推 ${again},概览里干预 ${listedAgain} 条;时间轴 ${tlAgain}${playAgain ? '(在放)' : '(停着)'}`);
-    if (!again || listedAgain !== 1) errs.push('干预:刷新页面后没有按自动存下的干预重推');
+    console.log(`干预:刷新后自动恢复、${fromStored ? '读存下的内容' : `重推 ${again}`},概览里干预 ${listedAgain} 条;时间轴 ${tlAgain}${playAgain ? '(在放)' : '(停着)'}`);
+    if (!again || listedAgain !== 1) errs.push('干预:刷新页面后没有恢复自动存下的干预');
     if (playAgain || tlAgain.replace(/\s/g, '') !== `第${Y}年`) errs.push(`干预:刷新后恢复干预不该动时间轴(网址里的第 ${Y} 年;${tlAgain}${playAgain ? ',在放' : ''})`);
     // "我的干预"里撤销这一条:重推历史,顶部提示"已撤销",列表变成空状态
     const prevU = await page.evaluate(() => (window as any).__wfResim?.seq ?? 0);

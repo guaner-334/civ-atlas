@@ -190,6 +190,8 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
     loadMapSum.current = m.mapSum ?? null;
     // 读到的是当前版本算的:和生成出来的是同一个世界,同样参数的世界可以接着用这张图(旧世界不行,见 openTarget)
     if (!loadedFrozen.current) genReq.current = null;
+    // 检查脚本看:这个世界是读存下的内容打开的
+    (window as unknown as { __wfLoad: unknown }).__wfLoad = m.world.readers ? 'stored' : 'made';
     try {
       takeMap(m);
     } catch (e) {
