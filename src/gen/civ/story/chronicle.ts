@@ -117,11 +117,12 @@ import { reformedSeg, royalSeg } from '../regime';
 import { IV_REIGNING, authorPostsFrom } from '../appoint';
 import { practicesAt } from './practiceInfo';
 import { Practice, hasPractice } from '../practices';
-import { ageAt, dowagerSpans, dowagerWordOf, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
+import { ageAt, coreRoot, dowagerSpans, dowagerWordOf, generalRef, kinOf, leaderName, ministerRole, princeRef, princeTitle, reigningAt, rulerBare, rulerRef, rulerShort, rulerTitle, splitSurname } from './peopleText';
 import { bySex, childWord, heOrShe, heirWord, isFemale, khanWord, kinWord, rivalsWord, westRank, type Sexed } from './gender';
 import { eraText, monthTail, type Era } from '../../era';
 import { biomeHas } from '../../biomes';
 import { TREK_DIR_NAMES, keyCells, parsePersonKey, regionOfKey, resolveKey, resolvePersonKey, type Intervention } from '../../edits';
+import { isNameToken, nameIf, nameToken, rootShapeOf } from '../nameToken';
 import { IV_NO_WAY } from '../trekRoute';
 import { emptyPolicy, policyName, type PolicyIv } from '../policy';
 import { IV_NOT_HIM, IV_PEOPLE, IV_PROTECTED, IV_WAIT, KEEP_COURT, KEEP_REGENT } from '../rulers';
@@ -842,7 +843,7 @@ function dynastyText(civ: Civ, e: Annal, ix: PeopleIndex | null = null, usurped 
     const oldRoot = polityRootAt(p, y - 1 / 512);
     const newRoot = polityRootAt(p, y);
     const newName = reignName(civ, p, i, y);
-    const house = newRoot !== oldRoot ? `${newRoot}氏` : '新朝';
+    const house = nameIf('same', newRoot, oldRoot, '新朝', `${newRoot}氏`);
     const r = regionName(civ, e.region);
     const coup = e.region >= 0 && oldCap >= 0 && oldCap < civ.settlements.length && civ.settlements[oldCap].region === e.region;
     let t = `${oldName}${lasted ? `${lasted}而亡` : '亡'}`;
@@ -932,9 +933,9 @@ function rebuildText(civ: Civ, e: Annal): string {
   const city = cityName(civ, e.settlement) || '新城';
   const old = s?.rebuilds !== undefined ? civ.settlements[s.rebuilds] : undefined;
   if (!old) return `${city}建城`;
-  if (old.name && old.name !== s!.name) return `${old.name}故址上筑起新城${city}`;
   const gap = old.ended !== undefined ? Math.floor(e.year) - Math.floor(old.ended) : 0;
-  return gap >= 100 ? `荒废 ${gap} 年的${city}重建` : `${city}重建`;
+  const again = gap >= 100 ? `荒废 ${gap} 年的${city}重建` : `${city}重建`;
+  return old.name ? nameIf('same', old.name, s!.name, again, `${old.name}故址上筑起新城${city}`) : again;
 }
 
 /** 旧都衰落:"大昌旧都汾城渐衰";国家已经亡了(被并)的写"故都"(国名用亡国时的):"昌国故都汾城渐衰" */
@@ -1502,7 +1503,7 @@ function policyTail(civ: Civ, v: PolicyIv, y: Year): string {
  * 作者的人物叫什么:套过人物卡的历史(gen/characters.ts 的 applyCharacters)里有名字(Civ.authorNames,或他即位后的人物);
  * 没套过 = "作者的人物"
  */
-function authorName(civ: Civ, char: number): string {
+export function authorName(civ: Civ, char: number): string {
   return civ.authorNames?.[char] || civ.people?.find((x) => x.author === char && x.name)?.name || '作者的人物';
 }
 
@@ -1615,10 +1616,8 @@ function warHead(civ: Civ, e: Annal, id: number, general: string): string {
       return `${A}与${B}争边,${general ? `遣${general}伐之` : '起兵伐之'}`;
     case 'betray':
       return general ? `${A}背盟,遣${general}伐${B}` : `${A}背盟伐${B}`;
-    case 'breach': {
-      const name = breachRef(civ, e, id);
-      return name ? `${A}背${name},${go(B)}` : `${A}背与${B}之约,${general ? `遣${general}伐之` : '举兵伐之'}`;
-    }
+    case 'breach':
+      return treatyWord(civ, breachOf(civ, e, id), (name) => `${A}背${name},${go(B)}`, `${A}背与${B}之约,${general ? `遣${general}伐之` : '举兵伐之'}`);
     case 'punish':
       return `${A}以${B}绝贡,${general ? `遣${general}讨之` : '兴兵讨之'}`;
     case 'quell':
@@ -1667,10 +1666,8 @@ function warReason(civ: Civ, e: Annal, id: number): string {
       return `与${B}争边,`;
     case 'betray':
       return '背盟,';
-    case 'breach': {
-      const name = breachRef(civ, e, id);
-      return name ? `背${name},` : '背约,';
-    }
+    case 'breach':
+      return treatyWord(civ, breachOf(civ, e, id), (name) => `背${name},`, '背约,');
     case 'rescue':
       return ally ? `救其藩属${ally},` : '';
     default:
@@ -1805,17 +1802,15 @@ function claimText(civ: Civ, e: Annal, id: number): string {
   const rs = claimsOf(civ, e.a, e.b, id, e.year);
   const r = rs.length ? regionName(civ, rs[0]) : '';
   if (!r) return '欲复故土';
+  const plain = rs.length === 1 ? `欲夺回${r}` : `欲复${r}等故地`;
   const lost = lostLastWar(civ, e.a, e.b, id, e.year);
   if (lost) {
     const v = (Math.imul(id + 1, 0x9e3779b1) >>> 0) % 3;
     // 州名里已经带"之"的("羊涂之野")不再叠一个"之",照常写
     const q = regionName(civ, rs.find((x) => lost.has(x)) ?? rs[0]);
-    if (q && !q.includes('之')) {
-      if (v === 0) return `欲雪${q}之耻`;
-      if (v === 1) return `欲报${q}之役`;
-    }
+    if (q && v < 2) return nameIf('has', q, '之', plain, v === 0 ? `欲雪${q}之耻` : `欲报${q}之役`);
   }
-  return rs.length === 1 ? `欲夺回${r}` : `欲复${r}等故地`;
+  return plain;
 }
 
 /** 宣战的动词:讨伐自立的藩属、起事的饥民写"讨",别的写"伐" */
@@ -2343,8 +2338,8 @@ function keepEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
   } else if (east) {
     const r = regionName(civ, e.region);
     // 本朝的姓:中式起名的国家、君主是中式名字(作者的人物也可能起别的名字)
-    const surnamed = !!p && !!N && /^[一-鿿]{2,4}$/.test(N.name) && personNamers(civ.seed)(civ.cultures[p.culture]?.style || 'kingdom').surnamed;
-    const house = surnamed ? `${splitSurname(N!.name)}氏` : '之';
+    const surnamed = !!p && !!N && personNamers(civ.seed)(civ.cultures[p.culture]?.style || 'kingdom').surnamed;
+    const house = surnamed ? nameIf('han', N!.name, '', `${splitSurname(N!.name)}氏`, '之') : '之';
     text = `${A}${dire}${r}豪强谋起兵代${house},未成`;
   } else {
     const city = cityName(civ, e.settlement);
@@ -2478,23 +2473,27 @@ function polityList(civ: Civ, ps: readonly number[], y: Year): string {
 
 /** 约的称呼:"丹枫关之约";议和顺带立的、没有会盟的城:"甲与乙之约" */
 function treatyRef(civ: Civ, id: number, ps: readonly number[], y: Year): string {
+  return treatyWord(civ, id, (name) => name, ps.length >= 2 ? `${pn(civ, ps[0], y)}与${pn(civ, ps[1], y)}之约` : '前约');
+}
+
+/**
+ * 写到一份约的那句话:约有名字(会盟的城、用的人起的)写 named(约名),没有(议和顺带立的)写 plain。
+ * 存占位符时(civ/nameToken.ts):没名字的约用的人起了名才有名字,两种写法都存着;现在的写法放前面,来历(introduce)找国名时找在它里面
+ */
+function treatyWord(civ: Civ, id: number, named: (name: string) => string, plain: string): string {
   const name = treatyCallName(civ, id);
-  if (name) return name;
-  return ps.length >= 2 ? `${pn(civ, ps[0], y)}与${pn(civ, ps[1], y)}之约` : '前约';
+  if (name) return named(name);
+  if (!isNameToken(civ.polities[0]?.name ?? '') || !treatyBook(civ).treaties[id]) return plain;
+  return nameIf('empty', nameToken(`o${id}`), '', plain, named(nameToken(`t${id}`)));
 }
 
-/** 背的约有名字(会盟的城)= "丹枫关之约";没有(议和顺带立的)= 空串,写"背与某国之约" */
-function breachName(civ: Civ, n: number | undefined): string {
-  return treatyCallName(civ, n ?? -1);
-}
-
-/** 背约来攻的那场战争(war 的 cause = breach)背的是哪份约的名字(宣战前一刻记的那条 breach;没名字 / 找不到 = 空串) */
-function breachRef(civ: Civ, e: Annal, id: number): string {
+/** 背约来攻的那场战争(war 的 cause = breach)背的是哪份约(宣战前一刻记的那条 breach;找不到 = −1) */
+function breachOf(civ: Civ, e: Annal, id: number): number {
   for (let i = id - 1; i >= 0 && civ.annals[i].year === e.year; i--) {
     const b = civ.annals[i];
-    if (b.kind === 'breach' && b.war === e.war) return breachName(civ, b.n);
+    if (b.kind === 'breach' && b.war === e.war) return b.n ?? -1;
   }
-  return '';
+  return -1;
 }
 
 /** 中立地那一州的名字 */
@@ -2578,7 +2577,6 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       return withPeople(out, envoy);
     }
     case 'breach': {
-      const name = breachName(civ, e.n);
       // 兵出中立地:背约这一仗头一回打的就是刚撤销的中立地那州
       const zone = tails.find((z) => z.kind === 'neutral');
       let out = '';
@@ -2591,7 +2589,7 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
         }
       }
       const B = pn(civ, e.b, y);
-      const t = `${pn(civ, e.a, y)}${name ? `背${name},伐${B}` : `背与${B}之约,举兵伐之`}${out}${zoneTail}`;
+      const t = `${pn(civ, e.a, y)}${treatyWord(civ, e.n ?? -1, (name) => `背${name},伐${B}`, `背与${B}之约,举兵伐之`)}${out}${zoneTail}`;
       return { ...base(e, id, t, 2, [e.a, e.b], zone ? [zone.region] : [], '违'), settlement: -1 };
     }
     case 'expire': {
@@ -2987,7 +2985,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     // 守的口子画在地图上(名关、打过守关战的口子,Place.pass.stands 记着这一条)= 直接写关名("守银竹关");
     // 没对上的照旧用州名称呼。州名里已经带"之"的("羊涂之野")不再叠一个"之":写"羊涂之野隘口"
     const onMap = standPassName(civ, i);
-    const pass = onMap || (r ? (east ? (r.includes('之') ? `${r}隘口` : `${r}之隘`) : khan ? `${r}山口` : `${r}的山口`) : east ? '险隘' : '山口');
+    const pass = onMap || (r ? (east ? nameIf('has', r, '之', `${r}隘口`, `${r}之隘`) : khan ? `${r}山口` : `${r}的山口`) : east ? '险隘' : '山口');
     const s = sideOf(e.a);
     const rear = ix?.rear.get(i) ?? null;
     // 掩护的是这一方的统帅:这一刻以前就在领兵的才写名字(这一刻才换上来的写"大军")
@@ -3044,7 +3042,7 @@ function warEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
     const al = s >= 0 ? ix?.commands.get(e.war)?.find((m) => m.side === s && m.first < i && m.until >= y && authorGeneral(m.person)) : undefined;
     if (al && !(c && reigningAt(c, y))) c = al.person;
     const who = c ? generalRef(civ, c, y) : `${pn(civ, e.a, y)}${east || khan ? '军' : '大军'}`;
-    const at = r.endsWith('一带') ? r : `${r}一带`;
+    const at = nameIf('end', r, '一带', r, `${r}一带`);
     const t = east ? `冬,${who}顿兵${r},待春复攻` : khan ? `天寒地冻,${who}在${at}驻冬,待开春再战` : `天寒地冻,${who}在${at}扎营过冬,待开春再攻`;
     if (c) named.add(c.id);
     return withPeople(base(e, i, t, 1, [e.a, e.b], [e.region]), c);
@@ -4283,6 +4281,11 @@ function renamedFrom(p: Polity, root: string, year: Year): string {
 function namesOf(p: Polity, year: Year): string[] {
   const out = new Set<string>(polityTitles(p, year));
   for (let t = 0; t < 4; t++) out.add(polityShortTitle(p, t, year));
+  // 占位符(civ/nameToken.ts):真名字里简称和词根、去掉"大"的写法是同一串字,写到这几种也算写到了
+  const root = polityRootAt(p, year);
+  const shape = rootShapeOf(root);
+  if (shape) out.add(root);
+  if (shape === 'long') out.add(coreRoot(root));
   return [...out].filter(Boolean).sort((a, b) => b.length - a.length);
 }
 
@@ -4364,14 +4367,15 @@ function* introduce(civ: Civ, list: ChronicleEntry[], told: ReadonlyMap<Chronicl
           else if (p.restores !== undefined) note = o.b >= 0 ? `第 ${Math.floor(oy)} 年脱${pn(civ, o.b, oy)}复国` : `第 ${Math.floor(oy)} 年复国`;
           else note = o.b >= 0 ? `第 ${Math.floor(oy)} 年叛${pn(civ, o.b, oy)}自立` : `第 ${Math.floor(oy)} 年自立`;
           const first = polityRootAt(p, oy);
-          if (first !== root) note += `,${renamedFrom(p, first, at)}`;
+          if (first !== root) note += nameIf('same', first, root, '', `,${renamedFrom(p, first, at)}`);
         }
-      } else if (was !== root) note = renamedFrom(p, was, at);
-      if (note) inserts.push({ at: m.at + m.len, note });
+      }
+      if (note) inserts.push({ at: m.at + m.len, note: `(${note})` });
+      else if (was !== undefined && was !== root) inserts.push({ at: m.at + m.len, note: nameIf('same', was, root, '', `(${renamedFrom(p, was, at)})`) });
       shown.set(id, e.kind === 'dynasty' && id === pids[0] ? polityRootAt(p, y) : root);
     }
     inserts.sort((a, b) => b.at - a.at);
-    for (const { at, note } of inserts) e.text = `${e.text.slice(0, at)}(${note})${e.text.slice(at)}`;
+    for (const { at, note } of inserts) e.text = `${e.text.slice(0, at)}${note}${e.text.slice(at)}`;
   }
 }
 

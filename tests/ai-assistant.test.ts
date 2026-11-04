@@ -23,11 +23,14 @@ import { getCivTime, getSelection, resetCivTime, setSelection } from '../src/ui/
 import { _resetBook, getBook, setBookContext } from '../src/ui/bookStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
 import * as saveStore from '../src/ui/saveStore';
+import { _setWorldStore } from '../src/ui/worldStore';
+import { recipeKey, recipeOfSave } from '../src/gen/snapshot';
 import {
   PREVIEW_EDIT_BLOCK,
   _resetAssistant,
   applyBlock,
   applyProposal,
+  chatFits,
   dismissProposal,
   getAssistant,
   newConversation,
@@ -499,6 +502,298 @@ describe('助手面板', () => {
     openWorld('wast3');
     syncAssistantWorld('terrain');
     expect(getAssistant().turns).toEqual([]);
+  });
+
+  describe('对话跟着世界的内容走,不跟着版本走', () => {
+    const CHAT = 'wenming-ditu:assistant:';
+    const OLD = GENERATOR_VERSION - 1;
+    const OLD_TURN = { id: 1, ask: '旧的', year: 0, basis: EMPTY_EDITS, status: 'done', steps: [], text: '' };
+    const X = { print: 'map:a|civ:b', recipe: 'r1', generator: GENERATOR_VERSION };
+    const content = (map: string, history: string, chronicle = 'c') => `map:${map}|eras:e|civ:${history}|chronicle:${chronicle}|flags:f`;
+
+    /** 假的世界仓库:世界编号 → 最新一份;broken = 读不了 */
+    let heads: Map<string, { content: string; recipeKey: string; generator: number }>;
+    let store: FakeStorage;
+    let broken: boolean;
+    /** 给了就等它:仓库回话慢 */
+    let hold: Promise<void> | null;
+    beforeEach(() => {
+      heads = new Map();
+      broken = false;
+      hold = null;
+      store = new FakeStorage();
+      g.localStorage = store;
+      saveStore._resetForTest();
+      _setWorldStore({
+        caller: (async (op: string, args: unknown[]) => {
+          if (hold) await hold;
+          if (broken) throw new Error('仓库坏了');
+          return op === 'latestOf' ? (heads.get(args[0] as string) ?? null) : undefined;
+        }) as unknown as Parameters<typeof _setWorldStore>[0]['caller'],
+      });
+    });
+    afterEach(() => {
+      _setWorldStore({ caller: null });
+    });
+
+    /** 仓库的回话、算配方指纹都是异步的:多等一会儿 */
+    const settled = () => new Promise((r) => setTimeout(r, 20));
+    /** 打开世界,不等仓库回话(frozen = 照原样打开的旧世界;edits = 存着的修改) */
+    function attach(id: string, frozen?: number, edits = EMPTY_EDITS) {
+      saveStore.detachWorld();
+      clearEdits();
+      if (edits !== EMPTY_EDITS) setEdits(edits);
+      saveStore.attachWorld({ id, params: world.params, check: 'check7', kind: 'created', saved: edits, ...(frozen !== undefined ? { frozen } : {}) });
+      syncAssistantWorld('terrain');
+    }
+    /** 打开世界,等仓库回话 */
+    async function open(id: string, frozen?: number, edits = EMPTY_EDITS) {
+      attach(id, frozen, edits);
+      await settled();
+    }
+    /** 现在打开的世界的配方指纹 */
+    const nowKey = () => recipeKey(recipeOfSave(saveStore.currentSave()!));
+    const saved = (id: string) => JSON.parse(store.getItem(CHAT + id)!) as { gen: number; mark?: { print: string; recipe: string; generator: number }; turns: AsTurn[] };
+    const put = (id: string, v: object) => store.setItem(CHAT + id, JSON.stringify({ turns: [OLD_TURN], ...v }));
+    const asks = () => getAssistant().turns.map((t) => t.ask);
+
+    it('比法:内容一样就接,内容变了不接;没有记号、仓库里没有的按版本比', () => {
+      // 按内容比
+      expect(chatFits({ gen: OLD, mark: { ...X, generator: OLD } }, X, GENERATOR_VERSION)).toBe(true);
+      expect(chatFits({ gen: GENERATOR_VERSION, mark: X }, { ...X, print: 'map:a|civ:改过', recipe: 'r2' }, GENERATOR_VERSION)).toBe(false);
+      // 同一个配方、同一版算的,字节有出入也是同一段历史
+      expect(chatFits({ gen: GENERATOR_VERSION, mark: X }, { ...X, print: 'map:a|civ:别的路算的' }, GENERATOR_VERSION)).toBe(true);
+      // 同一个配方,换了一版算出来不一样:另一段历史
+      expect(chatFits({ gen: OLD, mark: { ...X, generator: OLD } }, { ...X, print: 'map:a|civ:新版' }, GENERATOR_VERSION)).toBe(false);
+      // 按版本比
+      expect(chatFits({ gen: GENERATOR_VERSION }, X, GENERATOR_VERSION)).toBe(true);
+      expect(chatFits({ gen: GENERATOR_VERSION, mark: X }, null, GENERATOR_VERSION)).toBe(true);
+      expect(chatFits({ gen: OLD }, null, GENERATOR_VERSION)).toBe(false);
+      expect(chatFits({ gen: OLD }, null, OLD)).toBe(true);
+      // 仓库里那份不是现在看到的这份:不按它比
+      expect(chatFits({ gen: GENERATOR_VERSION, mark: X }, { ...X, print: 'map:a|civ:旧', recipe: 'r0', generator: OLD }, GENERATOR_VERSION)).toBe(true);
+      // 比这个软件还新的版本记的不算
+      expect(chatFits({ gen: GENERATOR_VERSION + 1 }, null, GENERATOR_VERSION)).toBe(false);
+    });
+
+    it('新对话存的时候记上指纹:只有地图和历史,不带编年史、国旗', async () => {
+      await open('wm1');
+      heads.set('wm1', { content: content('a', 'b'), recipeKey: await nowKey(), generator: GENERATOR_VERSION });
+      await sendAsk(ctx(), `${pickName0}为什么会亡？`);
+      await settled();
+      expect(saved('wm1').mark).toEqual({ print: 'map:a|civ:b', recipe: await nowKey(), generator: GENERATOR_VERSION });
+    });
+
+    it('改名不清对话:编年史变了,地图和历史没变,对话还在', async () => {
+      await open('wm2');
+      const key = await nowKey();
+      heads.set('wm2', { content: content('a', 'b'), recipeKey: key, generator: GENERATOR_VERSION });
+      const a = await sendAsk(ctx(), `${pickName0}为什么会亡？`);
+      await settled();
+      const before = saved('wm2').mark;
+      expect(before).toBeTruthy();
+      setName(polityKey(civ, pick.id), '改过的名字');
+      const edits = getEdits();
+      expect(Object.keys(edits.names).length).toBeGreaterThan(0);
+      // 改名不算改历史:记号留着
+      expect(saved('wm2').mark).toEqual(before);
+      heads.set('wm2', { content: content('a', 'b', '改了名的编年史'), recipeKey: key, generator: GENERATOR_VERSION });
+      await open('别的世界');
+      expect(getAssistant().turns).toEqual([]);
+      await open('wm2', undefined, edits);
+      expect(getAssistant().turns.map((t) => t.id)).toEqual([a]);
+    });
+
+    it('重推过不接旧对话:地图、历史都对不上;只是不显示,有了新对话才盖掉', async () => {
+      await open('wm3');
+      heads.set('wm3', { content: content('a', 'b'), recipeKey: await nowKey(), generator: GENERATOR_VERSION });
+      await sendAsk(ctx(), `${pickName0}为什么会亡？`);
+      await settled();
+      expect(saved('wm3').mark).toBeTruthy();
+      // 别的设备改过这个世界、重推过
+      heads.set('wm3', { content: content('a', '另一段历史'), recipeKey: 'r-别的', generator: GENERATOR_VERSION });
+      await open('别的世界');
+      await open('wm3');
+      expect(getAssistant().turns).toEqual([]);
+      expect(store.getItem(CHAT + 'wm3')).toContain(`${pickName0}为什么会亡？`);
+      // 仓库又对上了(改回去了):接回来
+      heads.set('wm3', { content: content('a', 'b'), recipeKey: 'r-别的', generator: GENERATOR_VERSION });
+      await open('别的世界');
+      await open('wm3');
+      expect(asks()).toEqual([`${pickName0}为什么会亡？`]);
+      // 又变了,这回说了新的:盖掉旧的,记上新的记号
+      const edits = { ...EMPTY_EDITS, endYear: 2000 };
+      await open('别的世界', undefined, edits);
+      heads.set('wm3', { content: content('a', '另一段历史'), recipeKey: await nowKey(), generator: GENERATOR_VERSION });
+      await open('wm3', undefined, edits);
+      expect(asks()).toEqual([]);
+      await sendAsk(ctx(), `${pickName0}在哪？`);
+      await settled();
+      expect(asks()).toEqual([`${pickName0}在哪？`]);
+      expect(saved('wm3').turns.map((t) => t.ask)).toEqual([`${pickName0}在哪？`]);
+      expect(saved('wm3').mark?.print).toBe('map:a|civ:另一段历史');
+    });
+
+    it('作者就在这里改历史:对话跟着走,改完到存进仓库之间关了页面也还在', async () => {
+      await open('wm4');
+      heads.set('wm4', { content: content('a', 'b'), recipeKey: await nowKey(), generator: GENERATOR_VERSION });
+      await sendAsk(ctx(), `${pickName0}为什么会亡？`);
+      await settled();
+      expect(saved('wm4').mark).toBeTruthy();
+      // 下一条干预:历史要重推,原来的记号马上去掉
+      expect(addIntervention({ kind: 'protect', a: polityKey(civ, pick.id), from: Math.ceil(pick.founded) })).toBe(true);
+      expect(saved('wm4').mark).toBeUndefined();
+      // 还没存进仓库就又说了一句:仓库里还是改之前的,不记
+      await sendAsk(ctx(), `${pickName0}在哪？`);
+      await settled();
+      expect(saved('wm4').mark).toBeUndefined();
+      // 关了页面再打开,还没存进仓库:对话在
+      const edits = getEdits();
+      await open('别的世界');
+      await open('wm4', undefined, edits);
+      expect(getAssistant().turns).toHaveLength(2);
+      expect(saved('wm4').mark).toBeUndefined();
+      // 重推完存进仓库,内容变了:还接得上,记上新的
+      heads.set('wm4', { content: content('a', '改过以后的'), recipeKey: await nowKey(), generator: GENERATOR_VERSION });
+      await open('别的世界');
+      await open('wm4', undefined, edits);
+      expect(getAssistant().turns).toHaveLength(2);
+      expect(saved('wm4').mark?.print).toBe('map:a|civ:改过以后的');
+    });
+
+    it('老记录:现在这一版记的留着,问到仓库就补上指纹', async () => {
+      put('wm5', { gen: GENERATOR_VERSION });
+      heads.set('wm5', { content: content('a', 'b'), recipeKey: 'r-别的配方', generator: GENERATOR_VERSION });
+      await open('wm5');
+      expect(asks()).toEqual(['旧的']);
+      // 配方对不上(仓库里的还不是现在这份):先不记
+      expect(saved('wm5').mark).toBeUndefined();
+      heads.set('wm5', { content: content('a', 'b'), recipeKey: await nowKey(), generator: GENERATOR_VERSION });
+      await open('别的世界');
+      await open('wm5');
+      expect(asks()).toEqual(['旧的']);
+      expect(saved('wm5').mark?.print).toBe('map:a|civ:b');
+    });
+
+    it('仓库里还没有这个世界、仓库坏了:按版本比,不清空', async () => {
+      put('wm6', { gen: GENERATOR_VERSION });
+      await open('wm6');
+      expect(asks()).toEqual(['旧的']);
+      expect(store.getItem(CHAT + 'wm6')).not.toBeNull();
+      broken = true;
+      put('wm7', { gen: GENERATOR_VERSION, mark: X });
+      await open('wm7');
+      expect(asks()).toEqual(['旧的']);
+      expect(saved('wm7').mark).toEqual(X);
+      // 版本不同又问不到:不显示,也不删
+      put('wm8', { gen: OLD, mark: { ...X, generator: OLD } });
+      await open('wm8');
+      expect(asks()).toEqual([]);
+      expect(store.getItem(CHAT + 'wm8')).not.toBeNull();
+    });
+
+    it('升了版本:世界照原样打开的、内容没变的,对话都在;内容变了的不接', async () => {
+      const key = 'r-旧版';
+      const oldMark = { print: 'map:a|civ:b', recipe: key, generator: OLD };
+      // 记过指纹的
+      put('wm9', { gen: OLD, mark: oldMark });
+      heads.set('wm9', { content: content('a', 'b'), recipeKey: key, generator: OLD });
+      await open('wm9', OLD);
+      expect(asks()).toEqual(['旧的']);
+      // 还没记指纹的老记录,仓库里有
+      put('wm10', { gen: OLD });
+      heads.set('wm10', { content: content('a', 'b'), recipeKey: key, generator: OLD });
+      await open('wm10', OLD);
+      expect(asks()).toEqual(['旧的']);
+      // 还没记指纹的老记录,仓库里还没有(转存还没轮到)
+      put('wm11', { gen: OLD });
+      await open('wm11', OLD);
+      expect(asks()).toEqual(['旧的']);
+      // 按新版重算了、内容没变:版本比不上,问过仓库接回来,存的时候记上现在的版本
+      put('wm12', { gen: OLD, mark: oldMark });
+      heads.set('wm12', { content: content('a', 'b'), recipeKey: key, generator: GENERATOR_VERSION });
+      attach('wm12');
+      expect(asks()).toEqual([]);
+      await settled();
+      expect(asks()).toEqual(['旧的']);
+      expect(saved('wm12').gen).toBe(GENERATOR_VERSION);
+      // 按新版重算了、内容变了:另一段历史
+      put('wm13', { gen: OLD, mark: oldMark });
+      heads.set('wm13', { content: content('a', '新版算的'), recipeKey: key, generator: GENERATOR_VERSION });
+      await open('wm13');
+      expect(asks()).toEqual([]);
+    });
+
+    it('先显示了,仓库回话说对不上:拿掉', async () => {
+      put('wm14', { gen: GENERATOR_VERSION, mark: X });
+      heads.set('wm14', { content: content('a', '另一段历史'), recipeKey: 'r-别的', generator: GENERATOR_VERSION });
+      attach('wm14');
+      expect(asks()).toEqual(['旧的']);
+      await settled();
+      expect(asks()).toEqual([]);
+      expect(store.getItem(CHAT + 'wm14')).not.toBeNull();
+    });
+
+    it('仓库回话之前说了新的:接回来的排在前面,编号不撞', async () => {
+      put('wm15', { gen: OLD, mark: { print: 'map:a|civ:b', recipe: 'r', generator: OLD } });
+      heads.set('wm15', { content: content('a', 'b'), recipeKey: 'r', generator: GENERATOR_VERSION });
+      attach('wm15');
+      expect(asks()).toEqual([]);
+      const a = await sendAsk(ctx(), `${pickName0}在哪？`);
+      await settled();
+      expect(a).toBeGreaterThan(OLD_TURN.id);
+      expect(asks()).toEqual(['旧的', `${pickName0}在哪？`]);
+    });
+
+    it('点了新对话以后仓库才回话:不接回来', async () => {
+      put('wm16', { gen: OLD, mark: { print: 'map:a|civ:b', recipe: 'r', generator: OLD } });
+      heads.set('wm16', { content: content('a', 'b'), recipeKey: 'r', generator: GENERATOR_VERSION });
+      attach('wm16');
+      newConversation();
+      await settled();
+      expect(asks()).toEqual([]);
+      expect(store.getItem(CHAT + 'wm16')).toBeNull();
+    });
+
+    it('旧对话先显示着,说完一轮仓库才回话说对不上:新说的单独存下来,记现在世界的记号', async () => {
+      await open('别的世界');
+      const key = await nowKey();
+      put('wm18', { gen: GENERATOR_VERSION, mark: X });
+      heads.set('wm18', { content: content('a', '另一段历史'), recipeKey: key, generator: GENERATOR_VERSION });
+      let release = () => {};
+      hold = new Promise((r) => (release = r));
+      attach('wm18');
+      expect(asks()).toEqual(['旧的']);
+      await sendAsk(ctx(), `${pickName0}在哪？`);
+      expect(saved('wm18').mark).toEqual(X);
+      hold = null;
+      release();
+      await settled();
+      expect(asks()).toEqual([`${pickName0}在哪？`]);
+      expect(saved('wm18').turns.map((t) => t.ask)).toEqual([`${pickName0}在哪？`]);
+      expect(saved('wm18').mark?.print).toBe('map:a|civ:另一段历史');
+      await open('别的世界');
+      await open('wm18');
+      expect(asks()).toEqual([`${pickName0}在哪？`]);
+    });
+
+    it('点了新对话以后说的话:不带旧对话的记号,记现在世界的', async () => {
+      // 同样的修改,配方指纹一样
+      await open('别的世界');
+      const key = await nowKey();
+      put('wm17', { gen: GENERATOR_VERSION, mark: X });
+      heads.set('wm17', { content: content('a', '另一段历史'), recipeKey: key, generator: GENERATOR_VERSION });
+      attach('wm17');
+      // 旧对话先按版本显示着,仓库还没回话就点了新对话
+      expect(asks()).toEqual(['旧的']);
+      newConversation();
+      await sendAsk(ctx(), `${pickName0}在哪？`);
+      await settled();
+      expect(saved('wm17').mark?.print).toBe('map:a|civ:另一段历史');
+      await open('别的世界');
+      await open('wm17');
+      expect(asks()).toEqual([`${pickName0}在哪？`]);
+    });
   });
 
   it('对象的叫法:编号和名字都认', () => {

@@ -56,7 +56,7 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
   const { reqId, fresh, regenRef, genSent, baseKeyRef, preProj, mapFirst, setMapEarly, setProgress } = deps.gen;
   const { genUps, rawUps, civMsLast, civLater, setRawCiv } = deps.civ;
   const { baseRef, setData, editedRef, eraPatches, setPatchVer, eraMapsRef, setEraMaps, eraAt, eraWarm, drawView, drawKey } = deps.map;
-  const { frozenLoad, loadBack, loadMapSum, readyRef } = deps.open;
+  const { frozenLoad, loadedFrozen, genReq, loadBack, loadMapSum, readyRef } = deps.open;
   /** 历史到了(和地图一起到的;地图先交了的,是地图换上以后):记下速度,换上历史,套上要打开的那个世界的修改 */
   const takeCiv = (d: { id: number; civ: Civ | null; ms: number; genMs: number; civMs?: number; reused?: true }, world: World) => {
     // 读原件来的、只算了后一半的(编辑地形接着上一次)不算生成速度
@@ -188,6 +188,8 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
   const openDone = (m: Exclude<Extract<WorkerResponse, { type: 'done' }>, { mapSent: true }>) => {
     loadBack.current = null;
     loadMapSum.current = m.mapSum ?? null;
+    // 读到的是当前版本算的:和生成出来的是同一个世界,同样参数的世界可以接着用这张图(旧世界不行,见 openTarget)
+    if (!loadedFrozen.current) genReq.current = null;
     try {
       takeMap(m);
     } catch (e) {

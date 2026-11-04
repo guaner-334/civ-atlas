@@ -4,7 +4,7 @@
  * 1. 后台线程卡住(watchLoad):读块、校验、铺像素都在线程里,一段时间(LOAD_STALL_MS)既没进度也没结果,就当它卡住了,叫 onStall(退回旧的路,发下一个请求时线程被关掉)
  * 2. 主线程卡死、页面崩了(opening*、checkCrashes):线程关得掉,主线程上的循环杀不掉。打开之前在 localStorage 记一笔「这个页面在打开哪个世界」,
  *    画面出来、又过了一会儿(SETTLE_MS)才划掉。下次打开页面看到有记录、记录它的页面又不在了,就是卡死、崩在这个世界上了。
- *    正常关页面不算(pagehide 划掉);别的标签页还开着不算(每个页面拿着一把自己的锁,navigator.locks 查得到它还在不在)
+ *    正常关页面不算(页面藏起来、要关的时候划掉;卡死的页面走不到这一步);别的标签页还开着不算(打开的这一会儿页面拿着一把自己的锁,navigator.locks 查得到它还在不在)
  * 3. 打开以后界面抛错(reportOpenCrash):抛错的时候开着的世界是新路读的,就记下来,调用方刷新页面重开
  *
  * 2、3 记下来以后,这个世界在这一版软件里不再走新路(vaultAllowed = false);出一版新软件再试一次(出了问题的代码可能已经修了)。
@@ -75,13 +75,15 @@ export function markOpenBad(id: string): void {
 // ---------------------------------------------------------------------------
 // 主线程卡死、页面崩了
 
-/** 这个页面活着就拿着这把锁:别的页面查得到它还在 */
-let lockHeld = false;
+/** 打开的这一会儿拿着这把锁:别的页面查得到这个页面还在。放掉 = 这个函数 */
+let releaseLock: (() => void) | null = null;
 function holdPageLock() {
-  if (lockHeld) return;
-  lockHeld = true;
+  if (releaseLock) return;
   try {
-    void navigator.locks?.request(PAGE_LOCK + page, () => new Promise<void>(() => {})).catch(() => {});
+    const locks = navigator.locks;
+    if (!locks?.request) return;
+    const held = new Promise<void>((r) => (releaseLock = r));
+    void locks.request(PAGE_LOCK + page, () => held).catch(() => {});
   } catch {
     /* 没有锁就按时间算 */
   }
@@ -90,6 +92,8 @@ function holdPageLock() {
 let hooked = false;
 /** 这个页面记的那一笔划掉 */
 function clearMine() {
+  releaseLock?.();
+  releaseLock = null;
   const rows = readJson<Record<string, OpeningRow>>(OPENING_KEY);
   let changed = false;
   for (const [id, r] of Object.entries(rows)) {
@@ -108,6 +112,10 @@ export function openingStart(id: string): void {
   if (!hooked && typeof window !== 'undefined') {
     hooked = true;
     window.addEventListener('pagehide', clearMine);
+    // 手机上页面藏起来以后可能不打招呼就被关掉
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') clearMine();
+    });
   }
   clearMine();
   fromVault = id;
@@ -139,7 +147,7 @@ async function deadRows(rows: Record<string, OpeningRow>): Promise<string[]> {
   if (locks?.query) {
     try {
       const q = await locks.query();
-      held = new Set((q.held ?? []).map((l) => l.name ?? ''));
+      held = new Set([...(q.held ?? []), ...(q.pending ?? [])].map((l) => l.name ?? ''));
     } catch {
       held = null;
     }

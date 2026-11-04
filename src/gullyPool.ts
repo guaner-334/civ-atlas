@@ -212,7 +212,7 @@ export class GullyPool {
     const part = { seed: job.seed, w: job.w, h: job.h, R: job.R, scale: job.scale, idx: job.idx.slice(a, b), ge: job.ge.slice(a, b), gn: job.gn.slice(a, b), amp: job.amp.slice(a, b) };
     return new Promise<Float32Array | null>((resolve) => {
       this.wait.set(id, (r) => resolve(r && 'out' in r ? r.out : null));
-      const req: GullyRequest = { id, job: part };
+      const req: GullyRequest = { id, terrain: this.version, job: part };
       hw.postMessage(req, [part.idx.buffer, part.ge.buffer, part.gn.buffer, part.amp.buffer]);
     });
   }
@@ -235,7 +235,7 @@ export class GullyPool {
     const copy: VeinJob = { ...vj, elev: vj.elev.slice(), water: vj.water.slice(), bank: vj.bank.slice(), streams: pre === undefined ? vj.streams : undefined };
     return new Promise((resolve) => {
       this.wait.set(id, (r) => resolve(r && 'veins' in r ? r.veins : null));
-      const req: GullyRequest = { id, veins: copy, bedsKey: pre };
+      const req: GullyRequest = { id, terrain: this.version, veins: copy, bedsKey: pre };
       hw.postMessage(req, [copy.elev.buffer, copy.water.buffer, copy.bank.buffer]);
     });
   }

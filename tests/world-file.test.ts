@@ -94,7 +94,7 @@ describe('世界文件:打包再读回', () => {
       ['map', 'parts/map.gz', 1, 'gzip', 'view'],
       ['eras', 'parts/eras.gz', 1, 'gzip', 'view'],
       ['civ', 'parts/civ.gz', 1, 'gzip', 'view'],
-      ['chronicle', 'parts/chronicle.gz', 1, 'gzip', 'view'],
+      ['chronicle', 'parts/chronicle.gz', 2, 'gzip', 'view'],
       ['flags', 'parts/flags.gz', 1, 'gzip', 'view'],
       ['author', 'parts/author.gz', 1, 'gzip', 'extra'],
       ['thumb', 'parts/thumb.jpg', 1, 'none', 'extra'],
@@ -371,9 +371,9 @@ describe('世界文件:认不出的块原样带着,只当字节', () => {
 
   it('另存:去掉可选的块、换内容;换过的块照现在的结构写', async () => {
     const opened = await openWorldFile(good, OPEN);
-    const next = await openWorldFile(await rewriteWorldFile(opened, { values: { author: null, thumb: null, chronicle: [] } }), OPEN);
+    const next = await openWorldFile(await rewriteWorldFile(opened, { values: { author: null, thumb: null, chronicle: { entries: [] } } }), OPEN);
     expect(next.manifest.parts.map((p) => p.name)).toEqual(['map', 'eras', 'civ', 'chronicle', 'flags']);
-    expect((await readWorldContent(next)).chronicle).toEqual([]);
+    expect((await readWorldContent(next)).chronicle).toEqual({ entries: [] });
   }, 30_000);
 
   it('打包时带的附加数据:need 是 extra,记着谁放的,读世界用不着', async () => {
@@ -394,9 +394,10 @@ describe('世界文件:迁移', () => {
   };
   const manifest = () => goodManifest;
 
-  it('现在每块都是第 1 版;现在的迁移表是空的', () => {
-    for (const k of ['map', 'eras', 'civ', 'chronicle', 'flags', 'author', 'thumb', 'ext.magic', 'constructor', '__proto__']) expect(currentSchema(k), k).toBe(1);
-    for (const steps of Object.values(MIGRATIONS)) expect(steps).toEqual([]);
+  it('现在只有编年史是第 2 版,别的块都是第 1 版;迁移表里只有编年史那一步', () => {
+    for (const k of ['map', 'eras', 'civ', 'flags', 'author', 'thumb', 'ext.magic', 'constructor', '__proto__']) expect(currentSchema(k), k).toBe(1);
+    expect(currentSchema('chronicle')).toBe(2);
+    for (const [k, steps] of Object.entries(MIGRATIONS)) expect(steps.length, k).toBe(k === 'chronicle' ? 1 : 0);
   });
 
   it('逐级转到现在的版本:只走缺的那几步', () => {
@@ -456,7 +457,7 @@ describe('世界文件:迁移', () => {
   };
 
   it('走一遍完整的读法:第 1 版的文件,按有第 2 版的软件读,读出来是转过的', async () => {
-    const table: MigrationTable = { civ: [roundTrip] };
+    const table: MigrationTable = { ...MIGRATIONS, civ: [roundTrip] };
     const opts = { ...OPEN, migrations: table };
     const c = await readWorldContent(await openWorldFile(good, opts));
     expect((c.civ as any).migrated).toBe(true);
@@ -466,11 +467,11 @@ describe('世界文件:迁移', () => {
   it('写第 2 版的文件要新版软件:旧软件(只有第 1 版)读它报要更新', async () => {
     const f = await repack((m) => (m.parts.find((p: any) => p.name === 'civ').schema = 2));
     await expectKind(() => openWorldFile(f, OPEN), 'newer');
-    expect((await openWorldFile(f, { ...OPEN, migrations: { civ: [roundTrip] } })).manifest.parts.find((p) => p.name === 'civ')!.schema).toBe(2);
+    expect((await openWorldFile(f, { ...OPEN, migrations: { ...MIGRATIONS, civ: [roundTrip] } })).manifest.parts.find((p) => p.name === 'civ')!.schema).toBe(2);
   });
 
   it('转不了:报只读,原件不动,还能照样另存', async () => {
-    const opts = { ...OPEN, migrations: { civ: [() => { throw new Error('转不了'); }] } as MigrationTable };
+    const opts = { ...OPEN, migrations: { ...MIGRATIONS, civ: [() => { throw new Error('转不了'); }] } as MigrationTable };
     const opened = await openWorldFile(good, opts);
     const before = opened.bytes.get('civ')!.slice();
     await expectKind(() => readWorldContent(opened), 'readonly');
@@ -481,19 +482,19 @@ describe('世界文件:迁移', () => {
   }, 30_000);
 
   it('另存时换掉的块照现在的版本写,没换的还是原来的版本', async () => {
-    const opts = { ...OPEN, migrations: { civ: [roundTrip], chronicle: [(v: unknown) => v] } as MigrationTable };
+    const opts = { ...OPEN, migrations: { civ: [roundTrip], chronicle: [...MIGRATIONS.chronicle, (v: unknown) => v] } as MigrationTable };
     const opened = await openWorldFile(good, opts);
-    const next = await openWorldFile(await rewriteWorldFile(opened, { values: { chronicle: [] } }), opts);
-    expect(next.manifest.parts.find((p) => p.name === 'chronicle')!.schema).toBe(2);
+    const next = await openWorldFile(await rewriteWorldFile(opened, { values: { chronicle: { entries: [] } } }), opts);
+    expect(next.manifest.parts.find((p) => p.name === 'chronicle')!.schema).toBe(3);
     expect(next.manifest.parts.find((p) => p.name === 'civ')!.schema).toBe(1);
     expect(next.bytes.get('civ')).toEqual(opened.bytes.get('civ'));
-    expect((await readWorldContent(next)).chronicle).toEqual([]);
+    expect((await readWorldContent(next)).chronicle).toEqual({ entries: [] });
   }, 30_000);
 
   it('封面也走迁移:转得了读转过的,转不了记在 skipped 里', async () => {
-    const yes = await readWorldContent(await openWorldFile(good, { ...OPEN, migrations: { thumb: [() => tinyJpeg(100, 50)] } }));
+    const yes = await readWorldContent(await openWorldFile(good, { ...OPEN, migrations: { ...MIGRATIONS, thumb: [() => tinyJpeg(100, 50)] } }));
     expect(yes.thumb).toEqual(tinyJpeg(100, 50));
-    const opened = await openWorldFile(good, { ...OPEN, migrations: { thumb: [() => { throw new Error('转不了'); }] } });
+    const opened = await openWorldFile(good, { ...OPEN, migrations: { ...MIGRATIONS, thumb: [() => { throw new Error('转不了'); }] } });
     const no = await readWorldContent(opened);
     expect(no.thumb).toBeNull();
     expect(no.skipped).toEqual(['thumb']);
@@ -501,7 +502,7 @@ describe('世界文件:迁移', () => {
   }, 30_000);
 
   it('可选的块转不了:世界照样看,这一块记在 skipped 里,字节留着', async () => {
-    const opts = { ...OPEN, migrations: { author: [() => { throw new Error('转不了'); }] } as MigrationTable };
+    const opts = { ...OPEN, migrations: { ...MIGRATIONS, author: [() => { throw new Error('转不了'); }] } as MigrationTable };
     const opened = await openWorldFile(good, opts);
     const c = await readWorldContent(opened);
     expect(c.author).toBeNull();

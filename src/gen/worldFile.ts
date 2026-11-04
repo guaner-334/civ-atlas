@@ -13,7 +13,7 @@
  *
  * 纯计算,不碰 DOM:网页、worker、Node(服务器)共用。
  */
-import type { ChronicleEntry } from './civ/story/chronicle';
+import type { ChronicleBlock } from './civ/story/nameTokens';
 import type { FlagBook } from './civ/story/flags';
 import type { Civ } from './civ/types';
 import { parseSave, type SaveFile } from './savefile';
@@ -60,7 +60,7 @@ export interface WorldValues {
   /** 地形大事以后的各段;没有地形大事 = 不给,或者给空的(都不写这一块) */
   eras?: WorldEras | null;
   civ: Civ;
-  chronicle: ChronicleEntry[];
+  chronicle: ChronicleBlock;
   flags: FlagBook;
   /** 作者内容(AI 写的正文);没有 = 不给 */
   author?: AuthorContent | null;
@@ -311,8 +311,11 @@ export interface WorldContent extends WorldValues {
   skipped: string[];
 }
 
-/** 解开、迁移一块(没有、只当字节留着的 = null);decode = 字节怎么变成值(封面就是字节本身) */
-function partReader(opened: OpenedWorldFile, skipped: string[]) {
+/**
+ * 解开、迁移一块(没有、只当字节留着的 = null);decode = 字节怎么变成值(封面就是字节本身)。
+ * done = 读好了的几块:后面的块转结构时要看(编年史要看历史),调用方读完 civ 记进去
+ */
+function partReader(opened: OpenedWorldFile, skipped: string[], done: { civ?: Civ }) {
   const { manifest } = opened;
   const migrations = opened.options.migrations ?? MIGRATIONS;
   return async (name: string, decode: (b: Uint8Array) => unknown = (b) => unpackValue(b, worldHeadLimit(opened.options.maxBytes))): Promise<unknown> => {
@@ -322,7 +325,7 @@ function partReader(opened: OpenedWorldFile, skipped: string[]) {
     if (!data) broken(`缺 ${name} 这一块`);
     const b = await partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, data, worldPartLimit(name, opened.options.maxBytes));
     try {
-      return migratePart(name, info.schema, decode(b), manifest, migrations);
+      return migratePart(name, info.schema, decode(b), manifest, migrations, done);
     } catch (err) {
       // 可选的块转不了结构不碍看世界
       if (info.need === 'extra' && asWorldFileError(err).kind === 'readonly') {
@@ -339,10 +342,14 @@ function partReader(opened: OpenedWorldFile, skipped: string[]) {
  * 返回 块名 → 值(清单里没有这一块 = null)
  */
 export async function readTrustedParts(opened: OpenedWorldFile, names: readonly string[]): Promise<Record<string, unknown>> {
-  const read = partReader(opened, []);
+  const done: { civ?: Civ } = {};
+  const read = partReader(opened, [], done);
   const out: Record<string, unknown> = {};
   try {
-    for (const n of names) out[n] = await read(n);
+    for (const n of names) {
+      out[n] = await read(n);
+      if (n === 'civ') done.civ = out[n] as Civ;
+    }
     return out;
   } catch (err) {
     throw asWorldFileError(err);
@@ -356,7 +363,8 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
 export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldContent> {
   const { manifest } = opened;
   const skipped: string[] = [];
-  const read = partReader(opened, skipped);
+  const done: { civ?: Civ } = {};
+  const read = partReader(opened, skipped, done);
   try {
     const map = await read('map');
     validateWorld(map);
@@ -364,6 +372,7 @@ export async function readWorldContent(opened: OpenedWorldFile): Promise<WorldCo
     if (eras) validateEras(eras, map);
     const civ = await read('civ');
     validateCiv(civ, map);
+    done.civ = civ;
     // 各段历史按下标对各段世界(有的大事还没推到,世界可以比历史多,不能少)
     if ((civ.eras?.length ?? 0) > (eras?.eras.length ?? 0)) broken('历史的各段比世界的各段多');
     const chronicle = await read('chronicle');

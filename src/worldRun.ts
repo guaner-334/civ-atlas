@@ -10,13 +10,13 @@ import type { Calamity } from './gen/civ/calamity';
 import { civAtEra } from './gen/civ/eraCiv';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import { playStop } from './gen/civ/play';
-import type { ChronicleEntry } from './gen/civ/story/chronicle';
+import type { AuthorCharacter } from './gen/characters';
 import { flagBook, type FlagBook } from './gen/civ/story/flags';
-import { fullChronicle } from './gen/civ/story/religionText';
+import { chronicleBlock, type ChronicleBlock } from './gen/civ/story/nameTokens';
 import type { WorldTuning } from './gen/civ/tuning';
 import { worldPatch } from './gen/civ/tuningPatch';
 import type { Civ } from './gen/civ/types';
-import { applyNames, playInterventions, type Intervention, type PlayState, type TerrainOp } from './gen/edits';
+import { playInterventions, type Intervention, type PlayState, type TerrainOp } from './gen/edits';
 import type { NameMix } from './gen/names';
 import type { SketchEdit } from './gen/sketch';
 import type { World, WorldParams } from './gen/world';
@@ -71,16 +71,18 @@ export function eraWorlds(steps: readonly { key: string; world: World }[]): { ke
   });
 }
 
-/** 存进世界的编年史:整段历史套上改名以后的全部条目(和界面上看到的一样) */
-export function worldChronicle(civ: Civ, names: Readonly<Record<string, string>>): ChronicleEntry[] {
-  // 浅拷一层再算:编年史的缓存按这个对象记,算完就放掉
-  return fullChronicle(applyNames({ ...civ }, names as Record<string, string>));
+/**
+ * 存进世界的编年史:名字写成占位符的全部条目,显示时换成当前的名字(gen/civ/story/nameTokens.ts),所以和改名无关,改名不用重写这一块。
+ * characters = 作者的人物:君号、代词按人物卡的性别写
+ */
+export function worldChronicle(civ: Civ, characters?: readonly AuthorCharacter[]): ChronicleBlock {
+  return chronicleBlock(civ, characters);
 }
 
 /**
- * 存进世界的国旗:自动配的那一套。作者改过的旗在配方里,不算在这一块,改旗不用重写这一块。
+ * 存进世界的国旗:自动配的那一套。作者改过的旗在配方里,不算在这一块,改旗不用重写这一块;配旗不看名字,改名也不用。
  * 有地形大事的按第一件以前的地形配(和界面上一样:拖时间轴跨过大事旗不跟着变)
  */
-export function worldFlags(world: World, civ: Civ, names: Readonly<Record<string, string>>): FlagBook {
-  return flagBook(world, applyNames(civAtEra(civ, 0), names as Record<string, string>));
+export function worldFlags(world: World, civ: Civ): FlagBook {
+  return flagBook(world, civAtEra(civ, 0));
 }

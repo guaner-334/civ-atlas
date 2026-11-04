@@ -16,6 +16,11 @@
  *
  * 对话按世界存在浏览器里(换世界就换成那个世界的对话);试推演出来的历史只在内存里,
  * 刷新以后点"先在地图上看看"再推一遍。试推演由 App 交给 worker(setTrialRunner)。
+ *
+ * 对话跟着世界的内容走,不跟着软件版本走(chatFits):存的时候记下世界内容的记号(地图、历史两块的指纹,worldStore.ts 的 WorldMark),
+ * 打开时和世界仓库里的比。一样就留着,所以改名、升版本都不丢;世界真的重推过(别的设备改过、按新版重算了),那是另一段历史,不接。
+ * 作者就在这里改历史(执行确认单、下令、逐年推下去)对话跟着走:记号先去掉,等仓库存下新的内容再记新的。
+ * 还没记记号的老记录、仓库里还没有这个世界、仓库读不了的,按版本比。不接的只是不显示,存着的那份等这个世界有了新对话才盖掉
  * 网址带 ai=mock 时用 assistant.ts 的假 AI 按固定步骤走(冒烟检查、截图用)。
  */
 import { createListeners } from './createStore';
@@ -53,7 +58,9 @@ import {
 import { HISTORY_LENGTHS, type HistoryLength, type HistoryScope, type HistoryStyle } from '../ai/prompts/history';
 import { bookHow, getBook, startBook } from './bookStore';
 import { askHistory, commitEdits, getEdits, historyDiffers, revertEdits, setName, subscribeEdits } from './editsStore';
-import { currentWorld } from './saveStore';
+import { currentSave, currentWorld } from './saveStore';
+import { sameHistory, worldMark, type WorldMark } from './worldStore';
+import { recipeKey, recipeOfSave } from '../gen/snapshot';
 import { setCivTime, setSelection, type MapSelection } from './civView';
 import { requestFly } from './panelStore';
 import { showToast } from './toastStore';
@@ -173,33 +180,96 @@ const KEY = (w: string) => `wenming-ditu:assistant:${w}`;
 const KEEP = 30;
 
 interface Saved {
+  /** 存的时候软件的生成器版本 */
   gen: number;
+  /** 存的时候世界内容的记号;还不知道的、世界刚改过还没存进仓库的没有 */
+  mark?: WorldMark;
   turns: AsTurn[];
 }
 
-function load(w: string): AsTurn[] {
+function readSaved(w: string): Saved | null {
   try {
     const raw = localStorage.getItem(KEY(w));
-    if (!raw) return [];
+    if (!raw) return null;
     const v = JSON.parse(raw) as Saved;
-    // 生成算法换过:同一个种子的历史不一样了,原来的确认单、结果对不上
-    if (!v || v.gen !== GENERATOR_VERSION || !Array.isArray(v.turns)) return [];
-    return v.turns;
+    return v && Array.isArray(v.turns) ? v : null;
   } catch {
-    return [];
+    return null;
+  }
+}
+
+/** 现在看到的世界是哪一版算的:照原样打开的旧世界是建它的那一版,别的都是现在这一版 */
+const shownGen = () => currentWorld()?.frozen ?? GENERATOR_VERSION;
+
+/**
+ * 存着的对话接不接得上现在的世界。stored = 仓库里最新一份的记号(还没有、读不了 = null),shown = 现在看到的世界是哪一版算的。
+ * 仓库里存的就是现在看到的这份、对话也记了记号:按内容比。别的按版本比:对话是这个世界算出来以后记的就算
+ * (这样升了版本、世界照原样打开的不丢;按新版重算了的,对话比世界旧,不接);比这个软件还新的版本记的不算
+ */
+export function chatFits(saved: Pick<Saved, 'gen' | 'mark'>, stored: WorldMark | null, shown: number): boolean {
+  if (stored?.generator === shown && saved.mark) return sameHistory(saved.mark, stored);
+  return saved.gen >= shown && saved.gen <= GENERATOR_VERSION;
+}
+
+/** 对话现在记的世界内容的记号 */
+let mark: WorldMark | null = null;
+/** 换世界、新对话时加一:问仓库问到一半的作废 */
+let chatSeq = 0;
+/** 作者改历史时加一:改之前问到的记号作废 */
+let editSeq = 0;
+
+function write(w: string) {
+  try {
+    const turns = state.turns.filter((t) => t.status !== 'working').slice(-KEEP);
+    if (turns.length) localStorage.setItem(KEY(w), JSON.stringify({ gen: GENERATOR_VERSION, ...(mark ? { mark } : {}), turns } satisfies Saved));
+    else localStorage.removeItem(KEY(w));
+  } catch {
+    /* 存不下 / 隐私模式:只管这一次 */
   }
 }
 
 function save() {
   const w = state.world;
   if (!w) return;
-  try {
-    const turns = state.turns.filter((t) => t.status !== 'working').slice(-KEEP);
-    if (turns.length) localStorage.setItem(KEY(w), JSON.stringify({ gen: GENERATOR_VERSION, turns } satisfies Saved));
-    else localStorage.removeItem(KEY(w));
-  } catch {
-    /* 存不下 / 隐私模式:只管这一次 */
+  write(w);
+  if (!mark && state.turns.length) void stampMark(w);
+}
+
+/**
+ * 记上世界现在的记号:仓库里存的就是现在这份世界(配方对得上)才记;世界改了还没推完、还没存进仓库的先不记,下次存、下次打开再来。
+ * stored 问过了就带上,不用再问一遍
+ */
+async function stampMark(w: string, stored?: WorldMark | null) {
+  const edit = editSeq;
+  const cur = currentSave();
+  const [got, key] = await Promise.all([stored === undefined ? worldMark(w) : stored, cur ? recipeKey(recipeOfSave(cur)).catch(() => null) : null]);
+  if (!got || got.recipe !== key || got.generator !== shownGen() || state.world !== w || edit !== editSeq || !state.turns.length) return;
+  if (mark && JSON.stringify(mark) === JSON.stringify(got)) return;
+  mark = got;
+  write(w);
+}
+
+/** 刚打开的世界存着对话:问过仓库再定接不接(内容变了的拿掉,版本不同但内容没变的接回来),接上了的补上记号 */
+async function settleChat(w: string, saved: Saved) {
+  const chat = chatSeq;
+  const edit = editSeq;
+  const stored = await worldMark(w);
+  if (chat !== chatSeq) return;
+  const fits = chatFits(saved, stored, shownGen());
+  const old = new Set(saved.turns.map((t) => t.id));
+  const shown = state.turns.some((t) => old.has(t.id));
+  if (fits && !shown) {
+    if (edit === editSeq) mark = saved.mark ?? null;
+    set({ ...state, turns: [...saved.turns, ...state.turns] });
+    write(w);
+  } else if (!fits && shown) {
+    mark = null;
+    if (state.preview && old.has(state.preview.turn)) exitPreview();
+    set({ ...state, turns: state.turns.filter((t) => !old.has(t.id)) });
+    // 仓库回话之前已经说了新的(存的时候连着旧对话和旧记号):新的单独存。没有新的就不动,旧的留着
+    if (state.turns.some((t) => t.status !== 'working')) write(w);
   }
+  void stampMark(w, stored);
 }
 
 /** 换了世界:换成那个世界的对话;同一个世界换了阶段(点了"创建世界"):只记下新的阶段 */
@@ -212,9 +282,15 @@ export function syncAssistantWorld(lock?: RewriteLock) {
   stopAsk();
   trialRaw.clear();
   cleared.clear();
-  const turns = w ? load(w) : [];
-  seq = Math.max(seq, ...turns.map((t) => t.id));
-  set({ world: w, lock, turns, preview: null });
+  chatSeq++;
+  const saved = w ? readSaved(w) : null;
+  // 先按版本比,当场就有;仓库回话了再按内容定(settleChat)
+  const fits = !!saved && chatFits(saved, null, shownGen());
+  mark = fits ? (saved.mark ?? null) : null;
+  // 不接的也算上编号:接回来时不能和新说的撞
+  seq = Math.max(seq, ...(saved?.turns ?? []).map((t) => t.id));
+  set({ world: w, lock, turns: fits ? saved.turns : [], preview: null });
+  if (w && saved) void settleChat(w, saved);
 }
 
 /**
@@ -227,6 +303,9 @@ const cleared = new Map<number, { applied: Applied; lock?: RewriteLock }>();
 export function newConversation() {
   stopAsk();
   trialRaw.clear();
+  chatSeq++;
+  // 清掉的那份记的记号不带给新说的:还没问完仓库就点了新对话时,它可能和现在的世界对不上
+  mark = null;
   for (const t of state.turns) if (t.applied) cleared.set(t.id, { applied: t.applied, lock: t.lock });
   set({ ...state, turns: [], preview: null });
   save();
@@ -785,8 +864,19 @@ export function exitPreview() {
   if (state.preview) set({ ...state, preview: null });
 }
 
-// 修改变了(执行了、撤销了、别处改了):试推演是按原来的修改算的,不再看它
-subscribeEdits(() => {
+let lastEdits = getEdits();
+subscribeEdits((now) => {
+  const was = lastEdits;
+  lastEdits = now;
+  // 作者在这个世界上改了历史:对话跟着走,原来的记号不算了(不马上写掉的话,改完到存进仓库之间关了页面,下次打开就对不上了)
+  if (state.world && currentWorld()?.id === state.world && (was.play !== now.play || historyDiffers(was, now))) {
+    editSeq++;
+    if (mark) {
+      mark = null;
+      write(state.world);
+    }
+  }
+  // 修改变了(执行了、撤销了、别处改了):试推演是按原来的修改算的,不再看它
   const p = state.preview;
   if (!p) return;
   const t = state.turns.find((x) => x.id === p.turn);
@@ -813,5 +903,7 @@ export function _resetAssistant() {
   trialRaw.clear();
   runner = null;
   seq = 0;
+  mark = null;
+  chatSeq++;
   set({ world: null, turns: [], preview: null });
 }

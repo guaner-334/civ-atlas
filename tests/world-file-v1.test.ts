@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { restoreEntries } from '../src/gen/civ/story/nameTokens';
+import { applyNames } from '../src/gen/edits';
 import { openWorldFile, readWorldContent, rewriteWorldFile, type OpenedWorldFile, type WorldContent } from '../src/gen/worldFile';
 import { READERS, bytesOf } from './lib/worldFileSample';
 
@@ -91,7 +93,9 @@ describe('世界文件第 1 版', () => {
   });
 
   it('读出来的编年史原文、国旗、作者内容、封面不变', () => {
-    expect({ entries: c.chronicle.length, first: c.chronicle[0].text, text: shaText(c.chronicle.map((e) => e.text).join('\n')) }, FIX_IT).toEqual(FACTS.chronicle);
+    // 第 1 版存的是算好的文字,读进来转成占位符;按配方里的改名换回名字,和当时存的一字不差
+    const entries = restoreEntries(c.chronicle.entries, applyNames(c.civ, c.save.edits.names));
+    expect({ entries: entries.length, first: entries[0].text, text: shaText(entries.map((e) => e.text).join('\n')) }, FIX_IT).toEqual(FACTS.chronicle);
     expect({ polities: c.flags.eras.length, faces: c.flags.eras.flat().length, specs: shaText(JSON.stringify(c.flags.eras.flat().map((e) => e.spec))) }, FIX_IT).toEqual(FACTS.flags);
     expect({ notes: c.author!.notes.length, first: c.author!.notes[0].title }, FIX_IT).toEqual(FACTS.author);
     expect({ bytes: c.thumb!.length, sha256: sha(c.thumb!) }, FIX_IT).toEqual(FACTS.thumb);

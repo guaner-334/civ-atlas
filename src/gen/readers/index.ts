@@ -8,15 +8,17 @@
  * 不分版本、跟着软件变好的:画风渲染、界面、国界的抖动和平滑、地名避让、卡片上的解说文字。
  * 有没有读变样,由样本测试看着(tests/saved-world-stable.test.ts,比什么写在它的文件头)。
  *
- * 怎么用:先拿到读取器,再反复用,放大这种高频的路径上不要 await。
+ * 怎么接(世界从存下的内容读出来时带着 World.readers,跟着世界送到各个后台线程;这一版软件刚算的世界没有这一项,用当前版本):
  *
- *   const read = await terrainReader(版本号);   // 后台线程收到世界时取一次,存着
- *   read.rasterizeWindow(src, S, x0, y0, w, h);  // 每一块直接用
+ *   地貌,后台线程:收到世界时取一次,存着,放大这种高频的路径上不要 await
+ *     const read = (await olderTerrainOf(world)) ?? { rasterizeWindow, ... };   // ./older:世界要老版本才下载,当前版本用线程自己 import 的
+ *     read.rasterizeWindow(src, S, x0, y0, w, h);                               // 每一块直接用
+ *   地貌,同步调的地方(画河、拼主图):(olderTerrain(world)?.creeksOf ?? creeksOf)(world)。先由开世界时下载好(ui/worldReaders.ts)
+ *   查询:一律从 ./openQuery import,开世界时换成那一版;界面、画风、AI 不用管版本
  *
  * 当前版本不用下载,await 在下一条消息到来之前就走完;老版本要下载,等的时候来的请求要排队。
  * 版本号不认识时抛 UnknownReaderError,needsUpdate = true 就是「这个世界要更新软件才能打开」。
  * 没记版本的老世界用 FIRST_READERS。
- * 后台线程从 ./terrainReader import,不从这个文件 import:线程里用不到查询的代码。
  *
  * 改了算法、样本测试红了,又确实要改时,旧代码留一份:
  *

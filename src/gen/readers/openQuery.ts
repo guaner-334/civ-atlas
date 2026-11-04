@@ -5,7 +5,7 @@
  * 这几个名字是 ES 模块的活绑定:import 它们的地方拿到的总是换好以后的那个函数,调用时不多一层转手,放大、拖时间轴这些高频路径不受影响。
  * 同一页同一时间只开一个世界,所以只存一份;gen/ 里的代码不从这里取(那些代码就在读取代码里面,老版本的存底自带一份)。
  *
- * 世界的历史要是这一版软件新推的,就算世界本身记着老版本,也按老版本查:老世界改历史要先另存成新版(见 ui/world/useWorldPages.ts 的 setHistoryGate),不会混着用。
+ * 老世界(记着老版本的)不会混进这一版新推的历史:改历史要先另存成新版(ui/world/useWorldPages.ts 的 setHistoryGate),另存的是新世界,用当前版本。
  */
 import { currentQuery, type QueryReader } from './queryReader';
 

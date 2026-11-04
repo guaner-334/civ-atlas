@@ -18,7 +18,8 @@ import { CAP_COUNT, RESOURCE_COUNT } from './civ/development';
 import { THOUGHT_COUNT } from './civ/ideology';
 import { TINCTS, decodeFlag, encodeFlag, type FlagSpec } from './civ/story/flagSpec';
 import { ANNAL_KINDS } from './civ/annals';
-import type { ChronicleEntry, EntryKind } from './civ/story/chronicle';
+import type { EntryKind } from './civ/story/chronicle';
+import type { ChronicleBlock } from './civ/story/nameTokens';
 import type { FlagBook, Seat } from './civ/story/flags';
 import type { AnnalKind, Civ, CultureKind, DevEvent, ExileTie, FaithEventKind, FaithKind, Person, PersonDeed, PersonExile, PersonFate, PersonRegency, Place, Regions, Route, RulerRise } from './civ/types';
 import type { TradeEvent } from './civ/trade';
@@ -1216,8 +1217,13 @@ const entry = (raw: unknown, civ: Civ, at: string, depth: number): void => {
 };
 
 /** 编年史(chronicle 那一块):不合格抛 broken */
-export function validateChronicle(v: unknown, civ: Civ): asserts v is ChronicleEntry[] {
-  list(v, '编年史').forEach((x, i) => entry(x, civ, `编年史[${i}]`, 0));
+export function validateChronicle(v: unknown, civ: Civ): asserts v is ChronicleBlock {
+  const block = obj(v, '编年史');
+  list(block.entries, '编年史的 entries').forEach((x, i) => entry(x, civ, `编年史[${i}]`, 0));
+  if (block.authorFemale !== undefined)
+    list(block.authorFemale, '编年史的 authorFemale').forEach((x, i) => {
+      if (!Number.isInteger(x)) broken(`编年史的 authorFemale[${i}] 不是整数`);
+    });
   allStrings(v, TEXT_ONE_MAX, TEXT_TOTAL_MAX, '编年史');
 }
 

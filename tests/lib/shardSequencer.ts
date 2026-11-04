@@ -73,6 +73,7 @@ const SECONDS: Record<string, number> = {
   'civ-boost': 44,
   'stepwise-ui': 41,
   'chronicle-handoff': 40,
+  'chronicle-tokens': 30,
   contours: 39,
   'civ-development': 38,
   'civ-fiscal-book': 37,

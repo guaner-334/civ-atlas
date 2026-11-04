@@ -37,9 +37,11 @@ export type ConvertJob =
 
 /** 编年史、国旗打成两块 */
 async function storyParts(world: World, civ: Civ, save: SaveFile): Promise<SnapshotPart[]> {
-  const names = save.edits.names ?? {};
-  return [await makePart('chronicle', worldChronicle(civ, names)), await makePart('flags', worldFlags(world, civ, names))];
+  return [await makePart('chronicle', worldChronicle(civ, save.edits.characters)), await makePart('flags', worldFlags(world, civ))];
 }
+
+/** 原件里的块是世界文件有版本以前打的,都是第 1 版结构(编年史、国旗是这里新算的,不算) */
+const ORIGINAL_SCHEMAS = { map: 1, eras: 1, civ: 1 };
 
 /** 从原件转 */
 async function fromOriginal(job: Extract<ConvertJob, { kind: 'original' }>, results: ResultBackend): Promise<CommitResult> {
@@ -58,7 +60,7 @@ async function fromOriginal(job: Extract<ConvertJob, { kind: 'original' }>, resu
   const parts = [mapPart, ...(erasPart && eras?.eras.length ? [erasPart] : []), civPart, ...(await storyParts(world, civ, job.save))];
   // 真实的版本:存的时候记下的那一版;提交号当时没记,不编
   const made: WorldMade = { app: rec.app, generator: rec.generator, commit: '', at: Number.isNaN(Date.parse(rec.at)) ? job.save.savedAt : rec.at };
-  return commitWorld({ id: job.id, recipe: job.save, recipeKey: s.recipe, parts, schema: 1, made, readers: { ...FIRST_READERS }, author: job.author, thumb: job.thumb, source: job.source });
+  return commitWorld({ id: job.id, recipe: job.save, recipeKey: s.recipe, parts, schemas: ORIGINAL_SCHEMAS, made, readers: { ...FIRST_READERS }, author: job.author, thumb: job.thumb, source: job.source });
 }
 
 /** 按存档算一遍:地图、各段世界、整段历史。结果和生成世界的线程按这份存档推出来的一样 */

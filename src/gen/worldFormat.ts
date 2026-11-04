@@ -7,7 +7,7 @@
  *   parts/map.gz         地图(World,不带形成过程的回放快照)
  *   parts/eras.gz        地形大事以后的各段世界(没有地形大事就不写)
  *   parts/civ.gz         整段历史(Civ)
- *   parts/chronicle.gz   编年史(ChronicleEntry[])
+ *   parts/chronicle.gz   编年史(第 2 版 ChronicleBlock:名字写成占位符,gen/civ/story/nameTokens.ts;第 1 版是算好的文字 ChronicleEntry[])
  *   parts/flags.gz       各国历代的旗(FlagBook)
  *   parts/author.gz      作者的内容:AI 写的正文(可选)
  *   parts/thumb.jpg      封面(可选)
