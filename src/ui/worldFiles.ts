@@ -3,7 +3,10 @@
  * 这里不碰界面:不下载、不提示。放回来的世界打开时走存下的内容(世界版本跟着世界走),不重新生成。
  *
  * 一个世界:
- * - 存(saveWorldFile):仓库(worldVault.ts)里有就拼出来;还没转进来的先转(worldStore.ts 的 settleWorld)。配方以外的改动先写进新清单,AI 正文、封面都带上
+ * - 存(saveWorldFile):拼出这个世界现在的样子,AI 正文、封面都带上。文件是这次拼的,不要求写得进仓库(worldVault.ts),存储满了也拿得出来(见 fileNow):
+ *     能写的先写(还没转进来的先转、配方以外的改动写进新清单);仓库里的内容和这个世界是同一段历史,只换配方、封面、AI 正文(draftFile);
+ *     不是同一段历史、仓库里还没有:正开着的世界用页面里的(后台线程当场打,worldStore.ts 的 packPage),没开着的世界算一遍(转存的线程,写不下就直接装成文件)。
+ *     都拿不出来才退回仓库里上一次存下的样子(stale,behind 说为什么),连这也没有才报错
  * - 开,分两步。lookWorldFile 只核对、只比较,什么都不写,返回文件和本机是什么关系:
  *     new = 本机没有这个世界;same = 本机有一模一样的(id 是本机那个);different = 本机有这个世界(编号一样,或者种子和名字都一样),但内容不一样(id 是本机那个)
  *   placeWorldFile 照这个关系放进本机:same 不放;different 按 different 选项,默认另存一份(名字加「(二)」),也可以交回去让界面问。
@@ -16,6 +19,7 @@
  *   recipes.json                      没有内容可存的世界(没建完的、只存了地图的、没有原件的更旧版本、转失败的、有没推完的修改的):
  *                                     「全部存成文件」原来那种格式(bundle.ts),放回来也走原来那条路
  *
+ * 正开着的世界用页面里的、别的世界用存的;每个世界各自拿不出内容也不挡着别的,结果里说清楚(left、behind)。
  * 世界太多一个文件放不下(WORLD_BACKUP_MAX_BYTES)就分成几个,一个世界的几份修订放在同一个文件里,每个文件都能单独打开;
  * 打开时一起选、分开选都行,lookWorldFiles 告诉界面第几个、一共几个、还差哪个。
  * 打开时按条目从头走,不把整个文件读进内存,一次只读一个世界;坏了的、下载断了的只影响那一个,别的世界照样放回来,小清单坏了也只是少了卡片上的几样。
@@ -26,6 +30,7 @@
  *
  * 旧的 .json 不走这里:sniffWorldFile 认出不是世界文件的,界面照旧按文字读。
  */
+import { cleanNoteList } from '../authorNotes';
 import { GENERATOR_VERSION } from '../gen/edits';
 import { READER_VERSIONS } from '../gen/readers/versions';
 import { WORLD_CHECK_TIMEOUT_MS, checkWorldFileInWorker, type WorldCheckWorker } from '../gen/worldCheck';
@@ -35,11 +40,13 @@ import { MANIFEST_FILE, WORLD_FILE_EXT, type WorldFileErrorKind } from '../gen/w
 import { walkZip, type ZipInput, type ZipSlice } from '../gen/zipStore';
 import { exportNotes, notesKnown, notesReady, replaceNotes } from '../ai/library';
 import type { FileFacts, FileLook } from '../worldFileLook';
-import type { RevisionSource, VaultErrorKind } from '../worldVault';
+import type { CommitRequest, RevisionSource, VaultErrorKind } from '../worldVault';
 import type { VaultCall, VaultReply, VaultTold } from '../worldVaultWorker';
 import { bundleFileName, bundleText, cleanNotes, importBundle, parseBundle, sameWorld, withMapFrom, type Bundle, type ImportResult } from './bundle';
-import { MAX_WORLDS, cleanSyncMeta, currentUnsaved, currentWorld, flushThumb, isStored, keepOriginal, listWorlds, loadWorld, markTrash, newWorldId, nextTitle, persistent, putSyncedWorld, rawWorld, storedCount, unmarkTrash, type StoredWorld, type SyncMeta } from './saveStore';
-import { errKind, settleWorld, vaultCall, type VaultCaller } from './worldStore';
+import { MAX_WORLDS, cleanSyncMeta, currentSave, currentWorld, flushThumb, isStored, keepOriginal, listWorlds, loadWorld, markTrash, newWorldId, nextTitle, persistent, putSyncedWorld, rawWorld, storedCount, unmarkTrash, type StoredWorld, type SyncMeta } from './saveStore';
+import { APP_COMMIT, APP_VERSION } from './version';
+import { holdWorld } from './worldHolds';
+import { errKind, packPage, settleForFile, thumbBytes, vaultCall, type VaultCaller } from './worldStore';
 
 /** 全部世界一个文件最大多少字节:和单个世界文件的本机上限一样。打开时不用整个读进内存,定它是因为更大的 Blob 手机上拼不出来、下载也容易断 */
 export const WORLD_BACKUP_MAX_BYTES = 1e9;
@@ -61,6 +68,8 @@ const OLDER_MAX = 8;
 const THUMB_CARD_MAX = 750_000;
 /** 单独开线程做一件事最多等多久(毫秒):最大的世界在低端手机上也够,卡死了才用得上 */
 const ONCE_TIMEOUT_MS = 300_000;
+/** 等生成世界的线程打页面里的世界最多等多久(毫秒):它要先做完手上的活,可能正在推很长的历史。到了时限退回上次存下的样子 */
+const PAGE_TIMEOUT_MS = 600_000;
 /**
  * 核对一个文件多等多久(每 MB 多少毫秒,加在 WORLD_CHECK_TIMEOUT_MS 上)。电脑上量到最大的世界(139 MB)核对 2.3 秒,每 MB 约 17 毫秒;
  * 低端手机按慢 6 倍约 14 秒,内存紧的时候还要慢,手机上没量过,放宽一些:139 MB 约 75 秒。
@@ -199,8 +208,10 @@ export interface SavedWorldFile {
   ok: true;
   file: Blob;
   name: string;
-  /** 文件比这个世界落后:有没推完的修改,或者刚改的东西没能写进浏览器、仓库(存储满了)。文件里是最后存进去的样子,没带上的本机还在 */
+  /** 文件比这个世界落后:现在的样子拼不出来(见 behind)。文件里是最后存进去的样子,没带上的本机还在 */
   stale: boolean;
+  /** stale 时为什么拼不出现在的样子:memory 内存不够、full 写不下又没有页面里的内容可用(没开着的世界,这一版算不出来)…… */
+  behind?: SaveTrouble;
 }
 
 const saveKinds: readonly VaultErrorKind[] = ['corrupt', 'full', 'memory', 'unavailable', 'failed'];
@@ -209,37 +220,91 @@ const asSaveTrouble = (e: unknown): Trouble<SaveTrouble> => {
   return trouble(k === 'timeout' || k === 'crash' || saveKinds.includes(k as VaultErrorKind) ? (k as SaveTrouble) : 'failed', errText(e));
 };
 
-/** 仓库里最新的一份是不是比这个世界落后:存档的配方、版本不一样;正开着的这个世界最新的改动还没能写进浏览器(存储满了) */
-async function isStale(id: string, head: { recipeKey: string; generator: number }): Promise<boolean> {
-  if (currentWorld()?.id === id && currentUnsaved()) return true;
-  const w = loadWorld(id);
-  return !w || head.generator !== w.save.generator || head.recipeKey !== (await recipeKey(recipeOfSave(w.save)));
+/** 这个世界现在的样子打成的文件 */
+interface NowFile {
+  file: Blob;
+  /** 算第几份修订;内容一样的旧修订靠 content 认 */
+  n: number;
+  content: string;
+  /** 文件比世界落后的话,为什么 */
+  behind?: SaveTrouble;
+}
+
+const asNow = (d: { file: Blob; n: number; content: string }): NowFile => ({ file: d.file, n: d.n, content: d.content });
+
+/** 正开着的世界:后台线程打页面里的内容,装成文件。这一版算不出来 = null;打不成抛错,错上带 kind */
+async function pageFile(base: Pick<CommitRequest, 'id' | 'recipe' | 'thumb' | 'author'>): Promise<NowFile | null> {
+  const asked = packPage(base.recipe);
+  if (!asked) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const offer = await Promise.race([
+    asked,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error('后台线程一直在忙'), { kind: 'timeout' })), PAGE_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+  const req: CommitRequest = {
+    ...base,
+    recipeKey: offer.recipe,
+    parts: offer.parts,
+    ...(offer.schemas ? { schemas: offer.schemas } : {}),
+    made: { app: APP_VERSION, generator: offer.generator, commit: APP_COMMIT, at: new Date().toISOString() },
+    readers: offer.readers ?? { ...READER_VERSIONS },
+  };
+  const out = await once('draftFile', [req], offer.parts.map((p) => p.data));
+  return out && asNow(out);
 }
 
 /**
- * 一个世界存成文件。不抛错。不写磁盘:交回 Blob 和文件名,下载由界面做。
+ * 拼这个世界现在的样子(见文件头):能写的先写,写不进去也拼得出来。不抛错。
+ * save = 这个世界现在的存档(正开着的是页面里的),thumb = 卡片上的封面。
  * 存的内容坏了:记一笔,能重新转的(有原件、当前版本)转一遍再存一次。
  * onProgress:拼文件拼到几分之几(前面把世界转进仓库那一段不知道要多久,不报)
  */
-export async function saveWorldFile(id: string, o: { onProgress?: (share: number) => void } = {}): Promise<SavedWorldFile | Trouble<SaveTrouble>> {
-  const w = loadWorld(id);
-  if (!w) return trouble('missing', '没有这个世界');
-  if (w.draft || w.map) return trouble('draft', '这个世界还没建完,没有内容可存');
-  if (currentWorld()?.id === id) flushThumb();
+async function fileNow(id: string, save: SaveFile, thumbUrl: string | null, isOpen: boolean, onProgress?: (share: number) => void): Promise<NowFile | Trouble<SaveTrouble>> {
+  const thumb = thumbBytes(thumbUrl);
   for (let tries = 0; ; tries++) {
-    const stuck = await settleWorld(id);
+    const { stuck, drafted, author } = await settleForFile(id);
     try {
-      const head = await vaultCall('latestOf', [id]);
-      if (!head) {
-        if (stuck) return trouble(stuck, '这个世界没能存进浏览器');
-        return w.save.generator < GENERATOR_VERSION ? trouble('old', '这个世界是更旧的版本建的,本机没有它原来的内容') : trouble('failed', '这个世界没能转进来');
+      const key = await recipeKey(recipeOfSave(save));
+      // 仓库打不开(硬盘真的满了时 WebKit 连库都打不开):正开着的世界照样打得出来,AI 正文就用页面里的
+      let shut: SaveTrouble | null = null;
+      const head = await vaultCall('latestOf', [id]).catch((e: unknown) => {
+        shut = asSaveTrouble(e).kind;
+        return null;
+      });
+      const notes = author ?? (shut ? { notes: cleanNoteList(exportNotes(id)) } : undefined);
+      const base = { id, recipe: save, ...(thumb ? { thumb } : {}), ...(notes ? { author: notes } : {}) };
+      // 同一段历史:只换配方、封面、AI 正文。什么都写进去了的话字节和最新的一份一样
+      if (head && head.recipeKey === key && head.generator === save.generator) {
+        onceWatch = onProgress ?? null;
+        const drafting = once('draftFile', [{ ...base, recipeKey: key }]);
+        onceWatch = null;
+        const out = await drafting;
+        if (out) return asNow(out);
       }
-      onceWatch = o.onProgress ?? null;
-      const packing = once('revisionFile', [id, undefined, true]);
-      onceWatch = null;
-      const file = await packing;
-      if (!file) return trouble('failed', '这个世界没能转进来');
-      return { ok: true, file: asDownload(file), name: worldFileName(loadWorld(id)?.save ?? w.save), stale: !!stuck || (await isStale(id, head)) };
+      // 转的线程按存下的存档算的:和现在的样子对得上才算数(正开着的世界,页面里可能又改过)
+      if (drafted && drafted.recipeKey === key && drafted.generator === save.generator) return asNow(drafted);
+      let why: SaveTrouble | null = stuck ?? shut;
+      if (isOpen) {
+        try {
+          const out = await pageFile(base);
+          if (out) return out;
+        } catch (e) {
+          why = asSaveTrouble(e).kind;
+        }
+      }
+      // 拿不出现在的样子:上次存下的也比没有强,说清楚落后了
+      if (head) {
+        onceWatch = onProgress ?? null;
+        const packing = once('revisionFile', [id, undefined, true]);
+        onceWatch = null;
+        const file = await packing;
+        if (file) return { file, n: head.n, content: head.content, behind: why ?? 'failed' };
+      }
+      if (why === 'memory') return trouble(why, '内存不够,这个世界没能打成文件');
+      if (save.generator < GENERATOR_VERSION) return trouble('old', '这个世界是更旧的版本建的,本机没有它原来的内容');
+      return why ? trouble(why, '这个世界没能存进浏览器') : trouble('failed', '这个世界没能转进来');
     } catch (e) {
       if (errKind(e) !== 'corrupt' || tries) return asSaveTrouble(e);
       const head = await vaultCall('latestOf', [id]).catch(() => null);
@@ -247,6 +312,31 @@ export async function saveWorldFile(id: string, o: { onProgress?: (share: number
       await vaultCall('patchState', [id, { corrupt: head.n, checked: undefined }]).catch(() => {});
     }
   }
+}
+
+/** 这个世界现在的存档:正开着的用页面里的(可能比存下的新,可能一次都没能存下);没有这个世界 = null */
+function nowOf(id: string): { w: StoredWorld | null; save: SaveFile; isOpen: boolean } | null {
+  const w = loadWorld(id);
+  const c = currentWorld();
+  const page = c?.id === id && c.kind !== 'draft' ? currentSave() : null;
+  const save = page ?? w?.save;
+  return save ? { w, save, isOpen: !!page } : null;
+}
+
+/**
+ * 一个世界存成文件。不抛错。不写磁盘:交回 Blob 和文件名,下载由界面做。
+ * 不要求浏览器里还有地方(见文件头)。onProgress:拼文件拼到几分之几
+ */
+export async function saveWorldFile(id: string, o: { onProgress?: (share: number) => void } = {}): Promise<SavedWorldFile | Trouble<SaveTrouble>> {
+  const c = currentWorld();
+  const now = nowOf(id);
+  if (c?.id === id && c.kind === 'draft') return trouble('draft', '这个世界还没建完,没有内容可存');
+  if (!now) return trouble('missing', '没有这个世界');
+  if (now.w?.draft || now.w?.map) return trouble('draft', '这个世界还没建完,没有内容可存');
+  if (now.isOpen) flushThumb();
+  const out = await fileNow(id, now.save, loadWorld(id)?.thumb ?? null, now.isOpen, o.onProgress);
+  if ('ok' in out) return out;
+  return { ok: true, file: asDownload(out.file), name: worldFileName(now.save), stale: !!out.behind, ...(out.behind ? { behind: out.behind } : {}) };
 }
 
 /** 算过的大小:世界编号 → 哪一份修订、多少字节(换了修订才重算) */
@@ -388,6 +478,16 @@ const adoptOf = (id: string, f: FileFacts, file: Blob, source: RevisionSource) =
 export async function keepWorldFile(looked: LookedWorldFile, o: { save?: SaveFile } = {}): Promise<KeptWorldFile | Trouble<KeepTrouble>> {
   if (storedCount() >= MAX_WORLDS) return trouble('count', `「我的世界」最多存 ${MAX_WORLDS} 个世界`);
   const id = newWorldId();
+  // 写的这一会儿不能被当成删掉的世界清掉(下面先记了一笔;存储紧张时删掉的世界马上就清)
+  const free = holdWorld(id);
+  try {
+    return await keepAs(id, looked, o);
+  } finally {
+    free();
+  }
+}
+
+async function keepAs(id: string, looked: LookedWorldFile, o: { save?: SaveFile }): Promise<KeptWorldFile | Trouble<KeepTrouble>> {
   const f = looked.facts;
   // 写完仓库、写进「我的世界」之前页面关了:仓库里留下的这份没人认。先当它是删掉的世界记一笔,过些天自己清(worldStore 的 maintain)
   markTrash(id);
@@ -485,8 +585,12 @@ export interface SavedBackup {
   count: number;
   /** 带着完整内容的世界 */
   whole: number;
-  /** 只带了配方的世界:没建完的、没有内容的(更旧的版本又没有原件、转失败的) */
+  /** 只带了配方的世界:没建完的、没有内容的(更旧的版本又没有原件、转失败的、内存不够的) */
   recipeOnly: string[];
+  /** recipeOnly 里每个世界为什么没带上内容 */
+  left: LeftWorld[];
+  /** 文件里是上次存下的样子的世界,刚才的改动另带了配方(打开时要重新算);不在 recipeOnly 里 */
+  behind: LeftWorld[];
   /** 这几个世界连一个文件都放不下的旧修订没带上 */
   olderLeft: string[];
   /** 配方那部分放不下、没带上的:AI 写的东西;AI 写的东西和缩略图 */
@@ -495,6 +599,15 @@ export interface SavedBackup {
   notesUnread?: string[];
   /** 总字节数 */
   bytes: number;
+}
+
+/** 全部存成文件时没能带上现在内容的一个世界 */
+export interface LeftWorld {
+  id: string;
+  /** 名字(显示前当文字) */
+  title?: string;
+  /** draft 没建完、old 更旧的版本又没有原件、full 写不下又算不出来、memory 内存不够…… */
+  kind: SaveTrouble;
 }
 
 /** 一个世界在文件里的几份修订 */
@@ -515,31 +628,34 @@ const BACKUP_SPARE_BYTES = 16e6;
  */
 const BACKUP_HARD_MAX_BYTES = 4e9;
 
-/** 拼一个世界的几份修订;没有内容、读不出来 = null(只带配方) */
-async function groupOf(w: StoredWorld, index: number): Promise<{ group: WorldGroup | null; stale: boolean }> {
-  const stuck = await settleWorld(w.id);
-  const heads = await vaultCall('revisionsOf', [w.id]);
-  const latest = heads.filter((h) => h.source !== 'archive').at(-1);
-  if (!latest) return { group: null, stale: false };
+/** 拼一个世界的几份修订:现在的样子(见 fileNow)加上留着的旧修订 */
+async function groupOf(w: StoredWorld, index: number, isOpen: boolean): Promise<{ group: WorldGroup; behind?: SaveTrouble } | Trouble<SaveTrouble>> {
+  const now = await fileNow(w.id, w.save, w.thumb, isOpen);
+  if ('ok' in now) return now;
+  // 旧修订只是留底:读不了(硬盘真的满了时 WebKit 连库都打不开)也不能丢了手上现在的样子
+  const heads = await vaultCall('revisionsOf', [w.id]).catch(() => []);
+  const had = heads.find((h) => h.n === now.n);
+  // 内容和现在一样的旧修订(只改了名、封面、AI 正文)不带,字节都一样,带了文件白白大一倍;其中有迁移前的原件的,现在这份记成原件,放回来同样不会被淘汰
+  const twin = heads.some((h) => h.n !== now.n && h.source === 'migrated' && h.content === now.content);
   const files: WorldGroup['files'] = [];
   let bytes = 0;
-  // 内容和最新的一样的旧修订(只改了名、封面、AI 正文)不带,字节都一样,带了文件白白大一倍;其中有迁移前的原件的,最新的这份记成原件,放回来同样不会被淘汰
-  const twin = heads.some((h) => h.n !== latest.n && h.source === 'migrated' && h.content === latest.content);
   for (const h of heads) {
-    if (h.n !== latest.n && h.source !== 'archive' && h.content === latest.content) continue;
+    if (h.n === now.n || (h.source !== 'archive' && h.content === now.content)) continue;
     let data: Blob | null = null;
     try {
       data = await once('revisionFile', [w.id, h.n, true]);
-    } catch (e) {
-      if (h.n === latest.n) throw e;
+    } catch {
       // 旧修订坏了:只是少一份留底
     }
     if (!data) continue;
-    files.push({ n: h.n, source: h.n === latest.n && twin ? 'migrated' : h.source, data });
+    files.push({ n: h.n, source: h.source, data });
     bytes += data.size;
   }
+  files.push({ n: now.n, source: twin ? 'migrated' : (had?.source ?? 'made'), data: now.file });
+  files.sort((a, b) => a.n - b.n);
+  bytes += now.file.size;
   const dir = /^[0-9a-z]{1,40}$/.test(w.id) ? w.id : `world${index}`;
-  return { group: { w, dir, files, current: latest.n, bytes }, stale: !!stuck || (await isStale(w.id, latest)) };
+  return { group: { w, dir, files, current: now.n, bytes }, ...(now.behind ? { behind: now.behind } : {}) };
 }
 
 /** 按顺序往文件里放,放不下开下一个;一个世界的几份修订放在同一个文件里,实在放不下只留最新的和放得下的。first = 第一个文件要先留给配方的地方 */
@@ -580,17 +696,23 @@ export interface SaveAllOptions {
   maxBytes?: number;
 }
 
-/** 全部世界存成一个或几个文件。不抛错:哪个世界出了问题就只带它的配方,不让它挡着别的世界 */
+/** 全部世界存成一个或几个文件。不抛错:哪个世界出了问题就只带它的配方,不让它挡着别的世界。不要求浏览器里还有地方(见文件头) */
 export async function saveAllWorldFiles(o: SaveAllOptions = {}): Promise<SavedBackup | Trouble<SaveTrouble>> {
   const maxBytes = o.maxBytes ?? WORLD_BACKUP_MAX_BYTES;
   const cancelled = () => trouble<SaveTrouble>('cancelled', '取消了');
   flushThumb();
-  const list = listWorlds();
+  const stored = listWorlds();
+  // 正开着的世界用页面里的;一次都没能存进浏览器的那一个不在列表里,放在最前面(硬盘真的满了时 WebKit 的 localStorage 写了也会丢,所以不只看写没写成)
+  const c = currentWorld();
+  const page = c && c.kind !== 'draft' ? currentSave() : null;
+  const inList = stored.find((w) => w.id === c?.id);
+  const list: StoredWorld[] = stored.map((w) => (page && w === inList ? { ...w, save: page, alive: c?.alive ?? w.alive } : w));
+  if (c && page && !inList && (c.unsaved || (c.kind === 'created' && !c.gone))) list.unshift({ id: c.id, save: page, count: 0, thumb: null, draft: false, at: page.savedAt, ...(c.alive !== undefined ? { alive: c.alive } : {}), map: false, mapThumb: null });
   const groups: WorldGroup[] = [];
   const bare = new Set<string>();
-  // 正在看的这个最新的改动没能写进浏览器(存储满了):配方带上页面里的
-  const cur = currentWorld();
-  if (cur && currentUnsaved()) bare.add(cur.id);
+  const left: LeftWorld[] = [];
+  const behind: LeftWorld[] = [];
+  const rowOf = (w: StoredWorld, kind: SaveTrouble): LeftWorld => ({ id: w.id, ...(w.save.title ? { title: w.save.title } : {}), kind });
   let bytes = 0;
   for (let i = 0; i < list.length; i++) {
     if (o.signal?.aborted) return cancelled();
@@ -598,25 +720,32 @@ export async function saveAllWorldFiles(o: SaveAllOptions = {}): Promise<SavedBa
     o.onProgress?.({ done: i, total: list.length, bytes, totalBytes: null });
     if (w.draft || w.map) {
       bare.add(w.id);
+      left.push(rowOf(w, 'draft'));
       continue;
     }
     try {
-      const { group, stale } = await groupOf(w, i);
-      if (group) {
-        groups.push(group);
-        bytes += group.bytes;
+      const got = await groupOf(w, i, w.id === c?.id && !!page);
+      if ('ok' in got) {
+        bare.add(w.id);
+        left.push(rowOf(w, got.kind));
+        continue;
       }
-      // 没有内容的、文件比世界落后的(有没推完的修改、刚改的东西没写进仓库):配方、AI 写的东西也带上,一点不丢
-      if (!group || stale) bare.add(w.id);
-    } catch {
+      groups.push(got.group);
+      bytes += got.group.bytes;
+      // 文件比世界落后的:配方、AI 写的东西也带上,一点不丢
+      if (got.behind) {
+        bare.add(w.id);
+        behind.push(rowOf(w, got.behind));
+      }
+    } catch (e) {
       bare.add(w.id);
+      left.push(rowOf(w, asSaveTrouble(e).kind));
     }
   }
   const at = new Date();
-  // 一次都没能存进浏览器的那一个不在列表里,也带上
   await notesReady();
-  const out = bundleText(at, undefined, (id) => bare.has(id) || !list.some((w) => w.id === id));
-  if (!groups.length && !out) return trouble('missing', '「我的世界」里还没有世界');
+  const out = bundleText(at, undefined, (id) => bare.has(id));
+  if (!groups.length && !out) return left.length ? trouble(left[0].kind, '这个世界没能打成文件') : trouble('missing', '「我的世界」里还没有世界');
   if (out?.tooBig) return trouble('failed', '世界太多、太大,一个文件放不下');
 
   const recipes = out ? new TextEncoder().encode(out.text) : null;
@@ -656,7 +785,7 @@ export async function saveAllWorldFiles(o: SaveAllOptions = {}): Promise<SavedBa
   o.onProgress?.({ done: list.length, total: list.length, bytes: total, totalBytes: total });
   const recipeOnly = [...bare].filter((id) => !groups.some((g) => g.w.id === id));
   const notesUnread = [...bare].filter((id) => !notesKnown(id));
-  return { ok: true, files, count: groups.length + recipeOnly.length, whole: groups.length, recipeOnly, olderLeft, ...(out?.dropped ? { dropped: out.dropped } : {}), ...(notesUnread.length ? { notesUnread } : {}), bytes: total };
+  return { ok: true, files, count: groups.length + recipeOnly.length, whole: groups.length, recipeOnly, left, behind, olderLeft, ...(out?.dropped ? { dropped: out.dropped } : {}), ...(notesUnread.length ? { notesUnread } : {}), bytes: total };
 }
 
 // ---------------------------------------------------------------------------

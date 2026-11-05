@@ -378,7 +378,7 @@ describe('仓库坏了,旧的存档和原件照常', () => {
     }
   });
 
-  it('写满了:不删任何还在的世界,清掉的只有用的人删掉超过一小时的', async () => {
+  it('写满了:不删任何还在的世界,清掉的只有用的人删掉的,刚删的不清', async () => {
     const keep = makeWorld();
     await offerWorldParts(await offerOf());
     const gone = makeWorld();

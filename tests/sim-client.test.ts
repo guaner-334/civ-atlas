@@ -377,4 +377,56 @@ describe('后台线程客户端(SimClient)', () => {
     workers[1].onerror?.({ message: 'new' } as ErrorEvent);
     expect(diag.errors).toEqual(['生成世界的线程:new']);
   });
+
+  describe('打内容(存成文件用)', () => {
+    const ask = { id: 1, params: PARAMS };
+    const offer = { generator: 57, recipe: 'r', parts: [] };
+    const settled = async (p: Promise<unknown>) => p.then((v) => ({ ok: true, v }), (e: Error & { kind?: string }) => ({ ok: false, kind: e.kind, message: e.message }));
+
+    it('排在手上的活后面,回音交给等着它的那一次;算一件活;世界换了也交(不看编号)', async () => {
+      const { sim, workers, got, cur } = setup();
+      sim.send(resim(1));
+      const p = settled(sim.packParts(ask));
+      expect(workers[0].sent.map((m) => m.type)).toEqual(['resim', 'packParts']);
+      expect(sim.busy).toBe(2);
+      workers[0].reply(civMsg(1, fakeCiv()));
+      cur.id = 2;
+      const fid = (workers[0].sent[1] as Extract<WorkerRequest, { type: 'packParts' }>).fid;
+      workers[0].reply({ type: 'packed', id: 1, fid, ok: true, offer });
+      expect(await p).toEqual({ ok: true, v: offer });
+      expect(sim.busy).toBe(0);
+      expect(got.map((m) => m.type)).toEqual(['civ']);
+    });
+
+    it('打不成:报线程说的原因,线程不算坏', async () => {
+      const { sim, workers } = setup();
+      const p = settled(sim.packParts(ask));
+      const fid = (workers[0].sent[0] as Extract<WorkerRequest, { type: 'packParts' }>).fid;
+      workers[0].reply({ type: 'packed', id: 1, fid, ok: false, kind: 'memory', message: '分配不了' });
+      expect(await p).toEqual({ ok: false, kind: 'memory', message: '分配不了' });
+      expect(workers.length).toBe(1);
+      expect(sim.busy).toBe(0);
+    });
+
+    it('线程死在这上面:报 memory,不重发(再来一次还是一样);别的活照重发', async () => {
+      const { sim, workers } = setup();
+      const p = settled(sim.packParts(ask));
+      sim.send(resim(1));
+      fail(workers[0]);
+      expect(await p).toMatchObject({ ok: false, kind: 'memory' });
+      expect(workers[1].sent.map((m) => m.type)).toEqual(['resim']);
+      expect(sim.busy).toBe(1);
+    });
+
+    it('换世界关了线程、页面关了:作废,不说内存不够', async () => {
+      const { sim, workers } = setup();
+      const p = settled(sim.packParts(ask));
+      sim.send(gen(2));
+      expect(workers[0].terminated).toBe(true);
+      expect(await p).toMatchObject({ ok: false, kind: 'failed' });
+      const q = settled(sim.packParts(ask));
+      sim.dispose();
+      expect(await q).toMatchObject({ ok: false, kind: 'failed' });
+    });
+  });
 });

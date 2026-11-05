@@ -77,7 +77,7 @@ const LEGACY = 'wenming-ditu:legacy:';
 /** 旧版本生成器存的世界,第一次按新版重存之前的原样(存档原文;见 keepOriginal) */
 const ORIG = 'wenming-ditu:orig:';
 /** 用的人删掉的世界(见文件头) */
-const TRASH = 'civ-atlas:trash';
+export const TRASH = 'civ-atlas:trash';
 /** 最多存多少个世界(每个几 KB + 缩略图三十来 KB) */
 export const MAX_WORLDS = 60;
 /** 缩略图的大小("我的世界"里一张卡片宽 480) */
@@ -379,6 +379,8 @@ export interface SaveNotice {
   dot?: boolean;
   /** 多久后自己收起(毫秒;不给:成功的 7 秒,别的留着) */
   ttl?: number;
+  /** 这条提示没了就调(见 toastStore 的 onGone) */
+  onGone?: () => void;
   stamp: number;
 }
 
@@ -389,7 +391,7 @@ let notice: SaveNotice | null = null;
  */
 export function notify(n: Omit<SaveNotice, 'stamp'> | null) {
   notice = n ? { ...n, stamp: performance.now() } : null;
-  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action, dot: n.dot, ...(n.ttl !== undefined ? { ttl: n.ttl } : {}) });
+  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action, dot: n.dot, onGone: n.onGone, ...(n.ttl !== undefined ? { ttl: n.ttl } : {}) });
   else clearToast('save');
   changed();
 }

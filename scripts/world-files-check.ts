@@ -8,6 +8,15 @@
  *   --big=<世界文件>                  再量大文件:打开、存、再打开的耗时和内存峰值
  *   --sixty=<放世界文件的目录>         再量很多世界:全部放进一个浏览器,全部存成文件,换一个干净的浏览器放回来
  *   --over=<世界文件>                 超过一个文件的上限:这个世界放 8 份(名字不同),全部存成文件该分成几个,一起选、分开选都放得回来(只在 Chromium)
+ *   --only=full,trash                 存储真的塞满(默认不跑,要单独点名)。Chromium 用硬盘上的配置,CDP 把这个网站的额度调小再写满(见 limitQuota);
+ *                                     调小额度时 estimate 还是说有地方,这时候靠「写不下过」认出满了,「快满了」那条线在 WebKit 上看。
+ *                                     WebKit 没有调额度的办法,临时配置不认额度,硬盘上的配置额度跟着用量涨(写到 30 GB 额度 82 GB):
+ *   --volume=<文件夹>                 配置放在这个文件夹里(一个配置从头用到尾,塞满了接着用)。WebKit 要给:挂一个 1–2 GB 的小磁盘映像,真的把硬盘写满(hdiutil create -size 2g -fs APFS …、hdiutil attach … -mountpoint …),
+ *                                     full、trash 分开跑,各用一个映像。trash 在 WebKit 上写到只剩一点(见 fillDisk)
+ *   --huge=<存档 json>               量大世界:先塞满再打开这个存档(什么都存不下),存成文件(线程当场打);放进干净的配置,塞满,改名,再存(只换清单)。打印内存峰值(只在 Chromium)
+ *
+ * full:  塞满以后改世界、加 AI 正文,存成文件:刚才的改动在文件里,换干净的浏览器打开逐项一样;从没存进去的世界也能存;全部存成文件说得清哪个世界怎么了
+ * trash: 塞满以后删世界:撤销提示开着时不清、撤销了世界完整回来;收起以后地方腾出来、能接着存;别的标签页开着时不清
  *
  * roundtrip:7 种世界存成文件,换一个干净的浏览器配置打开,地图、放大细部(逐像素)、历史、人口、国旗、编年史、AI 正文、封面逐项比,字节也比。真实 AI 接口不调
  * backup:   全部存成文件往返;坏一个不影响其余;本机已有的不被盖掉
@@ -18,7 +27,8 @@
  * 没过的打印「没过」,退出码非 0。
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, statfsSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { chromium, webkit, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -696,12 +706,12 @@ function sampleRss(pid: number): { stop: () => { peak: number; base: number } } 
   };
 }
 
-function browserPid(): number {
-  // Playwright 不给 pid:本脚本启动的浏览器是这个进程的子进程
-  const rows = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' }).trim().split('\n');
+function browserPid(profile?: string): number {
+  // Playwright 不给 pid:本脚本启动的浏览器是这个进程的子进程;profile = 用这个配置开的那一个
+  const rows = execFileSync('ps', ['-axwwo', 'pid=,ppid=,command='], { encoding: 'utf8' }).trim().split('\n');
   for (const l of rows) {
     const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l);
-    if (m && Number(m[2]) === process.pid && /chrom|headless|webkit|playwright|pw_run/i.test(m[3])) return Number(m[1]);
+    if (m && (profile ? m[3].includes(profile) && !m[3].includes('--type=') : Number(m[2]) === process.pid && /chrom|headless|webkit|playwright|pw_run/i.test(m[3]))) return Number(m[1]);
   }
   throw new Error('找不到浏览器进程');
 }
@@ -813,6 +823,781 @@ async function sixty(browser: Browser, dir: string) {
 }
 
 // ---------------------------------------------------------------------------
+// 存储塞满
+
+type Vault = { latestOf: { n: number; recipeKey: string; content: string } | null };
+
+/** 调检查用的那几样(src/ui/notesCheck.ts) */
+const CHECK = `(window.__wfNotes())`;
+
+/**
+ * Chromium:这个网站的额度调成 bytes。要在这个网站第一次用 IndexedDB 之前调:连着库的时候 Chromium 记着上次问到的还能存多少,半路调小它要写掉那么多才认。
+ * 不调的话额度跟着硬盘走,写到上百 GB 还没满
+ */
+async function limitQuota(page: Page, name: string, bytes: number): Promise<void> {
+  if (name !== 'chromium') return;
+  const c = await page.context().newCDPSession(page);
+  await c.send('Storage.overrideQuotaForOrigin', { origin: new URL(BASE).origin, quotaSize: bytes });
+}
+
+/** 真的写满 IndexedDB:另开一个库写随机的字节,从大块写到小块,一直写到浏览器说写不下。返回写了多少 */
+async function fillIdb(page: Page): Promise<number> {
+  // tsx 给带名字的函数套一层 __name,页面里没有
+  await page.evaluate('globalThis.__name ??= (f) => f');
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase | null>((res) => {
+      const r = indexedDB.open('filler', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('x');
+      r.onsuccess = () => res(r.result);
+      // 硬盘真的满了时 WebKit 连库都打不开:已经满了
+      r.onerror = () => res(null);
+    });
+    if (!db) return 0;
+    const put = (k: number, size: number) =>
+      new Promise<boolean>((res) => {
+        const b = new Uint8Array(size);
+        for (let i = 0; i < size; i += 65536) crypto.getRandomValues(b.subarray(i, Math.min(i + 65536, size)));
+        const t = db.transaction('x', 'readwrite');
+        t.objectStore('x').put(b.buffer, k);
+        t.oncomplete = () => res(true);
+        t.onabort = () => res(false);
+        t.onerror = () => res(false);
+      });
+    let total = 0;
+    let n = 0;
+    for (const size of [64e6, 16e6, 4e6, 1e6, 256e3, 64e3, 16e3, 4e3]) {
+      // 写到这么多还没满就是额度比想的大,别把硬盘写满了
+      while (total < 30e9 && (await put(n++, size))) total += size;
+    }
+    db.close();
+    return total;
+  });
+}
+
+/** 真的写满 localStorage */
+function fillLocal(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    let total = 0;
+    let n = 0;
+    for (let size = 1 << 20; size >= 1; size >>= 1) {
+      const text = 'x'.repeat(size);
+      for (;;) {
+        try {
+          localStorage.setItem(`filler-${n}`, text);
+          n++;
+          total += size;
+        } catch {
+          break;
+        }
+      }
+    }
+    return total;
+  });
+}
+
+/** 整段历史的摘要 */
+const civSum = (page: Page) => page.evaluate(() => JSON.stringify((window as any).__wfCivSum?.(1e9) ?? null));
+
+/** 提示条(塞满了会提示)挡着截图,藏起来 */
+const noToasts = (page: Page) => page.addStyleTag({ content: '.toast{display:none!important}' });
+
+/** 调额度时调成多少:放得下这里用的几个小世界 */
+const SMALL_QUOTA = 60e6;
+
+/** 一个新的浏览器配置,在硬盘上(临时配置满了的样子和真的不一样) */
+let diskSeq = 0;
+/** 最近开的那个配置的文件夹 */
+let lastProfile = '';
+function freshContext(name: string): Promise<BrowserContext> {
+  const dir = path.join(opt('volume') ?? path.join(OUT, 'profiles'), `${name}-${process.pid}-${++diskSeq}`);
+  mkdirSync(dir, { recursive: true });
+  lastProfile = dir;
+  return (name === 'webkit' ? webkit : chromium).launchPersistentContext(dir, VIEW);
+}
+
+/** 这个页面所在的网站塞满:IndexedDB,localStorage 看 local(不塞的话,以前塞的腾掉) */
+async function fillUp(page: Page, local: boolean): Promise<void> {
+  const t = Date.now();
+  if (!local) await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('filler-')).forEach((k) => localStorage.removeItem(k)));
+  const idb = await fillIdb(page);
+  const ls = local ? await fillLocal(page) : 0;
+  const e = await page.evaluate(async () => {
+    const x = await navigator.storage.estimate();
+    return { usage: x.usage ?? 0, quota: x.quota ?? 0 };
+  });
+  say(`  塞满:IndexedDB 又写了 ${(idb / 1e6).toFixed(1)} MB${local ? `,localStorage 又写了 ${(ls / 1e6).toFixed(1)} M 字`: ''},${((Date.now() - t) / 1000).toFixed(0)} s(占 ${(e.usage / 1e6).toFixed(0)} MB / 额度 ${(e.quota / 1e6).toFixed(0)} MB)`);
+}
+
+/**
+ * 小磁盘写到只剩 room 字节(从外面写一个大文件,网站占的没变)。一点都不剩时库连提交删除都做不到(见 trash 的说明),只剩一点才是用的人碰到的「快满了」
+ */
+function fillDisk(dir: string, room: number): void {
+  const file = path.join(dir, 'filler.bin');
+  const fd = openSync(file, 'a');
+  const left = () => {
+    const st = statfsSync(dir);
+    return st.bavail * st.bsize;
+  };
+  // 磁盘映像报的剩余不总是准的:写到报错也算写满了
+  for (const size of [64e6, 16e6, 4e6, 1e6]) {
+    const chunk = randomBytes(size);
+    try {
+      while (left() > room + size) writeSync(fd, chunk);
+    } catch {
+      /* 下一档小的接着写 */
+    }
+  }
+  closeSync(fd);
+  // 写过头了:退回来一点
+  const over = room - left();
+  if (over > 0) truncateSync(file, Math.max(0, statSync(file).size - over));
+  say(`  硬盘写到只剩 ${(left() / 1e6).toFixed(1)} MB`);
+}
+
+/** 真的写得进去吗(另开一个库写一点) */
+function canWrite(page: Page, size = 200_000): Promise<boolean> {
+  return page.evaluate(
+    (sz) =>
+      new Promise<boolean>((res) => {
+        const r = indexedDB.open('probe', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('x');
+        r.onerror = () => res(false);
+        r.onblocked = () => res(false);
+        r.onsuccess = () => {
+          const b = new Uint8Array(sz);
+          for (let i = 0; i < sz; i += 65536) crypto.getRandomValues(b.subarray(i, Math.min(i + 65536, sz)));
+          const t = r.result.transaction('x', 'readwrite');
+          t.objectStore('x').put(b.buffer, 1);
+          t.oncomplete = () => {
+            // 写得进去:这一点不留着占地方
+            const d = r.result.transaction('x', 'readwrite');
+            d.objectStore('x').clear();
+            d.oncomplete = () => {
+              r.result.close();
+              res(true);
+            };
+          };
+          t.onabort = () => {
+            r.result.close();
+            res(false);
+          };
+        };
+      }),
+    size,
+  );
+}
+
+/** 一直问到 f 说行,最多等 ms 毫秒;等到了 = true。(page.waitForFunction 不等 async 的函数:返回的 Promise 算真,问一次就走了) */
+async function until(f: () => Promise<boolean>, ms: number): Promise<boolean> {
+  const t0 = Date.now();
+  for (;;) {
+    if (await f()) return true;
+    if (Date.now() - t0 > ms) return false;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
+
+/** 等这个世界存进仓库 */
+async function vaultHas(page: Page, id: string): Promise<void> {
+  if (!(await until(async () => !!(await latest(page, id)), WAIT))) throw new Error(`${id} 一直没存进仓库`);
+}
+
+/** 这个世界在仓库里最新的一份;打不开库算没有(硬盘真的满了时 WebKit 连库都打不开) */
+const latest = (page: Page, id: string) =>
+  page.evaluate(
+    async ([c, i]) => {
+      const { store } = await eval(c as string);
+      return (await store.vaultCall('latestOf', [i]).catch(() => null)) as Vault['latestOf'];
+    },
+    [CHECK, id],
+  );
+
+/** 打开「我的世界」;世界按名字找 */
+async function worldsPage(page: Page) {
+  await page.goto(BASE);
+  await civsTab(page);
+}
+
+/** 「我的世界」页签换到「文明」:才看得到一个个世界 */
+async function civsTab(page: Page) {
+  await page.locator('.mw').first().waitFor({ timeout: 20000 });
+  const tab = page.locator('.mw-seg [data-tab=civs]');
+  if (await tab.count()) await tab.click();
+  await page.locator('.mw [data-act=world-menu]').first().waitFor({ timeout: 20000 }).catch(() => {});
+}
+
+/** 从「我的世界」删掉一个世界(真的点界面):id 这个世界那张卡片上的菜单 */
+async function deleteInUi(page: Page, title: string) {
+  await page.bringToFront();
+  const card = page.locator('.mw .mw-card, .mw [data-act=open-world]').filter({ hasText: title }).first();
+  await card.waitFor({ timeout: 20000 });
+  const row = page.locator('.mw *:has(> [data-act=world-menu])').filter({ hasText: title }).first();
+  await row.locator('[data-act=world-menu]').click({ timeout: 5000 });
+  await page.locator('[data-act=world-delete]').click({ timeout: 5000 });
+  await page.locator('[data-act=world-undelete]').waitFor({ state: 'attached', timeout: 5000 }).catch(() => {});
+}
+
+const undoOpen = (page: Page) => page.locator('[data-act=world-undelete]').count().then((n) => n > 0);
+
+async function fullStorage(browser: Browser, name: string) {
+  say(`\n== 存储塞满了存成文件(${name})`);
+  const list = kinds();
+  const plain = list.find((k) => k.name === '改名')!;
+  const other = list.find((k) => k.name === '干预')!;
+  const fresh = list.find((k) => k.name === '作者人物')!;
+  const fresh2 = list.find((k) => k.name === '逐年推演')!;
+  const small = { ...DEFAULT_PARAMS, seed: 2024, cells: 4000 };
+  const civ = generateCiv(generateWorld(small), { endYear: 1000 });
+  const ctx = await freshContext(name);
+  // 小磁盘只够写满一次:一个配置从头用到尾,已经满了的接着用。不然每一段一个新的
+  const shared = !!opt('volume');
+  const nextContext = async () => (shared ? ctx : freshContext(name));
+  const endContext = async (c: BrowserContext) => {
+    if (c !== ctx || !shared) await c.close();
+  };
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+  await limitQuota(page, name, SMALL_QUOTA);
+  const idA = await openJson(page, plain.save, `${name}-full-a`);
+  await vaultHas(page, idA);
+  await thumbSettled(page, idA);
+  const idB = await openJson(page, other.save, `${name}-full-b`);
+  await vaultHas(page, idB);
+  await page.goto(`${BASE}?w=${idA}`);
+  await settle(page);
+  const before = await latest(page, idA);
+  // AI 正文一条存在仓库里
+  await page.evaluate(
+    async ([c, i]) => {
+      const { notes } = await eval(c as string);
+      await notes.notesReady([i]);
+      notes.putNote(i, { key: '史书:早', kind: '史书', title: '早', text: '塞满之前写的', createdAt: '2026-11-04T08:00:00.000Z', provider: 'test', model: 't' });
+      await notes._notesSettled();
+    },
+    [CHECK, idA],
+  );
+  await fillUp(page, true);
+  check(!(await canWrite(page)), `${name}:真的写不进去了`);
+
+  say(' 改了世界(改名、干预、AI 正文)再存成文件');
+  // 这个世界本来就改过名的那一国再改一次(换了历史也认得出来)
+  const b = polityKey(civ, civ.polities[0].id);
+  const newName = '只在页面里的王朝';
+  await page.evaluate(
+    async ([c, i, polity, title]) => {
+      const { saves, notes } = await eval(c as string);
+      const e = saves.getEdits();
+      saves.setEdits({ ...e, names: { ...e.names, [`polity:${polity}`]: title }, interventions: [...e.interventions, { kind: 'protect', a: polity, from: 200, until: 800 }] });
+      notes.putNote(i, { key: '史书:新', kind: '史书', title: '新', text: '塞满以后写的', createdAt: '2026-11-04T09:00:00.000Z', provider: 'test', model: 't' });
+    },
+    [CHECK, idA, b, newName],
+  );
+  await page.waitForTimeout(4000);
+  await settle(page);
+  // 重推完时间轴停在改的那一年;打开文件时在最后一年,比的时候对齐
+  await page.evaluate(async (c) => (await eval(c)).saves.setCivTime({ year: null, playing: false }), CHECK);
+  await page.waitForTimeout(1500);
+  const state = await page.evaluate(
+    async ([c, i]) => {
+      const { saves, notes } = await eval(c as string);
+      return { unsaved: saves.currentUnsaved(), behind: notes.notesBehind(i), stored: JSON.stringify(saves.loadWorld(i)?.save.edits.names ?? {}) };
+    },
+    [CHECK, idA],
+  );
+  check(state.unsaved && !state.stored.includes(newName), `${name}:改动只在页面里(存档没写进去)`);
+  const after = await latest(page, idA);
+  check(after?.recipeKey === before?.recipeKey, `${name}:仓库里还是改之前的`);
+  await noToasts(page);
+  const civA = await civSum(page);
+  writeFileSync(path.join(OUT, `${name}-full-whole-a.png`), await page.screenshot());
+  const sa = await seen(page);
+  const fileA = path.join(OUT, `${name}-full-a.civworld`);
+  const r = await saveFile(page, idA, fileA);
+  check(!r.stale, `${name}:存成文件没有落后(${(statSync(fileA).size / 1e6).toFixed(2)} MB,${Math.round(r.ms)} ms)`);
+
+  const clean = await browser.newContext(VIEW);
+  const pc = await home(clean);
+  const kept = await keepFile(pc, fileA);
+  await pc.goto(`${BASE}?w=${kept.id}`);
+  await settle(pc);
+  await noToasts(pc);
+  check((await civSum(pc)) === civA, `${name}:整段历史一样(${civA})`);
+  writeFileSync(path.join(OUT, `${name}-full-whole-b.png`), await pc.screenshot());
+  const sb = await seen(pc);
+  check(sb.load === 'stored', `${name}:干净的浏览器打开走文件里的内容(${sb.load})`);
+  const dMap = pngDiff(sa.map, sb.map);
+  const dZoom = pngDiff(sa.zoom, sb.zoom);
+  writeFileSync(path.join(OUT, `${name}-full-zoom-a.png`), sa.zoom);
+  writeFileSync(path.join(OUT, `${name}-full-zoom-b.png`), sb.zoom);
+  check(dMap === 0, `${name}:地图逐像素一样(差 ${dMap})`);
+  check(dZoom === 0, `${name}:放大细部逐像素一样(差 ${dZoom})`);
+  check(sa.countries === sb.countries && sa.countries.length > 20, `${name}:历史、人口一样`);
+  check((await pc.evaluate(([c, i]) => (window as any).__wfNotes().then((m: any) => JSON.stringify(m.saves.loadWorld(i)?.save.edits.names ?? {})), [CHECK, kept.id])).includes(newName), `${name}:新名字在`);
+  if (sa.countries !== sb.countries) {
+    writeFileSync(path.join(OUT, `${name}-full-countries-a.txt`), sa.countries);
+    writeFileSync(path.join(OUT, `${name}-full-countries-b.txt`), sb.countries);
+  }
+  check(sa.flags === sb.flags, `${name}:国旗一样`);
+  check(sa.chronicle === sb.chronicle, `${name}:编年史一样`);
+  check(sa.probes === sb.probes, `${name}:地块读数一样`);
+  const notesB = await pc.evaluate(async (i) => {
+    const lib = (await (window as any).__wfNotes()).notes;
+    await lib.notesReady([i]);
+    return (lib.exportNotes(i) as { key: string }[]).map((n) => n.key).sort();
+  }, kept.id);
+  check(notesB.join() === '史书:新,史书:早', `${name}:AI 正文都在,塞满以后写的也在(${notesB.join()})`);
+  const madeBack = (await openWorldFile(new Uint8Array(readFileSync(fileA)), { readers: { ...READER_VERSIONS } })).manifest;
+  check(madeBack.made.generator === GENERATOR_VERSION && !!madeBack.made.at && madeBack.readers.terrain === READER_VERSIONS.terrain && madeBack.recipe.edits.interventions.length === 1, `${name}:文件里的版本、读取规则、配方写对了`);
+
+  say(' 全部存成文件');
+  // 没开着的世界 C:存档在,内容从没存进仓库(下面塞满以后才放进来)
+  const all = await page.evaluate(async (wf) => {
+    const m = await eval(wf);
+    const out = await m.saveAllWorldFiles();
+    if (!out.ok) return { error: out.kind };
+    (window as any).__blobs.all = out.files[0].file;
+    return { whole: out.whole, count: out.count, recipeOnly: out.recipeOnly, left: out.left, behind: out.behind };
+  }, WF);
+  check(!('error' in all) && all.whole === 2 && !all.behind.length && !all.left.length, `${name}:两个世界都带着完整内容(${JSON.stringify(all)})`);
+  const allFile = path.join(OUT, `${name}-full-all.civworld`);
+  await download(page, 'all', allFile);
+  const pc2 = await home(await browser.newContext(VIEW));
+  const restored = await openAll(pc2, allFile);
+  check(restored.added === 2 && !restored.skipped.length, `${name}:干净的浏览器放回 ${restored.added} 个`);
+  await page.close();
+  await endContext(ctx);
+  await pc.close();
+  await clean.close();
+  await pc2.context().close();
+
+  for (const kind of [fresh, fresh2, list.find((k) => k.name === '地形大事')!]) {
+    say(` 从没存进去的世界:${kind.name}`);
+    const tag = `${name}:${kind.name}`;
+    const c2 = await nextContext();
+    const p2 = await c2.newPage();
+    p2.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+    await limitQuota(p2, name, SMALL_QUOTA);
+    await p2.goto(BASE);
+    await hookReady(p2);
+    await fillUp(p2, true);
+    check(!(await canWrite(p2)), `${tag}:真的写不进去了`);
+    const json = path.join(OUT, `${name}-full-never-${kind.name}.json`);
+    writeFileSync(json, JSON.stringify(kind.save));
+    await p2.goto(BASE);
+    await p2.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
+    await p2.setInputFiles('[data-testid=save-file-input]', json);
+    await p2.waitForFunction(() => (window as any).__wf?.ready && (window as any).__wfCiv?.ready, null, { timeout: WAIT });
+    await p2.waitForTimeout(3000);
+    const never = await p2.evaluate(async (c) => {
+      const { saves, store } = await eval(c);
+      const id = saves.currentWorld()?.id as string;
+      // 硬盘真的满了时 WebKit 连库都打不开
+      return { id, stored: !!saves.loadWorld(id), vault: !!(await store.vaultCall('latestOf', [id]).catch(() => null)), unsaved: saves.currentUnsaved() };
+    }, CHECK);
+    check(!never.stored && !never.vault, `${tag}:浏览器里什么都没存下(${JSON.stringify(never)})`);
+    await noToasts(p2);
+    const civN = await civSum(p2);
+    // 地形大事那几段的主图在后台铺:等它铺好再比(打开文件那边也一样)
+    await p2.waitForTimeout(3000);
+    const sn = await seen(p2);
+    const fileN = path.join(OUT, `${name}-full-never-${kind.name}.civworld`);
+    const rn = await saveFile(p2, never.id, fileN);
+    check(!rn.stale, `${tag}:从没存进去的世界存成文件(${(statSync(fileN).size / 1e6).toFixed(2)} MB,${Math.round(rn.ms)} ms)`);
+    const c3 = await browser.newContext(VIEW);
+    const p3 = await home(c3);
+    const kn = await keepFile(p3, fileN);
+    await p3.goto(`${BASE}?w=${kn.id}`);
+    await settle(p3);
+    await noToasts(p3);
+    check((await civSum(p3)) === civN, `${tag}:整段历史一样(${civN})`);
+    const sm = await seen(p3);
+    check(sm.load === 'stored', `${tag}:打开走文件里的内容(${sm.load})`);
+    const dNeverMap = pngDiff(sn.map, sm.map);
+    check(dNeverMap === 0, `${tag}:地图逐像素一样(差 ${dNeverMap})`);
+    const dNever = pngDiff(sn.zoom, sm.zoom);
+    writeFileSync(path.join(OUT, `${name}-never-${kind.name}-zoom-a.png`), sn.zoom);
+    writeFileSync(path.join(OUT, `${name}-never-${kind.name}-zoom-b.png`), sm.zoom);
+    check(dNever === 0, `${tag}:放大细部逐像素一样(差 ${dNever})`);
+    check(sn.countries === sm.countries && sn.chronicle === sm.chronicle && sn.flags === sm.flags && sn.probes === sm.probes, `${tag}:历史、国旗、编年史、读数一样`);
+
+    // 全部存成文件:改过、写不进去的这个不在列表里也带上
+    const edited = await p2.evaluate(async (c) => {
+      const { saves } = await eval(c);
+      const e = saves.getEdits();
+      saves.setEdits({ ...e, names: { ...e.names, 'polity:页面里': '也带上' } });
+      const w = saves.currentWorld();
+      return { kind: w?.kind, unsaved: w?.unsaved, gone: w?.gone, stored: !!saves.loadWorld(w?.id) };
+    }, CHECK);
+    await p2.waitForTimeout(500);
+    const allNever = await p2.evaluate(async (wf) => {
+      const m = await eval(wf);
+      const out = await m.saveAllWorldFiles();
+      return out.ok ? { whole: out.whole, count: out.count, left: out.left, behind: out.behind } : { error: out.kind };
+    }, WF);
+    say(`  改过以后:${JSON.stringify(edited)}`);
+    check(!('error' in allNever) && allNever.whole >= 1 && !allNever.behind.length && !allNever.left.length, `${tag}:全部存成文件带上了它(${JSON.stringify(allNever)})`);
+    await p2.close();
+    await endContext(c2);
+    await p3.close();
+    await c3.close();
+  }
+
+  if (!shared) {
+  say(' 地图留着的世界:塞满以后换了历史');
+  const cm = await freshContext(name);
+  const pm = await cm.newPage();
+  pm.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+  await limitQuota(pm, name, SMALL_QUOTA);
+  const idM = await openJson(pm, plain.save, `${name}-full-m`);
+  await vaultHas(pm, idM);
+  const copied = await pm.evaluate((i) => (window as any).__wfKeepMapCopy(i), idM);
+  check(copied.ok, `${name}:另存了一份,地图不变(${JSON.stringify(copied).slice(0, 80)})`);
+  await pm.goto(`${BASE}?w=${copied.id}`);
+  await settle(pm);
+  const mapBefore = (await latest(pm, copied.id))!;
+  await fillUp(pm, true);
+  await pm.evaluate(
+    async ([c, polity]) => {
+      const { saves } = await eval(c as string);
+      const e = saves.getEdits();
+      saves.setEdits({ ...e, interventions: [...e.interventions, { kind: 'protect', a: polity, from: 200, until: 800 }] });
+    },
+    [CHECK, polityKey(civ, civ.polities[0].id)],
+  );
+  await pm.waitForTimeout(4000);
+  await settle(pm);
+  await pm.evaluate(async (c) => (await eval(c)).saves.setCivTime({ year: null, playing: false }), CHECK);
+  await pm.waitForTimeout(1000);
+  check((await latest(pm, copied.id))?.recipeKey === mapBefore.recipeKey, `${name}:仓库里还是改之前的`);
+  await noToasts(pm);
+  const civM = await civSum(pm);
+  const fileM = path.join(OUT, `${name}-full-m.civworld`);
+  const rm = await saveFile(pm, copied.id, fileM);
+  check(!rm.stale, `${name}:存成文件没有落后(${(statSync(fileM).size / 1e6).toFixed(2)} MB,${Math.round(rm.ms)} ms)`);
+  const mo = await openWorldFile(new Uint8Array(readFileSync(fileM)), { readers: { ...READER_VERSIONS } });
+  check(!!mo.manifest.recipe.edits.map && mo.manifest.recipe.edits.interventions.length > 0, `${name}:文件里还是地图留着的世界,新的干预在`);
+  const cm2 = await browser.newContext(VIEW);
+  const pm2 = await home(cm2);
+  const km = await keepFile(pm2, fileM);
+  await pm2.goto(`${BASE}?w=${km.id}`);
+  await settle(pm2);
+  check((await pm2.evaluate(() => String((window as any).__wfLoad))) === 'stored', `${name}:打开走文件里的内容`);
+  check((await civSum(pm2)) === civM, `${name}:整段历史一样(${civM})`);
+  await pm2.close();
+  await cm2.close();
+  await pm.close();
+  await cm.close();
+  }
+
+  // 硬盘真的满了时 WebKit 的 localStorage 写了也会丢,存档留不住,这种世界没有:见单测和 Chromium
+  if (!shared) {
+  say(' 没开着、内容从没存进去的世界');
+  const c4 = await nextContext();
+  const p4 = await c4.newPage();
+  p4.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+  await limitQuota(p4, name, SMALL_QUOTA);
+  await p4.goto(BASE);
+  await hookReady(p4);
+  // 只塞满 IndexedDB:存档写得进 localStorage,内容写不进仓库
+  await fillUp(p4, false);
+  const idC = await openJson(p4, fresh2.save, `${name}-full-c`);
+  await p4.goto(BASE);
+  await hookReady(p4);
+  await p4.waitForTimeout(1000);
+  const cState = await p4.evaluate(
+    async ([c, i]) => {
+      const { saves, store } = await eval(c as string);
+      // 硬盘真的满了时 WebKit 连库都打不开
+      return { open: saves.currentWorld()?.id ?? null, stored: !!saves.loadWorld(i), vault: !!(await store.vaultCall('latestOf', [i]).catch(() => null)) };
+    },
+    [CHECK, idC],
+  );
+  check(cState.stored && !cState.vault && cState.open !== idC, `${name}:存档在,内容不在,也没开着(${JSON.stringify(cState)})`);
+  const fileC = path.join(OUT, `${name}-full-c.civworld`);
+  const rc = await saveFile(p4, idC, fileC);
+  check(!rc.stale, `${name}:现算一遍装成文件(${(statSync(fileC).size / 1e6).toFixed(2)} MB,${Math.round(rc.ms)} ms)`);
+  const c5 = await browser.newContext(VIEW);
+  const p5 = await home(c5);
+  const kc = await keepFile(p5, fileC);
+  await p5.goto(`${BASE}?w=${kc.id}`);
+  await settle(p5);
+  check((await p5.evaluate(() => String((window as any).__wfLoad))) === 'stored', `${name}:打开走文件里的内容`);
+  await p5.close();
+  await c5.close();
+  await p4.close();
+  await c4.close();
+  }
+  await ctx.close();
+}
+
+async function trashFull(name: string) {
+  say(`\n== 删世界(${name})`);
+  const list = kinds();
+  const ctx = await freshContext(name);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+  await limitQuota(page, name, SMALL_QUOTA);
+  const a = list.find((k) => k.name === '改名')!;
+  const b = list.find((k) => k.name === '干预')!;
+  const k3 = list.find((k) => k.name === '作者人物')!;
+  const t4 = list.find((k) => k.name === '逐年推演')!;
+  const idA = await openJson(page, a.save, `${name}-trash-a`);
+  await vaultHas(page, idA);
+  const idB = await openJson(page, b.save, `${name}-trash-b`);
+  await vaultHas(page, idB);
+  const idK = await openJson(page, k3.save, `${name}-trash-k`);
+  await vaultHas(page, idK);
+  const idT = await openJson(page, t4.save, `${name}-trash-t`);
+  await vaultHas(page, idT);
+  const usageOf = (p: Page) => p.evaluate(async () => (await navigator.storage.estimate()).usage ?? 0);
+  const clearNow = (p: Page) => p.evaluate(async (c) => (await eval(c)).store.clearTrashNow(), CHECK) as Promise<{ cleared: string[]; kept: string[] }>;
+
+  // 几个标签页的事和满不满无关,先看(硬盘真的满了时 WebKit 的 localStorage 不可靠,几个标签页之间对不上)
+  say(' 别的标签页不抢:这边提示开着,那边要清');
+  await worldsPage(page);
+  const other = await ctx.newPage();
+  await other.goto(BASE);
+  await hookReady(other);
+  await deleteInUi(page, t4.save.title!);
+  check(await undoOpen(page), `${name}:撤销提示开着`);
+  await page.waitForTimeout(3200);
+  check(await undoOpen(page), `${name}:撤销提示还开着`);
+  const cl2 = await clearNow(other);
+  check(!cl2.cleared.length && cl2.kept.includes(idT), `${name}:别的标签页「现在清掉」也不动它`);
+  check(!!(await latest(page, idT)), `${name}:内容还在`);
+  await page.locator('[data-act=world-undelete]').click({ timeout: 5000 });
+  await page.waitForTimeout(500);
+  check((await page.evaluate((i) => !!localStorage.getItem(`wenming-ditu:world:${i}`), idT)) && !!(await latest(page, idT)), `${name}:撤销了,存档、内容都在`);
+
+  say(' 别的标签页开着它');
+  await page.goto(`${BASE}?w=${idT}`);
+  await settle(page);
+  await worldsPage(other);
+  await deleteInUi(other, t4.save.title!);
+  await other.waitForFunction(() => !document.querySelector('[data-act=world-undelete]'), null, { timeout: 30000 });
+  await other.waitForTimeout(3500);
+  const cl3 = await clearNow(other);
+  check(!cl3.cleared.includes(idT) && !!(await latest(other, idT)), `${name}:别的标签页还开着它,不清`);
+  const fileT = path.join(OUT, `${name}-trash-t.civworld`);
+  const rt = await saveFile(page, idT, fileT);
+  check(!rt.stale, `${name}:别的标签页删了,这边还能存成文件(${(statSync(fileT).size / 1e6).toFixed(2)} MB)`);
+  await page.goto(BASE);
+  await hookReady(page);
+  await other.waitForTimeout(2000);
+  const cl4 = await clearNow(other);
+  check(cl4.cleared.includes(idT) && !(await latest(other, idT)), `${name}:那边不开了,清得掉`);
+  await other.close();
+
+  // 开着 K,塞满,改名写不进去(这个页面知道满了),再回「我的世界」(不刷新)
+  say(' 塞满');
+  await page.goto(`${BASE}?w=${idK}`);
+  await settle(page);
+  // WebKit 上写到一点不剩时,库连提交删除都做不到:世界清不掉、也不丢,等硬盘有了地方。这里看「只剩一点」(小的写得进,大的写不进)
+  const volume = opt('volume');
+  if (volume) fillDisk(volume, 8e6);
+  else await fillUp(page, false);
+  check(!(await canWrite(page, volume ? 40e6 : 200e3)), `${name}:真的写不进去了`);
+  const renamed = '满的时候改的名字';
+  await page.evaluate(
+    async ([c, title]) => {
+      const { saves } = await eval(c as string);
+      const e = saves.getEdits();
+      saves.setEdits({ ...e, names: { ...e.names, 'polity:c9#9': title } });
+    },
+    [CHECK, renamed],
+  );
+  // 配方以外的改动停 3 秒才写
+  await page.waitForTimeout(4500);
+  const namesInVault = (i: string) =>
+    page.evaluate(
+      async ([c, x]) => {
+        const { store } = await eval(c as string);
+        const r = await store.vaultCall('readRevision', [x, undefined, []]);
+        return JSON.stringify(r?.manifest.recipe.edits.names ?? {});
+      },
+      [CHECK, i],
+    );
+  // WebKit 上刚清掉的世界腾出来的地方这个库还能接着用,写得进这一点点:那就不算写不下
+  const inVault = (await namesInVault(idK)).includes(renamed);
+  if (!opt('volume')) check(!inVault, `${name}:改名没写进仓库`);
+  else say(`  改名${inVault ? '写进去了(库里还有清掉的世界腾出来的地方)' : '没写进去'}`);
+  // 写一大段 AI 正文(压不小的):写不下,这个页面就知道满了
+  await page.evaluate(
+    async ([c, i, n]) => {
+      const { notes } = await eval(c as string);
+      await notes.notesReady([i]);
+      const b = new Uint8Array(n as number);
+      for (let k = 0; k < b.length; k += 65536) crypto.getRandomValues(b.subarray(k, Math.min(k + 65536, b.length)));
+      notes.putNote(i, { key: '史书:长', kind: '史书', title: '长', text: Array.from(b, (x) => x.toString(36)).join(''), createdAt: '2026-11-04T09:00:00.000Z', provider: 'test', model: 't' });
+    },
+    [CHECK, idK, volume ? 20e6 : 3e6],
+  );
+  check(await until(() => page.evaluate(async (c) => (await eval(c)).store.vaultIsFull() as boolean, CHECK), 30000), `${name}:页面知道写不下了`);
+  await page.getByText('我的世界', { exact: true }).first().click({ timeout: 5000 });
+  await civsTab(page);
+
+  const info0 = await page.evaluate(async (c) => (await eval(c)).store.trashInfo(), CHECK);
+  check(info0.count === 0 && info0.bytes === 0 && info0.clearBy === null, `${name}:没有删掉的世界时是空的`);
+
+  say(' 满了时删,撤销提示开着');
+  const u0 = await usageOf(page);
+  await deleteInUi(page, a.save.title!);
+  check(await undoOpen(page), `${name}:撤销提示开着`);
+  const info1 = await page.evaluate(async (c) => (await eval(c)).store.trashInfo(), CHECK);
+  check(info1.count === 1 && info1.bytes > 100_000 && info1.held === 1 && info1.clearBy > Date.now() + 29 * 86400_000, `${name}:占多少、几个、哪天清掉都说得出(${JSON.stringify(info1)})`);
+  const cl = await clearNow(page);
+  check(!cl.cleared.length && cl.kept.includes(idA), `${name}:提示开着时「现在清掉」不动它`);
+  check(!!(await latest(page, idA)), `${name}:内容还在`);
+  await page.locator('[data-act=world-undelete]').click({ timeout: 5000 });
+  await page.waitForTimeout(500);
+  check((await page.evaluate((i) => !!localStorage.getItem(`wenming-ditu:world:${i}`), idA)) && !!(await latest(page, idA)), `${name}:撤销了,存档、内容都在`);
+  check(!(await page.evaluate(async ([c, i]) => (i as string) in (await eval(c as string)).saves.trashMarks(), [CHECK, idA])), `${name}:撤销了不再算删掉的世界`);
+  const headA = await page.evaluate(
+    async ([c, i]) => {
+      const { store } = await eval(c as string);
+      const r = await store.vaultCall('readRevision', [i]);
+      return { parts: r?.parts.length ?? 0, content: r?.head.content };
+    },
+    [CHECK, idA],
+  );
+  check(headA.parts >= 4, `${name}:撤销回来的世界各块都读得出来(${headA.parts} 块)`);
+
+  // 硬盘真的满了时 WebKit 的 localStorage 写了也会丢,腾 localStorage 时存档跟着回退:这一段只在 Chromium 上看
+  if (!opt('volume')) {
+  say(' localStorage 也满了:删了再撤销');
+  await fillLocal(page);
+  await deleteInUi(page, a.save.title!);
+  check(await undoOpen(page), `${name}:撤销提示开着`);
+  await page.locator('[data-act=world-undelete]').click({ timeout: 5000 });
+  await page.waitForTimeout(500);
+  check((await page.evaluate((i) => !!localStorage.getItem(`wenming-ditu:world:${i}`), idA)) && !!(await latest(page, idA)), `${name}:放得回去,存档、内容都在`);
+  await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('filler-')).forEach((k) => localStorage.removeItem(k)));
+  }
+
+  say(' 撤销提示收起');
+  const lookNow = () =>
+    page.evaluate(
+      async ([c, i]) => {
+        const { saves, store } = await eval(c as string);
+        return { stored: !!saves.loadWorld(i), marked: (i as string) in saves.trashMarks(), full: store.vaultIsFull(), toast: document.querySelector('.toast-main')?.textContent ?? null };
+      },
+      [CHECK, idA],
+    );
+  await deleteInUi(page, a.save.title!);
+  say(`  删之后:${JSON.stringify(await lookNow())}`);
+  check(await undoOpen(page), `${name}:撤销提示开着`);
+  check(!!(await latest(page, idA)), `${name}:提示开着,内容还在`);
+  await page.waitForFunction(() => !document.querySelector('[data-act=world-undelete]'), null, { timeout: 30000 });
+  say(`  收起:${JSON.stringify(await lookNow())}`);
+  const t1 = Date.now();
+  const emptied = await until(async () => !(await latest(page, idA)), 30000);
+  check(emptied, `${name}:提示收起以后内容清掉了(${((Date.now() - t1) / 1000).toFixed(1)} s)`);
+  await page.waitForTimeout(1500);
+  const u1 = await usageOf(page);
+  say(`  占的地方 ${(u0 / 1e6).toFixed(1)} → ${(u1 / 1e6).toFixed(1)} MB`);
+  // WebKit 把块存在库文件里,删了文件不变小,腾出来的地方这个库接着用(下面「接着存」看得到),别的库用不上,所以这两样只在 Chromium 上看
+  if (!opt('volume')) {
+    check(u1 < u0, `${name}:占的地方少了`);
+    check(await canWrite(page), `${name}:腾出了地方,写得进去了`);
+  }
+  check(!!(await latest(page, idB)), `${name}:别的世界一点没动`);
+  const info2 = await page.evaluate(
+    async ([c, i]) => {
+      const { saves, store } = await eval(c as string);
+      return { ...(await store.trashInfo()), marks: Object.keys(saves.trashMarks()).length, marked: (i as string) in saves.trashMarks() };
+    },
+    [CHECK, idA],
+  );
+  check(info2.count === 0, `${name}:删掉的世界空了(${JSON.stringify(info2)})`);
+
+  say(' 接着存');
+  // 满的时候写不进去的改名,腾出地方后自己补上(再转一遍,闲下来才转)
+  const t2 = Date.now();
+  const filled = await until(async () => (await namesInVault(idK)).includes(renamed), 90000);
+  check(filled, `${name}:满的时候的改名补进仓库了(${((Date.now() - t2) / 1000).toFixed(1)} s)`);
+  await page.close();
+  await ctx.close();
+}
+
+/** 量大世界:存储满了存成文件的内存峰值 */
+async function hugeFull(browser: Browser, file: string) {
+  say(`\n== 大世界塞满了存成文件(${path.basename(file)})`);
+  const ctx = await freshContext('chromium');
+  const pid = browserPid(lastProfile);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+  await limitQuota(page, 'chromium', 20e6);
+  await page.goto(BASE);
+  await hookReady(page);
+  await fillUp(page, true);
+  check(!(await canWrite(page)), '真的写不进去了');
+  await page.goto(BASE);
+  await page.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
+  const t0 = Date.now();
+  const s0 = sampleRss(pid);
+  await page.setInputFiles('[data-testid=save-file-input]', file);
+  await page.waitForFunction(() => (window as any).__wf?.ready && (window as any).__wfCiv?.ready, null, { timeout: 7200_000, polling: 2000 });
+  const m0 = s0.stop();
+  say(`  新建 + 推完:${((Date.now() - t0) / 1000).toFixed(0)} s;内存 ${m0.base} → 峰值 ${m0.peak} MB`);
+  await page.waitForTimeout(20000);
+  const id = await page.evaluate(async (c) => (await eval(c)).saves.currentWorld()?.id as string, CHECK);
+  check(!(await latest(page, id)), '仓库里什么都没存下');
+  const civA = await civSum(page);
+  const s1 = sampleRss(pid);
+  const out = path.join(OUT, 'huge-page.civworld');
+  const r = await saveFile(page, id, out);
+  const m1 = s1.stop();
+  check(!r.stale, `页面里的世界当场打:存成文件 ${(r.ms / 1000).toFixed(1)} s(${(statSync(out).size / 1e6).toFixed(1)} MB);内存 ${m1.base} → 峰值 ${m1.peak} MB`);
+  await page.close();
+  await ctx.close();
+
+  const c2 = await freshContext('chromium');
+  const pid2 = browserPid(lastProfile);
+  const p2 = await c2.newPage();
+  p2.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+  // 放得下这个世界,不多
+  await limitQuota(p2, 'chromium', 2 * statSync(out).size + 100e6);
+  await p2.goto(BASE);
+  await hookReady(p2);
+  const s2 = sampleRss(pid2);
+  const kept = await keepFile(p2, out);
+  const m2 = s2.stop();
+  check(kept.match === 'new', `干净的浏览器核对过了,放进来了:核对 ${(kept.lookMs / 1000).toFixed(1)} s,存进仓库 ${(kept.keepMs / 1000).toFixed(1)} s;内存 ${m2.base} → 峰值 ${m2.peak} MB`);
+  await p2.goto(`${BASE}?w=${kept.id}`);
+  const t3 = Date.now();
+  await p2.waitForFunction(() => (window as any).__wf?.ready && (window as any).__wfCiv?.ready, null, { timeout: 1800_000, polling: 1000 });
+  await p2.waitForTimeout(3000);
+  say(`  打开 ${((Date.now() - t3) / 1000).toFixed(0)} s,走${await p2.evaluate(() => String((window as any).__wfLoad))}`);
+  check((await civSum(p2)) === civA, `整段历史一样(${civA})`);
+  // 同一段历史只改名:只换清单,块从仓库里读
+  await fillUp(p2, true);
+  check(!(await canWrite(p2)), '真的写不进去了');
+  await p2.evaluate(async (c) => {
+    const { saves } = await eval(c);
+    const e = saves.getEdits();
+    saves.setEdits({ ...e, names: { ...e.names, 'polity:页面里': '只在页面里' } });
+  }, CHECK);
+  await p2.waitForTimeout(4000);
+  const s3 = sampleRss(pid2);
+  const out2 = path.join(OUT, 'huge-light.civworld');
+  const r2 = await saveFile(p2, kept.id, out2);
+  const m3 = s3.stop();
+  check(!r2.stale, `只改了名:存成文件 ${(r2.ms / 1000).toFixed(1)} s(${(statSync(out2).size / 1e6).toFixed(1)} MB);内存 ${m3.base} → 峰值 ${m3.peak} MB`);
+  // 全部存成文件
+  const s4 = sampleRss(pid2);
+  const t4 = Date.now();
+  const all = await p2.evaluate(async (wf) => {
+    const m = await eval(wf);
+    const o = await m.saveAllWorldFiles();
+    return o.ok ? { whole: o.whole, bytes: o.bytes, left: o.left, behind: o.behind } : { error: o.kind };
+  }, WF);
+  const m4 = s4.stop();
+  check(!('error' in all) && all.whole === 1 && !all.behind.length, `全部存成文件 ${((Date.now() - t4) / 1000).toFixed(1)} s(${JSON.stringify(all)});内存 ${m4.base} → 峰值 ${m4.peak} MB`);
+  await p2.close();
+  await c2.close();
+}
+
+// ---------------------------------------------------------------------------
 
 if (!existsSync('dist/index.html')) throw new Error('先 pnpm build');
 const KINDS = opt('kinds')?.split(',');
@@ -851,6 +1636,9 @@ for (const name of BROWSERS) {
     if (opt('big')) await big(browser, opt('big')!);
     if (opt('sixty')) await sixty(browser, opt('sixty')!);
     if (name === 'chromium' && opt('over')) await over(browser, opt('over')!);
+    if (ONLY.includes('full')) await fullStorage(browser, name);
+    if (ONLY.includes('trash')) await trashFull(name);
+    if (name === 'chromium' && opt('huge')) await hugeFull(browser, opt('huge')!);
   } finally {
     await browser.close();
   }

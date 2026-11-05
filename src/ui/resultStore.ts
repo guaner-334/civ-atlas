@@ -21,6 +21,7 @@ import { GENERATOR_VERSION } from '../gen/edits';
 import { SNAPSHOT_FORMAT, partOf, recipeKey, recipeOfSave, recipeText, type Snapshot } from '../gen/recipe';
 import type { SaveFile } from '../gen/savefile';
 import { currentSave, currentWorld, isStored, loadWorld, persistent, subscribe, trashMarks } from './saveStore';
+import { isHeld } from './worldHolds';
 import { getEdits, setMapSum } from './editsStore';
 import { APP_VERSION } from './version';
 import { indexedDbResults, type ResultBackend, type ResultHead, type ResultRecord } from '../resultDb';
@@ -218,7 +219,11 @@ export function dropOrphans(): Promise<void> {
     const trash = trashMarks();
     const c = currentWorld();
     try {
-      const gone = (await b.heads()).filter((h) => h.id in trash && h.id !== c?.id && !isStored(h.id)).map((h): [string, number] => [h.id, h.generator]);
+      const gone: [string, number][] = [];
+      for (const h of await b.heads()) {
+        // 撤销提示还开着、别的标签页还开着它:先留着
+        if (h.id in trash && h.id !== c?.id && !isStored(h.id) && !(await isHeld(h.id))) gone.push([h.id, h.generator]);
+      }
       await b.remove(gone);
     } catch {
       /* 下次打开再删 */

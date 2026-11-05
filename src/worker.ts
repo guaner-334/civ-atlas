@@ -24,6 +24,7 @@
  * 新建中的世界也打(点了「创建」不一定再重推,那时用的就是这一份);换世界的时候排着的作废。排在各段主图补丁后面;
  * 地图那一块按世界的键记着,只重推历史时不用再打一遍。
  * 原件打好以后接着打编年史、国旗,连同原件那几块的一份拷贝交回去(worldParts),主线程转给世界仓库(ui/worldStore.ts、worldVault.ts);这边出错只是这次没存进仓库,原件和世界照常。
+ * 用的人要把页面里的世界存成文件、仓库又没跟上(写不下、还没打)时(packParts),排着队当场打一份同样的内容交回去,不存也不算线程的错(packed);推好的历史记着就不重推。
  *
  * 读存下的内容打开(load):「我的世界」里存过内容的世界不再生成,读世界仓库的修订(worldOpen.ts,没有、读不了时主线程退回读原件、按存档生成),
  * 编年史、国旗也用存的(读不出来、人物卡的性别改过就现算);
@@ -220,6 +221,11 @@ export type WorkerRequest =
   /** 页面藏起来、要关了:逐年推演等着打的那份原件现在就打,不等停够 TURN_SNAPSHOT_IDLE。没有回音 */
   | { type: 'packNow'; id: number }
   /**
+   * 把这份配方的世界打成存进仓库、存成文件用的几块,交回来(packed;fid = 第几次,主线程按它认)。
+   * 排在手上的活后面,所以刚才的修改推完了才打。出错不算线程出错:一定有一声回音
+   */
+  | ({ type: 'packParts'; id: number; fid: number; interventions?: Intervention[] } & CivInput)
+  /**
    * 编辑地形按块交回的那一笔(key = 它的 baseKey)主线程换上了:之后的笔照它比,线程不用再留着怎么改回上一张(见 KeptUndo)。
    * 不排队,没有回音(主线程直接发,不算一件活)
    */
@@ -301,6 +307,8 @@ export type WorkerResponse =
   | { type: 'snapshot'; id: number; snapshot: Snapshot }
   /** 这次生成 / 重推的完整内容(后台打好的,存进世界仓库用) */
   | { type: 'worldParts'; id: number; offer: WorldPartsOffer }
+  /** packParts 的回音;kind = memory:内存不够,东西没问题 */
+  | ({ type: 'packed'; id: number; fid: number } & ({ ok: true; offer: WorldPartsOffer } | { ok: false; kind: 'memory' | 'failed'; message: string }))
   /** 存下的内容读不了(why,见 worldOpen.ts 的 OpenRefusal;recipe:只读打开要的修订的配方):主线程退回旧的路 */
   | { type: 'loadFailed'; id: number; why: OpenRefusal; recipe?: unknown }
   /** 这次生成没算完就不算了:后面已经排着新的世界(编辑地形连着涂,新的一笔顶掉上一笔)。只是一声回音,主线程不用管 */
@@ -814,6 +822,34 @@ function queueWorldParts(id: number, offer: WorldPartsOffer, world: World, civ: 
   });
 }
 
+/** 把线程手上的世界打成完整的内容(见文件头 packParts):和 queueSnapshot、queueWorldParts 打出来的一样,只是当场打 */
+async function packedOffer(m: Extract<Queued, { type: 'packParts' }>): Promise<WorldPartsOffer> {
+  const baseKey = keyOf(m.params, m.terrain, m.sketch);
+  const pin = m.keptMap && frozen?.key === baseKey ? frozen.kept : undefined;
+  // 照原样打开的旧世界:这一版算出来的不是它原来的样子,算不了。地图留着的世界,线程手上不是那张地图:按种子长的是另一颗星球
+  if (frozenOld(baseKey) && !pin) throw new Error('照原样打开的旧世界不重新打');
+  if (m.keptMap && pin?.part.sum !== m.keptMap) throw new Error('线程手上不是那张地图');
+  const world = worldOf(m.params, m.terrain, m.sketch);
+  const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
+  // 推好的历史记着就用(推演年数不算在配方的键里,另外比);没记着就按这份配方推一遍(和重推一样),结果一样
+  const had = await heldCiv(m, m.play);
+  const civ =
+    had && (m.play || had.endYear === (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT))
+      ? had
+      : generateCiv(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) });
+  const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, ...recipeTuning(m.tuning), civSeed: m.civSeed, keptMap: m.keptMap, play: m.play });
+  const map = pin ? pin.part : await mapPart(baseKey, world);
+  const parts = [
+    // 地图那一块还记着(下次重推用),不交出去,复制一份
+    { ...map, data: map.data.slice(0) },
+    ...(steps.length ? [await makePart('eras', { baseKey, eras: eraWorlds(steps) ?? [] })] : []),
+    await makePart('civ', civ),
+    await makePart('chronicle', worldChronicle(civ, m.characters)),
+    await makePart('flags', worldFlags(world, civ)),
+  ];
+  return { generator: GENERATOR_VERSION, recipe, parts, ...(pin ? { readers: { terrain: pin.readers.terrain, query: READER_VERSIONS.query }, schemas: { map: pin.schema } } : {}) };
+}
+
 /** 编年史那一块复制一份交给主线程(改名时直接换名字用):传进来的字节这边还要用 */
 function postBlock(id: number, key: number, part: SnapshotPart) {
   const copy = { ...part, data: part.data.slice(0) };
@@ -1048,14 +1084,15 @@ const dropTurnSnap = () => {
  * 抛错 = 线程出错:主线程开新线程、钉住、再发一次(sim/simClient.ts),还不行就收起这件活
  */
 function checkKept(m: Queued): void {
-  if (m.type === 'load' || m.type === 'pin' || !('keptMap' in m) || !m.keptMap) return;
+  // 打内容(packParts)对不上时只是这次打不成,线程没坏,见 packedOffer
+  if (m.type === 'load' || m.type === 'pin' || m.type === 'packParts' || !('keptMap' in m) || !m.keptMap) return;
   if (m.type === 'generate' || frozen?.kept?.part.sum !== m.keptMap) throw new Error('地图留着的世界:线程手上没有那张地图');
 }
 
 async function handle(m: Queued): Promise<void> {
   checkKept(m);
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin') dropTurnSnap();
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin' && m.type !== 'packParts') dropTurnSnap();
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'release' && m.type !== 'pin') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 后面已经排着新的世界(编辑地形连着涂了几笔):这一次不用算了
@@ -1342,6 +1379,14 @@ async function handle(m: Queued): Promise<void> {
       else holdPart(m.load, f);
     } catch {
       frozen = null;
+    }
+  } else if (m.type === 'packParts') {
+    try {
+      const offer = await packedOffer(m);
+      post({ type: 'packed', id: m.id, fid: m.fid, ok: true, offer }, offer.parts.map((p) => p.data));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      post({ type: 'packed', id: m.id, fid: m.fid, ok: false, kind: e instanceof RangeError ? 'memory' : 'failed', message });
     }
   } else if (m.type === 'history') {
     const h = buildHistoryFrames(formationOf(m.params, m.terrain, m.sketch));

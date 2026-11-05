@@ -623,22 +623,28 @@ describe('一个世界存成文件', () => {
     expect((await lookFile(out.file, OPEN)).ok).toBe(true);
   });
 
-  it('刚改的东西写不进仓库(存储满了):文件照样给,标明落后;全部存成文件时配方、AI 正文另带一份', async () => {
+  it('刚改的东西写不进仓库(存储满了):文件是现在的样子,不落后;全部存成文件也一样,不用另带配方', async () => {
     const id = await keepFile(file);
     putNote(id, NOTE);
+    saveStore.renameWorld(id, '写不进仓库的名字');
     const full = ((op: keyof VaultOps, args: unknown[]) => (op === 'commitWorld' ? Promise.reject(Object.assign(new Error('满了'), { kind: 'full' })) : (vaultOps[op] as (...a: unknown[]) => Promise<unknown>)(...args))) as unknown as Caller;
     _setWorldStore({ caller: full });
     const out = await saveWorldFile(id);
     if (!out.ok) throw new Error(out.message);
-    expect(out.stale).toBe(true);
+    expect(out.stale).toBe(false);
+    const f = await lookFile(out.file, OPEN);
+    if (!f.ok) throw new Error(f.message);
+    expect(f.save.title).toBe('写不进仓库的名字');
+    expect(f.author?.notes.some((n) => n.key === NOTE.key)).toBe(true);
     const all = await saveAllWorldFiles();
     if (!all.ok) throw new Error(all.message);
     expect(all.whole).toBe(1);
+    expect(all.behind).toEqual([]);
     const names = (await walkZip(all.files[0].file)).entries.map((e) => e.name);
-    expect(names).toContain('recipes.json');
+    expect(names).not.toContain('recipes.json');
   });
 
-  it('正开着的世界最新的改动没能写进浏览器(存储满了):文件标明落后', async () => {
+  it('正开着的世界最新的改动没能写进浏览器(存储满了):页面里的改动在文件里,不落后', async () => {
     const id = await keepFile(file);
     const w = saveStore.loadWorld(id)!;
     const stop = saveStore.startAutoSave();
@@ -652,7 +658,10 @@ describe('一个世界存成文件', () => {
     setEdits({ ...w.save.edits, names: { ...w.save.edits.names, 'polity:c2#0': '只在页面里' } });
     expect(saveStore.currentUnsaved()).toBe(true);
     const out = await saveWorldFile(id);
-    expect(out.ok && out.stale).toBe(true);
+    expect(out.ok && out.stale).toBe(false);
+    if (!out.ok) throw new Error(out.message);
+    const f = await lookFile(out.file, OPEN);
+    expect(f.ok && f.save.edits.names['polity:c2#0']).toBe('只在页面里');
     vi.restoreAllMocks();
     stop();
     saveStore.detachWorld();

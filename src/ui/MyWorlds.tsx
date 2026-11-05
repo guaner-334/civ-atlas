@@ -33,6 +33,7 @@
  * (刚才那个世界存不进浏览器、只在页面里的,标题下有「全部存成文件」)。
  */
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { holdWorld } from './worldHolds';
 import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
 import { isCoarse } from './device';
 import { withFileFlow } from './worldFileLazy';
@@ -709,6 +710,9 @@ function removeWorld(id: string, name: string, loggedIn: boolean) {
   const gone = deleteWorld(id);
   // 别的页面里已经删掉了(这一页的列表还没跟上):没有可撤销的
   if (!gone) return notify({ kind: 'ok', text: `「${name}」已在别的页面里删掉了` });
+  // 提示条还在、还能撤销的这段时间,内容绝不清;收起以后存储紧张就马上腾地方(那段代码不在首页那一份里,用到才下)。撤销了又没放回去的,这次打开先不清
+  const free = holdWorld(id);
+  let undoFailed = false;
   notify({
     kind: 'ok',
     text: `已删除「${name}」`,
@@ -717,9 +721,15 @@ function removeWorld(id: string, name: string, loggedIn: boolean) {
       label: '撤销',
       act: 'world-undelete',
       onClick: () => {
-        if (restoreWorld(gone)) notify(null);
-        else notify({ kind: 'error', text: '没能放回去', more: ['浏览器存储已满'] });
+        if (restoreWorld(gone)) return notify(null);
+        undoFailed = true;
+        notify({ kind: 'error', text: '没能放回去', more: ['浏览器存储已满'] });
       },
+    },
+    onGone: () => {
+      if (undoFailed) return;
+      free();
+      void import('./worldStore').then((m) => m.trashFreed(id)).catch(() => {});
     },
   });
 }

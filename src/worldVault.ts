@@ -29,6 +29,8 @@
  *
  * 读:打开世界时生成世界的线程直接从这里读(worldOpen.ts),不经主线程。发现哪份修订的块坏了,小状态里记一笔(corrupt):
  * 按内容存的块不会再写第二遍,所以下一次存完整的内容时不管一样不一样,块全部重写、写新清单,坏的块就补好了。
+ *
+ * 存储满了也要拿得出文件(draftFile):和 commitWorld 同样拼一份修订,只是不写库,直接装成世界文件。这条路只读不写,不要求有空间。
  */
 import { applyNoteOps, cleanNoteList, mergeNotes, sameNotes, type NoteOp } from './authorNotes';
 import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
@@ -258,7 +260,8 @@ function openDb(version?: number): Promise<IDBDatabase> {
       d.onclose = drop;
       resolve(d);
     };
-    r.onerror = () => reject(new VaultError(isQuota(r.error) ? 'full' : 'unavailable', r.error?.message ?? 'IndexedDB 打不开'));
+    // 硬盘真的满了时 WebKit 连库都打不开:UnknownError「Unable to open database file on disk」
+    r.onerror = () => reject(new VaultError(isQuota(r.error) || /\bdisk\b/i.test(r.error?.message ?? '') ? 'full' : 'unavailable', r.error?.message ?? 'IndexedDB 打不开'));
   });
 }
 
@@ -291,8 +294,13 @@ async function run<T>(stores: string[], mode: IDBTransactionMode, body: (t: IDBT
     return new Promise<T>((resolve, reject) => {
       let value: T;
       t.oncomplete = () => resolve(value);
-      t.onerror = () => reject(asVaultError(t.error ?? new Error('IndexedDB 写入失败')));
-      t.onabort = () => reject(asVaultError(t.error ?? new Error('IndexedDB 写入中止')));
+      t.onerror = (e) => {
+        // 请求报的错这时候可能还没记到事务上。中止时排着的请求都报 AbortError:原因看 onabort
+        const err = t.error ?? (e.target as IDBRequest | null)?.error;
+        if (err?.name !== 'AbortError') reject(asVaultError(err ?? new Error('IndexedDB 写入失败')));
+      };
+      // 没有说原因就中止了写:硬盘真的满了时 WebKit 就是这样(不报 QuotaExceededError,t.error 是空的)。自己中止的不走到这里(下面已经 reject 了)
+      t.onabort = () => reject(asVaultError(t.error ?? (mode === 'readwrite' ? new VaultError('full', '浏览器没有说原因就中止了写入') : new Error('IndexedDB 读取中止'))));
       try {
         body(t, (v) => (value = v));
       } catch (e) {
@@ -352,13 +360,24 @@ function toBuffer(d: Uint8Array | ArrayBuffer): ArrayBuffer {
 /** 写一块,读回来核对指纹。对不上就删掉、抛错 */
 async function storePart(p: PackedPart): Promise<void> {
   const key = partKey(p.info);
-  await run<void>(['parts'], 'readwrite', (t) => {
-    t.objectStore('parts').put({ key, at: Date.now(), data: toBuffer(p.data) } satisfies PartRow);
-  });
-  const row = await run<PartRow | undefined>(['parts'], 'readonly', (t, done) => {
-    const q = t.objectStore('parts').get(key);
-    q.onsuccess = () => done(q.result as PartRow | undefined);
-  });
+  const put = () =>
+    run<void>(['parts'], 'readwrite', (t) => {
+      t.objectStore('parts').put({ key, at: Date.now(), data: toBuffer(p.data) } satisfies PartRow);
+    });
+  const get = () =>
+    run<PartRow | undefined>(['parts'], 'readonly', (t, done) => {
+      const q = t.objectStore('parts').get(key);
+      q.onsuccess = () => done(q.result as PartRow | undefined);
+    });
+  await put();
+  let row = await get();
+  // 这一会儿被清理扫掉了(别的标签页在腾地方,这一块还没有清单引用):不是写坏了,再写一遍;
+  // 又被扫掉了,也不算写坏:写清单时查得出来,从头再来
+  if (!row) {
+    await put();
+    row = await get();
+    if (!row) return;
+  }
   try {
     if (!row) throw new Error('读不回来');
     const back = new Uint8Array(row.data);
@@ -461,24 +480,48 @@ function sameManifest(a: WorldManifest, b: WorldManifest): boolean {
   return norm(a) === norm(b);
 }
 
+/** 请求里这次带来的几块打包 */
+async function packGiven(req: CommitRequest) {
+  const incoming = (req.parts ?? []).map((p) => knownPart(p, req.schemas?.[p.name]));
+  const author = req.author === undefined ? undefined : req.author?.notes.length ? await packKnown('author', req.author) : null;
+  let thumb: PackedPart | null | undefined;
+  if (req.thumb) {
+    try {
+      validateThumb(req.thumb);
+      thumb = await packThumb(req.thumb);
+    } catch {
+      thumb = undefined;
+    }
+  } else thumb = req.thumb;
+  return { incoming, author, thumb, given: [...incoming, ...(author ? [author] : []), ...(thumb ? [thumb] : [])] };
+}
+
+/** 新的一份修订有哪几块:上一份的,换上这次带来的 */
+function partsAfter(req: CommitRequest, prev: WorldManifest | null, incoming: readonly PackedPart[], author: PackedPart | null | undefined, thumb: PackedPart | null | undefined): Map<string, WorldPartInfo> {
+  const infos = new Map<string, WorldPartInfo>((prev?.parts ?? []).map((p) => [p.name, p]));
+  if (req.parts) {
+    // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了)
+    for (const n of VIEW_PARTS) infos.delete(n);
+    for (const p of incoming) infos.set(p.info.name, p.info);
+  }
+  if (author !== undefined) {
+    if (author) infos.set('author', author.info);
+    else infos.delete('author');
+  }
+  if (thumb !== undefined) {
+    if (thumb) infos.set('thumb', thumb.info);
+    else infos.delete('thumb');
+  }
+  return infos;
+}
+
 /**
  * 存一份修订。不改传进来的请求之外的任何东西;存不下抛 VaultError,上一份修订、别的世界都不受影响。
  * 这里只查清单能不能读(写坏的清单谁都读不了),不跑世界的校验器:万一校验器误伤,东西也得先存下来
  */
 export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
   try {
-    const incoming = (req.parts ?? []).map((p) => knownPart(p, req.schemas?.[p.name]));
-    const author = req.author === undefined ? undefined : req.author?.notes.length ? await packKnown('author', req.author) : null;
-    let thumb: PackedPart | null | undefined;
-    if (req.thumb) {
-      try {
-        validateThumb(req.thumb);
-        thumb = await packThumb(req.thumb);
-      } catch {
-        thumb = undefined;
-      }
-    } else thumb = req.thumb;
-    const given = [...incoming, ...(author ? [author] : []), ...(thumb ? [thumb] : [])];
+    const { incoming, author, thumb, given } = await packGiven(req);
     const source = req.source ?? 'made';
     // 上次打开时发现块坏了:这次带着完整的内容来,不管一样不一样都重写一遍(只改配方、作者内容的不算,等完整的内容)
     const rewrite = !!req.parts && source !== 'archive' && (await stateOf(req.id).catch(() => null))?.corrupt !== undefined;
@@ -498,20 +541,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       }
       // 清单读不懂的(坏了):当没有上一份,带着完整内容来的照样写得进去
       const prev = base ? manifestOf(base) : null;
-      const infos = new Map<string, WorldPartInfo>((prev?.parts ?? []).map((p) => [p.name, p]));
-      if (req.parts) {
-        // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了)
-        for (const n of VIEW_PARTS) infos.delete(n);
-        for (const p of incoming) infos.set(p.info.name, p.info);
-      }
-      if (author !== undefined) {
-        if (author) infos.set('author', author.info);
-        else infos.delete('author');
-      }
-      if (thumb !== undefined) {
-        if (thumb) infos.set('thumb', thumb.info);
-        else infos.delete('thumb');
-      }
+      const infos = partsAfter(req, prev, incoming, author, thumb);
       // 没给作者内容 = 沿用。notes 表里等着的并进来;块坏了要重写时,坏的这一块不留(读不出来,留着存不成文件)
       const fold = source !== 'archive' && req.author === undefined ? await foldedAuthor(req.id, infos, rewrite) : null;
       if (fold?.packed) infos.set('author', fold.packed.info);
@@ -559,6 +589,69 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       }
     }
     throw new VaultError('corrupt', '写清单时块总是不全');
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+/** 不写库拼出来的世界文件 */
+export interface DraftedFile {
+  file: Blob;
+  /** 这份修订算第几份(和最新的一份一模一样 = 那一份的号,没有 = 接在最后面) */
+  n: number;
+  /** 看世界用的几块的指纹连起来(同 RevisionRow.content) */
+  content: string;
+  /** 这份内容的配方指纹、哪一版生成器算的(同 RevisionRow) */
+  recipeKey: string;
+  generator: number;
+}
+
+/**
+ * 和 commitWorld 同样拼一份修订,但不写库,直接装成世界文件交回去:浏览器写不下了也拿得出来。
+ * 这次没带的块从仓库里读,读的时候逐块核对(坏了的东西不能当备份交出去);一块读完就变成 Blob,整个世界不同时留在内存里。
+ * 和最新的一份一模一样(只差存的时间):清单用它的原文,字节和 revisionFile 拼出来的一样。
+ * 只改配方、作者内容,又接不上最新的一份(还没有修订、配方变了)= null:要带上完整的内容才拼得出来
+ */
+export async function draftFile(req: CommitRequest): Promise<DraftedFile | null> {
+  try {
+    const { incoming, author, thumb, given } = await packGiven(req);
+    // 带着完整内容来的,仓库打不开(硬盘真的满了时 WebKit 连库都打不开)也拼得出来,只是接不上存着的那些
+    let shut = false;
+    const rows = await rowsOf(req.id).catch((e: unknown) => {
+      if (!req.parts) throw e;
+      shut = true;
+      return [] as RevisionRow[];
+    });
+    const base = chainOf(rows).at(-1);
+    if (!req.parts && (!base || base.recipeKey !== req.recipeKey || base.generator !== req.recipe.generator)) return null;
+    const prev = base ? manifestOf(base) : null;
+    const infos = partsAfter(req, prev, incoming, author, thumb);
+    // 和存的时候一样:notes 表里等着的并进来(这里只读,那一行不动)。上次发现块坏了的,坏的 author 块不带
+    const damaged = !shut && (await stateOf(req.id).catch(() => null))?.corrupt !== undefined;
+    const fold = !shut && req.author === undefined ? await foldedAuthor(req.id, infos, damaged) : null;
+    if (fold?.packed) infos.set('author', fold.packed.info);
+    const fresh = new Map((fold?.packed ? [...given, fold.packed] : given).map((p) => [partKey(p.info), p]));
+    const parts = sortParts(infos.values());
+    const made = (req.parts ? req.made : prev?.made) ?? null;
+    const readers = (req.parts ? req.readers : prev?.readers) ?? null;
+    if (!made || !readers) throw new VaultError('failed', '存世界没给版本');
+    const n = (rows.at(-1)?.n ?? 0) + 1;
+    const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
+    const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins: prev?.plugins ?? [], revision: { n, ...(parent ? { parent } : {}) } }, parts) };
+    if (!req.recipe.title) delete manifest.title;
+    const same = !!base && !!prev && !req.parts && sameManifest(prev, manifest);
+    const text = same ? new TextEncoder().encode(base.text) : manifestBytes(manifest);
+    parseManifest(text, { readers: { ...readers } });
+    const data: { info: WorldPartInfo; data: Uint8Array | ArrayBuffer | Blob }[] = [];
+    const total = parts.reduce((sum, p) => sum + p.bytes, 0);
+    let done = 0;
+    for (const info of parts) {
+      data.push({ info, data: fresh.get(partKey(info))?.data ?? (await partBlob(info, true)) });
+      done += info.bytes;
+      // 读、核对占大头;最后的一小段留给装 ZIP
+      if (total > 0) partWatcher?.((done / total) * 0.9);
+    }
+    return { file: await zipWorld(text, data), n: same ? base.n : n, content: contentOf(parts), recipeKey: req.recipeKey, generator: req.recipe.generator };
   } catch (e) {
     throw asVaultError(e);
   }
@@ -1000,6 +1093,47 @@ export function purgeWorld(id: string): Promise<void> {
   });
 }
 
+/** 块多大(压缩后的字节)。键相同内容就相同,记住不用再读 */
+const partSizes = new Map<string, number>();
+
+async function sizeOfPart(key: string): Promise<number> {
+  const known = partSizes.get(key);
+  if (known !== undefined) return known;
+  // 一次读一块,读完只留下大小:读完这些块不会同时占着内存
+  const size = await run<number>(['parts'], 'readonly', (t, done) => {
+    done(0);
+    const q = t.objectStore('parts').get(key);
+    q.onsuccess = () => done((q.result as PartRow | undefined)?.data.byteLength ?? 0);
+  });
+  if (size) partSizes.set(key, size);
+  return size;
+}
+
+/**
+ * 这几个世界占多少地方:只算没有别的世界用到的块,就是把它们清掉真能腾出来的字节。have = 其中仓库里真有内容的。
+ * 块的大小要把块读出来才知道,所以只读这几个世界独占的块,在后台线程里一块一块读
+ */
+export async function spaceOf(ids: readonly string[]): Promise<{ bytes: number; have: string[] }> {
+  const rows = await run<RevisionRow[]>(['manifests'], 'readonly', (t, done) => {
+    done([]);
+    const q = t.objectStore('manifests').getAll();
+    q.onsuccess = () => done(q.result as RevisionRow[]);
+  });
+  const mine = new Set(ids);
+  const others = new Set<string>();
+  for (const r of rows) if (!mine.has(r.id) && Array.isArray(r.keys)) for (const k of r.keys) others.add(k);
+  const have = new Set<string>();
+  const only = new Set<string>();
+  for (const r of rows) {
+    if (!mine.has(r.id)) continue;
+    have.add(r.id);
+    if (Array.isArray(r.keys)) for (const k of r.keys) if (!others.has(k)) only.add(k);
+  }
+  let bytes = 0;
+  for (const k of only) bytes += await sizeOfPart(k);
+  return { bytes, have: [...have] };
+}
+
 /** 全删(退出登录时选了「从这台设备上删掉」) */
 export function clearVault(): Promise<void> {
   return run<void>(VAULT_STORES, 'readwrite', (t) => {
@@ -1032,5 +1166,5 @@ export function patchState(id: string, patch: Partial<Omit<WorldState, 'id'>>): 
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, purgeWorld, clearVault, stateOf, patchState, readAuthor, changeAuthor };
+export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, purgeWorld, clearVault, stateOf, patchState, readAuthor, changeAuthor };
 export type VaultOps = typeof vaultOps;

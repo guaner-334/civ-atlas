@@ -50,6 +50,8 @@ export interface ToastInput {
   dot?: boolean;
   /** 来源;同一来源的提示互相替换。不给 = 'default' */
   id?: string;
+  /** 这一条没了就调(到时收起、被关掉、被同一来源的新提示换掉,都算):「撤销」这类按钮从这一刻起点不到了 */
+  onGone?: () => void;
 }
 
 export interface Toast extends ToastInput {
@@ -76,6 +78,7 @@ function stopTimer(id: string) {
 export function showToast(t: ToastInput): string {
   const id = t.id ?? 'default';
   const toast: Toast = { ...t, id, stamp: ++seq };
+  const replaced = list.find((x) => x.id === id);
   const rest = list.filter((x) => x.id !== id);
   // "已完成"类的提示不盖住还没看的警告 / 出错(排在它们下面,警告关掉后再露出来);
   // 带按钮的("撤销")照常排最前:它到时就收,等警告关掉再露出来就晚了
@@ -93,11 +96,13 @@ export function showToast(t: ToastInput): string {
         if (list.some((x) => x.id === id && x.stamp === stamp)) {
           list = list.filter((x) => x.id !== id);
           emit();
+          toast.onGone?.();
         }
       }, ttl),
     );
   }
   emit();
+  replaced?.onGone?.();
   return id;
 }
 
@@ -111,10 +116,12 @@ export function updateToast(id: string, patch: Partial<ToastInput>) {
 /** 收起 id 这一条(不给 = 收起正在显示的那条);没有这一条就什么都不做 */
 export function clearToast(id?: string) {
   const target = id ?? list[list.length - 1]?.id;
-  if (target === undefined || !list.some((x) => x.id === target)) return;
+  const gone = list.find((x) => x.id === target);
+  if (target === undefined || !gone) return;
   stopTimer(target);
   list = list.filter((x) => x.id !== target);
   emit();
+  gone.onGone?.();
 }
 
 /** 正在显示的那条 */

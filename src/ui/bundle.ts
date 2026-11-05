@@ -33,6 +33,7 @@ import {
   currentUnsaved,
   currentWorld,
   fillMissing,
+  isStored,
   listWorlds,
   newWorldId,
   notify,
@@ -96,7 +97,8 @@ export interface BundleOut {
  */
 export function bundleText(at = new Date(), max = MAX_LEN, only?: (id: string) => boolean): BundleOut | null {
   const cur = currentWorld();
-  const fresh = cur && currentUnsaved() ? currentSave() : null;
+  // 建好的世界不在列表里,又不是别的标签页删掉的:写了也没存下(硬盘真的满了时 WebKit 的 localStorage 就会这样),页面里这份是唯一的一份
+  const fresh = cur && (currentUnsaved() || (cur.kind === 'created' && !cur.gone && !isStored(cur.id))) ? currentSave() : null;
   const one = (id: string, save: SaveFile, w: { draft: boolean; alive?: number; base?: SyncMeta['base']; map?: boolean; at?: string }, thumb: string | null) => {
     const meta: SyncMeta = {};
     if (w.draft) meta.draft = true;
