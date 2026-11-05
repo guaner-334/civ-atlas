@@ -35,14 +35,14 @@ export * from './recipe';
 /** 上限里的 MB 按 100 万字节算,和量世界大小时的算法一样 */
 const MB = 1e6;
 /**
- * 各块解压后最多多大。按量到的最大的世界(20 万地块、6 万年、5 件地形大事)留余量:地图实测 27.5 MB,各段世界(最多 5 段)52.6 MB,
- * 历史 142.1 MB,编年史 35.1 MB
+ * 各块解压后最多多大。按量到的最大的世界(20 万地块、6 万年、5 件地形大事、陆地 95%)留余量:地图实测 27.6 MB,各段世界(最多 5 段)53.2 MB,
+ * 历史 246.8 MB,编年史 54.4 MB
  */
 const PART_LIMITS: ReadonlyMap<string, number> = new Map([
   ['map', 40 * MB],
   ['eras', 80 * MB],
-  ['civ', 160 * MB],
-  ['chronicle', 64 * MB],
+  ['civ', 320 * MB],
+  ['chronicle', 80 * MB],
   // 各国历代的旗:实测最大(20 万地块、6 万年)不到 1 MB
   ['flags', 16 * MB],
   // AI 写的正文:量不出最大值(看作者写多少),按编年史的量级给足,别让写得多的世界打不开
@@ -55,11 +55,10 @@ const PART_LIMITS: ReadonlyMap<string, number> = new Map([
  * 没量过的东西不能照最大的给:别人的文件里块名是随便写的,给大了等于让它挑最大的额度来撑内存;给小了最多是这一块读不出来
  */
 const UNKNOWN_PART_LIMIT = 16 * MB;
-/** 一块里结构(JSON)最多多大:实测最大 45 MB */
-const MAX_HEAD_BYTES = 64 * MB;
+/** 一块里结构(JSON)最多多大:实测最大 71.6 MB */
+const MAX_HEAD_BYTES = 96 * MB;
 /**
- * 本机存取的世界文件用这两个数,代替上面的表和 MAX_HEAD_BYTES。本机不限世界多大,而上面的表是按默认陆地比例量的,
- * 陆地多的世界州也多,历史那一块会超过(20 万地块、6 万年、5 件地形大事、陆地 60% 的世界实测 203 MB)。
+ * 本机存取的世界文件用这两个数,代替上面的表和 MAX_HEAD_BYTES:本机不限世界多大,上面的表是给传上服务器的文件防撑爆内存的。
  * 这两个数只防撑爆内存:一块最多解到 1 GB,和本机的文件大小上限(zipStore.ts 的 ZIP_LOCAL_MAX_BYTES)一个数;
  * 结构再大 JavaScript 的字符串也放不下(最长约 5.4 亿个字符)
  */
@@ -68,7 +67,7 @@ export const LOCAL_HEAD_MAX_BYTES = 512 * MB;
 /** 结构最多几层:真实世界不到 20 层(单测盯着)。限了层数,读的时候递归才不会把栈撑爆 */
 const MAX_DEPTH = 64;
 /**
- * 把引用都展开成一棵树,最多多少个值(不带引用的结构再大也到不了:64 MB 的 JSON 最多三千多万个值;真实世界的引用只有几十个,展开也多不了多少)。
+ * 把引用都展开成一棵树,最多多少个值(不带引用的结构再大也到不了:96 MB 的 JSON 最多四千多万个值;真实世界的引用只有几十个,展开也多不了多少)。
  * 几十层、每层引用上一层两次,文件才几 KB,展开有几万亿个值;后面哪段代码按树走一遍就卡死了,所以读的时候就拒绝
  */
 const MAX_NODES = 1e8;
@@ -378,7 +377,7 @@ export async function readPart(part: SnapshotPart): Promise<unknown> {
 
 /**
  * 读回存在这台设备上的一块原件:和 readPart 一样核对,上限换成本机那两个数(LOCAL_PART_MAX_BYTES、LOCAL_HEAD_MAX_BYTES)。
- * 上面那张表是给传上服务器的文件用的,用的人自己推出来的世界可以比它大(陆地多的最大世界,历史那一块超过 160 MB);
+ * 上面那张表是给传上服务器的文件用的,用的人自己推出来的世界可以比它大;
  * 用那张表读,这种世界读不出来,就会退回按存档重新生成,生成器一升级它就变样了
  */
 export async function readLocalPart(part: SnapshotPart): Promise<unknown> {

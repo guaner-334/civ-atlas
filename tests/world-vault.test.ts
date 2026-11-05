@@ -9,7 +9,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { restoreEntries } from '../src/gen/civ/story/nameTokens';
 import { fullChronicle } from '../src/gen/civ/story/religionText';
 import { applyNames, polityKey } from '../src/gen/edits';
-import { makePart, readLocalPart, readPart, sha256, type SnapshotPart } from '../src/gen/snapshot';
+import { makePart, partLimit, readLocalPart, readPart, sha256, type SnapshotPart } from '../src/gen/snapshot';
 import { openWorldFile, packWorldFile, packWorldParts, readWorldContent, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import type { WorldManifest } from '../src/gen/worldFormat';
 import { VAULT_DB, VaultError, _resetVault, clearVault, commitWorld, keepRows, latestOf, patchState, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, sweepParts, watchParts, type CommitRequest } from '../src/worldVault';
@@ -489,12 +489,12 @@ describe('删、小状态', () => {
 });
 
 describe('本机存的原件按本机的上限读', () => {
-  it('超过 160 MB 的历史:readPart 拒绝(传上服务器的文件),readLocalPart 读得出来', async () => {
-    const part = await makePart('civ', { a: new Uint8Array(161e6) });
-    expect(part.bytes).toBeGreaterThan(160e6);
+  it('超过传上服务器那张表的一块:readPart 拒绝,readLocalPart 读得出来', async () => {
+    const part = await makePart('flags', { a: new Uint8Array(17e6) });
+    expect(part.bytes).toBeGreaterThan(partLimit('flags'));
     await expect(readPart(part)).rejects.toThrow('上限');
     const back = (await readLocalPart(part)) as { a: Uint8Array };
-    expect(back.a.length).toBe(161e6);
+    expect(back.a.length).toBe(17e6);
   }, 60_000);
 
   it('封面不是别的东西:样本的封面还是读得回来', async () => {

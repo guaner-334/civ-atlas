@@ -139,6 +139,12 @@ describe('世界文件:打包再读回', () => {
     expect((await openWorldFile(new Blob([good]), { ...OPEN, maxBytes: ZIP_UPLOAD_MAX_BYTES })).manifest.id).toBe('wsample');
   });
 
+  it('量到的最大的世界(139 MB)传得上:文件和各块都在上传的上限内', () => {
+    expect(ZIP_UPLOAD_MAX_BYTES).toBeGreaterThan(139.1e6);
+    const measured: Record<string, number> = { map: 27.6e6, eras: 53.2e6, civ: 246.8e6, chronicle: 54.4e6, flags: 1.9e6 };
+    for (const [name, bytes] of Object.entries(measured)) expect(worldPartLimit(name, ZIP_UPLOAD_MAX_BYTES), name).toBeGreaterThan(bytes);
+  });
+
   it('各块解压的上限跟着文件的上限走:传上服务器照表,本机只防撑爆内存', async () => {
     expect(worldPartLimit('civ', ZIP_UPLOAD_MAX_BYTES)).toBe(partLimit('civ'));
     expect(worldPartLimit('civ')).toBe(1e9);

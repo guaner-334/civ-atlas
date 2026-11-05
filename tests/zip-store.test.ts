@@ -4,10 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { mulberry32 } from '../src/gen/util';
-import { crc32, parseZip as parseAt, readZip as readAt, writeZip as writeAt, ZIP_LOCAL_MAX_BYTES, ZIP_MAX_ENTRIES, ZIP_UPLOAD_MAX_BYTES, type ZipEntry, type ZipInput } from '../src/gen/zipStore';
+import { crc32, parseZip as parseAt, readZip as readAt, writeZip as writeAt, ZIP_LOCAL_MAX_BYTES, ZIP_MAX_ENTRIES, type ZipEntry, type ZipInput } from '../src/gen/zipStore';
 
 /** 上限由调用方传;这里的测试都按上传的上限(最严的),本机的上限在「上限由调用方定」里单独试 */
-const ZIP_MAX_BYTES = ZIP_UPLOAD_MAX_BYTES;
+const ZIP_MAX_BYTES = 64e6;
 const parseZip = (b: Uint8Array) => parseAt(b, ZIP_MAX_BYTES);
 const readZip = (b: Blob) => readAt(b, ZIP_MAX_BYTES);
 const writeZip = (e: readonly ZipInput[]) => writeAt(e, ZIP_MAX_BYTES);
@@ -185,16 +185,16 @@ describe('ZIP:写', () => {
 });
 
 describe('ZIP:上限由调用方定', () => {
-  const big = new Blob([new Uint8Array(ZIP_UPLOAD_MAX_BYTES)]);
+  const big = new Blob([new Uint8Array(ZIP_MAX_BYTES)]);
 
   it('超过上传上限的文件:传不上去,本机照样能存能读', async () => {
-    await expect(writeAt([{ name: 'big', data: big }], ZIP_UPLOAD_MAX_BYTES)).rejects.toThrow('太大');
+    await expect(writeAt([{ name: 'big', data: big }], ZIP_MAX_BYTES)).rejects.toThrow('太大');
     const local = await writeAt([{ name: 'big', data: big }], ZIP_LOCAL_MAX_BYTES);
-    expect(local.size).toBeGreaterThan(ZIP_UPLOAD_MAX_BYTES);
-    await expect(readAt(local, ZIP_UPLOAD_MAX_BYTES)).rejects.toThrow('太大');
-    expect(() => parseAt(new Uint8Array(ZIP_UPLOAD_MAX_BYTES + 1), ZIP_UPLOAD_MAX_BYTES)).toThrow('太大');
+    expect(local.size).toBeGreaterThan(ZIP_MAX_BYTES);
+    await expect(readAt(local, ZIP_MAX_BYTES)).rejects.toThrow('太大');
+    expect(() => parseAt(new Uint8Array(ZIP_MAX_BYTES + 1), ZIP_MAX_BYTES)).toThrow('太大');
     const back = await readAt(local, ZIP_LOCAL_MAX_BYTES);
-    expect(back[0].data.length).toBe(ZIP_UPLOAD_MAX_BYTES);
+    expect(back[0].data.length).toBe(ZIP_MAX_BYTES);
   });
 
   it('本机也有上限:打开别人的文件时大小不读进内存就拒绝', async () => {

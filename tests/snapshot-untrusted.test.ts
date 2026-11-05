@@ -255,9 +255,9 @@ describe('读原件:坏结构', () => {
   });
 
   it('结构太大:不用解析就拒绝', () => {
-    const b = new Uint8Array(12 + 64e6 + 1);
+    const b = new Uint8Array(12 + 96e6 + 1);
     b.set(new TextEncoder().encode('CIVSNAP1'), 0);
-    new DataView(b.buffer).setUint32(8, 64e6 + 1, true);
+    new DataView(b.buffer).setUint32(8, 96e6 + 1, true);
     const parse = vi.spyOn(JSON, 'parse');
     expect(() => unpackValue(b)).toThrow('结构太大');
     expect(parse).not.toHaveBeenCalled();
@@ -360,8 +360,8 @@ describe('读一块:解压的上限', () => {
   it('各块的上限', () => {
     expect(partLimit('map')).toBe(40e6);
     expect(partLimit('eras')).toBe(80e6);
-    expect(partLimit('civ')).toBe(160e6);
-    expect(partLimit('chronicle')).toBe(64e6);
+    expect(partLimit('civ')).toBe(320e6);
+    expect(partLimit('chronicle')).toBe(80e6);
     expect(partLimit('flags')).toBe(16e6);
     expect(partLimit('author')).toBe(64e6);
     expect(partLimit('thumb')).toBe(2e6);
@@ -372,7 +372,7 @@ describe('读一块:解压的上限', () => {
   it('说好的字节数超上限:碰都不碰解压', async () => {
     const seen = countInflate();
     await expect(readPart({ name: 'map', bytes: 40e6 + 1, sum: '', zip: 'gzip', data: BOMB })).rejects.toThrow('上限');
-    await expect(readPart({ name: 'civ', bytes: 160e6 + 1, sum: '', zip: 'gzip', data: BOMB })).rejects.toThrow('上限');
+    await expect(readPart({ name: 'civ', bytes: 320e6 + 1, sum: '', zip: 'gzip', data: BOMB })).rejects.toThrow('上限');
     await expect(readPart({ name: '不认识', bytes: 16e6 + 1, sum: '', zip: 'gzip', data: BOMB })).rejects.toThrow('上限');
     expect(seen.made).toBe(0);
   });
