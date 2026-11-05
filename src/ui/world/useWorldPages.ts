@@ -559,7 +559,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
   const saveAsNewNow = (edits?: WorldEdits, moved?: boolean) => {
     closeSaveAsNew();
     const c = currentWorld();
-    if (!c || (c.frozen === undefined && !c.readonly)) return;
+    if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return;
     const from = c.title || `种子 ${c.params.seed}`;
     const id = saveAsNewVersion(c.id, edits ?? getEdits());
     if (!id) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
@@ -582,7 +582,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
         return true;
       }
       const c = currentWorld();
-      if (!c || (c.frozen === undefined && !c.readonly)) return false;
+      // 只有配方的旧世界同样问:改了历史又记着旧版本,算出来的内容存不下
+      if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return false;
       const now = getEdits();
       const count = Math.max(0, next.interventions.length - now.interventions.length) + Math.max(0, (next.upheavals?.length ?? 0) - (now.upheavals?.length ?? 0));
       askSaveAsNew({ next, title: c.title || `种子 ${c.params.seed}`, count });

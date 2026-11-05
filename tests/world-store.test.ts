@@ -658,10 +658,8 @@ describe('把现有的世界转进来', () => {
     const stored = saveStore.loadWorld(id)!.save;
     expect(stored.generator).toBe(GENERATOR_VERSION - 2);
     await putOriginal(id, o.parts, stored, GENERATOR_VERSION - 2, '1.3.0');
-    // 打开、存成新版:旧的存档原文留底(originalOf)
-    openWorld(id);
-    saveStore.renameWorld(id, '新版存的');
-    saveStore.detachWorld();
+    // 存成新版(以前的代码打开时就会这样写,这种世界现在还在):旧的存档原文留底(originalOf)
+    saveStore.overwriteWorld(id, stored.edits);
     const now = saveStore.loadWorld(id)!.save;
     expect(now.generator).toBe(GENERATOR_VERSION);
     await putOriginal(id, o.parts, now, GENERATOR_VERSION, '1.5.0');
@@ -677,6 +675,38 @@ describe('把现有的世界转进来', () => {
     expect((await latestOf(id))).toBeNull();
     await startConversions();
     expect((await latestOf(id))!.generator).toBe(GENERATOR_VERSION);
+  }, 120_000);
+
+  it('以前的代码已经写成新版的旧世界:配方留在原样里,认得出来;内容按新版算的存下,这以后不再变', async () => {
+    const save = makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, '老世界', '2026-11-01T00:00:00.000Z');
+    const id = storeSave({ ...save, generator: GENERATOR_VERSION - 40, check: '当时的校验' });
+    const before = saveStore.originalOf(id)!;
+    saveStore.overwriteWorld(id, save.edits);
+    expect(saveStore.loadWorld(id)!.save.generator).toBe(GENERATOR_VERSION);
+    // 认得出来:存档是新版,原来的配方一个字没丢
+    expect(saveStore.originalOf(id)).toEqual(before);
+    expect(saveStore.originalOf(id)!.generator).toBe(GENERATOR_VERSION - 40);
+    // 按存档算一遍存下,不标旧世界
+    _setWorldStore({ runner: (job) => ({ done: runConvert(job, results).then((result) => ({ ok: true as const, result })), stop: () => {} }) });
+    await startConversions();
+    expect(await latestOf(id)).toMatchObject({ generator: GENERATOR_VERSION });
+    expect((await stateOf(id))?.status).toBeUndefined();
+    expect(saveStore.originalOf(id)).toEqual(before);
+  }, 120_000);
+
+  it('只有配方的旧世界:打开不写成新版,按新版算的内容不进仓库,记成 old', async () => {
+    const save = { ...makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, '当时的校验', '老世界', '2026-11-01T00:00:00.000Z'), generator: GENERATOR_VERSION - 40 };
+    const id = storeSave(save);
+    openWorld(id);
+    expect(saveStore.loadWorld(id)!.save).toMatchObject({ generator: save.generator, check: '当时的校验' });
+    await offerWorldParts(await offerOf(saveStore.loadWorld(id)!.save.edits));
+    await _settled();
+    expect(await latestOf(id)).toBeNull();
+    saveStore.detachWorld();
+    await startConversions();
+    expect(await stateOf(id)).toMatchObject({ status: 'old', generator: save.generator });
+    expect(await latestOf(id)).toBeNull();
+    expect(saveStore.loadWorld(id)!.save.generator).toBe(save.generator);
   }, 120_000);
 
   it('没原件的当前版本:按存档算一遍存下', async () => {
@@ -747,9 +777,7 @@ describe('把现有的世界转进来', () => {
     const id = storeSave({ ...o.save, generator: GENERATOR_VERSION - 2 });
     const stored = saveStore.loadWorld(id)!.save;
     await putOriginal(id, o.parts, stored, GENERATOR_VERSION - 2, '1.3.0');
-    openWorld(id);
-    saveStore.renameWorld(id, '新版存的');
-    saveStore.detachWorld();
+    saveStore.overwriteWorld(id, stored.edits);
     const now = saveStore.loadWorld(id)!.save;
     await putOriginal(id, o.parts, now, GENERATOR_VERSION, '1.5.0');
     const seen: string[] = [];
