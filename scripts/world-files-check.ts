@@ -1644,6 +1644,14 @@ async function rosterCheck(browser: Browser, name: string) {
   sameWhole(wholeC, await wholeOf(page, idC), `${name}:有 AI 正文的世界`);
   sameWhole(wholeD, await wholeOf(page, idD), `${name}:逐年推演的世界`);
 
+  say(' 网址直接打开丢了的世界');
+  await page.goto(BASE);
+  await hookReady(page);
+  await lose(page, [idA]);
+  await page.goto(`${BASE}?w=${idA}`);
+  await page.locator('.mw').first().waitFor({ timeout: 20000 });
+  check(await untilListed(page, [idA]), `${name}:先回到「我的世界」,过一会儿列表上有了`);
+
   say(' localStorage 整个清了');
   await page.goto(BASE);
   await hookReady(page);
