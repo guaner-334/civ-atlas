@@ -1169,13 +1169,13 @@ describe('浏览器存储(saveStore)', () => {
     openWorld(7, { id });
     expect(fake.getItem(`wenming-ditu:world:${id}`)).toBe(text);
     expect(orig(id)).toBeNull();
-    // 拖了一下地图换了中心:按新版重存之前,原来那份原样留着
-    publishMapCenter(30);
-    saveStore.viewChanged();
-    publishMapCenter(0);
+    // 按新版重存之前(存回推演模式时盖掉它),原来那份原样留着
+    saveStore.detachWorld();
+    expect(saveStore.overwriteWorld(id, EDITS)).toBe(true);
     expect(saveStore.loadWorld(id)?.save.generator).toBe(GENERATOR_VERSION);
     expect(orig(id)).toBe(text);
     // 以后再改、换个世界再回来再改:留的还是最早那份;本来就是新版的世界不留
+    openWorld(7, { id });
     setName('settlement:r1#0', '饕餮城');
     const now = openWorld(8);
     setName('settlement:r1#0', '梼杌城');
@@ -1222,15 +1222,55 @@ describe('浏览器存储(saveStore)', () => {
     tick();
     const id2 = saveStore.newWorldId();
     tight.setItem(`wenming-ditu:world:${id2}`, text);
-    openWorld(7, { id: id2 });
+    saveStore.detachWorld();
     tight.cap = [...tight.map].reduce((n, [k, v]) => n + k.length + v.length, 0) + 200;
-    setName('settlement:r1#0', '饕餮城');
+    expect(saveStore.overwriteWorld(id2, { ...EDITS, names: { 'settlement:r1#0': '饕餮城' } })).toBe(true);
     expect(saveStore.loadWorld(id2)?.save).toMatchObject({ generator: GENERATOR_VERSION, edits: { names: { 'settlement:r1#0': '饕餮城' } } });
+    openWorld(7, { id: id2 });
     expect(tight.getItem(`wenming-ditu:orig:${id2}`)).toBeNull();
     expect(saveStore.loadWorld(other)).not.toBeNull();
     setName('settlement:r1#0', '梼杌城');
     expect(saveStore.loadWorld(id2)?.save.edits.names['settlement:r1#0']).toBe('梼杌城');
     expect(saveStore.storageIsFull()).toBe(false);
+  });
+
+  it('只有配方的旧世界:打开、拖地图、改名都不写成新版,地形校验也照旧;校验对不上也不写;另存才是新版', () => {
+    const fake = new FakeStorage();
+    useStorage(fake);
+    const generator = GENERATOR_VERSION - 3;
+    // 地形校验对不上(跨过了地形变化的版本):现在按新版算出来的是 check7,存的是当时的
+    const text = JSON.stringify({ ...makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'oldcheck', '苍澜界', '2026-10-01T08:00:00.000Z'), generator });
+    const id = saveStore.newWorldId();
+    const key = `wenming-ditu:world:${id}`;
+    fake.setItem(key, text);
+
+    openWorld(7, { id });
+    expect(fake.getItem(key)).toBe(text);
+    expect(saveStore.originalOf(id)?.generator).toBe(generator);
+
+    publishMapCenter(30);
+    saveStore.viewChanged();
+    publishMapCenter(0);
+    expect(saveStore.loadWorld(id)?.save).toMatchObject({ generator, check: 'oldcheck' });
+
+    setName('settlement:r1#0', '饕餮城');
+    saveStore.renameWorld(id, '新名字');
+    const after = saveStore.loadWorld(id)!.save;
+    expect(after).toMatchObject({ generator, check: 'oldcheck', title: '新名字' });
+    expect(after.edits.names['settlement:r1#0']).toBe('饕餮城');
+    expect(fake.getItem(`wenming-ditu:orig:${id}`)).toBeNull();
+    // 存成文件、配方链接带的也是它自己的版本
+    expect(saveStore.currentSave()).toMatchObject({ generator, check: 'oldcheck' });
+
+    // 另存才是新版,原来的不动
+    const copy = saveStore.saveAsNewVersion(id, after.edits)!;
+    expect(saveStore.loadWorld(copy)?.save.generator).toBe(GENERATOR_VERSION);
+    expect(saveStore.loadWorld(id)?.save.generator).toBe(generator);
+
+    // 照原样打开的、新版的不算
+    openWorld(8);
+    setName('settlement:r1#0', '梼杌城');
+    expect(saveStore.loadWorld(saveStore.currentWorld()!.id)?.save.generator).toBe(GENERATOR_VERSION);
   });
 
   it('看原样:找得到旧版本的世界原来那一份;打开旧版本的链接以后改了才存的,第一次存时也留着', () => {
@@ -1244,7 +1284,8 @@ describe('浏览器存储(saveStore)', () => {
     expect(saveStore.originalOf(id)?.generator).toBe(GENERATOR_VERSION - 1);
     expect(saveStore.currentOriginal()?.generator).toBe(GENERATOR_VERSION - 1);
     // 按新版重存以后:是留的那份
-    setName('settlement:r1#0', '饕餮城');
+    saveStore.detachWorld();
+    expect(saveStore.overwriteWorld(id, { ...EDITS, names: { 'settlement:r1#0': '饕餮城' } })).toBe(true);
     expect(saveStore.loadWorld(id)?.save.generator).toBe(GENERATOR_VERSION);
     expect(saveStore.originalOf(id)).toMatchObject({ generator: GENERATOR_VERSION - 1, edits: { names: EDITS.names } });
     // 交出去的是留的原文(存档格式、各项都是当时写的),不是按现在的读法重新拼的
