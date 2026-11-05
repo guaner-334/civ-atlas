@@ -674,7 +674,7 @@ async function troubles(r: Run, ctx: BrowserContext, page: Page, saved: string) 
     await pick(page, write('新', await retouch(good, (_, m) => void (m.format = 99))));
     await toastIs(page, [`打不开「${NAME}」`, '它是新版存的，这个页面还是旧的。刷新后再打开一次这个文件，世界没有丢', '刷新页面'], '比网站新');
     await shot(r, page, '15-打不开-比网站新');
-    await Promise.all([page.waitForEvent('load', { timeout: WAIT }), clickToast(page, 'world-file-reload')]);
+    await Promise.all([page.waitForEvent('load', { timeout: WAIT }), clickToast(page, 'reload-page')]);
     await page.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
     await pick(page, write('新', await retouch(good, (_, m) => void (m.format = 99))));
     const t = await toastIs(page, [`打不开「${NAME}」`, '它比这个网站的版本还新，网站更新后就能打开。世界没有丢'], '刷新以后还是比网站新');

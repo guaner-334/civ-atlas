@@ -101,6 +101,31 @@ export function recipeText(r: Recipe): string {
   return JSON.stringify(canon(top));
 }
 
+/** 一个列表比另一个多几项、少几项,取大的(改了一项 = 多一项、少一项 = 1 处) */
+function listChanges(a: readonly unknown[] | undefined, b: readonly unknown[] | undefined): number {
+  const left = (a ?? []).map((v) => JSON.stringify(canon(v)));
+  let removed = 0;
+  for (const v of b ?? []) {
+    const i = left.indexOf(JSON.stringify(canon(v)));
+    if (i >= 0) left.splice(i, 1);
+    else removed++;
+  }
+  return Math.max(left.length, removed);
+}
+
+/** 两份配方差几处:一条干预、一件地形大事、一笔地形各算一处,别的设定变了各算一处。配方不同就至少是 1;一样 = 0 */
+export function recipeChanges(a: Recipe, b: Recipe): number {
+  if (recipeText(a) === recipeText(b)) return 0;
+  let n = listChanges(a.interventions, b.interventions) + listChanges(a.upheavals, b.upheavals) + listChanges(a.terrain, b.terrain);
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Recipe)[]);
+  for (const k of keys) {
+    if (k === 'interventions' || k === 'upheavals' || k === 'terrain') continue;
+    // 只比这一项:没给、空的、默认的和 recipeText 一样算没有
+    if (recipeText({ [k]: a[k] } as unknown as Recipe) !== recipeText({ [k]: b[k] } as unknown as Recipe)) n++;
+  }
+  return Math.max(1, n);
+}
+
 /** 存档里的配方:和 App 推这个(建好的)世界时交给 worker 的那几项取法一样 */
 export function recipeOfSave(save: SaveFile): Recipe {
   const e = save.edits;

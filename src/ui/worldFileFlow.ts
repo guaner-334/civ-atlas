@@ -9,13 +9,13 @@
  * 文件交到手上:电脑上直接下载。手机、平板上打包是后台做的,做完浏览器可能不让自动下载,所以提示条上点一下「存到手机」:
  * 能分享文件的(iPhone)出系统的分享菜单,别的(安卓 Chrome 只肯分享图片、视频这类文件)直接下载。
  * 没有内容可存的世界(没建完的、更旧的版本又没有原件的、没存进「我的世界」的)存成 .json(只带配方),旧的文件照旧能打开。
- * 比这个页面新的文件,刷新一次以后还打不开就是网站还没更新,不再叫人刷新(记在 sessionStorage)。
+ * 打不开时的字和打开旧世界用同一套(openTrouble.ts)。
  */
 import { editCount, parseSave, saveFileName, saveText, type SaveFile } from '../gen/savefile';
 import { importBundle, parseBundle } from './bundle';
 import { isCoarse, isNarrow } from './device';
 import { openWorldById } from './newCivAction';
-import { OLD_SITE } from './oldSite';
+import { FILE_TROUBLE, newerNotice } from './openTrouble';
 import { holdFileTrouble, holdOpenNote, type OpenNote } from './openNote';
 import { MAX_WORLDS, currentSave, currentUnsaved, currentWorld, importSave, loadWorld, markFromFile, notify, storedCount } from './saveStore';
 import { clearToast, getToast, peekToast, showToast, updateToast, type ToastAction, type ToastInput } from './toastStore';
@@ -45,8 +45,6 @@ const OPEN_WAIT_MS = 500;
 const PHONE_BIG_BYTES = 50e6;
 /** 旧的文件(文字)最大多少字节才读:再大的不是这个网站存的,不把它读成一个几 GB 的字符串 */
 const OLD_FILE_MAX_BYTES = 200e6;
-/** 点过「刷新页面」的记号(这个标签页里) */
-const RELOADED_KEY = 'wenming-ditu:newer-file-reloaded';
 
 const SEND_HINT = '发给别人时，让对方到这个网站点「打开存档文件」选它';
 const RECIPE_ONLY = '只带上了配方，打开时要重新算';
@@ -415,35 +413,15 @@ async function saveAll(): Promise<void> {
 /** 文明与地图-塞雷尼亚.civworld → 塞雷尼亚;别人改过名字的 = null */
 const worldNameOf = (fileName: string): string | null => /^文明与地图-(.+)\.civworld$/.exec(fileName)?.[1] ?? null;
 
-function reloadedOnce(): boolean {
-  try {
-    return sessionStorage.getItem(RELOADED_KEY) !== null;
-  } catch {
-    return false;
-  }
-}
-
-function reloadForFile() {
-  try {
-    sessionStorage.setItem(RELOADED_KEY, '1');
-  } catch {
-    /* 记不了就下次再叫人刷新 */
-  }
-  location.reload();
-}
-
 /** 打不开一个文件怎么说。文件是好的、说不准的都不说坏了,不然人可能把好文件删掉 */
 function sayCantOpen(kind: KeepTrouble, name: string, o: { retry?: () => void; seconds?: number } = {}) {
   const head = `打不开 ${name}`;
   const again = o.retry && { label: '再试一次', act: 'world-file-retry', onClick: o.retry };
   if (kind === 'newer') {
     const world = worldNameOf(name);
-    const text = world ? `打不开「${world}」` : head;
-    if (OLD_SITE !== null) return say({ kind: 'error', text, more: ['它是新版存的，这里是旧版网站。到最新版打开这个文件，世界没有丢'] });
-    if (reloadedOnce()) return say({ kind: 'error', text, more: ['它比这个网站的版本还新，网站更新后就能打开。世界没有丢'] });
-    return say({ kind: 'error', text, more: ['它是新版存的，这个页面还是旧的。刷新后再打开一次这个文件，世界没有丢'], action: { label: '刷新页面', act: 'world-file-reload', onClick: reloadForFile } });
+    return say({ kind: 'error', text: world ? `打不开「${world}」` : head, ...newerNotice('file') });
   }
-  if (kind === 'broken') return say({ kind: 'error', text: head, more: ['这个文件可能没存完整，或者被改过。网站没有动它，先别删'] });
+  if (kind === 'broken') return say({ kind: 'error', text: head, more: [FILE_TROUBLE] });
   if (kind === 'readonly') return say({ kind: 'error', text: head, more: ['文件是好的，只是这一版网站读不了它。网站没有动它，先别删'] });
   if (kind === 'memory') return say({ kind: 'error', text: head, more: ['内存不够，读不下这个世界。文件没有坏，关掉别的页面再试'], ...(again ? { action: again } : {}) });
   if (kind === 'timeout') return say({ kind: 'error', text: head, more: [`核对了 ${o.seconds ?? 20} 秒还没完，先停下了。不一定是文件的问题，先别删`], ...(again ? { action: again } : {}) });
@@ -588,7 +566,7 @@ function sayRestored(r: OpenedWorldFiles, old: Awaited<ReturnType<typeof importO
     // 一个都没读出来:一个文件的照那个文件的情况说(比软件新、坏了……)
     const first = bad[0];
     if (first && bad.every((s) => s.kind === first.kind)) return sayCantOpen(first.kind, firstName);
-    return say({ kind: 'error', text: `打不开 ${firstName}`, more: ['这个文件可能没存完整，或者被改过。网站没有动它，先别删'] });
+    return say({ kind: 'error', text: `打不开 ${firstName}`, more: [FILE_TROUBLE] });
   }
   const notes: string[] = [];
   if (r.memOnly) notes.push('浏览器不让网页存数据：放回来的世界只留在这个页面里，关掉就没了，这个文件先别删');

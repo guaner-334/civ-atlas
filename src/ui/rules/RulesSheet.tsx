@@ -29,6 +29,7 @@ import { Icon } from '../icons';
 import { useNarrow } from '../device';
 import { notify } from '../saveStore';
 import { decodeRulesHash, parseRulesFile } from '../../gen/civ/ruleShare';
+import { FILE_TROUBLE } from '../openTrouble';
 import { BIOMES, type Biome } from '../../gen/biomes';
 import { RULES_NAME_MAX, biomeKey, ruleNotesLine, type RuleSet } from '../../gen/civ/ruleSet';
 import { OFFICIAL_RULES_NAME, basedOnText } from '../../gen/civ/ruleSetEdit';
@@ -94,7 +95,7 @@ export function RulesSheet() {
       const r = parseRulesFile(s.text);
       if (!r.ok) {
         closeRulesSheet();
-        notify({ kind: 'error', text: s.fileName ? `打不开 ${s.fileName}` : '打不开这个规则文件', more: [r.error] });
+        notify({ kind: 'error', text: s.fileName ? `打不开 ${s.fileName}` : '打不开这个规则文件', more: [r.error.includes('文件坏了') ? FILE_TROUBLE : r.error] });
         return;
       }
       openRulesSheet({ kind: 'shared', rules: r.rules, from: 'file', ...(s.fileName ? { fileName: s.fileName } : {}) });

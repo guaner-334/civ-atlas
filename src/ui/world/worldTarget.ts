@@ -37,6 +37,8 @@ export interface Target {
   readonly?: { save: SaveFile; draft: Target };
   /** 不读世界仓库(只读打开没成,回到旧的路) */
   noVault?: true;
+  /** 世界仓库里有它,这次没读出来(只读打开没成) */
+  vaultBad?: true;
   /** 地图留着的世界:按存下的地图算过一遍了,再打不开就不打开了 */
   keptTried?: true;
   params: WorldParams;

@@ -5,7 +5,11 @@
  *     「另存并推演」原来的不动,另存一份「…（新版）」带着这次的修改,打开它按新版推演
  *     「取消」      什么都不变(待推演的单子留着)
  *   电脑是居中的窗口、手机从下面升起(和退出登录的窗口一样,AccountDialogs.tsx 的 Dialog)。
- *   打开时的提示条、「存档」菜单里的「按新版另存一份」也走这里(saveAsNew,App 挂上做法)。
+ *   「存档」菜单里的「按新版另存一份」也走这里(saveAsNew,App 挂上做法)。
+ *
+ *   上次有改动没推完页面就关了、之后网站又更新了(提示条上点「接着推演」):同一个窗口,带着那些改动,多一个 ——
+ *     「不要这些改动」存档换回现在看到的这一份,以后不再提示
+ *     「取消」        什么都不变,下次打开再说
  */
 import { useSyncExternalStore } from 'react';
 import type { WorldEdits } from '../gen/edits';
@@ -21,6 +25,10 @@ interface Ask {
   title: string;
   /** 这次要推演几条(待推演的单子推过来的;别的修改 = 0) */
   count: number;
+  /** 问的是上次没推完的改动(count = 几处):放弃它们怎么做 */
+  drop?: () => void;
+  /** 不选,关掉窗口以后 */
+  back?: () => void;
 }
 
 let ask: Ask | null = null;
@@ -51,31 +59,43 @@ export function closeSaveAsNew() {
   emit();
 }
 
-/** App 挂上的「按新版另存一份」:edits = 另存的那份带着的修改(不给 = 现在的) */
-let saver: ((edits?: WorldEdits) => void) | null = null;
-export function setSaveAsNew(f: ((edits?: WorldEdits) => void) | null) {
+/**
+ * App 挂上的「按新版另存一份」:edits = 另存的那份带着的修改(不给 = 现在的);
+ * moved = 带的是上次没推完的改动:它们跟着另存的那份走了,原来的世界不用再提示
+ */
+type Saver = (edits?: WorldEdits, moved?: boolean) => void;
+let saver: Saver | null = null;
+export function setSaveAsNew(f: Saver | null) {
   saver = f;
 }
-export function saveAsNew(edits?: WorldEdits) {
-  saver?.(edits);
+export function saveAsNew(edits?: WorldEdits, moved?: boolean) {
+  saver?.(edits, moved);
 }
 
 /** 推演前问的窗口 */
 export function FrozenAsk({ phone }: { phone: boolean }) {
   const a = useAsk();
   if (!a) return null;
-  const close = () => closeSaveAsNew();
-  const go = () => {
-    close();
-    saveAsNew(a.next);
+  const close = () => {
+    closeSaveAsNew();
+    a.back?.();
   };
-  const label = '另存一份再推演？';
+  const go = () => {
+    closeSaveAsNew();
+    saveAsNew(a.next, !!a.drop);
+  };
+  const drop = () => {
+    closeSaveAsNew();
+    a.drop?.();
+  };
+  const label = a.drop ? '另存一份接着推演？' : '另存一份再推演？';
+  const what = a.count ? (a.drop ? `这 ${a.count} 处改动` : `这 ${a.count} 条命令`) : '';
   return (
     <Dialog phone={phone} label={label} onClose={close} testId="frozen-ask" className="frozen-ask" head={phone ? <div className="acct-head"><h2>{label}</h2></div> : undefined}>
       <div className="acct-body">
-        <p>「{a.title}」是旧版本建的，照原样保存着。推演要用新版的规则，整段历史会和原来不一样。</p>
+        <p>{a.drop ? `上次有 ${a.count} 处改动没推完页面就关了，之后网站更新了，规则也变了。接着推演的话，整段历史都会不一样，地图也可能变。` : `「${a.title}」是旧版本建的，一直照原样存着。新版的规则变了，推演的话整段历史都会不一样，地图也可能变。`}</p>
         <p className="acct-small">
-          原来的「{a.title}」不动；另存一份「{newVersionTitle(a.title)}」，在那一份上推演{a.count ? `这 ${a.count} 条命令` : ''}。
+          原来的「{a.title}」不动；另存一份「{newVersionTitle(a.title)}」，在那一份上推演{what}。
         </p>
       </div>
       <div className={`acct-foot${phone ? ' col' : ''}`}>
@@ -84,12 +104,22 @@ export function FrozenAsk({ phone }: { phone: boolean }) {
             <button className="acct-btn full blue" data-act="frozen-save" onClick={go}>
               另存并推演
             </button>
+            {a.drop && (
+              <button className="acct-btn full" data-act="frozen-drop" onClick={drop}>
+                不要这些改动
+              </button>
+            )}
             <button className="acct-btn full" onClick={close}>
               取消
             </button>
           </>
         ) : (
           <>
+            {a.drop && (
+              <button className="acct-btn" data-act="frozen-drop" onClick={drop}>
+                不要这些改动
+              </button>
+            )}
             <span className="acct-sp" />
             <button className="acct-btn" onClick={close}>
               取消
