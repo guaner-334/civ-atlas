@@ -1415,6 +1415,8 @@ async function trashFull(name: string) {
   );
   check(headA.parts >= 4, `${name}:撤销回来的世界各块都读得出来(${headA.parts} 块)`);
 
+  // 硬盘真的满了时 WebKit 的 localStorage 写了也会丢,腾 localStorage 时存档跟着回退:这一段只在 Chromium 上看
+  if (!opt('volume')) {
   say(' localStorage 也满了:删了再撤销');
   await fillLocal(page);
   await deleteInUi(page, a.save.title!);
@@ -1423,6 +1425,7 @@ async function trashFull(name: string) {
   await page.waitForTimeout(500);
   check((await page.evaluate((i) => !!localStorage.getItem(`wenming-ditu:world:${i}`), idA)) && !!(await latest(page, idA)), `${name}:放得回去,存档、内容都在`);
   await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('filler-')).forEach((k) => localStorage.removeItem(k)));
+  }
 
   say(' 撤销提示收起');
   const lookNow = () =>
@@ -1433,7 +1436,6 @@ async function trashFull(name: string) {
       },
       [CHECK, idA],
     );
-  say(`  删之前:${JSON.stringify(await lookNow())}`);
   await deleteInUi(page, a.save.title!);
   say(`  删之后:${JSON.stringify(await lookNow())}`);
   check(await undoOpen(page), `${name}:撤销提示开着`);
