@@ -710,15 +710,12 @@ describe('把现有的世界转进来', () => {
   }, 120_000);
 
   it('界面上怎么说:只有配方的 old,转失败的 failed 能再存一次;算成了、存下了都不再说', async () => {
-    // 只有配方
     const save = { ...makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, '当时的校验', '老世界', '2026-11-01T00:00:00.000Z'), generator: GENERATOR_VERSION - 40 };
     const id = storeSave(save);
-    // 不等后台转存
     expect(await contentTrouble(id)).toBe('old');
     await startConversions();
     expect(await contentTrouble(id)).toBe('old');
     expect(await contentTrouble('没有这个')).toBeNull();
-    // 有那一版原件的转得进来,不标
     const o = sampleOriginal();
     const withOriginal = storeSave({ ...o.save, generator: GENERATOR_VERSION - 2 });
     await putOriginal(withOriginal, o.parts, saveStore.loadWorld(withOriginal)!.save, GENERATOR_VERSION - 2, '1.3.0');
@@ -726,7 +723,6 @@ describe('把现有的世界转进来', () => {
     await startConversions();
     expect(await contentTrouble(withOriginal)).toBeNull();
 
-    // 转失败
     const now = storeSave(makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, '新世界', '2026-11-02T00:00:00.000Z'));
     let fail = true;
     _setWorldStore({
@@ -737,14 +733,11 @@ describe('把现有的世界转进来', () => {
     });
     await startConversions();
     expect(await contentTrouble(now)).toBe('failed');
-    // 还是不行:记录还在
     expect(await saveContentAgain(now)).toBe(false);
     expect(await contentTrouble(now)).toBe('failed');
     fail = false;
-    // 同一版软件后台不再试
     await startConversions();
     expect(await latestOf(now)).toBeNull();
-    // 用的人要试就算
     expect(await saveContentAgain(now)).toBe(true);
     expect(await contentTrouble(now)).toBeNull();
     expect((await latestOf(now))?.generator).toBe(GENERATOR_VERSION);

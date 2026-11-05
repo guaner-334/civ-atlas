@@ -27,7 +27,7 @@ export const KEPT_DEVICE = '它的地图还在另一台设备上，世界没有�
 /** 地图留着的世界打不开:.json 文件只有配方 */
 export const KEPT_FILE = '这个文件只有配方，带不上它的地图。请对方重新存成文件发给你';
 
-/** 地图留着的世界上要改地形大事(点了灰着的按钮、撤销、助手):说为什么。原来那个世界还在才说到它上面加 */
+/** 原来那个世界还在才说到它上面加 */
 export function keptTerrainBlocked() {
   const from = keptFrom(getEdits());
   showToast({ id: 'edit-block', kind: 'warn', text: '这个世界不能再改地形大事', more: [from?.title !== undefined ? '它的地图是旧世界留下的，一改就要重新长。要加大事，到原来那个世界上加' : '它的地图是旧世界留下的，一改就要重新长'], ttl: 7000 });
@@ -61,10 +61,7 @@ function refreshPage() {
   location.reload();
 }
 
-/**
- * 交不过去(浏览器太旧,压缩不了存档):说一声怎么自己打开。旧网站只认 .json,提示条上存的就是这一份(save,存档原文)。
- * site = 看原样要去的旧网站;不给 = 旧网站上到最新版打开
- */
+/** 旧网站只认 .json,提示条上存的是 save 这份原文。site 不给 = 旧网站上到最新版打开 */
 export function openFailed(site?: string, save?: SaveFile) {
   if (site) {
     notify({

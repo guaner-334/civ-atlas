@@ -1,12 +1,11 @@
 /**
- * 旧世界的样子和想接着推:在界面上真走一遍的浏览器检查。要两版代码才走得到,同一个端口、同一份浏览器配置先后跑:
+ * 要两版代码才走得到,同一个端口、同一份浏览器配置先后跑:
  *
  *   npx tsx scripts/old-world-check.ts --phase=make  --profile=<目录> [--port=5198] [--browsers=chromium,webkit] [--devices=desktop,phone]    现在的代码:建几个世界存下来
  *   (另开一份代码,升 GENERATOR_VERSION,改生成地图和推演的算法)
  *   npx tsx scripts/old-world-check.ts --phase=check --profile=<目录> --root=<那份代码> [--shots=<目录>] [--only=kept,recipe]                    点界面,逐项比
  *
- * 造不出来才直接改状态的,写在各段开头:别的设备同步来的(存档直接放进浏览器)、转存失败(记录直接写上)、地图读不出来(把存的内容删掉)、登录了(令牌直接写上)、
- * 浏览器太旧(删掉 CompressionStream)、没推完的改动(直接写进存档,和推完之前页面关了同一个样子)。没过的打印「没过」,退出码非 0。
+ * 走不到真实流程、直接改状态的写在各段开头。没过的打印「没过」,退出码非 0。
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

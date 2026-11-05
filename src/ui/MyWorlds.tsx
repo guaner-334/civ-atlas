@@ -463,9 +463,7 @@ function SyncTime({ st }: { st: 'sync' | 'off' }) {
   );
 }
 
-/**
- * 列表里只存了配方的旧世界(看世界仓库 worldStore.ts,读到才标)。没有比现在旧的世界就不去读,世界仓库也不下载
- */
+/** 没有比现在旧的世界就不读:首页不该为它下载世界仓库 */
 function useOldWorlds(worlds: readonly StoredWorld[]): ReadonlySet<string> {
   const v = useSavesVersion();
   const ids = worlds.filter((w) => !w.draft && !w.map && w.save.generator < GENERATOR_VERSION).map((w) => w.id);
@@ -513,7 +511,6 @@ function WorldCard({
   loggedIn: boolean;
   /** 点了打开、地图程序还没下完 */
   wait?: Wait;
-  /** 只存了配方的旧世界 */
   old?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);

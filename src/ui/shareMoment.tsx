@@ -177,7 +177,6 @@ export function shareCopiedToast(r: ShareCopy, at: MomentNow | null): void {
  * 剪贴板用不了(做链接时等久了,有的浏览器就不让复制了):提示条上一个「复制」按钮,点一下再复制一次
  */
 export async function copyMomentLink(): Promise<void> {
-  // 地图留着的世界:链接里带不上地图,对方打不开
   const plain = currentSave();
   if (plain && keptMapOf(plain.edits)) return notify({ kind: 'warn', text: '这个世界的地图带不进链接', more: ['要发给别人，请到「存档」里存成文件'] });
   const at = momentNow(true);

@@ -3305,9 +3305,7 @@ if (part('分享这一刻')) {
   await ctxB.close();
 }
 
-// 看原样:留着旧网站的那几版(oldSiteFor)建的世界,存档菜单里有一行「看原样」;提示条上也有,
-// 不过只在这个世界真的变了样(提示"按新版算的…")时才放。
-// 点了开一个新页面到 /v<那一版>/,带 own=1 和整份存档(# 后面)。没留旧网站的版本灰着写原因,现在这一版建的没有
+// 看原样:提示条上只在这个世界真的变了样时才放;点了开新页面到 /v<那一版>/,带 own=1 和整份存档;没留旧网站的灰着写原因
 if (part('看原样')) {
   const { FIRST_OLD_SITE, oldSiteFor } = await import('../src/ui/oldSite');
   const { versionNote } = await import('../src/gen/savefile');
@@ -3339,7 +3337,6 @@ if (part('看原样')) {
     await p.click('.save-btn');
     return { note, inToast, inMenu, noneInMenu };
   };
-  // 第 28 版留着旧网站;上一版、更早的没留
   const kept = 28;
   const gens = [...new Set([kept, GENERATOR_VERSION - 1, FIRST_OLD_SITE - 1, GENERATOR_VERSION])];
   const cases: [number, boolean][] = [...gens.map((g): [number, boolean] => [g, false]), [kept, true]];

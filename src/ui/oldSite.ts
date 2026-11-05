@@ -10,7 +10,7 @@ import { EMPTY_EDITS, GENERATOR_VERSION } from '../gen/edits';
 import { NEWER_NOTE, encodeShare, makeSave, type SaveFile } from '../gen/savefile';
 import type { WorldParams } from '../gen/world';
 
-/** 最早留着旧网站的一版(更早的版本没有旧网站) */
+/** 最早留着旧网站的一版 */
 export const FIRST_OLD_SITE = 9;
 /** 真的留着旧网站的几段版本(含两头):中间那些版本升级时没有发布旧网站 */
 const KEPT_OLD_SITES: readonly (readonly [number, number])[] = [

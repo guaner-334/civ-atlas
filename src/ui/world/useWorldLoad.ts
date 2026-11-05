@@ -632,7 +632,6 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     if (copy) {
       // 另存的那份带着要推演的命令时,接着就是"正在重新推演"那条:这条不自动收,推完露出来(右边可以关)
       showToast({ id: 'save', kind: copy.more.length ? 'warn' : 'ok', dot: true, ttl: 0, dismissible: true, text: `已另存为「${t.title ?? ''}」`, more: [copy.line, ...copy.more] });
-      // 是为了加地形大事才另存的:接着打开面板
       if (copy.upheaval) openUpheaval();
       return;
     }
@@ -689,7 +688,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const warn = more.length > 0 || held?.kind === 'warn' || !!kept?.warn;
     // 重推完核对出对不上的:同一条提示补上那一句(打开时没提示的,这时提示)
     if (later) renameCheck.current = { id: t.id, terrain: genTerrain.current, show: (line) => say({ kind: 'warn', text, more: [...lead, ...more, line], action: held?.action }) };
-    // 从我的世界打开只有配方的旧世界:每次都说,只说这一句的 7 秒后自己收(卡片和存档菜单上一直写着)
+    // 别的警告要留着等人关,只有这一句才自己收
     const brief = !!note && more.length === 1 && more[0] === note && (t.from === 'stored' || t.from === 'restore') && !lead.length;
     if (more.length || always) say({ kind: warn ? 'warn' : 'ok', text, more: [...lead, ...more], action: held?.action, ...(brief ? { ttl: OK_TTL } : {}) });
   };

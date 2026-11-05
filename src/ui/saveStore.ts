@@ -358,7 +358,7 @@ export function subscribe(f: () => void) {
 }
 
 /** 存档有变化时重新渲染(返回一个递增的版本号) */
-/** 存档以外的东西变了、列表要重画(世界内容的状态,worldStore.ts) */
+/** 存档以外的东西变了,列表要重画 */
 export function savesChanged() {
   changed();
 }
@@ -377,7 +377,7 @@ export interface SaveNotice {
   action?: ToastAction;
   /** 左边一个绿点(存好了一个文件这类) */
   dot?: boolean;
-  /** 多久后自己收起(毫秒;不给:成功的 7 秒,别的留着) */
+  /** 毫秒;不给 = 成功的 7 秒,别的留着 */
   ttl?: number;
   /** 这条提示没了就调(见 toastStore 的 onGone) */
   onGone?: () => void;
@@ -1192,10 +1192,9 @@ function metaOf(c: Current, opened?: string): Meta {
   return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined, from: m.from };
 }
 
-/** 只读打开时改了东西:不会存,界面上得说,不然人以为存了 */
 const READONLY_EDIT = '这里的改动不会存。要留下，先另存一份';
 
-/** 只读打开的世界上改了配方以外的东西(改名这类;要重推的走 historyGate):说一声,这一处只说一次 */
+/** 要重推的走 historyGate,到这里的是改名这类 */
 function tellReadonlyEdit(c: Current, edits: WorldEdits) {
   if (!c.readonly || edits === c.saved) return;
   c.saved = edits;
@@ -1741,7 +1740,7 @@ export function _resetForTest() {
   quietUntil = 0;
 }
 
-/** 地图留着的世界的地图留自哪个世界:title = 那个世界的名字(删掉了 = 没有);别的世界 = null */
+/** title 没有 = 那个世界删掉了;不是地图留着的世界 = null */
 export function keptFrom(edits: Pick<WorldEdits, 'map'>): { title?: string } | null {
   if (!keptMapOf(edits)) return null;
   const w = edits.map?.from ? loadWorld(edits.map.from) : null;

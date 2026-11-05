@@ -517,7 +517,6 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   useSavesVersion();
   const cur = currentWorld();
   const origin = cur && cur.kind !== 'visit' && cur.kind !== 'draft' ? cur.origin : undefined;
-  // 地形大事:地图留着的世界灰着,点了说为什么;照原样打开的旧世界先问要不要另存(curOld = 世界名)
   const kept = !!keptMapOf(edits);
   const curOld = cur && (cur.frozen !== undefined || cur.readonly) ? cur.title || `种子 ${cur.params.seed}` : null;
   return (

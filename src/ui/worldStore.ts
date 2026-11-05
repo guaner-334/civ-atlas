@@ -468,12 +468,7 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   return null;
 }
 
-/**
- * 这个世界的内容存没存下,界面上怎么说:
- *   old     只存了配方(更旧的版本,仓库里没有那一版的内容,也没有那一版的原件):打开时按新版算,我的世界的卡片上标
- *   failed  转存失败、还没存下:打开和原来一样,存档菜单里说一句,给「再存一次」
- * 别的、读不了 = null。不等后台转存跑到它(首页上后台转存还没开始):转得进来的不标,要看的就是这两样有没有
- */
+/** 不等后台转存跑到它:首页上转存还没开始 */
 export async function contentTrouble(id: string): Promise<'old' | 'failed' | null> {
   try {
     const w = loadWorld(id);
@@ -490,7 +485,7 @@ export async function contentTrouble(id: string): Promise<'old' | 'failed' | nul
   }
 }
 
-/** 「再存一次」:同一版软件本来不再试失败的世界,用的人要试就清掉记录再转。存下了 = true */
+/** 同一版软件本来不再试失败的世界,所以先清掉记录 */
 export async function saveContentAgain(id: string): Promise<boolean> {
   try {
     await call('patchState', [id, { status: undefined, app: undefined, error: undefined }]);

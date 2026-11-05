@@ -88,7 +88,6 @@ import {
   type WorkFor,
 } from './worldTarget';
 
-/** 另存要等的那条提示条 */
 const COPY_TOAST = 'save-copy';
 
 /** 作品墙上的作品另存时写进存档的出处:作品的署名、作品名、作品的网址 */
@@ -556,13 +555,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
   showHomeRef.current = showHome;
   const openStoredRef = useRef(openStored);
   openStoredRef.current = openStored;
-  /** 地图不变的另存要等它推完:正在等(防连点) */
+  /** 防连点:keepMapCopy 不能取消 */
   const keepingCopy = useRef(false);
-  /**
-   * 旧世界「按新版另存一份」(存档菜单、推演前问的窗口):原来的不动,另存一份带着 edits(不给 = 现在的修改),打开它;AI 写的史书、名字由来跟着复制。
-   * 存得下内容的世界地图不变,历史按现在的规则重推(keepCopy);只有配方的、动了地形大事的连地图重新长(growCopy)。
-   * from = 窗口上问的那一次:带的是上次没推完的改动的,它们跟着新的这份走了,原来的存档换回看到的那一份,下次打开不再提示
-   */
   const saveAsNewNow = (edits?: WorldEdits, from?: SaveAsk) => {
     closeSaveAsNew();
     const c = currentWorld();
@@ -571,7 +565,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     else void keepCopy(c, edits ?? getEdits(), from);
   };
   const NOTES_LOST = 'AI 写的史书、名字由来没能一起存下（浏览器存储已满）';
-  /** 连地图重新长:存档记现在的版本,打开时按新版生成、推演。地图记录不带(那张地图不是这一份的了) */
+  /** 地图记录不带:那张地图不是这一份的了 */
   const growCopy = (c: CurrentWorld, next: WorldEdits, from?: SaveAsk) => {
     const { map: _map, ...rest } = next;
     void _map;
@@ -587,7 +581,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     };
     openStoredRef.current(id);
   };
-  /** 地图不变:等后台推完再打开。超过 1 秒才说在等;不能取消;等的时候换了世界不抢着跳 */
+  /** 等的时候换了世界不抢着跳 */
   const keepCopy = async (c: CurrentWorld, next: WorldEdits, from?: SaveAsk) => {
     const name = c.title || `种子 ${c.params.seed}`;
     keepingCopy.current = true;
@@ -600,9 +594,9 @@ export function useWorldPages(deps: WorldPagesDeps) {
     if (!r.ok) {
       if (r.kind === 'missing') return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
       if (r.kind === 'full') return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
-      // 地图读不出来(没存下;存的内容打开时就没读出来,看到的是先按新版算的):人点了「连地图重新长」才长,不能悄悄重新长
+      // 人点了才长,不能悄悄按种子重新长
       if ((r.kind === 'nomap' || c.frozen === undefined) && here) return askSaveAsNew({ ...from, next, title: name, count: from?.count ?? 0, map: 'none' });
-      // 再试一次试的还是这个世界,这会儿开着哪个都一样
+      // 试的还是 c,不是这会儿开着的
       const again = () => {
         if (!keepingCopy.current) void keepCopy(c, next, from);
       };
@@ -614,7 +608,6 @@ export function useWorldPages(deps: WorldPagesDeps) {
       savedCopy.current = { id: r.id, line: '地图没变，历史按新版重推了。原来的世界照原样留着', more };
       return openStoredRef.current(r.id);
     }
-    // 人已经换到别处了:不抢着跳
     const title = loadWorld(r.id)?.save.title ?? newVersionTitle(name);
     showToast({ id: 'save', kind: 'ok', ttl: 0, dismissible: true, text: `「${title}」另存好了`, more: ['地图没变，历史按新版重推了', ...more], action: { label: '打开', act: 'open-copy', onClick: () => openStoredRef.current(r.id) } });
   };
@@ -638,7 +631,6 @@ export function useWorldPages(deps: WorldPagesDeps) {
       if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return false;
       const now = getEdits();
       const count = Math.max(0, next.interventions.length - now.interventions.length) + Math.max(0, (next.upheavals?.length ?? 0) - (now.upheavals?.length ?? 0));
-      // 只有配方的:地图没存下来;动了地形大事:地图要跟着重新长
       const map = c.oldRecipe ? ('none' as const) : terrainDiffers(now, next) ? ('terrain' as const) : undefined;
       askSaveAsNew({ next, title: c.title || `种子 ${c.params.seed}`, count, ...(map ? { map } : {}) });
       return true;

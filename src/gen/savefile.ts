@@ -447,7 +447,6 @@ export function sameView(a: SaveView | null | undefined, b: SaveView | null | un
 
 export type ParseResult = { ok: true; save: SaveFile; warnings: string[] } | { ok: false; error: string };
 
-/** 打开旧版本的世界时,看到的是现在的规则算的:versionNote 那句话的开头 */
 export const VERSION_NOTE_HEAD = '按新版算的：';
 
 /** 生成器每种改动对应的说法(versionNote 接在 VERSION_NOTE_HEAD 后面) */

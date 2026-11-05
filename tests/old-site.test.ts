@@ -12,7 +12,6 @@ describe('旧版网站', () => {
     expect(oldSiteFor(9, page, null, 10)?.href).toBe('https://atlas.gerdor.top/v9/');
     expect(oldSiteFor(9, page, null, 12)?.href).toBe('https://atlas.gerdor.top/v9/');
     expect(oldSiteFor(11, page, null, 12)?.href).toBe('https://atlas.gerdor.top/v11/');
-    // 只给真的留着的:第 9–12、18–28 版;第 13–17、29–56 版没留;再往后每次升级都留
     for (const v of [9, 12, 18, 22, 28]) expect(oldSiteFor(v, page, null, 58)?.href).toBe(`https://atlas.gerdor.top/v${v}/`);
     for (const v of [13, 17, 29, 40, 56]) expect(oldSiteFor(v, page, null, 58)).toBeNull();
     expect(oldSiteFor(57, page, null, 58)?.href).toBe('https://atlas.gerdor.top/v57/');

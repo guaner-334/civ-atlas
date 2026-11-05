@@ -7,9 +7,6 @@
  *   电脑是居中的窗口、手机从下面升起(和退出登录的窗口一样,AccountDialogs.tsx 的 Dialog)。
  *   「存档」菜单里的「按新版另存一份」也走这里(saveAsNew,App 挂上做法)。
  *
- *   地图留不住的(Ask.map)按钮换成「连地图重新长」,明说地图也会变:
- *     只有配方的旧世界,或者点了另存才发现地图读不出来;动了地形大事;要加地形大事(还没涂,另存以后到新的那份上加)
- *
  *   上次有改动没推完页面就关了、之后网站又更新了(提示条上点「接着推演」):同一个窗口,带着那些改动,多一个 ——
  *     「不要这些改动」存档换回现在看到的这一份,以后不再提示
  *     「取消」        什么都不变,下次打开再说
@@ -33,12 +30,7 @@ interface Ask {
   drop?: () => void;
   /** 不选,关掉窗口以后 */
   back?: () => void;
-  /**
-   * 地图留不住(不给 = 地图不变,历史重推):
-   *   none      地图没存下来
-   *   terrain   这次动了地形大事
-   *   upheaval  要加地形大事、还没涂
-   */
+  /** 地图留不住的原因;不给 = 地图不变 */
   map?: 'none' | 'terrain' | 'upheaval';
 }
 
@@ -70,10 +62,7 @@ export function closeSaveAsNew() {
   emit();
 }
 
-/**
- * App 挂上的「按新版另存一份」:edits = 另存的那份带着的修改(不给 = 现在的);
- * from = 窗口上问的那一次(带的是上次没推完的改动:它们跟着另存的那份走了,原来的世界不用再提示;地图留不留得住)
- */
+/** App 挂上的「按新版另存一份」:edits 不给 = 现在的修改;from = 窗口上问的那一次 */
 type Saver = (edits?: WorldEdits, from?: SaveAsk) => void;
 let saver: Saver | null = null;
 export function setSaveAsNew(f: Saver | null) {
@@ -83,7 +72,6 @@ export function saveAsNew(edits?: WorldEdits, from?: SaveAsk) {
   saver?.(edits, from);
 }
 
-/** 窗口第一段 */
 export function askText(a: Pick<Ask, 'map' | 'drop' | 'title' | 'count'>): string {
   if (a.map === 'none') return `「${a.title}」是旧版本建的，只存了配方，地图没存下来。推演的话，地图和整段历史都按新版重新长，和原来可能不同。`;
   if (a.map === 'terrain') return `「${a.title}」是旧版本建的，一直照原样存着。这次动了地形大事，地图要跟着重新长，地图和整段历史都会和原来不一样。`;
