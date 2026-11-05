@@ -54,7 +54,7 @@ import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './OldSiteBadge';
 import { BETA_SITE, OLD_SITE } from './oldSite';
 import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
-import { YEAR_TICKS, cleanPlay, playAt } from '../gen/edits';
+import { GENERATOR_VERSION, YEAR_TICKS, cleanPlay, playAt } from '../gen/edits';
 import { monthNamesInUse, monthTail, monthsOf, yearFull } from '../gen/era';
 import { loadGallery, useGallery, type GalleryWork } from '../account/gallery';
 import { GalleryFeatured } from './Gallery';
@@ -167,6 +167,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   const list = useMemo(() => listWorlds(), [v]);
   const groups = useMemo(() => mapGroups(list), [list]);
   const civs = useMemo(() => list.filter((w) => !w.map), [list]);
+  const oldIds = useOldWorlds(civs);
   const { tab: tab0, pick } = useView();
   const rulesOn = rulesUiOn();
   /** 本机「我的规则」里有几套(一个世界都没有时,有规则才露出分段控件) */
@@ -398,6 +399,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
               key={w.id}
               w={w}
               phone={phone}
+              old={oldIds.has(w.id)}
               menuOpen={menu === w.id}
               onMenu={(o) => setMenu(o ? w.id : null)}
               renaming={renaming === w.id}
@@ -460,6 +462,31 @@ function SyncTime({ st }: { st: 'sync' | 'off' }) {
   );
 }
 
+/**
+ * 列表里只存了配方的旧世界(世界仓库 worldStore.ts 记的,读到才标;后台转存跑到它之前不知道,不标)。
+ * 没有比现在旧的世界就不去读,世界仓库也不下载
+ */
+function useOldWorlds(worlds: readonly StoredWorld[]): ReadonlySet<string> {
+  const v = useSavesVersion();
+  const ids = worlds.filter((w) => !w.draft && !w.map && w.save.generator < GENERATOR_VERSION).map((w) => w.id);
+  const key = ids.join();
+  const [olds, setOlds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!key) return setOlds((s) => (s.size ? new Set() : s));
+    let live = true;
+    void import('./worldStore')
+      .then((m) => Promise.all(key.split(',').map(async (id) => ((await m.contentTrouble(id)) === 'old' ? id : ''))))
+      .then((r) => {
+        if (live) setOlds(new Set(r.filter(Boolean)));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [key, v]);
+  return olds;
+}
+
 function WorldCard({
   w,
   phone,
@@ -472,6 +499,7 @@ function WorldCard({
   sync,
   loggedIn,
   wait,
+  old,
 }: {
   w: StoredWorld;
   phone: boolean;
@@ -485,6 +513,8 @@ function WorldCard({
   loggedIn: boolean;
   /** 点了打开、地图程序还没下完 */
   wait?: Wait;
+  /** 只存了配方的旧世界 */
+  old?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   /** 长按:按下的计时器;长按开了菜单以后,松手那一下的点击不算打开 */
@@ -516,7 +546,7 @@ function WorldCard({
 
   // 存成文件有多大:菜单开着才算
   const [sizeNote, setSizeNote] = useState<string | null>(null);
-  const hasFile = !w.draft && !w.map;
+  const hasFile = !w.draft && !w.map && !old;
   useEffect(() => {
     if (!menuOpen || !hasFile) return;
     let live = true;
@@ -575,11 +605,11 @@ function WorldCard({
         }}
         onPointerUp={cancelPress}
         onPointerCancel={cancelPress}
-        title={w.draft ? '接着建这个世界' : '打开这个世界'}
+        title={w.draft ? '接着建这个世界' : old ? '打开这个世界（只存了配方，打开时按新版算）' : '打开这个世界'}
       >
         <span className={`mw-thumb${wait ? ' wait' : ''}`} style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined}>
           {w.draft && <span className="mw-tag">没建完</span>}
-          {!w.draft && w.save.edits.play && <span className="mw-tag">逐年推演</span>}
+          {old ? <span className="mw-tag" title="打开这个世界（只存了配方，打开时按新版算）">按新版算</span> : !w.draft && w.save.edits.play && <span className="mw-tag">逐年推演</span>}
           {wait && <OpenRing pct={wait.pct} />}
         </span>
         {phone ? (
@@ -649,12 +679,12 @@ function WorldCard({
                 onClick={act(() => {
                   // 别的页面里可能删了
                   if (!loadWorld(w.id)) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
-                  withFileFlow('没能存成文件', (m) => m.saveWorldToFile(w.id));
+                  withFileFlow('没能存成文件', (m) => (old ? m.saveWorldRecipe(w.id) : m.saveWorldToFile(w.id)));
                 })}
               >
                 <Icon name="save" size={16} />
-                <span className="pm-text">存成文件</span>
-                {sizeNote && <small className="pm-note">{sizeNote}</small>}
+                <span className="pm-text">{old ? '存配方文件' : '存成文件'}</span>
+                {old ? <small className="pm-note">几 KB</small> : sizeNote && <small className="pm-note">{sizeNote}</small>}
               </button>
             </>
           )}

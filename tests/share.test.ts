@@ -111,7 +111,7 @@ describe('分享链接:编码 / 解码', () => {
     const r = await decodeShare(await encodeShare(save));
     expect(r.ok).toBe(true);
     expect(r.ok && r.warnings).toContain(versionNote(6, save.edits.terrain.length > 0));
-    expect(r.ok && r.warnings[0]).toMatch(/^来自旧版本：/);
+    expect(r.ok && r.warnings[0]).toMatch(/^按新版算的：/);
   });
 });
 

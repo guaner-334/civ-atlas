@@ -151,9 +151,9 @@ describe('存档文件 · 坏文件、别的 JSON、别的版本', () => {
     expect(err(JSON.stringify(a))).toMatch(/更新版本.*刷新页面/);
   });
 
-  it('生成器版本不同:照样打开,提示"来自旧版本"和变了什么 / "来自更新的版本"', () => {
+  it('生成器版本不同:照样打开,提示"按新版算的"和变了什么 / "来自更新的版本"', () => {
     const old = parseSave(JSON.stringify({ ...good(), generator: 6 }));
-    expect(old.ok && old.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了']);
+    expect(old.ok && old.warnings).toEqual(['按新版算的：地形有局部变化，历史重新推演了']);
     const newer = parseSave(JSON.stringify({ ...good(), generator: GENERATOR_VERSION + 1 }));
     expect(newer.ok && newer.warnings).toEqual([NEWER_NOTE]);
     expect(old.ok && old.save.edits).toEqual(EDITS);
@@ -163,17 +163,17 @@ describe('存档文件 · 坏文件、别的 JSON、别的版本', () => {
     // 7 → 8:第 8 版只动了改过地形的世界(历史重新推演),第 9 版人人都有(编年史的字);第 10 版人人的历史都重新推演;
     // 第 14 版人人的地形都有局部变化,跨过它的都按它说(改没改过地形一样)
     const plain = parseSave(JSON.stringify({ ...good(), generator: 7 }));
-    expect(plain.ok && plain.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了']);
+    expect(plain.ok && plain.warnings).toEqual(['按新版算的：地形有局部变化，历史重新推演了']);
     expect(versionNote(7, false)).toBe(versionNote(9, false));
     const g = good();
     g.generator = 7;
     (g.edits as Record<string, unknown>).terrain = [{ kind: 'volcano', pts: [812, 403], r: 28, s: 1.05 }];
     const edited = parseSave(JSON.stringify(g));
-    expect(edited.ok && edited.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了']);
+    expect(edited.ok && edited.warnings).toEqual(['按新版算的：地形有局部变化，历史重新推演了']);
     // 地形修改全是坏的(读进来一处都没有)= 按没改地形生成
     (g.edits as Record<string, unknown>).terrain = [{ kind: 'meteor', pts: [1, 2] }];
     const bad = parseSave(JSON.stringify(g));
-    expect(bad.ok && bad.warnings).toEqual(['来自旧版本：地形有局部变化，历史重新推演了', '有 1 处地形修改格式不对,已跳过']);
+    expect(bad.ok && bad.warnings).toEqual(['按新版算的：地形有局部变化，历史重新推演了', '有 1 处地形修改格式不对,已跳过']);
   });
 
   it('版本提示排在参数提示之后、改名提示之前', () => {
@@ -1326,8 +1326,8 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(GENERATOR_VERSION, false)).toBeNull();
     expect(versionNote(GENERATOR_VERSION, true)).toBeNull();
     // 第 14 版:封闭内海、贴着海的湖、湖心小块地,地形局部变了 —— 跨过它的都按它说
-    expect(versionNote(13, false)).toBe('来自旧版本：地形有局部变化，历史重新推演了');
-    expect(versionNote(13, true)).toBe('来自旧版本：地形有局部变化，历史重新推演了');
+    expect(versionNote(13, false)).toBe('按新版算的：地形有局部变化，历史重新推演了');
+    expect(versionNote(13, true)).toBe('按新版算的：地形有局部变化，历史重新推演了');
     expect(versionNote(9, false)).toBe(versionNote(13, false));
     expect(versionNote(9, true)).toBe(versionNote(13, true));
     // 第 9 版只改了编年史的字、第 8 版只动了改过地形的世界:都比第 10 版小
@@ -1338,7 +1338,7 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(6, false)).toBe(versionNote(13, false));
     expect(versionNote(5, true)).toBe(versionNote(6, true));
     // 第 4、5 版换了整颗星球,再往前的都算进去
-    for (const v of [4, 3, 2, 1, 0, -3]) expect(versionNote(v, false)).toBe('来自旧版本：整颗星球重新生成了，地形和历史都和原来不同');
+    for (const v of [4, 3, 2, 1, 0, -3]) expect(versionNote(v, false)).toBe('按新版算的：整颗星球重新生成了，地形和历史都和原来不同');
     expect(versionNote(GENERATOR_VERSION + 1, false)).toBe(NEWER_NOTE);
     // 不是整数的版本号认不出:按整颗星球说,不当成哪一版
     expect(versionNote(7.5, false)).toBe(versionNote(0, false));
@@ -1347,12 +1347,12 @@ describe('旧版本的提示:照实说变了什么', () => {
   });
   it('第 26 版只动了改过地形、带地形大事的世界:没改地形的一样;带地形大事、没改地形的也按"地形有局部变化"说(大事以后的地形)', () => {
     // 第 27 版历史重新推演:从第 25 版来的没改地形的世界,就照第 27 版说
-    expect(versionNote(26, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    expect(versionNote(26, false)).toBe('按新版算的：地形和气候没变，历史重新推演了');
     expect(versionNote(25, false)).toBe(versionNote(26, false));
     expect(versionNote(25, { terrain: false, upheavals: false })).toBe(versionNote(26, false));
-    expect(versionNote(25, true)).toBe('来自旧版本：地形有局部变化，历史重新推演了');
-    expect(versionNote(25, { terrain: true, upheavals: true })).toBe('来自旧版本：地形有局部变化，历史重新推演了');
-    expect(versionNote(25, { terrain: false, upheavals: true })).toBe('来自旧版本：地形有局部变化，历史重新推演了');
+    expect(versionNote(25, true)).toBe('按新版算的：地形有局部变化，历史重新推演了');
+    expect(versionNote(25, { terrain: true, upheavals: true })).toBe('按新版算的：地形有局部变化，历史重新推演了');
+    expect(versionNote(25, { terrain: false, upheavals: true })).toBe('按新版算的：地形有局部变化，历史重新推演了');
     // 第 25 版只动了改过地形的(地名),带地形大事的不算
     expect(versionNote(24, { terrain: false, upheavals: true })).toBe(versionNote(25, { terrain: false, upheavals: true }));
     expect(versionNote(24, false)).toBe(versionNote(26, false));
@@ -1360,7 +1360,7 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(editedWorld({ terrain: [], sketch: undefined })).toEqual({ terrain: false, upheavals: false });
   });
   it('第 45 版只动了带地形大事的世界(城的人口上限):没有地形大事的,改没改过地形都一样', () => {
-    const history = '来自旧版本：地形和气候没变，历史重新推演了';
+    const history = '按新版算的：地形和气候没变，历史重新推演了';
     expect(GENERATOR_CHANGES[45]).toEqual({ change: 'history', only: 'upheavals' });
     // 第 46 版(大迁徙)历史重新推演:从第 44 版来的,有没有地形大事都照"历史重新推演"说;第 45 版那一处只看带地形大事的
     expect(GENERATOR_CHANGES[46]).toEqual({ change: 'history' });
@@ -1374,7 +1374,7 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(versionNote(43, { terrain: false, upheavals: true })).toBe(history);
   });
   it('第 47 版(季节进推演)历史重新推演:从第 46 版来的,改没改过地形、有没有地形大事都照历史重新推演说', () => {
-    const history = '来自旧版本：地形和气候没变，历史重新推演了';
+    const history = '按新版算的：地形和气候没变，历史重新推演了';
     expect(GENERATOR_CHANGES[47]).toEqual({ change: 'history' });
     expect(versionNote(46, false)).toBe(history);
     expect(versionNote(46, true)).toBe(history);
@@ -1383,10 +1383,10 @@ describe('旧版本的提示:照实说变了什么', () => {
   it('第 48 版(大迁徙的方位字)疆域兴亡不变;第 49 版(时代做法)历史重新推演:从第 48、47 版来的照历史重新推演说', () => {
     expect(GENERATOR_CHANGES[48]).toEqual({ change: 'chronicle' });
     expect(GENERATOR_CHANGES[49]).toEqual({ change: 'history' });
-    expect(versionNote(48, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    expect(versionNote(48, false)).toBe('按新版算的：地形和气候没变，历史重新推演了');
     expect(versionNote(47, false)).toBe(versionNote(48, false));
     expect(versionNote(47, { terrain: true, upheavals: true })).toBe(versionNote(47, false));
-    expect(versionNote(46, false)).toBe('来自旧版本：地形和气候没变，历史重新推演了');
+    expect(versionNote(46, false)).toBe('按新版算的：地形和气候没变，历史重新推演了');
   });
   it('第 50 版一部分人物换成女的、51 版将门世家只改了人物,第 54 版编年史多了思潮;第 55 版改制重排了历史,从那以前打开的都照历史重新推演说', () => {
     expect(GENERATOR_CHANGES[50]).toEqual({ change: 'people' });
@@ -1395,7 +1395,7 @@ describe('旧版本的提示:照实说变了什么', () => {
     expect(GENERATOR_CHANGES[54]).toEqual({ change: 'chronicle' });
     // 第 55 版改制进了推演,历史重新推演:从第 54 版以前打开的都照历史说
     expect(GENERATOR_CHANGES[55]).toEqual({ change: 'history' });
-    const history = '来自旧版本：地形和气候没变，历史重新推演了';
+    const history = '按新版算的：地形和气候没变，历史重新推演了';
     for (const v of [54, 53, 52, 50, 49, 48]) expect(versionNote(v, false)).toBe(history);
     expect(versionNote(49, { terrain: true, upheavals: true })).toBe(history);
     const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'aaaaaaaaaaaa');
@@ -1455,11 +1455,11 @@ describe('平面时代的存档(GENERATOR_VERSION 4 及以前)', () => {
     savedAt: '2026-09-20T08:00:00.000Z',
   });
 
-  it('照常打开成球面世界:提示"来自旧版本";指不到的改名、干预不生效,不报错', () => {
+  it('照常打开成球面世界:提示"按新版算的";指不到的改名、干预不生效,不报错', () => {
     const r = parseSave(OLD);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.warnings).toEqual(['来自旧版本：整颗星球重新生成了，地形和历史都和原来不同']);
+    expect(r.warnings).toEqual(['按新版算的：整颗星球重新生成了，地形和历史都和原来不同']);
     // 地形修改的坐标按经纬度读:x = 2048 就是 180° 经线,跨接缝的一笔展开成连着的
     expect(r.save.edits.terrain[1].pts).toEqual([2000, 300, 2048, 340, 2078, 380]);
     const w = generateWorld(r.save.params, undefined, r.save.edits.terrain);
@@ -1477,7 +1477,7 @@ describe('平面时代的存档(GENERATOR_VERSION 4 及以前)', () => {
     expect(() => buildChronicle(named)).not.toThrow();
   }, 60_000);
 
-  it('分享链接同理:照常打开,提示"来自旧版本"', async () => {
+  it('分享链接同理:照常打开,提示"按新版算的"', async () => {
     const r0 = parseSave(OLD);
     expect(r0.ok).toBe(true);
     if (!r0.ok) return;

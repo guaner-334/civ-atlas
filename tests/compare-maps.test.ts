@@ -33,6 +33,11 @@ describe('并排试推的地图', () => {
     expect(list[2].map.params.seed).toBe(99);
   });
 
+  it('照原样打开的旧世界:这里是按参数现长的,叫新版地图', () => {
+    const here = worldHere(true, { params: { ...DEFAULT_PARAMS, seed: 2024 }, title: '北境', frozen: 22 }, EMPTY_EDITS);
+    expect(mapChoices(here, [])[0].label).toBe('「北境」的新版地图');
+  });
+
   it('不在世界里:从种子 7 起;改过地形的地图名字上写着', () => {
     expect(worldHere(false, { params: DEFAULT_PARAMS }, EMPTY_EDITS)).toBeNull();
     expect(worldHere(true, null, EMPTY_EDITS)).toBeNull();

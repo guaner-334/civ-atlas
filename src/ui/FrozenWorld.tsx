@@ -1,11 +1,14 @@
 /**
  * 照原样打开的旧世界(读的是建它那一版存下的原件,没有用现在的生成器重新生成,见 resultStore.ts / worker.ts 的 load):
  *
- *   要用现在的规则重新推演的修改(全部推演、地形大事、推演年数……)先问一声 ——
- *     「另存并推演」原来的不动,另存一份「…（新版）」带着这次的修改,打开它按新版推演
+ *   要用现在的规则重新推演的修改(全部推演、推演年数……)先问一声 ——
+ *     「另存并推演」原来的不动,另存一份「…（新版）」带着这次的修改,地图不变,历史按现在的规则从第 0 年重推,打开它
  *     「取消」      什么都不变(待推演的单子留着)
  *   电脑是居中的窗口、手机从下面升起(和退出登录的窗口一样,AccountDialogs.tsx 的 Dialog)。
  *   「存档」菜单里的「按新版另存一份」也走这里(saveAsNew,App 挂上做法)。
+ *
+ *   地图留不住的(Ask.map)按钮换成「连地图重新长」,明说地图也会变:
+ *     只有配方的旧世界,或者点了另存才发现地图读不出来;动了地形大事;要加地形大事(还没涂,另存以后到新的那份上加)
  *
  *   上次有改动没推完页面就关了、之后网站又更新了(提示条上点「接着推演」):同一个窗口,带着那些改动,多一个 ——
  *     「不要这些改动」存档换回现在看到的这一份,以后不再提示
@@ -18,6 +21,7 @@ import { Dialog } from './AccountDialogs';
 /** 另存的那份叫什么(实际存时重名会再编号) */
 export const newVersionTitle = (title: string) => `${title}（新版）`;
 
+export type SaveAsk = Ask;
 interface Ask {
   /** 改之后的修改(另存的那份带着它) */
   next: WorldEdits;
@@ -29,6 +33,13 @@ interface Ask {
   drop?: () => void;
   /** 不选,关掉窗口以后 */
   back?: () => void;
+  /**
+   * 地图留不住(不给 = 地图不变,历史重推):
+   *   none      地图没存下来
+   *   terrain   这次动了地形大事
+   *   upheaval  要加地形大事、还没涂
+   */
+  map?: 'none' | 'terrain' | 'upheaval';
 }
 
 let ask: Ask | null = null;
@@ -61,15 +72,24 @@ export function closeSaveAsNew() {
 
 /**
  * App 挂上的「按新版另存一份」:edits = 另存的那份带着的修改(不给 = 现在的);
- * moved = 带的是上次没推完的改动:它们跟着另存的那份走了,原来的世界不用再提示
+ * from = 窗口上问的那一次(带的是上次没推完的改动:它们跟着另存的那份走了,原来的世界不用再提示;地图留不留得住)
  */
-type Saver = (edits?: WorldEdits, moved?: boolean) => void;
+type Saver = (edits?: WorldEdits, from?: SaveAsk) => void;
 let saver: Saver | null = null;
 export function setSaveAsNew(f: Saver | null) {
   saver = f;
 }
-export function saveAsNew(edits?: WorldEdits, moved?: boolean) {
-  saver?.(edits, moved);
+export function saveAsNew(edits?: WorldEdits, from?: SaveAsk) {
+  saver?.(edits, from);
+}
+
+/** 窗口第一段 */
+function askText(a: Ask): string {
+  if (a.map === 'none') return `「${a.title}」是旧版本建的，只存了配方，地图没存下来。推演的话，地图和整段历史都按新版重新长，和原来可能不同。`;
+  if (a.map === 'terrain') return `「${a.title}」是旧版本建的，一直照原样存着。这次动了地形大事，地图要跟着重新长，地图和整段历史都会和原来不一样。`;
+  if (a.map === 'upheaval') return `「${a.title}」是旧版本建的，一直照原样存着。地形大事要在新版长的地图上发生，所以地图和整段历史都会和原来不一样。`;
+  if (a.drop) return `上次有 ${a.count} 处改动没推完页面就关了，之后网站更新了，规则也变了。接着推演的话，地图不变，历史按新规则从第 0 年重推，整段都会不一样。`;
+  return `「${a.title}」是旧版本建的，一直照原样存着。新版的规则变了，推演的话地图不变，历史按新规则从第 0 年重推，整段都会不一样。`;
 }
 
 /** 推演前问的窗口 */
@@ -82,27 +102,28 @@ export function FrozenAsk({ phone }: { phone: boolean }) {
   };
   const go = () => {
     closeSaveAsNew();
-    saveAsNew(a.next, !!a.drop);
+    saveAsNew(a.next, a);
   };
   const drop = () => {
     closeSaveAsNew();
     a.drop?.();
   };
-  const label = a.drop ? '另存一份接着推演？' : '另存一份再推演？';
+  const label = a.map === 'upheaval' ? '另存一份再加地形大事？' : a.drop ? '另存一份接着推演？' : '另存一份再推演？';
   const what = a.count ? (a.drop ? `这 ${a.count} 处改动` : `这 ${a.count} 条命令`) : '';
+  const go1 = a.map ? '连地图重新长' : '另存并推演';
   return (
     <Dialog phone={phone} label={label} onClose={close} testId="frozen-ask" className="frozen-ask" head={phone ? <div className="acct-head"><h2>{label}</h2></div> : undefined}>
       <div className="acct-body">
-        <p>{a.drop ? `上次有 ${a.count} 处改动没推完页面就关了，之后网站更新了，规则也变了。接着推演的话，整段历史都会不一样，地图也可能变。` : `「${a.title}」是旧版本建的，一直照原样存着。新版的规则变了，推演的话整段历史都会不一样，地图也可能变。`}</p>
+        <p>{askText(a)}</p>
         <p className="acct-small">
-          原来的「{a.title}」不动；另存一份「{newVersionTitle(a.title)}」，在那一份上推演{what}。
+          原来的「{a.title}」不动；另存一份「{newVersionTitle(a.title)}」，{a.map === 'upheaval' ? '到那一份上加' : `在那一份上推演${what}`}。
         </p>
       </div>
       <div className={`acct-foot${phone ? ' col' : ''}`}>
         {phone ? (
           <>
             <button className="acct-btn full blue" data-act="frozen-save" onClick={go}>
-              另存并推演
+              {go1}
             </button>
             {a.drop && (
               <button className="acct-btn full" data-act="frozen-drop" onClick={drop}>
@@ -125,7 +146,7 @@ export function FrozenAsk({ phone }: { phone: boolean }) {
               取消
             </button>
             <button className="acct-btn blue" data-act="frozen-save" onClick={go}>
-              另存并推演
+              {go1}
             </button>
           </>
         )}

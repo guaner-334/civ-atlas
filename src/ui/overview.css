@@ -1530,6 +1530,9 @@ button.ov-iv-text:hover {
   flex: none;
   color: var(--ink-3);
 }
+.ov-txt.ov-kept-note {
+  margin-top: 8px;
+}
 .ov-txt.ov-civs-note {
   margin-top: 10px;
 }

@@ -282,6 +282,20 @@ describe('只读打开', () => {
     expect(saveStore.loadWorld(id)!.save).toEqual(draft);
   });
 
+  it('只读打开时改了东西:说一声不会存,这一处只说一次;打开时、拖地图不说', () => {
+    openPending();
+    expect(getToast()).toBeNull();
+    saveStore.viewChanged();
+    expect(getToast()).toBeNull();
+    setEdits({ ...getEdits(), names: { 'region:c1': '甲' } });
+    expect(getToast()).toMatchObject({ kind: 'warn', text: '这里的改动不会存。要留下，先另存一份' });
+    clearToast();
+    saveStore.viewChanged();
+    expect(getToast()).toBeNull();
+    saveStore.renameWorld(saveStore.currentWorld()!.id, '新名字');
+    expect(getToast()).toMatchObject({ text: '这里的改动不会存。要留下，先另存一份' });
+  });
+
   it('别的页面写回一模一样的内容:还是不自动存', () => {
     const { id, draft } = openPending();
     saveStore.otherTabChanged(`wenming-ditu:world:${id}`, saveStore.currentWorld()!.wrote ?? null);

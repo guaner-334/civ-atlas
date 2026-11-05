@@ -42,7 +42,7 @@ import { pendingEdit, type CommitRequest, type CommitResult, type PendingEdit, t
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
 import { isCoarse, isNarrow } from './device';
 import { dropResults, resultHeads } from './resultStore';
-import { allWorldIds, currentWorld, deleteWorld, isStored, loadWorld, originalOf, persistent, saveAsNewVersion, storageFullWhy, subscribe, trashMarks, unmarkTrash } from './saveStore';
+import { allWorldIds, currentWorld, deleteWorld, isStored, loadWorld, originalOf, persistent, saveAsNewVersion, savesChanged, storageFullWhy, subscribe, trashMarks, unmarkTrash } from './saveStore';
 import { APP_COMMIT, APP_VERSION } from './version';
 
 /** 改完以后停多久写新清单(毫秒) */
@@ -431,8 +431,46 @@ async function jobFor(id: string, asked = false): Promise<ConvertJob | null> {
     if (keptMapOf(w.save.edits)) return { ...body, kind: 'keptMap', save: w.save, from: [id, ...(w.save.edits.map?.from ? [w.save.edits.map.from] : []), ...allWorldIds()], app: APP_VERSION, commit: APP_COMMIT };
     return { ...body, kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
   }
-  if (state?.status !== 'old' || state.generator !== w.save.generator) await call('patchState', [id, { status: 'old', generator: w.save.generator }]);
+  if (state?.status !== 'old' || state.generator !== w.save.generator) {
+    await call('patchState', [id, { status: 'old', generator: w.save.generator }]);
+    // 我的世界的卡片上标「按新版算」
+    savesChanged();
+  }
   return null;
+}
+
+/**
+ * 这个世界的内容存没存下,界面上怎么说:
+ *   old     只存了配方(更旧的版本又没有原件):打开时按新版算,我的世界的卡片上标
+ *   failed  转存失败、还没存下:打开和原来一样,存档菜单里说一句,给「再存一次」
+ * 别的、读不了 = null。转存跑到它之前不知道,也是 null
+ */
+export async function contentTrouble(id: string): Promise<'old' | 'failed' | null> {
+  try {
+    const w = loadWorld(id);
+    if (!w || !canKeep(w)) return null;
+    const state = await call('stateOf', [id]);
+    if (state?.status === 'old') return w.save.generator < GENERATOR_VERSION ? 'old' : null;
+    // 转失败以后,打开时线程交回来的内容可能已经存下了
+    if (state?.status === 'failed') return (await storedFresh(id)) ? null : 'failed';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 「再存一次」:同一版软件本来不再试失败的世界,用的人要试就清掉记录再转。存下了 = true */
+export async function saveContentAgain(id: string): Promise<boolean> {
+  try {
+    await call('patchState', [id, { status: undefined, app: undefined, error: undefined }]);
+    await settleWorld(id);
+    if (await storedFresh(id)) return true;
+    const state = await call('stateOf', [id]);
+    if (state?.status !== 'failed') await call('patchState', [id, { status: 'failed', app: APP_VERSION }]);
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function setConverting(id: string | null) {

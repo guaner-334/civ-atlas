@@ -796,6 +796,11 @@
   right: 6px;
   min-width: 0;
 }
+/* 左边一列:菜单比卡片宽,靠右对齐会被屏幕切掉左边 */
+.mw-phone .mw-grid > .mw-card:nth-child(odd) .mw-menu.pm-menu {
+  left: 6px;
+  right: auto;
+}
 .mw .mw-open-file {
   flex: none;
   margin-top: 38px;

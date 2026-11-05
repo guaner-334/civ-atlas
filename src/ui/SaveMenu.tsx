@@ -3,25 +3,30 @@
  *
  *   当前世界:缩略图、名字、种子、地形改过几处、"已自动存在这个浏览器里"(打开的链接还没动过 = 还没存)
  *   存成文件:整个世界存成 .civworld(worldFileFlow.ts;小字写多大,要打包才知道的不写);没有内容可存的存 .json
+ *   只有配方的旧世界(打开时按新版算的)、转存失败的世界:明说只存了配方、内容没存下;「存配方文件(.json)」;转存失败的多一个「再存一次」
+ *   地图留着的世界(gen/edits.ts 文件头"地图留着的世界"):写地图留自哪;链接带不上地图,配方链接、分享灰着写原因,不放「停在这一刻」
  *   复制配方链接:整份存档压缩进网址的 # 后面(gen/savefile.ts 的 encodeShare),复制到剪贴板;
  *     没有修改 = 普通网址(只带种子、参数);剪贴板用不了:菜单留着,里面多一行选中了链接的输入框,让用户自己复制。
  *     下面一行勾选「停在这一刻」(shareMoment.tsx):勾着就带上时间轴那一年、选中的国家或州、地图的位置和大小,
  *     对方打开停在那里(不自动播放);默认勾着,记住上次的选择
  *   从文件打开进来的:当前世界那一行多一句「来自文件」和哪天打开的(只在这台设备上记)
  *   登录了网站账号:当前世界那一行写同步到账号了没有;"复制配方链接"换成"分享…"(短链接,随时能停,AccountDialogs.tsx 的分享窗)
- *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
- *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)。
- *                   存的内容读不出、先按新版算了一遍的世界也放:那一份不自动存,要留着看到的样子只能另存(「看原样」照放)
+ *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts);那一版没留旧网站的灰着写原因
+ *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份,地图不变,历史按现在的规则重推;这时不放「看原样」(看到的就是原样)。
+ *                   存的内容读不出、先按新版算了一遍的世界也放:那一份不自动存,要留着看到的样子只能另存(「看原样」照放)。
+ *                   只有配方的旧世界也放:地图和历史都按新版长一份副本
+ * 灰着的几行不用 disabled:小字要看得清,手机上也要看得到原因(.save-it.off 只淡图标和标题)。
  *
  * 存、读、列都在 saveStore.ts。存储满了之类的提示(saveStore 的 notify)显示在顶部的提示条上。
  * ⌘S 打开这个菜单(openSaveMenu;世界本来就自动存着,菜单上写着存没存好)。
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { keptMapOf } from '../gen/edits';
 import { SHARE_WARN_LENGTH } from '../gen/savefile';
 import { useEdits } from './editsStore';
-import { currentOriginal, currentWorld, loadWorld, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
+import { currentOriginal, currentWorld, keptFrom, loadWorld, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
 import { withFileFlow } from './worldFileLazy';
-import { oldSiteFor, openOriginal } from './oldSite';
+import { OLD_SITE, oldSiteFor, openOriginal } from './oldSite';
 import { openFailed } from './openTrouble';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
@@ -31,6 +36,7 @@ import { useSession } from '../account/session';
 import { useSyncView, worldSync } from '../account/sync';
 import { saveAsNew } from './FrozenWorld';
 import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
+import { contentTrouble } from './worldStore';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -43,6 +49,11 @@ export interface SaveMenuProps {
 function saveCurrentFile() {
   withFileFlow('没能存成文件', (m) => m.saveCurrentToFile());
 }
+
+/** 配方文件、配方链接的说法 */
+const RECIPE_HINT = '对方打开时重新长一遍，可能和你看到的不一样';
+/** 地图留着的世界发不了链接 */
+const NO_LINK = '地图带不进链接，对方打不开。要发给别人，请存成文件';
 
 /** 菜单上写的:来自文件，11 月 4 日打开(不是今年的带上年) */
 function fromFileLine(iso: string): string {
@@ -103,10 +114,28 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const session = useSession();
   const syncView = useSyncView();
   const synced = useMemo(() => (open && session && cur && curStored ? worldSync(cur.id) : null), [open, session, cur, curStored, syncView]);
+  const curId = cur?.id;
+  // 转存失败的世界:菜单开着才看
+  const oldRecipe = cur?.oldRecipe !== undefined;
+  const kept = keptFrom(edits);
+  const [failedId, setFailedId] = useState<string | null>(null);
+  const checkFailed = open && !!curId && !!curStored && !curStored.draft && !curStored.map && !oldRecipe && !kept;
+  useEffect(() => {
+    if (!checkFailed || !curId) return;
+    let live = true;
+    void contentTrouble(curId).then((t) => {
+      if (live) setFailedId(t === 'failed' ? curId : null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [checkFailed, curId, v]);
+  const failed = checkFailed && failedId === curId;
+  // 只有配方:存成文件存的是配方
+  const recipeOnly = oldRecipe || failed;
   // 存成文件有多大:菜单开着才算;存储满了时写不准(页面里的比存着的新),不写
   const [size, setSize] = useState<{ id: string; note: string } | null>(null);
-  const curId = cur?.id;
-  const hasFile = !!curStored && !curStored.draft && !curStored.map && !full;
+  const hasFile = !!curStored && !curStored.draft && !curStored.map && !full && !recipeOnly;
   useEffect(() => {
     if (!open || !curId || !hasFile) return;
     let live = true;
@@ -141,7 +170,12 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
 
   const saveFile = () => {
     setOpen(false);
-    saveCurrentFile();
+    if (recipeOnly && curId) withFileFlow('没能存成文件', (m) => m.saveWorldRecipe(curId));
+    else saveCurrentFile();
+  };
+  const saveAgain = () => {
+    setOpen(false);
+    if (curId) withFileFlow('没能存下来', (m) => m.saveAgain(curId));
   };
 
   // 「停在这一刻」:勾着就带上时间轴那一年、选中的国家或州、地图的位置和大小(默认勾着,记住上次的选择)
@@ -169,6 +203,10 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     ? { cls: 'warn', text: '浏览器不让网页存数据，关掉前请存成文件' }
     : full
       ? { cls: 'warn', text: `${storageFullWhy()}，没能自动存` }
+      : oldRecipe
+        ? { cls: 'warn', text: '只存了配方，看到的是按新版算的' }
+        : failed
+          ? { cls: 'warn', text: '内容没能存下来，现在看到的不受影响' }
       : curStored && synced
         ? synced.state === 'synced'
           ? { cls: 'ok', icon: 'cloudok', text: `已同步到你的账号${synced.at ? `，${when(synced.at)}` : ''}` }
@@ -182,6 +220,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const frozen = cur?.frozen !== undefined;
   const orig = open && cur && !frozen ? currentOriginal() : null;
   const site = orig ? oldSiteFor(orig.generator) : null;
+  // 那一版没留旧网站:灰着写原因(旧网站上不说这个)
+  const noSite = !!orig && !site && OLD_SITE === null;
   const seeOriginal = () => {
     if (!orig || !site) return;
     setOpen(false);
@@ -209,6 +249,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
                   种子 {cur.params.seed}
                   {nTerrain ? `，地形改过 ${nTerrain} 处` : ''}
                 </small>
+                {kept && <small data-testid="save-map-from">{kept.title !== undefined ? `地图留自「${kept.title}」，历史按新版重推` : '地图留自旧世界，历史按新版重推'}</small>}
                 <small className={`save-status ${status.cls}`} data-testid="save-status">
                   {status.icon && <Icon name={status.icon} size={14} />}
                   {status.text}
@@ -222,31 +263,40 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
           <button className="save-it" data-act="save-file" disabled={!cur} onClick={saveFile}>
             <Icon name="save" size={17} />
             <span>
-              <b>存成文件</b>
-              <small>{`存下整个世界${sizeNote}。换台设备、发给别人，看到的都一模一样`}</small>
+              <b>{recipeOnly ? '存配方文件（.json）' : '存成文件'}</b>
+              <small>{recipeOnly ? `只有几 KB。${RECIPE_HINT}` : `存下整个世界${sizeNote}。换台设备、发给别人，看到的都一模一样`}</small>
             </span>
           </button>
           {session ? (
-            <button className="save-it" data-act="share" disabled={!cur} onClick={share}>
+            <button className={`save-it${kept ? ' off' : ''}`} data-act="share" aria-disabled={kept ? true : undefined} disabled={!cur} onClick={kept ? undefined : share}>
               <Icon name="link" size={17} />
               <span>
                 <b>分享…</b>
-                <small>生成一个链接，别人打开就能看；随时能停止</small>
+                <small>{kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}</small>
               </span>
             </button>
           ) : (
             <>
-              <button className="save-it" data-act="share-link" disabled={!cur} onClick={shareLink}>
+              <button className={`save-it${kept ? ' off' : ''}`} data-act="share-link" aria-disabled={kept ? true : undefined} disabled={!cur} onClick={kept ? undefined : shareLink}>
                 <Icon name="link" size={17} />
                 <span>
                   <b>复制配方链接</b>
-                  <small>对方打开时重新长一遍，可能和你看到的不一样</small>
+                  <small>{kept ? NO_LINK : RECIPE_HINT}</small>
                 </span>
               </button>
-              {at && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
+              {at && !kept && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
             </>
           )}
-          {(frozen || cur?.readonly) && (
+          {failed && (
+            <button className="save-it" data-act="save-again" onClick={saveAgain}>
+              <Icon name="save" size={17} />
+              <span>
+                <b>再存一次</b>
+                <small>上次没存成，世界本身没事。存下来以后，网站更新也不会变</small>
+              </span>
+            </button>
+          )}
+          {(frozen || cur?.readonly || oldRecipe) && (
             <button
               className="save-it"
               data-act="save-new"
@@ -258,7 +308,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               <Icon name="copy" size={17} />
               <span>
                 <b>按新版另存一份</b>
-                <small>这一份照原样留着，另存的用新版重新推演</small>
+                <small>{oldRecipe ? '地图和历史都按新版长一份副本，以后不再变。这一份的配方留着' : '地图不变，历史按现在的规则重推。这一份照原样留着'}</small>
               </span>
             </button>
           )}
@@ -267,7 +317,16 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               <Icon name="history" size={17} />
               <span>
                 <b>看原样</b>
-                <small>这个世界是旧版建的，在新页面里用当时的版本打开</small>
+                <small>在新页面里用建它的那一版网站打开</small>
+              </span>
+            </button>
+          )}
+          {noSite && (
+            <button className="save-it off" data-act="see-original-none" aria-disabled="true">
+              <Icon name="history" size={17} />
+              <span>
+                <b>看原样</b>
+                <small>建它的那一版没留旧版网站，原样看不到了</small>
               </span>
             </button>
           )}

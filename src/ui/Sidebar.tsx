@@ -34,6 +34,8 @@ import { openStepDialog, useStepwiseOn } from './stepwiseStore';
 import { StepSideGroup } from './Stepwise';
 import { StepBranches } from './StepBranches';
 import { openUpheaval, useUpUi } from './upheavalStore';
+import { askSaveAsNew } from './FrozenWorld';
+import { keptTerrainBlocked } from './openTrouble';
 import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
 import { mapMates } from './mapGroups';
 import { startNewCiv } from './newCivAction';
@@ -515,6 +517,9 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
   useSavesVersion();
   const cur = currentWorld();
   const origin = cur && cur.kind !== 'visit' && cur.kind !== 'draft' ? cur.origin : undefined;
+  // 地形大事:地图留着的世界灰着,点了说为什么;照原样打开的旧世界先问要不要另存(curOld = 世界名)
+  const kept = !!keptMapOf(edits);
+  const curOld = cur && (cur.frozen !== undefined || cur.readonly) ? cur.title || `种子 ${cur.params.seed}` : null;
   return (
     <div className="sb-home">
       {faiths.length > 0 && (
@@ -759,12 +764,19 @@ export function WorldHome(p: Pick<SidebarProps, 'civ' | 'data' | 'params' | 'gen
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
             {ok && (
-              <button className="sb-row" data-act="upheaval" disabled={!p.data || p.generating || p.replay.on || !!keptMapOf(edits)} onClick={openUpheaval} title="选一年让火山喷发、地震抬升、海水漫进来">
+              <button
+                className={`sb-row${kept ? ' off' : ''}`}
+                data-act="upheaval"
+                aria-disabled={kept || undefined}
+                disabled={!p.data || p.generating || p.replay.on}
+                onClick={kept ? keptTerrainBlocked : curOld ? () => askSaveAsNew({ next: edits, title: curOld, count: 0, map: 'upheaval' }) : openUpheaval}
+                title="选一年让火山喷发、地震抬升、海水漫进来"
+              >
                 <Icon name="terrain" size={17} className="sb-ico" />
                 <span className="sb-row-main">
                   <b>地形大事</b>
                 </span>
-                <span className="sb-row-side">{nUp ? `${nUp} 件` : '还没有'}</span>
+                <span className="sb-row-side">{kept ? (nUp ? `${nUp} 件，不能改` : '不能加') : nUp ? `${nUp} 件` : '还没有'}</span>
                 <Icon name="chevron" size={14} className="sb-chev" />
               </button>
             )}

@@ -21,7 +21,7 @@ import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
 import { APP_COMMIT } from '../src/ui/version';
-import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearWorldStore, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
+import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearWorldStore, contentTrouble, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, saveContentAgain, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, changeAuthor, latestOf, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
@@ -707,6 +707,39 @@ describe('把现有的世界转进来', () => {
     expect(await stateOf(id)).toMatchObject({ status: 'old', generator: save.generator });
     expect(await latestOf(id)).toBeNull();
     expect(saveStore.loadWorld(id)!.save.generator).toBe(save.generator);
+  }, 120_000);
+
+  it('界面上怎么说:只有配方的 old,转失败的 failed 能再存一次;算成了、存下了都不再说', async () => {
+    // 只有配方
+    const save = { ...makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, '当时的校验', '老世界', '2026-11-01T00:00:00.000Z'), generator: GENERATOR_VERSION - 40 };
+    const id = storeSave(save);
+    expect(await contentTrouble(id)).toBeNull();
+    await startConversions();
+    expect(await contentTrouble(id)).toBe('old');
+    expect(await contentTrouble('没有这个')).toBeNull();
+
+    // 转失败
+    const now = storeSave(makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, '新世界', '2026-11-02T00:00:00.000Z'));
+    let fail = true;
+    _setWorldStore({
+      runner: (job) => ({
+        done: fail ? Promise.resolve({ ok: false as const, kind: 'failed' as const, message: '推不出来' }) : runConvert(job, results).then((result) => ({ ok: true as const, result })),
+        stop: () => {},
+      }),
+    });
+    await startConversions();
+    expect(await contentTrouble(now)).toBe('failed');
+    // 还是不行:记录还在
+    expect(await saveContentAgain(now)).toBe(false);
+    expect(await contentTrouble(now)).toBe('failed');
+    fail = false;
+    // 同一版软件后台不再试
+    await startConversions();
+    expect(await latestOf(now)).toBeNull();
+    // 用的人要试就算
+    expect(await saveContentAgain(now)).toBe(true);
+    expect(await contentTrouble(now)).toBeNull();
+    expect((await latestOf(now))?.generator).toBe(GENERATOR_VERSION);
   }, 120_000);
 
   it('没原件的当前版本:按存档算一遍存下', async () => {

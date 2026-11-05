@@ -339,7 +339,8 @@ a.sb-row {
 .sb-row.on {
   background: var(--hover-bg);
 }
-.sb-row:disabled {
+.sb-row:disabled,
+.sb-row.off {
   opacity: 0.5;
   cursor: default;
 }
