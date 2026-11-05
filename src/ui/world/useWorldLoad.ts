@@ -1,13 +1,14 @@
 /**
  * 生成新世界、打开世界(App 用;线程交回的生成、打开那几种消息见 ./worldMessages.ts):
  *   - generate      打开一个世界:存过内容的读存的(worldOpen.ts;世界记的版本比现在旧 = 照原样打开),读不了退回旧的路(旧版本的读原件,再不行按参数、地形修改生成);
+ *                   世界比这个页面还新、地图留着的世界读不出:回我的世界说一声(failOpen),世界不动;
  *                   换世界时旧世界的修改、选中、回放……一起作废
  *   - readyRef      世界生成完(或要打开的就是正在看的这一个):套上它的修改,交给 saveStore 自动存;核对版本、地形、改名,有问题就提示
  *   - 打开网页时    分享链接、朋友的预设链接、邀请链接、网址里的世界、分享短链接、作品墙;页面开着时又贴了链接(hashchange);浏览器的后退、前进接到 nav.ts
  *   - enterStage    换到新建 / 世界 / 我的世界
  *   - openTarget    打开一个世界(要的就是正在看的这张图就不重新生成);openStored 我的世界里的、openText 文件、openShare 分享链接、openShortShare 分享短链接
  * App 的状态按块传进来(见 ./worldRefs.ts);这里的函数每次渲染新建(和原来写在 App 里一样),generate 只建一次。
- * App 里在这个 hook 后面才定义的几样(回我的世界、打开作品、按新版另存、作品墙、后退前进;前几样在 ./useWorldPages.ts)经 later 调
+ * App 里在这个 hook 后面才定义的几样(回我的世界、打开作品、作品墙、后退前进;前几样在 ./useWorldPages.ts)经 later 调
  */
 import { useCallback, useEffect, useRef } from 'react';
 import type { LoadRequest, WorkerRequest } from '../../worker';
@@ -49,7 +50,7 @@ import { resetCharacterUi } from '../characterStore';
 import { clearSelection, pausePlayback, setCivTime, takeAutoplay } from '../civView';
 import { clearEdits, getEdits, setEdits, setMapSum } from '../editsStore';
 import { resetExtend } from '../extendStore';
-import { closeSaveAsNew } from '../FrozenWorld';
+import { askSaveAsNew, closeSaveAsNew } from '../FrozenWorld';
 import { setPolityPick } from '../Interventions';
 import { layerParts } from '../mapLayers';
 import { publishMapCenter, requestMapCenter } from '../mapWrap';
@@ -58,17 +59,18 @@ import { showMapInWorlds } from '../MyWorlds';
 import { getNav, isNavState, navAdopt, navReplace, navTo, navUrl, startNav, type NavHooks, type NavInfo } from '../nav';
 import { getNewView } from '../newViewStore';
 import { OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from '../oldSite';
+import { READ_BACK, READ_TROUBLE, fileTrouble, newerNotice, openFailed } from '../openTrouble';
 import { closeOverview, getPeople, setPeople } from '../overviewStore';
 import { setWorldSheet } from '../panelStore';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from '../presetLink';
 import { openRulesHash, openRulesText } from '../rules/sheetStore';
 import { pickSharedPreset } from '../presetStore';
 import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
-import { recipeKey, recipeOfSave } from '../../gen/snapshot';
+import { recipeChanges, recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
-import { frozenResult, resultHeads, toldFrozen } from '../resultStore';
+import { frozenResult, resultHeads } from '../resultStore';
 import { settleKeptWorld } from '../worldStore';
-import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, flushThumb, importSave, loadWorld, markOpened, newWorldId, notify, sameOrigin, setWorldStats } from '../saveStore';
+import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markOpened, newWorldId, notify, sameOrigin, setWorldStats, storageFullWhy } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
 import { setTerrainTool, type TerrainStatus } from '../TerrainTools';
@@ -125,11 +127,6 @@ function versionAction(orig: SaveFile | null): ToastAction | undefined {
   return { label: '看原样', act: 'see-original', onClick: () => void openOriginal(orig).then((ok) => ok || openFailed(site.href)) };
 }
 
-/** 交不过去(浏览器太旧,压缩不了存档):说一声怎么自己打开 */
-function openFailed(site?: string) {
-  notify({ kind: 'error', text: '这个浏览器打不开', more: [site ? `请把世界存成文件，到 ${site} 打开` : '请把世界存成文件，到最新版打开'] });
-}
-
 /**
  * 存在"我的世界"里的建好的世界(打开时先读存下的内容):存着的那份存档;别的 = null。
  * 从文件打开、和存着的一模一样的(读档时认成了同一个)也算
@@ -148,6 +145,10 @@ function oldStored(t: Target): SaveFile | null {
   const save = storedSave(t);
   return save && save.generator < GENERATOR_VERSION ? save : null;
 }
+
+/** 提示条的来源:上次有改动没推完、世界打不开。换世界时收起(提示条上的按钮是冲着那个世界的) */
+const PENDING_TOAST = 'pending-edit';
+const TROUBLE_TOAST = 'open-trouble';
 
 /** 这件事最多等这么久(毫秒),等不到 = fallback:读新路之前的几步卡住了也不能挡着打开世界 */
 function atMost<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -188,7 +189,6 @@ export interface LoadLater {
   /** 分享链接带着"这一刻":App 记下要停到的那一刻(画面出来、重推完以后停过去) */
   holdMoment: (id: string, moment: SaveMoment) => void;
   showHomeRef: Ref<() => void>;
-  saveAsNewRef: Ref<(edits?: WorldEdits) => void>;
   wallRef: Ref<{ open: (id: string) => void; list: () => void }>;
   navRef: Ref<NavHooks>;
 }
@@ -234,7 +234,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
   const { endNamesHold, setTerrainStatus, setShownTerrain, setShownSketch } = deps.terrain;
   const { mapViewRef, draftViewRef, drawKey, applyMapView, setHover } = deps.view;
   const { init, route, wall, landing, presetLink, setLanding, setNewDlg, setSharedFor, setDraftTitle, setReplay, setReplayOn } = deps.page;
-  const { showHome, openWork, holdMoment, showHomeRef, saveAsNewRef, wallRef, navRef } = deps.later;
+  const { showHome, openWork, holdMoment, showHomeRef, wallRef, navRef } = deps.later;
 
   /** 按 t 的参数、地形修改生成世界;生成完(readyRef)套上 t 的修改 */
   const generate = useCallback(
@@ -276,11 +276,14 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       mapFirst.current = null;
       setMapEarly(false);
       frozenLoad.current = null;
+      frozenBroken.current = null;
       genReq.current = null;
       loadBack.current = null;
       loadMapSum.current = null;
       endLoadWatch();
       openingClear();
+      clearToast(PENDING_TOAST);
+      clearToast(TROUBLE_TOAST);
       /** 读存下的内容打开。这份内容就是带着 edits 里的干预、地形大事(逐年推演的:推到"现在")推出来的:套上以后不用重推 */
       const sendLoad = (src: Pick<LoadRequest, 'parts' | 'vault' | 'original'>, gen: number, back: LoadBack) => {
         frozenLoad.current = { id: t.id, gen };
@@ -310,16 +313,33 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         // 带上进度:线程按它记下这份历史,下一步从这里接着推(不从第 0 年重推)
         send({ type: 'load', id, params: p, scale: 1, ...src, terrain: [...terrain], sketch: t.edits.sketch, ...upsOpt(t.edits.upheavals), interventions: [...t.edits.interventions], ...namesOpt(t.edits.nameMix), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current), ...(play ? { play } : {}), renames: t.edits.names, characters: t.edits.characters });
       };
+      const name = () => t.title || `种子 ${p.seed}`;
+      /** 打不开:不生成、世界不动,回我的世界说一声 */
+      const failOpen = (n: { text: string; more: string[]; action?: ToastAction }) => {
+        genReq.current = null;
+        // 下次再点开它要重新走一遍,不算"正在生成的就是它"
+        genParams.current = null;
+        fresh.current = false;
+        setProgress(null);
+        targetRef.current = null;
+        showHomeRef.current();
+        showToast({ id: TROUBLE_TOAST, kind: 'error', ...n });
+      };
+      /** 世界比这个页面还新 */
+      const newerBack = () => failOpen({ text: `打不开「${name()}」`, ...newerNotice('world', storedSave(t)) });
       /**
        * 地图留着的世界(gen/edits.ts 文件头"地图留着的世界")读不到和存档对得上的内容:按种子长的不是它,绝不走生成。
-       * 存在「我的世界」里的先按存下的地图算一份再打开(刚另存出来的、改了还没推完的);真没有那张地图(分享链接、存档文件、别的设备同步来的)就不打开
+       * 存在「我的世界」里的先按存下的地图算一份再打开(刚另存出来的、改了还没推完的),还是不行就是读的时候出错了(存着的都还在);
+       * 真没有那张地图(分享链接、存档文件、别的设备同步来的)就不打开
        */
       const keptOpen = () => {
         genReq.current = null;
         void (async () => {
-          const ok = !t.keptTried && !!storedSave(t) && (await settleKeptWorld(t.id));
+          const mine = !!storedSave(t);
+          const ok = !t.keptTried && mine && (await settleKeptWorld(t.id));
           if (id !== reqId.current) return;
           if (ok) return generate({ ...t, keptTried: true, noVault: undefined });
+          if (mine) return failOpen({ text: `打不开「${name()}」`, more: [READ_TROUBLE], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(t.id) } });
           targetRef.current = null;
           showHomeRef.current();
           notify({ kind: 'error', text: '打不开这个世界', more: ['这个世界的地图是存下来的，这台设备上没有。打开它的世界文件才看得到'] });
@@ -348,8 +368,9 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           });
         });
       };
-      /** 新路读不了:只读打开那一份,或者退回旧路 */
+      /** 新路读不了:只读打开那一份,要更新软件的说一声,别的退回旧路 */
       const vaultBack: LoadBack = (why, recipe) => {
+        if (why === 'newer') return newerBack();
         if (why === 'readonly') {
           const r = parseSave(JSON.stringify(recipe));
           if (r.ok) return generate({ ...t, edits: r.save.edits, saved: r.save.edits, save: r.save, readonly: { save: r.save, draft: t } });
@@ -357,11 +378,16 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         byOriginal(why === 'broken');
       };
       const stored = t.readonly ? t.readonly.save : t.noVault ? null : storedSave(t);
-      if (stored && stored.generator <= GENERATOR_VERSION) {
+      if (stored && stored.generator > GENERATOR_VERSION && (t.from === 'stored' || t.from === 'restore')) {
+        // 我的世界里的世界是新版存的:这一页按旧规则算出来不是它,存回去还会把它盖掉。等 generate 收完尾再回我的世界
+        queueMicrotask(() => {
+          if (id === reqId.current) newerBack();
+        });
+      } else if (stored && stored.generator <= GENERATOR_VERSION) {
         // 新路:读世界仓库。前面几步出什么错、卡住了都退回旧路
         genReq.current = req;
         const rd = t.readonly;
-        const fail = rd ? () => generate({ ...rd.draft, noVault: true }) : vaultBack;
+        const fail: LoadBack = rd ? (why) => (why === 'newer' ? newerBack() : generate({ ...rd.draft, noVault: true, vaultBad: true })) : vaultBack;
         void (async () => {
           await openGuardReady();
           if (!vaultAllowed(t.id)) throw new Error('这个世界这一版不走新路');
@@ -374,7 +400,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         })().catch(() => {
           if (id === reqId.current) fail('none');
         });
-      } else byOriginal(false);
+      } else byOriginal(!!t.vaultBad);
       loadedFrozen.current = false;
       // 换世界:改名、干预、选中都属于旧世界,一起作废(先停掉旧世界的自动存,清空不算"改回默认";新世界先按"没有干预、没有地形大事"生成)
       detachWorld();
@@ -549,6 +575,9 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const loadedGen = frozenLoad.current?.id === t.id ? frozenLoad.current.gen : undefined;
     const frozen = loadedGen !== undefined && loadedGen < GENERATOR_VERSION ? loadedGen : undefined;
     frozenLoad.current = null;
+    // 旧世界存的内容读不出,这一份是按现在的规则算的:不自动存,存着的内容不动,下次打开再读一次
+    const guessed = frozenBroken.current === t.id;
+    frozenBroken.current = null;
     // 读存下的内容打开的逐年推演的世界:存的就推到了"现在",不重推,直接停在"现在"
     const fp = civPlay.current;
     if (loadedGen !== undefined && fp && cleanPlay(edits.play)?.year === fp.year) {
@@ -562,13 +591,13 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       notify({ kind: 'error', text: '没法在这张地图上打造文明', more: ['这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
       return;
     }
-    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen, readonly: !!t.readonly });
+    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen, readonly: !!t.readonly || guessed });
     // 新路读的世界换上了:再过一会儿没事就算打开成了(openGuard.ts)。新开的历史还没记地图的,记上
     if (loadedGen !== undefined) openingShown();
     else openingClear();
     if (loadMapSum.current && edits.map && !edits.map.sum && t.kind !== 'visit' && !t.readonly) setMapSum(loadMapSum.current);
     loadMapSum.current = null;
-    if (t.kind !== 'draft') setWorldStats(aliveAtEnd(rc));
+    if (t.kind !== 'draft' && !guessed) setWorldStats(aliveAtEnd(rc));
     // 分享链接带着"这一刻":画面出来、带着的干预和逐年推演的进度重推完以后,停到那一年、选中、镜头飞过去(App 的 pendingMoment);
     // 停在某一年就不再自动播放
     if (t.from === 'link' && t.moment) {
@@ -585,6 +614,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       return;
     }
     // 带种子的网址(别人发的普通链接):是旧版本画的就说清现在变了什么
+    // 只读打开(上次有改动没推完,网站又更新了):关掉提示条不算放弃,下次打开再说
+    if (t.readonly) return pendingToast(t, t.readonly.save, t.readonly.draft.edits);
     if (t.from === 'url') {
       const note = t.gen !== undefined ? versionNote(t.gen, false) : null;
       act = versionAction(t.gen !== undefined ? plainSave(world.params, t.gen) : null);
@@ -594,16 +625,10 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     if (!save || !t.from) return;
     // 照原样打开的:读档时"来自旧版本…"那句不对了(看到的就是原样)
     const more: string[] = (t.warnings ?? []).filter((w) => frozen === undefined || !w.startsWith('来自旧版本'));
-    // 照原样打开的:看到的就是原来的样子,不说"变了什么"、不放「看原样」;同一个世界在这一版网站里只说一次(自动恢复的也说"已打开")
-    const told = frozen !== undefined && !toldFrozen(t.id);
-    if (told) {
-      more.push('这个世界是旧版本建的，照原样打开，新版的改动不影响它');
-      // 手机上按钮折成两行(按新版 / 另存一份,phone.css),中间留一个看不见的断点
-      act = { label: '按新版\u200b另存一份', act: 'save-new', onClick: () => saveAsNewRef.current() };
-    }
-    if (frozenBroken.current === t.id) more.push('原样的存档读不出来，按新版打开了');
-    frozenBroken.current = null;
-    const note = frozen !== undefined ? null : versionNote(save.generator, editedWorld(save.edits));
+    // 存的内容读不出、先算了一遍的:明说可能不同。「看原样」不放提示条,手机上放不下这句;「存档」菜单里还有
+    if (guessed) more.push(READ_BACK);
+    // 照原样打开的:看到的就是原来的样子,不说"变了什么"、不放「看原样」
+    const note = frozen !== undefined || guessed ? null : versionNote(save.generator, editedWorld(save.edits));
     // 从文件、分享链接打开的,这句已经在读档的警告里
     if (note && (t.from === 'stored' || t.from === 'restore')) more.push(note);
     // 世界变了样(有"来自旧版本"这一句)才放「看原样」;旧网站里来自更新版本的放「到最新版打开」
@@ -628,13 +653,40 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           ? `已打开存档「${name}」${n ? `(改了 ${n} 处)` : ''}`
           : t.from === 'link'
             ? `已打开分享的世界「${name}」`
-            : t.from === 'stored' || told || !n
+            : t.from === 'stored' || guessed || !n
               ? `已打开「${name}」`
               : `已恢复上次的修改(${n} 处)`;
-    const always = t.kind !== 'draft' && (t.from === 'file' || (t.from !== 'link' && t.from !== 'stored' && !told && n > 0));
+    const always = t.kind !== 'draft' && (t.from === 'file' || (t.from !== 'link' && t.from !== 'stored' && n > 0));
     // 重推完核对出对不上的:同一条提示补上那一句(打开时没提示的,这时提示)
     if (later) renameCheck.current = { id: t.id, terrain: genTerrain.current, show: (line) => say({ kind: 'warn', text, more: [...more, line] }) };
     if (more.length || always) say({ kind: more.length ? 'warn' : 'ok', text, more });
+  };
+  /** 上次有改动没推完的提示条。shown = 现在看到的那一份,draft = 存档里没推完的修改;点「接着推演」问另存还是放弃 */
+  const pendingToast = (t: Target, shown: SaveFile, draft: WorldEdits) => {
+    const n = recipeChanges(recipeOfSave({ ...shown, edits: draft }), recipeOfSave(shown));
+    const title = t.title || `种子 ${t.params.seed}`;
+    const drop = () => {
+      const r = dropPendingEdits();
+      if (r === 'ok') notify({ kind: 'ok', text: `已放弃上次的 ${n} 处改动` });
+      else if (r === 'full') notify({ kind: 'error', text: '没能放弃这些改动', more: [storageFullWhy()] });
+    };
+    const show = () =>
+      showToast({
+        id: PENDING_TOAST,
+        kind: 'warn',
+        text: `上次有 ${n} 处改动没推完`,
+        more: [`现在看到的是存好的样子，那 ${n} 处还留着`],
+        action: {
+          label: '接着推演',
+          act: 'pending-go',
+          // 窗口开着时提示条先收起,取消了再回来
+          onClick: () => {
+            clearToast(PENDING_TOAST);
+            askSaveAsNew({ next: draft, title, count: n, drop, back: show });
+          },
+        },
+      });
+    show();
   };
   /** 换成存档里的投影和中央经线(没有 = 等距圆柱、0°;认不出的投影、还没做好的地球仪 = 等距圆柱);存档记了经纬网就换成它的 */
   const applyView = (v: SaveView | undefined) => {
@@ -662,6 +714,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const was = getStage().stage;
     if (next !== 'home') closeTrash();
     if (next !== was) {
+      clearToast(PENDING_TOAST);
       clearSelection();
       setPolityPick(null);
       closeOverview();
@@ -721,7 +774,12 @@ export function useWorldLoad(deps: WorldLoadDeps) {
   /** 打开"我的世界"里的一个(没建完的回到新建) */
   const openStored = (id: string) => {
     const w = loadWorld(id);
-    if (!w) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
+    if (!w) {
+      if (!isStored(id)) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
+      // 存着,这次读不出来:不是删掉了
+      showToast({ id: TROUBLE_TOAST, kind: 'error', text: '打不开这个世界', more: [READ_TROUBLE], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(id) } });
+      return;
+    }
     // 只存了地图的:不当世界打开,在我的世界的「地图」页签里选中它
     if (w.map) {
       showMapInWorlds(id);
@@ -738,6 +796,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       (cur.title ?? '') === (w.save.title ?? '') &&
       sameOrigin(cur.origin, w.save.origin) &&
       JSON.stringify(getEdits()) === JSON.stringify(w.save.edits) &&
+      // 只读打开的(看的不是存档里的那份)再点开要重新读一次
+      !cur.readonly &&
       // 版本也得一样:开着的是照原样读的旧世界,存着的也得还是那一版;别的页面里换成了别的版本的存档(新版的、旧版的)= 重新打开
       (cur.frozen === undefined || cur.frozen === w.save.generator) &&
       (cur.wrote == null || genOfText(cur.wrote) === w.save.generator);
@@ -757,7 +817,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     if (openRulesText(text, fileName)) return;
     const r = parseSave(text);
     if (!r.ok) {
-      notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个存档', more: [briefError(r.error)] });
+      notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个存档', ...fileTrouble(r.error) });
       return;
     }
     const id = importSave(r.save);
@@ -817,6 +877,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
   };
   const openShareRef = useRef(openShare);
   openShareRef.current = openShare;
+  const openStoredRef = useRef(openStored);
+  openStoredRef.current = openStored;
   /** 打开网页时短链接后面带的"打开时看哪"(取到存档时用掉) */
   const shortMoment = useRef<SaveMoment | null>(init.moment);
   /** 朋友的预设链接解开以后:选上分享来的那一套(不存);打不开的说一声(照常停在我的世界),有个别参数不对的也说一声 */

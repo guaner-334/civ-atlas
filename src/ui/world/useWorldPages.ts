@@ -8,7 +8,7 @@
  *   - 按新版另存   照原样打开的旧世界「按新版另存一份」;改历史前先问(setHistoryGate)
  *   - 先出来的首页上点的那一件、云同步要的打开 / 回我的世界、正在看的世界改了名记进浏览器的那一步
  * App 的状态按块传进来(见 ./worldRefs.ts);这里的函数每次渲染新建(和原来写在 App 里一样)。
- * useWorldLoad 经 ref 调的几样(回我的世界、按新版另存、作品墙)在这里填 .current
+ * useWorldLoad 经 ref 调的几样(回我的世界、作品墙)在这里填 .current
  */
 import { useEffect, useRef } from 'react';
 import type { WorkerRequest } from '../../worker';
@@ -51,6 +51,7 @@ import {
   persistent,
   refreshThumb,
   renameWorld,
+  dropPendingEdits,
   saveAsNewVersion,
   saveCurrentAsMap,
   setReopenHandler,
@@ -138,7 +139,7 @@ export interface WorldPagesDeps {
   releaseNames: () => void;
   sim: SimClient;
   /** useWorldLoad 经 ref 调的几样:这里填 .current */
-  later: Pick<LoadLater, 'showHomeRef' | 'saveAsNewRef' | 'wallRef'>;
+  later: Pick<LoadLater, 'showHomeRef' | 'wallRef'>;
 }
 
 export function useWorldPages(deps: WorldPagesDeps) {
@@ -150,7 +151,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
   const { draftViewRef, applyLayer } = deps.view;
   const { generate, enterStage, openTarget, openStored, openText } = deps.load;
   const { init, fromHome, draft, stageBase, newDlg, setNewDlg, setDraftTitle, setLanding, setSharedFor, setWall, wallSeq, workItems, workFor, setWorkFor, resim, replayOn, setReplayOn } = deps.page;
-  const { showHomeRef, saveAsNewRef, wallRef } = deps.later;
+  const { showHomeRef, wallRef } = deps.later;
 
   /** 换到作品墙的一页(盖在我的世界的位置上):停下正在放的,网址换成作品墙的 */
   const enterWall = (v: WallView, id: string) => {
@@ -546,24 +547,27 @@ export function useWorldPages(deps: WorldPagesDeps) {
   const openStoredRef = useRef(openStored);
   openStoredRef.current = openStored;
   /**
-   * 照原样打开的旧世界「按新版另存一份」(提示条、存档菜单、推演前问的窗口):原来的不动,另存一份带着 edits(不给 = 现在的修改),
-   * 打开它按新版重新生成、推演;AI 写的史书、名字由来跟着复制
+   * 照原样打开的旧世界「按新版另存一份」(存档菜单、推演前问的窗口):原来的不动,另存一份带着 edits(不给 = 现在的修改),
+   * 打开它按新版重新生成、推演;AI 写的史书、名字由来跟着复制。
+   * moved = 带的是上次没推完的改动:它们跟着新的这份走了,原来的存档换回看到的那一份,下次打开不再提示
    */
-  const saveAsNewNow = (edits?: WorldEdits) => {
+  const saveAsNewNow = (edits?: WorldEdits, moved?: boolean) => {
     closeSaveAsNew();
     const c = currentWorld();
-    if (!c || c.frozen === undefined) return;
+    if (!c || (c.frozen === undefined && !c.readonly)) return;
     const from = c.title || `种子 ${c.params.seed}`;
     const id = saveAsNewVersion(c.id, edits ?? getEdits());
     if (!id) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
     const more = copyNotes(c.id, id) ? [] : ['AI 写的史书、名字由来没能一起存下（浏览器存储已满）'];
+    if (moved) dropPendingEdits(true);
     savedCopy.current = { id, from, more };
     openStoredRef.current(id);
   };
+  const saveAsNewRef = useRef(saveAsNewNow);
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
-    setSaveAsNew((e) => saveAsNewRef.current(e));
-    // 照原样打开的旧世界:改历史(要用现在的规则重新推演)先问要不要另存一份;别的世界照常改。
+    setSaveAsNew((e, moved) => saveAsNewRef.current(e, moved));
+    // 照原样打开的旧世界、只读打开的世界:改历史(要用现在的规则重新推演)先问要不要另存一份;别的世界照常改。
     // 逐年推演:只能在"现在"干预(下一步生效),不改以前的历史(撤销、助手执行的都算);想改以前的事先存回推演模式
     setHistoryGate((next) => {
       // 地图留着的世界地形改不了:改了就得按种子重新长
@@ -573,7 +577,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
         return true;
       }
       const c = currentWorld();
-      if (!c || c.frozen === undefined) return false;
+      if (!c || (c.frozen === undefined && !c.readonly)) return false;
       const now = getEdits();
       const count = Math.max(0, next.interventions.length - now.interventions.length) + Math.max(0, (next.upheavals?.length ?? 0) - (now.upheavals?.length ?? 0));
       askSaveAsNew({ next, title: c.title || `种子 ${c.params.seed}`, count });

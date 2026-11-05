@@ -736,6 +736,9 @@ function sameAdvanceRaw(raw: unknown, clean: AdvanceSettings | undefined): boole
   return Object.entries(raw).every(([k, v]) => k in full && full[k] === v);
 }
 
+/** 存档文件的开头(saveText 写的第一项) */
+const SAVE_HEAD = new RegExp(`^\\uFEFF?\\s*\\{\\s*"app"\\s*:\\s*"${SAVE_APP}"`);
+
 /**
  * 读存档:文件内容 → 存档。读不了(不是 JSON、不是本应用的存档、格式比自己新、没有种子)给中文错误;
  * 能读但有问题(生成器版本不同、参数超出范围、个别改名 / 干预格式不对)照样打开,附中文提示
@@ -747,6 +750,8 @@ export function parseSave(text: string): ParseResult {
   try {
     raw = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
   } catch {
+    // 开头是存档的样子、后面读不了:没存完整(下载断了),不是选错了文件
+    if (SAVE_HEAD.test(text)) return { ok: false, error: '存档文件坏了:没有存完整' };
     return { ok: false, error: '读不懂这个文件:它不是「文明与地图」的存档(.json)' };
   }
   if (!isObj(raw) || raw.app !== SAVE_APP) return { ok: false, error: '这不是「文明与地图」的存档文件' };

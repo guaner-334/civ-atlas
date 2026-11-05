@@ -3396,6 +3396,17 @@ if (part('各种状态')) {
   await openFile(sp, bad);
   // 读完再删(页面是异步读文件的,先删了会变成"读不了这个文件")
   const badNote = await sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 5000 }).then((t) => t.replace(/\n/g, ' '), () => '');
+  // 存档坏了、没存完整:不说坏了,说网站没有动它;来自更新版本:带「刷新页面」
+  const noteOf = async (text: string) => {
+    await sp.evaluate(async () => (await import('/src/ui/saveStore.ts' as string)).notify(null));
+    fs.writeFileSync(bad, text);
+    await openFile(sp, bad);
+    return sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 5000 }).then((t) => t.replace(/\n/g, ' '), () => '');
+  };
+  const cutNote = await noteOf('{\n  "app": "文明与地图",\n  "format": 1,\n  "seed"');
+  const newerFile = await noteOf(JSON.stringify({ app: '文明与地图', format: 99, seed: 7 }));
+  const newerBtn = await sp.locator('.toast[data-toast=save] [data-act=reload-page]').count();
+  await sp.evaluate(async () => (await import('/src/ui/saveStore.ts' as string)).notify(null));
   fs.rmSync(bad, { force: true });
   // 没有干预
   await openOverview(sp, 'interventions');
@@ -3435,6 +3446,8 @@ if (part('各种状态')) {
     errs.push(`首次打开:世界出来之前应该只有同色底和"正在生成世界"的进度(四角 ${boot.corner},提示条「${boot.toast}」)`);
   if (after.booting || after.corner !== 'visible') errs.push('首次打开:世界生成好以后四角没有出来');
   if (!badNote.includes('打不开') || !badNote.includes('不是「文明与地图」的存档')) errs.push(`导入坏文件:没有报错提示(${badNote})`);
+  if (!cutNote.includes('这个文件可能没存完整') || cutNote.includes('坏了')) errs.push(`导入没存完整的存档:提示不对(${cutNote})`);
+  if (!newerFile.includes('刷新后再打开一次这个文件') || newerBtn !== 1) errs.push(`导入更新版本的存档:提示不对(${newerFile},按钮 ${newerBtn})`);
   if (!empty.includes('还没有干预')) errs.push(`概览"我的干预"没有空状态(${empty})`);
   if (!mark) errs.push('存储满了:没找到可以改名的城');
   else {

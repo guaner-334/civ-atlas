@@ -9,7 +9,8 @@
  *     对方打开停在那里(不自动播放);默认勾着,记住上次的选择
  *   登录了网站账号:当前世界那一行写同步到账号了没有;"复制分享链接"换成"分享…"(短链接,随时能停,AccountDialogs.tsx 的分享窗)
  *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
- *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)
+ *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)。
+ *                   存的内容读不出、先按新版算了一遍的世界也放:那一份不自动存,要留着看到的样子只能另存(「看原样」照放)
  *
  * 存、读、列都在 saveStore.ts。存储满了之类的提示(saveStore 的 notify)显示在顶部的提示条上。
  * ⌘S 打开这个菜单(openSaveMenu;世界本来就自动存着,菜单上写着存没存好)。
@@ -242,7 +243,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               {at && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
             </>
           )}
-          {frozen && (
+          {(frozen || cur?.readonly) && (
             <button
               className="save-it"
               data-act="save-new"

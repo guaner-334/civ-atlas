@@ -1074,9 +1074,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   });
 
   // ---- 生成、打开世界(./world/useWorldLoad.ts):生成新世界、生成完套上修改,打开网页时、打开存档 / 文件 / 分享链接,换到新建 / 世界 / 我的世界 ----
-  // 下面几样在后面才定义(回我的世界、按新版另存一份、作品墙在 ./world/useWorldPages.ts,浏览器的后退前进),经 ref 调;定义的地方填 .current
+  // 下面几样在后面才定义(回我的世界、作品墙在 ./world/useWorldPages.ts,浏览器的后退前进),经 ref 调;定义的地方填 .current
   const showHomeRef = useRef<() => void>(() => {});
-  const saveAsNewRef = useRef<(edits?: WorldEdits) => void>(() => {});
   const wallRef = useRef<{ open: (id: string) => void; list: () => void }>({ open: () => {}, list: () => {} });
   const navRef = useRef<NavHooks>(null as unknown as NavHooks);
   const resimRefs: ResimRefs = { resimSeq, resimInfo, setResim, resimText, switchNote, storyAfterYears, stepAuto, restoredIv, restoredUps, renameCheck, extendRef, extendDone, dropExtendUndo };
@@ -1099,7 +1098,6 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         setMomentTick((n) => n + 1);
       },
       showHomeRef,
-      saveAsNewRef,
       wallRef,
       navRef,
     },
@@ -1185,7 +1183,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     page: { init, fromHome, draft, stageBase, newDlg, setNewDlg, setDraftTitle, setLanding, setSharedFor, setWall, wallSeq, workItems, workFor, setWorkFor, resim, replayOn, setReplayOn },
     releaseNames,
     sim,
-    later: { showHomeRef, saveAsNewRef, wallRef },
+    later: { showHomeRef, wallRef },
   });
   // ---- 照故事找世界(FinderPage.tsx;条件、结果在 finderStore.ts;./world/useStoryFinder.ts) ----
   const { finderBack, outlineSrc, openFinderPage, exitFinder, finderPreviewData, finderFly, takeFinderPick, moveFoundOutline, foundCreated, foundNow } = useStoryFinder({

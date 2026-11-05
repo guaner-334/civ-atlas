@@ -6,13 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as saveStore from '../src/ui/saveStore';
 import { addEditsBatch, addIntervention, addUpheaval, clearEdits, clearTerrainAndSketch, commitEdits, getEdits, setEdits, setEndYear, setHistoryGate, setName } from '../src/ui/editsStore';
 import { clearPending, getPending, pushPending, queueIntervention } from '../src/ui/pendingStore';
-import { clearToast } from '../src/ui/toastStore';
+import { clearToast, getToast } from '../src/ui/toastStore';
 import { endRun } from '../src/ui/panelStore';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS, GENERATOR_VERSION, type Intervention, type Upheaval, type WorldEdits } from '../src/gen/edits';
 import { makeSave, type SaveFile } from '../src/gen/savefile';
 import { SNAPSHOT_FORMAT, makePart, recipeKey, recipeOfSave, type Snapshot } from '../src/gen/snapshot';
-import { _setResultBackend, copyResults, frozenResult, memoryResults, toldFrozen } from '../src/ui/resultStore';
+import { _setResultBackend, copyResults, frozenResult, memoryResults } from '../src/ui/resultStore';
 
 class FakeStorage {
   map = new Map<string, string>();
@@ -143,17 +143,6 @@ describe('照原样打开旧世界:找原件', () => {
     void copyResults(id, nid);
     expect(await frozenResult(nid, saveStore.loadWorld(nid)!.save)).toEqual(s);
   });
-
-  it('打开时的提示:同一个世界在这一版里只说一次', () => {
-    expect(toldFrozen('w1')).toBe(false);
-    expect(toldFrozen('w1')).toBe(true);
-    expect(toldFrozen('w2')).toBe(false);
-    // 换了一版网站再说一次
-    const told = JSON.parse((g.localStorage as FakeStorage).getItem('civ-atlas:frozen-told')!) as Record<string, number>;
-    told.w1 = OLD;
-    (g.localStorage as FakeStorage).setItem('civ-atlas:frozen-told', JSON.stringify(told));
-    expect(toldFrozen('w1')).toBe(false);
-  });
 });
 
 describe('照原样打开旧世界:从文件打开', () => {
@@ -269,5 +258,99 @@ describe('照原样打开旧世界:存档和修改', () => {
     const again = saveStore.saveAsNewVersion(id, next)!;
     expect(saveStore.loadWorld(again)!.save.title).not.toBe('青岚纪（新版）');
     expect(saveStore.loadWorld(again)!.save.title).toContain('青岚纪（新版）');
+  });
+});
+
+describe('只读打开', () => {
+  /** 存档里多了 3 条没推完的命令,打开的是存好的那一份(修订的配方) */
+  function openPending() {
+    const shown: WorldEdits = { ...EMPTY_EDITS, interventions: [protect(1)] };
+    const id = oldWorld({ ...shown, interventions: [protect(1), protect(2), protect(3), protect(4)] });
+    const draft = saveStore.loadWorld(id)!.save;
+    saveStore.detachWorld();
+    clearEdits();
+    setEdits(shown);
+    saveStore.attachWorld({ id, params: draft.params, check: 'c7', kind: 'created', title: draft.title, saved: shown, frozen: draft.generator, readonly: true });
+    return { id, draft, shown };
+  }
+
+  it('打开、改名都不自动存:存档里没推完的修改还在', () => {
+    const { id, draft } = openPending();
+    expect(saveStore.currentWorld()?.readonly).toBe(true);
+    expect(saveStore.loadWorld(id)!.save).toEqual(draft);
+    setEdits({ ...getEdits(), names: { 'region:c1': '甲' } });
+    expect(saveStore.loadWorld(id)!.save).toEqual(draft);
+  });
+
+  it('别的页面写回一模一样的内容:还是不自动存', () => {
+    const { id, draft } = openPending();
+    saveStore.otherTabChanged(`wenming-ditu:world:${id}`, saveStore.currentWorld()!.wrote ?? null);
+    setEdits({ ...getEdits(), names: { 'region:c1': '甲' } });
+    expect(saveStore.loadWorld(id)!.save).toEqual(draft);
+    expect(saveStore.currentWorld()?.readonly).toBe(true);
+  });
+
+  it('放弃没推完的修改:存档换回看到的那一份,还记建它的那一版,配方对得上存的内容;从此照常自动存', async () => {
+    const { id, draft, shown } = openPending();
+    const shownKey = await recipeKey(recipeOfSave({ ...draft, edits: shown }));
+    expect(saveStore.dropPendingEdits()).toBe('ok');
+    const now = saveStore.loadWorld(id)!.save;
+    expect(now.edits.interventions).toEqual([protect(1)]);
+    expect(now.generator).toBe(OLD);
+    expect(await recipeKey(recipeOfSave(now))).toBe(shownKey);
+    expect(saveStore.currentWorld()?.readonly).toBeUndefined();
+    setEdits({ ...getEdits(), names: { 'region:c1': '甲' } });
+    expect(saveStore.loadWorld(id)!.save.edits.names).toEqual({ 'region:c1': '甲' });
+    // 不是只读打开的:没有东西可放弃
+    expect(saveStore.dropPendingEdits()).toBe('none');
+  });
+
+  it('打开以后别的页面改过、删了这个世界:放弃不盖掉,说一声,还是只读', () => {
+    const { id } = openPending();
+    const key = `wenming-ditu:world:${id}`;
+    const ls = g.localStorage as FakeStorage;
+    const other = JSON.stringify({ ...JSON.parse(ls.getItem(key)!), title: '那边改的' });
+    ls.setItem(key, other);
+    expect(saveStore.dropPendingEdits()).toBe('elsewhere');
+    expect(ls.getItem(key)).toBe(other);
+    expect(saveStore.currentWorld()?.readonly).toBe(true);
+    expect(getToast()?.text).toBe('这个世界在别的页面里改过');
+    clearToast();
+    // 另存时带走的那条路:不说,也不盖
+    expect(saveStore.dropPendingEdits(true)).toBe('elsewhere');
+    expect(getToast()).toBeNull();
+    expect(ls.getItem(key)).toBe(other);
+    // 删了:不写回来
+    ls.removeItem(key);
+    expect(saveStore.dropPendingEdits()).toBe('elsewhere');
+    expect(ls.getItem(key)).toBeNull();
+    expect(getToast()?.text).toBe('这个世界在别的页面里删掉了');
+  });
+
+  it('放弃时写不进去(存储满了):还是只读,修改还留在存档里', () => {
+    const { id, draft } = openPending();
+    const ls = g.localStorage as FakeStorage;
+    const put = ls.setItem.bind(ls);
+    ls.setItem = () => {
+      throw new DOMException('满了', 'QuotaExceededError');
+    };
+    expect(saveStore.dropPendingEdits()).toBe('full');
+    ls.setItem = put;
+    expect(saveStore.currentWorld()?.readonly).toBe(true);
+    expect(saveStore.loadWorld(id)!.save).toEqual(draft);
+  });
+
+  it('存的内容读不出、先按现在的规则算的世界:存档还是原来那一版,不被自动存盖掉', () => {
+    const id = oldWorld({ ...EMPTY_EDITS, interventions: [protect(1)] });
+    const before = (g.localStorage as FakeStorage).getItem(`wenming-ditu:world:${id}`);
+    const w = saveStore.loadWorld(id)!;
+    saveStore.detachWorld();
+    clearEdits();
+    setEdits(w.save.edits);
+    // 算出来的地形校验和存着的不一样:平常这里就会重存、记成现在的版本
+    saveStore.attachWorld({ id, params: w.save.params, check: 'other', kind: 'created', title: w.save.title, saved: w.save.edits, readonly: true });
+    setEdits({ ...getEdits(), names: { 'region:c1': '甲' } });
+    expect((g.localStorage as FakeStorage).getItem(`wenming-ditu:world:${id}`)).toBe(before);
+    expect(saveStore.loadWorld(id)!.save.generator).toBe(OLD);
   });
 });
