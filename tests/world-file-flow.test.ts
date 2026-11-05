@@ -501,7 +501,15 @@ describe('打开文件', () => {
       const skipped = [{ name: 'worlds/a', kind: 'broken', message: 'x' }, { name: 'worlds/b', kind: 'broken', message: '有 1 份旧修订读不了,没放回来' }];
       wf.openWorldFiles.mockResolvedValue({ ...none, added: Array.from({ length: 44 }, (_, i) => w(`a${i}`)), copied: [{ ...w('c'), of: 'd' }], same: [w('s1'), w('s2')], skipped });
       await openPickedFiles([f], vi.fn());
-      expect(toast()).toMatchObject({ kind: 'warn', text: '已放回 45 个世界', more: ['其中 1 个和原来的内容不一样，另存成了新的', '2 个原来就有，没重复放', '1 个读不出来，跳过了'] });
+      expect(toast()).toMatchObject({ kind: 'warn', text: '已放回 45 个世界', more: ['其中 1 个和原来的内容不一样，另存成了新的', '2 个原来就有，没重复放', '1 个读不出来，跳过了', '1 个世界留着的旧版本没放回来，这个文件先别删'] });
+    });
+
+    it('本机已有的世界缺文件里带的旧版本:说文件先别删', async () => {
+      const f = named(FILE2);
+      backup(f);
+      wf.openWorldFiles.mockResolvedValue({ ...none, same: [{ ...w('a'), olderMissing: 2 }] });
+      await openPickedFiles([f], vi.fn());
+      expect(toast()).toMatchObject({ kind: 'warn', text: '这些世界都已经在「我的世界」里了', more: ['1 个世界留着的旧版本没放回来，这个文件先别删'] });
     });
 
     it('取消:已放回的留着', async () => {

@@ -581,10 +581,13 @@ function sayRestored(r: OpenedWorldFiles, old: Awaited<ReturnType<typeof importO
   if (same) notes.push(`${same} 个原来就有，没重复放`);
   if (badN) notes.push(`${badN} 个读不出来，跳过了`);
   if (left) notes.push(`还有 ${left} 个没放进去：${byCount ? `「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个再打开一次` : '浏览器存储已满，先删掉几个世界再打开一次'}`);
+  // 世界本身放回来了,留着的旧版本没有:文件里还带着,先别删
+  const olderLost = r.skipped.length - skipped.length + r.same.filter((s) => s.olderMissing).length;
+  if (olderLost) notes.push(`${olderLost} 个世界留着的旧版本没放回来，这个文件先别删`);
   for (const s of r.sets) if (s.missing.length) notes.push(`分成 ${s.parts} 个文件的还差第 ${s.missing.join('、')} 个，一起选上再打开一次`);
   if (r.cut) notes.push('有个文件没存完整，读得到的都放回了');
   if (notesLost) notes.push('有的 AI 写的东西没能放回来（浏览器存储已满）');
-  const trouble = badN > 0 || left > 0 || r.cut || memOnly || notesLost || r.sets.some((s) => s.missing.length > 0);
+  const trouble = badN > 0 || left > 0 || olderLost > 0 || r.cut || memOnly || notesLost || r.sets.some((s) => s.missing.length > 0);
   if (added) return say({ kind: trouble ? 'warn' : 'ok', text: `已放回 ${added} 个世界`, more: notes });
   if (left) return say({ kind: 'error', text: '没能放回来', more: notes });
   say({ kind: trouble ? 'warn' : 'ok', text: '这些世界都已经在「我的世界」里了', more: notes.filter((x) => !x.endsWith('没重复放')) });
