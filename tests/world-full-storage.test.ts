@@ -29,6 +29,9 @@ import { mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, asVaultError, commitWorld, draftFile, latestOf, readRevision, revisionFile, revisionsOf, spaceOf, sweepParts, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
 import { bytesOf } from './lib/worldFileSample';
 
+// 每个测试都要打包、核对一个真的小世界,检查机忙的时候第一个测试就过了默认的 5 秒
+vi.setConfig({ testTimeout: 30_000 });
+
 class FakeStorage {
   map = new Map<string, string>();
   get length() {
