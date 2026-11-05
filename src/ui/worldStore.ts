@@ -23,34 +23,44 @@
  *
  * 删世界(maintain):只认 saveStore 的 trashMarks,用的人删的、又过了 TRASH_KEEP_MS 才清内容。撤销了、账号里取回来了的不清。
  * 不拿「我的世界」的列表反推:浏览器清了 localStorage、读不出列表时,一个世界也不清。退出登录选了「从这台设备上删掉」时全清(clearWorldStore)。
- * 写不下时先清用的人删掉超过 FULL_TRASH_AGE 的,再清没人引用的块,这一次就不存了,不删任何还在的世界。
  * 全清时记一笔(CLEARED),别的标签页看到了就停下正在转的;正好在这时候写完的,这个世界的修订删掉,不留在清过的仓库里。
+ *
+ * 存储紧张时删掉的世界不等 30 天(drainTrash):写不下了、或者还能存的不到 NEAR_FULL_BYTES 时,撤销提示一收起就清,用的人也可以点「现在清掉」(clearTrashNow)。
+ * 这些时候绝不清(worldHolds.ts,几个标签页都算):撤销提示还开着、有标签页正开着它、正在写它。别的世界的地图还要从它这里拿的也不清(keptMap)。
+ * 不删任何还在的世界。腾出了地方就接着存(roomMade):正开着的世界让线程重打一份,别的世界再转一遍。写不下的那一次不重试,等腾出地方。
+ *
+ * 存储满了也要存得成文件(worldFiles.ts):settleForFile 让转存的线程写不下时直接交回文件,packPage 让生成世界的线程把页面里的世界打成几块。都不写库。
  *
  * 第一次存世界时申请长期保存(navigator.storage.persist)。Firefox 会弹浏览器自己的询问框,只问一次;Safari、Chromium 不弹,自己定,每次打开问一次。
  */
-import { copyNotes, flushNotes } from '../ai/library';
+import { cleanNoteList } from '../authorNotes';
+import { copyNotes, exportNotes, flushNotes, notesKnown, notesReady } from '../ai/library';
 import { moveNotes, tidyNotes, warmNotes, type NotesVault } from '../ai/libraryVault';
-import { stampCalc } from '../gen/civ/ruleSet';
-import { GENERATOR_VERSION, civSeedOf, cleanMapRef, keptMapOf, type WorldEdits } from '../gen/edits';
+import { stampCalc, worldTuning } from '../gen/civ/ruleSet';
+import { GENERATOR_VERSION, civSeedOf, cleanMapRef, keptMapOf, type Intervention, type TerrainOp, type Upheaval, type WorldEdits } from '../gen/edits';
 import { READER_VERSIONS } from '../gen/readers/versions';
 import { parseSave, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
-import type { WorldMade } from '../gen/worldFormat';
+import type { AuthorContent, WorldMade } from '../gen/worldFormat';
 import type { ConvertJob } from '../worldConvert';
 import type { ConvertReply } from '../worldConvertWorker';
-import { pendingEdit, type CommitRequest, type CommitResult, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
+import { pendingEdit, type CommitRequest, type CommitResult, type DraftedFile, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
 import { isCoarse, isNarrow } from './device';
 import { dropResults, resultHeads } from './resultStore';
-import { allWorldIds, currentWorld, deleteWorld, isStored, loadWorld, originalOf, persistent, saveAsNewVersion, storageFullWhy, subscribe, trashMarks, unmarkTrash } from './saveStore';
+import type { PackAsk } from './sim/simClient';
+import { TRASH, allWorldIds, currentWorld, deleteWorld, isStored, listWorlds, loadWorld, originalOf, persistent, saveAsNewVersion, storageFullWhy, subscribe, trashMarks, unmarkTrash } from './saveStore';
 import { APP_COMMIT, APP_VERSION } from './version';
+import { canSeeHolds, holdWorld, ifNotHeld, isHeld } from './worldHolds';
 
 /** 改完以后停多久写新清单(毫秒) */
 const LIGHT_DELAY = 3000;
 /** 用的人删掉的世界,内容留多久(毫秒):和账号里「最近删除」能找回的时间一样 */
 export const TRASH_KEEP_MS = 30 * 24 * 3600_000;
-/** 写不下时,删掉超过这么久的世界不再留着(毫秒):刚删的还能撤销 */
+/** 这个浏览器看不到别的标签页(没有 Web Locks)时,存储紧张也只清删掉超过这么久的世界(毫秒):别的标签页的撤销提示肯定收起了 */
 const FULL_TRASH_AGE = 3600_000;
+/** 还能存的少于这么多(字节)算快满了:和「我的世界」提示快放不下的那条线一样 */
+export const NEAR_FULL_BYTES = 500e6;
 
 /** 几个时间(毫秒);单测调短 */
 const timing = {
@@ -66,6 +76,8 @@ const timing = {
   poll: 1000,
   /** 转完一个歇多久 */
   pause: 1500,
+  /** 别的标签页刚删的世界,不让清的记号可能还没拿到手:删了不到这么久的先不清 */
+  holdGap: 3000,
 };
 
 /** 转的时候记一下在转谁(页面崩了下次打开看得到) */
@@ -170,9 +182,13 @@ let offer: WorldPartsOffer | null = null;
 /** 写不下了:这次打开不再转(推完、改完的照样试,可能已经腾出地方了) */
 let vaultFull = false;
 
+/** 这次打开写不下过、还没腾出地方(界面说「存储满了」用) */
+export const vaultIsFull = (): boolean => vaultFull;
+
 /** 存一份;存不下记下来,不往外抛 */
 async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<CommitResult | null> {
   const mark = clearedAt();
+  const free = holdTrashed(req.id);
   try {
     const r = await call('commitWorld', [req], transfer);
     // 写的这一会儿仓库被清了(用的人在别的标签页选了从这台设备上删掉):这份不留
@@ -189,6 +205,8 @@ async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<Co
   } catch (e) {
     await noteFailure(req.id, e);
     return null;
+  } finally {
+    free();
   }
 }
 
@@ -196,8 +214,8 @@ async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<Co
 async function noteFailure(id: string, e: unknown): Promise<void> {
   if (errKind(e) !== 'full') return;
   vaultFull = true;
-  await maintain(FULL_TRASH_AGE, 0).catch(() => {});
   await call('patchState', [id, { full: Date.now() }]).catch(() => {});
+  await drainTrash().catch(() => {});
 }
 
 /** 生成世界的线程交回来一份完整的内容:对得上当前世界存着的存档就存 */
@@ -385,10 +403,20 @@ function workerRunner(job: ConvertJob): ReturnType<ConvertRunner> {
 
 let runner: ConvertRunner = workerRunner;
 /** 用的人是不是正在推演;App 接上 */
-let sim: { busy: () => boolean; packNow: () => void } = { busy: () => false, packNow: () => {} };
+let sim: WorldStoreSim = { busy: () => false, packNow: () => {} };
 
-/** 接上生成世界的线程:忙不忙、叫它把等着的内容马上打好 */
-export function setWorldStoreSim(s: { busy: () => boolean; packNow: () => void }) {
+/** 生成世界的线程这边能做的 */
+export interface WorldStoreSim {
+  /** 忙不忙 */
+  busy: () => boolean;
+  /** 叫它把等着的内容马上打好 */
+  packNow: () => void;
+  /** 叫它把这份配方的世界打成几块交回来,不存(见 worker.ts 的 packParts);打不成 reject,错上带 kind */
+  packParts?: (ask: Omit<PackAsk, 'id'>) => Promise<WorldPartsOffer>;
+}
+
+/** 接上生成世界的线程 */
+export function setWorldStoreSim(s: WorldStoreSim) {
   sim = s;
 }
 
@@ -400,19 +428,21 @@ const onPhone = () => isNarrow() || isCoarse();
 /**
  * 这个世界下一步要转什么;没有要转的 = null。
  * 先转比现在的存档更旧的那份原件(留底),再转现在的样子。没有原件的更旧版本只记下来。
- * asked = 用的人要用(存成文件):手机上、正开着的世界也算一遍
+ * asked = 用的人要用(存成文件):手机上、正开着的世界也算一遍。noArchive = 不看留底的旧版原件,只转现在的样子
  */
-async function jobFor(id: string, asked = false): Promise<ConvertJob | null> {
+async function jobFor(id: string, asked = false, noArchive = false): Promise<ConvertJob | null> {
   const w = loadWorld(id);
   if (!w || !canKeep(w)) return null;
-  const state = await call('stateOf', [id]);
+  // 用的人等着要文件:仓库打不开(硬盘真的满了时 WebKit 连库都打不开)也算得出来,算好了写不下就直接装成文件
+  const read = <T>(p: Promise<T>): Promise<T | null> => (asked ? p.catch(() => null) : p);
+  const state = await read(call('stateOf', [id]));
   if (state?.status === 'failed' && state.app === APP_VERSION) return null;
   const heads = await resultHeads(id);
   const body = { id, thumb: thumbBytes(w.thumb) };
 
   // 存档被新版重存过,原来那份还留着,也有那一版的原件
   const raw = originalOf(id);
-  const parsed = raw && raw.generator !== w.save.generator ? parseSave(JSON.stringify(raw)) : null;
+  const parsed = !noArchive && raw && raw.generator !== w.save.generator ? parseSave(JSON.stringify(raw)) : null;
   if (parsed?.ok && !state?.archived?.includes(parsed.save.generator)) {
     const old = parsed.save;
     const key = await recipeKey(recipeOfSave(old));
@@ -420,7 +450,7 @@ async function jobFor(id: string, asked = false): Promise<ConvertJob | null> {
   }
 
   const key = await recipeKey(recipeOfSave(w.save));
-  const latest = await call('latestOf', [id]);
+  const latest = await read(call('latestOf', [id]));
   // 打开时发现块坏了的(state.corrupt)再转一遍,commitWorld 会把块重写一遍
   if (latest && latest.recipeKey === key && latest.generator === w.save.generator && state?.corrupt === undefined) return null;
   if (heads.some((h) => h.generator === w.save.generator && h.recipe === key)) return { ...body, kind: 'original', generator: w.save.generator, save: w.save, source: 'migrated' };
@@ -431,7 +461,8 @@ async function jobFor(id: string, asked = false): Promise<ConvertJob | null> {
     if (keptMapOf(w.save.edits)) return { ...body, kind: 'keptMap', save: w.save, from: [id, ...(w.save.edits.map?.from ? [w.save.edits.map.from] : []), ...allWorldIds()], app: APP_VERSION, commit: APP_COMMIT };
     return { ...body, kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
   }
-  if (state?.status !== 'old' || state.generator !== w.save.generator) await call('patchState', [id, { status: 'old', generator: w.save.generator }]);
+  // 只是记一笔:存储满了记不下也没事
+  if (state?.status !== 'old' || state.generator !== w.save.generator) await call('patchState', [id, { status: 'old', generator: w.save.generator }]).catch(() => {});
   return null;
 }
 
@@ -472,10 +503,15 @@ async function waitQuiet(): Promise<boolean> {
   }
 }
 
-/** 转一个世界:让路了 = 'yield';别的转完(不管成败)= 'next';写满了 = 'full'。asked = 用的人等着要,不给推演让路 */
-async function runJob(job: ConvertJob, asked = false): Promise<'next' | 'yield' | 'full'> {
+/**
+ * 转一个世界:让路了 = 'yield';别的转完(不管成败)= 'next';写满了 = 'full'。asked = 用的人等着要,不给推演让路。
+ * job.fileIfFull 写不下时线程直接交回的文件给 onFile
+ */
+async function runJob(job: ConvertJob, asked = false, onFile?: (f: DraftedFile) => void): Promise<'next' | 'yield' | 'full'> {
   setConverting(job.id);
   const mark = clearedAt();
+  // 转的时候被删了:等转完再清,不然清完了才写完,留下一份没人认的内容
+  const free = holdTrashed(job.id);
   const h = runner(job);
   converting = h;
   const watch = setInterval(() => {
@@ -494,6 +530,7 @@ async function runJob(job: ConvertJob, asked = false): Promise<'next' | 'yield' 
     clearInterval(watch);
     converting = null;
     setConverting(null);
+    free();
   }
   // 转的这一会儿仓库被清了(也可能是别的标签页清的):线程可能正好写完了,这个世界的修订不留
   if (clearedAt() !== mark) {
@@ -511,6 +548,7 @@ async function runJob(job: ConvertJob, asked = false): Promise<'next' | 'yield' 
     return 'next';
   }
   if (out.kind === 'full') {
+    if (out.drafted) onFile?.(out.drafted);
     await noteFailure(job.id, Object.assign(new Error(out.message), { kind: 'full' }));
     return 'full';
   }
@@ -545,7 +583,8 @@ async function convertAll(): Promise<void> {
         break;
       }
       const r = await runJob(job);
-      if (r === 'full') return;
+      // 写不下,这一下也没能腾出地方;腾出来了就接着转这个世界
+      if (r === 'full' && vaultFull) return;
       if (r === 'next') {
         step++;
         await sleep(timing.pause);
@@ -574,6 +613,80 @@ export async function settleWorld(id: string): Promise<VaultErrorKind | null> {
   } catch (e) {
     return errKind(e) ?? 'failed';
   }
+}
+
+/** 存成文件之前让仓库跟上这个世界的结果 */
+export interface SettledForFile {
+  /** 没能写进去的为什么;都写进去了 = null */
+  stuck: VaultErrorKind | null;
+  /** 现在的样子写不进仓库,转的线程直接装好的文件 */
+  drafted: DraftedFile | null;
+  /** 页面里有、没能写进仓库的 AI 正文(都写进去了 = 没有) */
+  author?: AuthorContent;
+}
+
+/** 这个世界的 AI 正文没能全写进仓库:页面里的全部;手上不是全部(仓库没读到)= 没有,不拿它去掉东西 */
+async function notesLeftOut(id: string, flushed: boolean): Promise<AuthorContent | undefined> {
+  if (flushed) return undefined;
+  await notesReady([id]);
+  return notesKnown(id) ? { notes: cleanNoteList(exportNotes(id)) } : undefined;
+}
+
+/**
+ * 同 settleWorld,但这是为了存成文件,写不进去也不白忙:现在的样子要算一遍的,算好了写不下就直接装成文件。
+ * 正开着的世界不另开线程算:页面里已经有了,见 packPage。不抛错
+ */
+export async function settleForFile(id: string): Promise<SettledForFile> {
+  let drafted: DraftedFile | null = null;
+  try {
+    await moveNotes(id).catch(() => {});
+    const flushed = await flushNotes(id);
+    const author = await notesLeftOut(id, flushed);
+    const body = author ? { author } : {};
+    let noArchive = false;
+    let stuck: VaultErrorKind | null = null;
+    for (let step = 0; step < 3; step++) {
+      const job = await jobFor(id, true, noArchive);
+      if (!job) break;
+      const archive = job.kind === 'original' && job.source === 'archive';
+      if (!archive && job.kind !== 'original' && currentWorld()?.id === id && sim.packParts) break;
+      const r = await runJob(archive ? job : { ...job, fileIfFull: body }, true, (f) => (drafted = f));
+      if (r === 'yield') return { stuck: 'failed', drafted, ...body };
+      if (r === 'full') {
+        stuck = 'full';
+        // 留底的旧版原件写不下不碍事,现在的样子照样要
+        if (!archive) return { stuck, drafted, ...body };
+        noArchive = true;
+      }
+    }
+    const light = await writeLight(id);
+    return { stuck: light && flushed ? stuck : vaultFull ? 'full' : (stuck ?? 'failed'), drafted, ...body };
+  } catch (e) {
+    return { stuck: errKind(e) ?? 'failed', drafted };
+  }
+}
+
+/** 线程把页面里的这个世界打成几块,不存(存成文件、腾出地方以后补存用)。这一版算不出来的世界(照原样打开的旧世界)= null;打不成 reject,错上带 kind */
+export function packPage(save: SaveFile): Promise<WorldPartsOffer> | null {
+  if (!sim.packParts || save.generator !== GENERATOR_VERSION) return null;
+  const r = recipeOfSave(save);
+  return sim.packParts({
+    params: r.params,
+    terrain: r.terrain as TerrainOp[] | undefined,
+    sketch: r.sketch,
+    interventions: r.interventions as Intervention[] | undefined,
+    upheavals: r.upheavals as Upheaval[] | undefined,
+    names: r.names,
+    endYear: r.endYear,
+    frontier: r.frontier,
+    origins: r.origins,
+    calamity: r.calamity,
+    tuning: worldTuning(save.edits.rules),
+    civSeed: r.civSeed,
+    keptMap: r.keptMap,
+    play: r.play,
+    characters: save.edits.characters,
+  });
 }
 
 /** 地图留着的世界(gen/edits.ts 文件头"地图留着的世界")还没有和存档对得上的内容:按存下的地图算一份。算好了 = true,找不到那张地图、推不出来 = false */
@@ -652,8 +765,15 @@ export async function keepMapCopy(id: string, o: { edits?: WorldEdits; title?: s
 
 if (typeof window !== 'undefined') (window as unknown as { __wfKeepMapCopy: typeof keepMapCopy }).__wfKeepMapCopy = keepMapCopy;
 
+/** 这个标签页正在转一遍 */
+let passing = false;
+/** App 开始用了(startWorldStore):转存、接着存都从这一刻开始 */
+let started = false;
+
 /** 开始转;几个标签页只有一个转,别的这次不转 */
 export async function startConversions(): Promise<void> {
+  if (passing) return;
+  passing = true;
   try {
     if (!persistent() || !allWorldIds().length) return;
     // 拿到锁才看崩溃的记录:没拿到是别的标签页正在转,那条记录是它的
@@ -668,6 +788,8 @@ export async function startConversions(): Promise<void> {
     });
   } catch {
     /* 下次打开再转 */
+  } finally {
+    passing = false;
   }
 }
 
@@ -683,16 +805,177 @@ export async function maintain(trashKeep: number = TRASH_KEEP_MS, grace?: number
   const now = Date.now();
   for (const [id, at] of Object.entries(trashMarks())) {
     if (isStored(id)) unmarkTrash(id);
-    else if (now - at >= trashKeep) {
-      await call('purgeWorld', [id]);
-      tidyNotes(id);
-      // 划掉以后原件那边就不认得它了,一起删
-      await dropResults(id);
-      unmarkTrash(id);
-    }
+    else if (now - at >= trashKeep) await purgeTrashed(id);
   }
   tidyNotes();
   await call('sweepParts', grace === undefined ? [] : [grace]);
+}
+
+/** 清掉一个删掉的世界的内容;有人拿着(worldHolds.ts)= false,没清 */
+function purgeTrashed(id: string): Promise<boolean> {
+  return ifNotHeld(id, async () => {
+    await call('purgeWorld', [id]);
+    tidyNotes(id);
+    // 划掉以后原件那边就不认得它了,一起删
+    await dropResults(id);
+    unmarkTrash(id);
+  });
+}
+
+/** 还在的世界里有地图留着的,自己还没有内容,要从这个世界拿地图(worldConvert.ts 的 keptMap):清了就再也打不开了 */
+async function mapNeededFrom(id: string): Promise<boolean> {
+  for (const w of listWorlds()) {
+    if (w.save.edits.map?.from !== id) continue;
+    if (!(await call('latestOf', [w.id]).catch(() => null))) return true;
+  }
+  return false;
+}
+
+/** 清了哪些、这次没清的(还不能清,见文件头) */
+export interface TrashCleared {
+  cleared: string[];
+  kept: string[];
+}
+
+let drainChain: Promise<unknown> = Promise.resolve();
+let drainTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** 现在就清能清的删掉的世界,再清没人引用的块。一次一遍,几处同时要的排着 */
+function drainTrash(): Promise<TrashCleared> {
+  const p = drainChain.then(oneDrain);
+  drainChain = p.catch(() => {});
+  return p;
+}
+
+async function oneDrain(): Promise<TrashCleared> {
+  const out: TrashCleared = { cleared: [], kept: [] };
+  if (!persistent()) return out;
+  const now = Date.now();
+  // 看不到别的标签页时只认时间
+  const minAge = canSeeHolds() ? timing.holdGap : FULL_TRASH_AGE;
+  let soon = Infinity;
+  for (const [id, at] of Object.entries(trashMarks())) {
+    if (isStored(id)) {
+      unmarkTrash(id);
+      continue;
+    }
+    const wait = minAge - (now - at);
+    if (wait > 0) {
+      out.kept.push(id);
+      if (canSeeHolds()) soon = Math.min(soon, wait);
+    } else if ((await mapNeededFrom(id)) || !(await purgeTrashed(id))) out.kept.push(id);
+    else out.cleared.push(id);
+  }
+  tidyNotes();
+  // 块不放一会儿:正在写还没写清单的被扫掉了,写清单时查得出来,补写一遍(worldVault.ts)
+  await call('sweepParts', [0]);
+  // 只是刚删的没到时候:到了再来一遍
+  if (soon < Infinity) drainSoon(soon);
+  if (out.cleared.length) roomMade();
+  return out;
+}
+
+/** 存储紧张:写不下过,或者还能存的不到 NEAR_FULL_BYTES;问不到还能存多少、又没写不下过的不算 */
+async function storageTight(): Promise<boolean> {
+  if (vaultFull) return true;
+  try {
+    const e = await navigator.storage?.estimate?.();
+    return e?.quota !== undefined && e.usage !== undefined && e.quota - e.usage < NEAR_FULL_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+/** 过一会儿看一眼:存储紧张就清 */
+function drainSoon(ms = 0) {
+  clearTimeout(drainTimer);
+  drainTimer = setTimeout(() => {
+    void storageTight()
+      .then((tight) => (tight ? drainTrash() : null))
+      .catch(() => {});
+  }, ms);
+}
+
+/**
+ * 这个世界的内容先别清(见 worldHolds.ts),返回放开的函数。放开时它是删掉的世界、存储又紧张,就马上腾地方
+ */
+export function holdTrashed(id: string): () => void {
+  const free = holdWorld(id);
+  return () => {
+    free();
+    trashFreed(id);
+  };
+}
+
+/** 这个世界不再拿着了(撤销提示收起了):它是删掉的世界、存储又紧张,就马上腾地方 */
+export function trashFreed(id: string): void {
+  if (id in trashMarks()) drainSoon();
+}
+
+/** 腾出了地方:接着存。正开着的世界让线程重打一份,别的世界再转一遍 */
+function roomMade() {
+  vaultFull = false;
+  if (!started || stopped) return;
+  void refillCurrent();
+  void startConversions();
+}
+
+/** 正开着的世界仓库里还没有最新的内容(写不下时那份没存成,线程不会再交一次):重打一份,改名这些配方以外的也补上 */
+async function refillCurrent(): Promise<void> {
+  try {
+    const c = currentWorld();
+    if (!c || c.kind !== 'created' || c.unsaved || c.gone) return;
+    const w = loadWorld(c.id);
+    if (!w) return;
+    if (!(await storedFresh(c.id))) {
+      const p = packPage(w.save);
+      if (p) await offerWorldParts(await p);
+    } else await syncLight(c.id);
+  } catch {
+    /* 下次推完、下次打开再存 */
+  }
+}
+
+/** 删掉的世界占多少地方 */
+export interface TrashInfo {
+  /** 几个世界(还占着地方的:没存进内容的不算) */
+  count: number;
+  /** 清掉能腾出多少字节(别的世界也在用的块不算) */
+  bytes: number;
+  /** 最晚哪一刻全都自己清掉(毫秒);一个都没有 = null */
+  clearBy: number | null;
+  /** 其中几个这时候还不能清(撤销提示还开着、有标签页开着它、正在写它):「现在清掉」不动它们 */
+  held: number;
+}
+
+/** 看一眼删掉的世界占多少、几个、哪天自己清掉。不抛错,问不到算没有 */
+export async function trashInfo(): Promise<TrashInfo> {
+  const none: TrashInfo = { count: 0, bytes: 0, clearBy: null, held: 0 };
+  try {
+    if (!persistent()) return none;
+    const marks = Object.entries(trashMarks()).filter(([id]) => !isStored(id));
+    if (!marks.length) return none;
+    const space = await call('spaceOf', [marks.map(([id]) => id)]);
+    const have = new Set(space.have);
+    let bytes = space.bytes;
+    for (const [id] of marks) {
+      const heads = await resultHeads(id);
+      if (heads.length) have.add(id);
+      bytes += heads.reduce((s, h) => s + h.size, 0);
+    }
+    const left = marks.filter(([id]) => have.has(id));
+    if (!left.length) return none;
+    let held = 0;
+    for (const [id] of left) if (await isHeld(id)) held++;
+    return { count: left.length, bytes, clearBy: Math.max(...left.map(([, at]) => at)) + TRASH_KEEP_MS, held };
+  } catch {
+    return none;
+  }
+}
+
+/** 用的人点了「现在清掉」:能清的现在清(还不能清的见 TrashInfo.held)。不抛错 */
+export async function clearTrashNow(): Promise<TrashCleared> {
+  return drainTrash().catch(() => ({ cleared: [], kept: Object.keys(trashMarks()) }));
 }
 
 /** 全清(退出登录时选了「从这台设备上删掉」):先停下正在转的、丢掉手上的,排在正在写的后面;清不了也不挡着退出 */
@@ -714,13 +997,30 @@ export async function clearWorldStore(): Promise<void> {
 /** 开始(App 挂载时调一次;返回取消函数) */
 export function startWorldStore(): () => void {
   stopped = false;
+  started = true;
+  // 正开着的世界:别的标签页删了它,这边还在看,内容不能清
+  let open: { id: string; free: () => void } | null = null;
+  const holdOpen = () => {
+    const id = currentWorld()?.id ?? null;
+    if (open?.id === id) return;
+    open?.free();
+    open = id ? { id, free: holdTrashed(id) } : null;
+  };
+  holdOpen();
   const off = subscribe(() => {
     if (offer) void keepOffer();
     scheduleLight();
     const c = currentWorld();
     if (c) warmNotes(c.id);
+    holdOpen();
   });
-  if (typeof window === 'undefined' || typeof document === 'undefined') return off;
+  const end = () => {
+    started = false;
+    off();
+    open?.free();
+    open = null;
+  };
+  if (typeof window === 'undefined' || typeof document === 'undefined') return end;
   const hidden = () => {
     if (document.visibilityState !== 'hidden') return;
     sim.packNow();
@@ -732,8 +1032,13 @@ export function startWorldStore(): () => void {
     flushLight();
     if (converting) setConverting(null);
   };
+  // 别的标签页清掉了删掉的世界:这边写不下的可以接着存了
+  const otherTab = (e: StorageEvent) => {
+    if (e.key === TRASH && vaultFull && (e.newValue?.length ?? 0) < (e.oldValue?.length ?? 0)) roomMade();
+  };
   document.addEventListener('visibilitychange', hidden);
   window.addEventListener('pagehide', leave);
+  window.addEventListener('storage', otherTab);
   const t1 = setTimeout(() => void startConversions(), timing.convertDelay);
   const clean = () => {
     if (allWorldIds().length || Object.keys(trashMarks()).length) void maintain().catch(() => {});
@@ -741,9 +1046,10 @@ export function startWorldStore(): () => void {
   const t2 = setTimeout(clean, timing.maintainDelay);
   const t3 = setInterval(clean, timing.maintainEvery);
   return () => {
-    off();
+    end();
     document.removeEventListener('visibilitychange', hidden);
     window.removeEventListener('pagehide', leave);
+    window.removeEventListener('storage', otherTab);
     clearTimeout(t1);
     clearTimeout(t2);
     clearInterval(t3);
@@ -767,6 +1073,10 @@ export function _setWorldStore(o: { caller?: VaultCaller | null; runner?: Conver
   clearTimeout(lightTimer);
   chain = Promise.resolve();
   sim = { busy: () => false, packNow: () => {} };
+  clearTimeout(drainTimer);
+  drainChain = Promise.resolve();
+  passing = false;
+  started = false;
 }
 
 /** 等手上排着的写完(单测用) */

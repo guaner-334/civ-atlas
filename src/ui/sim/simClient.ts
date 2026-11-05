@@ -13,6 +13,8 @@
  * 只重发一次:最前面那件(出错时线程正在做的)已经重发过、又出错了,就不再发它,交给 lost 让界面收起它(其余的照旧再发);
  * 换下来的线程后来的消息照第 1 条不管。
  *
+ * 打内容(packParts,存成文件用)也不重发:线程死在这上面多半是内存不够,再来一次还是一样;等着它的那一次直接报 memory。
+ *
  * 读存下的内容打开的世界(读档 load):线程被重开过(出错、叫停再推)时先发 pin 把它重新钉住。
  * 照原样打开的旧世界不钉住的话,新线程按参数生成的是另一颗星球;当前版本的世界不钉住也对,只是要重新生成。
  *
@@ -22,7 +24,7 @@
  *   3. 记账:算一件回音的(见 QUIET)手上最早的那件活回完了;都回完了"在忙什么"清掉
  *   4. 半路放下的生成(aborted):只是一声回音,到此为止
  *   5. 记下线程回报的扩张节拍(tempo),下次发请求带回去
- *   6. 试推演(trial):交给等着它的那一次,到此为止
+ *   6. 试推演(trial)、打好的内容(packed):交给等着它的那一次,到此为止
  *   7. 不是现在这个世界的请求(currentId 对不上):不管
  *   8. 交历史之前先交的编年史(chronicle):收着;交历史的那条(done、civ、civOnly、turn、extended、outlined)到了一起记下
  *      (src/ui/chronicleHandoff.ts)
@@ -32,6 +34,7 @@ import { CivPartInbox } from '../../civParts';
 import { diagBeat, recordWorkerError } from '../../diag/watch';
 import type { Civ } from '../../gen/civ';
 import type { LoadRequest, TempoNote, WorkerRequest, WorkerResponse } from '../../worker';
+import type { WorldPartsOffer } from '../../worldVault';
 import { adoptChronicle, dropChronicleParts, takeChronicleBlock, takeChroniclePart } from '../chronicleHandoff';
 import { adoptStoredFlags } from '../flagStore';
 
@@ -44,8 +47,8 @@ export interface SimWorker {
 }
 
 type Msg<K extends WorkerResponse['type']> = Extract<WorkerResponse, { type: K }>;
-/** 客户端自己收拾的:分段先交的历史、编年史,半路放下的回音,试推演的结果 */
-type Internal = 'civPart' | 'chronicle' | 'chronicleBlock' | 'aborted' | 'trial';
+/** 客户端自己收拾的:分段先交的历史、编年史,半路放下的回音,试推演的结果,打好的内容 */
+type Internal = 'civPart' | 'chronicle' | 'chronicleBlock' | 'aborted' | 'trial' | 'packed';
 /** 每种消息交给谁(现在这个世界的;记账、拼历史、记编年史都已做完) */
 export type SimHandlers = { [K in Exclude<WorkerResponse['type'], Internal>]: (m: Msg<K>) => void };
 
@@ -82,6 +85,15 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
  */
 const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'worldParts', 'extendProgress', 'outlineProgress', 'chronicle', 'chronicleBlock', 'map']);
 
+/** 叫线程打内容要给的(见 worker.ts 的 packParts) */
+export type PackAsk = Omit<Extract<WorkerRequest, { type: 'packParts' }>, 'type' | 'fid'>;
+
+/** 等着线程打好内容的那一次 */
+interface PackWait {
+  resolve: (o: WorldPartsOffer) => void;
+  reject: (e: Error) => void;
+}
+
 /** 发给线程、还没回音的一件活;tries = 已经重发过几次(线程出错时) */
 interface Pending {
   req: WorkerRequest;
@@ -109,6 +121,9 @@ export class SimClient {
   /** 助手的试推演:发给线程、还没回音的(编号 → 等着的那一次) */
   private trials = new Map<number, Trial>();
   private trialSeq = 0;
+  /** 叫线程打的内容(packParts):发给线程、还没回音的(编号 → 等着的那一次) */
+  private packs = new Map<number, PackWait>();
+  private packSeq = 0;
   /** 线程交历史之前先交的几段;换了线程就清掉 */
   private parts = new CivPartInbox();
   /** 照原样打开的世界(打开它的那件读档;换了世界 = null):重开线程时先发 pin 重新钉住(见文件头) */
@@ -134,8 +149,9 @@ export class SimClient {
     if (abort && this.w && this.pending.length > this.soft.size) {
       this.w.terminate();
       this.w = null;
-      // 线程上排着的试推演(助手)一起作废
+      // 线程上排着的试推演(助手)、打内容一起作废
       this.dropTrials('世界换了,试推演作废');
+      this.dropPacks('failed', '世界换了');
     }
     return this.w ?? this.open(true);
   }
@@ -184,7 +200,9 @@ export class SimClient {
     recordWorkerError(e, '生成世界的线程');
     w.terminate();
     this.w = null;
-    const left = this.pending;
+    // 打内容的不重发(见文件头)
+    const left = this.pending.filter((p) => p.req.type !== 'packParts');
+    this.dropPacks('memory', '后台线程没撑住,多半是内存不够');
     this.pending = [];
     this.soft.clear();
     this.doing = null;
@@ -251,7 +269,25 @@ export class SimClient {
     return tid;
   }
 
-  /** 关掉线程(页面卸下时);排着的试推演一起作废 */
+  /**
+   * 叫线程把这份配方的世界打成完整的内容交回来(见 worker.ts 的 packParts):排在手上的活后面。
+   * 打不成、线程没了、换了世界都 reject,错上带 kind(memory = 内存不够,东西没问题)
+   */
+  packParts(req: PackAsk): Promise<WorldPartsOffer> {
+    return new Promise((resolve, reject) => {
+      const fid = ++this.packSeq;
+      this.packs.set(fid, { resolve, reject });
+      this.send({ ...req, type: 'packParts', fid });
+    });
+  }
+
+  /** 排着的打内容都作废 */
+  private dropPacks(kind: 'memory' | 'failed', message: string): void {
+    for (const p of this.packs.values()) p.reject(Object.assign(new Error(message), { kind }));
+    this.packs.clear();
+  }
+
+  /** 关掉线程(页面卸下时);排着的试推演、打内容一起作废 */
   dispose(): void {
     this.w?.terminate();
     this.w = null;
@@ -260,6 +296,7 @@ export class SimClient {
     this.soft.clear();
     this.doing = null;
     this.dropTrials('页面关了,试推演作废');
+    this.dropPacks('failed', '页面关了');
   }
 
   /** 收到线程 w 的一条消息(先后见文件头) */
@@ -283,6 +320,13 @@ export class SimClient {
       const t = this.trials.get(m.tid);
       this.trials.delete(m.tid);
       t?.resolve(m.civ);
+      return;
+    }
+    if (m.type === 'packed') {
+      const p = this.packs.get(m.fid);
+      this.packs.delete(m.fid);
+      if (m.ok) p?.resolve(m.offer);
+      else p?.reject(Object.assign(new Error(m.message), { kind: m.kind }));
       return;
     }
     if (m.id !== this.opts.currentId()) return; // 过时的请求(上一个世界的)
