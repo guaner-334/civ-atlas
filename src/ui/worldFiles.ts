@@ -46,7 +46,7 @@ import { bundleFileName, bundleText, cleanNotes, importBundle, parseBundle, same
 import { MAX_WORLDS, cleanSyncMeta, currentSave, currentWorld, flushThumb, isStored, keepOriginal, listWorlds, loadWorld, markTrash, newWorldId, nextTitle, persistent, putSyncedWorld, rawWorld, storedCount, unmarkTrash, type StoredWorld, type SyncMeta } from './saveStore';
 import { APP_COMMIT, APP_VERSION } from './version';
 import { holdWorld } from './worldHolds';
-import { errKind, packPage, settleForFile, thumbBytes, vaultCall, type VaultCaller } from './worldStore';
+import { errKind, noteListed, packPage, settleForFile, thumbBytes, thumbUrl, vaultCall, type VaultCaller } from './worldStore';
 
 /** 全部世界一个文件最大多少字节:和单个世界文件的本机上限一样。打开时不用整个读进内存,定它是因为更大的 Blob 手机上拼不出来、下载也容易断 */
 export const WORLD_BACKUP_MAX_BYTES = 1e9;
@@ -64,8 +64,6 @@ const RECIPES_MAX_BYTES = 192e6;
 const BACKUP_MAX_WORLDS = 200;
 /** 一个世界最多带几份旧修订(留下的规矩最多也就三四份) */
 const OLDER_MAX = 8;
-/** 封面最大多少字节才放进卡片(localStorage 地方小;网页自己截的只有几十 KB)。太大的只留在仓库里 */
-const THUMB_CARD_MAX = 750_000;
 /** 单独开线程做一件事最多等多久(毫秒):最大的世界在低端手机上也够,卡死了才用得上 */
 const ONCE_TIMEOUT_MS = 300_000;
 /** 等生成世界的线程打页面里的世界最多等多久(毫秒):它要先做完手上的活,可能正在推很长的历史。到了时限退回上次存下的样子 */
@@ -441,13 +439,6 @@ export async function lookWorldFile(file: Blob, options: { timeoutMs?: number } 
 }
 
 /** 封面的字节变成卡片用的 dataURL;太大的不放 */
-function thumbUrl(b: Uint8Array | null): string | null {
-  if (!b || b.length > THUMB_CARD_MAX) return null;
-  let s = '';
-  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
-  return `data:image/jpeg;base64,${btoa(s)}`;
-}
-
 export interface KeptWorldFile {
   ok: true;
   /** 新世界的编号 */
@@ -522,6 +513,7 @@ async function keepAs(id: string, looked: LookedWorldFile, o: { save?: SaveFile 
     return trouble('full', '浏览器存储满了,这个世界没能放进「我的世界」');
   }
   unmarkTrash(id);
+  noteListed(id);
   keepOriginal(id, original);
   const notes = cleanNotes(f.author?.notes);
   const notesLost = notes.length > 0 && !replaceNotes(id, notes);

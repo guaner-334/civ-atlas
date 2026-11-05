@@ -125,9 +125,12 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
   const clearNow = () => {
     if (clearing) return;
     setClearing(true);
-    void clearTrashNow().then((r) => {
+    void clearTrashNow().then(async (r) => {
+      const left = await trashInfo();
       setClearing(false);
-      setStuck(r.kept.length);
+      setTrash(left);
+      // 等着认回来的世界也在 kept 里,不算清不掉
+      setStuck(r.kept.filter((id) => left.ids.includes(id)).length);
       bump();
     });
   };

@@ -20,6 +20,16 @@ const SIDE_ROOM = 400;
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
 
+/** 回到什么世界都没有的样子。只清 localStorage 不够:世界仓库里的世界会被认回来 */
+const clearSite = (p: Page) =>
+  p.evaluate(async () => {
+    localStorage.clear();
+    await new Promise<void>((done) => {
+      const r = indexedDB.deleteDatabase('civ-atlas:worlds');
+      r.onsuccess = r.onerror = r.onblocked = () => done();
+    });
+  });
+
 /**
  * 打开世界概览(点侧栏顶上的世界名;窄屏是左上角的世界名),翻到某一页:countries 国家 / chronicle 编年史 /
  * interventions 我的干预 / genesis 世界设定(创建时定下的种子、参数、地形,只能看;以它为底稿新建、回放世界形成)
@@ -484,7 +494,7 @@ if (part('界面骨架')) {
   if (!escClosed || !scrimClosed) errs.push('世界概览:Esc / 点外面收不起');
   if (!rowClosed || !rowIns.includes(rowName)) errs.push(`世界概览:国家表点一行没有收起概览、选中这国(${rowName};${rowIns.slice(0, 40)})`);
   if (!ins || !side || ins.x < side.x - 1 || ins.x + ins.width > side.x + side.width + 1 || home !== 0) errs.push('界面骨架:点国家后面板没有出现在侧栏里 / 世界首页没收起');
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 早年一个国家都没有:侧栏"国家"下说一句为什么、第一个国家哪年立国,不显示"全部 0 国";点"跳到 N 年"时间轴跳过去,列表里有了它
@@ -667,7 +677,7 @@ if (part('键盘快捷键')) {
   if (!/收起侧栏\s*(Ctrl\+|⌘)\\/.test(tipSide)) errs.push(`快捷键:收起按钮的提示框没写键(${tipSide})`);
   if (!fold1 || fold2) errs.push(`快捷键:Ctrl+\\ 没有收起 / 展开左边的卡片(${fold1}、${fold2})`);
   if (fold3 || !searchAfterFold) errs.push(`快捷键:卡片收起着按 / ,应先展开再跳进搜索框(${fold3}、${searchAfterFold})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 人物:国家卡片的「君主」行和「历代君主」(当前那位标"当前"、点了打开他);人物卡片(名人第一行「事迹」、前任 / 继任、将领可点;
@@ -810,7 +820,7 @@ if (part('人物')) person: {
   if (hit !== `${R.name} ${R.role}，${R.from}–${R.until}` || hitKind !== 'person' || card5 !== R.name) errs.push(`人物:搜"${R.name}"不对(${hit};${hitKind};${card5})`);
   await page.fill('.sidebar .search-input', '');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 世界之最:世界概览「之最」页(人物后面)15 条纪录,跟着时间轴;刚被刷新的那条淡蓝、标「新纪录」;「历来 N 任」就地展开(键盘回车也行),点名字开他的卡片;
@@ -1078,7 +1088,7 @@ if (part('作者标记')) {
   if (gone !== 0 || !delTip.includes('已删除标记「主角的故乡」') || back !== 1) errs.push(`作者标记:删除 / 放回不对(${gone};${delTip};${back})`);
   if (chips !== 1 || !pill) errs.push(`作者标记:州卡片加的标记不对(${chips};${!!pill})`);
   if (!exportRow.includes('作者标记')) errs.push(`作者标记:导出菜单没有"作者标记"一行(${exportRow})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 作者的人物:世界概览「人物」→「我的 0」→ 新建人物:提示条"点地图选出生地",点城 → 出生地填上;填名字、生卒、身份 → 加一段经历(点另一座城、
@@ -1238,7 +1248,7 @@ if (part('作者的人物')) {
   if (!cityRefs.includes('林小满') || !cityRefs.includes('2490 年生在这里')) errs.push(`作者的人物:出生的城的卡片里没有他(${cityRefs})`);
   if (!addHere || addHere.includes('在地图上点') || addPicking.includes('点地图选出生地') || !addClosed) errs.push(`作者的人物:城卡片「在这里加人物」不对(${addHere};${addPicking};${addClosed})`);
   if (gone !== 0 || !delTip.includes('已删除人物「林小满」') || back !== 2) errs.push(`作者的人物:删除 / 放回不对(${gone};${delTip};${back})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 信仰图层:按 3 换到"信仰"(网址记下);侧栏列出各教(大教、教派、最后一行民间信仰);悬停陆地显示这里信的教和所属的国;
@@ -1301,7 +1311,7 @@ if (part('信仰图层')) {
   if (names.length && (!panelFaith.startsWith(names[0]) || !['类型', '创立', '圣城', '信众', '国教', '大事'].every((w) => panelFaith.includes(w))))
     errs.push(`信仰图层:点侧栏的教没有打开它的卡片 / 卡片缺行(${names[0]};${panelFaith.slice(0, 120)})`);
   if (!country.includes('国教')) errs.push(`信仰图层:国家卡片里没有"国教"一行(${country.slice(0, 80)})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 写实风:地名(第一次画就用对字体、放大后重画)、某一点的读数、回放世界形成(地质放完接着放文明)、切回画过的画风不重画
@@ -2723,7 +2733,7 @@ if (part('点选改名')) {
 if (part('存档')) {
   const labelsHave = (n: string, timeout = 60000) =>
     page.waitForFunction((t) => (window as any).__wfLabels?.texts?.includes(t), n, { timeout }).then(() => true, () => false);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -2793,7 +2803,7 @@ if (part('存档')) {
       // 换一个世界(种子 2024),清掉浏览器里的存档(像换了台电脑),再从文件打开
       await page.goto(`${dev.url}/?seed=2024&style=fantasy&civ=polities`);
       await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
-      await page.evaluate(() => localStorage.clear());
+      await clearSite(page);
       await page.waitForTimeout(300);
       if (file) await openFile(page, file);
       back = (await labelsHave('饕餮城')) && page.url().includes('seed=7');
@@ -2817,7 +2827,7 @@ if (part('存档')) {
   if (!fileOk || !/^文明与地图-.+\.civworld$/.test(fileName)) errs.push(`存成的文件不对(${fileName})`);
   if (!back) errs.push('从文件打开后没有回到存档的世界 / 名字没回来');
   // 收尾:删掉这个世界的存档(不影响后面的检查)
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 旧存档的键(阶段 4 远处的历史别乱):浏览器里存着一个旧版本(按"种子 + 参数"当编号、r + 州号的键)的自动存档 →
@@ -2858,7 +2868,7 @@ if (part('旧存档的键')) {
   if (!upgraded) errs.push(`旧存档里 r 格式的键没有换成 c 格式:${JSON.stringify(names)}`);
   if (/找不到对应的地方/.test(note)) errs.push(`旧存档的改名有找不到的:${note}`);
   // 改版前的网址(只带种子、参数,没有 w=)刷新:回到这个存档(换成新编号,改名都在),不是一个空白的"看看"
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`wenming-ditu:world:${id}`, JSON.stringify(legacy)]);
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
@@ -2900,7 +2910,7 @@ if (part('旧存档的键')) {
   const emptyHome = (await page.locator('.mw-empty [data-act=new-world]').count()) > 0 && !(await page.locator('.studio').count());
   console.log(`删掉最后一个世界:提示条在的时候停在我的世界 ${waitHome},提示收起后是空的首页 ${emptyHome}`);
   if (!waitHome || !emptyHome) errs.push(`删掉最后一个世界:应停在"我的世界"(提示条上能撤销),提示收起后是空的首页、不自动新建(停住 ${waitHome},空首页 ${emptyHome})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 // 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"按新版算的",
 // 地形修改按经纬度套上(跨 180° 经线的那一笔也行),指不到的改名 / 干预先留着;页面不报错
@@ -2925,7 +2935,7 @@ if (part('平面时代的存档')) {
     savedAt: '2026-09-20T08:00:00.000Z',
   };
   const before = errs.length;
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?seed=2024&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   const file = path.join(os.tmpdir(), `wf-old-save-${process.pid}.json`);
@@ -2957,7 +2967,7 @@ if (part('平面时代的存档')) {
   if (!regen) errs.push('平面时代的存档:修改没有全部套上(应为改了 5 处)');
   if (!linkOpened || !linkNote.includes('按新版算的')) errs.push(`平面时代的分享链接没有照常打开 / 没提示"按新版算的"(${linkNote})`);
   if (pageErrs > 0) errs.push('打开平面时代的存档、分享链接时页面报错');
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 // 隐私模式(localStorage 一碰就抛错):页面照常能用,改名照样生效,存档菜单里提示"不让存"
 if (part('隐私模式')) {
@@ -3326,7 +3336,8 @@ if (part('看原样')) {
       savedAt: '2026-10-08T12:00:00.000Z',
     };
     await p.goto(`${dev.url}/`);
-    await p.evaluate(([k, v]) => (localStorage.clear(), localStorage.setItem(k, v)), [`wenming-ditu:world:${id}`, JSON.stringify(save)]);
+    await clearSite(p);
+    await p.evaluate(([k, v]) => localStorage.setItem(k, v), [`wenming-ditu:world:${id}`, JSON.stringify(save)]);
     await p.goto(`${dev.url}/?w=${id}`);
     await p.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
     const note = await toastText(p, 'save', 8000);
@@ -3502,7 +3513,7 @@ if (part('干预保护')) {
     }
     if (best) {
       Y = best.y;
-      await page.evaluate(() => localStorage.clear());
+      await clearSite(page);
       await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities&civYear=${Y}`);
       await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 }).catch(() => {});
       await page.waitForTimeout(300);
@@ -3659,7 +3670,7 @@ if (part('干预保护')) {
     console.log(`干预:概览里撤销 → 重推 ${undone},提示「${undoToast}」,列表空 ${emptyAfter === 1},页签「${tabAfter}」`);
     if (!undone || !undoToast.includes('已撤销') || emptyAfter !== 1 || tabAfter !== '我的干预 0') errs.push(`干预:概览里撤销不对(重推 ${undone},提示「${undoToast}」,页签「${tabAfter}」)`);
   }
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 国家面板:点国家 → 暂停、地图飞过去(疆域在面板左边)、国都圆环;信息页(三格数字、朝代条、疆域、邻国、相关事件、2×2 按钮)
@@ -3670,7 +3681,7 @@ if (part('国家面板')) {
   type Plate = { kind: string; id: number; text: string; note: string; x: number; y: number; on: boolean; self: boolean };
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
   const Y = 2600;
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?seed=7&civYear=${Y}`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -3814,14 +3825,14 @@ if (part('国家面板')) {
     if (!(ty >= Y - 1 && ty <= Y + 40) || !playingAfter) errs.push(`国家面板:下令后没有从生效年份接着放(${tlAfter}${playingAfter ? '' : ',没在放'})`);
     if (!/^已撤销/.test(undoToast)) errs.push(`国家面板:撤销后没有"已撤销"(${undoToast})`);
   }
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 政体和朝政页:国家卡片「国都」下面一行「政体」(政体名 + 哪年起),点了换成朝政页:政体名(大字)、为什么叫这个、
 // 征税 / 兵制 / 官制三条分段条(现在那档亮着,各一句)、共用的"地方 ↔ 朝廷"轴;「历次改制」一条时间条 + 一条一行,点一条打开编年史;
 // 拖时间轴(换年份)政体跟着变;够不上议事的小国(没有「朝政」一行)也能点「政体」进朝政页
 if (part('政体和朝政页')) {
-  await page.evaluate(() => localStorage.clear()).catch(() => {});
+  await clearSite(page).catch(() => {});
   await page.goto(`${dev.url}/?seed=7`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   const rowText = () => page.locator('.inspector .ct-form-row').innerText().then((t) => t.replace(/\s+/g, ' '), () => '');
@@ -3867,7 +3878,7 @@ if (part('政体和朝政页')) {
   await page.waitForTimeout(300);
   let early = '';
   if (id >= 0 && Number.isFinite(mid)) {
-    await page.evaluate(() => localStorage.clear());
+    await clearSite(page);
     await page.goto(`${dev.url}/?seed=7&civYear=${mid}`);
     await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
     await pickPolity(id);
@@ -3913,7 +3924,7 @@ if (part('政体和朝政页')) {
     if (!from || !early.startsWith(`${from} `)) errs.push(`政体和朝政页:拖到 ${mid} 年政体没跟着变(${early},应是${from})`);
   }
   if (!/^\S+ \d+ 年起$/.test(smallRow) || !/征税.*兵制.*官制.*历次改制/.test(smallPage)) errs.push(`政体和朝政页:小国的「政体」点不进朝政页(${smallRow};${smallPage.slice(0, 80)})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 编辑地形(新建世界时):陆地笔在大洋中间涂一笔 → 重新生成后那里成了陆地,"画了 1 笔";撤销 → 又是海;重做 → 又是陆地;
@@ -4013,7 +4024,7 @@ if (part('编辑地形')) {
 // 那里成了陆地(悬停显示海拔);撤销 → 又变回海,再放一次;"完成"收起工具;动过的新建世界存下来了,刷新后自动恢复(直接带着地形修改生成);
 // 创建以后没有改地形的入口,概览"世界设定"页写着改过的地形;分享链接在另一个浏览器里打开,地形修改在(也是直接带着修改生成)
 if (part('改地形')) {
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?new=1&seed=7&style=fantasy`);
   await page.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -4136,13 +4147,13 @@ if (part('改地形')) {
     if (regenShared) errs.push('改地形:分享链接打开时先生成原样再按地形修改重新生成了一遍(应该直接带着修改生成)');
     await ctx3.close();
   }
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 干预 · 立国:点一个有主的州 → 详情面板"在这里立国"(起名"饕餮")→ 后台重推 → 地图上那一州归了新国家
 if (part('立国')) {
   const Y = 1500;
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=regions&civYear=${Y}`);
   await page.waitForFunction(() => (window as any).__wfLabels?.ready, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -4249,7 +4260,7 @@ if (part('立国')) {
     const RESIM_BUDGET = process.env.CI ? 4000 : 1600;
     if (resim) timing('立国:重推到画完', resim.paintedMs, RESIM_BUDGET);
   }
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 城 / 地理实体 / 州的面板(和国家面板同一套):点一座城 → 城面板(三格、兴衰、历任归属、2×2 按钮)→ "看所属国家"切到国家面板;
@@ -4259,7 +4270,7 @@ if (part('城和州的面板')) {
   type Plate = { kind: string; id: number; text: string; note: string; x: number; y: number; on: boolean; self: boolean };
   type Pick = { kind: string; id: number; text: string; x: number; y: number };
   const Y = 2600;
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?seed=7&civYear=${Y}`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -4452,7 +4463,7 @@ if (part('城和州的面板')) {
   if (moveCity < 0) errs.push('城面板:没找到能"迁都到这里"的城');
   else if (!moveHidden || !/^.+迁都.+,已从 \d+ 年起重新推演 撤销$/.test(moveToast) || !/^已撤销/.test(moveUndo))
     errs.push(`城面板:"迁都到这里"不对(面板收起 ${moveHidden},「${moveToast}」,撤销「${moveUndo}」)`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 成书(不联网):侧栏右上"更多"里的"把历史写成史书" → 生成史书窗口(写什么 / 文体 / 篇幅,切选项);没设置 AI 时点"开始生成" →
@@ -4571,7 +4582,7 @@ if (part('成书')) {
   if (kept !== 1) errs.push(`成书:刷新后"已写的史书"应该有 1 部(${kept})`);
   if (reopened !== '《世界通史》') errs.push(`成书:点已写的史书没打开阅读页(${reopened})`);
   if (!deleted || left !== 0) errs.push(`成书:删除没生效(阅读页关上 ${deleted},剩 ${left} 部)`);
-  await hp.evaluate(() => localStorage.clear());
+  await clearSite(hp);
   await hp.close();
 }
 
@@ -4800,7 +4811,7 @@ if (part('助手')) {
   if (!sub0 || sub0.includes('干预') || !sub1.includes(`干预了 ${items.length} 处`) || doneMark !== '已执行') errs.push(`助手:执行后侧栏顶上 / 确认单不对(${sub0} → ${sub1},「${doneMark}」)`);
   if (!undone || !undoToast.includes('已撤销改写') || !sub2 || sub2.includes('干预') || undoMark !== '已撤销') errs.push(`助手:提示条上的撤销不对(重推 ${undone},「${undoToast}」,「${sub2}」,「${undoMark}」)`);
   if (!asked.includes('在地图上打开了') || !said.startsWith('【测试用假 AI】') || !opened) errs.push(`助手:问一句没在地图上打开它(${asked};${said};详情 ${opened})`);
-  await rp.evaluate(() => localStorage.clear());
+  await clearSite(rp);
   await rp.close();
 
   // 手机
@@ -4828,7 +4839,7 @@ if (part('助手')) {
   console.log(`助手(手机):卡片 ${sheet}、按钮「${pGo}」;先在地图上看看:卡片收起 ${sheetGone}、提示条 ${pBanner};提示条上执行:重推 ${pResim}、提示条收起 ${pBannerGone}`);
   if (!sheet || !pGo.startsWith('执行')) errs.push(`助手(手机):右上第三个按钮没打开卡片 / 没列确认单(${sheet},「${pGo}」)`);
   if (!sheetGone || !pBanner || !pResim || !pBannerGone) errs.push(`助手(手机):先看再执行不对(卡片收起 ${sheetGone},提示条 ${pBanner},重推 ${pResim},提示条收起 ${pBannerGone})`);
-  await pp.evaluate(() => localStorage.clear());
+  await clearSite(pp);
   await pctx.close();
 }
 
@@ -4878,13 +4889,13 @@ if (part('AI 设置')) {
   if (cleared !== 0) errs.push('AI 设置:清空后还有记录');
   if (!closed) errs.push('AI 设置:按 Esc 没关掉');
   if (outside.length) errs.push(`AI 设置:冒烟测试里请求了真的服务商(${outside[0]})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // AI 释名 / 起名(阶段 5,不联网):没设置 AI 时点"释名" → 一行提示"还没有设置 AI" +"设置 AI"打开设置面板;
 // 测试用假 AI:点一座城 → 释名(写完存下)→ AI 起名 → 选第一个 → 就用这个 → 地图上的城名变了
 if (part('AI 释名')) {
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   let notSet = '';
   let settingsOpened = false;
   {
@@ -4912,7 +4923,7 @@ if (part('AI 释名')) {
   console.log(`AI 释名(没设置 AI):「${notSet.replace(/\n/g, ' ')}」→ 点"设置 AI"打开设置面板 ${settingsOpened}`);
   if (!/还没有设置 AI/.test(notSet) || !notSet.includes('设置 AI')) errs.push(`AI 释名:没设置 AI 时没有一行提示和"设置 AI"(${notSet})`);
   if (!settingsOpened) errs.push('AI 释名:点"设置 AI"没有打开设置面板');
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities&ai=mock`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -4994,7 +5005,7 @@ if (part('AI 释名')) {
   console.log(`国家「${pol?.text}」的"更多"里「${folkItem.replace(/\n/g, ' ')}」→ 面板最下面「${folkNote.slice(0, 40)}…」`);
   if (!/^让 AI 讲.+族的族名由来/.test(folkItem) || !folkNote.includes('族名由来') || !folkNote.includes('测试用假 AI'))
     errs.push(`国家面板:"更多"里讲主体民族的族名由来不对(「${folkItem}」→「${folkNote.slice(0, 60)}」)`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 世界东西相连:左右无限拖动(每帧耗时)、拖一整圈回到原处画面一致、接缝两侧点到同一块地、
@@ -5375,7 +5386,7 @@ if (part('文明细节层')) {
 if (part('多种投影')) {
   const { PNG } = await import('pngjs');
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
   await page.goto(`${dev.url}/?seed=7&style=fantasy&civ=polities`);
   await page.waitForFunction(() => (window as any).__wfLabels?.polities > 0, null, { timeout: 60000 });
   await page.waitForTimeout(300);
@@ -5587,7 +5598,7 @@ if (part('多种投影')) {
   if (onAfter !== 'equirect') errs.push('投影:新建世界改地形时平常的地图不是等距圆柱');
   if (projHome !== 'robinson') errs.push(`投影:没创建就回到我的世界,没有换回原来的罗宾森(${projHome})`);
   if (rowOn !== 'equirect' || !rowsOff) errs.push(`投影:改地形时新建界面右边的投影应停在等距圆柱、点不了(${rowOn},${rowsOff})`);
-  await page.evaluate(() => localStorage.clear());
+  await clearSite(page);
 }
 
 // 触控板和鼠标滚轮(平面地图):鼠标滚轮一格照旧缩放;触控板捏合跟着手指缩放(Chrome 把捏合报成按着 Ctrl 的滚轮);

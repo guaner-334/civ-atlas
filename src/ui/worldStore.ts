@@ -27,7 +27,10 @@
  *
  * 存储紧张时删掉的世界不等 30 天(drainTrash):写不下了、或者还能存的不到 NEAR_FULL_BYTES 时,撤销提示一收起就清,用的人也可以点「现在清掉」(clearTrashNow)。
  * 这些时候绝不清(worldHolds.ts,几个标签页都算):撤销提示还开着、有标签页正开着它、正在写它。别的世界的地图还要从它这里拿的也不清(keptMap)。
+ * 没人点的时候,在名单上过的世界要确定这次删除不能再撤销了才提前清:删除记录可能是撤销以后被回退的(../worldRoster.ts),这种只等 30 天。撤销过的这一次,哪条路都不清。
  * 不删任何还在的世界。腾出了地方就接着存(roomMade):正开着的世界让线程重打一份,别的世界再转一遍。写不下的那一次不重试,等腾出地方。
+ *
+ * 名单丢了(rescueLostWorlds):仓库里有、名单上没有的世界按 ../worldRoster.ts 的规则认回来。写不进名单就算了,这次打开不再试,也不提示。
  *
  * 存储满了也要存得成文件(worldFiles.ts):settleForFile 让转存的线程写不下时直接交回文件,packPage 让生成世界的线程把页面里的世界打成几块。都不写库。
  *
@@ -46,11 +49,12 @@ import type { ConvertJob } from '../worldConvert';
 import type { ConvertReply } from '../worldConvertWorker';
 import { pendingEdit, type CommitRequest, type CommitResult, type DraftedFile, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
+import { rosterStep, undidThis, type RosterMarks } from '../worldRoster';
+import { currentAccount } from '../account/session';
 import { isCoarse, isNarrow } from './device';
-import { getSession } from '../account/session';
 import { dropResults, resultHeads, resultSizes } from './resultStore';
 import type { PackAsk } from './sim/simClient';
-import { TRASH, allWorldIds, currentWorld, deleteWorld, isStored, listWorlds, loadWorld, originalOf, persistent, reportVaultFull, saveAsNewVersion, storageFullWhy, subscribe, trashMarks, unmarkTrash, vaultRoomBack } from './saveStore';
+import { MAX_WORLDS, TRASH, VAULT_CLEARED, allWorldIds, currentWorld, deleteWorld, isStored, listWorlds, loadWorld, markTrash, originalOf, persistent, putSyncedWorld, reportVaultFull, saveAsNewVersion, storageFullWhy, storedCount, subscribe, syncable, trashMarks, unmarkTrash, vaultRoomBack } from './saveStore';
 import { NEAR_FULL_BYTES, PERSIST_ASKED, appleDevice, askPersisted, firstHintSaid, isNearFull, noteFirstHint, noteVaultFull, rawRoom, spaceChanged } from './spaceFacts';
 import { clearToast, showToast } from './toastStore';
 import { withFileFlow } from './worldFileLazy';
@@ -83,12 +87,13 @@ const timing = {
   holdGap: 3000,
   /** 存储紧张、有世界被别的标签页拿着:隔多久再看一眼(那边关了、崩了不会告诉这边) */
   holdRetry: 60_000,
+  /** 打开页面过多久对一遍名单和仓库:在清理原件、转存之前 */
+  rosterDelay: 3000,
 };
 
 /** 转的时候记一下在转谁(页面崩了下次打开看得到) */
 const CONVERTING = 'civ-atlas:converting';
-/** 最近一次全清的时间(几个标签页靠它知道仓库被清了) */
-const CLEARED = 'civ-atlas:vault-cleared';
+const CLEARED = VAULT_CLEARED;
 
 function clearedAt(): string | null {
   try {
@@ -166,6 +171,17 @@ export function thumbBytes(url: string | null | undefined): Uint8Array | undefin
   }
 }
 
+/** 封面最大多少字节才放进卡片(localStorage 地方小;网页自己截的只有几十 KB)。太大的只留在仓库里 */
+const THUMB_CARD_MAX = 750_000;
+
+/** 封面的 JPEG 字节转成放进卡片的 dataURL;没有、太大 = null */
+export function thumbUrl(b: Uint8Array | null): string | null {
+  if (!b || b.length > THUMB_CARD_MAX) return null;
+  let s = '';
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return `data:image/jpeg;base64,${btoa(s)}`;
+}
+
 /** 这个世界能存进仓库:建好的世界(没建完的、只存了地图的不算,还没有历史) */
 const canKeep = (w: { draft: boolean; map: boolean } | null) => !!w && !w.draft && !w.map;
 
@@ -212,9 +228,10 @@ async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<Co
       fullHere.delete(req.id);
       setVaultFull(false);
       void askPersist().then(() => firstHint(req.id));
-      void call('patchState', [req.id, { full: undefined }])
+      void call('patchState', [req.id, { full: undefined, ...listedMarks(req.id) }])
         .then(spaceChanged)
         .catch(() => {});
+      flushRoster();
     } else if (r.status === 'same' && fullHere.delete(req.id)) {
       void call('patchState', [req.id, { full: undefined }])
         .then(spaceChanged)
@@ -331,7 +348,7 @@ async function askPersist(): Promise<void> {
 
 /** 存的不是正开着的世界(后台转的)这次不算,不然人在别处突然冒出来 */
 async function firstHint(id: string): Promise<void> {
-  if (firstHintSaid() || !appleDevice() || getSession() || currentWorld()?.id !== id || (await askPersisted())) return;
+  if (firstHintSaid() || !appleDevice() || currentAccount() || currentWorld()?.id !== id || (await askPersisted())) return;
   noteFirstHint();
   showToast({
     id: 'lose-first',
@@ -624,7 +641,7 @@ async function runJob(job: ConvertJob, asked = false, onFile?: (f: DraftedFile) 
       await call('patchState', [job.id, { archived: [...(state?.archived ?? []), job.generator] }]);
     } else {
       fullHere.delete(job.id);
-      await call('patchState', [job.id, { status: undefined, generator: undefined, app: undefined, error: undefined, full: undefined }]);
+      await call('patchState', [job.id, { status: undefined, generator: undefined, app: undefined, error: undefined, full: undefined, ...listedMarks(job.id) }]);
     }
     if (out.result.status === 'saved') void askPersist().then(() => firstHint(job.id));
     spaceChanged();
@@ -910,7 +927,7 @@ export async function maintain(trashKeep: number = TRASH_KEEP_MS, grace?: number
   const now = Date.now();
   for (const [id, at] of Object.entries(trashMarks())) {
     if (isStored(id)) unmarkTrash(id);
-    else if (now - at >= trashKeep) await purgeTrashed(id);
+    else if (now - at >= trashKeep && !(await undone(id, at))) await purgeTrashed(id);
   }
   tidyNotes();
   await call('sweepParts', grace === undefined ? [] : [grace]);
@@ -936,6 +953,26 @@ async function mapNeededFrom(id: string): Promise<boolean> {
   return false;
 }
 
+/** 这次删除撤销过(撤销被回退了,见 ../worldRoster.ts):内容不能清 */
+async function undone(id: string, at: number): Promise<boolean> {
+  return undidThis(await call('stateOf', [id]), at);
+}
+
+/** 给 resultStore:同上,问不到算没有 */
+export function trashUndone(id: string, at: number): Promise<boolean> {
+  return undone(id, at).catch(() => false);
+}
+
+/** 这个标签页亲眼看着撤销提示收起的(世界编号 → 那次删除的时间):满了时那一笔可能写不进仓库 */
+const settledHere = new Map<string, number>();
+
+/** 不到 30 天能不能清。asked = 用的人自己点的「现在清掉」,听用的人的 */
+async function mayDrain(id: string, at: number, asked: boolean): Promise<boolean> {
+  const s = await call('stateOf', [id]);
+  if (undidThis(s, at)) return false;
+  return asked || settledHere.get(id) === at || s?.settled === at || s?.listed === undefined;
+}
+
 /** 清了哪些、这次没清的(还不能清,见文件头) */
 export interface TrashCleared {
   cleared: string[];
@@ -946,13 +983,13 @@ let drainChain: Promise<unknown> = Promise.resolve();
 let drainTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** 现在就清能清的删掉的世界,再清没人引用的块。一次一遍,几处同时要的排着 */
-function drainTrash(): Promise<TrashCleared> {
-  const p = drainChain.then(oneDrain);
+function drainTrash(asked = false): Promise<TrashCleared> {
+  const p = drainChain.then(() => oneDrain(asked));
   drainChain = p.catch(() => {});
   return p;
 }
 
-async function oneDrain(): Promise<TrashCleared> {
+async function oneDrain(asked: boolean): Promise<TrashCleared> {
   const out: TrashCleared = { cleared: [], kept: [] };
   if (!persistent()) return out;
   const now = Date.now();
@@ -968,7 +1005,7 @@ async function oneDrain(): Promise<TrashCleared> {
     if (wait > 0) {
       out.kept.push(id);
       if (canSeeHolds()) soon = Math.min(soon, wait);
-    } else if (await mapNeededFrom(id)) out.kept.push(id);
+    } else if ((await mapNeededFrom(id)) || !(await mayDrain(id, at, asked))) out.kept.push(id);
     else if (await purgeTrashed(id)) out.cleared.push(id);
     else {
       out.kept.push(id);
@@ -1008,19 +1045,24 @@ export function holdTrashed(id: string): () => void {
   const free = holdWorld(id);
   return () => {
     free();
-    trashFreed(id);
+    if (id in trashMarks()) drainSoon();
   };
 }
 
-/** 这个世界不再拿着了(撤销提示收起了):它是删掉的世界、存储又紧张,就马上腾地方 */
+/** 撤销提示收起了,这次删除不能再撤销了:它是删掉的世界、存储又紧张,就马上腾地方 */
 export function trashFreed(id: string): void {
-  if (id in trashMarks()) drainSoon();
+  const at = trashMarks()[id];
+  if (at === undefined) return;
+  settledHere.set(id, at);
+  noteRoster(id, { settled: at });
+  drainSoon();
 }
 
 /** 腾出了地方:接着存。正开着的世界让线程重打一份,别的世界再转一遍 */
 function roomMade() {
   setVaultFull(false);
   spaceChanged();
+  flushRoster();
   if (!started || stopped) return;
   void refillCurrent();
   void startConversions();
@@ -1052,6 +1094,7 @@ export interface TrashInfo {
   clearBy: number | null;
   /** 其中几个这时候还不能清(撤销提示还开着、有标签页开着它、正在写它):「现在清掉」不动它们 */
   held: number;
+  ids: string[];
 }
 
 export interface SpaceBoard {
@@ -1086,10 +1129,12 @@ export async function fullWorldIds(): Promise<string[]> {
 
 /** 看一眼删掉的世界占多少、几个、哪天自己清掉。不抛错,问不到算没有 */
 export async function trashInfo(): Promise<TrashInfo> {
-  const none: TrashInfo = { count: 0, bytes: 0, clearBy: null, held: 0 };
+  const none: TrashInfo = { count: 0, bytes: 0, clearBy: null, held: 0, ids: [] };
   try {
     if (!persistent()) return none;
-    const marks = Object.entries(trashMarks()).filter(([id]) => !isStored(id));
+    // 撤销过的这一次会被认回来,不算删掉的
+    const marks: [string, number][] = [];
+    for (const [id, at] of Object.entries(trashMarks())) if (!isStored(id) && !(await undone(id, at))) marks.push([id, at]);
     if (!marks.length) return none;
     const space = await call('spaceOf', [marks.map(([id]) => id)]);
     const have = new Set(space.have);
@@ -1103,7 +1148,7 @@ export async function trashInfo(): Promise<TrashInfo> {
     if (!left.length) return none;
     let held = 0;
     for (const [id] of left) if (await isHeld(id)) held++;
-    return { count: left.length, bytes, clearBy: Math.max(...left.map(([, at]) => at)) + TRASH_KEEP_MS, held };
+    return { count: left.length, bytes, clearBy: Math.max(...left.map(([, at]) => at)) + TRASH_KEEP_MS, held, ids: left.map(([id]) => id) };
   } catch {
     return none;
   }
@@ -1111,7 +1156,136 @@ export async function trashInfo(): Promise<TrashInfo> {
 
 /** 用的人点了「现在清掉」:能清的现在清(还不能清的见 TrashInfo.held)。不抛错 */
 export async function clearTrashNow(): Promise<TrashCleared> {
-  return drainTrash().catch(() => ({ cleared: [], kept: Object.keys(trashMarks()) }));
+  return drainTrash(true).catch(() => ({ cleared: [], kept: Object.keys(trashMarks()) }));
+}
+
+// ---------------------------------------------------------------------------
+// 名单和仓库对一遍(判断规则见 ../worldRoster.ts)
+
+/** 写不进仓库的记号(写满了):腾出地方、下次写成了补上;关了页面就没了 */
+const unwritten = new Map<string, RosterMarks>();
+/** 每个世界每个记号最后要写的值:补写时不能拿旧的盖掉后来写成了的 */
+const lastNoted = new Map<string, RosterMarks>();
+
+/** 没写成:这几项还是最后要写的值才放着 */
+function keepUnwritten(id: string, marks: RosterMarks): void {
+  const last = lastNoted.get(id);
+  const still = Object.fromEntries(Object.entries(marks).filter(([k, v]) => last?.[k as keyof RosterMarks] === v));
+  if (Object.keys(still).length) unwritten.set(id, { ...still, ...unwritten.get(id) });
+}
+
+/** 记一笔。记不下先放着,不重试 */
+export function noteRoster(id: string, marks: RosterMarks): void {
+  lastNoted.set(id, { ...lastNoted.get(id), ...marks });
+  const old = unwritten.get(id);
+  if (old) {
+    const left = Object.fromEntries(Object.entries(old).filter(([k]) => !(k in marks)));
+    if (Object.keys(left).length) unwritten.set(id, left);
+    else unwritten.delete(id);
+  }
+  void call('patchState', [id, marks]).catch(() => keepUnwritten(id, marks));
+}
+
+function flushRoster(): void {
+  if (!unwritten.size) return;
+  const list = [...unwritten];
+  unwritten.clear();
+  void call('patchStates', [list]).catch(() => {
+    for (const [id, m] of list) keepUnwritten(id, m);
+  });
+}
+
+/** 现在在名单上:写进小状态的那几项;不在 = 不写(写的同时看名单,看到的就是这一刻的) */
+function listedMarks(id: string): RosterMarks {
+  const w = loadWorld(id);
+  return w ? { listed: Date.now(), alive: w.alive } : {};
+}
+
+/** 刚放进名单、写进仓库不走这里的世界(打开文件) */
+export function noteListed(id: string): void {
+  noteRoster(id, listedMarks(id));
+}
+
+/** 这一遍怎么样:认回来的;算删了的;说不清、留在仓库里不动的 */
+export interface RosterReport {
+  rescued: string[];
+  deleted: string[];
+  unsure: string[];
+}
+
+/** 认回来一个;full = 写不进名单。拿着世界的人不打扰(撤销提示开着、别的标签页开着它、正在写它),下次打开再看 */
+async function rescueOne(id: string, alive: number | undefined, trashedAt: number | undefined, wiped: string | null): Promise<'done' | 'skip' | 'full'> {
+  let out: 'done' | 'skip' | 'full' = 'skip';
+  await ifNotHeld(id, async () => {
+    const copy = await call('rosterCopy', [id]);
+    if (!copy) return;
+    const text = JSON.stringify(copy.recipe);
+    if (!parseSave(text).ok) return;
+    // 等的这一会儿名单、记录可能变了(别的标签页认了、删了、清了)
+    if (isStored(id) || trashMarks()[id] !== trashedAt || clearedAt() !== wiped || currentWorld()?.id === id) return;
+    if (!putSyncedWorld(id, { save: text, meta: alive === undefined ? {} : { alive }, thumb: thumbUrl(copy.thumb) })) {
+      out = 'full';
+      return;
+    }
+    if (trashedAt !== undefined) unmarkTrash(id);
+    out = 'done';
+  });
+  return out;
+}
+
+async function rosterPass(): Promise<RosterReport> {
+  const out: RosterReport = { rescued: [], deleted: [], unsure: [] };
+  if (!persistent()) return out;
+  const wiped = clearedAt();
+  const rows = await call('rosterOf', []);
+  const marks: [string, Partial<RosterMarks>][] = [];
+  let room = true;
+  for (const { id, at, state } of rows) {
+    const w = loadWorld(id);
+    if (w) {
+      // 删过、又回到名单上了(账号里取回来的、从备份放回来的):现在算在名单上
+      const back = state?.deleted !== undefined && state.deleted !== state.undid;
+      if (state?.listed === undefined || state.alive !== w.alive || back) marks.push([id, { ...listedMarks(id), ...(back ? { undid: state.deleted } : {}) }]);
+      continue;
+    }
+    if (isStored(id)) continue;
+    const trashedAt = trashMarks()[id];
+    const step = rosterStep(state, trashedAt, !!currentAccount());
+    if (step === 'remark') markTrash(id, state!.deleted);
+    if (step === 'remark' || step === 'deleted') out.deleted.push(id);
+    if (step === 'unsure') out.unsure.push(id);
+    if (step !== 'rescue' || !room || !syncable(id)) continue;
+    // 退出登录全清时该清掉、没清掉的
+    if (wiped !== null && at <= Number(wiped)) continue;
+    if (storedCount() >= MAX_WORLDS) {
+      room = false;
+      continue;
+    }
+    const r = await rescueOne(id, state?.alive, trashedAt, wiped);
+    if (r === 'done') out.rescued.push(id);
+    if (r === 'full') room = false;
+  }
+  if (marks.length) await call('patchStates', [marks]).catch(() => {});
+  return out;
+}
+
+let rosterRun: Promise<RosterReport> | null = null;
+
+/** 对一遍名单和仓库,丢了的世界认回来。几个标签页只有一个对,别的这次不对。不抛错 */
+export function rescueLostWorlds(): Promise<RosterReport> {
+  const none: RosterReport = { rescued: [], deleted: [], unsure: [] };
+  rosterRun ??= (async () => {
+    try {
+      const locks = (navigator as { locks?: LockManager }).locks;
+      if (!locks?.request) return await rosterPass();
+      return (await locks.request('civ-atlas:roster', { ifAvailable: true }, (lock) => (lock ? rosterPass() : none))) as RosterReport;
+    } catch {
+      return none;
+    } finally {
+      rosterRun = null;
+    }
+  })();
+  return rosterRun;
 }
 
 /** 全清(退出登录时选了「从这台设备上删掉」):先停下正在转的、丢掉手上的,排在正在写的后面;清不了也不挡着退出 */
@@ -1161,6 +1335,7 @@ export function startWorldStore(): () => void {
     if (document.visibilityState !== 'hidden') return;
     sim.packNow();
     flushLight();
+    flushRoster();
   };
   // 关页面:正常关的不算崩(下次还接着转这个世界)。只收拾这个标签页自己的记录
   const leave = () => {
@@ -1175,6 +1350,7 @@ export function startWorldStore(): () => void {
   document.addEventListener('visibilitychange', hidden);
   window.addEventListener('pagehide', leave);
   window.addEventListener('storage', otherTab);
+  const t0 = setTimeout(() => void rescueLostWorlds(), timing.rosterDelay);
   const t1 = setTimeout(() => void startConversions(), timing.convertDelay);
   const clean = () => {
     if (allWorldIds().length || Object.keys(trashMarks()).length) void maintain().catch(() => {});
@@ -1186,6 +1362,7 @@ export function startWorldStore(): () => void {
     document.removeEventListener('visibilitychange', hidden);
     window.removeEventListener('pagehide', leave);
     window.removeEventListener('storage', otherTab);
+    clearTimeout(t0);
     clearTimeout(t1);
     clearTimeout(t2);
     clearInterval(t3);
@@ -1214,6 +1391,9 @@ export function _setWorldStore(o: { caller?: VaultCaller | null; runner?: Conver
   drainChain = Promise.resolve();
   passing = false;
   started = false;
+  settledHere.clear();
+  unwritten.clear();
+  lastNoted.clear();
 }
 
 /** 等手上排着的写完(单测用) */
