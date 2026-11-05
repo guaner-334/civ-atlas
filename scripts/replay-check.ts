@@ -180,16 +180,16 @@ const replayClick = async (p: Page = page) => {
  */
 const openFile = async (p: Page, file: string) => {
   if (await p.locator('[data-testid=save-file-input]').count()) return p.setInputFiles('[data-testid=save-file-input]', file);
-  const text = (await import('node:fs')).readFileSync(file, 'utf8');
+  const data = (await import('node:fs')).readFileSync(file).toString('base64');
   const name = (await import('node:path')).basename(file);
   await p.evaluate(
     ([t, n]) => {
       const dt = new DataTransfer();
-      dt.items.add(new File([t], n, { type: 'application/json' }));
+      dt.items.add(new File([Uint8Array.from(atob(t), (c) => c.charCodeAt(0))], n));
       const el = document.querySelector('.app')!;
       for (const type of ['dragenter', 'dragover', 'drop']) el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
     },
-    [text, name],
+    [data, name],
   );
 };
 /** 某一点的完整读数:群落 / 海拔(水深)/ 气温降水 / 经纬度板块 / 国家 · 最近城市 / 民族 / 州(一行一条,用 " / " 连起来) */
@@ -2775,9 +2775,15 @@ if (part('存档')) {
       const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('[data-act=save-file]')]);
       fileName = dl.suggestedFilename();
       const file = await dl.path();
-      const text = file ? (await import('node:fs')).readFileSync(file, 'utf8') : '';
-      const save = JSON.parse(text);
-      fileOk = save.app === '文明与地图' && save.seed === 7 && Object.values(save.edits?.names ?? {}).includes('饕餮城') && /^[0-9a-f]{12}$/.test(save.check);
+      // 下载下来的是整个世界:打开文件(核对、读配方)看里面的东西对不对
+      const looked = file
+        ? await page.evaluate(async (b64) => {
+            const m: any = await (window as any).__wfWorldFiles();
+            const r = await m.lookWorldFile(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))]));
+            return r.ok ? { seed: r.seed, names: Object.values(r.facts.save.edits?.names ?? {}), check: r.facts.save.check } : null;
+          }, (await import('node:fs')).readFileSync(file).toString('base64'))
+        : null;
+      fileOk = fileName.endsWith('.civworld') && looked?.seed === 7 && looked.names.includes('饕餮城') && /^[0-9a-f]{12}$/.test(looked.check);
       await page.click('.save-btn');
       // 回到"我的世界":有这个世界的卡片
       await page.click('.sidebar [data-act=home]');
@@ -2808,7 +2814,7 @@ if (part('存档')) {
   if (/[?&]w=/.test(visitUrl) || !/[?&]w=w/.test(storedUrl)) errs.push(`只是看看的世界改了以后,网址应换成 w=编号(${visitUrl} → ${storedUrl})`);
   if (!menu.includes('已自动存')) errs.push(`存档菜单里当前世界没写"已自动存"(${menu})`);
   if (listed !== 1) errs.push(`"我的世界"里应正好有改过的这一个世界(${listed})`);
-  if (!fileOk || !/^文明与地图-.+\.json$/.test(fileName)) errs.push(`存成的文件不对(${fileName})`);
+  if (!fileOk || !/^文明与地图-.+\.civworld$/.test(fileName)) errs.push(`存成的文件不对(${fileName})`);
   if (!back) errs.push('从文件打开后没有回到存档的世界 / 名字没回来');
   // 收尾:删掉这个世界的存档(不影响后面的检查)
   await page.evaluate(() => localStorage.clear());
@@ -3094,7 +3100,7 @@ if (part('分享链接')) {
   else {
     if (!share?.withData || !share.url.includes('#share=')) errs.push('分享:复制的链接没带修改');
     if (!share || clip !== share.url) errs.push('分享:剪贴板里的不是分享链接');
-    if (!copyNote.startsWith('已复制分享链接')) errs.push(`分享:复制后的提示不对(${copyNote})`);
+    if (!copyNote.startsWith('已复制配方链接')) errs.push(`分享:复制后的提示不对(${copyNote})`);
     if (!opened) errs.push('分享:另一个浏览器打开链接后名字不在');
     if (!hashGone) errs.push('分享:打开后地址栏的 # 没去掉');
     if (!openNote.includes('别人分享给你的世界')) errs.push(`分享:打开链接后地图下面没有"别人分享给你的世界"那条说明(${openNote})`);
@@ -3395,13 +3401,13 @@ if (part('各种状态')) {
   fs.writeFileSync(bad, JSON.stringify({ hello: 'world' }));
   await openFile(sp, bad);
   // 读完再删(页面是异步读文件的,先删了会变成"读不了这个文件")
-  const badNote = await sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 5000 }).then((t) => t.replace(/\n/g, ' '), () => '');
+  const badNote = await sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 30000 }).then((t) => t.replace(/\n/g, ' '), () => '');
   // 存档坏了、没存完整:不说坏了,说网站没有动它;来自更新版本:带「刷新页面」
   const noteOf = async (text: string) => {
     await sp.evaluate(async () => (await import('/src/ui/saveStore.ts' as string)).notify(null));
     fs.writeFileSync(bad, text);
     await openFile(sp, bad);
-    return sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 5000 }).then((t) => t.replace(/\n/g, ' '), () => '');
+    return sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 30000 }).then((t) => t.replace(/\n/g, ' '), () => '');
   };
   const cutNote = await noteOf('{\n  "app": "文明与地图",\n  "format": 1,\n  "seed"');
   const newerFile = await noteOf(JSON.stringify({ app: '文明与地图', format: 99, seed: 7 }));

@@ -11,6 +11,7 @@ import type { SaveFile } from '../gen/savefile';
 import { OLD_SITE, latestUrl, openInLatest } from './oldSite';
 import { briefError, notify } from './saveStore';
 import type { ToastAction } from './toastStore';
+import { withFileFlow } from './worldFileLazy';
 
 /** 我的世界里的世界读取出错,退路也走不通 */
 export const READ_TROUBLE = '读的时候出错了。原来的内容还在，先别删';
@@ -47,9 +48,15 @@ function refreshPage() {
   location.reload();
 }
 
-/** 交不过去(浏览器太旧,压缩不了存档):说一声怎么自己打开 */
-export function openFailed(site?: string) {
-  notify({ kind: 'error', text: '这个浏览器打不开', more: [site ? `请把世界存成文件，到 ${site} 打开` : '请把世界存成文件，到最新版打开'] });
+/** 交不过去(浏览器太旧,压缩不了存档):说一声怎么自己打开。旧网站只认 .json,提示条上的「存成文件」存的就是这一份(save) */
+export function openFailed(site?: string, save?: SaveFile) {
+  const where = site ? `到 ${site} 打开` : '到最新版打开';
+  notify({
+    kind: 'error',
+    text: '这个浏览器打不开',
+    more: [`请把世界存成文件，${where}`],
+    ...(save ? { action: { label: '存成文件', act: 'save-old-file', onClick: () => withFileFlow('没能存成文件', (m) => m.saveRecipeFile(save, where)) } } : {}),
+  });
 }
 
 /**
@@ -64,7 +71,7 @@ export function newerNotice(from: 'world' | 'file', save?: SaveFile | null, site
         label: '到最新版打开',
         act: 'open-latest',
         onClick: () => {
-          if (save) void openInLatest(save).then((ok) => ok || openFailed());
+          if (save) void openInLatest(save).then((ok) => ok || openFailed(undefined, save));
           else window.open(latestUrl().href, '_blank', 'noopener');
         },
       },

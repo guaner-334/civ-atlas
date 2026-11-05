@@ -2,12 +2,13 @@
  * 世界卡片头部的"存档"菜单:只管正在看的这一个世界(打开别的世界、从文件打开在"我的世界"那一页,见 MyWorlds.tsx) ——
  *
  *   当前世界:缩略图、名字、种子、地形改过几处、"已自动存在这个浏览器里"(打开的链接还没动过 = 还没存)
- *   存成文件:下载 .json(文明与地图-九州大陆.json;格式见 gen/savefile.ts)
- *   复制分享链接:整份存档压缩进网址的 # 后面(gen/savefile.ts 的 encodeShare),复制到剪贴板;
+ *   存成文件:整个世界存成 .civworld(worldFileFlow.ts;小字写多大,要打包才知道的不写);没有内容可存的存 .json
+ *   复制配方链接:整份存档压缩进网址的 # 后面(gen/savefile.ts 的 encodeShare),复制到剪贴板;
  *     没有修改 = 普通网址(只带种子、参数);剪贴板用不了:菜单留着,里面多一行选中了链接的输入框,让用户自己复制。
  *     下面一行勾选「停在这一刻」(shareMoment.tsx):勾着就带上时间轴那一年、选中的国家或州、地图的位置和大小,
  *     对方打开停在那里(不自动播放);默认勾着,记住上次的选择
- *   登录了网站账号:当前世界那一行写同步到账号了没有;"复制分享链接"换成"分享…"(短链接,随时能停,AccountDialogs.tsx 的分享窗)
+ *   从文件打开进来的:当前世界那一行多一句「来自文件」和哪天打开的(只在这台设备上记)
+ *   登录了网站账号:当前世界那一行写同步到账号了没有;"复制配方链接"换成"分享…"(短链接,随时能停,AccountDialogs.tsx 的分享窗)
  *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
  *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)。
  *                   存的内容读不出、先按新版算了一遍的世界也放:那一份不自动存,要留着看到的样子只能另存(「看原样」照放)
@@ -16,10 +17,12 @@
  * ⌘S 打开这个菜单(openSaveMenu;世界本来就自动存着,菜单上写着存没存好)。
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { SHARE_WARN_LENGTH, editCount, saveFileName, saveText, type SaveFile } from '../gen/savefile';
+import { SHARE_WARN_LENGTH } from '../gen/savefile';
 import { useEdits } from './editsStore';
-import { addFileSaver, currentOriginal, currentSave, currentWorld, loadWorld, notify, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
+import { currentOriginal, currentWorld, loadWorld, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
+import { withFileFlow } from './worldFileLazy';
 import { oldSiteFor, openOriginal } from './oldSite';
+import { openFailed } from './openTrouble';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
 import { openShareDialog } from './AccountDialogs';
@@ -36,32 +39,16 @@ export interface SaveMenuProps {
   icon?: ReactNode;
 }
 
-/** 调试 / 冒烟测试用:最近一次"存成文件" */
-interface SaveDebug {
-  name: string;
-  bytes: number;
-  count: number;
-}
-
-
 /** 当前世界存成文件(菜单里的"存成文件"、存储满了时提示条上的"存成文件") */
 function saveCurrentFile() {
-  const save = currentSave();
-  if (!save) return;
-  const name = saveFileName(save);
-  const text = saveText(save);
-  download(text, name);
-  (window as unknown as { __wfSave?: SaveDebug }).__wfSave = { name, bytes: new Blob([text]).size, count: editCount(save.edits) };
-  notify({ kind: 'ok', text: '已存成文件', more: [name] });
+  withFileFlow('没能存成文件', (m) => m.saveCurrentToFile());
 }
 
-function download(text: string, name: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json;charset=utf-8' }));
-  const a = Object.assign(document.createElement('a'), { href: url, download: name });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+/** 菜单上写的:来自文件，11 月 4 日打开(不是今年的带上年) */
+function fromFileLine(iso: string): string {
+  const d = new Date(iso);
+  const year = d.getFullYear() === new Date().getFullYear() ? '' : `${d.getFullYear()} 年 `;
+  return `来自文件，${year}${d.getMonth() + 1} 月 ${d.getDate()} 日打开`;
 }
 
 /** 剪贴板用不了:菜单里一行"没能自动复制",下面是选中了链接的输入框(不另开窗口) */
@@ -74,7 +61,7 @@ function ManualCopy({ url }: { url: string }) {
   return (
     <div className="save-manual" data-testid="share-manual">
       <span>{url.length > SHARE_WARN_LENGTH ? `没能自动复制，请手动复制。${LONG_HINT}` : '没能自动复制，请手动复制'}</span>
-      <input ref={ref} readOnly value={url} spellCheck={false} aria-label="分享链接" onFocus={(e) => e.currentTarget.select()} />
+      <input ref={ref} readOnly value={url} spellCheck={false} aria-label="配方链接" onFocus={(e) => e.currentTarget.select()} />
     </div>
   );
 }
@@ -111,12 +98,29 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const edits = useEdits();
   const cur = ready ? currentWorld() : null;
   const curStored = useMemo(() => (open && cur ? loadWorld(cur.id) : null), [open, cur, v]);
-  const count = editCount(edits);
   const keep = persistent();
   const full = storageIsFull();
   const session = useSession();
   const syncView = useSyncView();
   const synced = useMemo(() => (open && session && cur && curStored ? worldSync(cur.id) : null), [open, session, cur, curStored, syncView]);
+  // 存成文件有多大:菜单开着才算;存储满了时写不准(页面里的比存着的新),不写
+  const [size, setSize] = useState<{ id: string; note: string } | null>(null);
+  const curId = cur?.id;
+  const hasFile = !!curStored && !curStored.draft && !curStored.map && !full;
+  useEffect(() => {
+    if (!open || !curId || !hasFile) return;
+    let live = true;
+    import('./worldFileFlow')
+      .then((m) => m.fileSizeNote(curId))
+      .then((note) => {
+        if (live && note) setSize({ id: curId, note });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [open, curId, hasFile]);
+  const sizeNote = size && hasFile && size.id === curId ? `，${size.note}` : '';
 
   // 点菜单外面就收起(在捕获阶段听:地图上的按钮条拦了冒泡,点旁边的按钮照样收起)
   useEffect(() => {
@@ -143,7 +147,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   // 「停在这一刻」:勾着就带上时间轴那一年、选中的国家或州、地图的位置和大小(默认勾着,记住上次的选择)
   const [momentOn, setMomentOn] = useMomentOn();
   const at = open && ready ? momentNow() : null;
-  // 复制分享链接:网址(种子 + 参数 + 画风……)+ #share=整份存档(带上这一刻);没有修改、也不带这一刻就是普通网址。
+  // 复制配方链接:网址(种子 + 参数 + 画风……)+ #share=整份存档(带上这一刻);没有修改、也不带这一刻就是普通网址。
   // 剪贴板用不了:菜单留着,里面多一行选中了链接的输入框(不另开窗口)
   const [manual, setManual] = useState<string | null>(null);
   const shareLink = async () => {
@@ -157,8 +161,6 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   useEffect(() => {
     if (!open) setManual(null);
   }, [open]);
-  // 存储满了 / 浏览器不让存时,提示条上的"存成文件"
-  useEffect(() => addFileSaver(saveCurrentFile), []);
 
   const title = cur?.title;
   const nTerrain = edits.terrain.length;
@@ -183,7 +185,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const seeOriginal = () => {
     if (!orig || !site) return;
     setOpen(false);
-    void openOriginal(orig).then((ok) => ok || notify({ kind: 'error', text: '这个浏览器打不开', more: [`请把世界存成文件，到 ${site.href} 打开`] }));
+    void openOriginal(orig).then((ok) => ok || openFailed(site.href, orig));
   };
   const share = () => {
     if (!cur) return;
@@ -211,6 +213,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
                   {status.icon && <Icon name={status.icon} size={14} />}
                   {status.text}
                 </small>
+                {curStored?.fromFile && <small data-testid="save-from-file">{fromFileLine(curStored.fromFile)}</small>}
               </div>
             </div>
           ) : (
@@ -219,8 +222,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
           <button className="save-it" data-act="save-file" disabled={!cur} onClick={saveFile}>
             <Icon name="save" size={17} />
             <span>
-              <b>存成文件（.json）</b>
-              <small>{session ? '留一份备份，或者发给别人' : '换台电脑、换个浏览器也能打开'}</small>
+              <b>存成文件</b>
+              <small>{`存下整个世界${sizeNote}。换台设备、发给别人，看到的都一模一样`}</small>
             </span>
           </button>
           {session ? (
@@ -236,8 +239,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               <button className="save-it" data-act="share-link" disabled={!cur} onClick={shareLink}>
                 <Icon name="link" size={17} />
                 <span>
-                  <b>复制分享链接</b>
-                  <small>{count || title ? '对方打开看到同一个世界、同样的修改' : momentOn && at ? '对方打开看到同一个世界' : '还没有修改，只带种子和参数'}</small>
+                  <b>复制配方链接</b>
+                  <small>对方打开时重新长一遍，可能和你看到的不一样</small>
                 </span>
               </button>
               {at && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
@@ -273,13 +276,4 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
       )}
     </div>
   );
-}
-
-/** 把一个存档存成文件(我的世界里卡片上的"存成文件") */
-export function downloadSave(save: SaveFile) {
-  const name = saveFileName(save);
-  const text = saveText(save);
-  download(text, name);
-  (window as unknown as { __wfSave?: SaveDebug }).__wfSave = { name, bytes: new Blob([text]).size, count: editCount(save.edits) };
-  notify({ kind: 'ok', text: '已存成文件', more: [name] });
 }

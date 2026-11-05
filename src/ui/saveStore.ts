@@ -463,8 +463,8 @@ function reportFull(why: 'count' | 'quota') {
   showToast({
     id: 'storage',
     kind: 'warn',
-    text: `没能自动存档:${storageFullWhy()}`,
-    more: ['在「我的世界」里删掉几个,或存成文件'],
+    text: '没能自动存档',
+    more: [`${storageFullWhy()}。存成文件就不会丢，或者删掉几个世界`],
     action: saveFileAction(),
   });
   changed();
@@ -494,6 +494,8 @@ interface Meta {
   map?: boolean;
   /** 逐年推演:从哪个世界的哪一年开始的(存回推演模式时能选"覆盖原来的";只在这台设备上) */
   from?: string;
+  /** 从文件打开进来的时间(ISO;存档菜单写「来自文件」用;只在这台设备上,不进文件、不同步) */
+  fromFile?: string;
 }
 
 export interface StoredWorld {
@@ -514,6 +516,8 @@ export interface StoredWorld {
   map: boolean;
   /** 地图缩略图(没截过 = null) */
   mapThumb: string | null;
+  /** 从文件打开进来的时间(只在这台设备上记) */
+  fromFile?: string;
 }
 
 function readSave(id: string): SaveFile | null {
@@ -540,6 +544,7 @@ function parseMeta(text: string): Meta {
     if (b && typeof b === 'object' && typeof b.id === 'string' && typeof b.title === 'string')
       m.base = { id: b.id, title: cleanTitle(b.title) || '未命名世界', names: Math.max(0, Math.floor(Number(b.names) || 0)), interventions: Math.max(0, Math.floor(Number(b.interventions) || 0)) };
     if (typeof v.from === 'string' && v.from) m.from = v.from;
+    if (typeof v.fromFile === 'string' && !Number.isNaN(Date.parse(v.fromFile))) m.fromFile = v.fromFile;
     return m;
   } catch {
     return {};
@@ -553,7 +558,7 @@ export function loadWorld(id: string): StoredWorld | null {
   const m = readMeta(id);
   const at = m.opened && m.opened > save.savedAt ? m.opened : save.savedAt;
   const kv = store();
-  return { id, save, count: editCount(save.edits), thumb: kv.get(THUMB + id), draft: !!m.draft, at, alive: m.alive, base: m.draft ? m.base : undefined, map: !!m.map, mapThumb: kv.get(MAPTHUMB + id) };
+  return { id, save, count: editCount(save.edits), thumb: kv.get(THUMB + id), draft: !!m.draft, at, alive: m.alive, base: m.draft ? m.base : undefined, map: !!m.map, mapThumb: kv.get(MAPTHUMB + id), ...(m.fromFile ? { fromFile: m.fromFile } : {}) };
 }
 
 /** 存过的世界,最近打开或改过的在前 */
@@ -595,7 +600,17 @@ function writeMeta(id: string, m: Meta): boolean {
   if (m.draft && m.base) v.base = m.base;
   if (m.map && !m.draft) v.map = true;
   if (m.from) v.from = m.from;
+  // 自动存写本地信息时不带这一项(只在从文件打开时记一次),原来有的留着
+  const fromFile = m.fromFile ?? readMeta(id).fromFile;
+  if (fromFile) v.fromFile = fromFile;
   return put(META + id, JSON.stringify(v));
+}
+
+/** 记下这个世界是从文件打开进来的(存档菜单写「来自文件」;只在这台设备上):存不下就算了 */
+export function markFromFile(id: string): void {
+  if (store().get(PREFIX + id) === null) return;
+  writeMeta(id, { ...readMeta(id), fromFile: new Date().toISOString() });
+  changed();
 }
 
 /** 只写本地信息(最近打开、现存几国):存不下就算了 */
@@ -1527,12 +1542,14 @@ export function putSyncedWorld(id: string, w: RawWorld, opened0?: string): boole
   if (!r?.ok) return false;
   const kv = store();
   const old = kv.get(PREFIX + id);
-  const opened = readMeta(id).opened ?? opened0;
+  const had = readMeta(id);
+  const opened = had.opened ?? opened0;
   // 另一台设备在新版里重存过的旧世界:写成了以后,这里原来那份原样留着
   const orig = old === null ? null : originalToKeep(id, r.save.generator);
   if (!kv.set(PREFIX + id, w.save)) return false;
   const m: Meta = { ...w.meta };
   if (opened) m.opened = opened;
+  if (had.fromFile) m.fromFile = had.fromFile;
   if (!kv.set(META + id, JSON.stringify(m))) {
     if (old === null) kv.remove(PREFIX + id);
     else kv.set(PREFIX + id, old);

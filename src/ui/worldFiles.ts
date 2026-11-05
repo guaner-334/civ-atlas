@@ -8,7 +8,7 @@
  *     不是同一段历史、仓库里还没有:正开着的世界用页面里的(后台线程当场打,worldStore.ts 的 packPage),没开着的世界算一遍(转存的线程,写不下就直接装成文件)。
  *     都拿不出来才退回仓库里上一次存下的样子(stale,behind 说为什么),连这也没有才报错
  * - 开,分两步。lookWorldFile 只核对、只比较,什么都不写,返回文件和本机是什么关系:
- *     new = 本机没有这个世界;same = 本机有一模一样的(id 是本机那个);different = 本机有这个世界,但内容不一样(id 是本机那个)
+ *     new = 本机没有这个世界;same = 本机有一模一样的(id 是本机那个);different = 本机有这个世界(编号一样,或者种子和名字都一样),但内容不一样(id 是本机那个)
  *   placeWorldFile 照这个关系放进本机:same 不放;different 按 different 选项,默认另存一份(名字加「(二)」),也可以交回去让界面问。
  *   **放进来的编号总是新的**:文件里的编号是别人写的,用它就可能盖掉本机的世界,登录了的还可能盖掉账号里的世界。本机已有的世界任何情况都不动
  *
@@ -41,7 +41,7 @@ import { walkZip, type ZipInput, type ZipSlice } from '../gen/zipStore';
 import { exportNotes, notesKnown, notesReady, replaceNotes } from '../ai/library';
 import type { FileFacts, FileLook } from '../worldFileLook';
 import type { CommitRequest, RevisionSource, VaultErrorKind } from '../worldVault';
-import type { VaultCall, VaultReply } from '../worldVaultWorker';
+import type { VaultCall, VaultReply, VaultTold } from '../worldVaultWorker';
 import { bundleFileName, bundleText, cleanNotes, importBundle, parseBundle, sameWorld, withMapFrom, type Bundle, type ImportResult } from './bundle';
 import { MAX_WORLDS, cleanSyncMeta, currentSave, currentWorld, flushThumb, isStored, keepOriginal, listWorlds, loadWorld, markTrash, newWorldId, nextTitle, persistent, putSyncedWorld, rawWorld, storedCount, unmarkTrash, type StoredWorld, type SyncMeta } from './saveStore';
 import { APP_COMMIT, APP_VERSION } from './version';
@@ -132,9 +132,13 @@ export interface WorldFileProgress {
 // ---------------------------------------------------------------------------
 // 后台线程
 
+/** 下一次开线程时要听拼文件的进度(同步交给 workerOnce,见 saveWorldFile) */
+let onceWatch: ((share: number) => void) | null = null;
+
 /** 开一个线程做一件事,做完就关:读写大文件的字节不留在常驻的线程里(和别的写排队也不挡着它们);卡死了杀得掉 */
 const workerOnce: VaultCaller = ((op, args, transfer = []) =>
   new Promise((resolve, reject) => {
+    const watch = onceWatch;
     const w = new Worker(new URL('../worldVaultWorker.ts', import.meta.url), { type: 'module' });
     const end = (f: () => void) => {
       clearTimeout(timer);
@@ -142,12 +146,13 @@ const workerOnce: VaultCaller = ((op, args, transfer = []) =>
       f();
     };
     const timer = setTimeout(() => end(() => reject(Object.assign(new Error('读写世界文件超时'), { kind: 'timeout' }))), ONCE_TIMEOUT_MS);
-    w.onmessage = (e: MessageEvent<VaultReply>) => {
+    w.onmessage = (e: MessageEvent<VaultReply | VaultTold>) => {
       const m = e.data;
+      if ('told' in m) return void watch?.(m.told);
       end(() => (m.ok ? resolve(m.value as never) : reject(Object.assign(new Error(m.message), { kind: m.kind }))));
     };
     w.onerror = (e) => end(() => reject(Object.assign(new Error(e.message || '读写世界文件的线程崩了'), { kind: 'crash' })));
-    w.postMessage({ rid: 1, op, args } satisfies VaultCall, { transfer });
+    w.postMessage({ rid: 1, op, args, ...(watch ? { told: true } : {}) } satisfies VaultCall, { transfer });
   })) as VaultCaller;
 
 type Looker = (file: Blob, timeoutMs?: number) => Promise<FileLook>;
@@ -253,9 +258,10 @@ async function pageFile(base: Pick<CommitRequest, 'id' | 'recipe' | 'thumb' | 'a
 /**
  * 拼这个世界现在的样子(见文件头):能写的先写,写不进去也拼得出来。不抛错。
  * save = 这个世界现在的存档(正开着的是页面里的),thumb = 卡片上的封面。
- * 存的内容坏了:记一笔,能重新转的(有原件、当前版本)转一遍再存一次
+ * 存的内容坏了:记一笔,能重新转的(有原件、当前版本)转一遍再存一次。
+ * onProgress:拼文件拼到几分之几(前面把世界转进仓库那一段不知道要多久,不报)
  */
-async function fileNow(id: string, save: SaveFile, thumbUrl: string | null, isOpen: boolean): Promise<NowFile | Trouble<SaveTrouble>> {
+async function fileNow(id: string, save: SaveFile, thumbUrl: string | null, isOpen: boolean, onProgress?: (share: number) => void): Promise<NowFile | Trouble<SaveTrouble>> {
   const thumb = thumbBytes(thumbUrl);
   for (let tries = 0; ; tries++) {
     const { stuck, drafted, author } = await settleForFile(id);
@@ -271,7 +277,10 @@ async function fileNow(id: string, save: SaveFile, thumbUrl: string | null, isOp
       const base = { id, recipe: save, ...(thumb ? { thumb } : {}), ...(notes ? { author: notes } : {}) };
       // 同一段历史:只换配方、封面、AI 正文。什么都写进去了的话字节和最新的一份一样
       if (head && head.recipeKey === key && head.generator === save.generator) {
-        const out = await once('draftFile', [{ ...base, recipeKey: key }]);
+        onceWatch = onProgress ?? null;
+        const drafting = once('draftFile', [{ ...base, recipeKey: key }]);
+        onceWatch = null;
+        const out = await drafting;
         if (out) return asNow(out);
       }
       if (drafted) return asNow(drafted);
@@ -286,7 +295,10 @@ async function fileNow(id: string, save: SaveFile, thumbUrl: string | null, isOp
       }
       // 拿不出现在的样子:上次存下的也比没有强,说清楚落后了
       if (head) {
-        const file = await once('revisionFile', [id, undefined, true]);
+        onceWatch = onProgress ?? null;
+        const packing = once('revisionFile', [id, undefined, true]);
+        onceWatch = null;
+        const file = await packing;
         if (file) return { file, n: head.n, content: head.content, behind: why ?? 'failed' };
       }
       if (why === 'memory') return trouble(why, '内存不够,这个世界没能打成文件');
@@ -312,19 +324,41 @@ function nowOf(id: string): { w: StoredWorld | null; save: SaveFile; isOpen: boo
 
 /**
  * 一个世界存成文件。不抛错。不写磁盘:交回 Blob 和文件名,下载由界面做。
- * 不要求浏览器里还有地方(见文件头)
+ * 不要求浏览器里还有地方(见文件头)。onProgress:拼文件拼到几分之几
  */
-export async function saveWorldFile(id: string): Promise<SavedWorldFile | Trouble<SaveTrouble>> {
+export async function saveWorldFile(id: string, o: { onProgress?: (share: number) => void } = {}): Promise<SavedWorldFile | Trouble<SaveTrouble>> {
   const c = currentWorld();
   const now = nowOf(id);
   if (c?.id === id && c.kind === 'draft') return trouble('draft', '这个世界还没建完,没有内容可存');
   if (!now) return trouble('missing', '没有这个世界');
   if (now.w?.draft || now.w?.map) return trouble('draft', '这个世界还没建完,没有内容可存');
   if (now.isOpen) flushThumb();
-  const out = await fileNow(id, now.save, loadWorld(id)?.thumb ?? null, now.isOpen);
+  const out = await fileNow(id, now.save, loadWorld(id)?.thumb ?? null, now.isOpen, o.onProgress);
   if ('ok' in out) return out;
   return { ok: true, file: asDownload(out.file), name: worldFileName(now.save), stale: !!out.behind, ...(out.behind ? { behind: out.behind } : {}) };
 }
+
+/** 算过的大小:世界编号 → 哪一份修订、多少字节(换了修订才重算) */
+const sizes = new Map<string, { n: number; bytes: number }>();
+
+/** 这个世界存成文件有多大;还没有内容的、读不了的 = null。只读,不写;在后台线程里拼一次文件,算过的记着 */
+export async function worldFileBytes(id: string): Promise<number | null> {
+  try {
+    const head = await vaultCall('latestOf', [id]);
+    if (!head) return null;
+    const known = sizes.get(id);
+    if (known?.n === head.n) return known.bytes;
+    const file = await once('revisionFile', [id]);
+    if (!file) return null;
+    sizes.set(id, { n: head.n, bytes: file.size });
+    return file.size;
+  } catch {
+    return null;
+  }
+}
+
+/** 这个世界最近算过的大小(不去算);没算过 = null */
+export const knownWorldFileBytes = (id: string): number | null => sizes.get(id)?.bytes ?? null;
 
 // ---------------------------------------------------------------------------
 // 打开一个世界文件
@@ -387,7 +421,11 @@ async function matchOf(f: FileFacts): Promise<WorldFileMatch> {
     };
     if (sameWorld(w.save, save) && (await hasAll(w.id, f))) return { kind: 'same', id: w.id };
   }
-  return isStored(f.manifest.id) ? { kind: 'different', id: f.manifest.id } : { kind: 'new' };
+  if (isStored(f.manifest.id)) return { kind: 'different', id: f.manifest.id };
+  // 换过设备、别人改过再发回来的,文件里的编号和本机的对不上:同样的种子、同样的名字也算同一个世界,不然列表里多一张分不清的同名卡片
+  const root = rootTitle(f.save.title);
+  const twin = root ? listWorlds().find((w) => !w.draft && !w.map && w.save.seed === f.save.seed && rootTitle(w.save.title) === root) : null;
+  return twin ? { kind: 'different', id: twin.id } : { kind: 'new' };
 }
 
 /** 核对一个文件、和本机比较,什么都不写。不抛错;校验不占主线程,超时、线程崩了分开报。时限不给 = 按文件大小(checkTimeout) */

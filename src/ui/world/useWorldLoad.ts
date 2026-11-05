@@ -46,6 +46,8 @@ import { getSession, takeInviteFromUrl } from '../../account/session';
 import { galleryOfUrl } from '../../account/gallery';
 import { closeTrash, openLogin } from '../AccountDialogs';
 import { openBundleText } from '../bundle';
+import { takeFileTrouble, takeOpenNote } from '../openNote';
+import { withFileFlow } from '../worldFileLazy';
 import { resetCharacterUi } from '../characterStore';
 import { clearSelection, pausePlayback, setCivTime, takeAutoplay } from '../civView';
 import { clearEdits, getEdits, setEdits, setMapSum } from '../editsStore';
@@ -70,7 +72,7 @@ import { recipeChanges, recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
 import { frozenResult, resultHeads } from '../resultStore';
 import { settleKeptWorld } from '../worldStore';
-import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markOpened, newWorldId, notify, sameOrigin, setWorldStats, storageFullWhy } from '../saveStore';
+import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markFromFile, markOpened, newWorldId, notify, persistent, sameOrigin, setWorldStats, storageFullWhy, storedCount } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
 import { setTerrainTool, type TerrainStatus } from '../TerrainTools';
@@ -120,11 +122,18 @@ function versionAction(orig: SaveFile | null): ToastAction | undefined {
   if (!orig) return undefined;
   if (OLD_SITE !== null) {
     if (!(orig.generator > GENERATOR_VERSION)) return undefined;
-    return { label: '到最新版打开', act: 'open-latest', onClick: () => void openInLatest(orig).then((ok) => ok || openFailed()) };
+    return { label: '到最新版打开', act: 'open-latest', onClick: () => void openInLatest(orig).then((ok) => ok || openFailed(undefined, orig)) };
   }
   const site = oldSiteFor(orig.generator);
   if (!site) return undefined;
-  return { label: '看原样', act: 'see-original', onClick: () => void openOriginal(orig).then((ok) => ok || openFailed(site.href)) };
+  return { label: '看原样', act: 'see-original', onClick: () => void openOriginal(orig).then((ok) => ok || openFailed(site.href, orig)) };
+}
+
+/** 从文件(.json)打开的世界存进「我的世界」了没有;warn = 没存住,文件先别删 */
+function fileKept(id: string): { line: string; warn: boolean } {
+  if (!isStored(id)) return { line: `${storageFullWhy()}，没存进「我的世界」，这个文件先别删`, warn: true };
+  if (!persistent()) return { line: '浏览器不让网页存数据，世界只留在这个页面里，这个文件先别删', warn: true };
+  return { line: '已存进「我的世界」，下次不用再选文件', warn: false };
 }
 
 /**
@@ -644,10 +653,13 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 文明种子是打造文明时定的,不算"修改"
     const n = editCount(save.edits) - (cleanCivSeed(save.edits.civSeed) !== undefined ? 1 : 0);
     const name = save.title || `种子 ${world.params.seed}`;
+    // 从 .civworld 打开的世界:文件核对完就想好了要说什么(worldFileFlow.ts),世界画好才说
+    const held = takeOpenNote(t.id);
     // 提示条第一行。没有要说的就不提示的:没建完的世界接着建、分享的世界(地图下面那条说明已经讲了)、
     // 从我的世界点开的(看到的就是它)、没改过的;从文件打开的、恢复了上次修改的照样说一声
-    const text =
-      t.kind === 'draft'
+    const text = held
+      ? held.text
+      : t.kind === 'draft'
         ? `已打开「${name}」`
         : t.from === 'file'
           ? `已打开存档「${name}」${n ? `(改了 ${n} 处)` : ''}`
@@ -656,10 +668,14 @@ export function useWorldLoad(deps: WorldLoadDeps) {
             : t.from === 'stored' || guessed || !n
               ? `已打开「${name}」`
               : `已恢复上次的修改(${n} 处)`;
-    const always = t.kind !== 'draft' && (t.from === 'file' || (t.from !== 'link' && t.from !== 'stored' && n > 0));
+    const always = !!held || (t.kind !== 'draft' && (t.from === 'file' || (t.from !== 'link' && t.from !== 'stored' && n > 0)));
+    // 第二行开头那句:从文件打开的说存进「我的世界」了没有
+    const kept = t.from === 'file' && !held ? (t.fileKept ??= fileKept(t.id)) : null;
+    const lead = held?.more ?? (kept ? [kept.line] : []);
+    const warn = more.length > 0 || held?.kind === 'warn' || !!kept?.warn;
     // 重推完核对出对不上的:同一条提示补上那一句(打开时没提示的,这时提示)
-    if (later) renameCheck.current = { id: t.id, terrain: genTerrain.current, show: (line) => say({ kind: 'warn', text, more: [...more, line] }) };
-    if (more.length || always) say({ kind: more.length ? 'warn' : 'ok', text, more });
+    if (later) renameCheck.current = { id: t.id, terrain: genTerrain.current, show: (line) => say({ kind: 'warn', text, more: [...lead, ...more, line], action: held?.action }) };
+    if (more.length || always) say({ kind: warn ? 'warn' : 'ok', text, more: [...lead, ...more], action: held?.action });
   };
   /** 上次有改动没推完的提示条。shown = 现在看到的那一份,draft = 存档里没推完的修改;点「接着推演」问另存还是放弃 */
   const pendingToast = (t: Target, shown: SaveFile, draft: WorldEdits) => {
@@ -803,6 +819,9 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       (cur.wrote == null || genOfText(cur.wrote) === w.save.generator);
     if (cur?.id === id && targetRef.current?.id === id && same) {
       markOpened(id);
+      // 打开的文件就是正开着的这个世界:没有"画好"那一步,这时就说
+      const held = takeOpenNote(id);
+      if (held) notify(held);
       enterStage(w.draft ? 'draft' : 'world', w.draft ? (w.base ?? null) : null);
       if (w.draft) setDraftTitle(w.save.title ?? '');
       writeWorldUrl(targetRef.current);
@@ -820,12 +839,16 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个存档', ...fileTrouble(r.error) });
       return;
     }
-    const id = importSave(r.save);
+    // 世界文件存不进浏览器才走到这里的:只打开、不存。importSave 认出同一个世界时会改写本机那一份,这种文件不能让它碰
+    const trouble = takeFileTrouble();
+    const before = storedCount();
+    const id = trouble ? null : importSave(r.save);
+    if (id && storedCount() > before) markFromFile(id);
     const w = id ? loadWorld(id) : null;
     const t: Target = w
       ? { ...storedTarget(w, 'stored'), view: r.save.view ?? null }
       : { id: newWorldId(), kind: 'visit', params: r.save.params, edits: r.save.edits, title: r.save.title, view: r.save.view ?? null, save: r.save, origin: r.save.origin ?? null };
-    openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings });
+    openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings, ...(trouble ? { fileKept: { line: trouble, warn: true } } : {}) });
   };
   /**
    * 打开分享链接(解开以后):别人的世界,先不存;改了(或起了名)才存进"我的世界"。

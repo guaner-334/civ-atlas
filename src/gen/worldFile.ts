@@ -357,8 +357,8 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
   }
 }
 
-const AUTHOR_SKIPPED = 'AI 写的正文有超长的内容,这次没有读进来,世界不受影响;另存时文件里还带着';
-const AUTHOR_DAMAGED = 'AI 写的正文这一块坏了,没有读进来,世界不受影响';
+const AUTHOR_SKIPPED = 'AI 写的东西有一段太长，这次没读进来。世界不受影响，文件先别删';
+const AUTHOR_DAMAGED = 'AI 写的东西这次没读出来，可能没存完整。世界不受影响，文件先别删';
 
 /**
  * author 是可选的,过不了校验不连累整个世界:跳过,给提示,字节还在 opened 里,另存时照样带着。

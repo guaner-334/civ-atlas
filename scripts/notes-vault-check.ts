@@ -243,7 +243,7 @@ async function run(browser: Browser) {
   const ctx4 = await browser.newContext();
   page = await home(ctx4);
   const big = await keepFile(page, toB64(longBytes));
-  check(big.warnings.join('').includes('AI 写的正文'), '能打开,有提示');
+  check(big.warnings.join('').includes('AI 写的东西'), '能打开,有提示');
   check((await notesOf(page, big.id)).list.length === 0, '只少这一块');
   const parts = await page.evaluate(async (w) => {
     const wf = await (window as any).__wfWorldFiles();

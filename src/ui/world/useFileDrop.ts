@@ -1,11 +1,12 @@
 /**
- * 把文件拖进页面(App 用):.json = 从文件打开(打开见 ./useWorldLoad.ts 的 openText);
+ * 把文件拖进页面(App 用):从文件打开(.civworld 见 ../worldFileFlow.ts;旧的 .json 见 ./useWorldLoad.ts 的 openText);
  * 照手绘图新建时拖进来的图片 = 换成这张重新认(随机生成的新建不收图片,松手时说一句)。
  * 交回松手前提示条上写什么(dropping)和页面上挂的三个拖放处理
  */
 import { useState } from 'react';
 import { isImageFile, startImport } from '../ImportImage';
 import { notify } from '../saveStore';
+import { withFileFlow } from '../worldFileLazy';
 import { getStage } from '../stageStore';
 import type { useWorldLoad } from './useWorldLoad';
 import type { GenRefs } from './worldRefs';
@@ -21,7 +22,7 @@ export interface FileDropDeps {
 
 export function useFileDrop(deps: FileDropDeps) {
   const { targetRef, openText } = deps;
-  // 把 .json 拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(随机生成的新建不收图片,松手时说一句)
+  // 把文件拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(随机生成的新建不收图片,松手时说一句)
   const [dropping, setDropping] = useState<false | 'save' | 'image'>(false);
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
   /** 新建中拖进来图片:照手绘图的收下,随机生成的不收 */
@@ -41,17 +42,15 @@ export function useFileDrop(deps: FileDropDeps) {
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDropping(false);
-    const f = e.dataTransfer.files[0];
+    const files = [...e.dataTransfer.files];
+    const f = files[0];
     if (!f) return;
     const img = imageDrop();
     if (img !== null && isImageFile(f)) {
       if (img) return void startImport(f);
       return void notify({ kind: 'warn', text: '随机生成的世界不能导入图片，想照图生成就新建一个' });
     }
-    f.text().then(
-      (t) => openText(t, f.name),
-      () => notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] }),
-    );
+    withFileFlow(`打不开 ${f.name}`, (m) => m.openPickedFiles(files, openText));
   };
   return { dropping, onDragOver, onDragLeave, onDrop };
 }

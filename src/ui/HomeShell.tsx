@@ -24,7 +24,8 @@ import { AiSettingsHost } from './AiSettings';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { TipLayer } from './Tips';
 import { useNarrow } from './device';
-import { notify } from './saveStore';
+import { setOpenWorldHandler } from './newCivAction';
+import { withFileFlow } from './worldFileLazy';
 import { setStage } from './stageStore';
 import { setSideHold } from './sideStore';
 import { getCivShow, setCivShow } from './civView';
@@ -130,6 +131,11 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
   }, [onLeave]);
   const stayRef = useRef(stay);
   stayRef.current = stay;
+  // 从文件打开的世界放进「我的世界」以后交给 App 打开(worldFileFlow.ts)
+  useEffect(() => {
+    setOpenWorldHandler((id) => leave({ kind: 'open', id }));
+    return () => setOpenWorldHandler(null);
+  }, [leave]);
   // 主程序下载不下来、也没法自动刷新重来:不再等(按钮、卡片回到原样,再点一下会重新下载),顶上一条出错的提示带「重新加载」
   useEffect(() => {
     if (!loadFailed) return;
@@ -221,7 +227,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
   // 快捷键在我的世界都不管(⌘S 照样拦下,见 useShortcuts.ts)
   useShortcuts(() => false);
 
-  // 把 .json 拖进页面 = 从文件打开(和 App 一样;我的世界不收图片)
+  // 把文件拖进页面 = 从文件打开(和 App 一样;我的世界不收图片)
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
   const onDragOver = (e: React.DragEvent) => {
     if (!hasFiles(e)) return;
@@ -236,12 +242,11 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
     if (!hasFiles(e)) return;
     e.preventDefault();
     setDropping(false);
-    const f = e.dataTransfer.files[0];
-    if (!f) return;
-    f.text().then(
+    const files = [...e.dataTransfer.files];
+    if (!files.length) return;
+    withFileFlow(`打不开 ${files[0].name}`, (m) =>
       // 一套规则的文件:就在这一页打开调规则的大卡,不等主程序
-      (text) => openRulesText(text, f.name) || leave({ kind: 'text', text, fileName: f.name }),
-      () => notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] }),
+      m.openPickedFiles(files, (text, name) => void (openRulesText(text, name) || leave({ kind: 'text', text, fileName: name }))),
     );
   };
 
@@ -300,7 +305,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
       )}
       {dropping && (
         <div className="drop-hint">
-          <div>松手打开存档(.json)</div>
+          <div>松手打开存档</div>
         </div>
       )}
     </div>

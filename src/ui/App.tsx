@@ -1206,7 +1206,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     shownRaw,
     navRef,
   });
-  // 把 .json 拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(./world/useFileDrop.ts)
+  // 把文件拖进页面 = 从文件打开;照手绘图新建时拖进来的图片 = 换成这张重新认(./world/useFileDrop.ts)
   const { dropping, onDragOver, onDragLeave, onDrop } = useFileDrop({ targetRef, openText });
 
   // ---- 渲染 ----
@@ -2876,7 +2876,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       {newDlg && home && <NewWorldDialog key={newDlg.stamp ?? 0} phone={narrow} init={newDlg.init} shared={newDlg.shared} rules={newDlg.rules} randomSeed={randomSeedValue} onCancel={cancelDialog} onStart={startFromDialog} />}
       {dropping && (
         <div className="drop-hint">
-          <div>{dropping === 'image' ? '松手导入这张图' : '松手打开存档(.json)'}</div>
+          <div>{dropping === 'image' ? '松手导入这张图' : '松手打开存档'}</div>
         </div>
       )}
     </div>

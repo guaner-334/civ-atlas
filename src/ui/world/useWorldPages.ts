@@ -32,6 +32,7 @@ import { beginImport } from '../ImportImage';
 import { showMapInWorlds } from '../MyWorlds';
 import { navBack, navReplace, navTitle, navTo } from '../nav';
 import { setNewCivHandler, setOpenWorldHandler } from '../newCivAction';
+import { withFileFlow } from '../worldFileLazy';
 import type { NewWorldStart } from '../NewWorldDialog';
 import { openOverview } from '../overviewStore';
 import { chosenGallery, getPresets, pickSharedPreset, rememberLast, type SharedPreset } from '../presetStore';
@@ -43,6 +44,7 @@ import {
   deleteWorld,
   isStored,
   keepWorld,
+  addFileSaver,
   loadWorld,
   markCreated,
   newWorldId,
@@ -494,10 +496,13 @@ export function useWorldPages(deps: WorldPagesDeps) {
   useEffect(() => {
     setNewCivHandler((id, redo) => startNewCivRef.current(id, redo));
     setOpenWorldHandler((id) => openStoredRef.current(id));
+    // 存储满了 / 浏览器不让存时,提示条上的「存成文件」(手机上看着国家卡片时存档菜单不在页面上,也要有)
+    const offSaver = addFileSaver(() => withFileFlow('没能存成文件', (m) => m.saveCurrentToFile()));
     setNewWorldHandler((rules) => newWorldRef.current(rules));
     return () => {
       setNewCivHandler(null);
       setOpenWorldHandler(null);
+      offSaver();
       setNewWorldHandler(null);
     };
   }, []);

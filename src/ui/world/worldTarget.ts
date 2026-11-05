@@ -54,6 +54,8 @@ export interface Target {
   view?: SaveView | null;
   /** 从哪打开的(生成完的提示按它说) */
   from?: 'file' | 'link' | 'stored' | 'restore' | 'url';
+  /** 从文件打开时第二行说的话:存进「我的世界」了没有(世界换上时算一次,重推完再换上还是这一句) */
+  fileKept?: { line: string; warn: boolean };
   /** 网址里带的生成器版本(from = 'url':打开带种子的网址) */
   gen?: number;
   /** 打开的存档(核对版本、地形) */

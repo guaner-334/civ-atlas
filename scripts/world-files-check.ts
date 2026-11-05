@@ -1,5 +1,5 @@
 /**
- * 世界存成文件、打开文件的浏览器检查(界面接上之前走测试钩子 window.__wfWorldFiles;量构建好的网站)。
+ * 世界存成文件、打开文件的浏览器检查(走测试钩子 window.__wfWorldFiles;量构建好的网站。真点界面见 scripts/world-file-ui-check.ts)。
  *
  *   pnpm build && npx tsx scripts/world-files-check.ts [--browsers=chromium,webkit] [--only=roundtrip,backup,bad,escape]
  *   --out=<目录>                      存文件、对比图的地方(默认 snaps/world-files)
@@ -28,7 +28,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, statfsSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, statfsSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { chromium, webkit, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -932,16 +932,25 @@ async function fillUp(page: Page, local: boolean): Promise<void> {
  * 小磁盘写到只剩 room 字节(从外面写一个大文件,网站占的没变)。一点都不剩时库连提交删除都做不到(见 trash 的说明),只剩一点才是用的人碰到的「快满了」
  */
 function fillDisk(dir: string, room: number): void {
-  const fd = openSync(path.join(dir, 'filler.bin'), 'a');
+  const file = path.join(dir, 'filler.bin');
+  const fd = openSync(file, 'a');
   const left = () => {
-    const s = statfsSync(dir);
-    return s.bavail * s.bsize;
+    const st = statfsSync(dir);
+    return st.bavail * st.bsize;
   };
+  // 磁盘映像报的剩余不总是准的:写到报错也算写满了
   for (const size of [64e6, 16e6, 4e6, 1e6]) {
-    const b = randomBytes(size);
-    while (left() > room + size) writeSync(fd, b);
+    const chunk = randomBytes(size);
+    try {
+      while (left() > room + size) writeSync(fd, chunk);
+    } catch {
+      /* 下一档小的接着写 */
+    }
   }
   closeSync(fd);
+  // 写过头了:退回来一点
+  const over = room - left();
+  if (over > 0) truncateSync(file, Math.max(0, statSync(file).size - over));
   say(`  硬盘写到只剩 ${(left() / 1e6).toFixed(1)} MB`);
 }
 
