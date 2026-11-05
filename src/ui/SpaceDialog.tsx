@@ -65,6 +65,7 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
   const [quick, setQuick] = useState<Quick | null>(null);
   const [board, setBoard] = useState<SpaceBoard | null>(null);
   const [trash, setTrash] = useState<TrashInfo | null>(null);
+  const [trashAt, setTrashAt] = useState(-1);
   const [stuck, setStuck] = useState(0);
   const [clearing, setClearing] = useState(false);
   useEffect(() => {
@@ -78,7 +79,9 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
         if (live) setBoard(b);
       });
       void trashInfo().then((x) => {
-        if (live) setTrash(x);
+        if (!live) return;
+        setTrash(x);
+        setTrashAt(v);
       });
     }, 150);
     return () => {
@@ -92,9 +95,10 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
   const rows = rowsOf(list, quick?.fullIds ?? [], board, now);
   const gone = !!trash && trash.count > 0 && trash.clearBy !== null;
 
+  // 刚删掉最后一个世界时要等新问到的:它的内容还占着地方,窗口关了这一页就没有入口了
   useEffect(() => {
-    if (trash && !rows.length && !gone) onClose();
-  }, [trash, rows.length, gone, onClose]);
+    if (trashAt === v && !rows.length && !gone) onClose();
+  }, [trashAt, v, rows.length, gone, onClose]);
 
   const device = appleDevice();
   const vaultFull = vaultFullSeen() || (!!quick?.fullIds.length && !(quick.room && !isNearFull(quick.room)));

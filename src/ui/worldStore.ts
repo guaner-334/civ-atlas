@@ -229,13 +229,15 @@ async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<Co
   }
 }
 
-/** 没存成:写满了的腾地方。别的错只是这次没存,下次推完、下次打开再存 */
-async function noteFailure(id: string, e: unknown): Promise<void> {
+/** 没存成:写满了的腾地方。别的错只是这次没存,下次推完、下次打开再存。notes:只是 AI 正文没写进去,世界的内容还在,不标这个世界没存上 */
+async function noteFailure(id: string, e: unknown, notes = false): Promise<void> {
   if (errKind(e) !== 'full') return;
-  fullHere.add(id);
   setVaultFull(true);
   if (currentWorld()?.id === id) reportVaultFull();
-  await call('patchState', [id, { full: Date.now() }]).catch(() => {});
+  if (!notes) {
+    fullHere.add(id);
+    await call('patchState', [id, { full: Date.now() }]).catch(() => {});
+  }
   spaceChanged();
   await drainTrash().catch(() => {});
 }
@@ -360,9 +362,10 @@ export const notesVault: NotesVault = {
       const r = await call('changeAuthor', [id, ops]);
       // 写的这一会儿仓库被清了(用的人在别的标签页选了从这台设备上删掉):这份不留
       if (clearedAt() !== mark) await call('purgeWorld', [id]);
+      setVaultFull(false);
       return r;
     } catch (e) {
-      await noteFailure(id, e);
+      await noteFailure(id, e, true);
       throw e;
     }
   },

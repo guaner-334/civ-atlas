@@ -319,7 +319,8 @@ async function saveOne(id: string): Promise<void> {
     if (save) return saveRecipeFile(save, RECIPE_ONLY, marks);
   }
   noteSaved(r.name, r.file.size, recipeOf(id) ?? undefined);
-  handOver(r.file, r.name, r.stale ? { tail: behindTail(r.behind), warn: true, marks } : { marks });
+  // 落后的文件没带上现在的样子,不算存过
+  handOver(r.file, r.name, r.stale ? { tail: behindTail(r.behind), warn: true } : { marks });
 }
 
 /** 正开着的世界存成文件(存档菜单、存储满了时提示条上的「存成文件」) */

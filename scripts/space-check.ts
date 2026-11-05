@@ -730,6 +730,16 @@ async function firefox(device: Device) {
     await openWindow(page);
     same((await notes(page))[0], '你没有答应 Firefox 长期保存。硬盘快满时，它可能先清掉这里的世界。存成文件就不会丢。', '窗口里写一句');
     await shot(r, '24-Firefox拒绝-窗口里写一句');
+
+    // 删掉最后一个世界:内容还占着地方,窗口不能关,不然这一页就没有入口了
+    await rowOf(page, NAME).locator('[data-act="space-delete"]').click();
+    await page.locator('[data-testid="space-gone"]').waitFor({ timeout: 10_000 });
+    same(await page.locator('[data-testid="space-dialog"]').count(), 1, '删掉最后一个世界:窗口还在,能看到删掉的世界');
+    await page.locator('.toast').filter({ hasText: '已删除' }).waitFor({ state: 'detached', timeout: 15_000 });
+    await page.waitForTimeout(3200);
+    await page.locator('[data-act="space-clear"]').click();
+    await page.locator('[data-testid="space-dialog"]').waitFor({ state: 'detached', timeout: 20_000 });
+    check(true, '现在清掉以后什么都没了:窗口自己关');
   });
   await r.ctx.close();
 }

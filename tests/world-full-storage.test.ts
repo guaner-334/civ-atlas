@@ -21,7 +21,7 @@ import * as saveStore from '../src/ui/saveStore';
 import { _resetToasts, clearToast, peekToast, showToast } from '../src/ui/toastStore';
 import { _setWorldFiles, lookWorldFile, keepWorldFile, saveAllWorldFiles, saveWorldFile, type LookedWorldFile } from '../src/ui/worldFiles';
 import { _setHolds, holdWorld, ifNotHeld, isHeld } from '../src/ui/worldHolds';
-import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, offerWorldParts, setWorldStoreSim, spaceBoard, startWorldStore, trashInfo, vaultCall, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
+import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, notesVault, offerWorldParts, setWorldStoreSim, spaceBoard, startWorldStore, trashInfo, vaultCall, vaultIsFull, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
 import { runConvert, type FullWithFile } from '../src/worldConvert';
 import type { ConvertReply } from '../src/worldConvertWorker';
 import { lookFile } from '../src/worldFileLook';
@@ -751,6 +751,23 @@ describe('删掉的世界尽快腾地方', () => {
     expect(Object.keys(withOriginal!.worlds).sort()).toEqual([a, b].sort());
     const memo = await vaultCall('stateOf', ['#part-sizes']);
     expect(Object.keys(memo!.sizes!).length).toBeGreaterThan(0);
+  });
+
+  it('只是 AI 正文写不进去:说满了,不标这个世界没存上;再写成就不说了', async () => {
+    const a = await makeWorld('甲');
+    let full = true;
+    _setWorldStore({
+      caller: ((op: keyof VaultOps, args: never[]) => {
+        if (op === 'changeAuthor' && full) return Promise.reject(asVaultError(new DOMException('full', 'QuotaExceededError')));
+        return (vaultOps[op] as (...x: never[]) => unknown)(...args);
+      }) as never,
+    });
+    await expect(notesVault.change(a, [])).rejects.toBeTruthy();
+    expect(vaultIsFull()).toBe(true);
+    expect(await fullWorldIds()).toEqual([]);
+    full = false;
+    await notesVault.change(a, []);
+    expect(vaultIsFull()).toBe(false);
   });
 
   it('哪些世界上次写不下:写成功一次就划掉;删掉的不算', async () => {

@@ -8,6 +8,7 @@ import { DEFAULT_PARAMS } from '../src/gen/world';
 import { setOpenWorldHandler } from '../src/ui/newCivAction';
 import { takeFileTrouble, takeOpenNote } from '../src/ui/openNote';
 import * as saveStore from '../src/ui/saveStore';
+import { fileRecords, saveMark } from '../src/ui/spaceFacts';
 import { _resetToasts, getToast, peekToast } from '../src/ui/toastStore';
 
 const wf = vi.hoisted(() => ({
@@ -257,6 +258,16 @@ describe('一个世界存成文件', () => {
     wf.saveWorldFile.mockResolvedValue({ ok: true, file: blob(1000), name: 'a.civworld', stale: true });
     await saveWorldToFile('w1');
     expect(toast()).toMatchObject({ kind: 'warn', more: ['a.civworld，1 KB。刚才的改动还没算完，没带上'] });
+  });
+
+  it('存过文件的记录:交到手上才记;文件比世界落后的不算', async () => {
+    const id = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 5 }, { names: {}, interventions: [], terrain: [] }, '', '甲'))!;
+    wf.saveWorldFile.mockResolvedValueOnce({ ok: true, file: blob(10), name: 'a.civworld', stale: true, behind: 'memory' });
+    await saveWorldToFile(id);
+    expect(fileRecords()[id]).toBeUndefined();
+    wf.saveWorldFile.mockResolvedValueOnce({ ok: true, file: blob(10), name: 'a.civworld', stale: false });
+    await saveWorldToFile(id);
+    expect(fileRecords()[id]).toMatchObject({ mark: saveMark(saveStore.loadWorld(id)!.save) });
   });
 
   it('文件比世界落后:内存不够、写不下分开说', async () => {
