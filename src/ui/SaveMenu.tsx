@@ -246,7 +246,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               {at && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
             </>
           )}
-          {(frozen || cur?.readonly) && (
+          {(frozen || cur?.readonly || cur?.oldRecipe) && (
             <button
               className="save-it"
               data-act="save-new"
