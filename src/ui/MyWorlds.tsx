@@ -188,14 +188,27 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   /** 最近点的是哪一个、点在哪(等地图程序时在那里显示下了多少) */
   const [clicked, setClicked] = useState<{ id: string; at: WaitAt } | null>(null);
   const pull = useFullPull();
+  /** 第几次点:取回来的时候用的人已经点了别的,或者离开了这一页,就不打开这个 */
+  const clickSeq = useRef(0);
+  useEffect(
+    () => () => {
+      clickSeq.current++;
+    },
+    [],
+  );
   const onOpen = (id: string) => {
     setClicked({ id, at: 'card' });
+    const seq = ++clickSeq.current;
     // 传过整个世界的、这台设备上没有:先从账号取回来再打开
     if (!session || !fullOverview()?.worlds.some((w) => w.id === id)) return openWorld(id);
-    const go = () => void import('./fullWorldPull').then((m) => m.pullBeforeOpen(id, go)).then((ok) => ok && openWorld(id), () => openWorld(id));
+    const open = () => {
+      if (seq === clickSeq.current) openWorld(id);
+    };
+    const go = () => void import('./fullWorldPull').then((m) => m.pullBeforeOpen(id, go)).then((ok) => ok && open(), open);
     go();
   };
   const onNewCiv = (id: string, at: WaitAt = 'card') => {
+    clickSeq.current++;
     setClicked({ id, at });
     newCiv(id);
   };
@@ -477,7 +490,8 @@ const LONG_PRESS = 480;
 /** 卡片时间前面的小云:传过整个世界的才有。没再改的带勾,改过的带向上箭头 */
 function FullMark({ w }: { w: StoredWorld }) {
   const fo = useFullOverview();
-  const kind = useMemo(() => (fo ? fullStatusOf(fo, w.id, w.save).kind : 'never'), [fo, w]);
+  useSavesVersion();
+  const kind = fo ? fullStatusOf(fo, w.id, w.save).kind : 'never';
   if (kind === 'never') return null;
   const same = kind === 'same';
   return (

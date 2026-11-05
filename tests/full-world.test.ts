@@ -3,12 +3,12 @@
  */
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
+import { replaceNotes } from '../src/ai/library';
 import { ServerError } from '../src/account/server';
 import { _setFullNet, sendBlocks, type BlockPlan } from '../src/account/fullWorlds';
 import { Sha256, blockRanges, hashBlocks } from '../src/ui/fullBlocks';
-import { fullStatusOf, pairText, refusalOf, type FullLimits, type FullOverview } from '../src/ui/fullWorldView';
+import { fullMark, fullStatusOf, pairText, refusalOf, type FullLimits, type FullOverview } from '../src/ui/fullWorldView';
 import { errorNote, menuItem, refusalNote, removeWords, shareItem, textNote, usedLine, type MenuFacts, type NoteActs } from '../src/ui/fullWorldWords';
-import { saveMark } from '../src/ui/spaceFacts';
 import { homeAccountLine } from '../src/ui/syncWords';
 
 const hex = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
@@ -190,7 +190,7 @@ describe('传块', () => {
 const LIMITS: FullLimits = { worlds: 20, bytes: 200e6, perDay: 30, worldBytes: 150e6, blockBytes: 16777216, blocksPerFile: 512 };
 const save = (title: string) => ({ params: { seed: 7 }, title, edits: {}, origin: null });
 const AT = new Date(new Date().getFullYear(), 10, 3, 12).toISOString();
-const overview = (o: Partial<FullOverview> = {}): FullOverview => ({ limits: LIMITS, used: { worlds: 1, bytes: 4.9e6, today: 1 }, storeFull: false, worlds: [{ id: 'wa', rev: 1, sum: 's', bytes: 4.9e6, uploadedAt: AT, mark: saveMark(save('a')), public: true }], account: [{ id: 'wa', rev: 1 }, { id: 'wr', rev: 1, updatedAt: AT }], ...o });
+const overview = (o: Partial<FullOverview> = {}): FullOverview => ({ limits: LIMITS, used: { worlds: 1, bytes: 4.9e6, today: 1 }, storeFull: false, worlds: [{ id: 'wa', rev: 1, sum: 's', bytes: 4.9e6, uploadedAt: AT, mark: fullMark('wa', save('a')), public: true }], account: [{ id: 'wa', rev: 1 }, { id: 'wr', rev: 1, updatedAt: AT }], ...o });
 const facts = (o: Partial<MenuFacts> = {}): MenuFacts => ({ id: 'wn', status: { kind: 'never' }, refusal: null, job: null, bytes: 4.9e6, overview: overview(), recipeOnly: false, failed: false, pending: false, kept: false, ...o });
 
 describe('账号里那份和现在一样吗', () => {
@@ -200,6 +200,19 @@ describe('账号里那份和现在一样吗', () => {
     expect(fullStatusOf(o, 'wa', save('改过')).kind).toBe('changed');
     expect(fullStatusOf(o, 'wr', save('a')).kind).toBe('recipe');
     expect(fullStatusOf(o, 'wn', save('a')).kind).toBe('never');
+  });
+
+  it('AI 写的东西改过也算改过', () => {
+    const o = overview();
+    const seen = () => fullStatusOf(o, 'wa', save('a')).kind;
+    expect(seen()).toBe('same');
+    replaceNotes('wa', [{ key: 'k', kind: '史书', title: '大昌', text: '第一版', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' }]);
+    expect(seen()).toBe('changed');
+    const up = overview({ worlds: [{ ...o.worlds[0], mark: fullMark('wa', save('a')) }] });
+    expect(fullStatusOf(up, 'wa', save('a')).kind).toBe('same');
+    replaceNotes('wa', [{ key: 'k', kind: '史书', title: '大昌', text: '第二版', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' }]);
+    expect(fullStatusOf(up, 'wa', save('a')).kind).toBe('changed');
+    replaceNotes('wa', null);
   });
 
   it('知道传不了的:再传不多占个数,大小按新的减旧的算', () => {

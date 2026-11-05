@@ -18,6 +18,8 @@ import type { SaveFile } from '../gen/savefile';
 
 let current: AbortController | null = null;
 
+const HOLD_UNTIL_OPEN_MS = 120_000;
+
 /** 这个世界要不要取:本机的内容已经是这一份(同一份配方、同一版算的)就不用 */
 async function needsPull(w: StoredWorld): Promise<boolean> {
   const o = fullOverview();
@@ -135,14 +137,18 @@ export interface SharedWorld {
 /**
  * 别人打开短链接:取整个世界,放进世界仓库,用一个新编号打开(不进「我的世界」)。
  * 记成已经过期的删除记录:没存进「我的世界」的,下次清理时清掉;改了存进来的,内容接着用。
- * 打开期间拿着这个编号,不会被清。
  */
 export async function pullShared(code: string, total: number, onBytes: (done: number, total: number) => void): Promise<SharedWorld> {
   const file = await fetchSharedFile(code, { total, onBytes });
   const id = newWorldId();
   markTrash(id, Date.now() - TRASH_KEEP_MS);
-  holdWorld(id);
+  const free = holdWorld(id);
   const r = await adoptWorldFile(id, file);
-  if (!r.ok) throw new ServerError(0, r.kind, r.message);
+  if (!r.ok) {
+    free();
+    throw new ServerError(0, r.kind, r.message);
+  }
+  // 打开以后世界仓库自己拿着正开着的世界;这一会儿够它接上,放早了内容可能被清掉
+  setTimeout(free, HOLD_UNTIL_OPEN_MS);
   return { ok: true, id, save: r.save, warnings: r.warnings };
 }

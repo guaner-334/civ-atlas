@@ -5,7 +5,7 @@
 import { listCloud } from '../account/cloud';
 import { ServerError } from '../account/server';
 import { getSession } from '../account/session';
-import { pushWorld } from '../account/sync';
+import { SESSION_CHANGED, pushWorld } from '../account/sync';
 import { fullOverview } from './fullWorldView';
 import { currentUnsaved, currentWorld } from './saveStore';
 
@@ -25,8 +25,9 @@ export async function pushForShare(worldId: string, token: string | undefined): 
   still();
   if (had && fullOverview()) return;
   try {
-    await pushWorld(worldId);
+    await pushWorld(worldId, { token });
   } catch (e) {
+    if (e instanceof ServerError && e.code === SESSION_CHANGED) throw new ShareAborted('账号变了');
     if (e instanceof ServerError) throw e;
     throw new Error('没能存进账号，稍后再试');
   }

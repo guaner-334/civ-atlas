@@ -13,7 +13,7 @@ import { _resetToasts, getToast } from '../src/ui/toastStore';
 import { forgetNotes, listNotes, putNote } from '../src/ai/library';
 import { setServerForTest } from '../src/account/server';
 import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, sendCode } from '../src/account/session';
-import { pushWorld, signOut, takeWorld } from '../src/account/sync';
+import { SESSION_CHANGED, pushWorld, signOut, takeWorld } from '../src/account/sync';
 import { createShare, deleteCloud, listCloud, listShares, openShareCode, restoreTrash, stopShare } from '../src/account/cloud';
 import { fetchOverview } from '../src/account/fullWorlds';
 import { pushForShare } from '../src/ui/sharePush';
@@ -152,6 +152,22 @@ describe('点了才传', () => {
     expect(inCloud()).toHaveLength(0);
     await pushWorld(id);
     expect(inCloud()).toHaveLength(1);
+  });
+
+  it('替哪一次登录传就只传到哪个账号:等的工夫换了账号就停', async () => {
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    await expect(pushWorld(id, { token: 'old-token' })).rejects.toMatchObject({ code: SESSION_CHANGED });
+    expect(fake.users.get(EMAIL)!.worlds.size).toBe(0);
+  });
+
+  it('存的是打包那一刻的样子,不是后来又改过的', async () => {
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    const raw = saveStore.rawWorld(id)!;
+    saveStore.renameWorld(id, '后来改的');
+    await pushWorld(id, { raw });
+    expect((inCloud()[0].save as SaveFile).title).toBe('苍澜界');
   });
 
   it('断网时报连不上,世界不动', async () => {

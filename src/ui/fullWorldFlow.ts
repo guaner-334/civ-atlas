@@ -8,13 +8,13 @@ import { deleteCloud } from '../account/cloud';
 import { beginFull, commitFull, fetchOverview, sendBlocks, waitChecked, type BlockPlan, type FullCheck } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
 import { getSession } from '../account/session';
-import { pushWorld, takeWorld } from '../account/sync';
+import { notesReady } from '../ai/library';
+import { SESSION_CHANGED, pushWorld, takeWorld } from '../account/sync';
 import { closeAccountPanel, openAccount, openShareDialog } from './AccountDialogs';
 import { planBlocks } from './fullBlocks';
-import { askFull, fullJob, fullOverview, fullToastHeld, pairText, refusalOf, setFullJob, setFullNote, setFullOverview, setFullPainter, type FullEntry, type FullNote, type FullOverview, type FullRefusal } from './fullWorldView';
+import { askFull, fullJob, fullMark, fullOverview, fullToastHeld, pairText, refusalOf, setFullJob, setFullNote, setFullOverview, setFullPainter, type FullEntry, type FullNote, type FullOverview, type FullRefusal } from './fullWorldView';
 import { actLabel, cancelNote, doneNote, errorNote, recipeDoneNote, refusalNote, removeWords, textNote, NOT_SENT, type NoteAct, type NoteActs } from './fullWorldWords';
-import { currentSave, currentUnsaved, currentWorld, isStored, keepWorld, loadWorld, savesChanged } from './saveStore';
-import { saveMark } from './spaceFacts';
+import { currentSave, currentUnsaved, currentWorld, isStored, keepWorld, loadWorld, rawWorld, savesChanged, type RawWorld } from './saveStore';
 import { clearToast, peekToast, showToast, updateToast, type ToastInput } from './toastStore';
 import { saveWorldFile, worldFileBytes, type SaveTrouble } from './worldFiles';
 import { saveCurrentToFile, saveWorldToFile } from './worldFileFlow';
@@ -23,7 +23,7 @@ const TOAST = 'world-full';
 const CANCELLED = new Error('取消了');
 
 /** 打包好的文件留着:断线了「再试一次」不用重打,内容记号变了才不用它 */
-const packed = new Map<string, { file: Blob; mark: string; plan: BlockPlan; maxBlock: number }>();
+const packed = new Map<string, { file: Blob; mark: string; raw: RawWorld; plan: BlockPlan; maxBlock: number }>();
 
 let live: { id: string; ac: AbortController } | null = null;
 
@@ -32,7 +32,7 @@ const titleOf = (id: string) => (loadWorld(id)?.save.title ?? (currentWorld()?.i
 /** 存着的优先:页面里的和存下的同一份(还没存下的只有开着的世界才有) */
 const markOf = (id: string): string | null => {
   const save = loadWorld(id)?.save ?? (currentWorld()?.id === id ? currentSave() : null);
-  return save ? saveMark(save) : null;
+  return save ? fullMark(id, save) : null;
 };
 
 /** 提示条上的按钮 */
@@ -157,15 +157,18 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     return end({ kind: 'error', text: NOT_SENT, more: '连不上服务器，联网后再试', action: acts('retry') });
   }
   setFullOverview(ov);
+  await notesReady([id]);
+  still();
   const mark = markOf(id);
-  if (!mark) return end({ kind: 'error', text: NOT_SENT, more: '可能已在别的页面里删掉了' });
+  const raw = rawWorld(id);
+  if (!mark || !raw) return end({ kind: 'error', text: NOT_SENT, more: '可能已在别的页面里删掉了' });
   let pk = packed.get(id);
   if (!pk || pk.mark !== mark || pk.maxBlock !== ov.limits.blockBytes) {
     const r = await saveWorldFile(id);
     still();
     if (!r.ok && (r.kind === 'draft' || r.kind === 'old')) {
       // 只有配方的世界:传的也是配方
-      await pushWorld(id);
+      await pushWorld(id, { raw, token });
       still();
       end(recipeDoneNote);
       void askFull();
@@ -177,14 +180,14 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     if (r.file.size > ov.limits.worldBytes) return end(refusalNote('big', ov.limits, { bytes: r.file.size }, acts));
     const plan = await planBlocks(r.file, ov.limits.blockBytes, ov.limits.blocksPerFile);
     still();
-    pk = { file: r.file, mark, plan, maxBlock: ov.limits.blockBytes };
+    pk = { file: r.file, mark, raw, plan, maxBlock: ov.limits.blockBytes };
     packed.set(id, pk);
   }
   const { file, plan } = pk;
   let baseRev = ov.worlds.find((w) => w.id === id)?.rev ?? 0;
   let sending = false;
   try {
-    await pushWorld(id, { alsoFile: true });
+    await pushWorld(id, { alsoFile: true, raw: pk.raw, token });
     still();
     let ans: Awaited<ReturnType<typeof beginFull>>;
     try {
@@ -204,12 +207,14 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
       const send = async (need: readonly string[]) => {
         const base = plan.bytes - needBytes(need);
         update({ phase: 'send', done: base, total: plan.bytes });
-        await sendBlocks(file, plan, need, { signal: me.ac.signal, onSent: (n) => update({ done: base + n }) });
+        await sendBlocks(file, plan, need, { signal: me.ac.signal, token, onSent: (n) => update({ done: base + n }) });
         still();
       };
       await send(ans.need);
       let tries = 0;
       for (;;) {
+        // 提交了就取消不了:先把「取消」收起来
+        update({ phase: 'check', done: plan.bytes, total: plan.bytes });
         try {
           check = await commitFull(id, plan, baseRev, mark);
         } catch (e) {
@@ -218,7 +223,6 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
           continue;
         }
         still();
-        update({ phase: 'check', done: plan.bytes, total: plan.bytes });
         if (check.state === 'checking') check = await waitChecked(id, { signal: me.ac.signal });
         still();
         // 服务器重启过:看清单里是不是这一份,不是就再提交一次(块还在)
@@ -250,6 +254,12 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
       if (live === me) throw e;
       return;
     }
+    if (e instanceof ServerError && e.code === SESSION_CHANGED) {
+      live = null;
+      setFullJob(null);
+      clearToast(TOAST);
+      return;
+    }
     if (e instanceof ServerError && e.code === 'conflict') {
       const again = await fetchOverview().catch(() => null);
       if (again) setFullOverview(again);
@@ -276,6 +286,7 @@ export async function uploadWorld(id: string): Promise<void> {
     if (e === CANCELLED || live !== me) return;
     live = null;
     setFullJob(null);
+    if (e instanceof ServerError && e.code === SESSION_CHANGED) return void clearToast(TOAST);
     say(id, errorNote(e, fullOverview()?.limits ?? null, false, actsFor(id)));
   }
 }

@@ -9,7 +9,7 @@
  * 删掉这台设备上的世界不碰账号;账号里的要在账号窗里删。
  */
 import { exportNotes, forgetNotes, notesReady, replaceNotes } from '../ai/library';
-import { MAX_WORLDS, cleanSyncMeta, currentUnsaved, isStored, putSyncedWorld, rawWorld, removeAllWorlds, storedCount, syncable } from '../ui/saveStore';
+import { MAX_WORLDS, cleanSyncMeta, currentUnsaved, isStored, putSyncedWorld, rawWorld, removeAllWorlds, storedCount, syncable, type RawWorld } from '../ui/saveStore';
 import { clearResults } from '../ui/resultStore';
 import { getCloud, listCloud, putCloud, type PutBody } from './cloud';
 import { getSession, logout } from './session';
@@ -19,13 +19,22 @@ import { ServerError } from './server';
 const NOTES_MAX = 1_000_000;
 const thumbOf = (t: string | null) => (t && t.length <= 200_000 ? t : null);
 
+/** 等的工夫别的标签页退出、换了账号:再往下的请求会带上新账号的令牌,世界就传到别人名下了 */
+export const SESSION_CHANGED = 'session-changed';
+
 /**
  * 存进账号。alsoFile:AI 写的东西整个世界文件里也有,太多存不进这一份时不算错;只有存档的世界放不下要说。
+ * raw:存这一刻的样子(和打包的文件同一刻);不给 = 现在的。token:替哪一次登录存,换了就停。
  * 版本号在问和存之间被别的设备改了:再问一次
  */
-export async function pushWorld(id: string, o: { alsoFile?: boolean } = {}): Promise<{ rev: number }> {
+export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWorld; token?: string } = {}): Promise<{ rev: number }> {
+  const token = o.token ?? getSession()?.token;
+  const same = () => {
+    if (!token || getSession()?.token !== token) throw new ServerError(0, SESSION_CHANGED, '账号变了');
+  };
   await notesReady([id]);
-  const raw = rawWorld(id);
+  same();
+  const raw = o.raw ?? rawWorld(id);
   if (!raw) throw new ServerError(0, 'missing', '这个世界可能已在别的页面里删掉了');
   if (!syncable(id)) throw new ServerError(0, 'legacy', '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号。删掉几个世界、刷新页面再试');
   const notes = exportNotes(id);
@@ -40,7 +49,9 @@ export async function pushWorld(id: string, o: { alsoFile?: boolean } = {}): Pro
     ...(deleted ? { revive: true } : {}),
   });
   for (let tries = 0; ; tries++) {
+    same();
     const e = (await listCloud()).find((x) => x.id === id);
+    same();
     try {
       return await putCloud(id, body(e?.rev ?? 0, !!e?.deleted));
     } catch (err) {

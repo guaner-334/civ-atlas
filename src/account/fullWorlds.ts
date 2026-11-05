@@ -78,7 +78,7 @@ const MAX_WAIT_MS = 15_000;
 /** 同时传几块:服务器每个账号最多 4 个 */
 const AT_ONCE = 4;
 
-type BlockSender = (sum: string, data: Blob, o: { signal: AbortSignal; onBytes: (loaded: number) => void }) => Promise<void>;
+type BlockSender = (sum: string, data: Blob, o: { signal: AbortSignal; onBytes: (loaded: number) => void; token?: string }) => Promise<void>;
 
 const networkError = () => new ServerError(0, 'network', '连不上服务器，请检查网络后再试');
 
@@ -97,9 +97,8 @@ function errorOf(status: number, raw: string, token: string | undefined): Server
 }
 
 /** 要看传了多少字节,只能用 XMLHttpRequest */
-const xhrSender: BlockSender = (sum, data, { signal, onBytes }) =>
+const xhrSender: BlockSender = (sum, data, { signal, onBytes, token }) =>
   new Promise((resolve, reject) => {
-    const token = authToken();
     const x = new XMLHttpRequest();
     x.open('PUT', `${serverBase()}/v1/world-blocks/${sum}`);
     if (token) x.setRequestHeader('Authorization', `Bearer ${token}`);
@@ -148,7 +147,7 @@ export function _setFullNet(o: { sender?: BlockSender; sleep?: typeof sleepFor }
 const retryable = (e: unknown) => e instanceof ServerError && (e.code === 'network' || e.code === 'bad-hash' || e.code === 'busy' || e.code === 'server' || e.code === 'unavailable' || e.code === 'bad-request');
 
 /** 传 need 里的块(不在 plan 里的不管)。断了先自己重试,还不行才抛 network。onSent:一共传了多少字节 */
-export async function sendBlocks(file: Blob, plan: BlockPlan, need: readonly string[], o: { signal: AbortSignal; onSent?: (bytes: number) => void }): Promise<void> {
+export async function sendBlocks(file: Blob, plan: BlockPlan, need: readonly string[], o: { signal: AbortSignal; onSent?: (bytes: number) => void; token?: string }): Promise<void> {
   const wanted = new Set(need);
   const seen = new Set<string>();
   const todo = plan.blocks.filter((b) => wanted.has(b.sum) && !seen.has(b.sum) && seen.add(b.sum));
@@ -166,6 +165,7 @@ export async function sendBlocks(file: Blob, plan: BlockPlan, need: readonly str
         try {
           await sender(b.sum, file.slice(b.start, b.start + b.bytes), {
             signal: stop.signal,
+            token: o.token ?? authToken(),
             onBytes: (n) => {
               sent.set(b.sum, Math.min(n, b.bytes));
               tell();

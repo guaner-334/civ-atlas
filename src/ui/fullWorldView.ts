@@ -7,6 +7,7 @@
 import { getSession, onLogin, onSessionChange } from '../account/session';
 import { serverBase } from '../account/server';
 import { openAccount } from './AccountDialogs';
+import { exportNotes, notesKnown } from '../ai/library';
 import { createListeners } from './createStore';
 import { isStored } from './saveStore';
 import { showToast } from './toastStore';
@@ -206,6 +207,34 @@ export type FullStatus = { kind: 'never' } | { kind: 'recipe'; at: string } | { 
 
 type Markable = Parameters<typeof saveMark>[0];
 
+/** AI 写的东西跟着传:记号里也算上。还没读出来的 = '' */
+function notesMark(id: string): string {
+  if (!notesKnown(id)) return '';
+  const text = JSON.stringify(
+    exportNotes(id)
+      .map((n) => [n.key, n.text])
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+  );
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${(h >>> 0).toString(36)}.${text.length.toString(36)}`;
+}
+
+/** 传的时候记下的内容记号:配方 + AI 写的东西 */
+export const fullMark = (id: string, save: Markable): string => `${saveMark(save)}|${notesMark(id)}`;
+
+/** 记号对得上才算没改过;AI 写的东西这次还没读出来时只看配方,读出来了再算 */
+function sameMark(mark: string | null | undefined, id: string, save: Markable): boolean {
+  if (!mark) return false;
+  const [recipe, notes] = mark.split('|');
+  if (recipe !== saveMark(save)) return false;
+  const now = notesMark(id);
+  return !now || !notes || now === notes;
+}
+
 /** 账号里那份和这个世界现在的样子一样吗 */
 export function fullStatusOf(o: FullOverview, id: string, save: Markable | null | undefined): FullStatus {
   const entry = o.worlds.find((w) => w.id === id);
@@ -213,7 +242,7 @@ export function fullStatusOf(o: FullOverview, id: string, save: Markable | null 
     const a = o.account.find((w) => w.id === id);
     return a ? { kind: 'recipe', at: a.updatedAt ?? '' } : { kind: 'never' };
   }
-  return { kind: save && entry.mark === saveMark(save) ? 'same' : 'changed', entry };
+  return { kind: save && sameMark(entry.mark, id, save) ? 'same' : 'changed', entry };
 }
 
 export type FullRefusal = 'big' | 'count' | 'bytes' | 'today' | 'store';
