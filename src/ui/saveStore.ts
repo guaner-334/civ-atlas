@@ -306,9 +306,9 @@ export function otherTabChanged(key: string | null, newValue: string | null): vo
   if (c && (key === PREFIX + c.id || cleared)) {
     const now = cleared ? null : newValue;
     if (now !== null && now === c.wrote) {
-      // 那边撤销了删除(放回来的就是这里存的那份):接着自动存
+      // 那边撤销了删除(放回来的就是这里存的那份):接着自动存(只读打开的本来就不存)
       if (c.gone) clearToast('other-tab');
-      c.gone = undefined;
+      c.gone = c.readonly ? 'changed' : undefined;
     } else {
       // 删了,或者存成了别的样子(那边也开着它改了、同步取回了另一台设备改过的):这里的还是旧的,不再自动存,不然一改就把那边的盖掉
       const why = now === null ? 'deleted' : 'changed';
@@ -1239,7 +1239,10 @@ export interface AttachSpec {
   original?: SaveFile | null;
   /** 照原样打开的旧世界(读的原件):建它的生成器版本(存档照旧记这一版;只对建好的、比现在旧的算) */
   frozen?: number;
-  /** 只读打开:看的不是存档里的这份(存档里有没推完的修改,见 ui/world/worldTarget.ts 的 Target.readonly):不自动存,存档不动 */
+  /**
+   * 只读打开:看的不是存档里的这份,不自动存,存档不动。两种:存档里有没推完的修改(见 ui/world/worldTarget.ts 的 Target.readonly);
+   * 旧世界存的内容这次读不出,先按现在的规则算了一遍(存了就再也回不到原来的样子,下次打开要再读一次存的内容)
+   */
   readonly?: boolean;
 }
 
@@ -1281,7 +1284,7 @@ export function attachWorld(spec: AttachSpec) {
   if (keep && !same) {
     saveCurrent(true);
     // 新建中换了参数、地形:换了一颗星球,缩略图重截
-    if (prev && (worldKey(prev.params) !== worldKey(spec.params) || prev.check !== spec.check)) scheduleThumb(spec.id, true);
+    if (!spec.readonly && prev && (worldKey(prev.params) !== worldKey(spec.params) || prev.check !== spec.check)) scheduleThumb(spec.id, true);
   } else if (prev && spec.kind === 'draft' && spec.pristine) {
     // 新建中又变回没动过(换了一颗星球,改过的地形作废):原来存的那份拿掉
     removeKeys(spec.id);
@@ -1293,6 +1296,23 @@ export function attachWorld(spec: AttachSpec) {
   }
   current.wrote = store().get(PREFIX + spec.id);
   changed();
+}
+
+/**
+ * 只读打开时放弃存档里没推完的修改:存档换成现在看到的这一份,从此和平常一样自动存。
+ * 写进去了 = true;写不进去(存储满了)还是只读,修改还留在存档里
+ */
+export function dropPendingEdits(): boolean {
+  const c = current;
+  if (!c?.readonly) return false;
+  const { gone } = c;
+  c.readonly = undefined;
+  c.gone = undefined;
+  if (saveCurrent(true)) return true;
+  c.readonly = true;
+  c.gone = gone;
+  c.unsaved = undefined;
+  return false;
 }
 
 /** 回到我的世界、又点开下面一直开着的这个世界(不用重新打开):记一下"最近打开" */

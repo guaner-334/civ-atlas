@@ -23,6 +23,7 @@
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
 import { exportNotes, notesKnown, notesReady, notesSaved, replaceNotes, type AiNote } from '../ai/library';
+import { fileTrouble } from './openTrouble';
 import type { DraftBase } from './stageStore';
 import {
   MAX_WORLDS,
@@ -354,7 +355,7 @@ export function openBundleText(text: string, fileName?: string): boolean {
   const r = parseBundle(text);
   if (!r) return false;
   if (!r.ok) {
-    notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个文件', more: [r.error] });
+    notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个文件', ...fileTrouble(r.error) });
     return true;
   }
   const { worlds, bad } = r.bundle;

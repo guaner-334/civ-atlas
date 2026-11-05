@@ -193,33 +193,6 @@ export async function frozenResult(id: string, save: SaveFile): Promise<Snapshot
   }
 }
 
-/** 照原样打开时的提示条:同一个世界在同一版网站里只说一次(记在 localStorage:世界编号 → 说过时的生成器版本) */
-const TOLD_KEY = 'civ-atlas:frozen-told';
-const TOLD_MAX = 200;
-function readTold(): Record<string, number> {
-  try {
-    const v = JSON.parse(localStorage.getItem(TOLD_KEY) ?? '{}') as unknown;
-    return v && typeof v === 'object' ? (v as Record<string, number>) : {};
-  } catch {
-    return {};
-  }
-}
-/** 这个世界在这一版里说过了没有;没说过就记下(返回 false) */
-export function toldFrozen(id: string): boolean {
-  const told = readTold();
-  if (told[id] === GENERATOR_VERSION) return true;
-  delete told[id];
-  told[id] = GENERATOR_VERSION;
-  const keys = Object.keys(told);
-  for (const k of keys.slice(0, Math.max(0, keys.length - TOLD_MAX))) delete told[k];
-  try {
-    localStorage.setItem(TOLD_KEY, JSON.stringify(told));
-  } catch {
-    /* 记不下就下次再说一次 */
-  }
-  return false;
-}
-
 /** 复制世界:原件跟着复制一份(写不下就算了) */
 export function copyResults(from: string, to: string): Promise<void> {
   return queue(async () => {
