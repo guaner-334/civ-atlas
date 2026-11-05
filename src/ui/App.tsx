@@ -74,7 +74,8 @@ import { switchBranch } from '../gen/stepwise';
 import { StepBranchDeleteDialog } from './StepBranches';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
-import { AccountHost, ShareGone, SharedHint } from './AccountDialogs';
+import { AccountHost } from './AccountDialogs';
+import { ShareGone, SharedHint } from './ShareNotes';
 import {
   clearSelection,
   getCivShow,
