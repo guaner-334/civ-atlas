@@ -18,7 +18,7 @@ export function holdOpenNote(id: string, note: OpenNote): void {
   held = { id, note };
 }
 
-/** 文件里的内容存不进浏览器,只能走配方那条路打开:打开时第二行说的话 */
+/** 文件里的内容存不进浏览器:世界只打开、不存(走文字那条路),这是打开时第二行说的话 */
 let trouble: string | null = null;
 
 export function holdFileTrouble(line: string): void {

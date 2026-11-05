@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSave } from '../src/gen/savefile';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { setOpenWorldHandler } from '../src/ui/newCivAction';
-import { takeOpenNote } from '../src/ui/openNote';
+import { takeFileTrouble, takeOpenNote } from '../src/ui/openNote';
 import * as saveStore from '../src/ui/saveStore';
 import { _resetToasts, getToast, peekToast } from '../src/ui/toastStore';
 
@@ -267,6 +267,13 @@ describe('全部世界存成文件', () => {
     expect(toast()!.more).toEqual([expect.stringContaining('312 MB'), '其中 2 个只带上了配方，打开时要重新算', '其中 1 个世界的 AI 写的东西这次没读出来，文件里可能不全。刷新页面再存一次']);
   });
 
+  it('留着的旧版本太大、没带上的也说', async () => {
+    wf.saveAllWorldFiles.mockResolvedValue(one({ olderLeft: ['a'] }));
+    await saveAllToFile();
+    expect(toast()!.kind).toBe('warn');
+    expect(toast()!.more).toContain('其中 1 个留着的旧版本太大，没带上，世界本身带上了');
+  });
+
   it('进度:第几个、一共约多大;取消了没有文件', async () => {
     vi.useFakeTimers();
     let finish!: (v: unknown) => void;
@@ -404,11 +411,17 @@ describe('打开文件', () => {
     const f = named(FILE);
     pick(f, 'world');
     wf.lookWorldFile.mockResolvedValue(looked());
-    for (const kind of ['full', 'count', 'unavailable']) {
+    const lines: [string, string][] = [
+      ['full', '浏览器存储已满，这个世界没存进去，这个文件先别删'],
+      ['count', `「我的世界」最多存 ${saveStore.MAX_WORLDS} 个，这个世界没存进去，这个文件先别删`],
+      ['unavailable', '浏览器不让网页存数据，这个世界没存进去，这个文件先别删'],
+    ];
+    for (const [kind, line] of lines) {
       onText.mockClear();
       wf.placeWorldFile.mockResolvedValue({ ok: false, kind, message: 'x' });
       await openPickedFiles([f], onText);
       expect(onText).toHaveBeenCalledWith(JSON.stringify({ title: '塞雷尼亚' }), FILE);
+      expect(takeFileTrouble()).toBe(line);
     }
   });
 
@@ -528,6 +541,42 @@ describe('打开文件', () => {
       wf.openWorldFiles.mockResolvedValue({ ...none, added: [w(id)] });
       await openPickedFiles([f], vi.fn());
       expect(saveStore.loadWorld(id)!.fromFile).toBeTruthy();
+    });
+
+    it('世界文件和旧文件一起选:取消了旧文件也不放', async () => {
+      vi.useFakeTimers();
+      const world = named(FILE2);
+      const old = new File([JSON.stringify(makeSave({ ...DEFAULT_PARAMS, seed: 1 }, { names: {}, interventions: [], terrain: [] }, '', '甲'))], 'a.json');
+      wf.lookWorldFiles.mockResolvedValue({
+        files: [
+          { file: world, name: world.name, kind: 'backup', packed: [], recipes: null },
+          { file: old, name: old.name, kind: 'other', packed: [], recipes: null },
+        ],
+        sets: [],
+      });
+      let finish!: (v: unknown) => void;
+      wf.openWorldFiles.mockReturnValue(new Promise((r) => (finish = r)));
+      const run = openPickedFiles([world, old], vi.fn());
+      await vi.advanceTimersByTimeAsync(1100);
+      toast()!.action!.onClick();
+      finish({ ...none, cancelled: true });
+      vi.useRealTimers();
+      await run;
+      expect(saveStore.listWorlds()).toHaveLength(0);
+      expect(toast()).toMatchObject({ text: '已放回 0 个世界', more: ['剩下的没有放'] });
+    });
+
+    it('旧文件放回来 AI 写的东西存不下、浏览器不让存:照样说', async () => {
+      const bundle = new File(['{}'], 'all.json');
+      const save = makeSave({ ...DEFAULT_PARAMS, seed: 3 }, { names: {}, interventions: [], terrain: [] }, '', '丙');
+      const text = JSON.stringify({ app: '文明与地图', bundle: 1, savedAt: new Date().toISOString(), worlds: [{ id: 'wold000', save, meta: {}, notes: [{ key: 'a', kind: '史书', title: 't', text: 'x', createdAt: new Date().toISOString(), provider: '', model: '' }] }] });
+      const file = new File([text], bundle.name);
+      wf.lookWorldFiles.mockResolvedValue({ files: [{ file, name: file.name, kind: 'other', packed: [], recipes: null }, { file, name: file.name, kind: 'other', packed: [], recipes: null }], sets: [] });
+      wf.openWorldFiles.mockResolvedValue(none);
+      vi.spyOn(saveStore, 'persistent').mockReturnValue(false);
+      await openPickedFiles([file, file], vi.fn());
+      expect(toast()!.kind).toBe('warn');
+      expect(toast()!.more![0]).toContain('只留在这个页面里');
     });
 
     it('几个旧文件一起选:都放进「我的世界」', async () => {

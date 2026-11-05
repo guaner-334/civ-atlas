@@ -17,7 +17,7 @@ import { isCoarse, isNarrow } from './device';
 import { openWorldById } from './newCivAction';
 import { FILE_TROUBLE, newerNotice } from './openTrouble';
 import { holdFileTrouble, holdOpenNote, type OpenNote } from './openNote';
-import { MAX_WORLDS, currentSave, currentUnsaved, currentWorld, importSave, loadWorld, markFromFile, notify, storedCount } from './saveStore';
+import { MAX_WORLDS, currentSave, currentUnsaved, currentWorld, importSave, loadWorld, markFromFile, notify, persistent, storedCount } from './saveStore';
 import { clearToast, getToast, peekToast, showToast, updateToast, type ToastAction, type ToastInput } from './toastStore';
 import {
   checkTimeout,
@@ -287,6 +287,7 @@ function allWarnings(r: SavedBackup): string[] {
   if (r.recipeOnly.length) more.push(`其中 ${r.recipeOnly.length} 个${RECIPE_ONLY}`);
   if (r.notesUnread?.length) more.push(`其中 ${r.notesUnread.length} 个世界的 AI 写的东西这次没读出来，文件里可能不全。刷新页面再存一次`);
   if (r.dropped) more.push('有的世界 AI 写的东西太多，放不下，没带上');
+  if (r.olderLeft.length) more.push(`其中 ${r.olderLeft.length} 个留着的旧版本太大，没带上，世界本身带上了`);
   return more;
 }
 
@@ -464,9 +465,10 @@ async function openOneWorld(file: File, onText: (text: string, fileName: string)
   busy = false;
   bar.stop();
   if (!placed.ok) {
-    // 浏览器存不下:世界照样打开(文字那条路),提示条上说没存下、文件先别删
+    // 浏览器存不下:世界只打开、不存(文字那条路;本机已有的世界不动),提示条上说没存进去、文件先别删
     if (placed.kind === 'full' || placed.kind === 'count' || placed.kind === 'unavailable') {
-      holdFileTrouble(placed.kind === 'unavailable' ? '浏览器不让网页存内容，这个文件先别删' : '浏览器存储已满，内容没存下，这个文件先别删');
+      const why = placed.kind === 'full' ? '浏览器存储已满' : placed.kind === 'count' ? `「我的世界」最多存 ${MAX_WORLDS} 个` : '浏览器不让网页存数据';
+      holdFileTrouble(`${why}，这个世界没存进去，这个文件先别删`);
       return onText(JSON.stringify(looked.facts.save), name);
     }
     return sayCantOpen(placed.kind, name, { retry });
@@ -510,10 +512,11 @@ async function openOldFile(file: File, onText: (text: string, fileName: string) 
   }
 }
 
-/** 一起选的旧文件:都放进「我的世界」 */
-async function importOldFiles(picks: readonly PickedFile[]) {
-  const out = { added: [] as string[], same: 0, bad: 0, left: 0 };
+/** 一起选的旧文件:都放进「我的世界」;取消了就停 */
+async function importOldFiles(picks: readonly PickedFile[], signal: AbortSignal) {
+  const out = { added: [] as string[], same: 0, bad: 0, left: 0, notesLost: false };
   for (const p of picks) {
+    if (signal.aborted) break;
     try {
       if (p.file.size > OLD_FILE_MAX_BYTES) {
         out.bad++;
@@ -531,6 +534,7 @@ async function importOldFiles(picks: readonly PickedFile[]) {
         out.same += res.same;
         out.left += res.left;
         out.bad += b.bundle.bad;
+        if (res.notesLost) out.notesLost = true;
         continue;
       }
       const s = parseSave(text);
@@ -569,15 +573,18 @@ function sayRestored(r: OpenedWorldFiles, old: Awaited<ReturnType<typeof importO
     return say({ kind: 'error', text: `打不开 ${firstName}`, more: [FILE_TROUBLE] });
   }
   const notes: string[] = [];
-  if (r.memOnly) notes.push('浏览器不让网页存数据：放回来的世界只留在这个页面里，关掉就没了，这个文件先别删');
+  // 旧文件放回来的和世界文件放回来的一样:浏览器不让存就只留在页面里
+  const memOnly = r.memOnly || (old.added.length > 0 && !persistent());
+  const notesLost = r.notesLost.length > 0 || !!r.recipes?.notesLost || old.notesLost;
+  if (memOnly) notes.push('浏览器不让网页存数据：放回来的世界只留在这个页面里，关掉就没了，这个文件先别删');
   if (r.copied.length) notes.push(`其中 ${r.copied.length} 个和原来的内容不一样，另存成了新的`);
   if (same) notes.push(`${same} 个原来就有，没重复放`);
   if (badN) notes.push(`${badN} 个读不出来，跳过了`);
   if (left) notes.push(`还有 ${left} 个没放进去：${byCount ? `「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个再打开一次` : '浏览器存储已满，先删掉几个世界再打开一次'}`);
   for (const s of r.sets) if (s.missing.length) notes.push(`分成 ${s.parts} 个文件的还差第 ${s.missing.join('、')} 个，一起选上再打开一次`);
   if (r.cut) notes.push('有个文件没存完整，读得到的都放回了');
-  if (r.notesLost.length || r.recipes?.notesLost) notes.push('有的 AI 写的东西没能放回来（浏览器存储已满）');
-  const trouble = badN > 0 || left > 0 || r.cut || r.memOnly || r.notesLost.length > 0 || !!r.recipes?.notesLost || r.sets.some((s) => s.missing.length > 0);
+  if (notesLost) notes.push('有的 AI 写的东西没能放回来（浏览器存储已满）');
+  const trouble = badN > 0 || left > 0 || r.cut || memOnly || notesLost || r.sets.some((s) => s.missing.length > 0);
   if (added) return say({ kind: trouble ? 'warn' : 'ok', text: `已放回 ${added} 个世界`, more: notes });
   if (left) return say({ kind: 'error', text: '没能放回来', more: notes });
   say({ kind: trouble ? 'warn' : 'ok', text: '这些世界都已经在「我的世界」里了', more: notes.filter((x) => !x.endsWith('没重复放')) });
@@ -608,7 +615,10 @@ async function restoreFiles(picks: readonly PickedFile[], firstName: string): Pr
       },
     },
   );
-  const old = await importOldFiles(picks.filter((p) => p.kind === 'other'));
+  const old = await importOldFiles(
+    picks.filter((p) => p.kind === 'other'),
+    ac.signal,
+  );
   busy = false;
   bar.stop();
   for (const id of [...r.added.map((w) => w.id), ...r.copied.map((w) => w.id), ...(r.recipes?.added ?? []), ...old.added]) markFromFile(id);

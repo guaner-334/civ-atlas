@@ -738,8 +738,9 @@ async function storage(r: Run, page: Page, saved: string) {
       await cdp.send('Storage.overrideQuotaForOrigin', { origin: new URL(BASE).origin, quotaSize: 200_000 });
       await goHome(p);
       await pick(p, saved);
-      await worldReady(p);
-      await toastIs(p, [`已打开存档「${NAME}」`, '浏览器存储已满，内容没存下，这个文件先别删'], '世界照样打开,说没存下', WAIT);
+      await toastIs(p, [`已打开存档「${NAME}」`, '浏览器存储已满，这个世界没存进去，这个文件先别删'], '世界照样打开,说没存进去', WAIT);
+      await goHome(p);
+      check((await cardCount(p)) === 0, '没存进「我的世界」');
       await ctx.close();
     });
   }

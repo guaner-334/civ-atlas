@@ -131,9 +131,7 @@ function versionAction(orig: SaveFile | null): ToastAction | undefined {
 
 /** 从文件(.json)打开的世界存进「我的世界」了没有;warn = 没存住,文件先别删 */
 function fileKept(id: string): { line: string; warn: boolean } {
-  const trouble = takeFileTrouble();
   if (!isStored(id)) return { line: `${storageFullWhy()}，没存进「我的世界」，这个文件先别删`, warn: true };
-  if (trouble) return { line: trouble, warn: true };
   if (!persistent()) return { line: '浏览器不让网页存数据，世界只留在这个页面里，这个文件先别删', warn: true };
   return { line: '已存进「我的世界」，下次不用再选文件', warn: false };
 }
@@ -841,14 +839,16 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       notify({ kind: 'error', text: fileName ? `打不开 ${fileName}` : '打不开这个存档', ...fileTrouble(r.error) });
       return;
     }
+    // 世界文件存不进浏览器才走到这里的:只打开、不存。importSave 认出同一个世界时会改写本机那一份,这种文件不能让它碰
+    const trouble = takeFileTrouble();
     const before = storedCount();
-    const id = importSave(r.save);
+    const id = trouble ? null : importSave(r.save);
     if (id && storedCount() > before) markFromFile(id);
     const w = id ? loadWorld(id) : null;
     const t: Target = w
       ? { ...storedTarget(w, 'stored'), view: r.save.view ?? null }
       : { id: newWorldId(), kind: 'visit', params: r.save.params, edits: r.save.edits, title: r.save.title, view: r.save.view ?? null, save: r.save, origin: r.save.origin ?? null };
-    openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings });
+    openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings, ...(trouble ? { fileKept: { line: trouble, warn: true } } : {}) });
   };
   /**
    * 打开分享链接(解开以后):别人的世界,先不存;改了(或起了名)才存进"我的世界"。
