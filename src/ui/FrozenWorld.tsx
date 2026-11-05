@@ -84,7 +84,7 @@ export function saveAsNew(edits?: WorldEdits, from?: SaveAsk) {
 }
 
 /** 窗口第一段 */
-function askText(a: Ask): string {
+export function askText(a: Pick<Ask, 'map' | 'drop' | 'title' | 'count'>): string {
   if (a.map === 'none') return `「${a.title}」是旧版本建的，只存了配方，地图没存下来。推演的话，地图和整段历史都按新版重新长，和原来可能不同。`;
   if (a.map === 'terrain') return `「${a.title}」是旧版本建的，一直照原样存着。这次动了地形大事，地图要跟着重新长，地图和整段历史都会和原来不一样。`;
   if (a.map === 'upheaval') return `「${a.title}」是旧版本建的，一直照原样存着。地形大事要在新版长的地图上发生，所以地图和整段历史都会和原来不一样。`;

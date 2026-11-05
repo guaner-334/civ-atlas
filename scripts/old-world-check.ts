@@ -306,16 +306,13 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
 
   // ---- 图 17:这台没有服务器,登录状态是把令牌直接写上的
   await page.evaluate(() => {
-    localStorage.setItem('civ-atlas:account', JSON.stringify({ token: 'x', user: { id: 'u1', email: 'a@b.c', name: '测试' } }));
+    localStorage.setItem('civ-atlas:account', JSON.stringify({ token: 'x', user: { id: 'u1', account: 'a@b.c', name: '测试' } }));
   });
   await page.reload();
   await d.ready();
   await d.menu();
-  const shareOff = await page.locator('.save-it[data-act=share]').count();
-  if (shareOff) {
-    check((await page.locator('.save-it[data-act=share]').innerText()).includes('地图带不进链接'), '图 17:分享灰着写原因');
-    await d.shot('17');
-  } else say('  (没有服务器,这一页不认登录,图 17 没走到)');
+  check((await page.locator('.save-it[data-act=share]').innerText()).includes('地图带不进链接'), '图 17:分享灰着写原因');
+  await d.shot('17');
   await d.closeMenu();
   await page.evaluate(() => localStorage.removeItem('civ-atlas:account'));
   await page.reload();
@@ -555,13 +552,17 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await d.shot('换走了');
   check((await count()) === n0 + 1, '连点:只多一份');
   await page.locator('[data-act=open-copy]').click();
+  await page.waitForFunction(async () => (await import('/src/ui/saveStore.ts' as string)).currentWorld()?.title === '九州大陆（新版）', null, { timeout: WAIT });
   await d.ready();
-  check((await d.current())?.id !== undefined && (await d.saveOf(d.worldId()))?.title === '九州大陆（新版）', '点「打开」打开了');
+  check(true, '点「打开」打开了');
 
-  // ---- 地图读不出来(造的:把存的内容删掉):窗口换成图 12 的字
+  // ---- 地图读不出来(造的:把存的内容和原件都删掉):窗口换成图 12 的字
   await d.open('群岛纪元');
   const gid = d.worldId();
-  await page.evaluate(async (i) => (await import('/src/ui/worldStore.ts' as string)).vaultCall('purgeWorld', [i]), gid);
+  await page.evaluate(async (i) => {
+    await (await import('/src/ui/worldStore.ts' as string)).vaultCall('purgeWorld', [i]);
+    await (await import('/src/ui/resultStore.ts' as string)).dropResults(i);
+  }, gid);
   await d.menu();
   await page.locator('[data-act=save-new]').click();
   await page.waitForSelector('[data-testid=frozen-ask]', { timeout: WAIT });
@@ -581,6 +582,12 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await page.locator('[data-act="compare-map"]').click();
   await d.seen(`「${NAME}」的新版地图`, '图 23');
   await d.shot('23');
+
+  // ---- 图 24(本地假服务器的作品墙)
+  await page.goto(`${BASE}?gallery&aiServer=fake`);
+  await page.locator('[data-act="gallery-howto"]:visible').first().click({ timeout: WAIT });
+  await d.seen('复制不了配方链接的世界，把存成的文件发给管理员', '图 24');
+  await d.shot('24');
   await ctx.close();
 }
 

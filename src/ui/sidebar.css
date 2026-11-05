@@ -335,7 +335,7 @@ a.sb-row {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sb-row:hover:not(:disabled),
+.sb-row:hover:not(:disabled):not(.off),
 .sb-row.on {
   background: var(--hover-bg);
 }

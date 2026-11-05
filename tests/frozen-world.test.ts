@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as saveStore from '../src/ui/saveStore';
 import { addEditsBatch, addIntervention, addUpheaval, clearEdits, clearTerrainAndSketch, commitEdits, getEdits, setEdits, setEndYear, setHistoryGate, setName } from '../src/ui/editsStore';
 import { clearPending, getPending, pushPending, queueIntervention } from '../src/ui/pendingStore';
+import { askText } from '../src/ui/FrozenWorld';
 import { clearToast, getToast } from '../src/ui/toastStore';
 import { endRun } from '../src/ui/panelStore';
 import { DEFAULT_PARAMS } from '../src/gen/world';
@@ -258,6 +259,17 @@ describe('照原样打开旧世界:存档和修改', () => {
     const again = saveStore.saveAsNewVersion(id, next)!;
     expect(saveStore.loadWorld(again)!.save.title).not.toBe('青岚纪（新版）');
     expect(saveStore.loadWorld(again)!.save.title).toContain('青岚纪（新版）');
+  });
+});
+
+describe('推演前问的窗口怎么说', () => {
+  const base = { title: '塞雷尼亚', count: 3 };
+  it('地图不变、地图留不住分开说', () => {
+    expect(askText(base)).toBe('「塞雷尼亚」是旧版本建的，一直照原样存着。新版的规则变了，推演的话地图不变，历史按新规则从第 0 年重推，整段都会不一样。');
+    expect(askText({ ...base, drop: () => {} })).toBe('上次有 3 处改动没推完页面就关了，之后网站更新了，规则也变了。接着推演的话，地图不变，历史按新规则从第 0 年重推，整段都会不一样。');
+    expect(askText({ ...base, map: 'none' })).toBe('「塞雷尼亚」是旧版本建的，只存了配方，地图没存下来。推演的话，地图和整段历史都按新版重新长，和原来可能不同。');
+    expect(askText({ ...base, map: 'terrain' })).toBe('「塞雷尼亚」是旧版本建的，一直照原样存着。这次动了地形大事，地图要跟着重新长，地图和整段历史都会和原来不一样。');
+    expect(askText({ ...base, map: 'upheaval' })).toBe('「塞雷尼亚」是旧版本建的，一直照原样存着。地形大事要在新版长的地图上发生，所以地图和整段历史都会和原来不一样。');
   });
 });
 

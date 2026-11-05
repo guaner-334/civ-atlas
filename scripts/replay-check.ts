@@ -3305,12 +3305,11 @@ if (part('分享这一刻')) {
   await ctxB.close();
 }
 
-// 看原样:有旧网站的那一版(FIRST_OLD_SITE 起、比现在旧)建的世界,存档菜单里有一行「看原样」;提示条上也有,
-// 不过只在这个世界真的变了样(提示"按新版算的…")时才放 —— 之后几版只改了改过地形的世界的,没改过地形的世界提示条上不放
-// (上一版另拿一个改过地形的世界看提示条上的)。
-// 点了开一个新页面到 /v<那一版>/,带 own=1 和整份存档(# 后面)。没有旧网站的更早版本、现在这一版建的都没有
+// 看原样:留着旧网站的那几版(oldSiteFor)建的世界,存档菜单里有一行「看原样」;提示条上也有,
+// 不过只在这个世界真的变了样(提示"按新版算的…")时才放。
+// 点了开一个新页面到 /v<那一版>/,带 own=1 和整份存档(# 后面)。没留旧网站的版本灰着写原因,现在这一版建的没有
 if (part('看原样')) {
-  const { FIRST_OLD_SITE } = await import('../src/ui/oldSite');
+  const { FIRST_OLD_SITE, oldSiteFor } = await import('../src/ui/oldSite');
   const { versionNote } = await import('../src/gen/savefile');
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const p = await ctx.newPage();
@@ -3336,13 +3335,16 @@ if (part('看原样')) {
     const inToast = await p.locator('.toast [data-act=see-original]').count();
     await p.click('.save-btn');
     const inMenu = await p.locator('.save-menu [data-act=see-original]').count();
+    const noneInMenu = await p.locator('.save-menu [data-act=see-original-none]').count();
     await p.click('.save-btn');
-    return { note, inToast, inMenu };
+    return { note, inToast, inMenu, noneInMenu };
   };
-  const gens = [...new Set([GENERATOR_VERSION - 1, FIRST_OLD_SITE - 1, GENERATOR_VERSION])];
-  const cases: [number, boolean][] = [...gens.map((g): [number, boolean] => [g, false]), [GENERATOR_VERSION - 1, true]];
+  // 第 28 版留着旧网站;上一版、更早的没留
+  const kept = 28;
+  const gens = [...new Set([kept, GENERATOR_VERSION - 1, FIRST_OLD_SITE - 1, GENERATOR_VERSION])];
+  const cases: [number, boolean][] = [...gens.map((g): [number, boolean] => [g, false]), [kept, true]];
   for (const [gen, edited] of cases) {
-    const has = gen >= FIRST_OLD_SITE && gen < GENERATOR_VERSION;
+    const has = oldSiteFor(gen) !== null;
     // 提示条上放不放:这个世界从那一版到现在变没变样
     const inToast = has && versionNote(gen, edited) !== null;
     const r = await openGen(gen, edited);
@@ -3368,6 +3370,7 @@ if (part('看原样')) {
     console.log(`看原样:${what},提示「${r.note}」,提示条上的按钮 ${r.inToast},存档菜单里 ${r.inMenu}${popup ? `,新页面 ${popup.slice(0, 80)}…` : ''}`);
     if (inToast !== (r.inToast === 1) || has !== (r.inMenu === 1))
       errs.push(`看原样:${what}提示条上${inToast ? '应该' : '不该'}有、存档菜单里${has ? '应该' : '不该'}有「看原样」(提示条 ${r.inToast},存档菜单 ${r.inMenu})`);
+    if ((gen < GENERATOR_VERSION && !has) !== (r.noneInMenu === 1)) errs.push(`看原样:${what}没留旧网站才灰着写原因(存档菜单 ${r.noneInMenu})`);
     if (has) {
       const u = popup ? new URL(popup) : null;
       if (!u || !u.pathname.endsWith(`/v${gen}/`) || u.searchParams.get('own') !== '1' || !u.hash.startsWith('#share=')) errs.push(`看原样:新页面的网址不对(${popup})`);
