@@ -107,12 +107,13 @@ class Drive {
     return this.worldId();
   }
   worldId = () => new URL(this.page.url()).searchParams.get('w')!;
-  async sheet() {
-    if (this.phone && !(await this.page.locator('.ps-tiles').count())) {
-      await this.page.locator('[data-act="world-sheet"]').click();
-      await this.page.waitForTimeout(500);
-    }
+  /** 手机:世界卡片拉上来 / 收下去 */
+  async setSheet(to: 'full' | 'peek') {
+    if (!this.phone) return;
+    await this.page.evaluate(async (t) => (await import('/src/ui/panelStore.ts' as string)).setWorldSheet(t), to);
+    await this.page.waitForTimeout(500);
   }
+  sheet = () => this.setSheet('full');
   async menu() {
     await this.sheet();
     await this.page.locator('.save-btn:visible').first().click();
@@ -143,6 +144,7 @@ class Drive {
     await this.page.waitForTimeout(300);
   }
   async push() {
+    await this.setSheet('peek');
     await this.page.locator('[data-act="iv-push"]:visible').first().click();
     await this.page.waitForSelector('[data-testid=frozen-ask]', { timeout: 10000 });
     await this.page.waitForTimeout(350);
@@ -241,7 +243,7 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   const gen = await page.goto(BASE).then(() => page.evaluate(async () => (await import('/src/gen/edits.ts' as string)).GENERATOR_VERSION as number));
   check(gen > 57, `这份代码升了版本(第 ${gen} 版)`);
 
-  // ---- 打开、存档菜单、图 10
+  // ---- 打开、存档菜单、推演窗口
   await d.open(NAME);
   check((await d.current())?.frozen === 57, '旧世界照原样打开');
   const oldId = d.worldId();
@@ -257,24 +259,24 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
 
   await d.queue(3);
   await d.push();
-  check((await d.ask().innerText()).includes(`「${NAME}」是旧版本建的，一直照原样存着。新版的规则变了，推演的话地图不变，历史按新规则从第 0 年重推，整段都会不一样。`), '图 10:第一句');
-  check((await d.ask().innerText()).includes(`原来的「${NAME}」不动；另存一份「${COPY}」，在那一份上推演这 3 条命令。`), '图 10:小字');
-  check((await d.ask().innerText()).includes('另存并推演'), '图 10:按钮');
+  check((await d.ask().innerText()).includes(`「${NAME}」是旧版本建的，一直照原样存着。新版的规则变了，推演的话地图不变，历史按新规则从第 0 年重推，整段都会不一样。`), '推演窗口:第一句');
+  check((await d.ask().innerText()).includes(`原来的「${NAME}」不动；另存一份「${COPY}」，在那一份上推演这 3 条命令。`), '推演窗口:小字');
+  check((await d.ask().innerText()).includes('另存并推演'), '推演窗口:按钮');
   await d.shot('10');
   await d.cancelAsk();
   check((await page.evaluate(async () => (await import('/src/ui/pendingStore.ts' as string)).getPending().length)) === 3, '取消:单子留着');
   await d.push();
 
-  // ---- 图 14、15
+  // ---- 正在另存、15
   const t0 = Date.now();
   await d.go();
   const waited = await d.sees(`正在另存「${COPY}」`, 4000);
   if (waited) {
-    await d.seen('历史在从第 0 年重推，好了会自动打开', '图 14');
+    await d.seen('历史在从第 0 年重推，好了会自动打开', '正在另存');
     await d.shot('14');
   } else say('  (不到 1 秒就好了,没出等的那一条)');
-  await d.seen(`已另存为「${COPY}」`, '图 15');
-  await d.seen('地图没变，历史按新版重推了。原来的世界照原样留着', '图 15');
+  await d.seen(`已另存为「${COPY}」`, '另存好了');
+  await d.seen('地图没变，历史按新版重推了。原来的世界照原样留着', '另存好了');
   say(`  另存到打开 ${Date.now() - t0} ms`);
   await d.ready();
   await d.shot('15');
@@ -290,54 +292,56 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   check(hk?.content !== headBefore?.content, '历史变了');
   check((await page.evaluate(async () => (await import('/src/ui/pendingStore.ts' as string)).getPending().length)) === 0, '单子跟着走了');
 
-  // ---- 图 16
+  // ---- 另存的世界菜单
   await d.menu();
-  await d.seen(`地图留自「${NAME}」，历史按新版重推`, '图 16');
-  await d.seen('地图带不进链接，对方打不开。要发给别人，请存成文件', '图 16');
-  check(await d.has('存下整个世界'), '图 16:存成文件和别的世界一样');
-  check(!(await d.has('停在这一刻')), '图 16:不放停在这一刻');
-  check(!(await realDisabled(page.locator('.save-it[data-act=share-link]'))), '图 16:灰着的不是 disabled');
+  await d.seen(`地图留自「${NAME}」，历史按新版重推`, '另存的世界菜单');
+  await d.seen('地图带不进链接，对方打不开。要发给别人，请存成文件', '另存的世界菜单');
+  check(await d.has('存下整个世界'), '另存的世界菜单:存成文件和别的世界一样');
+  check(!(await d.has('停在这一刻')), '另存的世界菜单:不放停在这一刻');
+  check(!(await realDisabled(page.locator('.save-it[data-act=share-link]'))), '另存的世界菜单:灰着的不是 disabled');
   const smallColor = await page.locator('.save-it[data-act=share-link] small').evaluate((x) => getComputedStyle(x).opacity + getComputedStyle(x.parentElement!.parentElement!).opacity);
-  check(smallColor === '11', '图 16:小字没有跟着淡');
+  check(smallColor === '11', '另存的世界菜单:小字没有跟着淡');
   await page.locator('.save-it[data-act=share-link]').click({ force: true });
-  check(await page.locator('.save-menu').isVisible(), '图 16:点灰着的没反应');
+  check(await page.locator('.save-menu').isVisible(), '另存的世界菜单:点灰着的没反应');
   await d.shot('16');
   await d.closeMenu();
 
-  // ---- 图 17:这台没有服务器,登录状态是把令牌直接写上的
+  // ---- 登录了的菜单(造的:令牌直接写上,网址指到假服务器,服务器的回话只认登录、别的都连不上)
   await page.evaluate(() => {
     localStorage.setItem('civ-atlas:account', JSON.stringify({ token: 'x', user: { id: 'u1', account: 'a@b.c', name: '测试' } }));
   });
-  await page.reload();
+  await ctx.route('**/__fake-ai/**', (r) => (r.request().url().endsWith('/v1/me') ? r.fulfill({ status: 200, json: { user: { id: 'u1', account: 'a@b.c', name: '测试' }, credits: 0, pricing: { note: '' } } }) : r.abort()));
+  await page.goto(`${BASE}?w=${keptId}&aiServer=fake`);
   await d.ready();
   await d.menu();
-  check((await page.locator('.save-it[data-act=share]').innerText()).includes('地图带不进链接'), '图 17:分享灰着写原因');
+  check((await page.locator('.save-it[data-act=share]').innerText()).includes('地图带不进链接'), '登录了的菜单:分享灰着写原因');
   await d.shot('17');
   await d.closeMenu();
   await page.evaluate(() => localStorage.removeItem('civ-atlas:account'));
-  await page.reload();
+  await ctx.unroute('**/__fake-ai/**');
+  await page.goto(`${BASE}?w=${keptId}`);
   await d.ready();
 
-  // ---- 图 19
+  // ---- 地形大事
   await d.sheet();
   const upRow = page.locator('[data-act="upheaval"]:visible').first();
-  check((await upRow.innerText()).includes('不能加'), '图 19:右边写不能加');
-  check(!(await realDisabled(upRow)), '图 19:能点');
+  check((await upRow.innerText()).includes('不能加'), '地形大事:右边写不能加');
+  check(!(await realDisabled(upRow)), '地形大事:能点');
   await upRow.scrollIntoViewIfNeeded();
   await upRow.click({ force: true });
-  await d.seen('这个世界不能再改地形大事', '图 19');
-  await d.seen('它的地图是旧世界留下的，一改就要重新长。要加大事，到原来那个世界上加', '图 19');
-  check(!(await page.evaluate(async () => (await import('/src/ui/upheavalStore.ts' as string)).getUpUi().on)), '图 19:面板没打开');
+  await d.seen('这个世界不能再改地形大事', '地形大事');
+  await d.seen('它的地图是旧世界留下的，一改就要重新长。要加大事，到原来那个世界上加', '地形大事');
+  check(!(await page.evaluate(async () => (await import('/src/ui/upheavalStore.ts' as string)).getUpUi().on)), '地形大事:面板没打开');
   await d.shot('19');
   await d.clearToasts();
 
-  // ---- 图 18、想换个样子
+  // ---- 世界设定、想换个样子
   await page.locator('[data-act="genesis"]:visible').first().click();
   await page.waitForSelector('.ov-settings', { timeout: 30000 });
   await d.seen(`可以以「${COPY}」为底稿另建一个世界：设定带过去，地图按新版重新长，和这里的不一样。`, '想换个样子');
   await page.locator('.ov-seg [data-tab="map"]').click();
-  await d.seen(`留自「${NAME}」`, '图 18');
-  await d.seen('这张地图是旧世界留下的，不会再按种子重新长。', '图 18');
+  await d.seen(`留自「${NAME}」`, '世界设定');
+  await d.seen('这张地图是旧世界留下的，不会再按种子重新长。', '世界设定');
   await d.shot('18');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
@@ -356,6 +360,7 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await page.waitForTimeout(500);
   const before = await d.head(keptId);
   await d.queue(1);
+  await d.setSheet('peek');
   await page.locator('[data-act="iv-push"]:visible').first().click();
   await page.waitForFunction(() => (window as any).__wfResim?.seq > 0, null, { timeout: WAIT }).catch(() => {});
   await d.ready();
@@ -368,15 +373,15 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   check(after?.map === headBefore?.map, '再重推:地图没变');
   check(after?.content !== before?.content, '再重推:历史变了');
 
-  // ---- 图 20
+  // ---- 打造新文明
   await d.home();
   await d.card(COPY).locator('[data-act="open-world"]').click({ button: 'right' });
   await page.locator('[data-act="world-new-civ"]').click();
-  await d.seen('没法在这张地图上打造文明', '图 20');
-  await d.seen('这张地图是旧世界留下的，现在长不出一样的，没法新开', '图 20');
+  await d.seen('没法在这张地图上打造文明', '打造新文明');
+  await d.seen('这张地图是旧世界留下的，现在长不出一样的，没法新开', '打造新文明');
   await d.shot('20');
 
-  // ---- 图 21、配方文件、图 22:干净的浏览器
+  // ---- 链接打不开、配方文件、别的设备:干净的浏览器
   const keptNow = (await d.saveOf(keptId))!;
   const browser = await type.launch();
   const view = VIEWS[device];
@@ -386,9 +391,9 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
     const p = await c.newPage();
     const x = new Drive(p, tag, device);
     await p.goto(`${BASE}?seed=${keptNow.params.seed}${await encodeShare(keptNow)}`);
-    await x.seen(`打不开「${COPY}」`, '图 21');
-    await x.seen('这个链接带不上它的地图。请对方存成文件发给你，再点「打开存档文件」选它', '图 21');
-    check(!(await x.has('正在生成世界')), '图 21:进度收掉了');
+    await x.seen(`打不开「${COPY}」`, '链接打不开');
+    await x.seen('这个链接带不上它的地图。请对方存成文件发给你，再点「打开存档文件」选它', '链接打不开');
+    check(!(await x.has('正在生成世界')), '链接打不开:进度收掉了');
     await x.shot('21');
     await c.close();
   }
@@ -421,36 +426,36 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
       return i;
     }, keptNow);
     await p.goto(`${BASE}?w=${id}`);
-    await x.seen(`打不开「${COPY}」`, '图 22');
-    await x.seen('它的地图还在另一台设备上，世界没有丢。到那台存成文件，再到这里打开', '图 22');
+    await x.seen(`打不开「${COPY}」`, '别的设备');
+    await x.seen('它的地图还在另一台设备上，世界没有丢。到那台存成文件，再到这里打开', '别的设备');
     await x.shot('22');
     await c.close();
   }
   await browser.close();
 
   // ---- 原来那个世界删掉以后:留自旧世界(在副本上看,不动真的那份)。这里只看说法
-  // ---- 图 13
+  // ---- 加大事窗口
   await d.open(NAME);
   await d.upheaval();
   await page.waitForSelector('[data-testid=frozen-ask]', { timeout: 10000 });
   await page.waitForTimeout(300);
   const t13 = await d.ask().innerText();
-  check(t13.includes('另存一份再加地形大事？'), '图 13:标题');
-  check(t13.includes(`「${NAME}」是旧版本建的，一直照原样存着。地形大事要在新版长的地图上发生，所以地图和整段历史都会和原来不一样。`), '图 13:第一句');
-  check(t13.includes(`原来的「${NAME}」不动；另存一份「${COPY}」，到那一份上加。`), '图 13:小字');
-  check(t13.includes('连地图重新长'), '图 13:按钮');
+  check(t13.includes('另存一份再加地形大事？'), '加大事窗口:标题');
+  check(t13.includes(`「${NAME}」是旧版本建的，一直照原样存着。地形大事要在新版长的地图上发生，所以地图和整段历史都会和原来不一样。`), '加大事窗口:第一句');
+  check(t13.includes(`原来的「${NAME}」不动；另存一份「${COPY}」，到那一份上加。`), '加大事窗口:小字');
+  check(t13.includes('连地图重新长'), '加大事窗口:按钮');
   await d.shot('13');
   await d.cancelAsk();
-  check(!(await page.evaluate(async () => (await import('/src/ui/upheavalStore.ts' as string)).getUpUi().on)), '图 13:取消了不开面板');
+  check(!(await page.evaluate(async () => (await import('/src/ui/upheavalStore.ts' as string)).getUpUi().on)), '加大事窗口:取消了不开面板');
   await d.upheaval();
   await page.waitForSelector('[data-testid=frozen-ask]', { timeout: 10000 });
   await d.go();
-  await d.seen('这是按新版长的副本，和原来可能不同，以后不会再变。原来的世界照原样留着', '图 13:另存好了');
+  await d.seen('这是按新版长的副本，和原来可能不同，以后不会再变。原来的世界照原样留着', '加大事窗口:另存好了');
   await d.ready();
-  check(await page.evaluate(async () => (await import('/src/ui/upheavalStore.ts' as string)).getUpUi().on), '图 13:到新的那份上接着开面板');
+  check(await page.evaluate(async () => (await import('/src/ui/upheavalStore.ts' as string)).getUpUi().on), '加大事窗口:到新的那份上接着开面板');
   const grown = (await d.saveOf(d.worldId()))!;
-  check(!grown.edits.map && grown.generator === gen, '图 13:新的那份地图按新版长');
-  check(JSON.stringify(await d.saveOf(oldId)) === saveBefore, '图 13:原来的没动');
+  check(!grown.edits.map && grown.generator === gen, '加大事窗口:新的那份地图按新版长');
+  check(JSON.stringify(await d.saveOf(oldId)) === saveBefore, '加大事窗口:原来的没动');
   await d.shot('13-之后');
   await page.evaluate(async () => (await import('/src/ui/upheavalStore.ts' as string)).closeUpheaval());
 
@@ -477,10 +482,10 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   const upCopy = (await d.saveOf(d.worldId()))!;
   check(!!upCopy.edits.map?.grown && upCopy.edits.upheavals?.length === 1, '带大事的另存:大事还在,地图留着');
   await d.sheet();
-  check((await page.locator('[data-act="upheaval"]:visible').first().innerText()).includes('1 件，不能改'), '图 19:带着大事的写 1 件，不能改');
+  check((await page.locator('[data-act="upheaval"]:visible').first().innerText()).includes('1 件，不能改'), '地形大事:带着大事的写 1 件，不能改');
   await d.shot('19-有大事');
 
-  // ---- 图 11:上次有改动没推完
+  // ---- 没推完窗口:上次有改动没推完
   await d.home();
   await d.card('南海诸国').locator('[data-act="open-world"]').click();
   await d.seen('上次有 3 处改动没推完', '没推完');
@@ -502,20 +507,20 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await page.waitForSelector('[data-testid=frozen-ask]', { timeout: 10000 });
   await page.waitForTimeout(300);
   const t11 = await d.ask().innerText();
-  check(t11.includes('上次有 3 处改动没推完页面就关了，之后网站更新了，规则也变了。接着推演的话，地图不变，历史按新规则从第 0 年重推，整段都会不一样。'), '图 11:第一句');
-  check(t11.includes('不要这些改动') && t11.includes('另存一份接着推演？'), '图 11:标题、按钮');
+  check(t11.includes('上次有 3 处改动没推完页面就关了，之后网站更新了，规则也变了。接着推演的话，地图不变，历史按新规则从第 0 年重推，整段都会不一样。'), '没推完窗口:第一句');
+  check(t11.includes('不要这些改动') && t11.includes('另存一份接着推演？'), '没推完窗口:标题、按钮');
   await d.shot('11');
   await d.cancelAsk();
-  await d.seen('上次有 3 处改动没推完', '图 11:取消了提示条回来');
+  await d.seen('上次有 3 处改动没推完', '没推完窗口:取消了提示条回来');
   await page.locator('[data-act=pending-go]').click();
   await page.waitForSelector('[data-testid=frozen-ask]', { timeout: 10000 });
   await d.go();
-  await d.seen('已另存为「南海诸国（新版）」', '图 11:另存');
+  await d.seen('已另存为「南海诸国（新版）」', '没推完窗口:另存');
   await d.ready();
   const pCopy = (await d.saveOf(d.worldId()))!;
-  check(pCopy.edits.interventions.length === 3 && !!pCopy.edits.map?.grown, '图 11:改动跟着走,地图留着');
+  check(pCopy.edits.interventions.length === 3 && !!pCopy.edits.map?.grown, '没推完窗口:改动跟着走,地图留着');
   await d.open('南海诸国');
-  check(!(await d.has('上次有 3 处改动没推完')), '图 11:原来的不再提示');
+  check(!(await d.has('上次有 3 处改动没推完')), '没推完窗口:原来的不再提示');
 
   // ---- 没能另存:推不出来(造的:叫转存的线程报错)
   await d.open('九州大陆');
@@ -556,7 +561,7 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await d.ready();
   check(true, '点「打开」打开了');
 
-  // ---- 地图读不出来(造的:把存的内容和原件都删掉):窗口换成图 12 的字
+  // ---- 地图读不出来(造的:把存的内容和原件都删掉):窗口换成只有配方窗口 的字
   await d.open('群岛纪元');
   const gid = d.worldId();
   await page.evaluate(async (i) => {
@@ -568,25 +573,25 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await page.waitForSelector('[data-testid=frozen-ask]', { timeout: WAIT });
   await page.waitForTimeout(300);
   const tN = await d.ask().innerText();
-  check(tN.includes('只存了配方，地图没存下来') && tN.includes('连地图重新长'), '读不出地图:换成图 12 的字');
+  check(tN.includes('只存了配方，地图没存下来') && tN.includes('连地图重新长'), '读不出地图:换成只有配方窗口 的字');
   check((await page.evaluate(async () => (await import('/src/ui/saveStore.ts' as string)).listWorlds().some((w: any) => w.save.title === '群岛纪元（新版）'))) === false, '读不出地图:人没点就不长');
   await d.go();
   await d.seen('已另存为「群岛纪元（新版）」', '读不出地图:点了才长');
   await d.ready();
 
-  // ---- 图 23
+  // ---- 并排试推
   await d.open(NAME);
   await page.evaluate(async () => (await import('/src/ui/compare/compareStore.ts' as string)).openCompare({ rules: { name: '少打仗', version: 1, values: {} }, kind: 'world' }));
   await page.waitForSelector('[data-act="compare-map"]', { timeout: 60000 });
   await page.waitForTimeout(1500);
   await page.locator('[data-act="compare-map"]').click();
-  await d.seen(`「${NAME}」的新版地图`, '图 23');
+  await d.seen(`「${NAME}」的新版地图`, '并排试推');
   await d.shot('23');
 
-  // ---- 图 24(本地假服务器的作品墙)
+  // ---- 怎么上作品墙(本地假服务器的作品墙)
   await page.goto(`${BASE}?gallery&aiServer=fake`);
   await page.locator('[data-act="gallery-howto"]:visible').first().click({ timeout: WAIT });
-  await d.seen('复制不了配方链接的世界，把存成的文件发给管理员', '图 24');
+  await d.seen('复制不了配方链接的世界，把存成的文件发给管理员', '怎么上作品墙');
   await d.shot('24');
   await ctx.close();
 }
@@ -612,24 +617,24 @@ async function sceneRecipe(type: BrowserType, tag: string, device: string) {
   const id40 = await d.openFile(oldSave(99, '北境王朝', 40), 'r99', false);
   check((await d.saveOf(id40))?.generator === 40, '没有旧版网站的也不写成新版');
 
-  // ---- 图 01:读到才标
+  // ---- 卡片标记:读到才标
   await d.home();
   const tagged = await page.locator('.mw-card .mw-tag', { hasText: '按新版算' }).first().waitFor({ state: 'visible', timeout: 30000 }).then(
     () => true,
     () => false,
   );
-  check(tagged, '图 01:卡片标按新版算');
+  check(tagged, '卡片标记:卡片标按新版算');
   await page.waitForFunction(() => document.querySelectorAll('.mw-tag').length >= 2, null, { timeout: 30000 }).catch(() => {});
-  check((await d.card(NAME).locator('.mw-tag').innerText()) === '按新版算', '图 01:塞雷尼亚标了');
-  check(!(await d.card('九州大陆').locator('.mw-tag').count()), '图 01:存得下内容的不标');
-  check((await d.card(NAME).locator('.mw-tag').getAttribute('title')) === '打开这个世界（只存了配方，打开时按新版算）', '图 01:悬停的字');
+  check((await d.card(NAME).locator('.mw-tag').innerText()) === '按新版算', '卡片标记:塞雷尼亚标了');
+  check(!(await d.card('九州大陆').locator('.mw-tag').count()), '卡片标记:存得下内容的不标');
+  check((await d.card(NAME).locator('.mw-tag').getAttribute('title')) === '打开这个世界（只存了配方，打开时按新版算）', '卡片标记:悬停的字');
   await d.shot('01');
 
-  // ---- 图 07、06
+  // ---- 卡片菜单、06
   await d.card(NAME).locator('[data-act="open-world"]').click({ button: 'right' });
   await page.waitForTimeout(250);
   const item = page.locator('[data-act="world-file"]');
-  check((await item.innerText()).replace(/\s+/g, '').includes('存配方文件几KB'), '图 07:存配方文件,右边几 KB');
+  check((await item.innerText()).replace(/\s+/g, '').includes('存配方文件几KB'), '卡片菜单:存配方文件,右边几 KB');
   const box = await page.locator('.mw-menu').boundingBox();
   check(!!box && box.x >= 0, `卡片菜单没被屏幕切掉(左边 ${Math.round(box?.x ?? -1)})`);
   await d.shot('07');
@@ -638,37 +643,37 @@ async function sceneRecipe(type: BrowserType, tag: string, device: string) {
     await page.locator('[data-act=save-to-phone]').waitFor({ timeout: 10000 });
     await d.shot('06-手机先点一下');
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.locator('[data-act=save-to-phone]').click()]);
-    check(dl.suggestedFilename().endsWith('.json'), '图 06:存的是 .json');
+    check(dl.suggestedFilename().endsWith('.json'), '配方文件:存的是 .json');
   } else {
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), item.click()]);
-    check(dl.suggestedFilename().endsWith('.json'), '图 06:存的是 .json');
+    check(dl.suggestedFilename().endsWith('.json'), '配方文件:存的是 .json');
   }
-  await d.seen('已存成配方文件', '图 06');
-  await d.seen('只有几 KB。对方打开时重新长一遍，可能和你看到的不一样', '图 06');
+  await d.seen('已存成配方文件', '配方文件');
+  await d.seen('只有几 KB。对方打开时重新长一遍，可能和你看到的不一样', '配方文件');
   await d.shot('06');
 
-  // ---- 图 02、自己收
+  // ---- 打开提示条、自己收
   await d.card(NAME).locator('[data-act="open-world"]').click();
-  await d.seen(`已打开「${NAME}」`, '图 02');
-  await d.seen('按新版算的：', '图 02');
-  check(await page.locator('.toast [data-act=see-original]').isVisible(), '图 02:有旧版网站放看原样');
+  await d.seen(`已打开「${NAME}」`, '打开提示条');
+  await d.seen('按新版算的：', '打开提示条');
+  check(await page.locator('.toast [data-act=see-original]').isVisible(), '打开提示条:有旧版网站放看原样');
   await d.ready();
   await d.shot('02');
   const gone = await page.locator('.toast', { hasText: '按新版算的' }).waitFor({ state: 'hidden', timeout: 12000 }).then(
     () => true,
     () => false,
   );
-  check(gone, '图 02:7 秒后自己收');
+  check(gone, '打开提示条:7 秒后自己收');
   check((await d.saveOf(id22))?.generator === 22, '打开了还是第 22 版');
 
-  // ---- 图 03
+  // ---- 存档菜单
   await d.menu();
-  await d.seen('只存了配方，看到的是按新版算的', '图 03');
-  check((await page.locator('.save-it[data-act=save-file]').innerText()).includes('存配方文件（.json）'), '图 03:存配方文件');
-  await d.seen('只有几 KB。对方打开时重新长一遍，可能和你看到的不一样', '图 03');
-  await d.seen('地图和历史都按新版长一份副本，以后不再变。这一份的配方留着', '图 03');
-  await d.seen('在新页面里用建它的那一版网站打开', '图 03');
-  check(await d.has('停在这一刻'), '图 03:配方链接照旧有停在这一刻');
+  await d.seen('只存了配方，看到的是按新版算的', '存档菜单');
+  check((await page.locator('.save-it[data-act=save-file]').innerText()).includes('存配方文件（.json）'), '存档菜单:存配方文件');
+  await d.seen('只有几 KB。对方打开时重新长一遍，可能和你看到的不一样', '存档菜单');
+  await d.seen('地图和历史都按新版长一份副本，以后不再变。这一份的配方留着', '存档菜单');
+  await d.seen('在新页面里用建它的那一版网站打开', '存档菜单');
+  check(await d.has('停在这一刻'), '存档菜单:配方链接照旧有停在这一刻');
   await d.shot('03');
 
   // 看原样:旧版网站这里没有,给一页空白顶上,看新页面去了哪
@@ -681,14 +686,14 @@ async function sceneRecipe(type: BrowserType, tag: string, device: string) {
   check(u.pathname.endsWith('/v22/') && u.searchParams.get('own') === '1' && u.hash.startsWith('#share='), `看原样:到第 22 版的旧网站(${u.pathname})`);
   await np.close();
 
-  // ---- 图 05(造的:删掉 CompressionStream,当成太旧的浏览器)
+  // ---- 看原样打不开(造的:删掉 CompressionStream,当成太旧的浏览器)
   await page.evaluate(() => {
     delete (globalThis as { CompressionStream?: unknown }).CompressionStream;
   });
   await d.menu();
   await page.locator('[data-act=see-original]').click();
-  await d.seen('这个浏览器打不开', '图 05');
-  await d.seen('存下配方文件，到旧版网站点「打开存档文件」选它', '图 05');
+  await d.seen('这个浏览器打不开', '看原样打不开');
+  await d.seen('存下配方文件，到旧版网站点「打开存档文件」选它', '看原样打不开');
   await d.shot('05');
   if (d.phone) {
     await page.locator('[data-act=save-old-file]').click();
@@ -697,9 +702,9 @@ async function sceneRecipe(type: BrowserType, tag: string, device: string) {
   } else {
     await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.locator('[data-act=save-old-file]').click()]);
   }
-  await d.seen('已存成配方文件', '图 05 存好了');
-  await d.seen('到旧版网站点「打开存档文件」选它', '图 05 存好了');
-  check(await page.locator('[data-act=go-old-site]').isVisible(), '图 05 存好了:给去旧版网站');
+  await d.seen('已存成配方文件', '看原样打不开 存好了');
+  await d.seen('到旧版网站点「打开存档文件」选它', '看原样打不开 存好了');
+  check(await page.locator('[data-act=go-old-site]').isVisible(), '看原样打不开 存好了:给去旧版网站');
   await d.shot('05-存好了');
   const pop2 = ctx.waitForEvent('page', { timeout: 15000 });
   await page.locator('[data-act=go-old-site]').click();
@@ -721,47 +726,47 @@ async function sceneRecipe(type: BrowserType, tag: string, device: string) {
   await page.waitForTimeout(300);
   check((await d.saveOf(id22))?.generator === 22, '拖地图、改名还是第 22 版');
 
-  // ---- 图 12
+  // ---- 只有配方窗口
   await d.queue(3);
   await d.push();
   const t12 = await d.ask().innerText();
-  check(t12.includes(`「${NAME}」是旧版本建的，只存了配方，地图没存下来。推演的话，地图和整段历史都按新版重新长，和原来可能不同。`), '图 12:第一句');
-  check(t12.includes(`另存一份「${COPY}」，在那一份上推演这 3 条命令。`), '图 12:小字');
-  check(t12.includes('连地图重新长'), '图 12:按钮');
+  check(t12.includes(`「${NAME}」是旧版本建的，只存了配方，地图没存下来。推演的话，地图和整段历史都按新版重新长，和原来可能不同。`), '只有配方窗口:第一句');
+  check(t12.includes(`另存一份「${COPY}」，在那一份上推演这 3 条命令。`), '只有配方窗口:小字');
+  check(t12.includes('连地图重新长'), '只有配方窗口:按钮');
   await d.shot('12');
   await d.cancelAsk();
   await page.evaluate(async () => (await import('/src/ui/pendingStore.ts' as string)).clearPending());
 
-  // ---- 图 08:菜单上的按新版另存
+  // ---- 副本:菜单上的按新版另存
   await d.menu();
   await page.locator('[data-act=save-new]').click();
-  await d.seen(`已另存为「${COPY}」`, '图 08');
-  await d.seen('这是按新版长的副本，和原来可能不同，以后不会再变。原来的配方还留着', '图 08');
+  await d.seen(`已另存为「${COPY}」`, '副本');
+  await d.seen('这是按新版长的副本，和原来可能不同，以后不会再变。原来的配方还留着', '副本');
   await d.ready();
   await d.shot('08');
   const grown = (await d.saveOf(d.worldId()))!;
-  check(grown.generator > 22 && !grown.edits.map?.grown, '图 08:副本是新版,地图不算留着');
-  check((await d.saveOf(id22))?.generator === 22, '图 08:原来的配方还是第 22 版');
+  check(grown.generator > 22 && !grown.edits.map?.grown, '副本:副本是新版,地图不算留着');
+  check((await d.saveOf(id22))?.generator === 22, '副本:原来的配方还是第 22 版');
   await d.menu();
   check(await d.has('存下整个世界'), '副本的存档菜单和别的世界一样');
   await d.closeMenu();
 
-  // ---- 图 04
+  // ---- 没留旧版网站
   await d.home();
   await d.card('北境王朝').locator('[data-act="open-world"]').click();
   await d.seen('按新版算的：', '没有旧版网站的:提示条');
   await d.ready();
   check(!(await page.locator('.toast [data-act=see-original]').count()), '没有旧版网站的:提示条上不放看原样');
   await d.menu();
-  await d.seen('建它的那一版没留旧版网站，原样看不到了', '图 04');
+  await d.seen('建它的那一版没留旧版网站，原样看不到了', '没留旧版网站');
   const off = page.locator('.save-it[data-act=see-original-none]');
-  check(!(await realDisabled(off)), '图 04:灰着的不是 disabled');
+  check(!(await realDisabled(off)), '没留旧版网站:灰着的不是 disabled');
   await off.click({ force: true });
-  check(await page.locator('.save-menu').isVisible(), '图 04:点灰着的没反应');
+  check(await page.locator('.save-menu').isVisible(), '没留旧版网站:点灰着的没反应');
   await d.shot('04');
   await d.closeMenu();
 
-  // ---- 图 09(造的:转存失败的记录直接写上,存的内容删掉;点「再存一次」是真的转)
+  // ---- 转存失败(造的:转存失败的记录直接写上,存的内容删掉;点「再存一次」是真的转)
   await d.open('九州大陆');
   const fid = d.worldId();
   const breakIt = async () => {
@@ -775,9 +780,9 @@ async function sceneRecipe(type: BrowserType, tag: string, device: string) {
   };
   await breakIt();
   await d.menu();
-  await d.seen('内容没能存下来，现在看到的不受影响', '图 09');
-  await d.seen('上次没存成，世界本身没事。存下来以后，网站更新也不会变', '图 09');
-  check((await page.locator('.save-it[data-act=save-file]').innerText()).includes('存配方文件（.json）'), '图 09:存配方文件');
+  await d.seen('内容没能存下来，现在看到的不受影响', '转存失败');
+  await d.seen('上次没存成，世界本身没事。存下来以后，网站更新也不会变', '转存失败');
+  check((await page.locator('.save-it[data-act=save-file]').innerText()).includes('存配方文件（.json）'), '转存失败:存配方文件');
   await d.shot('09');
   // 还是不行
   await page.evaluate(async () => {
