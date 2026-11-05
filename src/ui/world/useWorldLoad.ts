@@ -352,16 +352,16 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           if (id !== reqId.current) return;
           if (ok) return generate({ ...t, keptTried: true, noVault: undefined });
           const text = `打不开「${name()}」`;
-          if (t.from === 'file' && !t.keptTried) {
+          const here = mine && (await keptMapHere(t.id));
+          if (id !== reqId.current) return;
+          // 这台设备上有那张地图:是这次没算成、没存下,存档留着,能再试
+          if (here) return failOpen({ text, more: [READ_TROUBLE], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(t.id) } });
+          if (t.from === 'file') {
             // 这次打开才放进我的世界的配方:不留一张点不开的卡片
             if (t.fileNew) deleteWorld(t.id);
             return failOpen({ text, more: [KEPT_FILE] });
           }
-          if (!mine) return failOpen({ text, more: [KEPT_LINK] });
-          const here = await keptMapHere(t.id);
-          if (id !== reqId.current) return;
-          if (!here) return failOpen({ text, more: [KEPT_DEVICE] });
-          failOpen({ text, more: [READ_TROUBLE], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(t.id) } });
+          failOpen({ text, more: [mine ? KEPT_DEVICE : KEPT_LINK] });
         })();
       };
       /** 按现在的规则生成 */
