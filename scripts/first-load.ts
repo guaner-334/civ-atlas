@@ -28,7 +28,7 @@ import { loadFilesIn } from './lib/loadScreen';
  * 不按函数分)。所以读存档用的那一小块放在单独的文件里(地形 terrainOps、板块 plateOps、旗 flagSpec、投影的公式 projectionDefs、
  * 约 treatyBook、国名词根 polityRoot……),原来的大文件转出它们、照旧能 import;首页用到的文件改从小文件 import
  */
-const LIMIT_KB = 282;
+const LIMIT_KB = 280;
 
 const dist = process.argv[2] ?? 'dist';
 const html = readFileSync(join(dist, 'index.html'), 'utf8');
