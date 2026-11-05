@@ -23,7 +23,10 @@ const wf = vi.hoisted(() => ({
 }));
 vi.mock('../src/ui/worldFiles', () => wf);
 
-const { aboutSize, fileSizeNote, openPickedFiles, saveAllToFile, saveCurrentToFile, saveRecipeFile, saveWorldToFile, sizeText } = await import('../src/ui/worldFileFlow');
+const again = vi.fn<(id: string) => Promise<boolean>>();
+vi.mock('../src/ui/worldStore', () => ({ saveContentAgain: again }));
+
+const { aboutSize, fileSizeNote, openPickedFiles, saveAgain, saveAllToFile, saveCurrentToFile, saveForOldSite, saveRecipeFile, saveWorldRecipe, saveWorldToFile, sizeText } = await import('../src/ui/worldFileFlow');
 
 class FakeStorage {
   map = new Map<string, string>();
@@ -178,19 +181,62 @@ describe('一个世界存成文件', () => {
     expect(toast()!.text).toBe('已取消，没有存下文件');
   });
 
-  it('没有内容可存:存 .json,明说只带上了配方;旧网站要的 .json 带得上', async () => {
+  it('没有内容可存:存 .json,明说只是配方;没建完的照旧说只带上了配方', async () => {
     const id = stored();
-    for (const kind of ['draft', 'old', 'missing', 'full', 'unavailable', 'corrupt', 'failed']) {
+    for (const kind of ['old', 'missing', 'full', 'unavailable', 'corrupt', 'failed']) {
       downloads = [];
       wf.saveWorldFile.mockResolvedValue({ ok: false, kind, message: 'x' });
       await saveWorldToFile(id);
       expect(downloads).toEqual(['文明与地图-塞雷尼亚.json']);
-      expect(toast()!.more![0]).toContain('只带上了配方，打开时要重新算');
+      expect(toast()).toMatchObject({ kind: 'ok', text: '已存成配方文件', more: ['只有几 KB。对方打开时重新长一遍，可能和你看到的不一样'] });
     }
     downloads = [];
-    saveRecipeFile(saveStore.loadWorld(id)!.save, '到 /v1/ 打开');
+    wf.saveWorldFile.mockResolvedValue({ ok: false, kind: 'draft', message: 'x' });
+    await saveWorldToFile(id);
+    expect(toast()!.more![0]).toContain('只带上了配方，打开时要重新算');
+    downloads = [];
+    saveRecipeFile(saveStore.loadWorld(id)!.save, '到最新版打开');
     expect(downloads).toEqual(['文明与地图-塞雷尼亚.json']);
-    expect(toast()!.more![0]).toContain('到 /v1/ 打开');
+    expect(toast()!.more![0]).toContain('到最新版打开');
+  });
+
+  it('存配方文件:不等转存,直接存;别的页面删了说一声', () => {
+    const id = stored();
+    downloads = [];
+    wf.saveWorldFile.mockClear();
+    saveWorldRecipe(id);
+    expect(wf.saveWorldFile).not.toHaveBeenCalled();
+    expect(downloads).toEqual(['文明与地图-塞雷尼亚.json']);
+    expect(toast()).toMatchObject({ kind: 'ok', text: '已存成配方文件' });
+    saveWorldRecipe('没有这个');
+    expect(peekToast('save')).toMatchObject({ kind: 'error', text: '打不开这个存档' });
+  });
+
+  it('看原样打不开:存的是给的那份原文,存好了说怎么打开,给「去旧版网站」', () => {
+    const id = stored();
+    const open = vi.fn();
+    (globalThis as unknown as { window: { open: unknown } }).window.open = open;
+    const save = saveStore.loadWorld(id)!.save;
+    downloads = [];
+    saveForOldSite(save, 'https://atlas.gerdor.top/v22/');
+    expect(downloads).toEqual(['文明与地图-塞雷尼亚.json']);
+    const t = toast()!;
+    expect(t).toMatchObject({ kind: 'ok', ttl: 0, text: '已存成配方文件', more: ['文明与地图-塞雷尼亚.json。到旧版网站点「打开存档文件」选它'] });
+    expect(t.action?.label).toBe('去旧版网站');
+    t.action!.onClick();
+    expect(open).toHaveBeenCalledWith('https://atlas.gerdor.top/v22/', '_blank', 'noopener');
+  });
+
+  it('再存一次:等的时候转圈;成了、还是不行说的不一样', async () => {
+    const id = stored();
+    again.mockResolvedValueOnce(true);
+    const run = saveAgain(id);
+    expect(toast()).toMatchObject({ kind: 'progress', text: '正在存「塞雷尼亚」' });
+    await run;
+    expect(toast()).toMatchObject({ kind: 'ok', text: '「塞雷尼亚」存好了', more: ['以后网站更新也不会变'] });
+    again.mockResolvedValueOnce(false);
+    await saveAgain(id);
+    expect(toast()).toMatchObject({ kind: 'warn', text: '还是没能存下来', more: ['世界本身没事，现在还能打开。网站下次更新时会再试'] });
   });
 
   it('内存不够、线程崩了:世界都还在,再试一次', async () => {

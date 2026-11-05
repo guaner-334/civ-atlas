@@ -29,6 +29,7 @@ import {
   isShareHash,
   momentYearMax,
   parseSave,
+  VERSION_NOTE_HEAD,
   versionNote,
   worldCheck,
   worldKey,
@@ -77,8 +78,8 @@ import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
 import { setTerrainTool, type TerrainStatus } from '../TerrainTools';
 import { clearToast, showToast } from '../Toast';
-import type { ToastAction } from '../toastStore';
-import { closeUpheaval } from '../upheavalStore';
+import { OK_TTL, type ToastAction } from '../toastStore';
+import { closeUpheaval, openUpheaval } from '../upheavalStore';
 import { lostRenames, lostRenamesNote } from '../sim/useSimResults';
 import type { CivRefs, GenRefs, LoadBack, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
@@ -91,6 +92,7 @@ import {
   setupFor,
   setupOpt,
   storedTarget,
+  terrainDiffers,
   upsOpt,
   writeGalleryUrl,
   writeHomeUrl,
@@ -607,7 +609,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     if (t.kind === 'draft' && t.mapCheck && t.mapCheck !== check) {
       targetRef.current = null;
       showHomeRef.current();
-      notify({ kind: 'error', text: '没法在这张地图上打造文明', more: ['这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
+      notify({ kind: 'error', text: '没法在这张地图上打造文明', more: [t.mapKept ? '这张地图是旧世界留下的，现在长不出一样的，没法新开' : '这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
       return;
     }
     attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen, readonly: !!t.readonly || guessed });
@@ -629,7 +631,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     savedCopy.current = null;
     if (copy) {
       // 另存的那份带着要推演的命令时,接着就是"正在重新推演"那条:这条不自动收,推完露出来(右边可以关)
-      showToast({ id: 'save', kind: copy.more.length ? 'warn' : 'ok', dot: true, ttl: 0, dismissible: true, text: `已另存为「${t.title ?? ''}」`, more: [`原来的「${copy.from}」照原样留在我的世界里`, ...copy.more] });
+      showToast({ id: 'save', kind: copy.more.length ? 'warn' : 'ok', dot: true, ttl: 0, dismissible: true, text: `已另存为「${t.title ?? ''}」`, more: [copy.line, ...copy.more] });
+      if (copy.upheaval) openUpheaval();
       return;
     }
     // 带种子的网址(别人发的普通链接):是旧版本画的就说清现在变了什么
@@ -642,15 +645,15 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       return;
     }
     if (!save || !t.from) return;
-    // 照原样打开的:读档时"来自旧版本…"那句不对了(看到的就是原样)
-    const more: string[] = (t.warnings ?? []).filter((w) => frozen === undefined || !w.startsWith('来自旧版本'));
+    // 照原样打开的:读档时"按新版算的…"那句不对了(看到的就是原样)
+    const more: string[] = (t.warnings ?? []).filter((w) => frozen === undefined || !w.startsWith(VERSION_NOTE_HEAD));
     // 存的内容读不出、先算了一遍的:明说可能不同。「看原样」不放提示条,手机上放不下这句;「存档」菜单里还有
     if (guessed) more.push(READ_BACK);
     // 照原样打开的:看到的就是原来的样子,不说"变了什么"、不放「看原样」
     const note = frozen !== undefined || guessed ? null : versionNote(save.generator, editedWorld(save.edits));
     // 从文件、分享链接打开的,这句已经在读档的警告里
     if (note && (t.from === 'stored' || t.from === 'restore')) more.push(note);
-    // 世界变了样(有"来自旧版本"这一句)才放「看原样」;旧网站里来自更新版本的放「到最新版打开」
+    // 世界变了样(有"按新版算的"这一句)才放「看原样」;旧网站里来自更新版本的放「到最新版打开」
     if (note && more.includes(note)) act = versionAction(OLD_SITE !== null ? save : currentOriginal());
     // 地形校验只在"生成时带的地形修改就是存档里的"时才核对
     const cw = sameT ? checkWarning(save, check) : null;
@@ -685,7 +688,9 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const warn = more.length > 0 || held?.kind === 'warn' || !!kept?.warn;
     // 重推完核对出对不上的:同一条提示补上那一句(打开时没提示的,这时提示)
     if (later) renameCheck.current = { id: t.id, terrain: genTerrain.current, show: (line) => say({ kind: 'warn', text, more: [...lead, ...more, line], action: held?.action }) };
-    if (more.length || always) say({ kind: warn ? 'warn' : 'ok', text, more: [...lead, ...more], action: held?.action });
+    // 别的警告要留着等人关,只有这一句才自己收
+    const brief = !!note && more.length === 1 && more[0] === note && (t.from === 'stored' || t.from === 'restore') && !lead.length;
+    if (more.length || always) say({ kind: warn ? 'warn' : 'ok', text, more: [...lead, ...more], action: held?.action, ...(brief ? { ttl: OK_TTL } : {}) });
   };
   /** 上次有改动没推完的提示条。shown = 现在看到的那一份,draft = 存档里没推完的修改;点「接着推演」问另存还是放弃 */
   const pendingToast = (t: Target, shown: SaveFile, draft: WorldEdits) => {
@@ -708,7 +713,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           // 窗口开着时提示条先收起,取消了再回来
           onClick: () => {
             clearToast(PENDING_TOAST);
-            askSaveAsNew({ next: draft, title, count: n, drop, back: show });
+            askSaveAsNew({ next: draft, title, count: n, drop, back: show, ...(terrainDiffers(shown.edits, draft) ? { map: 'terrain' as const } : {}) });
           },
         },
       });

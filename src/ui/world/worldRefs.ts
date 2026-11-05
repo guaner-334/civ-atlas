@@ -166,8 +166,8 @@ export function useOpenRefs() {
     loadBack: useRef<LoadBack | null>(null),
     /** 这次读世界仓库读到的地图那一块的指纹(新开的历史要记,见 resultStore.noteMapSum) */
     loadMapSum: useRef<string | null>(null),
-    /** 刚另存的新版:打开它以后提示"已另存为…"(from = 原来那一份的名字) */
-    savedCopy: useRef<{ id: string; from: string; more: string[] } | null>(null),
+    /** 刚另存的新版:打开它以后提示"已另存为…" */
+    savedCopy: useRef<{ id: string; line: string; more: string[]; upheaval?: boolean } | null>(null),
     /** 打不开的分享链接(世界还在生成时解开的):生成完再提示 */
     shareErr: useRef<string | null>(null),
     /** 世界生成完的处理(存档:自动恢复 / 读档套修改);线程回调里经 ref 调,拿到的总是最新的 */

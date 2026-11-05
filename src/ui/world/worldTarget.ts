@@ -78,6 +78,8 @@ export interface Target {
    * 在旧版本建的世界的地图上打造文明:那个世界存的地形校验。生成出来的地图和它对不上(现在的版本算出来不一样了)就不让打造
    */
   mapCheck?: string;
+  /** 打造文明用的是地图留着的世界的地图 */
+  mapKept?: true;
   /**
    * 照故事找世界选中的一个结果(新建中的世界换成它):推文明带上拓荒、起源、「天灾」(新建界面平时一律按默认推),
    * 和搜的时候推的一模一样
@@ -258,6 +260,9 @@ export const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
   a?.calamity === b?.calamity &&
   a?.keptMap === b?.keptMap &&
   JSON.stringify(a?.tuning ?? null) === JSON.stringify(b?.tuning ?? null);
+
+/** 两份修改的地形(地形修改、草图、地形大事)不一样 */
+export const terrainDiffers = (a: WorldEdits, b: WorldEdits) => (['terrain', 'sketch', 'upheavals'] as const).some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
 
 /** 结束那一年现存几国(我的世界的卡片上写;没长出文明 = 0) */
 export function aliveAtEnd(civ: Civ): number {

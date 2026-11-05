@@ -2902,7 +2902,7 @@ if (part('旧存档的键')) {
   if (!waitHome || !emptyHome) errs.push(`删掉最后一个世界:应停在"我的世界"(提示条上能撤销),提示收起后是空的首页、不自动新建(停住 ${waitHome},空首页 ${emptyHome})`);
   await page.evaluate(() => localStorage.clear());
 }
-// 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"来自旧版本",
+// 世界换成球面以前(生成器版本 4 及以前)的存档文件、分享链接:照常打开成同一个种子的球面世界,提示"按新版算的",
 // 地形修改按经纬度套上(跨 180° 经线的那一笔也行),指不到的改名 / 干预先留着;页面不报错
 if (part('平面时代的存档')) {
   const fs = await import('node:fs');
@@ -2953,9 +2953,9 @@ if (part('平面时代的存档')) {
   await ctx4.close();
   const pageErrs = errs.length - before;
   console.log(`平面时代的存档:从文件打开 ${fileOpened}(提示「${fileNote}」),修改(含地形)都套上 ${regen};分享链接打开 ${linkOpened}(提示「${linkNote}」)`);
-  if (!fileOpened || !fileNote.includes('来自旧版本')) errs.push(`平面时代的存档文件没有照常打开 / 没提示"来自旧版本"(${fileNote})`);
+  if (!fileOpened || !fileNote.includes('按新版算的')) errs.push(`平面时代的存档文件没有照常打开 / 没提示"按新版算的"(${fileNote})`);
   if (!regen) errs.push('平面时代的存档:修改没有全部套上(应为改了 5 处)');
-  if (!linkOpened || !linkNote.includes('来自旧版本')) errs.push(`平面时代的分享链接没有照常打开 / 没提示"来自旧版本"(${linkNote})`);
+  if (!linkOpened || !linkNote.includes('按新版算的')) errs.push(`平面时代的分享链接没有照常打开 / 没提示"按新版算的"(${linkNote})`);
   if (pageErrs > 0) errs.push('打开平面时代的存档、分享链接时页面报错');
   await page.evaluate(() => localStorage.clear());
 }
@@ -3193,7 +3193,7 @@ if (part('生成器版本')) {
   console.log(`版本号:地址栏 gen=${bar},普通链接 gen=${linkGen}(带修改 ${plain?.withData});旧版本链接提示「${oldNote}」;同版本「${sameNote}」`);
   if (bar !== String(GENERATOR_VERSION)) errs.push(`版本号:地址栏没带 gen=${GENERATOR_VERSION}(${bar})`);
   if (!plain || plain.withData || linkGen !== String(GENERATOR_VERSION)) errs.push(`版本号:没改过的世界复制的链接没带 gen=${GENERATOR_VERSION}(${plain?.url})`);
-  if (!oldNote.startsWith('已打开「种子 7」') || !oldNote.includes('来自旧版本：')) errs.push(`版本号:打开旧版本的普通链接,提示不对(${oldNote})`);
+  if (!oldNote.startsWith('已打开「种子 7」') || !oldNote.includes('按新版算的：')) errs.push(`版本号:打开旧版本的普通链接,提示不对(${oldNote})`);
   if (sameNote) errs.push(`版本号:同版本的链接不该有提示(${sameNote})`);
   // 网址带的版本比页面新(页面是旧的,还没刷新):提示刷新,地址栏、复制的链接都照留;带了认不出的版本号按认不出的旧版本说
   await p.goto(`${dev.url}/?seed=7&gen=${GENERATOR_VERSION + 1}`);
@@ -3210,7 +3210,7 @@ if (part('生成器版本')) {
   console.log(`版本号:更新版本的链接提示「${newerNote}」,地址栏 gen=${newerBar},复制的链接 gen=${newerLink};认不出的版本号提示「${oddNote}」`);
   if (!newerNote.includes('来自更新的版本')) errs.push(`版本号:打开更新版本的链接,提示不对(${newerNote})`);
   if (newerBar !== String(GENERATOR_VERSION + 1) || newerLink !== String(GENERATOR_VERSION + 1)) errs.push(`版本号:更新版本的 gen 没照留(地址栏 ${newerBar},链接 ${newerLink})`);
-  if (!oddNote.includes('来自旧版本：整颗星球')) errs.push(`版本号:认不出的版本号,提示不对(${oddNote})`);
+  if (!oddNote.includes('按新版算的：整颗星球')) errs.push(`版本号:认不出的版本号,提示不对(${oddNote})`);
   // 新建中还没存的网址(new=1)不带版本号:打开这种网址是接着新建,用的总是现在的版本
   await p.goto(`${dev.url}/?new=1&seed=7&gen=6`);
   await ready();
@@ -3305,12 +3305,9 @@ if (part('分享这一刻')) {
   await ctxB.close();
 }
 
-// 看原样:有旧网站的那一版(FIRST_OLD_SITE 起、比现在旧)建的世界,存档菜单里有一行「看原样」;提示条上也有,
-// 不过只在这个世界真的变了样(提示"来自旧版本…")时才放 —— 之后几版只改了改过地形的世界的,没改过地形的世界提示条上不放
-// (上一版另拿一个改过地形的世界看提示条上的)。
-// 点了开一个新页面到 /v<那一版>/,带 own=1 和整份存档(# 后面)。没有旧网站的更早版本、现在这一版建的都没有
+// 看原样:提示条上只在这个世界真的变了样时才放;点了开新页面到 /v<那一版>/,带 own=1 和整份存档;没留旧网站的灰着写原因
 if (part('看原样')) {
-  const { FIRST_OLD_SITE } = await import('../src/ui/oldSite');
+  const { FIRST_OLD_SITE, oldSiteFor } = await import('../src/ui/oldSite');
   const { versionNote } = await import('../src/gen/savefile');
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   const p = await ctx.newPage();
@@ -3336,13 +3333,15 @@ if (part('看原样')) {
     const inToast = await p.locator('.toast [data-act=see-original]').count();
     await p.click('.save-btn');
     const inMenu = await p.locator('.save-menu [data-act=see-original]').count();
+    const noneInMenu = await p.locator('.save-menu [data-act=see-original-none]').count();
     await p.click('.save-btn');
-    return { note, inToast, inMenu };
+    return { note, inToast, inMenu, noneInMenu };
   };
-  const gens = [...new Set([GENERATOR_VERSION - 1, FIRST_OLD_SITE - 1, GENERATOR_VERSION])];
-  const cases: [number, boolean][] = [...gens.map((g): [number, boolean] => [g, false]), [GENERATOR_VERSION - 1, true]];
+  const kept = 28;
+  const gens = [...new Set([kept, GENERATOR_VERSION - 1, FIRST_OLD_SITE - 1, GENERATOR_VERSION])];
+  const cases: [number, boolean][] = [...gens.map((g): [number, boolean] => [g, false]), [kept, true]];
   for (const [gen, edited] of cases) {
-    const has = gen >= FIRST_OLD_SITE && gen < GENERATOR_VERSION;
+    const has = oldSiteFor(gen) !== null;
     // 提示条上放不放:这个世界从那一版到现在变没变样
     const inToast = has && versionNote(gen, edited) !== null;
     const r = await openGen(gen, edited);
@@ -3368,6 +3367,7 @@ if (part('看原样')) {
     console.log(`看原样:${what},提示「${r.note}」,提示条上的按钮 ${r.inToast},存档菜单里 ${r.inMenu}${popup ? `,新页面 ${popup.slice(0, 80)}…` : ''}`);
     if (inToast !== (r.inToast === 1) || has !== (r.inMenu === 1))
       errs.push(`看原样:${what}提示条上${inToast ? '应该' : '不该'}有、存档菜单里${has ? '应该' : '不该'}有「看原样」(提示条 ${r.inToast},存档菜单 ${r.inMenu})`);
+    if ((gen < GENERATOR_VERSION && !has) !== (r.noneInMenu === 1)) errs.push(`看原样:${what}没留旧网站才灰着写原因(存档菜单 ${r.noneInMenu})`);
     if (has) {
       const u = popup ? new URL(popup) : null;
       if (!u || !u.pathname.endsWith(`/v${gen}/`) || u.searchParams.get('own') !== '1' || !u.hash.startsWith('#share=')) errs.push(`看原样:新页面的网址不对(${popup})`);

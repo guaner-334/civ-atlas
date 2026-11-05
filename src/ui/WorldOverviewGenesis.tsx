@@ -14,7 +14,7 @@ import { originCiv, originSpots } from './studio/origins';
 import type { Civ } from '../gen/civ/types';
 import { END_YEAR_DEFAULT, civSeedOf, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
 import { setEndYear, useEdits } from './editsStore';
-import { currentWorld, listWorlds, useSavesVersion } from './saveStore';
+import { currentWorld, keptFrom, listWorlds, useSavesVersion } from './saveStore';
 import { civName, mapMates } from './mapGroups';
 import { openWorldById, startNewCiv } from './newCivAction';
 import { OFFICIAL_RULES_NAME, ruleSetLabel } from '../gen/civ/ruleSetEdit';
@@ -184,6 +184,7 @@ export function SettingsPage(p: SettingsProps) {
   const cur = currentWorld();
   const title = cur?.title;
   const { params } = p;
+  const keptOf = keptFrom(edits);
   const end = endYearOf(edits);
   const narrow = useNarrow();
   const [tab, setTab] = useState<SettingsTab>('civ');
@@ -212,6 +213,12 @@ export function SettingsPage(p: SettingsProps) {
         <section className="ov-sec">
           {locked}
           <div className="ov-kv">
+            {keptOf && (
+              <div className="ov-kv-row" data-param="map-from">
+                <span>地图</span>
+                <b>{keptOf.title !== undefined ? `留自「${keptOf.title}」` : '留自旧世界'}</b>
+              </div>
+            )}
             <div className="ov-kv-row" data-param="seed">
               <span>种子</span>
               <b>{params.seed}</b>
@@ -242,6 +249,7 @@ export function SettingsPage(p: SettingsProps) {
               <b>{terrainBrief(edits.terrain, edits.sketch)}</b>
             </div>
           </div>
+          {keptOf && <p className="ov-txt dim ov-kept-note">这张地图是旧世界留下的，不会再按种子重新长。</p>}
         </section>
         <section className="ov-sec">
           {cur?.kind === 'created' && <MapCivs id={cur.id} disabled={p.generating} />}
@@ -304,10 +312,14 @@ export function SettingsPage(p: SettingsProps) {
           </div>
         </div>
         <h3 className="ov-gap">想换个样子</h3>
-        <p className="ov-txt">
-          这些一变，文明就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
-          {title || '原来的世界'}本身不变。
-        </p>
+        {keptOf ? (
+          <p className="ov-txt">这些一变，文明就要整个重来。想试试别的样子，可以以「{title || '它'}」为底稿另建一个世界：设定带过去，地图按新版重新长，和这里的不一样。</p>
+        ) : (
+          <p className="ov-txt">
+            这些一变，文明就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
+            {title || '原来的世界'}本身不变。
+          </p>
+        )}
         <button className="ov-btn ov-primary ov-ico-btn" data-act="draft-from" disabled={p.generating} onClick={p.onDraftFrom}>
           <Icon name="copy" size={16} />
           以它为底稿新建…

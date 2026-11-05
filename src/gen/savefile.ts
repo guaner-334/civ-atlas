@@ -447,7 +447,9 @@ export function sameView(a: SaveView | null | undefined, b: SaveView | null | un
 
 export type ParseResult = { ok: true; save: SaveFile; warnings: string[] } | { ok: false; error: string };
 
-/** 生成器每种改动对应的说法(versionNote 接在"来自旧版本："后面) */
+export const VERSION_NOTE_HEAD = '按新版算的：';
+
+/** 生成器每种改动对应的说法(versionNote 接在 VERSION_NOTE_HEAD 后面) */
 const CHANGE_TEXT: Record<GeneratorChange, string> = {
   planet: '整颗星球重新生成了，地形和历史都和原来不同',
   terrain: '地形有局部变化，历史重新推演了',
@@ -507,7 +509,7 @@ function changeSince(from: number, edited: EditedWorld): GeneratorChange | 'newe
 /** 打开旧存档、旧链接时说清变了什么(见 changeSince);一样 = null;比现在新 = NEWER_NOTE */
 export function versionNote(from: number, edited: EditedWorld): string | null {
   const c = changeSince(from, edited);
-  return c === null ? null : c === 'newer' ? NEWER_NOTE : `来自旧版本：${CHANGE_TEXT[c]}`;
+  return c === null ? null : c === 'newer' ? NEWER_NOTE : `${VERSION_NOTE_HEAD}${CHANGE_TEXT[c]}`;
 }
 
 /** 生成器版本相同、地形却对不上时的提示 */

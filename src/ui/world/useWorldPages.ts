@@ -25,7 +25,7 @@ import { setGoHome } from '../AccountDialogs';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
 import { clearEditHistory, getEdits, putEditsQuiet, setHistoryGate } from '../editsStore';
-import { askSaveAsNew, closeSaveAsNew, setSaveAsNew } from '../FrozenWorld';
+import { askSaveAsNew, closeSaveAsNew, newVersionTitle, setSaveAsNew, type SaveAsk } from '../FrozenWorld';
 import { workWho } from '../Gallery';
 import { randomSeedValue, type HomeStart } from '../homeStart';
 import { beginImport } from '../ImportImage';
@@ -60,10 +60,13 @@ import {
   setWorldStats,
   storageFullWhy,
   useSavesVersion,
+  type CurrentWorld,
 } from '../saveStore';
 import { getStage, type DraftBase } from '../stageStore';
-import { showToast } from '../Toast';
+import { keptTerrainBlocked } from '../openTrouble';
+import { clearToast, showToast } from '../Toast';
 import type { SimClient } from '../sim/simClient';
+import { keepMapCopy, type KeptMapCopy } from '../worldStore';
 import type { LoadLater, useWorldLoad } from './useWorldLoad';
 import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
@@ -72,6 +75,7 @@ import {
   presetDialog,
   sameSetup,
   setupFor,
+  terrainDiffers,
   writeGalleryUrl,
   writeHomeUrl,
   writeWorldUrl,
@@ -84,13 +88,12 @@ import {
   type WorkFor,
 } from './worldTarget';
 
+const COPY_TOAST = 'save-copy';
+
 /** 作品墙上的作品另存时写进存档的出处:作品的署名、作品名、作品的网址 */
 function workOrigin(w: Pick<GalleryWork, 'id' | 'by' | 'title'>): SaveOrigin {
   return { ...(w.by ? { by: w.by } : {}), title: w.title, url: workLink(w.id), gallery: w.id };
 }
-
-/** 两份修改的地形(地形修改、草图、地形大事)不一样 */
-const terrainDiffers = (a: WorldEdits, b: WorldEdits) => (['terrain', 'sketch', 'upheavals'] as const).some((k) => a[k] !== b[k] && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
 
 /** 新建中的世界现在的样子(参数、修改、名字),比较动没动过用 */
 function draftSig(params: WorldParams, edits: WorldEdits, title?: string): string {
@@ -475,11 +478,12 @@ export function useWorldPages(deps: WorldPagesDeps) {
     }
     // 地图留着的世界同旧版本的世界:现长的地图和它不一样就不让打造;还没记地形校验的一定不一样
     const mapCheck = keptMapOf(e) ? save.check || 'kept' : save.generator < GENERATOR_VERSION && save.check ? save.check : undefined;
+    const mapKept = keptMapOf(e) ? { mapKept: true as const } : {};
     setNewDlg(null);
     // 一开始就存成没建完的(刷新、后退再前进都回得来;地图出自哪个世界、文明种子都在存档里),底稿出处跟着;什么都没动就返回,这一份删掉
     const d = draftTarget(save.params, null, edits, title);
     derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
-    openTarget({ ...d, pristine: false, origin, mapCheck });
+    openTarget({ ...d, pristine: false, origin, mapCheck, ...mapKept });
   };
   /** 作品墙上的世界 / 地图作品「用这张地图打造(新)文明」:地形照搬,文明和历史从头推演;出处写作品 */
   const newCivOnWork = (it: GalleryItem) => {
@@ -551,42 +555,84 @@ export function useWorldPages(deps: WorldPagesDeps) {
   showHomeRef.current = showHome;
   const openStoredRef = useRef(openStored);
   openStoredRef.current = openStored;
-  /**
-   * 照原样打开的旧世界「按新版另存一份」(存档菜单、推演前问的窗口):原来的不动,另存一份带着 edits(不给 = 现在的修改),
-   * 打开它按新版重新生成、推演;AI 写的史书、名字由来跟着复制。
-   * moved = 带的是上次没推完的改动:它们跟着新的这份走了,原来的存档换回看到的那一份,下次打开不再提示
-   */
-  const saveAsNewNow = (edits?: WorldEdits, moved?: boolean) => {
+  /** 防连点:keepMapCopy 不能取消 */
+  const keepingCopy = useRef(false);
+  const saveAsNewNow = (edits?: WorldEdits, from?: SaveAsk) => {
     closeSaveAsNew();
     const c = currentWorld();
-    if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return;
-    const from = c.title || `种子 ${c.params.seed}`;
-    const id = saveAsNewVersion(c.id, edits ?? getEdits());
+    if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe) || keepingCopy.current) return;
+    if (c.oldRecipe || from?.map) growCopy(c, edits ?? getEdits(), from);
+    else void keepCopy(c, edits ?? getEdits(), from);
+  };
+  const NOTES_LOST = 'AI 写的史书、名字由来没能一起存下（浏览器存储已满）';
+  /** 地图记录不带:那张地图不是这一份的了 */
+  const growCopy = (c: CurrentWorld, next: WorldEdits, from?: SaveAsk) => {
+    const { map: _map, ...rest } = next;
+    void _map;
+    const id = saveAsNewVersion(c.id, rest);
     if (!id) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
-    const more = copyNotes(c.id, id) ? [] : ['AI 写的史书、名字由来没能一起存下（浏览器存储已满）'];
-    if (moved) dropPendingEdits(true);
-    savedCopy.current = { id, from, more };
+    const more = copyNotes(c.id, id) ? [] : [NOTES_LOST];
+    if (from?.drop) dropPendingEdits(true);
+    savedCopy.current = {
+      id,
+      line: `这是按新版长的副本，和原来可能不同，以后不会再变。${c.oldRecipe ? '原来的配方还留着' : '原来的世界照原样留着'}`,
+      more,
+      ...(from?.map === 'upheaval' ? { upheaval: true } : {}),
+    };
     openStoredRef.current(id);
+  };
+  /** 等的时候换了世界不抢着跳 */
+  const keepCopy = async (c: CurrentWorld, next: WorldEdits, from?: SaveAsk) => {
+    const name = c.title || `种子 ${c.params.seed}`;
+    keepingCopy.current = true;
+    const wait = setTimeout(() => showToast({ id: COPY_TOAST, kind: 'progress', text: `正在另存「${newVersionTitle(name)}」`, more: ['历史在从第 0 年重推，好了会自动打开'] }), 1000);
+    const r = await keepMapCopy(c.id, { edits: next }).catch((): KeptMapCopy => ({ ok: false, kind: 'failed', message: '' }));
+    clearTimeout(wait);
+    clearToast(COPY_TOAST);
+    keepingCopy.current = false;
+    const here = getStage().stage === 'world' && targetRef.current?.id === c.id;
+    if (!r.ok) {
+      if (r.kind === 'missing') return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
+      if (r.kind === 'full') return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
+      // 人点了才长,不能悄悄按种子重新长
+      if ((r.kind === 'nomap' || c.frozen === undefined) && here) return askSaveAsNew({ ...from, next, title: name, count: from?.count ?? 0, map: 'none' });
+      // 试的还是 c,不是这会儿开着的
+      const again = () => {
+        if (!keepingCopy.current) void keepCopy(c, next, from);
+      };
+      return notify({ kind: 'error', text: '没能另存', more: [r.kind === 'nomap' ? `「${name}」的地图没有存下来，原来的世界没有动` : `新的历史没推出来，原来的「${name}」没有动`], action: { label: '再试一次', act: 'copy-again', onClick: again } });
+    }
+    const more = r.notes ? [] : [NOTES_LOST];
+    if (from?.drop && here) dropPendingEdits(true);
+    if (here) {
+      savedCopy.current = { id: r.id, line: '地图没变，历史按新版重推了。原来的世界照原样留着', more };
+      return openStoredRef.current(r.id);
+    }
+    const title = loadWorld(r.id)?.save.title ?? newVersionTitle(name);
+    showToast({ id: 'save', kind: 'ok', ttl: 0, dismissible: true, text: `「${title}」另存好了`, more: ['地图没变，历史按新版重推了', ...more], action: { label: '打开', act: 'open-copy', onClick: () => openStoredRef.current(r.id) } });
   };
   const saveAsNewRef = useRef(saveAsNewNow);
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
-    setSaveAsNew((e, moved) => saveAsNewRef.current(e, moved));
+    setSaveAsNew((e, from) => saveAsNewRef.current(e, from));
     // 照原样打开的旧世界、只读打开的世界:改历史(要用现在的规则重新推演)先问要不要另存一份;别的世界照常改。
     // 逐年推演:只能在"现在"干预(下一步生效),不改以前的历史(撤销、助手执行的都算);想改以前的事先存回推演模式
     setHistoryGate((next) => {
       // 地图留着的世界地形改不了:改了就得按种子重新长
-      if (keptMapOf(getEdits()) && terrainDiffers(getEdits(), next)) return true;
+      if (keptMapOf(getEdits()) && terrainDiffers(getEdits(), next)) {
+        keptTerrainBlocked();
+        return true;
+      }
       if (cleanPlay(getEdits().play) && cleanPlay(next.play)) {
         showToast({ id: 'edit-block', kind: 'warn', text: '逐年推演里只能在「现在」干预', more: ['想改以前的事，先存回推演模式'], ttl: 5000 });
         return true;
       }
       const c = currentWorld();
-      // 只有配方的旧世界同样问:改了历史又记着旧版本,算出来的内容存不下
       if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return false;
       const now = getEdits();
       const count = Math.max(0, next.interventions.length - now.interventions.length) + Math.max(0, (next.upheavals?.length ?? 0) - (now.upheavals?.length ?? 0));
-      askSaveAsNew({ next, title: c.title || `种子 ${c.params.seed}`, count });
+      const map = c.oldRecipe ? ('none' as const) : terrainDiffers(now, next) ? ('terrain' as const) : undefined;
+      askSaveAsNew({ next, title: c.title || `种子 ${c.params.seed}`, count, ...(map ? { map } : {}) });
       return true;
     });
     return () => {

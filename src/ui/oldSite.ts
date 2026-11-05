@@ -10,8 +10,15 @@ import { EMPTY_EDITS, GENERATOR_VERSION } from '../gen/edits';
 import { NEWER_NOTE, encodeShare, makeSave, type SaveFile } from '../gen/savefile';
 import type { WorldParams } from '../gen/world';
 
-/** 从这一版起,每次升级都把上一版网站留着(更早的版本没有旧网站) */
+/** 最早留着旧网站的一版 */
 export const FIRST_OLD_SITE = 9;
+/** 真的留着旧网站的几段版本(含两头):中间那些版本升级时没有发布旧网站 */
+const KEPT_OLD_SITES: readonly (readonly [number, number])[] = [
+  [FIRST_OLD_SITE, 12],
+  [18, 28],
+];
+/** 从这一版起,每次升级都把上一版网站留着 */
+const EVERY_OLD_SITE = 57;
 
 /** 网址里的标记:这是自己的世界(最新版和旧网站之间交过来的),不是别人分享的 */
 export const OWN_KEY = 'own';
@@ -64,10 +71,11 @@ function here(): string {
 
 /**
  * 第 gen 版建的世界在哪个旧网站看原样:正式网站下面的 v<gen>/(测试网站在正式网站下面一层,往上找)。
- * 没有那一版的旧网站(太旧、就是现在这一版、比现在还新、版本号认不出)、这一页自己就是旧网站 = null
+ * 没有那一版的旧网站(太旧、那一版没留、就是现在这一版、比现在还新、版本号认不出)、这一页自己就是旧网站 = null
  */
 export function oldSiteFor(gen: number, page = here(), site = OLD_SITE, current = GENERATOR_VERSION, beta = BETA_SITE): URL | null {
-  if (site !== null || !Number.isInteger(gen) || gen < FIRST_OLD_SITE || gen >= current) return null;
+  if (site !== null || !Number.isInteger(gen) || gen >= current) return null;
+  if (gen < EVERY_OLD_SITE && !KEPT_OLD_SITES.some(([a, b]) => gen >= a && gen <= b)) return null;
   return new URL(`v${gen}/`, new URL(beta ? '../' : './', page));
 }
 

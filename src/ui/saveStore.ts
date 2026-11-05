@@ -36,7 +36,7 @@
  *   清内容不看"我的世界"的列表,因为列表没了也可能是浏览器清了 localStorage。这份记录和存档存在一处,要么一起在、要么一起没,没了就什么都不清。
  */
 import type { WorldParams } from '../gen/world';
-import { GENERATOR_VERSION, newHistoryEdits, type NewHistoryOptions, type WorldEdits } from '../gen/edits';
+import { GENERATOR_VERSION, keptMapOf, newHistoryEdits, type NewHistoryOptions, type WorldEdits } from '../gen/edits';
 import {
   CHECK_WARNING,
   DEFAULT_VIEW,
@@ -358,6 +358,11 @@ export function subscribe(f: () => void) {
 }
 
 /** 存档有变化时重新渲染(返回一个递增的版本号) */
+/** 存档以外的东西变了,列表要重画 */
+export function savesChanged() {
+  changed();
+}
+
 export function useSavesVersion(): number {
   return subs.use(() => version);
 }
@@ -372,6 +377,8 @@ export interface SaveNotice {
   action?: ToastAction;
   /** 左边一个绿点(存好了一个文件这类) */
   dot?: boolean;
+  /** 毫秒;不给 = 成功的 7 秒,别的留着 */
+  ttl?: number;
   /** 这条提示没了就调(见 toastStore 的 onGone) */
   onGone?: () => void;
   stamp: number;
@@ -384,7 +391,7 @@ let notice: SaveNotice | null = null;
  */
 export function notify(n: Omit<SaveNotice, 'stamp'> | null) {
   notice = n ? { ...n, stamp: performance.now() } : null;
-  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action, dot: n.dot, onGone: n.onGone });
+  if (n) showToast({ id: 'save', kind: n.kind, text: n.text, more: n.more?.length ? n.more : undefined, action: n.action, dot: n.dot, onGone: n.onGone, ...(n.ttl !== undefined ? { ttl: n.ttl } : {}) });
   else clearToast('save');
   changed();
 }
@@ -784,6 +791,7 @@ export function renameWorld(id: string, title: string) {
   const t = cleanTitle(title);
   if (current?.id === id) {
     current.title = t || undefined;
+    if (current.readonly) notify({ kind: 'warn', text: READONLY_EDIT });
     saveCurrent(true);
     changed();
     return;
@@ -1203,12 +1211,25 @@ function metaOf(c: Current, opened?: string): Meta {
   return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined, from: m.from };
 }
 
+const READONLY_EDIT = '这里的改动不会存。要留下，先另存一份';
+
+/** 要重推的走 historyGate,到这里的是改名这类 */
+function tellReadonlyEdit(c: Current, edits: WorldEdits) {
+  if (!c.readonly || edits === c.saved) return;
+  c.saved = edits;
+  notify({ kind: 'warn', text: READONLY_EDIT });
+}
+
 /** 把当前世界存下来(修改没变就不存;force = 起名、换了投影、刚创建……) */
 /** 存当前世界;返回写进去没有(没有当前世界、没改过不用存 = false) */
 function saveCurrent(force = false): boolean {
   const c = current;
-  if (!c || c.gone) return false;
+  if (!c) return false;
   const edits = getEdits();
+  if (c.gone) {
+    tellReadonlyEdit(c, edits);
+    return false;
+  }
   // 上次没写进去的(存储满了):修改没再变也再试一次
   if (!force && edits === c.saved && !c.unsaved) return false;
   // 干预、地形大事变了:历史要重推,缩略图上结束那一年的地形、国家跟着变,重截(App 等重推完、那一段的主图铺好才给图)
@@ -1736,6 +1757,13 @@ export function _resetForTest() {
   thumbOld = null;
   thumbEditing = false;
   quietUntil = 0;
+}
+
+/** title 没有 = 那个世界删掉了;不是地图留着的世界 = null */
+export function keptFrom(edits: Pick<WorldEdits, 'map'>): { title?: string } | null {
+  if (!keptMapOf(edits)) return null;
+  const w = edits.map?.from ? loadWorld(edits.map.from) : null;
+  return w ? { title: w.save.title || '未命名世界' } : {};
 }
 
 /**

@@ -9,8 +9,9 @@
  */
 import type { SaveFile } from '../gen/savefile';
 import { OLD_SITE, latestUrl, openInLatest } from './oldSite';
-import { briefError, notify } from './saveStore';
-import type { ToastAction } from './toastStore';
+import { getEdits } from './editsStore';
+import { briefError, keptFrom, notify } from './saveStore';
+import { showToast, type ToastAction } from './toastStore';
 import { withFileFlow } from './worldFileLazy';
 
 /** 我的世界里的世界读取出错,退路也走不通 */
@@ -25,6 +26,12 @@ export const KEPT_LINK = '这个链接带不上它的地图。请对方存成文
 export const KEPT_DEVICE = '它的地图还在另一台设备上，世界没有丢。到那台存成文件，再到这里打开';
 /** 地图留着的世界打不开:.json 文件只有配方 */
 export const KEPT_FILE = '这个文件只有配方，带不上它的地图。请对方重新存成文件发给你';
+
+/** 原来那个世界还在才说到它上面加 */
+export function keptTerrainBlocked() {
+  const from = keptFrom(getEdits());
+  showToast({ id: 'edit-block', kind: 'warn', text: '这个世界不能再改地形大事', more: [from?.title !== undefined ? '它的地图是旧世界留下的，一改就要重新长。要加大事，到原来那个世界上加' : '它的地图是旧世界留下的，一改就要重新长'], ttl: 7000 });
+}
 
 /** 提示条的第二行和按钮 */
 export interface TroubleNote {
@@ -54,14 +61,22 @@ function refreshPage() {
   location.reload();
 }
 
-/** 交不过去(浏览器太旧,压缩不了存档):说一声怎么自己打开。旧网站只认 .json,提示条上的「存成文件」存的就是这一份(save) */
+/** 旧网站只认 .json,提示条上存的是 save 这份原文。site 不给 = 旧网站上到最新版打开 */
 export function openFailed(site?: string, save?: SaveFile) {
-  const where = site ? `到 ${site} 打开` : '到最新版打开';
+  if (site) {
+    notify({
+      kind: 'error',
+      text: '这个浏览器打不开',
+      more: ['存下配方文件，到旧版网站点「打开存档文件」选它'],
+      ...(save ? { action: { label: '存配方文件', act: 'save-old-file', onClick: () => withFileFlow('没能存成文件', (m) => m.saveForOldSite(save, site)) } } : {}),
+    });
+    return;
+  }
   notify({
     kind: 'error',
     text: '这个浏览器打不开',
-    more: [`请把世界存成文件，${where}`],
-    ...(save ? { action: { label: '存成文件', act: 'save-old-file', onClick: () => withFileFlow('没能存成文件', (m) => m.saveRecipeFile(save, where)) } } : {}),
+    more: ['请把世界存成文件，到最新版打开'],
+    ...(save ? { action: { label: '存成文件', act: 'save-old-file', onClick: () => withFileFlow('没能存成文件', (m) => m.saveRecipeFile(save, '到最新版打开')) } } : {}),
   });
 }
 

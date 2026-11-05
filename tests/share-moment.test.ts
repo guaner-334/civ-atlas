@@ -137,7 +137,7 @@ describe('打开时看哪:旧链接照常', () => {
       if (!r.ok) return;
       expect(r.save).toEqual(o.save);
       expect('moment' in r.save).toBe(false);
-      // 生成器以后升了版本,两边都多一句"来自旧版本",别的不变
+      // 生成器以后升了版本,两边都多一句"按新版算的",别的不变
       const note = versionNote(24, false);
       expect(r.warnings).toEqual(note ? [note] : []);
       expect(resolveMoment(generateCivStub(), r.save.moment)).toEqual({});

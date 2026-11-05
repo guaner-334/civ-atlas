@@ -1072,6 +1072,17 @@ button.primary:hover {
 .save-it:hover:not(:disabled) {
   background: var(--hover-bg);
 }
+/* 灰着写原因(不用 disabled:小字要看得清) */
+.save-it.off {
+  cursor: default;
+}
+.save-it.off:hover:not(:disabled) {
+  background: transparent;
+}
+.save-it.off .icon,
+.save-it.off b {
+  opacity: 0.45;
+}
 .save-it:disabled {
   opacity: 0.45;
   cursor: default;

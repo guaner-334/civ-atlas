@@ -511,6 +511,37 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   return null;
 }
 
+/** 不等后台转存跑到它:首页上转存还没开始 */
+export async function contentTrouble(id: string): Promise<'old' | 'failed' | null> {
+  try {
+    const w = loadWorld(id);
+    if (!w || !canKeep(w)) return null;
+    const state = await call('stateOf', [id]);
+    // 转失败以后,打开时线程交回来的内容可能已经存下了
+    if (state?.status === 'failed') return (await storedFresh(id)) ? null : 'failed';
+    const g = w.save.generator;
+    if (!(g < GENERATOR_VERSION)) return null;
+    if ((await call('latestOf', [id]))?.generator === g) return null;
+    return (await resultHeads(id)).some((h) => h.generator === g) ? null : 'old';
+  } catch {
+    return null;
+  }
+}
+
+/** 同一版软件本来不再试失败的世界,所以先清掉记录 */
+export async function saveContentAgain(id: string): Promise<boolean> {
+  try {
+    await call('patchState', [id, { status: undefined, app: undefined, error: undefined }]);
+    await settleWorld(id);
+    if (await storedFresh(id)) return true;
+    const state = await call('stateOf', [id]);
+    if (state?.status !== 'failed') await call('patchState', [id, { status: 'failed', app: APP_VERSION }]);
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function setConverting(id: string | null) {
   try {
     if (id) localStorage.setItem(CONVERTING, id);
