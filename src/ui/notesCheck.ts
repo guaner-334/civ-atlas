@@ -3,9 +3,9 @@ import { copyNotes, deleteNote, exportNotes, notesBehind, notesKnown, notesReady
 import { _notesSettled, moveNotes } from '../ai/libraryVault';
 import { setCivTime } from './civView';
 import { getEdits, setEdits } from './editsStore';
-import { currentSave, currentUnsaved, currentWorld, deleteWorld, duplicateWorld, loadWorld, persistent, restoreWorld, trashMarks } from './saveStore';
-import { clearTrashNow, trashInfo, vaultCall, vaultIsFull } from './worldStore';
+import { currentSave, currentUnsaved, currentWorld, deleteWorld, duplicateWorld, listWorlds, loadWorld, persistent, removeAllWorlds, restoreWorld, trashMarks } from './saveStore';
+import { clearTrashNow, clearWorldStore, maintain, rescueLostWorlds, trashInfo, vaultCall, vaultIsFull } from './worldStore';
 
 export const notes = { _notesSettled, copyNotes, deleteNote, exportNotes, moveNotes, notesBehind, notesKnown, notesReady, putNote };
-export const saves = { currentSave, currentUnsaved, currentWorld, deleteWorld, duplicateWorld, getEdits, loadWorld, persistent, restoreWorld, setCivTime, setEdits, trashMarks };
-export const store = { clearTrashNow, trashInfo, vaultCall, vaultIsFull };
+export const saves = { currentSave, currentUnsaved, currentWorld, deleteWorld, duplicateWorld, getEdits, listWorlds, loadWorld, persistent, removeAllWorlds, restoreWorld, setCivTime, setEdits, trashMarks };
+export const store = { clearTrashNow, clearWorldStore, maintain, rescueLostWorlds, trashInfo, vaultCall, vaultIsFull };

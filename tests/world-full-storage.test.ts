@@ -21,7 +21,7 @@ import * as saveStore from '../src/ui/saveStore';
 import { _resetToasts, clearToast, peekToast, showToast } from '../src/ui/toastStore';
 import { _setWorldFiles, lookWorldFile, keepWorldFile, saveAllWorldFiles, saveWorldFile, type LookedWorldFile } from '../src/ui/worldFiles';
 import { _setHolds, holdWorld, ifNotHeld, isHeld } from '../src/ui/worldHolds';
-import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, holdTrashed, offerWorldParts, setWorldStoreSim, startWorldStore, trashInfo, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
+import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, holdTrashed, offerWorldParts, setWorldStoreSim, startWorldStore, trashFreed, trashInfo, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
 import { runConvert, type FullWithFile } from '../src/worldConvert';
 import type { ConvertReply } from '../src/worldConvertWorker';
 import { lookFile } from '../src/worldFileLook';
@@ -579,7 +579,11 @@ describe('删掉的世界尽快腾地方', () => {
     const keep = await makeWorld('留着的');
     openWorld(keep);
     const gone = saveStore.deleteWorld(id)!;
-    const free = holdTrashed(id);
+    const hold = holdWorld(id);
+    const free = () => {
+      hold();
+      trashFreed(id);
+    };
     return { id, keep, gone, free };
   }
 
@@ -669,6 +673,7 @@ describe('删掉的世界尽快腾地方', () => {
     const id = await makeWorld('别的标签页开着');
     openWorld(await makeWorld('这边'));
     saveStore.deleteWorld(id);
+    trashFreed(id);
     let release = () => {};
     void locks.request(`civ-atlas:world-hold:${id}`, { mode: 'shared' }, () => new Promise<void>((r) => (release = r)));
     await later(5);
@@ -698,6 +703,7 @@ describe('删掉的世界尽快腾地方', () => {
     const id = await makeWorld('刚删的');
     openWorld(await makeWorld('这边'));
     saveStore.deleteWorld(id);
+    trashFreed(id);
     const first = await clearTrashNow();
     expect(first.kept).toEqual([id]);
     await later(120);
@@ -830,11 +836,12 @@ describe('删掉的世界尽快腾地方', () => {
     expect(await offerWorldParts(await offerOf(getEdits(), 'new'))).toBe(false);
     expect((await latestOf(open))!.n).toBe(1);
     saveStore.deleteWorld(id);
-    const free = holdTrashed(id);
+    const free = holdWorld(id);
     await later();
     expect(await latestOf(id)).not.toBeNull();
     stop();
     free();
+    trashFreed(id);
     for (let i = 0; i < 100 && (!(await latestOf(waiting)) || (await latestOf(open))!.n < 2); i++) await later(20);
     expect(await latestOf(id)).toBeNull();
     expect((await latestOf(open))!.n).toBe(2);

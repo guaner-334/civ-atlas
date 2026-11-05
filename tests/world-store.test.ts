@@ -21,7 +21,7 @@ import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
 import { APP_COMMIT } from '../src/ui/version';
-import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearWorldStore, contentTrouble, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, saveContentAgain, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, worldMark, type ConvertRunner } from '../src/ui/worldStore';
+import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearWorldStore, contentTrouble, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, saveContentAgain, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, trashFreed, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, changeAuthor, latestOf, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
@@ -389,6 +389,7 @@ describe('仓库坏了,旧的存档和原件照常', () => {
     const marks = saveStore.trashMarks();
     marks[gone] = Date.now() - 2 * 3600_000;
     (g.localStorage as FakeStorage).setItem('civ-atlas:trash', JSON.stringify(marks));
+    trashFreed(gone);
     const just = makeWorld();
     await offerWorldParts(await offerOf());
     openWorld(keep);

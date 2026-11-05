@@ -33,6 +33,7 @@
  * (刚才那个世界存不进浏览器、只在页面里的,标题下有「全部存成文件」)。
  */
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { lookForLostWorlds } from './lostWorlds';
 import { holdWorld } from './worldHolds';
 import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
 import { isCoarse } from './device';
@@ -217,6 +218,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   useEffect(() => {
     if (wallOk) loadGallery();
   }, [wallOk]);
+  useEffect(lookForLostWorlds, []);
   const wall = onGallery ? gallery.list : null;
   const feOn = !!wall && empty && !!onOpenWork && wall.featured.some((f) => wall.works.some((w) => w.id === f.id));
   // 没登录:世界只在这个浏览器里,清理浏览器数据就没了 —— 直说,后面跟「全部存成文件」;登录了存在账号里,不再提醒。

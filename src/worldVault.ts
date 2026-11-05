@@ -35,6 +35,7 @@
 import { applyNoteOps, cleanNoteList, mergeNotes, sameNotes, type NoteOp } from './authorNotes';
 import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
 import { GENERATOR_VERSION } from './gen/edits';
+import { VAULT_DB, type RosterMarks } from './worldRoster';
 import type { SaveFile } from './gen/savefile';
 import { buildManifest, knownPart, manifestBytes, openWorldFile, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
 import { KNOWN_PARTS, WorldFileError, asWorldFileError, type AuthorContent, type AuthorNote, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
@@ -42,8 +43,7 @@ import { currentSchema } from './gen/worldMigrate';
 import { parseManifest, validateThumb } from './gen/worldValidate';
 import { writeZip, type ZipInput } from './gen/zipStore';
 
-/** 库名 */
-export const VAULT_DB = 'civ-atlas:worlds';
+export { VAULT_DB };
 
 /** 没有清单引用的块放多久才清(毫秒):比写一个最大的世界用的时间长得多 */
 export const PART_GRACE_MS = 3_600_000;
@@ -126,7 +126,7 @@ export interface RevisionRow {
 export type RevisionHead = Omit<RevisionRow, 'text' | 'keys'>;
 
 /** 一个世界的小状态 */
-export interface WorldState {
+export interface WorldState extends RosterMarks {
   id: string;
   /** old:没有原件的更旧版本,转不了;failed:转的时候失败了 */
   status?: 'old' | 'failed';
@@ -1152,19 +1152,53 @@ export function stateOf(id: string): Promise<WorldState | null> {
   });
 }
 
-/** 改一个世界的小状态:写 patch 里的几项,值是 undefined 的去掉 */
-export function patchState(id: string, patch: Partial<Omit<WorldState, 'id'>>): Promise<void> {
+/** 改几个世界的小状态:写 patch 里的几项,值是 undefined 的去掉 */
+export function patchStates(list: readonly (readonly [string, Partial<Omit<WorldState, 'id'>>])[]): Promise<void> {
   return run<void>(['states'], 'readwrite', (t) => {
     const s = t.objectStore('states');
-    const q = s.get(id);
-    q.onsuccess = () => {
-      const next: WorldState = { ...((q.result as WorldState | undefined) ?? { id }), ...patch };
-      for (const k of Object.keys(patch) as (keyof typeof patch)[]) if (patch[k] === undefined) delete next[k];
-      s.put(next);
+    for (const [id, patch] of list) {
+      const q = s.get(id);
+      q.onsuccess = () => {
+        const next: WorldState = { ...((q.result as WorldState | undefined) ?? { id }), ...patch };
+        for (const k of Object.keys(patch) as (keyof typeof patch)[]) if (patch[k] === undefined) delete next[k];
+        s.put(next);
+      };
+    }
+  });
+}
+
+export const patchState = (id: string, patch: Partial<Omit<WorldState, 'id'>>): Promise<void> => patchStates([[id, patch]]);
+
+/** 仓库里的一个世界:最新一份的时间和小状态(只有留底旧版的不算) */
+export interface RosterRow {
+  id: string;
+  at: number;
+  state: WorldState | null;
+}
+
+/** 仓库里有哪些世界(不读块) */
+export function rosterOf(): Promise<RosterRow[]> {
+  return run<RosterRow[]>(['manifests', 'states'], 'readonly', (t, done) => {
+    done([]);
+    const m = t.objectStore('manifests').getAll();
+    const s = t.objectStore('states').getAll();
+    s.onsuccess = () => {
+      const states = new Map((s.result as WorldState[]).map((x) => [x.id, x]));
+      const latest = new Map<string, number>();
+      for (const r of chainOf(m.result as RevisionRow[])) latest.set(r.id, r.at);
+      done([...latest].map(([id, at]) => ({ id, at, state: states.get(id) ?? null })));
     };
   });
 }
 
+/** 把一个世界放回名单要的东西:最新一份的存档、封面;没有 = null */
+export async function rosterCopy(id: string): Promise<{ recipe: SaveFile; thumb: Uint8Array | null } | null> {
+  const r = await readRevision(id, undefined, ['thumb'], ['thumb']);
+  if (!r) return null;
+  const t = r.parts[0];
+  return { recipe: r.manifest.recipe, thumb: t ? new Uint8Array(t.data) : null };
+}
+
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, purgeWorld, clearVault, stateOf, patchState, readAuthor, changeAuthor };
+export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor };
 export type VaultOps = typeof vaultOps;

@@ -53,6 +53,7 @@ import {
   type SaveOrigin,
   type SaveView,
 } from '../gen/savefile';
+import type { RosterMarks } from '../worldRoster';
 import { getEdits, subscribeEdits } from './editsStore';
 import { createListeners } from './createStore';
 import type { DraftBase } from './stageStore';
@@ -78,6 +79,8 @@ const LEGACY = 'wenming-ditu:legacy:';
 const ORIG = 'wenming-ditu:orig:';
 /** 用的人删掉的世界(见文件头) */
 export const TRASH = 'civ-atlas:trash';
+/** 最近一次全清的时间(几个标签页靠它知道仓库被清了;在这之前的内容不再认回来) */
+export const VAULT_CLEARED = 'civ-atlas:vault-cleared';
 /** 最多存多少个世界(每个几 KB + 缩略图三十来 KB) */
 export const MAX_WORLDS = 60;
 /** 缩略图的大小("我的世界"里一张卡片宽 480) */
@@ -689,9 +692,10 @@ export function trashMarks(): Record<string, number> {
   }
 }
 
-/** 记下来、划掉。写不下就算了:没记下的世界内容留着,多占点地方,不会丢东西 */
-export function markTrash(id: string) {
-  store().set(TRASH, JSON.stringify({ ...trashMarks(), [id]: Date.now() }));
+/** 记下来、划掉。写不下就算了:没记下的世界内容留着,多占点地方,不会丢东西。返回记的时间 */
+export function markTrash(id: string, at: number = Date.now()): number {
+  store().set(TRASH, JSON.stringify({ ...trashMarks(), [id]: at }));
+  return at;
 }
 
 /** 划掉一条:撤销了删除、内容已经清了 */
@@ -701,6 +705,12 @@ export function unmarkTrash(id: string) {
   delete m[id];
   if (Object.keys(m).length) store().set(TRASH, JSON.stringify(m));
   else store().remove(TRASH);
+}
+
+/** 删除、撤销在世界仓库里也记一笔(localStorage 被回退时靠它分清,见 ../worldRoster.ts)。那段代码不在首页那一份里,用到才下;记不下就算了 */
+function tellVault(id: string, marks: RosterMarks) {
+  if (!persistent()) return;
+  void import('./worldStore').then((m) => m.noteRoster(id, marks)).catch(() => {});
 }
 
 /** 用户删掉了一个世界(云同步记下来,账号里跟着删) */
@@ -722,8 +732,9 @@ export function deleteWorld(id: string): DeletedWorld | null {
   }
   const had = keys.some(([k]) => k === PREFIX + id);
   removeKeys(id);
-  if (had) {
-    markTrash(id);
+  const at = had ? markTrash(id) : undefined;
+  if (at !== undefined) {
+    tellVault(id, { deleted: at });
     deleteHook?.(id);
   }
   if (current?.id === id) {
@@ -732,13 +743,15 @@ export function deleteWorld(id: string): DeletedWorld | null {
   }
   retryUnsaved();
   changed();
-  return had ? { id, keys } : null;
+  return had ? { id, keys, at } : null;
 }
 
 /** 删掉的世界删之前的样子(撤销删除用):存档、缩略图、打开记录、AI 写的史书和名字由来、旧版本的原样,各自原来存的字符串 */
 export interface DeletedWorld {
   id: string;
   keys: [string, string][];
+  /** 这次删除记录上的时间 */
+  at?: number;
 }
 
 /**
@@ -762,7 +775,9 @@ export function restoreWorld(d: DeletedWorld): boolean {
     }
   }
   // 放回来了才划掉:没放回来的世界还算删了
+  const at = trashMarks()[d.id] ?? d.at;
   unmarkTrash(d.id);
+  if (at !== undefined) tellVault(d.id, { undid: at });
   changed();
   return true;
 }
@@ -1633,7 +1648,10 @@ export function fillMissing(id: string, w: { view?: SaveView; thumb: string | nu
 
 /** 别的设备上删掉了:这里跟着删(不算这台设备上的删除) */
 export function removeSyncedWorld(id: string) {
-  if (isStored(id)) markTrash(id);
+  if (isStored(id)) {
+    const at = markTrash(id);
+    tellVault(id, { deleted: at, settled: at });
+  }
   removeKeys(id);
   if (current?.id === id) {
     current = null;
@@ -1657,6 +1675,8 @@ export function removeAllWorlds(): boolean {
     changed();
     return false;
   }
+  // 删干净了当场记一笔:仓库要等一会儿才清,这中间打开的标签页不能把世界认回来
+  store().set(VAULT_CLEARED, String(Date.now()));
   for (const k of [...mem.keys()]) if (ours(k)) mem.delete(k);
   current = null;
   stopThumb();

@@ -221,8 +221,8 @@ export function dropOrphans(): Promise<void> {
     try {
       const gone: [string, number][] = [];
       for (const h of await b.heads()) {
-        // 撤销提示还开着、别的标签页还开着它:先留着
-        if (h.id in trash && h.id !== c?.id && !isStored(h.id) && !(await isHeld(h.id))) gone.push([h.id, h.generator]);
+        // 撤销提示还开着、别的标签页还开着它、撤销过只是记录被回退了:先留着。世界仓库的代码不在首页那一份里
+        if (h.id in trash && h.id !== c?.id && !isStored(h.id) && !(await isHeld(h.id)) && !(await import('./worldStore').then((m) => m.trashUndone(h.id, trash[h.id])))) gone.push([h.id, h.generator]);
       }
       await b.remove(gone);
     } catch {
