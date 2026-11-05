@@ -559,7 +559,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const id = saveAsNewVersion(c.id, edits ?? getEdits());
     if (!id) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
     const more = copyNotes(c.id, id) ? [] : ['AI 写的史书、名字由来没能一起存下（浏览器存储已满）'];
-    if (moved) dropPendingEdits();
+    if (moved) dropPendingEdits(true);
     savedCopy.current = { id, from, more };
     openStoredRef.current(id);
   };

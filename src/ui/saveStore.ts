@@ -297,6 +297,33 @@ export function setReopenHandler(f: ((id: string) => void) | null) {
   reopenHandler = f;
 }
 
+/** 正在看的世界在别的页面里删了、改了:说一声,这里不再自动存 */
+function tellOtherTab(c: Current, why: 'deleted' | 'changed') {
+  const id = c.id;
+  if (why === 'deleted') {
+    showToast({ id: 'other-tab', kind: 'warn', text: '这个世界在别的页面里删掉了', more: ['这里再改不会自动存下来；要留着就存成文件'], action: saveFileAction(), ttl: 0 });
+    return;
+  }
+  const reopen = reopenHandler;
+  showToast({
+    id: 'other-tab',
+    kind: 'warn',
+    text: '这个世界在别的页面里改过',
+    more: ['这里再改不会自动存下来；载入那边改过的样子'],
+    action: reopen
+      ? {
+          label: '载入',
+          act: 'other-tab-reload',
+          onClick: () => {
+            clearToast('other-tab');
+            reopen(id);
+          },
+        }
+      : saveFileAction(),
+    ttl: 0,
+  });
+}
+
 /** 别的标签页改了浏览器存储(storage 事件;单测直接调):key = null 是整个清空 */
 export function otherTabChanged(key: string | null, newValue: string | null): void {
   if (key !== null && ![PREFIX, THUMB, MAPTHUMB, META, NOTES, LEGACY].some((p) => key.startsWith(p))) return;
@@ -315,29 +342,7 @@ export function otherTabChanged(key: string | null, newValue: string | null): vo
       if (c.gone !== why) {
         if (!c.gone) stopThumb();
         c.gone = why;
-        const id = c.id;
-        if (why === 'deleted') {
-          showToast({ id: 'other-tab', kind: 'warn', text: '这个世界在别的页面里删掉了', more: ['这里再改不会自动存下来；要留着就存成文件'], action: saveFileAction(), ttl: 0 });
-        } else {
-          const reopen = reopenHandler;
-          showToast({
-            id: 'other-tab',
-            kind: 'warn',
-            text: '这个世界在别的页面里改过',
-            more: ['这里再改不会自动存下来；载入那边改过的样子'],
-            action: reopen
-              ? {
-                  label: '载入',
-                  act: 'other-tab-reload',
-                  onClick: () => {
-                    clearToast('other-tab');
-                    reopen(id);
-                  },
-                }
-              : saveFileAction(),
-            ttl: 0,
-          });
-        }
+        tellOtherTab(c, why);
       }
     }
   } else if (key !== null && newValue === null) {
@@ -1300,19 +1305,28 @@ export function attachWorld(spec: AttachSpec) {
 
 /**
  * 只读打开时放弃存档里没推完的修改:存档换成现在看到的这一份,从此和平常一样自动存。
- * 写进去了 = true;写不进去(存储满了)还是只读,修改还留在存档里
+ *   ok         写进去了
+ *   full       写不进去(存储满了):还是只读,修改还留在存档里
+ *   elsewhere  打开以后别的页面、云同步改过或删了这个世界:这里的不是最新的,不盖,说一声(quiet = 不说)
+ *   none       不是只读打开的,没有东西可放弃
  */
-export function dropPendingEdits(): boolean {
+export function dropPendingEdits(quiet = false): 'ok' | 'full' | 'elsewhere' | 'none' {
   const c = current;
-  if (!c?.readonly) return false;
+  if (!c?.readonly) return 'none';
+  const now = store().get(PREFIX + c.id);
+  if (now !== (c.wrote ?? null)) {
+    c.gone = now === null ? 'deleted' : 'changed';
+    if (!quiet) tellOtherTab(c, c.gone);
+    return 'elsewhere';
+  }
   const { gone } = c;
   c.readonly = undefined;
   c.gone = undefined;
-  if (saveCurrent(true)) return true;
+  if (saveCurrent(true)) return 'ok';
   c.readonly = true;
   c.gone = gone;
   c.unsaved = undefined;
-  return false;
+  return 'full';
 }
 
 /** 回到我的世界、又点开下面一直开着的这个世界(不用重新打开):记一下"最近打开" */

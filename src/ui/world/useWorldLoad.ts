@@ -666,8 +666,9 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const n = recipeChanges(recipeOfSave({ ...shown, edits: draft }), recipeOfSave(shown));
     const title = t.title || `种子 ${t.params.seed}`;
     const drop = () => {
-      if (dropPendingEdits()) notify({ kind: 'ok', text: `已放弃上次的 ${n} 处改动` });
-      else notify({ kind: 'error', text: '没能放弃这些改动', more: [storageFullWhy()] });
+      const r = dropPendingEdits();
+      if (r === 'ok') notify({ kind: 'ok', text: `已放弃上次的 ${n} 处改动` });
+      else if (r === 'full') notify({ kind: 'error', text: '没能放弃这些改动', more: [storageFullWhy()] });
     };
     const show = () =>
       showToast({

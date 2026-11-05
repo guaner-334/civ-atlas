@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as saveStore from '../src/ui/saveStore';
 import { addEditsBatch, addIntervention, addUpheaval, clearEdits, clearTerrainAndSketch, commitEdits, getEdits, setEdits, setEndYear, setHistoryGate, setName } from '../src/ui/editsStore';
 import { clearPending, getPending, pushPending, queueIntervention } from '../src/ui/pendingStore';
-import { clearToast } from '../src/ui/toastStore';
+import { clearToast, getToast } from '../src/ui/toastStore';
 import { endRun } from '../src/ui/panelStore';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { EMPTY_EDITS, GENERATOR_VERSION, type Intervention, type Upheaval, type WorldEdits } from '../src/gen/edits';
@@ -293,7 +293,7 @@ describe('只读打开', () => {
   it('放弃没推完的修改:存档换回看到的那一份,还记建它的那一版,配方对得上存的内容;从此照常自动存', async () => {
     const { id, draft, shown } = openPending();
     const shownKey = await recipeKey(recipeOfSave({ ...draft, edits: shown }));
-    expect(saveStore.dropPendingEdits()).toBe(true);
+    expect(saveStore.dropPendingEdits()).toBe('ok');
     const now = saveStore.loadWorld(id)!.save;
     expect(now.edits.interventions).toEqual([protect(1)]);
     expect(now.generator).toBe(OLD);
@@ -302,7 +302,29 @@ describe('只读打开', () => {
     setEdits({ ...getEdits(), names: { 'region:c1': '甲' } });
     expect(saveStore.loadWorld(id)!.save.edits.names).toEqual({ 'region:c1': '甲' });
     // 不是只读打开的:没有东西可放弃
-    expect(saveStore.dropPendingEdits()).toBe(false);
+    expect(saveStore.dropPendingEdits()).toBe('none');
+  });
+
+  it('打开以后别的页面改过、删了这个世界:放弃不盖掉,说一声,还是只读', () => {
+    const { id } = openPending();
+    const key = `wenming-ditu:world:${id}`;
+    const ls = g.localStorage as FakeStorage;
+    const other = JSON.stringify({ ...JSON.parse(ls.getItem(key)!), title: '那边改的' });
+    ls.setItem(key, other);
+    expect(saveStore.dropPendingEdits()).toBe('elsewhere');
+    expect(ls.getItem(key)).toBe(other);
+    expect(saveStore.currentWorld()?.readonly).toBe(true);
+    expect(getToast()?.text).toBe('这个世界在别的页面里改过');
+    clearToast();
+    // 另存时带走的那条路:不说,也不盖
+    expect(saveStore.dropPendingEdits(true)).toBe('elsewhere');
+    expect(getToast()).toBeNull();
+    expect(ls.getItem(key)).toBe(other);
+    // 删了:不写回来
+    ls.removeItem(key);
+    expect(saveStore.dropPendingEdits()).toBe('elsewhere');
+    expect(ls.getItem(key)).toBeNull();
+    expect(getToast()?.text).toBe('这个世界在别的页面里删掉了');
   });
 
   it('放弃时写不进去(存储满了):还是只读,修改还留在存档里', () => {
@@ -312,7 +334,7 @@ describe('只读打开', () => {
     ls.setItem = () => {
       throw new DOMException('满了', 'QuotaExceededError');
     };
-    expect(saveStore.dropPendingEdits()).toBe(false);
+    expect(saveStore.dropPendingEdits()).toBe('full');
     ls.setItem = put;
     expect(saveStore.currentWorld()?.readonly).toBe(true);
     expect(saveStore.loadWorld(id)!.save).toEqual(draft);
