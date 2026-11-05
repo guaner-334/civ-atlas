@@ -713,10 +713,18 @@ describe('把现有的世界转进来', () => {
     // 只有配方
     const save = { ...makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, '当时的校验', '老世界', '2026-11-01T00:00:00.000Z'), generator: GENERATOR_VERSION - 40 };
     const id = storeSave(save);
-    expect(await contentTrouble(id)).toBeNull();
+    // 不等后台转存
+    expect(await contentTrouble(id)).toBe('old');
     await startConversions();
     expect(await contentTrouble(id)).toBe('old');
     expect(await contentTrouble('没有这个')).toBeNull();
+    // 有那一版原件的转得进来,不标
+    const o = sampleOriginal();
+    const withOriginal = storeSave({ ...o.save, generator: GENERATOR_VERSION - 2 });
+    await putOriginal(withOriginal, o.parts, saveStore.loadWorld(withOriginal)!.save, GENERATOR_VERSION - 2, '1.3.0');
+    expect(await contentTrouble(withOriginal)).toBeNull();
+    await startConversions();
+    expect(await contentTrouble(withOriginal)).toBeNull();
 
     // 转失败
     const now = storeSave(makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, '新世界', '2026-11-02T00:00:00.000Z'));

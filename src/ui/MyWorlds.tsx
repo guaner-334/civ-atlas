@@ -463,8 +463,7 @@ function SyncTime({ st }: { st: 'sync' | 'off' }) {
 }
 
 /**
- * 列表里只存了配方的旧世界(世界仓库 worldStore.ts 记的,读到才标;后台转存跑到它之前不知道,不标)。
- * 没有比现在旧的世界就不去读,世界仓库也不下载
+ * 列表里只存了配方的旧世界(看世界仓库 worldStore.ts,读到才标)。没有比现在旧的世界就不去读,世界仓库也不下载
  */
 function useOldWorlds(worlds: readonly StoredWorld[]): ReadonlySet<string> {
   const v = useSavesVersion();
