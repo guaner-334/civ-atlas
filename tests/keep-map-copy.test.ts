@@ -28,7 +28,7 @@ import { helperJob } from '../src/ui/helperWork';
 import { _setResultBackend, memoryResults } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
 import { openWorldFromFile, saveWorldFile, _setWorldFiles } from '../src/ui/worldFiles';
-import { _setWorldStore, _settled, keepMapCopy, offerWorldParts, settleKeptWorld, type KeptMapCopy } from '../src/ui/worldStore';
+import { _setWorldStore, _settled, keepMapCopy, keptMapHere, offerWorldParts, settleKeptWorld, type KeptMapCopy } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { lookFile } from '../src/worldFileLook';
 import { openStoredWorld } from '../src/worldOpen';
@@ -241,6 +241,27 @@ describe('另存一份,地图不变', () => {
     expect(await keepMapCopy(bare)).toMatchObject({ ok: false, kind: 'nomap' });
     expect(await keepMapCopy('没有这个')).toMatchObject({ ok: false, kind: 'missing' });
     expect(saveStore.listWorlds().length).toBe(count + 1);
+  }, 120_000);
+
+  it('打不开时分得清:这台设备上有没有那张地图,地图放回来以后再打开算得出来', async () => {
+    const old = await putOldWorld(PLAIN);
+    const sum = old.mapSum;
+    const here = saveStore.saveAsNewVersion(old.id, { ...saveStore.loadWorld(old.id)!.save.edits, map: { sum, from: old.id, grown: OLD_GENERATOR } })!;
+    expect(await keptMapHere(here)).toBe(true);
+
+    // 同步来的:存档在,地图不在这台设备上
+    const elsewhere = saveStore.saveAsNewVersion(old.id, { ...saveStore.loadWorld(old.id)!.save.edits, map: { sum: 'ab'.repeat(32), from: 'wnothere', grown: OLD_GENERATOR } })!;
+    expect(await keptMapHere(elsewhere)).toBe(false);
+    expect(await settleKeptWorld(elsewhere)).toBe(false);
+    expect((await stateOf(elsewhere))?.status).toBe('failed');
+
+    // 上次没算成的:用的人再打开要再算一次,不被"这一版不再试"挡住
+    const save = saveStore.loadWorld(elsewhere)!.save;
+    saveStore.overwriteWorld(elsewhere, { ...save.edits, map: { sum, from: old.id, grown: OLD_GENERATOR } });
+    expect(await settleKeptWorld(elsewhere)).toBe(true);
+    expect((await stateOf(elsewhere))?.status).toBeUndefined();
+
+    expect(await keptMapHere('没有这个')).toBe(false);
   }, 120_000);
 
   it('AI 写的东西跟着复制', async () => {
