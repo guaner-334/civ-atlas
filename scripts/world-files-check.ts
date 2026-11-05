@@ -12,7 +12,7 @@
  *                                     调小额度时 estimate 还是说有地方,这时候靠「写不下过」认出满了,「快满了」那条线在 WebKit 上看。
  *                                     WebKit 没有调额度的办法,临时配置不认额度,硬盘上的配置额度跟着用量涨(写到 30 GB 额度 82 GB):
  *   --volume=<文件夹>                 配置放在这个文件夹里(一个配置从头用到尾,塞满了接着用)。WebKit 要给:挂一个 1–2 GB 的小磁盘映像,真的把硬盘写满(hdiutil create -size 2g -fs APFS …、hdiutil attach … -mountpoint …),
- *                                     full、trash 分开跑,各用一个映像
+ *                                     full、trash 分开跑,各用一个映像。trash 在 WebKit 上写到只剩一点(见 fillDisk)
  *   --huge=<存档 json>               量大世界:先塞满再打开这个存档(什么都存不下),存成文件(线程当场打);放进干净的配置,塞满,改名,再存(只换清单)。打印内存峰值(只在 Chromium)
  *
  * full:  塞满以后改世界、加 AI 正文,存成文件:刚才的改动在文件里,换干净的浏览器打开逐项一样;从没存进去的世界也能存;全部存成文件说得清哪个世界怎么了
@@ -27,7 +27,8 @@
  * 没过的打印「没过」,退出码非 0。
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, statfsSync, writeFileSync, writeSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { chromium, webkit, type Browser, type BrowserContext, type Page } from 'playwright';
@@ -927,6 +928,23 @@ async function fillUp(page: Page, local: boolean): Promise<void> {
   say(`  塞满:IndexedDB 又写了 ${(idb / 1e6).toFixed(1)} MB${local ? `,localStorage 又写了 ${(ls / 1e6).toFixed(1)} M 字`: ''},${((Date.now() - t) / 1000).toFixed(0)} s(占 ${(e.usage / 1e6).toFixed(0)} MB / 额度 ${(e.quota / 1e6).toFixed(0)} MB)`);
 }
 
+/**
+ * 小磁盘写到只剩 room 字节(从外面写一个大文件,网站占的没变)。一点都不剩时库连提交删除都做不到(见 trash 的说明),只剩一点才是用的人碰到的「快满了」
+ */
+function fillDisk(dir: string, room: number): void {
+  const fd = openSync(path.join(dir, 'filler.bin'), 'a');
+  const left = () => {
+    const s = statfsSync(dir);
+    return s.bavail * s.bsize;
+  };
+  for (const size of [64e6, 16e6, 4e6, 1e6]) {
+    const b = randomBytes(size);
+    while (left() > room + size) writeSync(fd, b);
+  }
+  closeSync(fd);
+  say(`  硬盘写到只剩 ${(left() / 1e6).toFixed(1)} MB`);
+}
+
 /** 真的写得进去吗(另开一个库写一点) */
 function canWrite(page: Page, size = 200_000): Promise<boolean> {
   return page.evaluate(
@@ -960,18 +978,22 @@ function canWrite(page: Page, size = 200_000): Promise<boolean> {
   );
 }
 
-/** 等这个世界存进仓库 */
-async function vaultHas(page: Page, id: string): Promise<void> {
-  await page.waitForFunction(
-    async ([c, i]) => {
-      const { store } = await eval(c as string);
-      return !!(await store.vaultCall('latestOf', [i]));
-    },
-    [CHECK, id],
-    { timeout: WAIT, polling: 500 },
-  );
+/** 一直问到 f 说行,最多等 ms 毫秒;等到了 = true。(page.waitForFunction 不等 async 的函数:返回的 Promise 算真,问一次就走了) */
+async function until(f: () => Promise<boolean>, ms: number): Promise<boolean> {
+  const t0 = Date.now();
+  for (;;) {
+    if (await f()) return true;
+    if (Date.now() - t0 > ms) return false;
+    await new Promise((r) => setTimeout(r, 400));
+  }
 }
 
+/** 等这个世界存进仓库 */
+async function vaultHas(page: Page, id: string): Promise<void> {
+  if (!(await until(async () => !!(await latest(page, id)), WAIT))) throw new Error(`${id} 一直没存进仓库`);
+}
+
+/** 这个世界在仓库里最新的一份;打不开库算没有(硬盘真的满了时 WebKit 连库都打不开) */
 const latest = (page: Page, id: string) =>
   page.evaluate(
     async ([c, i]) => {
@@ -983,12 +1005,16 @@ const latest = (page: Page, id: string) =>
 
 /** 打开「我的世界」;世界按名字找 */
 async function worldsPage(page: Page) {
-  await page.goto(`${BASE}?style=fantasy&civ=polities`);
-  await page.locator('.mw [data-act=open-world]').first().waitFor({ timeout: WAIT }).catch(() => {});
-  // 页签在「文明」才看得到一个个世界
-  const tab = page.locator('.mw [data-tab=civs], .mw [data-act=tab-civs]');
-  if (await tab.count()) await tab.first().click().catch(() => {});
-  await page.waitForTimeout(300);
+  await page.goto(BASE);
+  await civsTab(page);
+}
+
+/** 「我的世界」页签换到「文明」:才看得到一个个世界 */
+async function civsTab(page: Page) {
+  await page.locator('.mw').first().waitFor({ timeout: 20000 });
+  const tab = page.locator('.mw-seg [data-tab=civs]');
+  if (await tab.count()) await tab.click();
+  await page.locator('.mw [data-act=world-menu]').first().waitFor({ timeout: 20000 }).catch(() => {});
 }
 
 /** 从「我的世界」删掉一个世界(真的点界面):id 这个世界那张卡片上的菜单 */
@@ -1357,8 +1383,11 @@ async function trashFull(name: string) {
   say(' 塞满');
   await page.goto(`${BASE}?w=${idK}`);
   await settle(page);
-  await fillUp(page, false);
-  check(!(await canWrite(page)), `${name}:真的写不进去了`);
+  // WebKit 上写到一点不剩时,库连提交删除都做不到:世界清不掉、也不丢,等硬盘有了地方。这里看「只剩一点」(小的写得进,大的写不进)
+  const volume = opt('volume');
+  if (volume) fillDisk(volume, 8e6);
+  else await fillUp(page, false);
+  check(!(await canWrite(page, volume ? 40e6 : 200e3)), `${name}:真的写不进去了`);
   const renamed = '满的时候改的名字';
   await page.evaluate(
     async ([c, title]) => {
@@ -1383,11 +1412,20 @@ async function trashFull(name: string) {
   const inVault = (await namesInVault(idK)).includes(renamed);
   if (!opt('volume')) check(!inVault, `${name}:改名没写进仓库`);
   else say(`  改名${inVault ? '写进去了(库里还有清掉的世界腾出来的地方)' : '没写进去'}`);
+  // 写一大段 AI 正文(压不小的):写不下,这个页面就知道满了
+  await page.evaluate(
+    async ([c, i, n]) => {
+      const { notes } = await eval(c as string);
+      await notes.notesReady([i]);
+      const b = new Uint8Array(n as number);
+      for (let k = 0; k < b.length; k += 65536) crypto.getRandomValues(b.subarray(k, Math.min(k + 65536, b.length)));
+      notes.putNote(i, { key: '史书:长', kind: '史书', title: '长', text: Array.from(b, (x) => x.toString(36)).join(''), createdAt: '2026-11-04T09:00:00.000Z', provider: 'test', model: 't' });
+    },
+    [CHECK, idK, volume ? 20e6 : 3e6],
+  );
+  check(await until(() => page.evaluate(async (c) => (await eval(c)).store.vaultIsFull() as boolean, CHECK), 30000), `${name}:页面知道写不下了`);
   await page.getByText('我的世界', { exact: true }).first().click({ timeout: 5000 });
-  await page.locator('.mw').first().waitFor({ timeout: 20000 });
-  const tab = page.locator('.mw [data-act=tab-civs], .mw [data-tab=civs]');
-  if (await tab.count()) await tab.first().click().catch(() => {});
-  await page.waitForTimeout(500);
+  await civsTab(page);
 
   const info0 = await page.evaluate(async (c) => (await eval(c)).store.trashInfo(), CHECK);
   check(info0.count === 0 && info0.bytes === 0 && info0.clearBy === null, `${name}:没有删掉的世界时是空的`);
@@ -1441,15 +1479,10 @@ async function trashFull(name: string) {
   check(await undoOpen(page), `${name}:撤销提示开着`);
   check(!!(await latest(page, idA)), `${name}:提示开着,内容还在`);
   await page.waitForFunction(() => !document.querySelector('[data-act=world-undelete]'), null, { timeout: 30000 });
-  await page.waitForFunction(
-    async ([c, i]) => {
-      const { store } = await eval(c as string);
-      return (await store.vaultCall('revisionsOf', [i])).length === 0;
-    },
-    [CHECK, idA],
-    { timeout: 30000, polling: 300 },
-  );
-  check(true, `${name}:提示收起以后内容清掉了`);
+  say(`  收起:${JSON.stringify(await lookNow())}`);
+  const t1 = Date.now();
+  const emptied = await until(async () => !(await latest(page, idA)), 30000);
+  check(emptied, `${name}:提示收起以后内容清掉了(${((Date.now() - t1) / 1000).toFixed(1)} s)`);
   await page.waitForTimeout(1500);
   const u1 = await usageOf(page);
   say(`  占的地方 ${(u0 / 1e6).toFixed(1)} → ${(u1 / 1e6).toFixed(1)} MB`);
@@ -1459,22 +1492,20 @@ async function trashFull(name: string) {
     check(await canWrite(page), `${name}:腾出了地方,写得进去了`);
   }
   check(!!(await latest(page, idB)), `${name}:别的世界一点没动`);
-  check((await page.evaluate(async (c) => (await eval(c)).store.trashInfo(), CHECK)).count === 0, `${name}:删掉的世界空了`);
+  const info2 = await page.evaluate(
+    async ([c, i]) => {
+      const { saves, store } = await eval(c as string);
+      return { ...(await store.trashInfo()), marks: Object.keys(saves.trashMarks()).length, marked: (i as string) in saves.trashMarks() };
+    },
+    [CHECK, idA],
+  );
+  check(info2.count === 0, `${name}:删掉的世界空了(${JSON.stringify(info2)})`);
 
   say(' 接着存');
   // 满的时候写不进去的改名,腾出地方后自己补上(再转一遍,闲下来才转)
-  await page.waitForFunction(
-    async ([c, i, t]) => {
-      const { store } = await eval(c as string);
-      const r = await store.vaultCall('readRevision', [i, undefined, []]);
-      return JSON.stringify(r?.manifest.recipe.edits.names ?? {}).includes(t as string);
-    },
-    [CHECK, idK, renamed],
-    { timeout: 90000, polling: 1000 },
-  ).then(
-    () => check(true, `${name}:满的时候的改名补进仓库了`),
-    () => check(false, `${name}:满的时候的改名补进仓库了`),
-  );
+  const t2 = Date.now();
+  const filled = await until(async () => (await namesInVault(idK)).includes(renamed), 90000);
+  check(filled, `${name}:满的时候的改名补进仓库了(${((Date.now() - t2) / 1000).toFixed(1)} s)`);
   await page.close();
   await ctx.close();
 }
