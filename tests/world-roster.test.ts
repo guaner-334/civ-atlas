@@ -182,6 +182,8 @@ describe('判断规则', () => {
     expect(rosterStep({ deleted: 5, listed: 1 }, 5, false)).toBe('deleted');
     expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, 9, false)).toBe('deleted');
     expect(rosterStep(null, 5, false)).toBe('deleted');
+    // 删、撤销、再删,回退到第一次的删除记录:后来那次删除还算数
+    expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, 5, false)).toBe('deleted');
     // 记录丢了,仓库记着删了
     expect(rosterStep({ deleted: 5, listed: 1 }, undefined, false)).toBe('remark');
     expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, undefined, false)).toBe('remark');
@@ -382,6 +384,27 @@ describe('删了的不回来', () => {
     expect(saveStore.loadWorld(a)).toBeNull();
   });
 
+  it('删、撤销、再删,回退到第一次的删除记录:不认,到期能清', async () => {
+    const a = await makeWorld('甲');
+    openWorld(await makeWorld('乙'));
+    const one = saveStore.deleteWorld(a)!;
+    await later();
+    const first = snapshot();
+    saveStore.restoreWorld(one);
+    await later();
+    await new Promise((r) => setTimeout(r, 2));
+    const two = saveStore.deleteWorld(a)!;
+    expect(two.at).not.toBe(one.at);
+    await later();
+    reload();
+    rollback(first);
+    expect(saveStore.trashMarks()[a]).toBe(one.at);
+    expect((await rescueLostWorlds()).rescued).toEqual([]);
+    expect(saveStore.loadWorld(a)).toBeNull();
+    await maintain(0);
+    expect(await latestOf(a)).toBeNull();
+  });
+
   it('删了以后又回到名单上(账号里取回来的):现在算在名单上,之后名单丢了能认回来', async () => {
     const a = await makeWorld('甲');
     openWorld(await makeWorld('乙'));
@@ -500,6 +523,35 @@ describe('撤销过,记录被回退了', () => {
     expect((await stateOf(a))?.undid).toBe(gone.at);
     reload();
     rollback(deletedState);
+    expect((await rescueLostWorlds()).rescued).toContain(a);
+  });
+
+  it('上一次撤销没写成,这一次写成了:补写不能拿旧的盖掉新的', async () => {
+    let broken = false;
+    _setWorldStore({ caller: ((op: keyof VaultOps, args: never) => (broken && op === 'patchState' ? Promise.reject(new Error('写不进')) : (direct as never as (o: string, x: never) => Promise<unknown>)(op, args))) as never });
+    const a = await makeWorld('甲');
+    const other = await makeWorld('乙');
+    openWorld(await makeWorld('丙'));
+    saveStore.deleteWorld(other);
+    const one = saveStore.deleteWorld(a)!;
+    await later();
+    broken = true;
+    saveStore.restoreWorld(one);
+    await later();
+    broken = false;
+    await new Promise((r) => setTimeout(r, 2));
+    const two = saveStore.deleteWorld(a)!;
+    await later();
+    const second = snapshot();
+    saveStore.restoreWorld(two);
+    await later();
+    // 腾出了地方:排着的补写一遍
+    expect((await clearTrashNow()).cleared).toEqual([other]);
+    await later();
+    expect((await stateOf(a))?.undid).toBe(two.at);
+    expect((await stateOf(a))?.deleted).toBe(two.at);
+    reload();
+    rollback(second);
     expect((await rescueLostWorlds()).rescued).toContain(a);
   });
 });

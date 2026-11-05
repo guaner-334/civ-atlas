@@ -34,9 +34,14 @@ export interface RosterMarks {
  */
 export type RosterStep = 'rescue' | 'remark' | 'deleted' | 'unsure' | 'account';
 
+/** 删除记录上的这一次撤销过,之后也没有再删:回退到更早那次删除记录时,仓库里记着的后来那次删除还算数 */
+export function undidThis(marks: RosterMarks | null | undefined, trashedAt: number): boolean {
+  return marks?.undid === trashedAt && (marks.deleted === undefined || marks.deleted === trashedAt);
+}
+
 /** trashedAt = 这个世界的删除记录(没有 = undefined);只问不在名单上的世界 */
 export function rosterStep(marks: RosterMarks | null | undefined, trashedAt: number | undefined, signedIn: boolean): RosterStep {
-  if (trashedAt !== undefined) return marks?.undid === trashedAt ? 'rescue' : 'deleted';
+  if (trashedAt !== undefined) return undidThis(marks, trashedAt) ? 'rescue' : 'deleted';
   if (marks?.deleted !== undefined && marks.deleted !== marks.undid) return 'remark';
   if (marks?.listed === undefined) return 'unsure';
   return signedIn ? 'account' : 'rescue';

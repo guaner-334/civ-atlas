@@ -49,7 +49,7 @@ import type { ConvertJob } from '../worldConvert';
 import type { ConvertReply } from '../worldConvertWorker';
 import { pendingEdit, type CommitRequest, type CommitResult, type DraftedFile, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
-import { rosterStep, type RosterMarks } from '../worldRoster';
+import { rosterStep, undidThis, type RosterMarks } from '../worldRoster';
 import { currentAccount } from '../account/session';
 import { isCoarse, isNarrow } from './device';
 import { dropResults, resultHeads } from './resultStore';
@@ -906,7 +906,7 @@ async function mapNeededFrom(id: string): Promise<boolean> {
 
 /** 这次删除撤销过(撤销被回退了,见 ../worldRoster.ts):内容不能清 */
 async function undone(id: string, at: number): Promise<boolean> {
-  return (await call('stateOf', [id]))?.undid === at;
+  return undidThis(await call('stateOf', [id]), at);
 }
 
 /** 给 resultStore:同上,问不到算没有 */
@@ -920,7 +920,7 @@ const settledHere = new Map<string, number>();
 /** 不到 30 天能不能清。asked = 用的人自己点的「现在清掉」,听用的人的 */
 async function mayDrain(id: string, at: number, asked: boolean): Promise<boolean> {
   const s = await call('stateOf', [id]);
-  if (s?.undid === at) return false;
+  if (undidThis(s, at)) return false;
   return asked || settledHere.get(id) === at || s?.settled === at || s?.listed === undefined;
 }
 
@@ -1085,12 +1085,26 @@ export async function clearTrashNow(): Promise<TrashCleared> {
 
 /** 写不进仓库的记号(写满了):腾出地方、下次写成了补上;关了页面就没了 */
 const unwritten = new Map<string, RosterMarks>();
+/** 每个世界每个记号最后要写的值:补写时不能拿旧的盖掉后来写成了的 */
+const lastNoted = new Map<string, RosterMarks>();
+
+/** 没写成:这几项还是最后要写的值才放着 */
+function keepUnwritten(id: string, marks: RosterMarks): void {
+  const last = lastNoted.get(id);
+  const still = Object.fromEntries(Object.entries(marks).filter(([k, v]) => last?.[k as keyof RosterMarks] === v));
+  if (Object.keys(still).length) unwritten.set(id, { ...still, ...unwritten.get(id) });
+}
 
 /** 记一笔。记不下先放着,不重试 */
 export function noteRoster(id: string, marks: RosterMarks): void {
-  void call('patchState', [id, marks]).catch(() => {
-    unwritten.set(id, { ...unwritten.get(id), ...marks });
-  });
+  lastNoted.set(id, { ...lastNoted.get(id), ...marks });
+  const old = unwritten.get(id);
+  if (old) {
+    const left = Object.fromEntries(Object.entries(old).filter(([k]) => !(k in marks)));
+    if (Object.keys(left).length) unwritten.set(id, left);
+    else unwritten.delete(id);
+  }
+  void call('patchState', [id, marks]).catch(() => keepUnwritten(id, marks));
 }
 
 function flushRoster(): void {
@@ -1098,7 +1112,7 @@ function flushRoster(): void {
   const list = [...unwritten];
   unwritten.clear();
   void call('patchStates', [list]).catch(() => {
-    for (const [id, m] of list) unwritten.set(id, { ...m, ...unwritten.get(id) });
+    for (const [id, m] of list) keepUnwritten(id, m);
   });
 }
 
@@ -1299,6 +1313,7 @@ export function _setWorldStore(o: { caller?: VaultCaller | null; runner?: Conver
   started = false;
   settledHere.clear();
   unwritten.clear();
+  lastNoted.clear();
 }
 
 /** 等手上排着的写完(单测用) */
