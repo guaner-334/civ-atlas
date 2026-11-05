@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SHARE_WARN_LENGTH } from '../gen/savefile';
 import { useEdits } from './editsStore';
 import { currentOriginal, currentWorld, loadWorld, persistent, storageFullWhy, storageIsFull, useSavesVersion } from './saveStore';
+import { appleDevice, askPersisted, fileRecords, fileStatus, onSpaceChange, saveMark, vaultFullSeen } from './spaceFacts';
 import { withFileFlow } from './worldFileLazy';
 import { oldSiteFor, openOriginal } from './oldSite';
 import { openFailed } from './openTrouble';
@@ -99,7 +100,9 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const cur = ready ? currentWorld() : null;
   const curStored = useMemo(() => (open && cur ? loadWorld(cur.id) : null), [open, cur, v]);
   const keep = persistent();
-  const full = storageIsFull();
+  const [, spaceTick] = useState(0);
+  useEffect(() => onSpaceChange(() => spaceTick((n) => n + 1)), []);
+  const full = storageIsFull() || vaultFullSeen();
   const session = useSession();
   const syncView = useSyncView();
   const synced = useMemo(() => (open && session && cur && curStored ? worldSync(cur.id) : null), [open, session, cur, curStored, syncView]);
@@ -121,6 +124,19 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     };
   }, [open, curId, hasFile]);
   const sizeNote = size && hasFile && size.id === curId ? `，${size.note}` : '';
+  const [persisted, setPersisted] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!open || !appleDevice()) return;
+    let live = true;
+    void askPersisted().then((p) => live && setPersisted(p));
+    return () => {
+      live = false;
+    };
+  }, [open]);
+  const mayLose = useMemo(() => {
+    if (!open || !curStored || !appleDevice()) return false;
+    return !session && persisted === false && fileStatus(fileRecords()[curStored.id], saveMark(curStored.save)).kind !== 'same';
+  }, [open, curStored, session, persisted]);
 
   // 点菜单外面就收起(在捕获阶段听:地图上的按钮条拦了冒泡,点旁边的按钮照样收起)
   useEffect(() => {
@@ -176,7 +192,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
             ? { cls: 'ok', icon: 'cloudup', text: '正在同步到你的账号' }
             : { cls: 'warn', icon: 'cloudoff', text: '还没同步上，联网后会自动同步' }
         : curStored
-          ? { cls: 'ok', text: '已自动存在这个浏览器里' }
+          ? { cls: 'ok', text: mayLose ? '已自动存在这个浏览器里，7 天没打开可能被清掉' : '已自动存在这个浏览器里' }
           : { cls: '', text: '还没存进我的世界；改了名字或历史就会自动存' };
   // 旧版本建的世界:能到那一版的旧网站里看原样(菜单开着才找)
   const frozen = cur?.frozen !== undefined;

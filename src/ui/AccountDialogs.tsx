@@ -169,6 +169,7 @@ export function Dialog({
   children,
   testId,
   className,
+  inPlace,
 }: {
   phone: boolean;
   label: string;
@@ -180,10 +181,12 @@ export function Dialog({
   testId?: string;
   /** 窗口上多加的 class */
   className?: string;
+  /** 就地放,窗口才盖不住顶上的提示条 */
+  inPlace?: boolean;
 }) {
   useEscape(() => onClose?.());
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
-  return createPortal(
+  const body = (
     <div
       className={`acct-bg${phone ? ' sheet' : ''}`}
       onPointerDown={(e) => {
@@ -203,9 +206,9 @@ export function Dialog({
         )}
         {children}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
+  return inPlace ? body : createPortal(body, document.body);
 }
 
 function CloseX({ onClose }: { onClose: () => void }) {

@@ -145,6 +145,8 @@ export interface WorldState {
   corrupt?: number;
   /** 放进来时校验没过的 author 块(指纹):字节留着,不当正文读 */
   authorSkip?: string;
+  /** 只有 SIZES_ROW 这一行有:块的键 → 压缩后的字节数 */
+  sizes?: Record<string, number>;
 }
 
 /** notes 表的一行:还进不了 author 块的 AI 正文 */
@@ -1134,6 +1136,54 @@ export async function spaceOf(ids: readonly string[]): Promise<{ bytes: number; 
   return { bytes, have: [...have] };
 }
 
+/** states 表里这一行不是世界 */
+const SIZES_ROW = '#part-sizes';
+
+export interface VaultSpace {
+  /** 和别的世界共用的块也算 */
+  worlds: Record<string, number>;
+  /** 共用的块只算一次 */
+  total: number;
+}
+
+/** 块的大小要读出块才知道,读过的记在仓库里,不然每次都要读几百 MB */
+export async function spaceBoard(): Promise<VaultSpace> {
+  const rows = await run<RevisionRow[]>(['manifests'], 'readonly', (t, done) => {
+    done([]);
+    const q = t.objectStore('manifests').getAll();
+    q.onsuccess = () => done(q.result as RevisionRow[]);
+  });
+  const saved = await stateOf(SIZES_ROW).catch(() => null);
+  for (const [k, n] of Object.entries(saved?.sizes ?? {})) partSizes.set(k, n);
+  const byWorld = new Map<string, Set<string>>();
+  const all = new Set<string>();
+  for (const r of rows) {
+    if (!Array.isArray(r.keys)) continue;
+    let mine = byWorld.get(r.id);
+    if (!mine) byWorld.set(r.id, (mine = new Set()));
+    for (const k of r.keys) {
+      mine.add(k);
+      all.add(k);
+    }
+  }
+  const sizes: Record<string, number> = {};
+  let total = 0;
+  for (const k of all) total += sizes[k] = await sizeOfPart(k);
+  const had = saved?.sizes ?? {};
+  if (Object.keys(had).length !== all.size || [...all].some((k) => had[k] !== sizes[k])) await patchState(SIZES_ROW, { sizes }).catch(() => {});
+  const worlds: Record<string, number> = {};
+  for (const [id, keys] of byWorld) worlds[id] = [...keys].reduce((s, k) => s + (sizes[k] ?? 0), 0);
+  return { worlds, total };
+}
+
+export function fullStates(): Promise<string[]> {
+  return run<string[]>(['states'], 'readonly', (t, done) => {
+    done([]);
+    const q = t.objectStore('states').getAll();
+    q.onsuccess = () => done((q.result as WorldState[]).filter((s) => s.full !== undefined).map((s) => s.id));
+  });
+}
+
 /** 全删(退出登录时选了「从这台设备上删掉」) */
 export function clearVault(): Promise<void> {
   return run<void>(VAULT_STORES, 'readwrite', (t) => {
@@ -1166,5 +1216,5 @@ export function patchState(id: string, patch: Partial<Omit<WorldState, 'id'>>): 
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, purgeWorld, clearVault, stateOf, patchState, readAuthor, changeAuthor };
+export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, readAuthor, changeAuthor };
 export type VaultOps = typeof vaultOps;

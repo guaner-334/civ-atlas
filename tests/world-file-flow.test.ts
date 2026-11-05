@@ -213,6 +213,18 @@ describe('一个世界存成文件', () => {
     expect(toast()).toMatchObject({ kind: 'warn', more: ['a.civworld，1 KB。刚才的改动还没算完，没带上'] });
   });
 
+  it('文件比世界落后:内存不够、写不下分开说', async () => {
+    wf.saveWorldFile.mockResolvedValueOnce({ ok: true, file: blob(1000), name: 'a.civworld', stale: true, behind: 'memory' });
+    await saveWorldToFile('w1');
+    expect(toast()).toMatchObject({ kind: 'warn', more: ['a.civworld，1 KB。内存不够，刚才的改动没带上。关掉别的页面再存一次'] });
+    wf.saveWorldFile.mockResolvedValueOnce({ ok: true, file: blob(1000), name: 'a.civworld', stale: true, behind: 'full' });
+    await saveWorldToFile('w1');
+    expect(toast()).toMatchObject({ kind: 'warn', more: ['a.civworld，1 KB。里面是上次存下的样子，刚才的改动没带上'] });
+    wf.saveWorldFile.mockResolvedValueOnce({ ok: true, file: blob(1000), name: 'a.civworld', stale: true, behind: 'timeout' });
+    await saveWorldToFile('w1');
+    expect(toast()).toMatchObject({ kind: 'warn', more: ['a.civworld，1 KB。刚才的改动还没算完，没带上'] });
+  });
+
   it('一次只做一件:正在存时再点不开第二件', async () => {
     let finish!: (v: unknown) => void;
     wf.saveWorldFile.mockReturnValue(new Promise((r) => (finish = r)));
@@ -258,6 +270,13 @@ describe('全部世界存成文件', () => {
     await flush();
     expect(downloads).toHaveLength(1);
     expect(toast()!.more![0]).toBe('在手机的「下载」里，312 MB。以后点「打开存档文件」选它，这些世界都会回来');
+  });
+
+  it('刚才的改动打开时要重新算的也说', async () => {
+    wf.saveAllWorldFiles.mockResolvedValue(one({ behind: [{ id: 'a', kind: 'memory' }] }));
+    await saveAllToFile();
+    expect(toast()).toMatchObject({ kind: 'warn' });
+    expect(toast()!.more).toEqual([expect.stringContaining('312 MB'), '其中 1 个里面是上次存下的样子，刚才的改动打开时要重新算']);
   });
 
   it('只带上配方的、AI 写的东西没读出来的都说', async () => {
@@ -585,6 +604,14 @@ describe('打开文件', () => {
       await openPickedFiles([file, file], vi.fn());
       expect(toast()!.kind).toBe('warn');
       expect(toast()!.more![0]).toContain('只留在这个页面里');
+    });
+
+    it('放回来了,文件里 AI 写的东西读不进来:也说一句,文件先别删', async () => {
+      const f = named(FILE2);
+      backup(f);
+      wf.openWorldFiles.mockResolvedValue({ ...none, added: [w('a'), w('b')], notesUnread: ['a'] });
+      await openPickedFiles([f], vi.fn());
+      expect(toast()).toMatchObject({ kind: 'warn', text: '已放回 2 个世界', more: ['1 个世界的 AI 写的东西这次没读进来。世界不受影响，文件先别删'] });
     });
 
     it('几个旧文件一起选:都放进「我的世界」', async () => {

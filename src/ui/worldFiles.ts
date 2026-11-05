@@ -962,6 +962,8 @@ export interface OpenedWorldFiles {
   recipes: ImportResult | null;
   /** 有 AI 正文没能写进浏览器的世界 */
   notesLost: string[];
+  /** 放回来了,文件里 AI 写的东西读不进来的世界(块坏了、超长了) */
+  notesUnread: string[];
   /** 浏览器不让存:放回来的只留在这个页面里,文件先别删 */
   memOnly: boolean;
 }
@@ -1018,7 +1020,7 @@ function mapWorldIds(placed: readonly string[], ids: Map<string, string>): void 
  */
 export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions = {}): Promise<OpenedWorldFiles> {
   const { files: picks, sets } = await lookWorldFiles(files);
-  const out: OpenedWorldFiles = { ok: true, added: [], copied: [], same: [], different: [], skipped: [], cut: picks.some((p) => p.cut), cancelled: false, sets, recipes: null, notesLost: [], memOnly: false };
+  const out: OpenedWorldFiles = { ok: true, added: [], copied: [], same: [], different: [], skipped: [], cut: picks.some((p) => p.cut), cancelled: false, sets, recipes: null, notesLost: [], notesUnread: [], memOnly: false };
   const worlds: PackedWorld[] = [];
   const seenParts = new Set<string>();
   for (const p of picks) {
@@ -1087,6 +1089,7 @@ export async function openWorldFiles(files: readonly Blob[], o: OpenFilesOptions
     if (placed.status === 'copied') out.copied.push({ ...entry, of: placed.of });
     else out.added.push(entry);
     if (placed.kept.notesLost) out.notesLost.push(placed.id);
+    if (r.facts.authorTrouble) out.notesUnread.push(placed.id);
     if (placed.kept.memOnly) out.memOnly = true;
     if (placed.kept.olderLost) skip('broken', `有 ${placed.kept.olderLost} 份旧修订读不了,没放回来`);
   }

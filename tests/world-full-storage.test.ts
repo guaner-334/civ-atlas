@@ -21,7 +21,7 @@ import * as saveStore from '../src/ui/saveStore';
 import { _resetToasts, clearToast, peekToast, showToast } from '../src/ui/toastStore';
 import { _setWorldFiles, lookWorldFile, keepWorldFile, saveAllWorldFiles, saveWorldFile, type LookedWorldFile } from '../src/ui/worldFiles';
 import { _setHolds, holdWorld, ifNotHeld, isHeld } from '../src/ui/worldHolds';
-import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, holdTrashed, offerWorldParts, setWorldStoreSim, startWorldStore, trashInfo, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
+import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, offerWorldParts, setWorldStoreSim, spaceBoard, startWorldStore, trashInfo, vaultCall, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
 import { runConvert, type FullWithFile } from '../src/worldConvert';
 import type { ConvertReply } from '../src/worldConvertWorker';
 import { lookFile } from '../src/worldFileLook';
@@ -732,6 +732,37 @@ describe('删掉的世界尽快腾地方', () => {
     const cl = await clearTrashNow();
     expect(cl.kept).toContain(id);
     expect(await latestOf(id)).not.toBeNull();
+  });
+
+  it('每个世界占多少:共用的块每行都算,总数只算一次,原件加上;块的大小记下来', async () => {
+    const a = await makeWorld('甲');
+    const b = await makeWorld('乙');
+    const none = await spaceBoard();
+    expect(none!.worlds[a]).toBeGreaterThan(0);
+    expect(none!.worlds[a]).toBe(none!.worlds[b]);
+    // 两个世界用一样的块
+    expect(none!.total).toBe(none!.worlds[a]);
+    expect(none!.bigger).toBe(true);
+    await results.put({ id: a, generator: GENERATOR_VERSION, app: 'x', at: '2026-11-04T00:00:00.000Z', snapshot: { format: 1, generator: GENERATOR_VERSION, recipe: 'r', formation: false, parts: [] } }, { id: a, generator: GENERATOR_VERSION, recipe: 'r', sums: '', size: 1000, at: '2026-11-04T00:00:00.000Z' });
+    const withOriginal = await spaceBoard();
+    expect(withOriginal!.worlds[a]).toBe(none!.worlds[a] + 1000);
+    expect(withOriginal!.worlds[b]).toBe(none!.worlds[b]);
+    expect(withOriginal!.total).toBe(none!.total + 1000);
+    expect(Object.keys(withOriginal!.worlds).sort()).toEqual([a, b].sort());
+    const memo = await vaultCall('stateOf', ['#part-sizes']);
+    expect(Object.keys(memo!.sizes!).length).toBeGreaterThan(0);
+  });
+
+  it('哪些世界上次写不下:写成功一次就划掉;删掉的不算', async () => {
+    const a = await makeWorld('甲');
+    const b = await makeWorld('乙');
+    await vaultCall('patchState', [a, { full: 1 }]);
+    await vaultCall('patchState', [b, { full: 2 }]);
+    expect((await fullWorldIds()).sort()).toEqual([a, b].sort());
+    await vaultCall('patchState', [a, { full: undefined }]);
+    expect(await fullWorldIds()).toEqual([b]);
+    saveStore.deleteWorld(b);
+    expect(await fullWorldIds()).toEqual([]);
   });
 
   it('占多少、几个、哪天清掉:共用的块不算,原件算上;没内容的不算;「现在清掉」真的腾出来', async () => {

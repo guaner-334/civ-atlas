@@ -245,6 +245,10 @@ describe('打开一个文件', () => {
     await _notesSettled();
     expect(exportNotes(kept.id)).toEqual([]);
     expect((await readRevision(kept.id))!.manifest.parts.some((p) => p.name === 'author')).toBe(false);
+    freshBrowser();
+    const r = await openWorldFiles([bad]);
+    expect(r.added).toHaveLength(1);
+    expect(r.notesUnread).toEqual([r.added[0].id]);
   }, 60_000);
 
   it('编号相同、内容不同:报不同、不盖掉本机的;另存成新编号以后两个都在', async () => {

@@ -1,0 +1,120 @@
+.acct-dlg.sz {
+  width: 520px;
+}
+.acct-dlg.sz.sheet {
+  width: 100%;
+}
+.sz-sum {
+  font-size: 14px;
+}
+.sz-sum.warn {
+  color: var(--warn);
+}
+.sz-meter {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 3px;
+  background: var(--btn);
+  overflow: hidden;
+}
+.sz-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--warn);
+}
+.sz-list {
+  flex: none;
+  background: var(--surface);
+  border-radius: 10px;
+  box-shadow: 0 0 0 0.5px var(--line);
+  max-height: 330px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet .sz-list {
+  max-height: 310px;
+}
+.sz-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 6px 6px 6px 10px;
+}
+.sz-row + .sz-row {
+  border-top: 0.5px solid var(--line);
+}
+.sz-th {
+  flex: none;
+  width: 56px;
+  height: 28px;
+  border-radius: 5px;
+  background: var(--btn) center / cover no-repeat;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+}
+.sheet .sz-th {
+  width: 44px;
+  height: 22px;
+}
+.sz-main {
+  flex: 1;
+  min-width: 0;
+  display: block;
+}
+.sz-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sz-sub {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.sz-sub.warn {
+  color: var(--warn);
+}
+.sz-size {
+  flex: none;
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.acct-dlg button.sz-ic {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.acct-dlg button.sz-ic:hover {
+  background: var(--hover-bg);
+}
+.acct-dlg button.sz-ic.none {
+  visibility: hidden;
+}
+.sheet button.sz-ic {
+  width: 28px;
+}
+.sz-row .acct-btn {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  margin-right: 4px;
+}
+.sz .acct-small + .acct-small {
+  margin-top: -8px;
+}

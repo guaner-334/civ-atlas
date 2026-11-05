@@ -47,9 +47,13 @@ import type { ConvertReply } from '../worldConvertWorker';
 import { pendingEdit, type CommitRequest, type CommitResult, type DraftedFile, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
 import { isCoarse, isNarrow } from './device';
-import { dropResults, resultHeads } from './resultStore';
+import { getSession } from '../account/session';
+import { dropResults, resultHeads, resultSizes } from './resultStore';
 import type { PackAsk } from './sim/simClient';
-import { TRASH, allWorldIds, currentWorld, deleteWorld, isStored, listWorlds, loadWorld, originalOf, persistent, saveAsNewVersion, storageFullWhy, subscribe, trashMarks, unmarkTrash } from './saveStore';
+import { TRASH, allWorldIds, currentWorld, deleteWorld, isStored, listWorlds, loadWorld, originalOf, persistent, reportVaultFull, saveAsNewVersion, storageFullWhy, subscribe, trashMarks, unmarkTrash, vaultRoomBack } from './saveStore';
+import { NEAR_FULL_BYTES, PERSIST_ASKED, appleDevice, askPersisted, firstHintSaid, isNearFull, noteFirstHint, noteVaultFull, rawRoom, spaceChanged } from './spaceFacts';
+import { clearToast, showToast } from './toastStore';
+import { withFileFlow } from './worldFileLazy';
 import { APP_COMMIT, APP_VERSION } from './version';
 import { canSeeHolds, holdWorld, ifNotHeld, isHeld } from './worldHolds';
 
@@ -59,8 +63,7 @@ const LIGHT_DELAY = 3000;
 export const TRASH_KEEP_MS = 30 * 24 * 3600_000;
 /** 这个浏览器看不到别的标签页(没有 Web Locks)时,存储紧张也只清删掉超过这么久的世界(毫秒):别的标签页的撤销提示肯定收起了 */
 const FULL_TRASH_AGE = 3600_000;
-/** 还能存的少于这么多(字节)算快满了:和「我的世界」提示快放不下的那条线一样 */
-export const NEAR_FULL_BYTES = 500e6;
+export { NEAR_FULL_BYTES };
 
 /** 几个时间(毫秒);单测调短 */
 const timing = {
@@ -84,8 +87,6 @@ const timing = {
 
 /** 转的时候记一下在转谁(页面崩了下次打开看得到) */
 const CONVERTING = 'civ-atlas:converting';
-/** Firefox 问过长期保存了 */
-const PERSIST_ASKED = 'civ-atlas:persist-asked';
 /** 最近一次全清的时间(几个标签页靠它知道仓库被清了) */
 const CLEARED = 'civ-atlas:vault-cleared';
 
@@ -187,6 +188,15 @@ let vaultFull = false;
 /** 这次打开写不下过、还没腾出地方(界面说「存储满了」用) */
 export const vaultIsFull = (): boolean => vaultFull;
 
+/** 写满时小状态也写不进去,这次打开写不下的世界要在这里也记一份 */
+const fullHere = new Set<string>();
+
+function setVaultFull(on: boolean) {
+  vaultFull = on;
+  noteVaultFull(on);
+  if (!on) vaultRoomBack();
+}
+
 /** 存一份;存不下记下来,不往外抛 */
 async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<CommitResult | null> {
   const mark = clearedAt();
@@ -199,9 +209,16 @@ async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<Co
       return null;
     }
     if (r.status === 'saved') {
-      vaultFull = false;
-      void askPersist();
-      void call('patchState', [req.id, { full: undefined }]).catch(() => {});
+      fullHere.delete(req.id);
+      setVaultFull(false);
+      void askPersist().then(() => firstHint(req.id));
+      void call('patchState', [req.id, { full: undefined }])
+        .then(spaceChanged)
+        .catch(() => {});
+    } else if (r.status === 'same' && fullHere.delete(req.id)) {
+      void call('patchState', [req.id, { full: undefined }])
+        .then(spaceChanged)
+        .catch(() => {});
     }
     return r;
   } catch (e) {
@@ -215,8 +232,11 @@ async function commit(req: CommitRequest, transfer?: Transferable[]): Promise<Co
 /** 没存成:写满了的腾地方。别的错只是这次没存,下次推完、下次打开再存 */
 async function noteFailure(id: string, e: unknown): Promise<void> {
   if (errKind(e) !== 'full') return;
-  vaultFull = true;
+  fullHere.add(id);
+  setVaultFull(true);
+  if (currentWorld()?.id === id) reportVaultFull();
   await call('patchState', [id, { full: Date.now() }]).catch(() => {});
+  spaceChanged();
   await drainTrash().catch(() => {});
 }
 
@@ -301,9 +321,32 @@ async function askPersist(): Promise<void> {
       localStorage.setItem(PERSIST_ASKED, '1');
     }
     await s.persist();
+    spaceChanged();
   } catch {
     /* 问不了就是普通的存储 */
   }
+}
+
+/** 存的不是正开着的世界(后台转的)这次不算,不然人在别处突然冒出来 */
+async function firstHint(id: string): Promise<void> {
+  if (firstHintSaid() || !appleDevice() || getSession() || currentWorld()?.id !== id || (await askPersisted())) return;
+  noteFirstHint();
+  showToast({
+    id: 'lose-first',
+    kind: 'info',
+    dismissible: true,
+    ttl: 15_000,
+    text: '世界存在这个浏览器里',
+    more: ['7 天没打开这个网站可能被清掉，存成文件就不会丢'],
+    action: {
+      label: '存成文件',
+      act: 'save-first-file',
+      onClick: () => {
+        clearToast('lose-first');
+        withFileFlow('没能存成文件', (m) => m.saveCurrentToFile());
+      },
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -545,8 +588,12 @@ async function runJob(job: ConvertJob, asked = false, onFile?: (f: DraftedFile) 
     if (job.kind === 'original' && job.source === 'archive') {
       const state = await call('stateOf', [job.id]);
       await call('patchState', [job.id, { archived: [...(state?.archived ?? []), job.generator] }]);
-    } else await call('patchState', [job.id, { status: undefined, generator: undefined, app: undefined, error: undefined, full: undefined }]);
-    if (out.result.status === 'saved') void askPersist();
+    } else {
+      fullHere.delete(job.id);
+      await call('patchState', [job.id, { status: undefined, generator: undefined, app: undefined, error: undefined, full: undefined }]);
+    }
+    if (out.result.status === 'saved') void askPersist().then(() => firstHint(job.id));
+    spaceChanged();
     return 'next';
   }
   if (out.kind === 'full') {
@@ -903,15 +950,11 @@ async function oneDrain(): Promise<TrashCleared> {
   return out;
 }
 
-/** 存储紧张:写不下过,或者还能存的不到 NEAR_FULL_BYTES;问不到还能存多少、又没写不下过的不算 */
+/** 存储紧张:写不下过,或者快满了(spaceFacts.ts 的 isNearFull);问不到还能存多少、又没写不下过的不算 */
 async function storageTight(): Promise<boolean> {
   if (vaultFull) return true;
-  try {
-    const e = await navigator.storage?.estimate?.();
-    return e?.quota !== undefined && e.usage !== undefined && e.quota - e.usage < NEAR_FULL_BYTES;
-  } catch {
-    return false;
-  }
+  const room = await rawRoom();
+  return !!room && isNearFull(room);
 }
 
 /** 过一会儿看一眼:存储紧张就清 */
@@ -942,7 +985,8 @@ export function trashFreed(id: string): void {
 
 /** 腾出了地方:接着存。正开着的世界让线程重打一份,别的世界再转一遍 */
 function roomMade() {
-  vaultFull = false;
+  setVaultFull(false);
+  spaceChanged();
   if (!started || stopped) return;
   void refillCurrent();
   void startConversions();
@@ -974,6 +1018,36 @@ export interface TrashInfo {
   clearBy: number | null;
   /** 其中几个这时候还不能清(撤销提示还开着、有标签页开着它、正在写它):「现在清掉」不动它们 */
   held: number;
+}
+
+export interface SpaceBoard {
+  /** 和别的世界共用的块也算 */
+  worlds: Record<string, number>;
+  /** 共用的块只算一次 */
+  total: number;
+  bigger: boolean;
+}
+
+/** 硬盘真的满了时 WebKit 连库都打不开:null */
+export async function spaceBoard(): Promise<SpaceBoard | null> {
+  try {
+    const [v, originals] = await Promise.all([call('spaceBoard', []), resultSizes()]);
+    const worlds = { ...v.worlds };
+    let total = v.total;
+    for (const [id, n] of Object.entries(originals)) {
+      worlds[id] = (worlds[id] ?? 0) + n;
+      total += n;
+    }
+    const sum = Object.values(worlds).reduce((a, b) => a + b, 0);
+    return { worlds, total, bigger: sum > total || Object.keys(originals).some((id) => id in v.worlds) };
+  } catch {
+    return null;
+  }
+}
+
+export async function fullWorldIds(): Promise<string[]> {
+  const saved = await call('fullStates', []).catch((): string[] => []);
+  return [...new Set([...fullHere, ...saved])].filter((id) => isStored(id));
 }
 
 /** 看一眼删掉的世界占多少、几个、哪天自己清掉。不抛错,问不到算没有 */
@@ -1093,7 +1167,8 @@ export function _setWorldStore(o: { caller?: VaultCaller | null; runner?: Conver
   if (o.runner) runner = o.runner;
   Object.assign(timing, o.timing);
   offer = null;
-  vaultFull = false;
+  fullHere.clear();
+  setVaultFull(false);
   persistAsked = false;
   stopped = false;
   converting = null;

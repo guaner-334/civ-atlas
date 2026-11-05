@@ -455,6 +455,25 @@ export function storageFullWhy(): string {
   return fullWhy === 'count' ? `「我的世界」最多存 ${MAX_WORLDS} 个` : '浏览器存储已满';
 }
 
+export function storageFullByQuota(): boolean {
+  return storageFull && fullWhy === 'quota';
+}
+
+/** 被关掉了也算说过,腾出地方前不再说 */
+let vaultFullSaid = false;
+
+export function reportVaultFull() {
+  if (vaultFullSaid || storageFull) return;
+  vaultFullSaid = true;
+  showToast({ id: 'storage', kind: 'warn', text: '没能自动存档', more: ['浏览器存储已满。存成文件就不会丢，或者删掉几个世界'], action: saveFileAction() });
+}
+
+export function vaultRoomBack() {
+  if (!vaultFullSaid) return;
+  vaultFullSaid = false;
+  if (!storageFull) clearToast('storage');
+}
+
 function reportFull(why: 'count' | 'quota') {
   // 已经提示过、原因没变:不再重复;原因变了(删了一个以后个数够了、但浏览器存储还是不够)就换成新的说法
   if (storageFull && fullWhy === why) return;

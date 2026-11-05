@@ -773,11 +773,11 @@ async function storage(r: Run, page: Page, saved: string) {
     check(small === '存下整个世界。换台设备、发给别人，看到的都一模一样', `菜单不写大小:${small}`);
     await shot(r, page, '07-存储满了-存档菜单');
     await closeMenu(page);
-    // 刚才的改动只有配方带得走:存出来的文件里有这个改动
+    // 写不进浏览器也能存下整个世界:文件里有刚才的改动
     if (r.device === '电脑') {
       const d = await downloadOf(page, () => page.locator('.toast').filter({ hasText: '没能自动存档' }).locator('button.toast-act').click());
       const text = readFileSync(d.path, 'utf8');
-      check(d.name.endsWith('.json') && text.includes('饕餮城'), `存出来的文件带着刚才的改动:${d.name}`);
+      check(d.name.endsWith('.civworld') && text.includes('饕餮城'), `存出来的文件带着刚才的改动:${d.name}`);
     }
     await page.evaluate(`Storage.prototype.setItem = set`).catch(() => {});
   });

@@ -157,6 +157,16 @@ export async function resultHeads(id: string): Promise<ResultHead[]> {
   }
 }
 
+export async function resultSizes(): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  try {
+    for (const h of (await be()?.heads()) ?? []) out[h.id] = (out[h.id] ?? 0) + h.size;
+  } catch {
+    /* 读不出就是不知道 */
+  }
+  return out;
+}
+
 /** 一个世界第 generator 版的原件;没有、读不出 = null */
 export async function loadResult(id: string, generator: number): Promise<ResultRecord | null> {
   const b = be();

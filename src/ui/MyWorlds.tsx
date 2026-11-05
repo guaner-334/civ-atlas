@@ -45,6 +45,8 @@ import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
 import { copyNotes } from '../ai/library';
 import { copyResults } from './resultStore';
 import { Icon } from './icons';
+import { SpaceBar, SpaceEntry, loadSpaceDialog, useSpace } from './SpaceBar';
+import { spaceChanged } from './spaceFacts';
 import { TitleInput, when } from './worldParts';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
@@ -250,6 +252,15 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
       全部存成文件
     </button>
   );
+  const space = useSpace(list, !!session, keep);
+  const barOn = !!space.bar && !empty;
+  const [SpaceWin, setSpaceWin] = useState<typeof import('./SpaceDialog').SpaceDialog | null>(null);
+  const openSpace = () => {
+    void loadSpaceDialog().then(
+      (m) => setSpaceWin(() => m.SpaceDialog),
+      () => {},
+    );
+  };
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const acctOpen = useAccountPanelOpen();
   const acctBtn = server && (
@@ -309,8 +320,8 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           <h1>我的世界</h1>
           <p>
             {sub}
-            {phone && saveAll && <br />}
-            {saveAll}
+            {!barOn && phone && saveAll && <br />}
+            {!barOn && saveAll}
           </p>
         </div>
         {/* 一个都没有时,打开存档、新建在中间的大按钮那里;右上只剩使用教程和账号 */}
@@ -339,6 +350,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           </div>
         )}
       </header>
+      {barOn && <SpaceBar state={space.bar!} phone={phone} onClose={space.closeBar} onLook={openSpace} />}
       {/* 页签:有世界时才有;一个世界都没有、「我的规则」里有规则时也有(规则不跟着世界走;正看着「规则」时删光了也留着) */}
       {(!empty || (rulesOn && (myRulesN > 0 || tab === 'rules'))) && (
         <div className="mw-seg" role="tablist" aria-label="看地图还是文明">
@@ -423,6 +435,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           </button>
         </div>
       )}
+      {phone && !empty && space.used !== null && <SpaceEntry used={space.used} phone onClick={openSpace} />}
       {!phone && (
         <footer className="mw-foot">
           <a href={SOURCE_URL} target="_blank" rel="noreferrer" data-link="source">
@@ -436,6 +449,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           </a>
           <ContactLink />
           <BeianLinks className="mw-beian" />
+          {!empty && space.used !== null && <SpaceEntry used={space.used} phone={false} onClick={openSpace} />}
           <VersionText className="mw-ver" />
         </footer>
       )}
@@ -444,6 +458,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           <BeianLinks className="mw-beian" />
         </footer>
       )}
+      {SpaceWin && <SpaceWin phone={phone} onClose={() => setSpaceWin(null)} onDelete={(id, name) => removeWorld(id, name, !!session)} />}
     </div>
   );
 }
@@ -700,6 +715,7 @@ function removeWorld(id: string, name: string, loggedIn: boolean) {
     onGone: () => {
       if (undoFailed) return;
       free();
+      spaceChanged();
       void import('./worldStore').then((m) => m.trashFreed(id)).catch(() => {});
     },
   });
