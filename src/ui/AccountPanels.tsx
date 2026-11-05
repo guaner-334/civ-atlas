@@ -4,19 +4,21 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './icons';
-import { when } from './worldParts';
 import { copyText } from './clipboard';
-import { currentUnsaved, currentWorld, isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
+import { currentWorld, isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
 import { openAiSettings } from './AiSettings';
 import { refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
 import { useAiOn } from '../ai/client';
-import { ServerError } from '../account/server';
 import { deleteAccount, displayName, getSession, sendCode, useSession } from '../account/session';
-import { accountDeleted, behindCloud, signOut, syncNow, unsyncedCount, useSyncView } from '../account/sync';
-import { createShare, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
+import { signOut } from '../account/sync';
+import { createShare, getCloud, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
 import { SIGNATURE_UNITS, cleanSignature, momentHash } from '../gen/savefile';
 import { MomentCheck, momentNow, useMomentOn } from './shareMoment';
-import { CloseX, Dialog, codeOf, errText, goToPanel, openTrash, sendLabel, useCountdown, type Panel } from './AccountDialogs';
+import { CloseX, Dialog, closeAccountPanel, codeOf, errText, goToPanel, openTrash, sendLabel, useCountdown, type Panel } from './AccountDialogs';
+import { openWorldById } from './newCivAction';
+import { ShareAborted, pushForShare } from './sharePush';
+import { askFull, fullDay, fullStatusOf, holdFullToasts, pairText, useFullJob, useFullNotes, useFullOverview, useFullPull, type FullJob, type FullNote } from './fullWorldView';
+import { usedLine } from './fullWorldWords';
 
 /** 开着的这个窗口。退出、换了账号时外面已经不挂它了 */
 export default function AccountPanel({ panel, phone, onClose, onBack }: { panel: Exclude<Panel, { kind: 'login' }>; phone: boolean; onClose: () => void; onBack: () => void }) {
@@ -39,7 +41,6 @@ function day(iso: string): string {
 
 function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void }) {
   const s = useSession()!;
-  const sync = useSyncView();
   const acct = useOfficialAccount();
   const aiOn = useAiOn();
   useSavesVersion();
@@ -66,18 +67,9 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
     return () => clearTimeout(t);
   }, [copied]);
 
-  const n = listWorlds().length;
-  const unsynced = unsyncedCount(sync);
-  const syncText =
-    sync.phase === 'syncing' || sync.busy.size
-      ? { text: '正在同步', warn: false }
-      : unsynced
-        ? { text: `${unsynced} 个世界还没同步上`, warn: true }
-        : sync.phase === 'offline' || sync.phase === 'error'
-          ? { text: sync.message ?? '连不上服务器，联网后会自动同步', warn: true }
-          : !n
-            ? { text: '还没有世界', warn: false }
-            : { text: `${n} 个世界都已同步${sync.lastOk ? `，${when(sync.lastOk)}` : ''}`, warn: false };
+  const fo = useFullOverview();
+  useEffect(() => void askFull(), []);
+  useEffect(() => holdFullToasts(), []);
   const trashText = trashList === null ? '' : trashList.length ? `${trashList.length} 个，30 天内能找回` : '没有';
 
   const go = goToPanel;
@@ -103,13 +95,6 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
     >
       <div className="acct-body" style={{ gap: 18 }}>
         <div className="acct-grp">
-          <div className="acct-gr" data-row="sync">
-            <Icon name="cloudok" size={19} />
-            <span className="main">
-              <b>云同步</b>
-            </span>
-            <span className={`side${syncText.warn ? ' warn' : ''}`}>{syncText.text}</span>
-          </div>
           <button className="acct-gr" data-act="open-trash" onClick={() => openTrash()}>
             <Icon name="restore" size={19} />
             <span className="main">
@@ -136,6 +121,15 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
             </button>
           )}
         </div>
+        {fo && (
+          <FullGroup
+            shares={shares}
+            onRemoved={() => {
+              void listShares().then(setShares, () => {});
+              void listTrash().then(setTrashList, () => {});
+            }}
+          />
+        )}
         {!!shares?.length && (
           <>
             <div className="acct-gh">
@@ -194,13 +188,198 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
 }
 
 // ---------------------------------------------------------------------------
+// 账号窗:传到账号的世界。提示条盖不到这个窗口,进度、出错、删除确认都写在那一行里
+
+const flow = () => import('./fullWorldFlow');
+
+function FullGroup({ shares, onRemoved }: { shares: ShareInfo[] | null; onRemoved: () => void }) {
+  const fo = useFullOverview();
+  const job = useFullJob();
+  const notes = useFullNotes();
+  useSavesVersion();
+  // 这台设备上没有的世界:名字、封面去账号里读一次(只读)
+  const [info, setInfo] = useState<Record<string, { title: string; thumb: string | null }>>({});
+  const missing = fo ? fo.account.filter((w) => !isStored(w.id) && !info[w.id]).map((w) => w.id) : [];
+  const key = missing.join();
+  useEffect(() => {
+    if (!key) return;
+    let live = true;
+    void (async () => {
+      for (const id of key.split(',')) {
+        if (!live) return;
+        const w = await getCloud(id).catch(() => null);
+        if (live && w) setInfo((m) => ({ ...m, [id]: { title: (w.save as { title?: string } | null)?.title ?? '', thumb: w.thumb } }));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  if (!fo) return null;
+  const inList = new Set(fo.account.map((w) => w.id));
+  // 正在传、刚说过话的世界还不在账号里的也放一行
+  const extra = [...(job ? [job.id] : []), ...Object.keys(notes)].filter((id, i, a) => a.indexOf(id) === i && !inList.has(id));
+  const empty = !fo.account.length && !extra.length;
+  return (
+    <>
+      <div className="acct-gh">
+        传到账号的世界
+        <small>{empty ? `最多 ${fo.limits.worlds} 个、共 ${Math.round(fo.limits.bytes / 1e6)} MB` : usedLine(fo)}</small>
+      </div>
+      <div className="acct-grp" data-testid="full-list">
+        {empty && (
+          <div className="acct-gr">
+            <Icon name="cloudup" size={19} />
+            <span className="main">
+              <b>还没传过</b>
+              <small style={{ whiteSpace: 'normal' }}>想换设备打开、分享看到的一模一样，到世界的「存档」里点「传到账号」</small>
+            </span>
+          </div>
+        )}
+        {[...extra, ...fo.account.map((w) => w.id)].map((id) => (
+          <FullRow key={id} id={id} info={info[id] ?? null} job={job?.id === id ? job : null} note={notes[id] ?? null} shared={!!shares?.some((s) => s.worldId === id)} onRemoved={onRemoved} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function FullRow({ id, info, job, note, shared, onRemoved }: { id: string; info: { title: string; thumb: string | null } | null; job: FullJob | null; note: FullNote | null; shared: boolean; onRemoved: () => void }) {
+  const w = loadWorld(id);
+  const fo = useFullOverview();
+  const pull = useFullPull();
+  const here = isStored(id);
+  const inAccount = !!fo?.account.some((x) => x.id === id);
+  const entry = fo?.worlds.find((x) => x.id === id) ?? null;
+  const status = fo && here ? fullStatusOf(fo, id, w?.save) : null;
+  /** 正在确认删除:那一行小字 */
+  const [asking, setAsking] = useState<string | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  /** 刚取回来:给一个「打开」 */
+  const [taken, setTaken] = useState(false);
+  const [taking, setTaking] = useState(false);
+  const pulling = pull?.id === id ? pull : null;
+  const at = entry?.uploadedAt ?? fo?.account.find((x) => x.id === id)?.updatedAt ?? '';
+  const uploaded = entry ? `${fullDay(at)}传的，${(entry.bytes / 1e6).toFixed(1)} MB` : `${fullDay(at)}传的配方`;
+  const small = job
+    ? job.phase === 'check'
+      ? '已经传完，服务器在检查里面的内容'
+      : `正在传，${job.total ? pairText(job.done, job.total) : '别关页面'}`
+    : pulling
+      ? `正在从账号取，${pulling.total ? pairText(pulling.done, pulling.total) : ''}`
+      : taking
+        ? '正在从账号取'
+        : asking
+          ? asking
+          : note
+            ? [note.text, note.more].filter(Boolean).join('。')
+            : err
+              ? err
+              : !here
+                ? `${uploaded}，这台设备上没有`
+                : status?.kind === 'changed'
+                  ? `${fullDay(at)}传的，之后改过`
+                  : uploaded;
+  const askRemove = () => {
+    setErr('');
+    void flow().then(
+      (m) => setAsking(m.removeLine(id, shared)),
+      () => setErr('出错了，再试一次'),
+    );
+  };
+  const doRemove = () => {
+    setBusy(true);
+    void flow()
+      .then((m) => m.removeFromAccount(id))
+      .then(onRemoved, (e: unknown) => setErr(errText(e)))
+      .finally(() => {
+        setBusy(false);
+        setAsking(null);
+      });
+  };
+  const take = () => {
+    setErr('');
+    setTaking(true);
+    void flow()
+      .then((m) => m.takeFromAccount(id))
+      .then(
+        () => setTaken(true),
+        // 存档回来了、整个世界没取到:世界还能打开,打开时再试
+        (e: unknown) => setErr(isStored(id) ? '存档取回来了，整个世界没取到。打开时会再试' : errText(e)),
+      )
+      .finally(() => setTaking(false));
+  };
+  const openIt = () => {
+    closeAccountPanel();
+    openWorldById(id);
+  };
+  const thumb = w?.thumb ?? info?.thumb;
+  return (
+    <div className="acct-gr" data-id={id}>
+      <span className="th2" style={thumb ? { backgroundImage: `url(${thumb})` } : undefined} />
+      <span className="main">
+        <b>{w?.save.title || info?.title || '未命名世界'}</b>
+        <small style={{ whiteSpace: 'normal' }}>{small}</small>
+      </span>
+      {job ? (
+        job.phase !== 'check' && (
+          <button className="mini" data-act="full-row-cancel" onClick={() => void flow().then((m) => m.cancelUpload())}>
+            取消
+          </button>
+        )
+      ) : pulling || taking ? null : asking ? (
+        <>
+          <button className="mini" data-act="full-row-keep" disabled={busy} onClick={() => setAsking(null)}>
+            取消
+          </button>
+          <button className="mini red" data-act="full-row-remove-yes" disabled={busy} onClick={doRemove}>
+            删掉
+          </button>
+        </>
+      ) : (
+        <>
+          {note?.action && (
+            <button className="mini" data-act={note.action.act} onClick={note.action.onClick}>
+              {note.action.label}
+            </button>
+          )}
+          {!note?.action && taken && here && (
+            <button className="mini" data-act="full-row-open" onClick={openIt}>
+              打开
+            </button>
+          )}
+          {!note?.action && !here && inAccount && (
+            <button className="mini" data-act="full-row-take" onClick={take}>
+              取回
+            </button>
+          )}
+          {!note?.action && status?.kind === 'changed' && (
+            <button className="mini" data-act="full-row-again" onClick={() => void flow().then((m) => m.uploadWorld(id))}>
+              再传一次
+            </button>
+          )}
+          {inAccount && (
+            <button className="mini red" data-act="full-row-remove" onClick={askRemove}>
+              删掉
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 退出登录
 
 function LogoutDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () => void; onBack: () => void }) {
   const [keep, setKeep] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const n = useMemo(() => listWorlds().length, []);
+  const fo = useFullOverview();
+  // 世界不会自动进账号:没传过的、传了又改过的,从这台删掉就没了
+  const onlyHere = useMemo(() => listWorlds().filter((w) => !fo || !['same', 'recipe'].includes(fullStatusOf(fo, w.id, w.save).kind)).length, [fo]);
   const go = async () => {
     setBusy(true);
     setErr('');
@@ -223,10 +402,10 @@ function LogoutDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
     <Dialog phone={phone} label="退出登录？" width={440} onClose={busy ? undefined : onBack} testId="logout-dialog" head={<div className="acct-head"><h2>退出登录？</h2></div>}>
       <div className="acct-body" style={{ gap: 10 }}>
         <p className="acct-lead" style={{ marginBottom: 4 }}>
-          {n ? `账号里的 ${n} 个世界都还在，下次登录会回来。` : '账号里的世界都还在，下次登录会回来。'}这台设备上的要不要留着？
+          这台设备上的世界要不要留着？
         </p>
-        {choice(true, '留在这台设备上', '没登录也能接着看、接着改，下次登录再同步')}
-        {choice(false, '从这台设备上删掉', '在别人的电脑、网吧用完选这个')}
+        {choice(true, '留在这台设备上', '没登录也能接着看、接着改')}
+        {choice(false, '从这台设备上删掉', onlyHere ? `在别人的电脑、网吧用完选这个。有 ${onlyHere} 个世界没传到账号，删掉就没了。先${fo ? '传到账号或' : ''}存成文件` : '在别人的电脑、网吧用完选这个')}
         {err && <p className="acct-err">{err}</p>}
       </div>
       <div className="acct-foot">
@@ -235,7 +414,7 @@ function LogoutDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
           取消
         </button>
         <button className="acct-btn lg blue" data-act="logout-confirm" disabled={busy} onClick={() => void go()}>
-          {busy && !keep ? '正在同步' : '退出登录'}
+          退出登录
         </button>
       </div>
     </Dialog>
@@ -270,10 +449,7 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
     setErr('');
     try {
       // 等回话的工夫别的标签页换了账号:这个窗已经关了,新登录的那个账号的同步不动
-      if (await deleteAccount(code)) {
-        accountDeleted();
-        onClose();
-      }
+      if (await deleteAccount(code)) onClose();
       notify({ kind: 'ok', text: '账号已注销', more: ['这台设备上的世界还在'] });
     } catch (e) {
       setErr(errText(e));
@@ -325,34 +501,61 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
 type ShareState = { phase: 'prep' } | { phase: 'on'; share: ShareInfo } | { phase: 'off' } | { phase: 'error'; message: string; share?: ShareInfo };
 
 /** 分享是替哪一次登录做的:等的工夫别的标签页退出、换了账号就停下(后面的请求会带上新账号的令牌,链接就开到新账号名下了) */
-class ShareAborted extends Error {}
 function sameLogin(token: string | undefined): void {
   if (!token || getSession()?.token !== token) throw new ShareAborted('账号变了');
 }
 
-/** 正在看的这个世界最新的改动没写进浏览器(存储满了,只在这个页面里):也就存不进账号,分享出去的会是旧的 */
-const UNSAVED_WHY = '这个世界最新的改动没能存进浏览器（存储满了），也就没存进账号。先删掉几个世界腾出地方，再分享';
-const unsavedHere = (worldId: string) => currentWorld()?.id === worldId && currentUnsaved();
-
-/**
- * 分享前同步一遍(全看一遍,改过的存上去):这个世界没存上就不开分享(不然链接给出去的是账号里的旧样子);
- * 账号里的比这里新(别的设备改过、还没「载入」)也不开(不然给出去的不是眼前这个)
- */
-async function pushForShare(worldId: string, token: string | undefined): Promise<void> {
-  sameLogin(token);
-  if (unsavedHere(worldId)) throw new Error(UNSAVED_WHY);
-  const v = await syncNow();
-  sameLogin(token);
-  if (v.phase === 'offline') throw new ServerError(0, 'network', v.message ?? '连不上服务器');
-  // 没同步完(服务器出错之类):不知道账号里是不是眼前这个样子,先不开
-  if (v.phase !== 'idle') throw new Error(v.message ?? '没能和账号同步，稍后再试');
-  const why = v.failed.get(worldId);
-  if (why !== undefined) throw new Error(`这个世界最新的样子还没存进账号：${why}`);
-  if (unsavedHere(worldId)) throw new Error(UNSAVED_WHY);
-  if (behindCloud(worldId)) throw new Error('这个世界在另一台设备上改过，账号里的比这里新：先点「载入」换成那边的样子，再分享');
+/** 分享窗里那一行:对方看到的和你不一样、正在传、传没传成。提示条盖不到这个窗口 */
+function FullShareRow({ worldId }: { worldId: string }) {
+  const fo = useFullOverview();
+  const job = useFullJob();
+  const notes = useFullNotes();
+  useSavesVersion();
+  if (!fo) return null;
+  const status = fullStatusOf(fo, worldId, loadWorld(worldId)?.save);
+  const note = notes[worldId];
+  const mine = job?.id === worldId ? job : null;
+  const upload = () => void flow().then((m) => m.uploadWorld(worldId));
+  const row = (b: string, small: string, act?: { label: string; on: () => void; name: string }, pct?: number) => (
+    <div className="acct-grp" data-testid="share-full-row">
+      <div className="acct-gr" style={{ minHeight: 58 }}>
+        <Icon name="cloudup" size={19} />
+        <span className="main">
+          <b>{b}</b>
+          <small style={{ whiteSpace: 'normal' }}>{small}</small>
+          {pct !== undefined && (
+            <i className="acct-bar">
+              <i style={{ width: `${pct}%` }} />
+            </i>
+          )}
+        </span>
+        {act && (
+          <button className="mini" data-act={act.name} onClick={act.on}>
+            {act.label}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+  if (mine?.phase === 'check') return row('正在核对', '已经传完，服务器在检查里面的内容');
+  if (mine) {
+    const pct = mine.total ? Math.round((mine.done / mine.total) * 100) : 0;
+    return row('正在传到账号', `${mine.total ? pairText(mine.done, mine.total) : ''}${mine.total ? '，' : ''}别关页面`, { label: '取消', name: 'full-row-cancel', on: () => void flow().then((m) => m.cancelUpload()) }, pct);
+  }
+  if (note) return row(note.text, note.more, note.action ? { label: note.action.label, name: note.action.act, on: note.action.onClick } : undefined);
+  if (status.kind === 'same') return null;
+  // 别的世界正在传:不能再点
+  const act = job ? undefined : { label: status.kind === 'changed' ? '再传一次' : '传到账号', name: 'share-full-upload', on: upload };
+  if (status.kind === 'changed') return row(`对方看到的是 ${fullDay(status.entry.uploadedAt)}那份`, '之后的改动还没传。再传一次，对方刷新就能看到', act);
+  return row('对方看到的可能和你不一样', '这个链接只带配方，对方打开时重新长一遍。传到账号以后就一模一样', act);
 }
 
 function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; worldId: string; title: string; onClose: () => void }) {
+  const fo = useFullOverview();
+  useSavesVersion();
+  useEffect(() => void askFull(), []);
+  useEffect(() => holdFullToasts(worldId), [worldId]);
+  const fullKind = fo ? fullStatusOf(fo, worldId, loadWorld(worldId)?.save).kind : 'never';
   const [st, setSt] = useState<ShareState>({ phase: 'prep' });
   /** 正在开 / 停分享 */
   const [busy, setBusy] = useState(false);
@@ -587,15 +790,18 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
         )}
         {again && <p className="acct-small">署名存好了，再点一次「发给…」</p>}
         {st.phase === 'error' && <p className="acct-err">{st.message}</p>}
+        <FullShareRow worldId={worldId} />
         <ul className="acct-notes">
           <li>
             <Icon name="check" size={14} />
-            拿到链接的人能看地图和整段历史，不用登录。
+            {fullKind === 'same' ? '拿到链接的人看到的和你这里一模一样，不用登录。' : '拿到链接的人能看地图和整段历史，不用登录。'}
           </li>
-          <li>
-            <Icon name="check" size={14} />
-            你之后的改动，对方刷新就能看到。
-          </li>
+          {fullKind !== 'changed' && (
+            <li>
+              <Icon name="check" size={14} />
+              {fo ? '你之后改了，再传一次对方才看得到。' : '你之后改了，再点一次「分享…」对方才看得到。'}
+            </li>
+          )}
           <li>
             <Icon name="check" size={14} />
             对方想改，会另存一份到自己的「我的世界」，写明底稿来自你的「{name}」，动不到你的。

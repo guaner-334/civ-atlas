@@ -31,7 +31,6 @@
  *   存储满了留不下就不留,不为它删别的世界,也不挡着新的存进去。打开旧版本的分享链接、旧网址(还没存着)以后改了才存进来的,
  *   第一次存时把打开的那一份同样留着。「看原样」(ui/oldSite.ts)读的就是这一份(originalOf、currentOriginal)。
  * - 登录了网站账号的,世界还会同步进账号(account/sync.ts):这里给它原样读写一个世界(rawWorld / putSyncedWorld),
- *   用户删掉一个世界时告诉它(setDeleteHook)。
  * - 删世界时记一笔(trashMarks:编号 → 什么时候删的),撤销时划掉。世界的内容(ui/worldStore.ts、ui/resultStore.ts)只有在这份记录里才会被清:
  *   清内容不看"我的世界"的列表,因为列表没了也可能是浏览器清了 localStorage。这份记录和存档存在一处,要么一起在、要么一起没,没了就什么都不清。
  */
@@ -733,10 +732,6 @@ function tellVault(id: string, marks: RosterMarks) {
 }
 
 /** 用户删掉了一个世界(云同步记下来,账号里跟着删) */
-let deleteHook: ((id: string) => void) | null = null;
-export function setDeleteHook(f: ((id: string) => void) | null) {
-  deleteHook = f;
-}
 
 /**
  * 删掉一个存档(连同缩略图、AI 写的东西)。删的是正在看的世界:不再自动存它。
@@ -754,7 +749,6 @@ export function deleteWorld(id: string): DeletedWorld | null {
   const at = had ? markTrash(id) : undefined;
   if (at !== undefined) {
     tellVault(id, { deleted: at });
-    deleteHook?.(id);
   }
   if (current?.id === id) {
     current = null;
@@ -1374,7 +1368,6 @@ export function attachWorld(spec: AttachSpec) {
   } else if (prev && spec.kind === 'draft' && spec.pristine) {
     // 新建中又变回没动过(换了一颗星球,改过的地形作废):原来存的那份拿掉
     removeKeys(spec.id);
-    deleteHook?.(spec.id);
   } else if (prev) {
     touchMeta(spec.id, metaOf(current, new Date().toISOString()));
     // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张

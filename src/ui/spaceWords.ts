@@ -78,6 +78,14 @@ export function fileLine(st: FileStatus, now: number): string {
   return st.kind === 'same' ? `${dayWords(st.at, now)}存过文件` : `${dayWords(st.at, now)}存过，之后改过`;
 }
 
+/** 传到账号过的世界那行小字。changed:传了以后又改过 */
+export function fullLine(at: number, changed: boolean, now: number): string {
+  return `${dayWords(at, now)}传到账号${changed ? '，之后改过' : ''}`;
+}
+
+/** 窗口小字第一句(登录了、服务器开了传到账号才有):上面的数字和账号里的不是一回事 */
+export const ACCOUNT_APART_NOTE = '上面的数字只算这个浏览器。在这里删掉世界，账号里那份还在。';
+
 export function trashLine(count: number, clearBy: number, loggedIn: boolean, stuck: number, now: number): string {
   const by = `${dayWords(clearBy, now)}前自己清掉`;
   const base = loggedIn ? `${count} 个，还能在「最近删除」里找回，${by}` : `${count} 个，${by}`;

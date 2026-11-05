@@ -6,7 +6,7 @@
  *                  别人分享的规则「用它新建世界」(新建弹窗,规则选好那一套)
  *   - 回我的世界   showHome
  *   - 按新版另存   照原样打开的旧世界「按新版另存一份」;改历史前先问(setHistoryGate)
- *   - 先出来的首页上点的那一件、云同步要的打开 / 回我的世界、正在看的世界改了名记进浏览器的那一步
+ *   - 先出来的首页上点的那一件、账号窗要的回我的世界、正在看的世界改了名记进浏览器的那一步
  * App 的状态按块传进来(见 ./worldRefs.ts);这里的函数每次渲染新建(和原来写在 App 里一样)。
  * useWorldLoad 经 ref 调的几样(回我的世界、作品墙)在这里填 .current
  */
@@ -20,7 +20,7 @@ import { startStepwise } from '../../gen/stepwise';
 import { copyNotes } from '../../ai/library';
 import { fetchWork, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../../account/gallery';
 import { ServerError, serverBase } from '../../account/server';
-import { setReloadHandler, startSync } from '../../account/sync';
+import { startFullView } from '../fullWorldView';
 import { setGoHome } from '../AccountDialogs';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
@@ -640,17 +640,14 @@ export function useWorldPages(deps: WorldPagesDeps) {
       setHistoryGate(null);
     };
   }, []);
-  // 云同步:登录了就开始(account/sync.ts);正在看的世界在别的设备上、别的页面里改过,点"载入"重新打开它;账号窗里点"最近删除"回到我的世界
+  // 账号里的世界列表:登录了读一次;正在看的世界在别的页面里改过,点"载入"重新打开它;账号窗里点"最近删除"回到我的世界
   useEffect(() => {
-    const stop = startSync();
-    setReloadHandler((id) => openStoredRef.current(id));
+    startFullView();
     setReopenHandler((id) => openStoredRef.current(id));
     setGoHome(() => {
       if (getStage().stage !== 'home') showHomeRef.current();
     });
     return () => {
-      stop();
-      setReloadHandler(null);
       setReopenHandler(null);
       setGoHome(null);
     };

@@ -43,6 +43,7 @@ import {
   type ReportReason,
   type WorkKind,
 } from '../account/gallery';
+import { useFullOverview } from './fullWorldView';
 import './gallery.css';
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
@@ -480,6 +481,7 @@ export function GalleryFeatured({ phone, onOpen, onGallery }: { phone: boolean; 
 
 function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }) {
   const contact = useContact();
+  const fullOn = !!useFullOverview();
   return (
     <Dialog phone={phone} label="怎么上作品墙" width={600} onClose={onClose} testId="gallery-howto" className="gl-howto">
       <div className="acct-body">
@@ -487,7 +489,7 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
         <div className="acct-grp gl-three">
           <div className="acct-gr">
             <b>分享链接</b>
-            <span>世界、地图用存档菜单里的「复制配方链接」；新建参数用预设菜单里的「复制分享链接…」。复制不了配方链接的世界，把存成的文件发给管理员</span>
+            <span>世界、地图用存档菜单里的「复制配方链接」；新建参数用预设菜单里的「复制分享链接…」。复制不了配方链接的世界，{fullOn ? '传到账号后发分享链接，或者' : ''}把存成的文件发给管理员</span>
           </div>
           <div className="acct-gr">
             <b>署名</b>

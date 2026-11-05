@@ -3,8 +3,8 @@
  *
  *   登录       邮箱收验证码(不设密码);「手机号」那一格先置灰写"暂未开放"(网页这边还没做手机号登录);
  *              邀请制下新邮箱要邀请码:从邀请链接打开的已经填好,没填的点"获取验证码"时先说明、露出邀请码一栏(不发邮件)
- *   账号       云同步、最近删除、AI 积分(「使用 AI 功能」关着时不显示)、分享出去的世界(复制链接、停止分享);左下注销账号,右下退出登录
- *   退出登录   问这台设备上的世界留不留(默认留);选"删掉"先全部同步好再删
+ *   账号       传到账号的世界、最近删除、AI 积分(「使用 AI 功能」关着时不显示)、分享出去的世界(复制链接、停止分享);左下注销账号,右下退出登录
+ *   退出登录   问这台设备上的世界留不留(默认留)
  *   注销账号   给自己的邮箱发验证码,填上才注销(账号里的都删掉;这台设备上的不动)
  *   分享       一个开关管开和停;署名(别人另存时写进底稿出处,默认不填);勾选「停在这一刻」(和存档菜单同一个,默认勾着:
  *              短链接后面带上 # 那段,对方打开停在这一年、选中的国家或州、同样的镜头;不经服务器,每次复制的链接各带各的);
@@ -20,7 +20,6 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState, useSyncExternalSt
 import { createPortal } from 'react-dom';
 import { Icon } from './icons';
 import { PRIVACY_URL, TERMS_URL } from './links';
-import { listWorlds } from './saveStore';
 import { closeAiSettings } from './AiSettings';
 import { refreshOfficialAccount } from '../ai/providers/official';
 import { ServerError } from '../account/server';
@@ -281,7 +280,6 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
   const emailRef = useRef<HTMLInputElement>(null);
   const inviteRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
-  const n = useMemo(() => listWorlds().length, []);
   useEffect(() => emailRef.current?.focus(), []);
 
   const inviteOnly = opts?.inviteOnly ?? !!linkInvite;
@@ -452,15 +450,15 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
             </a>
           </span>
         </label>
-        {phone && <LoginFoot n={n} busy={busy === 'login'} disabled={!canLogin} onLogin={submit} phone />}
+        {phone && <LoginFoot busy={busy === 'login'} disabled={!canLogin} onLogin={submit} phone />}
       </div>
-      {!phone && <LoginFoot n={n} busy={busy === 'login'} disabled={!canLogin} onLogin={submit} />}
+      {!phone && <LoginFoot busy={busy === 'login'} disabled={!canLogin} onLogin={submit} />}
     </Dialog>
   );
 }
 
-function LoginFoot({ n, busy, disabled, onLogin, phone }: { n: number; busy: boolean; disabled: boolean; onLogin: () => void; phone?: boolean }) {
-  const line = n ? `登录后，这个浏览器里的 ${n} 个世界会存进你的账号。` : '登录后，你的世界会存进账号，换电脑、换手机都能接着改。';
+function LoginFoot({ busy, disabled, onLogin, phone }: { busy: boolean; disabled: boolean; onLogin: () => void; phone?: boolean }) {
+  const line = '登录不会上传世界，世界还存在这个浏览器里。';
   const btn = (
     <button className="acct-btn blue full" data-act="login" disabled={disabled} onClick={onLogin}>
       {busy ? '正在登录' : '登录'}

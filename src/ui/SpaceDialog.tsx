@@ -1,12 +1,14 @@
 /** 放在「我的世界」那一页里面、不放到页面最外层:顶上的提示条才盖得住窗口,撤销、取消、「存到手机」才点得到。 */
 import { useEffect, useMemo, useReducer, useState } from 'react';
-import { Dialog } from './AccountDialogs';
+import { Dialog, openAccount } from './AccountDialogs';
+import { fullStatusOf, useFullOverview, type FullOverview } from './fullWorldView';
+import { usedLine } from './fullWorldWords';
 import { useSession } from '../account/session';
 import { Icon } from './icons';
 import { currentUnsaved, currentWorld, listWorlds, storageFullByQuota, useSavesVersion, type StoredWorld } from './saveStore';
 import { sizeText } from './sizeWords';
 import { appleDevice, askPersisted, askRoom, fileRecords, fileStatus, firefoxAsked, isNearFull, onSpaceChange, saveMark, vaultFullSeen, type FileStatus, type RoomFacts } from './spaceFacts';
-import { UNSAVED_CONTENT, UNSAVED_NOW, fileLine, meterOf, saveAllBlue, sumLine, trashLine, windowNotes, type FullKind, type WindowFacts } from './spaceWords';
+import { ACCOUNT_APART_NOTE, UNSAVED_CONTENT, UNSAVED_NOW, fileLine, fullLine, meterOf, saveAllBlue, sumLine, trashLine, windowNotes, type FullKind, type WindowFacts } from './spaceWords';
 import { withFileFlow } from './worldFileLazy';
 import { clearTrashNow, fullWorldIds, spaceBoard, trashInfo, type SpaceBoard, type TrashInfo } from './worldStore';
 import './spaceWindow.css';
@@ -33,7 +35,16 @@ function sortRows(rows: Row[]): Row[] {
   return [...rows].sort((a, b) => Number(b.warn) - Number(a.warn) || (b.bytes ?? 0) - (a.bytes ?? 0));
 }
 
-function rowsOf(list: readonly StoredWorld[], fullIds: readonly string[], board: SpaceBoard | null, now: number): Row[] {
+/** 又传过又存过文件的,写离现在近的那个 */
+function savedLine(w: StoredWorld, status: FileStatus, fo: FullOverview | null, now: number): string {
+  const st = fo ? fullStatusOf(fo, w.id, w.save) : null;
+  if (!st || st.kind === 'never' || st.kind === 'recipe') return fileLine(status, now);
+  const at = Date.parse(st.entry.uploadedAt);
+  if (status.kind !== 'never' && status.at > at) return fileLine(status, now);
+  return fullLine(at, st.kind === 'changed', now);
+}
+
+function rowsOf(list: readonly StoredWorld[], fullIds: readonly string[], board: SpaceBoard | null, now: number, fo: FullOverview | null): Row[] {
   const records = fileRecords();
   const full = new Set(fullIds);
   const cur = currentWorld();
@@ -46,7 +57,7 @@ function rowsOf(list: readonly StoredWorld[], fullIds: readonly string[], board:
       name: w.save.title || '未命名世界',
       thumb: w.thumb,
       bytes: board ? (board.worlds[w.id] ?? 0) : null,
-      sub: warn ?? (w.draft ? '还没建完' : w.map ? '只存了地图' : fileLine(status!, now)),
+      sub: warn ?? (w.draft ? '还没建完' : w.map ? '只存了地图' : savedLine(w, status!, fo, now)),
       warn: !!warn,
       file: !w.draft && !w.map,
       del: true,
@@ -92,7 +103,8 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
 
   const list = useMemo(() => listWorlds(), [v]);
   const now = Date.now();
-  const rows = rowsOf(list, quick?.fullIds ?? [], board, now);
+  const fo = useFullOverview();
+  const rows = rowsOf(list, quick?.fullIds ?? [], board, now, session ? fo : null);
   const gone = !!trash && trash.count > 0 && trash.clearBy !== null;
 
   // 刚删掉最后一个世界时要等新问到的:它的内容还占着地方,窗口关了这一页就没有入口了
@@ -112,7 +124,8 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
     unsaved: rows.filter((r) => r.warn).length,
     device,
     firefoxNo: firefoxAsked(),
-    loggedIn: !!session,
+    // 世界不会自动进账号,登录了一样可能丢
+    loggedIn: false,
     persisted: quick?.persisted ?? null,
     allSaved: statuses.length > 0 && statuses.every((s) => s.kind === 'same'),
     bigger: !!board?.bigger,
@@ -120,7 +133,7 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
   };
   const meter = meterOf(facts);
   const warnSum = full === 'vault' || (facts.near && !full);
-  const notes = quick ? windowNotes(facts) : [];
+  const notes = quick ? [...(session && fo ? [ACCOUNT_APART_NOTE] : []), ...windowNotes(facts)] : [];
 
   const clearNow = () => {
     if (clearing) return;
@@ -181,11 +194,31 @@ export function SpaceDialog({ phone, onClose, onDelete }: { phone: boolean; onCl
             <div className="sz-row">
               <span className="sz-main">
                 <span className="sz-name">删掉的世界</span>
-                <span className="sz-sub">{trashLine(trash!.count, trash!.clearBy!, !!session, stuckNow, now)}</span>
+                <span className="sz-sub">{trashLine(trash!.count, trash!.clearBy!, false, stuckNow, now)}</span>
               </span>
               <span className="sz-size">{sizeText(trash!.bytes)}</span>
               <button className="acct-btn" data-act="space-clear" disabled={clearing || held >= trash!.count} onClick={clearNow}>
                 现在清掉
+              </button>
+            </div>
+          </div>
+        )}
+        {session && fo && fo.worlds.length > 0 && (
+          <div className="sz-list" data-testid="space-full">
+            <div className="sz-row">
+              <span className="sz-main">
+                <span className="sz-name">传到账号的世界</span>
+                <span className="sz-sub">{usedLine(fo)}，账号里另算</span>
+              </span>
+              <button
+                className="acct-btn"
+                data-act="space-account"
+                onClick={() => {
+                  onClose();
+                  openAccount();
+                }}
+              >
+                看账号里的
               </button>
             </div>
           </div>

@@ -66,6 +66,10 @@ export interface Target {
   warnings?: string[];
   /** 从分享短链接打开的:它的码(还没存进我的世界时留在网址里,刷新再取一次,看到分享的人最新的改动) */
   shareCode?: string;
+  /** 地图留着的世界,这次打开已经从账号取过地图了 */
+  keptPulled?: true;
+  /** 从短链接取到了整个世界,放在世界仓库里(还没存进我的世界):打开时读它 */
+  fullFile?: true;
   /** 从作品墙打开的世界作品:作品编号(还没存进我的世界时留在网址里,刷新再取一次) */
   gallery?: string;
   /** 分享链接带着的"打开时看哪"(停在哪一年、选中什么、镜头;gen/savefile.ts 的 SaveMoment) */

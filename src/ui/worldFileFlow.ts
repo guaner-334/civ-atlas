@@ -64,6 +64,12 @@ export async function fileSizeNote(id: string): Promise<string | null> {
   return bytes === null ? null : aboutSize(bytes);
 }
 
+/** 算好的大小和给人看的字(还没有内容的 = null) */
+export async function fileSizeOf(id: string): Promise<{ note: string; bytes: number } | null> {
+  const bytes = await worldFileBytes(id);
+  return bytes === null ? null : { note: aboutSize(bytes), bytes };
+}
+
 // ---------------------------------------------------------------------------
 // 提示条
 

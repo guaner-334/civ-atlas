@@ -14,7 +14,7 @@
  *
  * 标题下那句话:没登录的说清楚世界只存在这个浏览器里、清理浏览器数据会一起删掉;后面跟蓝字「全部存成文件」
  * (所有世界存成一个文件,「打开存档文件」选它全部放回来,见 worldFileFlow.ts;一个世界都没有、也没有只在页面里的时不出现)。
- * 登录了的:标题下那句话说世界存在账号里(不再提醒,「全部存成文件」照样在);卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
+ * 登录了的:标题下那句话说传到账号的有几个(服务器开了才有);卡片时间前面有小云的是传过的;
  * 账号窗里点「最近删除」,这一页换成最近删除(30 天内能找回,点一张卡片找回)。
  *
  * 两个页签(分段控件,默认「地图」;回到这一页还是上次看的那个;调规则的入口开着时多一个「规则」,见 rules/flag.ts。
@@ -35,14 +35,15 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { lookForLostWorlds } from './lostWorlds';
 import { holdWorld } from './worldHolds';
-import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
+import { currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, useSavesVersion, type StoredWorld } from './saveStore';
 import { isCoarse } from './device';
 import { withFileFlow } from './worldFileLazy';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
-import { inAccount, syncNow, useSyncView } from '../account/sync';
 import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
+import { REFUSAL_NOTE, askFull, fullDay, fullJob, fullOverview, fullStatusOf, pairText, refusalOf, useFullJob, useFullOverview, useFullPull } from './fullWorldView';
+import { homeAccountLine } from './syncWords';
 import { copyNotes } from '../ai/library';
 import { copyResults } from './resultStore';
 import { Icon } from './icons';
@@ -110,8 +111,8 @@ export interface MyWorldsProps {
   onOpenWork?: (w: GalleryWork) => void;
 }
 
-/** 正在等地图程序的那一处:下了百分之几(null = 不知道) */
-type Wait = { pct: number | null };
+/** 正在等地图程序的那一处:下了百分之几(null = 不知道);line = 那行字换成这句(正在从账号取) */
+type Wait = { pct: number | null; line?: string };
 /** 点的是卡片(打开、菜单里打造新文明)还是展开那块里的「打造新文明」按钮 */
 type WaitAt = 'card' | 'btn';
 type WaitOf = (id: string, at: WaitAt) => Wait | undefined;
@@ -186,15 +187,24 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   const keep = persistent();
   /** 最近点的是哪一个、点在哪(等地图程序时在那里显示下了多少) */
   const [clicked, setClicked] = useState<{ id: string; at: WaitAt } | null>(null);
+  const pull = useFullPull();
   const onOpen = (id: string) => {
     setClicked({ id, at: 'card' });
-    openWorld(id);
+    // 传过整个世界的、这台设备上没有:先从账号取回来再打开
+    if (!session || !fullOverview()?.worlds.some((w) => w.id === id)) return openWorld(id);
+    const go = () => void import('./fullWorldPull').then((m) => m.pullBeforeOpen(id, go)).then((ok) => ok && openWorld(id), () => openWorld(id));
+    go();
   };
   const onNewCiv = (id: string, at: WaitAt = 'card') => {
     setClicked({ id, at });
     newCiv(id);
   };
-  const waitOf: WaitOf = (id, at) => (opening && opening.id === id && clicked?.id === id && clicked.at === at ? { pct: opening.pct } : undefined);
+  const waitOf: WaitOf = (id, at) =>
+    pull?.id === id && at === 'card'
+      ? { pct: pull.total ? Math.round((pull.done / pull.total) * 100) : null, line: `正在从账号取，${pull.total ? pairText(pull.done, pull.total) : ''}` }
+      : opening && opening.id === id && clicked?.id === id && clicked.at === at
+        ? { pct: opening.pct }
+        : undefined;
 
   const pickFile = () => fileRef.current?.click();
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -210,7 +220,10 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   };
   const session = useSession();
   const server = serverBase() !== null;
-  const sync = useSyncView();
+  const fo = useFullOverview();
+  useEffect(() => {
+    if (session) void askFull();
+  }, [!!session]);
   const trash = useTrashView();
   const n = list.length;
   const empty = n === 0;
@@ -227,16 +240,12 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   // 旧网站、测试网站(oldSite.ts):这里的世界和最新版 / 正式版的各存各的,说清楚(顶上还有「旧版」「测试版」标记)
   const sub = !keep
     ? '浏览器不让网页存数据，关掉页面前请把世界存成文件。'
-    : session
-      ? empty
-        ? '建好的世界存在你的账号里，换电脑、换手机登录同一个账号就能打开。'
-        : phone
-          ? `${n} 个世界，存在你的账号里`
-          : `${n} 个世界，存在你的账号里。换电脑、换手机，登录同一个账号就能打开。`
+    : session && fo
+      ? homeAccountLine(n, fo.account.filter((w) => list.some((x) => x.id === w.id)).length, phone)
       : empty
         ? BETA_SITE
           ? '测试版的世界和正式版的分开放。正式版的世界存成文件，就能拿到这里打开。'
-          : server
+          : server && !session
             ? '建好的世界存在这个浏览器里。登录以后，换电脑、换手机都能接着改。'
             : '建好的世界存在这个浏览器里；换电脑请用存档文件。'
         : OLD_SITE !== null
@@ -245,8 +254,8 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
             ? `${n} 个世界，存在测试版里，和正式版的分开放。`
             : phone
               ? `${n} 个世界只存在这个浏览器里，清理浏览器数据会删掉。`
-              : server
-                ? `${n} 个世界，只存在这个浏览器里，清理浏览器数据会一起删掉。登录以后存进账号，换电脑、换手机都能接着改。`
+              : server && !session
+                ? `${n} 个世界，只存在这个浏览器里，清理浏览器数据会一起删掉。登录以后，换电脑、换手机都能接着改。`
                 : `${n} 个世界，只存在这个浏览器里，清理浏览器数据会把它们一起删掉。`;
   // 正在看的世界存不进浏览器(存储满了)、一个都没存下时,也能把它存成文件
   const saveAll = (n > 0 || currentUnsaved()) && (
@@ -255,7 +264,8 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
       全部存成文件
     </button>
   );
-  const space = useSpace(list, !!session, keep);
+  // 世界不会自动进账号,登录了一样可能丢
+  const space = useSpace(list, false, keep);
   const barOn = !!space.bar && !empty;
   const [SpaceWin, setSpaceWin] = useState<typeof import('./SpaceDialog').SpaceDialog | null>(null);
   const openSpace = () => {
@@ -272,10 +282,6 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
       <span>{session ? displayName(session.user) : '登录'}</span>
     </button>
   );
-  /** 卡片时间那个位置:没同步好时换成同步状态 */
-  const syncOf = (id: string): 'sync' | 'off' | null =>
-    // 老编号的世界存不进账号(浏览器存储满了没换成新编号):一直算没同步上
-    !session ? null : !syncable(id) || sync.failed.has(id) ? 'off' : sync.busy.has(id) ? 'sync' : null;
   if (trash && session) return <TrashPage phone={phone} />;
   // 使用教程:新标签页打开一页文字说明(public/guide.html),地图这边不动
   // 手机上同时有账号按钮和作品墙时一排放不下:使用教程只留图标
@@ -421,8 +427,6 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
               onRename={(o) => setRenaming(o ? w.id : null)}
               onOpen={() => onOpen(w.id)}
               onNewCiv={() => onNewCiv(w.id)}
-              sync={syncOf(w.id)}
-              loggedIn={!!session}
               wait={waitOf(w.id, 'card')}
             />
           ))}
@@ -462,7 +466,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
           <BeianLinks className="mw-beian" />
         </footer>
       )}
-      {SpaceWin && <SpaceWin phone={phone} onClose={() => setSpaceWin(null)} onDelete={(id, name) => removeWorld(id, name, !!session)} />}
+      {SpaceWin && <SpaceWin phone={phone} onClose={() => setSpaceWin(null)} onDelete={(id, name) => removeWorld(id, name)} />}
     </div>
   );
 }
@@ -470,12 +474,15 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
 /** 长按多久算长按(毫秒;手机上开卡片的菜单) */
 const LONG_PRESS = 480;
 
-/** 卡片时间那个位置的同步状态 */
-function SyncTime({ st }: { st: 'sync' | 'off' }) {
+/** 卡片时间前面的小云:传过整个世界的才有。没再改的带勾,改过的带向上箭头 */
+function FullMark({ w }: { w: StoredWorld }) {
+  const fo = useFullOverview();
+  const kind = useMemo(() => (fo ? fullStatusOf(fo, w.id, w.save).kind : 'never'), [fo, w]);
+  if (kind === 'never') return null;
+  const same = kind === 'same';
   return (
-    <span className={`mw-time ${st}`} data-sync={st}>
-      <Icon name={st === 'sync' ? 'cloudup' : 'cloudoff'} size={14} />
-      {st === 'sync' ? '正在同步' : '还没同步上'}
+    <span className="mw-full" data-full={kind} title={same ? '整个世界已传到账号' : '传到账号以后又改过'}>
+      <Icon name={same ? 'cloudok' : 'cloudup'} size={14} />
     </span>
   );
 }
@@ -511,8 +518,6 @@ function WorldCard({
   onRename,
   onOpen,
   onNewCiv,
-  sync,
-  loggedIn,
   wait,
   old,
 }: {
@@ -524,8 +529,6 @@ function WorldCard({
   onRename: (on: boolean) => void;
   onOpen: () => void;
   onNewCiv: () => void;
-  sync: 'sync' | 'off' | null;
-  loggedIn: boolean;
   /** 点了打开、地图程序还没下完 */
   wait?: Wait;
   old?: boolean;
@@ -560,14 +563,17 @@ function WorldCard({
 
   // 存成文件有多大:菜单开着才算
   const [sizeNote, setSizeNote] = useState<string | null>(null);
+  const [sizeBytes, setSizeBytes] = useState<number | null>(null);
   const hasFile = !w.draft && !w.map && !old;
   useEffect(() => {
     if (!menuOpen || !hasFile) return;
     let live = true;
     import('./worldFileFlow')
-      .then((m) => m.fileSizeNote(w.id))
-      .then((note) => {
-        if (live) setSizeNote(note);
+      .then((m) => m.fileSizeOf(w.id))
+      .then((got) => {
+        if (!live) return;
+        setSizeNote(got?.note ?? null);
+        setSizeBytes(got?.bytes ?? null);
       })
       .catch(() => {});
     return () => {
@@ -629,16 +635,22 @@ function WorldCard({
         {phone ? (
           <span className="mw-meta">
             {!renaming && <b className="mw-name">{name}</b>}
-            <span className="mw-line">{wait ? openLine(wait.pct, true) : worldLine(w)}</span>
-            {sync ? <SyncTime st={sync} /> : <span className="mw-time">{when(w.at)}</span>}
+            <span className="mw-line">{wait ? (wait.line ?? openLine(wait.pct, true)) : worldLine(w)}</span>
+            <span className="mw-time">
+              <FullMark w={w} />
+              {when(w.at)}
+            </span>
           </span>
         ) : (
           <span className="mw-meta">
             <span className="mw-row1">
               {!renaming && <b className="mw-name">{name}</b>}
-              {sync ? <SyncTime st={sync} /> : <span className="mw-time">{when(w.at)}</span>}
+              <span className="mw-time">
+                <FullMark w={w} />
+                {when(w.at)}
+              </span>
             </span>
-            <span className="mw-line">{wait ? openLine(wait.pct, false) : worldLine(w)}</span>
+            <span className="mw-line">{wait ? (wait.line ?? openLine(wait.pct, false)) : worldLine(w)}</span>
           </span>
         )}
       </button>
@@ -665,6 +677,7 @@ function WorldCard({
             <Icon name="rename" size={16} />
             <span className="pm-text">改名</span>
           </button>
+          {w.draft && <FullCardItem id={w.id} w={w} recipe sizeNote="几 KB" bytes={null} onDone={() => onMenu(false)} />}
           {!w.draft && (
             <>
               <button
@@ -700,13 +713,14 @@ function WorldCard({
                 <span className="pm-text">{old ? '存配方文件' : '存成文件'}</span>
                 {old ? <small className="pm-note">几 KB</small> : sizeNote && <small className="pm-note">{sizeNote}</small>}
               </button>
+              <FullCardItem id={w.id} w={w} recipe={!!old} sizeNote={old ? '几 KB' : sizeNote} bytes={old ? null : sizeBytes} onDone={() => onMenu(false)} />
             </>
           )}
           <hr className="pm-sep" />
           <button
             className="pm-item red"
             data-act="world-delete"
-            onClick={act(() => removeWorld(w.id, name, loggedIn))}
+            onClick={act(() => removeWorld(w.id, name))}
           >
             <Icon name="trash" size={16} />
             <span className="pm-text">删除</span>
@@ -717,10 +731,32 @@ function WorldCard({
   );
 }
 
-/** 删掉一个世界(或只存了地图的那一份):点一下就删,不再问;提示条上的"撤销"兜底(提示条还在的时候点,放回原处;已经存进账号的跟着存回去) */
-function removeWorld(id: string, name: string, loggedIn: boolean) {
-  // 已经存进账号的:账号里跟着删,进最近删除(还没传上去的只是从这里删掉,找不回来,不这么说)
-  const synced = loggedIn && inAccount(id);
+/** 卡片菜单里「传到账号」那一项:服务器开了才有 */
+function FullCardItem({ id, w, recipe, sizeNote, bytes, onDone }: { id: string; w: StoredWorld; /** 只有配方的世界:传的也是配方,限额管不着 */ recipe?: boolean; sizeNote: string | null; bytes: number | null; onDone: () => void }) {
+  const fo = useFullOverview();
+  const job = useFullJob();
+  if (!fo) return null;
+  const st = fullStatusOf(fo, id, w.save);
+  const refusal = recipe ? null : refusalOf(fo, id, bytes);
+  const label = job?.id === id ? '正在传到账号' : st.kind === 'same' ? '已传到账号' : (st.kind === 'changed' || (st.kind === 'recipe' && recipe)) && !refusal ? '再传一次' : '传到账号';
+  const note = job ? (job.id === id ? '' : '等一下') : st.kind === 'same' ? fullDay(st.entry.uploadedAt) : refusal ? REFUSAL_NOTE[refusal] : st.kind === 'changed' ? '改过了' : sizeNote;
+  const click = () => {
+    onDone();
+    if (st.kind === 'same' && !job) return openAccount();
+    void import('./fullWorldFlow').then((m) => (fullJob() || recipe ? m.uploadWorld(id) : m.uploadFromCard(id)));
+  };
+  return (
+    <button className="pm-item" data-act="world-full" onClick={click}>
+      <Icon name={st.kind === 'same' ? 'cloudok' : 'cloudup'} size={16} />
+      <span className="pm-text">{label}</span>
+      {note && <small className="pm-note">{note}</small>}
+    </button>
+  );
+}
+
+/** 删掉一个世界(或只存了地图的那一份):点一下就删,不再问;提示条上的"撤销"兜底(提示条还在的时候点,放回原处)。账号里那份不动,要在账号窗里删 */
+function removeWorld(id: string, name: string) {
+  const inAccount = !!fullOverview()?.account.some((w) => w.id === id);
   const gone = deleteWorld(id);
   // 别的页面里已经删掉了(这一页的列表还没跟上):没有可撤销的
   if (!gone) return notify({ kind: 'ok', text: `「${name}」已在别的页面里删掉了` });
@@ -730,7 +766,7 @@ function removeWorld(id: string, name: string, loggedIn: boolean) {
   notify({
     kind: 'ok',
     text: `已删除「${name}」`,
-    ...(synced ? { more: ['所有设备上都会删掉；30 天内能在账号的「最近删除」里找回'] } : {}),
+    ...(inAccount ? { more: ['账号里那份还在，要删到账号窗里删'] } : {}),
     action: {
       label: '撤销',
       act: 'world-undelete',
@@ -792,7 +828,6 @@ function MapGrid({
   const sel = groups.findIndex((g) => g.key === pick);
   // 选中的那张没了(删掉了):不展开
   const at = sel < 0 ? -1 : Math.min(groups.length - 1, Math.floor(sel / cols) * cols + cols - 1);
-  const session = useSession();
   return (
     <div ref={grid} className="mw-grid mw-maps" role="list">
       {groups.map((g, i) => (
@@ -808,7 +843,7 @@ function MapGrid({
               </span>
             </button>
           </div>
-          {i === at && <MapPanel g={groups[sel]} col={sel % cols} cols={cols} phone={phone} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} loggedIn={!!session} />}
+          {i === at && <MapPanel g={groups[sel]} col={sel % cols} cols={cols} phone={phone} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} />}
         </Fragment>
       ))}
     </div>
@@ -824,7 +859,6 @@ function MapPanel({
   onOpen,
   onNewCiv,
   waitOf,
-  loggedIn,
 }: {
   g: MapGroup;
   col: number;
@@ -833,7 +867,6 @@ function MapPanel({
   onOpen: (id: string) => void;
   onNewCiv: (id: string, at?: WaitAt) => void;
   waitOf: WaitOf;
-  loggedIn: boolean;
 }) {
   const n = g.civs.length;
   // 在哪个世界的地图上打造:地图那一份 / 最早那个世界 / 最近的一个建好的文明(都是同一张地图;没建完的不算)
@@ -860,7 +893,7 @@ function MapPanel({
               </>
             )}
           </button>
-          <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete" onClick={() => removeWorld(from, mapName(g.head), loggedIn)}>
+          <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete" onClick={() => removeWorld(from, mapName(g.head))}>
             删除这张地图
           </button>
         </div>
@@ -956,17 +989,13 @@ function TrashPage({ phone }: { phone: boolean }) {
   }, []);
   const restore = async (t: TrashEntry) => {
     if (busy) return;
-    // 找回来要放进这台设备的「我的世界」:满了就先不找回(不然账号里回来了,这里却看不到)
-    if (storedCount() >= MAX_WORLDS) {
-      setErr(`「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个再找回`);
-      return;
-    }
     setBusy(t.id);
     try {
-      await restoreTrash(t.id);
+      const r = await restoreTrash(t.id);
       setList((l) => (l ?? []).filter((x) => x.id !== t.id));
-      notify({ kind: 'ok', text: `已找回「${t.title || '未命名世界'}」`, more: ['回到「我的世界」就能看到'] });
-      void syncNow();
+      const lost = r.full === 'no-room' ? '账号里放不下它的整个世界，只找回了配方。腾出地方后再传' : r.full === 'gone' ? '它的整个世界已经清掉了，只找回了配方' : null;
+      notify({ kind: 'ok', text: `已找回「${t.title || '未命名世界'}」`, more: [lost ?? '回到账号里了。这台设备上没有的话，到账号窗点「取回」'] });
+      void askFull();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

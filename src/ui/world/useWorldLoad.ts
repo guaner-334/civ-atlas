@@ -62,7 +62,7 @@ import { showMapInWorlds } from '../MyWorlds';
 import { getNav, isNavState, navAdopt, navReplace, navTo, navUrl, startNav, type NavHooks, type NavInfo } from '../nav';
 import { getNewView } from '../newViewStore';
 import { OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from '../oldSite';
-import { KEPT_DEVICE, KEPT_FILE, KEPT_LINK, READ_BACK, READ_TROUBLE, fileTrouble, newerNotice, openFailed } from '../openTrouble';
+import { KEPT_DEVICE, KEPT_DEVICE_FULL, KEPT_FILE, KEPT_LINK, READ_BACK, READ_TROUBLE, fileTrouble, newerNotice, openFailed } from '../openTrouble';
 import { closeOverview, getPeople, setPeople } from '../overviewStore';
 import { setWorldSheet } from '../panelStore';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from '../presetLink';
@@ -73,6 +73,8 @@ import { recipeChanges, recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
 import { frozenResult, resultHeads } from '../resultStore';
 import { keptMapHere, settleKeptWorld } from '../worldStore';
+import { fullOverview } from '../fullWorldView';
+import { sizeText } from '../sizeWords';
 import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, deleteWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markFromFile, markOpened, newWorldId, notify, persistent, sameOrigin, setWorldStats, storageFullWhy, storedCount } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
@@ -356,6 +358,14 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           const text = `打不开「${name()}」`;
           const here = mine && (await keptMapHere(t.id));
           if (id !== reqId.current) return;
+          // 刷新回来的(没走卡片):这张地图在账号里的话取回来再开一次
+          if (mine && !here && !t.keptPulled && fullOverview()?.worlds.some((w) => w.id === t.id)) {
+            const pulled = await import('../fullWorldPull').then((m) => m.pullKept(t.id)).catch(() => false);
+            clearToast(TROUBLE_TOAST);
+            if (id !== reqId.current) return;
+            if (pulled) return generate({ ...t, keptPulled: true, keptTried: undefined, noVault: undefined });
+            return failOpen({ text, more: ['它的地图在账号里，现在连不上服务器。联网后再打开'], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(t.id) } });
+          }
           // 这台设备上有那张地图:是这次没算成、没存下,存档留着,能再试
           if (here) return failOpen({ text, more: [READ_TROUBLE], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(t.id) } });
           if (t.from === 'file') {
@@ -363,7 +373,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
             if (t.fileNew) deleteWorld(t.id);
             return failOpen({ text, more: [KEPT_FILE] });
           }
-          failOpen({ text, more: [mine ? KEPT_DEVICE : KEPT_LINK] });
+          failOpen({ text, more: [mine ? (fullOverview() ? KEPT_DEVICE_FULL : KEPT_DEVICE) : KEPT_LINK] });
         })();
       };
       /** 按现在的规则生成 */
@@ -398,7 +408,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         }
         byOriginal(why === 'broken');
       };
-      const stored = t.readonly ? t.readonly.save : t.noVault ? null : storedSave(t);
+      const stored = t.readonly ? t.readonly.save : t.noVault ? null : t.fullFile ? (t.save ?? null) : storedSave(t);
       if (stored && stored.generator > GENERATOR_VERSION && (t.from === 'stored' || t.from === 'restore')) {
         // 我的世界里的世界是新版存的:这一页按旧规则算出来不是它,存回去还会把它盖掉。等 generate 收完尾再回我的世界
         queueMicrotask(() => {
@@ -414,7 +424,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           if (!vaultAllowed(t.id)) throw new Error('这个世界这一版不走新路');
           const recipe = await recipeKey(recipeOfSave(stored));
           // 这一版还没有原件的:读完存一份(旧路还留着)
-          const heads = stored.generator === GENERATOR_VERSION ? await atMost(resultHeads(t.id), 2000, null) : null;
+          const heads = stored.generator === GENERATOR_VERSION && !t.fullFile ? await atMost(resultHeads(t.id), 2000, null) : null;
           const original = !!heads && !heads.some((h) => h.generator === stored.generator && h.recipe === recipe);
           if (id !== reqId.current) return;
           sendLoad({ vault: { id: t.id, recipe, generator: stored.generator }, ...(original ? { original } : {}) }, stored.generator, fail);
@@ -871,7 +881,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
    * 短链接(short):改了另存时写明底稿出处(署名、这时的世界名、这个链接);长链接里没有分享人,不写。
    * own:最新版和旧网站之间交过来的自己的世界:最新版里不出"别人分享给你的世界"那条说明(旧网站上那条换成旧网站的说法,照常出)
    */
-  const openShare = (r: ParseResult, short?: { code: string; by?: string; moment?: SaveMoment | null }, own = false) => {
+  const openShare = (r: ParseResult, short?: { code: string; by?: string; moment?: SaveMoment | null; fullId?: string }, own = false) => {
     if (!r.ok) {
       const msg = briefError(r.error);
       // 世界还在生成:等生成完再说(生成时提示条上是进度)
@@ -880,32 +890,37 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       return;
     }
     const sv = r.save;
-    const id = newWorldId();
+    const id = short?.fullId ?? newWorldId();
     const by = short ? cleanSignature(short.by) : '';
     setSharedFor(own && OLD_SITE === null ? null : { id, short: !!short, by, own });
     const origin: SaveOrigin | null = short ? { ...(by ? { by } : {}), title: sv.title ?? '', url: shortLink(short.code) } : null;
     // 打开网页时、地址栏里贴的分享链接:浏览器已经记了这一步,换成这个世界
     // 打开时看哪:长链接在存档里(读档时清理过);短链接在链接的 # 后面,按取到的存档再清理一次(年份超出这个世界的历史就不要)
     const moment = sv.moment ?? (short?.moment ? cleanMoment(short.moment, momentYearMax(sv.edits)) : null);
-    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin, moment }, 'replace');
+    openTarget({ id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: r.warnings, shareCode: short?.code, origin, moment, ...(short?.fullId ? { fullFile: true as const } : {}) }, 'replace');
   };
   /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
   const openShortShare = (code: string, still?: () => boolean) => {
     if (!serverBase() || !SHARE_CODE_RE.test(code)) return setLanding('gone');
     showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界' });
     openShareCode(code)
-      .then((r) => {
+      .then(async (r) => {
         // 按后退 / 前进取的:取回来之前又换到了别的画面,不打开(提示条那边换画面时已经收掉了)
         if (still && !still()) return;
+        // 传过整个世界的:取那一份,配方也用文件里的(作者之后又改过时,对方看到的、另存的都是传上去那份)
+        const got = r.full ? await import('../fullWorldPull').then((m) => m.pullShared(code, r.full!.bytes, (done, total) => {
+          if (!still || still()) showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界', more: [`有 ${sizeText(total)}，已经取到 ${sizeText(done)}`], ...(total ? { progress: done / total } : {}) });
+        })) : null;
+        if (still && !still()) return;
         clearToast('share');
-        const p = parseSave(JSON.stringify(r.save));
+        const p = parseSave(JSON.stringify(got ? got.save : r.save));
         if (!p.ok) return setLanding({ error: briefError(p.error) });
         setLanding(null);
         // 短链接后面带的"打开时看哪"只在打开网页时那一次用(按后退、前进再取的照平常打开);用了就从地址栏去掉
         const moment = shortMoment.current;
         shortMoment.current = null;
         if (moment && isMomentHash(location.hash)) navUrl(location.pathname + location.search);
-        openShareRef.current(p, { code, by: r.by, moment });
+        openShareRef.current(p, { code, by: r.by, moment, ...(got ? { fullId: got.id } : {}) });
       })
       .catch((e) => {
         if (still && !still()) return;

@@ -11,6 +11,8 @@
  * 邀请制(inviteOnly,开发服务器里开着):新邮箱要邀请码 K7QM-2XPA(大小写、横线不计较;假服务器里用不完)。
  * 世界、最近删除、分享都在内存里;最近删除不会过期。
  * 带工具的请求(助手):最后一条不是工具结果时,回一个对第一个工具的调用(参数为空,done.tool_calls);是工具结果时正常回话。
+ * 传到账号的世界(src/account/fullWorlds.ts):块和文件都在内存里;不真核对,看一眼开头是不是 ZIP,文字审核用 fullFail 模拟。
+ * POST /v1/dev/full { off?, limits?, fail?, storeFull? } 改这部分的行为(off = 当服务器没开这个功能,接口都 404)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -33,6 +35,39 @@ interface User {
   account: string;
   credits: number;
   worlds: Map<string, World>;
+  fulls: Map<string, FullFile>;
+  /** 今天提交了几次 */
+  commits: number;
+  /** 核对结果:世界编号 → 结果 */
+  jobs: Map<string, { state: string; sum?: string; world?: unknown; error?: unknown; ready: number }>;
+}
+
+interface FullFile {
+  rev: number;
+  sum: string;
+  bytes: number;
+  uploadedAt: number;
+  mark: string | null;
+  public: boolean;
+  reason?: string;
+  blocks: string[];
+}
+
+/** 下一次核对怎么判:不给 = 过 */
+export interface FakeFullFail {
+  code: string;
+  message?: string;
+  hits?: unknown[];
+  hitCount?: number;
+}
+
+export interface FakeFullLimits {
+  worlds: number;
+  bytes: number;
+  perDay: number;
+  worldBytes: number;
+  blockBytes: number;
+  blocksPerFile: number;
 }
 
 interface Share {
@@ -51,6 +86,8 @@ export interface FakeAiOptions {
   chunkDelayMs?: number;
   /** 邀请制:新邮箱要邀请码 */
   inviteOnly?: boolean;
+  /** 传到账号:核对要多久(毫秒);单测里设 0 */
+  fullCheckMs?: number;
 }
 
 const CORS = {
@@ -87,6 +124,30 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
   /** 同一个 requestId 只扣一次 */
   const charged = new Set<string>();
   let seq = 0;
+  // 传到账号
+  const blocks = new Map<string, Uint8Array>();
+  const fullCheckMs = opts.fullCheckMs ?? 800;
+  const fullState: { off: boolean; storeFull: boolean; fail: FakeFullFail | null; limits: FakeFullLimits } = {
+    off: false,
+    storeFull: false,
+    fail: null,
+    limits: { worlds: 20, bytes: 200e6, perDay: 30, worldBytes: 150e6, blockBytes: 16777216, blocksPerFile: 512 },
+  };
+  const sha = async (b: Uint8Array) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', b as BufferSource))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  const fullView = (id: string, f: FullFile) => ({ id, rev: f.rev, sum: f.sum, bytes: f.bytes, uploadedAt: iso(f.uploadedAt), mark: f.mark, public: f.public, ...(f.reason ? { reason: f.reason } : {}) });
+  const aliveFulls = (u: User) => [...u.fulls].filter(([id]) => u.worlds.get(id)?.deletedAt === null);
+  const fileOf = (f: FullFile) => {
+    const parts = f.blocks.map((s) => blocks.get(s)!);
+    const out = new Uint8Array(f.bytes);
+    let at = 0;
+    for (const p of parts) {
+      out.set(p, at);
+      at += p.length;
+    }
+    return out;
+  };
+  const fullFileResponse = (f: FullFile) =>
+    new Response(fileOf(f), { status: 200, headers: { ...CORS, 'Content-Type': 'application/octet-stream', 'Content-Length': String(f.bytes), ETag: `"${f.sum}"` } });
 
   const who = (req: Request): User | null => {
     const m = /^Bearer\s+(.+)$/i.exec(req.headers.get('authorization') ?? '');
@@ -134,7 +195,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       const bad = inviteCheck(account, b?.invite);
       if (bad) return bad;
       let u = users.get(account);
-      if (!u) users.set(account, (u = { id: `u${++seq}`, account, credits: start, worlds: new Map() }));
+      if (!u) users.set(account, (u = { id: `u${++seq}`, account, credits: start, worlds: new Map(), fulls: new Map(), commits: 0, jobs: new Map() }));
       const token = `fake-${crypto.randomUUID()}`;
       tokens.set(token, account);
       return json(200, { token, user: { id: u.id, account, name: account.split('@')[0] }, credits: u.credits });
@@ -145,8 +206,17 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       const sh = shares.get(decodeURIComponent(open[1]));
       const w = sh && !sh.stopped && users.get(sh.user.account) === sh.user ? sh.user.worlds.get(sh.worldId) : undefined;
       if (!sh || !w || w.deletedAt !== null) return fail(404, 'share-gone', '这个分享已经停止了');
+      const full = fullState.off ? undefined : sh.user.fulls.get(sh.worldId);
+      if (full && !full.public) return fail(403, 'content-filter', '这个世界带着服务器看不到的附加数据,暂时打不开');
       sh.opens++;
-      return json(200, { save: w.save, updatedAt: iso(w.updatedAt), ...(sh.by ? { by: sh.by } : {}) });
+      return json(200, { save: w.save, updatedAt: iso(w.updatedAt), ...(sh.by ? { by: sh.by } : {}), ...(full ? { full: { sum: full.sum, bytes: full.bytes, uploadedAt: iso(full.uploadedAt) } } : {}) });
+    }
+    const openFull = /^\/v1\/s\/([^/]+)\/full$/.exec(path);
+    if (req.method === 'GET' && openFull) {
+      const sh = fullState.off ? undefined : shares.get(decodeURIComponent(openFull[1]));
+      const f = sh && !sh.stopped ? sh.user.fulls.get(sh.worldId) : undefined;
+      if (!f) return fail(404, 'share-gone', '这个分享已经停止了');
+      return fullFileResponse(f);
     }
 
     const u = who(req);
@@ -171,6 +241,93 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       const b = await body(req);
       if (typeof b?.credits === 'number' && b.credits >= 0) u.credits = Math.floor(b.credits);
       return json(200, { credits: u.credits });
+    }
+
+    if (req.method === 'POST' && path === '/v1/dev/full') {
+      const b = await body(req);
+      if (typeof b?.off === 'boolean') fullState.off = b.off;
+      if (typeof b?.storeFull === 'boolean') fullState.storeFull = b.storeFull;
+      if (b?.limits) Object.assign(fullState.limits, b.limits);
+      if (b?.fail !== undefined) fullState.fail = b.fail;
+      if (typeof b?.commits === 'number') u.commits = b.commits;
+      return json(200, { ok: true });
+    }
+
+    // ---- 传到账号的世界 ----
+    const fullPath = /^\/v1\/worlds\/([^/]+)\/full(\/begin|\/status)?$/.exec(path);
+    const blockPath = /^\/v1\/world-blocks\/([^/]+)$/.exec(path);
+    if (path === '/v1/world-full' || fullPath || blockPath) {
+      if (fullState.off) return fail(404, 'bad-request', '没有这个接口');
+      const L = fullState.limits;
+      const used = () => {
+        const list = aliveFulls(u);
+        return { worlds: list.length, bytes: list.reduce((n, [, f]) => n + f.bytes, 0), today: u.commits };
+      };
+      if (req.method === 'GET' && path === '/v1/world-full') {
+        return json(200, { limits: L, used: used(), storeFull: fullState.storeFull, checker: 'fake', worlds: aliveFulls(u).map(([id, f]) => fullView(id, f)) });
+      }
+      if (req.method === 'PUT' && blockPath) {
+        const data = new Uint8Array(await req.arrayBuffer());
+        if (data.length > L.blockBytes) return fail(413, 'world-too-big', '一块太大了');
+        if ((await sha(data)) !== blockPath[1]) return fail(400, 'bad-hash', '这一块的内容和它的指纹对不上,再传一次');
+        blocks.set(blockPath[1], data);
+        return json(200, { sum: blockPath[1], bytes: data.length });
+      }
+      if (fullPath) {
+        const id = decodeURIComponent(fullPath[1]);
+        const cur = u.fulls.get(id);
+        const alive = u.worlds.get(id)?.deletedAt === null;
+        if (req.method === 'GET' && fullPath[2] === '/status') {
+          const j = u.jobs.get(id);
+          if (!j) return json(200, { state: 'none' });
+          if (Date.now() < j.ready) return json(200, { state: 'checking', sum: j.sum });
+          const { ready: _r, ...rest } = j;
+          return json(200, rest);
+        }
+        if (req.method === 'GET' && !fullPath[2]) {
+          if (!alive || !cur) return fail(404, 'not-found', '这个世界没有传过完整世界');
+          return fullFileResponse(cur);
+        }
+        if (req.method === 'DELETE' && !fullPath[2]) {
+          u.fulls.delete(id);
+          u.jobs.delete(id);
+          const save = (u.worlds.get(id)?.save ?? {}) as { edits?: { map?: { grown?: unknown } } };
+          if (save.edits?.map?.grown !== undefined) for (const sh of shares.values()) if (sh.user === u && sh.worldId === id) sh.stopped = true;
+          return new Response(null, { status: 204, headers: CORS });
+        }
+        if (req.method === 'POST') {
+          const b = await body(req);
+          if (!alive) return fail(404, 'not-found', '账号里还没有这个世界,等同步好了再传');
+          const list: { sum: string; bytes: number }[] = Array.isArray(b?.blocks) ? b.blocks : [];
+          const total = list.reduce((n, x) => n + x.bytes, 0);
+          if (cur?.sum === b?.sum) return json(200, fullPath[2] ? { need: [], current: fullView(id, cur!) } : { state: 'done', sum: cur!.sum, world: fullView(id, cur!) });
+          if ((b?.baseRev ?? 0) !== (cur?.rev ?? 0)) return fail(409, 'conflict', '这个世界的完整世界在别的设备上更新过了', { rev: cur?.rev ?? 0 });
+          if (total > L.worldBytes) return fail(413, 'world-too-big', '这个世界太大了', { worldBytes: total, maxBytes: L.worldBytes });
+          const others = aliveFulls(u).filter(([x]) => x !== id);
+          if (!cur && others.length >= L.worlds) return fail(400, 'full-count', '账号里已经放满了', { max: L.worlds });
+          const left = L.bytes - others.reduce((n, [, f]) => n + f.bytes, 0);
+          if (total > left) return fail(400, 'full-bytes', '账号里放不下这个世界', { worldBytes: total, leftBytes: left, maxBytes: L.bytes });
+          if (u.commits >= L.perDay) return fail(429, 'full-daily', '今天传够了', { max: L.perDay, retryAfter: 3600 });
+          if (fullState.storeFull) return fail(507, 'storage-full', '服务器放不下了');
+          if (fullPath[2] === '/begin') return json(200, { need: [...new Set(list.map((x) => x.sum))].filter((s) => !blocks.has(s)) });
+          const missing = list.map((x) => x.sum).filter((s) => !blocks.has(s));
+          if (missing.length) return fail(409, 'blocks-missing', '还有块没传完', { missing });
+          u.commits++;
+          const failing = fullState.fail;
+          fullState.fail = null;
+          const parts = list.map((x) => blocks.get(x.sum)!);
+          const isZip = parts[0]?.[0] === 0x50 && parts[0]?.[1] === 0x4b;
+          if (failing || !isZip) {
+            u.jobs.set(id, { state: 'failed', sum: b.sum, error: failing ?? { code: 'world-invalid', message: '这个世界文件没过校验' }, ready: Date.now() + fullCheckMs });
+          } else {
+            const f: FullFile = { rev: (cur?.rev ?? 0) + 1, sum: b.sum, bytes: total, uploadedAt: Date.now(), mark: typeof b.mark === 'string' ? b.mark : null, public: true, blocks: list.map((x) => x.sum) };
+            u.fulls.set(id, f);
+            u.jobs.set(id, { state: 'done', sum: b.sum, world: fullView(id, f), ready: Date.now() + fullCheckMs });
+          }
+          return json(202, { state: 'checking', sum: b.sum });
+        }
+      }
+      return fail(404, 'bad-request', '没有这个接口');
     }
 
     if (req.method === 'POST' && path === '/v1/chat') {
@@ -270,7 +427,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       w.deletedAt = null;
       w.rev++;
       w.updatedAt = now;
-      return json(200, { rev: w.rev, updatedAt: iso(now) });
+      return json(200, { rev: w.rev, updatedAt: iso(now), ...(u.fulls.has(restore[1]) ? { full: 'kept' } : {}) });
     }
     const one = /^\/v1\/worlds\/([^/]+)(\/share)?$/.exec(path);
     if (one) {

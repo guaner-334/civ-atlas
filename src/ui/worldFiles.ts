@@ -520,6 +520,29 @@ async function keepAs(id: string, looked: LookedWorldFile, o: { save?: SaveFile 
   return { ok: true, id, notesLost, memOnly: !persistent(), olderLost };
 }
 
+/**
+ * 从账号取回来的文件放进这个编号名下(换设备打开传过的世界、别人打开短链接):核对过才放,「我的世界」不动。
+ * AI 正文账号同步时已经带来了,这里只在本机一篇都没有时用文件里的。不抛错
+ */
+export async function adoptWorldFile(id: string, file: Blob): Promise<{ ok: true; save: SaveFile; warnings: string[] } | Trouble<KeepTrouble>> {
+  const f = await look(file);
+  if (!f.ok) return f;
+  const free = holdWorld(id);
+  try {
+    await adoptOf(id, f, file, 'made');
+    const skip = f.authorTrouble === 'skipped' ? f.manifest.parts.find((p) => p.name === 'author')?.sum : undefined;
+    await vaultCall('patchState', [id, { checked: f.content, ...(skip ? { authorSkip: skip } : {}) }]).catch(() => {});
+    await notesReady([id]);
+    const notes = cleanNotes(f.author?.notes);
+    if (notes.length && !exportNotes(id).length) replaceNotes(id, notes);
+    return { ok: true, save: f.save, warnings: f.warnings };
+  } catch (e) {
+    return asKeepTrouble(e);
+  } finally {
+    free();
+  }
+}
+
 /** 本机有这个世界但内容不一样时怎么办:copy = 另存一份,本机的不动;ask = 先不放,交回去让界面问(之后可以 keepWorldFile) */
 export type DifferentChoice = 'copy' | 'ask';
 

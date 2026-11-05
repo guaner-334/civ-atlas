@@ -453,7 +453,7 @@ function SignInRow() {
           登录
         </button>
       </div>
-      <p className="ai-note sub">和「我的世界」云同步用同一个账号，用邮箱收验证码就能登录。</p>
+      <p className="ai-note sub">用邮箱收验证码就能登录。</p>
     </div>
   );
 }

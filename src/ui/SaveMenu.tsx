@@ -8,7 +8,8 @@
  *     下面一行勾选「停在这一刻」(shareMoment.tsx):勾着就带上时间轴那一年、选中的国家或州、地图的位置和大小,
  *     对方打开停在那里(不自动播放);默认勾着,记住上次的选择
  *   从文件打开进来的:当前世界那一行多一句「来自文件」和哪天打开的(只在这台设备上记)
- *   登录了网站账号:当前世界那一行写同步到账号了没有;"复制配方链接"换成"分享…"(短链接,随时能停,AccountDialogs.tsx 的分享窗)
+ *   登录了网站账号:"复制配方链接"换成"分享…"(短链接,随时能停,AccountPanels.tsx 的分享窗)
+ *   传到账号:服务器开了才有(fullWorldView.ts),点了才传;传过的换成「已传到账号」「再传一次」,分享那一项跟着说对方看到什么
  *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
  *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)。
  *                   存的内容读不出、先按新版算了一遍的世界也放:那一份不自动存,要留着看到的样子只能另存(「看原样」照放)
@@ -26,13 +27,14 @@ import { OLD_SITE, oldSiteFor, openOriginal } from './oldSite';
 import { openFailed } from './openTrouble';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
-import { openShareDialog } from './AccountDialogs';
-import { when } from './worldParts';
+import { openAccount, openShareDialog } from './AccountDialogs';
+import { askFull, fullStatusOf, refusalOf, useFullJob, useFullOverview, type FullStatus } from './fullWorldView';
+import { menuItem, shareItem } from './fullWorldWords';
+import { showToast } from './toastStore';
 import { useSession } from '../account/session';
-import { useSyncView, worldSync } from '../account/sync';
 import { saveAsNew } from './FrozenWorld';
 import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
-import { contentTrouble } from './worldStore';
+import { contentTrouble, pendingOf } from './worldStore';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -44,6 +46,11 @@ export interface SaveMenuProps {
 /** 当前世界存成文件(菜单里的"存成文件"、存储满了时提示条上的"存成文件") */
 function saveCurrentFile() {
   withFileFlow('没能存成文件', (m) => m.saveCurrentToFile());
+}
+
+/** 传到账号的代码用到才下载;下载不下来顶上说一句 */
+function withFullFlow(f: (m: typeof import('./fullWorldFlow')) => unknown) {
+  import('./fullWorldFlow').then(f, () => showToast({ id: 'world-full', kind: 'error', text: '没传成，世界在本机没事', more: ['网络断了，或者网站刚更新过，重新加载试试'], action: { label: '重新加载', act: 'world-file-reload', onClick: () => location.reload() } }));
 }
 
 const RECIPE_HINT = '对方打开时重新长一遍，可能和你看到的不一样';
@@ -108,8 +115,6 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   useEffect(() => onSpaceChange(() => spaceTick((n) => n + 1)), []);
   const full = storageIsFull() || vaultFullSeen();
   const session = useSession();
-  const syncView = useSyncView();
-  const synced = useMemo(() => (open && session && cur && curStored ? worldSync(cur.id) : null), [open, session, cur, curStored, syncView]);
   const curId = cur?.id;
   const oldRecipe = cur?.oldRecipe !== undefined;
   const kept = keptFrom(edits);
@@ -128,15 +133,15 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const failed = checkFailed && failedId === curId;
   const recipeOnly = oldRecipe || failed;
   // 存成文件有多大:菜单开着才算;存储满了时写不准(页面里的比存着的新),不写
-  const [size, setSize] = useState<{ id: string; note: string } | null>(null);
+  const [size, setSize] = useState<{ id: string; note: string; bytes: number } | null>(null);
   const hasFile = !!curStored && !curStored.draft && !curStored.map && !full && !recipeOnly;
   useEffect(() => {
     if (!open || !curId || !hasFile) return;
     let live = true;
     import('./worldFileFlow')
-      .then((m) => m.fileSizeNote(curId))
-      .then((note) => {
-        if (live && note) setSize({ id: curId, note });
+      .then((m) => m.fileSizeOf(curId))
+      .then((got) => {
+        if (live && got) setSize({ id: curId, ...got });
       })
       .catch(() => {});
     return () => {
@@ -144,6 +149,29 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     };
   }, [open, curId, hasFile]);
   const sizeNote = size && hasFile && size.id === curId ? `，${size.note}` : '';
+  // 传到账号:服务器开了才有。菜单开着才问用了多少,问不到就不灰,点了听服务器的
+  const fo = useFullOverview();
+  const fullJob = useFullJob();
+  const fullOn = !!session && !!fo;
+  useEffect(() => {
+    if (open && session) void askFull();
+  }, [open, !!session]);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open || !curId || !fullOn) return;
+    let live = true;
+    void pendingOf(curId).then((p) => {
+      if (live) setPendingId(p === 'none' ? null : curId);
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, curId, fullOn, v]);
+  const fullStatus: FullStatus = fo && curId ? fullStatusOf(fo, curId, curStored?.save) : { kind: 'never' };
+  const fullBytes = size && hasFile && size.id === curId ? size.bytes : null;
+  const fullItem = open && fo && fullOn && curId ? menuItem({ id: curId, status: fullStatus, refusal: refusalOf(fo, curId, fullBytes), job: fullJob, bytes: fullBytes, overview: fo, recipeOnly: oldRecipe || !!curStored?.draft || !!curStored?.map, failed, pending: pendingId === curId, kept: !!kept }) : null;
+  const shareFull = fullOn ? shareItem(fullStatus, !!kept) : null;
+  const shareOff = shareFull ? shareFull.off : !!kept;
   const [persisted, setPersisted] = useState<boolean | null>(null);
   useEffect(() => {
     if (!open || !appleDevice()) return;
@@ -155,8 +183,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   }, [open]);
   const mayLose = useMemo(() => {
     if (!open || !curStored || !appleDevice()) return false;
-    return !session && persisted === false && fileStatus(fileRecords()[curStored.id], saveMark(curStored.save)).kind !== 'same';
-  }, [open, curStored, session, persisted]);
+    return persisted === false && fileStatus(fileRecords()[curStored.id], saveMark(curStored.save)).kind !== 'same';
+  }, [open, curStored, persisted]);
 
   // 点菜单外面就收起(在捕获阶段听:地图上的按钮条拦了冒泡,点旁边的按钮照样收起)
   useEffect(() => {
@@ -214,12 +242,6 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
         ? { cls: 'warn', text: '只存了配方，看到的是按新版算的' }
         : failed
           ? { cls: 'warn', text: '内容没能存下来，现在看到的不受影响' }
-      : curStored && synced
-        ? synced.state === 'synced'
-          ? { cls: 'ok', icon: 'cloudok', text: `已同步到你的账号${synced.at ? `，${when(synced.at)}` : ''}` }
-          : synced.state === 'busy'
-            ? { cls: 'ok', icon: 'cloudup', text: '正在同步到你的账号' }
-            : { cls: 'warn', icon: 'cloudoff', text: '还没同步上，联网后会自动同步' }
         : curStored
           ? { cls: 'ok', text: mayLose ? '已自动存在这个浏览器里，7 天没打开可能被清掉' : '已自动存在这个浏览器里' }
           : { cls: '', text: '还没存进我的世界；改了名字或历史就会自动存' };
@@ -237,6 +259,18 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     if (!cur) return;
     setOpen(false);
     openShareDialog(cur.id, title ?? '');
+  };
+  const fullClick = () => {
+    if (!fullItem || !curId) return;
+    const { act } = fullItem;
+    if (act === 'none') return;
+    setOpen(false);
+    if (act === 'account') return openAccount();
+    withFullFlow((m) => {
+      if (act === 'upload' || act === 'reveal') return m.uploadWorld(curId);
+      const r = fo && refusalOf(fo, curId, fullBytes);
+      if (r) return m.refuseUpload(curId, r);
+    });
   };
   return (
     <div className="save" ref={rootRef}>
@@ -273,12 +307,21 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               <small>{recipeOnly ? `只有几 KB。${RECIPE_HINT}` : `存下整个世界${sizeNote}。换台设备、发给别人，看到的都一模一样`}</small>
             </span>
           </button>
+          {fullItem && (
+            <button className={`save-it${fullItem.off ? ' off' : ''}`} data-act="full-upload" aria-disabled={fullItem.off ? true : undefined} onClick={fullClick}>
+              <Icon name={fullItem.icon} size={17} />
+              <span>
+                <b>{fullItem.title}</b>
+                <small>{fullItem.small}</small>
+              </span>
+            </button>
+          )}
           {session ? (
-            <button className={`save-it${kept ? ' off' : ''}`} data-act="share" aria-disabled={kept ? true : undefined} disabled={!cur} onClick={kept ? undefined : share}>
+            <button className={`save-it${shareOff ? ' off' : ''}`} data-act="share" aria-disabled={shareOff ? true : undefined} disabled={!cur} onClick={shareOff ? undefined : share}>
               <Icon name="link" size={17} />
               <span>
                 <b>分享…</b>
-                <small>{kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}</small>
+                <small>{shareFull ? shareFull.small : kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}</small>
               </span>
             </button>
           ) : (

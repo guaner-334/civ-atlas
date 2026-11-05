@@ -12,7 +12,7 @@
  *   POST   /v1/worlds/:id/share { by? }  → { code, worldId, createdAt, opens, by? }(开着就给原来那个;带了 by 改署名,空 = 不署名)
  *   DELETE /v1/worlds/:id/share          → 204(停了再开是新的码)
  *   GET    /v1/shares                    → { shares: [{ code, worldId, title, createdAt, opens, by? }] }
- *   GET    /v1/s/:code(不用登录)        → { save, updatedAt, by? };停了 / 删了:404 share-gone
+ *   GET    /v1/s/:code(不用登录)        → { save, updatedAt, by?, full? };停了 / 删了:404 share-gone
  *
  * 短链接:网站地址/s/<码>,网站把它转到 /?s=<码>,页面再来取(App.tsx)。
  */
@@ -90,7 +90,8 @@ export async function listTrash(): Promise<TrashEntry[]> {
   return Array.isArray(r.worlds) ? r.worlds : [];
 }
 
-export function restoreTrash(id: string): Promise<{ rev: number }> {
+/** full:传过整个世界的才有。kept 一起回来;no-room 账号里放不下,只回来配方;gone 之前已经清掉了 */
+export function restoreTrash(id: string): Promise<{ rev: number; full?: 'kept' | 'no-room' | 'gone' }> {
   return authed(`/v1/trash/${encodeURIComponent(id)}/restore`, { method: 'POST' });
 }
 
@@ -108,8 +109,8 @@ export async function listShares(): Promise<ShareInfo[]> {
   return Array.isArray(r.shares) ? r.shares : [];
 }
 
-/** 打开别人的分享短链接(不用登录);by = 分享的人填的署名 */
-export function openShareCode(code: string): Promise<{ save: unknown; updatedAt?: string; by?: string }> {
+/** 打开别人的分享短链接(不用登录);by = 分享的人填的署名;full = 传过整个世界的,要再下载那一份 */
+export function openShareCode(code: string): Promise<{ save: unknown; updatedAt?: string; by?: string; full?: { sum: string; bytes: number; uploadedAt?: string } }> {
   return call(`/v1/s/${encodeURIComponent(code)}`);
 }
 

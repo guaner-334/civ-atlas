@@ -20,7 +20,7 @@
  * 已经有一模一样的(参数、修改、名字、底稿出处、生成器版本、地形哈希都相同;没建完的和建好的分开算,没建完的还要底稿相同)不重复放,
  * 那边缺的投影、AI 写的东西、缩略图、现存几国、底稿补上,文件里"最近打开"更晚的用文件里的,
  * 上次没能写进浏览器(存储满了)的 AI 写的东西再写一次;
- * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界;浏览器不让存(只在内存里)的说一声。登录了的,放回来的世界照常同步进账号。
+ * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界;浏览器不让存(只在内存里)的说一声。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
 import { exportNotes, notesSaved, replaceNotes, type AiNote } from '../ai/library';

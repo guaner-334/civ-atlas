@@ -13,7 +13,7 @@
  * 按浏览器的后退 / 前进、地址栏里贴了分享链接(只有 # 不同,页面不刷新)也交给 App:它照这时的网址打开,和刷新一样
  * (这一页先记成我的世界那一步,贴的分享链接记成新的一步,和 App 记的一样,打开以后按后退回得到首页)。
  *
- * 和 App 一样在这里也做的:云同步、AI 接入(开了就一直开着,App 挂上以后接着用)、页面缩放的拦截、⌘S 不弹浏览器的"存储网页"。
+ * 和 App 一样在这里也做的:账号里的世界列表、AI 接入(开了就一直开着,App 挂上以后接着用)、页面缩放的拦截、⌘S 不弹浏览器的"存储网页"。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MyWorlds } from './MyWorlds';
@@ -32,7 +32,7 @@ import { getCivShow, setCivShow } from './civView';
 import { baseDark, baseLook, baseOf, fillOf, fillShow, layerOf, mapViewFromUrl, type SatLook, type Style } from './mapLayers';
 import { useShortcuts } from './useShortcuts';
 import { createPinchGuard, setGesturePinch, wheelSample } from './wheel';
-import { startSync } from '../account/sync';
+import { startFullView } from './fullWorldView';
 import { setupAi } from '../ai/setup';
 import { isShareHash } from '../gen/savefile';
 import { randomSeedValue, type HomeStart } from './homeStart';
@@ -56,7 +56,7 @@ export type LeaveHome = (start: HomeStart | null | undefined) => void;
 
 /** loadFailed:主程序第几次没下载成功、也没法刷新页面重来(Boot.tsx;0 = 没有) */
 export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loadFailed?: number }) {
-  // 和 App 一开始一样:在我的世界这一步(云同步、账号窗按它决定做什么)、左边的卡片不算收起;
+  // 和 App 一开始一样:在我的世界这一步、左边的卡片不算收起;
   // 底图和填色照网址(首页的网址里没有图层,就是默认的手绘 + 国家;App.tsx 的 readUrl 和一开始那段)
   const [view] = useState(() => {
     setStage('home');
@@ -167,9 +167,9 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
   }, [fileWait]);
 
   useEffect(() => {
-    // AI 接入、云同步:开了就一直开着,App 挂上以后接着用这一份(App 里再开一次什么都不做),换过去时同步不断
+    // AI 接入、账号里的世界列表:开了就一直开着,App 挂上以后接着用这一份(App 里再开一次什么都不做)
     setupAi();
-    startSync();
+    startFullView();
     // 账号窗里点「最近删除」等回到我的世界:已经在这一页
     setGoHome(() => {});
     // 别人分享的规则「用它新建世界」:就在这一页打开新建弹窗,规则选好那一套
