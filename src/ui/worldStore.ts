@@ -78,6 +78,8 @@ const timing = {
   pause: 1500,
   /** 别的标签页刚删的世界,不让清的记号可能还没拿到手:删了不到这么久的先不清 */
   holdGap: 3000,
+  /** 存储紧张、有世界被别的标签页拿着:隔多久再看一眼(那边关了、崩了不会告诉这边) */
+  holdRetry: 60_000,
 };
 
 /** 转的时候记一下在转谁(页面崩了下次打开看得到) */
@@ -863,13 +865,17 @@ async function oneDrain(): Promise<TrashCleared> {
     if (wait > 0) {
       out.kept.push(id);
       if (canSeeHolds()) soon = Math.min(soon, wait);
-    } else if ((await mapNeededFrom(id)) || !(await purgeTrashed(id))) out.kept.push(id);
-    else out.cleared.push(id);
+    } else if (await mapNeededFrom(id)) out.kept.push(id);
+    else if (await purgeTrashed(id)) out.cleared.push(id);
+    else {
+      out.kept.push(id);
+      soon = Math.min(soon, timing.holdRetry);
+    }
   }
   tidyNotes();
   // 块不放一会儿:正在写还没写清单的被扫掉了,写清单时查得出来,补写一遍(worldVault.ts)
   await call('sweepParts', [0]);
-  // 只是刚删的没到时候:到了再来一遍
+  // 刚删的没到时候、有人拿着:过一会儿再来一遍(到时候不紧张了就不清)
   if (soon < Infinity) drainSoon(soon);
   if (out.cleared.length) roomMade();
   return out;

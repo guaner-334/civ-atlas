@@ -601,6 +601,9 @@ export interface DraftedFile {
   n: number;
   /** 看世界用的几块的指纹连起来(同 RevisionRow.content) */
   content: string;
+  /** 这份内容的配方指纹、哪一版生成器算的(同 RevisionRow) */
+  recipeKey: string;
+  generator: number;
 }
 
 /**
@@ -648,7 +651,7 @@ export async function draftFile(req: CommitRequest): Promise<DraftedFile | null>
       // 读、核对占大头;最后的一小段留给装 ZIP
       if (total > 0) partWatcher?.((done / total) * 0.9);
     }
-    return { file: await zipWorld(text, data), n: same ? base.n : n, content: contentOf(parts) };
+    return { file: await zipWorld(text, data), n: same ? base.n : n, content: contentOf(parts), recipeKey: req.recipeKey, generator: req.recipe.generator };
   } catch (e) {
     throw asVaultError(e);
   }

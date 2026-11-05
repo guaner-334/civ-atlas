@@ -283,7 +283,8 @@ async function fileNow(id: string, save: SaveFile, thumbUrl: string | null, isOp
         const out = await drafting;
         if (out) return asNow(out);
       }
-      if (drafted) return asNow(drafted);
+      // 转的线程按存下的存档算的:和现在的样子对得上才算数(正开着的世界,页面里可能又改过)
+      if (drafted && drafted.recipeKey === key && drafted.generator === save.generator) return asNow(drafted);
       let why: SaveTrouble | null = stuck ?? shut;
       if (isOpen) {
         try {
@@ -631,7 +632,8 @@ const BACKUP_HARD_MAX_BYTES = 4e9;
 async function groupOf(w: StoredWorld, index: number, isOpen: boolean): Promise<{ group: WorldGroup; behind?: SaveTrouble } | Trouble<SaveTrouble>> {
   const now = await fileNow(w.id, w.save, w.thumb, isOpen);
   if ('ok' in now) return now;
-  const heads = await vaultCall('revisionsOf', [w.id]);
+  // 旧修订只是留底:读不了(硬盘真的满了时 WebKit 连库都打不开)也不能丢了手上现在的样子
+  const heads = await vaultCall('revisionsOf', [w.id]).catch(() => []);
   const had = heads.find((h) => h.n === now.n);
   // 内容和现在一样的旧修订(只改了名、封面、AI 正文)不带,字节都一样,带了文件白白大一倍;其中有迁移前的原件的,现在这份记成原件,放回来同样不会被淘汰
   const twin = heads.some((h) => h.n !== now.n && h.source === 'migrated' && h.content === now.content);

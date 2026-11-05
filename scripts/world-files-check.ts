@@ -1553,7 +1553,12 @@ async function hugeFull(browser: Browser, file: string) {
 
   const c2 = await freshContext('chromium');
   const pid2 = browserPid(lastProfile);
-  const p2 = await home(c2);
+  const p2 = await c2.newPage();
+  p2.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
+  // 放得下这个世界,不多
+  await limitQuota(p2, 'chromium', 2 * statSync(out).size + 100e6);
+  await p2.goto(BASE);
+  await hookReady(p2);
   const s2 = sampleRss(pid2);
   const kept = await keepFile(p2, out);
   const m2 = s2.stop();

@@ -12,7 +12,7 @@ import { generateCiv } from '../src/gen/civ';
 import { EMPTY_EDITS, GENERATOR_VERSION, type WorldEdits } from '../src/gen/edits';
 import { READER_VERSIONS } from '../src/gen/readers/versions';
 import { makeSave, worldCheck, type SaveFile } from '../src/gen/savefile';
-import { makePart, recipeKey, recipeOfSave } from '../src/gen/snapshot';
+import { SNAPSHOT_FORMAT, makePart, recipeKey, recipeOfSave } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { walkZip } from '../src/gen/zipStore';
 import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
@@ -85,7 +85,9 @@ let locks: FakeLocks;
 beforeAll(() => {
   world = generateWorld(PARAMS);
   check = worldCheck(world);
-}, 60_000);
+  // 下面用到的几份历史先推好,机器慢时不算在单个测试的时限里
+  for (const endYear of [undefined, 200, 500]) civOf({ ...EMPTY_EDITS, endYear });
+}, 120_000);
 
 /** 按这份修改推的历史(推演年数一样的记着,不重推) */
 const civs = new Map<number, ReturnType<typeof generateCiv>>();
@@ -402,6 +404,29 @@ describe('一个世界存成文件', () => {
     expect(!none.ok && none.kind).toBe('memory');
   });
 
+  it('正开着的世界还没转进来、页面里又改过:转的线程按存下的存档装的文件不算数,用页面里的', async () => {
+    const edits = { ...EMPTY_EDITS, endYear: 200 };
+    const id = saveStore.importSave(makeSave(PARAMS, edits, check, '有原件的'))!;
+    const stored = saveStore.loadWorld(id)!;
+    const o = await offerOf(edits);
+    await results.put({ id, generator: GENERATOR_VERSION, app: 'x', at: '2026-11-04T00:00:00.000Z', snapshot: { format: SNAPSHOT_FORMAT, generator: GENERATOR_VERSION, recipe: await recipeKey(recipeOfSave(stored.save)), formation: false, parts: o.parts.filter((p) => p.name === 'map' || p.name === 'civ').map((p) => ({ ...p, data: p.data.slice(0) })) } }, { id, generator: GENERATOR_VERSION, recipe: await recipeKey(recipeOfSave(stored.save)), sums: '', size: 1, at: '2026-11-04T00:00:00.000Z' });
+    const stop = fillUp();
+    const sim = simThatPacks();
+    setWorldStoreSim(sim);
+    vi.spyOn(g.localStorage!, 'setItem').mockImplementation(() => {
+      throw Object.assign(new Error('满了'), { name: 'QuotaExceededError' });
+    });
+    openWorld(id);
+    setEdits({ ...getEdits(), endYear: 500 });
+    expect(saveStore.currentUnsaved()).toBe(true);
+    const out = await saveWorldFile(id);
+    stop();
+    if (!out.ok) throw new Error(out.message);
+    expect(out.stale).toBe(false);
+    expect(sim.asks.length).toBe(1);
+    expect((await looks(out.file)).save.edits.endYear).toBe(500);
+  });
+
   it('没开着的世界,内容从没存进去:现算一遍,写不下就直接装成文件;写得下的还是存进去', async () => {
     const id = saveStore.importSave(makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 200 }, check, '没开着'))!;
     saveStore.detachWorld();
@@ -470,6 +495,27 @@ describe('全部存成文件', () => {
     expect(out.whole).toBe(1);
     expect(out.left.map((x) => [x.id, x.kind])).toEqual([[nid, 'memory']]);
     expect((await walkZip(out.files[0].file)).entries.some((e) => e.name.startsWith(`worlds/${stored}/`))).toBe(true);
+  });
+
+  it('库打不开、读不了留底的旧修订:手上打好的世界照样带着', async () => {
+    const nid = saveStore.newWorldId();
+    const stop = fillUp();
+    vi.spyOn(g.localStorage!, 'setItem').mockImplementation(() => {
+      throw Object.assign(new Error('满了'), { name: 'QuotaExceededError' });
+    });
+    setWorldStoreSim(simThatPacks());
+    openWorld(nid);
+    saveStore.markCreated();
+    _setWorldStore({
+      caller: ((op: keyof VaultOps, args: unknown[]) => (op === 'revisionsOf' || op === 'latestOf' || op === 'stateOf' ? Promise.reject(Object.assign(new Error('打不开'), { kind: 'full' })) : (vaultOps[op] as (...a: unknown[]) => Promise<unknown>)(...args))) as never,
+    });
+    setWorldStoreSim(simThatPacks());
+    const out = await saveAllWorldFiles();
+    stop();
+    if (!out.ok) throw new Error(out.message);
+    expect(out.whole).toBe(1);
+    expect(out.left).toEqual([]);
+    expect((await walkZip(out.files[0].file)).entries.some((e) => e.name.startsWith(`worlds/${nid}/`))).toBe(true);
   });
 
   it('落后的世界在 behind 里,配方另带一份;一次都没存进去的开着的世界也带上', async () => {
@@ -612,6 +658,35 @@ describe('删掉的世界尽快腾地方', () => {
     await later();
     expect((await clearTrashNow()).cleared).toEqual([other]);
     expect(await latestOf(other)).toBeNull();
+  });
+
+  it('别的标签页拿着,那边关了不会告诉这边:存储紧张时隔一会儿自己再看;不紧张了就不清', async () => {
+    estimateRoom(NEAR_FULL_BYTES / 2);
+    _setWorldStore({ timing: { holdRetry: 30 } });
+    const id = await makeWorld('别的标签页开着');
+    openWorld(await makeWorld('这边'));
+    saveStore.deleteWorld(id);
+    let release = () => {};
+    void locks.request(`civ-atlas:world-hold:${id}`, { mode: 'shared' }, () => new Promise<void>((r) => (release = r)));
+    await later(5);
+    expect((await clearTrashNow()).kept).toEqual([id]);
+    expect(await latestOf(id)).not.toBeNull();
+    release();
+    for (let i = 0; i < 40 && (await latestOf(id)); i++) await later(10);
+    expect(await latestOf(id)).toBeNull();
+
+    // 不紧张了:拿着的放开也不清
+    estimateRoom(NEAR_FULL_BYTES * 2);
+    const other = await makeWorld('另一个');
+    openWorld(await makeWorld('又一个'));
+    saveStore.deleteWorld(other);
+    void locks.request(`civ-atlas:world-hold:${other}`, { mode: 'shared' }, () => new Promise<void>((r) => (release = r)));
+    await later(5);
+    expect((await clearTrashNow()).kept).toEqual([other]);
+    release();
+    await later(80);
+    expect(await latestOf(other)).not.toBeNull();
+    _setWorldStore({ timing: { holdRetry: 60_000 } });
   });
 
   it('删了还不到一会儿的先不清(别的标签页可能还没拿到手),到了再清', async () => {
