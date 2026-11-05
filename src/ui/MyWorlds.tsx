@@ -41,7 +41,7 @@ import { inAccount, syncNow, useSyncView } from '../account/sync';
 import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
 import { downloadSave } from './SaveMenu';
 import { downloadAll } from './bundle';
-import { copyNotes, notesReady } from '../ai/library';
+import { copyNotes } from '../ai/library';
 import { copyResults } from './resultStore';
 import { Icon } from './icons';
 import { TitleInput, when } from './worldParts';
@@ -156,8 +156,6 @@ function worldLine(w: StoredWorld): string {
 export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv: newCiv, opening, onGallery, onOpenWork }: MyWorldsProps) {
   const v = useSavesVersion();
   const list = useMemo(() => listWorlds(), [v]);
-  // 复制一份、全部存成文件都是一点就要:先把各个世界的 AI 正文读好
-  useEffect(() => void notesReady(), [list]);
   const groups = useMemo(() => mapGroups(list), [list]);
   const civs = useMemo(() => list.filter((w) => !w.map), [list]);
   const { tab: tab0, pick } = useView();

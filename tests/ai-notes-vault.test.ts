@@ -6,14 +6,15 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { _notesSettled, _resetNotes, copyNotes, deleteNote, exportNotes, flushNotes, getNote, moveNotes, notesBehind, notesKnown, notesReady, notesSaved, putNote, replaceNotes, tidyNotes, type AiNote, type NotesVault } from '../src/ai/library';
+import { copyNotes, deleteNote, exportNotes, flushNotes, getNote, notesBehind, notesKnown, notesReady, notesSaved, putNote, replaceNotes, type AiNote } from '../src/ai/library';
+import { _notesSettled, _resetNotes, moveNotes, tidyNotes, type NotesVault } from '../src/ai/libraryVault';
 import { mergeNotes, type NoteOp } from '../src/authorNotes';
 import { makeSave } from '../src/gen/savefile';
 import { partBytes, sha256, unpackValue, type SnapshotPart } from '../src/gen/snapshot';
 import { openWorldFile, packWorldFile, packWorldParts, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import * as saveStore from '../src/ui/saveStore';
-import { VAULT_DB, VaultError, _resetVault, adoptFile, changeAuthor, commitWorld, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, sweepParts } from '../src/worldVault';
+import { VAULT_DB, VaultError, _resetVault, adoptFile, changeAuthor, commitWorld, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, sweepParts, vaultOps } from '../src/worldVault';
 import { MADE, READERS, bytesOf, makeSample } from './lib/worldFileSample';
 
 const PREFIX = 'civ-atlas:ai-notes:';
@@ -534,6 +535,65 @@ describe('用的人删了 / 没读到', () => {
   });
 });
 
+describe('首页:仓库的代码还没下好', () => {
+  /** 和 worldVaultWorker 说一样的话,在这里直接做 */
+  class InlineVaultWorker {
+    onmessage: ((e: { data: unknown }) => void) | null = null;
+    onerror = null;
+    postMessage(m: { rid: number; op: keyof typeof vaultOps; args: unknown[] }) {
+      (vaultOps[m.op] as (...a: unknown[]) => Promise<unknown>)(...m.args).then(
+        (value) => this.onmessage?.({ data: { rid: m.rid, ok: true, value } }),
+        (e: { message: string; kind?: string }) => this.onmessage?.({ data: { rid: m.rid, ok: false, message: e.message, kind: e.kind } }),
+      );
+    }
+    terminate() {}
+  }
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('还没接上之前写的、删的、同步下来的,都按老办法存着,接上以后照做一遍;还没接上时不算知道', async () => {
+    await revision('wtest0002');
+    await changeAuthor('wtest0002', [{ op: 'set', notes: [note('in-vault'), note('to-delete')] }]);
+    g.localStorage.setItem(`${PREFIX}wtest0002`, JSON.stringify([note('in-ls')]));
+    // 全新的一份代码,像刚打开首页:真的走动态载入、真的走 worldStore 调后台线程,只是线程换成在这里直接做
+    vi.resetModules();
+    vi.stubGlobal('Worker', InlineVaultWorker);
+    const lib = await import('../src/ai/library');
+    expect(lib.notesKnown('wtest0002')).toBe(false);
+    expect(lib.exportNotes('wtest0002').map((n) => n.key)).toEqual(['in-ls']);
+    expect(lib.putNote('wtest0002', note('early'))).toBe(true);
+    lib.deleteNote('wtest0002', 'to-delete');
+    // 同步下来的「没有」:不去掉 localStorage 里的
+    expect(lib.replaceNotes('wtest0002', null)).toBe(true);
+    expect(lib.exportNotes('wtest0002').map((n) => n.key)).toEqual(['in-ls', 'early']);
+    expect(lib.copyNotes('wtest0002', 'wtest0003')).toBe(true);
+
+    await lib.notesReady(['wtest0002']);
+    const later = await import('../src/ai/libraryVault');
+    await later._notesSettled();
+    expect(lib.notesKnown('wtest0002')).toBe(true);
+    expect(lib.exportNotes('wtest0002').map((n) => n.key).sort()).toEqual(['early', 'in-ls', 'in-vault']);
+    expect((await readAuthor('wtest0002')).notes.map((n) => n.key).sort()).toEqual(['early', 'in-ls', 'in-vault']);
+    // 复制也是在仓库里那份上做的:只在仓库里的也带上了
+    await lib.notesReady(['wtest0003']);
+    await later._notesSettled();
+    expect(lib.exportNotes('wtest0003').map((n) => n.key)).toContain('in-vault');
+  });
+
+  it('浏览器存不了仓库:不下代码,老办法算知道', async () => {
+    vi.resetModules();
+    const lib = await import('../src/ai/library');
+    expect(lib.notesKnown('wtest0002')).toBe(true);
+    expect(lib.putNote('wtest0002', note('a'))).toBe(true);
+    await lib.notesReady(['wtest0002']);
+    expect(lib.exportNotes('wtest0002').map((n) => n.key)).toEqual(['a']);
+    expect(lib.replaceNotes('wtest0002', null)).toBe(true);
+    expect(lib.exportNotes('wtest0002')).toEqual([]);
+  });
+});
+
 describe('写和读、几个线程撞在一起', () => {
   const book = (text: string, createdAt: string, extra: object = {}) => ({ ...note('书', text, createdAt), book: { title: '书' }, ...extra }) as AiNote;
 
@@ -700,8 +760,9 @@ describe('写和读、几个线程撞在一起', () => {
     // 第二个标签页:同一个 localStorage、同一个仓库,自己一份代码
     vi.resetModules();
     const b = await import('../src/ai/library');
+    const bVault = await import('../src/ai/libraryVault');
     const never = new Promise<never>(() => {});
-    b._resetNotes({ vault: { read: readAuthor, change: () => never } });
+    bVault._resetNotes({ vault: { read: readAuthor, change: () => never } });
     await b.notesReady(['w1']);
     b.putNote('w1', note('from-b'));
 

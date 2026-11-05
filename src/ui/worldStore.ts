@@ -10,7 +10,7 @@
  * - 只改了配方以外的东西(改名、改旗、换投影、换了封面):停 LIGHT_DELAY 毫秒写一份新清单,只有封面变了才写块。
  *   换世界、页面藏起来、要关时马上写。配方变了(历史要重推)的不写:那是待完成的修改,等推完。
  *   没来得及写的(关得太快、在「我的世界」里改的别的世界),下次打开转存那一遍会补上
- * - AI 写的正文不走这里:ai/library.ts 一有改动就写进仓库的 author 块(changeAuthor),这里存世界时不带作者内容,仓库沿用最新的那块。
+ * - AI 写的正文不走这里:ai/libraryVault.ts 一有改动就写进仓库的 author 块(changeAuthor),这里存世界时不带作者内容,仓库沿用最新的那块。
  *   转存那一遍顺手把 localStorage 里的老正文也转进去(moveNotes)
  *
  * 待完成的修改:存着的修订在仓库里,配方草稿就是存档(saveStore),两边分开放。崩了以后拿两边比(pendingEdit、pendingOf)就知道有没有没推完的修改。
@@ -28,7 +28,8 @@
  *
  * 第一次存世界时申请长期保存(navigator.storage.persist)。Firefox 会弹浏览器自己的询问框,只问一次;Safari、Chromium 不弹,自己定,每次打开问一次。
  */
-import { copyNotes, flushNotes, moveNotes, tidyNotes, warmNotes, type NotesVault } from '../ai/library';
+import { copyNotes, flushNotes } from '../ai/library';
+import { moveNotes, tidyNotes, warmNotes, type NotesVault } from '../ai/libraryVault';
 import { stampCalc } from '../gen/civ/ruleSet';
 import { GENERATOR_VERSION, civSeedOf, cleanMapRef, keptMapOf, type WorldEdits } from '../gen/edits';
 import { READER_VERSIONS } from '../gen/readers/versions';
@@ -286,7 +287,7 @@ async function askPersist(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// AI 正文(ai/library.ts 用,不排这里的队:AI 写的东西一有就写)
+// AI 正文(ai/libraryVault.ts 用,不排这里的队:AI 写的东西一有就写)
 
 export const notesVault: NotesVault = {
   read: (id) => call('readAuthor', [id]),
