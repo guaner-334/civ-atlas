@@ -4,7 +4,7 @@
  * 要两版代码才查得出来,同一个端口、同一份浏览器配置先后跑:
  *
  *   npx tsx scripts/keep-map-check.ts --phase=make  --profile=<目录> --port=5199 [--browsers=chromium,webkit]    现在的代码:建几个世界存下来
- *   (另开一份代码,升 GENERATOR_VERSION,改生成地图和推演的算法,在那份代码的目录里跑)
+ *   (另开一份代码,升 GENERATOR_VERSION,改生成地图和推演的算法,在那份代码的目录里跑;不在那个目录跑就跑那份里的脚本,带 --root=<那份代码>)
  *   npx tsx scripts/keep-map-check.ts --phase=check --profile=<目录> --port=5199 [--browsers=chromium,webkit]    另存、打开、重推、改名、换规则、存成文件……逐项比
  *
  * check 比什么:原来的世界打开照旧;另存的世界地图(块的指纹、整张地图逐像素、放大细部逐像素)和原来一样,历史不一样;
@@ -24,6 +24,7 @@ const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const PHASE = opt('phase') ?? 'make';
 const PROFILE = path.resolve(opt('profile') ?? 'snaps/keep-map');
+const ROOT = path.resolve(opt('root') ?? process.cwd());
 const PORT = Number(opt('port') ?? 5199);
 const BROWSERS = (opt('browsers') ?? 'chromium,webkit').split(',');
 const BASE = `http://127.0.0.1:${PORT}/`;
@@ -443,7 +444,7 @@ async function verify(type: BrowserType, tag: string) {
 // ---------------------------------------------------------------------------
 
 mkdirSync(PROFILE, { recursive: true });
-const server = await createServer({ root: process.cwd(), server: { port: PORT, strictPort: true, host: '127.0.0.1', fs: { strict: false } }, logLevel: 'error' });
+const server = await createServer({ root: ROOT, server: { port: PORT, strictPort: true, host: '127.0.0.1', fs: { strict: false } }, logLevel: 'error' });
 await server.listen();
 try {
   for (const b of BROWSERS) {

@@ -373,6 +373,12 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   check(after?.map === headBefore?.map, '再重推:地图没变');
   check(after?.content !== before?.content, '再重推:历史变了');
 
+  // ---- 转得进来的不标,只有配方的才标
+  await d.home();
+  await page.waitForTimeout(1500);
+  check(!(await d.card('九州大陆').locator('.mw-tag').count()), '旧版本但存下了内容的,卡片不标');
+  check(!(await d.card(COPY).locator('.mw-tag').count()), '另存的世界,卡片不标');
+
   // ---- 打造新文明
   await d.home();
   await d.card(COPY).locator('[data-act="open-world"]').click({ button: 'right' });
@@ -433,7 +439,6 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   }
   await browser.close();
 
-  // ---- 原来那个世界删掉以后:留自旧世界(在副本上看,不动真的那份)。这里只看说法
   // ---- 加大事窗口
   await d.open(NAME);
   await d.upheaval();
@@ -561,7 +566,7 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await d.ready();
   check(true, '点「打开」打开了');
 
-  // ---- 地图读不出来(造的:把存的内容和原件都删掉):窗口换成只有配方窗口 的字
+  // ---- 地图读不出来(造的:把存的内容和原件都删掉):窗口换成只有配方窗口的字
   await d.open('群岛纪元');
   const gid = d.worldId();
   await page.evaluate(async (i) => {
@@ -588,6 +593,65 @@ async function sceneKept(type: BrowserType, tag: string, device: string) {
   await d.seen(`「${NAME}」的新版地图`, '并排试推');
   await d.shot('23');
 
+  // ---- 原来那个世界删掉以后:世界还打得开,地图还是那张,说法换成旧世界
+  await page.goto(BASE);
+  await page.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
+  await page.evaluate(async (i) => (await import('/src/ui/saveStore.ts' as string)).deleteWorld(i), oldId);
+  await d.open(COPY);
+  check((await d.head(keptId))?.map === headBefore?.map, '原来的删了:地图还是那张');
+  await d.menu();
+  await d.seen('地图留自旧世界，历史按新版重推', '原来的删了:存档菜单');
+  await d.closeMenu();
+  await d.sheet();
+  await page.locator('[data-act="upheaval"]:visible').first().click({ force: true });
+  await d.seen('它的地图是旧世界留下的，一改就要重新长', '原来的删了:地形大事');
+  check(!(await d.has('要加大事')), '原来的删了:不说到原来那个世界上加');
+  await d.clearToasts();
+  await page.locator('[data-act="genesis"]:visible').first().click();
+  await page.waitForSelector('.ov-settings', { timeout: 30000 });
+  await page.locator('.ov-seg [data-tab="map"]').click();
+  await d.seen('留自旧世界', '原来的删了:世界设定');
+
+  // ---- 存的内容读不出来(造的:存下的地图块写坏、原件删掉):先按新版算了一遍;另存算不出来时也是窗口,人点了才长
+  await d.open('九州大陆');
+  const bid = d.worldId();
+  await page.evaluate(async (i) => {
+    const m = await import('/src/ui/worldStore.ts' as string);
+    const h = await m.vaultCall('latestOf', [i]);
+    const sum = (h.content as string).split('|').find((x: string) => x.startsWith('map:'))!.slice(4);
+    await (await import('/src/ui/resultStore.ts' as string)).dropResults(i);
+    await new Promise<void>((res, rej) => {
+      const q = indexedDB.open('civ-atlas:worlds');
+      q.onerror = () => rej(new Error('开不了仓库'));
+      q.onsuccess = () => {
+        const db = q.result;
+        const t = db.transaction('parts', 'readwrite');
+        const store = t.objectStore('parts');
+        const all = store.getAll();
+        all.onsuccess = () => {
+          for (const row of all.result as { key: string; data: ArrayBuffer }[]) if (row.key.includes(sum)) store.put({ ...row, data: new Uint8Array([1, 2, 3]).buffer });
+        };
+        t.oncomplete = () => {
+          db.close();
+          res();
+        };
+      };
+    });
+  }, bid);
+  await page.reload();
+  await d.seen('存的内容这次没读出来，先按新版算了一遍，可能和原来不同。原来的还留着', '读不出存的内容');
+  await d.ready();
+  check((await d.current())?.readonly === true, '读不出存的内容:只读打开');
+  await page.evaluate(async (i) => (await import('/src/ui/saveStore.ts' as string)).renameWorld(i, '九州大陆'), bid);
+  await d.seen('这里的改动不会存。要留下，先另存一份', '读不出存的内容:改名');
+  await d.clearToasts();
+  await d.menu();
+  await page.locator('[data-act=save-new]').click();
+  await page.waitForSelector('[data-testid=frozen-ask]', { timeout: WAIT });
+  await page.waitForTimeout(300);
+  check((await d.ask().innerText()).includes('连地图重新长'), '读不出存的内容:另存算不出来,问了才长');
+  await d.cancelAsk();
+
   // ---- 怎么上作品墙(本地假服务器的作品墙)
   await page.goto(`${BASE}?gallery&aiServer=fake`);
   await page.locator('[data-act="gallery-howto"]:visible').first().click({ timeout: WAIT });
@@ -605,6 +669,8 @@ async function sceneRecipe(type: BrowserType, tag: string, device: string) {
   const page = ctx.pages()[0] ?? (await ctx.newPage());
   page.on('pageerror', (e) => say('  [pageerror]', e.message.slice(0, 200)));
   const d = new Drive(page, tag, device);
+  // 手机上存文件:能分享文件的浏览器出系统的分享菜单,这里点不了,走直接下载那条路
+  if (d.phone) await ctx.addInitScript('Object.defineProperty(navigator, "canShare", { value: () => false, configurable: true });');
   const others = [
     [2024, '九州大陆'],
     [11, '南海诸国'],

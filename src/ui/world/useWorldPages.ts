@@ -600,9 +600,13 @@ export function useWorldPages(deps: WorldPagesDeps) {
     if (!r.ok) {
       if (r.kind === 'missing') return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
       if (r.kind === 'full') return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
-      // 地图读不出来:人点了「连地图重新长」才长,不能悄悄重新长
-      if (r.kind === 'nomap' && here) return askSaveAsNew({ ...from, next, title: name, count: from?.count ?? 0, map: 'none' });
-      return notify({ kind: 'error', text: '没能另存', more: [r.kind === 'nomap' ? `「${name}」的地图没有存下来，原来的世界没有动` : `新的历史没推出来，原来的「${name}」没有动`], action: { label: '再试一次', act: 'copy-again', onClick: () => saveAsNewRef.current(next, from) } });
+      // 地图读不出来(没存下;存的内容打开时就没读出来,看到的是先按新版算的):人点了「连地图重新长」才长,不能悄悄重新长
+      if ((r.kind === 'nomap' || c.frozen === undefined) && here) return askSaveAsNew({ ...from, next, title: name, count: from?.count ?? 0, map: 'none' });
+      // 再试一次试的还是这个世界,这会儿开着哪个都一样
+      const again = () => {
+        if (!keepingCopy.current) void keepCopy(c, next, from);
+      };
+      return notify({ kind: 'error', text: '没能另存', more: [r.kind === 'nomap' ? `「${name}」的地图没有存下来，原来的世界没有动` : `新的历史没推出来，原来的「${name}」没有动`], action: { label: '再试一次', act: 'copy-again', onClick: again } });
     }
     const more = r.notes ? [] : [NOTES_LOST];
     if (from?.drop && here) dropPendingEdits(true);
