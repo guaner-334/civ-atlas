@@ -926,16 +926,17 @@ describe('云同步:退出、换账号、别的标签页', () => {
     return { a, id, c };
   }
 
-  it('退出选"删掉":同步途中已经看过的世界又改了(AI 刚写完一段):接着同步上再删,不丢', async () => {
+  it('退出选"删掉":同步途中已经看过的世界又改了(AI 刚写完一段):没同步上,不删', async () => {
     const { id, c } = await twoDevices();
     gate = (req) => {
       if (!isWorld(req, c, 'GET')) return;
       gate = null;
       putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '刚写完', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
     };
-    expect(await signOut(false)).toEqual({ ok: true });
-    expect(titles()).toEqual([]);
-    expect((fake.users.get('writer@example.com')!.worlds.get(id)!.notes as { text: string }[]).map((n) => n.text)).toEqual(['刚写完']);
+    const r = await signOut(false);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.ok ? '' : r.message).toContain('还没同步上');
+    expect(titles()).toEqual(['北境编年', '苍澜界']);
   });
 
   it('退出选"删掉":同步途中已经看过的世界被别的标签页改了(这里没收到通知):没同步上,不删', async () => {
@@ -1172,7 +1173,7 @@ describe('云同步:同一个网站开着几个标签页', () => {
     expect(titles()).toEqual(['苍澜界']);
   });
 
-  it('正在看的世界被别的设备删了、先放着没删:回到"我的世界"马上跟着删', async () => {
+  it('正在看的世界被别的设备删了、先放着没删:回到"我的世界"以后下一次同步跟着删', async () => {
     const a = new FakeStorage();
     const b = new FakeStorage();
     device(a);
@@ -1192,7 +1193,8 @@ describe('云同步:同一个网站开着几个标签页', () => {
     await syncNow();
     expect(titles()).toContain('苍澜界');
     setStage('home');
-    await vi.waitFor(() => expect(titles()).toEqual(['北境编年']));
+    await syncNow();
+    expect(titles()).toEqual(['北境编年']);
   });
 
   it('两边都改过、存本地这份的工夫另存的那份被挤出浏览器:那份照样存进账号,不丢', async () => {
@@ -1778,28 +1780,27 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     }
   });
 
-  it('切回网页时断网、那次同步没成,紧接着网连上了:马上再同步一遍(不等下一分钟)', async () => {
+  it('登录、打开网页、回到页面、联网、改了世界、删了世界,都不碰账号里的世界', async () => {
     const win = new EventTarget();
     const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
     vi.stubGlobal('window', win);
     vi.stubGlobal('document', doc);
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const until = async (ok: () => boolean) => {
-      for (let i = 0; i < 100 && !ok(); i++) await wait(10);
-      return ok();
-    };
+    const asked = () => vi.mocked(fetch).mock.calls.filter(([u]) => /\/v1\/worlds/.test(String(u))).length;
     device(new FakeStorage());
     const id = addWorld(7, '苍澜界');
-    await signIn();
-    await wait(30);
-    online = false;
-    win.dispatchEvent(new Event('focus'));
-    expect(await until(() => getSyncView().phase === 'offline')).toBe(true);
+    const other = addWorld(99, '北境编年');
+    await login('writer@example.com', FAKE_CODE, FAKE_INVITE);
     tick();
-    saveStore.renameWorld(id, '断网时改的');
-    online = true;
+    saveStore.renameWorld(id, '改过的');
+    saveStore.deleteWorld(other);
+    win.dispatchEvent(new Event('focus'));
+    doc.dispatchEvent(new Event('visibilitychange'));
     win.dispatchEvent(new Event('online'));
-    expect(await until(() => getSyncView().phase === 'idle' && cloudTitles()[0] === '断网时改的')).toBe(true);
+    // 原来改了以后 2 秒才同步,等过这个时间
+    await wait(2100);
+    expect(asked()).toBe(0);
+    expect(fake.users.get('writer@example.com')!.worlds.size).toBe(0);
   });
   it('退出选"删掉"、浏览器却不让删:不退出,也不说删好了;世界还在账号里', async () => {
     let locked = false;

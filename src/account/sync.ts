@@ -1,5 +1,5 @@
 /**
- * 云同步:登录了网站账号,"我的世界"里的世界(存档、几项本地信息、缩略图、AI 写的东西)自动存进账号,
+ * 云同步:登录了网站账号,"我的世界"里的世界(存档、几项本地信息、缩略图、AI 写的东西)存进账号,
  * 换电脑、换手机登录同一个账号就能接着改。服务器只管"版本号对上才存"(cloud.ts),怎么合并在这里定:
  *
  * - 记着每个世界上次同步到的版本号(rev)和那时内容的指纹(sum);指纹变了 = 这台设备上改过
@@ -7,8 +7,7 @@
  *   原来那个账号的记录另外收着,换回来接着用,没告诉服务器的删除不会丢;
  *   几个标签页共用这一份,写回去时只换上自己改过的那几条)
  * - 内容指纹按键名排好序算(键的先后不同不算改过);同步途中用户又改了、删了的,按现在的样子对,不覆盖
- * - 什么时候同步:登录后、打开网页时、回到这个页面 / 联网时、每分钟一次(都是"全看一遍");
- *   改了以后 2 秒(只把改过的存上去,不看服务器那边)
+ * - 什么时候同步:只有用的人做了要用账号的事才同步(syncNow、requestSync)。登录、打开网页、回到页面、联网、改了世界,都不自动同步
  * - 全看一遍时逐个对:
  *     只有服务器变了   → 取回来覆盖本地
  *     只有本地变了     → 带上次的版本号存上去
@@ -22,7 +21,7 @@
  * - 没同步上(断网、服务器出错)的,"我的世界"卡片上写"还没同步上",下次再试
  */
 import { useSyncExternalStore } from 'react';
-import { exportNotes, flushNotes, forgetNotes, notesKnown, notesReady, notesSaved, replaceNotes, subscribeNotes, type AiNote } from '../ai/library';
+import { exportNotes, flushNotes, forgetNotes, notesKnown, notesReady, notesSaved, replaceNotes, type AiNote } from '../ai/library';
 import { TITLE_MAX, cleanTitle } from '../gen/savefile';
 import {
   MAX_WORLDS,
@@ -39,15 +38,14 @@ import {
   setDeleteHook,
   storedCount,
   storedIds,
-  subscribe as subscribeSaves,
   syncable,
   type RawWorld,
 } from '../ui/saveStore';
 import { clearResults } from '../ui/resultStore';
-import { getStage, subscribeStage } from '../ui/stageStore';
+import { getStage } from '../ui/stageStore';
 import { clearToast, getToast, showToast } from '../ui/toastStore';
 import { deleteCloud, getCloud, listCloud, putCloud, type CloudEntry, type CloudWorld, type PutBody } from './cloud';
-import { authed, getSession, logout, onLogin, onSessionChange, refreshSession, updateUser } from './session';
+import { authed, getSession, logout, onSessionChange, refreshSession, updateUser } from './session';
 import { ServerError, serverBase } from './server';
 
 // ---------------------------------------------------------------------------
@@ -1068,7 +1066,7 @@ function stateForDelete(): { st: SyncState; save: () => void } | null {
   };
 }
 
-/** 用户删掉一个世界:记下来,告诉服务器(断网、没登录时等下次) */
+/** 用户删掉一个世界:记下来,下次同步时告诉服务器 */
 function onLocalDelete(id: string) {
   rejected.delete(id);
   if (uploading.has(id)) deletedWhileUp.add(id);
@@ -1084,21 +1082,6 @@ function onLocalDelete(id: string) {
     failed.delete(id);
     setView({ failed });
   }
-  requestSync('push', 300);
-}
-
-/** 刚登录:顶上说一句"正在存进账号",同步完收起 */
-function onLoggedIn() {
-  const n = storedIds().length;
-  if (n) {
-    showToast({ id: 'sync-login', kind: 'info', text: `已登录，正在把这个浏览器里的 ${n} 个世界存进账号`, more: ['传完以后在别的设备上登录就能看到'], ttl: 0 });
-    const f = () => {
-      afterRun.delete(f);
-      clearToast('sync-login');
-    };
-    afterRun.add(f);
-  }
-  requestSync('full', 0);
 }
 
 const UNSAVED_WHY = '正在看的这个世界最新的改动没能存进浏览器（存储满了），也就没同步上。先把它存成文件，或者选「留着」';
@@ -1185,75 +1168,30 @@ export function accountDeleted(): void {
 
 let started = false;
 
-/** 开始同步(App 挂载时调一次;返回取消函数) */
+/** 跟上登录状态(App 挂载时调一次;返回取消函数)。这里不同步 */
 export function startSync(): () => void {
   if (started) return () => {};
   started = true;
   setDeleteHook(onLocalDelete);
-  const offSaves = subscribeSaves(() => {
-    if (!applying) requestSync('push', 2000);
-  });
-  const offNotes = subscribeNotes(() => {
-    if (!applying) requestSync('push', 2000);
-  });
-  const offLogin = onLogin(onLoggedIn);
   let lastToken = getSession()?.token ?? null;
   const offSession = onSessionChange(() => {
     const tok = getSession()?.token ?? null;
     if (tok === lastToken) return;
-    const was = lastToken;
     lastToken = tok;
     if (!tok) {
       if (view.phase !== 'off') setView({ phase: 'off', busy: new Set(), failed: new Map(), message: undefined });
       return;
     }
-    // 登录了、换了账号(别的标签页里也算):原来那个账号的同步状态不算了,这个账号从头全看一遍
-    if (was) setView({ phase: 'idle', busy: new Set(), failed: new Map(), message: undefined, lastOk: null });
-    requestSync('full', 0);
+    // 登录了、换了账号(别的标签页里也算):原来那个账号的同步状态不算了
+    setView({ phase: 'idle', busy: new Set(), failed: new Map(), message: undefined, lastOk: null });
   });
-  // 正在看的世界被别的设备改了、删了,先放着没做的:回到"我的世界"时再全看一遍
-  const offStage = subscribeStage(() => {
-    if (!pinnedSkipped || getStage().stage !== 'home' || !getSession()) return;
-    pinnedSkipped = false;
-    requestSync('full', 0);
-  });
-  let lastFocus = 0;
-  const onFocus = () => {
-    if (Date.now() - lastFocus < 10_000) return;
-    lastFocus = Date.now();
-    requestSync('full', 0);
-  };
-  const onVisible = () => document.visibilityState === 'visible' && onFocus();
-  // 网连上了:不管刚才是不是因为切回来同步过(那次可能正因为断网没成),马上再来一遍
-  const onOnline = () => requestSync('full', 0);
-  const every = setInterval(() => {
-    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') requestSync('full', 0);
-  }, 60_000);
-  if (typeof window !== 'undefined') {
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('online', onOnline);
-    document.addEventListener('visibilitychange', onVisible);
-  }
-  if (getSession()) {
-    setView({ phase: 'idle' });
-    requestSync('full', 1500);
-  }
+  if (getSession()) setView({ phase: 'idle' });
   return () => {
     started = false;
     setDeleteHook(null);
-    offSaves();
-    offNotes();
-    offLogin();
     offSession();
-    offStage();
-    clearInterval(every);
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('online', onOnline);
-      document.removeEventListener('visibilitychange', onVisible);
-    }
   };
 }
 
