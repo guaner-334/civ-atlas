@@ -117,7 +117,7 @@ async function inject(ctx: BrowserContext, worker: 'worldFileLook' | 'worldVault
   const glob = `**/assets/${worker}*`;
   const handler = async (route: Parameters<Parameters<BrowserContext['route']>[1]>[0]) => {
     const res = await route.fetch();
-    await route.fulfill({ response: res, body: code + (await res.text()) });
+    await route.fulfill({ response: res, headers: { ...res.headers(), 'cache-control': 'no-store' }, body: code + (await res.text()) });
   };
   await ctx.route(glob, handler);
   return () => ctx.unroute(glob, handler);
@@ -143,8 +143,14 @@ function newContext(r: Run): Promise<BrowserContext> {
 }
 
 async function newPage(ctx: BrowserContext): Promise<Page> {
+  // 自动化的 WebKit 说能分享文件,点了却等不到回音(没有真的菜单可点):这里走下载那条路;分享那条路另外试(模拟 iPhone 那一段)
+  await ctx.addInitScript(() => {
+    (navigator as unknown as { canShare?: unknown }).canShare = undefined;
+  });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => check(false, `页面报错:${e.message.slice(0, 200)}`));
+  page.on('pageerror', (e) => {
+    if (!e.message.includes('on purpose')) check(false, `页面报错:${e.message.slice(0, 200)}`);
+  });
   return page;
 }
 
@@ -160,6 +166,7 @@ async function shot(r: Run, page: Page, board: string) {
 async function goHome(page: Page) {
   await page.goto(BASE);
   await page.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
+  await civsTab(page);
 }
 
 async function civsTab(page: Page) {
@@ -602,13 +609,14 @@ async function allWorlds(r: Run, ctx: BrowserContext, page: Page): Promise<strin
     check(all > kept || all === 1, `放完 ${all} 个(取消时 ${kept} 个)`);
     await pick(p2, file);
     await toastIs(p2, ['这些世界都已经在「我的世界」里了'], '再放一次:都已经有了', WAIT);
-    // 本机删一个(放回来)、改名一个(内容不一样,另存);文件里再弄坏一个(跳过);别的原来就有
-    await goHome(p2);
-    await civsTab(p2);
-    await cardOf(p2, '九州大陆').locator('.mw-open').dispatchEvent('contextmenu');
-    await p2.locator('.mw-menu [data-act="world-delete"]').click();
-    await p2.locator('.mw-menu [data-act="world-delete"]').click({ timeout: 2000 }).catch(() => {});
-    await renameCard(p2, NAME, `${NAME}甲`);
+    await c2.close();
+    // 存文件的这个浏览器:删一个(放回来)、改名一个(内容不一样,另存);文件里再弄坏一个(跳过);别的原来就有
+    await goHome(page);
+    await civsTab(page);
+    await cardOf(page, '九州大陆').locator('.mw-open').dispatchEvent('contextmenu');
+    await page.locator('.mw-menu [data-act="world-delete"]').click();
+    await page.locator('.mw-menu [data-act="world-delete"]').click({ timeout: 2000 }).catch(() => {});
+    await renameCard(page, '北境王朝', '北境王朝甲');
     const entries = parseZip(new Uint8Array(readFileSync(file)), ZIP_LOCAL_MAX_BYTES).map((e) => ({ name: e.name, data: e.data.slice() }));
     const index = JSON.parse(new TextDecoder().decode(entries.find((e) => e.name === 'worlds.json')!.data as Uint8Array));
     const dir = index.worlds.find((w: { title?: string }) => w.title === '南海诸国').dir;
@@ -616,11 +624,10 @@ async function allWorlds(r: Run, ctx: BrowserContext, page: Page): Promise<strin
     (victim.data as Uint8Array)[Math.floor((victim.data as Uint8Array).length / 2)] ^= 0xff;
     const broken = path.join(OUT, `${r.tag}-全部-坏一个.civworld`);
     writeFileSync(broken, new Uint8Array(await (await writeZip(entries, ZIP_LOCAL_MAX_BYTES)).arrayBuffer()));
-    await goHome(p2);
-    await pick(p2, broken);
-    await toastIs(p2, ['已放回 2 个世界', '其中 1 个和原来的内容不一样，另存成了新的', '个原来就有，没重复放', '1 个读不出来，跳过了'], '一个放回、一个另存、几个原来就有、坏一个不影响别的', WAIT);
-    await shot(r, p2, '20-放回全部-放好了');
-    await c2.close();
+    await goHome(page);
+    await pick(page, broken);
+    await toastIs(page, ['已放回 2 个世界', '其中 1 个和原来的内容不一样，另存成了新的', '个原来就有，没重复放', '1 个读不出来，跳过了'], '一个放回、一个另存、几个原来就有、坏一个不影响别的', WAIT);
+    await shot(r, page, '20-放回全部-放好了');
   });
 
   await step('只带上配方的世界', async () => {

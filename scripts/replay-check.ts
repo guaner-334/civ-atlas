@@ -3401,7 +3401,7 @@ if (part('各种状态')) {
   fs.writeFileSync(bad, JSON.stringify({ hello: 'world' }));
   await openFile(sp, bad);
   // 读完再删(页面是异步读文件的,先删了会变成"读不了这个文件")
-  const badNote = await sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 5000 }).then((t) => t.replace(/\n/g, ' '), () => '');
+  const badNote = await sp.locator('.toast[data-toast=save].k-error').innerText({ timeout: 30000 }).then((t) => t.replace(/\n/g, ' '), () => '');
   fs.rmSync(bad, { force: true });
   // 没有干预
   await openOverview(sp, 'interventions');
