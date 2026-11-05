@@ -1694,7 +1694,7 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
     expect(currentAccount()?.user.account).toBe('writer@example.com');
   });
 
-  it('正在看的世界没存进浏览器、同步时跟着别的设备删掉的世界腾出了地方:补存以后在这次同步里接着存进账号', async () => {
+  it('正在看的世界没存进浏览器、同步时跟着别的设备删掉的世界腾出了地方:补存以后下一次同步存进账号', async () => {
     const a = new FakeStorage();
     const b = new FakeStorage();
     device(a);
@@ -1732,6 +1732,8 @@ describe('云同步:放满了、服务器不回话、分享前、别的标签页
       await syncNow();
       expect(titles()).toEqual(['苍澜界']);
       expect(saveStore.currentUnsaved()).toBe(false);
+      // 补存可能赶不上这次同步的「存上去」那一步,不再自动补一次,下一次同步才算数
+      await syncNow();
       expect(JSON.stringify(fake.users.get('writer@example.com')!.worlds.get(id)!.save)).toContain('青渊');
     } finally {
       unsub();
