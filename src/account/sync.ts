@@ -22,7 +22,7 @@
  * - 没同步上(断网、服务器出错)的,"我的世界"卡片上写"还没同步上",下次再试
  */
 import { useSyncExternalStore } from 'react';
-import { exportNotes, flushNotes, forgetNotes, notesKnown, notesReady, replaceNotes, subscribeNotes, type AiNote } from '../ai/library';
+import { exportNotes, flushNotes, forgetNotes, notesKnown, notesReady, notesSaved, replaceNotes, subscribeNotes, type AiNote } from '../ai/library';
 import { TITLE_MAX, cleanTitle } from '../gen/savefile';
 import {
   MAX_WORLDS,
@@ -507,7 +507,7 @@ async function pull(st: SyncState, id: string, expect?: string | null): Promise<
   // 账号里的这一份是什么样,现在就记:等的工夫用的人又写了正文,那些没同步上
   const l = localWorld(id);
   // 正文写稳了才算取回来了:写不进去还当同步好了的话,刷新以后那些东西没了,下一轮会当成这里删了、把账号里的也冲掉
-  if (!(await flushNotes(id))) {
+  if (!(await flushNotes(id)) && !notesSaved(id)) {
     failedNow.set(id, FULL_WHY);
     return false;
   }
@@ -607,6 +607,21 @@ async function fork(st: SyncState, id: string, l: Local, remote: CloudWorld) {
   if (!reuse && !store(nid, forkRaw, forkNotes)) {
     // 存不下另一份:先不覆盖服务器上的(两份都还在),等腾出地方
     failedNow.set(id, '浏览器存储满了，两台设备上改的没法都留下');
+    return;
+  }
+  // 另存的那份的正文写稳了才能盖服务器上的:写不进去的话,盖掉以后它就没有别的地方有了。
+  // 记下这次不行:写失败会通知「正文变了」,又排上一轮同步;不记的话每一轮都再另存、再失败,停不下来
+  if (!reuse && !(await flushNotes(nid)) && !notesSaved(nid)) {
+    applying = true;
+    try {
+      removeSyncedWorld(nid);
+      forgetNotes(nid);
+    } finally {
+      applying = false;
+    }
+    const why = '浏览器存储满了，两台设备上改的没法都留下';
+    rejected.set(id, { sum: l.sum, why, room: roomMark });
+    failedNow.set(id, why);
     return;
   }
   // 存本地这份的工夫,另存的那份可能被挤出浏览器(为别的世界腾地方),也可能被用户删掉:只有用户删的才算不要了

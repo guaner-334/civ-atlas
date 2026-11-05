@@ -11,7 +11,7 @@ import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, setEdits, setName } from '../src/ui/editsStore';
 import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
-import { _notesSettled, _resetNotes, forgetNotes, listNotes, notesKnown, putNote, type AiNote, type NotesVault } from '../src/ai/library';
+import { _notesSettled, _resetNotes, forgetNotes, listNotes, notesKnown, notesReady, putNote, type AiNote, type NotesVault } from '../src/ai/library';
 import { applyNoteOps } from '../src/authorNotes';
 import { setServerForTest, setTimeoutForTest } from '../src/account/server';
 import { _resetSessionForTest, currentAccount, deleteAccount, fetchAuthOptions, getSession, login, logout, refreshSession, sendCode } from '../src/account/session';
@@ -2125,6 +2125,62 @@ describe('AI 正文在世界仓库里', () => {
     await syncNow();
     expect(saveStore.loadWorld(id)).toBeNull();
     expect(fake.users.get('writer@example.com')!.worlds.get(id)?.deletedAt).toBeTruthy();
+  });
+
+  it('两边都改过要另存一份,另存的正文写不进去:不盖服务器上的,世界不多出来', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const m = memVault();
+    _resetNotes({ vault: m.vault });
+    const id = addWorld(7, '苍澜界');
+    putNote(id, note('第一版'));
+    await _notesSettled();
+    await signIn();
+
+    // 另一台设备改了
+    const b = new FakeStorage();
+    device(b);
+    const n = memVault();
+    _resetNotes({ vault: n.vault });
+    await signIn();
+    tick();
+    saveStore.renameWorld(id, '另一台改的');
+    putNote(id, note('另一台写的'));
+    await _notesSettled();
+    await syncNow();
+    const rev = fake.users.get('writer@example.com')!.worlds.get(id)!.rev;
+
+    // 这一台也改了,另存的那份写不进仓库
+    device(a);
+    let bad = false;
+    let forkWrites = 0;
+    _resetNotes({
+      vault: {
+        read: m.vault.read,
+        change: (w, ops) => {
+          if (!bad || w === id) return m.vault.change(w, ops);
+          forkWrites++;
+          return Promise.reject(Object.assign(new Error('写不进去'), { kind: 'full' }));
+        },
+      },
+      timing: { retry: 100_000 },
+    });
+    await notesReady([id]);
+    tick();
+    saveStore.renameWorld(id, '这一台改的');
+    putNote(id, note('这一台写的'));
+    await _notesSettled();
+    a.deny = (k) => k.startsWith('civ-atlas:ai-notes:');
+    bad = true;
+    const before = titles();
+    const v = await syncNow();
+    expect(fake.users.get('writer@example.com')!.worlds.get(id)!.rev).toBe(rev);
+    expect(titles()).toEqual(before);
+    expect(v.failed.get(id)).toContain('存储满');
+    // 写失败的通知不会让同步一轮接一轮:等一会儿、再同步一次,也只另存过那一次
+    await new Promise((r) => setTimeout(r, 50));
+    await syncNow();
+    expect(forkWrites).toBe(1);
   });
 
   it('账号里取回来的正文写进仓库;换的时候读到过了,少了的才算真少了', async () => {

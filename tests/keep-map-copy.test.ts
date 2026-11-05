@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { putNote } from '../src/ai/library';
+import { _notesSettled, _resetNotes, putNote } from '../src/ai/library';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import { mergeUpheavals } from '../src/gen/civ/upheaval';
 import { EMPTY_EDITS, GENERATOR_VERSION, cleanMapRef, keptMapOf, sameMapRef, type Upheaval, type WorldEdits } from '../src/gen/edits';
@@ -32,7 +32,7 @@ import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert
 import { lookFile } from '../src/worldFileLook';
 import { openStoredWorld } from '../src/worldOpen';
 import { keyOf, worldChronicle, worldFlags } from '../src/worldRun';
-import { _resetVault, commitWorld, latestOf, purgeWorld, readRevision, revisionsOf, stateOf, vaultOps, type VaultOps } from '../src/worldVault';
+import { _resetVault, changeAuthor, commitWorld, latestOf, purgeWorld, readAuthor, readRevision, revisionsOf, stateOf, vaultOps, type VaultOps } from '../src/worldVault';
 import { FIXTURE_DIR, readSamples, type SampleInfo } from './lib/savedWorlds';
 
 class FakeStorage {
@@ -244,10 +244,13 @@ describe('另存一份,地图不变', () => {
 
   it('AI 写的东西跟着复制', async () => {
     const old = await putOldWorld(PLAIN);
+    _resetNotes({ vault: { read: readAuthor, change: changeAuthor } });
     putNote(old.id, { key: '史书:world', kind: '史书', title: '一本史书', text: '正文', createdAt: '2026-11-04T08:00:00.000Z', provider: 'test', model: 'test-1' });
     const r = okCopy(await keepMapCopy(old.id));
     expect(r.notes).toBe(true);
     expect((await readRevision(r.id))!.manifest.parts.some((p) => p.name === 'author')).toBe(true);
+    await _notesSettled();
+    _resetNotes({ vault: null });
   }, 120_000);
 });
 

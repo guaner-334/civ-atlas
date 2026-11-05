@@ -640,7 +640,19 @@ export interface AuthorRead {
 /** 这个世界现在的 AI 正文:author 块加上 notes 表里等着的。不写东西 */
 export async function readAuthor(id: string): Promise<AuthorRead> {
   try {
-    const [rows, loose] = await Promise.all([rowsOf(id), looseOf(id)]);
+    // 清单和 notes 表在同一个事务里读:并进 author 块是一个事务里做的,这样读不到「清单还是旧的、那一行已经没了」
+    const { rows, loose } = await run<{ rows: RevisionRow[]; loose: LooseNotes | null }>(['manifests', 'notes'], 'readonly', (t, done) => {
+      const out: { rows: RevisionRow[]; loose: LooseNotes | null } = { rows: [], loose: null };
+      done(out);
+      const q = t.objectStore('manifests').getAll(rangeOf(id));
+      q.onsuccess = () => {
+        out.rows = q.result as RevisionRow[];
+      };
+      const l = t.objectStore('notes').get(id);
+      l.onsuccess = () => {
+        out.loose = (l.result as LooseNotes | undefined) ?? null;
+      };
+    });
     const extra = loose?.notes ?? [];
     const base = chainOf(rows).at(-1);
     if (!base) return { notes: extra };

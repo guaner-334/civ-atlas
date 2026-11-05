@@ -464,10 +464,12 @@ function kick(world: string, s: Slot): void {
       } catch {
         ok = false;
       }
+      const was = behind.has(world);
       if (ok) behind.delete(world);
       else behind.add(world);
       for (const f of s.waiters.splice(0)) f(false);
-      emit();
+      // 只有状态变了才通知:每次失败都通知的话,账号同步每一轮都会再排一轮
+      if (was === ok) emit();
       later(world, s);
     },
   );
