@@ -900,7 +900,9 @@ export function overwriteWorld(id: string, edits: WorldEdits): boolean {
   if (current?.id === id) return false;
   const w = loadWorld(id);
   if (!w || w.draft || w.map) return false;
-  const save = makeSave(w.save.params, edits, w.save.check, w.save.title, undefined, w.save.view, w.save.origin);
+  // 地形校验:旧版本建的留空(这一份记现在的版本,打开后按生成出来的记上)
+  const check = w.save.generator === GENERATOR_VERSION ? w.save.check : '';
+  const save = makeSave(w.save.params, edits, check, w.save.title, undefined, w.save.view, w.save.origin);
   // 结束那一年现存几国、缩略图都是原来那段历史的:去掉,打开时重新数、重截
   const meta: Meta = { ...readMeta(id), opened: save.savedAt };
   delete meta.alive;
@@ -999,14 +1001,20 @@ interface Current {
   frozen?: number;
   /** 只读打开(见 AttachSpec.readonly) */
   readonly?: boolean;
+  /**
+   * 只有配方的旧世界(存着的存档比现在旧,内容没存下,看到的这一份是按现在的规则算的):存档照旧记建它的那一版、当时的地形校验。
+   * 打开、改名都不写成新版,不然配方就不再是存档本身,标记和另存的入口也跟着没了;要留看到的样子走另存
+   */
+  oldRecipe?: { generator: number; check: string };
 }
 
 let current: Current | null = null;
 
-/** 当前世界的存档:照原样打开的旧世界照旧记建它的那一版 */
+/** 当前世界的存档:照原样打开的旧世界、只有配方的旧世界照旧记建它的那一版 */
 function saveOf(c: Current, edits: WorldEdits, view: SaveView | null | undefined): SaveFile {
-  const save = makeSave(c.params, edits, c.check, c.title, undefined, view, c.origin);
+  const save = makeSave(c.params, edits, c.oldRecipe?.check ?? c.check, c.title, undefined, view, c.origin);
   if (c.frozen !== undefined) save.generator = c.frozen;
+  else if (c.oldRecipe) save.generator = c.oldRecipe.generator;
   return save;
 }
 /**
@@ -1291,12 +1299,13 @@ export function attachWorld(spec: AttachSpec) {
     frozen: spec.kind === 'created' && spec.frozen !== undefined && spec.frozen < GENERATOR_VERSION ? spec.frozen : undefined,
     gone: spec.readonly ? 'changed' : undefined,
     readonly: spec.readonly || undefined,
+    oldRecipe: spec.kind === 'created' && spec.frozen === undefined && !spec.readonly && prev && prev.generator < GENERATOR_VERSION ? { generator: prev.generator, check: prev.check } : undefined,
   };
   const keep = spec.kind === 'created' || (spec.kind === 'draft' && !spec.pristine);
   const same =
     !!prev &&
     worldKey(prev.params) === worldKey(spec.params) &&
-    prev.check === spec.check &&
+    prev.check === (current.oldRecipe?.check ?? spec.check) &&
     (prev.title ?? '') === (title ?? '') &&
     JSON.stringify(prev.origin ?? null) === JSON.stringify(current.origin ?? null) &&
     getEdits() === spec.saved &&
@@ -1313,6 +1322,8 @@ export function attachWorld(spec: AttachSpec) {
     touchMeta(spec.id, metaOf(current, new Date().toISOString()));
     // 刚从文件打开的(先存了、再生成):还没有缩略图,截一张
     if (store().get(THUMB + spec.id) === null || (mapThumbMaker && store().get(MAPTHUMB + spec.id) === null)) scheduleThumb(spec.id);
+    // 只有配方的旧世界按现在的规则长出来,地形和存的不一样:封面跟着看到的换(存档不动)
+    else if (current.oldRecipe && current.oldRecipe.check !== spec.check) scheduleThumb(spec.id, true);
   }
   current.wrote = store().get(PREFIX + spec.id);
   changed();
