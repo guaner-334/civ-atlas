@@ -61,7 +61,7 @@ import { showMapInWorlds } from '../MyWorlds';
 import { getNav, isNavState, navAdopt, navReplace, navTo, navUrl, startNav, type NavHooks, type NavInfo } from '../nav';
 import { getNewView } from '../newViewStore';
 import { OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from '../oldSite';
-import { READ_BACK, READ_TROUBLE, fileTrouble, newerNotice, openFailed } from '../openTrouble';
+import { KEPT_DEVICE, KEPT_FILE, KEPT_LINK, READ_BACK, READ_TROUBLE, fileTrouble, newerNotice, openFailed } from '../openTrouble';
 import { closeOverview, getPeople, setPeople } from '../overviewStore';
 import { setWorldSheet } from '../panelStore';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from '../presetLink';
@@ -71,8 +71,8 @@ import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind
 import { recipeChanges, recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
 import { frozenResult, resultHeads } from '../resultStore';
-import { settleKeptWorld } from '../worldStore';
-import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markFromFile, markOpened, newWorldId, notify, persistent, sameOrigin, setWorldStats, storageFullWhy, storedCount } from '../saveStore';
+import { keptMapHere, settleKeptWorld } from '../worldStore';
+import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, deleteWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markFromFile, markOpened, newWorldId, notify, persistent, sameOrigin, setWorldStats, storageFullWhy, storedCount } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
 import { enterStepwise, leaveStepwise } from '../stepwiseStore';
 import { setTerrainTool, type TerrainStatus } from '../TerrainTools';
@@ -338,20 +338,30 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       const newerBack = () => failOpen({ text: `打不开「${name()}」`, ...newerNotice('world', storedSave(t)) });
       /**
        * 地图留着的世界(gen/edits.ts 文件头"地图留着的世界")读不到和存档对得上的内容:按种子长的不是它,绝不走生成。
-       * 存在「我的世界」里的先按存下的地图算一份再打开(刚另存出来的、改了还没推完的),还是不行就是读的时候出错了(存着的都还在);
-       * 真没有那张地图(分享链接、存档文件、别的设备同步来的)就不打开
+       * 存在「我的世界」里的先按存下的地图算一份再打开(刚另存出来的、改了还没推完的),这台设备上真没有那张地图(别的设备同步来的)就不打开,
+       * 有地图还不行就是读的时候出错了(存着的都还在);分享链接、配方文件带不上地图,也不打开
        */
       const keptOpen = () => {
         genReq.current = null;
         void (async () => {
+          // 等 generate 收完尾再往下走(它后面还要写网址、换世界):不然回了我的世界,网址又写回这个世界
+          await null;
+          if (id !== reqId.current) return;
           const mine = !!storedSave(t);
           const ok = !t.keptTried && mine && (await settleKeptWorld(t.id));
           if (id !== reqId.current) return;
           if (ok) return generate({ ...t, keptTried: true, noVault: undefined });
-          if (mine) return failOpen({ text: `打不开「${name()}」`, more: [READ_TROUBLE], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(t.id) } });
-          targetRef.current = null;
-          showHomeRef.current();
-          notify({ kind: 'error', text: '打不开这个世界', more: ['这个世界的地图是存下来的，这台设备上没有。打开它的世界文件才看得到'] });
+          const text = `打不开「${name()}」`;
+          const here = mine && (await keptMapHere(t.id));
+          if (id !== reqId.current) return;
+          // 这台设备上有那张地图:是这次没算成、没存下,存档留着,能再试
+          if (here) return failOpen({ text, more: [READ_TROUBLE], action: { label: '再试一次', act: 'open-again', onClick: () => openStoredRef.current(t.id) } });
+          if (t.from === 'file') {
+            // 这次打开才放进我的世界的配方:不留一张点不开的卡片
+            if (t.fileNew) deleteWorld(t.id);
+            return failOpen({ text, more: [KEPT_FILE] });
+          }
+          failOpen({ text, more: [mine ? KEPT_DEVICE : KEPT_LINK] });
         })();
       };
       /** 按现在的规则生成 */
@@ -843,12 +853,13 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const trouble = takeFileTrouble();
     const before = storedCount();
     const id = trouble ? null : importSave(r.save);
-    if (id && storedCount() > before) markFromFile(id);
+    const added = !!id && storedCount() > before;
+    if (id && added) markFromFile(id);
     const w = id ? loadWorld(id) : null;
     const t: Target = w
       ? { ...storedTarget(w, 'stored'), view: r.save.view ?? null }
       : { id: newWorldId(), kind: 'visit', params: r.save.params, edits: r.save.edits, title: r.save.title, view: r.save.view ?? null, save: r.save, origin: r.save.origin ?? null };
-    openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings, ...(trouble ? { fileKept: { line: trouble, warn: true } } : {}) });
+    openTarget({ ...t, from: 'file', save: r.save, warnings: r.warnings, ...(added ? { fileNew: true as const } : {}), ...(trouble ? { fileKept: { line: trouble, warn: true } } : {}) });
   };
   /**
    * 打开分享链接(解开以后):别人的世界,先不存;改了(或起了名)才存进"我的世界"。

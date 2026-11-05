@@ -578,8 +578,30 @@ export async function settleWorld(id: string): Promise<VaultErrorKind | null> {
 
 /** 地图留着的世界(gen/edits.ts 文件头"地图留着的世界")还没有和存档对得上的内容:按存下的地图算一份。算好了 = true,找不到那张地图、推不出来 = false */
 export async function settleKeptWorld(id: string): Promise<boolean> {
+  // 用的人要打开它:上次没算成的再算一次(地图可能已经从文件放回来了)
+  const state = await call('stateOf', [id]).catch(() => null);
+  if (state?.status === 'failed') await call('patchState', [id, { status: undefined, app: undefined, error: undefined }]).catch(() => {});
   await settleWorld(id);
   return storedFresh(id);
+}
+
+/**
+ * 这台设备上有没有这个世界要的那张地图(存着它的修订):打不开时分清是真没有,还是读的时候出错了。
+ * 去的地方和算的时候一样(jobFor)。读不了仓库 = true,不能说成地图不在这里
+ */
+export async function keptMapHere(id: string): Promise<boolean> {
+  const save = loadWorld(id)?.save;
+  const sum = save && keptMapOf(save.edits);
+  if (!save || !sum) return false;
+  try {
+    for (const x of new Set([id, ...(save.edits.map?.from ? [save.edits.map.from] : []), ...allWorldIds()])) {
+      const head = await call('latestOf', [x]);
+      if (head?.content.split('|').includes(`map:${sum}`)) return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 /** 仓库里最新的修订就是存档这份配方、这一版算的 */

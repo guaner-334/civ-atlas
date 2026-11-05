@@ -16,7 +16,7 @@ import path from 'node:path';
 import { chromium, webkit, type BrowserContext, type BrowserType, type Page } from 'playwright';
 import { PNG } from 'pngjs';
 import { createServer } from 'vite';
-import { makeSave, type SaveFile } from '../src/gen/savefile';
+import { encodeShare, makeSave, type SaveFile } from '../src/gen/savefile';
 import { EMPTY_EDITS, GENERATOR_VERSION, type WorldEdits } from '../src/gen/edits';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 
@@ -414,12 +414,27 @@ async function verify(type: BrowserType, tag: string) {
     await p3.goto(BASE);
     await p3.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
     await p3.setInputFiles('[data-testid=save-file-input]', jf);
-    await p3.waitForSelector('text=打不开这个世界', { timeout: WAIT }).then(
+    await p3.waitForSelector('text=这个文件只有配方', { timeout: WAIT }).then(
       () => check(true, '只有配方:说明白了'),
       () => check(false, '只有配方:没看到说明'),
     );
     check((await load(p3)) === 'undefined', '只有配方:没有世界打开');
     await bare.close();
+
+    // 分享链接:提示条不卡在「正在生成」,说明白了,网址回到我的世界
+    const linked = await browser.newContext(VIEW);
+    await linked.addInitScript(NAME_SHIM);
+    const p4 = await linked.newPage();
+    noCrash(p4);
+    const hash = await encodeShare(JSON.parse(text) as SaveFile);
+    await p4.goto(`${BASE}?seed=${small.seed}&cells=${small.cells}${hash}`);
+    await p4.waitForSelector('text=这个链接带不上它的地图', { timeout: WAIT }).then(
+      () => check(true, '分享链接:说明白了'),
+      () => check(false, '分享链接:没看到说明'),
+    );
+    check(!(await p4.locator('text=正在生成世界').count()), '分享链接:进度收掉了');
+    check(!new URL(p4.url()).searchParams.has('seed'), '分享链接:网址回到我的世界');
+    await linked.close();
     await browser.close();
   }
   await ctx.close();
