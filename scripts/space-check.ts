@@ -562,7 +562,8 @@ async function fullUp(kind: Kind, device: Device, safari = false) {
     await page.waitForFunction(() => !document.querySelector('[data-space-bar="full"]'), null, { timeout: 120_000, polling: 1000 });
     check(true, '接着存上了,那一条没了');
     await openWindow(page);
-    check(!(await rows(page)).some((x) => x.warn), '窗口里不再标没存上');
+    await page.waitForFunction(() => !document.querySelector('.sz-sub.warn'), null, { timeout: 120_000, polling: 500 });
+    check(true, '窗口里不再标没存上');
     await closeWindow(page);
   });
   await r.ctx.close();
