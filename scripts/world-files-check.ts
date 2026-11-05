@@ -1,5 +1,5 @@
 /**
- * 世界存成文件、打开文件的浏览器检查(界面接上之前走测试钩子 window.__wfWorldFiles;量构建好的网站)。
+ * 世界存成文件、打开文件的浏览器检查(走测试钩子 window.__wfWorldFiles;量构建好的网站。真点界面见 scripts/world-file-ui-check.ts)。
  *
  *   pnpm build && npx tsx scripts/world-files-check.ts [--browsers=chromium,webkit] [--only=roundtrip,backup,bad,escape]
  *   --out=<目录>                      存文件、对比图的地方(默认 snaps/world-files)

@@ -528,7 +528,7 @@ describe('浏览器存储(saveStore)', () => {
     setName('settlement:r1#0', '饕餮城');
     expect(saveStore.loadWorld(id)).toBeNull();
     expect(saveStore.storageIsFull()).toBe(true);
-    expect(peekToast('storage')).toMatchObject({ kind: 'warn', text: `没能自动存档:「我的世界」最多存 ${saveStore.MAX_WORLDS} 个` });
+    expect(peekToast('storage')).toMatchObject({ kind: 'warn', text: '没能自动存档', more: [`「我的世界」最多存 ${saveStore.MAX_WORLDS} 个。存成文件就不会丢，或者删掉几个世界`] });
     expect(saveStore.listWorlds().map((w) => w.id).sort()).toEqual([...ids].sort());
     // 自己删掉一个,下一次改动就存下了
     saveStore.deleteWorld(ids[0]);
@@ -548,14 +548,14 @@ describe('浏览器存储(saveStore)', () => {
     }
     openWorld(999);
     setName('settlement:r1#0', '饕餮城'.repeat(500));
-    expect(peekToast('storage')?.text).toBe(`没能自动存档:「我的世界」最多存 ${saveStore.MAX_WORLDS} 个`);
+    expect(peekToast('storage')?.more?.[0]).toBe(`「我的世界」最多存 ${saveStore.MAX_WORLDS} 个。存成文件就不会丢，或者删掉几个世界`);
     let used = 0;
     for (const [k, v] of fake.map) used += k.length + v.length;
     fake.cap = used;
     // 删一个:个数够了,但腾出的地方放不下这个大世界,提示换成"存储已满"
     saveStore.deleteWorld(ids[0]);
     expect(saveStore.storageIsFull()).toBe(true);
-    expect(peekToast('storage')?.text).toBe('没能自动存档:浏览器存储已满');
+    expect(peekToast('storage')?.more?.[0]).toBe('浏览器存储已满。存成文件就不会丢，或者删掉几个世界');
   });
 
   it('复制一份:名字加(二),修改、缩略图、AI 写的东西都带上;删掉复制的那份不动原来的', () => {
@@ -774,6 +774,24 @@ describe('浏览器存储(saveStore)', () => {
     // 打开它:套上的就是存着的,不重写
     openWorld(7, { id });
     expect(getEdits()).toEqual(EDITS);
+  });
+
+  it('来自文件的记号:只在这台设备上,改名、同步写回来都不丢,也不跟着同步出去', () => {
+    const id = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EDITS, 'check7', '九州大陆'))!;
+    expect(saveStore.loadWorld(id)?.fromFile).toBeUndefined();
+    saveStore.markFromFile(id);
+    const at = saveStore.loadWorld(id)?.fromFile;
+    expect(Date.parse(at!)).not.toBeNaN();
+    saveStore.renameWorld(id, '新的名字');
+    expect(saveStore.loadWorld(id)?.fromFile).toBe(at);
+    const raw = saveStore.rawWorld(id)!;
+    expect(raw.meta).not.toHaveProperty('fromFile');
+    expect(saveStore.cleanSyncMeta({ fromFile: at })).toEqual({});
+    expect(saveStore.putSyncedWorld(id, raw)).toBe(true);
+    expect(saveStore.loadWorld(id)?.fromFile).toBe(at);
+    // 没有这个世界:什么也不写
+    saveStore.markFromFile('wnothing000');
+    expect(saveStore.loadWorld('wnothing000')).toBe(null);
   });
 
   it('从文件打开:只差投影的同一个世界,用文件里的投影;刚存进来的没有缩略图,打开后截一张', async () => {
@@ -1066,7 +1084,7 @@ describe('浏览器存储(saveStore)', () => {
     expect(left).toEqual(ids.slice(0, left.length).reverse());
     expect(saveStore.loadWorld(ids[5])).toBeNull();
     expect(saveStore.storageIsFull()).toBe(true);
-    expect(peekToast('storage')?.text).toBe('没能自动存档:浏览器存储已满');
+    expect(peekToast('storage')?.more?.[0]).toBe('浏览器存储已满。存成文件就不会丢，或者删掉几个世界');
   });
 
   it('只记"最近打开"时存满了:谁也不删,也不吵人', () => {
@@ -1093,7 +1111,7 @@ describe('浏览器存储(saveStore)', () => {
     setName('settlement:r1#0', '饕餮城');
     expect(saveStore.loadWorld(id)).toBe(null);
     expect(saveStore.storageIsFull()).toBe(true);
-    expect(peekToast('storage')).toMatchObject({ kind: 'warn', text: '没能自动存档:浏览器存储已满' });
+    expect(peekToast('storage')).toMatchObject({ kind: 'warn', text: '没能自动存档', more: ['浏览器存储已满。存成文件就不会丢，或者删掉几个世界'] });
     clearToast('storage');
     setName('settlement:r1#0', '梼杌城');
     expect(peekToast('storage')).toBe(null);

@@ -12,7 +12,7 @@ import { applyNames, polityKey } from '../src/gen/edits';
 import { makePart, readLocalPart, readPart, sha256, type SnapshotPart } from '../src/gen/snapshot';
 import { openWorldFile, packWorldFile, packWorldParts, readWorldContent, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import type { WorldManifest } from '../src/gen/worldFormat';
-import { VAULT_DB, VaultError, _resetVault, clearVault, commitWorld, keepRows, latestOf, patchState, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, sweepParts, type CommitRequest } from '../src/worldVault';
+import { VAULT_DB, VaultError, _resetVault, clearVault, commitWorld, keepRows, latestOf, patchState, purgeWorld, readRevision, revisionFile, revisionsOf, stateOf, sweepParts, watchParts, type CommitRequest } from '../src/worldVault';
 import { MADE, READERS, bytesOf, makeSample, tinyJpeg } from './lib/worldFileSample';
 
 const g = globalThis as unknown as { indexedDB: IDBFactory | undefined };
@@ -101,6 +101,20 @@ describe('写入读回', () => {
     const back = await readWorldContent(await openWorldFile(bytes, OPEN));
     const direct = await readWorldContent(await openWorldFile(await bytesOf(await packWorldFile(sample)), OPEN));
     for (const k of ['map', 'eras', 'civ', 'chronicle', 'flags', 'author', 'thumb'] as const) expect(isDeepStrictEqual(back[k], direct[k]), k).toBe(true);
+  }, 60_000);
+
+  it('拼文件时报进度:一块一块往上走,最后留给装 ZIP', async () => {
+    await commitWorld(fullRequest());
+    const seen: number[] = [];
+    watchParts((share) => seen.push(share));
+    await revisionFile(sample.id);
+    watchParts(null);
+    expect(seen.length).toBeGreaterThan(2);
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+    expect(seen.at(-1)).toBeCloseTo(0.9);
+    const before = seen.length;
+    await revisionFile(sample.id);
+    expect(seen).toHaveLength(before);
   }, 60_000);
 
   it('清单写成功才算存好;latestOf 给的是最新的那份', async () => {

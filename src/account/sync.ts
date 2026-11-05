@@ -331,7 +331,7 @@ export function worldSync(id: string): WorldSync | null {
 }
 
 const FULL_WHY = '浏览器存储满了，账号里这个世界的样子没能放进来：先删掉几个世界';
-const UNREAD_WHY = '这台设备上这个世界的 AI 写的东西这次没读出来，没有同步：刷新页面再试';
+const UNREAD_WHY = '这个世界的 AI 写的东西这次没读出来，还没同步。东西没有丢，刷新页面再试';
 const LIST_FULL_WHY = `「我的世界」满了（最多 ${MAX_WORLDS} 个），账号里的这个世界放不进来：先删掉几个世界`;
 const LEGACY_WHY = '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号；删掉几个世界、刷新页面再试';
 

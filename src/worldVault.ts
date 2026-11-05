@@ -914,6 +914,12 @@ async function partBlob(info: WorldPartInfo, verify: boolean): Promise<Blob> {
   return new Blob([row.data]);
 }
 
+/** 拼文件时报进度(只有一次性的线程会设,见 worldVaultWorker.ts):拼到几分之几 */
+let partWatcher: ((share: number) => void) | null = null;
+export function watchParts(f: ((share: number) => void) | null): void {
+  partWatcher = f;
+}
+
 /**
  * 一份修订拼回 .civworld(n 不给 = 最新的);没有 = null。一块读完就变成 Blob,整个世界不同时留在内存里。
  * 清单和块不在同一个事务里读:读的这一会儿修订被换掉、用不着的旧块被清了,重新读一次清单。
@@ -928,7 +934,14 @@ export async function revisionFile(id: string, n?: number, verify = false): Prom
     if (!manifest) throw new VaultError('corrupt', '清单读不懂');
     try {
       const parts: { info: WorldPartInfo; data: Blob }[] = [];
-      for (const info of manifest.parts) parts.push({ info, data: await partBlob(info, verify) });
+      const total = manifest.parts.reduce((s, p) => s + p.bytes, 0);
+      let done = 0;
+      for (const info of manifest.parts) {
+        parts.push({ info, data: await partBlob(info, verify) });
+        done += info.bytes;
+        // 读、核对占大头;最后的一小段留给装 ZIP
+        if (total > 0) partWatcher?.((done / total) * 0.9);
+      }
       return await zipWorld(new TextEncoder().encode(row.text), parts);
     } catch (e) {
       const v = asVaultError(e);

@@ -19,7 +19,7 @@ import { WORLD_FILE_EXT, WorldFileError, asWorldFileError } from '../src/gen/wor
 import { ZIP_LOCAL_MAX_BYTES, parseZip, walkZip, writeZip, type ZipInput } from '../src/gen/zipStore';
 import { bundleText, openBundleText } from '../src/ui/bundle';
 import { clearEdits, setEdits } from '../src/ui/editsStore';
-import { _setWorldFiles, checkTimeout, keepWorldFile, lookWorldFile, lookWorldFiles, openWorldFiles, openWorldFromFile, placeWorldFile, saveAllWorldFiles, saveWorldFile, sniffWorldFile, worldFileName, type KeptWorldFile, type LookedWorldFile, type OpenedWorldFiles, type WorldFileProgress } from '../src/ui/worldFiles';
+import { _setWorldFiles, checkTimeout, keepWorldFile, knownWorldFileBytes, lookWorldFile, lookWorldFiles, openWorldFiles, openWorldFromFile, placeWorldFile, saveAllWorldFiles, saveWorldFile, sniffWorldFile, worldFileBytes, worldFileName, type KeptWorldFile, type LookedWorldFile, type OpenedWorldFiles, type WorldFileProgress } from '../src/ui/worldFiles';
 import * as saveStore from '../src/ui/saveStore';
 import { _setResultBackend, memoryResults } from '../src/ui/resultStore';
 import { _setWorldStore, _settled, maintain } from '../src/ui/worldStore';
@@ -192,18 +192,27 @@ describe('打开一个文件', () => {
     expect(saveStore.listWorlds()).toHaveLength(1);
   });
 
+  it('文件的编号本机没有,种子和名字都一样、内容不一样:算同一个世界,另存一份不是多一张同名卡片', async () => {
+    const id = await keepFile(file);
+    const changed = { ...sample.recipe, edits: { ...sample.recipe.edits, names: { 'polity:c1#0': '另一个名字' } } };
+    const looked = asLooked(await lookWorldFile(await packWorldFile({ ...sample, id: 'wother000000', recipe: changed })));
+    expect(looked.match).toEqual({ kind: 'different', id });
+    const other = asLooked(await lookWorldFile(await packWorldFile({ ...sample, id: 'wother000000', recipe: { ...changed, title: '别的名字' } })));
+    expect(other.match.kind).toBe('new');
+  });
+
   it('文件里有本机没有的 AI 正文:不算相同', async () => {
     const id = await keepFile(file);
     await _notesSettled();
     for (const n of exportNotes(id)) deleteNote(id, n.key);
     await _notesSettled();
-    expect(asLooked(await lookWorldFile(file)).match.kind).toBe('new');
+    expect(asLooked(await lookWorldFile(file)).match).toEqual({ kind: 'different', id });
   });
 
   it('超长正文的文件:能打开,只少这一块,有提示;另存字节不丢;接着写的正文也带上', async () => {
     const big = await packWorldFile({ ...sample, author: { notes: [{ ...sample.author!.notes[0], text: 'x'.repeat(4e6 + 1) }] } });
     const looked = asLooked(await lookWorldFile(big));
-    expect(looked.warnings.join('')).toContain('AI 写的正文');
+    expect(looked.warnings.join('')).toContain('AI 写的东西');
     const kept = asKept(await keepWorldFile(looked));
     expect(kept.notesLost).toBe(false);
     await _notesSettled();
@@ -231,7 +240,7 @@ describe('打开一个文件', () => {
     for (const e of parts) entries.push({ name: e.name, data: e.name === 'parts/author.gz' ? new Uint8Array([1, 2, 3, 4]) : new Uint8Array(await e.data.arrayBuffer()) });
     const bad = await writeZip(entries, ZIP_LOCAL_MAX_BYTES);
     const looked = asLooked(await lookWorldFile(bad));
-    expect(looked.warnings.join('')).toContain('坏了');
+    expect(looked.warnings.join('')).toContain('没读出来');
     const kept = asKept(await keepWorldFile(looked));
     await _notesSettled();
     expect(exportNotes(kept.id)).toEqual([]);
@@ -559,6 +568,20 @@ describe('别人的文件不可信', () => {
 });
 
 describe('一个世界存成文件', () => {
+  it('算文件多大:和存出来的一样;还没有内容的 = null;只读不写', async () => {
+    const id = await keepFile(file);
+    expect(knownWorldFileBytes(id)).toBe(null);
+    const before = await revisionsOf(id);
+    const bytes = await worldFileBytes(id);
+    expect(bytes).toBeGreaterThan(1000);
+    expect(knownWorldFileBytes(id)).toBe(bytes);
+    expect(await revisionsOf(id)).toEqual(before);
+    const out = await saveWorldFile(id);
+    if (!out.ok) throw new Error(out.message);
+    expect(out.file.size).toBe(bytes);
+    expect(await worldFileBytes('wnothing000')).toBe(null);
+  });
+
   it('还没转进来的先打包;AI 正文、封面带上;别人(干净的浏览器)打得开', async () => {
     const r = parseSave(JSON.stringify(sample.recipe));
     if (!r.ok) throw new Error(r.error);
@@ -666,7 +689,7 @@ describe('一个世界存成文件', () => {
     forgetNotes();
     expect(saveStore.listWorlds()).toHaveLength(1);
     const placed = await openWorldFromFile(await packWorldFile({ ...sample, author: null }));
-    expect(placed.ok && placed.status).toBe('added');
+    expect(placed.ok && placed.status).toBe('copied');
     expect(saveStore.listWorlds()).toHaveLength(2);
   });
 

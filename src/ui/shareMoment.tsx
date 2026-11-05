@@ -3,7 +3,7 @@
  *
  *   momentNow()        现在这一刻(App 登记怎么取:时间轴那一年、选中的国家或州、画面正中和放大倍数);世界还没出来 = null
  *   useMomentOn()      存档菜单、分享窗里「停在这一刻」勾没勾:默认勾着,记住上次的选择(这个浏览器里)
- *   copyShareLink()    做好长链接(整份存档压进 # 后面)并复制:存档菜单的「复制分享链接」、国家卡片「更多」里的「复制分享链接」
+ *   copyShareLink()    做好长链接(整份存档压进 # 后面)并复制:存档菜单的「复制配方链接」、国家卡片「更多」里的「复制配方链接」
  *   shareCopiedToast() 复制好以后顶上提示条怎么说(对方打开停在哪;链接太长时照旧提醒)
  */
 import { useSyncExternalStore } from 'react';
@@ -78,7 +78,7 @@ export function useMomentOn(): [boolean, (v: boolean) => void] {
 }
 
 /**
- * 「停在这一刻」一行(存档菜单「复制分享链接」下面、分享窗里):勾选 + 写清会停在哪 ——
+ * 「停在这一刻」一行(存档菜单「复制配方链接」下面、分享窗里):勾选 + 写清会停在哪 ——
  * 第几年、选中哪国(没选只写年份),地图的位置和大小照现在看的
  */
 export function MomentCheck({ at, on, onChange, className }: { at: MomentNow; on: boolean; onChange: (v: boolean) => void; className?: string }) {
@@ -121,7 +121,7 @@ export function shareBase(): string {
   return location.origin + location.pathname + (s ? `?${s}` : '');
 }
 
-/** 调试 / 冒烟测试用:最近一次"复制分享链接" */
+/** 调试 / 冒烟测试用:最近一次"复制配方链接" */
 interface ShareDebug {
   url: string;
   length: number;
@@ -157,7 +157,7 @@ export async function copyShareLink(moment: SaveMoment | null): Promise<ShareCop
     try {
       url = base + (await encodeShare(save));
     } catch {
-      notify({ kind: 'error', text: '做不了分享链接', more: ['浏览器版本太旧，请改用存成文件'] });
+      notify({ kind: 'error', text: '做不了配方链接', more: ['浏览器版本太旧，请改用存成文件'] });
       return null;
     }
   }
@@ -169,11 +169,11 @@ export async function copyShareLink(moment: SaveMoment | null): Promise<ShareCop
 /** 复制好以后顶上的提示:太长的照旧提醒;带了这一刻说对方打开停在哪;没有修改的说只带种子和参数 */
 export function shareCopiedToast(r: ShareCopy, at: MomentNow | null): void {
   const more = r.long ? [`${LONG_HINT}（${r.url.length} 字）`] : at ? [`对方打开停在${momentLine(at)}`] : r.withData ? [] : ['还没有修改，只带种子和参数'];
-  notify({ kind: r.long ? 'warn' : 'ok', text: `已复制${r.withData ? '分享' : ''}链接`, more });
+  notify({ kind: r.long ? 'warn' : 'ok', text: `已复制${r.withData ? '配方' : ''}链接`, more });
 }
 
 /**
- * 国家卡片「更多」里的「复制分享链接」:总是带上这一刻(选中的就是这个国家)。
+ * 国家卡片「更多」里的「复制配方链接」:总是带上这一刻(选中的就是这个国家)。
  * 剪贴板用不了(做链接时等久了,有的浏览器就不让复制了):提示条上一个「复制」按钮,点一下再复制一次
  */
 export async function copyMomentLink(): Promise<void> {
@@ -183,7 +183,7 @@ export async function copyMomentLink(): Promise<void> {
   if (r.copied) return shareCopiedToast(r, at);
   const again = () =>
     void copyText(r.url).then((ok) =>
-      ok ? shareCopiedToast({ ...r, copied: true }, at) : notify({ kind: 'error', text: '这个浏览器不让网页复制', more: ['请到「存档」里复制分享链接，或者存成文件发给对方'] }),
+      ok ? shareCopiedToast({ ...r, copied: true }, at) : notify({ kind: 'error', text: '这个浏览器不让网页复制', more: ['请到「存档」里复制配方链接，或者存成文件发给对方'] }),
     );
-  notify({ kind: 'warn', text: '分享链接做好了，还没复制', more: ['点「复制」再试一次'], action: { label: '复制', act: 'share-copy-again', onClick: again } });
+  notify({ kind: 'warn', text: '配方链接做好了，还没复制', more: ['点「复制」再试一次'], action: { label: '复制', act: 'share-copy-again', onClick: again } });
 }

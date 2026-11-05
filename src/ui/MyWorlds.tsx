@@ -2,10 +2,10 @@
  * 「我的世界」:浏览器里存着的世界,一个一张卡片(缩略图、名字、种子和现存几国、最近打开的时间),最近的在前。
  * 有存档的人进站先到这一页;世界卡片顶上"‹ 我的世界"回到这里。样子照常见的文稿列表(浅灰底、缩略图网格、名字和日期在图下面)。
  *
- *   右上     作品墙(服务器开了作品墙才有,见 Gallery.tsx)、使用教程(新标签页打开 public/guide.html;一个世界都没有时也在)、打开存档文件(也可以把 .json 拖进页面)、新建世界;
+ *   右上     作品墙(服务器开了作品墙才有,见 Gallery.tsx)、使用教程(新标签页打开 public/guide.html;一个世界都没有时也在)、打开存档文件(也可以把文件拖进页面)、新建世界;
  *            有网站服务器时再加账号按钮(没登录是「登录」,登录了是名字;手机在左上,这时有作品墙的话使用教程只留图标)
  *   卡片     点一下打开;"没建完"的(还在新建)点开接着建
- *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件、删除(点两下确认)。没建完的只有改名、删除
+ *            右上"···"(电脑悬停时出现;手机长按卡片)= 改名、复制一份、存成文件(右边写多大)、删除(点两下确认)。没建完的只有改名、删除
  *   底部     源代码、隐私政策、用户协议、联系我们(配了交流群才有,见 ContactLink.tsx)、版本号(手机上不放,在世界卡片的"更多"里)
  * 手机:两列卡片,使用教程、新建世界在右上(一个都没有时使用教程在标题右边),打开存档文件在列表下面。
  * 一个都没有(第一次来)时:中间一颗慢慢自转的星球、一段话说清能做什么、「新建世界」大按钮,下面"或者打开存档文件",
@@ -13,7 +13,7 @@
  * 作品墙上有本月精选时,这一块往上收(星球小一圈),下面一排四张精选(手机两列,那段话换成三行的短说法、不放小字)。
  *
  * 标题下那句话:没登录的说清楚世界只存在这个浏览器里、清理浏览器数据会一起删掉;后面跟蓝字「全部存成文件」
- * (所有世界存成一个文件,「打开存档文件」选它全部放回来,见 bundle.ts;一个世界都没有、也没有只在页面里的时不出现)。
+ * (所有世界存成一个文件,「打开存档文件」选它全部放回来,见 worldFileFlow.ts;一个世界都没有、也没有只在页面里的时不出现)。
  * 登录了的:标题下那句话说世界存在账号里(不再提醒,「全部存成文件」照样在);卡片时间那个位置在没同步好时换成"正在同步""还没同步上"(同步好了不标);
  * 账号窗里点「最近删除」,这一页换成最近删除(30 天内能找回,点一张卡片找回)。
  *
@@ -34,13 +34,13 @@
  */
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { MAX_WORLDS, currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, storedCount, syncable, useSavesVersion, type StoredWorld } from './saveStore';
+import { isCoarse } from './device';
+import { withFileFlow } from './worldFileLazy';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { serverBase } from '../account/server';
 import { displayName, useSession } from '../account/session';
 import { inAccount, syncNow, useSyncView } from '../account/sync';
 import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
-import { downloadSave } from './SaveMenu';
-import { downloadAll } from './bundle';
 import { copyNotes } from '../ai/library';
 import { copyResults } from './resultStore';
 import { Icon } from './icons';
@@ -141,6 +141,15 @@ function WaitLabel() {
   );
 }
 
+/**
+ * 打开文件的选择框限制哪些文件。手机和 Safari 上不限:.civworld 系统不认识,写了可能灰掉不让选(错的文件打开时会说不是存档)
+ */
+function pickAccept(): string | undefined {
+  const ua = navigator.userAgent;
+  if (isCoarse() || /iPhone|iPad|iPod|Android|Mobile/i.test(ua) || (/Safari/i.test(ua) && !/Chrome|Chromium|Edg/i.test(ua))) return undefined;
+  return '.civworld,.json,application/json';
+}
+
 /** 卡片第二行:"种子 7，现存 13 国" / "种子 1009，还在新建" / 逐年推演的 "种子 7，演绎到第 2675 年" */
 function worldLine(w: StoredWorld): string {
   const seed = `种子 ${w.save.seed}`;
@@ -183,17 +192,16 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
   const waitOf: WaitOf = (id, at) => (opening && opening.id === id && clicked?.id === id && clicked.at === at ? { pct: opening.pct } : undefined);
 
   const pickFile = () => fileRef.current?.click();
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = [...(e.target.files ?? [])];
     e.target.value = '';
-    if (!f) return;
-    try {
-      const text = await f.text();
-      // 一套规则的文件:打开调规则的大卡(只能看),不当世界的存档
-      if (!openRulesText(text, f.name)) onOpenText(text, f.name);
-    } catch {
-      notify({ kind: 'error', text: `打不开 ${f.name}`, more: ['读不了这个文件'] });
-    }
+    if (!files.length) return;
+    withFileFlow(`打不开 ${files[0].name}`, (m) =>
+      m.openPickedFiles(files, (text, name) => {
+        // 一套规则的文件:打开调规则的大卡(只能看),不当世界的存档
+        if (!openRulesText(text, name)) onOpenText(text, name);
+      }),
+    );
   };
   const session = useSession();
   const server = serverBase() !== null;
@@ -236,7 +244,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
                 : `${n} 个世界，只存在这个浏览器里，清理浏览器数据会把它们一起删掉。`;
   // 正在看的世界存不进浏览器(存储满了)、一个都没存下时,也能把它存成文件
   const saveAll = (n > 0 || currentUnsaved()) && (
-    <button className="mw-link" data-act="save-all" onClick={downloadAll}>
+    <button className="mw-link" data-act="save-all" onClick={() => withFileFlow('没能存成文件', (m) => m.saveAllToFile())}>
       <Icon name="save" size={phone ? 13 : 14} />
       全部存成文件
     </button>
@@ -280,7 +288,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
 
   return (
     <div className={`mw${phone ? ' mw-phone' : ''}`} role="main" aria-label="我的世界" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
-      <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={onFile} data-testid="save-file-input" />
+      <input ref={fileRef} type="file" accept={pickAccept()} multiple hidden onChange={onFile} data-testid="save-file-input" />
       <header className="mw-top">
         {phone && (
           <div className={`mw-bar${server ? ' has-acct' : ''}${empty && !acctBtn && !wallBtn ? ' solo' : ''}`}>
@@ -506,6 +514,22 @@ function WorldCard({
     [],
   );
 
+  // 存成文件有多大:菜单开着才算
+  const [sizeNote, setSizeNote] = useState<string | null>(null);
+  const hasFile = !w.draft && !w.map;
+  useEffect(() => {
+    if (!menuOpen || !hasFile) return;
+    let live = true;
+    import('./worldFileFlow')
+      .then((m) => m.fileSizeNote(w.id))
+      .then((note) => {
+        if (live) setSizeNote(note);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [menuOpen, hasFile, w.id]);
   const name = w.save.title || '未命名世界';
   const act = (f: () => void) => () => {
     onMenu(false);
@@ -623,14 +647,14 @@ function WorldCard({
                 className="pm-item"
                 data-act="world-file"
                 onClick={act(() => {
-                  // 按点的这一刻存着的存(别的页面里可能又改过、删了)
-                  const cur = loadWorld(w.id);
-                  if (!cur) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
-                  downloadSave(cur.save);
+                  // 别的页面里可能删了
+                  if (!loadWorld(w.id)) return notify({ kind: 'error', text: '打不开这个存档', more: ['可能已在别的页面里删掉了'] });
+                  withFileFlow('没能存成文件', (m) => m.saveWorldToFile(w.id));
                 })}
               >
                 <Icon name="save" size={16} />
                 <span className="pm-text">存成文件</span>
+                {sizeNote && <small className="pm-note">{sizeNote}</small>}
               </button>
             </>
           )}

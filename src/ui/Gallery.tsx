@@ -487,7 +487,7 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
         <div className="acct-grp gl-three">
           <div className="acct-gr">
             <b>分享链接</b>
-            <span>世界、地图用存档菜单里的「复制分享链接」；新建参数用预设菜单里的「复制分享链接…」</span>
+            <span>世界、地图用存档菜单里的「复制配方链接」；新建参数用预设菜单里的「复制分享链接…」</span>
           </div>
           <div className="acct-gr">
             <b>署名</b>

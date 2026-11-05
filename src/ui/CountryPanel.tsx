@@ -6,7 +6,7 @@
  *
  * 信息页(按时间轴当前那一年;没立国 = 立国那年的样子,已亡 = 亡国前的样子):
  *   顶部  颜色块、国名(可改,输入时预览国号变迁)、"国家，1045 年立国"、关闭
- *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(复制分享链接(停在这一年、选中这国、地图照现在的样子;
+ *   按钮  干预历史(主操作;窄屏点了底部抽屉展开)/ 设为中心 / 改名 / 更多(复制配方链接(停在这一年、选中这国、地图照现在的样子;
  *         手机上去「存档」要先关掉这张卡片,所以放在这里)、在编年史中查看、让 AI 写国史、让 AI 讲名字由来;
  *         有主体民族时还有讲它的族名由来、给它起族名)
  *   概况  国都、政体(由已有的制度推出来的政体名,"某年起";点了换成朝政页 CourtPage.tsx,够不上议事的小国也能点)、君主(这一年在位的那位,点了看他;共和国写"执政")、王室(保住王室管着的那些年才有:"保住  到 1560 年",点了开「我的干预」)、实权(这一年有人掌着实权才有:"彭继桓  君主之子，2585 年起",
@@ -373,7 +373,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
         </Act>
         <MoreAct>
           <MenuItem icon={<Icon name="link" size={16} />} act="share-moment-link" note={`停在${yearFull(year, era)}`} onClick={() => void copyMomentLink()}>
-            复制分享链接
+            复制配方链接
           </MenuItem>
           <MenuItem icon={<Icon name="scroll" size={16} />} act="chronicle" disabled={!allCount} onClick={() => openOverview('chronicle', { polity: id, major: false })}>
             在编年史中查看

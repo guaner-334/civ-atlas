@@ -1,5 +1,6 @@
 /**
- * 「全部存成文件」:「我的世界」里的世界一起存成一个文件;「打开存档文件」选这个文件,全部放回「我的世界」。
+ * 只带配方的那种「全部世界」文件:以前的「全部存成文件」存的 .json,「打开存档文件」选它全部放回「我的世界」;
+ * 现在存的是带整个世界的 .civworld(worldFiles.ts),这种格式只用在里面「只带配方」的那部分。
  *
  * ```json
  * { "app": "文明与地图", "bundle": 1, "savedAt": "2026-10-05T08:00:00.000Z",
@@ -22,17 +23,15 @@
  * 放满了(MAX_WORLDS)、浏览器存不下就停,不为它删别的世界;浏览器不让存(只在内存里)的说一声。登录了的,放回来的世界照常同步进账号。
  */
 import { SAVE_APP, fileBaseName, parseSave, type SaveFile } from '../gen/savefile';
-import { exportNotes, notesKnown, notesReady, notesSaved, replaceNotes, type AiNote } from '../ai/library';
+import { exportNotes, notesSaved, replaceNotes, type AiNote } from '../ai/library';
 import type { DraftBase } from './stageStore';
 import {
   MAX_WORLDS,
-  allWorldIds,
   cleanSyncMeta,
   currentSave,
   currentUnsaved,
   currentWorld,
   fillMissing,
-  flushThumb,
   listWorlds,
   newWorldId,
   notify,
@@ -319,34 +318,6 @@ export function importBundle(b: Bundle, ids: Map<string, string> = new Map()): I
     res.added.push(id);
   }
   return res;
-}
-
-function download(text: string, name: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json;charset=utf-8' }));
-  const a = Object.assign(document.createElement('a'), { href: url, download: name });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
-/** 「我的世界」里点「全部存成文件」 */
-export async function downloadAll() {
-  // 正开着的世界等着截的缩略图(编辑地形停笔没多久)先截下来
-  flushThumb();
-  await notesReady();
-  const b = bundleText();
-  if (!b) return notify({ kind: 'error', text: '「我的世界」里还没有世界' });
-  if (b.tooBig) return notify({ kind: 'error', text: '没能存成文件', more: ['世界太多、太大，一个文件放不下'] });
-  const name = bundleFileName();
-  download(b.text, name);
-  (window as unknown as { __wfBundle?: { name: string; count: number; bytes: number } }).__wfBundle = { name, count: b.count, bytes: new Blob([b.text]).size };
-  const more = [`${name}；以后点「打开存档文件」选它，这些世界都会回来`];
-  if (b.dropped) more.push(`${b.dropped === 'notes' ? 'AI 写的东西' : 'AI 写的东西和缩略图'}太多，一个文件放不下，没有带上`);
-  const unread = allWorldIds().filter((id) => !notesKnown(id)).length;
-  if (unread) more.push(`有 ${unread} 个世界的 AI 写的东西这次没读出来，文件里可能不全；刷新页面再存一次`);
-  const warn = !!b.dropped || unread > 0;
-  notify({ kind: warn ? 'warn' : 'ok', dot: !warn, text: `${b.count} 个世界已存成一个文件`, more });
 }
 
 /** 「打开存档文件」选的是「全部存成文件」存的文件:放回来、说一声,返回 true;不是这种文件 = false(按单个世界的存档读) */

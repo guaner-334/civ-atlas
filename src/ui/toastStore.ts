@@ -2,6 +2,7 @@
  * 顶部居中的提示条(界面骨架):同一时间只显示一条。
  *
  *   showToast({ kind, text, progress?, more?, action?, actions?, ttl?, id? })  显示 / 更新一条,返回它的 id
+ *   updateToast(id, patch)                                        原地改这一条(进度变了):不排到最前,不盖住后来的提示
  *   clearToast(id?)                                               收起这一条(不给 id = 收起正在显示的那条)
  *   useToast() / getToast()                                        正在显示的那条(没有 = null)
  *   useToastOpen(id, act?)                                         某个来源的那条还在不在(可以只认右边是 act 这个按钮的)
@@ -98,6 +99,13 @@ export function showToast(t: ToastInput): string {
   }
   emit();
   return id;
+}
+
+/** 原地改 id 这一条(不排到最前、不重算计时);没有这一条就什么都不做 */
+export function updateToast(id: string, patch: Partial<ToastInput>) {
+  if (!list.some((x) => x.id === id)) return;
+  list = list.map((x) => (x.id === id ? { ...x, ...patch, id } : x));
+  emit();
 }
 
 /** 收起 id 这一条(不给 = 收起正在显示的那条);没有这一条就什么都不做 */

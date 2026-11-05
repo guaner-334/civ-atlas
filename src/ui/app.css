@@ -340,6 +340,7 @@ button.ivq-title {
 }
 .toast-act.primary:hover {
   background: var(--accent-hover);
+  color: var(--on-accent);
 }
 .toast-x {
   flex: none;
@@ -969,7 +970,7 @@ button.primary:hover {
   font-size: 11px;
   color: var(--muted);
 }
-/* ---- 侧栏"存档"菜单(SaveMenu.tsx):这个世界的缩略图、名字、存没存住,下面两项:存成文件、复制分享链接 ---- */
+/* ---- 侧栏"存档"菜单(SaveMenu.tsx):这个世界的缩略图、名字、存没存住,下面两项:存成文件、复制配方链接 ---- */
 .save {
   position: relative;
   flex: none;
@@ -1075,7 +1076,7 @@ button.primary:hover {
   opacity: 0.45;
   cursor: default;
 }
-/* 「复制分享链接」下面一行勾选「停在这一刻」(shareMoment.tsx 的 MomentCheck;分享窗里也是它) */
+/* 「复制配方链接」下面一行勾选「停在这一刻」(shareMoment.tsx 的 MomentCheck;分享窗里也是它) */
 .save-moment {
   flex: none;
   display: flex;

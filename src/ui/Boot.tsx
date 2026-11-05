@@ -23,7 +23,7 @@ import { downloadApp, loadScreenDone, loadScreenFail } from './loadScreen';
 
 type AppModule = typeof import('./App');
 
-// 世界存成文件、打开文件的代码(界面接上之前,检查脚本从这里调);用到才下载
+// 世界存成文件、打开文件的代码(检查脚本从这里调);用到才下载
 (window as unknown as { __wfWorldFiles: () => Promise<unknown> }).__wfWorldFiles = () => import('./worldFiles');
 // AI 正文存在哪(检查脚本 scripts/notes-vault-check.ts 从这里调)
 (window as unknown as { __wfNotes: () => Promise<unknown> }).__wfNotes = () => import('./notesCheck');

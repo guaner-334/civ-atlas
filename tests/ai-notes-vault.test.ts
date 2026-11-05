@@ -881,7 +881,7 @@ describe('超长的正文不连累整个世界', () => {
     expect(c.author).toBeNull();
     expect(c.authorTrouble).toBe('skipped');
     expect(c.skipped).toContain('author');
-    expect(c.warnings.join('')).toContain('AI 写的正文');
+    expect(c.warnings.join('')).toContain('AI 写的东西');
     expect(c.civ).toBeTruthy();
     const again = await openWorldFile(await rewriteWorldFile(opened, { title: '另存' }), OPEN);
     expect(again.bytes.get('author')).toEqual(opened.bytes.get('author'));
@@ -893,7 +893,7 @@ describe('超长的正文不连累整个世界', () => {
     const c = await readWorldContent(opened);
     expect(c.author).toBeNull();
     expect(c.authorTrouble).toBe('damaged');
-    expect(c.warnings.join('')).toContain('坏了');
+    expect(c.warnings.join('')).toContain('没读出来');
   });
 
   it('放进仓库:字节留着不当正文读;写了新的正文,旧的另起名字留着,存成文件两个都在', async () => {
