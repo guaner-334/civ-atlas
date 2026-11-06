@@ -77,7 +77,7 @@ import { fullOverview } from '../fullWorldView';
 import { sizeText } from '../sizeWords';
 import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, deleteWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markFromFile, markOpened, newWorldId, notify, persistent, sameOrigin, setWorldStats, storageFullWhy, storedCount } from '../saveStore';
 import { getStage, setStage, type DraftBase, type Stage } from '../stageStore';
-import { enterStepwise, leaveStepwise } from '../stepwiseStore';
+import { enterStepwise, leaveStepwise, stepStuck } from '../stepwiseStore';
 import { setTerrainTool, type TerrainStatus } from '../TerrainTools';
 import { clearToast, showToast } from '../Toast';
 import { OK_TTL, type ToastAction } from '../toastStore';
@@ -613,6 +613,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const fp = civPlay.current;
     if (loadedGen !== undefined && fp && cleanPlay(edits.play)?.year === fp.year) {
       enterStepwise(playFromOf(edits), playAt(fp) / YEAR_TICKS);
+      // 存下的就停在推不下去的那一年:不再往下算(点播放再看那张卡)
+      if (rc.stuck) stepStuck(playAt(fp) / YEAR_TICKS, rc.stuck.at);
       setCivTime({ year: playAt(fp) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
     }
     // 在旧版本建的世界的地图上打造文明:现在算出来的地图和它不一样,不让打造(这一份还没存,回到我的世界)

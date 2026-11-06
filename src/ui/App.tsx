@@ -64,6 +64,7 @@ import {
   leaveStepwise,
   setStepGesture,
   stepLost,
+  stepStuck,
   stepWheel,
   branchSwitching,
   subscribeStepwise,
@@ -985,6 +986,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             civPlay.current = back.play;
             putEditsQuiet(back);
             enterStepwise(playFromOf(back), playAt(back.play) / YEAR_TICKS);
+            const stuck = rawRef.current?.stuck;
+            if (stuck) stepStuck(playAt(back.play) / YEAR_TICKS, stuck.at);
             setCivTime({ year: playAt(back.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
           } else if (sw) branchSwitching(null);
         } else if (req.type === 'turn') {

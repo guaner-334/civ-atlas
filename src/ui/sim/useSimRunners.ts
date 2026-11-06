@@ -16,7 +16,7 @@ import { sameUpheavals } from '../../gen/terrainEdits';
 import { spaced, yearAt } from '../../gen/era';
 import { SAVE_SUFFIX } from '../StepwiseDialogs';
 import { branchNote, branchRef } from '../StepBranches';
-import { branchSwitching, enterStepwise, getStepwise, rewoundTo, saveBackEdits, setStepwiseActions, subscribeStepwise } from '../stepwiseStore';
+import { branchSwitching, enterStepwise, getStepwise, rewoundTo, saveBackEdits, setStepwiseActions, stepStuck, subscribeStepwise } from '../stepwiseStore';
 import { currentWorld, isStored, listWorlds, nextTitle, notify, overwriteWorld, saveCurrentAs, stepOrigin, storageFullWhy } from '../saveStore';
 import { askHistory, getEdits, putEditsQuiet } from '../editsStore';
 import { getPending, removePending } from '../pendingStore';
@@ -222,6 +222,8 @@ export function useSimRunners(deps: SimRunnersDeps): void {
           if (JSON.stringify(next.play) === JSON.stringify(civPlay.current ?? null)) {
             putEditsQuiet(next);
             enterStepwise(playFromOf(next), playAt(next.play) / YEAR_TICKS);
+            const stuck = rawRef.current?.stuck;
+            if (stuck) stepStuck(playAt(next.play) / YEAR_TICKS, stuck.at);
             setCivTime({ year: playAt(next.play) / YEAR_TICKS, playing: false, scrubbing: false, story: false });
             return switchedToast(note);
           }
