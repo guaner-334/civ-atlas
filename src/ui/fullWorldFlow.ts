@@ -255,7 +255,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     end(doneNote(next, acts));
     // 账号里的数字以服务器为准
     const fresh = await fetchOverview().catch(() => null);
-    if (fresh) setFullOverview(fresh);
+    if (fresh && getSession()?.token === token) setFullOverview(fresh);
     savesChanged();
   } catch (e) {
     if (e === CANCELLED || (e as { name?: string } | null)?.name === 'AbortError') {
@@ -273,7 +273,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     if (e instanceof ServerError && e.code === 'conflict') {
       const again = await fetchOverview().catch(() => null);
       if (live !== me) return;
-      if (again) setFullOverview(again);
+      if (again && getSession()?.token === token) setFullOverview(again);
     }
     end(errorNote(e, ov.limits, sending, acts));
   }
