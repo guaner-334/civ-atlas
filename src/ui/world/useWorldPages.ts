@@ -21,6 +21,8 @@ import { copyNotes } from '../../ai/library';
 import { fetchWork, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../../account/gallery';
 import { ServerError, serverBase } from '../../account/server';
 import { startFullView } from '../fullWorldView';
+import type { SharedWorld } from '../fullWorldPull';
+import { sizeText } from '../sizeWords';
 import { setGoHome } from '../AccountDialogs';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
@@ -183,33 +185,59 @@ export function useWorldPages(deps: WorldPagesDeps) {
     enterWall({ kind: 'work', id, state: 'loading' }, id);
     const my = wallSeq.current;
     if (!isWorkId(id) || !serverBase()) return setWall({ kind: 'work', id, state: 'gone' });
-    fetchWork(id).then(
-      (it) => {
-        if (my !== wallSeq.current) return;
-        if (it.kind === 'world') return openWorkWorld(it);
-        setWall(it.kind === 'map' ? { kind: 'map', work: it } : { kind: 'list', preset: it });
-      },
-      (e: unknown) => {
-        if (my !== wallSeq.current) return;
-        const gone = isWorkGone(e);
-        setWall({ kind: 'work', id, state: gone ? 'gone' : { error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后再试。' : e instanceof Error ? e.message : String(e) } });
-        // 作品墙上的卡片跟着去掉
-        if (gone) loadGallery(true);
-      },
-    );
+    const failed = (e: unknown) => {
+      if (my !== wallSeq.current) return;
+      clearToast('share');
+      const gone = isWorkGone(e);
+      setWall({ kind: 'work', id, state: gone ? 'gone' : { error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后再试。' : e instanceof Error ? e.message : String(e) } });
+      // 作品墙上的卡片跟着去掉
+      if (gone) loadGallery(true);
+    };
+    fetchWork(id).then((it) => {
+      if (my !== wallSeq.current) return;
+      if (it.kind === 'world') return it.full ? pullWorkWorld(it, it.full.bytes, my).catch(failed) : openWorkWorld(it);
+      setWall(it.kind === 'map' ? { kind: 'map', work: it } : { kind: 'list', preset: it });
+    }, failed);
   };
-  /** 打开世界作品:和打开分享链接一样,别人的世界先只是看看,改了才另存进我的世界(出处写作品) */
-  const openWorkWorld = (it: GalleryItem) => {
-    const p = parseSave(JSON.stringify(it.save ?? null));
+  /** 世界作品的世界文件:提示条上写取了多少,取完照存的内容打开(同打开带着整个世界的短链接) */
+  const pullWorkWorld = async (it: GalleryItem, bytes: number, my: number) => {
+    const here = () => my === wallSeq.current;
+    const text = `正在打开作品「${it.title || '未命名世界'}」`;
+    showToast({ id: 'share', kind: 'progress', text });
+    const got = await (await import('../fullWorldPull')).pullWork(it.id, bytes, (done, total) => {
+      if (here()) showToast({ id: 'share', kind: 'progress', text, more: [`有 ${sizeText(total)}，已经取到 ${sizeText(done)}`], ...(total ? { progress: done / total } : {}) });
+    });
+    if (!here()) return;
+    clearToast('share');
+    openWorkWorld({ ...it, save: got.save }, got);
+  };
+  /** 打开世界作品:和打开分享链接一样,别人的世界先只是看看,改了才另存进我的世界(出处写作品)。file = 取到的世界文件,照它存的内容打开 */
+  const openWorkWorld = (it: GalleryItem, file?: SharedWorld) => {
+    const p = file ?? parseSave(JSON.stringify(it.save ?? null));
     if (!p.ok) return setWall({ kind: 'work', id: it.id, state: { error: briefError(p.error) } });
     const sv = p.save;
-    const id = newWorldId();
+    const id = file?.id ?? newWorldId();
     setWall(null);
     setSharedFor(null);
     setWorkFor({ id, work: it });
     workItems.current.set(id, it);
     openTarget(
-      { id, kind: 'visit', params: sv.params, edits: sv.edits, saved: sv.edits, title: it.title || sv.title, view: sv.view ?? null, from: 'link', save: sv, warnings: p.warnings, gallery: it.id, origin: workOrigin(it), moment: sv.moment ?? null },
+      {
+        id,
+        kind: 'visit',
+        params: sv.params,
+        edits: sv.edits,
+        saved: sv.edits,
+        title: it.title || sv.title,
+        view: sv.view ?? null,
+        from: 'link',
+        save: sv,
+        warnings: p.warnings,
+        gallery: it.id,
+        origin: workOrigin(it),
+        moment: sv.moment ?? null,
+        ...(file ? { fullFile: true as const } : {}),
+      },
       'replace',
     );
   };
