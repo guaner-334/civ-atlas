@@ -289,7 +289,7 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, preset, onPresetS
         <div className="gl-head">
           <div className="mw-heading">
             <h1>作品墙</h1>
-            <p>{phone ? '作者投来、我们挑过的作品。点开随便看，想改就另存一份，出处会自动写上。' : '作者投来、我们挑过的世界、地图和新建参数。点开随便看，想改就另存一份，出处会自动写上。'}</p>
+            <p>{phone ? '作者投来、我们挑过的作品。点开随便看，想改就另存一份，出处会自动写上。' : '作者投来、我们挑过的世界、地图、新建参数和规则。点开随便看，想改就另存一份，出处会自动写上。'}</p>
           </div>
           {!phone && (
             <button className="mw-btn" data-act="gallery-howto" onClick={() => setHowto(true)}>
@@ -490,8 +490,17 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
         <p className="acct-lead">作品墙上的作品都是作者投来、我们看过才放上去的。网站上不收稿，请到 QQ 交流群里找管理员，带上三样：</p>
         <div className="acct-grp gl-three">
           <div className="acct-gr">
-            <b>分享链接</b>
-            <span>世界、地图用存档菜单里的「复制配方链接」；新建参数用预设菜单里的「复制分享链接…」。复制不了配方链接的世界，{fullOn ? '传到账号后发分享链接，或者' : ''}把存成的文件发给管理员</span>
+            <b>作品</b>
+            <dl className="gl-kinds">
+              <dt>世界</dt>
+              <dd>存档菜单里「存成文件」，把文件发给管理员；只会复制配方链接也行，管理员替你存成文件{fullOn ? '；传到账号后发分享链接也行' : ''}</dd>
+              <dt>地图</dt>
+              <dd>存档菜单里的「复制配方链接」</dd>
+              <dt>新建参数</dt>
+              <dd>预设菜单里的「复制分享链接…」，连规则一起的也行</dd>
+              <dt>规则</dt>
+              <dd>调规则那一页右上的「分享」，复制链接</dd>
+            </dl>
           </div>
           <div className="acct-gr">
             <b>署名</b>
@@ -505,8 +514,8 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
         <h3 className="gl-h3">投之前请知道</h3>
         <ol className="gl-ol">
           <li>作品是你自己做的；改的是别人的作品，网站会自动写上原来的出处。</li>
-          <li>你同意它在作品墙上公开展示：谁都能打开看、另存一份接着改、用你的地图或参数打造新世界；另存的那份写着你的署名和出处，改不掉。</li>
-          <li>我们会看过里面所有的字（国名、人名、改的名字、人物和标注、介绍）再决定上不上；可能选进本月精选，配一句推荐语。封面由网站自动截地图。</li>
+          <li>你同意它在作品墙上公开展示：谁都能打开看、另存一份接着改、用你的地图、参数或规则新建世界；另存的那份写着你的署名和出处，改不掉。</li>
+          <li>我们会看过里面所有的字（国名、人名、改的名字、人物和标注、AI 写的正文、介绍）再决定上不上；可能选进本月精选，配一句推荐语。封面由网站自动截地图。</li>
           <li>想撤下随时说。撤下后作品墙上不再出现；别人已经另存的在他们自己的浏览器里，我们删不掉。</li>
           <li>被举报、核实不适合公开的，我们会撤下。</li>
         </ol>
