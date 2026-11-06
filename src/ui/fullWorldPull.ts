@@ -1,8 +1,8 @@
 /**
- * 从账号取回整个世界:账号窗里取回、打开传过的世界、别人打开带着整个世界的短链接。用到才下载,首页不带。
+ * 从服务器取回整个世界:账号窗里取回、打开传过的世界、别人打开带着整个世界的短链接、打开作品墙上的世界作品。用到才下载,首页不带。
  * 账号里那份和配方对得上才取;对不上的按配方算,和没传过一样。地图留着的世界不能按配方算,地图只能从那份里取,取到后历史按配方重推。
  */
-import { fetchOwnFile, fetchSharedFile } from '../account/fullWorlds';
+import { fetchOwnFile, fetchSharedFile, fetchWorkFile } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
 import { getSession } from '../account/session';
 import { SESSION_CHANGED, stillSignedIn, wipeCount } from '../account/sync';
@@ -156,12 +156,18 @@ export interface SharedWorld {
   warnings: string[];
 }
 
-/**
- * 别人打开短链接:取整个世界,放进世界仓库,用一个新编号打开(不进「我的世界」)。
- * 记成已经过期的删除记录:没存进「我的世界」的,下次清理时清掉;改了存进来的,内容接着用。
- */
+/** 别人打开短链接:取整个世界,用一个新编号打开(不进「我的世界」) */
 export async function pullShared(code: string, total: number, onBytes: (done: number, total: number) => void): Promise<SharedWorld> {
-  const file = await fetchSharedFile(code, { total, onBytes });
+  return adoptVisit(await fetchSharedFile(code, { total, onBytes }));
+}
+
+/** 打开作品墙上的世界作品:同短链接 */
+export async function pullWork(id: string, total: number, onBytes: (done: number, total: number) => void): Promise<SharedWorld> {
+  return adoptVisit(await fetchWorkFile(id, { total, onBytes }));
+}
+
+/** 放进世界仓库,记成已经过期的删除记录:没存进「我的世界」的,下次清理时清掉;改了存进来的,内容接着用 */
+async function adoptVisit(file: Blob): Promise<SharedWorld> {
   const id = newWorldId();
   markTrash(id, Date.now() - TRASH_KEEP_MS);
   const free = holdWorld(id);
