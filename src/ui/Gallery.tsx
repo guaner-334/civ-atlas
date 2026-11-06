@@ -25,7 +25,7 @@ import { VersionText } from './VersionNews';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { decodePresetHash } from './presetLink';
 import type { SharedPreset } from './presetStore';
-import { openRulesWork, rulesWorkId, useRulesSheet } from './rules/sheetStore';
+import { closeRulesSheet, getRulesSheet, openRulesWork, rulesWorkId, useRulesSheet } from './rules/sheetStore';
 import { rulesUiOn } from './rules/flag';
 import { DEFAULT_PARAMS } from '../gen/params';
 import { END_YEAR_DEFAULT } from '../gen/edits';
@@ -218,6 +218,13 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
   useEffect(() => {
     if (shown?.kind === 'rules') openRulesWork(shown, shown.ruleLink ?? '');
   }, [shown]);
+  // 规则作品的大卡不在这一页里:离开作品墙(后退、回我的世界)时一起关上,还在取的也作废
+  useEffect(
+    () => () => {
+      if (rulesWorkId(getRulesSheet())) closeRulesSheet();
+    },
+    [],
+  );
   const sheet = useRulesSheet();
   const shownId = presetW?.w.id ?? rulesWorkId(sheet);
   const shownRef = useRef(onShown);
