@@ -17,7 +17,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { getSecrets, setSecret } from '../ai/settings';
-import { ServerError, call, serverBase, setAuthLostHandler } from './server';
+import { ServerError, accountServer, call, setAuthLostHandler } from './server';
 
 export interface AccountUser {
   id: string;
@@ -126,11 +126,11 @@ export function onSessionChange(f: () => void): () => void {
 }
 
 /**
- * 界面上算不算登录着:登录过、而且这个网站配了服务器。没配服务器(构建时去掉了)的话,
+ * 界面上算不算登录着:登录过、而且这个网站开着账号(配了服务器、没关账号)。没开的话,
  * 浏览器里留着的登录先不用:入口按没登录显示(长链接分享、只存在浏览器里),不然点了都是"还没有开放"
  */
 export function currentAccount(): Session | null {
-  return serverBase() ? load() : null;
+  return accountServer() ? load() : null;
 }
 
 /** React:登录状态变了就重渲染(没配服务器 = null,见 currentAccount) */
@@ -186,7 +186,7 @@ let options: { base: string; v: AuthOptions } | null = null;
 
 /** 登录窗选项(问一次服务器就记住;没有这个接口 = 都开放、不要邀请) */
 export async function fetchAuthOptions(): Promise<AuthOptions> {
-  const base = serverBase();
+  const base = accountServer();
   if (!base) return OPEN;
   if (options?.base === base) return options.v;
   let v = OPEN;
@@ -280,7 +280,7 @@ export async function login(account: string, code: string, inviteCode?: string):
   // 等回话的工夫别的标签页登录了(或退出了,登录了又退出了):以那边为准,这次的令牌作废
   refreshSession();
   if (swaps !== seen || (load()?.token ?? null) !== before) {
-    if (serverBase()) void call('/v1/auth/logout', { method: 'POST', token: s.token }).catch(() => {});
+    if (accountServer()) void call('/v1/auth/logout', { method: 'POST', token: s.token }).catch(() => {});
     throw new ServerError(409, 'conflict', '别的页面里已经换了登录，这里没有登录');
   }
   invite = null;
@@ -294,7 +294,7 @@ export async function logout(): Promise<void> {
   const had = load();
   if (!had) return;
   write(null);
-  if (serverBase()) await call('/v1/auth/logout', { method: 'POST', token: had.token }).catch(() => {});
+  if (accountServer()) await call('/v1/auth/logout', { method: 'POST', token: had.token }).catch(() => {});
 }
 
 /**

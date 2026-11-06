@@ -17,6 +17,8 @@ pnpm dev        # 打开 http://localhost:5188
 
 网站账号、云同步、短链接和"我们的 AI"要连一个账号服务器(另一个独立程序,不在本仓库里),地址在构建时用环境变量 `VITE_AI_SERVER` 给;
 不设这个变量(本地开发、自己部署的默认情况),这些入口都不出现,其余功能照常。
+同一台服务器也管作品墙;再设 `VITE_ACCOUNTS=off` 就只开作品墙:登录、云同步、短链接、"我们的 AI"照样不出现,也不去请求它们。
+本地开发时网址加 `aiServer=fake` 用开发假服务器(`scripts/lib/fakeAiServer.ts`,作品墙里摆着几件样品),再加 `accounts=off` 看只开作品墙的样子。
 
 「联系我们」(交流群的群名、群号、加群链接)也不在代码里:网站根目录放一份 `contact.json`(格式见 `src/ui/contact.ts`),网页打开时读它,
 没有这个文件就不显示「联系我们」。本仓库的网站用 Actions 里的「更新联系方式」(`.github/workflows/contact.yml`)换这个文件,不用重新发布。

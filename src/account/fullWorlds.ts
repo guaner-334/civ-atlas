@@ -11,7 +11,7 @@
  */
 import type { FullEntry, FullOverview } from '../ui/fullWorldView';
 import { listCloud } from './cloud';
-import { serverBase, ServerError } from './server';
+import { ServerError, serverFor } from './server';
 import { authToken, authed, sessionExpired } from './session';
 
 /** 块的切法和指纹(fullBlocks.ts) */
@@ -99,8 +99,11 @@ function errorOf(status: number, raw: string, token: string | undefined): Server
 /** 要看传了多少字节,只能用 XMLHttpRequest */
 const xhrSender: BlockSender = (sum, data, { signal, onBytes, token }) =>
   new Promise((resolve, reject) => {
+    const path = `/v1/world-blocks/${sum}`;
+    const base = serverFor(path);
+    if (!base) return reject(new ServerError(0, 'not-configured', '还没有开放'));
     const x = new XMLHttpRequest();
-    x.open('PUT', `${serverBase()}/v1/world-blocks/${sum}`);
+    x.open('PUT', base + path);
     if (token) x.setRequestHeader('Authorization', `Bearer ${token}`);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
     let timer: ReturnType<typeof setTimeout>;
@@ -225,7 +228,7 @@ const READ_STALL_MS = 60_000;
 
 /** 下载整个世界文件,一边收一边报进度。出错抛 ServerError */
 export async function fetchFile(path: string, o: { token?: string; total?: number; signal?: AbortSignal; onBytes?: (done: number, total: number) => void } = {}): Promise<Blob> {
-  const base = serverBase();
+  const base = serverFor(path);
   if (!base) throw new ServerError(0, 'not-configured', '还没有开放');
   const ctl = new AbortController();
   const stop = () => ctl.abort();

@@ -1,12 +1,14 @@
 /**
- * 网站服务器(账号、云同步、分享短链接、我们的 AI 共用一台):地址和请求。
+ * 网站服务器(账号、云同步、分享短链接、我们的 AI、作品墙共用一台):地址和请求。
  *
  * 基址:构建变量 VITE_AI_SERVER(如 https://ai.example.com)。没配置 = 没有服务器:不显示登录、云同步、短链接,
  * 一切和以前一样(世界只存在浏览器里,分享用长链接)。开发时网址加 aiServer=fake 用本地假服务器(scripts/lib/fakeAiServer.ts)。
+ * 构建变量 VITE_ACCOUNTS=off(开发时网址加 accounts=off):只开作品墙,账号那些和没配服务器一样,一个请求都不发。
  * 接口约定见 src/ai/providers/official.ts 文件头(登录、AI)和 src/account/cloud.ts 文件头(世界、分享)。
  */
 
 let override: string | null | undefined;
+let accountsOverride: boolean | undefined;
 
 /** 服务器地址;null = 没有服务器 */
 export function serverBase(): string | null {
@@ -16,6 +18,23 @@ export function serverBase(): string | null {
   // 开发时:网址加 aiServer=fake 用本地假服务器(vite.config.ts 里挂的);正式构建里这段不生效
   if (import.meta.env?.DEV && typeof location !== 'undefined' && new URLSearchParams(location.search).get('aiServer') === 'fake') return '/__fake-ai';
   return null;
+}
+
+/** 账号那些(登录、传到账号、短链接、我们的 AI)开不开 */
+export function accountsOn(): boolean {
+  if (accountsOverride !== undefined) return accountsOverride;
+  if ((import.meta.env?.VITE_ACCOUNTS as string | undefined)?.trim() === 'off') return false;
+  return !(import.meta.env?.DEV && typeof location !== 'undefined' && new URLSearchParams(location.search).get('accounts') === 'off');
+}
+
+/** 账号那些用的服务器地址;没有服务器或账号关着 = null */
+export function accountServer(): string | null {
+  return accountsOn() ? serverBase() : null;
+}
+
+/** 请求这个接口用的地址;账号关着时只有作品墙的接口有 */
+export function serverFor(path: string): string | null {
+  return /^\/v1\/gallery(\/|$)/.test(path) ? serverBase() : accountServer();
 }
 
 const listeners = new Set<() => void>();
@@ -28,6 +47,12 @@ export function onServerChange(f: () => void): () => void {
 /** 单测用:指定服务器地址(null = 没有;undefined = 恢复按构建变量) */
 export function setServerForTest(url: string | null | undefined): void {
   override = url;
+  for (const f of listeners) f();
+}
+
+/** 单测用:开关账号那些(undefined = 恢复按构建变量) */
+export function setAccountsForTest(on: boolean | undefined): void {
+  accountsOverride = on;
   for (const f of listeners) f();
 }
 
@@ -87,7 +112,7 @@ const TIMEOUT_MSG = '服务器很久没有回话，请检查网络后再试';
 
 /** 调一个接口,回 JSON(204 = null);出错抛 ServerError */
 export async function call<T>(path: string, init: CallInit = {}): Promise<T> {
-  const base = serverBase();
+  const base = serverFor(path);
   if (!base) throw new ServerError(0, 'not-configured', '还没有开放');
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
