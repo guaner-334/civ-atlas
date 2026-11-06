@@ -55,6 +55,7 @@ import { OriginsPage } from './OriginsPage';
 import { originCiv, originRefusal, originSpots, poseMap } from './origins';
 import { OFFICIAL_RULES_NAME, ruleSetLabel } from '../../gen/civ/ruleSetEdit';
 import { findMyRules, useMyRules } from '../rulesStore';
+import { takePresetRules } from '../presetRules';
 import { rulesUiOn } from '../rules/flag';
 import { RulesPickHost } from '../rules/RulesHost';
 import {
@@ -1132,9 +1133,14 @@ export function Studio(p: StudioProps) {
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
   const changed = changedKeys(presets, presets.chosen, p.params);
-  /** 选了一个预设:参数换成它的(推演年数也是);存了种子的连种子换(以别的世界为底稿时种子不换) */
+  /** 选了一个预设:参数换成它的(推演年数也是);存了种子的连种子换(以别的世界为底稿时种子不换);存了规则的规则选好那一套(照故事找的锁着) */
   const applyPreset = (c: PresetPick) => {
     if (c.endYear !== years) setEndYear(c.endYear);
+    if (c.rules && rulesOn && !found) {
+      const r = takePresetRules(c.rules);
+      setRulesPick(r.id && findMyRules(r.id) ? r.id : undefined);
+      setRules(r);
+    }
     if (!base && c.seed && c.seed !== p.params.seed) p.onSeed(c.seed, { ...c.params, seed: c.seed });
     else p.onParams({ ...c.params, seed: p.params.seed });
   };
@@ -1286,7 +1292,7 @@ export function Studio(p: StudioProps) {
         <div className="nw-sliders">
           <div className="ps-row nw-preset">
             <span className="ps-l">预设</span>
-            <PresetPicker params={p.params} endYear={years} onPick={applyPreset} phone={p.phone} />
+            <PresetPicker params={p.params} endYear={years} rules={edits.rules} onPick={applyPreset} phone={p.phone} />
           </div>
           {SLIDERS.slice(0, 3).map(slider)}
           <div className="nw-sub">大陆</div>
