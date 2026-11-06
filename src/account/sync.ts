@@ -25,14 +25,14 @@ const thumbOf = (t: string | null) => (t && t.length <= 200_000 ? t : null);
 export const SESSION_CHANGED = 'session-changed';
 const NOTES_UNREAD = 'notes-unread';
 
-// 退出登录一开始就加一:令牌要到最后才清,删这台设备上的世界在那之前,正在取的不能等令牌变了才停
-let signOuts = 0;
+// 退出登录选了从这台设备上删掉,一开始就加一:令牌要到最后才清,删世界在那之前,正在取的不能等令牌变了才停
+let wipes = 0;
+export const wipeCount = (): number => wipes;
 
-/** 从账号往这台设备上写之前问一句:开始取的那次登录还在吗(at = 开始时的 signOutCount()) */
+/** 从账号往这台设备上写之前问一句:开始取的那次登录还在吗(at = 开始时的 wipeCount()) */
 export function stillSignedIn(token: string | undefined, at: number): boolean {
-  return !!token && getSession()?.token === token && signOuts === at;
+  return !!token && getSession()?.token === token && wipes === at;
 }
-export const signOutCount = (): number => signOuts;
 
 /**
  * 存进账号。alsoFile:AI 写的东西整个世界文件里也有,太多存不进这一份时不算错;只有存档的世界放不下要说。
@@ -81,7 +81,7 @@ export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWo
 /** 从账号取回存档、AI 写的东西(整个世界另外取,见 ui/fullWorldPull.ts)。token:替哪一次登录取,换了就不往这台设备上写 */
 export async function takeWorld(id: string, token = getSession()?.token): Promise<void> {
   if (!isStored(id) && storedCount() >= MAX_WORLDS) throw new ServerError(0, 'count', `「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个`);
-  const at = signOuts;
+  const at = wipes;
   const w = await getCloud(id);
   // 等的工夫退出了(选了从这台设备上删掉的,写进来就又留下了)、换了账号
   if (!stillSignedIn(token, at)) throw new ServerError(0, SESSION_CHANGED, '账号变了');
@@ -100,8 +100,8 @@ const UNSAVED_WHY = '正在看的这个世界最新的改动没能存进浏览�
 export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
   // 最新的改动只在这个页面里:删了就没了
   if (!keep && getSession() && currentUnsaved()) return { ok: false, message: UNSAVED_WHY };
-  signOuts++;
   if (!keep) {
+    wipes++;
     const gone = removeAllWorlds();
     if (!gone) return { ok: false, message: '浏览器没让删掉这台设备上的世界，没有退出。可以选「留着」再退出' };
     forgetNotes();

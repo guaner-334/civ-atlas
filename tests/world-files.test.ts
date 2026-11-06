@@ -196,6 +196,15 @@ describe('打开一个文件', () => {
     expect(notes.size).toBe(2);
   });
 
+  it('从账号取回的文件,放的工夫这台设备上的世界被清了(退出登录选了删掉):写进去的也删掉,AI 正文不写', async () => {
+    const id = 'wadopt00002';
+    let asked = 0;
+    const r = await adoptWorldFile(id, file, () => (++asked > 1 ? 'wiped' : 'go'));
+    expect(r.ok).toBe(false);
+    expect(await latestOf(id)).toBeNull();
+    expect(exportNotes(id)).toEqual([]);
+  });
+
   it('打开同一个文件两次:第二次认出内容相同,不重复放', async () => {
     const id = await keepFile(file);
     const again = asLooked(await lookWorldFile(file));

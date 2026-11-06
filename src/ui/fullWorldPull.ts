@@ -5,7 +5,7 @@
 import { fetchOwnFile, fetchSharedFile } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
 import { getSession } from '../account/session';
-import { SESSION_CHANGED, signOutCount, stillSignedIn } from '../account/sync';
+import { SESSION_CHANGED, stillSignedIn, wipeCount } from '../account/sync';
 import { keptMapOf } from '../gen/edits';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
 import { fullOverview, markRecipe, pairText, setFullPull } from './fullWorldView';
@@ -37,12 +37,14 @@ async function needsPull(w: StoredWorld): Promise<boolean> {
 /** 下载、核对、放进这个世界名下。出错抛 */
 async function pullInto(w: StoredWorld, onBytes: (done: number, total: number) => void, signal: AbortSignal): Promise<void> {
   const token = getSession()?.token;
-  const at = signOutCount();
+  const at = wipeCount();
   const entry = fullOverview()?.worlds.find((x) => x.id === w.id);
   const file = await fetchOwnFile(w.id, { total: entry?.bytes, signal, onBytes });
-  // 下载的工夫退出了(选了从这台设备上删掉的,放进来就又留下了)、换了账号
-  if (!stillSignedIn(token, at)) throw new ServerError(0, SESSION_CHANGED, '账号变了');
-  const r = await adoptWorldFile(w.id, file);
+  // 下载、核对的工夫退出了(选了从这台设备上删掉的,放进来就又留下了)、换了账号
+  const gone = new ServerError(0, SESSION_CHANGED, '账号变了');
+  if (!stillSignedIn(token, at)) throw gone;
+  const r = await adoptWorldFile(w.id, file, () => (wipeCount() !== at ? 'wiped' : getSession()?.token !== token ? 'stop' : 'go'));
+  if (!stillSignedIn(token, at)) throw gone;
   if (!r.ok) throw new ServerError(0, r.kind, r.message);
 }
 

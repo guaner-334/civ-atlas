@@ -129,12 +129,13 @@ export function setFullNote(id: string, note: FullNote | null) {
 }
 
 /** 问一次服务器;问不到(断网)留着现在的,点了再听服务器的 */
-let asking: Promise<void> | null = null;
+let asking: { user: string; p: Promise<void> } | null = null;
 export function askFull(): Promise<void> {
   if (!who || !serverBase()) return Promise.resolve();
-  if (asking) return asking;
+  // 正在问的是换账号之前的:那份回来也不用,另问一次
+  if (asking?.user === who) return asking.p;
   const user = who;
-  asking = import('../account/fullWorlds')
+  const p: Promise<void> = import('../account/fullWorlds')
     .then((m) => m.fetchOverview())
     .then(
       (o) => {
@@ -143,9 +144,10 @@ export function askFull(): Promise<void> {
       () => {},
     )
     .finally(() => {
-      asking = null;
+      if (asking?.p === p) asking = null;
     });
-  return asking;
+  asking = { user, p };
+  return p;
 }
 
 let started = false;

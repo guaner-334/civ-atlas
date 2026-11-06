@@ -94,7 +94,7 @@ const timing = {
 const CONVERTING = 'civ-atlas:converting';
 const CLEARED = VAULT_CLEARED;
 
-function clearedAt(): string | null {
+export function clearedAt(): string | null {
   try {
     return localStorage.getItem(CLEARED);
   } catch {

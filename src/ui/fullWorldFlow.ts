@@ -262,6 +262,8 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
       if (live === me) throw e;
       return;
     }
+    // 这一件已经取消、又开始了新的一件:它的错不碰新的那件
+    if (live !== me) return;
     if (e instanceof ServerError && e.code === SESSION_CHANGED) {
       live = null;
       setFullJob(null);
@@ -270,6 +272,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     }
     if (e instanceof ServerError && e.code === 'conflict') {
       const again = await fetchOverview().catch(() => null);
+      if (live !== me) return;
       if (again) setFullOverview(again);
     }
     end(errorNote(e, ov.limits, sending, acts));
