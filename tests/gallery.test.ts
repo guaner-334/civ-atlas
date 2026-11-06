@@ -143,12 +143,22 @@ describe('作品墙的列表', () => {
 describe('打开一个作品', () => {
   const save = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'c7', '金阳洋两岸');
 
-  it('世界作品带着存档;新建参数作品带着预设串', async () => {
-    route = (req) =>
-      new URL(req.url).pathname.endsWith('/m3np8rta') ? json(200, { ...LIST.works[1], preset: 'preset=1&name=x' }) : json(200, { ...LIST.works[0], save });
+  it('世界作品带着世界文件的指纹和大小;只存了存档的旧世界作品带着存档;新建参数作品带着预设串', async () => {
+    const full = { sum: 'a'.repeat(64), bytes: 4_900_000 };
+    let world: Record<string, unknown> = { full };
+    route = (req) => (new URL(req.url).pathname.endsWith('/m3np8rta') ? json(200, { ...LIST.works[1], preset: 'preset=1&name=x' }) : json(200, { ...LIST.works[0], ...world }));
     const w = await fetchWork('k7qm2xpa');
     expect(w.kind).toBe('world');
-    expect(w.save).toEqual(save);
+    expect(w.full).toEqual(full);
+    expect(w.save).toBeUndefined();
+    world = { save };
+    const old = await fetchWork('k7qm2xpa');
+    expect(old.full).toBeUndefined();
+    expect(old.save).toEqual(save);
+    // 世界文件的大小不像样:当没有,有存档就用存档
+    world = { full: { sum: full.sum, bytes: -1 }, save };
+    expect(await fetchWork('k7qm2xpa')).toMatchObject({ save });
+    expect((await fetchWork('k7qm2xpa')).full).toBeUndefined();
     expect((await fetchWork('m3np8rta')).preset).toBe('preset=1&name=x');
   });
 
@@ -160,9 +170,11 @@ describe('打开一个作品', () => {
     expect(isWorkGone(await fetchWork('k7qm2xpa').catch((e: unknown) => e))).toBe(true);
     route = () => err(500, 'server');
     expect(isWorkGone(await fetchWork('k7qm2xpa').catch((e: unknown) => e))).toBe(false);
-    // 回来的不是这个作品、世界作品没带存档:看不懂
+    // 回来的不是这个作品、世界作品世界文件和存档都没带:看不懂
     route = () => json(200, { ...LIST.works[0] });
     expect(isWorkGone(await fetchWork('k7qm2xpa').catch((e: unknown) => e))).toBe(false);
+    await expect(fetchWork('k7qm2xpa')).rejects.toThrow('看不懂');
+    route = () => json(200, { ...LIST.works[0], full: { bytes: 100 } });
     await expect(fetchWork('k7qm2xpa')).rejects.toThrow('看不懂');
   });
 });

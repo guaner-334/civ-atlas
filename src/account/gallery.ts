@@ -2,8 +2,9 @@
  * 作品墙:作者投来、挑过以后放上去的世界、地图和新建参数。网页上只能看、拿来用、举报(界面在 ui/Gallery.tsx)。
  *
  *   GET  /v1/gallery              → { month, featured: [{ id, note }], challenges: [{ id, title, blurb, deadline, works }], works: [{ id, kind, title, by, blurb, version, addedAt }] }
- *   GET  /v1/gallery/:id          → 列表里那一项 + 世界、地图的 save(和存成文件同一格式,带 moment)/ 新建参数的 preset(预设链接 # 后面那段)
- *                                   撤下的 410 gallery-gone;没有 404
+ *   GET  /v1/gallery/:id          → 列表里那一项 + 世界的 full { sum, bytes }(只存了存档的旧作品给 save)/ 地图的 save(和存成文件同一格式,带 moment)/
+ *                                   新建参数的 preset(预设链接 # 后面那段);撤下的 410 gallery-gone;没有 404
+ *   GET  /v1/gallery/:id/full     → 世界作品的世界文件(撤下的 410)
  *   GET  /v1/gallery/:id/cover    → 封面 JPEG(宽高 2:1;世界 = 政区图,地图 = 实景图,新建参数 = 星球)
  *   POST /v1/gallery/:id/report { reason } → 204;同一个网络一小时最多几次(429)
  *
@@ -57,7 +58,9 @@ export interface GalleryList {
 
 /** 取一个作品:列表那一项 + 内容 */
 export interface GalleryItem extends GalleryWork {
-  /** 世界、地图:存档(和存成文件同一格式) */
+  /** 世界:世界文件的指纹和大小 */
+  full?: { sum: string; bytes: number };
+  /** 地图、只存了存档的旧世界作品:存档(和存成文件同一格式) */
   save?: unknown;
   /** 新建参数:预设链接 # 后面那段(preset=1&…) */
   preset?: string;
@@ -125,9 +128,12 @@ export async function fetchWork(id: string): Promise<GalleryItem> {
   const w = cleanWork(r);
   if (!w || w.id !== id) throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
   const out: GalleryItem = { ...w };
+  const full = r.full as { sum?: unknown; bytes?: unknown } | null | undefined;
   if (w.kind === 'preset') {
     if (typeof r.preset !== 'string') throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
     out.preset = r.preset;
+  } else if (w.kind === 'world' && full && typeof full.sum === 'string' && typeof full.bytes === 'number' && Number.isSafeInteger(full.bytes) && full.bytes > 0) {
+    out.full = { sum: full.sum, bytes: full.bytes };
   } else {
     if (!r.save || typeof r.save !== 'object') throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
     out.save = r.save;
