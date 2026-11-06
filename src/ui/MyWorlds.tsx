@@ -49,7 +49,7 @@ import { copyResults } from './resultStore';
 import { Icon } from './icons';
 import { SpaceBar, SpaceEntry, loadSpaceDialog, useSpace } from './SpaceBar';
 import { spaceChanged } from './spaceFacts';
-import { TitleInput, when } from './worldParts';
+import { TitleInput, playedTo, when } from './worldParts';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactLink } from './ContactLink';
 import { VersionText } from './VersionNews';
@@ -59,8 +59,7 @@ import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './OldSiteBadge';
 import { BETA_SITE, OLD_SITE } from './oldSite';
 import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
-import { GENERATOR_VERSION, YEAR_TICKS, cleanPlay, playAt } from '../gen/edits';
-import { monthNamesInUse, monthTail, monthsOf, yearFull } from '../gen/era';
+import { GENERATOR_VERSION } from '../gen/edits';
 import { loadGallery, useGallery, type GalleryWork } from '../account/gallery';
 import { GalleryFeatured } from './Gallery';
 import { rulesUiOn } from './rules/flag';
@@ -159,10 +158,8 @@ function pickAccept(): string | undefined {
 function worldLine(w: StoredWorld): string {
   const seed = `种子 ${w.save.seed}`;
   if (w.draft) return `${seed}，还在新建`;
-  const e = w.save.edits;
-  const play = cleanPlay(e.play);
-  // 故事停在一年中间的写到月("演绎到第 1549 年 9 月"),停在年初的只写年
-  if (play) return `${seed}，演绎到${yearFull(play.year, e.era)}${play.tick ? monthTail(playAt(play) / YEAR_TICKS, monthsOf(e.months), monthNamesInUse(e.monthNames)) : ''}`;
+  const played = playedTo(w.save.edits);
+  if (played) return `${seed}，${played}`;
   if (w.alive === undefined) return seed;
   return w.alive ? `${seed}，现存 ${w.alive} 国` : `${seed}，没有文明`;
 }

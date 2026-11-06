@@ -8,6 +8,7 @@
  *
  * 纯计算,不碰 DOM:网页里在后台线程跑(worldFileLook.worker.ts),超时杀掉;单测直接调。
  */
+import { polityAlive } from './gen/civ/growth';
 import { mergeUpheavals } from './gen/civ/upheaval';
 import { GENERATOR_VERSION } from './gen/edits';
 import type { WorldCheckFailure } from './gen/worldCheck';
@@ -36,6 +37,8 @@ export interface FileFacts {
   /** author 那一块没读进来(见 gen/worldFile.ts 的 WorldContent) */
   authorTrouble?: 'skipped' | 'damaged';
   thumb: Uint8Array | null;
+  /** 结束那一年现存几国(文件里不记;数法和「我的世界」卡片上的一样) */
+  alive: number;
 }
 
 export type FileLook = FileFacts | WorldCheckFailure;
@@ -64,6 +67,7 @@ export async function lookFile(file: Blob | Uint8Array, options: OpenOptions): P
     if (content.save.generator > GENERATOR_VERSION || manifest.made.generator > GENERATOR_VERSION) newer(`这个世界是更新版本的软件算的(生成器第 ${Math.max(content.save.generator, manifest.made.generator)} 版)`);
     if (content.save.generator !== manifest.made.generator) broken('清单和配方记的版本对不上');
     checkFits(content);
+    const { civ } = content;
     return {
       ok: true,
       manifest,
@@ -75,6 +79,7 @@ export async function lookFile(file: Blob | Uint8Array, options: OpenOptions): P
       author: content.author,
       ...(content.authorTrouble ? { authorTrouble: content.authorTrouble } : {}),
       thumb: content.thumb,
+      alive: civ.viable ? civ.polities.filter((x) => polityAlive(x, civ.endYear)).length : 0,
     };
   } catch (err) {
     const e = asWorldFileError(err);
