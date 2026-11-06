@@ -173,9 +173,9 @@ describe('防丢说不说', () => {
     expect(loseBar({ ...base, files: [changedAt(18), changedAt(40)] })).toEqual({ kind: 'lose-changed', n: 2, days: 18, device: 'iphone' });
   });
 
-  it('关掉以后 30 天再说', () => {
-    expect(loseBar({ ...base, offAt: NOW - 29 * DAY })).toBe(null);
-    expect(loseBar({ ...base, offAt: NOW - 30 * DAY })).not.toBe(null);
+  it('关掉以后 14 天再说', () => {
+    expect(loseBar({ ...base, offAt: NOW - 13 * DAY })).toBe(null);
+    expect(loseBar({ ...base, offAt: NOW - 14 * DAY })).not.toBe(null);
   });
 
   it('QQ、微信的小窗口:不分系统,换一句话', () => {

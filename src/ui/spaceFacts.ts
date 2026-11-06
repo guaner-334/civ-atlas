@@ -5,7 +5,7 @@ export const NEAR_FULL_BYTES = 500e6;
 /** 额度本来就不到 2 GB 的设备平时就不到 NEAR_FULL_BYTES,不能一直算快满了 */
 const NEAR_FULL_SHARE = 1 / 4;
 const DAY_MS = 24 * 3600_000;
-export const LOSE_OFF_MS = 30 * DAY_MS;
+export const LOSE_OFF_MS = 14 * DAY_MS;
 export const LOSE_AGAIN_DAYS = 14;
 
 export type AppleDevice = 'iphone' | 'ipad' | 'safari';
