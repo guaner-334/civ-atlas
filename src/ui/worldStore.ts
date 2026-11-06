@@ -50,7 +50,6 @@ import type { ConvertReply } from '../worldConvertWorker';
 import { pendingEdit, type CommitRequest, type CommitResult, type DraftedFile, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
 import type { VaultCall, VaultReply } from '../worldVaultWorker';
 import { rosterStep, undidThis, type RosterMarks } from '../worldRoster';
-import { currentAccount } from '../account/session';
 import { isCoarse, isNarrow } from './device';
 import { dropResults, resultHeads, resultSizes } from './resultStore';
 import type { PackAsk } from './sim/simClient';
@@ -348,7 +347,7 @@ async function askPersist(): Promise<void> {
 
 /** 存的不是正开着的世界(后台转的)这次不算,不然人在别处突然冒出来 */
 async function firstHint(id: string): Promise<void> {
-  if (firstHintSaid() || !appleDevice() || currentAccount() || currentWorld()?.id !== id || (await askPersisted())) return;
+  if (firstHintSaid() || !appleDevice() || currentWorld()?.id !== id || (await askPersisted())) return;
   noteFirstHint();
   showToast({
     id: 'lose-first',
@@ -1250,7 +1249,7 @@ async function rosterPass(): Promise<RosterReport> {
     }
     if (isStored(id)) continue;
     const trashedAt = trashMarks()[id];
-    const step = rosterStep(state, trashedAt, !!currentAccount());
+    const step = rosterStep(state, trashedAt);
     if (step === 'remark') markTrash(id, state!.deleted);
     if (step === 'remark' || step === 'deleted') out.deleted.push(id);
     if (step === 'unsure') out.unsure.push(id);

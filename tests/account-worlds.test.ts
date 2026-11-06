@@ -269,6 +269,23 @@ describe('账号里的世界', () => {
     expect(inCloud()).toHaveLength(2);
   });
 
+  it('取回的工夫退出登录(选了从这台设备上删掉):取到的不往这台设备上写', async () => {
+    const id = addWorld(7, '苍澜界');
+    putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '第一版', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+    await signIn();
+    await pushWorld(id);
+    device(new FakeStorage());
+    await signIn();
+    const taking = takeWorld(id).then(
+      () => 'taken',
+      (e: unknown) => e,
+    );
+    expect(await signOut(false)).toEqual({ ok: true });
+    expect(await taking).toMatchObject({ code: SESSION_CHANGED });
+    expect(titles()).toEqual([]);
+    expect(listNotes(id)).toEqual([]);
+  });
+
   it('服务器没开传到账号:列表当没有', async () => {
     await signIn();
     const u = await fetch(`${BASE}/v1/auth/login`, { method: 'POST', body: JSON.stringify({ account: EMAIL, code: FAKE_CODE }) });

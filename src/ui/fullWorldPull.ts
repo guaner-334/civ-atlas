@@ -4,6 +4,8 @@
  */
 import { fetchOwnFile, fetchSharedFile } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
+import { getSession } from '../account/session';
+import { SESSION_CHANGED, signOutCount, stillSignedIn } from '../account/sync';
 import { keptMapOf } from '../gen/edits';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
 import { fullOverview, markRecipe, pairText, setFullPull } from './fullWorldView';
@@ -34,8 +36,12 @@ async function needsPull(w: StoredWorld): Promise<boolean> {
 
 /** 下载、核对、放进这个世界名下。出错抛 */
 async function pullInto(w: StoredWorld, onBytes: (done: number, total: number) => void, signal: AbortSignal): Promise<void> {
+  const token = getSession()?.token;
+  const at = signOutCount();
   const entry = fullOverview()?.worlds.find((x) => x.id === w.id);
   const file = await fetchOwnFile(w.id, { total: entry?.bytes, signal, onBytes });
+  // 下载的工夫退出了(选了从这台设备上删掉的,放进来就又留下了)、换了账号
+  if (!stillSignedIn(token, at)) throw new ServerError(0, SESSION_CHANGED, '账号变了');
   const r = await adoptWorldFile(w.id, file);
   if (!r.ok) throw new ServerError(0, r.kind, r.message);
 }
@@ -70,8 +76,10 @@ export async function pullBeforeOpen(id: string, reopen: () => void): Promise<bo
   try {
     await pullInto(w, (done, all) => current === ac && setFullPull({ id, done, total: all }), ac.signal);
     return true;
-  } catch {
+  } catch (e) {
     if (current !== ac) return false;
+    // 退出登录了:世界还在(选了留着)就照配方打开,不说连不上
+    if (e instanceof ServerError && e.code === SESSION_CHANGED) return !!loadWorld(id);
     const name = w.save.title || '这个世界';
     const again = { label: '再试一次', act: 'full-pull-retry', onClick: reopen };
     // 地图留着的世界没有配方可按,不打开

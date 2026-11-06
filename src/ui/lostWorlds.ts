@@ -2,7 +2,6 @@
  * 首页上看一眼有没有丢了的世界(判断规则见 ../worldRoster.ts):有才下载世界仓库的代码去认,首页不该为此多下东西。
  * 只读,主线程开一下库就关;库还没有就不建。
  */
-import { currentAccount } from '../account/session';
 import { VAULT_DB, rosterStep, type RosterMarks } from '../worldRoster';
 import { isStored, persistent, syncable, trashMarks } from './saveStore';
 
@@ -57,10 +56,9 @@ export async function lostWorldsHere(): Promise<boolean> {
   if (!seen) return false;
   const marks = trashMarks();
   const by = new Map(seen.states.map((s) => [s.id, s]));
-  const signedIn = !!currentAccount();
   return seen.ids.some((id) => {
     if (isStored(id) || !syncable(id)) return false;
-    const step = rosterStep(by.get(id), marks[id], signedIn);
+    const step = rosterStep(by.get(id), marks[id]);
     return step === 'rescue' || step === 'remark';
   });
 }

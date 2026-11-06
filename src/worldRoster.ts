@@ -6,7 +6,7 @@
  *   有删除记录,撤销的就是这一次       撤销过,撤销被回退了    认回来
  *   有删除记录,别的                  删了                  不认
  *   没有记录,仓库记着删了、没撤销     删了,记录丢了          不认,把记录补回去,照常到期清
- *   没有记录,仓库记着在名单上过       名单丢了              认回来(登录了不认:账号里有,同步会取回来)
+ *   没有记录,仓库记着在名单上过       名单丢了              认回来(登录了也认:账号里的不会自己回来)
  *   什么记号都没有                   说不清                不认,也不清
  *
  * 宁可不认:认错了是用的人删掉的世界变回来。没有「在名单上过」这个记号的内容(打开文件时先写的仓库、还没写名单)不会被当成丢了的。
@@ -30,9 +30,9 @@ export interface RosterMarks {
 }
 
 /**
- * rescue:认回来;remark:删了,记录丢了,补回去;deleted:删了;unsure:说不清;account:名单丢了,等同步从账号取回来
+ * rescue:认回来;remark:删了,记录丢了,补回去;deleted:删了;unsure:说不清
  */
-export type RosterStep = 'rescue' | 'remark' | 'deleted' | 'unsure' | 'account';
+export type RosterStep = 'rescue' | 'remark' | 'deleted' | 'unsure';
 
 /** 删除记录上的这一次撤销过,之后也没有再删:回退到更早那次删除记录时,仓库里记着的后来那次删除还算数 */
 export function undidThis(marks: RosterMarks | null | undefined, trashedAt: number): boolean {
@@ -40,9 +40,9 @@ export function undidThis(marks: RosterMarks | null | undefined, trashedAt: numb
 }
 
 /** trashedAt = 这个世界的删除记录(没有 = undefined);只问不在名单上的世界 */
-export function rosterStep(marks: RosterMarks | null | undefined, trashedAt: number | undefined, signedIn: boolean): RosterStep {
+export function rosterStep(marks: RosterMarks | null | undefined, trashedAt: number | undefined): RosterStep {
   if (trashedAt !== undefined) return undidThis(marks, trashedAt) ? 'rescue' : 'deleted';
   if (marks?.deleted !== undefined && marks.deleted !== marks.undid) return 'remark';
   if (marks?.listed === undefined) return 'unsure';
-  return signedIn ? 'account' : 'rescue';
+  return 'rescue';
 }

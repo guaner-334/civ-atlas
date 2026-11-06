@@ -178,22 +178,21 @@ afterEach(async () => {
 describe('判断规则', () => {
   it('五种情况', () => {
     // 有删除记录:撤销的就是这一次才算撤销过
-    expect(rosterStep({ deleted: 5, undid: 5, listed: 1 }, 5, false)).toBe('rescue');
-    expect(rosterStep({ deleted: 5, listed: 1 }, 5, false)).toBe('deleted');
-    expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, 9, false)).toBe('deleted');
-    expect(rosterStep(null, 5, false)).toBe('deleted');
+    expect(rosterStep({ deleted: 5, undid: 5, listed: 1 }, 5)).toBe('rescue');
+    expect(rosterStep({ deleted: 5, listed: 1 }, 5)).toBe('deleted');
+    expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, 9)).toBe('deleted');
+    expect(rosterStep(null, 5)).toBe('deleted');
     // 删、撤销、再删,回退到第一次的删除记录:后来那次删除还算数
-    expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, 5, false)).toBe('deleted');
+    expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, 5)).toBe('deleted');
     // 记录丢了,仓库记着删了
-    expect(rosterStep({ deleted: 5, listed: 1 }, undefined, false)).toBe('remark');
-    expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, undefined, false)).toBe('remark');
+    expect(rosterStep({ deleted: 5, listed: 1 }, undefined)).toBe('remark');
+    expect(rosterStep({ deleted: 9, undid: 5, listed: 1 }, undefined)).toBe('remark');
     // 名单丢了
-    expect(rosterStep({ listed: 1 }, undefined, false)).toBe('rescue');
-    expect(rosterStep({ deleted: 5, undid: 5, listed: 1 }, undefined, false)).toBe('rescue');
-    expect(rosterStep({ listed: 1 }, undefined, true)).toBe('account');
+    expect(rosterStep({ listed: 1 }, undefined)).toBe('rescue');
+    expect(rosterStep({ deleted: 5, undid: 5, listed: 1 }, undefined)).toBe('rescue');
     // 说不清
-    expect(rosterStep(null, undefined, false)).toBe('unsure');
-    expect(rosterStep({ status: 'old' } as never, undefined, false)).toBe('unsure');
+    expect(rosterStep(null, undefined)).toBe('unsure');
+    expect(rosterStep({ status: 'old' } as never, undefined)).toBe('unsure');
   });
 });
 
@@ -430,7 +429,7 @@ describe('删了的不回来', () => {
     _setWorldStore({ caller: direct });
     reload();
     loseTrash();
-    expect(rosterStep(await stateOf(a), undefined, false)).toBe('rescue');
+    expect(rosterStep(await stateOf(a), undefined)).toBe('rescue');
   });
 });
 
@@ -743,15 +742,14 @@ describe('登录了', () => {
     _resetSessionForTest();
   }
 
-  it('名单丢了:账号里有,等同步取回来,这里不认', async () => {
+  it('名单丢了:登录了也认回来(账号里的不会自己回来)', async () => {
     const a = await makeWorld('甲');
     reload();
     lose(a);
     signIn();
-    expect(await lostWorldsHere()).toBe(false);
-    expect((await rescueLostWorlds()).rescued).toEqual([]);
-    expect(saveStore.loadWorld(a)).toBeNull();
-    expect(await latestOf(a)).not.toBeNull();
+    expect(await lostWorldsHere()).toBe(true);
+    expect((await rescueLostWorlds()).rescued).toEqual([a]);
+    expect(saveStore.loadWorld(a)?.save.title).toBe('甲');
   });
 
   it('撤销过、记录被回退了:照样认(和撤销一样)', async () => {

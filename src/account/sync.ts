@@ -25,6 +25,15 @@ const thumbOf = (t: string | null) => (t && t.length <= 200_000 ? t : null);
 export const SESSION_CHANGED = 'session-changed';
 const NOTES_UNREAD = 'notes-unread';
 
+// 退出登录一开始就加一:令牌要到最后才清,删这台设备上的世界在那之前,正在取的不能等令牌变了才停
+let signOuts = 0;
+
+/** 从账号往这台设备上写之前问一句:开始取的那次登录还在吗(at = 开始时的 signOutCount()) */
+export function stillSignedIn(token: string | undefined, at: number): boolean {
+  return !!token && getSession()?.token === token && signOuts === at;
+}
+export const signOutCount = (): number => signOuts;
+
 /**
  * 存进账号。alsoFile:AI 写的东西整个世界文件里也有,太多存不进这一份时不算错;只有存档的世界放不下要说。
  * raw:存这一刻的样子(和打包的文件同一刻);不给 = 现在的。token:替哪一次登录存,换了就停。
@@ -69,10 +78,13 @@ export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWo
   }
 }
 
-/** 从账号取回存档、AI 写的东西(整个世界另外取,见 ui/fullWorldPull.ts) */
-export async function takeWorld(id: string): Promise<void> {
+/** 从账号取回存档、AI 写的东西(整个世界另外取,见 ui/fullWorldPull.ts)。token:替哪一次登录取,换了就不往这台设备上写 */
+export async function takeWorld(id: string, token = getSession()?.token): Promise<void> {
   if (!isStored(id) && storedCount() >= MAX_WORLDS) throw new ServerError(0, 'count', `「我的世界」最多存 ${MAX_WORLDS} 个世界，先删掉几个`);
+  const at = signOuts;
   const w = await getCloud(id);
+  // 等的工夫退出了(选了从这台设备上删掉的,写进来就又留下了)、换了账号
+  if (!stillSignedIn(token, at)) throw new ServerError(0, SESSION_CHANGED, '账号变了');
   const had = exportNotes(id);
   // 先写 AI 写的东西:它写不下而存档写进去了的话,刷新以后那些东西就没了
   if (!replaceNotes(id, w.notes) || !putSyncedWorld(id, { save: JSON.stringify(w.save), meta: cleanSyncMeta(w.meta), thumb: typeof w.thumb === 'string' && w.thumb ? w.thumb : null })) {
@@ -86,9 +98,10 @@ const UNSAVED_WHY = '正在看的这个世界最新的改动没能存进浏览�
 
 /** 退出登录。keep = 这台设备上的世界留着;否则从这台设备上删掉(没传到账号的就没了,窗口上说过) */
 export async function signOut(keep: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
+  // 最新的改动只在这个页面里:删了就没了
+  if (!keep && getSession() && currentUnsaved()) return { ok: false, message: UNSAVED_WHY };
+  signOuts++;
   if (!keep) {
-    // 最新的改动只在这个页面里:删了就没了
-    if (getSession() && currentUnsaved()) return { ok: false, message: UNSAVED_WHY };
     const gone = removeAllWorlds();
     if (!gone) return { ok: false, message: '浏览器没让删掉这台设备上的世界，没有退出。可以选「留着」再退出' };
     forgetNotes();
