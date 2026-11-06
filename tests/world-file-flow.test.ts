@@ -7,8 +7,11 @@ import { makeSave } from '../src/gen/savefile';
 import { DEFAULT_PARAMS } from '../src/gen/world';
 import { setOpenWorldHandler } from '../src/ui/newCivAction';
 import { takeFileTrouble, takeOpenNote } from '../src/ui/openNote';
+import { answerSameWorld, sameWorldAsk } from '../src/ui/sameWorldAsk';
+import { changedAt, sideLines, type WorldSide } from '../src/ui/SameWorldDialog';
 import * as saveStore from '../src/ui/saveStore';
 import { fileRecords, saveMark } from '../src/ui/spaceFacts';
+import { setStage } from '../src/ui/stageStore';
 import { _resetToasts, getToast, peekToast } from '../src/ui/toastStore';
 
 const wf = vi.hoisted(() => ({
@@ -17,6 +20,7 @@ const wf = vi.hoisted(() => ({
   lookWorldFile: vi.fn(),
   lookWorldFiles: vi.fn(),
   placeWorldFile: vi.fn(),
+  sidesOf: vi.fn(),
   openWorldFiles: vi.fn(),
   worldFileBytes: vi.fn(),
   knownWorldFileBytes: vi.fn((): number | null => null),
@@ -449,19 +453,87 @@ describe('打开文件', () => {
     expect(saveStore.loadWorld(id)!.fromFile).toBeUndefined();
   });
 
-  it('内容不一样:打开另存的,按钮能回到原来的', async () => {
-    const id = stored('塞雷尼亚（二）');
-    const open = vi.fn();
-    setOpenWorldHandler(open);
-    const f = named(FILE);
-    pick(f, 'world');
-    wf.lookWorldFile.mockResolvedValue(looked());
-    wf.placeWorldFile.mockResolvedValue({ ok: true, status: 'copied', id, of: 'worig', title: '塞雷尼亚（二）', kept: kept() });
-    await openPickedFiles([f], vi.fn());
-    const note = takeOpenNote(id)!;
-    expect(note).toMatchObject({ text: '已打开「塞雷尼亚（二）」', more: ['内容和原来的不一样，另存了一份，原来的没动'] });
-    note.action!.onClick();
-    expect(open).toHaveBeenLastCalledWith('worig');
+  describe('内容不一样:先问', () => {
+    const side = (title: string, o: Partial<WorldSide> = {}): WorldSide => ({ save: makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { names: {}, interventions: [], terrain: [] }, '', title, '2026-11-03T13:40:00.000Z'), thumb: null, alive: 11, notes: 0, ...o });
+    /** 打开文件,停在问的窗口上 */
+    async function asking(orig: string, o: { fileTitle?: string } = {}) {
+      const open = vi.fn();
+      setOpenWorldHandler(open);
+      const f = named(FILE);
+      pick(f, 'world');
+      const fileTitle = o.fileTitle ?? '塞雷尼亚';
+      wf.lookWorldFile.mockResolvedValue(looked({ match: { kind: 'different', id: orig }, title: fileTitle, facts: { save: { title: fileTitle } } }));
+      wf.placeWorldFile.mockImplementation(async (l: { title: string }, opt: { different?: string }) =>
+        opt.different === 'ask' ? { ok: true, status: 'different', id: orig, title: l.title, looked: l } : { ok: true, status: 'copied', id: 'wcopy', of: orig, title: '塞雷尼亚（二）', kept: kept() },
+      );
+      wf.sidesOf.mockResolvedValue({ mine: side('塞雷尼亚'), theirs: side(fileTitle, { alive: 14 }) });
+      const run = openPickedFiles([f], vi.fn());
+      for (let i = 0; i < 10 && !sameWorldAsk(); i++) await flush();
+      return { open, run };
+    }
+
+    it('先不放,弹窗口:两份并排、另存的名字先写好', async () => {
+      const orig = stored();
+      const { open, run } = await asking(orig);
+      expect(wf.placeWorldFile).toHaveBeenCalledTimes(1);
+      expect(wf.placeWorldFile.mock.calls[0][1]).toEqual({ different: 'ask' });
+      const a = sameWorldAsk()!;
+      expect(a).toMatchObject({ title: '塞雷尼亚', copyTitle: '塞雷尼亚（二）', open: false, alike: false });
+      expect(a.mine.lines.map((l) => l.text)).toContain('现存 11 国');
+      expect(a.theirs.lines.find((l) => l.text === '现存 14 国')?.bold).toBe(true);
+      expect(open).not.toHaveBeenCalled();
+      expect(toast()).toBe(null);
+      answerSameWorld('cancel');
+      await run;
+    });
+
+    it('另存一份并打开:打开另存的,提示条没有按钮', async () => {
+      const orig = stored();
+      const { open, run } = await asking(orig);
+      answerSameWorld('copy');
+      await run;
+      expect(wf.placeWorldFile.mock.calls[1][1]).toEqual({ different: 'copy' });
+      expect(open).toHaveBeenCalledWith('wcopy');
+      expect(takeOpenNote('wcopy')).toEqual({ kind: 'ok', text: '已打开「塞雷尼亚（二）」', more: ['另存了一份，原来的「塞雷尼亚」没动'] });
+    });
+
+    it('打开原来的:不存文件里的那份,说一句', async () => {
+      const orig = stored();
+      const { open, run } = await asking(orig);
+      answerSameWorld('original');
+      await run;
+      expect(wf.placeWorldFile).toHaveBeenCalledTimes(1);
+      expect(open).toHaveBeenCalledWith(orig);
+      expect(takeOpenNote(orig)).toEqual({ kind: 'ok', text: '已打开原来的「塞雷尼亚」', more: ['文件里的那份没存进「我的世界」'] });
+      expect(fileRecords()[orig]).toBeUndefined();
+    });
+
+    it('取消:什么都不动,没有提示;之后照样能再打开', async () => {
+      const orig = stored();
+      const first = await asking(orig);
+      answerSameWorld('cancel');
+      await first.run;
+      expect(wf.placeWorldFile).toHaveBeenCalledTimes(1);
+      expect(first.open).not.toHaveBeenCalled();
+      expect(takeOpenNote(orig)).toBe(null);
+      expect(toast()).toBe(null);
+      const second = await asking(orig);
+      expect(sameWorldAsk()).not.toBe(null);
+      answerSameWorld('cancel');
+      await second.run;
+    });
+
+    it('拖到正开着的那个世界上:没有「打开原来的」', async () => {
+      const orig = stored();
+      const w = saveStore.loadWorld(orig)!;
+      saveStore.attachWorld({ id: orig, params: w.save.params, check: '', kind: 'created', title: w.save.title, saved: w.save.edits });
+      setStage('world');
+      const { run } = await asking(orig);
+      expect(sameWorldAsk()!.open).toBe(true);
+      answerSameWorld('cancel');
+      await run;
+      setStage('home');
+    });
   });
 
   it('文件里有读不进来的东西、AI 写的东西存不下、浏览器不让存:要紧的话放第二行', async () => {
@@ -692,5 +764,65 @@ describe('打开文件', () => {
     wf.saveWorldFile.mockResolvedValue({ ok: true, file: blob(10), name: 'a.civworld', stale: false });
     await saveWorldToFile('w1');
     expect(downloads).toEqual(['a.civworld']);
+  });
+});
+
+describe('内容不一样时并排的几行', () => {
+  const NOW = new Date(2026, 10, 6, 15, 0).getTime();
+  const at = (y: number, m: number, d: number, h = 21, min = 40) => new Date(y, m - 1, d, h, min).toISOString();
+  const save = (o: { savedAt?: string; edits?: number } = {}) => {
+    const s = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { names: {}, interventions: [], terrain: [] }, '', '塞雷尼亚', o.savedAt ?? at(2026, 11, 3));
+    for (let i = 0; i < (o.edits ?? 0); i++) s.edits.names[`p:${i}`] = `名${i}`;
+    return s;
+  };
+  const side = (o: Partial<WorldSide> & { savedAt?: string; edits?: number } = {}): WorldSide => ({ thumb: null, alive: 11, notes: 0, ...o, save: save(o) });
+  const texts = (ls: { text: string; bold: boolean }[]) => ls.map((l) => (l.bold ? `*${l.text}*` : l.text));
+
+  it('改的时间:今天、昨天写几点;今年的写月日几点;往年的只写到日', () => {
+    expect(changedAt(at(2026, 11, 6, 9, 5), NOW)).toBe('今天 9:05 改过');
+    expect(changedAt(at(2026, 11, 5), NOW)).toBe('昨天 21:40 改过');
+    expect(changedAt(at(2026, 11, 3), NOW)).toBe('11 月 3 日 21:40 改过');
+    expect(changedAt(at(2025, 11, 3), NOW)).toBe('2025 年 11 月 3 日改过');
+    expect(changedAt('', NOW)).toBe('');
+  });
+
+  it('同一分钟改的:写出来一样,时间都不加粗', () => {
+    const r = sideLines(side({ savedAt: at(2026, 11, 3, 21, 40) }), side({ savedAt: new Date(new Date(2026, 10, 3, 21, 40).getTime() + 30_000).toISOString() }), NOW);
+    expect(r.left[0]).toEqual({ text: '11 月 3 日 21:40 改过', bold: false });
+    expect(r.right[0]).toEqual({ text: '11 月 3 日 21:40 改过', bold: false });
+  });
+
+  it('不一样的几行两边都加粗,时间只加粗新的那边', () => {
+    const r = sideLines(side({ edits: 23 }), side({ savedAt: at(2026, 10, 30, 15, 12), alive: 14, edits: 17 }), NOW);
+    expect(texts(r.left)).toEqual(['*11 月 3 日 21:40 改过*', '推到第 3000 年', '*现存 11 国*', '*23 处改动*']);
+    expect(texts(r.right)).toEqual(['10 月 30 日 15:12 改过', '推到第 3000 年', '*现存 14 国*', '*17 处改动*']);
+    expect(r.alike).toBe(false);
+  });
+
+  it('AI 写的段数不一样才多一行;看得到的都一样时说差在细节', () => {
+    const ai = sideLines(side({ notes: 5 }), side({ savedAt: at(2026, 11, 3, 20, 5), notes: 0 }), NOW);
+    expect(texts(ai.left).at(-1)).toBe('*AI 写了 5 段*');
+    expect(texts(ai.right).at(-1)).toBe('*AI 没写过*');
+    expect(ai.alike).toBe(false);
+    const same = sideLines(side({ notes: 2 }), side({ notes: 2 }), NOW);
+    expect(same.left).toHaveLength(4);
+    expect([...same.left, ...same.right].some((l) => l.bold)).toBe(false);
+    expect(same.alike).toBe(true);
+    const renamed = side({ notes: 2 });
+    renamed.save.title = '塞雷尼亚甲';
+    expect(sideLines(renamed, side({ notes: 2 }), NOW).alike).toBe(false);
+  });
+
+  it('不知道现存几国、AI 写的读不出来:那一行不写;没有文明照卡片写', () => {
+    const r = sideLines(side({ alive: undefined, notes: 3 }), side({ notes: undefined }), NOW);
+    expect(r.left.map((l) => l.text)).toEqual(['11 月 3 日 21:40 改过', '推到第 3000 年', '0 处改动']);
+    expect(texts(sideLines(side({ alive: 0 }), side(), NOW).left)[2]).toBe('*没有文明*');
+  });
+
+  it('逐年推演的世界照卡片的写法', () => {
+    const s = save();
+    s.edits.play = { year: 1549, commands: [] };
+    const r = sideLines({ save: s, thumb: null }, side(), NOW);
+    expect(r.left[1]).toEqual({ text: '演绎到第 1549 年', bold: true });
   });
 });

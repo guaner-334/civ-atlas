@@ -9,6 +9,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deleteNote, exportNotes, forgetNotes, putNote } from '../src/ai/library';
 import { _notesSettled, _resetNotes } from '../src/ai/libraryVault';
+import { polityAlive } from '../src/gen/civ/growth';
 import { mergeUpheavals } from '../src/gen/civ/upheaval';
 import { GENERATOR_VERSION } from '../src/gen/edits';
 import { READER_VERSIONS } from '../src/gen/readers/versions';
@@ -19,7 +20,7 @@ import { WORLD_FILE_EXT, WorldFileError, asWorldFileError } from '../src/gen/wor
 import { ZIP_LOCAL_MAX_BYTES, parseZip, walkZip, writeZip, type ZipInput } from '../src/gen/zipStore';
 import { bundleText, openBundleText } from '../src/ui/bundle';
 import { clearEdits, setEdits } from '../src/ui/editsStore';
-import { _setWorldFiles, adoptWorldFile, checkTimeout, keepWorldFile, knownWorldFileBytes, lookWorldFile, lookWorldFiles, openWorldFiles, openWorldFromFile, placeWorldFile, saveAllWorldFiles, saveWorldFile, sniffWorldFile, worldFileBytes, worldFileName, type KeptWorldFile, type LookedWorldFile, type OpenedWorldFiles, type WorldFileProgress } from '../src/ui/worldFiles';
+import { _setWorldFiles, adoptWorldFile, checkTimeout, keepWorldFile, knownWorldFileBytes, lookWorldFile, lookWorldFiles, openWorldFiles, openWorldFromFile, placeWorldFile, saveAllWorldFiles, saveWorldFile, sidesOf, sniffWorldFile, worldFileBytes, worldFileName, type KeptWorldFile, type LookedWorldFile, type OpenedWorldFiles, type WorldFileProgress } from '../src/ui/worldFiles';
 import * as saveStore from '../src/ui/saveStore';
 import { _setResultBackend, memoryResults } from '../src/ui/resultStore';
 import { _setWorldStore, _settled, maintain } from '../src/ui/worldStore';
@@ -307,6 +308,24 @@ describe('打开一个文件', () => {
     // 同一个文件再打开一次:认出刚才另存的那份,不再多一份
     const again = asLooked(await lookWorldFile(other));
     expect(again.match).toEqual({ kind: 'same', id: placed.id });
+  });
+
+  it('内容不一样时问一下:本机存好的那份和文件里的各自几样;现存几国文件里没记,核对时数出来', async () => {
+    const id = await keepFile(file);
+    await _notesSettled();
+    const other = await packWorldFile({ ...sample, id, title: '别的世界', recipe: { ...sample.recipe, title: '别的世界' }, author: { notes: [] } });
+    const looked = asLooked(await lookWorldFile(other));
+    const { civ } = sample;
+    const alive = civ.polities.filter((p) => polityAlive(p, civ.endYear)).length;
+    expect(civ.viable && alive > 0).toBe(true);
+    expect(looked.facts.alive).toBe(alive);
+    const sides = (await sidesOf(looked, id))!;
+    expect(sides.mine).toMatchObject({ notes: 1 });
+    expect(sides.mine.save.title).toBe('九州大陆');
+    expect(sides.theirs).toMatchObject({ alive, notes: 0 });
+    expect(sides.theirs.save.title).toBe('别的世界');
+    expect(sides.theirs.thumb).toMatch(/^data:image\/jpeg;base64,/);
+    expect(await sidesOf(looked, 'wgone')).toBe(null);
   });
 
   it('文件的编号是乱填的:不进任何键,照样存成新编号', async () => {
