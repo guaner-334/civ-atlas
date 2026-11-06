@@ -2843,8 +2843,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         <FirstHint show={hintOn && !!data && world && !terrainTool.on && !upOn} touch={coarse} />
       )}
       {world && !narrow && <UpheavalHint />}
-      {/* 推不下去:地图盖浅白、中间一张卡(盖住上面的操作提示,不盖浮在地图上的按钮和时间轴) */}
-      {world && !stepOn && <StuckCard civ={data ? civ : null} phone={narrow} busy={worldBusy} />}
+      {/* 推不下去:地图盖浅白、中间一张卡(盖住上面的操作提示,不盖浮在地图上的按钮和时间轴);新建时只弹后台算不动的那张 */}
+      {(world || draft) && !stepOn && <StuckCard civ={world && data ? civ : null} phone={narrow} busy={worldBusy} over={!world} />}
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">

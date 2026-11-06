@@ -112,6 +112,16 @@
   font-size: 13px;
 }
 
+/* 新建界面里:盖住两边的面板 */
+.stuck-layer.over {
+  left: 0;
+  z-index: 20;
+}
+.stuck-layer.over .stuck-box {
+  right: 0;
+  bottom: 0;
+}
+
 [data-theme='dark'] .stuck-dim {
   background: rgba(28, 28, 30, 0.62);
 }

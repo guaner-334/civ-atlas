@@ -152,8 +152,11 @@ function revert(rulesId: string, worldId: string, list: readonly Suspect[], stop
   });
 }
 
-/** 盖在地图上的浅白和中间那张卡;刚算出来的那一次等时间轴停在停住那年时自动弹。busy = 还在推(新的历史还没到),先不弹 */
-export function StuckCard({ civ, phone, busy }: { civ: Civ | null; phone: boolean; busy: boolean }) {
+/**
+ * 盖在地图上的浅白和中间那张卡;刚算出来的那一次等时间轴停在停住那年时自动弹。busy = 还在推(新的历史还没到),先不弹;
+ * over = 新建界面里(只有后台算不动的那张):盖在新建界面的面板上面
+ */
+export function StuckCard({ civ, phone, busy, over }: { civ: Civ | null; phone: boolean; busy: boolean; over?: boolean }) {
   const st = useStuck();
   const t = useCivTime();
   // 规则、世界、我的规则变了,卡上的说法跟着变
@@ -179,7 +182,7 @@ export function StuckCard({ civ, phone, busy }: { civ: Civ | null; phone: boolea
   if (!st.open || busy || (!crash && (!civ || !stuck))) return null;
   const c = crash ? crashCard(civ, crash.retry) : cardOf(civ!, st.why);
   return (
-    <div className={`stuck-layer${phone ? ' ph' : ''}`}>
+    <div className={`stuck-layer${phone ? ' ph' : ''}${over ? ' over' : ''}`}>
       <div className="stuck-dim" aria-hidden="true" />
       <div className="stuck-box">
         <div className="stuck-card" role="alert" data-act="stuck-card">
