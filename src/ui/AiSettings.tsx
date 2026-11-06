@@ -19,7 +19,7 @@ import { AiError, type AiProviderKind } from '../ai/types';
 import { chooseProvider, cleanKey, getAiSettings, getSecrets, setAiEnabled, setSecret, updateAiSettings, useAiSettingsVersion } from '../ai/settings';
 import { DEEPSEEK_MODELS } from '../ai/providers/deepseek';
 import { BAILIAN_MODELS, BAILIAN_REGIONS } from '../ai/providers/bailian';
-import { officialServer, refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
+import { checkOfficialAi, officialServer, refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
 import { openAccount, openLogin } from './AccountDialogs';
 import { Icon } from './icons';
 import { mockSelectable } from '../ai/setup';
@@ -88,6 +88,7 @@ function useEscape(f: () => void) {
 
 function AiDialog({ tab, onTab, onClose }: { tab: Tab; onTab: (t: Tab) => void; onClose: () => void }) {
   useEscape(onClose);
+  useEffect(() => void checkOfficialAi(), []);
   const log = useCallLog();
   return createPortal(
     <div className="ai-dialog-bg" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>

@@ -10,7 +10,7 @@ import { accountServer, call, serverBase, setAccountsForTest, setServerForTest }
 import { _resetSessionForTest, currentAccount, fetchAuthOptions, getSession, logout, onAuthOptionsChange } from '../src/account/session';
 import { fetchFile, fetchWorkFile } from '../src/account/fullWorlds';
 import { coverUrl, fetchWork, getGallery, isWorkGone, loadGallery, reportWork, resetGalleryForTest } from '../src/account/gallery';
-import { officialProvider, officialServer, refreshOfficialAccount } from '../src/ai/providers/official';
+import { checkOfficialAi, officialProvider, officialServer, refreshOfficialAccount } from '../src/ai/providers/official';
 import { decodePresetHash } from '../src/ui/presetLink';
 import { decodeRulesHash } from '../src/gen/civ/ruleShare';
 import { openWorldFile, readWorldContent } from '../src/gen/worldFile';
@@ -199,22 +199,24 @@ describe('账号开着(默认)', () => {
     expect(officialServer()).toBeNull();
   });
 
-  it('问不到(连不上):当关,下次问到开着就露出来', async () => {
+  it('问不到(连不上):当关;打开账号窗、AI 设置时再问,问到开着就露出来,问到了就不再问', async () => {
     const real = globalThis.fetch;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        throw new TypeError('Failed to fetch');
-      }),
-    );
-    await fetchAuthOptions();
+    const down = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    vi.stubGlobal('fetch', down);
+    await refreshOfficialAccount();
+    expect(down).toHaveBeenCalledTimes(1);
     expect(officialServer()).toBeNull();
     const seen: boolean[] = [];
     const off = onAuthOptionsChange(() => seen.push(officialServer() !== null));
     vi.stubGlobal('fetch', real);
-    await fetchAuthOptions();
+    await checkOfficialAi();
     off();
     expect(officialServer()).toBe(BASE);
     expect(seen).toEqual([true]);
+    paths.length = 0;
+    await checkOfficialAi();
+    expect(paths).toEqual([]);
   });
 });

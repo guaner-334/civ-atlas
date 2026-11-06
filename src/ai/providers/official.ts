@@ -48,7 +48,7 @@ import { AiError, type AiUsage } from '../types';
 import { scrubSecrets } from '../settings';
 import { idleTimer, readSse } from '../sse';
 import { ServerError, accountServer, onServerChange, setServerForTest } from '../../account/server';
-import { authToken, getSession, knownAuthOptions, login, logout, onAuthOptionsChange, onSessionChange, sendCode, sessionExpired, updateUser } from '../../account/session';
+import { authToken, fetchAuthOptions, getSession, knownAuthOptions, login, logout, onAuthOptionsChange, onSessionChange, sendCode, sessionExpired, updateUser } from '../../account/session';
 import { ToolCallAcc, wireMessage } from './compat';
 
 // ---------------------------------------------------------------------------
@@ -61,6 +61,11 @@ export function officialServer(): string | null {
   const base = accountServer();
   if (!base) return null;
   return base === aiOnForTest || knownAuthOptions()?.features.ai ? base : null;
+}
+
+/** 还没问到服务器开没开我们的 AI(第一次、上次连不上)就问一次 */
+export async function checkOfficialAi(): Promise<void> {
+  if (accountServer() && !knownAuthOptions()) await fetchAuthOptions();
 }
 
 /** 单测用:指定服务器地址并当它开着我们的 AI(null = 未开放;undefined = 恢复按构建变量) */
@@ -250,6 +255,7 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : u
 
 /** 查积分余额和登录状态 */
 export async function refreshOfficialAccount(): Promise<void> {
+  await checkOfficialAi();
   const used = token();
   if (!officialServer() || !used) return;
   setAcct({ checking: true, error: undefined });
