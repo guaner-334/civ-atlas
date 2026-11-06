@@ -15,6 +15,7 @@ import './flags.css';
 import './director.css';
 import './stepwise.css';
 import './extend.css';
+import './stuck.css';
 import './book.css';
 import './shortcuts.css';
 import './diag.css';

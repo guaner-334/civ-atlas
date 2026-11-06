@@ -39,6 +39,7 @@ import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { RewriteNote } from '../rewriteStore';
 import type { SimClient } from './simClient';
+import { noteStuck, resetStuck, type StuckWhy } from '../stuckStore';
 
 /** 再推好了的提示条停多久(和加干预以后的一样);推之前那一份(撤销用)多留一会儿再放掉 */
 const EXTEND_TOAST_MS = 7000;
@@ -223,6 +224,7 @@ export function useSimResults(d: SimResultsDeps) {
     clearChroniclePick();
     setPolityPick(null);
     const info = resimInfo.current;
+    let why: StuckWhy = { kind: 'new' };
     if (info) {
       info.workerMs = workerMs;
       info.arrived = performance.now() - info.t0;
@@ -319,6 +321,7 @@ export function useSimResults(d: SimResultsDeps) {
               : v.kind === 'policy'
               ? policyDoneText(named, v, idx, shown ?? then ?? '', era)
               : newIvDoneText(v.kind === 'crown' ? applyCharacters(named, chars) : named, v, idx, shown ?? then ?? '', era, v.kind === 'crown' ? crownWho(named, v.char, chars) : '');
+        if (!info.quiet) why = { kind: 'iv', iv: v, label: crowned?.ok ? crowned.text : eraText(interventionDoneText(named, v, idx, shown), era) };
         showToast({
           id: 'resim-done',
           kind: crowned && !crowned.ok ? 'warn' : 'ok',
@@ -367,6 +370,9 @@ export function useSimResults(d: SimResultsDeps) {
     }
     setRawCiv(civ);
     setResim(null);
+    noteStuck(!!civ.stuck, why);
+    // 推不下去的新世界:不再说「已创建」,也不从第 0 年放,停在那一年弹卡
+    if (civ.stuck && info?.years) clearToast('created');
     // 打开世界时等着重推完再核对的改名:按推好的历史数对不上的,有就补进打开时那条提示(换了世界、改了地形的不算了)
     const rn = renameCheck.current;
     renameCheck.current = null;
@@ -400,7 +406,7 @@ export function useSimResults(d: SimResultsDeps) {
     // 刚创建的世界接着往后推完了:缩略图按推完的样子重截,该放历史的从第 0 年放一遍
     if (info?.years && !play) {
       refreshThumb();
-      if (storyAfterYears.current) startCivReplay();
+      if (storyAfterYears.current && !civ.stuck) startCivReplay();
       storyAfterYears.current = null;
     }
   };
@@ -454,10 +460,17 @@ export function useSimResults(d: SimResultsDeps) {
     if (getCivTime().year === null) setCivTime({ year: x.from });
     setRawCiv(civ);
     setEndYear(to);
-    setExtendFresh({ from: x.from, to });
+    setExtendFresh({ from: x.from, to: civ.endYear });
     refreshThumb();
     dropExtendUndo();
-    extendUndo.current = { before: old, after: civ, from: x.from, endYear: x.endYear, timer: window.setTimeout(dropExtendUndo, EXTEND_UNDO_MS) };
+    // 推不下去:卡上的「撤销这次再推」一直留着(不随提示条收起放掉),停在推到的那一年弹卡,不出推好了的提示条
+    extendUndo.current = { before: old, after: civ, from: x.from, endYear: x.endYear, timer: civ.stuck ? 0 : window.setTimeout(dropExtendUndo, EXTEND_UNDO_MS) };
+    if (civ.stuck) {
+      setCivTime({ year: null, playing: false, scrubbing: false, story: false });
+      noteStuck(true, { kind: 'extend', from: x.from, undo: () => undoExtendRef.current() });
+      return;
+    }
+    noteStuck(false, { kind: 'new' });
     // 提示条等新的历史画上去以后再出(新添几件大事要数整段编年史,时间轴那时已经算好了,不再算一遍)
     extendDone.current = { xid, from: x.from, to, ms, t0: x.t0, arrived: performance.now() - x.t0 };
   };
@@ -516,6 +529,7 @@ export function useSimResults(d: SimResultsDeps) {
       remapSelection(u.after, u.before);
       setRawCiv(u.before);
       refreshThumb();
+      resetStuck();
     }
     // 推完以后又改过别的(干预……):只把推演年数改回去,照常重推。修改里原来没写推演年数的(3000 年)照样不写
     setEndYear(u.endYear);

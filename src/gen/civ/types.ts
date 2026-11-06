@@ -622,6 +622,8 @@ export interface Civ {
    * (civ/knobs.ts 的 knobsOf)
    */
   knobs?: KnobPatch;
+  /** 推不下去:推到第 at 年算不下去了,历史停在 endYear;本来要推到第 to 年。推完的 = 不给(stuck.ts) */
+  stuck?: { at: number; to: number };
   /**
    * 大迁徙(migration.ts):按动身先后,每一次一条(下标 = 史事 trek 的 war 列)。还在路上的那支,路线和到每一州的年份
    * 动身时就定了(可能比 endYear 晚);落脚、结局到了那一刻才填。resumeCiv 接着推时要用。旧版本的历史、没有文明 = 不给

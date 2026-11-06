@@ -33,6 +33,7 @@ import { later, thumbPrepSteps } from '../thumbPrep';
 import { takeUpPreview } from '../upheavalStore';
 import type { SimHandlers } from '../sim/simClient';
 import type { CivRefs, GenRefs, MapRefs, OpenRefs } from './worldRefs';
+import { noteStuck, resetStuck } from '../stuckStore';
 
 /** 主线程最多留多少块各段的主图补丁(换了地形大事、撤销回去时用得上;先丢最早的) */
 const PATCH_KEEP = 24;
@@ -67,6 +68,9 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
       civMsLast.current = d.civMs;
     }
     setRawCiv(d.civ);
+    // 读存下的世界打开的不弹「推不下去」的卡(时间轴上点了再看);生成出来的照常弹
+    if (world.readers) resetStuck();
+    else noteStuck(!!d.civ?.stuck, { kind: 'new' });
     // 编辑地形时生成的(没推历史):收起编辑地形时补推
     civLater.current = !d.civ;
     setProgress(null);
