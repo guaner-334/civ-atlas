@@ -89,7 +89,10 @@ export function breakAt(year: number): GrowEngine {
           if (r.to > year) throw new Error(`推到第 ${year} 年以后故意出错`);
           return r.finish();
         },
-        partial: () => r.partial(),
+        partial: () => {
+          if (r.to > year) throw new Error(`推到第 ${year} 年以后故意出错`);
+          return r.partial();
+        },
       };
     },
   };

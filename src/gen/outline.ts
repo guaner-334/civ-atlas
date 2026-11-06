@@ -30,7 +30,9 @@
  * 纯计算,不碰 DOM;在 worker 和 Node 里都能跑。
  */
 import type { World } from './world';
-import { continueParams, generateCiv, startContinue } from './civ';
+import { continueParams } from './civ';
+import { growEngine, type GrowEngine } from './civ/grow';
+import { findStuck } from './civ/stuck';
 import type { Annal, Civ, CivParams } from './civ/types';
 import { playStop } from './civ/play';
 import { capitalAt, polityAlive } from './civ/growth';
@@ -118,6 +120,10 @@ export interface OutlineHooks {
   key?: string;
   /** 中途叫停时交出已经定下来的那几步(给了 key 才交;下一次照大纲推演传回 cache,定下来的那几条不重算) */
   keep?: (cache: OutlineCache) => void;
+  /** 推历史用的两样(冒烟检查换成在某一年出错的);不给 = 照常推 */
+  engine?: GrowEngine;
+  /** 推不下去时推演里抛的错(记进问题记录用) */
+  failed?: (e: unknown) => void;
 }
 
 /** 停下来的一刻:那一刻的历史、推它时带着前几条干预、整理过没有(有人物) */
@@ -153,6 +159,7 @@ interface Ctx {
   stage?: OutlineHooks['stage'];
   pause?: OutlineHooks['pause'];
   stop: () => boolean;
+  engine: GrowEngine;
 }
 
 /**
@@ -165,7 +172,8 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
   const own = ownInterventions(input.interventions.flatMap((v) => cleanIntervention(v) ?? []));
   const endYear = params.endYear ?? END_YEAR_DEFAULT;
   const tries = Math.min(OUTLINE_TRIES_MAX, Math.max(0, Math.floor(input.tries ?? 0) || 0));
-  const ctx: Ctx = { world, params: { ...params, endYear }, endYear, plots, characters: input.characters ?? [], marks: input.marks ?? [], tries, stage: hooks.stage, pause: hooks.pause, stop };
+  const engine = hooks.engine ?? growEngine;
+  const ctx: Ctx = { world, params: { ...params, endYear }, endYear, plots, characters: input.characters ?? [], marks: input.marks ?? [], tries, stage: hooks.stage, pause: hooks.pause, stop, engine };
   const key = hooks.key === undefined ? null : `${hooks.key}|${JSON.stringify([own, endYear, ctx.characters, ctx.marks, tries])}`;
   const prev = key !== null && hooks.cache?.key === key ? hooks.cache.steps : [];
   const steps: OutlineCache['steps'] = [];
@@ -178,6 +186,8 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
     return null;
   };
   if (stop()) return null;
+  /** 推到某条情节时出了错:后面的情节都不查了 */
+  let broke: { e: unknown } | null = null;
   for (;;) {
     const pick = choose(ctx, st);
     if (!pick) break;
@@ -189,7 +199,13 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
     } else {
       reuse = false;
       hooks.stage?.(pick.plot.id, null);
-      const next = await step(ctx, st, pick);
+      let next: State | null;
+      try {
+        next = await step(ctx, st, pick);
+      } catch (e) {
+        broke = { e };
+        break;
+      }
       if (!next) return halt();
       st = next;
     }
@@ -200,8 +216,25 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
   }
   // 推到最后不记进快照(记着的那几步下一次还要用);交出去的是复制的一份,和记着的快照不共用数组
   // (worker 把结果的数组 transfer 给主线程,共用的话记着的快照就空了)
-  const civ = structuredClone(advance(ctx, { ...st, snaps: st.snaps.slice() }, endYear, true));
-  const review = plots.map((p) => st.done.get(p.id)!);
+  let civ: Civ;
+  try {
+    civ = structuredClone(advance(ctx, { ...st, snaps: st.snaps.slice() }, endYear, true));
+  } catch (e) {
+    hooks.failed?.(broke ? broke.e : e);
+    const got = findStuck(world, { ...ctx.params, interventions: st.list.length ? st.list : undefined }, null, engine);
+    if (!got) throw e;
+    civ = got;
+  }
+  // 查情节时出的错不是推不下去(推得到最后):照旧抛出去
+  if (broke && !civ.stuck) throw broke.e;
+  // 推不下去时没查到的情节:做不到(只讲故事的照旧),落在本来那年(跟着别的那条的,落在停住那年)
+  const at = civ.stuck?.at ?? endYear;
+  const review = plots.map((p): PlotReview => {
+    const r = st.done.get(p.id);
+    if (r) return r;
+    const year = p.after === undefined ? p.year : at;
+    return p.kind === 'story' ? { id: p.id, status: 'story', year } : { id: p.id, status: 'failed', year, reason: 'stuck' };
+  });
   return { civ, interventions: st.list.slice(), review, cache: { key: key ?? '', steps }, reused };
 }
 
@@ -272,10 +305,19 @@ function advance(ctx: Ctx, st: State, t: number, full: boolean): Civ {
     st.snaps.push({ civ, n: list.length, full: best.full });
     return civ;
   }
-  const run = best ? startContinue(ctx.world, best.civ, params) : null;
-  const civ = run ? (full ? run.finish() : run.partial()) : generateCiv(ctx.world, params);
+  const run = best ? ctx.engine.resume(ctx.world, best.civ, params) : null;
+  const civ = run ? (full ? run.finish() : run.partial()) : ctx.engine.generate(ctx.world, params);
   st.snaps.push({ civ, n: list.length, full: full || !run });
   return civ;
+}
+
+/** 试着推一版(硬改、顺着引):推不下去 = null */
+function attempt(f: () => Civ): Civ | null {
+  try {
+    return f();
+  } catch {
+    return null;
+  }
 }
 
 /** 一条情节查完以后:只留以后还用得上的快照(floor 以前的只留最晚的一份) */
@@ -730,7 +772,9 @@ async function step(ctx: Ctx, prev: State, pick: Pick): Promise<State | null> {
   if (!fixes.length) return fail({ reason: 'noEffect' }, Y);
   ctx.stage?.(p.id, Y);
   const tried: State = { ...st, list: [...st.list, ...fixes] };
-  const C2 = advance(ctx, tried, playStop(hi + 1), people);
+  const C2 = attempt(() => advance(ctx, tried, playStop(hi + 1), people));
+  // 硬改以后推不下去:当没成
+  if (!C2) return fail({ reason: 'noEffect' }, Y);
   // 硬改的去世只能写成"去世":再查时不看遇弑、战死
   const loose: Plot = p.kind === 'death' && p.how ? { ...p, how: undefined } : p;
   const got2 = happened(ctx, C2, loose, refsOf(ctx, C2, p, st.done), lo, hi);
@@ -992,9 +1036,9 @@ async function guide(ctx: Ctx, st: State, pick: Pick): Promise<{ list: Intervent
     n++;
     ctx.stage?.(p.id, null, { n, of });
     const tl: State = { ...st, snaps: st.snaps.slice(), list };
-    const C = advance(ctx, tl, playStop(hi + 1), false);
-    const found = happened(ctx, C, p, refsOf(ctx, C, p, st.done), lo, hi);
-    if (found) return { list: tl.list, snaps: tl.snaps, civ: C, found };
+    const C = attempt(() => advance(ctx, tl, playStop(hi + 1), false));
+    const found = C && happened(ctx, C, p, refsOf(ctx, C, p, st.done), lo, hi);
+    if (C && found) return { list: tl.list, snaps: tl.snaps, civ: C, found };
     if (ctx.pause) await ctx.pause();
     if (ctx.stop()) return null;
   }

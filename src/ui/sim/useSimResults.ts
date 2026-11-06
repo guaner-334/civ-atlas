@@ -10,7 +10,7 @@ import { useEffect, useLayoutEffect, useRef, type Dispatch, type MutableRefObjec
 import type { EraWorld, WorkerRequest } from '../../worker';
 import type { Civ } from '../../gen/civ/types';
 import { noteExtendSpeed, setExtendBusy, setExtendFresh } from '../extendStore';
-import { enterStepwise, getStepGesture, getStepwise, onStepGestureEnd, stepLost, stepwiseActions } from '../stepwiseStore';
+import { enterStepwise, getStepGesture, getStepwise, onStepGestureEnd, stepLost, stepStuck, stepwiseActions } from '../stepwiseStore';
 import { clearChroniclePick, clearSelection, getChronicle, getCivTime, getSelection, setChronicle, setCivTime, setSelection, startCivReplay, getCivHighlight, setCivHighlight, type MapSelection } from '../civView';
 import { YEAR_TICKS, applyNames, cleanEndAt, cleanPlay, cultureKey, faithKey, ownInterventions, placeKeyOf, playAt, playFromOf, polityKey, resolveKey, sameInterventions, settlementKey, treatyKey, tradeKey, type Intervention, type PlayState, type PlotReview, type Plot, type TerrainOp, type Upheaval } from '../../gen/edits';
 import { sameUpheavals } from '../../gen/terrainEdits';
@@ -396,7 +396,8 @@ export function useSimResults(d: SimResultsDeps) {
       });
     } else if (play && cleanPlay(getEdits().play)) {
       enterStepwise(playFromOf(getEdits()), playAt(play) / YEAR_TICKS);
-      setCivTime({ year: playAt(play) / YEAR_TICKS, playing: stepAuto.current, scrubbing: false, story: false });
+      if (civ.stuck) stepStuck(playAt(play) / YEAR_TICKS, civ.stuck.at);
+      setCivTime({ year: playAt(play) / YEAR_TICKS, playing: stepAuto.current && !civ.stuck, scrubbing: false, story: false });
       stepAuto.current = false;
       // 刚切到别的一支:停在那一支的"现在",说一声,带「切回」原来那支
       const sw = switchNote.current;
@@ -424,11 +425,15 @@ export function useSimResults(d: SimResultsDeps) {
       return;
     }
     const now = cleanPlay(getEdits().play);
-    // 换了世界、另开了一次逐年推演、这一步不是接着现在这份进度走的:不要
-    if (!now || !getStepwise().on || !getStepwise().busy || playAt(play) <= playAt(now)) return stepLost();
+    // 换了世界、另开了一次逐年推演、这一步不是接着现在这份进度走的:不要(推不下去、一点没往前走的照收)
+    if (!now || !getStepwise().on || !getStepwise().busy || playAt(play) < playAt(now) || (playAt(play) === playAt(now) && !next.stuck)) return stepLost();
     const civ = adoptCiv(rawRef.current, next, eras, baseKey);
     civPlay.current = play;
     putPlay(play);
+    if (civ.stuck) {
+      stepStuck(playAt(play) / YEAR_TICKS, civ.stuck.at);
+      noteStuck(true, { kind: 'new' });
+    }
     setRawCiv(civ);
     if (rejected.length) showToast({ id: 'step-rejected', kind: 'warn', text: `${rejected.length} 条干预没能下`, more: ['只能在「现在」干预'], ttl: 5000 });
   };

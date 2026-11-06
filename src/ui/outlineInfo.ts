@@ -554,6 +554,8 @@ function failText(o: OutlineCtx, p: Plot, r: PlotReview, A: string, B: string): 
       return '大纲搬过来以后对不上，还没重新指';
     case 'noWay':
       return `第 ${y} 年${folkName(o.civ, p.folk) || '那一族'}${p.dir ? `往${TREK_DIR_NAMES[p.dir]}` : ''}陆路走不到能去的地方`;
+    case 'stuck':
+      return `推到第 ${o.civ.stuck?.at ?? y} 年推不下去了`;
     case 'noEffect':
     default:
       return '硬改了也没成';

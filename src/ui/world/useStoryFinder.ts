@@ -22,7 +22,7 @@ import { setCivHighlight, setCivShow, setCivTime } from '../civView';
 import { addMark, getEdits, setOutlinePlots } from '../editsStore';
 import { foundDetail, storyPoints } from '../finderInfo';
 import { pickedOf, variantOf, type FinderFlyTo, type FinderPreview } from '../FinderResults';
-import { closeFinder, getFinder, openFinder, resetFinder, selectFinder, setFinderMap, setQuery, type FinderBase, type FinderUi } from '../finderStore';
+import { closeFinder, getFinder, markFinderStuck, openFinder, resetFinder, selectFinder, setFinderMap, setQuery, type FinderBase, type FinderUi } from '../finderStore';
 import { foundPickOf, putFound, setFindAgainHandler, type FoundPick } from '../foundStore';
 import type { BaseId, FillId } from '../mapLayers';
 import { moveOutline, outlineFrom, outlineRoles, type OutlineFrom } from '../outlineMove';
@@ -206,6 +206,22 @@ export function useStoryFinder(deps: StoryFinderDeps) {
     selectFinder({ seed: first.seed, alt: -1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finderOn, finderDone]);
+  // 选中的那个世界整段推下来推不下去了:那一行写上,换下一个(已经写着的是自己点回来的,不再换)
+  const stuckKey = finderPreviewData?.civ.stuck ? `${finderPreviewData.seed}:${finderPreviewData.civ.stuck.at}` : '';
+  useEffect(() => {
+    const pv = finderPreviewData;
+    const at = pv?.civ.stuck?.at;
+    const run = getFinder().run;
+    if (!pv || at === undefined || !run || !finderSum) return;
+    const known = run.stuck?.[pv.seed] !== undefined;
+    markFinderStuck(pv.seed, at);
+    if (known) return;
+    const list = [...finderSum.full, ...(getFinder().nearOpen || !finderSum.full.length ? finderSum.near : [])];
+    const i = list.findIndex((r) => r.seed === pv.seed);
+    const next = i < 0 ? undefined : list.slice(i + 1).find((r) => getFinder().run?.stuck?.[r.seed] === undefined);
+    if (next) selectFinder({ seed: next.seed, alt: -1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stuckKey]);
   /** 生成好了:停在开场那年,两国描边、交界那州圈出来,地图飞过去看全两国(同一个结果只飞一次) */
   const finderShown = useRef('');
   const finderPreviewKey = finderPreviewData && finderPick ? `${finderPick.row.seed}:${finderPick.cand.year}:${finderPick.cand.roles.join(',')}:${finder.variant}` : '';

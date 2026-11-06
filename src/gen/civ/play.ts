@@ -44,6 +44,9 @@ export interface PlayStep {
   rejected: unknown[];
 }
 
+/** 一步怎么接着推(默认 continueCiv);换成推不下去时停下的,要停在年初(stuck.ts 的 snap = playStop),进度才停得住 */
+export type PlayContinue = (world: World, civ: Civ, params: Partial<CivParams>) => Civ;
+
 /** 逐年推演的进度停在第 year 年的第 tick 格(不给 = 年初):推到这一刻的前一格(这一刻的事一件还没发生) */
 export function playStop(year: number, tick = 0): number {
   return tick ? year + (tick - 1) / YEAR_TICKS : year - 1 / YEAR_TICKS;
@@ -61,7 +64,7 @@ export function playCiv(world: World, params: Partial<CivParams>, play: PlayStat
  * civ 不是这份进度推出来的(时刻、命令对不上),照样算对:从第 0 年整段重推(continueCiv 的退路)。
  * 已经推到能推的最后一刻:推不动了,命令一条也不收(收了也永远等不到生效)
  */
-export function playTo(world: World, civ: Civ, params: Partial<CivParams>, play: PlayState, commands: readonly unknown[], at: Moment): PlayStep {
+export function playTo(world: World, civ: Civ, params: Partial<CivParams>, play: PlayState, commands: readonly unknown[], at: Moment, cont: PlayContinue = continueCiv): PlayStep {
   const now = playAt(play);
   if (now >= PLAY_END) return { civ, play, rejected: [...commands] };
   const tick = Number.isFinite(at.tick) ? Math.min(YEAR_TICKS - 1, Math.max(0, Math.floor(at.tick))) : 0;
@@ -70,18 +73,21 @@ export function playTo(world: World, civ: Civ, params: Partial<CivParams>, play:
   const issued = issueCommands(play, commands);
   const next: PlayState = playState(m.year, m.tick, issued.play.commands);
   const interventions: Intervention[] = [...playInterventions(params.interventions ?? [], next)];
-  const out = continueCiv(world, civ, { ...params, interventions, endYear: playStop(m.year, m.tick) });
-  return { civ: out, play: next, rejected: issued.rejected };
+  const out = cont(world, civ, { ...params, interventions, endYear: playStop(m.year, m.tick) });
+  if (!out.stuck) return { civ: out, play: next, rejected: issued.rejected };
+  // 推不下去:进度停在历史推到的那一刻(cont 停在 playStop 得出来的一刻上)
+  const s = momentAt(Math.round(out.endYear * YEAR_TICKS) + 1);
+  return { civ: out, play: playState(s.year, s.tick, issued.play.commands), rejected: issued.rejected };
 }
 
 /** 一步走 ticks 格(取整,1–PLAY_TICKS_MAX;不是有限数 = 一格),别的同 playTo */
-export function playTicks(world: World, civ: Civ, params: Partial<CivParams>, play: PlayState, commands: readonly unknown[], ticks: number): PlayStep {
+export function playTicks(world: World, civ: Civ, params: Partial<CivParams>, play: PlayState, commands: readonly unknown[], ticks: number, cont?: PlayContinue): PlayStep {
   const n = Number.isFinite(ticks) ? Math.min(PLAY_TICKS_MAX, Math.max(1, Math.round(ticks))) : 1;
-  return playTo(world, civ, params, play, commands, momentAt(playAt(play) + n));
+  return playTo(world, civ, params, play, commands, momentAt(playAt(play) + n), cont);
 }
 
 /** 一步走 years 年(整数,1–PLAY_YEARS_MAX),停在 years 年以后的同一格;别的同 playTo */
-export function playTurn(world: World, civ: Civ, params: Partial<CivParams>, play: PlayState, commands: readonly unknown[], years: number): PlayStep {
+export function playTurn(world: World, civ: Civ, params: Partial<CivParams>, play: PlayState, commands: readonly unknown[], years: number, cont?: PlayContinue): PlayStep {
   const n = Math.min(PLAY_YEARS_MAX, Math.max(1, Math.round(years)));
-  return playTicks(world, civ, params, play, commands, n * YEAR_TICKS);
+  return playTicks(world, civ, params, play, commands, n * YEAR_TICKS, cont);
 }

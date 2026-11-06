@@ -94,6 +94,8 @@ export interface StepwiseState {
    * from = 原来那支(列表里照旧标"在这支"),last = 切到的那一支记着的最后一件大事。没在切 = null
    */
   switching: StepSwitch | null;
+  /** 推到第几年推不下去了(历史停在"现在",不再往下走;没有 = null) */
+  stuck: number | null;
 }
 
 /** 正在切到别的一支(StepwiseState.switching) */
@@ -103,7 +105,7 @@ export interface StepSwitch {
   last?: string;
 }
 
-const INIT: StepwiseState = { on: false, start: 0, since: 0, now: 0, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks: [], fresh: false, down: false, switching: null };
+const INIT: StepwiseState = { on: false, start: 0, since: 0, now: 0, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks: [], fresh: false, down: false, switching: null, stuck: null };
 
 let S: StepwiseState = INIT;
 const subs = createListeners();
@@ -251,7 +253,7 @@ export function leaveStepwise() {
  */
 export function enterStepwise(start: number, now: number) {
   const dialog = S.dialog?.kind === 'start' || S.dialog?.kind === 'rewind' || S.dialog?.kind === 'branch-delete' ? null : S.dialog;
-  patch({ on: true, start, since: now, now, busy: null, due: null, stop: null, cur: -1, clock: null, dialog, page: null, marks: [start], fresh: false, down: false, switching: null });
+  patch({ on: true, start, since: now, now, busy: null, due: null, stop: null, cur: -1, clock: null, dialog, page: null, marks: [start], fresh: false, down: false, switching: null, stuck: null });
   putSeen(now);
 }
 
@@ -267,7 +269,7 @@ export function branchSwitching(s: StepSwitch | null) {
  */
 export function rewoundTo(start: number, year: number) {
   const marks = [...new Set([...S.marks, start])].filter((m) => m >= start && m < year).sort((a, b) => a - b);
-  patch({ on: true, start, since: year, now: year, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks, fresh: true, down: false, switching: null });
+  patch({ on: true, start, since: year, now: year, busy: null, due: null, stop: null, cur: -1, clock: null, dialog: null, page: null, marks, fresh: true, down: false, switching: null, stuck: null });
   putSeen(year);
 }
 
@@ -308,6 +310,11 @@ export function stepArrived(now: number, due: StepwiseState['due']): number | nu
   if (!b) return null;
   const sec = (performance.now() - b.t0) / 1000;
   return sec > 0.005 ? (b.to - b.from) / sec : null;
+}
+
+/** 这一步推到第 at 年推不下去了:历史停在 now(没往前走 = 原来的"现在"),之后不再算下一步 */
+export function stepStuck(now: number, at: number) {
+  patch({ now, busy: null, due: null, stuck: at });
 }
 
 /** 一步没算成(线程被重开、换了世界……):下次再交 */

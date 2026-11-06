@@ -5,6 +5,7 @@
  */
 import { useEffect } from 'react';
 import type { Civ } from '../gen/civ/types';
+import { YEAR_TICKS } from '../gen/edits';
 import { useCivTime } from './civView';
 import { getEdits, removeIntervention, useEdits } from './editsStore';
 import { Icon } from './icons';
@@ -31,9 +32,14 @@ interface CardText {
   buttons: CardButton[];
 }
 
+/** 历史停在第几年(逐年推演停在第 N 年年初的历史推到 N − 1/256,也算第 N 年) */
+function stopYear(civ: Civ): number {
+  return Math.floor(civ.endYear + 1 / YEAR_TICKS);
+}
+
 /** 后台线程没撑住的那张:地图上还有历史就说停在哪年 */
 function crashCard(civ: Civ | null, retry: () => void): CardText {
-  const head = civ ? `这段历史没推完，停在第 ${Math.floor(civ.endYear)} 年，前面的历史照样能看。` : '这段历史没推完。';
+  const head = civ ? `这段历史没推完，停在第 ${stopYear(civ)} 年，前面的历史照样能看。` : '这段历史没推完。';
   return {
     title: '后台算不动了',
     text: `可能是这台设备的内存不够，${head}关掉别的网页再推一次，或者换一台内存大的设备打开这个世界。`,
@@ -55,7 +61,7 @@ function crashCard(civ: Civ | null, retry: () => void): CardText {
 /** 卡上的字和按钮 */
 function cardOf(civ: Civ, why: StuckWhy | null): CardText {
   const at = civ.stuck!.at;
-  const stop = Math.floor(civ.endYear);
+  const stop = stopYear(civ);
   const e = getEdits();
   const rules = e.rules;
   const cur = currentWorld();
@@ -206,7 +212,7 @@ export function StuckCard({ civ, phone, busy, over }: { civ: Civ | null; phone: 
 
 /** 时间轴尽头顶替「再推」的「推不下去」(手机上是警示的圆按钮):点了再看那张卡 */
 export function StuckButton({ civ, phone }: { civ: Civ; phone: boolean }) {
-  const tip = `推到第 ${civ.stuck?.at ?? Math.floor(civ.endYear)} 年推不下去了，点了看为什么`;
+  const tip = `推到第 ${civ.stuck?.at ?? stopYear(civ)} 年推不下去了，点了看为什么`;
   return (
     <button
       className={`xt-btn stuck${phone ? ' phone' : ''}`}

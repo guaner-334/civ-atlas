@@ -38,6 +38,7 @@ import {
   useDirector,
 } from './directorStore';
 import { getCivTime, pickChronicleEntry, setCivTime, subscribeCivTime, useSelection, clearSelection } from './civView';
+import { openStuck } from './stuckStore';
 import { currentMonths, getEdits, useEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { extendMs } from './extendStore';
 import { advanceBrief } from './advanceText';
@@ -355,6 +356,7 @@ function stepDebug(rate: { current: number | null }): void {
       look: stepLookYear(),
       seen: getSeen(),
       fresh: s.fresh,
+      stuck: s.stuck,
       marks: s.marks,
       rate: rate.current,
       stepMs: [...stepMs],
@@ -422,6 +424,12 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       setCivTime({ playing: false });
       return;
     }
+    // 推不下去、已经放到"现在":不再往下走,点播放再看那张卡
+    if (s0.stuck !== null && !replay && y0 >= s0.now - 1e-6) {
+      setCivTime({ playing: false });
+      openStuck();
+      return;
+    }
     if (!replay) clearFresh();
     /** 放到哪为止:重放 = 往回看之前停的地方;不然 = 算好的"现在" */
     const end = () => (replayTo !== null ? replayTo : getStepwise().now);
@@ -447,7 +455,7 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
     /** 播放头走进最后算好的那一步了:请算下一步(单子里的干预一起交出去,在"现在"生效:进度那一刻,停在年中的带着那一格) */
     const ask = (y: number) => {
       const s = getStepwise();
-      if (!s.on || s.busy || s.due || s.stop) return;
+      if (!s.on || s.busy || s.due || s.stop || s.stuck !== null) return;
       const plan = nextStep(advRef.current, s.since, s.now, monthsRef.current);
       if (plan.ticks <= 0) {
         stepArrived(s.now, { why: 'end', big: [] });
@@ -532,6 +540,10 @@ export function StepwiseEngine({ world, civ }: { world: World; civ: Civ | null }
       }
       const at = pos >= getStepwise().now - 1e-6 && (!dirOn || directorDone());
       if (at && getStepwise().due && arrive()) return;
+      if (at && !replay && getStepwise().stuck !== null) {
+        setCivTime({ year: getStepwise().now, playing: false, scrubbing: false, story: false });
+        return;
+      }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);

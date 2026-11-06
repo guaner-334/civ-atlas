@@ -52,6 +52,8 @@ export interface FinderRun {
   progress: FinderProgress | null;
   /** 这一批要推的几个种子(写"种子 1–200") */
   batch: { from: number; to: number; count: number };
+  /** 选中以后整段推下来推不下去的:种子 → 推到第几年推不下去 */
+  stuck?: Readonly<Record<number, number>>;
 }
 
 export interface FinderUi {
@@ -207,6 +209,13 @@ export function selectFinder(sel: FinderSel | null) {
   set({ sel });
 }
 
+/** 选中的那个世界整段推下来,推到第 at 年推不下去了:记在它那一行上 */
+export function markFinderStuck(seed: number, at: number) {
+  const run = state.run;
+  if (!run || run.stuck?.[seed] === at) return;
+  set({ run: { ...run, stuck: { ...run.stuck, [seed]: at } } });
+}
+
 /** 这次搜要用的生成设定(每个种子换一张地图的:不带这张地图改过的地形、草图;规则照带) */
 function setupOf(base: FinderBase, map: FinderMapMode): FinderSetup {
   return map === 'fixed'
@@ -264,7 +273,7 @@ export function startFinder() {
     sel: same ? state.sel : null,
     variant: 0,
     nearOpen: false,
-    run: { query: clone(query), setup, key, reports, progress: null, batch: { from: 1, to: state.count, count: state.count } },
+    run: { query: clone(query), setup, key, reports, progress: null, batch: { from: 1, to: state.count, count: state.count }, ...(same && state.run!.stuck ? { stuck: state.run!.stuck } : {}) },
   });
   const done = new Set(reports.map((r) => r.seed));
   // 从 1 起数 count 个,推过的不再推

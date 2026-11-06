@@ -161,7 +161,7 @@ import { regionLabel } from '../gen/civ/story/display';
 import { setSideHold, useSide } from './sideStore';
 import { setSheet, setWorldSheet, usePanel } from './panelStore';
 import { useOverview } from './overviewStore';
-import { setOutlineRun } from './outlineStore';
+import { setOutlineRun, startOutline } from './outlineStore';
 import { OutlineRunAsk } from './OutlineRunAsk';
 import { FinderPage } from './FinderPage';
 import { FinderOverlay, FinderPins } from './FinderMap';
@@ -994,6 +994,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
           if (items) restorePending(items);
           stepLost();
           setCivTime({ playing: false });
+          if (getStepwise().on) noteCrash(() => getStepwise().on && setCivTime({ year: getStepwise().now, playing: true, scrubbing: false, story: false }));
         } else if (req.type === 'extend') {
           if (extendRef.current?.xid === req.xid) {
             extendRef.current = null;
@@ -1004,7 +1005,10 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             });
           }
         } else if (req.type === 'outline') {
-          if (outlineRef.current?.oid === req.oid) endOutline();
+          if (outlineRef.current?.oid === req.oid) {
+            endOutline();
+            noteCrash(() => startOutline(req.tries ?? 0));
+          }
         } else if (req.type === 'civOnly' && naming.current?.nid === req.nid) {
           naming.current = null;
           setNamingPct(null);
@@ -2844,7 +2848,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       )}
       {world && !narrow && <UpheavalHint />}
       {/* 推不下去:地图盖浅白、中间一张卡(盖住上面的操作提示,不盖浮在地图上的按钮和时间轴);新建时只弹后台算不动的那张 */}
-      {(world || draft) && !stepOn && <StuckCard civ={world && data ? civ : null} phone={narrow} busy={worldBusy} over={!world} />}
+      {(world || draft) && <StuckCard civ={world && data ? civ : null} phone={narrow} busy={worldBusy} over={!world} />}
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">

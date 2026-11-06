@@ -138,7 +138,7 @@ function Thumb({ cand }: { cand: FinderCand }) {
 }
 
 /** 列表里的一行 */
-function ResultRow({ q, row, on, near, phone, actions }: { q: FinderQuery; row: FinderRow; on: boolean; near: boolean; phone: boolean; actions: ReactNode }) {
+function ResultRow({ q, row, on, near, phone, stuck, actions }: { q: FinderQuery; row: FinderRow; on: boolean; near: boolean; phone: boolean; stuck?: number; actions: ReactNode }) {
   const cand = row.cand;
   const pass = passOf(q, cand);
   const junction = row.places.find((p) => p.kind === 'junction');
@@ -193,6 +193,11 @@ function ResultRow({ q, row, on, near, phone, actions }: { q: FinderQuery; row: 
               </div>
             )}
           </>
+        )}
+        {stuck !== undefined && (
+          <div className="fd-miss" data-testid="finder-stuck">
+            推到第 {stuck} 年推不下去了
+          </div>
         )}
         {/* 选中的一行带「用这个世界」和「为什么合、后来怎样」(差一条的写「差在哪、后来怎样」) */}
         {on && actions}
@@ -409,7 +414,7 @@ export function FinderResults({ ui, phone, onUse }: { ui: FinderUi; phone: boole
   const rows = (list: readonly FinderRow[], near: boolean) => (
     <div className="fd-grp fd-list">
       {list.map((r) => (
-        <ResultRow key={r.seed} q={vq} row={r} on={r.seed === selSeed} near={near} phone={phone} actions={actions(near)} />
+        <ResultRow key={r.seed} q={vq} row={r} on={r.seed === selSeed} near={near} phone={phone} stuck={run.stuck?.[r.seed]} actions={actions(near)} />
       ))}
     </div>
   );

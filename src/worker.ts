@@ -70,7 +70,7 @@ import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
 import type { WorldTuning } from './gen/civ/tuning';
 import { SNAPSHOT_FORMAT, makePart, readLocalPart, recipeKey, recipeText, recipeTuning, type Recipe, type Snapshot, type SnapshotPart } from './gen/snapshot';
-import { playTicks, playTurn } from './gen/civ/play';
+import { playStop, playTicks, playTurn, type PlayContinue } from './gen/civ/play';
 import { subSeed } from './gen/util';
 import { chronicleOf, type ChroniclePart } from './chronicleParts';
 import type { FlagBook } from './gen/civ/story/flags';
@@ -224,7 +224,7 @@ export type WorkerRequest =
   | { type: 'packNow'; id: number }
   /**
    * 冒烟检查、截图用(网址带 simFail):之后的推演推过第 year 年就故意出错,看推不下去时的样子;
-   * 负数 = 生成世界、重推、再推时线程直接出错(看线程没撑住时的样子);0 = 照常。不排队,没有回音
+   * 负数 = 生成世界、重推、再推、逐年推演、照大纲推演时线程直接出错(看线程没撑住时的样子);0 = 照常。不排队,没有回音
    */
   | { type: 'simFail'; id: number; year: number }
   /**
@@ -628,7 +628,7 @@ const frozenOpt = (m: Pick<CivInput, 'params' | 'terrain' | 'sketch'>) => (froze
  * 没改过地形、没调民族扩散、没另起文明种子的,顺手记下这颗星球的扩张节拍(见 tempos)
  */
 function civOf(world: World, m: CivInput & { interventions?: Intervention[] }, steps: Step[]): Civ {
-  const c = civOrStuck(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt());
+  const c = civOrStuck(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt(m.play));
   // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数);另起文明种子的,州和民族不是这颗星球原来的那一份:都不记
   if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
   return c;
@@ -850,7 +850,7 @@ async function packedOffer(m: Extract<Queued, { type: 'packParts' }>): Promise<W
   const civ =
     had && (m.play || had.endYear === (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT) || had.stuck?.to === (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT))
       ? had
-      : civOrStuck(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt());
+      : civOrStuck(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt(m.play));
   const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, ...recipeTuning(m.tuning), civSeed: m.civSeed, keptMap: m.keptMap, play: m.play });
   const map = pin ? pin.part : await mapPart(baseKey, world);
   const parts = [
@@ -989,7 +989,12 @@ let broken = false;
 let simFail: number | undefined;
 /** 推不下去时推演里抛的错:随停住的那份历史一起交给主线程记进问题记录(postCiv) */
 let simError: unknown = null;
-const stuckOpt = (): StuckOptions => ({ engine: simFail !== undefined && simFail > 0 ? breakAt(simFail) : growEngine, failed: (e) => (simError = e) });
+/** play = 逐年推演的进度:推不下去时停在年初,进度停得住 */
+const stuckOpt = (play?: PlayState): StuckOptions => ({
+  engine: simFail !== undefined && simFail > 0 ? breakAt(simFail) : growEngine,
+  failed: (e) => (simError = e),
+  ...(play ? { snap: (y: number) => playStop(y) } : {}),
+});
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   if (broken) return;
   // 改名不排队:在推的那一次推完要按它算编年史
@@ -1111,7 +1116,7 @@ function checkKept(m: Queued): void {
 
 async function handle(m: Queued): Promise<void> {
   simError = null;
-  if (simFail !== undefined && simFail < 0 && ((m.type === 'generate' && !m.skipCiv) || m.type === 'resim' || m.type === 'extend')) throw new Error('故意让线程出错');
+  if (simFail !== undefined && simFail < 0 && ((m.type === 'generate' && !m.skipCiv) || m.type === 'resim' || m.type === 'extend' || m.type === 'turn' || m.type === 'outline')) throw new Error('故意让线程出错');
   checkKept(m);
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin' && m.type !== 'packParts') dropTurnSnap();
@@ -1423,7 +1428,7 @@ async function handle(m: Queued): Promise<void> {
     const civ =
       base && base.endYear < (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT)
         ? continueOrStuck(world, base, { ...params, ...memoOpt(world, m.civSeed) }, stuckOpt())
-        : civOrStuck(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt());
+        : civOrStuck(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt(m.play));
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {
@@ -1443,7 +1448,8 @@ async function handle(m: Queued): Promise<void> {
     // 上一步的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一步年初
     const from = (await heldCiv(m, m.play)) ?? generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
     const opt = { ...params, ...memoOpt(world, m.civSeed) };
-    const out = m.ticks !== undefined ? playTicks(world, from, opt, m.play, m.commands, m.ticks) : playTurn(world, from, opt, m.play, m.commands, m.years);
+    const cont: PlayContinue = (w, c, p) => continueOrStuck(w, c, p, stuckOpt(m.play));
+    const out = m.ticks !== undefined ? playTicks(world, from, opt, m.play, m.commands, m.ticks, cont) : playTurn(world, from, opt, m.play, m.commands, m.years, cont);
     const ms = performance.now() - t0;
     const cloned = cloneCiv(out.civ);
     keepCiv(m, out.play, cloned);
@@ -1512,6 +1518,7 @@ async function handle(m: Queued): Promise<void> {
         key,
         // 叫停了:已经定下来的几条留着,再照大纲推演时不重算
         keep: (c) => (outlineCache = c),
+        ...stuckOpt(),
       },
     );
     if (!out) {

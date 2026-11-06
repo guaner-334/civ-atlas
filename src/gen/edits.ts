@@ -2921,10 +2921,11 @@ export type PlotStatus = (typeof PLOT_STATUSES)[number];
  *   empty 那里没人住 / notOwned 那州、那城不在这国手里 / ruined 城已毁 / border 两国不接壤 / atWar 两国已在交战 /
  *   dead 那年他已不在世 / unborn 那年他还没出生 / notReigning 那年他不在位 / unsupported 推演里还不能直接让它发生 /
  *   crowded 前面的情节已经把这段时间定下了 / beyond 年份超出了推演年数 / refFailed 它跟着的那条情节没立起国家 / noEffect 硬改了也没成 /
- *   redo 大纲搬到这个世界以后,这条要的国家、州、城、人物……对不上,还没重新指 / noWay 大迁徙走不到(那个方位上陆路走得到的地方里没有能去的)。
+ *   redo 大纲搬到这个世界以后,这条要的国家、州、城、人物……对不上,还没重新指 / noWay 大迁徙走不到(那个方位上陆路走得到的地方里没有能去的) /
+ *   stuck 推到这条以前推不下去了(历史停在 Civ.stuck,这条没查)。
  *   大迁徙的 notYet / gone / missing 说的是那一族(那年还没出现 / 已经不在了 / 这段历史里没有)
  */
-export const PLOT_REASONS = ['notYet', 'gone', 'missing', 'empty', 'notOwned', 'ruined', 'border', 'atWar', 'dead', 'unborn', 'notReigning', 'unsupported', 'crowded', 'beyond', 'refFailed', 'noEffect', 'redo', 'noWay'] as const;
+export const PLOT_REASONS = ['notYet', 'gone', 'missing', 'empty', 'notOwned', 'ruined', 'border', 'atWar', 'dead', 'unborn', 'notReigning', 'unsupported', 'crowded', 'beyond', 'refFailed', 'noEffect', 'redo', 'noWay', 'stuck'] as const;
 export type PlotReason = (typeof PLOT_REASONS)[number];
 
 /** 一条情节的批改 */
