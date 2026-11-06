@@ -6,12 +6,14 @@
 import { createStore } from './createStore';
 import type { Intervention } from '../gen/edits';
 
-/** 这次是怎么推出来的:新建 / 另存重推 / 打开别人分享的(new),改了一条干预重推(iv),再推(extend) */
+/** 这次是怎么推出来的:新建 / 另存重推 / 打开别人分享的(new),改了一条干预重推(iv),再推(extend);后台线程没撑住、这次没推成(crash) */
 export type StuckWhy =
   | { kind: 'new' }
   /** label = 这条干预怎么称呼(和下了以后那条提示条上一样) */
   | { kind: 'iv'; iv: Intervention; label: string }
-  | { kind: 'extend'; from: number; undo: () => void };
+  | { kind: 'extend'; from: number; undo: () => void }
+  /** retry = 再推一次 */
+  | { kind: 'crash'; retry: () => void };
 
 export interface StuckState {
   /** 读存下的世界打开的 = null(只照规则说) */
@@ -32,6 +34,11 @@ export function noteStuck(stuck: boolean, why: StuckWhy): void {
   store.set(stuck ? { why, pending: true, open: false } : IDLE);
 }
 
+/** 后台线程没撑住(多半是内存不够),这次没推成:马上弹卡 */
+export function noteCrash(retry: () => void): void {
+  store.set({ why: { kind: 'crash', retry }, pending: false, open: true });
+}
+
 /** 换了世界、读存下的打开、撤销回推完的那份:收起,不弹 */
 export function resetStuck(): void {
   store.set(IDLE);
@@ -45,8 +52,8 @@ export function closeStuck(): void {
   store.update((s) => (s.open || s.pending ? { ...s, pending: false, open: false } : s));
 }
 
-/** 网址带 simFail=1820:推演推过那一年就故意出错(冒烟检查、截图看推不下去时的样子) */
+/** 网址带 simFail=1820:推演推过那一年就故意出错;simFail=-1:线程直接出错(冒烟检查、截图看推不下去、没撑住时的样子) */
 export function simFailOpt(): { simFail?: number } {
   const v = Number(new URLSearchParams(location.search).get('simFail'));
-  return Number.isFinite(v) && v > 0 ? { simFail: v } : {};
+  return Number.isFinite(v) && v !== 0 ? { simFail: v } : {};
 }

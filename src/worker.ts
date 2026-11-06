@@ -222,7 +222,10 @@ export type WorkerRequest =
   | { type: 'renames'; id: number; names: Record<string, string> }
   /** 页面藏起来、要关了:逐年推演等着打的那份原件现在就打,不等停够 TURN_SNAPSHOT_IDLE。没有回音 */
   | { type: 'packNow'; id: number }
-  /** 冒烟检查、截图用(网址带 simFail):之后的推演推过第 year 年就故意出错,看推不下去时的样子(0 = 照常)。不排队,没有回音 */
+  /**
+   * 冒烟检查、截图用(网址带 simFail):之后的推演推过第 year 年就故意出错,看推不下去时的样子;
+   * 负数 = 生成世界、重推、再推时线程直接出错(看线程没撑住时的样子);0 = 照常。不排队,没有回音
+   */
   | { type: 'simFail'; id: number; year: number }
   /**
    * 把这份配方的世界打成存进仓库、存成文件用的几块,交回来(packed;fid = 第几次,主线程按它认)。
@@ -986,13 +989,13 @@ let broken = false;
 let simFail: number | undefined;
 /** 推不下去时推演里抛的错:随停住的那份历史一起交给主线程记进问题记录(postCiv) */
 let simError: unknown = null;
-const stuckOpt = (): StuckOptions => ({ engine: simFail === undefined ? growEngine : breakAt(simFail), failed: (e) => (simError = e) });
+const stuckOpt = (): StuckOptions => ({ engine: simFail !== undefined && simFail > 0 ? breakAt(simFail) : growEngine, failed: (e) => (simError = e) });
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   if (broken) return;
   // 改名不排队:在推的那一次推完要按它算编年史
   if (e.data.type === 'renames') return void (renamesNow = { id: e.data.id, names: e.data.names });
   if (e.data.type === 'packNow') return turnSnapNow?.();
-  if (e.data.type === 'simFail') return void (simFail = e.data.year > 0 ? e.data.year : undefined);
+  if (e.data.type === 'simFail') return void (simFail = e.data.year || undefined);
   // 交回的那一笔换上了:不用留着怎么改回上一张
   if (e.data.type === 'shown') {
     if (kept?.undo && kept.key === e.data.key) kept = { key: kept.key, keep: kept.keep };
@@ -1108,6 +1111,7 @@ function checkKept(m: Queued): void {
 
 async function handle(m: Queued): Promise<void> {
   simError = null;
+  if (simFail !== undefined && simFail < 0 && ((m.type === 'generate' && !m.skipCiv) || m.type === 'resim' || m.type === 'extend')) throw new Error('故意让线程出错');
   checkKept(m);
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin' && m.type !== 'packParts') dropTurnSnap();
