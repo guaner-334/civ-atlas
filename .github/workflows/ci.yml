@@ -80,6 +80,33 @@ jobs:
           path: snaps/visual-diff/
           retention-days: 14
 
+  # 插件沙箱:插件把能想到的坏事在三个浏览器引擎里各试一遍,另起的收信站收到任何东西就算没过
+  sandbox:
+    name: 插件沙箱
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 读取 Playwright 版本
+        id: pw
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: 缓存无头浏览器
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-sandbox
+      # 缓存命中时只装 WebKit、Firefox 要的系统库,浏览器本身不再下载
+      - name: 安装三个无头浏览器和系统库
+        run: pnpm exec playwright install --with-deps --only-shell chromium webkit firefox
+      - name: 插件沙箱检查
+        run: pnpm test:sandbox
+
   # 单测分 8 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
   test:
     name: 单测 ${{ matrix.shard }}
