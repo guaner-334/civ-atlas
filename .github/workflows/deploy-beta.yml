@@ -10,7 +10,7 @@ name: 发布测试网站
 # 构建前把浏览器存储的名字(localStorage 的键、IndexedDB 的库名)都换成带 beta 的(wenming-ditu: → wenming-ditu-beta: 这样):
 # 测试网站和正式网站在同一个网址下面,共用存储的话,测试版会把正式网站存的世界按新格式重存,正式网站就读不全了。
 # 构建时带上 VITE_BETA_SITE=1:页面左上角写明是测试版、带回正式网站的链接(src/ui/oldSite.ts);页面多一行不让搜索引擎收录。
-# 不带 VITE_AI_SERVER:测试网站没有登录和云同步,不会把测试版的存档传进账号。
+# 服务器地址和正式网站用同一个变量 VITE_AI_SERVER(见 deploy.yml 开头),只开作品墙。
 # 发布用的密钥和正式网站一样(见 deploy.yml 开头);只往 beta/ 子目录传文件,不删任何东西,正式网站的发布也不会删它。
 on:
   push:
@@ -60,7 +60,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 生产构建
         env:
-          VITE_AI_SERVER: ''
+          VITE_AI_SERVER: ${{ vars.VITE_AI_SERVER }}
+          # 测试版的存档不能传进账号:正式网站以后开了账号,这里也一直关着
+          VITE_ACCOUNTS: 'off'
           VITE_BETA_SITE: '1'
           ICP_BEIAN: ${{ vars.ICP_BEIAN_SHOW == '1' && vars.ICP_BEIAN || '' }}
         run: pnpm build
