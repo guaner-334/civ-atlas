@@ -284,6 +284,7 @@ const MOVED: Record<string, number> = {
   第一次来: 3,
   新建选规则: 3,
   并排试推: 5,
+  推不下去: 3,
   新建时让助手改: 4,
   隐私模式: 5,
   改名等推完: 3,
@@ -1865,6 +1866,80 @@ if (part('并排试推')) compare: {
   if (!status.includes('右边停在第 900 年')) errs.push(`并排试推:时间轴右边应写右边停在第 900 年(${status})`);
   if (!left || Object.keys(left).length !== 0 || restarted !== 'run') errs.push(`并排试推:「这两项改回官方」以后我的规则里那两项应没了、右边从头推(${JSON.stringify(left)},${restarted})`);
   if (!back) errs.push('并排试推:Esc 应回到调规则的大卡');
+  await ctx.close();
+}
+
+// 推不下去:「我的规则」里放一套(战争 ×4、议和后 0 年),新建时选它;网址带 simFail=900:推过第 900 年就故意出错 →
+// 建好以后停在第 900 年、盖浅白、中间一张卡说可能是哪两项,时间轴上「再推」换成「推不下去」、一道红线;「先看前面的历史」收起;
+// 刷新(读存下的)不再弹卡、照样停在第 900 年,点「推不下去」再弹;「这两项改回官方，另存一份重推」→ 我的规则里那两项没了(第 2 版)、进打造文明。
+// 官方规则的世界加一条干预推不下去:卡上「撤销这条干预」→ 干预撤掉、回到推完的历史
+if (part('推不下去')) stuck: {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  await ctx.addInitScript(() => {
+    if (!localStorage.getItem('wenming-ditu:rules'))
+      localStorage.setItem('wenming-ditu:rules', JSON.stringify({ list: [{ rules: { id: 'rstuck0001', name: '战乱年代', version: 1, values: { 'war.odds': 4, 'war.truce': 0 } }, used: false, worlds: 0, at: 1 }] }));
+  });
+  const sp = await ctx.newPage();
+  sp.on('pageerror', (e) => errs.push(`推不下去:${e.message}`));
+  await sp.goto(`${dev.url}/?new=1&seed=7&play=0&simFail=900`);
+  await studioReady(sp);
+  await toCivStep(sp);
+  await sp.click('.studio [data-act=rules]');
+  await sp.click('.rp-row[data-rules=rstuck0001]');
+  await sp.click('[data-act=rules-pick-back]');
+  await sp.click('.studio [data-act=create-world]');
+  await sp.click('.st-dlg [data-act=confirm-create]');
+  const cardSel = '[data-act=stuck-card]';
+  const opened = await sp.locator(cardSel).waitFor({ timeout: 120000 }).then(() => true, () => false);
+  if (!opened) {
+    errs.push('推不下去:建好以后没弹卡');
+    await ctx.close();
+    break stuck;
+  }
+  const card = await sp.locator(cardSel).innerText();
+  const dim = await sp.locator('.stuck-dim').count();
+  const btn = await sp.locator('.timebar [data-act=stuck]').innerText().catch(() => '');
+  const extend = await sp.locator('.timebar [data-act=extend]').count();
+  const line = await sp.locator('.tb-stuck-line').count();
+  const year0 = await sp.locator('.tb-year').first().innerText().catch(() => '');
+  await sp.click('[data-act=stuck-look]');
+  const closed = !(await sp.locator(cardSel).count());
+  await sp.reload();
+  await sp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await sp.waitForTimeout(1500);
+  const reCard = await sp.locator(cardSel).count();
+  const reYear = await sp.locator('.tb-year').first().innerText().catch(() => '');
+  await sp.click('.timebar [data-act=stuck]');
+  const again = await sp.locator(cardSel).count();
+  await sp.click('[data-act=stuck-revert]');
+  const studio = await sp.locator('.studio').waitFor({ timeout: 20000 }).then(() => true, () => false);
+  const toast = await sp.locator('.toast').first().innerText().catch(() => '');
+  const mine = await sp.evaluate(() => (JSON.parse(localStorage.getItem('wenming-ditu:rules') ?? '{}').list ?? [])[0]?.rules ?? null);
+  // 官方规则的世界加一条干预:推到第 900 年推不下去,卡上「撤销这条干预」
+  const ip = await ctx.newPage();
+  ip.on('pageerror', (e) => errs.push(`推不下去:${e.message}`));
+  await ip.goto(`${dev.url}/?seed=7&play=0`);
+  await ip.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 60000 });
+  await ip.evaluate(() => (window as any).__wfSimFail(900));
+  await ip.evaluate(async () => (await import('/src/ui/editsStore.ts' as string)).addIntervention({ kind: 'disaster', type: 'famine', level: 3, from: 600, regions: ['region:r40', 'region:r41'] }));
+  const ivOpened = await ip.locator(cardSel).waitFor({ timeout: 120000 }).then(() => true, () => false);
+  const ivCard = ivOpened ? await ip.locator(cardSel).innerText() : '';
+  await ip.evaluate(() => (window as any).__wfSimFail());
+  if (ivOpened) await ip.click('[data-act=stuck-undo-iv]');
+  const ivBack = await ip
+    .waitForFunction(() => !!document.querySelector('.timebar [data-act=extend]') && !document.querySelector('.timebar [data-act=stuck]'), null, { timeout: 60000 })
+    .then(() => true, () => false);
+  const ivLeft = await ip.evaluate(async () => (await import('/src/ui/editsStore.ts' as string)).getEdits().interventions.length);
+  console.log(
+    `推不下去:卡「${card.replace(/\n+/g, ' ')}」;浅白 ${dim}、按钮「${btn}」、再推 ${extend}、红线 ${line}、${year0};收起 ${closed};刷新以后卡 ${reCard}、${reYear}、点了再弹 ${again};` +
+      `改回:进打造文明 ${studio}、提示条「${toast.replace(/\n/g, ' ')}」、我的规则 第 ${mine?.version} 版 ${JSON.stringify(mine?.values)};干预「${ivCard.replace(/\n+/g, ' ')}」→ 撤销以后推完 ${ivBack}、干预 ${ivLeft} 条`,
+  );
+  if (!card.includes('推到第 900 年推不下去了') || !card.includes('「议和后 0 年不再开战」和「战争 ×4」') || !card.includes('世界已经存好，停在第 900 年') || !card.includes('这两项改回官方，另存一份重推'))
+    errs.push(`推不下去:建好以后那张卡不对(${card})`);
+  if (!dim || btn.trim() !== '推不下去' || extend || line !== 1 || !year0.includes('900')) errs.push(`推不下去:浅白、时间轴上的「推不下去」和红线不对(浅白 ${dim}、「${btn}」、再推 ${extend}、红线 ${line}、${year0})`);
+  if (!closed || reCard || !reYear.includes('900') || !again) errs.push(`推不下去:收起、刷新以后不弹、点了再弹不对(${closed}、${reCard}、${reYear}、${again})`);
+  if (!studio || !toast.includes('这两项改回了官方，存成第 2 版') || mine?.version !== 2 || Object.keys(mine?.values ?? {}).length) errs.push(`推不下去:改回官方另存一份重推不对(${studio}、${toast}、${JSON.stringify(mine)})`);
+  if (!ivCard.includes('加上刚下的') || !ivCard.includes('撤销这条干预') || !ivBack || ivLeft !== 0) errs.push(`推不下去:干预推不下去、撤销不对(${ivCard}、${ivBack}、${ivLeft})`);
   await ctx.close();
 }
 

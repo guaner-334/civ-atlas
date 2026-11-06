@@ -20,7 +20,8 @@
  *
  * 收到一条消息,按这个先后:
  *   1. 已被换掉的线程发来的:不管
- *   2. 交历史之前先交的几段历史(civPart,src/civParts.ts):收着;交历史的那条到了先拼回去,别处拿到的都是整份
+ *   2. 交历史之前先交的几段历史(civPart,src/civParts.ts):收着;交历史的那条到了先拼回去,别处拿到的都是整份。
+ *      推不下去时推演里抛的错(simError):记进问题记录,到此为止
  *   3. 记账:算一件回音的(见 QUIET)手上最早的那件活回完了;都回完了"在忙什么"清掉
  *   4. 半路放下的生成(aborted):只是一声回音,到此为止
  *   5. 记下线程回报的扩张节拍(tempo),下次发请求带回去
@@ -31,7 +32,7 @@
  *   9. 按类型交给 on 里的回调(同步调,不绕异步)
  */
 import { CivPartInbox } from '../../civParts';
-import { diagBeat, recordWorkerError } from '../../diag/watch';
+import { diagBeat, recordSimError, recordWorkerError } from '../../diag/watch';
 import type { Civ } from '../../gen/civ';
 import type { LoadRequest, TempoNote, WorkerRequest, WorkerResponse } from '../../worker';
 import type { WorldPartsOffer } from '../../worldVault';
@@ -48,7 +49,7 @@ export interface SimWorker {
 
 type Msg<K extends WorkerResponse['type']> = Extract<WorkerResponse, { type: K }>;
 /** 客户端自己收拾的:分段先交的历史、编年史,半路放下的回音,试推演的结果,打好的内容 */
-type Internal = 'civPart' | 'chronicle' | 'chronicleBlock' | 'aborted' | 'trial' | 'packed';
+type Internal = 'civPart' | 'chronicle' | 'chronicleBlock' | 'aborted' | 'trial' | 'packed' | 'simError';
 /** 每种消息交给谁(现在这个世界的;记账、拼历史、记编年史都已做完) */
 export type SimHandlers = { [K in Exclude<WorkerResponse['type'], Internal>]: (m: Msg<K>) => void };
 
@@ -63,6 +64,8 @@ export interface SimClientOptions {
    * 只交现在这个世界的(编号对不上的不交);试推演不交,这里直接 reject
    */
   lost: (req: WorkerRequest) => void;
+  /** 冒烟检查、截图用:每个新开的线程推过这一年就故意出错(见 worker.ts 的 simFail;不给 = 照常) */
+  simFail?: number;
 }
 
 /** 线程上的活,问题记录里的说法 */
@@ -83,7 +86,7 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
  * 不算一件回音的:主图补丁、原件是后台自己排的活;再推 / 照大纲推演的进度、先交的编年史、先交的地图也不算(推完 / 停下才算)。
  * 先交的几段历史(civPart)在记账之前就收下了,也不算
  */
-const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'worldParts', 'extendProgress', 'outlineProgress', 'chronicle', 'chronicleBlock', 'map']);
+const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'worldParts', 'extendProgress', 'outlineProgress', 'chronicle', 'chronicleBlock', 'map', 'simError']);
 
 /** 叫线程打内容要给的(见 worker.ts 的 packParts) */
 export type PackAsk = Omit<Extract<WorkerRequest, { type: 'packParts' }>, 'type' | 'fid'>;
@@ -129,7 +132,18 @@ export class SimClient {
   /** 照原样打开的世界(打开它的那件读档;换了世界 = null):重开线程时先发 pin 重新钉住(见文件头) */
   private loaded: LoadRequest | null = null;
 
-  constructor(private opts: SimClientOptions) {}
+  /** 推过这一年就故意出错(见 SimClientOptions.simFail) */
+  private simFail: number | undefined;
+
+  constructor(private opts: SimClientOptions) {
+    this.simFail = opts.simFail;
+  }
+
+  /** 冒烟检查、截图用:之后的推演推过第 year 年就故意出错(不给 = 照常) */
+  setSimFail(year: number | undefined): void {
+    this.simFail = year;
+    this.w?.postMessage({ type: 'simFail', id: 0, year: year ?? 0 });
+  }
 
   /** 线程手上还没回音的活有几件 */
   get busy(): number {
@@ -168,6 +182,7 @@ export class SimClient {
     this.soft.clear();
     this.doing = null;
     // 不算一件活、线程不回音
+    if (this.simFail !== undefined) w.postMessage({ type: 'simFail', id: 0, year: this.simFail });
     if (pin && this.loaded) w.postMessage({ type: 'pin', id: this.loaded.id, load: this.loaded });
     return w;
   }
@@ -303,6 +318,7 @@ export class SimClient {
   private take(w: SimWorker, m: WorkerResponse): void {
     if (this.w !== w) return; // 已被换掉的线程
     if (m.type === 'civPart') return void this.parts.take(m);
+    if (m.type === 'simError') return void recordSimError(m.at, m.message, m.stack);
     if ('split' in m && m.split) this.parts.join(m.civ!, m.split);
     if (!QUIET.has(m.type)) {
       this.pending.shift();
@@ -319,7 +335,8 @@ export class SimClient {
       // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要
       const t = this.trials.get(m.tid);
       this.trials.delete(m.tid);
-      t?.resolve(m.civ);
+      if (m.civ.stuck) t?.reject(new Error(`推到第 ${m.civ.stuck.at} 年推不下去了`));
+      else t?.resolve(m.civ);
       return;
     }
     if (m.type === 'packed') {

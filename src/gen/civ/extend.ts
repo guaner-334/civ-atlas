@@ -8,7 +8,9 @@
  * 纯计算,不碰 DOM;在 worker 和 Node 里都能跑。
  */
 import type { World } from '../world';
-import { continueParams, generateCiv, startContinue } from './index';
+import { continueParams } from './index';
+import { growEngine } from './grow';
+import { civOrStuck, findStuck, type StuckOptions } from './stuck';
 import type { Civ, CivParams } from './types';
 
 /** 一段最多推多久(毫秒):推满就停下来报进度、看要不要停 */
@@ -26,7 +28,7 @@ function simShare(from: number, to: number): number {
 }
 
 /** 再推时的回调(都可以不给) */
-export interface ExtendHooks {
+export interface ExtendHooks extends StuckOptions {
   /**
    * 开始推、每推完一段、整理完各报一次:推演已经推到哪一刻(带小数的年份:停在一年中间的世界从那一格接着推,开头和最后一段在年中)、
    * 整体进度(0–1,只增不减;推演推完到整理完之间停在一个数上)
@@ -42,33 +44,42 @@ export interface ExtendHooks {
 
 /**
  * 接着推到 params.endYear。base = 推好的历史(推到比 params.endYear 早的年份,params 除 endYear 外要和推出它时一样;没有 = null);
- * 没有或接不上就从第 0 年整段推。返回推好的 Civ;中途被叫停 = null。不改 base
+ * 没有或接不上就从第 0 年整段推。返回推好的 Civ(推不下去的停在那一年,带 stuck,见 stuck.ts);中途被叫停 = null。不改 base
  */
 export async function extendCiv(world: World, base: Civ | null, params: Partial<CivParams>, hooks: ExtendHooks = {}): Promise<Civ | null> {
   const stop = hooks.stop ?? (() => false);
   const now = hooks.now ?? (() => performance.now());
+  const engine = hooks.engine ?? growEngine;
   if (stop()) return null;
   // 一套数没给的照 base 带着的(接不上、从第 0 年重推也按它,见 continueParams)
   const q = base ? continueParams(base, params) : params;
-  const run = base ? startContinue(world, base, q) : null;
+  const run = base ? engine.resume(world, base, q) : null;
   if (!run) {
-    const civ = generateCiv(world, q);
+    const civ = civOrStuck(world, q, hooks, base);
     hooks.progress?.(civ.endYear, 1);
     return civ;
   }
   const span = run.to - run.from;
   const share = simShare(run.from, run.to);
   hooks.progress?.(run.from, 0);
-  while (run.year < run.to) {
-    // 一段至少往前推一步(机器再慢也推得动)
-    const t0 = now();
-    do run.advance(Math.floor(run.year / STEP_YEARS) * STEP_YEARS + STEP_YEARS);
-    while (run.year < run.to && now() - t0 < SLICE_MS);
-    hooks.progress?.(run.year, (share * (run.year - run.from)) / span);
-    if (hooks.pause) await hooks.pause();
-    if (stop()) return null;
+  let civ: Civ;
+  try {
+    while (run.year < run.to) {
+      // 一段至少往前推一步(机器再慢也推得动)
+      const t0 = now();
+      do run.advance(Math.floor(run.year / STEP_YEARS) * STEP_YEARS + STEP_YEARS);
+      while (run.year < run.to && now() - t0 < SLICE_MS);
+      hooks.progress?.(run.year, (share * (run.year - run.from)) / span);
+      if (hooks.pause) await hooks.pause();
+      if (stop()) return null;
+    }
+    civ = run.finish();
+  } catch (e) {
+    hooks.failed?.(e);
+    const stuck = findStuck(world, q, base, engine);
+    if (!stuck) throw e;
+    civ = stuck;
   }
-  const civ = run.finish();
   hooks.progress?.(civ.endYear, 1);
   return civ;
 }

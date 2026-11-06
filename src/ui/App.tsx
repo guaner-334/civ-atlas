@@ -240,6 +240,8 @@ import { SourceLayer, useImportOn, useSourceView } from './ImportImage';
 import { NewWorldDialog } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
+import { resetStuck, simFailOpt } from './stuckStore';
+import { StuckCard } from './StuckCard';
 import { SimClient } from './sim/simClient';
 import { useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
 import { useExtendOutlineRunners, useSimRunners } from './sim/useSimRunners';
@@ -913,6 +915,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     const client = new SimClient({
       spawn: () => new Worker(WORKER_URL, { type: 'module' }),
       currentId: () => reqId.current,
+      ...simFailOpt(),
       on: {
         // 生成、打开世界那几种(世界和地图、进度、原件读不出来、原件、主图补丁、地形大事预览):见 ./world/worldMessages.ts
         ...worldMessages({
@@ -992,6 +995,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         }
       },
     });
+    (window as unknown as { __wfSimFail?: (year?: number) => void }).__wfSimFail = (year) => client.setSimFail(year);
     return client;
   });
   const send = useCallback(
@@ -1008,6 +1012,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       if (req.type === 'generate' || req.type === 'load') {
         cancelTerrainPatch();
         dropPreparedRivers();
+        resetStuck();
       }
       // 交回历史的请求带上现在的改名:线程先交套上它的编年史(打开世界时那两种自己带着存档里的改名;试推演不换上,不用)
       const named =
@@ -2822,6 +2827,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         <FirstHint show={hintOn && !!data && world && !terrainTool.on && !upOn} touch={coarse} />
       )}
       {world && !narrow && <UpheavalHint />}
+      {/* 推不下去:地图盖浅白、中间一张卡(盖住上面的操作提示,不盖浮在地图上的按钮和时间轴) */}
+      {data && world && !stepOn && <StuckCard civ={civ} phone={narrow} busy={worldBusy} />}
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">
