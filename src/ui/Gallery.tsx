@@ -24,6 +24,8 @@ import { VersionText } from './VersionNews';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { decodePresetHash } from './presetLink';
 import type { SharedPreset } from './presetStore';
+import { openRulesSheet } from './rules/sheetStore';
+import { rulesUiOn } from './rules/flag';
 import { DEFAULT_PARAMS } from '../gen/params';
 import { END_YEAR_DEFAULT } from '../gen/edits';
 import { ServerError } from '../account/server';
@@ -568,6 +570,8 @@ function PresetWorkDialog({ phone, w, item, onClose, onUse }: { phone: boolean; 
     };
   }, [w.id, item]);
   const ok = got && 'p' in got ? got.p : null;
+  // 调规则的入口关着时不露
+  const okRules = rulesUiOn() ? ok?.rules : undefined;
   const head = (
     <div className="gl-pcover" style={{ backgroundImage: coverUrl(w.id) ? `url("${coverUrl(w.id)}")` : undefined }}>
       <button className="acct-x" onClick={onClose} title="关闭" aria-label="关闭">
@@ -587,13 +591,31 @@ function PresetWorkDialog({ phone, w, item, onClose, onUse }: { phone: boolean; 
         </div>
         {w.blurb && <p className="gl-pblurb">{w.blurb}</p>}
         {ok ? (
-          <div className="acct-grp gl-pp" data-testid="preset-rows">
+          <div className={`acct-grp gl-pp${okRules ? ' rl' : ''}`} data-testid="preset-rows">
             {presetRows(ok).map(([k, v]) => (
               <div className="acct-gr" key={k}>
                 <span className="k">{k}</span>
                 <span className="v">{v}</span>
               </div>
             ))}
+            {okRules && (
+              <button
+                className="acct-gr gl-prl"
+                data-act="gallery-preset-rules"
+                onClick={() => {
+                  // 先关掉这张卡:规则那一页盖不住它,在那一页点「用它新建世界」也要回到作品墙上
+                  onClose();
+                  openRulesSheet({ kind: 'shared', rules: okRules, from: 'link' });
+                }}
+              >
+                <span className="k">规则</span>
+                <span className="v">
+                  <small>改了 {Object.keys(okRules.values).length + Object.keys(okRules.biomes ?? {}).length} 项</small>
+                  {okRules.name}
+                  <Icon name="chevron" size={14} />
+                </span>
+              </button>
+            )}
           </div>
         ) : got ? (
           <p className="acct-err" role="alert">
@@ -613,6 +635,7 @@ function PresetWorkDialog({ phone, w, item, onClose, onUse }: { phone: boolean; 
             {ok.seed !== undefined
               ? '带着种子：新建出来就是上面这颗星球。在新建窗口里换个种子，大陆的样子照这套参数、位置会不一样。'
               : '没带种子：新建时随机一个种子，大陆的样子照这套参数，每次都不一样。'}
+            {okRules && `带着规则：打造文明时先选好「${okRules.name}」，到那一步还能换。`}
           </p>
         )}
       </div>

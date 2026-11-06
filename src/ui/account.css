@@ -697,6 +697,70 @@ button.acct-gr:hover {
   font-size: 16px;
 }
 
+/* ==== 打开的文件和本机的世界内容不一样时问的窗口(SameWorldDialog.tsx):每列照「我的世界」的卡片 ==== */
+.acct-head h2.dup-title {
+  display: flex;
+}
+.dup-title-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dup-title-rest {
+  flex: none;
+}
+.dup-cols {
+  display: flex;
+  gap: 16px;
+}
+.acct-dlg.sheet .dup-cols {
+  gap: 12px;
+}
+.dup-col {
+  flex: 1;
+  min-width: 0;
+}
+.dup-tag {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.dup-th {
+  aspect-ratio: 2 / 1;
+  border-radius: 10px;
+  background: var(--btn) center / cover no-repeat;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.dup-name {
+  display: block;
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dup-line {
+  margin-top: 1px;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.dup-line.b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.acct-dlg .dup-alike,
+.acct-dlg .dup-note {
+  margin-top: 2px;
+}
+
 /* ==== 「我的世界」右上的账号按钮(手机在左上) ==== */
 .mw .mw-acct {
   height: 32px;

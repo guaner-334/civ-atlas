@@ -3,7 +3,16 @@
  * 用在我的世界(MyWorlds.tsx)、世界概览头部的"改名"、新建世界的名字。
  */
 import { useEffect, useRef, useState } from 'react';
+import { YEAR_TICKS, cleanPlay, playAt, type WorldEdits } from '../gen/edits';
+import { monthNamesInUse, monthTail, monthsOf, yearFull } from '../gen/era';
 import { TITLE_MAX } from '../gen/savefile';
+
+/** 逐年推演的世界:"演绎到第 2675 年",停在一年中间的写到月;不是逐年推演的 = null */
+export function playedTo(e: WorldEdits): string | null {
+  const play = cleanPlay(e.play);
+  if (!play) return null;
+  return `演绎到${yearFull(play.year, e.era)}${play.tick ? monthTail(playAt(play) / YEAR_TICKS, monthsOf(e.months), monthNamesInUse(e.monthNames)) : ''}`;
+}
 
 /** 最后修改时间:刚刚 / 5 分钟前 / 3 小时前 / 今天 14:05 / 昨天 14:05 / 9月27日 */
 export function when(iso: string, now = Date.now()): string {

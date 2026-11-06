@@ -14,6 +14,7 @@
  * 朋友的预设链接(presetLink.ts)打开的:直接到第 2 步(随机生成),参数照链接填好;第 2 步标题下面那句换成一条浅蓝
  * "朋友分享的预设「…」，参数已经照它填好",右边「存进我的预设…」(打开「存成预设」小窗,名字先填好;存的是分享来的那一套,
  * 弹窗里后来改过的不算;不点不存)。
+ * 选的预设带着规则:预设框旁边(手机上是下面一行)写一句,点「开始」时这个世界的规则选好那一套。
  *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
  * 首页上点的「开始」、地图程序还没下完(wait):按钮变成转圈 +「准备中」,旁边一句下了多少,下好就自动开始;
@@ -34,6 +35,8 @@ import type { RuleSet } from '../gen/civ/ruleSet';
 import { EXPAND_SLIDER, SPREAD_SLIDER, TERRAIN_SLIDERS, terrainValue, withSpeed, withTerrain, withoutTerrain } from './frontierUi';
 import { isImageFile, loadImage, type LoadedImage } from './imageFile';
 import { Icon } from './icons';
+import { useMyRulesNames } from './rulesCount';
+import { rulesUiOn } from './rules/flag';
 import './ai.css';
 import './newWorld.css';
 
@@ -145,22 +148,24 @@ function ParamRow({ s, value, onChange, phone, sub, changed }: { s: SliderLike; 
   );
 }
 
-/** 打开弹窗时的参数:停在上次选的预设上(存了种子的连种子) */
+/** 打开弹窗时的参数:停在上次选的预设上(存了种子的连种子,存了规则的连规则) */
 function startParams(randomSeed: () => number): {
   params: WorldParams;
   endYear?: number;
+  rules?: RuleSet;
 } {
   const c = choiceParams(getPresets(), getPresets().chosen);
   return {
     params: { ...c.params, seed: c.seed ?? randomSeed() },
     endYear: c.endYear,
+    rules: c.rules,
   };
 }
 
 export function NewWorldDialog(p: NewWorldDialogProps) {
   const [step, setStep] = useState<1 | 2>(p.init?.step ?? 1);
   const [mode, setMode] = useState<NewWorldMode>(p.init?.mode ?? 'random');
-  const [first] = useState(() => (p.init ? { params: p.init.params, endYear: p.init.endYear } : startParams(p.randomSeed)));
+  const [first] = useState(() => (p.init ? { params: p.init.params, endYear: p.init.endYear, rules: p.shared?.rules } : startParams(p.randomSeed)));
   const [params, setParams] = useState<WorldParams>(first.params);
   const [seedText, setSeedText] = useState(String(params.seed));
   const [seedBad, setSeedBad] = useState(false);
@@ -172,13 +177,17 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
   const changed = changedKeys(presets, presets.chosen, params);
-  /** 选了一个预设:参数换成它的;存了种子的连种子换 */
+  /** preset = 跟着选的预设来的;p.rules(别人分享的规则「用它新建世界」)先用,选了带规则的预设才换 */
+  const [rules, setRules] = useState<{ r: RuleSet; preset: boolean } | null>(() => (p.rules ? { r: p.rules, preset: false } : first.rules && rulesUiOn() ? { r: first.rules, preset: true } : null));
+  const ruleNames = useMyRulesNames();
+  /** 选了一个预设:参数换成它的;存了种子的连种子换;没存规则的回到打开弹窗时的规则 */
   const applyPreset = (c: PresetPick) => {
     const seed = c.seed ?? params.seed;
     setParams({ ...c.params, seed });
     setSeedText(String(seed));
     setSeedBad(false);
     setYears(c.endYear);
+    setRules(c.rules && rulesUiOn() ? { r: c.rules, preset: true } : p.rules ? { r: p.rules, preset: false } : null);
   };
   /** 拓荒(都是默认 = undefined);「地形难走程度」展开没有 */
   const [frontier, setFrontier] = useState<Frontier | undefined>(undefined);
@@ -247,7 +256,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     const final = mode === 'random' ? (n > 0 ? { ...params, seed: n } : params) : { ...params, ...CONT_RESET, hardness: params.hardness };
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
-    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier && mode === 'image' ? { frontier } : {}), ...(p.rules ? { rules: p.rules } : {}) });
+    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier && mode === 'image' ? { frontier } : {}), ...(rules ? { rules: rules.r } : {}) });
   };
   const next = (m: NewWorldMode = mode) => {
     setMode(m);
@@ -560,16 +569,22 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
       <SavePreset
         params={{ ...p.shared.params, seed: p.shared.seed ?? params.seed }}
         endYear={p.shared.endYear}
-        initial={{ name: p.shared.name, withSeed: p.shared.seed !== undefined }}
+        initial={{ name: p.shared.name, withSeed: p.shared.seed !== undefined, rules: p.shared.rules }}
         onSaved={() => setKept(true)}
         onClose={() => setKeepOpen(false)}
       />,
       document.body,
     );
+  const rulesNote = rules?.preset && (
+    <span className="nd-rl" data-testid="preset-rules-note">
+      <Icon name="sliders" size={15} />
+      <span>带着规则「{(rules.r.id && ruleNames.get(rules.r.id)) || rules.r.name}」，打造文明时还能换</span>
+    </span>
+  );
   const presetRow = (
     <div className="ps-row nd-preset">
       <span className="ps-l">预设</span>
-      <PresetPicker params={params} endYear={years} onPick={applyPreset} phone={p.phone} saveLink={!p.phone} />
+      <PresetPicker params={params} endYear={years} rules={rules?.r} onPick={applyPreset} phone={p.phone} saveLink={!p.phone} after={p.phone ? undefined : rulesNote} />
     </div>
   );
 
@@ -629,6 +644,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
           </div>
           {sharedBar}
           {step === 2 && presetRow}
+          {step === 2 && rulesNote && <div className="nd-rl-row">{rulesNote}</div>}
           <div className="nd-pbody">
             {step === 1 && <p className="nd-sub">{sub}</p>}
             {step === 1 ? cards : paramsBody}

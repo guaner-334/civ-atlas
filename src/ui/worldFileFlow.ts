@@ -18,9 +18,12 @@ import { isCoarse, isNarrow } from './device';
 import { openWorldById } from './newCivAction';
 import { FILE_TROUBLE, newerNotice } from './openTrouble';
 import { holdFileTrouble, holdOpenNote, type OpenNote } from './openNote';
-import { MAX_WORLDS, currentSave, currentUnsaved, currentWorld, importSave, isStored, listWorlds, loadWorld, markFromFile, notify, persistent, savesChanged, storedCount } from './saveStore';
+import { MAX_WORLDS, currentSave, currentUnsaved, currentWorld, importSave, isStored, listWorlds, loadWorld, markFromFile, nextTitle, notify, persistent, savesChanged, storedCount } from './saveStore';
+import { askSameWorld, type SameAsk, type SameChoice } from './sameWorldAsk';
+import { SameWorldDialog, sideLines, type WorldSide } from './SameWorldDialog';
 import { aboutSize, sizeText } from './sizeWords';
 import { inSmallWindow, noteFileSaved, saveMark } from './spaceFacts';
+import { getStage } from './stageStore';
 import { clearToast, getToast, peekToast, showToast, updateToast, type ToastAction, type ToastInput } from './toastStore';
 import {
   checkTimeout,
@@ -31,8 +34,10 @@ import {
   placeWorldFile,
   saveAllWorldFiles,
   saveWorldFile,
+  sidesOf,
   worldFileBytes,
   type KeepTrouble,
+  type LookedWorldFile,
   type OpenedWorldFiles,
   type PickedFile,
   type SaveTrouble,
@@ -492,6 +497,21 @@ function sayCantOpen(kind: KeepTrouble, name: string, o: { retry?: () => void; s
   say({ kind: 'error', text: head, more: ['读的时候出错了。不一定是文件的问题，先别删'], ...(again ? { action: again } : {}) });
 }
 
+/** 本机有这个世界(of)、内容不一样:问一下 */
+function askOf(looked: LookedWorldFile, of: string, sides: { mine: WorldSide; theirs: WorldSide }, title: string): Promise<SameChoice> {
+  const { left, right, alike } = sideLines(sides.mine, sides.theirs);
+  const ask: SameAsk = {
+    title,
+    mine: { title, thumb: sides.mine.thumb, lines: left },
+    theirs: { title: looked.facts.save.title || `种子 ${looked.seed}`, thumb: sides.theirs.thumb, lines: right },
+    alike,
+    // 和 placeWorldFile 另存时起的名字一样
+    copyTitle: nextTitle(looked.facts.save.title || '未命名世界'),
+    open: getStage().stage === 'world' && currentWorld()?.id === of,
+  };
+  return askSameWorld(ask, SameWorldDialog);
+}
+
 /** 打开一个世界文件:核对、放进「我的世界」、打开它。tries:再试第几次(核对的时限跟着放宽) */
 async function openOneWorld(file: File, onText: (text: string, fileName: string) => void, tries = 0): Promise<void> {
   if (!begin()) return;
@@ -499,7 +519,7 @@ async function openOneWorld(file: File, onText: (text: string, fileName: string)
   const retry = () => void openOneWorld(file, onText, tries + 1);
   let cancelled = false;
   let placing = false;
-  const bar = progressBar(OPEN_WAIT_MS, () => ({
+  const paint = (): ToastInput => ({
     kind: 'progress',
     text: `正在打开 ${name}`,
     more: [`这个世界有 ${sizeText(file.size)}，要核对一会儿`],
@@ -513,7 +533,8 @@ async function openOneWorld(file: File, onText: (text: string, fileName: string)
             bar.stop();
           }),
         }),
-  }));
+  });
+  let bar = progressBar(OPEN_WAIT_MS, paint);
   const timeoutMs = checkTimeout(file.size) * 2 ** tries;
   const looked = await lookWorldFile(file, { timeoutMs });
   if (cancelled) return;
@@ -524,7 +545,29 @@ async function openOneWorld(file: File, onText: (text: string, fileName: string)
   }
   placing = true;
   bar.update();
-  const placed = await placeWorldFile(looked);
+  let placed = await placeWorldFile(looked, { different: 'ask' });
+  /** 本机那个的名字(问过、选了另存才有) */
+  let mineTitle: string | undefined;
+  if (placed.ok && placed.status === 'different') {
+    const of = placed.id;
+    const sides = await sidesOf(looked, of);
+    bar.stop();
+    if (sides) {
+      mineTitle = sides.mine.save.title || `种子 ${sides.mine.save.seed}`;
+      const choice = await askOf(looked, of, sides, mineTitle);
+      if (choice === 'cancel') {
+        busy = false;
+        return;
+      }
+      if (choice === 'original') {
+        busy = false;
+        holdOpenNote(of, { kind: 'ok', text: `已打开原来的「${mineTitle}」`, more: ['文件里的那份没存进「我的世界」'] });
+        return openWorldById(of);
+      }
+    }
+    bar = progressBar(OPEN_WAIT_MS, paint);
+    placed = await placeWorldFile(looked, { different: 'copy' });
+  }
   busy = false;
   bar.stop();
   if (!placed.ok) {
@@ -540,13 +583,7 @@ async function openOneWorld(file: File, onText: (text: string, fileName: string)
   const title = (placed.status === 'same' ? loadWorld(placed.id)?.save.title : placed.title) || `种子 ${looked.seed}`;
   let note: OpenNote;
   if (placed.status === 'copied') {
-    const of = placed.of;
-    note = {
-      kind: 'ok',
-      text: `已打开「${title}」`,
-      more: ['内容和原来的不一样，另存了一份，原来的没动'],
-      action: { label: '打开原来的', act: 'open-original', onClick: () => (clearToast('save'), openWorldById(of)) },
-    };
+    note = { kind: 'ok', text: `已打开「${title}」`, more: [mineTitle ? `另存了一份，原来的「${mineTitle}」没动` : '另存了一份，原来的没动'] };
   } else if (placed.status === 'same' || placed.status === 'different') {
     note = { kind: 'ok', text: `「${title}」已经在「我的世界」里了`, more: ['和文件内容一样，打开的就是它'] };
   } else {

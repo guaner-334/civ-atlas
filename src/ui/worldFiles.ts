@@ -45,6 +45,7 @@ import type { VaultCall, VaultReply, VaultTold } from '../worldVaultWorker';
 import { bundleFileName, bundleText, cleanNotes, importBundle, parseBundle, sameWorld, withMapFrom, type Bundle, type ImportResult } from './bundle';
 import { MAX_WORLDS, cleanSyncMeta, currentSave, currentWorld, flushThumb, isStored, keepOriginal, listWorlds, loadWorld, markTrash, newWorldId, nextTitle, persistent, putSyncedWorld, rawWorld, storedCount, unmarkTrash, type StoredWorld, type SyncMeta } from './saveStore';
 import { APP_COMMIT, APP_VERSION } from './version';
+import type { WorldSide } from './SameWorldDialog';
 import { holdWorld } from './worldHolds';
 import { clearedAt, errKind, noteListed, packPage, settleForFile, thumbBytes, thumbUrl, vaultCall, type VaultCaller } from './worldStore';
 
@@ -584,6 +585,17 @@ export async function placeWorldFile(looked: LookedWorldFile, o: { different?: D
   const save = { ...looked.facts.save, title: nextTitle(looked.facts.save.title || '未命名世界') };
   const kept = await keepWorldFile(looked, { save });
   return kept.ok ? { ok: true, status: 'copied', id: kept.id, of: m.id, title: save.title, kept } : kept;
+}
+
+/** 内容不一样时问一下用:本机那个存好的那份、文件里的那份各自看得到的几样;本机那个不在了 = null */
+export async function sidesOf(looked: LookedWorldFile, id: string): Promise<{ mine: WorldSide; theirs: WorldSide } | null> {
+  const w = loadWorld(id);
+  if (!w) return null;
+  const f = looked.facts;
+  await notesReady([id]).catch(() => {});
+  const mine: WorldSide = { save: w.save, thumb: w.thumb, ...(w.alive !== undefined ? { alive: w.alive } : {}), ...(notesKnown(id) ? { notes: exportNotes(id).length } : {}) };
+  const theirs: WorldSide = { save: f.save, thumb: thumbUrl(f.thumb), alive: f.alive, ...(f.authorTrouble ? {} : { notes: cleanNotes(f.author?.notes).length }) };
+  return { mine, theirs };
 }
 
 /** 省事的写法:核对一个世界文件、放进本机 */
