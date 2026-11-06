@@ -7,7 +7,7 @@ import { Icon } from './icons';
 import { copyText } from './clipboard';
 import { currentWorld, isStored, keepWorld, listWorlds, loadWorld, notify, useSavesVersion } from './saveStore';
 import { openAiSettings } from './AiSettings';
-import { refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
+import { officialServer, refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
 import { useAiOn } from '../ai/client';
 import { notesKnown, notesReady } from '../ai/library';
 import { deleteAccount, displayName, getSession, sendCode, useSession } from '../account/session';
@@ -104,7 +104,7 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
             <span className="side">{trashText}</span>
             <Icon name="chevron" size={14} className="chev" />
           </button>
-          {aiOn && (
+          {aiOn && officialServer() && (
             <button
               className="acct-gr"
               data-act="open-credits"

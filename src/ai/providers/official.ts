@@ -4,11 +4,12 @@
  * 开发时用本地假服务器(scripts/lib/fakeAiServer.ts,dev 模式下挂在 /__fake-ai,网址加 aiServer=fake 启用)跑通整条流程。
  *
  * ─── 服务器接口约定 v1 ─────────────────────────────────────────────────────────────
- * 基址:构建变量 VITE_AI_SERVER(如 https://ai.example.com)。没配置 = 未开放,界面显示"还在内测,暂未开放"。
+ * 基址:构建变量 VITE_AI_SERVER(如 https://ai.example.com)。没配置、或服务器没说 features.ai = true = 未开放,界面显示"还在内测,暂未开放"。
  * 格式:请求、回复都是 JSON(UTF-8);登录后的接口带请求头 Authorization: Bearer <令牌>。
  * 跨域:网页直接调,服务器要回 CORS 头(允许 Authorization、Content-Type;GET / POST / PUT / DELETE / OPTIONS)。
  *
- *   GET  /v1/auth/options                               登录窗选项 → { accountKinds, inviteOnly, codeTtlSec }
+ *   GET  /v1/auth/options                               登录窗选项 → { accountKinds, inviteOnly, codeTtlSec, features: { ai } }
+ *                         features.ai 不是 true 时:/v1/chat 是 404,登录和 /v1/me 不带 credits、pricing
  *   POST /v1/auth/code    { account, invite? }          发验证码(account = 邮箱或手机号;邀请制下新邮箱要带邀请码,没带:403 need-invite)
  *                         → 200 { ok: true, resendAfter?: 秒, expiresIn?: 秒 }
  *   POST /v1/auth/login   { account, code, invite? }    登录
@@ -47,19 +48,24 @@ import { AiError, type AiUsage } from '../types';
 import { scrubSecrets } from '../settings';
 import { idleTimer, readSse } from '../sse';
 import { ServerError, accountServer, onServerChange, setServerForTest } from '../../account/server';
-import { authToken, getSession, login, logout, onSessionChange, sendCode, sessionExpired, updateUser } from '../../account/session';
+import { authToken, getSession, knownAuthOptions, login, logout, onAuthOptionsChange, onSessionChange, sendCode, sessionExpired, updateUser } from '../../account/session';
 import { ToolCallAcc, wireMessage } from './compat';
 
 // ---------------------------------------------------------------------------
 // 服务器地址(和网站账号、云同步同一台,见 account/server.ts)
 
-/** 我们的服务器地址;null = 未开放 */
+let aiOnForTest: string | null = null;
+
+/** 我们的服务器地址;null = 未开放(没有账号服务器,或者服务器还没说开着我们的 AI) */
 export function officialServer(): string | null {
-  return accountServer();
+  const base = accountServer();
+  if (!base) return null;
+  return base === aiOnForTest || knownAuthOptions()?.features.ai ? base : null;
 }
 
-/** 单测用:指定服务器地址(null = 未开放;undefined = 恢复按构建变量) */
+/** 单测用:指定服务器地址并当它开着我们的 AI(null = 未开放;undefined = 恢复按构建变量) */
 export function setOfficialServerForTest(url: string | null | undefined): void {
+  aiOnForTest = url ?? null;
   setServerForTest(url);
 }
 
@@ -96,6 +102,7 @@ onSessionChange(() => {
   else setAcct({});
 });
 onServerChange(() => setAcct({}));
+onAuthOptionsChange(() => setAcct({}));
 
 function token(): string | undefined {
   return authToken();

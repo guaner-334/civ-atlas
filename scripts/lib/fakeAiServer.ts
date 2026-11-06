@@ -8,6 +8,8 @@
  *
  * 规则:验证码固定 246810(发验证码时也在 devCode 里返回);新账户 10 积分;每次调用扣 3 积分,"连接测试"扣 1 积分;
  * POST /v1/dev/credits { credits } 直接改余额(测"积分不够")。
+ * 我们的 AI 默认开着(登录窗选项 features.ai = true);选项 ai: false 或 POST /v1/dev/ai { off: true } 关掉,和服务器 AI=off 一样:
+ * /v1/chat 404,登录和 /v1/me 不给积分。
  * 邀请制(inviteOnly,开发服务器里开着):新邮箱要邀请码 K7QM-2XPA(大小写、横线不计较;假服务器里用不完)。
  * 世界、最近删除、分享都在内存里;最近删除不会过期。
  * 带工具的请求(助手):最后一条不是工具结果时,回一个对第一个工具的调用(参数为空,done.tool_calls);是工具结果时正常回话。
@@ -165,6 +167,8 @@ export interface FakeAiOptions {
   inviteOnly?: boolean;
   /** 传到账号:核对要多久(毫秒);单测里设 0 */
   fullCheckMs?: number;
+  /** 我们的 AI 开不开(默认开) */
+  ai?: boolean;
 }
 
 const CORS = {
@@ -195,6 +199,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
   const start = opts.startCredits ?? 10;
   const delay = opts.chunkDelayMs ?? 60;
   const inviteOnly = !!opts.inviteOnly;
+  let aiOn = opts.ai ?? true;
   const users = new Map<string, User>();
   const tokens = new Map<string, string>();
   const shares = new Map<string, Share>();
@@ -308,8 +313,13 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       return fail(404, 'bad-request', '没有这个接口');
     }
 
+    if (req.method === 'POST' && path === '/v1/dev/ai') {
+      const b = await body(req);
+      if (typeof b?.off === 'boolean') aiOn = !b.off;
+      return json(200, { ok: true });
+    }
     if (req.method === 'GET' && path === '/v1/auth/options') {
-      return json(200, { accountKinds: ['email'], inviteOnly, codeTtlSec: 600 });
+      return json(200, { accountKinds: ['email'], inviteOnly, codeTtlSec: 600, features: { ai: aiOn } });
     }
 
     // 邀请制下的新邮箱:没带邀请码 = 403 need-invite;带了不对 = 400 bad-invite
@@ -339,7 +349,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       if (!u) users.set(account, (u = { id: `u${++seq}`, account, credits: start, worlds: new Map(), fulls: new Map(), commits: 0, jobs: new Map() }));
       const token = `fake-${crypto.randomUUID()}`;
       tokens.set(token, account);
-      return json(200, { token, user: { id: u.id, account, name: account.split('@')[0] }, credits: u.credits });
+      return json(200, { token, user: { id: u.id, account, name: account.split('@')[0] }, ...(aiOn ? { credits: u.credits } : {}) });
     }
 
     const open = /^\/v1\/s\/([^/]+)$/.exec(path);
@@ -360,6 +370,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       return fullFileResponse(f);
     }
 
+    if (!aiOn && path === '/v1/chat') return fail(404, 'bad-request', '没有这个接口');
     const u = who(req);
     if (path.startsWith('/v1/') && !u) return fail(401, 'auth', '登录过期了,请重新登录');
     if (!u) return fail(404, 'bad-request', '没有这个接口');
@@ -367,8 +378,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     if (req.method === 'GET' && path === '/v1/me') {
       return json(200, {
         user: { id: u.id, account: u.account, name: u.account.split('@')[0] },
-        credits: u.credits,
-        pricing: { note: '每次调用扣 3 积分,连接测试扣 1 积分(开发用假服务器)' },
+        ...(aiOn ? { credits: u.credits, pricing: { note: '每次调用扣 3 积分,连接测试扣 1 积分(开发用假服务器)' } } : {}),
       });
     }
 

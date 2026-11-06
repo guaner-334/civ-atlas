@@ -17,8 +17,10 @@ name: 发布正式网站
 # - DEPLOY_KNOWN_HOSTS:服务器的 SSH 主机指纹(known_hosts 的一行),只连这台机器
 # - DEPLOY_DEST:rsync 的目标,形如 user@host:
 # - DEPLOY_PORT:服务器的 SSH 端口(可不配,默认 22);不是 22 时 DEPLOY_KNOWN_HOSTS 那一行要写成 [host]:端口 的形式
-# 以上是 Secrets。另有两个 Variable(不是密钥,构建后本来就写在网页里):
+# 以上是 Secrets。另有几个 Variable(不是密钥,构建后本来就写在网页里):
 # - VITE_AI_SERVER:网站服务器地址(测试网站也用这一个)。不配 = 构建出的网站不连服务器,作品墙不出现(见 src/account/server.ts)
+# - VITE_ACCOUNTS:只管正式网站的账号那些(登录、传到账号、短链接)。设成 on 才开;不配或别的值都是关,只露作品墙。测试网站一直关着。
+#   我们的 AI 另外看服务器的登录窗选项,账号开了它也可以关着
 # - ICP_BEIAN:网站备案号,挂在页面底部(仓库变量,测试网站、旧版网站的发布也用;见 src/ui/beian.ts)。不配 = 不挂
 # - ICP_BEIAN_SHOW:备案号的总开关,设成 1 才把 ICP_BEIAN 挂上;不设 = 哪里都不显示
 on:
@@ -144,8 +146,8 @@ jobs:
       - name: 生产构建
         env:
           VITE_AI_SERVER: ${{ vars.VITE_AI_SERVER }}
-          # 账号那些(登录、传到账号、短链接、我们的 AI)还没开放:配了服务器地址也只露作品墙
-          VITE_ACCOUNTS: 'off'
+          # 账号那些(登录、传到账号、短链接):变量不是 on 就关,配了服务器地址也只露作品墙
+          VITE_ACCOUNTS: ${{ vars.VITE_ACCOUNTS == 'on' && 'on' || 'off' }}
           ICP_BEIAN: ${{ vars.ICP_BEIAN_SHOW == '1' && vars.ICP_BEIAN || '' }}
         run: pnpm build
       # 记下这次发的是哪个提交、生成器第几版,放在网站根目录:下次发布先读它(公开可见,只有这两项)

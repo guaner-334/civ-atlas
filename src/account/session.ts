@@ -9,9 +9,9 @@
  * - 别的标签页登录、退出、换了账号:跟着变(localStorage 的 storage 事件)
  * - 邀请链接(网址里的 invite=):记下邀请码,登录窗里自动填上
  *
- *   GET  /v1/auth/options           → { accountKinds: ['email', 'phone'?], inviteOnly, codeTtlSec }(没有这个接口 = 都开放、不要邀请)
+ *   GET  /v1/auth/options           → { accountKinds: ['email', 'phone'?], inviteOnly, codeTtlSec, features?: { ai? } }(没有这个接口 = 都开放、不要邀请)
  *   POST /v1/auth/code   { account, invite? }        → { ok, resendAfter?, expiresIn? }   新邮箱没带邀请码:403 need-invite
- *   POST /v1/auth/login  { account, code, invite? }  → { token, user: { id, account, name? }, credits }
+ *   POST /v1/auth/login  { account, code, invite? }  → { token, user: { id, account, name? }, credits? }
  *   POST /v1/auth/logout                              → 204
  *   POST /v1/account/delete { code }                  → 204(先给自己的邮箱发验证码)
  */
@@ -179,10 +179,25 @@ export interface AuthOptions {
   inviteOnly: boolean;
   /** 验证码几秒内有效 */
   codeTtlSec: number;
+  /** 服务器开着的功能:只认服务器明说的 true */
+  features: { ai: boolean };
 }
 
-const OPEN: AuthOptions = { accountKinds: ['email', 'phone'], inviteOnly: false, codeTtlSec: 600 };
+const OPEN: AuthOptions = { accountKinds: ['email', 'phone'], inviteOnly: false, codeTtlSec: 600, features: { ai: false } };
 let options: { base: string; v: AuthOptions } | null = null;
+const optionSubs = new Set<() => void>();
+
+/** 问到了登录窗选项时通知 */
+export function onAuthOptionsChange(f: () => void): () => void {
+  optionSubs.add(f);
+  return () => void optionSubs.delete(f);
+}
+
+/** 已经问到的登录窗选项;还没问到、上次没问到 = null */
+export function knownAuthOptions(): AuthOptions | null {
+  const base = accountServer();
+  return base && options?.base === base ? options.v : null;
+}
 
 /** 登录窗选项(问一次服务器就记住;没有这个接口 = 都开放、不要邀请) */
 export async function fetchAuthOptions(): Promise<AuthOptions> {
@@ -197,12 +212,14 @@ export async function fetchAuthOptions(): Promise<AuthOptions> {
       accountKinds: kinds.length ? kinds : ['email'],
       inviteOnly: r.inviteOnly === true,
       codeTtlSec: typeof r.codeTtlSec === 'number' && r.codeTtlSec > 0 ? r.codeTtlSec : OPEN.codeTtlSec,
+      features: { ai: r.features?.ai === true },
     };
   } catch (e) {
     // 连不上:先按都开放算,这次不记住(下次再问)
     if (!(e instanceof ServerError) || e.status !== 404) return OPEN;
   }
   options = { base, v };
+  for (const f of optionSubs) f();
   return v;
 }
 
