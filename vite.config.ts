@@ -112,12 +112,16 @@ export default defineConfig({
       name: 'banner-first',
       apply: 'build',
       enforce: 'post',
-      generateBundle(_o, bundle) {
-        for (const c of Object.values(bundle)) {
-          if (c.type !== 'chunk') continue;
-          const m = /\/\*! 文明与地图 [^*]*\*\//.exec(c.code);
-          if (m && m.index > 0) c.code = m[0] + c.code.slice(0, m.index) + c.code.slice(m.index + m[0].length);
-        }
+      // vite 自己的 generateBundle 会把点开才下载的文件清单(__vite__mapDeps)加到最前面:要排在它后面再挪
+      generateBundle: {
+        order: 'post',
+        handler(_o, bundle) {
+          for (const c of Object.values(bundle)) {
+            if (c.type !== 'chunk') continue;
+            const m = /\/\*! 文明与地图 [^*]*\*\//.exec(c.code);
+            if (m && m.index > 0) c.code = m[0] + c.code.slice(0, m.index) + c.code.slice(m.index + m[0].length);
+          }
+        },
       },
     },
     // 加载画面(scripts/lib/loadScreen.ts):第一次打开时先出网站图标、名字和一条真的进度条,页面的代码、样式表由它数着下好再交给浏览器;
