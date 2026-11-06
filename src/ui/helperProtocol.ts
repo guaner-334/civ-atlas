@@ -10,7 +10,7 @@
  *                { type: 'civ-atlas:render', v: 2, id, kind: 'rules', rules(规则链接 # 后面那段:rules=1&…) }
  *   3. 网站画好 → 后台(v 和请求的一样):
  *      第 1 版   { type: 'civ-atlas:rendered', v: 1, id, ok: true, cover, info, texts }
- *      第 2 版   { type: 'civ-atlas:rendered', v: 2, id, ok: true, cover, info, rules?(规则作品才有) }
+ *      第 2 版   { type: 'civ-atlas:rendered', v: 2, id, ok: true, cover, info, rules?(规则作品、用了非官方规则的世界文件才有) }
  *      画不出来: { type: 'civ-atlas:rendered', v, id, ok: false, error: '中文的原因' }
  *
  * - 只认网站所配服务器(VITE_AI_SERVER)那个来源、从上一层框发来的消息;回话也只发给那个来源。没配服务器 = 不帮(不出声)
@@ -19,7 +19,8 @@
  *   cat 类别(12 字以内)、text 名字(100 字以内)、key 稳定键(和存档里改名的键同一套,有就带)、where 一句上下文(60 字以内,可以不带)
  * - 世界文件(第 2 版):照文件里存的内容画,不重新生成(存的内容没跟上最后的修改时,和别人打开短链接一样按配方现推);
  *   文件放进本机仓库一个临时编号,下次清理时清掉。封面停在 at 那一年,没给 at 按文件里存档带的那一刻,都没有 = 结束那年;
- *   info.generator = 画封面的历史是哪一版生成器算的
+ *   info.generator = 画封面的历史是哪一版生成器算的;文件里的世界用了非官方规则(改了规则项或地貌的叫法)时带 rules,算法和规则作品一样,
+ *   name 是那套规则自己的名字;官方规则不带
  * - 规则(第 2 版):在默认参数、种子 7 的地图上照这套规则推 3000 年,封面是那年的政区图;
  *   rules:name 规则名、changed 改了几项(规则项 + 地貌的叫法)、brief 最显眼的三处(BRIEF_MAX 字以内)
  * 一次画一个,后到的排在后面。
@@ -80,7 +81,7 @@ export interface HelperText {
   where?: string;
 }
 
-/** 规则作品交回的摘要 */
+/** 规则作品、用了非官方规则的世界文件交回的摘要 */
 export interface RulesBrief {
   name: string;
   changed: number;
@@ -92,7 +93,7 @@ export interface Rendered {
   info: HelperInfo;
   /** 第 1 版 */
   texts?: HelperText[];
-  /** 第 2 版的规则作品 */
+  /** 第 2 版:规则作品、用了非官方规则的世界文件 */
   rules?: RulesBrief;
 }
 

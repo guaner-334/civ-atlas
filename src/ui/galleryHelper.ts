@@ -269,7 +269,10 @@ async function openFile(id: string, save: SaveFile): Promise<{ g: Generated; gen
   }
 }
 
-/** 第 2 版的世界作品:文件放进本机仓库一个临时编号(和别人打开短链接一样,下次清理时清掉),照存的内容停在分享的那一年画政区图 */
+/**
+ * 第 2 版的世界作品:文件放进本机仓库一个临时编号(和别人打开短链接一样,下次清理时清掉),照存的内容停在分享的那一年画政区图;
+ * 用了非官方规则的还交回规则摘要
+ */
 async function renderFile(req: Extract<RenderRequestV2, { kind: 'world' }>): Promise<Rendered> {
   const { adoptWorldFile } = await import('./worldFiles');
   const id = newWorldId();
@@ -278,11 +281,13 @@ async function renderFile(req: Extract<RenderRequestV2, { kind: 'world' }>): Pro
   try {
     const r = await adoptWorldFile(id, req.file);
     if (!r.ok) throw new Error(`世界文件读不出来：${r.message}`);
+    // 用了非官方规则的世界文件,后台没收到摘要就不让上架(上架后摘要改不了)
+    const rules = r.save.edits.rules ? (await import('./helperRules')).fileRules(r.save) : undefined;
     const { g, generator } = await openFile(id, r.save);
     try {
       const year = g.civ ? fileYear(g.civ, r.save, req.at) : 0;
       const cover = await politicalCover(g, year, saveLon(r.save));
-      return { cover, info: { seed: r.save.params.seed, year: Math.floor(year), ...helperCounts(g.civ, year), generator } };
+      return { cover, info: { seed: r.save.params.seed, year: Math.floor(year), ...helperCounts(g.civ, year), generator }, ...(rules ? { rules } : {}) };
     } finally {
       g.stop();
     }
