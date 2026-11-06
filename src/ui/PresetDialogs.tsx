@@ -1,13 +1,4 @@
-/**
- * 「存成预设」「复制分享链接」两个小窗(PresetPicker.tsx 点了才下载这一包:「连规则一起」要读「我的规则」,首页不多下载)。
- *
- *   存成预设     名字(同名的会替换)、「连种子一起存」、「连规则一起存」+ 选一套、下面列出会存哪些
- *   复制分享链接 名字、「连种子一起分享」、「连规则一起分享」+ 选一套、链接里有哪几样、链接多长,点「复制链接」;
- *                参数和规则都写在链接的 # 后面(presetLink.ts),不经过服务器
- *
- * 选框里是「我的规则」的各套;现在用的那一套不在「我的规则」里(朋友链接、作品墙上带来的,「我的规则」里已经删了的)另列在最前面。
- * 「我的规则」一套都没有、也没有另列的:这一项灰着,小字说去哪调一套。
- */
+/** 「存成预设」「复制分享链接」两个小窗,点了才下载(「连规则一起」要读「我的规则」,首页不多下载) */
 import { useState } from 'react';
 import type { WorldParams } from '../gen/world';
 import type { RuleSet } from '../gen/civ/ruleSet';
@@ -22,17 +13,14 @@ import { adoptSharedRules, findMyRules, useMyRules, type MyRules } from './rules
 import { useEscape } from './PresetPicker';
 import { rulesUiOn } from './rules/flag';
 
-/** 选框里的一项:key = 「我的规则」里的本机编号;另列的那一套是 '' */
+/** key = 「我的规则」里的本机编号;不在「我的规则」里的那一套是 '' */
 interface RulesOpt {
   key: string;
   label: string;
   rules: RuleSet;
 }
 
-/**
- * 选框里的几项,和先选好哪一项:cur 是现在用的那一套(「我的规则」里的选它,不在的另列在最前面;没有 = 选最近改过的那套)。
- * note = 另列的那一套名字后面括号里写什么
- */
+/** 现在用的那一套不在「我的规则」里(链接、作品墙带来的,已经删了的)另列在最前面;没有现在用的,先选最近改过的那套 */
 function rulesOptions(mine: readonly MyRules[], cur: RuleSet | undefined, note: string | null): { opts: RulesOpt[]; pick: string } {
   const opts: RulesOpt[] = mine.map((e) => ({ key: e.rules.id, label: e.rules.name, rules: e.rules }));
   const inMine = cur?.id ? mine.find((e) => e.rules.id === cur.id) : undefined;
@@ -41,13 +29,11 @@ function rulesOptions(mine: readonly MyRules[], cur: RuleSet | undefined, note: 
   return { opts, pick: cur ? (inMine ? inMine.rules.id : '') : (recent?.rules.id ?? '') };
 }
 
-/** 另列的那一套是朋友的链接、作品墙上带来的(打开它们时选上的那一套带着的规则):括号里写哪来的 */
 function sharedNote(cur: RuleSet | undefined, shared: { rules?: RuleSet; gallery?: unknown } | null): string | null {
   if (!cur || cur.id || !shared?.rules || !sameRuleContent(shared.rules, cur)) return null;
   return shared.gallery ? '作品墙上的' : '链接带来的';
 }
 
-/** 改了几项(规则项 + 地貌的叫法) */
 const changedN = (r: RuleSet) => Object.keys(r.values).length + Object.keys(r.biomes ?? {}).length;
 
 const updown = (
@@ -56,7 +42,6 @@ const updown = (
   </svg>
 );
 
-/** 「连规则一起存 / 分享」一行:勾上了才出选框 */
 function RulesRow({
   act,
   label,
@@ -105,7 +90,6 @@ function RulesRow({
   );
 }
 
-/** 「连规则一起」勾没勾、选的哪一套,和选的那一套(没勾 = undefined) */
 function useRulesPick(cur: RuleSet | undefined, startOn: boolean, note: string | null) {
   const mine = useMyRules();
   const { opts, pick: first } = rulesOptions(mine, cur, note);
@@ -127,11 +111,7 @@ export interface SavePresetProps {
   onSaved?: () => void;
 }
 
-/**
- * 「存成预设」小窗。名字先填好:选的是自己存的那个就是它的名字(存 = 改它),不然"我的预设 N"。
- * 「连规则一起存」:现在用的不是官方规则就先勾上、选好它;改的是自己存过的预设,照它原来的;别的不勾。
- * 存的是另列的那一套(朋友的链接、作品墙上带来的):先加进「我的规则」,预设记着加进来的那一套
- */
+/** 存的是链接、作品墙带来的那一套:先加进「我的规则」,预设记着加进来的那一套(之后在「我的规则」里调了,用预设时跟着用调好的) */
 export function SavePresetDialog({ theme, params, endYear, rules, initial, onClose, onSaved }: SavePresetProps) {
   const st = usePresets();
   const own = st.list.find((p) => p.id === st.chosen);
@@ -237,11 +217,7 @@ export interface SharePresetProps {
   onClose: () => void;
 }
 
-/**
- * 「复制分享链接」小窗(样子照「存成预设」):名字(先填好选中的预设名,没选就是"我的预设")、「连种子一起分享」(预设里存了种子就先勾上)、
- * 「连规则一起分享」(预设里存了规则就先勾上、选好那一套)、链接里有哪几样、左下角链接多长;点「复制链接」复制好、小窗关掉,顶上提示条说一声。
- * 剪贴板用不了:小窗留着,下面一格选中了链接让人自己复制
- */
+/** 剪贴板用不了:小窗留着,下面一格选中了链接让人自己复制 */
 export function SharePresetDialog({ theme, params, endYear, rules, onClose }: SharePresetProps) {
   const st = usePresets();
   const picked = st.chosen === 'shared' ? st.shared : st.list.find((p) => p.id === st.chosen);

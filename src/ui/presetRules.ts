@@ -1,7 +1,4 @@
-/**
- * 用一个带规则的预设新建世界(新建弹窗里点「开始」、新建页里选了这个预设)时,这个世界用哪一套:见 rulesStore.ts 的 settlePresetRules。
- * 朋友链接、作品墙上带来的这一套这次加进了「我的规则」,顶上说一声(字和别人分享的规则「用它新建世界」一样)。
- */
+/** 链接、作品墙带来的规则这次加进了「我的规则」:顶上说一声(字和别人分享的规则「用它新建世界」一样) */
 import type { RuleSet } from '../gen/civ/ruleSet';
 import { settlePresetRules } from './rulesStore';
 import { notify } from './saveStore';

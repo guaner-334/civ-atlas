@@ -14,8 +14,7 @@
  * 朋友的预设链接(presetLink.ts)打开的:直接到第 2 步(随机生成),参数照链接填好;第 2 步标题下面那句换成一条浅蓝
  * "朋友分享的预设「…」，参数已经照它填好",右边「存进我的预设…」(打开「存成预设」小窗,名字先填好;存的是分享来的那一套,
  * 弹窗里后来改过的不算;不点不存)。
- * 选的预设带着规则:预设框旁边(手机上是下面一行)一句「带着规则「…」，打造文明时还能换」,点「开始」时这个世界的规则选好那一套
- * (「我的规则」里那一套后来调过的用调好的、删了的用预设里存的,见 useWorldPages.ts 的 startFromDialog)。
+ * 选的预设带着规则:预设框旁边(手机上是下面一行)写一句,点「开始」时这个世界的规则选好那一套。
  *
  * 点「开始」才交给 App(存下没建完的世界、进新建界面;照图的把读好的图交过去,进去直接是第 1 步「认出海陆」)。
  * 首页上点的「开始」、地图程序还没下完(wait):按钮变成转圈 +「准备中」,旁边一句下了多少,下好就自动开始;
@@ -178,13 +177,10 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
   const changed = changedKeys(presets, presets.chosen, params);
-  /**
-   * 这个世界用哪一套规则(官方 = null);preset = 跟着选的预设来的(预设框旁边写一句)。
-   * 别人分享的规则「用它新建世界」打开的(p.rules)先用那一套,选了带规则的预设才换
-   */
+  /** preset = 跟着选的预设来的;p.rules(别人分享的规则「用它新建世界」)先用,选了带规则的预设才换 */
   const [rules, setRules] = useState<{ r: RuleSet; preset: boolean } | null>(() => (p.rules ? { r: p.rules, preset: false } : first.rules && rulesUiOn() ? { r: first.rules, preset: true } : null));
   const ruleNames = useMyRulesNames();
-  /** 选了一个预设:参数换成它的;存了种子的连种子换;存了规则的规则换成它的,没存的回到打开弹窗时的(官方或 p.rules) */
+  /** 选了一个预设:参数换成它的;存了种子的连种子换;没存规则的回到打开弹窗时的规则 */
   const applyPreset = (c: PresetPick) => {
     const seed = c.seed ?? params.seed;
     setParams({ ...c.params, seed });
@@ -579,7 +575,6 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
       />,
       document.body,
     );
-  // 选的预设带着规则:预设框旁边一句(手机上是下面一行)
   const rulesNote = rules?.preset && (
     <span className="nd-rl" data-testid="preset-rules-note">
       <Icon name="sliders" size={15} />
