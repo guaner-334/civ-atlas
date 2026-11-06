@@ -18,7 +18,8 @@
  *   我的规则里的    能改,改了就存(没有保存按钮;被世界用过的那一版再改就是新的一版,见 rulesStore.ts)
  *   官方规则        只能看,底下「复制一份改」
  *   别人分享的      链接、规则文件打开的:只能看,顶上一条说谁分享的、改了几项,「加进我的规则」以后才能改(出处一直写着);
- *                   「用它新建世界」= 加进我的规则,同时进新建世界、规则选好这一套
+ *                   「用它新建世界」= 加进我的规则,同时进新建世界、规则选好这一套。
+ *                   作品墙上的规则作品也是这一种:名字、署名照作品墙上的,多「作品墙」小标签、举报,顶上一条写作者那句话
  *   一个世界用的    世界设定里点开的:只能看世界里存的那一版(自包含,和本机「我的规则」里的那一套怎么改都无关);
  *                   本机「我的规则」里同一套已是更新的一版时,顶上一条说已是第几版,能「用第 N 版另存一份重推」(原来的世界不动)
  *
@@ -41,6 +42,8 @@ import { BiomeRow, MoreMenu, NameInput, RetiredRow, RuleBlock, RuleRow, type Men
 import { cnCount, groupItems, keepModified, modifiedCount, modifiedSections, renamedBiomes, resetToOfficial, retiredModified, searchRules, type ItemSection, type RulesPage } from './rulesView';
 import { adoptRules, downloadRules, duplicateRules, newWorldFromShared, redoWithNewer, shareRules } from './rulesActions';
 import { getCompare, openCompare } from '../compare/compareStore';
+import { fetchWork, isWorkGone, loadGallery, useGallery, wasReported, type GalleryWork } from '../../account/gallery';
+import { ReportDialog, dayText } from '../Gallery';
 
 /** 官方规则(一项没改) */
 const OFFICIAL: RuleSet = { name: OFFICIAL_RULES_NAME, version: 1, values: {} };
@@ -54,6 +57,8 @@ interface Shown {
   /** 别人分享的:从链接还是从文件来的 */
   from?: 'link' | 'file';
   fileName?: string;
+  /** 作品墙上的规则作品 */
+  work?: GalleryWork;
   /** 一个世界用的:那个世界的编号;本机「我的规则」里同一套已是更新的一版时,那一套(用它另存一份重推) */
   worldId?: string;
   newer?: MyRules;
@@ -100,6 +105,31 @@ export function RulesSheet() {
       }
       openRulesSheet({ kind: 'shared', rules: r.rules, from: 'file', ...(s.fileName ? { fileName: s.fileName } : {}) });
       if (r.warnings.length) notify({ kind: 'warn', text: `已打开规则文件「${r.rules.name}」`, more: notesMore(r.warnings) });
+    } else if (s?.kind === 'work') {
+      const w = s.work;
+      const open = (link: string) => {
+        if (getRulesSheet() !== s) return;
+        const r = decodeRulesHash(link);
+        if (!r.ok) {
+          closeRulesSheet();
+          notify({ kind: 'error', text: '暂时打不开这个作品', more: [r.error] });
+          return;
+        }
+        // 名字、署名照作品墙上的:出处写的和作品墙上看到的一样
+        openRulesSheet({ kind: 'shared', rules: { ...r.rules, name: w.title || r.rules.name, ...(w.by ? { by: w.by } : {}) }, from: 'link', work: w });
+      };
+      if (s.link !== undefined) return open(s.link);
+      fetchWork(w.id).then(
+        (it) => open(it.ruleLink ?? ''),
+        (e: unknown) => {
+          if (getRulesSheet() !== s) return;
+          closeRulesSheet();
+          if (isWorkGone(e)) {
+            notify({ kind: 'error', text: '这个作品已经撤下了' });
+            loadGallery(true);
+          } else notify({ kind: 'error', text: '暂时打不开这个作品', more: [e instanceof Error ? e.message : String(e)] });
+        },
+      );
     }
   }, [s]);
 
@@ -108,7 +138,7 @@ export function RulesSheet() {
     const e = list.find((x) => x.rules.id === s.id);
     if (e) shown = { rules: e.rules, kind: 'mine', mine: e };
   } else if (s?.kind === 'official') shown = { rules: OFFICIAL, kind: 'official' };
-  else if (s?.kind === 'shared') shown = { rules: s.rules, kind: 'shared', from: s.from, fileName: s.fileName };
+  else if (s?.kind === 'shared') shown = { rules: s.rules, kind: 'shared', from: s.from, fileName: s.fileName, work: s.work };
   else if (s?.kind === 'world') {
     // 本机「我的规则」里同一套(本机编号对得上)已是更新的一版
     const m = myRulesFor(s.rules);
@@ -170,6 +200,7 @@ function subLine(sh: Shown): string {
   if (sh.kind === 'official') return '网站自带的那一套。不能改，想调就复制一份。';
   const from = basedOnText(sh.rules);
   if (sh.kind === 'world') return `这个世界用的是第 ${sh.rules.version} 版，${from}。建好以后不能换。`;
+  if (sh.work) return `${workLine(sh)}${dayText(sh.work.addedAt) ? `${dayText(sh.work.addedAt)}上架。` : ''}`;
   if (sh.kind === 'shared') {
     const who = sh.rules.by ? `${sh.rules.by} 分享的规则` : sh.from === 'file' ? '从文件打开的规则' : '别人分享的规则';
     return `${who}，${from}。`;
@@ -179,9 +210,30 @@ function subLine(sh: Shown): string {
   return `${from}。第 ${sh.rules.version} 版，${used}；改了以后，已经建好的世界不变。`;
 }
 
+/** 作品墙上的规则作品:谁的、基于谁 */
+function workLine(sh: Shown): string {
+  return `作品墙上${sh.rules.by ? `${sh.rules.by}的` : '的'}规则，${basedOnText(sh.rules)}。`;
+}
+
+/** 别人分享的两个按钮:作品墙上来的主按钮是「用这套规则新建世界」,别的是「加进我的规则」 */
+function SharedActs({ r, work, cls = '' }: { r: RuleSet; work: boolean; cls?: string }) {
+  const adopt = (
+    <button key="adopt" className={`rs-btn${cls}${work ? '' : ' pri'}`} data-act="rules-adopt" onClick={() => adoptRules(r)}>
+      加进我的规则
+    </button>
+  );
+  const build = (
+    <button key="build" className={`rs-btn${cls}${work ? ' pri' : ''}`} data-act="rules-new-world" onClick={() => newWorldFromShared(r)}>
+      {work ? '用这套规则新建世界' : '用它新建世界'}
+    </button>
+  );
+  return <>{work ? [adopt, build] : [build, adopt]}</>;
+}
+
 /** 别人分享的顶上那一条的第一句 */
 function bannerLine(sh: Shown, n: number): string {
   const what = n ? `改了 ${n} 项` : '和官方规则一样';
+  if (sh.work) return sh.work.blurb || `这套规则${what}。`;
   if (sh.from === 'file') return `这套规则是从文件${sh.fileName ? `「${sh.fileName}」` : ''}打开的，${what}。`;
   return `这是${sh.rules.by ? `「${sh.rules.by}」` : '别人'}分享给你的一套规则，${what}。`;
 }
@@ -243,8 +295,31 @@ function CompareButton({ sh, className = 'rs-btn pri' }: { sh: Shown; className?
   if (kind === 'official') return null;
   return (
     <button className={className} data-act="rules-compare" onClick={() => openCompare({ rules: sh.rules, kind, ...(sh.mine ? { mineId: sh.mine.rules.id } : {}) })}>
-      并排试推
+      {sh.work ? '看看和官方差在哪' : '并排试推'}
     </button>
+  );
+}
+
+/** 作品墙上的规则作品:举报(举过的是灰的「已举报」);phone = 只有小旗的圆按钮 */
+function WorkReport({ work, phone }: { work: GalleryWork; phone?: boolean }) {
+  const g = useGallery();
+  const reported = g.rev >= 0 && wasReported(work.id);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        className={phone ? 'rs-ph-flag' : 'rs-btn rs-report'}
+        data-act="gallery-report"
+        disabled={reported}
+        onClick={() => setOpen(true)}
+        title={reported ? '已举报' : '举报这个作品'}
+        aria-label={phone ? (reported ? '已举报' : '举报这个作品') : undefined}
+      >
+        <Icon name={reported ? 'check' : 'flag'} size={phone ? 16 : 15} />
+        {!phone && (reported ? '已举报' : '举报')}
+      </button>
+      {open && <ReportDialog phone={!!phone} work={work} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
@@ -421,6 +496,7 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
               ) : (
                 <span className="rs-name">{r.name}</span>
               )}
+              {sh.work && <span className="rs-wtag">作品墙</span>}
               {sh.mine && !naming && (
                 <button className="rs-rename" data-act="rules-rename" onClick={() => setNaming(true)}>
                   <Icon name="pen" size={13} />
@@ -440,6 +516,7 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                 <MoreMenu btnClass="rs-btn sq" items={mineMenu(sh.mine, closeRulesSheet)} />
               </>
             )}
+            {sh.work && <WorkReport work={sh.work} />}
             <button className="ov-x" data-act="rules-close" onClick={closeRulesSheet} title="关闭(Esc)" aria-label="关闭">
               <Icon name="close" size={14} />
             </button>
@@ -464,14 +541,9 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                   <p>
                     <b>{bannerLine(sh, n.total)}</b>
                     <br />
-                    先看看改了什么；喜欢就加进我的规则，以后新建世界时能选它。
+                    {sh.work ? '先看看改了什么；用它新建世界时会先加进我的规则，出处一直写着。' : '先看看改了什么；喜欢就加进我的规则，以后新建世界时能选它。'}
                   </p>
-                  <button className="rs-btn" data-act="rules-new-world" onClick={() => newWorldFromShared(r)}>
-                    用它新建世界
-                  </button>
-                  <button className="rs-btn pri" data-act="rules-adopt" onClick={() => adoptRules(r)}>
-                    加进我的规则
-                  </button>
+                  <SharedActs r={r} work={!!sh.work} />
                 </div>
               )}
               {sh.newer && (
@@ -624,7 +696,11 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
 
   let title: React.ReactNode = r.name;
   let sub: string | null =
-    sh.kind === 'shared' ? `${subLine(sh).replace(/。$/, '')}，${n.total ? `改了 ${n.total} 项` : '和官方规则一样'}。` : sh.newer ? `${subLine(sh)}${newerLine(sh)}` : subLine(sh);
+    sh.kind === 'shared'
+      ? `${(sh.work ? workLine(sh) : subLine(sh)).replace(/。$/, '')}，${n.total ? `改了 ${n.total} 项` : '和官方规则一样'}。`
+      : sh.newer
+        ? `${subLine(sh)}${newerLine(sh)}`
+        : subLine(sh);
   let body: JSX.Element;
   if (page === 'root') {
     if (naming && sh.mine)
@@ -778,7 +854,7 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
   }
 
   // 最上一层的返回:回到打开它的地方(世界设定里点开的回世界设定,别处的回「规则」)
-  const back = page === 'root' ? { label: sh.kind === 'world' ? '世界设定' : '规则', onClick: closeRulesSheet } : { label: r.name, onClick: () => go('root') };
+  const back = page === 'root' ? { label: sh.kind === 'world' ? '世界设定' : sh.work ? '作品墙' : '规则', onClick: closeRulesSheet } : { label: r.name, onClick: () => go('root') };
   return (
     <div className="rs-root phone">
       <div className="rs-ph" role="dialog" aria-modal="true" aria-label={`规则：${r.name}`} onPointerDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
@@ -788,8 +864,13 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
               <Icon name="back" size={18} />
               <span>{back.label}</span>
             </button>
-            <h1>{title}</h1>
+            {page === 'root' && sh.work && <WorkReport work={sh.work} phone />}
+            <h1>
+              {title}
+              {page === 'root' && sh.work && <span className="rs-wtag">作品墙</span>}
+            </h1>
             {sub && <p>{sub}</p>}
+            {page === 'root' && sh.work?.blurb && <p className="rs-ph-blurb">{sh.work.blurb}</p>}
             {page === 'root' && sh.mine && !naming && (
               <div className="rs-ph-acts">
                 <button className="rs-btn" data-act="rules-share" onClick={() => void shareRules(r)}>
@@ -831,14 +912,7 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
               )}
             </>
           ) : (
-            <>
-              <button className="rs-btn half" data-act="rules-new-world" onClick={() => newWorldFromShared(r)}>
-                用它新建世界
-              </button>
-              <button className="rs-btn pri half" data-act="rules-adopt" onClick={() => adoptRules(r)}>
-                加进我的规则
-              </button>
-            </>
+            <SharedActs r={r} work={!!sh.work} cls=" half" />
           )}
         </footer>
       </div>

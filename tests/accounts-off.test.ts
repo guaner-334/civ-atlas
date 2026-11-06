@@ -2,7 +2,7 @@
  * 只开作品墙(VITE_ACCOUNTS=off):配了服务器也不发账号那些请求、界面按没登录算;作品墙照服务器说的出。
  * 服务器用开发假服务器(不开端口),顺带看它的作品墙接口和网页对得上。
  */
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeAiServer } from '../scripts/lib/fakeAiServer';
 import { accountServer, call, serverBase, setAccountsForTest, setServerForTest } from '../src/account/server';
@@ -11,6 +11,9 @@ import { fetchFile, fetchWorkFile } from '../src/account/fullWorlds';
 import { coverUrl, fetchWork, getGallery, isWorkGone, loadGallery, reportWork, resetGalleryForTest } from '../src/account/gallery';
 import { officialProvider, officialServer } from '../src/ai/providers/official';
 import { decodePresetHash } from '../src/ui/presetLink';
+import { decodeRulesHash } from '../src/gen/civ/ruleShare';
+import { openWorldFile, readWorldContent } from '../src/gen/worldFile';
+import { READER_VERSIONS } from '../src/gen/readers/versions';
 
 class FakeStorage {
   map = new Map<string, string>();
@@ -33,12 +36,12 @@ class FakeStorage {
 
 const g = globalThis as { localStorage?: unknown };
 const BASE = 'http://fake-server.test';
-const FILE = JSON.parse(readFileSync(new URL('./fixtures/world-file/v1.json', import.meta.url), 'utf8')).file as { sha256: string; bytes: number };
 let fake: ReturnType<typeof createFakeAiServer>;
 let paths: string[];
 
+/** 假服务器第一次列作品墙时要现做那份世界文件(一两秒) */
 const settle = async () => {
-  for (let i = 0; i < 20 && getGallery().status === 'loading'; i++) await new Promise((r) => setTimeout(r, 5));
+  for (let i = 0; i < 3000 && getGallery().status === 'loading'; i++) await new Promise((r) => setTimeout(r, 10));
 };
 const dev = (body: unknown) => fake.handle(new Request(`${BASE}/v1/dev/gallery`, { method: 'POST', body: JSON.stringify(body) }));
 
@@ -97,7 +100,10 @@ describe('账号关着', () => {
       ['k7qm2xpa', 'world'],
       ['m3np8rta', 'map'],
       ['p4tz6hwe', 'preset'],
+      ['r6zh9qkw', 'rules'],
     ]);
+    expect(s.list?.works[0].rules).toMatchObject({ name: '长治久安', changed: 5 });
+    expect(s.list?.works[3].rules).toEqual({ name: '战国千年', changed: 6, brief: '战争 ×2、议和后 2 年不再开战、分裂 ×1.5' });
     expect(s.list?.featured.map((f) => f.id)).toEqual(['k7qm2xpa']);
     expect(s.list?.challenges[0].works).toEqual(['m3np8rta']);
     expect(s.list!.challenges[0].deadline >= new Date().toISOString().slice(0, 10)).toBe(true);
@@ -106,18 +112,25 @@ describe('账号关着', () => {
     expect((map.save as { seed: number }).seed).toBe(2024);
     const preset = await fetchWork('p4tz6hwe');
     expect(decodePresetHash(preset.preset!)).toMatchObject({ ok: true });
+    const rules = await fetchWork('r6zh9qkw');
+    expect(decodeRulesHash(rules.ruleLink!)).toMatchObject({ ok: true, rules: { name: '战国千年', by: '鲸落' } });
 
-    const raw = await (await fetch(`${BASE}/v1/gallery`)).json();
-    expect(raw.works[0].full).toEqual({ bytes: FILE.bytes });
-    expect(raw.works[1].full).toBeUndefined();
     const world = await fetchWork('k7qm2xpa');
-    expect(world.full).toEqual({ sum: FILE.sha256, bytes: FILE.bytes });
     expect(world.save).toBeUndefined();
+    const raw = await (await fetch(`${BASE}/v1/gallery`)).json();
+    expect(raw.works[0].full).toEqual({ bytes: world.full!.bytes });
+    expect(raw.works[1].full).toBeUndefined();
     const seen: number[] = [];
     const file = await fetchWorkFile('k7qm2xpa', { total: world.full!.bytes, onBytes: (done) => seen.push(done) });
-    expect(file.size).toBe(FILE.bytes);
-    expect(seen.at(-1)).toBe(FILE.bytes);
-    expect((await fetch(`${BASE}/v1/gallery/k7qm2xpa/full`)).headers.get('etag')).toBe(`"${FILE.sha256}"`);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    expect(bytes.length).toBe(world.full!.bytes);
+    expect(seen.at(-1)).toBe(world.full!.bytes);
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(world.full!.sum);
+    expect((await fetch(`${BASE}/v1/gallery/k7qm2xpa/full`)).headers.get('etag')).toBe(`"${world.full!.sum}"`);
+    // 网页能照存的内容打开:用的是「长治久安」那套规则
+    const opened = await openWorldFile(bytes, { readers: { ...READER_VERSIONS } });
+    expect(opened.manifest.recipe.edits.rules).toMatchObject({ name: '长治久安' });
+    expect((await readWorldContent(opened)).civ.polities.length).toBeGreaterThan(0);
 
     const cover = await fetch(coverUrl('m3np8rta'));
     expect(cover.status).toBe(200);
@@ -127,7 +140,7 @@ describe('账号关着', () => {
     expect(fake.gallery.reports).toEqual([{ id: 'm3np8rta', reason: 'other' }]);
     expect((await fetch(`${BASE}/v1/gallery/m3np8rta/report`, { method: 'POST', body: JSON.stringify({ reason: 'x' }) })).status).toBe(400);
     expect(paths.every((p) => p.startsWith('/v1/gallery'))).toBe(true);
-  });
+  }, 60_000);
 
   it('撤下的作品 410;服务器关了作品墙(404)= 不出', async () => {
     await dev({ withdrawn: ['m3np8rta'] });
@@ -135,7 +148,7 @@ describe('账号关着', () => {
     expect(isWorkGone(e)).toBe(true);
     loadGallery();
     await settle();
-    expect(getGallery().list?.works.map((w) => w.id)).toEqual(['k7qm2xpa', 'p4tz6hwe']);
+    expect(getGallery().list?.works.map((w) => w.id)).toEqual(['k7qm2xpa', 'p4tz6hwe', 'r6zh9qkw']);
     // 打开作品以后、取世界文件之前撤下的
     await dev({ withdrawn: ['k7qm2xpa'] });
     expect(isWorkGone(await fetchWorkFile('k7qm2xpa').catch((x: unknown) => x))).toBe(true);
@@ -145,7 +158,7 @@ describe('账号关着', () => {
     loadGallery(true);
     await settle();
     expect(getGallery()).toMatchObject({ status: 'off', list: null });
-  });
+  }, 60_000);
 });
 
 describe('账号开着(默认)', () => {
