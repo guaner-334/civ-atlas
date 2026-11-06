@@ -46,7 +46,7 @@ import { notifyAiChanged, type AiProvider } from '../client';
 import { AiError, type AiUsage } from '../types';
 import { scrubSecrets } from '../settings';
 import { idleTimer, readSse } from '../sse';
-import { ServerError, onServerChange, serverBase, setServerForTest } from '../../account/server';
+import { ServerError, accountServer, onServerChange, setServerForTest } from '../../account/server';
 import { authToken, getSession, login, logout, onSessionChange, sendCode, sessionExpired, updateUser } from '../../account/session';
 import { ToolCallAcc, wireMessage } from './compat';
 
@@ -55,7 +55,7 @@ import { ToolCallAcc, wireMessage } from './compat';
 
 /** 我们的服务器地址;null = 未开放 */
 export function officialServer(): string | null {
-  return serverBase();
+  return accountServer();
 }
 
 /** 单测用:指定服务器地址(null = 未开放;undefined = 恢复按构建变量) */

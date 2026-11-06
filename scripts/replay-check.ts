@@ -6868,6 +6868,41 @@ if (part('联系我们')) {
   if (phoneMenu !== CONTACT.url || phoneOv) errs.push(`联系我们(手机):「更多」里应该有、概览底部不放(${phoneMenu},概览 ${phoneOv} 个)`);
 }
 
+// 只开作品墙:本地假服务器、账号关着(accounts=off)。作品墙列得出三种作品,我的世界没有登录入口,发到服务器的只有作品墙的请求;
+// 同一个假服务器、账号开着时有登录入口
+if (part('只开作品墙')) {
+  const wctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
+  const wp = await wctx.newPage();
+  wp.on('pageerror', (e) => errs.push(`只开作品墙:${e.message}`));
+  const asked: string[] = [];
+  wp.on('request', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (p.startsWith('/__fake-ai/')) asked.push(p.slice('/__fake-ai'.length));
+  });
+  await wp.goto(`${dev.url}/?gallery&aiServer=fake&accounts=off`);
+  const listed = await wp.locator('.gl-card.card[data-work]').first().waitFor({ timeout: 30000 }).then(
+    () => true,
+    () => false,
+  );
+  const kinds = await wp.locator('.gl-card.card[data-work]').evaluateAll((els) => els.map((e) => e.getAttribute('data-kind')));
+  await wp.click('[data-act=gallery-home]');
+  await wp.locator('.mw-foot').waitFor({ timeout: 30000 });
+  await wp.waitForTimeout(800);
+  const loginOff = await wp.locator('[data-act=login]').count();
+  const wallOff = await wp.locator('[data-act=gallery]').count();
+  const keptUrl = /[?&]accounts=off(&|$)/.test(wp.url());
+  const others = [...new Set(asked)].filter((p) => !p.startsWith('/v1/gallery'));
+  await wp.goto(`${dev.url}/?aiServer=fake`);
+  await wp.locator('[data-act=login]').waitFor({ timeout: 30000 }).catch(() => {});
+  const loginOn = await wp.locator('[data-act=login]').count();
+  await wctx.close();
+  console.log(`只开作品墙:作品 ${kinds.join(',')};我的世界 登录入口 ${loginOff} 个、作品墙入口 ${wallOff} 个,网址留着 ${keptUrl};别的请求 ${others.join(' ') || '没有'};账号开着时登录入口 ${loginOn} 个`);
+  if (!listed || ['world', 'map', 'preset'].some((k) => !kinds.includes(k))) errs.push(`只开作品墙:假服务器的作品墙没列出世界、地图、新建参数(${kinds.join(',')})`);
+  if (loginOff || !wallOff || !keptUrl) errs.push(`只开作品墙:账号关着时我的世界有登录入口、没有作品墙入口,或网址丢了 accounts=off(登录 ${loginOff},作品墙 ${wallOff},${keptUrl})`);
+  if (others.length) errs.push(`只开作品墙:账号关着还发了别的请求(${others.join(' ')})`);
+  if (loginOn !== 1) errs.push(`只开作品墙:账号开着时我的世界没有登录入口(${loginOn})`);
+}
+
 // 测试版新功能:正式网站读测试网站的 beta/whats-new.json(src/ui/betaNews.ts),列出自己的清单里没有的几条。
 // 开发服务里没有这个文件 → 版本号和以前一样;有了以后:首页右下角版本号后面小蓝点,鼠标移上去上面出小卡片(新功能、预计日期、测试地址),
 // 移开收起;键盘 Tab 进出卡片里的链接;世界概览里开着卡片按后退,卡片跟着收起;

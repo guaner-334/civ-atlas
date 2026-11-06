@@ -39,7 +39,7 @@ import { currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, not
 import { isCoarse } from './device';
 import { withFileFlow } from './worldFileLazy';
 import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
-import { serverBase } from '../account/server';
+import { accountServer } from '../account/server';
 import { displayName, useSession } from '../account/session';
 import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
 import { REFUSAL_NOTE, askFull, fullDay, fullJob, fullOverview, fullStatusOf, pairText, refusalOf, useFullJob, useFullOverview, useFullPull } from './fullWorldView';
@@ -232,7 +232,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
     );
   };
   const session = useSession();
-  const server = serverBase() !== null;
+  const server = accountServer() !== null;
   const fo = useFullOverview();
   useEffect(() => {
     if (session) void askFull();

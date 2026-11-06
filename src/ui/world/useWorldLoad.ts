@@ -42,7 +42,7 @@ import {
 import { wrapLon } from '../../render/projection';
 import type { SurfaceLook } from '../../render/surface';
 import { SHARE_CODE_RE, openShareCode, shortLink } from '../../account/cloud';
-import { ServerError, serverBase } from '../../account/server';
+import { ServerError, accountServer } from '../../account/server';
 import { getSession, takeInviteFromUrl } from '../../account/session';
 import { galleryOfUrl } from '../../account/gallery';
 import { closeTrash, openLogin } from '../AccountDialogs';
@@ -495,7 +495,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 别人分享的规则链接(#rules=…;调规则的入口开着时):在我的世界上面打开调规则的大卡,# 那段从地址栏去掉
     if (openRulesHash(location.hash)) navUrl(location.pathname + location.search);
     // 邀请链接:弹出登录窗(已经登录了就算了)
-    if (invited && serverBase() && !getSession()) openLogin();
+    if (invited && accountServer() && !getSession()) openLogin();
     if (route.target) generate(route.target);
     else if (landing === 'loading') openShortShare(init.shortShare ?? '');
     // 作品墙:网址换成 ?gallery(=编号)的写法(# 后面写的也换过来);带编号的去取那个作品
@@ -901,7 +901,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
   };
   /** 分享短链接:去服务器取存档(不用登录);停了、打不开就显示那一页 */
   const openShortShare = (code: string, still?: () => boolean) => {
-    if (!serverBase() || !SHARE_CODE_RE.test(code)) return setLanding('gone');
+    if (!accountServer() || !SHARE_CODE_RE.test(code)) return setLanding('gone');
     showToast({ id: 'share', kind: 'progress', text: '正在打开分享的世界' });
     openShareCode(code)
       .then(async (r) => {

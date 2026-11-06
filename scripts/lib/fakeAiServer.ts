@@ -13,8 +13,12 @@
  * 带工具的请求(助手):最后一条不是工具结果时,回一个对第一个工具的调用(参数为空,done.tool_calls);是工具结果时正常回话。
  * 传到账号的世界(src/account/fullWorlds.ts):块和文件都在内存里;不真核对,看一眼开头是不是 ZIP,文字审核用 fullFail 模拟。
  * POST /v1/dev/full { off?, limits?, fail?, storeFull? } 改这部分的行为(off = 当服务器没开这个功能,接口都 404)。
+ * 作品墙(src/account/gallery.ts):开着,摆着世界(带世界文件)、地图、新建参数各一件,一件精选、一个挑战;不用登录。
+ * 世界作品的文件是 tests/fixtures/world-file/v1.civworld。POST /v1/dev/gallery { off?, withdrawn? } 关掉作品墙(接口都 404)、撤下几件。
  */
+import { readFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { GENERATOR_VERSION } from '../../src/gen/edits';
 
 export const FAKE_CODE = '246810';
 /** 开发服务器的邀请码 */
@@ -78,6 +82,54 @@ interface Share {
   opens: number;
   /** 署名;没填 = 没有 */
   by?: string;
+}
+
+type WorkKind = 'world' | 'map' | 'preset';
+
+interface Work {
+  id: string;
+  kind: WorkKind;
+  title: string;
+  by: string;
+  blurb: string;
+  version: number | null;
+  addedAt: number;
+  /** 地图:存档 */
+  save?: unknown;
+  /** 新建参数:预设链接 # 后面那段 */
+  preset?: string;
+  /** 世界:带世界文件 */
+  full?: true;
+}
+
+const REPORT_REASONS = ['illegal', 'porn', 'abuse', 'privacy', 'infringe', 'other'];
+const WORLD_FILE = new URL('../../tests/fixtures/world-file/v1.civworld', import.meta.url);
+
+function sampleWorks(now: number): Work[] {
+  const day = 86400_000;
+  const preset = new URLSearchParams({ preset: '1', name: '两块完整大陆', seed: '4242', landFraction: '0.4', continents: '2' }).toString();
+  return [
+    { id: 'k7qm2xpa', kind: 'world', title: '金阳洋两岸', by: '砚山', blurb: '两岸七个王朝打了三百年，最后谁也没吞下谁。', version: GENERATOR_VERSION, addedAt: now - day, full: true },
+    {
+      id: 'm3np8rta',
+      kind: 'map',
+      title: '九州大陆',
+      by: '霜叶',
+      blurb: '一块大陆、九条大河，留给你打造文明。',
+      version: GENERATOR_VERSION,
+      addedAt: now - 2 * day,
+      save: { app: '文明与地图', format: 1, generator: GENERATOR_VERSION, seed: 2024, params: { seed: 2024 }, edits: { names: {}, interventions: [], terrain: [] }, title: '九州大陆' },
+    },
+    { id: 'p4tz6hwe', kind: 'preset', title: '两块完整大陆', by: '砚山', blurb: '', version: null, addedAt: now - 3 * day, preset },
+  ];
+}
+
+/** 封面:2:1 的一块颜色,写着作品名(真的是 JPEG,这里用 SVG 代替) */
+function coverSvg(w: Work): string {
+  const bg = { world: '#c9d8b6', map: '#b9cfe0', preset: '#1d2a3a' }[w.kind];
+  const fg = w.kind === 'preset' ? '#e8eef5' : '#2b3a2e';
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320"><rect width="640" height="320" fill="${bg}"/><text x="320" y="172" font-size="40" text-anchor="middle" fill="${fg}" font-family="sans-serif">${esc(w.title)}</text></svg>`;
 }
 
 export interface FakeAiOptions {
@@ -146,6 +198,28 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     }
     return out;
   };
+  // 作品墙
+  const gallery = { off: false, works: sampleWorks(Date.now()), withdrawn: new Set<string>(), reports: [] as { id: string; reason: string }[] };
+  let worldFile: Promise<{ data: Uint8Array; sum: string }> | null = null;
+  const galleryFile = () =>
+    (worldFile ??= readFile(WORLD_FILE).then(async (b) => {
+      const data = new Uint8Array(b);
+      return { data, sum: await sha(data) };
+    }));
+  const workView = (w: Work) => ({ id: w.id, kind: w.kind, title: w.title, by: w.by, blurb: w.blurb, version: w.version, addedAt: iso(w.addedAt) });
+  const galleryList = async () => {
+    const live = gallery.works.filter((w) => !gallery.withdrawn.has(w.id)).sort((a, b) => b.addedAt - a.addedAt);
+    const bytes = live.some((w) => w.full) ? (await galleryFile()).data.length : 0;
+    const bj = (t: number) => new Date(t + 8 * 3600_000).toISOString();
+    const has = (id: string) => live.some((w) => w.id === id);
+    return {
+      month: bj(Date.now()).slice(0, 7),
+      featured: [{ id: 'k7qm2xpa', note: '海峡两岸的拉锯写得很细，每一次换手都有来由。' }].filter((f) => has(f.id)),
+      challenges: [{ id: 1, title: '一个王朝三百年', blurb: '从立国到灭亡，讲一个王朝的三百年。', deadline: bj(Date.now() + 30 * 86400_000).slice(0, 10), works: ['m3np8rta'].filter(has) }],
+      works: live.map((w) => ({ ...workView(w), ...(w.full ? { full: { bytes } } : {}) })),
+    };
+  };
+
   const fullFileResponse = (f: FullFile) =>
     new Response(fileOf(f), { status: 200, headers: { ...CORS, 'Content-Type': 'application/octet-stream', 'Content-Length': String(f.bytes), ETag: `"${f.sum}"` } });
 
@@ -166,6 +240,41 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
   async function handle(req: Request): Promise<Response> {
     const path = new URL(req.url).pathname.replace(/\/+$/, '');
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+
+    // ---- 作品墙(不用登录) ----
+    if (req.method === 'POST' && path === '/v1/dev/gallery') {
+      const b = await body(req);
+      if (typeof b?.off === 'boolean') gallery.off = b.off;
+      if (Array.isArray(b?.withdrawn)) gallery.withdrawn = new Set(b.withdrawn.filter((x: unknown) => typeof x === 'string'));
+      return json(200, { ok: true });
+    }
+    if (path === '/v1/gallery' || path.startsWith('/v1/gallery/')) {
+      if (gallery.off) return fail(404, 'bad-request', '没有这个接口');
+      if (req.method === 'GET' && path === '/v1/gallery') return json(200, await galleryList());
+      const g = /^\/v1\/gallery\/([^/]+)(\/cover|\/full|\/report)?$/.exec(path);
+      const w = g ? gallery.works.find((x) => x.id === decodeURIComponent(g[1])) : undefined;
+      if (!g || !w) return fail(404, 'not-found', '这个作品已经撤下');
+      if (gallery.withdrawn.has(w.id)) return json(410, { withdrawn: true, error: { code: 'gallery-gone', message: '这个作品已经撤下' } });
+      if (req.method === 'GET' && !g[2]) {
+        if (w.preset) return json(200, { ...workView(w), preset: w.preset });
+        if (!w.full) return json(200, { ...workView(w), save: w.save });
+        const f = await galleryFile();
+        return json(200, { ...workView(w), full: { sum: f.sum, bytes: f.data.length } });
+      }
+      if (req.method === 'GET' && g[2] === '/cover') return new Response(coverSvg(w), { status: 200, headers: { ...CORS, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache' } });
+      if (req.method === 'GET' && g[2] === '/full') {
+        if (!w.full) return fail(404, 'not-found', '这个作品没有世界文件');
+        const f = await galleryFile();
+        return new Response(f.data, { status: 200, headers: { ...CORS, 'Content-Type': 'application/octet-stream', 'Content-Length': String(f.data.length), ETag: `"${f.sum}"` } });
+      }
+      if (req.method === 'POST' && g[2] === '/report') {
+        const reason = (await body(req))?.reason;
+        if (!REPORT_REASONS.includes(reason)) return fail(400, 'bad-request', '举报理由不对');
+        gallery.reports.push({ id: w.id, reason });
+        return new Response(null, { status: 204, headers: CORS });
+      }
+      return fail(404, 'bad-request', '没有这个接口');
+    }
 
     if (req.method === 'GET' && path === '/v1/auth/options') {
       return json(200, { accountKinds: ['email'], inviteOnly, codeTtlSec: 600 });
@@ -491,7 +600,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     return fail(404, 'bad-request', '没有这个接口');
   }
 
-  return { handle, users, shares };
+  return { handle, users, shares, gallery };
 }
 
 /** 挂到 Vite 开发服务器上用(connect 中间件;挂载前缀已被去掉,req.url 是 /v1/...) */

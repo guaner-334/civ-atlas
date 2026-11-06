@@ -4,8 +4,8 @@
  * 只读:登录时读一次、打开账号窗和菜单时读一次,这不算同步。
  * overview = null:没登录,或者服务器没开这个功能(接口 404),所有入口都不露出来。
  */
-import { getSession, onLogin, onSessionChange } from '../account/session';
-import { serverBase } from '../account/server';
+import { currentAccount, getSession, onLogin, onSessionChange } from '../account/session';
+import { accountServer } from '../account/server';
 import { openAccount } from './AccountDialogs';
 import { exportNotes, notesKnown, type AiNote } from '../ai/library';
 import { createListeners } from './createStore';
@@ -131,7 +131,7 @@ export function setFullNote(id: string, note: FullNote | null) {
 /** 问一次服务器;问不到(断网)留着现在的,点了再听服务器的 */
 let asking: { user: string; p: Promise<void> } | null = null;
 export function askFull(): Promise<void> {
-  if (!who || !serverBase()) return Promise.resolve();
+  if (!who || !accountServer()) return Promise.resolve();
   // 正在问的是换账号之前的:那份回来也不用,另问一次
   if (asking?.user === who) return asking.p;
   const user = who;
@@ -156,7 +156,7 @@ export function startFullView(): void {
   if (started) return;
   started = true;
   const follow = () => {
-    const s = getSession();
+    const s = currentAccount();
     const next = s ? String(s.user.id ?? s.user.account) : null;
     if (next === who) return;
     who = next;
