@@ -20,6 +20,7 @@ import { MyWorlds } from './MyWorlds';
 import { GalleryPage } from './Gallery';
 import { NewWorldDialog } from './NewWorldDialog';
 import { AccountHost, setGoHome } from './AccountDialogs';
+import { SameWorldHost } from './sameWorldAsk';
 import { AiSettingsHost } from './AiSettings';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { TipLayer } from './Tips';
@@ -289,6 +290,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
       <ToastBar />
       <AiSettingsHost />
       <AccountHost phone={narrow} />
+      <SameWorldHost phone={narrow} />
       <TipLayer />
       {newDlg && (
         <NewWorldDialog

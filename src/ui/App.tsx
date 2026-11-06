@@ -195,6 +195,7 @@ import { ToastBar, clearToast, showToast } from './Toast';
 import { FirstHint, HoverCard, MapBar, MapControls, OldSiteBadge, PhoneButtons, hintSeen, markHintSeen } from './Corners';
 import { closeRelief, openAreaLink, urlHasArea, useRelief } from './terrain3dStore';
 import { FrozenAsk } from './FrozenWorld';
+import { SameWorldHost } from './sameWorldAsk';
 import { BETA_SITE, OLD_SITE } from './oldSite';
 import { Sidebar } from './Sidebar';
 import { PhoneSheet } from './PhoneSheet';
@@ -2871,6 +2872,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       <FrozenAsk phone={narrow} />
+      <SameWorldHost phone={narrow} />
       <ShortcutsHost />
       <DiagHost />
       <TipLayer />
