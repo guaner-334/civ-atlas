@@ -8,6 +8,7 @@
  *   GET    /v1/worlds/:id/full/status    → checking / done / failed / none
  *   GET    /v1/worlds/:id/full           → 下载
  *   GET    /v1/s/:code/full              → 下载分享的(不用登录)
+ *   GET    /v1/gallery/:id/full          → 下载作品墙上的世界作品(不用登录,只开作品墙时也能取)
  */
 import type { FullEntry, FullOverview } from '../ui/fullWorldView';
 import { listCloud } from './cloud';
@@ -292,4 +293,9 @@ export function fetchOwnFile(id: string, o: { total?: number; signal?: AbortSign
 /** 取分享的世界文件(不用登录) */
 export function fetchSharedFile(code: string, o: { total?: number; signal?: AbortSignal; onBytes?: (done: number, total: number) => void } = {}): Promise<Blob> {
   return fetchFile(`/v1/s/${encodeURIComponent(code)}/full`, o);
+}
+
+/** 取作品墙上世界作品的文件(撤下的抛 ServerError code 'gallery-gone') */
+export function fetchWorkFile(id: string, o: { total?: number; signal?: AbortSignal; onBytes?: (done: number, total: number) => void } = {}): Promise<Blob> {
+  return fetchFile(`/v1/gallery/${encodeURIComponent(id)}/full`, o);
 }
