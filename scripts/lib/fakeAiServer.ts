@@ -14,7 +14,8 @@
  * 传到账号的世界(src/account/fullWorlds.ts):块和文件都在内存里;不真核对,看一眼开头是不是 ZIP,文字审核用 fullFail 模拟。
  * POST /v1/dev/full { off?, limits?, fail?, storeFull? } 改这部分的行为(off = 当服务器没开这个功能,接口都 404)。
  * 作品墙(src/account/gallery.ts):开着,摆着世界(带世界文件)、地图、新建参数各一件,一件精选、一个挑战;不用登录。
- * 世界作品的文件是 tests/fixtures/world-file/v1.civworld。POST /v1/dev/gallery { off?, withdrawn? } 关掉作品墙(接口都 404)、撤下几件。
+ * 世界作品的文件是 tests/fixtures/world-file/v1.civworld(测试样本,网页上打开会说内容和配方对不上;要在网页上看打开后的样子,把这个请求换成一份真的世界文件)。
+ * POST /v1/dev/gallery { off?, withdrawn? } 关掉作品墙(接口都 404)、撤下几件。
  */
 import { readFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';

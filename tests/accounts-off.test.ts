@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeAiServer } from '../scripts/lib/fakeAiServer';
 import { accountServer, call, serverBase, setAccountsForTest, setServerForTest } from '../src/account/server';
 import { _resetSessionForTest, currentAccount, fetchAuthOptions, getSession, logout } from '../src/account/session';
-import { fetchFile } from '../src/account/fullWorlds';
+import { fetchFile, fetchWorkFile } from '../src/account/fullWorlds';
 import { coverUrl, fetchWork, getGallery, isWorkGone, loadGallery, reportWork, resetGalleryForTest } from '../src/account/gallery';
 import { officialProvider, officialServer } from '../src/ai/providers/official';
 import { decodePresetHash } from '../src/ui/presetLink';
@@ -110,11 +110,13 @@ describe('账号关着', () => {
     const raw = await (await fetch(`${BASE}/v1/gallery`)).json();
     expect(raw.works[0].full).toEqual({ bytes: FILE.bytes });
     expect(raw.works[1].full).toBeUndefined();
-    const world = await (await fetch(`${BASE}/v1/gallery/k7qm2xpa`)).json();
+    const world = await fetchWork('k7qm2xpa');
     expect(world.full).toEqual({ sum: FILE.sha256, bytes: FILE.bytes });
     expect(world.save).toBeUndefined();
-    const file = await fetchFile('/v1/gallery/k7qm2xpa/full', { total: FILE.bytes });
+    const seen: number[] = [];
+    const file = await fetchWorkFile('k7qm2xpa', { total: world.full!.bytes, onBytes: (done) => seen.push(done) });
     expect(file.size).toBe(FILE.bytes);
+    expect(seen.at(-1)).toBe(FILE.bytes);
     expect((await fetch(`${BASE}/v1/gallery/k7qm2xpa/full`)).headers.get('etag')).toBe(`"${FILE.sha256}"`);
 
     const cover = await fetch(coverUrl('m3np8rta'));
@@ -134,6 +136,9 @@ describe('账号关着', () => {
     loadGallery();
     await settle();
     expect(getGallery().list?.works.map((w) => w.id)).toEqual(['k7qm2xpa', 'p4tz6hwe']);
+    // 打开作品以后、取世界文件之前撤下的
+    await dev({ withdrawn: ['k7qm2xpa'] });
+    expect(isWorkGone(await fetchWorkFile('k7qm2xpa').catch((x: unknown) => x))).toBe(true);
     expect(getGallery().list?.challenges[0].works).toEqual([]);
 
     await dev({ off: true });
