@@ -8,6 +8,7 @@
  *                                            本机「我的规则」里同一套已是更新的一版时,能用新版另存一份重推)
  *   openRulesHash(location.hash)             网址里是别人分享的规则链接(#rules=…)就打开它(只能看),返回打开了没有
  *   openRulesText(text, 文件名)               是规则文件就打开它(只能看),返回打开了没有;不是的照旧当世界的存档打开
+ *   openRulesWork(作品, 规则链接?)            作品墙上的规则作品(只能看;没给规则链接就先去服务器取)
  *   closeRulesSheet()
  *   newWorldWithRules(rules)                 进新建世界、规则选好这一套(别人分享的「用它新建世界」;首页和主程序各挂一个做事的)
  *
@@ -16,6 +17,7 @@
  */
 import { createStore } from '../createStore';
 import { isRulesFileLike, type RuleSet } from '../../gen/civ/ruleSet';
+import type { GalleryWork } from '../../account/gallery';
 import { rulesUiOn } from './flag';
 
 export type RulesSheetState =
@@ -26,8 +28,10 @@ export type RulesSheetState =
   | { kind: 'link'; hash: string }
   /** 还没解开的规则文件 */
   | { kind: 'file'; text: string; fileName?: string }
-  /** 别人分享的一套(解开了的;from = 从链接还是从文件来的) */
-  | { kind: 'shared'; rules: RuleSet; from: 'link' | 'file'; fileName?: string }
+  /** 作品墙上的规则作品,还没取到、没解开(link = 规则链接 # 后面那段) */
+  | { kind: 'work'; work: GalleryWork; link?: string }
+  /** 别人分享的一套(解开了的;from = 从链接还是从文件来的;work = 作品墙上的规则作品) */
+  | { kind: 'shared'; rules: RuleSet; from: 'link' | 'file'; fileName?: string; work?: GalleryWork }
   /** 一个世界用的那一套(worldId = 那个世界在我的世界里的编号;用新版另存一份重推时要) */
   | { kind: 'world'; rules: RuleSet; worldId?: string };
 
@@ -60,6 +64,16 @@ export function openRulesHash(hash: string): boolean {
   if (!rulesUiOn() || typeof hash !== 'string' || !RULES_HASH.test(hash.trim())) return false;
   openRulesSheet({ kind: 'link', hash });
   return true;
+}
+
+/** 打开作品墙上的规则作品(入口关着时不打开) */
+export function openRulesWork(work: GalleryWork, link?: string): void {
+  if (rulesUiOn()) openRulesSheet({ kind: 'work', work, ...(link !== undefined ? { link } : {}) });
+}
+
+/** 大卡上开着的作品墙作品的编号(没开着、开着的不是作品墙上的 = null) */
+export function rulesWorkId(s: RulesSheetState): string | null {
+  return s && (s.kind === 'work' || s.kind === 'shared') ? (s.work?.id ?? null) : null;
 }
 
 /** 规则文件最大多少字(和 ruleShare.ts 的 RULES_FILE_MAX 一样;再大的不是规则文件,不解) */

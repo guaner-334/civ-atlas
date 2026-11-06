@@ -93,12 +93,12 @@ export interface Target {
 
 /**
  * 作品墙盖在我的世界的位置上(和分享停了那一页一样):
- *   list  作品墙那一页(preset = 开着的新建参数作品,打开它的网址时)
+ *   list  作品墙那一页(shown = 开着的新建参数 / 规则作品,打开它的网址时)
  *   work  打开一个作品的网址:正在取 / 撤下了 / 取不到
  *   map   地图作品:整屏一颗星球
  * 世界作品打开就是平常的世界(只是看看,左上一条写作品;见 App 的 workFor)
  */
-export type WallView = { kind: 'list'; preset?: GalleryItem } | { kind: 'work'; id: string; state: 'loading' | 'gone' | { error: string } } | { kind: 'map'; work: GalleryItem };
+export type WallView = { kind: 'list'; shown?: GalleryItem } | { kind: 'work'; id: string; state: 'loading' | 'gone' | { error: string } } | { kind: 'map'; work: GalleryItem };
 
 /** 打开网页时去哪(App 的 firstRoute 算一次):我的世界 / 新建 / 某个世界;gone = 要回的世界已经删掉了(世界名);dialog = 开着新建弹窗 */
 export type FirstRoute = { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit };

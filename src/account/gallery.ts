@@ -1,9 +1,12 @@
 /**
- * 作品墙:作者投来、挑过以后放上去的世界、地图和新建参数。网页上只能看、拿来用、举报(界面在 ui/Gallery.tsx)。
+ * 作品墙:作者投来、挑过以后放上去的世界、地图、新建参数和规则。网页上只能看、拿来用、举报(界面在 ui/Gallery.tsx)。
  *
- *   GET  /v1/gallery              → { month, featured: [{ id, note }], challenges: [{ id, title, blurb, deadline, works }], works: [{ id, kind, title, by, blurb, version, addedAt }] }
+ *   GET  /v1/gallery              → { month, featured: [{ id, note }], challenges: [{ id, title, blurb, deadline, works }],
+ *                                     works: [{ id, kind, title, by, blurb, version, addedAt, rules? }] }
+ *                                   rules = 规则作品、用了非官方规则的作品的规则摘要 { name, changed, brief }
  *   GET  /v1/gallery/:id          → 列表里那一项 + 世界的 full { sum, bytes }(只存了存档的旧作品给 save)/ 地图的 save(和存成文件同一格式,带 moment)/
- *                                   新建参数的 preset(预设链接 # 后面那段);撤下的 410 gallery-gone;没有 404
+ *                                   新建参数的 preset(预设链接 # 后面那段)/ 规则作品的 rules 换成规则链接 # 后面那段(字符串);
+ *                                   撤下的 410 gallery-gone;没有 404
  *   GET  /v1/gallery/:id/full     → 世界作品的世界文件(撤下的 410)
  *   GET  /v1/gallery/:id/cover    → 封面 JPEG(宽高 2:1;世界 = 政区图,地图 = 实景图,新建参数 = 星球)
  *   POST /v1/gallery/:id/report { reason } → 204;同一个网络一小时最多几次(429)
@@ -14,9 +17,16 @@
 import { useSyncExternalStore } from 'react';
 import { ServerError, call, onServerChange, serverBase } from './server';
 
-export type WorkKind = 'world' | 'map' | 'preset';
+export type WorkKind = 'world' | 'map' | 'preset' | 'rules';
 
-export const WORK_KIND_NAME: Record<WorkKind, string> = { world: '世界', map: '地图', preset: '新建参数' };
+export const WORK_KIND_NAME: Record<WorkKind, string> = { world: '世界', map: '地图', preset: '新建参数', rules: '规则' };
+
+/** 规则摘要(上架时网站算好的):规则名、改了几项、最显眼的几处(用「、」连,不带省略号) */
+export interface WorkRules {
+  name: string;
+  changed: number;
+  brief: string;
+}
 
 /** 作品墙上的一个作品(作品名、署名、一句话介绍都是作者投稿时给的) */
 export interface GalleryWork {
@@ -29,6 +39,8 @@ export interface GalleryWork {
   version: number | null;
   /** 上架时间(ISO 8601) */
   addedAt: string;
+  /** 规则作品、用了非官方规则的作品:规则摘要 */
+  rules?: WorkRules;
 }
 
 export interface GalleryFeatured {
@@ -64,6 +76,8 @@ export interface GalleryItem extends GalleryWork {
   save?: unknown;
   /** 新建参数:预设链接 # 后面那段(preset=1&…) */
   preset?: string;
+  /** 规则:规则链接 # 后面那段(rules=1&…) */
+  ruleLink?: string;
 }
 
 /** 作品编号:8 位小写字母和数字(去掉了容易看错的 i、l、o、0、1) */
@@ -73,13 +87,21 @@ export function isWorkId(s: unknown): s is string {
   return typeof s === 'string' && WORK_ID_RE.test(s);
 }
 
-const KINDS: readonly WorkKind[] = ['world', 'map', 'preset'];
+const KINDS: readonly WorkKind[] = ['world', 'map', 'preset', 'rules'];
 const str = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '');
+
+function cleanRules(v: unknown): WorkRules | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  if (typeof o.name !== 'string' || !o.name.trim() || typeof o.changed !== 'number' || !Number.isInteger(o.changed) || o.changed < 0) return undefined;
+  return { name: str(o.name, 40), changed: o.changed, brief: str(o.brief, 120) };
+}
 
 function cleanWork(v: unknown): GalleryWork | null {
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
   if (!isWorkId(o.id) || !KINDS.includes(o.kind as WorkKind)) return null;
+  const rules = cleanRules(o.rules);
   return {
     id: o.id,
     kind: o.kind as WorkKind,
@@ -88,6 +110,7 @@ function cleanWork(v: unknown): GalleryWork | null {
     blurb: str(o.blurb, 200),
     version: typeof o.version === 'number' && Number.isInteger(o.version) ? o.version : null,
     addedAt: str(o.addedAt, 40),
+    ...(rules ? { rules } : {}),
   };
 }
 
@@ -132,6 +155,9 @@ export async function fetchWork(id: string): Promise<GalleryItem> {
   if (w.kind === 'preset') {
     if (typeof r.preset !== 'string') throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
     out.preset = r.preset;
+  } else if (w.kind === 'rules') {
+    if (typeof r.rules !== 'string') throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
+    out.ruleLink = r.rules;
   } else if (w.kind === 'world' && full && typeof full.sum === 'string' && typeof full.bytes === 'number' && Number.isSafeInteger(full.bytes) && full.bytes > 0) {
     out.full = { sum: full.sum, bytes: full.bytes };
   } else {

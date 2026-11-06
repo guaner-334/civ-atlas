@@ -1,23 +1,60 @@
 /**
  * 作品墙:打开一个世界 / 地图作品以后才用到的几样(作品墙那一页和空页面的精选在 Gallery.tsx;单独一个文件,首页不用下载星球那一套)
  *
- *   WorkBar           打开一个世界 / 地图作品时地图左上那一条:作品名、署名、一句话;「拿来用」(世界:另存一份接着改 /
- *                     用这张地图打造新文明;地图:直接「用这张地图打造文明」)、「举报」(举过的是灰的「已举报」)
+ *   WorkBar           打开一个世界 / 地图作品时地图左上那一条:作品名、署名(用了非官方规则的世界后面「规则：某某」,点了看那套规则)、
+ *                     一句话;「拿来用」(世界:另存一份接着改 / 用这张地图打造新文明;地图:直接「用这张地图打造文明」)、
+ *                     「举报」(举过的是灰的「已举报」)
  *   MapWorkView       地图作品:整屏是这颗星球(封面那张实景贴成球,能拖着转、能切「平面」、能放大缩小),没有文明
  *   ReportDialog      举报:六个理由选一个,不能打字;提交以后"收到了,谢谢"。同一台设备对同一个作品只能举报一次
  *
  * 样式在 gallery.css。
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Icon } from './icons';
 import { Dialog } from './AccountDialogs';
 import { PlanetGL } from './studio/planetGL';
 import { StudioScene } from './studio/scene';
 import { coverUrl, useGallery, wasReported, type GalleryWork } from '../account/gallery';
 import { ReportDialog, workWho } from './Gallery';
+import { useEdits } from './editsStore';
+import { rulesUiOn } from './rules/flag';
+import { openRulesSheet } from './rules/sheetStore';
 import './gallery.css';
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+
+/**
+ * 电脑上这一条和右上那一排(图层页签、导出……)挤在同一行放不下时往下挪到那一排下面,返回挪多少 px。
+ * 那一排的位置随窗口、侧栏收起、助手面板开关变,都要重新量
+ */
+function useClearOfMapBar(root: RefObject<HTMLDivElement | null>, on: boolean): number {
+  const [drop, setDrop] = useState(0);
+  useLayoutEffect(() => {
+    const el = root.current;
+    const corner = el?.parentElement;
+    const bar = document.querySelector<HTMLElement>('.map-bar');
+    if (!on || !el || !corner || !bar) return setDrop(0);
+    const fit = () => {
+      const b = bar.getBoundingClientRect();
+      const c = corner.getBoundingClientRect();
+      setDrop(c.left + el.offsetWidth + 16 > b.left ? Math.max(0, Math.round(b.bottom - c.top + 10)) : 0);
+    };
+    fit();
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+    ro?.observe(el);
+    ro?.observe(bar);
+    const app = el.closest('.app');
+    const mo = app && typeof MutationObserver !== 'undefined' ? new MutationObserver(fit) : null;
+    if (app) mo?.observe(app, { attributes: true, attributeFilter: ['class'] });
+    window.addEventListener('resize', fit);
+    return () => {
+      ro?.disconnect();
+      mo?.disconnect();
+      window.removeEventListener('resize', fit);
+    };
+  }, [root, on]);
+  return drop;
+}
 
 export interface WorkBarProps {
   phone: boolean;
@@ -40,6 +77,9 @@ export function WorkBar({ phone, work, onBack, onSaveCopy, onNewCiv }: WorkBarPr
   /** 菜单挂在「拿来用」下面,比按钮往左错开一点 */
   const [menuAt, setMenuAt] = useState<{ left: number; top: number } | null>(null);
   const map = work.kind === 'map';
+  const worldRules = useEdits().rules;
+  const rulesName = !map && rulesUiOn() ? work.rules?.name : undefined;
+  const drop = useClearOfMapBar(root, !phone && !map);
   useLayoutEffect(() => {
     const b = useBtn.current;
     const r = root.current;
@@ -64,13 +104,32 @@ export function WorkBar({ phone, work, onBack, onSaveCopy, onNewCiv }: WorkBarPr
     };
   }, [menu, phone]);
   const who = workWho(work);
+  const rulesLink = rulesName && (
+    <button
+      className="gw-rules"
+      data-act="gallery-world-rules"
+      title="看这个世界用的规则"
+      onClick={() => openRulesSheet(worldRules ? { kind: 'world', rules: worldRules } : { kind: 'official' })}
+    >
+      规则：{rulesName}
+    </button>
+  );
   const pick = (f: (() => void) | undefined) => () => {
     setMenu(false);
     f?.();
   };
   return (
     <>
-      <div ref={root} className={`gw-bar${phone ? ' phone' : ''}${map ? ' map' : ''}`} data-testid="gallery-bar" onPointerDown={stop} onClick={stop} onDoubleClick={stop} onWheel={stop}>
+      <div
+        ref={root}
+        className={`gw-bar${phone ? ' phone' : ''}${map ? ' map' : ''}`}
+        style={drop ? { marginTop: drop } : undefined}
+        data-testid="gallery-bar"
+        onPointerDown={stop}
+        onClick={stop}
+        onDoubleClick={stop}
+        onWheel={stop}
+      >
         {map && onBack && (
           <button className="gw-back" data-act="gallery-back" onClick={onBack} title="回到作品墙">
             <Icon name="back" size={16} />
@@ -82,8 +141,14 @@ export function WorkBar({ phone, work, onBack, onSaveCopy, onNewCiv }: WorkBarPr
             <span className="gw-pill">{map ? '地图' : '作品墙'}</span>
             <b>{work.title || '未命名'}</b>
             {!phone && work.by && <span>{work.by}</span>}
+            {!phone && rulesLink}
           </div>
-          {phone && work.by && <span className="gw-by">{work.by}</span>}
+          {phone && (work.by || rulesLink) && (
+            <span className="gw-by">
+              {work.by}
+              {rulesLink}
+            </span>
+          )}
           {work.blurb && (
             <div className="gw-2" title={work.blurb}>
               {work.blurb}
