@@ -52,7 +52,7 @@ import type { Civ } from '../gen/civ/types';
 import { CivLayer, civOpenSteps } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
 import { ExtendDock, ExtendPop, ExtendSheet } from './ExtendYears';
-import { extendProgress, setExtendBusy, setExtendOpen } from './extendStore';
+import { extendProgress, extendStart, setExtendBusy, setExtendOpen } from './extendStore';
 import { EventPins, type WorldToClient } from './EventPins';
 import { DirectorCaption, DirectorEngine, DirectorPanels, DirectorPin } from './Director';
 import { directorHandBack, setDirectorMode, useDirectorOn } from './directorStore';
@@ -240,7 +240,7 @@ import { SourceLayer, useImportOn, useSourceView } from './ImportImage';
 import { NewWorldDialog } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
-import { resetStuck, simFailOpt } from './stuckStore';
+import { noteCrash, resetStuck, simFailOpt } from './stuckStore';
 import { StuckCard } from './StuckCard';
 import { SimClient } from './sim/simClient';
 import { useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
@@ -951,7 +951,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         },
       },
       // 线程出错、重发过一次又出错的活(见 ./sim/simClient.ts 文件头「线程出错」):不再算它,界面上收起,地图上还是原来那份。
-      // 生成、读档、回放帧、地形大事预览不在这里收:再点一次就是新的一件活,交给新开的线程
+      // 生成世界、重推、再推没推成的弹「后台算不动了」那张卡(多半是内存不够),能再推一次;读档退回旧的路,回放帧、地形大事预览再点一次就是新的一件活
       lost: (req) => {
         // 打开世界的那件重发过又出错了:退回旧的路
         if (req.type === 'load') {
@@ -959,10 +959,22 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
           const back = openRefs.loadBack.current;
           openRefs.loadBack.current = null;
           back?.('broken');
+        } else if (req.type === 'generate') {
+          if (req.skipCiv) return;
+          setProgress(null);
+          noteCrash(() => sendRef.current(req));
         } else if (req.type === 'resim') {
           if (req.seq !== resimSeq.current) return;
+          const info = resimInfo.current;
           resimInfo.current = null;
           setResim(null);
+          if (!getStepwise().switching)
+            noteCrash(() => {
+              if (req.seq !== resimSeq.current) return;
+              resimInfo.current = info && { ...info, t0: performance.now() };
+              setResim({ year: info?.year ?? 0 });
+              sendRef.current(req);
+            });
           // 这次重推推完要说的、要做的,不留给下一次
           rewindNote.current = switchNote.current = null;
           storyAfterYears.current = null;
@@ -986,6 +998,10 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
           if (extendRef.current?.xid === req.xid) {
             extendRef.current = null;
             setExtendBusy(null);
+            noteCrash(() => {
+              const from = rawRef.current?.endYear;
+              if (from !== undefined && req.to > from) extendStart(req.to - from);
+            });
           }
         } else if (req.type === 'outline') {
           if (outlineRef.current?.oid === req.oid) endOutline();
@@ -2827,8 +2843,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         <FirstHint show={hintOn && !!data && world && !terrainTool.on && !upOn} touch={coarse} />
       )}
       {world && !narrow && <UpheavalHint />}
-      {/* 推不下去:地图盖浅白、中间一张卡(盖住上面的操作提示,不盖浮在地图上的按钮和时间轴) */}
-      {data && world && !stepOn && <StuckCard civ={civ} phone={narrow} busy={worldBusy} />}
+      {/* 推不下去:地图盖浅白、中间一张卡(盖住上面的操作提示,不盖浮在地图上的按钮和时间轴);新建时只弹后台算不动的那张 */}
+      {(world || draft) && !stepOn && <StuckCard civ={world && data ? civ : null} phone={narrow} busy={worldBusy} over={!world} />}
       {/* 底部:时间轴(宽屏是卡片右边那一块底下的胶囊;手机是浮在底部卡片上面的胶囊);新建时还没有历史,不放 */}
       <div className="bottom-row">
         <div className="bottom-tl">

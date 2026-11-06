@@ -1872,7 +1872,7 @@ if (part('并排试推')) compare: {
 // 推不下去:「我的规则」里放一套(战争 ×4、议和后 0 年),新建时选它;网址带 simFail=900:推过第 900 年就故意出错 →
 // 建好以后停在第 900 年、盖浅白、中间一张卡说可能是哪两项,时间轴上「再推」换成「推不下去」、一道红线;「先看前面的历史」收起;
 // 刷新(读存下的)不再弹卡、照样停在第 900 年,点「推不下去」再弹;「这两项改回官方，另存一份重推」→ 我的规则里那两项没了(第 2 版)、进打造文明。
-// 官方规则的世界加一条干预推不下去:卡上「撤销这条干预」→ 干预撤掉、回到推完的历史
+// 官方规则的世界加一条干预推不下去:卡上「撤销这条干预」→ 干预撤掉、回到推完的历史;后台线程没撑住:弹「后台算不动了」,「再推一次」
 if (part('推不下去')) stuck: {
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
   await ctx.addInitScript(() => {
@@ -1940,6 +1940,16 @@ if (part('推不下去')) stuck: {
   if (!closed || reCard || !reYear.includes('900') || !again) errs.push(`推不下去:收起、刷新以后不弹、点了再弹不对(${closed}、${reCard}、${reYear}、${again})`);
   if (!studio || !toast.includes('这两项改回了官方，存成第 2 版') || mine?.version !== 2 || Object.keys(mine?.values ?? {}).length) errs.push(`推不下去:改回官方另存一份重推不对(${studio}、${toast}、${JSON.stringify(mine)})`);
   if (!ivCard.includes('加上刚下的') || !ivCard.includes('撤销这条干预') || !ivBack || ivLeft !== 0) errs.push(`推不下去:干预推不下去、撤销不对(${ivCard}、${ivBack}、${ivLeft})`);
+  // 后台线程没撑住(simFail=-1:生成世界时线程直接出错,重发一次又出错):弹「后台算不动了」,「再推一次」世界出来
+  const cp = await ctx.newPage();
+  cp.on('pageerror', (e) => errs.push(`推不下去:${e.message}`));
+  await cp.goto(`${dev.url}/?seed=7&play=0&simFail=-1`);
+  const crashCard = await cp.locator(cardSel).innerText({ timeout: 90000 }).catch(() => '');
+  await cp.evaluate(() => (window as any).__wfSimFail());
+  await cp.click('[data-act=stuck-retry]').catch(() => {});
+  const crashBack = await cp.waitForFunction(() => (window as any).__wf?.ready, null, { timeout: 90000 }).then(() => true, () => false);
+  console.log(`推不下去:线程没撑住「${crashCard.replace(/\n+/g, ' ')}」→ 再推一次世界出来 ${crashBack}`);
+  if (!crashCard.includes('后台算不动了') || !crashCard.includes('再推一次') || !crashBack) errs.push(`推不下去:线程没撑住的卡、再推一次不对(${crashCard}、${crashBack})`);
   await ctx.close();
 }
 

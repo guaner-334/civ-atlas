@@ -31,6 +31,27 @@ interface CardText {
   buttons: CardButton[];
 }
 
+/** 后台线程没撑住的那张:地图上还有历史就说停在哪年 */
+function crashCard(civ: Civ | null, retry: () => void): CardText {
+  const head = civ ? `这段历史没推完，停在第 ${Math.floor(civ.endYear)} 年，前面的历史照样能看。` : '这段历史没推完。';
+  return {
+    title: '后台算不动了',
+    text: `可能是这台设备的内存不够，${head}关掉别的网页再推一次，或者换一台内存大的设备打开这个世界。`,
+    buttons: [
+      { label: '知道了', act: 'stuck-ok', onClick: closeStuck },
+      {
+        label: '再推一次',
+        act: 'stuck-retry',
+        primary: true,
+        onClick: () => {
+          closeStuck();
+          retry();
+        },
+      },
+    ],
+  };
+}
+
 /** 卡上的字和按钮 */
 function cardOf(civ: Civ, why: StuckWhy | null): CardText {
   const at = civ.stuck!.at;
@@ -131,8 +152,11 @@ function revert(rulesId: string, worldId: string, list: readonly Suspect[], stop
   });
 }
 
-/** 盖在地图上的浅白和中间那张卡;刚算出来的那一次等时间轴停在停住那年时自动弹。busy = 还在推(新的历史还没到),先不弹 */
-export function StuckCard({ civ, phone, busy }: { civ: Civ | null; phone: boolean; busy: boolean }) {
+/**
+ * 盖在地图上的浅白和中间那张卡;刚算出来的那一次等时间轴停在停住那年时自动弹。busy = 还在推(新的历史还没到),先不弹;
+ * over = 新建界面里(只有后台算不动的那张):盖在新建界面的面板上面
+ */
+export function StuckCard({ civ, phone, busy, over }: { civ: Civ | null; phone: boolean; busy: boolean; over?: boolean }) {
   const st = useStuck();
   const t = useCivTime();
   // 规则、世界、我的规则变了,卡上的说法跟着变
@@ -154,10 +178,11 @@ export function StuckCard({ civ, phone, busy }: { civ: Civ | null; phone: boolea
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [st.open]);
-  if (!st.open || !civ || !stuck || busy) return null;
-  const c = cardOf(civ, st.why);
+  const crash = st.why?.kind === 'crash' ? st.why : null;
+  if (!st.open || busy || (!crash && (!civ || !stuck))) return null;
+  const c = crash ? crashCard(civ, crash.retry) : cardOf(civ!, st.why);
   return (
-    <div className={`stuck-layer${phone ? ' ph' : ''}`}>
+    <div className={`stuck-layer${phone ? ' ph' : ''}${over ? ' over' : ''}`}>
       <div className="stuck-dim" aria-hidden="true" />
       <div className="stuck-box">
         <div className="stuck-card" role="alert" data-act="stuck-card">
