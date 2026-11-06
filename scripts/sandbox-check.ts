@@ -244,7 +244,8 @@ async function runBrowser(name: string, type: BrowserType) {
     // 2. 来回传话
     const e = await segment(() => ev('echo'));
     noLeak('来回传话', e);
-    const eo = e.out as { s: number; n: number; backIsArray: boolean; detached: boolean; ms: number; errorReply: string; uncloneable: string; stopped: string; afterStop: string; frames: number };
+    const eo = e.out as { s: number; n: number; backIsArray: boolean; detached: boolean; ms: number; errorReply: string; uncloneable: string; early: boolean; stopped: string; afterStop: string; frames: number };
+    check(eo.early, '插件顶层里发的话收得到,不当作乱发话');
     check(eo.s === 36_000 && eo.n === 36_000 && eo.backIsArray, '36k 个数递进去、算完、原样递回来', JSON.stringify(eo).slice(0, 200));
     check(eo.detached, '转交以后网站这边的那份交出去了(没拷贝)');
     check(eo.errorReply.length > 0, '插件回话出错时 call 拿到错误', eo.errorReply);

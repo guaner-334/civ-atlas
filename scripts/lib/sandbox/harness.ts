@@ -47,8 +47,10 @@ async function battery(code: string) {
 
 /** 一来一回、转交 36k 个数 */
 async function echo() {
+  const msgs: unknown[] = [];
   const sb = await startPluginSandbox(
-    'civAtlas.onCall((d) => { let s = 0; for (const x of d.a) s += x; return { s, n: d.a.length, back: d.a }; });',
+    "civAtlas.post('early'); civAtlas.onCall((d) => { let s = 0; for (const x of d.a) s += x; return { s, n: d.a.length, back: d.a }; });",
+    { onMessage: (d) => msgs.push(d) },
   );
   const a = new Float32Array(36_000).fill(1);
   const t0 = performance.now();
@@ -77,6 +79,7 @@ async function echo() {
     ms: +ms.toFixed(1),
     errorReply: thrown,
     uncloneable,
+    early: msgs[0] === 'early',
     stopped: sb.stopped,
     afterStop: await sb.call('x').then(
       () => 'replied',

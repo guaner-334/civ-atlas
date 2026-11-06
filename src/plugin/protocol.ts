@@ -13,7 +13,7 @@
  *               { v, kind: 'reply', id, ok: true, data } / { v, kind: 'reply', id, ok: false, error }  { v, kind: 'post', data }
  *
  * 插件在线程里用 civAtlas.onCall(fn) 接 call(fn 的返回值或 Promise 结果就是回话)、civAtlas.onMessage(fn) 接 post、
- * civAtlas.post(data, transfer?) 发 post。
+ * civAtlas.post(data) 发 post(插件发出来的一律拷贝,不转交:框里转一手时带不过去 MessagePort 这类)。
  */
 
 export const PROTOCOL = 1;
@@ -77,6 +77,9 @@ const PRELUDE = `(() => {
   const V = ${PROTOCOL};
   let onCall = null;
   let onMessage = null;
+  let booting = true;
+  queueMicrotask(() => { booting = false; });
+  const send = (m) => (booting ? queueMicrotask(() => post(m)) : post(m));
   try { delete self.Worker; } catch (e) {}
   const fail = (id, err) => post({ v: V, kind: 'reply', id, ok: false, error: String((err && err.message) || err) });
   Object.defineProperty(self, 'civAtlas', {
@@ -85,7 +88,7 @@ const PRELUDE = `(() => {
       protocol: V,
       onCall(fn) { onCall = typeof fn === 'function' ? fn : null; },
       onMessage(fn) { onMessage = typeof fn === 'function' ? fn : null; },
-      post(data, transfer) { post({ v: V, kind: 'post', data }, transfer || []); },
+      post(data) { send({ v: V, kind: 'post', data }); },
     }),
   });
   self.addEventListener('message', (e) => {
@@ -102,6 +105,7 @@ const PRELUDE = `(() => {
   });
 })();`;
 
+/** 顶层跑完才说 hello;顶层里 civAtlas.post 的话排在 hello 后面发(send 推到微任务里) */
 const EPILOGUE = `postMessage({ v: ${PROTOCOL}, kind: 'hello' });`;
 
 /** 换行和分号隔开:插件代码最后一行是注释、没写分号也不会吞掉后面那句 */

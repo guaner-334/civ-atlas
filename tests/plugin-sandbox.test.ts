@@ -94,6 +94,7 @@ function runWorker(code: string) {
     addEventListener: (type: string, fn: (e: { data: unknown }) => void) => type === 'message' && handlers.push(fn),
     Worker: function Worker() {},
     Promise,
+    queueMicrotask,
   };
   ctx.self = ctx;
   vm.createContext(ctx);
@@ -113,6 +114,16 @@ describe('线程里我们那段代码', () => {
     expect(w.ctx.order).toBe('object');
     expect(w.sent).toEqual([{ v, kind: 'hello' }]);
     expect('Worker' in w.ctx).toBe(false);
+  });
+
+  it('顶层里发的话排在 hello 后面', async () => {
+    const w = runWorker("civAtlas.post('early'); Promise.resolve().then(() => civAtlas.post('later'));");
+    await w.deliver('junk');
+    expect(w.sent).toEqual([
+      { v, kind: 'hello' },
+      { v, kind: 'post', data: 'early' },
+      { v, kind: 'post', data: 'later' },
+    ]);
   });
 
   it('最后一行是注释也照样说 hello', () => {
