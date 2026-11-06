@@ -524,6 +524,41 @@
 .gl-three .acct-gr span {
   color: var(--ink-2);
 }
+.gl-kinds {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 3px 6px;
+}
+.gl-kinds dt {
+  color: var(--ink);
+}
+.gl-kinds dd {
+  margin: 0;
+  color: var(--ink-2);
+}
+.acct-dlg.sheet .gl-three .acct-gr {
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  padding: 10px 12px;
+  font-size: 14px !important;
+}
+.acct-dlg.sheet .gl-three .acct-gr b {
+  width: auto;
+}
+.acct-dlg.sheet .gl-three .acct-gr > span,
+.acct-dlg.sheet .gl-kinds {
+  font-size: 13.5px;
+}
+.acct-dlg.sheet .gl-kinds {
+  align-self: stretch;
+  grid-template-columns: 62px 1fr;
+  gap: 5px 4px;
+  line-height: 1.45;
+}
 .gl-h3 {
   margin: 6px 0 -6px;
   font-size: 14px;
@@ -543,6 +578,17 @@
 }
 .gl-howto .acct-body {
   gap: 12px;
+}
+.acct-dlg.sheet.gl-howto .acct-body {
+  gap: 10px;
+}
+.acct-dlg.sheet.gl-howto .gl-h3 {
+  margin: 4px 0 0;
+  font-size: 15px;
+}
+.acct-dlg.sheet.gl-howto .gl-ol {
+  gap: 5px;
+  font-size: 14px;
 }
 
 .gl-pdlg {
