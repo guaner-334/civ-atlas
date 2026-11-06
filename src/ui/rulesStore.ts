@@ -15,7 +15,7 @@
  * - **最多 MAX_MY_RULES 套**:满了新建、复制、加进来都不成(返回 null,界面说一声),不为它删别的
  */
 import { createListeners } from './createStore';
-import { MY_RULES_KEY, noteMyRulesCount } from './rulesCount';
+import { MY_RULES_KEY, noteMyRules } from './rulesCount';
 import { RULES_VERSION_MAX, cleanRuleSet, type BiomeNames, type RuleSet } from '../gen/civ/ruleSet';
 import { deriveRuleSet, newRuleSet, sameRuleContent } from '../gen/civ/ruleSetEdit';
 import type { TuningValue, TuningValues } from '../gen/civ/tuning';
@@ -85,7 +85,7 @@ function set(next: readonly MyRules[]) {
     /* 隐私模式、存满了:只管这一次 */
   }
   subs.emit();
-  noteMyRulesCount(next.length);
+  noteMyRules(next.map((e) => e.rules));
 }
 
 /** 组件里取「我的规则」(新建、复制、加进来的排在前面) */
@@ -170,6 +170,17 @@ export function adoptSharedRules(r: RuleSet): { id: string; existed: boolean } |
   if (had) return { id: had.rules.id, existed: true };
   const id = addSharedRules(r);
   return id ? { id, existed: false } : null;
+}
+
+/**
+ * 预设带着的一套落到「我的规则」上(用它新建世界、在新建页选了这个预设):本机的(编号对得上)用它现在的样子;
+ * 别人分享的(没有本机编号)先加进来(adoptSharedRules,adopted 说是不是原来就加进来过);「我的规则」里已经删了的、满了加不进来的照原样用
+ */
+export function settlePresetRules(r: RuleSet): { rules: RuleSet; adopted?: { existed: boolean } } {
+  if (r.id) return { rules: findMyRules(r.id)?.rules ?? r };
+  const got = adoptSharedRules(r);
+  const e = got ? findMyRules(got.id) : undefined;
+  return got && e ? { rules: e.rules, adopted: { existed: got.existed } } : { rules: r };
 }
 
 /**

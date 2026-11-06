@@ -39,6 +39,7 @@ import type { NewWorldStart } from '../NewWorldDialog';
 import { openOverview } from '../overviewStore';
 import { chosenGallery, getPresets, pickSharedPreset, rememberLast, type SharedPreset } from '../presetStore';
 import { noteRulesUsed } from '../rulesStore';
+import { takePresetRules } from '../presetRules';
 import { setNewWorldHandler } from '../rules/sheetStore';
 import {
   briefError,
@@ -278,7 +279,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     // 作品墙上新建参数作品「用这套参数新建」打开的弹窗:新的世界出处写这个作品(和另存世界作品一样);换成了别的预设就不写
     const g = chosenGallery(getPresets(), newDlg?.shared);
     setNewDlg(null);
-    const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier, s.rules));
+    // 规则:「我的规则」里的用它现在的样子;朋友链接、作品墙上带来的先加进我的规则
+    const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier, s.rules && takePresetRules(s.rules)));
     const d = g?.id && isWorkId(g.id) ? { ...plain, origin: workOrigin({ id: g.id, by: g.by, title: g.title ?? '' }) } : plain;
     if (s.mode === 'random') return openTarget(d);
     openTarget({ ...d, mode: 'image' });

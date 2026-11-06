@@ -100,6 +100,27 @@ describe('预设', () => {
     expect(m.getPresets().chosen).toBe(kept);
     expect(m.getPresets().list.find((p) => p.id === kept)).toMatchObject({ seed: 925418, endYear: 6000 });
   });
+
+  it('连规则一起存:整套存下(带本机编号)、读回来清理过;选它时交出规则;简写先写规则(有现在的名字写现在的)', async () => {
+    const m = await fresh();
+    const rules = { id: 'rmh3k2x9a4f', name: '战国千年', version: 2, values: { 'war.odds': 2 }, calc: 3 };
+    const id = m.savePreset('乱世大陆', { ...DEFAULT_PARAMS, seed: 5730, landFraction: 0.4 }, true, undefined, rules);
+    const saved = { id: 'rmh3k2x9a4f', name: '战国千年', version: 2, values: { 'war.odds': 2 } };
+    expect(m.getPresets().list[0].rules).toEqual(saved);
+    expect(m.choiceParams(m.getPresets(), id).rules).toEqual(saved);
+    const again = await fresh();
+    expect(again.getPresets().list[0].rules).toEqual(saved);
+    expect(again.presetSummary(again.getPresets().list[0], 2)).toBe('规则：战国千年，种子 5730');
+    expect(again.presetSummary(again.getPresets().list[0], 2, '战国两千年')).toBe('规则：战国两千年，种子 5730');
+    // 不勾的不存;存坏了的规则按没有
+    m.savePreset('乱世大陆', { ...DEFAULT_PARAMS, seed: 5730 }, false);
+    expect(m.getPresets().list[0].rules).toBeUndefined();
+    store[KEY] = JSON.stringify({ list: [{ id: 'a', name: '坏的', params: {}, rules: 'x' }] });
+    expect((await fresh()).getPresets().list[0].rules).toBeUndefined();
+    // 分享来的带着规则:选它时也交出规则
+    m.pickSharedPreset({ name: '朋友的', params: m.strip(DEFAULT_PARAMS), rules: { name: '战国千年', version: 1, values: {} } });
+    expect(m.choiceParams(m.getPresets(), 'shared').rules?.name).toBe('战国千年');
+  });
 });
 
 describe('大陆块数的上限', () => {
