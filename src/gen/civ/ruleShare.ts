@@ -23,8 +23,8 @@
  * rules = 这种文件的写法版本(和「全部存成文件」的 "bundle": 1 一个写法;比自己新的不读,提示刷新页面),其余就是一套规则(ruleSet.ts 的字段,不带本机编号)
  */
 import { SAVE_APP } from '../savefile';
-import { BIOME_KEYS, RULES_FILE_KEY, cleanRuleSet, type RuleSet } from './ruleSet';
-import { TUNING_ITEMS, tuningItem, type TuningValue } from './tuning';
+import { RULES_FILE_KEY, cleanRuleSet, type RuleSet } from './ruleSet';
+import { RULES_HASH_MAX, readRuleParams, writeRuleParams } from './ruleLink';
 
 export type RulesReadResult = { ok: true; rules: RuleSet; warnings: string[] } | { ok: false; error: string };
 
@@ -41,10 +41,6 @@ function withoutId(r: RuleSet): RuleSet {
 export const RULES_HASH_KEY = 'rules';
 /** 写法的版本 */
 export const RULES_LINK_FORMAT = 1;
-/** # 后面最多多少字(70 项全改、16 种地貌都改名、名字介绍署名基于谁都写满也在这以内,见单测) */
-const RULES_HASH_MAX = 16384;
-/** 地貌叫法的键前缀 */
-const BIOME_PREFIX = 'biome.';
 
 export const RULES_LINK_BROKEN = '规则链接不完整或被改动过(可能复制时少了一截),请让对方重新复制一次链接';
 const RULES_LINK_EMPTY = '链接里没有规则';
@@ -54,35 +50,11 @@ export function isRulesHash(hash: string): boolean {
   return typeof hash === 'string' && new RegExp(`^#?\\s*${RULES_HASH_KEY}=`).test(hash.trim());
 }
 
-/** 一项的值写成链接里的字:数原样,区间「前-后」,永不 / 关原样 */
-function valueText(v: TuningValue): string {
-  return Array.isArray(v) ? `${v[0]}-${v[1]}` : String(v);
-}
-
-/** 链接里的字 → 一项的值(认不出的交给 cleanTuning 去说) */
-function valueOf(s: string): unknown {
-  if (s === 'never' || s === 'off') return s;
-  const m = /^(-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)$/.exec(s);
-  if (m) return [Number(m[1]), Number(m[2])];
-  return s.trim() === '' ? NaN : Number(s);
-}
-
 /** 一套规则 → 网址的 # 那段(`#rules=1&name=…`,接在网站地址后面就是分享链接);先清理,本机编号不写 */
 export function rulesHash(raw: RuleSet): string {
-  const r = cleanRuleSet(raw).rules ?? cleanRuleSet({}).rules!;
   const q = new URLSearchParams();
   q.set(RULES_HASH_KEY, String(RULES_LINK_FORMAT));
-  q.set('name', r.name);
-  q.set('v', String(r.version));
-  if (r.by) q.set('by', r.by);
-  if (r.about) q.set('about', r.about);
-  (r.basedOn ?? []).forEach((s, i) => {
-    q.set(`base${i + 1}`, s.name);
-    if (s.by) q.set(`base${i + 1}.by`, s.by);
-    q.set(`base${i + 1}.v`, String(s.version));
-  });
-  for (const x of TUNING_ITEMS) if (x.id in r.values) q.set(x.id, valueText(r.values[x.id]));
-  for (const k of BIOME_KEYS) if (r.biomes?.[k]) q.set(`${BIOME_PREFIX}${k}`, r.biomes[k]);
+  writeRuleParams(q, raw);
   return `#${q.toString()}`;
 }
 
@@ -106,39 +78,8 @@ export function decodeRulesHash(hash: string): RulesReadResult {
   const fv = q.get(RULES_HASH_KEY) ?? '';
   if (!/^\d{1,4}$/.test(fv) || Number(fv) < 1) return { ok: false, error: RULES_LINK_BROKEN };
   if (Number(fv) > RULES_LINK_FORMAT) return { ok: false, error: '这个规则链接来自更新版本的「文明与地图」,请刷新页面换到最新版再打开' };
-
-  const raw: Record<string, unknown> = {};
-  const name = q.get('name');
-  if (name !== null) raw.name = name;
-  const v = q.get('v');
-  if (v !== null) raw.version = v.trim() === '' ? NaN : Number(v);
-  const by = q.get('by');
-  if (by !== null) raw.by = by;
-  const about = q.get('about');
-  if (about !== null) raw.about = about;
-  const basedOn: Record<string, unknown>[] = [];
-  const values: Record<string, unknown> = {};
-  const biomes: Record<string, string> = {};
-  for (const [k, val] of q) {
-    const b = /^base(\d{1,2})(?:\.(by|v))?$/.exec(k);
-    if (b) {
-      const i = Number(b[1]) - 1;
-      if (i < 0 || i >= 32) continue;
-      const s = (basedOn[i] ??= {});
-      if (b[2] === 'by') s.by = val;
-      else if (b[2] === 'v') s.version = val.trim() === '' ? NaN : Number(val);
-      else s.name = val;
-    } else if (k.startsWith(BIOME_PREFIX)) biomes[k.slice(BIOME_PREFIX.length)] = val;
-    // 带点的是规则项的编号(认不出的由 cleanTuning 说一句);别的键(以后加的写法)不管
-    else if (k.includes('.') || tuningItem(k)) values[k] = valueOf(val);
-  }
-  // 编号跳着写的(base1、base3)按先后挤在一起
-  const list = basedOn.filter((x) => x !== undefined);
-  if (list.length) raw.basedOn = list;
-  raw.values = values;
-  if (Object.keys(biomes).length) raw.biomes = biomes;
-  const c = cleanRuleSet(raw);
-  return { ok: true, rules: withoutId(c.rules!), warnings: c.notes };
+  const r = readRuleParams(q);
+  return { ok: true, rules: r.rules, warnings: r.notes };
 }
 
 // ---------------------------------------------------------------------------

@@ -611,6 +611,30 @@
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
+/* 连规则一起存的:最下面一整行「规则」,点了看那一套 */
+.gl-pp.rl .acct-gr:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+.gl-pp button.acct-gr.gl-prl {
+  grid-column: 1 / -1;
+  border-right: 0;
+  border-top: 0.5px solid var(--line);
+  color: inherit;
+  font: inherit;
+}
+.gl-prl .v {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.gl-prl .v small {
+  margin-right: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
 .gl-pp.ghost .gl-bar {
   margin: 0;
 }

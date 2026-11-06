@@ -234,6 +234,24 @@ describe('我的规则', () => {
     expect((await fresh()).getMyRules()).toEqual([]);
   });
 
+  it('预设带着的一套:本机的用现在的样子,删了的照原样;别人分享的先加进来(加进来过、没改过的用原来那一套)', async () => {
+    const m = await fresh();
+    const id = m.createRules('战国千年')!;
+    const snap = m.findMyRules(id)!.rules;
+    m.setRuleValue(id, 'war.odds', 2);
+    m.renameRules(id, '战国两千年');
+    expect(m.settlePresetRules(snap)).toEqual({ rules: m.findMyRules(id)!.rules });
+    m.deleteRules(id);
+    expect(m.settlePresetRules(snap)).toEqual({ rules: snap });
+    const a = m.settlePresetRules(SHARED);
+    expect(a.adopted).toEqual({ existed: false });
+    expect(a.rules.id).toBeTruthy();
+    expect(a.rules.basedOn?.[0]).toEqual({ name: '群雄并起', by: '砚山', version: 3 });
+    const b = m.settlePresetRules(SHARED);
+    expect(b).toEqual({ rules: a.rules, adopted: { existed: true } });
+    expect(m.getMyRules()).toHaveLength(1);
+  });
+
   it('浏览器不让存(隐私模式):只在这一页里有效,不出错', async () => {
     vi.stubGlobal('localStorage', {
       getItem: () => {

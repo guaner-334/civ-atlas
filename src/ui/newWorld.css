@@ -60,6 +60,30 @@
   flex: none;
   margin: 0 0 14px;
 }
+/* 选的预设带着规则:预设框旁边一句(电脑);名字太长的省略 */
+.nd-rl {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-left: 11px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.nd-rl > .icon {
+  flex: none;
+  color: var(--accent);
+}
+.nd-rl > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nd-rl-row > .nd-rl {
+  margin-left: 0;
+}
 .nd-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -755,6 +779,12 @@
 .nd-psheet > .nd-preset {
   margin: 0;
   padding: 14px 16px 2px;
+}
+/* 手机:选的预设带着规则,预设框下面一行(和框的左边对齐) */
+.nd-rl-row {
+  flex: none;
+  display: flex;
+  padding: 2px 16px 6px 50px;
 }
 .nd-psheet .ps-l {
   font-size: 15px;
