@@ -402,23 +402,79 @@ async function opening(r: Run, ctx: BrowserContext, page: Page, saved: string) {
     check((await cardCount(page)) === before, '不多一张卡片');
   });
 
-  await step('打开内容不一样的文件', async () => {
+  await step('打开内容不一样的文件:先问', async () => {
     await renameCard(page, NAME, `${NAME}甲`);
-    await pick(page, saved);
+    const before = await cardCount(page);
+    const ask = page.locator('[data-testid="same-world-ask"]');
+    const askNow = async (doIt: () => Promise<void>) => {
+      await doIt();
+      await ask.waitFor({ timeout: WAIT });
+      return {
+        title: (await ask.locator('.dup-title').innerText()).replace(/\s+/g, ''),
+        tags: (await ask.locator('.dup-tag').allInnerTexts()).join('|'),
+        note: await ask.locator('.dup-note').innerText(),
+        original: await ask.locator('[data-act="same-original"]').count(),
+      };
+    };
+    const a = await askNow(() => pick(page, saved));
+    check(a.title === `「${NAME}甲」已经有了，内容不一样`, `标题:${a.title}`);
+    check(a.tags === '原来的|文件里的', `两列:${a.tags}`);
+    check(a.note === `两种都不会盖掉原来的。另存的一份叫「${COPY}」。`, `小字:${a.note}`);
+    check(a.original === 1, '三个按钮');
+    check(!(await ask.locator('.dup-alike').count()), '名字不一样:不说「这几项都一样」');
+    await shot(r, page, '22-同一个世界-内容不一样-先问');
+    const url = page.url();
+    await ask.locator('[data-act="same-cancel"]').click();
+    await ask.waitFor({ state: 'detached' });
+    await page.waitForTimeout(500);
+    check(page.url() === url && !(await page.locator('.toast').filter({ hasText: NAME }).count()), '取消:留在这一页,没有提示');
+    check((await cardCount(page)) === before, '取消:没存进来');
+
+    await askNow(() => pick(page, saved));
+    await ask.locator('[data-act="same-original"]').click();
     await worldReady(page);
-    await toastIs(page, [`已打开「${COPY}」`, '内容和原来的不一样，另存了一份，原来的没动', '打开原来的'], '内容不一样');
-    await shot(r, page, '22-同一个世界-内容不一样-不问-推荐');
+    await toastIs(page, [`已打开原来的「${NAME}甲」`, '文件里的那份没存进「我的世界」'], '选了打开原来的');
+    await openMenu(r, page);
+    check((await page.locator('.save-menu .save-cur-name').innerText()) === `${NAME}甲`, '「打开原来的」打开的是原来那个');
+    await closeMenu(page);
+
+    // 拖到正开着的这个世界上:「打开原来的」就是留在这里,只有两个按钮(手机没有拖放)
+    if (r.device === '电脑') {
+      const here = page.url();
+      const data = readFileSync(saved).toString('base64');
+      const b = await askNow(() =>
+        page.evaluate(
+          ([b64, name]) => {
+            const dt = new DataTransfer();
+            dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], name));
+            const el = document.querySelector('.app')!;
+            el.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+            el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+          },
+          [data, `文明与地图-${NAME}.civworld`],
+        ),
+      );
+      check(b.tags === '正开着的|文件里的' && b.original === 0, `拖到正开着的世界上:两个按钮,左边写正开着的(${b.tags})`);
+      check(b.note === `正开着的不会被盖掉。另存的一份叫「${COPY}」。`, `拖到正开着的世界上的小字:${b.note}`);
+      await shot(r, page, '23-同一个世界-拖到正开着的');
+      await page.keyboard.press('Escape');
+      await ask.waitFor({ state: 'detached' });
+      await page.waitForTimeout(500);
+      check(page.url() === here && !(await page.locator('.toast').filter({ hasText: COPY }).count()), 'Esc:什么都不动');
+    }
+
+    await goHome(page);
+    await askNow(() => pick(page, saved));
+    await ask.locator('[data-act="same-copy"]').click();
+    await worldReady(page);
+    await toastIs(page, [`已打开「${COPY}」`, `另存了一份，原来的「${NAME}甲」没动`], '选了另存一份并打开');
+    check(!(await page.locator('.toast [data-act="open-original"]').count()), '提示条上没有「打开原来的」');
+    await shot(r, page, '25-同一个世界-选了另存一份');
     await openMenu(r, page);
     const line = await page.locator('[data-testid="save-from-file"]').innerText();
     check(/^来自文件，\d+ 月 \d+ 日打开$/.test(line), `存档菜单写来源:${line}`);
     await shot(r, page, '24-来源-存档菜单写一句-推荐');
-    await closeMenu(page);
-    const url = page.url();
-    await clickToast(page, 'open-original');
-    await page.waitForFunction((u) => location.href !== u, url, { timeout: 30_000 });
-    await worldReady(page);
-    await openMenu(r, page);
-    check((await page.locator('.save-menu .save-cur-name').innerText()) === `${NAME}甲`, '「打开原来的」打开的是原来那个');
+    check((await page.locator('.save-menu .save-cur-name').innerText()) === COPY, '打开的是另存的那份');
     await closeMenu(page);
     // 再开一次同一个文件:认得出另存的那份,不多出「(三)」
     await goHome(page);
