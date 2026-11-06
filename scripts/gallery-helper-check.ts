@@ -6,6 +6,7 @@
  * 用临时 dev server 和本地假服务器(aiServer=fake:服务器的来源就是网站自己)。页面先打开一个存档、存成世界文件,再在同一页里开帮手的框:
  *   第 2 版世界文件  交回封面;停在 at 那年;读的是存下的内容(线程收到的是 load);和照存档现推的封面一样;临时编号用完清掉,「我的世界」没多
  *   第 2 版规则      交回封面和摘要;和官方规则推出来的封面不一样
+ *   用了规则的世界文件 交回封面和规则摘要,摘要和同一套规则的规则作品一样;官方规则的世界文件不带摘要
  *   第 1 版          世界存档、新建参数照旧交回封面和名字
  * 封面存在 --out(默认 snaps/gallery-helper)。没过的打印「没过」,退出码非 0。
  */
@@ -121,6 +122,48 @@ async function coverDiff(page: Page, a: string, b: string): Promise<number> {
   );
 }
 
+/** 在首页打开一个存档(json 文件),等历史推完、存下,再存成世界文件放进 window.__blobs[key];交回打开的编号和文件多大 */
+async function openAndSave(page: Page, url: string, json: string, key: string): Promise<{ wid: string; bytes: number }> {
+  await page.goto(url);
+  await page.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
+  await page.setInputFiles('[data-testid=save-file-input]', json);
+  await page.waitForFunction(() => new URLSearchParams(location.search).has('w') && (window as any).__wf?.ready && (window as any).__wfCiv?.ready, null, { timeout: WAIT });
+  await page.waitForTimeout(2500);
+  const wid = new URL(page.url()).searchParams.get('w')!;
+  const saved = await page.evaluate(
+    async ([id, k]) => {
+      const m = await (window as any).__wfWorldFiles();
+      const out = await m.saveWorldFile(id);
+      if (!out.ok) return { error: `${out.kind} ${out.message}` };
+      const w = window as any;
+      w.__blobs = { ...w.__blobs, [k as string]: out.file };
+      return { bytes: out.file.size as number };
+    },
+    [wid, key] as const,
+  );
+  if ('error' in saved) throw new Error(`存不了世界文件:${saved.error}`);
+  return { wid, bytes: saved.bytes };
+}
+
+/** 页面里 window.__blobs[key] 的内容(base64);换页以后用 putBlob 放回去 */
+const takeBlob = (page: Page, key: string): Promise<string> =>
+  page.evaluate(async (k) => {
+    const b: Blob = (window as any).__blobs[k];
+    const u8 = new Uint8Array(await b.arrayBuffer());
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  }, key);
+
+const putBlob = (page: Page, key: string, b64: string) =>
+  page.evaluate(
+    ([k, data]) => {
+      const w = window as any;
+      w.__blobs = { ...w.__blobs, [k as string]: new Blob([Uint8Array.from(atob(data as string), (c) => c.charCodeAt(0))]) };
+    },
+    [key, b64] as const,
+  );
+
 function saveCover(name: string, r: Reply) {
   if (!r.cover?.startsWith('data:image/jpeg;base64,')) return 0;
   const buf = Buffer.from(r.cover.slice(r.cover.indexOf(',') + 1), 'base64');
@@ -135,26 +178,24 @@ async function main() {
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 })).newPage();
     page.on('pageerror', (e) => console.log('  [pageerror]', e.message.slice(0, 200)));
 
+    // 一个用了非官方规则的世界(规则项、地貌的叫法都改了),先存成世界文件带出来
+    const set = { name: '战乱年代', version: 1, values: { 'war.odds': 4, 'split.odds': 0, 'war.truce': 0 }, biomes: { temperateDesert: '灰烬荒原' } };
+    const rp = { ...DEFAULT_PARAMS, seed: 7 };
+    const rjson = path.join(OUT, 'world-rules.json');
+    writeFileSync(rjson, JSON.stringify(makeSave(rp, { names: {}, interventions: [], terrain: [], rules: set }, worldCheck(generateWorld(rp)), '用了规则的世界')));
+    const rsaved = await openAndSave(page, server.url, rjson, 'rules');
+    console.log(`用了规则的世界文件 ${(rsaved.bytes / 1e6).toFixed(1)} MB`);
+    const rulesB64 = await takeBlob(page, 'rules');
+
     // 一个有地形大事的世界(封面停在大事以后那一段),存成世界文件
     const params = { ...DEFAULT_PARAMS, seed: 2024 };
     const edits = { names: {}, interventions: [], terrain: [], upheavals: [{ year: 500, ops: [{ kind: 'volcano' as const, pts: [1310, 763], r: 60, s: 1.5 }] }] };
     const save = makeSave(params, edits, worldCheck(generateWorld(params)), '检查用的世界');
     const json = path.join(OUT, 'world.json');
     writeFileSync(json, JSON.stringify(save));
-    await page.goto(server.url);
-    await page.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
-    await page.setInputFiles('[data-testid=save-file-input]', json);
-    await page.waitForFunction(() => new URLSearchParams(location.search).has('w') && (window as any).__wf?.ready && (window as any).__wfCiv?.ready, null, { timeout: WAIT });
-    await page.waitForTimeout(2500);
-    const wid = new URL(page.url()).searchParams.get('w')!;
-    const saved = await page.evaluate(async (id) => {
-      const m = await (window as any).__wfWorldFiles();
-      const out = await m.saveWorldFile(id);
-      if (!out.ok) return { error: `${out.kind} ${out.message}` };
-      (window as any).__blobs = { world: out.file };
-      return { bytes: out.file.size as number };
-    }, wid);
-    if ('error' in saved) throw new Error(`存不了世界文件:${saved.error}`);
+    const saved = await openAndSave(page, server.url, json, 'world');
+    const wid = saved.wid;
+    await putBlob(page, 'rules', rulesB64);
     console.log(`世界文件 ${(saved.bytes / 1e6).toFixed(1)} MB`);
     const listed = () => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('wenming-ditu:world:')).length);
     const before = await listed();
@@ -169,7 +210,7 @@ async function main() {
     const fb = saveCover('v2-world', fr);
     check(fb > 0 && fb <= 600 * 1024, `封面是 JPEG、600 KB 以内(${(fb / 1024).toFixed(0)} KB)`);
     check(fr.info?.year === 1500 && fr.info.seed === 2024 && fr.info.states > 0, `停在 at 那年、几样数:${JSON.stringify(fr.info)}`);
-    check(!('texts' in fr) && !('rules' in fr), '世界文件不列名字、不带规则摘要');
+    check(!('texts' in fr) && !('rules' in fr), '官方规则的世界文件不列名字、不带规则摘要');
     const loads = f.sent.filter((s) => s.type === 'load');
     check(loads.length === 1 && !f.sent.some((s) => s.type === 'generate') && !!loads[0].vault && loads[0].vault !== wid, `读存下的内容,用的是临时编号:${JSON.stringify(f.sent)}`);
 
@@ -191,7 +232,6 @@ async function main() {
     check((await listed()) === before, '「我的世界」没多出来');
 
     console.log('第 2 版:规则');
-    const set = { name: '战乱年代', version: 1, values: { 'war.odds': 4, 'split.odds': 0, 'war.truce': 0 }, biomes: { temperateDesert: '灰烬荒原' } };
     const r = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'g1', kind: 'rules', rules: rulesHash(set).slice(1) });
     const rr = r.reply;
     check(rr.ok && rr.v === 2, `交回了(${r.ms} 毫秒)${rr.error ? `:${rr.error}` : ''}`);
@@ -206,6 +246,18 @@ async function main() {
     check(rd > 0.01, `和官方规则推出来的封面不一样(差 ${(rd * 100).toFixed(1)}%)`);
     const bad = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'g3', kind: 'rules', rules: 'rules=1&war.odds' });
     check(bad.reply.v === 2 && (bad.reply.ok || !!bad.reply.error), `读不全的规则链接也回话:${bad.reply.ok ? '照读' : bad.reply.error}`);
+
+    console.log('第 2 版:用了规则的世界文件');
+    const fw = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'f3', kind: 'world' }, 'rules');
+    const fwr = fw.reply;
+    check(fwr.ok && fwr.v === 2, `交回了(${fw.ms} 毫秒)${fwr.error ? `:${fwr.error}` : ''}`);
+    const fwb = saveCover('v2-world-rules', fwr);
+    check(fwb > 0 && fwb <= 600 * 1024, `封面是 JPEG、600 KB 以内(${(fwb / 1024).toFixed(0)} KB)`);
+    check(fwr.info?.seed === 7 && fwr.info.states > 0 && !('texts' in fwr), `几样数、不列名字:${JSON.stringify(fwr.info)}`);
+    check(fwr.rules?.name === '战乱年代' && fwr.rules.changed === 4 && fwr.rules.brief === '战争 ×4、议和后 0 年不再开战、不分裂', `规则摘要:${JSON.stringify(fwr.rules)}`);
+    check(JSON.stringify(fwr.rules) === JSON.stringify(rr.rules), '和同一套规则的规则作品交回的摘要一样');
+    const fwLoads = fw.sent.filter((s) => s.type === 'load');
+    check(fwLoads.length === 1 && !fw.sent.some((s) => s.type === 'generate'), `读存下的内容:${JSON.stringify(fw.sent)}`);
 
     console.log('第 1 版:新建参数');
     const p = await ask(page, { type: 'civ-atlas:render', v: 1, id: 'p1', kind: 'preset', preset: presetHash({ name: '两块大陆', params: { ...DEFAULT_PARAMS, continents: 2 }, seed: 5730 }).slice(1) });

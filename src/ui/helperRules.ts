@@ -1,10 +1,11 @@
 /**
- * 帮手第 2 版的规则作品(helperProtocol.ts):推哪张图、交回的摘要。纯计算,单测直接调;帮手用到时才下载。
+ * 帮手第 2 版的规则作品(helperProtocol.ts):推哪张图、交回的摘要;用了非官方规则的世界文件也照同一套算摘要。纯计算,单测直接调;帮手用到时才下载。
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
-import { latestTuning, type RuleSet } from '../gen/civ/ruleSet';
+import { isOfficialRules, latestTuning, type RuleSet } from '../gen/civ/ruleSet';
 import { decodeRulesHash } from '../gen/civ/ruleShare';
 import { tuningTop } from '../gen/civ/tuningText';
+import type { SaveFile } from '../gen/savefile';
 import type { WorkerRequest } from '../worker';
 import { DEFAULT_MAP_SEED } from './compare/compareMaps';
 import { modifiedCount } from './rules/rulesView';
@@ -16,6 +17,12 @@ export function rulesBrief(r: RuleSet): RulesBrief {
   const top = tuningTop(r.values, 3);
   const brief = top.count ? top.shown.join('、') : n.biomes ? `改了地貌的名字 ${n.biomes} 项` : '和官方规则一样';
   return { name: r.name, changed: n.total, brief };
+}
+
+/** 世界文件用的那一套规则的摘要;官方规则 = undefined(不交回) */
+export function fileRules(sv: SaveFile): RulesBrief | undefined {
+  const r = sv.edits.rules;
+  return r && !isOfficialRules(r) ? rulesBrief(r) : undefined;
 }
 
 /**

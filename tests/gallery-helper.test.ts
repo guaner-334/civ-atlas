@@ -1,14 +1,14 @@
 /**
  * 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字;src/ui/helperProtocol.ts、src/ui/helperWork.ts、src/ui/helperRules.ts):
  * 只认所配服务器那个来源的后台、回的三样(封面、几样数、名字)格式对、名字不套用作者改的;
- * 第 2 版收世界文件、规则,回封面(规则还回摘要),第 1 版照旧。
+ * 第 2 版收世界文件、规则,回封面(规则作品、用了非官方规则的世界文件还回摘要),第 1 版照旧。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { dynastyAt, polityAlive, polityName } from '../src/gen/civ/growth';
 import { EMPTY_EDITS, GENERATOR_VERSION, applyNames, cultureKey, dynastyKey, personKey, polityKey, regionKey, settlementKey } from '../src/gen/edits';
-import { makeSave, momentHash } from '../src/gen/savefile';
+import { makeSave, momentHash, parseSave } from '../src/gen/savefile';
 import { latestTuning } from '../src/gen/civ/ruleSet';
 import { rulesHash } from '../src/gen/civ/ruleShare';
 import { tuningSummary } from '../src/gen/civ/tuningText';
@@ -30,7 +30,7 @@ import {
   type Rendered,
 } from '../src/ui/helperProtocol';
 import { fileYear, helperCounts, helperJob, helperLoad, helperTexts } from '../src/ui/helperWork';
-import { rulesBrief, rulesJob } from '../src/ui/helperRules';
+import { fileRules, rulesBrief, rulesJob } from '../src/ui/helperRules';
 import { presetHash } from '../src/ui/presetLink';
 
 const SERVER = 'https://ai.example.com';
@@ -198,6 +198,15 @@ describe('第 2 版的话:世界文件、规则', () => {
     expect(f.sent[1]).toEqual({ msg: { type: MSG_RENDERED, v: 2, id: 'f1', ok: true, cover: COVER, info }, origin: SERVER });
   });
 
+  it('用了非官方规则的世界文件:回话还带规则摘要', async () => {
+    const f = fakeHost();
+    const rules = { name: '战乱年代', changed: 5, brief: '战争 ×2、议和后 2 年不再开战、不分裂' };
+    listenHelper(f.host, SERVER, async () => ({ cover: COVER, info, rules }));
+    f.send(SERVER, f.parent, fileReq(new Blob([bytes])));
+    await tick();
+    expect(f.sent[1].msg).toEqual({ type: MSG_RENDERED, v: 2, id: 'f1', ok: true, cover: COVER, info, rules });
+  });
+
   it('交一套规则:按第 2 版回封面、几样数和摘要(摘要按约好的上限整理)', async () => {
     const f = fakeHost();
     const rules = { name: '战乱年代', changed: 3, brief: '战争 ×2' };
@@ -255,6 +264,29 @@ describe('规则作品:推哪张图、交回的摘要', () => {
   it('读不出来:给管理员看的中文原因', () => {
     expect(() => rulesJob('preset=1&name=x')).toThrow(/规则链接读不出来/);
     expect(() => rulesJob('rules=99&name=x')).toThrow(/更新版本/);
+  });
+
+  /** 存成文件再读回来(帮手拿到的是读过的存档) */
+  const fileOf = (edits: Partial<typeof EMPTY_EDITS>) => {
+    const p = parseSave(JSON.stringify(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, ...edits }, 'c7')));
+    if (!p.ok) throw new Error(p.error);
+    return p.save;
+  };
+
+  it('世界文件用了非官方规则:和规则作品同一套算摘要,名字是那套规则自己的', () => {
+    const sv = fileOf({ rules: set });
+    expect(sv.edits.rules).toBeTruthy();
+    expect(fileRules(sv)).toEqual({ name: '战乱年代', changed: 5, brief: '战争 ×2、议和后 2 年不再开战、不分裂' });
+    expect(fileRules(sv)).toEqual(rulesJob(rulesHash(set)).rules);
+    expect(fileRules(fileOf({ rules: { name: '新地名', version: 1, values: {}, biomes: { temperateDesert: '灰烬荒原' } } }))).toEqual({ name: '新地名', changed: 1, brief: '改了地貌的名字 1 项' });
+    expect(fileRules(fileOf({ rules: { name: '', version: 1, values: { 'war.odds': 2 } } }))).toEqual({ name: '未命名规则', changed: 1, brief: '战争 ×2' });
+  });
+
+  it('世界文件用官方规则:不带摘要', () => {
+    const plain = fileOf({});
+    expect(fileRules(plain)).toBeUndefined();
+    expect(fileRules(fileOf({ rules: { name: '照抄', version: 1, values: {} } }))).toBeUndefined();
+    expect(fileRules({ ...plain, edits: { ...plain.edits, rules: { name: '照抄', version: 1, values: {}, biomes: {} } } })).toBeUndefined();
   });
 });
 
