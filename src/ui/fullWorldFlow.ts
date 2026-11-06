@@ -1,5 +1,5 @@
 /**
- * 「传到账号」这件事:打包、存存档、切块、先问服务器、传块、提交、等核对。一次传一个。用到才下载,首页不带。
+ * 「传到账号」这件事:打包、切块、先问服务器、传块、提交、等核对、存存档(账号里还没有的先存存档)。一次传一个。用到才下载,首页不带。
  * 点了才传;世界照样能看能改。传的这一会儿又改了,算之后改过(内容记号在开始时就取了)。
  * 只有配方的世界(旧世界、没建完的)只存存档。AI 写的东西跟着存档和文件走。
  * 提示条盖不到账号窗、分享窗:窗口开着时不出提示条,话说在窗口那一行里(fullWorldView.ts 的 holdFullToasts)。
@@ -185,10 +185,14 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
   }
   const { file, plan } = pk;
   let baseRev = ov.worlds.find((w) => w.id === id)?.rev ?? 0;
+  // 账号里已有的存档和它的整个世界是一对:新的核对过了才换存档,中途停下两样都还是原来的。还没有的要先存,服务器才收整个世界
+  const recipeFirst = !ov.account.some((w) => w.id === id);
   let sending = false;
   try {
-    await pushWorld(id, { alsoFile: true, raw: pk.raw, token });
-    still();
+    if (recipeFirst) {
+      await pushWorld(id, { alsoFile: true, raw: pk.raw, token });
+      still();
+    }
     let ans: Awaited<ReturnType<typeof beginFull>>;
     try {
       ans = await beginFull(id, plan, baseRev);
@@ -241,6 +245,10 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
       return end(errorNote(new ServerError(0, err.code, err.message ?? '', err as unknown as Record<string, unknown>), ov.limits, false, acts));
     }
     if (check.state !== 'done') return end({ kind: 'error', text: NOT_SENT, more: '服务器这会儿太忙，没核对完。等一会儿再试', action: acts('retry') });
+    if (!recipeFirst) {
+      await pushWorld(id, { alsoFile: true, raw: pk.raw, token });
+      still();
+    }
     packed.delete(id);
     const next = placed(ov, check.world, mark);
     setFullOverview(next);

@@ -19,7 +19,7 @@ import { WORLD_FILE_EXT, WorldFileError, asWorldFileError } from '../src/gen/wor
 import { ZIP_LOCAL_MAX_BYTES, parseZip, walkZip, writeZip, type ZipInput } from '../src/gen/zipStore';
 import { bundleText, openBundleText } from '../src/ui/bundle';
 import { clearEdits, setEdits } from '../src/ui/editsStore';
-import { _setWorldFiles, checkTimeout, keepWorldFile, knownWorldFileBytes, lookWorldFile, lookWorldFiles, openWorldFiles, openWorldFromFile, placeWorldFile, saveAllWorldFiles, saveWorldFile, sniffWorldFile, worldFileBytes, worldFileName, type KeptWorldFile, type LookedWorldFile, type OpenedWorldFiles, type WorldFileProgress } from '../src/ui/worldFiles';
+import { _setWorldFiles, adoptWorldFile, checkTimeout, keepWorldFile, knownWorldFileBytes, lookWorldFile, lookWorldFiles, openWorldFiles, openWorldFromFile, placeWorldFile, saveAllWorldFiles, saveWorldFile, sniffWorldFile, worldFileBytes, worldFileName, type KeptWorldFile, type LookedWorldFile, type OpenedWorldFiles, type WorldFileProgress } from '../src/ui/worldFiles';
 import * as saveStore from '../src/ui/saveStore';
 import { _setResultBackend, memoryResults } from '../src/ui/resultStore';
 import { _setWorldStore, _settled, maintain } from '../src/ui/worldStore';
@@ -180,6 +180,20 @@ describe('打开一个文件', () => {
     const b = await openWorldFile(again.file, OPEN);
     expect(b.manifest.id).toBe(id);
     for (const p of a.manifest.parts.filter((x) => x.name !== 'author')) expect(await sha256(b.bytes.get(p.name)!)).toBe(await sha256(a.bytes.get(p.name)!));
+  });
+
+  it('从账号取回的文件放进同一个编号:AI 正文以文件里的为准,本机另有的留着', async () => {
+    const id = 'wadopt00001';
+    const key = sample.author!.notes[0].key;
+    const old = { ...sample.author!.notes[0], text: '账号里存档带的旧一份' };
+    putNote(id, old);
+    putNote(id, { ...old, key: 'only-here', title: '本机写的', text: '只在这台设备上' });
+    const r = await adoptWorldFile(id, file);
+    expect(r.ok).toBe(true);
+    const notes = new Map(exportNotes(id).map((n) => [n.key, n.text]));
+    expect(notes.get(key)).toBe(sample.author!.notes[0].text);
+    expect(notes.get('only-here')).toBe('只在这台设备上');
+    expect(notes.size).toBe(2);
   });
 
   it('打开同一个文件两次:第二次认出内容相同,不重复放', async () => {
