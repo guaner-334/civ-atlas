@@ -66,7 +66,7 @@ export function findStuck(world: World, params: Partial<CivParams>, from: Civ | 
     if (last.endYear >= end) return last;
   }
   const run = engine.resume(world, last, params);
-  if (!run) return bisect(world, params, last, end, engine);
+  if (!run) return bisect(world, params, last, end, end, engine);
   let before = run.year;
   try {
     while (run.year < end) {
@@ -77,23 +77,22 @@ export function findStuck(world: World, params: Partial<CivParams>, from: Civ | 
   } catch {
     const failed = Math.floor(run.year);
     const stop = Math.floor(before);
-    let civ = last;
-    if (stop > last.endYear) {
-      try {
-        civ = engine.resume(world, last, at(stop))?.finish() ?? last;
-      } catch {
-        civ = last;
-      }
+    if (stop <= last.endYear) return mark(last, Math.max(failed, Math.floor(last.endYear)), end);
+    try {
+      const civ = engine.resume(world, last, at(stop))?.finish();
+      if (civ) return mark(civ, Math.max(failed, Math.floor(civ.endYear)), end);
+    } catch {
+      // 出错的是推完以后的整理(起名、道路……):推得过去的年份也整理不出来,按年份往前找
     }
-    return mark(civ, Math.max(failed, Math.floor(civ.endYear)), end);
+    return bisect(world, params, last, stop, end, engine);
   }
 }
 
-/** 接不着推的(有地形大事):按年份二分,找最后一个从第 0 年推得出来的年份 */
-function bisect(world: World, params: Partial<CivParams>, ok: Civ, end: number, engine: GrowEngine): Civ {
+/** 按年份二分,找 ok 那年和 bad 那年之间最后一个从第 0 年推得出来的年份(有地形大事接不着推的、整理时出错的) */
+function bisect(world: World, params: Partial<CivParams>, ok: Civ, bad: number, end: number, engine: GrowEngine): Civ {
   let good = ok;
   let lo = Math.floor(ok.endYear);
-  let hi = Math.ceil(end);
+  let hi = Math.ceil(bad);
   while (hi - lo > 1) {
     const mid = Math.floor((lo + hi) / 2);
     try {

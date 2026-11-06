@@ -2,12 +2,12 @@
  * 推不下去时停在那一年(gen/civ/stuck.ts)和再推里的那一头(gen/civ/extend.ts):
  * - 推得完的照旧,和 generateCiv 逐字段一样,不带 stuck
  * - 推不下去:停在出错前最后推好的那一年,和一口气推到那一年逐字段一样(只多一个 stuck);同样的输入停在同一年
- * - 从推好的一份接着推、接不着推(按年份找)、再推,停在同一年;头几年就推不下去 = 照旧抛错
+ * - 从推好的一份接着推、接不着推(按年份找)、再推,停在同一年;整理时出错的按年份往前找;头几年就推不下去 = 照旧抛错
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { breakAt, type GrowEngine } from '../src/gen/civ/grow';
+import { breakAt, growEngine, type GrowEngine } from '../src/gen/civ/grow';
 import { civOrStuck, continueOrStuck, findStuck } from '../src/gen/civ/stuck';
 import { extendCiv } from '../src/gen/civ/extend';
 
@@ -59,6 +59,37 @@ describe('推不下去时停在那一年', () => {
     const ext = (await extendCiv(w, base, { endYear: 400 }, { engine: breakAt(170) }))!;
     expect(ext.stuck).toEqual({ at: 170, to: 400 });
     sameCiv(ext, want, '再推');
+  }, 180_000);
+
+  it('推得过去、整理时出错:按年份往前找到整理得出来的那一年', () => {
+    const w = worldOf();
+    const finishBreaks: GrowEngine = {
+      generate: breakAt(170).generate,
+      resume: (world, civ, params) => {
+        const r = growEngine.resume(world, civ, params);
+        if (!r) return r;
+        return {
+          get from() {
+            return r.from;
+          },
+          get to() {
+            return r.to;
+          },
+          get year() {
+            return r.year;
+          },
+          advance: (y: number) => r.advance(y),
+          finish: () => {
+            if (r.to > 170) throw new Error('整理时出错');
+            return r.finish();
+          },
+          partial: () => r.partial(),
+        };
+      },
+    };
+    const civ = civOrStuck(w, { endYear: 300 }, { engine: finishBreaks });
+    expect(civ.stuck).toEqual({ at: 170, to: 300 });
+    sameCiv(civ, generateCiv(w, { endYear: 170 }), '整理时出错');
   }, 180_000);
 
   it('头几年就推不下去:照旧抛错', () => {
