@@ -153,11 +153,16 @@ export function retiredText(x: TuningItem): string {
  * 什么都没改 = "照官方"
  */
 export function tuningSummary(values: unknown, max = 3): string {
+  const { count, shown } = tuningTop(values, max);
+  if (!count) return '照官方';
+  return `改了 ${count} 项：${shown.join('、')}${count > max ? '……' : ''}`;
+}
+
+/** 改了几项规则项,和摘要里列的前 max 项(常用的排前面,写法同 tuningBrief) */
+export function tuningTop(values: unknown, max = 3): { count: number; shown: string[] } {
   const v = cleanTuning(values).values;
   const list = [...TUNING_ITEMS.filter((x) => x.common), ...TUNING_ITEMS.filter((x) => !x.common && !x.retired), ...TUNING_ITEMS.filter((x) => x.retired)].filter((x) => x.id in v);
-  if (!list.length) return '照官方';
-  const shown = list.slice(0, max).map((x) => tuningBrief(x, v[x.id]));
-  return `改了 ${list.length} 项：${shown.join('、')}${list.length > max ? '……' : ''}`;
+  return { count: list.length, shown: list.slice(0, max).map((x) => tuningBrief(x, v[x.id])) };
 }
 
 /** 每组改了几项 */

@@ -1,0 +1,226 @@
+/**
+ * 帮手模式(?gallery-helper=1)的浏览器检查:假装作品墙的后台,在框里打开网站、把作品交过去,看交回来的。
+ *
+ *   npx tsx scripts/gallery-helper-check.ts [--out=<目录>]
+ *
+ * 用临时 dev server 和本地假服务器(aiServer=fake:服务器的来源就是网站自己)。页面先打开一个存档、存成世界文件,再在同一页里开帮手的框:
+ *   第 2 版世界文件  交回封面;停在 at 那年;读的是存下的内容(线程收到的是 load);和照存档现推的封面一样;临时编号用完清掉,「我的世界」没多
+ *   第 2 版规则      交回封面和摘要;和官方规则推出来的封面不一样
+ *   第 1 版          世界存档、新建参数照旧交回封面和名字
+ * 封面存在 --out(默认 snaps/gallery-helper)。没过的打印「没过」,退出码非 0。
+ */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { chromium, type Page } from 'playwright';
+import { startDevServer } from './lib/devserver';
+import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
+import { makeSave, worldCheck } from '../src/gen/savefile';
+import { rulesHash } from '../src/gen/civ/ruleShare';
+import { presetHash } from '../src/ui/presetLink';
+
+const args = process.argv.slice(2);
+const OUT = path.resolve(args.find((a) => a.startsWith('--out='))?.slice(6) ?? 'snaps/gallery-helper');
+mkdirSync(OUT, { recursive: true });
+const WAIT = 180_000;
+
+const fails: string[] = [];
+const check = (ok: boolean, what: string) => {
+  console.log(`${ok ? '  过了' : '  没过'}  ${what}`);
+  if (!ok) fails.push(what);
+};
+
+interface Reply {
+  type: string;
+  v: number;
+  id: string;
+  ok: boolean;
+  cover?: string;
+  info?: { seed: number; year: number; states: number; peoples: number; generator: number };
+  texts?: unknown[];
+  rules?: { name: string; changed: number; brief: string };
+  error?: string;
+}
+
+/** 开帮手的框,等它说准备好了;线程收到的请求记在框里的 __sent(只记类型和打开的编号) */
+async function openHelper(page: Page, base: string): Promise<unknown> {
+  return page.evaluate(
+    async ([src, wait]) => {
+      const w = window as any;
+      w.__replies = [];
+      const frame = Object.assign(document.createElement('iframe'), { src, title: 'helper' });
+      frame.style.cssText = 'position:fixed;left:-9999px;width:800px;height:600px';
+      const ready = new Promise<unknown>((ok, no) => {
+        const t = setTimeout(() => no(new Error('帮手没说准备好了')), wait as number);
+        addEventListener('message', (e) => {
+          if (e.source !== frame.contentWindow) return;
+          if (e.data?.type === 'civ-atlas:helper-ready') {
+            clearTimeout(t);
+            ok(e.data);
+          } else w.__replies.push(e.data);
+        });
+      });
+      document.body.append(frame);
+      w.__frame = frame;
+      const msg = await ready;
+      const cw = frame.contentWindow as any;
+      cw.__sent = [];
+      const post = cw.Worker.prototype.postMessage;
+      cw.Worker.prototype.postMessage = function (m: any, ...rest: unknown[]) {
+        if (m && typeof m === 'object' && typeof m.type === 'string') cw.__sent.push({ type: m.type, vault: m.vault?.id });
+        return post.call(this, m, ...rest);
+      };
+      return msg;
+    },
+    [`${base}/?gallery-helper=1&aiServer=fake`, WAIT] as const,
+  );
+}
+
+/** 交一个作品给帮手(file = 页面里 window.__blobs 的哪一个),等它回话 */
+async function ask(page: Page, msg: Record<string, unknown>, fileKey?: string): Promise<{ reply: Reply; sent: { type: string; vault?: string }[]; ms: number }> {
+  return page.evaluate(
+    async ([m, key, wait]) => {
+      const w = window as any;
+      const cw = w.__frame.contentWindow;
+      cw.__sent.length = 0;
+      const id = (m as { id: string }).id;
+      const t0 = performance.now();
+      cw.postMessage(key ? { ...(m as object), file: w.__blobs[key as string] } : m, location.origin);
+      for (;;) {
+        const r = w.__replies.find((x: { id: string }) => x.id === id);
+        if (r) return { reply: r, sent: [...cw.__sent], ms: Math.round(performance.now() - t0) };
+        if (performance.now() - t0 > (wait as number)) throw new Error(`等不到 ${id}`);
+        await new Promise((ok) => setTimeout(ok, 100));
+      }
+    },
+    [msg, fileKey ?? null, WAIT] as const,
+  );
+}
+
+/** 两张封面差多少(像素差过 8 的占几成) */
+async function coverDiff(page: Page, a: string, b: string): Promise<number> {
+  return page.evaluate(
+    async ([x, y]) => {
+      // 不在页面里定义带名字的函数:tsx 会包一层 __name,页面里没有它
+      const got: Uint8ClampedArray[] = [];
+      for (const url of [x, y]) {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+        const g = c.getContext('2d')!;
+        g.drawImage(img, 0, 0);
+        got.push(g.getImageData(0, 0, c.width, c.height).data);
+      }
+      const [p, q] = got;
+      if (p.length !== q.length) return 1;
+      let n = 0;
+      for (let i = 0; i < p.length; i += 4) if (Math.abs(p[i] - q[i]) + Math.abs(p[i + 1] - q[i + 1]) + Math.abs(p[i + 2] - q[i + 2]) > 8) n++;
+      return n / (p.length / 4);
+    },
+    [a, b] as const,
+  );
+}
+
+function saveCover(name: string, r: Reply) {
+  if (!r.cover?.startsWith('data:image/jpeg;base64,')) return 0;
+  const buf = Buffer.from(r.cover.slice(r.cover.indexOf(',') + 1), 'base64');
+  writeFileSync(path.join(OUT, `${name}.jpg`), buf);
+  return buf.length;
+}
+
+async function main() {
+  const server = await startDevServer();
+  const browser = await chromium.launch();
+  try {
+    const page = await (await browser.newContext({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 })).newPage();
+    page.on('pageerror', (e) => console.log('  [pageerror]', e.message.slice(0, 200)));
+
+    // 一个有地形大事的世界(封面停在大事以后那一段),存成世界文件
+    const params = { ...DEFAULT_PARAMS, seed: 2024 };
+    const edits = { names: {}, interventions: [], terrain: [], upheavals: [{ year: 500, ops: [{ kind: 'volcano' as const, pts: [1310, 763], r: 60, s: 1.5 }] }] };
+    const save = makeSave(params, edits, worldCheck(generateWorld(params)), '检查用的世界');
+    const json = path.join(OUT, 'world.json');
+    writeFileSync(json, JSON.stringify(save));
+    await page.goto(server.url);
+    await page.waitForSelector('[data-testid=save-file-input]', { state: 'attached', timeout: WAIT });
+    await page.setInputFiles('[data-testid=save-file-input]', json);
+    await page.waitForFunction(() => new URLSearchParams(location.search).has('w') && (window as any).__wf?.ready && (window as any).__wfCiv?.ready, null, { timeout: WAIT });
+    await page.waitForTimeout(2500);
+    const wid = new URL(page.url()).searchParams.get('w')!;
+    const saved = await page.evaluate(async (id) => {
+      const m = await (window as any).__wfWorldFiles();
+      const out = await m.saveWorldFile(id);
+      if (!out.ok) return { error: `${out.kind} ${out.message}` };
+      (window as any).__blobs = { world: out.file };
+      return { bytes: out.file.size as number };
+    }, wid);
+    if ('error' in saved) throw new Error(`存不了世界文件:${saved.error}`);
+    console.log(`世界文件 ${(saved.bytes / 1e6).toFixed(1)} MB`);
+    const listed = () => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('wenming-ditu:world:')).length);
+    const before = await listed();
+
+    const ready = (await openHelper(page, server.url)) as { v: number; versions?: number[] };
+    check(ready.v === 1 && JSON.stringify(ready.versions) === '[1,2]', `帮手说准备好了、听得懂第 1、2 版:${JSON.stringify(ready)}`);
+
+    console.log('第 2 版:世界文件');
+    const f = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'f1', kind: 'world', at: 'at=1500' }, 'world');
+    const fr = f.reply;
+    check(fr.ok && fr.v === 2, `交回了(${f.ms} 毫秒)${fr.error ? `:${fr.error}` : ''}`);
+    const fb = saveCover('v2-world', fr);
+    check(fb > 0 && fb <= 600 * 1024, `封面是 JPEG、600 KB 以内(${(fb / 1024).toFixed(0)} KB)`);
+    check(fr.info?.year === 1500 && fr.info.seed === 2024 && fr.info.states > 0, `停在 at 那年、几样数:${JSON.stringify(fr.info)}`);
+    check(!('texts' in fr) && !('rules' in fr), '世界文件不列名字、不带规则摘要');
+    const loads = f.sent.filter((s) => s.type === 'load');
+    check(loads.length === 1 && !f.sent.some((s) => s.type === 'generate') && !!loads[0].vault && loads[0].vault !== wid, `读存下的内容,用的是临时编号:${JSON.stringify(f.sent)}`);
+
+    const g = await ask(page, { type: 'civ-atlas:render', v: 1, id: 'f2', kind: 'world', save: { ...save, moment: { year: 1500 } } });
+    saveCover('v1-world-same', g.reply);
+    check(g.reply.ok && g.sent.some((s) => s.type === 'generate'), `第 1 版照存档现推交回了(${g.ms} 毫秒)`);
+    const d = await coverDiff(page, fr.cover!, g.reply.cover!);
+    check(d < 0.001, `存下的内容画的和照存档现推的封面一样(差 ${(d * 100).toFixed(3)}%)`);
+    check(Array.isArray(g.reply.texts) && g.reply.texts.length > 100, `第 1 版照旧列名字(${g.reply.texts?.length} 个)`);
+
+    await page.waitForTimeout(4000);
+    const tmp = loads[0]?.vault ?? '';
+    const left = await page.evaluate(async (id) => {
+      const ws = await import('/src/ui/worldStore.ts' as string);
+      const marks = JSON.parse(localStorage.getItem('civ-atlas:trash') ?? '{}');
+      return { marked: id in marks, head: await ws.vaultCall('latestOf', [id]).catch(() => 'err') };
+    }, tmp);
+    check(!left.marked && !left.head, `临时编号用完清掉了:${JSON.stringify(left)}`);
+    check((await listed()) === before, '「我的世界」没多出来');
+
+    console.log('第 2 版:规则');
+    const set = { name: '战乱年代', version: 1, values: { 'war.odds': 4, 'split.odds': 0, 'war.truce': 0 }, biomes: { temperateDesert: '灰烬荒原' } };
+    const r = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'g1', kind: 'rules', rules: rulesHash(set).slice(1) });
+    const rr = r.reply;
+    check(rr.ok && rr.v === 2, `交回了(${r.ms} 毫秒)${rr.error ? `:${rr.error}` : ''}`);
+    const rb = saveCover('v2-rules', rr);
+    check(rb > 0 && rb <= 600 * 1024, `封面是 JPEG、600 KB 以内(${(rb / 1024).toFixed(0)} KB)`);
+    check(rr.info?.seed === 7 && rr.info.year === 3000, `种子 7 的地图推到 3000 年:${JSON.stringify(rr.info)}`);
+    check(rr.rules?.name === '战乱年代' && rr.rules.changed === 4 && rr.rules.brief === '战争 ×4、议和后 0 年不再开战、不分裂', `摘要:${JSON.stringify(rr.rules)}`);
+    const o = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'g2', kind: 'rules', rules: rulesHash({ name: '照抄', version: 1, values: {} }).slice(1) });
+    saveCover('v2-rules-official', o.reply);
+    check(o.reply.ok && o.reply.rules?.brief === '和官方规则一样', `官方规则:${JSON.stringify(o.reply.rules)}`);
+    const rd = await coverDiff(page, rr.cover!, o.reply.cover!);
+    check(rd > 0.01, `和官方规则推出来的封面不一样(差 ${(rd * 100).toFixed(1)}%)`);
+    const bad = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'g3', kind: 'rules', rules: 'rules=1&war.odds' });
+    check(bad.reply.v === 2 && (bad.reply.ok || !!bad.reply.error), `读不全的规则链接也回话:${bad.reply.ok ? '照读' : bad.reply.error}`);
+
+    console.log('第 1 版:新建参数');
+    const p = await ask(page, { type: 'civ-atlas:render', v: 1, id: 'p1', kind: 'preset', preset: presetHash({ name: '两块大陆', params: { ...DEFAULT_PARAMS, continents: 2 }, seed: 5730 }).slice(1) });
+    saveCover('v1-preset', p.reply);
+    check(p.reply.ok && p.reply.v === 1 && p.reply.info?.seed === 5730 && (p.reply.texts?.length ?? 0) > 100, `交回封面和名字(${p.ms} 毫秒,${p.reply.texts?.length} 个名字)`);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+  console.log(fails.length ? `\n没过 ${fails.length} 项` : '\n全过了');
+  console.log(`封面在 ${OUT}`);
+  process.exit(fails.length ? 1 : 0);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

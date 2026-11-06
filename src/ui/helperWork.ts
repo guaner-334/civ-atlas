@@ -14,14 +14,15 @@
  *
  * 还有:后台交来的作品(存档、新建参数)读成要交给后台线程生成的那一个(helperJob;galleryHelper.ts 拿去生成、画封面)。
  * 作者改的名字不带;干预"立国"里作者起的国名也不带(那是作者写的字,后台另外列),生成出来的是这个国家本来会叫的名字。
+ * 世界文件(第 2 版)读存下的内容打开:helperLoad、fileYear。
  */
 import type { Civ, Person, Place, Polity } from '../gen/civ/types';
-import type { WorkerRequest } from '../worker';
+import type { LoadRequest, WorkerRequest } from '../worker';
 import { cleanCivSeed, cleanEndYear, cleanPlay, endParamOf, keptMapOf, cultureKey, type Intervention, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey } from '../gen/edits';
 import { cleanFrontier, cleanOrigins } from '../gen/civ/frontier';
 import { cleanCalamity } from '../gen/civ/calamity';
 import { worldTuning } from '../gen/civ/ruleSet';
-import { parseSave } from '../gen/savefile';
+import { decodeMomentHash, momentYearMax, parseSave, resolveMoment, type SaveFile } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { decodePresetHash } from './presetLink';
 import { polityAlive, polityName } from '../gen/readers/openQuery';
@@ -63,8 +64,15 @@ export function helperJob(r: RenderRequest): HelperJob {
   const p = parseSave(JSON.stringify(r.save ?? null));
   if (!p.ok) throw new Error(`存档读不出来：${p.error}`);
   const sv = p.save;
+  if (keptMapOf(sv.edits)) throw new Error('这个世界的地图是存下来的，存档里没有，没法照存档生成');
+  const input: HelperJob['input'] = { ...civInputOf(sv, true), scale: 1 };
+  const world = r.kind === 'world';
+  return { kind: r.kind, params: sv.params, input, moment: world ? (sv.moment ?? null) : undefined, lon: world ? saveLon(sv) : undefined };
+}
+
+/** 照存档推历史要带的那几样;stripFound = 去掉干预"立国"里作者起的国名 */
+function civInputOf(sv: SaveFile, stripFound: boolean) {
   const e = sv.edits;
-  if (keptMapOf(e)) throw new Error('这个世界的地图是存下来的，存档里没有，没法照存档生成');
   const endYear = endParamOf(e);
   const frontier = cleanFrontier(e.frontier);
   const origins = cleanOrigins(e.origins);
@@ -72,13 +80,12 @@ export function helperJob(r: RenderRequest): HelperJob {
   const civSeed = cleanCivSeed(e.civSeed);
   const tuning = worldTuning(e.rules);
   const played = cleanPlay(e.play);
-  const play = played && { ...played, commands: withoutFoundNames(played.commands) };
-  const input: HelperJob['input'] = {
+  const play = played && stripFound ? { ...played, commands: withoutFoundNames(played.commands) } : played;
+  return {
     params: sv.params,
-    scale: 1,
     terrain: [...e.terrain],
     ...(e.sketch ? { sketch: e.sketch } : {}),
-    interventions: withoutFoundNames(e.interventions),
+    interventions: stripFound ? withoutFoundNames(e.interventions) : [...e.interventions],
     ...(e.upheavals?.length ? { upheavals: [...e.upheavals] } : {}),
     ...(e.nameMix ? { names: e.nameMix } : {}),
     ...(endYear ? { endYear } : {}),
@@ -89,9 +96,27 @@ export function helperJob(r: RenderRequest): HelperJob {
     ...(civSeed !== undefined ? { civSeed } : {}),
     ...(play ? { play } : {}),
   };
-  const world = r.kind === 'world';
-  const lon = world && sv.view && Number.isFinite(sv.view.center) ? sv.view.center : undefined;
-  return { kind: r.kind, params: sv.params, input, moment: world ? (sv.moment ?? null) : undefined, lon };
+}
+
+/** 存档记的中央经线(度);没有 = undefined */
+export function saveLon(sv: SaveFile): number | undefined {
+  return sv.view && Number.isFinite(sv.view.center) ? sv.view.center : undefined;
+}
+
+/**
+ * 放进本机仓库 id 名下的世界文件,读存下的内容打开的请求(不带编号;recipe = 存档的配方指纹)。
+ * 改名、作者的人物不带:封面不写字,用不着套上它们的编年史
+ */
+export function helperLoad(id: string, sv: SaveFile, recipe: string): Omit<LoadRequest, 'type' | 'id'> {
+  const keptMap = keptMapOf(sv.edits);
+  return { ...civInputOf(sv, false), scale: 1, vault: { id, recipe, generator: sv.generator }, ...(keptMap ? { keptMap } : {}) };
+}
+
+/** 世界文件的封面停在哪年:at(短链接 # 后面那段)给了就照它,没给照存档带的那一刻;都没有 = 结束那年 */
+export function fileYear(civ: Civ, sv: SaveFile, at?: string): number {
+  const fromAt = at ? decodeMomentHash(at, momentYearMax(sv.edits)) : null;
+  const moment = fromAt ?? sv.moment ?? null;
+  return resolveMoment(civ, moment).year ?? civ.endYear;
 }
 
 const PLACE_KIND: Record<Place['kind'], string> = {

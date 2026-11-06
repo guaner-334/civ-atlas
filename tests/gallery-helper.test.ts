@@ -1,14 +1,19 @@
 /**
- * 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字;src/ui/helperProtocol.ts、src/ui/helperWork.ts):
- * 只认所配服务器那个来源的后台、回的三样(封面、几样数、名字)格式对、名字不套用作者改的。
+ * 帮手模式(作品墙的后台在看不见的框里打开网站画封面、列名字;src/ui/helperProtocol.ts、src/ui/helperWork.ts、src/ui/helperRules.ts):
+ * 只认所配服务器那个来源的后台、回的三样(封面、几样数、名字)格式对、名字不套用作者改的;
+ * 第 2 版收世界文件、规则,回封面(规则还回摘要),第 1 版照旧。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { dynastyAt, polityAlive, polityName } from '../src/gen/civ/growth';
 import { EMPTY_EDITS, GENERATOR_VERSION, applyNames, cultureKey, dynastyKey, personKey, polityKey, regionKey, settlementKey } from '../src/gen/edits';
-import { makeSave } from '../src/gen/savefile';
+import { makeSave, momentHash } from '../src/gen/savefile';
+import { latestTuning } from '../src/gen/civ/ruleSet';
+import { rulesHash } from '../src/gen/civ/ruleShare';
+import { tuningSummary } from '../src/gen/civ/tuningText';
 import {
+  BRIEF_MAX,
   MSG_READY,
   MSG_RENDER,
   MSG_RENDERED,
@@ -18,12 +23,14 @@ import {
   listenHelper,
   readRender,
   renderedMsg,
+  tidyRules,
   tidyTexts,
   type HelperHost,
+  type HelperRequest,
   type Rendered,
-  type RenderRequest,
 } from '../src/ui/helperProtocol';
-import { helperCounts, helperJob, helperTexts } from '../src/ui/helperWork';
+import { fileYear, helperCounts, helperJob, helperLoad, helperTexts } from '../src/ui/helperWork';
+import { rulesBrief, rulesJob } from '../src/ui/helperRules';
 import { presetHash } from '../src/ui/presetLink';
 
 const SERVER = 'https://ai.example.com';
@@ -57,15 +64,15 @@ describe('帮手和后台怎么传话', () => {
     expect(helperOrigin('http://[bad', 'https://atlas.example.com/')).toBeNull();
   });
 
-  it('一开始先给后台说准备好了(只发给服务器那个来源)', () => {
+  it('一开始先给后台说准备好了、听得懂哪几版(只发给服务器那个来源)', () => {
     const f = fakeHost();
     listenHelper(f.host, SERVER, async () => result);
-    expect(f.sent).toEqual([{ msg: { type: MSG_READY, v: 1 }, origin: SERVER }]);
+    expect(f.sent).toEqual([{ msg: { type: MSG_READY, v: 1, versions: [1, 2] }, origin: SERVER }]);
   });
 
   it('只认服务器那个来源、上一层框发来的;别的来源、别的窗口、写得不对的都不理', async () => {
     const f = fakeHost();
-    const got: RenderRequest[] = [];
+    const got: HelperRequest[] = [];
     listenHelper(f.host, SERVER, async (r) => {
       got.push(r);
       return result;
@@ -146,6 +153,108 @@ describe('帮手和后台怎么传话', () => {
     expect(readRender({ type: MSG_RENDER, v: 1, id: 'a', kind: 'map', preset: 'preset=1' })).toBeNull();
     expect(readRender({ type: MSG_RENDER, v: 1, id: '', kind: 'preset', preset: 'preset=1' })).toBeNull();
     expect(readRender(null)).toBeNull();
+  });
+});
+
+describe('第 2 版的话:世界文件、规则', () => {
+  const bytes = new Uint8Array([0x50, 0x4b, 3, 4, 1, 2, 3]);
+  const fileReq = (file: unknown, extra: Record<string, unknown> = {}) => ({ type: MSG_RENDER, v: 2, id: 'f1', kind: 'world', file, ...extra });
+  const rulesReq = { type: MSG_RENDER, v: 2, id: 'g1', kind: 'rules', rules: 'rules=1&name=战乱年代&v=1&war.odds=2' };
+  const info = { seed: 7, year: 3000, states: 12, peoples: 14, generator: GENERATOR_VERSION };
+  const result: Rendered = { cover: COVER, info, texts: [{ cat: '国名', text: '有龙皇朝', key: 'polity:c1#0', where: '国家' }] };
+
+  it('世界文件:收 Blob 或 ArrayBuffer(都当 Blob 交出去),短链接 # 后面那段照带;空的、没带文件、带存档的不认', async () => {
+    const a = readRender(fileReq(new Blob([bytes]), { at: 'at=1500&p=c1.0' }));
+    expect(a).toMatchObject({ v: 2, id: 'f1', kind: 'world', at: 'at=1500&p=c1.0' });
+    expect(a && 'file' in a && new Uint8Array(await a.file.arrayBuffer())).toEqual(bytes);
+    const b = readRender(fileReq(bytes.slice().buffer));
+    expect(b && 'file' in b && b.file instanceof Blob && b.file.size).toBe(bytes.length);
+    expect(b).not.toHaveProperty('at');
+    expect(readRender(fileReq(new Blob([])))).toBeNull();
+    expect(readRender(fileReq(undefined, { save: { app: '文明与地图' } }))).toBeNull();
+    expect(readRender(fileReq('PK…'))).toBeNull();
+    expect(readRender(fileReq(new Blob([bytes]), { at: 'x'.repeat(301) }))).not.toHaveProperty('at');
+  });
+
+  it('规则:收规则链接 # 后面那段;没带的不认;地图、新建参数第 2 版不认(照旧走第 1 版)', () => {
+    expect(readRender(rulesReq)).toEqual({ v: 2, id: 'g1', kind: 'rules', rules: rulesReq.rules });
+    expect(readRender({ ...rulesReq, rules: '' })).toBeNull();
+    expect(readRender({ ...rulesReq, rules: 3 })).toBeNull();
+    expect(readRender({ type: MSG_RENDER, v: 2, id: 'a', kind: 'map', save: { app: '文明与地图' } })).toBeNull();
+    expect(readRender({ type: MSG_RENDER, v: 2, id: 'a', kind: 'preset', preset: 'preset=1' })).toBeNull();
+    expect(readRender({ type: MSG_RENDER, v: 3, id: 'a', kind: 'rules', rules: 'rules=1' })).toBeNull();
+  });
+
+  it('交一个世界文件:按第 2 版回封面和几样数(不列名字)', async () => {
+    const f = fakeHost();
+    const got: HelperRequest[] = [];
+    listenHelper(f.host, SERVER, async (r) => {
+      got.push(r);
+      return { cover: COVER, info };
+    });
+    f.send(SERVER, f.parent, fileReq(new Blob([bytes])));
+    await tick();
+    expect(got[0]).toMatchObject({ v: 2, kind: 'world' });
+    expect(f.sent[1]).toEqual({ msg: { type: MSG_RENDERED, v: 2, id: 'f1', ok: true, cover: COVER, info }, origin: SERVER });
+  });
+
+  it('交一套规则:按第 2 版回封面、几样数和摘要(摘要按约好的上限整理)', async () => {
+    const f = fakeHost();
+    const rules = { name: '战乱年代', changed: 3, brief: '战争 ×2' };
+    listenHelper(f.host, SERVER, async () => ({ cover: COVER, info, rules }));
+    f.send(SERVER, f.parent, rulesReq);
+    await tick();
+    expect(f.sent[1].msg).toEqual({ type: MSG_RENDERED, v: 2, id: 'g1', ok: true, cover: COVER, info, rules });
+    expect(tidyRules({ name: '  ', changed: -1, brief: '甲'.repeat(BRIEF_MAX + 9) })).toEqual({ name: '未命名规则', changed: 0, brief: '甲'.repeat(BRIEF_MAX) });
+    expect(tidyRules({ name: '名'.repeat(30), changed: 2.5, brief: '' }).name).toHaveLength(24);
+  });
+
+  it('第 2 版画不出来:回第 2 版的 ok = false 和原因;第 1 版和第 2 版排在一起,一次画一个', async () => {
+    const f = fakeHost();
+    const order: string[] = [];
+    listenHelper(f.host, SERVER, async (r) => {
+      order.push(r.id);
+      if (r.id === 'g1') throw new Error('规则链接读不出来：链接里没有规则');
+      await tick();
+      return result;
+    });
+    f.send(SERVER, f.parent, { type: MSG_RENDER, v: 1, id: 'r1', kind: 'preset', preset: 'preset=1&seed=7' });
+    f.send(SERVER, f.parent, rulesReq);
+    for (let i = 0; i < 6; i++) await tick();
+    expect(order).toEqual(['r1', 'g1']);
+    expect(f.sent[1].msg).toMatchObject({ v: 1, id: 'r1', ok: true, texts: result.texts });
+    expect(f.sent[2].msg).toEqual({ type: MSG_RENDERED, v: 2, id: 'g1', ok: false, error: '规则链接读不出来：链接里没有规则' });
+  });
+});
+
+describe('规则作品:推哪张图、交回的摘要', () => {
+  const values = { 'war.rest': 10, 'war.odds': 2, 'split.odds': 0, 'war.truce': 2 };
+  const set = { name: '战乱年代', version: 2, by: '明月', values, biomes: { temperateDesert: '灰烬荒原' } };
+
+  it('在并排试推默认的那张地图(默认参数、种子 7)上照这套规则推,推演年数、文明种子照默认', () => {
+    const job = rulesJob(rulesHash(set).slice(1));
+    expect(job.params).toEqual({ ...DEFAULT_PARAMS, seed: 7 });
+    expect(job.input).toEqual({ params: job.params, scale: 1, tuning: latestTuning(set) });
+    // 带不带 # 都认
+    expect(rulesJob(rulesHash(set)).input).toEqual(job.input);
+  });
+
+  it('改了几项(规则项 + 地貌的叫法)、最显眼的三处(常用的项排前面,写法和摘要一样)', () => {
+    const r = rulesJob(rulesHash(set)).rules;
+    expect(r).toEqual({ name: '战乱年代', changed: 5, brief: '战争 ×2、议和后 2 年不再开战、不分裂' });
+    expect(tuningSummary(values)).toBe(`改了 4 项：${r.brief}……`);
+  });
+
+  it('只改了地貌的叫法、都没改:摘要照「我的规则」那一行的说法;官方规则照官方推', () => {
+    expect(rulesBrief({ name: 'a', version: 1, values: {}, biomes: { temperateDesert: '灰烬荒原' } })).toEqual({ name: 'a', changed: 1, brief: '改了地貌的名字 1 项' });
+    const plain = rulesJob(rulesHash({ name: '照抄', version: 1, values: {} }));
+    expect(plain.rules).toEqual({ name: '照抄', changed: 0, brief: '和官方规则一样' });
+    expect(plain.input).not.toHaveProperty('tuning');
+  });
+
+  it('读不出来:给管理员看的中文原因', () => {
+    expect(() => rulesJob('preset=1&name=x')).toThrow(/规则链接读不出来/);
+    expect(() => rulesJob('rules=99&name=x')).toThrow(/更新版本/);
   });
 });
 
@@ -244,5 +353,33 @@ describe('帮手列的名字和几样数', () => {
     expect(c.states).toBe(alive.length);
     expect(c.peoples).toBeGreaterThan(0);
     expect(helperCounts(null, year)).toEqual({ states: 0, peoples: 0 });
+  });
+
+  it('世界文件:照存的内容打开(带着放进来的编号和配方),干预原样带上,改名不带;地图留着的世界也能打开', () => {
+    const found = { kind: 'found' as const, region: regionKey(raw, 0), from: 1200, name: '作者国' };
+    const names = { [polityKey(raw, p0.id)]: '饕餮' };
+    const sv = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, names, interventions: [found], endYear: 3200, calamity: 'many' }, 'c7');
+    const load = helperLoad('wtmp1', sv, 'r'.repeat(64));
+    expect(load.vault).toEqual({ id: 'wtmp1', recipe: 'r'.repeat(64), generator: sv.generator });
+    expect(load.interventions).toEqual([found]);
+    expect(load).toMatchObject({ params: sv.params, scale: 1, endYear: 3200, calamity: 'many' });
+    expect(load).not.toHaveProperty('renames');
+    expect(load).not.toHaveProperty('keptMap');
+    const sum = 'a'.repeat(64);
+    const kept = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, { ...EMPTY_EDITS, map: { sum, from: 'w1', grown: 1 } }, 'c7');
+    expect(helperLoad('wtmp2', kept, 'r'.repeat(64)).keptMap).toBe(sum);
+    // 照存档生成的第 1 版还是不收地图留着的世界
+    expect(() => helperJob({ id: 'k', kind: 'world', save: kept })).toThrow(/地图是存下来的/);
+  });
+
+  it('世界文件的封面停在哪年:短链接 # 后面那段 > 存档带的那一刻 > 结束那年', () => {
+    const sv = makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'c7');
+    expect(fileYear(raw, sv)).toBe(raw.endYear);
+    expect(fileYear(raw, { ...sv, moment: { year: 1800 } })).toBe(1800);
+    expect(fileYear(raw, { ...sv, moment: { year: 1800 } }, momentHash({ year: 1500 }))).toBe(1500);
+    expect(fileYear(raw, sv, 'at=1500&p=c1.0')).toBe(1500);
+    // 认不出的 # 那段不算;超出这段历史的年份不要
+    expect(fileYear(raw, { ...sv, moment: { year: 1800 } }, 'rules=1')).toBe(1800);
+    expect(fileYear(raw, sv, 'at=99999')).toBe(raw.endYear);
   });
 });
