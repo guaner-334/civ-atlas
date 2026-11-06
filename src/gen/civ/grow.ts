@@ -14,7 +14,7 @@
  * 纯计算,不碰 DOM;worker 和 Node 里都能跑。
  */
 import type { World } from '../world';
-import { generateCiv, startContinue, type Continuation } from './index';
+import { DEFAULT_CIV_PARAMS, generateCiv, startContinue, type Continuation } from './index';
 import type { Civ, CivParams } from './types';
 
 /** 交历史的年份(最后一个 = 推到哪年为止) */
@@ -53,23 +53,23 @@ export interface GrowEngine {
   resume: (world: World, civ: Civ, params: Partial<CivParams>) => Continuation | null;
 }
 
-const ENGINE: GrowEngine = {
+export const growEngine: GrowEngine = {
   generate: (world, params) => generateCiv(world, params),
   resume: (world, civ, params) => startContinue(world, civ, params),
 };
 
 /**
  * 推到第 year 年以后故意出错的引擎(冒烟检查、截图用:看推不下去时的样子;推演里本来不会在这一年出错)。
- * 往 year 年以后推的那一步抛错;整理(finish)不出错
+ * 往 year 年以后推的那一步、要推过 year 年的整理抛错
  */
 export function breakAt(year: number): GrowEngine {
   return {
     generate: (world, params) => {
-      if ((params.endYear ?? 0) > year) throw new Error(`推到第 ${year} 年以后故意出错`);
-      return ENGINE.generate(world, params);
+      if ((params.endYear ?? DEFAULT_CIV_PARAMS.endYear) > year) throw new Error(`推到第 ${year} 年以后故意出错`);
+      return growEngine.generate(world, params);
     },
     resume: (world, civ, params) => {
-      const r = ENGINE.resume(world, civ, params);
+      const r = growEngine.resume(world, civ, params);
       if (!r) return r;
       return {
         get from() {
@@ -85,7 +85,10 @@ export function breakAt(year: number): GrowEngine {
           if (y > year) throw new Error(`推到第 ${year} 年以后故意出错`);
           r.advance(y);
         },
-        finish: () => r.finish(),
+        finish: () => {
+          if (r.to > year) throw new Error(`推到第 ${year} 年以后故意出错`);
+          return r.finish();
+        },
         partial: () => r.partial(),
       };
     },
@@ -107,7 +110,7 @@ export interface GrowOptions {
 export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOptions = {}): Grower {
   const marks = (opt.marks ?? GROW_MARKS).filter((y, i, a) => y > 0 && (i === 0 || y > a[i - 1]));
   const now = opt.now ?? (() => performance.now());
-  const engine = opt.engine ?? ENGINE;
+  const engine = opt.engine ?? growEngine;
   const end = marks[marks.length - 1] ?? 0;
   const at = (endYear: number): Partial<CivParams> => ({ ...params, endYear });
   /** 交过的最后一份(从它接着推;出错时从它重新推到出错前那年) */

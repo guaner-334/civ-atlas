@@ -33,6 +33,7 @@ import { takePendingBatch } from '../pendingStore';
 import { takeRewriteNote, type RewriteNote } from '../rewriteStore';
 import { namesOpt, sameSetup, setupFor, setupOpt, upsOpt, yearsFor, yearsOpt } from './worldTarget';
 import type { CivRefs, GenRefs, MapRefs, Ref, ResimRefs, Setter } from './worldRefs';
+import { noteStuck } from '../stuckStore';
 
 /** useEditRecompute 要的 App 状态 */
 export interface EditRecomputeDeps {
@@ -168,6 +169,7 @@ ${s.image.cells}` : null);
     const b = baseRef.current;
     lastReady.current = b ? { world: b.world, civ } : null;
     setRawCiv(civ);
+    noteStuck(!!civ.stuck, { kind: 'new' });
     setNamingPct(null);
     setNamesIn(nid);
     const e = getEdits();

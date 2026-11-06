@@ -56,6 +56,7 @@ import { filmClock, lengthText } from './filmPlan';
 import { setDirectorPace, useDirector } from './directorStore';
 import { useExtend } from './extendStore';
 import { ExtendButton, busyNote } from './ExtendYears';
+import { StuckButton } from './StuckCard';
 import './timeline.css';
 
 export interface CivTimelineProps {
@@ -93,7 +94,9 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
   // 再推:推的时候时间轴按推完的长度排(axis),推完以后刚推的那段标出来
   const ext = useExtend();
   const busy = ext.busy && ext.busy.from === end && film.mode !== 'video' ? ext.busy : null;
-  const axis = busy ? busy.to : end;
+  // 推不下去:时间轴照本来要推到的长度排,停住那年以后拖不过去
+  const stuck = !busy && film.mode !== 'video' && civ?.stuck ? civ.stuck : null;
+  const axis = busy ? busy.to : stuck ? Math.max(end, stuck.to) : end;
   const grow = useMemo(() => (busy ? { from: busy.from, at: busy.slow ? null : busy.year, note: narrow ? undefined : busyNote(busy, era, months, monthNames) } : undefined), [busy, narrow, era, months, monthNames]);
   const fresh = !busy && ext.fresh && ext.fresh.to === end ? ext.fresh.from : undefined;
 
@@ -268,7 +271,7 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
             ))}
           </span>
         )}
-        {extendOn && <ExtendButton end={end} phone={narrow} />}
+        {extendOn && (stuck ? <StuckButton civ={civ} phone={narrow} /> : <ExtendButton end={end} phone={narrow} />)}
         <TimelineMarks
           entries={shown}
           end={axis}
@@ -277,9 +280,10 @@ export function CivTimeline({ civ, hidden, dock = 'bottom', directorOff, extendO
           era={era}
           small={narrow}
           range={span ? { from: span.from, to: span.to, onRange: (from, to) => setFilmRange({ from, to }, end), labels: narrow, locked } : undefined}
-          limit={busy ? end : undefined}
+          limit={busy || stuck ? end : undefined}
           grow={grow}
           fresh={span ? undefined : fresh}
+          stuck={stuck ? end : undefined}
           life={life}
           plots={span || narrow ? undefined : plotTicks}
           pandemics={pans}

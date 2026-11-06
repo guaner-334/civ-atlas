@@ -177,6 +177,11 @@ export function installDiagWatch(): void {
   });
 }
 
+/** 推演推到 at 年推不下去了(线程没坏,交回了停在那一年的历史):推演里抛的错 */
+export function recordSimError(at: number, message: string, stack: string | undefined): void {
+  recordError('worker', `推到第 ${at} 年推不下去了:${message || '推演出错'}`, stack, ctxNow());
+}
+
 /** 后台线程出错(new Worker 的 onerror) */
 export function recordWorkerError(e: ErrorEvent | Event, which: string): void {
   const ev = e as ErrorEvent;

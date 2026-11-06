@@ -46,8 +46,10 @@ import { generateWorld, generateWorldSteps, type BaseCache, type World, type Wor
 import { dropGullyBuffers, rasterizeDeferred, rasterizeDeferredSteps, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
-import { DEFAULT_CIV_PARAMS, civBase, continueCiv, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
+import { DEFAULT_CIV_PARAMS, civBase, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
 import { extendCiv } from './gen/civ/extend';
+import { breakAt, growEngine } from './gen/civ/grow';
+import { civOrStuck, continueOrStuck, type StuckOptions } from './gen/civ/stuck';
 import { END_YEAR_DEFAULT, GENERATOR_VERSION, cleanEndAt, ownInterventions, type AuthorMark, type Intervention, type PlayState, type PlotReview, type TerrainOp, type Upheaval } from './gen/edits';
 import { runOutline, type OutlineCache } from './gen/outline';
 import type { AuthorCharacter } from './gen/characters';
@@ -220,6 +222,8 @@ export type WorkerRequest =
   | { type: 'renames'; id: number; names: Record<string, string> }
   /** 页面藏起来、要关了:逐年推演等着打的那份原件现在就打,不等停够 TURN_SNAPSHOT_IDLE。没有回音 */
   | { type: 'packNow'; id: number }
+  /** 冒烟检查、截图用(网址带 simFail):之后的推演推过第 year 年就故意出错,看推不下去时的样子(0 = 照常)。不排队,没有回音 */
+  | { type: 'simFail'; id: number; year: number }
   /**
    * 把这份配方的世界打成存进仓库、存成文件用的几块,交回来(packed;fid = 第几次,主线程按它认)。
    * 排在手上的活后面,所以刚才的修改推完了才打。出错不算线程出错:一定有一声回音
@@ -235,6 +239,8 @@ export type WorkerRequest =
 
 export type WorkerResponse =
   | { type: 'progress'; id: number; stage: string; pct: number }
+  /** 下一条交历史的消息那份历史推不下去(停在 at 年):推演里抛的错,记进问题记录 */
+  | { type: 'simError'; id: number; at: number; message: string; stack?: string }
   /**
    * 下一条交历史的消息(done、civ、civOnly、turn、extended)那份历史的编年史,按请求里的改名算,分块先交(src/chronicleParts.ts);
    * 交历史的那条带着同一个编号(chron)
@@ -386,6 +392,11 @@ function rasterTransferables(raster: Raster): ArrayBuffer[] {
  * 这一条带着编号、那几个列表是空的。短的历史不切,原样交
  */
 function postCiv(m: Extract<WorkerResponse, { split?: CivSplit }>, transfer: Transferable[]) {
+  if (m.civ?.stuck && simError !== null) {
+    const e = simError as { message?: unknown; stack?: unknown } | null;
+    post({ type: 'simError', id: m.id, at: m.civ.stuck.at, message: String(e?.message ?? e ?? ''), ...(typeof e?.stack === 'string' ? { stack: e.stack } : {}) });
+  }
+  simError = null;
   if (!m.civ) return post(m, transfer);
   const key = ++splitSeq;
   const { parts, civ } = splitCiv(m.civ, key);
@@ -614,7 +625,7 @@ const frozenOpt = (m: Pick<CivInput, 'params' | 'terrain' | 'sketch'>) => (froze
  * 没改过地形、没调民族扩散、没另起文明种子的,顺手记下这颗星球的扩张节拍(见 tempos)
  */
 function civOf(world: World, m: CivInput & { interventions?: Intervention[] }, steps: Step[]): Civ {
-  const c = generateCiv(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) });
+  const c = civOrStuck(world, { interventions: m.interventions?.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt());
   // 调了民族扩散的,civ.spreadYears 不是节拍(÷ 了倍数);另起文明种子的,州和民族不是这颗星球原来的那一份:都不记
   if (!m.terrain?.length && !m.frontier?.spread && m.civSeed === undefined) rememberTempo(m.params, m.sketch, c.spreadYears !== undefined && c.capNorm !== undefined ? { spread: c.spreadYears, capNorm: c.capNorm } : null);
   return c;
@@ -834,9 +845,9 @@ async function packedOffer(m: Extract<Queued, { type: 'packParts' }>): Promise<W
   // 推好的历史记着就用(推演年数不算在配方的键里,另外比);没记着就按这份配方推一遍(和重推一样),结果一样
   const had = await heldCiv(m, m.play);
   const civ =
-    had && (m.play || had.endYear === (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT))
+    had && (m.play || had.endYear === (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT) || had.stuck?.to === (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT))
       ? had
-      : generateCiv(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) });
+      : civOrStuck(world, { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m), ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt());
   const recipe = await recipeKey({ params: m.params, terrain: m.terrain, sketch: m.sketch, interventions: m.interventions, upheavals: m.upheavals, names: m.names, endYear: m.endYear, frontier: m.frontier, origins: m.origins, calamity: m.calamity, ...recipeTuning(m.tuning), civSeed: m.civSeed, keptMap: m.keptMap, play: m.play });
   const map = pin ? pin.part : await mapPart(baseKey, world);
   const parts = [
@@ -958,7 +969,7 @@ function loadFailure(e: unknown): { why: OpenRefusal; recipe?: unknown } {
 }
 
 /** 排队处理的消息(改名不排队,见 onmessage) */
-type Queued = Exclude<WorkerRequest, { type: 'renames' | 'shown' | 'packNow' }>;
+type Queued = Exclude<WorkerRequest, { type: 'renames' | 'shown' | 'packNow' | 'simFail' }>;
 /**
  * 消息按先后一件件处理(生成要等帮手线程,等的时候后面来的消息排着,不插进来);
  * 后台的活(各段主图)排在所有消息后面,每做完一件先看有没有新消息
@@ -971,11 +982,17 @@ let running = false;
  * 见 src/ui/sim/simClient.ts)。不然后面几件照样交回,主线程分不清哪件没回音
  */
 let broken = false;
+/** 网址带 simFail 时推过这一年就故意出错(见 WorkerRequest 的 simFail) */
+let simFail: number | undefined;
+/** 推不下去时推演里抛的错:随停住的那份历史一起交给主线程记进问题记录(postCiv) */
+let simError: unknown = null;
+const stuckOpt = (): StuckOptions => ({ engine: simFail === undefined ? growEngine : breakAt(simFail), failed: (e) => (simError = e) });
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   if (broken) return;
   // 改名不排队:在推的那一次推完要按它算编年史
   if (e.data.type === 'renames') return void (renamesNow = { id: e.data.id, names: e.data.names });
   if (e.data.type === 'packNow') return turnSnapNow?.();
+  if (e.data.type === 'simFail') return void (simFail = e.data.year > 0 ? e.data.year : undefined);
   // 交回的那一笔换上了:不用留着怎么改回上一张
   if (e.data.type === 'shown') {
     if (kept?.undo && kept.key === e.data.key) kept = { key: kept.key, keep: kept.keep };
@@ -1090,6 +1107,7 @@ function checkKept(m: Queued): void {
 }
 
 async function handle(m: Queued): Promise<void> {
+  simError = null;
   checkKept(m);
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin' && m.type !== 'packParts') dropTurnSnap();
@@ -1400,8 +1418,8 @@ async function handle(m: Queued): Promise<void> {
     const base = m.type === 'resim' && !m.play ? await heldCiv(m, undefined) : null;
     const civ =
       base && base.endYear < (cleanEndAt(m.endYear) ?? END_YEAR_DEFAULT)
-        ? continueCiv(world, base, { ...params, ...memoOpt(world, m.civSeed) })
-        : generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
+        ? continueOrStuck(world, base, { ...params, ...memoOpt(world, m.civSeed) }, stuckOpt())
+        : civOrStuck(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt());
     const ms = performance.now() - t0;
     const tempo = noteOf(m.params, m.sketch);
     if (m.type === 'resim') {
@@ -1449,6 +1467,7 @@ async function handle(m: Queued): Promise<void> {
       progress: (year, pct) => post({ type: 'extendProgress', id: m.id, xid: m.xid, year, pct }),
       pause: () => new Promise((r) => setTimeout(r, 0)),
       stop,
+      ...stuckOpt(),
     });
     if (!civ) {
       post({ type: 'extendStopped', id: m.id, xid: m.xid });

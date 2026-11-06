@@ -1,0 +1,157 @@
+/* 推不下去(StuckCard.tsx):卡的数值和并排试推那张一样(compare/compare.css 的 .cmp-err) */
+
+/* 浅白只盖看得见的地图:顶上的图层条、右边的按钮、时间轴浮在它上面 */
+.stuck-layer {
+  position: absolute;
+  left: calc(var(--side-room, 0px) - var(--side-gap, 0px));
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.stuck-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(245, 245, 247, 0.62);
+}
+.stuck-box {
+  position: absolute;
+  left: 0;
+  right: var(--ast-room, 0px);
+  top: 0;
+  bottom: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stuck-card {
+  width: min(510px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 18px 20px;
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+  color: var(--ink);
+  pointer-events: auto;
+}
+.stuck-card h4 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+}
+.stuck-card h4 .icon {
+  flex: none;
+  color: var(--warn);
+}
+.stuck-card p {
+  margin: 8px 0 14px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.stuck-bs {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.stuck-btn {
+  display: inline-flex;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.stuck-btn:hover {
+  background: var(--hover-bg);
+}
+.stuck-btn.pri {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.stuck-btn.pri:hover {
+  background: var(--accent-hover);
+}
+
+/* 手机:只盖底部卡片上面那块地图,卡字小一号(照 .cmp-err.ph) */
+.stuck-layer.ph {
+  left: 0;
+  bottom: var(--peek-h, 0px);
+}
+.stuck-layer.ph .stuck-box {
+  right: 0;
+  bottom: 0;
+}
+.stuck-layer.ph .stuck-card {
+  width: calc(100% - 32px);
+  padding: 10px 12px;
+}
+.stuck-layer.ph .stuck-card h4 {
+  font-size: 14.5px;
+}
+.stuck-layer.ph .stuck-card p {
+  margin: 4px 0 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.stuck-layer.ph .stuck-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+[data-theme='dark'] .stuck-dim {
+  background: rgba(28, 28, 30, 0.62);
+}
+
+/* ---- 时间轴:停住那年以后灰着、一道红线;「再推」换成「推不下去」 ---- */
+.tb-stuck-rest {
+  top: 22px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(118, 118, 128, 0.16);
+}
+.tb-stuck-line {
+  top: 1px;
+  width: 2px;
+  height: 46px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--err);
+}
+.app.phone .tb-stuck-line {
+  top: 6px;
+  height: 38px;
+}
+.timebar button.xt-btn.stuck {
+  width: auto;
+  gap: 4px;
+  padding: 0 10px 0 8px;
+  background: var(--btn);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+.timebar button.xt-btn.stuck:hover {
+  background: var(--hover-bg);
+}
+.timebar button.xt-btn.stuck .icon {
+  color: var(--warn);
+  stroke-width: 2;
+}
+.timebar button.xt-btn.stuck.phone {
+  width: 28px;
+  padding: 0;
+}
