@@ -3,7 +3,7 @@
  *
  *   默认      DEFAULT_PARAMS(种子照旧随机)
  *   上次用的  上一次点「创建世界」时的参数(不含种子),记着那次建的世界叫什么
- *   自己存的  「存成预设…」存下的:陆地、大陆、气候、精细度、推演年数;种子只有勾了「连种子一起存」才存。最多 30 个
+ *   自己存的  「存成预设…」存下的:陆地、大陆、气候、精细度、推演年数;种子、规则只有勾了「连种子 / 规则一起存」才存。最多 30 个
  *   分享的    打开朋友的预设链接(presetLink.ts)带来的那一套:不自动存,点「存进我的预设…」才存;只在这次打开的页面里有
  *
  * 另外记着上次选的是哪个(下次打开弹窗停在它上面;选的是分享的那一套时记的还是之前那个)。
@@ -13,6 +13,7 @@ import { createListeners } from './createStore';
 import { PARAM_RANGE } from '../gen/savefile';
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/params';
 import { contBrief } from './genesisSliders';
+import { cleanRuleSet, type RuleSet } from '../gen/civ/ruleSet';
 
 /** 预设里的参数:世界参数去掉种子 */
 export type PresetParams = Omit<WorldParams, 'seed'>;
@@ -25,6 +26,8 @@ export interface Preset {
   seed?: number;
   /** 推演到第几年(没开「推演超过 3000 年」= 不给) */
   endYear?: number;
+  /** 勾了「连规则一起存」:那一套(「我的规则」里的带本机编号) */
+  rules?: RuleSet;
 }
 
 export interface LastUsed {
@@ -74,6 +77,10 @@ function cleanParams(x: unknown): PresetParams {
 }
 
 const posInt = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined);
+const withRules = (raw: unknown): { rules?: RuleSet } => {
+  const r = raw === undefined ? null : cleanRuleSet(raw).rules;
+  return r ? { rules: r } : {};
+};
 
 function load(): PresetState {
   const empty: PresetState = { list: [], last: null, chosen: 'default', shared: null };
@@ -95,6 +102,7 @@ function load(): PresetState {
         params: cleanParams(p.params),
         seed: posInt(p.seed),
         endYear: posInt(p.endYear),
+        ...withRules(p.rules),
       });
     }
     const l = o.last;
@@ -149,11 +157,10 @@ export const strip = (p: WorldParams): PresetParams => {
 };
 
 /** 选的那个预设的参数(没有 = 默认) */
-export function choiceParams(s: PresetState, c: PresetChoice): { params: PresetParams; seed?: number; endYear?: number } {
+export function choiceParams(s: PresetState, c: PresetChoice): { params: PresetParams; seed?: number; endYear?: number; rules?: RuleSet } {
   if (c === 'last' && s.last) return { params: s.last.params, endYear: s.last.endYear };
-  if (c === 'shared' && s.shared) return { params: s.shared.params, seed: s.shared.seed, endYear: s.shared.endYear };
-  const p = s.list.find((x) => x.id === c);
-  if (p) return { params: p.params, seed: p.seed, endYear: p.endYear };
+  const p = c === 'shared' ? s.shared : s.list.find((x) => x.id === c);
+  if (p) return { params: p.params, seed: p.seed, endYear: p.endYear, ...(p.rules ? { rules: p.rules } : {}) };
   return { params: strip(DEFAULT_PARAMS) };
 }
 
@@ -185,7 +192,7 @@ export function pickSharedPreset(p: SharedPreset) {
 }
 
 /** 存成预设:同名的换掉;多了扔掉最旧的。返回新的 id */
-export function savePreset(name: string, params: WorldParams, withSeed: boolean, endYear?: number): string {
+export function savePreset(name: string, params: WorldParams, withSeed: boolean, endYear?: number, rules?: RuleSet): string {
   const s = get();
   const same = s.list.find((p) => p.name === name);
   const id = same?.id ?? `p${Date.now().toString(36)}${s.list.length.toString(36)}`;
@@ -195,6 +202,7 @@ export function savePreset(name: string, params: WorldParams, withSeed: boolean,
     params: strip(params),
     ...(withSeed ? { seed: params.seed } : {}),
     ...(endYear ? { endYear } : {}),
+    ...withRules(rules),
   };
   const list = same ? s.list.map((p) => (p.id === id ? it : p)) : [...s.list, it].slice(-MAX_PRESETS);
   set({ ...s, list, chosen: id });
@@ -238,11 +246,15 @@ export function changedKeys(s: PresetState, c: PresetChoice, p: WorldParams): Se
   return new Set((Object.keys(ch) as (keyof PresetParams)[]).filter((k) => ch[k] !== p[k]));
 }
 
-/** 一个预设的简写(菜单里写前两样,管理里写前三样):种子、陆地、大陆、气温、降水、地块这几样里和默认不一样的 */
-export function presetSummary(p: Pick<Preset, 'params' | 'seed'>, max: number): string {
+/**
+ * 一个预设的简写(菜单里写前两样,管理里写前三样):带着规则的先写规则(rulesName = 那一套现在叫什么,不给 = 存下时的名字),
+ * 再是种子、陆地、大陆、气温、降水、地块这几样里和默认不一样的
+ */
+export function presetSummary(p: Pick<Preset, 'params' | 'seed' | 'rules'>, max: number, rulesName?: string): string {
   const d = DEFAULT_PARAMS;
   const q = p.params;
   const parts: string[] = [];
+  if (p.rules) parts.push(`规则：${rulesName || p.rules.name}`);
   if (p.seed) parts.push(`种子 ${p.seed}`);
   if (q.landFraction !== d.landFraction) parts.push(`陆地 ${Math.round(q.landFraction * 100)}%`);
   // 大陆块数排在气候前面,大陆的其余几样排在气候后面

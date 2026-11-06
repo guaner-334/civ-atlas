@@ -466,6 +466,71 @@ button.ps-pop {
   line-height: 1.5;
   color: var(--ink-2);
 }
+/* 「连规则一起存 / 分享」:勾上了名字后面接一个选框(右边蓝底上下箭头,和预设的弹出按钮一个样子) */
+.psd-rl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.psd-rules.on > input {
+  margin-top: 6px;
+}
+.psd-rules.off {
+  cursor: default;
+}
+.psd-rules.off .psd-rl {
+  color: var(--ink-3);
+}
+.psd-sel {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow:
+    inset 0 0 0 0.5px var(--line-strong),
+    0 0.5px 1.5px rgba(0, 0, 0, 0.1);
+}
+[data-theme='dark'] .psd-sel {
+  background: rgba(0, 0, 0, 0.32);
+}
+.psd-scrim .psd-sel select {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 30px 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.psd-sel select:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.psd-sel svg {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 2.5px;
+  border-radius: 5px;
+  background: var(--accent);
+  stroke: #fff;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
 .psd-kept {
   margin-top: 14px;
   padding: 10px 12px;
