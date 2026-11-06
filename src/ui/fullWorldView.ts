@@ -207,7 +207,7 @@ export const fullToastHeld = (id: string): boolean => (holds.get('*') ?? 0) > 0 
 /** never 账号里没有;recipe 账号里只有配方(at = 哪天传的,same = 确知和现在一样);same、changed 传过整个世界,和现在一样、之后又改过 */
 export type FullStatus = { kind: 'never' } | { kind: 'recipe'; at: string; same: boolean } | { kind: 'same'; entry: FullEntry } | { kind: 'changed'; entry: FullEntry };
 
-type Markable = Parameters<typeof saveMark>[0];
+type Markable = Parameters<typeof saveMark>[0] & { generator?: number };
 
 /** AI 写的东西跟着传:记号里也算上。还没读出来的 = '' */
 function notesMark(id: string): string {
@@ -225,17 +225,18 @@ function notesMark(id: string): string {
   return `${(h >>> 0).toString(36)}.${text.length.toString(36)}`;
 }
 
-/** 传的时候记下的内容记号:配方 + AI 写的东西 */
-export const fullMark = (id: string, save: Markable): string => `${saveMark(save)}|${notesMark(id)}`;
+/** 传的时候记下的内容记号:配方 + AI 写的东西 + 哪一版算的(新版重算的同一份配方内容不一样) */
+export const fullMark = (id: string, save: Markable): string => `${saveMark(save)}|${notesMark(id)}|${save.generator ?? ''}`;
 
 /** 记号里配方那一半(取回时只看它:AI 写的东西跟着存档另外回来) */
 export const markRecipe = (mark: string | null | undefined): string | undefined => mark?.split('|')[0];
 
-/** 记号对得上才算没改过;AI 写的东西这次还没读出来时只看配方,读出来了再算 */
+/** 记号对得上才算没改过;AI 写的东西这次还没读出来时只看配方,读出来了再算;以前的记号没记版本的不比版本 */
 function sameMark(mark: string | null | undefined, id: string, save: Markable): boolean {
   if (!mark) return false;
-  const [recipe, notes] = mark.split('|');
+  const [recipe, notes, gen] = mark.split('|');
   if (recipe !== saveMark(save)) return false;
+  if (gen && save.generator !== undefined && gen !== String(save.generator)) return false;
   const now = notesMark(id);
   return !now || !notes || now === notes;
 }
@@ -273,14 +274,20 @@ export function noteSent(id: string, mark: string, rev: number): void {
   listeners.emit();
 }
 
+/** 这台设备上的存档就是账号里那份存档(这台传上去、取回来以后没改过,账号里也没换过) */
+export function sameAsAccount(o: FullOverview, id: string, save: Markable): boolean {
+  const a = o.account.find((w) => w.id === id);
+  const s = sentOf(userKey())[id];
+  return !!a && !!s && s.rev === a.rev && sameMark(s.mark, id, save);
+}
+
 /** 账号里那份和这个世界现在的样子一样吗 */
 export function fullStatusOf(o: FullOverview, id: string, save: Markable | null | undefined): FullStatus {
   const entry = o.worlds.find((w) => w.id === id);
   if (!entry) {
     const a = o.account.find((w) => w.id === id);
     if (!a) return { kind: 'never' };
-    const s = sentOf(userKey())[id];
-    return { kind: 'recipe', at: a.updatedAt ?? '', same: !!save && !!s && s.rev === a.rev && sameMark(s.mark, id, save) };
+    return { kind: 'recipe', at: a.updatedAt ?? '', same: !!save && sameAsAccount(o, id, save) };
   }
   return { kind: save && sameMark(entry.mark, id, save) ? 'same' : 'changed', entry };
 }

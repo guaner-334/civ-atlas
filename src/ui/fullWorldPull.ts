@@ -8,9 +8,9 @@ import { getSession } from '../account/session';
 import { SESSION_CHANGED, stillSignedIn, wipeCount } from '../account/sync';
 import { keptMapOf } from '../gen/edits';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
-import { fullOverview, markRecipe, pairText, setFullPull } from './fullWorldView';
+import { fullOverview, markRecipe, pairText, sameAsAccount, setFullPull, type FullEntry, type FullOverview } from './fullWorldView';
 import { holdOpenNote } from './openNote';
-import { loadWorld, markTrash, newWorldId, type StoredWorld } from './saveStore';
+import { loadWorld, markTrash, newWorldId, putSyncedWorld, rawWorld, type StoredWorld } from './saveStore';
 import { saveMark } from './spaceFacts';
 import { showToast } from './toastStore';
 import { adoptWorldFile } from './worldFiles';
@@ -22,13 +22,22 @@ let current: AbortController | null = null;
 
 const HOLD_UNTIL_OPEN_MS = 120_000;
 
+/**
+ * 账号里的存档比整个世界旧:再传一次时整个世界换成了新的,接着存存档那一步没成(断网、关了页面)。
+ * 这里的存档就是账号里那份旧的(刚取回来,没改过)时,取整个世界,存档也换成它里面的那份;这里改过的不动
+ */
+function recipeBehind(o: FullOverview, entry: FullEntry, w: StoredWorld): boolean {
+  const saved = Date.parse(o.account.find((x) => x.id === w.id)?.updatedAt ?? '');
+  return Date.parse(entry.uploadedAt) > saved && sameAsAccount(o, w.id, w.save);
+}
+
 /** 这个世界要不要取:本机的内容已经是这一份(同一份配方、同一版算的)就不用 */
 async function needsPull(w: StoredWorld): Promise<boolean> {
   const o = fullOverview();
   const entry = o?.worlds.find((x) => x.id === w.id);
-  if (!entry || w.draft || w.map) return false;
+  if (!o || !entry || w.draft || w.map) return false;
   if (keptMapOf(w.save.edits)) return !(await keptMapHere(w.id));
-  if (markRecipe(entry.mark) !== saveMark(w.save)) return false;
+  if (markRecipe(entry.mark) !== saveMark(w.save)) return recipeBehind(o, entry, w);
   const head = await vaultCall('latestOf', [w.id]).catch(() => undefined);
   if (head === undefined) return false;
   return !head || head.recipeKey !== (await recipeKey(recipeOfSave(w.save))) || head.generator !== w.save.generator;
@@ -46,6 +55,9 @@ async function pullInto(w: StoredWorld, onBytes: (done: number, total: number) =
   const r = await adoptWorldFile(w.id, file, () => (wipeCount() !== at ? 'wiped' : getSession()?.token !== token ? 'stop' : 'go'));
   if (!stillSignedIn(token, at)) throw gone;
   if (!r.ok) throw new ServerError(0, r.kind, r.message);
+  // 取到的和这里的存档不是同一份配方(只有账号里的存档落后时才取这种,见 recipeBehind):存档换成整个世界里的
+  const raw = keptMapOf(w.save.edits) ? null : rawWorld(w.id);
+  if (raw && saveMark(r.save) !== saveMark(w.save)) putSyncedWorld(w.id, { ...raw, save: JSON.stringify(r.save) });
 }
 
 /** 账号窗里点了取回:存档已经回来了,接着取整个世界。出错抛,说在那一行里;世界打开时还会再试 */

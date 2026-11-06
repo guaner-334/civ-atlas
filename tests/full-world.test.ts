@@ -216,6 +216,14 @@ describe('账号里那份和现在一样吗', () => {
     replaceNotes('wa', null);
   });
 
+  it('同一份配方、新版重算过的也算改过;以前的记号没记版本的不比版本', () => {
+    const at = (generator: number) => ({ ...save('a'), generator });
+    const withMark = (mark: string) => overview({ worlds: [{ ...overview().worlds[0], mark }] });
+    expect(fullStatusOf(withMark(fullMark('wa', at(56))), 'wa', at(56)).kind).toBe('same');
+    expect(fullStatusOf(withMark(fullMark('wa', at(56))), 'wa', at(57)).kind).toBe('changed');
+    expect(fullStatusOf(withMark(`${saveMark(save('a'))}|`), 'wa', at(57)).kind).toBe('same');
+  });
+
   it('取回时只看记号里配方那一半(之前传的记号只有配方)', () => {
     replaceNotes('wa', [{ key: 'k', kind: '史书', title: '大昌', text: '第一版', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' }]);
     expect(fullMark('wa', save('a'))).not.toBe(saveMark(save('a')));
