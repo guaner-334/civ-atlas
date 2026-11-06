@@ -8,7 +8,7 @@
  * 服务器只管版本号对上才存(cloud.ts)。这里先问现在的版本号再存,谁最后传,账号里就是谁那份。
  * 删掉这台设备上的世界不碰账号;账号里的要在账号窗里删。
  */
-import { exportNotes, forgetNotes, notesKnown, notesReady, replaceNotes } from '../ai/library';
+import { exportNotes, forgetNotes, notesKnown, notesReady, replaceNotes, type AiNote } from '../ai/library';
 import { fullMark, noteSent } from '../ui/fullWorldView';
 import { MAX_WORLDS, cleanSyncMeta, currentUnsaved, isStored, putSyncedWorld, rawWorld, removeAllWorlds, storedCount, syncable, type RawWorld } from '../ui/saveStore';
 import { clearResults } from '../ui/resultStore';
@@ -36,10 +36,10 @@ export function stillSignedIn(token: string | undefined, at: number): boolean {
 
 /**
  * 存进账号。alsoFile:AI 写的东西整个世界文件里也有,太多存不进这一份时不算错;只有存档的世界放不下要说。
- * raw:存这一刻的样子(和打包的文件同一刻);不给 = 现在的。token:替哪一次登录存,换了就停。
+ * raw、notes:存这一刻的样子(和打包的文件同一刻);不给 = 现在的。token:替哪一次登录存,换了就停。
  * 版本号在问和存之间被别的设备改了:再问一次
  */
-export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWorld; token?: string } = {}): Promise<{ rev: number }> {
+export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWorld; notes?: AiNote[]; token?: string } = {}): Promise<{ rev: number }> {
   const token = o.token ?? getSession()?.token;
   const same = () => {
     if (!token || getSession()?.token !== token) throw new ServerError(0, SESSION_CHANGED, '账号变了');
@@ -51,11 +51,11 @@ export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWo
   if (!syncable(id)) throw new ServerError(0, 'legacy', '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号。删掉几个世界、刷新页面再试');
   // 手上的不全:拿它去换,账号里那些就没了
   if (!notesKnown(id)) throw new ServerError(0, NOTES_UNREAD, 'AI 写的东西这次没读出来。刷新页面再试');
-  const notes = exportNotes(id);
+  const notes = o.notes ?? exportNotes(id);
   const tooMany = notes.length > 0 && JSON.stringify(notes).length > NOTES_MAX;
   if (tooMany && !o.alsoFile) throw new ServerError(400, 'bad-request', 'AI 给这个世界写的东西太多了，存不进账号');
   const save = JSON.parse(raw.save) as SaveFile;
-  const mark = fullMark(id, save);
+  const mark = fullMark(id, save, notes);
   const body = (rev: number, deleted: boolean): PutBody => ({
     baseRev: rev,
     save,

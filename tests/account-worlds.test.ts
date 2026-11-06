@@ -177,6 +177,18 @@ describe('点了才传', () => {
     expect((inCloud()[0].save as SaveFile).title).toBe('苍澜界');
   });
 
+  it('AI 写的东西也存打包那一刻的那份,不是后来又改过的', async () => {
+    const id = addWorld(7, '苍澜界');
+    const note = { key: 'k', kind: '史书', title: '大昌', text: '第一版', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' };
+    putNote(id, note);
+    await signIn();
+    const raw = saveStore.rawWorld(id)!;
+    const notes = listNotes(id).map((n) => ({ ...n }));
+    putNote(id, { ...note, text: '第二版' });
+    await pushWorld(id, { raw, notes });
+    expect((inCloud()[0].notes as { text: string }[])[0].text).toBe('第一版');
+  });
+
   it('断网时报连不上,世界不动', async () => {
     const id = addWorld(7, '苍澜界');
     await signIn();

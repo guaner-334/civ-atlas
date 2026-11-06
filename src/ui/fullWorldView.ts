@@ -7,7 +7,7 @@
 import { getSession, onLogin, onSessionChange } from '../account/session';
 import { serverBase } from '../account/server';
 import { openAccount } from './AccountDialogs';
-import { exportNotes, notesKnown } from '../ai/library';
+import { exportNotes, notesKnown, type AiNote } from '../ai/library';
 import { createListeners } from './createStore';
 import { isStored } from './saveStore';
 import { showToast } from './toastStore';
@@ -209,11 +209,11 @@ export type FullStatus = { kind: 'never' } | { kind: 'recipe'; at: string; same:
 
 type Markable = Parameters<typeof saveMark>[0] & { generator?: number };
 
-/** AI 写的东西跟着传:记号里也算上。还没读出来的 = '' */
-function notesMark(id: string): string {
-  if (!notesKnown(id)) return '';
+/** AI 写的东西跟着传:记号里也算上。还没读出来的 = '';list = 某一刻取下的那一份(不给 = 现在的) */
+function notesMark(id: string, list?: readonly AiNote[]): string {
+  if (!list && !notesKnown(id)) return '';
   const text = JSON.stringify(
-    exportNotes(id)
+    (list ?? exportNotes(id))
       .map((n) => [n.key, n.text])
       .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
   );
@@ -226,7 +226,7 @@ function notesMark(id: string): string {
 }
 
 /** 传的时候记下的内容记号:配方 + AI 写的东西 + 哪一版算的(新版重算的同一份配方内容不一样) */
-export const fullMark = (id: string, save: Markable): string => `${saveMark(save)}|${notesMark(id)}|${save.generator ?? ''}`;
+export const fullMark = (id: string, save: Markable, notes?: readonly AiNote[]): string => `${saveMark(save)}|${notesMark(id, notes)}|${save.generator ?? ''}`;
 
 /** 记号里配方那一半(取回时只看它:AI 写的东西跟着存档另外回来) */
 export const markRecipe = (mark: string | null | undefined): string | undefined => mark?.split('|')[0];

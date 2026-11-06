@@ -8,7 +8,7 @@ import { deleteCloud } from '../account/cloud';
 import { beginFull, commitFull, fetchOverview, sendBlocks, waitChecked, type BlockPlan, type FullCheck } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
 import { getSession } from '../account/session';
-import { notesReady } from '../ai/library';
+import { exportNotes, notesKnown, notesReady, type AiNote } from '../ai/library';
 import { SESSION_CHANGED, pushWorld, takeWorld } from '../account/sync';
 import { closeAccountPanel, openAccount, openShareDialog } from './AccountDialogs';
 import { planBlocks } from './fullBlocks';
@@ -23,7 +23,7 @@ const TOAST = 'world-full';
 const CANCELLED = new Error('取消了');
 
 /** 打包好的文件留着:断线了「再试一次」不用重打,内容记号变了才不用它 */
-const packed = new Map<string, { file: Blob; mark: string; raw: RawWorld; plan: BlockPlan; maxBlock: number }>();
+const packed = new Map<string, { file: Blob; mark: string; raw: RawWorld; notes: AiNote[] | undefined; plan: BlockPlan; maxBlock: number }>();
 
 let live: { id: string; ac: AbortController } | null = null;
 
@@ -161,6 +161,8 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
   still();
   const mark = markOf(id);
   const raw = rawWorld(id);
+  // AI 写的东西和打包的文件同一刻取:传完再存存档时用这一份,不用之后又改过的
+  const notes = notesKnown(id) ? exportNotes(id) : undefined;
   if (!mark || !raw) return end({ kind: 'error', text: NOT_SENT, more: '可能已在别的页面里删掉了' });
   let pk = packed.get(id);
   if (!pk || pk.mark !== mark || pk.maxBlock !== ov.limits.blockBytes) {
@@ -168,7 +170,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     still();
     if (!r.ok && (r.kind === 'draft' || r.kind === 'old')) {
       // 只有配方的世界:传的也是配方
-      await pushWorld(id, { raw, token });
+      await pushWorld(id, { raw, notes, token });
       still();
       end(recipeDoneNote);
       void askFull();
@@ -180,7 +182,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     if (r.file.size > ov.limits.worldBytes) return end(refusalNote('big', ov.limits, { bytes: r.file.size }, acts));
     const plan = await planBlocks(r.file, ov.limits.blockBytes, ov.limits.blocksPerFile);
     still();
-    pk = { file: r.file, mark, raw, plan, maxBlock: ov.limits.blockBytes };
+    pk = { file: r.file, mark, raw, notes, plan, maxBlock: ov.limits.blockBytes };
     packed.set(id, pk);
   }
   const { file, plan } = pk;
@@ -190,7 +192,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
   let sending = false;
   try {
     if (recipeFirst) {
-      await pushWorld(id, { alsoFile: true, raw: pk.raw, token });
+      await pushWorld(id, { alsoFile: true, raw: pk.raw, notes: pk.notes, token });
       still();
     }
     let ans: Awaited<ReturnType<typeof beginFull>>;
@@ -246,7 +248,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     }
     if (check.state !== 'done') return end({ kind: 'error', text: NOT_SENT, more: '服务器这会儿太忙，没核对完。等一会儿再试', action: acts('retry') });
     if (!recipeFirst) {
-      await pushWorld(id, { alsoFile: true, raw: pk.raw, token });
+      await pushWorld(id, { alsoFile: true, raw: pk.raw, notes: pk.notes, token });
       still();
     }
     packed.delete(id);
