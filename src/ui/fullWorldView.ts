@@ -202,8 +202,8 @@ export const fullToastHeld = (id: string): boolean => (holds.get('*') ?? 0) > 0 
 // ---------------------------------------------------------------------------
 // 算
 
-/** never 账号里没有;recipe 账号里只有配方(at = 哪天传的);same、changed 传过整个世界,和现在一样、之后又改过 */
-export type FullStatus = { kind: 'never' } | { kind: 'recipe'; at: string } | { kind: 'same'; entry: FullEntry } | { kind: 'changed'; entry: FullEntry };
+/** never 账号里没有;recipe 账号里只有配方(at = 哪天传的,same = 确知和现在一样);same、changed 传过整个世界,和现在一样、之后又改过 */
+export type FullStatus = { kind: 'never' } | { kind: 'recipe'; at: string; same: boolean } | { kind: 'same'; entry: FullEntry } | { kind: 'changed'; entry: FullEntry };
 
 type Markable = Parameters<typeof saveMark>[0];
 
@@ -226,6 +226,9 @@ function notesMark(id: string): string {
 /** 传的时候记下的内容记号:配方 + AI 写的东西 */
 export const fullMark = (id: string, save: Markable): string => `${saveMark(save)}|${notesMark(id)}`;
 
+/** 记号里配方那一半(取回时只看它:AI 写的东西跟着存档另外回来) */
+export const markRecipe = (mark: string | null | undefined): string | undefined => mark?.split('|')[0];
+
 /** 记号对得上才算没改过;AI 写的东西这次还没读出来时只看配方,读出来了再算 */
 function sameMark(mark: string | null | undefined, id: string, save: Markable): boolean {
   if (!mark) return false;
@@ -235,12 +238,47 @@ function sameMark(mark: string | null | undefined, id: string, save: Markable): 
   return !now || !notes || now === notes;
 }
 
+// 只有配方在账号里的:服务器不记内容记号,这台设备传上去、取回来时自己记下记号和账号里的版本号
+const SENT = 'civ-atlas:recipe-sent';
+type Sent = Record<string, { mark: string; rev: number }>;
+
+const userKey = (): string | null => {
+  const s = getSession();
+  return s ? String(s.user.id ?? s.user.account) : null;
+};
+
+function sentOf(user: string | null): Sent {
+  if (!user) return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(SENT) ?? 'null') as { user?: string; worlds?: Sent } | null;
+    return v?.user === user && v.worlds ? v.worlds : {};
+  } catch {
+    return {};
+  }
+}
+
+/** 账号里那份存档就是这台设备上的这一份了(传上去、取回来以后)。mark 要在拿存档的那一刻取 */
+export function noteSent(id: string, mark: string, rev: number): void {
+  const user = userKey();
+  if (!user) return;
+  const worlds: Sent = { [id]: { mark, rev } };
+  for (const [k, v] of Object.entries(sentOf(user))) if (k !== id && isStored(k)) worlds[k] = v;
+  try {
+    localStorage.setItem(SENT, JSON.stringify({ user, worlds }));
+  } catch {
+    /* 记不下只是当作不知道一样不一样 */
+  }
+  listeners.emit();
+}
+
 /** 账号里那份和这个世界现在的样子一样吗 */
 export function fullStatusOf(o: FullOverview, id: string, save: Markable | null | undefined): FullStatus {
   const entry = o.worlds.find((w) => w.id === id);
   if (!entry) {
     const a = o.account.find((w) => w.id === id);
-    return a ? { kind: 'recipe', at: a.updatedAt ?? '' } : { kind: 'never' };
+    if (!a) return { kind: 'never' };
+    const s = sentOf(userKey())[id];
+    return { kind: 'recipe', at: a.updatedAt ?? '', same: !!save && !!s && s.rev === a.rev && sameMark(s.mark, id, save) };
   }
   return { kind: save && sameMark(entry.mark, id, save) ? 'same' : 'changed', entry };
 }

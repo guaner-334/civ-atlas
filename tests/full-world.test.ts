@@ -7,7 +7,8 @@ import { replaceNotes } from '../src/ai/library';
 import { ServerError } from '../src/account/server';
 import { _setFullNet, sendBlocks, type BlockPlan } from '../src/account/fullWorlds';
 import { Sha256, blockRanges, hashBlocks } from '../src/ui/fullBlocks';
-import { fullMark, fullStatusOf, pairText, refusalOf, type FullLimits, type FullOverview } from '../src/ui/fullWorldView';
+import { fullMark, fullStatusOf, markRecipe, pairText, refusalOf, type FullLimits, type FullOverview } from '../src/ui/fullWorldView';
+import { saveMark } from '../src/ui/spaceFacts';
 import { errorNote, menuItem, refusalNote, removeWords, shareItem, textNote, usedLine, type MenuFacts, type NoteActs } from '../src/ui/fullWorldWords';
 import { homeAccountLine } from '../src/ui/syncWords';
 
@@ -215,6 +216,14 @@ describe('账号里那份和现在一样吗', () => {
     replaceNotes('wa', null);
   });
 
+  it('取回时只看记号里配方那一半(之前传的记号只有配方)', () => {
+    replaceNotes('wa', [{ key: 'k', kind: '史书', title: '大昌', text: '第一版', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' }]);
+    expect(fullMark('wa', save('a'))).not.toBe(saveMark(save('a')));
+    expect(markRecipe(fullMark('wa', save('a')))).toBe(saveMark(save('a')));
+    expect(markRecipe(saveMark(save('a')))).toBe(saveMark(save('a')));
+    replaceNotes('wa', null);
+  });
+
   it('知道传不了的:再传不多占个数,大小按新的减旧的算', () => {
     const full = overview({ used: { worlds: 20, bytes: 196e6, today: 3 } });
     expect(refusalOf(full, 'wn', 1e6)).toBe('count');
@@ -241,7 +250,7 @@ describe('字', () => {
     expect(menuItem(facts({ pending: true }))).toMatchObject({ off: true, small: '还在推演，推完再传' });
     expect(menuItem(facts({ failed: true }))).toMatchObject({ off: true, small: '内容没存下来。「再存一次」以后能传' });
     expect(menuItem(facts({ recipeOnly: true }))).toMatchObject({ off: false, act: 'upload', small: '只有配方，传上去只有几 KB。换设备打开时重新长一遍' });
-    expect(menuItem(facts({ recipeOnly: true, status: { kind: 'recipe', at: AT } }))).toMatchObject({ title: '再传一次', small: '账号里是 11 月 3 日传的配方。再传就换成现在的' });
+    expect(menuItem(facts({ recipeOnly: true, status: { kind: 'recipe', at: AT, same: false } }))).toMatchObject({ title: '再传一次', small: '账号里是 11 月 3 日传的配方。再传就换成现在的' });
     const job = { id: 'wn', title: '塞雷尼亚', phase: 'send' as const, done: 2.1e6, total: 4.9e6 };
     expect(menuItem(facts({ job }))).toMatchObject({ title: '正在传到账号', small: '2.1 / 4.9 MB', off: true });
     expect(menuItem(facts({ id: 'wo', job }))).toMatchObject({ title: '传到账号', small: '「塞雷尼亚」正在传，传完再点这个', off: true });
@@ -250,7 +259,7 @@ describe('字', () => {
   it('分享那一项', () => {
     const entry = overview().worlds[0];
     expect(shareItem({ kind: 'never' }, false)).toEqual({ small: '生成链接，随时能停。对方打开时重新长一遍，可能和你看到的不一样', off: false });
-    expect(shareItem({ kind: 'recipe', at: AT }, true).off).toBe(true);
+    expect(shareItem({ kind: 'recipe', at: AT, same: false }, true).off).toBe(true);
     expect(shareItem({ kind: 'same', entry }, true)).toEqual({ small: '生成链接，随时能停。对方看到的和你这里一模一样', off: false });
     expect(shareItem({ kind: 'changed', entry }, false).small).toBe('生成链接，随时能停。对方看到的是 11 月 3 日传的那份');
     expect(shareItem({ kind: 'same', entry: { ...entry, public: false, reason: 'opaque' } }, false)).toEqual({ small: '带着插件的附加数据，不能公开分享。可以存成文件发给对方', off: true });

@@ -6,7 +6,7 @@ import { fetchOwnFile, fetchSharedFile } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
 import { keptMapOf } from '../gen/edits';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
-import { fullOverview, pairText, setFullPull } from './fullWorldView';
+import { fullOverview, markRecipe, pairText, setFullPull } from './fullWorldView';
 import { holdOpenNote } from './openNote';
 import { loadWorld, markTrash, newWorldId, type StoredWorld } from './saveStore';
 import { saveMark } from './spaceFacts';
@@ -26,7 +26,7 @@ async function needsPull(w: StoredWorld): Promise<boolean> {
   const entry = o?.worlds.find((x) => x.id === w.id);
   if (!entry || w.draft || w.map) return false;
   if (keptMapOf(w.save.edits)) return !(await keptMapHere(w.id));
-  if (entry.mark !== saveMark(w.save)) return false;
+  if (markRecipe(entry.mark) !== saveMark(w.save)) return false;
   const head = await vaultCall('latestOf', [w.id]).catch(() => undefined);
   if (head === undefined) return false;
   return !head || head.recipeKey !== (await recipeKey(recipeOfSave(w.save))) || head.generator !== w.save.generator;

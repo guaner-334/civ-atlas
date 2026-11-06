@@ -8,9 +8,11 @@
  * 服务器只管版本号对上才存(cloud.ts)。这里先问现在的版本号再存,谁最后传,账号里就是谁那份。
  * 删掉这台设备上的世界不碰账号;账号里的要在账号窗里删。
  */
-import { exportNotes, forgetNotes, notesReady, replaceNotes } from '../ai/library';
+import { exportNotes, forgetNotes, notesKnown, notesReady, replaceNotes } from '../ai/library';
+import { fullMark, noteSent } from '../ui/fullWorldView';
 import { MAX_WORLDS, cleanSyncMeta, currentUnsaved, isStored, putSyncedWorld, rawWorld, removeAllWorlds, storedCount, syncable, type RawWorld } from '../ui/saveStore';
 import { clearResults } from '../ui/resultStore';
+import type { SaveFile } from '../gen/savefile';
 import { getCloud, listCloud, putCloud, type PutBody } from './cloud';
 import { getSession, logout } from './session';
 import { ServerError } from './server';
@@ -21,6 +23,7 @@ const thumbOf = (t: string | null) => (t && t.length <= 200_000 ? t : null);
 
 /** 等的工夫别的标签页退出、换了账号:再往下的请求会带上新账号的令牌,世界就传到别人名下了 */
 export const SESSION_CHANGED = 'session-changed';
+const NOTES_UNREAD = 'notes-unread';
 
 /**
  * 存进账号。alsoFile:AI 写的东西整个世界文件里也有,太多存不进这一份时不算错;只有存档的世界放不下要说。
@@ -37,12 +40,16 @@ export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWo
   const raw = o.raw ?? rawWorld(id);
   if (!raw) throw new ServerError(0, 'missing', '这个世界可能已在别的页面里删掉了');
   if (!syncable(id)) throw new ServerError(0, 'legacy', '以前存的世界，浏览器存储满了，没能换成新的存法，存不进账号。删掉几个世界、刷新页面再试');
+  // 手上的不全:拿它去换,账号里那些就没了
+  if (!notesKnown(id)) throw new ServerError(0, NOTES_UNREAD, 'AI 写的东西这次没读出来。刷新页面再试');
   const notes = exportNotes(id);
   const tooMany = notes.length > 0 && JSON.stringify(notes).length > NOTES_MAX;
   if (tooMany && !o.alsoFile) throw new ServerError(400, 'bad-request', 'AI 给这个世界写的东西太多了，存不进账号');
+  const save = JSON.parse(raw.save) as SaveFile;
+  const mark = fullMark(id, save);
   const body = (rev: number, deleted: boolean): PutBody => ({
     baseRev: rev,
-    save: JSON.parse(raw.save) as unknown,
+    save,
     meta: { ...raw.meta },
     thumb: thumbOf(raw.thumb),
     ...(tooMany ? {} : { notes: notes.length ? notes : null }),
@@ -53,7 +60,9 @@ export async function pushWorld(id: string, o: { alsoFile?: boolean; raw?: RawWo
     const e = (await listCloud()).find((x) => x.id === id);
     same();
     try {
-      return await putCloud(id, body(e?.rev ?? 0, !!e?.deleted));
+      const r = await putCloud(id, body(e?.rev ?? 0, !!e?.deleted));
+      noteSent(id, mark, r.rev);
+      return r;
     } catch (err) {
       if (!(err instanceof ServerError) || err.code !== 'conflict' || tries >= 2) throw err;
     }
@@ -70,6 +79,7 @@ export async function takeWorld(id: string): Promise<void> {
     replaceNotes(id, had);
     throw new ServerError(0, 'full', '浏览器存储满了，放不下这个世界。先删掉几个世界');
   }
+  noteSent(id, fullMark(id, w.save as SaveFile), w.rev);
 }
 
 const UNSAVED_WHY = '正在看的这个世界最新的改动没能存进浏览器（存储满了）。先把它存成文件，或者选「留着」';

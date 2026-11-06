@@ -10,13 +10,20 @@ import { makeSave, type SaveFile } from '../src/gen/savefile';
 import * as saveStore from '../src/ui/saveStore';
 import { clearEdits } from '../src/ui/editsStore';
 import { _resetToasts, getToast } from '../src/ui/toastStore';
-import { forgetNotes, listNotes, putNote } from '../src/ai/library';
+import { forgetNotes, listNotes, notesKnown, putNote } from '../src/ai/library';
 import { setServerForTest } from '../src/account/server';
 import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, sendCode } from '../src/account/session';
 import { SESSION_CHANGED, pushWorld, signOut, takeWorld } from '../src/account/sync';
 import { createShare, deleteCloud, listCloud, listShares, openShareCode, restoreTrash, stopShare } from '../src/account/cloud';
 import { fetchOverview } from '../src/account/fullWorlds';
+import { fullStatusOf } from '../src/ui/fullWorldView';
 import { pushForShare } from '../src/ui/sharePush';
+
+// 「AI 写的东西没读全」在 Node 里造不出来(没有世界仓库),换成这样
+vi.mock('../src/ai/library', async (importOriginal) => {
+  const m = await importOriginal<typeof import('../src/ai/library')>();
+  return { ...m, notesKnown: vi.fn(m.notesKnown) };
+});
 
 class FakeStorage {
   map = new Map<string, string>();
@@ -186,6 +193,47 @@ describe('点了才传', () => {
     await pushWorld(id, { alsoFile: true });
     expect((inCloud()[0].save as SaveFile).title).toBe('苍澜界');
     expect(inCloud()[0].notes).toBeNull();
+  });
+
+  it('AI 写的东西这次没读全:不拿手上这份去换账号里的', async () => {
+    const id = addWorld(7, '苍澜界');
+    putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '第一版', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+    await signIn();
+    await pushWorld(id);
+    const before = worldRequests().length;
+    vi.mocked(notesKnown).mockImplementationOnce(() => false);
+    await expect(pushWorld(id)).rejects.toMatchObject({ code: 'notes-unread' });
+    expect(worldRequests().length).toBe(before);
+    expect((inCloud()[0].notes as { text: string }[])[0].text).toBe('第一版');
+  });
+});
+
+describe('只传了配方的世界,账号里那份和这里一样吗', () => {
+  it('这台传上去、取回来的才算一样;之后改过、别的设备又传过都不算', async () => {
+    const a = new FakeStorage();
+    device(a);
+    const id = addWorld(7, '苍澜界');
+    await signIn();
+    const status = async () => fullStatusOf((await fetchOverview())!, id, saveStore.loadWorld(id)?.save);
+    expect(await status()).toEqual({ kind: 'never' });
+    await pushWorld(id);
+    expect(await status()).toMatchObject({ kind: 'recipe', same: true });
+    saveStore.renameWorld(id, '改过的');
+    expect(await status()).toMatchObject({ kind: 'recipe', same: false });
+    await pushWorld(id);
+    expect(await status()).toMatchObject({ same: true });
+    putNote(id, { key: 'k', kind: '史书', title: '大昌', text: '后来写的', createdAt: '2026-10-05T00:00:00Z', provider: 'mock', model: 'm' });
+    expect(await status()).toMatchObject({ same: false });
+    await pushWorld(id);
+    device(new FakeStorage());
+    await signIn();
+    await takeWorld(id);
+    expect(await status()).toMatchObject({ kind: 'recipe', same: true });
+    saveStore.renameWorld(id, 'B 改的');
+    await pushWorld(id);
+    device(a);
+    await signIn();
+    expect(await status()).toMatchObject({ kind: 'recipe', same: false });
   });
 });
 

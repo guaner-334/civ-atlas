@@ -378,8 +378,15 @@ function LogoutDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const fo = useFullOverview();
-  // 世界不会自动进账号:没传过的、传了又改过的,从这台删掉就没了
-  const onlyHere = useMemo(() => listWorlds().filter((w) => !fo || !['same', 'recipe'].includes(fullStatusOf(fo, w.id, w.save).kind)).length, [fo]);
+  // 世界不会自动进账号:没传过的、传了又改过的(只传了配方的,不确知一样也算改过),从这台删掉就没了
+  const onlyHere = useMemo(
+    () =>
+      listWorlds().filter((w) => {
+        const s = fo ? fullStatusOf(fo, w.id, w.save) : null;
+        return !(s?.kind === 'same' || (s?.kind === 'recipe' && s.same));
+      }).length,
+    [fo],
+  );
   const go = async () => {
     setBusy(true);
     setErr('');
