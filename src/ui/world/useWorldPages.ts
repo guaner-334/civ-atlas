@@ -179,7 +179,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
   };
   /**
    * 打开作品墙上的一个作品(作品墙上点的、我的世界空页面上的精选、作品的网址):先是一页空白,去服务器取;
-   * 世界作品打开那个世界(只是看看),地图作品整屏一颗星球,新建参数作品在作品墙那一页上弹窗;撤下了、没有这个编号整页说"已经撤下了"
+   * 世界作品打开那个世界(只是看看),地图作品整屏一颗星球,新建参数、规则作品在作品墙那一页上打开;撤下了、没有这个编号整页说"已经撤下了"
    */
   const openWork = (id: string) => {
     navTo({ page: 'gallery', id });
@@ -197,7 +197,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     fetchWork(id).then((it) => {
       if (my !== wallSeq.current) return;
       if (it.kind === 'world') return it.full ? pullWorkWorld(it, it.full.bytes, my).catch(failed) : openWorkWorld(it);
-      setWall(it.kind === 'map' ? { kind: 'map', work: it } : { kind: 'list', preset: it });
+      setWall(it.kind === 'map' ? { kind: 'map', work: it } : { kind: 'list', shown: it });
     }, failed);
   };
   /** 世界作品的世界文件:提示条上写取了多少,取完照存的内容打开(同打开带着整个世界的短链接) */

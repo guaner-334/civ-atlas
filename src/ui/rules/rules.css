@@ -79,6 +79,18 @@
   outline: 0;
   box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-soft);
 }
+/* 作品墙上的规则作品:名字后面的小标签 */
+.rs-wtag {
+  flex: none;
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 19px;
+}
 .rs-title p {
   margin: 6px 0 0;
   font-size: 13px;
@@ -93,6 +105,10 @@
 }
 .rs-acts .ov-x {
   margin-left: 8px;
+}
+/* 作品墙上的规则作品:举报离关闭远一点,免得点错 */
+.rs-acts .rs-report {
+  margin-right: 16px;
 }
 
 /* 按钮:次按钮(浅灰底)/ 主按钮(主色底白字)/ 只有字的 / 方的(只有图标) */
@@ -137,6 +153,11 @@
 .rs-btn.sq {
   width: 32px;
   padding: 0;
+}
+.rs-btn:disabled {
+  opacity: 0.45;
+  filter: none;
+  cursor: default;
 }
 
 /* 「···」菜单(样子是侧栏那一套 .pm-menu) */
@@ -669,7 +690,34 @@ button.rs-rst:hover {
   padding: 0 calc(16px + var(--safe-r, 0px)) 16px calc(16px + var(--safe-l, 0px));
 }
 .rs-ph-top {
+  position: relative;
   padding: calc(14px + var(--safe-t, 0px)) 0 14px;
+}
+.rs-ph-top h1 .rs-wtag {
+  margin-left: 12px;
+}
+.rs-ph-flag {
+  position: absolute;
+  right: 0;
+  top: calc(12px + var(--safe-t, 0px));
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--btn);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.rs-ph-flag:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rs-ph-top p.rs-ph-blurb {
+  font-size: 14px;
+  color: var(--ink);
 }
 .rs-ph-back {
   display: flex;

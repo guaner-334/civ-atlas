@@ -1,5 +1,5 @@
 /**
- * 作品墙(数据和接口在 account/gallery.ts):作者投来、挑过以后放上去的世界、地图和新建参数。只能看、拿来用、举报,
+ * 作品墙(数据和接口在 account/gallery.ts):作者投来、挑过以后放上去的世界、地图、新建参数和规则。只能看、拿来用、举报,
  * 没有评论、点赞,也不写打开次数。服务器没开作品墙(或没配服务器)时这里的东西一样都不出现。
  *
  *   GalleryPage       作品墙那一页(样子和「我的世界」一套):本月精选(配推荐语)→ 正在进行的挑战 → 全部作品(按上架时间,
@@ -7,6 +7,7 @@
  *                     手机上精选一行横着滑,全部作品两列、不写上架日期。右上「怎么上作品墙」(HowToDialog:站外投稿、带上哪三样、投稿须知)
  *   GalleryFeatured   「我的世界」一个都没有时,空页面下面的一排本月精选 +「去作品墙看全部」
  *   PresetWorkDialog  点开一个新建参数作品:封面星球、这套参数、作者的一句话;「用这套参数新建」
+ *                     点开一个规则作品是调规则的大卡(rules/RulesSheet.tsx,盖在这一页上)
  *   WorkGone          打开作品的地址时:取的时候一页空白,撤下了(或没有)整页写"这个作品已经撤下了"
  *   ReportDialog      举报:六个理由选一个,不能打字;提交以后"收到了,谢谢"。同一台设备对同一个作品只能举报一次
  *
@@ -24,7 +25,7 @@ import { VersionText } from './VersionNews';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { decodePresetHash } from './presetLink';
 import type { SharedPreset } from './presetStore';
-import { openRulesSheet } from './rules/sheetStore';
+import { closeRulesSheet, getRulesSheet, openRulesSheet, openRulesWork, rulesWorkId, useRulesSheet } from './rules/sheetStore';
 import { rulesUiOn } from './rules/flag';
 import { DEFAULT_PARAMS } from '../gen/params';
 import { END_YEAR_DEFAULT } from '../gen/edits';
@@ -78,16 +79,37 @@ export function workWho(w: Pick<GalleryWork, 'by' | 'title'>): string {
 // ---------------------------------------------------------------------------
 // 卡片
 
+/** 用了非官方规则的世界:规则叫什么 */
+const worldRules = (w: GalleryWork) => (w.kind === 'world' && w.rules && rulesUiOn() ? w.rules.name : '');
+
 function Cover({ w }: { w: GalleryWork }) {
   const url = coverUrl(w.id);
+  const rules = worldRules(w);
   return (
     <span className={`gl-cover${w.kind === 'preset' ? ' planet' : ''}`} style={url ? { backgroundImage: `url("${url}")` } : undefined}>
-      <span className="gl-tag">{WORK_KIND_NAME[w.kind]}</span>
+      <span className="gl-tags">
+        <span className="gl-tag">{WORK_KIND_NAME[w.kind]}</span>
+        {rules && <span className="gl-tag rl">规则：{rules}</span>}
+      </span>
     </span>
   );
 }
 
-/** 一张作品卡:card = 全部作品里的(封面、作品名、上架日期、署名、一句话);feat = 精选(多一段推荐语);mini = 挑战里、空页面的(封面、名字、署名) */
+/** 规则作品卡上那一行:「改了 6 项」+ 最显眼的几处(还有没写到的接省略号) */
+function RulesLine({ w }: { w: GalleryWork }) {
+  const r = w.rules;
+  if (!r) return w.blurb ? <span className="gl-blurb">{w.blurb}</span> : null;
+  const items = /^(改了|和官方)/.test(r.brief) ? 0 : r.brief.split('、').length;
+  return (
+    <span className="gl-rule">
+      <span className="gl-n">改了 {r.changed} 项</span>
+      {r.brief}
+      {items > 0 && r.changed > items ? '……' : ''}
+    </span>
+  );
+}
+
+/** 一张作品卡:card = 全部作品里的(封面、作品名、上架日期、署名、一句话,规则作品换成改了几项);feat = 精选(多一段推荐语);mini = 挑战里、空页面的(封面、名字、署名) */
 function WorkCard({ w, kind, note, phone, onOpen }: { w: GalleryWork; kind: 'card' | 'feat' | 'mini'; note?: string; phone: boolean; onOpen: (w: GalleryWork) => void }) {
   return (
     <button className={`gl-card ${kind}`} data-work={w.id} data-kind={w.kind} onClick={() => onOpen(w)}>
@@ -98,7 +120,7 @@ function WorkCard({ w, kind, note, phone, onOpen }: { w: GalleryWork; kind: 'car
           {kind === 'card' && !phone && <span className="gl-at">{dayText(w.addedAt)}</span>}
         </span>
         {w.by && <span className="gl-by">{w.by}</span>}
-        {kind === 'card' && w.blurb && <span className="gl-blurb">{w.blurb}</span>}
+        {kind === 'card' && (w.kind === 'rules' ? <RulesLine w={w} /> : w.blurb && <span className="gl-blurb">{w.blurb}</span>)}
         {kind === 'feat' && note && <span className="gl-note">{note}</span>}
       </span>
     </button>
@@ -170,17 +192,17 @@ export interface GalleryPageProps {
   phone: boolean;
   /** 「‹ 我的世界」 */
   onHome: () => void;
-  /** 点开一个世界 / 地图作品(新建参数在这一页里弹窗) */
+  /** 点开一个世界 / 地图作品(新建参数、规则在这一页上打开) */
   onOpen: (w: GalleryWork) => void;
   /** 新建参数作品里点了「用这套参数新建」 */
   onPreset: (p: SharedPreset) => void;
-  /** 一进来就开着的新建参数作品(打开它的地址时;取好了的) */
-  preset?: GalleryItem | null;
-  /** 开着的新建参数作品换了(编号;关上 = null):网址跟着换 */
-  onPresetShown?: (id: string | null) => void;
+  /** 一进来就开着的新建参数 / 规则作品(打开它的地址时;取好了的) */
+  shown?: GalleryItem | null;
+  /** 开着的新建参数 / 规则作品换了(编号;关上 = null):网址跟着换 */
+  onShown?: (id: string | null) => void;
 }
 
-export function GalleryPage({ phone, onHome, onOpen, onPreset, preset, onPresetShown }: GalleryPageProps) {
+export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }: GalleryPageProps) {
   const g = useGallery();
   const [tab, setTabState] = useState<Tab>(lastTab);
   const setTab = (t: Tab) => {
@@ -188,13 +210,25 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, preset, onPresetS
     setTabState(t);
   };
   const [howto, setHowto] = useState(false);
+  const preset = shown?.kind === 'preset' ? shown : null;
   const [presetW, setPresetW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(preset ? { w: preset, item: preset } : null);
   useEffect(() => {
     if (preset) setPresetW({ w: preset, item: preset });
   }, [preset]);
-  const shownId = presetW?.w.id ?? null;
-  const shownRef = useRef(onPresetShown);
-  shownRef.current = onPresetShown;
+  useEffect(() => {
+    if (shown?.kind === 'rules') openRulesWork(shown, shown.ruleLink ?? '');
+  }, [shown]);
+  // 规则作品的大卡不在这一页里:离开作品墙(后退、回我的世界)时一起关上,还在取的也作废
+  useEffect(
+    () => () => {
+      if (rulesWorkId(getRulesSheet())) closeRulesSheet();
+    },
+    [],
+  );
+  const sheet = useRulesSheet();
+  const shownId = presetW?.w.id ?? rulesWorkId(sheet);
+  const shownRef = useRef(onShown);
+  shownRef.current = onShown;
   const firstShown = useRef(true);
   useEffect(() => {
     // 一进来什么都没开着:网址本来就是作品墙那一页的
@@ -209,7 +243,7 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, preset, onPresetS
     if (g.status === 'off') onHome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g.status]);
-  const open = (w: GalleryWork) => (w.kind === 'preset' ? setPresetW({ w }) : onOpen(w));
+  const open = (w: GalleryWork) => (w.kind === 'preset' ? setPresetW({ w }) : w.kind === 'rules' ? openRulesWork(w) : onOpen(w));
   const list = g.list;
 
   const homeBtn = (
@@ -359,17 +393,26 @@ const TABS: { id: Tab; name: string }[] = [
   { id: 'world', name: '世界' },
   { id: 'map', name: '地图' },
   { id: 'preset', name: '新建参数' },
+  { id: 'rules', name: '规则' },
 ];
 
-function GalleryBody({ list, phone, tab, onTab, onOpen }: { list: GalleryList; phone: boolean; tab: Tab; onTab: (t: Tab) => void; onOpen: (w: GalleryWork) => void }) {
+/** 调规则的入口关着时,规则作品不露 */
+function wallList(list: GalleryList): GalleryList {
+  return rulesUiOn() ? list : { ...list, works: list.works.filter((w) => w.kind !== 'rules') };
+}
+
+function GalleryBody({ list: all, phone, tab: tab0, onTab, onOpen }: { list: GalleryList; phone: boolean; tab: Tab; onTab: (t: Tab) => void; onOpen: (w: GalleryWork) => void }) {
+  const list = wallList(all);
+  const tabs = rulesUiOn() ? TABS : TABS.filter((t) => t.id !== 'rules');
+  const tab = tabs.some((t) => t.id === tab0) ? tab0 : 'all';
   const byId = new Map(list.works.map((w) => [w.id, w]));
   const feat = list.featured.filter((f) => byId.has(f.id));
   const month = monthText(list.month);
   const count = (t: Tab) => (t === 'all' ? list.works.length : list.works.filter((w) => w.kind === t).length);
   const shown = tab === 'all' ? list.works : list.works.filter((w) => w.kind === tab);
   const seg = (
-    <div className="mw-seg gl-seg" role="tablist" aria-label="按种类看">
-      {TABS.map((t) => (
+    <div className={`mw-seg gl-seg${tabs.length > 4 ? ' five' : ''}`} role="tablist" aria-label="按种类看">
+      {tabs.map((t) => (
         <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} data-tab={t.id} onClick={() => onTab(t.id)}>
           {t.name}
           {!phone && <i>{count(t.id)}</i>}
@@ -450,7 +493,7 @@ function GalleryBody({ list, phone, tab, onTab, onOpen }: { list: GalleryList; p
 
 export function GalleryFeatured({ phone, onOpen, onGallery }: { phone: boolean; onOpen: (w: GalleryWork) => void; onGallery: () => void }) {
   const g = useGallery();
-  const list = g.list;
+  const list = g.list && wallList(g.list);
   if (!list) return null;
   const byId = new Map(list.works.map((w) => [w.id, w]));
   const items = list.featured

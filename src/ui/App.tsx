@@ -2705,9 +2705,9 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             onHome={goHome}
             onOpen={(w) => openWork(w.id)}
             onPreset={takePresetWork}
-            preset={wall.preset}
-            onPresetShown={(id) => {
-              // 开着的新建参数作品写进网址(刷新、复制网址还是它);不算一步
+            shown={wall.shown}
+            onShown={(id) => {
+              // 开着的新建参数 / 规则作品写进网址(刷新、复制网址还是它);不算一步
               navReplace({ page: 'gallery', ...(id ? { id } : {}) });
               writeGalleryUrl(id ?? '');
             }}

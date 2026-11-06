@@ -13,13 +13,13 @@
  * 带工具的请求(助手):最后一条不是工具结果时,回一个对第一个工具的调用(参数为空,done.tool_calls);是工具结果时正常回话。
  * 传到账号的世界(src/account/fullWorlds.ts):块和文件都在内存里;不真核对,看一眼开头是不是 ZIP,文字审核用 fullFail 模拟。
  * POST /v1/dev/full { off?, limits?, fail?, storeFull? } 改这部分的行为(off = 当服务器没开这个功能,接口都 404)。
- * 作品墙(src/account/gallery.ts):开着,摆着世界(带世界文件)、地图、新建参数各一件,一件精选、一个挑战;不用登录。
- * 世界作品的文件是 tests/fixtures/world-file/v1.civworld(测试样本,网页上打开会说内容和配方对不上;要在网页上看打开后的样子,把这个请求换成一份真的世界文件)。
+ * 作品墙(src/account/gallery.ts):开着,摆着世界(带世界文件、用了非官方规则)、地图、新建参数、规则各一件,一件精选、一个挑战;不用登录。
+ * 世界作品的文件第一次要的时候现做(fakeWorldFile.ts,一两秒),网页上能照存的内容打开。
  * POST /v1/dev/gallery { off?, withdrawn? } 关掉作品墙(接口都 404)、撤下几件。
  */
-import { readFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GENERATOR_VERSION } from '../../src/gen/edits';
+import { STEADY_RULES, WARRING_RULES, makeWorldFile, rulesBriefOf, rulesLinkOf } from './fakeWorldFile';
 
 export const FAKE_CODE = '246810';
 /** 开发服务器的邀请码 */
@@ -85,7 +85,7 @@ interface Share {
   by?: string;
 }
 
-type WorkKind = 'world' | 'map' | 'preset';
+type WorkKind = 'world' | 'map' | 'preset' | 'rules';
 
 interface Work {
   id: string;
@@ -99,18 +99,31 @@ interface Work {
   save?: unknown;
   /** 新建参数:预设链接 # 后面那段 */
   preset?: string;
+  /** 规则:规则链接 # 后面那段 */
+  link?: string;
   /** 世界:带世界文件 */
   full?: true;
+  /** 规则作品、用了非官方规则的世界:列表里的规则摘要 */
+  brief?: { name: string; changed: number; brief: string };
 }
 
 const REPORT_REASONS = ['illegal', 'porn', 'abuse', 'privacy', 'infringe', 'other'];
-const WORLD_FILE = new URL('../../tests/fixtures/world-file/v1.civworld', import.meta.url);
 
 function sampleWorks(now: number): Work[] {
   const day = 86400_000;
   const preset = new URLSearchParams({ preset: '1', name: '两块完整大陆', seed: '4242', landFraction: '0.4', continents: '2' }).toString();
   return [
-    { id: 'k7qm2xpa', kind: 'world', title: '金阳洋两岸', by: '砚山', blurb: '两岸七个王朝打了三百年，最后谁也没吞下谁。', version: GENERATOR_VERSION, addedAt: now - day, full: true },
+    {
+      id: 'k7qm2xpa',
+      kind: 'world',
+      title: '金阳洋两岸',
+      by: '砚山',
+      blurb: '两岸七个王朝打了三百年，最后谁也没吞下谁。',
+      version: GENERATOR_VERSION,
+      addedAt: now - day,
+      full: true,
+      brief: rulesBriefOf(STEADY_RULES),
+    },
     {
       id: 'm3np8rta',
       kind: 'map',
@@ -122,12 +135,23 @@ function sampleWorks(now: number): Work[] {
       save: { app: '文明与地图', format: 1, generator: GENERATOR_VERSION, seed: 2024, params: { seed: 2024 }, edits: { names: {}, interventions: [], terrain: [] }, title: '九州大陆' },
     },
     { id: 'p4tz6hwe', kind: 'preset', title: '两块完整大陆', by: '砚山', blurb: '', version: null, addedAt: now - 3 * day, preset },
+    {
+      id: 'r6zh9qkw',
+      kind: 'rules',
+      title: WARRING_RULES.name,
+      by: WARRING_RULES.by!,
+      blurb: '七八个国家并立，一百多年一场大战，谁也吞不下谁。',
+      version: GENERATOR_VERSION,
+      addedAt: now - 4 * day,
+      link: rulesLinkOf(WARRING_RULES),
+      brief: rulesBriefOf(WARRING_RULES),
+    },
   ];
 }
 
 /** 封面:2:1 的一块颜色,写着作品名(真的是 JPEG,这里用 SVG 代替) */
 function coverSvg(w: Work): string {
-  const bg = { world: '#c9d8b6', map: '#b9cfe0', preset: '#1d2a3a' }[w.kind];
+  const bg = { world: '#c9d8b6', map: '#b9cfe0', preset: '#1d2a3a', rules: '#e3d6b8' }[w.kind];
   const fg = w.kind === 'preset' ? '#e8eef5' : '#2b3a2e';
   const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320"><rect width="640" height="320" fill="${bg}"/><text x="320" y="172" font-size="40" text-anchor="middle" fill="${fg}" font-family="sans-serif">${esc(w.title)}</text></svg>`;
@@ -203,11 +227,17 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
   const gallery = { off: false, works: sampleWorks(Date.now()), withdrawn: new Set<string>(), reports: [] as { id: string; reason: string }[] };
   let worldFile: Promise<{ data: Uint8Array; sum: string }> | null = null;
   const galleryFile = () =>
-    (worldFile ??= readFile(WORLD_FILE).then(async (b) => {
-      const data = new Uint8Array(b);
-      return { data, sum: await sha(data) };
-    }));
-  const workView = (w: Work) => ({ id: w.id, kind: w.kind, title: w.title, by: w.by, blurb: w.blurb, version: w.version, addedAt: iso(w.addedAt) });
+    (worldFile ??= makeWorldFile('金阳洋两岸').then(async (data) => ({ data, sum: await sha(data) })));
+  const workView = (w: Work) => ({
+    id: w.id,
+    kind: w.kind,
+    title: w.title,
+    by: w.by,
+    blurb: w.blurb,
+    version: w.version,
+    addedAt: iso(w.addedAt),
+    ...(w.brief ? { rules: w.brief } : {}),
+  });
   const galleryList = async () => {
     const live = gallery.works.filter((w) => !gallery.withdrawn.has(w.id)).sort((a, b) => b.addedAt - a.addedAt);
     const bytes = live.some((w) => w.full) ? (await galleryFile()).data.length : 0;
@@ -258,6 +288,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       if (gallery.withdrawn.has(w.id)) return json(410, { withdrawn: true, error: { code: 'gallery-gone', message: '这个作品已经撤下' } });
       if (req.method === 'GET' && !g[2]) {
         if (w.preset) return json(200, { ...workView(w), preset: w.preset });
+        if (w.link) return json(200, { ...workView(w), rules: w.link });
         if (!w.full) return json(200, { ...workView(w), save: w.save });
         const f = await galleryFile();
         return json(200, { ...workView(w), full: { sum: f.sum, bytes: f.data.length } });

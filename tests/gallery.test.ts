@@ -106,6 +106,30 @@ describe('作品墙的列表', () => {
     expect(new URL(calls[0].url).pathname).toBe('/v1/gallery');
   });
 
+  it('规则作品、用了非官方规则的世界带着规则摘要;摘要不像样的不要,作品照样留着', async () => {
+    const brief = { name: '战国千年', changed: 6, brief: '战争 ×2、议和后 2 年不再开战、分裂 ×1.5' };
+    route = () =>
+      json(200, {
+        ...LIST,
+        works: [
+          { ...LIST.works[0], rules: { name: '长治久安', changed: 5, brief: '战争 ×¾' } },
+          { id: 'r6zh9qkw', kind: 'rules', title: '战国千年', by: '鲸落', blurb: '一句话', version: 57, addedAt: '2026-11-03T02:00:00.000Z', rules: brief },
+          { id: 'p4tz6hwe', kind: 'rules', title: '摘要不对', by: '', blurb: '', version: 57, addedAt: '2026-11-02T02:00:00.000Z', rules: { name: '', changed: 2.5 } },
+        ],
+      });
+    loadGallery();
+    await settle();
+    const ws = getGallery().list!.works;
+    expect(ws.map((w) => [w.id, w.kind])).toEqual([
+      ['k7qm2xpa', 'world'],
+      ['r6zh9qkw', 'rules'],
+      ['p4tz6hwe', 'rules'],
+    ]);
+    expect(ws[0].rules).toEqual({ name: '长治久安', changed: 5, brief: '战争 ×¾' });
+    expect(ws[1].rules).toEqual(brief);
+    expect(ws[2].rules).toBeUndefined();
+  });
+
   it('服务器没开作品墙(404)、网站没配服务器:off,没有列表 —— 入口、空页面的精选、作品墙那一页都不出现', async () => {
     route = () => err(404, 'not-found');
     loadGallery();
@@ -160,6 +184,17 @@ describe('打开一个作品', () => {
     expect(await fetchWork('k7qm2xpa')).toMatchObject({ save });
     expect((await fetchWork('k7qm2xpa')).full).toBeUndefined();
     expect((await fetchWork('m3np8rta')).preset).toBe('preset=1&name=x');
+  });
+
+  it('规则作品带着规则链接 # 后面那段(取单个作品时 rules 是字符串);没带的看不懂', async () => {
+    const work = { id: 'r6zh9qkw', kind: 'rules', title: '战国千年', by: '鲸落', blurb: '', version: 57, addedAt: '2026-11-03T02:00:00.000Z' };
+    route = () => json(200, { ...work, rules: 'rules=1&name=x&war.odds=2' });
+    const r = await fetchWork('r6zh9qkw');
+    expect(r.kind).toBe('rules');
+    expect(r.ruleLink).toBe('rules=1&name=x&war.odds=2');
+    expect(r.rules).toBeUndefined();
+    route = () => json(200, { ...work, rules: { name: '战国千年', changed: 6, brief: '' } });
+    await expect(fetchWork('r6zh9qkw')).rejects.toThrow('看不懂');
   });
 
   it('撤下了(410)、没有这个编号(404):都算"已经撤下";别的错不算', async () => {

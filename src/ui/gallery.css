@@ -97,6 +97,10 @@
   padding: 0 4px;
   font-size: 14.5px;
 }
+.mw-phone .gl-seg.five button {
+  padding: 0 2px;
+  font-size: 13.5px;
+}
 .gl-none {
   margin: 0;
   padding: 6px 0 32px;
@@ -191,6 +195,34 @@
   border-radius: 5px;
   font-size: 11px;
 }
+/* 封面左上:种类;用了非官方规则的世界后面多「规则：某某」(太长省略) */
+.gl-tags {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.gl-tags .gl-tag {
+  position: static;
+  flex: none;
+}
+.gl-tags .gl-tag.rl {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mw-phone .gl-tags {
+  left: 6px;
+  top: 6px;
+  right: 6px;
+  gap: 4px;
+}
 .gl-meta {
   display: flex;
   flex-direction: column;
@@ -235,6 +267,27 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* 规则作品:一句话那里换成「改了 6 项」+ 最显眼的几处 */
+.gl-rule {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gl-n {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--btn);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 19px;
+  vertical-align: 1px;
+}
 .gl-note {
   margin-top: 8px;
   padding-left: 10px;
@@ -261,6 +314,17 @@
   margin-top: 2px;
   font-size: 12.5px;
   line-height: 17px;
+}
+.mw-phone .gl-rule {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 17px;
+}
+.mw-phone .gl-n {
+  margin-right: 4px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
 }
 .gl-card.mini .gl-meta {
   margin-top: 7px;
@@ -765,8 +829,33 @@
   overflow: hidden;
 }
 .gw-by {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
   font-size: 12.5px;
   color: var(--ink-2);
+  white-space: nowrap;
+}
+/* 用了非官方规则的世界:署名后面「规则：某某」,点了看那套规则 */
+.gw-bar .gw-rules {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.gw-bar .gw-rules:hover {
+  text-decoration: underline;
+}
+.gw-by .gw-rules {
+  font-size: 12.5px;
 }
 .gw-acts {
   flex: none;

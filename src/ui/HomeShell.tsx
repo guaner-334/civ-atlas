@@ -268,8 +268,8 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
           onHome={() => history.back()}
           onOpen={(w) => openWork(w.id)}
           onPreset={(preset) => leave({ kind: 'preset', preset })}
-          onPresetShown={(id) => {
-            // 开着的新建参数作品写进网址(和 App 里一样;不算一步):主程序下好以后照网址接着开着它
+          onShown={(id) => {
+            // 开着的新建参数 / 规则作品写进网址(和 App 里一样;不算一步):主程序下好以后照网址接着开着它
             navReplace({ page: 'gallery', ...(id ? { id } : {}) });
             navUrl(galleryHref(location.pathname, location.search, id ?? ''));
           }}

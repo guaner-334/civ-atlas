@@ -6943,7 +6943,7 @@ if (part('联系我们')) {
   if (phoneMenu !== CONTACT.url || phoneOv) errs.push(`联系我们(手机):「更多」里应该有、概览底部不放(${phoneMenu},概览 ${phoneOv} 个)`);
 }
 
-// 只开作品墙:本地假服务器、账号关着(accounts=off)。作品墙列得出三种作品,我的世界没有登录入口,发到服务器的只有作品墙的请求;
+// 只开作品墙:本地假服务器、账号关着(accounts=off)。作品墙列得出四种作品,我的世界没有登录入口,发到服务器的只有作品墙的请求;
 // 同一个假服务器、账号开着时有登录入口
 if (part('只开作品墙')) {
   const wctx = await browser.newContext({ viewport: { width: 1400, height: 820 } });
@@ -6972,10 +6972,45 @@ if (part('只开作品墙')) {
   const loginOn = await wp.locator('[data-act=login]').count();
   await wctx.close();
   console.log(`只开作品墙:作品 ${kinds.join(',')};我的世界 登录入口 ${loginOff} 个、作品墙入口 ${wallOff} 个,网址留着 ${keptUrl};别的请求 ${others.join(' ') || '没有'};账号开着时登录入口 ${loginOn} 个`);
-  if (!listed || ['world', 'map', 'preset'].some((k) => !kinds.includes(k))) errs.push(`只开作品墙:假服务器的作品墙没列出世界、地图、新建参数(${kinds.join(',')})`);
+  if (!listed || ['world', 'map', 'preset', 'rules'].some((k) => !kinds.includes(k))) errs.push(`只开作品墙:假服务器的作品墙没列出世界、地图、新建参数、规则(${kinds.join(',')})`);
   if (loginOff || !wallOff || !keptUrl) errs.push(`只开作品墙:账号关着时我的世界有登录入口、没有作品墙入口,或网址丢了 accounts=off(登录 ${loginOff},作品墙 ${wallOff},${keptUrl})`);
   if (others.length) errs.push(`只开作品墙:账号关着还发了别的请求(${others.join(' ')})`);
   if (loginOn !== 1) errs.push(`只开作品墙:账号开着时我的世界没有登录入口(${loginOn})`);
+}
+
+// 打开世界作品:假服务器的世界作品下载世界文件、照存的内容打开(不报错、侧栏列出国家);用了非官方规则,顶条写「规则：长治久安」,
+// 点了看那套规则;1600 宽时顶条不压在右上那一排(图层页签、导出……)下面。作品墙上的规则作品点开是调规则的大卡(带「作品墙」标签),网址跟着换
+if (part('打开世界作品')) {
+  const gctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  const gp = await gctx.newPage();
+  gp.on('pageerror', (e) => errs.push(`打开世界作品:${e.message}`));
+  await gp.goto(`${dev.url}/?gallery=k7qm2xpa&aiServer=fake&accounts=off`);
+  const opened = await gp.locator('[data-testid=gallery-bar]').waitFor({ timeout: 90000 }).then(
+    () => true,
+    () => false,
+  );
+  await gp.locator('.sidebar [data-polity]').first().waitFor({ timeout: 60000 }).catch(() => {});
+  await gp.waitForTimeout(600);
+  const states = await gp.locator('.sidebar [data-polity]').count();
+  const rulesLink = (await gp.locator('[data-act=gallery-world-rules]').innerText().catch(() => '')).trim();
+  const boxes = await gp.evaluate(() => {
+    const a = document.querySelector('[data-testid=gallery-bar]')?.getBoundingClientRect();
+    const b = document.querySelector('.map-bar')?.getBoundingClientRect();
+    return a && b ? { overlap: a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom } : null;
+  });
+  await gp.click('[data-act=gallery-world-rules]').catch(() => {});
+  const sheet = await gp.locator('.rs-root .rs-name').innerText({ timeout: 30000 }).catch(() => '');
+  await gp.goto(`${dev.url}/?gallery&aiServer=fake&accounts=off`);
+  await gp.locator('.gl-card.card[data-kind=rules]').click({ timeout: 30000 }).catch(() => {});
+  await gp.locator('.rs-root .rs-wtag').waitFor({ timeout: 30000 }).catch(() => {});
+  const tag = await gp.locator('.rs-root .rs-wtag').count();
+  const at = new URL(gp.url()).searchParams.get('gallery');
+  await gctx.close();
+  console.log(`打开世界作品:顶条 ${opened},侧栏 ${states} 国,${rulesLink || '没有规则'},点开的规则「${sheet}」,和右上那一排${boxes?.overlap ? '压在一起' : '不重叠'};规则作品 作品墙标签 ${tag} 个,网址 gallery=${at}`);
+  if (!opened || !states) errs.push(`打开世界作品:假服务器的世界作品没打开(顶条 ${opened},国家 ${states})`);
+  if (rulesLink !== '规则：长治久安' || sheet !== '长治久安') errs.push(`打开世界作品:顶条没写规则,或点了没打开那套规则(「${rulesLink}」「${sheet}」)`);
+  if (!boxes || boxes.overlap) errs.push('打开世界作品:1600 宽时顶条压在右上那一排下面');
+  if (tag !== 1 || at !== 'r6zh9qkw') errs.push(`打开世界作品:规则作品没打开成调规则的大卡,或网址没跟着换(标签 ${tag},gallery=${at})`);
 }
 
 // 测试版新功能:正式网站读测试网站的 beta/whats-new.json(src/ui/betaNews.ts),列出自己的清单里没有的几条。
