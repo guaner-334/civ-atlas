@@ -11,6 +11,7 @@ import { fakeAiMiddleware } from './scripts/lib/fakeAiServer';
 import { inlineIconsPlugin } from './scripts/lib/inlineIcons';
 import { beianPagesPlugin } from './scripts/lib/beian';
 import { loadScreenPlugin } from './scripts/lib/loadScreen';
+import { checkPagePlugin } from './scripts/lib/sandboxCheckPage';
 import { readWhatsNew } from './scripts/lib/whatsNew';
 import { beianRecords } from './src/ui/beian';
 import { SOURCE_URL } from './src/ui/links';
@@ -90,10 +91,34 @@ function precompress(): Plugin {
   };
 }
 
+/**
+ * 署名放在每个文件的最开头:压缩时 import 和几个小函数会被挪到署名前面(主程序 import 首页那一份的名字很长,署名就落到了几千字以后)
+ */
+function bannerFirst(): Plugin {
+  return {
+    name: 'banner-first',
+    apply: 'build',
+    enforce: 'post',
+    // vite 自己的 generateBundle 会把点开才下载的文件清单(__vite__mapDeps)加到最前面:要排在它后面再挪
+    generateBundle: {
+      order: 'post',
+      handler(_o, bundle) {
+        for (const c of Object.values(bundle)) {
+          if (c.type !== 'chunk') continue;
+          const m = /\/\*! 文明与地图 [^*]*\*\//.exec(c.code);
+          if (m && m.index > 0) c.code = m[0] + c.code.slice(0, m.index) + c.code.slice(m.index + m[0].length);
+        }
+      },
+    },
+  };
+}
+
+/** 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)、备案号(src/ui/beian.ts) */
+const DEFINE = { __APP_VERSION__: JSON.stringify(pkg.version), __APP_COMMIT__: JSON.stringify(buildCommit()), __BUILD_DAY__: JSON.stringify(BUILD_DAY), __ICP_BEIAN__: JSON.stringify(ICP_BEIAN) };
+
 export default defineConfig({
   base: './',
-  // 界面上显示的版本号(src/ui/version.ts)、构建那天(src/ui/betaNews.ts)、备案号(src/ui/beian.ts)
-  define: { __APP_VERSION__: JSON.stringify(pkg.version), __APP_COMMIT__: JSON.stringify(buildCommit()), __BUILD_DAY__: JSON.stringify(BUILD_DAY), __ICP_BEIAN__: JSON.stringify(ICP_BEIAN) },
+  define: DEFINE,
   plugins: [
     react(),
     // 浏览器标签上的图标写进页面(data: 网址):拖地图、换图层改网址时,浏览器不再一遍遍去要图标(scripts/lib/inlineIcons.ts)
@@ -106,24 +131,10 @@ export default defineConfig({
         this.emitFile({ type: 'asset', fileName: 'whats-new.json', source: `${JSON.stringify({ built: BUILD_DAY, news: readWhatsNew() })}\n` });
       },
     },
+    // 插件隔离自检页只进测试网站(scripts/lib/sandboxCheckPage.ts)
+    checkPagePlugin(process.env.VITE_BETA_SITE === '1', { banner: banner(), define: DEFINE, plugins: [bannerFirst()] }),
     precompress(),
-    // 署名放在每个文件的最开头:压缩时 import 和几个小函数会被挪到署名前面(主程序 import 首页那一份的名字很长,署名就落到了几千字以后)
-    {
-      name: 'banner-first',
-      apply: 'build',
-      enforce: 'post',
-      // vite 自己的 generateBundle 会把点开才下载的文件清单(__vite__mapDeps)加到最前面:要排在它后面再挪
-      generateBundle: {
-        order: 'post',
-        handler(_o, bundle) {
-          for (const c of Object.values(bundle)) {
-            if (c.type !== 'chunk') continue;
-            const m = /\/\*! 文明与地图 [^*]*\*\//.exec(c.code);
-            if (m && m.index > 0) c.code = m[0] + c.code.slice(0, m.index) + c.code.slice(m.index + m[0].length);
-          }
-        },
-      },
-    },
+    bannerFirst(),
     // 加载画面(scripts/lib/loadScreen.ts):第一次打开时先出网站图标、名字和一条真的进度条,页面的代码、样式表由它数着下好再交给浏览器;
     // 打开的不是首页时主程序也一起下
     loadScreenPlugin(BEIAN),
