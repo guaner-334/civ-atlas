@@ -20,9 +20,10 @@ import { openWorldById } from './newCivAction';
 import { ShareAborted, pushForShare } from './sharePush';
 import { askFull, fullDay, fullStatusOf, holdFullToasts, pairText, useFullJob, useFullNotes, useFullOverview, useFullPull, type FullJob, type FullNote } from './fullWorldView';
 import { usedLine } from './fullWorldWords';
+import { keepLastBy } from './submitView';
 
 /** 开着的这个窗口。退出、换了账号时外面已经不挂它了 */
-export default function AccountPanel({ panel, phone, onClose, onBack }: { panel: Exclude<Panel, { kind: 'login' }>; phone: boolean; onClose: () => void; onBack: () => void }) {
+export default function AccountPanel({ panel, phone, onClose, onBack }: { panel: Exclude<Panel, { kind: 'login' | 'submit' }>; phone: boolean; onClose: () => void; onBack: () => void }) {
   if (panel.kind === 'account') return <AccountDialog phone={phone} onClose={onClose} />;
   if (panel.kind === 'logout') return <LogoutDialog phone={phone} onClose={onClose} onBack={onBack} />;
   if (panel.kind === 'delete') return <DeleteDialog phone={phone} onClose={onClose} onBack={onBack} />;
@@ -642,6 +643,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
         sameLogin(token);
         setSt({ phase: 'on', share });
         setBy(share.by ?? '');
+        keepLastBy(share.by ?? '');
       }
     } catch (e) {
       if (e instanceof ShareAborted) return;
@@ -673,6 +675,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
         sameLogin(token);
         setSt({ phase: 'on', share });
         setBy(share.by ?? '');
+        keepLastBy(share.by ?? '');
         return true;
       } catch (e) {
         // 换了账号、退出了:这个窗口本来就该关

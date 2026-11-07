@@ -11,6 +11,7 @@
  *              短链接、复制;手机上多一个"发给…"(系统分享)
  *
  *   openLogin() / openAccount() / openShareDialog(id, 名字)   打开它们(「我的世界」右上、AI 设置、存档菜单)
+ *   openSubmitDialog(id, 名字)   投到作品墙(存档菜单;窗口在 SubmitDialog.tsx,点开才下载)
  *   openTrash()   「我的世界」那一页换成最近删除(App 回到我的世界)
  *   AccountHost   窗口本身,App 里一直挂着
  *
@@ -30,7 +31,7 @@ import './account.css';
 // ---------------------------------------------------------------------------
 // 开关
 
-export type Panel = { kind: 'login' } | { kind: 'account' } | { kind: 'logout' } | { kind: 'delete' } | { kind: 'share'; worldId: string; title: string };
+export type Panel = { kind: 'login' } | { kind: 'account' } | { kind: 'logout' } | { kind: 'delete' } | { kind: 'share'; worldId: string; title: string } | { kind: 'submit'; worldId: string; title: string; view?: SubmitView };
 
 let panel: Panel | null = null;
 let trash = false;
@@ -65,6 +66,13 @@ export function openAccount(): void {
 }
 export function openShareDialog(worldId: string, title: string): void {
   panel = { kind: 'share', worldId, title };
+  forNow();
+  emit();
+}
+/** 账号停了投稿时先说原因:ban 从「投到作品墙…」来,ban-share 从「分享…」来(其实没停就接着开分享窗) */
+export type SubmitView = 'ban' | 'ban-share';
+export function openSubmitDialog(worldId: string, title: string, view?: SubmitView): void {
+  panel = { kind: 'submit', worldId, title, ...(view ? { view } : {}) };
   forNow();
   emit();
 }
@@ -130,6 +138,12 @@ export function AccountHost({ phone }: { phone: boolean }) {
   };
   if (p.kind === 'login') return <LoginDialog phone={phone} onClose={close} />;
   if (stale) return null;
+  if (p.kind === 'submit')
+    return (
+      <Suspense fallback={null}>
+        <SubmitPanel key={p.worldId} phone={phone} worldId={p.worldId} title={p.title} view={p.view} onClose={close} />
+      </Suspense>
+    );
   return (
     <Suspense fallback={null}>
       <Panels panel={p} phone={phone} onClose={close} onBack={back} />
@@ -147,6 +161,7 @@ function PanelsMissing() {
 }
 
 const Panels = lazy(() => import('./AccountPanels').catch(() => ({ default: PanelsMissing as unknown as typeof import('./AccountPanels').default })));
+const SubmitPanel = lazy(() => import('./SubmitDialog').catch(() => ({ default: PanelsMissing as unknown as typeof import('./SubmitDialog').default })));
 
 // ---------------------------------------------------------------------------
 // 窗口外壳

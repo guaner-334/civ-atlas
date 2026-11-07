@@ -27,6 +27,7 @@ import { getStage } from './stageStore';
 import { clearToast, getToast, peekToast, showToast, updateToast, type ToastAction, type ToastInput } from './toastStore';
 import {
   checkTimeout,
+  extraPartsOf,
   knownWorldFileBytes,
   lookWorldFile,
   lookWorldFiles,
@@ -74,6 +75,8 @@ export async function fileSizeOf(id: string): Promise<{ note: string; bytes: num
   const bytes = await worldFileBytes(id);
   return bytes === null ? null : { note: aboutSize(bytes), bytes };
 }
+
+export { extraPartsOf };
 
 // ---------------------------------------------------------------------------
 // 提示条

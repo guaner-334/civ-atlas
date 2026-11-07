@@ -295,6 +295,12 @@ const PATHS = {
     </>
   ),
   warn: <path d="M12 3.5l9.5 16.5h-19zM12 10v4.5M12 17.2v.3" />,
+  ban: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M6 6l12 12" />
+    </>
+  ),
   camera: (
     <>
       <rect x="3" y="7" width="12.5" height="10" rx="2" />

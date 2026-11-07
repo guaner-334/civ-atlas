@@ -1,0 +1,245 @@
+/* 投稿窗(SubmitDialog.tsx):点开才下载,不进首页那一份样式。窗口、分组、按钮、勾选框照 account.css,通知样子照 gallery.css 的 .gw-ok */
+
+.sub-what {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.sub-th {
+  flex: none;
+  width: 96px;
+  height: 48px;
+  border-radius: 6px;
+  background: var(--btn) center / cover;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+}
+.sub-what .main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sub-what .t1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.sub-what .t1 b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+}
+.sub-k {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--btn);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--ink-2);
+}
+.sub-what small {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.sub-f {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sub-f .lab {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.sub-f .lab small {
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.sub-f .acct-in {
+  height: 36px;
+  font-size: 14.5px !important;
+  font-variant-numeric: normal;
+}
+.sub-f textarea.acct-in {
+  height: auto;
+  min-height: 58px;
+  padding: 8px 12px;
+  resize: none;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.sub-f .acct-in.bad {
+  box-shadow:
+    inset 0 0 0 1px var(--err),
+    0 0 0 3px color-mix(in srgb, var(--err) 14%, transparent);
+}
+.sub-f .acct-in:disabled {
+  color: var(--ink-2);
+}
+.sub-row2 {
+  display: flex;
+  gap: 12px;
+}
+.sub-row2 > .sub-f {
+  flex: 1;
+}
+.sub-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.acct-callout.sub-show {
+  color: var(--ink);
+}
+.acct-callout.sub-warn > .icon {
+  color: var(--warn);
+}
+.acct-callout.sub-bad {
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+}
+.acct-callout.sub-bad > .icon {
+  color: var(--err);
+}
+.acct-callout b {
+  font-weight: 600;
+}
+.sub-hits {
+  margin: 6px 0 0;
+  padding: 0 0 0 2px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sub-hits li {
+  display: flex;
+  gap: 8px;
+}
+.sub-hits li span {
+  color: var(--ink-2);
+}
+.sub-again {
+  display: block;
+  margin-top: 4px;
+}
+.sub-dim {
+  opacity: 0.45;
+}
+.acct-chk .sub-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link) !important;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sub-terms {
+  padding: 10px 12px 10px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 0 0 0.5px var(--line);
+}
+.sub-terms .hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 6px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.sub-terms .hd small {
+  font-weight: 400;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.sub-terms .gl-ol {
+  font-size: 13px;
+  gap: 3px;
+}
+.sub-chg {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.sub-chg-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 17px;
+  vertical-align: 1px;
+}
+
+/* 传的进度、核对、断线:写在窗里这一行(提示条盖不到窗口) */
+.sub-prog .acct-gr {
+  min-height: 58px;
+}
+.sub-prog .acct-gr > .icon.wn {
+  color: var(--warn);
+}
+.sub-spin {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: sub-spin 0.9s linear infinite;
+}
+@keyframes sub-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 投不了、投好了:一个大图标 + 标题 + 几句话 */
+.gw-ok-ic.sub-blue {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.gw-ok-ic.sub-grey {
+  background: var(--btn);
+  color: var(--ink-2);
+}
+.gw-ok .sub-why {
+  margin-top: 4px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: var(--field);
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  align-self: stretch;
+}
+.gw-ok .sub-why b {
+  font-weight: 600;
+}
+.acct-dlg.sheet .acct-foot.col .acct-btn.full.sub-plain {
+  font-weight: 500;
+}

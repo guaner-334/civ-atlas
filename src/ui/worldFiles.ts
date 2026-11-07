@@ -36,7 +36,7 @@ import { READER_VERSIONS } from '../gen/readers/versions';
 import { WORLD_CHECK_TIMEOUT_MS, checkWorldFileInWorker, type WorldCheckWorker } from '../gen/worldCheck';
 import { fileBaseName, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
-import { MANIFEST_FILE, WORLD_FILE_EXT, type WorldFileErrorKind } from '../gen/worldFormat';
+import { KNOWN_PARTS, MANIFEST_FILE, WORLD_FILE_EXT, type WorldFileErrorKind } from '../gen/worldFormat';
 import { walkZip, type ZipInput, type ZipSlice } from '../gen/zipStore';
 import { exportNotes, notesKnown, notesReady, replaceNotes } from '../ai/library';
 import type { FileFacts, FileLook } from '../worldFileLook';
@@ -359,6 +359,12 @@ export async function worldFileBytes(id: string): Promise<number | null> {
 
 /** 这个世界最近算过的大小(不去算);没算过 = null */
 export const knownWorldFileBytes = (id: string): number | null => sizes.get(id)?.bytes ?? null;
+
+/** 这个世界存着的内容里有哪些这一版不认得的块(插件放的附加数据,服务器审核看不到里面);读不了 = 没有 */
+export async function extraPartsOf(id: string): Promise<string[]> {
+  const r = await vaultCall('readRevision', [id, undefined, []]).catch(() => null);
+  return r ? r.manifest.parts.filter((p) => !KNOWN_PARTS.has(p.name)).map((p) => p.name) : [];
+}
 
 // ---------------------------------------------------------------------------
 // 打开一个世界文件

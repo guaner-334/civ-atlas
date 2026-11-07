@@ -10,6 +10,7 @@
  *   从文件打开进来的:当前世界那一行多一句「来自文件」和哪天打开的(只在这台设备上记)
  *   登录了网站账号:"复制配方链接"换成"分享…"(短链接,随时能停,AccountPanels.tsx 的分享窗)
  *   传到账号:服务器开了才有(fullWorldView.ts),点了才传;传过的换成「已传到账号」「再传一次」,分享那一项跟着说对方看到什么
+ *   投到作品墙…:登录了、服务器开着投世界才有(submitView.ts);账号停了投稿时它和「分享…」都灰着,点了说原因
  *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
  *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)。
  *                   存的内容读不出、先按新版算了一遍的世界也放:那一份不自动存,要留着看到的样子只能另存(「看原样」照放)
@@ -27,7 +28,7 @@ import { OLD_SITE, oldSiteFor, openOriginal } from './oldSite';
 import { openFailed } from './openTrouble';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
-import { openAccount, openShareDialog } from './AccountDialogs';
+import { openAccount, openShareDialog, openSubmitDialog } from './AccountDialogs';
 import { askFull, fullStatusOf, refusalOf, useFullJob, useFullOverview, type FullStatus } from './fullWorldView';
 import { menuItem, shareItem } from './fullWorldWords';
 import { showToast } from './toastStore';
@@ -35,6 +36,7 @@ import { useSession } from '../account/session';
 import { saveAsNew } from './FrozenWorld';
 import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
 import { contentTrouble, pendingOf } from './worldStore';
+import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem, useSubmitBan, useSubmitWorldOn } from './submitView';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -156,9 +158,12 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   useEffect(() => {
     if (open && session) void askFull();
   }, [open, !!session]);
+  // 投到作品墙:只投有历史的世界(新建中、只有地图的、只剩配方的不露)
+  const submitOn = useSubmitWorldOn(open) && !!cur && cur.kind !== 'draft' && !curStored?.draft && !curStored?.map && !recipeOnly;
+  const banned = useSubmitBan();
   const [pendingId, setPendingId] = useState<string | null>(null);
   useEffect(() => {
-    if (!open || !curId || !fullOn) return;
+    if (!open || !curId || !(fullOn || submitOn)) return;
     let live = true;
     void pendingOf(curId).then((p) => {
       if (live) setPendingId(p === 'none' ? null : curId);
@@ -166,12 +171,28 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     return () => {
       live = false;
     };
-  }, [open, curId, fullOn, v]);
+  }, [open, curId, fullOn, submitOn, v]);
+  const [extras, setExtras] = useState<{ id: string; parts: string[] } | null>(null);
+  useEffect(() => {
+    if (!open || !curId || !submitOn || !hasFile) return;
+    let live = true;
+    import('./worldFileFlow')
+      .then((m) => m.extraPartsOf(curId))
+      .then((parts) => live && setExtras({ id: curId, parts }))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [open, curId, submitOn, hasFile, v]);
   const fullStatus: FullStatus = fo && curId ? fullStatusOf(fo, curId, curStored?.save) : { kind: 'never' };
   const fullBytes = size && hasFile && size.id === curId ? size.bytes : null;
   const fullItem = open && fo && fullOn && curId ? menuItem({ id: curId, status: fullStatus, refusal: refusalOf(fo, curId, fullBytes), job: fullJob, bytes: fullBytes, overview: fo, recipeOnly: oldRecipe || !!curStored?.draft || !!curStored?.map, failed, pending: pendingId === curId, kept: !!kept }) : null;
   const shareFull = fullOn ? shareItem(fullStatus, !!kept) : null;
-  const shareOff = shareFull ? shareFull.off : !!kept;
+  const shareOff = banned ? true : shareFull ? shareFull.off : !!kept;
+  const submitItem =
+    open && submitOn && curId
+      ? submitMenuItem({ ban: banned, pending: pendingId === curId, extras: extras?.id === curId ? extras.parts : [], bytes: fullBytes, maxBytes: fo?.limits.worldBytes ?? SUBMIT_WORLD_MAX })
+      : null;
   const [persisted, setPersisted] = useState<boolean | null>(null);
   useEffect(() => {
     if (!open || !appleDevice()) return;
@@ -258,7 +279,16 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const share = () => {
     if (!cur) return;
     setOpen(false);
+    if (banned) return openSubmitDialog(cur.id, title ?? '', 'ban-share');
     openShareDialog(cur.id, title ?? '');
+  };
+  const submitClick = () => {
+    if (!submitItem || !cur || submitItem.act === 'none') return;
+    setOpen(false);
+    if (submitItem.act === 'ban') return openSubmitDialog(cur.id, title ?? '', 'ban');
+    const go = () => openSubmitDialog(cur.id, title ?? '');
+    if (phoneRequired()) askPhone({ for: 'submit', then: go });
+    else go();
   };
   const fullClick = () => {
     if (!fullItem || !curId) return;
@@ -317,11 +347,11 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
             </button>
           )}
           {session ? (
-            <button className={`save-it${shareOff ? ' off' : ''}`} data-act="share" aria-disabled={shareOff ? true : undefined} disabled={!cur} onClick={shareOff ? undefined : share}>
+            <button className={`save-it${shareOff ? ' off' : ''}`} data-act="share" aria-disabled={shareOff ? true : undefined} disabled={!cur} onClick={shareOff && !banned ? undefined : share}>
               <Icon name="link" size={17} />
               <span>
                 <b>分享…</b>
-                <small>{shareFull ? shareFull.small : kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}</small>
+                <small>{banned ? SHARE_BANNED : shareFull ? shareFull.small : kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}</small>
               </span>
             </button>
           ) : (
@@ -335,6 +365,15 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               </button>
               {at && !kept && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
             </>
+          )}
+          {submitItem && (
+            <button className={`save-it${submitItem.off ? ' off' : ''}`} data-act="submit" aria-disabled={submitItem.off ? true : undefined} onClick={submitClick}>
+              <Icon name="image" size={17} />
+              <span>
+                <b>投到作品墙…</b>
+                <small>{submitItem.small}</small>
+              </span>
+            </button>
           )}
           {failed && (
             <button className="save-it" data-act="save-again" onClick={saveAgain}>

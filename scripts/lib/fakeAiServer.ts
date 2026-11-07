@@ -18,6 +18,10 @@
  * 作品墙(src/account/gallery.ts):开着,摆着世界(带世界文件、用了非官方规则)、地图、新建参数、规则各一件,一件精选、一个挑战;不用登录。
  * 世界作品的文件第一次要的时候现做(fakeWorldFile.ts,一两秒),网页上能照存的内容打开。
  * POST /v1/dev/gallery { off?, withdrawn? } 关掉作品墙(接口都 404)、撤下几件。
+ * 投到作品墙(src/account/submissions.ts):只有投世界;一天 3 次、同时等审 5 件、须知第 3 版;作者填的字里有「敏感词」三个字就当碰到词。
+ * 核对用 fullCheckMs,过了就进等审(不建后台草稿)。POST /v1/dev/submit { off?, world?, phoneRequired?, terms?, fail?, refuse?, ban?, used?, pending?, forget? }:
+ * fail 下一次核对怎么判(同 fullFail);refuse { at: 'begin' | 'commit', status, code, message, ... } 下一次先问 / 提交直接回这个错;
+ * ban 当前账号停了投稿(null 解开);used、pending 把今天投过的次数、等审的件数当成几;forget 忘掉传上来的块(再投要整个重传)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GENERATOR_VERSION } from '../../src/gen/edits';
@@ -47,6 +51,30 @@ interface User {
   commits: number;
   /** 核对结果:世界编号 → 结果 */
   jobs: Map<string, { state: string; sum?: string; world?: unknown; error?: unknown; ready: number }>;
+  /** 停了投稿(ban 的样子同服务器) */
+  ban?: unknown;
+  /** 开发时手动加的:今天另外投过几次、另外几件在等审 */
+  extraUsed?: number;
+  extraPending?: number;
+}
+
+/** 投到作品墙的一件 */
+interface Sub {
+  id: number;
+  user: User;
+  kind: 'world';
+  title: string;
+  by: string;
+  blurb: string;
+  moment: number | null;
+  status: string;
+  sum: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 核对中:到这一刻出结果 */
+  ready?: number;
+  /** 核对完:过了(null)还是没过 */
+  verdict?: FakeFullFail | null;
 }
 
 interface FullFile {
@@ -228,6 +256,53 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     }
     return out;
   };
+  // 投到作品墙
+  const submitState = {
+    off: false,
+    world: true,
+    phoneRequired: false,
+    terms: 3,
+    perDay: 3,
+    pendingMax: 5,
+    fail: null as FakeFullFail | null,
+    refuse: null as { at: string; status: number; code: string; message: string; [k: string]: unknown } | null,
+  };
+  const subs: Sub[] = [];
+  let subSeq = 0;
+  const bjDay = (t: number) => new Date(t + 8 * 3600_000).toISOString().slice(0, 10);
+  const settle = (x: Sub) => {
+    if (x.status !== 'checking' || x.ready === undefined || Date.now() < x.ready) return;
+    x.status = x.verdict ? 'failed' : 'pending';
+    x.updatedAt = Date.now();
+  };
+  const subView = (x: Sub) => {
+    settle(x);
+    const v = x.verdict;
+    return {
+      id: x.id,
+      kind: x.kind,
+      title: x.title,
+      by: x.by,
+      blurb: x.blurb,
+      status: x.status,
+      ...(x.status === 'failed' && v ? { reason: v.message ?? '没有收下', error: v } : {}),
+      createdAt: iso(x.createdAt),
+      updatedAt: iso(x.updatedAt),
+    };
+  };
+  const submitLimits = (u: User) => {
+    const mine = subs.filter((x) => x.user === u);
+    mine.forEach(settle);
+    const today = bjDay(Date.now());
+    return {
+      perDay: submitState.perDay,
+      usedToday: mine.filter((x) => bjDay(x.createdAt) === today && x.status !== 'failed').length + (u.extraUsed ?? 0),
+      pendingMax: submitState.pendingMax,
+      pending: mine.filter((x) => x.status === 'checking' || x.status === 'pending' || x.status === 'reviewing').length + (u.extraPending ?? 0),
+      worldTriesPerDay: 10,
+      worldTriesToday: mine.filter((x) => bjDay(x.createdAt) === today).length,
+    };
+  };
   // 作品墙
   const gallery = { off: false, works: sampleWorks(Date.now()), withdrawn: new Set<string>(), reports: [] as { id: string; reason: string }[] };
   let worldFile: Promise<{ data: Uint8Array; sum: string }> | null = null;
@@ -319,7 +394,8 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       return json(200, { ok: true });
     }
     if (req.method === 'GET' && path === '/v1/auth/options') {
-      return json(200, { accountKinds: ['email'], inviteOnly, codeTtlSec: 600, features: { ai: aiOn } });
+      const submit = !submitState.off && !gallery.off;
+      return json(200, { accountKinds: ['email'], inviteOnly, codeTtlSec: 600, features: { ai: aiOn, submit, submitWorld: submit && submitState.world && !fullState.off, phoneRequired: submitState.phoneRequired } });
     }
 
     // 邀请制下的新邮箱:没带邀请码 = 403 need-invite;带了不对 = 400 bad-invite
@@ -402,6 +478,74 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       if (b?.fail !== undefined) fullState.fail = b.fail;
       if (typeof b?.commits === 'number') u.commits = b.commits;
       return json(200, { ok: true });
+    }
+
+    if (req.method === 'POST' && path === '/v1/dev/submit') {
+      const b = await body(req);
+      for (const k of ['off', 'world', 'phoneRequired'] as const) if (typeof b?.[k] === 'boolean') submitState[k] = b[k];
+      if (typeof b?.terms === 'number') submitState.terms = b.terms;
+      if (b?.fail !== undefined) submitState.fail = b.fail;
+      if (b?.refuse !== undefined) submitState.refuse = b.refuse;
+      if (b?.ban !== undefined) u.ban = b.ban ?? undefined;
+      if (typeof b?.used === 'number') u.extraUsed = b.used - (submitLimits(u).usedToday - (u.extraUsed ?? 0));
+      if (typeof b?.pending === 'number') u.extraPending = b.pending - (submitLimits(u).pending - (u.extraPending ?? 0));
+      if (b?.forget === true) blocks.clear();
+      return json(200, { ok: true });
+    }
+
+    // ---- 投到作品墙 ----
+    if (path === '/v1/submissions' || path.startsWith('/v1/submissions/')) {
+      if (submitState.off || gallery.off) return fail(404, 'bad-request', '没有这个接口');
+      if (req.method === 'GET' && path === '/v1/submissions') {
+        const list = subs.filter((x) => x.user === u).sort((a, b) => b.createdAt - a.createdAt);
+        return json(200, { submissions: list.map(subView), limits: submitLimits(u), terms: submitState.terms, ...(u.ban ? { ban: u.ban } : {}) });
+      }
+      const one = /^\/v1\/submissions\/(\d+)$/.exec(path);
+      if (req.method === 'GET' && one) {
+        const x = subs.find((s) => s.user === u && s.id === Number(one[1]));
+        return x ? json(200, subView(x)) : fail(404, 'not-found', '没有这份投稿');
+      }
+      const world = /^\/v1\/submissions\/world(\/begin)?$/.exec(path);
+      if (req.method === 'POST' && world) {
+        if (!submitState.world || fullState.off) return fail(404, 'bad-request', '没有这个接口');
+        const b = await body(req);
+        const at = world[1] ? 'begin' : 'commit';
+        const r = submitState.refuse;
+        if (r && r.at === at) {
+          submitState.refuse = null;
+          const { at: _a, status, code, message, ...extra } = r;
+          return fail(status, code, message, extra);
+        }
+        const plan = b?.plan;
+        const list: { sum: string; bytes: number }[] = Array.isArray(plan?.blocks) ? plan.blocks : [];
+        if (typeof plan?.sum !== 'string' || !list.length) return fail(400, 'bad-request', '世界文件的清单不对');
+        if (at === 'commit' && b?.terms !== submitState.terms) return fail(409, 'terms-changed', '投稿须知改过了,请看过新的再投', { terms: submitState.terms });
+        const f = { title: String(b?.title ?? '').trim(), by: String(b?.by ?? '').trim(), blurb: String(b?.blurb ?? '').trim() };
+        if (at === 'commit' && (!f.title || !f.by || !f.blurb)) return fail(400, 'bad-request', '要填作品名、署名和一句话介绍');
+        if (u.ban) return fail(403, 'submit-banned', `你的账号已停止投稿。原因:${(u.ban as { reasonText?: string }).reasonText ?? ''}`, { ban: u.ban });
+        if (submitState.phoneRequired) return fail(403, 'need-phone', '先绑定手机号再投稿');
+        const checking = subs.find((x) => x.user === u && (settle(x), x.status === 'checking'));
+        if (checking) return checking.sum === plan.sum && at === 'commit' ? json(202, { id: checking.id, status: 'checking' }) : fail(429, 'rate-limit', '上一个世界还在核对,等它核对完再投', { retryAfter: 5 });
+        const lim = submitLimits(u);
+        if (lim.usedToday >= lim.perDay) return fail(429, 'submit-limit', '今天投够 3 次了,明天再投', { limit: 'per-day', retryAfter: 3600, left: 0, ...lim });
+        if (lim.pending >= lim.pendingMax) return fail(429, 'submit-limit', '等审的太多了,审完一份再投', { limit: 'pending', left: lim.perDay - lim.usedToday, ...lim });
+        const total = list.reduce((n, x) => n + x.bytes, 0);
+        if (total > fullState.limits.worldBytes) return fail(413, 'world-too-big', '这个世界太大了', { worldBytes: total, maxBytes: fullState.limits.worldBytes });
+        if (at === 'begin') return json(200, { need: [...new Set(list.map((x) => x.sum))].filter((s) => !blocks.has(s)) });
+        const hits = (['title', 'by', 'blurb'] as const).filter((k) => f[k].includes('敏感词')).map((k) => ({ by: 'author', part: 'info', kind: { title: '作品名', by: '署名', blurb: '一句话介绍' }[k], text: f[k].slice(0, 60) }));
+        if (hits.length) return fail(400, 'content-filter', `有 ${hits.length} 处字词不能公开,改掉以后再投`, { hits, hitCount: hits.length });
+        const missing = list.map((x) => x.sum).filter((s) => !blocks.has(s));
+        if (missing.length) return fail(409, 'blocks-missing', '还有块没传完', { missing });
+        const first = blocks.get(list[0].sum);
+        const isZip = first?.[0] === 0x50 && first?.[1] === 0x4b;
+        const verdict = submitState.fail ?? (isZip ? null : { code: 'world-invalid', message: '这个世界文件没过校验' });
+        submitState.fail = null;
+        const now = Date.now();
+        const x: Sub = { id: ++subSeq, user: u, kind: 'world', ...f, moment: typeof b?.moment === 'number' ? b.moment : null, status: 'checking', sum: plan.sum, createdAt: now, updatedAt: now, ready: now + fullCheckMs, verdict };
+        subs.push(x);
+        return json(202, { id: x.id, status: 'checking' });
+      }
+      return fail(404, 'bad-request', '没有这个接口');
     }
 
     // ---- 传到账号的世界 ----
@@ -642,7 +786,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     return fail(404, 'bad-request', '没有这个接口');
   }
 
-  return { handle, users, shares, gallery };
+  return { handle, users, shares, gallery, subs };
 }
 
 /** 挂到 Vite 开发服务器上用(connect 中间件;挂载前缀已被去掉,req.url 是 /v1/...) */

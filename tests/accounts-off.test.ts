@@ -167,14 +167,14 @@ describe('账号开着(默认)', () => {
     expect(accountServer()).toBe(BASE);
     expect(currentAccount()?.token).toBe('fake-old');
     expect(officialServer()).toBeNull();
-    expect((await fetchAuthOptions()).features).toEqual({ ai: true });
+    expect((await fetchAuthOptions()).features).toEqual({ ai: true, submit: true, submitWorld: true, phoneRequired: false });
     expect(officialServer()).toBe(BASE);
     expect(officialProvider.offered?.()).toBe(true);
   });
 
   it('服务器说我们的 AI 关着:不露,也不去查积分', async () => {
     await fake.handle(new Request(`${BASE}/v1/dev/ai`, { method: 'POST', body: JSON.stringify({ off: true }) }));
-    expect((await fetchAuthOptions()).features).toEqual({ ai: false });
+    expect((await fetchAuthOptions()).features).toMatchObject({ ai: false });
     expect(officialServer()).toBeNull();
     expect(officialProvider.offered?.()).toBe(false);
     expect(officialProvider.status().reason).toContain('内测');
@@ -195,7 +195,7 @@ describe('账号开着(默认)', () => {
 
     _resetSessionForTest();
     answer({ error: { code: 'bad-request', message: '没有这个接口' } }, 404);
-    expect((await fetchAuthOptions()).features).toEqual({ ai: false });
+    expect((await fetchAuthOptions()).features).toEqual({ ai: false, submit: false, submitWorld: false, phoneRequired: false });
     expect(officialServer()).toBeNull();
   });
 
