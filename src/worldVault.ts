@@ -33,12 +33,12 @@
  * 存储满了也要拿得出文件(draftFile):和 commitWorld 同样拼一份修订,只是不写库,直接装成世界文件。这条路只读不写,不要求有空间。
  */
 import { applyNoteOps, cleanNoteList, mergeNotes, sameNotes, type NoteOp } from './authorNotes';
-import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
+import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, packValue, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
 import { GENERATOR_VERSION } from './gen/edits';
 import { VAULT_DB, type RosterMarks } from './worldRoster';
 import type { SaveFile } from './gen/savefile';
-import { buildManifest, knownPart, manifestBytes, openWorldFile, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
-import { KNOWN_PARTS, WorldFileError, asWorldFileError, type AuthorContent, type AuthorNote, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
+import { buildManifest, knownPart, manifestBytes, opaqueParts, openWorldFile, packExtra, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
+import { KNOWN_PARTS, PLUGIN_DATA_MAX_BYTES, WorldFileError, asWorldFileError, pluginDataPart, type AuthorContent, type AuthorNote, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
 import { currentSchema } from './gen/worldMigrate';
 import { parseManifest, validateThumb } from './gen/worldValidate';
 import { writeZip, type ZipInput } from './gen/zipStore';
@@ -843,6 +843,95 @@ export async function changeAuthor(id: string, ops: readonly NoteOp[]): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// 插件存的数据
+
+/** 插件存在一个世界里的自己的数据 */
+export interface PluginDataRead {
+  /** 插件自己的结构版本 */
+  schema: number;
+  value: unknown;
+  /** 清单里记的这个插件(存的时候是哪一版);没记 = null */
+  plugin: WorldPlugin | null;
+}
+
+/** 这个插件存在这个世界最新修订里的数据;没有 = null。字节坏了、解不开抛 corrupt */
+export async function readPluginData(id: string, pluginId: string): Promise<PluginDataRead | null> {
+  try {
+    const got = await readRevision(id, undefined, [pluginDataPart(pluginId)]);
+    const p = got?.parts[0];
+    if (!got || !p) return null;
+    let value: unknown;
+    try {
+      value = unpackValue(await partBytes(p.info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, new Uint8Array(p.data), PLUGIN_DATA_MAX_BYTES));
+    } catch (e) {
+      const f = asWorldFileError(e);
+      throw f.kind === 'memory' ? f : new VaultError('corrupt', `${p.info.name} 读不出来:${f.message}`);
+    }
+    return { schema: p.info.schema, value, plugin: got.manifest.plugins.find((x) => x.id === pluginId) ?? null };
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+/** 存插件的数据:big = 打包后超过上限(bytes 是打包后的字节数),什么都没写 */
+export type PluginDataWrote = { status: 'saved'; n: number } | { status: 'same'; n: number } | { status: 'nobase' } | { status: 'big'; bytes: number };
+
+/** 清单的插件记录:存了数据就记上这一版(记录里别的字段留着);删了数据、世界里也没有它放的别的块了,工具插件的记录跟着去掉 */
+function pluginsAfter(list: readonly WorldPlugin[], plugin: WorldPlugin, stored: boolean, parts: readonly WorldPartInfo[]): WorldPlugin[] {
+  const at = list.findIndex((x) => x.id === plugin.id);
+  const had = at < 0 ? undefined : list[at];
+  if (!stored) return had?.role === 'tool' && !parts.some((p) => p.by === plugin.id) ? list.filter((x) => x.id !== plugin.id) : [...list];
+  const next: WorldPlugin = { ...had, id: plugin.id, version: plugin.version, sum: plugin.sum, role: plugin.role };
+  if (at < 0) return [...list, next];
+  return list.flatMap((x, i) => (i === at ? [next] : x.id === plugin.id ? [] : [x]));
+}
+
+/**
+ * 换掉(data = null:去掉)一个插件存在这个世界里的数据,写一份新修订,别的块、配方都照上一份。还没有修订的世界存不了(nobase)。
+ * 写法和 changeAuthor 一样:块先写、读回来核对,最后写清单,断在哪都没有半截
+ */
+export async function changePluginData(id: string, plugin: WorldPlugin, data: { schema: number; value: unknown } | null): Promise<PluginDataWrote> {
+  try {
+    const name = pluginDataPart(plugin.id);
+    if (data) {
+      const raw = packValue(data.value);
+      if (raw.length > PLUGIN_DATA_MAX_BYTES) return { status: 'big', bytes: raw.length };
+      // 打得出来、读不回来的(绕回自己、层数太多)不存,原来的不动
+      try {
+        unpackValue(raw);
+      } catch (e) {
+        throw new VaultError('failed', `插件的数据读不回来:${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    const packed = data ? await packExtra({ name, schema: data.schema, by: plugin.id, value: data.value }) : null;
+    for (let tries = 0; tries < COMMIT_TRIES; tries++) {
+      const rows = await rowsOf(id);
+      const maxN = rows.at(-1)?.n ?? 0;
+      const base = chainOf(rows).at(-1);
+      const prev = base ? manifestOf(base) : null;
+      if (!base || !prev) return { status: 'nobase' };
+      if (!packed && !prev.parts.some((p) => p.name === name)) return { status: 'same', n: base.n };
+      const infos = new Map<string, WorldPartInfo>(prev.parts.map((p) => [p.name, p]));
+      if (packed) infos.set(name, packed.info);
+      else infos.delete(name);
+      const parts = sortParts(infos.values());
+      const plugins = pluginsAfter(prev.plugins, plugin, !!packed, parts);
+      const n = maxN + 1;
+      const manifest: WorldManifest = { ...prev, parts, plugins, revision: { n, parent: await sha256(new TextEncoder().encode(base.text)) } };
+      if (sameManifest(prev, manifest)) return { status: 'same', n: base.n };
+      const text = manifestBytes(manifest);
+      parseManifest(text, { readers: { ...prev.readers } });
+      if (packed && !(await existing([partKey(packed.info)])).size) await storePart(packed);
+      const row: RevisionRow = { id, n, text: new TextDecoder().decode(text), keys: [...new Set(parts.map(partKey))], content: contentOf(parts), recipeKey: base.recipeKey, generator: base.generator, source: 'made', at: Date.now() };
+      if ((await publish(row, maxN)) === 'ok') return { status: 'saved', n };
+    }
+    throw new VaultError('corrupt', '写清单时块总是不全');
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 把文件收进来
 
 /** 把一个核对过的世界文件收进仓库 */
@@ -925,6 +1014,13 @@ export async function adoptFile(req: AdoptRequest): Promise<{ n: number }> {
 export async function latestOf(id: string): Promise<RevisionHead | null> {
   const last = chainOf(await rowsOf(id)).at(-1);
   return last ? headOf(last) : null;
+}
+
+/** 一个世界最新的修订里只当字节留着的块(gen/worldFile.ts 的 opaqueParts):有就不能公开分享、投稿;没有修订、清单读不懂 = 没有 */
+export async function opaquePartsOf(id: string): Promise<string[]> {
+  const last = chainOf(await rowsOf(id)).at(-1);
+  const m = last ? manifestOf(last) : null;
+  return m ? opaqueParts(m.parts) : [];
 }
 
 /** 一个世界存着的修订(简要信息,按修订号从小到大) */
@@ -1250,5 +1346,5 @@ export async function rosterCopy(id: string): Promise<{ recipe: SaveFile; thumb:
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor };
+export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor, readPluginData, changePluginData, opaquePartsOf };
 export type VaultOps = typeof vaultOps;

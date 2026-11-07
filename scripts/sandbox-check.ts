@@ -7,11 +7,13 @@
  * 另查:来回传话和转交、出错 / 乱发话 / 死循环时停得下来、停了以后 CPU 降下来、框自己跳不走;
  * 插件接口:假插件(lib/sandbox/apiPlugin.js)把每样能力拿一遍、每种越界试一遍,什么能力都没要的插件样样被拒,
  * 发话太多、太大、乱写调用、冒充网站的回话都停得下来。
+ * 示例插件(examples/plugins/):对种子 7、2024 各跑一遍,交出来的面板、图层、要改的东西和 tests/fixtures/plugin-examples.json 对上;
+ * 有意改了示例或接口,加 --update 重写那份快照(第一个浏览器写,后面的跟它比),和代码一起提交。
  * 没过的打印「没过」,退出码非 0。
  */
 import { execFileSync } from 'node:child_process';
 import dgram from 'node:dgram';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -349,7 +351,11 @@ async function runBrowser(name: string, type: BrowserType) {
     await open('/');
     await apiChecks(ev);
 
-    // 9. 对照(只打印):插件代码直接跑在框的页面里
+    // 9. 示例插件
+    await open('/');
+    await exampleChecks(ev);
+
+    // 10. 对照(只打印):插件代码直接跑在框的页面里
     await open('/');
     const fb = await segment(() => ev('frameBattery', batteryJs), 2500);
     console.log(`  (对照,只看不判:少了线程那一层,收信站收到 ${fb.hits.length} 条${fb.hits.length ? `:${show(fb.hits)}` : ''})`);
@@ -461,6 +467,96 @@ async function apiChecks(ev: Ev) {
   const ref = await segment(() => ev('apiStops.refused'));
   const rx = ref.out as ApiRun;
   check(rx?.refused === 'newer' && rx.frames === 0, '清单要了网站没有的能力:不开沙箱,说要新版网站', JSON.stringify(rx));
+}
+
+// ---- 示例插件 ----
+
+const EXAMPLE_SNAPS = new URL('../tests/fixtures/plugin-examples.json', import.meta.url);
+const EXAMPLE_SEEDS = [7, 2024];
+interface ExampleSnap {
+  asked: string[];
+  frames: { panel: unknown[] | null; layers: Record<string, any> }[];
+  commits: { marks: { regions?: string[] }[] }[];
+  logs: string[];
+}
+/**
+ * picks:插件请点选时依次答什么(harness 的 examplePicks);steps:每一步改看的年份或点面板上的控件,每一步之前记一帧。
+ * sane:不看快照也该对的几条(重写快照时防止把坏结果钉进去)
+ */
+const EXAMPLES: { id: string; picks: string[]; steps: { year?: number; action?: { id: string; value?: unknown } }[]; sane: (s: ExampleSnap) => boolean }[] = [
+  {
+    id: 'coast-distance',
+    picks: [],
+    steps: [],
+    sane: (s) => s.frames.length === 1 && s.frames[0].layers.coast?.drawn > 0 && s.logs.length === 1,
+  },
+  {
+    id: 'route-days',
+    // 第三次「换个起点」时没有答案了,当用的人退出点选:上一条路线要跟着清掉
+    picks: ['city', 'far', 'far', 'city'],
+    steps: [{ action: { id: 'mode', value: 'horse' } }, { action: { id: 'clear' } }, { action: { id: 'again' } }, { action: { id: 'again' } }],
+    sane: (s) =>
+      s.asked.length === 5 &&
+      s.frames[0].layers.route?.items[0]?.kind === 'line' &&
+      !eq(s.frames[0].panel, s.frames[1].panel) &&
+      !s.frames[2].layers.route &&
+      !!s.frames[3].layers.route &&
+      !s.frames[4].layers.route,
+  },
+  {
+    id: 'box-summary',
+    picks: ['box'],
+    steps: [{ year: 400 }, { action: { id: 'save' } }],
+    sane: (s) =>
+      s.asked.length === 1 && !eq(s.frames[0].panel, s.frames[1].panel) && s.commits.length === 1 && s.commits[0].marks.length === 1 && (s.commits[0].marks[0].regions?.length ?? 0) > 0,
+  },
+];
+const UPDATE_EXAMPLES = process.argv.includes('--update');
+/** 和谁比:--update 时等第一个浏览器跑完再定 */
+let exampleSnaps: Record<string, unknown> | null = UPDATE_EXAMPLES ? null : existsSync(EXAMPLE_SNAPS) ? JSON.parse(readFileSync(EXAMPLE_SNAPS, 'utf8')) : {};
+
+/** 第一处不一样的地方;数允许差一点(几个浏览器引擎的 Math.cos 这类可能差最后一位) */
+function firstDiff(a: unknown, b: unknown, at: string): string | null {
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b)) ? null : `${at}:${a} ≠ ${b}`;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b))
+    return a === b ? null : `${at}:${String(JSON.stringify(a)).slice(0, 100)} ≠ ${String(JSON.stringify(b)).slice(0, 100)}`;
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const d = firstDiff((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], `${at}.${k}`);
+    if (d) return d;
+  }
+  return null;
+}
+
+async function exampleChecks(ev: Ev) {
+  const got: Record<string, unknown> = {};
+  for (const ex of EXAMPLES) {
+    const dir = new URL(`../examples/plugins/${ex.id}/`, import.meta.url);
+    const m = JSON.parse(readFileSync(new URL('plugin.json', dir), 'utf8'));
+    const code = readFileSync(new URL('main.js', dir), 'utf8');
+    for (const seed of EXAMPLE_SEEDS) {
+      const key = `${ex.id}@${seed}`;
+      const s = await segment(() => ev('example', code, { id: m.id, requires: m.requires, optional: m.optional }, seed, ex.picks, ex.steps));
+      noLeak(`示例 ${key}`, s);
+      const r = s.out as { stoppedBefore: string | null; snapshot: ExampleSnap; frames: number; refused?: string };
+      if (!r || typeof r !== 'object' || r.refused || !r.snapshot) {
+        check(false, `示例 ${key}:跑完`, JSON.stringify(r).slice(0, 300));
+        continue;
+      }
+      check(r.stoppedBefore === null && r.frames === 0, `示例 ${key}:跑的时候没被停掉,停了以后框拿掉了`, `${r.stoppedBefore} / 还剩 ${r.frames} 个框`);
+      const snap = JSON.parse(JSON.stringify(r.snapshot)) as ExampleSnap;
+      got[key] = snap;
+      check(ex.sane(snap), `示例 ${key}:点选、面板、图层、改的东西都有`, JSON.stringify(snap).slice(0, 300));
+      if (exampleSnaps) {
+        const d = firstDiff(exampleSnaps[key], snap, key);
+        check(!d, `示例 ${key}:和存下的快照一样`, d ?? '');
+      }
+    }
+  }
+  if (!exampleSnaps) {
+    writeFileSync(EXAMPLE_SNAPS, `${JSON.stringify(got, null, 2)}\n`);
+    console.log(`  (重写了示例插件的快照 tests/fixtures/plugin-examples.json,后面的浏览器跟它比)`);
+    exampleSnaps = got;
+  }
 }
 
 const ALL: Record<string, BrowserType> = { chromium, webkit, firefox };

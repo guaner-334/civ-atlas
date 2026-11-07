@@ -35,9 +35,12 @@ pnpm test:visual           # 画面回归:固定种子渲染缩略图,和 tests/
 pnpm test:visual --update  # 画面是有意改的:用当前画面更新基准图,和代码一起提交
 pnpm build                 # 生产构建(输出到 dist/;文本文件旁边各压一份 .gz、.br)
 pnpm size                  # 首页下载量:build 以后,打开网站时首页要下载的代码 + 样式;超过上限就失败(PR 检查里也跑)
+pnpm test:sandbox          # 插件沙箱:在 Chromium、WebKit、Firefox 里查插件断网、隔开、停得下来,接口和示例插件跑得对
 ```
 
-冒烟测试、画面回归和截图脚本要用无头浏览器,第一次先装:`pnpm exec playwright install chromium`。
+有意改了示例插件或插件接口,示例插件在沙箱里交出来的面板、图层变了:`npx tsx scripts/sandbox-check.ts --update` 重写它们的快照(`tests/fixtures/plugin-examples.json`),和代码一起提交。
+
+冒烟测试、画面回归和截图脚本要用无头浏览器,第一次先装:`pnpm exec playwright install chromium`(插件沙箱还要 `webkit firefox`)。
 
 截图和调试脚本(都会自己起一个临时服务,不用先 `pnpm dev`;截图默认写到 `snaps/`,这个目录不进仓库):
 
@@ -86,10 +89,12 @@ src/
 │   └── export.ts       导出图片、图例
 ├── ai/             AI 接入:唯一入口 aiChat、各家服务商、设置与密钥、本地调用记录、提示词;agent/ 是助手(调用工具、试推演对照)
 ├── account/        网站账号、云同步、短链接(只在配了 VITE_AI_SERVER 时启用)
+├── plugin/         插件:沙箱、插件文件的格式和检查、给插件的接口(写插件见 docs/plugins/)
 ├── ui/             界面(React)
 ├── worker.ts / exportWorker.ts / globeWorker.ts / globeCpuWorker.ts   后台线程
 └── main.tsx        入口:先出首页(ui/Boot.tsx、ui/HomeShell.tsx),主程序 ui/App.tsx 单独一个文件、同时在后台下载
-scripts/            冒烟测试、压力测试、画面回归、截图、统计、字体裁剪等脚本(lib/ 是它们共用的零件)
+scripts/            冒烟测试、压力测试、画面回归、截图、统计、字体裁剪、打包插件等脚本(lib/ 是它们共用的零件)
+examples/plugins/   示例插件(MIT)
 tests/              单元测试(vitest);visual/baseline/ 是画面回归的基准图
 public/fonts/       地图文字用的字体子集和许可证
 ```

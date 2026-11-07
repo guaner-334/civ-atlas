@@ -1,0 +1,15 @@
+{
+  "id": "coast-distance",
+  "name": "离海多远",
+  "version": "1.0.0",
+  "role": "tool",
+  "api": 1,
+  "runtime": "worker",
+  "requires": ["world.read@1", "layer.cells@1"],
+  "why": {
+    "world.read@1": "按水陆和每个地块的位置算到海边有多远"
+  },
+  "description": "加一个地块图层：每块陆地走陆路到海边有多少公里，分五段上色。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}
