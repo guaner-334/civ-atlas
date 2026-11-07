@@ -271,6 +271,33 @@ export interface AuthorNoteInfo {
   createdAt: string;
 }
 
+/**
+ * 改你写的东西(author.write)的一条:
+ * name 改名(name 为 null = 恢复原名;国名末尾的「国」「王朝」这类会去掉,最长 16 字);
+ * mark 加一个标记(字段同 AuthorMarkInfo,不用给 id);intervention 下一条干预(格式同 author.interventions 读到的)
+ */
+export type AuthorChange =
+  | { kind: 'name'; key: string; name: string | null }
+  | { kind: 'mark'; mark: Omit<AuthorMarkInfo, 'id'> }
+  | { kind: 'intervention'; v: Record<string, unknown> };
+
+/** applied 照办了几条;skipped 本来就是这样、没变的几条;marks 新标记的编号 */
+export interface ApplyResult {
+  applied: number;
+  skipped: number;
+  marks: number[];
+}
+
+// ---------------------------------------------------------------------------
+// 插件自己的数据(store.local / store.world)
+
+/** value 只能是 null、true / false、有限的数、字、数组、普通对象和数值数组(TypedArray),最多套 32 层 */
+export interface StoredData {
+  /** 插件自己的结构版本,正整数 */
+  schema: number;
+  value: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // 你在干什么(view.read)
 
@@ -421,6 +448,8 @@ export interface CivAtlas {
     interventions: Call0<unknown[]>;
     /** AI 写的正文;一次最多 100 篇 */
     notes: Call<{ offset?: number; limit?: number }, Page<AuthorNoteInfo>>;
+    /** 提一批修改(最多 200 条):有一条不合格整批不改;照办的整批记一步撤销 */
+    apply: Call<{ changes: AuthorChange[] }, ApplyResult>;
   };
   view: { get: Call0<ViewInfo> };
   pick: {
@@ -439,5 +468,11 @@ export interface CivAtlas {
     /** 同 id 的换掉;一个插件最多 4 个,每个最多 5000 项 */
     marks: Call<MarkLayerSpec, void>;
     remove: Call<{ id: string }, void>;
+  };
+  store: {
+    /** 插件自己的设置,不在世界里;最多 64 KB */
+    local: { get: Call0<StoredData | null>; set: Call<StoredData, void>; clear: Call0<void> };
+    /** 存进这个世界(带了它的世界不能公开分享);最多 1 MB */
+    world: { get: Call0<StoredData | null>; set: Call<StoredData, void>; clear: Call0<void> };
   };
 }

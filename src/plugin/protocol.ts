@@ -226,6 +226,7 @@ function readPluginMessage(m: unknown): PluginMessage | null {
 export const MESSAGES_PER_SECOND = 200;
 /** 插件发来的一条话最大多少字节(估的),大了停掉 */
 export const MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
+const INDEX = /^(0|[1-9]\d*)$/;
 /** 估大小时最多看多少个值:层层套的小对象估起来也花时间(合规矩的话里最多的是 20 万个点的标注图层写成普通数组) */
 const MEASURE_MAX_NODES = 1_000_000;
 
@@ -253,8 +254,14 @@ export function approxBytes(value: unknown, max: number): number {
       else if (typeof Blob !== 'undefined' && x instanceof Blob) total += x.size;
       else if (Array.isArray(x)) {
         if (x.length > room()) return Infinity;
+        // 数组可以带着别的键(传的时候一起带过来)
+        const keys = Object.keys(x);
+        if (keys.length > room()) return Infinity;
         total += 8;
-        for (let i = 0; i < x.length; i++) stack.push(x[i]);
+        for (const k of keys) {
+          if (!INDEX.test(k)) total += 8 + 2 * k.length;
+          stack.push((x as unknown as Record<string, unknown>)[k]);
+        }
       } else if (x instanceof Map) {
         if (x.size * 2 > room()) return Infinity;
         for (const [k, v] of x) stack.push(k, v);

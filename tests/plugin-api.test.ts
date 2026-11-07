@@ -95,6 +95,12 @@ describe('传话', () => {
     expect(approxBytes(new (class Thing {})(), 1e9)).toBe(Infinity);
   });
 
+  it('数组带着别的键也算', () => {
+    const a: number[] & { extra?: string } = [1, 2];
+    a.extra = 'x'.repeat(10_000);
+    expect(approxBytes(a, 1e9)).toBeGreaterThanOrEqual(20_000);
+  });
+
   it('小视图后面挂着大缓冲区,按整个缓冲区算', () => {
     expect(approxBytes(new Uint8Array(new ArrayBuffer(1_000_000), 0, 1), 1e9)).toBeGreaterThanOrEqual(1_000_000);
     const buf = new ArrayBuffer(1000);
@@ -538,7 +544,7 @@ describe('回调用', () => {
     expect(await call('history.events', { from: 0, to: 300, limit: 5 })).toMatchObject({ ok: true, data: { items: expect.any(Array) } });
   });
 
-  it('没打开世界、没有历史时回 unavailable;网站这一版还没开的调用也是', async () => {
+  it('没打开世界、没有历史时回 unavailable;网站这边没接上改修改的也是', async () => {
     await startPluginHost({ plugin: { id: 'x', requires: ['world.read@1', 'history.read@1', 'author.write@1', 'store.world@1'] }, code: '', source: { world: () => null, civ: () => null, edits: () => EMPTY_EDITS } });
     const f = fakes.at(-1)!;
     f.opts.onRequest!(1, 'world.info', {});
@@ -640,5 +646,191 @@ describe('回调用', () => {
     const { call, sink } = await open([]);
     expect(await call('log', { text: 'hi\u0007' })).toMatchObject({ ok: true });
     expect(sink.log).toHaveBeenCalledWith('hi');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 改你写的东西、插件自己的数据
+
+const { planChanges: planRaw, CHANGES_MAX } = await import('../src/plugin/edit');
+const planChanges = (e: WorldEdits, h: Civ | null, raw: unknown) => planRaw(e, h, raw, world.params);
+const { commitPluginEdits } = await import('../src/plugin/editsCommit');
+const { getEdits, setEdits } = await import('../src/ui/editsStore');
+const { undoLastEdit, redoLastEdit } = await import('../src/ui/undo');
+const { checkStored, memoryStore, STORE_LOCAL_MAX } = await import('../src/plugin/store');
+const { polityKey, regionKey, MARKS_MAX } = await import('../src/gen/edits');
+
+describe('改你写的东西', () => {
+  const pk = () => polityKey(civ, read.historyPolities(civ, { year: 600 })[0].id);
+
+  it('改名、加标记、下干预一起算好;国名末尾的「国」去掉;同样的不算', () => {
+    const key = pk();
+    const rk = regionKey(civ, 3);
+    const plan = planChanges(EMPTY_EDITS, civ, {
+      changes: [
+        { kind: 'name', key, name: '大燕国' },
+        { kind: 'mark', mark: { title: '插件标的', color: 'blue', from: 0, regions: [rk] } },
+        { kind: 'mark', mark: { title: '第二个', color: 'red', from: 10, at: [100, 200] } },
+        { kind: 'intervention', v: { kind: 'protect', a: key, from: 100 } },
+        { kind: 'intervention', v: { kind: 'protect', a: key, from: 100 } },
+      ],
+    });
+    expect(plan.result).toEqual({ applied: 4, skipped: 1, marks: [1, 2] });
+    expect(plan.next.names[key]).toBe('大燕');
+    expect(plan.next.marks!.map((m) => m.title)).toEqual(['插件标的', '第二个']);
+    expect(plan.next.interventions).toEqual([{ kind: 'protect', a: key, from: 100 }]);
+    expect(plan.keys).toContain(key);
+    expect(EMPTY_EDITS.names).toEqual({});
+    const back = planChanges(plan.next, civ, { changes: [{ kind: 'name', key, name: null }, { kind: 'name', key: regionKey(civ, 1), name: null }] });
+    expect(back.result).toEqual({ applied: 1, skipped: 1, marks: [] });
+    expect(key in back.next.names).toBe(false);
+  });
+
+  it('插件下的干预就是作者自己下的:照大纲推演记的 plot、guide 不留', () => {
+    const key = pk();
+    const plan = planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'intervention', v: { kind: 'policy', a: key, from: 50, preset: 'peace', plot: 2, guide: true } }] });
+    expect(plan.next.interventions).toEqual([{ kind: 'policy', a: key, from: 50, preset: 'peace' }]);
+  });
+
+  it('改了 AI 起的名字,那一笔 AI 记号去掉', () => {
+    const key = pk();
+    const e: WorldEdits = { ...EMPTY_EDITS, names: { [key]: '甲' }, aiNames: { [key]: { name: '甲' } } };
+    expect(planChanges(e, civ, { changes: [{ kind: 'name', key, name: '乙' }] }).next.aiNames).toBeUndefined();
+  });
+
+  it('有一条不合格整批不改;没有历史时改名、下干预回 unavailable,标记照样能加', () => {
+    const key = pk();
+    const bad = (changes: unknown[], e: WorldEdits = EMPTY_EDITS, h: Civ | null = civ) => codeOf(() => planChanges(e, h, { changes }));
+    expect(bad([{ kind: 'name', key, name: '甲' }, { kind: 'name', key: 'polity:c999999#0', name: '乙' }])).toBe('bad-args');
+    expect(bad([{ kind: 'name', key, name: 5 }])).toBe('bad-args');
+    expect(bad([{ kind: 'mark', mark: { title: 'x', color: 'red', from: 0 } }])).toBe('bad-args');
+    expect(bad([{ kind: 'intervention', v: { kind: 'protect', a: 'nope', from: 1 } }])).toBe('bad-args');
+    expect(bad([{ kind: 'rewrite-history' }])).toBe('bad-args');
+    expect(bad(Array(CHANGES_MAX + 1).fill({ kind: 'name', key, name: '甲' }))).toBe('limit');
+    const huge = Array(400_000).fill(regionKey(civ, 1));
+    const t0 = performance.now();
+    expect(bad(Array(CHANGES_MAX).fill({ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, regions: huge } }))).toBe('limit');
+    expect(performance.now() - t0).toBeLessThan(200);
+    const full: WorldEdits = { ...EMPTY_EDITS, marks: Array.from({ length: MARKS_MAX }, (_, i) => ({ id: i + 1, title: 't', color: 'red' as const, from: 0, at: [1, 1] as [number, number] })) };
+    expect(bad([{ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, at: [1, 1] } }], full)).toBe('limit');
+    expect(bad([{ kind: 'name', key, name: '甲' }], EMPTY_EDITS, null)).toBe('unavailable');
+    expect(bad([{ kind: 'intervention', v: { kind: 'protect', a: key, from: 1 } }], EMPTY_EDITS, null)).toBe('unavailable');
+    expect(planChanges(EMPTY_EDITS, null, { changes: [{ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, at: [1, 1] } }] }).result.applied).toBe(1);
+  });
+
+  it('改完以后存档存不下的(超过存档文件的上限)整批不改', () => {
+    const key = pk();
+    const regions = Array.from({ length: 64 }, (_, i) => regionKey(civ, i));
+    const many = Array.from({ length: 7000 }, (_, i) => ({ kind: 'disaster', type: 'famine', level: 2, from: i, regions }) as unknown as WorldEdits['interventions'][number]);
+    const e: WorldEdits = { ...EMPTY_EDITS, interventions: many };
+    expect(codeOf(() => planChanges(e, civ, { changes: Array.from({ length: 200 }, (_, i) => ({ kind: 'intervention', v: { kind: 'disaster', type: 'famine', level: 2, from: 9000 + i, regions } })) }))).toBe('limit');
+    expect(planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'name', key, name: '甲' }] }).result.applied).toBe(1);
+  });
+
+  it('记进网站的修改:整批一步撤销、一步重做', () => {
+    setEdits(EMPTY_EDITS);
+    const key = pk();
+    const plan = planChanges(getEdits(), civ, {
+      changes: [
+        { kind: 'name', key, name: '甲' },
+        { kind: 'mark', mark: { title: 'm', color: 'red', from: 0, at: [5, 5] } },
+      ],
+    });
+    expect(commitPluginEdits(plan.next, plan.keys)).toBeNull();
+    expect(getEdits().names[key]).toBe('甲');
+    expect(getEdits().marks).toHaveLength(1);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits().names[key]).toBeUndefined();
+    expect(getEdits().marks ?? []).toHaveLength(0);
+    expect(redoLastEdit()).toBe(true);
+    expect(getEdits().names[key]).toBe('甲');
+    expect(getEdits().marks).toHaveLength(1);
+    setEdits(EMPTY_EDITS);
+  });
+
+  it('回调用:照办回结果;网站不让改回 blocked;网站没接上回 unavailable', async () => {
+    const key = pk();
+    const commits: WorldEdits[] = [];
+    let refuse: string | null = null;
+    const base = { world: () => world, civ: () => civ, edits: () => EMPTY_EDITS };
+    const { call } = await open(['author.write@1'], { source: { ...base, commit: (next) => (commits.push(next), refuse) } });
+    expect(await call('author.apply', { changes: [{ kind: 'name', key, name: '甲' }] })).toEqual({ ok: true, data: { applied: 1, skipped: 0, marks: [] } });
+    expect(commits).toHaveLength(1);
+    refuse = '照原样打开着';
+    expect(await call('author.apply', { changes: [{ kind: 'name', key, name: '乙' }] })).toMatchObject({ ok: false, error: { code: 'blocked', text: '照原样打开着' } });
+    expect(await call('author.apply', { changes: [{ kind: 'name', key: 'x', name: '乙' }] })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
+    expect(commits).toHaveLength(2);
+    const none = await open(['author.write@1'], { source: base });
+    expect(await none.call('author.apply', { changes: [] })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+  });
+
+  it('一秒最多提 10 次修改,多了回 busy', async () => {
+    const { call } = await open(['author.write@1'], { source: { world: () => world, civ: () => civ, edits: () => EMPTY_EDITS, commit: () => null } });
+    const codes: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const r = await call('author.apply', { changes: [] });
+      codes.push(r && r.ok ? 'ok' : (r?.error.code ?? '?'));
+    }
+    expect(codes.filter((c) => c === 'ok')).toHaveLength(10);
+    expect(codes.slice(10)).toEqual(['busy', 'busy']);
+  });
+});
+
+describe('插件自己的数据', () => {
+  it('只认数据:数、字、数组、普通对象、数值数组;大小、层数有上限', () => {
+    expect(checkStored({ schema: 2, value: { a: [1, 'x', null, true], b: new Float32Array(3) } }, STORE_LOCAL_MAX)).toMatchObject({ schema: 2 });
+    const code = (raw: unknown, max = STORE_LOCAL_MAX) => codeOf(() => checkStored(raw, max));
+    expect(code({ schema: 0, value: 1 })).toBe('bad-args');
+    expect(code({ schema: 1.5, value: 1 })).toBe('bad-args');
+    expect(code({ schema: 1 })).toBe('bad-args');
+    expect(code({ schema: 1, value: NaN })).toBe('bad-args');
+    expect(code({ schema: 1, value: new Map() })).toBe('bad-args');
+    expect(code({ schema: 1, value: new Date() })).toBe('bad-args');
+    expect(code({ schema: 1, value: new BigInt64Array(2) })).toBe('bad-args');
+    expect(code({ schema: 1, value: JSON.parse('{"__proto__": 1}') })).toBe('bad-args');
+    const loop: unknown[] = [];
+    loop.push(loop);
+    expect(code({ schema: 1, value: loop })).toBe('bad-args');
+    expect(code({ schema: 1, value: 'x'.repeat(STORE_LOCAL_MAX) })).toBe('limit');
+    let deep: unknown = 1;
+    for (let i = 0; i < 40; i++) deep = [deep];
+    expect(code({ schema: 1, value: deep })).toBe('limit');
+    const extra: unknown[] & { big?: string } = [1];
+    extra.big = 'x';
+    expect(code({ schema: 1, value: extra })).toBe('bad-args');
+    expect(code({ schema: 1, value: [1, , 3] })).toBe('bad-args');
+    const shared = { a: 1 };
+    expect(code({ schema: 1, value: [shared, shared] })).toBe('no error');
+    // 一层套一层、每层引用下一层两次:展开有 2^30 个,查过的不再查
+    let dag: unknown = [1];
+    for (let i = 0; i < 30; i++) dag = [dag, dag];
+    const t0 = performance.now();
+    expect(code({ schema: 1, value: dag })).toBe('no error');
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
+
+  it('存、取、删;世界的数据没开世界时回 unavailable;存到哪可以换成别的(异步的也行)', async () => {
+    const { call } = await open(['store.local@1', 'store.world@1']);
+    expect(await call('store.local.get')).toEqual({ ok: true, data: null });
+    expect(await call('store.local.set', { schema: 1, value: { speed: 3 } })).toEqual({ ok: true, data: null });
+    expect(await call('store.local.get')).toEqual({ ok: true, data: { schema: 1, value: { speed: 3 } } });
+    expect(await call('store.world.set', { schema: 3, value: [1, 2] })).toMatchObject({ ok: true });
+    expect(await call('store.world.set', { schema: 3, value: 'x'.repeat(600_000) })).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('store.world.get')).toEqual({ ok: true, data: { schema: 3, value: [1, 2] } });
+    // 同一个世界里再开一次,数据还在
+    const again = await open(['store.world@1']);
+    expect(await again.call('store.world.get')).toEqual({ ok: true, data: { schema: 3, value: [1, 2] } });
+    expect(await again.call('store.world.clear')).toMatchObject({ ok: true });
+    expect(await again.call('store.world.get')).toEqual({ ok: true, data: null });
+    await startPluginHost({ plugin: { id: 'x', requires: ['store.world@1'] }, code: '', source: { world: () => null, civ: () => null, edits: () => EMPTY_EDITS } });
+    const f = fakes.at(-1)!;
+    f.opts.onRequest!(1, 'store.world.get', {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent[0].res).toMatchObject({ ok: false, error: { code: 'unavailable' } });
+    const mem = memoryStore();
+    const slow = { get: async (pid: string) => mem.get(pid), set: async (pid: string, d: Parameters<typeof mem.set>[1]) => mem.set(pid, d) };
+    const custom = await open(['store.local@1'], { stores: { local: slow } });
+    await custom.call('store.local.set', { schema: 1, value: 'v' });
+    expect(mem.get('test')).toEqual({ schema: 1, value: 'v' });
   });
 });
