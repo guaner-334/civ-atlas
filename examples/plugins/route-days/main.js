@@ -168,11 +168,18 @@ class Heap {
     });
   };
 
+  const clearRoute = () => {
+    route = null;
+    return civAtlas.layer.remove({ id: 'route' });
+  };
+
   let picking = false;
   const measure = async () => {
     if (picking) return;
     picking = true;
     try {
+      // 重新量先清掉上一条:中途退出、点到水上时,地图上不留一条面板里已经没有的路线
+      await clearRoute();
       await civAtlas.panel.set({ nodes: [{ type: 'text', text: '在地图上点起点。' }] });
       const a = (await civAtlas.pick.cell({ hint: '点起点' })).cell;
       if (cells.water[a] !== 0) return await showStart('起点在水上，换一块陆地点。');
@@ -181,10 +188,7 @@ class Heap {
       if (cells.water[b] !== 0) return await showStart('终点在水上，换一块陆地点。');
       if (b === a) return await showStart('起点和终点是同一块地方。');
       route = findRoute(a, b);
-      if (!route) {
-        await civAtlas.layer.remove({ id: 'route' });
-        return await showStart('这两个地方隔着水，走不过去。');
-      }
+      if (!route) return await showStart('这两个地方隔着水，走不过去。');
       await showRoute();
     } catch (e) {
       // cancelled = 用的人退出了点选;别的出错码见开发文档
@@ -197,8 +201,7 @@ class Heap {
   civAtlas.on('panel.action', (d) => {
     if (d.id === 'again') measure();
     else if (d.id === 'clear') {
-      route = null;
-      civAtlas.layer.remove({ id: 'route' });
+      clearRoute();
       showStart();
     } else if (d.id === 'mode') {
       mode = MODES.find((m) => m.value === d.value) ?? mode;

@@ -116,7 +116,10 @@
   "route-days@7": {
     "asked": [
       "cell 点起点",
-      "cell 再点终点"
+      "cell 再点终点",
+      "cell 点起点",
+      "cell 再点终点",
+      "cell 点起点"
     ],
     "frames": [
       {
@@ -430,6 +433,169 @@
           }
         ],
         "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 奥斯塔斯克\n终点 阿勒屯八里"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 13919,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 275,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "horse"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 60 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9683,
+                161
+              ],
+              [
+                "丘陵",
+                3797,
+                95
+              ],
+              [
+                "山地",
+                440,
+                18
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  661,
+                  732,
+                  506,
+                  505,
+                  619,
+                  559,
+                  556,
+                  557,
+                  688,
+                  697,
+                  844,
+                  1133,
+                  1134,
+                  1228,
+                  1235,
+                  1222,
+                  1224,
+                  2110,
+                  1335,
+                  1389,
+                  1443,
+                  1498,
+                  1551,
+                  1643,
+                  1773,
+                  1644,
+                  1775,
+                  1805,
+                  2218,
+                  2475,
+                  2492,
+                  2526
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  661
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2526
+                ],
+                "text": "终点：约 275 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "text",
+            "text": "没量完。\n在地图上点起点和终点，沿陆路按地形算要走几天。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "开始量"
+          }
+        ],
+        "layers": {}
       }
     ],
     "commits": [],
@@ -438,7 +604,10 @@
   "route-days@2024": {
     "asked": [
       "cell 点起点",
-      "cell 再点终点"
+      "cell 再点终点",
+      "cell 点起点",
+      "cell 再点终点",
+      "cell 点起点"
     ],
     "frames": [
       {
@@ -756,6 +925,175 @@
           {
             "type": "text",
             "text": "在地图上点起点和终点，沿陆路按地形算要走几天。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "开始量"
+          }
+        ],
+        "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 德拉金\n终点 佩拉波利斯"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 16668,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 363,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "horse"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 60 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9406,
+                157
+              ],
+              [
+                "丘陵",
+                5786,
+                145
+              ],
+              [
+                "山地",
+                1476,
+                61
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  2423,
+                  2088,
+                  2613,
+                  2539,
+                  2367,
+                  2366,
+                  2227,
+                  2175,
+                  2176,
+                  2170,
+                  2157,
+                  2128,
+                  2156,
+                  2127,
+                  2222,
+                  2005,
+                  1683,
+                  1684,
+                  1681,
+                  2030,
+                  1808,
+                  1744,
+                  1552,
+                  1507,
+                  1506,
+                  1508,
+                  1652,
+                  1839,
+                  1276,
+                  1061,
+                  954,
+                  1063,
+                  1173,
+                  1477,
+                  1394,
+                  1605,
+                  1606,
+                  1643
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2423
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  1643
+                ],
+                "text": "终点：约 363 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "text",
+            "text": "没量完。\n在地图上点起点和终点，沿陆路按地形算要走几天。"
           },
           {
             "type": "button",

@@ -492,13 +492,16 @@ const EXAMPLES: { id: string; picks: string[]; steps: { year?: number; action?: 
   },
   {
     id: 'route-days',
-    picks: ['city', 'far'],
-    steps: [{ action: { id: 'mode', value: 'horse' } }, { action: { id: 'clear' } }],
+    // 第三次「换个起点」时没有答案了,当用的人退出点选:上一条路线要跟着清掉
+    picks: ['city', 'far', 'far', 'city'],
+    steps: [{ action: { id: 'mode', value: 'horse' } }, { action: { id: 'clear' } }, { action: { id: 'again' } }, { action: { id: 'again' } }],
     sane: (s) =>
-      s.asked.length === 2 &&
+      s.asked.length === 5 &&
       s.frames[0].layers.route?.items[0]?.kind === 'line' &&
       !eq(s.frames[0].panel, s.frames[1].panel) &&
-      !s.frames[2].layers.route,
+      !s.frames[2].layers.route &&
+      !!s.frames[3].layers.route &&
+      !s.frames[4].layers.route,
   },
   {
     id: 'box-summary',
