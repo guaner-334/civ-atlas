@@ -9,7 +9,7 @@ import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
-import { EMPTY_EDITS, resolveKey, type WorldEdits } from '../src/gen/edits';
+import { EMPTY_EDITS, resolveKey, type Intervention, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
 import { PLUGIN_CAPS } from '../src/plugin/pluginCaps';
 import { checkCellLayer, checkMarkLayer, checkPanel, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
@@ -17,7 +17,7 @@ import { approxBytes, MESSAGE_MAX_BYTES, PROTOCOL, readFrameMessage, workerSourc
 import * as read from '../src/plugin/read';
 import type { PluginResponse } from '../src/plugin/protocol';
 import type { SandboxOptions } from '../src/plugin/sandbox';
-import type { PanelNode, ViewInfo } from '../src/plugin/types';
+import type { InterventionInfo, PanelNode, ViewInfo } from '../src/plugin/types';
 
 const v = PROTOCOL;
 
@@ -463,7 +463,7 @@ vi.mock('../src/plugin/sandbox', () => ({
   },
 }));
 
-const { startPluginHost, PluginRefused, OUT_BYTES_PER_SECOND } = await import('../src/plugin/host');
+const { startPluginHost, PluginRefused, OUT_BYTES_PER_SECOND, LOG_MAX } = await import('../src/plugin/host');
 
 async function open(requires: string[], extra: Partial<Parameters<typeof startPluginHost>[0]> = {}) {
   const view: ViewInfo = { year: 100, selected: null, visible: null, layer: 'polities' };
@@ -647,6 +647,16 @@ describe('回调用', () => {
     expect(await call('log', { text: 'hi\u0007' })).toMatchObject({ ok: true });
     expect(sink.log).toHaveBeenCalledWith('hi');
   });
+
+  it('太长的日志只记前面,末尾说截掉了多少;不拆开两格的字', async () => {
+    const { call, sink } = await open([]);
+    await call('log', { text: 'x'.repeat(LOG_MAX) });
+    expect(sink.log).toHaveBeenLastCalledWith('x'.repeat(LOG_MAX));
+    await call('log', { text: 'x'.repeat(LOG_MAX + 500) });
+    expect(sink.log).toHaveBeenLastCalledWith(`${'x'.repeat(LOG_MAX)}…(截掉了后面 500 个字)`);
+    await call('log', { text: `${'x'.repeat(LOG_MAX - 1)}😀yz` });
+    expect(sink.log).toHaveBeenLastCalledWith(`${'x'.repeat(LOG_MAX - 1)}…(截掉了后面 4 个字)`);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -658,7 +668,7 @@ const { commitPluginEdits } = await import('../src/plugin/editsCommit');
 const { getEdits, setEdits } = await import('../src/ui/editsStore');
 const { undoLastEdit, redoLastEdit } = await import('../src/ui/undo');
 const { checkStored, memoryStore, STORE_LOCAL_MAX } = await import('../src/plugin/store');
-const { polityKey, regionKey, MARKS_MAX } = await import('../src/gen/edits');
+const { polityKey, regionKey, MARKS_MAX, MARK_REGIONS_MAX, MARK_TITLE_MAX, MARK_NOTE_MAX, NAME_MAX } = await import('../src/gen/edits');
 
 describe('改你写的东西', () => {
   const pk = () => polityKey(civ, read.historyPolities(civ, { year: 600 })[0].id);
@@ -716,6 +726,47 @@ describe('改你写的东西', () => {
     expect(bad([{ kind: 'name', key, name: '甲' }], EMPTY_EDITS, null)).toBe('unavailable');
     expect(bad([{ kind: 'intervention', v: { kind: 'protect', a: key, from: 1 } }], EMPTY_EDITS, null)).toBe('unavailable');
     expect(planChanges(EMPTY_EDITS, null, { changes: [{ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, at: [1, 1] } }] }).result.applied).toBe(1);
+  });
+
+  it('标记、改名不合规回 bad-args、超上限回 limit,不替插件改', () => {
+    const key = pk();
+    const mark = (m: Record<string, unknown>) => ({ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, at: [1, 1], ...m } });
+    const code = (...changes: unknown[]) => codeOf(() => planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'name', key, name: '甲' }, ...changes] }));
+    const ok = (...changes: unknown[]) => planChanges(EMPTY_EDITS, civ, { changes });
+    expect(code(mark({ color: 'pink' }))).toBe('bad-args');
+    expect(code(mark({ color: undefined }))).toBe('bad-args');
+    expect(code(mark({ color: 'black' }))).toBe('bad-args');
+    expect(code(mark({ size: 'm' }))).toBe('bad-args');
+    expect(code(mark({ title: 5 }))).toBe('bad-args');
+    expect(code(mark({ title: '字'.repeat(MARK_TITLE_MAX + 1) }))).toBe('limit');
+    expect(code(mark({ note: '字'.repeat(MARK_NOTE_MAX + 1) }))).toBe('limit');
+    expect(code(mark({ from: 1.5 }))).toBe('bad-args');
+    expect(code(mark({ from: -1 }))).toBe('bad-args');
+    expect(code(mark({ from: 10, to: 9 }))).toBe('bad-args');
+    expect(code(mark({ at: [1, 2000] }))).toBe('bad-args');
+    expect(code(mark({ at: undefined }))).toBe('bad-args');
+    expect(code(mark({ regions: [regionKey(civ, 1)] }))).toBe('bad-args');
+    expect(code(mark({ at: undefined, regions: [] }))).toBe('bad-args');
+    expect(code(mark({ at: undefined, regions: [regionKey(civ, 1), 'region:乱写'] }))).toBe('bad-args');
+    expect(code(mark({ at: undefined, regions: Array(MARK_REGIONS_MAX + 1).fill(regionKey(civ, 1)) }))).toBe('limit');
+    expect(code({ kind: 'name', key, name: '字'.repeat(NAME_MAX + 1) })).toBe('limit');
+
+    const m = ok(
+      mark({ title: ` ${'字'.repeat(MARK_TITLE_MAX)} `, color: 'none', size: 'xl', from: 10, to: 10, at: [2049, 3] }),
+      mark({ title: '', at: undefined, regions: [regionKey(civ, 1), regionKey(civ, 1), regionKey(civ, 2)] }),
+    ).next.marks!;
+    expect(m[0]).toEqual({ id: 1, title: '字'.repeat(MARK_TITLE_MAX), color: 'none', size: 'xl', from: 10, to: 10, at: [1, 3] });
+    expect(m[1]).toEqual({ id: 2, title: '新标记', color: 'red', from: 0, regions: [regionKey(civ, 1), regionKey(civ, 2)] });
+    const polity = read.historyPolities(civ, { year: 600 }).find((p) => !civ.polities[p.id].eastern)!;
+    const pkey = polityKey(civ, polity.id);
+    expect(ok({ kind: 'name', key: pkey, name: `${'安'.repeat(NAME_MAX)}王国` }).next.names[pkey]).toBe('安'.repeat(NAME_MAX));
+    expect(ok({ kind: 'name', key, name: '' }).result).toEqual({ applied: 0, skipped: 1, marks: [] });
+  });
+
+  it('下命令的类型和世界文件里的干预一致', () => {
+    const toSite = (x: InterventionInfo): Intervention => x;
+    const toPlugin = (x: Intervention): InterventionInfo => x;
+    expect([toSite, toPlugin]).toHaveLength(2);
   });
 
   it('改完以后存档存不下的(超过存档文件的上限)整批不改', () => {

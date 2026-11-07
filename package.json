@@ -15,7 +15,7 @@
     "stress": "tsx scripts/stress.ts",
     "smoke": "tsx scripts/replay-check.ts",
     "test:visual": "tsx scripts/visual-check.ts",
-    "test:sandbox": "tsx scripts/sandbox-check.ts && tsx scripts/sandbox-self-check.ts",
+    "test:sandbox": "tsx scripts/sandbox-check.ts",
     "size": "tsx scripts/first-load.ts"
   },
   "dependencies": {

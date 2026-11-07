@@ -17,4 +17,4 @@ npx tsx scripts/pack-plugin.ts examples/plugins/route-days
 
 `tsconfig.json` 和 `civ-atlas.d.ts` 让编辑器认得 `civAtlas`,不进插件包。
 
-这三个示例也是网站的测试:单测核对重新打包和仓库里的 `.civplugin` 一个字节不差、用到的调用清单里都要了;`pnpm test:sandbox` 在三个浏览器的真沙箱里对种子 7、2024 各跑一遍,交出来的面板、图层和 `tests/fixtures/plugin-examples.json` 对上。
+这三个示例也是网站的测试:单测核对重新打包和仓库里的 `.civplugin` 一个字节不差、用到的调用清单里都要了;`pnpm test:sandbox` 在三个浏览器的真沙箱里对种子 7、2024 各跑一遍,交出来的面板、图层和 `tests/fixtures/plugin-examples.json` 对上;有意改了示例,`pnpm test:sandbox --update` 重写这份快照。

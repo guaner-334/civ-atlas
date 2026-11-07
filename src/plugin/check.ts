@@ -2,7 +2,7 @@
  * 检查插件交来的东西:调用的参数、面板、图层。纯计算,不碰 DOM。
  * 不合格的一律抛 PluginApiError(网站回给插件),合格的换成网站自己的一份(插件那边再改也影响不到)。
  */
-import type { CellLayerSpec, Hex, MarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode } from './types';
+import type { CellLayerSpec, Hex, LayerMarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode } from './types';
 
 export class PluginApiError extends Error {
   constructor(
@@ -282,7 +282,7 @@ export function checkCellLayer(raw: unknown, cells: number): CellLayer {
   return out;
 }
 
-const MARK_COLORS: readonly MarkColor[] = ['red', 'orange', 'green', 'blue', 'purple', 'teal', 'black', 'white'];
+const LAYER_COLORS: readonly LayerMarkColor[] = ['red', 'orange', 'green', 'blue', 'purple', 'teal', 'black', 'white'];
 
 /** 网站这边的一项标注:地块换成 Int32Array,点换成 Float32Array(x 规整到 [0, width)) */
 export interface MarkLayerItem {
@@ -303,7 +303,7 @@ function checkStyle(raw: unknown, at: string): MarkStyle | undefined {
   if (raw === undefined) return undefined;
   if (!isRec(raw)) return bad(`${at} 要是对象`);
   const s: MarkStyle = {};
-  if (raw.color !== undefined) s.color = MARK_COLORS.includes(raw.color as MarkColor) ? (raw.color as MarkColor) : bad(`${at}.color 只能是 ${MARK_COLORS.join('、')}`);
+  if (raw.color !== undefined) s.color = LAYER_COLORS.includes(raw.color as LayerMarkColor) ? (raw.color as LayerMarkColor) : bad(`${at}.color 只能是 ${LAYER_COLORS.join('、')}`);
   if (raw.line !== undefined) s.line = raw.line === 'solid' || raw.line === 'dashed' ? raw.line : bad(`${at}.line 只能是 solid、dashed`);
   if (raw.size !== undefined) s.size = raw.size === 's' || raw.size === 'm' || raw.size === 'l' ? raw.size : bad(`${at}.size 只能是 s、m、l`);
   return s;

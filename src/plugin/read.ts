@@ -24,6 +24,7 @@ import type {
   FaithInfo,
   Hex,
   HistorySpan,
+  InterventionInfo,
   LegendEntry,
   Neighbors,
   OwnerField,
@@ -357,7 +358,7 @@ export function historyEvents(civ: Civ, chronicle: readonly ChronicleEntry[] | n
 // 你写的东西
 
 export function authorMarks(edits: WorldEdits): AuthorMarkInfo[] {
-  return (edits.marks ?? []).map((m) => structuredClone(m) as AuthorMarkInfo);
+  return (edits.marks ?? []).map((m): AuthorMarkInfo => structuredClone(m));
 }
 
 export function authorNames(edits: WorldEdits): Record<string, string> {
@@ -368,7 +369,7 @@ export function authorCharacters(edits: WorldEdits): unknown[] {
   return structuredClone(edits.characters ?? []);
 }
 
-export function authorInterventions(edits: WorldEdits): unknown[] {
+export function authorInterventions(edits: WorldEdits): InterventionInfo[] {
   return structuredClone(edits.interventions);
 }
 

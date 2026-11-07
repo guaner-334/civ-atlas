@@ -1,5 +1,5 @@
 /**
- * 插件隔离自检页(sandbox-check.html)的浏览器检查:npx tsx scripts/sandbox-self-check.ts [chromium] [webkit] [firefox](不写 = 三个都跑)
+ * 插件隔离自检页(sandbox-check.html)的浏览器检查:npx tsx scripts/sandbox-self-check.ts [chromium] [webkit] [firefox](不写 = 三个都跑;pnpm test:sandbox 在沙箱检查之后跑它)
  *
  * 把自检页打包好,由一个假网站发出去,每个浏览器打开一遍,九行都要过。页面里往外连的地方都指着这个网站自己,
  * 所以这里的假网站顺带当收信站:收到 /sandbox-probe 的请求也算没过。

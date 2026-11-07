@@ -251,15 +251,24 @@ export interface Page<T> {
 // ---------------------------------------------------------------------------
 // 你写的东西(author.read / author.write)
 
+/** 你的标记的颜色:六种,或 none(不画图钉、不铺色,名字像地图上的地名) */
+export type AuthorMarkColor = 'red' | 'orange' | 'green' | 'blue' | 'purple' | 'teal' | 'none';
+
 export interface AuthorMarkInfo {
   id: number;
+  /** 最长 40 字;空的叫「新标记」 */
   title: string;
+  /** 可以分行,最长 2000 字 */
   note?: string;
-  color: string;
-  size?: string;
+  color: AuthorMarkColor;
+  /** 名字的字号:小 / 大 / 特大;不给 = 中 */
+  size?: 's' | 'l' | 'xl';
+  /** 时间轴在 [from, to] 这些年里(两头都算)地图上才画它;整数年,to 不给 = 一直在 */
   from: number;
   to?: number;
+  /** 一个点(世界坐标);和 regions 只给一个 */
   at?: [number, number];
+  /** 几个州的键,最多 500 个 */
   regions?: string[];
 }
 
@@ -271,15 +280,94 @@ export interface AuthorNoteInfo {
   createdAt: string;
 }
 
+/** 君主、掌权的人的倾向:开拓、好战、发展、重商,各 0–100 的整数 */
+export interface Leanings {
+  expand: number;
+  war: number;
+  develop: number;
+  trade: number;
+}
+
+/**
+ * 一条命令(干预),和世界文件里的一个格式;每种的意思见 src/gen/edits.ts 开头「干预」那一节的表。
+ * a、b、ps、foes、friends、by 是国家键,region、regions、zone、to 是州键,city 是城键,person 是人物键,folk 是民族键;
+ * char、lead、author 是用的人放进世界的人物的编号;from、until、born、died 是整数年份。
+ * fromTick:在 from 那一年的第几格(1–255,一年 256 格;不给 = 年初)。
+ * plot、guide 和方针的 power、unrest、look 是照大纲推演自己记的:author.interventions 读得到,author.apply 交上来的会去掉
+ */
+export type InterventionInfo = (
+  | { kind: 'protect'; a: string; from: number; until?: number }
+  | { kind: 'ally'; a: string; b: string; from: number; until?: number }
+  | { kind: 'declare'; a: string; b: string; from: number; lead?: number }
+  | { kind: 'unity'; a: string; from: number }
+  | { kind: 'cede'; a: string; region: string; from: number; permanent?: true }
+  | { kind: 'found'; region: string; from: number; name?: string }
+  | { kind: 'move'; a: string; city: string; from: number }
+  | { kind: 'halt'; a: string; from: number; until?: number }
+  | { kind: 'crown'; a: string; char: number; from: number; born: number; until?: number; abdicate?: true; after?: true; keep?: true; leanings: Leanings }
+  | { kind: 'keep'; a: string; from: number; until?: number }
+  | { kind: 'destroy'; a: string; from: number; b?: string }
+  | { kind: 'death'; a: string; person: string; from: number }
+  | { kind: 'temper'; a: string; person: string; from: number; leanings: Leanings }
+  | {
+      kind: 'disaster';
+      type: 'plague' | 'famine' | 'quake' | 'pandemic';
+      level: 1 | 2 | 3;
+      from: number;
+      city?: string;
+      a?: string;
+      regions?: string[];
+      region?: string;
+      slump?: number;
+    }
+  | { kind: 'treaty'; a: string; ps: string[]; from: number; term?: number; limited?: true; keep?: true; by?: string; zone?: string; ask?: true }
+  | { kind: 'neutral'; a: string; region: string; ps: string[]; from: number; quiet?: true; lasting?: true; until?: number; ask?: true }
+  | {
+      kind: 'regent';
+      a: string;
+      person: string;
+      char?: undefined;
+      from: number;
+      how: 'march' | 'heir' | 'uncle' | 'chancellor' | 'general';
+      end: 'succeed' | 'return' | 'usurp';
+      years?: number;
+      leanings?: Leanings;
+    }
+  | { kind: 'regent'; a: string; person?: undefined; char: number; born: number; died?: number; from: number; how: 'chancellor' | 'general'; end: 'return'; years?: number; leanings: Leanings }
+  | { kind: 'marry'; a: string; person: string; b: string; from: number; how?: 'give' | 'mutual' }
+  | { kind: 'appoint'; a: string; char: number; role: 'general' | 'minister'; born: number; died?: number; from: number; until?: number; skill?: 'good' | 'great' }
+  | { kind: 'boost'; a: string; from: number; mul?: 3 | 10; until?: number; regions?: string[] }
+  | { kind: 'trek'; folk: string; from: number; region?: string; to?: string; reach?: 'near' | 'far'; dir?: 'east' | 'south' | 'west' | 'north' }
+  | { kind: 'stay'; folk: string; from: number; until?: number }
+  | {
+      kind: 'policy';
+      a: string;
+      from: number;
+      preset?: 'expand' | 'hold' | 'trade' | 'peace';
+      /** 打仗胆量、开拓、沿海、和谈底线:各 −50…50 的整数 */
+      war?: number;
+      expand?: number;
+      coast?: number;
+      peace?: number;
+      /** 各最多 3 国 */
+      foes?: string[];
+      friends?: string[];
+      focus?: 'production' | 'transport' | 'information' | 'administration' | 'mobilization';
+      power?: number;
+      unrest?: number;
+      look?: { kind: 'war' | 'politics' | 'dynasty'; years: number[] };
+    }
+) & { fromTick?: number; author?: number; plot?: number; guide?: true };
+
 /**
  * 改你写的东西(author.write)的一条:
- * name 改名(name 为 null = 恢复原名;国名末尾的「国」「王朝」这类会去掉,最长 16 字);
- * mark 加一个标记(字段同 AuthorMarkInfo,不用给 id);intervention 下一条干预(格式同 author.interventions 读到的)
+ * name 改名(null 或空的 = 恢复原名;国名末尾的「国」「王朝」这类先去掉,剩下的最长 16 字);
+ * mark 加一个标记(不用给 id);intervention 下一条命令
  */
 export type AuthorChange =
   | { kind: 'name'; key: string; name: string | null }
   | { kind: 'mark'; mark: Omit<AuthorMarkInfo, 'id'> }
-  | { kind: 'intervention'; v: Record<string, unknown> };
+  | { kind: 'intervention'; v: InterventionInfo };
 
 /** applied 照办了几条;skipped 本来就是这样、没变的几条;marks 新标记的编号 */
 export interface ApplyResult {
@@ -367,10 +455,11 @@ export interface CellLayerSpec {
   opacity?: number;
 }
 
-export type MarkColor = 'red' | 'orange' | 'green' | 'blue' | 'purple' | 'teal' | 'black' | 'white';
+/** 标注图层的颜色(和你的标记的颜色不是一套) */
+export type LayerMarkColor = 'red' | 'orange' | 'green' | 'blue' | 'purple' | 'teal' | 'black' | 'white';
 
 export interface MarkStyle {
-  color?: MarkColor;
+  color?: LayerMarkColor;
   line?: 'solid' | 'dashed';
   size?: 's' | 'm' | 'l';
 }
@@ -445,7 +534,7 @@ export interface CivAtlas {
     /** 改过的名字:稳定键 → 名字 */
     names: Call0<Record<string, string>>;
     characters: Call0<unknown[]>;
-    interventions: Call0<unknown[]>;
+    interventions: Call0<InterventionInfo[]>;
     /** AI 写的正文;一次最多 100 篇 */
     notes: Call<{ offset?: number; limit?: number }, Page<AuthorNoteInfo>>;
     /** 提一批修改(最多 200 条):有一条不合格整批不改;照办的整批记一步撤销 */

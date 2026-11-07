@@ -115,13 +115,21 @@ export const INFLIGHT_MAX = 16;
 export const APPLY_PER_SECOND = 10;
 /** view.year、view.select 最快多久发一次 */
 export const VIEW_EVENT_MS = 250;
-const LOG_MAX = 2000;
+export const LOG_MAX = 2000;
 const HINT_MAX = 40;
 export const APP_NAME = '文明与地图';
 
 const unavailable = (t: string): never => {
   throw new PluginApiError('unavailable', t);
 };
+
+/** 太长的日志只记前 LOG_MAX 个字,末尾说截掉了多少(不拆开半个表情这类两格的字) */
+function logText(raw: unknown): string {
+  const s = text(raw, 'text', Infinity, true);
+  if (s.length <= LOG_MAX) return s;
+  const keep = /[\ud800-\udbff]/.test(s[LOG_MAX - 1]) ? LOG_MAX - 1 : LOG_MAX;
+  return `${s.slice(0, keep)}…(截掉了后面 ${s.length - keep} 个字)`;
+}
 
 class Host implements PluginHost {
   sb: PluginSandbox | null = null;
@@ -225,7 +233,7 @@ class Host implements PluginHost {
       case 'host.info':
         return { api: PLUGIN_API, app: APP_NAME, caps: this.caps.slice(), cells: src.world()?.mesh.n ?? 0 } satisfies HostInfo;
       case 'log':
-        this.sink.log?.(text(argsOf(args).text, 'text', LOG_MAX, true));
+        this.sink.log?.(logText(argsOf(args).text));
         return null;
       case 'world.info':
         return read.worldInfo(this.world(), src.title?.() ?? '');

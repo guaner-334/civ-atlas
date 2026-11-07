@@ -38,7 +38,7 @@ pnpm size                  # 首页下载量:build 以后,打开网站时首页�
 pnpm test:sandbox          # 插件沙箱:在 Chromium、WebKit、Firefox 里查插件断网、隔开、停得下来,接口和示例插件跑得对
 ```
 
-有意改了示例插件或插件接口,示例插件在沙箱里交出来的面板、图层变了:`npx tsx scripts/sandbox-check.ts --update` 重写它们的快照(`tests/fixtures/plugin-examples.json`),和代码一起提交。
+有意改了示例插件或插件接口,示例插件在沙箱里交出来的面板、图层变了:`pnpm test:sandbox --update` 重写它们的快照(`tests/fixtures/plugin-examples.json`),和代码一起提交。
 
 冒烟测试、画面回归和截图脚本要用无头浏览器,第一次先装:`pnpm exec playwright install chromium`(插件沙箱还要 `webkit firefox`)。
 

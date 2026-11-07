@@ -6,11 +6,21 @@ import type { Civ } from '../gen/civ/types';
 import {
   cleanIntervention,
   cleanMark,
+  cleanMarkNote,
+  cleanMarkTitle,
   cleanName,
+  INTERVENTION_YEAR_MAX,
+  isRegionKey,
   markAiName,
   markRegionTotal,
+  MARK_COLORS,
+  MARK_NOTE_MAX,
+  MARK_REGIONS_MAX,
   MARK_REGIONS_TOTAL,
+  MARK_SIZES,
+  MARK_TITLE_MAX,
   MARKS_MAX,
+  NAME_MAX,
   nextMarkId,
   resolveKey,
   type AuthorMark,
@@ -18,8 +28,9 @@ import {
   type WorldEdits,
 } from '../gen/edits';
 import { makeSave, saveText, SAVE_MAX_BYTES } from '../gen/savefile';
+import { TERRAIN_H } from '../gen/terrainOps';
 import type { WorldParams } from '../gen/world';
-import { argsOf, bad, isRec, list, over, PluginApiError } from './check';
+import { argsOf, bad, int, isRec, list, num, over, PluginApiError } from './check';
 import { approxBytes } from './protocol';
 import type { ApplyResult } from './types';
 
@@ -56,6 +67,36 @@ function ivKeys(v: Intervention): string[] {
   return out;
 }
 
+const chars = (s: string) => [...s].length;
+
+/** 不合格回 bad-args、超上限回 limit,不替插件改;合格的再照存标记的规矩整理(去空白、州键去重) */
+function checkMark(raw: unknown, at: string, id: number): AuthorMark {
+  if (!isRec(raw)) return bad(`${at} 要是对象`);
+  const tints: readonly unknown[] = [...MARK_COLORS, 'none'];
+  if (!tints.includes(raw.color)) bad(`${at}.color 只能是 ${tints.join('、')}`);
+  if (raw.size !== undefined && !(MARK_SIZES as readonly unknown[]).includes(raw.size)) bad(`${at}.size 只能是 ${MARK_SIZES.join('、')}`);
+  if (typeof raw.title !== 'string') bad(`${at}.title 要是字`);
+  if (chars(cleanMarkTitle(raw.title, Infinity)) > MARK_TITLE_MAX) over(`${at}.title 最多 ${MARK_TITLE_MAX} 个字`);
+  if (raw.note !== undefined && typeof raw.note !== 'string') bad(`${at}.note 要是字`);
+  if (chars(cleanMarkNote(raw.note, Infinity)) > MARK_NOTE_MAX) over(`${at}.note 最多 ${MARK_NOTE_MAX} 个字`);
+  const from = int(raw.from, `${at}.from`, 0, INTERVENTION_YEAR_MAX);
+  if (raw.to !== undefined) int(raw.to, `${at}.to`, from, INTERVENTION_YEAR_MAX);
+  if (raw.at === undefined && raw.regions === undefined) bad(`${at} 要给 at(一个点)或 regions(几个州)`);
+  if (raw.at !== undefined && raw.regions !== undefined) bad(`${at} 的 at 和 regions 只给一个`);
+  if (raw.regions !== undefined) {
+    const rs = raw.regions;
+    if (!Array.isArray(rs) || !rs.length) return bad(`${at}.regions 要是州键的数组,至少一个`);
+    if (rs.length > MARK_REGIONS_MAX) over(`${at}.regions 最多 ${MARK_REGIONS_MAX} 个州`);
+    for (let j = 0; j < rs.length; j++) if (!isRegionKey(rs[j])) bad(`${at}.regions[${j}] 不是州键(history.regions 的 key)`);
+  } else {
+    const p = raw.at;
+    if (!Array.isArray(p) || p.length !== 2) return bad(`${at}.at 要是一个点 [x, y]`);
+    num(p[0], `${at}.at[0]`);
+    num(p[1], `${at}.at[1]`, 0, TERRAIN_H);
+  }
+  return cleanMark({ ...raw, id }) ?? bad(`${at} 不是合格的标记`);
+}
+
 /** 整批算好;不合格抛 PluginApiError(bad-args / limit / unavailable)。params = 这个世界的参数(量改完以后的存档有多大) */
 export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, params: WorldParams): PlannedChanges {
   const changes = list(argsOf(raw).changes, 'changes', CHANGES_MAX);
@@ -76,7 +117,8 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, pa
       if (!r || typeof key !== 'string') return bad(`${at}.key 在这个世界里找不到`);
       if (c.name !== null && typeof c.name !== 'string') return bad(`${at}.name 要是字或 null(null = 恢复原名)`);
       const eastern = (r.kind === 'polity' || r.kind === 'dynasty') && !!h.polities[r.id]?.eastern;
-      const name = c.name === null ? '' : cleanName(r.kind, c.name, eastern);
+      const name = c.name === null ? '' : cleanName(r.kind, c.name, eastern, Infinity);
+      if (chars(name) > NAME_MAX) over(`${at}.name 最多 ${NAME_MAX} 个字`);
       if ((names[key] ?? '') === name) {
         result.skipped++;
         return;
@@ -89,10 +131,9 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, pa
     } else if (c.kind === 'mark') {
       if (marks.length >= MARKS_MAX) over(`标记最多 ${MARKS_MAX} 个`);
       const id = nextMarkId(marks);
-      const m = isRec(c.mark) ? cleanMark({ ...c.mark, id }) : null;
-      if (!m) return bad(`${at}.mark 不是合格的标记(要有 from 年份,at 一个点或 regions 几个州)`);
+      const m = checkMark(c.mark, `${at}.mark`, id);
       if (m.regions && markRegionTotal(marks) + m.regions.length > MARK_REGIONS_TOTAL) over(`所有标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州`);
-      marks = [...marks, m as AuthorMark];
+      marks = [...marks, m];
       result.marks.push(id);
     } else if (c.kind === 'intervention') {
       needCiv(civ);

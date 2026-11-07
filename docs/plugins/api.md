@@ -35,7 +35,7 @@ if (caps.includes('history.read@1')) { /* 用历史 */ }
 
 ### `civAtlas.log(...parts)` — 不要能力
 
-写一条日志(开发者模式里看)。各部分不是字的转成 JSON,用空格连起来;一条最多 2000 个字,超了这一条不记。不返回 Promise,也不会出错。
+写一条日志(开发者模式里看)。各部分不是字的转成 JSON,用空格连起来;一条最多 2000 个字,长了只记前 2000 个字,末尾标上截掉了多少。不返回 Promise,也不会出错。
 
 ### `civAtlas.on(event, fn)`
 
@@ -181,25 +181,25 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 **改名** `{ kind: 'name', key, name }`
 
 - `key`:`history.*` 返回的稳定键(国家、城、州、民族、信仰、人物、地名都行)
-- `name`:新名字;`null` 或空的 = 恢复原名。最长 16 个字,长了截掉。国家改的是国名词根:末尾的「国」「王国」「帝国」「王朝」这类会去掉,全称照当年的国号接上;民族末尾的「族」会去掉
+- `name`:新名字;`null` 或空的 = 恢复原名。国家改的是国名词根:末尾的「国」「王国」「帝国」「王朝」这类会去掉,全称照当年的国号接上;民族末尾的「族」会去掉。去掉以后最长 16 个字,长了回 `limit`
 
 **加标记** `{ kind: 'mark', mark: { title, note?, color, size?, from, to?, at | regions } }`
 
 | 字段 | 规矩 |
 |---|---|
-| `title` | 名字,最长 40 个字(长了截掉,空的叫「新标记」) |
-| `note` | 说明,可以分行,最长 2000 个字 |
-| `color` | `red` / `orange` / `green` / `blue` / `purple` / `teal`,或 `none`(不涂色);写了别的当 `red` |
-| `size` | 可选:`s` / `l` / `xl` |
-| `from`、`to` | 时间轴在这几年里(两头都算)地图上才画它,整数年;`to` 不给 = 一直在 |
-| `at` | 一个点 `[x, y]`(世界坐标) |
-| `regions` | 几个州的键(`history.regions()` 的 `key`),最多 500 个(多的截掉);格式不对的州键丢掉,一个都不剩算不合格 |
+| `title` | 名字,最长 40 个字;空的叫「新标记」 |
+| `note` | 可选:说明,可以分行,最长 2000 个字 |
+| `color` | `red` / `orange` / `green` / `blue` / `purple` / `teal`,或 `none`(不涂色) |
+| `size` | 可选:`s` / `l` / `xl`(不给 = 中) |
+| `from`、`to` | 时间轴在这几年里(两头都算)地图上才画它,0–65535 的整数年,`to` 不早于 `from`;`to` 不给 = 一直在 |
+| `at` | 一个点 `[x, y]`(世界坐标,`y` 在 0 到 `height` 之间) |
+| `regions` | 几个州的键(`history.regions()` 的 `key`),1–500 个;重复的只存一个 |
 
-`at` 和 `regions` 给一个(都给按 `regions`)。一个世界最多 2000 个标记,所有标记一共最多圈 10000 个州。
+`at` 和 `regions` 只给一个。不合规的回 `bad-args`,名字、说明、州数超了回 `limit`,网站不替插件改。一个世界最多 2000 个标记,所有标记一共最多圈 10000 个州。
 
 **下命令** `{ kind: 'intervention', v: { kind, from, ... } }`
 
-`v` 和世界文件里的干预一个格式,种类和字段见 [`src/gen/edits.ts`](../../src/gen/edits.ts) 开头「干预」那一节的表。几个例子:
+`v` 和世界文件里的干预一个格式(类型是 [`types.ts`](../../src/plugin/types.ts) 里的 `InterventionInfo`),每种的意思和字段见 [`src/gen/edits.ts`](../../src/gen/edits.ts) 开头「干预」那一节的表。几个例子:
 
 ```js
 { kind: 'intervention', v: { kind: 'protect', a: polityKey, from: 300 } }              // 从 300 年起这国不会被灭

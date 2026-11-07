@@ -1724,11 +1724,11 @@ export function namesWithoutAi(edits: WorldEdits): Record<string, string> {
 const POLITY_SUFFIXES = ['共和国', '大汗国', '王朝', '皇朝', '帝国', '王国', '汗国', '城邦', '国', '部'];
 
 /**
- * 用户输入的名字 → 存进 names 的名字:去掉首尾空白和控制字符,超长截断;
+ * 用户输入的名字 → 存进 names 的名字:去掉首尾空白和控制字符,超过 max 个字截断;
  * 国家 / 东方朝代去掉末尾顺手打上的国号("秦国" → "秦"),西幻朝代去掉"王朝",民族去掉"族"(剩下不到一个字就不去)。
  * 空串 = 不改名(恢复默认)
  */
-export function cleanName(kind: KeyKind, raw: string, eastern = false): string {
+export function cleanName(kind: KeyKind, raw: string, eastern = false, max = NAME_MAX): string {
   // eslint-disable-next-line no-control-regex
   let s = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
   const strip = (suffixes: readonly string[]) => {
@@ -1743,7 +1743,7 @@ export function cleanName(kind: KeyKind, raw: string, eastern = false): string {
   else if (kind === 'dynasty') strip(['王朝']);
   else if (kind === 'culture') strip(['族']);
   const cs = [...s];
-  return cs.length > NAME_MAX ? cs.slice(0, NAME_MAX).join('') : s;
+  return cs.length > max ? cs.slice(0, max).join('') : s;
 }
 
 /** 国名词根换成 root(东方国家的第一朝国号跟着换) */
@@ -2740,22 +2740,22 @@ export function freeMarkId(used: Set<number>, max: number): number {
   return id;
 }
 
-/** 名字:去掉控制字符、首尾空白、连着的空白并成一个,超长截断 */
-export function cleanMarkTitle(raw: unknown): string {
+/** 名字:去掉控制字符、首尾空白、连着的空白并成一个,超过 max 个字截断 */
+export function cleanMarkTitle(raw: unknown, max = MARK_TITLE_MAX): string {
   if (typeof raw !== 'string') return '';
   // eslint-disable-next-line no-control-regex
   const s = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
   const cs = [...s];
-  return cs.length > MARK_TITLE_MAX ? cs.slice(0, MARK_TITLE_MAX).join('') : s;
+  return cs.length > max ? cs.slice(0, max).join('') : s;
 }
 
-/** 说明:去掉换行以外的控制字符、首尾空白,超长截断 */
-export function cleanMarkNote(raw: unknown): string {
+/** 说明:去掉换行以外的控制字符、首尾空白,超过 max 个字截断 */
+export function cleanMarkNote(raw: unknown, max = MARK_NOTE_MAX): string {
   if (typeof raw !== 'string') return '';
   // eslint-disable-next-line no-control-regex
   const s = raw.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '').trim();
   const cs = [...s];
-  return cs.length > MARK_NOTE_MAX ? cs.slice(0, MARK_NOTE_MAX).join('').trimEnd() : s;
+  return cs.length > max ? cs.slice(0, max).join('').trimEnd() : s;
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10;

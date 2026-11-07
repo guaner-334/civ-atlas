@@ -1,5 +1,6 @@
 /**
- * 插件沙箱的浏览器检查:npx tsx scripts/sandbox-check.ts [chromium] [webkit] [firefox](不写 = 三个都跑)
+ * 插件沙箱的浏览器检查:pnpm test:sandbox [chromium] [webkit] [firefox] [--update](不写浏览器 = 三个都跑)
+ * 都过了接着跑隔离自检页的检查(sandbox-self-check.ts,同样的参数)。
  *
  * 起一个假网站(页面带 index.html 里那条 Content-Security-Policy)和一个「收信站」(HTTP、WebSocket、两个 TCP 口、一个 UDP 口,
  * 谁连进来都记下),让插件在沙箱里把能想到的坏事都试一遍(lib/sandbox/battery.js)。
@@ -569,4 +570,6 @@ turn.close();
 udp.close();
 host.close();
 console.log(fails.length ? `\n没过 ${fails.length} 项:\n${fails.map((f) => `  ${f}`).join('\n')}` : '\n全部过了');
-process.exit(fails.length ? 1 : 0);
+if (fails.length) process.exit(1);
+// 不在 package.json 里用 && 接着跑:pnpm 把命令行参数只接在最后一条命令后面
+await import('./sandbox-self-check');
