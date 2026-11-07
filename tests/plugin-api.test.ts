@@ -631,6 +631,12 @@ describe('改你写的东西', () => {
     expect(key in back.next.names).toBe(false);
   });
 
+  it('插件下的干预就是作者自己下的:照大纲推演记的 plot、guide 不留', () => {
+    const key = pk();
+    const plan = planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'intervention', v: { kind: 'policy', a: key, from: 50, preset: 'peace', plot: 2, guide: true } }] });
+    expect(plan.next.interventions).toEqual([{ kind: 'policy', a: key, from: 50, preset: 'peace' }]);
+  });
+
   it('改了 AI 起的名字,那一笔 AI 记号去掉', () => {
     const key = pk();
     const e: WorldEdits = { ...EMPTY_EDITS, names: { [key]: '甲' }, aiNames: { [key]: { name: '甲' } } };

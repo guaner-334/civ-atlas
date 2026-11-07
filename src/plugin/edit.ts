@@ -88,7 +88,9 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown): P
       result.marks.push(id);
     } else if (c.kind === 'intervention') {
       needCiv(civ);
-      const v = cleanIntervention(c.v);
+      // plot、guide 是照大纲推演自己记的,插件下的就是作者自己下的
+      const { plot: _p, guide: _g, ...plain } = isRec(c.v) ? c.v : {};
+      const v = isRec(c.v) ? cleanIntervention(plain) : null;
       if (!v) return bad(`${at}.v 不是合格的干预`);
       const k = JSON.stringify(v);
       if (interventions.some((x) => JSON.stringify(x) === k)) {
