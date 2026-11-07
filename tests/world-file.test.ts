@@ -12,8 +12,8 @@ import { TUNING_CALC } from '../src/gen/civ/tuning';
 import { makePart, partLimit, sha256 } from '../src/gen/snapshot';
 import { mulberry32 } from '../src/gen/util';
 import { checkWorldFile, checkWorldFileInWorker, type WorldCheckRequest, type WorldCheckResult, type WorldCheckWorker } from '../src/gen/worldCheck';
-import { openWorldFile, packWorldFile, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
-import { WORLD_FILE_EXT, WorldFileError, asWorldFileError, type WorldFileErrorKind } from '../src/gen/worldFormat';
+import { opaqueParts, openWorldFile, packWorldFile, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
+import { PLUGIN_DATA_MAX_BYTES, WORLD_FILE_EXT, WorldFileError, asWorldFileError, type WorldFileErrorKind } from '../src/gen/worldFormat';
 import { MIGRATIONS, currentSchema, migratePart, type MigrationTable } from '../src/gen/worldMigrate';
 import { MANIFEST_MAX_BYTES, parseManifest, worldPartLimit } from '../src/gen/worldValidate';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES, parseZip, writeZip, type ZipInput } from '../src/gen/zipStore';
@@ -61,6 +61,9 @@ const manifestOf = (change: (m: any) => void) => {
   change(m);
   return text(JSON.stringify(m));
 };
+
+/** 插件存的数据那一块(清单里的一项) */
+const extPart = (over: Record<string, unknown> = {}) => ({ name: 'ext.magic-sim', file: 'parts/ext.magic-sim.gz', schema: 3, sum: 'a'.repeat(64), bytes: 100, zip: 'gzip', need: 'extra', by: 'magic-sim', ...over });
 
 describe('世界文件:打包再读回', () => {
   it('打包 → 读回 → 校验 → 和原来逐项相等', async () => {
@@ -221,7 +224,7 @@ describe('世界文件:三种错分得开', () => {
     ['缺必须的块', (m) => (m.parts = m.parts.filter((p: any) => p.name !== 'civ'))],
     ['必须的块标成可选', (m) => (m.parts.find((p: any) => p.name === 'map').need = 'extra')],
     ['两块同名', (m) => m.parts.push({ ...m.parts[0], file: 'parts/other.gz' })],
-    ['两块同路径', (m) => m.parts.push({ ...m.parts[0], name: 'ext.other', need: 'extra' })],
+    ['两块同路径', (m) => m.parts.push({ ...m.parts[0], name: 'other', need: 'extra' })],
     ['块名带路径', (m) => (m.parts[0].name = '../map')],
     ['块名大写', (m) => m.parts.push({ ...m.parts.at(-1), name: 'Ext', file: 'parts/ext.bin' })],
     ['路径跳出 parts', (m) => (m.parts[0].file = 'parts/../map.gz')],
@@ -254,6 +257,14 @@ describe('世界文件:三种错分得开', () => {
     ['origin.url 是 http', (m) => (m.recipe.origin = { title: 'x', url: 'http://example.org/s/abcd' })],
     ['origin.url 是脚本', (m) => (m.recipe.origin = { title: 'x', url: 'javascript:alert(1)' })],
     ['origin 不是对象', (m) => (m.recipe.origin = 'x')],
+    ['插件数据的块名不是插件编号:数字开头', (m) => m.parts.push(extPart({ name: 'ext.1magic', file: 'parts/ext.1magic.gz', by: '1magic' }))],
+    ['插件数据的块名不是插件编号:多一段', (m) => m.parts.push(extPart({ name: 'ext.magic.sim', file: 'parts/ext.magic.sim.gz', by: 'magic.sim' }))],
+    ['插件数据的块名不是插件编号:两个连字符', (m) => m.parts.push(extPart({ name: 'ext.magic--sim', file: 'parts/ext.magic--sim.gz', by: 'magic--sim' }))],
+    ['插件数据的块名不是插件编号:太长', (m) => m.parts.push(extPart({ name: `ext.${'a'.repeat(33)}`, file: `parts/ext.${'a'.repeat(33)}.gz`, by: 'a'.repeat(33) }))],
+    ['插件数据标成看世界必须有', (m) => m.parts.push(extPart({ need: 'view' }))],
+    ['插件数据没写谁存的', (m) => m.parts.push(extPart({ by: undefined }))],
+    ['插件数据写的是别的插件', (m) => m.parts.push(extPart({ by: 'other' }))],
+    ['插件数据超过上限', (m) => m.parts.push(extPart({ bytes: PLUGIN_DATA_MAX_BYTES + 1 }))],
   ];
   it.each(BROKEN)('文件坏了:%s', (_, change) => {
     let err: unknown;
@@ -330,7 +341,7 @@ describe('世界文件:三种错分得开', () => {
 });
 
 describe('世界文件:认不出的块原样带着,只当字节', () => {
-  const unknownPart = { name: 'ext.magic', file: 'parts/ext.magic.zst', schema: 3, sum: 'a'.repeat(64), bytes: 12345678901, zip: 'zstd', need: 'extra', by: 'magic-sim' };
+  const unknownPart = { name: 'future.magic', file: 'parts/future.magic.zst', schema: 3, sum: 'a'.repeat(64), bytes: 12345678901, zip: 'zstd', need: 'extra', by: 'magic-sim' };
   const garbage = text('这不是压缩过的字节,校验也对不上;读世界的时候不许碰它');
 
   it('读世界时不解开、不校验;结构比软件新的可选块也一样', async () => {
@@ -341,7 +352,7 @@ describe('世界文件:认不出的块原样带着,只当字节', () => {
       m.parts.find((p: any) => p.name === 'thumb').schema = 99;
     });
     const opened = await openWorldFile(f, OPEN);
-    expect(opened.kept.map((p) => p.name)).toEqual(['author', 'thumb', 'ext.magic']);
+    expect(opened.kept.map((p) => p.name)).toEqual(['author', 'thumb', 'future.magic']);
     const c = await readWorldContent(opened);
     expect(c.author).toBeNull();
     expect(c.thumb).toBeNull();
@@ -364,10 +375,10 @@ describe('世界文件:认不出的块原样带着,只当字节', () => {
     expect(m.revision).toEqual({ n: 2, parent: await sha256(opened.manifestBytes) });
     expect(m.futureField).toEqual({ keep: ['me'] });
     expect(m.parts[0].futureToo).toBe(1);
-    expect(again.bytes.get('ext.magic')).toEqual(garbage);
+    expect(again.bytes.get('future.magic')).toEqual(garbage);
     expect(again.bytes.get('author')).toEqual(opened.bytes.get('author'));
     expect(again.bytes.get('civ')).toEqual(opened.bytes.get('civ'));
-    expect(m.parts.find((p: any) => p.name === 'ext.magic')).toEqual(unknownPart);
+    expect(m.parts.find((p: any) => p.name === 'future.magic')).toEqual(unknownPart);
     expect(again.bytes.get('thumb')).toEqual(tinyJpeg(96, 48));
     // 再存一次:修订号接着加
     const third = await openWorldFile(await rewriteWorldFile(again), OPEN);
@@ -383,12 +394,40 @@ describe('世界文件:认不出的块原样带着,只当字节', () => {
   }, 30_000);
 
   it('打包时带的附加数据:need 是 extra,记着谁放的,读世界用不着', async () => {
-    const f = await packWorldFile({ ...sample, plugins: [{ id: 'magic-sim', version: '1.2.0', sum: 'b'.repeat(64), role: 'sim', params: { mana: 3 } }], extras: [{ name: 'ext.magic', schema: 3, by: 'magic-sim', value: { mana: new Float32Array(4) } }] });
+    const f = await packWorldFile({ ...sample, plugins: [{ id: 'magic-sim', version: '1.2.0', sum: 'b'.repeat(64), role: 'sim', params: { mana: 3 } }], extras: [{ name: 'ext.magic-sim', schema: 3, by: 'magic-sim', value: { mana: new Float32Array(4) } }] });
     const opened = await openWorldFile(f, OPEN);
     expect(opened.manifest.plugins[0].id).toBe('magic-sim');
-    expect(opened.manifest.parts.at(-1)).toMatchObject({ name: 'ext.magic', file: 'parts/ext.magic.gz', schema: 3, need: 'extra', by: 'magic-sim' });
-    expect(opened.kept.map((p) => p.name)).toEqual(['ext.magic']);
+    expect(opened.manifest.parts.at(-1)).toMatchObject({ name: 'ext.magic-sim', file: 'parts/ext.magic-sim.gz', schema: 3, need: 'extra', by: 'magic-sim' });
+    expect(opened.kept.map((p) => p.name)).toEqual(['ext.magic-sim']);
+    expect(opaqueParts(opened.manifest.parts)).toEqual(['ext.magic-sim']);
     await readWorldContent(opened);
+  }, 30_000);
+});
+
+describe('世界文件:插件存的数据', () => {
+  it('ext.<插件编号>、可选、写着谁存的、不超过上限:读得开,只当字节;压缩方式认不出也一样', () => {
+    for (const over of [{}, { zip: 'zstd', file: 'parts/ext.magic-sim.zst' }, { bytes: PLUGIN_DATA_MAX_BYTES }, { name: `ext.${'a'.repeat(32)}`, file: 'parts/a.gz', by: 'a'.repeat(32) }]) {
+      const m = parseManifest(manifestOf((x) => x.parts.push(extPart(over))), OPEN);
+      expect(opaqueParts(m.parts), JSON.stringify(over)).toEqual([extPart(over).name]);
+    }
+    // 清单里有没有这个插件的记录都行
+    expect(() => parseManifest(manifestOf((x) => ((x.plugins = []), x.parts.push(extPart()))), OPEN)).not.toThrow();
+  });
+
+  it('不能公开分享的块:只看清单就认得出来', () => {
+    expect(opaqueParts(goodManifest.parts)).toEqual([]);
+    const m = manifestOf((x) => {
+      x.parts.push(extPart(), { ...extPart(), name: 'future.thing', file: 'parts/future.thing.gz', by: undefined });
+      x.parts.find((p: any) => p.name === 'author').schema = 99;
+    });
+    expect(opaqueParts(parseManifest(m, OPEN).parts)).toEqual(['author', 'ext.magic-sim', 'future.thing']);
+  });
+
+  it('不合规矩的插件数据写不进文件', async () => {
+    await expect(packWorldFile({ ...sample, extras: [{ name: 'ext.magic-sim', schema: 1, by: 'other', value: 1 }] })).rejects.toThrow('by');
+    await expect(packWorldFile({ ...sample, extras: [{ name: 'ext.magic-sim', schema: 1, by: 'magic-sim', value: new Uint8Array(PLUGIN_DATA_MAX_BYTES) }] })).rejects.toThrow('上限');
+    const ok = await openWorldFile(await bytesOf(await packWorldFile({ ...sample, extras: [{ name: 'ext.magic-sim', schema: 2, by: 'magic-sim', value: { n: 1 } }] })), OPEN);
+    expect(ok.kept.map((p) => p.name)).toEqual(['ext.magic-sim']);
   }, 30_000);
 });
 

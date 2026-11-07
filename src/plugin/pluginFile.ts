@@ -15,7 +15,7 @@
  * 先查坏没坏、再查认不认得;只有格式、kind、接口版本比网站新时一看到就报 newer(那时别的字段可能都变了)。
  * 加新的文件种类、改字段的意思要升 format;加可选字段不升,这一版网站认不出的字段不管。
  */
-import { MANIFEST_FILE, WORLD_APP, WORLD_KIND } from '../gen/worldFormat';
+import { MANIFEST_FILE, PLUGIN_ID, PLUGIN_ID_MAX, WORLD_APP, WORLD_KIND } from '../gen/worldFormat';
 import { parseZip, writeZip, type ZipInput } from '../gen/zipStore';
 import { CAP_NAME, PLUGIN_CAPS } from './pluginCaps';
 
@@ -117,9 +117,6 @@ function asPluginFileError(err: unknown): PluginFileError {
 
 type Obj = Record<string, unknown>;
 
-const ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-/** 编号最长几个字:世界里存下的插件图层块叫 layer.<编号>.<图层>,块名最长 64 */
-const ID_MAX = 32;
 const VERSION = /^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$/;
 const SHORT_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SUM = /^[0-9a-f]{64}$/;
@@ -245,7 +242,7 @@ function parseManifest(bytes: Uint8Array): PluginManifest {
   const api = int(m.api, 1, Number.MAX_SAFE_INTEGER, '清单的 api');
   if (api > PLUGIN_API) newer(`要更新网站才能用:插件用的是第 ${api} 版接口`);
 
-  matches(m.id, ID, ID_MAX, '清单的 id');
+  matches(m.id, PLUGIN_ID, PLUGIN_ID_MAX, '清单的 id');
   line(m.name, NAME_MAX, '清单的 name');
   matches(m.version, VERSION, 20, '清单的 version');
   matches(m.role, SHORT_NAME, 64, '清单的 role');
