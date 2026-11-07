@@ -691,6 +691,10 @@ describe('改你写的东西', () => {
     expect(bad([{ kind: 'intervention', v: { kind: 'protect', a: 'nope', from: 1 } }])).toBe('bad-args');
     expect(bad([{ kind: 'rewrite-history' }])).toBe('bad-args');
     expect(bad(Array(CHANGES_MAX + 1).fill({ kind: 'name', key, name: '甲' }))).toBe('limit');
+    const huge = Array(400_000).fill(regionKey(civ, 1));
+    const t0 = performance.now();
+    expect(bad(Array(CHANGES_MAX).fill({ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, regions: huge } }))).toBe('limit');
+    expect(performance.now() - t0).toBeLessThan(200);
     const full: WorldEdits = { ...EMPTY_EDITS, marks: Array.from({ length: MARKS_MAX }, (_, i) => ({ id: i + 1, title: 't', color: 'red' as const, from: 0, at: [1, 1] as [number, number] })) };
     expect(bad([{ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, at: [1, 1] } }], full)).toBe('limit');
     expect(bad([{ kind: 'name', key, name: '甲' }], EMPTY_EDITS, null)).toBe('unavailable');
@@ -757,6 +761,12 @@ describe('插件自己的数据', () => {
     expect(code({ schema: 1, value: deep })).toBe('limit');
     const shared = { a: 1 };
     expect(code({ schema: 1, value: [shared, shared] })).toBe('no error');
+    // 一层套一层、每层引用下一层两次:展开有 2^30 个,查过的不再查
+    let dag: unknown = [1];
+    for (let i = 0; i < 30; i++) dag = [dag, dag];
+    const t0 = performance.now();
+    expect(code({ schema: 1, value: dag })).toBe('no error');
+    expect(performance.now() - t0).toBeLessThan(200);
   });
 
   it('存、取、删;世界的数据没开世界时回 unavailable;存到哪可以换成别的(异步的也行)', async () => {

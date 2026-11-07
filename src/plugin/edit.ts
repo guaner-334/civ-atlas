@@ -18,10 +18,13 @@ import {
   type WorldEdits,
 } from '../gen/edits';
 import { argsOf, bad, isRec, list, over, PluginApiError } from './check';
+import { approxBytes } from './protocol';
 import type { ApplyResult } from './types';
 
 /** 一次最多提几条 */
 export const CHANGES_MAX = 200;
+/** 一条最大多少字节(估的;最大的是圈满州的标记):同一个大数组可以被很多条引用,先挡住再清理 */
+const CHANGE_MAX_BYTES = 64 * 1024;
 /** 插件改完以后干预、改名最多几条:再多世界文件的清单就存不下了 */
 export const PLUGIN_INTERVENTIONS_MAX = 10_000;
 export const PLUGIN_NAMES_MAX = 20_000;
@@ -61,6 +64,7 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown): P
   changes.forEach((c, i) => {
     const at = `changes[${i}]`;
     if (!isRec(c)) return bad(`${at} 要是对象`);
+    if (approxBytes(c, CHANGE_MAX_BYTES) > CHANGE_MAX_BYTES) over(`${at} 太大`);
     if (c.kind === 'name') {
       const h = needCiv(civ);
       const key = c.key;

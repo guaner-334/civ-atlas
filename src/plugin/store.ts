@@ -39,8 +39,8 @@ export function defaultWorldStore(world: World): PluginDataStore {
 
 const NUMERIC = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array];
 
-/** 查值能不能存:只认数据,不认函数、Map、日期这类;不许 __proto__ 这类键、不许绕成圈 */
-function checkValue(v: unknown, depth: number, up: Set<object>, at: string): void {
+/** 查值能不能存:只认数据,不认函数、Map、日期这类;不许 __proto__ 这类键、不许绕成圈。查过的对象不再查(同一个对象可以被引用很多次) */
+function checkValue(v: unknown, depth: number, up: Set<object>, done: Set<object>, at: string): void {
   if (v === null || typeof v === 'boolean' || typeof v === 'string') return;
   if (typeof v === 'number') {
     if (!Number.isFinite(v)) bad(`${at} 不能是 NaN 或无穷大`);
@@ -53,16 +53,18 @@ function checkValue(v: unknown, depth: number, up: Set<object>, at: string): voi
     return;
   }
   if (up.has(v)) return bad(`${at} 绕成圈了`);
+  if (done.has(v)) return;
   const proto = Object.getPrototypeOf(v);
   if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return bad(`${at} 只能是普通对象`);
   up.add(v);
-  if (Array.isArray(v)) v.forEach((x, i) => checkValue(x, depth + 1, up, `${at}[${i}]`));
+  if (Array.isArray(v)) v.forEach((x, i) => checkValue(x, depth + 1, up, done, `${at}[${i}]`));
   else
     for (const k of Object.keys(v)) {
       if (k === '__proto__' || k === 'constructor' || k === 'prototype') bad(`${at} 里有不许用的键 ${k}`);
-      checkValue((v as Record<string, unknown>)[k], depth + 1, up, `${at}.${k}`);
+      checkValue((v as Record<string, unknown>)[k], depth + 1, up, done, `${at}.${k}`);
     }
   up.delete(v);
+  done.add(v);
 }
 
 /** 插件交来的 { schema, value };max 字节(估的) */
@@ -71,7 +73,7 @@ export function checkStored(raw: unknown, max: number): StoredData {
   const schema = int(a.schema, 'schema', 1, SCHEMA_MAX);
   if (!('value' in a) || a.value === undefined) bad('要给 value');
   if (approxBytes(a.value, max) > max) over(`最多 ${Math.round(max / 1024)} KB`);
-  checkValue(a.value, 1, new Set(), 'value');
+  checkValue(a.value, 1, new Set(), new Set(), 'value');
   return { schema, value: a.value };
 }
 
