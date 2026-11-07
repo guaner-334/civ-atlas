@@ -126,7 +126,8 @@ const batteryJs = readFileSync(new URL('./lib/sandbox/battery.js', import.meta.u
   .replace('__HOST__', HOST)
   .replace('__PRECONNECT__', String(preconnectPort))
   .replace('__TURN__', String(turnPort))
-  .replace('__UDP__', String(udpPort));
+  .replace('__UDP__', String(udpPort))
+  .replace('__SECRET_KEY__', 'civ-atlas:ai-secrets');
 
 // ---- 浏览器进程占了多少 CPU ----
 
