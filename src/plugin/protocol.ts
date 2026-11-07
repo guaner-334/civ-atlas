@@ -231,7 +231,7 @@ const MEASURE_MAX_NODES = 1_000_000;
 
 /**
  * 估一个值传过来占多少字节:字串按两字节一个字,数值数组按整个缓冲区的字节,别的值算 8 个字节。超过 max(或者值太多)就不再往下数,
- * 返回的数大于 max。同一个对象、同一个缓冲区出现几次只算一次
+ * 返回的数大于 max。同一个对象、同一个缓冲区出现几次只算一次。图片、画布这类估不了的东西一律算太大(接口只传数据)
  */
 export function approxBytes(value: unknown, max: number): number {
   let total = 0;
@@ -261,7 +261,15 @@ export function approxBytes(value: unknown, max: number): number {
       } else if (x instanceof Set) {
         if (x.size > room()) return Infinity;
         for (const v of x) stack.push(v);
-      } else {
+      } else if (x instanceof Error) {
+        // 传过来的 Error 带着 message、stack、cause,都不是可枚举的键
+        total += 8 + 2 * (String(x.name).length + String(x.message).length + String(x.stack ?? '').length);
+        if ('cause' in x) stack.push(x.cause);
+      } else if (x instanceof RegExp) total += 8 + 2 * x.source.length;
+      else if (x instanceof String) total += 8 + 2 * x.length;
+      else if (x instanceof Date || x instanceof Number || x instanceof Boolean) total += 8;
+      else if (Object.getPrototypeOf(x) !== Object.prototype && Object.getPrototypeOf(x) !== null) return Infinity;
+      else {
         const keys = Object.keys(x);
         if (keys.length > room()) return Infinity;
         for (const k of keys) {
