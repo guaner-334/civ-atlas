@@ -8,11 +8,12 @@ import { createPortal } from 'react-dom';
 import { parseZip } from '../../gen/zipStore';
 import { permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PLUGIN_ICON, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
+import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
 import { isCoarse } from '../device';
 import { Icon, type IconName } from '../icons';
 import { showToast } from '../toastStore';
 import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, versionLabel, versionText } from './pluginText';
-import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn, type InstalledPlugin } from './shelf';
+import { PuzzleIcon } from './entry';
 import { verdictOf, type PluginVerdict } from './verdict';
 import './plugins.css';
 
@@ -79,7 +80,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const install = async (a: Ask) => {
     setBusy(true);
     try {
-      const r = await installPlugin(a.bytes, a.file);
+      const r = await installPlugin(new File([a.bytes], a.file));
       await reload(r.plugin.id);
       setAsk(null);
       setDetail(false);
@@ -207,7 +208,7 @@ function PluginIcon({ src, size }: { src: string | null | undefined; size: 'sm' 
   if (src) return <img className={`plg-pi ${size}`} src={src} alt="" />;
   return (
     <span className={`plg-pi ${size} none`}>
-      <Icon name="puzzle" />
+      <PuzzleIcon />
     </span>
   );
 }
