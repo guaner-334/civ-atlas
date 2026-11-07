@@ -55,7 +55,7 @@ import { dropResults, resultHeads, resultSizes } from './resultStore';
 import type { PackAsk } from './sim/simClient';
 import { MAX_WORLDS, TRASH, VAULT_CLEARED, allWorldIds, currentWorld, deleteWorld, isStored, listWorlds, loadWorld, markTrash, originalOf, persistent, putSyncedWorld, reportVaultFull, saveAsNewVersion, storageFullWhy, storedCount, subscribe, syncable, trashMarks, unmarkTrash, vaultRoomBack } from './saveStore';
 import { NEAR_FULL_BYTES, PERSIST_ASKED, appleDevice, askPersisted, firstHintSaid, isNearFull, noteFirstHint, noteVaultFull, rawRoom, spaceChanged } from './spaceFacts';
-import { clearToast, showToast } from './toastStore';
+import { afterOkToasts, clearToast, showToast } from './toastStore';
 import { withFileFlow } from './worldFileLazy';
 import { APP_COMMIT, APP_VERSION } from './version';
 import { canSeeHolds, holdWorld, ifNotHeld, isHeld } from './worldHolds';
@@ -345,9 +345,15 @@ async function askPersist(): Promise<void> {
   }
 }
 
+let hintWaiting = false;
 /** 存的不是正开着的世界(后台转的)这次不算,不然人在别处突然冒出来 */
 async function firstHint(id: string): Promise<void> {
-  if (firstHintSaid() || !appleDevice() || currentWorld()?.id !== id || (await askPersisted())) return;
+  if (hintWaiting || firstHintSaid() || !appleDevice() || currentWorld()?.id !== id || (await askPersisted())) return;
+  // 这条带按钮、排最前:先让「已打开存档」这类 ok 提示露完,不然它在下面到时收掉
+  hintWaiting = true;
+  await afterOkToasts();
+  hintWaiting = false;
+  if (firstHintSaid() || currentWorld()?.id !== id) return;
   noteFirstHint();
   showToast({
     id: 'lose-first',

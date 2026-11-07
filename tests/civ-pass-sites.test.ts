@@ -197,3 +197,24 @@ it('改过地形的世界:守关那一句用那一年所在那一段地图上的
   expect(standPassName(civ, 0)).toBe('旧关');
   expect(standPassName(civ, 1)).toBe('新关');
 });
+
+it('改过地形的世界:地图停在大事以前那一段时,大事以后守关那一条不在那一段的关上找事发地', () => {
+  const gate = (name: string, cell: number, stands: number[]) => ({ kind: 'pass', name, cell, pass: { stands } }) as unknown as Civ['places'][number];
+  const old = {} as Civ['habitat'];
+  const civ = {
+    annals: [{ year: 100 }, { year: 900 }],
+    upheavals: [{ year: 500 }],
+    eras: [{ until: 500, habitat: old, places: [gate('旧关', 1, [0, 1])] }],
+    habitat: {},
+    places: [gate('新关', 2, [0, 1])],
+    regions: { count: 0, seat: new Int32Array(0) },
+    polities: [],
+    settlements: [],
+  } as unknown as Civ;
+  const w = { mesh: { n: 3, x: new Float32Array(3), y: new Float32Array(3) } } as unknown as World;
+  const stand = (id: number) => ({ kind: 'stand', id, year: civ.annals[id].year, settlement: -1, regions: [], polities: [] }) as unknown as Parameters<typeof entrySpot>[2];
+  const before: Civ = { ...civ, habitat: old, places: civ.eras![0].places };
+  expect(entrySpot(w, before, stand(0))).toEqual({ cell: 1, kind: 'pass', id: 0 });
+  expect(entrySpot(w, before, stand(1))).toBe(null);
+  expect(entrySpot(w, civ, stand(1))).toEqual({ cell: 2, kind: 'pass', id: 0 });
+});

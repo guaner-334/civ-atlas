@@ -51,6 +51,14 @@ export function standPass(places: readonly Place[], annal: number): number {
   return m.get(annal) ?? -1;
 }
 
+/** 同 standPass,查 civ 自己的地名表;civ 是地形大事以前某一段(civAtEra)、史事在那一段以后的 = −1(那一段记的是没有这件大事那一支的下标) */
+export function standPassOf(civ: Civ, annal: number): number {
+  const era = civ.eras?.find((e) => e.habitat === civ.habitat);
+  const y = civ.annals[annal]?.year;
+  if (era && (y === undefined || y >= era.until)) return -1;
+  return standPass(civ.places, annal);
+}
+
 /**
  * 第 annal 条史事(据险断后)守的那处关叫什么(地图上画的那处,用户改过名的照改的);没对上关 = 空。
  * 改过地形的世界:用那一年所在那一段的地名(和时间轴停在那一年时地图上画的一样,见 ui/eras.ts 的 civAtEra)
