@@ -172,6 +172,8 @@ import { STUDIO_STYLES, Studio } from './studio/Studio';
 import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds } from './MyWorlds';
 import { RulesHost } from './rules/RulesHost';
+import { pluginsUiOn } from './plugins/flag';
+import { PluginsHost } from './plugins/entry';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import type { GalleryItem } from '../account/gallery';
@@ -2904,6 +2906,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       <RulesHost />
       <AiSettingsHost />
       <AccountHost phone={narrow} />
+      {pluginsUiOn() && <PluginsHost phone={narrow} />}
       <FrozenAsk phone={narrow} />
       <SameWorldHost phone={narrow} />
       <ShortcutsHost />

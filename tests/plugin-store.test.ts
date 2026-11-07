@@ -102,6 +102,13 @@ describe('插件仓库:装和换版本', () => {
     expect(await getPlugin('route-measure')).toEqual(r.plugin);
   });
 
+  it('给的是文件就记下文件名;只给字节的不记', async () => {
+    const r = await installPlugin(new File([v1], 'route-measure.civplugin'));
+    expect(r.plugin.current.file).toBe('route-measure.civplugin');
+    expect((await getPlugin('route-measure'))!.current.file).toBe('route-measure.civplugin');
+    expect((await installPlugin(v2)).plugin.current.file).toBeUndefined();
+  });
+
   it('同一份再装:什么都不动', async () => {
     const first = await installPlugin(v1);
     await setPluginOn('route-measure', false);

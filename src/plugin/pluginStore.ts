@@ -23,6 +23,8 @@ export interface PluginVersion {
   manifest: PluginManifest;
   /** 装上这一版的时间 */
   at: number;
+  /** 装的时候的文件名(给的是 File 才有) */
+  file?: string;
 }
 
 /** 装了的一个插件 */
@@ -192,7 +194,8 @@ export async function installPlugin(file: Blob | Uint8Array): Promise<InstallRes
     if (file instanceof Blob && file.size > PLUGIN_MAX_BYTES) throw new PluginFileError('broken', '插件文件太大');
     const bytes = file instanceof Blob ? new Uint8Array(await file.arrayBuffer()) : file;
     const opened = await openPluginFile(bytes);
-    const ver: PluginVersion = { sum: opened.sum, bytes: opened.bytes, manifest: opened.manifest, at: Date.now() };
+    const name = typeof File !== 'undefined' && file instanceof File && file.name ? file.name.slice(0, 200) : undefined;
+    const ver: PluginVersion = { sum: opened.sum, bytes: opened.bytes, manifest: opened.manifest, at: Date.now(), ...(name ? { file: name } : {}) };
     const data = copy(bytes);
     return await run<InstallResult>(['files', 'plugins'], 'readwrite', (t, done) => {
       get<InstalledPlugin>(t, 'plugins', ver.manifest.id, (had) => {
