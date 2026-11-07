@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CivSim, type EventKind } from '../src/gen/civ/engine/sim';
-import { CIV_EVENTS } from '../src/gen/civ/events';
+import { CIV_ANNALS, CIV_EVENTS } from '../src/gen/civ/events';
 import { ANNAL_KINDS } from '../src/gen/civ/annals';
 import { ANNAL_EXTRAS } from '../src/gen/civ/types';
 
@@ -97,14 +97,24 @@ describe('官方推演登记的种类', () => {
     }
   });
 
-  it('记史事:可有可无的几列照 ANNAL_EXTRAS 的次序抄进去,数组抄一份', () => {
-    const sim = new CivSim(1, CIV_EVENTS);
+  it('记史事:可有可无的几列照官方登记的次序(ANNAL_EXTRAS)抄进去,数组抄一份', () => {
+    const sim = new CivSim(1, CIV_EVENTS, CIV_ANNALS);
     const ps = [3, 4];
     sim.record('treaty', { until: 9, ps, n: 2, a: 1 });
     const e = sim.annal(0);
     expect(Object.keys(e)).toEqual(['year', 'kind', 'a', 'b', 'region', 'settlement', 'war', 'n', 'ps', 'until']);
     expect(e.ps).toEqual([3, 4]);
     expect(e.ps).not.toBe(ps);
+    expect(CIV_ANNALS.extras).toBe(ANNAL_EXTRAS);
     expect(ANNAL_EXTRAS).toEqual(['via', 'cause', 'foe', 'n', 'ps', 'by', 'opt', 'until']);
+  });
+
+  it('记史事:引擎只抄登记了的列;没登记就只记固定的几列', () => {
+    const own = new CivSim(1, [], { extras: ['until', 'n'] });
+    own.record('treaty', { n: 2, ps: [3], until: 9 });
+    expect(Object.keys(own.annal(0))).toEqual(['year', 'kind', 'a', 'b', 'region', 'settlement', 'war', 'until', 'n']);
+    const bare = new CivSim(1);
+    bare.record('treaty', { n: 2, ps: [3], a: 1 });
+    expect(bare.annal(0)).toEqual({ year: 0, kind: 'treaty', a: 1, b: -1, region: -1, settlement: -1, war: -1 });
   });
 });

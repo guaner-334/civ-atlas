@@ -42,12 +42,12 @@ import { finishDevelopment } from './development';
 import { finishIdeology } from './ideology';
 import { finishTrade } from './trade';
 import { breakRoads } from './pandemicRoads';
-import { cleanCalamity } from './calamity';
+import { cleanCalamity, type Calamity } from './calamity';
 import { migrationsOf } from './migration';
 import { cleanMix, type NameMix } from '../names';
 import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './frontier';
 import { finishModules, installModules, resumeCiv } from './modules';
-import { CIV_EVENTS } from './events';
+import { CIV_ANNALS, CIV_EVENTS } from './events';
 import { knobSet, knobsKey, sameKnobs } from './knobs';
 import type { KnobPatch, KnobSet, KnobValue } from './engine/knobs';
 
@@ -231,10 +231,10 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   // ② 民族扩张 + 回放引擎(cultures.ts / sim.ts):定民族 → 按年推演到 endYear → 按最终疆域配色、起名。
   // ③ 城市成长 + 国家(polities.ts):在 sim.run 之前装上自己的事件(建城、立国、国家到达、升格),
   //    同一个引擎、同一本日志
-  const sim = new CivSim(R, CIV_EVENTS);
+  const sim = new CivSim(R, CIV_EVENTS, CIV_ANNALS);
   sim.knobs = knobs;
   // 「天灾」(calamity.ts):平常 = undefined,和没有这一项逐字节一样
-  sim.calamity = cleanCalamity(p.calamity);
+  const calamity = cleanCalamity(p.calamity);
   const birthSpan = p.birthSpan ?? BIRTH_SPAN;
   // 改过地形:扩张节拍、城的人口折算沿用没改地形时的同一颗星球(planetTempo);没改 = 按这个世界自己标定。
   // 给了文明种子的(一张地图上新开的历史)一律按这张地图本身标定:地图是定下来的那一张,不另按现在的生成器长一颗没改地形的星球
@@ -247,7 +247,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
   const iv = pm ? scheduleInterventions(sim, seed, p.interventions) : null;
   // 各模块照清单的次序装上(modules.ts 的 CIV_MODULES:民族、国家、战争、分合、王朝、同化与迁徙、城市兴衰、邦交、发展度、思潮、商道、
   // 动荡、中央管辖、议事、掌实权、联姻、瘟疫、全球大疫、立约、大迁徙、信仰、干预)
-  installModules({ sim, world, habitat, regions, seed, cm: model, pm, iv });
+  installModules({ sim, world, habitat, regions, seed, cm: model, pm, iv, calamity });
   progress('民族推演', 0.85);
   // 地形大事:推到第一件的前一刻,之后每件套上新地形接着推(upheaval.ts)
   const ups = pm ? (p.upheavals ?? []).filter((u) => u.year > 0 && u.year < p.endYear) : [];
@@ -264,7 +264,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const eraWorld = fin.world;
     const eraHabitat = fin.habitat;
     // 名字、配色、这一段的地名和道路:照"没有这件大事、照原样推到底"的那份历史(大事之前和它一模一样,见 NamePins)
-    const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, seed, iv, frontier);
+    const same = partialCiv(fin.sim, fin.model!, fin.pm!, eraHabitat, before, seed, iv, calamity, frontier);
     same.upheavals = facts.slice(); // 早先几件大事的经过:分支里也认得出沉过海的城址(见下面 half.upheavals)
     // 接着推和一口气推完一样(resumeCiv):这一支和"没有这件大事、照原样推到底"一模一样
     // 信仰照历史重放:早先几段按那时的州(eras)
@@ -295,7 +295,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     const { joined, ...rest } = impact;
     const fact: UpheavalFact = { year: u.year, kinds: kindsOf(u.ops), items: u.items.slice(), ...rest, polity: -1, drownedBy: [], ...(joined ? { joined } : {}) };
     facts.push(fact);
-    const half = partialCiv(fin.sim, fin.model!, fin.pm!, h1, r1, seed, iv, frontier);
+    const half = partialCiv(fin.sim, fin.model!, fin.pm!, h1, r1, seed, iv, calamity, frontier);
     // 还在的城:港口、人口上限照新地形换值(从大事那一刻起;接着推时立国的年份按新的上限算)
     half.settlements = reshapeCities(knobs, half.settlements, terrains, u.world, h1, r1, u.year, u.ops);
     // 早先几件大事的经过(接着推时认得出哪些城址沉过海,cities.ts 的 resumeCities)
@@ -320,7 +320,7 @@ export function generateCiv(world: World, params: Partial<CivParams> = {}, progr
     fin = { sim: s1, model: m1, pm: pm1, world: u.world, habitat: h1, regions: r1 };
     terrains.push({ from: u.year, terrain: pm1.terrain });
   }
-  return finishCiv({ fin, p, seed, viable, mix, frontier, origins, interventions: iv?.stored, model, pm, pins, eras, facts, progress });
+  return finishCiv({ fin, p, seed, viable, mix, frontier, origins, calamity, interventions: iv?.stored, model, pm, pins, eras, facts, progress });
 }
 
 /**
@@ -405,7 +405,7 @@ export function startContinue(world: World, civ: Civ, params: Partial<CivParams>
       const pm = polityModelOf(sim)!;
       pm.cultures = model.cultures; // 接着推时两层各复制了一份民族表:起城名、国名要用起好名的那份
       const fin = { sim, model, pm, world, habitat: civ.habitat, regions: model.terrain.regions };
-      return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, origins: cleanOrigins(p.origins), interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
+      return finishCiv({ fin, p, seed, viable: true, mix: civ.names, frontier: civ.frontier, origins: cleanOrigins(p.origins), calamity: civ.calamity, interventions: list.length ? list : undefined, model, pm, eras: [], facts: [], progress });
     },
     partial() {
       if (done) throw new Error('startContinue:已经整理完了');
@@ -414,7 +414,7 @@ export function startContinue(world: World, civ: Civ, params: Partial<CivParams>
       const model = cultureModelOf(sim)!;
       const pm = polityModelOf(sim)!;
       pm.cultures = model.cultures;
-      const out = partialCiv(sim, model, pm, civ.habitat, model.terrain.regions, seed, null, civ.frontier);
+      const out = partialCiv(sim, model, pm, civ.habitat, model.terrain.regions, seed, null, civ.calamity, civ.frontier);
       if (civ.knobs) out.knobs = civ.knobs;
       if (list.length) out.interventions = list.slice();
       if (civ.names) out.names = civ.names;
@@ -440,6 +440,7 @@ interface Finish {
   frontier?: Frontier;
   /** 自选的起源(清理过;地名照着沿用的那一份按它算,见 nameRefOf) */
   origins?: Origins;
+  calamity: Calamity | undefined;
   interventions?: readonly Intervention[];
   /** 第一段的两层模型(标定的扩张节拍、人口折算、国家的节拍按它记) */
   model: CultureModel | null;
@@ -524,7 +525,7 @@ function finishCiv(x: Finish): Civ {
     ...(pm ? { capSpacing: pm.spacing } : {}),
     ...(pm ? { sailFrom: pm.sailFrom } : {}),
     ...(frontier ? { frontier } : {}),
-    ...(fin.sim.calamity ? { calamity: fin.sim.calamity } : {}),
+    ...(x.calamity ? { calamity: x.calamity } : {}),
     ...(knobs.patch ? { knobs: knobs.patch } : {}),
     ...(migrationsOf(fin.sim) ? { migrations: migrationsOf(fin.sim)! } : {}),
     ...(x.interventions ? { interventions: x.interventions.slice() } : {}),
@@ -594,7 +595,7 @@ function pinNames(pins: NamePins, world: World, branch: CivSim, from: number, to
 }
 
 /** 推到一半的历史(地形大事前一刻)拼成 resumeCiv 要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
-function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null, frontier?: Frontier): Civ {
+function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: Habitat, regions: Regions, seed: number, iv: InterventionModel | null, calamity: Calamity | undefined, frontier?: Frontier): Civ {
   const res = sim.result();
   const dev = finishDevelopment(sim, res.endYear);
   const ideo = finishIdeology(sim, res.endYear);
@@ -627,7 +628,7 @@ function partialCiv(sim: CivSim, model: CultureModel, pm: PolityModel, habitat: 
     capSpacing: pm.spacing,
     sailFrom: pm.sailFrom,
     ...(frontier ? { frontier } : {}),
-    ...(sim.calamity ? { calamity: sim.calamity } : {}),
+    ...(calamity ? { calamity } : {}),
     ...(sim.knobs.patch ? { knobs: sim.knobs.patch } : {}),
     ...(migrationsOf(sim) ? { migrations: migrationsOf(sim)! } : {}),
     ...(iv ? { interventions: iv.stored.slice() } : {}),
