@@ -2,7 +2,7 @@
 import type { Raster } from '../gen/raster';
 import { boxBlur, nearX } from '../gen/util';
 import { hash2, noise3, valueNoise } from '../gen/noise';
-import { riverGeometry, type DenseRiver, type RiverWidth } from '../gen/riverGeometry';
+import { riverGeometry, riverGeometrySteps, type DenseRiver, type RiverWidth } from '../gen/riverGeometry';
 import { reprojectImage, type Projector } from './projection';
 export { boxBlur };
 
@@ -660,16 +660,51 @@ const geomCache = new WeakMap<object, { key: string; lines: DenseRiver[] }>();
 /** 陆地蒙版(每张水陆图一份) */
 const maskCache = new WeakMap<Uint8Array, { canvas: OffscreenCanvas | HTMLCanvasElement }>();
 
-/** 河网几何(按这组河 + 画法参数缓存) */
-function netGeometry(rivers: { pts: Float32Array }[], v: VecView, threshold: number, style: RiverStyle, opts: RiverOptions): DenseRiver[] {
+/** 河网几何的参数和缓存键 */
+function netParams(v: VecView, threshold: number, opts: RiverOptions) {
   const flare = opts.mouthFlare ?? 1;
   const power = opts.widthPower ?? 0.5;
   // 画的时候按流量现算河宽(d.f、d.m),几何本身只和门槛、河口、指数有关:换缩放倍数(河宽参数变了)也不用重算
   const wrap = v.wrap ?? 0;
-  const key = `${threshold}|${flare}|${power}|${wrap}`;
+  return { flare, power, wrap, key: `${threshold}|${flare}|${power}|${wrap}` };
+}
+
+/** 河网几何(按这组河 + 画法参数缓存) */
+function netGeometry(rivers: { pts: Float32Array }[], v: VecView, threshold: number, style: RiverStyle, opts: RiverOptions): DenseRiver[] {
+  const { flare, power, wrap, key } = netParams(v, threshold, opts);
   let geom = geomCache.get(rivers);
   if (!geom || geom.key !== key) geomCache.set(rivers, (geom = { key, lines: (opts.geometry ?? riverGeometry)(rivers, threshold, style, flare, power, wrap) }));
   return geom.lines;
+}
+
+/** prepRiverStep 算到一半的河网几何(备料的活被顶掉时,下一份活接着算) */
+let netPart: { rivers: object; key: string; steps: Generator<void, DenseRiver[], void> } | null = null;
+
+/**
+ * drawRivers(给了 opts)第一次画这组河要算的河网几何、陆地蒙版先算好,缓存和画的时候是同一份。
+ * 几何按河分段算,做到 deadline 停(返回 true = 还没算完)
+ */
+export function prepRiverStep(rivers: { pts: Float32Array }[], v: VecView, threshold: number, style: RiverStyle, opts: RiverOptions): WorkStep {
+  return (deadline) => {
+    const shown = shownRivers(rivers, threshold);
+    const { flare, power, wrap, key } = netParams(v, threshold, opts);
+    const geom = geomCache.get(shown);
+    if (opts.geometry) netGeometry(shown, v, threshold, style, opts);
+    else if (!geom || geom.key !== key) {
+      if (netPart?.rivers !== shown || netPart.key !== key) netPart = { rivers: shown, key, steps: riverGeometrySteps(shown, threshold, style, flare, power, wrap) };
+      for (;;) {
+        const r = netPart.steps.next();
+        if (r.done) {
+          geomCache.set(shown, { key, lines: r.value });
+          netPart = null;
+          break;
+        }
+        if (performance.now() >= deadline) return true;
+      }
+    }
+    landMask(opts);
+    return false;
+  };
 }
 
 /** 陆地蒙版:河道只留在陆地像素上(细节层按视口变换把它放大贴上,边缘是平滑插值的,和放大后的地形图海岸一致) */
@@ -742,6 +777,7 @@ let preparedNet: { rivers: object; water: Uint8Array; key: string; layers: { can
  * 不给 = 不管给谁备的都放掉(要换世界了)
  */
 export function dropPreparedRivers(water?: Uint8Array): void {
+  if (!water) netPart = null;
   const pre = preparedNet;
   if (!pre || (water && pre.water !== water)) return;
   preparedNet = null;

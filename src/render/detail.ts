@@ -15,7 +15,7 @@
  */
 import type { World } from '../gen/world';
 import type { Raster } from '../gen/raster';
-import { drawParts, type DrawPart, type PrepStep, type VecView, type WorkStep } from './common';
+import { drawParts, type DrawPart, type VecView, type WorkStep } from './common';
 import {
   drawFantasyCoasts,
   fantasyBaseClean,
@@ -90,11 +90,11 @@ export function terrainDetailParts(world: World, raster: Raster, style: DetailSt
 
 /**
  * drawTerrainDetail 第一次画时要现算的整张图缓存(手绘风的不带墨线像素层、波纹、冰缘、海岸线……,写实风的小溪、岸线两侧的像素层),
- * 拆成一小步一小步(见 common.ts 的 PrepStep)。都做过了再画,只剩按视口画线、贴图。
+ * 拆成一小步一小步(见 common.ts 的 WorkStep)。都做过了再画,只剩按视口画线、贴图。
  * s = 要画的那一块每世界单位几个画布像素(同 drawTerrainDetail 的 v.s;有的缓存按放大多少分档),creeks 同 drawTerrainDetail
  */
-export function terrainDetailPrep(world: World, raster: Raster, style: DetailStyle, s: number, creeks = true, look: SurfaceLook = 'classic'): PrepStep[] {
-  return style === 'realistic' ? realisticDetailPrep(world, raster, creeks, look) : fantasyDetailPrep(world, raster, s);
+export function terrainDetailPrep(world: World, raster: Raster, style: DetailStyle, s: number, creeks = true, look: SurfaceLook = 'classic'): WorkStep[] {
+  return style === 'realistic' ? realisticDetailPrep(world, raster, creeks, look, true) : fantasyDetailPrep(world, raster, s);
 }
 
 /**
