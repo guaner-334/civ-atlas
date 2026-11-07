@@ -189,6 +189,33 @@ describe('推演引擎(合成的小例子)', () => {
     expect(Array.from(sim.version)).toEqual([0, 2]);
     expect(sim.result().log.size).toBe(2);
   });
+
+  it('restore 只照引擎自己那几样接上:接着推和一口气推的归属、日志、史事、检查点一样', () => {
+    const TAKE = 60;
+    const plan = (sim: CivSim, from: number) => {
+      sim.on(TAKE, (r, c) => {
+        sim.setOwner(r < 2 ? Layer.Culture : Layer.Polity, r % 2, c, TAKE);
+        sim.record('conquer', { a: c, region: r % 2 });
+      }, { watch: false });
+      for (const [t, r, c] of [[50, 0, 1], [150, 3, 4], [199.5, 1, 2], [250, 2, 5], [320, 0, 6]] as const) if (t > from) sim.schedule(t, TAKE, r, c);
+    };
+    const whole = new CivSim(2, CIV_EVENTS);
+    plan(whole, -1);
+    whole.run(400);
+    const head = new CivSim(2, CIV_EVENTS);
+    plan(head, -1);
+    head.run(199.75);
+    const h = head.result();
+    const tail = CivSim.restore({ regionCount: 2, owners: [h.culture, h.polity], log: h.log, annals: h.annals, checkpoints: h.checkpoints, endYear: h.endYear }, CIV_EVENTS);
+    expect(tail.now).toBe(199.75);
+    expect(Array.from(tail.version)).toEqual(Array.from(head.version));
+    plan(tail, h.endYear);
+    tail.run(400);
+    const a = whole.result();
+    const b = tail.result();
+    expect(b.checkpoints.map((c) => c.year)).toEqual([100, 200, 300, 400]);
+    expect(b).toEqual(a);
+  });
 });
 
 describe('民族扩张', () => {

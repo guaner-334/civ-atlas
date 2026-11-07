@@ -32,9 +32,8 @@
  * 纯计算,不碰 DOM。
  */
 import { MinHeap } from '../../util';
-import { ANNAL_EXTRAS, Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Civ, type Year } from '../types';
-import type { Calamity } from '../calamity';
-import { OFFICIAL_KNOBS, knobSetOf, type KnobSet } from './knobs';
+import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Year } from '../types';
+import { OFFICIAL_KNOBS, knobSetOf, type KnobPatch, type KnobSet } from './knobs';
 
 /** 检查点间隔(年) */
 export const CHECKPOINT_EVERY = 100;
@@ -76,6 +75,30 @@ export interface EventKind {
   /** 弹出时是否核对州 a 的版本号(预约之后州 a 的归属变过 → 过期丢掉) */
   watch: boolean;
   order?: EventOrder;
+}
+
+/** 史事里年份、种类和 a、b、region、settlement、war 以外、可有可无的列 */
+export type AnnalExtra = Exclude<keyof Annal, 'year' | 'kind' | 'a' | 'b' | 'region' | 'settlement' | 'war'>;
+
+/** 史事的样子(规则那一边登记给引擎:官方推演的在 civ/events.ts):记史事时可有可无的几列照 extras 的次序抄,不在里面的不抄 */
+export interface AnnalSchema {
+  readonly extras: readonly AnnalExtra[];
+}
+
+const NO_EXTRAS: AnnalSchema = { extras: [] };
+
+/** 接着推时引擎恢复要的几样:规则那一边从自己存下的结果里取出来交给 CivSim.restore */
+export interface EngineState {
+  regionCount: number;
+  /** 各层的归属(按 Layer 下标) */
+  owners: readonly [Int16Array, Int16Array];
+  log: ChangeLog;
+  annals: readonly Annal[];
+  checkpoints: readonly Checkpoint[];
+  /** 推到的年份 */
+  endYear: Year;
+  /** 这次推演用的那套数(不给 = 官方) */
+  knobs?: KnobPatch | undefined;
 }
 
 const ORDER_NONE = 0;
@@ -214,8 +237,6 @@ export class CivSim {
    * 一律从大事那一刻起,排在大事后面(gen/civ/index.ts)
    */
   floor: Year = -Infinity;
-  /** 「天灾」设定(calamity.ts;平常 = undefined):瘟疫、饥荒更多,会自己闹地震水旱、全球大疫。装各层之前定下 */
-  calamity: Calamity | undefined = undefined;
   /**
    * 这次推演用的那套数(knobs.ts):各子系统装上、接着推时从这里取自己那张旋钮表。装各层之前定下(不给 = 官方);
    * 接着推时照 Civ.knobs
@@ -251,6 +272,7 @@ export class CivSim {
   private orderKind = new Uint8Array(256);
   private orderArg = new Int32Array(256);
   private listeners: ChangeListener[][] = [[], []];
+  private readonly annalExtras: readonly AnnalExtra[];
   /** 隔几年看一眼的(everyYears):下一次的年份、间隔、回调 */
   private yearly: { next: Year; every: number; fn: (year: Year) => void }[] = [];
   /** yearly 里最早的下一次(没有 = Infinity) */
@@ -264,12 +286,13 @@ export class CivSim {
 
   /**
    * kinds = 登记的事件种类(编号、名字、要不要核对版本号、同一刻里排在哪;官方推演的在 civ/events.ts 的 CIV_EVENTS)。
-   * 没登记的种类:不核对版本号、按预约先后
+   * 没登记的种类:不核对版本号、按预约先后。annals = 史事的样子(不给 = 只记固定的几列)
    */
-  constructor(regionCount: number, kinds: readonly EventKind[] = []) {
+  constructor(regionCount: number, kinds: readonly EventKind[] = [], annals: AnnalSchema = NO_EXTRAS) {
     this.R = regionCount;
     this.owners = [new Int16Array(regionCount).fill(-1), new Int16Array(regionCount).fill(-1)];
     this.version = new Int32Array(regionCount);
+    this.annalExtras = annals.extras;
     for (const e of kinds) this.defineKind(e);
   }
 
@@ -330,23 +353,21 @@ export class CivSim {
   }
 
   /**
-   * 由 Civ 数据重建引擎的状态(各层归属、版本号、日志、史事、检查点、推到的年份),不含各子系统:
-   * 各子系统重建自己的状态和待发生的事件由规则那一边做(modules.ts 的 resumeCiv),然后就能从 civ.endYear 接着推。
-   * 不需要保存事件堆,存档也只存 Civ。
+   * 照存下的几样重建引擎(归属、版本号、日志、史事、检查点、推到的年份、那套数),不含各子系统:
+   * 子系统重建自己的状态和待发生的事件由规则那一边做,然后就能从 s.endYear 接着推。不需要保存事件堆。
    */
-  static restore(civ: Civ, kinds: readonly EventKind[] = []): CivSim {
-    const sim = new CivSim(civ.regions.count, kinds);
-    sim.owners[Layer.Culture].set(civ.culture);
-    sim.owners[Layer.Polity].set(civ.polity);
-    sim.log = LogBuffer.from(civ.log);
-    sim.annals = civ.annals.map((e) => ({ ...e }));
-    for (let i = 0; i < civ.log.size; i++) sim.version[civ.log.region[i]]++;
-    sim.checkpoints = civ.checkpoints.slice();
-    sim.now = civ.endYear;
-    sim.calamity = civ.calamity;
-    sim.knobs = knobSetOf(civ.knobs);
+  static restore(s: EngineState, kinds: readonly EventKind[] = [], annals: AnnalSchema = NO_EXTRAS): CivSim {
+    const sim = new CivSim(s.regionCount, kinds, annals);
+    sim.owners[Layer.Culture].set(s.owners[Layer.Culture]);
+    sim.owners[Layer.Polity].set(s.owners[Layer.Polity]);
+    sim.log = LogBuffer.from(s.log);
+    sim.annals = s.annals.map((e) => ({ ...e }));
+    for (let i = 0; i < s.log.size; i++) sim.version[s.log.region[i]]++;
+    sim.checkpoints = s.checkpoints.slice();
+    sim.now = s.endYear;
+    sim.knobs = knobSetOf(s.knobs);
     // 下一个检查点:最后一个检查点之后的那个整百年(推到整百年的前一刻切开时,那个整百年的检查点还没存,接着推时补上)
-    const cps = civ.checkpoints;
+    const cps = s.checkpoints;
     sim.nextCheckpoint = cps.length ? cps[cps.length - 1].year + CHECKPOINT_EVERY : CHECKPOINT_EVERY;
     return sim;
   }
@@ -494,8 +515,8 @@ export class CivSim {
       settlement: f.settlement ?? -1,
       war: f.war ?? -1,
     };
-    // 可有可无的几列照 ANNAL_EXTRAS 的次序抄(数组抄一份)
-    for (const k of ANNAL_EXTRAS) {
+    // 可有可无的几列照登记的次序抄(数组抄一份)
+    for (const k of this.annalExtras) {
       const v = f[k];
       if (v !== undefined) (e as unknown as Record<string, unknown>)[k] = Array.isArray(v) ? v.slice() : v;
     }
