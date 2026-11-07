@@ -69,7 +69,7 @@ describe('官方推演的子系统清单', () => {
     expect(OFFICIAL_PACK.modules).toBe(CIV_MODULES);
     expect(OFFICIAL_PACK.partial).toBe(CIV_PARTIAL);
     expect(OFFICIAL_PACK.finish).toBe(CIV_FINISH);
-    expect(CIV_TABLES.map((t) => t.id)).toEqual(['state', 'development', 'ideology']);
+    expect(CIV_TABLES.map((t) => t.id)).toEqual(['state', 'dev', 'ideology']);
     for (const t of CIV_TABLES) {
       const ids = t.cards(OFFICIAL_KNOBS).map((c) => c.id);
       expect(ids.length, t.id).toBeGreaterThan(0);
@@ -79,12 +79,18 @@ describe('官方推演的子系统清单', () => {
 
   it('总流程照包里的清单走:一口气推装上、推完补上,接着推接上、推到一半补上;只记账的模块不改历史', () => {
     const calls: string[] = [];
+    let groups: string[] = [];
+    const cards = new Map<string, string[]>();
     const spy: CivModule = {
       id: 'spy',
       install: () => void calls.push('install'),
       resume: () => void calls.push('resume'),
       partial: (c) => void calls.push(`partial ${c.civ.endYear}`),
-      finish: (c) => void calls.push(`finish ${c.civ.endYear}`),
+      finish: (c) => {
+        calls.push(`finish ${c.civ.endYear}`);
+        groups = c.sim.tables.groupNames();
+        for (const g of groups) cards.set(g, c.sim.tables.engine(g)!.cards.map((x) => x.id));
+      },
     };
     const pack = { ...OFFICIAL_PACK, modules: [...CIV_MODULES, spy], partial: [...CIV_PARTIAL, spy], finish: [...CIV_FINISH, spy] };
     const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7, cells: 4000 });
@@ -96,6 +102,9 @@ describe('官方推演的子系统清单', () => {
 
     same(runPack(pack, world, { endYear: 800 }), generateCiv(world, { endYear: 800 }));
     expect(calls).toEqual(['install', 'finish 800']);
+    // 目录里的三组数表就是推演里登记进总登记的那三组,卡也一样
+    expect([...groups].sort()).toEqual(CIV_TABLES.map((t) => t.id).sort());
+    for (const t of CIV_TABLES) expect(cards.get(t.id), t.id).toEqual(t.cards(OFFICIAL_KNOBS).map((c) => c.id));
 
     calls.length = 0;
     const head = generateCiv(world, { endYear: 400 });

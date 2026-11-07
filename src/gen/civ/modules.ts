@@ -40,6 +40,7 @@ import { interventionsModule, type InterventionModel } from './interventions';
 import type { Calamity } from './calamity';
 import { CIV_ANNALS, CIV_EVENTS } from './events';
 import { CIV_KNOBS } from './knobs';
+import { TABLE_GROUP } from './tableGroups';
 import { OFFICIAL_STEPS, type OfficialOwn } from './official';
 import { resumePack, type CivPack } from './run';
 
@@ -121,11 +122,11 @@ export const CIV_PARTIAL: readonly CivModule[] = [developmentModule, ideologyMod
 /** 推完往结果上补东西的次序:信仰要整份 civ,排最前;再发展度、思潮、商道 */
 export const CIV_FINISH: readonly CivModule[] = [religionModule, developmentModule, ideologyModule, tradeModule];
 
-/** 三组数表:政局(管辖、动荡、钱粮、人口……)、发展度、思潮 */
+/** 三组数表:政局(管辖、动荡、钱粮、人口……)、发展度、思潮;id 是总登记里的组名 */
 export const CIV_TABLES: readonly TableGroup[] = [
-  { id: 'state', cards: stateCardsOf },
-  { id: 'development', cards: devCardsOf },
-  { id: 'ideology', cards: () => ideoTableCards() },
+  { id: TABLE_GROUP.state, cards: stateCardsOf },
+  { id: TABLE_GROUP.dev, cards: devCardsOf },
+  { id: TABLE_GROUP.ideology, cards: () => ideoTableCards() },
 ];
 
 export const OFFICIAL_PACK: CivPack<OfficialOwn> = {
