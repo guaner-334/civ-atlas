@@ -13,6 +13,7 @@ import { chromium, devices, webkit, type BrowserContext, type Page } from 'playw
 import { preview } from 'vite';
 import { makeSave, worldCheck, type SaveFile } from '../src/gen/savefile';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
+import { LOSE_OFF_MS } from '../src/ui/spaceFacts';
 
 const args = process.argv.slice(2);
 const opt = (k: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -698,12 +699,14 @@ async function loseIt(device: Device) {
     await noBar(page, '关掉了');
     await page.reload();
     await noBar(page, '刷新以后也不说');
-    await page.evaluate(() => localStorage.setItem('civ-atlas:lose-off', String(Date.now() - 29 * 86400e3)));
+    const offDays = LOSE_OFF_MS / 86400e3;
+    const closedDaysAgo = (days: number) => page.evaluate((ms) => localStorage.setItem('civ-atlas:lose-off', String(Date.now() - ms)), days * 86400e3);
+    await closedDaysAgo(offDays - 1);
     await page.reload();
-    await noBar(page, '关了 29 天:还不说');
-    await page.evaluate(() => localStorage.setItem('civ-atlas:lose-off', String(Date.now() - 31 * 86400e3)));
+    await noBar(page, `关了 ${offDays - 1} 天:还不说`);
+    await closedDaysAgo(offDays + 1);
     await page.reload();
-    check(((await barText(page)) ?? '').startsWith('有 1 个世界'), '关了 31 天:再说');
+    check(((await barText(page)) ?? '').startsWith('有 1 个世界'), `关了 ${offDays + 1} 天:再说`);
   });
   await r.ctx.close();
 }

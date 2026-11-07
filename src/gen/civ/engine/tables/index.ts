@@ -6,3 +6,4 @@ export { FREQUENCIES, budgetOf, cardProblems, colCount, TILE_COLS_PER_YEAR, REGI
 export { parseFormula, FormulaError, type Program } from './formula';
 export { compileCard, evalAllowed, RuleError, type Backend } from './compile';
 export { TableEngine, TableSetupError, type EngineOptions, type EngineUnits, type FlowWindow, type Incident, type TableSnapshot } from './engine';
+export { TableRegistry } from './registry';

@@ -642,7 +642,7 @@ export function resumeReligion(sim: CivSim, civ: Civ, cm: CultureModel, pm: Poli
   hook(sim, fs, y);
 }
 
-/** 推完整理成 Civ.religion(finishCiv 调用;见 FaithSim.finish)。引擎上没挂信仰推演 = 推完照历史再算一遍 */
+/** 推完整理成 Civ.religion(推完往结果上补;见 FaithSim.finish)。引擎上没挂信仰推演 = 推完照历史再算一遍 */
 export function finishReligion(sim: CivSim, world: World, civ: Civ): Religion {
   return sims.get(sim)?.finish(world, civ) ?? buildReligion(world, civ);
 }

@@ -7,12 +7,14 @@ import type { Civ } from '../../../src/gen/civ/types';
 import { buildChronicle, type ChronicleEntry } from '../../../src/gen/civ/story/chronicle';
 import { ownersAt } from '../../../src/gen/civ/engine/timeline';
 import { EMPTY_EDITS, type WorldEdits } from '../../../src/gen/edits';
+import { populationAt } from '../../../src/gen/readers/openQuery';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../../../src/gen/world';
 import { PLUGIN_METHODS } from '../../../src/plugin/caps';
-import { PluginRefused, startPluginHost } from '../../../src/plugin/host';
+import type { CellLayer, MarkLayer } from '../../../src/plugin/check';
+import { PluginRefused, startPluginHost, type PickAnswer } from '../../../src/plugin/host';
 import { frameCsp, SANDBOX_FLAGS } from '../../../src/plugin/protocol';
 import { SandboxStopped, startPluginSandbox, type PluginSandbox, type StopReason } from '../../../src/plugin/sandbox';
-import type { ViewInfo } from '../../../src/plugin/types';
+import type { PanelNode, ViewInfo } from '../../../src/plugin/types';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const reasonOf = (e: unknown) => (e instanceof SandboxStopped ? e.reason : `not stopped: ${String(e)}`);
@@ -363,6 +365,150 @@ const apiStops = {
 };
 const apiNothing = () => api(NOTHING, []);
 
-const check = { seed, battery, echo, isolation, stops, spinStart, spinWait, frameNav, frameBattery, siteWorker, api, apiNothing, apiStops };
+// ---- 示例插件 ----
+
+const exampleWorlds = new Map<number, { world: World; civ: Civ }>();
+/** 示例插件用的小世界(3000 个地块、推 800 年;种子 7 就是上面那个) */
+function exampleWorld(seed: number) {
+  if (seed === 7) return smallWorld();
+  let w = exampleWorlds.get(seed);
+  if (!w) {
+    const world = generateWorld({ ...DEFAULT_PARAMS, seed, cells: 3000 });
+    exampleWorlds.set(seed, (w = { world, civ: generateCiv(world, { endYear: 800 }) }));
+  }
+  return w;
+}
+
+/** 示例插件请用的人点选时答什么:city 人口最多的城,far 同一块陆地上离它最远的城,box 以人口最多的城为中心的一个框 */
+function examplePicks(world: World, civ: Civ, year: number, kinds: string[]): PickAnswer[] {
+  const { mesh } = world;
+  const alive = civ.settlements.filter((s) => s.founded <= year && (s.ended === undefined || year < s.ended));
+  if (!alive.length) return [];
+  const big = alive.reduce((a, s) => (populationAt(s, year) > populationAt(a, year) ? s : a));
+  const land = new Uint8Array(mesh.n);
+  const stack = [big.cell];
+  land[big.cell] = 1;
+  while (stack.length) {
+    const i = stack.pop()!;
+    for (let k = mesh.adjStart[i]; k < mesh.adjStart[i + 1]; k++) {
+      const j = mesh.adj[k];
+      if (!land[j] && world.water[j] === 0) stack.push(j), (land[j] = 1);
+    }
+  }
+  const d2 = (a: number, b: number) => {
+    const dx = Math.abs(mesh.x[a] - mesh.x[b]);
+    return Math.min(dx, world.width - dx) ** 2 + (mesh.y[a] - mesh.y[b]) ** 2;
+  };
+  const far = alive.filter((s) => land[s.cell]).reduce((a, s) => (d2(s.cell, big.cell) > d2(a.cell, big.cell) ? s : a), big);
+  const [cx, cy] = [mesh.x[big.cell], mesh.y[big.cell]];
+  const [x0, x1, y0, y1] = [Math.max(0, cx - 180), Math.min(world.width, cx + 180), Math.max(0, cy - 120), Math.min(world.height, cy + 120)];
+  const cells: number[] = [];
+  for (let i = 0; i < mesh.n; i++) if (mesh.x[i] >= x0 && mesh.x[i] <= x1 && mesh.y[i] >= y0 && mesh.y[i] <= y1) cells.push(i);
+  return kinds.map((k) => (k === 'city' ? { cell: big.cell } : k === 'far' ? { cell: far.cell } : { x0, y0, x1, y1, cells }));
+}
+
+/** 图层钉快照的样子:地块图层只留统计(每个值各几块),标注原样 */
+function layerDigest(l: CellLayer | MarkLayer) {
+  if (l.kind === 'marks') return { ...l, items: l.items.map((it) => ({ ...it, cells: it.cells && Array.from(it.cells), points: it.points && Array.from(it.points) })) };
+  const { values, ...rest } = l;
+  const counts: Record<string, number> = {};
+  let drawn = 0;
+  let sum = 0;
+  for (const v of values) {
+    if (Number.isNaN(v)) continue;
+    drawn++;
+    sum += v;
+    counts[v] = (counts[v] ?? 0) + 1;
+  }
+  return { ...rest, cells: values.length, drawn, sum, counts: Object.keys(counts).length <= 32 ? counts : null };
+}
+
+interface ExampleStep {
+  year?: number;
+  action?: { id: string; value?: unknown };
+}
+
+/**
+ * 示例插件在真沙箱里对一个世界跑一遍:点选照 picks 依次答;每一步之前等插件安静下来,记一帧(面板、图层),
+ * 再改看的年份、点面板上的控件;最后再记一帧
+ */
+async function example(code: string, plugin: { id: string; requires: string[]; optional?: string[] }, seed: number, picks: string[], steps: ExampleStep[]) {
+  const { world, civ } = exampleWorld(seed);
+  const view: ViewInfo = { year: civ.endYear, selected: null, visible: null, layer: null };
+  const answers = examplePicks(world, civ, view.year, picks);
+  const watchers = new Set<() => void>();
+  let edits: WorldEdits = EMPTY_EDITS;
+  let panel: PanelNode[] | null = null;
+  const layers = new Map<string, unknown>();
+  const asked: string[] = [];
+  const commits: unknown[] = [];
+  const logs: string[] = [];
+  let stopped: string | null = null;
+  let last = performance.now();
+  const touch = () => void (last = performance.now());
+  let host: Awaited<ReturnType<typeof startPluginHost>>;
+  try {
+    host = await startPluginHost({
+      plugin,
+      code,
+      source: {
+        world: () => world,
+        civ: () => civ,
+        edits: () => edits,
+        title: () => `种子 ${seed}`,
+        view: () => view,
+        watchView: (fn) => (watchers.add(fn), () => watchers.delete(fn)),
+        pick: async (req) => {
+          touch();
+          asked.push(`${req.kind} ${req.hint}`);
+          return answers.shift() ?? null;
+        },
+        commit: (next) => {
+          commits.push({ names: next.names, interventions: next.interventions, marks: (next.marks ?? []).slice(edits.marks?.length ?? 0) });
+          edits = next;
+          touch();
+          return null;
+        },
+      },
+      sink: {
+        panel: (p) => ((panel = p), touch()),
+        layer: (lid, l) => (l ? layers.set(lid, layerDigest(l)) : layers.delete(lid), touch()),
+        log: (t) => (logs.push(t), touch()),
+      },
+      onStop: (r, d) => (stopped = d ? `${r} (${d})` : r),
+    });
+  } catch (e) {
+    return { refused: String(e) };
+  }
+  // 安静 = 半秒没交来东西、线程也空着(插件算得久时 ping 要等它算完)
+  const settle = async () => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 30_000) {
+      while (performance.now() - last < 500 && performance.now() - t0 < 30_000) await sleep(50);
+      await host.sandbox.ping(10_000).catch(() => {});
+      if (performance.now() - last >= 500) return;
+    }
+  };
+  const frames: unknown[] = [];
+  const frame = () => frames.push({ panel: structuredClone(panel), layers: Object.fromEntries([...layers].sort(([a], [b]) => (a < b ? -1 : 1))) });
+  for (const s of steps) {
+    await settle();
+    frame();
+    if (s.year !== undefined) {
+      view.year = s.year;
+      watchers.forEach((w) => w());
+    }
+    if (s.action) host.panelAction(s.action.id, s.action.value);
+    touch();
+  }
+  await settle();
+  frame();
+  const stoppedBefore = stopped;
+  host.stop();
+  await sleep(200);
+  return { stoppedBefore, snapshot: { asked, frames, commits, logs }, frames: document.querySelectorAll('iframe').length };
+}
+
+const check = { seed, battery, echo, isolation, stops, spinStart, spinWait, frameNav, frameBattery, siteWorker, api, apiNothing, apiStops, example };
 (window as unknown as { check: typeof check }).check = check;
 (window as unknown as { ready: boolean }).ready = true;

@@ -1,0 +1,1754 @@
+{
+  "coast-distance@7": {
+    "asked": [],
+    "frames": [
+      {
+        "panel": null,
+        "layers": {
+          "coast": {
+            "kind": "cells",
+            "id": "coast",
+            "title": "离海多远",
+            "classes": [
+              {
+                "value": 0,
+                "color": "#2b83ba",
+                "label": "100 公里以内"
+              },
+              {
+                "value": 1,
+                "color": "#abdda4",
+                "label": "100–250 公里"
+              },
+              {
+                "value": 2,
+                "color": "#ffffbf",
+                "label": "250–500 公里"
+              },
+              {
+                "value": 3,
+                "color": "#fdae61",
+                "label": "500–1000 公里"
+              },
+              {
+                "value": 4,
+                "color": "#d7191c",
+                "label": "1000 公里以上"
+              }
+            ],
+            "legend": "走陆路到海边",
+            "opacity": 0.7,
+            "cells": 2844,
+            "drawn": 941,
+            "sum": 1895,
+            "counts": {
+              "1": 454,
+              "2": 116,
+              "3": 275,
+              "4": 96
+            }
+          }
+        }
+      }
+    ],
+    "commits": [],
+    "logs": [
+      "算好了：离海最远的地方约 1526 公里"
+    ]
+  },
+  "coast-distance@2024": {
+    "asked": [],
+    "frames": [
+      {
+        "panel": null,
+        "layers": {
+          "coast": {
+            "kind": "cells",
+            "id": "coast",
+            "title": "离海多远",
+            "classes": [
+              {
+                "value": 0,
+                "color": "#2b83ba",
+                "label": "100 公里以内"
+              },
+              {
+                "value": 1,
+                "color": "#abdda4",
+                "label": "100–250 公里"
+              },
+              {
+                "value": 2,
+                "color": "#ffffbf",
+                "label": "250–500 公里"
+              },
+              {
+                "value": 3,
+                "color": "#fdae61",
+                "label": "500–1000 公里"
+              },
+              {
+                "value": 4,
+                "color": "#d7191c",
+                "label": "1000 公里以上"
+              }
+            ],
+            "legend": "走陆路到海边",
+            "opacity": 0.7,
+            "cells": 2845,
+            "drawn": 945,
+            "sum": 2021,
+            "counts": {
+              "1": 421,
+              "2": 116,
+              "3": 264,
+              "4": 144
+            }
+          }
+        }
+      }
+    ],
+    "commits": [],
+    "logs": [
+      "算好了：离海最远的地方约 2321 公里"
+    ]
+  },
+  "route-days@7": {
+    "asked": [
+      "cell 点起点",
+      "cell 再点终点",
+      "cell 点起点",
+      "cell 再点终点",
+      "cell 点起点"
+    ],
+    "frames": [
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 阿勒屯八里\n终点 奥斯塔斯克"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 13919,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 550,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "walk"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 30 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9683,
+                323
+              ],
+              [
+                "丘陵",
+                3797,
+                190
+              ],
+              [
+                "山地",
+                440,
+                37
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  2526,
+                  2492,
+                  2475,
+                  2218,
+                  1805,
+                  1775,
+                  1644,
+                  1773,
+                  1643,
+                  1551,
+                  1498,
+                  1443,
+                  1389,
+                  1335,
+                  2110,
+                  1224,
+                  1222,
+                  1235,
+                  1228,
+                  1134,
+                  1133,
+                  844,
+                  697,
+                  688,
+                  557,
+                  556,
+                  559,
+                  619,
+                  505,
+                  506,
+                  732,
+                  661
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2526
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  661
+                ],
+                "text": "终点：约 550 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 阿勒屯八里\n终点 奥斯塔斯克"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 13919,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 275,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "horse"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 60 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9683,
+                161
+              ],
+              [
+                "丘陵",
+                3797,
+                95
+              ],
+              [
+                "山地",
+                440,
+                18
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  2526,
+                  2492,
+                  2475,
+                  2218,
+                  1805,
+                  1775,
+                  1644,
+                  1773,
+                  1643,
+                  1551,
+                  1498,
+                  1443,
+                  1389,
+                  1335,
+                  2110,
+                  1224,
+                  1222,
+                  1235,
+                  1228,
+                  1134,
+                  1133,
+                  844,
+                  697,
+                  688,
+                  557,
+                  556,
+                  559,
+                  619,
+                  505,
+                  506,
+                  732,
+                  661
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2526
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  661
+                ],
+                "text": "终点：约 275 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "text",
+            "text": "在地图上点起点和终点，沿陆路按地形算要走几天。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "开始量"
+          }
+        ],
+        "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 奥斯塔斯克\n终点 阿勒屯八里"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 13919,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 275,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "horse"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 60 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9683,
+                161
+              ],
+              [
+                "丘陵",
+                3797,
+                95
+              ],
+              [
+                "山地",
+                440,
+                18
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  661,
+                  732,
+                  506,
+                  505,
+                  619,
+                  559,
+                  556,
+                  557,
+                  688,
+                  697,
+                  844,
+                  1133,
+                  1134,
+                  1228,
+                  1235,
+                  1222,
+                  1224,
+                  2110,
+                  1335,
+                  1389,
+                  1443,
+                  1498,
+                  1551,
+                  1643,
+                  1773,
+                  1644,
+                  1775,
+                  1805,
+                  2218,
+                  2475,
+                  2492,
+                  2526
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  661
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2526
+                ],
+                "text": "终点：约 275 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "text",
+            "text": "没量完。\n在地图上点起点和终点，沿陆路按地形算要走几天。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "开始量"
+          }
+        ],
+        "layers": {}
+      }
+    ],
+    "commits": [],
+    "logs": []
+  },
+  "route-days@2024": {
+    "asked": [
+      "cell 点起点",
+      "cell 再点终点",
+      "cell 点起点",
+      "cell 再点终点",
+      "cell 点起点"
+    ],
+    "frames": [
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 佩拉波利斯\n终点 德拉金"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 16668,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 726,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "walk"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 30 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9406,
+                314
+              ],
+              [
+                "丘陵",
+                5786,
+                289
+              ],
+              [
+                "山地",
+                1476,
+                123
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  1643,
+                  1606,
+                  1605,
+                  1394,
+                  1477,
+                  1173,
+                  1063,
+                  954,
+                  1061,
+                  1276,
+                  1839,
+                  1652,
+                  1508,
+                  1506,
+                  1507,
+                  1552,
+                  1744,
+                  1808,
+                  2030,
+                  1681,
+                  1684,
+                  1683,
+                  2005,
+                  2222,
+                  2127,
+                  2156,
+                  2128,
+                  2157,
+                  2170,
+                  2176,
+                  2175,
+                  2227,
+                  2366,
+                  2367,
+                  2539,
+                  2613,
+                  2088,
+                  2423
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  1643
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2423
+                ],
+                "text": "终点：约 726 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 佩拉波利斯\n终点 德拉金"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 16668,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 363,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "horse"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 60 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9406,
+                157
+              ],
+              [
+                "丘陵",
+                5786,
+                145
+              ],
+              [
+                "山地",
+                1476,
+                61
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  1643,
+                  1606,
+                  1605,
+                  1394,
+                  1477,
+                  1173,
+                  1063,
+                  954,
+                  1061,
+                  1276,
+                  1839,
+                  1652,
+                  1508,
+                  1506,
+                  1507,
+                  1552,
+                  1744,
+                  1808,
+                  2030,
+                  1681,
+                  1684,
+                  1683,
+                  2005,
+                  2222,
+                  2127,
+                  2156,
+                  2128,
+                  2157,
+                  2170,
+                  2176,
+                  2175,
+                  2227,
+                  2366,
+                  2367,
+                  2539,
+                  2613,
+                  2088,
+                  2423
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  1643
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2423
+                ],
+                "text": "终点：约 363 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "text",
+            "text": "在地图上点起点和终点，沿陆路按地形算要走几天。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "开始量"
+          }
+        ],
+        "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "这条路"
+          },
+          {
+            "type": "text",
+            "text": "起点 德拉金\n终点 佩拉波利斯"
+          },
+          {
+            "type": "number",
+            "label": "路程",
+            "value": 16668,
+            "unit": "公里"
+          },
+          {
+            "type": "number",
+            "label": "要走",
+            "value": 363,
+            "unit": "天"
+          },
+          {
+            "type": "select",
+            "id": "mode",
+            "label": "走法",
+            "options": [
+              {
+                "value": "walk",
+                "label": "步行"
+              },
+              {
+                "value": "horse",
+                "label": "骑马"
+              }
+            ],
+            "value": "horse"
+          },
+          {
+            "type": "text",
+            "text": "平地每天走 60 公里，丘陵慢一半，山地要多花一倍半的工夫；水上过不去。"
+          },
+          {
+            "type": "table",
+            "columns": [
+              "一路上",
+              "公里",
+              "天"
+            ],
+            "rows": [
+              [
+                "平地",
+                9406,
+                157
+              ],
+              [
+                "丘陵",
+                5786,
+                145
+              ],
+              [
+                "山地",
+                1476,
+                61
+              ]
+            ]
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "换个起点"
+          },
+          {
+            "type": "button",
+            "id": "clear",
+            "label": "清掉路线"
+          }
+        ],
+        "layers": {
+          "route": {
+            "kind": "marks",
+            "id": "route",
+            "title": "路线",
+            "items": [
+              {
+                "kind": "line",
+                "cells": [
+                  2423,
+                  2088,
+                  2613,
+                  2539,
+                  2367,
+                  2366,
+                  2227,
+                  2175,
+                  2176,
+                  2170,
+                  2157,
+                  2128,
+                  2156,
+                  2127,
+                  2222,
+                  2005,
+                  1683,
+                  1684,
+                  1681,
+                  2030,
+                  1808,
+                  1744,
+                  1552,
+                  1507,
+                  1506,
+                  1508,
+                  1652,
+                  1839,
+                  1276,
+                  1061,
+                  954,
+                  1063,
+                  1173,
+                  1477,
+                  1394,
+                  1605,
+                  1606,
+                  1643
+                ],
+                "style": {
+                  "color": "red",
+                  "size": "m"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  2423
+                ],
+                "text": "起点",
+                "style": {
+                  "color": "red"
+                }
+              },
+              {
+                "kind": "label",
+                "cells": [
+                  1643
+                ],
+                "text": "终点：约 363 天",
+                "style": {
+                  "color": "red"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "panel": [
+          {
+            "type": "text",
+            "text": "没量完。\n在地图上点起点和终点，沿陆路按地形算要走几天。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "开始量"
+          }
+        ],
+        "layers": {}
+      }
+    ],
+    "commits": [],
+    "logs": []
+  },
+  "box-summary@7": {
+    "asked": [
+      "box 拖一个框，框住想合计的地方"
+    ],
+    "frames": [
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "框住的地方（第 800 年）"
+          },
+          {
+            "type": "number",
+            "label": "陆地",
+            "value": 1757,
+            "unit": "万平方公里"
+          },
+          {
+            "type": "number",
+            "label": "州",
+            "value": 64,
+            "unit": "个"
+          },
+          {
+            "type": "number",
+            "label": "人口",
+            "value": 1028,
+            "unit": "万"
+          },
+          {
+            "type": "number",
+            "label": "城市",
+            "value": 1,
+            "unit": "座"
+          },
+          {
+            "type": "text",
+            "text": "州按治所算；城市只算 10 万人以上的。"
+          },
+          {
+            "type": "group",
+            "title": "各国占多少（按州）",
+            "children": [
+              {
+                "type": "table",
+                "columns": [
+                  "国家",
+                  "州",
+                  "占比"
+                ],
+                "rows": [
+                  [
+                    "乌莱特王国",
+                    36,
+                    "56%"
+                  ],
+                  [
+                    "没有国家",
+                    28,
+                    "44%"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "点「存成标记」，把框住的州圈成一个标记，合计写在说明里。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "重新框"
+          },
+          {
+            "type": "button",
+            "id": "save",
+            "label": "存成标记"
+          }
+        ],
+        "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "框住的地方（第 400 年）"
+          },
+          {
+            "type": "number",
+            "label": "陆地",
+            "value": 1757,
+            "unit": "万平方公里"
+          },
+          {
+            "type": "number",
+            "label": "州",
+            "value": 64,
+            "unit": "个"
+          },
+          {
+            "type": "number",
+            "label": "人口",
+            "value": 425,
+            "unit": "万"
+          },
+          {
+            "type": "number",
+            "label": "城市",
+            "value": 1,
+            "unit": "座"
+          },
+          {
+            "type": "text",
+            "text": "州按治所算；城市只算 10 万人以上的。"
+          },
+          {
+            "type": "group",
+            "title": "各国占多少（按州）",
+            "children": [
+              {
+                "type": "table",
+                "columns": [
+                  "国家",
+                  "州",
+                  "占比"
+                ],
+                "rows": [
+                  [
+                    "没有国家",
+                    54,
+                    "84%"
+                  ],
+                  [
+                    "乌莱特国",
+                    10,
+                    "16%"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "点「存成标记」，把框住的州圈成一个标记，合计写在说明里。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "重新框"
+          },
+          {
+            "type": "button",
+            "id": "save",
+            "label": "存成标记"
+          }
+        ],
+        "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "框住的地方（第 400 年）"
+          },
+          {
+            "type": "number",
+            "label": "陆地",
+            "value": 1757,
+            "unit": "万平方公里"
+          },
+          {
+            "type": "number",
+            "label": "州",
+            "value": 64,
+            "unit": "个"
+          },
+          {
+            "type": "number",
+            "label": "人口",
+            "value": 425,
+            "unit": "万"
+          },
+          {
+            "type": "number",
+            "label": "城市",
+            "value": 1,
+            "unit": "座"
+          },
+          {
+            "type": "text",
+            "text": "州按治所算；城市只算 10 万人以上的。"
+          },
+          {
+            "type": "group",
+            "title": "各国占多少（按州）",
+            "children": [
+              {
+                "type": "table",
+                "columns": [
+                  "国家",
+                  "州",
+                  "占比"
+                ],
+                "rows": [
+                  [
+                    "没有国家",
+                    54,
+                    "84%"
+                  ],
+                  [
+                    "乌莱特国",
+                    10,
+                    "16%"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "存好了，在「标记」里能找到，不想要可以撤销。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "重新框"
+          },
+          {
+            "type": "button",
+            "id": "save",
+            "label": "存成标记"
+          }
+        ],
+        "layers": {}
+      }
+    ],
+    "commits": [
+      {
+        "names": {},
+        "interventions": [],
+        "marks": [
+          {
+            "title": "框选合计（第 400 年）",
+            "note": "陆地约 1,757 万平方公里，64 个州，人口约 425 万，10 万人以上的城市 1 座。\n没有国家：54 州（84%）\n乌莱特国：10 州（16%）",
+            "color": "blue",
+            "from": 400,
+            "regions": [
+              "region:c2460",
+              "region:c1775",
+              "region:c2455",
+              "region:c1953",
+              "region:c2580",
+              "region:c2363",
+              "region:c2152",
+              "region:c2604",
+              "region:c1783",
+              "region:c2404",
+              "region:c2740",
+              "region:c2219",
+              "region:c2656",
+              "region:c1786",
+              "region:c2342",
+              "region:c1787",
+              "region:c2719",
+              "region:c2468",
+              "region:c2341",
+              "region:c2406",
+              "region:c2361",
+              "region:c1805",
+              "region:c2838",
+              "region:c2362",
+              "region:c1952",
+              "region:c2407",
+              "region:c2405",
+              "region:c2581",
+              "region:c1785",
+              "region:c2506",
+              "region:c2594",
+              "region:c2403",
+              "region:c2449",
+              "region:c2578",
+              "region:c2685",
+              "region:c2098",
+              "region:c2567",
+              "region:c2657",
+              "region:c2218",
+              "region:c2474",
+              "region:c2094",
+              "region:c2176",
+              "region:c2357",
+              "region:c2380",
+              "region:c2279",
+              "region:c2296",
+              "region:c2425",
+              "region:c2583",
+              "region:c2526",
+              "region:c2297",
+              "region:c2614",
+              "region:c2476",
+              "region:c2556",
+              "region:c2640",
+              "region:c2450",
+              "region:c2093",
+              "region:c2448",
+              "region:c2647",
+              "region:c2532",
+              "region:c2320",
+              "region:c2558",
+              "region:c2582",
+              "region:c2530",
+              "region:c2469"
+            ],
+            "id": 1
+          }
+        ]
+      }
+    ],
+    "logs": []
+  },
+  "box-summary@2024": {
+    "asked": [
+      "box 拖一个框，框住想合计的地方"
+    ],
+    "frames": [
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "框住的地方（第 800 年）"
+          },
+          {
+            "type": "number",
+            "label": "陆地",
+            "value": 1959,
+            "unit": "万平方公里"
+          },
+          {
+            "type": "number",
+            "label": "州",
+            "value": 68,
+            "unit": "个"
+          },
+          {
+            "type": "number",
+            "label": "人口",
+            "value": 472,
+            "unit": "万"
+          },
+          {
+            "type": "number",
+            "label": "城市",
+            "value": 1,
+            "unit": "座"
+          },
+          {
+            "type": "text",
+            "text": "州按治所算；城市只算 10 万人以上的。"
+          },
+          {
+            "type": "group",
+            "title": "各国占多少（按州）",
+            "children": [
+              {
+                "type": "table",
+                "columns": [
+                  "国家",
+                  "州",
+                  "占比"
+                ],
+                "rows": [
+                  [
+                    "没有国家",
+                    53,
+                    "78%"
+                  ],
+                  [
+                    "萨洛尼亚共和国",
+                    15,
+                    "22%"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "点「存成标记」，把框住的州圈成一个标记，合计写在说明里。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "重新框"
+          },
+          {
+            "type": "button",
+            "id": "save",
+            "label": "存成标记"
+          }
+        ],
+        "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "框住的地方（第 400 年）"
+          },
+          {
+            "type": "number",
+            "label": "陆地",
+            "value": 1959,
+            "unit": "万平方公里"
+          },
+          {
+            "type": "number",
+            "label": "州",
+            "value": 68,
+            "unit": "个"
+          },
+          {
+            "type": "number",
+            "label": "人口",
+            "value": 189,
+            "unit": "万"
+          },
+          {
+            "type": "number",
+            "label": "城市",
+            "value": 0,
+            "unit": "座"
+          },
+          {
+            "type": "text",
+            "text": "州按治所算；城市只算 10 万人以上的。"
+          },
+          {
+            "type": "group",
+            "title": "各国占多少（按州）",
+            "children": [
+              {
+                "type": "table",
+                "columns": [
+                  "国家",
+                  "州",
+                  "占比"
+                ],
+                "rows": [
+                  [
+                    "没有国家",
+                    67,
+                    "99%"
+                  ],
+                  [
+                    "萨洛尼亚城邦",
+                    1,
+                    "1%"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "点「存成标记」，把框住的州圈成一个标记，合计写在说明里。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "重新框"
+          },
+          {
+            "type": "button",
+            "id": "save",
+            "label": "存成标记"
+          }
+        ],
+        "layers": {}
+      },
+      {
+        "panel": [
+          {
+            "type": "heading",
+            "text": "框住的地方（第 400 年）"
+          },
+          {
+            "type": "number",
+            "label": "陆地",
+            "value": 1959,
+            "unit": "万平方公里"
+          },
+          {
+            "type": "number",
+            "label": "州",
+            "value": 68,
+            "unit": "个"
+          },
+          {
+            "type": "number",
+            "label": "人口",
+            "value": 189,
+            "unit": "万"
+          },
+          {
+            "type": "number",
+            "label": "城市",
+            "value": 0,
+            "unit": "座"
+          },
+          {
+            "type": "text",
+            "text": "州按治所算；城市只算 10 万人以上的。"
+          },
+          {
+            "type": "group",
+            "title": "各国占多少（按州）",
+            "children": [
+              {
+                "type": "table",
+                "columns": [
+                  "国家",
+                  "州",
+                  "占比"
+                ],
+                "rows": [
+                  [
+                    "没有国家",
+                    67,
+                    "99%"
+                  ],
+                  [
+                    "萨洛尼亚城邦",
+                    1,
+                    "1%"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "存好了，在「标记」里能找到，不想要可以撤销。"
+          },
+          {
+            "type": "button",
+            "id": "again",
+            "label": "重新框"
+          },
+          {
+            "type": "button",
+            "id": "save",
+            "label": "存成标记"
+          }
+        ],
+        "layers": {}
+      }
+    ],
+    "commits": [
+      {
+        "names": {},
+        "interventions": [],
+        "marks": [
+          {
+            "title": "框选合计（第 400 年）",
+            "note": "陆地约 1,959 万平方公里，68 个州，人口约 189 万，10 万人以上的城市 0 座。\n没有国家：67 州（99%）\n萨洛尼亚城邦：1 州（1%）",
+            "color": "blue",
+            "from": 400,
+            "regions": [
+              "region:c1306",
+              "region:c1905",
+              "region:c1453",
+              "region:c1280",
+              "region:c1061",
+              "region:c2425",
+              "region:c1278",
+              "region:c2555",
+              "region:c1282",
+              "region:c1283",
+              "region:c1279",
+              "region:c1214",
+              "region:c927",
+              "region:c1645",
+              "region:c1227",
+              "region:c1074",
+              "region:c1609",
+              "region:c1215",
+              "region:c2115",
+              "region:c1198",
+              "region:c1804",
+              "region:c1829",
+              "region:c1695",
+              "region:c1487",
+              "region:c1621",
+              "region:c1417",
+              "region:c1788",
+              "region:c1942",
+              "region:c1620",
+              "region:c1063",
+              "region:c1321",
+              "region:c1714",
+              "region:c1707",
+              "region:c1619",
+              "region:c2473",
+              "region:c1303",
+              "region:c1761",
+              "region:c1584",
+              "region:c1173",
+              "region:c1395",
+              "region:c1503",
+              "region:c1062",
+              "region:c1733",
+              "region:c1075",
+              "region:c1394",
+              "region:c1865",
+              "region:c1155",
+              "region:c1618",
+              "region:c2397",
+              "region:c1199",
+              "region:c2239",
+              "region:c2398",
+              "region:c2844",
+              "region:c1520",
+              "region:c2438",
+              "region:c1157",
+              "region:c2312",
+              "region:c1323",
+              "region:c1864",
+              "region:c1643",
+              "region:c993",
+              "region:c1060",
+              "region:c1477",
+              "region:c1218",
+              "region:c952",
+              "region:c953",
+              "region:c1694",
+              "region:c1871"
+            ],
+            "id": 1
+          }
+        ]
+      }
+    ],
+    "logs": []
+  }
+}

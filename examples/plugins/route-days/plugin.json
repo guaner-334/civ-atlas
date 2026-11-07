@@ -1,0 +1,19 @@
+{
+  "id": "route-days",
+  "name": "量路程",
+  "version": "1.0.0",
+  "role": "tool",
+  "api": 1,
+  "runtime": "worker",
+  "requires": ["world.read@1", "input.pick@1", "ui.panel@1", "layer.marks@1"],
+  "optional": ["history.read@1"],
+  "why": {
+    "world.read@1": "按地形和水陆找路、量距离",
+    "input.pick@1": "请你在地图上点起点和终点",
+    "layer.marks@1": "把路线画在地图上",
+    "history.read@1": "用附近的城给起点、终点起名字；不给也能用，改写经纬度"
+  },
+  "description": "点两个点，沿陆路按地形算要走几天（山路难走，水上过不去），画出路线。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

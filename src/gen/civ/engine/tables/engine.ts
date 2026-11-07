@@ -355,6 +355,11 @@ export class TableEngine {
     return this.order.map((t) => t.card);
   }
 
+  /** 某张表的卡;没有这张表 = undefined */
+  card(id: string): TableCard | undefined {
+    return this.tables.get(id)?.card;
+  }
+
   /** 某张表此刻的值(格 × 栏;只读,别改;事件要改用 write) */
   get(id: string): Float64Array {
     return this.table(id).cur;

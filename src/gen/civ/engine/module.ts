@@ -1,12 +1,13 @@
 /**
  * 推演的一个子系统(模块)的样子:引擎只认这个形状,不认识具体的子系统。
- * 装哪些模块、按什么次序装,由规则那一边的清单定(官方推演的清单是 civ/modules.ts)。
+ * 装哪些模块、按什么次序装,由规则包定(engine/pack.ts;官方的是 civ/modules.ts 的 OFFICIAL_PACK)。
  *
  *   install  一口气推:推之前装上自己的事件处理、监听、每隔几年看一眼的回调
  *   resume   接着推:照存下来的结果重建自己的状态,补上还没发生的事件
+ *   partial  推到一半停下、还没整理:往结果上补接着推要用的那一份
  *   finish   推完:往结果上补自己的那一份
  *
- * I / R / F 是这三步各自拿到的东西(引擎、地图、几样共用的模型……),由清单定义。
+ * I / R / F 是这几步各自拿到的东西(引擎、地图、几样共用的模型……),由规则包定义;partial 和 finish 拿同一种。
  * 同一刻的事件按装的先后排,所以清单的次序就是历史的一部分:改了次序,同一种子的历史就变了。
  */
 export interface SimModule<I, R, F> {
@@ -14,5 +15,6 @@ export interface SimModule<I, R, F> {
   readonly id: string;
   install?(ctx: I): void;
   resume?(ctx: R): void;
+  partial?(ctx: F): void;
   finish?(ctx: F): void;
 }

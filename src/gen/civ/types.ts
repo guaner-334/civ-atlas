@@ -1282,7 +1282,7 @@ export interface CivParams {
    */
   base?: CivBase;
   /**
-   * 改过地形的世界,山海湖岛的地名照没改过地形的同一颗星球起(index.ts 的 nameRefOf)。false = 不照着起:
+   * 改过地形的世界,山海湖岛的地名照没改过地形的同一颗星球起(official.ts 的 nameRefOf)。false = 不照着起:
    * 照原样打开的旧版本世界,按现在的生成器生成的"没改过的星球"不一定是它原来那一颗。不给 = 照着起;没改过地形的世界不看它
    */
   placeRef?: false;
