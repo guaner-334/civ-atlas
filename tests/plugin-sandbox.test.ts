@@ -156,8 +156,9 @@ describe('线程里我们那段代码', () => {
 });
 
 describe('首页不带沙箱', () => {
-  it('src 里别处只用 import() 或 import type 引用 plugin/ 下的代码', () => {
-    const bad: string[] = [];
+  /** src 下 plugin/ 以外的 .ts / .tsx → 它静态 import 的各个路径(import type 不算) */
+  function staticImports(): Map<string, string[]> {
+    const out = new Map<string, string[]>();
     const walk = (dir: string) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         const p = path.join(dir, e.name);
@@ -165,13 +166,32 @@ describe('首页不带沙箱', () => {
           if (p !== path.join(ROOT, 'src', 'plugin')) walk(p);
         } else if (/\.tsx?$/.test(e.name)) {
           const text = fs.readFileSync(p, 'utf8');
-          for (const m of text.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^;'"]*?from\s+['"]([^'"]+)['"]/gm)) {
-            if (/(^|\/)plugin\/[^/]+$/.test(m[1])) bad.push(`${path.relative(ROOT, p)}: ${m[0].trim()}`);
-          }
+          out.set(
+            p,
+            [...text.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^;'"]*?from\s+['"]([^'"]+)['"]/gm)].map((m) => m[1]),
+          );
         }
       }
     };
     walk(path.join(ROOT, 'src'));
+    return out;
+  }
+  const isPlugin = (spec: string) => /(^|\/)plugin\/[^/]+$/.test(spec);
+  const resolve = (from: string, spec: string) => {
+    const base = path.resolve(path.dirname(from), spec);
+    return ['.ts', '.tsx'].map((x) => base + x).find((f) => fs.existsSync(f)) ?? base;
+  };
+
+  it('静态 import plugin/ 下代码的文件,别处只能用 import() 加载它', () => {
+    const files = staticImports();
+    const pulls = new Set([...files].filter(([, specs]) => specs.some(isPlugin)).map(([f]) => f));
+    const bad: string[] = [];
+    for (const [f, specs] of files) {
+      if (pulls.has(f)) continue;
+      for (const spec of specs) if (spec.startsWith('.') && pulls.has(resolve(f, spec))) bad.push(`${path.relative(ROOT, f)}: ${spec}`);
+    }
     expect(bad).toEqual([]);
+    // 现在这样的只有插件页那一包
+    expect([...pulls].map((f) => path.relative(ROOT, f).replace(/\\/g, '/')).sort()).toEqual(['src/ui/plugins/PluginWindow.tsx', 'src/ui/plugins/pluginText.ts']);
   });
 });

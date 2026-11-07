@@ -373,6 +373,11 @@
 }
 .plg-it-t {
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 .plg-it-t b {
   display: block;

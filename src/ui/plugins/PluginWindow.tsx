@@ -51,12 +51,12 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   useEscape(() => (ask || said ? back() : onClose()));
 
   const onFile = async (f: File) => {
+    if (f.size > PLUGIN_MAX_BYTES) return setSaid({ kind: 'broken', file: f.name });
     setBusy(true);
     try {
       const bytes = new Uint8Array(await f.arrayBuffer());
       let opened: OpenedPlugin;
       try {
-        if (bytes.length > PLUGIN_MAX_BYTES) throw new PluginFileError('broken', '插件文件太大');
         opened = await openPluginFile(bytes);
       } catch (e) {
         if (e instanceof PluginFileError && e.kind === 'newer') setSaid({ kind: 'newer', name: e.plugin ?? f.name, need: e.need ?? '新版网站的东西' });
@@ -353,6 +353,19 @@ function Empty() {
   );
 }
 
+/** 列表一行的名字和版本;是个按钮,键盘也选得到(点这一行别处一样) */
+function ItemText({ p, v }: { p: InstalledPlugin; v: PluginVerdict }) {
+  return (
+    <button type="button" className="plg-it-t">
+      <b>{p.current.manifest.name}</b>
+      <small>
+        <span>{versionLabel(p.current.manifest.version)}</span>
+        <StatusTag v={v} />
+      </small>
+    </button>
+  );
+}
+
 function DeskPage({ list, cur, icons, busy, onPick, onSel, onToggle, onRemove, onClose }: PageProps) {
   return (
     <div className="plg-page" role="dialog" aria-modal="true" aria-label="插件" data-testid="plugin-page">
@@ -369,13 +382,7 @@ function DeskPage({ list, cur, icons, busy, onPick, onSel, onToggle, onRemove, o
               return (
                 <div key={p.id} className={`plg-it${p.id === cur?.id ? ' on' : ''}${v.blocked ? ' off' : ''}`} data-plugin={p.id} onClick={() => onSel(p.id)}>
                   <PluginIcon src={icons.get(p.current.sum)} size="md" />
-                  <span className="plg-it-t">
-                    <b>{p.current.manifest.name}</b>
-                    <small>
-                      <span>{versionLabel(p.current.manifest.version)}</span>
-                      <StatusTag v={v} />
-                    </small>
-                  </span>
+                  <ItemText p={p} v={v} />
                   <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={p.current.manifest.name} onChange={(on) => onToggle(p.id, on)} />
                 </div>
               );
@@ -507,13 +514,7 @@ function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean)
                   }}
                 >
                   <PluginIcon src={icons.get(p.current.sum)} size="md" />
-                  <span className="plg-it-t">
-                    <b>{p.current.manifest.name}</b>
-                    <small>
-                      <span>{versionLabel(p.current.manifest.version)}</span>
-                      <StatusTag v={v} />
-                    </small>
-                  </span>
+                  <ItemText p={p} v={v} />
                   <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={p.current.manifest.name} onChange={(on) => onToggle(p.id, on)} />
                   <span className="plg-chev">
                     <Icon name="chevron" size={16} />
