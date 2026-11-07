@@ -33,7 +33,7 @@
  * 存储满了也要拿得出文件(draftFile):和 commitWorld 同样拼一份修订,只是不写库,直接装成世界文件。这条路只读不写,不要求有空间。
  */
 import { applyNoteOps, cleanNoteList, mergeNotes, sameNotes, type NoteOp } from './authorNotes';
-import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
+import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, packValue, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
 import { GENERATOR_VERSION } from './gen/edits';
 import { VAULT_DB, type RosterMarks } from './worldRoster';
 import type { SaveFile } from './gen/savefile';
@@ -893,8 +893,17 @@ function pluginsAfter(list: readonly WorldPlugin[], plugin: WorldPlugin, stored:
 export async function changePluginData(id: string, plugin: WorldPlugin, data: { schema: number; value: unknown } | null): Promise<PluginDataWrote> {
   try {
     const name = pluginDataPart(plugin.id);
+    if (data) {
+      const raw = packValue(data.value);
+      if (raw.length > PLUGIN_DATA_MAX_BYTES) return { status: 'big', bytes: raw.length };
+      // 打得出来、读不回来的(绕回自己、层数太多)不存,原来的不动
+      try {
+        unpackValue(raw);
+      } catch (e) {
+        throw new VaultError('failed', `插件的数据读不回来:${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     const packed = data ? await packExtra({ name, schema: data.schema, by: plugin.id, value: data.value }) : null;
-    if (packed && packed.info.bytes > PLUGIN_DATA_MAX_BYTES) return { status: 'big', bytes: packed.info.bytes };
     for (let tries = 0; tries < COMMIT_TRIES; tries++) {
       const rows = await rowsOf(id);
       const maxN = rows.at(-1)?.n ?? 0;

@@ -3,7 +3,8 @@
  * 引擎(engine/sim.ts)不认识这些种类,一口气推、接着推时把 CIV_EVENTS 登记给它。
  * 编号和同一刻的次序是历史的一部分:改了,同一种子的历史就变了。
  */
-import type { EventKind } from './engine/sim';
+import type { AnnalSchema, EventKind } from './engine/sim';
+import { ANNAL_EXTRAS } from './types';
 
 // ---------------------------------------------------------------------------
 // 事件类型编号表(变化日志的 cause 用同一套编号;阶段 3 从 7 往下接着编:战争 7–9,分合 10–14,王朝更替 15–19(新君即位 16),
@@ -257,3 +258,6 @@ export const CIV_EVENTS: readonly EventKind[] = [
   // 迁都后重看边地:原来没写进这张表(核对版本号 = 否,和没登记时一样),同一刻里按国家排的次序要登记在这里
   { id: Ev.Respread, name: '迁都后重看边地', watch: false, order: { perPolity: 2 } },
 ];
+
+/** 官方推演的史事:记的时候可有可无的几列照 ANNAL_EXTRAS 的次序抄 */
+export const CIV_ANNALS: AnnalSchema = { extras: ANNAL_EXTRAS };

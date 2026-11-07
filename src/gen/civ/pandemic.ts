@@ -106,8 +106,8 @@ function relapseTime(K: PandemicKnobs, p: Pandemic, j: number): number {
 }
 
 /** 登记全球大疫这一层(installPlague 之后调用);「天灾」多 / 很多时预约第一次看全球大疫、看地震水旱 */
-export function installPandemic(sim: CivSim, pm: PolityModel, seed: number): void {
-  const run: Runner = { k: sim.knobs.get(PANDEMIC_KNOBS), sim, pm, base: pandemicBase(seed), state: { list: [] }, calamity: sim.calamity, booked: new Set() };
+export function installPandemic(sim: CivSim, pm: PolityModel, seed: number, calamity: Calamity | undefined): void {
+  const run: Runner = { k: sim.knobs.get(PANDEMIC_KNOBS), sim, pm, base: pandemicBase(seed), state: { list: [] }, calamity, booked: new Set() };
   hook(run);
   if (calamityRates(run.calamity)) {
     sim.schedule(panTime(run.k, run.base, 0), Ev.PandemicCheck, 0, 0);
@@ -297,7 +297,7 @@ function hook(run: Runner): void {
 export function resumePandemic(sim: CivSim, civ: Civ, list: readonly Intervention[] = civ.interventions ?? []): void {
   const pm = polityModelOf(sim);
   if (!pm) return;
-  const run: Runner = { k: sim.knobs.get(PANDEMIC_KNOBS), sim, pm, base: pandemicBase(civ.seed), state: { list: [] }, calamity: sim.calamity, booked: new Set() };
+  const run: Runner = { k: sim.knobs.get(PANDEMIC_KNOBS), sim, pm, base: pandemicBase(civ.seed), state: { list: [] }, calamity: civ.calamity, booked: new Set() };
   const R = pm.terrain.R;
   for (const e of civ.annals) {
     if (e.kind !== 'pandemic') continue;
@@ -339,7 +339,7 @@ export { pandemicModelOf };
 export const pandemicModule: CivModule = {
   id: 'pandemic',
   install: (c) => {
-    if (c.pm) installPandemic(c.sim, c.pm, c.seed);
+    if (c.pm) installPandemic(c.sim, c.pm, c.seed, c.calamity);
   },
   resume: (c) => resumePandemic(c.sim, c.civ, c.iv?.list),
 };

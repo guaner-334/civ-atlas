@@ -4,7 +4,7 @@
  * 引擎(engine/)只管事件堆、归属、日志、史事、检查点,不认识任何子系统;每个子系统在自己的文件里导出一个模块对象
  * (engine/module.ts 的样子:install / resume / finish),这里按次序排好:
  *   - 一口气推(index.ts 的 generateCiv):先定民族、国家两个模型、最先预约干预的事件,再照 CIV_MODULES 的次序逐个 install
- *   - 接着推(resumeCiv):引擎先恢复自己的状态,再照同一个次序逐个 resume
+ *   - 接着推(resumeCiv):引擎先照 Civ 里它自己那几样恢复,再照同一个次序逐个 resume
  *   - 推完(index.ts 的 finishCiv):照 CIV_FINISH 的次序逐个 finish,往结果上补各自的那一份
  * 同一刻的事件按装的先后排,所以次序是历史的一部分:改了次序,同一种子的历史就变了。
  * 加一个子系统 = 在它的文件里写一个模块对象,加进下面的清单(要往结果上补东西的,也加进 CIV_FINISH)。
@@ -12,7 +12,7 @@
 import type { World } from '../world';
 import type { Intervention } from '../edits';
 import type { Civ, Culture, Habitat, Regions, Year } from './types';
-import { CivSim } from './engine/sim';
+import { CivSim, type EngineState } from './engine/sim';
 import type { SimModule } from './engine/module';
 import { culturesModule, type CultureModel } from './cultures';
 import { politiesModule, type PolityModel } from './polities';
@@ -36,7 +36,8 @@ import { treatiesModule } from './treaties';
 import { migrationModule } from './migration';
 import { religionModule, type FaithEra } from './religion';
 import { interventionsModule, scheduleInterventions, type InterventionModel } from './interventions';
-import { CIV_EVENTS } from './events';
+import type { Calamity } from './calamity';
+import { CIV_ANNALS, CIV_EVENTS } from './events';
 
 /** 一口气推时装模块拿到的东西 */
 export interface InstallCtx {
@@ -51,6 +52,8 @@ export interface InstallCtx {
   pm: PolityModel | null;
   /** 干预(没有国家模型 = null) */
   iv: InterventionModel | null;
+  /** 「天灾」设定(平常 = undefined);接着推时照 Civ.calamity */
+  calamity: Calamity | undefined;
 }
 
 /** 接着推时重建模块拿到的东西 */
@@ -121,8 +124,21 @@ export function finishModules(ctx: FinishCtx): void {
   for (const m of CIV_FINISH) m.finish?.(ctx);
 }
 
+/** 引擎恢复要的那几样(Civ 里只取这些) */
+function engineStateOf(civ: Civ): EngineState {
+  return {
+    regionCount: civ.regions.count,
+    owners: [civ.culture, civ.polity],
+    log: civ.log,
+    annals: civ.annals,
+    checkpoints: civ.checkpoints,
+    endYear: civ.endYear,
+    knobs: civ.knobs,
+  };
+}
+
 /**
- * 由 Civ 数据重建推演状态:引擎的那部分(各层归属、版本号、日志、检查点)交给 CivSim.restore,再让各模块重建待发生的事件,
+ * 由 Civ 数据重建推演状态:引擎的那部分(各层归属、版本号、日志、史事、检查点)交给 CivSim.restore,再让各模块重建待发生的事件,
  * 然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,阶段 4 的存档也只存 Civ。
  * interventions = 接着推时带着的干预(阶段 4;默认 = 这份历史推出来时带着的 civ.interventions):
  * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(逐年推演时下的新命令,civ/play.ts)。
@@ -136,7 +152,7 @@ export function resumeCiv(
   first?: (sim: CivSim) => void,
   eras: readonly FaithEra[] = civ.eras ?? [],
 ): CivSim {
-  const sim = CivSim.restore(civ, CIV_EVENTS);
+  const sim = CivSim.restore(engineStateOf(civ), CIV_EVENTS, CIV_ANNALS);
   if (civ.viable && civ.cultures.length) {
     // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里地形大事最先,干预只排在新君即位、迁都后重看边地后面)
     first?.(sim);
