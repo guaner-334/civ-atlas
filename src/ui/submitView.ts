@@ -169,13 +169,14 @@ export function setKnownPhone(p: PhoneInfo | null): void {
   listeners.emit();
 }
 
-/** 问一次服务器:绑的手机号、停没停投稿 */
-export async function refreshMe(): Promise<void> {
+/** 问一次服务器:绑的手机号、停没停投稿。等回话的工夫换了账号 = false(查到的不记) */
+export async function refreshMe(): Promise<boolean> {
   const user = userKey();
   const r = await fetchMe();
-  if (userKey() !== user) return;
+  if (userKey() !== user) return false;
   setKnownPhone(r.phone);
   setSubmitBan(readBan(r.ban));
+  return true;
 }
 
 /**
@@ -188,7 +189,7 @@ export function askPhone(o: { for: 'submit' | 'share'; then: () => void }): void
   if (p) return o.then();
   if (p === null) return open();
   refreshMe().then(
-    () => (knownPhone() ? o.then() : open()),
+    (same) => same && (knownPhone() ? o.then() : open()),
     () => o.then(),
   );
 }

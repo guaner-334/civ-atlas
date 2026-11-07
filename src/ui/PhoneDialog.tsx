@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Dialog, codeOf, errText, sendLabel, useCountdown, type PhoneMode } from './AccountDialogs';
 import { ServerError } from '../account/server';
+import { getSession } from '../account/session';
 import { bindPhone, cleanPhone, sendPhoneCode } from '../account/phone';
 import { readBan, setKnownPhone, setSubmitBan, usePhone } from './submitView';
 
@@ -105,10 +106,15 @@ export default function PhoneDialog({ phone, mode, onDone, onClose }: { phone: b
     if (!canOk || !sent) return;
     setBusy('bind');
     setErr(null);
+    const token = getSession()?.token;
     try {
-      setKnownPhone(await bindPhone(sent.num, code));
+      const got = await bindPhone(sent.num, code);
+      // 等回话的工夫别的标签页换了账号:绑上的是原来那个账号的号,不记到新账号上、也不接着做
+      if (getSession()?.token !== token) return;
+      setKnownPhone(got);
       onDone();
     } catch (e) {
+      if (getSession()?.token !== token) return;
       fail(e, 'bind');
       setBusy(null);
     }
