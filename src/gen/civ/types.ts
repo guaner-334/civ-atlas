@@ -534,7 +534,7 @@ export interface Annal {
   until?: number;
 }
 
-/** Annal 里可有可无的几列:记史事(CivSim.record)时照这个次序抄进去(数组抄一份);Annal 加了新的可选列,这里跟着加 */
+/** Annal 里可有可无的几列:官方推演登记给引擎(events.ts 的 CIV_ANNALS),记史事时照这个次序抄进去;Annal 加了新的可选列,这里跟着加 */
 export const ANNAL_EXTRAS = ['via', 'cause', 'foe', 'n', 'ps', 'by', 'opt', 'until'] as const satisfies readonly (keyof Annal)[];
 /** 编译期核对:Annal 的可选列都在 ANNAL_EXTRAS 里(漏了这里报错) */
 type AnnalOptional = { [K in keyof Annal]-?: undefined extends Annal[K] ? K : never }[keyof Annal];

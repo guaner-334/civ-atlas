@@ -69,7 +69,7 @@ import { warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
 import { devModelOf } from './development';
 import { GROWTH_A, capitalAt, populationAt } from './growth';
-import { calamityRates } from './calamity';
+import { calamityRates, type Calamity } from './calamity';
 import type { UnrestRuleConsts } from './stateTables';
 import { claimants, murderedAt } from './royals';
 import { anySlump, inSlump, pandemicModelOf } from './pandemicState';
@@ -276,17 +276,17 @@ export function unrestInputs(um: UnrestModel, P: Polity, t: Year): { age: number
 // 挂到推演引擎上
 
 /** 登记动荡、饥荒、民变、大崩解的事件处理和挂钩(installDevelopment 之后调用),预约第一次看年景 */
-export function installUnrest(sim: CivSim, pm: PolityModel, seed: number, world: World): UnrestModel {
+export function installUnrest(sim: CivSim, pm: PolityModel, seed: number, world: World, calamity: Calamity | undefined): UnrestModel {
   const wm = warModelOf(sim);
   const pol = politicsModelOf(sim);
   if (!wm || !pol) throw new Error('installUnrest:先 installWars、installPolitics');
   const um = newModel(pm, wm, pol, seed);
-  hook(sim, um, world);
+  hook(sim, um, world, calamity);
   sim.schedule(famineTime(um, 0), Ev.FamineCheck, 0, 0);
   return um;
 }
 
-function hook(sim: CivSim, um: UnrestModel, world: World): void {
+function hook(sim: CivSim, um: UnrestModel, world: World, calamity: Calamity | undefined): void {
   const { SPRING_HALF, BLIGHT_YEARS, CLAIM_MORALE, CLAIM_FADE, REBEL_MORALE, REBEL_FADE, CLAIM_COURT, COURT_MORALE, CLAIM_STATE, CLAIM_ODDS, CLAIM_MORE, CLAIM_K, CLAIM_U0, REACH, CLAIM_MAX, CLAIM_MIN, CLAIM_FRAC, CLUSTER_PER, CLUSTER_HOPS, SEV, FAMINE_REST, HOP_FADE, P_BASE, P_FULL, SOIL_W, LOSS, REVOLT_STATE, REVOLT_ODDS, REVOLT_K, REVOLT_U0, REVOLT_MAX, REVOLT_MIN, REVOLT_FRAC, COLLAPSE_MIN, COLLAPSE_AGE, COLLAPSE_REST, HEG_GATE, HEG_W, HEG_0, HEG_SPAN, COLLAPSE_ODDS, COLLAPSE_K, COLLAPSE_U0, KEEP, PIECE_SIZE, PIECE_MIN, FAMINE_YEARS, FAMINE_FULL_MIN, FAMINE_FULL } = um.pm.knobs.get(UNREST_KNOBS);
   const api = civApi(sim);
   models.set(sim, um);
@@ -411,7 +411,7 @@ function hook(sim: CivSim, um: UnrestModel, world: World): void {
     // 灾年的中心:有城、有人住的州各自掷(按州的治所取随机数,改了别处的地形这里照旧);干旱、寒冷的地方更容易;
     // 「天灾」多 / 很多时几率 × CalamityRates.famine(平常照旧)
     const centres: number[] = [];
-    const more = calamityRates(sim.calamity)?.famine;
+    const more = calamityRates(calamity)?.famine;
     for (let r = 0; r < R; r++) {
       if (springOf[r] !== h || pm.cityOf[r] < 0 || culture[r] < 0) continue;
       const odds = more ? (CLIMATE[reg.biome[r]] * more) / CLUSTER_PER : CLIMATE[reg.biome[r]] / CLUSTER_PER;
@@ -728,7 +728,7 @@ export function resumeUnrest(sim: CivSim, world: World, civ: Civ): void {
     } else if (e.kind === 'war' && e.cause === 'heir') um.claims.set(e.war, e.b);
     else if (e.kind === 'collapse') um.collapsed.set(e.a, e.year);
   }
-  hook(sim, um, world);
+  hook(sim, um, world, civ.calamity);
   let k = 0;
   while (quantize(famineTime(um, k)) <= sim.now) k++;
   // 一口气推时上一次看年景那一刻预约的(第一次是开头);上一次看年景以后、还没到的春荒也是那一刻预约的
@@ -777,7 +777,7 @@ export function unrestStats(civ: Civ): UnrestStats {
 export const unrestModule: CivModule = {
   id: 'unrest',
   install: (c) => {
-    if (c.pm) installUnrest(c.sim, c.pm, c.seed, c.world);
+    if (c.pm) installUnrest(c.sim, c.pm, c.seed, c.world, c.calamity);
   },
   resume: (c) => resumeUnrest(c.sim, c.world, c.civ),
 };
