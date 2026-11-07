@@ -7,6 +7,7 @@
   const PRECONNECT = '__PRECONNECT__';
   const TURN = '__TURN__';
   const UDP = '__UDP__';
+  const SECRET_KEY = '__SECRET_KEY__';
   const inPage = typeof document !== 'undefined';
   const results = [];
   const rec = (name, outcome) => results.push({ name, outcome: String(outcome).slice(0, 200) });
@@ -54,10 +55,10 @@
   );
   await tryit('caches', () => caches.keys().then((k) => 'keys ' + k.length));
   await tryit('opfs', () => navigator.storage.getDirectory().then(() => 'opened'));
-  await tryit('localStorage', () => localStorage.getItem('civ-atlas:ai-secrets'));
+  await tryit('localStorage', () => localStorage.getItem(SECRET_KEY));
   if (inPage) {
     await tryit('document.cookie', () => document.cookie);
-    await tryit('parent.localStorage', () => parent.localStorage.getItem('civ-atlas:ai-secrets'));
+    await tryit('parent.localStorage', () => parent.localStorage.getItem(SECRET_KEY));
     await tryit('parent.document', () => parent.document.title);
   }
 
