@@ -653,6 +653,10 @@
   height: 34px;
   padding: 0 16px;
 }
+/* 灰着也能点(点了说为什么) */
+.mw-panel-acts .mw-btn.off > * {
+  opacity: 0.45;
+}
 .mw-panel.empty {
   padding-bottom: 32px;
 }

@@ -10,7 +10,7 @@
  *   从文件打开进来的:当前世界那一行多一句「来自文件」和哪天打开的(只在这台设备上记)
  *   登录了网站账号:"复制配方链接"换成"分享…"(短链接,随时能停,AccountPanels.tsx 的分享窗)
  *   传到账号:服务器开了才有(fullWorldView.ts),点了才传;传过的换成「已传到账号」「再传一次」,分享那一项跟着说对方看到什么
- *   投到作品墙…:登录了、服务器开着投稿才有(世界还要开着投世界,submitView.ts);账号停了投稿时它和「分享…」都灰着,点了说原因
+ *   投到作品墙…:登录了、服务器开着投世界才有(submitView.ts);账号停了投稿时它和「分享…」都灰着,点了说原因
  *   看原样:旧版本建的世界(留着原来那一份,saveStore 的 currentOriginal)到那一版的旧网站里打开,新页面(oldSite.ts)
  *   按新版另存一份:照原样打开的旧世界(没有重新生成,FrozenWorld.tsx)另存一份按新版推演;这时不放「看原样」(看到的就是原样)。
  *                   存的内容读不出、先按新版算了一遍的世界也放:那一份不自动存,要留着看到的样子只能另存(「看原样」照放)
@@ -36,7 +36,7 @@ import { useSession } from '../account/session';
 import { saveAsNew } from './FrozenWorld';
 import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
 import { contentTrouble, pendingOf } from './worldStore';
-import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, mapMenuItem, phoneRequired, submitMenuItem, useSubmitBan, useSubmitOn, useSubmitWorldOn, type SubmitWork } from './submitView';
+import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem, useSubmitBan, useSubmitWorldOn, type SubmitWork } from './submitView';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -158,9 +158,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   useEffect(() => {
     if (open && session) void askFull();
   }, [open, !!session]);
-  // 投到作品墙:有历史的世界投整个世界,只有地图的投地图(新建中、只剩配方的、地图留着的不露)
+  // 投到作品墙:只投有历史的世界(新建中、只有地图的、只剩配方的不露;地图在我的世界「地图」里投)
   const submitOn = useSubmitWorldOn(open) && !!cur && cur.kind !== 'draft' && !curStored?.draft && !curStored?.map && !recipeOnly;
-  const mapSubmitOn = useSubmitOn(open) && !!cur && cur.kind !== 'draft' && !!curStored?.map && !kept;
   const banned = useSubmitBan();
   const [pendingId, setPendingId] = useState<string | null>(null);
   useEffect(() => {
@@ -193,9 +192,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const submitItem =
     open && submitOn && curId
       ? submitMenuItem({ ban: banned, pending: pendingId === curId, extras: extras?.id === curId ? extras.parts : [], bytes: fullBytes, maxBytes: fo?.limits.worldBytes ?? SUBMIT_WORLD_MAX })
-      : open && mapSubmitOn
-        ? mapMenuItem(banned)
-        : null;
+      : null;
   const [persisted, setPersisted] = useState<boolean | null>(null);
   useEffect(() => {
     if (!open || !appleDevice()) return;
@@ -288,7 +285,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const submitClick = () => {
     if (!submitItem || !cur || submitItem.act === 'none') return;
     setOpen(false);
-    const work: SubmitWork = mapSubmitOn ? { kind: 'map', worldId: cur.id, title: title ?? '' } : { kind: 'world', worldId: cur.id, title: title ?? '' };
+    const work: SubmitWork = { kind: 'world', worldId: cur.id, title: title ?? '' };
     if (submitItem.act === 'ban') return openSubmitDialog(work, 'ban');
     const go = () => openSubmitDialog(work);
     if (phoneRequired()) askPhone({ for: 'submit', then: go });

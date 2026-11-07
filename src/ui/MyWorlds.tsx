@@ -21,7 +21,7 @@
  * 一个世界都没有时:本机「我的规则」里有规则(或者正看着「规则」)才有这一排,不然还是原来那一页空的星球):
  *   地图     一张地图一张卡片(实景、没有国界和地名的地图缩略图,名字"种子 7",下面写这张地图上有几个文明;分组见 mapGroups.ts)。
  *            点一张选中(描蓝边),它那一行下面展开:这张地图上的文明(点一个打开)和「打造新文明」;
- *            还没有文明的(新建时只保存了地图)展开里是「打造文明」「删除这张地图」。再点一下收起
+ *            还没有文明的(新建时只保存了地图)展开里是「打造文明」「投到作品墙…」(登录了、服务器开着投稿才有)「删除这张地图」。再点一下收起
  *   文明     一个文明一张卡片(就是原来的我的世界);"···"菜单里多一项「在这张地图上打造新文明」
  *   规则     官方规则和本机「我的规则」里的几套,点一套打开调规则的大卡(rules/RulesList.tsx;代码和样式点到这一页才下载)
  * 手机上页签铺满一行,地图两列,展开的那块里文明一行一个,底下一个大的「打造新文明」。
@@ -38,7 +38,8 @@ import { holdWorld } from './worldHolds';
 import { currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, useSavesVersion, type StoredWorld } from './saveStore';
 import { isCoarse } from './device';
 import { withFileFlow } from './worldFileLazy';
-import { closeTrash, openAccount, openLogin, useAccountPanelOpen, useTrashView } from './AccountDialogs';
+import { closeTrash, openAccount, openLogin, openSubmitDialog, useAccountPanelOpen, useTrashView } from './AccountDialogs';
+import { askPhone, phoneRequired, useSubmitBan, useSubmitOn } from './submitView';
 import { accountServer } from '../account/server';
 import { displayName, useSession } from '../account/session';
 import { listTrash, restoreTrash, type TrashEntry } from '../account/cloud';
@@ -880,6 +881,8 @@ function MapPanel({
   waitOf: WaitOf;
 }) {
   const n = g.civs.length;
+  const submitOn = useSubmitOn(true);
+  const banned = useSubmitBan();
   // 在哪个世界的地图上打造:地图那一份 / 最早那个世界 / 最近的一个建好的文明(都是同一张地图;没建完的不算)
   const from = g.head.id;
   const src = (g.map ?? (g.head.draft ? g.civs.find((w) => !w.draft) : g.head))?.id;
@@ -904,6 +907,21 @@ function MapPanel({
               </>
             )}
           </button>
+          {submitOn && g.head.map && (
+            <button
+              className={`mw-btn${phone ? ' wide' : ''}${banned ? ' off' : ''}`}
+              data-act="map-submit"
+              aria-disabled={banned ? true : undefined}
+              onClick={() => {
+                const go = () => openSubmitDialog({ kind: 'map', worldId: from, title: mapName(g.head) }, banned ? 'ban' : undefined);
+                if (!banned && phoneRequired()) askPhone({ for: 'submit', then: go });
+                else go();
+              }}
+            >
+              <Icon name="image" size={16} />
+              <span>投到作品墙…</span>
+            </button>
+          )}
           <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete" onClick={() => removeWorld(from, mapName(g.head))}>
             删除这张地图
           </button>

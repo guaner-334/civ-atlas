@@ -556,6 +556,13 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
       </div>
     </div>
   );
+  const terms = (
+    <ol className="gl-ol">
+      {TERMS.map((t, i) => (
+        <li key={i}>{t}</li>
+      ))}
+    </ol>
+  );
   return (
     <Dialog phone={phone} label="怎么上作品墙" width={600} onClose={onClose} testId="gallery-howto" className="gl-howto">
       {site.on ? (
@@ -571,7 +578,7 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
                 <dt>世界</dt>
                 <dd>存档菜单里的「投到作品墙…」</dd>
                 <dt>地图</dt>
-                <dd>存档菜单里的「投到作品墙…」</dd>
+                <dd>「我的世界」的「地图」里点开它，点「投到作品墙…」</dd>
                 <dt>新建参数</dt>
                 <dd>预设菜单里的「投到作品墙…」</dd>
                 <dt>规则</dt>
@@ -587,24 +594,14 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
           {three}
           <p className="acct-small gl-agree">在群里投时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
           <h3 className="gl-h3">投之前请知道</h3>
-          <ol className="gl-ol">
-            {TERMS.map((t, i) => (
-              <li key={i}>{t}</li>
-            ))}
-          </ol>
+          {terms}
         </div>
       ) : (
         <div className="acct-body">
           <p className="acct-lead">作品墙上的作品都是作者投来、我们看过才放上去的。网站上不收稿，请到 QQ 交流群里找管理员，带上三样：</p>
           {three}
           <h3 className="gl-h3">投之前请知道</h3>
-          <ol className="gl-ol">
-            <li>作品是你自己做的；改的是别人的作品，网站会自动写上原来的出处。</li>
-            <li>你同意它在作品墙上公开展示：谁都能打开看、另存一份接着改、用你的地图、参数或规则新建世界；另存的那份写着你的署名和出处，改不掉。</li>
-            <li>我们会看过里面所有的字（国名、人名、改的名字、人物和标注、AI 写的正文、介绍）再决定上不上；可能选进本月精选，配一句推荐语。封面由网站自动截地图。</li>
-            <li>想撤下随时说。撤下后作品墙上不再出现；别人已经另存的在他们自己的浏览器里，我们删不掉。</li>
-            <li>被举报、核实不适合公开的，我们会撤下。</li>
-          </ol>
+          {terms}
           <p className="acct-small">投稿时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
         </div>
       )}

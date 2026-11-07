@@ -179,11 +179,6 @@ export interface SubmitMenuItem {
 /** 作品墙一个世界最多多大(服务器没说时) */
 export const SUBMIT_WORLD_MAX = 150e6;
 
-/** 地图那一项:地图很小,只看停没停投稿 */
-export function mapMenuItem(ban: SubmitBan | null): SubmitMenuItem {
-  return ban ? { small: '你的账号已停止投稿，点这里看原因', off: true, act: 'ban' } : { small: '交上这张地图，我们看过才放上作品墙', off: false, act: 'open' };
-}
-
 export function submitMenuItem(f: SubmitMenuFacts): SubmitMenuItem {
   if (f.ban) return { small: '你的账号已停止投稿，点这里看原因', off: true, act: 'ban' };
   if (f.pending) return { small: '还在推演，推完再投', off: true, act: 'none' };

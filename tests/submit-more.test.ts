@@ -12,7 +12,7 @@ import { EMPTY_EDITS } from '../src/gen/edits';
 import { presetHash } from '../src/ui/presetLink';
 import { rulesHash } from '../src/gen/civ/ruleShare';
 import { TERMS_VERSION } from '../src/ui/submitTerms';
-import { mapMenuItem, workKey } from '../src/ui/submitView';
+import { workKey } from '../src/ui/submitView';
 import { failWords, notSubmitted, submitFail } from '../src/ui/submitWords';
 import { rowWords, shownSubmissions } from '../src/ui/MySubmissions';
 
@@ -96,9 +96,7 @@ describe('投地图、新建参数、规则', () => {
     expect(failWords({ kind: 'notice', which: 'ban', ban: { level: 'submit', reason: 'withdraw', reasonText: whole } })).toMatchObject({ more: whole });
   });
 
-  it('存档菜单里地图那一项;一件作品的记号:同一套参数、同一套规则是同一件', () => {
-    expect(mapMenuItem(null)).toEqual({ small: '交上这张地图，我们看过才放上作品墙', off: false, act: 'open' });
-    expect(mapMenuItem({ level: 'submit', reasonText: 'x' })).toMatchObject({ off: true, act: 'ban' });
+  it('一件作品的记号:同一套参数、同一套规则是同一件', () => {
     const a = workKey({ kind: 'preset', name: 'a', params: { ...DEFAULT_PARAMS, seed: 7 } });
     expect(workKey({ kind: 'preset', name: 'b', params: { ...DEFAULT_PARAMS, seed: 7 } })).toBe(a);
     expect(workKey({ kind: 'preset', name: 'a', params: { ...DEFAULT_PARAMS, seed: 8 } })).not.toBe(a);
