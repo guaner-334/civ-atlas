@@ -123,6 +123,7 @@ describe('判成九行', () => {
     expect(row(nav({ open: '[object Window]' }), 5).result).toBe('1 种没拦住');
     expect(row(nav({ open: 'threw:InvalidAccessError' }), 5).state).toBe('ok');
     expect(row({ ...nav({}), escapedTop: true }, 5).result).toBe('1 种没拦住');
+    expect(row({ ...nav({ ran: ['link', 'open', 'refresh', 'self'], top: '' }), escapedTop: true }, 5)).toMatchObject({ state: 'bad', result: '1 种没拦住' });
     expect(row(nav({ ran: ['link', 'refresh', 'self'] }), 5).state).toBe('err');
   });
 

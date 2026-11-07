@@ -120,6 +120,9 @@ export const STOP_CASES: Record<string, string> = {
   pingLoop: 'unresponsive',
 };
 
+/** 上一次查的时候框把整页带走,回来的网址上带着它 */
+export const ESCAPED_PARAM = 'sandbox-escaped';
+
 /** 框自己跳走的五种:前三种靠网站页面的 frame-src 拦,后两种靠框的 sandbox 属性 */
 export const NAV_WAYS = ['self', 'refresh', 'link', 'top', 'open'];
 export const NAV_FRAME_WAYS = ['self', 'refresh', 'link'];

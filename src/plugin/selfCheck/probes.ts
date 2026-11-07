@@ -5,7 +5,7 @@
 import batterySource from '../../../scripts/lib/sandbox/battery.js?raw';
 import { frameCsp, SANDBOX_FLAGS } from '../protocol';
 import { SandboxStopped, startPluginSandbox, type PluginSandbox } from '../sandbox';
-import { NAV_WAYS, STOP_CASES, type BatteryRaw, type EchoRaw, type IsolationRaw, type NavRaw, type Outcome, type SpinRaw, type StopRaw } from './verdict';
+import { ESCAPED_PARAM, NAV_WAYS, STOP_CASES, type BatteryRaw, type EchoRaw, type IsolationRaw, type NavRaw, type Outcome, type SpinRaw, type StopRaw } from './verdict';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const reasonOf = (e: unknown) => (e instanceof SandboxStopped ? e.reason : `not stopped: ${String(e)}`);
@@ -13,9 +13,6 @@ const text = (x: unknown) => (typeof x === 'string' ? x : JSON.stringify(x)).sli
 
 /** 网站页面在这两个频道上听着,插件喊话被听到就算漏 */
 const CHANNELS = ['civ-atlas', 'civ-atlas-check'];
-
-/** 上一次查的时候框把整页带走,回来的网址上带着它 */
-export const ESCAPED_PARAM = 'sandbox-escaped';
 
 /** 每项检查的框挂在自己的盒子里,查完数盒子里还剩几个框 */
 function box(): HTMLElement {
@@ -230,9 +227,10 @@ const NAV_HOST = (way: string) => `${way}.sandbox-check.invalid`;
 /**
  * 框自己跳走、弹新窗口,五种各开一个框。没有收信站,靠两样看:
  * 前三种(框自己跳)被网站页面的 frame-src 拦下时,页面会收到 securitypolicyviolation;
- * 后两种(带走整页、弹窗)框里自己看得到 window.open 拿到 null 或抛错,整页真被带走了下次打开时网址上有记号
+ * 后两种(带走整页、弹窗)框里自己看得到 window.open 拿到 null 或抛错,整页真被带走了下次打开时网址上有记号。
+ * 带着记号回来的那一次不再试带走整页,不然每次打开都被带走、一直查不完
  */
-export async function frameNav(page: URL): Promise<NavRaw> {
+export async function frameNav(page: URL, skipTop = false): Promise<NavRaw> {
   const back = new URL(page.href);
   back.searchParams.set(ESCAPED_PARAM, 'top');
   const ways: Record<string, string> = {
@@ -242,6 +240,7 @@ export async function frameNav(page: URL): Promise<NavRaw> {
     top: `top.location.href = ${JSON.stringify(back.href)};`,
     open: `parent.postMessage('open:' + String(window.open('https://${NAV_HOST('open')}/')), '*');`,
   };
+  if (skipTop) delete ways.top;
   const ran: string[] = [];
   const blocked: string[] = [];
   const loads: Record<string, number> = {};
@@ -275,7 +274,7 @@ export async function frameNav(page: URL): Promise<NavRaw> {
     const t0 = performance.now();
     while (performance.now() - t0 < 2500) {
       await sleep(100);
-      if (ran.length === NAV_WAYS.length && blocked.length === 3 && open && top) break;
+      if (ran.length === Object.keys(ways).length && blocked.length === 3 && open && (top || skipTop)) break;
     }
     // 第一次 load 是框自己的页面
     for (const k of Object.keys(loads)) loads[k] = Math.max(0, loads[k] - 1);

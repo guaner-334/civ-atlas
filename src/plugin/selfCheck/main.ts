@@ -6,8 +6,8 @@ import '../../ui/theme.css';
 import './page.css';
 import { APP_COMMIT, APP_VERSION } from '../../ui/version';
 import { describeDevice } from './device';
-import { battery, batteryCode, echo, ESCAPED_PARAM, frameNav, isolation, spin, stops } from './probes';
-import { report, summary, verdict, type Raw, type Row } from './verdict';
+import { battery, batteryCode, echo, frameNav, isolation, spin, stops } from './probes';
+import { ESCAPED_PARAM, report, summary, verdict, type Raw, type Row } from './verdict';
 
 const ICONS = {
   phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
@@ -90,7 +90,7 @@ async function runAll(first: boolean) {
   await step('stops', stops);
   // 量卡不卡、框跳走都单独跑,别的插件不同时占着手机
   await step('spin', spin);
-  await step('nav', () => frameNav(page));
+  await step('nav', () => frameNav(page, raw.escapedTop));
   running = false;
   finishedAt = new Date();
   update();

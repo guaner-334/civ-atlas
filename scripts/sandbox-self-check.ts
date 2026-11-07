@@ -4,13 +4,14 @@
  * 把自检页打包好,由一个假网站发出去,每个浏览器打开一遍,九行都要过。页面里往外连的地方都指着这个网站自己,
  * 所以这里的假网站顺带当收信站:收到 /sandbox-probe 的请求也算没过。
  * 对照:页面不带 frame-src 时,框真跳得走,「小屋自己跳走」那一行必须查出没过(证明这一行没有收信站也判得出来)。
+ * 另查带着「整页被带走过」的记号打开时照样查得完。
  */
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox, webkit, type BrowserType, type Page } from 'playwright';
 import { buildCheckPage, CHECK_PAGE } from './lib/sandboxCheckPage';
-import type { Row } from '../src/plugin/selfCheck/verdict';
+import { ESCAPED_PARAM, type Row } from '../src/plugin/selfCheck/verdict';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const NAV_ROW = '小屋自己跳走、弹新窗口';
@@ -64,6 +65,10 @@ async function runBrowser(name: string, type: BrowserType) {
     console.log(`  (查完用了 ${((Date.now() - t0) / 1000).toFixed(1)} 秒)`);
     for (const row of r.rows) check(row.state === 'ok', `${row.label}:${row.result}`, row.state === 'ok' ? '' : row.detail);
     check(probes.length === 0, '假网站没收到小屋里连出来的请求', probes.join(' | '));
+
+    const e = await open(pg, `/${CHECK_PAGE}?${ESCAPED_PARAM}=top`);
+    const en = e.rows.find((x) => x.label === NAV_ROW);
+    check(en?.state === 'bad' && !pg.url().includes(ESCAPED_PARAM), `带着「整页被带走过」的记号打开:查得完、「${NAV_ROW}」算没过、记号从网址上去掉`, `${en?.result} ${pg.url()}`);
 
     const b = await open(pg, `/bare/${CHECK_PAGE}`);
     const nav = b.rows.find((x) => x.label === NAV_ROW);
