@@ -6,7 +6,7 @@
 import type { AnnalKind, CultureKind } from './types';
 import { Layer } from './types';
 import type { CivSim } from './engine/sim';
-import { civApi } from './api';
+import type { CivApi } from './api';
 import { cultureModelOf } from './cultures';
 import { diplomacyModelOf } from './diplomacy';
 import { capitalAt, populationAt, portAt, settlementRank } from './growth';
@@ -216,7 +216,8 @@ export function simRead(sim: CivSim): SimRead | null {
 
     polities() {
       const t = sim.now;
-      const api = civApi(sim).war;
+      // 不走 civApi:它第一次取时会建空表
+      const api = (sim.api as Partial<CivApi>).war;
       const wm = warModelOf(sim);
       const dm = diplomacyModelOf(sim);
       const foes: number[][] = pm.polities.map(() => []);
@@ -225,7 +226,7 @@ export function simRead(sim: CivSim): SimRead | null {
         if (w.b < foes.length && !foes[w.b].includes(w.a)) foes[w.b].push(w.a);
       }
       return pm.polities.map((P, p) => {
-        const power = api.power?.(p) ?? -1;
+        const power = api?.power?.(p) ?? -1;
         const info: SimPolity = {
           id: P.id,
           founded: P.founded,
@@ -234,8 +235,8 @@ export function simRead(sim: CivSim): SimRead | null {
           size: pm.size[p] ?? 0,
           tier: pm.tier[p] ?? 0,
           power: power > 0 ? power : 0,
-          treasury: api.purse?.(p, t) ?? 1,
-          broke: api.broke?.(p, t) ?? 0,
+          treasury: api?.purse?.(p, t) ?? 1,
+          broke: api?.broke?.(p, t) ?? 0,
           wars: foes[p].sort((x, y) => x - y),
           allies: dm ? dm.alliesOf(p) : [],
           liege: dm ? dm.liegeOf(p) : -1,
