@@ -79,8 +79,32 @@ export function MySubmissions({ phone, scrollTo }: { phone: boolean; scrollTo: b
       setLimits(r.limits);
       setSubmitBan(readBan(r.ban));
     });
+  // 取不到(断网、服务器出错)隔一会儿再问,窗口开着就一直试
   useEffect(() => {
-    if (on) void load().catch(() => {});
+    if (!on) return;
+    let live = true;
+    let got = false;
+    let wait = 5000;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const tryLoad = () => {
+      clearTimeout(t);
+      void load().then(
+        () => void (got = true),
+        () => {
+          if (!live || got) return;
+          t = setTimeout(tryLoad, wait);
+          wait = Math.min(wait * 2, 60_000);
+        },
+      );
+    };
+    tryLoad();
+    const online = () => !got && tryLoad();
+    window.addEventListener('online', online);
+    return () => {
+      live = false;
+      clearTimeout(t);
+      window.removeEventListener('online', online);
+    };
   }, [on]);
   const shown = list ? shownSubmissions(list) : null;
   useEffect(() => {

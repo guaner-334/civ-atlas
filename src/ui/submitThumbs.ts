@@ -2,7 +2,7 @@
 import { getSession } from '../account/session';
 import { coverUrl } from '../account/gallery';
 import type { Submission } from '../account/submissions';
-import { workKey, type SubmitWork } from './submitView';
+import type { SubmitWork } from './submitView';
 
 const KEY = 'civ-atlas:submit-thumbs';
 /** 最多记几件(我的投稿最多列 20 件) */
@@ -80,7 +80,8 @@ const drawn = new Map<string, Promise<string | null>>();
 /** 投稿窗里新建参数、规则的小图(现画;同一件只画一次);别的种类 = null */
 export function drawWorkThumb(w: SubmitWork): Promise<string | null> {
   if (w.kind !== 'preset' && w.kind !== 'rules') return Promise.resolve(null);
-  const k = workKey(w);
+  // 按画出来的东西记:同一套规则改过以后要重画
+  const k = JSON.stringify(w.kind === 'preset' ? ['p', w.params] : ['r', w.rules.values, w.rules.biomes ?? null]);
   let p = drawn.get(k);
   if (!p) {
     p = import('./galleryHelper')

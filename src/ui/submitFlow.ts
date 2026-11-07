@@ -230,24 +230,25 @@ async function doSubmit(me: NonNullable<typeof live>): Promise<void> {
 /** 地图、新建参数、规则:交一次就完 */
 async function doSmall(me: NonNullable<typeof live>, work: SmallWork): Promise<void> {
   const token = getSession()?.token;
+  // 等的工夫退出、换了账号:回话是原来那个账号的,这边不再说(停没停投稿也不能记到新账号上)
+  const gone = () => {
+    if (live !== me) return true;
+    if (getSession()?.token === token) return false;
+    live = null;
+    setSubmitJob(null);
+    clearToast(TOAST);
+    return true;
+  };
   let made: { id: number };
   try {
     made = await postSubmission(work, me.form);
   } catch (e) {
-    if (live !== me) return;
+    if (gone()) return;
     const f = submitFail(e, false, me.kind);
     if (f.kind === 'notice' && f.which === 'ban') setSubmitBan(f.ban ?? null);
     return end(me, { kind: 'fail', fail: f });
   }
-  // 等的工夫退出、换了账号:投的那件在原来那个账号名下,这边不再说
-  if (live !== me || getSession()?.token !== token) {
-    if (live === me) {
-      live = null;
-      setSubmitJob(null);
-      clearToast(TOAST);
-    }
-    return;
-  }
+  if (gone()) return;
   await accepted(me, made.id);
 }
 
