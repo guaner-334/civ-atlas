@@ -301,6 +301,18 @@ const PATHS = {
       <path d="M6 6l12 12" />
     </>
   ),
+  pause: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M10 9v6M14 9v6" />
+    </>
+  ),
+  mobile: (
+    <>
+      <rect x="7" y="3" width="10" height="18" rx="2.2" />
+      <path d="M11 17.5h2" />
+    </>
+  ),
   camera: (
     <>
       <rect x="3" y="7" width="12.5" height="10" rx="2" />

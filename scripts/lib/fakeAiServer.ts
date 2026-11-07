@@ -25,6 +25,13 @@
  * ban 当前账号停了投稿(null 解开);used、pending 把今天投过的次数、等审的件数当成几;forget 忘掉传上来的块(再投要整个重传);
  * add [{ kind, title, status, reason?, workId?, createdAt?, decidedAt?, updatedAt? }] 直接摆几件(时间是毫秒);
  * decide { id, status, reason?, workId? } 当成后台审了(上墙、退回、撤下)。
+ * 绑手机号:验证码同样是 246810;139 0013 2277 当成绑了别的账号、135 0013 7701 当成封过的号;phoneRequired(上面那个开关)开着时
+ * 投稿、开分享、改署名没绑回 need-phone。POST /v1/dev/phone { fail?, unbind? }:fail 让下一次发码回 'rate-limit' 或 'unavailable';unbind 解开当前账号的号。
+ * 分享短链接的举报:3 次就自动暂停(假服务器认不出网络,一次算一个网络),一小时超过 5 次回太频繁;服务器没开作品墙时 404。
+ * POST /v1/dev/share { code?, pause?, stop?, resolve? }(要登录;code 不给 = 当前账号最新开的那个):pause 'auto' | 'admin' 暂停、null 恢复;
+ * stop 写原因就是我们彻底停了;resolve 我们看过了(暂停中停掉的那条放开,这个世界能再开)。
+ * POST /v1/dev/ban { account, ban, gone? }(不用登录):ban 的样子同服务器,level 'submit' 停投稿、'all' 停用账号(已登录的令牌作废),null 解开;gone 封着注销掉。
+ * 封着注销的邮箱再注册:停投稿的带上同一档(carried),停用的不让注册。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GENERATOR_VERSION } from '../../src/gen/edits';
@@ -56,6 +63,10 @@ interface User {
   jobs: Map<string, { state: string; sum?: string; world?: unknown; error?: unknown; ready: number }>;
   /** 停了投稿(ban 的样子同服务器) */
   ban?: unknown;
+  /** 停用账号(ban 的样子,level 'all') */
+  disabled?: unknown;
+  /** 绑的手机号(11 位) */
+  phone?: string;
   /** 开发时手动加的:今天另外投过几次、另外几件在等审 */
   extraUsed?: number;
   extraPending?: number;
@@ -120,6 +131,14 @@ interface Share {
   opens: number;
   /** 署名;没填 = 没有 */
   by?: string;
+  /** 暂停中(举报够数、我们暂停的) */
+  paused?: { by: string; at: number };
+  /** 暂停中被开的人停掉了,我们还没看过:这个世界开不了新链接 */
+  held?: boolean;
+  /** 我们彻底停了:给开的人看的原因;seen = 点过「知道了」 */
+  siteStopped?: string;
+  seen?: boolean;
+  reports: number;
 }
 
 type WorkKind = 'world' | 'map' | 'preset' | 'rules';
@@ -276,6 +295,38 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
   };
   const subs: Sub[] = [];
   let subSeq = 0;
+  // 手机号、封禁、短链接的举报
+  const phoneState = { taken: new Set(['13900132277']), blocked: new Set(['13500137701']), fail: null as string | null, sent: new Map<string, { phone: string; at: number }>() };
+  /** 封着注销的邮箱 → 那时的封禁 */
+  const bannedEmails = new Map<string, { level?: string; reason?: string; reasonText?: string }>();
+  const shareReports: number[] = [];
+  const masked = (p: string) => `${p.slice(0, 3)}****${p.slice(-4)}`;
+  const banOf = (u: User) => (u.disabled ?? u.ban) as { level?: string; reason?: string; reasonText?: string } | undefined;
+  const bannedReply = (u: User) => {
+    const b = u.ban as { reason?: string; reasonText?: string };
+    return fail(403, 'submit-banned', b.reason === 'withdraw' ? (b.reasonText ?? '') : `你的账号已停止投稿。原因:${b.reasonText ?? ''}`, { ban: u.ban });
+  };
+  /** 暂停中:我们暂停的、举报够数的;开的人被封了也算 */
+  const pausedOf = (sh: Share) => sh.paused ?? (banOf(sh.user) ? { by: 'ban', at: Date.now() } : undefined);
+  /** 打开、下载、举报前看这个码现在能不能看 */
+  const shareProblem = (sh: Share | undefined): Response | null => {
+    if (sh?.siteStopped) return fail(404, 'share-gone', '这个分享已经停止了', { stoppedBy: 'site' });
+    const w = sh && !sh.stopped && users.get(sh.user.account) === sh.user ? sh.user.worlds.get(sh.worldId) : undefined;
+    if (!sh || !w || w.deletedAt !== null) return fail(404, 'share-gone', '这个分享已经停止了');
+    if (pausedOf(sh)) return fail(403, 'share-paused', '这个链接暂停了。恢复以后,原来的链接照样能打开');
+    return null;
+  };
+  const phoneProblem = (u: User, phone: string): Response | null => {
+    if (u.ban) return bannedReply(u);
+    if (u.phone === phone) return fail(409, 'phone-same', '这个手机号已经绑在你的账号上了');
+    if (phoneState.blocked.has(phone)) return fail(403, 'phone-blocked', '这个手机号不能用来绑定');
+    if (phoneState.taken.has(phone) || [...users.values()].some((x) => x !== u && x.phone === phone)) return fail(409, 'phone-taken', '这个手机号已经绑了别的账号。一个手机号只能绑一个账号');
+    return null;
+  };
+  const cleanNum = (v: unknown) => {
+    const d = typeof v === 'string' ? v.replace(/[\s-]/g, '').replace(/^\+?86(?=1\d{10}$)/, '') : '';
+    return /^1\d{10}$/.test(d) ? d : null;
+  };
   const bjDay = (t: number) => new Date(t + 8 * 3600_000).toISOString().slice(0, 10);
   const settle = (x: Sub) => {
     if (x.status !== 'checking' || x.ready === undefined || Date.now() < x.ready) return;
@@ -404,6 +455,20 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       if (typeof b?.off === 'boolean') aiOn = !b.off;
       return json(200, { ok: true });
     }
+    if (req.method === 'POST' && path === '/v1/dev/ban') {
+      const b = await body(req);
+      const t = typeof b?.account === 'string' ? users.get(b.account.trim()) : undefined;
+      if (!t) return fail(404, 'not-found', '没有这个账号');
+      const ban = b?.ban ?? null;
+      t.ban = ban?.level === 'submit' ? ban : undefined;
+      t.disabled = ban?.level === 'all' ? ban : undefined;
+      if (t.disabled || b?.gone === true) for (const [k, a] of tokens) if (a === t.account) tokens.delete(k);
+      if (b?.gone === true) {
+        if (ban) bannedEmails.set(t.account, ban);
+        users.delete(t.account);
+      }
+      return json(200, { ok: true });
+    }
     if (req.method === 'GET' && path === '/v1/auth/options') {
       const submit = !submitState.off && !gallery.off;
       return json(200, { accountKinds: ['email'], inviteOnly, codeTtlSec: 600, features: { ai: aiOn, submit, submitWorld: submit && submitState.world && !fullState.off, phoneRequired: submitState.phoneRequired } });
@@ -433,7 +498,16 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       const bad = inviteCheck(account, b?.invite);
       if (bad) return bad;
       let u = users.get(account);
-      if (!u) users.set(account, (u = { id: `u${++seq}`, account, credits: start, worlds: new Map(), fulls: new Map(), commits: 0, jobs: new Map() }));
+      const carried = u ? undefined : bannedEmails.get(account);
+      if (carried?.level === 'all') {
+        const ban = { level: 'all', reason: carried.reason, reasonText: carried.reasonText ?? '', at: null, carried: true };
+        return fail(401, 'auth', `这个邮箱注销前的账号已停用,不能再注册${ban.reasonText ? `。原因:${ban.reasonText}` : ''}`, { ban });
+      }
+      if (!u) users.set(account, (u = { id: `u${++seq}`, account, credits: start, worlds: new Map(), fulls: new Map(), commits: 0, jobs: new Map(), ...(carried ? { ban: { ...carried, carried: true } } : {}) }));
+      if (u.disabled) {
+        const ban = u.disabled as { reasonText?: string };
+        return fail(401, 'auth', `这个账号已停用,登录不了${ban.reasonText ? `。原因:${ban.reasonText}` : ''}`, { ban: u.disabled });
+      }
       const token = `fake-${crypto.randomUUID()}`;
       tokens.set(token, account);
       return json(200, { token, user: { id: u.id, account, name: account.split('@')[0] }, ...(aiOn ? { credits: u.credits } : {}) });
@@ -442,8 +516,9 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     const open = /^\/v1\/s\/([^/]+)$/.exec(path);
     if (req.method === 'GET' && open) {
       const sh = shares.get(decodeURIComponent(open[1]));
-      const w = sh && !sh.stopped && users.get(sh.user.account) === sh.user ? sh.user.worlds.get(sh.worldId) : undefined;
-      if (!sh || !w || w.deletedAt !== null) return fail(404, 'share-gone', '这个分享已经停止了');
+      const no = shareProblem(sh);
+      if (no || !sh) return no!;
+      const w = sh.user.worlds.get(sh.worldId)!;
       const full = fullState.off ? undefined : sh.user.fulls.get(sh.worldId);
       if (full && !full.public) return fail(403, 'content-filter', '这个世界带着服务器看不到的附加数据,暂时打不开');
       sh.opens++;
@@ -452,9 +527,28 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     const openFull = /^\/v1\/s\/([^/]+)\/full$/.exec(path);
     if (req.method === 'GET' && openFull) {
       const sh = fullState.off ? undefined : shares.get(decodeURIComponent(openFull[1]));
-      const f = sh && !sh.stopped ? sh.user.fulls.get(sh.worldId) : undefined;
+      const no = shareProblem(sh);
+      if (no) return no;
+      const f = sh!.user.fulls.get(sh!.worldId);
       if (!f) return fail(404, 'share-gone', '这个分享已经停止了');
       return fullFileResponse(f);
+    }
+
+    const report = /^\/v1\/s\/([^/]+)\/report$/.exec(path);
+    if (req.method === 'POST' && report) {
+      if (gallery.off) return fail(404, 'bad-request', '没有这个接口');
+      const reason = (await body(req))?.reason;
+      if (!REPORT_REASONS.includes(reason)) return fail(400, 'bad-request', '举报理由不对');
+      const sh = shares.get(decodeURIComponent(report[1]));
+      const no = shareProblem(sh);
+      if (no && no.status === 404) return no;
+      const hour = Date.now() - 3600_000;
+      while (shareReports.length && shareReports[0] < hour) shareReports.shift();
+      if (shareReports.length >= 5) return fail(429, 'rate-limit', '举报太频繁,请稍后再试', { retryAfter: 600 });
+      shareReports.push(Date.now());
+      sh!.reports++;
+      if (sh!.reports >= 3 && !sh!.paused) sh!.paused = { by: 'auto', at: Date.now() };
+      return new Response(null, { status: 204, headers: CORS });
     }
 
     if (!aiOn && path === '/v1/chat') return fail(404, 'bad-request', '没有这个接口');
@@ -465,7 +559,9 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     if (req.method === 'GET' && path === '/v1/me') {
       return json(200, {
         user: { id: u.id, account: u.account, name: u.account.split('@')[0] },
+        phone: u.phone ? { tail: u.phone.slice(-4), masked: masked(u.phone) } : null,
         ...(aiOn ? { credits: u.credits, pricing: { note: '每次调用扣 3 积分,连接测试扣 1 积分(开发用假服务器)' } } : {}),
+        ...(u.ban ? { ban: u.ban } : {}),
       });
     }
 
@@ -539,6 +635,54 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       return json(200, { ok: true });
     }
 
+    if (req.method === 'POST' && path === '/v1/dev/phone') {
+      const b = await body(req);
+      if (b?.fail !== undefined) phoneState.fail = typeof b.fail === 'string' ? b.fail : null;
+      if (b?.unbind === true) u.phone = undefined;
+      return json(200, { ok: true });
+    }
+    if (req.method === 'POST' && path === '/v1/dev/share') {
+      const b = await body(req);
+      const mine = [...shares].filter(([, sh]) => sh.user === u).sort((x, y) => y[1].createdAt - x[1].createdAt);
+      const hit = typeof b?.code === 'string' ? mine.find(([c]) => c === b.code) : mine.find(([, sh]) => !sh.stopped);
+      if (b?.resolve === true) for (const [, sh] of mine) sh.held = false;
+      if (!hit) return b?.resolve === true ? json(200, { ok: true }) : fail(404, 'not-found', '没有开着的分享');
+      const sh = hit[1];
+      if (b?.pause === null) sh.paused = undefined;
+      else if (typeof b?.pause === 'string') sh.paused = { by: b.pause, at: Date.now() };
+      if (typeof b?.stop === 'string') Object.assign(sh, { stopped: true, siteStopped: b.stop, seen: false, held: false, paused: undefined });
+      return json(200, { ok: true, code: hit[0] });
+    }
+
+    // ---- 绑手机号 ----
+    if (req.method === 'POST' && path === '/v1/account/phone/code') {
+      const phone = cleanNum((await body(req))?.phone);
+      if (!phone) return fail(400, 'bad-phone', '手机号要是 11 位,1 开头');
+      const no = phoneProblem(u, phone);
+      if (no) return no;
+      const f = phoneState.fail;
+      phoneState.fail = null;
+      if (f === 'rate-limit') return fail(429, 'rate-limit', '发得太频繁了,过一会儿再试', { retryAfter: 60 });
+      if (f === 'unavailable') return fail(503, 'unavailable', '短信暂时发不出去,过一会儿再试');
+      const last = phoneState.sent.get(u.id);
+      if (last?.phone === phone && Date.now() - last.at < 60_000) {
+        return fail(429, 'rate-limit', `验证码刚发过,${Math.ceil((last.at + 60_000 - Date.now()) / 1000)} 秒后才能重发`, { retryAfter: 60 });
+      }
+      phoneState.sent.set(u.id, { phone, at: Date.now() });
+      return json(200, { ok: true, to: masked(phone), resendAfter: 60, expiresIn: 600, devCode: FAKE_CODE });
+    }
+    if (req.method === 'POST' && path === '/v1/account/phone') {
+      const b = await body(req);
+      const phone = cleanNum(b?.phone);
+      if (!phone) return fail(400, 'bad-phone', '手机号要是 11 位,1 开头');
+      if (b?.code !== FAKE_CODE || phoneState.sent.get(u.id)?.phone !== phone) return fail(400, 'bad-code', '验证码不对或已过期');
+      const no = phoneProblem(u, phone);
+      if (no) return no;
+      u.phone = phone;
+      phoneState.sent.delete(u.id);
+      return json(200, { phone: { tail: phone.slice(-4), masked: masked(phone) } });
+    }
+
     // ---- 投到作品墙 ----
     if (path === '/v1/submissions' || path.startsWith('/v1/submissions/')) {
       if (submitState.off || gallery.off) return fail(404, 'bad-request', '没有这个接口');
@@ -580,8 +724,8 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
         if (b?.terms !== submitState.terms) return fail(409, 'terms-changed', '投稿须知改过了,请看过新的再投', { terms: submitState.terms });
         const f = { title: String(b?.title ?? '').trim(), by: String(b?.by ?? '').trim(), blurb: String(b?.blurb ?? '').trim() };
         if (!f.title || !f.by || !f.blurb) return fail(400, 'bad-request', '要填作品名、署名和一句话介绍');
-        if (u.ban) return fail(403, 'submit-banned', `你的账号已停止投稿。原因:${(u.ban as { reasonText?: string }).reasonText ?? ''}`, { ban: u.ban });
-        if (submitState.phoneRequired) return fail(403, 'need-phone', '先绑定手机号再投稿');
+        if (u.ban) return bannedReply(u);
+        if (submitState.phoneRequired && !u.phone) return fail(403, 'need-phone', '按国家规定,在网站上投稿、开分享链接,要先绑定手机号');
         const lim = submitLimits(u);
         if (lim.usedToday >= lim.perDay) return fail(429, 'submit-limit', '今天投够 3 次了,明天再投', { limit: 'per-day', retryAfter: 3600, left: 0, ...lim });
         if (lim.pending >= lim.pendingMax) return fail(429, 'submit-limit', '等审的太多了,审完一份再投', { limit: 'pending', left: lim.perDay - lim.usedToday, ...lim });
@@ -622,8 +766,8 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
         if (at === 'commit' && b?.terms !== submitState.terms) return fail(409, 'terms-changed', '投稿须知改过了,请看过新的再投', { terms: submitState.terms });
         const f = { title: String(b?.title ?? '').trim(), by: String(b?.by ?? '').trim(), blurb: String(b?.blurb ?? '').trim() };
         if (at === 'commit' && (!f.title || !f.by || !f.blurb)) return fail(400, 'bad-request', '要填作品名、署名和一句话介绍');
-        if (u.ban) return fail(403, 'submit-banned', `你的账号已停止投稿。原因:${(u.ban as { reasonText?: string }).reasonText ?? ''}`, { ban: u.ban });
-        if (submitState.phoneRequired) return fail(403, 'need-phone', '先绑定手机号再投稿');
+        if (u.ban) return bannedReply(u);
+        if (submitState.phoneRequired && !u.phone) return fail(403, 'need-phone', '按国家规定,在网站上投稿、开分享链接,要先绑定手机号');
         const checking = subs.find((x) => x.user === u && (settle(x), x.status === 'checking'));
         if (checking) return checking.sum === plan.sum && at === 'commit' ? json(202, { id: checking.id, status: 'checking' }) : fail(429, 'rate-limit', '上一个世界还在核对,等它核对完再投', { retryAfter: 5 });
         const lim = submitLimits(u);
@@ -778,6 +922,8 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     if (req.method === 'POST' && path === '/v1/account/delete') {
       const b = await body(req);
       if (b?.code !== FAKE_CODE) return fail(400, 'bad-code', '验证码不对或已过期');
+      const ban = banOf(u);
+      if (ban) bannedEmails.set(u.account, ban);
       users.delete(u.account);
       for (const [t, a] of tokens) if (a === u.account) tokens.delete(t);
       for (const sh of shares.values()) if (sh.user === u) sh.stopped = true;
@@ -801,19 +947,33 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       });
     }
     if (req.method === 'GET' && path === '/v1/shares') {
-      const list = [...shares].filter(([, sh]) => sh.user === u && !sh.stopped && u.worlds.get(sh.worldId)?.deletedAt === null);
+      const alive = (sh: Share) => sh.user === u && u.worlds.get(sh.worldId)?.deletedAt === null;
+      const titleOf = (sh: Share) => ((u.worlds.get(sh.worldId)!.save ?? {}) as { title?: string }).title || '未命名世界';
+      const list = [...shares].filter(([, sh]) => alive(sh) && !sh.stopped);
       return json(200, {
         shares: list
           .sort((a, b) => b[1].createdAt - a[1].createdAt)
-          .map(([code, sh]) => ({
-            code,
-            worldId: sh.worldId,
-            title: ((u.worlds.get(sh.worldId)!.save ?? {}) as { title?: string }).title || '未命名世界',
-            createdAt: iso(sh.createdAt),
-            opens: sh.opens,
-            ...(sh.by ? { by: sh.by } : {}),
-          })),
+          .map(([code, sh]) => {
+            const p = pausedOf(sh);
+            return {
+              code,
+              worldId: sh.worldId,
+              title: titleOf(sh),
+              createdAt: iso(sh.createdAt),
+              opens: sh.opens,
+              ...(sh.by ? { by: sh.by } : {}),
+              ...(p ? { paused: { by: p.by, at: iso(p.at) } } : {}),
+            };
+          }),
+        stopped: [...shares].filter(([, sh]) => alive(sh) && sh.siteStopped && !sh.seen).map(([code, sh]) => ({ code, worldId: sh.worldId, title: titleOf(sh), stoppedAt: iso(sh.createdAt), reason: sh.siteStopped })),
       });
+    }
+    const seenPath = /^\/v1\/shares\/([^/]+)\/seen$/.exec(path);
+    if (req.method === 'POST' && seenPath) {
+      const sh = shares.get(decodeURIComponent(seenPath[1]));
+      if (!sh || sh.user !== u || !sh.siteStopped) return fail(404, 'not-found', '没有这个分享');
+      sh.seen = true;
+      return new Response(null, { status: 204, headers: CORS });
     }
     const restore = /^\/v1\/trash\/([^/]+)\/restore$/.exec(path);
     if (req.method === 'POST' && restore) {
@@ -836,20 +996,27 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
           const raw = (await body(req))?.by;
           if (raw !== undefined && (typeof raw !== 'string' || raw.length > 320 || seen(raw.trim()) > 20)) return fail(400, 'bad-request', '署名最多 20 个字');
           const by = typeof raw === 'string' ? raw.trim() : undefined;
+          if (u.ban) return bannedReply(u);
+          if (submitState.phoneRequired && !u.phone) return fail(403, 'need-phone', '按国家规定,在网站上投稿、开分享链接,要先绑定手机号');
           if (!w || w.deletedAt !== null) return fail(404, 'not-found', '账号里还没有这个世界,等同步好了再分享');
-          const out = (code: string, sh: Share) => json(200, { code, worldId: id, createdAt: iso(sh.createdAt), opens: sh.opens, ...(sh.by ? { by: sh.by } : {}) });
+          const out = (code: string, sh: Share) => {
+            const p = pausedOf(sh);
+            return json(200, { code, worldId: id, createdAt: iso(sh.createdAt), opens: sh.opens, ...(sh.by ? { by: sh.by } : {}), ...(p ? { paused: { by: p.by, at: iso(p.at) } } : {}) });
+          };
           if (active) {
             if (by !== undefined) active[1].by = by || undefined;
             return out(active[0], active[1]);
           }
+          const held = [...shares.values()].find((sh) => sh.user === u && sh.worldId === id && sh.held);
+          if (held) return fail(403, 'share-held', '这个世界的分享暂停了,等我们看过才能再开', { paused: { by: held.paused?.by ?? 'admin', at: iso(held.paused?.at ?? now) } });
           let code = '';
           while (!code || shares.has(code)) code = Array.from({ length: 8 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('');
-          const sh: Share = { user: u, worldId: id, createdAt: now, stopped: false, opens: 0, ...(by ? { by } : {}) };
+          const sh: Share = { user: u, worldId: id, createdAt: now, stopped: false, opens: 0, reports: 0, ...(by ? { by } : {}) };
           shares.set(code, sh);
           return out(code, sh);
         }
         if (req.method === 'DELETE') {
-          if (active) active[1].stopped = true;
+          if (active) Object.assign(active[1], { stopped: true, ...(pausedOf(active[1]) ? { held: true, paused: pausedOf(active[1]) } : {}) });
           return new Response(null, { status: 204, headers: CORS });
         }
       } else if (req.method === 'GET') {

@@ -1,26 +1,38 @@
-/** 分享停了的那一页、打开别人分享的世界时地图下的说明。 */
+/** 分享停了、暂停了的那一页,打开别人分享的世界时地图下的说明。 */
 import { Icon } from './icons';
 import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { APP_VERSION } from './version';
 import { BeianLinks } from './BeianLinks';
 import { BEIAN } from './beian';
 import { OLD_SITE } from './oldSite';
+import { ShareReportDialog } from './Gallery';
+import { closeShareReport, reportShare, sharedView, useShareReportOpen } from './shareReport';
 
-export function ShareGone({ phone, state, onHome, onNew }: { phone: boolean; state: 'loading' | 'gone' | { error: string }; onHome: () => void; onNew: () => void }) {
+/** gone 停了(开的人停的、码不对),site 我们彻底停的,paused 暂停了(三种暂停一样说,不说为什么) */
+export function ShareGone({ phone, state, onHome, onNew }: { phone: boolean; state: 'loading' | 'gone' | 'site' | 'paused' | { error: string }; onHome: () => void; onNew: () => void }) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  const stopped = state === 'gone' || state === 'site';
   return (
     <div className={`share-gone${phone ? ' phone' : ''}`} role="main" data-testid="share-gone" onPointerDown={stop} onClick={stop} onWheel={stop}>
       {state !== 'loading' && (
         <div className="share-gone-box">
           <span className="share-gone-ic">
-            <Icon name="link" size={28} />
+            <Icon name={state === 'paused' ? 'pause' : 'link'} size={28} />
           </span>
-          <h2>{state === 'gone' ? '这个分享已经停止了' : '暂时打不开这个分享'}</h2>
+          <h2>{stopped ? '这个分享已经停止了' : state === 'paused' ? '这个分享暂时打不开' : '暂时打不开这个分享'}</h2>
           {state === 'gone' ? (
             <p>
               分享的人关掉了这个链接，或者链接没有复制全。
               <br />
               可以请对方重新分享一次。
+            </p>
+          ) : state === 'site' ? (
+            <p>这个链接不能再打开了。</p>
+          ) : state === 'paused' ? (
+            <p>
+              这个链接暂停了。
+              <br />
+              恢复以后，原来的链接照样能打开。
             </p>
           ) : (
             <p>{state.error}</p>
@@ -66,7 +78,26 @@ export function ShareGone({ phone, state, onHome, onNew }: { phone: boolean; sta
  * own = 最新版交过来的自己的世界(只在旧网站上出这条说明):换成旧网站的说法。
  * at = 链接带着"这一刻"、打开停在了那里("第 1500 年，有桑皇朝"):开头说清停在哪,多一个「从头放」(onReplay;手机上两个按钮放第二排)
  */
-export function SharedHint({ phone, short, by, own, at, onReplay, onOk }: { phone: boolean; short: boolean; by: string; own?: boolean; at?: string | null; onReplay?: () => void; onOk: () => void }) {
+export function SharedHint({
+  phone,
+  short,
+  by,
+  own,
+  at,
+  report,
+  onReplay,
+  onOk,
+}: {
+  phone: boolean;
+  short: boolean;
+  by: string;
+  own?: boolean;
+  at?: string | null;
+  /** 「举报」(别人的短链接、服务器有人处理举报时才有);done = 这台设备举报过 */
+  report?: { done: boolean; onClick: () => void } | null;
+  onReplay?: () => void;
+  onOk: () => void;
+}) {
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
   const who = short ? by || '别人' : '别人';
   const keep = short ? '，并写明底稿出处' : phone ? '' : '，原来的不受影响';
@@ -88,13 +119,20 @@ export function SharedHint({ phone, short, by, own, at, onReplay, onOk }: { phon
       从头放
     </button>
   );
+  const flag = report && (
+    <button className="shared-flag" data-act="shared-report" disabled={report.done} onClick={report.onClick}>
+      <Icon name={report.done ? 'check' : 'flag'} size={15} />
+      {report.done ? '已举报' : '举报'}
+    </button>
+  );
   const ok = (
     <button data-act="shared-ok" onClick={onOk}>
       知道了
     </button>
   );
+  const two = phone && (!!replay || !!flag);
   return (
-    <div className={`shared-hint${replay && phone ? ' two' : ''}`} role="status" data-testid="shared-hint" onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
+    <div className={`shared-hint${two ? ' two' : ''}`} role="status" data-testid="shared-hint" onPointerDown={stop} onClick={stop} onDoubleClick={stop}>
       <Icon name="info" size={18} />
       <span className="shared-tx">
         {text ??
@@ -108,17 +146,27 @@ export function SharedHint({ phone, short, by, own, at, onReplay, onOk }: { phon
             </>
           ))}
       </span>
-      {replay && phone ? (
+      {two ? (
         <span className="shared-acts">
           {replay}
+          {flag}
           {ok}
         </span>
       ) : (
         <>
           {replay}
+          {flag}
           {ok}
         </>
       )}
     </div>
   );
+}
+
+/** 举报别人的分享短链接的窗(说明条、世界「···」菜单里点开) */
+export function ShareReportHost({ phone }: { phone: boolean }) {
+  const open = useShareReportOpen();
+  const v = sharedView();
+  if (!open || !v) return null;
+  return <ShareReportDialog phone={phone} lead={`${v.by || '别人'}分享的「${v.title || '未命名世界'}」`} send={(r) => reportShare(v.code, r)} onClose={closeShareReport} />;
 }

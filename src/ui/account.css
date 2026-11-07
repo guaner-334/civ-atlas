@@ -247,6 +247,11 @@
     inset 0 0 0 1px var(--accent),
     0 0 0 3px var(--accent-soft);
 }
+.acct-in.bad {
+  box-shadow:
+    inset 0 0 0 1px var(--err),
+    0 0 0 3px color-mix(in srgb, var(--err) 14%, transparent);
+}
 .acct-in::placeholder {
   color: var(--ink-3);
 }
@@ -321,6 +326,15 @@
 }
 .acct-callout .sub {
   color: var(--ink-2);
+}
+.acct-callout b {
+  font-weight: 600;
+}
+.acct-callout.bad {
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+}
+.acct-callout.bad > .icon {
+  color: var(--err);
 }
 
 /* ---- 勾选框、单选、开关 ---- */
@@ -500,8 +514,12 @@ button.acct-gr:hover {
   color: var(--ink-2);
   white-space: nowrap;
 }
-.acct-gr .side.warn {
+.acct-gr .side.warn,
+.acct-gr .main small.warn {
   color: var(--warn);
+}
+.acct-gr .main small.err {
+  color: var(--err);
 }
 .acct-gr .chev {
   flex: none;
@@ -935,6 +953,18 @@ button.acct-gr:hover {
 }
 .shared-hint button:hover {
   filter: brightness(0.94);
+}
+.shared-hint button.shared-flag {
+  background: transparent;
+  color: var(--ink-2);
+}
+.shared-hint button.shared-flag:hover:not(:disabled) {
+  filter: none;
+  background: var(--hover-bg);
+}
+.shared-hint button.shared-flag:disabled {
+  color: var(--ink-3);
+  cursor: default;
 }
 .app.has-side .shared-hint {
   left: var(--map-mid);

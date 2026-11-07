@@ -5,6 +5,7 @@
 import { useEffect } from 'react';
 import { currentAccount, fetchAuthOptions, knownAuthOptions, onAuthOptionsChange, onSessionChange, type AuthOptions } from '../account/session';
 import { accountServer } from '../account/server';
+import { fetchMe, type PhoneInfo } from '../account/phone';
 import type { SubmitKind } from '../account/submissions';
 import type { WorldParams } from '../gen/params';
 import type { RuleSet } from '../gen/civ/ruleSet';
@@ -145,13 +146,51 @@ export const useServerSubmit = (): { on: boolean; inviteOnly: boolean } => {
 
 /** 服务器要先绑手机号 */
 export const phoneRequired = (): boolean => !!features()?.phoneRequired;
+export const usePhoneRequired = (): boolean => {
+  const on = listeners.use(phoneRequired);
+  useEffect(() => {
+    if (currentAccount() && accountServer() && !knownAuthOptions()) void fetchAuthOptions();
+  }, []);
+  return on;
+};
+
+let bound: { user: string; phone: PhoneInfo | null } | null = null;
+
+/** 这个账号绑的手机号;没绑 = null,还没问过服务器 = undefined */
+export const knownPhone = (): PhoneInfo | null | undefined => {
+  const user = userKey();
+  return user && bound?.user === user ? bound.phone : undefined;
+};
+export const usePhone = (): PhoneInfo | null | undefined => listeners.use(knownPhone);
+export function setKnownPhone(p: PhoneInfo | null): void {
+  const user = userKey();
+  if (!user) return;
+  bound = { user, phone: p };
+  listeners.emit();
+}
+
+/** 问一次服务器:绑的手机号、停没停投稿 */
+export async function refreshMe(): Promise<void> {
+  const user = userKey();
+  const r = await fetchMe();
+  if (userKey() !== user) return;
+  setKnownPhone(r.phone);
+  setSubmitBan(readBan(r.ban));
+}
 
 /**
- * 服务器要求先绑手机号时走这里(点「投到作品墙…」时、服务器回 need-phone 时)。
- * 绑手机号的窗还没有:先直接接着做。
+ * 服务器要求先绑手机号时走这里(点「投到作品墙…」「分享…」时、服务器回 need-phone 时):绑了就接着做,
+ * 没绑先出绑手机号的窗,绑好再接着做。问不到服务器就接着做,真没绑服务器会挡回来
  */
 export function askPhone(o: { for: 'submit' | 'share'; then: () => void }): void {
-  o.then();
+  const open = () => void import('./AccountDialogs').then((m) => m.openPhoneDialog(o.for, o.then));
+  const p = knownPhone();
+  if (p) return o.then();
+  if (p === null) return open();
+  refreshMe().then(
+    () => (knownPhone() ? o.then() : open()),
+    () => o.then(),
+  );
 }
 
 // ---------------------------------------------------------------------------

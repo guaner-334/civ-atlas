@@ -51,6 +51,7 @@ import { Icon } from './icons';
 import { AiMenuItem, AiSettingsItem, MenuItem, MenuSep, PopMenu } from './PopMenu';
 import { GUIDE_URL, PRIVACY_URL, SOURCE_URL, TERMS_URL } from './links';
 import { ContactMenuItem } from './ContactLink';
+import { useShareReportEntry } from './shareReport';
 import { VersionMenuFoot } from './VersionNews';
 import { PlayQualityItem } from './PlayQualityMenu';
 import { useCoarse, useNarrow } from './device';
@@ -320,9 +321,21 @@ export function WorldMoreMenu({
       <MenuItem href={TERMS_URL} act="terms">
         用户协议
       </MenuItem>
+      <ShareReportItem />
       <ContactMenuItem />
       <VersionMenuFoot />
     </PopMenu>
+  );
+}
+
+/** 看别人的分享短链接、还没另存时:「举报这个分享…」(举报过的灰着写「已举报」) */
+function ShareReportItem() {
+  const e = useShareReportEntry();
+  if (!e) return null;
+  return (
+    <MenuItem act="share-report" disabled={e.done} onClick={e.onClick}>
+      {e.done ? '已举报' : '举报这个分享…'}
+    </MenuItem>
   );
 }
 

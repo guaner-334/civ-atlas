@@ -10,21 +10,25 @@ import { openAiSettings } from './AiSettings';
 import { officialServer, refreshOfficialAccount, useOfficialAccount } from '../ai/providers/official';
 import { useAiOn } from '../ai/client';
 import { notesKnown, notesReady } from '../ai/library';
-import { deleteAccount, displayName, getSession, sendCode, useSession } from '../account/session';
+import { deleteAccount, displayName, getSession, knownAuthOptions, sendCode, useSession } from '../account/session';
+import { ServerError } from '../account/server';
 import { signOut } from '../account/sync';
-import { createShare, getCloud, listShares, listTrash, shortLink, stopShare, type ShareInfo, type TrashEntry } from '../account/cloud';
+import { createShare, getCloud, listAllShares, listShares, listTrash, seenStoppedShare, shortLink, stopShare, type ShareInfo, type StoppedShare, type TrashEntry } from '../account/cloud';
+import { fetchSubmissions } from '../account/submissions';
 import { SIGNATURE_UNITS, cleanSignature, momentHash } from '../gen/savefile';
 import { MomentCheck, momentNow, useMomentOn } from './shareMoment';
-import { CloseX, Dialog, closeAccountPanel, codeOf, errText, goToPanel, openTrash, sendLabel, useCountdown, type Panel } from './AccountDialogs';
+import { CloseX, Dialog, closeAccountPanel, codeOf, errText, goToPanel, openAccount, openPhoneDialog, openSubmitDialog, openTrash, sendLabel, useCountdown, type Panel } from './AccountDialogs';
 import { openWorldById } from './newCivAction';
 import { ShareAborted, pushForShare } from './sharePush';
 import { askFull, fullDay, fullStatusOf, holdFullToasts, pairText, useFullJob, useFullNotes, useFullOverview, useFullPull, type FullJob, type FullNote } from './fullWorldView';
 import { usedLine } from './fullWorldWords';
-import { keepLastBy } from './submitView';
+import type { PhoneInfo } from '../account/phone';
+import { askPhone, keepLastBy, readBan, refreshMe, setKnownPhone, setSubmitBan, usePhone, usePhoneRequired, useSubmitBan } from './submitView';
 import { MySubmissions } from './MySubmissions';
+import './submit.css';
 
 /** 开着的这个窗口。退出、换了账号时外面已经不挂它了 */
-export default function AccountPanel({ panel, phone, onClose, onBack }: { panel: Exclude<Panel, { kind: 'login' | 'submit' }>; phone: boolean; onClose: () => void; onBack: () => void }) {
+export default function AccountPanel({ panel, phone, onClose, onBack }: { panel: Exclude<Panel, { kind: 'login' | 'submit' | 'phone' }>; phone: boolean; onClose: () => void; onBack: () => void }) {
   if (panel.kind === 'account') return <AccountDialog phone={phone} to={panel.to} onClose={onClose} />;
   if (panel.kind === 'logout') return <LogoutDialog phone={phone} onClose={onClose} onBack={onBack} />;
   if (panel.kind === 'delete') return <DeleteDialog phone={phone} onClose={onClose} onBack={onBack} />;
@@ -42,6 +46,48 @@ function day(iso: string): string {
   return `${y}${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
+/** 暂停中的分享那一行的黄字:为什么暂停的(三种来源) */
+export function pausedLine(by: string): string {
+  return by === 'auto' ? '被举报了，暂停中。我们核实后会恢复或停掉' : by === 'ban' ? '账号停了开分享，链接暂停了' : '我们暂停了这个链接，正在核实';
+}
+
+function ShareThumb({ worldId }: { worldId: string }) {
+  const thumb = loadWorld(worldId)?.thumb;
+  return <span className="th2" style={thumb ? { backgroundImage: `url(${thumb})` } : undefined} />;
+}
+
+/** 账号窗第一组「手机号」(服务器要求绑手机时才有):绑了能换一个,没绑点了去绑;账号停了投稿时都不能 */
+function PhoneRow({ bound, banned }: { bound: PhoneInfo | null | undefined; banned: boolean }) {
+  const side = bound === undefined ? '' : bound ? `已绑定，尾号 ${bound.tail}` : '没绑定';
+  const body = (
+    <>
+      <Icon name="mobile" size={19} />
+      <span className="main">
+        <b>手机号</b>
+        {banned && bound !== undefined && <small>{bound ? '账号停止投稿期间不能换' : '账号停止投稿期间不能绑'}</small>}
+      </span>
+      <span className="side">{side}</span>
+    </>
+  );
+  if (bound === null && !banned)
+    return (
+      <button className="acct-gr" data-act="phone-bind" data-testid="phone-row" onClick={() => openPhoneDialog('account')}>
+        {body}
+        <Icon name="chevron" size={14} className="chev" />
+      </button>
+    );
+  return (
+    <div className="acct-gr" data-testid="phone-row">
+      {body}
+      {bound && !banned && (
+        <button className="mini" data-act="phone-change" onClick={() => openPhoneDialog('change')}>
+          换一个
+        </button>
+      )}
+    </div>
+  );
+}
+
 function AccountDialog({ phone, to, onClose }: { phone: boolean; to?: 'submissions'; onClose: () => void }) {
   const s = useSession()!;
   const acct = useOfficialAccount();
@@ -49,16 +95,35 @@ function AccountDialog({ phone, to, onClose }: { phone: boolean; to?: 'submissio
   useSavesVersion();
   const [trashList, setTrashList] = useState<TrashEntry[] | null>(null);
   const [shares, setShares] = useState<ShareInfo[] | null>(null);
+  const [stopped, setStopped] = useState<StoppedShare[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
+  /** 暂停中的那一行点了「停止分享」:在这一行里确认 */
+  const [asking, setAsking] = useState<string | null>(null);
   const [err, setErr] = useState('');
+  const phoneOn = usePhoneRequired();
+  const bound = usePhone();
+  const ban = useSubmitBan();
+  const refreshShares = () =>
+    listAllShares().then(
+      (r) => {
+        setShares(r.shares);
+        setStopped(r.stopped);
+      },
+      () => setShares((l) => l ?? []),
+    );
   useEffect(() => {
     let live = true;
     void listTrash()
       .then((t) => live && setTrashList(t))
       .catch(() => {});
-    void listShares()
-      .then((l) => live && setShares(l))
+    void listAllShares()
+      .then((r) => {
+        if (!live) return;
+        setShares(r.shares);
+        setStopped(r.stopped);
+      })
       .catch(() => live && setShares([]));
+    void refreshMe().catch(() => {});
     void refreshOfficialAccount();
     return () => {
       live = false;
@@ -106,6 +171,7 @@ function AccountDialog({ phone, to, onClose }: { phone: boolean; to?: 'submissio
             <span className="side">{trashText}</span>
             <Icon name="chevron" size={14} className="chev" />
           </button>
+          {phoneOn && <PhoneRow bound={bound} banned={!!ban} />}
           {aiOn && officialServer() && (
             <button
               className="acct-gr"
@@ -129,22 +195,78 @@ function AccountDialog({ phone, to, onClose }: { phone: boolean; to?: 'submissio
           <FullGroup
             shares={shares}
             onRemoved={() => {
-              void listShares().then(setShares, () => {});
+              void refreshShares();
               void listTrash().then(setTrashList, () => {});
             }}
           />
         )}
-        {!!shares?.length && (
+        {(!!shares?.length || !!stopped.length) && (
           <>
             <div className="acct-gh">
               分享出去的世界<small>拿到链接的人能看，不能改</small>
             </div>
             <div className="acct-grp" data-testid="share-list">
-              {shares.map((sh) => {
-                const thumb = loadWorld(sh.worldId)?.thumb;
+              {stopped.map((sh) => (
+                <div className="acct-gr" key={sh.code} data-code={sh.code}>
+                  <ShareThumb worldId={sh.worldId} />
+                  <span className="main">
+                    <b>{sh.title || '未命名世界'}</b>
+                    <small className="err" style={{ whiteSpace: 'normal' }}>
+                      停掉了：{sh.reason}
+                    </small>
+                  </span>
+                  <button
+                    className="mini"
+                    data-act="share-stopped-seen"
+                    onClick={() =>
+                      void seenStoppedShare(sh.code)
+                        .then(() => setStopped((l) => l.filter((x) => x.code !== sh.code)))
+                        .catch((e) => setErr(errText(e)))
+                    }
+                  >
+                    知道了
+                  </button>
+                </div>
+              ))}
+              {(shares ?? []).map((sh) => {
+                if (sh.paused)
+                  return (
+                    <div className={`acct-gr${asking === sh.code ? ' sub-ask' : ''}`} key={sh.code} data-code={sh.code}>
+                      <ShareThumb worldId={sh.worldId} />
+                      <span className="main">
+                        <b>{sh.title || '未命名世界'}</b>
+                        <small className={asking === sh.code ? undefined : 'warn'} style={{ whiteSpace: 'normal' }}>
+                          {asking === sh.code ? '停掉这个链接？停掉以后，要等我们看过，这个世界才能再开新链接。' : pausedLine(sh.paused.by)}
+                        </small>
+                      </span>
+                      {asking === sh.code ? (
+                        <span className="sub-acts">
+                          <button className="mini" data-act="share-stop-keep" onClick={() => setAsking(null)}>
+                            取消
+                          </button>
+                          <button
+                            className="mini red"
+                            data-act="share-stop-yes"
+                            onClick={() =>
+                              void stopShare(sh.worldId)
+                                .then(() => setShares((l) => (l ?? []).filter((x) => x.code !== sh.code)))
+                                .catch((e) => setErr(errText(e)))
+                                .finally(() => setAsking(null))
+                            }
+                          >
+                            停止分享
+                          </button>
+                        </span>
+                      ) : (
+                        <button className="mini red" data-act="share-stop" onClick={() => setAsking(sh.code)}>
+                          停止分享
+                        </button>
+                      )}
+                    </div>
+                  );
                 return (
-                  <div className="acct-gr" key={sh.code}>
-                    <span className="th2" style={thumb ? { backgroundImage: `url(${thumb})` } : undefined} />
+                  <div className="acct-gr" key={sh.code} data-code={sh.code}>
+                    <ShareThumb worldId={sh.worldId} />
                     <span className="main">
                       <b>{sh.title || '未命名世界'}</b>
                       <small>
@@ -441,6 +563,20 @@ function LogoutDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
 
 function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () => void; onBack: () => void }) {
   const s = useSession()!;
+  const aiOn = useAiOn();
+  /** 作品墙上还有几件这个账号投的(注销不会跟着撤下);没开投稿、问不到 = 0 */
+  const [live, setLive] = useState(0);
+  useEffect(() => {
+    if (!knownAuthOptions()?.features.submit) return;
+    let on = true;
+    void fetchSubmissions().then(
+      (r) => on && setLive(r.submissions.filter((x) => x.status === 'live').length),
+      () => {},
+    );
+    return () => {
+      on = false;
+    };
+  }, []);
   const [until, setUntil] = useState<number | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<'send' | 'delete' | null>(null);
@@ -475,8 +611,30 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
     <Dialog phone={phone} label="注销账号？" width={440} onClose={busy ? undefined : onBack} testId="delete-dialog" head={<div className="acct-head"><h2>注销账号？</h2></div>}>
       <div className="acct-body" style={{ gap: 10 }}>
         <p className="acct-lead" style={{ marginBottom: 4 }}>
-          账号里的世界（连同最近删除）、分享出去的链接和 AI 积分都会删掉，不能恢复。这台设备上的世界不动。
+          账号里的世界（连同最近删除）、分享出去的链接、还没审完的投稿{aiOn && officialServer() ? '和 AI 积分' : ''}都会删掉，不能恢复。这台设备上的世界不动。
         </p>
+        {live > 0 && (
+          <div className="acct-callout sub-warn" data-testid="delete-live-works">
+            <Icon name="warn" size={16} />
+            <span>
+              <b>你有 {live} 件作品在作品墙上，注销后不会跟着撤下。</b>
+              <span className="sub">
+                要撤，先去
+                <a
+                  href="#"
+                  data-act="delete-to-submissions"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openAccount('submissions');
+                  }}
+                >
+                  「我的投稿」
+                </a>
+                里撤；注销以后只能到交流群找我们。
+              </span>
+            </span>
+          </div>
+        )}
         <div className="acct-fld">
           <input
             className="acct-in code"
@@ -512,8 +670,10 @@ function DeleteDialog({ phone, onClose, onBack }: { phone: boolean; onClose: () 
 // ---------------------------------------------------------------------------
 // 分享
 
-/** error 时带着 share = 链接还开着(停分享没成功),开关和链接照旧显示开着 */
-type ShareState = { phase: 'prep' } | { phase: 'on'; share: ShareInfo } | { phase: 'off' } | { phase: 'error'; message: string; share?: ShareInfo };
+/** error 时带着 share = 链接还开着(停分享没成功),开关和链接照旧显示开着;held = 暂停中的链接停掉了,我们看过之前不能开新的 */
+type ShareState = { phase: 'prep' } | { phase: 'on'; share: ShareInfo } | { phase: 'off' } | { phase: 'held' } | { phase: 'error'; message: string; share?: ShareInfo };
+
+const HELD_LINE = '这个世界的分享暂停了，等我们看过才能再开';
 
 /** 分享是替哪一次登录做的:等的工夫别的标签页退出、换了账号就停下(后面的请求会带上新账号的令牌,链接就开到新账号名下了) */
 function sameLogin(token: string | undefined): void {
@@ -584,6 +744,19 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   const [again, setAgain] = useState(false);
   /** 署名输入框里的字(链接开着时按链接上的填好) */
   const [by, setBy] = useState('');
+  /** 服务器不让开:暂停中停掉过(这个窗里说)、要先绑手机号(先去绑,绑好回到这个窗)、账号停了投稿(换成说原因的窗)。是这几种 = true */
+  const refused = (e: unknown): boolean => {
+    const c = codeOf(e);
+    if (c === 'share-held') setSt({ phase: 'held' });
+    else if (c === 'need-phone') {
+      setKnownPhone(null);
+      askPhone({ for: 'share', then: () => {} });
+    } else if (c === 'submit-banned' && e instanceof ServerError && readBan(e.data.ban)) {
+      setSubmitBan(readBan(e.data.ban));
+      openSubmitDialog({ kind: 'world', worldId, title }, 'ban-share');
+    } else return false;
+    return true;
+  };
   useEffect(() => {
     let live = true;
     const token = getSession()?.token;
@@ -604,7 +777,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
       setSt({ phase: 'on', share });
       setBy(share.by ?? '');
     })().catch((e) => {
-      if (!live || e instanceof ShareAborted) return;
+      if (!live || e instanceof ShareAborted || refused(e)) return;
       const c = codeOf(e);
       setSt({ phase: 'error', message: c === 'not-found' || c === 'network' ? '这个世界还没存进账号，联网以后再试' : errText(e) });
     });
@@ -621,6 +794,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   /** 开着的链接(停分享失败时还开着) */
   const live = st.phase === 'on' || st.phase === 'error' ? st.share : undefined;
   const on = !!live || st.phase === 'prep';
+  const paused = live?.paused;
   // 「停在这一刻」:打开分享窗那一刻的年份、选中的国家或州、镜头(看的就是这个世界时才有)
   const [at] = useState(() => (currentWorld()?.id === worldId ? momentNow() : null));
   const [momentOn, setMomentOn] = useMomentOn();
@@ -636,7 +810,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
       if (live) {
         sameLogin(token);
         await stopShare(worldId);
-        setSt({ phase: 'off' });
+        setSt({ phase: paused ? 'held' : 'off' });
       } else {
         // 停了再开是一个新链接:署名跟着框里的
         await pushForShare(worldId, token);
@@ -648,7 +822,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
         keepLastBy(share.by ?? '');
       }
     } catch (e) {
-      if (e instanceof ShareAborted) return;
+      if (e instanceof ShareAborted || refused(e)) return;
       // 停没停成:链接照旧算开着(服务器出错时确实还开着;断网时不知道,按开着说)
       setSt({ phase: 'error', message: errText(e), share: live });
     } finally {
@@ -682,6 +856,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
       } catch (e) {
         // 换了账号、退出了:这个窗口本来就该关
         if (e instanceof ShareAborted) return true;
+        if (refused(e)) return false;
         setSt({ phase: 'error', message: errText(e), share: live });
         setBy(live.by ?? '');
         return false;
@@ -722,13 +897,13 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
   };
   const canSend = phone && typeof navigator !== 'undefined' && typeof navigator.share === 'function';
   const urlBox = (
-    <div className={`url${live ? '' : ' off'}`} data-testid="share-url">
+    <div className={`url${live && !paused ? '' : ' off'}`} data-testid="share-url">
       <Icon name="link" size={15} />
-      <span>{live ? url.replace(/^https?:\/\//, '') : st.phase === 'prep' ? '正在生成链接' : '分享已停止，链接打不开了'}</span>
+      <span>{paused ? '链接暂停了' : live ? url.replace(/^https?:\/\//, '') : st.phase === 'prep' ? '正在生成链接' : '分享已停止，链接打不开了'}</span>
     </div>
   );
   const copyBtn = (
-    <button className={`acct-btn lg blue${phone ? ' full' : ''}`} data-act="copy-short-link" disabled={!live} onClick={() => void copy()}>
+    <button className={`acct-btn lg blue${phone ? ' full' : ''}`} data-act="copy-short-link" disabled={!live || !!paused} onClick={() => void copy()}>
       <Icon name="copy" size={phone ? 17 : 16} />
       {copied ? '已复制' : '复制链接'}
     </button>
@@ -741,7 +916,13 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
             <Icon name="link" size={19} />
             <span className="main">
               <b>用链接分享</b>
-              <small>{phone ? '关掉就停止分享，链接马上打不开' : '关掉就停止分享，发出去的链接马上打不开'}</small>
+              {st.phase === 'held' ? (
+                <small className="warn">{HELD_LINE}</small>
+              ) : paused ? (
+                <small className="warn">{pausedLine(paused.by)}</small>
+              ) : (
+                <small>{phone ? '关掉就停止分享，链接马上打不开' : '关掉就停止分享，发出去的链接马上打不开'}</small>
+              )}
             </span>
             <button
               className={`acct-tg${on ? ' on' : ''}`}
@@ -749,7 +930,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
               aria-checked={on}
               aria-label="用链接分享"
               data-act="share-toggle"
-              disabled={busy || st.phase === 'prep'}
+              disabled={busy || st.phase === 'prep' || st.phase === 'held'}
               onClick={() => void toggle()}
             />
           </div>
@@ -766,7 +947,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
               value={by}
               // 只防太长;按看到的字截到 20 个由 cleanSignature 做(maxLength 按 UTF-16 算,一个组合表情就占好几个)
               maxLength={SIGNATURE_UNITS}
-              disabled={!live || busy || savingBy}
+              disabled={!live || busy || savingBy || !!paused}
               onChange={(e) => setBy(e.target.value)}
               onBlur={() => void saveBy()}
               onKeyDown={(e) => {
@@ -785,7 +966,7 @@ function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; world
                 <button
                   className="acct-btn full"
                   style={{ fontWeight: 500 }}
-                  disabled={!live}
+                  disabled={!live || !!paused}
                   onClick={() => void sendTo()}
                 >
                   <Icon name="share" size={17} />

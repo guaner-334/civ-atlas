@@ -113,8 +113,8 @@ export type SharedFor = { id: string; short: boolean; by: string; own: boolean; 
 /** 正在看的世界是从作品墙打开的世界作品:那个世界的编号和作品(App 的 workFor) */
 export type WorkFor = { id: string; work: GalleryItem };
 
-/** 分享短链接:正在取 / 停了 / 打不开(取到了 = null) */
-export type Landing = 'loading' | 'gone' | { error: string } | null;
+/** 分享短链接:正在取 / 停了 / 我们彻底停了 / 暂停了 / 打不开(取到了 = null) */
+export type Landing = 'loading' | 'gone' | 'site' | 'paused' | { error: string } | null;
 
 /** 新建中的世界是哪一种:照手绘图(选的就是它,或者草图里有照着长的图;旧的没建完的世界也这样认)/ 随机 */
 export function draftModeOf(t: Target | null): NewWorldMode {

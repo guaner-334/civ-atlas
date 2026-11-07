@@ -76,7 +76,8 @@ import { StepBranchDeleteDialog } from './StepBranches';
 import { HistoryBook } from './HistoryBook';
 import { AiSettingsHost } from './AiSettings';
 import { AccountHost } from './AccountDialogs';
-import { ShareGone, SharedHint } from './ShareNotes';
+import { ShareGone, ShareReportHost, SharedHint } from './ShareNotes';
+import { useShareReportEntry } from './shareReport';
 import {
   clearSelection,
   getCivShow,
@@ -2395,6 +2396,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   useEffect(() => {
     if (getFilm().mode) closeFilm();
   }, [filmWorld, previewRaw]);
+  const shareReport = useShareReportEntry();
   /** 打开别人分享的世界、还没改过:地图下那条说明代替第一次打开的操作提示 */
   const sharedOn = world && !!data && !!sharedFor && curWorld?.id === sharedFor.id && curWorld.kind === 'visit' && !terrainTool.on;
   /** 从作品墙打开的世界作品:地图左上那一条(改了自动另存以后也还在;回作品墙、换了世界就不放),侧栏左上的返回换成「‹ 作品墙」 */
@@ -2845,10 +2847,11 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         relief={reliefable ? relief.phase === 'pick' : undefined}
       />
       {sharedOn ? (
-        <SharedHint phone={narrow} short={sharedFor.short} by={sharedFor.by} own={sharedFor.own} at={sharedAt} onReplay={replayShared} onOk={() => setSharedFor(null)} />
+        <SharedHint phone={narrow} short={sharedFor.short} by={sharedFor.by} own={sharedFor.own} at={sharedAt} report={sharedFor.short ? shareReport : null} onReplay={replayShared} onOk={() => setSharedFor(null)} />
       ) : (
         <FirstHint show={hintOn && !!data && world && !terrainTool.on && !upOn} touch={coarse} />
       )}
+      <ShareReportHost phone={narrow} />
       {world && !narrow && <UpheavalHint />}
       {/* 推不下去:地图盖浅白、中间一张卡(盖住上面的操作提示,不盖浮在地图上的按钮和时间轴);新建时只弹后台算不动的那张 */}
       {(world || draft) && <StuckCard civ={world && data ? civ : null} phone={narrow} busy={worldBusy} over={!world} />}

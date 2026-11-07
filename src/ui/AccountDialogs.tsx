@@ -13,6 +13,7 @@
  *
  *   openLogin() / openAccount() / openShareDialog(id, 名字)   打开它们(「我的世界」右上、AI 设置、存档菜单)
  *   openSubmitDialog(作品)   投到作品墙(存档菜单、预设菜单、调规则那一页的「···」;窗口在 SubmitDialog.tsx,点开才下载)
+ *   openPhoneDialog(从哪来)   绑手机号、换手机号(窗口在 PhoneDialog.tsx,点开才下载)
  *   openTrash()   「我的世界」那一页换成最近删除(App 回到我的世界)
  *   AccountHost   窗口本身,App 里一直挂着
  *
@@ -40,7 +41,9 @@ export type Panel =
   | { kind: 'logout' }
   | { kind: 'delete' }
   | { kind: 'share'; worldId: string; title: string }
-  | { kind: 'submit'; work: SubmitWork; view?: SubmitView };
+  | { kind: 'submit'; work: SubmitWork; view?: SubmitView }
+  /** back:绑好、取消以后回到哪个窗;then:绑好以后接着做的 */
+  | { kind: 'phone'; mode: PhoneMode; back: Panel | null; then?: () => void };
 
 let panel: Panel | null = null;
 let trash = false;
@@ -86,6 +89,16 @@ export function openSubmitDialog(work: SubmitWork, view?: SubmitView): void {
   forNow();
   emit();
 }
+/** 绑手机号的窗从哪来:投稿、分享(绑好接着做),账号窗里的「没绑定」「换一个」(绑好、取消都回账号窗) */
+export type PhoneMode = 'submit' | 'share' | 'account' | 'change';
+export function openPhoneDialog(mode: PhoneMode, then?: () => void): void {
+  const fromAccount = mode === 'account' || mode === 'change';
+  const back = fromAccount ? { kind: 'account' as const } : panel?.kind === 'submit' || panel?.kind === 'share' ? panel : null;
+  panel = { kind: 'phone', mode, back, ...(then ? { then } : {}) };
+  forNow();
+  emit();
+}
+
 /** 账号窗里换到退出登录、注销账号 */
 export function goToPanel(kind: 'logout' | 'delete'): void {
   panel = { kind };
@@ -154,6 +167,18 @@ export function AccountHost({ phone }: { phone: boolean }) {
         <SubmitPanel key={workKey(p.work)} phone={phone} work={p.work} view={p.view} onClose={close} />
       </Suspense>
     );
+  if (p.kind === 'phone') {
+    const leave = (done: boolean) => {
+      panel = done || p.mode === 'account' || p.mode === 'change' ? p.back : null;
+      emit();
+      if (done) p.then?.();
+    };
+    return (
+      <Suspense fallback={null}>
+        <PhonePanel phone={phone} mode={p.mode} onDone={() => leave(true)} onClose={() => leave(false)} />
+      </Suspense>
+    );
+  }
   return (
     <Suspense fallback={null}>
       <Panels panel={p} phone={phone} onClose={close} onBack={back} />
@@ -172,6 +197,7 @@ function PanelsMissing() {
 
 const Panels = lazy(() => import('./AccountPanels').catch(() => ({ default: PanelsMissing as unknown as typeof import('./AccountPanels').default })));
 const SubmitPanel = lazy(() => import('./SubmitDialog').catch(() => ({ default: PanelsMissing as unknown as typeof import('./SubmitDialog').default })));
+const PhonePanel = lazy(() => import('./PhoneDialog').catch(() => ({ default: PanelsMissing as unknown as typeof import('./PhoneDialog').default })));
 
 // ---------------------------------------------------------------------------
 // 窗口外壳
@@ -282,6 +308,20 @@ interface Sent {
   dev?: string;
 }
 
+type Shut = { head: string; sub: string };
+
+/** 登录被拒是因为账号停用了(401 带 ban):红底那块的两句。注销前停用的邮箱再注册,照服务器的话 */
+function shutOf(e: unknown): Shut | null {
+  if (!(e instanceof ServerError) || e.code !== 'auth' || !e.data.ban || typeof e.data.ban !== 'object') return null;
+  const ban = e.data.ban as { reasonText?: unknown; carried?: unknown };
+  if (ban.carried === true) {
+    const [head, ...rest] = e.message.split('。');
+    return { head, sub: rest.join('。') };
+  }
+  const why = typeof ban.reasonText === 'string' ? ban.reasonText.replace(/[。.]$/, '') : '';
+  return { head: '这个账号已停用，登录不了', sub: `${why ? `原因：${why}。` : ''}账号里的世界还在服务器上留着。觉得弄错了，请到 QQ 交流群联系我们。` };
+}
+
 function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }) {
   const [opts, setOpts] = useState<AuthOptions | null>(null);
   useEffect(() => {
@@ -301,6 +341,8 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState<'send' | 'login' | null>(null);
   const [err, setErr] = useState<{ at: 'email' | 'invite' | 'code'; text: string } | null>(null);
+  /** 账号停用了:登录被拒时服务器说的 */
+  const [shut, setShut] = useState<Shut | null>(null);
   const left = useCountdown(sent?.until ?? null);
   const emailRef = useRef<HTMLInputElement>(null);
   const inviteRef = useRef<HTMLInputElement>(null);
@@ -347,7 +389,12 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
       onClose();
     } catch (e) {
       const c = codeOf(e);
-      if (c === 'need-invite' || c === 'bad-invite') {
+      const off = shutOf(e);
+      if (off) {
+        setShut(off);
+        setSent(null);
+        setCode('');
+      } else if (c === 'need-invite' || c === 'bad-invite') {
         setShowInvite(true);
         setErr({ at: 'invite', text: errText(e) });
       } else setErr({ at: 'code', text: errText(e) });
@@ -388,6 +435,7 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
                 setEmail(e.target.value);
                 if (err?.at === 'email') setErr(null);
                 if (needInvite) setNeedInvite(false);
+                if (shut) setShut(null);
               }}
               onKeyDown={(e) => e.key === 'Enter' && void send()}
             />
@@ -397,6 +445,20 @@ function LoginDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
           </div>
           {err?.at === 'email' && <p className="acct-err">{err.text}</p>}
         </div>
+        {shut && (
+          <div className="acct-callout bad" data-testid="login-shut">
+            <Icon name="ban" size={16} />
+            <span>
+              <b>{shut.head}</b>
+              {shut.sub && (
+                <>
+                  <br />
+                  <span className="sub">{shut.sub}</span>
+                </>
+              )}
+            </span>
+          </div>
+        )}
         {needInvite && (
           <div className="acct-callout" data-testid="need-invite">
             <Icon name="info" size={16} />

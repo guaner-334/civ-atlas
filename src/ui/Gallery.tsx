@@ -10,7 +10,7 @@
  *   PresetWorkDialog  点开一个新建参数作品:封面星球、这套参数、作者的一句话;「用这套参数新建」
  *                     点开一个规则作品是调规则的大卡(rules/RulesSheet.tsx,盖在这一页上)
  *   WorkGone          打开作品的地址时:取的时候一页空白,撤下了(或没有)整页写"这个作品已经撤下了"
- *   ReportDialog      举报:六个理由选一个,不能打字;提交以后"收到了,谢谢"。同一台设备对同一个作品只能举报一次
+ *   ReportDialog      举报:六个理由选一个,不能打字;提交以后"收到了,谢谢"。同一台设备对同一个作品只能举报一次(分享短链接的举报同一个窗,ShareReportDialog)
  *
  * 打开世界 / 地图作品以后的顶条、地图作品的星球在 GalleryWork.tsx(首页不用下载星球那一套)。
  * 样式在 gallery.css;卡片、页签、弹窗、单选照「我的世界」(worlds.css)和账号窗口(account.css)的。
@@ -806,22 +806,33 @@ export function WorkGone({ phone, state, onHome, onGallery, onRetry }: { phone: 
 // 举报
 
 export function ReportDialog({ phone, work, onClose }: { phone: boolean; work: GalleryWork; onClose: () => void }) {
+  return <ReportBox phone={phone} what="work" lead={workWho(work)} send={(r) => reportWork(work.id, r)} onClose={onClose} />;
+}
+
+/** 举报别人的分享短链接:lead 是「谁分享的「世界名」」;send 发出去(这台设备举报过的记下) */
+export function ShareReportDialog({ phone, lead, send, onClose }: { phone: boolean; lead: string; send: (r: ReportReason) => Promise<void>; onClose: () => void }) {
+  return <ReportBox phone={phone} what="share" lead={lead} send={send} onClose={onClose} />;
+}
+
+function ReportBox({ phone, what, lead, send, onClose }: { phone: boolean; what: 'work' | 'share'; lead: string; send: (r: ReportReason) => Promise<void>; onClose: () => void }) {
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(false);
+  const work = what === 'work';
+  const undo = work ? '撤下' : '停掉这个链接';
   const submit = async () => {
     if (!reason || busy) return;
     setBusy(true);
     setErr('');
     try {
-      await reportWork(work.id, reason);
+      await send(reason);
       setDone(true);
     } catch (e) {
       setErr(
         e instanceof ServerError && e.code === 'rate-limit'
           ? '举报太频繁，请稍后再试'
-          : isWorkGone(e)
+          : work && isWorkGone(e)
             ? '这个作品已经撤下了'
             : e instanceof Error
               ? e.message
@@ -832,13 +843,13 @@ export function ReportDialog({ phone, work, onClose }: { phone: boolean; work: G
   };
   if (done)
     return (
-      <Dialog phone={phone} label="收到了，谢谢" width={400} onClose={onClose} head={<span />} testId="gallery-reported" className="gw-done">
+      <Dialog phone={phone} label="收到了，谢谢" width={400} onClose={onClose} head={<span />} testId={work ? 'gallery-reported' : 'share-reported'} className="gw-done">
         <div className="gw-ok">
           <span className="gw-ok-ic">
             <Icon name="check" size={28} />
           </span>
           <h2>收到了，谢谢</h2>
-          <p>我们会尽快看。核实有问题就撤下，结果不另外通知。</p>
+          <p>我们会尽快看。核实有问题就{undo}，结果不另外通知。</p>
           <p className="acct-small">如果是你的作品被抄、署名被冒用，请到 QQ 交流群联系我们，方便核实。</p>
         </div>
         <div className="acct-foot">
@@ -848,15 +859,17 @@ export function ReportDialog({ phone, work, onClose }: { phone: boolean; work: G
         </div>
       </Dialog>
     );
-  const note = <span className="acct-small">不用登录，也不会告诉作者是谁举报的。</span>;
+  const note = <span className="acct-small">不用登录，也不会告诉{work ? '作者' : '分享的人'}是谁举报的。</span>;
   return (
-    <Dialog phone={phone} label="举报这个作品" width={440} onClose={busy ? undefined : onClose} testId="gallery-report" className="gw-report">
+    <Dialog phone={phone} label={work ? '举报这个作品' : '举报这个分享'} width={440} onClose={busy ? undefined : onClose} testId={work ? 'gallery-report' : 'share-report'} className="gw-report">
       <div className="acct-body">
-        <p className="acct-lead">{workWho(work)}。选一个理由，我们看过后决定要不要撤下。</p>
+        <p className="acct-lead">
+          {lead}。选一个理由，我们看过后决定要不要{undo}。
+        </p>
         <div className="gw-rds" role="radiogroup" aria-label="举报理由">
           {REPORT_REASONS.map((r) => (
             <label key={r.key} className={`acct-radio${reason === r.key ? ' on' : ''}`} data-reason={r.key}>
-              <input type="radio" name="gallery-report" checked={reason === r.key} onChange={() => setReason(r.key)} />
+              <input type="radio" name={`${what}-report`} checked={reason === r.key} onChange={() => setReason(r.key)} />
               <i className="o" aria-hidden="true" />
               <span>
                 <b>{r.title}</b>

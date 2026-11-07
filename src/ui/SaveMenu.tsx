@@ -280,7 +280,9 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     if (!cur) return;
     setOpen(false);
     if (banned) return openSubmitDialog({ kind: 'world', worldId: cur.id, title: title ?? '' }, 'ban-share');
-    openShareDialog(cur.id, title ?? '');
+    const go = () => openShareDialog(cur.id, title ?? '');
+    if (phoneRequired()) askPhone({ for: 'share', then: go });
+    else go();
   };
   const submitClick = () => {
     if (!submitItem || !cur || submitItem.act === 'none') return;

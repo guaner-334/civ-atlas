@@ -83,6 +83,7 @@ import { clearToast, showToast } from '../Toast';
 import { OK_TTL, type ToastAction } from '../toastStore';
 import { closeUpheaval, openUpheaval } from '../upheavalStore';
 import { lostRenames, lostRenamesNote } from '../sim/useSimResults';
+import { setSharedView } from '../shareReport';
 import type { CivRefs, GenRefs, LoadBack, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
   aliveAtEnd,
@@ -895,6 +896,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     const id = short?.fullId ?? newWorldId();
     const by = short ? cleanSignature(short.by) : '';
     setSharedFor(own && OLD_SITE === null ? null : { id, short: !!short, by, own });
+    setSharedView(short ? { worldId: id, code: short.code, by, title: sv.title ?? '' } : null);
     const origin: SaveOrigin | null = short ? { ...(by ? { by } : {}), title: sv.title ?? '', url: shortLink(short.code) } : null;
     // 打开网页时、地址栏里贴的分享链接:浏览器已经记了这一步,换成这个世界
     // 打开时看哪:长链接在存档里(读档时清理过);短链接在链接的 # 后面,按取到的存档再清理一次(年份超出这个世界的历史就不要)
@@ -927,7 +929,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       .catch((e) => {
         if (still && !still()) return;
         clearToast('share');
-        if (e instanceof ServerError && (e.code === 'share-gone' || e.code === 'not-found')) setLanding('gone');
+        if (e instanceof ServerError && e.code === 'share-paused') setLanding('paused');
+        else if (e instanceof ServerError && (e.code === 'share-gone' || e.code === 'not-found')) setLanding(e.data.stoppedBy === 'site' ? 'site' : 'gone');
         else setLanding({ error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后刷新再试。' : e instanceof Error ? e.message : String(e) });
       });
   };
