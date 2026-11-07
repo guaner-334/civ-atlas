@@ -14,6 +14,7 @@ import {
   boxBlurWrap,
   cylinderNoise,
   drawRivers,
+  prepRiverStep,
   riverNetworkSteps,
   hexRGB,
   hillshade,
@@ -24,7 +25,6 @@ import {
   rowCos,
   hash2,
   wrapOf,
-  type PrepStep,
   type WorkStep,
   type RGB,
   type RiverOptions,
@@ -466,7 +466,9 @@ export function dropRealisticBasesExcept(keep: readonly (Raster | null | undefin
     shoreCache.water.width = shoreCache.water.height = shoreCache.land.width = shoreCache.land.height = 0;
     shoreCache = null;
   }
+  if (shorePart && !keep.includes(shorePart.raster)) dropShorePart();
   if (landPathCache && !keep.includes(landPathCache.raster)) landPathCache = null;
+  if (landPathPart && !keep.includes(landPathPart.raster)) landPathPart = null;
   if (painted && !keep.includes(painted.raster)) painted = null;
 }
 
@@ -807,6 +809,27 @@ export function realisticRiverSteps(world: World, r: Raster, look: SurfaceLook =
 
 /** 岸线两侧各一份的像素层(只留一份,换了世界、画法就释放) */
 let shoreCache: { raster: Raster; look: SurfaceLook; water: AnyCanvas; land: AnyCanvas } | null = null;
+/** 细节层备料时分几步算到一半的那份(见 realisticDetailPrep;算完由 realisticShoreLayers 收进 shoreCache) */
+let shorePart: { raster: Raster; look: SurfaceLook; px: Uint8ClampedArray; rings: ShoreRings; water: AnyCanvas | null } | null = null;
+
+function dropShorePart(): void {
+  if (shorePart?.water) shorePart.water.width = shorePart.water.height = 0;
+  shorePart = null;
+}
+
+function shorePartOf(r: Raster, look: SurfaceLook): NonNullable<typeof shorePart> {
+  if (shorePart?.raster === r && shorePart.look === look) return shorePart;
+  dropShorePart();
+  realisticBase(r, look);
+  const px = base!.raw ?? paintRealistic(rawSink, r, undefined, true, undefined, look)!;
+  return (shorePart = { raster: r, look, px, rings: shoreRings(r), water: null });
+}
+
+function shoreLayer(px: Uint8ClampedArray, r: Raster): AnyCanvas {
+  const cv = makeCanvas(r.w, r.h);
+  (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(px, r.w, r.h), 0, 0);
+  return cv;
+}
 
 /**
  * 水、陆各一份像素层(用抗锯齿之前的像素):对岸那几个像素换成离它最近的本侧颜色 ——
@@ -816,23 +839,127 @@ let shoreCache: { raster: Raster; look: SurfaceLook; water: AnyCanvas; land: Any
 export function realisticShoreLayers(r: Raster, look: SurfaceLook = 'classic'): { water: AnyCanvas; land: AnyCanvas } {
   if (shoreCache?.raster === r && shoreCache.look === look) return shoreCache;
   if (shoreCache) shoreCache.water.width = shoreCache.water.height = shoreCache.land.width = shoreCache.land.height = 0;
-  realisticBase(r, look);
-  const sides = shoreSides(base!.raw ?? paintRealistic(rawSink, r, undefined, true, undefined, look)!, r);
-  const layer = (px: Uint8ClampedArray) => {
-    const cv = makeCanvas(r.w, r.h);
-    (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(px, r.w, r.h), 0, 0);
-    return cv;
-  };
-  shoreCache = { raster: r, look, water: layer(sides.water), land: layer(sides.land) };
+  const p = shorePartOf(r, look);
+  while (p.rings.step(Infinity));
+  const water = p.water ?? shoreLayer(shoreSide(p.px, r, p.rings.rings, false), r);
+  const land = shoreLayer(shoreSide(p.px, r, p.rings.rings, true), r);
+  shorePart = null;
+  shoreCache = { raster: r, look, water, land };
   return shoreCache;
 }
 
 /**
- * 放大后的细节层(render/detail.ts 的 drawTerrainDetail)第一次画要用的缓存,拆成几步在后台分帧算(见 render/common.ts 的 PrepStep):
- * 小溪(creeks = false 时细节层不画小溪,不用算)、岸线两侧各一份的像素层。做过的再调直接返回,画面和画的时候现算的一样
+ * 放大后的细节层(render/detail.ts 的 drawTerrainDetail)第一次画要用的缓存,拆成几步在后台分帧算(见 render/common.ts 的 WorkStep):
+ * 小溪(creeks = false 时细节层不画小溪,不用算)、岸线两侧各一份的像素层、河网几何;flat = 等距圆柱(另备整张图的陆地范围)。
+ * 做过的再调直接返回,画面和画的时候现算的一样
  */
-export function realisticDetailPrep(world: World, r: Raster, creeks = true, look: SurfaceLook = 'classic'): PrepStep[] {
-  return [...(creeks ? [() => void riversOf(world, 2)] : []), () => void realisticShoreLayers(r, look)];
+export function realisticDetailPrep(world: World, r: Raster, creeks = true, look: SurfaceLook = 'classic', flat = false): WorkStep[] {
+  const done = () => shoreCache?.raster === r && shoreCache.look === look;
+  return [
+    ...(creeks ? [() => void riversOf(world, 2)] : []),
+    (deadline) => !done() && shorePartOf(r, look).rings.step(deadline),
+    () => {
+      if (done()) return;
+      const p = shorePartOf(r, look);
+      while (p.rings.step(Infinity));
+      p.water ??= shoreLayer(shoreSide(p.px, r, p.rings.rings, false), r);
+    },
+    () => void realisticShoreLayers(r, look),
+    ...(flat ? [(deadline: number) => landPathStep(r, deadline)] : []),
+    riverPrep(world, r, creeks, look),
+  ];
+}
+
+/** 细节层画河要用的河网几何、陆地蒙版(河网几何不随缩放倍数变,见 common.ts 的 netGeometry,按哪个倍数的画法算都一样) */
+function riverPrep(world: World, r: Raster, creeks: boolean, look: SurfaceLook): WorkStep {
+  let step: WorkStep | null = null;
+  return (deadline) => {
+    if (!step) {
+      const style = realisticRiverStyle(2, world.riverThreshold, look, olderTerrain(world)?.CREEK_FRAC);
+      step = prepRiverStep(creeks ? riversOf(world, 2) : world.rivers, { s: 1, ox: 0, oy: 0, k: 2, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(world, r, style, look));
+    }
+    return step(deadline);
+  };
+}
+
+/** 岸边两圈的像素(见 shoreSides):找的那一遍分几段做,step 返回 true = 还没找完 */
+interface ShoreRings {
+  rings: number[][];
+  step: WorkStep;
+}
+
+function shoreRings(r: Pick<Raster, 'w' | 'h' | 'water'>): ShoreRings {
+  const { w, h, water } = r;
+  const ring = new Uint8Array(w * h);
+  const rings: number[][] = [[], []];
+  const add = (j: number, n: number) => {
+    if (ring[j]) return;
+    ring[j] = n;
+    rings[n - 1].push(j);
+  };
+  let y = 0;
+  const step = (deadline: number) => {
+    const y0 = y;
+    for (; y < h; y++) {
+      if (y > y0 && (y - y0) % 64 === 0 && performance.now() >= deadline) return true;
+      const r0 = y * w;
+      const r1 = (y < h - 1 ? y + 1 : y) * w;
+      for (let x = 0; x < w; x++) {
+        const x1 = x < w - 1 ? x + 1 : 0;
+        const l = water[r0 + x] === 0;
+        if ((water[r0 + x1] === 0) === l && (water[r1 + x] === 0) === l && (water[r1 + x1] === 0) === l) continue;
+        add(r0 + x, 1);
+        add(r0 + x1, 1);
+        add(r1 + x, 1);
+        add(r1 + x1, 1);
+      }
+    }
+    if (y === h) {
+      y++;
+      const nb = new Int32Array(8);
+      for (const k of rings[0]) {
+        const m = neighbours(k, w, h, nb);
+        for (let q = 0; q < m; q++) add(nb[q], 2);
+      }
+    }
+    return false;
+  };
+  return { rings, step };
+}
+
+/** 一侧的那一份(land = 陆地那一份):对岸的像素一圈一圈填上本侧的颜色(见 shoreSides) */
+function shoreSide(px: Uint8ClampedArray, r: Pick<Raster, 'w' | 'h' | 'water'>, rings: number[][], land: boolean): Uint8ClampedArray {
+  const { w, h, water } = r;
+  const nb = new Int32Array(8);
+  const out = new Uint8ClampedArray(px.length);
+  out.set(px);
+  // 对岸的像素:1 = 已填好(上一圈),2 = 这一圈刚填
+  const done = new Uint8Array(w * h);
+  for (const list of rings) {
+    for (const k of list) {
+      if ((water[k] === 0) === land) continue;
+      let sr = 0;
+      let sg = 0;
+      let sb = 0;
+      let n = 0;
+      const m = neighbours(k, w, h, nb);
+      for (let q = 0; q < m; q++) {
+        const j = nb[q];
+        if ((water[j] === 0) !== land && done[j] !== 1) continue;
+        sr += out[j * 4];
+        sg += out[j * 4 + 1];
+        sb += out[j * 4 + 2];
+        n++;
+      }
+      if (!n) continue;
+      out[k * 4] = sr / n;
+      out[k * 4 + 1] = sg / n;
+      out[k * 4 + 2] = sb / n;
+      done[k] = 2;
+    }
+    for (const k of list) if (done[k] === 2) done[k] = 1;
+  }
+  return out;
 }
 
 /**
@@ -842,64 +969,9 @@ export function realisticDetailPrep(world: World, r: Raster, creeks = true, look
  * 8 邻域里本侧(或已经填好的)像素的平均色;海和湖算一边
  */
 export function shoreSides(px: Uint8ClampedArray, r: Pick<Raster, 'w' | 'h' | 'water'>): { water: Uint8ClampedArray; land: Uint8ClampedArray } {
-  const { w, h, water } = r;
-  const ring = new Uint8Array(w * h);
-  const rings: number[][] = [[], []];
-  const add = (j: number, n: number) => {
-    if (ring[j]) return;
-    ring[j] = n;
-    rings[n - 1].push(j);
-  };
-  for (let y = 0; y < h; y++) {
-    const r0 = y * w;
-    const r1 = (y < h - 1 ? y + 1 : y) * w;
-    for (let x = 0; x < w; x++) {
-      const x1 = x < w - 1 ? x + 1 : 0;
-      const l = water[r0 + x] === 0;
-      if ((water[r0 + x1] === 0) === l && (water[r1 + x] === 0) === l && (water[r1 + x1] === 0) === l) continue;
-      add(r0 + x, 1);
-      add(r0 + x1, 1);
-      add(r1 + x, 1);
-      add(r1 + x1, 1);
-    }
-  }
-  const nb = new Int32Array(8);
-  for (const k of rings[0]) {
-    const m = neighbours(k, w, h, nb);
-    for (let q = 0; q < m; q++) add(nb[q], 2);
-  }
-  const side = (land: boolean) => {
-    const out = new Uint8ClampedArray(px.length);
-    out.set(px);
-    // 对岸的像素:1 = 已填好(上一圈),2 = 这一圈刚填
-    const done = new Uint8Array(w * h);
-    for (const list of rings) {
-      for (const k of list) {
-        if ((water[k] === 0) === land) continue;
-        let sr = 0;
-        let sg = 0;
-        let sb = 0;
-        let n = 0;
-        const m = neighbours(k, w, h, nb);
-        for (let q = 0; q < m; q++) {
-          const j = nb[q];
-          if ((water[j] === 0) !== land && done[j] !== 1) continue;
-          sr += out[j * 4];
-          sg += out[j * 4 + 1];
-          sb += out[j * 4 + 2];
-          n++;
-        }
-        if (!n) continue;
-        out[k * 4] = sr / n;
-        out[k * 4 + 1] = sg / n;
-        out[k * 4 + 2] = sb / n;
-        done[k] = 2;
-      }
-      for (const k of list) if (done[k] === 2) done[k] = 1;
-    }
-    return out;
-  };
-  return { water: side(false), land: side(true) };
+  const { rings, step } = shoreRings(r);
+  while (step(Infinity));
+  return { water: shoreSide(px, r, rings, false), land: shoreSide(px, r, rings, true) };
 }
 
 /** 像素 k 的 8 邻域(东西相连,上下到边为止)写进 out,返回几个 */
@@ -1038,26 +1110,39 @@ export function shoreT(r: Raster, ka: number, kb: number): number {
 
 /** 整张图的陆地范围(等距圆柱;只留一份,换了世界就重建) */
 let landPathCache: { raster: Raster; path: Path2D } | null = null;
+/** 细节层备料时一段一段建到一半的那份(y = 下一段从哪一行起) */
+let landPathPart: { raster: Raster; path: Path2D; y: number } | null = null;
 
 /**
  * 整张图的陆地范围,坐标是像素层的像素(第 i 列像素中心在 x = i + 0.5)。列取 −2 … w:细节层画布按 180° 经线
  * 分段画(ui/TerrainDetail.tsx),每一段用到的方格都在这里面
  */
 function wholeLandPath(r: Raster): Path2D {
-  if (landPathCache?.raster === r) return landPathCache.path;
-  const path = new Path2D();
+  while (landPathStep(r, Infinity));
+  return landPathCache!.path;
+}
+
+/** wholeLandPath 一段一段地建(addLandCells 各行互不相干,分段加进同一个路径和一口气建的一样);返回 true = 还没建完 */
+function landPathStep(r: Raster, deadline: number): boolean {
+  if (landPathCache?.raster === r) return false;
+  if (landPathPart?.raster !== r) landPathPart = { raster: r, path: new Path2D(), y: -1 };
+  const p = landPathPart;
   const S = r.scale;
-  addLandCells(path, r, {
-    rows: [-1, r.h - 1],
-    cols: () => [-2, r.w],
-    at: (wy, out) => {
-      out[0] = 0.5;
-      out[1] = 1;
-      out[2] = wy * S;
-    },
-  });
-  landPathCache = { raster: r, path };
-  return path;
+  const at = (wy: number, out: Float64Array) => {
+    out[0] = 0.5;
+    out[1] = 1;
+    out[2] = wy * S;
+  };
+  while (p.y <= r.h - 1) {
+    const y1 = Math.min(r.h - 1, p.y + 15);
+    addLandCells(p.path, r, { rows: [p.y, y1], cols: () => [-2, r.w], at });
+    p.y = y1 + 1;
+    if (performance.now() >= deadline) break;
+  }
+  if (p.y <= r.h - 1) return true;
+  landPathCache = { raster: r, path: p.path };
+  landPathPart = null;
+  return false;
 }
 
 /** 等距圆柱的细节层画布(画布 = 世界 × v.s + (v.ox, v.oy))上的方格范围 */

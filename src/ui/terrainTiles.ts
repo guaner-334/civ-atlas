@@ -25,6 +25,8 @@ interface Slot {
   w: Worker;
   /** 正在算的块(null = 空着) */
   busy: string | null;
+  /** 送到了第几个世界(不是现在这个 = 还没送到,先不派块) */
+  wid: number;
 }
 
 let slots: Slot[] | null = null;
@@ -53,7 +55,7 @@ function ensurePool(): Slot[] | null {
   try {
     slots = Array.from({ length: poolSize() }, () => {
       const w = new Worker(new URL('../tileWorker.ts', import.meta.url), { type: 'module' });
-      const slot: Slot = { w, busy: null };
+      const slot: Slot = { w, busy: null, wid: 0 };
       w.onmessage = (e: MessageEvent<TileResponse>) => done(slot, e.data);
       w.onerror = stop;
       return slot;
@@ -81,15 +83,80 @@ export function tilesWorld(world: World, raster: Raster, look: SurfaceLook = 'cl
   queue = [];
   const pool = ensurePool();
   if (!pool) return;
+  for (const s of pool) s.busy = null;
   // 回放用的历史快照用不着,不拷过去
   const lite = { ...world, history: [] } as World;
   // 细沟的线随主图带过去(各线程不用再各算一遍)
   const whole: WholeRaster = { w: raster.w, h: raster.h, scale: raster.scale, elev: raster.elev, water: raster.water, ice: raster.ice, iceConc: raster.iceConc, iceTone: raster.iceTone, bank: raster.bank, veinLines: raster.veinLines };
-  for (const s of pool) {
-    const m: TileRequest = { type: 'world', wid, world: lite, whole, look };
-    s.w.postMessage(m);
-    s.busy = null;
+  sendWorld(pool, { type: 'world', wid, world: lite, whole, look });
+}
+
+/** 送世界时一段做多少毫秒就让出主线程 */
+const SLICE = 8;
+
+/**
+ * 整份 postMessage 会在主线程上一口气把几十 MB 的世界拷一遍(每个线程一遍):
+ * 改成数组一个个拷、隔一会儿让出主线程,拷齐一份整份转交;线程收到了才给它派块
+ */
+function sendWorld(pool: Slot[], m: Extract<TileRequest, { type: 'world' }>): void {
+  const views = typedArrays(m, new Set());
+  let si = 0;
+  let vi = 0;
+  let copies = new Map<ArrayBufferView, ArrayBufferView>();
+  const run = () => {
+    if (m.wid !== wid || slots !== pool) return;
+    const end = performance.now() + SLICE;
+    while (si < pool.length) {
+      for (; vi < views.length; vi++) {
+        if (performance.now() >= end) return void setTimeout(run, 0);
+        copies.set(views[vi], copyOf(views[vi]));
+      }
+      const s = pool[si++];
+      try {
+        s.w.postMessage(withCopies(m, copies, new Map()), [...copies.values()].map((c) => c.buffer as ArrayBuffer));
+      } catch {
+        return stop();
+      }
+      s.wid = m.wid;
+      vi = 0;
+      copies = new Map();
+      dispatch(s);
+    }
+  };
+  setTimeout(run, 0);
+}
+
+function copyOf(v: ArrayBufferView): ArrayBufferView {
+  const b = (v.buffer as ArrayBuffer).slice(v.byteOffset, v.byteOffset + v.byteLength);
+  return v instanceof DataView ? new DataView(b) : new (v.constructor as new (b: ArrayBuffer) => ArrayBufferView)(b);
+}
+
+/** 普通对象、数组里的类型化数组,各一次(共享内存的不能转交,不算) */
+function typedArrays(x: unknown, seen: Set<unknown>, out: ArrayBufferView[] = []): ArrayBufferView[] {
+  if (x === null || typeof x !== 'object' || seen.has(x)) return out;
+  seen.add(x);
+  if (ArrayBuffer.isView(x)) {
+    if (x.buffer instanceof ArrayBuffer) out.push(x);
+  } else if (Array.isArray(x) || Object.getPrototypeOf(x) === Object.prototype) for (const v of Object.values(x)) typedArrays(v, seen, out);
+  return out;
+}
+
+/** 照 x 搭一份,类型化数组换成拷出来的(别的东西照旧,postMessage 时照常拷) */
+function withCopies<T>(x: T, copies: Map<ArrayBufferView, ArrayBufferView>, made: Map<object, unknown>): T {
+  if (x === null || typeof x !== 'object') return x;
+  if (ArrayBuffer.isView(x)) return (copies.get(x) ?? x) as T;
+  if (made.has(x)) return made.get(x) as T;
+  if (Array.isArray(x)) {
+    const out: unknown[] = new Array(x.length);
+    made.set(x, out);
+    for (let i = 0; i < x.length; i++) if (i in x) out[i] = withCopies(x[i], copies, made);
+    return out as T;
   }
+  if (Object.getPrototypeOf(x) !== Object.prototype) return x;
+  const out: Record<string, unknown> = {};
+  made.set(x, out);
+  for (const [k, v] of Object.entries(x)) out[k] = withCopies(v, copies, made);
+  return out as T;
 }
 
 /** 算好的那一块(没有 = null);用到就算"刚看过" */
@@ -126,7 +193,7 @@ export function wantTiles(list: { S: number; tx: number; ty: number; k: number }
 }
 
 function dispatch(s: Slot) {
-  if (s.busy) return;
+  if (s.busy || s.wid !== wid) return;
   const t = queue.shift();
   if (!t) return;
   s.busy = t.key;
