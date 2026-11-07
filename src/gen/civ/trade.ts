@@ -707,6 +707,11 @@ export const tradeModule: CivModule = {
     if (c.pm) installTrade(c.sim, c.seed);
   },
   resume: (c) => resumeTrade(c.sim, c.civ),
+  // 半截不起名(接着推只要状态)
+  partial: (c) => {
+    const trade = finishTrade(c.sim);
+    if (trade) c.civ.trade = trade;
+  },
   finish: (c) => {
     const trade = finishTrade(c.sim, c.regions);
     if (trade) c.civ.trade = trade;

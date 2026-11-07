@@ -72,14 +72,14 @@ const sameValue = (a: KnobValue, b: KnobValue) => (typeof a === 'number' ? a ===
 
 /**
  * 清理一套改动:认不出的表、项,值不合用的(见 knobValueOk),和官方一样的,都去掉;表、项照登记的先后排。
- * 什么都不剩 = undefined(官方)。传进来的不改;交出去的冻住(几个世界可能共用同一份)
+ * 什么都不剩 = undefined(官方)。传进来的不改;交出去的冻住(几个世界可能共用同一份)。tables = 认得的旋钮表(规则包登记的那份)
  */
-export function cleanKnobs(patch: unknown): KnobPatch | undefined {
+export function cleanKnobs(patch: unknown, tables: readonly Knobs<Record<string, KnobValue>>[] = CIV_KNOBS): KnobPatch | undefined {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return undefined;
   const src = patch as Record<string, unknown>;
   const out: Record<string, Record<string, KnobValue>> = {};
   let any = false;
-  for (const t of CIV_KNOBS) {
+  for (const t of tables) {
     if (!Object.prototype.hasOwnProperty.call(src, t.id)) continue;
     const p = src[t.id];
     if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
@@ -106,8 +106,8 @@ const recent = new Map<string, KnobSet>();
 const RECENT_KEEP = 8;
 
 /** 一套改动(清理以后)对应的那套数;没有改动、清理完什么都不剩 = 官方 */
-export function knobSet(patch: unknown): KnobSet {
-  const c = cleanKnobs(patch);
+export function knobSet(patch: unknown, tables: readonly Knobs<Record<string, KnobValue>>[] = CIV_KNOBS): KnobSet {
+  const c = cleanKnobs(patch, tables);
   if (!c) return OFFICIAL_KNOBS;
   const key = knobsKey(c);
   let s = recent.get(key);
@@ -119,10 +119,10 @@ export function knobSet(patch: unknown): KnobSet {
 }
 
 /** 两套改动是不是一样(按清理以后比;undefined = 官方) */
-export function sameKnobs(a: unknown, b: unknown): boolean {
+export function sameKnobs(a: unknown, b: unknown, tables: readonly Knobs<Record<string, KnobValue>>[] = CIV_KNOBS): boolean {
   if (a === b) return true;
-  const x = cleanKnobs(a);
-  const y = cleanKnobs(b);
+  const x = cleanKnobs(a, tables);
+  const y = cleanKnobs(b, tables);
   return x === y || (!!x && !!y && knobsKey(x) === knobsKey(y));
 }
 

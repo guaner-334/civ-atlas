@@ -1119,7 +1119,7 @@ export function rootsAcross(owner: Int16Array, from: readonly Culture[], to: rea
  * 配色、语感和接壤的民族错开,"接壤"按计划中的疆域(plannedOwners)和分化那一刻的邻族算;
  * 州名按最早住进来的民族的语感,先住人的先起。
  * names = 整个世界的地名风格(CivParams.names,清理过的;自动 = 不给):份数按计划中的疆域凑。
- * 返回计划中的疆域(山河湖海的地名按它的语感起,见 index.ts)
+ * 返回计划中的疆域(山河湖海的地名按它的语感起,见 official.ts)
  */
 export function finishCultures(world: World, m: CultureModel, log: Readonly<ChangeLog>, pins?: NamePins, names?: NameMix): Int16Array {
   const seed = m.seed;
