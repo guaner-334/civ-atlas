@@ -40,7 +40,7 @@ import { CAP_COUNT, CAPS, INVENTIONS, RESOURCE_COUNT, Res, devModelOf, type DevM
 import { populationAt } from './growth';
 import { ideoCards } from './ideoTables';
 import { subSeed } from './engine/rand';
-import type { CivModule } from './modules';
+import type { CivModule, FinishCtx } from './modules';
 import { civApi } from './api';
 import { TABLE_GROUP } from './tableGroups';
 
@@ -616,6 +616,12 @@ export function polityThoughts(ideo: Ideology, p: number, year: Year, min = ARRI
   return out.sort((a, b) => b.share - a.share || a.thought - b.thought);
 }
 
+/** 推到这一刻的思潮补进结果(推到一半停下和推完一样) */
+function attach(c: FinishCtx): void {
+  const ideo = finishIdeology(c.sim, c.endYear);
+  if (ideo) c.civ.ideology = ideo;
+}
+
 /** 模块:思潮:跟着发展度每 20 年算各州各说的接受度(清单和次序见 modules.ts) */
 export const ideologyModule: CivModule = {
   id: 'ideology',
@@ -623,8 +629,6 @@ export const ideologyModule: CivModule = {
     if (c.pm) installIdeology(c.sim, c.seed);
   },
   resume: (c) => resumeIdeology(c.sim, c.civ),
-  finish: (c) => {
-    const ideo = finishIdeology(c.sim, c.endYear);
-    if (ideo) c.civ.ideology = ideo;
-  },
+  partial: attach,
+  finish: attach,
 };

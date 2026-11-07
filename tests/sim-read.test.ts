@@ -4,9 +4,9 @@
  * - 读口交出来的和推演此刻的状态一样
  * - 交出来的东西拷贝出去随便改,推演不受影响;读口本身不改状态:推演中途反复读、改,推出来的整份历史和不读的逐项一样
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
-import { continueCiv, generateCiv, startContinue, type Civ } from '../src/gen/civ';
+import { continueCiv, generateCiv, type Civ } from '../src/gen/civ';
 import type { CivSim } from '../src/gen/civ/engine/sim';
 import { controlModelOf } from '../src/gen/civ/control';
 import { devModelOf } from '../src/gen/civ/development';
@@ -15,20 +15,13 @@ import { capitalAt, populationAt } from '../src/gen/civ/growth';
 import { faithAt } from '../src/gen/civ/religion';
 import { OFFICIAL_NAMES, officialUnit, simRead, type SimRead } from '../src/gen/civ/simRead';
 
-/** 接着推时建出来的推演(startContinue 不交出它,这里截下来) */
+import { CIV_MODULES, OFFICIAL_PACK, resumeCiv, type CivModule } from '../src/gen/civ/modules';
+import { continuePack } from '../src/gen/civ/run';
+
+/** 分段接着推时建出来的推演(Continuation 不交出它):官方清单末尾挂一个只记下引擎的模块截下来,不改历史 */
 const sims: CivSim[] = [];
-vi.mock('../src/gen/civ/modules', async (importOriginal) => {
-  const m = await importOriginal<typeof import('../src/gen/civ/modules')>();
-  return {
-    ...m,
-    resumeCiv: (...args: Parameters<typeof m.resumeCiv>) => {
-      const sim = m.resumeCiv(...args);
-      sims.push(sim);
-      return sim;
-    },
-  };
-});
-const { resumeCiv } = await import('../src/gen/civ/modules');
+const catcher: CivModule = { id: 'catch', resume: (c) => void sims.push(c.sim) };
+const CATCH_PACK = { ...OFFICIAL_PACK, modules: [...CIV_MODULES, catcher] };
 
 const worlds = new Map<number, World>();
 const world = (seed: number) => {
@@ -194,7 +187,7 @@ describe('读口 sim.read@1', () => {
     const plain = continueCiv(w, civ, { endYear: 1600 });
 
     sims.length = 0;
-    const run = startContinue(w, civ, { endYear: 1600 })!;
+    const run = continuePack(CATCH_PACK, w, civ, { endYear: 1600 })!;
     expect(sims.length).toBe(1);
     const sim = sims[0];
     const v = simRead(sim)!;

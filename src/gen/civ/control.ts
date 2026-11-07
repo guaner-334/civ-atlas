@@ -320,7 +320,7 @@ export const FISCAL_CONSTS: FiscalRuleConsts = {
 };
 /** 政局的全部表:按一套数编好的(同一套数只编一次) */
 const cardsMemo = new WeakMap<KnobSet, TableCard[]>();
-function stateCardsOf(knobs: KnobSet): TableCard[] {
+export function stateCardsOf(knobs: KnobSet): TableCard[] {
   let cards = cardsMemo.get(knobs);
   if (!cards) cardsMemo.set(knobs, (cards = stateCards(controlConsts(knobs), unrestConsts(knobs), FISCAL_CONSTS, popConsts(knobs), councilConsts(knobs))));
   return cards;
