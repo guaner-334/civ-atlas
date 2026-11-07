@@ -21,7 +21,7 @@ import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { Civ } from '../gen/civ/types';
 import type { World } from '../gen/world';
 import { capitalAt } from '../gen/readers/openQuery';
-import { standPass } from '../gen/civ/story/display';
+import { standPassOf } from '../gen/civ/story/display';
 import { nearX, wrapOf } from '../render/common';
 import type { EvType } from '../render/eventTypes';
 import { END_YEAR_DEFAULT, YEAR_TICKS } from '../gen/edits';
@@ -633,7 +633,7 @@ function findSpot(world: World, civ: Civ, e: ChronicleEntry): EntrySpot | null {
   const n = world.mesh.n;
   const ok = (c: number) => c >= 0 && c < n;
   if (e.kind === 'stand' && civ.places) {
-    const p = standPass(civ.places, e.id);
+    const p = standPassOf(civ, e.id);
     const c = p >= 0 ? (civ.places[p].cell ?? -1) : -1;
     if (ok(c)) return { cell: c, kind: 'pass', id: p };
   }
