@@ -345,6 +345,12 @@ export async function writePluginLocal(id: string, value: unknown): Promise<void
         throw new PluginStoreError('failed', `设置里有存不了的东西:${e instanceof Error ? e.message : String(e)}`);
       }
       if (packed.length > PLUGIN_LOCAL_MAX_BYTES) throw new PluginStoreError('big', `设置最多 ${PLUGIN_LOCAL_MAX_BYTES} 字节`);
+      // 打得出来、读不回来的(绕回自己、层数太多)不存,原来的不动
+      try {
+        unpackValue(packed, PLUGIN_LOCAL_MAX_BYTES);
+      } catch (e) {
+        throw new PluginStoreError('failed', `设置读不回来:${e instanceof Error ? e.message : String(e)}`);
+      }
       data = copy(packed);
     }
     const ok = await run<boolean>(['plugins', 'local'], 'readwrite', (t, done) => {

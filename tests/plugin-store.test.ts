@@ -216,6 +216,12 @@ describe('插件仓库:插件自己的设置', () => {
     await writePluginLocal('route-measure', 1);
     await expectKind(() => writePluginLocal('route-measure', new Uint8Array(PLUGIN_LOCAL_MAX_BYTES)), 'big');
     await expectKind(() => writePluginLocal('route-measure', { f: () => 1 }), 'failed');
+    const loop: Record<string, unknown> = {};
+    loop.self = loop;
+    await expectKind(() => writePluginLocal('route-measure', loop), 'failed');
+    let deep: unknown = 1;
+    for (let i = 0; i < 100; i++) deep = [deep];
+    await expectKind(() => writePluginLocal('route-measure', deep), 'failed');
     await expectKind(() => writePluginLocal('nope', 1), 'missing');
     expect(await readPluginLocal('route-measure')).toBe(1);
     expect(await readPluginLocal('nope')).toBeUndefined();

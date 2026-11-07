@@ -99,12 +99,19 @@ describe('插件存进世界的数据', () => {
     expect(await changePluginData(sample.id, tool, null)).toEqual({ status: 'same', n: m.revision.n });
   });
 
-  it('超过上限:不写,说多大', async () => {
+  it('超过上限:不写,说多大;读不回来的值(绕回自己、层数太多)报错,原来的不动', async () => {
     await commitWorld(request());
     const r = await changePluginData(sample.id, tool, { schema: 1, value: new Uint8Array(PLUGIN_DATA_MAX_BYTES) });
     expect(r.status).toBe('big');
     expect(r.status === 'big' && r.bytes).toBeGreaterThan(PLUGIN_DATA_MAX_BYTES);
     expect((await latest()).revision.n).toBe(1);
+    await changePluginData(sample.id, tool, { schema: 1, value: 'old' });
+    const loop: Record<string, unknown> = {};
+    loop.self = loop;
+    let deep: unknown = 1;
+    for (let i = 0; i < 100; i++) deep = [deep];
+    for (const value of [loop, deep]) await expect(changePluginData(sample.id, tool, { schema: 1, value })).rejects.toMatchObject({ kind: 'failed' });
+    expect((await readPluginData(sample.id, tool.id))?.value).toBe('old');
   });
 
   it('之后重推、改配方存新修订:插件的数据和记录跟着走', async () => {
