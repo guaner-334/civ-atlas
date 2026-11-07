@@ -86,6 +86,15 @@ describe('传话', () => {
     expect(approxBytes(new Map([[1, 'x'.repeat(100)]]), 1e9)).toBeGreaterThan(200);
   });
 
+  it('Error 的 message、stack、cause 也算;估不了的东西一律算太大', () => {
+    expect(approxBytes(new Error('small', { cause: new Uint8Array(1_000_000) }), 1e9)).toBeGreaterThanOrEqual(1_000_000);
+    expect(approxBytes(new Error('x'.repeat(10_000)), 1e9)).toBeGreaterThanOrEqual(20_000);
+    expect(approxBytes(new RegExp('x'.repeat(10_000)), 1e9)).toBeGreaterThanOrEqual(20_000);
+    expect(approxBytes(new String('x'.repeat(10_000)), 1e9)).toBeGreaterThanOrEqual(20_000);
+    expect(approxBytes({ d: new Date(), n: new Number(1) }, 1e9)).toBeLessThan(100);
+    expect(approxBytes(new (class Thing {})(), 1e9)).toBe(Infinity);
+  });
+
   it('小视图后面挂着大缓冲区,按整个缓冲区算', () => {
     expect(approxBytes(new Uint8Array(new ArrayBuffer(1_000_000), 0, 1), 1e9)).toBeGreaterThanOrEqual(1_000_000);
     const buf = new ArrayBuffer(1000);
