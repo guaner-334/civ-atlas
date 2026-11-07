@@ -69,6 +69,7 @@ import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs, type KnobSet } from './engine/knobs';
+import { TABLE_GROUP } from './tableGroups';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -366,6 +367,7 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     },
     owner: '国',
   });
+  sim.tables.add(TABLE_GROUP.state, eng);
   /** 上一步算的时候各州归哪国(这一年里换了国家的州,表里的值是原来那国的) */
   const tOwn = eng.input('国');
   let tCtl = eng.get('管辖');

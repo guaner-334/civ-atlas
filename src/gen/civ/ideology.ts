@@ -42,6 +42,7 @@ import { ideoCards } from './ideoTables';
 import { subSeed } from './engine/rand';
 import type { CivModule } from './modules';
 import { civApi } from './api';
+import { TABLE_GROUP } from './tableGroups';
 
 /** 一说一行 */
 export interface Thought {
@@ -367,6 +368,7 @@ function padTo(a: Uint8Array, n: number): Uint8Array {
 function hook(sim: CivSim, m: IdeoModel): void {
   const api = civApi(sim);
   models.set(sim, m);
+  sim.tables.add(TABLE_GROUP.ideology, m.eng);
   api.dev.afterStep = (y, prev) => tick(sim, m, y, prev);
 }
 

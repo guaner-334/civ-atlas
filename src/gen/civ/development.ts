@@ -77,6 +77,7 @@ import { CAPS, INVENTIONS } from './inventions';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { TABLE_GROUP } from './tableGroups';
 
 /** 物产(下标就是 Development.resources 里的第几样) */
 export const RESOURCES = ['粮', '牲畜', '铜锡', '铁', '煤', '木材', '盐', '渔获', '石油', '稀有矿', '金银'] as const;
@@ -506,6 +507,7 @@ function hook(sim: CivSim, d: DevModel): void {
   const api = civApi(sim);
   models.set(sim, d);
   d.eng = devEngine(d);
+  sim.tables.add(TABLE_GROUP.dev, d.eng);
   d.pm.capFactor = d.capF;
   d.pm.military ??= [];
   // 打仗看物产(wars.ts):州里有哪几样;国家缺哪几样
