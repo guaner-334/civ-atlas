@@ -226,11 +226,11 @@ function readPluginMessage(m: unknown): PluginMessage | null {
 export const MESSAGES_PER_SECOND = 200;
 /** 插件发来的一条话最大多少字节(估的),大了停掉 */
 export const MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
-/** 估大小时最多看多少个值:层层套的小对象估起来也花时间 */
-const MEASURE_MAX_NODES = 500_000;
+/** 估大小时最多看多少个值:层层套的小对象估起来也花时间(合规矩的话里最多的是 20 万个点的标注图层写成普通数组) */
+const MEASURE_MAX_NODES = 1_000_000;
 
 /**
- * 估一个值传过来占多少字节:字串按两字节一个字,数组按实际字节,别的值算 8 个字节。超过 max(或者值太多)就不再往下数,
+ * 估一个值传过来占多少字节:字串按两字节一个字,数值数组按实际字节,别的值算 8 个字节。超过 max(或者值太多)就不再往下数,
  * 返回的数大于 max。同一个对象出现几次只算一次
  */
 export function approxBytes(value: unknown, max: number): number {
@@ -252,7 +252,7 @@ export function approxBytes(value: unknown, max: number): number {
       else if (typeof Blob !== 'undefined' && x instanceof Blob) total += x.size;
       else if (Array.isArray(x)) {
         if (x.length > room()) return Infinity;
-        total += 8 + 8 * x.length;
+        total += 8;
         for (let i = 0; i < x.length; i++) stack.push(x[i]);
       } else if (x instanceof Map) {
         if (x.size * 2 > room()) return Infinity;
