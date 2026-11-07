@@ -111,6 +111,8 @@ export interface PluginHost {
 export const OUT_BYTES_PER_SECOND = 64 * 1024 * 1024;
 /** 同时最多几个还没回的调用(点选这种要等用的人的) */
 export const INFLIGHT_MAX = 16;
+/** 一秒最多提几次修改:每次都要量一遍改完的存档 */
+export const APPLY_PER_SECOND = 10;
 /** view.year、view.select 最快多久发一次 */
 export const VIEW_EVENT_MS = 250;
 const LOG_MAX = 2000;
@@ -135,6 +137,9 @@ class Host implements PluginHost {
   private readonly viewTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly viewSent = new Map<string, number>();
   private done = false;
+  /** 最近 APPLY_PER_SECOND 次提修改是什么时候(环形) */
+  private readonly applyTimes = new Float64Array(APPLY_PER_SECOND);
+  private applied = 0;
 
   constructor(
     readonly id: string,
@@ -266,7 +271,14 @@ class Host implements PluginHost {
         return read.authorNotes(src.notes?.() ?? [], args);
       case 'author.apply': {
         const commit = src.commit ?? unavailable('网站这边还不能照插件的要求改');
-        const plan = planChanges(src.edits(), src.civ(), args);
+        const now = performance.now();
+        const slot = this.applied++ % APPLY_PER_SECOND;
+        if (this.applied > APPLY_PER_SECOND && now - this.applyTimes[slot] < 1000) {
+          this.applied--;
+          throw new PluginApiError('busy', `一秒最多提 ${APPLY_PER_SECOND} 次修改`);
+        }
+        this.applyTimes[slot] = now;
+        const plan = planChanges(src.edits(), src.civ(), args, this.world().params);
         if (plan.result.applied) {
           const why = commit(plan.next, plan.keys);
           if (why) throw new PluginApiError('blocked', why);

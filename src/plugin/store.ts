@@ -57,8 +57,11 @@ function checkValue(v: unknown, depth: number, up: Set<object>, done: Set<object
   const proto = Object.getPrototypeOf(v);
   if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return bad(`${at} 只能是普通对象`);
   up.add(v);
-  if (Array.isArray(v)) v.forEach((x, i) => checkValue(x, depth + 1, up, done, `${at}[${i}]`));
-  else
+  if (Array.isArray(v)) {
+    // 传过来的数组可以带着别的键,存的时候不一定留得住
+    if (Object.keys(v).length !== v.length) bad(`${at} 是数组,不能有空位或别的键`);
+    for (let i = 0; i < v.length; i++) checkValue(v[i], depth + 1, up, done, `${at}[${i}]`);
+  } else
     for (const k of Object.keys(v)) {
       if (k === '__proto__' || k === 'constructor' || k === 'prototype') bad(`${at} 里有不许用的键 ${k}`);
       checkValue((v as Record<string, unknown>)[k], depth + 1, up, done, `${at}.${k}`);

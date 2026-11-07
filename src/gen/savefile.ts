@@ -518,7 +518,7 @@ export const CHECK_WARNING = '地形和存档时对不上(可能来自别的版�
 /** 世界名最长几个字 */
 export const TITLE_MAX = 24;
 /** 存档文件最大多少字节(再大就不像存档了) */
-const MAX_BYTES = 8 * 1024 * 1024;
+export const SAVE_MAX_BYTES = 8 * 1024 * 1024;
 /** 改名最多多少条、键最长多少字 */
 const MAX_NAMES = 20000;
 const KEY_MAX = 64;
@@ -747,7 +747,7 @@ const SAVE_HEAD = new RegExp(`^\\uFEFF?\\s*\\{\\s*"app"\\s*:\\s*"${SAVE_APP}"`);
  */
 export function parseSave(text: string): ParseResult {
   if (typeof text !== 'string' || !text.trim()) return { ok: false, error: '文件是空的' };
-  if (text.length > MAX_BYTES) return { ok: false, error: '文件太大,不像「文明与地图」的存档' };
+  if (text.length > SAVE_MAX_BYTES) return { ok: false, error: '文件太大,不像「文明与地图」的存档' };
   let raw: unknown;
   try {
     raw = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
@@ -1263,7 +1263,7 @@ export async function decodeShare(hash: string): Promise<ParseResult> {
   } catch {
     return { ok: false, error: SHARE_OLD_BROWSER };
   }
-  const raw = await through(bytes, ds, MAX_BYTES);
+  const raw = await through(bytes, ds, SAVE_MAX_BYTES);
   if (raw === 'big') return { ok: false, error: '链接里的数据太大,不像「文明与地图」的分享链接' };
   if (raw === 'bad') return { ok: false, error: SHARE_BROKEN };
   let text: string;

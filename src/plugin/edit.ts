@@ -17,6 +17,8 @@ import {
   type Intervention,
   type WorldEdits,
 } from '../gen/edits';
+import { makeSave, saveText, SAVE_MAX_BYTES } from '../gen/savefile';
+import type { WorldParams } from '../gen/world';
 import { argsOf, bad, isRec, list, over, PluginApiError } from './check';
 import { approxBytes } from './protocol';
 import type { ApplyResult } from './types';
@@ -25,9 +27,11 @@ import type { ApplyResult } from './types';
 export const CHANGES_MAX = 200;
 /** 一条最大多少字节(估的;最大的是圈满州的标记):同一个大数组可以被很多条引用,先挡住再清理 */
 const CHANGE_MAX_BYTES = 64 * 1024;
-/** 插件改完以后干预、改名最多几条:再多世界文件的清单就存不下了 */
+/** 插件改完以后干预、改名最多几条 */
 export const PLUGIN_INTERVENTIONS_MAX = 10_000;
 export const PLUGIN_NAMES_MAX = 20_000;
+/** 存档里修改以外的东西(校验、世界名、视角、出处)留的地方 */
+const SAVE_ROOM = 64 * 1024;
 
 export interface PlannedChanges {
   next: WorldEdits;
@@ -52,8 +56,8 @@ function ivKeys(v: Intervention): string[] {
   return out;
 }
 
-/** 整批算好;不合格抛 PluginApiError(bad-args / limit / unavailable) */
-export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown): PlannedChanges {
+/** 整批算好;不合格抛 PluginApiError(bad-args / limit / unavailable)。params = 这个世界的参数(量改完以后的存档有多大) */
+export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, params: WorldParams): PlannedChanges {
   const changes = list(argsOf(raw).changes, 'changes', CHANGES_MAX);
   let names = edits.names;
   let aiNames = edits.aiNames;
@@ -113,5 +117,6 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown): P
   if (aiNames) next.aiNames = aiNames;
   else delete next.aiNames;
   if (marks.length) next.marks = marks;
+  if (saveText(makeSave(params, next, '')).length > SAVE_MAX_BYTES - SAVE_ROOM) over('改完以后存档太大,存不下');
   return { next, result, keys };
 }

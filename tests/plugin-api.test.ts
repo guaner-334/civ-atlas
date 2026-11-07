@@ -95,6 +95,12 @@ describe('传话', () => {
     expect(approxBytes(new (class Thing {})(), 1e9)).toBe(Infinity);
   });
 
+  it('数组带着别的键也算', () => {
+    const a: number[] & { extra?: string } = [1, 2];
+    a.extra = 'x'.repeat(10_000);
+    expect(approxBytes(a, 1e9)).toBeGreaterThanOrEqual(20_000);
+  });
+
   it('小视图后面挂着大缓冲区,按整个缓冲区算', () => {
     expect(approxBytes(new Uint8Array(new ArrayBuffer(1_000_000), 0, 1), 1e9)).toBeGreaterThanOrEqual(1_000_000);
     const buf = new ArrayBuffer(1000);
@@ -646,7 +652,8 @@ describe('回调用', () => {
 // ---------------------------------------------------------------------------
 // 改你写的东西、插件自己的数据
 
-const { planChanges, CHANGES_MAX } = await import('../src/plugin/edit');
+const { planChanges: planRaw, CHANGES_MAX } = await import('../src/plugin/edit');
+const planChanges = (e: WorldEdits, h: Civ | null, raw: unknown) => planRaw(e, h, raw, world.params);
 const { commitPluginEdits } = await import('../src/plugin/editsCommit');
 const { getEdits, setEdits } = await import('../src/ui/editsStore');
 const { undoLastEdit, redoLastEdit } = await import('../src/ui/undo');
@@ -711,6 +718,15 @@ describe('改你写的东西', () => {
     expect(planChanges(EMPTY_EDITS, null, { changes: [{ kind: 'mark', mark: { title: 'x', color: 'red', from: 0, at: [1, 1] } }] }).result.applied).toBe(1);
   });
 
+  it('改完以后存档存不下的(超过存档文件的上限)整批不改', () => {
+    const key = pk();
+    const regions = Array.from({ length: 64 }, (_, i) => regionKey(civ, i));
+    const many = Array.from({ length: 7000 }, (_, i) => ({ kind: 'disaster', type: 'famine', level: 2, from: i, regions }) as unknown as WorldEdits['interventions'][number]);
+    const e: WorldEdits = { ...EMPTY_EDITS, interventions: many };
+    expect(codeOf(() => planChanges(e, civ, { changes: Array.from({ length: 200 }, (_, i) => ({ kind: 'intervention', v: { kind: 'disaster', type: 'famine', level: 2, from: 9000 + i, regions } })) }))).toBe('limit');
+    expect(planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'name', key, name: '甲' }] }).result.applied).toBe(1);
+  });
+
   it('记进网站的修改:整批一步撤销、一步重做', () => {
     setEdits(EMPTY_EDITS);
     const key = pk();
@@ -747,6 +763,17 @@ describe('改你写的东西', () => {
     const none = await open(['author.write@1'], { source: base });
     expect(await none.call('author.apply', { changes: [] })).toMatchObject({ ok: false, error: { code: 'unavailable' } });
   });
+
+  it('一秒最多提 10 次修改,多了回 busy', async () => {
+    const { call } = await open(['author.write@1'], { source: { world: () => world, civ: () => civ, edits: () => EMPTY_EDITS, commit: () => null } });
+    const codes: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const r = await call('author.apply', { changes: [] });
+      codes.push(r && r.ok ? 'ok' : (r?.error.code ?? '?'));
+    }
+    expect(codes.filter((c) => c === 'ok')).toHaveLength(10);
+    expect(codes.slice(10)).toEqual(['busy', 'busy']);
+  });
 });
 
 describe('插件自己的数据', () => {
@@ -768,6 +795,10 @@ describe('插件自己的数据', () => {
     let deep: unknown = 1;
     for (let i = 0; i < 40; i++) deep = [deep];
     expect(code({ schema: 1, value: deep })).toBe('limit');
+    const extra: unknown[] & { big?: string } = [1];
+    extra.big = 'x';
+    expect(code({ schema: 1, value: extra })).toBe('bad-args');
+    expect(code({ schema: 1, value: [1, , 3] })).toBe('bad-args');
     const shared = { a: 1 };
     expect(code({ schema: 1, value: [shared, shared] })).toBe('no error');
     // 一层套一层、每层引用下一层两次:展开有 2^30 个,查过的不再查
