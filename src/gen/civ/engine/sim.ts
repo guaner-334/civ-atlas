@@ -34,6 +34,7 @@
 import { MinHeap } from '../../util';
 import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Year } from '../types';
 import { OFFICIAL_KNOBS, knobSetOf, type KnobPatch, type KnobSet } from './knobs';
+import { TableRegistry } from './tables/registry';
 
 /** 检查点间隔(年) */
 export const CHECKPOINT_EVERY = 100;
@@ -280,6 +281,9 @@ export class CivSim {
 
   /** 子系统之间的具名接口表:按名字分组,内容由规则那一边定(官方推演的见 civ/api.ts);每次推演一份 */
   readonly api: Record<string, object> = {};
+
+  /** 各组数表的总登记(规则那一边建好引擎时登记进来);每次推演一份 */
+  readonly tables = new TableRegistry();
 
   /** 推演过程中处理了多少个事件(含过期丢掉的),调参 / 测试用 */
   processed = 0;
