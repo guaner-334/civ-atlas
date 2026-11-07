@@ -86,6 +86,12 @@ describe('传话', () => {
     expect(approxBytes(new Map([[1, 'x'.repeat(100)]]), 1e9)).toBeGreaterThan(200);
   });
 
+  it('小视图后面挂着大缓冲区,按整个缓冲区算', () => {
+    expect(approxBytes(new Uint8Array(new ArrayBuffer(1_000_000), 0, 1), 1e9)).toBeGreaterThanOrEqual(1_000_000);
+    const buf = new ArrayBuffer(1000);
+    expect(approxBytes([new Uint8Array(buf), new Float32Array(buf)], 1e9)).toBeLessThan(1100);
+  });
+
   it('合规矩的最大的话(20 万个点的标注图层、20 万地块的图层写成普通数组)不算太大', () => {
     expect(approxBytes({ id: 'a', title: 'a', items: [{ kind: 'line', points: Array(400_000).fill(1.5) }] }, MESSAGE_MAX_BYTES)).toBeLessThanOrEqual(MESSAGE_MAX_BYTES);
     expect(approxBytes({ id: 'a', title: 'a', values: Array(200_000).fill(1.5), ramp: { colors: ['#000000', '#ffffff'] } }, MESSAGE_MAX_BYTES)).toBeLessThanOrEqual(MESSAGE_MAX_BYTES);
@@ -196,6 +202,15 @@ describe('面板', () => {
     let deep: unknown = [{ type: 'divider' }];
     for (let i = 0; i < 5; i++) deep = [{ type: 'group', children: deep }];
     expect(codeOf(() => checkPanel(deep))).toBe('limit');
+  });
+
+  it('同一份表格引用很多次也按展开以后数,很快就报超上限', () => {
+    const row = Array(20).fill(1);
+    const table = { type: 'table', columns: ['a'], rows: Array(500).fill(row) };
+    const t0 = performance.now();
+    expect(codeOf(() => checkPanel(Array(2000).fill(table)))).toBe('limit');
+    expect(codeOf(() => checkPanel(Array(2000).fill({ type: 'table', columns: [], rows: Array(500).fill([]) })))).toBe('limit');
+    expect(performance.now() - t0).toBeLessThan(500);
   });
 
   it('用的人动了控件:值要合那个控件', () => {
@@ -337,6 +352,30 @@ describe('读历史', () => {
     for (const p of people.items) expect(resolveKey(civ, p.key)).toEqual({ kind: 'person', id: p.id });
     const routes = read.historyRoutes(civ, { year }, noGive);
     expect(routes.every((r) => r.built <= year)).toBe(true);
+  });
+
+  it('有地形大事的历史:某一年的归属按那一段的州铺开;界面手里是更早一段时也按整段历史读', () => {
+    const fake = {
+      endYear: 1000,
+      upheavals: [{ year: 500 }],
+      eras: [{ until: 500, habitat: {}, regions: { count: 3, of: new Int32Array([0, 1, 2]), seat: new Int32Array([0, 1, 2]) }, places: [], routes: [] }],
+      regions: { count: 3, of: new Int32Array([0, -1, 2]), seat: new Int32Array([0, 2, 2]) },
+      places: [],
+      routes: [],
+    } as unknown as Civ;
+    const w3 = { mesh: { n: 3 } } as unknown as World;
+    expect(read.historyAt(w3, fake, { year: 400, fields: ['region'] }, noGive).region).toEqual(new Int32Array([0, 1, 2]));
+    expect(read.historyAt(w3, fake, { year: 500, fields: ['region'] }, noGive).region).toEqual(new Int32Array([0, -1, 2]));
+    expect(read.needCiv({ history: fake } as unknown as Civ)).toBe(fake);
+  });
+
+  it('城是不是港口按那一年(地形大事能改)', () => {
+    const i = civ.settlements.findIndex((s) => s.ended === undefined && s.founded < 300);
+    const s0 = civ.settlements[i];
+    const c2 = { ...civ, settlements: civ.settlements.map((s, j) => (j === i ? { ...s, port: false, reshaped: [{ year: s0.founded + 100, capacity: s.capacity, port: true }] } : s)) };
+    const at = (y: number) => read.historySettlements(c2, { year: y }).find((s) => s.id === s0.id)!.port;
+    expect(at(s0.founded + 50)).toBe(false);
+    expect(at(s0.founded + 150)).toBe(true);
   });
 
   it('人物、编年史分页取;一次最多 2000;编年史的字照原样', () => {

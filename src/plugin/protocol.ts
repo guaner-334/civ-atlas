@@ -230,8 +230,8 @@ export const MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
 const MEASURE_MAX_NODES = 1_000_000;
 
 /**
- * 估一个值传过来占多少字节:字串按两字节一个字,数值数组按实际字节,别的值算 8 个字节。超过 max(或者值太多)就不再往下数,
- * 返回的数大于 max。同一个对象出现几次只算一次
+ * 估一个值传过来占多少字节:字串按两字节一个字,数值数组按整个缓冲区的字节,别的值算 8 个字节。超过 max(或者值太多)就不再往下数,
+ * 返回的数大于 max。同一个对象、同一个缓冲区出现几次只算一次
  */
 export function approxBytes(value: unknown, max: number): number {
   let total = 0;
@@ -247,8 +247,9 @@ export function approxBytes(value: unknown, max: number): number {
     else if (seen.has(x)) continue;
     else {
       seen.add(x);
-      if (ArrayBuffer.isView(x)) total += x.byteLength;
-      else if (x instanceof ArrayBuffer) total += x.byteLength;
+      // 小视图后面可能挂着大缓冲区,传过去的是整个缓冲区
+      if (ArrayBuffer.isView(x)) stack.push(x.buffer);
+      else if (x instanceof ArrayBuffer || (typeof SharedArrayBuffer !== 'undefined' && x instanceof SharedArrayBuffer)) total += x.byteLength;
       else if (typeof Blob !== 'undefined' && x instanceof Blob) total += x.size;
       else if (Array.isArray(x)) {
         if (x.length > room()) return Infinity;
