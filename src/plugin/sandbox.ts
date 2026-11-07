@@ -1,9 +1,21 @@
 /**
  * 开一个插件沙箱(传话格式见 ./protocol.ts)。只在用到插件时 import(),首页不带它。
  */
-import { FRAME_SRCDOC, PROTOCOL, readFrameMessage, SANDBOX_FLAGS, workerSource, type PluginMessage } from './protocol';
+import {
+  approxBytes,
+  FRAME_SRCDOC,
+  MESSAGE_MAX_BYTES,
+  MESSAGES_PER_SECOND,
+  PROTOCOL,
+  readFrameMessage,
+  SANDBOX_FLAGS,
+  workerSource,
+  type PluginMessage,
+  type PluginResponse,
+} from './protocol';
 
-export type StopReason = 'stopped' | 'start-timeout' | 'unresponsive' | 'crashed' | 'protocol';
+/** flood = 一秒里发的话太多;oversize = 一条话太大 */
+export type StopReason = 'stopped' | 'start-timeout' | 'unresponsive' | 'crashed' | 'protocol' | 'flood' | 'oversize';
 
 export class SandboxStopped extends Error {
   constructor(
@@ -20,6 +32,8 @@ export interface SandboxOptions {
   parent?: HTMLElement;
   startTimeoutMs?: number;
   onMessage?: (data: unknown) => void;
+  /** 插件调接口;用 respond 回话(不接 = 一律回 unknown-call) */
+  onRequest?: (id: number, call: string, args: unknown) => void;
   onStop?: (reason: StopReason, detail: string) => void;
 }
 
@@ -32,6 +46,10 @@ export interface PluginSandbox {
   call(data: unknown, opts?: { timeoutMs?: number; transfer?: Transferable[] }): Promise<unknown>;
   /** 插件线程有没有被占死;超时就停掉插件 */
   ping(timeoutMs?: number): Promise<void>;
+  /** 回插件的一次调用;停了就不发。transfer 里的东西传不过去时改回 failed */
+  respond(id: number, res: PluginResponse, transfer?: Transferable[]): void;
+  /** 发事件给插件;停了就不发 */
+  emit(name: string, data: unknown, transfer?: Transferable[]): void;
   stop(): void;
 }
 
@@ -54,6 +72,9 @@ class Sandbox implements PluginSandbox {
   private seq = 0;
   private readonly pending = new Map<number, Pending>();
   private readonly startTimer: ReturnType<typeof setTimeout>;
+  /** 最近 MESSAGES_PER_SECOND 条话是什么时候到的(环形) */
+  private readonly arrivals = new Float64Array(MESSAGES_PER_SECOND);
+  private arrived = 0;
 
   constructor(
     private readonly code: string,
@@ -79,6 +100,12 @@ class Sandbox implements PluginSandbox {
   private readonly listen = (e: MessageEvent) => {
     // 框是不透明来源,origin 都是 "null",只能认是哪个窗口发的
     if (this.stopped || e.source !== this.win) return;
+    const now = performance.now();
+    const slot = this.arrived++ % MESSAGES_PER_SECOND;
+    const old = this.arrivals[slot];
+    this.arrivals[slot] = now;
+    if (this.arrived > MESSAGES_PER_SECOND && now - old < 1000) return this.halt('flood', `over ${MESSAGES_PER_SECOND} messages a second`);
+    if (approxBytes(e.data, MESSAGE_MAX_BYTES) > MESSAGE_MAX_BYTES) return this.halt('oversize', `a message over ${MESSAGE_MAX_BYTES} bytes`);
     const m = readFrameMessage(e.data);
     if (!m) return this.halt('protocol', 'malformed message');
     if (m.from === 'boot') {
@@ -102,6 +129,11 @@ class Sandbox implements PluginSandbox {
     if (this.state !== 'run') return this.halt('protocol', `${m.kind} before hello`);
     if (m.kind === 'post') {
       this.opts.onMessage?.(m.data);
+      return;
+    }
+    if (m.kind === 'req') {
+      if (this.opts.onRequest) this.opts.onRequest(m.id, m.call, m.args);
+      else this.respond(m.id, { ok: false, error: { code: 'unknown-call', text: m.call } });
       return;
     }
     const p = this.pending.get(m.id);
@@ -136,6 +168,19 @@ class Sandbox implements PluginSandbox {
 
   send(data: unknown, transfer?: Transferable[]) {
     if (!this.stopped) this.toWorker({ kind: 'post', data }, transfer);
+  }
+
+  respond(id: number, res: PluginResponse, transfer?: Transferable[]) {
+    if (this.stopped) return;
+    try {
+      this.toWorker({ kind: 'res', id, ...res }, transfer);
+    } catch (e) {
+      this.toWorker({ kind: 'res', id, ok: false, error: { code: 'failed', text: String((e as Error)?.name ?? e) } });
+    }
+  }
+
+  emit(name: string, data: unknown, transfer?: Transferable[]) {
+    if (!this.stopped) this.toWorker({ kind: 'event', name, data }, transfer);
   }
 
   call(data: unknown, opts: { timeoutMs?: number; transfer?: Transferable[] } = {}) {
