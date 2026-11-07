@@ -192,6 +192,8 @@ pnpm dev        # http://localhost:5188
 
 用这个工具做出来的世界（起的名字、干预、改过的地形、标记和人物）、导出的地图图片、AI 为你写的书，都归你所有，我们不主张任何权利，可以自由使用，包括商业用途。AGPL-3.0 只约束代码本身，不约束用它生成的地图和文字；AI 生成的内容同时受 AI 服务商条款的约束。程序生成的地名可能与真实名称重合，商用前请自行核对。
 
+插件开发文档（`docs/plugins/`）和示例插件（`examples/plugins/`）以 MIT 许可证发布，见各目录中的 LICENSE。
+
 第三方依赖各有许可（MIT / ISC / Unlicense；导出视频用的 [mediabunny](https://github.com/Vanilagy/mediabunny) 是 MPL-2.0，未作修改）；字体使用 SIL Open Font License 1.1（见下）。
 
 ## 致谢
