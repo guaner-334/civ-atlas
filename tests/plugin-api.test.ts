@@ -13,7 +13,7 @@ import { EMPTY_EDITS, resolveKey, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
 import { PLUGIN_CAPS } from '../src/plugin/pluginCaps';
 import { checkCellLayer, checkMarkLayer, checkPanel, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
-import { approxBytes, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
+import { approxBytes, MESSAGE_MAX_BYTES, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
 import * as read from '../src/plugin/read';
 import type { PluginResponse } from '../src/plugin/protocol';
 import type { SandboxOptions } from '../src/plugin/sandbox';
@@ -84,6 +84,11 @@ describe('传话', () => {
     expect(approxBytes(new Array(10_000_000), 1e12)).toBe(Infinity);
     expect(approxBytes({ s: 'x'.repeat(5000) }, 1000)).toBeGreaterThan(1000);
     expect(approxBytes(new Map([[1, 'x'.repeat(100)]]), 1e9)).toBeGreaterThan(200);
+  });
+
+  it('合规矩的最大的话(20 万个点的标注图层、20 万地块的图层写成普通数组)不算太大', () => {
+    expect(approxBytes({ id: 'a', title: 'a', items: [{ kind: 'line', points: Array(400_000).fill(1.5) }] }, MESSAGE_MAX_BYTES)).toBeLessThanOrEqual(MESSAGE_MAX_BYTES);
+    expect(approxBytes({ id: 'a', title: 'a', values: Array(200_000).fill(1.5), ramp: { colors: ['#000000', '#ffffff'] } }, MESSAGE_MAX_BYTES)).toBeLessThanOrEqual(MESSAGE_MAX_BYTES);
   });
 });
 
