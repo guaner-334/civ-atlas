@@ -1,0 +1,19 @@
+{
+  "id": "box-summary",
+  "name": "框选合计",
+  "version": "1.0.0",
+  "role": "tool",
+  "api": 1,
+  "runtime": "worker",
+  "requires": ["world.read@1", "history.read@1", "view.read@1", "input.pick@1", "ui.panel@1", "author.write@1"],
+  "why": {
+    "world.read@1": "算框里陆地的面积",
+    "history.read@1": "数框里的州、人口、城市，看各州归哪国",
+    "view.read@1": "按你正在看的那一年合计，换一年跟着重算",
+    "input.pick@1": "请你在地图上框一片",
+    "author.write@1": "你点「存成标记」时，把框住的州圈成一个标记，合计写在说明里"
+  },
+  "description": "框一片地方，合计里面的陆地、州、人口、城市和各国占多少；可以存成一个标记。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}
