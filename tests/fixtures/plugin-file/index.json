@@ -1,0 +1,307 @@
+[
+  {
+    "file": "good.civplugin",
+    "kind": "ok",
+    "why": "好的插件文件,每个字段、每个文件都有"
+  },
+  {
+    "file": "not-zip.civplugin",
+    "kind": "broken",
+    "why": "不是 ZIP"
+  },
+  {
+    "file": "zip-bad-crc.civplugin",
+    "kind": "broken",
+    "why": "ZIP 里一个文件的字节被改过,对不上 CRC"
+  },
+  {
+    "file": "too-many-entries.civplugin",
+    "kind": "broken",
+    "why": "ZIP 里超过 16 个条目"
+  },
+  {
+    "file": "no-manifest.civplugin",
+    "kind": "broken",
+    "why": "没有 manifest.json"
+  },
+  {
+    "file": "extra-file.civplugin",
+    "kind": "broken",
+    "why": "ZIP 里有清单没列的文件"
+  },
+  {
+    "file": "missing-file.civplugin",
+    "kind": "broken",
+    "why": "清单列了、ZIP 里没有"
+  },
+  {
+    "file": "unknown-path.civplugin",
+    "kind": "broken",
+    "why": "不认得的文件路径"
+  },
+  {
+    "file": "nested-zip.civplugin",
+    "kind": "broken",
+    "why": "里面套 ZIP"
+  },
+  {
+    "file": "sum-mismatch.civplugin",
+    "kind": "broken",
+    "why": "文件和清单里的指纹对不上"
+  },
+  {
+    "file": "bytes-mismatch.civplugin",
+    "kind": "broken",
+    "why": "清单里写的大小不对"
+  },
+  {
+    "file": "duplicate-file.civplugin",
+    "kind": "broken",
+    "why": "清单里同一个文件写了两遍"
+  },
+  {
+    "file": "no-license.civplugin",
+    "kind": "broken",
+    "why": "缺 LICENSE"
+  },
+  {
+    "file": "no-readme.civplugin",
+    "kind": "broken",
+    "why": "缺 README.md"
+  },
+  {
+    "file": "no-code.civplugin",
+    "kind": "broken",
+    "why": "缺 main.js"
+  },
+  {
+    "file": "manifest-not-json.civplugin",
+    "kind": "broken",
+    "why": "清单不是 JSON"
+  },
+  {
+    "file": "manifest-not-utf8.civplugin",
+    "kind": "broken",
+    "why": "清单不是 UTF-8"
+  },
+  {
+    "file": "manifest-not-object.civplugin",
+    "kind": "broken",
+    "why": "清单不是对象"
+  },
+  {
+    "file": "manifest-too-deep.civplugin",
+    "kind": "broken",
+    "why": "清单的结构层数太多"
+  },
+  {
+    "file": "manifest-bad-key.civplugin",
+    "kind": "broken",
+    "why": "清单里有 constructor 这种键"
+  },
+  {
+    "file": "wrong-app.civplugin",
+    "kind": "broken",
+    "why": "app 不是「文明与地图」"
+  },
+  {
+    "file": "format-bad.civplugin",
+    "kind": "broken",
+    "why": "format 不是正整数"
+  },
+  {
+    "file": "format-newer.civplugin",
+    "kind": "newer",
+    "why": "format 比网站新"
+  },
+  {
+    "file": "world-file.civplugin",
+    "kind": "broken",
+    "why": "kind 是 world:世界文件改了后缀"
+  },
+  {
+    "file": "kind-bad.civplugin",
+    "kind": "broken",
+    "why": "kind 不合规矩"
+  },
+  {
+    "file": "kind-newer.civplugin",
+    "kind": "newer",
+    "why": "kind 这一版网站不认得"
+  },
+  {
+    "file": "api-bad.civplugin",
+    "kind": "broken",
+    "why": "api 不是正整数"
+  },
+  {
+    "file": "api-newer.civplugin",
+    "kind": "newer",
+    "why": "接口版本比网站新"
+  },
+  {
+    "file": "id-bad.civplugin",
+    "kind": "broken",
+    "why": "id 不合规矩(大写、下划线)"
+  },
+  {
+    "file": "id-too-long.civplugin",
+    "kind": "broken",
+    "why": "id 太长"
+  },
+  {
+    "file": "name-empty.civplugin",
+    "kind": "broken",
+    "why": "name 空着"
+  },
+  {
+    "file": "name-too-long.civplugin",
+    "kind": "broken",
+    "why": "name 太长"
+  },
+  {
+    "file": "name-bidi.civplugin",
+    "kind": "broken",
+    "why": "name 里有改写显示方向的字符"
+  },
+  {
+    "file": "version-bad.civplugin",
+    "kind": "broken",
+    "why": "version 不是 主.次.补丁"
+  },
+  {
+    "file": "role-bad.civplugin",
+    "kind": "broken",
+    "why": "role 不合规矩"
+  },
+  {
+    "file": "role-newer.civplugin",
+    "kind": "newer",
+    "why": "role 是这一版网站跑不了的(推演插件)"
+  },
+  {
+    "file": "runtime-bad.civplugin",
+    "kind": "broken",
+    "why": "runtime 不合规矩"
+  },
+  {
+    "file": "runtime-newer.civplugin",
+    "kind": "newer",
+    "why": "runtime 是这一版网站没有的"
+  },
+  {
+    "file": "requires-not-list.civplugin",
+    "kind": "broken",
+    "why": "requires 不是列表"
+  },
+  {
+    "file": "cap-bad.civplugin",
+    "kind": "broken",
+    "why": "能力名不合规矩(没写版本)"
+  },
+  {
+    "file": "cap-twice.civplugin",
+    "kind": "broken",
+    "why": "同一样能力写了两遍"
+  },
+  {
+    "file": "cap-both.civplugin",
+    "kind": "broken",
+    "why": "同一样能力既在 requires 又在 optional"
+  },
+  {
+    "file": "cap-too-many.civplugin",
+    "kind": "broken",
+    "why": "要的能力太多"
+  },
+  {
+    "file": "cap-unknown.civplugin",
+    "kind": "newer",
+    "why": "requires 里有这一版网站没有的能力"
+  },
+  {
+    "file": "cap-higher.civplugin",
+    "kind": "newer",
+    "why": "requires 里能力的版本比网站新"
+  },
+  {
+    "file": "optional-bad.civplugin",
+    "kind": "broken",
+    "why": "optional 里的能力名不合规矩"
+  },
+  {
+    "file": "why-unknown.civplugin",
+    "kind": "broken",
+    "why": "why 里写了没要的能力"
+  },
+  {
+    "file": "why-too-long.civplugin",
+    "kind": "broken",
+    "why": "why 的理由太长"
+  },
+  {
+    "file": "entry-bad.civplugin",
+    "kind": "broken",
+    "why": "entry 不是 main.js"
+  },
+  {
+    "file": "files-not-list.civplugin",
+    "kind": "broken",
+    "why": "files 不是列表"
+  },
+  {
+    "file": "file-sum-bad.civplugin",
+    "kind": "broken",
+    "why": "files 里的指纹不是 SHA-256"
+  },
+  {
+    "file": "description-too-long.civplugin",
+    "kind": "broken",
+    "why": "description 太长"
+  },
+  {
+    "file": "description-control.civplugin",
+    "kind": "broken",
+    "why": "description 里有控制字符"
+  },
+  {
+    "file": "license-bad.civplugin",
+    "kind": "broken",
+    "why": "license 不合规矩"
+  },
+  {
+    "file": "author-bad.civplugin",
+    "kind": "broken",
+    "why": "author 不是对象"
+  },
+  {
+    "file": "author-name-empty.civplugin",
+    "kind": "broken",
+    "why": "author.name 空着"
+  },
+  {
+    "file": "code-not-utf8.civplugin",
+    "kind": "broken",
+    "why": "main.js 不是 UTF-8"
+  },
+  {
+    "file": "code-nul.civplugin",
+    "kind": "broken",
+    "why": "main.js 里有 NUL(不是文字)"
+  },
+  {
+    "file": "readme-not-utf8.civplugin",
+    "kind": "broken",
+    "why": "README.md 不是 UTF-8"
+  },
+  {
+    "file": "icon-not-png.civplugin",
+    "kind": "broken",
+    "why": "icon.png 不是 PNG"
+  },
+  {
+    "file": "icon-wrong-size.civplugin",
+    "kind": "broken",
+    "why": "icon.png 不是 128×128"
+  }
+]

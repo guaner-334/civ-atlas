@@ -166,7 +166,7 @@ describe('首页不带沙箱', () => {
         } else if (/\.tsx?$/.test(e.name)) {
           const text = fs.readFileSync(p, 'utf8');
           for (const m of text.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^;'"]*?from\s+['"]([^'"]+)['"]/gm)) {
-            if (/(^|\/)plugin\/(sandbox|protocol)$/.test(m[1])) bad.push(`${path.relative(ROOT, p)}: ${m[0].trim()}`);
+            if (/(^|\/)plugin\/[^/]+$/.test(m[1])) bad.push(`${path.relative(ROOT, p)}: ${m[0].trim()}`);
           }
         }
       }
