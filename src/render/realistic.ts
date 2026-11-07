@@ -14,7 +14,7 @@ import {
   boxBlurWrap,
   cylinderNoise,
   drawRivers,
-  prepRivers,
+  prepRiverStep,
   riverNetworkSteps,
   hexRGB,
   hillshade,
@@ -866,12 +866,20 @@ export function realisticDetailPrep(world: World, r: Raster, creeks = true, look
     },
     () => void realisticShoreLayers(r, look),
     ...(flat ? [(deadline: number) => landPathStep(r, deadline)] : []),
-    () => {
-      // 河网几何不随缩放倍数变(见 common.ts 的 netGeometry),按哪个倍数的画法算都一样
-      const style = realisticRiverStyle(2, world.riverThreshold, look, olderTerrain(world)?.CREEK_FRAC);
-      prepRivers(creeks ? riversOf(world, 2) : world.rivers, { s: 1, ox: 0, oy: 0, k: 2, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(world, r, style, look));
-    },
+    riverPrep(world, r, creeks, look),
   ];
+}
+
+/** 细节层画河要用的河网几何、陆地蒙版(河网几何不随缩放倍数变,见 common.ts 的 netGeometry,按哪个倍数的画法算都一样) */
+function riverPrep(world: World, r: Raster, creeks: boolean, look: SurfaceLook): WorkStep {
+  let step: WorkStep | null = null;
+  return (deadline) => {
+    if (!step) {
+      const style = realisticRiverStyle(2, world.riverThreshold, look, olderTerrain(world)?.CREEK_FRAC);
+      step = prepRiverStep(creeks ? riversOf(world, 2) : world.rivers, { s: 1, ox: 0, oy: 0, k: 2, wrap: wrapOf(world) }, world.riverThreshold, style, riverOpts(world, r, style, look));
+    }
+    return step(deadline);
+  };
 }
 
 /** 岸边两圈的像素(见 shoreSides):找的那一遍分几段做,step 返回 true = 还没找完 */
