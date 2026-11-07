@@ -9,7 +9,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, type Civ } from '../src/gen/civ';
 import type { Person } from '../src/gen/civ/types';
 import { dynastyIndexAt, polityShortTitle, polityTierAt } from '../src/gen/civ/growth';
-import { buildChronicle, filterChronicle, mergeChronicle, polityChronicle, reignEntries, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
+import { buildChronicle, filterChronicle, mergeChronicle, polityChronicle, polityReigns, reignEntries, type ChronicleEntry } from '../src/gen/civ/story/chronicle';
 import { kinOf, rulerRef, rulerTitle } from '../src/gen/civ/story/peopleText';
 import { regionLabel } from '../src/gen/civ/story/display';
 import { polityKey } from '../src/gen/edits';
@@ -250,6 +250,18 @@ describe.each([7, 2024])('人物 · seed=%i', (seed) => {
     expect(filterChronicle(merged, { major: true }).some((e) => e.kind === 'reign')).toBe(false);
     // 编年史页只看一国的"全部"、国家面板"全部 N 件"都用 polityChronicle:就是这一份
     expect(polityChronicle(civ, list, p).map((e) => e.id)).toEqual(merged.map((e) => e.id));
+  });
+
+  it('只算一国的君主继位(先算)和全部的(后算)里按国挑出来的是同一批条目', () => {
+    const c = generateCiv(world(seed));
+    const early = c.polities.map((p) => polityReigns(c, p.id));
+    const all = reignEntries(c);
+    expect(early.reduce((n, l) => n + l.length, 0)).toBe(all.length);
+    for (const p of c.polities) {
+      const want = filterChronicle(all, { polity: p.id });
+      expect(early[p.id].length).toBe(want.length);
+      expect(early[p.id].every((e, i) => e === want[i])).toBe(true);
+    }
   });
 
   it('称呼:按当年的君号写(部落首领写名字,有称号的写称号);帝国的君主带当年的国号简称', () => {
