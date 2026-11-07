@@ -5,10 +5,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeAiServer, FAKE_CODE } from '../scripts/lib/fakeAiServer';
 import { ServerError, setServerForTest } from '../src/account/server';
-import { _resetSessionForTest, deleteAccount, fetchAuthOptions, login } from '../src/account/session';
+import { _resetSessionForTest, deleteAccount, fetchAuthOptions, getSession, login, onAccountDisabled } from '../src/account/session';
 import { createShare, listAllShares, openShareCode, putCloud, seenStoppedShare, stopShare } from '../src/account/cloud';
 import { bindPhone, cleanPhone, fetchMe, sendPhoneCode } from '../src/account/phone';
-import { knownPhone, refreshMe, submitBan } from '../src/ui/submitView';
+import { askPhone, knownPhone, refreshMe, submitBan } from '../src/ui/submitView';
+import { fetchOwnFile } from '../src/account/fullWorlds';
+import { clearToast, getToast } from '../src/ui/toastStore';
 import { reportShare, wasShareReported } from '../src/ui/shareReport';
 
 class FakeStorage {
@@ -219,10 +221,122 @@ describe('封禁', () => {
     expect((await fetchMe()).ban).toMatchObject({ carried: true });
 
     // 停用着注销:不让注册
-    await dev('/v1/dev/ban', { account: 'mo@example.com', ban: { level: 'submit', reason: 'privacy', reasonText: '投来的作品多次写了真人的隐私' } });
-    fake.users.get('mo@example.com')!.disabled = { level: 'all', reason: 'spam', reasonText: '乱投、刷投稿' };
-    expect(await deleteAccount(FAKE_CODE)).toBe(true);
+    await dev('/v1/dev/ban', { account: 'mo@example.com', ban: { level: 'all', reason: 'spam', reasonText: '乱投、刷投稿' }, gone: true });
     const again = await login('mo@example.com', FAKE_CODE).catch((x: ServerError) => x);
     expect(again).toMatchObject({ code: 'auth', message: '这个邮箱注销前的账号已停用,不能再注册。原因:乱投、刷投稿', data: { ban: { carried: true, at: null } } });
+  });
+});
+
+describe('已经登着的账号被停用', () => {
+  const ILLEGAL = { level: 'all', reason: 'illegal-share', reasonText: '分享出去的世界有违法违规的内容' };
+  let told = 0;
+  let off: () => void = () => {};
+  beforeEach(() => {
+    told = 0;
+    off = onAccountDisabled(() => told++);
+  });
+  afterEach(() => off());
+
+  it('下一次请求:401 带 ban,退出登录、通知一次;再请求不再通知', async () => {
+    await signInWithWorld();
+    await dev('/v1/dev/ban', { account: EMAIL, ban: ILLEGAL });
+    const e = await fetchMe().catch((x: ServerError) => x);
+    expect(e).toMatchObject({ status: 401, code: 'auth', message: '这个账号已停用,已经退出登录。原因:分享出去的世界有违法违规的内容', data: { ban: { level: 'all' } } });
+    expect(getSession()).toBeNull();
+    expect(told).toBe(1);
+    expect(await code(listAllShares())).toBe('auth');
+    expect(told).toBe(1);
+  });
+
+  it('传到账号那边的请求(取整个世界)走同一条路', async () => {
+    await signInWithWorld();
+    await dev('/v1/dev/ban', { account: EMAIL, ban: ILLEGAL });
+    expect(await code(fetchOwnFile(WORLD))).toBe('auth');
+    expect(getSession()).toBeNull();
+    expect(told).toBe(1);
+  });
+
+  it('普通的登录过期:照旧退出登录,不通知', async () => {
+    await signInWithWorld();
+    await fake.handle(new Request(`${BASE}/v1/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${tokenOf()}` } }));
+    const e = (await fetchMe().catch((x: ServerError) => x)) as ServerError;
+    expect(e).toMatchObject({ status: 401, code: 'auth', message: '登录过期了,请重新登录' });
+    expect(e.data.ban).toBeUndefined();
+    expect(getSession()).toBeNull();
+    expect(told).toBe(0);
+  });
+
+  it('解封以后原来的令牌作废,重新登录能用', async () => {
+    await signInWithWorld();
+    const old = tokenOf();
+    await dev('/v1/dev/ban', { account: EMAIL, ban: ILLEGAL });
+    await dev('/v1/dev/ban', { account: EMAIL, ban: null });
+    const r = await fake.handle(new Request(`${BASE}/v1/me`, { headers: { Authorization: `Bearer ${old}` } }));
+    expect((await r.json()).error).toEqual({ code: 'auth', message: '登录过期了,请重新登录' });
+    await login(EMAIL, FAKE_CODE);
+    expect((await fetchMe()).ban).toBeNull();
+  });
+
+  it('提示条:这个账号已停用,已经退出登录 / 世界还在这个浏览器里', async () => {
+    await import('../src/ui/AccountDialogs');
+    clearToast('account-disabled');
+    await signInWithWorld();
+    await dev('/v1/dev/ban', { account: EMAIL, ban: ILLEGAL });
+    await fetchMe().catch(() => {});
+    expect(getToast()).toMatchObject({ id: 'account-disabled', kind: 'warn', text: '这个账号已停用，已经退出登录', more: ['世界还在这个浏览器里'] });
+    clearToast('account-disabled');
+  });
+});
+
+describe('点「分享…」先问手机号', () => {
+  /** 拦住 /v1/me:放行前一直等着;fail = 放行时当连不上 */
+  function holdMe(fail: boolean) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (u: string, init?: RequestInit) => {
+        if (String(u).endsWith('/v1/me')) {
+          await gate;
+          if (fail) throw new TypeError('network');
+        }
+        return fake.handle(new Request(String(u), init));
+      }),
+    );
+    return release;
+  }
+  const wait = () => new Promise((r) => setTimeout(r, 0));
+
+  it.each([
+    ['问不成', true],
+    ['问成', false],
+  ])('问的工夫换了账号(%s):不接着做', async (_what, fail) => {
+    await login(EMAIL, FAKE_CODE);
+    const release = holdMe(fail);
+    const then = vi.fn();
+    askPhone({ for: 'share', then });
+    await login('mo@example.com', FAKE_CODE);
+    release();
+    for (let i = 0; i < 5; i++) await wait();
+    expect(then).not.toHaveBeenCalled();
+  });
+
+  it('没换账号:问不成照样接着做(真没绑服务器会挡回来),问到绑了也接着做', async () => {
+    await login(EMAIL, FAKE_CODE);
+    let release = holdMe(true);
+    const then = vi.fn();
+    askPhone({ for: 'share', then });
+    release();
+    for (let i = 0; i < 5; i++) await wait();
+    expect(then).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+    vi.stubGlobal('fetch', vi.fn(async (u: string, init?: RequestInit) => fake.handle(new Request(String(u), init))));
+    await sendPhoneCode('13800138866');
+    await bindPhone('13800138866', FAKE_CODE);
+    release = holdMe(false);
+    askPhone({ for: 'share', then });
+    release();
+    for (let i = 0; i < 5; i++) await wait();
+    expect(then).toHaveBeenCalledTimes(2);
   });
 });

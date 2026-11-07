@@ -188,9 +188,12 @@ export function askPhone(o: { for: 'submit' | 'share'; then: () => void }): void
   const p = knownPhone();
   if (p) return o.then();
   if (p === null) return open();
+  // 等回话的工夫换了账号(问成问不成都算):接着做就会拿新账号投、分享原来那个世界
+  const token = currentAccount()?.token;
+  const same = () => currentAccount()?.token === token;
   refreshMe().then(
-    (same) => same && (knownPhone() ? o.then() : open()),
-    () => o.then(),
+    (ok) => ok && same() && (knownPhone() ? o.then() : open()),
+    () => same() && o.then(),
   );
 }
 

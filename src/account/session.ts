@@ -5,7 +5,7 @@
  * - 登录令牌存在 localStorage 'civ-atlas:account'(浏览器不让存就只在内存里);退出登录才删。
  *   以前单独为"我们的 AI"登录的令牌(存在 AI 密钥里,ai/settings.ts)不沿用、直接作废:网站账号还会把世界同步进账号,
  *   要用户自己在登录窗里重新登录才算
- * - 服务器回 401(令牌过期 / 作废):清掉令牌,算退出
+ * - 服务器回 401(令牌过期 / 作废):清掉令牌,算退出;带着停用账号的 ban 的,另外通知界面说一声(onAccountDisabled)
  * - 别的标签页登录、退出、换了账号:跟着变(localStorage 的 storage 事件)
  * - 邀请链接(网址里的 invite=):记下邀请码,登录窗里自动填上
  *
@@ -162,10 +162,30 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   });
 }
 
-/** 服务器说令牌不认了(401):清掉,算退出。只认这次请求用的那个令牌(退出后换了账号,旧账号的请求晚回来的 401 不算) */
-export function sessionExpired(token?: string): void {
+/** 401 的错误里带着停用账号的 ban:已经登着的账号被停用了(普通的过期没有) */
+export const isDisabledBan = (data: unknown): boolean => {
+  const ban = (data as { ban?: { level?: unknown } } | null | undefined)?.ban;
+  return !!ban && typeof ban === 'object' && ban.level === 'all';
+};
+/** 这个错是停用账号的 401:已经退出登录、提示条说过了,各处不用再说「登录过期」 */
+export const isAccountDisabled = (e: unknown): boolean => e instanceof ServerError && e.code === 'auth' && isDisabledBan(e.data);
+
+const disabledSubs = new Set<() => void>();
+/** 已经登着的账号被停用、这里刚退出登录时通知(同一次登录只通知一次) */
+export function onAccountDisabled(f: () => void): () => void {
+  disabledSubs.add(f);
+  return () => void disabledSubs.delete(f);
+}
+
+/**
+ * 服务器说令牌不认了(401):清掉,算退出。只认这次请求用的那个令牌(退出后换了账号,旧账号的请求晚回来的 401 不算)。
+ * err = 401 里服务器给的别的字段
+ */
+export function sessionExpired(token?: string, err?: unknown): void {
   const s = load();
-  if (s && (token === undefined || s.token === token)) write(null);
+  if (!s || (token !== undefined && s.token !== token)) return;
+  write(null);
+  if (isDisabledBan(err)) for (const f of disabledSubs) f();
 }
 setAuthLostHandler(sessionExpired);
 

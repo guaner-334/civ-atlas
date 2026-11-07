@@ -26,7 +26,7 @@ import { PRIVACY_URL, TERMS_URL } from './links';
 import { closeAiSettings } from './AiSettings';
 import { refreshOfficialAccount } from '../ai/providers/official';
 import { ServerError } from '../account/server';
-import { fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
+import { fetchAuthOptions, getSession, login, onAccountDisabled, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
 import { showToast } from './toastStore';
 import { workKey, type SubmitWork } from './submitView';
 import './account.css';
@@ -44,6 +44,9 @@ export type Panel =
   | { kind: 'submit'; work: SubmitWork; view?: SubmitView }
   /** back:绑好、取消以后回到哪个窗;then:绑好以后接着做的 */
   | { kind: 'phone'; mode: PhoneMode; back: Panel | null; then?: () => void };
+
+// 已经登着的账号被停用(服务器的 401 带 ban):session.ts 已经退出登录,这里说一声;普通的登录过期不说
+onAccountDisabled(() => showToast({ id: 'account-disabled', kind: 'warn', text: '这个账号已停用，已经退出登录', more: ['世界还在这个浏览器里'] }));
 
 let panel: Panel | null = null;
 let trash = false;

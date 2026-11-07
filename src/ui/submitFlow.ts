@@ -4,7 +4,7 @@
  */
 import { sendBlocks, type BlockPlan } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
-import { getSession, onSessionChange } from '../account/session';
+import { getSession, isAccountDisabled, onSessionChange } from '../account/session';
 import { beginWorldSubmit, commitWorldSubmit, fetchSubmissions, postSubmission, waitSubmission, type SmallWork, type SubmitForm, type SubmitKind } from '../account/submissions';
 import { notesReady } from '../ai/library';
 import { openAccount } from './AccountDialogs';
@@ -221,6 +221,11 @@ async function doSubmit(me: NonNullable<typeof live>): Promise<void> {
       return;
     }
     if (live !== me) return;
+    if (isAccountDisabled(e)) {
+      live = null;
+      setSubmitJob(null);
+      return clearToast(TOAST);
+    }
     const f = submitFail(e, sending);
     if (f.kind === 'notice' && f.which === 'ban') setSubmitBan(f.ban ?? null);
     fail(f);

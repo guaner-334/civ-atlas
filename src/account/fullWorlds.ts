@@ -92,8 +92,8 @@ function errorOf(status: number, raw: string, token: string | undefined): Server
     /* 不是 JSON */
   }
   const code = typeof e.code === 'string' && e.code ? e.code : status === 401 ? 'auth' : status === 503 ? 'busy' : 'server';
-  if ((status === 401 || code === 'auth') && token) sessionExpired(token);
   const { code: _c, message, ...data } = e;
+  if ((status === 401 || code === 'auth') && token) sessionExpired(token, data);
   return new ServerError(status, code, typeof message === 'string' ? message : `服务器出错了(HTTP ${status})`, data);
 }
 

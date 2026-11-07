@@ -158,7 +158,7 @@ function toAiError(status: number, e: ErrorBody | undefined, usedToken?: string)
   if (status === 401 || code === 'auth') {
     // 令牌过期:清掉,请用户重新登录
     if (same) {
-      if (usedToken) sessionExpired(usedToken);
+      if (usedToken) sessionExpired(usedToken, e);
       setAcct({}, true);
     }
     return new AiError('auth', msg || '登录过期了,请在"AI"设置里重新登录');

@@ -30,7 +30,8 @@
  * 分享短链接的举报:3 次就自动暂停(假服务器认不出网络,一次算一个网络),一小时超过 5 次回太频繁;服务器没开作品墙时 404。
  * POST /v1/dev/share { code?, pause?, stop?, resolve? }(要登录;code 不给 = 当前账号最新开的那个):pause 'auto' | 'admin' 暂停、null 恢复;
  * stop 写原因就是我们彻底停了;resolve 我们看过了(暂停中停掉的那条放开,这个世界能再开)。
- * POST /v1/dev/ban { account, ban, gone? }(不用登录):ban 的样子同服务器,level 'submit' 停投稿、'all' 停用账号(已登录的令牌作废),null 解开;gone 封着注销掉。
+ * POST /v1/dev/ban { account, ban, gone? }(不用登录):ban 的样子同服务器,level 'submit' 停投稿、'all' 停用账号,null 解开;gone 封着注销掉。
+ * 停用账号时已登录的令牌不认,拿着它的请求回 401 带 ban(说明是停用);解封、换回停投稿时这些令牌作废。
  * 封着注销的邮箱再注册:停投稿的带上同一档(carried),停用的不让注册。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -460,9 +461,10 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       const t = typeof b?.account === 'string' ? users.get(b.account.trim()) : undefined;
       if (!t) return fail(404, 'not-found', '没有这个账号');
       const ban = b?.ban ?? null;
+      const was = !!t.disabled;
       t.ban = ban?.level === 'submit' ? ban : undefined;
       t.disabled = ban?.level === 'all' ? ban : undefined;
-      if (t.disabled || b?.gone === true) for (const [k, a] of tokens) if (a === t.account) tokens.delete(k);
+      if ((was && !t.disabled) || b?.gone === true) for (const [k, a] of tokens) if (a === t.account) tokens.delete(k);
       if (b?.gone === true) {
         if (ban) bannedEmails.set(t.account, ban);
         users.delete(t.account);
@@ -553,6 +555,10 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
 
     if (!aiOn && path === '/v1/chat') return fail(404, 'bad-request', '没有这个接口');
     const u = who(req);
+    if (path.startsWith('/v1/') && u?.disabled) {
+      const ban = u.disabled as { reasonText?: string };
+      return fail(401, 'auth', `这个账号已停用,已经退出登录${ban.reasonText ? `。原因:${ban.reasonText}` : ''}`, { ban: u.disabled });
+    }
     if (path.startsWith('/v1/') && !u) return fail(401, 'auth', '登录过期了,请重新登录');
     if (!u) return fail(404, 'bad-request', '没有这个接口');
 

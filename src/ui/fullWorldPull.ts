@@ -4,7 +4,7 @@
  */
 import { fetchOwnFile, fetchSharedFile, fetchWorkFile } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
-import { getSession } from '../account/session';
+import { getSession, isAccountDisabled } from '../account/session';
 import { SESSION_CHANGED, stillSignedIn, wipeCount } from '../account/sync';
 import { keptMapOf } from '../gen/edits';
 import { recipeKey, recipeOfSave } from '../gen/snapshot';
@@ -12,7 +12,7 @@ import { fullOverview, markRecipe, pairText, sameAsAccount, setFullPull, type Fu
 import { holdOpenNote } from './openNote';
 import { loadWorld, markTrash, newWorldId, putSyncedWorld, rawWorld, type StoredWorld } from './saveStore';
 import { saveMark } from './spaceFacts';
-import { showToast } from './toastStore';
+import { clearToast, showToast } from './toastStore';
 import { adoptWorldFile } from './worldFiles';
 import { holdWorld } from './worldHolds';
 import { TRASH_KEEP_MS, keptMapHere, vaultCall } from './worldStore';
@@ -93,7 +93,7 @@ export async function pullBeforeOpen(id: string, reopen: () => void): Promise<bo
   } catch (e) {
     if (current !== ac) return false;
     // 退出登录了:世界还在(选了留着)就照配方打开,不说连不上
-    if (e instanceof ServerError && e.code === SESSION_CHANGED) return !!loadWorld(id);
+    if ((e instanceof ServerError && e.code === SESSION_CHANGED) || isAccountDisabled(e)) return !!loadWorld(id);
     const name = w.save.title || '这个世界';
     const again = { label: '再试一次', act: 'full-pull-retry', onClick: reopen };
     // 地图留着的世界没有配方可按,不打开
@@ -123,7 +123,8 @@ async function retryOpened(id: string): Promise<void> {
   try {
     await pullInto(w, () => {}, ac.signal);
     location.reload();
-  } catch {
+  } catch (e) {
+    if (isAccountDisabled(e)) return clearToast('open-trouble');
     trouble('连不上服务器。现在看到的是按配方长的，可能不一样');
   }
 }

@@ -7,7 +7,7 @@
 import { deleteCloud } from '../account/cloud';
 import { beginFull, commitFull, fetchOverview, sendBlocks, waitChecked, type BlockPlan, type FullCheck } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
-import { getSession } from '../account/session';
+import { getSession, isAccountDisabled } from '../account/session';
 import { exportNotes, notesKnown, notesReady, type AiNote } from '../ai/library';
 import { SESSION_CHANGED, pushWorld, takeWorld } from '../account/sync';
 import { closeAccountPanel, openAccount, openShareDialog } from './AccountDialogs';
@@ -266,7 +266,7 @@ async function doUpload(id: string, me: { id: string; ac: AbortController }): Pr
     }
     // 这一件已经取消、又开始了新的一件:它的错不碰新的那件
     if (live !== me) return;
-    if (e instanceof ServerError && e.code === SESSION_CHANGED) {
+    if ((e instanceof ServerError && e.code === SESSION_CHANGED) || isAccountDisabled(e)) {
       live = null;
       setFullJob(null);
       clearToast(TOAST);
@@ -299,7 +299,7 @@ export async function uploadWorld(id: string): Promise<void> {
     if (e === CANCELLED || live !== me) return;
     live = null;
     setFullJob(null);
-    if (e instanceof ServerError && e.code === SESSION_CHANGED) return void clearToast(TOAST);
+    if ((e instanceof ServerError && e.code === SESSION_CHANGED) || isAccountDisabled(e)) return void clearToast(TOAST);
     say(id, errorNote(e, fullOverview()?.limits ?? null, false, actsFor(id)));
   }
 }
