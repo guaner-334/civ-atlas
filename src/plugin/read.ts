@@ -4,11 +4,12 @@
  */
 import { BIOMES } from '../gen/biomes';
 import type { Civ } from '../gen/civ/types';
+import { civAtEra } from '../gen/civ/eraCiv';
 import { cellAreas } from '../gen/civ/geo';
 import { KM_PER_UNIT } from '../gen/civ/scale';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { cultureKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey, type WorldEdits } from '../gen/edits';
-import { capitalAt, faithAt, ownersAt, polityName, populationAt, regionPopulationAt, settlementRank } from '../gen/readers/openQuery';
+import { capitalAt, faithAt, ownersAt, polityName, populationAt, portAt, regionPopulationAt, settlementRank } from '../gen/readers/openQuery';
 import type { World } from '../gen/world';
 import type { AuthorNote } from '../gen/worldFormat';
 import { argsOf, bad, list, num, optInt, over, PluginApiError } from './check';
@@ -48,7 +49,16 @@ export const NOTES_MAX = 100;
 const unavailable = (text: string): never => {
   throw new PluginApiError('unavailable', text);
 };
-export const needCiv = (civ: Civ | null): Civ => civ ?? unavailable('这个世界还没有历史');
+/** 整段历史:地图上画的是地形大事以前那一段时,界面手里的是那一段,整段挂在 history 上 */
+export const needCiv = (civ: Civ | null): Civ => civ?.history ?? civ ?? unavailable('这个世界还没有历史');
+
+/** 第 year 年那一段地形的历史(州、道路、地名换成那一段的;大事那一年的年初发生) */
+function eraCiv(civ: Civ, year: number): Civ {
+  const f = civ.upheavals;
+  let k = 0;
+  while (f && k < f.length && f[k].year <= year) k++;
+  return civAtEra(civ, k);
+}
 
 const hexOf = (c: readonly number[]): Hex => `#${c.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
 
@@ -153,7 +163,7 @@ export function historyAt(world: World, civ: Civ, raw: unknown, give: Give): Par
   for (const f of fields) if (!OWNER_FIELDS.includes(f as OwnerField)) bad(`fields 里的 ${String(f).slice(0, 20)} 不认得,能取的有 ${OWNER_FIELDS.join('、')}`);
   const want = new Set(fields as OwnerField[]);
   const n = world.mesh.n;
-  const of = civ.regions.of;
+  const of = eraCiv(civ, year).regions.of;
   const out: Partial<CellOwners> = {};
   const spread = (byRegion: Int16Array) => {
     const cells = new Int16Array(n);
@@ -203,7 +213,7 @@ export function historySettlements(civ: Civ, raw: unknown): SettlementInfo[] {
   const out: SettlementInfo[] = [];
   for (const s of civ.settlements) {
     if (year !== undefined && !(year >= s.founded && (s.ended === undefined || year < s.ended))) continue;
-    const info: SettlementInfo = { id: s.id, key: settlementKey(civ, s.id), name: s.name, cell: s.cell, region: s.region, founded: s.founded, port: s.port };
+    const info: SettlementInfo = { id: s.id, key: settlementKey(civ, s.id), name: s.name, cell: s.cell, region: s.region, founded: s.founded, port: year === undefined ? s.port : portAt(s, year) };
     if (s.ended !== undefined) info.ended = s.ended;
     if (year !== undefined) {
       info.population = populationAt(s, year);
@@ -217,7 +227,7 @@ export function historySettlements(civ: Civ, raw: unknown): SettlementInfo[] {
 export function historyRoutes(civ: Civ, raw: unknown, give: Give): RouteInfo[] {
   const year = optYear(civ, argsOf(raw).year);
   const out: RouteInfo[] = [];
-  for (const r of civ.routes) {
+  for (const r of (year === undefined ? civ : eraCiv(civ, year)).routes) {
     if (year !== undefined && !(year >= r.built && (r.abandoned === undefined || year < r.abandoned))) continue;
     const info: RouteInfo = { kind: r.kind, cells: give(r.cells.slice()), built: r.built };
     if (r.abandoned !== undefined) info.abandoned = r.abandoned;
@@ -257,7 +267,7 @@ export function historyFaiths(civ: Civ): FaithInfo[] {
 
 export function historyRegions(civ: Civ, raw: unknown): RegionInfo[] {
   const year = optYear(civ, argsOf(raw).year);
-  const R = civ.regions;
+  const R = (year === undefined ? civ : eraCiv(civ, year)).regions;
   const out: RegionInfo[] = [];
   for (let r = 0; r < R.count; r++) {
     const info: RegionInfo = {

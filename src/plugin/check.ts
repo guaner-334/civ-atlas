@@ -103,6 +103,8 @@ export const PANEL_ROWS_MAX = 500;
 const PANEL_COLUMNS_MAX = 20;
 const PANEL_OPTIONS_MAX = 100;
 const PANEL_DEPTH_MAX = 4;
+/** 表格的格子、列表的项、下拉的选项、图例加起来最多几个(同一份表格可以被引用很多次,要按展开以后数) */
+export const PANEL_ITEMS_MAX = 20_000;
 /** 一个标签、按钮上的字最多几个 */
 const LABEL_MAX = 80;
 
@@ -110,6 +112,11 @@ const LABEL_MAX = 80;
 export function checkPanel(raw: unknown): PanelNode[] {
   let nodes = 0;
   let chars = 0;
+  let items = 0;
+  const spend = <T,>(arr: T[]): T[] => {
+    items += arr.length;
+    return items > PANEL_ITEMS_MAX ? over(`面板的表格格子、列表、选项一共最多 ${PANEL_ITEMS_MAX} 个`) : arr;
+  };
   const ids = new Set<string>();
   const t = (v: unknown, at: string, max = PANEL_TEXT_MAX, multi = false) => {
     const s = text(v, at, max, multi);
@@ -140,18 +147,18 @@ export function checkPanel(raw: unknown): PanelNode[] {
           return { type: 'number', label: t(x.label, `${p}.label`, LABEL_MAX), value: num(x.value, `${p}.value`), ...(unit !== undefined ? { unit } : {}) };
         }
         case 'table': {
-          const columns = list(x.columns, `${p}.columns`, PANEL_COLUMNS_MAX).map((c, k) => t(c, `${p}.columns[${k}]`, LABEL_MAX));
-          const rows = list(x.rows, `${p}.rows`, PANEL_ROWS_MAX).map((r, k) =>
-            list(r, `${p}.rows[${k}]`, PANEL_COLUMNS_MAX).map((c, j) => (typeof c === 'number' ? num(c, `${p}.rows[${k}][${j}]`) : t(c, `${p}.rows[${k}][${j}]`, LABEL_MAX))),
+          const columns = spend(list(x.columns, `${p}.columns`, PANEL_COLUMNS_MAX)).map((c, k) => t(c, `${p}.columns[${k}]`, LABEL_MAX));
+          const rows = spend(list(x.rows, `${p}.rows`, PANEL_ROWS_MAX)).map((r, k) =>
+            spend(list(r, `${p}.rows[${k}]`, PANEL_COLUMNS_MAX)).map((c, j) => (typeof c === 'number' ? num(c, `${p}.rows[${k}][${j}]`) : t(c, `${p}.rows[${k}][${j}]`, LABEL_MAX))),
           );
           return { type: 'table', columns, rows };
         }
         case 'list':
-          return { type: 'list', items: list(x.items, `${p}.items`, PANEL_ROWS_MAX).map((c, k) => t(c, `${p}.items[${k}]`, LABEL_MAX)) };
+          return { type: 'list', items: spend(list(x.items, `${p}.items`, PANEL_ROWS_MAX)).map((c, k) => t(c, `${p}.items[${k}]`, LABEL_MAX)) };
         case 'button':
           return { type: 'button', id: cid(x.id, `${p}.id`), label: t(x.label, `${p}.label`, LABEL_MAX), ...(x.disabled === true ? { disabled: true } : {}) };
         case 'select': {
-          const options = list(x.options, `${p}.options`, PANEL_OPTIONS_MAX).map((o, k) => {
+          const options = spend(list(x.options, `${p}.options`, PANEL_OPTIONS_MAX)).map((o, k) => {
             if (!isRec(o)) return bad(`${p}.options[${k}] 要是对象`);
             return { value: id(o.value, `${p}.options[${k}].value`), label: t(o.label, `${p}.options[${k}].label`, LABEL_MAX) };
           });
@@ -174,7 +181,7 @@ export function checkPanel(raw: unknown): PanelNode[] {
         case 'legend':
           return {
             type: 'legend',
-            items: list(x.items, `${p}.items`, 32).map((o, k) => {
+            items: spend(list(x.items, `${p}.items`, 32)).map((o, k) => {
               if (!isRec(o)) return bad(`${p}.items[${k}] 要是对象`);
               return { color: hex(o.color, `${p}.items[${k}].color`), label: t(o.label, `${p}.items[${k}].label`, LABEL_MAX) };
             }),
@@ -320,11 +327,11 @@ export function checkMarkLayer(raw: unknown, world: { cells: number; width: numb
     const item: MarkLayerItem = { kind: k };
     if (it.cells !== undefined && it.points !== undefined) bad(`${p} 的 cells 和 points 只给一个`);
     if (it.cells !== undefined) {
-      item.cells = cellList(it.cells, `${p}.cells`, world.cells, MARK_POINTS_MAX);
+      item.cells = cellList(it.cells, `${p}.cells`, world.cells, budget);
       spend(item.cells.length);
     } else if (it.points !== undefined) {
       if (k === 'area') bad(`${p} 圈地块只认 cells`);
-      const pts = numbers(it.points, `${p}.points`, 2 * MARK_POINTS_MAX);
+      const pts = numbers(it.points, `${p}.points`, 2 * budget);
       if (pts.length % 2) bad(`${p}.points 要成对(x, y)`);
       item.points = new Float32Array(pts.length);
       for (let j = 0; j < pts.length; j += 2) {

@@ -145,6 +145,7 @@ export interface SettlementInfo {
   region: number;
   founded: number;
   ended?: number;
+  /** 是不是港口(给了年份 = 那一年的;地形大事能改) */
   port: boolean;
   /** 那一年的人口(千人);只有给了年份才有 */
   population?: number;
@@ -195,6 +196,7 @@ export interface FaithInfo {
   color: Hex;
 }
 
+/** 给了年份 = 那一年那一段地形的州(地形大事前后州的编号、键不变,治所、面积可能变) */
 export interface RegionInfo {
   id: number;
   key: string;
