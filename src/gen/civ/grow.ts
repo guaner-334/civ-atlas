@@ -5,24 +5,22 @@
  * - 交出去的每一份,和一口气推到那一年(generateCiv 给同样的参数、推演年数 = 那一年)逐字节一样;最后一份就是一口气推到底的那一份。
  *   前面交的那几份里已经发生的事,和后面交的、一口气推完的里面一模一样(整理只看每样东西出现以前的历史,见 index.ts 的 continueCiv),
  *   所以早先交的那份可以一直用到下一份来
- * - 怎么推:先一口气推到第 FIRST 年,之后照 continueCiv 的办法从上一份接着推(startContinue),每次往前推 STEP 年;
+ * - 怎么推:头一份从第 0 年起推(startCiv),之后照 continueCiv 的办法从上一份接着推(startContinue),每次往前推 STEP 年;
  *   每次 step 推满给的毫秒数就停下(下次接着推),让调用的一方处理别的事(worker 里收新消息、轮到另一段历史)
  * - 推不下去(推演里抛了错):停在出错前最后推好的那一年,把到那年为止的历史整理好交出去(failed),不再往后推。
- *   出错前最后推好的那一年到出错那一刻之间不到 STEP 年;重新整理要从上一份交出去的历史接着推一遍,只在出错时多花这点时间
- * - 接不着推的(长不出文明的世界):直接一口气推到底,交一份
+ *   出错前最后推好的那一年到出错那一刻之间不到 STEP 年;重新整理要从上一份交出去的历史(头一份还没交的从第 0 年)再推一遍,只在出错时多花这点时间
+ * - 从交过的那份接不着推的(长不出文明的世界):剩下的一口气推到底,交一份
  *
  * 纯计算,不碰 DOM;worker 和 Node 里都能跑。
  */
 import type { World } from '../world';
-import { DEFAULT_CIV_PARAMS, generateCiv, startContinue, type Continuation } from './index';
+import { DEFAULT_CIV_PARAMS, generateCiv, startCiv, startContinue, type Continuation, type Stepper } from './index';
 import type { Civ, CivParams } from './types';
 
 /** 交历史的年份(最后一个 = 推到哪年为止) */
 export const GROW_MARKS: readonly number[] = [300, 700, 1300, 2100, 3000];
 
-/** 从第 0 年起一口气推的那一段推到第几年(这一段里出错只知道是在头几年) */
-const FIRST = 10;
-/** 之后每次往前推几年(出错时停在的那年离出错那一刻不到这么多年) */
+/** 每次往前推几年(出错时停在的那年离出错那一刻不到这么多年) */
 const STEP = 1;
 
 /** 推的时候发生的事 */
@@ -31,7 +29,7 @@ export type GrowEvent =
   | { kind: 'civ'; civ: Civ; done: boolean }
   /**
    * 推不下去了:at = 出错的那一年;civ = 到出错前最后推好的那一年为止的历史(整理好的,推到 civ.endYear;
-   * 头几年就出错、什么都没推出来 = null)。之后不再往后推
+   * 连第 0 年都推不出来 = null)。之后不再往后推
    */
   | { kind: 'failed'; at: number; civ: Civ | null };
 
@@ -47,16 +45,38 @@ export interface Grower {
   step(budget: number): GrowEvent | null;
 }
 
-/** 推历史用的两样(单测换成会在某一年出错的) */
+/** 推历史用的几样(单测换成会在某一年出错的) */
 export interface GrowEngine {
   generate: (world: World, params: Partial<CivParams>) => Civ;
+  start: (world: World, params: Partial<CivParams>) => Stepper;
   resume: (world: World, civ: Civ, params: Partial<CivParams>) => Continuation | null;
 }
 
 export const growEngine: GrowEngine = {
   generate: (world, params) => generateCiv(world, params),
+  start: (world, params) => startCiv(world, params),
   resume: (world, civ, params) => startContinue(world, civ, params),
 };
+
+function breakStepper(r: Stepper, year: number): Stepper {
+  const fail = () => new Error(`推到第 ${year} 年以后故意出错`);
+  return {
+    get to() {
+      return r.to;
+    },
+    get year() {
+      return r.year;
+    },
+    advance(y: number) {
+      if (y > year) throw fail();
+      r.advance(y);
+    },
+    finish: () => {
+      if (r.to > year) throw fail();
+      return r.finish();
+    },
+  };
+}
 
 /**
  * 推到第 year 年以后故意出错的引擎(冒烟检查、截图用:看推不下去时的样子;推演里本来不会在这一年出错)。
@@ -68,32 +88,17 @@ export function breakAt(year: number): GrowEngine {
       if ((params.endYear ?? DEFAULT_CIV_PARAMS.endYear) > year) throw new Error(`推到第 ${year} 年以后故意出错`);
       return growEngine.generate(world, params);
     },
+    start: (world, params) => breakStepper(growEngine.start(world, params), year),
     resume: (world, civ, params) => {
       const r = growEngine.resume(world, civ, params);
       if (!r) return r;
-      return {
-        get from() {
-          return r.from;
-        },
-        get to() {
-          return r.to;
-        },
-        get year() {
-          return r.year;
-        },
-        advance(y: number) {
-          if (y > year) throw new Error(`推到第 ${year} 年以后故意出错`);
-          r.advance(y);
-        },
-        finish: () => {
-          if (r.to > year) throw new Error(`推到第 ${year} 年以后故意出错`);
-          return r.finish();
-        },
+      return Object.assign(breakStepper(r, year), {
+        from: r.from,
         partial: () => {
           if (r.to > year) throw new Error(`推到第 ${year} 年以后故意出错`);
           return r.partial();
         },
-      };
+      });
     },
   };
 }
@@ -119,7 +124,7 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
   /** 交过的最后一份(从它接着推;出错时从它重新推到出错前那年) */
   let last: Civ | null = null;
   /** 正往下一个交历史的年份推的那一段 */
-  let run: Continuation | null = null;
+  let run: Stepper | null = null;
   /** 下一个交历史的年份是第几个 */
   let k = 0;
   let done = !marks.length;
@@ -137,9 +142,9 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
     done = true;
     run = null;
     let civ: Civ | null = last;
-    if (last && stop > last.endYear) {
+    if (!last || stop > last.endYear) {
       try {
-        const r = engine.resume(world, last, at(stop));
+        const r = last ? engine.resume(world, last, at(stop)) : engine.start(world, at(stop));
         if (r) {
           while (r.year < stop) r.advance(Math.floor(r.year / STEP) * STEP + STEP);
           civ = r.finish();
@@ -162,20 +167,15 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
     step(budget: number): GrowEvent | null {
       if (done) return null;
       const t0 = now();
-      if (!last) {
-        // 从第 0 年起的头一段:一口气推(引擎从第 0 年起推不能中途停)
-        let c: Civ;
+      const target = marks[k];
+      if (!run && !last) {
         try {
-          c = engine.generate(world, at(Math.min(FIRST, marks[0])));
+          run = engine.start(world, at(target));
         } catch {
           done = true;
           return { kind: 'failed', at: 0, civ: null };
         }
-        if (c.endYear >= marks[k]) return deliver(c);
-        last = c;
-        if (now() - t0 >= budget) return null;
       }
-      const target = marks[k];
       if (!run) {
         const from: Civ = last!;
         run = engine.resume(world, from, at(target));
@@ -188,7 +188,7 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
           }
         }
       }
-      const r: Continuation = run;
+      const r: Stepper = run;
       let moved = false;
       while (r.year < target) {
         if (moved && now() - t0 >= budget) return null;

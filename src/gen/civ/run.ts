@@ -1,5 +1,5 @@
 /**
- * 总流程:照规则包推一段历史(一口气推、接着推、分段接着推)。只走包里给的几步,不点名哪个子系统。
+ * 总流程:照规则包推一段历史(从第 0 年起、接着一份历史),都能一步步推、停在哪一刻都和一口气推完一样。只走包里给的几步,不点名哪个子系统。
  * 地形大事:推到大事的前一刻,先照原样推到底的那一支定名字、这一段的地名和道路,再换上新地形从前一刻接着推。
  */
 import type { Progress, World } from '../world';
@@ -149,9 +149,119 @@ function reusableBase(p: CivParams, world: World, seed: number, knobs: KnobSet):
   return b && b.world === world && b.seed === seed && b.regionArea === p.regionArea && sameTable(b.regionKnobs, knobs.get(REGIONS_KNOBS)) ? b : undefined;
 }
 
+/** 主线:下一处要停的那一刻(驱动给的)、正在推的这一段的引擎(还没开始推 = null) */
+interface Line {
+  stop: Year;
+  sim: CivSim | null;
+}
+
+/** 主线这一段推到 end:路上到了要停的那一刻就停下交还驱动,驱动改了 line.stop 再接着推 */
+function* segment(line: Line, sim: CivSim, end: Year): Generator<void, void, void> {
+  line.sim = sim;
+  while (line.stop < end) {
+    sim.run(line.stop);
+    yield;
+  }
+  sim.run(end);
+}
+
+/** 驱动一步步走的总流程:第一次推时才开始走;中途抛了错就不能再推 */
+class Drive<T> {
+  private readonly line: Line;
+  private g: Generator<void, T, void> | null = null;
+  private out: { value: T } | null = null;
+  private broken = false;
+
+  constructor(
+    private readonly flow: (line: Line) => Generator<void, T, void>,
+    private readonly from: Year,
+    readonly to: Year,
+    sim: CivSim | null,
+  ) {
+    this.line = { stop: from, sim };
+  }
+
+  get year(): Year {
+    return this.line.sim ? this.line.sim.now : this.from;
+  }
+
+  /** 推到 untilYear(超过 to 的按 to);不比已经推到的晚 = 不动(还没开始推的,正好是开头那一刻也推:第 0 年那一刻的事) */
+  advance(untilYear: Year): void {
+    const t = Math.min(untilYear, this.to);
+    if (this.g ? t > this.year : t >= this.year) this.go(t);
+  }
+
+  /** 推到 to,交回总流程的结果 */
+  end(): T {
+    while (!this.out) this.go(this.to);
+    return this.out.value;
+  }
+
+  private go(t: Year): void {
+    if (this.broken) throw new Error('推演中途出了错,不能接着推');
+    if (this.out) return;
+    this.line.stop = t;
+    try {
+      const r = (this.g ??= this.flow(this.line)).next();
+      if (r.done) this.out = { value: r.value };
+    } catch (e) {
+      this.broken = true;
+      throw e;
+    }
+  }
+}
+
+/** 主线推到头、还没整理 */
+interface Ran<S> {
+  run: CivRun<S>;
+  own: S;
+  fin: Segment;
+  eras: CivEra[];
+  facts: UpheavalFact[];
+}
+
+/** 一步步推的一段历史(从第 0 年起,或者接着一份历史) */
+export interface Stepper {
+  /** 推到哪一刻为止(params.endYear) */
+  readonly to: number;
+  /** 已经推到哪一刻 */
+  readonly year: number;
+  /** 再推到 untilYear(超过 to 的按 to);分几段推和一口气推结果逐字节一样(推演只按事件的时刻走,不看在哪儿停过) */
+  advance(untilYear: number): void;
+  /** 推到 to(还没推到的接着推完),整理成 Civ(起名、配色、人物、道路、信仰);只调一次 */
+  finish(): Civ;
+}
+
 /** 从第 0 年一口气推到 params.endYear */
 export function runPack<S>(pack: CivPack<S>, world: World, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
+  return startPack(pack, world, params, progress).finish();
+}
+
+/** 从第 0 年起一步步推到 params.endYear:第一次 advance / finish 时才开始算 */
+export function startPack<S>(pack: CivPack<S>, world: World, params: Partial<CivParams> = {}, progress: Progress = () => {}): Stepper {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
+  const d = new Drive((line) => packFlow(pack, world, p, progress, line), 0, p.endYear, null);
+  let done = false;
+  return {
+    to: p.endYear,
+    get year() {
+      return d.year;
+    },
+    advance(untilYear: number) {
+      if (done) throw new Error('已经整理完了');
+      d.advance(untilYear);
+    },
+    finish() {
+      if (done) throw new Error('已经整理完了');
+      const r = d.end();
+      done = true;
+      return settleOf(r.run, r.own, r.fin, r.eras, r.facts);
+    },
+  };
+}
+
+/** 从第 0 年推到 p.endYear 的总流程,主线照 line.stop 停;地形大事那一段(推到底的那一支、换地形)一次做完 */
+function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Progress, line: Line): Generator<void, Ran<S>, void> {
   const knobs = knobSet(p.knobs, pack.knobs);
   /** 文明种子:没给 = 地图种子 */
   const seed = p.civSeed ?? world.params.seed;
@@ -172,7 +282,7 @@ export function runPack<S>(pack: CivPack<S>, world: World, params: Partial<CivPa
   if (install) installModules(pack, install);
   progress('民族推演', 0.85);
   const ups = install ? (p.upheavals ?? []).filter((u) => u.year > 0 && u.year < p.endYear) : [];
-  sim.run(ups.length ? ups[0].year - 1 / 256 : p.endYear);
+  yield* segment(line, sim, ups.length ? ups[0].year - 1 / 256 : p.endYear);
   const eras: CivEra[] = [];
   const facts: UpheavalFact[] = [];
   for (let k = 0; k < ups.length; k++) {
@@ -206,10 +316,10 @@ export function runPack<S>(pack: CivPack<S>, world: World, params: Partial<CivPa
       eras,
     );
     up.install(s1);
-    s1.run(k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear);
+    yield* segment(line, s1, k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear);
     fin = { sim: s1, world: u.world, habitat: h1, regions: r1 };
   }
-  return settleOf(run, own, fin, eras, facts);
+  return { run, own, fin, eras, facts };
 }
 
 /** 推到一半拼成结果,各模块补上自己的那一份 */
@@ -261,17 +371,9 @@ export function resumePack<S>(
 }
 
 /** 分段接着推(startContinue):推到哪一刻了、再推一段、推完整理 */
-export interface Continuation {
+export interface Continuation extends Stepper {
   /** 从哪一刻接着推(传进来的 civ.endYear) */
   readonly from: number;
-  /** 推到哪一刻为止(params.endYear) */
-  readonly to: number;
-  /** 已经推到哪一刻 */
-  readonly year: number;
-  /** 再推到 untilYear(超过 to 的按 to);分几段推和一口气推结果逐字节一样(推演只按事件的时刻走,不看在哪儿停过) */
-  advance(untilYear: number): void;
-  /** 推到 to(还没推到的接着推完),整理成 Civ(起名、配色、人物、道路、信仰);只调一次 */
-  finish(): Civ;
   /**
    * 推到 to,不整理:只够查史事、归属和再接着推的一份历史(还没起名;地名、道路、人物、信仰是空的)。
    * 从它接着推(continueCiv / startContinue)和从整理过的同一刻接着推结果一样。和 finish 二选一,只调一次
@@ -302,21 +404,22 @@ export function continuePack<S>(pack: CivPack<S>, world: World, civ: Civ, params
   const run: CivRun<S> = { pack, p, seed, knobs: sim.knobs, viable: true, progress };
   const fin: Segment = { sim, world, habitat: civ.habitat, regions };
   const to = p.endYear;
+  const d = new Drive((line) => segment(line, sim, to), civ.endYear, to, sim);
   let done = false;
   const runTo = () => {
     if (done) throw new Error('startContinue:已经整理完了');
-    if (to > sim.now) sim.run(to);
+    d.end();
     done = true;
   };
   return {
     from: civ.endYear,
     to,
     get year() {
-      return sim.now;
+      return d.year;
     },
     advance(untilYear: number) {
       if (done) throw new Error('startContinue:已经整理完了');
-      if (untilYear > sim.now) sim.run(Math.min(to, untilYear));
+      d.advance(untilYear);
     },
     finish() {
       runTo();

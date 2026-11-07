@@ -8,7 +8,7 @@ import { DEFAULT_CIV_PARAMS, continueParams } from './index';
 import { growEngine, type GrowEngine } from './grow';
 import type { Civ, CivParams } from './types';
 
-/** 从第 0 年起一口气推的那一段推到第几年(引擎从第 0 年起推不能中途停) */
+/** 从第 0 年起一口气推的那一段推到第几年:这一段里出错照旧抛错,不找停在哪年 */
 const FIRST = 10;
 
 export interface StuckOptions {

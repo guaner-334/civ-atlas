@@ -71,6 +71,7 @@ describe('推不下去时停在那一年', () => {
     const w = worldOf();
     const finishBreaks: GrowEngine = {
       generate: breakAt(170).generate,
+      start: growEngine.start,
       resume: (world, civ, params) => {
         const r = growEngine.resume(world, civ, params);
         if (!r) return r;

@@ -11,12 +11,12 @@ import type { ChangeLog, Civ, CivBase, CivParams } from './types';
 import { computeHabitat } from './habitat';
 import { REGIONS_KNOBS, buildRegions, emptyRegions } from './regions';
 import { knobSet } from './knobs';
-import { DEFAULT_CIV_PARAMS, continuePack, runPack, viability, type Continuation } from './run';
+import { DEFAULT_CIV_PARAMS, continuePack, runPack, startPack, viability, type Continuation, type Stepper } from './run';
 import { OFFICIAL_PACK } from './modules';
 
 export * from './types';
 
-export { DEFAULT_CIV_PARAMS, type Continuation } from './run';
+export { DEFAULT_CIV_PARAMS, type Continuation, type Stepper } from './run';
 export { planetTempo } from './official';
 
 /**
@@ -37,6 +37,11 @@ export function civBase(world: World, params: Partial<CivParams> = {}): CivBase 
 /** 照官方规则包从第 0 年一口气推到 params.endYear */
 export function generateCiv(world: World, params: Partial<CivParams> = {}, progress: Progress = () => {}): Civ {
   return runPack(OFFICIAL_PACK, world, params, progress);
+}
+
+/** generateCiv 拆成几段推:停在哪一刻、停几次,推完和 generateCiv 逐字节一样(地形大事的世界也一样) */
+export function startCiv(world: World, params: Partial<CivParams> = {}, progress: Progress = () => {}): Stepper {
+  return startPack(OFFICIAL_PACK, world, params, progress);
 }
 
 /**

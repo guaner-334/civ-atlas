@@ -2,12 +2,13 @@
  * 一段历史边推边交(gen/civ/grow.ts)和后台线程里那一头(src/growThread.ts):
  * - 分几次交的每一份,和一口气推到那一年逐字段一样;最后一份就是一口气推到底的那一份(官方规则、改过的规则、带文明种子和天灾)
  * - 每次 step 推满时间就停(至少往前推一次),年份只往前走
- * - 推不下去:停在出错前最后推好的那一年,交到那年为止整理好的历史(和一口气推到那年一样);头几年就出错 = 没有历史;整理时出错 = 上一份
+ * - 推不下去:停在出错前最后推好的那一年,交到那年为止整理好的历史(和一口气推到那年一样;头一份还没交的,头几年出错也一样);
+ *   连开头都推不出来 = 没有历史;整理时出错 = 上一份
  * - 线程那一头:几段轮流推、各自交;换了规则的那段从头推,没换的接着推(不重来);推完的不再推
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
-import { generateCiv, startContinue, type Civ, type CivParams } from '../src/gen/civ';
+import { generateCiv, startCiv, startContinue, type Civ, type CivParams, type Stepper } from '../src/gen/civ';
 import { startGrow, type GrowEngine, type GrowEvent } from '../src/gen/civ/grow';
 import { tuningPatch } from '../src/gen/civ/tuningPatch';
 import { TUNING_CALC } from '../src/gen/civ/tuning';
@@ -72,39 +73,38 @@ describe('边推边交', () => {
     expect(g.step(50)).toBeNull();
   }, 60_000);
 
-  it('推不下去:停在出错前最后推好的那一年,交到那年为止的历史;头几年就出错 = 没有历史;整理时出错 = 上一份', () => {
+  it('推不下去:停在出错前最后推好的那一年,交到那年为止的历史;连开头都推不出来 = 没有历史;整理时出错 = 上一份', () => {
     const w = worldOf();
-    /** 推到 bad 年以后就出错的引擎(从 bad 年起往后推一步就抛) */
-    const breaking = (bad: number, where: 'advance' | 'generate' | 'finish'): GrowEngine => ({
-      generate: (world, params) => {
-        if (where === 'generate') throw new Error('坏了');
-        return generateCiv(world, params);
-      },
-      resume: (world, civ, params) => {
-        const r = startContinue(world, civ, params);
-        if (!r) return r;
-        return {
-          get from() {
-            return r.from;
-          },
-          get to() {
-            return r.to;
-          },
-          get year() {
-            return r.year;
-          },
-          advance(y: number) {
-            if (where === 'advance' && y > bad && params.endYear! > bad) throw new Error('坏了');
-            r.advance(y);
-          },
-          finish() {
-            if (where === 'finish' && r.to > bad) throw new Error('坏了');
-            return r.finish();
-          },
-          partial: () => r.partial(),
-        };
-      },
-    });
+    /** 推到 bad 年以后就出错的引擎(从 bad 年起往后推一步就抛);start = 连开头都推不出来 */
+    const breaking = (bad: number, where: 'advance' | 'start' | 'finish'): GrowEngine => {
+      const wrap = (r: Stepper, params: Partial<CivParams>): Stepper => ({
+        get to() {
+          return r.to;
+        },
+        get year() {
+          return r.year;
+        },
+        advance(y: number) {
+          if (where === 'advance' && y > bad && params.endYear! > bad) throw new Error('坏了');
+          r.advance(y);
+        },
+        finish() {
+          if (where === 'finish' && r.to > bad) throw new Error('坏了');
+          return r.finish();
+        },
+      });
+      return {
+        generate: (world, params) => generateCiv(world, params),
+        start: (world, params) => {
+          if (where === 'start') throw new Error('坏了');
+          return wrap(startCiv(world, params), params);
+        },
+        resume: (world, civ, params) => {
+          const r = startContinue(world, civ, params);
+          return r && Object.assign(wrap(r, params), { from: r.from, partial: () => r.partial() });
+        },
+      };
+    };
     const evs = drain(startGrow(w, {}, { marks: MARKS, engine: breaking(187, 'advance') }));
     expect(evs.map((e) => e.kind)).toEqual(['civ', 'failed']);
     const f = evs[1] as Extract<GrowEvent, { kind: 'failed' }>;
@@ -112,8 +112,15 @@ describe('边推边交', () => {
     expect(f.civ!.endYear).toBe(187);
     sameCiv(f.civ!, generateCiv(w, { endYear: 187 }), '停在出错前');
 
-    const first = drain(startGrow(w, {}, { marks: MARKS, engine: breaking(0, 'generate') }));
+    const first = drain(startGrow(w, {}, { marks: MARKS, engine: breaking(0, 'start') }));
     expect(first).toEqual([{ kind: 'failed', at: 0, civ: null }]);
+
+    // 头一份还没交、头几年就出错:也停在出错前那一年
+    const early = drain(startGrow(w, {}, { marks: MARKS, engine: breaking(5, 'advance') }));
+    expect(early.map((e) => e.kind)).toEqual(['failed']);
+    const fe = early[0] as Extract<GrowEvent, { kind: 'failed' }>;
+    expect(fe.at).toBe(5);
+    sameCiv(fe.civ!, generateCiv(w, { endYear: 5 }), '头几年出错');
 
     const fin = drain(startGrow(w, {}, { marks: MARKS, engine: breaking(200, 'finish') }));
     expect(fin.map((e) => e.kind)).toEqual(['civ', 'failed']);
