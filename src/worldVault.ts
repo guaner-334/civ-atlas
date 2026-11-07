@@ -901,6 +901,7 @@ export async function changePluginData(id: string, plugin: WorldPlugin, data: { 
       const base = chainOf(rows).at(-1);
       const prev = base ? manifestOf(base) : null;
       if (!base || !prev) return { status: 'nobase' };
+      if (!packed && !prev.parts.some((p) => p.name === name)) return { status: 'same', n: base.n };
       const infos = new Map<string, WorldPartInfo>(prev.parts.map((p) => [p.name, p]));
       if (packed) infos.set(name, packed.info);
       else infos.delete(name);

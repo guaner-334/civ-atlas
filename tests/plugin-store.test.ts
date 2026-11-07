@@ -6,7 +6,7 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PluginFileError, packPluginFile } from '../src/plugin/pluginFile';
+import { PLUGIN_MAX_BYTES, PluginFileError, packPluginFile } from '../src/plugin/pluginFile';
 import {
   PLUGIN_DB,
   PLUGIN_LOCAL_MAX_BYTES,
@@ -147,6 +147,10 @@ describe('插件仓库:装和换版本', () => {
       expect(err).toBeInstanceOf(PluginFileError);
       expect((err as PluginFileError).kind).toBe(kind);
     }
+    // 选错了一个大文件:不读进来就拒绝
+    const huge = new Blob([new Uint8Array(PLUGIN_MAX_BYTES + 1)]);
+    const err = await installPlugin(huge).catch((e: unknown) => e);
+    expect(err instanceof PluginFileError && err.kind).toBe('broken');
     expect(await listPlugins()).toEqual([]);
   });
 });

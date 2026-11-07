@@ -9,7 +9,7 @@
  * 出错抛 PluginStoreError;文件本身坏了、要新版网站,照 openPluginFile 抛 PluginFileError
  */
 import { packValue, unpackValue } from '../gen/snapshot';
-import { PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from './pluginFile';
+import { PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from './pluginFile';
 
 export const PLUGIN_DB = 'civ-atlas:plugins';
 /** 一个插件自己的设置最多多少字节(打包后) */
@@ -188,6 +188,8 @@ export type InstallResult = { status: 'added' | 'same'; plugin: InstalledPlugin 
  */
 export async function installPlugin(file: Blob | Uint8Array): Promise<InstallResult> {
   try {
+    // 只读一次:存下的必须是核对过的那份字节
+    if (file instanceof Blob && file.size > PLUGIN_MAX_BYTES) throw new PluginFileError('broken', '插件文件太大');
     const bytes = file instanceof Blob ? new Uint8Array(await file.arrayBuffer()) : file;
     const opened = await openPluginFile(bytes);
     const ver: PluginVersion = { sum: opened.sum, bytes: opened.bytes, manifest: opened.manifest, at: Date.now() };
