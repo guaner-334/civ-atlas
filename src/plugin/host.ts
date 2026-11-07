@@ -7,7 +7,8 @@ import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import type { WorldEdits } from '../gen/edits';
 import type { World } from '../gen/world';
 import type { AuthorNote } from '../gen/worldFormat';
-import { checkCaps, PLUGIN_API, PLUGIN_CAPS, PLUGIN_EVENTS, PLUGIN_METHODS } from './caps';
+import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from './caps';
+import { PLUGIN_API } from './pluginFile';
 import {
   argsOf,
   cellList,
@@ -29,7 +30,7 @@ import {
 import { approxBytes } from './protocol';
 import * as read from './read';
 import { startPluginSandbox, type PluginSandbox, type StopReason } from './sandbox';
-import type { CapName, HostInfo, PanelNode, PluginErrorCode, ViewInfo } from './types';
+import type { CapRef, HostInfo, PanelNode, PluginErrorCode, ViewInfo } from './types';
 
 export interface PickRequest {
   kind: 'cell' | 'cells' | 'box';
@@ -69,7 +70,7 @@ export interface PluginHostOptions {
   source: PluginSource;
   sink?: PluginSink;
   /** 可选的能力里用的人给了哪些;不给 = 都给 */
-  grant?: readonly CapName[];
+  grant?: readonly CapRef[];
   parent?: HTMLElement;
   startTimeoutMs?: number;
   /** 插件 civAtlas.post 发来的(工具模式里用) */
@@ -90,7 +91,7 @@ export class PluginRefused extends Error {
 
 export interface PluginHost {
   readonly id: string;
-  readonly caps: readonly CapName[];
+  readonly caps: readonly CapRef[];
   readonly sandbox: PluginSandbox;
   /** 用的人动了插件面板上的控件(画面板的地方调;值不合那个控件就不转给插件) */
   panelAction(id: string, value?: unknown): void;
@@ -128,7 +129,7 @@ class Host implements PluginHost {
 
   constructor(
     readonly id: string,
-    readonly caps: readonly CapName[],
+    readonly caps: readonly CapRef[],
     private readonly src: PluginSource,
     private readonly sink: PluginSink,
     private readonly onStop?: (reason: StopReason, detail: string) => void,
@@ -138,14 +139,14 @@ class Host implements PluginHost {
     return this.sb!;
   }
 
-  private has(c: CapName) {
+  private has(c: CapRef) {
     return this.caps.includes(c);
   }
 
   attach(sb: PluginSandbox) {
     this.sb = sb;
     for (const [i, c, a] of this.early.splice(0)) this.request(i, c, a);
-    if (this.has('view.read') && this.src.watchView && this.src.view) {
+    if (this.has('view.read@1') && this.src.watchView && this.src.view) {
       this.lastView = this.viewKey();
       this.unwatch = this.src.watchView(() => this.viewChanged());
     }
@@ -155,7 +156,7 @@ class Host implements PluginHost {
     if (!this.sb) return void this.early.push([rid, call, args]);
     const need = Object.prototype.hasOwnProperty.call(PLUGIN_METHODS, call) ? PLUGIN_METHODS[call] : undefined;
     if (!need) return this.fail(rid, 'unknown-call', `没有 ${call} 这个调用`);
-    if (need.length && !need.some((c) => this.has(c))) return this.fail(rid, 'no-permission', `清单里没要 ${need.map((c) => `${c}@${PLUGIN_CAPS[c]}`).join(' 或 ')}`);
+    if (need.length && !need.some((c) => this.has(c))) return this.fail(rid, 'no-permission', `清单里没要 ${need.join(' 或 ')}`);
     if (this.inflight >= INFLIGHT_MAX) return this.fail(rid, 'busy', `同时最多 ${INFLIGHT_MAX} 个调用没回`);
     const now = performance.now();
     if (now - this.spentFrom >= 1000) {
@@ -207,7 +208,7 @@ class Host implements PluginHost {
     const src = this.src;
     switch (call) {
       case 'host.info':
-        return { api: PLUGIN_API, app: APP_NAME, caps: this.caps.map((c) => `${c}@${PLUGIN_CAPS[c]}`), cells: src.world()?.mesh.n ?? 0 } satisfies HostInfo;
+        return { api: PLUGIN_API, app: APP_NAME, caps: this.caps.slice(), cells: src.world()?.mesh.n ?? 0 } satisfies HostInfo;
       case 'log':
         this.sink.log?.(text(argsOf(args).text, 'text', LOG_MAX, true));
         return null;

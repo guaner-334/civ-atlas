@@ -10,7 +10,8 @@ import type { Civ } from '../src/gen/civ/types';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { EMPTY_EDITS, resolveKey, type WorldEdits } from '../src/gen/edits';
-import { checkCaps, PLUGIN_CAPS, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
+import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
+import { PLUGIN_CAPS } from '../src/plugin/pluginCaps';
 import { checkCellLayer, checkMarkLayer, checkPanel, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
 import { approxBytes, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
 import * as read from '../src/plugin/read';
@@ -32,23 +33,28 @@ function codeOf(f: () => unknown): string {
 }
 
 describe('能力表', () => {
-  it('每个调用、事件要的能力都在能力表里', () => {
-    for (const [name, caps] of Object.entries(PLUGIN_METHODS)) for (const c of caps) expect(PLUGIN_CAPS, name).toHaveProperty(c);
-    for (const c of Object.values(PLUGIN_EVENTS)) expect(PLUGIN_CAPS).toHaveProperty(c);
+  it('每个调用、事件要的能力都在能力名表里;能力名表里的每样都有调用用它', () => {
+    const used = new Set<string>();
+    for (const [name, caps] of Object.entries(PLUGIN_METHODS)) for (const c of caps) expect(PLUGIN_CAPS.has(c), name).toBe(true), used.add(c);
+    for (const c of Object.values(PLUGIN_EVENTS)) expect(PLUGIN_CAPS.has(c)).toBe(true);
+    expect([...PLUGIN_CAPS.keys()].filter((c) => !used.has(c))).toEqual([]);
   });
 
-  it('认得的给;写法不对 = broken;没有的、版本太新 = newer;optional 里没有的不给', () => {
-    expect(checkCaps(['world.read@1', 'ui.panel@1'], ['layer.cells@1', 'sim.run@1', 'world.read@1'])).toEqual({
+  it('认得的给;写法不对、写了两遍 = broken;网站没有的 = newer;optional 里网站没有的不给', () => {
+    expect(checkCaps(['world.read@1', 'ui.panel@1'], ['layer.cells@1', 'sim.run@1'])).toEqual({
       ok: true,
-      requires: ['world.read', 'ui.panel'],
-      optional: ['layer.cells'],
+      requires: ['world.read@1', 'ui.panel@1'],
+      optional: ['layer.cells@1'],
     });
-    expect(checkCaps(undefined)).toEqual({ ok: true, requires: [], optional: [] });
+    expect(checkCaps([])).toEqual({ ok: true, requires: [], optional: [] });
+    expect(checkCaps(undefined)).toMatchObject({ ok: false, kind: 'broken' });
     expect(checkCaps(['world.read'])).toMatchObject({ ok: false, kind: 'broken' });
     expect(checkCaps('world.read@1')).toMatchObject({ ok: false, kind: 'broken' });
     expect(checkCaps([1])).toMatchObject({ ok: false, kind: 'broken' });
     expect(checkCaps(['World.read@1'])).toMatchObject({ ok: false, kind: 'broken' });
-    expect(checkCaps(Array(40).fill('world.read@1'))).toMatchObject({ ok: false, kind: 'broken' });
+    expect(checkCaps(['world.read@1', 'world.read@1'])).toMatchObject({ ok: false, kind: 'broken' });
+    expect(checkCaps(['world.read@1'], ['world.read@1'])).toMatchObject({ ok: false, kind: 'broken' });
+    expect(checkCaps(Array.from({ length: 33 }, (_, i) => `x.y${i}@1`))).toMatchObject({ ok: false, kind: 'broken' });
     expect(checkCaps(['world.read@2'])).toMatchObject({ ok: false, kind: 'newer' });
     expect(checkCaps(['net.fetch@1'])).toMatchObject({ ok: false, kind: 'newer' });
     expect(checkCaps(['world.read@1'], ['x'])).toMatchObject({ ok: false, kind: 'broken' });
@@ -454,7 +460,7 @@ describe('回调用', () => {
     expect(await call('host.info')).toEqual({ ok: true, data: { api: 1, app: '文明与地图', caps: ['world.read@1', 'ui.panel@1'], cells: world.mesh.n } });
     for (const name of Object.keys(PLUGIN_METHODS)) {
       const need = PLUGIN_METHODS[name];
-      if (!need.length || need.some((c) => c === 'world.read' || c === 'ui.panel')) continue;
+      if (!need.length || need.some((c) => c === 'world.read@1' || c === 'ui.panel@1')) continue;
       expect(await call(name, {}), name).toMatchObject({ ok: false, error: { code: 'no-permission' } });
     }
     expect(await call('net.fetch', {})).toMatchObject({ ok: false, error: { code: 'unknown-call' } });
@@ -462,8 +468,8 @@ describe('回调用', () => {
   });
 
   it('可选的能力只给用的人给了的', async () => {
-    const { host } = await open(['world.read@1'], { plugin: { id: 't', requires: ['world.read@1'], optional: ['view.read@1', 'layer.cells@1'] }, grant: ['layer.cells'] });
-    expect(host.caps).toEqual(['world.read', 'layer.cells']);
+    const { host } = await open(['world.read@1'], { plugin: { id: 't', requires: ['world.read@1'], optional: ['view.read@1', 'layer.cells@1'] }, grant: ['layer.cells@1'] });
+    expect(host.caps).toEqual(['world.read@1', 'layer.cells@1']);
   });
 
   it('大数组转交(新做的一份),出错带 code', async () => {

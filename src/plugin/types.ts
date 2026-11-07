@@ -7,19 +7,19 @@
  * 键(key)是稳定键,改名、下干预、钉标记都用它。
  */
 
-/** 能力的名字;清单里写成 `名字@1` */
-export type CapName =
-  | 'world.read'
-  | 'history.read'
-  | 'author.read'
-  | 'author.write'
-  | 'view.read'
-  | 'input.pick'
-  | 'ui.panel'
-  | 'layer.cells'
-  | 'layer.marks'
-  | 'store.local'
-  | 'store.world';
+/** 能力(清单 requires / optional 里写的「名字@大版本」;这一版网站有的见 pluginCaps.ts) */
+export type CapRef =
+  | 'world.read@1'
+  | 'history.read@1'
+  | 'author.read@1'
+  | 'author.write@1'
+  | 'view.read@1'
+  | 'input.pick@1'
+  | 'ui.panel@1'
+  | 'layer.cells@1'
+  | 'layer.marks@1'
+  | 'store.local@1'
+  | 'store.world@1';
 
 /**
  * 出错时 Error 上的 code:
@@ -37,8 +37,8 @@ export interface HostInfo {
   /** 接口大版本 */
   api: number;
   app: string;
-  /** 给了这个插件的能力,`名字@版本` */
-  caps: string[];
+  /** 给了这个插件的能力 */
+  caps: CapRef[];
   /** 地块数;没开世界 = 0 */
   cells: number;
 }
