@@ -181,6 +181,10 @@
   background: var(--err);
   color: var(--on-accent);
 }
+/* 灰着也能点(点了说为什么) */
+.rs-menu .pm-item.off:not(:hover) {
+  opacity: 0.45;
+}
 
 /* ---- 左边:搜规则、只看改过的、七组、地貌的名字(组名后面改了几项) ---- */
 .rs-body {

@@ -323,6 +323,10 @@ button.ps-pop {
 .ps-menu button:disabled {
   color: var(--ink-3);
 }
+/* 灰着也能点(点了说为什么) */
+.ps-menu button.off {
+  color: var(--ink-3);
+}
 .ps-menu .sep {
   height: 0.5px;
   margin: 5px 8px;

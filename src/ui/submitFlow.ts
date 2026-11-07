@@ -1,8 +1,11 @@
-/** 投世界:打包(和存成文件、传到账号同一个)、切块、先问、传块、提交、等核对。一次投一件;投稿窗关了照样接着传,话说在提示条上。 */
+/**
+ * 投到作品墙:世界打包(和存成文件、传到账号同一个)、切块、先问、传块、提交、等核对;地图、新建参数、规则一次交上去。
+ * 一次投一件;投稿窗关了照样接着投,话说在提示条上。
+ */
 import { sendBlocks, type BlockPlan } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
 import { getSession, onSessionChange } from '../account/session';
-import { beginWorldSubmit, commitWorldSubmit, fetchSubmissions, waitSubmission, type SubmitForm } from '../account/submissions';
+import { beginWorldSubmit, commitWorldSubmit, fetchSubmissions, postSubmission, waitSubmission, type SmallWork, type SubmitForm, type SubmitKind } from '../account/submissions';
 import { notesReady } from '../ai/library';
 import { openAccount } from './AccountDialogs';
 import { createListeners } from './createStore';
@@ -15,6 +18,7 @@ import { clearToast, peekToast, showToast, updateToast, type ToastInput } from '
 import { saveWorldFile } from './worldFiles';
 import { saveCurrentToFile, saveWorldToFile } from './worldFileFlow';
 import { keepAgreed, keepDraft } from './submitDrafts';
+import { keepSubmitThumb } from './submitThumbs';
 
 const TOAST = 'submit-world';
 const CANCELLED = new Error('取消了');
@@ -40,12 +44,17 @@ function setResult(id: string, r: SubmitResult) {
 /** 打包好的文件留着:断线了接着传不用重打,内容记号变了才不用它 */
 const packed = new Map<string, { file: Blob; mark: string; plan: BlockPlan }>();
 
-/** 投一件要的:世界编号、名字(进度上写)、填的字、停在哪一年 */
+/** 投一件要的:作品的记号(世界是世界编号)、名字(进度上写)、填的字、停在哪一年 */
 export interface SubmitAsk {
   id: string;
+  kind: SubmitKind;
   title: string;
   form: SubmitForm;
   moment: number | null;
+  /** 地图、新建参数、规则交的东西;世界不给(走传块) */
+  small?: SmallWork;
+  /** 投好以后「我的投稿」里那一行的小图 */
+  thumb?: string | null;
 }
 
 let live: (SubmitAsk & { ac: AbortController }) | null = null;
@@ -83,7 +92,7 @@ export function holdSubmitToasts(): () => void {
 function toastOf(w: ToastWords, id: string): ToastInput {
   const acts = {
     cancel: { label: '取消', act: 'submit-cancel', onClick: cancelSubmit },
-    look: { label: '看我的投稿', act: 'submit-look', onClick: () => (clearToast(TOAST), openAccount()) },
+    look: { label: '看我的投稿', act: 'submit-look', onClick: () => (clearToast(TOAST), openAccount('submissions')) },
     resume: { label: '接着传', act: 'submit-resume', onClick: () => resumeSubmit(id) },
     retry: { label: '再投一次', act: 'submit-retry', onClick: () => resumeSubmit(id) },
     reload: { label: '刷新页面', act: 'submit-reload', onClick: () => location.reload() },
@@ -109,13 +118,23 @@ function paint() {
 }
 
 /** 做完了:窗口开着就留给窗口说;关着出提示条,没投成的留着,打开窗口时说全 */
-function end(id: string, r: SubmitResult) {
+function end(me: Pick<SubmitAsk, 'id' | 'kind'>, r: SubmitResult) {
   live = null;
   setSubmitJob(null);
   clearToast(TOAST);
-  if (holds > 0 || r.kind === 'fail') setResult(id, r);
+  if (holds > 0 || r.kind === 'fail') setResult(me.id, r);
   if (holds > 0) return;
-  showToast({ ...toastOf(r.kind === 'done' ? DONE_WORDS : failWords(r.fail), id), id: TOAST });
+  showToast({ ...toastOf(r.kind === 'done' ? DONE_WORDS : failWords(r.fail, me.kind), me.id), id: TOAST });
+}
+
+/** 收下了:填的字不用留,记下看过的须知、小图,问一次今天还剩几次 */
+async function accepted(me: SubmitAsk, subId: number): Promise<void> {
+  keepDraft(me.id, null);
+  keepAgreed(me.form.terms);
+  keepSubmitThumb(subId, me.thumb ?? null);
+  const after = await fetchSubmissions().catch(() => null);
+  const l = after?.limits;
+  end(me, { kind: 'done', left: l ? Math.max(0, l.perDay - l.usedToday) : null });
 }
 
 export function saveToFile(id: string): void {
@@ -146,7 +165,7 @@ async function doSubmit(me: NonNullable<typeof live>): Promise<void> {
       paint();
     }
   };
-  const fail = (f: SubmitFail) => end(id, { kind: 'fail', fail: f });
+  const fail = (f: SubmitFail) => end(me, { kind: 'fail', fail: f });
   await notesReady([id]);
   still();
   const mark = markOf(id);
@@ -195,11 +214,7 @@ async function doSubmit(me: NonNullable<typeof live>): Promise<void> {
     still();
     if (sub.status === 'failed') return fail(checkFail(sub.error, sub.reason));
     packed.delete(id);
-    keepDraft(id, null);
-    keepAgreed(me.form.terms);
-    const after = await fetchSubmissions().catch(() => null);
-    const l = after?.limits;
-    end(id, { kind: 'done', left: l ? Math.max(0, l.perDay - l.usedToday) : null });
+    await accepted(me, made.id);
   } catch (e) {
     if (e === CANCELLED || (e as { name?: string } | null)?.name === 'AbortError') {
       if (live === me) throw e;
@@ -212,21 +227,45 @@ async function doSubmit(me: NonNullable<typeof live>): Promise<void> {
   }
 }
 
-/** 投这个世界;已经在投了就什么都不做(窗里、提示条上看得到正在投的那一件) */
+/** 地图、新建参数、规则:交一次就完 */
+async function doSmall(me: NonNullable<typeof live>, work: SmallWork): Promise<void> {
+  const token = getSession()?.token;
+  let made: { id: number };
+  try {
+    made = await postSubmission(work, me.form);
+  } catch (e) {
+    if (live !== me) return;
+    const f = submitFail(e, false, me.kind);
+    if (f.kind === 'notice' && f.which === 'ban') setSubmitBan(f.ban ?? null);
+    return end(me, { kind: 'fail', fail: f });
+  }
+  // 等的工夫退出、换了账号:投的那件在原来那个账号名下,这边不再说
+  if (live !== me || getSession()?.token !== token) {
+    if (live === me) {
+      live = null;
+      setSubmitJob(null);
+      clearToast(TOAST);
+    }
+    return;
+  }
+  await accepted(me, made.id);
+}
+
+/** 投这一件;已经在投了就什么都不做(窗里、提示条上看得到正在投的那一件) */
 export async function startSubmit(ask: SubmitAsk): Promise<void> {
   if (submitJob()) return;
-  const { id, title } = ask;
+  const { id, kind, title } = ask;
   const me = { ...ask, ac: new AbortController() };
   live = me;
   lastAsk = { ...ask, token: getSession()?.token };
   clearSubmitResult(id);
-  setSubmitJob({ id, title, phase: 'pack', done: 0, total: 0 });
+  setSubmitJob({ id, kind, title, phase: ask.small ? 'post' : 'pack', done: 0, total: 0 });
   paint();
   try {
-    await doSubmit(me);
+    await (ask.small ? doSmall(me, ask.small) : doSubmit(me));
   } catch (e) {
     if (e === CANCELLED || live !== me) return;
-    end(id, { kind: 'fail', fail: submitFail(e) });
+    end(me, { kind: 'fail', fail: submitFail(e, false, kind) });
   }
 }
 
@@ -239,7 +278,7 @@ export function resumeSubmit(id: string): void {
 export function cancelSubmit(): void {
   const me = live;
   const j = submitJob();
-  if (!me || !j || j.phase === 'check') return;
+  if (!me || !j || j.phase === 'check' || j.phase === 'post') return;
   live = null;
   me.ac.abort();
   setSubmitJob(null);

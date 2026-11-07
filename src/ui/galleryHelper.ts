@@ -21,6 +21,9 @@ import { resolveMoment, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave } from '../gen/recipe';
 import { GENERATOR_VERSION, keptMapOf } from '../gen/edits';
 import type { World } from '../gen/world';
+import type { WorldParams } from '../gen/params';
+import type { RuleSet } from '../gen/civ/ruleSet';
+import { rulesHash } from '../gen/civ/ruleShare';
 import type { Raster } from '../gen/raster';
 import type { Civ } from '../gen/civ/types';
 import type { RasterPatch } from '../gen/rasterPatch';
@@ -40,6 +43,8 @@ import { TRASH_KEEP_MS, maintain } from './worldStore';
 /** 封面的大小、上限 */
 const COVER_W = 1200;
 const COVER_H = 600;
+/** 投稿窗小图用的地图分辨率(和地块数无关,只是铺像素铺得粗) */
+const THUMB_SCALE = 0.25;
 const COVER_BYTES = 600 * 1024;
 /** 地形大事以后那一段的主图最多等多久(等不到就画前面铺好了的那一段) */
 const ERA_WAIT = 20_000;
@@ -169,16 +174,16 @@ function landiestLon(raster: Pick<Raster, 'w' | 'h' | 'water' | 'scale'>, worldW
 }
 
 /** 新建参数的封面:黑底上的一颗星球(写实,地形贴图里烤好了明暗;和地球仪没有显卡加速时的画法一样) */
-function planetCover(world: World, raster: Raster): HTMLCanvasElement {
+function planetCover(world: World, raster: Raster, W = COVER_W, H = COVER_H): HTMLCanvasElement {
   const tex = canvasOf(raster.w, raster.h);
   renderRealistic(ctxOf(tex), world, raster, 'classic');
   const src = ctxOf(tex).getImageData(0, 0, raster.w, raster.h);
   tex.width = tex.height = 0;
-  const out = canvasOf(COVER_W, COVER_H);
+  const out = canvasOf(W, H);
   const o = ctxOf(out);
-  const img = o.createImageData(COVER_W, COVER_H);
+  const img = o.createImageData(W, H);
   const view = { lon: landiestLon(raster, world.width, world.height), lat: GLOBE_DEFAULT_LAT, k: 1 };
-  renderGlobeCpu({ w: COVER_W, h: COVER_H, data: img.data }, view, globeFrame(view, COVER_W, COVER_H), 1, { style: 'realistic', graticule: 0, hl: 0, replay: 0 }, { terrain: { w: src.width, h: src.height, data: src.data } });
+  renderGlobeCpu({ w: W, h: H, data: img.data }, view, globeFrame(view, W, H), 1, { style: 'realistic', graticule: 0, hl: 0, replay: 0 }, { terrain: { w: src.width, h: src.height, data: src.data } });
   o.putImageData(img, 0, 0);
   return out;
 }
@@ -203,13 +208,33 @@ function coverJpeg(src: HTMLCanvasElement): string {
 }
 
 /** 停在 year 那年的政区图;地形大事以后画那一段的世界、主图(主图补丁后台慢慢铺,等一会儿;等不到画前面铺好了的那一段) */
-async function politicalCover(g: Generated, year: number, lon: number | undefined): Promise<string> {
+async function politicalCanvas(g: Generated, year: number, lon: number | undefined): Promise<HTMLCanvasElement> {
   const { civ } = g;
   const k = civ ? eraIndex(civ, year) : 0;
   if (k > 0) await g.waitEra(k, ERA_WAIT);
   const shown = eraShown(g.maps, g.patches, k);
   const d = eraData({ world: g.world, raster: g.raster }, g.maps, g.patches, shown);
-  return jpegOf(worldCover(d.world, d.raster, civ ? civAtEra(civ, shown) : null, year, lon));
+  return worldCover(d.world, d.raster, civ ? civAtEra(civ, shown) : null, year, lon);
+}
+
+const politicalCover = async (g: Generated, year: number, lon: number | undefined): Promise<string> => jpegOf(await politicalCanvas(g, year, lon));
+
+/** 投稿窗里新建参数、规则的小图:和封面同一种画法(星球、示例地图推到 3000 年的政区图),画成 w×h 的 JPEG */
+export async function smallCover(req: { kind: 'preset'; params: WorldParams } | { kind: 'rules'; rules: RuleSet }, w: number, h: number): Promise<string> {
+  const input: GenerateInput =
+    req.kind === 'preset' ? { params: req.params, scale: THUMB_SCALE, skipCiv: true } : { ...(await import('./helperRules')).rulesJob(rulesHash(req.rules)).input, scale: THUMB_SCALE };
+  const g = await run({ type: 'generate', ...input });
+  try {
+    const src = req.kind === 'preset' ? planetCover(g.world, g.raster, w * 2, h * 2) : await politicalCanvas(g, g.civ?.endYear ?? 0, undefined);
+    const c = canvasOf(w, h);
+    const x = ctxOf(c);
+    x.imageSmoothingQuality = 'high';
+    x.drawImage(src, 0, 0, w, h);
+    src.width = src.height = 0;
+    return c.toDataURL('image/jpeg', 0.85);
+  } finally {
+    g.stop();
+  }
 }
 
 function jpegOf(cover: HTMLCanvasElement): string {

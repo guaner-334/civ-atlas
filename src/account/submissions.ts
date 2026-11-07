@@ -3,8 +3,11 @@
  *
  *   GET    /v1/submissions               → { submissions, limits, terms, ban? }
  *   GET    /v1/submissions/:id           → 一份
+ *   POST   /v1/submissions               → 201 { id, status: 'pending' }(地图交存档,新建参数、规则交链接 # 后面那段)
  *   POST   /v1/submissions/world/begin   → { need }(要传哪些块;这个账号传过的块不用再传)
  *   POST   /v1/submissions/world         → 202 { id, status: 'checking' }(服务器在后台核对,这一步取消不了)
+ *   DELETE /v1/submissions/:id           → 204 撤回核对中、等审、审核中的(当天的次数不退)
+ *   POST   /v1/submissions/:id/withdraw  → 撤下已上墙的,回这一份
  */
 import type { BlockPlan, FullHit } from './fullWorlds';
 import { ServerError } from './server';
@@ -36,8 +39,16 @@ export interface Submission {
   status: string;
   reason?: string;
   error?: SubmitCheckError;
+  /** 上墙以后作品墙上的作品编号 */
+  workId?: string;
   createdAt?: string;
+  updatedAt?: string;
+  /** 上墙、退回的时间 */
+  decidedAt?: string;
 }
+
+/** 地图、新建参数、规则交的东西:地图交存档,另外两种交链接 # 后面那段 */
+export type SmallWork = { kind: 'map'; save: unknown } | { kind: 'preset' | 'rules'; link: string };
 
 export interface SubmissionList {
   submissions: Submission[];
@@ -80,6 +91,18 @@ export function beginWorldSubmit(plan: BlockPlan): Promise<{ need: string[] }> {
 
 export function commitWorldSubmit(plan: BlockPlan, form: SubmitForm, moment: number | null): Promise<{ id: number; status: string }> {
   return authed('/v1/submissions/world', { method: 'POST', body: { plan: wirePlan(plan), ...form, ...(moment !== null ? { moment } : {}) } });
+}
+
+export function postSubmission(work: SmallWork, form: SubmitForm): Promise<{ id: number; status: string }> {
+  return authed('/v1/submissions', { method: 'POST', body: { ...work, ...form } });
+}
+
+export async function cancelSubmission(id: number): Promise<void> {
+  await authed(`/v1/submissions/${id}`, { method: 'DELETE' });
+}
+
+export function takedownSubmission(id: number): Promise<Submission> {
+  return authed(`/v1/submissions/${id}/withdraw`, { method: 'POST' });
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>

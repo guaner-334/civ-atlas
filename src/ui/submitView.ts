@@ -5,8 +5,33 @@
 import { useEffect } from 'react';
 import { currentAccount, fetchAuthOptions, knownAuthOptions, onAuthOptionsChange, onSessionChange, type AuthOptions } from '../account/session';
 import { accountServer } from '../account/server';
+import type { SubmitKind } from '../account/submissions';
+import type { WorldParams } from '../gen/params';
+import type { RuleSet } from '../gen/civ/ruleSet';
 import { createListeners } from './createStore';
 import { aboutSize } from './sizeWords';
+
+/** 投的是哪一件:世界、地图按世界编号;新建参数是新建弹窗框里现在这一套(连着选的规则);规则是「我的规则」里的一套 */
+export type SubmitWork =
+  | { kind: 'world'; worldId: string; title: string }
+  | { kind: 'map'; worldId: string; title: string }
+  | { kind: 'preset'; name: string; params: WorldParams; endYear?: number; rules?: RuleSet }
+  | { kind: 'rules'; rules: RuleSet };
+
+const fnv = (s: string): string => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(36);
+};
+
+/** 一件作品的记号:填的字、进度、结果都按它对上(同一套参数、同一套规则是同一件) */
+export function workKey(w: SubmitWork): string {
+  if (w.kind === 'world' || w.kind === 'map') return w.worldId;
+  if (w.kind === 'rules') return `rules:${w.rules.id || fnv(JSON.stringify(w.rules))}`;
+  return `preset:${fnv(JSON.stringify([w.params, w.endYear ?? null, w.rules ?? null]))}`;
+}
+
+export const WORK_KIND_LABEL: Readonly<Record<SubmitKind, string>> = { world: '世界', map: '地图', preset: '新建参数', rules: '规则' };
 
 /** 服务器说的封禁(/v1/submissions、403 submit-banned 带的 ban) */
 export interface SubmitBan {
@@ -16,11 +41,12 @@ export interface SubmitBan {
   reasonText: string;
 }
 
-/** 正在投的那一件。phase:pack 打包,send 传块,check 服务器在核对 */
+/** 正在投的那一件。phase:pack 打包,send 传块,check 服务器在核对(世界);post 交上去了在等回话(地图、新建参数、规则) */
 export interface SubmitJob {
   id: string;
+  kind: SubmitKind;
   title: string;
-  phase: 'pack' | 'send' | 'check';
+  phase: 'pack' | 'send' | 'check' | 'post';
   done: number;
   total: number;
 }
@@ -35,6 +61,9 @@ const userKey = (): string | null => {
   const s = currentAccount();
   return s ? String(s.user.id || s.user.account) : null;
 };
+
+/** 撤下作品时顺手停的:reasonText 是一整句,前面不加「原因：」 */
+export const banWhole = (b: SubmitBan): boolean => b.reason === 'withdraw';
 
 /** 服务器给的 ban 里认得出来的那几样;不像 = null */
 export function readBan(v: unknown): SubmitBan | null {
@@ -90,17 +119,28 @@ function features(): AuthOptions['features'] | null {
   return currentAccount() ? (knownAuthOptions()?.features ?? null) : null;
 }
 
-/** 能不能投世界:登录了、服务器开着投稿和投世界。还没问到服务器的,菜单打开时再问 */
-export const useSubmitWorldOn = (open: boolean): boolean => {
+/** 能不能投:登录了、服务器开着投稿(world = 还要开着投世界)。还没问到服务器的,菜单打开时再问 */
+export const useSubmitOn = (open: boolean, world = false): boolean => {
   const on = listeners.use(() => {
     const f = features();
-    return !!f?.submit && !!f.submitWorld;
+    return !!f?.submit && (!world || !!f.submitWorld);
   });
   const signed = listeners.use(() => !!currentAccount() && !!accountServer());
   useEffect(() => {
     if (signed && !knownAuthOptions()) void fetchAuthOptions();
   }, [signed, open]);
   return on;
+};
+export const useSubmitWorldOn = (open: boolean): boolean => useSubmitOn(open, true);
+
+/** 服务器开着投稿没有(登不登录都算;作品墙「怎么上作品墙」按它写一条路还是两条路)、是不是邀请制 */
+export const useServerSubmit = (): { on: boolean; inviteOnly: boolean } => {
+  const on = listeners.use(() => !!accountServer() && !!knownAuthOptions()?.features.submit);
+  const invite = listeners.use(() => !!knownAuthOptions()?.inviteOnly);
+  useEffect(() => {
+    if (accountServer() && !knownAuthOptions()) void fetchAuthOptions().catch(() => {});
+  }, []);
+  return { on, inviteOnly: invite };
 };
 
 /** 服务器要先绑手机号 */
@@ -138,6 +178,11 @@ export interface SubmitMenuItem {
 
 /** 作品墙一个世界最多多大(服务器没说时) */
 export const SUBMIT_WORLD_MAX = 150e6;
+
+/** 地图那一项:地图很小,只看停没停投稿 */
+export function mapMenuItem(ban: SubmitBan | null): SubmitMenuItem {
+  return ban ? { small: '你的账号已停止投稿，点这里看原因', off: true, act: 'ban' } : { small: '交上这张地图，我们看过才放上作品墙', off: false, act: 'open' };
+}
 
 export function submitMenuItem(f: SubmitMenuFacts): SubmitMenuItem {
   if (f.ban) return { small: '你的账号已停止投稿，点这里看原因', off: true, act: 'ban' };

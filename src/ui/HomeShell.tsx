@@ -25,7 +25,7 @@ import { AiSettingsHost } from './AiSettings';
 import { ToastBar, clearToast, showToast } from './Toast';
 import { TipLayer } from './Tips';
 import { useNarrow } from './device';
-import { setOpenWorldHandler } from './newCivAction';
+import { setOpenWorkHandler, setOpenWorldHandler } from './newCivAction';
 import { withFileFlow } from './worldFileLazy';
 import { setStage } from './stageStore';
 import { setSideHold } from './sideStore';
@@ -135,8 +135,12 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
   // 从文件打开的世界放进「我的世界」以后交给 App 打开(worldFileFlow.ts)
   useEffect(() => {
     setOpenWorldHandler((id) => leave({ kind: 'open', id }));
-    return () => setOpenWorldHandler(null);
-  }, [leave]);
+    setOpenWorkHandler(openWork);
+    return () => {
+      setOpenWorldHandler(null);
+      setOpenWorkHandler(null);
+    };
+  }, [leave, openWork]);
   // 主程序下载不下来、也没法自动刷新重来:不再等(按钮、卡片回到原样,再点一下会重新下载),顶上一条出错的提示带「重新加载」
   useEffect(() => {
     if (!loadFailed) return;

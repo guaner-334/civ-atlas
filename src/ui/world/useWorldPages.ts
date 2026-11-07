@@ -33,7 +33,7 @@ import { randomSeedValue, type HomeStart } from '../homeStart';
 import { beginImport } from '../ImportImage';
 import { showMapInWorlds } from '../MyWorlds';
 import { navBack, navReplace, navTitle, navTo } from '../nav';
-import { setNewCivHandler, setOpenWorldHandler } from '../newCivAction';
+import { setNewCivHandler, setOpenWorkHandler, setOpenWorldHandler } from '../newCivAction';
 import { withFileFlow } from '../worldFileLazy';
 import type { NewWorldStart } from '../NewWorldDialog';
 import { openOverview } from '../overviewStore';
@@ -523,6 +523,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     setWorkFor(null);
     newCivOn(p.save, `gallery:${it.id}`, it.kind === 'map' ? undefined : nextTitle(it.title || p.save.title || '未命名世界'), workOrigin(it));
   };
+  const openWorkRef = useRef(openWork);
+  openWorkRef.current = openWork;
   const startNewCivRef = useRef(startNewCiv);
   startNewCivRef.current = startNewCiv;
   const newWorldRef = useRef(newWorldWithRules);
@@ -530,12 +532,14 @@ export function useWorldPages(deps: WorldPagesDeps) {
   useEffect(() => {
     setNewCivHandler((id, redo) => startNewCivRef.current(id, redo));
     setOpenWorldHandler((id) => openStoredRef.current(id));
+    setOpenWorkHandler((id) => openWorkRef.current(id));
     // 存储满了 / 浏览器不让存时,提示条上的「存成文件」(手机上看着国家卡片时存档菜单不在页面上,也要有)
     const offSaver = addFileSaver(() => withFileFlow('没能存成文件', (m) => m.saveCurrentToFile()));
     setNewWorldHandler((rules) => newWorldRef.current(rules));
     return () => {
       setNewCivHandler(null);
       setOpenWorldHandler(null);
+      setOpenWorkHandler(null);
       offSaver();
       setNewWorldHandler(null);
     };

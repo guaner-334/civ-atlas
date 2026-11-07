@@ -18,10 +18,13 @@
  * 作品墙(src/account/gallery.ts):开着,摆着世界(带世界文件、用了非官方规则)、地图、新建参数、规则各一件,一件精选、一个挑战;不用登录。
  * 世界作品的文件第一次要的时候现做(fakeWorldFile.ts,一两秒),网页上能照存的内容打开。
  * POST /v1/dev/gallery { off?, withdrawn? } 关掉作品墙(接口都 404)、撤下几件。
- * 投到作品墙(src/account/submissions.ts):只有投世界;一天 3 次、同时等审 5 件、须知第 3 版;作者填的字里有「敏感词」三个字就当碰到词。
- * 核对用 fullCheckMs,过了就进等审(不建后台草稿)。POST /v1/dev/submit { off?, world?, phoneRequired?, terms?, fail?, refuse?, ban?, used?, pending?, forget? }:
- * fail 下一次核对怎么判(同 fullFail);refuse { at: 'begin' | 'commit', status, code, message, ... } 下一次先问 / 提交直接回这个错;
- * ban 当前账号停了投稿(null 解开);used、pending 把今天投过的次数、等审的件数当成几;forget 忘掉传上来的块(再投要整个重传)。
+ * 投到作品墙(src/account/submissions.ts):投世界、地图、新建参数、规则,撤回、撤下;一天 3 次、同时等审 5 件、须知第 3 版;
+ * 作者填的字(地图、链接里的字也算)里有「敏感词」三个字就当碰到词。世界核对用 fullCheckMs,过了就进等审(不建后台草稿)。
+ * POST /v1/dev/submit { off?, world?, phoneRequired?, terms?, fail?, refuse?, ban?, used?, pending?, forget?, add?, decide? }:
+ * fail 下一次核对怎么判(同 fullFail);refuse { at: 'begin' | 'commit' | 'post', status, code, message, ... } 下一次先问 / 提交 / 投另外三种直接回这个错;
+ * ban 当前账号停了投稿(null 解开);used、pending 把今天投过的次数、等审的件数当成几;forget 忘掉传上来的块(再投要整个重传);
+ * add [{ kind, title, status, reason?, workId?, createdAt?, decidedAt?, updatedAt? }] 直接摆几件(时间是毫秒);
+ * decide { id, status, reason?, workId? } 当成后台审了(上墙、退回、撤下)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GENERATOR_VERSION } from '../../src/gen/edits';
@@ -62,15 +65,19 @@ interface User {
 interface Sub {
   id: number;
   user: User;
-  kind: 'world';
+  kind: WorkKind;
   title: string;
   by: string;
   blurb: string;
   moment: number | null;
   status: string;
+  /** 世界文件的指纹(投世界) */
   sum: string;
+  reason?: string;
+  workId?: string;
   createdAt: number;
   updatedAt: number;
+  decidedAt?: number;
   /** 核对中:到这一刻出结果 */
   ready?: number;
   /** 核对完:过了(null)还是没过 */
@@ -286,10 +293,14 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       blurb: x.blurb,
       status: x.status,
       ...(x.status === 'failed' && v ? { reason: v.message ?? '没有收下', error: v } : {}),
+      ...(x.reason && (x.status === 'returned' || x.status === 'withdrawn') ? { reason: x.reason } : {}),
+      ...(x.workId ? { workId: x.workId } : {}),
       createdAt: iso(x.createdAt),
       updatedAt: iso(x.updatedAt),
+      ...(x.decidedAt !== undefined ? { decidedAt: iso(x.decidedAt) } : {}),
     };
   };
+  const SUB_KINDS: readonly string[] = ['world', 'map', 'preset', 'rules'];
   const submitLimits = (u: User) => {
     const mine = subs.filter((x) => x.user === u);
     mine.forEach(settle);
@@ -490,6 +501,41 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       if (typeof b?.used === 'number') u.extraUsed = b.used - (submitLimits(u).usedToday - (u.extraUsed ?? 0));
       if (typeof b?.pending === 'number') u.extraPending = b.pending - (submitLimits(u).pending - (u.extraPending ?? 0));
       if (b?.forget === true) blocks.clear();
+      if (Array.isArray(b?.add)) {
+        const now = Date.now();
+        for (const a of b.add as Record<string, unknown>[]) {
+          const t = (k: string) => (typeof a[k] === 'number' ? (a[k] as number) : undefined);
+          const kind = (SUB_KINDS.includes(String(a.kind)) ? a.kind : 'world') as WorkKind;
+          subs.push({
+            id: ++subSeq,
+            user: u,
+            kind,
+            title: String(a.title ?? ''),
+            by: String(a.by ?? ''),
+            blurb: String(a.blurb ?? ''),
+            moment: null,
+            status: String(a.status ?? 'pending'),
+            sum: '',
+            ...(typeof a.reason === 'string' ? { reason: a.reason } : {}),
+            ...(typeof a.workId === 'string' ? { workId: a.workId } : {}),
+            createdAt: t('createdAt') ?? now,
+            updatedAt: t('updatedAt') ?? t('decidedAt') ?? t('createdAt') ?? now,
+            ...(t('decidedAt') !== undefined ? { decidedAt: t('decidedAt') } : {}),
+          });
+        }
+      }
+      if (b?.decide && typeof b.decide === 'object') {
+        const d = b.decide as Record<string, unknown>;
+        const x = subs.find((y) => y.user === u && y.id === d.id);
+        if (x && typeof d.status === 'string') {
+          const now = Date.now();
+          x.status = d.status;
+          x.updatedAt = now;
+          if (d.status === 'live' || d.status === 'returned') x.decidedAt = now;
+          if (typeof d.reason === 'string') x.reason = d.reason;
+          if (typeof d.workId === 'string') x.workId = d.workId;
+        }
+      }
       return json(200, { ok: true });
     }
 
@@ -497,13 +543,67 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     if (path === '/v1/submissions' || path.startsWith('/v1/submissions/')) {
       if (submitState.off || gallery.off) return fail(404, 'bad-request', '没有这个接口');
       if (req.method === 'GET' && path === '/v1/submissions') {
-        const list = subs.filter((x) => x.user === u).sort((a, b) => b.createdAt - a.createdAt);
+        const list = subs.filter((x) => x.user === u && x.status !== 'cancelled').sort((a, b) => b.createdAt - a.createdAt || b.id - a.id);
         return json(200, { submissions: list.map(subView), limits: submitLimits(u), terms: submitState.terms, ...(u.ban ? { ban: u.ban } : {}) });
       }
-      const one = /^\/v1\/submissions\/(\d+)$/.exec(path);
-      if (req.method === 'GET' && one) {
-        const x = subs.find((s) => s.user === u && s.id === Number(one[1]));
-        return x ? json(200, subView(x)) : fail(404, 'not-found', '没有这份投稿');
+      const one = /^\/v1\/submissions\/(\d+)(\/withdraw)?$/.exec(path);
+      const mine = one ? subs.find((s) => s.user === u && s.id === Number(one[1]) && s.status !== 'cancelled') : undefined;
+      if (one && (req.method === 'GET' || req.method === 'DELETE' || req.method === 'POST') && !mine) return fail(404, 'not-found', '没有这份投稿');
+      if (req.method === 'GET' && one && !one[2]) return json(200, subView(mine!));
+      if (req.method === 'DELETE' && one && !one[2]) {
+        const x = mine!;
+        settle(x);
+        if (x.status !== 'checking' && x.status !== 'pending' && x.status !== 'reviewing') return fail(409, 'conflict', x.status === 'live' ? '已经上墙了,不想展示请点撤下' : '这份投稿已经处理完了', { status: x.status });
+        x.status = 'cancelled';
+        x.updatedAt = Date.now();
+        return new Response(null, { status: 204, headers: CORS });
+      }
+      if (req.method === 'POST' && one?.[2]) {
+        const x = mine!;
+        if (x.status !== 'live') return fail(409, 'conflict', '这个作品已经撤下了', { status: x.status });
+        x.status = 'withdrawn';
+        x.reason = '作者自己撤下';
+        x.updatedAt = Date.now();
+        return json(200, subView(x));
+      }
+      if (req.method === 'POST' && path === '/v1/submissions') {
+        const b = await body(req);
+        const r = submitState.refuse;
+        if (r && r.at === 'post') {
+          submitState.refuse = null;
+          const { at: _a, status, code, message, ...extra } = r;
+          return fail(status, code, message, extra);
+        }
+        const kind = b?.kind;
+        if (kind === 'world') return fail(400, 'bad-request', '投世界另有接口(先传世界文件)');
+        if (kind !== 'map' && kind !== 'preset' && kind !== 'rules') return fail(400, 'bad-request', '种类不对');
+        if (b?.terms !== submitState.terms) return fail(409, 'terms-changed', '投稿须知改过了,请看过新的再投', { terms: submitState.terms });
+        const f = { title: String(b?.title ?? '').trim(), by: String(b?.by ?? '').trim(), blurb: String(b?.blurb ?? '').trim() };
+        if (!f.title || !f.by || !f.blurb) return fail(400, 'bad-request', '要填作品名、署名和一句话介绍');
+        if (u.ban) return fail(403, 'submit-banned', `你的账号已停止投稿。原因:${(u.ban as { reasonText?: string }).reasonText ?? ''}`, { ban: u.ban });
+        if (submitState.phoneRequired) return fail(403, 'need-phone', '先绑定手机号再投稿');
+        const lim = submitLimits(u);
+        if (lim.usedToday >= lim.perDay) return fail(429, 'submit-limit', '今天投够 3 次了,明天再投', { limit: 'per-day', retryAfter: 3600, left: 0, ...lim });
+        if (lim.pending >= lim.pendingMax) return fail(429, 'submit-limit', '等审的太多了,审完一份再投', { limit: 'pending', left: lim.perDay - lim.usedToday, ...lim });
+        let content: string;
+        if (kind === 'map') {
+          const sv = b?.save as { app?: unknown } | undefined;
+          if (!sv || sv.app !== '文明与地图') return fail(400, 'bad-request', '这不是「文明与地图」的存档');
+          content = JSON.stringify(sv);
+        } else {
+          content = typeof b?.link === 'string' ? b.link.replace(/^.*#/, '') : '';
+          if (!content.startsWith(`${kind}=`)) return fail(400, 'bad-request', `这不是${kind === 'preset' ? '新建参数' : '规则'}的链接`);
+          content = decodeURIComponent(content.replace(/\+/g, ' '));
+        }
+        const hits = [
+          ...(['title', 'by', 'blurb'] as const).filter((k) => f[k].includes('敏感词')).map((k) => ({ by: 'author', part: 'info', kind: { title: '作品名', by: '署名', blurb: '一句话介绍' }[k], text: f[k].slice(0, 60) })),
+          ...(content.includes('敏感词') ? [{ by: 'author', part: 'content', kind: '名字', text: '敏感词' }] : []),
+        ];
+        if (hits.length) return fail(400, 'content-filter', `有 ${hits.length} 处字词不能公开,改掉以后再投`, { hits, hitCount: hits.length });
+        const now = Date.now();
+        const x: Sub = { id: ++subSeq, user: u, kind, ...f, moment: null, status: 'pending', sum: '', createdAt: now, updatedAt: now };
+        subs.push(x);
+        return json(201, { id: x.id, status: 'pending' });
       }
       const world = /^\/v1\/submissions\/world(\/begin)?$/.exec(path);
       if (req.method === 'POST' && world) {

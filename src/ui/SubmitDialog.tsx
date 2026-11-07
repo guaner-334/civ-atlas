@@ -4,16 +4,22 @@ import { Icon } from './icons';
 import { Dialog, CloseX, openAccount, openShareDialog, type SubmitView } from './AccountDialogs';
 import { cleanSignature } from '../gen/savefile';
 import { useSession } from '../account/session';
-import type { SubmitForm, SubmitLimits } from '../account/submissions';
+import type { SmallWork, SubmitForm, SubmitKind, SubmitLimits } from '../account/submissions';
+import { rulesHash } from '../gen/civ/ruleShare';
 import { useContact } from './contact';
 import { pairText } from './fullWorldView';
 import { momentNow } from './shareMoment';
-import { currentWorld, loadWorld } from './saveStore';
+import { currentSave, currentWorld, loadWorld } from './saveStore';
+import { mapName } from './mapGroups';
+import { presetHash } from './presetLink';
+import { strip } from './presetStore';
+import { modifiedCount } from './rules/rulesView';
 import { TERMS, TERMS_VERSION, changedSince } from './submitTerms';
-import { askPhone, keepLastBy, lastBy, submitBan, useSubmitBan, useSubmitJob, type SubmitBan } from './submitView';
+import { WORK_KIND_LABEL, askPhone, banWhole, keepLastBy, lastBy, submitBan, useSubmitBan, useSubmitJob, workKey, type SubmitBan, type SubmitWork } from './submitView';
 import { askLimits, cancelSubmit, clearSubmitResult, holdSubmitToasts, resumeSubmit, saveToFile, startSubmit, useSubmitResult } from './submitFlow';
 import { agreedTerms, draftOf, keepDraft, type Draft } from './submitDrafts';
-import { openNotice, type FailAct, type SubmitFail, type SubmitField } from './submitWords';
+import { notSubmitted, openNotice, type FailAct, type SubmitFail, type SubmitField } from './submitWords';
+import { drawWorkThumb } from './submitThumbs';
 import './submit.css';
 
 const TITLE_MAX = 20;
@@ -21,16 +27,16 @@ const BY_MAX = 20;
 const BLURB_MAX = 40;
 const SHOW = '作品还是你的。投稿等于允许我们在作品墙上展示它：谁都能打开看、另存一份接着改、用它新建世界；另存的那份写着你的署名和出处。';
 
-/** 交的是什么:上面那块的样子、作品名先填什么、点「投稿」怎么交。地图、新建参数、规则照 worldSpec 再加一种 */
+/** 交的是什么:上面那块的样子、作品名先填什么、点「投稿」怎么交 */
 interface WorkSpec {
   /** 填的字按它记(一件作品一份),也是投稿结果、进度对应的那一件 */
   key: string;
-  kindLabel: string;
+  kind: SubmitKind;
   name: string;
   note: string;
   thumb: string | null;
   defaultTitle: string;
-  send: (form: SubmitForm) => void;
+  send: (form: SubmitForm, thumb: string | null) => void;
 }
 
 function worldSpec(worldId: string, title: string): WorkSpec {
@@ -39,13 +45,55 @@ function worldSpec(worldId: string, title: string): WorkSpec {
   const moment = typeof y === 'number' && y >= 0 ? Math.floor(y) : null;
   return {
     key: worldId,
-    kindLabel: '世界',
+    kind: 'world',
     name: title || '未命名世界',
     note: `${m ? `停在${m.year}，封面照这一年的地图画。` : ''}交的是现在这一份，之后再改，作品墙上的不会跟着变。`,
     thumb: loadWorld(worldId)?.thumb ?? null,
     defaultTitle: title,
-    send: (form) => void startSubmit({ id: worldId, title: title || '未命名世界', form, moment }),
+    send: (form, thumb) => void startSubmit({ id: worldId, kind: 'world', title: title || '未命名世界', form, moment, thumb }),
   };
+}
+
+/** 地图、新建参数、规则:点一下就交上去 */
+function smallSpec(o: Omit<WorkSpec, 'send'>, work: (form: SubmitForm) => SmallWork | null): WorkSpec {
+  return {
+    ...o,
+    send: (form, thumb) => {
+      const w = work(form);
+      if (w) void startSubmit({ id: o.key, kind: o.kind, title: form.title, form, moment: null, small: w, thumb });
+    },
+  };
+}
+
+function specOf(work: SubmitWork): WorkSpec {
+  const key = workKey(work);
+  if (work.kind === 'world') return worldSpec(work.worldId, work.title);
+  if (work.kind === 'map') {
+    const stored = loadWorld(work.worldId);
+    const name = stored ? mapName(stored) : work.title;
+    return smallSpec(
+      { key, kind: 'map', name, note: '交的是这张地图，封面是它的实景图。之后再改，作品墙上的不会跟着变。', thumb: stored?.mapThumb ?? stored?.thumb ?? null, defaultTitle: name },
+      () => {
+        const save = (currentWorld()?.id === work.worldId ? currentSave() : null) ?? loadWorld(work.worldId)?.save;
+        return save ? { kind: 'map', save } : null;
+      },
+    );
+  }
+  if (work.kind === 'preset') {
+    const r = work.rules;
+    return smallSpec(
+      { key, kind: 'preset', name: work.name || '这套参数', note: `交的是这套参数${r ? `，连着规则「${r.name}」` : ''}。封面是用它长出来的星球。`, thumb: null, defaultTitle: work.name },
+      (form) => ({
+        kind: 'preset',
+        link: presetHash({ name: form.title, params: strip(work.params), seed: work.params.seed, ...(work.endYear ? { endYear: work.endYear } : {}), ...(r ? { rules: r } : {}) }).replace(/^#/, ''),
+      }),
+    );
+  }
+  const n = modifiedCount(work.rules).total;
+  return smallSpec(
+    { key, kind: 'rules', name: work.rules.name, note: `交的是这套规则现在的样子${n ? `，改了 ${n} 项` : ''}。封面是用它在示例地图上推到第 3000 年的政区图。`, thumb: null, defaultTitle: work.rules.name },
+    () => ({ kind: 'rules', link: rulesHash(work.rules).replace(/^#/, '') }),
+  );
 }
 
 const seg = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh', { granularity: 'grapheme' }) : null;
@@ -57,8 +105,18 @@ const clip = (s: string, max: number) => {
 
 // ---------------------------------------------------------------------------
 
-export default function SubmitDialog({ phone, worldId, title, view, onClose }: { phone: boolean; worldId: string; title: string; view?: SubmitView; onClose: () => void }) {
-  const [spec] = useState(() => worldSpec(worldId, title));
+export default function SubmitDialog({ phone, work, view, onClose }: { phone: boolean; work: SubmitWork; view?: SubmitView; onClose: () => void }) {
+  const [spec] = useState(() => specOf(work));
+  // 新建参数、规则没有现成的小图:现画一张(后台线程算),画好换上
+  const [thumb, setThumb] = useState(spec.thumb);
+  useEffect(() => {
+    if (spec.thumb) return;
+    let live = true;
+    void drawWorkThumb(work).then((t) => live && t && setThumb(t));
+    return () => {
+      live = false;
+    };
+  }, []);
   // 窗里说过的结果关了窗口就不再说(断线的再点「投稿」接着传,传过的块不用重传);关着时出来的提示条上只说了一句,打开时说全
   useEffect(() => () => clearSubmitResult(spec.key), [spec.key]);
   const session = useSession();
@@ -84,7 +142,7 @@ export default function SubmitDialog({ phone, worldId, title, view, onClose }: {
         if (!live) return;
         setLimits(r.limits);
         const n = openNotice({ limits: r.limits, ban: submitBan() });
-        if (view === 'ban-share' && !submitBan()) return openShareDialog(worldId, title);
+        if (view === 'ban-share' && !submitBan() && work.kind === 'world') return openShareDialog(work.worldId, work.title);
         if (n && !mine && (view !== 'ban-share' || n.which === 'ban')) setNotice(n);
         else if (!n && view) setNotice(null);
       },
@@ -127,7 +185,7 @@ export default function SubmitDialog({ phone, worldId, title, view, onClose }: {
     if (!canSubmit) return;
     keepLastBy(clean.by);
     setBad([]);
-    spec.send({ ...clean, terms: TERMS_VERSION });
+    spec.send({ ...clean, terms: TERMS_VERSION }, thumb);
   };
   const failAct = (a: FailAct) => {
     if (a === 'retry') return submit();
@@ -142,7 +200,8 @@ export default function SubmitDialog({ phone, worldId, title, view, onClose }: {
 
   const block = fail && !mine && (fail.kind === 'hits' || fail.kind === 'block') ? fail : null;
   const line = fail && !mine && fail.kind === 'line' ? fail.text : null;
-  const left = mine ? '关掉窗口也会接着传' : netFail ? '' : limits ? `今天还能投 ${Math.max(0, limits.perDay - limits.usedToday)} 次` : '';
+  const world = spec.kind === 'world';
+  const left = mine && world ? '关掉窗口也会接着传' : netFail ? '' : limits ? `今天还能投 ${Math.max(0, limits.perDay - limits.usedToday)} 次` : '';
   const primary = mine || netFail ? '正在投稿' : block ? ACT_LABEL[block.kind === 'hits' ? 'retry' : block.act] : '投稿';
   const onPrimary = block && block.kind === 'block' ? () => failAct(block.act) : submit;
   const primaryOff = mine || netFail ? true : block?.kind === 'block' && block.act !== 'retry' ? false : !canSubmit;
@@ -174,7 +233,8 @@ export default function SubmitDialog({ phone, worldId, title, view, onClose }: {
     <textarea className={inCls('blurb')} data-act="submit-blurb" aria-label="一句话介绍" placeholder="说说它特别在哪" rows={2} value={form.blurb} disabled={dim} onChange={(e) => set('blurb', e.target.value.replace(/\n/g, ''), BLURB_MAX)} />,
   );
 
-  const prog = mine ? (
+  // 地图、新建参数、规则一下就交上去了,不出进度那一行
+  const prog = mine && world ? (
     <JobRow
       icon={mine.phase === 'check' ? <span className="sub-spin" aria-hidden="true" /> : <Icon name="cloudup" size={19} />}
       title={mine.phase === 'check' ? '正在核对' : `正在传「${mine.title}」`}
@@ -202,7 +262,7 @@ export default function SubmitDialog({ phone, worldId, title, view, onClose }: {
       <span className="acct-small">{left}</span>
       <span className="acct-sp" />
       <button className="acct-btn" data-act="submit-close" onClick={onClose}>
-        {mine || netFail ? '关掉' : '取消'}
+        {(mine && world) || netFail ? '关掉' : '取消'}
       </button>
       <button className="acct-btn blue" data-act="submit-go" disabled={primaryOff} onClick={onPrimary}>
         {primary}
@@ -214,10 +274,10 @@ export default function SubmitDialog({ phone, worldId, title, view, onClose }: {
     <Dialog phone={phone} label="投到作品墙" width={termsOpen ? 560 : 500} onClose={onClose} testId="submit-dialog">
       <div className="acct-body" style={{ gap: phone ? 12 : 14 }}>
         <div className="sub-what">
-          {spec.thumb ? <img className="sub-th" src={spec.thumb} alt="" draggable={false} /> : <span className="sub-th" />}
+          {thumb ? <img className="sub-th" src={thumb} alt="" draggable={false} /> : <span className="sub-th" />}
           <span className="main">
             <span className="t1">
-              <span className="sub-k">{spec.kindLabel}</span>
+              <span className="sub-k">{WORK_KIND_LABEL[spec.kind]}</span>
               <b>{spec.name}</b>
             </span>
             <small>{spec.note}</small>
@@ -235,7 +295,7 @@ export default function SubmitDialog({ phone, worldId, title, view, onClose }: {
           </div>
         )}
         {blurbIn}
-        {block && <FailBlock fail={block} />}
+        {block && <FailBlock fail={block} kind={spec.kind} />}
         <div className={`acct-callout sub-show${dim ? ' sub-dim' : ''}`}>
           <Icon name="info" size={16} />
           <span>{SHOW}</span>
@@ -317,7 +377,7 @@ function JobRow({ icon, title, small, pct, act }: { icon: ReactNode; title: stri
   );
 }
 
-function FailBlock({ fail }: { fail: Extract<SubmitFail, { kind: 'hits' | 'block' }> }) {
+function FailBlock({ fail, kind }: { fail: Extract<SubmitFail, { kind: 'hits' | 'block' }>; kind: SubmitKind }) {
   return (
     <div className="acct-callout sub-bad" data-testid="submit-fail">
       <Icon name="warn" size={16} />
@@ -328,7 +388,7 @@ function FailBlock({ fail }: { fail: Extract<SubmitFail, { kind: 'hits' | 'block
         </span>
       ) : (
         <span>
-          <b>没投成，世界在本机没事。</b>
+          <b>{notSubmitted(kind)}。</b>
           {fail.one ?? `下面 ${fail.count} 处没通过文字审核，改掉再投：`}
           {!fail.one && (
             <ul className="sub-hits">
@@ -399,7 +459,7 @@ function DoneNotice({ phone, left, email, onClose }: { phone: boolean; left: num
       onClose={onClose}
       btns={
         <>
-          <NoticeBtn phone={phone} act="submit-look" onClick={openAccount}>
+          <NoticeBtn phone={phone} act="submit-look" onClick={() => openAccount('submissions')}>
             看我的投稿
           </NoticeBtn>
           <NoticeBtn phone={phone} blue act="submit-ok" onClick={onClose}>
@@ -414,7 +474,7 @@ function DoneNotice({ phone, left, email, onClose }: { phone: boolean; left: num
 function LimitNotice({ phone, fail, ban, onClose }: { phone: boolean; fail: Extract<SubmitFail, { kind: 'notice' }>; ban: SubmitBan | null; onClose: () => void }) {
   const contact = useContact();
   const look = (
-    <NoticeBtn phone={phone} act="submit-look" onClick={openAccount}>
+    <NoticeBtn phone={phone} act="submit-look" onClick={() => openAccount('submissions')}>
       看我的投稿
     </NoticeBtn>
   );
@@ -433,10 +493,14 @@ function LimitNotice({ phone, fail, ban, onClose }: { phone: boolean; fail: Extr
         p="投稿和开分享链接都停了，已经开的分享链接也暂停了。登录、传到账号、存成文件照常。"
         why={
           ban?.reasonText ? (
-            <>
-              <b>原因：</b>
-              {ban.reasonText}
-            </>
+            banWhole(ban) ? (
+              ban.reasonText
+            ) : (
+              <>
+                <b>原因：</b>
+                {ban.reasonText}
+              </>
+            )
           ) : undefined
         }
         small="觉得弄错了，请到 QQ 交流群联系我们。"

@@ -3,7 +3,7 @@
  * 开着哪一套见 sheetStore.ts。
  *
  * 电脑(像常见的设置页):
- *   顶上    名字、改名;基于谁、第几版、用它建过几个世界、「改了以后，已经建好的世界不变」;分享(复制链接)、「···」(复制一份、存成文件、删除)、关闭
+ *   顶上    名字、改名;基于谁、第几版、用它建过几个世界、「改了以后，已经建好的世界不变」;分享(复制链接)、「···」(复制一份、存成文件、投到作品墙…、删除)、关闭
  *   左边    搜规则、只看改过的(改了几项)、七组(组名后面改了几项)、地貌的名字
  *   右边    一组:常用的直接列,其余收在「更多 N 项」里(点开 / 收起);一项一行(名字、一句说明、滑条、值、改回)
  *           只看改过的:按组列,逐项改回、「全部改回官方」(只改回规则项,地貌的名字不动;能撤销);一项都没改时说一句;
@@ -44,6 +44,8 @@ import { adoptRules, downloadRules, duplicateRules, newWorldFromShared, redoWith
 import { getCompare, openCompare } from '../compare/compareStore';
 import { fetchWork, isWorkGone, loadGallery, useGallery, wasReported, type GalleryWork } from '../../account/gallery';
 import { ReportDialog, dayText } from '../Gallery';
+import { openSubmitDialog } from '../AccountDialogs';
+import { askPhone, phoneRequired, useSubmitBan, useSubmitOn } from '../submitView';
 
 /** 官方规则(一项没改) */
 const OFFICIAL: RuleSet = { name: OFFICIAL_RULES_NAME, version: 1, values: {} };
@@ -159,6 +161,8 @@ export function RulesSheet() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (document.querySelector('.rs-root .pm-menu')) return;
+      // 账号的窗口(投稿窗)盖在上面:Esc 归它
+      if (document.querySelector('.acct-bg')) return;
       // 并排试推盖在上面:Esc 归它(回到这张大卡)
       if (getCompare()) return;
       e.stopPropagation();
@@ -244,10 +248,11 @@ function newerLine(sh: Shown): string {
 }
 
 /** 「···」菜单里的几项(我的规则里的一套) */
-export function mineMenu(m: MyRules, after?: () => void): (MenuItem | 'sep')[] {
+export function mineMenu(m: MyRules, after?: () => void, submit?: MenuItem | null): (MenuItem | 'sep')[] {
   return [
     { act: 'rules-copy', icon: 'copy', text: '复制一份', onClick: () => duplicateRules(m.rules.id) },
     { act: 'rules-file', icon: 'save', text: '存成文件', onClick: () => downloadRules(m.rules) },
+    ...(submit ? [submit] : []),
     'sep',
     {
       act: 'rules-delete',
@@ -262,6 +267,15 @@ export function mineMenu(m: MyRules, after?: () => void): (MenuItem | 'sep')[] {
       },
     },
   ];
+}
+
+/** 「···」里的「投到作品墙…」:登录了、服务器开着投稿才有;账号停了投稿时灰着,点了说原因 */
+function useSubmitItem(r: RuleSet): MenuItem | null {
+  const on = useSubmitOn(true);
+  const banned = useSubmitBan();
+  if (!on) return null;
+  const go = () => openSubmitDialog({ kind: 'rules', rules: r }, banned ? 'ban' : undefined);
+  return { act: 'rules-submit', icon: 'image', text: '投到作品墙…', off: !!banned, onClick: () => (!banned && phoneRequired() ? askPhone({ for: 'submit', then: go }) : go()) };
 }
 
 /** 只看改过的那一页的说明(sec、biomes、retired 是改过的;改回了还接着列的不算) */
@@ -328,6 +342,7 @@ function WorkReport({ work, phone }: { work: GalleryWork; phone?: boolean }) {
 
 function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Acts | null; naming: boolean }) {
   const r = sh.rules;
+  const submit = useSubmitItem(r);
   const compareBtn = <CompareButton sh={sh} />;
   const ro = !acts;
   const n = modifiedCount(r);
@@ -513,7 +528,7 @@ function DeskSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Act
                   <Icon name="share" size={15} />
                   分享
                 </button>
-                <MoreMenu btnClass="rs-btn sq" items={mineMenu(sh.mine, closeRulesSheet)} />
+                <MoreMenu btnClass="rs-btn sq" items={mineMenu(sh.mine, closeRulesSheet, submit)} />
               </>
             )}
             {sh.work && <WorkReport work={sh.work} />}
@@ -676,6 +691,7 @@ type PhonePage = 'root' | RulesPage | 'retired';
 
 function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Acts | null; naming: boolean }) {
   const r = sh.rules;
+  const submit = useSubmitItem(r);
   const ro = !acts;
   const n = modifiedCount(r);
   const counts = useMemo(() => countByGroup(r.values), [r.values]);
@@ -881,7 +897,7 @@ function PhoneSheet({ shown: sh, acts, naming: name0 }: { shown: Shown; acts: Ac
                   <Icon name="pen" size={15} />
                   改名
                 </button>
-                <MoreMenu btnClass="rs-btn sq" items={mineMenu(sh.mine, closeRulesSheet)} />
+                <MoreMenu btnClass="rs-btn sq" items={mineMenu(sh.mine, closeRulesSheet, submit)} />
               </div>
             )}
           </div>

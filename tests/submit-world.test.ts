@@ -233,8 +233,8 @@ describe('字', () => {
   });
 
   it('提示条:传、核对、断线、投好了', () => {
-    expect(jobWords({ id: 'w', title: '塞雷尼亚', phase: 'send', done: 2.1e6, total: 4.9e6 })).toMatchObject({ text: '正在投「塞雷尼亚」', more: '2.1 / 4.9 MB，别关页面', act: 'cancel' });
-    expect(jobWords({ id: 'w', title: '塞雷尼亚', phase: 'check', done: 1, total: 1 })).toEqual({ kind: 'progress', text: '正在核对「塞雷尼亚」', more: '已经传完，服务器在检查里面的内容' });
+    expect(jobWords({ id: 'w', kind: 'world', title: '塞雷尼亚', phase: 'send', done: 2.1e6, total: 4.9e6 })).toMatchObject({ text: '正在投「塞雷尼亚」', more: '2.1 / 4.9 MB，别关页面', act: 'cancel' });
+    expect(jobWords({ id: 'w', kind: 'world', title: '塞雷尼亚', phase: 'check', done: 1, total: 1 })).toEqual({ kind: 'progress', text: '正在核对「塞雷尼亚」', more: '已经传完，服务器在检查里面的内容' });
     expect(failWords({ kind: 'net' })).toMatchObject({ text: '传到一半断线了', more: '世界在本机没事，传上去的不用重传', act: 'resume' });
   });
 

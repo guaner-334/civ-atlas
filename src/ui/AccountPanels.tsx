@@ -21,10 +21,11 @@ import { ShareAborted, pushForShare } from './sharePush';
 import { askFull, fullDay, fullStatusOf, holdFullToasts, pairText, useFullJob, useFullNotes, useFullOverview, useFullPull, type FullJob, type FullNote } from './fullWorldView';
 import { usedLine } from './fullWorldWords';
 import { keepLastBy } from './submitView';
+import { MySubmissions } from './MySubmissions';
 
 /** 开着的这个窗口。退出、换了账号时外面已经不挂它了 */
 export default function AccountPanel({ panel, phone, onClose, onBack }: { panel: Exclude<Panel, { kind: 'login' | 'submit' }>; phone: boolean; onClose: () => void; onBack: () => void }) {
-  if (panel.kind === 'account') return <AccountDialog phone={phone} onClose={onClose} />;
+  if (panel.kind === 'account') return <AccountDialog phone={phone} to={panel.to} onClose={onClose} />;
   if (panel.kind === 'logout') return <LogoutDialog phone={phone} onClose={onClose} onBack={onBack} />;
   if (panel.kind === 'delete') return <DeleteDialog phone={phone} onClose={onClose} onBack={onBack} />;
   return <ShareDialog key={panel.worldId} phone={phone} worldId={panel.worldId} title={panel.title} onClose={onClose} />;
@@ -41,7 +42,7 @@ function day(iso: string): string {
   return `${y}${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void }) {
+function AccountDialog({ phone, to, onClose }: { phone: boolean; to?: 'submissions'; onClose: () => void }) {
   const s = useSession()!;
   const acct = useOfficialAccount();
   const aiOn = useAiOn();
@@ -123,6 +124,7 @@ function AccountDialog({ phone, onClose }: { phone: boolean; onClose: () => void
             </button>
           )}
         </div>
+        <MySubmissions phone={phone} scrollTo={to === 'submissions'} />
         {fo && (
           <FullGroup
             shares={shares}

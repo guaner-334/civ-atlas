@@ -3,7 +3,7 @@
  *
  *   弹出按钮   写着选的那个预设;选了以后又改过任何一项,后面写"(改过)"
  *   菜单       (打开了朋友的预设链接:分享来的那一套排最上面)默认 / 上次用的(右边小字"建「某某」时")/
- *              自己存的(右边小字是和默认不一样的前两样)/ 存成预设… / 复制分享链接… / 管理预设…
+ *              自己存的(右边小字是和默认不一样的前两样)/ 存成预设… / 复制分享链接… / 投到作品墙…(登录了、服务器开着投稿才有)/ 管理预设…
  *              (照 Mac 打印窗口的「预置」);手机上大一号,右边只写存了的种子
  *   存成预设   小窗:名字(同名的会替换)、「连种子一起存」、「连规则一起存」、下面列出会存哪些
  *   复制分享链接 小窗(和存成预设一个样子):名字、「连种子一起分享」、「连规则一起分享」、链接里有哪几样、链接多长,点「复制链接」;
@@ -22,6 +22,8 @@ import { Icon } from './icons';
 import { choiceName, choiceParams, choosePreset, deletePreset, presetSummary, renamePreset, sameAsChoice, sharedNote, usePresets, type PresetChoice, type PresetParams } from './presetStore';
 import { useMyRulesNames } from './rulesCount';
 import type { SavePresetProps, SharePresetProps } from './PresetDialogs';
+import { openSubmitDialog } from './AccountDialogs';
+import { askPhone, phoneRequired, useSubmitBan, useSubmitOn } from './submitView';
 import './params.css';
 
 const SaveDlg = lazy(() => import('./PresetDialogs').then((m) => ({ default: m.SavePresetDialog })));
@@ -118,6 +120,15 @@ export function PresetPicker({
   const btn = useRef<HTMLButtonElement>(null);
   useEscape(!!menu, () => setMenu(null));
   const changed = !sameAsChoice(st, st.chosen, params, endYear);
+  const submitOn = useSubmitOn(!!menu);
+  const banned = useSubmitBan();
+  const submit = () => {
+    setMenu(null);
+    const picked = st.chosen === 'shared' ? st.shared : st.list.find((p) => p.id === st.chosen);
+    const go = () => openSubmitDialog({ kind: 'preset', name: picked?.name ?? '', params, ...(endYear ? { endYear } : {}), ...(rules ? { rules } : {}) }, banned ? 'ban' : undefined);
+    if (!banned && phoneRequired()) askPhone({ for: 'submit', then: go });
+    else go();
+  };
 
   const open = () => {
     const r = btn.current?.getBoundingClientRect();
@@ -175,6 +186,7 @@ export function PresetPicker({
             onPick={pick}
             onSave={() => openMini('save')}
             onShare={() => openMini('share')}
+            onSubmit={submitOn ? { off: !!banned, go: submit } : null}
             onManage={() => openMini('manage')}
           />,
           document.body,
@@ -193,6 +205,7 @@ function PresetMenu({
   onPick,
   onSave,
   onShare,
+  onSubmit,
   onManage,
 }: {
   at: { x: number; y: number; w: number; theme?: string };
@@ -201,6 +214,8 @@ function PresetMenu({
   onPick: (c: PresetChoice) => void;
   onSave: () => void;
   onShare: () => void;
+  /** 投到作品墙(没登录、服务器没开投稿 = 不给);off:账号停了投稿,灰着,点了说原因 */
+  onSubmit: { off: boolean; go: () => void } | null;
   onManage: () => void;
 }) {
   const st = usePresets();
@@ -256,6 +271,12 @@ function PresetMenu({
           <span className="ck" />
           复制分享链接…
         </button>
+        {onSubmit && (
+          <button role="menuitem" data-act="preset-submit" className={onSubmit.off ? 'off' : undefined} aria-disabled={onSubmit.off ? true : undefined} onClick={onSubmit.go}>
+            <span className="ck" />
+            投到作品墙…
+          </button>
+        )}
         <button role="menuitem" data-act="preset-manage" disabled={!st.list.length} onClick={onManage}>
           <span className="ck" />
           管理预设…

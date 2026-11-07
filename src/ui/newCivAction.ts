@@ -34,3 +34,14 @@ export function setOpenWorldHandler(f: ((id: string) => void) | null): void {
 export function openWorldById(id: string): void {
   opener?.(id);
 }
+
+/** 打开作品墙上的一个作品(账号窗「我的投稿」里点「看看」):App、先出来的首页挂上 */
+let workOpener: ((id: string) => void) | null = null;
+
+export function setOpenWorkHandler(f: ((id: string) => void) | null): void {
+  workOpener = f;
+}
+
+export function openGalleryWork(id: string): void {
+  workOpener?.(id);
+}

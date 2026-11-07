@@ -314,9 +314,11 @@ export function NameInput({ initial, max, onDone, className }: { initial: string
 /** 菜单里的一项 */
 export interface MenuItem {
   act: string;
-  icon: 'copy' | 'save' | 'trash' | 'share' | 'pen';
+  icon: 'copy' | 'save' | 'trash' | 'share' | 'pen' | 'image';
   text: string;
   red?: boolean;
+  /** 灰着也能点(点了说为什么) */
+  off?: boolean;
   /** 点两下才算(删除:第一下换成「再点一下删除」) */
   confirm?: string;
   onClick: () => void;
@@ -360,8 +362,9 @@ export function MoreMenu({ items, className = '', btnClass, label = '更多' }: 
             ) : (
               <button
                 key={it.act}
-                className={`pm-item${it.red ? ' red' : ''}`}
+                className={`pm-item${it.red ? ' red' : ''}${it.off ? ' off' : ''}`}
                 role="menuitem"
+                aria-disabled={it.off ? true : undefined}
                 data-act={it.act}
                 onClick={() => {
                   if (it.confirm && arm !== it.act) return setArm(it.act);

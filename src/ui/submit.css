@@ -228,6 +228,7 @@
   color: var(--ink-2);
 }
 .gw-ok .sub-why {
+  text-wrap: pretty;
   margin-top: 4px;
   padding: 8px 12px;
   border-radius: 9px;
@@ -242,4 +243,64 @@
 }
 .acct-dlg.sheet .acct-foot.col .acct-btn.full.sub-plain {
   font-weight: 500;
+}
+
+/* 账号窗「我的投稿」(MySubmissions.tsx):状态是一个圆点 + 字 */
+.acct-gh .sub-q {
+  font-weight: 400;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+.acct-gh .sub-q b {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.acct-gr .main small.sub-wrap {
+  white-space: normal;
+}
+.acct-gr .main small.sub-err {
+  color: var(--err);
+}
+.sub-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 6px;
+  font-weight: 600;
+}
+.sub-st::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.sub-st.wait {
+  color: var(--ink-2);
+}
+.sub-st.ing {
+  color: var(--accent);
+}
+.sub-st.up {
+  color: var(--ok);
+}
+.sub-st.back {
+  color: var(--warn);
+}
+.sub-st.off {
+  color: var(--ink-3);
+}
+.acct-gr.sub-ask {
+  align-items: flex-start;
+  background: rgba(224, 68, 58, 0.05);
+}
+.acct-gr.sub-ask .main small {
+  white-space: normal;
+  color: var(--ink);
+}
+.acct-gr .sub-acts {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  align-self: center;
 }

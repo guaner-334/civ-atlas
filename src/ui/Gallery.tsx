@@ -4,7 +4,8 @@
  *
  *   GalleryPage       作品墙那一页(样子和「我的世界」一套):本月精选(配推荐语)→ 正在进行的挑战 → 全部作品(按上架时间,
  *                     页签只按种类分)。加载中先占灰色的位置、取不到说清楚 +「再试一次」、还没有作品说一句在挑。
- *                     手机上精选一行横着滑,全部作品两列、不写上架日期。右上「怎么上作品墙」(HowToDialog:站外投稿、带上哪三样、投稿须知)
+ *                     手机上精选一行横着滑,全部作品两列、不写上架日期。右上「怎么上作品墙」(HowToDialog:服务器开着投稿时两条路
+ *                     ——网站上投、群里投,不然只有群里投;带上哪三样、投稿须知)
  *   GalleryFeatured   「我的世界」一个都没有时,空页面下面的一排本月精选 +「去作品墙看全部」
  *   PresetWorkDialog  点开一个新建参数作品:封面星球、这套参数、作者的一句话;「用这套参数新建」
  *                     点开一个规则作品是调规则的大卡(rules/RulesSheet.tsx,盖在这一页上)
@@ -47,6 +48,8 @@ import {
   type WorkKind,
 } from '../account/gallery';
 import { useFullOverview } from './fullWorldView';
+import { useServerSubmit } from './submitView';
+import { TERMS } from './submitTerms';
 import './gallery.css';
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
@@ -527,43 +530,84 @@ export function GalleryFeatured({ phone, onOpen, onGallery }: { phone: boolean; 
 function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }) {
   const contact = useContact();
   const fullOn = !!useFullOverview();
+  const site = useServerSubmit();
+  const three = (
+    <div className="acct-grp gl-three">
+      <div className="acct-gr">
+        <b>作品</b>
+        <dl className="gl-kinds">
+          <dt>世界</dt>
+          <dd>存档菜单里「存成文件」，把文件发给管理员；只会复制配方链接也行，管理员替你存成文件{fullOn ? '；传到账号后发分享链接也行' : ''}</dd>
+          <dt>地图</dt>
+          <dd>存档菜单里的「复制配方链接」</dd>
+          <dt>新建参数</dt>
+          <dd>预设菜单里的「复制分享链接…」，连规则一起的也行</dd>
+          <dt>规则</dt>
+          <dd>调规则那一页右上的「分享」，复制链接</dd>
+        </dl>
+      </div>
+      <div className="acct-gr">
+        <b>署名</b>
+        <span>作品墙上显示的名字，用笔名就行</span>
+      </div>
+      <div className="acct-gr">
+        <b>一句话介绍</b>
+        <span>40 字以内，说说它特别在哪</span>
+      </div>
+    </div>
+  );
   return (
     <Dialog phone={phone} label="怎么上作品墙" width={600} onClose={onClose} testId="gallery-howto" className="gl-howto">
-      <div className="acct-body">
-        <p className="acct-lead">作品墙上的作品都是作者投来、我们看过才放上去的。网站上不收稿，请到 QQ 交流群里找管理员，带上三样：</p>
-        <div className="acct-grp gl-three">
-          <div className="acct-gr">
-            <b>作品</b>
-            <dl className="gl-kinds">
-              <dt>世界</dt>
-              <dd>存档菜单里「存成文件」，把文件发给管理员；只会复制配方链接也行，管理员替你存成文件{fullOn ? '；传到账号后发分享链接也行' : ''}</dd>
-              <dt>地图</dt>
-              <dd>存档菜单里的「复制配方链接」</dd>
-              <dt>新建参数</dt>
-              <dd>预设菜单里的「复制分享链接…」，连规则一起的也行</dd>
-              <dt>规则</dt>
-              <dd>调规则那一页右上的「分享」，复制链接</dd>
-            </dl>
+      {site.on ? (
+        <div className="acct-body">
+          <p className="acct-lead">作品墙上的作品都是作者投来、我们看过才放上去的。有两种投法：</p>
+          <h3 className="gl-h3 gl-way">
+            有网站账号：在网站上直接投{site.inviteOnly && <small>现在只开放给收到邀请的人</small>}
+          </h3>
+          <div className="acct-grp gl-three" data-testid="howto-site">
+            <div className="acct-gr">
+              <b>在哪投</b>
+              <dl className="gl-kinds">
+                <dt>世界</dt>
+                <dd>存档菜单里的「投到作品墙…」</dd>
+                <dt>地图</dt>
+                <dd>存档菜单里的「投到作品墙…」</dd>
+                <dt>新建参数</dt>
+                <dd>预设菜单里的「投到作品墙…」</dd>
+                <dt>规则</dt>
+                <dd>调规则那一页右上「···」里</dd>
+              </dl>
+            </div>
+            <div className="acct-gr">
+              <b>之后</b>
+              <span>结果发邮件告诉你，也在账号窗的「我的投稿」里看；没审之前能撤回</span>
+            </div>
           </div>
-          <div className="acct-gr">
-            <b>署名</b>
-            <span>作品墙上显示的名字，用笔名就行</span>
-          </div>
-          <div className="acct-gr">
-            <b>一句话介绍</b>
-            <span>40 字以内，说说它特别在哪</span>
-          </div>
+          <h3 className="gl-h3 gl-way">没有账号：到 QQ 交流群找管理员，带上三样</h3>
+          {three}
+          <p className="acct-small gl-agree">在群里投时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
+          <h3 className="gl-h3">投之前请知道</h3>
+          <ol className="gl-ol">
+            {TERMS.map((t, i) => (
+              <li key={i}>{t}</li>
+            ))}
+          </ol>
         </div>
-        <h3 className="gl-h3">投之前请知道</h3>
-        <ol className="gl-ol">
-          <li>作品是你自己做的；改的是别人的作品，网站会自动写上原来的出处。</li>
-          <li>你同意它在作品墙上公开展示：谁都能打开看、另存一份接着改、用你的地图、参数或规则新建世界；另存的那份写着你的署名和出处，改不掉。</li>
-          <li>我们会看过里面所有的字（国名、人名、改的名字、人物和标注、AI 写的正文、介绍）再决定上不上；可能选进本月精选，配一句推荐语。封面由网站自动截地图。</li>
-          <li>想撤下随时说。撤下后作品墙上不再出现；别人已经另存的在他们自己的浏览器里，我们删不掉。</li>
-          <li>被举报、核实不适合公开的，我们会撤下。</li>
-        </ol>
-        <p className="acct-small">投稿时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
-      </div>
+      ) : (
+        <div className="acct-body">
+          <p className="acct-lead">作品墙上的作品都是作者投来、我们看过才放上去的。网站上不收稿，请到 QQ 交流群里找管理员，带上三样：</p>
+          {three}
+          <h3 className="gl-h3">投之前请知道</h3>
+          <ol className="gl-ol">
+            <li>作品是你自己做的；改的是别人的作品，网站会自动写上原来的出处。</li>
+            <li>你同意它在作品墙上公开展示：谁都能打开看、另存一份接着改、用你的地图、参数或规则新建世界；另存的那份写着你的署名和出处，改不掉。</li>
+            <li>我们会看过里面所有的字（国名、人名、改的名字、人物和标注、AI 写的正文、介绍）再决定上不上；可能选进本月精选，配一句推荐语。封面由网站自动截地图。</li>
+            <li>想撤下随时说。撤下后作品墙上不再出现；别人已经另存的在他们自己的浏览器里，我们删不掉。</li>
+            <li>被举报、核实不适合公开的，我们会撤下。</li>
+          </ol>
+          <p className="acct-small">投稿时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
+        </div>
+      )}
       <div className="acct-foot">
         <span className="acct-sp" />
         <button className="acct-btn" data-act="howto-ok" onClick={onClose}>

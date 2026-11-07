@@ -3,7 +3,8 @@
  *
  *   登录       邮箱收验证码(不设密码);「手机号」那一格先置灰写"暂未开放"(网页这边还没做手机号登录);
  *              邀请制下新邮箱要邀请码:从邀请链接打开的已经填好,没填的点"获取验证码"时先说明、露出邀请码一栏(不发邮件)
- *   账号       传到账号的世界、最近删除、AI 积分(「使用 AI 功能」关着时不显示)、分享出去的世界(复制链接、停止分享);左下注销账号,右下退出登录
+ *   账号       最近删除、AI 积分(「使用 AI 功能」关着时不显示)、我的投稿(MySubmissions.tsx)、传到账号的世界、分享出去的世界(复制链接、停止分享);
+ *              左下注销账号,右下退出登录
  *   退出登录   问这台设备上的世界留不留(默认留)
  *   注销账号   给自己的邮箱发验证码,填上才注销(账号里的都删掉;这台设备上的不动)
  *   分享       一个开关管开和停;署名(别人另存时写进底稿出处,默认不填);勾选「停在这一刻」(和存档菜单同一个,默认勾着:
@@ -11,7 +12,7 @@
  *              短链接、复制;手机上多一个"发给…"(系统分享)
  *
  *   openLogin() / openAccount() / openShareDialog(id, 名字)   打开它们(「我的世界」右上、AI 设置、存档菜单)
- *   openSubmitDialog(id, 名字)   投到作品墙(存档菜单;窗口在 SubmitDialog.tsx,点开才下载)
+ *   openSubmitDialog(作品)   投到作品墙(存档菜单、预设菜单、调规则那一页的「···」;窗口在 SubmitDialog.tsx,点开才下载)
  *   openTrash()   「我的世界」那一页换成最近删除(App 回到我的世界)
  *   AccountHost   窗口本身,App 里一直挂着
  *
@@ -26,12 +27,20 @@ import { refreshOfficialAccount } from '../ai/providers/official';
 import { ServerError } from '../account/server';
 import { fetchAuthOptions, getSession, login, pendingInvite, sendCode, useSession, type AuthOptions } from '../account/session';
 import { showToast } from './toastStore';
+import { workKey, type SubmitWork } from './submitView';
 import './account.css';
 
 // ---------------------------------------------------------------------------
 // 开关
 
-export type Panel = { kind: 'login' } | { kind: 'account' } | { kind: 'logout' } | { kind: 'delete' } | { kind: 'share'; worldId: string; title: string } | { kind: 'submit'; worldId: string; title: string; view?: SubmitView };
+export type Panel =
+  | { kind: 'login' }
+  /** to:打开时滚到哪一组 */
+  | { kind: 'account'; to?: 'submissions' }
+  | { kind: 'logout' }
+  | { kind: 'delete' }
+  | { kind: 'share'; worldId: string; title: string }
+  | { kind: 'submit'; work: SubmitWork; view?: SubmitView };
 
 let panel: Panel | null = null;
 let trash = false;
@@ -59,8 +68,9 @@ export function openLogin(): void {
   panel = { kind: 'login' };
   emit();
 }
-export function openAccount(): void {
-  panel = { kind: 'account' };
+/** 也会被直接当成点击的处理函数,传进来的不是 'submissions' 就当没给 */
+export function openAccount(to?: 'submissions'): void {
+  panel = { kind: 'account', ...(to === 'submissions' ? { to } : {}) };
   forNow();
   emit();
 }
@@ -71,8 +81,8 @@ export function openShareDialog(worldId: string, title: string): void {
 }
 /** 账号停了投稿时先说原因:ban 从「投到作品墙…」来,ban-share 从「分享…」来(其实没停就接着开分享窗) */
 export type SubmitView = 'ban' | 'ban-share';
-export function openSubmitDialog(worldId: string, title: string, view?: SubmitView): void {
-  panel = { kind: 'submit', worldId, title, ...(view ? { view } : {}) };
+export function openSubmitDialog(work: SubmitWork, view?: SubmitView): void {
+  panel = { kind: 'submit', work, ...(view ? { view } : {}) };
   forNow();
   emit();
 }
@@ -141,7 +151,7 @@ export function AccountHost({ phone }: { phone: boolean }) {
   if (p.kind === 'submit')
     return (
       <Suspense fallback={null}>
-        <SubmitPanel key={p.worldId} phone={phone} worldId={p.worldId} title={p.title} view={p.view} onClose={close} />
+        <SubmitPanel key={workKey(p.work)} phone={phone} work={p.work} view={p.view} onClose={close} />
       </Suspense>
     );
   return (

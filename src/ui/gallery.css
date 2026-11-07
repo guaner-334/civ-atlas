@@ -654,6 +654,19 @@
   gap: 5px;
   font-size: 14px;
 }
+/* 两条路(服务器开着投稿时):小标题贴着下面那张表 */
+.acct-dlg.gl-howto .gl-h3.gl-way {
+  margin-bottom: -4px;
+}
+.gl-way small {
+  margin-left: 0.3em;
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.gl-howto .gl-agree {
+  margin-top: -4px;
+}
 
 .gl-pdlg {
   overflow: hidden;

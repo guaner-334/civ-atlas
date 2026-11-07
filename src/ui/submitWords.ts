@@ -1,12 +1,14 @@
 /** 投到作品墙写给人看的字:服务器说的错、核对没过的原因换成投稿窗、提示条上的说法。纯文字,不碰网络。 */
 import type { FullHit } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
-import type { SubmitCheckError, SubmitLimits } from '../account/submissions';
+import type { SubmitCheckError, SubmitKind, SubmitLimits } from '../account/submissions';
 import { pairText } from './fullWorldView';
-import { readBan, type SubmitBan, type SubmitJob } from './submitView';
+import { banWhole, readBan, type SubmitBan, type SubmitJob } from './submitView';
 import { aboutSize } from './sizeWords';
 
 export const NOT_SUBMITTED = '没投成，世界在本机没事';
+/** 没投成的第一句:世界、地图说一声本机那份没事;新建参数、规则本来就在框里、在「我的规则」里 */
+export const notSubmitted = (kind: SubmitKind): string => (kind === 'world' ? NOT_SUBMITTED : kind === 'map' ? '没投成，地图在本机没事' : '没投成');
 
 export type SubmitField = 'title' | 'by' | 'blurb';
 
@@ -35,7 +37,7 @@ export type SubmitFail =
   | { kind: 'phone' };
 
 const OFFLINE = '连不上服务器，没投成。联网后再点一次「投稿」';
-const BUSY: SubmitFail = { kind: 'block', head: `${NOT_SUBMITTED}。`, text: '服务器这会儿太忙，没核对完。等一会儿再投', act: 'retry' };
+const busy = (kind: SubmitKind): SubmitFail => ({ kind: 'block', head: `${notSubmitted(kind)}。`, text: '服务器这会儿太忙，没核对完。等一会儿再投', act: 'retry' });
 const CHECK: SubmitFail = { kind: 'block', head: `${NOT_SUBMITTED}。`, text: '服务器核对没通过，可能是网站刚更新。刷新页面再投一次', act: 'reload' };
 const OPAQUE: SubmitFail = { kind: 'block', head: `${NOT_SUBMITTED}。`, text: '带着插件的附加数据，我们看不到里面，不能投。可以存成文件发给别人', act: 'file' };
 
@@ -67,7 +69,7 @@ export function hitsFail(hits: readonly FullHit[], hitCount: number): SubmitFail
 const limitNum = (v: unknown, d: number) => (typeof v === 'number' && v > 0 ? v : d);
 
 /** 服务器说的错。sending:已经开始传块了 */
-export function submitFail(e: unknown, sending = false): SubmitFail {
+export function submitFail(e: unknown, sending = false, kind: SubmitKind = 'world'): SubmitFail {
   if (!(e instanceof ServerError)) return { kind: 'line', text: e instanceof Error && e.message ? e.message : String(e) };
   const d = e.data as { limit?: unknown; perDay?: unknown; pendingMax?: unknown; hits?: unknown; hitCount?: unknown; ban?: unknown; worldBytes?: unknown; maxBytes?: unknown };
   switch (e.code) {
@@ -103,7 +105,7 @@ export function submitFail(e: unknown, sending = false): SubmitFail {
     case 'blocks-missing':
     case 'unavailable':
     case 'server':
-      return BUSY;
+      return busy(kind);
     default:
       return { kind: 'line', text: e.message };
   }
@@ -139,6 +141,7 @@ export interface ToastWords {
 }
 
 export function jobWords(j: SubmitJob): ToastWords {
+  if (j.phase === 'post') return { kind: 'progress', text: `正在投「${j.title}」`, more: '' };
   if (j.phase === 'check') return { kind: 'progress', text: `正在核对「${j.title}」`, more: '已经传完，服务器在检查里面的内容' };
   const sending = j.phase === 'send' && j.total > 0;
   return { kind: 'progress', text: `正在投「${j.title}」`, more: sending ? `${pairText(j.done, j.total)}，别关页面` : '别关页面', ...(sending ? { progress: j.done / j.total } : {}), act: 'cancel' };
@@ -147,26 +150,27 @@ export function jobWords(j: SubmitJob): ToastWords {
 export const DONE_WORDS: ToastWords = { kind: 'ok', text: '投好了，等我们看', more: '结果会发邮件，也能在「我的投稿」里看', act: 'look' };
 
 /** 没投成:提示条只有两行,碰到词的说第一处 */
-export function failWords(f: SubmitFail): ToastWords {
+export function failWords(f: SubmitFail, kind: SubmitKind = 'world'): ToastWords {
+  const no = notSubmitted(kind);
   switch (f.kind) {
     case 'net':
       return { kind: 'warn', text: '传到一半断线了', more: '世界在本机没事，传上去的不用重传', act: 'resume' };
     case 'line':
-      return { kind: 'error', text: NOT_SUBMITTED, more: f.text };
+      return { kind: 'error', text: no, more: f.text };
     case 'block':
-      return { kind: 'error', text: NOT_SUBMITTED, more: f.text, act: f.act };
+      return { kind: 'error', text: no, more: f.text, act: f.act };
     case 'hits': {
-      if (f.one) return { kind: 'error', text: NOT_SUBMITTED, more: f.one };
+      if (f.one) return { kind: 'error', text: no, more: f.one };
       const first = f.lines[0];
-      return { kind: 'error', text: NOT_SUBMITTED, more: first ? `${first.label}${first.text === '上面标红的那一句' ? '' : first.text}等 ${f.count} 处没通过文字审核，改掉再投` : '' };
+      return { kind: 'error', text: no, more: first ? `${first.label}${first.text === '上面标红的那一句' ? '' : first.text}等 ${f.count} 处没通过文字审核，改掉再投` : '' };
     }
     case 'terms':
-      return { kind: 'error', text: NOT_SUBMITTED, more: '投稿须知改过了，看过再勾上' };
+      return { kind: 'error', text: no, more: '投稿须知改过了，看过再勾上' };
     case 'notice':
-      if (f.which === 'ban') return { kind: 'error', text: '你的账号已停止投稿', more: f.ban?.reasonText ? `原因：${f.ban.reasonText}` : '' };
+      if (f.which === 'ban') return { kind: 'error', text: '你的账号已停止投稿', more: f.ban?.reasonText ? `${banWhole(f.ban) ? '' : '原因：'}${f.ban.reasonText}` : '' };
       if (f.which === 'per-day') return { kind: 'warn', text: `今天投满 ${limitNum(f.limits?.perDay, 3)} 次了`, more: '明天再来。世界在本机没事' };
       return { kind: 'warn', text: `等审的已经有 ${limitNum(f.limits?.pendingMax, 5)} 件了`, more: '审完或撤回一件再投' };
     case 'phone':
-      return { kind: 'error', text: NOT_SUBMITTED, more: '' };
+      return { kind: 'error', text: no, more: '' };
   }
 }
