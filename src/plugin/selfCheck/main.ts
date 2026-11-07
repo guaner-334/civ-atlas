@@ -3,7 +3,6 @@
  * 只进测试网站的构建、没有入口;不用 React,和首页不共用任何文件。
  */
 import '../../ui/theme.css';
-import './page.css';
 import { APP_COMMIT, APP_VERSION } from '../../ui/version';
 import { describeDevice } from './device';
 import { battery, batteryCode, echo, frameNav, isolation, spin, stops } from './probes';
