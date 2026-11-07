@@ -6,6 +6,8 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { PluginApiError } from '../src/plugin/check';
+import { localDataStore } from '../src/plugin/pluginData';
 import { PLUGIN_MAX_BYTES, PluginFileError, packPluginFile } from '../src/plugin/pluginFile';
 import {
   PLUGIN_DB,
@@ -209,6 +211,18 @@ describe('插件仓库:插件自己的设置', () => {
     expect(await readPluginLocal('route-measure')).toEqual(value);
     await writePluginLocal('route-measure', undefined);
     expect(await readPluginLocal('route-measure')).toBeUndefined();
+  });
+
+  it('插件接口的 store.local 落在这里:存、取、删;太大回 limit', async () => {
+    await installPlugin(v1);
+    expect(await localDataStore.get('route-measure')).toBeNull();
+    await localDataStore.set('route-measure', { schema: 2, value: { unit: '里' } });
+    expect(await localDataStore.get('route-measure')).toEqual({ schema: 2, value: { unit: '里' } });
+    const err = await Promise.resolve(localDataStore.set('route-measure', { schema: 1, value: new Uint8Array(PLUGIN_LOCAL_MAX_BYTES) })).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PluginApiError);
+    expect((err as PluginApiError).code).toBe('limit');
+    await localDataStore.set('route-measure', null);
+    expect(await localDataStore.get('route-measure')).toBeNull();
   });
 
   it('太大、存不了的东西、没装的插件:报错,原来的不动', async () => {

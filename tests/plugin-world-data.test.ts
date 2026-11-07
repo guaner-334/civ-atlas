@@ -9,7 +9,10 @@ import { makePart, type SnapshotPart } from '../src/gen/snapshot';
 import { opaqueParts, openWorldFile, packWorldParts, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import { PLUGIN_DATA_MAX_BYTES, type WorldManifest, type WorldPlugin } from '../src/gen/worldFormat';
 import { openPluginFile } from '../src/plugin/pluginFile';
+import { PluginApiError } from '../src/plugin/check';
+import { worldDataStore } from '../src/plugin/pluginData';
 import { pluginsInWorld, worldPluginOf } from '../src/plugin/pluginWorld';
+import type { VaultCaller } from '../src/ui/worldStore';
 import { _resetVault, changePluginData, commitWorld, opaquePartsOf, readPluginData, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
 import { goodPlugin } from './lib/pluginFileSample';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
@@ -128,6 +131,26 @@ describe('插件存进世界的数据', () => {
     expect(vaultOps.changePluginData).toBe(changePluginData);
     expect(vaultOps.opaquePartsOf).toBe(opaquePartsOf);
     expect(await opaquePartsOf('nope')).toEqual([]);
+  });
+});
+
+describe('插件接口存世界的数据(store.world)', () => {
+  const call: VaultCaller = (op, args) => (vaultOps[op] as (...a: unknown[]) => Promise<never>)(...args);
+
+  it('存、取、删走世界仓库;世界还没存下来回 unavailable,太大回 limit', async () => {
+    const store = worldDataStore(call, sample.id, tool);
+    await expect(store.set(tool.id, { schema: 1, value: 1 })).rejects.toMatchObject({ code: 'unavailable' });
+    await commitWorld(request());
+    expect(await store.get(tool.id)).toBeNull();
+    await store.set(tool.id, { schema: 3, value: { cells: new Float32Array([1, 2]) } });
+    expect(await store.get(tool.id)).toEqual({ schema: 3, value: { cells: new Float32Array([1, 2]) } });
+    expect((await latest()).plugins).toEqual([tool]);
+    const err = await Promise.resolve(store.set(tool.id, { schema: 1, value: new Uint8Array(PLUGIN_DATA_MAX_BYTES) })).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PluginApiError);
+    expect((err as PluginApiError).code).toBe('limit');
+    await store.set(tool.id, null);
+    expect(await store.get(tool.id)).toBeNull();
+    expect((await latest()).plugins).toEqual([]);
   });
 });
 
