@@ -5,19 +5,25 @@
 
 export type PermissionKey = 'map' | 'history' | 'authorRead' | 'authorWrite' | 'view' | 'layer' | 'storeWorld';
 
-/** 权限框上的各行,按这个先后列;loud = 显眼 */
-export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: boolean }>> = {
+/** 权限框上的各行,按这个先后列;loud = 显眼;note = 网站写的那行小字(每个插件都一样,在作者写的理由上面) */
+export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: boolean; note?: string }>> = {
   map: { text: '看地图（地形、气候、河流）', loud: false },
   history: { text: '看历史（国家、城市、人物、编年史）', loud: false },
   authorRead: { text: '看你写的东西（笔记、标记、AI 写的正文）', loud: true },
-  authorWrite: { text: '会改你写的东西（改名、批注、标记、干预）', loud: true },
+  authorWrite: { text: '会改你写的东西（改国名人名、加标记和批注、下命令）', loud: true, note: '改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演' },
   view: { text: '知道你在看哪一年、点了哪里（只在用它的时候）', loud: false },
   layer: { text: '在地图上加图层和标注', loud: false },
-  storeWorld: { text: '在世界里存自己的数据（存了以后这个世界不能公开分享）', loud: true },
+  storeWorld: { text: '在世界里存自己的数据', loud: false, note: '存了以后那个世界不能公开分享，能存成文件发给别人。每个世界第一次存的时候还会问你' },
 };
 
-/** 权限框底下固定的一行 */
+/** 权限框底下固定的一行;会改你写的东西的插件下的命令会让历史重推,所以换成另一句 */
 export const PERMISSION_FOOTER = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了历史。';
+export const PERMISSION_FOOTER_WRITE = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了地形和推演规则。';
+
+/** 这几行权限底下该配哪一句 */
+export function permissionFooter(lines: readonly { key: PermissionKey }[]): string {
+  return lines.some((l) => l.key === 'authorWrite') ? PERMISSION_FOOTER_WRITE : PERMISSION_FOOTER;
+}
 
 /** 这一版网站有的能力 → 权限框上归哪一行;null = 不单列(哪个插件都有) */
 export const PLUGIN_CAPS: ReadonlyMap<string, PermissionKey | null> = new Map<string, PermissionKey | null>([
@@ -42,6 +48,7 @@ export interface PermissionLine {
   key: PermissionKey;
   text: string;
   loud: boolean;
+  note?: string;
   why: string[];
 }
 

@@ -54,6 +54,8 @@ import { ContactMenuItem } from './ContactLink';
 import { useShareReportEntry } from './shareReport';
 import { VersionMenuFoot } from './VersionNews';
 import { PlayQualityItem } from './PlayQualityMenu';
+import { pluginsUiOn } from './plugins/flag';
+import { PluginsMenuItem } from './plugins/entry';
 import { useCoarse, useNarrow } from './device';
 import { CONTROL_COLORS } from '../render/civ/control';
 import { ThoughtSide } from './ThoughtParts';
@@ -271,7 +273,7 @@ export function useWorldInfo(civ: Civ | null, data: SidebarProps['data']): { tit
   return { title: currentWorld()?.title || '未命名世界', sub, step };
 }
 
-/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、播放画面、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
+/** "更多"菜单:写成史书(「使用 AI 功能」关着时没有)、AI 设置、播放画面、插件(插件界面开着时)、键盘快捷键(有鼠标时)、问题记录、源代码和两份协议;最底下一行版本号 */
 export function WorldMoreMenu({
   civ,
   onBook,
@@ -300,6 +302,7 @@ export function WorldMoreMenu({
       </AiMenuItem>
       <AiSettingsItem onClick={() => openAiSettings()} />
       <PlayQualityItem />
+      {pluginsUiOn() && <PluginsMenuItem />}
       <MenuSep />
       <MenuItem icon={<Icon name="help" size={16} />} href={GUIDE_URL} act="guide">
         使用教程

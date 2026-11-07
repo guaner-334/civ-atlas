@@ -1,0 +1,74 @@
+import { describe, expect, it } from 'vitest';
+import type { PluginManifest } from '../src/plugin/pluginFile';
+import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, sizeText, versionLabel, versionText } from '../src/ui/plugins/pluginText';
+
+function manifest(over: Partial<PluginManifest> = {}): PluginManifest {
+  return {
+    app: '文明与地图',
+    kind: 'plugin',
+    format: 1,
+    id: 'qi-ming',
+    name: '起名助手',
+    version: '1.0.0',
+    role: 'tool',
+    api: 1,
+    runtime: 'worker',
+    requires: ['history.read@1', 'author.read@1', 'author.write@1', 'ui.panel@1'],
+    entry: 'main.js',
+    files: [],
+    license: 'MIT',
+    author: { name: '松间' },
+    ...over,
+  };
+}
+
+describe('插件页的字', () => {
+  it('版本号:补丁号是 0 的省掉', () => {
+    expect(versionText('1.0.0')).toBe('1.0');
+    expect(versionText('1.2.3')).toBe('1.2.3');
+    expect(versionText('10.20.0')).toBe('10.20');
+    expect(versionLabel('2.0.0')).toBe('第 2.0 版');
+  });
+
+  it('大小', () => {
+    expect(sizeText(22531)).toBe('22 KB');
+    expect(sizeText(151556)).toBe('148 KB');
+    expect(sizeText(300)).toBe('1 KB');
+    expect(sizeText(2 * 1024 * 1024)).toBe('2.0 MB');
+  });
+
+  it('日子:不是今年的带上年', () => {
+    const now = new Date(2026, 10, 8, 12).getTime();
+    expect(dayText(new Date(2026, 10, 8, 9).getTime(), now)).toBe('11 月 8 日');
+    expect(dayText(new Date(2025, 0, 3).getTime(), now)).toBe('2025 年 1 月 3 日');
+  });
+
+  it('标题下面那行:电脑带许可证,手机不带;插件页先写许可证', () => {
+    const m = manifest();
+    expect(askByLine(m, 22531, false)).toBe('松间 写的，第 1.0 版，22 KB，开源许可证 MIT');
+    expect(askByLine(m, 22531, true)).toBe('松间 写的，第 1.0 版，22 KB');
+    expect(pageByLine(m, 22531)).toBe('松间 写的，开源许可证 MIT，22 KB');
+    expect(pageByLine(manifest({ author: undefined }), 2048)).toBe('开源许可证 MIT，2 KB');
+  });
+
+  it('更新时只列新多出来的行;同一行里多要一样能力不算', () => {
+    const old = manifest({ requires: ['world.read@1', 'layer.marks@1', 'ui.panel@1'] });
+    const next = manifest({ requires: ['world.read@1', 'history.read@1', 'layer.marks@1', 'layer.cells@1', 'ui.panel@1'] });
+    expect(addedLines(old, next).map((l) => l.key)).toEqual(['history']);
+    expect(addedLines(next, next)).toEqual([]);
+    expect(moreText(1)).toBe('新版多要一样：');
+    expect(moreText(2)).toBe('新版多要两样：');
+  });
+
+  it('它加了什么:工具、图层、存不存东西', () => {
+    expect(addsRows(manifest(), false)).toEqual([
+      { k: '工具「起名助手」', v: '在地图右下的「工具」里' },
+      { k: '往世界里存东西', v: '不存它自己的数据', small: '改的东西记进你的修改，和你自己改的一样：能分享、能撤销' },
+    ]);
+    expect(addsRows(manifest(), true)[0].v).toBe('在右上竖排的拼图里');
+    const layer = addsRows(manifest({ requires: ['world.read@1', 'layer.cells@1', 'store.world@1'] }), false);
+    expect(layer.map((r) => r.k)).toEqual(['图层', '往世界里存东西']);
+    expect(layer[1].v).toBe('存它自己的数据');
+    expect(addsRows(manifest({ requires: ['world.read@1'] }), false)).toEqual([{ k: '往世界里存东西', v: '不存', small: '它算的关掉就没了，世界不变' }]);
+  });
+});

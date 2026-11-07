@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { PERMISSIONS, PLUGIN_CAPS, permissionLines, type PermissionKey } from '../src/plugin/pluginCaps';
+import { PERMISSIONS, PERMISSION_FOOTER, PERMISSION_FOOTER_WRITE, PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey } from '../src/plugin/pluginCaps';
 import { PluginFileError, openPluginFile, packPluginFile, type PluginFileErrorKind } from '../src/plugin/pluginFile';
 import { PLUGIN_SAMPLES, goodInput, goodPlugin, put, variant } from './lib/pluginFileSample';
 
@@ -104,16 +104,62 @@ describe('仓库里的样本', () => {
   }
 });
 
+describe('要更新网站时说清要的是什么', () => {
+  const needOf = async (change: (m: any) => void) => {
+    try {
+      await openPluginFile(
+        await variant((p) => {
+          change(p.m);
+        }),
+      );
+    } catch (e) {
+      return e as PluginFileError;
+    }
+    throw new Error('应该报错');
+  };
+
+  it('不认识的能力、格式、接口、种类各说各的;读得出名字就带上', async () => {
+    const cap = await needOf((m) => m.requires.push('sim.run@1'));
+    expect([cap.kind, cap.need, cap.plugin]).toEqual(['newer', '推演 第 1 版', '量路程']);
+    expect((await needOf((m) => (m.requires[0] = 'world.read@2'))).need).toBe('world.read 第 2 版');
+    expect((await needOf((m) => (m.format = 2))).need).toBe('第 2 版插件文件');
+    expect((await needOf((m) => (m.api = 3))).need).toBe('第 3 版插件接口');
+    expect((await needOf((m) => (m.role = 'sim'))).need).toBe('sim 这种插件');
+  });
+
+  it('格式更新时名字还没查过:名字不合规矩就不带', async () => {
+    const e = await needOf((m) => {
+      m.format = 2;
+      m.name = 'a\u202eb';
+    });
+    expect(e.kind).toBe('newer');
+    expect(e.plugin).toBeUndefined();
+  });
+});
+
 describe('权限框', () => {
   it('每样能力都有归属,每一行都有能力', () => {
     const used = new Set([...PLUGIN_CAPS.values()].filter((k) => k !== null));
     expect([...used].sort()).toEqual(Object.keys(PERMISSIONS).sort());
   });
 
-  it('改你写的东西、存自己的数据、看你写的东西单列一行,而且显眼', () => {
+  it('看你写的东西、改你写的东西单列一行而且显眼;存自己的数据单列一行,后果写在小字里', () => {
     expect(PLUGIN_CAPS.get('author.write@1')).toBe('authorWrite');
     expect(PLUGIN_CAPS.get('store.world@1')).toBe('storeWorld');
-    for (const k of ['authorRead', 'authorWrite', 'storeWorld'] as PermissionKey[]) expect(PERMISSIONS[k].loud).toBe(true);
+    const loud = (Object.keys(PERMISSIONS) as PermissionKey[]).filter((k) => PERMISSIONS[k].loud);
+    expect(loud).toEqual(['authorRead', 'authorWrite']);
+    expect(PERMISSIONS.storeWorld.note).toContain('不能公开分享');
+    expect(PERMISSIONS.authorWrite.note).toContain('能撤销');
+  });
+
+  it('底下那句:要了改你写的东西的插件不说「改不了历史」', () => {
+    const read = permissionLines({ requires: ['world.read@1', 'ui.panel@1'] });
+    const write = permissionLines({ requires: ['history.read@1', 'author.write@1'] });
+    expect(permissionFooter(read)).toBe(PERMISSION_FOOTER);
+    expect(permissionFooter(write)).toBe(PERMISSION_FOOTER_WRITE);
+    expect(PERMISSION_FOOTER).toContain('改不了历史');
+    expect(PERMISSION_FOOTER_WRITE).not.toContain('改不了历史');
+    expect(write.find((l) => l.key === 'authorWrite')!.note).toBe(PERMISSIONS.authorWrite.note);
   });
 
   it('按表的先后列,同一行只列一次,作者写的理由跟着那一行', () => {
