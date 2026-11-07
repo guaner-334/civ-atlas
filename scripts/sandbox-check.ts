@@ -4,7 +4,9 @@
  * 起一个假网站(页面带 index.html 里那条 Content-Security-Policy)和一个「收信站」(HTTP、WebSocket、两个 TCP 口、一个 UDP 口,
  * 谁连进来都记下),让插件在沙箱里把能想到的坏事都试一遍(lib/sandbox/battery.js)。
  * 插件那几段收信站收到任何东西、假网站收到不认识的请求,都算没过;两段对照必须收到,证明收信站听得见。
- * 另查:来回传话和转交、出错 / 乱发话 / 死循环时停得下来、停了以后 CPU 降下来、框自己跳不走。
+ * 另查:来回传话和转交、出错 / 乱发话 / 死循环时停得下来、停了以后 CPU 降下来、框自己跳不走;
+ * 插件接口:假插件(lib/sandbox/apiPlugin.js)把每样能力拿一遍、每种越界试一遍,什么能力都没要的插件样样被拒,
+ * 发话太多、太大、乱写调用、冒充网站的回话都停得下来。
  * 没过的打印「没过」,退出码非 0。
  */
 import { execFileSync } from 'node:child_process';
@@ -102,6 +104,9 @@ const host = http.createServer((req, res) => {
 });
 const hostPort = await listen(host);
 const HOST = `http://localhost:${hostPort}`;
+
+const apiPluginJs = readFileSync(new URL('./lib/sandbox/apiPlugin.js', import.meta.url), 'utf8');
+const ALL_CAPS = ['world.read@1', 'history.read@1', 'author.read@1', 'view.read@1', 'input.pick@1', 'ui.panel@1', 'layer.cells@1', 'layer.marks@1'];
 
 const batteryJs = readFileSync(new URL('./lib/sandbox/battery.js', import.meta.url), 'utf8')
   .replace('__COLLECT__', COLLECT)
@@ -327,7 +332,11 @@ async function runBrowser(name: string, type: BrowserType) {
     const bare = await segment(() => ev('frameNav', COLLECT), 1000);
     check(bare.hits.some((h) => h.what.includes('/nav-self')), '对照:网站页面不带 frame-src 时框跳得走(这条拦住全靠它)', show(bare.hits));
 
-    // 8. 对照(只打印):插件代码直接跑在框的页面里
+    // 8. 插件接口
+    await open('/');
+    await apiChecks(ev);
+
+    // 9. 对照(只打印):插件代码直接跑在框的页面里
     await open('/');
     const fb = await segment(() => ev('frameBattery', batteryJs), 2500);
     console.log(`  (对照,只看不判:少了线程那一层,收信站收到 ${fb.hits.length} 条${fb.hits.length ? `:${show(fb.hits)}` : ''})`);
@@ -337,6 +346,97 @@ async function runBrowser(name: string, type: BrowserType) {
     await browser.close().catch(() => {});
     await server.close().catch(() => {});
   }
+}
+
+type Ev = <T>(fn: string, ...args: unknown[]) => Promise<T>;
+const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+async function apiChecks(ev: Ev) {
+  interface ApiRun {
+    out: Record<string, any> | null | 'timeout';
+    stoppedBefore: string | null;
+    ms: number;
+    sink: { panels: (number | null)[]; layers: [string, string | null][]; logs: string[] };
+    worldIntact: boolean;
+    expect: { cells: number; elev: number; ownedPolities: number; rivers: number };
+    frames: number;
+    refused?: string;
+  }
+  const full = await segment(() => ev('api', apiPluginJs, ALL_CAPS));
+  noLeak('插件接口', full);
+  const r = full.out as ApiRun;
+  const o = r && typeof r.out === 'object' && r.out ? r.out : null;
+  if (!o || o.threw) {
+    check(false, '假插件把接口走完、交回结果', JSON.stringify(r).slice(0, 400));
+    return;
+  }
+  check(r.stoppedBefore === null, '走接口时插件没被停掉', String(r.stoppedBefore));
+  check(o.info?.api === 1 && eq(o.info.caps, ALL_CAPS), '握手:host.info 报的能力就是清单里要的', JSON.stringify(o.info));
+  const w = o.world ?? {};
+  check(w.cells === r.expect.cells && w.n === r.expect.cells && w.f32 && w.u8 && w.latOk, '读地图:地块数、类型、经纬度对', JSON.stringify(w));
+  check(Math.abs(w.elev - r.expect.elev) <= Math.abs(r.expect.elev) * 1e-6 + 1, '读地图:海拔加起来和网站这边一样', `${w.elev} / ${r.expect.elev}`);
+  check(r.worldIntact, '插件改了拿到的数组、网站转交了数组,世界本身没变、没被交出去');
+  check(eq(o.neighbors?.[0], r.expect.cells + 1) && o.rivers === r.expect.rivers && o.legend > 0, '读地图:相邻表、河、图例', JSON.stringify([o.neighbors, o.rivers, o.legend]));
+  const h = o.history ?? {};
+  check(
+    h.atLen === r.expect.cells && h.i16 && h.ownedPolities === r.expect.ownedPolities && h.polities >= h.ownedPolities && /^polity:/.test(h.polityKey ?? ''),
+    '读历史:某年每个地块的归属、国家',
+    JSON.stringify(h).slice(0, 300),
+  );
+  check(['settlements', 'routes', 'places', 'cultures', 'faiths', 'regions'].every((k) => h[k] > 0) && h.people === 5 && h.events === 7, '读历史:城、路、地名、民族、信仰、州、人物、编年史', JSON.stringify(h).slice(0, 300));
+  check(eq(o.author, { marks: '故乡', names: { 'polity:c1#0': '甲' }, characters: 0, interventions: 0, notes: '第一卷' }), '读你写的东西:标记、改名、人物、干预、正文', JSON.stringify(o.author));
+  check(o.view?.year === 600 && o.view?.layer === 'polities', '读你在干什么:年份、图层', JSON.stringify(o.view));
+  check(eq(o.pick, { cell: 5, cells: [1, 2, 3], box: 2 }), '点选:一个地块、几个地块、框选', JSON.stringify(o.pick));
+  check(o.panel === 'ok' && r.sink.panels.includes(3), '面板交给画的那一边', `${o.panel} ${JSON.stringify(r.sink.panels)}`);
+  check(eq(o.layers, ['ok', 'ok', 'ok', 'ok', 'limit', 'ok', 'ok']), '图层:四个以内交给画的那一边,第五个回 limit;标注、拿掉', JSON.stringify(o.layers));
+  check(r.sink.layers.some(([k, v]) => k === 'b' && v === null) && r.sink.layers.some(([k, v]) => k === 'route' && v === 'marks'), '图层交给画的那一边、拿掉的也说', JSON.stringify(r.sink.layers).slice(0, 200));
+  check(
+    eq(o.bad, {
+      field: 'bad-args',
+      fields17: 'limit',
+      year: 'bad-args',
+      people: 'limit',
+      panelNode: 'bad-args',
+      panelBig: 'limit',
+      layerLen: 'bad-args',
+      markText: 'limit',
+      unknown: 'unknown-call',
+      proto: 'unknown-call',
+      undeclared: 'no-permission',
+      uncloneable: 'bad-args',
+      stillUp: 1,
+    }),
+    '越界:参数不对、超上限、没要的能力、没有的调用各回各的错,插件照样在跑',
+    JSON.stringify(o.bad),
+  );
+  check(eq(o.events, [['view.year', 700], ['view.select', 'polity:c1#0'], ['panel.action', 'go']]), '事件:看的年份、选中的东西、面板按钮;不认得的控件不转', JSON.stringify(o.events));
+  check(r.frames === 0, '停了以后框拿掉了', `还剩 ${r.frames} 个`);
+  console.log(`  (假插件从开到交回结果 ${r.ms} ms)`);
+
+  const none = await segment(() => ev('apiNothing'));
+  noLeak('什么能力都没要的插件', none);
+  const n = (none.out as ApiRun).out as { codes: Record<string, string>; events: string[] } | null;
+  const allowed = new Set(['host.info']);
+  const wrong = n ? Object.entries(n.codes).filter(([k, c]) => (allowed.has(k) ? c !== 'ok' : c !== 'no-permission')) : [['没交回结果', '']];
+  check(wrong.length === 0, '什么能力都没要:除了 host.info 一律 no-permission', JSON.stringify(wrong).slice(0, 300));
+  check(!!n && n.events.length === 0, '什么能力都没要:事件一个都收不到', JSON.stringify(n?.events));
+
+  const want: Record<string, string> = { flood: 'flood', oversize: 'oversize', badCall: 'protocol', forgedRes: 'protocol', forgedEvent: 'protocol' };
+  const said: Record<string, string> = {
+    flood: '一秒里发话超过上限就停',
+    oversize: '一条话太大就停',
+    badCall: '调用名乱写,当乱发话停掉',
+    forgedRes: '插件冒充网站的回话,当乱发话停掉',
+    forgedEvent: '插件冒充网站的事件,当乱发话停掉',
+  };
+  for (const [k, reason] of Object.entries(want)) {
+    const s = await segment(() => ev(`apiStops.${k}`), 300);
+    const x = s.out as ApiRun;
+    check(String(x?.stoppedBefore).startsWith(reason) && x.frames === 0 && s.hits.length === 0, said[k], `${x?.stoppedBefore}${s.hits.length ? `,收信站 ${show(s.hits)}` : ''}`);
+  }
+  const ref = await segment(() => ev('apiStops.refused'));
+  const rx = ref.out as ApiRun;
+  check(rx?.refused === 'newer' && rx.frames === 0, '清单要了网站没有的能力:不开沙箱,说要新版网站', JSON.stringify(rx));
 }
 
 const ALL: Record<string, BrowserType> = { chromium, webkit, firefox };
