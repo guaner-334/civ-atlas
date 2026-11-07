@@ -2,8 +2,17 @@
  * scripts/sandbox-check.ts 在浏览器里调的那一半:网站页面这边开沙箱、递插件代码、记结果。
  * 打包成一个文件由检查脚本的假网站发出去;每项返回能直接 JSON 化的结果,判过没过在 Node 那边。
  */
+import { generateCiv } from '../../../src/gen/civ';
+import type { Civ } from '../../../src/gen/civ/types';
+import { buildChronicle, type ChronicleEntry } from '../../../src/gen/civ/story/chronicle';
+import { ownersAt } from '../../../src/gen/civ/engine/timeline';
+import { EMPTY_EDITS, type WorldEdits } from '../../../src/gen/edits';
+import { DEFAULT_PARAMS, generateWorld, type World } from '../../../src/gen/world';
+import { PLUGIN_METHODS } from '../../../src/plugin/caps';
+import { PluginRefused, startPluginHost } from '../../../src/plugin/host';
 import { frameCsp, SANDBOX_FLAGS } from '../../../src/plugin/protocol';
 import { SandboxStopped, startPluginSandbox, type PluginSandbox, type StopReason } from '../../../src/plugin/sandbox';
+import type { ViewInfo } from '../../../src/plugin/types';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const reasonOf = (e: unknown) => (e instanceof SandboxStopped ? e.reason : `not stopped: ${String(e)}`);
@@ -230,6 +239,123 @@ async function siteWorker(collect: string) {
   });
 }
 
-const check = { seed, battery, echo, isolation, stops, spinStart, spinWait, frameNav, frameBattery, siteWorker };
+// ---- 插件接口 ----
+
+let small: { world: World; civ: Civ; chronicle: ChronicleEntry[] } | null = null;
+/** 检查用的小世界(种子 7、3000 个地块、推 800 年) */
+function smallWorld() {
+  if (!small) {
+    const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7, cells: 3000 });
+    const civ = generateCiv(world, { endYear: 800 });
+    small = { world, civ, chronicle: buildChronicle(civ) };
+  }
+  return small;
+}
+const total = (a: ArrayLike<number>) => {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i];
+  return s;
+};
+
+/**
+ * 在真沙箱里开一个插件,世界是上面的小世界;插件说 listening 以后改看的年份、选中的东西,点面板上的 go。
+ * 等插件交回 results,或者插件被停掉
+ */
+async function api(code: string, requires: string[]) {
+  const { world, civ, chronicle } = smallWorld();
+  const elevBefore = total(world.elevation);
+  const view: ViewInfo = { year: 600, selected: null, visible: null, layer: 'polities' };
+  const watchers = new Set<() => void>();
+  const sink = { panels: [] as (number | null)[], layers: [] as [string, string | null][], logs: [] as string[] };
+  const edits: WorldEdits = { ...EMPTY_EDITS, names: { 'polity:c1#0': '甲' }, marks: [{ id: 1, title: '故乡', color: 'red', from: 0, at: [10, 20] }] };
+  let stopped: string | null = null;
+  let finish: (v: unknown) => void = () => {};
+  const done = new Promise((r) => (finish = r));
+  const t0 = performance.now();
+  let host: Awaited<ReturnType<typeof startPluginHost>> | null = null;
+  const onMessage = async (d: unknown) => {
+    const m = d as { type?: string; out?: unknown };
+    if (m?.type === 'listening') {
+      Object.assign(view, { year: 700 });
+      watchers.forEach((w) => w());
+      Object.assign(view, { selected: { kind: 'polity', key: 'polity:c1#0' } });
+      watchers.forEach((w) => w());
+      await sleep(50);
+      host?.panelAction('go');
+      host?.panelAction('nope');
+    } else if (m?.type === 'results') finish(m.out);
+  };
+  try {
+    host = await startPluginHost({
+      plugin: { id: 'check', requires },
+      code,
+      source: {
+        world: () => world,
+        civ: () => civ,
+        edits: () => edits,
+        title: () => '检查用的世界',
+        chronicle: () => chronicle,
+        notes: () => [{ key: 'k', kind: 'book', title: '第一卷', text: '……', createdAt: '', provider: 'p', model: 'm' }],
+        view: () => view,
+        watchView: (fn) => (watchers.add(fn), () => watchers.delete(fn)),
+        pick: async (req) => (req.kind === 'cell' ? { cell: 5 } : req.kind === 'cells' ? { cells: [1, 2, 3] } : { x0: 0, y0: 0, x1: 10, y1: 10, cells: [7, 8] }),
+      },
+      sink: { panel: (p) => sink.panels.push(p ? p.length : null), layer: (lid, l) => sink.layers.push([lid, l ? l.kind : null]), log: (t) => sink.logs.push(t) },
+      onMessage,
+      onStop: (r, d) => {
+        stopped = d ? `${r} (${d})` : r;
+        finish(null);
+      },
+    });
+  } catch (e) {
+    return { refused: e instanceof PluginRefused ? e.kind : String(e), frames: document.querySelectorAll('iframe').length };
+  }
+  const out = await Promise.race([done, sleep(60_000).then(() => 'timeout')]);
+  const stoppedBefore = stopped;
+  host.stop();
+  await sleep(200);
+  const owned = new Set<number>();
+  const own = ownersAt(civ, 600);
+  for (let i = 0; i < world.mesh.n; i++) {
+    const r = civ.regions.of[i];
+    if (r >= 0 && own.polity[r] >= 0) owned.add(own.polity[r]);
+  }
+  return {
+    out,
+    stoppedBefore,
+    ms: Math.round(performance.now() - t0),
+    sink,
+    worldIntact: world.elevation.length === world.mesh.n && total(world.elevation) === elevBefore,
+    expect: { cells: world.mesh.n, elev: elevBefore, ownedPolities: owned.size, rivers: world.rivers.length },
+    frames: document.querySelectorAll('iframe').length,
+  };
+}
+
+/** 清单里什么能力都没要的插件:把每个调用试一遍,事件也一个都不该收到 */
+const NOTHING = `(async () => {
+  const codes = {};
+  const events = [];
+  for (const k of ['view.year', 'view.select', 'panel.action']) civAtlas.on(k, () => events.push(k));
+  for (const name of ${JSON.stringify(Object.keys(PLUGIN_METHODS))}) {
+    if (name === 'log') continue;
+    try { await civAtlas.request(name, {}); codes[name] = 'ok'; } catch (e) { codes[name] = e.code; }
+  }
+  civAtlas.post({ type: 'listening' });
+  await new Promise((r) => setTimeout(r, 1000));
+  civAtlas.post({ type: 'results', out: { codes, events } });
+})();`;
+
+/** 越界就停的几种:结果是停的原因 */
+const apiStops = {
+  flood: () => api("for (let i = 0; i < 400; i++) civAtlas.log('x');", []),
+  oversize: () => api("civAtlas.post('x'.repeat(3000000));", []),
+  badCall: () => api("setTimeout(() => postMessage({ v: 1, kind: 'req', id: 1, call: 'no good' }), 50);", []),
+  forgedRes: () => api("setTimeout(() => postMessage({ v: 1, kind: 'res', id: 1, ok: true, data: 1 }), 50);", []),
+  forgedEvent: () => api("setTimeout(() => postMessage({ v: 1, kind: 'event', name: 'view.year', data: 1 }), 50);", []),
+  refused: () => api('', ['net.fetch@1']),
+};
+const apiNothing = () => api(NOTHING, []);
+
+const check = { seed, battery, echo, isolation, stops, spinStart, spinWait, frameNav, frameBattery, siteWorker, api, apiNothing, apiStops };
 (window as unknown as { check: typeof check }).check = check;
 (window as unknown as { ready: boolean }).ready = true;
