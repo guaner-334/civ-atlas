@@ -6,6 +6,7 @@
  *   clearToast(id?)                                               收起这一条(不给 id = 收起正在显示的那条)
  *   useToast() / getToast()                                        正在显示的那条(没有 = null)
  *   useToastOpen(id, act?)                                         某个来源的那条还在不在(可以只认右边是 act 这个按钮的)
+ *   afterOkToasts()                                                等到 ok 类的都收了
  *
  * 几个来源各自一条(生成进度、重推历史、选目标、存档通知、导出……),按 id 区分:
  * 同一个 id 再 show 就是更新(并排到最前);显示的是最近 show 的那条,它收起以后露出下面还在的那条
@@ -127,6 +128,19 @@ export function clearToast(id?: string) {
 /** 正在显示的那条 */
 export function getToast(): Toast | null {
   return list[list.length - 1] ?? null;
+}
+
+/** 等到没有 ok 类的提示了(它们到时自己收,被盖在下面就一眼都看不到) */
+export function afterOkToasts(): Promise<void> {
+  const none = () => !list.some((x) => x.kind === 'ok');
+  if (none()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const off = subs.subscribe(() => {
+      if (!none()) return;
+      off();
+      resolve();
+    });
+  });
 }
 
 /** 某个来源的那条(不管是不是正在显示) */
