@@ -27,9 +27,11 @@ import {
   type CellLayer,
   type MarkLayer,
 } from './check';
+import { planChanges } from './edit';
 import { approxBytes } from './protocol';
 import * as read from './read';
 import { startPluginSandbox, type PluginSandbox, type StopReason } from './sandbox';
+import { checkStored, defaultLocalStore, defaultWorldStore, storedOut, STORE_LOCAL_MAX, STORE_WORLD_MAX, type PluginDataStore } from './store';
 import type { CapRef, HostInfo, PanelNode, PluginErrorCode, ViewInfo } from './types';
 
 export interface PickRequest {
@@ -54,6 +56,11 @@ export interface PluginSource {
   watchView?(fn: () => void): () => void;
   /** 请用的人在地图上点选;取消了 = null。signal 断了(插件停了)就收起 */
   pick?(req: PickRequest, signal: AbortSignal): Promise<PickAnswer | null>;
+  /**
+   * 照插件的要求把修改换成 next(整批记一步撤销;网站的修改现在就是 edits() 那一份)。keys = 这批碰到的稳定键。
+   * 现在不让改 = 原因。网站这边的做法见 editsCommit.ts
+   */
+  commit?(next: WorldEdits, keys: string[]): string | null;
 }
 
 /** 插件交来的面板、图层、日志交给谁(null = 拿掉) */
@@ -71,6 +78,8 @@ export interface PluginHostOptions {
   sink?: PluginSink;
   /** 可选的能力里用的人给了哪些;不给 = 都给 */
   grant?: readonly CapRef[];
+  /** 插件自己的数据存到哪;不给 = 先放在内存里 */
+  stores?: { local?: PluginDataStore; world?: PluginDataStore };
   parent?: HTMLElement;
   startTimeoutMs?: number;
   /** 插件 civAtlas.post 发来的(工具模式里用) */
@@ -102,6 +111,8 @@ export interface PluginHost {
 export const OUT_BYTES_PER_SECOND = 64 * 1024 * 1024;
 /** 同时最多几个还没回的调用(点选这种要等用的人的) */
 export const INFLIGHT_MAX = 16;
+/** 一秒最多提几次修改:每次都要量一遍改完的存档 */
+export const APPLY_PER_SECOND = 10;
 /** view.year、view.select 最快多久发一次 */
 export const VIEW_EVENT_MS = 250;
 const LOG_MAX = 2000;
@@ -126,12 +137,16 @@ class Host implements PluginHost {
   private readonly viewTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly viewSent = new Map<string, number>();
   private done = false;
+  /** 最近 APPLY_PER_SECOND 次提修改是什么时候(环形) */
+  private readonly applyTimes = new Float64Array(APPLY_PER_SECOND);
+  private applied = 0;
 
   constructor(
     readonly id: string,
     readonly caps: readonly CapRef[],
     private readonly src: PluginSource,
     private readonly sink: PluginSink,
+    private readonly stores: { local?: PluginDataStore; world?: PluginDataStore },
     private readonly onStop?: (reason: StopReason, detail: string) => void,
   ) {}
 
@@ -254,6 +269,22 @@ class Host implements PluginHost {
         return read.authorInterventions(src.edits());
       case 'author.notes':
         return read.authorNotes(src.notes?.() ?? [], args);
+      case 'author.apply': {
+        const commit = src.commit ?? unavailable('网站这边还不能照插件的要求改');
+        const now = performance.now();
+        const slot = this.applied++ % APPLY_PER_SECOND;
+        if (this.applied > APPLY_PER_SECOND && now - this.applyTimes[slot] < 1000) {
+          this.applied--;
+          throw new PluginApiError('busy', `一秒最多提 ${APPLY_PER_SECOND} 次修改`);
+        }
+        this.applyTimes[slot] = now;
+        const plan = planChanges(src.edits(), src.civ(), args, this.world().params);
+        if (plan.result.applied) {
+          const why = commit(plan.next, plan.keys);
+          if (why) throw new PluginApiError('blocked', why);
+        }
+        return plan.result;
+      }
       case 'view.get':
         return structuredClone(src.view ? src.view() : unavailable('网站这边没给看的状态'));
       case 'pick.cell':
@@ -281,9 +312,31 @@ class Host implements PluginHost {
         if (this.layers.delete(lid)) this.sink.layer?.(lid, null);
         return null;
       }
+      case 'store.local.get':
+        return this.storeGet(this.stores.local ?? defaultLocalStore());
+      case 'store.local.set':
+        return this.storeSet(this.stores.local ?? defaultLocalStore(), checkStored(args, STORE_LOCAL_MAX));
+      case 'store.local.clear':
+        return this.storeSet(this.stores.local ?? defaultLocalStore(), null);
+      case 'store.world.get':
+        return this.storeGet(this.worldStore());
+      case 'store.world.set':
+        return this.storeSet(this.worldStore(), checkStored(args, STORE_WORLD_MAX));
+      case 'store.world.clear':
+        return this.storeSet(this.worldStore(), null);
       default:
         return unavailable(`网站这一版还没开 ${call}`);
     }
+  }
+
+  private worldStore(): PluginDataStore {
+    return this.stores.world ?? defaultWorldStore(this.world());
+  }
+  private storeGet(st: PluginDataStore): Promise<unknown> {
+    return Promise.resolve(st.get(this.id)).then(storedOut);
+  }
+  private storeSet(st: PluginDataStore, d: ReturnType<typeof checkStored> | null): Promise<unknown> {
+    return Promise.resolve(st.set(this.id, d)).then(() => null);
   }
 
   private putLayer(l: CellLayer | MarkLayer): null {
@@ -387,7 +440,7 @@ export async function startPluginHost(o: PluginHostOptions): Promise<PluginHost>
   const c = checkCaps(o.plugin.requires, o.plugin.optional);
   if (!c.ok) throw new PluginRefused(c.kind, c.text);
   const caps = [...c.requires, ...c.optional.filter((x) => !o.grant || o.grant.includes(x))];
-  const host = new Host(o.plugin.id, caps, o.source, o.sink ?? {}, o.onStop);
+  const host = new Host(o.plugin.id, caps, o.source, o.sink ?? {}, o.stores ?? {}, o.onStop);
   const sb = await startPluginSandbox(o.code, { parent: o.parent, startTimeoutMs: o.startTimeoutMs, onMessage: o.onMessage, onRequest: host.request, onStop: host.stopped });
   host.attach(sb);
   return host;
