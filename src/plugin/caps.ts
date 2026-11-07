@@ -45,8 +45,10 @@ export const PLUGIN_METHODS: Readonly<Record<string, readonly CapRef[]>> = {
   'layer.remove': ['layer.cells@1', 'layer.marks@1'],
   'store.local.get': ['store.local@1'],
   'store.local.set': ['store.local@1'],
+  'store.local.clear': ['store.local@1'],
   'store.world.get': ['store.world@1'],
   'store.world.set': ['store.world@1'],
+  'store.world.clear': ['store.world@1'],
 };
 
 /** 网站发给插件的事件要哪样能力 */

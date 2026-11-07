@@ -106,7 +106,19 @@ const hostPort = await listen(host);
 const HOST = `http://localhost:${hostPort}`;
 
 const apiPluginJs = readFileSync(new URL('./lib/sandbox/apiPlugin.js', import.meta.url), 'utf8');
-const ALL_CAPS = ['world.read@1', 'history.read@1', 'author.read@1', 'view.read@1', 'input.pick@1', 'ui.panel@1', 'layer.cells@1', 'layer.marks@1'];
+const ALL_CAPS = [
+  'world.read@1',
+  'history.read@1',
+  'author.read@1',
+  'author.write@1',
+  'view.read@1',
+  'input.pick@1',
+  'ui.panel@1',
+  'layer.cells@1',
+  'layer.marks@1',
+  'store.local@1',
+  'store.world@1',
+];
 
 const batteryJs = readFileSync(new URL('./lib/sandbox/battery.js', import.meta.url), 'utf8')
   .replace('__COLLECT__', COLLECT)
@@ -357,6 +369,7 @@ async function apiChecks(ev: Ev) {
     stoppedBefore: string | null;
     ms: number;
     sink: { panels: (number | null)[]; layers: [string, string | null][]; logs: string[] };
+    commits: { names: number; marks: string[]; interventions: number }[];
     worldIntact: boolean;
     expect: { cells: number; elev: number; ownedPolities: number; rivers: number };
     frames: number;
@@ -387,6 +400,13 @@ async function apiChecks(ev: Ev) {
   check(eq(o.author, { marks: '故乡', names: { 'polity:c1#0': '甲' }, characters: 0, interventions: 0, notes: '第一卷' }), '读你写的东西:标记、改名、人物、干预、正文', JSON.stringify(o.author));
   check(o.view?.year === 600 && o.view?.layer === 'polities', '读你在干什么:年份、图层', JSON.stringify(o.view));
   check(eq(o.pick, { cell: 5, cells: [1, 2, 3], box: 2 }), '点选:一个地块、几个地块、框选', JSON.stringify(o.pick));
+  check(
+    eq(o.apply, { applied: 3, skipped: 0, marks: [2] }) && eq(r.commits, [{ names: 2, marks: ['故乡', '插件标的'], interventions: 1 }]),
+    '改你写的东西:改名、加标记、下干预一次交给网站照办(一批一次)',
+    JSON.stringify([o.apply, r.commits]),
+  );
+  check(o.applyAfter?.marks === 2 && Object.values(o.applyAfter?.names ?? {}).includes('插件起的'), '照办以后插件读到的是改过的', JSON.stringify(o.applyAfter));
+  check(eq(o.store, [null, 'ok', { schema: 1, value: { speed: 3 } }, 'ok', [1, 2, 3], 'ok', null]), '插件自己的数据:设置、世界里的数据存取删', JSON.stringify(o.store));
   check(o.panel === 'ok' && r.sink.panels.includes(3), '面板交给画的那一边', `${o.panel} ${JSON.stringify(r.sink.panels)}`);
   check(eq(o.layers, ['ok', 'ok', 'ok', 'ok', 'limit', 'ok', 'ok']), '图层:四个以内交给画的那一边,第五个回 limit;标注、拿掉', JSON.stringify(o.layers));
   check(r.sink.layers.some(([k, v]) => k === 'b' && v === null) && r.sink.layers.some(([k, v]) => k === 'route' && v === 'marks'), '图层交给画的那一边、拿掉的也说', JSON.stringify(r.sink.layers).slice(0, 200));
@@ -402,11 +422,14 @@ async function apiChecks(ev: Ev) {
       markText: 'limit',
       unknown: 'unknown-call',
       proto: 'unknown-call',
-      undeclared: 'no-permission',
+      applyKey: 'bad-args',
+      applyKind: 'bad-args',
+      storeBig: 'limit',
+      storeKind: 'bad-args',
       uncloneable: 'bad-args',
       stillUp: 1,
     }),
-    '越界:参数不对、超上限、没要的能力、没有的调用各回各的错,插件照样在跑',
+    '越界:参数不对、超上限、改不了的修改、存不了的数据、没有的调用各回各的错,插件照样在跑',
     JSON.stringify(o.bad),
   );
   check(eq(o.events, [['view.year', 700], ['view.select', 'polity:c1#0'], ['panel.action', 'go']]), '事件:看的年份、选中的东西、面板按钮;不认得的控件不转', JSON.stringify(o.events));
