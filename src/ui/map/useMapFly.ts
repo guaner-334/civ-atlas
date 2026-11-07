@@ -252,10 +252,11 @@ export function useMapFly({ data, dataRef, civ, box, replayOn, narrow, panelOpen
       viewRef.current = r.v;
       if (r.lon !== null) {
         const lon = wrapLon(r.lon);
-        // 中心(同步渲染)和视图分开换会每帧渲染两遍,先渲染的那遍上不了屏
+        // 中心(同步渲染)、视图、停下分开换会每帧渲染两遍,先渲染的那遍上不了屏
         flushSync(() => {
           publishMapCenter(lon);
           setView(r.v);
+          if (t >= 1) stopFly();
         });
       } else setView(r.v);
       if (t < 1) flyRaf.current = requestAnimationFrame(frame);
