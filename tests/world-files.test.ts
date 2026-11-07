@@ -533,12 +533,12 @@ describe('别人的文件不可信', () => {
     const before = await sha256(new Uint8Array(victim.parts.find((p) => p.info.name === 'civ')!.data as ArrayBuffer));
     const hostile = new TextEncoder().encode('这不是那一块');
     const poisoned = await retouch(file, (e) => {
-      e.push({ name: 'parts/ext.evil.bin', data: hostile });
+      e.push({ name: 'parts/future.evil.bin', data: hostile });
       const m = e.find((x) => x.name === 'manifest.json')!;
       const j = JSON.parse(new TextDecoder().decode(m.data as Uint8Array));
       j.title = '想顶掉别人的块';
       j.recipe.title = '想顶掉别人的块';
-      j.parts.push({ name: 'ext.evil', file: 'parts/ext.evil.bin', schema: 1, sum: civInfo.sum, bytes: civInfo.bytes, zip: civInfo.zip, need: 'extra' });
+      j.parts.push({ name: 'future.evil', file: 'parts/future.evil.bin', schema: 1, sum: civInfo.sum, bytes: civInfo.bytes, zip: civInfo.zip, need: 'extra' });
       m.data = new TextEncoder().encode(JSON.stringify(j));
     });
     // 校验器不解开附加数据,核对是过的;收进仓库时核指纹,不让进
@@ -566,18 +566,18 @@ describe('别人的文件不可信', () => {
     // 正常的附加数据(认不出的压缩方式也算)带着走
     const raw = new Uint8Array([1, 2, 3, 4, 5]);
     const kept = await retouch(file, async (e) => {
-      e.push({ name: 'parts/ext.magic.bin', data: raw });
+      e.push({ name: 'parts/ext.magic-sim.bin', data: raw });
       const m = e.find((x) => x.name === 'manifest.json')!;
       const j = JSON.parse(new TextDecoder().decode(m.data as Uint8Array));
       j.future = { 认不出的字段: 1 };
-      j.parts.push({ name: 'ext.magic', file: 'parts/ext.magic.bin', schema: 3, sum: await sha256(raw), bytes: raw.length, zip: 'future-zip', need: 'extra', by: 'magic-sim' });
+      j.parts.push({ name: 'ext.magic-sim', file: 'parts/ext.magic-sim.bin', schema: 3, sum: await sha256(raw), bytes: raw.length, zip: 'future-zip', need: 'extra', by: 'magic-sim' });
       m.data = new TextEncoder().encode(JSON.stringify(j));
     });
     const kid = await keepFile(kept);
     const out = await saveWorldFile(kid);
     if (!out.ok) throw new Error(out.message);
     const back = await openWorldFile(out.file, OPEN);
-    expect([...back.bytes.get('ext.magic')!]).toEqual([...raw]);
+    expect([...back.bytes.get('ext.magic-sim')!]).toEqual([...raw]);
     expect((back.manifest as unknown as { future: unknown }).future).toEqual({ 认不出的字段: 1 });
   });
 

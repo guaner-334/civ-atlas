@@ -30,7 +30,7 @@ import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, checkDepth, partLimit } fro
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainOps';
 import { MAP_H, MAP_W, type World } from './world';
 import { currentSchema, type MigrationTable } from './worldMigrate';
-import { KNOWN_PARTS, WORLD_APP, WORLD_FORMAT, WORLD_KIND, broken, newer, type AuthorContent, type WorldManifest } from './worldFormat';
+import { KNOWN_PARTS, PLUGIN_DATA_MAX_BYTES, PLUGIN_DATA_PREFIX, PLUGIN_ID, PLUGIN_ID_MAX, WORLD_APP, WORLD_FORMAT, WORLD_KIND, broken, newer, type AuthorContent, type WorldManifest } from './worldFormat';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES } from './zipStore';
 
 // ---------------------------------------------------------------------------
@@ -289,6 +289,14 @@ function checkPartInfo(raw: unknown, at: string, opts: ManifestOptions): void {
   if (!SHORT_NAME.test(zip)) broken(`${at}.zip 不合规矩`);
   oneOf(p.need, ['view', 'extra'], `${at}.need`);
   if (p.by !== undefined && (typeof p.by !== 'string' || !SHORT_NAME.test(p.by))) broken(`${at}.by 不合规矩`);
+  if (name.startsWith(PLUGIN_DATA_PREFIX)) {
+    const id = name.slice(PLUGIN_DATA_PREFIX.length);
+    if (id.length > PLUGIN_ID_MAX || !PLUGIN_ID.test(id)) broken(`${at}.name 不是插件编号`);
+    // 看世界永远用不着插件
+    if (p.need !== 'extra') broken(`${at} 是插件存的数据,只能是 extra`);
+    if (p.by !== id) broken(`${at}.by 要写存它的插件 ${id}`);
+    if (bytes > PLUGIN_DATA_MAX_BYTES) broken(`${name} 这一块超过上限`);
+  }
   const known = KNOWN_PARTS.get(name);
   // 必须有的块只能是 view:当成可选,读的时候就跳过了
   if (known?.required && p.need !== 'view') broken(`${at} 必须是 view`);

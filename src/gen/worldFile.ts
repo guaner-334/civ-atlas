@@ -70,7 +70,7 @@ export interface WorldValues {
 
 /** 插件放的附加数据:只当字节留着,看世界用不着 */
 export interface WorldExtra {
-  /** 块名(不能和认得的几块重名);习惯上写 ext.插件名 */
+  /** 块名(不能和认得的几块重名);插件存的数据叫 ext.<插件编号>(worldFormat.ts 的 PLUGIN_DATA_PREFIX) */
   name: string;
   /** 这一块的结构版本(插件自己的) */
   schema: number;
@@ -120,6 +120,12 @@ export function knownPart(p: SnapshotPart, schema?: number, migrations?: Migrati
   const known = KNOWN_PARTS.get(p.name);
   if (!known) throw new Error(`认不出这一块:${p.name}`);
   return packedFrom(p, schema ?? currentSchema(p.name, migrations), known.need);
+}
+
+/** 附加数据打包:need 是 extra */
+export async function packExtra(x: WorldExtra): Promise<PackedPart> {
+  if (KNOWN_PARTS.has(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
+  return packedFrom(await makePart(x.name, x.value), x.schema, 'extra', x.by);
 }
 
 /** 认得的一块打包;结构版本 = 现在的版本 */
@@ -207,10 +213,7 @@ export async function packWorldParts(input: PackInput): Promise<PackedWorld> {
   parts.push(await packKnown('civ', input.civ), await packKnown('chronicle', input.chronicle), await packKnown('flags', input.flags));
   if (input.author) parts.push(await packKnown('author', input.author));
   if (input.thumb) parts.push(await packThumb(input.thumb));
-  for (const x of input.extras ?? []) {
-    if (KNOWN_PARTS.has(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
-    parts.push(packedFrom(await makePart(x.name, x.value), x.schema, 'extra', x.by));
-  }
+  for (const x of input.extras ?? []) parts.push(await packExtra(x));
   return { manifest: buildManifest(input, parts.map((p) => p.info)), parts };
 }
 
@@ -270,7 +273,7 @@ export async function openWorldFile(file: Blob | Uint8Array, options: OpenOption
       const data = files.get(p.file);
       if (!data) broken(`文件里缺 ${p.file}`);
       bytes.set(p.name, data);
-      if (isKept(p, options)) kept.push(p);
+      if (isKept(p, options.migrations)) kept.push(p);
     }
     return { manifest, manifestBytes, bytes, kept, options };
   } catch (err) {
@@ -287,15 +290,23 @@ export function openStoredParts(manifestBytes: Uint8Array, parts: readonly Packe
     const manifest = parseManifest(manifestBytes, { readers: options.readers, migrations: options.migrations, maxBytes: options.maxBytes ?? ZIP_LOCAL_MAX_BYTES });
     const bytes = new Map<string, Uint8Array>();
     for (const p of parts) bytes.set(p.info.name, p.data instanceof Uint8Array ? p.data : new Uint8Array(p.data));
-    return { manifest, manifestBytes, bytes, kept: manifest.parts.filter((p) => isKept(p, options)), options };
+    return { manifest, manifestBytes, bytes, kept: manifest.parts.filter((p) => isKept(p, options.migrations)), options };
   } catch (err) {
     throw asWorldFileError(err);
   }
 }
 
 /** 这一版软件只当字节留着的块 */
-function isKept(p: WorldPartInfo, options: OpenOptions): boolean {
-  return !KNOWN_PARTS.has(p.name) || p.schema > currentSchema(p.name, options.migrations) || (p.zip !== 'gzip' && p.zip !== 'none');
+function isKept(p: WorldPartInfo, migrations?: MigrationTable): boolean {
+  return !KNOWN_PARTS.has(p.name) || p.schema > currentSchema(p.name, migrations) || (p.zip !== 'gzip' && p.zip !== 'none');
+}
+
+/**
+ * 这一版软件只当字节留着、不解开的块的名字:插件存的数据、认不出的附加块、结构比软件新的可选块。
+ * 带着它们的世界能存、能存成文件,不能公开分享(审核看不到里面);空的 = 没有这种块
+ */
+export function opaqueParts(parts: readonly WorldPartInfo[], migrations?: MigrationTable): string[] {
+  return parts.filter((p) => isKept(p, migrations)).map((p) => p.name);
 }
 
 /** 解开的世界 */
