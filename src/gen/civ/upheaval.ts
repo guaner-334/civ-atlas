@@ -1,7 +1,7 @@
 /**
  * 地形大事:作者选一年让火山喷发、大地抬升、海水漫进来(gen/edits.ts 文件头"地形大事")。那一年以前的历史一字不差,之后按新地形接着推。
  *
- * 做法(index.ts 的 generateCiv):
+ * 做法(run.ts 的 runPack):
  *   1. 用原来的地形推到大事那一年的前一刻(和没有大事时同一次推演,所以之前的日志、史事逐字节相同)
  *   2. 套上这次的地形修改重新生成世界(upheavalSteps;gen/terrainEdits.ts:改动只在附近,远处的地块逐位不变),
  *      州沿用原来的划分和编号,只改地形变了的地方(regions.ts 的 reshapeRegions)

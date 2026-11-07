@@ -11,7 +11,7 @@
  *   parts/flags.gz       各国历代的旗(FlagBook)
  *   parts/author.gz      作者的内容:AI 写的正文(可选)
  *   parts/thumb.jpg      封面(可选)
- *   parts/ext.xxx.gz     插件放的附加数据(可选,见下面 need)
+ *   parts/ext.xxx.gz     插件存的数据(可选,见 PLUGIN_DATA_PREFIX)
  *
  * 带 .gz 的块:字节是 gzip 压缩过的 CIVSNAP1(snapshot.ts 的 packValue)。外壳不再压缩。
  * ZIP 里只能有清单和清单列出的块,多一个、少一个都不认:每一个字节都有清单担保,校验、审核才能看全。
@@ -90,6 +90,20 @@ export type WorldReaders = {
   terrain: number;
   query: number;
 };
+
+/** 插件编号:小写字母开头,小写字母、数字,中间可以有单个连字符 */
+export const PLUGIN_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+/** 插件编号最长几个字:块名最长 64,还要放得下 ext.<编号> 和以后的 layer.<编号>.<图层> */
+export const PLUGIN_ID_MAX = 32;
+
+/**
+ * 插件存进世界的自己的数据:一个插件一块,块名 ext.<插件编号>,need 是 extra,by 写这个插件的编号,
+ * schema 是插件自己的结构版本,内容是 packValue 打的值。网站不解开、不检查里面,带着它的世界不能公开分享
+ */
+export const PLUGIN_DATA_PREFIX = 'ext.';
+/** 一个插件存进一个世界的数据最多多少字节(解压后) */
+export const PLUGIN_DATA_MAX_BYTES = 1024 * 1024;
+export const pluginDataPart = (pluginId: string): string => `${PLUGIN_DATA_PREFIX}${pluginId}`;
 
 /** 用过的插件:世界里只记这些,绝不放插件的代码 */
 export interface WorldPlugin {

@@ -15,7 +15,7 @@
  * 先查坏没坏、再查认不认得;只有格式、kind、接口版本比网站新时一看到就报 newer(那时别的字段可能都变了)。
  * 加新的文件种类、改字段的意思要升 format;加可选字段不升,这一版网站认不出的字段不管。
  */
-import { MANIFEST_FILE, WORLD_APP, WORLD_KIND } from '../gen/worldFormat';
+import { MANIFEST_FILE, PLUGIN_ID, PLUGIN_ID_MAX, WORLD_APP, WORLD_KIND } from '../gen/worldFormat';
 import { parseZip, writeZip, type ZipInput } from '../gen/zipStore';
 import { CAP_NAME, PLUGIN_CAPS } from './pluginCaps';
 
@@ -94,10 +94,16 @@ export type PluginFileErrorKind = 'broken' | 'newer';
 
 export class PluginFileError extends Error {
   readonly kind: PluginFileErrorKind;
-  constructor(kind: PluginFileErrorKind, message: string) {
+  /** newer:要用到的、这一版网站不认识的那样东西(给人看的写法,如「sim.step 第 1 版」) */
+  readonly need?: string;
+  /** newer:清单里读得出来的插件名字 */
+  readonly plugin?: string;
+  constructor(kind: PluginFileErrorKind, message: string, more?: { need?: string; plugin?: string }) {
     super(message);
     this.name = 'PluginFileError';
     this.kind = kind;
+    if (more?.need) this.need = more.need;
+    if (more?.plugin) this.plugin = more.plugin;
   }
 }
 
@@ -105,8 +111,20 @@ function broken(message: string): never {
   throw new PluginFileError('broken', message);
 }
 
-function newer(message: string): never {
-  throw new PluginFileError('newer', message);
+function newer(message: string, need: string, m: Obj): never {
+  const n = m.name;
+  const plugin = typeof n === 'string' && n.trim() && n.length <= NAME_MAX && !BAD_TEXT.test(n) ? n : undefined;
+  throw new PluginFileError('newer', message, { need, plugin });
+}
+
+/** 以后几类插件的能力名开头 → 给人看的名字 */
+const CAP_FAMILY: Readonly<Record<string, string>> = { sim: '推演', gen: '地图生成' };
+
+/** 「sim.step@1」→「推演 第 1 版」;不认得的开头照写名字 */
+function capNeed(cap: string): string {
+  const [name, ver] = cap.split('@');
+  const family = Object.prototype.hasOwnProperty.call(CAP_FAMILY, name.split('.')[0]) ? CAP_FAMILY[name.split('.')[0]] : name;
+  return `${family} 第 ${ver} 版`;
 }
 
 /** 底下的 ZIP、JSON 抛的普通错都算文件坏了 */
@@ -117,9 +135,6 @@ function asPluginFileError(err: unknown): PluginFileError {
 
 type Obj = Record<string, unknown>;
 
-const ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-/** 编号最长几个字:世界里存下的插件图层块叫 layer.<编号>.<图层>,块名最长 64 */
-const ID_MAX = 32;
 const VERSION = /^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$/;
 const SHORT_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SUM = /^[0-9a-f]{64}$/;
@@ -238,14 +253,14 @@ function parseManifest(bytes: Uint8Array): PluginManifest {
   noBadKeys(m);
   if (m.app !== WORLD_APP) broken('这不是「文明与地图」的插件');
   const format = int(m.format, 1, Number.MAX_SAFE_INTEGER, '清单的 format');
-  if (format > PLUGIN_FORMAT) newer(`要更新网站才能用:插件文件是第 ${format} 版格式`);
+  if (format > PLUGIN_FORMAT) newer(`要更新网站才能用:插件文件是第 ${format} 版格式`, `第 ${format} 版插件文件`, m);
   if (m.kind === WORLD_KIND) broken('这是世界文件,不是插件');
   matches(m.kind, SHORT_NAME, 64, '清单的 kind');
-  if (m.kind !== PLUGIN_KIND) newer(`要更新网站才能用:这一版网站不认得「${m.kind}」这种文件`);
+  if (m.kind !== PLUGIN_KIND) newer(`要更新网站才能用:这一版网站不认得「${m.kind}」这种文件`, `${m.kind} 这种文件`, m);
   const api = int(m.api, 1, Number.MAX_SAFE_INTEGER, '清单的 api');
-  if (api > PLUGIN_API) newer(`要更新网站才能用:插件用的是第 ${api} 版接口`);
+  if (api > PLUGIN_API) newer(`要更新网站才能用:插件用的是第 ${api} 版接口`, `第 ${api} 版插件接口`, m);
 
-  matches(m.id, ID, ID_MAX, '清单的 id');
+  matches(m.id, PLUGIN_ID, PLUGIN_ID_MAX, '清单的 id');
   line(m.name, NAME_MAX, '清单的 name');
   matches(m.version, VERSION, 20, '清单的 version');
   matches(m.role, SHORT_NAME, 64, '清单的 role');
@@ -269,9 +284,10 @@ function parseManifest(bytes: Uint8Array): PluginManifest {
 }
 
 function checkSupport(m: PluginManifest): void {
-  if (!PLUGIN_ROLES.includes(m.role)) newer(`要更新网站才能用:这一版网站跑不了「${m.role}」这种插件`);
-  if (!PLUGIN_RUNTIMES.includes(m.runtime)) newer(`要更新网站才能用:这一版网站没有「${m.runtime}」这种跑法`);
-  for (const c of m.requires) if (!PLUGIN_CAPS.has(c)) newer(`要更新网站才能用:插件要的 ${c} 这一版网站还没有`);
+  const o = m as unknown as Obj;
+  if (!PLUGIN_ROLES.includes(m.role)) newer(`要更新网站才能用:这一版网站跑不了「${m.role}」这种插件`, `${m.role} 这种插件`, o);
+  if (!PLUGIN_RUNTIMES.includes(m.runtime)) newer(`要更新网站才能用:这一版网站没有「${m.runtime}」这种跑法`, `${m.runtime} 这种跑法`, o);
+  for (const c of m.requires) if (!PLUGIN_CAPS.has(c)) newer(`要更新网站才能用:插件要的 ${c} 这一版网站还没有`, capNeed(c), o);
 }
 
 async function sha256(data: Uint8Array): Promise<string> {

@@ -68,7 +68,7 @@ export function passSince(s: Pick<PassSite, 'named' | 'road' | 'stand'>): number
   return Math.min(s.named && s.road !== undefined ? s.road : Infinity, s.stand ?? Infinity);
 }
 
-/** 推演结果里认关隘要的几样(Civ 的一部分;finishCiv 里 Civ 还没拼起来时也能用) */
+/** 推演结果里认关隘要的几样(Civ 的一部分;推完整理时 Civ 还没拼起来也能用) */
 export type PassHistory = Pick<Civ, 'regions' | 'checkpoints' | 'log' | 'annals'>;
 
 /**

@@ -1,19 +1,20 @@
 /**
- * 官方推演的子系统清单:装哪些模块、按什么次序。
+ * 官方规则包(OFFICIAL_PACK):事件、史事、旋钮、数表、子系统清单,和总流程要走的几步(official.ts)。
  *
  * 引擎(engine/)只管事件堆、归属、日志、史事、检查点,不认识任何子系统;每个子系统在自己的文件里导出一个模块对象
- * (engine/module.ts 的样子:install / resume / finish),这里按次序排好:
- *   - 一口气推(index.ts 的 generateCiv):先定民族、国家两个模型、最先预约干预的事件,再照 CIV_MODULES 的次序逐个 install
- *   - 接着推(resumeCiv):引擎先照 Civ 里它自己那几样恢复,再照同一个次序逐个 resume
- *   - 推完(index.ts 的 finishCiv):照 CIV_FINISH 的次序逐个 finish,往结果上补各自的那一份
+ * (engine/module.ts 的样子),这里按次序排好,总流程(run.ts)照包走:
+ *   - 一口气推:开头几步(定民族、国家两个模型、最先预约干预的事件)以后,照 CIV_MODULES 的次序逐个 install
+ *   - 接着推:引擎先照 Civ 里它自己那几样恢复,再照同一个次序逐个 resume
+ *   - 推到一半拼结果:照 CIV_PARTIAL 的次序逐个 partial;推完:照 CIV_FINISH 的次序逐个 finish
  * 同一刻的事件按装的先后排,所以次序是历史的一部分:改了次序,同一种子的历史就变了。
- * 加一个子系统 = 在它的文件里写一个模块对象,加进下面的清单(要往结果上补东西的,也加进 CIV_FINISH)。
+ * 加一个子系统 = 在它的文件里写一个模块对象,加进下面的清单(要往结果上补东西的,也加进 CIV_PARTIAL / CIV_FINISH)。
  */
 import type { World } from '../world';
 import type { Intervention } from '../edits';
 import type { Civ, Culture, Habitat, Regions, Year } from './types';
-import { CivSim, type EngineState } from './engine/sim';
+import type { CivSim } from './engine/sim';
 import type { SimModule } from './engine/module';
+import type { TableGroup } from './engine/pack';
 import { culturesModule, type CultureModel } from './cultures';
 import { politiesModule, type PolityModel } from './polities';
 import { warsModule } from './wars';
@@ -22,11 +23,11 @@ import { dynastyModule } from './dynasty';
 import { assimilationModule } from './assimilation';
 import { citiesModule } from './cities';
 import { diplomacyModule } from './diplomacy';
-import { developmentModule } from './development';
-import { ideologyModule } from './ideology';
+import { developmentModule, devCardsOf } from './development';
+import { ideologyModule, ideoTableCards } from './ideology';
 import { tradeModule } from './trade';
 import { unrestModule } from './unrest';
-import { controlModule } from './control';
+import { controlModule, stateCardsOf } from './control';
 import { councilModule } from './council';
 import { regencyModule } from './regency';
 import { marriageModule } from './marriage';
@@ -35,9 +36,13 @@ import { pandemicModule } from './pandemic';
 import { treatiesModule } from './treaties';
 import { migrationModule } from './migration';
 import { religionModule, type FaithEra } from './religion';
-import { interventionsModule, scheduleInterventions, type InterventionModel } from './interventions';
+import { interventionsModule, type InterventionModel } from './interventions';
 import type { Calamity } from './calamity';
 import { CIV_ANNALS, CIV_EVENTS } from './events';
+import { CIV_KNOBS } from './knobs';
+import { TABLE_GROUP } from './tableGroups';
+import { OFFICIAL_STEPS, type OfficialOwn } from './official';
+import { resumePack, type CivPack } from './run';
 
 /** 一口气推时装模块拿到的东西 */
 export interface InstallCtx {
@@ -111,58 +116,38 @@ export const CIV_MODULES: readonly CivModule[] = [
   interventionsModule,
 ];
 
+/** 推到一半拼结果时往上补的次序(接着推要用的全精度状态) */
+export const CIV_PARTIAL: readonly CivModule[] = [developmentModule, ideologyModule, tradeModule];
+
 /** 推完往结果上补东西的次序:信仰要整份 civ,排最前;再发展度、思潮、商道 */
 export const CIV_FINISH: readonly CivModule[] = [religionModule, developmentModule, ideologyModule, tradeModule];
 
-/** 一口气推:照清单的次序逐个装上 */
-export function installModules(ctx: InstallCtx): void {
-  for (const m of CIV_MODULES) m.install?.(ctx);
-}
+/** 三组数表:政局(管辖、动荡、钱粮、人口……)、发展度、思潮;id 是总登记里的组名 */
+export const CIV_TABLES: readonly TableGroup[] = [
+  { id: TABLE_GROUP.state, cards: stateCardsOf },
+  { id: TABLE_GROUP.dev, cards: devCardsOf },
+  { id: TABLE_GROUP.ideology, cards: () => ideoTableCards() },
+];
 
-/** 推完:照 CIV_FINISH 的次序逐个往 ctx.civ 上补 */
-export function finishModules(ctx: FinishCtx): void {
-  for (const m of CIV_FINISH) m.finish?.(ctx);
-}
-
-/** 引擎恢复要的那几样(Civ 里只取这些) */
-function engineStateOf(civ: Civ): EngineState {
-  return {
-    regionCount: civ.regions.count,
-    owners: [civ.culture, civ.polity],
-    log: civ.log,
-    annals: civ.annals,
-    checkpoints: civ.checkpoints,
-    endYear: civ.endYear,
-    knobs: civ.knobs,
-  };
-}
+export const OFFICIAL_PACK: CivPack<OfficialOwn> = {
+  id: 'official',
+  events: CIV_EVENTS,
+  annals: CIV_ANNALS,
+  knobs: CIV_KNOBS,
+  tables: CIV_TABLES,
+  modules: CIV_MODULES,
+  partial: CIV_PARTIAL,
+  finish: CIV_FINISH,
+  ...OFFICIAL_STEPS,
+};
 
 /**
- * 由 Civ 数据重建推演状态:引擎的那部分(各层归属、版本号、日志、史事、检查点)交给 CivSim.restore,再让各模块重建待发生的事件,
- * 然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,阶段 4 的存档也只存 Civ。
- * interventions = 接着推时带着的干预(阶段 4;默认 = 这份历史推出来时带着的 civ.interventions):
+ * 由 Civ 数据重建官方推演的状态,然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆,存档也只存 Civ。
+ * interventions = 接着推时带着的干预(默认 = 这份历史推出来时带着的 civ.interventions):
  * 已经过了的只影响之后的决定(规则),还没到的补上它们的事件。后面可以接上几条比 civ.endYear 晚的(逐年推演时下的新命令,civ/play.ts)。
  * first = 最先预约的事件(地形大事那一刻接着推时:大事本身)。
- * eras = 地形大事以前各段的州(信仰照历史重放时,大事以前按那时的州;默认 = civ.eras)。地形大事那一刻接着推时由 generateCiv 给
+ * eras = 地形大事以前各段的州(信仰照历史重放时,大事以前按那时的州;默认 = civ.eras)
  */
-export function resumeCiv(
-  world: World,
-  civ: Civ,
-  interventions: readonly Intervention[] = civ.interventions ?? [],
-  first?: (sim: CivSim) => void,
-  eras: readonly FaithEra[] = civ.eras ?? [],
-): CivSim {
-  const sim = CivSim.restore(engineStateOf(civ), CIV_EVENTS, CIV_ANNALS);
-  if (civ.viable && civ.cultures.length) {
-    // 地形大事(first)、干预的事件最先预约(和 generateCiv 一样:同一刻里地形大事最先,干预只排在新君即位、迁都后重看边地后面)
-    first?.(sim);
-    const iv = scheduleInterventions(sim, civ.seed, interventions, true);
-    // 各模块补上的"按预约先后排"的事件先攒着,补完按一口气推时预约的时刻排好再放进事件堆(见 schedule 的 booked)。
-    // 干预在一口气推时最先预约(generateCiv 里装各模块之前),这里也在攒之前直接放进去,同一刻里排在补上的事件前面
-    sim.holdBookings();
-    const ctx: ResumeCtx = { sim, world, civ, interventions, iv, eras, extra: [] };
-    for (const m of CIV_MODULES) m.resume?.(ctx);
-    sim.releaseHeld();
-  }
-  return sim;
+export function resumeCiv(world: World, civ: Civ, interventions?: readonly Intervention[], first?: (sim: CivSim) => void, eras?: readonly FaithEra[]): CivSim {
+  return resumePack(OFFICIAL_PACK, world, civ, interventions, first, eras);
 }

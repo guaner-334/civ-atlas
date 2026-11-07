@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p examples/plugins",
     "test": "vitest run",
     "snap": "tsx scripts/snap.ts",
     "stress": "tsx scripts/stress.ts",
