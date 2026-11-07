@@ -1,7 +1,7 @@
 /** 投世界:打包(和存成文件、传到账号同一个)、切块、先问、传块、提交、等核对。一次投一件;投稿窗关了照样接着传,话说在提示条上。 */
 import { sendBlocks, type BlockPlan } from '../account/fullWorlds';
 import { ServerError } from '../account/server';
-import { getSession } from '../account/session';
+import { getSession, onSessionChange } from '../account/session';
 import { beginWorldSubmit, commitWorldSubmit, fetchSubmissions, waitSubmission, type SubmitForm } from '../account/submissions';
 import { notesReady } from '../ai/library';
 import { openAccount } from './AccountDialogs';
@@ -49,11 +49,21 @@ export interface SubmitAsk {
 }
 
 let live: (SubmitAsk & { ac: AbortController }) | null = null;
-/** 断线以后接着传、太忙以后再投一次:用上次填的字(块传过的不用重传;核对中再交同一份不算第二次) */
-let lastAsk: SubmitAsk | null = null;
+/** 断线以后接着传、太忙以后再投一次:用上次填的字(块传过的不用重传;核对中再交同一份不算第二次)。只给填字时登着的那个账号用 */
+let lastAsk: (SubmitAsk & { token: string | undefined }) | null = null;
 
+// 退出、换了账号:上一个账号没投成的那件不能接着投到新账号名下,结果也不再说
+onSessionChange(() => {
+  if (!lastAsk || lastAsk.token === getSession()?.token) return;
+  lastAsk = null;
+  results = {};
+  listeners.emit();
+  if (!submitJob()) clearToast(TOAST);
+});
+
+/** 页面里的优先:打包用的就是页面里的(存不进浏览器时存下的那份是旧的) */
 const markOf = (id: string): string | null => {
-  const save = loadWorld(id)?.save ?? (currentWorld()?.id === id ? currentSave() : null);
+  const save = (currentWorld()?.id === id ? currentSave() : null) ?? loadWorld(id)?.save;
   return save ? fullMark(id, save) : null;
 };
 
@@ -208,7 +218,7 @@ export async function startSubmit(ask: SubmitAsk): Promise<void> {
   const { id, title } = ask;
   const me = { ...ask, ac: new AbortController() };
   live = me;
-  lastAsk = ask;
+  lastAsk = { ...ask, token: getSession()?.token };
   clearSubmitResult(id);
   setSubmitJob({ id, title, phase: 'pack', done: 0, total: 0 });
   paint();
@@ -222,7 +232,7 @@ export async function startSubmit(ask: SubmitAsk): Promise<void> {
 
 export function resumeSubmit(id: string): void {
   clearToast(TOAST);
-  if (lastAsk?.id === id) void startSubmit(lastAsk);
+  if (lastAsk?.id === id && lastAsk.token === getSession()?.token) void startSubmit(lastAsk);
 }
 
 /** 取消:提交之前才能取消;已经传上去的块留在服务器上,下次不用重传 */
