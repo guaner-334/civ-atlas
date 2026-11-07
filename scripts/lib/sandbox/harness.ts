@@ -267,7 +267,8 @@ async function api(code: string, requires: string[]) {
   const view: ViewInfo = { year: 600, selected: null, visible: null, layer: 'polities' };
   const watchers = new Set<() => void>();
   const sink = { panels: [] as (number | null)[], layers: [] as [string, string | null][], logs: [] as string[] };
-  const edits: WorldEdits = { ...EMPTY_EDITS, names: { 'polity:c1#0': '甲' }, marks: [{ id: 1, title: '故乡', color: 'red', from: 0, at: [10, 20] }] };
+  let edits: WorldEdits = { ...EMPTY_EDITS, names: { 'polity:c1#0': '甲' }, marks: [{ id: 1, title: '故乡', color: 'red', from: 0, at: [10, 20] }] };
+  const commits: { names: number; marks: string[]; interventions: number }[] = [];
   let stopped: string | null = null;
   let finish: (v: unknown) => void = () => {};
   const done = new Promise((r) => (finish = r));
@@ -299,6 +300,11 @@ async function api(code: string, requires: string[]) {
         view: () => view,
         watchView: (fn) => (watchers.add(fn), () => watchers.delete(fn)),
         pick: async (req) => (req.kind === 'cell' ? { cell: 5 } : req.kind === 'cells' ? { cells: [1, 2, 3] } : { x0: 0, y0: 0, x1: 10, y1: 10, cells: [7, 8] }),
+        commit: (next) => {
+          edits = next;
+          commits.push({ names: Object.keys(next.names).length, marks: (next.marks ?? []).map((m) => m.title), interventions: next.interventions.length });
+          return null;
+        },
       },
       sink: { panel: (p) => sink.panels.push(p ? p.length : null), layer: (lid, l) => sink.layers.push([lid, l ? l.kind : null]), log: (t) => sink.logs.push(t) },
       onMessage,
@@ -325,6 +331,7 @@ async function api(code: string, requires: string[]) {
     stoppedBefore,
     ms: Math.round(performance.now() - t0),
     sink,
+    commits,
     worldIntact: world.elevation.length === world.mesh.n && total(world.elevation) === elevBefore,
     expect: { cells: world.mesh.n, elev: elevBefore, ownedPolities: owned.size, rivers: world.rivers.length },
     frames: document.querySelectorAll('iframe').length,

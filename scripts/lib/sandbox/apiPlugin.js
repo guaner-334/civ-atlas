@@ -78,6 +78,26 @@
       box: (await civAtlas.pick.box({})).cells.length,
     };
 
+    const polKey = pol[0].key;
+    const regKey = (await civAtlas.history.regions({}))[5].key;
+    out.apply = await civAtlas.author.apply({
+      changes: [
+        { kind: 'name', key: polKey, name: '插件起的国' },
+        { kind: 'mark', mark: { title: '插件标的', color: 'blue', from: 0, regions: [regKey] } },
+        { kind: 'intervention', v: { kind: 'protect', a: polKey, from: 100 } },
+      ],
+    });
+    out.applyAfter = { names: await civAtlas.author.names(), marks: (await civAtlas.author.marks()).length };
+    out.store = [
+      await civAtlas.store.local.get(),
+      await codeOf(civAtlas.store.local.set({ schema: 1, value: { speed: 3 } })),
+      await civAtlas.store.local.get(),
+      await codeOf(civAtlas.store.world.set({ schema: 2, value: { route: new Int32Array([1, 2, 3]) } })),
+      Array.from((await civAtlas.store.world.get()).value.route),
+      await codeOf(civAtlas.store.world.clear()),
+      await civAtlas.store.world.get(),
+    ];
+
     out.panel = await codeOf(
       civAtlas.panel.set({
         nodes: [
@@ -105,7 +125,10 @@
       markText: await codeOf(civAtlas.layer.marks({ id: 'route', title: 'x', items: [{ kind: 'label', cells: [1], text: 'x'.repeat(41) }] })),
       unknown: await codeOf(all('foo.bar', {})),
       proto: await codeOf(all('constructor', {})),
-      undeclared: await codeOf(all('author.apply', { changes: [] })),
+      applyKey: await codeOf(civAtlas.author.apply({ changes: [{ kind: 'name', key: 'polity:c99999999#0', name: 'x' }] })),
+      applyKind: await codeOf(civAtlas.author.apply({ changes: [{ kind: 'terrain', op: {} }] })),
+      storeBig: await codeOf(civAtlas.store.local.set({ schema: 1, value: 'x'.repeat(70000) })),
+      storeKind: await codeOf(civAtlas.store.world.set({ schema: 1, value: new Date() })),
       uncloneable: await codeOf(civAtlas.world.info({ f: () => 1 })),
       stillUp: (await civAtlas.host.info()).api,
     };
