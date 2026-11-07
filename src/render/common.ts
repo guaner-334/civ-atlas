@@ -672,6 +672,12 @@ function netGeometry(rivers: { pts: Float32Array }[], v: VecView, threshold: num
   return geom.lines;
 }
 
+/** drawRivers(给了 opts)第一次画这组河要算的河网几何、陆地蒙版先算好(缓存和画的时候是同一份) */
+export function prepRivers(rivers: { pts: Float32Array }[], v: VecView, threshold: number, style: RiverStyle, opts: RiverOptions): void {
+  netGeometry(shownRivers(rivers, threshold), v, threshold, style, opts);
+  landMask(opts);
+}
+
 /** 陆地蒙版:河道只留在陆地像素上(细节层按视口变换把它放大贴上,边缘是平滑插值的,和放大后的地形图海岸一致) */
 function landMask(opts: RiverOptions): { canvas: OffscreenCanvas | HTMLCanvasElement } {
   const { w, h, water } = opts;
