@@ -24,7 +24,7 @@ import {
   type FillId,
 } from '../src/ui/mapLayers';
 import { CIV_SHOW_DEFAULT, cultureNamesLead, cultureNamesOn, namesLead, namesOn, polityNamesLead, polityNamesOn, type CivShow } from '../src/render/civ/show';
-import { _resetToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
+import { _resetToasts, afterOkToasts, clearToast, getToast, peekToast, showToast } from '../src/ui/toastStore';
 import { closeOverview, dismissOverview, getOverview, getOverviewHold, openOverview, setOverviewTab } from '../src/ui/overviewStore';
 import { civShowFromQuery, clearSelection, getChronicle, getCivTime, getSelection, namesUrl, pausePlayback, setChronicle, setCivTime, setSelection } from '../src/ui/civView';
 import { collapseSide, expandSide, getSide, setSideHold, subscribeSide } from '../src/ui/sideStore';
@@ -301,6 +301,21 @@ describe('顶部提示条', () => {
     expect(getToast()?.id).toBe('save');
     vi.advanceTimersByTime(7100);
     expect(getToast()?.id).toBe('storage');
+  });
+  it('等 ok 提示都收了:到时收起、被关掉都算,警告不用等', async () => {
+    vi.useFakeTimers();
+    let done = false;
+    showToast({ id: 'storage', kind: 'warn', text: '没能自动存档:浏览器存储已满' });
+    await afterOkToasts();
+    showToast({ id: 'save', kind: 'ok', text: '已打开存档「苍澜界」' });
+    showToast({ id: 'terrain', kind: 'ok', text: '已按新地形重新生成', ttl: 0 });
+    void afterOkToasts().then(() => (done = true));
+    vi.advanceTimersByTime(7100);
+    await Promise.resolve();
+    expect(done).toBe(false);
+    clearToast('terrain');
+    await Promise.resolve();
+    expect(done).toBe(true);
   });
   it('两个按钮(二选一):按顺序排,只给 action 的老调用照旧', () => {
     const picked: string[] = [];
