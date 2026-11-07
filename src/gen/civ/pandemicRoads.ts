@@ -2,7 +2,7 @@
  * 全球大疫的清单和疫后断路(推演规则那一侧;界面、地图、编年史用的凋敝、荒地这些在 story/pandemicInfo.ts)。
  *
  *   pandemicsOf(civ)         起过的全球大疫(从史事、城镇表整理;界面、编年史经 story/pandemicInfo.ts 取的是同一份)
- *   breakRoads(civ, routes)  全球大疫以后断了的路(推完以后 finishCiv 调,改路表)
+ *   breakRoads(civ, routes)  全球大疫以后断了的路(推完整理时调,改路表;official.ts 的 settle)
  *
  * 只读 Civ,不碰推演引擎。纯计算,不碰 DOM。
  */
@@ -98,7 +98,7 @@ const U_CUT = 2;
 const U_MEND = 3;
 
 /**
- * 全球大疫以后断了的路(finishCiv 调用,routes 是 buildRoutes 修好的路):起疫时还通着、大半段在染了疫的州里的小路约六成、
+ * 全球大疫以后断了的路(推完整理时调用,routes 是 buildRoutes 修好的路):起疫时还通着、大半段在染了疫的州里的小路约六成、
  * 大路约三成(× 轻重)在凋敝里失修断掉(Route.abandoned),凋敝结束后 MEND_FROM–MEND_FROM + MEND_SPAN 年陆续修回(另起一段,built = 修回那年)。
  * 只按那一刻以前已经染上的州算:推得再远,早先断的路不变。返回新的路表(没有全球大疫 = 原样返回)
  */

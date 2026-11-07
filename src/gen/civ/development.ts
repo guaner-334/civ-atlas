@@ -74,7 +74,7 @@ import { NEVER, devCards } from './devTables';
 import { warModelOf } from './wars';
 import { pandemicModelOf, slumpIn, type PandemicModel } from './pandemicState';
 import { CAPS, INVENTIONS } from './inventions';
-import type { CivModule } from './modules';
+import type { CivModule, FinishCtx } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
 import { TABLE_GROUP } from './tableGroups';
@@ -678,7 +678,7 @@ function focusShare(knobs: KnobSet, segs: readonly PolicySeg[], t0: Year, y: Yea
 
 /** 发展度的数表:规则里的常数都取这个文件里的(发展重点的动员取这个世界的那套数;同一套数只编一次) */
 const devCardsMemo = new WeakMap<KnobSet, TableCard[]>();
-function devCardsOf(knobs: KnobSet): TableCard[] {
+export function devCardsOf(knobs: KnobSet): TableCard[] {
   let cards = devCardsMemo.get(knobs);
   if (cards) return cards;
   const { FOCUS_MOB } = knobs.get(POLICY_KNOBS);
@@ -1390,6 +1390,12 @@ const BOG_IRON = biomeTagged('bogIron');
 const COAL_BASIN = biomeTagged('coalBasin');
 const DESERT = biomeMask((b) => b.desert !== undefined);
 
+/** 推到这一刻的发展度补进结果(推到一半停下和推完一样) */
+function attach(c: FinishCtx): void {
+  const dev = finishDevelopment(c.sim, c.endYear);
+  if (dev) c.civ.development = dev;
+}
+
 /** 模块:发展度:每 20 年算各州的能力,影响人口上限、军力、远洋(清单和次序见 modules.ts) */
 export const developmentModule: CivModule = {
   id: 'development',
@@ -1397,8 +1403,6 @@ export const developmentModule: CivModule = {
     if (c.pm) installDevelopment(c.sim, c.world, c.pm, c.habitat, c.seed);
   },
   resume: (c) => resumeDevelopment(c.sim, c.world, c.civ),
-  finish: (c) => {
-    const dev = finishDevelopment(c.sim, c.endYear);
-    if (dev) c.civ.development = dev;
-  },
+  partial: attach,
+  finish: attach,
 };
