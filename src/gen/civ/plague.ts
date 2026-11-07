@@ -56,6 +56,7 @@ import {
   calamityRates,
   naturalPandemic,
   pandemicBase,
+  type Calamity,
   type CalamityRates,
 } from './calamity';
 import type { DisasterLevel, Intervention } from '../edits';
@@ -221,14 +222,14 @@ function panLossOf(K: PlagueKnobs, base: number, k: number, tag: number, level: 
 // 挂到推演引擎上
 
 /** 登记瘟疫的事件处理(installUnrest 之后调用),预约第一次看疫情 */
-export function installPlague(sim: CivSim, pm: PolityModel, seed: number): PlagueModel {
+export function installPlague(sim: CivSim, pm: PolityModel, seed: number, calamity: Calamity | undefined): PlagueModel {
   const pl: PlagueModel = { pm, base: subSeed(seed, 'civ-plague'), now: null, last: -Infinity };
-  hook(sim, pl);
+  hook(sim, pl, calamity);
   sim.schedule(checkTime(pm.knobs.get(PLAGUE_KNOBS), pl.base, 0), Ev.PlagueCheck, 0, 0);
   return pl;
 }
 
-function hook(sim: CivSim, pl: PlagueModel): void {
+function hook(sim: CivSim, pl: PlagueModel, calamity: Calamity | undefined): void {
   const K = pl.pm.knobs.get(PLAGUE_KNOBS);
   const { GREAT_YEARS, ORIGIN_MIN, PORT_W, ORIGIN_NORM, GREAT_ODDS, PAN_SPARE, PAN_DENSE_MIN, DENSE, KIND, PAN_CROSS, DENSE_MIN, PAN_SPREAD, PAN_DECAY, PAN_SHIP, PAN_SHIP_MAX, PAN_HOPS, GREAT_SPREAD, GREAT_DECAY, SPREAD, IV_SPREAD, DECAY } = K;
   models.set(sim, pl);
@@ -239,7 +240,7 @@ function hook(sim: CivSim, pl: PlagueModel): void {
   const owner = sim.owners[Layer.Polity];
   const um = unrestModelOf(sim);
   /** 「天灾」多 / 很多的倍数(平常 = null:照旧的规则,不走这些分支) */
-  const rate = calamityRates(sim.calamity);
+  const rate = calamityRates(calamity);
 
   /** 州 r 此刻有人烟的城(没有 = −1) */
   const cityNow = (r: number, t: number): number => {
@@ -515,7 +516,7 @@ export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonl
     }
     break;
   }
-  hook(sim, pl);
+  hook(sim, pl, civ.calamity);
   if (last >= 0 && t0 > -Infinity) {
     pl.last = t0;
     const great = pan === undefined && last < PLAGUE_IV && A.find((e) => e.kind === 'plague' && e.war === last)?.cause === 'great';
@@ -559,7 +560,7 @@ export function resumePlague(sim: CivSim, _world: World, civ: Civ, list: readonl
 export const plagueModule: CivModule = {
   id: 'plague',
   install: (c) => {
-    if (c.pm) installPlague(c.sim, c.pm, c.seed);
+    if (c.pm) installPlague(c.sim, c.pm, c.seed, c.calamity);
   },
   resume: (c) => resumePlague(c.sim, c.world, c.civ, c.iv?.list),
 };
