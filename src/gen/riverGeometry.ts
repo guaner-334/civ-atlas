@@ -44,6 +44,22 @@ export function riverGeometry(
   power: number,
   wrap = 0,
 ): DenseRiver[] {
+  const g = riverGeometrySteps(rivers, threshold, style, flare, power, wrap);
+  for (;;) {
+    const r = g.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** riverGeometry 分几步做:每串完一条河停一下,next() 到 done 的结果和 riverGeometry 一样 */
+export function* riverGeometrySteps(
+  rivers: { pts: Float32Array }[],
+  threshold: number,
+  style: RiverWidth,
+  flare: number,
+  power: number,
+  wrap = 0,
+): Generator<void, DenseRiver[], void> {
   const widthOf = (f: number) =>
     style.minW + (style.maxW - style.minW) * Math.min(1, Math.pow(Math.max(0, f - threshold) / style.fluxRef, power));
   const key = (x: number, y: number) => `${x},${y}`;
@@ -80,6 +96,7 @@ export function riverGeometry(
     const v = next[u];
     if (v >= 0 && (main[v] < 0 || vf[u] > vf[main[v]])) main[v] = u;
   }
+  yield;
   // ---- 2. 从每个源头往下走,只要自己是下游节点的干流就继续,否则在汇合点停下(成为支流) ----
   const chains: number[][] = [];
   for (let h = 0; h < N; h++) {
@@ -98,6 +115,7 @@ export function riverGeometry(
   // 支流按自己的流量排(不算汇合点),一定排在它汇入的那条链后面
   const peak = (c: number[]) => vf[next[c[c.length - 1]] >= 0 ? c[c.length - 2] : c[c.length - 1]];
   chains.sort((a, b) => peak(b) - peak(a));
+  yield;
 
   // 节点 → 平滑后的位置、弯过之后挪了多少。每个节点只在一条链里是"中间点",支流终点来这里查
   const smoothed = new Map<number, [number, number]>();
@@ -211,6 +229,7 @@ export function riverGeometry(
       moved.set(c[i], [d.x[j] - xs[i + first], d.y[j] - ys[i + first]]);
     }
     out.push(d);
+    yield;
   }
   return out;
 }
