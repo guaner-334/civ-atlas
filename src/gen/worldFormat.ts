@@ -176,6 +176,15 @@ export interface PluginLayerValue {
   opacity?: number;
 }
 
+/**
+ * 一个地图插件在世界里的那一串(World.mapPlugins 的一项,线程里的世界键、生成的缓存也按它认):
+ * 「编号@文件指纹」,有滑条的后面接按名字排好的 [名字, 值] 串(滑条照清单补齐以后的)
+ */
+export function mapPluginKey(p: { id: string; sum: string; params?: Readonly<Record<string, number>> }): string {
+  const params = Object.entries(p.params ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  return `${p.id}@${p.sum}${params.length ? JSON.stringify(params) : ''}`;
+}
+
 /** 用过的插件:世界里只记这些,绝不放插件的代码 */
 export interface WorldPlugin {
   id: string;

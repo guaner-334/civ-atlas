@@ -550,7 +550,7 @@ function checkWorldBody(w: Obj, n: number, at: string): void {
 
 /** 一张地图最多用几个地图插件 */
 const MAP_PLUGINS_MAX = 16;
-/** World.mapPlugins 的一项:「插件编号@文件指纹」,有滑条的后面接 [名字, 值] 串(plugin/pluginWorld.ts 的 mapPluginKey) */
+/** World.mapPlugins 的一项:「插件编号@文件指纹」,有滑条的后面接 [名字, 值] 串(worldFormat.ts 的 mapPluginKey) */
 const MAP_PLUGIN_KEY = /^[a-z][a-z0-9]*(-[a-z0-9]+)*@[0-9a-f]{64}(\[.*\])?$/;
 const MAP_PLUGIN_KEY_MAX = 1024;
 
