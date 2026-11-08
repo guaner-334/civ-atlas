@@ -283,7 +283,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       civNames.current = t.edits.nameMix;
       // 推演年数同样直接带着(新建中的世界先推 3000 年)
       civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
-      simNowFor(t.id);
+      // 照故事找的世界不带推演插件(找的时候没带)
+      simNowFor(t.fullCiv ? null : t.id);
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块。

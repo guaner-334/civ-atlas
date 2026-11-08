@@ -81,9 +81,9 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
     setPicks(next);
     if (worldId) void chooseSims(worldId, next, installed ?? undefined);
   };
-  // 插件删掉了、被停用了:选上的里去掉
+  // 插件删掉了、被停用了:选上的里去掉;更新了版本:换成现在那一版的文件
   useEffect(() => {
-    if (installed && chosen.length !== picks.length) commit(chosen.map((x) => x.c));
+    if (installed) commit(chosen.map((x) => x.c));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [installed]);
 
@@ -95,12 +95,11 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
     let at = from;
     const onMove = (ev: PointerEvent) => {
       const rows = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-sim-row]') ?? [])];
-      let to = rows.findIndex((r) => {
+      // 拖到第几个:别的几行里中线在指针上面的有几行
+      const to = rows.filter((r, k) => {
         const b = r.getBoundingClientRect();
-        return ev.clientY < b.top + b.height / 2;
-      });
-      if (to < 0) to = rows.length - 1;
-      if (to > at) to = Math.max(at, to - 1);
+        return k !== at && ev.clientY > b.top + b.height / 2;
+      }).length;
       if (to !== at) {
         setPicks((l) => move(l, at, to));
         at = to;

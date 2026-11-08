@@ -159,7 +159,10 @@ const fileOf = (sum: string) => {
 };
 
 /** 选上的推演插件(按出手的先后)交给推演:各用本机现在的那一版;没装、文件没了的不算 */
+let chooseSeq = 0;
 export async function chooseSims(worldId: string, picks: readonly SimChoice[], installed?: readonly InstalledPlugin[]): Promise<void> {
+  // 文件还在读时又改了选的:只认最后一次
+  const seq = ++chooseSeq;
   const have = installed ?? (await listPlugins().catch(() => [] as InstalledPlugin[]));
   const list: WorldPlugin[] = [];
   const files: SimPluginFile[] = [];
@@ -171,7 +174,7 @@ export async function chooseSims(worldId: string, picks: readonly SimChoice[], i
     list.push(simPluginOf(p.current, params));
     files.push({ id: p.id, sum: p.current.sum, bytes, ...(Object.keys(params).length ? { params } : {}) });
   }
-  setSimNow(list.length ? { id: worldId, list, files, checks: [] } : null);
+  if (seq === chooseSeq) setSimNow(list.length ? { id: worldId, list, files, checks: [] } : null);
 }
 
 /** 新建中选上的(没选、记着的是别的世界的 = 空) */
