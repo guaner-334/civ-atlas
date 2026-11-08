@@ -10,6 +10,7 @@
  * 地形大事:半路整颗星球沉入海中、整片抬成陆地、五件最大最强的火山(有同一年的、第 1 年和第 2999 年的),
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
+ * 插件世界:装一个重的推演插件推 3000 年,推得完、官方历史和不装一样,打印插件多花多少时间(推演速度一样算进汇总)。
  * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);\n * 带地形大事的世界 6 组(大事那一刻接着推和一口气推完一样);不一样也退出码 1。
  * 规则项(src/gen/civ/tuning.ts,开放给用的人调的 70 项):每一项的两头各推一遍,全部拉到最左 / 最右各推一遍 ——
  * 推得完、NaN / Infinity 不进历史、编年史写得出、关掉的事一次也没有(见那一段)。
@@ -47,6 +48,9 @@ import { REGENCY_KINDS } from '../src/gen/civ/regents';
 import { REFORM_COUP, REFORM_RESTORE } from '../src/gen/civ/councilRules';
 import { TUNING_CALC, TUNING_ITEMS, tuningEnds, tuningItem, type TuningValues } from '../src/gen/civ/tuning';
 import { tuningPatch } from '../src/gen/civ/tuningPatch';
+import { packValue } from '../src/gen/snapshot';
+import { PLUGIN_TIME } from '../src/gen/civ/engine/plugin';
+import { loadPlugin } from './lib/simPluginLoad';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -208,6 +212,8 @@ let worstRoutes = 0;
 let worstMap = 0;
 let worstFrame = 0;
 let worstLabels = 0;
+/** 插件世界里插件多花的时间最多的一组(毫秒;没跑 = −1) */
+let worstPlugin = -1;
 /** 推演最慢的那组:每秒推几年、是哪组 */
 let slowestRate = Infinity;
 let slowestRateCase = '';
@@ -571,6 +577,43 @@ for (const [seed, ups] of [
   );
 });
 
+// ---- 插件世界:默认参数推 3000 年,装一个重的推演插件(scripts/lib/simPluginLoad.ts,只读不改官方的东西):推得完(插件没超用时上限)、
+// 官方的历史和不装插件逐字节一样、插件存下的数都是有限的;推演速度算进汇总(装了插件也要每秒至少 80 年),另报插件多花了多少 ----
+for (const seed of [7, 2024]) group(`{"插件世界":"推 3000 年"} seed ${seed}`, 11, () => {
+  const w = generateWorld({ ...DEFAULT_PARAMS, seed });
+  const t0 = performance.now();
+  const base = generateCiv(w);
+  const t1 = performance.now();
+  let civ: Civ | null = null;
+  let err = '';
+  try {
+    civ = generateCiv(w, { plugins: [loadPlugin()] });
+  } catch (e) {
+    err = e instanceof Error ? e.message : String(e);
+  }
+  const t2 = performance.now();
+  const baseMs = t1 - t0;
+  const ms = t2 - t1;
+  let cn = 0;
+  if (civ) {
+    const { simPlugins, ...rest } = civ;
+    const bytes = (v: unknown) => Buffer.from(packValue(v));
+    if (!bytes(rest).equals(bytes(base))) cn++;
+    for (const st of simPlugins ?? []) {
+      if (!st.events.every(Number.isFinite)) cn++;
+      for (const t of Object.values(st.tables?.tables ?? {})) if (!t.cur.every(Number.isFinite)) cn++;
+    }
+    noteRate(civ.endYear, ms, `插件世界 seed ${seed}`);
+    worstPlugin = Math.max(worstPlugin, ms - baseMs);
+  }
+  if (!civ || cn) process.exitCode = 1;
+  console.log(
+    '{"插件世界":"推 3000 年"}', 'seed', seed,
+    `文明 不装插件 ${Math.round(baseMs)}ms 装了 ${Math.round(ms)}ms(插件多花 ${Math.round(ms - baseMs)}ms,每秒 ${Math.round(DEFAULT_CIV_PARAMS.endYear / (ms / 1000))} 年)`,
+    err ? `推不下去!${err}` : cn ? `和不装插件的不一样或存了坏数! ${cn}` : '',
+  );
+});
+
 // ---- 「天灾 很多」推 12000 年,第 600 年再下一场最重、无人收拾 60 年的全球大疫:史事有序、人口和发展度不是 NaN、
 // 全球大疫里一城最多死六成、天下人口不低于疫前一半、还有国家在、纪事里不冒 undefined / NaN ----
 for (const seed of [7, 99]) group(`{"天灾":"很多","推演年数":12000} seed ${seed}`, 23.5, () => {
@@ -784,6 +827,7 @@ if (DRY) {
   console.log(
     `所有参数下:${vsBudget('回放一帧(归属 + 国界 + 半分辨率色块,Node 里)', worstFrame, SPEED_BUDGET.frame, 1)};国名、城名、城镇符号排版 + 避让(缩放 1 倍,含国土栅格首次计算)最慢 ${worstLabels.toFixed(1)}ms`,
   );
+  if (worstPlugin >= 0) console.log(`插件世界(推 3000 年):插件最多多花 ${Math.round(worstPlugin)}ms(插件用时的上限 ${PLUGIN_TIME.total}ms,超了推演停下)`);
   if (over.length) {
     console.log(`${over.length} 项超预算:${over.join('、')}`);
     // GitHub 的检查页上挂一条提醒(不算失败)

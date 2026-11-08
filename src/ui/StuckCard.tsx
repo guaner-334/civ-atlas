@@ -1,7 +1,8 @@
 /**
  * 推不下去(Civ.stuck):地图盖一层浅白、中间一张卡说停在哪年、可能是哪两项太极端,和时间轴上顶替「再推」的「推不下去」。
  * 卡和并排试推那张是同一个样子(compare/ComparePage.tsx 的 FailCard),挑可疑项同样用 rules/suspects.ts。
- * 说法按这次怎么推的(stuckStore 的 why)和世界用的规则分:我的规则(能改回官方、另存一份重推)、别人分享的(只能看)、官方规则(程序的毛病)。
+ * 说法按这次怎么推的(stuckStore 的 why)和世界用的规则分:我的规则(能改回官方、另存一份重推)、别人分享的(只能看)、官方规则(程序的毛病);
+ * 推演插件出的错(Civ.stuck.plugin)只说是哪个插件。
  */
 import { useEffect } from 'react';
 import type { Civ } from '../gen/civ/types';
@@ -58,9 +59,13 @@ function crashCard(civ: Civ | null, retry: () => void): CardText {
   };
 }
 
+/** 推演插件出的错:说是哪个插件,不猜规则里哪几项,也不说是程序的毛病 */
+const byPlugin = (id: string) => `推演插件「${id}」在这一年出了错`;
+
 /** 卡上的字和按钮 */
 function cardOf(civ: Civ, why: StuckWhy | null): CardText {
   const at = civ.stuck!.at;
+  const plugin = civ.stuck!.plugin;
   const stop = stopYear(civ);
   const e = getEdits();
   const rules = e.rules;
@@ -74,7 +79,7 @@ function cardOf(civ: Civ, why: StuckWhy | null): CardText {
 
   if (why?.kind === 'extend') {
     const head = `第 ${why.from} 年以前的历史不变，新推出来的 ${stop - why.from} 年照样能看。`;
-    const mid = official ? '世界用的是官方规则，多半是程序的毛病，不是你做错了' : `可能是${who(list)}太极端`;
+    const mid = plugin ? byPlugin(plugin) : official ? '世界用的是官方规则，多半是程序的毛病，不是你做错了' : `可能是${who(list)}太极端`;
     return {
       title: `再推到第 ${at} 年推不下去了`,
       text: `${head}${mid}；不要这一段的话，可以撤销这次再推。`,
@@ -105,13 +110,22 @@ function cardOf(civ: Civ, why: StuckWhy | null): CardText {
       },
     };
     const tail = '前面的历史照样能看；撤销这条干预，就回到原来那段历史。';
-    const text = official
-      ? `加上刚下的「${why.label}」，推到这一年算不下去了。世界用的是官方规则，多半是程序的毛病，不是你做错了。${tail}`
-      : `可能是${who(list, false)}太极端，加上刚下的「${why.label}」，这一年算不下去了。${tail}`;
+    const text = plugin
+      ? `加上刚下的「${why.label}」，${byPlugin(plugin)}。${tail}`
+      : official
+        ? `加上刚下的「${why.label}」，推到这一年算不下去了。世界用的是官方规则，多半是程序的毛病，不是你做错了。${tail}`
+        : `可能是${who(list, false)}太极端，加上刚下的「${why.label}」，这一年算不下去了。${tail}`;
     return { title, text, buttons: [look, undo] };
   }
 
   const saved = worldId ? '世界已经存好，' : '';
+  if (plugin) {
+    return {
+      title,
+      text: `${byPlugin(plugin)}。世界停在第 ${stop} 年，前面的历史照样能看。出错的经过记在「更多 › 问题记录」里。`,
+      buttons: [{ label: '问题记录', act: 'stuck-diag', onClick: openDiag }, { ...look, primary: true }],
+    };
+  }
   if (official) {
     return {
       title,
