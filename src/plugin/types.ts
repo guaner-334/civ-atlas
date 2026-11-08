@@ -293,7 +293,8 @@ export interface Leanings {
  * a、b、ps、foes、friends、by 是国家键,region、regions、zone、to 是州键,city 是城键,person 是人物键,folk 是民族键;
  * char、lead、author 是用的人放进世界的人物的编号;from、until、born、died 是整数年份。
  * fromTick:在 from 那一年的第几格(1–255,一年 256 格;不给 = 年初)。
- * plot、guide 和方针的 power、unrest、look 是照大纲推演自己记的:author.interventions 读得到,author.apply 交上来的会去掉
+ * plot、guide 和方针的 power、unrest、look 是照大纲推演自己记的(author.interventions 读得到),plugin 是推演插件在推演里下的(插件编号):
+ * author.apply 交上来的这几样会去掉;别的字段网站不替插件改,不合规矩回 bad-args
  */
 export type InterventionInfo = (
   | { kind: 'protect'; a: string; from: number; until?: number }
@@ -357,7 +358,7 @@ export type InterventionInfo = (
       unrest?: number;
       look?: { kind: 'war' | 'politics' | 'dynasty'; years: number[] };
     }
-) & { fromTick?: number; author?: number; plot?: number; guide?: true };
+) & { fromTick?: number; author?: number; plot?: number; guide?: true; plugin?: string };
 
 /**
  * 改你写的东西(author.write)的一条:

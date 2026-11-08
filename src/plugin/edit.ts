@@ -1,10 +1,9 @@
 /**
- * 插件提的「改你写的东西」:改名、加标记、下干预。一次调用的整批先套在现在的修改上算好,有一条不合格整批不改;
+ * 插件提的「改你写的东西」:改名、加标记、下干预。一次调用的整批先套在现在的修改上算好,有一条不合格整批不改,不替插件改;
  * 合格的由网站照办,整批记一步撤销。查的只是改完的世界能存、能打开,不替用的人判断改得对不对。
  */
 import type { Civ } from '../gen/civ/types';
 import {
-  cleanIntervention,
   cleanMark,
   cleanMarkNote,
   cleanMarkTitle,
@@ -27,6 +26,7 @@ import {
   type Intervention,
   type WorldEdits,
 } from '../gen/edits';
+import { checkIntervention } from '../gen/ivCheck';
 import { makeSave, saveText, SAVE_MAX_BYTES } from '../gen/savefile';
 import { TERRAIN_H } from '../gen/terrainOps';
 import type { WorldParams } from '../gen/world';
@@ -137,10 +137,17 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, pa
       result.marks.push(id);
     } else if (c.kind === 'intervention') {
       needCiv(civ);
-      // plot、guide 是照大纲推演自己记的,插件下的就是作者自己下的
-      const { plot: _p, guide: _g, ...plain } = isRec(c.v) ? c.v : {};
-      const v = isRec(c.v) ? cleanIntervention(plain) : null;
-      if (!v) return bad(`${at}.v 不是合格的干预`);
+      if (!isRec(c.v)) return bad(`${at}.v 要是对象`);
+      // 照大纲推演、推演插件自己记的几样去掉:插件交上来的就是作者自己下的
+      const { plot: _p, guide: _g, plugin: _q, ...plain } = c.v;
+      if (plain.kind === 'policy') {
+        delete plain.power;
+        delete plain.unrest;
+        delete plain.look;
+      }
+      const r = checkIntervention(plain);
+      if ('error' in r) return r.limit ? over(`${at}.v 的 ${r.error}`) : bad(`${at}.v 的 ${r.error}`);
+      const v = r.ok;
       const k = JSON.stringify(v);
       if (interventions.some((x) => JSON.stringify(x) === k)) {
         result.skipped++;
