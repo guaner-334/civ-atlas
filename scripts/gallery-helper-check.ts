@@ -9,8 +9,9 @@
  *   用了规则的世界文件 交回封面和规则摘要,摘要和同一套规则的规则作品一样;官方规则的世界文件不带摘要
  *   第 1 版          世界存档、新建参数照旧交回封面和名字
  *   第 3 版试跑      examples/plugins 的三个示例插件在种子 7、2024 上各跑一遍,交回的五项、日志、两张截图合理;
- *                    改你写的被拦下、出错、清单要了网站没有的能力、文件坏了都照实交回
- * 封面、试跑的截图和结果存在 --out(默认 snaps/gallery-helper)。--only=trial 只跑第 3 版。没过的打印「没过」,退出码非 0。
+ *                    改你写的被拦下、出错、清单要了网站没有的能力、文件坏了都照实交回;
+ *                    推演插件(示例插件厌战)两个种子各推 3000 年:和官方比的几样数、编年史、分段推和一口气推的一样、带插件的地图截图
+ * 封面、试跑的截图和结果存在 --out(默认 snaps/gallery-helper)。--only=trial 只跑第 3 版,--only=sim 只跑推演插件。没过的打印「没过」,退出码非 0。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -21,6 +22,7 @@ import { makeSave, worldCheck } from '../src/gen/savefile';
 import { rulesHash } from '../src/gen/civ/ruleShare';
 import { presetHash } from '../src/ui/presetLink';
 import { packPluginFile } from '../src/plugin/pluginFile';
+import type { SimTrial } from '../src/plugin/simTrial';
 import { parseZip, writeZip } from '../src/gen/zipStore';
 import { MANIFEST_FILE } from '../src/gen/worldFormat';
 
@@ -28,7 +30,10 @@ const args = process.argv.slice(2);
 const OUT = path.resolve(args.find((a) => a.startsWith('--out='))?.slice(6) ?? 'snaps/gallery-helper');
 mkdirSync(OUT, { recursive: true });
 const WAIT = 180_000;
+/** 推演插件的试跑网站自己限时 3 分钟,另加截图 */
+const SIM_WAIT = 240_000;
 const ONLY_TRIAL = args.includes('--only=trial');
+const ONLY_SIM = args.includes('--only=sim');
 
 const fails: string[] = [];
 const check = (ok: boolean, what: string) => {
@@ -42,8 +47,10 @@ interface TrialRunReply {
   ms: number;
   error?: string;
   log: string[];
+  /** 推演插件不带 */
   did: Record<string, string>;
   shots: { map?: string; panel?: string };
+  sim?: SimTrial;
 }
 
 interface Reply {
@@ -94,7 +101,7 @@ async function openHelper(page: Page, base: string): Promise<unknown> {
 }
 
 /** 交一个作品给帮手(file = 页面里 window.__blobs 的哪一个),等它回话 */
-async function ask(page: Page, msg: Record<string, unknown>, fileKey?: string): Promise<{ reply: Reply; sent: { type: string; vault?: string }[]; ms: number }> {
+async function ask(page: Page, msg: Record<string, unknown>, fileKey?: string, wait = WAIT): Promise<{ reply: Reply; sent: { type: string; vault?: string }[]; ms: number }> {
   return page.evaluate(
     async ([m, key, wait]) => {
       const w = window as any;
@@ -110,7 +117,7 @@ async function ask(page: Page, msg: Record<string, unknown>, fileKey?: string): 
         await new Promise((ok) => setTimeout(ok, 100));
       }
     },
-    [msg, fileKey ?? null, WAIT] as const,
+    [msg, fileKey ?? null, wait] as const,
   );
 }
 
@@ -205,15 +212,15 @@ function jpegSize(url: string | undefined): string {
 const DID = ['got', 'picked', 'drew', 'wrote', 'said'];
 
 /** 交一个插件文件试跑,存下截图和结果(不带图),交回每个种子的结果 */
-async function trial(page: Page, name: string, bytes: Uint8Array): Promise<TrialRunReply[]> {
+async function trial(page: Page, name: string, bytes: Uint8Array, wait = WAIT): Promise<TrialRunReply[]> {
   await putBlob(page, name, Buffer.from(bytes).toString('base64'));
-  const t = await ask(page, { type: 'civ-atlas:trial', v: 3, id: `t-${name}`, seeds: [7, 2024] }, name);
+  const t = await ask(page, { type: 'civ-atlas:trial', v: 3, id: `t-${name}`, seeds: [7, 2024] }, name, wait);
   const r = t.reply;
   check(r.type === 'civ-atlas:trial-done' && r.v === 3 && r.ok && r.runs?.length === 2, `${name}:交回了两个种子(${t.ms} 毫秒)${r.error ? `:${r.error}` : ''}`);
   const runs = r.runs ?? [];
   check(JSON.stringify(runs.map((x) => x.seed)) === '[7,2024]', `${name}:种子 7、2024`);
   for (const x of runs) {
-    check(DID.every((k) => typeof x.did?.[k] === 'string' && x.did[k].length > 0 && [...x.did[k]].length <= 300), `${name}@${x.seed}:五项都有、300 字以内`);
+    if (!x.sim) check(DID.every((k) => typeof x.did?.[k] === 'string' && x.did[k].length > 0 && [...x.did[k]].length <= 300), `${name}@${x.seed}:五项都有、300 字以内`);
     check(Array.isArray(x.log) && x.log.length <= 50 && x.log.every((l) => [...l].length <= 300), `${name}@${x.seed}:日志 50 条以内`);
     const mb = saveJpeg(`trial-${name}-${x.seed}-map`, x.shots.map);
     const pb = saveJpeg(`trial-${name}-${x.seed}-panel`, x.shots.panel);
@@ -272,17 +279,42 @@ async function trialChecks(page: Page) {
   check(!!broken.reply.ok && broken.reply.runs?.length === 2 && broken.reply.runs.every((x) => !x.ok && /打不开/.test(x.error ?? '')), `文件坏了:${broken.reply.runs?.[0]?.error}`);
 }
 
+/** 推演插件:示例插件厌战,两个种子各推 3000 年 */
+async function simTrialChecks(page: Page) {
+  console.log('第 3 版:试跑推演插件');
+  const weariness = new Uint8Array(readFileSync(new URL('../examples/plugins/weariness/weariness.civplugin', import.meta.url)));
+  for (const x of await trial(page, 'weariness', weariness, SIM_WAIT)) {
+    const s = x.sim;
+    console.log(`  种子 ${x.seed}:${x.ms} 毫秒;${x.log.join(';')}`);
+    console.log(`  官方 ${JSON.stringify(s?.stats.official)}\n  带插件 ${JSON.stringify(s?.stats.plugin)}\n  命令 ${JSON.stringify(s?.commands)},编年史 ${s?.lines} 句`);
+    check(
+      x.ok && !!s && s.years === 3000 && !!s.stats.official && !!s.stats.plugin && (s.commands.treaty ?? 0) > 0 && s.chronicle.length > 0 && s.turns === 3001,
+      `厌战@${x.seed}:推完 3000 年、和官方比的几样数、下了立约的命令、写了编年史:${x.error ?? ''}`,
+    );
+    check(s?.resumeSame === true, `厌战@${x.seed}:推到 1500 年存成文件读回来接着推,和一口气推的一样:${s?.resumeNote ?? ''}`);
+    check(x.did === undefined && !!x.shots.map && !x.shots.panel,`厌战@${x.seed}:不带五项和面板,有带插件的地图截图`);
+  }
+  const counter = await packPluginFile({
+    manifest: { id: 'counter', name: '全局变量', version: '1.0.0', role: 'sim', api: 1, runtime: 'quickjs', requires: ['sim.events@1', 'sim.influence@1'], sim: { every: 1, influences: ['war.odds'] }, license: 'MIT' },
+    files: { 'main.js': "let n = 0;\ncivAtlas.sim({ act(turn) { n++; const c = turn.influence('war.odds'); for (let i = 0; i < c.length; i++) c[i] = 1 + (n % 7) / 5; return { influences: { 'war.odds': c } }; } });\n", 'README.md': 'counter', LICENSE: 'MIT' },
+  });
+  for (const x of await trial(page, 'counter', counter, SIM_WAIT)) {
+    check(x.sim?.resumeSame === false && /^从第 \d+ 年起史事不一样$/.test(x.sim.resumeNote ?? ''), `用全局变量记数的@${x.seed}:分段推对不上:${x.sim?.resumeNote}`);
+  }
+}
+
 async function main() {
   const server = await startDevServer();
   const browser = await chromium.launch();
   try {
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 })).newPage();
     page.on('pageerror', (e) => console.log('  [pageerror]', e.message.slice(0, 200)));
-    if (ONLY_TRIAL) {
+    if (ONLY_TRIAL || ONLY_SIM) {
       await page.goto(server.url);
       const ready = (await openHelper(page, server.url)) as { v: number; versions?: number[] };
       check(ready.v === 1 && JSON.stringify(ready.versions) === '[1,2,3]', `帮手说准备好了、听得懂第 1、2、3 版:${JSON.stringify(ready)}`);
-      await trialChecks(page);
+      if (ONLY_TRIAL) await trialChecks(page);
+      await simTrialChecks(page);
       return;
     }
 
@@ -373,6 +405,7 @@ async function main() {
     check(p.reply.ok && p.reply.v === 1 && p.reply.info?.seed === 5730 && (p.reply.texts?.length ?? 0) > 100, `交回封面和名字(${p.ms} 毫秒,${p.reply.texts?.length} 个名字)`);
 
     await trialChecks(page);
+    await simTrialChecks(page);
   } finally {
     await browser.close();
     await server.close();
