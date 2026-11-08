@@ -261,8 +261,8 @@ export function checkCellLayer(raw: unknown, cells: number): CellLayer {
   return out;
 }
 
-/** 一个按州按年份的图层的数最多占多少字节(和推演插件的图层同一条) */
-export const REGION_LAYER_BYTES = 6e6;
+/** 一个按州按年份的图层的数最多占多少字节:插件一次发给网站的话最多 4 MiB,留出别的字段 */
+export const REGION_LAYER_BYTES = 3.5e6;
 
 /** 网站这边的一份按州按年份的图层:years 是整数年,values 是份数 × 州数,不是有限数的换成 NaN */
 export interface RegionLayer extends Omit<CellLayer, 'kind'> {

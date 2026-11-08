@@ -302,27 +302,28 @@ export function PluginLegend({ phone }: { phone: boolean }) {
 /**
  * 打开着的世界换了:读出它存着的插件图层(cells = 地图有几个地块);图层面板里开的插件是给上一个世界算的,停掉。
  * 地图上的历史(civ,时间轴那一段的)换了:换上它里面推演插件存的图层、按州的图层铺到地块上用的州表。
- * real = 这个世界自己的整段历史(看别的历史时 null),map = 地图:有了历史才读存着的按州图层;地图没换、历史换了 = 换了一段历史,按州的图层拿掉
+ * real = 这个世界自己的整段历史(看别的历史时 null),mesh = 地图的网格(各段地形共用一份,换了世界才换):有了历史才读存着的按州图层;
+ * 网格没换、历史换了 = 换了一段历史,按州的图层拿掉
  */
-export function SavedLoader({ worldId, cells, civ, real, map }: { worldId: string | null; cells: number; civ: Civ | null; real?: Civ | null; map?: World }) {
+export function SavedLoader({ worldId, cells, civ, real, mesh }: { worldId: string | null; cells: number; civ: Civ | null; real?: Civ | null; mesh?: object }) {
   const has = !!real;
-  const realRef = useRef<{ map?: World; civ: Civ | null }>({ civ: null });
+  const realRef = useRef<{ mesh?: object; civ: Civ | null }>({ civ: null });
   useEffect(() => {
     stopLayerPlugin();
     const r = realRef.current.civ;
     if (worldId) void loadSavedLayers(worldId, cells, r ? { regions: r.regions.count, endYear: r.endYear } : undefined);
     else pluginLayers.set({ ...pluginLayers.get(), saved: new Map(), savedFor: null });
-  }, [worldId, cells, map, has]);
+  }, [worldId, cells, mesh, has]);
   useLayoutEffect(() => {
     if (!real) return;
     const was = realRef.current;
-    if (was.map === map && was.civ && was.civ !== real) {
-      const live = historyChanged();
-      // 只交图层的插件是照原来的历史算的:停下,再点它从头照新历史算
-      if (live.some((l) => pluginLayers.get().runnable.some((p) => p.id === l.pluginId))) stopLayerPlugin();
+    if (was.mesh === mesh && was.civ && was.civ !== real) {
+      historyChanged();
+      // 开着的只交图层的插件交的、还在算的都是照原来的历史:停下,再点它从头照新历史算
+      stopLayerPlugin();
     }
-    realRef.current = { map, civ: real };
-  }, [real, map]);
+    realRef.current = { mesh, civ: real };
+  }, [real, mesh]);
   useEffect(() => setSimLayers(civ && civ.regions.of.length === cells ? civ : null), [civ, cells]);
   useEffect(() => setRegionMap(civ && civ.regions.of.length === cells ? civ : null), [civ, cells]);
   useEffect(
