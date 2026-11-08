@@ -168,7 +168,8 @@ export function faithEffect(id = 'faith'): SimPlugin<SimRead> {
         const b = owner[s.region];
         if (!alive(b) || faithGap(faiths, f.id, stateOf(b)) !== 1) continue;
         for (const a of [...near[b]].sort((x, y) => x - y)) {
-          if (!alive(a) || busy(a, b) || note.holy[a] !== undefined || faithGap(faiths, f.id, stateOf(a)) > 0.5) continue;
+          const mine = faithGap(faiths, f.id, stateOf(a));
+          if (!alive(a) || busy(a, b) || note.holy[a] !== undefined || mine < 0 || mine > 0.5) continue;
           if (turn.rand(a, f.id, Math.round(turn.year), 1) >= FAITH.holy) continue;
           commands.push({ kind: 'declare', a, b });
           chronicle.push({ text: '{国:a}欲复圣城{城:s},兴兵伐{国:b}', refs: { a, b, s: f.holy } });
