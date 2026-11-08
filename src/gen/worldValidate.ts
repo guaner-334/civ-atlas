@@ -52,7 +52,7 @@ import {
   type PluginLayerValue,
   type WorldManifest,
 } from './worldFormat';
-import { PLUGIN_LIMITS, type SimPluginState } from './civ/engine/plugin';
+import { PLUGIN_LIMITS, cleanRefused, type SimPluginState } from './civ/engine/plugin';
 import { OFFICIAL_INFLUENCES } from './civ/influence';
 import { checkStoredChronicle, type ChronicleRefKind } from './civ/engine/pluginChronicle';
 import { checkLayerLook, sameLayerLook } from './layerLook';
@@ -1329,12 +1329,12 @@ function checkTableSnapshot(v: unknown, at: string): void {
 }
 
 /**
- * 一个推演插件推到哪的状态(sim.<插件编号> 那一块,或者历史里 simPlugins 的一项):只有数和数表的名字,不合格抛 broken。
+ * 一个推演插件推到哪的状态(sim.<插件编号> 那一块,或者历史里 simPlugins 的一项):只有数、数表的名字和挡下的命令的种类名,不合格抛 broken。
  * 和插件现在的样子对不对得上(表、栏、事件的先后),接着推时再查
  */
 export function validateSimState(v: unknown, id: string, at = `推演插件 ${id} 的状态`): asserts v is SimPluginState {
   const s = obj(v, at);
-  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables', 'influences'], at);
+  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables', 'influences', 'refused'], at);
   if (s.id !== id) broken(`${at} 的 id 对不上`);
   int(s.sig, 0, 2 ** 32, `${at}.sig`);
   const year = yearOk(s.year, `${at}.year`);
@@ -1353,6 +1353,7 @@ export function validateSimState(v: unknown, id: string, at = `推演插件 ${id
   if (s.note !== undefined) checkNote(s.note, `${at}.note`);
   if (s.tables !== undefined) checkTableSnapshot(s.tables, `${at}.tables`);
   if (s.influences !== undefined) checkInfluences(s.influences, `${at}.influences`);
+  if (s.refused !== undefined && !cleanRefused(s.refused)) broken(`${at}.refused 不对`);
 }
 
 /** 插件交给影响口的几栏:口名是官方登记的,数在口的上下限里(格数和州、国对不对得上,接着推时再查) */

@@ -367,10 +367,10 @@ export class InterventionModel {
     return false;
   }
 
-  /** 两国此刻结着盟 */
-  allied(p: number, q: number, t: number): boolean {
+  /** 两国此刻结着盟(author = 只算作者下的) */
+  allied(p: number, q: number, t: number, author = false): boolean {
     for (const v of this.allyRules) {
-      if (!allyActive(v, t)) continue;
+      if (!allyActive(v, t) || (author && isCommand(v))) continue;
       const a = this.resolve(v.a);
       const b = this.resolve(v.b);
       if ((a === p && b === q) || (a === q && b === p)) return true;

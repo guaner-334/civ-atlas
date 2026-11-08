@@ -91,6 +91,13 @@ export interface PluginEvent {
 /** 小本子:只放数(数、数组、对象,一层层套) */
 export type PluginNote = number | PluginNote[] | { [key: string]: PluginNote };
 
+/** 下了没办的一条命令:回话 commands 里的第 index 条(种类 kind),被规则包认的哪种干预(why)挡下 */
+export interface PluginRefused {
+  kind: string;
+  index: number;
+  why: string;
+}
+
 /** 交给插件的一回合 */
 export interface PluginTurn<V> {
   /** 此刻(这一刻官方的都办完了) */
@@ -103,6 +110,8 @@ export interface PluginTurn<V> {
   readonly heard: readonly PluginAnnal[];
   /** 小本子(复制的一份;要改就在回话里交回整本) */
   readonly note: PluginNote | undefined;
+  /** 上一回合下的命令里没办的(按回话里的先后;都办了 = 不给) */
+  readonly refused?: readonly PluginRefused[];
   /** 读口(规则包给的) */
   readonly read: V;
   /** 自己的表此刻的值(复制的一份,格 × 栏) */
@@ -158,8 +167,11 @@ export interface PluginBridge<V> {
   unit(name: string): 'region' | 'polity' | undefined;
   /** 官方表此刻的值(一州或一国一个数) */
   official(name: string): Float64Array;
-  /** 收下一个插件这次下的几条命令,从 at 那一刻(年)起生效;有一条不合格抛错、说清是哪条,一条都不收。不给 = 这套规则不收命令 */
-  commands?(plugin: string, list: readonly unknown[], at: number): void;
+  /**
+   * 收下一个插件这次下的几条命令,从 at 那一刻(年)起生效;有一条不合格抛错、说清是哪条,一条都不收。
+   * 交回挡下没收的几条(不算出错,插件下一回合看得到)。不给 = 这套规则不收命令
+   */
+  commands?(plugin: string, list: readonly unknown[], at: number): readonly PluginRefused[] | void;
   /** 此刻有几国、几城、几族(编年史的指代要小于它) */
   counts(): { polities: number; settlements: number; cultures: number };
 }
@@ -188,6 +200,8 @@ export interface SimPluginState {
   tables?: TableSnapshot;
   /** 交给影响口的几栏(只存交过的) */
   influences?: InfluenceCols;
+  /** 还没告诉插件的、上一回合挡下的命令 */
+  refused?: PluginRefused[];
 }
 
 /** 当场叫插件(插件在推演线程里同步跑);交回的是还没出来的结果 = 插件写错了 */
@@ -244,6 +258,22 @@ function cleanNote(id: string, v: unknown): PluginNote {
   return walk(v, 0);
 }
 
+const isRefuseName = (x: unknown): x is string => typeof x === 'string' && /^[a-z]{1,16}$/.test(x);
+
+/** 存下的挡下的命令查一遍、复制一份(按回话里的先后);不合格 = null */
+export function cleanRefused(v: unknown): PluginRefused[] | null {
+  if (!Array.isArray(v) || v.length > PLUGIN_LIMITS.commands) return null;
+  const out: PluginRefused[] = [];
+  for (const x of v) {
+    if (x === null || typeof x !== 'object' || Array.isArray(x)) return null;
+    const { kind, index, why, ...rest } = x as Record<string, unknown>;
+    const last = out.length ? out[out.length - 1].index : -1;
+    if (Object.keys(rest).length || !isRefuseName(kind) || !isRefuseName(why) || !isInt(index, last + 1, PLUGIN_LIMITS.commands - 1)) return null;
+    out.push({ kind, index, why });
+  }
+  return out;
+}
+
 /** 交给插件的史事只给稳定的几列 */
 export const annalOf = (e: Annal): PluginAnnal => ({ year: e.year, kind: e.kind, a: e.a, b: e.b, region: e.region, settlement: e.settlement, war: e.war });
 
@@ -270,6 +300,8 @@ class Host<V> {
   private seq = 0;
   private events: Booked[] = [];
   private note: PluginNote | undefined;
+  /** 上一回合挡下、下一回合才告诉插件的命令 */
+  private refused: PluginRefused[] = [];
   private readonly layers: LayerRun[] = [];
   /** 自己写了几句编年史 */
   private written = 0;
@@ -404,6 +436,8 @@ class Host<V> {
       this.sim.influence!.restore(this.slot, this.id, s.influences);
     }
     this.note = s.note === undefined ? undefined : cleanNote(this.id, s.note);
+    const refused = s.refused === undefined ? [] : cleanRefused(s.refused);
+    if (!refused) fail('里挡下的命令不对');
     const mine = layers.filter((l) => l.by === this.id);
     if (mine.length !== this.layers.length) fail('的图层和插件的对不上');
     for (const run of this.layers) {
@@ -416,6 +450,7 @@ class Host<V> {
       }
     }
     this.written = written;
+    this.refused = refused!;
     this.heard = s.heard;
     this.seq = s.seq;
     this.events = events;
@@ -436,6 +471,7 @@ class Host<V> {
       ...(this.note !== undefined ? { note: cleanNote(this.id, this.note) } : {}),
       ...(this.eng ? { tables: this.eng.snapshot() } : {}),
       ...this.influencesOf(),
+      ...(this.refused.length ? { refused: this.refused.map((x) => ({ ...x })) } : {}),
     };
   }
 
@@ -552,12 +588,15 @@ class Host<V> {
       }
     }
     const base = this.rand;
+    const refused = this.refused;
+    this.refused = [];
     return {
       year,
       tick,
       events: due.map((e) => ({ year: e.tick / TICKS, kind: e.kind, data: e.data.slice() })),
       heard,
       note: this.note === undefined ? undefined : cleanNote(this.id, this.note),
+      ...(refused.length ? { refused } : {}),
       read: this.bridge.read,
       table: (t: string) => {
         if (!this.eng || !this.cards.has(t)) throw new PluginError(this.id, `没有表 ${t}`);
@@ -621,12 +660,14 @@ class Host<V> {
     const take = this.bridge.commands;
     if (!take) fail('这套规则不收命令');
     if (now + 1 >= MAX_TICK) fail('太晚了,命令没有下一刻可以生效');
+    let refused: readonly PluginRefused[] | void;
     try {
-      take!.call(this.bridge, this.id, list, (now + 1) / TICKS);
+      refused = take!.call(this.bridge, this.id, list, (now + 1) / TICKS);
     } catch (e) {
       if (e instanceof PluginError) throw e;
       throw new PluginError(this.id, `第 ${now / TICKS} 年下的命令:${e instanceof Error ? e.message : String(e)}`, { cause: e });
     }
+    this.refused = (refused ?? []).map((x) => ({ kind: x.kind, index: x.index, why: x.why }));
   }
 
   private book(now: number, b: { year: number; kind: number; data?: readonly number[] }): void {

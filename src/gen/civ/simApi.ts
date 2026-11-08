@@ -2,19 +2,20 @@
  * 推演插件接口第 1 版(sim.*@1):插件只照这里的类型写。名字、单位、上下限给出去就是承诺:加可选字段不升版,意思变了出 @2,@1 至少留 12 个月。
  * 插件只在「插件那一刻」整批出手(每隔几年、自己约的时刻、第 0 年开头),官方的决策点不等插件,只查影响口里交好的数。
  * 已知的边界:两国之间的宣战、结盟没有影响口(按国的 war.odds 乘在挑好了打谁以后,只能折成一国一个数;要指名两国就下命令);
- * 插件下过命令的历史,接着推时作者新加了干预就从第 0 年重推(结果一样,只是不省时间);插件下的灭国排在作者的干预后面,作者的「不许灭」挡不住它。
+ * 插件下过命令的历史,接着推时作者新加了干预就从第 0 年重推(结果一样,只是不省时间)。
+ * 作者下的不许灭、禁止分裂、不许扩张、结盟、不许迁在那一刻挡得住插件的命令:挡下的不办、不记,下一回合在 turn.refused 里(why 见 REFUSE_REASONS)。
  */
 import type { DisasterLevel, TrekDir, TrekReach } from '../edits';
 import { OFFICIAL_INFLUENCES } from './influence';
 import { SIM_READ } from './simRead';
 
-export type { PluginAnnal, PluginEvent, PluginNote, PluginReply, PluginTurn, SimLayerSpec, SimPlugin, PluginChronicle } from './engine/plugin';
+export type { PluginAnnal, PluginEvent, PluginNote, PluginRefused, PluginReply, PluginTurn, SimLayerSpec, SimPlugin, PluginChronicle } from './engine/plugin';
 export { PLUGIN_LIMITS, PLUGIN_TIME } from './engine/plugin';
 export type { TableCard } from './engine/tables';
 export { FREQUENCIES } from './engine/tables';
 export { CHRONICLE_LIMITS } from './engine/pluginChronicle';
 export { LAYER_LIMITS } from './engine/pluginLayers';
-export { COMMAND_KINDS, COMMANDS_MAX } from './commands';
+export { COMMAND_KINDS, COMMANDS_MAX, REFUSE_REASONS, type RefuseReason } from './commands';
 export { OFFICIAL_INFLUENCES } from './influence';
 export type { OfficialName, SimAnnal, SimCulture, SimFaith, SimOwnerField, SimPolity, SimRead, SimRegions, SimSettlement } from './simRead';
 export { OFFICIAL_NAMES } from './simRead';
@@ -33,7 +34,7 @@ export const SIM_CAPS = {
   'sim.chronicle@1': { parts: ['reply.chronicle'], steer: false },
   'sim.state@1': { parts: ['turn.note', 'reply.note'], steer: false },
   'sim.influence@1': { parts: ['influences', 'turn.influence', 'reply.influences'], steer: true },
-  'sim.commands@1': { parts: ['reply.commands'], steer: true },
+  'sim.commands@1': { parts: ['reply.commands', 'turn.refused'], steer: true },
 } as const satisfies Record<string, { parts: readonly string[]; steer: boolean }>;
 
 export type SimCap = keyof typeof SIM_CAPS;
