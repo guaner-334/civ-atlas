@@ -3,7 +3,8 @@
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { quickjsPlugin } from '../../src/gen/civ/quickjs/plugin';
-import { openPluginFile, type OpenedPlugin } from '../../src/plugin/pluginFile';
+import type { OpenedPlugin } from '../../src/plugin/pluginFile';
+import { openPluginFileFully } from '../../src/plugin/pluginSimTables';
 import type { SimPluginFile } from '../../src/plugin/pluginWorld';
 import { simPluginsOn, type SimBoxer, type SimPluginsOn } from '../../src/simPluginRun';
 import { packPluginDir } from './pluginDir';
@@ -13,7 +14,7 @@ const box: SimBoxer = (spec) => quickjsPlugin(quickjsWasm(), spec);
 
 /** 推演插件文件的字节 → 打开的插件、交给推演的那份文件;params 写了清单里没有的滑条算写错 */
 export async function simFileOf(bytes: Uint8Array, params?: Readonly<Record<string, number>>): Promise<{ opened: OpenedPlugin; file: SimPluginFile }> {
-  const opened = await openPluginFile(bytes);
+  const opened = await openPluginFileFully(bytes);
   const m = opened.manifest;
   if (m.role !== 'sim' || !m.sim) throw new Error(`${m.name} 不是推演插件(role 是 ${m.role})`);
   for (const k of Object.keys(params ?? {})) if (!m.sim.params || !Object.prototype.hasOwnProperty.call(m.sim.params, k)) throw new Error(`清单的 sim.params 里没有 ${k}`);

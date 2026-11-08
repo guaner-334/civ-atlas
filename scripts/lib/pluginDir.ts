@@ -4,11 +4,12 @@
  *   plugin.json   清单里作者写的那几项(PLUGIN_DIR_KEYS);app、kind、format、entry、files 由打包填
  *   main.js、README.md、LICENSE,可选 icon.png   原样装进去
  *
- * 别的文件不管。打出来照网站读插件的规矩核对过,不合格抛 PluginFileError。
+ * 别的文件不管。打出来照推演线程、服务器读插件的规矩核对过(推演插件连表的公式),不合格抛 PluginFileError。
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { packPluginFile, PLUGIN_FILES, type PluginPackInput } from '../../src/plugin/pluginFile';
+import { openPluginFileFully } from '../../src/plugin/pluginSimTables';
 
 export const PLUGIN_DIR_MANIFEST = 'plugin.json';
 export const PLUGIN_DIR_KEYS: readonly string[] = ['id', 'name', 'version', 'role', 'api', 'runtime', 'requires', 'optional', 'why', 'sim', 'description', 'license', 'author'];
@@ -33,5 +34,7 @@ export async function packPluginDir(dir: string, patch: Record<string, unknown> 
   }
   manifest = { ...manifest, ...patch };
   const bytes = await packPluginFile({ manifest: manifest as unknown as PluginPackInput['manifest'], files });
+  // 网页主线程读文件时不查表的公式,打包时查全
+  await openPluginFileFully(bytes);
   return { id: String(manifest.id), bytes };
 }
