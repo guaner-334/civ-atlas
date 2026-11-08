@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { aheadOf, cancelDetailJob, detailJobPending, flushDetailJobs, submitDetailJob } from '../src/ui/detailJobs';
+import { Gradual, drain } from '../src/render/common';
 
 /**
  * 细节层分帧备料的调度(ui/detailJobs.ts):每段做一会儿就让出主线程;
@@ -163,6 +164,65 @@ describe('细节层分帧备料', () => {
     expect(detailJobPending('b')).toBe(false);
     await tick();
     expect(log).toEqual(['b 画']);
+  });
+});
+
+describe('分几段算的一样东西(Gradual)', () => {
+  /** 0 + 1 + … + (n − 1),每加一个停一下;log 记下加过哪几个 */
+  function* sum(n: number, log: number[]): Generator<void, number, void> {
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+      s += i;
+      log.push(i);
+      yield;
+    }
+    return s;
+  }
+
+  it('每段做到时限就停,下次接着算;剩下的当下算完,和一口气算的一样,只算一遍', () => {
+    const log: number[] = [];
+    const g = new Gradual(() => sum(10, log));
+    expect(g.step(-Infinity)).toBe(true);
+    expect(log).toEqual([0]);
+    expect(g.step(-Infinity)).toBe(true);
+    expect(log).toEqual([0, 1]);
+    expect(g.peek()).toBeUndefined();
+    expect(g.get()).toBe(drain(sum(10, [])));
+    expect(log).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(g.step(-Infinity)).toBe(false);
+    expect(g.step(Infinity)).toBe(false);
+    expect(g.peek()).toBe(45);
+    expect(log.length).toBe(10);
+  });
+
+  it('套在别的里面接着算(run):外面每停一次,里面只往前走一步;里面先算完了外面直接拿结果', () => {
+    const log: number[] = [];
+    const inner = new Gradual(() => sum(3, log));
+    const outer = new Gradual(function* () {
+      return (yield* inner.run()) * 2;
+    });
+    expect(outer.step(-Infinity)).toBe(true);
+    expect(log).toEqual([0]);
+    expect(inner.get()).toBe(3);
+    expect(outer.step(-Infinity)).toBe(false);
+    expect(outer.peek()).toBe(6);
+    expect(log).toEqual([0, 1, 2]);
+  });
+
+  it('算到一半出错:报出去,下次从头算', () => {
+    let fail = true;
+    let starts = 0;
+    const g = new Gradual(function* () {
+      starts++;
+      yield;
+      if (fail) throw new Error('坏了');
+      return 1;
+    });
+    expect(g.step(-Infinity)).toBe(true);
+    expect(() => g.get()).toThrow('坏了');
+    fail = false;
+    expect(g.get()).toBe(1);
+    expect(starts).toBe(2);
   });
 });
 
