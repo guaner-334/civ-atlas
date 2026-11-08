@@ -22,6 +22,7 @@ import {
 } from '../src/ui/plugins/pluginText';
 import { CAP_LABEL } from '../src/ui/plugins/pluginWords';
 import { mapBrief, mapRows } from '../src/ui/plugins/mapText';
+import { mapLines } from '../src/ui/plugins/simWorldText';
 import { PERMISSIONS } from '../src/plugin/pluginCaps';
 
 function manifest(over: Partial<PluginManifest> = {}): PluginManifest {
@@ -160,6 +161,19 @@ describe('地图插件的字', () => {
     expect(craters[2]).toEqual({ k: '图层', v: '不加' });
     expect(craters[3].v).toBe('2 个：坑有几个、坑多大');
     expect(mapRows({ stages: ['layers'], layers: [{ id: 't', title: '潮差', ramp: { colors: ['#000000', '#ffffff'] } }] }, false)[1]).toEqual({ k: '会改什么', v: '不改地图' });
+  });
+
+  it('世界设定「用到的插件」里地图插件那一行:哪一步、第几个出手、滑条、出的图层,对不上的说改地形要装回哪一版', () => {
+    const installed = (sum: string, version = '1.0.0') =>
+      ({ id: 'craters', current: { sum, manifest: { version, map: { stages: ['height'], params: { count: { label: '坑有几个', min: 0, max: 200, default: 24 }, size: { label: '坑多大', min: 0.5, max: 2, default: 1 } } } } } }) as never;
+    const plugin = { id: 'craters', version: '1.0.0', sum: 'a', role: 'map', name: '环形山', params: { count: 40, size: 1 } };
+    expect(mapLines({ plugin, installed: installed('a') }, 1, [])).toEqual(['改海拔，第 1 个出手。滑条：坑有几个 40（默认 24），别的是默认']);
+    expect(mapLines({ plugin: { ...plugin, params: { count: 24, size: 1 } }, installed: installed('b', '1.1.0') }, 2, ['柯本气候'])).toEqual([
+      '改海拔，第 2 个出手。滑条都是默认',
+      '出了一张图层「柯本气候」，存在世界里，没装也照常能看（图层面板「插件图层」）',
+      '要改地形，得装回第 1.0 版',
+    ]);
+    expect(mapLines({ plugin, installed: null }, 1, [])).toEqual(['第 1 个出手。滑条：count 40、size 1', '要改地形，得装回第 1.0 版']);
   });
 
   it('选插件那一页名字下面那行按出手的先后;装好以后说去哪选', () => {
