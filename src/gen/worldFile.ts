@@ -101,6 +101,8 @@ export interface PackInput extends WorldValues {
   /** 第几次修订(不给 = 第 1 次) */
   revision?: WorldRevision;
   extras?: WorldExtra[];
+  /** 地图插件出的图层(块名 → 内容,见 worldRun.ts 的 mapLayerParts):地图那一块不带图层,要存的从这里另存成块 */
+  layers?: readonly { name: string; value: PluginLayerValue }[];
   /** 文件最大多少字节(不给 = 本机存取的上限;传上服务器的传 ZIP_UPLOAD_MAX_BYTES) */
   maxBytes?: number;
 }
@@ -277,6 +279,11 @@ export async function packWorldParts(input: PackInput): Promise<PackedWorld> {
   if (input.author) parts.push(await packKnown('author', input.author));
   if (input.thumb) parts.push(await packThumb(input.thumb));
   parts.push(...split.parts, ...layers.parts);
+  for (const l of input.layers ?? []) {
+    const ids = pluginLayerOf(l.name);
+    if (!ids) throw new Error(`插件图层不能叫 ${l.name}`);
+    parts.push(await packPluginLayer(ids[0], ids[1], l.value));
+  }
   for (const x of input.extras ?? []) parts.push(await packExtra(x));
   return { manifest: buildManifest(input, parts.map((p) => p.info)), parts };
 }

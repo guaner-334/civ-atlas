@@ -13,7 +13,13 @@ import { openPluginFile } from '../src/plugin/pluginFile';
 import { mapPluginKey, type MapPluginFile } from '../src/plugin/pluginWorld';
 import { loadError, loadMaps, loadedMap, mapPluginsOf, type MapBoxer } from '../src/mapPluginRun';
 import { keyOf, mapLayerParts, mapValue } from '../src/worldRun';
+import { generateCiv } from '../src/gen/civ';
+import { chronicleBlock } from '../src/gen/civ/story/nameTokens';
+import { flagBook } from '../src/gen/civ/story/flags';
+import { makeSave, worldCheck } from '../src/gen/savefile';
+import { openWorldFile, packWorldFile, readWorldContent } from '../src/gen/worldFile';
 import { quickjsWasm } from '../scripts/lib/quickjsNode';
+import { MADE, READERS } from './lib/worldFileSample';
 import { craters, koppen, tides, withParams } from './lib/mapPlugins';
 import { mapTestFile } from './lib/mapPluginFiles';
 
@@ -71,13 +77,17 @@ describe('从插件文件装地图插件,新建世界', () => {
     expect(loadedMap(keys[2])!.looks.map((l) => l.id)).toEqual(['tide']);
   });
 
-  it('滑条没给的按清单的默认、超出的压回上下限(世界键照给的认)', async () => {
-    const [noParams] = [{ ...files[0], params: undefined }];
-    const [over] = [{ ...files[0], params: { count: 999 } }];
-    await loadMaps([noParams, over], box);
-    expect(loadedMap(mapPluginKey(noParams))!.record.params).toEqual({ count: 40 });
-    expect(loadedMap(mapPluginKey(over))!.record.params).toEqual({ count: 200 });
-    expect(mapPluginKey(noParams)).not.toBe(mapPluginKey(files[0]));
+  it('滑条没照清单补齐、超出上下限的请求装不上(世界键、世界记的都按补齐的认)', async () => {
+    const noParams = { ...files[0], params: undefined };
+    const over = { ...files[0], params: { count: 999 } };
+    const extra = { ...files[0], params: { count: 40, other: 1 } };
+    await loadMaps([noParams, over, extra], box);
+    for (const f of [noParams, over, extra]) {
+      expect(loadedMap(mapPluginKey(f))).toBeUndefined();
+      expect(loadError(mapPluginKey(f))).toMatchObject({ name: 'MapPluginLoadError', plugin: 'craters', why: '滑条要照清单补齐、压回上下限' });
+    }
+    // 没有滑条的插件不用给
+    expect(loadedMap(keys[1])).toBeDefined();
   });
 
   it('改地形一笔带着插件:走缓存的前一半,和从头生成、和直接跑一样', async () => {
@@ -147,6 +157,15 @@ describe('世界键、存进世界的样子', () => {
     expect(tide).toMatchObject({ title: '潮差', unit: 'cell', ramp: { colors: ['#dbeafe', '#1e3a8a'], min: 0, max: 12 }, legend: '米', opacity: 0.8 });
     expect(tide.years).toBeUndefined();
     for (const p of parts) expect(() => validatePluginLayer(p.value, { cells: w.mesh.n, regions: 0 })).not.toThrow();
+
+    // 打成世界文件:图层从 layers 另存成块,读回来核对得过
+    const civ = generateCiv(w, { endYear: 100 });
+    const file = await packWorldFile({ id: 'wm', made: MADE, readers: READERS, recipe: makeSave(P, { names: {}, interventions: [], terrain: [] }, worldCheck(w), '星', '2026-11-08T08:00:00.000Z'), map: w, civ, chronicle: chronicleBlock(civ), flags: flagBook(w, civ), layers: parts });
+    const opened = await openWorldFile(file, { readers: READERS });
+    expect(opened.manifest.parts.filter((p) => p.name.startsWith('layer.')).map((p) => `${p.name}:${p.by}`)).toEqual(['layer.koppen.koppen:koppen', 'layer.tides.tide:tides']);
+    const content = await readWorldContent(opened);
+    expect(content.skipped).toEqual([]);
+    expect(content.map.mapLayers).toBeUndefined();
   });
 
   it('有地形大事的按年份一段一份(第 0 年是原来的地图)', async () => {

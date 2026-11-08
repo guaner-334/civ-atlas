@@ -1,0 +1,27 @@
+{
+  "id": "tides",
+  "name": "潮汐",
+  "version": "1.0.0",
+  "role": "map",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["gen.layers@1"],
+  "why": {
+    "gen.layers@1": "按大陆架多宽、海湾多封闭算出近岸的潮差，画成一张图层"
+  },
+  "map": {
+    "stages": ["layers"],
+    "layers": [
+      {
+        "id": "tide",
+        "title": "潮差",
+        "ramp": { "colors": ["#ffffb2", "#fecc5c", "#fd8d3c", "#e31a1c"], "min": 0.5, "max": 2 },
+        "legend": "米",
+        "opacity": 0.9
+      }
+    ]
+  },
+  "description": "算出近岸每块海的潮差：大陆架越宽、海湾越封闭，潮差越大。只画一张图层，不改地图。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

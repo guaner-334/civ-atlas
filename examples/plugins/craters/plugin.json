@@ -1,0 +1,22 @@
+{
+  "id": "craters",
+  "name": "环形山",
+  "version": "1.0.0",
+  "role": "map",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["gen.height@1"],
+  "why": {
+    "gen.height@1": "砸出陨石坑：坑底下陷、坑沿隆起，陆地上的坑后面积水成湖"
+  },
+  "map": {
+    "stages": ["height"],
+    "params": {
+      "count": { "label": "坑有几个", "min": 0, "max": 200, "default": 40, "step": 1 },
+      "size": { "label": "坑多大", "min": 0.5, "max": 2, "default": 1, "step": 0.1 }
+    }
+  },
+  "description": "在地图上砸出几十个陨石坑：坑底下陷、坑沿隆起，陆地上的坑积水成湖，海边的成了圆圆的海湾。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

@@ -1,0 +1,50 @@
+{
+  "plain": {
+    "land": 33.3,
+    "lakes": 82,
+    "rivers": 265,
+    "temperature": 8.3,
+    "precipitation": 1140,
+    "digest": "c2558abe436dc85f"
+  },
+  "sealevel": {
+    "land": 22.2,
+    "lakes": 43,
+    "rivers": 186,
+    "temperature": 5.5,
+    "precipitation": 1242,
+    "digest": "ccc6455db7c02f05"
+  },
+  "dryinland": {
+    "land": 33.3,
+    "lakes": 82,
+    "rivers": 238,
+    "temperature": 8.3,
+    "precipitation": 1042,
+    "digest": "d203d45ab807367a"
+  },
+  "hills": {
+    "land": 32.6,
+    "lakes": 310,
+    "rivers": 283,
+    "temperature": 7.9,
+    "precipitation": 1143,
+    "digest": "1e6e241411ef7da3"
+  },
+  "riverside": {
+    "land": 33.3,
+    "lakes": 82,
+    "rivers": 265,
+    "temperature": 8.3,
+    "precipitation": 1140,
+    "layers": [
+      {
+        "id": "riverside/river_km",
+        "cells": 10575,
+        "min": 0,
+        "max": 4450.2
+      }
+    ],
+    "digest": "cdcd478c5d4d69fe"
+  }
+}

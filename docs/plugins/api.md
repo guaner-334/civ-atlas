@@ -1,6 +1,6 @@
 # 接口参考(第 1 版)
 
-这一页是工具插件(`role: "tool"`)的接口。推演插件(`role: "sim"`)拿到的 `civAtlas` 只有 `sim` 和 `params`,一回合、回话、读口这些见[推演插件](sim.md)。
+这一页是工具插件(`role: "tool"`)的接口。推演插件(`role: "sim"`)拿到的 `civAtlas` 只有 `sim` 和 `params`,一回合、回话、读口这些见[推演插件](sim.md);地图插件(`role: "map"`)拿到的只有 `map` 和 `params`,三个口子递什么、交回什么、帮手这些见[地图插件](map.md)。
 
 插件代码在后台线程里跑,拿到一个全局对象 `civAtlas`。类型定义在 [`src/plugin/types.ts`](../../src/plugin/types.ts),每个调用要哪样能力在 [`src/plugin/caps.ts`](../../src/plugin/caps.ts)。
 

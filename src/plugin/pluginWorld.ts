@@ -1,7 +1,7 @@
 /**
  * 插件和世界文件之间:世界清单里怎么记插件、一个世界用到了哪些插件、本机装没装。纯计算,网页、Worker、服务器共用。
  */
-import { PLUGIN_DATA_PREFIX, pluginLayerOf, type WorldManifest, type WorldPartInfo, type WorldPlugin } from '../gen/worldFormat';
+import { PLUGIN_DATA_PREFIX, mapPluginKey, pluginLayerOf, type WorldManifest, type WorldPartInfo, type WorldPlugin } from '../gen/worldFormat';
 import type { OpenedPlugin } from './pluginFile';
 import type { SimParam } from './pluginSim';
 
@@ -83,14 +83,7 @@ export interface MapPluginFile {
   bytes?: Uint8Array;
 }
 
-/**
- * 同一个插件文件、同样的滑条 = 同一串:生成的缓存、世界里的 World.mapPlugins、线程里的世界键都按它认。
- * 「编号@指纹」,有滑条的后面接按名字排好的 [名字, 值] 串
- */
-export function mapPluginKey(p: Pick<MapPluginFile, 'id' | 'sum' | 'params'>): string {
-  const params = Object.entries(p.params ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
-  return `${p.id}@${p.sum}${params.length ? JSON.stringify(params) : ''}`;
-}
+export { mapPluginKey };
 
 /** 世界清单里记的地图插件 → 交给生成线程的(不带字节) */
 export const mapPluginIds = (plugins: readonly WorldPlugin[]): MapPluginFile[] =>

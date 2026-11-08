@@ -42,6 +42,8 @@ async function load(f: MapPluginFile & { bytes: Uint8Array }, key: string, box: 
   const map = o.manifest.map;
   if (o.manifest.role !== 'map' || !map) throw new MapPluginLoadError(f.id, '不是地图插件');
   const params = simParamsOf(map.params, f.params);
+  // 世界键、世界记的都按补齐的滑条认:没补齐的请求长出来的世界和清单对不上
+  if (mapPluginKey({ id: f.id, sum: f.sum, params }) !== key) throw new MapPluginLoadError(f.id, '滑条要照清单补齐、压回上下限');
   const looks = map.layers ?? [];
   const setup = { stages: map.stages as QuickJSMapSpec['setup']['stages'], ...(looks.length ? { layerIds: looks.map((l) => l.id) } : {}) };
   let plugin: QuickJSMapPlugin;
