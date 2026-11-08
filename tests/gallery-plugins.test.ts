@@ -8,7 +8,7 @@ import { setServerForTest } from '../src/account/server';
 import { openPluginFile } from '../src/plugin/pluginFile';
 import { capChips, compareVersions, latestOf, newerOnWall, wallPlugin, wallPlugins } from '../src/ui/plugins/galleryPlugin';
 import { noteText, wallInstalledText } from '../src/ui/plugins/pluginText';
-import { _resetVerdicts, blockKey, refreshVerdicts, verdictOf } from '../src/ui/plugins/verdict';
+import { _resetVerdicts, blockKey, markReviewed, refreshVerdicts, verdictOf } from '../src/ui/plugins/verdict';
 import { createFakeAiServer } from '../scripts/lib/fakeAiServer';
 
 const SUM = (c: string) => c.repeat(64);
@@ -176,6 +176,14 @@ describe('停用名单', () => {
     expect(JSON.parse((g.localStorage as FakeStorage).getItem('civ-atlas:plugin-verdicts')!)).toMatchObject({ maxAge: 86400 });
     expect(await refreshVerdicts(true)).toBe(true);
     expect(calls).toBe(2);
+  });
+
+  it('从作品墙装的先记成审过,名单取到以后照名单', async () => {
+    markReviewed(SUM('d'), 'route-days');
+    expect(verdictOf(SUM('d'), 'route-days').reviewed).toBe(true);
+    expect(await refreshVerdicts()).toBe(true);
+    expect(verdictOf(SUM('d'), 'route-days').reviewed).toBe(false);
+    expect(verdictOf(SUM('a'), 'route-days').reviewed).toBe(true);
   });
 
   it('取不到照用上次的', async () => {

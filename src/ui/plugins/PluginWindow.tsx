@@ -1,24 +1,29 @@
 /**
- * 插件页:装了哪些、开关、能拿到什么、删除;从文件装(查文件 → 权限框 → 装上)。
+ * 插件页:装了哪些、开关、能拿到什么、删除、投到作品墙;从文件装(查文件 → 权限框 → 装上)。
  * 电脑是居中的窗,左边列表右边详情;手机是从下面升起的一页,点一行进详情。
  * 权限框和装不上的说明换掉插件页显示,关掉回到插件页。
  * 开发者模式打开以后多一个「载入正在写的插件…」:选了文件就收起插件页,载入、权限框、日志都在地图左下角的小卡(DevCard.tsx)。
  */
 import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
+import { PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
-import { installPlugin, listPlugins, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
+import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
+import { openSubmitDialog } from '../AccountDialogs';
 import { isCoarse } from '../device';
 import { Icon, type IconName } from '../icons';
 import { showToast } from '../toastStore';
+import { askPhone, phoneRequired, submitBan, useSubmitOn } from '../submitView';
+import { knownAuthOptions } from '../../account/session';
+import { pluginSubmitOn } from '../submitPlugin';
 import { loadDev, pickDevFile, setDevMode, useDevMode, type DevAsk } from './dev';
 import { openPlugins } from './entry';
-import { CAP_TEXT, compareVersions, type WallLatest } from './galleryPlugin';
+import { compareVersions, type WallLatest } from './galleryPlugin';
+import { CAP_LABEL } from './pluginWords';
 import { checkPlugins, newVersionOf, useWallRev, wallFile } from './galleryWatch';
 import { addedLines, addsRows, askByLine, dayText, moreText, noteText, pageByLine, toolWhere, versionLabel, versionText, wallInstalledText } from './pluginText';
 import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
-import { useVerdicts, verdictOf, type PluginVerdict } from './verdict';
+import { markReviewed, useVerdicts, verdictOf, type PluginVerdict } from './verdict';
 import './plugins.css';
 
 /** work = 从作品墙装的作品编号;note = 作者写的这一版改了什么 */
@@ -32,6 +37,7 @@ const PluginWorkDialog = lazy(() => import('./GalleryPlugins').then((m) => ({ de
 export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugin> {
   const r = await installPlugin(a.work ? a.bytes : new File([a.bytes], a.file), a.work ? { work: a.work } : {});
   const m = r.plugin.current.manifest;
+  if (a.work) markReviewed(r.plugin.current.sum, r.plugin.id);
   if (a.work && a.kind === 'update') showToast({ id: 'plugins', kind: 'ok', text: `「${m.name}」更新到${versionLabel(m.version)}了` });
   else if (a.work) showToast({ id: 'plugins', kind: 'ok', text: `装好了「${m.name}」`, more: [wallInstalledText(m, phone)], action: { label: '去插件页', act: 'plugins-open', onClick: openPlugins } });
   else {
@@ -64,6 +70,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const icons = useIcons(list);
   useWallRev();
   useVerdicts();
+  // 登录、服务器的选项变了都会重画(useSubmitOn 盯着)
+  const submitOn = useSubmitOn(true) && pluginSubmitOn(knownAuthOptions()?.features);
 
   const reload = async (pick?: string) => {
     const l = await listPlugins().catch(() => [] as InstalledPlugin[]);
@@ -155,6 +163,32 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     await reload();
   };
 
+  /** 投到作品墙:交的就是装着的这一份文件 */
+  const submit = async (p: InstalledPlugin) => {
+    const bytes = await pluginFileBytes(p.current.sum).catch(() => null);
+    if (!bytes) return showToast({ id: 'plugins', kind: 'error', text: '没读到这个插件的文件', more: ['从文件再装一次再投'] });
+    const m = p.current.manifest;
+    const go = () =>
+      openSubmitDialog({
+        kind: 'plugin',
+        plugin: {
+          id: m.id,
+          name: m.name,
+          version: m.version,
+          sum: p.current.sum,
+          file: p.current.file ?? `${m.id}${PLUGIN_FILE_EXT}`,
+          bytes,
+          license: m.license,
+          description: m.description ?? '',
+          icon: icons.get(p.current.sum) ?? null,
+          lines: permissionLines(m).map((l) => l.key),
+          capLines: Object.fromEntries(PLUGIN_CAPS),
+        },
+      });
+    if (!submitBan() && phoneRequired()) askPhone({ for: 'submit', then: go });
+    else go();
+  };
+
   const pick = () => {
     picking.current = 'install';
     fileRef.current?.click();
@@ -195,7 +229,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   else {
     mode = 'page';
     const wall = { onUpdate: (p: InstalledPlugin, l: WallLatest) => void updateFromWall(p, l), onLook: setLook };
-    const props = { list, cur, icons, busy, dev, wall, onPick: pick, onPickDev: () => void pickDev(), onSel: setSel, onToggle: toggle, onRemove: remove, onClose };
+    const onSubmit = submitOn ? (p: InstalledPlugin) => void submit(p) : null;
+    const props = { list, cur, icons, busy, dev, wall, onPick: pick, onPickDev: () => void pickDev(), onSel: setSel, onToggle: toggle, onRemove: remove, onSubmit, onClose };
     body = phone ? <PhonePage {...props} detail={detail} onDetail={setDetail} /> : <DeskPage {...props} />;
   }
   const looked = look && cur ? newVersionOf(cur) : null;
@@ -245,7 +280,8 @@ function useEscape(f: () => void) {
   latest.current = f;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      // 上面盖着投稿窗这些账号的窗时,Esc 只关那个窗
+      if (e.key !== 'Escape' || document.querySelector('.acct-bg')) return;
       e.stopPropagation();
       latest.current();
     };
@@ -372,6 +408,8 @@ interface PageProps {
   onSel: (id: string) => void;
   onToggle: (id: string, on: boolean) => void;
   onRemove: (id: string) => void;
+  /** 投到作品墙;没登录、服务器不收插件 = null */
+  onSubmit: ((p: InstalledPlugin) => void) | null;
   onClose: () => void;
   /** 作品墙上的新版:更新、看看(作品编号) */
   wall: { onUpdate: (p: InstalledPlugin, l: WallLatest) => void; onLook: (work: string) => void };
@@ -413,7 +451,7 @@ function ItemText({ p, v }: { p: InstalledPlugin; v: PluginVerdict }) {
   );
 }
 
-function DeskPage({ list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel, onToggle, onRemove, onClose }: PageProps) {
+function DeskPage({ list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose }: PageProps) {
   return (
     <div className="plg-page" role="dialog" aria-modal="true" aria-label="插件" data-testid="plugin-page">
       <div className="plg-page-h">
@@ -449,14 +487,14 @@ function DeskPage({ list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel,
             <DevRow on={dev} />
           </div>
         </div>
-        <div className="plg-rcol">{cur ? <Detail p={cur} icon={icons.get(cur.current.sum)} busy={busy} wall={wall} onToggle={onToggle} onRemove={onRemove} /> : list && <Empty />}</div>
+        <div className="plg-rcol">{cur ? <Detail p={cur} icon={icons.get(cur.current.sum)} busy={busy} wall={wall} onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} /> : list && <Empty />}</div>
       </div>
     </div>
   );
 }
 
-function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; phone?: boolean; busy: boolean } & Pick<PageProps, 'wall' | 'onToggle' | 'onRemove'>) {
-  const { p, icon, phone, busy, wall, onToggle, onRemove } = props;
+function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; phone?: boolean; busy: boolean } & Pick<PageProps, 'wall' | 'onToggle' | 'onRemove' | 'onSubmit'>) {
+  const { p, icon, phone, busy, wall, onToggle, onRemove, onSubmit } = props;
   const m = p.current.manifest;
   const v = verdictOf(p.current.sum, p.id);
   const newer = v.blocked ? null : newVersionOf(p);
@@ -464,6 +502,12 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
     <div className="plg-ops">
       <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={m.name} onChange={(on) => onToggle(p.id, on)} />
       {p.on && !v.blocked ? '开着' : '关着'}
+      {onSubmit && !v.reviewed && !v.blocked && (
+        <button className="plg-btn sm" data-act="plugin-submit" onClick={() => onSubmit(p)}>
+          <Icon name="export" size={14} />
+          投到作品墙…
+        </button>
+      )}
       <button className="plg-btn sm red" data-act="plugin-remove" onClick={() => onRemove(p.id)}>
         <Icon name="trash" size={14} />
         删除
@@ -532,7 +576,7 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
 function NewerBar({ p, l, phone, busy, wall }: { p: InstalledPlugin; l: WallLatest; phone: boolean; busy: boolean; wall: PageProps['wall'] }) {
   const more = addedLines(p.current.manifest, l);
   const day = dayText(Date.parse(l.at));
-  const small = `${l.note ? `这一版：${noteText(l.note)}` : ''}${more.length ? `${moreText(more.length)}${more.map((x) => CAP_TEXT[x.key]).join('、')}。` : ''}`;
+  const small = `${l.note ? `这一版：${noteText(l.note)}` : ''}${more.length ? `${moreText(more.length)}${more.map((x) => CAP_LABEL[x.key] ?? x.key).join('、')}。` : ''}`;
   const look = (
     <button className={phone ? 'plg-btn' : 'plg-lnk'} data-act="plugin-wall-look" onClick={() => wall.onLook(l.work)}>
       看看
@@ -566,7 +610,7 @@ function NewerBar({ p, l, phone, busy, wall }: { p: InstalledPlugin; l: WallLate
 }
 
 function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean) => void }) {
-  const { list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel, onToggle, onRemove, onClose, detail, onDetail } = props;
+  const { list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose, detail, onDetail } = props;
   if (detail && cur)
     return (
       <div className="plg-page" role="dialog" aria-modal="true" aria-label={cur.current.manifest.name} data-testid="plugin-page">
@@ -579,7 +623,7 @@ function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean)
           <CloseBtn onClose={onClose} round />
         </div>
         <div className="plg-pscroll">
-          <Detail p={cur} icon={icons.get(cur.current.sum)} phone busy={busy} wall={wall} onToggle={onToggle} onRemove={onRemove} />
+          <Detail p={cur} icon={icons.get(cur.current.sum)} phone busy={busy} wall={wall} onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} />
         </div>
       </div>
     );

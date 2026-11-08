@@ -9,6 +9,7 @@
  */
 import type { GalleryWork } from '../../account/gallery';
 import { permissionLines, type PermissionKey } from '../../plugin/pluginCaps';
+import { CAP_LABEL } from './pluginWords';
 
 export interface WallVersion {
   version: string;
@@ -96,20 +97,9 @@ export function wallPlugins(works: readonly GalleryWork[]): WallPluginWork[] {
   return out.sort((a, b) => at(b) - at(a));
 }
 
-/** 权限框那几行的短说法 */
-export const CAP_TEXT: Record<PermissionKey, string> = {
-  map: '看地图',
-  history: '看历史',
-  authorRead: '看你写的',
-  authorWrite: '改你写的',
-  view: '看你点了哪',
-  layer: '加图层',
-  storeWorld: '存进世界',
-};
-
 /** 卡片上那排小标签(权限框那几行的短说法);loud = 看 / 改你写的东西,标黄 */
 export function capChips(p: Pick<WallPlugin, 'requires' | 'optional'>): { key: PermissionKey; text: string; loud: boolean }[] {
-  return permissionLines(p).map((l) => ({ key: l.key, text: CAP_TEXT[l.key], loud: l.loud }));
+  return permissionLines(p).map((l) => ({ key: l.key, text: CAP_LABEL[l.key] ?? l.key, loud: l.loud }));
 }
 
 /** 两个版本号比大小:a 新 = 1,一样 = 0,a 旧 = -1 */

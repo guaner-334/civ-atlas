@@ -130,8 +130,9 @@ function end(me: Pick<SubmitAsk, 'id' | 'kind'>, r: SubmitResult) {
 /** 收下了:填的字不用留,记下看过的须知、小图,问一次今天还剩几次 */
 async function accepted(me: SubmitAsk, subId: number): Promise<void> {
   keepDraft(me.id, null);
-  keepAgreed(me.form.terms);
-  keepSubmitThumb(subId, me.thumb ?? null);
+  // 投插件看的是插件投稿须知,作品的那份不算看过
+  if (me.kind !== 'plugin') keepAgreed(me.form.terms);
+  keepSubmitThumb(subId, me.thumb ?? null, me.kind === 'plugin');
   const after = await fetchSubmissions().catch(() => null);
   const l = after?.limits;
   end(me, { kind: 'done', left: l ? Math.max(0, l.perDay - l.usedToday) : null });

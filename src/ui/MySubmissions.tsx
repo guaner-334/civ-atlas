@@ -8,6 +8,7 @@ import { dayText } from './Gallery';
 import { openGalleryWork } from './newCivAction';
 import { WORK_KIND_LABEL, readBan, setSubmitBan, useSubmitOn } from './submitView';
 import { submitThumb } from './submitThumbs';
+import { versionLabel } from './plugins/pluginWords';
 import './submit.css';
 
 const SHOW = 20;
@@ -35,9 +36,11 @@ const isToday = (iso: string | undefined, now: Date) => {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 };
 
-/** 一行的圆点、状态字、小字和按钮。phone:小字前面不写种类(省一行) */
+/** 一行的圆点、状态字、小字和按钮。phone:小字前面不写种类(省一行);插件一版一行,写第几版 */
 export function rowWords(s: Submission, phone: boolean, now = new Date()): RowWords {
-  const kind = phone ? '' : `${WORK_KIND_LABEL[s.kind] ?? '作品'}，`;
+  const plugin = s.kind === 'plugin';
+  const ver = plugin && s.plugin ? versionLabel(s.plugin.version) : '';
+  const kind = plugin ? (phone ? (ver ? `${ver}，` : '') : `插件${ver}，`) : phone ? '' : `${WORK_KIND_LABEL[s.kind] ?? '作品'}，`;
   const day = (iso: string | undefined) => (isToday(iso, now) ? '今天' : dayText(iso ?? ''));
   const decided = s.decidedAt ?? s.updatedAt;
   switch (s.status) {
@@ -49,16 +52,21 @@ export function rowWords(s: Submission, phone: boolean, now = new Date()): RowWo
     case 'live':
       return { st: 'up', label: '已上墙', text: `${kind}${day(decided)}上墙`, acts: s.workId ? ['look', 'take'] : ['take'] };
     case 'returned':
-      return { st: 'back', label: '退回', text: `${dayText(decided ?? '')}。${s.reason ?? ''}`, acts: [] };
+      return { st: 'back', label: '退回', text: `${plugin ? kind : ''}${dayText(decided ?? '')}。${s.reason ?? ''}`, acts: [] };
+    case 'replaced':
+      if (plugin) return { st: 'off', label: '已换下', text: `${kind}${day(s.updatedAt)}换成新版`, acts: [] };
+      break;
+    case 'disabled':
+      if (plugin) return { st: 'off', label: '停用了', text: `${kind}${day(s.updatedAt)}停用${s.reason ? `：${s.reason}` : ''}`, acts: [] };
+      break;
     case 'withdrawn': {
       if (s.reason === BY_AUTHOR) return { st: 'off', label: '已撤下', text: `${kind}${day(s.updatedAt)}你自己撤下的`, acts: [] };
       const reported = /^举报核实[:：]\s*(.+)$/.exec(s.reason ?? '')?.[1];
       const why = reported ? `被举报，核实是${reported}` : (s.reason ?? '');
-      return { st: 'off', label: '已撤下', text: `${dayText(s.updatedAt ?? '')}撤下${why ? `：${why}` : ''}`, acts: [] };
+      return { st: 'off', label: '已撤下', text: `${plugin ? kind : ''}${dayText(s.updatedAt ?? '')}撤下${why ? `：${why}` : ''}`, acts: [] };
     }
-    default:
-      return { st: 'wait', label: '处理中', text: `${kind}${day(s.createdAt)}投的`, acts: [] };
   }
+  return { st: 'wait', label: '处理中', text: `${kind}${day(s.createdAt)}投的`, acts: [] };
 }
 
 const failText = (e: unknown) => (e instanceof ServerError && e.code === 'network' ? '连不上服务器，联网后再试' : errText(e));
@@ -164,13 +172,15 @@ export function MySubmissions({ phone, scrollTo }: { phone: boolean; scrollTo: b
           const off = busy === s.id;
           return (
             <div className={`acct-gr${ask ? ' sub-ask' : ''}`} key={s.id} data-sub={s.id} data-status={s.status}>
-              <span className="th2" style={thumb ? { backgroundImage: `url(${JSON.stringify(thumb)})` } : undefined} />
+              <span className={`th2${s.kind === 'plugin' ? ' sub-pi' : ''}`} style={thumb ? { backgroundImage: `url(${JSON.stringify(thumb)})` } : undefined} />
               <span className="main">
                 <b>{s.title}</b>
                 {ask ? (
                   <small>
                     {ask === 'take'
-                      ? `从作品墙撤下「${s.title}」？作品墙上马上就看不到了。别人已经另存的在他们自己的浏览器里，删不掉；想再上墙要重新投、重新审。`
+                      ? s.kind === 'plugin'
+                        ? `从作品墙撤下「${s.title}」？作品墙上马上就看不到了，已经装了的人照常能用；想再上墙要投新的一版、重新审。`
+                        : `从作品墙撤下「${s.title}」？作品墙上马上就看不到了。别人已经另存的在他们自己的浏览器里，删不掉；想再上墙要重新投、重新审。`
                       : '撤回这件投稿？还没审完，撤回就不审了，今天用掉的次数不退。'}
                   </small>
                 ) : err ? (

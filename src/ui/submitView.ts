@@ -12,12 +12,32 @@ import type { RuleSet } from '../gen/civ/ruleSet';
 import { createListeners } from './createStore';
 import { aboutSize } from './sizeWords';
 
-/** 投的是哪一件:世界、地图按世界编号;新建参数是新建弹窗框里现在这一套(连着选的规则);规则是「我的规则」里的一套 */
+/** 投插件交的那一份:插件页里装着的文件,一个字不改 */
+export interface PluginWork {
+  id: string;
+  name: string;
+  version: string;
+  sum: string;
+  /** 装的时候的文件名 */
+  file: string;
+  bytes: Uint8Array;
+  license: string;
+  description: string;
+  /** 插件没带图标 = null */
+  icon: string | null;
+  /** 权限框上有哪几行(按先后) */
+  lines: readonly string[];
+  /** 能力 → 归权限框哪一行;认出作品墙上那一版有哪几行 */
+  capLines: Readonly<Record<string, string | null>>;
+}
+
+/** 投的是哪一件:世界、地图按世界编号;新建参数是新建弹窗框里现在这一套(连着选的规则);规则是「我的规则」里的一套;插件是装着的那一份 */
 export type SubmitWork =
   | { kind: 'world'; worldId: string; title: string }
   | { kind: 'map'; worldId: string; title: string }
   | { kind: 'preset'; name: string; params: WorldParams; endYear?: number; rules?: RuleSet }
-  | { kind: 'rules'; rules: RuleSet };
+  | { kind: 'rules'; rules: RuleSet }
+  | { kind: 'plugin'; plugin: PluginWork };
 
 const fnv = (s: string): string => {
   let h = 0x811c9dc5;
@@ -29,10 +49,11 @@ const fnv = (s: string): string => {
 export function workKey(w: SubmitWork): string {
   if (w.kind === 'world' || w.kind === 'map') return w.worldId;
   if (w.kind === 'rules') return `rules:${w.rules.id || fnv(JSON.stringify(w.rules))}`;
+  if (w.kind === 'plugin') return `plugin:${w.plugin.id}:${w.plugin.sum}`;
   return `preset:${fnv(JSON.stringify([w.params, w.endYear ?? null, w.rules ?? null]))}`;
 }
 
-export const WORK_KIND_LABEL: Readonly<Record<SubmitKind, string>> = { world: '世界', map: '地图', preset: '新建参数', rules: '规则' };
+export const WORK_KIND_LABEL: Readonly<Record<SubmitKind, string>> = { world: '世界', map: '地图', preset: '新建参数', rules: '规则', plugin: '插件' };
 
 /** 服务器说的封禁(/v1/submissions、403 submit-banned 带的 ban) */
 export interface SubmitBan {
@@ -134,14 +155,18 @@ export const useSubmitOn = (open: boolean, world = false): boolean => {
 };
 export const useSubmitWorldOn = (open: boolean): boolean => useSubmitOn(open, true);
 
-/** 服务器开着投稿没有(登不登录都算;作品墙「怎么上作品墙」按它写一条路还是两条路)、是不是邀请制 */
-export const useServerSubmit = (): { on: boolean; inviteOnly: boolean } => {
+/** 服务器开着投稿没有(登不登录都算;作品墙「怎么上作品墙」按它写一条路还是两条路)、收不收插件、是不是邀请制 */
+export const useServerSubmit = (): { on: boolean; plugin: boolean; inviteOnly: boolean } => {
   const on = listeners.use(() => !!accountServer() && !!knownAuthOptions()?.features.submit);
+  const plugin = listeners.use(() => {
+    const f = knownAuthOptions()?.features;
+    return !!accountServer() && !!f?.submitPlugin && f.pluginTerms !== null;
+  });
   const invite = listeners.use(() => !!knownAuthOptions()?.inviteOnly);
   useEffect(() => {
     if (accountServer() && !knownAuthOptions()) void fetchAuthOptions().catch(() => {});
   }, []);
-  return { on, inviteOnly: invite };
+  return { on, plugin, inviteOnly: invite };
 };
 
 /** 服务器要先绑手机号 */

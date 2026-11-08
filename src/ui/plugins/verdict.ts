@@ -84,6 +84,19 @@ export function blockKey(sum: string, id: string): string | null {
   return b ? `${b.id ?? b.sum}@${b.at}` : null;
 }
 
+/** 从作品墙装的就是审过的那一份:名单下次取到之前先记上 */
+export function markReviewed(sum: string, id: string): void {
+  if (reviewedSums.has(sum)) return;
+  saved = { at: saved?.at ?? 0, maxAge: saved?.maxAge ?? 86400, reviewed: [...(saved?.reviewed ?? []), { sum, id }], blocked: saved?.blocked ?? [] };
+  reviewedSums = new Set(saved.reviewed.map((r) => r.sum));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(saved));
+  } catch {
+    /* 存不下:这一页里用着 */
+  }
+  changed.emit();
+}
+
 /** 名单变了(取到新的)就调 f;返回取消订阅 */
 export const subscribeVerdicts = changed.subscribe;
 

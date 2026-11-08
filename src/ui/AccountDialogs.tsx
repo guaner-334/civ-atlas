@@ -190,7 +190,7 @@ export function AccountHost({ phone }: { phone: boolean }) {
 }
 
 /** 窗口的代码下载不下来:说一句,带「重新加载」 */
-function PanelsMissing() {
+export function PanelsMissing() {
   useEffect(() => {
     closeAccountPanel();
     showToast({ id: 'account-load', kind: 'error', text: '没能打开这个窗口', more: ['网络断了，或者网站刚更新过，重新加载试试'], action: { label: '重新加载', act: 'account-reload', onClick: () => location.reload() } });
