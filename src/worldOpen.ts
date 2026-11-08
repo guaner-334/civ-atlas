@@ -22,6 +22,7 @@ import type { World } from './gen/world';
 import { historyLayerNames, openStoredParts, readStoredContent, readTrustedParts, simPartNames, type OpenedWorldFile, type PackedPart, type WorldEras } from './gen/worldFile';
 import { WorldFileError, asWorldFileError, broken, type PlanetValue } from './gen/worldFormat';
 import { currentSchema, migratePart } from './gen/worldMigrate';
+import { validatePlanet } from './gen/worldValidate';
 import { VaultError, latestOf, patchState, pendingEdit, readRevision, stateOf, type RevisionHead } from './worldVault';
 
 /** 要打开哪个世界 */
@@ -119,7 +120,13 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true, anyRecipe
     if (checked) {
       values = (await readTrustedParts(opened, wantCiv ? VIEW.filter((p) => !SPARE.includes(p)) : ['map', 'eras'])) as typeof values;
       if (wantCiv) for (const name of SPARE) values[name as 'chronicle' | 'flags'] = await spareOf(opened, name, values.civ as Civ);
-      values.planet = await readTrustedParts(opened, [PLANET]).then((v) => v[PLANET], () => null);
+      // 第一次打开时这一块没过校验也照样记成校验过了(它读不了不碍看世界),所以每次都核对
+      values.planet = await readTrustedParts(opened, [PLANET])
+        .then((v) => {
+          if (v[PLANET] !== null) validatePlanet(v[PLANET], values.map as World);
+          return v[PLANET];
+        })
+        .catch(() => null);
     } else {
       values = await readStoredContent(opened);
       // 这份清单真是这份配方的(表里记的指纹和清单里的配方对得上)

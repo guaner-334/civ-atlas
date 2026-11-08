@@ -10,7 +10,7 @@ import { CivPartInbox } from '../src/civParts';
 import { regionKey, GENERATOR_VERSION, type Intervention, type TerrainOp, type Upheaval } from '../src/gen/edits';
 import type { Civ } from '../src/gen/civ';
 import { makeSave } from '../src/gen/savefile';
-import { recipeKey, recipeOfSave, unpackValue, partBytes } from '../src/gen/snapshot';
+import { makePart, recipeKey, recipeOfSave, unpackValue, partBytes } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, type WorldParams } from '../src/gen/world';
 import { openWorldFile, opaqueParts, readWorldContent, rewriteWorldFile } from '../src/gen/worldFile';
 import type { PlanetValue, WorldPlugin } from '../src/gen/worldFormat';
@@ -19,6 +19,7 @@ import { mapPluginIds, type MapPluginFile } from '../src/plugin/pluginWorld';
 import { openPluginFile } from '../src/plugin/pluginFile';
 import { _resetVault, commitWorld, readRevision, revisionFile } from '../src/worldVault';
 import type { WorkerRequest, WorkerResponse } from '../src/worker';
+import { openStoredWorld } from '../src/worldOpen';
 import type { WorldPartsOffer } from '../src/worldVault';
 import { mapTestFile } from './lib/mapPluginFiles';
 import { MADE, READERS } from './lib/worldFileSample';
@@ -286,6 +287,19 @@ describe('planet 那一块的格式', () => {
     expect((await readWorldContent(gone)).planet).toBeNull();
     const back = await openWorldFile(await rewriteWorldFile(gone, { values: { planet: good() } }), { readers: READERS });
     expect((await readWorldContent(back)).planet).toEqual(good());
+  });
+
+  it('打开存着的世界:星球参照过不了校验的当没有,以后再打开(已经校验过)也一样', async () => {
+    const save = makeSave(PARAMS, { names: {}, interventions: [], terrain: TERRAIN, upheavals: UPS, endYear: END }, '', '星球参照', '2026-11-08T08:00:00.000Z');
+    const rk = await recipeKey(recipeOfSave(save));
+    const view = () => offer.parts.filter((p) => p.name !== 'planet').map((p) => ({ ...p, data: p.data.slice(0) }));
+    await commitWorld({ id: 'wbad', recipe: save, recipeKey: rk, parts: [...view(), await makePart('planet', { tempo: { spread: -1, capNorm: 1 } })], made: MADE, readers: READERS });
+    await commitWorld({ id: 'wgood', recipe: save, recipeKey: rk, parts: [...view(), await makePart('planet', good())], made: MADE, readers: READERS });
+    const open = (id: string) => openStoredWorld({ id, recipe: rk, generator: GENERATOR_VERSION });
+    for (let i = 0; i < 2; i++) {
+      expect((await open('wbad')).planet).toBeNull();
+      expect((await open('wgood')).planet).toEqual(good());
+    }
   });
 
   it('仓库:说了用哪些地图插件(地图换了)就整块换掉,没说的照上一份', async () => {
