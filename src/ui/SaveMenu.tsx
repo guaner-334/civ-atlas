@@ -37,6 +37,8 @@ import { saveAsNew } from './FrozenWorld';
 import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
 import { contentTrouble, pendingOf } from './worldStore';
 import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem, useSubmitBan, useSubmitWorldOn, type SubmitWork } from './submitView';
+import { RemoveDataItem, pluginNames, usePluginData } from './plugins/saveItems';
+import { useNarrow } from './device';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -57,6 +59,7 @@ function withFullFlow(f: (m: typeof import('./fullWorldFlow')) => unknown) {
 
 const RECIPE_HINT = '对方打开时重新长一遍，可能和你看到的不一样';
 const NO_LINK = '地图带不进链接，对方打不开。要发给别人，请存成文件';
+const PLUGIN_DATA_SHARE = '带着插件的附加数据，不能公开分享。可以存成文件发给对方';
 
 /** 菜单上写的:来自文件，11 月 4 日打开(不是今年的带上年) */
 function fromFileLine(iso: string): string {
@@ -184,11 +187,15 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
       live = false;
     };
   }, [open, curId, submitOn, hasFile, v]);
+  // 插件存了自己数据的世界:不能公开分享(网站看不到里面),能存成文件、能去掉那些数据
+  const plgData = usePluginData(open && hasFile, curId, v);
+  const plgNames = pluginNames(plgData);
+  const narrow = useNarrow();
   const fullStatus: FullStatus = fo && curId ? fullStatusOf(fo, curId, curStored?.save) : { kind: 'never' };
   const fullBytes = size && hasFile && size.id === curId ? size.bytes : null;
   const fullItem = open && fo && fullOn && curId ? menuItem({ id: curId, status: fullStatus, refusal: refusalOf(fo, curId, fullBytes), job: fullJob, bytes: fullBytes, overview: fo, recipeOnly: oldRecipe || !!curStored?.draft || !!curStored?.map, failed, pending: pendingId === curId, kept: !!kept }) : null;
   const shareFull = fullOn ? shareItem(fullStatus, !!kept) : null;
-  const shareOff = banned ? true : shareFull ? shareFull.off : !!kept;
+  const shareOff = banned ? true : plgData.length ? true : shareFull ? shareFull.off : !!kept;
   const submitItem =
     open && submitOn && curId
       ? submitMenuItem({ ban: banned, pending: pendingId === curId, extras: extras?.id === curId ? extras.parts : [], bytes: fullBytes, maxBytes: fo?.limits.worldBytes ?? SUBMIT_WORLD_MAX })
@@ -337,7 +344,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
             <Icon name="save" size={17} />
             <span>
               <b>{recipeOnly ? '存配方文件（.json）' : '存成文件'}</b>
-              <small>{recipeOnly ? `只有几 KB。${RECIPE_HINT}` : `存下整个世界${sizeNote}。换台设备、发给别人，看到的都一模一样`}</small>
+              <small>{recipeOnly ? `只有几 KB。${RECIPE_HINT}` : `存下整个世界${plgData.length ? `，连同插件${plgNames}存的数据` : sizeNote}。换台设备、发给别人，看到的都一模一样`}</small>
             </span>
           </button>
           {fullItem && (
@@ -354,19 +361,21 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               <Icon name="link" size={17} />
               <span>
                 <b>分享…</b>
-                <small>{banned ? SHARE_BANNED : shareFull ? shareFull.small : kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}</small>
+                <small className={plgData.length && !banned ? 'plg-off' : undefined}>
+                  {banned ? SHARE_BANNED : plgData.length ? PLUGIN_DATA_SHARE : shareFull ? shareFull.small : kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}
+                </small>
               </span>
             </button>
           ) : (
             <>
-              <button className={`save-it${kept ? ' off' : ''}`} data-act="share-link" aria-disabled={kept ? true : undefined} disabled={!cur} onClick={kept ? undefined : shareLink}>
+              <button className={`save-it${kept || plgData.length ? ' off' : ''}`} data-act="share-link" aria-disabled={kept || plgData.length ? true : undefined} disabled={!cur} onClick={kept || plgData.length ? undefined : shareLink}>
                 <Icon name="link" size={17} />
                 <span>
                   <b>复制配方链接</b>
-                  <small>{kept ? NO_LINK : RECIPE_HINT}</small>
+                  {plgData.length ? <small className="plg-off">这个世界里有插件{plgNames}存的数据，不能公开分享。要发给别人，请存成文件</small> : <small>{kept ? NO_LINK : RECIPE_HINT}</small>}
                 </span>
               </button>
-              {at && !kept && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
+              {at && !kept && !plgData.length && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
             </>
           )}
           {submitItem && (
@@ -378,6 +387,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               </span>
             </button>
           )}
+          {plgData.length > 0 && curId && <RemoveDataItem worldId={curId} list={plgData} phone={narrow} onDone={() => setOpen(false)} />}
           {failed && (
             <button className="save-it" data-act="save-again" onClick={saveAgain}>
               <Icon name="save" size={17} />

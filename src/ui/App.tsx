@@ -176,7 +176,7 @@ import { pluginsUiOn } from './plugins/flag';
 import { PluginsHost, ToolsHost } from './plugins/entry';
 import { toolCard, toolCellPick } from './plugins/toolsState';
 import { PluginDevSlot } from './plugins/devSlot';
-import { PluginCellSlot, PluginLegendSlot, PluginMarksSlot, PluginSavedSlot, usePluginLegendOn } from './plugins/layerSlots';
+import { PluginAskSlot, PluginCellSlot, PluginLegendSlot, PluginMarksSlot, PluginSavedSlot, usePluginLegendOn } from './plugins/layerSlots';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import type { GalleryItem } from '../account/gallery';
@@ -2931,6 +2931,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       {pluginsUiOn() && <PluginsHost phone={narrow} />}
+      {pluginsUiOn() && <PluginAskSlot phone={narrow} />}
       {pluginsUiOn() && data && world && <ToolsHost phone={narrow} world={data.world} root={baseData?.world ?? data.world} civ={civ} raw={shownRaw} api={markApi} stage={stageRef} active={toolable} />}
       <FrozenAsk phone={narrow} />
       <SameWorldHost phone={narrow} />

@@ -15,7 +15,6 @@ import { localDataStore } from '../../../plugin/pluginData';
 import { worldPluginOf } from '../../../plugin/pluginWorld';
 import { loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { MESSAGES_PER_SECOND, MESSAGE_MAX_BYTES } from '../../../plugin/protocol';
-import type { PluginDataStore } from '../../../plugin/store';
 import type { PanelNode } from '../../../plugin/types';
 import { createStore } from '../../createStore';
 import { commitEdits, editsEra, getEdits, historyDiffers, revertEdits } from '../../editsStore';
@@ -28,6 +27,7 @@ import { setLiveLayer } from '../layerState';
 import { viewOf, watchView, yearNow as yearOf } from '../pluginView';
 import { toolCard, toolCellPick, toolRunning, type ToolsProps } from '../toolsState';
 import { verdictOf } from '../verdict';
+import { askingWorldStore } from '../worldPlugins';
 import { batchParts, keyName, refusalOf, sayBatch, sayBusy, sayDone, type Refusal } from './toolSay';
 
 /** 停下的原因:slow 没反应(几秒);crashed 出错(site = 网站查到的,不是插件自己报的);blocked 网站停用了 */
@@ -86,16 +86,6 @@ function patch(my: number, p: Partial<ToolRun>) {
   const r = toolRun.get();
   if (my === seq && r) toolRun.set({ ...r, ...p });
 }
-
-/** 存进世界要先问用的人、记进世界仓库,这一版还没接上:回插件「还不能」,不假装存好了 */
-const noWorldStore: PluginDataStore = {
-  get: () => {
-    throw new PluginApiError('unavailable', '网站这一版还不能把插件的数据存进世界');
-  },
-  set: () => {
-    throw new PluginApiError('unavailable', '网站这一版还不能把插件的数据存进世界');
-  },
-};
 
 /** 停下来的原因换成卡片上的说法;我们自己叫停的 = null */
 function troubleOf(reason: string, detail: string): ToolTrouble | null {
@@ -185,7 +175,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
           patch(my, { refusal: refusalOf(args, e.message, check) });
         },
       },
-      stores: { local: localDataStore, world: noWorldStore },
+      stores: { local: localDataStore, world: askingWorldStore(who.record, name) },
       onStop: (reason, detail) => {
         const t = troubleOf(reason, detail);
         if (!live() || !t) return;

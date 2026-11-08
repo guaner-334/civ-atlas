@@ -28,6 +28,8 @@ import { EraSection } from './EraSettings';
 import { MonthSection } from './MonthSettings';
 import { useNarrow } from './device';
 import { ParamField, rangeFill } from './ParamField';
+import { pluginsUiOn } from './plugins/flag';
+import { WorldPluginsSlot } from './plugins/layerSlots';
 import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contDefault, yearsSpan, type SliderLike } from './genesisSliders';
 import './ai.css';
 
@@ -326,6 +328,7 @@ export function SettingsPage(p: SettingsProps) {
         </button>
       </section>
       {!narrow && <section className="ov-sec">{era}</section>}
+      {pluginsUiOn() && cur && <WorldPluginsSlot worldId={cur.id} />}
     </div>
   );
 }

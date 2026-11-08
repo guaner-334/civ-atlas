@@ -1125,6 +1125,13 @@ export async function latestOf(id: string): Promise<RevisionHead | null> {
   return last ? headOf(last) : null;
 }
 
+/** 一个世界最新的修订里记的插件和各块(看用到了哪些插件、存了什么);没有修订、清单读不懂 = null */
+export async function worldPluginsOf(id: string): Promise<Pick<WorldManifest, 'plugins' | 'parts'> | null> {
+  const last = chainOf(await rowsOf(id)).at(-1);
+  const m = last ? manifestOf(last) : null;
+  return m ? { plugins: m.plugins, parts: m.parts } : null;
+}
+
 /** 一个世界最新的修订里只当字节留着的块(gen/worldFile.ts 的 opaqueParts):有就不能公开分享、投稿;没有修订、清单读不懂 = 没有 */
 export async function opaquePartsOf(id: string): Promise<string[]> {
   const last = chainOf(await rowsOf(id)).at(-1);
@@ -1455,5 +1462,5 @@ export async function rosterCopy(id: string): Promise<{ recipe: SaveFile; thumb:
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor, readPluginData, changePluginData, readPluginLayers, changePluginLayer, opaquePartsOf };
+export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor, readPluginData, changePluginData, readPluginLayers, changePluginLayer, worldPluginsOf, opaquePartsOf };
 export type VaultOps = typeof vaultOps;

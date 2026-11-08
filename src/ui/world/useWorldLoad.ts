@@ -63,7 +63,8 @@ import { getNav, isNavState, navAdopt, navReplace, navTo, navUrl, startNav, type
 import { getNewView } from '../newViewStore';
 import { OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from '../oldSite';
 import { KEPT_DEVICE, KEPT_DEVICE_FULL, KEPT_FILE, KEPT_LINK, READ_BACK, READ_TROUBLE, fileTrouble, newerNotice, openFailed } from '../openTrouble';
-import { closeOverview, getPeople, setPeople } from '../overviewStore';
+import { closeOverview, getPeople, openOverview, setPeople } from '../overviewStore';
+import { pluginsUiOn } from '../plugins/flag';
 import { setWorldSheet } from '../panelStore';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from '../presetLink';
 import { openRulesHash, openRulesText } from '../rules/sheetStore';
@@ -704,6 +705,18 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 别的警告要留着等人关,只有这一句才自己收
     const brief = !!note && more.length === 1 && more[0] === note && (t.from === 'stored' || t.from === 'restore') && !lead.length;
     if (more.length || always) say({ kind: warn ? 'warn' : 'ok', text, more: [...lead, ...more], action: held?.action, ...(brief ? { ttl: OK_TTL } : {}) });
+    // 带着本机没装的插件存的数据:同一条提示第二行最前面说一句(从我的世界点开的也说),「看看」到世界设定
+    if (pluginsUiOn())
+      void import('../plugins/worldPlugins')
+        .then((m) => m.missingNote(t.id))
+        .then(
+          (line) => {
+            if (!line || currentWorld()?.id !== t.id) return;
+            const see: ToastAction = { label: '看看', act: 'plugin-see', onClick: () => openOverview('genesis') };
+            say({ kind: warn ? 'warn' : 'ok', text, more: [line, ...lead, ...more], action: held?.action ?? (act ? undefined : see), ...(brief ? { ttl: OK_TTL } : {}) });
+          },
+          () => {},
+        );
   };
   /** 上次有改动没推完的提示条。shown = 现在看到的那一份,draft = 存档里没推完的修改;点「接着推演」问另存还是放弃 */
   const pendingToast = (t: Target, shown: SaveFile, draft: WorldEdits) => {

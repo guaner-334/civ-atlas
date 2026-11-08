@@ -5,7 +5,6 @@
 import { fullChronicle, fullChronicleCached } from '../../../gen/civ/story/religionText';
 import { exportNotes } from '../../../ai/library';
 import { cleanNoteList } from '../../../authorNotes';
-import { PluginApiError } from '../../../plugin/check';
 import { startPluginHost, type PluginHost } from '../../../plugin/host';
 import { localDataStore } from '../../../plugin/pluginData';
 import { listPlugins, loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
@@ -18,7 +17,7 @@ import { pluginLayers, setLiveLayer } from '../layerState';
 import { isTool } from '../pluginText';
 import { viewOf, watchView } from '../pluginView';
 import { verdictOf } from '../verdict';
-import type { PluginDataStore } from '../../../plugin/store';
+import { askingWorldStore } from '../worldPlugins';
 import './layers.css';
 
 /** 图层面板里列的:开着的、没被网站停用、只交图层的插件 */
@@ -40,16 +39,6 @@ export async function refreshRunnable(): Promise<void> {
   const s = pluginLayers.get();
   if (JSON.stringify(runnable) !== JSON.stringify(s.runnable)) pluginLayers.set({ ...s, runnable });
 }
-
-/** 存进世界要先问用的人,这一版还没接上 */
-const noWorldStore: PluginDataStore = {
-  get: () => {
-    throw new PluginApiError('unavailable', '网站这一版还不能把插件的数据存进世界');
-  },
-  set: () => {
-    throw new PluginApiError('unavailable', '网站这一版还不能把插件的数据存进世界');
-  },
-};
 
 let running: { id: string; seq: number } | null = null;
 let host: PluginHost | null = null;
@@ -116,7 +105,7 @@ export async function startLayerPlugin(id: string): Promise<void> {
           if (!layer || live()) setLiveLayer(who, lid, layer);
         },
       },
-      stores: { local: localDataStore, world: noWorldStore },
+      stores: { local: localDataStore, world: askingWorldStore(who.record, name) },
       onStop: (reason, detail) => {
         if (reason === 'stopped' || !live()) return;
         failed(reason === 'crashed' ? detail.replace(/^Uncaught /, '').replace(/^Error: /, '') || '它出错了' : reason === 'start-timeout' || reason === 'unresponsive' ? '它没有反应，已经停下了' : '它发了网站不认得的话，已经停下了');

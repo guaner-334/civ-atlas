@@ -1,5 +1,6 @@
-/** 插件图层在地图上的几处空位(地块图层、标注、图例、读存着的图层);画的代码(layers/LayerView.tsx)用到才下载 */
+/** 插件图层、插件存进世界的数据在界面上的几处空位(地块图层、标注、图例、读存着的图层、先问的框、世界设定里的一组);代码用到才下载 */
 import { Suspense, lazy, useEffect, useMemo, type ComponentProps } from 'react';
+import { dataAsk } from './askState';
 import { chipOn, currentShown, layerChips, pickPluginLayer, pluginLayers, refreshLayerPlugins } from './layerState';
 
 const load = () => import('./layers/LayerView');
@@ -68,5 +69,28 @@ export function PluginLayerChips() {
       </div>
       <div className="lp-hint">插件交来的，盖在底图上；再点一下收起</div>
     </>
+  );
+}
+
+const Ask = lazy(() => import('./WorldDataAsk'));
+const WorldPlugins = lazy(() => import('./WorldPluginsSection'));
+
+/** 插件第一次往这个世界里存数据时问的框、去掉插件存的数据时的确认框 */
+export function PluginAskSlot({ phone }: { phone: boolean }) {
+  const ask = dataAsk.use();
+  if (!ask) return null;
+  return (
+    <Suspense fallback={null}>
+      <Ask ask={ask} phone={phone} />
+    </Suspense>
+  );
+}
+
+/** 世界设定页「用到的插件」一组(没用插件的世界什么都不放) */
+export function WorldPluginsSlot(p: ComponentProps<typeof WorldPlugins>) {
+  return (
+    <Suspense fallback={null}>
+      <WorldPlugins {...p} />
+    </Suspense>
   );
 }

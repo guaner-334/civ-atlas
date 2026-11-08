@@ -1,0 +1,92 @@
+/* 插件存进世界的数据:第一次存时问的框、去掉时的确认框;世界设定里「用到的插件」 */
+
+.plg-dlg.plg-wd {
+  width: 520px;
+}
+.plg-dlg.plg-wd.rm {
+  width: 470px;
+}
+.plg-wd-b {
+  padding: 22px 22px 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.plg-wd-h {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.plg-wd.rm .plg-wd-h {
+  font-size: 16px;
+  line-height: 1.45;
+}
+.plg-wd-b p {
+  margin: 10px 0 0;
+}
+.plg-wd.rm .plg-wd-b p {
+  margin-top: 8px;
+}
+.plg-wd-b ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  line-height: 1.75;
+}
+.plg-wd-b p.s {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.plg-btn.danger {
+  background: var(--err);
+}
+
+/* 世界设定:「用到的插件」一组(宽屏是第三栏,窄屏往下排) */
+@media (min-width: 761px) {
+  .ov-settings:has(> .plg-wp) {
+    grid-template-columns: minmax(0, 440px) minmax(0, 440px) minmax(0, 500px);
+  }
+  .ov-settings > .plg-wp {
+    margin-left: -21px;
+  }
+}
+.plg-wp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+}
+.plg-wp-row + .plg-wp-row {
+  border-top: 1px solid var(--line);
+}
+.plg-wp-row b {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.plg-wp-row small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.plg-wp > p {
+  margin: 10px 4px 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+/* 「存档」菜单:因为插件存的数据灰着的那几项,小字用提醒的颜色 */
+.save-it.off small.plg-off {
+  color: #8f5d07;
+}
+[data-theme='dark'] .save-it.off small.plg-off {
+  color: var(--warn);
+}
