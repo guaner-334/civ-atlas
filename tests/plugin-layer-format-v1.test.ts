@@ -1,6 +1,7 @@
 /**
  * 钉住插件图层格式第 1 版(docs/plugins/layer-format.md)。tests/fixtures/plugin-layers/ 里是第 1 版做好的世界文件,
- * 用的人手里存了插件图层的世界就长这样:工具插件的地块图层(存满 16 个)、推演插件按州按年份的图层(各成一块,或在历史那一块里)、带年份的地块图层。
+ * 用的人手里存了插件图层的世界就长这样:工具插件的地块图层(存满 16 个)、推演插件按州按年份的图层(各成一块,或在历史那一块里)、带年份的地块图层、
+ * 工具插件存的按州按年份图层。
  *
  * **这个测试红了,说明用的人存好的插件图层打不开了,或者画出来变了。** 样本和 v1.json 不能改、不能重新做一份:
  * 改掉它们,测试是绿了,用的人手里的世界还是打不开、颜色还是变了。正确的修法只有一个:改代码,让它照第 1 版继续读、照原样画
@@ -39,8 +40,8 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('插件图层格式第 1 版', () => {
-  it('三个样本都在:工具插件的地块图层、推演插件的图层各成一块、推演插件的图层在历史那一块里', () => {
-    expect([...SAMPLES].sort(), FIX_IT).toEqual(['v1-cells.civworld', 'v1-sim-blocks.civworld', 'v1-sim-civ.civworld']);
+  it('四个样本都在:工具插件的地块图层、推演插件的图层各成一块、推演插件的图层在历史那一块里、工具插件的按州按年份图层', () => {
+    expect([...SAMPLES].sort(), FIX_IT).toEqual(['v1-cells.civworld', 'v1-sim-blocks.civworld', 'v1-sim-civ.civworld', 'v1-tool-regions.civworld']);
   });
 
   describe.each(SAMPLES)('%s', (name) => {
@@ -90,10 +91,11 @@ describe('插件图层格式第 1 版', () => {
       const key = await recipeKey(recipeOfSave(s.content.save));
       await adoptFile({ id, file: new Blob([files.get(name)!]), sum: await sha256(s.opened.manifestBytes), recipeKey: key, generator: s.content.save.generator, readers: { ...READER_VERSIONS } });
 
-      // 一份的工具插件图层一个不能少;面板列出来的每一个都要和文件里的一样
-      const shown = await readPluginLayers(id, s.content.map.mesh.n);
+      // 工具插件的图层(一份的、按州按年份的)一个不能少;面板列出来的每一个都要和文件里的一样
+      const civ0 = s.content.civ;
+      const shown = await readPluginLayers(id, s.content.map.mesh.n, { regions: civ0.regions.count, endYear: civ0.endYear });
       const names = shown.map((r) => r.name);
-      for (const l of s.layers.filter((x) => !x.history && !x.value.years)) expect(names, FIX_IT).toContain(l.at);
+      for (const l of s.layers.filter((x) => !x.history && (!x.value.years || x.value.unit === 'region'))) expect(names, FIX_IT).toContain(l.at);
       for (const r of shown) {
         const l = s.layers.find((x) => x.at === r.name && !x.history);
         expect([r.by, r.layer], `${r.name} ${FIX_IT}`).toEqual([l?.by, l?.id]);

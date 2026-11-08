@@ -27,6 +27,7 @@ import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES, parseZip, writeZip } from '.
 import {
   KNOWN_PARTS,
   MANIFEST_FILE,
+  PLUGIN_LAYER_MAX_BYTES,
   PLUGIN_LAYER_PREFIX,
   PLUGIN_LAYER_SCHEMA,
   SIM_STATE_PREFIX,
@@ -487,11 +488,12 @@ async function readLayerParts(opened: OpenedWorldFile, read: ReturnType<typeof p
     try {
       const v = await read(p.name);
       const hist = history.has(p.name);
-      validatePluginLayer(v, hist ? sizes : { cells: sizes.cells, regions: sizes.regions }, `插件图层 ${p.name}`);
-      // 别的插件存的图层和历史无关:换了历史还得认得,所以只能按地块
-      if (!hist && v.unit !== 'cell') broken(`插件图层 ${p.name} 不是推演插件的,要按地块`);
+      // 按地块、不跟着历史的年份不受历史长短限制(地图换了历史也还在)
+      const byRegion = typeof v === 'object' && v !== null && (v as { unit?: unknown }).unit === 'region';
+      validatePluginLayer(v, hist || byRegion ? sizes : { cells: sizes.cells, regions: sizes.regions }, `插件图层 ${p.name}`);
+      if (v.unit === 'region' && v.years === undefined) broken(`插件图层 ${p.name} 按州的要带年份`);
       if (!hist) continue;
-      if (v.unit !== 'region' || v.years === undefined) broken(`插件图层 ${p.name} 是推演插件的,要按州、带年份`);
+      if (v.unit !== 'region') broken(`插件图层 ${p.name} 是推演插件的,要按州、带年份`);
       const [by, id] = pluginLayerOf(p.name)!;
       out.push({ by, id, ...v } as SimLayer);
     } catch (err) {
@@ -615,6 +617,21 @@ export interface RewriteChange {
   maxBytes?: number;
 }
 
+/** 文件里工具插件存的按州图层的块名(不算 skip 里的、只当字节留着的;读不出来的不算) */
+async function regionLayerNames(opened: OpenedWorldFile, skip: ReadonlySet<string>): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of opened.manifest.parts) {
+    if (!isPluginLayer(p.name) || skip.has(p.name) || opened.kept.includes(p)) continue;
+    try {
+      const v = unpackValue(await partBytes(p as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, opened.bytes.get(p.name)!, PLUGIN_LAYER_MAX_BYTES)) as { unit?: unknown } | null;
+      if (v?.unit === 'region') out.push(p.name);
+    } catch {
+      // 读不出来的照原样带着
+    }
+  }
+  return out;
+}
+
 /**
  * 另存一份:改清单、换几块,修订号加一、记上一份清单的指纹。没换的块(包括认不出的附加数据)字节不动;清单里认不出的字段也原样带着。
  * 换掉的块按现在的结构写
@@ -638,6 +655,10 @@ export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteC
   const parts: PackedPart[] = [];
   const stale = new Set(sims ? historyParts(manifest.parts.map((p) => p.name)) : []);
   for (const q of layers?.parts ?? []) stale.add(q.info.name);
+  // 工具插件存的按州图层照旧历史算的:历史真变了(civ 块不一样)就去掉
+  const oldCiv = manifest.parts.find((p) => p.name === 'civ');
+  const newCiv = replaced.get('civ');
+  if (newCiv && oldCiv && newCiv.info.sum !== oldCiv.sum) for (const name of await regionLayerNames(opened, stale)) stale.add(name);
   for (const p of manifest.parts) {
     if (stale.has(p.name)) continue;
     if (!replaced.has(p.name)) parts.push({ info: p, data: opened.bytes.get(p.name)! });

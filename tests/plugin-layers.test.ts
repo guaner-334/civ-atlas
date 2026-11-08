@@ -5,7 +5,7 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { SnapshotPart } from '../src/gen/snapshot';
+import { makePart, type SnapshotPart } from '../src/gen/snapshot';
 import { opaqueParts, openWorldFile, packWorldParts, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
 import { PLUGIN_LAYERS_MAX, PLUGIN_LAYER_ID, PLUGIN_LAYER_PREFIX, pluginLayerPart, savedLayerId, type PluginLayerValue, type WorldManifest, type WorldPlugin } from '../src/gen/worldFormat';
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
@@ -35,6 +35,13 @@ const layer = (over: Partial<PluginLayerValue> = {}): PluginLayerValue => {
     opacity: 0.7,
     ...over,
   };
+};
+
+/** 按州按年份的一份(渐变) */
+const regionLayer = (years: number[], values: Float32Array): PluginLayerValue => {
+  const { classes: _classes, ...rest } = layer();
+  void _classes;
+  return { ...rest, unit: 'region', years, values, ramp: { colors: ['#ffffff', '#08306b'] } };
 };
 
 beforeAll(async () => {
@@ -74,7 +81,7 @@ describe('存进世界', () => {
     expect(await changePluginLayer(sample.id, tool, 'coast', layer())).toEqual({ status: 'nobase' });
     await commitWorld(request());
     const before = await latest();
-    expect(await changePluginLayer(sample.id, tool, 'coast', layer())).toEqual({ status: 'saved', n: 2 });
+    expect(await changePluginLayer(sample.id, tool, 'coast', layer())).toMatchObject({ status: 'saved', n: 2 });
     const m = await latest();
     expect(m.parts.find((p) => p.name === name())).toMatchObject({ file: `parts/${name()}.gz`, schema: 1, need: 'extra', by: tool.id });
     expect(m.parts.filter((p) => p.name !== name())).toEqual(before.parts);
@@ -143,6 +150,60 @@ describe('存进世界', () => {
     expect(again.manifest.parts.some((p) => p.name === name())).toBe(true);
     expect((await commitWorld(request({ recipeKey: 'k2' }))).status).toBe('same');
     expect(await readPluginLayers(sample.id, n)).toHaveLength(1);
+  });
+
+  it('按州按年份的:存、读回(要给州数和推到哪年);一份几格对不上的、年份超出的读的时候跳过;不带年份的不写', async () => {
+    const regions = sample.civ.regions.count;
+    const years = [0, 1500, 3000];
+    const byRegion = regionLayer(years, Float32Array.from({ length: years.length * regions }, (_, i) => i % 7));
+    await commitWorld(request());
+    const r = await changePluginLayer(sample.id, tool, 'density', byRegion);
+    expect(r).toMatchObject({ status: 'saved', n: 2 });
+    expect(r.status === 'saved' && r.size).toBeGreaterThan(0);
+    expect(await readPluginLayers(sample.id, n)).toEqual([]);
+    const got = await readPluginLayers(sample.id, n, { regions, endYear: 3000 });
+    expect(got).toHaveLength(1);
+    expect(got[0].data).toMatchObject({ unit: 'region', years });
+    expect(await readPluginLayers(sample.id, n, { regions: regions + 1, endYear: 3000 })).toEqual([]);
+    expect(await readPluginLayers(sample.id, n, { regions, endYear: 2000 })).toEqual([]);
+    await expect(changePluginLayer(sample.id, tool, 'density', { ...byRegion, years: undefined, values: byRegion.values.subarray(0, regions) })).rejects.toBeTruthy();
+    // 存成文件:读得开,不算跟着历史的
+    const content = await readWorldContent(await openWorldFile(await bytesOf((await revisionFile(sample.id))!), { readers: READERS, maxBytes: ZIP_UPLOAD_MAX_BYTES }));
+    expect(content.skipped).toEqual([]);
+    expect(content.civ.simLayers ?? []).toEqual([]);
+  });
+
+  it('换了一段历史:工具插件存的按州图层(照旧历史算的)拿掉,地块图层留着;历史一样的不动', async () => {
+    const regions = sample.civ.regions.count;
+    const byRegion = regionLayer([0], new Float32Array(regions).fill(1));
+    await commitWorld(request());
+    await changePluginLayer(sample.id, tool, 'coast', layer());
+    await changePluginLayer(sample.id, tool, 'density', byRegion);
+    expect((await commitWorld(request({ recipeKey: 'k2' }))).status).toBe('same');
+    expect((await latest()).parts.some((p) => p.name === pluginLayerPart(tool.id, 'density'))).toBe(true);
+    const civ = await makePart('civ', { ...sample.civ, endYear: 2999 });
+    const parts = copies(viewParts).map((p) => (p.name === 'civ' ? civ : p));
+    expect((await commitWorld(request({ recipeKey: 'k3', parts }))).status).toBe('saved');
+    const m = await latest();
+    expect(m.parts.some((p) => p.name === pluginLayerPart(tool.id, 'density'))).toBe(false);
+    expect(m.parts.some((p) => p.name === pluginLayerPart(tool.id, 'coast'))).toBe(true);
+    expect(m.plugins).toEqual([tool]);
+    // 只剩按州图层的插件,记录跟着去掉
+    await changePluginLayer(sample.id, tool, 'coast', null);
+    await changePluginLayer(sample.id, tool, 'density', byRegion);
+    const back = copies(viewParts);
+    expect((await commitWorld(request({ recipeKey: 'k4', parts: back }))).status).toBe('saved');
+    expect((await latest()).plugins).toEqual([]);
+
+    // 另存成文件时换了历史也一样;只改名的不动
+    await changePluginLayer(sample.id, tool, 'coast', layer());
+    await changePluginLayer(sample.id, tool, 'density', byRegion);
+    const opened = await openWorldFile(await bytesOf((await revisionFile(sample.id))!), { readers: READERS });
+    const names = async (b: Blob) => (await openWorldFile(await bytesOf(b), { readers: READERS })).manifest.parts.map((p) => p.name);
+    expect(await names(await rewriteWorldFile(opened, { title: '改个名' }))).toContain(pluginLayerPart(tool.id, 'density'));
+    const resim = await names(await rewriteWorldFile(opened, { values: { civ: { ...sample.civ, endYear: 2998 } } }));
+    expect(resim).not.toContain(pluginLayerPart(tool.id, 'density'));
+    expect(resim).toContain(pluginLayerPart(tool.id, 'coast'));
   });
 
   it('走后台线程的那张表里有这两个', () => {

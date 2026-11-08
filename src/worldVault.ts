@@ -531,6 +531,31 @@ async function packGiven(req: CommitRequest) {
   return { incoming, author, thumb, given: [...incoming, ...(author ? [author] : []), ...(thumb ? [thumb] : [])] };
 }
 
+/**
+ * 换了一段历史(civ 块变了)时,工具插件存的按州图层是照旧历史算的:交回它们的块名,新修订里不留。
+ * 历史没变、没有这种块的交回空;读不出来的块不管(照旧留着,读世界时自会跳过)
+ */
+async function staleRegionLayers(id: string, n: number, prev: WorldManifest, incoming: readonly PackedPart[]): Promise<string[]> {
+  const civ = incoming.find((p) => p.info.name === 'civ');
+  const old = prev.parts.find((p) => p.name === 'civ');
+  if (!civ || !old || civ.info.sum === old.sum) return [];
+  const all = prev.parts.map((p) => p.name);
+  const hist = new Set(historyParts(all));
+  const names = all.filter((x) => x.startsWith(PLUGIN_LAYER_PREFIX) && !hist.has(x));
+  if (!names.length) return [];
+  const got = await readRevision(id, n, names, names);
+  const out: string[] = [];
+  for (const p of got?.parts ?? []) {
+    try {
+      const v = unpackValue(await partBytes(p.info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, new Uint8Array(p.data), PLUGIN_LAYER_MAX_BYTES)) as { unit?: unknown } | null;
+      if (v?.unit === 'region') out.push(p.info.name);
+    } catch {
+      // 读不出来的照旧留着
+    }
+  }
+  return out;
+}
+
 /** 新的一份修订有哪几块:上一份的,换上这次带来的 */
 function partsAfter(req: CommitRequest, prev: WorldManifest | null, incoming: readonly PackedPart[], author: PackedPart | null | undefined, thumb: PackedPart | null | undefined): Map<string, WorldPartInfo> {
   const infos = new Map<string, WorldPartInfo>((prev?.parts ?? []).map((p) => [p.name, p]));
@@ -578,6 +603,8 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       // 清单读不懂的(坏了):当没有上一份,带着完整内容来的照样写得进去
       const prev = base ? manifestOf(base) : null;
       const infos = partsAfter(req, prev, incoming, author, thumb);
+      const stale = base && prev ? await staleRegionLayers(req.id, base.n, prev, incoming) : [];
+      for (const name of stale) infos.delete(name);
       // 没给作者内容 = 沿用。notes 表里等着的并进来;块坏了要重写时,坏的这一块不留(读不出来,留着存不成文件)
       const fold = source !== 'archive' && req.author === undefined ? await foldedAuthor(req.id, infos, rewrite) : null;
       if (fold?.packed) infos.set('author', fold.packed.info);
@@ -586,7 +613,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       const made = (req.parts ? req.made : prev?.made) ?? null;
       const readers = (req.parts ? req.readers : prev?.readers) ?? null;
       if (!made || !readers) throw new VaultError('failed', '存世界没给版本');
-      const plugins = pluginsFor(req, prev);
+      const plugins = pluginsFor(req, prev).filter((p) => p.role !== 'tool' || !stale.some((x) => pluginLayerOf(x)?.[0] === p.id) || parts.some((x) => x.by === p.id));
       const n = maxN + 1;
       const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
       // 清单里认不出的字段(以后的版本写的)原样带着
@@ -978,10 +1005,10 @@ export interface PluginLayerRead {
 }
 
 /**
- * 这个世界最新修订里存着的工具插件的图层(按清单里的先后;cells = 地图有几个地块)。
- * 跟着历史走的(推演插件的)不在这里;读不出来、核对不过、结构比软件新的跳过
+ * 这个世界最新修订里存着的工具插件的图层(按清单里的先后;cells = 地图有几个地块,history = 历史的州数和推到哪年,
+ * 不给就不读按州的)。跟着历史走的(推演插件的)不在这里;读不出来、核对不过、结构比软件新的跳过
  */
-export async function readPluginLayers(id: string, cells: number): Promise<PluginLayerRead[]> {
+export async function readPluginLayers(id: string, cells: number, history?: { regions: number; endYear: number }): Promise<PluginLayerRead[]> {
   try {
     const head = await readRevision(id, undefined, []);
     if (!head) return [];
@@ -996,8 +1023,10 @@ export async function readPluginLayers(id: string, cells: number): Promise<Plugi
       if (!ids) continue;
       try {
         const v = unpackValue(await partBytes(p.info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, new Uint8Array(p.data), PLUGIN_LAYER_MAX_BYTES));
-        validatePluginLayer(v, { cells, regions: 0 }, `插件图层 ${p.info.name}`);
-        if (v.unit !== 'cell' || v.years !== undefined) continue;
+        const byRegion = (v as { unit?: unknown } | null)?.unit === 'region';
+        if (byRegion && !history) continue;
+        validatePluginLayer(v, byRegion ? { cells, ...history! } : { cells, regions: 0 }, `插件图层 ${p.info.name}`);
+        if (byRegion && v.years === undefined) continue;
         out.push({ name: p.info.name, by: ids[0], layer: ids[1], data: v, plugin: head.manifest.plugins.find((x) => x.id === ids[0]) ?? null });
       } catch (e) {
         if (asWorldFileError(e).kind === 'memory') throw e;
@@ -1009,8 +1038,8 @@ export async function readPluginLayers(id: string, cells: number): Promise<Plugi
   }
 }
 
-/** 存插件图层:many = 这个世界存的插件图层已经满了(PLUGIN_LAYERS_MAX),什么都没写 */
-export type PluginLayerWrote = PluginDataWrote | { status: 'many' };
+/** 存插件图层:many = 这个世界存的插件图层已经满了(PLUGIN_LAYERS_MAX),什么都没写;存了的 size = 这一块压缩后多少字节 */
+export type PluginLayerWrote = Exclude<PluginDataWrote, { status: 'saved' }> | { status: 'saved'; n: number; size?: number } | { status: 'many' };
 
 /**
  * 换掉(data = null:拿掉)这个世界里存着的一个工具插件的图层(块名 layer.<插件编号>.<图层编号>),写一份新修订,别的块、配方都照上一份;
@@ -1020,8 +1049,9 @@ export async function changePluginLayer(id: string, plugin: WorldPlugin, layerId
   try {
     const name = pluginLayerPart(plugin.id, layerId);
     if (data) {
-      validatePluginLayer(data, { cells: data.values.length, regions: 0 }, `插件图层 ${name}`);
-      if (data.unit !== 'cell' || data.years !== undefined) throw new VaultError('failed', '工具插件的图层只能按地块、只有一份');
+      const frames = data.years?.length ?? 1;
+      validatePluginLayer(data, { cells: data.values.length, regions: data.values.length / frames }, `插件图层 ${name}`);
+      if (data.unit === 'cell' ? data.years !== undefined : data.years === undefined) throw new VaultError('failed', '工具插件的图层要么按地块一份,要么按州带年份');
     }
     const packed = data ? await packPluginLayer(plugin.id, layerId, data) : null;
     for (let tries = 0; tries < COMMIT_TRIES; tries++) {
@@ -1046,7 +1076,7 @@ export async function changePluginLayer(id: string, plugin: WorldPlugin, layerId
       parseManifest(text, { readers: { ...prev.readers } });
       if (packed && !(await existing([partKey(packed.info)])).size) await storePart(packed);
       const row: RevisionRow = { id, n, text: new TextDecoder().decode(text), keys: [...new Set(parts.map(partKey))], content: contentOf(parts), recipeKey: base.recipeKey, generator: base.generator, source: 'made', at: Date.now() };
-      if ((await publish(row, maxN)) === 'ok') return { status: 'saved', n };
+      if ((await publish(row, maxN)) === 'ok') return packed ? { status: 'saved', n, size: packed.data.byteLength } : { status: 'saved', n };
     }
     throw new VaultError('corrupt', '写清单时块总是不全');
   } catch (e) {

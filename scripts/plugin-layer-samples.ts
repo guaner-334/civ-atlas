@@ -10,6 +10,7 @@
  * - v1-cells:工具插件的地块图层,一个世界存满 16 个(走网站存进世界、存成文件的那条路)
  * - v1-sim-blocks:推演插件的图层,每个图层一块(和推演插件的状态块在一起),再加工具插件的地块图层、带年份的地块图层
  * - v1-sim-civ:同一段历史,推演插件的图层放在历史那一块里(网站自己存成文件时就是这样),再加一个工具插件的地块图层
+ * - v1-tool-regions:工具插件存的按州按年份图层(没有推演插件),带一件地形大事:之前的几份里大事以后才有的州是 NaN
  */
 import 'fake-indexeddb/auto';
 import { execFileSync } from 'node:child_process';
@@ -32,6 +33,7 @@ import { makePart, recipeKey, recipeOfSave, sha256 } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { buildManifest, manifestBytes, packPluginLayer, packWorldParts, zipWorld, type WorldEras } from '../src/gen/worldFile';
 import { savedLayerId, type PluginLayerValue, type WorldMade, type WorldPlugin } from '../src/gen/worldFormat';
+import { historyRegions } from '../src/plugin/read';
 import { changePluginLayer, commitWorld, revisionFile } from '../src/worldVault';
 import { FACTS_FILE, LAYER_DIR, openSample, sampleFacts, type SampleFacts } from '../tests/lib/pluginLayerFacts';
 
@@ -216,6 +218,46 @@ function simCivSample(s: SimWorld): Promise<Uint8Array> {
 }
 
 // ---------------------------------------------------------------------------
+// 工具插件的按州按年份图层
+
+/** 网站存进世界的那一份:按州,几份接在一起 */
+function regionLayer(look: Look, years: number[], values: Float32Array): PluginLayerValue {
+  return { ...checkLayerLook(look), unit: 'region', years, values };
+}
+
+async function toolRegionsSample(world: World): Promise<Uint8Array> {
+  const steps = upheavalSteps(params, [], null, UPHEAVALS);
+  const civ = generateCiv(world, { endYear: END_YEAR, upheavals: steps });
+  const eras: WorldEras = {
+    baseKey: 'base',
+    eras: steps.map((s, i) => {
+      const { mesh: _mesh, history: _history, ...rest } = s.world;
+      void _mesh, _history;
+      return { key: `era${i}`, world: { ...rest, history: [] } };
+    }),
+  };
+  const POP = await plugin('pop-density', '1.0.0', 'tool', '人口密度');
+  const count = civ.regions.count;
+  // 那一年还没有的州(地形大事以后才有)是 NaN
+  const frames = (years: number[], f: (r: number, y: number) => number) => {
+    const v = new Float32Array(years.length * count).fill(NaN);
+    years.forEach((y, k) => {
+      const had = historyRegions(civ, { year: y }).length;
+      for (let r = 0; r < had; r++) v[k * count + r] = f(r, y);
+    });
+    return v;
+  };
+  const every50 = Array.from({ length: END_YEAR / 50 + 1 }, (_, k) => k * 50);
+  const uneven = [0, 120, 333, END_YEAR];
+  const layers: [WorldPlugin, string, PluginLayerValue][] = [
+    [POP, 'density', regionLayer({ title: '各国人口密度', ramp: { colors: ['#c7e9b4', '#41b6c4', '#225ea8', '#0c2c84'], min: 0, max: 6 }, legend: '人/平方公里' }, every50, frames(every50, (r, y) => ((r * 13 + y / 50) % 60) / 10))],
+    [POP, 'Region_Kind', regionLayer({ title: '州的类别', classes: [0, 1, 2].map((v) => ({ value: v, color: ['#1b9e77', '#d95f02', '#7570b3'][v], label: `第 ${v} 类` })), opacity: 0.5 }, uneven, frames(uneven, (r, y) => (r + Math.floor(y / 100)) % 3))],
+    [POP, 'late', regionLayer({ title: '后来才有', ramp: { colors: ['#fff7ec', '#7f0000'] } }, [450], frames([450], (r) => r % 10))],
+  ];
+  return viaVault('wlayers-tool-regions', recipeOf(world, '工具插件的按州图层', { upheavals: UPHEAVALS, endYear: END_YEAR }), world, civ, eras, [], layers);
+}
+
+// ---------------------------------------------------------------------------
 
 /** 给了目录 = 写到那里试一试(不碰测试的样本) */
 async function main(dir = LAYER_DIR) {
@@ -229,6 +271,7 @@ async function main(dir = LAYER_DIR) {
     'v1-cells.civworld': () => cellsSample(world),
     'v1-sim-blocks.civworld': async () => simBlocksSample(await simOnce()),
     'v1-sim-civ.civworld': async () => simCivSample(await simOnce()),
+    'v1-tool-regions.civworld': () => toolRegionsSample(world),
   };
   for (const [name, make] of Object.entries(makers)) {
     const path = join(dir, name);
