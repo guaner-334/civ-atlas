@@ -11,17 +11,10 @@ import { LAYER_LIMITS, LayerRun, type SimLayerSpec } from '../gen/civ/engine/plu
 import { FREQUENCIES, cardProblems, colCount, type TableCard } from '../gen/civ/engine/tables/cards';
 import { OFFICIAL_NAMES, officialUnit, type OfficialName } from '../gen/civ/simOfficial';
 import { checkLayerLook } from '../gen/layerLook';
+import { KEY, PARAMS_MAX, PARAM_LABEL_MAX, checkParams, fail, has, isObj, line, list, names, num, obj, str, type ManifestNeed, type ManifestParam, type Obj } from './manifestParts';
 import { SIM_COMMAND_TEXT, SIM_INFLUENCE_TEXT, simCommandsText } from './pluginCaps';
 
-/** 新建世界时拨的一个滑条:插件里读 civAtlas.params.<名字> */
-export interface SimParam {
-  /** 滑条的名字 */
-  label: string;
-  min: number;
-  max: number;
-  default: number;
-  step?: number;
-}
+export type SimParam = ManifestParam;
 
 export interface SimManifest {
   /** 每隔几年出手一次(FREQUENCIES 之一) */
@@ -39,27 +32,14 @@ export interface SimManifest {
   params?: Record<string, SimParam>;
 }
 
-/** 一个推演插件最多几个滑条、滑条名字最长几个字 */
-export const SIM_PARAMS_MAX = 8;
-export const SIM_PARAM_LABEL_MAX = 12;
+export const SIM_PARAMS_MAX = PARAMS_MAX;
+export const SIM_PARAM_LABEL_MAX = PARAM_LABEL_MAX;
 
-/** 这一版网站不认得的一样东西:什么(影响口、命令……)、叫什么 */
-export interface SimNeed {
-  what: string;
-  name: string;
-}
-
-type Obj = Record<string, unknown>;
+export type SimNeed = ManifestNeed;
 
 /** 和引擎里插件按国记表时补的那张州 → 国的编号表同名(插件自己的表不能叫它) */
 export const OWNER_TABLE = '国';
-const TABLE_ID_MAX = 64;
 const NAME_MAX = 40;
-const KEY = /^[a-z][a-z0-9.]{0,63}$/;
-const PARAM_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
-// eslint-disable-next-line no-control-regex
-const BAD_TEXT = /[\u0000-\u001f\u007f‪-‮⁦-⁩]/;
-
 /** sim 段的哪一项要哪样能力(不看版本) */
 export const SIM_SECTION_CAPS: readonly [keyof SimManifest, string][] = [
   ['every', 'sim.events'],
@@ -71,41 +51,11 @@ export const SIM_SECTION_CAPS: readonly [keyof SimManifest, string][] = [
   ['commands', 'sim.commands'],
 ];
 
-const fail = (message: string): never => {
-  throw new Error(message);
-};
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
-const has = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
-
-function obj(v: unknown, at: string): Obj {
-  return isObj(v) ? v : fail(`${at} 不是对象`);
-}
-function list(v: unknown, at: string, max: number): unknown[] {
-  if (!Array.isArray(v)) return fail(`${at} 不是列表`);
-  return v.length > max ? fail(`${at} 最多 ${max} 项`) : v;
-}
-function num(v: unknown, at: string): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : fail(`${at} 要是数`);
-}
 function bool(v: unknown, at: string): boolean {
   return typeof v === 'boolean' ? v : fail(`${at} 要是 true 或 false`);
 }
-function str(v: unknown, at: string, max = TABLE_ID_MAX): string {
-  return typeof v === 'string' && v.length > 0 && v.length <= max ? v : fail(`${at} 要写 1 到 ${max} 个字`);
-}
-function line(v: unknown, at: string, max: number): string {
-  if (typeof v !== 'string' || !v.trim()) return fail(`${at} 不能空着`);
-  if (v.length > max) fail(`${at} 太长`);
-  return BAD_TEXT.test(v) ? fail(`${at} 里有不许用的字符`) : v;
-}
 function strings(v: unknown, at: string, max: number): string[] {
   return list(v, at, max).map((x, i) => str(x, `${at}[${i}]`));
-}
-/** 一串名字:不重复、合 KEY 的写法 */
-function names(v: unknown, at: string, max: number): string[] {
-  const out = list(v, at, max).map((x, i) => (typeof x === 'string' && KEY.test(x) ? x : fail(`${at}[${i}] 不合规矩`)));
-  const dup = out.find((x, i) => out.indexOf(x) !== i);
-  return dup === undefined ? out : fail(`${at} 里 ${dup} 写了两遍`);
 }
 /** 一条公式,或每栏一条 */
 function rule(v: unknown, at: string): string | Record<string, string> {
@@ -178,27 +128,6 @@ function checkLayers(raw: unknown, cards: ReadonlyMap<string, TableCard>): void 
   });
 }
 
-function checkParams(raw: unknown): void {
-  const p = obj(raw, '清单的 sim.params');
-  const keys = Object.keys(p);
-  if (keys.length > SIM_PARAMS_MAX) fail(`清单的 sim.params 最多 ${SIM_PARAMS_MAX} 个`);
-  for (const k of keys) {
-    if (!PARAM_KEY.test(k)) fail(`清单的 sim.params 里的 ${k.slice(0, 40)} 只能用字母、数字和下划线,不以数字开头,最长 32 个字`);
-    const at = `清单的 sim.params.${k}`;
-    const q = obj(p[k], at);
-    line(q.label, `${at}.label`, SIM_PARAM_LABEL_MAX);
-    const min = num(q.min, `${at}.min`);
-    const max = num(q.max, `${at}.max`);
-    const def = num(q.default, `${at}.default`);
-    if (!(min < max)) fail(`${at}.min 要小于 max`);
-    if (def < min || def > max) fail(`${at}.default 要在 min 和 max 之间`);
-    if (q.step !== undefined) {
-      const step = num(q.step, `${at}.step`);
-      if (!(step > 0 && step <= max - min)) fail(`${at}.step 要大于 0、不超过 max − min`);
-    }
-  }
-}
-
 const present = (s: Obj, k: string): boolean => (k === 'every' ? s.every !== undefined : Array.isArray(s[k]) ? (s[k] as unknown[]).length > 0 : isObj(s[k]) && Object.keys(s[k] as Obj).length > 0);
 const capName = (cap: string) => cap.split('@')[0];
 
@@ -228,7 +157,7 @@ export function checkSimManifest(m: { sim?: unknown; requires: readonly string[]
   if (s.layers !== undefined) checkLayers(s.layers, cards);
   if (s.influences !== undefined) for (const k of names(s.influences, '清单的 sim.influences', 32)) if (!has(SIM_INFLUENCE_TEXT, k)) unknown('影响口', k);
   if (s.commands !== undefined) for (const k of names(s.commands, '清单的 sim.commands', 32)) if (!has(SIM_COMMAND_TEXT, k)) unknown('命令', k);
-  if (s.params !== undefined) checkParams(s.params);
+  if (s.params !== undefined) checkParams(s.params, '清单的 sim.params');
 
   const wanted = new Set(m.requires.map(capName));
   for (const [key, cap] of SIM_SECTION_CAPS) if (present(s, key) && !wanted.has(cap)) fail(`清单的 sim.${key} 要在 requires 里写上 ${cap}@1`);

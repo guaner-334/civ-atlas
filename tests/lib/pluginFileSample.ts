@@ -118,6 +118,60 @@ export function goodSimInput(): PluginPackInput {
 let goodSim: Promise<Uint8Array> | undefined;
 export const goodSimPlugin = (): Promise<Uint8Array> => (goodSim ??= packPluginFile(goodSimInput()));
 
+const MAP_CODE = `// 柯本气候:季风强的地方夏天多下雨,再按气温和降水分类
+civAtlas.map({
+  climate(d) {
+    const p = d.precipitation.slice();
+    const k = civAtlas.params.monsoon;
+    for (let i = 0; i < p.length; i++) p[i] *= 1 + 0.1 * k * (d.rainSummer[i] - d.rainWinter[i]);
+    return { precipitation: p };
+  },
+  layers(d) {
+    const cls = new Float32Array(d.n).fill(NaN);
+    for (let i = 0; i < d.n; i++) if (d.water[i] === 0) cls[i] = d.temperature[i] > 18 ? 0 : 1;
+    return { layers: { koppen: cls } };
+  },
+});
+`;
+
+/** 地图插件的好样本:map 段每一项都有,不带图标 */
+export function goodMapInput(): PluginPackInput {
+  return {
+    manifest: {
+      id: 'koppen',
+      name: '柯本气候',
+      version: '1.0.0',
+      role: 'map',
+      api: 1,
+      runtime: 'quickjs',
+      requires: ['gen.climate@1', 'gen.layers@1'],
+      why: { 'gen.climate@1': '季风强的地方夏天多下雨', 'gen.layers@1': '画出柯本气候分类' },
+      map: {
+        stages: ['climate', 'layers'],
+        layers: [
+          {
+            id: 'koppen',
+            title: '柯本气候',
+            classes: [
+              { value: 0, color: '#0000fe', label: 'Af 热带雨林' },
+              { value: 1, color: '#ffcc00', label: 'BWh 热带沙漠' },
+            ],
+            legend: '柯本 - 盖格分类',
+          },
+        ],
+        params: { monsoon: { label: '季风强弱', min: 0, max: 2, default: 1, step: 0.1 } },
+      },
+      description: '季风强的地方夏天多下雨,再画出柯本气候分类',
+      license: 'MIT',
+      author: { name: '示例作者' },
+    },
+    files: { 'main.js': MAP_CODE, 'README.md': '# 柯本气候\n\n按季风加强夏雨,再把气候分成柯本 - 盖格的类。\n', LICENSE },
+  };
+}
+
+let goodMap: Promise<Uint8Array> | undefined;
+export const goodMapPlugin = (): Promise<Uint8Array> => (goodMap ??= packPluginFile(goodMapInput()));
+
 /** 拆开的好样本:清单(已解析)和各文件 */
 export interface PluginParts {
   m: any;
@@ -167,6 +221,8 @@ export interface PluginSample {
 }
 
 const field = (name: string, kind: PluginFileErrorKind, why: string, says: string, change: (m: any) => void): PluginSample => ({ name, kind, why, says, build: () => variant(({ m }) => void change(m)) });
+/** 改地图插件好样本的清单 */
+const map = (name: string, kind: PluginFileErrorKind, why: string, says: string, change: (m: any) => void): PluginSample => ({ name, kind, why, says, build: () => variant(({ m }) => void change(m), goodMapPlugin) });
 /** 改推演插件好样本的清单 */
 const sim = (name: string, kind: PluginFileErrorKind, why: string, says: string, change: (m: any) => void): PluginSample => ({ name, kind, why, says, build: () => variant(({ m }) => void change(m), goodSimPlugin) });
 
@@ -225,12 +281,14 @@ export const PLUGIN_SAMPLES: readonly PluginSample[] = [
   field('name-bidi', 'broken', 'name 里有改写显示方向的字符', 'name 里有不许用的字符', (m) => (m.name = '量路程‮')),
   field('version-bad', 'broken', 'version 不是 主.次.补丁', 'version', (m) => (m.version = 'v1')),
   field('role-bad', 'broken', 'role 不合规矩', 'role', (m) => (m.role = '')),
-  field('role-newer', 'newer', 'role 是这一版网站跑不了的(地图生成插件)', 'map', (m) => (m.role = 'map')),
+  field('role-newer', 'newer', 'role 是这一版网站跑不了的(没有这种插件)', 'dream', (m) => (m.role = 'dream')),
   field('runtime-bad', 'broken', 'runtime 不合规矩', 'runtime', (m) => (m.runtime = 42)),
   field('runtime-newer', 'newer', 'runtime 是这一版网站没有的', 'wasm', (m) => (m.runtime = 'wasm')),
   field('runtime-wrong', 'broken', '工具插件的 runtime 写成推演插件的 quickjs', '工具插件要写 worker', (m) => (m.runtime = 'quickjs')),
   field('tool-sim-cap', 'broken', '工具插件要了推演插件的能力', '工具插件不能要 sim.read@1', (m) => m.requires.push('sim.read@1')),
   field('tool-sim-section', 'broken', '工具插件的清单里有 sim 段', '工具插件的清单不能有 sim 段', (m) => (m.sim = {})),
+  field('tool-map-cap', 'broken', '工具插件要了地图插件的能力', '工具插件不能要 gen.climate@1', (m) => m.requires.push('gen.climate@1')),
+  field('tool-map-section', 'broken', '工具插件的清单里有 map 段', '工具插件的清单不能有 map 段', (m) => (m.map = { stages: ['climate'] })),
   field('requires-not-list', 'broken', 'requires 不是列表', 'requires 不是列表', (m) => (m.requires = 'world.read@1')),
   field('cap-bad', 'broken', '能力名不合规矩(没写版本)', 'requires[5]', (m) => m.requires.push('world.read')),
   field('cap-twice', 'broken', '同一样能力写了两遍', 'requires 里 world.read@1 写了两遍', (m) => m.requires.push('world.read@1')),
@@ -285,6 +343,32 @@ export const PLUGIN_SAMPLES: readonly PluginSample[] = [
   sim('sim-param-label', 'broken', '滑条名字超过 12 个字', 'sim.params.strength.label 太长', (m) => (m.sim.params.strength.label = '魔'.repeat(13))),
   sim('sim-param-default', 'broken', '滑条的默认值不在上下限里', 'sim.params.strength.default 要在 min 和 max 之间', (m) => (m.sim.params.strength.default = 4)),
   sim('sim-param-key', 'broken', '滑条的名字不能当变量名', '只能用字母、数字和下划线', (m) => (m.sim.params['1x'] = { label: '一', min: 0, max: 1, default: 0 })),
+  sim('sim-map-section', 'broken', '推演插件的清单里有 map 段', '推演插件的清单不能有 map 段', (m) => (m.map = { stages: ['climate'] })),
+  // 地图插件:种类、跑法、能力配不配
+  map('map-runtime-wrong', 'broken', '地图插件的 runtime 写成 worker', '地图插件要写 quickjs', (m) => (m.runtime = 'worker')),
+  map('map-tool-cap', 'broken', '地图插件要了工具插件的能力', '地图插件不能要 world.read@1', (m) => (m.optional = ['world.read@1'])),
+  map('map-sim-cap', 'broken', '地图插件要了推演插件的能力', '地图插件不能要 sim.read@1', (m) => (m.optional = ['sim.read@1'])),
+  map('map-no-section', 'broken', '地图插件的清单没有 map 段', '要有 map 段', (m) => delete m.map),
+  map('map-not-object', 'broken', 'map 段不是对象', 'map 不是对象', (m) => (m.map = [])),
+  map('map-cap-newer', 'newer', '要的地图能力版本比网站新', 'gen.climate@2', (m) => (m.requires[0] = 'gen.climate@2', delete m.why['gen.climate@1'])),
+  map('map-stage-no-cap', 'broken', 'stages 里写了 climate,requires 里没有 gen.climate@1', 'map.stages 写了 climate,要在 requires 里写上 gen.climate@1', (m) => (m.requires.splice(0, 1), delete m.why['gen.climate@1'])),
+  // 地图插件:map 段各项
+  map('map-stages-missing', 'broken', 'map 段没写 stages', 'map.stages 不是列表', (m) => delete m.map.stages),
+  map('map-stages-empty', 'broken', 'stages 是空的', 'map.stages 不能空着', (m) => (m.map.stages = [])),
+  map('map-stages-twice', 'broken', 'stages 里同一步写了两遍', 'map.stages 里 climate 写了两遍', (m) => m.map.stages.push('climate')),
+  map('map-stages-bad', 'broken', 'stages 里的名字不合规矩', 'map.stages[0] 不合规矩', (m) => (m.map.stages[0] = 'Climate')),
+  map('map-stages-newer', 'newer', 'stages 里有这一版网站没有的一步', '生成的一步 rivers', (m) => m.map.stages.push('rivers')),
+  map('map-stage-no-layers', 'broken', '写了 layers 这一步,没登记交哪几张图层', '要在 map.layers 里登记', (m) => delete m.map.layers),
+  map('map-layers-no-stage', 'broken', '登记了图层,stages 里没有 layers', 'map.layers 要在 map.stages 里写上 layers', (m) => ((m.map.stages = ['climate']), (m.requires = ['gen.climate@1']), delete m.why['gen.layers@1'])),
+  map('map-layers-too-many', 'broken', '图层超过 4 张', 'map.layers 最多 4 项', (m) => m.map.layers.push(...Array.from({ length: 4 }, (_, i) => ({ ...m.map.layers[0], id: `l${i}` })))),
+  map('map-layer-twice', 'broken', '两张图层编号一样', '图层 koppen 写了两次', (m) => m.map.layers.push({ ...m.map.layers[0] })),
+  map('map-layer-id', 'broken', '图层编号不合规矩', 'map.layers[0].id 只能用小写字母', (m) => (m.map.layers[0].id = 'Koppen')),
+  map('map-layer-look', 'broken', '图层没给颜色(ramp、classes 都没有)', 'ramp 和 classes 给且只给一个', (m) => delete m.map.layers[0].classes),
+  map('map-layer-title', 'broken', '图层标题太长', 'title 最多', (m) => (m.map.layers[0].title = '柯'.repeat(41))),
+  map('map-params-too-many', 'broken', '滑条超过 8 个', 'map.params 最多 8 个', (m) => Array.from({ length: 8 }, (_, i) => (m.map.params[`p${i}`] = { label: `滑条${i}`, min: 0, max: 1, default: 0 }))),
+  map('map-param-label', 'broken', '滑条名字超过 12 个字', 'map.params.monsoon.label 太长', (m) => (m.map.params.monsoon.label = '季'.repeat(13))),
+  map('map-param-default', 'broken', '滑条的默认值不在上下限里', 'map.params.monsoon.default 要在 min 和 max 之间', (m) => (m.map.params.monsoon.default = 5)),
+  map('map-param-key', 'broken', '滑条的名字不能当变量名', '只能用字母、数字和下划线', (m) => (m.map.params['1x'] = { label: '一', min: 0, max: 1, default: 0 })),
   // 各文件的内容
   { name: 'code-not-utf8', kind: 'broken', why: 'main.js 不是 UTF-8', says: 'main.js 不是 UTF-8', build: () => variant((p) => put(p, 'main.js', new Uint8Array([0x2f, 0x2f, 0xc3, 0x28]))) },
   { name: 'code-nul', kind: 'broken', why: 'main.js 里有 NUL(不是文字)', says: 'main.js 不是文字', build: () => variant((p) => put(p, 'main.js', text('civAtlas;\u0000\n'))) },
