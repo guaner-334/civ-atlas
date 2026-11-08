@@ -14,8 +14,10 @@
  *      画不出来: { type: 'civ-atlas:rendered', v, id, ok: false, error: '中文的原因' }
  *   第 3 版(审插件的试跑):
  *      后台 → 网站 { type: 'civ-atlas:trial', v: 3, id, file(插件文件,Blob 或 ArrayBuffer), seeds?(只认 7、2024,不给 = 两个都跑) }
- *      网站 → 后台 { type: 'civ-atlas:trial-done', v: 3, id, ok: true, runs: [{ seed, ok, ms, error?, log, did, shots: { map?, panel? } }] }
+ *      网站 → 后台 { type: 'civ-atlas:trial-done', v: 3, id, ok: true, runs: [{ seed, ok, ms, error?, log, did?, shots: { map?, panel? }, sim? }] }
  *                  (runs 和后台存试跑结果的接口收的一样;插件自己出错、没开成都算一份 ok = false 的 run)
+ *                  推演插件(清单 role: 'sim')不带 did,带 sim(plugin/simTrial.ts 的 SimTrial):各推 3000 年和官方比的几样数、
+ *                  插件写的编年史前 20 句、分段推和一口气推一不一样;map 是带插件推到最后一年的政区图盖上它的第一个图层
  *                  { type: 'civ-atlas:trial-done', v: 3, id, ok: false, error }(网站这边没跑成,比如生成不了示例世界)
  *
  * - 只认网站所配服务器(VITE_AI_SERVER)那个来源、从上一层框发来的消息;回话也只发给那个来源。没配服务器 = 不帮(不出声)
@@ -31,6 +33,7 @@
  * 一次画一个,后到的排在后面。
  */
 import { RULES_NAME_MAX, UNNAMED_RULES } from '../gen/civ/ruleSet';
+import type { SimTrial } from '../plugin/simTrial';
 
 export const HELPER_V = 1;
 export const HELPER_V2 = 2;
@@ -91,9 +94,12 @@ export interface TrialRun {
   ms: number;
   error?: string;
   log: string[];
-  did: { got: string; picked: string; drew: string; wrote: string; said: string };
+  /** 工具插件做了什么 */
+  did?: { got: string; picked: string; drew: string; wrote: string; said: string };
   /** JPEG 的 data: 网址;没截到 = 不带 */
   shots: { map?: string; panel?: string };
+  /** 推演插件 */
+  sim?: SimTrial;
 }
 
 export interface HelperInfo {

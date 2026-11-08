@@ -2,11 +2,17 @@
  * 帮手第 3 版:后台审插件时的试跑(传话见 helperProtocol.ts)。每个种子生成一个示例世界(默认参数),
  * 用和用的人从文件装上时同一套沙箱临时开这个插件(不进插件仓库,存的数据只在内存里),照 plugin/trial.ts 的固定办法替它点、
  * 拦下改你写的东西;跑完(或到了限时)截地图(1200×600,带它的图层)和面板,交回它做了什么。用到时才下载。
+ * 推演插件另走一条(simTrial):推 3000 年和官方比,见 plugin/simTrial.ts。
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import type { Civ } from '../gen/civ/types';
 import { DEFAULT_PARAMS } from '../gen/params';
 import type { World } from '../gen/world';
+import type { SimPluginFile } from '../plugin/pluginWorld';
+import type { SimTrialSeed } from '../plugin/simTrial';
+import type { SimTrialJob, SimTrialReply } from '../plugin/simTrialWorker';
+import type { CellPaint } from '../render/pluginLayer';
 import { PluginRefused, startPluginHost, type PluginHost } from '../plugin/host';
 import { SandboxStopped } from '../plugin/sandbox';
 import { PLUGIN_ICON, PluginFileError, openPluginFile, type OpenedPlugin } from '../plugin/pluginFile';
@@ -43,6 +49,7 @@ export async function runTrial(req: TrialRequest): Promise<TrialRun[]> {
   } catch (e) {
     refusal = e instanceof PluginFileError && e.kind === 'newer' ? e.message : `插件文件打不开：${e instanceof Error ? e.message : String(e)}`;
   }
+  if (opened?.manifest.role === 'sim') return simTrial(req, opened);
   const runs: TrialRun[] = [];
   for (const seed of req.seeds) {
     runs.push(
@@ -98,6 +105,81 @@ async function trialSeed(p: OpenedPlugin, seed: number): Promise<TrialRun> {
       }
     }
     return { seed, ok: !rec.error, ms, ...(rec.error ? { error: rec.error } : {}), log: rec.logLines(), did, shots };
+  } finally {
+    g.stop();
+  }
+}
+
+/** 推演插件两个种子一共最多跑多久(推得慢,不按工具插件的 TRIAL_MS) */
+const SIM_TRIAL_MS = 180_000;
+
+/** 推演插件:每个种子在一个后台线程里推(plugin/simTrial.ts),截带插件推到最后一年的政区图、盖上它的第一个图层 */
+async function simTrial(req: TrialRequest, p: OpenedPlugin): Promise<TrialRun[]> {
+  const files: SimPluginFile[] = [{ id: p.manifest.id, sum: p.sum, bytes: new Uint8Array(await req.file.arrayBuffer()) }];
+  const until = performance.now() + SIM_TRIAL_MS;
+  const runs: TrialRun[] = [];
+  for (const seed of req.seeds) {
+    const t0 = performance.now();
+    if (t0 >= until) {
+      runs.push({ seed, ok: false, ms: 0, error: `${SIM_TRIAL_MS / 60_000} 分钟限时到了，没轮到这个种子`, log: [], shots: {} });
+      continue;
+    }
+    const got = await simInWorker({ seed, files }, until);
+    const shots: TrialRun['shots'] = {};
+    if (got.civ) {
+      try {
+        shots.map = await simMapShot(seed, got.civ, got.paint);
+      } catch {
+        // 截不到就不带(后台写「没截到地图」)
+      }
+    }
+    const r = got.result;
+    const error = got.error ?? r?.error;
+    runs.push({ seed, ok: !error, ms: Math.round(performance.now() - t0), ...(error ? { error: error.slice(0, 300) } : {}), log: r?.log ?? [], shots, ...(r ? { sim: r.sim } : {}) });
+  }
+  return runs;
+}
+
+/** 在后台线程里试跑一个种子;到了 until 停掉线程,交回到那时为止的结果(error 写停在哪一步) */
+function simInWorker(job: SimTrialJob, until: number): Promise<{ result: SimTrialSeed | null; error?: string; civ: Civ | null; paint: CellPaint | null }> {
+  return new Promise((resolve) => {
+    const w = new Worker(new URL('../plugin/simTrialWorker.ts', import.meta.url), { type: 'module' });
+    let result: SimTrialSeed | null = null;
+    let civ: Civ | null = null;
+    let paint: CellPaint | null = null;
+    const finish = (error?: string) => {
+      clearTimeout(timer);
+      w.terminate();
+      resolve({ result, ...(error ? { error } : {}), civ, paint });
+    };
+    const timer = setTimeout(() => {
+      const stage = !result ? '官方推的时候' : !result.sim.stats.plugin ? '带插件推的时候' : '查分段推的时候';
+      finish(`${SIM_TRIAL_MS / 60_000} 分钟限时到了，停在${stage}`);
+    }, until - performance.now());
+    w.onmessage = (e: MessageEvent<SimTrialReply>) => {
+      const m = e.data;
+      if (m.type === 'step') result = m.result;
+      else if (m.type === 'civ') ({ civ, paint } = m);
+      else if (m.type === 'done') {
+        result = m.result;
+        finish();
+      } else finish(`没跑成：${m.error}`);
+    };
+    w.onerror = (e) => finish(`后台线程出错：${e.message || '不知道为什么'}`);
+    w.postMessage(job satisfies SimTrialJob);
+  });
+}
+
+/** 带插件推到最后一年的政区图,盖上它的第一个图层,缩到 1200×600 */
+async function simMapShot(seed: number, civ: Civ, paint: CellPaint | null): Promise<string> {
+  const g = await run({ type: 'generate', params: { ...DEFAULT_PARAMS, seed }, scale: 1, skipCiv: true });
+  try {
+    const big = await politicalCanvas({ ...g, civ }, Math.floor(civ.endYear), undefined, paint ?? undefined);
+    try {
+      return coverJpeg(big);
+    } finally {
+      big.width = big.height = 0;
+    }
   } finally {
     g.stop();
   }
