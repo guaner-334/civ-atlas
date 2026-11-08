@@ -51,6 +51,18 @@ export function addedLines(old: PluginManifest, next: PluginManifest): Permissio
 
 const caps = (m: PluginManifest) => new Set([...m.requires, ...(m.optional ?? [])]);
 
+/** 出现在「工具」里:要了面板或点选的(只交图层的在图层面板) */
+export function isTool(m: PluginManifest): boolean {
+  const c = caps(m);
+  return c.has('ui.panel@1') || c.has('input.pick@1');
+}
+
+/** 装好以后提示条第二行:工具在哪 */
+export function toolWhere(m: PluginManifest, phone: boolean): string | undefined {
+  if (!isTool(m)) return undefined;
+  return phone ? `右上竖排的拼图里多了「${m.name}」` : `地图右下的「工具」里多了「${m.name}」`;
+}
+
 export interface AddsRow {
   k: string;
   v: string;
@@ -61,7 +73,7 @@ export interface AddsRow {
 export function addsRows(m: PluginManifest, phone: boolean): AddsRow[] {
   const c = caps(m);
   const rows: AddsRow[] = [];
-  if (c.has('ui.panel@1')) rows.push({ k: `工具「${m.name}」`, v: phone ? '在右上竖排的拼图里' : '在地图右下的「工具」里' });
+  if (isTool(m)) rows.push({ k: `工具「${m.name}」`, v: phone ? '在右上竖排的拼图里' : '在地图右下的「工具」里' });
   if (c.has('layer.cells@1')) rows.push({ k: '图层', v: '在图层面板的「插件图层」里' });
   const k = '往世界里存东西';
   if (c.has('store.world@1')) rows.push({ k, v: '存它自己的数据', small: '存了以后那个世界不能公开分享，能存成文件发给别人' });

@@ -4,10 +4,10 @@
  *   右上 MapBar       填色分段按钮(不填 / 国家 / 民族 / 信仰)+ 底图按钮(小图 + 底图名,点开图层面板)、导出、编年史、助手;
  *                     写史书时最前面是写作进度。新建世界这一步不显示(新建界面有自己的样式列表)
  *                     「助手」开关右边的助手面板(Assistant.tsx),开着时按钮是按下去的样子
- *   右下 MapControls  「导播」(时间轴播放时镜头跟着大事走,见 Director.tsx)、「标记」(点了在地图上放作者标记)、"地球 / 平面"切换、
+ *   右下 MapControls  「导播」(时间轴播放时镜头跟着大事走,见 Director.tsx)、「标记」(点了在地图上放作者标记)、「工具」(插件带来的,插件界面开着时才有)、"地球 / 平面"切换、
  *                     放大、缩小(触屏不放 + −,窄屏整个不放)
  *   窄屏(手机):
- *   右上 PhoneButtons 竖排的毛玻璃按钮:图层与投影(弹层从底部升起)、放标记、地球 / 平面、导播(摄像机)、助手;写史书时进度条在它们左边。
+ *   右上 PhoneButtons 竖排的毛玻璃按钮:图层与投影(弹层从底部升起)、放标记、工具(拼图)、地球 / 平面、导播(摄像机)、助手;写史书时进度条在它们左边。
  *                     世界名、搜索、存档、成书都在底部的世界卡片里(PhoneSheet.tsx)
  *   底部 FirstHint    第一次打开时的一行操作提示,第一次拖动 / 缩放 / 点击之后不再出现(触屏换成"双指缩放"的说法)
  *   跟随鼠标 HoverCard 悬停小卡片(内容见 hoverInfo.ts)
@@ -29,6 +29,7 @@ import { togglePlacing } from './markStore';
 import { directorButton, useDirector } from './directorStore';
 import { toggleRelief } from './terrain3dStore';
 import { useAiOn } from '../ai/client';
+import { ToolsButton } from './plugins/entry';
 import './book.css';
 
 // 左上的旧版 / 测试版标记单独一个文件(我的世界页也用,不带上这里的地图按钮)
@@ -127,12 +128,15 @@ export function PhoneButtons({
   marking,
   director,
   relief,
+  tools,
 }: {
   layers: LayerPopoverProps;
   globeOn: boolean;
   onToggleGlobe: () => void;
   /** 「标记」按钮:正在放标记 = true;不放这个按钮(还没有历史、新建时)= undefined */
   marking?: boolean;
+  /** 放不放「工具」(拼图) */
+  tools?: boolean;
   /** 放不放「导播」按钮(有历史、没在导出视频时) */
   director?: boolean;
   /** 「地区」按钮(框一块单独看):正在框 = true;不放 = undefined */
@@ -159,6 +163,7 @@ export function PhoneButtons({
             <Icon name="pin" size={20} />
           </button>
         )}
+        {tools && <ToolsButton phone disabled={layers.disabled} />}
         <button
           className={`pb-btn globe-toggle${globeOn ? ' on' : ''}`}
           data-act="globe"
@@ -211,6 +216,7 @@ export function MapControls({
   marking,
   director,
   relief,
+  tools,
 }: {
   globeOn: boolean;
   onToggleGlobe: () => void;
@@ -225,6 +231,8 @@ export function MapControls({
   director?: boolean;
   /** 「地区」按钮(框一块单独看):正在框 = true;不放 = undefined */
   relief?: boolean;
+  /** 放不放「工具」 */
+  tools?: boolean;
 }) {
   if (hidden) return null;
   const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
@@ -243,6 +251,7 @@ export function MapControls({
           <span>标记</span>
         </button>
       )}
+      {tools && <ToolsButton />}
       <button className="glass mc-btn mc-globe globe-toggle" data-act="globe" onClick={onToggleGlobe} title={globeOn ? '回到平面地图' : '显示成可以转动的地球仪'}>
         <Icon name={globeOn ? 'map' : 'globe'} size={18} />
         <span>{globeOn ? '平面' : '地球'}</span>

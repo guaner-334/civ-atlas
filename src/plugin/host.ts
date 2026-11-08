@@ -68,6 +68,8 @@ export interface PluginSink {
   panel?(nodes: PanelNode[] | null): void;
   layer?(id: string, layer: CellLayer | MarkLayer | null): void;
   log?(text: string): void;
+  /** 插件提的一批修改不合格式(bad-args / limit),一处都没改:args 是插件交来的原样 */
+  refused?(args: unknown, error: PluginApiError): void;
 }
 
 export interface PluginHostOptions {
@@ -286,7 +288,13 @@ class Host implements PluginHost {
           throw new PluginApiError('busy', `一秒最多提 ${APPLY_PER_SECOND} 次修改`);
         }
         this.applyTimes[slot] = now;
-        const plan = planChanges(src.edits(), src.civ(), args, this.world().params);
+        let plan: ReturnType<typeof planChanges>;
+        try {
+          plan = planChanges(src.edits(), src.civ(), args, this.world().params);
+        } catch (e) {
+          if (e instanceof PluginApiError && (e.code === 'bad-args' || e.code === 'limit')) this.sink.refused?.(args, e);
+          throw e;
+        }
         if (plan.result.applied) {
           const why = commit(plan.next, plan.keys);
           if (why) throw new PluginApiError('blocked', why);
