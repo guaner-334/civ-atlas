@@ -28,7 +28,7 @@ import {
   type MapView,
   type StageBox,
 } from '../mapWrap';
-import { getProjection, setMapMoving, setProjection, type MapProjection } from '../projection';
+import { getProjection, setMapFlying, setMapMoving, setProjection, type MapProjection } from '../projection';
 import { animProgress, easeOutCubic, phoneFree, sideRoom } from '../flyTo';
 import { astRoom } from '../astPanel';
 import { getGlobeOn, type GlobeApi } from '../Globe';
@@ -318,6 +318,7 @@ export function useMapView({ view, setView, stageRef, data, dataRef, narrow, pan
     if (!flyRaf.current) return;
     cancelAnimationFrame(flyRaf.current);
     flyRaf.current = 0;
+    setMapFlying(false);
     if (curvedRef.current) setMapMoving(false);
   };
   /**
