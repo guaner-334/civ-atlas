@@ -165,7 +165,17 @@ export default defineConfig({
       },
     },
   },
-  worker: { format: 'es', plugins: () => [bannerFirst()], rollupOptions: { output: { banner: () => banner() } } },
+  worker: {
+    format: 'es',
+    plugins: () => [bannerFirst()],
+    rollupOptions: {
+      output: {
+        banner: () => banner(),
+        // 推演线程用到推演插件才下载的 QuickJS 那一包用自己的名字(它的入口也叫 index,不然和主程序同名)
+        chunkFileNames: (c) => (c.facadeModuleId && /[\\/]gen[\\/]civ[\\/]quickjs[\\/]index\.ts$/.test(c.facadeModuleId) ? 'assets/quickjs-[hash].js' : 'assets/[name]-[hash].js'),
+      },
+    },
+  },
   server: { port: 5188, strictPort: true },
   // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算。
   // 先后和分份(PR 检查上分几台机器跑)按各文件大概多久排,见 tests/lib/shardSequencer.ts
