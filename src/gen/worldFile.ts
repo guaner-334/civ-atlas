@@ -17,15 +17,18 @@ import type { ChronicleBlock } from './civ/story/nameTokens';
 import type { FlagBook } from './civ/story/flags';
 import type { Civ } from './civ/types';
 import type { SimPluginState } from './civ/engine/plugin';
+import type { SimLayer } from './civ/engine/pluginLayers';
 import { parseSave, type SaveFile } from './savefile';
 import { makePart, partBytes, sha256, unpackValue, type SnapshotPart } from './snapshot';
 import type { World } from './world';
 import { MIGRATIONS, currentSchema, migratePart, type MigrationTable } from './worldMigrate';
-import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validateSimState, validateThumb, validateWorld, worldHeadLimit, worldPartLimit } from './worldValidate';
+import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validatePluginLayer, validateSimState, validateThumb, validateWorld, worldHeadLimit, worldPartLimit, type LayerSizes } from './worldValidate';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES, parseZip, writeZip } from './zipStore';
 import {
   KNOWN_PARTS,
   MANIFEST_FILE,
+  PLUGIN_LAYER_PREFIX,
+  PLUGIN_LAYER_SCHEMA,
   SIM_STATE_PREFIX,
   SIM_STATE_SCHEMA,
   WORLD_APP,
@@ -33,7 +36,11 @@ import {
   WORLD_KIND,
   asWorldFileError,
   broken,
+  pluginLayerOf,
+  pluginLayerPart,
+  simStatePart,
   type AuthorContent,
+  type PluginLayerValue,
   type WorldMade,
   type WorldManifest,
   type WorldPartInfo,
@@ -127,7 +134,7 @@ export function knownPart(p: SnapshotPart, schema?: number, migrations?: Migrati
 
 /** 附加数据打包:need 是 extra */
 export async function packExtra(x: WorldExtra): Promise<PackedPart> {
-  if (KNOWN_PARTS.has(x.name) || isSimState(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
+  if (KNOWN_PARTS.has(x.name) || isSimState(x.name) || isPluginLayer(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
   return packedFrom(await makePart(x.name, x.value), x.schema, 'extra', x.by);
 }
 
@@ -140,6 +147,36 @@ export async function splitSimStates(civ: Civ): Promise<{ civ: Civ; parts: Packe
   const parts: PackedPart[] = [];
   for (const st of simPlugins) parts.push(packedFrom(await makePart(`${SIM_STATE_PREFIX}${st.id}`, st), SIM_STATE_SCHEMA, 'extra', st.id));
   return { civ: rest, parts };
+}
+
+const isPluginLayer = (name: string) => name.startsWith(PLUGIN_LAYER_PREFIX);
+
+/** 一个插件图层打包(块名 layer.<插件编号>.<图层编号>,by 写插件编号);编号不合规矩抛错 */
+export async function packPluginLayer(pluginId: string, layerId: string, value: PluginLayerValue): Promise<PackedPart> {
+  const name = pluginLayerPart(pluginId, layerId);
+  if (!pluginLayerOf(name)) throw new Error(`插件图层不能叫 ${name}`);
+  return packedFrom(await makePart(name, value), PLUGIN_LAYER_SCHEMA, 'extra', pluginId);
+}
+
+/** 历史里推演插件存下的图层单独成块(按先后),历史那一块不带它;没有图层的历史原样交回 */
+export async function splitSimLayers(civ: Civ): Promise<{ civ: Civ; parts: PackedPart[] }> {
+  if (civ.simLayers === undefined) return { civ, parts: [] };
+  const { simLayers, ...rest } = civ;
+  const parts: PackedPart[] = [];
+  for (const { by, id, ...value } of simLayers) parts.push(await packPluginLayer(by, id, value));
+  return { civ: rest, parts };
+}
+
+/** 这一块是跟着历史走的插件图层:同一份清单里有它那个插件的 sim.<插件编号>(has 问清单里有没有这一块) */
+function isHistoryLayer(name: string, has: (part: string) => boolean): boolean {
+  const ids = pluginLayerOf(name);
+  return !!ids && has(simStatePart(ids[0]));
+}
+
+/** 这几块里跟着历史走的:推演插件的状态、它们存下的图层(换了历史就整批换掉) */
+export function historyParts(names: Iterable<string>): string[] {
+  const all = new Set(names);
+  return [...all].filter((n) => isSimState(n) || isHistoryLayer(n, (x) => all.has(x)));
 }
 
 /** 认得的一块打包;结构版本 = 现在的版本 */
@@ -225,10 +262,11 @@ export async function packWorldParts(input: PackInput): Promise<PackedWorld> {
   const parts: PackedPart[] = [await packKnown('map', mapValue(input.map))];
   if (input.eras?.eras.length) parts.push(await packKnown('eras', erasValue(input.eras)));
   const split = await splitSimStates(input.civ);
-  parts.push(await packKnown('civ', split.civ), await packKnown('chronicle', input.chronicle), await packKnown('flags', input.flags));
+  const layers = await splitSimLayers(split.civ);
+  parts.push(await packKnown('civ', layers.civ), await packKnown('chronicle', input.chronicle), await packKnown('flags', input.flags));
   if (input.author) parts.push(await packKnown('author', input.author));
   if (input.thumb) parts.push(await packThumb(input.thumb));
-  parts.push(...split.parts);
+  parts.push(...split.parts, ...layers.parts);
   for (const x of input.extras ?? []) parts.push(await packExtra(x));
   return { manifest: buildManifest(input, parts.map((p) => p.info)), parts };
 }
@@ -315,11 +353,12 @@ export function openStoredParts(manifestBytes: Uint8Array, parts: readonly Packe
 /** 这一版软件只当字节留着的块 */
 function isKept(p: WorldPartInfo, migrations?: MigrationTable): boolean {
   if (isSimState(p.name)) return p.schema > SIM_STATE_SCHEMA || (p.zip !== 'gzip' && p.zip !== 'none');
+  if (isPluginLayer(p.name)) return p.schema > PLUGIN_LAYER_SCHEMA || (p.zip !== 'gzip' && p.zip !== 'none');
   return !KNOWN_PARTS.has(p.name) || p.schema > currentSchema(p.name, migrations) || (p.zip !== 'gzip' && p.zip !== 'none');
 }
 
 /**
- * 这一版软件只当字节留着、不解开的块的名字:插件存的数据、认不出的附加块、结构比软件新的可选块(推演插件的状态逐项核对,不算)。
+ * 这一版软件只当字节留着、不解开的块的名字:插件存的数据、认不出的附加块、结构比软件新的可选块(推演插件的状态、插件图层逐项核对,不算)。
  * 带着它们的世界能存、能存成文件,不能公开分享(审核看不到里面);空的 = 没有这种块
  */
 export function opaqueParts(parts: readonly WorldPartInfo[], migrations?: MigrationTable): string[] {
@@ -385,6 +424,11 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
       const got = await readSimParts(opened, read, []).catch(() => []);
       if (got.length) civ.simPlugins = got;
     }
+    const layers = historyLayerNames(opened);
+    if (civ && layers.length && layers.every((n) => opened.bytes.has(n)) && civ.simLayers === undefined && out.map) {
+      const got = await readLayerParts(opened, read, [], sizesOf(out.map as World, civ)).catch(() => []);
+      if (got.length) civ.simLayers = got;
+    }
     return out;
   } catch (err) {
     throw asWorldFileError(err);
@@ -416,6 +460,49 @@ async function readSimParts(opened: OpenedWorldFile, read: ReturnType<typeof par
 /** 清单里推演插件状态块的名字(按文件里的先后) */
 export function simPartNames(opened: Pick<OpenedWorldFile, 'manifest'>): string[] {
   return opened.manifest.parts.filter((p) => isSimState(p.name)).map((p) => p.name);
+}
+
+/** 清单里跟着历史走的插件图层块的名字(按文件里的先后) */
+export function historyLayerNames(opened: Pick<OpenedWorldFile, 'manifest'>): string[] {
+  const names = new Set(opened.manifest.parts.map((p) => p.name));
+  return opened.manifest.parts.filter((p) => isHistoryLayer(p.name, (x) => names.has(x))).map((p) => p.name);
+}
+
+const sizesOf = (map: World, civ: Civ): LayerSizes => ({ cells: map.mesh.n, regions: civ.regions.count, endYear: civ.endYear });
+
+/**
+ * 插件图层:每一块都逐项核对(别的插件放的也查,它们不算只当字节留着的块);交回跟着历史走的那几块(按文件里的先后)。
+ * 本机读的有一块过不了:跟着历史的那几块都不要,别的只跳过这一块,都记进 skipped;内存不够、传上服务器的文件照旧报错
+ */
+async function readLayerParts(opened: OpenedWorldFile, read: ReturnType<typeof partReader>, skipped: string[], sizes: LayerSizes): Promise<SimLayer[]> {
+  const history = new Set(historyLayerNames(opened));
+  const out: SimLayer[] = [];
+  let whole = true;
+  for (const p of opened.manifest.parts) {
+    if (!isPluginLayer(p.name)) continue;
+    if (opened.kept.includes(p) || !opened.bytes.has(p.name)) {
+      if (history.has(p.name)) whole = false;
+      continue;
+    }
+    try {
+      const v = await read(p.name);
+      const hist = history.has(p.name);
+      validatePluginLayer(v, hist ? sizes : { cells: sizes.cells, regions: sizes.regions }, `插件图层 ${p.name}`);
+      // 别的插件存的图层和历史无关:换了历史还得认得,所以只能按地块
+      if (!hist && v.unit !== 'cell') broken(`插件图层 ${p.name} 不是推演插件的,要按地块`);
+      if (!hist) continue;
+      if (v.unit !== 'region' || v.years === undefined) broken(`插件图层 ${p.name} 是推演插件的,要按州、带年份`);
+      const [by, id] = pluginLayerOf(p.name)!;
+      out.push({ by, id, ...v } as SimLayer);
+    } catch (err) {
+      if (asWorldFileError(err).kind === 'memory' || (opened.options.maxBytes ?? ZIP_LOCAL_MAX_BYTES) <= ZIP_UPLOAD_MAX_BYTES) throw err;
+      skipped.push(p.name);
+      if (history.has(p.name)) whole = false;
+    }
+  }
+  if (whole) return out;
+  for (const l of out) skipped.push(pluginLayerPart(l.by, l.id));
+  return [];
 }
 
 const AUTHOR_SKIPPED = 'AI 写的东西有一段太长，这次没读进来。世界不受影响，文件先别删';
@@ -481,6 +568,11 @@ async function readContent(opened: OpenedWorldFile, spare: boolean): Promise<Sto
       if (civ.simPlugins !== undefined) broken('推演插件的状态在历史里和单独的块里都有');
       civ.simPlugins = sims;
     }
+    const layers = await readLayerParts(opened, read, skipped, sizesOf(map, civ));
+    if (layers.length) {
+      if (civ.simLayers !== undefined) broken('推演插件的图层在历史里和单独的块里都有');
+      civ.simLayers = layers;
+    }
     /** 读一块、校验;spare 时读不了 = null */
     const story = async <T>(name: string, check: (v: unknown) => asserts v is T): Promise<T | null> => {
       try {
@@ -534,17 +626,20 @@ export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteC
   const replaced = new Map<string, PackedPart | null>();
   if (v.map) replaced.set('map', await packKnown('map', mapValue(v.map), table));
   if (v.eras !== undefined) replaced.set('eras', v.eras?.eras.length ? await packKnown('eras', erasValue(v.eras), table) : null);
-  // 推演插件的状态跟着历史走:换了历史,原来的状态块都去掉,换上这份历史带的
+  // 推演插件的状态、图层跟着历史走:换了历史,原来的那几块都去掉(别的插件存的图层不动),换上这份历史带的
   const sims = v.civ ? await splitSimStates(v.civ) : null;
-  if (sims) replaced.set('civ', await packKnown('civ', sims.civ, table));
+  const layers = sims ? await splitSimLayers(sims.civ) : null;
+  if (layers) replaced.set('civ', await packKnown('civ', layers.civ, table));
   if (v.chronicle) replaced.set('chronicle', await packKnown('chronicle', v.chronicle, table));
   if (v.flags) replaced.set('flags', await packKnown('flags', v.flags, table));
   if (v.author !== undefined) replaced.set('author', v.author ? await packKnown('author', v.author, table) : null);
   if (v.thumb !== undefined) replaced.set('thumb', v.thumb ? await packThumb(v.thumb, table) : null);
 
   const parts: PackedPart[] = [];
+  const stale = new Set(sims ? historyParts(manifest.parts.map((p) => p.name)) : []);
+  for (const q of layers?.parts ?? []) stale.add(q.info.name);
   for (const p of manifest.parts) {
-    if (sims && isSimState(p.name)) continue;
+    if (stale.has(p.name)) continue;
     if (!replaced.has(p.name)) parts.push({ info: p, data: opened.bytes.get(p.name)! });
     else {
       const next = replaced.get(p.name);
@@ -552,7 +647,7 @@ export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteC
       replaced.delete(p.name);
     }
   }
-  if (sims) parts.push(...sims.parts);
+  if (sims) parts.push(...sims.parts, ...layers!.parts);
   // 原来没有、这次才有的块
   for (const next of replaced.values()) if (next) parts.push(next);
 

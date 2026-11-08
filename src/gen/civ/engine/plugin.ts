@@ -8,6 +8,11 @@ import { keyed, keyed4, subSeed } from './rand';
 import type { CivSim } from './sim';
 import { FREQUENCIES, TableEngine, colCount, type TableCard, type TableSnapshot } from './tables';
 import type { InfluenceCols } from './influence';
+import { CHRONICLE_LIMITS, checkStoredChronicle, fillChronicle, type PluginChronicle, type RefCount, type SimChronicleLine } from './pluginChronicle';
+import { LAYER_LIMITS, LayerRun, type LayerLookCheck, type SimLayer, type SimLayerSpec } from './pluginLayers';
+
+export type { PluginChronicle, SimChronicleLine } from './pluginChronicle';
+export type { LayerLookCheck, SimLayer, SimLayerLook, SimLayerSpec } from './pluginLayers';
 
 /** 引擎的时间精度(1/256 年)、能约的最远时刻:和 CivSim 一样 */
 const TICKS = 256;
@@ -109,6 +114,8 @@ export interface PluginReply {
   outputs?: Readonly<Record<string, ArrayLike<number>>>;
   /** 下命令(规则包认的写法):此刻的下一格生效 */
   commands?: readonly unknown[];
+  /** 写进编年史的几句(记在此刻) */
+  chronicle?: readonly PluginChronicle[];
 }
 
 /** 一个推演插件 */
@@ -122,6 +129,8 @@ export interface SimPlugin<V = unknown> {
   readonly inputs?: Readonly<Record<string, string>>;
   /** 要听的史事种类 */
   readonly listen?: readonly AnnalKind[];
+  /** 存成图层的表 */
+  readonly layers?: readonly SimLayerSpec[];
   /** 交数给哪几个影响口(规则包登记的口名) */
   readonly outputs?: readonly string[];
   act(turn: PluginTurn<V>): PluginReply | void;
@@ -140,6 +149,8 @@ export interface PluginBridge<V> {
   official(name: string): Float64Array;
   /** 收下一个插件这次下的几条命令,从 at 那一刻(年)起生效;有一条不合格抛错、说清是哪条,一条都不收。不给 = 这套规则不收命令 */
   commands?(plugin: string, list: readonly unknown[], at: number): void;
+  /** 此刻有几国、几城、几族(编年史的指代要小于它) */
+  counts(): { polities: number; settlements: number; cultures: number };
 }
 
 /** 交给驱动的一回合:叫哪个插件 */
@@ -245,6 +256,9 @@ class Host<V> {
   private seq = 0;
   private events: Booked[] = [];
   private note: PluginNote | undefined;
+  private readonly layers: LayerRun[] = [];
+  /** 自己写了几句编年史 */
+  private written = 0;
 
   constructor(
     readonly plugin: SimPlugin<V>,
@@ -252,6 +266,9 @@ class Host<V> {
     private readonly bridge: PluginBridge<V>,
     seed: number,
     private readonly clock: PluginClock,
+    /** 这一段推演里插件写的编年史(几个插件写进同一串) */
+    private readonly lines: SimChronicleLine[],
+    look: LayerLookCheck | undefined,
     /** 第几个插件(影响口里占的格位) */
     private readonly slot: number,
   ) {
@@ -269,7 +286,10 @@ class Host<V> {
     this.rand = subSeed(seed, `plugin:${id}`);
     const outs = plugin.outputs ?? [];
     if (outs.length && !sim.influence?.has(outs[0])) fail('这套规则没接影响口');
-    this.sig = subSeed(0, JSON.stringify([plugin.every ?? null, plugin.tables ?? [], plugin.inputs ?? {}, listen, ...(outs.length ? [outs] : [])]));
+    const shape: unknown[] = [plugin.every ?? null, plugin.tables ?? [], plugin.inputs ?? {}, listen];
+    if (plugin.layers?.length) shape.push(plugin.layers);
+    if (outs.length) shape.push(outs);
+    this.sig = subSeed(0, JSON.stringify(shape));
 
     const cards = plugin.tables ?? [];
     if (!Array.isArray(cards) || cards.length > PLUGIN_LIMITS.tables) fail(`最多 ${PLUGIN_LIMITS.tables} 张表`);
@@ -294,6 +314,17 @@ class Host<V> {
     let tableEvery = Infinity;
     for (const c of cards) if (!c.input && c.kind !== 'id') tableEvery = Math.min(tableEvery, (c.every ?? 1) * TICKS);
     this.tableEvery = tableEvery < Infinity ? tableEvery : 0;
+    const layers = plugin.layers ?? [];
+    if (!Array.isArray(layers) || layers.length > LAYER_LIMITS.layers) fail(`最多 ${LAYER_LIMITS.layers} 个图层`);
+    for (const spec of layers) {
+      if (this.layers.some((l) => l.spec.id === spec?.id)) fail(`图层 ${spec.id} 给了两次`);
+      try {
+        if (!look) fail('这套规则不认图层');
+        this.layers.push(new LayerRun(spec, this.cards.get(spec?.table), TICKS, look!));
+      } catch (e) {
+        fail(e instanceof Error ? e.message : String(e));
+      }
+    }
     if (cards.length) {
       const r = bridge.regions;
       const all = this.ownsPolities ? [...cards, { id: OWNER_TABLE, name: OWNER_TABLE, unit: 'region', kind: 'id', min: -1, max: 2 ** 15, off: -1 } as TableCard] : cards;
@@ -310,8 +341,8 @@ class Host<V> {
     } else this.eng = null;
   }
 
-  /** 照存下的状态接上(year = 接着推的那一刻) */
-  restore(s: SimPluginState, year: number): void {
+  /** 照存下的状态接上(year = 接着推的那一刻;layers = 存下的图层,written = 存下的编年史里自己写的几句) */
+  restore(s: SimPluginState, year: number, layers: readonly SimLayer[], written: number): void {
     const fail = (what: string): never => {
       throw new PluginError(this.id, `存下的状态${what}`);
     };
@@ -359,6 +390,18 @@ class Host<V> {
       this.sim.influence!.restore(this.slot, this.id, s.outputs);
     }
     this.note = s.note === undefined ? undefined : cleanNote(this.id, s.note);
+    const mine = layers.filter((l) => l.by === this.id);
+    if (mine.length !== this.layers.length) fail('的图层和插件的对不上');
+    for (const run of this.layers) {
+      const saved = mine.find((l) => l.id === run.spec.id);
+      if (!saved) fail('的图层和插件的对不上');
+      try {
+        run.restore(saved!, year, this.bridge.regions.count, TICKS);
+      } catch (e) {
+        throw new PluginError(this.id, e instanceof Error ? e.message : String(e), { cause: e });
+      }
+    }
+    this.written = written;
     this.heard = s.heard;
     this.seq = s.seq;
     this.events = events;
@@ -387,6 +430,11 @@ class Host<V> {
     return o ? { outputs: o } : {};
   }
 
+  /** 存下的图层(州补到 count 个) */
+  layerSnapshot(count: number): SimLayer[] {
+    return this.layers.map((l) => l.snapshot(this.id, count));
+  }
+
   /** at 以后最早要办的那一刻(没有 = Infinity) */
   private nextTick(): number {
     if (this.at < 0) return 0;
@@ -394,7 +442,25 @@ class Host<V> {
     if (this.every) n = (Math.floor(this.at / this.every) + 1) * this.every;
     if (this.tableEvery) n = Math.min(n, (Math.floor(this.at / this.tableEvery) + 1) * this.tableEvery);
     if (this.events.length) n = Math.min(n, this.events[0].tick);
+    for (const l of this.layers) n = Math.min(n, (Math.floor(this.at / l.keep) + 1) * l.keep);
     return n < MAX_TICK ? n : Infinity;
+  }
+
+  /** 这一刻除了存图层还有别的事 */
+  private busy(tick: number): boolean {
+    return (this.every > 0 && tick % this.every === 0) || (this.tableEvery > 0 && tick % this.tableEvery === 0) || (this.events.length > 0 && this.events[0].tick === tick);
+  }
+
+  /** 到了存图层的时刻就存一份(这一刻的表算完、插件出完手以后) */
+  private keepLayers(tick: number): void {
+    for (const l of this.layers) {
+      if (tick % l.keep) continue;
+      try {
+        l.keepFrame(tick / TICKS, this.eng!.get(l.spec.table));
+      } catch (e) {
+        throw new PluginError(this.id, e instanceof Error ? e.message : String(e), { cause: e });
+      }
+    }
   }
 
   /** 这一刻(tick)要办的:算表;该出手的交出一回合、办回话 */
@@ -402,6 +468,14 @@ class Host<V> {
     const t0 = this.clock.now();
     const year = tick / TICKS;
     const first = this.at < 0;
+    // 只为存图层的一刻:不填表、不算表、不出手,和没标图层时一样
+    if (!first && !this.busy(tick)) {
+      this.at = tick;
+      this.keepLayers(tick);
+      this.next = this.nextTick();
+      this.clock.charge(this.id, t0, year);
+      return;
+    }
     let k = 0;
     while (k < this.events.length && this.events[k].tick === tick) k++;
     const due = this.events.splice(0, k);
@@ -433,6 +507,7 @@ class Host<V> {
       this.apply(tick, reply);
       this.heard = this.sim.annalCount;
     }
+    this.keepLayers(tick);
     this.next = this.nextTick();
     this.clock.charge(this.id, t0, year);
   }
@@ -491,7 +566,7 @@ class Host<V> {
       throw new PluginError(this.id, what);
     };
     if (typeof reply !== 'object') fail('回话要是一个对象');
-    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'outputs' && key !== 'commands') fail(`回话里的 ${key} 认不出`);
+    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'outputs' && key !== 'commands' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
     if (reply.tables !== undefined) {
       if (reply.tables === null || typeof reply.tables !== 'object') fail('回话里的 tables 要是一个对象');
       for (const [t, v] of Object.entries(reply.tables)) this.setTable(t, v);
@@ -506,6 +581,22 @@ class Host<V> {
       for (const b of reply.at) this.book(now, b);
     }
     if (reply.commands !== undefined) this.command(now, reply.commands);
+    if (reply.chronicle !== undefined) {
+      if (!Array.isArray(reply.chronicle)) fail('回话里的 chronicle 要是一个数组');
+      for (const c of reply.chronicle) this.write(now, c);
+    }
+  }
+
+  private write(now: number, c: PluginChronicle): void {
+    if (this.written >= CHRONICLE_LIMITS.lines) throw new PluginError(this.id, `一个世界里最多写 ${CHRONICLE_LIMITS.lines} 句编年史`);
+    let text: string;
+    try {
+      text = fillChronicle(c, refCount(this.bridge));
+    } catch (e) {
+      throw new PluginError(this.id, e instanceof Error ? e.message : String(e), { cause: e });
+    }
+    this.lines.push({ year: now / TICKS, by: this.id, text });
+    this.written++;
   }
 
   /** 命令在下一格才生效:这一刻的检查点已经存了,同一刻后出手的插件看到的也该是官方办完时的样子 */
@@ -567,18 +658,38 @@ class Host<V> {
   }
 }
 
+/** 编年史的指代此刻有几个(要用到才问规则包) */
+function refCount<V>(bridge: PluginBridge<V>): RefCount {
+  let c: ReturnType<PluginBridge<V>['counts']> | undefined;
+  return (kind) => {
+    if (kind === 'region') return bridge.regions.count;
+    c ??= bridge.counts();
+    return kind === 'polity' ? c.polities : kind === 'settlement' ? c.settlements : c.cultures;
+  };
+}
+
+/** 接着推时存下的:各插件的状态(和 plugins 一一对上)、插件写的编年史、存下的图层,都推到 year 那一刻 */
+export interface PluginSaved {
+  states: readonly SimPluginState[];
+  year: number;
+  chronicle?: readonly SimChronicleLine[];
+  layers?: readonly SimLayer[];
+}
+
 /** 一段推演(一个引擎)上的所有推演插件,按给的先后出手 */
 export class PluginLine<V> {
   private readonly hosts: Host<V>[];
+  private readonly lines: SimChronicleLine[] = [];
 
-  /** saved = 接着推时存下的状态(和 plugins 一一对上,year = 接着推的那一刻);从第 0 年起推 = null。clock = 这一段推演记用时的那一份 */
+  /** saved = 接着推时存下的(从第 0 年起推 = null)。clock = 这一段推演记用时的那一份;look = 查图层的样子(不给 = 插件不能标图层) */
   constructor(
     sim: CivSim,
     bridge: PluginBridge<V>,
     plugins: readonly SimPlugin<V>[],
     seed: number,
-    saved: { states: readonly SimPluginState[]; year: number } | null,
+    saved: PluginSaved | null,
     clock: PluginClock = new PluginClock(),
+    look?: LayerLookCheck,
   ) {
     if (plugins.length > PLUGIN_LIMITS.plugins) throw new Error(`一个世界最多 ${PLUGIN_LIMITS.plugins} 个推演插件`);
     const ids = new Set<string>();
@@ -588,11 +699,39 @@ export class PluginLine<V> {
       if (ids.has(id)) throw new Error(`推演插件 ${id} 给了两次`);
       ids.add(id);
     }
-    this.hosts = plugins.map((p, i) => new Host(p, sim, bridge, seed, clock, i));
+    this.hosts = plugins.map((p, i) => new Host(p, sim, bridge, seed, clock, this.lines, look, i));
     if (saved) {
       if (saved.states.length !== plugins.length) throw new Error('存下的推演插件和给的对不上');
-      this.hosts.forEach((h, i) => h.restore(saved.states[i], saved.year));
+      const written = new Map<string, number>();
+      const count = refCount(bridge);
+      let last = 0;
+      for (const l of saved.chronicle ?? []) {
+        const by = typeof l?.by === 'string' ? l.by : '';
+        if (!ids.has(by)) throw new PluginError(by, '存下的编年史和给的插件对不上');
+        if (!(typeof l.year === 'number' && l.year >= last && l.year <= saved.year) || typeof l.text !== 'string') throw new PluginError(by, '存下的编年史的年份不对');
+        try {
+          checkStoredChronicle(l.text, count);
+        } catch (e) {
+          throw new PluginError(by, `存下的编年史:${e instanceof Error ? e.message : String(e)}`, { cause: e });
+        }
+        last = l.year;
+        written.set(by, (written.get(by) ?? 0) + 1);
+        this.lines.push({ year: l.year, by, text: l.text });
+      }
+      const layers = saved.layers ?? [];
+      for (const l of layers) if (!ids.has(l?.by)) throw new PluginError(String(l?.by), '存下的图层和给的插件对不上');
+      this.hosts.forEach((h, i) => h.restore(saved.states[i], saved.year, layers, written.get(h.id) ?? 0));
     }
+  }
+
+  /** 插件写的编年史(按写的先后) */
+  chronicle(): SimChronicleLine[] {
+    return this.lines.map((l) => ({ ...l }));
+  }
+
+  /** 存下的图层(按插件的先后;州补到 count 个) */
+  layers(count: number): SimLayer[] {
+    return this.hosts.flatMap((h) => h.layerSnapshot(count));
   }
 
   /** 下一处插件要办事的时刻(年;没有 = Infinity) */

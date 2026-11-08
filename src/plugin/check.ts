@@ -3,6 +3,7 @@
  * 不合格的一律抛 PluginApiError(网站回给插件),合格的换成网站自己的一份(插件那边再改也影响不到)。
  */
 import type { CellLayerSpec, Hex, LayerMarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode } from './types';
+import { layerLookRest, type LookFail } from '../gen/layerLook';
 
 export class PluginApiError extends Error {
   constructor(
@@ -234,8 +235,6 @@ export const MARK_TEXT_MAX = 40;
 /** 一个标注图层里的地块和点一共最多几个 */
 export const MARK_POINTS_MAX = 200_000;
 const TITLE_MAX = 40;
-const RAMP_COLORS_MAX = 16;
-const CLASSES_MAX = 32;
 
 /** 网站这边的一份地块图层:值换成 Float32Array,不是有限数的换成 NaN */
 export interface CellLayer {
@@ -249,36 +248,16 @@ export interface CellLayer {
   opacity?: number;
 }
 
+/** 样子的查法和存进世界的插件图层同一份(gen/layerLook.ts) */
+const lookFail: LookFail = (kind, text) => (kind === 'limit' ? over(text) : bad(text));
+
 export function checkCellLayer(raw: unknown, cells: number): CellLayer {
   const a = argsOf(raw) as Partial<Record<keyof CellLayerSpec, unknown>>;
   const out: CellLayer = { kind: 'cells', id: id(a.id, 'id'), title: text(a.title, 'title', TITLE_MAX), values: new Float32Array(cells) };
   const v = numbers(a.values, 'values', cells);
   if (v.length !== cells) bad(`values 要有 ${cells} 个(每个地块一个)`);
   for (let i = 0; i < cells; i++) out.values[i] = Number.isFinite(v[i]) ? v[i] : NaN;
-  if ((a.ramp === undefined) === (a.classes === undefined)) bad('ramp 和 classes 给且只给一个');
-  if (a.ramp !== undefined) {
-    const r = isRec(a.ramp) ? a.ramp : bad('ramp 要是对象');
-    const colors = list(r.colors, 'ramp.colors', RAMP_COLORS_MAX).map((c, i) => hex(c, `ramp.colors[${i}]`));
-    if (colors.length < 2) bad('ramp.colors 至少两个');
-    const min = optNum(r.min, 'ramp.min');
-    const max = optNum(r.max, 'ramp.max');
-    if (min !== undefined && max !== undefined && !(min < max)) bad('ramp.min 要小于 max');
-    out.ramp = { colors, ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) };
-  } else {
-    const seen = new Set<number>();
-    out.classes = list(a.classes, 'classes', CLASSES_MAX).map((c, i) => {
-      if (!isRec(c)) return bad(`classes[${i}] 要是对象`);
-      const value = int(c.value, `classes[${i}].value`, -(2 ** 31), 2 ** 31 - 1);
-      if (seen.has(value)) bad(`classes[${i}].value 重了`);
-      seen.add(value);
-      return { value, color: hex(c.color, `classes[${i}].color`), label: text(c.label, `classes[${i}].label`, TITLE_MAX) };
-    });
-    if (!out.classes.length) bad('classes 至少一类');
-  }
-  const legend = optText(a.legend, 'legend', TITLE_MAX);
-  if (legend !== undefined) out.legend = legend;
-  const opacity = optNum(a.opacity, 'opacity', 0, 1);
-  if (opacity !== undefined) out.opacity = opacity;
+  layerLookRest(a, out, lookFail);
   return out;
 }
 

@@ -10,7 +10,7 @@
  * - 能在 worker 和 Node 里跑(服务器共用同一份),不碰 DOM。每一项的耗时都和数据量成正比,没有会卡死的循环
  *
  * 对外:parseManifest(清单)、validateWorld(地图)、validateEras(地形大事以后的各段)、validateCiv(历史)、
- * validateChronicle(编年史)、validateFlags(旗)、validateAuthor(作者内容)、validateThumb(封面)。
+ * validateChronicle(编年史)、validateFlags(旗)、validateAuthor(作者内容)、validateThumb(封面)、validatePluginLayer(插件图层)。
  */
 import { BIOMES } from './biomes';
 import { BOOK_COLS } from './civ/fiscalBook';
@@ -36,6 +36,10 @@ import {
   PLUGIN_DATA_PREFIX,
   PLUGIN_ID,
   PLUGIN_ID_MAX,
+  PLUGIN_LAYERS_MAX,
+  PLUGIN_LAYER_ID,
+  PLUGIN_LAYER_MAX_BYTES,
+  PLUGIN_LAYER_PREFIX,
   SIM_STATE_MAX_BYTES,
   SIM_STATE_PREFIX,
   WORLD_APP,
@@ -43,11 +47,15 @@ import {
   WORLD_KIND,
   broken,
   newer,
+  pluginLayerOf,
   type AuthorContent,
+  type PluginLayerValue,
   type WorldManifest,
 } from './worldFormat';
 import { PLUGIN_LIMITS, type SimPluginState } from './civ/engine/plugin';
 import { OFFICIAL_INFLUENCES } from './civ/influence';
+import { checkStoredChronicle, type ChronicleRefKind } from './civ/engine/pluginChronicle';
+import { checkLayerLook, sameLayerLook } from './layerLook';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES } from './zipStore';
 
 // ---------------------------------------------------------------------------
@@ -321,6 +329,13 @@ function checkPartInfo(raw: unknown, at: string, opts: ManifestOptions): void {
     if (p.by !== id) broken(`${at}.by 要写推演插件 ${id}`);
     if (bytes > SIM_STATE_MAX_BYTES) broken(`${name} 这一块超过上限`);
   }
+  if (name.startsWith(PLUGIN_LAYER_PREFIX)) {
+    const ids = pluginLayerOf(name);
+    if (!ids) broken(`${at}.name 不是 layer.<插件编号>.<图层编号>`);
+    if (p.need !== 'extra') broken(`${at} 是插件图层,只能是 extra`);
+    if (p.by !== ids![0]) broken(`${at}.by 要写插件 ${ids![0]}`);
+    if (bytes > PLUGIN_LAYER_MAX_BYTES) broken(`${name} 这一块超过上限`);
+  }
   const known = KNOWN_PARTS.get(name);
   // 必须有的块只能是 view:当成可选,读的时候就跳过了
   if (known?.required && p.need !== 'view') broken(`${at} 必须是 view`);
@@ -391,6 +406,7 @@ export function parseManifest(bytes: Uint8Array, opts: ManifestOptions): WorldMa
     files.add(file);
   });
   for (const [name, info] of KNOWN_PARTS) if (info.required && !names.has(name)) broken(`缺 ${name} 这一块`);
+  if ([...names].filter((n) => n.startsWith(PLUGIN_LAYER_PREFIX)).length > PLUGIN_LAYERS_MAX) broken(`插件图层最多 ${PLUGIN_LAYERS_MAX} 个`);
 
   const plugins = list(m.plugins, '清单的 plugins');
   if (plugins.length > MANIFEST_MAX_PLUGINS) broken('清单的插件太多');
@@ -581,7 +597,7 @@ const TRADE_EVENT_KINDS = kinds<TradeEvent['kind']>({ open: 1, break: 1, reopen:
 /** 史事的种类:annals.ts 的表就是全的(编译时核对过) */
 const ANNAL_KIND_NAMES = new Set(Object.keys(ANNAL_KINDS));
 /** 编年史条目的种类:史事的种类,再加这几种 */
-const ENTRY_KIND_NAMES = new Set([...ANNAL_KIND_NAMES, ...kinds<Exclude<EntryKind, AnnalKind>>({ reign: 1, faith: 1, era: 1, thought: 1, revolution: 1, coup: 1 })]);
+const ENTRY_KIND_NAMES = new Set([...ANNAL_KIND_NAMES, ...kinds<Exclude<EntryKind, AnnalKind>>({ reign: 1, faith: 1, era: 1, thought: 1, revolution: 1, coup: 1, plugin: 1 })]);
 /** 河、地名路径上的点:都在地图上,最多跨出去一圈(经线那边接回来的)。太离谱的点按长度细分时分不完 */
 function pathPointsOk(a: ArrayLike<number>, step: number, at: string): void {
   for (let i = 0; i + 1 < a.length; i += step) {
@@ -1218,6 +1234,8 @@ export function validateCiv(v: unknown, world: World): asserts v is Civ {
   if (civ.ideology !== undefined) checkIdeology(civ.ideology, c);
   if (civ.trade !== undefined) checkTrade(civ.trade, c);
   if (civ.simPlugins !== undefined) validateSimStates(civ.simPlugins);
+  if (civ.simChronicle !== undefined) checkSimChronicle(civ.simChronicle, c);
+  if (civ.simLayers !== undefined) validateSimLayers(civ.simLayers, { cells: n, regions: c.regions, endYear });
   allStrings(civ, TEXT_ONE_MAX, TEXT_TOTAL_MAX, '历史');
 }
 
@@ -1359,6 +1377,82 @@ export function validateSimStates(v: unknown): asserts v is SimPluginState[] {
   });
 }
 
+const isPluginId = (v: unknown): v is string => typeof v === 'string' && v.length <= PLUGIN_ID_MAX && PLUGIN_ID.test(v);
+
+/** 历史里 simChronicle 那一项:推演插件写的编年史,按年份先后;指代都要在历史里找得到 */
+function checkSimChronicle(raw: unknown, c: Counts): void {
+  const counts: Record<ChronicleRefKind, number> = { polity: c.polities, region: c.regions, settlement: c.settlements, culture: c.cultures };
+  let last = 0;
+  list(raw, '历史的 simChronicle').forEach((x, i) => {
+    const at = `历史的 simChronicle[${i}]`;
+    const l = obj(x, at);
+    onlyKeys(l, ['year', 'by', 'text'], at);
+    const year = num(l.year, `${at}.year`);
+    if (year < last || year > c.endYear) broken(`${at}.year 不对(要按先后、不晚于 ${c.endYear})`);
+    last = year;
+    if (!isPluginId(l.by)) broken(`${at}.by 不是插件编号`);
+    const text = str(l.text, `${at}.text`, NAME_TEXT_MAX);
+    try {
+      checkStoredChronicle(text, (k) => counts[k]);
+    } catch (e) {
+      broken(`${at}.text 不对:${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+}
+
+/** 一个世界里一格是什么、有几格(按 unit) */
+export interface LayerSizes {
+  cells: number;
+  regions: number;
+  /** 跟着历史走的图层:历史推到哪年(年份不能更晚);不给 = 和历史无关(不晚于 END_YEAR_MAX) */
+  endYear?: number;
+}
+
+/**
+ * 插件图层(layer.<插件编号>.<图层编号> 那一块,或者历史里 simLayers 的一项去掉 by、id):不合格抛 broken。
+ * 样子(标题、渐变或分类、图例、透明度)要和工具插件交图层时网站查完的那一份一模一样
+ */
+export function validatePluginLayer(v: unknown, sizes: LayerSizes, at = '插件图层', extra: readonly string[] = []): asserts v is PluginLayerValue {
+  const o = obj(v, at);
+  onlyKeys(o, [...extra, 'title', 'unit', 'years', 'values', 'ramp', 'classes', 'legend', 'opacity'], at);
+  oneOf(o.unit, ['cell', 'region'], `${at}.unit`);
+  let frames = 1;
+  if (o.years !== undefined) {
+    const years = list(o.years, `${at}.years`);
+    const last = sizes.endYear ?? END_YEAR_MAX;
+    if (!years.length) broken(`${at}.years 是空的`);
+    years.forEach((y, i) => {
+      const year = num(y, `${at}.years[${i}]`);
+      if (year < 0 || year > last || (i > 0 && !(year > (years[i - 1] as number)))) broken(`${at}.years[${i}] 不对(要从小到大、在 0 到 ${last} 之间)`);
+    });
+    frames = years.length;
+  }
+  const values = typed(o.values, Float32Array, `${at}.values`, frames * (o.unit === 'cell' ? sizes.cells : sizes.regions));
+  for (let i = 0; i < values.length; i++) if (values[i] === Infinity || values[i] === -Infinity) broken(`${at}.values[${i}] 不是数`);
+  let same = false;
+  try {
+    same = sameLayerLook(o, checkLayerLook(o));
+  } catch (e) {
+    broken(`${at} 的样子不对:${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!same) broken(`${at} 的样子不对(标题、颜色、分类、图例、透明度要是网站查完的那一份)`);
+}
+
+/** 历史里 simLayers 那一项:推演插件存下的图层,(插件, 图层) 不重复 */
+function validateSimLayers(raw: unknown, sizes: LayerSizes): void {
+  const layers = list(raw, '历史的 simLayers');
+  if (layers.length > PLUGIN_LAYERS_MAX) broken('历史的 simLayers 太多');
+  const seen = new Set<string>();
+  layers.forEach((x, i) => {
+    const at = `历史的 simLayers[${i}]`;
+    const l = obj(x, at);
+    if (!isPluginId(l.by) || typeof l.id !== 'string' || !PLUGIN_LAYER_ID.test(l.id) || seen.has(`${l.by}.${l.id}`)) broken(`${at} 的 by、id 不合规矩`);
+    seen.add(`${l.by}.${l.id}`);
+    if (l.unit !== 'region' || l.years === undefined) broken(`${at} 要按州、带年份`);
+    validatePluginLayer(l, sizes, at, ['by', 'id']);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 编年史
 
@@ -1380,6 +1474,7 @@ const entry = (raw: unknown, civ: Civ, at: string, depth: number): void => {
   optInt(e.faith, 0, civ.religion?.faiths.length ?? 0, `${at}.faith`);
   if (e.trade !== undefined) list(e.trade, `${at}.trade`).forEach((t, k) => int(t, 0, civ.trade?.routes.length ?? 0, `${at}.trade[${k}]`));
   optInt(e.thought, 0, THOUGHT_COUNT, `${at}.thought`);
+  if (e.plugin !== undefined && !isPluginId(e.plugin)) broken(`${at}.plugin 不是插件编号`);
   if (e.children !== undefined) {
     // 真实的编年史只折叠一两层;读包函数已经限了总层数,这里再早一点拒绝
     if (depth >= 16) broken(`${at} 折叠得太深`);

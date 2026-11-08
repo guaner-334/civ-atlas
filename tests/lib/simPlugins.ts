@@ -81,6 +81,48 @@ export function chain(id = 'chain', years?: number[]): SimPlugin<SimRead> {
 
 export const quiet = (every = 1): SimPlugin<SimRead> => ({ id: 'quiet', every, act: () => {} });
 
+
+/**
+ * 写编年史、出图层的插件:每 20 年出手,听立国、灭亡,各写一句(指到国、州、城、族);
+ * 一张按州的表(公式算,每 50 年存一份图层),一张两栏的按州的表(插件自己写,第二栏每 30 年存一份:和出手的时刻错开)。
+ * layers = false:同样的表、同样出手,不标图层
+ */
+export function scribe(id = 'scribe', layers = true): SimPlugin<SimRead> {
+  return {
+    id,
+    every: 20,
+    listen: ['found', 'fall'],
+    tables: [
+      { id: 'magic', name: '魔力', unit: 'region', every: 5, min: 0, max: 100, init: 10, off: 0, rate: '0.05 * (nbmean(nb.magic) - magic) + 0.3 - 0.01 * magic' },
+      { id: 'mark', name: '标记', unit: 'region', cols: ['甲', '乙'], input: true, min: 0, max: 9, off: 0 },
+    ],
+    ...(layers
+      ? {
+          layers: [
+            { id: 'magic', table: 'magic', keep: 50, title: '魔力浓度', ramp: { colors: ['#f4f0fa', '#5b2a86'], min: 0, max: 100 }, legend: '魔力' },
+            { id: 'mark-b', table: 'mark', col: '乙', keep: 30, title: '标记', classes: [0, 1, 2].map((v) => ({ value: v, color: ['#cccccc', '#d95f02', '#1b9e77'][v], label: `第 ${v} 类` })) },
+          ],
+        }
+      : {}),
+    act(turn) {
+      const chronicle: { text: string; refs?: Record<string, number> }[] = [];
+      const polities = turn.read.polities();
+      for (const e of turn.heard) {
+        if (e.kind === 'found' && e.settlement >= 0) chronicle.push({ text: '{族:c}之人立{国:p}于{城:s},魔力始聚', refs: { c: polities[e.a].culture, p: e.a, s: e.settlement } });
+        else if (e.kind === 'fall' && e.region >= 0 && turn.rand(e.a, 3) < 0.5) chronicle.push({ text: '{国:p}亡,魔潮漫过{州:r}', refs: { p: e.a, r: e.region } });
+      }
+      if (turn.year % 200 === 0) chronicle.push({ text: `第 ${turn.year} 年,天象如常` });
+      const n = turn.read.regions().count;
+      const mark = new Float64Array(n * 2);
+      for (let r = 0; r < n; r++) {
+        mark[r * 2] = Math.floor(turn.rand(r, turn.year) * 3);
+        mark[r * 2 + 1] = (r + turn.year / 20) % 3;
+      }
+      return { chronicle, tables: { mark } };
+    },
+  };
+}
+
 /** commander 轮着下的几种命令 */
 export const COMMANDER_KINDS = ['declare', 'ally', 'treaty', 'cede', 'found', 'move', 'destroy', 'plague', 'famine', 'quake', 'trek'] as const;
 

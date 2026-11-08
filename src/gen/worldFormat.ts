@@ -13,6 +13,7 @@
  *   parts/thumb.jpg      封面(可选)
  *   parts/ext.xxx.gz     插件存的数据(可选,见 PLUGIN_DATA_PREFIX)
  *   parts/sim.xxx.gz     推演插件推到哪的状态(可选,见 SIM_STATE_PREFIX)
+ *   parts/layer.xxx.yyy.gz  存进世界的插件图层(可选,见 PLUGIN_LAYER_PREFIX)
  *
  * 带 .gz 的块:字节是 gzip 压缩过的 CIVSNAP1(snapshot.ts 的 packValue)。外壳不再压缩。
  * ZIP 里只能有清单和清单列出的块,多一个、少一个都不认:每一个字节都有清单担保,校验、审核才能看全。
@@ -116,6 +117,52 @@ export const SIM_STATE_SCHEMA = 1;
 /** 一块最多多少字节(解压后):20 万地块的世界约 5000 州,插件 64 栏按州的表每格存三份约 8 MB,留四倍 */
 export const SIM_STATE_MAX_BYTES = 32 * 1000 * 1000;
 export const simStatePart = (pluginId: string): string => `${SIM_STATE_PREFIX}${pluginId}`;
+
+/**
+ * 存进世界的插件图层:一个图层一块,块名 layer.<插件编号>.<图层编号>,need 是 extra,by 写这个插件的编号,schema 是 PLUGIN_LAYER_SCHEMA,
+ * 内容是 packValue 打的 PluginLayerValue。网站认得、逐项核对(worldValidate.ts 的 validatePluginLayer)、由网站来画,不算只当字节留着的块。
+ * 同一个文件里有 sim.<插件编号> 的是推演插件推出来的,跟着历史走:读的时候接回 Civ.simLayers,换了历史就整批换掉
+ */
+export const PLUGIN_LAYER_PREFIX = 'layer.';
+export const PLUGIN_LAYER_SCHEMA = 1;
+/** 图层编号:块名最长 64,放下 layer.<最长 32 字的插件编号>. 还剩 25 个字 */
+export const PLUGIN_LAYER_ID = /^[a-z0-9][a-z0-9-]{0,24}$/;
+/** 一块最多多少字节(解压后) */
+export const PLUGIN_LAYER_MAX_BYTES = 8 * 1000 * 1000;
+/** 一个世界最多存几个插件图层 */
+export const PLUGIN_LAYERS_MAX = 16;
+export const pluginLayerPart = (pluginId: string, layerId: string): string => `${PLUGIN_LAYER_PREFIX}${pluginId}.${layerId}`;
+
+/** 块名 → [插件编号, 图层编号];不是合规矩的图层块名 = null */
+export function pluginLayerOf(name: string): [string, string] | null {
+  if (!name.startsWith(PLUGIN_LAYER_PREFIX)) return null;
+  const rest = name.slice(PLUGIN_LAYER_PREFIX.length);
+  const dot = rest.indexOf('.');
+  const plugin = rest.slice(0, dot);
+  const layer = rest.slice(dot + 1);
+  return dot > 0 && plugin.length <= PLUGIN_ID_MAX && PLUGIN_ID.test(plugin) && PLUGIN_LAYER_ID.test(layer) ? [plugin, layer] : null;
+}
+
+/**
+ * 插件图层那一块的内容。画第 y 年时用 years 里不晚于 y 的最后一份,比第一份早不画;
+ * 颜色写成小写的 #rrggbb,标题、图例、分类的名字最长 40 字(和工具插件交的地块图层同一套,layerLook.ts 的 checkLayerLook)
+ */
+export interface PluginLayerValue {
+  title: string;
+  /** 一格是什么:cell 地图的地块,region 历史里的州(Civ.regions) */
+  unit: 'cell' | 'region';
+  /** 每一份是哪一年的(升序、不重复);不给 = 只有一份,哪一年都画它 */
+  years?: number[];
+  /** 份数 × 格数,第 k 份接在第 k − 1 份后面;NaN = 这一格不画 */
+  values: Float32Array;
+  /** 渐变(和 classes 给且只给一个):2–16 个颜色,从 min 到 max(不给 = 按数据的最小最大) */
+  ramp?: { colors: string[]; min?: number; max?: number };
+  /** 分类:值等于 value 的格子涂这种颜色,1–32 类 */
+  classes?: { value: number; color: string; label: string }[];
+  legend?: string;
+  /** 0–1 */
+  opacity?: number;
+}
 
 /** 用过的插件:世界里只记这些,绝不放插件的代码 */
 export interface WorldPlugin {

@@ -26,7 +26,7 @@
  * 纯计算,不碰 DOM:worker 里打包,主线程、Node 里都能读。压缩用平台自带的 CompressionStream('gzip'),没有就不压缩。
  */
 import { sha256, type Snapshot, type SnapshotPart } from './recipe';
-import { SIM_STATE_MAX_BYTES, SIM_STATE_PREFIX } from './worldFormat';
+import { PLUGIN_LAYER_MAX_BYTES, PLUGIN_LAYER_PREFIX, SIM_STATE_MAX_BYTES, SIM_STATE_PREFIX } from './worldFormat';
 
 export * from './recipe';
 
@@ -75,7 +75,7 @@ const MAX_NODES = 1e8;
 
 /** 这一块解压后最多多大 */
 export function partLimit(name: string): number {
-  return PART_LIMITS.get(name) ?? (name.startsWith(SIM_STATE_PREFIX) ? SIM_STATE_MAX_BYTES : UNKNOWN_PART_LIMIT);
+  return PART_LIMITS.get(name) ?? (name.startsWith(SIM_STATE_PREFIX) ? SIM_STATE_MAX_BYTES : name.startsWith(PLUGIN_LAYER_PREFIX) ? PLUGIN_LAYER_MAX_BYTES : UNKNOWN_PART_LIMIT);
 }
 
 /**

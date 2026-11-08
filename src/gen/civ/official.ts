@@ -452,6 +452,7 @@ function bridge(sim: CivSim, seed: number): PluginBridge<SimRead> | null {
     unit: (name) => (officialNames.has(name) ? officialUnit(name as OfficialName) : undefined),
     official: (name) => read.official(name as OfficialName),
     commands: commandTaker(sim, seed),
+    counts: () => ({ polities: pm.polities.length, settlements: pm.settlements.length, cultures: (cultureModelOf(sim)?.cultures ?? pm.cultures).length }),
   };
 }
 

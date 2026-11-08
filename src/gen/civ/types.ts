@@ -694,8 +694,12 @@ export interface Civ {
    * 编年史这类按整段历史算的用它(后面才冒出来的州也认得),地图用这一份本身
    */
   history?: Civ;
+  /** 推演插件写的编年史(按写的先后;存的是带编号的字,显示时换成名字),编年史照字列出;没写过 = 不给 */
+  simChronicle?: import('./engine/pluginChronicle').SimChronicleLine[];
   /** 推演插件推到 endYear 的状态(按 CivParams.plugins 的先后),接着推时照它恢复;没用推演插件 = 不给 */
   simPlugins?: import('./engine/plugin').SimPluginState[];
+  /** 推演插件存下的图层(按插件的先后),世界文件里各是一块 layer.<插件编号>.<图层编号>;没有 = 不给 */
+  simLayers?: import('./engine/pluginLayers').SimLayer[];
 }
 
 /** 地形大事以前的一段:到 until 年为止(不含) */
