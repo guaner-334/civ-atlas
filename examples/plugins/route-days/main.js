@@ -1,5 +1,6 @@
 // 量路程:请用的人在地图上点起点和终点,沿陆路按地形找最省时的路,算要走几天,画出路线
 // 用到:点选(pick.cell)、插件面板和面板上的按钮(panel.set、panel.action)、标注图层(layer.marks)、可选的能力
+// 用的人在「工具」里点开它,网站才开这个插件,所以顶层代码一跑完就请用的人点
 
 const TERRAIN = [
   { name: '平地', below: 500, slow: 1 },
@@ -174,14 +175,26 @@ class Heap {
   };
 
   let picking = false;
-  const measure = async () => {
+  /**
+   * 量一条路。again = 量完一条接着等下一条:上一条路线先留着,点了新的起点才清掉;
+   * 这时用的人不点了(顶上那条的「退出」、Esc),上一条照旧留着
+   */
+  const measure = async (again = false) => {
     if (picking) return;
     picking = true;
+    let cleared = false;
     try {
       // 重新量先清掉上一条:中途退出、点到水上时,地图上不留一条面板里已经没有的路线
-      await clearRoute();
-      await civAtlas.panel.set({ nodes: [{ type: 'text', text: '在地图上点起点。' }] });
-      const a = (await civAtlas.pick.cell({ hint: '点起点' })).cell;
+      if (!again) {
+        await clearRoute();
+        cleared = true;
+        await civAtlas.panel.set({ nodes: [{ type: 'text', text: '在地图上点起点。' }] });
+      }
+      const a = (await civAtlas.pick.cell({ hint: again ? '再点两个点，换一条路' : '点起点' })).cell;
+      if (!cleared) {
+        await clearRoute();
+        cleared = true;
+      }
       if (cells.water[a] !== 0) return await showStart('起点在水上，换一块陆地点。');
       await civAtlas.panel.set({ nodes: [{ type: 'text', text: `起点 ${placeName(a)}。再点终点。` }] });
       const b = (await civAtlas.pick.cell({ hint: '再点终点' })).cell;
@@ -192,10 +205,13 @@ class Heap {
       await showRoute();
     } catch (e) {
       // cancelled = 用的人退出了点选;别的出错码见开发文档
-      await showStart(e.code === 'cancelled' ? '没量完。' : `出错了（${e.code}）：${e.message}`);
+      if (e.code === 'cancelled' && !cleared) return;
+      return await showStart(e.code === 'cancelled' ? '没量完。' : `出错了（${e.code}）：${e.message}`);
     } finally {
       picking = false;
     }
+    // 量完一条接着等下一条:顶上那条一直在,用的人量完一条接着点下一条
+    measure(true);
   };
 
   civAtlas.on('panel.action', (d) => {

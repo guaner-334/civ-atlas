@@ -486,6 +486,37 @@ export function useSelection(): SelectionState {
   return selection.use();
 }
 
+// 地图上画的选中(CivLayer):晚一帧跟上,点了以后面板先上屏,选中层和名字的光晕下一帧再画
+const mapSelection = store<{ sel: MapSelection | null }>({ sel: null });
+let mapSelQueued = false;
+
+function syncMapSelection() {
+  mapSelQueued = false;
+  const { sel } = selection.get();
+  if (mapSelection.get().sel !== sel) mapSelection.set({ sel });
+}
+
+selection.subscribe(() => {
+  if (mapSelQueued) return;
+  if (typeof requestAnimationFrame === 'undefined') return syncMapSelection();
+  mapSelQueued = true;
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    window.clearTimeout(fallback);
+    syncMapSelection();
+  };
+  // 页面在后台时不出帧:最多等 0.2 秒
+  const fallback = window.setTimeout(go, 200);
+  // 下一帧的开头画(面板那一帧画完以后另起一个任务的话,浏览器常先跑后面的帧,高亮要晚两三帧)
+  requestAnimationFrame(() => requestAnimationFrame(go));
+});
+
+export function useMapSelection(): MapSelection | null {
+  return mapSelection.use().sel;
+}
+
 /** 不经过 React 订阅选中的变化(sideStore.ts:侧栏收起时选中了东西,卡片弹出来) */
 export function subscribeSelection(f: () => void): () => void {
   return selection.subscribe(f);

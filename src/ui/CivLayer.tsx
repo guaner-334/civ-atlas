@@ -45,7 +45,7 @@ import { FLASH_MS as TREK_FLASH_MS, flashAlpha, useTrekFlash } from './migration
 import { useEra } from './editsStore';
 import { drawTradeLines, drawTradeNames, tradeShown, type TradeFocus } from '../render/civ/trade';
 import { setTradeHits, useTradeHover } from './tradePick';
-import { drawPlacedLabels, placeMap, placedMarkBox, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
+import { drawPlacedLabels, placeMap, placedMarkBox, shiftPlacement, toCanvas, type LabelItem, type LabelView, type Placement } from '../render/labels/draw';
 import { ensureFonts, fontsReady, preloadFonts } from '../render/labels/fonts';
 import { drawHighlight, drawSelection, drawSelectionLabels } from '../render/civ/highlight';
 import {
@@ -57,6 +57,7 @@ import {
   useCivHighlight,
   useCivShow,
   useCivTime,
+  useMapSelection,
   useResourceView,
   useSelection,
   type MapSelection,
@@ -70,7 +71,7 @@ import { whenDone } from './holdMark';
 import { nearX } from '../render/common';
 import { labelProjection, projector, type MapProj } from '../render/projection';
 import { DETAIL_K } from '../render/detail';
-import { ProjLayer, useMapMoving, useProjection } from './projection';
+import { ProjLayer, getMapFlying, useMapMoving, useProjection } from './projection';
 import { useAvoidBoxes } from './uiAvoid';
 import { CivDetail } from './CivDetail';
 import { playSmooth, useDrawnYear, usePlayQuality } from './playQuality';
@@ -420,7 +421,12 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     () => (hold && civ && hlIn && hlIn.stamp > hlFrom.current && hlIn.polities.length ? { ...hlIn, polities: politiesIn(hlIn.polities, civIn!, civ) } : hlIn),
     [hold, hlIn, civIn, civ],
   );
-  const { sel: pickedIn } = useSelection();
+  const { sel: liveSel } = useSelection();
+  const lateSel = useMapSelection();
+  // 换了历史 / 世界的那一下照当下的:晚一帧的那份还是旧历史里的编号
+  const lateFor = useRef({ civ: civIn, world });
+  if (lateSel === liveSel) lateFor.current = { civ: civIn, world };
+  const pickedIn = lateSel !== liveSel && lateFor.current.civ === civIn && lateFor.current.world === world ? lateSel : liveSel;
   // 备的时候选中的东西按还画着的那份历史的编号画(备料按新的历史的编号)
   const picked = useMemo(
     () => (hold && civ && wasBase ? selectionIn(pickedIn, civIn!, incoming!, civ, wasBase) : pickedIn),
@@ -824,7 +830,7 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
   // 手绘风国都城堡插的国旗:旗的小图加载好了重画
   const flagImages = useFlagImages();
   // 上一次排版的结果:排版看的东西(文字、符号、视口、要让开的框、字体)都没变就接着用 —— 只换了选中、旗子、物产圆章时不重排
-  const lastPlace = useRef<{ geo: LabelItem[]; layer: unknown; extras: unknown; mp: unknown; key: string; placed: Placement } | null>(null);
+  const lastPlace = useRef<{ geo: LabelItem[]; layer: unknown; extras: unknown; mp: unknown; key: string; fixed: string; view: LabelView; placed: Placement } | null>(null);
 
   useLayoutEffect(() => {
     const cv = textRef.current;
@@ -877,11 +883,14 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     const ui = avoid.map((b) => [(b[0] - vis.left) * dpr, (b[1] - vis.top) * dpr, (b[2] - vis.left) * dpr, (b[3] - vis.top) * dpr] as const);
     if (ui.length) lv.reserved = reserveCanvasBoxes(lv, ui);
     const fontOk = fontsReady(fontStyle, text);
-    const pkey = [W, H, lv.scale, lv.ox, lv.oy, dpr, k, bw, lv.frameLeft, lv.wrap, fontStyle, text, fontOk, JSON.stringify(lv.reserved ?? null)].join('|');
+    const fixed = [dpr, bw, fontStyle, text, fontOk].join('|');
+    const pkey = [W, H, lv.scale, lv.ox, lv.oy, k, lv.frameLeft, lv.wrap, fixed, JSON.stringify(lv.reserved ?? null)].join('|');
     const lp = lastPlace.current;
-    const raw =
-      lp && lp.geo === geoItems && lp.layer === mapLayer && lp.extras === extras && lp.mp === mp && lp.key === pkey ? lp.placed : placeMap(items, marks, lv);
-    lastPlace.current = { geo: geoItems, layer: mapLayer, extras, mp, key: pkey, placed: raw };
+    const same = !!lp && lp.geo === geoItems && lp.layer === mapLayer && lp.extras === extras;
+    // 弯边投影里飞过去的途中:不重排,起飞时排好的那一版跟着地方挪(停下来 moving 变回 false 再排)
+    const glide = same && !!mp && moving && getMapFlying() && !!lp.view.proj && lp.fixed === fixed;
+    const raw = same && lp.mp === mp && lp.key === pkey ? lp.placed : glide ? shiftPlacement(lp.placed, lp.view, lv) : placeMap(items, marks, lv);
+    if (!glide) lastPlace.current = { geo: geoItems, layer: mapLayer, extras, mp, key: pkey, fixed, view: lv, placed: raw };
     // 国都的符号总要画(排版时不看重叠),但压在界面下面的也不画(和地球仪一样)
     const placed: Placement = !ui.length
       ? raw

@@ -1,7 +1,7 @@
 /**
  * 用 AI 执行 / 撤销一批修改以后,App 推完在提示条上说结果("已按你说的改写"并带撤销)。
  * 助手(assistantStore.ts)改修改之前用 noteRewrite 记下这一回;App 在修改变了、推完以后用 takeRewriteNote 取走。
- * 只改名的不用重推,助手当场说,不走这里。
+ * 只改名的不用重推,助手当场说,不走这里。插件提的一批修改也走这里,带上自己的说法(say)。
  */
 import type { WorldEdits } from '../gen/edits';
 
@@ -13,6 +13,8 @@ export interface RewriteNote {
   after: WorldEdits;
   /** 提示条上的"撤销"做什么(只有执行时给) */
   undo?: () => void;
+  /** 不照助手那样说:推的时候提示条开头加 busy(后面接"正在重新推演…");推完说 done(from = "从哪年起"的那一年,failed = 几条命令没生效) */
+  say?: { busy?: string; done: (from: string, failed: number) => { text: string; more?: string[] } };
 }
 
 let note: (RewriteNote & { edits: WorldEdits }) | null = null;
@@ -22,7 +24,7 @@ export function takeRewriteNote(e: WorldEdits): RewriteNote | null {
   if (!note || note.edits !== e) return null;
   const n = note;
   note = null;
-  return { kind: n.kind, turn: n.turn, before: n.before, after: n.after, ...(n.undo ? { undo: n.undo } : {}) };
+  return { kind: n.kind, turn: n.turn, before: n.before, after: n.after, ...(n.undo ? { undo: n.undo } : {}), ...(n.say ? { say: n.say } : {}) };
 }
 
 /** 执行 / 撤销一批修改之前调:修改变成 edits 以后,App 推完在提示条上说"已按你说的改写",撤销走 n.undo */
