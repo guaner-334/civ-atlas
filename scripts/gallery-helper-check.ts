@@ -8,9 +8,11 @@
  *   第 2 版规则      交回封面和摘要;和官方规则推出来的封面不一样
  *   用了规则的世界文件 交回封面和规则摘要,摘要和同一套规则的规则作品一样;官方规则的世界文件不带摘要
  *   第 1 版          世界存档、新建参数照旧交回封面和名字
- * 封面存在 --out(默认 snaps/gallery-helper)。没过的打印「没过」,退出码非 0。
+ *   第 3 版试跑      examples/plugins 的三个示例插件在种子 7、2024 上各跑一遍,交回的五项、日志、两张截图合理;
+ *                    改你写的被拦下、出错、清单要了网站没有的能力、文件坏了都照实交回
+ * 封面、试跑的截图和结果存在 --out(默认 snaps/gallery-helper)。--only=trial 只跑第 3 版。没过的打印「没过」,退出码非 0。
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, type Page } from 'playwright';
 import { startDevServer } from './lib/devserver';
@@ -18,11 +20,15 @@ import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { makeSave, worldCheck } from '../src/gen/savefile';
 import { rulesHash } from '../src/gen/civ/ruleShare';
 import { presetHash } from '../src/ui/presetLink';
+import { packPluginFile } from '../src/plugin/pluginFile';
+import { parseZip, writeZip } from '../src/gen/zipStore';
+import { MANIFEST_FILE } from '../src/gen/worldFormat';
 
 const args = process.argv.slice(2);
 const OUT = path.resolve(args.find((a) => a.startsWith('--out='))?.slice(6) ?? 'snaps/gallery-helper');
 mkdirSync(OUT, { recursive: true });
 const WAIT = 180_000;
+const ONLY_TRIAL = args.includes('--only=trial');
 
 const fails: string[] = [];
 const check = (ok: boolean, what: string) => {
@@ -30,11 +36,22 @@ const check = (ok: boolean, what: string) => {
   if (!ok) fails.push(what);
 };
 
+interface TrialRunReply {
+  seed: number;
+  ok: boolean;
+  ms: number;
+  error?: string;
+  log: string[];
+  did: Record<string, string>;
+  shots: { map?: string; panel?: string };
+}
+
 interface Reply {
   type: string;
   v: number;
   id: string;
   ok: boolean;
+  runs?: TrialRunReply[];
   cover?: string;
   info?: { seed: number; year: number; states: number; peoples: number; generator: number };
   texts?: unknown[];
@@ -164,11 +181,92 @@ const putBlob = (page: Page, key: string, b64: string) =>
     [key, b64] as const,
   );
 
-function saveCover(name: string, r: Reply) {
-  if (!r.cover?.startsWith('data:image/jpeg;base64,')) return 0;
-  const buf = Buffer.from(r.cover.slice(r.cover.indexOf(',') + 1), 'base64');
+function saveJpeg(name: string, url: string | undefined) {
+  if (!url?.startsWith('data:image/jpeg;base64,')) return 0;
+  const buf = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64');
   writeFileSync(path.join(OUT, `${name}.jpg`), buf);
   return buf.length;
+}
+const saveCover = (name: string, r: Reply) => saveJpeg(name, r.cover);
+
+/** JPEG 的宽高(读 SOF 段) */
+function jpegSize(url: string | undefined): string {
+  if (!url) return '';
+  const b = Buffer.from(url.slice(url.indexOf(',') + 1), 'base64');
+  for (let i = 2; i + 9 < b.length; ) {
+    if (b[i] !== 0xff) return '';
+    const m = b[i + 1];
+    if (m >= 0xc0 && m <= 0xc3) return `${b.readUInt16BE(i + 7)}×${b.readUInt16BE(i + 5)}`;
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return '';
+}
+
+const DID = ['got', 'picked', 'drew', 'wrote', 'said'];
+
+/** 交一个插件文件试跑,存下截图和结果(不带图),交回每个种子的结果 */
+async function trial(page: Page, name: string, bytes: Uint8Array): Promise<TrialRunReply[]> {
+  await putBlob(page, name, Buffer.from(bytes).toString('base64'));
+  const t = await ask(page, { type: 'civ-atlas:trial', v: 3, id: `t-${name}`, seeds: [7, 2024] }, name);
+  const r = t.reply;
+  check(r.type === 'civ-atlas:trial-done' && r.v === 3 && r.ok && r.runs?.length === 2, `${name}:交回了两个种子(${t.ms} 毫秒)${r.error ? `:${r.error}` : ''}`);
+  const runs = r.runs ?? [];
+  check(JSON.stringify(runs.map((x) => x.seed)) === '[7,2024]', `${name}:种子 7、2024`);
+  for (const x of runs) {
+    check(DID.every((k) => typeof x.did?.[k] === 'string' && x.did[k].length > 0 && [...x.did[k]].length <= 300), `${name}@${x.seed}:五项都有、300 字以内`);
+    check(Array.isArray(x.log) && x.log.length <= 50 && x.log.every((l) => [...l].length <= 300), `${name}@${x.seed}:日志 50 条以内`);
+    const mb = saveJpeg(`trial-${name}-${x.seed}-map`, x.shots.map);
+    const pb = saveJpeg(`trial-${name}-${x.seed}-panel`, x.shots.panel);
+    if (x.shots.map) check(mb <= 600 * 1024 && jpegSize(x.shots.map) === '1200×600', `${name}@${x.seed}:地图截图 1200×600、600 KB 以内(${(mb / 1024).toFixed(0)} KB)`);
+    if (x.shots.panel) check(pb <= 300 * 1024, `${name}@${x.seed}:面板截图 300 KB 以内(${jpegSize(x.shots.panel)},${(pb / 1024).toFixed(0)} KB)`);
+  }
+  writeFileSync(path.join(OUT, `trial-${name}.json`), JSON.stringify(runs.map((x) => ({ ...x, shots: { map: !!x.shots.map, panel: !!x.shots.panel } })), null, 2));
+  return runs;
+}
+
+const packTest = (id: string, requires: string[], code: string) =>
+  packPluginFile({ manifest: { id, name: id, version: '1.0.0', role: 'tool', api: 1, runtime: 'worker', requires, license: 'MIT' }, files: { 'main.js': code, 'README.md': id, LICENSE: 'MIT' } });
+
+/** 第 3 版:三个示例插件,和几个故意写坏的 */
+async function trialChecks(page: Page) {
+  console.log('第 3 版:试跑插件');
+  const ex = (id: string) => new Uint8Array(readFileSync(new URL(`../examples/plugins/${id}/${id}.civplugin`, import.meta.url)));
+  for (const x of await trial(page, 'coast-distance', ex('coast-distance'))) {
+    check(x.ok && !!x.shots.map && !x.shots.panel && x.did.drew.startsWith('地块图层「') && x.did.picked === '没请点' && x.did.wrote === '没有', `离海多远@${x.seed}:画了地块图层、没面板:${JSON.stringify(x.did)}`);
+  }
+  for (const x of await trial(page, 'route-days', ex('route-days'))) {
+    // 两座城隔着水时它只在面板上说走不过去,不画线
+    check(x.ok && !!x.shots.map && !!x.shots.panel && /最大的两座城/.test(x.did.picked), `量路程@${x.seed}:替它点了两座城、有面板:${JSON.stringify(x.did)}`);
+  }
+  for (const x of await trial(page, 'box-summary', ex('box-summary'))) {
+    check(x.ok && !!x.shots.panel && /最大的那一国/.test(x.did.picked) && x.did.wrote === '没有', `框选合计@${x.seed}:框了最大的那一国、有面板:${JSON.stringify(x.did)}`);
+  }
+  const naughtyCode = [
+    '(async () => {',
+    '  const ps = await civAtlas.history.polities({});',
+    "  try { await civAtlas.author.apply({ changes: [{ kind: 'name', key: ps[0].key, name: '改掉' }] }); } catch (e) { civAtlas.log('没改成', e.code); }",
+    "  await civAtlas.panel.set({ nodes: [{ type: 'heading', text: '请输入密码' }, { type: 'text', text: '这是假的' }] });",
+    "  setTimeout(() => { throw new Error('故意出错'); }, 100);",
+    '})();',
+  ].join('\n');
+  for (const x of await trial(page, 'naughty', await packTest('naughty', ['history.read@1', 'author.write@1', 'ui.panel@1'], naughtyCode))) {
+    check(
+      !x.ok && /故意出错/.test(x.error ?? '') && /^想改 1 次，都拦下了/.test(x.did.wrote) && !!x.shots.panel && x.log.some((l) => l.includes('没改成')),
+      `改你写的被拦下、出错照实交回、出错前的面板截到了:${JSON.stringify({ error: x.error, did: x.did, log: x.log })}`,
+    );
+  }
+  // 打包会拦下网站没有的能力:先照常打好,再把清单里的 requires 换掉
+  const ok = parseZip(await packTest('newer', ['world.read@1'], 'civAtlas.log(1);'), 1 << 22);
+  const newerZip = ok.map((e) => {
+    if (e.name !== MANIFEST_FILE) return e;
+    const m = JSON.parse(new TextDecoder().decode(e.data));
+    return { name: e.name, data: new TextEncoder().encode(JSON.stringify({ ...m, requires: ['world.read@1', 'net.fetch@1'] })) };
+  });
+  const newer = await trial(page, 'newer', new Uint8Array(await (await writeZip(newerZip, 1 << 22)).arrayBuffer()));
+  check(newer.every((x) => !x.ok && /网站/.test(x.error ?? '') && x.ms === 0), `清单要了网站没有的能力:${newer[0]?.error}`);
+  await putBlob(page, 'broken', Buffer.from('not a plugin').toString('base64'));
+  const broken = await ask(page, { type: 'civ-atlas:trial', v: 3, id: 't-broken' }, 'broken');
+  check(!!broken.reply.ok && broken.reply.runs?.length === 2 && broken.reply.runs.every((x) => !x.ok && /打不开/.test(x.error ?? '')), `文件坏了:${broken.reply.runs?.[0]?.error}`);
 }
 
 async function main() {
@@ -177,6 +275,13 @@ async function main() {
   try {
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 })).newPage();
     page.on('pageerror', (e) => console.log('  [pageerror]', e.message.slice(0, 200)));
+    if (ONLY_TRIAL) {
+      await page.goto(server.url);
+      const ready = (await openHelper(page, server.url)) as { v: number; versions?: number[] };
+      check(ready.v === 1 && JSON.stringify(ready.versions) === '[1,2,3]', `帮手说准备好了、听得懂第 1、2、3 版:${JSON.stringify(ready)}`);
+      await trialChecks(page);
+      return;
+    }
 
     // 一个用了非官方规则的世界(规则项、地貌的叫法都改了),先存成世界文件带出来
     const set = { name: '战乱年代', version: 1, values: { 'war.odds': 4, 'split.odds': 0, 'war.truce': 0 }, biomes: { temperateDesert: '灰烬荒原' } };
@@ -201,7 +306,7 @@ async function main() {
     const before = await listed();
 
     const ready = (await openHelper(page, server.url)) as { v: number; versions?: number[] };
-    check(ready.v === 1 && JSON.stringify(ready.versions) === '[1,2]', `帮手说准备好了、听得懂第 1、2 版:${JSON.stringify(ready)}`);
+    check(ready.v === 1 && JSON.stringify(ready.versions) === '[1,2,3]', `帮手说准备好了、听得懂第 1、2、3 版:${JSON.stringify(ready)}`);
 
     console.log('第 2 版:世界文件');
     const f = await ask(page, { type: 'civ-atlas:render', v: 2, id: 'f1', kind: 'world', at: 'at=1500' }, 'world');
@@ -263,16 +368,22 @@ async function main() {
     const p = await ask(page, { type: 'civ-atlas:render', v: 1, id: 'p1', kind: 'preset', preset: presetHash({ name: '两块大陆', params: { ...DEFAULT_PARAMS, continents: 2 }, seed: 5730 }).slice(1) });
     saveCover('v1-preset', p.reply);
     check(p.reply.ok && p.reply.v === 1 && p.reply.info?.seed === 5730 && (p.reply.texts?.length ?? 0) > 100, `交回封面和名字(${p.ms} 毫秒,${p.reply.texts?.length} 个名字)`);
+
+    await trialChecks(page);
   } finally {
     await browser.close();
     await server.close();
   }
-  console.log(fails.length ? `\n没过 ${fails.length} 项` : '\n全过了');
-  console.log(`封面在 ${OUT}`);
-  process.exit(fails.length ? 1 : 0);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().then(
+  () => {
+    console.log(fails.length ? `\n没过 ${fails.length} 项` : '\n全过了');
+    console.log(`封面、试跑的截图在 ${OUT}`);
+    process.exit(fails.length ? 1 : 0);
+  },
+  (e) => {
+    console.error(e);
+    process.exit(1);
+  },
+);

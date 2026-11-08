@@ -12,6 +12,11 @@
  *      第 1 版   { type: 'civ-atlas:rendered', v: 1, id, ok: true, cover, info, texts }
  *      第 2 版   { type: 'civ-atlas:rendered', v: 2, id, ok: true, cover, info, rules?(规则作品、用了非官方规则的世界文件才有) }
  *      画不出来: { type: 'civ-atlas:rendered', v, id, ok: false, error: '中文的原因' }
+ *   第 3 版(审插件的试跑):
+ *      后台 → 网站 { type: 'civ-atlas:trial', v: 3, id, file(插件文件,Blob 或 ArrayBuffer), seeds?(只认 7、2024,不给 = 两个都跑) }
+ *      网站 → 后台 { type: 'civ-atlas:trial-done', v: 3, id, ok: true, runs: [{ seed, ok, ms, error?, log, did, shots: { map?, panel? } }] }
+ *                  (runs 和后台存试跑结果的接口收的一样;插件自己出错、没开成都算一份 ok = false 的 run)
+ *                  { type: 'civ-atlas:trial-done', v: 3, id, ok: false, error }(网站这边没跑成,比如生成不了示例世界)
  *
  * - 只认网站所配服务器(VITE_AI_SERVER)那个来源、从上一层框发来的消息;回话也只发给那个来源。没配服务器 = 不帮(不出声)
  * - cover:封面 JPEG(data: 网址,宽高 2:1,1200×600,600 KB 以内);info:种子、停在哪年、那年现存几国几族、生成器版本(都是数)
@@ -29,11 +34,16 @@ import { RULES_NAME_MAX, UNNAMED_RULES } from '../gen/civ/ruleSet';
 
 export const HELPER_V = 1;
 export const HELPER_V2 = 2;
-/** 听得懂的几版 */
+export const HELPER_V3 = 3 as const;
+/** 听得懂的几版(不带试跑时没有第 3 版) */
 export const HELPER_VERSIONS: readonly HelperVersion[] = [HELPER_V, HELPER_V2];
 export const MSG_READY = 'civ-atlas:helper-ready';
 export const MSG_RENDER = 'civ-atlas:render';
 export const MSG_RENDERED = 'civ-atlas:rendered';
+export const MSG_TRIAL = 'civ-atlas:trial';
+export const MSG_TRIAL_DONE = 'civ-atlas:trial-done';
+/** 试跑的示例世界(后台存试跑结果也只收这两个) */
+export const TRIAL_SEEDS: readonly number[] = [7, 2024];
 
 /** 最多列多少个名字 */
 export const TEXTS_MAX = 10000;
@@ -65,6 +75,26 @@ export type RenderRequestV2 = { v: 2; id: string; kind: 'world'; file: Blob; at?
 export type HelperRequest = RenderRequest | RenderRequestV2;
 
 export const versionOf = (r: HelperRequest): HelperVersion => ('v' in r ? r.v : HELPER_V);
+
+/** 后台交来要试跑的插件(第 3 版) */
+export interface TrialRequest {
+  v: 3;
+  id: string;
+  file: Blob;
+  seeds: number[];
+}
+
+/** 一个种子的试跑结果(和后台存试跑结果的接口收的一样) */
+export interface TrialRun {
+  seed: number;
+  ok: boolean;
+  ms: number;
+  error?: string;
+  log: string[];
+  did: { got: string; picked: string; drew: string; wrote: string; said: string };
+  /** JPEG 的 data: 网址;没截到 = 不带 */
+  shots: { map?: string; panel?: string };
+}
 
 export interface HelperInfo {
   seed: number;
@@ -137,6 +167,20 @@ export function readRender(data: unknown): HelperRequest | null {
   return m.save && typeof m.save === 'object' ? { id, kind, save: m.save } : null;
 }
 
+/** 后台发来的"试跑这个插件";不是这种消息、写得不对 = null */
+export function readTrial(data: unknown): TrialRequest | null {
+  if (!data || typeof data !== 'object') return null;
+  const m = data as Record<string, unknown>;
+  if (m.type !== MSG_TRIAL || m.v !== HELPER_V3) return null;
+  if (typeof m.id !== 'string' || !m.id || m.id.length > 200) return null;
+  const file = blobOf(m.file);
+  if (!file) return null;
+  if (m.seeds === undefined) return { v: 3, id: m.id, file, seeds: [...TRIAL_SEEDS] };
+  if (!Array.isArray(m.seeds)) return null;
+  const seeds = TRIAL_SEEDS.filter((s) => (m.seeds as unknown[]).includes(s));
+  return seeds.length ? { v: 3, id: m.id, file, seeds } : null;
+}
+
 /** 去掉控制字符、首尾空白,超长截断(按码位,不切开一个字) */
 function line(v: unknown, max: number): string {
   if (typeof v !== 'string') return '';
@@ -167,8 +211,16 @@ export function tidyRules(r: RulesBrief): RulesBrief {
   return { name: line(r.name, RULES_NAME_MAX) || UNNAMED_RULES, changed: Number.isInteger(r.changed) && r.changed > 0 ? r.changed : 0, brief: line(r.brief, BRIEF_MAX) };
 }
 
-export function readyMsg() {
-  return { type: MSG_READY, v: HELPER_V, versions: [...HELPER_VERSIONS] };
+export function readyMsg(trial = false) {
+  return { type: MSG_READY, v: HELPER_V, versions: trial ? [...HELPER_VERSIONS, HELPER_V3] : [...HELPER_VERSIONS] };
+}
+
+export function trialDoneMsg(id: string, runs: TrialRun[]) {
+  return { type: MSG_TRIAL_DONE, v: HELPER_V3, id, ok: true as const, runs };
+}
+
+export function trialFailedMsg(id: string, error: string) {
+  return { type: MSG_TRIAL_DONE, v: HELPER_V3, id, ok: false as const, error: line(error, 200) || '没跑成' };
 }
 
 export function renderedMsg(id: string, r: Rendered) {
@@ -192,14 +244,32 @@ export interface HelperHost {
 }
 
 /**
- * 开始听后台的消息:只认 origin 这个来源、上一层框发来的;收到一个作品交给 render 画,画好(或出错)按请求的那一版回给后台。
- * 先给后台说一声准备好了。返回停止听的函数
+ * 开始听后台的消息:只认 origin 这个来源、上一层框发来的;收到一个作品交给 render 画,画好(或出错)按请求的那一版回给后台;
+ * 给了 trial 的还听第 3 版的试跑。一次做一件,先给后台说一声准备好了。返回停止听的函数
  */
-export function listenHelper(host: HelperHost, origin: string, render: (req: HelperRequest) => Promise<Rendered>): () => void {
+export function listenHelper(
+  host: HelperHost,
+  origin: string,
+  render: (req: HelperRequest) => Promise<Rendered>,
+  trial?: (req: TrialRequest) => Promise<TrialRun[]>,
+): () => void {
   const parent = host.parent;
   let queue: Promise<void> = Promise.resolve();
   const onMsg = (e: { origin: string; source: unknown; data: unknown }) => {
     if (e.origin !== origin || !parent || e.source !== parent) return;
+    const t = trial ? readTrial(e.data) : null;
+    if (t && trial) {
+      queue = queue.then(async () => {
+        let msg: ReturnType<typeof trialDoneMsg> | ReturnType<typeof trialFailedMsg>;
+        try {
+          msg = trialDoneMsg(t.id, await trial(t));
+        } catch (err) {
+          msg = trialFailedMsg(t.id, err instanceof Error ? err.message : String(err));
+        }
+        parent.postMessage(msg, origin);
+      });
+      return;
+    }
     const req = readRender(e.data);
     if (!req) return;
     const v = versionOf(req);
@@ -215,6 +285,6 @@ export function listenHelper(host: HelperHost, origin: string, render: (req: Hel
     });
   };
   host.addEventListener('message', onMsg);
-  parent?.postMessage(readyMsg(), origin);
+  parent?.postMessage(readyMsg(!!trial), origin);
   return () => host.removeEventListener('message', onMsg);
 }

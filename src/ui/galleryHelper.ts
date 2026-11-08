@@ -10,6 +10,8 @@
  * 封面都是 1200×600 的 JPEG(600 KB 以内);名字、几样数按封面那一年(地图、新建参数 = 结束那年)算(helperWork.ts)。
  * 第 2 版(世界文件、规则)见 helperProtocol.ts 文件头:封面也是政区图,不列名字。
  *
+ * 第 3 版试跑插件见 helperTrial.ts(用到时才下载)。
+ *
  * 生成用和地图同一个后台线程(worker.ts),一次开一个,画完就关;后台每画一个作品另开一个框,框关了线程也就没了。
  * 跟着主程序一起下载(App.tsx 转出来):用到的地图、推演代码和主程序是同一份,首页不多下载。
  */
@@ -29,12 +31,13 @@ import type { Civ } from '../gen/civ/types';
 import type { RasterPatch } from '../gen/rasterPatch';
 import { civAtEra, eraData, eraIndex, eraMapsOf, eraReady, eraShown, patchKey, type EraMaps } from './eras';
 import { xOfLon } from './mapWrap';
-import { drawMapCiv, drawMapTerrain, type ExportMapParams } from '../render/export';
+import { drawMapCiv, drawMapPlugin, drawMapTerrain, type ExportMapParams } from '../render/export';
+import type { CellPaint } from '../render/pluginLayer';
 import { CIV_SHOW_OFF, type CivShow } from '../render/civ/overlay';
 import { renderRealistic } from '../render/realistic';
 import { GLOBE_DEFAULT_LAT, globeFrame, renderGlobeCpu, worldToLonLat } from '../render/globe';
 import { fileYear, helperCounts, helperJob, helperLoad, helperTexts, saveLon } from './helperWork';
-import { helperOrigin, listenHelper, type HelperHost, type HelperRequest, type Rendered, type RenderRequest, type RenderRequestV2 } from './helperProtocol';
+import { helperOrigin, listenHelper, type HelperHost, type HelperRequest, type Rendered, type RenderRequest, type RenderRequestV2, type TrialRequest } from './helperProtocol';
 import { CivPartInbox } from '../civParts';
 import { markTrash, newWorldId } from './saveStore';
 import { holdWorld } from './worldHolds';
@@ -52,7 +55,7 @@ const ERA_WAIT = 20_000;
 /** 世界封面上画的:只有国家色块和国界(不写字、不画战事) */
 const POLITY_SHOW: CivShow = { ...CIV_SHOW_OFF, polities: true };
 
-interface Generated {
+export interface Generated {
   world: World;
   raster: Raster;
   civ: Civ | null;
@@ -70,11 +73,11 @@ class LoadRefused extends Error {
   }
 }
 
-type GenerateInput = Omit<Extract<WorkerRequest, { type: 'generate' }>, 'type' | 'id'>;
+export type GenerateInput = Omit<Extract<WorkerRequest, { type: 'generate' }>, 'type' | 'id'>;
 type RunRequest = ({ type: 'generate' } & GenerateInput) | ({ type: 'load' } & Omit<LoadRequest, 'type' | 'id'>);
 
 /** 开一个后台线程生成(或读存下的内容打开)世界、推演;好了(done)就交回来,地形大事以后各段的主图补丁接着收 */
-function run(req: RunRequest): Promise<Generated> {
+export function run(req: RunRequest): Promise<Generated> {
   return new Promise((resolve, reject) => {
     const w = new Worker(WORKER_URL, { type: 'module' });
     const patches = new Map<string, RasterPatch | null>();
@@ -130,15 +133,16 @@ function run(req: RunRequest): Promise<Generated> {
   });
 }
 
-const canvasOf = (w: number, h: number): HTMLCanvasElement => Object.assign(document.createElement('canvas'), { width: w, height: h });
-const ctxOf = (c: HTMLCanvasElement) => c.getContext('2d') as CanvasRenderingContext2D;
+export const canvasOf = (w: number, h: number): HTMLCanvasElement => Object.assign(document.createElement('canvas'), { width: w, height: h });
+export const ctxOf = (c: HTMLCanvasElement) => c.getContext('2d') as CanvasRenderingContext2D;
 
-/** 世界的封面:手绘地形 + 那一年的国家色块和国界(和主图一样大) */
-function worldCover(world: World, raster: Raster, civ: Civ | null, year: number, lon: number | undefined): HTMLCanvasElement {
+/** 世界的封面:手绘地形 + 那一年的国家色块和国界(和主图一样大);试跑时再盖上插件的地块图层 */
+function worldCover(world: World, raster: Raster, civ: Civ | null, year: number, lon: number | undefined, plugin?: CellPaint): HTMLCanvasElement {
   const c = canvasOf(raster.w, raster.h);
-  const p: ExportMapParams = { world, raster, civ, style: 'fantasy', layer: 'biomes', year, show: POLITY_SHOW, ...(lon !== undefined ? { center: xOfLon(lon, world.width) } : {}) };
+  const p: ExportMapParams = { world, raster, civ, style: 'fantasy', layer: 'biomes', year, show: POLITY_SHOW, ...(lon !== undefined ? { center: xOfLon(lon, world.width) } : {}), ...(plugin ? { plugin } : {}) };
   drawMapTerrain(ctxOf(c), p, canvasOf);
   drawMapCiv(ctxOf(c), p, canvasOf);
+  if (plugin) drawMapPlugin(ctxOf(c), p, canvasOf);
   return c;
 }
 
@@ -189,7 +193,7 @@ function planetCover(world: World, raster: Raster, W = COVER_W, H = COVER_H): HT
 }
 
 /** 缩到 1200×600 的 JPEG(data: 网址),超过 600 KB 就降质量再来 */
-function coverJpeg(src: HTMLCanvasElement): string {
+export function coverJpeg(src: HTMLCanvasElement): string {
   let c = src;
   if (src.width !== COVER_W || src.height !== COVER_H) {
     c = canvasOf(COVER_W, COVER_H);
@@ -208,13 +212,13 @@ function coverJpeg(src: HTMLCanvasElement): string {
 }
 
 /** 停在 year 那年的政区图;地形大事以后画那一段的世界、主图(主图补丁后台慢慢铺,等一会儿;等不到画前面铺好了的那一段) */
-async function politicalCanvas(g: Generated, year: number, lon: number | undefined): Promise<HTMLCanvasElement> {
+export async function politicalCanvas(g: Generated, year: number, lon: number | undefined, plugin?: CellPaint): Promise<HTMLCanvasElement> {
   const { civ } = g;
   const k = civ ? eraIndex(civ, year) : 0;
   if (k > 0) await g.waitEra(k, ERA_WAIT);
   const shown = eraShown(g.maps, g.patches, k);
   const d = eraData({ world: g.world, raster: g.raster }, g.maps, g.patches, shown);
-  return worldCover(d.world, d.raster, civ ? civAtEra(civ, shown) : null, year, lon);
+  return worldCover(d.world, d.raster, civ ? civAtEra(civ, shown) : null, year, lon, plugin);
 }
 
 const politicalCover = async (g: Generated, year: number, lon: number | undefined): Promise<string> => jpegOf(await politicalCanvas(g, year, lon));
@@ -338,5 +342,10 @@ export function startGalleryHelper(): void {
     addEventListener: (t, f) => window.addEventListener(t, f),
     removeEventListener: (t, f) => window.removeEventListener(t, f),
   };
-  listenHelper(host, origin, renderWork);
+  listenHelper(host, origin, renderWork, trialWork);
+}
+
+/** 第 3 版:试跑一个插件(试跑的代码用到时才下载) */
+async function trialWork(req: TrialRequest) {
+  return (await import('./helperTrial')).runTrial(req);
 }

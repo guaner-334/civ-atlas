@@ -73,6 +73,8 @@ export interface PluginSink {
   failed?(call: string, code: PluginErrorCode, text: string): void;
   /** 插件提的一批修改不合格式(bad-args / limit),一处都没改:args 是插件交来的原样 */
   refused?(args: unknown, error: PluginApiError): void;
+  /** 插件调了一次接口(还没查能力;试跑记它拿了什么、发了多少话) */
+  called?(call: string, args: unknown): void;
 }
 
 export interface PluginHostOptions {
@@ -182,6 +184,7 @@ class Host implements PluginHost {
 
   readonly request = (rid: number, call: string, args: unknown) => {
     if (!this.sb) return void this.early.push([rid, call, args]);
+    this.sink.called?.(call, args);
     const need = Object.prototype.hasOwnProperty.call(PLUGIN_METHODS, call) ? PLUGIN_METHODS[call] : undefined;
     if (!need) return this.fail(rid, 'unknown-call', `没有 ${call} 这个调用`, call);
     if (need.length && !need.some((c) => this.has(c))) return this.fail(rid, 'no-permission', `清单里没要 ${need.join(' 或 ')}`, call);

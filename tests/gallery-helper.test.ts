@@ -17,17 +17,22 @@ import {
   MSG_READY,
   MSG_RENDER,
   MSG_RENDERED,
+  MSG_TRIAL,
+  MSG_TRIAL_DONE,
   TEXTS_MAX,
   failedMsg,
   helperOrigin,
   listenHelper,
   readRender,
+  readTrial,
   renderedMsg,
   tidyRules,
   tidyTexts,
   type HelperHost,
   type HelperRequest,
   type Rendered,
+  type TrialRequest,
+  type TrialRun,
 } from '../src/ui/helperProtocol';
 import { fileYear, helperCounts, helperJob, helperLoad, helperTexts } from '../src/ui/helperWork';
 import { fileRules, rulesBrief, rulesJob } from '../src/ui/helperRules';
@@ -233,6 +238,80 @@ describe('第 2 版的话:世界文件、规则', () => {
     expect(order).toEqual(['r1', 'g1']);
     expect(f.sent[1].msg).toMatchObject({ v: 1, id: 'r1', ok: true, texts: result.texts });
     expect(f.sent[2].msg).toEqual({ type: MSG_RENDERED, v: 2, id: 'g1', ok: false, error: '规则链接读不出来：链接里没有规则' });
+  });
+});
+
+describe('第 3 版的话:试跑插件', () => {
+  const file = new Blob([new Uint8Array([80, 75, 3, 4])]);
+  const trialReq = { type: MSG_TRIAL, v: 3, id: 't1', file, seeds: [7, 2024] };
+  const req = { type: MSG_RENDER, v: 1, id: 'r1', kind: 'preset', preset: 'preset=1&seed=7' };
+  const result: Rendered = { cover: COVER, info: { seed: 7, year: 2995, states: 15, peoples: 16, generator: GENERATOR_VERSION }, texts: [] };
+  const run: TrialRun = { seed: 7, ok: true, ms: 420, log: ['起点终点用城名'], did: { got: '地图 1 次', picked: '没请点', drew: '没画', wrote: '没有', said: '1 条，一秒最多 1 条' }, shots: { map: COVER } };
+
+  it('收插件文件(Blob 或 ArrayBuffer);种子只认 7、2024,不给 = 两个都跑;空文件、别的种子、别的版本不认', () => {
+    expect(readTrial(trialReq)).toEqual({ v: 3, id: 't1', file, seeds: [7, 2024] });
+    expect(readTrial({ ...trialReq, seeds: undefined })?.seeds).toEqual([7, 2024]);
+    expect(readTrial({ ...trialReq, seeds: [2024, 5] })?.seeds).toEqual([2024]);
+    expect(readTrial({ ...trialReq, file: new Uint8Array([1, 2]).buffer })?.file).toBeInstanceOf(Blob);
+    expect(readTrial({ ...trialReq, seeds: [5] })).toBeNull();
+    expect(readTrial({ ...trialReq, seeds: '7' })).toBeNull();
+    expect(readTrial({ ...trialReq, file: new Blob([]) })).toBeNull();
+    expect(readTrial({ ...trialReq, v: 2 })).toBeNull();
+    expect(readTrial({ ...trialReq, id: '' })).toBeNull();
+  });
+
+  it('带试跑的帮手说听得懂第 1、2、3 版;试跑完回 trial-done 和每个种子的结果', async () => {
+    const f = fakeHost();
+    const got: TrialRequest[] = [];
+    listenHelper(
+      f.host,
+      SERVER,
+      async () => result,
+      async (r) => {
+        got.push(r);
+        return [run, { ...run, seed: 2024 }];
+      },
+    );
+    expect(f.sent[0].msg).toEqual({ type: MSG_READY, v: 1, versions: [1, 2, 3] });
+    f.send('https://evil.example.com', f.parent, trialReq);
+    f.send(SERVER, {}, trialReq);
+    await tick();
+    expect(got).toEqual([]);
+    f.send(SERVER, f.parent, trialReq);
+    await tick();
+    expect(got.map((r) => r.id)).toEqual(['t1']);
+    expect(f.sent[1]).toEqual({ msg: { type: MSG_TRIAL_DONE, v: 3, id: 't1', ok: true, runs: [run, { ...run, seed: 2024 }] }, origin: SERVER });
+  });
+
+  it('网站这边没跑成:回 ok = false 和原因;和画封面排在一起,一次做一件', async () => {
+    const f = fakeHost();
+    const order: string[] = [];
+    listenHelper(
+      f.host,
+      SERVER,
+      async (r) => {
+        order.push(r.id);
+        await tick();
+        return result;
+      },
+      async (r) => {
+        order.push(r.id);
+        throw new Error('生成世界时出错：后台线程出错');
+      },
+    );
+    f.send(SERVER, f.parent, req);
+    f.send(SERVER, f.parent, trialReq);
+    for (let i = 0; i < 6; i++) await tick();
+    expect(order).toEqual(['r1', 't1']);
+    expect(f.sent[2].msg).toEqual({ type: MSG_TRIAL_DONE, v: 3, id: 't1', ok: false, error: '生成世界时出错：后台线程出错' });
+  });
+
+  it('不带试跑的帮手只说第 1、2 版,收到试跑不理', async () => {
+    const f = fakeHost();
+    listenHelper(f.host, SERVER, async () => result);
+    f.send(SERVER, f.parent, trialReq);
+    await tick();
+    expect(f.sent).toHaveLength(1);
   });
 });
 
