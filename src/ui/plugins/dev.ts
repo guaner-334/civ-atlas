@@ -2,9 +2,13 @@
  * 开发者模式:开关(记在这个浏览器里)、载入正在写的插件、重新载入、日志。
  * 载入的插件不进插件仓库,只在这个页面里跑;它存的数据(store.local、store.world)只放在内存里,刷新网页就没了。
  */
+import { exportNotes } from '../../ai/library';
+import { cleanNoteList } from '../../authorNotes';
+import { buildChronicle } from '../../gen/civ/story/chronicle';
 import { commitPluginEdits } from '../../plugin/editsCommit';
 import { PluginRefused, startPluginHost, type PluginHost, type PluginSource } from '../../plugin/host';
 import { PLUGIN_FILE_EXT, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
+import { memoryStore, type PluginDataStore } from '../../plugin/store';
 import { createStore } from '../createStore';
 import { getEdits } from '../editsStore';
 import { currentWorld } from '../saveStore';
@@ -15,6 +19,8 @@ import { verdictOf } from './verdict';
 const KEY = 'civ-atlas:plugin-dev';
 /** 日志最多留几条,多了丢最早的 */
 const LOGS_MAX = 500;
+/** 插件跑起来以后多久问一声还在不在,也是等它回话的时限 */
+const PING_MS = 5000;
 
 function readMode(): boolean {
   try {
@@ -68,6 +74,7 @@ interface FileHandle {
 type OpenPicker = (o: object) => Promise<FileHandle[]>;
 
 let host: PluginHost | null = null;
+let pinger: ReturnType<typeof setInterval> | null = null;
 let handle: FileHandle | null = null;
 /** 用的人最近一次同意的清单:重新载入时要的东西没多就不再问 */
 let granted: PluginManifest | null = null;
@@ -99,8 +106,23 @@ export function clearDevLogs(): void {
 function stopHost() {
   const h = host;
   host = null;
+  if (pinger) clearInterval(pinger);
+  pinger = null;
   h?.stop();
 }
+
+/** 插件存进世界的数据跟着打开的那个世界(看的年份跨过地形大变时地图换了一份,还是同一个世界) */
+const worldStores = new Map<string, PluginDataStore>();
+const worldStore = (): PluginDataStore => {
+  const id = currentWorld()?.id ?? '';
+  let st = worldStores.get(id);
+  if (!st) worldStores.set(id, (st = memoryStore()));
+  return st;
+};
+const devWorldStore: PluginDataStore = {
+  get: (pid) => worldStore().get(pid),
+  set: (pid, d) => worldStore().set(pid, d),
+};
 
 /** 收起小卡、停掉载入的插件 */
 export function closeDev(): void {
@@ -121,6 +143,11 @@ function source(r: number): PluginSource {
     civ: () => devWorld.civ,
     edits: () => getEdits(),
     title: () => currentWorld()?.title || '未命名世界',
+    chronicle: () => (devWorld.civ ? buildChronicle(devWorld.civ) : null),
+    notes: () => {
+      const id = currentWorld()?.id;
+      return id ? cleanNoteList(exportNotes(id)) : [];
+    },
     commit: (next, keys) => {
       const why = commitPluginEdits(next, keys);
       log(r, 'site', why ? `没照插件的要求改：${why}` : `照插件的要求改了你写的东西（${keys.length} 处），能撤销`);
@@ -160,14 +187,15 @@ export async function reloadDev(): Promise<boolean> {
   const h = handle;
   const s = state.get();
   if (!h || !s || s.busy) return !!h;
+  const my = epoch;
   let file: File;
   try {
     file = await h.getFile();
   } catch (e) {
-    log(++run, 'error', `读不了 ${s.file}：${(e as Error)?.message ?? e}`);
+    if (my === epoch) log(++run, 'error', `读不了 ${s.file}：${(e as Error)?.message ?? e}`);
     return true;
   }
-  await loadDev(file, h);
+  if (my === epoch && handle === h) await loadDev(file, h);
   return true;
 }
 
@@ -221,6 +249,7 @@ export async function loadDev(file: File, h: FileHandle | null): Promise<void> {
       plugin: opened.manifest,
       code: opened.code,
       source: source(r),
+      stores: { world: devWorldStore },
       sink: {
         log: (text, level) => log(r, level ?? 'info', text),
         failed: (call, code, text) => {
@@ -231,11 +260,12 @@ export async function loadDev(file: File, h: FileHandle | null): Promise<void> {
         if (reason === 'crashed' && detail) log(r, 'error', detail);
         const t = devStopText(reason, detail);
         if (t) log(r, 'site', t);
-        if (host && run === r) host = null;
+        if (run === r) stopHost();
       },
     });
     if (my !== epoch || run !== r) return started.stop();
     host = started;
+    pinger = setInterval(() => void started.sandbox.ping(PING_MS).catch(() => {}), PING_MS);
     done(r, performance.now() - t0, opened.manifest);
   } catch (e) {
     if (e instanceof PluginRefused) log(r, 'error', e.message);
