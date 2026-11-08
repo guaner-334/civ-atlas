@@ -572,6 +572,12 @@ export async function contentTrouble(id: string): Promise<'old' | 'failed' | nul
   }
 }
 
+/** 要按存档重推、却在等本机装上世界记的那一版推演插件(插件编号);没在等 = 空 */
+export async function simWaitOf(id: string): Promise<string[]> {
+  const state = await call('stateOf', [id]).catch(() => null);
+  return state?.simWait ?? [];
+}
+
 /** 同一版软件本来不再试失败的世界,所以先清掉记录 */
 export async function saveContentAgain(id: string): Promise<boolean> {
   try {

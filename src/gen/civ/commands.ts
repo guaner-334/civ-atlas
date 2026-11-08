@@ -3,7 +3,7 @@
  * (checkIntervention,不替插件改),收下以后接进干预列表、到那一刻和作者下的干预同一套办(interventions.ts)。
  * from 由推演定(插件出手那一刻的下一格),作者人物、照大纲的几样不能带;国家、州、城、民族给读口里的编号(换成稳定键)或稳定键。
  */
-import { YEAR_TICKS, isCommand, regionOfKey, type Intervention, type InterventionKind } from '../edits';
+import { YEAR_TICKS, isCommand, keyByRegion, regionOfKey, type Intervention, type InterventionKind } from '../edits';
 import { checkIntervention } from '../ivCheck';
 import type { CivSim } from './engine/sim';
 import type { PluginRefused } from './engine/plugin';
@@ -98,16 +98,24 @@ function commandOf(raw: unknown, plugin: string, at: number, key: (ref: Ref, x: 
  */
 function refusals(sim: CivSim, iv: InterventionModel, list: readonly Intervention[], t: number): (RefuseReason | null)[] {
   const pm = iv.pm!;
+  const P = pm.polities;
   const owner = sim.owners[Layer.Polity];
   const peopled = sim.owners[Layer.Culture];
-  /** 前面收下的命令办完以后归属变了的州 → 新主(−1 = 无主,NEW = 立国立出来的新国)、亡了的国 */
+  /** 前面收下的命令办完以后归属变了的州 → 新主(−1 = 无主)、亡了的国 */
   const moved = new Map<number, number>();
   const dead = new Set<number>();
-  const alive = (p: number) => p >= 0 && !dead.has(p) && pm.polities[p].ended === undefined;
-  const NEW = -2;
+  /** 前面收下的立国立出来的新国:按州定位的键 → 编号(接着现有的国往后排,同推演里立国);插件能拿算得出的键接着对它下命令 */
+  const born = new Map<string, number>();
+  const who = (k: string) => {
+    const p = iv.resolve(k);
+    if (p >= 0) return p;
+    const q = keyByRegion(k, iv.of);
+    return q === null ? -1 : (born.get(q) ?? -1);
+  };
+  const alive = (p: number) => p >= 0 && !dead.has(p) && (p >= P.length || P[p].ended === undefined);
   const ownerOf = (r: number) => moved.get(r) ?? owner[r];
   const landsOf = (o: number) => {
-    const out = pm.lands[o].filter((q) => ownerOf(q) === o);
+    const out = (pm.lands[o] ?? []).filter((q) => ownerOf(q) === o);
     for (const [q, x] of moved) if (x === o && owner[q] !== o) out.push(q);
     return out;
   };
@@ -122,20 +130,28 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     if (v.kind !== 'cede' && v.kind !== 'found') return null;
     const r = regionOf(v.region);
     const o = r >= 0 ? ownerOf(r) : -1;
-    const by = v.kind === 'found' ? NEW : iv.resolve(v.a);
+    const by = v.kind === 'found' ? P.length + born.size : who(v.a);
     if (r < 0 || o === by || (v.kind === 'cede' && !alive(by))) return null;
     return [o, r, by];
   };
   const apply = (v: Intervention) => {
     if (v.kind === 'destroy') {
-      const a = iv.resolve(v.a);
-      const b = v.b !== undefined ? iv.resolve(v.b) : -1;
+      const a = who(v.a);
+      const b = v.b !== undefined ? who(v.b) : -1;
       if (!alive(a)) return;
       for (const q of landsOf(a)) moved.set(q, alive(b) && b !== a ? b : -1);
       dead.add(a);
       return;
     }
     const x = loss(v);
+    if (v.kind === 'found') {
+      const r = regionOfKey(v.region, iv.of);
+      if (r >= 0 && r < sim.R) {
+        let n = 0;
+        while (who(`polity:r${r}#${n}`) >= 0) n++;
+        born.set(`polity:${r}#${n}`, P.length + born.size);
+      }
+    }
     if (!x) return;
     const [o, r, by] = x;
     if (o >= 0 && ends(o, r)) {
@@ -147,15 +163,19 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   for (const i of iv.commandsAt(t)) apply(iv.list[i]);
   const blocked = (v: Intervention): RefuseReason | null => {
     if (v.kind === 'destroy') {
-      const a = iv.resolve(v.a);
-      return a >= 0 && iv.protects(a, t) ? 'protect' : null;
+      const a = who(v.a);
+      if (a >= 0 && iv.protects(a, t)) return 'protect';
+      const b = v.b !== undefined ? who(v.b) : -1;
+      return alive(a) && alive(b) && b !== a && iv.halted(b, t) ? 'halt' : null;
     }
     if (v.kind === 'cede' || v.kind === 'found') {
       const x = loss(v);
-      const o = x ? x[0] : -1;
-      if (o < 0) return null;
-      if (iv.protects(o, t) && ends(o, x![1])) return 'protect';
-      return v.kind === 'found' && iv.unites(o, t) ? 'unity' : null;
+      if (!x) return null;
+      const [o, r, by] = x;
+      if (o >= 0 && iv.protects(o, t) && ends(o, r)) return 'protect';
+      // 立国立出来的是新国,不归哪一国,不算谁扩张
+      if (v.kind === 'cede') return iv.halted(by, t) ? 'halt' : null;
+      return o >= 0 && iv.unites(o, t) ? 'unity' : null;
     }
     if (v.kind === 'declare') {
       const a = iv.resolve(v.a);

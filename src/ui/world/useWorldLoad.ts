@@ -111,6 +111,7 @@ import {
   type WallView,
 } from './worldTarget';
 import { simNowFor } from './simNow';
+import { forgetSimError } from '../sim/simClient';
 
 /**
  * 新建中的世界让生成线程顺手画好的写实像素层(见 worker.ts 的 paint):新建界面的星球贴的是卫星画法 sat 那一种
@@ -285,6 +286,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       // 照故事找的世界不带推演插件(找的时候没带)
       simNowFor(t.fullCiv ? null : t.id);
+      forgetSimError();
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块。
@@ -717,12 +719,14 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 带着本机没装的插件存的数据:同一条提示第二行最前面说一句(从我的世界点开的也说),「看看」到世界设定
     if (pluginsUiOn())
       void import('../plugins/worldPlugins')
-        .then((m) => m.missingNote(t.id))
+        .then(async (m) => [await m.missingNote(t.id), await m.missingWall(t.id).catch(() => null)] as const)
         .then(
-          (line) => {
+          ([line, wall]) => {
             if (!line || currentWorld()?.id !== t.id) return;
             const see: ToastAction = { label: '看看', act: 'plugin-see', onClick: () => openOverview('genesis') };
-            say({ kind: warn ? 'warn' : 'ok', text, more: [line, ...lead, ...more], action: held?.action ?? (act ? undefined : see), ...(brief ? { ttl: OK_TTL } : {}) });
+            const get: ToastAction | null = wall ? { label: '去作品墙装同一版', act: 'plugin-wall-same', onClick: () => void import('../plugins/entry').then((e) => e.openWallPlugin(wall)) } : null;
+            const acts = !held?.action && !act && get ? { actions: [see, get] } : { action: held?.action ?? (act ? undefined : see) };
+            say({ kind: warn ? 'warn' : 'ok', text, more: [line, ...lead, ...more], ...acts, ...(brief ? { ttl: OK_TTL } : {}) });
           },
           () => {},
         );

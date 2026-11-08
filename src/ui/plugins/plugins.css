@@ -1411,3 +1411,33 @@
 .st-sheet .sp-more {
   font-size: 14px;
 }
+
+/* 世界用的推演插件没装时问的窗(SimAsk.tsx):一个插件一行 */
+.sim-ask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.sim-ask-it {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--btn);
+}
+.sim-ask-it b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.sim-ask-it small {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}

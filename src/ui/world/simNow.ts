@@ -15,6 +15,8 @@ export interface SimNow {
   files: SimPluginFile[] | null;
   /** files 是 null 时每个插件的核对结果 */
   checks: SimPluginCheck[];
+  /** 从世界清单读的(不是新建中选的):本机装了、删了插件要重新核对 */
+  stored?: boolean;
 }
 
 let now: SimNow | null = null;
@@ -33,6 +35,12 @@ export function setSimNow(s: SimNow | null): void {
 /** 换了世界:记着的是别的世界的就不要了 */
 export function simNowFor(id: string | null): void {
   if (now && now.id !== id) setSimNow(null);
+}
+
+/** 记着的变了就调 f;返回取消的函数 */
+export function subscribeSimNow(f: () => void): () => void {
+  subs.add(f);
+  return () => subs.delete(f);
 }
 
 export function useSimNow(): SimNow | null {

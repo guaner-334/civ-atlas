@@ -1,0 +1,51 @@
+/** 世界用的推演插件本机对不上时问的窗、配方链接灰着:只在世界页用,不进首页 */
+import { useSyncExternalStore } from 'react';
+import type { WorldEdits } from '../../gen/edits';
+import type { SimPluginCheck } from '../../plugin/pluginWorld';
+import { currentWorld } from '../saveStore';
+import { getSimNow, useSimNow } from './simNow';
+
+/** 配方链接带不上推演插件,对方长出来的历史不一样 */
+export const SIM_NO_LINK = '推演插件带不进链接，对方长出来的历史不一样。要发给别人，请存成文件';
+
+/** 世界在等本机装上推演插件才存得下(世界小状态的 simWait):存档菜单里那一句 */
+export function simWaitText(ids: readonly string[]): string {
+  const list = getSimNow()?.list ?? [];
+  const names = ids.map((id) => `「${list.find((p) => p.id === id)?.name ?? id}」`).join('');
+  return `用了推演插件${names}，这台设备没装同一版，内容先照原样留着。看不用装；装上同一版以后会自己存好`;
+}
+
+/** 地图上这个世界用了推演插件:「复制配方链接」灰着 */
+export function useSimLinkOff(): boolean {
+  const s = useSimNow();
+  return !!s && s.id === currentWorld()?.id;
+}
+
+/**
+ * 世界用的推演插件本机对不上时,要接着推(再推、改过去、照大纲)先问一声(plugins/SimAsk.tsx):
+ * 有没装的先说要先装;都装了、有的只有别的版本,问要不要另存一份按新版从第 0 年重推(copy 做这件事)
+ */
+export interface SimAsk {
+  title: string;
+  checks: SimPluginCheck[];
+  /** 改之前、要改成的修改(说这次要做的:再推几年、推演几条命令) */
+  now: WorldEdits;
+  next: WorldEdits;
+  copy: () => void;
+}
+
+let ask: SimAsk | null = null;
+const askSubs = new Set<() => void>();
+export function askSims(a: SimAsk | null): void {
+  ask = a;
+  for (const f of askSubs) f();
+}
+export function useSimAsk(): SimAsk | null {
+  return useSyncExternalStore(
+    (f) => {
+      askSubs.add(f);
+      return () => askSubs.delete(f);
+    },
+    () => ask,
+  );
+}

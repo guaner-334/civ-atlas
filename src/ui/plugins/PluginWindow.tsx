@@ -44,6 +44,7 @@ export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugi
     const where = isSim(m) ? simWhere(phone) : toolWhere(m, phone);
     showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
   }
+  void import('./worldPlugins').then((x) => x.refreshSimNow()).catch(() => {});
   return r.plugin;
 }
 
@@ -169,6 +170,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     await removePlugin(id).catch(() => false);
     setDetail(false);
     await reload();
+    void import('./worldPlugins').then((x) => x.forgetSim(id)).catch(() => {});
   };
 
   /** 投到作品墙:交的就是装着的这一份文件 */

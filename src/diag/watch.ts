@@ -177,8 +177,13 @@ export function installDiagWatch(): void {
   });
 }
 
+let lastSim: { at: number; message: string } | null = null;
+/** 最近一次推到 at 年推不下去时推演里抛的那句(推不下去的卡上给插件作者看);不是这一年 = null */
+export const simErrorAt = (at: number): string | null => (lastSim?.at === at ? lastSim.message : null);
+
 /** 推演推到 at 年推不下去了(线程没坏,交回了停在那一年的历史):推演里抛的错 */
 export function recordSimError(at: number, message: string, stack: string | undefined): void {
+  lastSim = { at, message };
   recordError('worker', `推到第 ${at} 年推不下去了:${message || '推演出错'}`, stack, ctxNow());
 }
 

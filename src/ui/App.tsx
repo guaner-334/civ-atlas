@@ -290,6 +290,7 @@ import {
   type WorkFor,
 } from './world/worldTarget';
 import { simsOf } from './world/simNow';
+import { SimAskHost } from './world/SimAskHost';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -2932,6 +2933,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       {pluginsUiOn() && <PluginsHost phone={narrow} />}
+      {pluginsUiOn() && <SimAskHost phone={narrow} />}
       {pluginsUiOn() && <PluginAskSlot phone={narrow} />}
       {pluginsUiOn() && data && world && <ToolsHost phone={narrow} world={data.world} root={baseData?.world ?? data.world} civ={civ} raw={shownRaw} api={markApi} stage={stageRef} active={toolable} />}
       <FrozenAsk phone={narrow} />

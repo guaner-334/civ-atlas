@@ -217,6 +217,7 @@ describe('首页不带沙箱', () => {
       'src/ui/plugins/DevCard.tsx',
       'src/ui/plugins/GalleryPlugins.tsx',
       'src/ui/plugins/PluginWindow.tsx',
+      'src/ui/plugins/SimAsk.tsx',
       'src/ui/plugins/SimPick.tsx',
       'src/ui/plugins/WorldDataAsk.tsx',
       'src/ui/plugins/WorldPluginsSection.tsx',

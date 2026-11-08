@@ -242,8 +242,8 @@ async function trialChecks(page: Page) {
     check(x.ok && !!x.shots.map && !x.shots.panel && x.did.drew.startsWith('地块图层「') && x.did.picked === '没请点' && x.did.wrote === '没有', `离海多远@${x.seed}:画了地块图层、没面板:${JSON.stringify(x.did)}`);
   }
   for (const x of await trial(page, 'route-days', ex('route-days'))) {
-    // 两座城隔着水时它只在面板上说走不过去,不画线
-    check(x.ok && !!x.shots.map && !!x.shots.panel && /最大的两座城/.test(x.did.picked), `量路程@${x.seed}:替它点了两座城、有面板:${JSON.stringify(x.did)}`);
+    check(x.ok && !!x.shots.map && !!x.shots.panel && /同一块陆地上最大的另一座/.test(x.did.picked), `量路程@${x.seed}:替它点了同一块陆地上的两座城、有面板:${JSON.stringify(x.did)}`);
+    check(/1 条线/.test(x.did.drew), `量路程@${x.seed}:画出了路线:${x.did.drew}`);
   }
   for (const x of await trial(page, 'box-summary', ex('box-summary'))) {
     check(x.ok && !!x.shots.panel && /最大的那一国/.test(x.did.picked) && x.did.wrote === '没有', `框选合计@${x.seed}:框了最大的那一国、有面板:${JSON.stringify(x.did)}`);

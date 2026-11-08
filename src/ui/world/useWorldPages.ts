@@ -25,6 +25,8 @@ import type { SharedWorld } from '../fullWorldPull';
 import { sizeText } from '../sizeWords';
 import { setGoHome } from '../AccountDialogs';
 import { pluginsUiOn } from '../plugins/flag';
+import { askSims } from './simAsk';
+import { getSimNow, sameSims, subscribeSimNow } from './simNow';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
 import { clearEditHistory, getEdits, putEditsQuiet, setHistoryGate } from '../editsStore';
@@ -648,6 +650,16 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const title = loadWorld(r.id)?.save.title ?? newVersionTitle(name);
     showToast({ id: 'save', kind: 'ok', ttl: 0, dismissible: true, text: `「${title}」另存好了`, more: ['地图没变，历史按新版重推了', ...more], action: { label: '打开', act: 'open-copy', onClick: () => openStoredRef.current(r.id) } });
   };
+  // 打开时没装、装上以后:推演带上插件(不然接着推按官方推);线程手上那份不带插件的历史不再接着用,从第 0 年带着插件重推
+  useEffect(
+    () =>
+      subscribeSimNow(() => {
+        const s = getSimNow();
+        if (!s?.stored || s.id !== currentWorld()?.id || !s.files || sameSims(civSetup.current?.simPlugins, s.files)) return;
+        civSetup.current = { ...civSetup.current, simPlugins: s.files };
+      }),
+    [],
+  );
   const saveAsNewRef = useRef(saveAsNewNow);
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
@@ -665,6 +677,25 @@ export function useWorldPages(deps: WorldPagesDeps) {
         return true;
       }
       const c = currentWorld();
+      // 用了推演插件、本机没装或者只有别的版本:先装,或者另存一份按新版重推
+      const sims = pluginsUiOn() ? getSimNow() : null;
+      if (c && sims && sims.id === c.id && !sims.files) {
+        const cur = c;
+        askSims({
+          title: c.title || '未命名世界',
+          checks: sims.checks,
+          now: getEdits(),
+          next,
+          copy: () =>
+            void import('../plugins/worldPlugins').then((m) =>
+              m.copyWithSims(cur.id, next, (id, notes) => {
+                savedCopy.current = { id, line: '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more: notes ? [] : [NOTES_LOST] };
+                openStoredRef.current(id);
+              }),
+            ),
+        });
+        return true;
+      }
       if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return false;
       const now = getEdits();
       const count = Math.max(0, next.interventions.length - now.interventions.length) + Math.max(0, (next.upheavals?.length ?? 0) - (now.upheavals?.length ?? 0));

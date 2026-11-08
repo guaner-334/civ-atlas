@@ -10,7 +10,9 @@ import { pluginsInWorld, recordParams, simParamsOf, simPluginOf, simPluginsIn, t
 import { simPluginsReady } from '../../plugin/simPlugins';
 import { approxBytes } from '../../plugin/protocol';
 import type { PluginDataStore } from '../../plugin/store';
-import { currentWorld, keepWorld } from '../saveStore';
+import { keptMapOf, type WorldEdits } from '../../gen/edits';
+import { copyNotes } from '../../ai/library';
+import { currentWorld, keepWorld, notify, saveAsNewVersion, storageFullWhy } from '../saveStore';
 import { getSimNow, setSimNow } from '../world/simNow';
 import { settleWorld, vaultCall } from '../worldStore';
 import { askData, kbText } from './askState';
@@ -42,6 +44,17 @@ export const namesText = (list: readonly { name: string }[]): string => list.map
 export async function missingNote(worldId: string): Promise<string | null> {
   const miss = withData(await usedPlugins(worldId)).filter((u) => u.here === 'none');
   return miss.length ? `用到了你没装的插件${namesText(miss)}，它${miss.length > 1 ? '们' : ''}存的数据原样留着` : null;
+}
+
+/** 打开世界时那一句里没装的插件:作品墙上现在正是世界记的那一版的,交作品编号(给「去作品墙装同一版」);没有 = null */
+export async function missingWall(worldId: string): Promise<string | null> {
+  const miss = withData(await usedPlugins(worldId)).filter((u) => u.here === 'none' && u.plugin);
+  const { wallWorkOf } = await import('./galleryWatch');
+  for (const u of miss) {
+    const w = wallWorkOf(u.id, u.plugin!.sum);
+    if (w) return w;
+  }
+  return null;
 }
 
 /** 去掉这个世界里所有插件存的数据(先问一句);去掉了 = true */
@@ -128,7 +141,7 @@ export async function loadSimNow(id: string): Promise<void> {
   const list = simPluginsIn(m.plugins);
   if (!list.length) return setSimNow(null);
   const r = await simPluginsReady(m.plugins).catch(() => null);
-  setSimNow({ id, list, files: r?.ok ? r.files : null, checks: r && !r.ok ? r.checks : [] });
+  setSimNow({ id, list, files: r?.ok ? r.files : null, checks: r && !r.ok ? r.checks : [], stored: true });
 }
 
 /** 选上的一个推演插件:编号、滑条拨到几(没拨过的按默认) */
@@ -171,4 +184,27 @@ export function chosenSims(worldId: string | undefined): SimChoice[] {
     const params = recordParams(p);
     return { id: p.id, ...(params ? { params } : {}) };
   });
+}
+
+/** 装了、删了插件以后:地图上这个世界的推演插件本机对不上的,再核对一遍(新建中选的不动) */
+export async function refreshSimNow(): Promise<void> {
+  const s = getSimNow();
+  if (s && (s.stored || !s.files)) await loadSimNow(s.id);
+}
+
+/** 删了一个插件:地图上这个世界用着它的,再核对一遍(推演不再带它的文件) */
+export async function forgetSim(id: string): Promise<void> {
+  const s = getSimNow();
+  if (s?.list.some((p) => p.id === id)) await loadSimNow(s.id);
+}
+
+/** 只装了推演插件别的版本:另存一份(带着 next 这次的修改),按本机现在那一版从第 0 年重推(滑条照原来的);存好交新编号、AI 写的史书跟过去没有 */
+export async function copyWithSims(from: string, next: WorldEdits, open: (id: string, notes: boolean) => void): Promise<void> {
+  // 地图留着的世界另存出来要按存下的地图重算,那一步只认世界清单里记的插件,这里选的带不过去
+  if (keptMapOf(next)) return void notify({ kind: 'warn', text: '这个世界另存不了按新版插件重推的一份', more: ['它的地图是从别的世界留下来的。要照原样接着推，得装回原来那一版'] });
+  const id = saveAsNewVersion(from, next);
+  if (!id) return void notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
+  const notes = copyNotes(from, id);
+  await chooseSims(id, chosenSims(getSimNow()?.id));
+  open(id, notes);
 }
