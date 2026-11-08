@@ -3,16 +3,22 @@
  * 用和用的人从文件装上时同一套沙箱临时开这个插件(不进插件仓库,存的数据只在内存里),照 plugin/trial.ts 的固定办法替它点、
  * 拦下改你写的东西;跑完(或到了限时)截地图(1200×600,带它的图层)和面板,交回它做了什么。用到时才下载。
  * 推演插件另走一条(simTrial):推 3000 年和官方比,见 plugin/simTrial.ts。
+ * 地图插件也另走一条(mapTrial):不带 / 带插件各长一张比,见 plugin/mapTrial.ts;并排的图在这边另长一遍截。
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Civ } from '../gen/civ/types';
 import { DEFAULT_PARAMS } from '../gen/params';
 import type { World } from '../gen/world';
-import type { SimPluginFile } from '../plugin/pluginWorld';
+import { simParamsOf, type MapPluginFile, type SimPluginFile } from '../plugin/pluginWorld';
+import type { MapTrialSeed } from '../plugin/mapTrial';
+import type { MapTrialJob, MapTrialReply } from '../plugin/mapTrialWorker';
+import type { MapLayerSpec } from '../plugin/pluginMap';
 import type { SimTrialSeed } from '../plugin/simTrial';
 import type { SimTrialJob, SimTrialReply } from '../plugin/simTrialWorker';
 import type { CellPaint } from '../render/pluginLayer';
+import { drawMapPlugin, drawMapTerrain, type ExportMapParams } from '../render/export';
+import { CIV_SHOW_OFF } from '../render/civ/show';
 import { PluginRefused, startPluginHost, type PluginHost } from '../plugin/host';
 import { SandboxStopped } from '../plugin/sandbox';
 import { PLUGIN_ICON, PluginFileError, openPluginFile, type OpenedPlugin } from '../plugin/pluginFile';
@@ -22,7 +28,7 @@ import type { PanelNode } from '../plugin/types';
 import { NAME_ZOOM, type MarkFrame } from '../render/marks';
 import { drawPluginMarks } from '../render/pluginMarks';
 import { canvasOf, coverJpeg, ctxOf, politicalCanvas, run, type Generated } from './galleryHelper';
-import type { TrialRequest, TrialRun } from './helperProtocol';
+import { MAP_VIEWS, type MapView, type TrialRequest, type TrialRun } from './helperProtocol';
 import { PluginIcon } from './plugins/pluginIcons';
 import { versionLabel } from './plugins/pluginText';
 import { PanelView } from './plugins/tools/PanelView';
@@ -50,6 +56,7 @@ export async function runTrial(req: TrialRequest): Promise<TrialRun[]> {
     refusal = e instanceof PluginFileError && e.kind === 'newer' ? e.message : `插件文件打不开：${e instanceof Error ? e.message : String(e)}`;
   }
   if (opened?.manifest.role === 'sim') return simTrial(req, opened);
+  if (opened?.manifest.role === 'map') return mapTrial(req, opened);
   const runs: TrialRun[] = [];
   for (const seed of req.seeds) {
     runs.push(
@@ -183,6 +190,159 @@ async function simMapShot(seed: number, civ: Civ, paint: CellPaint | null): Prom
   } finally {
     g.stop();
   }
+}
+
+/** 地图插件两个种子一共最多跑多久(截图另算) */
+const MAP_TRIAL_MS = 180_000;
+/** 并排比的小图 */
+const VIEW_W = 600;
+const VIEW_H = 300;
+const VIEW_BYTES = 200 * 1024;
+
+/** 地图插件:每个种子在一个后台线程里比(plugin/mapTrial.ts);带插件那张长出来了,再在这边不带 / 带插件各长一遍截图 */
+async function mapTrial(req: TrialRequest, p: OpenedPlugin): Promise<TrialRun[]> {
+  const params = simParamsOf(p.manifest.map?.params);
+  const file: MapTrialJob['file'] = { id: p.manifest.id, sum: p.sum, bytes: new Uint8Array(await req.file.arrayBuffer()), ...(Object.keys(params).length ? { params } : {}) };
+  const looks = p.manifest.map?.layers ?? [];
+  const until = performance.now() + MAP_TRIAL_MS;
+  const runs: TrialRun[] = [];
+  for (const seed of req.seeds) {
+    const t0 = performance.now();
+    if (t0 >= until) {
+      runs.push({ seed, ok: false, ms: 0, error: `${MAP_TRIAL_MS / 60_000} 分钟限时到了，没轮到这个种子`, log: [], shots: {} });
+      continue;
+    }
+    const got = await mapInWorker({ seed, file }, until);
+    const r = got.result;
+    const error = got.error ?? r?.error;
+    const shots = r?.map.stats.plugin ? await mapShots(seed, file, looks) : {};
+    runs.push({ seed, ok: !error, ms: Math.round(performance.now() - t0), ...(error ? { error: error.slice(0, 300) } : {}), log: r?.log ?? [], shots, ...(r ? { map: r.map } : {}) });
+  }
+  return runs;
+}
+
+/** 在后台线程里试跑一个种子;到了 until 停掉线程,交回到那时为止的结果(error 写停在哪一步) */
+function mapInWorker(job: MapTrialJob, until: number): Promise<{ result: MapTrialSeed | null; error?: string }> {
+  return new Promise((resolve) => {
+    const w = new Worker(new URL('../plugin/mapTrialWorker.ts', import.meta.url), { type: 'module' });
+    let result: MapTrialSeed | null = null;
+    const finish = (error?: string) => {
+      clearTimeout(timer);
+      w.terminate();
+      resolve({ result, ...(error ? { error } : {}) });
+    };
+    const timer = setTimeout(() => {
+      const m = result?.map;
+      const stage = !m?.stats.plugin ? '长图的时候' : !m.civ.plugin ? '推历史的时候' : !m.edit ? '查两遍一样、改一笔的时候' : '量 20 万地块的时候';
+      finish(`${MAP_TRIAL_MS / 60_000} 分钟限时到了，停在${stage}`);
+    }, until - performance.now());
+    w.onmessage = (e: MessageEvent<MapTrialReply>) => {
+      const m = e.data;
+      if (m.type === 'step') result = m.result;
+      else if (m.type === 'done') {
+        result = m.result;
+        finish();
+      } else finish(`没跑成：${m.error}`);
+    };
+    w.onerror = (e) => finish(`后台线程出错：${e.message || '不知道为什么'}`);
+    w.postMessage(job satisfies MapTrialJob);
+  });
+}
+
+/** 缩到 w×h 的 JPEG,超过 max 字节就降质量再来 */
+function smallJpeg(src: HTMLCanvasElement, w: number, h: number, max: number): string {
+  const c = canvasOf(w, h);
+  const x = ctxOf(c);
+  x.imageSmoothingEnabled = true;
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(src, 0, 0, w, h);
+  try {
+    for (const q of [0.85, 0.75, 0.6, 0.45]) {
+      const url = c.toDataURL('image/jpeg', q);
+      if (!url.startsWith('data:image/jpeg')) break;
+      if (Math.floor(((url.length - url.indexOf(',') - 1) * 3) / 4) <= max) return url;
+    }
+    throw new Error('截图压不下来');
+  } finally {
+    c.width = c.height = 0;
+  }
+}
+
+/** 整张图:地形(手绘风)或一张数据图;plugin = 盖上插件的一张图层 */
+function viewCanvas(g: Generated, view: MapView, plugin?: CellPaint): HTMLCanvasElement {
+  const { world, raster } = g;
+  const c = canvasOf(raster.w, raster.h);
+  const p: ExportMapParams = {
+    world,
+    raster,
+    civ: null,
+    style: view === 'terrain' ? 'fantasy' : 'data',
+    layer: view === 'terrain' ? 'biomes' : view,
+    year: 0,
+    show: CIV_SHOW_OFF,
+    ...(plugin ? { plugin } : {}),
+  };
+  drawMapTerrain(ctxOf(c), p, canvasOf);
+  if (plugin) drawMapPlugin(ctxOf(c), p, canvasOf);
+  return c;
+}
+
+/** 截一张(big = 1200×600 的整张,别的 600×300);截不到 = 不带(后台写「没截到」) */
+function shotOf(g: Generated, view: MapView, plugin?: CellPaint, big = false): string | undefined {
+  let c: HTMLCanvasElement | null = null;
+  try {
+    c = viewCanvas(g, view, plugin);
+    return big ? coverJpeg(c) : smallJpeg(c, VIEW_W, VIEW_H, VIEW_BYTES);
+  } catch {
+    return undefined;
+  } finally {
+    if (c) c.width = c.height = 0;
+  }
+}
+
+/** 不带 / 带插件各长一遍(不推历史),截四样图各一对、带插件的整张地形图、它的每张图层 */
+async function mapShots(seed: number, file: MapPluginFile, looks: readonly MapLayerSpec[]): Promise<TrialRun['shots']> {
+  const shots: TrialRun['shots'] = {};
+  const views: NonNullable<TrialRun['shots']['views']> = {};
+  const params = { ...DEFAULT_PARAMS, seed };
+  try {
+    const g = await run({ type: 'generate', params, scale: 1, skipCiv: true });
+    try {
+      for (const v of MAP_VIEWS) {
+        const s = shotOf(g, v);
+        if (s) views[v] = { official: s };
+      }
+    } finally {
+      g.stop();
+    }
+  } catch {
+    // 长不出来就不带
+  }
+  try {
+    const g = await run({ type: 'generate', params, scale: 1, skipCiv: true, mapPlugins: [file] });
+    try {
+      const map = shotOf(g, 'terrain', undefined, true);
+      if (map) shots.map = map;
+      for (const v of MAP_VIEWS) {
+        const s = shotOf(g, v);
+        if (s) views[v] = { ...views[v], plugin: s };
+      }
+      const layers: Record<string, string> = {};
+      for (const l of looks) {
+        const values = g.world.mapLayers?.find((x) => x.by === file.id && x.id === l.id)?.values;
+        const paint: CellPaint | null = values ? { values, ...(l.ramp ? { ramp: l.ramp } : {}), ...(l.classes ? { classes: l.classes } : {}), ...(l.opacity !== undefined ? { opacity: l.opacity } : {}) } : null;
+        const s = paint && shotOf(g, 'terrain', paint);
+        if (s) layers[l.id] = s;
+      }
+      if (Object.keys(layers).length) shots.layers = layers;
+    } finally {
+      g.stop();
+    }
+  } catch {
+    // 同上
+  }
+  if (Object.keys(views).length) shots.views = views;
+  return shots;
 }
 
 /** 跑完了 = 安静了 TRIAL_QUIET_MS、线程也空着(在算的插件 ping 要等它算完);到了 until 还没完 = false */

@@ -30,7 +30,8 @@ const done = new Map<string, LoadedMap>();
 /** 最多记几个(超了先放掉最久没用的) */
 const KEEP = 8;
 
-async function load(f: MapPluginFile & { bytes: Uint8Array }, key: string, box: MapBoxer): Promise<LoadedMap> {
+/** 打开插件文件、核对是这一版地图插件、滑条补齐了,关进 QuickJS(不记着;用完 plugin.dispose()) */
+export async function loadMapFile(f: MapPluginFile & { bytes: Uint8Array }, key: string, box: MapBoxer): Promise<LoadedMap> {
   let o: Awaited<ReturnType<typeof openPluginFile>>;
   try {
     o = await openPluginFile(f.bytes);
@@ -84,7 +85,7 @@ export async function loadMaps(files: readonly MapPluginFile[], box: MapBoxer): 
     if (p) loaded.delete(key);
     else {
       failed.delete(key);
-      p = load({ ...f, bytes: f.bytes }, key, box);
+      p = loadMapFile({ ...f, bytes: f.bytes }, key, box);
       p.then(
         (l) => void (loaded.get(key) === p && done.set(key, l)),
         (e: unknown) => {
