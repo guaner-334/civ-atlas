@@ -247,6 +247,7 @@ async function pageFile(base: Pick<CommitRequest, 'id' | 'recipe' | 'thumb' | 'a
     recipeKey: offer.recipe,
     parts: offer.parts,
     ...(offer.schemas ? { schemas: offer.schemas } : {}),
+    ...(offer.plugins ? { simPlugins: offer.plugins } : {}),
     made: { app: APP_VERSION, generator: offer.generator, commit: APP_COMMIT, at: new Date().toISOString() },
     readers: offer.readers ?? { ...READER_VERSIONS },
   };
