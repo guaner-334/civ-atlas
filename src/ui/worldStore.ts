@@ -515,7 +515,8 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   // 用的人等着要文件:仓库打不开(硬盘真的满了时 WebKit 连库都打不开)也算得出来,算好了写不下就直接装成文件
   const read = <T>(p: Promise<T>): Promise<T | null> => (asked ? p.catch(() => null) : p);
   const state = await read(call('stateOf', [id]));
-  if (state?.status === 'failed' && state.app === APP_VERSION) return null;
+  // 等推演插件的不算转失败:装上了照样转
+  if (state?.status === 'failed' && state.app === APP_VERSION && !state.simWait) return null;
   const heads = await resultHeads(id);
   const body = { id, thumb: thumbBytes(w.thumb) };
 

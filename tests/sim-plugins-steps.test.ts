@@ -195,6 +195,12 @@ describe('推不下去:推演插件出的错停在那一年、说是哪个插件
     expect(civ.stuck).toEqual({ at: 2, to: 200, plugin: 'probe' });
     expect(civ.endYear).toBe(2);
     expect(civDiff(stuckless(civ), await withPlugins(7, (on) => generateCiv(small, { plugins: on.plugins, endYear: 2 }), list))).toBeNull();
+    // 第 0 年那一刻出手过、第 1 年就出错:停在第 0 年,第 0 年插件写下的照样留着
+    const first = [await fileOf(await breaksAt(1, 1))];
+    const zero = await withPlugins(7, (on) => civOrStuck(small, { plugins: on.plugins, endYear: 200 }), first);
+    expect(zero.stuck).toEqual({ at: 0, to: 200, plugin: 'probe' });
+    expect(zero.simPlugins?.[0].note).toBe(0);
+    expect(civDiff(stuckless(zero), await withPlugins(7, (on) => generateCiv(small, { plugins: on.plugins, endYear: 0 }), first))).toBeNull();
   }, 60_000);
 
   it('推到半路出错:找停在哪年时带着同一套插件,停住的历史和带着插件一口气推到那年一样;再推、照大纲推演也一样', async () => {

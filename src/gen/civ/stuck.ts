@@ -94,16 +94,18 @@ export function findStuck(world: World, params: Partial<CivParams>, from: Civ | 
 
 /**
  * 推演插件在头几年就出错(装不上的头一回出手就出错):从第 0 年起按年份找。
- * 第 0 年那一份不带推演插件(第 0 年那一刻插件就出手了,带着它推不出第 0 年);推不出来 = null
+ * 带着插件连第 0 年都推不出来(第 0 年那一刻插件就出手了)的,第 0 年那一份不带推演插件;推不出来 = null
  */
 function fromZero(world: World, params: Partial<CivParams>, end: number, engine: GrowEngine, snap: (year: number) => number, err: PluginError): Civ | null {
-  let zero: Civ;
-  try {
-    zero = engine.generate(world, { ...params, plugins: undefined, endYear: 0 });
-  } catch {
-    return null;
-  }
-  return bisect(world, params, zero, Math.min(FIRST, Math.ceil(end)), end, engine, snap, err);
+  const zero = (p: Partial<CivParams>): Civ | null => {
+    try {
+      return engine.generate(world, { ...p, endYear: 0 });
+    } catch {
+      return null;
+    }
+  };
+  const ok = zero(params) ?? zero({ ...params, plugins: undefined });
+  return ok && bisect(world, params, ok, Math.min(FIRST, Math.ceil(end)), end, engine, snap, err);
 }
 
 /** 按年份二分,找 ok 那年和 bad 那年之间最后一个从第 0 年推得出来的年份(有地形大事接不着推的、整理时出错的);err = 推到 bad 那年时抛的错 */

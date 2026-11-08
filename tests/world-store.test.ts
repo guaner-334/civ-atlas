@@ -20,7 +20,7 @@ import { _notesSettled, _resetNotes } from '../src/ai/libraryVault';
 import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
-import { APP_COMMIT } from '../src/ui/version';
+import { APP_COMMIT, APP_VERSION } from '../src/ui/version';
 import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearWorldStore, contentTrouble, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, saveContentAgain, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, trashFreed, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
@@ -764,7 +764,7 @@ describe('把现有的世界转进来', () => {
     expect(isDeepStrictEqual(c.civ, generateCiv(generateWorld(PARAMS), { endYear: 300 }))).toBe(true);
   }, 120_000);
 
-  it('用了推演插件的要按存档重推(块坏了):本机没有世界记的那一版就不推、照原样留着,记下在等哪几个;装上了带着插件推,清单照旧记着插件', async () => {
+  it('用了推演插件的要按存档重推(块坏了):本机没有世界记的那一版就不推、照原样留着,记下在等哪几个(记成转失败的也一样);装上了带着插件推,清单照旧记着插件', async () => {
     _resetPluginStore();
     const box: SimBoxer = (spec) => quickjsPlugin(quickjsWasm(), spec);
     const save = makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, 'x', '2026-11-01T00:00:00.000Z');
@@ -789,6 +789,10 @@ describe('把现有的世界转进来', () => {
     expect(jobs).toEqual([]);
     expect(await stateOf(id)).toMatchObject({ corrupt: 1, simWait: ['weariness', 'faith'] });
     expect((await revisionsOf(id)).length).toBe(1);
+    // 用的人点了再存一次、没存上(记成这一版转失败)
+    await patchState(id, { status: 'failed', app: APP_VERSION });
+    await startConversions();
+    expect(jobs).toEqual([]);
 
     for (const b of bytes) await installPlugin(b);
     await startConversions();
@@ -796,6 +800,7 @@ describe('把现有的世界转进来', () => {
     const st = await stateOf(id);
     expect(st?.simWait).toBeUndefined();
     expect(st?.corrupt).toBeUndefined();
+    expect(st?.status).toBeUndefined();
     const file = await openWorldFile(await bytesOf((await revisionFile(id))!), OPEN);
     expect(file.manifest.plugins).toEqual(records);
     expect(isDeepStrictEqual((await readWorldContent(file)).civ, withSims)).toBe(true);
