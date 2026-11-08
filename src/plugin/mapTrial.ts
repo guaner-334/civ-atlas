@@ -296,7 +296,7 @@ export async function trialMap(params: WorldParams, file: MapPluginFile & { byte
     const twice = worldDiff(world, again);
     map.sameTwice = twice === null;
     if (twice) map.sameNote = `长两遍${twice}不一样`;
-    // 改一笔:接着记着的长(前一半、没改地形的星球都记着),另装一份插件、换一个键从头长(什么都没记着),两张比
+    // 改一笔:接着长的那张用着上面记下的没改地形的星球;从头长的另装一份插件、换一个键,什么都没记着
     const edited = generateWorld(params, undefined, [MAP_TRIAL_EDIT], undefined, cache, plugins);
     const fresh = await loadMapFile(file, mapPluginKey(file), box);
     let scratch: World;
