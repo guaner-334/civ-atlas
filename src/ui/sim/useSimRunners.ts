@@ -21,12 +21,13 @@ import { currentWorld, isStored, listWorlds, nextTitle, notify, overwriteWorld, 
 import { askHistory, getEdits, putEditsQuiet } from '../editsStore';
 import { getPending, removePending } from '../pendingStore';
 import { reuseRegions } from '../eras';
-import { getCivTime, setCivTime } from '../civView';
+import { getCivTime, pausePlayback, setCivTime } from '../civView';
 import { setTrialRunner } from '../assistantStore';
 import { setUpRunner } from '../upheavalStore';
 import { getExtend, setExtendBusy, setExtendFresh, setExtendRunner } from '../extendStore';
 import { setOutlineRunner } from '../outlineStore';
 import { clearToast, showToast } from '../Toast';
+import { simGated } from '../world/simAsk';
 import { namesOpt, setupOpt, upsOpt, yearsOpt } from '../world/worldTarget';
 import type { CivRefs, GenRefs, MapRefs, Ref, ResimRefs } from '../world/worldRefs';
 import type { SimClient } from './simClient';
@@ -122,6 +123,11 @@ export function useSimRunners(deps: SimRunnersDeps): void {
         const play = cleanPlay(getEdits().play);
         // 地图上这份历史得正是按现在这份进度推的(不在重推、不在生成)
         if (!p || !play || !rawRef.current || fresh.current || regenRef.current || resimInfo.current || JSON.stringify(play) !== JSON.stringify(civPlay.current ?? null)) return false;
+        // 推演插件本机对不上:先停下问(装上 / 另存),不然这一步会不带插件推
+        if (simGated(getEdits())) {
+          pausePlayback();
+          return false;
+        }
         send({
           type: 'turn',
           id: reqId.current,
@@ -141,7 +147,7 @@ export function useSimRunners(deps: SimRunnersDeps): void {
       },
       start: (year, drop, adv) => {
         const cur = currentWorld();
-        if (!cur || !rawRef.current) return;
+        if (!cur || !rawRef.current || simGated(getEdits())) return;
         // 推进设置只写进新的那个(原来的世界不动)
         const { advance: _old, ...rest } = getEdits();
         void _old;

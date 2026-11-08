@@ -22,8 +22,9 @@ export function useSimLinkOff(): boolean {
 }
 
 /**
- * 世界用的推演插件本机对不上时,要接着推(再推、改过去、照大纲)先问一声(plugins/SimAsk.tsx):
- * 有没装的先说要先装;都装了、有的只有别的版本,问要不要另存一份按新版从第 0 年重推(copy 做这件事)
+ * 世界用的推演插件本机对不上时,要接着推(再推、改过去、照大纲、逐年推演走下一步)先问一声(plugins/SimAsk.tsx):
+ * 有被网站停用的先说停用了,只能另存一份不带它的;有没装的说要先装;都装了、有的只有别的版本,问要不要另存一份按新版从第 0 年重推
+ * (copy 做这件事,drop = 不带的插件)
  */
 export interface SimAsk {
   title: string;
@@ -31,7 +32,16 @@ export interface SimAsk {
   /** 改之前、要改成的修改(说这次要做的:再推几年、推演几条命令) */
   now: WorldEdits;
   next: WorldEdits;
-  copy: () => void;
+  copy: (drop: readonly string[]) => void;
+}
+
+let gate: ((next: WorldEdits) => boolean) | null = null;
+export function setSimGate(f: ((next: WorldEdits) => boolean) | null): void {
+  gate = f;
+}
+/** 要接着推成 next 之前核对推演插件:对不上就问(见 SimAsk),交回 true = 这次不推 */
+export function simGated(next: WorldEdits): boolean {
+  return !!gate && gate(next);
 }
 
 let ask: SimAsk | null = null;

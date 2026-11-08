@@ -6,6 +6,7 @@
  *              几个插件交到同一个影响口:下面一句说两边的数乘在一起(加的口写加在一起),只说明、不挡着
  *   装了没选的 ⊕ 加到最后;最多 4 个,满了灰着
  *   一个都没装 说推演插件是什么、去插件页装
+ *   以它为底稿带过来、本机没装的 照旧列在选上的里、标「你没装」:装上或移出以前不能开始推演
  *
  * 选的记在 world/simNow.ts(推演带上它们的文件);建好以后不能换。
  */
@@ -16,13 +17,17 @@ import { Icon } from '../icons';
 import { ParamField, rangeFill } from '../ParamField';
 import type { SliderLike } from '../genesisSliders';
 import { currentWorld } from '../saveStore';
+import { useSimNow } from '../world/simNow';
 import { PuzzleIcon, openPlugins, subscribePluginsOpen } from './entry';
 import { PluginIcon, useIcons } from './pluginIcons';
 import { versionLabel } from './pluginWords';
 import { chooseSims, chosenSims, type SimChoice } from './worldPlugins';
+import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import { paramDigits, paramStep, paramsBrief, sharedNotes, simBrief } from './simPickText';
 import { useVerdicts, verdictOf } from './verdict';
 import './plugins.css';
+
+type Missing = Extract<SimPluginCheck, { status: 'missing' }>;
 
 export interface SimPickProps {
   phone: boolean;
@@ -52,6 +57,14 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
   const [open, setOpen] = useState<string | null>(null);
   useVerdicts();
   const icons = useIcons(installed);
+  const simNow = useSimNow();
+  const carried = simNow && simNow.id === worldId ? simNow.checks.filter((c): c is Missing => c.status === 'missing') : [];
+  // 别处改了选的(带过来的装上了、停用名单变了):照记着的换
+  useEffect(() => {
+    const next = chosenSims(worldId);
+    if (JSON.stringify(next) !== JSON.stringify(picksRef.current)) setPicks(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simNow]);
 
   useEffect(() => {
     let live = true;
@@ -70,12 +83,16 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
   }, []);
 
   const usable = (installed ?? []).filter((p) => !verdictOf(p.current.sum, p.id).blocked);
-  const chosen = picks.flatMap((c) => {
+  type Row = { c: SimChoice; p: InstalledPlugin; miss: null } | { c: SimChoice; p: null; miss: Missing };
+  const rows = picks.flatMap((c): Row[] => {
     const p = usable.find((x) => x.id === c.id);
-    return p ? [{ c, p }] : [];
+    if (p) return [{ c, p, miss: null }];
+    const miss = carried.find((x) => x.id === c.id);
+    return miss ? [{ c, p: null, miss }] : [];
   });
+  const chosen = rows.flatMap(({ c, p }) => (p ? [{ c, p }] : []));
   const rest = usable.filter((p) => !picks.some((c) => c.id === p.id));
-  const full = chosen.length >= MAX;
+  const full = rows.length >= MAX;
 
   const commit = (next: SimChoice[]) => {
     setPicks(next);
@@ -83,7 +100,7 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
   };
   // 插件删掉了、被停用了:选上的里去掉;更新了版本:换成现在那一版的文件
   useEffect(() => {
-    if (installed) commit(chosen.map((x) => x.c));
+    if (installed) commit(rows.map((x) => x.c));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [installed]);
 
@@ -144,7 +161,7 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
       </div>
     </>
   );
-  if (installed && !usable.length)
+  if (installed && !usable.length && !rows.length)
     return (
       <div className="sp" data-testid="sim-pick">
         {top}
@@ -164,13 +181,36 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
   return (
     <div className="sp" data-testid="sim-pick">
       {top}
-      {chosen.length > 0 && (
+      {rows.length > 0 && (
         <>
           <div className="sp-sec">
-            选上的<span>{full ? `${chosen.length} / ${MAX}` : phone ? '按住 ≡ 拖动排先后' : '拖 ≡ 排先后'}</span>
+            选上的<span>{full ? `${rows.length} / ${MAX}` : phone ? '按住 ≡ 拖动排先后' : '拖 ≡ 排先后'}</span>
           </div>
           <div className="sp-grp" ref={listRef}>
-            {chosen.map(({ c, p }, i) => {
+            {rows.map(({ c, p, miss }, i) => {
+              if (!p) {
+                const name = miss.plugin.name ?? miss.id;
+                return (
+                  <div key={miss.id} className="sp-item">
+                    <div className="sp-row" data-sim-row={miss.id} data-sim-missing>
+                      <button className="sp-grip" aria-label={`${name}：拖动排先后`} onPointerDown={(e) => drag(e, i)}>
+                        <Glyph d="M5 8h14M5 12h14M5 16h14" />
+                      </button>
+                      <span className="sp-ord">{i + 1}</span>
+                      <PluginIcon src={null} size="sm" />
+                      <span className="sp-nm">
+                        <b>
+                          {name} <span className="plg-tag">{versionLabel(miss.plugin.version)}</span> <span className="plg-tag warn">你没装</span>
+                        </b>
+                        <small>装上同一个插件，或者移出它，才能开始推演</small>
+                      </span>
+                      <button className="sp-rm" data-act="sim-remove" aria-label={`移出${name}`} onClick={() => commit(picks.filter((x) => x.id !== miss.id))}>
+                        <Glyph d="M8 12h8" ring />
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
               const m = p.current.manifest;
               const spec = m.sim?.params ?? {};
               const keys = Object.keys(spec);
@@ -247,7 +287,7 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
       {rest.length > 0 && (
         <>
           <div className="sp-sec">
-            {chosen.length ? '装了没选的' : '装了的'}
+            {rows.length ? '装了没选的' : '装了的'}
             {full && <span>最多 {MAX} 个，先移出一个</span>}
           </div>
           <div className="sp-grp">
