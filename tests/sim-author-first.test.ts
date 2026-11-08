@@ -56,9 +56,9 @@ const small = alive
 type Log = { year: number; refused?: PluginRefused[] }[];
 
 /** 照 plan 在那几年下命令的插件,每回合记下 turn.refused */
-function probe(plan: Readonly<Record<number, unknown[]>>, log: Log): SimPlugin<SimRead> {
+function probe(plan: Readonly<Record<number, unknown[]>>, log: Log, id = 'probe'): SimPlugin<SimRead> {
   return {
-    id: 'probe',
+    id,
     every: 10,
     act(t) {
       log.push({ year: t.year, ...(t.refused ? { refused: t.refused.map((x) => ({ ...x })) } : {}) });
@@ -119,6 +119,30 @@ describe('作者的干预挡下插件的命令', () => {
       refused: [{ kind: 'found', index: 0, why: 'unity' }],
     },
     {
+      name: '先划给禁止分裂的国、再在那里立国:照划过去以后的主人挡',
+      cmds: () => {
+        const r = landsOf(other).find((q) => q !== capRegion(scene.polities[other]))!;
+        return [
+          { kind: 'cede', a: wide.id, region: r },
+          { kind: 'found', region: r },
+        ];
+      },
+      author: (): Intervention => ({ kind: 'unity', a: key(wide.id), ...AT }),
+      refused: [{ kind: 'found', index: 1, why: 'unity' }],
+    },
+    {
+      name: '先从禁止分裂的国划走、再在那里立国:照收',
+      cmds: () => {
+        const r = landsOf(wide.id).find((q) => q !== capRegion(wide))!;
+        return [
+          { kind: 'cede', a: other, region: r },
+          { kind: 'found', region: r },
+        ];
+      },
+      author: (): Intervention => ({ kind: 'unity', a: key(wide.id), ...AT }),
+      refused: [],
+    },
+    {
       name: '不许扩张挡它宣战,别国照样能对它宣战',
       cmds: () => [
         { kind: 'declare', a: wide.id, b: other },
@@ -157,7 +181,7 @@ describe('作者的干预挡下插件的命令', () => {
     expect(got.civ.interventions![0]).toEqual(order);
     expect(got.took.length).toBe(plan[Y].length - refused.length);
     expect(got.took.map((v) => v.kind)).toEqual(plan[Y].filter((_, i) => !refused.some((r) => r.index === i)).map((c) => (c as { kind: string }).kind));
-    expect(told(got.log)).toEqual([{ year: Y + 10, refused }]);
+    expect(told(got.log)).toEqual(refused.length ? [{ year: Y + 10, refused }] : []);
     for (const r of refused) expect(REFUSE_REASONS).toContain(r.why);
     // 史事 intervene 只记收下的命令(war 列是干预列表的下标)
     for (const e of got.civ.annals) if (e.kind === 'intervene') expect(e.war).toBeLessThan(got.civ.interventions!.length);
@@ -173,6 +197,20 @@ describe('作者的干预挡下插件的命令', () => {
     expect(kept.civ.polities[small.id].ended).toBeUndefined();
     // 划走的是国都也照收(另有城可以迁都),只挡最后那一州
     expect(kept.took.length).toBe(cityLands(small.id).length - 1);
+  }, 60_000);
+
+  it('两个插件同一刻下命令:后出手的照前一个收下的命令办完以后的归属看', () => {
+    const r = landsOf(other).find((q) => q !== capRegion(scene.polities[other]))!;
+    const one: Log = [];
+    const two: Log = [];
+    const civ = generateCiv(w, {
+      endYear: END,
+      plugins: [probe({ [Y]: [{ kind: 'cede', a: wide.id, region: r }] }, one, 'first'), probe({ [Y]: [{ kind: 'found', region: r }] }, two, 'second')],
+      interventions: [{ kind: 'unity', a: key(wide.id), ...AT }],
+    });
+    expect((civ.interventions ?? []).filter((v) => v.plugin).map((v) => [v.plugin, v.kind])).toEqual([['first', 'cede']]);
+    expect(told(one)).toEqual([]);
+    expect(told(two)).toEqual([{ year: Y + 10, refused: [{ kind: 'found', index: 0, why: 'unity' }] }]);
   }, 60_000);
 
   it('插件自己下的结盟不挡它后来的宣战;作者的干预还没生效、已经到期的不挡', () => {

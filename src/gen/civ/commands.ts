@@ -94,30 +94,51 @@ function commandOf(raw: unknown, plugin: string, at: number, key: (ref: Ref, x: 
 
 /**
  * 作者的干预在 t 那一刻挡下哪几条命令(挡它的干预种类,没挡 = null)。插件下不了 protect、unity、halt、stay,查到的这几样都是作者的。
- * 划州、立国要扣掉这一格已经收下的命令要划走的州再看会不会亡国:不然一次划两州就绕过了不许灭
+ * 这一格收下的命令按先后办,州归谁要照前面收下的(别的插件的、这一批前面的)推着看:不然先划过去再立国、一次划两州就绕过了禁止分裂、不许灭
  */
 function refusals(sim: CivSim, iv: InterventionModel, list: readonly Intervention[], t: number): (RefuseReason | null)[] {
   const pm = iv.pm!;
   const owner = sim.owners[Layer.Polity];
+  const peopled = sim.owners[Layer.Culture];
+  const alive = (p: number) => p >= 0 && pm.polities[p].ended === undefined;
+  /** 前面收下的命令办完以后归属变了的州 → 新主(−1 = 无主,NEW = 立国立出来的新国) */
+  const moved = new Map<number, number>();
+  const NEW = -2;
+  const ownerOf = (r: number) => moved.get(r) ?? owner[r];
+  const landsOf = (o: number) => {
+    const out = pm.lands[o].filter((q) => ownerOf(q) === o);
+    for (const [q, x] of moved) if (x === o && owner[q] !== o) out.push(q);
+    return out;
+  };
   const regionOf = (k: string) => {
     const r = regionOfKey(k, iv.of);
-    return r >= 0 && r < sim.R ? r : -1;
+    return r >= 0 && r < sim.R && peopled[r] >= 0 ? r : -1;
   };
-  /** 这条命令让州的主人丢掉它(划给别国、在那里立国):[原主, 州];不丢 = null */
-  const loss = (v: Intervention): [number, number] | null => {
+  /** 国家 o 再丢了州 r 就没有带城的州了(国都所在州丢了,没处迁都) */
+  const ends = (o: number, r: number) => !landsOf(o).some((q) => q !== r && pm.cityOf[q] >= 0);
+  /** 这条命令让州的主人丢掉它(划给别国、在那里立国):[原主, 州, 得到它的];不丢 = null */
+  const loss = (v: Intervention): [number, number, number] | null => {
     if (v.kind !== 'cede' && v.kind !== 'found') return null;
     const r = regionOf(v.region);
-    const o = r >= 0 ? owner[r] : -1;
-    return o >= 0 && !(v.kind === 'cede' && iv.resolve(v.a) === o) ? [o, r] : null;
+    const o = r >= 0 ? ownerOf(r) : -1;
+    const by = v.kind === 'found' ? NEW : iv.resolve(v.a);
+    if (r < 0 || o === by || (v.kind === 'cede' && !alive(by))) return null;
+    return [o, r, by];
   };
-  const gone = new Set<number>();
-  const take = (v: Intervention) => {
+  const apply = (v: Intervention) => {
+    if (v.kind === 'destroy') {
+      const a = iv.resolve(v.a);
+      const b = v.b !== undefined ? iv.resolve(v.b) : -1;
+      if (alive(a)) for (const q of landsOf(a)) moved.set(q, alive(b) && b !== a ? b : -1);
+      return;
+    }
     const x = loss(v);
-    if (x) gone.add(x[1]);
+    if (!x) return;
+    const [o, r, by] = x;
+    if (o >= 0 && ends(o, r)) for (const q of landsOf(o)) moved.set(q, by);
+    moved.set(r, by);
   };
-  for (const i of iv.commandsAt(t)) take(iv.list[i]);
-  /** 国家 o 再丢了州 r 就没有带城的州了(国都所在州丢了,没处迁都) */
-  const ends = (o: number, r: number) => !pm.lands[o].some((q) => q !== r && !gone.has(q) && pm.cityOf[q] >= 0);
+  for (const i of iv.commandsAt(t)) apply(iv.list[i]);
   const blocked = (v: Intervention): RefuseReason | null => {
     if (v.kind === 'destroy') {
       const a = iv.resolve(v.a);
@@ -125,9 +146,9 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     }
     if (v.kind === 'cede' || v.kind === 'found') {
       const x = loss(v);
-      if (!x) return null;
-      const [o, r] = x;
-      if (iv.protects(o, t) && ends(o, r)) return 'protect';
+      const o = x ? x[0] : -1;
+      if (o < 0) return null;
+      if (iv.protects(o, t) && ends(o, x![1])) return 'protect';
       return v.kind === 'found' && iv.unites(o, t) ? 'unity' : null;
     }
     if (v.kind === 'declare') {
@@ -146,7 +167,7 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   };
   return list.map((v) => {
     const why = blocked(v);
-    if (!why) take(v);
+    if (!why) apply(v);
     return why;
   });
 }
