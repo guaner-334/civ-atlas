@@ -1,0 +1,62 @@
+{
+  "id": "koppen",
+  "name": "柯本气候",
+  "version": "1.0.0",
+  "role": "map",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["gen.climate@1", "gen.layers@1"],
+  "why": {
+    "gen.climate@1": "季风让副热带东岸、离海不远的陆地多下雨",
+    "gen.layers@1": "把每块陆地分成柯本气候的 30 类，画成一张分类图"
+  },
+  "map": {
+    "stages": ["climate", "layers"],
+    "layers": [
+      {
+        "id": "koppen",
+        "title": "柯本气候",
+        "classes": [
+          { "value": 0, "color": "#0000fe", "label": "Af 热带雨林" },
+          { "value": 1, "color": "#0077ff", "label": "Am 热带季风" },
+          { "value": 2, "color": "#46aafa", "label": "Aw 热带草原" },
+          { "value": 3, "color": "#ff0000", "label": "BWh 热沙漠" },
+          { "value": 4, "color": "#ff9696", "label": "BWk 冷沙漠" },
+          { "value": 5, "color": "#f5a500", "label": "BSh 热草原（半干旱）" },
+          { "value": 6, "color": "#ffdc64", "label": "BSk 冷草原（半干旱）" },
+          { "value": 7, "color": "#ffff00", "label": "Csa 地中海式（夏热）" },
+          { "value": 8, "color": "#c8c800", "label": "Csb 地中海式（夏暖）" },
+          { "value": 9, "color": "#969600", "label": "Csc 地中海式（夏凉）" },
+          { "value": 10, "color": "#96ff96", "label": "Cwa 冬干温和（夏热）" },
+          { "value": 11, "color": "#64c864", "label": "Cwb 冬干温和（夏暖）" },
+          { "value": 12, "color": "#329632", "label": "Cwc 冬干温和（夏凉）" },
+          { "value": 13, "color": "#c8ff50", "label": "Cfa 亚热带湿润" },
+          { "value": 14, "color": "#66ff33", "label": "Cfb 温带海洋性" },
+          { "value": 15, "color": "#32c800", "label": "Cfc 亚寒带海洋性" },
+          { "value": 16, "color": "#ff00ff", "label": "Dsa 夏干大陆性（夏热）" },
+          { "value": 17, "color": "#c800c8", "label": "Dsb 夏干大陆性（夏暖）" },
+          { "value": 18, "color": "#963296", "label": "Dsc 夏干亚寒带" },
+          { "value": 19, "color": "#966496", "label": "Dsd 夏干亚寒带（极冷冬）" },
+          { "value": 20, "color": "#aaafff", "label": "Dwa 冬干大陆性（夏热）" },
+          { "value": 21, "color": "#5a78dc", "label": "Dwb 冬干大陆性（夏暖）" },
+          { "value": 22, "color": "#4b50b4", "label": "Dwc 冬干亚寒带" },
+          { "value": 23, "color": "#320087", "label": "Dwd 冬干亚寒带（极冷冬）" },
+          { "value": 24, "color": "#00ffff", "label": "Dfa 湿润大陆性（夏热）" },
+          { "value": 25, "color": "#37c8ff", "label": "Dfb 湿润大陆性（夏暖）" },
+          { "value": 26, "color": "#007d7d", "label": "Dfc 亚寒带（针叶林）" },
+          { "value": 27, "color": "#00465f", "label": "Dfd 亚寒带（极冷冬）" },
+          { "value": 28, "color": "#b2b2b2", "label": "ET 苔原" },
+          { "value": 29, "color": "#666666", "label": "EF 冰原" }
+        ],
+        "legend": "柯本 - 盖格分类",
+        "opacity": 0.85
+      }
+    ],
+    "params": {
+      "monsoon": { "label": "季风强弱", "min": 0, "max": 2, "default": 1, "step": 0.1 }
+    }
+  },
+  "description": "季风让副热带东岸夏天多下雨；再把每块陆地照柯本 - 盖格分类分成 30 类，画成一张气候分类图。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

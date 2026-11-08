@@ -1,7 +1,8 @@
 /**
  * 示例插件(examples/plugins/):重新打包和仓库里的插件文件一个字节不差,许可证是 MIT;
  * 工具插件代码里用到的调用、事件清单里都要了,清单要的能力代码里都用到了。
- * 工具插件在真沙箱里跑出来的面板、图层和存下的对不对得上,见 scripts/sandbox-check.ts;推演插件经 QuickJS 推的见 sim-plugin-examples.test.ts。
+ * 工具插件在真沙箱里跑出来的面板、图层和存下的对不对得上,见 scripts/sandbox-check.ts;推演插件经 QuickJS 推的见 sim-plugin-examples.test.ts,
+ * 地图插件经 QuickJS 长图的见 map-plugin-examples.test.ts。
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,8 +19,8 @@ const EXAMPLES = readdirSync(ROOT, { withFileTypes: true })
   .sort();
 
 describe('示例插件', () => {
-  it('工具四个、推演三个示例都在', () => {
-    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'faith', 'magic', 'pop-density', 'route-days', 'weariness']);
+  it('工具四个、推演三个、地图三个示例都在', () => {
+    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'craters', 'faith', 'koppen', 'magic', 'pop-density', 'route-days', 'tides', 'weariness']);
   });
 
   describe.each(EXAMPLES)('%s', (name) => {
