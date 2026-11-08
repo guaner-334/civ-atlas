@@ -195,6 +195,12 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   for (const f of [async function () {}, function* () {}, async function* () {}]) {
     defProp(getProto(f), 'constructor', { value: ban('函数构造器', RUN), writable: true, configurable: true });
   }
+  // QuickJS 本来没有 console:给一个什么都不做的,插件里留着 console.log 不出错
+  const quiet = {};
+  for (const k of ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'table', 'assert', 'count', 'countReset', 'group', 'groupCollapsed', 'groupEnd', 'time', 'timeLog', 'timeEnd']) {
+    put(quiet, k, () => undefined);
+  }
+  defProp(G, 'console', { value: quiet, writable: true, configurable: true });
 
   const read = {};
   let readKeys = null;

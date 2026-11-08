@@ -1,0 +1,22 @@
+{
+  "id": "faith",
+  "name": "宗教生效",
+  "version": "1.0.0",
+  "role": "sim",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["sim.read@1", "sim.events@1", "sim.state@1", "sim.influence@1", "sim.commands@1", "sim.chronicle@1"],
+  "why": {
+    "sim.read@1": "看各州信什么、各国的国教、谁和谁接壤、圣城在哪",
+    "sim.influence@1": "信异教的州难治、难融合；和异教邻国更容易开战",
+    "sim.commands@1": "圣城落在异教国手里就兴兵去夺；同教的小国联手对付异教强邻"
+  },
+  "sim": {
+    "every": 5,
+    "influences": ["unrest.add", "assim.rate", "war.odds"],
+    "commands": ["declare", "ally"]
+  },
+  "description": "信仰真的起作用：异教的州难治、难融合，异教邻国之间更容易开战；圣城被异教国占了就兴兵去夺，同教的小国联手对付异教强邻。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

@@ -1,0 +1,60 @@
+{
+  "id": "magic",
+  "name": "魔力",
+  "version": "1.0.0",
+  "role": "sim",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["sim.events@1", "sim.tables@1", "sim.influence@1"],
+  "why": {
+    "sim.tables@1": "每州记一个魔力浓度，从灵脉涌出、向邻州漫开、被人耗掉；存成能按年份看的图层",
+    "sim.influence@1": "魔力浓的州，城的人口上限高"
+  },
+  "sim": {
+    "every": 5,
+    "tables": [
+      {
+        "id": "vein",
+        "name": "灵脉",
+        "unit": "region",
+        "every": 1000,
+        "min": 0,
+        "max": 100,
+        "off": 0,
+        "init": "if(rand() < 0.06, 40 + 60 * rand(1), 0)",
+        "rule": "vein"
+      },
+      { "id": "rural", "name": "乡村人口", "unit": "region", "input": true, "min": 0, "max": 1000000000, "off": 0 },
+      {
+        "id": "magic",
+        "name": "魔力",
+        "unit": "region",
+        "every": 5,
+        "min": 0,
+        "max": 100,
+        "off": 0,
+        "init": 0,
+        "consts": { "spread": 0.05, "seep": 0.02, "fade": 0.002, "drain": 0.01, "crowd": 100 },
+        "rate": "spread * (nbmean(nb.magic) - magic) + max(seep * (vein - magic), 0) - fade * magic - drain * magic * min(rural / crowd, 1)"
+      }
+    ],
+    "inputs": { "rural": "rural" },
+    "layers": [
+      {
+        "id": "magic",
+        "table": "magic",
+        "title": "魔力浓度",
+        "ramp": { "colors": ["#1b1036", "#5b2a9e", "#a46cff", "#f2e6ff"], "min": 0, "max": 60 },
+        "legend": "魔力（0–100）",
+        "keep": 50
+      }
+    ],
+    "influences": ["city.capacity"],
+    "params": {
+      "strength": { "label": "魔力对城的影响", "min": 0, "max": 3, "default": 1, "step": 0.5 }
+    }
+  },
+  "description": "每州一个魔力浓度：从灵脉涌出，向邻州漫开，人多的地方被耗掉。魔力浓的州，城的人口上限高。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}
