@@ -210,12 +210,15 @@ describe('首页不带沙箱', () => {
           grew = true;
         }
     }
-    // 现在这样的只有插件页、开发者模式的小卡那一包;别的文件静态 import 了它们就会多出来
+    // 现在这样的只有插件页、开发者模式的小卡、工具(菜单、插件卡)那几包;别的文件静态 import 了它们就会多出来
     expect([...pulls].map((f) => path.relative(ROOT, f).replace(/\\/g, '/')).sort()).toEqual([
       'src/ui/plugins/DevCard.tsx',
       'src/ui/plugins/PluginWindow.tsx',
       'src/ui/plugins/dev.ts',
+      'src/ui/plugins/pluginIcons.tsx',
       'src/ui/plugins/pluginText.ts',
+      'src/ui/plugins/tools/ToolsLayer.tsx',
+      'src/ui/plugins/tools/toolRun.ts',
     ]);
   });
 });

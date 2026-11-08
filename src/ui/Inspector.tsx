@@ -28,7 +28,7 @@ import type { Raster } from '../gen/raster';
 import type { World } from '../gen/world';
 import { populationAt } from '../gen/readers/openQuery';
 import { useEdits } from './editsStore';
-import { clearSelection, setSelection, useCivTime, useSelection, type MapSelection } from './civView';
+import { clearSelection, getSelection, setSelection, useCivTime, useSelection, type MapSelection } from './civView';
 import { usePolityPick } from './Interventions';
 import { CountryPanel } from './CountryPanel';
 import { CityPanel } from './CityPanel';
@@ -52,6 +52,7 @@ import { ownersOf } from './panelData';
 import { phoneSheet, selectionKey } from './flyTo';
 import { useNarrow } from './device';
 import { VELOCITY_MS, releaseVelocity, sheetSnap, type SheetSnap } from './gestures';
+import { closeToolCard, toolCard, toolSlot } from './plugins/toolsState';
 import './countryPanel.css';
 
 /** 最近一次画面板时的历史(冒烟检查、截图挑例子用) */
@@ -90,17 +91,19 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
   const narrow = useNarrow();
   const sheetDrag = useSheetDrag(narrow, sheet);
   const up = useUpUi().on;
+  // 插件卡:没选东西时占这个位置(插件交来的内容由工具那边挂进空位)
+  const tool = toolCard.use();
   lastCiv = civ;
   useSelectionReset(raw, sheetDrag.reset);
-  if (!civ || !raw || (!sel && !up)) return null;
+  if (!civ || !raw || (!sel && !up && !tool)) return null;
   const year = Math.floor(Math.min(civ.endYear, Math.max(0, t.year ?? civ.endYear)));
   const common = { civ, raw, raster, world, year, names: edits.names };
   let body: ReactNode = null;
   // 地形大事的卡片(侧栏「这颗星球」里打开):和选中的东西在同一处
-  const kind = up ? 'upheaval' : sel!.kind;
+  const kind = up ? 'upheaval' : (sel?.kind ?? 'plugin');
   const stable = sel ? selectionKey(raw, sel) : '';
   if (up) body = <UpheavalPanel civ={civ} world={world} phone={narrow} />;
-  else if (!sel) body = null;
+  else if (!sel) body = <div className="plg-slot" ref={toolSlot.set} />;
   else if (sel.kind === 'polity' && civ.polities[sel.id]) body = <CountryPanel {...common} id={sel.id} />;
   else if (sel.kind === 'settlement' && civ.settlements[sel.id]) body = <CityPanel key={stable} {...common} id={sel.id} />;
   else if (sel.kind === 'place' && civ.places[sel.id]) body = <PlacePanel key={stable} {...common} id={sel.id} />;
@@ -149,7 +152,7 @@ export function Inspector({ civ, raw, raster, world }: { civ: Civ | null; raw: C
           <i aria-hidden="true" />
         </button>
       )}
-      {!up && <PlotStrip civ={civ} />}
+      {sel && !up && <PlotStrip civ={civ} />}
       {body}
     </section>
   );
@@ -223,7 +226,8 @@ function useSheetDrag(narrow: boolean, sheet: SheetSnap) {
       setClosing(true);
       setTop(null);
       closeTimer.current = window.setTimeout(() => {
-        clearSelection();
+        if (!getSelection().sel && toolCard.get()) closeToolCard();
+        else clearSelection();
         setClosing(false);
       }, 200);
       return;

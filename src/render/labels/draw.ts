@@ -416,6 +416,57 @@ export function placeMap(items: LabelItem[], marks: LabelMark[], view: LabelView
   return { labels: out, marks: placedMarks };
 }
 
+/** 一条已放上去的文字跟着走的点:世界坐标 + 排版时它在画布上的位置 */
+interface Anchor {
+  wx: number;
+  wy: number;
+  x: number;
+  y: number;
+}
+const anchorsOf = new WeakMap<Placement, (Anchor | null)[]>();
+
+/** 排好的文字和符号搬到另一个视口、不重新避让;from 必须是排出 placed 的那个视口(锚点按它只算一次) */
+export function shiftPlacement(placed: Placement, from: LabelView, to: LabelView): Placement {
+  const marks = placed.marks.map((pm): PlacedMark => {
+    const [x, y] = toCanvas(to, pm.mark.x, pm.mark.y);
+    return { mark: pm.mark, x, y, s: markScale(pm.mark.grow, to) };
+  });
+  let anchors = anchorsOf.get(placed);
+  if (!anchors) {
+    const markAt = new Map(placed.marks.map((pm) => [pm.mark.id, pm]));
+    anchors = placed.labels.map(({ item, glyphs }): Anchor | null => {
+      const pm = item.mark !== undefined ? markAt.get(item.mark) : undefined;
+      if (pm) return { wx: pm.mark.x, wy: pm.mark.y, x: pm.x, y: pm.y };
+      if (item.layout === 'point' && item.path.length >= 2 && !item.planar) {
+        const [x, y] = toCanvas(from, item.path[0], item.path[1]);
+        return { wx: item.path[0], wy: item.path[1], x, y };
+      }
+      let x = 0;
+      let y = 0;
+      for (const g of glyphs) {
+        x += g.x;
+        y += g.y;
+      }
+      x /= glyphs.length || 1;
+      y /= glyphs.length || 1;
+      const w = fromCanvas(from, x, y);
+      return w ? { wx: w[0], wy: w[1], x, y } : null;
+    });
+    anchorsOf.set(placed, anchors);
+  }
+  const labels: PlacedLabel[] = [];
+  placed.labels.forEach((l, i) => {
+    const a = anchors[i];
+    if (!a) return;
+    const [nx, ny] = toCanvas(to, a.wx, a.wy);
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+    // 候选可以自带字号(比 labelPx 小):按两个视口的 labelPx 之比缩放
+    const s = labelPx(l.item, to) / labelPx(l.item, from);
+    labels.push({ ...l, px: l.px * s, glyphs: l.glyphs.map((g) => ({ ch: g.ch, a: g.a, x: nx + (g.x - a.x) * s, y: ny + (g.y - a.y) * s })) });
+  });
+  return { labels, marks };
+}
+
 /** 标注在世界里的横向位置(路径 x 范围的中点;城名 = 自家符号的 x):东西相连时按它决定挪几圈 */
 const itemXs = new WeakMap<LabelItem, number>();
 function itemX(it: LabelItem): number {
