@@ -89,9 +89,13 @@ describe('框发来的话', () => {
 function runWorker(code: string) {
   const sent: unknown[] = [];
   const handlers: ((e: { data: unknown }) => void)[] = [];
+  const rejected: ((e: { reason: unknown }) => void)[] = [];
   const ctx: Record<string, unknown> = {
     postMessage: (m: unknown) => sent.push(m),
-    addEventListener: (type: string, fn: (e: { data: unknown }) => void) => type === 'message' && handlers.push(fn),
+    addEventListener: (type: string, fn: (e: never) => void) => {
+      if (type === 'message') handlers.push(fn as (e: { data: unknown }) => void);
+      else if (type === 'unhandledrejection') rejected.push(fn as (e: { reason: unknown }) => void);
+    },
     Worker: function Worker() {},
     Promise,
     queueMicrotask,
@@ -103,7 +107,7 @@ function runWorker(code: string) {
     handlers.forEach((h) => h({ data }));
     await new Promise((r) => setTimeout(r, 0));
   };
-  return { sent, deliver, ctx };
+  return { sent, deliver, ctx, rejected };
 }
 
 describe('线程里我们那段代码', () => {
@@ -142,6 +146,18 @@ describe('线程里我们那段代码', () => {
       { v, kind: 'pong', id: 1 },
       { v, kind: 'reply', id: 2, ok: true, data: 42 },
       { v, kind: 'post', data: { got: 'hi' } },
+    ]);
+  });
+
+  it('没接住的 Promise 出错记一条 level: error 的日志', async () => {
+    const w = runWorker('');
+    w.sent.length = 0;
+    w.rejected.forEach((fn) => fn({ reason: new TypeError('x is not a function') }));
+    w.rejected.forEach((fn) => fn({ reason: { code: 1 } }));
+    await w.deliver('junk');
+    expect(w.sent).toEqual([
+      { v, kind: 'req', id: 1, call: 'log', args: { text: 'Uncaught (in promise) TypeError: x is not a function', level: 'error' } },
+      { v, kind: 'req', id: 2, call: 'log', args: { text: 'Uncaught (in promise) {"code":1}', level: 'error' } },
     ]);
   });
 
@@ -184,14 +200,22 @@ describe('首页不带沙箱', () => {
 
   it('静态 import plugin/ 下代码的文件,别处只能用 import() 加载它', () => {
     const files = staticImports();
+    // 直接或隔几层静态 import 了 plugin/ 下代码的,都跟着插件代码一起下载
     const pulls = new Set([...files].filter(([, specs]) => specs.some(isPlugin)).map(([f]) => f));
-    const bad: string[] = [];
-    for (const [f, specs] of files) {
-      if (pulls.has(f)) continue;
-      for (const spec of specs) if (spec.startsWith('.') && pulls.has(resolve(f, spec))) bad.push(`${path.relative(ROOT, f)}: ${spec}`);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const [f, specs] of files)
+        if (!pulls.has(f) && specs.some((spec) => spec.startsWith('.') && pulls.has(resolve(f, spec)))) {
+          pulls.add(f);
+          grew = true;
+        }
     }
-    expect(bad).toEqual([]);
-    // 现在这样的只有插件页那一包
-    expect([...pulls].map((f) => path.relative(ROOT, f).replace(/\\/g, '/')).sort()).toEqual(['src/ui/plugins/PluginWindow.tsx', 'src/ui/plugins/pluginText.ts']);
+    // 现在这样的只有插件页、开发者模式的小卡那一包;别的文件静态 import 了它们就会多出来
+    expect([...pulls].map((f) => path.relative(ROOT, f).replace(/\\/g, '/')).sort()).toEqual([
+      'src/ui/plugins/DevCard.tsx',
+      'src/ui/plugins/PluginWindow.tsx',
+      'src/ui/plugins/dev.ts',
+      'src/ui/plugins/pluginText.ts',
+    ]);
   });
 });

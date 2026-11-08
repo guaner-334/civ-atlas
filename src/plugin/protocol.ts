@@ -77,6 +77,7 @@ export const FRAME_SRCDOC = `<!doctype html><html><head><meta http-equiv="Conten
 
 /**
  * 删掉 Worker:插件另开的线程不归 ping 管,能偷偷占满 CPU。
+ * 没接住的 Promise 出错不会让线程停下,记一条 level: 'error' 的日志,不然写插件的人看不到。
  * 顶层里发的话推到微任务里,排在 hello 后面;调接口的参数传不过去(带了函数之类)只让那一次调用失败,code 是 bad-args
  */
 const PRELUDE = `(() => {
@@ -133,6 +134,11 @@ const PRELUDE = `(() => {
   }
   const freeze = (o) => { for (const k of Object.keys(o)) if (o[k] && typeof o[k] === 'object') freeze(o[k]); return Object.freeze(o); };
   Object.defineProperty(self, 'civAtlas', { enumerable: true, value: freeze(api) });
+  self.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason;
+    const t = r && typeof r === 'object' && typeof r.message === 'string' ? (r.name || 'Error') + ': ' + r.message : text(r);
+    request('log', { text: 'Uncaught (in promise) ' + t, level: 'error' }).catch(() => {});
+  });
   self.addEventListener('message', (e) => {
     const m = e.data;
     if (!m || m.v !== V) return;
