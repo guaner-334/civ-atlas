@@ -677,7 +677,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
           now: getEdits(),
           next,
           copy: () =>
-            void import('../plugins/simWorld').then((m) =>
+            void import('../plugins/worldPlugins').then((m) =>
               m.copyWithSims(cur.id, next, (id, notes) => {
                 savedCopy.current = { id, line: '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more: notes ? [] : [NOTES_LOST] };
                 openStoredRef.current(id);

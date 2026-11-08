@@ -21,7 +21,8 @@ import * as saveStore from '../src/ui/saveStore';
 import { _resetToasts, clearToast, peekToast, showToast } from '../src/ui/toastStore';
 import { _setWorldFiles, lookWorldFile, keepWorldFile, saveAllWorldFiles, saveWorldFile, type LookedWorldFile } from '../src/ui/worldFiles';
 import { _setHolds, holdWorld, ifNotHeld, isHeld } from '../src/ui/worldHolds';
-import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, notesVault, offerWorldParts, setWorldStoreSim, spaceBoard, startWorldStore, trashFreed, trashInfo, vaultCall, vaultIsFull, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
+import { setSimNow, simsOf } from '../src/ui/world/simNow';
+import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, notesVault, offerWorldParts, packPage, setWorldStoreSim, spaceBoard, startWorldStore, trashFreed, trashInfo, vaultCall, vaultIsFull, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
 import { runConvert, type FullWithFile } from '../src/worldConvert';
 import type { ConvertReply } from '../src/worldConvertWorker';
 import { lookFile } from '../src/worldFileLook';
@@ -428,6 +429,27 @@ describe('一个世界存成文件', () => {
     expect(out.stale).toBe(false);
     expect(sim.asks.length).toBe(1);
     expect((await looks(out.file)).save.edits.endYear).toBe(500);
+  });
+
+  it('正开着的世界用了推演插件:打页面里的内容(存成文件、腾出地方补存)带着插件;本机对不上的不打', async () => {
+    const id = await makeWorld('插件世界');
+    const sim = simThatPacks();
+    setWorldStoreSim({ ...sim, sims: () => simsOf(saveStore.currentWorld()?.id) });
+    const file = { id: 'weariness', sum: 'a'.repeat(64), bytes: new Uint8Array([1, 2]), params: { k: 2 } };
+    const list = [{ id: 'weariness', version: '1.0.0', sum: file.sum, role: 'sim', name: '厌战', params: { k: 2 } }];
+    try {
+      setSimNow({ id, list, files: [file], checks: [] });
+      const save = saveStore.loadWorld(id)!.save;
+      await packPage(save);
+      expect((sim.asks[0] as { simPlugins?: unknown }).simPlugins).toEqual([file]);
+      setSimNow({ id, list, files: null, checks: [{ id: 'weariness', plugin: list[0], status: 'missing' }] });
+      expect(packPage(save)).toBeNull();
+      setSimNow({ id: 'another', list, files: [file], checks: [] });
+      await packPage(save);
+      expect((sim.asks[1] as { simPlugins?: unknown }).simPlugins).toBeUndefined();
+    } finally {
+      setSimNow(null);
+    }
   });
 
   it('没开着的世界,内容从没存进去:现算一遍,写不下就直接装成文件;写得下的还是存进去', async () => {

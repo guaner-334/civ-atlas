@@ -432,7 +432,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           const original = !!heads && !heads.some((h) => h.generator === stored.generator && h.recipe === recipe);
           // 用了推演插件的世界:带着插件读进来,接着推才不用从第 0 年重推
           if (pluginsUiOn()) {
-            await import('../plugins/simWorld').then((m) => m.loadSimNow(t.id)).catch(() => {});
+            await import('../plugins/worldPlugins').then((m) => m.loadSimNow(t.id)).catch(() => {});
             if (id !== reqId.current) return;
             civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
           }

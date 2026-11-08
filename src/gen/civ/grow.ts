@@ -15,6 +15,7 @@
  */
 import type { World } from '../world';
 import { DEFAULT_CIV_PARAMS, generateCiv, startCiv, startContinue, type Continuation, type Stepper } from './index';
+import { PluginError } from './engine/plugin';
 import type { Civ, CivParams } from './types';
 
 /** 交历史的年份(最后一个 = 推到哪年为止) */
@@ -29,9 +30,9 @@ export type GrowEvent =
   | { kind: 'civ'; civ: Civ; done: boolean }
   /**
    * 推不下去了:at = 出错的那一年;civ = 到出错前最后推好的那一年为止的历史(整理好的,推到 civ.endYear;
-   * 连第 0 年都推不出来 = null)。之后不再往后推
+   * 连第 0 年都推不出来 = null);plugin = 出错的推演插件的编号(别的错不给)。之后不再往后推
    */
-  | { kind: 'failed'; at: number; civ: Civ | null };
+  | { kind: 'failed'; at: number; civ: Civ | null; plugin?: string };
 
 export interface Grower {
   /** 已经推到哪一刻(交过的那份之后还在往前推的,也算上) */
@@ -103,6 +104,8 @@ export function breakAt(year: number): GrowEngine {
   };
 }
 
+const pluginOf = (e: unknown) => (e instanceof PluginError ? { plugin: e.plugin } : {});
+
 export interface GrowOptions {
   /** 交历史的年份(从小到大;不给 = GROW_MARKS) */
   marks?: readonly number[];
@@ -137,8 +140,8 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
     return { kind: 'civ', civ, done };
   };
 
-  /** 推不下去了:到 stop 年为止的历史从交过的那份接着推一遍、整理好 */
-  const fail = (failedAt: number, stop: number): GrowEvent => {
+  /** 推不下去了:到 stop 年为止的历史从交过的那份接着推一遍、整理好;err = 推不下去时抛的错 */
+  const fail = (failedAt: number, stop: number, err: unknown): GrowEvent => {
     done = true;
     run = null;
     let civ: Civ | null = last;
@@ -154,7 +157,7 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
       }
     }
     last = civ;
-    return { kind: 'failed', at: Math.max(Math.floor(failedAt), civ ? civ.endYear : 0), civ };
+    return { kind: 'failed', at: Math.max(Math.floor(failedAt), civ ? civ.endYear : 0), civ, ...pluginOf(err) };
   };
 
   return {
@@ -171,9 +174,9 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
       if (!run && !last) {
         try {
           run = engine.start(world, at(target));
-        } catch {
+        } catch (e) {
           done = true;
-          return { kind: 'failed', at: 0, civ: null };
+          return { kind: 'failed', at: 0, civ: null, ...pluginOf(e) };
         }
       }
       if (!run) {
@@ -183,8 +186,8 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
           // 接不着推(长不出文明的世界):一口气推到底
           try {
             return deliver(engine.generate(world, at(end)));
-          } catch {
-            return fail(from.endYear, from.endYear);
+          } catch (e) {
+            return fail(from.endYear, from.endYear, e);
           }
         }
       }
@@ -195,16 +198,16 @@ export function startGrow(world: World, params: Partial<CivParams>, opt: GrowOpt
         const before = r.year;
         try {
           r.advance(Math.min(target, Math.floor(r.year / STEP) * STEP + STEP));
-        } catch {
-          return fail(r.year, Math.floor(before));
+        } catch (e) {
+          return fail(r.year, Math.floor(before), e);
         }
         moved = true;
       }
       let civ: Civ;
       try {
         civ = r.finish();
-      } catch {
-        return fail(target, Math.floor(target - STEP));
+      } catch (e) {
+        return fail(target, Math.floor(target - STEP), e);
       }
       return deliver(civ);
     },

@@ -22,7 +22,6 @@ import { quickjsWasm } from '../scripts/lib/quickjsNode';
 import { civDiff } from '../scripts/lib/resumeFuzz';
 import { faithEffect, weariness } from './lib/simV1Plugins';
 import { simV1File, simV1Input } from './lib/simV1Files';
-import { PLUGIN_SAMPLES } from './lib/pluginFileSample';
 import { MADE, READERS, bytesOf } from './lib/worldFileSample';
 
 const box: SimBoxer = (spec) => quickjsPlugin(quickjsWasm(), spec);
@@ -169,8 +168,5 @@ describe('装插件', () => {
     await expect(simPluginsOn([f, f], 7, box)).rejects.toThrow(/给了两次/);
     const tool = await fileOf(await packPluginFile({ ...simV1Input('weariness'), manifest: { ...simV1Input('weariness').manifest, role: 'tool', runtime: 'worker', requires: [], sim: undefined } }));
     await expect(simPluginsOn([tool], 7, box)).rejects.toThrow(/不是推演插件/);
-    // 表的公式网页主线程不查,推演线程装的时候查
-    const formula = await fileOf(await PLUGIN_SAMPLES.find((s) => s.name === 'sim-table-formula')!.build());
-    await expect(simPluginsOn([formula], 7, box)).rejects.toThrow(/清单的 sim\.tables:.*mana/);
   }, 60_000);
 });

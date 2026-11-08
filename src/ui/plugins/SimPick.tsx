@@ -19,10 +19,10 @@ import { currentWorld } from '../saveStore';
 import { PuzzleIcon, openPlugins, subscribePluginsOpen } from './entry';
 import { PluginIcon, useIcons } from './pluginIcons';
 import { versionLabel } from './pluginWords';
-import { chooseSims, chosenSims, type SimChoice } from './simWorld';
+import { chooseSims, chosenSims, type SimChoice } from './worldPlugins';
 import { paramDigits, paramStep, paramsBrief, sharedNotes, simBrief } from './simPickText';
 import { useVerdicts, verdictOf } from './verdict';
-import './simPick.css';
+import './plugins.css';
 
 export interface SimPickProps {
   phone: boolean;
