@@ -442,6 +442,13 @@ export function Studio(p: StudioProps) {
   const mapNames = mapNow?.list.map((x) => x.name ?? x.id) ?? [];
   /** 地图插件长不出这张地图(星球上那张卡;改了选的、重新长就收起) */
   const mapFail = useMapFail();
+  // 手机:卡在最上面,卡片退回「地图」那一页、不拉到最高(不挡着卡)
+  useEffect(() => {
+    if (!mapFail || !p.phone) return;
+    setMapPage(false);
+    setSheetFull(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapFail]);
   const mapLocked = simOn && !found && mapNames.length > 0;
   /** 起源页上:星球停住时的样子(圆点按它摆;动着 = null)、底下的提示(点错了的那句和画虚线圈的地方,过几秒收起) */
   const [pinPose, setPinPose] = useState<StillPose | null>(null);
@@ -2416,7 +2423,7 @@ export function Studio(p: StudioProps) {
         />
       )}
       {mapFail && !out && (
-        <div className="mf-wrap" style={{ left: box.x + box.w / 2, top: box.y + box.h / 2 }}>
+        <div className={`mf-wrap${p.phone ? ' ph' : ''}`} style={p.phone ? undefined : { left: box.x + box.w / 2, top: box.y + box.h / 2 }}>
           <MapFailCard
             f={mapFail}
             onPick={openMapPage}

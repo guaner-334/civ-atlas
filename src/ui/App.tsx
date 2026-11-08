@@ -2267,11 +2267,12 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         id: 'progress',
         kind: 'progress',
         text: progress.regen ? '正在按新地形重新生成' : '正在生成世界',
-        more: [progress.seed !== undefined && !progress.regen ? `种子 ${progress.seed}，${progress.stage}` : progress.stage],
+        // 手机上地图插件那一句放不下种子
+        more: [progress.seed !== undefined && !progress.regen && !(narrow && progress.stage.startsWith('地图插件')) ? `种子 ${progress.seed}，${progress.stage}` : progress.stage],
         progress: progress.pct,
       });
     else clearToast('progress');
-  }, [progress, finderOn]);
+  }, [progress, finderOn, narrow]);
   // 回放世界形成:后台算各个年代的地形那一两秒(算好以后是地图上的字幕)
   const replayWait = replayOn && !replay;
   useEffect(() => {

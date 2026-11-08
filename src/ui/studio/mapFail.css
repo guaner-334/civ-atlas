@@ -103,3 +103,14 @@
   gap: 4px;
   color: #ffb340;
 }
+.mf-wrap.ph {
+  left: 12px;
+  right: 12px;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  width: auto;
+  transform: none;
+}
+.mf-wrap.ph .mf-bs > .mf-btn {
+  flex: 1;
+  height: 38px;
+}
