@@ -460,7 +460,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
         const contours = getContourKind() ?? undefined;
         const contourDark = style === 'data' && MAP_LAYERS.some((l) => l.data === layer && l.dark);
         const r = await exportMap(
-          { world, raster, civ: ok ? civ : null, style, layer, look, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail, res: { ...getResourceView() }, ...pluginExport() },
+          { world, raster, civ: ok ? civ : null, style, layer, look, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail, res: { ...getResourceView() }, ...pluginExport(y) },
           scale,
           format,
         );

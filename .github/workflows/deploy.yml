@@ -21,6 +21,7 @@ name: 发布正式网站
 # - VITE_AI_SERVER:网站服务器地址(测试网站也用这一个)。不配 = 构建出的网站不连服务器,作品墙不出现(见 src/account/server.ts)
 # - VITE_ACCOUNTS:只管正式网站的账号那些(登录、传到账号、短链接)。设成 on 才开;不配或别的值都是关,只露作品墙。测试网站一直关着。
 #   我们的 AI 另外看服务器的登录窗选项,账号开了它也可以关着
+# - VITE_PLUGINS:插件那些(「···」里的「插件」、工具、插件图层、作品墙的插件)。设成 on 才开;不配或别的值都是关。测试网站一直开着。
 # - ICP_BEIAN:网站备案号,挂在页面底部(仓库变量,测试网站、旧版网站的发布也用;见 src/ui/beian.ts)。不配 = 不挂
 # - ICP_BEIAN_SHOW:备案号的总开关,设成 1 才把 ICP_BEIAN 挂上;不设 = 哪里都不显示
 on:
@@ -148,6 +149,7 @@ jobs:
           VITE_AI_SERVER: ${{ vars.VITE_AI_SERVER }}
           # 账号那些(登录、传到账号、短链接):变量不是 on 就关,配了服务器地址也只露作品墙
           VITE_ACCOUNTS: ${{ vars.VITE_ACCOUNTS == 'on' && 'on' || 'off' }}
+          VITE_PLUGINS: ${{ vars.VITE_PLUGINS == 'on' && 'on' || 'off' }}
           ICP_BEIAN: ${{ vars.ICP_BEIAN_SHOW == '1' && vars.ICP_BEIAN || '' }}
         run: pnpm build
       # 记下这次发的是哪个提交、生成器第几版,放在网站根目录:下次发布先读它(公开可见,只有这两项)

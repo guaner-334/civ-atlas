@@ -97,7 +97,7 @@ import {
 } from '../render/civ/highlight';
 import { drawCivFill, type CivDrawParams, type CivShow } from '../render/civ/overlay';
 import { drawPluginOver } from '../render/pluginLayer';
-import { currentShown, pluginLayers } from './plugins/layerState';
+import { pluginLayers, shownPaint } from './plugins/layerState';
 import { borderLines } from '../render/civ/borders';
 import { vassalTies } from '../render/civ/vassals';
 import { routeLines } from '../render/civ/routes';
@@ -1161,7 +1161,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const cp = civParamsOf(p);
     const globeInk = !!cp && !cp.fast && globeTex;
     // 插件的地块图层盖在国土色块上面(和平面主图一样),一起放进这张贴图
-    const shown = currentShown()?.cells;
+    const shown = cp ? shownPaint(cp.year) : shownPaint();
     const plg = shown && shown.values.length === p.world.mesh.n ? shown : null;
     const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus, cp.cultureFocus, plg] : [p.world, p.raster, plg];
     if (!sameKey(s.civTex.key, ck)) {

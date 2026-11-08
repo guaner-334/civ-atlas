@@ -1,8 +1,10 @@
 /**
- * 插件图层在地图上:选中的地块图层盖在底图上(和地图框一起缩放;弯边投影按投影铺),标注图层画在舞台上的一张画布里
- * (平面、弯边投影、地球仪都按 MarkApi 的换算画),左上角的图例(存进这个世界、已存在这个世界里)。打开世界时读出存着的图层。
+ * 插件图层在地图上:选中的地块图层盖在底图上(和地图框一起缩放;弯边投影按投影铺;推演插件的跟着时间轴换那一年的),
+ * 标注图层画在舞台上的一张画布里(平面、弯边投影、地球仪都按 MarkApi 的换算画),左上角的图例(存进这个世界、已存在这个世界里;
+ * 推演插件的写第几年的样子)。打开世界时读出存着的图层,地图上的历史换了就换上它存的推演插件图层。
  */
-import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
+import type { Civ } from '../../../gen/civ/types';
 import type { Raster } from '../../../gen/raster';
 import type { World } from '../../../gen/world';
 import type { MarkLayer } from '../../../plugin/check';
@@ -10,10 +12,12 @@ import { cellColors, paintPluginCells, rampRange, type CellPaint } from '../../.
 import { drawPluginMarks } from '../../../render/pluginMarks';
 import type { MapProj } from '../../../render/projection';
 import type { MarkApi } from '../../MarkLayer';
+import { subscribeCivTime } from '../../civView';
 import { mirrorCanvas } from '../../mapWrap';
 import { ProjLayer } from '../../projection';
 import { noteDismiss } from '../../dismissClick';
-import { currentShown, pluginLayers, rerunLayerPlugin, type ShownLayer } from '../layerState';
+import { useSimNow } from '../../world/simNow';
+import { currentShown, pluginLayers, rerunLayerPlugin, setSimLayers, shownPaint, type ShownLayer, type ShownPaint } from '../layerState';
 import { stopLayerPlugin } from './layerRun';
 import { loadSavedLayers, removeLayer, sameAsSaved, saveLayer } from './layerSave';
 import './layers.css';
@@ -27,10 +31,21 @@ function colorsOf(l: CellPaint): Uint8Array {
 
 const useShown = (): ShownLayer | null => pluginLayers.use(currentShown);
 
+const subscribePaint = (f: () => void) => {
+  const a = subscribeCivTime(f);
+  const b = pluginLayers.subscribe(f);
+  return () => {
+    a();
+    b();
+  };
+};
+/** 正画着的那一份:推演插件的图层换到时间轴那一年的那一份才重画 */
+const usePaint = (): ShownPaint | null => useSyncExternalStore(subscribePaint, shownPaint, shownPaint);
+
 /** 选中的地块图层:和地图一样大的两张画布(右边接的一份),放在文明层上面、文字层下面;个数和地块对不上的不画 */
 export function CellCanvas({ world, raster, mp }: { world: World; raster: Raster; mp: MapProj | null }) {
-  const shown = useShown();
-  const cells = shown && shown.cells.values.length === world.mesh.n ? shown.cells : null;
+  const paint = usePaint();
+  const cells = paint && paint.values.length === world.mesh.n ? paint : null;
   const ref = useRef<HTMLCanvasElement>(null);
   const copyRef = useRef<HTMLCanvasElement>(null);
   const proj = useRef<ProjLayer | null>(null);
@@ -136,9 +151,14 @@ function ticksOf(lo: number, hi: number): { at: number; text: string }[] {
   return [0, 0.25, 0.5, 0.75, 1].map((t) => ({ at: t, text: fmt(lo + (hi - lo) * t) }));
 }
 
-/** 左上角插件图层的图例:色条和刻度(或者一类一个色块)、标题和单位、「插件「XX」」,存进这个世界 / 已存在这个世界里 */
+/**
+ * 左上角插件图层的图例:色条和刻度(或者一类一个色块)、标题和单位、「插件「XX」」,存进这个世界 / 已存在这个世界里;
+ * 推演插件的推的时候就存进了历史,不给存,写画的是第几年的样子
+ */
 export function PluginLegend({ phone }: { phone: boolean }) {
   const shown = useShown();
+  const paint = usePaint();
+  const sims = useSimNow();
   const runnable = pluginLayers.use(() => pluginLayers.get().runnable);
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -200,14 +220,19 @@ export function PluginLegend({ phone }: { phone: boolean }) {
   return (
     <div className={`legend plg-legend${phone ? ' phone' : ''}`} data-testid="plugin-legend">
       {body}
-      <div className="plg-lt">
+      <div className={`plg-lt${shown.sim ? ' sim' : ''}`}>
         <span className="plg-lname">
           {c.title}
           {c.legend ? `（${c.legend}）` : ''}
         </span>
         {shown.dev && <span className="plg-ltag dev">开发中</span>}
-        <span className="plg-ltag">插件「{shown.plugin}」</span>
-        {fresh ? (
+        <span className="plg-ltag">插件「{shown.sim ? (sims?.list.find((p) => p.id === shown.pluginId)?.name ?? shown.plugin) : shown.plugin}」</span>
+        {shown.sim ? (
+          <>
+            <span className="plg-ltag">推演</span>
+            {paint?.year !== undefined && <span className="plg-lyear">{phone ? `第 ${paint.year} 年` : `第 ${paint.year} 年的样子`}</span>}
+          </>
+        ) : fresh ? (
           <button type="button" className="plg-lbtn" data-act="plugin-layer-save" disabled={busy} onClick={() => run(() => saveLayer(live!))}>
             {phone ? '存进世界' : '存进这个世界'}
           </button>
@@ -257,12 +282,17 @@ export function PluginLegend({ phone }: { phone: boolean }) {
   );
 }
 
-/** 打开着的世界换了:读出它存着的插件图层(cells = 地图有几个地块);图层面板里开的插件是给上一个世界算的,停掉 */
-export function SavedLoader({ worldId, cells }: { worldId: string | null; cells: number }) {
+/**
+ * 打开着的世界换了:读出它存着的插件图层(cells = 地图有几个地块);图层面板里开的插件是给上一个世界算的,停掉。
+ * 地图上的历史(civ,时间轴那一段的)换了:换上它里面推演插件存的图层
+ */
+export function SavedLoader({ worldId, cells, civ }: { worldId: string | null; cells: number; civ: Civ | null }) {
   useEffect(() => {
     stopLayerPlugin();
     if (worldId) void loadSavedLayers(worldId, cells);
     else pluginLayers.set({ ...pluginLayers.get(), saved: new Map(), savedFor: null });
   }, [worldId, cells]);
+  useEffect(() => setSimLayers(civ && civ.regions.of.length === cells ? civ : null), [civ, cells]);
+  useEffect(() => () => setSimLayers(null), []);
   return null;
 }

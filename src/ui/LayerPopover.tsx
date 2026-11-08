@@ -375,7 +375,7 @@ export function LayerPopover({ base, fill, sat, civ = null, onBase, onFill, onSa
               </button>
             ))}
           </div>
-          {pluginsUiOn() && <PluginLayerChips />}
+          {pluginsUiOn() && <PluginLayerChips phone={trigger === 'icon'} />}
           <div className="lp-line" />
           <div className="lp-sec">填色</div>
           <div className="lp-fills grat-seg" role="radiogroup" aria-label="填色">
