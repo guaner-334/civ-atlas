@@ -105,13 +105,15 @@ function pin(seed: Seed, which: 'weariness' | 'faith', got: unknown) {
 }
 
 describe('接口第 1 版:名字定下来', () => {
-  it('七样 sim.*@1 能力合规矩;网站还跑不了推演插件(清单 role 不认 sim),这几样都不进 PLUGIN_CAPS', () => {
+  it('七样 sim.*@1 能力合规矩;网站认推演插件(清单 role 认 sim)时都进 PLUGIN_CAPS,会改推演怎么走的两样归权限框上显眼的那一行', () => {
     const caps = Object.keys(SIM_CAPS);
     expect(caps.sort()).toEqual(['sim.chronicle@1', 'sim.commands@1', 'sim.events@1', 'sim.influence@1', 'sim.read@1', 'sim.state@1', 'sim.tables@1']);
     for (const c of caps) expect(CAP_NAME.test(c), c).toBe(true);
     const runnable = PLUGIN_ROLES.includes('sim');
     for (const c of caps) expect(PLUGIN_CAPS.has(c), `${c} 和 role sim 一起开`).toBe(runnable);
     expect(Object.entries(SIM_CAPS).filter(([, v]) => v.steer).map(([k]) => k).sort()).toEqual(['sim.commands@1', 'sim.influence@1']);
+    if (runnable) for (const [c, v] of Object.entries(SIM_CAPS)) expect(PLUGIN_CAPS.get(c), c).toBe(v.steer ? 'simSteer' : 'sim');
+    expect([...PLUGIN_CAPS.keys()].filter((c) => c.startsWith('sim.')).sort()).toEqual(runnable ? caps.sort() : []);
   });
 
   it('影响口的名字和官方登记的一样;命令的种类和收命令的那一口一样', () => {
