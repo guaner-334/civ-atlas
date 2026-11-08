@@ -170,7 +170,7 @@ export function PluginLegend({ phone }: { phone: boolean }) {
   if (c.ramp) {
     const [lo, hi] = rampRange(c);
     const n = c.ramp.colors.length;
-    const g = c.ramp.colors.map((col, i) => `${col} ${(i / (n - 1)) * 100}%`).join(',');
+    const g = c.ramp.colors.map((col: string, i: number) => `${col} ${(i / (n - 1)) * 100}%`).join(',');
     body = (
       <div className="gradient plg-ramp">
         <div className="bar" style={{ background: `linear-gradient(90deg, ${g})` }} />
@@ -240,12 +240,12 @@ export function PluginLegend({ phone }: { phone: boolean }) {
   );
 }
 
-/** 打开着的世界换了:读出它存着的插件图层;图层面板里开的插件是给上一个世界算的,停掉 */
-export function SavedLoader({ worldId }: { worldId: string | null }) {
+/** 打开着的世界换了:读出它存着的插件图层(cells = 地图有几个地块);图层面板里开的插件是给上一个世界算的,停掉 */
+export function SavedLoader({ worldId, cells }: { worldId: string | null; cells: number }) {
   useEffect(() => {
     stopLayerPlugin();
-    if (worldId) void loadSavedLayers(worldId);
+    if (worldId) void loadSavedLayers(worldId, cells);
     else pluginLayers.set({ ...pluginLayers.get(), saved: new Map(), savedFor: null });
-  }, [worldId]);
+  }, [worldId, cells]);
   return null;
 }

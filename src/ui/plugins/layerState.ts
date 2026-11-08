@@ -6,7 +6,8 @@
  * 同一个插件的同一个图层,开着的插件交来的盖过存着的;插件停了它交的都拿掉,存着的照旧在。
  */
 import type { CellLayer, MarkLayer } from '../../plugin/check';
-import type { PluginLayerData, WorldPlugin } from '../../gen/worldFormat';
+import type { PluginLayerValue, WorldPlugin } from '../../gen/worldFormat';
+import { savedLayerId } from '../../plugin/pluginWorld';
 import { createStore } from '../createStore';
 
 /** 开着的插件交来的一个图层 */
@@ -24,15 +25,15 @@ export interface LiveLayer {
 /** 这个世界里存着的一个地块图层 */
 export interface SavedLayer {
   pluginId: string;
-  /** 块名 */
-  name: string;
-  data: PluginLayerData;
+  /** 块名里的图层编号(savedLayerId) */
+  layer: string;
+  data: PluginLayerValue;
   /** 世界清单里记的这个插件(没记 = null) */
   record: WorldPlugin | null;
 }
 
 export interface PluginLayers {
-  /** 键 = 插件编号/图层编号 */
+  /** 键 = 插件编号/存进世界时的图层编号(layerKey):同一个图层开着的和存着的对得上 */
   live: ReadonlyMap<string, LiveLayer>;
   saved: ReadonlyMap<string, SavedLayer>;
   /** saved 是哪个世界的 */
@@ -45,7 +46,10 @@ export interface PluginLayers {
 
 export const pluginLayers = createStore<PluginLayers>({ live: new Map(), saved: new Map(), savedFor: null, runnable: [], shown: null });
 
-export const layerKey = (pluginId: string, layerId: string): string => `${pluginId}/${layerId}`;
+/** 插件交的图层编号 → 键 */
+export const layerKey = (pluginId: string, layerId: string): string => `${pluginId}/${savedLayerId(layerId)}`;
+/** 存着的图层(块名里的编号已经换过)→ 键 */
+export const savedKey = (pluginId: string, layer: string): string => `${pluginId}/${layer}`;
 const RUN = 'run:';
 
 /** 图层面板里的一个按钮 */
@@ -77,7 +81,7 @@ export function layerChips(s: PluginLayers): LayerChip[] {
 export interface ShownLayer {
   key: string;
   /** 画的这一份:开着的插件交来的,没有就是存着的 */
-  cells: CellLayer | PluginLayerData;
+  cells: CellLayer | PluginLayerValue;
   plugin: string;
   pluginId: string;
   dev: boolean;
@@ -98,7 +102,7 @@ export function shownLayer(s: PluginLayers): ShownLayer | null {
   const saved = s.saved.get(key) ?? null;
   const liveCells = live?.layer.kind === 'cells' ? live : null;
   if (liveCells) return { key, cells: liveCells.layer as CellLayer, plugin: liveCells.plugin, pluginId: liveCells.pluginId, dev: liveCells.dev, live: liveCells, saved };
-  if (saved) return { key, cells: saved.data, plugin: saved.data.plugin.name, pluginId: saved.pluginId, dev: false, live: null, saved };
+  if (saved) return { key, cells: saved.data, plugin: saved.record?.name ?? saved.pluginId, pluginId: saved.pluginId, dev: false, live: null, saved };
   return null;
 }
 
@@ -170,7 +174,7 @@ export function setSavedLayers(worldId: string | null, saved: ReadonlyMap<string
 }
 
 /** 导出地图图片时带上的:正显示的地块图层、开着的插件交来的标注图层(没有 = 不带) */
-export function pluginExport(): { plugin?: CellLayer | PluginLayerData; pluginMarks?: MarkLayer[] } {
+export function pluginExport(): { plugin?: CellLayer | PluginLayerValue; pluginMarks?: MarkLayer[] } {
   const s = pluginLayers.get();
   const shown = currentShown();
   const marks = [...s.live.values()].filter((l) => l.layer.kind === 'marks').map((l) => l.layer as MarkLayer);

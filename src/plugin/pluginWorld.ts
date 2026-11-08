@@ -1,12 +1,23 @@
 /**
  * 插件和世界文件之间:世界清单里怎么记插件、一个世界用到了哪些插件、本机装没装。纯计算,网页、Worker、服务器共用。
  */
-import { PLUGIN_DATA_PREFIX, type WorldManifest, type WorldPartInfo, type WorldPlugin } from '../gen/worldFormat';
+import { PLUGIN_DATA_PREFIX, PLUGIN_LAYER_ID, type WorldManifest, type WorldPartInfo, type WorldPlugin } from '../gen/worldFormat';
 import type { OpenedPlugin } from './pluginFile';
 
 /** 世界清单 plugins 里记这个插件的那一条 */
 export function worldPluginOf(p: Pick<OpenedPlugin, 'manifest' | 'sum'>): WorldPlugin {
-  return { id: p.manifest.id, version: p.manifest.version, sum: p.sum, role: p.manifest.role };
+  return { id: p.manifest.id, version: p.manifest.version, sum: p.sum, role: p.manifest.role, name: p.manifest.name };
+}
+
+/**
+ * 工具插件交的图层编号(字母、数字、- 和 _,最长 32)存进世界时块名里写成什么:合块名规矩的(PLUGIN_LAYER_ID)原样用,
+ * 有大写、下划线或太长的换成 h + 编号的 8 位十六进制散列(FNV-1a)
+ */
+export function savedLayerId(layerId: string): string {
+  if (PLUGIN_LAYER_ID.test(layerId)) return layerId;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < layerId.length; i++) h = Math.imul(h ^ layerId.charCodeAt(i), 0x01000193) >>> 0;
+  return `h${h.toString(16).padStart(8, '0')}`;
 }
 
 /** 世界里用到的一个插件 */

@@ -166,8 +166,8 @@ export interface ChronicleBlock {
   authorFemale?: number[];
 }
 
-/** 全部条目里这一条也在 buildChronicle 里:只有史事写的那些(信仰、时代和商道、思潮的大事是后来并进去的) */
-export const inBuildChronicle = (e: Pick<ChronicleEntry, 'kind'>): boolean => e.kind !== 'faith' && e.kind !== 'era' && e.kind !== 'thought';
+/** 全部条目里这一条也在 buildChronicle 里:只有史事写的那些(信仰、时代和商道、思潮的大事、推演插件写的是后来并进去的) */
+export const inBuildChronicle = (e: Pick<ChronicleEntry, 'kind'>): boolean => e.kind !== 'faith' && e.kind !== 'era' && e.kind !== 'thought' && e.kind !== 'plugin';
 
 /** 算一块编年史:civ = 没套改名的历史,characters = 作者的人物(名字写成占位符,性别照它写) */
 export function chronicleBlock(civ: Civ, characters?: readonly AuthorCharacter[]): ChronicleBlock {

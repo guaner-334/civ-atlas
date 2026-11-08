@@ -1,17 +1,17 @@
 /**
- * 插件图层:存进世界的块(layer.<插件编号>.<图层>:块名、内容的核对、存、读回、拿掉、不算只当字节留着的块、文件里逐块核对),
- * 地块图层上色(分类、渐变、两头、不画的),图层面板的按钮和正显示的那一个。IndexedDB 用 fake-indexeddb。
+ * 插件图层:工具插件的图层存进世界(块名里的图层编号、存、读回、拿掉、上限、清单的插件记录、不算只当字节留着的块),
+ * 地块图层上色(分类、渐变、两头、不画的),图层面板的按钮和正显示的那一个。块的格式本身的核对在 world-file-layers.test.ts。IndexedDB 用 fake-indexeddb。
  */
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { SnapshotPart } from '../src/gen/snapshot';
 import { opaqueParts, openWorldFile, packWorldParts, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
-import { PLUGIN_LAYER_PREFIX, pluginLayerPart, type PluginLayerData, type WorldManifest, type WorldPlugin } from '../src/gen/worldFormat';
-import { validatePluginLayer } from '../src/gen/worldValidate';
+import { PLUGIN_LAYERS_MAX, PLUGIN_LAYER_ID, PLUGIN_LAYER_PREFIX, pluginLayerPart, type PluginLayerValue, type WorldManifest, type WorldPlugin } from '../src/gen/worldFormat';
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
 import { cellColors, rampRange } from '../src/render/pluginLayer';
 import type { CellLayer } from '../src/plugin/check';
+import { savedLayerId } from '../src/plugin/pluginWorld';
 import { chipOn, layerChips, pluginLayers, setLiveLayer, setSavedLayers, shownLayer } from '../src/ui/plugins/layerState';
 import { _resetVault, changePluginLayer, commitWorld, opaquePartsOf, readPluginLayers, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
@@ -21,15 +21,14 @@ const g = globalThis as unknown as { indexedDB: IDBFactory | undefined };
 let sample: PackInput & { eras: WorldEras };
 let viewParts: SnapshotPart[];
 let n: number;
-const tool: WorldPlugin = { id: 'coast-distance', version: '1.0.0', sum: 'a'.repeat(64), role: 'tool' };
+const tool: WorldPlugin = { id: 'coast-distance', version: '1.0.0', sum: 'a'.repeat(64), role: 'tool', name: '离海多远' };
 
-const layer = (over: Partial<PluginLayerData> = {}): PluginLayerData => {
+const layer = (over: Partial<PluginLayerValue> = {}): PluginLayerValue => {
   const values = new Float32Array(n);
   for (let i = 0; i < n; i++) values[i] = i % 5 === 4 ? NaN : i % 4;
   return {
-    id: 'coast',
     title: '离海多远',
-    plugin: { name: '离海多远', version: '1.0.0' },
+    unit: 'cell',
     values,
     classes: [0, 1, 2, 3].map((v) => ({ value: v, color: ['#2b83ba', '#abdda4', '#fdae61', '#d7191c'][v], label: `第 ${v + 1} 段` })),
     legend: '走陆路到海边',
@@ -58,77 +57,70 @@ const request = (over: Partial<CommitRequest> = {}): CommitRequest => ({ id: sam
 const latest = async (): Promise<WorldManifest> => (await readRevision(sample.id, undefined, []))!.manifest;
 const bytesOf = async (b: Blob) => new Uint8Array(await b.arrayBuffer());
 
-describe('块名和内容', () => {
-  it('图层编号合块名规矩的原样用,别的换成散列;都不超过 64 个字', () => {
-    expect(pluginLayerPart('coast-distance', 'coast')).toBe('layer.coast-distance.coast');
-    expect(pluginLayerPart('coast-distance', 'Coast_1')).toMatch(/^layer\.coast-distance\.h[0-9a-f]{8}$/);
-    expect(pluginLayerPart('coast-distance', 'Coast_1')).not.toBe(pluginLayerPart('coast-distance', 'coast_1'));
-    expect(pluginLayerPart('a'.repeat(32), 'x'.repeat(24)).length).toBeLessThanOrEqual(64);
-    expect(pluginLayerPart('a'.repeat(32), 'x'.repeat(25))).toMatch(/\.h[0-9a-f]{8}$/);
-  });
-
-  it('核对:合格的过;块名对不上、颜色不是 #rrggbb、渐变和分类都给、个数不对、多出来的键都不过', () => {
-    const name = pluginLayerPart('coast-distance', 'coast');
-    expect(() => validatePluginLayer(layer(), name, n)).not.toThrow();
-    expect(() => validatePluginLayer({ ...layer(), classes: undefined, ramp: { colors: ['#000000', '#ffffff'], min: 0, max: 3 } }, name, n)).not.toThrow();
-    const bad: unknown[] = [
-      layer({ id: 'other' }),
-      layer({ classes: [{ value: 0, color: 'red', label: 'x' }] }),
-      { ...layer(), ramp: { colors: ['#000000', '#ffffff'] } },
-      layer({ values: new Float32Array(3) }),
-      { ...layer(), script: 'x' },
-      layer({ title: '' }),
-      layer({ opacity: 2 }),
-      { ...layer(), classes: undefined, ramp: { colors: ['#000000'] } },
-    ];
-    for (const v of bad) expect(() => validatePluginLayer(v, name, n)).toThrow();
+describe('图层编号', () => {
+  it('合块名规矩的原样用,有大写、下划线、太长的换成散列;换出来的也合规矩', () => {
+    expect(savedLayerId('coast')).toBe('coast');
+    for (const id of ['Coast_1', 'coast_1', 'x'.repeat(26), 'A'.repeat(32)]) expect(savedLayerId(id)).toMatch(/^h[0-9a-f]{8}$/);
+    expect(savedLayerId('Coast_1')).not.toBe(savedLayerId('coast_1'));
+    expect(PLUGIN_LAYER_ID.test(savedLayerId('Coast_1'))).toBe(true);
+    expect(pluginLayerPart('a'.repeat(32), savedLayerId('x'.repeat(40))).length).toBeLessThanOrEqual(64);
   });
 });
 
 describe('存进世界', () => {
   const name = () => pluginLayerPart(tool.id, 'coast');
 
-  it('还没存过的世界存不了;存、读回:块可选、写着谁放的,清单记上插件,别的块不动;不算不能公开分享', async () => {
-    expect(await changePluginLayer(sample.id, tool, name(), layer())).toEqual({ status: 'nobase' });
+  it('还没存过的世界存不了;存、读回:块可选、写着谁放的,清单记上插件(连名字),别的块不动;不算不能公开分享', async () => {
+    expect(await changePluginLayer(sample.id, tool, 'coast', layer())).toEqual({ status: 'nobase' });
     await commitWorld(request());
     const before = await latest();
-    expect(await changePluginLayer(sample.id, tool, name(), layer())).toEqual({ status: 'saved', n: 2 });
+    expect(await changePluginLayer(sample.id, tool, 'coast', layer())).toEqual({ status: 'saved', n: 2 });
     const m = await latest();
     expect(m.parts.find((p) => p.name === name())).toMatchObject({ file: `parts/${name()}.gz`, schema: 1, need: 'extra', by: tool.id });
     expect(m.parts.filter((p) => p.name !== name())).toEqual(before.parts);
     expect(m.plugins).toEqual([tool]);
-    const got = await readPluginLayers(sample.id);
+    const got = await readPluginLayers(sample.id, n);
     expect(got).toHaveLength(1);
-    expect(got[0]).toMatchObject({ name: name(), by: tool.id, plugin: tool });
+    expect(got[0]).toMatchObject({ name: name(), by: tool.id, layer: 'coast', plugin: tool });
     expect(got[0].data.values).toEqual(layer().values);
     expect(await opaquePartsOf(sample.id)).toEqual([]);
-    // 一样的不写新修订
-    expect(await changePluginLayer(sample.id, tool, name(), layer())).toEqual({ status: 'same', n: 2 });
+    // 一样的不写新修订;地块数对不上的(别的世界的)读的时候跳过
+    expect(await changePluginLayer(sample.id, tool, 'coast', layer())).toEqual({ status: 'same', n: 2 });
+    expect(await readPluginLayers(sample.id, n + 1)).toEqual([]);
+  });
+
+  it('一个世界最多存 PLUGIN_LAYERS_MAX 个,满了不写;换掉已有的照常', async () => {
+    await commitWorld(request());
+    for (let i = 0; i < PLUGIN_LAYERS_MAX; i++) expect((await changePluginLayer(sample.id, tool, `l${i}`, layer())).status).toBe('saved');
+    expect(await changePluginLayer(sample.id, tool, 'one-more', layer())).toEqual({ status: 'many' });
+    expect((await changePluginLayer(sample.id, tool, 'l0', layer({ title: '换了' }))).status).toBe('saved');
   });
 
   it('拿掉:块和工具插件的记录一起去掉;没给指纹的不动清单的记录', async () => {
     await commitWorld(request());
-    await changePluginLayer(sample.id, tool, name(), layer());
-    expect((await changePluginLayer(sample.id, { ...tool, sum: '' }, name(), null)).status).toBe('saved');
+    await changePluginLayer(sample.id, tool, 'coast', layer());
+    expect((await changePluginLayer(sample.id, { ...tool, sum: '' }, 'coast', null)).status).toBe('saved');
     expect((await latest()).plugins).toEqual([tool]);
-    await changePluginLayer(sample.id, tool, name(), layer());
-    expect((await changePluginLayer(sample.id, tool, name(), null)).status).toBe('saved');
+    await changePluginLayer(sample.id, tool, 'coast', layer());
+    expect((await changePluginLayer(sample.id, tool, 'coast', null)).status).toBe('saved');
     const m = await latest();
     expect(m.parts.some((p) => p.name.startsWith(PLUGIN_LAYER_PREFIX))).toBe(false);
     expect(m.plugins).toEqual([]);
-    expect(await readPluginLayers(sample.id)).toEqual([]);
+    expect(await readPluginLayers(sample.id, n)).toEqual([]);
   });
 
-  it('内容不合格的不写', async () => {
+  it('内容不合格、编号不合块名规矩、不是按地块一份的不写', async () => {
     await commitWorld(request());
-    await expect(changePluginLayer(sample.id, tool, name(), layer({ classes: [] }))).rejects.toBeTruthy();
-    await expect(changePluginLayer(sample.id, tool, 'layer.other-plugin.coast', layer())).rejects.toBeTruthy();
+    await expect(changePluginLayer(sample.id, tool, 'coast', layer({ classes: [] }))).rejects.toBeTruthy();
+    await expect(changePluginLayer(sample.id, tool, 'Coast_1', layer())).rejects.toBeTruthy();
+    await expect(changePluginLayer(sample.id, tool, 'coast', layer({ unit: 'region' }))).rejects.toBeTruthy();
+    await expect(changePluginLayer(sample.id, tool, 'coast', layer({ years: [0] }))).rejects.toBeTruthy();
     expect((await latest()).revision.n).toBe(1);
   });
 
   it('存成文件:读得开、逐块核对过,不算只当字节留着;传上服务器的文件图层不对就整个不收,本机的只跳过那一块', async () => {
     await commitWorld(request());
-    await changePluginLayer(sample.id, tool, name(), layer());
+    await changePluginLayer(sample.id, tool, 'coast', layer());
     const file = await bytesOf((await revisionFile(sample.id))!);
     const opened = await openWorldFile(file, { readers: READERS });
     expect(opened.kept).toEqual([]);
@@ -137,7 +129,7 @@ describe('存进世界', () => {
     expect((await readWorldContent(await openWorldFile(file, { readers: READERS, maxBytes: ZIP_UPLOAD_MAX_BYTES }))).skipped).toEqual([]);
 
     // 个数对不上的图层(别的世界的):本机跳过,传上服务器的不收
-    await changePluginLayer(sample.id, tool, name(), layer({ values: new Float32Array(5) }));
+    await changePluginLayer(sample.id, tool, 'coast', layer({ values: new Float32Array(5) }));
     const wrong = await bytesOf((await revisionFile(sample.id))!);
     expect((await readWorldContent(await openWorldFile(wrong, { readers: READERS }))).skipped).toEqual([name()]);
     await expect(readWorldContent(await openWorldFile(wrong, { readers: READERS, maxBytes: ZIP_UPLOAD_MAX_BYTES }))).rejects.toMatchObject({ kind: 'broken' });
@@ -145,12 +137,12 @@ describe('存进世界', () => {
 
   it('另存、重推:图层跟着走', async () => {
     await commitWorld(request());
-    await changePluginLayer(sample.id, tool, name(), layer());
+    await changePluginLayer(sample.id, tool, 'coast', layer());
     const opened = await openWorldFile(await bytesOf((await revisionFile(sample.id))!), { readers: READERS });
     const again = await openWorldFile(await bytesOf(await rewriteWorldFile(opened, { title: '新名字' })), { readers: READERS });
     expect(again.manifest.parts.some((p) => p.name === name())).toBe(true);
     expect((await commitWorld(request({ recipeKey: 'k2' }))).status).toBe('same');
-    expect(await readPluginLayers(sample.id)).toHaveLength(1);
+    expect(await readPluginLayers(sample.id, n)).toHaveLength(1);
   });
 
   it('走后台线程的那张表里有这两个', () => {
@@ -184,7 +176,7 @@ describe('图层面板的按钮', () => {
   beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, runnable: [], shown: null }));
 
   it('存着的、交来的地块图层一个一个按钮,没交过图层的只交图层的插件也列上;标注图层不进', () => {
-    setSavedLayers('w', new Map([['coast-distance/coast', { pluginId: 'coast-distance', name: 'layer.coast-distance.coast', data: layer(), record: tool }]]));
+    setSavedLayers('w', new Map([['coast-distance/coast', { pluginId: 'coast-distance', layer: 'coast', data: layer(), record: tool }]]));
     pluginLayers.set({ ...pluginLayers.get(), runnable: [{ id: 'coast-distance', name: '离海多远' }, { id: 'heights', name: '海拔图层' }] });
     setLiveLayer(who('city-tax', '城邦税赋'), 'tax', cells('tax', '城邦税赋'));
     setLiveLayer(who('route-days', '量路程'), 'route', { kind: 'marks', id: 'route', title: '路线', items: [] });
@@ -196,7 +188,7 @@ describe('图层面板的按钮', () => {
   });
 
   it('第一次交来的地块图层没有选中的就显示;开着的盖过存着的,停了回到存着的;再点收起', () => {
-    setSavedLayers('w', new Map([['city-tax/tax', { pluginId: 'city-tax', name: 'layer.city-tax.tax', data: layer({ id: 'tax', title: '存着的' }), record: null }]]));
+    setSavedLayers('w', new Map([['city-tax/tax', { pluginId: 'city-tax', layer: 'tax', data: layer({ title: '存着的' }), record: null }]]));
     setLiveLayer(who('city-tax', '城邦税赋'), 'tax', cells('tax', '城邦税赋'));
     let s = pluginLayers.get();
     expect(s.shown).toBe('city-tax/tax');

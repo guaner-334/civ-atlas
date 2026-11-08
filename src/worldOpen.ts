@@ -19,7 +19,7 @@ import type { ChronicleBlock } from './gen/civ/story/nameTokens';
 import { parseSave } from './gen/savefile';
 import { recipeKey, recipeOfSave, type SnapshotPart } from './gen/snapshot';
 import type { World } from './gen/world';
-import { openStoredParts, readStoredContent, readTrustedParts, simPartNames, type OpenedWorldFile, type PackedPart, type WorldEras } from './gen/worldFile';
+import { historyLayerNames, openStoredParts, readStoredContent, readTrustedParts, simPartNames, type OpenedWorldFile, type PackedPart, type WorldEras } from './gen/worldFile';
 import { WorldFileError, asWorldFileError, broken } from './gen/worldFormat';
 import { currentSchema, migratePart } from './gen/worldMigrate';
 import { VaultError, latestOf, patchState, pendingEdit, readRevision, stateOf, type RevisionHead } from './worldVault';
@@ -106,8 +106,8 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true, anyRecipe
     const checked = (await stateOf(req.id).catch(() => null))?.checked === head.content;
     let rev = await readRevision(req.id, n, checked ? VIEW : undefined, SPARE);
     if (!rev) throw new OpenRefused('none', '仓库里没有这个世界');
-    // 推演插件的状态跟着历史读(接着推要用);读不到不碍看世界
-    const sims = checked && wantCiv ? simPartNames(rev) : [];
+    // 推演插件的状态、图层跟着历史读(接着推要用);读不到不碍看世界
+    const sims = checked && wantCiv ? [...simPartNames(rev), ...historyLayerNames(rev)] : [];
     if (sims.length) rev = (await readRevision(req.id, n, [...VIEW, ...sims], [...SPARE, ...sims])) ?? rev;
     const opened = openStoredParts(rev.text, rev.parts, { readers: { ...READER_VERSIONS } });
     const { manifest } = opened;

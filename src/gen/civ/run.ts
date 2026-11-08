@@ -15,6 +15,7 @@ import type { UpheavalStep } from './upheaval';
 import type { FinishCtx, InstallCtx, ResumeCtx } from './modules';
 import { PluginError, PluginLine, answerNow, type PluginAsk, type PluginBridge, type PluginReply, type SimPlugin } from './engine/plugin';
 import type { SimRead } from './simRead';
+import { checkLayerLook } from '../layerLook';
 
 export const DEFAULT_CIV_PARAMS: CivParams = {
   endYear: 3000,
@@ -123,8 +124,8 @@ export interface CivPack<S> extends RulePack<InstallCtx, ResumeCtx, FinishCtx> {
   upheave(run: CivRun<S>, own: S, c: UpheaveStep): Upheave;
   /** 推完整理成结果(起名、道路、地名、人物……);各模块的 finish 接着往上补 */
   settle(run: CivRun<S>, own: S, fin: Segment, eras: CivEra[], facts: UpheavalFact[]): Civ;
-  /** 推演插件那一段用的(没装模块的引擎 = null);不给 = 这套规则不接推演插件 */
-  bridge?(sim: CivSim): PluginBridge<SimRead> | null;
+  /** 推演插件那一段用的(没装模块的引擎 = null;seed = 文明种子);不给 = 这套规则不接推演插件 */
+  bridge?(sim: CivSim, seed: number): PluginBridge<SimRead> | null;
 }
 
 /** 两张表的值一样(同一张旋钮表在两套数里取出来的) */
@@ -301,9 +302,18 @@ export function startPack<S>(pack: CivPack<S>, world: World, params: Partial<Civ
 /** 推演插件接到一段推演上:saved = 接着推的那份历史(从第 0 年起推 = null);没给插件 = null */
 function plugInto<S>(pack: CivPack<S>, sim: CivSim, plugins: readonly SimPlugin<SimRead>[], seed: number, saved: Civ | null): PluginLine<SimRead> | null {
   if (!plugins.length) return null;
-  const bridge = pack.bridge?.(sim);
+  const bridge = pack.bridge?.(sim, seed);
   if (!bridge) throw new Error(`规则包 ${pack.id} 不接推演插件`);
-  return new PluginLine(sim, bridge, plugins, seed, saved ? { states: saved.simPlugins ?? [], year: saved.endYear } : null);
+  return new PluginLine(sim, bridge, plugins, seed, saved ? { states: saved.simPlugins ?? [], year: saved.endYear, chronicle: saved.simChronicle, layers: saved.simLayers } : null, checkLayerLook);
+}
+
+/** 推演插件推出来的放进结果:写的编年史、状态、图层(没有的不给) */
+function putPlugins(civ: Civ, plug: PluginLine<SimRead>): void {
+  const lines = plug.chronicle();
+  if (lines.length) civ.simChronicle = lines;
+  civ.simPlugins = plug.snapshot(civ.endYear);
+  const layers = plug.layers(civ.regions.count);
+  if (layers.length) civ.simLayers = layers;
 }
 
 /** 从第 0 年推到 p.endYear 的总流程,主线照 line.stop 停;地形大事那一段(推到底的那一支、换地形)一次做完 */
@@ -375,7 +385,7 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
 function halfOf<S>(run: CivRun<S>, own: S, seg: Segment, habitat: Habitat, regions: Regions): Civ {
   const civ = run.pack.half(run, own, seg, habitat, regions);
   partialModules(run.pack, { sim: seg.sim, world: seg.world, endYear: civ.endYear, regions, civ });
-  if (seg.plug) civ.simPlugins = seg.plug.snapshot(civ.endYear);
+  if (seg.plug) putPlugins(civ, seg.plug);
   return civ;
 }
 
@@ -383,7 +393,7 @@ function halfOf<S>(run: CivRun<S>, own: S, seg: Segment, habitat: Habitat, regio
 function settleOf<S>(run: CivRun<S>, own: S, fin: Segment, eras: CivEra[], facts: UpheavalFact[]): Civ {
   const civ = run.pack.settle(run, own, fin, eras, facts);
   if (civ.viable && civ.cultures.length) finishModules(run.pack, { sim: fin.sim, world: fin.world, endYear: run.p.endYear, regions: fin.regions, civ });
-  if (fin.plug) civ.simPlugins = fin.plug.snapshot(civ.endYear);
+  if (fin.plug) putPlugins(civ, fin.plug);
   return civ;
 }
 
@@ -502,10 +512,10 @@ export function continuePack<S>(pack: CivPack<S>, world: World, civ: Civ, params
     },
     partial() {
       runTo();
-      // 干预、地名风格补在最后:交出去的键序和以前一样
+      // 干预、地名风格补在最后:交出去的键序和以前一样(推演插件下过命令的,干预已经照引擎上的那一份拼进去了)
       const out = halfOf(run, pack.adopt(run, civ, [], sim), fin, civ.habitat, regions);
       if (civ.knobs) out.knobs = civ.knobs;
-      if (list.length) out.interventions = list.slice();
+      if (list.length && !out.interventions) out.interventions = list.slice();
       if (civ.names) out.names = civ.names;
       return out;
     },

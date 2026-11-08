@@ -37,19 +37,21 @@ import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, packValue, partBytes, sha25
 import { GENERATOR_VERSION } from './gen/edits';
 import { VAULT_DB, type RosterMarks } from './worldRoster';
 import type { SaveFile } from './gen/savefile';
-import { buildManifest, knownPart, manifestBytes, opaqueParts, openWorldFile, packExtra, packKnown, packPluginLayer, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
+import { buildManifest, historyParts, knownPart, manifestBytes, opaqueParts, openWorldFile, packExtra, packKnown, packPluginLayer, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
 import {
   KNOWN_PARTS,
   PLUGIN_DATA_MAX_BYTES,
+  PLUGIN_LAYERS_MAX,
   PLUGIN_LAYER_MAX_BYTES,
   PLUGIN_LAYER_PREFIX,
-  SIM_STATE_PREFIX,
   WorldFileError,
   asWorldFileError,
   pluginDataPart,
+  pluginLayerOf,
+  pluginLayerPart,
   type AuthorContent,
   type AuthorNote,
-  type PluginLayerData,
+  type PluginLayerValue,
   type WorldMade,
   type WorldManifest,
   type WorldPartInfo,
@@ -519,9 +521,9 @@ async function packGiven(req: CommitRequest) {
 function partsAfter(req: CommitRequest, prev: WorldManifest | null, incoming: readonly PackedPart[], author: PackedPart | null | undefined, thumb: PackedPart | null | undefined): Map<string, WorldPartInfo> {
   const infos = new Map<string, WorldPartInfo>((prev?.parts ?? []).map((p) => [p.name, p]));
   if (req.parts) {
-    // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了);推演插件的状态跟着历史,上一份的不留
+    // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了);推演插件的状态、图层跟着历史,上一份的不留
     for (const n of VIEW_PARTS) infos.delete(n);
-    for (const n of [...infos.keys()]) if (n.startsWith(SIM_STATE_PREFIX)) infos.delete(n);
+    for (const n of historyParts(infos.keys())) infos.delete(n);
     for (const p of incoming) infos.set(p.info.name, p.info);
   }
   if (author !== undefined) {
@@ -899,7 +901,7 @@ function pluginsAfter(list: readonly WorldPlugin[], plugin: WorldPlugin, stored:
   const at = list.findIndex((x) => x.id === plugin.id);
   const had = at < 0 ? undefined : list[at];
   if (!stored) return had?.role === 'tool' && !parts.some((p) => p.by === plugin.id) ? list.filter((x) => x.id !== plugin.id) : [...list];
-  const next: WorldPlugin = { ...had, id: plugin.id, version: plugin.version, sum: plugin.sum, role: plugin.role };
+  const next: WorldPlugin = { ...had, id: plugin.id, version: plugin.version, sum: plugin.sum, role: plugin.role, ...(plugin.name !== undefined ? { name: plugin.name } : {}) };
   if (at < 0) return [...list, next];
   return list.flatMap((x, i) => (i === at ? [next] : x.id === plugin.id ? [] : [x]));
 }
@@ -952,30 +954,37 @@ export async function changePluginData(id: string, plugin: WorldPlugin, data: { 
 // ---------------------------------------------------------------------------
 // 插件存进世界的图层
 
-/** 存在世界里的一个插件图层:块名、哪个插件、内容、清单里记的这个插件(没记 = null) */
+/** 存在世界里的一个工具插件的图层:块名、哪个插件、图层编号(块名里那一段)、内容、清单里记的这个插件(没记 = null) */
 export interface PluginLayerRead {
   name: string;
   by: string;
-  data: PluginLayerData;
+  layer: string;
+  data: PluginLayerValue;
   plugin: WorldPlugin | null;
 }
 
-/** 这个世界最新修订里存着的插件图层(按清单里的先后);读不出来、核对不过、结构比软件新的跳过 */
-export async function readPluginLayers(id: string): Promise<PluginLayerRead[]> {
+/**
+ * 这个世界最新修订里存着的工具插件的图层(按清单里的先后;cells = 地图有几个地块)。
+ * 跟着历史走的(推演插件的)不在这里;读不出来、核对不过、结构比软件新的跳过
+ */
+export async function readPluginLayers(id: string, cells: number): Promise<PluginLayerRead[]> {
   try {
     const head = await readRevision(id, undefined, []);
     if (!head) return [];
-    const kept = new Set(opaqueParts(head.manifest.parts));
-    const names = head.manifest.parts.filter((p) => p.name.startsWith(PLUGIN_LAYER_PREFIX) && !kept.has(p.name)).map((p) => p.name);
+    const all = head.manifest.parts.map((p) => p.name);
+    const skip = new Set([...opaqueParts(head.manifest.parts), ...historyParts(all)]);
+    const names = all.filter((n) => n.startsWith(PLUGIN_LAYER_PREFIX) && !skip.has(n));
     if (!names.length) return [];
     const got = await readRevision(id, head.head.n, names);
     const out: PluginLayerRead[] = [];
     for (const p of got?.parts ?? []) {
+      const ids = pluginLayerOf(p.info.name);
+      if (!ids) continue;
       try {
         const v = unpackValue(await partBytes(p.info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, new Uint8Array(p.data), PLUGIN_LAYER_MAX_BYTES));
-        validatePluginLayer(v, p.info.name);
-        const by = p.info.by ?? '';
-        out.push({ name: p.info.name, by, data: v, plugin: head.manifest.plugins.find((x) => x.id === by) ?? null });
+        validatePluginLayer(v, { cells, regions: 0 }, `插件图层 ${p.info.name}`);
+        if (v.unit !== 'cell' || v.years !== undefined) continue;
+        out.push({ name: p.info.name, by: ids[0], layer: ids[1], data: v, plugin: head.manifest.plugins.find((x) => x.id === ids[0]) ?? null });
       } catch (e) {
         if (asWorldFileError(e).kind === 'memory') throw e;
       }
@@ -986,20 +995,30 @@ export async function readPluginLayers(id: string): Promise<PluginLayerRead[]> {
   }
 }
 
+/** 存插件图层:many = 这个世界存的插件图层已经满了(PLUGIN_LAYERS_MAX),什么都没写 */
+export type PluginLayerWrote = PluginDataWrote | { status: 'many' };
+
 /**
- * 换掉(data = null:拿掉)这个世界里存着的一个插件图层(块名 = pluginLayerPart),写一份新修订,别的块、配方都照上一份;
+ * 换掉(data = null:拿掉)这个世界里存着的一个工具插件的图层(块名 layer.<插件编号>.<图层编号>),写一份新修订,别的块、配方都照上一份;
  * 清单的插件记录和存数据一样(pluginsAfter;plugin.sum 是空串 = 不动)。还没有修订的世界存不了(nobase)
  */
-export async function changePluginLayer(id: string, plugin: WorldPlugin, name: string, data: PluginLayerData | null): Promise<PluginDataWrote> {
+export async function changePluginLayer(id: string, plugin: WorldPlugin, layerId: string, data: PluginLayerValue | null): Promise<PluginLayerWrote> {
   try {
-    const packed = data ? await packPluginLayer(name, plugin.id, data) : null;
+    const name = pluginLayerPart(plugin.id, layerId);
+    if (data) {
+      validatePluginLayer(data, { cells: data.values.length, regions: 0 }, `插件图层 ${name}`);
+      if (data.unit !== 'cell' || data.years !== undefined) throw new VaultError('failed', '工具插件的图层只能按地块、只有一份');
+    }
+    const packed = data ? await packPluginLayer(plugin.id, layerId, data) : null;
     for (let tries = 0; tries < COMMIT_TRIES; tries++) {
       const rows = await rowsOf(id);
       const maxN = rows.at(-1)?.n ?? 0;
       const base = chainOf(rows).at(-1);
       const prev = base ? manifestOf(base) : null;
       if (!base || !prev) return { status: 'nobase' };
-      if (!packed && !prev.parts.some((p) => p.name === name)) return { status: 'same', n: base.n };
+      const had = prev.parts.some((p) => p.name === name);
+      if (!packed && !had) return { status: 'same', n: base.n };
+      if (packed && !had && prev.parts.filter((p) => p.name.startsWith(PLUGIN_LAYER_PREFIX)).length >= PLUGIN_LAYERS_MAX) return { status: 'many' };
       const infos = new Map<string, WorldPartInfo>(prev.parts.map((p) => [p.name, p]));
       if (packed) infos.set(name, packed.info);
       else infos.delete(name);

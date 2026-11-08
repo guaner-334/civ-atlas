@@ -45,7 +45,7 @@ const latest = async (): Promise<WorldManifest> => (await readRevision(sample.id
 describe('插件存进世界的数据', () => {
   it('记录照插件文件来:编号、第几版、文件指纹、种类', async () => {
     const opened = await openPluginFile(await goodPlugin());
-    expect(tool).toEqual({ id: 'route-measure', version: '1.0.0', sum: opened.sum, role: 'tool' });
+    expect(tool).toEqual({ id: 'route-measure', version: '1.0.0', sum: opened.sum, role: 'tool', name: opened.manifest.name });
   });
 
   it('还没存过的世界存不了;没存过数据读出来是 null', async () => {
