@@ -1,3 +1,4 @@
 # 示例插件按原样的字节装进插件文件:换行变了,重新打包就和仓库里的 .civplugin 对不上
 examples/plugins/** text eol=lf
 *.civplugin binary
+*.civworld binary

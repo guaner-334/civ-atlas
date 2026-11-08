@@ -1,0 +1,2413 @@
+{
+ "v1-cells.civworld": {
+  "sha256": "dabb82481144d3c103c2a7e158488bbaf2a8cd53974ef62828a146432dfadad7",
+  "bytes": 301594,
+  "layers": [
+   {
+    "at": "layer.sea-ruler.coast-km",
+    "by": "sea-ruler",
+    "id": "coast-km",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "离海多远",
+     "ramp": {
+      "colors": ["#ffffff", "#08306b"],
+      "min": 0,
+      "max": 3000
+     },
+     "legend": "公里"
+    },
+    "range": [0, 3000],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "2f4e0e0a8316abc1b32b527c65901defc0e8c5ba9b5323b686ee83db35b27fb8",
+      "colors": "d9f96f742cae79f89da09d85071f29f86ce535533d2c584e52d1904eef160bce",
+      "drawn": 623,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [8, 63.624107360839844, [250, 251, 252, 166]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, 1292.6822509765625, [149, 166, 191, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.sea-ruler.h38a0d7c6",
+    "by": "sea-ruler",
+    "id": "h38a0d7c6",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "海拔（范围按数据）",
+     "ramp": {
+      "colors": ["#f7fbff", "#6baed6", "#08306b"]
+     },
+     "legend": "米"
+    },
+    "range": [-6495.89453125, 6529.62548828125],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "44fef37191fd91ded3a2e1e1b1155d8f5132ecd7c7a86a179d6b6d8100d26ecd",
+      "colors": "d5844db494beddb7a4c060e83625466f9b43d03556f2e3c63a4c47a4b2ab6a36",
+      "drawn": 1884,
+      "samples": [
+       [0, -2353.4814453125, [158, 202, 229, 166]],
+       [942, -2723.193603515625, [166, 206, 231, 166]],
+       [1883, 1292.6822509765625, [88, 149, 193, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.sea-ruler.warmth",
+    "by": "sea-ruler",
+    "id": "warmth",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "气温",
+     "ramp": {
+      "colors": ["#313695", "#ffffbf", "#a50026"],
+      "min": -30
+     },
+     "legend": "°C",
+     "opacity": 0.8
+    },
+    "range": [-30, 27.571609497070312],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "7b0f615fbcf2b1ab60fae4d7a40ada2fce916f2451e6032814024f3cab6bfe7e",
+      "colors": "a46bf179ff5f7d6c8b114e1cefec88d07b0d1c8e262e32f2ceac335de795f89c",
+      "drawn": 1884,
+      "samples": [
+       [0, 26.665639877319336, [168, 8, 43, 204]],
+       [942, 23.214561462402344, [179, 39, 61, 204]],
+       [1883, 18.47121810913086, [193, 81, 86, 204]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.sea-ruler.rain",
+    "by": "sea-ruler",
+    "id": "rain",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "降水",
+     "ramp": {
+      "colors": ["#ffffcc", "#a1dab4", "#41b6c4", "#225ea8"],
+      "max": 3000
+     },
+     "legend": "毫米"
+    },
+    "range": [50.244205474853516, 3000],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "5cd077c1103029bf2eb2474c80d7df72f597f1add8b76a8fe04b6f846b13454d",
+      "colors": "d71c575a39ef9392c4ed6f1cae2b4365ca6b3aec620d05b9a571595fcad92855",
+      "drawn": 1884,
+      "samples": [
+       [0, 1876.3729248046875, [79, 187, 194, 166]],
+       [942, 725.5166015625, [190, 230, 188, 166]],
+       [1883, 6532.767578125, [34, 94, 168, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.biome",
+    "by": "land-use",
+    "id": "biome",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "地貌",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#1f78b4",
+       "label": "海洋"
+      },
+      {
+       "value": 1,
+       "color": "#a6cee3",
+       "label": "湖泊"
+      },
+      {
+       "value": 2,
+       "color": "#33a02c",
+       "label": "海冰"
+      },
+      {
+       "value": 3,
+       "color": "#b2df8a",
+       "label": "冰原"
+      },
+      {
+       "value": 4,
+       "color": "#e31a1c",
+       "label": "苔原"
+      },
+      {
+       "value": 5,
+       "color": "#fb9a99",
+       "label": "针叶林"
+      },
+      {
+       "value": 6,
+       "color": "#ff7f00",
+       "label": "寒漠"
+      },
+      {
+       "value": 7,
+       "color": "#fdbf6f",
+       "label": "温带荒漠"
+      }
+     ],
+     "legend": "前八种",
+     "opacity": 0.5
+    },
+    "range": null,
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "7ec6fa0cdbf5d5c745e895284d256614b06a29c0b2914966a1ad1e91707b70bb",
+      "colors": "25fde57be4c96986b7422c22d17075966ecd2763df0402444f5d9be34aa6939f",
+      "drawn": 1571,
+      "samples": [
+       [0, 0, [31, 120, 180, 128]],
+       [8, 13, [0, 0, 0, 0]],
+       [942, 0, [31, 120, 180, 128]],
+       [1880, 0, [31, 120, 180, 128]],
+       [1883, 14, [0, 0, 0, 0]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.farmland",
+    "by": "land-use",
+    "id": "farmland",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "耕地",
+     "classes": [
+      {
+       "value": 1,
+       "color": "#e6ab02",
+       "label": "耕地"
+      }
+     ],
+     "opacity": 1
+    },
+    "range": null,
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "df9ea0f9887b456f4db3b6c81ed1f83fb48fb644a480a1533b1287826141402d",
+      "colors": "a3a616442cbdfc0298900b75049565a9cd945b4cfd25e023e1d387784797075c",
+      "drawn": 309,
+      "samples": [
+       [0, 0, [0, 0, 0, 0]],
+       [8, 1, [230, 171, 2, 255]],
+       [942, 0, [0, 0, 0, 0]],
+       [1883, 1, [230, 171, 2, 255]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.districts-32",
+    "by": "land-use",
+    "id": "districts-32",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长🌋",
+     "classes": [
+      {
+       "value": -2147483648,
+       "color": "#000000",
+       "label": "最小的整数"
+      },
+      {
+       "value": -15,
+       "color": "#101010",
+       "label": "第-15区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -14,
+       "color": "#3f1b3d",
+       "label": "第-14区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -13,
+       "color": "#5e367a",
+       "label": "第-13区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -12,
+       "color": "#9d51b7",
+       "label": "第-12区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -11,
+       "color": "#bc7cf4",
+       "label": "第-11区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -10,
+       "color": "#fb9831",
+       "label": "第-10区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -9,
+       "color": "#1ab37e",
+       "label": "第-9区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -8,
+       "color": "#59bebb",
+       "label": "第-8区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -7,
+       "color": "#78d9f8",
+       "label": "第-7区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -6,
+       "color": "#b7f535",
+       "label": "第-6区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -5,
+       "color": "#d71072",
+       "label": "第-5区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -4,
+       "color": "#163b9f",
+       "label": "第-4区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -3,
+       "color": "#3556dc",
+       "label": "第-3区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -2,
+       "color": "#747219",
+       "label": "第-2区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": -1,
+       "color": "#937d56",
+       "label": "第-1区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 0,
+       "color": "#d29893",
+       "label": "第0区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 1,
+       "color": "#f1b3d0",
+       "label": "第1区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 2,
+       "color": "#30df1d",
+       "label": "第2区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 3,
+       "color": "#5ffa5a",
+       "label": "第3区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 4,
+       "color": "#7f1597",
+       "label": "第4区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 5,
+       "color": "#be30d4",
+       "label": "第5区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 6,
+       "color": "#dd3c11",
+       "label": "第6区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 7,
+       "color": "#1c573e",
+       "label": "第7区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 8,
+       "color": "#3b727b",
+       "label": "第8区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 9,
+       "color": "#7a9db8",
+       "label": "第9区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 10,
+       "color": "#99b8f5",
+       "label": "第10区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 11,
+       "color": "#d8d432",
+       "label": "第11区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 12,
+       "color": "#f7df7f",
+       "label": "第12区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 13,
+       "color": "#36fabc",
+       "label": "第13区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 14,
+       "color": "#5615f9",
+       "label": "第14区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      },
+      {
+       "value": 15,
+       "color": "#953136",
+       "label": "第15区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区区"
+      }
+     ],
+     "legend": "说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说说"
+    },
+    "range": null,
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "66283c116d791bfbc1f2a388d48eb86cf02af51bdd68d48f84ca379df6b1a8fb",
+      "colors": "e54e266809a9f37ac171324a952936c7d088b3c000bf765e7249dcfab1bdf51f",
+      "drawn": 1585,
+      "samples": [
+       [0, -2147483648, [0, 0, 0, 166]],
+       [1, -17, [0, 0, 0, 0]],
+       [942, -1, [147, 125, 86, 166]],
+       [1883, 15, [149, 49, 54, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.ramp-16",
+    "by": "land-use",
+    "id": "ramp-16",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "十六色",
+     "ramp": {
+      "colors": ["#0040ff", "#1140ee", "#2240dd", "#3340cc", "#4440bb", "#5540aa", "#664099", "#774088", "#884077", "#994066", "#aa4055", "#bb4044", "#cc4033", "#dd4022", "#ee4011", "#ff4000"],
+      "min": -1,
+      "max": 1
+     }
+    },
+    "range": [-1, 1],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "c8ad055dd3c5b41b222fea1d0d7b676d1bd9a5864104719677f4bec96738204b",
+      "colors": "bbe221c7026eb1a33de2710ee11a294cdeba8753d946022161bc02343010099c",
+      "drawn": 1739,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [1, -0.6299999952316284, [47, 64, 208, 166]],
+       [942, -0.1899999976158142, [103, 64, 152, 166]],
+       [1883, 0.25, [159, 64, 96, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.extremes",
+    "by": "land-use",
+    "id": "extremes",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "极端的数",
+     "ramp": {
+      "colors": ["#000000", "#ffffff"]
+     }
+    },
+    "range": [-3.4028234663852886e+38, 3.4028234663852886e+38],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "6fe9ef42094767ac37459045a3c671b32d50a69ca604997225fdc71f258d2546",
+      "colors": "2c50534ec6d1fb2d31eb0b4915625f2ce5e061913c8dacc82484ec8f90aa1d8b",
+      "drawn": 1615,
+      "samples": [
+       [0, 3.4028234663852886e+38, [255, 255, 255, 166]],
+       [5, null, [0, 0, 0, 0]],
+       [942, 1, [128, 128, 128, 166]],
+       [1883, 3.4028234663852886e+38, [255, 255, 255, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.hidden",
+    "by": "land-use",
+    "id": "hidden",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "全透明",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#000000",
+       "label": "零"
+      },
+      {
+       "value": 1,
+       "color": "#ffffff",
+       "label": "一"
+      }
+     ],
+     "opacity": 0
+    },
+    "range": null,
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "dda1e3fc6ce5de4ba6b33d12a905b1c0bcaf40160c6547fc5e45f59145d1afe4",
+      "colors": "41aeff9d2b71803741e45f346c2895b478281c84e5297e0f7cb66bcf1bcb6a5a",
+      "drawn": 0,
+      "samples": [
+       [0, 0, [0, 0, 0, 0]],
+       [942, 0, [0, 0, 0, 0]],
+       [1883, 1, [0, 0, 0, 0]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.flat",
+    "by": "land-use",
+    "id": "flat",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "处处一样",
+     "ramp": {
+      "colors": ["#fee8c8", "#e34a33"]
+     }
+    },
+    "range": [5, 5],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "97cb0d50d27d6619e732eac996f80d9be05f77bfaf0f837586885442f7593dd6",
+      "colors": "a2c63c1f3040d531f6286936de21eb7b38fbc8c0c6d5a8ecf50bd99b4f837e90",
+      "drawn": 623,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [8, 5, [254, 232, 200, 166]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, 5, [254, 232, 200, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.empty",
+    "by": "land-use",
+    "id": "empty",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "一格都不画",
+     "ramp": {
+      "colors": ["#ffffff", "#000000"]
+     }
+    },
+    "range": [0, 1],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "3ba6c75dff1c8c01a4be807a97112cdb9eb1509257e3463662bea2f7389ffb7d",
+      "colors": "41aeff9d2b71803741e45f346c2895b478281c84e5297e0f7cb66bcf1bcb6a5a",
+      "drawn": 0,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, null, [0, 0, 0, 0]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.long-plugin-name-for-format-test.max-length-layer-id-25-ch",
+    "by": "long-plugin-name-for-format-test",
+    "id": "max-length-layer-id-25-ch",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "块名正好 64 个字",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#66c2a5",
+       "label": "单"
+      },
+      {
+       "value": 1,
+       "color": "#fc8d62",
+       "label": "双"
+      }
+     ],
+     "legend": ""
+    },
+    "range": null,
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "dda1e3fc6ce5de4ba6b33d12a905b1c0bcaf40160c6547fc5e45f59145d1afe4",
+      "colors": "cb3f57e665c9399896ec9345616a7d316c1b334a93f58a8edbf4497bfc6b83b0",
+      "drawn": 1884,
+      "samples": [
+       [0, 0, [102, 194, 165, 166]],
+       [942, 0, [102, 194, 165, 166]],
+       [1883, 1, [252, 141, 98, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.long-plugin-name-for-format-test.thin",
+    "by": "long-plugin-name-for-format-test",
+    "id": "thin",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "很淡",
+     "ramp": {
+      "colors": ["#000000", "#ff0000"],
+      "min": 0,
+      "max": 1
+     },
+     "opacity": 0.05
+    },
+    "range": [0, 1],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "6d20375f021f58a75d5c7a18452e954c050ba19d75fb78d8b897785676e31f0f",
+      "colors": "a8ea4c5529f44595596687bf15ed7e5bba769ae4de9c604ee709051cf2010b54",
+      "drawn": 1884,
+      "samples": [
+       [0, 0, [0, 0, 0, 13]],
+       [942, 0.41999998688697815, [107, 0, 0, 13]],
+       [1883, 0.8299999833106995, [212, 0, 0, 13]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.long-plugin-name-for-format-test.controls",
+    "by": "long-plugin-name-for-format-test",
+    "id": "controls",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "第一行 第二行反过来",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#8dd3c7",
+       "label": "甲\t乙"
+      },
+      {
+       "value": 1,
+       "color": "#bebada",
+       "label": "丙"
+      }
+     ],
+     "legend": "响铃"
+    },
+    "range": null,
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "0aca8e0b2df7fb5e3e6de251751831f201fbbdf27ec57a49978d06b5a8e8f2df",
+      "colors": "8dce7179131f51514afc050746624fcad5776b4c797bb29e5c23fb6efc2fa1ac",
+      "drawn": 1256,
+      "samples": [
+       [0, 0, [141, 211, 199, 166]],
+       [2, 2, [0, 0, 0, 0]],
+       [942, 0, [141, 211, 199, 166]],
+       [1882, 1, [190, 186, 218, 166]],
+       [1883, 2, [0, 0, 0, 0]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.long-plugin-name-for-format-test.bands",
+    "by": "long-plugin-name-for-format-test",
+    "id": "bands",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "五色带",
+     "ramp": {
+      "colors": ["#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6"],
+      "min": 0,
+      "max": 100
+     },
+     "legend": "分",
+     "opacity": 0.65
+    },
+    "range": [0, 100],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "bb0508689b7c74b077ef63b8e058429eb166f084d232cd0bfa75434484d73374",
+      "colors": "c3e9f9e083b9c552734aaa37af083fdbc7e0f4804e58f3009de08cb82336bbb9",
+      "drawn": 1884,
+      "samples": [
+       [0, 0, [215, 25, 28, 166]],
+       [942, 69.80000305175781, [188, 225, 224, 166]],
+       [1883, 47.70000076293945, [255, 248, 182, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   }
+  ]
+ },
+ "v1-sim-blocks.civworld": {
+  "sha256": "be06c0eaa74872be2937a02976226b5a563624c01c14efc12ccf7e8e2d69265c",
+  "bytes": 502352,
+  "layers": [
+   {
+    "at": "layer.sea-ruler.coast-km",
+    "by": "sea-ruler",
+    "id": "coast-km",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "离海多远",
+     "ramp": {
+      "colors": ["#ffffff", "#08306b"],
+      "min": 0,
+      "max": 3000
+     },
+     "legend": "公里"
+    },
+    "range": [0, 3000],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "2f4e0e0a8316abc1b32b527c65901defc0e8c5ba9b5323b686ee83db35b27fb8",
+      "colors": "d9f96f742cae79f89da09d85071f29f86ce535533d2c584e52d1904eef160bce",
+      "drawn": 623,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [8, 63.624107360839844, [250, 251, 252, 166]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, 1292.6822509765625, [149, 166, 191, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "layer.land-use.growth",
+    "by": "land-use",
+    "id": "growth",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "开垦",
+     "ramp": {
+      "colors": ["#f7fcf5", "#00441b"],
+      "min": 0,
+      "max": 100
+     },
+     "legend": "%"
+    },
+    "range": [0, 100],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": 0,
+      "values": "b8ac94de102a9ab3e48b0d47eb5ddf90223331afb0aaaeb66f1f9b070ca40940",
+      "colors": "53b65b2069807cb25c508379064c73fd2788fd5967ee4858526483d1ef1e41f2",
+      "drawn": 623,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [8, 8, [227, 237, 228, 166]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, 33, [165, 191, 173, 166]]
+      ]
+     },
+     {
+      "year": 400,
+      "values": "7a2e5e216007f31b8c242b1607831108112f31572eb74aa3c7486df6f8bb6543",
+      "colors": "915354f99088652480760b5c34632a61c4ab5699f4076f273f2e66d750213a7b",
+      "drawn": 623,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [8, 16, [207, 223, 210, 166]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, 66, [84, 131, 101, 166]]
+      ]
+     },
+     {
+      "year": 2400,
+      "values": "f3bbfa9b069bf7d84ef4eedfe1c74cb9e390396e072e9710cef02edd3bef7911",
+      "colors": "eb0e426c2552c1ff8afe7ba50cf46f23e30b810c0582d9b8eb44bc3f68291307",
+      "drawn": 623,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [8, 24, [188, 208, 193, 166]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, 99, [2, 70, 29, 166]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [200, 0], [400, 1], [2399.5, 1], [2400, 2], [3400, 2]]
+   },
+   {
+    "at": "layer.land-use.era-zones",
+    "by": "land-use",
+    "id": "era-zones",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "大事以后的分区",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#e41a1c",
+       "label": "0 区"
+      },
+      {
+       "value": 1,
+       "color": "#377eb8",
+       "label": "1 区"
+      },
+      {
+       "value": 2,
+       "color": "#4daf4a",
+       "label": "2 区"
+      }
+     ],
+     "opacity": 0.6
+    },
+    "range": null,
+    "cells": 1884,
+    "frames": [
+     {
+      "year": 300,
+      "values": "ff5f7bf1c87ed9d01f7502e9d9cf5344cd17a4b31ae11de249f98e2f4282b91a",
+      "colors": "15b5d139c3061a9588eedc5c9e9a3cd900c760d094b0de939b6341386f0ee17d",
+      "drawn": 1413,
+      "samples": [
+       [0, 0, [228, 26, 28, 153]],
+       [3, 3, [0, 0, 0, 0]],
+       [942, 2, [77, 175, 74, 153]],
+       [1882, 2, [77, 175, 74, 153]],
+       [1883, 3, [0, 0, 0, 0]]
+      ]
+     }
+    ],
+    "pick": [[299, -1], [300, 0], [1300, 0]]
+   },
+   {
+    "at": "layer.sample-magic.magic",
+    "by": "sample-magic",
+    "id": "magic",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "魔力浓度",
+     "ramp": {
+      "colors": ["#1b1036", "#5b2a9e", "#a46cff", "#f2e6ff"],
+      "min": 0,
+      "max": 60
+     },
+     "legend": "魔力（0–100）"
+    },
+    "range": [0, 60],
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "4cd11392770047ae7182f650cb583d228cdbad998cbc7f64eb180ed0d0fd452b",
+      "colors": "2314eb9285d96ac16170238be56a44b85be1eae52014e28da3beb7c73f9bb9d6",
+      "drawn": 438,
+      "samples": [
+       [0, 10, [59, 29, 106, 166]],
+       [224, 10, [59, 29, 106, 166]],
+       [437, 10, [59, 29, 106, 166]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 50,
+      "values": "f414e752629f68619e1f0cf95deffdb1c65f0c713587138f022caa7af6f46c3c",
+      "colors": "a9300d1483d1060f755c80b4e63a4d9230a0d0dbde2abe5696b43057085b9194",
+      "drawn": 438
+     },
+     {
+      "year": 100,
+      "values": "3f4231b7c47a3e47db49acc76430322f3deb8b1f8af34246dc52cfc632987e1e",
+      "colors": "e82e840def20d044c1995b2a0b881e1504ed0c5c94a24ed38434467780287fcf",
+      "drawn": 438
+     },
+     {
+      "year": 150,
+      "values": "79912734d9e8ba5edb0e84784292152520f7b533f5103472214ca9121c4c86f5",
+      "colors": "c983f8cfdfd57c2d6472781593eebfa03ec8fda8239563bc6b004cc7d1873bd4",
+      "drawn": 438
+     },
+     {
+      "year": 200,
+      "values": "427fe91f131e4580fe4ce26ca07c74719c4da90cb15dd41c00fd2dfd78d06c68",
+      "colors": "2a98509a934dbed1fec165fc26a5adf6db91104f9bd99e456c70fe9ffac56b6c",
+      "drawn": 438
+     },
+     {
+      "year": 250,
+      "values": "f3cf3dd1edd52683a90648af93768e47a358ef88f41f418b19a2a2b697e54277",
+      "colors": "0e815881a506b4877a8182584ba59bd13e8c5e1a3f105fc6a39e0ea416598957",
+      "drawn": 438
+     },
+     {
+      "year": 300,
+      "values": "db89c16840ba17d322986970274f0193a41c746cc8f347edb752ffa1b0bb297a",
+      "colors": "5461ee22fee12a065b60d0d418af67e4380a3da60c3827b732b748197dc14f5a",
+      "drawn": 448,
+      "samples": [
+       [0, 29.078603744506836, [124, 72, 202, 166]],
+       [224, 29.078603744506836, [124, 72, 202, 166]],
+       [447, 11, [62, 30, 111, 166]]
+      ]
+     },
+     {
+      "year": 350,
+      "values": "aafbbc63e2c8c10b3e9d9f1e3e96ffd40476f57cadb357e56a4549a69537d5d6",
+      "colors": "a1b32c90c7ad1c125af1267686e9596ee95cf1f6eccb24244d26b81a2fbcad67",
+      "drawn": 448
+     },
+     {
+      "year": 400,
+      "values": "ad888635b88f7c2fdcf4ee24c562944c65f601267c9b945c6743edbba19b35d2",
+      "colors": "aa44df0dfcd11cb9e971f331e7c47472a0e947a65a6694cbfc3e005474df4c5f",
+      "drawn": 448
+     },
+     {
+      "year": 450,
+      "values": "e4d49e20d332ca252d58a1a1e12d4d2944511339ee7e9b6858cd6fc7db04266b",
+      "colors": "8c6e21fe942bac87a807d38f5d822ef98405f0ec6676aa95f460bcd343de77d4",
+      "drawn": 448
+     },
+     {
+      "year": 500,
+      "values": "dd70a5e394b401d603828b15459ca91e88267858e9292d571c871a2ca07b049d",
+      "colors": "97e04acc62579bfbdd89eec07be1a03615fbe32f7509a897672c7d5a853e47d2",
+      "drawn": 448
+     },
+     {
+      "year": 550,
+      "values": "e3b0476084a7d40f9c79cdf2681c2c8dcc6e2fb45f58d85bab759614921b255a",
+      "colors": "bcbb9013db33c2b800c0aaf9c4c605935eceab7ad21dc975d2958d4b0937dd74",
+      "drawn": 448
+     },
+     {
+      "year": 600,
+      "values": "963d5b7fa1fcb4c9555575dccf7f906af75838106c11ac627153dcee79e4666a",
+      "colors": "0472657d90c6112a3d785045a3db81f3b76c4725cd7466b606cba38b23d574f9",
+      "drawn": 448,
+      "samples": [
+       [0, 29.957551956176758, [127, 75, 206, 166]],
+       [224, 29.955867767333984, [127, 75, 206, 166]],
+       [447, 29.58802604675293, [126, 74, 205, 166]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [25, 0], [300, 6], [599.5, 11], [600, 12], [1600, 12]]
+   },
+   {
+    "at": "layer.sample-magic.magic-auto",
+    "by": "sample-magic",
+    "id": "magic-auto",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "魔力（范围按数据）",
+     "ramp": {
+      "colors": ["#fff7ec", "#7f0000"]
+     },
+     "opacity": 0.8
+    },
+    "range": [10, 29.9553165435791],
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "4cd11392770047ae7182f650cb583d228cdbad998cbc7f64eb180ed0d0fd452b",
+      "colors": "8cb050c0d65f93054a46492de914f42dd14dac5346d38e70982a3d50461d0a06",
+      "drawn": 438,
+      "samples": [
+       [0, 10, [255, 247, 236, 204]],
+       [224, 10, [255, 247, 236, 204]],
+       [437, 10, [255, 247, 236, 204]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 13,
+      "values": "ec3079bc0758c013492703babb4eaabb3374a8c80d12ef78ca9919453ed3e983",
+      "colors": "01b4a0c6803aa770740065887ba9a36a8bd26def08755aba92e5672d25487ff8",
+      "drawn": 438
+     },
+     {
+      "year": 26,
+      "values": "289a11536b067777142d228c467a5dbe28fc1e0dabf85292ac6328cf33917ddf",
+      "colors": "9281f117998cae575538a1220d9dde753dd6fa76811449b57e7dcf760c5940f5",
+      "drawn": 438
+     },
+     {
+      "year": 39,
+      "values": "3519f7ded5907aa2461f14026473af279f36d15bc3b674a6a809b2f30802d525",
+      "colors": "fdde594e18fcf6df65945794a23a40ac5c308ee05298d9161401054650bcc24d",
+      "drawn": 438
+     },
+     {
+      "year": 52,
+      "values": "f414e752629f68619e1f0cf95deffdb1c65f0c713587138f022caa7af6f46c3c",
+      "colors": "f6b28d6c0313f6450e4af58c921da5b2ee60a91ccf3b9bf38fb0d0ae89e9b691",
+      "drawn": 438
+     },
+     {
+      "year": 65,
+      "values": "6ab2599499492a92ab69820b423b858db56716ae74b0342c1dc0752c654c43e5",
+      "colors": "371bba89932b4c4d139c1a8aec49a564dc6a0229ef6cca0ae3ab514dd19540e5",
+      "drawn": 438
+     },
+     {
+      "year": 78,
+      "values": "47b96c868895c84fb217c23a6ea596cdd40969d1828e4dcd5dd5775cb586f964",
+      "colors": "776b6fc122c40cb95f64680b127218cb366cc01076b46251a4cccc69cebef354",
+      "drawn": 438
+     },
+     {
+      "year": 91,
+      "values": "7aabacf1481a4bfddd715f20f2d2be5b45acd4d3602899c1118bd0af0b247e45",
+      "colors": "019f87bb56462c3e4c69802f0dca7dff87f9b945393f290fc0e290cbc1f0551f",
+      "drawn": 438
+     },
+     {
+      "year": 104,
+      "values": "3f4231b7c47a3e47db49acc76430322f3deb8b1f8af34246dc52cfc632987e1e",
+      "colors": "abf19aeff69fa5adee93b524f6dd9e040cc0b26473593d3c7c06adfb19dbaae0",
+      "drawn": 438
+     },
+     {
+      "year": 117,
+      "values": "0da3f37ba82a7a7f9f9edd4388544c3ed11eb119bfd13c5c30f40f4e4cedcd5a",
+      "colors": "b37ac597990e894e2f0ac844b30b728745a58f89443b07088612116a612d7fab",
+      "drawn": 438
+     },
+     {
+      "year": 130,
+      "values": "248008e662a36093264f8dbc1897aac05afdcb815dd5ebc8c88e2c6ed57cc4bd",
+      "colors": "6a2c144f1ec9e660ba9b37e1d77ab8cfa1b4c28b54a4de2b2de58acd84728e5c",
+      "drawn": 438
+     },
+     {
+      "year": 143,
+      "values": "874fc189df23699198d22272aa2d3d9b9bba4d58456797fa20aa2569fae8223f",
+      "colors": "dde6c4d8682427475e1f086c68a47a26c7fa0704973040bcdda59422b5f6e603",
+      "drawn": 438
+     },
+     {
+      "year": 156,
+      "values": "8607fa49e9088d631a90f71069eff4da6b1a5dfa61d5afbcbd6e99833e43d47f",
+      "colors": "34ddbe650af697b6bb5c381fd33ba04b897ed95f53ef6912c66dd4ca2faa4941",
+      "drawn": 438
+     },
+     {
+      "year": 169,
+      "values": "8c20d41dceeeb82c0c468c95bc18318e2c84220b3b02240d1dac630e1a5afb00",
+      "colors": "bb29e6f1e2a1fb617ec4dcb694c3c9b8d206ba3918c78a6bb734ab07bb5e4b99",
+      "drawn": 438
+     },
+     {
+      "year": 182,
+      "values": "717bb31714be9333a34163d2cf29a06172f37a50c8e4c1d57fc7f7304b2c04e0",
+      "colors": "10c5ba67a9f160123f562477bff0eecc7606df89a19de86e2a8b41d2253185c0",
+      "drawn": 438
+     },
+     {
+      "year": 195,
+      "values": "11a04acc301c1a5dfaa9d168b5127ff8d48ed9fe9b66a767689043778910c631",
+      "colors": "76d3a388daba97b0d92b3baae08acc449d93a83f25a5b3b7442f28f0a39c3bcc",
+      "drawn": 438
+     },
+     {
+      "year": 208,
+      "values": "c5a1f8bbb456fe4ba5fcdfa887d72d67f6c4c1f8d3f128472acbcefbd9bcac86",
+      "colors": "19e0b123353fb7553e89752cc70fedbe93a9d0c30265ce804833b6fe7ed76806",
+      "drawn": 438
+     },
+     {
+      "year": 221,
+      "values": "4ded9c6442e47513ef1b0bd868498fada401ed8a25a04db7f2f6bb0f5b000a4c",
+      "colors": "9d2ca62d70dbfbeef3d7b5c157768c611333728e1e1be545c58d6c17fcd9acc9",
+      "drawn": 438
+     },
+     {
+      "year": 234,
+      "values": "301fe5f99bf0f79603a17988b3c3d4a2a91d00606ae112a5b02500d426743d46",
+      "colors": "40ca82110330eb3be63703ca431ea69a526b3f24bba2f5db053cea33e086f9a5",
+      "drawn": 438
+     },
+     {
+      "year": 247,
+      "values": "aa59f5144b3d24e55e1f850d5257ea86867a80af9ca31dcdeb5f3be7736744e5",
+      "colors": "44f7b4a6881cebd8da602a7ac42c07598ade154d8c36655e937c4707e208b69f",
+      "drawn": 438
+     },
+     {
+      "year": 260,
+      "values": "821b8b8a3151221b6ad24be7a74b20ba15ad1ac44c32f3739772e318539fefbe",
+      "colors": "a120e97d1db9b230228def65ec4452590da92c8d9defb3b2d184be3fd6b1017c",
+      "drawn": 438
+     },
+     {
+      "year": 273,
+      "values": "27b46a62388cb7fb4ee458f4de6cf54a20549ab4c484f7741dc3f1d6d3008310",
+      "colors": "057c805cdbe9a07128f38c58d8395351165b03eccf41ed2e01711b9cceed6bba",
+      "drawn": 438
+     },
+     {
+      "year": 286,
+      "values": "d06f1ee2ef49710451ea49fa201c57637bd523d21412ea71137ddf3c8a9941c3",
+      "colors": "2b36ea8956aa9c3639ddc3772816e71a8a28daff2cd38f4bc4ed33611e460e5c",
+      "drawn": 438
+     },
+     {
+      "year": 299,
+      "values": "5491d448bf541a1512f8e4690ecfd5a900ac19fa79ae2b3905d0a8b945625af0",
+      "colors": "3287dafe9bd122335aef260e49319291db30670bb7a242186f94a7eae56f8969",
+      "drawn": 438,
+      "samples": [
+       [0, 29.030109405517578, [133, 11, 11, 204]],
+       [224, 29.030109405517578, [133, 11, 11, 204]],
+       [437, 29.030109405517578, [133, 11, 11, 204]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 312,
+      "values": "801a7762fee2cf8286f2fc7351c8aa97840f11ff6cf4e4ee76da9c49394a5fd4",
+      "colors": "7cfa22d2ab5090f26e4d13f3ff175705dc5f94f4578a0ab74b9d1d3e4ba0614b",
+      "drawn": 448
+     },
+     {
+      "year": 325,
+      "values": "7409f86d8db227f0c20b2872bba5b64b19e6212067cd90b4c99ec732a4eebf68",
+      "colors": "cf524929db6a0bd94c1db78a2f3f8b70c148f9701ec1ee4cd2b5afa9b8a33731",
+      "drawn": 448
+     },
+     {
+      "year": 338,
+      "values": "1e25a6f44d13336df828b47af257f949fdb1d549cc7ecf4595aebbaa5cdb1bda",
+      "colors": "d1fa4b029dfc95a3414cff15d729c091d675147ea4e1cd051797bb619d342efb",
+      "drawn": 448
+     },
+     {
+      "year": 351,
+      "values": "aafbbc63e2c8c10b3e9d9f1e3e96ffd40476f57cadb357e56a4549a69537d5d6",
+      "colors": "a717fa9e15ede128ccb3889b1d8abbb4c1b97bf9c6bac69d1caf68f64bb78719",
+      "drawn": 448
+     },
+     {
+      "year": 364,
+      "values": "72ecc79bb099c078fb57c74afe0703cd990f0caef9fe489a5fb08c91c28022df",
+      "colors": "1bcda5dd9da3f7f9bbf2208ecf294498e1dc73f7644c3ff431c082f4c3098650",
+      "drawn": 448
+     },
+     {
+      "year": 377,
+      "values": "98499f93e49997dd3baf42fb7573f09e3a3104244491ec6165d54408d7ec509a",
+      "colors": "d29558e96fd52e24ed27ef6dc47a7e64bd32cfc04ee4a52e9f719059e97cd724",
+      "drawn": 448
+     },
+     {
+      "year": 390,
+      "values": "0e3b26fd0a59c20875e2f88bcb66659fb3a3912f89f7d5ca569b3cad4271594b",
+      "colors": "0ba0734a62228e8e52a29b9f3f584a0341a4e4776dc57b1b8a58eefb428c6081",
+      "drawn": 448
+     },
+     {
+      "year": 403,
+      "values": "ad888635b88f7c2fdcf4ee24c562944c65f601267c9b945c6743edbba19b35d2",
+      "colors": "e0e4357d9060ee1e6eecfb05bbd95c5bc8c6797a279af6463d6fb83a64413d53",
+      "drawn": 448
+     },
+     {
+      "year": 416,
+      "values": "22ed6fff311add4fd488be1db0d5886a05a15ca813cff6b0b031a75802e16459",
+      "colors": "69b6a9c4b3b1ec2cd9bdd330bfbaf70dd6aed4a99c5b6a8f43e2bc7c13c6e0f1",
+      "drawn": 448
+     },
+     {
+      "year": 429,
+      "values": "2c77ff5c02bdf14d081bc0310e4eee90594a48a7e04cc69180a370307659baf4",
+      "colors": "bcb9cd315072fce0938460c1a8a2d380abc1199298a6fa5f5eb2fce52a9d7f48",
+      "drawn": 448
+     },
+     {
+      "year": 442,
+      "values": "b97260f42fcddcac69a39a7322398899c224c995b68c1b737c897d8bf3e3be15",
+      "colors": "7de3e90a969c2fea82514b05e9bca35a41e33f1465534b8718b591dccfa576ab",
+      "drawn": 448
+     },
+     {
+      "year": 455,
+      "values": "009af14008b3501bbea623ce99d8c7b6979ed1f81adf0130bcb5f973fe6cfbc7",
+      "colors": "39f6fb9962c9670d70ed44eeba2795fddd722acadd94e4bf072f77cc83064194",
+      "drawn": 448
+     },
+     {
+      "year": 468,
+      "values": "ee1180aaf7eb4d69cdddacd07e81e71de53a383d33519a37111189cc668ee0b6",
+      "colors": "5c085edc7dfaae9c385654d6b6bfbe6142a5ce538c7384c4223b306da4a04dd5",
+      "drawn": 448
+     },
+     {
+      "year": 481,
+      "values": "98e702ae3b164718f1e20c2810f943d890e9b5e514091ad4b5a5c089edd48fcf",
+      "colors": "3cef612dabca57bd62eea31efd40a479d7f49a52bf867738873077ee70b5a97f",
+      "drawn": 448
+     },
+     {
+      "year": 494,
+      "values": "8bacab1beb03163013ef32e6907eb3689f13f967cf0df43cf6aaaf33e9293549",
+      "colors": "ee54278aaa510055c0ae82769881c6d951bcd7bac3594c799ea49db8997c7c4c",
+      "drawn": 448
+     },
+     {
+      "year": 507,
+      "values": "81d2d4361d937752148400cec105439b3bb70a1a6f40434eec7b1bd03c4f6849",
+      "colors": "2cc165b033c933547c3bae74d9c5df38cdfb918c28cd26ba9ef43363aea07d16",
+      "drawn": 448
+     },
+     {
+      "year": 520,
+      "values": "20e868ba2ba78f949eea74c205a0e906899325957b7d704a3eb07e7059e6883c",
+      "colors": "de39de813c3ead38936f2db1984ee4f8eb7b45c4ce804c9c185544e3c86d2692",
+      "drawn": 448
+     },
+     {
+      "year": 533,
+      "values": "d3430f2096483f8c56e4c535bcd1e3c443bc0625578427d48f30282304c7bf43",
+      "colors": "851657267c6312b3e4dc99f1ea22448e18d025f36c4e596e613bed56dede415d",
+      "drawn": 448
+     },
+     {
+      "year": 546,
+      "values": "20b7ba23ff2ec603c2ae78514b16978d2477d75952e927e49bfc86ac8a7ea6a0",
+      "colors": "c13cb7240a44d329ab360f8651707ad55ff3c5719ddee983b564a4e5aa09e686",
+      "drawn": 448
+     },
+     {
+      "year": 559,
+      "values": "cc6b99810ebca992069096ac64a89a5e9a61718208f9ef149bb395ce897ca94e",
+      "colors": "bb831bba7c23f3a4d883b161f065066983ed0196948af7712f5a042f3b6cc006",
+      "drawn": 448
+     },
+     {
+      "year": 572,
+      "values": "a12378b7feed5952d1083e3208faf86e65f37901531e5f3c287350f11b08df51",
+      "colors": "6a722737d0ccb9084c6bc38007f98a6cbf8a9e3c1381b7074e5d3e103f1383d0",
+      "drawn": 448
+     },
+     {
+      "year": 585,
+      "values": "77ec0624329df0246f8954b1b8ec16948019be898f851b0590b636129207ea87",
+      "colors": "04d242d8061833dfbd3962f959feac4dd9e054e37b752da8eb5978de3fc35350",
+      "drawn": 448
+     },
+     {
+      "year": 598,
+      "values": "eac4805717e665179f5706ed154a9a413bbb98c94190b2085a25a3f2cf31e47f",
+      "colors": "acae54ef0c843d4f002952a3e948a697d38738abef5aa52bd297630d226505f5",
+      "drawn": 448,
+      "samples": [
+       [0, 29.9553165435791, [127, 0, 0, 204]],
+       [224, 29.953641891479492, [127, 0, 0, 204]],
+       [447, 29.56185531616211, [130, 5, 5, 204]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [6.5, 0], [299, 23], [597.5, 45], [598, 46], [1598, 46]]
+   },
+   {
+    "at": "layer.sample-magic.mark-b",
+    "by": "sample-magic",
+    "id": "mark-b",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "标记",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#cccccc",
+       "label": "第 0 类"
+      },
+      {
+       "value": 1,
+       "color": "#d95f02",
+       "label": "第 1 类"
+      },
+      {
+       "value": 2,
+       "color": "#1b9e77",
+       "label": "第 2 类"
+      }
+     ],
+     "legend": "类"
+    },
+    "range": null,
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438,
+      "samples": [
+       [0, 0, [204, 204, 204, 166]],
+       [224, 2, [27, 158, 119, 166]],
+       [437, 2, [27, 158, 119, 166]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 30,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 60,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 90,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 120,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 150,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 180,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 210,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 240,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 270,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 300,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [204, 204, 204, 166]],
+       [224, 2, [27, 158, 119, 166]],
+       [447, 0, [204, 204, 204, 166]]
+      ]
+     },
+     {
+      "year": 330,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 360,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 390,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 420,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 450,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 480,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 510,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 540,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 570,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 600,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [204, 204, 204, 166]],
+       [224, 2, [27, 158, 119, 166]],
+       [447, 0, [204, 204, 204, 166]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [15, 0], [300, 10], [599.5, 19], [600, 20], [1600, 20]]
+   },
+   {
+    "at": "layer.sample-magic.heat",
+    "by": "sample-magic",
+    "id": "heat",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "热度",
+     "ramp": {
+      "colors": ["#2166ac", "#f7f7f7", "#b2182b"],
+      "max": 40
+     },
+     "opacity": 1
+    },
+    "range": [-50, 40],
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "acec05a234ff011d4f88457290759e31920055b18743cbdb5ac1927584aff714",
+      "colors": "664c6e08225fac6cd8cdb5711b1ca125653dabd07f9c48843da720f947a34f36",
+      "drawn": 438,
+      "samples": [
+       [0, -50, [33, 102, 172, 255]],
+       [224, 18, [212, 133, 143, 255]],
+       [437, 9, [226, 178, 184, 255]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [1000, 0]]
+   },
+   {
+    "at": "layer.sample-faith.zeal",
+    "by": "sample-faith",
+    "id": "zeal",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "虔诚",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#f2f0f7",
+       "label": "淡"
+      },
+      {
+       "value": 1,
+       "color": "#cbc9e2",
+       "label": "平"
+      },
+      {
+       "value": 2,
+       "color": "#9e9ac8",
+       "label": "笃"
+      },
+      {
+       "value": 3,
+       "color": "#756bb1",
+       "label": "狂"
+      },
+      {
+       "value": 4,
+       "color": "#54278f",
+       "label": "圣"
+      }
+     ],
+     "legend": "五级",
+     "opacity": 0.4
+    },
+    "range": null,
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "70c0eb0752b47322329a0299923796b4da29f9b44f103c8d71c4c6e606579d8d",
+      "colors": "bc3eae990f75fdefbd0ee6de4cfe442f4f8c6c646a05bf49cfc2648b2ac8c14b",
+      "drawn": 438,
+      "samples": [
+       [0, 0, [242, 240, 247, 102]],
+       [224, 2, [158, 154, 200, 102]],
+       [437, 1, [203, 201, 226, 102]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 100,
+      "values": "70c0eb0752b47322329a0299923796b4da29f9b44f103c8d71c4c6e606579d8d",
+      "colors": "bc3eae990f75fdefbd0ee6de4cfe442f4f8c6c646a05bf49cfc2648b2ac8c14b",
+      "drawn": 438
+     },
+     {
+      "year": 200,
+      "values": "70c0eb0752b47322329a0299923796b4da29f9b44f103c8d71c4c6e606579d8d",
+      "colors": "bc3eae990f75fdefbd0ee6de4cfe442f4f8c6c646a05bf49cfc2648b2ac8c14b",
+      "drawn": 438
+     },
+     {
+      "year": 300,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [242, 240, 247, 102]],
+       [224, 2, [158, 154, 200, 102]],
+       [447, 1, [203, 201, 226, 102]]
+      ]
+     },
+     {
+      "year": 400,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448
+     },
+     {
+      "year": 500,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448
+     },
+     {
+      "year": 600,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [242, 240, 247, 102]],
+       [224, 2, [158, 154, 200, 102]],
+       [447, 1, [203, 201, 226, 102]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [50, 0], [300, 3], [599.5, 5], [600, 6], [1600, 6]]
+   }
+  ]
+ },
+ "v1-sim-civ.civworld": {
+  "sha256": "370c0cd75d5b145d51ab9c51f6d2b430e9e035a266891bc2b59d5e7491a65ed5",
+  "bytes": 494790,
+  "layers": [
+   {
+    "at": "layer.sea-ruler.coast-km",
+    "by": "sea-ruler",
+    "id": "coast-km",
+    "history": false,
+    "unit": "cell",
+    "look": {
+     "title": "离海多远",
+     "ramp": {
+      "colors": ["#ffffff", "#08306b"],
+      "min": 0,
+      "max": 3000
+     },
+     "legend": "公里"
+    },
+    "range": [0, 3000],
+    "cells": 1884,
+    "frames": [
+     {
+      "year": null,
+      "values": "2f4e0e0a8316abc1b32b527c65901defc0e8c5ba9b5323b686ee83db35b27fb8",
+      "colors": "d9f96f742cae79f89da09d85071f29f86ce535533d2c584e52d1904eef160bce",
+      "drawn": 623,
+      "samples": [
+       [0, null, [0, 0, 0, 0]],
+       [8, 63.624107360839844, [250, 251, 252, 166]],
+       [942, null, [0, 0, 0, 0]],
+       [1883, 1292.6822509765625, [149, 166, 191, 166]]
+      ]
+     }
+    ],
+    "pick": [[0, 0], [3000, 0]]
+   },
+   {
+    "at": "civ.simLayers[0]",
+    "by": "sample-magic",
+    "id": "magic",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "魔力浓度",
+     "ramp": {
+      "colors": ["#1b1036", "#5b2a9e", "#a46cff", "#f2e6ff"],
+      "min": 0,
+      "max": 60
+     },
+     "legend": "魔力（0–100）"
+    },
+    "range": [0, 60],
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "4cd11392770047ae7182f650cb583d228cdbad998cbc7f64eb180ed0d0fd452b",
+      "colors": "2314eb9285d96ac16170238be56a44b85be1eae52014e28da3beb7c73f9bb9d6",
+      "drawn": 438,
+      "samples": [
+       [0, 10, [59, 29, 106, 166]],
+       [224, 10, [59, 29, 106, 166]],
+       [437, 10, [59, 29, 106, 166]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 50,
+      "values": "f414e752629f68619e1f0cf95deffdb1c65f0c713587138f022caa7af6f46c3c",
+      "colors": "a9300d1483d1060f755c80b4e63a4d9230a0d0dbde2abe5696b43057085b9194",
+      "drawn": 438
+     },
+     {
+      "year": 100,
+      "values": "3f4231b7c47a3e47db49acc76430322f3deb8b1f8af34246dc52cfc632987e1e",
+      "colors": "e82e840def20d044c1995b2a0b881e1504ed0c5c94a24ed38434467780287fcf",
+      "drawn": 438
+     },
+     {
+      "year": 150,
+      "values": "79912734d9e8ba5edb0e84784292152520f7b533f5103472214ca9121c4c86f5",
+      "colors": "c983f8cfdfd57c2d6472781593eebfa03ec8fda8239563bc6b004cc7d1873bd4",
+      "drawn": 438
+     },
+     {
+      "year": 200,
+      "values": "427fe91f131e4580fe4ce26ca07c74719c4da90cb15dd41c00fd2dfd78d06c68",
+      "colors": "2a98509a934dbed1fec165fc26a5adf6db91104f9bd99e456c70fe9ffac56b6c",
+      "drawn": 438
+     },
+     {
+      "year": 250,
+      "values": "f3cf3dd1edd52683a90648af93768e47a358ef88f41f418b19a2a2b697e54277",
+      "colors": "0e815881a506b4877a8182584ba59bd13e8c5e1a3f105fc6a39e0ea416598957",
+      "drawn": 438
+     },
+     {
+      "year": 300,
+      "values": "db89c16840ba17d322986970274f0193a41c746cc8f347edb752ffa1b0bb297a",
+      "colors": "5461ee22fee12a065b60d0d418af67e4380a3da60c3827b732b748197dc14f5a",
+      "drawn": 448,
+      "samples": [
+       [0, 29.078603744506836, [124, 72, 202, 166]],
+       [224, 29.078603744506836, [124, 72, 202, 166]],
+       [447, 11, [62, 30, 111, 166]]
+      ]
+     },
+     {
+      "year": 350,
+      "values": "aafbbc63e2c8c10b3e9d9f1e3e96ffd40476f57cadb357e56a4549a69537d5d6",
+      "colors": "a1b32c90c7ad1c125af1267686e9596ee95cf1f6eccb24244d26b81a2fbcad67",
+      "drawn": 448
+     },
+     {
+      "year": 400,
+      "values": "ad888635b88f7c2fdcf4ee24c562944c65f601267c9b945c6743edbba19b35d2",
+      "colors": "aa44df0dfcd11cb9e971f331e7c47472a0e947a65a6694cbfc3e005474df4c5f",
+      "drawn": 448
+     },
+     {
+      "year": 450,
+      "values": "e4d49e20d332ca252d58a1a1e12d4d2944511339ee7e9b6858cd6fc7db04266b",
+      "colors": "8c6e21fe942bac87a807d38f5d822ef98405f0ec6676aa95f460bcd343de77d4",
+      "drawn": 448
+     },
+     {
+      "year": 500,
+      "values": "dd70a5e394b401d603828b15459ca91e88267858e9292d571c871a2ca07b049d",
+      "colors": "97e04acc62579bfbdd89eec07be1a03615fbe32f7509a897672c7d5a853e47d2",
+      "drawn": 448
+     },
+     {
+      "year": 550,
+      "values": "e3b0476084a7d40f9c79cdf2681c2c8dcc6e2fb45f58d85bab759614921b255a",
+      "colors": "bcbb9013db33c2b800c0aaf9c4c605935eceab7ad21dc975d2958d4b0937dd74",
+      "drawn": 448
+     },
+     {
+      "year": 600,
+      "values": "963d5b7fa1fcb4c9555575dccf7f906af75838106c11ac627153dcee79e4666a",
+      "colors": "0472657d90c6112a3d785045a3db81f3b76c4725cd7466b606cba38b23d574f9",
+      "drawn": 448,
+      "samples": [
+       [0, 29.957551956176758, [127, 75, 206, 166]],
+       [224, 29.955867767333984, [127, 75, 206, 166]],
+       [447, 29.58802604675293, [126, 74, 205, 166]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [25, 0], [300, 6], [599.5, 11], [600, 12], [1600, 12]]
+   },
+   {
+    "at": "civ.simLayers[1]",
+    "by": "sample-magic",
+    "id": "magic-auto",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "魔力（范围按数据）",
+     "ramp": {
+      "colors": ["#fff7ec", "#7f0000"]
+     },
+     "opacity": 0.8
+    },
+    "range": [10, 29.9553165435791],
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "4cd11392770047ae7182f650cb583d228cdbad998cbc7f64eb180ed0d0fd452b",
+      "colors": "8cb050c0d65f93054a46492de914f42dd14dac5346d38e70982a3d50461d0a06",
+      "drawn": 438,
+      "samples": [
+       [0, 10, [255, 247, 236, 204]],
+       [224, 10, [255, 247, 236, 204]],
+       [437, 10, [255, 247, 236, 204]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 13,
+      "values": "ec3079bc0758c013492703babb4eaabb3374a8c80d12ef78ca9919453ed3e983",
+      "colors": "01b4a0c6803aa770740065887ba9a36a8bd26def08755aba92e5672d25487ff8",
+      "drawn": 438
+     },
+     {
+      "year": 26,
+      "values": "289a11536b067777142d228c467a5dbe28fc1e0dabf85292ac6328cf33917ddf",
+      "colors": "9281f117998cae575538a1220d9dde753dd6fa76811449b57e7dcf760c5940f5",
+      "drawn": 438
+     },
+     {
+      "year": 39,
+      "values": "3519f7ded5907aa2461f14026473af279f36d15bc3b674a6a809b2f30802d525",
+      "colors": "fdde594e18fcf6df65945794a23a40ac5c308ee05298d9161401054650bcc24d",
+      "drawn": 438
+     },
+     {
+      "year": 52,
+      "values": "f414e752629f68619e1f0cf95deffdb1c65f0c713587138f022caa7af6f46c3c",
+      "colors": "f6b28d6c0313f6450e4af58c921da5b2ee60a91ccf3b9bf38fb0d0ae89e9b691",
+      "drawn": 438
+     },
+     {
+      "year": 65,
+      "values": "6ab2599499492a92ab69820b423b858db56716ae74b0342c1dc0752c654c43e5",
+      "colors": "371bba89932b4c4d139c1a8aec49a564dc6a0229ef6cca0ae3ab514dd19540e5",
+      "drawn": 438
+     },
+     {
+      "year": 78,
+      "values": "47b96c868895c84fb217c23a6ea596cdd40969d1828e4dcd5dd5775cb586f964",
+      "colors": "776b6fc122c40cb95f64680b127218cb366cc01076b46251a4cccc69cebef354",
+      "drawn": 438
+     },
+     {
+      "year": 91,
+      "values": "7aabacf1481a4bfddd715f20f2d2be5b45acd4d3602899c1118bd0af0b247e45",
+      "colors": "019f87bb56462c3e4c69802f0dca7dff87f9b945393f290fc0e290cbc1f0551f",
+      "drawn": 438
+     },
+     {
+      "year": 104,
+      "values": "3f4231b7c47a3e47db49acc76430322f3deb8b1f8af34246dc52cfc632987e1e",
+      "colors": "abf19aeff69fa5adee93b524f6dd9e040cc0b26473593d3c7c06adfb19dbaae0",
+      "drawn": 438
+     },
+     {
+      "year": 117,
+      "values": "0da3f37ba82a7a7f9f9edd4388544c3ed11eb119bfd13c5c30f40f4e4cedcd5a",
+      "colors": "b37ac597990e894e2f0ac844b30b728745a58f89443b07088612116a612d7fab",
+      "drawn": 438
+     },
+     {
+      "year": 130,
+      "values": "248008e662a36093264f8dbc1897aac05afdcb815dd5ebc8c88e2c6ed57cc4bd",
+      "colors": "6a2c144f1ec9e660ba9b37e1d77ab8cfa1b4c28b54a4de2b2de58acd84728e5c",
+      "drawn": 438
+     },
+     {
+      "year": 143,
+      "values": "874fc189df23699198d22272aa2d3d9b9bba4d58456797fa20aa2569fae8223f",
+      "colors": "dde6c4d8682427475e1f086c68a47a26c7fa0704973040bcdda59422b5f6e603",
+      "drawn": 438
+     },
+     {
+      "year": 156,
+      "values": "8607fa49e9088d631a90f71069eff4da6b1a5dfa61d5afbcbd6e99833e43d47f",
+      "colors": "34ddbe650af697b6bb5c381fd33ba04b897ed95f53ef6912c66dd4ca2faa4941",
+      "drawn": 438
+     },
+     {
+      "year": 169,
+      "values": "8c20d41dceeeb82c0c468c95bc18318e2c84220b3b02240d1dac630e1a5afb00",
+      "colors": "bb29e6f1e2a1fb617ec4dcb694c3c9b8d206ba3918c78a6bb734ab07bb5e4b99",
+      "drawn": 438
+     },
+     {
+      "year": 182,
+      "values": "717bb31714be9333a34163d2cf29a06172f37a50c8e4c1d57fc7f7304b2c04e0",
+      "colors": "10c5ba67a9f160123f562477bff0eecc7606df89a19de86e2a8b41d2253185c0",
+      "drawn": 438
+     },
+     {
+      "year": 195,
+      "values": "11a04acc301c1a5dfaa9d168b5127ff8d48ed9fe9b66a767689043778910c631",
+      "colors": "76d3a388daba97b0d92b3baae08acc449d93a83f25a5b3b7442f28f0a39c3bcc",
+      "drawn": 438
+     },
+     {
+      "year": 208,
+      "values": "c5a1f8bbb456fe4ba5fcdfa887d72d67f6c4c1f8d3f128472acbcefbd9bcac86",
+      "colors": "19e0b123353fb7553e89752cc70fedbe93a9d0c30265ce804833b6fe7ed76806",
+      "drawn": 438
+     },
+     {
+      "year": 221,
+      "values": "4ded9c6442e47513ef1b0bd868498fada401ed8a25a04db7f2f6bb0f5b000a4c",
+      "colors": "9d2ca62d70dbfbeef3d7b5c157768c611333728e1e1be545c58d6c17fcd9acc9",
+      "drawn": 438
+     },
+     {
+      "year": 234,
+      "values": "301fe5f99bf0f79603a17988b3c3d4a2a91d00606ae112a5b02500d426743d46",
+      "colors": "40ca82110330eb3be63703ca431ea69a526b3f24bba2f5db053cea33e086f9a5",
+      "drawn": 438
+     },
+     {
+      "year": 247,
+      "values": "aa59f5144b3d24e55e1f850d5257ea86867a80af9ca31dcdeb5f3be7736744e5",
+      "colors": "44f7b4a6881cebd8da602a7ac42c07598ade154d8c36655e937c4707e208b69f",
+      "drawn": 438
+     },
+     {
+      "year": 260,
+      "values": "821b8b8a3151221b6ad24be7a74b20ba15ad1ac44c32f3739772e318539fefbe",
+      "colors": "a120e97d1db9b230228def65ec4452590da92c8d9defb3b2d184be3fd6b1017c",
+      "drawn": 438
+     },
+     {
+      "year": 273,
+      "values": "27b46a62388cb7fb4ee458f4de6cf54a20549ab4c484f7741dc3f1d6d3008310",
+      "colors": "057c805cdbe9a07128f38c58d8395351165b03eccf41ed2e01711b9cceed6bba",
+      "drawn": 438
+     },
+     {
+      "year": 286,
+      "values": "d06f1ee2ef49710451ea49fa201c57637bd523d21412ea71137ddf3c8a9941c3",
+      "colors": "2b36ea8956aa9c3639ddc3772816e71a8a28daff2cd38f4bc4ed33611e460e5c",
+      "drawn": 438
+     },
+     {
+      "year": 299,
+      "values": "5491d448bf541a1512f8e4690ecfd5a900ac19fa79ae2b3905d0a8b945625af0",
+      "colors": "3287dafe9bd122335aef260e49319291db30670bb7a242186f94a7eae56f8969",
+      "drawn": 438,
+      "samples": [
+       [0, 29.030109405517578, [133, 11, 11, 204]],
+       [224, 29.030109405517578, [133, 11, 11, 204]],
+       [437, 29.030109405517578, [133, 11, 11, 204]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 312,
+      "values": "801a7762fee2cf8286f2fc7351c8aa97840f11ff6cf4e4ee76da9c49394a5fd4",
+      "colors": "7cfa22d2ab5090f26e4d13f3ff175705dc5f94f4578a0ab74b9d1d3e4ba0614b",
+      "drawn": 448
+     },
+     {
+      "year": 325,
+      "values": "7409f86d8db227f0c20b2872bba5b64b19e6212067cd90b4c99ec732a4eebf68",
+      "colors": "cf524929db6a0bd94c1db78a2f3f8b70c148f9701ec1ee4cd2b5afa9b8a33731",
+      "drawn": 448
+     },
+     {
+      "year": 338,
+      "values": "1e25a6f44d13336df828b47af257f949fdb1d549cc7ecf4595aebbaa5cdb1bda",
+      "colors": "d1fa4b029dfc95a3414cff15d729c091d675147ea4e1cd051797bb619d342efb",
+      "drawn": 448
+     },
+     {
+      "year": 351,
+      "values": "aafbbc63e2c8c10b3e9d9f1e3e96ffd40476f57cadb357e56a4549a69537d5d6",
+      "colors": "a717fa9e15ede128ccb3889b1d8abbb4c1b97bf9c6bac69d1caf68f64bb78719",
+      "drawn": 448
+     },
+     {
+      "year": 364,
+      "values": "72ecc79bb099c078fb57c74afe0703cd990f0caef9fe489a5fb08c91c28022df",
+      "colors": "1bcda5dd9da3f7f9bbf2208ecf294498e1dc73f7644c3ff431c082f4c3098650",
+      "drawn": 448
+     },
+     {
+      "year": 377,
+      "values": "98499f93e49997dd3baf42fb7573f09e3a3104244491ec6165d54408d7ec509a",
+      "colors": "d29558e96fd52e24ed27ef6dc47a7e64bd32cfc04ee4a52e9f719059e97cd724",
+      "drawn": 448
+     },
+     {
+      "year": 390,
+      "values": "0e3b26fd0a59c20875e2f88bcb66659fb3a3912f89f7d5ca569b3cad4271594b",
+      "colors": "0ba0734a62228e8e52a29b9f3f584a0341a4e4776dc57b1b8a58eefb428c6081",
+      "drawn": 448
+     },
+     {
+      "year": 403,
+      "values": "ad888635b88f7c2fdcf4ee24c562944c65f601267c9b945c6743edbba19b35d2",
+      "colors": "e0e4357d9060ee1e6eecfb05bbd95c5bc8c6797a279af6463d6fb83a64413d53",
+      "drawn": 448
+     },
+     {
+      "year": 416,
+      "values": "22ed6fff311add4fd488be1db0d5886a05a15ca813cff6b0b031a75802e16459",
+      "colors": "69b6a9c4b3b1ec2cd9bdd330bfbaf70dd6aed4a99c5b6a8f43e2bc7c13c6e0f1",
+      "drawn": 448
+     },
+     {
+      "year": 429,
+      "values": "2c77ff5c02bdf14d081bc0310e4eee90594a48a7e04cc69180a370307659baf4",
+      "colors": "bcb9cd315072fce0938460c1a8a2d380abc1199298a6fa5f5eb2fce52a9d7f48",
+      "drawn": 448
+     },
+     {
+      "year": 442,
+      "values": "b97260f42fcddcac69a39a7322398899c224c995b68c1b737c897d8bf3e3be15",
+      "colors": "7de3e90a969c2fea82514b05e9bca35a41e33f1465534b8718b591dccfa576ab",
+      "drawn": 448
+     },
+     {
+      "year": 455,
+      "values": "009af14008b3501bbea623ce99d8c7b6979ed1f81adf0130bcb5f973fe6cfbc7",
+      "colors": "39f6fb9962c9670d70ed44eeba2795fddd722acadd94e4bf072f77cc83064194",
+      "drawn": 448
+     },
+     {
+      "year": 468,
+      "values": "ee1180aaf7eb4d69cdddacd07e81e71de53a383d33519a37111189cc668ee0b6",
+      "colors": "5c085edc7dfaae9c385654d6b6bfbe6142a5ce538c7384c4223b306da4a04dd5",
+      "drawn": 448
+     },
+     {
+      "year": 481,
+      "values": "98e702ae3b164718f1e20c2810f943d890e9b5e514091ad4b5a5c089edd48fcf",
+      "colors": "3cef612dabca57bd62eea31efd40a479d7f49a52bf867738873077ee70b5a97f",
+      "drawn": 448
+     },
+     {
+      "year": 494,
+      "values": "8bacab1beb03163013ef32e6907eb3689f13f967cf0df43cf6aaaf33e9293549",
+      "colors": "ee54278aaa510055c0ae82769881c6d951bcd7bac3594c799ea49db8997c7c4c",
+      "drawn": 448
+     },
+     {
+      "year": 507,
+      "values": "81d2d4361d937752148400cec105439b3bb70a1a6f40434eec7b1bd03c4f6849",
+      "colors": "2cc165b033c933547c3bae74d9c5df38cdfb918c28cd26ba9ef43363aea07d16",
+      "drawn": 448
+     },
+     {
+      "year": 520,
+      "values": "20e868ba2ba78f949eea74c205a0e906899325957b7d704a3eb07e7059e6883c",
+      "colors": "de39de813c3ead38936f2db1984ee4f8eb7b45c4ce804c9c185544e3c86d2692",
+      "drawn": 448
+     },
+     {
+      "year": 533,
+      "values": "d3430f2096483f8c56e4c535bcd1e3c443bc0625578427d48f30282304c7bf43",
+      "colors": "851657267c6312b3e4dc99f1ea22448e18d025f36c4e596e613bed56dede415d",
+      "drawn": 448
+     },
+     {
+      "year": 546,
+      "values": "20b7ba23ff2ec603c2ae78514b16978d2477d75952e927e49bfc86ac8a7ea6a0",
+      "colors": "c13cb7240a44d329ab360f8651707ad55ff3c5719ddee983b564a4e5aa09e686",
+      "drawn": 448
+     },
+     {
+      "year": 559,
+      "values": "cc6b99810ebca992069096ac64a89a5e9a61718208f9ef149bb395ce897ca94e",
+      "colors": "bb831bba7c23f3a4d883b161f065066983ed0196948af7712f5a042f3b6cc006",
+      "drawn": 448
+     },
+     {
+      "year": 572,
+      "values": "a12378b7feed5952d1083e3208faf86e65f37901531e5f3c287350f11b08df51",
+      "colors": "6a722737d0ccb9084c6bc38007f98a6cbf8a9e3c1381b7074e5d3e103f1383d0",
+      "drawn": 448
+     },
+     {
+      "year": 585,
+      "values": "77ec0624329df0246f8954b1b8ec16948019be898f851b0590b636129207ea87",
+      "colors": "04d242d8061833dfbd3962f959feac4dd9e054e37b752da8eb5978de3fc35350",
+      "drawn": 448
+     },
+     {
+      "year": 598,
+      "values": "eac4805717e665179f5706ed154a9a413bbb98c94190b2085a25a3f2cf31e47f",
+      "colors": "acae54ef0c843d4f002952a3e948a697d38738abef5aa52bd297630d226505f5",
+      "drawn": 448,
+      "samples": [
+       [0, 29.9553165435791, [127, 0, 0, 204]],
+       [224, 29.953641891479492, [127, 0, 0, 204]],
+       [447, 29.56185531616211, [130, 5, 5, 204]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [6.5, 0], [299, 23], [597.5, 45], [598, 46], [1598, 46]]
+   },
+   {
+    "at": "civ.simLayers[2]",
+    "by": "sample-magic",
+    "id": "mark-b",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "标记",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#cccccc",
+       "label": "第 0 类"
+      },
+      {
+       "value": 1,
+       "color": "#d95f02",
+       "label": "第 1 类"
+      },
+      {
+       "value": 2,
+       "color": "#1b9e77",
+       "label": "第 2 类"
+      }
+     ],
+     "legend": "类"
+    },
+    "range": null,
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438,
+      "samples": [
+       [0, 0, [204, 204, 204, 166]],
+       [224, 2, [27, 158, 119, 166]],
+       [437, 2, [27, 158, 119, 166]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 30,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 60,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 90,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 120,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 150,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 180,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 210,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 240,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 270,
+      "values": "4c7870d1e066c811313ac11bdfa0a903e4d99a8ee8c6b9952c73f625f7aba460",
+      "colors": "3bf35cf23c9ffb41698004035d56ae9ece6cb72a1a4da2005e099ab21358a6bc",
+      "drawn": 438
+     },
+     {
+      "year": 300,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [204, 204, 204, 166]],
+       [224, 2, [27, 158, 119, 166]],
+       [447, 0, [204, 204, 204, 166]]
+      ]
+     },
+     {
+      "year": 330,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 360,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 390,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 420,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 450,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 480,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 510,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 540,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 570,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448
+     },
+     {
+      "year": 600,
+      "values": "d5f09eca040abb665665f557ca0fa13890feedc7f40b3d57206f573470322f36",
+      "colors": "2f58522c6a77588a308b019d3a8a231ae6662721f60763d056503903cd6a7781",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [204, 204, 204, 166]],
+       [224, 2, [27, 158, 119, 166]],
+       [447, 0, [204, 204, 204, 166]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [15, 0], [300, 10], [599.5, 19], [600, 20], [1600, 20]]
+   },
+   {
+    "at": "civ.simLayers[3]",
+    "by": "sample-magic",
+    "id": "heat",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "热度",
+     "ramp": {
+      "colors": ["#2166ac", "#f7f7f7", "#b2182b"],
+      "max": 40
+     },
+     "opacity": 1
+    },
+    "range": [-50, 40],
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "acec05a234ff011d4f88457290759e31920055b18743cbdb5ac1927584aff714",
+      "colors": "664c6e08225fac6cd8cdb5711b1ca125653dabd07f9c48843da720f947a34f36",
+      "drawn": 438,
+      "samples": [
+       [0, -50, [33, 102, 172, 255]],
+       [224, 18, [212, 133, 143, 255]],
+       [437, 9, [226, 178, 184, 255]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [1000, 0]]
+   },
+   {
+    "at": "civ.simLayers[4]",
+    "by": "sample-faith",
+    "id": "zeal",
+    "history": true,
+    "unit": "region",
+    "look": {
+     "title": "虔诚",
+     "classes": [
+      {
+       "value": 0,
+       "color": "#f2f0f7",
+       "label": "淡"
+      },
+      {
+       "value": 1,
+       "color": "#cbc9e2",
+       "label": "平"
+      },
+      {
+       "value": 2,
+       "color": "#9e9ac8",
+       "label": "笃"
+      },
+      {
+       "value": 3,
+       "color": "#756bb1",
+       "label": "狂"
+      },
+      {
+       "value": 4,
+       "color": "#54278f",
+       "label": "圣"
+      }
+     ],
+     "legend": "五级",
+     "opacity": 0.4
+    },
+    "range": null,
+    "cells": 448,
+    "frames": [
+     {
+      "year": 0,
+      "values": "70c0eb0752b47322329a0299923796b4da29f9b44f103c8d71c4c6e606579d8d",
+      "colors": "bc3eae990f75fdefbd0ee6de4cfe442f4f8c6c646a05bf49cfc2648b2ac8c14b",
+      "drawn": 438,
+      "samples": [
+       [0, 0, [242, 240, 247, 102]],
+       [224, 2, [158, 154, 200, 102]],
+       [437, 1, [203, 201, 226, 102]],
+       [438, null, [0, 0, 0, 0]],
+       [447, null, [0, 0, 0, 0]]
+      ]
+     },
+     {
+      "year": 100,
+      "values": "70c0eb0752b47322329a0299923796b4da29f9b44f103c8d71c4c6e606579d8d",
+      "colors": "bc3eae990f75fdefbd0ee6de4cfe442f4f8c6c646a05bf49cfc2648b2ac8c14b",
+      "drawn": 438
+     },
+     {
+      "year": 200,
+      "values": "70c0eb0752b47322329a0299923796b4da29f9b44f103c8d71c4c6e606579d8d",
+      "colors": "bc3eae990f75fdefbd0ee6de4cfe442f4f8c6c646a05bf49cfc2648b2ac8c14b",
+      "drawn": 438
+     },
+     {
+      "year": 300,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [242, 240, 247, 102]],
+       [224, 2, [158, 154, 200, 102]],
+       [447, 1, [203, 201, 226, 102]]
+      ]
+     },
+     {
+      "year": 400,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448
+     },
+     {
+      "year": 500,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448
+     },
+     {
+      "year": 600,
+      "values": "169bc9a4a4621b9ebf1ce3de342a719b2464f15f4c9065024bca9f346782abd6",
+      "colors": "d7f9c14cdbcf4477fabb287c422f23e6dbf46f211add17f4912bd206718dfb2a",
+      "drawn": 448,
+      "samples": [
+       [0, 0, [242, 240, 247, 102]],
+       [224, 2, [158, 154, 200, 102]],
+       [447, 1, [203, 201, 226, 102]]
+      ]
+     }
+    ],
+    "pick": [[-1, -1], [0, 0], [50, 0], [300, 3], [599.5, 5], [600, 6], [1600, 6]]
+   }
+  ]
+ }
+}
