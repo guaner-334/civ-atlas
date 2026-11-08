@@ -70,6 +70,17 @@ export class PluginClock {
   }
 }
 
+/** 插件听到的一条史事:a、b 按种类是国、民族或城的编号,region、settlement、war 没有 = −1(各列的意思见 annals.ts 的 ANNAL_KINDS) */
+export interface PluginAnnal {
+  year: number;
+  kind: AnnalKind;
+  a: number;
+  b: number;
+  region: number;
+  settlement: number;
+  war: number;
+}
+
 /** 插件自己约的一件事 */
 export interface PluginEvent {
   year: number;
@@ -89,7 +100,7 @@ export interface PluginTurn<V> {
   /** 这一刻到了的、自己约的事(按约的先后) */
   readonly events: readonly PluginEvent[];
   /** 上次出手以后官方记下的、listen 里那几种史事(按发生先后,第 0 年那一次是第 0 年的) */
-  readonly heard: readonly Annal[];
+  readonly heard: readonly PluginAnnal[];
   /** 小本子(复制的一份;要改就在回话里交回整本) */
   readonly note: PluginNote | undefined;
   /** 读口(规则包给的) */
@@ -97,7 +108,7 @@ export interface PluginTurn<V> {
   /** 自己的表此刻的值(复制的一份,格 × 栏) */
   table(id: string): Float64Array;
   /** 自己交给影响口 id 的那栏此刻的值(复制的一份,格 × 栏;还没交 = 全是不影响的数) */
-  output(id: string): Float64Array;
+  influence(id: string): Float64Array;
   /** 自己的随机数:[0, 1),按键直接算,和先后无关(键当整数用) */
   rand(a: number, b?: number, c?: number, d?: number): number;
 }
@@ -111,7 +122,7 @@ export interface PluginReply {
   /** 换掉自己几张表的值(格 × 栏,个数要对;压回上下限) */
   tables?: Readonly<Record<string, ArrayLike<number>>>;
   /** 换掉交给影响口的几栏(口名 → 格 × 栏,个数要对;压回口的上下限) */
-  outputs?: Readonly<Record<string, ArrayLike<number>>>;
+  influences?: Readonly<Record<string, ArrayLike<number>>>;
   /** 下命令(规则包认的写法):此刻的下一格生效 */
   commands?: readonly unknown[];
   /** 写进编年史的几句(记在此刻) */
@@ -132,7 +143,7 @@ export interface SimPlugin<V = unknown> {
   /** 存成图层的表 */
   readonly layers?: readonly SimLayerSpec[];
   /** 交数给哪几个影响口(规则包登记的口名) */
-  readonly outputs?: readonly string[];
+  readonly influences?: readonly string[];
   act(turn: PluginTurn<V>): PluginReply | void;
 }
 
@@ -176,7 +187,7 @@ export interface SimPluginState {
   note?: PluginNote;
   tables?: TableSnapshot;
   /** 交给影响口的几栏(只存交过的) */
-  outputs?: InfluenceCols;
+  influences?: InfluenceCols;
 }
 
 /** 当场叫插件(插件在推演线程里同步跑);交回的是还没出来的结果 = 插件写错了 */
@@ -233,6 +244,9 @@ function cleanNote(id: string, v: unknown): PluginNote {
   return walk(v, 0);
 }
 
+/** 交给插件的史事只给稳定的几列 */
+export const annalOf = (e: Annal): PluginAnnal => ({ year: e.year, kind: e.kind, a: e.a, b: e.b, region: e.region, settlement: e.settlement, war: e.war });
+
 const isInt = (x: unknown, lo: number, hi: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= lo && x <= hi;
 
 /** 一个插件在这一段推演里 */
@@ -284,7 +298,7 @@ class Host<V> {
     if (!Array.isArray(listen) || listen.length > PLUGIN_LIMITS.listen || listen.some((k) => typeof k !== 'string')) fail('listen 要是不超过 64 个史事种类');
     this.listen = listen.length ? new Set(listen) : null;
     this.rand = subSeed(seed, `plugin:${id}`);
-    const outs = plugin.outputs ?? [];
+    const outs = plugin.influences ?? [];
     if (outs.length && !sim.influence?.has(outs[0])) fail('这套规则没接影响口');
     const shape: unknown[] = [plugin.every ?? null, plugin.tables ?? [], plugin.inputs ?? {}, listen];
     if (plugin.layers?.length) shape.push(plugin.layers);
@@ -385,9 +399,9 @@ class Host<V> {
         throw new PluginError(this.id, `存下的表接不上:${e instanceof Error ? e.message : String(e)}`, { cause: e });
       }
     }
-    if (s.outputs !== undefined) {
+    if (s.influences !== undefined) {
       if (!this.sim.influence) fail('和插件接的影响口对不上');
-      this.sim.influence!.restore(this.slot, this.id, s.outputs);
+      this.sim.influence!.restore(this.slot, this.id, s.influences);
     }
     this.note = s.note === undefined ? undefined : cleanNote(this.id, s.note);
     const mine = layers.filter((l) => l.by === this.id);
@@ -421,13 +435,13 @@ class Host<V> {
       events: Float64Array.from(flat),
       ...(this.note !== undefined ? { note: cleanNote(this.id, this.note) } : {}),
       ...(this.eng ? { tables: this.eng.snapshot() } : {}),
-      ...this.outputsOf(),
+      ...this.influencesOf(),
     };
   }
 
-  private outputsOf(): { outputs?: InfluenceCols } {
-    const o = this.plugin.outputs?.length ? this.sim.influence?.snapshot(this.slot) : undefined;
-    return o ? { outputs: o } : {};
+  private influencesOf(): { influences?: InfluenceCols } {
+    const o = this.plugin.influences?.length ? this.sim.influence?.snapshot(this.slot) : undefined;
+    return o ? { influences: o } : {};
   }
 
   /** 存下的图层(州补到 count 个) */
@@ -530,14 +544,11 @@ class Host<V> {
   }
 
   private turn(year: number, tick: boolean, due: readonly Booked[]): PluginTurn<V> {
-    const heard: Annal[] = [];
+    const heard: PluginAnnal[] = [];
     if (this.listen) {
       for (let i = this.heard; i < this.sim.annalCount; i++) {
         const e = this.sim.annal(i);
-        if (!this.listen.has(e.kind)) continue;
-        const c = { ...e } as Record<string, unknown>;
-        for (const key of Object.keys(c)) if (Array.isArray(c[key])) c[key] = (c[key] as unknown[]).slice();
-        heard.push(c as unknown as Annal);
+        if (this.listen.has(e.kind)) heard.push(annalOf(e));
       }
     }
     const base = this.rand;
@@ -553,8 +564,8 @@ class Host<V> {
         return this.eng.get(t).slice();
       },
       rand: (a: number, b = 0, c = 0, d?: number) => (d === undefined ? keyed(base, a, b, c) : keyed4(base, a, b, c, d)),
-      output: (id: string) => {
-        if (!this.plugin.outputs?.includes(id)) throw new PluginError(this.id, `没有登记交给影响口 ${id}`);
+      influence: (id: string) => {
+        if (!this.plugin.influences?.includes(id)) throw new PluginError(this.id, `没有登记交给影响口 ${id}`);
         return this.sim.influence!.view(this.slot, id, this.bridge.polities().count);
       },
     };
@@ -566,14 +577,14 @@ class Host<V> {
       throw new PluginError(this.id, what);
     };
     if (typeof reply !== 'object') fail('回话要是一个对象');
-    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'outputs' && key !== 'commands' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
+    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'influences' && key !== 'commands' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
     if (reply.tables !== undefined) {
       if (reply.tables === null || typeof reply.tables !== 'object') fail('回话里的 tables 要是一个对象');
       for (const [t, v] of Object.entries(reply.tables)) this.setTable(t, v);
     }
-    if (reply.outputs !== undefined) {
-      if (!this.plugin.outputs?.length) fail('没有登记交给影响口,回话里不能有 outputs');
-      this.sim.influence!.take(this.slot, this.id, reply.outputs, this.bridge.polities().count);
+    if (reply.influences !== undefined) {
+      if (!this.plugin.influences?.length) fail('没有登记交给影响口,回话里不能有 influences');
+      this.sim.influence!.take(this.slot, this.id, reply.influences, this.bridge.polities().count);
     }
     if (reply.note !== undefined) this.note = cleanNote(this.id, reply.note);
     if (reply.at !== undefined) {

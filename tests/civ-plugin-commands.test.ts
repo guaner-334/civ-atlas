@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
-import { generateCiv, startCiv, startContinue, type Civ, type CivParams } from '../src/gen/civ';
+import { continueCiv, generateCiv, startCiv, startContinue, type Civ, type CivParams } from '../src/gen/civ';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { commandYear, polityKey, type Intervention, type Upheaval } from '../src/gen/edits';
@@ -218,7 +218,7 @@ describe('推演插件下命令:分段推、存下接着推都和一口气推完
     sameCiv(rest!.finish(), one, '推到一半再接着推');
   }, 240_000);
 
-  it('一段段接着推、每段都存下读回来;接着推时再接上作者的一条新命令也接得上', () => {
+  it('一段段接着推、每段都存下读回来;接着推时只给作者的干预也接得上,作者加了新的从第 0 年重推', () => {
     const w = worldOf(2024);
     const plugins = [commander()];
     const one = generateCiv(w, { plugins, endYear: 2000 });
@@ -230,18 +230,22 @@ describe('推演插件下命令:分段推、存下接着推都和一口气推完
       civ = roundTrip(run!.finish());
     }
     sameCiv(civ, roundTrip(one), '一段段接着推');
-    // 作者的新命令接在插件命令后面
+    // 作者的干预在前、插件的命令在后:只给作者的(这里一条都没有)、带着插件下过的,都照存下的那份接着推
     const at = roundTrip(generateCiv(w, { plugins, endYear: 1600 }));
+    for (const interventions of [[], at.interventions!]) {
+      const run = startContinue(w, at, { plugins, endYear: 2000, interventions });
+      expect(run).not.toBeNull();
+      sameCiv(roundTrip(run!.finish()), roundTrip(one), `接着推,给了 ${interventions.length} 条干预`);
+    }
+    // 作者新加的要排在命令前面,史事里命令的下标跟着挪:接不上,从第 0 年重推,和带着它一口气推完一样
     const alive = at.polities.filter((q) => q.ended === undefined && q.founded < 1600).map((q) => q.id);
     const order: Intervention = { kind: 'protect', a: polityKey(at, alive[0]), from: 1650 };
-    const more = startContinue(w, at, { plugins, interventions: [...at.interventions!, order] });
-    expect(more).not.toBeNull();
-    const out = more!.finish();
-    const k = out.interventions!.findIndex((v) => v.kind === 'protect' && v.plugin === undefined);
-    expect(k).toBe(commandsOf(at).length);
-    expect(out.annals.some((e) => e.kind === 'intervene' && e.war === k)).toBe(true);
-    // 只给作者的干预(没带插件下过的)= 改了早先的干预,接不上
-    expect(startContinue(w, at, { plugins, interventions: [order] })).toBeNull();
+    expect(startContinue(w, at, { plugins, endYear: 2000, interventions: [...at.interventions!, order] })).toBeNull();
+    expect(startContinue(w, at, { plugins, endYear: 2000, interventions: [order] })).toBeNull();
+    const out = continueCiv(w, at, { plugins, endYear: 2000, interventions: [...at.interventions!, order] });
+    sameBytes(out, generateCiv(w, { plugins, endYear: 2000, interventions: [order] }), '作者加了一条');
+    expect(out.interventions![0]).toEqual(order);
+    expect(out.annals.some((e) => e.kind === 'intervene' && e.war === 0)).toBe(true);
   }, 240_000);
 
   it('地形大事前后停:两段都下了命令,推到底的那一支也下(各下各的)', () => {

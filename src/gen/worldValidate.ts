@@ -1334,7 +1334,7 @@ function checkTableSnapshot(v: unknown, at: string): void {
  */
 export function validateSimState(v: unknown, id: string, at = `推演插件 ${id} 的状态`): asserts v is SimPluginState {
   const s = obj(v, at);
-  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables', 'outputs'], at);
+  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables', 'influences'], at);
   if (s.id !== id) broken(`${at} 的 id 对不上`);
   int(s.sig, 0, 2 ** 32, `${at}.sig`);
   const year = yearOk(s.year, `${at}.year`);
@@ -1352,11 +1352,11 @@ export function validateSimState(v: unknown, id: string, at = `推演插件 ${id
   if (n > PLUGIN_LIMITS.pending) broken(`${at}.events 太多`);
   if (s.note !== undefined) checkNote(s.note, `${at}.note`);
   if (s.tables !== undefined) checkTableSnapshot(s.tables, `${at}.tables`);
-  if (s.outputs !== undefined) checkOutputs(s.outputs, `${at}.outputs`);
+  if (s.influences !== undefined) checkInfluences(s.influences, `${at}.influences`);
 }
 
 /** 插件交给影响口的几栏:口名是官方登记的,数在口的上下限里(格数和州、国对不对得上,接着推时再查) */
-function checkOutputs(v: unknown, at: string): void {
+function checkInfluences(v: unknown, at: string): void {
   const o = obj(v, at);
   for (const id of Object.keys(o)) {
     const p = OFFICIAL_INFLUENCES.find((q) => q.id === id);

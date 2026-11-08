@@ -3,9 +3,10 @@
  * 和官方各子系统内部怎么写无关;交出去的一律是新做的一份,读口自己不改推演的任何状态、不取随机数。
  * 字段名和工具插件读历史的接口同名的,意思也一样;编号只在这一次推演里有效。
  */
-import type { AnnalKind, CultureKind } from './types';
+import type { CultureKind, FaithKind } from './types';
 import { Layer } from './types';
 import type { CivSim } from './engine/sim';
+import { annalOf, type PluginAnnal } from './engine/plugin';
 import type { CivApi } from './api';
 import { cultureModelOf } from './cultures';
 import { diplomacyModelOf } from './diplomacy';
@@ -15,6 +16,9 @@ import { faithSimOf } from './religion';
 import { KM_PER_UNIT } from './scale';
 import { TABLE_GROUP } from './tableGroups';
 import { warModelOf } from './wars';
+import { councilModelOf } from './council';
+import { dynastyIndexAt } from './polityRoot';
+import { reformedSeg, segRegime, type Regime } from './regime';
 
 export const SIM_READ = 'sim.read@1';
 
@@ -61,6 +65,14 @@ export interface SimPolity {
   allies: number[];
   /** 宗主;不是藩属 = −1 */
   liege: number;
+  /** 国教(信仰编号;没有 = −1;信仰每隔几年才算一步,是最近那一步的) */
+  faith: number;
+  /** 此刻的政体:王室 / 共和 / 军政府 */
+  regime: Regime;
+  /** 共和、军政府是改出来的(本国原来有君主) */
+  reformed: boolean;
+  /** 议政:0 君主独断、1 设了议事会、2 设了议会 */
+  charter: number;
 }
 
 export interface SimSettlement {
@@ -86,16 +98,22 @@ export interface SimCulture {
   parent?: number;
 }
 
-/** 一条史事;a、b 按种类是国、民族或城的编号,region、settlement、war 没有 = −1 */
-export interface SimAnnal {
-  year: number;
-  kind: AnnalKind;
-  a: number;
-  b: number;
-  region: number;
-  settlement: number;
-  war: number;
+export interface SimFaith {
+  id: number;
+  /** 民间信仰 / 大教 / 教派 */
+  kind: FaithKind;
+  /** 民间信仰:哪个民族的 */
+  culture?: number;
+  /** 教派:从哪个大教分出来 */
+  parent?: number;
+  /** 大教 / 教派:创立(分出)的年份 */
+  founded?: number;
+  /** 大教:圣城(城的编号) */
+  holy?: number;
 }
+
+/** 一条史事;a、b 按种类是国、民族或城的编号,region、settlement、war 没有 = −1 */
+export type SimAnnal = PluginAnnal;
 
 type OfficialDef = { unit: 'region' | 'polity'; table: string; col?: string };
 const st = (t: string) => `${TABLE_GROUP.state}.${t}`;
@@ -155,6 +173,8 @@ export interface SimRead {
   /** 所有城(毁了的也在) */
   settlements(): SimSettlement[];
   cultures(): SimCulture[];
+  /** 到此刻有过的信仰(下标 = 信仰编号,和 owners('faith')、SimPolity.faith 同一套) */
+  faiths(): SimFaith[];
   /** 官方表此刻的值(最近一次算的),个数 = 州数或国数;这一组还没装 = 全是 0 */
   official(name: OfficialName): Float64Array;
   /** [from, to] 年里的史事(按发生先后) */
@@ -220,6 +240,8 @@ export function simRead(sim: CivSim): SimRead | null {
       const api = (sim.api as Partial<CivApi>).war;
       const wm = warModelOf(sim);
       const dm = diplomacyModelOf(sim);
+      const cm = councilModelOf(sim);
+      const fs = faithSimOf(sim);
       const foes: number[][] = pm.polities.map(() => []);
       for (const w of wm?.active ?? []) {
         if (w.a < foes.length && !foes[w.a].includes(w.b)) foes[w.a].push(w.b);
@@ -227,6 +249,7 @@ export function simRead(sim: CivSim): SimRead | null {
       }
       return pm.polities.map((P, p) => {
         const power = api?.power?.(p) ?? -1;
+        const seg = dynastyIndexAt(P, t);
         const info: SimPolity = {
           id: P.id,
           founded: P.founded,
@@ -240,6 +263,10 @@ export function simRead(sim: CivSim): SimRead | null {
           wars: foes[p].sort((x, y) => x - y),
           allies: dm ? dm.alliesOf(p) : [],
           liege: dm ? dm.liegeOf(p) : -1,
+          faith: fs ? fs.stateFaith(p) : -1,
+          regime: segRegime(P, seg),
+          reformed: reformedSeg(P, seg),
+          charter: cm ? cm.charter(p) : 0,
         };
         if (P.ended !== undefined) info.ended = P.ended;
         if (P.parent !== undefined) info.parent = P.parent;
@@ -266,6 +293,17 @@ export function simRead(sim: CivSim): SimRead | null {
       });
     },
 
+    faiths() {
+      return (faithSimOf(sim)?.list ?? []).map((f) => {
+        const info: SimFaith = { id: f.id, kind: f.kind };
+        if (f.culture !== undefined) info.culture = f.culture;
+        if (f.parent !== undefined) info.parent = f.parent;
+        if (f.founded !== undefined) info.founded = f.founded;
+        if (f.holy !== undefined) info.holy = f.holy;
+        return info;
+      });
+    },
+
     official,
 
     annals(from, to = Infinity) {
@@ -274,10 +312,7 @@ export function simRead(sim: CivSim): SimRead | null {
       let i = all.length;
       while (i > 0 && all[i - 1].year >= from) i--;
       const out: SimAnnal[] = [];
-      for (; i < all.length && all[i].year <= to; i++) {
-        const e = all[i];
-        out.push({ year: e.year, kind: e.kind, a: e.a, b: e.b, region: e.region, settlement: e.settlement, war: e.war });
-      }
+      for (; i < all.length && all[i].year <= to; i++) out.push(annalOf(all[i]));
       return out;
     },
   };
