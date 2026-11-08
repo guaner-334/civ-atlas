@@ -18,6 +18,7 @@ import {
 } from '../src/plugin/pluginCaps';
 import { openPluginFile, packPluginFile } from '../src/plugin/pluginFile';
 import { SIM_SECTION_CAPS, checkSimManifest, simCapsUnused, undeclaredCommand, type SimManifest } from '../src/plugin/pluginSim';
+import { checkSimTables } from '../src/plugin/pluginSimTables';
 import { goodSimInput, goodSimPlugin } from './lib/pluginFileSample';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -71,7 +72,7 @@ describe('推演插件的清单', () => {
   it.each(bad)('推演拦下的写法,清单检查也拦下:%s', (_, change, says) => {
     const s = goodSim();
     change(s);
-    expect(() => checkSimManifest({ sim: s, requires: requires() })).toThrow(says);
+    expect(() => (checkSimManifest({ sim: s, requires: requires() }), checkSimTables(s))).toThrow(says);
     expect(() => generateCiv(worldOf(), { endYear: 5, plugins: [pluginOf(s)] })).toThrow();
   });
 

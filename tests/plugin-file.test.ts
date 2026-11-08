@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PERMISSIONS, PERMISSION_FOOTER, PERMISSION_FOOTER_SIM, PERMISSION_FOOTER_WRITE, PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey } from '../src/plugin/pluginCaps';
 import { PluginFileError, openPluginFile, packPluginFile, type PluginFileErrorKind } from '../src/plugin/pluginFile';
+import { openPluginFileFully } from '../src/plugin/pluginSimTables';
 import { PLUGIN_SAMPLES, goodInput, goodPlugin, goodSimInput, goodSimPlugin, put, variant } from './lib/pluginFileSample';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -19,7 +20,7 @@ const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 async function expectKind(bytes: Uint8Array, kind: PluginFileErrorKind, hint = '', says = ''): Promise<void> {
   let err: unknown;
   try {
-    await openPluginFile(bytes);
+    await openPluginFileFully(bytes);
   } catch (e) {
     err = e;
   }
@@ -85,6 +86,12 @@ describe('插件文件:每种错一个坏样本', () => {
       await expectKind(await s.build(), s.kind, s.why, s.says);
     });
   }
+  it('表的公式:网页主线程读的时候不查(不带数表引擎),推演线程、服务器读的时候查', async () => {
+    const s = PLUGIN_SAMPLES.find((x) => x.name === 'sim-table-formula')!;
+    const bytes = await s.build();
+    expect((await openPluginFile(bytes)).manifest.id).toBe('magic');
+    await expectKind(bytes, 'broken', s.why, s.says);
+  });
 });
 
 describe('仓库里的样本', () => {
