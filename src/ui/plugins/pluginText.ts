@@ -51,7 +51,7 @@ export function toolWhere(m: PluginManifest, phone: boolean): string | undefined
 export function wallInstalledText(m: PluginManifest, phone: boolean): string {
   const tail = '装在这个浏览器里，所有世界都能用。';
   if (isSim(m)) return `${simWhere(phone)}。${tail}`;
-  const where = isTool(m) ? (phone ? '右上竖排的拼图里' : '地图右下的「工具」里') : caps(m).has('layer.cells@1') ? '图层面板的「插件图层」里' : '';
+  const where = isTool(m) ? (phone ? '右上竖排的拼图里' : '地图右下的「工具」里') : caps(m).has('layer.cells@1') || caps(m).has('layer.regions@1') ? '图层面板的「插件图层」里' : '';
   return where ? `打开一个世界，${where}就有它。${tail}` : tail;
 }
 
@@ -72,7 +72,7 @@ export function addsRows(m: PluginManifest, phone: boolean): AddsRow[] {
   const c = caps(m);
   const rows: AddsRow[] = [];
   if (isTool(m)) rows.push({ k: `工具「${m.name}」`, v: phone ? '在右上竖排的拼图里' : '在地图右下的「工具」里' });
-  if (c.has('layer.cells@1')) rows.push({ k: '图层', v: '在图层面板的「插件图层」里' });
+  if (c.has('layer.cells@1') || c.has('layer.regions@1')) rows.push({ k: '图层', v: '在图层面板的「插件图层」里' });
   const k = '往世界里存东西';
   if (c.has('store.world@1')) rows.push({ k, v: '存它自己的数据', small: '存了以后那个世界不能公开分享，能存成文件发给别人' });
   else if (c.has('author.write@1')) rows.push({ k, v: '不存它自己的数据', small: phone ? '改的东西记进你的修改，照常能分享' : '改的东西记进你的修改，和你自己改的一样：能分享、能撤销' });

@@ -39,6 +39,7 @@ export const PLUGIN_CAPS: ReadonlyMap<string, PermissionKey | null> = new Map<st
   ['input.pick@1', 'view'],
   ['ui.panel@1', null],
   ['layer.cells@1', 'layer'],
+  ['layer.regions@1', 'layer'],
   ['layer.marks@1', 'layer'],
   ['store.local@1', null],
   ['store.world@1', 'storeWorld'],

@@ -361,6 +361,7 @@ civAtlas.sim({
 - `keep`:每隔几年存一份,1–1000 的整数
 - 样子和工具插件的地块图层同一套写法:`title`(最长 40 个字),`ramp`(渐变,2–16 色,`min`、`max` 不写按数据定)和 `classes`(分类,1–32 类,`{ value, color, label }`)给且只给一个,可选 `legend`、`opacity`
 - 一个插件最多 4 个图层;一个图层存的数最多约 6 MB(份数 × 州数 × 4 字节),超了推演停下,把 `keep` 调大
+- 工具插件也能交这种按州按年份的图层([`layer.regions`](api.md#图层layercells1layerregions1layermarks1)),存进世界以后和推演插件的是同一种块
 
 ## 影响口(`sim.influence@1`)
 

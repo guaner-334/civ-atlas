@@ -12,7 +12,7 @@ import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { EMPTY_EDITS, resolveKey, type Intervention, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
 import { PLUGIN_CAPS, capRole } from '../src/plugin/pluginCaps';
-import { checkCellLayer, checkMarkLayer, checkPanel, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
+import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
 import { approxBytes, MESSAGE_MAX_BYTES, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
 import * as read from '../src/plugin/read';
 import type { PluginResponse } from '../src/plugin/protocol';
@@ -257,6 +257,33 @@ describe('图层', () => {
     expect(codeOf(() => checkCellLayer({ id: 'k', title: 'k', values: new Float32Array(10), ramp: { colors: ['#000000'] } }, 10))).toBe('bad-args');
     expect(codeOf(() => checkCellLayer({ id: 'k', title: 'k', values: new BigInt64Array(10), ramp: { colors: ['#000000', '#ffffff'] } }, 10))).toBe('bad-args');
     expect(codeOf(() => checkCellLayer({ id: 'k', title: 'k', values: new Float32Array(10), classes: [{ value: 1, color: '#000000', label: 'a' }, { value: 1, color: '#000000', label: 'b' }] }, 10))).toBe('bad-args');
+  });
+
+  it('按州按年份的图层:年份是从小到大的整数、在历史里;份数 × 州数;太多回 limit 并说清账', () => {
+    const ramp = { colors: ['#000000', '#FFFFFF'] };
+    const l = checkRegionLayer({ id: 'density', title: '人口密度', years: [0, 50, 100], values: [0, 1, 2, 3, 4, NaN, Infinity, 7, 8], ramp }, 3, 100);
+    expect(l).toMatchObject({ kind: 'regions', years: [0, 50, 100], ramp: { colors: ['#000000', '#ffffff'] } });
+    expect(l.values).toBeInstanceOf(Float32Array);
+    expect([5, 6].every((i) => Number.isNaN(l.values[i]))).toBe(true);
+    const bad = (over: Record<string, unknown>) => codeOf(() => checkRegionLayer({ id: 'd', title: 'd', years: [0, 50], values: new Float32Array(6), ramp, ...over }, 3, 100));
+    expect(checkRegionLayer({ id: 'd', title: 'd', years: [0, 50], values: new Float32Array(6), ramp }, 3, 100).years).toEqual([0, 50]);
+    expect(bad({ years: [] })).toBe('bad-args');
+    expect(bad({ years: [50, 0] })).toBe('bad-args');
+    expect(bad({ years: [0, 0] })).toBe('bad-args');
+    expect(bad({ years: [0, 50.5] })).toBe('bad-args');
+    expect(bad({ years: [0, 101] })).toBe('bad-args');
+    expect(bad({ values: new Float32Array(5) })).toBe('bad-args');
+    expect(bad({ values: new Float32Array(7) })).toBe('limit');
+    expect(bad({ ramp: undefined })).toBe('bad-args');
+    let err: unknown;
+    try {
+      checkRegionLayer({ id: 'd', title: 'd', years: Array.from({ length: 3001 }, (_, y) => y), values: [], ramp }, 884, 3000);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(PluginApiError);
+    expect((err as PluginApiError).code).toBe('limit');
+    expect((err as Error).message).toContain('3001 份 × 884 个州');
   });
 
   it('标注图层:位置个数要合种类;点的 x 规整到地图宽里;地块编号要在范围里', () => {
@@ -585,6 +612,21 @@ describe('回调用', () => {
     expect(sink.panel).toHaveBeenLastCalledWith(null);
     expect(sink.layer.mock.calls.map((c) => c[0]).sort()).toEqual(['a', 'c', 'd', 'm']);
     expect(sink.layer.mock.calls.every((c) => c[1] === null)).toBe(true);
+  });
+
+  it('按州按年份的图层:州数、年份照这段历史查;和地块图层合起来最多 4 个;没要能力不能交', async () => {
+    const { call, sink } = await open(['layer.cells@1', 'layer.regions@1']);
+    const n = civ.regions.count;
+    const ramp = { colors: ['#000000', '#ffffff'] };
+    const regions = (lid: string, years = [0, civ.endYear]) => ({ id: lid, title: lid, years, values: new Float32Array(years.length * n), ramp });
+    expect(await call('layer.regions', regions('r'))).toMatchObject({ ok: true });
+    expect(sink.layer).toHaveBeenLastCalledWith('r', expect.objectContaining({ kind: 'regions', years: [0, civ.endYear] }));
+    expect(await call('layer.regions', regions('x', [0, civ.endYear + 1]))).toMatchObject({ ok: false, error: { code: 'bad-args' } });
+    for (const lid of ['a', 'b', 'c']) expect(await call('layer.cells', { id: lid, title: lid, values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: true });
+    expect(await call('layer.regions', regions('e'))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.cells', { id: 'r', title: 'r', values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
+    const other = await open(['layer.cells@1']);
+    expect(await other.call('layer.regions', regions('r'))).toMatchObject({ ok: false, error: { code: 'no-permission' } });
   });
 
   it('面板上的控件动了转给插件(值不合控件的不转);没要 ui.panel 收不到', async () => {

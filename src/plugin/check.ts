@@ -2,7 +2,7 @@
  * 检查插件交来的东西:调用的参数、面板、图层。纯计算,不碰 DOM。
  * 不合格的一律抛 PluginApiError(网站回给插件),合格的换成网站自己的一份(插件那边再改也影响不到)。
  */
-import type { CellLayerSpec, Hex, LayerMarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode } from './types';
+import type { CellLayerSpec, Hex, LayerMarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode, RegionLayerSpec } from './types';
 import { layerLookRest, type LookFail } from '../gen/layerLook';
 
 export class PluginApiError extends Error {
@@ -257,6 +257,36 @@ export function checkCellLayer(raw: unknown, cells: number): CellLayer {
   const v = numbers(a.values, 'values', cells);
   if (v.length !== cells) bad(`values 要有 ${cells} 个(每个地块一个)`);
   for (let i = 0; i < cells; i++) out.values[i] = Number.isFinite(v[i]) ? v[i] : NaN;
+  layerLookRest(a, out, lookFail);
+  return out;
+}
+
+/** 一个按州按年份的图层的数最多占多少字节(和推演插件的图层同一条) */
+export const REGION_LAYER_BYTES = 6e6;
+
+/** 网站这边的一份按州按年份的图层:years 是整数年,values 是份数 × 州数,不是有限数的换成 NaN */
+export interface RegionLayer extends Omit<CellLayer, 'kind'> {
+  kind: 'regions';
+  years: number[];
+}
+
+/** 按州按年份的图层:regions = 历史的州数,end = 历史推到哪年 */
+export function checkRegionLayer(raw: unknown, regions: number, end: number): RegionLayer {
+  const a = argsOf(raw) as Partial<Record<keyof RegionLayerSpec, unknown>>;
+  const out: RegionLayer = { kind: 'regions', id: id(a.id, 'id'), title: text(a.title, 'title', TITLE_MAX), years: [], values: new Float32Array(0) };
+  const ys = numbers(a.years, 'years', Math.floor(end) + 1);
+  if (!ys.length) bad('years 至少一个');
+  for (let k = 0; k < ys.length; k++) {
+    const y = ys[k];
+    if (!Number.isInteger(y) || y < 0 || y > end || (k > 0 && !(y > ys[k - 1]))) bad(`years[${k}] 不对:要是整数、从小到大、在 0 到 ${Math.floor(end)} 之间`);
+    out.years.push(y);
+  }
+  const want = ys.length * regions;
+  if (want * 4 > REGION_LAYER_BYTES) over(`交得太多:${ys.length} 份 × ${regions} 个州 × 4 字节 = ${(want * 4 / 1e6).toFixed(1)} MB,一个图层最多 ${REGION_LAYER_BYTES / 1e6} MB。把间隔调大`);
+  const v = numbers(a.values, 'values', want);
+  if (v.length !== want) bad(`values 要有 ${want} 个(${ys.length} 份 × ${regions} 个州)`);
+  out.values = new Float32Array(want);
+  for (let i = 0; i < want; i++) out.values[i] = Number.isFinite(v[i]) ? v[i] : NaN;
   layerLookRest(a, out, lookFail);
   return out;
 }

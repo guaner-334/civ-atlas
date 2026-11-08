@@ -293,14 +293,15 @@ civAtlas.on('panel.action', ({ id, value }) => {
 });
 ```
 
-## 图层(`layer.cells@1`、`layer.marks@1`)
+## 图层(`layer.cells@1`、`layer.regions@1`、`layer.marks@1`)
 
 插件交数据,网站来画:平面、弯边投影、地球仪、导出图片都自动支持。同一个 `id` 再交一次就是换掉。插件停了,它交的面板和图层一起拿掉。
 
-- 地块图层在图层面板「插件图层」里一个图层一个按钮,同一时间显示一个,半透明盖在底图上(底图照旧能换),左上角是图例。第一次交来的地块图层,没有别的插件图层正显示时直接显示
+- 地块图层、按州按年份的图层在图层面板「插件图层」里一个图层一个按钮,同一时间显示一个,半透明盖在底图上(底图照旧能换),左上角是图例。第一次交来的,没有别的插件图层正显示时直接显示
 - 标注图层交来就画在地图上,不进图层面板
 - 只交图层的插件(没要 `ui.panel@1`、`input.pick@1`)不在「工具」里:图层面板里列着它的名字,点了才开这个插件,顶层代码从头跑;收起、换成别的插件的图层就停
-- 用的人点图例上的「存进这个世界」,网站把这个地块图层**那一刻的样子**存进世界(网站认得的格式,不带插件的代码,见[存进世界的图层](layer-format.md)):以后插件更新了也不变,别人没装这个插件也看得到,能跟着世界公开分享。插件不用为此做什么,也读不到存着的那一份
+- 用的人点图例上的「存进这个世界」,网站把图层存进世界(网站认得的格式,不带插件的代码,见[存进世界的图层](layer-format.md)):地块图层存**那一刻的样子**,按州按年份的存**整串**。以后插件更新了也不变,别人没装这个插件也看得到,能跟着世界公开分享。插件不用为此做什么,也读不到存着的那一份
+- 想让存进世界的图层也跟着时间轴变,交按州按年份的(`layer.regions`);只要开着插件时跟着变,`layer.cells` 加上听 `view.year` 就够
 
 ### `layer.cells({ id, title, values, ramp | classes, legend?, opacity? })` — `layer.cells@1`
 
@@ -318,6 +319,33 @@ civAtlas.on('panel.action', ({ id, value }) => {
 
 `ramp` 和 `classes` 给且只给一个。颜色一律 `#rrggbb`。
 
+### `layer.regions({ id, title, years, values, ramp | classes, legend?, opacity? })` — `layer.regions@1`
+
+按州按年份的图层:几个年份,每一年每个州一个数,一次交一整串。网站跟着时间轴挑一份画,存进世界的也是整串,别人没装插件拖时间轴也跟着变。和推演插件存进历史的图层是同一种格式。
+
+```js
+const { to } = await civAtlas.history.span();
+const n = (await civAtlas.history.regions()).length; // 州数
+const years = [];
+for (let y = 0; y <= to; y += 50) years.push(y);
+const values = new Float32Array(years.length * n).fill(NaN);
+// ……每一年算每州一个数,写进 values[k * n + 州编号]
+await civAtlas.layer.regions({ id: 'density', title: '各国人口密度', years, values, ramp: { colors: ['#c7e9b4', '#225ea8'], min: 0, max: 6 }, legend: '人/平方公里' });
+```
+
+| 字段 | 规矩 |
+|---|---|
+| `id`、`title`、`ramp`、`classes`、`legend`、`opacity` | 同 `layer.cells` |
+| `years` | 整数年,从小到大、不重复,在 0 到 `history.span()` 的 `to` 之间,至少一个 |
+| `values` | 份数 × 州数,第 k 份接在第 k − 1 份后面。州数 = `history.regions()`(不给年份)的个数,地形大事以后才有的州也算;那一年还没有的州、不想画的州给 `NaN` |
+
+- 画第 y 年时用 `years` 里不晚于 y 的最后一份;比第一份早的年份不画。时间轴拖过了最后一份、又隔了一份那么久,图例上写「插件只算到第 N 年」
+- 份数 × 州数 × 4 字节最多 6 MB,超了回 `limit`,说明里算好了账。每 50 年一份就够看:种子 7 的默认世界(884 个州、3000 年)每 50 年一份约 0.2 MB,存进世界压缩后几十 KB 到一百多 KB
+- 要先算完整串才交得出来:算得久的,可以先交一串粗的(每 200 年一份),算好再交细的,同一个 `id` 就是换掉
+- 数是照这段历史算的:用的人改了过去、再推、换了一段历史,存着的这种图层网站会从世界里拿掉,开着的插件交的也拿掉。只交图层的插件,用的人在图层面板里再点它,就从头照新历史算
+- 还没推出历史时回 `unavailable`
+- 示例:[人口密度](../../examples/plugins/pop-density/)
+
 ### `layer.marks({ id, title, items })` — `layer.marks@1`
 
 标注:点、文字、线、圈一片地块。每项:
@@ -331,11 +359,11 @@ civAtlas.on('panel.action', ({ id, value }) => {
 
 `point`、`label` 只能给一个位置,`line` 至少两个,`area` 至少一个。一个标注图层最多 5000 项,地块和点一共最多 200000 个。
 
-### `layer.remove({ id })` — `layer.cells@1` 或 `layer.marks@1`
+### `layer.remove({ id })` — `layer.cells@1`、`layer.regions@1` 或 `layer.marks@1`
 
 拿掉一个图层。
 
-一个插件最多 4 个地块图层、4 个标注图层,第 5 个回 `limit`。一个 `id` 交过地块图层就不能再拿来交标注图层(反过来也一样)。
+一个插件的地块图层和按州按年份的图层合起来最多 4 个,标注图层最多 4 个,第 5 个回 `limit`。一个 `id` 交过一种图层就不能再拿来交别的种(地块的、按州的、标注的)。
 
 ## 插件自己的数据(`store.local@1`、`store.world@1`)
 

@@ -10,7 +10,7 @@ import { EMPTY_EDITS, type WorldEdits } from '../../../src/gen/edits';
 import { populationAt } from '../../../src/gen/readers/openQuery';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../../../src/gen/world';
 import { PLUGIN_METHODS } from '../../../src/plugin/caps';
-import type { CellLayer, MarkLayer } from '../../../src/plugin/check';
+import type { CellLayer, MarkLayer, RegionLayer } from '../../../src/plugin/check';
 import { PluginRefused, startPluginHost, type PickAnswer } from '../../../src/plugin/host';
 import { frameCsp, SANDBOX_FLAGS } from '../../../src/plugin/protocol';
 import { SandboxStopped, startPluginSandbox, type PluginSandbox, type StopReason } from '../../../src/plugin/sandbox';
@@ -408,7 +408,7 @@ function examplePicks(world: World, civ: Civ, year: number, kinds: string[]): Pi
 }
 
 /** 图层钉快照的样子:地块图层只留统计(每个值各几块),标注原样 */
-function layerDigest(l: CellLayer | MarkLayer) {
+function layerDigest(l: CellLayer | RegionLayer | MarkLayer) {
   if (l.kind === 'marks') return { ...l, items: l.items.map((it) => ({ ...it, cells: it.cells && Array.from(it.cells), points: it.points && Array.from(it.points) })) };
   const { values, ...rest } = l;
   const counts: Record<string, number> = {};

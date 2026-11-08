@@ -1,13 +1,13 @@
 /**
  * 插件图层:开着的插件交来的(工具、只交图层的插件、开发者模式载入的)、这个世界里存着的、推演插件推的时候存进历史的
- * (按州、按年份,跟着时间轴换),图层面板里选了哪一个。
+ * (按州、按年份,跟着时间轴换),图层面板里选了哪一个。工具插件交来、存着的也可以按州按年份,同样跟着时间轴换。
  * 这里只放数据和几个小函数;开只交图层的插件、画、存进世界的代码(layers/)用到才下载。
  *
  * 图层面板「插件图层」一个地块图层一个按钮,同一时间只显示一个(再点一下收起);标注图层(路线、框、点)交来就画,不进面板。
  * 同一个插件的同一个图层,开着的插件交来的盖过存着的;插件停了它交的都拿掉,存着的照旧在。
  */
 import type { SimLayer } from '../../gen/civ/engine/pluginLayers';
-import type { CellLayer, MarkLayer } from '../../plugin/check';
+import type { CellLayer, MarkLayer, RegionLayer } from '../../plugin/check';
 import { savedLayerId, type PluginLayerValue, type WorldPlugin } from '../../gen/worldFormat';
 import { frameAt, framePaint, regionsToCells, type CellPaint } from '../../render/pluginLayer';
 import { getCivTime } from '../civView';
@@ -22,7 +22,7 @@ export interface LiveLayer {
   record: WorldPlugin;
   /** 开发者模式载入的 */
   dev: boolean;
-  layer: CellLayer | MarkLayer;
+  layer: CellLayer | RegionLayer | MarkLayer;
 }
 
 /** 这个世界里存着的一个地块图层 */
@@ -57,13 +57,15 @@ export interface PluginLayers {
   /** saved 是哪个世界的 */
   savedFor: string | null;
   sim: SimLayers | null;
+  /** 地图上那一段历史的州表(按州的图层铺到地块上用)、推到哪年 */
+  hist: { of: ArrayLike<number>; end: number } | null;
   /** 装着的、只交图层的插件(图层面板里点了才开) */
   runnable: readonly { id: string; name: string }[];
   /** 选中的图层的键;run:<插件编号> = 点了只交图层的插件,还没交来 */
   shown: string | null;
 }
 
-export const pluginLayers = createStore<PluginLayers>({ live: new Map(), saved: new Map(), savedFor: null, sim: null, runnable: [], shown: null });
+export const pluginLayers = createStore<PluginLayers>({ live: new Map(), saved: new Map(), savedFor: null, sim: null, hist: null, runnable: [], shown: null });
 
 /** 插件交的图层编号 → 键 */
 export const layerKey = (pluginId: string, layerId: string): string => `${pluginId}/${savedLayerId(layerId)}`;
@@ -79,7 +81,11 @@ export interface LayerChip {
   label: string;
   /** 推演插件的图层(按钮上带「推演」小标) */
   sim?: boolean;
+  /** 带年份、跟着时间轴变的 */
+  timed?: boolean;
 }
+
+const fills = (l: LiveLayer['layer']): l is CellLayer | RegionLayer => l.kind !== 'marks';
 
 const simOf = (s: PluginLayers, key: string | null): SimLayerOn | null => (key && s.sim?.list.find((l) => l.key === key)) || null;
 
@@ -89,13 +95,14 @@ export function layerChips(s: PluginLayers): LayerChip[] {
   const seen = new Set<string>();
   const plugins = new Set<string>();
   for (const [key, l] of s.saved) {
-    out.push({ key, label: s.live.get(key)?.layer.title ?? l.data.title });
+    const live = s.live.get(key)?.layer;
+    out.push({ key, label: live?.title ?? l.data.title, ...(l.data.years || live?.kind === 'regions' ? { timed: true } : {}) });
     seen.add(key);
     plugins.add(l.pluginId);
   }
   for (const [key, l] of s.live) {
-    if (l.layer.kind !== 'cells' || seen.has(key)) continue;
-    out.push({ key, label: l.layer.title });
+    if (!fills(l.layer) || seen.has(key)) continue;
+    out.push({ key, label: l.layer.title, ...(l.layer.kind === 'regions' ? { timed: true } : {}) });
     plugins.add(l.pluginId);
   }
   for (const p of s.runnable) if (!plugins.has(p.id)) out.push({ key: RUN + p.id, label: p.name });
@@ -105,8 +112,8 @@ export function layerChips(s: PluginLayers): LayerChip[] {
 /** 正显示的地块图层 */
 export interface ShownLayer {
   key: string;
-  /** 画的这一份:开着的插件交来的,没有就是存着的;推演插件的是存下的几份(画哪一份见 shownPaint) */
-  cells: CellLayer | PluginLayerValue;
+  /** 画的这一份:开着的插件交来的,没有就是存着的;带年份的是几份(画哪一份见 shownPaint) */
+  cells: CellLayer | RegionLayer | PluginLayerValue;
   plugin: string;
   pluginId: string;
   dev: boolean;
@@ -123,13 +130,13 @@ export function shownLayer(s: PluginLayers): ShownLayer | null {
   if (sim) return { key, cells: sim.layer, plugin: sim.pluginId, pluginId: sim.pluginId, dev: false, live: null, saved: null, sim };
   if (key.startsWith(RUN)) {
     const pid = key.slice(RUN.length);
-    key = [...s.live].find(([, l]) => l.pluginId === pid && l.layer.kind === 'cells')?.[0] ?? [...s.saved].find(([, l]) => l.pluginId === pid)?.[0] ?? null;
+    key = [...s.live].find(([, l]) => l.pluginId === pid && fills(l.layer))?.[0] ?? [...s.saved].find(([, l]) => l.pluginId === pid)?.[0] ?? null;
     if (!key) return null;
   }
   const live = s.live.get(key);
   const saved = s.saved.get(key) ?? null;
-  const liveCells = live?.layer.kind === 'cells' ? live : null;
-  if (liveCells) return { key, cells: liveCells.layer as CellLayer, plugin: liveCells.plugin, pluginId: liveCells.pluginId, dev: liveCells.dev, live: liveCells, saved, sim: null };
+  const liveCells = live && fills(live.layer) ? live : null;
+  if (liveCells) return { key, cells: liveCells.layer as CellLayer | RegionLayer, plugin: liveCells.plugin, pluginId: liveCells.pluginId, dev: liveCells.dev, live: liveCells, saved, sim: null };
   if (saved) return { key, cells: saved.data, plugin: saved.record?.name ?? saved.pluginId, pluginId: saved.pluginId, dev: false, live: null, saved, sim: null };
   return null;
 }
@@ -142,8 +149,11 @@ export function currentShown(): ShownLayer | null {
   return memo.v;
 }
 
-/** 画在地图上的一份:每个地块一个数,连同图例上写的名字、单位;推演插件的写着是第几年的(year) */
-export type ShownPaint = CellPaint & { title: string; legend?: string; year?: number };
+/**
+ * 画在地图上的一份:每个地块一个数,连同图例上写的名字、单位;带年份的写着是第几年的(year)。
+ * 时间轴过了最后一份、又隔了一份那么久(插件只算到那一年)的,upTo = 最后一份的年份
+ */
+export type ShownPaint = CellPaint & { title: string; legend?: string; year?: number; upTo?: number };
 
 let frameMemo: { layer: SimLayer; of: ArrayLike<number>; k: number; paint: ShownPaint } | null = null;
 
@@ -160,13 +170,38 @@ export function simPaint(sim: SimLayers, on: SimLayerOn, year: number | null): S
   return paint;
 }
 
+type Timed = (CellLayer | RegionLayer | PluginLayerValue) & { years: readonly number[] };
+let storedMemo: { layer: object; of: ArrayLike<number> | null; k: number; upTo?: number; paint: ShownPaint } | null = null;
+
+/** 工具插件交来、存着的带年份的图层第 year 年那一份(按州的铺到地块上;year = null:推到的那一年;比第一份早、没有州表 = null) */
+export function storedPaint(l: Timed, year: number | null): ShownPaint | null {
+  const byRegion = 'kind' in l ? l.kind === 'regions' : l.unit === 'region';
+  const hist = pluginLayers.get().hist;
+  if (byRegion && !hist) return null;
+  const n = l.years.length;
+  const last = l.years[n - 1];
+  const y = year ?? hist?.end ?? last;
+  const k = frameAt(l.years, y);
+  if (k < 0) return null;
+  const upTo = n > 1 && y > last + (last - l.years[n - 2]) ? last : undefined;
+  const of = byRegion ? hist!.of : null;
+  const m = storedMemo;
+  if (m && m.layer === l && m.of === of && m.k === k && m.upTo === upTo) return m.paint;
+  const frame = framePaint(l, l.years[k])!;
+  const paint: ShownPaint = { ...(of ? regionsToCells(frame, of) : frame), title: l.title, year: l.years[k], ...(l.legend !== undefined ? { legend: l.legend } : {}), ...(upTo !== undefined ? { upTo } : {}) };
+  storedMemo = { layer: l, of, k, upTo, paint };
+  return paint;
+}
+
 /** 现在画在地图上的那一份(year 不给 = 时间轴停的那年);没有 = null */
 export function shownPaint(year: number | null = getCivTime().year): ShownPaint | null {
   const shown = currentShown();
   if (!shown) return null;
   const sim = pluginLayers.get().sim;
   if (shown.sim) return sim && simPaint(sim, shown.sim, year);
-  return 'years' in shown.cells && shown.cells.years !== undefined ? null : shown.cells;
+  const c = shown.cells;
+  if ('years' in c && c.years !== undefined) return storedPaint(c as Timed, year);
+  return c as CellLayer | PluginLayerValue;
 }
 
 /** 按钮亮不亮:选中的就是它,或者选中的是它这个插件、交来的正是它 */
@@ -213,7 +248,7 @@ export function pickPluginLayer(key: string): void {
 }
 
 /** 开着的插件交来(layer = null:拿掉)一个图层。第一次交来的地块图层,没有选中的就显示它;点了它这个插件、正等着的,换成它 */
-export function setLiveLayer(who: Omit<LiveLayer, 'layer'>, id: string, layer: CellLayer | MarkLayer | null): void {
+export function setLiveLayer(who: Omit<LiveLayer, 'layer'>, id: string, layer: CellLayer | RegionLayer | MarkLayer | null): void {
   const s = pluginLayers.get();
   const key = layerKey(who.pluginId, id);
   const live = new Map(s.live);
@@ -221,7 +256,7 @@ export function setLiveLayer(who: Omit<LiveLayer, 'layer'>, id: string, layer: C
   if (layer) {
     const fresh = !live.has(key);
     live.set(key, { ...who, layer });
-    if (layer.kind === 'cells' && (shown === RUN + who.pluginId || (fresh && shown === null))) shown = key;
+    if (fills(layer) && (shown === RUN + who.pluginId || (fresh && shown === null))) shown = key;
   } else {
     if (!live.delete(key)) return;
     if (shown === key && !s.saved.has(key)) shown = null;

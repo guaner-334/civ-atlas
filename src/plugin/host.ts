@@ -15,6 +15,7 @@ import {
   checkCellLayer,
   checkMarkLayer,
   checkPanel,
+  checkRegionLayer,
   id as checkId,
   int,
   LAYERS_MAX,
@@ -26,6 +27,7 @@ import {
   text,
   type CellLayer,
   type MarkLayer,
+  type RegionLayer,
 } from './check';
 import { planChanges } from './edit';
 import { approxBytes } from './protocol';
@@ -66,7 +68,7 @@ export interface PluginSource {
 /** 插件交来的面板、图层、日志交给谁(null = 拿掉) */
 export interface PluginSink {
   panel?(nodes: PanelNode[] | null): void;
-  layer?(id: string, layer: CellLayer | MarkLayer | null): void;
+  layer?(id: string, layer: CellLayer | RegionLayer | MarkLayer | null): void;
   /** error = 插件代码里没接住的 Promise 出错(沙箱那一层记的) */
   log?(text: string, level?: 'error'): void;
   /** 插件的一次调用没成(开发者模式记进日志) */
@@ -145,7 +147,7 @@ class Host implements PluginHost {
   private spent = 0;
   private spentFrom = 0;
   private panel: PanelNode[] | null = null;
-  private readonly layers = new Map<string, CellLayer | MarkLayer>();
+  private readonly layers = new Map<string, CellLayer | RegionLayer | MarkLayer>();
   private picking: AbortController | null = null;
   private unwatch: (() => void) | null = null;
   private lastView: { year: number; select: string } | null = null;
@@ -330,6 +332,10 @@ class Host implements PluginHost {
         const n = this.world().mesh.n;
         return this.putLayer(checkCellLayer(args, n));
       }
+      case 'layer.regions': {
+        const civ = this.civ();
+        return this.putLayer(checkRegionLayer(args, civ.regions.count, civ.endYear));
+      }
       case 'layer.marks': {
         const w = this.world();
         return this.putLayer(checkMarkLayer(args, { cells: w.mesh.n, width: w.width, height: w.height }));
@@ -366,11 +372,13 @@ class Host implements PluginHost {
     return Promise.resolve(st.set(this.id, d)).then(() => null);
   }
 
-  private putLayer(l: CellLayer | MarkLayer): null {
+  private putLayer(l: CellLayer | RegionLayer | MarkLayer): null {
     const had = this.layers.get(l.id);
     if (had && had.kind !== l.kind) throw new PluginApiError('bad-args', `id ${l.id} 已经是别的图层`);
-    if (!had && [...this.layers.values()].filter((x) => x.kind === l.kind).length >= LAYERS_MAX)
-      throw new PluginApiError('limit', `一个插件最多 ${LAYERS_MAX} 个${l.kind === 'cells' ? '地块' : '标注'}图层`);
+    // 地块图层和按州的合起来算:图层面板里都是一个按钮
+    const group = (k: string) => (k === 'marks' ? 'marks' : 'fill');
+    if (!had && [...this.layers.values()].filter((x) => group(x.kind) === group(l.kind)).length >= LAYERS_MAX)
+      throw new PluginApiError('limit', `一个插件最多 ${LAYERS_MAX} 个${l.kind === 'marks' ? '标注' : '地块和按州的'}图层`);
     this.layers.set(l.id, l);
     this.sink.layer?.(l.id, l);
     return null;

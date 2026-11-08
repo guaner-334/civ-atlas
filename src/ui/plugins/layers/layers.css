@@ -94,6 +94,32 @@
   color: var(--ink-2);
   white-space: nowrap;
 }
+/* 工具插件带年份的:名字和第几年一行,下面一行插件名和按钮 */
+.plg-lt.plg-lta {
+  min-height: 0;
+  margin-top: 3px;
+  align-items: baseline;
+  gap: 8px;
+}
+.plg-lyear.warn {
+  align-self: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-tag);
+  background: rgba(185, 124, 12, 0.15);
+  color: #8f5d07;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 18px;
+}
+[data-theme='dark'] .plg-lyear.warn {
+  background: rgba(255, 214, 10, 0.16);
+  color: var(--warn);
+}
+/* 存好的提示说了存了哪些年、多大,放一行太长会盖住左上的图例 */
+.toast[data-toast='plugin-layer'] {
+  max-width: min(470px, calc(100% - 32px));
+}
 .plg-ltag {
   flex: none;
   display: inline-flex;

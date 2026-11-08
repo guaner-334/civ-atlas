@@ -18,8 +18,8 @@ const EXAMPLES = readdirSync(ROOT, { withFileTypes: true })
   .sort();
 
 describe('示例插件', () => {
-  it('工具、推演各三个示例都在', () => {
-    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'faith', 'magic', 'route-days', 'weariness']);
+  it('工具四个、推演三个示例都在', () => {
+    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'faith', 'magic', 'pop-density', 'route-days', 'weariness']);
   });
 
   describe.each(EXAMPLES)('%s', (name) => {

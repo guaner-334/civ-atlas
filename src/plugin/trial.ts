@@ -6,7 +6,7 @@ import { fullChronicle } from '../gen/civ/story/religionText';
 import type { Civ } from '../gen/civ/types';
 import { EMPTY_EDITS } from '../gen/edits';
 import type { World } from '../gen/world';
-import { PluginApiError, type CellLayer, type MarkLayer } from './check';
+import { PluginApiError, type CellLayer, type MarkLayer, type RegionLayer } from './check';
 import type { PickAnswer, PickRequest, PluginSink, PluginSource } from './host';
 import { historyAt, historyPolities, historySettlements } from './read';
 import type { PanelNode, ViewInfo } from './types';
@@ -176,7 +176,7 @@ export class TrialRecorder {
   /** 最后一次有动静的时候 */
   last: number;
   panel: PanelNode[] | null = null;
-  readonly layers = new Map<string, CellLayer | MarkLayer>();
+  readonly layers = new Map<string, CellLayer | RegionLayer | MarkLayer>();
   /** 第一个算插件的错(崩了、没接住的 Promise、没反应……) */
   error: string | null = null;
   private readonly now: () => number;
@@ -387,6 +387,10 @@ export class TrialRecorder {
         let k = 0;
         for (let i = 0; i < l.values.length; i++) if (!Number.isNaN(l.values[i])) k++;
         parts.push(`地块图层「${l.title}」涂了 ${n(k)} 块`);
+        continue;
+      }
+      if (l.kind === 'regions') {
+        parts.push(`按州的图层「${l.title}」${n(l.years.length)} 份（第 ${l.years[0]}${l.years.length > 1 ? ` 到 ${l.years.at(-1)}` : ''} 年）`);
         continue;
       }
       const by = new Map<string, number>();

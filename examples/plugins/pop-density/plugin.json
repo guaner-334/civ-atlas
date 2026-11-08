@@ -1,0 +1,15 @@
+{
+  "id": "pop-density",
+  "name": "人口密度",
+  "version": "1.0.0",
+  "role": "tool",
+  "api": 1,
+  "runtime": "worker",
+  "requires": ["history.read@1", "layer.regions@1"],
+  "why": {
+    "history.read@1": "按每一年各州的人口、各国的疆域算人口密度"
+  },
+  "description": "加一个跟着时间轴变的图层：每 50 年一份，当年各国的人口密度（人/平方公里）。存进世界以后，别人没装这个插件也看得到。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

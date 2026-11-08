@@ -17,6 +17,7 @@ export type CapRef =
   | 'input.pick@1'
   | 'ui.panel@1'
   | 'layer.cells@1'
+  | 'layer.regions@1'
   | 'layer.marks@1'
   | 'store.local@1'
   | 'store.world@1';
@@ -438,7 +439,7 @@ export interface PanelAction {
 }
 
 // ---------------------------------------------------------------------------
-// 图层(layer.cells / layer.marks):插件交数据,网站来画
+// 图层(layer.cells / layer.regions / layer.marks):插件交数据,网站来画
 
 /** 图层 id:字母数字、- 和 _,最长 32 */
 export interface CellLayerSpec {
@@ -454,6 +455,14 @@ export interface CellLayerSpec {
   legend?: string;
   /** 0–1,不给 = 网站定 */
   opacity?: number;
+}
+
+/** 按州按年份的图层:样子同 CellLayerSpec */
+export interface RegionLayerSpec extends Omit<CellLayerSpec, 'values'> {
+  /** 每一份是哪一年的:整数,从小到大、不重复,在 0 到 history.span() 的 to 之间 */
+  years: ArrayLike<number>;
+  /** 份数 × 州数(州数 = history.regions() 的个数),第 k 份接在第 k − 1 份后面;NaN = 这个州不画 */
+  values: ArrayLike<number>;
 }
 
 /** 标注图层的颜色(和你的标记的颜色不是一套) */
@@ -555,6 +564,8 @@ export interface CivAtlas {
   layer: {
     /** 同 id 的换掉;一个插件最多 4 个 */
     cells: Call<CellLayerSpec, void>;
+    /** 同 id 的换掉;和地块图层合起来一个插件最多 4 个;份数 × 州数 × 4 字节最多 6 MB */
+    regions: Call<RegionLayerSpec, void>;
     /** 同 id 的换掉;一个插件最多 4 个,每个最多 5000 项 */
     marks: Call<MarkLayerSpec, void>;
     remove: Call<{ id: string }, void>;

@@ -10,8 +10,9 @@ import { opaqueParts, openWorldFile, packWorldParts, readWorldContent, rewriteWo
 import { PLUGIN_LAYERS_MAX, PLUGIN_LAYER_ID, PLUGIN_LAYER_PREFIX, pluginLayerPart, savedLayerId, type PluginLayerValue, type WorldManifest, type WorldPlugin } from '../src/gen/worldFormat';
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
 import { cellColors, rampRange } from '../src/render/pluginLayer';
-import type { CellLayer } from '../src/plugin/check';
+import type { CellLayer, RegionLayer } from '../src/plugin/check';
 import { chipOn, layerChips, pluginExport, pluginLayers, setLiveLayer, setSavedLayers, setSimLayers, shownLayer, shownPaint } from '../src/ui/plugins/layerState';
+import { dropRegionLayers, layerData, sameAsSaved, savedSpan, setRegionMap } from '../src/ui/plugins/layers/layerSave';
 import type { SimLayer } from '../src/gen/civ/engine/pluginLayers';
 import { _resetVault, changePluginLayer, commitWorld, opaquePartsOf, readPluginLayers, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
@@ -234,7 +235,7 @@ describe('图层面板的按钮', () => {
   const cells = (id: string, title: string): CellLayer => ({ kind: 'cells', id, title, values: new Float32Array(3), classes: [{ value: 0, color: '#ff0000', label: 'a' }] });
   const who = (id: string, name: string) => ({ pluginId: id, plugin: name, record: { ...tool, id }, dev: false });
 
-  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, sim: null, runnable: [], shown: null }));
+  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, sim: null, hist: null, runnable: [], shown: null }));
 
   it('存着的、交来的地块图层一个一个按钮,没交过图层的只交图层的插件也列上;标注图层不进', () => {
     setSavedLayers('w', new Map([['coast-distance/coast', { pluginId: 'coast-distance', layer: 'coast', data: layer(), record: tool }]]));
@@ -299,7 +300,7 @@ describe('推演插件存进历史的图层', () => {
   });
   const civ = (layers: SimLayer[] | undefined, endYear = 100) => ({ simLayers: layers, regions: { of }, endYear });
 
-  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, sim: null, runnable: [], shown: null }));
+  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, sim: null, hist: null, runnable: [], shown: null }));
 
   it('按钮排在最前、带推演;选上以后画时间轴那一年以前最近的一份,颜色按所有份定', () => {
     setSavedLayers('w', new Map([['coast-distance/coast', { pluginId: 'coast-distance', layer: 'coast', data: layer(), record: tool }]]));
@@ -335,5 +336,83 @@ describe('推演插件存进历史的图层', () => {
     expect(pluginLayers.get().shown).toBeNull();
     expect(pluginLayers.get().sim).toBeNull();
     expect(layerChips(pluginLayers.get())).toEqual([]);
+  });
+});
+
+describe('工具插件按州按年份的图层', () => {
+  // 3 个州、4 个地块(最后一个在海里);插件交第 0、50、100 年三份
+  const of = Int32Array.of(0, 1, 2, -1);
+  const who = { pluginId: 'pop-density', plugin: '人口密度', record: { ...tool, id: 'pop-density', name: '人口密度' }, dev: false };
+  const density = (years = [0, 50, 100], values = Float32Array.of(0, 0, 0, 10, 20, 30, 40, NaN, 60)): RegionLayer => ({
+    kind: 'regions',
+    id: 'density',
+    title: '各国人口密度',
+    years,
+    values,
+    ramp: { colors: ['#000000', '#ffffff'] },
+    legend: '人/平方公里',
+  });
+
+  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, sim: null, hist: null, runnable: [], shown: null }));
+
+  it('交来就显示、按钮标着带年份;画时间轴那一年以前最近的一份,铺到地块上;没有州表先不画', () => {
+    setLiveLayer(who, 'density', density());
+    const s = pluginLayers.get();
+    expect(s.shown).toBe('pop-density/density');
+    expect(layerChips(s)).toEqual([{ key: 'pop-density/density', label: '各国人口密度', timed: true }]);
+    expect(shownPaint(60)).toBeNull();
+    setRegionMap({ regions: { of }, endYear: 100 });
+    expect(shownPaint(49)).toMatchObject({ year: 0, title: '各国人口密度', legend: '人/平方公里', ramp: { min: 0, max: 60 } });
+    expect([...shownPaint(60)!.values]).toEqual([10, 20, 30, NaN]);
+    expect(shownPaint(null)?.year).toBe(100);
+    expect(shownPaint(60)).toBe(shownPaint(99));
+    expect(pluginExport(50).plugin?.values).toEqual(Float32Array.of(10, 20, 30, NaN));
+  });
+
+  it('比第一份早不画;过了最后一份又隔了一份那么久,标出插件只算到哪年', () => {
+    setRegionMap({ regions: { of }, endYear: 300 });
+    setLiveLayer(who, 'density', density([50, 100], Float32Array.of(1, 1, 1, 2, 2, 2)));
+    expect(shownPaint(10)).toBeNull();
+    expect(shownPaint(150)).toMatchObject({ year: 100 });
+    expect(shownPaint(150)?.upTo).toBeUndefined();
+    expect(shownPaint(151)).toMatchObject({ year: 100, upTo: 100 });
+    expect(shownPaint(null)).toMatchObject({ year: 100, upTo: 100 });
+  });
+
+  it('存进世界的那一份按州、带年份;和存着的一样就不再显示存的按钮;存着的照样按年份画', () => {
+    setRegionMap({ regions: { of }, endYear: 100 });
+    const live = { ...who, layer: density() };
+    const data = layerData(live);
+    expect(data).toMatchObject({ unit: 'region', years: [0, 50, 100], title: '各国人口密度' });
+    const saved = { pluginId: 'pop-density', layer: 'density', data, record: who.record };
+    expect(sameAsSaved(live, saved)).toBe(true);
+    expect(sameAsSaved({ ...who, layer: density([0, 50, 99]) }, saved)).toBe(false);
+    setSavedLayers('w', new Map([['pop-density/density', saved]]));
+    pluginLayers.set({ ...pluginLayers.get(), shown: 'pop-density/density' });
+    expect(layerChips(pluginLayers.get())).toEqual([{ key: 'pop-density/density', label: '各国人口密度', timed: true }]);
+    expect(shownPaint(50)).toMatchObject({ year: 50 });
+    expect(savedSpan([0, 50, 100], 25_600)).toBe('第 0 到 100 年，每 50 年一份，约 25 KB');
+    expect(savedSpan([0, 120, 333])).toBe('第 0 到 333 年，共 3 份');
+    expect(savedSpan([450], 300)).toBe('第 450 年这一份，不到 1 KB');
+  });
+
+  it('换了一段历史:按州的(存着的、交来的)拿掉,地块图层、推演插件的不动;显示着的收起', () => {
+    setSavedLayers(
+      'w',
+      new Map([
+        ['coast-distance/coast', { pluginId: 'coast-distance', layer: 'coast', data: layer(), record: tool }],
+        ['pop-density/density', { pluginId: 'pop-density', layer: 'density', data: layerData({ ...who, layer: density() }), record: who.record }],
+      ]),
+    );
+    setLiveLayer({ ...who, pluginId: 'other' }, 'density', density());
+    pluginLayers.set({ ...pluginLayers.get(), shown: 'pop-density/density' });
+    const gone = dropRegionLayers();
+    expect(gone.saved.map((l) => l.layer)).toEqual(['density']);
+    expect(gone.live.map((l) => l.pluginId)).toEqual(['other']);
+    const s = pluginLayers.get();
+    expect([...s.saved.keys()]).toEqual(['coast-distance/coast']);
+    expect(s.live.size).toBe(0);
+    expect(s.shown).toBeNull();
+    expect(dropRegionLayers()).toEqual({ saved: [], live: [] });
   });
 });

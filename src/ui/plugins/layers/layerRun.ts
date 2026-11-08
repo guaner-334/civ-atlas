@@ -25,7 +25,7 @@ import './layers.css';
 export function layerOnly(p: InstalledPlugin): boolean {
   const m = p.current.manifest;
   const caps = [...m.requires, ...(m.optional ?? [])];
-  return p.on && !isTool(m) && !verdictOf(p.current.sum, p.id).blocked && (caps.includes('layer.cells@1') || caps.includes('layer.marks@1'));
+  return p.on && !isTool(m) && !verdictOf(p.current.sum, p.id).blocked && (caps.includes('layer.cells@1') || caps.includes('layer.regions@1') || caps.includes('layer.marks@1'));
 }
 
 /** 重新列一遍装着的只交图层的插件(图层面板打开时) */
