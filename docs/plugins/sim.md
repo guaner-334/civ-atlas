@@ -491,7 +491,7 @@ civAtlas.sim({
 
 这些本来就没有:`fetch` 和一切联网、`setTimeout` 等定时器、`Worker`、`WebAssembly`、`Atomics`、`Intl`、`TextEncoder`、`structuredClone`、`self`、`postMessage`、`importScripts`。用到的库直接写进 `main.js`(普通脚本,不能 `import`)。
 
-`console.log`、`console.warn` 这些可以留在代码里,什么都不做,也不出错。要看中间算出来的数,用 `scripts/sim-plugin-try.ts` 试跑,把要看的写进编年史或小本子。
+`console.log`、`console.warn` 这些可以留在代码里,推演时什么都不做,也不出错。要看中间算出来的数:网站上打开开发者模式载入插件「试推 300 年」,`console.log` 这几样记进小卡的日志、带年份(见[开发者模式](README.md#开发者模式));或者用 `scripts/sim-plugin-try.ts` 试跑,把要看的写进编年史或小本子。
 
 ## 上限
 
