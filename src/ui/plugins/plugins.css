@@ -97,6 +97,10 @@
   background: rgba(224, 68, 58, 0.12);
   color: #c2372e;
 }
+.plg-tag.dev {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 
 .plg-sw {
   flex: none;
@@ -882,6 +886,121 @@
   font-size: 15px !important;
 }
 
+/* ---- 开发者模式:地图左下角的小卡(DevCard.tsx),放在时间轴那一行里 ---- */
+.plg-devc {
+  position: absolute;
+  left: 2px;
+  bottom: calc(100% + 52px);
+  width: 440px;
+  max-width: 100%;
+  padding: 12px 14px 10px;
+  border-radius: 12px;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.4;
+  text-shadow: none;
+}
+.plg-devc button {
+  font: inherit;
+  color: inherit;
+}
+.plg-devc.phone {
+  right: 0;
+  width: auto;
+  bottom: calc(100% + 8px);
+}
+.plg-devc-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.plg-devc-h b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.plg-devc-h .plg-btn {
+  flex: none;
+  margin-left: auto;
+}
+.plg-devc-h .plg-x {
+  margin: 0 -6px 0 -2px;
+  font-size: 13px !important;
+}
+.plg-devc-t {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.plg-logs {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 11.5px;
+  line-height: 1.75;
+  max-height: calc(7 * 1.75em + 12px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  user-select: text;
+}
+.plg-devc.phone .plg-logs {
+  max-height: calc(4 * 1.75em + 12px);
+}
+.plg-logs > div {
+  display: flex;
+  gap: 8px;
+}
+.plg-logs span {
+  flex: none;
+  white-space: nowrap;
+}
+.plg-logs span:first-child {
+  color: var(--ink-3);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.plg-logs span:last-child {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.plg-logs .warn {
+  color: #8f5d07;
+}
+.plg-logs .error {
+  color: #c2372e;
+}
+.plg-devc-f {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.plg-devc-f button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent) !important;
+  cursor: pointer;
+}
+.plg-devc-f button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.plg-devc-f span {
+  margin-left: auto;
+  color: var(--ink-2);
+}
+
 /* ---- 深色图层 ---- */
 [data-theme='dark'] .plg-tag.ok,
 [data-theme='dark'] .plg-st.ok,
@@ -912,4 +1031,13 @@
 }
 [data-theme='dark'] .plg-grip {
   background: rgba(235, 235, 245, 0.3);
+}
+[data-theme='dark'] .plg-logs {
+  background: rgba(0, 0, 0, 0.25);
+}
+[data-theme='dark'] .plg-logs .warn {
+  color: var(--warn);
+}
+[data-theme='dark'] .plg-logs .error {
+  color: var(--err);
 }

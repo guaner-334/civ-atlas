@@ -69,3 +69,59 @@ export function addsRows(m: PluginManifest, phone: boolean): AddsRow[] {
   else rows.push({ k, v: '不存', small: '它算的关掉就没了，世界不变' });
   return rows;
 }
+
+// ---------------------------------------------------------------------------
+// 开发者模式的小卡
+
+export type DevLevel = 'info' | 'warn' | 'error' | 'site';
+
+export interface DevLog {
+  at: number;
+  level: DevLevel;
+  text: string;
+  /** 第几次载入时记的 */
+  run: number;
+}
+
+const LEVEL: Record<DevLevel, string> = { info: '信息', warn: '警告', error: '出错', site: '网站' };
+export const levelText = (l: DevLevel): string => LEVEL[l];
+
+/** 14:32:05 */
+export function clockText(at: number): string {
+  const d = new Date(at);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+}
+
+/** 最近一次载入的排在最上面,同一次里照先后 */
+export function devLogOrder(logs: readonly DevLog[]): DevLog[] {
+  return [...logs].sort((a, b) => b.run - a.run);
+}
+
+/** 「复制全部」:和小卡上一样的顺序,一条一行 */
+export function devLogCopy(logs: readonly DevLog[]): string {
+  return devLogOrder(logs)
+    .map((l) => `${clockText(l.at)} ${levelText(l.level)} ${l.text}`)
+    .join('\n');
+}
+
+/** 小卡第二行;ms = null 是没开起来 */
+export function devLoadLine(at: number, again: boolean, ms: number | null, file: string): string {
+  const how = ms === null ? '没开起来' : `算了 ${Math.max(1, Math.round(ms))} 毫秒`;
+  return `${clockText(at)} ${again ? '重新载入' : '载入'}，${how}（${file}）`;
+}
+
+const STOPPED: Record<string, string> = {
+  crashed: '插件出错，已经停下',
+  'start-timeout': '插件代码顶层 10 秒没跑完，已经停下',
+  unresponsive: '插件没反应，已经停下',
+  protocol: '插件发来看不懂的话，已经停下',
+  flood: '插件一秒发话太多，已经停下',
+  oversize: '插件发来的东西太大，已经停下',
+};
+
+/** 插件停下时网站记的一句;网站自己停的(重新载入、关掉)= null。出错的那句话另记一条「出错」 */
+export function devStopText(reason: string, detail: string): string | null {
+  const t = STOPPED[reason];
+  if (!t) return null;
+  return detail && reason !== 'crashed' ? `${t}（${detail}）` : t;
+}

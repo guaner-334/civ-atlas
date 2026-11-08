@@ -67,7 +67,10 @@ export interface PluginSource {
 export interface PluginSink {
   panel?(nodes: PanelNode[] | null): void;
   layer?(id: string, layer: CellLayer | MarkLayer | null): void;
-  log?(text: string): void;
+  /** error = 插件代码里没接住的 Promise 出错(沙箱那一层记的) */
+  log?(text: string, level?: 'error'): void;
+  /** 插件的一次调用没成(开发者模式记进日志) */
+  failed?(call: string, code: PluginErrorCode, text: string): void;
 }
 
 export interface PluginHostOptions {
@@ -178,15 +181,15 @@ class Host implements PluginHost {
   readonly request = (rid: number, call: string, args: unknown) => {
     if (!this.sb) return void this.early.push([rid, call, args]);
     const need = Object.prototype.hasOwnProperty.call(PLUGIN_METHODS, call) ? PLUGIN_METHODS[call] : undefined;
-    if (!need) return this.fail(rid, 'unknown-call', `没有 ${call} 这个调用`);
-    if (need.length && !need.some((c) => this.has(c))) return this.fail(rid, 'no-permission', `清单里没要 ${need.join(' 或 ')}`);
-    if (this.inflight >= INFLIGHT_MAX) return this.fail(rid, 'busy', `同时最多 ${INFLIGHT_MAX} 个调用没回`);
+    if (!need) return this.fail(rid, 'unknown-call', `没有 ${call} 这个调用`, call);
+    if (need.length && !need.some((c) => this.has(c))) return this.fail(rid, 'no-permission', `清单里没要 ${need.join(' 或 ')}`, call);
+    if (this.inflight >= INFLIGHT_MAX) return this.fail(rid, 'busy', `同时最多 ${INFLIGHT_MAX} 个调用没回`, call);
     const now = performance.now();
     if (now - this.spentFrom >= 1000) {
       this.spent = 0;
       this.spentFrom = now;
     }
-    if (this.spent >= OUT_BYTES_PER_SECOND) return this.fail(rid, 'busy', '取数太快,过一会儿再取');
+    if (this.spent >= OUT_BYTES_PER_SECOND) return this.fail(rid, 'busy', '取数太快,过一会儿再取', call);
     const transfer: Transferable[] = [];
     const give: read.Give = (a) => {
       transfer.push(a.buffer);
@@ -196,13 +199,13 @@ class Host implements PluginHost {
     try {
       out = this.handle(call, args, give);
     } catch (e) {
-      return this.failWith(rid, e);
+      return this.failWith(rid, e, call);
     }
     if (!(out instanceof Promise)) return this.ok(rid, out, transfer);
     this.inflight++;
     out.then(
       (v) => this.ok(rid, v, transfer),
-      (e) => this.failWith(rid, e),
+      (e) => this.failWith(rid, e, call),
     ).finally(() => this.inflight--);
   };
 
@@ -211,13 +214,14 @@ class Host implements PluginHost {
     this.sb?.respond(rid, { ok: true, data: data ?? null }, transfer);
   }
 
-  private fail(rid: number, code: PluginErrorCode, t: string) {
+  private fail(rid: number, code: PluginErrorCode, t: string, call: string) {
+    this.sink.failed?.(call, code, t);
     this.sb?.respond(rid, { ok: false, error: { code, text: t } });
   }
 
-  private failWith(rid: number, e: unknown) {
-    if (e instanceof PluginApiError) this.fail(rid, e.code, e.message);
-    else this.fail(rid, 'failed', String((e as Error)?.message ?? e).slice(0, 200));
+  private failWith(rid: number, e: unknown, call: string) {
+    if (e instanceof PluginApiError) this.fail(rid, e.code, e.message, call);
+    else this.fail(rid, 'failed', String((e as Error)?.message ?? e).slice(0, 200), call);
   }
 
   private world(): World {
@@ -232,9 +236,13 @@ class Host implements PluginHost {
     switch (call) {
       case 'host.info':
         return { api: PLUGIN_API, app: APP_NAME, caps: this.caps.slice(), cells: src.world()?.mesh.n ?? 0 } satisfies HostInfo;
-      case 'log':
-        this.sink.log?.(logText(argsOf(args).text));
+      case 'log': {
+        const a = argsOf(args);
+        const t = logText(a.text);
+        if (a.level === 'error') this.sink.log?.(t, 'error');
+        else this.sink.log?.(t);
         return null;
+      }
       case 'world.info':
         return read.worldInfo(this.world(), src.title?.() ?? '');
       case 'world.cells':
