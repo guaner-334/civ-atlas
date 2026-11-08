@@ -4,7 +4,7 @@
  * 权限框和装不上的说明换掉插件页显示,关掉回到插件页。
  * 开发者模式打开以后多一个「载入正在写的插件…」:选了文件就收起插件页,载入、权限框、日志都在地图左下角的小卡(DevCard.tsx)。
  */
-import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
@@ -23,6 +23,7 @@ import { CAP_LABEL } from './pluginWords';
 import { checkPlugins, newVersionOf, useWallRev, wallFile } from './galleryWatch';
 import { addedLines, addsRows, askByLine, dayText, isSim, moreText, noteText, pageByLine, simRows, simWhere, toolWhere, versionLabel, versionText, wallInstalledText, type AddsRow } from './pluginText';
 import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
+import { MAP_USE, isMap, mapRows, mapWhere } from './mapText';
 import { markReviewed, refreshVerdicts, useVerdicts, verdictOf, type PluginVerdict } from './verdict';
 import './plugins.css';
 
@@ -41,7 +42,7 @@ export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugi
   if (a.work && a.kind === 'update') showToast({ id: 'plugins', kind: 'ok', text: `「${m.name}」更新到${versionLabel(m.version)}了` });
   else if (a.work) showToast({ id: 'plugins', kind: 'ok', text: `装好了「${m.name}」`, more: [wallInstalledText(m, phone)], action: { label: '去插件页', act: 'plugins-open', onClick: openPlugins } });
   else {
-    const where = isSim(m) ? simWhere(phone) : toolWhere(m, phone);
+    const where = isSim(m) ? simWhere(phone) : isMap(m) ? mapWhere() : toolWhere(m, phone);
     showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
   }
   void import('./worldPlugins').then((x) => x.refreshSimNow()).catch(() => {});
@@ -315,6 +316,7 @@ const MORE_ICONS = {
     </>
   ),
   box: <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9" />,
+  mount: <path d="M3 19.5 9.5 9l4 6 2.5-3.5 5 8z" />,
   shield: <path d="M12 3 5 6v5.5c0 4.3 3 8 7 9.5 4-1.5 7-5.2 7-9.5V6zM9 12l2.2 2.2 4-4.2" />,
   arrowUp: <path d="M12 19V5M6 11l6-6 6 6" />,
   ok2: (
@@ -356,7 +358,7 @@ const PERM_ICON: Record<PermissionKey, IconName | keyof typeof MORE_ICONS> = {
   storeWorld: 'box',
   sim: 'book',
   simSteer: 'history',
-  mapSteer: 'globe',
+  mapSteer: 'mount',
 };
 
 function Perm({ line }: { line: PermissionLine }) {
@@ -407,9 +409,9 @@ function Switch({ on, disabled, small, label, onChange }: { on: boolean; disable
   );
 }
 
-/** 推演插件没有开关:开不开是每个世界新建时自己选的 */
+/** 推演、地图插件没有开关:用不用是每个世界新建时自己选的 */
 function OnSwitch({ p, v, onToggle }: { p: InstalledPlugin; v: PluginVerdict; onToggle: (id: string, on: boolean) => void }) {
-  if (isSim(p.current.manifest)) return <span className="plg-pick">新建时选</span>;
+  if (isSim(p.current.manifest) || isMap(p.current.manifest)) return <span className="plg-pick">新建时选</span>;
   return <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={p.current.manifest.name} onChange={(on) => onToggle(p.id, on)} />;
 }
 
@@ -479,6 +481,7 @@ function ItemText({ p, v }: { p: InstalledPlugin; v: PluginVerdict }) {
         <span>{versionLabel(p.current.manifest.version)}</span>
         <StatusTag v={v} />
         {isSim(p.current.manifest) && <span className="plg-tag">推演</span>}
+        {isMap(p.current.manifest) && <span className="plg-tag">地图</span>}
         {!v.blocked && newVersionOf(p) && <span className="plg-tag new">有新版</span>}
       </small>
     </button>
@@ -533,10 +536,11 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
   const v = verdictOf(p.current.sum, p.id);
   const newer = v.blocked ? null : newVersionOf(p);
   const sim = isSim(m) ? m.sim : undefined;
+  const map = isMap(m) ? m.map : undefined;
   const ops = (
     <div className="plg-ops">
-      {sim ? (
-        phone && '新建世界时在「推演插件」里选'
+      {sim || map ? (
+        phone && `新建世界时在「${sim ? '推演插件' : '地图插件'}」里选`
       ) : (
         <>
           <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={m.name} onChange={(on) => onToggle(p.id, on)} />
@@ -579,6 +583,7 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
           <h3>
             {m.name} <span className="plg-tag">{versionLabel(m.version)}</span>
             {sim && <span className="plg-tag">推演</span>}
+            {map && <span className="plg-tag">地图</span>}
           </h3>
           <div className="plg-by">{pageByLine(m, p.current.bytes)}</div>
           {!phone && status}
@@ -600,6 +605,24 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
               <div className="plg-sec">怎么用</div>
               <div className="plg-grp plg-kv">
                 <span>新建世界</span>在「文明」那一步的「推演插件」里选上它，最多选 4 个<span>已经推好的</span>不变；想换，就以它为底稿另建一个世界
+              </div>
+            </>
+          )}
+        </>
+      ) : map ? (
+        <>
+          <div className="plg-sec">它在长地图时做什么</div>
+          <Rows rows={mapRows(map, !!phone)} sim />
+          {!phone && (
+            <>
+              <div className="plg-sec">怎么用</div>
+              <div className="plg-grp plg-kv">
+                {MAP_USE.map(([k, v]) => (
+                  <Fragment key={k}>
+                    <span>{k}</span>
+                    {v}
+                  </Fragment>
+                ))}
               </div>
             </>
           )}

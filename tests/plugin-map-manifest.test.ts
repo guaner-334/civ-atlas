@@ -3,7 +3,7 @@
  * 三样能力进了能力表,权限框一行加图层那一行,底下那句换成地图插件的
  */
 import { describe, expect, it } from 'vitest';
-import { PERMISSIONS, PERMISSION_FOOTER_MAP, PLUGIN_CAPS, capRole, permissionFooter, permissionLines } from '../src/plugin/pluginCaps';
+import { PERMISSIONS, PERMISSION_FOOTER_MAP, PERMISSION_FOOTER_MAP_LAYERS, PLUGIN_CAPS, capRole, permissionFooter, permissionLines } from '../src/plugin/pluginCaps';
 import { openPluginFile, packPluginFile } from '../src/plugin/pluginFile';
 import { MAP_STAGE_CAPS, checkMapManifest, mapCapsUnused, type MapManifest } from '../src/plugin/pluginMap';
 import { goodMapInput, goodMapPlugin } from './lib/pluginFileSample';
@@ -80,20 +80,22 @@ describe('能力表和权限框', () => {
   it('改高度、改气候是一行显眼的「会改地图」;出图层是现成的图层那一行;作者的理由跟着', () => {
     const lines = permissionLines(goodMapInput().manifest);
     expect(lines.map((l) => [l.key, l.loud])).toEqual([
-      ['layer', false],
       ['mapSteer', true],
+      ['layer', false],
     ]);
-    expect(lines[1].text).toBe('会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）');
-    expect(lines[0].why).toEqual(['画出柯本气候分类']);
-    expect(lines[1].why).toEqual(['季风强的地方夏天多下雨']);
+    expect(lines[0].text).toBe('会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）');
+    expect(lines[1].why).toEqual(['画出柯本气候分类']);
+    expect(lines[0].why).toEqual(['季风强的地方夏天多下雨']);
     expect(permissionLines({ requires: ['gen.height@1', 'gen.climate@1'] }).map((l) => l.key)).toEqual(['mapSteer']);
     expect(PERMISSIONS.mapSteer.loud).toBe(true);
   });
 
-  it('底下那句:地图插件不说「改不了地形」,只出图层的也一样', () => {
+  it('底下那句:会改地图的不说「改不了」什么;只出图层的说改不了地形和历史', () => {
     expect(permissionFooter(permissionLines(goodMapInput().manifest))).toBe(PERMISSION_FOOTER_MAP);
-    expect(permissionFooter(permissionLines({ requires: ['gen.layers@1'] }), 'map')).toBe(PERMISSION_FOOTER_MAP);
-    expect(permissionFooter([], 'map')).toBe(PERMISSION_FOOTER_MAP);
-    expect(PERMISSION_FOOTER_MAP).not.toContain('改不了地形');
+    expect(permissionFooter(permissionLines(goodMapInput().manifest), 'map')).toBe(PERMISSION_FOOTER_MAP);
+    expect(PERMISSION_FOOTER_MAP).not.toContain('改不了');
+    expect(permissionFooter(permissionLines({ requires: ['gen.layers@1'] }), 'map')).toBe(PERMISSION_FOOTER_MAP_LAYERS);
+    expect(permissionFooter([], 'map')).toBe(PERMISSION_FOOTER_MAP_LAYERS);
+    expect(PERMISSION_FOOTER_MAP_LAYERS).toContain('改不了地形和历史');
   });
 });

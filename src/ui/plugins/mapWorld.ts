@@ -43,15 +43,26 @@ let chooseSeq = 0;
 
 /**
  * 新建中选上的地图插件(按出手的先后)交给生成:各用本机现在的那一版,滑条照它的清单补齐;
- * 被网站停用的、没装的、不是地图插件的、文件没了的不算。still() = 读完插件仓库时还在这个世界上
+ * 被网站停用的、没装的、不是地图插件的、文件没了的不算。以它为底稿带过来、本机对不上的照旧列着(不带字节,长不出地图),移出才不带。
+ * still() = 读完插件仓库时还在这个世界上。记下了 = true
  */
-export async function chooseMaps(worldId: string, picks: readonly MapChoice[], installed?: readonly InstalledPlugin[], still: () => boolean = () => true): Promise<void> {
+export async function chooseMaps(worldId: string, picks: readonly MapChoice[], installed?: readonly InstalledPlugin[], still: () => boolean = () => true): Promise<boolean> {
   // 文件还在读时又改了选的:只认最后一次
   const seq = ++chooseSeq;
+  const prev = getMapNow();
+  const carried = prev && prev.id === worldId && !prev.ready ? prev.checks.filter((c) => c.status !== 'ready') : [];
   const have = installed ?? (await listPlugins().catch(() => [] as InstalledPlugin[]));
   const list: WorldPlugin[] = [];
   const files: MapPluginFile[] = [];
+  const off: MapPluginCheck[] = [];
   for (const c of picks) {
+    const was = carried.find((x) => x.id === c.id);
+    if (was) {
+      list.push(was.plugin);
+      files.push(...mapPluginIds([was.plugin]));
+      off.push(was);
+      continue;
+    }
     const p = have.find((x) => x.id === c.id && x.current.manifest.role === 'map' && !verdictOf(x.current.sum, x.id).blocked);
     const bytes = p && (await pluginFileBytes(p.current.sum).catch(() => null));
     if (!p || !bytes) continue;
@@ -59,7 +70,9 @@ export async function chooseMaps(worldId: string, picks: readonly MapChoice[], i
     list.push(mapPluginOf(p.current, params));
     files.push({ id: p.id, sum: p.current.sum, bytes, ...(Object.keys(params).length ? { params } : {}) });
   }
-  if (seq === chooseSeq && still()) setMapNow(list.length ? { id: worldId, list, files, ready: true, checks: [] } : null);
+  if (seq !== chooseSeq || !still()) return false;
+  setMapNow(list.length ? { id: worldId, list, files, ready: !off.length, checks: off } : null);
+  return true;
 }
 
 /** 新建中选上的(没选、记着的是别的世界的 = 空) */
@@ -72,11 +85,22 @@ export function chosenMaps(worldId: string | undefined): MapChoice[] {
   });
 }
 
-/** 装了、删了插件、停用名单变了以后:打开的世界重新核对;新建中选的照选的重新取(停用的去掉) */
+/**
+ * 装了、删了插件、停用名单变了以后:打开的世界重新核对;以它为底稿带过来、本机对不上的再核对(装上同一版就带上);
+ * 新建中选的照选的重新取(停用的去掉)
+ */
 export async function refreshMapNow(): Promise<void> {
   const s = getMapNow();
   if (!s) return;
   if (s.stored) return loadMapNow(s.id, undefined, () => getMapNow()?.id === s.id);
+  if (!s.ready) {
+    const r = await mapPluginsReady(s.list).catch(() => null);
+    if (getMapNow() !== s) return;
+    const blocked = blockedChecks(s.list, r && !r.ok ? r.checks : null);
+    if (r?.ok && !blocked) setMapNow({ ...s, files: r.files, ready: true, checks: [] });
+    else setMapNow({ ...s, checks: (blocked ?? (r && !r.ok ? r.checks : s.checks)).filter((c) => c.status !== 'ready') });
+    return;
+  }
   if (s.list.some((p) => verdictOf(p.sum, p.id).blocked)) await chooseMaps(s.id, chosenMaps(s.id));
 }
 subscribeVerdicts(() => void refreshMapNow().catch(() => {}));

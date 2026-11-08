@@ -23,7 +23,7 @@ const cur = { id: '', kind: 'created' };
 vi.mock('../src/ui/saveStore', () => ({ currentWorld: () => (cur.id ? { ...cur } : null), keepWorld: () => {}, notify: () => {}, saveAsNewVersion: () => null, storageFullWhy: () => '' }));
 
 const { chooseMaps, chosenMaps, loadMapNow, refreshMapNow } = await import('../src/ui/plugins/mapWorld');
-const { getMapNow, mapFilesOf, mapNowFor, setMapNow, usesMaps } = await import('../src/ui/world/mapNow');
+const { carryMaps, getMapNow, mapFilesOf, mapNowFor, setMapNow, usesMaps } = await import('../src/ui/world/mapNow');
 const { sameSetup, setupFor, setupOpt } = await import('../src/ui/world/worldTarget');
 
 const record = (id: string, name: string, sum: string, params?: Record<string, number>): WorldPlugin => ({ id, version: '1.0.0', sum, role: 'map', name, ...(params ? { params } : {}) });
@@ -144,6 +144,47 @@ describe('新建中选地图插件', () => {
     // 选的那个后来被停用了:去掉
     blocked.add('craters');
     await refreshMapNow();
+    expect(getMapNow()).toBeNull();
+  });
+});
+
+describe('以它为底稿新建', () => {
+  it('原来的世界的地图插件照原样带过去;本机对不上的照旧列着,移出才不带,装上同一版就带上', async () => {
+    installed = [have('tides', '潮汐', tides.sum)];
+    manifest = { plugins: [craters, tides], parts: [] };
+    await loadMapNow('w1');
+    expect(getMapNow()!.ready).toBe(false);
+    carryMaps('w1', 'd1');
+    const s = getMapNow()!;
+    expect(s).toMatchObject({ id: 'd1', ready: false, stored: false });
+    expect(s.list).toEqual([craters, tides]);
+    // 拨了别的、换了先后:没装的那个照旧在、不带字节
+    expect(await chooseMaps('d1', [{ id: 'tides' }, { id: 'craters', params: { count: 5 } }])).toBe(true);
+    let n = getMapNow()!;
+    expect(n.ready).toBe(false);
+    expect(n.list.map((p) => p.id)).toEqual(['tides', 'craters']);
+    expect(n.files.map((f) => [f.id, !!f.bytes, f.params])).toEqual([
+      ['tides', true, { count: 40 }],
+      ['craters', false, { count: 30 }],
+    ]);
+    expect(n.checks.map((c) => [c.id, c.status])).toEqual([['craters', 'missing']]);
+    // 装上同一版:带上字节
+    installed = [have('tides', '潮汐', tides.sum), have('craters', '环形山', craters.sum)];
+    await refreshMapNow();
+    n = getMapNow()!;
+    expect(n).toMatchObject({ id: 'd1', ready: true, checks: [] });
+    expect(n.files.every((f) => f.bytes)).toBe(true);
+    // 移出
+    installed = [have('tides', '潮汐', tides.sum)];
+    setMapNow({ ...n, ready: false, files: n.files.map(({ bytes: _b, ...f }) => f), checks: [{ id: 'craters', plugin: craters, status: 'missing' }] });
+    await chooseMaps('d1', [{ id: 'tides' }]);
+    expect(getMapNow()).toMatchObject({ id: 'd1', ready: true, checks: [] });
+    expect(getMapNow()!.list.map((p) => p.id)).toEqual(['tides']);
+  });
+
+  it('读完插件仓库时已经离开了那个世界:不记', async () => {
+    installed = [have('craters', '环形山', craters.sum)];
+    expect(await chooseMaps('d1', [{ id: 'craters' }], undefined, () => false)).toBe(false);
     expect(getMapNow()).toBeNull();
   });
 });

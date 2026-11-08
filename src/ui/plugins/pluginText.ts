@@ -3,6 +3,7 @@ import { permissionLines, simCommandsText, simInfluencesText, type PermissionLin
 import type { PluginManifest } from '../../plugin/pluginFile';
 import type { SimManifest } from '../../plugin/pluginSim';
 import { versionLabel, sizeText } from './pluginWords';
+import { isMap, mapWhere } from './mapText';
 
 export { versionText, versionLabel, sizeText, moreText } from './pluginWords';
 
@@ -51,6 +52,7 @@ export function toolWhere(m: PluginManifest, phone: boolean): string | undefined
 export function wallInstalledText(m: PluginManifest, phone: boolean): string {
   const tail = '装在这个浏览器里，所有世界都能用。';
   if (isSim(m)) return `${simWhere(phone)}。${tail}`;
+  if (isMap(m)) return `${mapWhere()}。${tail}`;
   const where = isTool(m) ? (phone ? '右上竖排的拼图里' : '地图右下的「工具」里') : caps(m).has('layer.cells@1') || caps(m).has('layer.regions@1') ? '图层面板的「插件图层」里' : '';
   return where ? `打开一个世界，${where}就有它。${tail}` : tail;
 }

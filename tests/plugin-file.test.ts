@@ -154,7 +154,7 @@ describe('权限框', () => {
     expect(PLUGIN_CAPS.get('author.write@1')).toBe('authorWrite');
     expect(PLUGIN_CAPS.get('store.world@1')).toBe('storeWorld');
     const loud = (Object.keys(PERMISSIONS) as PermissionKey[]).filter((k) => PERMISSIONS[k].loud);
-    expect(loud).toEqual(['authorRead', 'authorWrite', 'simSteer', 'mapSteer']);
+    expect(loud).toEqual(['authorRead', 'authorWrite', 'mapSteer', 'simSteer']);
     expect(PERMISSIONS.storeWorld.note).toContain('不能公开分享');
     expect(PERMISSIONS.authorWrite.note).toContain('能撤销');
   });

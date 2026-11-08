@@ -1203,6 +1203,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     draftState,
     draftSeed,
     draftParams,
+    draftMaps,
     draftRename,
     createWorld,
     draftFromCurrent,
@@ -2507,6 +2508,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       onSeed={draftSeed}
       onRandomSeed={() => draftSeed(randomSeedValue())}
       onParams={draftParams}
+      onMaps={draftMaps}
       onTitle={draftRename}
       onCreate={studioCreate}
       onSaveMap={saveMap}

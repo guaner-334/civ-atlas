@@ -12,22 +12,25 @@ export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: b
   authorRead: { text: '看你写的东西（笔记、标记、AI 写的正文）', loud: true },
   authorWrite: { text: '会改你写的东西（改国名人名、加标记和批注、下命令）', loud: true, note: '改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演' },
   view: { text: '知道你在看哪一年、点了哪里（只在用它的时候）', loud: false },
+  mapSteer: { text: '会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）', loud: true },
   layer: { text: '在地图上加图层和标注', loud: false },
   storeWorld: { text: '在世界里存自己的数据', loud: false, note: '存了以后那个世界不能公开分享，能存成文件发给别人。每个世界第一次存的时候还会问你' },
   sim: { text: '在推演里加自己的数和事件、写编年史', loud: false },
   simSteer: { text: '会改推演怎么走（只影响用它新推的世界，已经推好的世界不变）', loud: true },
-  mapSteer: { text: '会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）', loud: true },
 };
 
-/** 权限框底下固定的一行;会改你写的东西的插件下的命令会让历史重推,推演插件本来就改历史,各换一句 */
+/** 权限框底下固定的一行;会改你写的东西的插件下的命令会让历史重推,推演插件本来就改历史,改地图的连带历史一起变,各换一句 */
 export const PERMISSION_FOOTER = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了历史。';
 export const PERMISSION_FOOTER_WRITE = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了地形和推演规则。';
 export const PERMISSION_FOOTER_SIM = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了地形。';
-export const PERMISSION_FOOTER_MAP = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了历史和推演规则。';
+export const PERMISSION_FOOTER_MAP = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界。';
+/** 只出图层的地图插件 */
+export const PERMISSION_FOOTER_MAP_LAYERS = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了地形和历史。';
 
 /** 这几行权限底下该配哪一句;role = 清单的 role(推演、地图插件一样能力都不要也不说各自改得了的那样) */
 export function permissionFooter(lines: readonly { key: PermissionKey }[], role?: string): string {
-  if (role === 'map' || lines.some((l) => l.key === 'mapSteer')) return PERMISSION_FOOTER_MAP;
+  if (lines.some((l) => l.key === 'mapSteer')) return PERMISSION_FOOTER_MAP;
+  if (role === 'map') return PERMISSION_FOOTER_MAP_LAYERS;
   if (role === 'sim' || lines.some((l) => l.key === 'sim' || l.key === 'simSteer')) return PERMISSION_FOOTER_SIM;
   return lines.some((l) => l.key === 'authorWrite') ? PERMISSION_FOOTER_WRITE : PERMISSION_FOOTER;
 }

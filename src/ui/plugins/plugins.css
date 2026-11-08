@@ -1288,8 +1288,9 @@
 }
 .sp-nm b {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 3px 6px;
   font-size: 14px;
   font-weight: 600;
 }

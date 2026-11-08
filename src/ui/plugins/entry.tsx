@@ -5,6 +5,7 @@ import { MenuItem } from '../PopMenu';
 import { showToast } from '../toastStore';
 import { toolCard, toolRunning, toolsMenu, type ToolsProps } from './toolsState';
 import type { SimPickProps } from './SimPick';
+import type { MapPickProps } from './MapPick';
 
 const open = createStore(false);
 
@@ -154,6 +155,17 @@ export function SimPickHost(p: SimPickProps) {
   return (
     <Suspense fallback={null}>
       <SimPickPage {...p} />
+    </Suspense>
+  );
+}
+
+const MapPickPage = lazy(() => import('./MapPick').then((m) => ({ default: m.MapPick })));
+
+/** 新建世界里选地图插件的那一页(点了才下载) */
+export function MapPickHost(p: MapPickProps) {
+  return (
+    <Suspense fallback={null}>
+      <MapPickPage {...p} />
     </Suspense>
   );
 }

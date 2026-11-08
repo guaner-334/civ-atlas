@@ -40,7 +40,7 @@ export interface SimPickProps {
 export const SIM_PICK_MAX = 4;
 const MAX = SIM_PICK_MAX;
 
-const move = <T,>(l: readonly T[], from: number, to: number): T[] => {
+export const move = <T,>(l: readonly T[], from: number, to: number): T[] => {
   const out = [...l];
   const [x] = out.splice(from, 1);
   out.splice(to, 0, x);
@@ -320,7 +320,7 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
 }
 
 /** ≡、⊖ 这几样图标里没有 */
-function Glyph({ d, ring }: { d: string; ring?: boolean }) {
+export function Glyph({ d, ring }: { d: string; ring?: boolean }) {
   return (
     <svg className="icon" width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" aria-hidden="true" focusable="false">
       {ring && <circle cx="12" cy="12" r="8.5" />}
@@ -330,7 +330,7 @@ function Glyph({ d, ring }: { d: string; ring?: boolean }) {
 }
 
 /** 一个滑条:名字(改过的跟一句默认值)、能打字的数、下面一条;拖动时只改数,松手才算 */
-function SimSlider({ k, p, value, onCommit }: { k: string; p: SimParam; value: number; onCommit: (v: number) => void }) {
+export function SimSlider({ k, p, value, onCommit }: { k: string; p: SimParam; value: number; onCommit: (v: number) => void }) {
   const step = paramStep(p);
   const digits = paramDigits(step);
   const s: SliderLike = { key: k, name: p.label, min: p.min, max: p.max, step, fmt: (v) => v.toFixed(digits), hint: '', field: { digits } };

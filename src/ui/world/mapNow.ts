@@ -35,6 +35,11 @@ export function setMapNow(s: MapNow | null): void {
   for (const f of subs) f();
 }
 
+/** 以它为底稿新建:原来那个世界的地图插件照原样带到新建的世界(id)上(同一版、同样的滑条;本机对不上的照旧对不上) */
+export function carryMaps(from: string, id: string): void {
+  if (now && now.id === from) setMapNow({ ...now, id, stored: false });
+}
+
 /** 换了世界:记着的是别的世界的就不要了 */
 export function mapNowFor(id: string | null): void {
   if (now && now.id !== id) setMapNow(null);

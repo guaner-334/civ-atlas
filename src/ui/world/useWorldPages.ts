@@ -27,7 +27,7 @@ import { setGoHome } from '../AccountDialogs';
 import { pluginsUiOn } from '../plugins/flag';
 import { askSims, setSimGate } from './simAsk';
 import { getSimNow, sameSims, subscribeSimNow } from './simNow';
-import { getMapNow, subscribeMapNow } from './mapNow';
+import { carryMaps, getMapNow, subscribeMapNow } from './mapNow';
 import { askMaps } from './mapAsk';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
@@ -359,6 +359,12 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const st = draftState(t);
     generate({ ...t, params: { ...p, seed: t.base ? t.params.seed : p.seed }, edits: st.edits, saved: undefined, title: st.title, pristine: false, view: undefined, from: undefined, save: undefined });
   };
+  /** 新建中换了地图插件(已记进 world/mapNow.ts):照同样的参数重新长 */
+  const draftMaps = () => {
+    const t = draftNow();
+    if (!t || t.edits.map) return;
+    draftParams(t.params);
+  };
   /** 新建中起名(点别处 / 回车):起了名就算动过,存进我的世界("没建完") */
   const draftRename = (title: string) => {
     const t = draftNow();
@@ -458,6 +464,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     // 推演插件和滑条照原来的带过去(新建里还能换)
     const sims = pluginsUiOn() ? getSimNow() : null;
     const carry = sims?.id === cur.id ? sims.list : [];
+    // 地图插件同一版、同样的滑条带过去(插件界面关着也一样):不带的话新建的世界长出来是另一张图
+    if (getMapNow()?.ready) carryMaps(cur.id, d.id);
     openTarget({ ...d, pristine: false, view: undefined });
     if (carry.length) void import('../plugins/worldPlugins').then((m) => m.carrySims(d.id, carry)).catch(() => {});
   };
@@ -808,6 +816,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     draftState,
     draftSeed,
     draftParams,
+    draftMaps,
     draftRename,
     createWorld,
     draftFromCurrent,
