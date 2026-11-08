@@ -298,6 +298,7 @@ import { undoLastEdit } from './undo';
 import { MAP_STAGE_TEXT } from './plugins/mapText';
 import { SimAskHost } from './world/SimAskHost';
 import { MapAskHost } from './world/MapAskHost';
+import { askMaps } from './world/mapAsk';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -821,6 +822,13 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     if (req.type === 'generate') {
       setProgress(null);
       if (targetRef.current?.kind === 'draft' && getStage().stage === 'draft') return setMapFail(failOf());
+    }
+    // 地形大事看「会怎么样」要照插件重新长:本机对不上(没装、别的版本、停用了)先问
+    const now = getMapNow();
+    const cur = currentWorld();
+    if (req.type === 'upPreview' && now && cur && now.id === cur.id && !now.ready) {
+      closeUpheaval();
+      return askMaps({ title: cur.title || '未命名世界', checks: now.checks, now: getEdits(), next: getEdits(), what: '地形大事' });
     }
     showToast({ id: 'map-fail', kind: 'warn', text: `地图插件「${name}」出错了`, more: [`${stage ? `在${stage}：` : ''}${m.why}`], dismissible: true, ttl: 0 });
   };

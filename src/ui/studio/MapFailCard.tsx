@@ -9,6 +9,7 @@ import { MAP_STAGE_TEXT } from '../plugins/mapText';
 import { openPlugins } from '../plugins/entry';
 import { versionLabel } from '../plugins/pluginWords';
 import type { MapFail } from '../world/mapFail';
+import './mapFail.css';
 
 const stageText = (s: string | null) => (s ? (MAP_STAGE_TEXT[s] ?? s) : '');
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)} 秒`;

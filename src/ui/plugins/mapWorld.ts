@@ -7,6 +7,7 @@ import { mapPluginsReady } from '../../plugin/mapPlugins';
 import { listPlugins, pluginFileBytes, type InstalledPlugin } from '../../plugin/pluginStore';
 import { mapPluginIds, mapPluginOf, mapPluginsIn, recordParams, simParamsOf, type MapPluginCheck, type MapPluginFile } from '../../plugin/pluginWorld';
 import { vaultCall } from '../worldStore';
+import { currentWorld } from '../saveStore';
 import { getMapNow, rememberMaps, setMapNow } from '../world/mapNow';
 import { subscribeVerdicts, verdictOf } from './verdict';
 import { blockedChecks } from './worldPlugins';
@@ -110,6 +111,9 @@ export async function refreshMapNow(): Promise<void> {
   const s = getMapNow();
   if (!s) return;
   if (s.stored) return loadMapNow(s.id, undefined, () => getMapNow()?.id === s.id);
+  // 刚建好、仓库里还没记上的:和打开的世界一样核对(删了插件,改地形要先问)
+  const cur = currentWorld();
+  if (cur?.id === s.id && cur.kind !== 'draft') return loadMapNow(s.id, s.list, () => getMapNow()?.id === s.id);
   if (!s.ready) {
     const r = await mapPluginsReady(s.list).catch(() => null);
     if (getMapNow() !== s) return;

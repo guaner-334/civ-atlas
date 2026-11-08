@@ -75,7 +75,7 @@ export default function MapAskBox({ ask, phone }: { ask: MapAsk; phone: boolean 
   useEffect(() => void wallOnce(), []);
   const [install, setInstall] = useState<{ work: string; sum: string } | null>(null);
   const close = () => askMaps(null);
-  const what = whatOf(ask);
+  const what = ask.what ?? whatOf(ask);
   if (install)
     return (
       <Suspense fallback={null}>

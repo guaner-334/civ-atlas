@@ -24,6 +24,8 @@ export interface MapAsk {
   /** 改之前、要改成的修改 */
   now: WorldEdits;
   next: WorldEdits;
+  /** 这次要做的(不给 = 按 now、next 看是地形大事还是改地形) */
+  what?: string;
 }
 
 let ask: MapAsk | null = null;
