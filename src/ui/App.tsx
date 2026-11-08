@@ -279,6 +279,7 @@ import { useAutoSave, useSaveThumbs } from './world/useWorldSave';
 import { useOpenRefs, type CivRefs, type GenProgress, type GenRefs, type MapFirst, type MapRefs, type RegenJob, type ResimRefs, type WorldViewRefs } from './world/worldRefs';
 import {
   draftModeOf,
+  mapsOpt,
   presetDialog,
   writeGalleryUrl,
   type CivSetup,
@@ -290,6 +291,7 @@ import {
   type WorkFor,
 } from './world/worldTarget';
 import { simsOf } from './world/simNow';
+import { mapFilesOf } from './world/mapNow';
 import { SimAskHost } from './world/SimAskHost';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
@@ -1161,7 +1163,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   // ---- 存档(阶段 4):自动存、自动恢复、读档;建好的世界推完以后把结果(原件)存进浏览器(./world/useWorldSave.ts) ----
   useAutoSave();
   // 世界仓库(./worldStore.ts)要知道用的人是不是在推演(转存旧世界时让路),要关页面时叫线程把等着的内容打好
-  useEffect(() => setWorldStoreSim({ busy: () => sim.busy > 0, packNow: () => sim.tell({ type: 'packNow', id: reqId.current }), packParts: (ask) => sim.packParts({ ...ask, id: reqId.current }), sims: () => simsOf(currentWorld()?.id) }), []);
+  useEffect(() => setWorldStoreSim({ busy: () => sim.busy > 0, packNow: () => sim.tell({ type: 'packNow', id: reqId.current }), packParts: (ask) => sim.packParts({ ...ask, id: reqId.current }), sims: () => simsOf(currentWorld()?.id), maps: () => mapFilesOf(currentWorld()?.id) }), []);
   // AI(阶段 5):登记服务商、恢复设置、调用记录存本地
   useEffect(() => setupAi(), []);
   // 「使用 AI 功能」关了:助手停下、回到现在、收起;正在写的史书停下(写到一半的不存),写史书的窗口、阅读页关上
@@ -1441,7 +1443,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     prepareCivReplay(); // 文明层先退回第 0 年,等地质放完再接着放文明
     setReplayOn(true);
     if (replay) setReplay({ ...replay, idx: 0 });
-    else send({ type: 'history', id: reqId.current, params: genParams.current, terrain: [...genTerrain.current], sketch: genSketch.current });
+    else send({ type: 'history', id: reqId.current, params: genParams.current, terrain: [...genTerrain.current], sketch: genSketch.current, ...mapsOpt(civSetup.current) });
   };
   /** 弯边投影:回放帧先放在离屏的等距圆柱原图上,再按投影铺到屏幕上 */
   const overlayProj = useRef(new ProjLayer());

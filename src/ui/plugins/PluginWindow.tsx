@@ -45,6 +45,7 @@ export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugi
     showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
   }
   void import('./worldPlugins').then((x) => x.refreshSimNow()).catch(() => {});
+  void import('./mapWorld').then((x) => x.refreshMapNow()).catch(() => {});
   return r.plugin;
 }
 
@@ -171,6 +172,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     setDetail(false);
     await reload();
     void import('./worldPlugins').then((x) => x.forgetSim(id)).catch(() => {});
+    void import('./mapWorld').then((x) => x.refreshMapNow()).catch(() => {});
   };
 
   /** 投到作品墙:交的就是装着的这一份文件 */

@@ -73,7 +73,7 @@ import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind
 import { recipeChanges, recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
 import { frozenResult, resultHeads } from '../resultStore';
-import { keptMapHere, settleKeptWorld } from '../worldStore';
+import { keptMapHere, settleKeptWorld, vaultCall } from '../worldStore';
 import { fullOverview } from '../fullWorldView';
 import { sizeText } from '../sizeWords';
 import { attachWorld, briefError, briefWarning, currentOriginal, currentWorld, deleteWorld, detachWorld, dropPendingEdits, flushThumb, importSave, isStored, loadWorld, markFromFile, markOpened, newWorldId, notify, persistent, sameOrigin, setWorldStats, storageFullWhy, storedCount } from '../saveStore';
@@ -111,6 +111,7 @@ import {
   type WallView,
 } from './worldTarget';
 import { simNowFor } from './simNow';
+import { mapNowFor } from './mapNow';
 import { forgetSimError } from '../sim/simClient';
 
 /**
@@ -286,6 +287,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       // 照故事找的世界不带推演插件(找的时候没带)
       simNowFor(t.fullCiv ? null : t.id);
+      mapNowFor(t.fullCiv ? null : t.id);
       forgetSimError();
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
@@ -437,8 +439,12 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           if (pluginsUiOn()) {
             await import('../plugins/worldPlugins').then((m) => m.loadSimNow(t.id)).catch(() => {});
             if (id !== reqId.current) return;
-            civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
           }
+          // 用了地图插件的世界(插件界面关着也一样):请求都带上它们,线程才认得出是哪张地图;本机没有同一版的改地形先问
+          const used = await vaultCall('worldPluginsOf', [t.id]).catch(() => null);
+          if (used?.plugins.some((p) => p.role === 'map')) await import('../plugins/mapWorld').then((m) => m.loadMapNow(t.id, used.plugins)).catch(() => {});
+          if (id !== reqId.current) return;
+          civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
           if (id !== reqId.current) return;
           sendLoad({ vault: { id: t.id, recipe, generator: stored.generator }, ...(original ? { original } : {}) }, stored.generator, fail);
         })().catch(() => {

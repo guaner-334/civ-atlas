@@ -27,6 +27,8 @@ import { setGoHome } from '../AccountDialogs';
 import { pluginsUiOn } from '../plugins/flag';
 import { askSims, setSimGate } from './simAsk';
 import { getSimNow, sameSims, subscribeSimNow } from './simNow';
+import { getMapNow, subscribeMapNow } from './mapNow';
+import { askMaps } from './mapAsk';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
 import { clearEditHistory, getEdits, putEditsQuiet, setHistoryGate } from '../editsStore';
@@ -668,6 +670,17 @@ export function useWorldPages(deps: WorldPagesDeps) {
       }),
     [],
   );
+  // 地图插件核对完、装上同一版、被停用了:长地图的请求照它带(只换带的字节,地图不重长;认的是编号、指纹、滑条)
+  useEffect(
+    () =>
+      subscribeMapNow(() => {
+        const s = getMapNow();
+        const cur = currentWorld();
+        if (!s || s.id !== cur?.id || civSetup.current?.mapPlugins === s.files) return;
+        civSetup.current = { ...civSetup.current, mapPlugins: s.files };
+      }),
+    [],
+  );
   const saveAsNewRef = useRef(saveAsNewNow);
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
@@ -704,6 +717,13 @@ export function useWorldPages(deps: WorldPagesDeps) {
       // 地图留着的世界地形改不了:改了就得按种子重新长
       if (keptMapOf(getEdits()) && terrainDiffers(getEdits(), next)) {
         keptTerrainBlocked();
+        return true;
+      }
+      // 用了地图插件、本机没装同一版、被网站停用了:改地形先问(装上同一版,或者另存一份重长);地图照原样
+      const maps = getMapNow();
+      const c0 = currentWorld();
+      if (maps && c0 && maps.id === c0.id && !maps.ready && terrainDiffers(getEdits(), next)) {
+        askMaps({ title: c0.title || '未命名世界', checks: maps.checks, now: getEdits(), next });
         return true;
       }
       if (cleanPlay(getEdits().play) && cleanPlay(next.play)) {

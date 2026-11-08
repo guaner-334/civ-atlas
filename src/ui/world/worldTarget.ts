@@ -25,8 +25,9 @@ import { randomSeedValue } from '../homeStart';
 import { isStored, loadWorld, newWorldId, type StoredWorld, type WorldKind } from '../saveStore';
 import type { DraftBase, Stage } from '../stageStore';
 import { showToast } from '../Toast';
-import type { SimPluginFile } from '../../plugin/pluginWorld';
+import type { MapPluginFile, SimPluginFile } from '../../plugin/pluginWorld';
 import { sameSims, simFilesNow } from './simNow';
+import { mapFilesNow, sameMaps } from './mapNow';
 
 /** 一个要打开的世界:生成(或直接用正在看的这一个)→ 套上修改 → 交给 saveStore 自动存 */
 export interface Target {
@@ -236,7 +237,7 @@ export const yearsOpt = (endYear: number | undefined) => (endYear ? { endYear } 
  */
 export const yearsFor = (draft: boolean, edits: Pick<WorldEdits, 'endYear' | 'endTick'>) => (draft ? undefined : endParamOf(edits));
 /** 推文明时带的拓荒、起源、文明种子、「天灾」、规则里改过的规则项和换算版本(默认 = undefined) */
-export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity; tuning?: WorldTuning; keptMap?: string; simPlugins?: SimPluginFile[] };
+export type CivSetup = { frontier?: Frontier; origins?: Origins; civSeed?: number; calamity?: Calamity; tuning?: WorldTuning; keptMap?: string; simPlugins?: SimPluginFile[]; mapPlugins?: MapPluginFile[] };
 export const setupOpt = (s: CivSetup | undefined) => ({
   ...(s?.frontier ? { frontier: s.frontier } : {}),
   ...(s?.origins ? { origins: s.origins } : {}),
@@ -245,22 +246,27 @@ export const setupOpt = (s: CivSetup | undefined) => ({
   ...(s?.tuning ? { tuning: s.tuning } : {}),
   ...(s?.keptMap ? { keptMap: s.keptMap } : {}),
   ...(s?.simPlugins?.length ? { simPlugins: s.simPlugins } : {}),
+  ...mapsOpt(s),
 });
+/** 长地图的请求带的地图插件(回放形成过程、地形大事预览这些不带别的设定的也带上;没用 = 不带) */
+export const mapsOpt = (s: CivSetup | undefined) => (s?.mapPlugins?.length ? { mapPlugins: s.mapPlugins } : {});
 /**
  * 这一步带的拓荒、起源、文明种子、「天灾」、规则、推演插件:拓荒、起源、天灾、规则、推演插件和推演年数一样,新建界面里只看星球、一律按默认推,创建以后按世界自己的;
- * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)。规则只带推演用的那部分(改过的规则项、世界记的换算版本;名字、地貌的叫法不改历史)
+ * 文明种子新建界面里就带着(星球上的地名、选起源时的州名照它长)。规则只带推演用的那部分(改过的规则项、世界记的换算版本;名字、地貌的叫法不改历史)。
+ * 地图插件哪一步都带(星球照它们长)
  */
 export function setupFor(draft: boolean, edits: Pick<WorldEdits, 'frontier' | 'origins' | 'civSeed' | 'calamity' | 'rules' | 'map'>): CivSetup | undefined {
   const civSeed = cleanCivSeed(edits.civSeed);
-  if (draft) return civSeed !== undefined ? { civSeed } : undefined;
+  const mapPlugins = mapFilesNow();
+  if (draft) return civSeed !== undefined || mapPlugins ? { ...(civSeed !== undefined ? { civSeed } : {}), ...(mapPlugins ? { mapPlugins } : {}) } : undefined;
   const frontier = cleanFrontier(edits.frontier);
   const origins = cleanOrigins(edits.origins);
   const calamity = cleanCalamity(edits.calamity);
   const tuning = worldTuning(edits.rules);
   const keptMap = keptMapOf(edits);
   const simPlugins = simFilesNow();
-  return frontier || origins || civSeed !== undefined || calamity || tuning || keptMap || simPlugins
-    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}), ...(tuning ? { tuning } : {}), ...(keptMap ? { keptMap } : {}), ...(simPlugins ? { simPlugins } : {}) }
+  return frontier || origins || civSeed !== undefined || calamity || tuning || keptMap || simPlugins || mapPlugins
+    ? { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(civSeed !== undefined ? { civSeed } : {}), ...(calamity ? { calamity } : {}), ...(tuning ? { tuning } : {}), ...(keptMap ? { keptMap } : {}), ...(simPlugins ? { simPlugins } : {}), ...(mapPlugins ? { mapPlugins } : {}) }
     : undefined;
 }
 export const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
@@ -270,6 +276,7 @@ export const sameSetup = (a: CivSetup | undefined, b: CivSetup | undefined) =>
   a?.calamity === b?.calamity &&
   a?.keptMap === b?.keptMap &&
   sameSims(a?.simPlugins, b?.simPlugins) &&
+  sameMaps(a?.mapPlugins, b?.mapPlugins) &&
   JSON.stringify(a?.tuning ?? null) === JSON.stringify(b?.tuning ?? null);
 
 /** 两份修改的地形(地形修改、草图、地形大事)不一样 */

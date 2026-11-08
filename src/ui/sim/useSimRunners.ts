@@ -29,7 +29,7 @@ import { setOutlineRunner } from '../outlineStore';
 import { clearToast, showToast } from '../Toast';
 import { setDevTryRunner } from '../plugins/devSlot';
 import { simGated } from '../world/simAsk';
-import { namesOpt, setupOpt, upsOpt, yearsOpt } from '../world/worldTarget';
+import { mapsOpt, namesOpt, setupOpt, upsOpt, yearsOpt } from '../world/worldTarget';
 import type { CivRefs, GenRefs, MapRefs, Ref, ResimRefs } from '../world/worldRefs';
 import type { SimClient } from './simClient';
 import { switchedToast, type OutlineJob, type SwitchNote, type useSimResults } from './useSimResults';
@@ -259,7 +259,7 @@ export function useSimRunners(deps: SimRunnersDeps): void {
     setUpRunner((pid, year, ops, ups) => {
       const p = genParams.current;
       if (!p) return;
-      send({ type: 'upPreview', id: reqId.current, pid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, ...upsOpt(ups), ...(civSetup.current?.civSeed !== undefined ? { civSeed: civSetup.current.civSeed } : {}), year, ops: [...ops] });
+      send({ type: 'upPreview', id: reqId.current, pid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, ...upsOpt(ups), ...(civSetup.current?.civSeed !== undefined ? { civSeed: civSetup.current.civSeed } : {}), ...mapsOpt(civSetup.current), year, ops: [...ops] });
     });
     return () => setUpRunner(null);
   }, [send]);

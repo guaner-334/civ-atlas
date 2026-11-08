@@ -40,6 +40,7 @@ import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem
 import { RemoveDataItem, pluginNames, usePluginData } from './plugins/saveItems';
 import { useNarrow } from './device';
 import { SIM_NO_LINK, simWaitText, useSimLinkOff } from './world/simAsk';
+import { useMapLinkOff } from './world/mapAsk';
 import { pluginsUiOn } from './plugins/flag';
 
 export interface SaveMenuProps {
@@ -124,6 +125,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const session = useSession();
   const curId = cur?.id;
   const simOff = useSimLinkOff();
+  // 用了地图插件:配方里没有插件,和地图留着的世界一样不给配方链接
+  const mapOff = useMapLinkOff();
   const oldRecipe = cur?.oldRecipe !== undefined;
   const kept = keptFrom(edits);
   const [failedId, setFailedId] = useState<string | null>(null);
@@ -207,8 +210,8 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const fullStatus: FullStatus = fo && curId ? fullStatusOf(fo, curId, curStored?.save) : { kind: 'never' };
   const fullBytes = size && hasFile && size.id === curId ? size.bytes : null;
   const fullItem = open && fo && fullOn && curId ? menuItem({ id: curId, status: fullStatus, refusal: refusalOf(fo, curId, fullBytes), job: fullJob, bytes: fullBytes, overview: fo, recipeOnly: oldRecipe || !!curStored?.draft || !!curStored?.map, failed, pending: pendingId === curId, kept: !!kept }) : null;
-  const shareFull = fullOn ? shareItem(fullStatus, !!kept) : null;
-  const shareOff = banned ? true : plgData.length ? true : shareFull ? shareFull.off : !!kept;
+  const shareFull = fullOn ? shareItem(fullStatus, !!kept || mapOff) : null;
+  const shareOff = banned ? true : plgData.length ? true : shareFull ? shareFull.off : !!kept || mapOff;
   const submitItem =
     open && submitOn && curId
       ? submitMenuItem({ ban: banned, pending: pendingId === curId, extras: extras?.id === curId ? extras.parts : [], bytes: fullBytes, maxBytes: fo?.limits.worldBytes ?? SUBMIT_WORLD_MAX })
@@ -375,20 +378,20 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
               <span>
                 <b>分享…</b>
                 <small className={plgData.length && !banned ? 'plg-off' : undefined}>
-                  {banned ? SHARE_BANNED : plgData.length ? PLUGIN_DATA_SHARE : shareFull ? shareFull.small : kept ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}
+                  {banned ? SHARE_BANNED : plgData.length ? PLUGIN_DATA_SHARE : shareFull ? shareFull.small : kept || mapOff ? NO_LINK : '生成一个链接，别人打开就能看；随时能停止'}
                 </small>
               </span>
             </button>
           ) : (
             <>
-              <button className={`save-it${kept || plgData.length || simOff ? ' off' : ''}`} data-act="share-link" aria-disabled={kept || plgData.length || simOff ? true : undefined} disabled={!cur} onClick={kept || plgData.length || simOff ? undefined : shareLink}>
+              <button className={`save-it${kept || mapOff || plgData.length || simOff ? ' off' : ''}`} data-act="share-link" aria-disabled={kept || mapOff || plgData.length || simOff ? true : undefined} disabled={!cur} onClick={kept || mapOff || plgData.length || simOff ? undefined : shareLink}>
                 <Icon name="link" size={17} />
                 <span>
                   <b>复制配方链接</b>
-                  {plgData.length ? <small className="plg-off">这个世界里有插件{plgNames}存的数据，不能公开分享。要发给别人，请存成文件</small> : <small>{simOff ? SIM_NO_LINK : kept ? NO_LINK : RECIPE_HINT}</small>}
+                  {plgData.length ? <small className="plg-off">这个世界里有插件{plgNames}存的数据，不能公开分享。要发给别人，请存成文件</small> : <small>{simOff ? SIM_NO_LINK : kept || mapOff ? NO_LINK : RECIPE_HINT}</small>}
                 </span>
               </button>
-              {at && !kept && !plgData.length && !simOff && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
+              {at && !kept && !mapOff && !plgData.length && !simOff && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
             </>
           )}
           {submitItem && (
