@@ -6,8 +6,7 @@
  * 同一个插件的同一个图层,开着的插件交来的盖过存着的;插件停了它交的都拿掉,存着的照旧在。
  */
 import type { CellLayer, MarkLayer } from '../../plugin/check';
-import type { PluginLayerValue, WorldPlugin } from '../../gen/worldFormat';
-import { savedLayerId } from '../../plugin/pluginWorld';
+import { savedLayerId, type PluginLayerValue, type WorldPlugin } from '../../gen/worldFormat';
 import { createStore } from '../createStore';
 
 /** 开着的插件交来的一个图层 */
@@ -89,13 +88,13 @@ export interface ShownLayer {
   saved: SavedLayer | null;
 }
 
-/** 选中的按钮现在画哪一份;点了只交图层的插件、还没交来 = null */
+/** 选中的按钮现在画哪一份;点了只交图层的插件、还没交来 = 它存着的(没有 = null) */
 export function shownLayer(s: PluginLayers): ShownLayer | null {
   let key = s.shown;
   if (!key) return null;
   if (key.startsWith(RUN)) {
     const pid = key.slice(RUN.length);
-    key = [...s.live].find(([, l]) => l.pluginId === pid && l.layer.kind === 'cells')?.[0] ?? null;
+    key = [...s.live].find(([, l]) => l.pluginId === pid && l.layer.kind === 'cells')?.[0] ?? [...s.saved].find(([, l]) => l.pluginId === pid)?.[0] ?? null;
     if (!key) return null;
   }
   const live = s.live.get(key);
@@ -127,6 +126,15 @@ const loadRunner = () => (runner ??= import('./layers/layerRun'));
 export function refreshLayerPlugins(): void {
   void loadRunner().then(
     (m) => m.refreshRunnable(),
+    () => {},
+  );
+}
+
+/** 存着的图层是装着的、只交图层的插件的:让它再算一遍(交来以前先照旧显示存着的) */
+export function rerunLayerPlugin(pluginId: string): void {
+  pluginLayers.set({ ...pluginLayers.get(), shown: RUN + pluginId });
+  void loadRunner().then(
+    (m) => m.startLayerPlugin(pluginId),
     () => {},
   );
 }

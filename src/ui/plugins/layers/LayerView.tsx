@@ -13,7 +13,7 @@ import type { MarkApi } from '../../MarkLayer';
 import { mirrorCanvas } from '../../mapWrap';
 import { ProjLayer } from '../../projection';
 import { noteDismiss } from '../../dismissClick';
-import { currentShown, pluginLayers, type ShownLayer } from '../layerState';
+import { currentShown, pluginLayers, rerunLayerPlugin, type ShownLayer } from '../layerState';
 import { stopLayerPlugin } from './layerRun';
 import { loadSavedLayers, removeLayer, sameAsSaved, saveLayer } from './layerSave';
 import './layers.css';
@@ -139,6 +139,7 @@ function ticksOf(lo: number, hi: number): { at: number; text: string }[] {
 /** 左上角插件图层的图例:色条和刻度(或者一类一个色块)、标题和单位、「插件「XX」」,存进这个世界 / 已存在这个世界里 */
 export function PluginLegend({ phone }: { phone: boolean }) {
   const shown = useShown();
+  const runnable = pluginLayers.use(() => pluginLayers.get().runnable);
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLSpanElement>(null);
@@ -162,6 +163,8 @@ export function PluginLegend({ phone }: { phone: boolean }) {
   const c = shown.cells;
   const { live, saved } = shown;
   const fresh = !!live && !shown.dev && (!saved || !sameAsSaved(live, saved));
+  // 存着的是装着的、只交图层的插件的:能让它按现在的样子再算一遍(工具在「工具」里开)
+  const rerun = !live && !!saved && runnable.some((p) => p.id === shown.pluginId);
   const run = (f: () => Promise<void>) => {
     setBusy(true);
     void f().finally(() => setBusy(false));
@@ -219,6 +222,20 @@ export function PluginLegend({ phone }: { phone: boolean }) {
               </button>
               {menu && (
                 <span className="plg-lmenu" role="menu">
+                  {rerun && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="plain"
+                      data-act="plugin-layer-rerun"
+                      onClick={() => {
+                        setMenu(false);
+                        rerunLayerPlugin(shown.pluginId);
+                      }}
+                    >
+                      让插件重新算一遍
+                    </button>
+                  )}
                   <button
                     type="button"
                     role="menuitem"

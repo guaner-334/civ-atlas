@@ -7,12 +7,13 @@ import { exportNotes } from '../../../ai/library';
 import { cleanNoteList } from '../../../authorNotes';
 import { startPluginHost, type PluginHost } from '../../../plugin/host';
 import { localDataStore } from '../../../plugin/pluginData';
-import { listPlugins, loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
+import { getPlugin, listPlugins, loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { worldPluginOf } from '../../../plugin/pluginWorld';
 import { getEdits } from '../../editsStore';
 import { currentWorld } from '../../saveStore';
 import { showToast } from '../../toastStore';
 import { pluginWorld } from '../devSlot';
+import { subscribePluginsOpen } from '../entry';
 import { pluginLayers, setLiveLayer } from '../layerState';
 import { isTool } from '../pluginText';
 import { viewOf, watchView } from '../pluginView';
@@ -40,7 +41,7 @@ export async function refreshRunnable(): Promise<void> {
   if (JSON.stringify(runnable) !== JSON.stringify(s.runnable)) pluginLayers.set({ ...s, runnable });
 }
 
-let running: { id: string; seq: number } | null = null;
+let running: { id: string; seq: number; sum: string } | null = null;
 let host: PluginHost | null = null;
 let seq = 0;
 
@@ -58,12 +59,37 @@ export function keepLayerPlugin(id: string | null): void {
   if (running && running.id !== id) stopLayerPlugin();
 }
 
+let watching = false;
+/** 插件页关上时:开着的插件被关掉、删掉、换了版本的停下;重新列一遍图层面板里的插件 */
+function watchManager() {
+  if (watching) return;
+  watching = true;
+  subscribePluginsOpen((on) => {
+    if (on) return;
+    void refreshRunnable();
+    const r = running;
+    if (!r) return;
+    void getPlugin(r.id).then(
+      (pl) => {
+        if (running !== r) return;
+        if (!pl || !pl.on || (r.sum && pl.current.sum !== r.sum) || verdictOf(pl.current.sum).blocked) {
+          stopLayerPlugin();
+          const s = pluginLayers.get();
+          if (s.shown === `run:${r.id}`) pluginLayers.set({ ...s, shown: null });
+        }
+      },
+      () => {},
+    );
+  });
+}
+
 /** 开一个只交图层的插件(先停掉开着的;已经开着这个就不动) */
 export async function startLayerPlugin(id: string): Promise<void> {
   if (running?.id === id) return;
   stopLayerPlugin();
   const my = ++seq;
-  running = { id, seq: my };
+  running = { id, seq: my, sum: '' };
+  watchManager();
   const live = () => seq === my;
   let name = id;
   const failed = (text: string) => {
@@ -78,6 +104,7 @@ export async function startLayerPlugin(id: string): Promise<void> {
     const opened = await loadPlugin(id);
     if (!live()) return;
     name = opened.manifest.name;
+    running.sum = opened.sum;
     const blocked = verdictOf(opened.sum).blocked;
     if (blocked) return failed(`网站停用了这一版：${blocked.why}`);
     const who = { pluginId: id, plugin: name, record: worldPluginOf(opened), dev: false };

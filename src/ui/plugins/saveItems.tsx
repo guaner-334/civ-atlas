@@ -27,6 +27,17 @@ export function usePluginData(open: boolean, worldId: string | undefined, versio
 
 export const pluginNames = (list: readonly UsedPlugin[]): string => list.map((u) => `「${u.name}」`).join('');
 
+/** 这个世界里存了自己数据的插件的名字(「城邦税赋」);没有、插件界面关着、查不了 = '' */
+export async function pluginDataNames(worldId: string | undefined): Promise<string> {
+  if (!worldId || !pluginsUiOn()) return '';
+  try {
+    const m = await load();
+    return pluginNames(m.withData(await m.usedPlugins(worldId)));
+  } catch {
+    return '';
+  }
+}
+
 /** 一个盒子:插件存的东西 */
 function BoxIcon() {
   return (

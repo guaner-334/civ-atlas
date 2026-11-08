@@ -9,7 +9,8 @@
 import { useSyncExternalStore } from 'react';
 import { GEN_KEY, SHARE_WARN_LENGTH, editCount, encodeShare, hasShareData, withMoment, type SaveMoment } from '../gen/savefile';
 import { GENERATOR_VERSION, keptMapOf } from '../gen/edits';
-import { currentSave, notify } from './saveStore';
+import { currentSave, currentWorld, notify } from './saveStore';
+import { pluginDataNames } from './plugins/saveItems';
 import { copyText } from './clipboard';
 
 /** 现在这一刻,连同说给人听的说法 */
@@ -179,6 +180,8 @@ export function shareCopiedToast(r: ShareCopy, at: MomentNow | null): void {
 export async function copyMomentLink(): Promise<void> {
   const plain = currentSave();
   if (plain && keptMapOf(plain.edits)) return notify({ kind: 'warn', text: '这个世界的地图带不进链接', more: ['要发给别人，请到「存档」里存成文件'] });
+  const names = await pluginDataNames(currentWorld()?.id);
+  if (names) return notify({ kind: 'warn', text: `这个世界里有插件${names}存的数据，不能公开分享`, more: ['要发给别人，请到「存档」里存成文件'] });
   const at = momentNow(true);
   const r = await copyShareLink(at?.moment ?? null);
   if (!r) return;

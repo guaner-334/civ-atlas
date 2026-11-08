@@ -131,6 +131,9 @@
   white-space: nowrap;
   cursor: pointer;
 }
+.plg-lmenu button.plain {
+  color: var(--ink);
+}
 .plg-lmenu button:hover {
   background: var(--btn);
 }

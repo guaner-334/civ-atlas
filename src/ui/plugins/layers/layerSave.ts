@@ -3,9 +3,8 @@
  * 存的是点的那一刻插件交来的样子(网站认得的格式,块见 gen/worldFormat.ts 的 PLUGIN_LAYER_PREFIX),之后插件怎么变都不跟着变。
  */
 import { checkLayerLook, sameLayerLook } from '../../../gen/layerLook';
-import type { PluginLayerValue, WorldPlugin } from '../../../gen/worldFormat';
+import { savedLayerId, type PluginLayerValue, type WorldPlugin } from '../../../gen/worldFormat';
 import type { CellLayer } from '../../../plugin/check';
-import { savedLayerId } from '../../../plugin/pluginWorld';
 import { currentWorld, keepWorld } from '../../saveStore';
 import { showToast } from '../../toastStore';
 import { errKind, settleWorld, vaultCall } from '../../worldStore';

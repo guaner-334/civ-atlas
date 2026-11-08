@@ -7,11 +7,10 @@ import { IDBFactory } from 'fake-indexeddb';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { SnapshotPart } from '../src/gen/snapshot';
 import { opaqueParts, openWorldFile, packWorldParts, readWorldContent, rewriteWorldFile, type PackInput, type WorldEras } from '../src/gen/worldFile';
-import { PLUGIN_LAYERS_MAX, PLUGIN_LAYER_ID, PLUGIN_LAYER_PREFIX, pluginLayerPart, type PluginLayerValue, type WorldManifest, type WorldPlugin } from '../src/gen/worldFormat';
+import { PLUGIN_LAYERS_MAX, PLUGIN_LAYER_ID, PLUGIN_LAYER_PREFIX, pluginLayerPart, savedLayerId, type PluginLayerValue, type WorldManifest, type WorldPlugin } from '../src/gen/worldFormat';
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
 import { cellColors, rampRange } from '../src/render/pluginLayer';
 import type { CellLayer } from '../src/plugin/check';
-import { savedLayerId } from '../src/plugin/pluginWorld';
 import { chipOn, layerChips, pluginLayers, setLiveLayer, setSavedLayers, shownLayer } from '../src/ui/plugins/layerState';
 import { _resetVault, changePluginLayer, commitWorld, opaquePartsOf, readPluginLayers, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
@@ -197,6 +196,18 @@ describe('图层面板的按钮', () => {
     s = pluginLayers.get();
     expect(shownLayer(s)?.cells.title).toBe('存着的');
     expect(chipOn(s, 'city-tax/tax')).toBe(true);
+  });
+
+  it('存着的图层让插件重新算:交来以前照旧画存着的、按钮亮着;交来以后画新算的', () => {
+    setSavedLayers('w', new Map([['heights/h', { pluginId: 'heights', layer: 'h', data: layer({ title: '存着的' }), record: null }]]));
+    pluginLayers.set({ ...pluginLayers.get(), shown: 'run:heights' });
+    let s = pluginLayers.get();
+    expect(shownLayer(s)?.saved?.data.title).toBe('存着的');
+    expect(chipOn(s, 'heights/h')).toBe(true);
+    setLiveLayer(who('heights', '海拔图层'), 'h', cells('h', '新算的'));
+    s = pluginLayers.get();
+    expect(s.shown).toBe('heights/h');
+    expect(shownLayer(s)?.live?.layer.title).toBe('新算的');
   });
 
   it('点了只交图层的插件:交来以后按钮亮的是它交的图层;交来以前什么都不画', () => {

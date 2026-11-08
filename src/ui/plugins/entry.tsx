@@ -23,6 +23,9 @@ export function openPlugins(): void {
 /** 插件页开着 */
 export const usePluginsOpen = (): boolean => open.use();
 
+/** 插件页开、关时调 f;返回取消的函数 */
+export const subscribePluginsOpen = (f: (on: boolean) => void): (() => void) => open.subscribe(() => f(open.get()));
+
 export function closePlugins(): void {
   open.set(false);
 }
