@@ -11,7 +11,8 @@ import { PLUGIN_LAYERS_MAX, PLUGIN_LAYER_ID, PLUGIN_LAYER_PREFIX, pluginLayerPar
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
 import { cellColors, rampRange } from '../src/render/pluginLayer';
 import type { CellLayer } from '../src/plugin/check';
-import { chipOn, layerChips, pluginLayers, setLiveLayer, setSavedLayers, shownLayer } from '../src/ui/plugins/layerState';
+import { chipOn, layerChips, pluginExport, pluginLayers, setLiveLayer, setSavedLayers, setSimLayers, shownLayer, shownPaint } from '../src/ui/plugins/layerState';
+import type { SimLayer } from '../src/gen/civ/engine/pluginLayers';
 import { _resetVault, changePluginLayer, commitWorld, opaquePartsOf, readPluginLayers, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
 
@@ -172,7 +173,7 @@ describe('图层面板的按钮', () => {
   const cells = (id: string, title: string): CellLayer => ({ kind: 'cells', id, title, values: new Float32Array(3), classes: [{ value: 0, color: '#ff0000', label: 'a' }] });
   const who = (id: string, name: string) => ({ pluginId: id, plugin: name, record: { ...tool, id }, dev: false });
 
-  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, runnable: [], shown: null }));
+  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, sim: null, runnable: [], shown: null }));
 
   it('存着的、交来的地块图层一个一个按钮,没交过图层的只交图层的插件也列上;标注图层不进', () => {
     setSavedLayers('w', new Map([['coast-distance/coast', { pluginId: 'coast-distance', layer: 'coast', data: layer(), record: tool }]]));
@@ -218,5 +219,60 @@ describe('图层面板的按钮', () => {
     expect(s.shown).toBe('heights/h');
     expect(chipOn(s, 'heights/h')).toBe(true);
     expect(layerChips(s).map((c) => c.key)).toEqual(['heights/h']);
+  });
+});
+
+describe('推演插件存进历史的图层', () => {
+  // 3 个州、4 个地块(最后一个在海里);第 0、50、100 年各存一份,第 100 年那份多出来的州不画
+  const of = Int32Array.of(0, 1, 2, -1);
+  const magic = (over: Partial<SimLayer> = {}): SimLayer => ({
+    by: 'magic',
+    id: 'magic',
+    title: '魔力浓度',
+    unit: 'region',
+    years: [0, 50, 100],
+    values: Float32Array.of(0, 0, 0, 10, 20, 30, 40, NaN, 60),
+    ramp: { colors: ['#000000', '#ffffff'] },
+    legend: '魔力',
+    ...over,
+  });
+  const civ = (layers: SimLayer[] | undefined, endYear = 100) => ({ simLayers: layers, regions: { of }, endYear });
+
+  beforeEach(() => pluginLayers.set({ live: new Map(), saved: new Map(), savedFor: null, sim: null, runnable: [], shown: null }));
+
+  it('按钮排在最前、带推演;选上以后画时间轴那一年以前最近的一份,颜色按所有份定', () => {
+    setSavedLayers('w', new Map([['coast-distance/coast', { pluginId: 'coast-distance', layer: 'coast', data: layer(), record: tool }]]));
+    setSimLayers(civ([magic()]));
+    expect(layerChips(pluginLayers.get())).toEqual([
+      { key: 'sim:magic/magic', label: '魔力浓度', sim: true },
+      { key: 'coast-distance/coast', label: '离海多远' },
+    ]);
+    pluginLayers.set({ ...pluginLayers.get(), shown: 'sim:magic/magic' });
+    const s = pluginLayers.get();
+    expect(chipOn(s, 'sim:magic/magic')).toBe(true);
+    expect(shownLayer(s)?.sim?.pluginId).toBe('magic');
+    const at = (y: number | null) => {
+      const p = shownPaint(y)!;
+      return { year: p.year, values: [...p.values], ramp: p.ramp };
+    };
+    expect(at(49)).toEqual({ year: 0, values: [0, 0, 0, NaN], ramp: { colors: ['#000000', '#ffffff'], min: 0, max: 60 } });
+    expect(at(50).values).toEqual([10, 20, 30, NaN]);
+    expect(at(null)).toMatchObject({ year: 100, values: [40, NaN, 60, NaN] });
+    expect(shownPaint(60)).toBe(shownPaint(99));
+    expect(shownPaint(60)?.title).toBe('魔力浓度');
+    expect(pluginExport(0).plugin?.values).toEqual(Float32Array.of(0, 0, 0, NaN));
+  });
+
+  it('历史换了:还有这个图层就接着显示新的;没了就收起;存着的、交来的不受影响', () => {
+    setSimLayers(civ([magic()]));
+    pluginLayers.set({ ...pluginLayers.get(), shown: 'sim:magic/magic' });
+    const next = magic({ values: Float32Array.of(1, 1, 1, 2, 2, 2, 3, 3, 3) });
+    setSimLayers(civ([next]));
+    expect(pluginLayers.get().shown).toBe('sim:magic/magic');
+    expect([...shownPaint(100)!.values]).toEqual([3, 3, 3, NaN]);
+    setSimLayers(civ(undefined));
+    expect(pluginLayers.get().shown).toBeNull();
+    expect(pluginLayers.get().sim).toBeNull();
+    expect(layerChips(pluginLayers.get())).toEqual([]);
   });
 });
