@@ -57,6 +57,7 @@ import {
   useCivHighlight,
   useCivShow,
   useCivTime,
+  useMapSelection,
   useResourceView,
   useSelection,
   type MapSelection,
@@ -420,7 +421,12 @@ export function CivLayer({ world, raster, civ: civIn, geo: geoIn, style, year, v
     () => (hold && civ && hlIn && hlIn.stamp > hlFrom.current && hlIn.polities.length ? { ...hlIn, polities: politiesIn(hlIn.polities, civIn!, civ) } : hlIn),
     [hold, hlIn, civIn, civ],
   );
-  const { sel: pickedIn } = useSelection();
+  const { sel: liveSel } = useSelection();
+  const lateSel = useMapSelection();
+  // 换了历史 / 世界的那一下照当下的:晚一帧的那份还是旧历史里的编号
+  const lateFor = useRef({ civ: civIn, world });
+  if (lateSel === liveSel) lateFor.current = { civ: civIn, world };
+  const pickedIn = lateSel !== liveSel && lateFor.current.civ === civIn && lateFor.current.world === world ? lateSel : liveSel;
   // 备的时候选中的东西按还画着的那份历史的编号画(备料按新的历史的编号)
   const picked = useMemo(
     () => (hold && civ && wasBase ? selectionIn(pickedIn, civIn!, incoming!, civ, wasBase) : pickedIn),
