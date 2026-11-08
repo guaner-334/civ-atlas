@@ -6,7 +6,7 @@
 import type { Civ } from '../gen/civ/types';
 import { DEFAULT_PARAMS, generateWorld } from '../gen/world';
 import type { CellPaint } from '../render/pluginLayer';
-import type { SimBoxer } from '../simPluginRun';
+import { quickjsBox } from '../simPluginRun';
 import type { SimPluginFile } from './pluginWorld';
 import { simLayerPaint, trialSim, type SimTrialSeed } from './simTrial';
 
@@ -21,17 +21,12 @@ export type SimTrialReply =
   | { type: 'done'; result: SimTrialSeed }
   | { type: 'failed'; error: string };
 
-const box: SimBoxer = async (spec) => {
-  const q = await import('../gen/civ/quickjs');
-  return q.quickjsPlugin(await q.quickjsWasm(), spec);
-};
-
 const post = (r: SimTrialReply) => self.postMessage(r);
 
 self.onmessage = async (e: MessageEvent<SimTrialJob>) => {
   try {
     const world = generateWorld({ ...DEFAULT_PARAMS, seed: e.data.seed });
-    const { civ: _civ, ...result } = await trialSim(world, e.data.files, box, {
+    const { civ: _civ, ...result } = await trialSim(world, e.data.files, quickjsBox, {
       report: (r) => post({ type: 'step', result: r }),
       ran: (civ) => post({ type: 'civ', civ, paint: simLayerPaint(civ, Math.floor(civ.endYear)) }),
     });
