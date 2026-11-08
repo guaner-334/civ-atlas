@@ -2,6 +2,7 @@
  * 审插件时的试跑:在示例世界上照固定的办法替插件点选(两座最大的城、最大的那一国),拦下它对你写的东西的修改,
  * 记下它拿了什么、替它点了什么、画了什么、发了多少话、日志和出的错。纯逻辑,不碰 DOM;沙箱、截图由叫的地方管。
  */
+import { fullChronicle } from '../gen/civ/story/religionText';
 import type { Civ } from '../gen/civ/types';
 import { EMPTY_EDITS } from '../gen/edits';
 import type { World } from '../gen/world';
@@ -180,6 +181,11 @@ export class TrialRecorder {
     this.last = this.now();
   }
 
+  /** 插件线程一直忙到 t(在算,没交东西):也算动静 */
+  busyUntil(t: number): void {
+    this.last = Math.max(this.last, t);
+  }
+
   /** 记下算插件的错(只记第一个) */
   fault(text: string): void {
     this.error ??= trialLine(text);
@@ -204,6 +210,8 @@ export class TrialRecorder {
       civ: () => this.civ,
       edits: () => EMPTY_EDITS,
       title: () => '示例世界',
+      chronicle: () => (this.civ ? fullChronicle(this.civ) : null),
+      notes: () => [],
       view: () => this.view,
       pick: (req) => this.pick(req),
       commit: (_next, keys) => {

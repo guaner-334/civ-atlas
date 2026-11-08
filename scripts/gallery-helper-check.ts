@@ -245,7 +245,7 @@ async function trialChecks(page: Page) {
     '(async () => {',
     '  const ps = await civAtlas.history.polities({});',
     "  try { await civAtlas.author.apply({ changes: [{ kind: 'name', key: ps[0].key, name: '改掉' }] }); } catch (e) { civAtlas.log('没改成', e.code); }",
-    "  await civAtlas.panel.set({ nodes: [{ type: 'heading', text: '请输入密码' }, { type: 'text', text: '这是假的' }] });",
+    "  await civAtlas.panel.set({ nodes: [{ type: 'heading', text: '请输入密码' }, { type: 'text', text: '这是假的' }, { type: 'select', id: 'pick', label: '选的是第二项', options: [{ value: 'a', label: '第一项' }, { value: 'b', label: '第二项' }], value: 'b' }, { type: 'slider', id: 'n', label: '滑块在 80', min: 0, max: 100, value: 80 }, { type: 'toggle', id: 't', label: '开着', value: true }] });",
     "  setTimeout(() => { throw new Error('故意出错'); }, 100);",
     '})();',
   ].join('\n');
@@ -255,6 +255,9 @@ async function trialChecks(page: Page) {
       `改你写的被拦下、出错照实交回、出错前的面板截到了:${JSON.stringify({ error: x.error, did: x.did, log: x.log })}`,
     );
   }
+  const busyCode = "civAtlas.log('开始算');\nsetTimeout(() => { const t = Date.now(); while (Date.now() - t < 1500) {} }, 10);";
+  const busy = await trial(page, 'busy', await packTest('busy', ['world.read@1'], busyCode));
+  check(busy.every((x) => x.ok && x.ms >= 1400 && x.ms < 5000), `最后一次调用以后还在算的,耗时算到算完:${busy.map((x) => x.ms).join('、')} 毫秒`);
   // 打包会拦下网站没有的能力:先照常打好,再把清单里的 requires 换掉
   const ok = parseZip(await packTest('newer', ['world.read@1'], 'civAtlas.log(1);'), 1 << 22);
   const newerZip = ok.map((e) => {

@@ -31,6 +31,8 @@ const PANEL_MAX_H = 1400;
 const PANEL_BYTES = 300 * 1024;
 
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+/** ping 回得比这慢 = 插件线程刚才在算 */
+const PING_SLOW_MS = 50;
 
 /** 试跑一个插件:每个种子一份;插件文件打不开也是每个种子一份 ok = false。生成不了示例世界才抛出 */
 export async function runTrial(req: TrialRequest): Promise<TrialRun[]> {
@@ -109,12 +111,18 @@ async function settle(h: PluginHost, rec: TrialRecorder, until: number): Promise
       await sleep(50);
       continue;
     }
+    const sent = performance.now();
     try {
       await h.sandbox.ping(Math.max(200, until - performance.now()));
     } catch {
       return true;
     }
-    if (performance.now() - rec.last >= TRIAL_QUIET_MS) return true;
+    const back = performance.now();
+    if (back - sent > PING_SLOW_MS) {
+      rec.busyUntil(back);
+      continue;
+    }
+    if (back - rec.last >= TRIAL_QUIET_MS) return true;
   }
   return !!h.sandbox.stopped;
 }
@@ -220,6 +228,24 @@ function cssFor(root: Element): string {
   return out.join('\n');
 }
 
+/** 拷一份卡片:下拉选中哪项、滑块的值这些只在属性(property)上,序列化前写成 HTML 属性 */
+function formsAsAttrs(card: HTMLElement): HTMLElement {
+  const copy = card.cloneNode(true) as HTMLElement;
+  const from = card.querySelectorAll('select, input');
+  const to = copy.querySelectorAll('select, input');
+  from.forEach((el, i) => {
+    const c = to[i];
+    if (el instanceof HTMLSelectElement) {
+      Array.from(el.options).forEach((o, k) => (o.selected ? (c as HTMLSelectElement).options[k].setAttribute('selected', '') : (c as HTMLSelectElement).options[k].removeAttribute('selected')));
+    } else if (el instanceof HTMLInputElement) {
+      c.setAttribute('value', el.value);
+      if (el.checked) c.setAttribute('checked', '');
+      else c.removeAttribute('checked');
+    }
+  });
+  return copy;
+}
+
 /**
  * 面板截图:照网站自己的插件卡画出来,连同管得着它的样式放进一张 SVG(foreignObject)再画到画布上。
  * 浏览器不让这样画(画布被当成别处来的)就抛出,后台写「没截到面板」
@@ -236,7 +262,7 @@ async function panelShot(p: OpenedPlugin, nodes: readonly PanelNode[]): Promise<
     const h = Math.min(PANEL_MAX_H, Math.ceil(card.getBoundingClientRect().height));
     const wrap = document.createElement('div');
     wrap.style.cssText = `width:${PANEL_W}px;height:${h}px;overflow:hidden;background:#fff`;
-    wrap.append(Object.assign(document.createElement('style'), { textContent: cssFor(card) }), card.cloneNode(true));
+    wrap.append(Object.assign(document.createElement('style'), { textContent: cssFor(card) }), formsAsAttrs(card));
     const xml = new XMLSerializer().serializeToString(wrap);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${PANEL_W}" height="${h}"><foreignObject x="0" y="0" width="${PANEL_W}" height="${h}">${xml}</foreignObject></svg>`;
     const img = new Image();

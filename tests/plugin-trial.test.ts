@@ -75,6 +75,21 @@ describe('试跑时记下插件做了什么', () => {
     expect(rec.did()).toEqual({ got: '没拿', picked: '没请点', drew: '没画', wrote: '没有', said: '没发话' });
   });
 
+  it('编年史照这个世界现算(和打开世界看到的一样);没有笔记', () => {
+    const { src } = recorder();
+    expect(src.chronicle!()?.length).toBeGreaterThan(0);
+    expect(src.notes!()).toEqual([]);
+  });
+
+  it('插件线程忙着算、没交东西:算完那一刻也算动静', () => {
+    const { rec, at } = recorder();
+    at(5000);
+    rec.busyUntil(4200);
+    expect(rec.last).toBe(4200);
+    rec.busyUntil(3000);
+    expect(rec.last).toBe(4200);
+  });
+
   it('试跑的世界里没有你写的东西;要改的一律拦下,记几次、碰了哪些', () => {
     const { rec, src, sink } = recorder();
     expect(src.edits()).toBe(EMPTY_EDITS);
