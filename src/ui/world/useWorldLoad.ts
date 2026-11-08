@@ -268,7 +268,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         setProgress({ stage: '准备', pct: 0, seed: t.params.seed });
         void import('../plugins/mapWorld')
           .then(async (m) => {
-            const lost = await m.restoreMaps(t.id, kept);
+            const lost = await m.restoreMaps(t.id, kept, () => targetRef.current === t);
             if (lost.length) showToast({ id: 'map-fail', kind: 'warn', text: '有地图插件用不了了', more: [`${lost.map((n) => `「${n}」`).join('')}没装了，或者被网站停用了，地图照剩下的长`], dismissible: true, ttl: 0 });
           })
           .catch(() => {})
