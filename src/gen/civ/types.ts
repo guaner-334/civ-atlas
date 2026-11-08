@@ -622,8 +622,8 @@ export interface Civ {
    * (civ/knobs.ts 的 knobsOf)
    */
   knobs?: KnobPatch;
-  /** 推不下去:推到第 at 年算不下去了,历史停在 endYear;本来要推到第 to 年。推完的 = 不给(stuck.ts) */
-  stuck?: { at: number; to: number };
+  /** 推不下去:推到第 at 年算不下去了,历史停在 endYear;本来要推到第 to 年;plugin = 出错的推演插件的编号(别的错不给)。推完的 = 不给(stuck.ts) */
+  stuck?: { at: number; to: number; plugin?: string };
   /**
    * 大迁徙(migration.ts):按动身先后,每一次一条(下标 = 史事 trek 的 war 列)。还在路上的那支,路线和到每一州的年份
    * 动身时就定了(可能比 endYear 晚);落脚、结局到了那一刻才填。resumeCiv 接着推时要用。旧版本的历史、没有文明 = 不给
@@ -1299,6 +1299,8 @@ export interface CivParams {
    * 带着代码,不跨线程传;接着推时要和 civ.simPlugins 记的插件一一对上,对不上从第 0 年重推
    */
   plugins?: readonly import('./engine/plugin').SimPlugin<import('./simRead').SimRead>[];
+  /** 推演插件计时(毫秒;单测换成假的):插件用时超了 engine/plugin.ts 的 PLUGIN_TIME 就停下。不给 = performance.now */
+  pluginClock?: () => number;
 }
 
 /**

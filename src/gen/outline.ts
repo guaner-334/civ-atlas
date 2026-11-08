@@ -221,7 +221,7 @@ export async function runOutline(world: World, params: Partial<CivParams>, input
     civ = structuredClone(advance(ctx, { ...st, snaps: st.snaps.slice() }, endYear, true));
   } catch (e) {
     hooks.failed?.(broke ? broke.e : e);
-    const got = findStuck(world, { ...ctx.params, interventions: st.list.length ? st.list : undefined }, null, engine);
+    const got = findStuck(world, { ...ctx.params, interventions: st.list.length ? st.list : undefined }, null, engine, undefined, broke ? broke.e : e);
     if (!got) throw e;
     civ = got;
   }
