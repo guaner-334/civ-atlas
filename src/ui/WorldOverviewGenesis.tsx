@@ -30,6 +30,7 @@ import { useNarrow } from './device';
 import { ParamField, rangeFill } from './ParamField';
 import { pluginsUiOn } from './plugins/flag';
 import { WorldPluginsSlot } from './plugins/layerSlots';
+import { useSimNow } from './world/simNow';
 import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contDefault, yearsSpan, type SliderLike } from './genesisSliders';
 import './ai.css';
 
@@ -150,6 +151,12 @@ function rulesText(r: RuleSet | undefined): string {
   return m?.newer ? `${r.name}（第 ${r.version} 版，我的规则里已是第 ${m.mine.rules.version} 版）` : ruleSetLabel(r);
 }
 
+/** 这个世界用的推演插件(插件界面开着、用了推演插件才有):「厌战、宗教生效」 */
+function useSimNames(worldId: string | undefined): string | null {
+  const s = useSimNow();
+  return pluginsUiOn() && s && s.id === worldId ? s.list.map((p) => p.name ?? p.id).join('、') : null;
+}
+
 /** 「规则」一行(入口开着时才有):点了用调规则的大卡看这个世界用的那一版(只能看;官方的看官方规则) */
 function RulesRow({ rules, worldId }: { rules: RuleSet | undefined; worldId: string | undefined }) {
   // 「我的规则」里改了、加了新版,那一句跟着变
@@ -189,6 +196,7 @@ export function SettingsPage(p: SettingsProps) {
   const keptOf = keptFrom(edits);
   const end = endYearOf(edits);
   const narrow = useNarrow();
+  const simNames = useSimNames(cur?.id);
   const [tab, setTab] = useState<SettingsTab>('civ');
   const seg = (
     <div className="ov-seg" role="tablist">
@@ -296,6 +304,12 @@ export function SettingsPage(p: SettingsProps) {
           </div>
           {/* 只有建好、存着的世界能另存一份重推(别人分享来看看的、存不进浏览器的不行) */}
           {rulesUiOn() && <RulesRow rules={edits.rules} worldId={cur?.kind === 'created' ? cur.id : undefined} />}
+          {simNames && (
+            <div className="ov-kv-row" data-param="sim-plugins">
+              <span>推演插件</span>
+              <b>{simNames}</b>
+            </div>
+          )}
           <div className="ov-kv-row" data-param="spread">
             <span>民族扩散</span>
             <b>{speedText(edits.frontier?.spread ?? 1)}</b>
@@ -318,7 +332,7 @@ export function SettingsPage(p: SettingsProps) {
           <p className="ov-txt">这些一变，文明就要整个重来。想试试别的样子，可以以「{title || '它'}」为底稿另建一个世界：设定带过去，地图按新版重新长，和这里的不一样。</p>
         ) : (
           <p className="ov-txt">
-            这些一变，文明就要整个重来。想试试别的样子，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
+            这些一变，文明就要整个重来。想{simNames ? '换个样子（比如换推演插件、拨滑条）' : '试试别的样子'}，可以以{title || '它'}为底稿另建一个世界：设定全部带过去，改过的名字和干预也跟过去，
             {title || '原来的世界'}本身不变。
           </p>
         )}

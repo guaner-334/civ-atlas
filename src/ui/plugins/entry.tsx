@@ -5,6 +5,7 @@ import { MenuItem } from '../PopMenu';
 import { showToast } from '../toastStore';
 import { toolCard, toolRunning, toolsMenu, type ToolsProps } from './toolsState';
 import type { SimPickProps } from './SimPick';
+import { useSimAsk } from '../world/simNow';
 
 const open = createStore(false);
 
@@ -65,8 +66,11 @@ function WindowMissing() {
 
 const PluginWindow = lazy(() => import('./PluginWindow').catch(() => ({ default: WindowMissing as unknown as typeof import('./PluginWindow').default })));
 
+const SimAskBox = lazy(() => import('./SimAsk'));
+
 export function PluginsHost({ phone }: { phone: boolean }) {
   const shown = open.use();
+  const ask = useSimAsk();
   // 装着的插件联网时和作品墙对一对:有新版、被网站停用了
   useEffect(() => {
     import('./galleryWatch').then(
@@ -74,10 +78,11 @@ export function PluginsHost({ phone }: { phone: boolean }) {
       () => {},
     );
   }, []);
-  if (!shown) return null;
+  if (!shown && !ask) return null;
   return (
     <Suspense fallback={null}>
-      <PluginWindow phone={phone} onClose={closePlugins} />
+      {ask && <SimAskBox ask={ask} phone={phone} />}
+      {shown && <PluginWindow phone={phone} onClose={closePlugins} />}
     </Suspense>
   );
 }

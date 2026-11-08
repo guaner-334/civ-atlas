@@ -5,6 +5,7 @@
 import { useSyncExternalStore } from 'react';
 import type { WorldPlugin } from '../../gen/worldFormat';
 import type { SimPluginCheck, SimPluginFile } from '../../plugin/pluginWorld';
+import { currentWorld } from '../saveStore';
 
 export interface SimNow {
   /** 世界编号 */
@@ -45,6 +46,15 @@ export function useSimNow(): SimNow | null {
   );
 }
 
+/** 配方链接带不上推演插件,对方长出来的历史不一样 */
+export const SIM_NO_LINK = '推演插件带不进链接，对方长出来的历史不一样。要发给别人，请存成文件';
+
+/** 地图上这个世界用了推演插件:「复制配方链接」灰着 */
+export function useSimLinkOff(): boolean {
+  const s = useSimNow();
+  return !!s && s.id === currentWorld()?.id;
+}
+
 /** 推演要带的文件(没用推演插件、有对不上的 = undefined) */
 export function simFilesNow(): SimPluginFile[] | undefined {
   return now?.files?.length ? now.files : undefined;
@@ -54,4 +64,32 @@ export function simFilesNow(): SimPluginFile[] | undefined {
 export function sameSims(a: readonly SimPluginFile[] | undefined, b: readonly SimPluginFile[] | undefined): boolean {
   const key = (l: readonly SimPluginFile[] | undefined) => JSON.stringify((l ?? []).map((p) => [p.id, p.sum, Object.entries(p.params ?? {}).sort(([x], [y]) => (x < y ? -1 : 1))]));
   return key(a) === key(b);
+}
+
+/**
+ * 世界用的推演插件本机对不上时,要接着推(再推、改过去、照大纲)先问一声(plugins/SimAsk.tsx):
+ * 有没装的先说要先装;都装了、有的只有别的版本,问要不要另存一份按新版从第 0 年重推(copy 做这件事)
+ */
+export interface SimAsk {
+  title: string;
+  checks: SimPluginCheck[];
+  /** 这次要做的(「再推 500 年」「推演这 2 条命令」;说不清 = 「推演」) */
+  what: string;
+  copy: () => void;
+}
+
+let ask: SimAsk | null = null;
+const askSubs = new Set<() => void>();
+export function askSims(a: SimAsk | null): void {
+  ask = a;
+  for (const f of askSubs) f();
+}
+export function useSimAsk(): SimAsk | null {
+  return useSyncExternalStore(
+    (f) => {
+      askSubs.add(f);
+      return () => askSubs.delete(f);
+    },
+    () => ask,
+  );
 }

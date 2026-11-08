@@ -8,6 +8,25 @@ import { kbText } from './askState';
 import { usedPlugins, type UsedPlugin } from './worldPlugins';
 import './worldData.css';
 
+/** 推演插件本机有没有世界记的那一版(现在用的、留着的上一版都算) */
+export function simHere(u: Pick<UsedPlugin, 'plugin' | 'installed'>): 'same' | 'other' | 'none' {
+  const have = u.installed;
+  if (!have) return 'none';
+  const sum = u.plugin?.sum;
+  return have.current.sum === sum || have.previous?.sum === sum ? 'same' : 'other';
+}
+
+/** 推演插件那一行的小字:第几个出手、滑条拨到几;只装了别的版本的说要装回哪一版 */
+export function simLines(u: Pick<UsedPlugin, 'plugin' | 'installed'>, order: number): string[] {
+  const spec = u.installed?.current.manifest.sim?.params ?? {};
+  const given = Object.entries(u.plugin?.params ?? {}).filter((e): e is [string, number] => typeof e[1] === 'number');
+  const changed = given.filter(([k, v]) => !spec[k] || v !== spec[k].default);
+  const knobs = !given.length ? '' : !changed.length ? '滑条都是默认' : `滑条：${changed.map(([k, v]) => (spec[k] ? `${spec[k].label} ${v}（默认 ${spec[k].default}）` : `${k} ${v}`)).join('、')}${changed.length < given.length ? '，别的是默认' : ''}`;
+  const out = [`第 ${order} 个出手。${knobs}`.replace(/。$/, '')];
+  if (simHere(u) === 'other' && u.plugin) out.push(`要接着推，得装回${versionLabel(u.plugin.version)}；不装也照常能看`);
+  return out;
+}
+
 /** 一行下面的小字 */
 function linesOf(u: UsedPlugin, titles: string[]): string[] {
   const out: string[] = [];
@@ -39,6 +58,7 @@ export default function WorldPluginsSection({ worldId }: { worldId: string }) {
   const installed = useMemo(() => (list ?? []).flatMap((u) => (u.installed ? [u.installed] : [])), [list]);
   const icons = useIcons(installed);
   if (!list?.length) return null;
+  const sims = list.filter((u) => u.plugin?.role === 'sim');
   return (
     <section className="ov-sec plg-wp" data-testid="world-plugins">
       <h3>
@@ -47,6 +67,9 @@ export default function WorldPluginsSection({ worldId }: { worldId: string }) {
       <div className="ov-kv">
         {list.map((u) => {
           const titles = u.layers.map((l) => saved.get(`${u.id}/${l}`)?.data.title).filter((t): t is string => !!t);
+          const sim = u.plugin?.role === 'sim';
+          const here = sim ? simHere(u) : u.here;
+          const lines = sim ? simLines(u, sims.indexOf(u) + 1) : linesOf(u, titles);
           return (
             <div key={u.id} className="plg-wp-row" data-plugin={u.id}>
               <PluginIcon src={u.installed ? icons.get(u.installed.current.sum) : null} size="sm" />
@@ -54,9 +77,14 @@ export default function WorldPluginsSection({ worldId }: { worldId: string }) {
                 <b>
                   {u.name}
                   {u.plugin && <span className="plg-tag">{versionLabel(u.plugin.version)}</span>}
-                  {u.here === 'none' ? <span className="plg-tag">你没装</span> : u.here === 'other' ? <span className="plg-tag">你装的是别的版本</span> : null}
+                  {sim && <span className="plg-tag">推演</span>}
+                  {here === 'none' ? (
+                    <span className={`plg-tag${sim ? ' warn' : ''}`}>你没装</span>
+                  ) : here === 'other' ? (
+                    <span className={`plg-tag${sim ? ' warn' : ''}`}>{sim && u.installed ? `你装的是${versionLabel(u.installed.current.manifest.version)}` : '你装的是别的版本'}</span>
+                  ) : null}
                 </b>
-                {linesOf(u, titles).map((t) => (
+                {lines.map((t) => (
                   <small key={t}>{t}</small>
                 ))}
               </span>
@@ -64,7 +92,11 @@ export default function WorldPluginsSection({ worldId }: { worldId: string }) {
           );
         })}
       </div>
-      <p>世界里只记插件的名字、第几版和文件指纹，不带插件的代码。装了同一个插件、版本不一样也能用；它认不了旧数据时会自己说要新版。</p>
+      <p>
+        {sims.length
+          ? '世界里记着推演插件的名字、第几版、文件指纹和滑条拨到几，不带插件的代码。看世界不用装；要接着推（再推、改过去、逐年推演、照大纲），得装着同一版（滑条拨到几世界里记着）。'
+          : '世界里只记插件的名字、第几版和文件指纹，不带插件的代码。装了同一个插件、版本不一样也能用；它认不了旧数据时会自己说要新版。'}
+      </p>
     </section>
   );
 }

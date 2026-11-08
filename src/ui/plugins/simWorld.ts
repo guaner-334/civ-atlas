@@ -18,6 +18,18 @@ export async function loadSimNow(id: string): Promise<void> {
   setSimNow({ id, list, files: r?.ok ? r.files : null, checks: r && !r.ok ? r.checks : [] });
 }
 
+/** 装了、删了插件以后:地图上这个世界的推演插件本机对不上的,再核对一遍(新建中选的不动) */
+export async function refreshSimNow(): Promise<void> {
+  const s = getSimNow();
+  if (s && !s.files) await loadSimNow(s.id);
+}
+
+/** 删了一个插件:地图上这个世界用着它的,再核对一遍(推演不再带它的文件) */
+export async function forgetSim(id: string): Promise<void> {
+  const s = getSimNow();
+  if (s?.list.some((p) => p.id === id)) await loadSimNow(s.id);
+}
+
 /** 选上的一个推演插件:编号、滑条拨到几(没拨过的按默认) */
 export interface SimChoice {
   id: string;
