@@ -12,11 +12,16 @@ import {
   devStopText,
   moreText,
   pageByLine,
+  simRows,
+  simWhenText,
   sizeText,
   versionLabel,
   versionText,
+  wallInstalledText,
   type DevLog,
 } from '../src/ui/plugins/pluginText';
+import { CAP_LABEL } from '../src/ui/plugins/pluginWords';
+import { PERMISSIONS } from '../src/plugin/pluginCaps';
 
 function manifest(over: Partial<PluginManifest> = {}): PluginManifest {
   return {
@@ -86,6 +91,45 @@ describe('插件页的字', () => {
     expect(layer.map((r) => r.k)).toEqual(['图层', '往世界里存东西']);
     expect(layer[1].v).toBe('存它自己的数据');
     expect(addsRows(manifest({ requires: ['world.read@1'] }), false)).toEqual([{ k: '往世界里存东西', v: '不存', small: '它算的关掉就没了，世界不变' }]);
+  });
+});
+
+describe('推演插件的字', () => {
+  const caps = ['sim.read@1', 'sim.tables@1', 'sim.influence@1', 'sim.chronicle@1'];
+
+  it('什么时候出手:频率;听的史事只在出手时看,不多出手', () => {
+    expect(simWhenText({ every: 5 })).toBe('每 5 年一次');
+    expect(simWhenText({ every: 1, listen: ['war', 'conquer', 'peace'] })).toBe('每年一次（出手时看打仗、攻下、议和）');
+    expect(simWhenText({ listen: ['war', 'reform', 'winter'] })).toBe('只在开头和自己约好的年份（出手时看打仗、别的史事）');
+    expect(simWhenText({})).toBe('只在开头和自己约好的年份');
+  });
+
+  it('它在推演里做什么:影响口、命令照网站的说法,没有的写不下、不加', () => {
+    const sim = {
+      every: 5,
+      influences: ['city.capacity'],
+      tables: [{ id: 'mana', name: '魔力浓度', unit: 'region' as const, min: 0, max: 100, off: 0 }],
+      layers: [{ id: 'mana', table: 'mana', keep: 50, title: '魔力浓度' }],
+      params: { k: { label: '魔力的影响', min: 0, max: 3, default: 1 } },
+    };
+    expect(simRows(sim, caps, true)).toEqual([
+      { k: '出手', v: '每 5 年一次' },
+      { k: '会影响', v: '城的人口上限（按州）' },
+      { k: '命令', v: '不下' },
+      { k: '自己的数', v: '魔力浓度（每州一个，0–100）' },
+      { k: '图层', v: '「魔力浓度」，跟着年份变', small: '在图层面板「插件图层」里' },
+      { k: '编年史', v: '会写' },
+      { k: '滑条', v: '1 个：魔力的影响（0–3，默认 1）' },
+    ]);
+    const rows = simRows({ every: 5, commands: ['declare', 'ally'], params: { a: { label: '甲', min: 0, max: 1, default: 0 }, b: { label: '乙', min: 0, max: 1, default: 0 } } }, ['sim.commands@1'], false);
+    expect(rows.map((r) => r.k)).toEqual(['什么时候出手', '会影响', '会下的命令', '编年史', '图层', '滑条']);
+    expect(rows.map((r) => r.v)).toEqual(['每 5 年一次', '不影响', '宣战、结盟', '不写', '不加', '2 个：甲、乙']);
+    expect(rows[5].small).toBe('新建世界选它时拨');
+  });
+
+  it('权限的短说法每行都有;从作品墙装好以后说去哪选', () => {
+    for (const k of Object.keys(PERMISSIONS)) expect(CAP_LABEL[k]).toBeTruthy();
+    expect(wallInstalledText(manifest({ role: 'sim', runtime: 'quickjs', requires: caps }), false)).toBe('新建世界时，在「文明」那一步的「推演插件」里选上它。装在这个浏览器里，所有世界都能用。');
   });
 });
 

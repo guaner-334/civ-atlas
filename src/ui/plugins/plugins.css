@@ -85,6 +85,16 @@
   white-space: nowrap;
   vertical-align: 2px;
 }
+.plg-hd h3 .plg-tag + .plg-tag {
+  margin-left: 4px;
+}
+.plg-pick {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
 .plg-tag.ok {
   background: rgba(46, 154, 88, 0.13);
   color: #23804a;
@@ -300,6 +310,23 @@
   display: block;
   font-size: 12px;
   color: var(--ink-2);
+}
+.plg-sim .plg-row .k {
+  flex: none;
+  width: 112px;
+  color: var(--ink-2);
+}
+.plg-sim .plg-row .v {
+  flex: 1;
+  margin-left: 0;
+  text-align: left;
+}
+.phone .plg-sim .plg-row {
+  min-height: 36px;
+  padding: 7px 12px;
+}
+.phone .plg-sim .plg-row .k {
+  width: 76px;
 }
 .plg-kv {
   display: grid;

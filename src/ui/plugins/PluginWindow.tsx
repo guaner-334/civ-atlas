@@ -21,7 +21,7 @@ import { openPlugins } from './entry';
 import { compareVersions, type WallLatest } from './galleryPlugin';
 import { CAP_LABEL } from './pluginWords';
 import { checkPlugins, newVersionOf, useWallRev, wallFile } from './galleryWatch';
-import { addedLines, addsRows, askByLine, dayText, moreText, noteText, pageByLine, toolWhere, versionLabel, versionText, wallInstalledText } from './pluginText';
+import { addedLines, addsRows, askByLine, dayText, isSim, moreText, noteText, pageByLine, simRows, simWhere, toolWhere, versionLabel, versionText, wallInstalledText, type AddsRow } from './pluginText';
 import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
 import { markReviewed, refreshVerdicts, useVerdicts, verdictOf, type PluginVerdict } from './verdict';
 import './plugins.css';
@@ -41,7 +41,7 @@ export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugi
   if (a.work && a.kind === 'update') showToast({ id: 'plugins', kind: 'ok', text: `「${m.name}」更新到${versionLabel(m.version)}了` });
   else if (a.work) showToast({ id: 'plugins', kind: 'ok', text: `装好了「${m.name}」`, more: [wallInstalledText(m, phone)], action: { label: '去插件页', act: 'plugins-open', onClick: openPlugins } });
   else {
-    const where = toolWhere(m, phone);
+    const where = isSim(m) ? simWhere(phone) : toolWhere(m, phone);
     showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
   }
   return r.plugin;
@@ -103,6 +103,13 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
         return;
       }
       const m = opened.manifest;
+      if (isSim(m)) {
+        try {
+          await (await import('../../plugin/simCheck')).checkSimFully(bytes);
+        } catch {
+          return setSaid({ kind: 'broken', file: f.name });
+        }
+      }
       await refreshVerdicts();
       const verdict = verdictOf(opened.sum, m.id);
       if (verdict.blocked) return setSaid({ kind: 'blocked', name: m.name, version: m.version, ...verdict.blocked });
@@ -348,7 +355,7 @@ function Perm({ line }: { line: PermissionLine }) {
   );
 }
 
-export function Perms({ m }: { m: Pick<PluginManifest, 'requires' | 'optional' | 'why'> }) {
+export function Perms({ m }: { m: Pick<PluginManifest, 'requires' | 'optional' | 'why'> & { role?: string } }) {
   const lines = permissionLines(m);
   return (
     <>
@@ -361,7 +368,7 @@ export function Perms({ m }: { m: Pick<PluginManifest, 'requires' | 'optional' |
       )}
       <div className="plg-safe">
         <Icon name="lock" size={16} />
-        <span>{permissionFooter(lines)}</span>
+        <span>{permissionFooter(lines, m.role)}</span>
       </div>
     </>
   );
@@ -381,6 +388,12 @@ function Switch({ on, disabled, small, label, onChange }: { on: boolean; disable
       }}
     />
   );
+}
+
+/** 推演插件没有开关:开不开是每个世界新建时自己选的 */
+function OnSwitch({ p, v, onToggle }: { p: InstalledPlugin; v: PluginVerdict; onToggle: (id: string, on: boolean) => void }) {
+  if (isSim(p.current.manifest)) return <span className="plg-pick">新建时选</span>;
+  return <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={p.current.manifest.name} onChange={(on) => onToggle(p.id, on)} />;
 }
 
 function StatusTag({ v }: { v: PluginVerdict }) {
@@ -448,6 +461,7 @@ function ItemText({ p, v }: { p: InstalledPlugin; v: PluginVerdict }) {
       <small>
         <span>{versionLabel(p.current.manifest.version)}</span>
         <StatusTag v={v} />
+        {isSim(p.current.manifest) && <span className="plg-tag">推演</span>}
         {!v.blocked && newVersionOf(p) && <span className="plg-tag new">有新版</span>}
       </small>
     </button>
@@ -471,7 +485,7 @@ function DeskPage({ list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel,
                 <div key={p.id} className={`plg-it${p.id === cur?.id ? ' on' : ''}${v.blocked ? ' off' : ''}`} data-plugin={p.id} onClick={() => onSel(p.id)}>
                   <PluginIcon src={icons.get(p.current.sum)} size="md" />
                   <ItemText p={p} v={v} />
-                  <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={p.current.manifest.name} onChange={(on) => onToggle(p.id, on)} />
+                  <OnSwitch p={p} v={v} onToggle={onToggle} />
                 </div>
               );
             })}
@@ -501,10 +515,17 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
   const m = p.current.manifest;
   const v = verdictOf(p.current.sum, p.id);
   const newer = v.blocked ? null : newVersionOf(p);
+  const sim = isSim(m) ? m.sim : undefined;
   const ops = (
     <div className="plg-ops">
-      <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={m.name} onChange={(on) => onToggle(p.id, on)} />
-      {p.on && !v.blocked ? '开着' : '关着'}
+      {sim ? (
+        phone && '新建世界时在「推演插件」里选'
+      ) : (
+        <>
+          <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={m.name} onChange={(on) => onToggle(p.id, on)} />
+          {p.on && !v.blocked ? '开着' : '关着'}
+        </>
+      )}
       {onSubmit && !v.reviewed && !v.blocked && (
         <button className="plg-btn sm" data-act="plugin-submit" onClick={() => onSubmit(p)}>
           <Icon name="export" size={14} />
@@ -540,6 +561,7 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
         <div>
           <h3>
             {m.name} <span className="plg-tag">{versionLabel(m.version)}</span>
+            {sim && <span className="plg-tag">推演</span>}
           </h3>
           <div className="plg-by">{pageByLine(m, p.current.bytes)}</div>
           {!phone && status}
@@ -552,18 +574,25 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
       {m.description && <p className="plg-desc">{m.description}</p>}
       <div className="plg-sec">它能拿到什么</div>
       <Perms m={m} />
-      <div className="plg-sec">它加了什么</div>
-      <div className="plg-grp">
-        {addsRows(m, !!phone).map((r) => (
-          <div key={r.k} className="plg-row">
-            <span className="k">{r.k}</span>
-            <span className="v">
-              {r.v}
-              {r.small && <small>{r.small}</small>}
-            </span>
-          </div>
-        ))}
-      </div>
+      {sim ? (
+        <>
+          <div className="plg-sec">它在推演里做什么</div>
+          <Rows rows={simRows(sim, [...m.requires, ...(m.optional ?? [])], !!phone)} sim />
+          {!phone && (
+            <>
+              <div className="plg-sec">怎么用</div>
+              <div className="plg-grp plg-kv">
+                <span>新建世界</span>在「文明」那一步的「推演插件」里选上它，最多选 4 个<span>已经推好的</span>不变；想换，就以它为底稿另建一个世界
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="plg-sec">它加了什么</div>
+          <Rows rows={addsRows(m, !!phone)} />
+        </>
+      )}
       <div className="plg-sec">从哪来</div>
       <div className="plg-grp plg-kv">
         <span>装的时候</span>
@@ -571,6 +600,22 @@ function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; ph
         <span>更新</span>
         {p.current.work ? '不自动更新；作品墙上有新版时，这里和「···」菜单里会说一声' : '不自动更新；有新文件时再从文件装一次'}
       </div>
+    </div>
+  );
+}
+
+function Rows({ rows, sim }: { rows: AddsRow[]; sim?: boolean }) {
+  return (
+    <div className={`plg-grp${sim ? ' plg-sim' : ''}`}>
+      {rows.map((r) => (
+        <div key={r.k} className="plg-row">
+          <span className="k">{r.k}</span>
+          <span className="v">
+            {r.v}
+            {r.small && <small>{r.small}</small>}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -655,7 +700,7 @@ function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean)
                 >
                   <PluginIcon src={icons.get(p.current.sum)} size="md" />
                   <ItemText p={p} v={v} />
-                  <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={p.current.manifest.name} onChange={(on) => onToggle(p.id, on)} />
+                  <OnSwitch p={p} v={v} onToggle={onToggle} />
                   <span className="plg-chev">
                     <Icon name="chevron" size={16} />
                   </span>

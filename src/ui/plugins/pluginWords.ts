@@ -31,4 +31,6 @@ export const CAP_LABEL: Readonly<Record<string, string>> = {
   view: '看你点了哪',
   layer: '加图层',
   storeWorld: '存进世界',
+  sim: '推演里加数',
+  simSteer: '改推演',
 };
