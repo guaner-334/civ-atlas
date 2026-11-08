@@ -2,6 +2,7 @@
  * 插件页:装了哪些、开关、能拿到什么、删除;从文件装(查文件 → 权限框 → 装上)。
  * 电脑是居中的窗,左边列表右边详情;手机是从下面升起的一页,点一行进详情。
  * 权限框和装不上的说明换掉插件页显示,关掉回到插件页。
+ * 开发者模式打开以后多一个「载入正在写的插件…」:选了文件就收起插件页,载入、权限框、日志都在地图左下角的小卡(DevCard.tsx)。
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -12,6 +13,7 @@ import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn,
 import { isCoarse } from '../device';
 import { Icon, type IconName } from '../icons';
 import { showToast } from '../toastStore';
+import { loadDev, pickDevFile, setDevMode, useDevMode, type DevAsk } from './dev';
 import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, versionLabel, versionText } from './pluginText';
 import { PuzzleIcon } from './entry';
 import { verdictOf, type PluginVerdict } from './verdict';
@@ -35,6 +37,9 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const [said, setSaid] = useState<Said | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** 选的文件拿去装,还是拿去载入正在写的插件 */
+  const picking = useRef<'install' | 'dev'>('install');
+  const dev = useDevMode();
   const icons = useIcons(list);
 
   const reload = async (pick?: string) => {
@@ -105,7 +110,20 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     await reload();
   };
 
-  const pick = () => fileRef.current?.click();
+  const pick = () => {
+    picking.current = 'install';
+    fileRef.current?.click();
+  };
+  const loadPicked = (f: File, h: Parameters<typeof loadDev>[1]) => {
+    onClose();
+    void loadDev(f, h);
+  };
+  const pickDev = async () => {
+    picking.current = 'dev';
+    const got = await pickDevFile();
+    if (got === undefined) fileRef.current?.click();
+    else if (got) loadPicked(got.file, got.handle);
+  };
   const input = (
     <input
       ref={fileRef}
@@ -116,7 +134,9 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
       onChange={(e) => {
         const f = e.target.files?.[0];
         e.target.value = '';
-        if (f) void onFile(f);
+        if (!f) return;
+        if (picking.current === 'dev') loadPicked(f, null);
+        else void onFile(f);
       }}
     />
   );
@@ -129,7 +149,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   else if (ask?.kind === 'update') body = <UpdateBox ask={ask} phone={phone} icon={icons.get(ask.old.current.sum)} busy={busy} onCancel={back} onOk={() => void install(ask)} />;
   else {
     mode = 'page';
-    const props = { list, cur, icons, busy, onPick: pick, onSel: setSel, onToggle: toggle, onRemove: remove, onClose };
+    const props = { list, cur, icons, busy, dev, onPick: pick, onPickDev: () => void pickDev(), onSel: setSel, onToggle: toggle, onRemove: remove, onClose };
     body = phone ? <PhonePage {...props} detail={detail} onDetail={setDetail} /> : <DeskPage {...props} />;
   }
   return createPortal(
@@ -150,7 +170,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
 }
 
 /** 手机和 Safari 上不限文件类型:.civplugin 系统不认识,写了可能灰掉不让选 */
-function pickAccept(): string | undefined {
+export function pickAccept(): string | undefined {
   const ua = navigator.userAgent;
   if (isCoarse() || /iPhone|iPad|iPod|Android|Mobile/i.test(ua) || (/Safari/i.test(ua) && !/Chrome|Chromium|Edg/i.test(ua))) return undefined;
   return PLUGIN_FILE_EXT;
@@ -234,9 +254,15 @@ const MORE_ICONS = {
   ),
   box: <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9" />,
   shield: <path d="M12 3 5 6v5.5c0 4.3 3 8 7 9.5 4-1.5 7-5.2 7-9.5V6zM9 12l2.2 2.2 4-4.2" />,
+  reload: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 4v7h-7" />
+    </>
+  ),
 };
 
-function Ico({ name, size = 18 }: { name: IconName | keyof typeof MORE_ICONS; size?: number }) {
+export function Ico({ name, size = 18 }: { name: IconName | keyof typeof MORE_ICONS; size?: number }) {
   if (!(name in MORE_ICONS)) return <Icon name={name as IconName} size={size} />;
   return (
     <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
@@ -308,7 +334,7 @@ function StatusTag({ v }: { v: PluginVerdict }) {
   return v.reviewed ? <span className="plg-tag ok">审过</span> : <span className="plg-tag warn">没审核</span>;
 }
 
-function CloseBtn({ onClose, round }: { onClose: () => void; round?: boolean }) {
+export function CloseBtn({ onClose, round }: { onClose: () => void; round?: boolean }) {
   return (
     <button className={round ? 'plg-xr' : 'plg-x'} onClick={onClose} title="关闭" aria-label="关闭">
       {round ? <Icon name="close" size={14} /> : '✕'}
@@ -324,22 +350,25 @@ interface PageProps {
   cur: InstalledPlugin | null;
   icons: Map<string, string | null>;
   busy: boolean;
+  /** 开发者模式开着 */
+  dev: boolean;
   onPick: () => void;
+  onPickDev: () => void;
   onSel: (id: string) => void;
   onToggle: (id: string, on: boolean) => void;
   onRemove: (id: string) => void;
   onClose: () => void;
 }
 
-/** 开发者模式那一行:开关还没接上 */
-function DevRow({ phone }: { phone?: boolean }) {
+/** 开发者模式那一行;关掉时载入的插件一起停掉 */
+function DevRow({ on, phone }: { on: boolean; phone?: boolean }) {
   return (
     <div className={phone ? 'plg-devr' : 'plg-dev'}>
       <span>
         <b>开发者模式</b>
         <small>写插件的人用：重新载入、看日志</small>
       </span>
-      <Switch on={false} disabled small={!phone} label="开发者模式" />
+      <Switch on={on} small={!phone} label="开发者模式" onChange={setDevMode} />
     </div>
   );
 }
@@ -366,7 +395,7 @@ function ItemText({ p, v }: { p: InstalledPlugin; v: PluginVerdict }) {
   );
 }
 
-function DeskPage({ list, cur, icons, busy, onPick, onSel, onToggle, onRemove, onClose }: PageProps) {
+function DeskPage({ list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onClose }: PageProps) {
   return (
     <div className="plg-page" role="dialog" aria-modal="true" aria-label="插件" data-testid="plugin-page">
       <div className="plg-page-h">
@@ -393,7 +422,13 @@ function DeskPage({ list, cur, icons, busy, onPick, onSel, onToggle, onRemove, o
               <Icon name="file" size={16} />
               从文件装…
             </button>
-            <DevRow />
+            {dev && (
+              <button className="plg-btn" data-act="plugin-dev-load" disabled={busy} onClick={onPickDev}>
+                <Ico name="reload" size={16} />
+                载入正在写的插件…
+              </button>
+            )}
+            <DevRow on={dev} />
           </div>
         </div>
         <div className="plg-rcol">{cur ? <Detail p={cur} icon={icons.get(cur.current.sum)} onToggle={onToggle} onRemove={onRemove} /> : list && <Empty />}</div>
@@ -473,7 +508,7 @@ function Detail({ p, icon, phone, onToggle, onRemove }: { p: InstalledPlugin; ic
 }
 
 function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean) => void }) {
-  const { list, cur, icons, busy, onPick, onSel, onToggle, onRemove, onClose, detail, onDetail } = props;
+  const { list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onClose, detail, onDetail } = props;
   if (detail && cur)
     return (
       <div className="plg-page" role="dialog" aria-modal="true" aria-label={cur.current.manifest.name} data-testid="plugin-page">
@@ -530,7 +565,13 @@ function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean)
           <Icon name="file" size={18} />
           从文件装…
         </button>
-        <DevRow phone />
+        {dev && (
+          <button className="plg-fbtn" data-act="plugin-dev-load" disabled={busy} onClick={onPickDev}>
+            <Ico name="reload" size={18} />
+            载入正在写的插件…
+          </button>
+        )}
+        <DevRow on={dev} phone />
       </div>
     </div>
   );
@@ -564,7 +605,7 @@ function AskShell({ phone, label, tight, narrow, testId, children }: { phone: bo
   );
 }
 
-function InstallBox({ ask, phone, busy, onCancel, onOk }: { ask: Extract<Ask, { kind: 'install' }>; phone: boolean; busy: boolean; onCancel: () => void; onOk: () => void }) {
+function InstallBox({ ask, phone, busy, onCancel, onOk }: { ask: Pick<Extract<Ask, { kind: 'install' }>, 'opened' | 'file' | 'verdict'>; phone: boolean; busy: boolean; onCancel: () => void; onOk: () => void }) {
   const m = ask.opened.manifest;
   const icon = useOpenedIcon(ask.opened);
   const lines = permissionLines(m);
@@ -599,6 +640,26 @@ function InstallBox({ ask, phone, busy, onCancel, onOk }: { ask: Extract<Ask, { 
       </div>
       <Buttons phone={phone} left={ask.file} cancel="取消" ok={reviewed ? '装上' : '仍然装上'} busy={busy} onCancel={onCancel} onOk={onOk} />
     </AskShell>
+  );
+}
+
+/** 开发者模式载入时的权限框:和装的时候那张一样,盖在整页上 */
+export function DevAskBox({ ask, phone }: { ask: DevAsk; phone: boolean }) {
+  const no = () => ask.answer(false);
+  useEscape(no);
+  return createPortal(
+    <div
+      className={`plg-bg ask${phone ? ' phone' : ''}`}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        if (e.target === e.currentTarget) no();
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onWheel={(e) => e.stopPropagation()}
+    >
+      <InstallBox ask={{ opened: ask.opened, file: ask.file, verdict: verdictOf(ask.opened.sum) }} phone={phone} busy={false} onCancel={no} onOk={() => ask.answer(true)} />
+    </div>,
+    document.body,
   );
 }
 

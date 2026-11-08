@@ -174,6 +174,7 @@ import { MyWorlds } from './MyWorlds';
 import { RulesHost } from './rules/RulesHost';
 import { pluginsUiOn } from './plugins/flag';
 import { PluginsHost } from './plugins/entry';
+import { PluginDevSlot } from './plugins/devSlot';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import type { GalleryItem } from '../account/gallery';
@@ -2867,6 +2868,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         {data && world && stepOn && <StepDock phone={narrow} />}
         {/* 导播的字幕条:浮在时间轴上面 */}
         {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff || stepQuiet} />}
+        {/* 开发者模式载入的插件:左边一块小卡(重新载入、日志) */}
+        {pluginsUiOn() && data && world && <PluginDevSlot phone={narrow} world={data.world} civ={realCiv} />}
         {/* 再推 N 年:电脑是「再推」上面的弹层,手机推的时候胶囊上面一张小卡片 */}
         {data && world && civ && !narrow && <ExtendPop end={civ.endYear} hidden={!extendShown} />}
         {data && world && narrow && <ExtendDock hidden={!extendShown} />}
