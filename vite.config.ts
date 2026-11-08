@@ -47,8 +47,8 @@ function banner(commit = ''): string {
   return `/*! 文明与地图 v${pkg.version}${commit ? ` (${commit})` : ''} | Copyright (C) 2026 guaner-334 | ${pkg.license} | ${SOURCE_URL} */`;
 }
 
-/** 预先压好的文件:这几种文本文件(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
-const PACK_EXT = /\.(js|mjs|css|json|svg|txt|md)$/;
+/** 预先压好的文件:这几种文本文件和 wasm(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
+const PACK_EXT = /\.(js|mjs|css|json|svg|txt|md|wasm)$/;
 
 /**
  * 构建完把文本文件各压一份最高等级的 .gz 和 .br 放在旁边(gzip 9 级、brotli 11 级),
