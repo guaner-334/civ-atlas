@@ -16,15 +16,18 @@
 import type { ChronicleBlock } from './civ/story/nameTokens';
 import type { FlagBook } from './civ/story/flags';
 import type { Civ } from './civ/types';
+import type { SimPluginState } from './civ/engine/plugin';
 import { parseSave, type SaveFile } from './savefile';
 import { makePart, partBytes, sha256, unpackValue, type SnapshotPart } from './snapshot';
 import type { World } from './world';
 import { MIGRATIONS, currentSchema, migratePart, type MigrationTable } from './worldMigrate';
-import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validateThumb, validateWorld, worldHeadLimit, worldPartLimit } from './worldValidate';
+import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validateSimState, validateThumb, validateWorld, worldHeadLimit, worldPartLimit } from './worldValidate';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES, parseZip, writeZip } from './zipStore';
 import {
   KNOWN_PARTS,
   MANIFEST_FILE,
+  SIM_STATE_PREFIX,
+  SIM_STATE_SCHEMA,
   WORLD_APP,
   WORLD_FORMAT,
   WORLD_KIND,
@@ -124,8 +127,19 @@ export function knownPart(p: SnapshotPart, schema?: number, migrations?: Migrati
 
 /** 附加数据打包:need 是 extra */
 export async function packExtra(x: WorldExtra): Promise<PackedPart> {
-  if (KNOWN_PARTS.has(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
+  if (KNOWN_PARTS.has(x.name) || isSimState(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
   return packedFrom(await makePart(x.name, x.value), x.schema, 'extra', x.by);
+}
+
+const isSimState = (name: string) => name.startsWith(SIM_STATE_PREFIX);
+
+/** 历史里的推演插件状态单独成块(sim.<插件编号>,按插件的先后),历史那一块不带它;没有插件状态的历史原样交回 */
+export async function splitSimStates(civ: Civ): Promise<{ civ: Civ; parts: PackedPart[] }> {
+  if (civ.simPlugins === undefined) return { civ, parts: [] };
+  const { simPlugins, ...rest } = civ;
+  const parts: PackedPart[] = [];
+  for (const st of simPlugins) parts.push(packedFrom(await makePart(`${SIM_STATE_PREFIX}${st.id}`, st), SIM_STATE_SCHEMA, 'extra', st.id));
+  return { civ: rest, parts };
 }
 
 /** 认得的一块打包;结构版本 = 现在的版本 */
@@ -210,9 +224,11 @@ export interface PackedWorld {
 export async function packWorldParts(input: PackInput): Promise<PackedWorld> {
   const parts: PackedPart[] = [await packKnown('map', mapValue(input.map))];
   if (input.eras?.eras.length) parts.push(await packKnown('eras', erasValue(input.eras)));
-  parts.push(await packKnown('civ', input.civ), await packKnown('chronicle', input.chronicle), await packKnown('flags', input.flags));
+  const split = await splitSimStates(input.civ);
+  parts.push(await packKnown('civ', split.civ), await packKnown('chronicle', input.chronicle), await packKnown('flags', input.flags));
   if (input.author) parts.push(await packKnown('author', input.author));
   if (input.thumb) parts.push(await packThumb(input.thumb));
+  parts.push(...split.parts);
   for (const x of input.extras ?? []) parts.push(await packExtra(x));
   return { manifest: buildManifest(input, parts.map((p) => p.info)), parts };
 }
@@ -298,11 +314,12 @@ export function openStoredParts(manifestBytes: Uint8Array, parts: readonly Packe
 
 /** 这一版软件只当字节留着的块 */
 function isKept(p: WorldPartInfo, migrations?: MigrationTable): boolean {
+  if (isSimState(p.name)) return p.schema > SIM_STATE_SCHEMA || (p.zip !== 'gzip' && p.zip !== 'none');
   return !KNOWN_PARTS.has(p.name) || p.schema > currentSchema(p.name, migrations) || (p.zip !== 'gzip' && p.zip !== 'none');
 }
 
 /**
- * 这一版软件只当字节留着、不解开的块的名字:插件存的数据、认不出的附加块、结构比软件新的可选块。
+ * 这一版软件只当字节留着、不解开的块的名字:插件存的数据、认不出的附加块、结构比软件新的可选块(推演插件的状态逐项核对,不算)。
  * 带着它们的世界能存、能存成文件,不能公开分享(审核看不到里面);空的 = 没有这种块
  */
 export function opaqueParts(parts: readonly WorldPartInfo[], migrations?: MigrationTable): string[] {
@@ -352,7 +369,7 @@ function partReader(opened: OpenedWorldFile, skipped: string[], done: { civ?: Ci
 
 /**
  * 只解开这几块:核指纹、迁移,不逐项校验。只给校验器已经过了的内容用(本机再打开世界时,见 worldOpen.ts);别人给的文件要走 readWorldContent。
- * 返回 块名 → 值(清单里没有这一块 = null)
+ * 返回 块名 → 值(清单里没有这一块 = null)。读了历史的,推演插件的状态块也在 opened 里就接回去(读不出来、过不了校验 = 不接)
  */
 export async function readTrustedParts(opened: OpenedWorldFile, names: readonly string[], done: { civ?: Civ } = {}): Promise<Record<string, unknown>> {
   const read = partReader(opened, [], done);
@@ -362,10 +379,43 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
       out[n] = await read(n);
       if (n === 'civ') done.civ = out[n] as Civ;
     }
+    const civ = out.civ as Civ | null | undefined;
+    const sims = simPartNames(opened);
+    if (civ && sims.length && sims.every((n) => opened.bytes.has(n)) && civ.simPlugins === undefined) {
+      const got = await readSimParts(opened, read, []).catch(() => []);
+      if (got.length) civ.simPlugins = got;
+    }
     return out;
   } catch (err) {
     throw asWorldFileError(err);
   }
+}
+
+/**
+ * 推演插件的状态(sim.<插件编号>,按文件里的先后)。可选的块:本机读的有一块读不出来、过不了校验,就都不要(接着推时从第 0 年重推),记进 skipped;
+ * 内存不够、传上服务器的文件照旧报错
+ */
+async function readSimParts(opened: OpenedWorldFile, read: ReturnType<typeof partReader>, skipped: string[]): Promise<SimPluginState[]> {
+  const infos = opened.manifest.parts.filter((p) => isSimState(p.name) && !opened.kept.includes(p));
+  if (infos.length !== simPartNames(opened).length) return [];
+  const out: SimPluginState[] = [];
+  for (const p of infos) {
+    try {
+      const v = await read(p.name);
+      validateSimState(v, p.name.slice(SIM_STATE_PREFIX.length));
+      out.push(v);
+    } catch (err) {
+      if (asWorldFileError(err).kind === 'memory' || (opened.options.maxBytes ?? ZIP_LOCAL_MAX_BYTES) <= ZIP_UPLOAD_MAX_BYTES) throw err;
+      skipped.push(...infos.map((x) => x.name));
+      return [];
+    }
+  }
+  return out;
+}
+
+/** 清单里推演插件状态块的名字(按文件里的先后) */
+export function simPartNames(opened: Pick<OpenedWorldFile, 'manifest'>): string[] {
+  return opened.manifest.parts.filter((p) => isSimState(p.name)).map((p) => p.name);
 }
 
 const AUTHOR_SKIPPED = 'AI 写的东西有一段太长，这次没读进来。世界不受影响，文件先别删';
@@ -426,6 +476,11 @@ async function readContent(opened: OpenedWorldFile, spare: boolean): Promise<Sto
     done.civ = civ;
     // 各段历史按下标对各段世界(有的大事还没推到,世界可以比历史多,不能少)
     if ((civ.eras?.length ?? 0) > (eras?.eras.length ?? 0)) broken('历史的各段比世界的各段多');
+    const sims = await readSimParts(opened, read, skipped);
+    if (sims.length) {
+      if (civ.simPlugins !== undefined) broken('推演插件的状态在历史里和单独的块里都有');
+      civ.simPlugins = sims;
+    }
     /** 读一块、校验;spare 时读不了 = null */
     const story = async <T>(name: string, check: (v: unknown) => asserts v is T): Promise<T | null> => {
       try {
@@ -479,7 +534,9 @@ export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteC
   const replaced = new Map<string, PackedPart | null>();
   if (v.map) replaced.set('map', await packKnown('map', mapValue(v.map), table));
   if (v.eras !== undefined) replaced.set('eras', v.eras?.eras.length ? await packKnown('eras', erasValue(v.eras), table) : null);
-  if (v.civ) replaced.set('civ', await packKnown('civ', v.civ, table));
+  // 推演插件的状态跟着历史走:换了历史,原来的状态块都去掉,换上这份历史带的
+  const sims = v.civ ? await splitSimStates(v.civ) : null;
+  if (sims) replaced.set('civ', await packKnown('civ', sims.civ, table));
   if (v.chronicle) replaced.set('chronicle', await packKnown('chronicle', v.chronicle, table));
   if (v.flags) replaced.set('flags', await packKnown('flags', v.flags, table));
   if (v.author !== undefined) replaced.set('author', v.author ? await packKnown('author', v.author, table) : null);
@@ -487,6 +544,7 @@ export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteC
 
   const parts: PackedPart[] = [];
   for (const p of manifest.parts) {
+    if (sims && isSimState(p.name)) continue;
     if (!replaced.has(p.name)) parts.push({ info: p, data: opened.bytes.get(p.name)! });
     else {
       const next = replaced.get(p.name);
@@ -494,6 +552,7 @@ export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteC
       replaced.delete(p.name);
     }
   }
+  if (sims) parts.push(...sims.parts);
   // 原来没有、这次才有的块
   for (const next of replaced.values()) if (next) parts.push(next);
 
