@@ -53,6 +53,7 @@ import {
   type WorldManifest,
 } from './worldFormat';
 import { PLUGIN_LIMITS, type SimPluginState } from './civ/engine/plugin';
+import { OFFICIAL_INFLUENCES } from './civ/influence';
 import { checkStoredChronicle, type ChronicleRefKind } from './civ/engine/pluginChronicle';
 import { checkLayerLook, sameLayerLook } from './layerLook';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES } from './zipStore';
@@ -1333,7 +1334,7 @@ function checkTableSnapshot(v: unknown, at: string): void {
  */
 export function validateSimState(v: unknown, id: string, at = `推演插件 ${id} 的状态`): asserts v is SimPluginState {
   const s = obj(v, at);
-  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables'], at);
+  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables', 'outputs'], at);
   if (s.id !== id) broken(`${at} 的 id 对不上`);
   int(s.sig, 0, 2 ** 32, `${at}.sig`);
   const year = yearOk(s.year, `${at}.year`);
@@ -1351,6 +1352,20 @@ export function validateSimState(v: unknown, id: string, at = `推演插件 ${id
   if (n > PLUGIN_LIMITS.pending) broken(`${at}.events 太多`);
   if (s.note !== undefined) checkNote(s.note, `${at}.note`);
   if (s.tables !== undefined) checkTableSnapshot(s.tables, `${at}.tables`);
+  if (s.outputs !== undefined) checkOutputs(s.outputs, `${at}.outputs`);
+}
+
+/** 插件交给影响口的几栏:口名是官方登记的,数在口的上下限里(格数和州、国对不对得上,接着推时再查) */
+function checkOutputs(v: unknown, at: string): void {
+  const o = obj(v, at);
+  for (const id of Object.keys(o)) {
+    const p = OFFICIAL_INFLUENCES.find((q) => q.id === id);
+    if (!p) broken(`${at} 里没有影响口 ${id}`);
+    const cols = p!.cols ?? 1;
+    const a = typed(o[id], Float64Array, `${at}.${id}`);
+    if (a.length % cols || a.length > 2 ** 15 * cols) broken(`${at}.${id} 的格数不对`);
+    for (let i = 0; i < a.length; i++) if (!(a[i] >= p!.min && a[i] <= p!.max)) broken(`${at}.${id} 超出上下限`);
+  }
 }
 
 /** 历史里 simPlugins 那一项:几个推演插件的状态,编号不重复 */

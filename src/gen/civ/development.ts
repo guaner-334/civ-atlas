@@ -263,6 +263,9 @@ export function popFactor(production: number): number {
   return Math.round(f * POP_QUANT) / POP_QUANT;
 }
 
+/** 城的人口上限倍数乘上推演插件交的 city.capacity(仍取到 1/POP_QUANT:变了才记进 devCap) */
+const cityCap = (f: number, m: number): number => Math.round(f * m * POP_QUANT) / POP_QUANT;
+
 
 // ---------------------------------------------------------------------------
 // 推演里的模型
@@ -506,9 +509,10 @@ function padTo32(a: Float32Array, n: number): Float32Array {
 function hook(sim: CivSim, d: DevModel): void {
   const api = civApi(sim);
   models.set(sim, d);
-  d.eng = devEngine(d);
+  d.eng = devEngine(d, !!sim.influence?.has('dev.rate'));
   sim.tables.add(TABLE_GROUP.dev, d.eng);
   d.pm.capFactor = d.capF;
+  if (sim.influence?.has('city.capacity')) d.pm.cityCapOf = (r) => cityCap(d.capF[r], sim.influence!.get('city.capacity')![r]);
   d.pm.military ??= [];
   // 打仗看物产(wars.ts):州里有哪几样;国家缺哪几样
   const wm = warModelOf(sim);
@@ -676,10 +680,11 @@ function focusShare(knobs: KnobSet, segs: readonly PolicySeg[], t0: Year, y: Yea
   return any ? out : null;
 }
 
-/** 发展度的数表:规则里的常数都取这个文件里的(发展重点的动员取这个世界的那套数;同一套数只编一次) */
-const devCardsMemo = new WeakMap<KnobSet, TableCard[]>();
-export function devCardsOf(knobs: KnobSet): TableCard[] {
-  let cards = devCardsMemo.get(knobs);
+/** 发展度的数表:规则里的常数都取这个文件里的(发展重点的动员取这个世界的那套数;同一套数、接没接影响口 dev.rate 各只编一次) */
+const devCardsMemo = [new WeakMap<KnobSet, TableCard[]>(), new WeakMap<KnobSet, TableCard[]>()];
+export function devCardsOf(knobs: KnobSet, rate = false): TableCard[] {
+  const memo = devCardsMemo[rate ? 1 : 0];
+  let cards = memo.get(knobs);
   if (cards) return cards;
   const { FOCUS_MOB } = knobs.get(POLICY_KNOBS);
   cards = devCards(
@@ -720,17 +725,18 @@ export function devCardsOf(knobs: KnobSet): TableCard[] {
       GRAIN: Res.Grain,
     },
     STEP,
+    rate,
   );
-  devCardsMemo.set(knobs, cards);
+  memo.set(knobs, cards);
   return cards;
 }
 
-/** 建好发展度的数表,填上模型此刻的状态(接着推时从上一步算到的那一年接上) */
-function devEngine(d: DevModel): TableEngine {
+/** 建好发展度的数表,填上模型此刻的状态(接着推时从上一步算到的那一年接上);rate = 推演插件接了影响口 dev.rate */
+function devEngine(d: DevModel, rate: boolean): TableEngine {
   const reg = d.pm.terrain.regions;
   const eng = new TableEngine({
     seed: d.seed,
-    cards: devCardsOf(d.pm.knobs),
+    cards: devCardsOf(d.pm.knobs, rate),
     units: { region: { count: d.R, adjStart: reg.adjStart, adj: reg.adj, adjKind: reg.adjKind, seat: reg.seat } },
     owner: '国',
   });
@@ -836,6 +842,8 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   // 推一把发展(boost.ts):这一步里各州"自己长""向邻居学"的倍数,按这一步里管了几成折算。没推的州 1,什么都不变
   const boostIn = eng.input('推').fill(1);
   if (dt > 0) api.dev.boostFill?.(d.last, y, boostIn);
+  const rateIn = sim.influence?.get('dev.rate');
+  if (rateIn) eng.input('速').set(rateIn);
 
   // 全球大疫(pandemic.ts):这一步里各州凋敝占了几成(没有全球大疫的世界全是 0)
   const pan = pandemicModelOf(sim);
@@ -980,13 +988,15 @@ function tick(sim: CivSim, d: DevModel, y: Year): void {
   }
 
   // 反过来影响推演:城的人口上限倍数(变了才记)、各国的军力系数、远洋
+  const capIn = sim.influence?.get('city.capacity');
   for (let r = 0; r < R; r++) {
     const f = popFactor(cur[r * CAP_COUNT + Cap.Production]);
     d.capF[r] = f;
     const s = cityIn(pm, r);
     if (!s) continue;
-    const dc = (s.devCap ??= [s.founded, f]);
-    if (dc[dc.length - 1] !== f) dc.push(y, f);
+    const g = capIn ? cityCap(f, capIn[r]) : f;
+    const dc = (s.devCap ??= [s.founded, g]);
+    if (dc[dc.length - 1] !== g) dc.push(y, g);
   }
   const mil = pm.military!;
   const { SAIL_LEVEL } = pm.k;
@@ -1087,8 +1097,9 @@ export function jumpEra(sim: CivSim, regions: readonly number[], target: number,
     d.capF[r] = f;
     const s = cityIn(pm, r);
     if (s) {
-      const dc = (s.devCap ??= [s.founded, f]);
-      if (dc[dc.length - 1] !== f) dc.push(t, f);
+      const g = pm.cityCapOf ? pm.cityCapOf(r) : f;
+      const dc = (s.devCap ??= [s.founded, g]);
+      if (dc[dc.length - 1] !== g) dc.push(t, g);
     }
   }
   if (!done.length) return 0;

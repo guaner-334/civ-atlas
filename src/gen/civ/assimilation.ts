@@ -421,6 +421,7 @@ function hook(sim: CivSim, am: AssimModel): void {
     const d = pm.capDist[P.id];
     const capR = pm.settlements[capitalAt(P, t)].region;
     const nomadRuler = P.kind === 'nomad';
+    const rateIn = sim.influence?.get('assim.rate');
     const out: [number, number][] = [];
     for (const r of mine) {
       const c = culture[r];
@@ -446,7 +447,8 @@ function hook(sim: CivSim, am: AssimModel): void {
       if (!reverse && nomadRuler && !ARID[bi]) e *= NOMAD_FARMLAND;
       // 迁来立的国反被同化:统治满 MIN_RULE 年就是满速(不等到 FULL_RULE)
       const ramp = reverse && trek ? 1 : Math.min(1, (rule - MIN_RULE) / (FULL_RULE - MIN_RULE));
-      const rate = RATE * ramp * f * near * strength * e;
+      const rate0 = RATE * ramp * f * near * strength * e;
+      const rate = rateIn ? rate0 * rateIn[r] : rate0;
       const p = 1 - fexp(-rate * span);
       if (keyed4(am.base, pm.ptag[P.id], reg.seat[r], k, U_ASSIM) < p) out.push([r, g]);
     }
@@ -489,6 +491,7 @@ function hook(sim: CivSim, am: AssimModel): void {
   sim.on(Ev.EnclaveCheck, (k, _b, t) => {
     sim.schedule(enclaveTime(am, k + 1), Ev.EnclaveCheck, k + 1, 0);
     const span = t - (k > 0 ? quantize(enclaveTime(am, k - 1)) : 0);
+    const rateIn = sim.influence?.get('assim.rate');
     const out: [number, number][] = [];
     const seen: number[] = [];
     for (let r = 0; r < R; r++) {
@@ -518,7 +521,8 @@ function hook(sim: CivSim, am: AssimModel): void {
       for (const cj of seen) around[cj] = 0;
       seen.length = 0;
       if (f < ENCLAVE_F) continue;
-      const rate = ENCLAVE_RATE * f * ease(c, g, r);
+      const rate0 = ENCLAVE_RATE * f * ease(c, g, r);
+      const rate = rateIn ? rate0 * rateIn[r] : rate0;
       if (keyed(am.base, reg.seat[r], k, U_ENCLAVE) < 1 - fexp(-rate * span)) out.push([r, g]);
     }
     // 同一步里先被同化光了的民族(消亡了)不再去同化别人

@@ -142,8 +142,14 @@ export interface PopRuleConsts {
 /** 输入表的上下限(只是写在卡上;输入表由事件层直接填,不压) */
 const BIG = 1e15;
 
+/** 推演插件接了哪几个影响口(接了的才多一张输入表、规则多一项;没接的规则和原来一字不差) */
+export interface StatePlug {
+  unrest?: boolean;
+  reach?: boolean;
+}
+
 /** 政局的全部表(输入表在前) */
-export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalRuleConsts, h: PopRuleConsts, k: CouncilRuleConsts): TableCard[] {
+export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalRuleConsts, h: PopRuleConsts, k: CouncilRuleConsts, plug: StatePlug = {}): TableCard[] {
   const num = (id: string, name: string): TableCard => ({ id, name, unit: 'region', input: true, min: -BIG, max: BIG, off: 0 });
   const pol = (id: string, name: string): TableCard => ({ ...num(id, name), unit: 'polity' });
   const cell = (id: string, name: string): TableCard => ({ ...num(id, name), unit: 'tile' });
@@ -192,6 +198,8 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     pol('边镇', '设了边镇没有'),
     pol('官升', '铨选多管的几档行政能力(只算管得到几成;许了自辟是负的)'),
     pol('官费', '铨选的开销(占应缴几成;许了自辟是负的)'),
+    ...(plug.unrest ? [num('动荡加', '推演插件加的动荡(按本国的州平均)')] : []),
+    ...(plug.reach ? [{ ...pol('远近', '推演插件给的管得到的远近倍数'), off: 1 }] : []),
   ];
 
   /** 行政越强,远处的州也管得住:管得到的远近、离国都远近的折算都乘它 */
@@ -210,7 +218,7 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
     rule: [
       // 铨选的多管一截(官升;许了自辟少管一截)只算在这里,不算进离国都远近;有了铁路(做法表)管得到的远近再乘 RAIL_REACH
       'let 行政 = 1 + ADMIN_GAIN * max(0, 国都行政 + 官升)',
-      'let x = if(路程 >= NEVER, 4, 路程 / (REACH * 行政 * if(做法.铁路 > 0, RAIL_REACH, 1)))',
+      `let x = if(路程 >= NEVER, 4, 路程 / (REACH * 行政 * if(做法.铁路 > 0, RAIL_REACH, 1)${plug.reach ? ' * 远近' : ''}))`,
       // 异族、刚被征服(随年数淡去)、当地有大城都打折
       'let c = 1 / (1 + x * x) * if(异族, FOREIGN, 1) * if(新征 < RECENT, 1 - RECENT_CUT * (1 - 新征 / RECENT), 1) * if(大城, BIG_CITY, 1)',
       'if(not has(国), 0, if(是国都, 1, c))',
@@ -307,7 +315,7 @@ export function stateCards(c: ControlRuleConsts, u: UnrestRuleConsts, f: FiscalR
       '  if(当朝 < NEW_YEARS, -NEW_W, AGE_W * min(1, max(0, (当朝 - AGE_0) / AGE_SPAN))) +',
       '  if(饥荒 > 0, FAMINE_W * min(1, 饥荒 / max(FAMINE_FULL_MIN, FAMINE_FULL * N)), 0) +',
       '  if(疫病 > 0, PLAGUE_W * min(1, 疫病 / max(FAMINE_FULL_MIN, PLAGUE_FULL * N)), 0) +',
-      '  REVOLT_W * 平叛 + FISCAL_W * 窘迫 + 改制',
+      `  REVOLT_W * 平叛 + FISCAL_W * 窘迫 + 改制${plug.unrest ? ' + sumof(动荡加) / N' : ''}`,
       'if(N > 0, u, 0)',
     ].join('\n'),
   };

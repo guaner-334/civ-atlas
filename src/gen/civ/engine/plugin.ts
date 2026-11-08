@@ -7,6 +7,7 @@ import { Layer, type Annal, type AnnalKind } from '../types';
 import { keyed, keyed4, subSeed } from './rand';
 import type { CivSim } from './sim';
 import { FREQUENCIES, TableEngine, colCount, type TableCard, type TableSnapshot } from './tables';
+import type { InfluenceCols } from './influence';
 import { CHRONICLE_LIMITS, checkStoredChronicle, fillChronicle, type PluginChronicle, type RefCount, type SimChronicleLine } from './pluginChronicle';
 import { LAYER_LIMITS, LayerRun, type LayerLookCheck, type SimLayer, type SimLayerSpec } from './pluginLayers';
 
@@ -95,6 +96,8 @@ export interface PluginTurn<V> {
   readonly read: V;
   /** 自己的表此刻的值(复制的一份,格 × 栏) */
   table(id: string): Float64Array;
+  /** 自己交给影响口 id 的那栏此刻的值(复制的一份,格 × 栏;还没交 = 全是不影响的数) */
+  output(id: string): Float64Array;
   /** 自己的随机数:[0, 1),按键直接算,和先后无关(键当整数用) */
   rand(a: number, b?: number, c?: number, d?: number): number;
 }
@@ -107,6 +110,8 @@ export interface PluginReply {
   at?: readonly { year: number; kind: number; data?: readonly number[] }[];
   /** 换掉自己几张表的值(格 × 栏,个数要对;压回上下限) */
   tables?: Readonly<Record<string, ArrayLike<number>>>;
+  /** 换掉交给影响口的几栏(口名 → 格 × 栏,个数要对;压回口的上下限) */
+  outputs?: Readonly<Record<string, ArrayLike<number>>>;
   /** 下命令(规则包认的写法):此刻的下一格生效 */
   commands?: readonly unknown[];
   /** 写进编年史的几句(记在此刻) */
@@ -126,6 +131,8 @@ export interface SimPlugin<V = unknown> {
   readonly listen?: readonly AnnalKind[];
   /** 存成图层的表 */
   readonly layers?: readonly SimLayerSpec[];
+  /** 交数给哪几个影响口(规则包登记的口名) */
+  readonly outputs?: readonly string[];
   act(turn: PluginTurn<V>): PluginReply | void;
 }
 
@@ -168,6 +175,8 @@ export interface SimPluginState {
   events: Float64Array;
   note?: PluginNote;
   tables?: TableSnapshot;
+  /** 交给影响口的几栏(只存交过的) */
+  outputs?: InfluenceCols;
 }
 
 /** 当场叫插件(插件在推演线程里同步跑);交回的是还没出来的结果 = 插件写错了 */
@@ -260,6 +269,8 @@ class Host<V> {
     /** 这一段推演里插件写的编年史(几个插件写进同一串) */
     private readonly lines: SimChronicleLine[],
     look: LayerLookCheck | undefined,
+    /** 第几个插件(影响口里占的格位) */
+    private readonly slot: number,
   ) {
     const id = plugin.id;
     this.id = id;
@@ -273,8 +284,11 @@ class Host<V> {
     if (!Array.isArray(listen) || listen.length > PLUGIN_LIMITS.listen || listen.some((k) => typeof k !== 'string')) fail('listen 要是不超过 64 个史事种类');
     this.listen = listen.length ? new Set(listen) : null;
     this.rand = subSeed(seed, `plugin:${id}`);
+    const outs = plugin.outputs ?? [];
+    if (outs.length && !sim.influence?.has(outs[0])) fail('这套规则没接影响口');
     const shape: unknown[] = [plugin.every ?? null, plugin.tables ?? [], plugin.inputs ?? {}, listen];
     if (plugin.layers?.length) shape.push(plugin.layers);
+    if (outs.length) shape.push(outs);
     this.sig = subSeed(0, JSON.stringify(shape));
 
     const cards = plugin.tables ?? [];
@@ -371,6 +385,10 @@ class Host<V> {
         throw new PluginError(this.id, `存下的表接不上:${e instanceof Error ? e.message : String(e)}`, { cause: e });
       }
     }
+    if (s.outputs !== undefined) {
+      if (!this.sim.influence) fail('和插件接的影响口对不上');
+      this.sim.influence!.restore(this.slot, this.id, s.outputs);
+    }
     this.note = s.note === undefined ? undefined : cleanNote(this.id, s.note);
     const mine = layers.filter((l) => l.by === this.id);
     if (mine.length !== this.layers.length) fail('的图层和插件的对不上');
@@ -403,7 +421,13 @@ class Host<V> {
       events: Float64Array.from(flat),
       ...(this.note !== undefined ? { note: cleanNote(this.id, this.note) } : {}),
       ...(this.eng ? { tables: this.eng.snapshot() } : {}),
+      ...this.outputsOf(),
     };
+  }
+
+  private outputsOf(): { outputs?: InfluenceCols } {
+    const o = this.plugin.outputs?.length ? this.sim.influence?.snapshot(this.slot) : undefined;
+    return o ? { outputs: o } : {};
   }
 
   /** 存下的图层(州补到 count 个) */
@@ -529,6 +553,10 @@ class Host<V> {
         return this.eng.get(t).slice();
       },
       rand: (a: number, b = 0, c = 0, d?: number) => (d === undefined ? keyed(base, a, b, c) : keyed4(base, a, b, c, d)),
+      output: (id: string) => {
+        if (!this.plugin.outputs?.includes(id)) throw new PluginError(this.id, `没有登记交给影响口 ${id}`);
+        return this.sim.influence!.view(this.slot, id, this.bridge.polities().count);
+      },
     };
   }
 
@@ -538,10 +566,14 @@ class Host<V> {
       throw new PluginError(this.id, what);
     };
     if (typeof reply !== 'object') fail('回话要是一个对象');
-    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'commands' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
+    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'outputs' && key !== 'commands' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
     if (reply.tables !== undefined) {
       if (reply.tables === null || typeof reply.tables !== 'object') fail('回话里的 tables 要是一个对象');
       for (const [t, v] of Object.entries(reply.tables)) this.setTable(t, v);
+    }
+    if (reply.outputs !== undefined) {
+      if (!this.plugin.outputs?.length) fail('没有登记交给影响口,回话里不能有 outputs');
+      this.sim.influence!.take(this.slot, this.id, reply.outputs, this.bridge.polities().count);
     }
     if (reply.note !== undefined) this.note = cleanNote(this.id, reply.note);
     if (reply.at !== undefined) {
@@ -667,7 +699,7 @@ export class PluginLine<V> {
       if (ids.has(id)) throw new Error(`推演插件 ${id} 给了两次`);
       ids.add(id);
     }
-    this.hosts = plugins.map((p) => new Host(p, sim, bridge, seed, clock, this.lines, look));
+    this.hosts = plugins.map((p, i) => new Host(p, sim, bridge, seed, clock, this.lines, look, i));
     if (saved) {
       if (saved.states.length !== plugins.length) throw new Error('存下的推演插件和给的对不上');
       const written = new Map<string, number>();

@@ -15,6 +15,7 @@ import type { UpheavalStep } from './upheaval';
 import type { FinishCtx, InstallCtx, ResumeCtx } from './modules';
 import { PluginClock, PluginError, PluginLine, answerNow, type PluginAsk, type PluginBridge, type PluginReply, type SimPlugin } from './engine/plugin';
 import type { SimRead } from './simRead';
+import { influencesFor } from './engine/influence';
 import { checkLayerLook } from '../layerLook';
 
 export const DEFAULT_CIV_PARAMS: CivParams = {
@@ -338,8 +339,11 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
   const sim = packSim(pack, regions.count, knobs);
   let fin: Segment = { sim, world, habitat, regions };
   const { own, install } = pack.prelude(run, fin);
-  if (install) installModules(pack, install);
   const plugins = install ? (p.plugins ?? []) : [];
+  if (install) {
+    sim.influence = influencesFor(pack.influences ?? [], plugins, sim.R);
+    installModules(pack, install);
+  }
   const clock = clockOf(p);
   fin.plug = plugInto(pack, sim, plugins, seed, null, clock);
   progress('民族推演', 0.85);
@@ -354,7 +358,7 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
     const same = halfOf(run, own, before, before.habitat, before.regions);
     same.upheavals = facts.slice();
     // 接着推和一口气推完一样:这一支和"没有这件大事、照原样推到底"一模一样(信仰照历史重放:早先几段按那时的州)
-    const branch = resumePack(pack, before.world, same, same.interventions ?? [], undefined, eras);
+    const branch = resumePack(pack, before.world, same, same.interventions ?? [], undefined, eras, plugins);
     yield* segment({ stop: Infinity, sim: null }, branch, p.endYear, plugInto(pack, branch, plugins, seed, same, clock));
     eras.push(pack.era(run, own, { k, seg: before, branch, from: k ? ups[k - 1].year : -Infinity, to: u.year, eras }));
     // 新地形:州沿用编号,只改变了的地方
@@ -376,6 +380,7 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
         up.first(s);
       },
       eras,
+      plugins,
     );
     up.install(s1);
     const plug = plugInto(pack, s1, plugins, seed, half, clock);
@@ -417,7 +422,7 @@ function engineStateOf(civ: Civ): EngineState {
 /**
  * 由 Civ 重建推演状态,然后就能从 civ.endYear 接着推:sim.run(更晚的年份)。不需要保存事件堆。
  * interventions = 接着推时带着的干预(后面可以接上几条比 civ.endYear 晚的);first = 最先预约的事件(地形大事那一刻接着推时:大事本身);
- * eras = 地形大事以前各段的州
+ * eras = 地形大事以前各段的州;plugins = 接着推带着的推演插件(影响口要在各模块接着推以前接上)
  */
 export function resumePack<S>(
   pack: CivPack<S>,
@@ -426,9 +431,11 @@ export function resumePack<S>(
   interventions: readonly Intervention[] = civ.interventions ?? [],
   first?: (sim: CivSim) => void,
   eras: readonly EraRegions[] = civ.eras ?? [],
+  plugins: readonly SimPlugin<SimRead>[] = [],
 ): CivSim {
   const sim = restorePackSim(pack, engineStateOf(civ));
   if (civ.viable && civ.cultures.length) {
+    sim.influence = influencesFor(pack.influences ?? [], plugins, sim.R);
     first?.(sim);
     resumeModules(pack, sim, pack.resumePrelude({ sim, world, civ, interventions, eras }));
   }
@@ -481,16 +488,17 @@ export function continuePack<S>(pack: CivPack<S>, world: World, civ: Civ, params
   progress('民族推演', 0.85);
   // 起名会写州名(regions.name):换一份州,不改传进来的 civ
   const regions = { ...civ.regions };
-  const sim = resumePack(pack, world, { ...civ, regions }, list);
-  const run: CivRun<S> = { pack, p, seed, knobs: sim.knobs, viable: true, progress };
+  let sim: CivSim;
   let plug: PluginLine<SimRead> | null;
   try {
+    sim = resumePack(pack, world, { ...civ, regions }, list, undefined, undefined, p.plugins ?? []);
     plug = plugInto(pack, sim, p.plugins ?? [], civ.seed, civ, clockOf(p));
   } catch (e) {
     // 存下的插件状态接不上(插件的表改了、状态坏了):和别的接不上一样从第 0 年重推
     if (e instanceof PluginError) return null;
     throw e;
   }
+  const run: CivRun<S> = { pack, p, seed, knobs: sim.knobs, viable: true, progress };
   const fin: Segment = { sim, world, habitat: civ.habitat, regions, plug };
   const to = p.endYear;
   const d = new Drive((line) => segment(line, sim, to, fin.plug), civ.endYear, to, sim);

@@ -206,6 +206,8 @@ export interface PolityModel {
    * 各国此刻的军力系数(按国家号;打仗的国力乘它,见 wars.ts)。没有发展度 = 不给(倍数、系数都是 1)
    */
   capFactor?: Float64Array;
+  /** 新建的城记起的倍数(推演插件接了影响口 city.capacity 时由发展度挂上;不给 = capFactor) */
+  cityCapOf?: (r: number) => number;
   military?: number[];
   /** 君主在位表(rulers.ts)的随机数根、各国的位置锚(和 people.ts 一样按国都的城所在地块数,见 rulerTags) */
   rbase: number;
@@ -1254,7 +1256,7 @@ export function foundCity(sim: CivSim, m: PolityModel, r: number, t: Year, rebui
   };
   if (rebuild) s.rebuilds = rebuild.of;
   // 人口上限随生产能力变的倍数:从建城那一刻的(development.ts 每 20 年更新)记起
-  if (m.capFactor) s.devCap = [t, m.capFactor[r]];
+  if (m.capFactor) s.devCap = [t, m.cityCapOf ? m.cityCapOf(r) : m.capFactor[r]];
   m.settlements.push(s);
   m.stag.push(nextTag(m.sAt, s.cell));
   m.cityOf[r] = id;
