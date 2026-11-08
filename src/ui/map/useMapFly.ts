@@ -9,6 +9,7 @@
  * 这里的函数每次渲染新建(和原来写在 App 里一样),effect 和定时回调经 xxxRef.current 调到最新的那一份。
  */
 import { useEffect, useRef, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
+import { flushSync } from 'react-dom';
 import type { World } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ } from '../../gen/civ/types';
@@ -248,9 +249,16 @@ export function useMapFly({ data, dataRef, civ, box, replayOn, narrow, panelOpen
       if (curvedNow) setMapMoving(true);
       const t = animProgress(now, t0, FLY_MS);
       const r = step(easeOutCubic(t));
-      if (r.lon !== null) publishMapCenter(wrapLon(r.lon));
       viewRef.current = r.v;
-      setView(r.v);
+      if (r.lon !== null) {
+        const lon = wrapLon(r.lon);
+        // 中心(同步渲染)、视图、停下分开换会每帧渲染两遍,先渲染的那遍上不了屏
+        flushSync(() => {
+          publishMapCenter(lon);
+          setView(r.v);
+          if (t >= 1) stopFly();
+        });
+      } else setView(r.v);
       if (t < 1) flyRaf.current = requestAnimationFrame(frame);
       else stopFly();
     };

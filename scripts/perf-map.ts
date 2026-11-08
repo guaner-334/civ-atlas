@@ -30,7 +30,9 @@
  *   最长帧距   两帧之间最长隔了多久(requestAnimationFrame;16.7 = 一帧没掉)
  *   操作中 p95 操作进行中帧距的 95 分位
  *   补画       松手后到细节层最后一次画完(画面变清楚)多久(地球仪 CPU 画法:最后一次换上底图)
- *   面板       点国家:从按下到面板出现在屏幕上的那一帧画完
+ *   面板       点国家:从按下到面板出现在屏幕上的那一帧画完(之后紧跟着的消息;下一帧的活先跑时会算进去)
+ *   面板帧     点国家:从按下到画出面板的那一帧的 requestAnimationFrame 回调跑起来(之后这一帧只剩样式、排版、绘制)
+ *   响应       点国家:浏览器 Event Timing 记的按下 / 松手 / 点击里最长的一次(从按下到处理完后下一帧上屏)
  *   底图p95   地球仪 CPU 画法:操作中底图两次换上之间的 95 分位(主线程不卡时球面本身多久更新一次)
  *   地形 / 文明 细节层画一次最久多少毫秒(主线程上的,后台分帧做的部分另算在"分帧"里)
  * 数字只在同一台机器、同一个浏览器上前后对比有意义;没有显卡的机器上画图比真机慢得多,只看趋势。
@@ -163,7 +165,7 @@ const RECORDER = `(() => {
   const ch = new MessageChannel();
   ch.port1.onmessage = () => { const a = P.cur; if (a && a.panelSeen && !a.panelAt) a.panelAt = performance.now(); };
   P.begin = () => {
-    const a = { start: performance.now(), inputEnd: 0, frames: [], tasks: [], draws: [], views: [], shows: [], running: true, obs: null, downAt: 0, panelSeen: 0, panelAt: 0 };
+    const a = { start: performance.now(), inputEnd: 0, frames: [], tasks: [], draws: [], views: [], shows: [], events: [], running: true, obs: null, evObs: null, downAt: 0, panelSeen: 0, panelRaf: 0, panelAt: 0 };
     P.cur = a;
     let last = null;
     const tick = (t) => {
@@ -171,13 +173,17 @@ const RECORDER = `(() => {
       if (last !== null) a.frames.push({ t, dt: t - last });
       last = t;
       // 面板第一次出现在这一帧:这一帧画完(紧跟着的消息)记为"面板出来"
-      if (a.downAt && !a.panelSeen && document.querySelector('.inspector:not(.hidden)')) { a.panelSeen = t; ch.port2.postMessage(0); }
+      if (a.downAt && !a.panelSeen && document.querySelector('.inspector:not(.hidden)')) { a.panelSeen = t; a.panelRaf = performance.now(); ch.port2.postMessage(0); }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
     if (PerformanceObserver.supportedEntryTypes.includes('longtask')) {
       a.obs = new PerformanceObserver((l) => { for (const e of l.getEntries()) a.tasks.push({ t: e.startTime, ms: e.duration }); });
       a.obs.observe({ type: 'longtask' });
+    }
+    if (PerformanceObserver.supportedEntryTypes.includes('event')) {
+      a.evObs = new PerformanceObserver((l) => { for (const e of l.getEntries()) a.events.push({ name: e.name, t: e.startTime, ms: e.duration }); });
+      a.evObs.observe({ type: 'event', durationThreshold: 16 });
     }
   };
   P.end = async () => {
@@ -195,6 +201,7 @@ const RECORDER = `(() => {
     }
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     if (a.obs) { for (const e of a.obs.takeRecords()) a.tasks.push({ t: e.startTime, ms: e.duration }); a.obs.disconnect(); }
+    if (a.evObs) { for (const e of a.evObs.takeRecords()) a.events.push({ name: e.name, t: e.startTime, ms: e.duration }); a.evObs.disconnect(); }
     a.running = false;
     a.end = performance.now();
     const g = window.__wfGlobe;
@@ -202,6 +209,7 @@ const RECORDER = `(() => {
     a.panel = [...document.querySelectorAll('.inspector')].some((e) => e.getBoundingClientRect().width > 0);
     a.canvasMiB = [...document.querySelectorAll('canvas')].reduce((s, c) => s + c.width * c.height * 4, 0) / 1048576;
     delete a.obs;
+    delete a.evObs;
     P.cur = null;
     return a;
   };
@@ -217,7 +225,11 @@ interface Raw {
   views: { t: number; k: number; x: number; y: number; lon?: number }[];
   /** 地球仪 CPU 画法:每次换上底图的时刻 */
   shows: { t: number }[];
+  /** Event Timing:按下、松手、点击这些事件各自到下一帧上屏多久 */
+  events?: { name: string; t: number; ms: number }[];
   downAt: number;
+  /** 面板第一次出现的那一帧,requestAnimationFrame 回调跑到的时刻 */
+  panelRaf: number;
   panelAt: number;
   final: { k: number; x: number; y: number; lon?: number } | null;
   panel: boolean;
@@ -242,6 +254,10 @@ interface Row {
   projMax: number;
   /** 点国家:按下到面板出现 */
   panelMs: number;
+  /** 点国家:按下到画出面板的那一帧的 requestAnimationFrame 回调跑起来 */
+  panelFrame: number;
+  /** 点国家:Event Timing 里按下 / 松手 / 点击最长的一次 */
+  inp: number;
   /** 地球仪 CPU 画法:操作中底图换上间隔的 95 分位 */
   imgP95: number;
   k: number;
@@ -253,6 +269,8 @@ function pct(a: number[], q: number): number {
   const s = [...a].sort((x, y) => x - y);
   return s[Math.min(s.length - 1, Math.floor(s.length * q))];
 }
+
+const TAP_EVENTS = new Set(['pointerdown', 'pointerup', 'click', 'mousedown', 'mouseup', 'touchstart', 'touchend']);
 
 function summarize(c: Case, op: string, run: number, raw: Raw, valid: boolean): Row {
   const tasks = raw.tasks.filter((t) => t.t + t.ms >= raw.start);
@@ -278,6 +296,8 @@ function summarize(c: Case, op: string, run: number, raw: Raw, valid: boolean): 
     prepMax: r1(Math.max(0, ...raw.draws.map((d) => d.prep))),
     projMax: r1(Math.max(of('__wfProj'), of('__wfCivProj'))),
     panelMs: raw.downAt && raw.panelAt ? r1(raw.panelAt - raw.downAt) : 0,
+    panelFrame: raw.downAt && raw.panelRaf ? r1(raw.panelRaf - raw.downAt) : 0,
+    inp: r1(Math.max(0, ...(raw.events ?? []).filter((e) => TAP_EVENTS.has(e.name) && e.t >= raw.start).map((e) => e.ms))),
     imgP95: r1(pct(showGaps, 0.95)),
     k: Math.round((raw.final?.k ?? 0) * 1000) / 1000,
   };
@@ -520,6 +540,8 @@ const COLS: [keyof Row, string][] = [
   ['prepMax', '分帧'],
   ['projMax', '投影'],
   ['panelMs', '面板'],
+  ['panelFrame', '面板帧'],
+  ['inp', '响应'],
   ['imgP95', '底图p95'],
 ];
 const fmt = (r: Row) =>
@@ -759,15 +781,15 @@ try {
   await srv.close();
 }
 // 汇总:每种情况、每种操作取有效的几轮里最差的(第一次放大单列)
-console.log('\n== 汇总(每格 = 有效几轮里最长任务的最大值 / 最长帧距的最大值;点国家另加按下到面板出现的最大值)');
+console.log('\n== 汇总(每格 = 有效几轮里最长任务的最大值 / 最长帧距的最大值;点国家另加按下到面板出现、响应的最大值)');
 const ops = ['1倍拖动', '放大到4倍#0', '放大到4倍#1+', '4倍短拖', '4倍长拖', '点国家'];
 console.log(`${'情况'.padEnd(14)} ${ops.map((o) => o.padStart(14)).join('')}`);
 for (const c of cases) {
   const cells = ops.map((o) => {
     const sel = rows.filter((r) => r.case === c.id && r.valid && (o === '放大到4倍#0' ? r.op === '放大到4倍' && r.run === 0 : o === '放大到4倍#1+' ? r.op === '放大到4倍' && r.run > 0 : r.op === o));
     if (!sel.length) return '—'.padStart(14);
-    const panel = o === '点国家' ? ` / ${Math.max(...sel.map((r) => r.panelMs))}` : '';
-    return `${Math.max(...sel.map((r) => r.longMax))} / ${Math.max(...sel.map((r) => r.frameMax))}${panel}`.padStart(o === '点国家' ? 20 : 14);
+    const panel = o === '点国家' ? ` / ${Math.max(...sel.map((r) => r.panelMs))} / ${Math.max(...sel.map((r) => r.inp))}` : '';
+    return `${Math.max(...sel.map((r) => r.longMax))} / ${Math.max(...sel.map((r) => r.frameMax))}${panel}`.padStart(o === '点国家' ? 26 : 14);
   });
   console.log(`${c.id.padEnd(14)} ${cells.join('')}`);
 }

@@ -430,65 +430,24 @@ export function drawSelection(
     ctx.restore();
     return 0;
   }
-  const R = civ.regions.count;
-  const group = new Int32Array(R).fill(-1);
-  let lit = 0;
-  if (sel.kind === 'region') {
-    if (sel.id >= 0 && sel.id < R) {
-      group[sel.id] = 1;
-      lit = 1;
-    }
-  } else {
-    selOwners = ownersAt(civ, year, selOwners);
-    for (let r = 0; r < R; r++) {
-      if (selOwners.polity[r] !== sel.id) continue;
-      group[r] = 1;
-      lit++;
-    }
-  }
-  if (!lit) {
+  const prep = selectionPrep(world, raster, civ, sel.kind, sel.id, year, look.fill);
+  const buf = prep.buf;
+  if (!buf) {
     ctx.restore();
     return 0;
   }
-  // 罩染(半分辨率)
-  const pix = pixOf(world, raster, civ);
-  const f = 2;
-  const W = Math.ceil(w / f);
-  const H = Math.ceil(h / f);
-  const img = new ImageData(W, H);
-  const d = img.data;
-  const c = look.fill;
-  for (let y = 0; y < H; y++) {
-    const row = Math.min(h - 1, y * f + 1) * w;
-    for (let x = 0; x < W; x++) {
-      const r = pix[row + Math.min(w - 1, x * f + 1)];
-      if (r < 0 || group[r] !== 1) continue;
-      const o = (y * W + x) * 4;
-      d[o] = c[0];
-      d[o + 1] = c[1];
-      d[o + 2] = c[2];
-      d[o + 3] = c[3];
-    }
-  }
-  const buf =
-    typeof OffscreenCanvas !== 'undefined'
-      ? new OffscreenCanvas(W, H)
-      : Object.assign(document.createElement('canvas'), { width: W, height: H });
-  (buf.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
   ctx.imageSmoothingEnabled = true;
   if (proj) {
-    reprojectImage(ctx, buf, W, H, proj.mp, pv);
+    reprojectImage(ctx, buf, prep.W, prep.H, proj.mp, pv);
     clipOutline(ctx, proj.mp, pv);
   } else ctx.drawImage(buf, 0, 0, w, h);
   // 描边(沿州界,只描陆地之间;海岸那一侧靠罩染看出来)
-  const pa = new Path2D();
-  addToPath(
-    pa,
-    mergeChains(regionChains(world.mesh, civ), group).map((l) => chaikin(l, 2)),
-    S,
-    wrap,
-    proj,
-  );
+  let pa = proj ? null : prep.flatPath;
+  if (!pa) {
+    pa = new Path2D();
+    addToPath(pa, prep.lines, S, wrap, proj);
+    if (!proj) prep.flatPath = pa;
+  }
   ctx.strokeStyle = look.line[0];
   ctx.lineWidth = 4.2 * S * thin;
   ctx.stroke(pa);
@@ -496,7 +455,78 @@ export function drawSelection(
   ctx.lineWidth = 1.8 * S * thin;
   ctx.stroke(pa);
   ctx.restore();
-  return lit;
+  return prep.lit;
+}
+
+/** 选中的国家 / 州的罩染(半分辨率)和平滑过的描边:不随投影、中心、缩放变,飞过去、转中心时每帧接着用 */
+interface SelectionPrep {
+  world: World;
+  raster: Raster;
+  civ: Civ;
+  kind: 'polity' | 'region';
+  id: number;
+  year: Year;
+  fill: RGBA;
+  lit: number;
+  /** 没亮任何州 = null */
+  buf: OffscreenCanvas | HTMLCanvasElement | null;
+  W: number;
+  H: number;
+  lines: Polyline[];
+  /** 等距圆柱的描边路径 */
+  flatPath: Path2D | null;
+}
+
+let selPrep: SelectionPrep | null = null;
+
+function selectionPrep(world: World, raster: Raster, civ: Civ, kind: 'polity' | 'region', id: number, year: Year, fill: RGBA): SelectionPrep {
+  const hit = selPrep;
+  if (hit && hit.world === world && hit.raster === raster && hit.civ === civ && hit.kind === kind && hit.id === id && hit.year === year && hit.fill === fill) return hit;
+  const R = civ.regions.count;
+  const group = new Int32Array(R).fill(-1);
+  let lit = 0;
+  if (kind === 'region') {
+    if (id >= 0 && id < R) {
+      group[id] = 1;
+      lit = 1;
+    }
+  } else {
+    selOwners = ownersAt(civ, year, selOwners);
+    for (let r = 0; r < R; r++) {
+      if (selOwners.polity[r] !== id) continue;
+      group[r] = 1;
+      lit++;
+    }
+  }
+  const out: SelectionPrep = { world, raster, civ, kind, id, year, fill, lit, buf: null, W: 0, H: 0, lines: [], flatPath: null };
+  selPrep = out;
+  if (!lit) return out;
+  const { w, h } = raster;
+  const pix = pixOf(world, raster, civ);
+  const f = 2;
+  const W = Math.ceil(w / f);
+  const H = Math.ceil(h / f);
+  const img = new ImageData(W, H);
+  const d = img.data;
+  for (let y = 0; y < H; y++) {
+    const row = Math.min(h - 1, y * f + 1) * w;
+    for (let x = 0; x < W; x++) {
+      const r = pix[row + Math.min(w - 1, x * f + 1)];
+      if (r < 0 || group[r] !== 1) continue;
+      const o = (y * W + x) * 4;
+      d[o] = fill[0];
+      d[o + 1] = fill[1];
+      d[o + 2] = fill[2];
+      d[o + 3] = fill[3];
+    }
+  }
+  const buf = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H });
+  (buf.getContext('2d') as CanvasRenderingContext2D).putImageData(img, 0, 0);
+  out.buf = buf;
+  out.W = W;
+  out.H = H;
+  out.lines = mergeChains(regionChains(world.mesh, civ), group).map((l) => chaikin(l, 2));
+  return out;
 }
 
 /**
