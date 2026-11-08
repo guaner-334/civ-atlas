@@ -18,7 +18,7 @@ import type { PluginDataStore } from '../../../plugin/store';
 import type { PanelNode, ViewInfo } from '../../../plugin/types';
 import { getCivShow, getCivTime, getSelection, subscribeCivTime, subscribeSelection } from '../../civView';
 import { createStore } from '../../createStore';
-import { commitEdits, getEdits, historyDiffers, revertEdits } from '../../editsStore';
+import { commitEdits, editsEra, getEdits, historyDiffers, revertEdits } from '../../editsStore';
 import { selectionKey } from '../../flyTo';
 import { setPolityPick } from '../../Interventions';
 import { fillOf } from '../../mapLayers';
@@ -301,7 +301,8 @@ function commitBatch(plugin: string, next: WorldEdits, keys: string[], asked: { 
     return kind ? { kind: kind as KeyKind, name: r } : null;
   });
   const history = historyDiffers(before, next);
-  const undo = () => undoBatch(plugin, before, next);
+  const era = editsEra();
+  const undo = () => undoBatch(plugin, before, next, era);
   if (history) noteRewrite({ kind: 'apply', turn: -1, before, after: next, edits: next, undo, say: { busy: sayBusy(plugin, parts), done: (from, failed) => sayDone(plugin, parts, from, failed) } });
   const why = commitPluginEdits(next, keys, asked);
   if (why) return why;
@@ -309,8 +310,9 @@ function commitBatch(plugin: string, next: WorldEdits, keys: string[], asked: { 
   return null;
 }
 
-/** 撤销插件的一批(之后又改过别的,只撤这一批碰过的) */
-function undoBatch(plugin: string, before: WorldEdits, after: WorldEdits) {
+/** 撤销插件的一批(之后又改过别的,只撤这一批碰过的);换了世界、读过档的不撤(era = 照办那一刻的) */
+function undoBatch(plugin: string, before: WorldEdits, after: WorldEdits, era: number) {
+  if (editsEra() !== era) return clearToast('resim-done');
   const now = getEdits();
   const back = revertEdits(now, after, before);
   if (back === now) return clearToast('resim-done');
