@@ -16,7 +16,7 @@ import { OFFICIAL_INFLUENCES } from '../src/gen/civ/influence';
 import { validateSimState } from '../src/gen/worldValidate';
 import { WorldFileError } from '../src/gen/worldFormat';
 import { civDiff } from '../scripts/lib/resumeFuzz';
-import { NEUTRAL, steady, sway } from './lib/influencePlugins';
+import { NEUTRAL, parity, steady, sway, type Point } from './lib/influencePlugins';
 
 const PARAMS = { ...DEFAULT_PARAMS, cells: 12000 };
 const worlds = new Map<number, World>();
@@ -92,7 +92,7 @@ const ability = (c: Civ, k: number) => {
 };
 
 describe('影响口:没有插件接时照原来的算', () => {
-  it('官方登记了六个口,名字、单位、上下限', () => {
+  it('官方登记了十二个口,名字、单位、上下限', () => {
     expect(OFFICIAL_INFLUENCES.map((p) => [p.id, p.unit, p.cols ?? 1, p.op, p.min, p.max])).toEqual([
       ['city.capacity', 'region', 1, 'mul', 0.25, 4],
       ['rural.capacity', 'region', 1, 'mul', 0.25, 4],
@@ -100,6 +100,12 @@ describe('影响口:没有插件接时照原来的算', () => {
       ['dev.rate', 'region', 5, 'mul', 0, 4],
       ['assim.rate', 'region', 1, 'mul', 0, 4],
       ['control.reach', 'polity', 1, 'mul', 0.25, 4],
+      ['war.odds', 'polity', 1, 'mul', 0, 4],
+      ['war.power', 'polity', 1, 'mul', 0.25, 4],
+      ['split.odds', 'polity', 1, 'mul', 0, 4],
+      ['dynasty.odds', 'polity', 1, 'mul', 0, 4],
+      ['plague.odds', 'region', 1, 'mul', 0, 4],
+      ['plague.loss', 'region', 1, 'mul', 0.25, 4],
     ]);
   });
 
@@ -113,7 +119,7 @@ describe('影响口:没有插件接时照原来的算', () => {
       const n = generateCiv(w, { ...params, plugins: [steady('neutral', NEUTRAL)] });
       sameBytes(official(n), base, `${seed} 不影响的数`);
       expect(Object.keys(n.simPlugins![0].outputs!).sort()).toEqual(Object.keys(NEUTRAL).sort());
-      const silent: SimPlugin<SimRead> = { id: 'silent', every: 100, outputs: ['city.capacity', 'dev.rate', 'control.reach'], act: () => {} };
+      const silent: SimPlugin<SimRead> = { id: 'silent', every: 100, outputs: ['city.capacity', 'dev.rate', 'control.reach', 'war.power', 'plague.loss'], act: () => {} };
       const s = generateCiv(w, { ...params, plugins: [silent] });
       sameBytes(official(s), base, `${seed} 不交数`);
       expect(s.simPlugins![0].outputs).toBeUndefined();
@@ -123,8 +129,9 @@ describe('影响口:没有插件接时照原来的算', () => {
   it('两个插件交到同一个口的乘在一起、加在一起:×2 和 ×0.5、+0.25 和 −0.25 合起来不影响', () => {
     const w = worldOf(7);
     const base = generateCiv(w, { endYear: 1200 });
-    const up = steady('up', { 'city.capacity': 2, 'rural.capacity': 2, 'unrest.add': 0.25, 'dev.rate': 2, 'assim.rate': 2, 'control.reach': 2 });
-    const down = steady('down', { 'city.capacity': 0.5, 'rural.capacity': 0.5, 'unrest.add': -0.25, 'dev.rate': 0.5, 'assim.rate': 0.5, 'control.reach': 0.5 });
+    const all = Object.keys(NEUTRAL) as Point[];
+    const up = steady('up', Object.fromEntries(all.map((k) => [k, k === 'unrest.add' ? 0.25 : 2])));
+    const down = steady('down', Object.fromEntries(all.map((k) => [k, k === 'unrest.add' ? -0.25 : 0.5])));
     sameBytes(official(generateCiv(w, { endYear: 1200, plugins: [up, down] })), base, '合起来不影响');
   }, 60_000);
 
@@ -171,6 +178,43 @@ describe('影响口:往对的方向推', () => {
     expect(unrest(at600({ 'unrest.add': 0.5 }))).toBeGreaterThan(unrest(at600()) + 0.3);
     expect(count(run({ 'unrest.add': -0.5 }), 'split')).toBeLessThan(0.5 * count(base, 'split'));
   }, 180_000);
+
+  it('宣战、国力、分裂、改朝换代、起疫、疫病死几成(推 3000 年)', () => {
+    const run3k = (pl: SimPlugin<SimRead> | null) => generateCiv(w(), { plugins: pl ? [pl] : [] });
+    const base3k = run3k(null);
+    // 宣战的赔率 ×4 / ×0
+    expect(count(run3k(steady('p', { 'war.odds': 4 })), 'war')).toBeGreaterThan(1.2 * count(base3k, 'war'));
+    expect(count(run3k(steady('p', { 'war.odds': 0 })), 'war')).toBeLessThan(0.5 * count(base3k, 'war'));
+    // 国力:单号国 ×4、双号国 ×0.25,打下别国州的多半是单号国;反过来多半是双号国
+    const oddShare = (c: Civ) => {
+      const q = c.annals.filter((e) => e.kind === 'conquer' && e.b >= 0);
+      return q.filter((e) => e.a % 2 === 1).length / q.length;
+    };
+    expect(oddShare(run3k(parity('p', 'war.power', 0.25, 4)))).toBeGreaterThan(Math.max(0.8, oddShare(base3k)));
+    expect(oddShare(run3k(parity('p', 'war.power', 4, 0.25)))).toBeLessThan(Math.min(0.25, oddShare(base3k)));
+    // 起兵自立的赔率(复国、宗室争位、大崩解这些另算):×0 没有自己起兵的分裂了;双号国 ×0、单号国 ×4,起兵的都是单号国治下,反过来都是双号国
+    const rising = (c: Civ) => c.annals.filter((e) => e.kind === 'split' && (e.cause === undefined || e.cause === 'warlord') && c.polities[e.a].restores === undefined).map((e) => e.b);
+    expect(rising(base3k).length).toBeGreaterThan(0);
+    expect(rising(run3k(steady('p', { 'split.odds': 0 })))).toEqual([]);
+    const oddOnly = rising(run3k(parity('p', 'split.odds', 0, 4)));
+    expect(oddOnly.length).toBeGreaterThan(0);
+    expect(oddOnly.every((b) => b % 2 === 1)).toBe(true);
+    const evenOnly = rising(run3k(parity('p', 'split.odds', 4, 0)));
+    expect(evenOnly.length).toBeGreaterThan(0);
+    expect(evenOnly.every((b) => b % 2 === 0)).toBe(true);
+    // 改朝换代的赔率 ×4 / ×0
+    expect(count(run3k(steady('p', { 'dynasty.odds': 4 })), 'dynasty')).toBeGreaterThan(count(base3k, 'dynasty'));
+    expect(count(run3k(steady('p', { 'dynasty.odds': 0 })), 'dynasty')).toBeLessThan(0.5 * count(base3k, 'dynasty'));
+    // 起疫 ×4 多、×0 一场都不自己起;疫病死几成 ×4、×0.25
+    const outbreaks = (c: Civ) => new Set(c.annals.filter((e) => e.kind === 'plague').map((e) => e.war)).size;
+    expect(outbreaks(run3k(steady('p', { 'plague.odds': 4 })))).toBeGreaterThan(outbreaks(base3k));
+    expect(outbreaks(run3k(steady('p', { 'plague.odds': 0 })))).toBe(0);
+    const loss = (c: Civ) => mean(c.settlements.flatMap((s) => (s.sacks ?? []).filter((x) => x.cause === 'plague').map((x) => x.loss)));
+    const heavy = run3k(steady('p', { 'plague.loss': 4 }));
+    expect(loss(heavy)).toBeGreaterThan(2.5 * loss(base3k));
+    expect(Math.max(...heavy.settlements.flatMap((s) => (s.sacks ?? []).filter((x) => x.cause === 'plague').map((x) => x.loss)))).toBeLessThanOrEqual(0.6);
+    expect(loss(run3k(steady('p', { 'plague.loss': 0.25 })))).toBeLessThan(0.4 * loss(base3k));
+  }, 240_000);
 });
 
 describe('影响口:分段推、存下接着推都和一口气推完一样', () => {
@@ -191,7 +235,7 @@ describe('影响口:分段推、存下接着推都和一口气推完一样', () 
     const w = worldOf(7);
     const plugins = [sway()];
     const one = generateCiv(w, { plugins });
-    expect(Object.keys(one.simPlugins![0].outputs!).length).toBe(6);
+    expect(Object.keys(one.simPlugins![0].outputs!).length).toBe(12);
     for (const at of [1500, 1507.5]) {
       const saved = roundTrip(generateCiv(w, { plugins, endYear: at }));
       const run = startContinue(w, saved, { plugins });

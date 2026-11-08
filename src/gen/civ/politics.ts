@@ -65,6 +65,7 @@ import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
+import { mulOf } from './influence';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -492,7 +493,9 @@ function hook(sim: CivSim, pol: PoliticsModel): void {
     }
     if (r0 < 0) return false;
     const d0 = dis[r0];
-    const odds = SPLIT_ODDS * fexp(SPLIT_K * (d0 + g - SPLIT_D0));
+    const odds0 = SPLIT_ODDS * fexp(SPLIT_K * (d0 + g - SPLIT_D0));
+    const oddsIn = sim.influence?.get('split.odds');
+    const odds = oddsIn ? odds0 * mulOf(oddsIn, pid) : odds0;
     if (keyed(pol.base, pm.ptag[pid], k, U_SPLIT) >= odds / (1 + odds)) return false;
     // 自立出去的最多占国土的 SPLIT_FRAC,凑不够 SPLIT_MIN_GROUP 州的不起兵(官方的数下,够分裂的国家都凑得够)
     if (Math.floor(N * SPLIT_FRAC) < SPLIT_MIN_GROUP) return false;

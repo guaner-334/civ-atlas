@@ -50,6 +50,7 @@ import { royalAt } from './regime';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { defineKnobs } from './engine/knobs';
+import { mulOf } from './influence';
 
 // ---- 调参(以统计数为准,见 scripts/gen-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -273,7 +274,9 @@ function hook(sim: CivSim, dm: DynastyModel): void {
     const age = t - dynastyStart(P);
     if (age < MIN_AGE || !eligible(pm, p, age)) return strong();
     const stir = unrest(P, t);
-    const odds = ODDS * fexp((age - AGE_REF) / AGE_SCALE) * stir;
+    const odds0 = ODDS * fexp((age - AGE_REF) / AGE_SCALE) * stir;
+    const oddsIn = sim.influence?.get('dynasty.odds');
+    const odds = oddsIn ? odds0 * mulOf(oddsIn, p) : odds0;
     if (keyed(dm.base, pm.ptag[p], k, U_ROLL) >= odds / (1 + odds)) return strong();
     const r = pickBase(P, k, t);
     if (r < 0) return strong();

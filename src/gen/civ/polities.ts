@@ -52,6 +52,8 @@ import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs, type KnobSet } from './engine/knobs';
+import type { Influences } from './engine/influence';
+import { mulOf } from './influence';
 
 // ---- 调参(以截图效果为准) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -208,6 +210,8 @@ export interface PolityModel {
   capFactor?: Float64Array;
   /** 新建的城记起的倍数(推演插件接了影响口 city.capacity 时由发展度挂上;不给 = capFactor) */
   cityCapOf?: (r: number) => number;
+  /** 推演插件接了影响口 war.power 时挂上(国力加减再乘它) */
+  warPower?: Influences;
   military?: number[];
   /** 君主在位表(rulers.ts)的随机数根、各国的位置锚(和 people.ts 一样按国都的城所在地块数,见 rulerTags) */
   rbase: number;
@@ -484,7 +488,8 @@ export function policyAt(m: PolityModel, pid: number, t: Year): PolicyIv | null 
 
 /** 国家 pid 此刻的国力倍数(顺着引的方针加减国力,policy.ts;没有 = 1) */
 export function powerScaleOf(m: PolityModel, pid: number, t: Year): number {
-  return m.policies.size ? powerScale(policyAt(m, pid, t)) : 1;
+  const k = m.policies.size ? powerScale(policyAt(m, pid, t)) : 1;
+  return m.warPower ? k * mulOf(m.warPower.get('war.power')!, pid) : k;
 }
 
 /** 国家 pid 此刻的动荡加减(顺着引的方针,−1…1,policy.ts;没有 = 0) */
@@ -1009,6 +1014,7 @@ export function installPolities(sim: CivSim, m: PolityModel): void {
   const api = civApi(sim);
   models.set(sim, m);
   simOf.set(m, sim);
+  if (sim.influence?.has('war.power')) m.warPower = sim.influence;
   const T = m.terrain;
   const reg = T.regions;
   const culture = sim.owners[Layer.Culture];

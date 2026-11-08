@@ -102,6 +102,7 @@ import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
+import { mulOf } from './influence';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -921,6 +922,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     odds *= effOf(pm, p, t).declare;
     const up = api.war.unrest ? api.war.unrest(p, t) : 0;
     odds *= 1 + DIVERT * up + (up >= DIVERT_U ? DIVERT_STEP : 0);
+    const oddsIn = sim.influence?.get('war.odds');
+    if (oddsIn) odds *= mulOf(oddsIn, p);
     if (keyed(wm.base, pm.ptag[p], k, U_DECLARE) >= odds / (1 + odds)) return;
     if (traitor) {
       // 背盟:先记盟约断了(war 列 = 紧跟着的这场战争),再宣战

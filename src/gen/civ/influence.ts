@@ -17,6 +17,18 @@ export const OFFICIAL_INFLUENCES: readonly InfluencePoint[] = [
   { id: 'assim.rate', unit: 'region', op: 'mul', min: 0, max: 4 },
   /** 中央管得到的远近 */
   { id: 'control.reach', unit: 'polity', op: 'mul', min: 0.25, max: 4 },
+  /** 看邻国时宣战的赔率(挑好了打谁以后) */
+  { id: 'war.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 国力:乘在国力加减那一处(打仗、邦交、立约比的国力,政局数表里的国力都跟着变) */
+  { id: 'war.power', unit: 'polity', op: 'mul', min: 0.25, max: 4 },
+  /** 起兵自立(分裂)的赔率 */
+  { id: 'split.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 改朝换代的赔率 */
+  { id: 'dynasty.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 自己起疫的几率(各城掷的那一次) */
+  { id: 'plague.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
+  /** 自己起的瘟疫里染疫的城死几成(不含全球大疫、作者下的瘟疫;最多死到「天灾很多」的上限) */
+  { id: 'plague.loss', unit: 'region', op: 'mul', min: 0.25, max: 4 },
 ];
 
 /** 按国的口里一国的数:后立的国(超出插件交的格数)按不影响算 */

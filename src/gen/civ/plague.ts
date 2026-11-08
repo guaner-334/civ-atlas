@@ -241,6 +241,9 @@ function hook(sim: CivSim, pl: PlagueModel, calamity: Calamity | undefined): voi
   const um = unrestModelOf(sim);
   /** 「天灾」多 / 很多的倍数(平常 = null:照旧的规则,不走这些分支) */
   const rate = calamityRates(calamity);
+  /** 自己起的瘟疫死几成再乘推演插件交的 plague.loss */
+  const lossIn = sim.influence?.get('plague.loss') ? sim.influence : null;
+  const withLoss = (x: number, r: number): number => (lossIn ? Math.round(Math.min(PLAGUE_LOSS_CAP, x * lossIn.get('plague.loss')![r]) * 1000) / 1000 : x);
 
   /** 州 r 此刻有人烟的城(没有 = −1) */
   const cityNow = (r: number, t: number): number => {
@@ -270,7 +273,7 @@ function hook(sim: CivSim, pl: PlagueModel, calamity: Calamity | undefined): voi
         continue;
       }
       const loss =
-        fixed ?? (ob.level ? ivLossOf(base, ob.k, reg.seat[r], ob.level) : lossOf(K, base, ob.k, reg.seat[r], ob.great, populationAt(s, t), !!pm.port[r], rate));
+        fixed ?? (ob.level ? ivLossOf(base, ob.k, reg.seat[r], ob.level) : withLoss(lossOf(K, base, ob.k, reg.seat[r], ob.great, populationAt(s, t), !!pm.port[r], rate), r));
       (s.sacks ??= []).push({ year: t, loss, cause: 'plague' });
       const p = owner[r];
       if (p < 0) continue;
@@ -311,13 +314,15 @@ function hook(sim: CivSim, pl: PlagueModel, calamity: Calamity | undefined): voi
     // 各城各掷各的:随机数 < 分量 ÷ ORIGIN_NORM 算掷中;掷中的里挑 随机数 ÷ 分量 最小的
     let r0 = -1;
     let best = Infinity;
+    const oddsIn = sim.influence?.get('plague.odds');
     for (let r = 0; r < R; r++) {
       if (owner[r] < 0) continue;
       const sid = cityNow(r, t);
       if (sid < 0) continue;
       const pop = populationAt(pm.settlements[sid], t);
       if (!(pop >= ORIGIN_MIN)) continue;
-      const w = pop * (pm.port[r] ? PORT_W : 1);
+      const w0 = pop * (pm.port[r] ? PORT_W : 1);
+      const w = oddsIn ? w0 * oddsIn[r] : w0;
       const u = keyed4(base, k, reg.seat[r], 0, U_ORIGIN);
       if (u * ORIGIN_NORM >= (rate ? w * rate.plague : w)) continue;
       const score = u / w;
