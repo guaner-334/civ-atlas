@@ -9,7 +9,7 @@
  * - 别的标签页登录、退出、换了账号:跟着变(localStorage 的 storage 事件)
  * - 邀请链接(网址里的 invite=):记下邀请码,登录窗里自动填上
  *
- *   GET  /v1/auth/options           → { accountKinds: ['email', 'phone'?], inviteOnly, codeTtlSec, features?: { ai?, submit?, submitWorld?, phoneRequired? } }(没有这个接口 = 都开放、不要邀请)
+ *   GET  /v1/auth/options           → { accountKinds: ['email', 'phone'?], inviteOnly, codeTtlSec, features?: { ai?, submit?, submitWorld?, submitPlugin?, pluginTerms?, phoneRequired? } }(没有这个接口 = 都开放、不要邀请)
  *   POST /v1/auth/code   { account, invite? }        → { ok, resendAfter?, expiresIn? }   新邮箱没带邀请码:403 need-invite
  *   POST /v1/auth/login  { account, code, invite? }  → { token, user: { id, account, name? }, credits? }
  *   POST /v1/auth/logout                              → 204
@@ -199,11 +199,14 @@ export interface AuthOptions {
   inviteOnly: boolean;
   /** 验证码几秒内有效 */
   codeTtlSec: number;
-  /** 服务器开着的功能:只认服务器明说的 true。submit 投到作品墙、submitWorld 投世界、phoneRequired 投稿和开分享前要先绑手机号 */
-  features: { ai: boolean; submit: boolean; submitWorld: boolean; phoneRequired: boolean };
+  /**
+   * 服务器开着的功能:只认服务器明说的 true。submit 投到作品墙、submitWorld 投世界、submitPlugin 投插件、phoneRequired 投稿和开分享前要先绑手机号;
+   * pluginTerms 服务器现在的插件投稿须知第几版(没说 = null)
+   */
+  features: { ai: boolean; submit: boolean; submitWorld: boolean; submitPlugin: boolean; pluginTerms: number | null; phoneRequired: boolean };
 }
 
-const NO_FEATURES: AuthOptions['features'] = { ai: false, submit: false, submitWorld: false, phoneRequired: false };
+const NO_FEATURES: AuthOptions['features'] = { ai: false, submit: false, submitWorld: false, submitPlugin: false, pluginTerms: null, phoneRequired: false };
 const OPEN: AuthOptions = { accountKinds: ['email', 'phone'], inviteOnly: false, codeTtlSec: 600, features: NO_FEATURES };
 let options: { base: string; v: AuthOptions } | null = null;
 const optionSubs = new Set<() => void>();
@@ -229,11 +232,19 @@ export async function fetchAuthOptions(): Promise<AuthOptions> {
   try {
     const r = await call<Partial<AuthOptions>>('/v1/auth/options');
     const kinds = Array.isArray(r.accountKinds) ? r.accountKinds.filter((k): k is 'email' | 'phone' => k === 'email' || k === 'phone') : OPEN.accountKinds;
+    const f: Partial<AuthOptions['features']> = r.features ?? {};
     v = {
       accountKinds: kinds.length ? kinds : ['email'],
       inviteOnly: r.inviteOnly === true,
       codeTtlSec: typeof r.codeTtlSec === 'number' && r.codeTtlSec > 0 ? r.codeTtlSec : OPEN.codeTtlSec,
-      features: { ai: r.features?.ai === true, submit: r.features?.submit === true, submitWorld: r.features?.submitWorld === true, phoneRequired: r.features?.phoneRequired === true },
+      features: {
+        ai: f.ai === true,
+        submit: f.submit === true,
+        submitWorld: f.submitWorld === true,
+        submitPlugin: f.submitPlugin === true,
+        pluginTerms: typeof f.pluginTerms === 'number' ? f.pluginTerms : null,
+        phoneRequired: f.phoneRequired === true,
+      },
     };
   } catch (e) {
     // 连不上:先按都开放算,这次不记住(下次再问)

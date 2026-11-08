@@ -10,6 +10,8 @@ export interface Draft {
   title: string;
   by: string;
   blurb: string;
+  /** 插件新版:这一版改了什么 */
+  note?: string;
 }
 
 function readJson<T>(key: string): T | null {

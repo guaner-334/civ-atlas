@@ -167,7 +167,7 @@ describe('账号开着(默认)', () => {
     expect(accountServer()).toBe(BASE);
     expect(currentAccount()?.token).toBe('fake-old');
     expect(officialServer()).toBeNull();
-    expect((await fetchAuthOptions()).features).toEqual({ ai: true, submit: true, submitWorld: true, phoneRequired: false });
+    expect((await fetchAuthOptions()).features).toEqual({ ai: true, submit: true, submitWorld: true, submitPlugin: true, pluginTerms: 1, phoneRequired: false });
     expect(officialServer()).toBe(BASE);
     expect(officialProvider.offered?.()).toBe(true);
   });
@@ -195,7 +195,7 @@ describe('账号开着(默认)', () => {
 
     _resetSessionForTest();
     answer({ error: { code: 'bad-request', message: '没有这个接口' } }, 404);
-    expect((await fetchAuthOptions()).features).toEqual({ ai: false, submit: false, submitWorld: false, phoneRequired: false });
+    expect((await fetchAuthOptions()).features).toEqual({ ai: false, submit: false, submitWorld: false, submitPlugin: false, pluginTerms: null, phoneRequired: false });
     expect(officialServer()).toBeNull();
   });
 

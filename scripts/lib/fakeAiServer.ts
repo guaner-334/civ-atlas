@@ -25,6 +25,9 @@
  * ban 当前账号停了投稿(null 解开);used、pending 把今天投过的次数、等审的件数当成几;forget 忘掉传上来的块(再投要整个重传);
  * add [{ kind, title, status, reason?, workId?, createdAt?, decidedAt?, updatedAt? }] 直接摆几件(时间是毫秒);
  * decide { id, status, reason?, workId? } 当成后台审了(上墙、退回、撤下)。
+ * 投插件(POST /v1/submissions/plugin):照清单读插件文件,不跑代码;插件投稿须知第 1 版;编号第一次投时归这个账号;上过墙的要写 note;
+ * 新版上墙(decide live)时上一版变成 replaced、接着用同一个作品编号。dev/submit 另收 pluginTerms(插件须知第几版)、
+ * pluginTaken [编号](当成别的账号的),add 里的 { kind: 'plugin', plugin: { id, version, name, note? } } 摆插件的投稿。
  * 绑手机号:验证码同样是 246810;139 0013 2277 当成绑了别的账号、135 0013 7701 当成封过的号;phoneRequired(上面那个开关)开着时
  * 投稿、开分享、改署名没绑回 need-phone。POST /v1/dev/phone { fail?, unbind? }:fail 让下一次发码回 'rate-limit' 或 'unavailable';unbind 解开当前账号的号。
  * 分享短链接的举报:3 次就自动暂停(假服务器认不出网络,一次算一个网络),一小时超过 5 次回太频繁;服务器没开作品墙时 404。
@@ -36,6 +39,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GENERATOR_VERSION } from '../../src/gen/edits';
+import { openPluginFile } from '../../src/plugin/pluginFile';
 import { STEADY_RULES, WARRING_RULES, makeWorldFile, rulesBriefOf, rulesLinkOf } from './fakeWorldFile';
 
 export const FAKE_CODE = '246810';
@@ -77,7 +81,7 @@ interface User {
 interface Sub {
   id: number;
   user: User;
-  kind: WorkKind;
+  kind: WorkKind | 'plugin';
   title: string;
   by: string;
   blurb: string;
@@ -94,7 +98,21 @@ interface Sub {
   ready?: number;
   /** 核对完:过了(null)还是没过 */
   verdict?: FakeFullFail | null;
+  /** 投插件:清单里的编号、版本、名字,文件指纹,这一版改了什么 */
+  plugin?: { id: string; version: string; name: string; sum: string; note?: string };
 }
+
+/** 认的开源许可证(SPDX 写法;A OR B 有一个是就行) */
+const OPEN_LICENSE = /^(MIT|MIT-0|Apache-2\.0|BSD-[23]-Clause|0BSD|ISC|Zlib|Unlicense|CC0-1\.0|MPL-2\.0|MulanPSL-2\.0|(A|L)?GPL-[23]\.[01](-only|-or-later)?\+?)$/i;
+const openLicense = (expr: string) => expr.split(/\s+OR\s+/i).some((x) => OPEN_LICENSE.test(x.replace(/[()]/g, '').trim()));
+const compareVersions = (a: string, b: string) => {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return (x[i] ?? 0) - (y[i] ?? 0);
+  return 0;
+};
+/** 审过的插件投稿的几种状态 */
+const PLUGIN_UP = ['live', 'replaced', 'withdrawn', 'disabled'];
 
 interface FullFile {
   rev: number;
@@ -289,6 +307,8 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     world: true,
     phoneRequired: false,
     terms: 3,
+    pluginTerms: 1,
+    pluginTaken: new Set<string>(),
     perDay: 3,
     pendingMax: 5,
     fail: null as FakeFullFail | null,
@@ -296,6 +316,8 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
   };
   const subs: Sub[] = [];
   let subSeq = 0;
+  /** 插件编号第一次投时归哪个账号 */
+  const pluginOwners = new Map<string, User>();
   // 手机号、封禁、短链接的举报
   const phoneState = { taken: new Set(['13900132277']), blocked: new Set(['13500137701']), fail: null as string | null, sent: new Map<string, { phone: string; at: number }>() };
   /** 封着注销的邮箱 → 那时的封禁 */
@@ -345,14 +367,15 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       blurb: x.blurb,
       status: x.status,
       ...(x.status === 'failed' && v ? { reason: v.message ?? '没有收下', error: v } : {}),
-      ...(x.reason && (x.status === 'returned' || x.status === 'withdrawn') ? { reason: x.reason } : {}),
+      ...(x.reason && (x.status === 'returned' || x.status === 'withdrawn' || x.status === 'disabled') ? { reason: x.reason } : {}),
       ...(x.workId ? { workId: x.workId } : {}),
+      ...(x.plugin ? { plugin: x.plugin } : {}),
       createdAt: iso(x.createdAt),
       updatedAt: iso(x.updatedAt),
       ...(x.decidedAt !== undefined ? { decidedAt: iso(x.decidedAt) } : {}),
     };
   };
-  const SUB_KINDS: readonly string[] = ['world', 'map', 'preset', 'rules'];
+  const SUB_KINDS: readonly string[] = ['world', 'map', 'preset', 'rules', 'plugin'];
   const submitLimits = (u: User) => {
     const mine = subs.filter((x) => x.user === u);
     mine.forEach(settle);
@@ -473,7 +496,12 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     }
     if (req.method === 'GET' && path === '/v1/auth/options') {
       const submit = !submitState.off && !gallery.off;
-      return json(200, { accountKinds: ['email'], inviteOnly, codeTtlSec: 600, features: { ai: aiOn, submit, submitWorld: submit && submitState.world && !fullState.off, phoneRequired: submitState.phoneRequired } });
+      return json(200, {
+        accountKinds: ['email'],
+        inviteOnly,
+        codeTtlSec: 600,
+        features: { ai: aiOn, submit, submitWorld: submit && submitState.world && !fullState.off, submitPlugin: submit, pluginTerms: submitState.pluginTerms, phoneRequired: submitState.phoneRequired },
+      });
     }
 
     // 邀请制下的新邮箱:没带邀请码 = 403 need-invite;带了不对 = 400 bad-invite
@@ -597,6 +625,8 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       const b = await body(req);
       for (const k of ['off', 'world', 'phoneRequired'] as const) if (typeof b?.[k] === 'boolean') submitState[k] = b[k];
       if (typeof b?.terms === 'number') submitState.terms = b.terms;
+      if (typeof b?.pluginTerms === 'number') submitState.pluginTerms = b.pluginTerms;
+      if (Array.isArray(b?.pluginTaken)) submitState.pluginTaken = new Set(b.pluginTaken.filter((x: unknown) => typeof x === 'string'));
       if (b?.fail !== undefined) submitState.fail = b.fail;
       if (b?.refuse !== undefined) submitState.refuse = b.refuse;
       if (b?.ban !== undefined) u.ban = b.ban ?? undefined;
@@ -607,7 +637,13 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
         const now = Date.now();
         for (const a of b.add as Record<string, unknown>[]) {
           const t = (k: string) => (typeof a[k] === 'number' ? (a[k] as number) : undefined);
-          const kind = (SUB_KINDS.includes(String(a.kind)) ? a.kind : 'world') as WorkKind;
+          const kind = (SUB_KINDS.includes(String(a.kind)) ? a.kind : 'world') as Sub['kind'];
+          const pl = a.plugin as { id?: unknown; version?: unknown; name?: unknown; note?: unknown } | undefined;
+          const plugin =
+            kind === 'plugin' && typeof pl?.id === 'string' && typeof pl.version === 'string'
+              ? { id: pl.id, version: pl.version, name: typeof pl.name === 'string' ? pl.name : String(a.title ?? ''), sum: `fake-${pl.id}-${pl.version}`, ...(typeof pl.note === 'string' ? { note: pl.note } : {}) }
+              : undefined;
+          if (plugin && !pluginOwners.has(plugin.id)) pluginOwners.set(plugin.id, u);
           subs.push({
             id: ++subSeq,
             user: u,
@@ -623,6 +659,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
             createdAt: t('createdAt') ?? now,
             updatedAt: t('updatedAt') ?? t('decidedAt') ?? t('createdAt') ?? now,
             ...(t('decidedAt') !== undefined ? { decidedAt: t('decidedAt') } : {}),
+            ...(plugin ? { plugin } : {}),
           });
         }
       }
@@ -636,6 +673,15 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
           if (d.status === 'live' || d.status === 'returned') x.decidedAt = now;
           if (typeof d.reason === 'string') x.reason = d.reason;
           if (typeof d.workId === 'string') x.workId = d.workId;
+          // 插件的新版上墙:上一版换下来,作品还是同一个
+          if (x.plugin && d.status === 'live') {
+            for (const y of subs) {
+              if (y === x || y.plugin?.id !== x.plugin.id || y.status !== 'live') continue;
+              y.status = 'replaced';
+              y.updatedAt = now;
+              x.workId ??= y.workId;
+            }
+          }
         }
       }
       return json(200, { ok: true });
@@ -715,6 +761,60 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
         x.reason = '作者自己撤下';
         x.updatedAt = Date.now();
         return json(200, subView(x));
+      }
+      if (req.method === 'POST' && path === '/v1/submissions/plugin') {
+        const b = await body(req);
+        const r = submitState.refuse;
+        if (r && r.at === 'plugin') {
+          submitState.refuse = null;
+          const { at: _a, status, code, message, ...extra } = r;
+          return fail(status, code, message, extra);
+        }
+        if (b?.terms !== submitState.terms || b?.pluginTerms !== submitState.pluginTerms) {
+          return fail(409, 'terms-changed', '投稿须知改过了,请看过新的再投', { terms: submitState.terms, pluginTerms: submitState.pluginTerms });
+        }
+        const f = { by: String(b?.by ?? '').trim(), blurb: String(b?.blurb ?? '').trim() };
+        const note = typeof b?.note === 'string' ? b.note.trim() : '';
+        if (!f.by || !f.blurb) return fail(400, 'bad-request', '要填署名和一句话介绍');
+        if (seen(note) > 40) return fail(400, 'bad-request', '这一版改了什么最多 40 个字');
+        if (typeof b?.file !== 'string' || !b.file) return fail(400, 'bad-request', '要交插件文件(.civplugin)');
+        if (u.ban) return bannedReply(u);
+        if (submitState.phoneRequired && !u.phone) return fail(403, 'need-phone', '按国家规定,在网站上投稿、开分享链接,要先绑定手机号');
+        const lim = submitLimits(u);
+        if (lim.usedToday >= lim.perDay) return fail(429, 'submit-limit', '今天投够 3 次了,明天再投', { limit: 'per-day', retryAfter: 3600, left: 0, ...lim });
+        if (lim.pending >= lim.pendingMax) return fail(429, 'submit-limit', '等审的太多了,审完一份再投', { limit: 'pending', left: lim.perDay - lim.usedToday, ...lim });
+        const typed = { by: f.by, blurb: f.blurb, note };
+        const labels = { by: '署名', blurb: '一句话介绍', note: '这一版改了什么' } as const;
+        const hits = (['by', 'blurb', 'note'] as const).filter((k) => typed[k].includes('敏感词')).map((k) => ({ by: 'author', part: 'info', kind: labels[k], text: typed[k].slice(0, 60) }));
+        if (hits.length) return fail(400, 'content-filter', `有 ${hits.length} 处字词不能公开,改掉以后再投`, { hits, hitCount: hits.length });
+        let opened: Awaited<ReturnType<typeof openPluginFile>>;
+        try {
+          opened = await openPluginFile(new Uint8Array(Buffer.from(b.file, 'base64')));
+        } catch (e) {
+          return fail(400, 'plugin-invalid', `这个插件文件没过检查,没有收下:${(e as Error).message}`);
+        }
+        const m = opened.manifest;
+        if (!openLicense(m.license)) return fail(400, 'plugin-license', `上架的插件要用开源许可证(比如 MIT、Apache-2.0、GPL-3.0-or-later),清单里写的是「${m.license}」`);
+        const owner = pluginOwners.get(m.id);
+        if (submitState.pluginTaken.has(m.id) || (owner && owner !== u)) return fail(409, 'plugin-taken', `插件编号「${m.id}」已经是别人的插件了,换一个编号再投`);
+        const mine = subs.filter((x) => x.user === u && x.plugin?.id === m.id);
+        mine.forEach(settle);
+        const waiting = mine.find((x) => x.status === 'checking' || x.status === 'pending' || x.status === 'reviewing');
+        if (waiting) return fail(409, 'conflict', '这个插件还有一版在等审核。要换成这一版,先在我的投稿里撤回那一版', { reason: 'waiting', id: waiting.id });
+        const up = mine.filter((x) => PLUGIN_UP.includes(x.status));
+        const last = up.reduce<Sub | null>((best, x) => (!best || compareVersions(x.plugin!.version, best.plugin!.version) > 0 ? x : best), null);
+        if (last?.plugin?.sum === opened.sum) return fail(409, 'conflict', '这一版已经审过了', { reason: 'same' });
+        if (last && compareVersions(m.version, last.plugin!.version) <= 0) {
+          return fail(409, 'conflict', `版本号要比审过的 ${last.plugin!.version} 大,改了清单的 version 再投`, { reason: 'version', version: last.plugin!.version });
+        }
+        if (last && !note) return fail(400, 'note-required', '这个插件上过作品墙,投新版要写这一版改了什么');
+        const first = [...up].sort((a, c) => a.createdAt - c.createdAt || a.id - c.id)[0];
+        pluginOwners.set(m.id, u);
+        const now = Date.now();
+        const plugin = { id: m.id, version: m.version, name: m.name, sum: opened.sum, ...(note ? { note } : {}) };
+        const x: Sub = { id: ++subSeq, user: u, kind: 'plugin', title: m.name, by: first?.by || f.by, blurb: f.blurb, moment: null, status: 'pending', sum: opened.sum, createdAt: now, updatedAt: now, plugin };
+        subs.push(x);
+        return json(201, { id: x.id, status: 'pending', plugin: { id: m.id, version: m.version, sum: opened.sum } });
       }
       if (req.method === 'POST' && path === '/v1/submissions') {
         const b = await body(req);

@@ -28,6 +28,7 @@ import { decodePresetHash } from './presetLink';
 import type { SharedPreset } from './presetStore';
 import { closeRulesSheet, getRulesSheet, openRulesSheet, openRulesWork, rulesWorkId, useRulesSheet } from './rules/sheetStore';
 import { rulesUiOn } from './rules/flag';
+import { pluginsUiOn } from './plugins/flag';
 import { DEFAULT_PARAMS } from '../gen/params';
 import { END_YEAR_DEFAULT } from '../gen/edits';
 import { ServerError } from '../account/server';
@@ -531,6 +532,7 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
   const contact = useContact();
   const fullOn = !!useFullOverview();
   const site = useServerSubmit();
+  const plugins = site.plugin && pluginsUiOn();
   const three = (
     <div className="acct-grp gl-three">
       <div className="acct-gr">
@@ -583,6 +585,12 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
                 <dd>预设菜单里的「投到作品墙…」</dd>
                 <dt>规则</dt>
                 <dd>调规则那一页右上「···」里</dd>
+                {plugins && (
+                  <>
+                    <dt>插件</dt>
+                    <dd>插件页里选中你装上的插件，点「投到作品墙…」</dd>
+                  </>
+                )}
               </dl>
             </div>
             <div className="acct-gr">
@@ -590,7 +598,7 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
               <span>结果发邮件告诉你，也在账号窗的「我的投稿」里看；没审之前能撤回</span>
             </div>
           </div>
-          <h3 className="gl-h3 gl-way">没有账号：到 QQ 交流群找管理员，带上三样</h3>
+          <h3 className="gl-h3 gl-way">没有账号：到 QQ 交流群找管理员，带上三样{plugins && <small>插件不收，要在网站上投</small>}</h3>
           {three}
           <p className="acct-small gl-agree">在群里投时回一句“同意在作品墙展示”就行，我们会记下是哪天、在哪同意的。</p>
           <h3 className="gl-h3">投之前请知道</h3>

@@ -10,7 +10,7 @@ export const NOT_SUBMITTED = '没投成，世界在本机没事';
 /** 没投成的第一句:世界、地图说一声本机那份没事;新建参数、规则本来就在框里、在「我的规则」里 */
 export const notSubmitted = (kind: SubmitKind): string => (kind === 'world' ? NOT_SUBMITTED : kind === 'map' ? '没投成，地图在本机没事' : '没投成');
 
-export type SubmitField = 'title' | 'by' | 'blurb';
+export type SubmitField = 'title' | 'by' | 'blurb' | 'note';
 
 export interface HitLine {
   label: string;
@@ -34,7 +34,20 @@ export type SubmitFail =
   /** 窗口换成说明:今天投满、等审满、账号停了投稿 */
   | { kind: 'notice'; which: 'per-day' | 'pending' | 'ban'; ban?: SubmitBan; limits?: Partial<SubmitLimits> }
   /** 服务器要先绑手机号 */
-  | { kind: 'phone' };
+  | { kind: 'phone' }
+  /** 插件投不成,窗口换成说明:编号是别的账号的、版本号没比墙上的新、不是开源许可证、上一版还在等审 */
+  | { kind: 'plugin'; which: PluginRefusal; version?: string; waitingId?: number }
+  /** 上过墙的插件没写这一版改了什么 */
+  | { kind: 'note' };
+
+export type PluginRefusal = 'taken' | 'version' | 'license' | 'waiting';
+
+export const PLUGIN_REFUSAL_HEAD: Readonly<Record<PluginRefusal, string>> = {
+  taken: '这个编号是别的账号的',
+  version: '版本号要比作品墙上的新',
+  license: '作品墙只收开源的插件',
+  waiting: '上一版还在等审',
+};
 
 const OFFLINE = '连不上服务器，没投成。联网后再点一次「投稿」';
 const busy = (kind: SubmitKind): SubmitFail => ({ kind: 'block', head: `${notSubmitted(kind)}。`, text: '服务器这会儿太忙，没核对完。等一会儿再投', act: 'retry' });
@@ -44,8 +57,8 @@ const OPAQUE: SubmitFail = { kind: 'block', head: `${NOT_SUBMITTED}。`, text: '
 export const bigLine = (bytes: number, max: number) => `它${aboutSize(bytes)}，作品墙一个世界最多 ${Math.round(max / 1e6)} MB`;
 export const STALE_LINE = '还在推演，推完再投';
 
-const FIELD_OF: Readonly<Record<string, SubmitField>> = { 作品名: 'title', 署名: 'by', 一句话介绍: 'blurb' };
-const FIELD_LABEL: Readonly<Record<SubmitField, string>> = { title: '作品名', by: '署名', blurb: '介绍' };
+const FIELD_OF: Readonly<Record<string, SubmitField>> = { 作品名: 'title', 署名: 'by', 一句话介绍: 'blurb', 这一版改了什么: 'note' };
+const FIELD_LABEL: Readonly<Record<SubmitField, string>> = { title: '作品名', by: '署名', blurb: '介绍', note: '这一版改了什么' };
 
 /** 文字审核没过:作者填的那几栏说「上面标红的那一句」;网页自己写的改不了,这个世界投不了 */
 export function hitsFail(hits: readonly FullHit[], hitCount: number): SubmitFail {
@@ -71,7 +84,16 @@ const limitNum = (v: unknown, d: number) => (typeof v === 'number' && v > 0 ? v 
 /** 服务器说的错。sending:已经开始传块了 */
 export function submitFail(e: unknown, sending = false, kind: SubmitKind = 'world'): SubmitFail {
   if (!(e instanceof ServerError)) return { kind: 'line', text: e instanceof Error && e.message ? e.message : String(e) };
-  const d = e.data as { limit?: unknown; perDay?: unknown; pendingMax?: unknown; hits?: unknown; hitCount?: unknown; ban?: unknown; worldBytes?: unknown; maxBytes?: unknown };
+  const d = e.data as { limit?: unknown; perDay?: unknown; pendingMax?: unknown; hits?: unknown; hitCount?: unknown; ban?: unknown; worldBytes?: unknown; maxBytes?: unknown; reason?: unknown; version?: unknown; id?: unknown };
+  if (kind === 'plugin') {
+    if (e.code === 'plugin-taken') return { kind: 'plugin', which: 'taken' };
+    if (e.code === 'plugin-license') return { kind: 'plugin', which: 'license' };
+    if (e.code === 'conflict' && d.reason === 'version') return { kind: 'plugin', which: 'version', ...(typeof d.version === 'string' ? { version: d.version } : {}) };
+    if (e.code === 'conflict' && d.reason === 'waiting') return { kind: 'plugin', which: 'waiting', ...(typeof d.id === 'number' ? { waitingId: d.id } : {}) };
+    if (e.code === 'note-required') return { kind: 'note' };
+    // 网页的插件投稿须知是旧的:要刷新才看得到新的
+    if (e.code === 'terms-changed') return { kind: 'block', head: '没投成。', text: '插件投稿须知改过了，刷新页面看新的再投', act: 'reload' };
+  }
   switch (e.code) {
     case 'network':
       return sending ? { kind: 'net' } : { kind: 'line', text: OFFLINE };
@@ -172,5 +194,9 @@ export function failWords(f: SubmitFail, kind: SubmitKind = 'world'): ToastWords
       return { kind: 'warn', text: `等审的已经有 ${limitNum(f.limits?.pendingMax, 5)} 件了`, more: '审完或撤回一件再投' };
     case 'phone':
       return { kind: 'error', text: no, more: '' };
+    case 'plugin':
+      return { kind: 'error', text: no, more: PLUGIN_REFUSAL_HEAD[f.which] };
+    case 'note':
+      return { kind: 'error', text: no, more: '投新版要写「这一版改了什么」' };
   }
 }
