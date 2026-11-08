@@ -141,6 +141,7 @@ export function wallFile(work: string, sum?: string): Promise<{ bytes: Uint8Arra
       if (bytes.length > PLUGIN_MAX_BYTES) throw new ServerError(200, 'bad-response', '插件文件太大');
       const opened = await openPluginFile(bytes);
       if (sum && opened.sum !== sum) throw new ServerError(200, 'bad-response', '作品墙上这个插件刚换了版本，关掉再打开试试');
+      if (opened.manifest.role === 'sim') await (await import('../../plugin/simCheck')).checkSimFully(bytes);
       return { bytes, opened };
     })();
     files.set(key, got);
