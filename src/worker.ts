@@ -46,7 +46,7 @@ import { generateWorld, generateWorldSteps, type BaseCache, type World, type Wor
 import { dropGullyBuffers, rasterizeDeferred, rasterizeDeferredSteps, type Raster } from './gen/raster';
 import { GullyPool } from './gullyPool';
 import { buildHistoryFrames, type HistoryFrames } from './gen/history';
-import { DEFAULT_CIV_PARAMS, civBase, generateCiv, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
+import { DEFAULT_CIV_PARAMS, civBase, civTransferables, planetTempo, type Civ, type CivBase, type PlanetTempo, type Regions } from './gen/civ';
 import { extendCiv } from './gen/civ/extend';
 import { breakAt, growEngine } from './gen/civ/grow';
 import { civOrStuck, continueOrStuck, type StuckOptions } from './gen/civ/stuck';
@@ -80,7 +80,7 @@ import { eraWorlds as eraWorldsOf, keyOf, mapValue, namesOpt, playOpt, setupOpt,
 import type { WorldPartsOffer } from './worldVault';
 import type { WorldPlugin } from './gen/worldFormat';
 import type { SimPluginFile } from './plugin/pluginWorld';
-import type { SimBoxer, SimPluginsOn } from './simPluginRun';
+import type { SimPluginsOn } from './simPluginRun';
 import { olderTerrainOf } from './gen/readers/older';
 import type { TerrainReader } from './gen/readers/terrainReader';
 import { FIRST_READERS, READER_VERSIONS, UnknownReaderError, type ReaderVersions } from './gen/readers/versions';
@@ -136,7 +136,7 @@ interface CivInput {
   renames?: Record<string, string>;
   /** 作者的人物(gen/edits.ts 的 WorldEdits.characters):存进世界的编年史按人物卡的性别写 */
   characters?: readonly AuthorCharacter[];
-  /** 推演插件(按出手的先后;不给 = 没有)。新建、重推、补推、再推、打内容时带着推 */
+  /** 推演插件(按出手的先后;不给 = 没有)。用到推演的活都带着推 */
   simPlugins?: SimPluginFile[];
 }
 
@@ -639,11 +639,6 @@ function civOf(world: World, m: CivInput & { interventions?: Intervention[] }, s
   return c;
 }
 
-/** 推演插件关进 QuickJS(QuickJS 和它的 wasm 用到才下载) */
-const boxQuickJS: SimBoxer = async (spec) => {
-  const q = await import('./gen/civ/quickjs');
-  return q.quickjsPlugin(await q.quickjsWasm(), spec);
-};
 /** 这件活装好的推演插件:推完放掉;半路不推了没放的,下一件活装之前放掉 */
 let simsLive: SimPluginsOn | null = null;
 function dropSims() {
@@ -654,8 +649,8 @@ function dropSims() {
 async function simsFor(m: Pick<CivInput, 'simPlugins' | 'params' | 'civSeed'>): Promise<SimPluginsOn | null> {
   dropSims();
   if (!m.simPlugins?.length) return null;
-  const { simPluginsOn } = await import('./simPluginRun');
-  return (simsLive = await simPluginsOn(m.simPlugins, m.civSeed ?? m.params.seed, boxQuickJS));
+  const { simPluginsOn, quickjsBox } = await import('./simPluginRun');
+  return (simsLive = await simPluginsOn(m.simPlugins, m.civSeed ?? m.params.seed, quickjsBox));
 }
 /** 推文明时带的推演插件 */
 const simOpt = (s: SimPluginsOn | null) => (s ? { plugins: s.plugins } : {});
@@ -1485,15 +1480,18 @@ async function handle(m: Queued): Promise<void> {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
-    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m) };
+    const sims = await simsFor(m);
+    const params = { interventions: m.interventions, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...simOpt(sims), ...frozenOpt(m) };
     // 上一步的结果对不上这份进度(线程被重开过、换了世界):先从第 0 年推到这一步年初
-    const from = (await heldCiv(m, m.play)) ?? generateCiv(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) });
+    const from = (await heldCiv(m, m.play)) ?? civOrStuck(world, { ...params, ...playOpt(m), base: baseOf(world, m.civSeed) }, stuckOpt(m.play));
     const opt = { ...params, ...memoOpt(world, m.civSeed) };
     const cont: PlayContinue = (w, c, p) => continueOrStuck(w, c, p, stuckOpt(m.play));
     const out = m.ticks !== undefined ? playTicks(world, from, opt, m.play, m.commands, m.ticks, cont) : playTurn(world, from, opt, m.play, m.commands, m.years, cont);
+    dropSims();
+    const records = simRecords(sims);
     const ms = performance.now() - t0;
     const cloned = cloneCiv(out.civ);
-    keepCiv(m, out.play, cloned);
+    keepCiv(m, out.play, cloned, records);
     const chron = await postChronicle(m.id, out.civ, m);
     postCiv({ type: 'turn', id: m.id, civ: out.civ, chron, play: out.play, rejected: out.rejected, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(out.civ));
     queuePatches(m.id, m, steps);
@@ -1501,7 +1499,7 @@ async function handle(m: Queued): Promise<void> {
     dropTurnSnap();
     turnSnapNow = () => {
       dropTurnSnap();
-      queueSnapshot(m.id, { ...m, play: out.play }, world, steps, cloned);
+      queueSnapshot(m.id, { ...m, play: out.play }, world, steps, cloned, records);
       void pump();
     };
     turnSnap = setTimeout(turnSnapNow, TURN_SNAPSHOT_IDLE);
@@ -1538,7 +1536,8 @@ async function handle(m: Queued): Promise<void> {
     const world = worldOf(m.params, m.terrain, m.sketch);
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
     const own = ownInterventions(m.interventions ?? []);
-    const params = { tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...frozenOpt(m), base: baseOf(world, m.civSeed) };
+    const sims = await simsFor(m);
+    const params = { tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...yearsOpt(m.endYear), ...setupOpt(m), ...simOpt(sims), ...frozenOpt(m), base: baseOf(world, m.civSeed) };
     // 后面排着会换掉这份历史的请求,或者叫停这一次的:不推了
     const stop = () => fg.some((r) => r.type === 'generate' || r.type === 'load' || r.type === 'resim' || r.type === 'turn' || r.type === 'extend' || r.type === 'outline' || (r.type === 'outlineStop' && r.oid >= m.oid));
     // 这个世界、这组参数的键(不算干预、推演年数:runOutline 自己加上作者的干预、人物、标记)
@@ -1564,6 +1563,7 @@ async function handle(m: Queued): Promise<void> {
         ...stuckOpt(),
       },
     );
+    dropSims();
     if (!out) {
       post({ type: 'outlineStopped', id: m.id, oid: m.oid });
       return;
@@ -1573,11 +1573,11 @@ async function handle(m: Queued): Promise<void> {
     const ms = performance.now() - t0;
     const done = { ...m, interventions: out.interventions };
     const cloned = cloneCiv(civ);
-    keepCiv(done, undefined, cloned);
+    keepCiv(done, undefined, cloned, simRecords(sims));
     const chron = await postChronicleUnlessSuperseded(m.id, civ, m, stop);
     postCiv({ type: 'outlined', id: m.id, oid: m.oid, civ, ...(chron !== undefined ? { chron } : {}), interventions: out.interventions, review: out.review, ms, tempo: noteOf(m.params, m.sketch), eras: eraWorlds(steps), baseKey: keyOf(m.params, m.terrain, m.sketch) }, civTransferables(civ));
     queuePatches(m.id, m, steps);
-    queueSnapshot(m.id, done, world, steps, cloned);
+    queueSnapshot(m.id, done, world, steps, cloned, simRecords(sims));
   } else if (m.type === 'outlineStop') {
     // 只在照大纲推演的时候有用(每查完一条看排着的消息);这时候没在推,什么也不做
   } else if (m.type === 'extendStop') {

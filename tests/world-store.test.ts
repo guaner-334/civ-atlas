@@ -20,12 +20,19 @@ import { _notesSettled, _resetNotes } from '../src/ai/libraryVault';
 import { clearEdits, getEdits, setEdits } from '../src/ui/editsStore';
 import { _setResultBackend, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
 import * as saveStore from '../src/ui/saveStore';
-import { APP_COMMIT } from '../src/ui/version';
+import { APP_COMMIT, APP_VERSION } from '../src/ui/version';
 import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearWorldStore, contentTrouble, maintain, offerWorldParts, pendingEdit, pendingOf, sameHistory, saveContentAgain, setWorldStoreSim, startConversions, startWorldStore, thumbBytes, trashFreed, worldMark, type ConvertRunner } from '../src/ui/worldStore';
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, changeAuthor, latestOf, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
+import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { openPluginFile } from '../src/plugin/pluginFile';
+import { _resetPluginStore, installPlugin } from '../src/plugin/pluginStore';
+import { simRecordsOf, type SimBoxer } from '../src/simPluginRun';
+import { quickjsWasm } from '../scripts/lib/quickjsNode';
 import { FIXTURE_DIR, readSamples } from './lib/savedWorlds';
+import { simV1File } from './lib/simV1Files';
+import { faithEffect, weariness } from './lib/simV1Plugins';
 import { bytesOf } from './lib/worldFileSample';
 
 class FakeStorage {
@@ -755,6 +762,49 @@ describe('把现有的世界转进来', () => {
     expect(h).toMatchObject({ source: 'migrated', generator: GENERATOR_VERSION });
     const c = await readWorldContent(await openWorldFile(await bytesOf((await revisionFile(id))!), OPEN));
     expect(isDeepStrictEqual(c.civ, generateCiv(generateWorld(PARAMS), { endYear: 300 }))).toBe(true);
+  }, 120_000);
+
+  it('用了推演插件的要按存档重推(块坏了):本机没有世界记的那一版就不推、照原样留着,记下在等哪几个(记成转失败的也一样);装上了带着插件推,清单照旧记着插件', async () => {
+    _resetPluginStore();
+    const box: SimBoxer = (spec) => quickjsPlugin(quickjsWasm(), spec);
+    const save = makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, 'x', '2026-11-01T00:00:00.000Z');
+    const id = storeSave(save);
+    const bytes = [await simV1File('weariness'), await simV1File('faith')];
+    const files = await Promise.all(
+      bytes.map(async (b) => {
+        const o = await openPluginFile(b);
+        return { id: o.manifest.id, sum: o.sum, bytes: b };
+      }),
+    );
+    const records = await simRecordsOf(files);
+    // 页面带着插件推好的那一份存进了仓库,后来打开时发现块坏了
+    const withSims = generateCiv(world, { endYear: 300, plugins: [weariness(), faithEffect()] });
+    const parts = [await makePart('map', mapValue(world)), await makePart('civ', withSims), await makePart('chronicle', worldChronicle(withSims, undefined)), await makePart('flags', worldFlags(world, withSims))];
+    const made = { app: '1.9.0', generator: GENERATOR_VERSION, commit: '', at: '2026-11-01T00:00:00.000Z' };
+    await vaultOps.commitWorld({ id, recipe: save, recipeKey: await recipeKey(recipeOfSave(save)), parts, made, readers: { ...READER_VERSIONS }, simPlugins: records });
+    await patchState(id, { corrupt: 1 });
+    const jobs: ConvertJob[] = [];
+    _setWorldStore({ runner: (job) => (jobs.push(job), { done: runConvert(job, results, box).then((result) => ({ ok: true as const, result })), stop: () => {} }) });
+    await startConversions();
+    expect(jobs).toEqual([]);
+    expect(await stateOf(id)).toMatchObject({ corrupt: 1, simWait: ['weariness', 'faith'] });
+    expect((await revisionsOf(id)).length).toBe(1);
+    // 用的人点了再存一次、没存上(记成这一版转失败)
+    await patchState(id, { status: 'failed', app: APP_VERSION });
+    await startConversions();
+    expect(jobs).toEqual([]);
+
+    for (const b of bytes) await installPlugin(b);
+    await startConversions();
+    expect(jobs.map((j) => [j.kind, j.simPlugins?.map((f) => f.id)])).toEqual([['recompute', ['weariness', 'faith']]]);
+    const st = await stateOf(id);
+    expect(st?.simWait).toBeUndefined();
+    expect(st?.corrupt).toBeUndefined();
+    expect(st?.status).toBeUndefined();
+    const file = await openWorldFile(await bytesOf((await revisionFile(id))!), OPEN);
+    expect(file.manifest.plugins).toEqual(records);
+    expect(isDeepStrictEqual((await readWorldContent(file)).civ, withSims)).toBe(true);
+    _resetPluginStore();
   }, 120_000);
 
   it('按存档算一遍:和生成世界的线程走同一段代码,带干预、地形大事、地形修改、逐年推演都对得上配方', async () => {
