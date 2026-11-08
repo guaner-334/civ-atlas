@@ -10,6 +10,11 @@
     "why": "好的推演插件,sim 段每一项都有"
   },
   {
+    "file": "good-map.civplugin",
+    "kind": "ok",
+    "why": "好的地图插件,map 段每一项都有"
+  },
+  {
     "file": "not-zip.civplugin",
     "kind": "broken",
     "why": "不是 ZIP"
@@ -182,7 +187,7 @@
   {
     "file": "role-newer.civplugin",
     "kind": "newer",
-    "why": "role 是这一版网站跑不了的(地图生成插件)"
+    "why": "role 是这一版网站跑不了的(没有这种插件)"
   },
   {
     "file": "runtime-bad.civplugin",
@@ -208,6 +213,16 @@
     "file": "tool-sim-section.civplugin",
     "kind": "broken",
     "why": "工具插件的清单里有 sim 段"
+  },
+  {
+    "file": "tool-map-cap.civplugin",
+    "kind": "broken",
+    "why": "工具插件要了地图插件的能力"
+  },
+  {
+    "file": "tool-map-section.civplugin",
+    "kind": "broken",
+    "why": "工具插件的清单里有 map 段"
   },
   {
     "file": "requires-not-list.civplugin",
@@ -461,6 +476,126 @@
   },
   {
     "file": "sim-param-key.civplugin",
+    "kind": "broken",
+    "why": "滑条的名字不能当变量名"
+  },
+  {
+    "file": "sim-map-section.civplugin",
+    "kind": "broken",
+    "why": "推演插件的清单里有 map 段"
+  },
+  {
+    "file": "map-runtime-wrong.civplugin",
+    "kind": "broken",
+    "why": "地图插件的 runtime 写成 worker"
+  },
+  {
+    "file": "map-tool-cap.civplugin",
+    "kind": "broken",
+    "why": "地图插件要了工具插件的能力"
+  },
+  {
+    "file": "map-sim-cap.civplugin",
+    "kind": "broken",
+    "why": "地图插件要了推演插件的能力"
+  },
+  {
+    "file": "map-no-section.civplugin",
+    "kind": "broken",
+    "why": "地图插件的清单没有 map 段"
+  },
+  {
+    "file": "map-not-object.civplugin",
+    "kind": "broken",
+    "why": "map 段不是对象"
+  },
+  {
+    "file": "map-cap-newer.civplugin",
+    "kind": "newer",
+    "why": "要的地图能力版本比网站新"
+  },
+  {
+    "file": "map-stage-no-cap.civplugin",
+    "kind": "broken",
+    "why": "stages 里写了 climate,requires 里没有 gen.climate@1"
+  },
+  {
+    "file": "map-stages-missing.civplugin",
+    "kind": "broken",
+    "why": "map 段没写 stages"
+  },
+  {
+    "file": "map-stages-empty.civplugin",
+    "kind": "broken",
+    "why": "stages 是空的"
+  },
+  {
+    "file": "map-stages-twice.civplugin",
+    "kind": "broken",
+    "why": "stages 里同一步写了两遍"
+  },
+  {
+    "file": "map-stages-bad.civplugin",
+    "kind": "broken",
+    "why": "stages 里的名字不合规矩"
+  },
+  {
+    "file": "map-stages-newer.civplugin",
+    "kind": "newer",
+    "why": "stages 里有这一版网站没有的一步"
+  },
+  {
+    "file": "map-stage-no-layers.civplugin",
+    "kind": "broken",
+    "why": "写了 layers 这一步,没登记交哪几张图层"
+  },
+  {
+    "file": "map-layers-no-stage.civplugin",
+    "kind": "broken",
+    "why": "登记了图层,stages 里没有 layers"
+  },
+  {
+    "file": "map-layers-too-many.civplugin",
+    "kind": "broken",
+    "why": "图层超过 4 张"
+  },
+  {
+    "file": "map-layer-twice.civplugin",
+    "kind": "broken",
+    "why": "两张图层编号一样"
+  },
+  {
+    "file": "map-layer-id.civplugin",
+    "kind": "broken",
+    "why": "图层编号不合规矩"
+  },
+  {
+    "file": "map-layer-look.civplugin",
+    "kind": "broken",
+    "why": "图层没给颜色(ramp、classes 都没有)"
+  },
+  {
+    "file": "map-layer-title.civplugin",
+    "kind": "broken",
+    "why": "图层标题太长"
+  },
+  {
+    "file": "map-params-too-many.civplugin",
+    "kind": "broken",
+    "why": "滑条超过 8 个"
+  },
+  {
+    "file": "map-param-label.civplugin",
+    "kind": "broken",
+    "why": "滑条名字超过 12 个字"
+  },
+  {
+    "file": "map-param-default.civplugin",
+    "kind": "broken",
+    "why": "滑条的默认值不在上下限里"
+  },
+  {
+    "file": "map-param-key.civplugin",
     "kind": "broken",
     "why": "滑条的名字不能当变量名"
   },

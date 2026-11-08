@@ -33,4 +33,5 @@ export const CAP_LABEL: Readonly<Record<string, string>> = {
   storeWorld: '存进世界',
   sim: '推演里加数',
   simSteer: '改推演',
+  mapSteer: '改地图',
 };

@@ -354,6 +354,7 @@ const PERM_ICON: Record<PermissionKey, IconName | keyof typeof MORE_ICONS> = {
   storeWorld: 'box',
   sim: 'book',
   simSteer: 'history',
+  mapSteer: 'globe',
 };
 
 function Perm({ line }: { line: PermissionLine }) {

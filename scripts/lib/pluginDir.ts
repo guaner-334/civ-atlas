@@ -12,7 +12,7 @@ import { packPluginFile, PLUGIN_FILES, type PluginPackInput } from '../../src/pl
 import { openPluginFileFully } from '../../src/plugin/pluginSimTables';
 
 export const PLUGIN_DIR_MANIFEST = 'plugin.json';
-export const PLUGIN_DIR_KEYS: readonly string[] = ['id', 'name', 'version', 'role', 'api', 'runtime', 'requires', 'optional', 'why', 'sim', 'description', 'license', 'author'];
+export const PLUGIN_DIR_KEYS: readonly string[] = ['id', 'name', 'version', 'role', 'api', 'runtime', 'requires', 'optional', 'why', 'sim', 'map', 'description', 'license', 'author'];
 const FILLED = ['app', 'kind', 'format', 'entry', 'files'];
 
 /** patch = 打包前改清单里的几项(开发用的假服务器拿示例插件打别的版本) */
