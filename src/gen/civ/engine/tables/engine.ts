@@ -867,7 +867,7 @@ export class TableEngine {
       t.code = use.code;
       t.kernels = use.kernels;
       t.fallback = x.fallback;
-      t.delta = x.delta ? x.delta.slice() : null;
+      t.delta = x.delta ? grow(x.delta.slice(), t.cur.length, 0) : null;
       t.oscStreak = x.oscStreak;
       t.runStreak = x.runStreak;
       t.warned = x.warned;

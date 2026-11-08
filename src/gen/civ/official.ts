@@ -26,6 +26,8 @@ import { cleanFrontier, cleanOrigins, type Frontier, type Origins } from './fron
 import { knobSet, knobsKey } from './knobs';
 import { DEFAULT_CIV_PARAMS, runPack, viability, type CivPack, type CivRun, type EraStep, type Segment, type Upheave, type UpheaveStep } from './run';
 import type { InstallCtx } from './modules';
+import type { PluginBridge } from './engine/plugin';
+import { OFFICIAL_NAMES, officialUnit, simRead, type OfficialName, type SimRead } from './simRead';
 
 /**
  * 一颗星球的扩张节拍(民族走一个"标准路程"要几年,不含 pace;cultures.ts 的 calibrate)和城的人口折算(polities.ts 的 capacityNorm),
@@ -426,5 +428,23 @@ const resumePrelude: CivPack<OfficialOwn>['resumePrelude'] = ({ sim, world, civ,
   extra: [],
 });
 
+const officialNames: ReadonlySet<string> = new Set(OFFICIAL_NAMES);
+
+/** 推演插件那一段用的:读口、州的结构、官方表 */
+function bridge(sim: CivSim): PluginBridge<SimRead> | null {
+  const read = simRead(sim);
+  const pm = polityModelOf(sim);
+  if (!read || !pm) return null;
+  const reg = pm.terrain.regions;
+  const R = sim.R;
+  return {
+    read,
+    regions: { count: R, adjStart: reg.adjStart.slice(0, R + 1), adj: reg.adj.slice(), seat: reg.seat.slice(0, R) },
+    polities: () => ({ count: pm.polities.length, anchor: pm.ptag }),
+    unit: (name) => (officialNames.has(name) ? officialUnit(name as OfficialName) : undefined),
+    official: (name) => read.official(name as OfficialName),
+  };
+}
+
 /** 官方规则包总流程要走的几步(和清单一起拼成 OFFICIAL_PACK) */
-export const OFFICIAL_STEPS = { prelude, resumePrelude, adopt, half, era, upheave, settle };
+export const OFFICIAL_STEPS = { prelude, resumePrelude, adopt, half, era, upheave, settle, bridge };

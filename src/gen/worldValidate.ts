@@ -30,7 +30,23 @@ import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, checkDepth, partLimit } fro
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainOps';
 import { MAP_H, MAP_W, type World } from './world';
 import { currentSchema, type MigrationTable } from './worldMigrate';
-import { KNOWN_PARTS, PLUGIN_DATA_MAX_BYTES, PLUGIN_DATA_PREFIX, PLUGIN_ID, PLUGIN_ID_MAX, WORLD_APP, WORLD_FORMAT, WORLD_KIND, broken, newer, type AuthorContent, type WorldManifest } from './worldFormat';
+import {
+  KNOWN_PARTS,
+  PLUGIN_DATA_MAX_BYTES,
+  PLUGIN_DATA_PREFIX,
+  PLUGIN_ID,
+  PLUGIN_ID_MAX,
+  SIM_STATE_MAX_BYTES,
+  SIM_STATE_PREFIX,
+  WORLD_APP,
+  WORLD_FORMAT,
+  WORLD_KIND,
+  broken,
+  newer,
+  type AuthorContent,
+  type WorldManifest,
+} from './worldFormat';
+import { PLUGIN_LIMITS, type SimPluginState } from './civ/engine/plugin';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES } from './zipStore';
 
 // ---------------------------------------------------------------------------
@@ -296,6 +312,13 @@ function checkPartInfo(raw: unknown, at: string, opts: ManifestOptions): void {
     if (p.need !== 'extra') broken(`${at} 是插件存的数据,只能是 extra`);
     if (p.by !== id) broken(`${at}.by 要写存它的插件 ${id}`);
     if (bytes > PLUGIN_DATA_MAX_BYTES) broken(`${name} 这一块超过上限`);
+  }
+  if (name.startsWith(SIM_STATE_PREFIX)) {
+    const id = name.slice(SIM_STATE_PREFIX.length);
+    if (id.length > PLUGIN_ID_MAX || !PLUGIN_ID.test(id)) broken(`${at}.name 不是插件编号`);
+    if (p.need !== 'extra') broken(`${at} 是推演插件的状态,只能是 extra`);
+    if (p.by !== id) broken(`${at}.by 要写推演插件 ${id}`);
+    if (bytes > SIM_STATE_MAX_BYTES) broken(`${name} 这一块超过上限`);
   }
   const known = KNOWN_PARTS.get(name);
   // 必须有的块只能是 view:当成可选,读的时候就跳过了
@@ -1193,7 +1216,132 @@ export function validateCiv(v: unknown, world: World): asserts v is Civ {
   if (civ.development !== undefined) checkDevelopment(civ.development, c);
   if (civ.ideology !== undefined) checkIdeology(civ.ideology, c);
   if (civ.trade !== undefined) checkTrade(civ.trade, c);
+  if (civ.simPlugins !== undefined) validateSimStates(civ.simPlugins);
   allStrings(civ, TEXT_ONE_MAX, TEXT_TOTAL_MAX, '历史');
+}
+
+// ---------------------------------------------------------------------------
+// 推演插件的状态
+
+/** 数表名(和登记卡的表名同一个规矩)、avg / total 的累计名(读者表<被读的表) */
+const SIM_TABLE_NAME = /^[\p{L}_][\p{L}\p{N}_]{0,63}$/u;
+const SIM_ACC_KEY = /^[\p{L}_][\p{L}\p{N}_]{0,63}<[\p{L}_][\p{L}\p{N}_]{0,63}$/u;
+
+/** 只许这几个键 */
+function onlyKeys(o: Obj, keys: readonly string[], at: string): void {
+  for (const k of Object.keys(o)) if (!keys.includes(k)) broken(`${at} 里有认不出的 ${k}`);
+}
+
+/** 数表引擎记的时刻:年份,或者「还没算过」(NaN、−Infinity) */
+function engineYear(v: unknown, at: string): void {
+  if (typeof v !== 'number' || v === Infinity || Math.abs(v) > YEAR_ABS_MAX) {
+    if (!(Number.isNaN(v) || v === -Infinity)) broken(`${at} 不是年份`);
+  }
+}
+
+function bool(v: unknown, at: string): void {
+  if (typeof v !== 'boolean') broken(`${at} 不是真假`);
+}
+
+/** 小本子:只有有限的数、数组、普通对象 */
+function checkNote(v: unknown, at: string): void {
+  let size = 0;
+  const walk = (x: unknown, depth: number, here: string): void => {
+    if (depth > PLUGIN_LIMITS.depth) broken(`${at} 套得太深`);
+    size += 8;
+    if (size > PLUGIN_LIMITS.note) broken(`${at} 太大`);
+    if (typeof x === 'number') return void num(x, here);
+    if (Array.isArray(x)) return x.forEach((y, i) => walk(y, depth + 1, `${here}[${i}]`));
+    const o = obj(x, here);
+    for (const k of Object.keys(o)) {
+      size += k.length * 2;
+      walk(o[k], depth + 1, `${here}.${k}`);
+    }
+  };
+  walk(v, 0, at);
+}
+
+/** 插件那组数表的快照(engine/tables 的 TableSnapshot) */
+function checkTableSnapshot(v: unknown, at: string): void {
+  const t = obj(v, at);
+  onlyKeys(t, ['year', 'lastStep', 'polityCount', 'polityAnchor', 'tables', 'acc'], at);
+  engineYear(t.year, `${at}.year`);
+  engineYear(t.lastStep, `${at}.lastStep`);
+  const P = int(t.polityCount, 0, 2 ** 15 + 1, `${at}.polityCount`);
+  typed(t.polityAnchor, Int32Array, `${at}.polityAnchor`, P);
+  const tables = obj(t.tables, `${at}.tables`);
+  const names = Object.keys(tables);
+  // 插件自己的表,外加按国记时对上州 → 国的那一张
+  if (names.length > PLUGIN_LIMITS.tables + 1) broken(`${at} 的表太多`);
+  for (const name of names) {
+    const here = `${at}.tables.${name}`;
+    if (!SIM_TABLE_NAME.test(name)) broken(`${here} 的名字不合规矩`);
+    const x = obj(tables[name], here);
+    onlyKeys(x, ['cur', 'last', 'disabled', 'fallback', 'delta', 'oscStreak', 'runStreak', 'warned', 'flowStart', 'flowOpen', 'flowWindows'], here);
+    allFinite(typed(x.cur, Float64Array, `${here}.cur`), `${here}.cur`);
+    engineYear(x.last, `${here}.last`);
+    bool(x.disabled, `${here}.disabled`);
+    bool(x.fallback, `${here}.fallback`);
+    if (x.delta !== null) allFinite(typed(x.delta, Float64Array, `${here}.delta`), `${here}.delta`);
+    int(x.oscStreak, 0, 2 ** 31, `${here}.oscStreak`);
+    int(x.runStreak, 0, 2 ** 31, `${here}.runStreak`);
+    bool(x.warned, `${here}.warned`);
+    engineYear(x.flowStart, `${here}.flowStart`);
+    list(x.flowOpen, `${here}.flowOpen`).forEach((f, i) => {
+      const pair = list(f, `${here}.flowOpen[${i}]`);
+      if (pair.length !== 2) broken(`${here}.flowOpen[${i}] 不是两个数`);
+      pair.forEach((y, j) => num(y, `${here}.flowOpen[${i}][${j}]`));
+    });
+    int(x.flowWindows, 0, 2 ** 31, `${here}.flowWindows`);
+  }
+  list(t.acc, `${at}.acc`).forEach((raw, i) => {
+    const here = `${at}.acc[${i}]`;
+    const a = obj(raw, here);
+    onlyKeys(a, ['key', 'data', 'from', 'at'], here);
+    if (typeof a.key !== 'string' || !SIM_ACC_KEY.test(a.key)) broken(`${here}.key 不合规矩`);
+    allFinite(typed(a.data, Float64Array, `${here}.data`), `${here}.data`);
+    engineYear(a.from, `${here}.from`);
+    engineYear(a.at, `${here}.at`);
+  });
+}
+
+/**
+ * 一个推演插件推到哪的状态(sim.<插件编号> 那一块,或者历史里 simPlugins 的一项):只有数和数表的名字,不合格抛 broken。
+ * 和插件现在的样子对不对得上(表、栏、事件的先后),接着推时再查
+ */
+export function validateSimState(v: unknown, id: string, at = `推演插件 ${id} 的状态`): asserts v is SimPluginState {
+  const s = obj(v, at);
+  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables'], at);
+  if (s.id !== id) broken(`${at} 的 id 对不上`);
+  int(s.sig, 0, 2 ** 32, `${at}.sig`);
+  const year = yearOk(s.year, `${at}.year`);
+  if (year < 0 || year > END_YEAR_MAX) broken(`${at}.year 超出范围`);
+  int(s.heard, 0, 2 ** 31, `${at}.heard`);
+  int(s.seq, 0, Number.MAX_SAFE_INTEGER, `${at}.seq`);
+  const ev = typed(s.events, Float64Array, `${at}.events`);
+  let n = 0;
+  for (let i = 0; i < ev.length; n++) {
+    const k = ev[i + 3];
+    if (i + 4 > ev.length || !Number.isInteger(k) || k < 0 || k > PLUGIN_LIMITS.data || i + 4 + k > ev.length) broken(`${at}.events 不对`);
+    allFinite(ev.subarray(i, i + 4 + k), `${at}.events`);
+    i += 4 + k;
+  }
+  if (n > PLUGIN_LIMITS.pending) broken(`${at}.events 太多`);
+  if (s.note !== undefined) checkNote(s.note, `${at}.note`);
+  if (s.tables !== undefined) checkTableSnapshot(s.tables, `${at}.tables`);
+}
+
+/** 历史里 simPlugins 那一项:几个推演插件的状态,编号不重复 */
+export function validateSimStates(v: unknown): asserts v is SimPluginState[] {
+  const states = list(v, '历史的 simPlugins');
+  if (states.length > PLUGIN_LIMITS.plugins) broken('历史的 simPlugins 太多');
+  const ids = new Set<string>();
+  states.forEach((x, i) => {
+    const id = obj(x, `历史的 simPlugins[${i}]`).id;
+    if (typeof id !== 'string' || id.length > PLUGIN_ID_MAX || !PLUGIN_ID.test(id) || ids.has(id)) broken(`历史的 simPlugins[${i}].id 不合规矩`);
+    ids.add(id);
+    validateSimState(x, id);
+  });
 }
 
 // ---------------------------------------------------------------------------
