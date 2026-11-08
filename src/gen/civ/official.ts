@@ -14,10 +14,11 @@ import { buildRoutes, usedLanes } from './routes';
 import { capacityNorm, finishPolities, planPolities, polityModelOf, routeCities, ruinGaps, type PolityModel } from './polities';
 import { findPlaces, keepPlaceNames, nameRefs, type NameRef } from './places';
 import { passSites } from './passSites';
-import { scheduleInterventions } from './interventions';
+import { commandedList, scheduleInterventions } from './interventions';
+import { commandTaker } from './commands';
 import { buildPeople } from './people';
 import { installUpheaval, reshapeCities, scheduleUpheaval, upheavalImpact, type TerrainEra } from './upheaval';
-import type { Intervention, TerrainOp } from '../edits';
+import { isCommand, type Intervention, type TerrainOp } from '../edits';
 import { breakRoads } from './pandemicRoads';
 import { cleanCalamity, type Calamity } from './calamity';
 import { migrationsOf } from './migration';
@@ -156,11 +157,13 @@ function prelude(run: Run, seg: Segment): { own: OfficialOwn; install: InstallCt
   // 改过地形:扩张节拍、城的人口折算沿用没改地形时的同一颗星球(planetTempo);没改 = 按这个世界自己标定。
   // 给了文明种子的(一张地图上新开的历史)一律按这张地图本身标定:地图是定下来的那一张,不另按现在的生成器长一颗没改地形的星球
   const tempo = viable && world.terrain?.length && p.civSeed === undefined ? (p.tempo === undefined ? planetTempo(world.params, p, world.sketch) : (p.tempo ?? undefined)) : undefined;
+  // 推演插件以前下的命令不当输入:从第 0 年推,插件会再下一遍
+  const interventions = p.interventions?.some((v) => v && isCommand(v)) ? p.interventions.filter((v) => !(v && isCommand(v))) : p.interventions;
   const model = viable
-    ? planCultures(world, habitat, regions, { seed, cultures: p.cultures, pace: p.pace, birthSpan, tempo: tempo?.spread, frontier, origins, interventions: p.interventions })
+    ? planCultures(world, habitat, regions, { seed, cultures: p.cultures, pace: p.pace, birthSpan, tempo: tempo?.spread, frontier, origins, interventions })
     : null;
   const pm = model ? planPolities(world, model, { knobs, polities: p.polities, pace: p.pace, capNorm: tempo?.capNorm, expand: frontier?.expand }) : null;
-  const iv = pm ? scheduleInterventions(sim, seed, p.interventions) : null;
+  const iv = pm ? scheduleInterventions(sim, seed, interventions) : null;
   const own: OfficialOwn = {
     mix: cleanMix(p.names),
     frontier,
@@ -174,11 +177,15 @@ function prelude(run: Run, seg: Segment): { own: OfficialOwn; install: InstallCt
   return { own, install: pm ? { sim, world, habitat, regions, seed, cm: model, pm, iv, calamity } : null };
 }
 
+/** 这段推演带着的干预:推演插件下过命令的照引擎上的那一份(作者的接上插件下的) */
+const carried = (sim: CivSim, own: OfficialOwn) => commandedList(sim) ?? own.interventions;
+
 /** 推到一半的历史拼成接着推要的 Civ(州、宜居度按给的);归属数组、检查点按州数补齐(新州 = 没人) */
 function half(run: Run, own: OfficialOwn, seg: Segment, habitat: Habitat, regions: Regions): Civ {
   const sim = seg.sim;
   const { cm: model, pm } = modelsOf(sim) as { cm: CultureModel; pm: PolityModel };
   const res = sim.result();
+  const interventions = carried(sim, own);
   const pad = (a: Int16Array) => {
     if (a.length >= regions.count) return a;
     const b = new Int16Array(regions.count).fill(-1);
@@ -210,7 +217,7 @@ function half(run: Run, own: OfficialOwn, seg: Segment, habitat: Habitat, region
     ...(own.calamity ? { calamity: own.calamity } : {}),
     ...(sim.knobs.patch ? { knobs: sim.knobs.patch } : {}),
     ...(migrationsOf(sim) ? { migrations: migrationsOf(sim)! } : {}),
-    ...(own.interventions ? { interventions: own.interventions.slice() } : {}),
+    ...(interventions ? { interventions: interventions.slice() } : {}),
     people: [],
   } as Civ;
 }
@@ -270,7 +277,7 @@ function era(run: Run, own: OfficialOwn, c: EraStep): CivEra {
   const { world: eraWorld, habitat: eraHabitat, regions: before } = c.seg;
   own.pins ??= { regionNames: [], polities: new Map(), settlements: new Map() };
   // 起名只读这一段的分支,不影响之后的推演
-  const b = pinNames(own.pins, eraWorld, c.branch, c.from, c.to, c.k === 0, own.mix, own.interventions);
+  const b = pinNames(own.pins, eraWorld, c.branch, c.from, c.to, c.k === 0, own.mix, carried(c.branch, own));
   // 第一段:改过地形的世界照没改过时的地名(nameRefOf);之后各段沿用前一段的
   const eraRef = c.k ? undefined : nameRefOf(run.pack, eraWorld, { p, mix: own.mix, frontier: own.frontier, origins: own.origins, knobs: knobs.patch });
   const br = c.branch.result();
@@ -322,10 +329,11 @@ function settle(run: Run, own: OfficialOwn, fin: Segment, eras: CivEra[], facts:
   const knobs: KnobSet = fin.sim.knobs;
   const last = modelsOf(fin.sim);
   const { log, checkpoints, culture, polity, annals } = fin.sim.result();
+  const interventions = carried(fin.sim, own);
   progress('起名', 0.92);
   // 计划中的疆域:山河湖海的地名按它的语感起(推得再远地名也不变,见 cultures.ts 的 plannedOwners)
   const planned = last.cm ? finishCultures(fin.world, last.cm, log, pins, mix) : undefined;
-  if (last.pm) finishPolities(fin.world, last.pm, log, pins, authoredNames(annals, own.interventions));
+  if (last.pm) finishPolities(fin.world, last.pm, log, pins, authoredNames(annals, interventions));
   const cultures: Culture[] = last.cm?.cultures ?? [];
   const settlements: Settlement[] = last.pm?.settlements ?? [];
   const polities: Polity[] = last.pm?.polities ?? [];
@@ -354,7 +362,7 @@ function settle(run: Run, own: OfficialOwn, fin: Segment, eras: CivEra[], facts:
   // 地形大事以后:同一处地方沿用大事以前的地名
   if (eras.length) keepPlaceNames(fin.world, eras[eras.length - 1].places, places);
   // 没改过地形、没有干预和地形大事的:这就是改地形以后要照着沿用的那一份,记下(nameRefOf)
-  if (!edited(fin.world) && !own.interventions?.length && !eras.length) rememberRef(refKeyOf(fin.world.params, setup), nameRefs(fin.world, places, cultures, fin.regions));
+  if (!edited(fin.world) && !interventions?.length && !eras.length) rememberRef(refKeyOf(fin.world.params, setup), nameRefs(fin.world, places, cultures, fin.regions));
   const people = buildPeople({
     knobs,
     seed,
@@ -367,7 +375,7 @@ function settle(run: Run, own: OfficialOwn, fin: Segment, eras: CivEra[], facts:
     regionCount: fin.regions.count,
     ...(facts.length ? { upheavals: facts } : {}),
     // 生效了的即位(作者立的君主)、作者下令的仗由史事 intervene + 干预列表认(和推演里同一份在位表)
-    ...(own.interventions ? { interventions: own.interventions } : {}),
+    ...(interventions ? { interventions } : {}),
   });
 
   return {
@@ -395,7 +403,7 @@ function settle(run: Run, own: OfficialOwn, fin: Segment, eras: CivEra[], facts:
     ...(own.calamity ? { calamity: own.calamity } : {}),
     ...(knobs.patch ? { knobs: knobs.patch } : {}),
     ...(migrationsOf(fin.sim) ? { migrations: migrationsOf(fin.sim)! } : {}),
-    ...(own.interventions ? { interventions: own.interventions.slice() } : {}),
+    ...(interventions ? { interventions: interventions.slice() } : {}),
     people,
     ...(facts.length ? { upheavals: facts, eras } : {}),
     ...(mix ? { names: mix } : {}),
@@ -430,8 +438,8 @@ const resumePrelude: CivPack<OfficialOwn>['resumePrelude'] = ({ sim, world, civ,
 
 const officialNames: ReadonlySet<string> = new Set(OFFICIAL_NAMES);
 
-/** 推演插件那一段用的:读口、州的结构、官方表 */
-function bridge(sim: CivSim): PluginBridge<SimRead> | null {
+/** 推演插件那一段用的:读口、州的结构、官方表、收命令 */
+function bridge(sim: CivSim, seed: number): PluginBridge<SimRead> | null {
   const read = simRead(sim);
   const pm = polityModelOf(sim);
   if (!read || !pm) return null;
@@ -443,6 +451,7 @@ function bridge(sim: CivSim): PluginBridge<SimRead> | null {
     polities: () => ({ count: pm.polities.length, anchor: pm.ptag }),
     unit: (name) => (officialNames.has(name) ? officialUnit(name as OfficialName) : undefined),
     official: (name) => read.official(name as OfficialName),
+    commands: commandTaker(sim, seed),
   };
 }
 

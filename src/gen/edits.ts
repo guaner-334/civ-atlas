@@ -137,6 +137,11 @@
  * fromTick(可选,哪一种都能带):在 from 那一年的第几格(见"时刻";1–YEAR_TICKS−1,没有 = 年初)。逐年推演停在年中时下的命令带着它;
  * 不是 0–YEAR_TICKS−1 的整数、是 0 的去掉(当年初)。推演里在那一年的那一格生效,"从 from 起"的规则都从那一格算(simInterventions);
  * until、born 这些别的年份照旧只到年。
+ * plugin(可选):推演插件在推演里下的命令,记着是哪个插件(插件编号,格式同世界清单里的插件;不合格的去掉)。只在推出来的历史
+ * (Civ.interventions)里有,不进作者的修改:从第 0 年重推时插件会再下一遍,带它的那几条不当输入。
+ * 插件出手那一刻的下一格生效;同一格里先于作者的干预和别的按预约先后的事件(civ/interventions.ts 的 Ev.Command)。
+ *
+ * 插件交上来的干预(工具插件改作者的修改、推演插件下命令)不清理,照 ivCheck.ts 查:清理会改掉、丢掉的就不收。
  *
  * 立国出来的新国家也有稳定键:`polity:c{州的治所地块}#{n}`(n = 新历史里这州之前立过几国;干预年份之前的历史不变,所以 n 是定的),
  * 和别的国家一样能改名、能被别的干预引用。
@@ -837,7 +842,7 @@ export const POLICY_PICK_MAX = 3;
  * 一条干预(字段、年份语义见文件头的表;a、b 是国家的稳定键 `polity:…`,region 是州键 `region:…`,city 是城键 `settlement:…`)。
  * 照大纲推演硬改出来的多一个 plot = 哪一条情节(Plot.id,见文件头"大纲");推演不看它,只管说法和"改了大纲再推时先去掉"。
  * 顺着引出来的(只有方针)再多一个 guide = true:编年史不写,国家卡片上的方针不算它;只有它能带 power、unrest(国力、动荡加减)。
- * author = 记在哪位作者人物名下(只有 AUTHOR_IV_KINDS 那几种;推演不看它,见文件头)
+ * author = 记在哪位作者人物名下(只有 AUTHOR_IV_KINDS 那几种;推演不看它,见文件头);plugin = 哪个推演插件下的(见文件头)
  */
 export type Intervention = (
   | { kind: 'protect'; a: string; from: number; until?: number }
@@ -891,7 +896,7 @@ export type Intervention = (
       unrest?: number;
       look?: GuideLook;
     }
-) & { plot?: number; guide?: true; fromTick?: number; author?: number };
+) & { plot?: number; guide?: true; fromTick?: number; author?: number; plugin?: string };
 
 /** 能记在作者人物名下的几种(国家的事;Intervention.author,见文件头) */
 export const AUTHOR_IV_KINDS: readonly InterventionKind[] = ['ally', 'treaty', 'neutral', 'move', 'cede', 'destroy', 'found', 'policy', 'disaster', 'trek', 'stay'];
@@ -1959,7 +1964,7 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost', 'trek', 'stay', 'appoint'];
+export const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost', 'trek', 'stay', 'appoint'];
 
 /** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
 export interface PersonKeyParts {
@@ -2265,6 +2270,23 @@ export function cleanInterventions(list: readonly unknown[] | null | undefined):
 
 /** 清理一条干预(规则同 cleanInterventions);不合格 = null;本来就合格的原样返回(同一个对象) */
 export function cleanIntervention(x: unknown): Intervention | null {
+  const v = tidyIntervention(x);
+  if (!v) return null;
+  const o = x as Record<string, unknown>;
+  const keys = Object.keys(o);
+  const w = v as Record<string, unknown>;
+  const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);
+  return clean ? (x as Intervention) : v;
+}
+
+/** 推演插件的编号:写法和长短同世界清单里记的插件(worldFormat.ts 的 PLUGIN_ID;这里不引它,首页不多下载那个文件) */
+export const isPluginId = (x: unknown): x is string => typeof x === 'string' && x.length <= 32 && /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(x);
+
+/** 推演插件下的命令(带 plugin,见文件头) */
+export const isCommand = (v: Pick<Intervention, 'plugin'>): boolean => isPluginId(v.plugin);
+
+/** 照规矩整理出新的一份(字段先后是定的);不合格 = null */
+export function tidyIntervention(x: unknown): Intervention | null {
   if (!x || typeof x !== 'object') return null;
   const o = x as Record<string, unknown>;
   const kind = o.kind as InterventionKind;
@@ -2361,10 +2383,8 @@ export function cleanIntervention(x: unknown): Intervention | null {
   if (ft) v = { ...v, fromTick: ft };
   // 记在作者人物名下(国家的事;推演不看它)
   if (isCharId(o.author) && AUTHOR_IV_KINDS.includes(v.kind)) v = { ...v, author: o.author };
-  const keys = Object.keys(o);
-  const w = v as Record<string, unknown>;
-  const clean = keys.length === Object.keys(v).length && keys.every((k) => o[k] === w[k]);
-  return clean ? (x as Intervention) : v;
+  if (isPluginId(o.plugin)) v = { ...v, plugin: o.plugin };
+  return v;
 }
 
 /** 两份干预列表是不是一样(逐条逐字段比) */

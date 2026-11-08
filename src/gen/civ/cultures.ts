@@ -33,7 +33,7 @@ import { assignStyles, lastIfPioneer, nameCultures, nameKin, nameRegions } from 
 import type { NameMix } from '../names';
 import { HABITABLE_SUIT, KIND_EXPANSIONISM } from './kinds';
 import { cleanFrontier, frontierFx, originRegion, terrainChanged, type Frontier, type FrontierFx, type Origins } from './frontier';
-import { regionOfKey, simInterventions, type Intervention } from '../edits';
+import { isCommand, regionOfKey, simInterventions, type Intervention } from '../edits';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 
@@ -548,7 +548,8 @@ function planPioneers(m: CultureModel, list: readonly Intervention[], base: numb
   const reg = T.regions;
   const add: Culture[] = [];
   list.forEach((v, i) => {
-    if (v.kind !== 'found' || v.from <= after || m.cultures.some((c) => c.pioneer === i)) return;
+    // 推演插件下的立国不备:下命令时才知道,一口气推的那时候已经备不进民族表了
+    if (v.kind !== 'found' || isCommand(v) || v.from <= after || m.cultures.some((c) => c.pioneer === i)) return;
     const r = regionOfKey(v.region, reg.of);
     if (r < 0 || r >= T.R || !T.habitable[r]) return;
     const kind = kindOf(T, r, 'fertile', base);

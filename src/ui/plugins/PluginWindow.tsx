@@ -6,16 +6,15 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { parseZip } from '../../gen/zipStore';
 import { permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
-import { PLUGIN_FILE_EXT, PLUGIN_ICON, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
-import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
+import { PLUGIN_FILE_EXT, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
+import { installPlugin, listPlugins, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
 import { isCoarse } from '../device';
 import { Icon, type IconName } from '../icons';
 import { showToast } from '../toastStore';
 import { loadDev, pickDevFile, setDevMode, useDevMode, type DevAsk } from './dev';
-import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, versionLabel, versionText } from './pluginText';
-import { PuzzleIcon } from './entry';
+import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, toolWhere, versionLabel, versionText } from './pluginText';
+import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
 import { verdictOf, type PluginVerdict } from './verdict';
 import './plugins.css';
 
@@ -89,7 +88,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
       await reload(r.plugin.id);
       setAsk(null);
       setDetail(false);
-      showToast({ id: 'plugins', kind: 'ok', text: '装好了' });
+      const where = toolWhere(r.plugin.current.manifest, phone);
+      showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
     } catch {
       setAsk(null);
       setSaid({ kind: 'failed', name: a.opened.manifest.name });
@@ -188,56 +188,6 @@ function useEscape(f: () => void) {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
-}
-
-// ---------------------------------------------------------------------------
-// 图标:插件包里带的 icon.png;没带的给一个拼图
-
-const iconUrls = new Map<string, string | null>();
-
-function iconUrl(data: Uint8Array | undefined): string | null {
-  return data ? URL.createObjectURL(new Blob([data], { type: 'image/png' })) : null;
-}
-
-/** 装了的各插件的图标(按指纹),读出来以前没有 */
-function useIcons(list: InstalledPlugin[] | null): Map<string, string | null> {
-  const [, bump] = useState(0);
-  useEffect(() => {
-    if (!list) return;
-    let live = true;
-    for (const p of list) {
-      const sum = p.current.sum;
-      if (iconUrls.has(sum)) continue;
-      iconUrls.set(sum, null);
-      void pluginFileBytes(sum)
-        .then((bytes) => {
-          const icon = bytes ? parseZip(bytes, PLUGIN_MAX_BYTES).find((e) => e.name === PLUGIN_ICON)?.data : undefined;
-          iconUrls.set(sum, iconUrl(icon));
-          if (live) bump((n) => n + 1);
-        })
-        .catch(() => {});
-    }
-    return () => {
-      live = false;
-    };
-  }, [list]);
-  return iconUrls;
-}
-
-function PluginIcon({ src, size }: { src: string | null | undefined; size: 'sm' | 'md' | 'lg' | 'xl' }) {
-  if (src) return <img className={`plg-pi ${size}`} src={src} alt="" />;
-  return (
-    <span className={`plg-pi ${size} none`}>
-      <PuzzleIcon />
-    </span>
-  );
-}
-
-/** 刚打开的文件里的图标:窗口关了就放掉 */
-function useOpenedIcon(opened: OpenedPlugin): string | null {
-  const [url] = useState(() => iconUrl(opened.files.get(PLUGIN_ICON)));
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
-  return url;
 }
 
 // ---------------------------------------------------------------------------

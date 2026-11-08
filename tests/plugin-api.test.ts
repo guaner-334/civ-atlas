@@ -686,7 +686,7 @@ describe('回调用', () => {
 const { planChanges: planRaw, CHANGES_MAX } = await import('../src/plugin/edit');
 const planChanges = (e: WorldEdits, h: Civ | null, raw: unknown) => planRaw(e, h, raw, world.params);
 const { commitPluginEdits } = await import('../src/plugin/editsCommit');
-const { getEdits, setEdits } = await import('../src/ui/editsStore');
+const { getEdits, setEdits, setHistoryGate } = await import('../src/ui/editsStore');
 const { undoLastEdit, redoLastEdit } = await import('../src/ui/undo');
 const { checkStored, memoryStore, STORE_LOCAL_MAX } = await import('../src/plugin/store');
 const { polityKey, regionKey, MARKS_MAX, MARK_REGIONS_MAX, MARK_TITLE_MAX, MARK_NOTE_MAX, NAME_MAX } = await import('../src/gen/edits');
@@ -784,6 +784,30 @@ describe('改你写的东西', () => {
     expect(ok({ kind: 'name', key, name: '' }).result).toEqual({ applied: 0, skipped: 1, marks: [] });
   });
 
+  it('下命令不合规回 bad-args、国名超长回 limit,不替插件改;取 0、false 的、国名末尾的「国」照收;推演插件的记号去掉', () => {
+    const key = pk();
+    const other = polityKey(civ, read.historyPolities(civ, { year: 600 })[1].id);
+    const rk = regionKey(civ, 3);
+    const iv = (v: Record<string, unknown>) => ({ kind: 'intervention', v });
+    const code = (v: Record<string, unknown>) => codeOf(() => planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'name', key, name: '甲' }, iv(v)] }));
+    const ok = (v: Record<string, unknown>) => planChanges(EMPTY_EDITS, civ, { changes: [iv(v)] }).next.interventions[0];
+    expect(code({ kind: 'found', region: rk, from: 10, name: '字'.repeat(NAME_MAX + 1) })).toBe('limit');
+    expect(code({ kind: 'protect', a: key, from: 10.5 })).toBe('bad-args');
+    expect(code({ kind: 'protect', a: key, from: 100, until: 100 })).toBe('bad-args');
+    expect(code({ kind: 'protect', a: key, from: 100, extra: 1 })).toBe('bad-args');
+    expect(code({ kind: 'destroy', a: key, from: 100, b: key })).toBe('bad-args');
+    expect(code({ kind: 'disaster', type: 'famine', level: 1, from: 100, regions: [rk, rk] })).toBe('bad-args');
+    expect(code({ kind: 'disaster', type: 'plague', level: 1, from: 100, city: 'settlement:c1#0', region: rk })).toBe('bad-args');
+    expect(code({ kind: 'policy', a: key, from: 100, war: 60 })).toBe('bad-args');
+    expect(code({ kind: 'treaty', a: key, ps: [other], from: 100, term: 600 })).toBe('bad-args');
+    expect(code({ kind: 'boost', a: key, from: 100, mul: 5 })).toBe('bad-args');
+    expect(ok({ kind: 'found', region: rk, from: 10, name: '秦国' })).toEqual({ kind: 'found', region: rk, from: 10, name: '秦' });
+    expect(ok({ kind: 'policy', a: key, from: 100, war: 0, expand: 20 })).toEqual({ kind: 'policy', a: key, from: 100, expand: 20 });
+    expect(ok({ kind: 'cede', a: key, region: rk, from: 100, permanent: false })).toEqual({ kind: 'cede', a: key, region: rk, from: 100 });
+    expect(ok({ from: 100, b: other, a: key, kind: 'ally', plugin: 'magic' })).toEqual({ kind: 'ally', a: key, b: other, from: 100 });
+    expect(Object.keys(ok({ from: 100, b: other, a: key, kind: 'ally' }))).toEqual(['kind', 'a', 'b', 'from']);
+  });
+
   it('下命令的类型和世界文件里的干预一致', () => {
     const toSite = (x: InterventionInfo): Intervention => x;
     const toPlugin = (x: Intervention): InterventionInfo => x;
@@ -818,6 +842,46 @@ describe('改你写的东西', () => {
     expect(getEdits().names[key]).toBe('甲');
     expect(getEdits().marks).toHaveLength(1);
     setEdits(EMPTY_EDITS);
+  });
+
+  it('照原样打开的旧世界:同一个插件这一次打开,改历史只问一次,之后直接回原因', () => {
+    setEdits(EMPTY_EDITS);
+    const key = pk();
+    let askedTimes = 0;
+    setHistoryGate(() => (askedTimes++, true));
+    const asked = { history: false };
+    const iv = (from: number) => planChanges(getEdits(), civ, { changes: [{ kind: 'intervention', v: { kind: 'protect', a: key, from } }] });
+    expect(commitPluginEdits(iv(100).next, [key], asked)).toMatch(/另存/);
+    expect(commitPluginEdits(iv(200).next, [key], asked)).toMatch(/另存/);
+    expect(askedTimes).toBe(1);
+    // 不改历史的(改名)照常记进去;另一个插件(另一份记号)还会问
+    expect(commitPluginEdits(planChanges(getEdits(), civ, { changes: [{ kind: 'name', key, name: '甲' }] }).next, [key], asked)).toBeNull();
+    expect(commitPluginEdits(iv(300).next, [key], { history: false })).toMatch(/另存/);
+    expect(askedTimes).toBe(2);
+    setHistoryGate(null);
+    setEdits(EMPTY_EDITS);
+  });
+
+  it('不合格式的一批:回 bad-args / limit,同时交给网站说哪几处不对(一处都没改)', async () => {
+    const key = pk();
+    const commits: WorldEdits[] = [];
+    const refused = vi.fn();
+    const { call } = await open(['author.write@1'], {
+      source: { world: () => world, civ: () => civ, edits: () => EMPTY_EDITS, commit: (next) => (commits.push(next), null) },
+      sink: { refused },
+    });
+    const changes = [
+      { kind: 'name', key, name: '甲' },
+      { kind: 'name', key, name: '一二三四五六七八九十一二三四五六七' },
+    ];
+    expect(await call('author.apply', { changes })).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(commits).toHaveLength(0);
+    expect(refused).toHaveBeenCalledTimes(1);
+    expect(refused.mock.calls[0][0]).toEqual({ changes });
+    expect(refused.mock.calls[0][1]).toMatchObject({ code: 'limit' });
+    // 网站这时不让改(blocked)、太快(busy)不算格式不对
+    expect(await call('author.apply', { changes: [] })).toMatchObject({ ok: true });
+    expect(refused).toHaveBeenCalledTimes(1);
   });
 
   it('回调用:照办回结果;网站不让改回 blocked;网站没接上回 unavailable', async () => {

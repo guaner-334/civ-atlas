@@ -124,6 +124,11 @@ export const enum Ev {
    */
   Look = 34,
   /**
+   * 推演插件下的命令(interventions.ts):这一刻生效的那几条(干预列表里带 plugin 的)按列表先后照干预办。一刻一件,
+   * 插件出手时才预约,所以排在按预约先后的那一段前面(earlyEnd),接着推时和一口气推完同样先后
+   */
+  Command = 35,
+  /**
    * 看邦交(diplomacy.ts;编号 40–44):a = 立国后第几次看(按年份段编号),b = 国家。
    * 国家隔几十年看一眼:藩属要不要自立、宗主收不收藩属的国土、盟约废不废、畏不畏强邻(称臣 / 结盟)
    */
@@ -204,6 +209,7 @@ export const enum Ev {
  *   (大事改的归属除外)之前重放。掌实权的事从下一刻起才算数(regents.ts),同一国同一刻预约几次也只办一回
  * - 看地震水旱、看全球大疫、疫后凋敝、看疫情、疫情传开 = EARLY_SPAN − 5 … − 1(这几类之后、别的事件之前):接着推时它们最后才补进引擎,
  *   排在固定的位置,同一刻的别的事件(攻占、毁城)在它前还是在它后,和一口气推完一样(同一刻每类至多一件)
+ * - 推演插件下的命令 = EARLY_SPAN − 6:插件出手时才预约,同一刻里排在上面那几类前面,也就在作者的干预和别的按预约先后的事件前面
  * 不是这几类的,按预约先后;民族、国家到达(CultureArrive、PolityArrive)排在同一刻最后,民族先、国家后,再按州号、民族 / 国家号
  */
 export const CIV_EVENTS: readonly EventKind[] = [
@@ -236,6 +242,7 @@ export const CIV_EVENTS: readonly EventKind[] = [
   { id: Ev.HaltEnd, name: '解除禁扩', watch: false },
   { id: Ev.Upheaval, name: '地形大事', watch: false, order: { early: 0 } },
   { id: Ev.Look, name: '多看一眼', watch: false },
+  { id: Ev.Command, name: '插件下的命令', watch: false, order: { earlyEnd: 6 } },
   { id: Ev.DiplomacyCheck, name: '看邦交', watch: false },
   { id: Ev.TreatyEnd, name: '约满', watch: false },
   { id: Ev.Neutral, name: '中立地', watch: false },

@@ -35,6 +35,7 @@ export function ToastBar() {
       onDoubleClick={stop}
     >
       {mark ? <i className="toast-mark" aria-hidden="true" /> : t.dot && <i className="toast-mark ok" aria-hidden="true" />}
+      {t.tag && <span className="toast-tag">{t.tag}</span>}
       <span className="toast-text">
         <span className="toast-main">{t.text}</span>
         {more && <span className="toast-more">{more}</span>}

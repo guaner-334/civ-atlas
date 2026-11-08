@@ -1,8 +1,9 @@
-/** 「更多」菜单里的「插件」和插件页的外壳;插件页本身(PluginWindow.tsx)点开才下载 */
-import { Suspense, lazy, useEffect, useState } from 'react';
+/** 「更多」菜单里的「插件」、地图上的「工具」按钮和它们的外壳;插件页(PluginWindow.tsx)、工具(tools/)点开才下载 */
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createStore } from '../createStore';
 import { MenuItem } from '../PopMenu';
 import { showToast } from '../toastStore';
+import { toolCard, toolRunning, toolsMenu, type ToolsProps } from './toolsState';
 
 const open = createStore(false);
 
@@ -18,6 +19,9 @@ export function PuzzleIcon({ size = 18 }: { size?: number }) {
 export function openPlugins(): void {
   open.set(true);
 }
+
+/** 插件页开着 */
+export const usePluginsOpen = (): boolean => open.use();
 
 export function closePlugins(): void {
   open.set(false);
@@ -60,6 +64,61 @@ export function PluginsHost({ phone }: { phone: boolean }) {
   return (
     <Suspense fallback={null}>
       <PluginWindow phone={phone} onClose={closePlugins} />
+    </Suspense>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 工具
+
+const loadTools = () => import('./tools/ToolsLayer');
+
+function toolsFailed() {
+  toolsMenu.set(false);
+  showToast({ id: 'plugins-load', kind: 'error', text: '没能打开工具', more: ['网络断了，或者网站刚更新过，重新加载试试'], action: { label: '重新加载', act: 'plugins-reload', onClick: () => location.reload() } });
+}
+
+/** 地图右下(手机右上竖排)的「工具」:点开列出插件带来的工具;菜单开着、插件开着时是按下去的样子 */
+export function ToolsButton({ phone, disabled }: { phone?: boolean; disabled?: boolean }) {
+  const open = toolsMenu.use();
+  const running = toolRunning.use();
+  const on = open || running;
+  const click = () => {
+    if (toolsMenu.get()) return toolsMenu.set(false);
+    loadTools().then(() => toolsMenu.set(true), toolsFailed);
+  };
+  if (phone)
+    return (
+      <button className={`pb-btn plg-tools${on ? ' on' : ''}`} data-act="tools" aria-pressed={on} aria-expanded={open} disabled={disabled} onClick={click} aria-label="工具" title="插件带来的工具">
+        <PuzzleIcon size={21} />
+      </button>
+    );
+  return (
+    <button className={`glass mc-btn mc-globe mc-tools${on ? ' on' : ''}`} data-act="tools" aria-pressed={on} aria-expanded={open} onClick={click} title="插件带来的工具">
+      <PuzzleIcon size={18} />
+      <span>工具</span>
+    </button>
+  );
+}
+
+function ToolsMissing(_: ToolsProps) {
+  useEffect(toolsFailed, []);
+  return null;
+}
+
+const ToolsLayer = lazy(() => loadTools().catch(() => ({ default: ToolsMissing as unknown as typeof import('./tools/ToolsLayer').default })));
+
+/** 工具菜单、插件卡、点选:第一次点开「工具」以后才挂上 */
+export function ToolsHost(p: ToolsProps) {
+  const used = useRef(false);
+  const menu = toolsMenu.use();
+  const card = toolCard.use();
+  const shown = menu || card;
+  if (shown) used.current = true;
+  if (!used.current) return null;
+  return (
+    <Suspense fallback={null}>
+      <ToolsLayer {...p} />
     </Suspense>
   );
 }
