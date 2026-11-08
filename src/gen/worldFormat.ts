@@ -124,6 +124,7 @@ export const simStatePart = (pluginId: string): string => `${SIM_STATE_PREFIX}${
  * 同一个文件里有 sim.<插件编号> 的是推演插件推出来的,跟着历史走:读的时候接回 Civ.simLayers,换了历史就整批换掉
  */
 export const PLUGIN_LAYER_PREFIX = 'layer.';
+/** 第 1 版已对外定下(docs/plugins/layer-format.md,样本测试守着):结构要变只能出新版本,第 1 版照旧读、照旧画 */
 export const PLUGIN_LAYER_SCHEMA = 1;
 /** 图层编号:块名最长 64,放下 layer.<最长 32 字的插件编号>. 还剩 25 个字 */
 export const PLUGIN_LAYER_ID = /^[a-z0-9][a-z0-9-]{0,24}$/;

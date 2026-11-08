@@ -17,7 +17,7 @@ import { READER_VERSIONS } from '../gen/readers/versions';
 import { makeSave, worldCheck } from '../gen/savefile';
 import type { World } from '../gen/world';
 import { openWorldFile, packWorldFile, readWorldContent } from '../gen/worldFile';
-import type { CellPaint } from '../render/pluginLayer';
+import { framePaint, regionsToCells, type CellPaint } from '../render/pluginLayer';
 import { simPluginsOn, type SimBoxer } from '../simPluginRun';
 import type { SimPluginFile } from './pluginWorld';
 
@@ -171,17 +171,8 @@ export function resumeDiff(rest: Civ, full: Civ): string | null {
 export function simLayerPaint(civ: Civ, year: number): CellPaint | null {
   const l = civ.simLayers?.[0];
   if (!l?.years.length) return null;
-  let k = -1;
-  for (let i = 0; i < l.years.length; i++) if (l.years[i] <= year) k = i;
-  if (k < 0) return null;
-  const count = l.values.length / l.years.length;
-  const of = civ.regions.of;
-  const values = new Float32Array(of.length).fill(NaN);
-  for (let c = 0; c < of.length; c++) {
-    const r = of[c];
-    if (r >= 0 && r < count) values[c] = l.values[k * count + r];
-  }
-  return { values, ...(l.ramp ? { ramp: l.ramp } : {}), ...(l.classes ? { classes: l.classes } : {}), ...(l.opacity !== undefined ? { opacity: l.opacity } : {}) };
+  const frame = framePaint(l, year);
+  return frame && regionsToCells(frame, civ.regions.of);
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
