@@ -340,6 +340,22 @@ describe('一次生成的合计用时', () => {
     expect(e).toBeInstanceOf(MapPluginError);
     expect([(e as MapPluginError).plugin, (e as MapPluginError).stage]).toEqual(['a', 'layers']);
     expect((e as Error).message).toMatch(/一共用了 15\.3 秒,超过 15\.0 秒\(它用得最多,9\.8 秒\)/);
+    // 界面上列各用了多久:哪个插件、哪一口、多少毫秒(按先后,超时的那一口在最后)
+    expect((e as MapPluginError).kind).toBe('total');
+    expect((e as MapPluginError).spent).toEqual([
+      { id: 'a', stage: 'height', ms: 4900 },
+      { id: 'b', stage: 'height', ms: 1000 },
+      { id: 'a', stage: 'climate', ms: 4900 },
+      { id: 'b', stage: 'climate', ms: 1000 },
+      { id: 'b', stage: 'layers', ms: 3500 },
+    ]);
+    let slow: unknown;
+    try {
+      new MapClock().spend('a', 'height', MAP_PLUGIN_TIME.stage + 1);
+    } catch (x) {
+      slow = x;
+    }
+    expect((slow as MapPluginError).kind).toBe('slow');
   });
 
   it('包上计时的插件照常跑,每一口记进钟;生成里超了停在那一口', () => {

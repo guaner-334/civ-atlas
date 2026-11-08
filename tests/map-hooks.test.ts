@@ -173,6 +173,8 @@ describe('改海拔', () => {
       expect(e.stage).toBe('height');
       expect(e.message).toMatch(why);
       expect(e.message).toContain('bad');
+      // 插件自己抛的、没写这一步算「插件报的错」,别的是网站查出来的「交回的数不对」
+      expect(e.kind).toBe(/坏了|没有这一步/.test(e.why) ? 'throw' : 'bad');
     }
     // 整个生成里出错也一样
     const e = errOf(() => generateWorld(P, undefined, undefined, undefined, undefined, [one('height', () => ({ elevation: new Float32Array(3) }))]));
