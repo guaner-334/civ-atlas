@@ -10,7 +10,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PLUGIN_FILE_EXT } from '../src/plugin/pluginFile';
-import { PLUGIN_SAMPLES, goodPlugin } from '../tests/lib/pluginFileSample';
+import { PLUGIN_SAMPLES, goodPlugin, goodSimPlugin } from '../tests/lib/pluginFileSample';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'tests', 'fixtures', 'plugin-file');
 mkdirSync(dir, { recursive: true });
@@ -23,6 +23,7 @@ const write = (name: string, bytes: Uint8Array, kind: string, why: string) => {
 };
 
 write('good', await goodPlugin(), 'ok', '好的插件文件,每个字段、每个文件都有');
+write('good-sim', await goodSimPlugin(), 'ok', '好的推演插件,sim 段每一项都有');
 for (const s of PLUGIN_SAMPLES) if (!s.big) write(s.name, await s.build(), s.kind, s.why);
 writeFileSync(join(dir, 'index.json'), `${JSON.stringify(index, null, 2)}\n`);
 console.log(`写了 ${index.length} 个样本到 ${dir}`);

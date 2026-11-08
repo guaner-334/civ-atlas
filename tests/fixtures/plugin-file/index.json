@@ -5,6 +5,11 @@
     "why": "好的插件文件,每个字段、每个文件都有"
   },
   {
+    "file": "good-sim.civplugin",
+    "kind": "ok",
+    "why": "好的推演插件,sim 段每一项都有"
+  },
+  {
     "file": "not-zip.civplugin",
     "kind": "broken",
     "why": "不是 ZIP"
@@ -177,7 +182,7 @@
   {
     "file": "role-newer.civplugin",
     "kind": "newer",
-    "why": "role 是这一版网站跑不了的(推演插件)"
+    "why": "role 是这一版网站跑不了的(地图生成插件)"
   },
   {
     "file": "runtime-bad.civplugin",
@@ -188,6 +193,21 @@
     "file": "runtime-newer.civplugin",
     "kind": "newer",
     "why": "runtime 是这一版网站没有的"
+  },
+  {
+    "file": "runtime-wrong.civplugin",
+    "kind": "broken",
+    "why": "工具插件的 runtime 写成推演插件的 quickjs"
+  },
+  {
+    "file": "tool-sim-cap.civplugin",
+    "kind": "broken",
+    "why": "工具插件要了推演插件的能力"
+  },
+  {
+    "file": "tool-sim-section.civplugin",
+    "kind": "broken",
+    "why": "工具插件的清单里有 sim 段"
   },
   {
     "file": "requires-not-list.civplugin",
@@ -278,6 +298,171 @@
     "file": "author-name-empty.civplugin",
     "kind": "broken",
     "why": "author.name 空着"
+  },
+  {
+    "file": "sim-runtime-wrong.civplugin",
+    "kind": "broken",
+    "why": "推演插件的 runtime 写成 worker"
+  },
+  {
+    "file": "sim-tool-cap.civplugin",
+    "kind": "broken",
+    "why": "推演插件要了工具插件的能力"
+  },
+  {
+    "file": "sim-no-section.civplugin",
+    "kind": "broken",
+    "why": "推演插件的清单没有 sim 段"
+  },
+  {
+    "file": "sim-not-object.civplugin",
+    "kind": "broken",
+    "why": "sim 段不是对象"
+  },
+  {
+    "file": "sim-cap-newer.civplugin",
+    "kind": "newer",
+    "why": "要的推演能力版本比网站新(sim 段用到它也不算没要)"
+  },
+  {
+    "file": "sim-every-no-cap.civplugin",
+    "kind": "broken",
+    "why": "写了 every,requires 里没有 sim.events@1"
+  },
+  {
+    "file": "sim-influence-no-cap.civplugin",
+    "kind": "broken",
+    "why": "写了 influences,requires 里没有 sim.influence@1"
+  },
+  {
+    "file": "sim-commands-no-cap.civplugin",
+    "kind": "broken",
+    "why": "写了会下哪几种命令,requires 里没有 sim.commands@1"
+  },
+  {
+    "file": "sim-commands-missing.civplugin",
+    "kind": "broken",
+    "why": "要了 sim.commands@1,没写会下哪几种命令"
+  },
+  {
+    "file": "sim-every-bad.civplugin",
+    "kind": "broken",
+    "why": "every 不在频率菜单里"
+  },
+  {
+    "file": "sim-table-tile.civplugin",
+    "kind": "broken",
+    "why": "表按地块记"
+  },
+  {
+    "file": "sim-table-owner.civplugin",
+    "kind": "broken",
+    "why": "表叫「国」(按国记的表对州用的就是这个名字)"
+  },
+  {
+    "file": "sim-table-builtin.civplugin",
+    "kind": "broken",
+    "why": "表写了 builtin(会跳过护栏)"
+  },
+  {
+    "file": "sim-table-type.civplugin",
+    "kind": "broken",
+    "why": "表的上限不是数"
+  },
+  {
+    "file": "sim-table-formula.civplugin",
+    "kind": "broken",
+    "why": "表的公式读了没有的表"
+  },
+  {
+    "file": "sim-table-card.civplugin",
+    "kind": "broken",
+    "why": "输入表写了规则(登记卡本身不对)"
+  },
+  {
+    "file": "sim-tables-too-many.civplugin",
+    "kind": "broken",
+    "why": "表超过 16 张"
+  },
+  {
+    "file": "sim-table-cols.civplugin",
+    "kind": "broken",
+    "why": "表的栏加起来超过 64"
+  },
+  {
+    "file": "sim-inputs-not-input.civplugin",
+    "kind": "broken",
+    "why": "接官方表的不是输入表"
+  },
+  {
+    "file": "sim-inputs-unit.civplugin",
+    "kind": "broken",
+    "why": "按国的输入表接按州的官方表"
+  },
+  {
+    "file": "sim-inputs-newer.civplugin",
+    "kind": "newer",
+    "why": "接的官方表这一版网站没有"
+  },
+  {
+    "file": "sim-listen-twice.civplugin",
+    "kind": "broken",
+    "why": "listen 里同一种史事写了两遍"
+  },
+  {
+    "file": "sim-listen-newer.civplugin",
+    "kind": "newer",
+    "why": "要听的史事种类这一版网站没有"
+  },
+  {
+    "file": "sim-layer-keep.civplugin",
+    "kind": "broken",
+    "why": "图层 keep 不是 1 到 1000 的整数"
+  },
+  {
+    "file": "sim-layer-table.civplugin",
+    "kind": "broken",
+    "why": "图层标的是按国记的表"
+  },
+  {
+    "file": "sim-layer-look.civplugin",
+    "kind": "broken",
+    "why": "图层没给颜色(ramp、classes 都没有)"
+  },
+  {
+    "file": "sim-influence-newer.civplugin",
+    "kind": "newer",
+    "why": "交数的影响口这一版网站没有"
+  },
+  {
+    "file": "sim-command-newer.civplugin",
+    "kind": "newer",
+    "why": "会下的命令这一版网站没有"
+  },
+  {
+    "file": "sim-command-bad.civplugin",
+    "kind": "broken",
+    "why": "命令的种类不合规矩"
+  },
+  {
+    "file": "sim-params-too-many.civplugin",
+    "kind": "broken",
+    "why": "滑条超过 8 个"
+  },
+  {
+    "file": "sim-param-label.civplugin",
+    "kind": "broken",
+    "why": "滑条名字超过 12 个字"
+  },
+  {
+    "file": "sim-param-default.civplugin",
+    "kind": "broken",
+    "why": "滑条的默认值不在上下限里"
+  },
+  {
+    "file": "sim-param-key.civplugin",
+    "kind": "broken",
+    "why": "滑条的名字不能当变量名"
   },
   {
     "file": "code-not-utf8.civplugin",

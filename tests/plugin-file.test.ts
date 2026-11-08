@@ -6,9 +6,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { PERMISSIONS, PERMISSION_FOOTER, PERMISSION_FOOTER_WRITE, PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey } from '../src/plugin/pluginCaps';
+import { PERMISSIONS, PERMISSION_FOOTER, PERMISSION_FOOTER_SIM, PERMISSION_FOOTER_WRITE, PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey } from '../src/plugin/pluginCaps';
 import { PluginFileError, openPluginFile, packPluginFile, type PluginFileErrorKind } from '../src/plugin/pluginFile';
-import { PLUGIN_SAMPLES, goodInput, goodPlugin, put, variant } from './lib/pluginFileSample';
+import { PLUGIN_SAMPLES, goodInput, goodPlugin, goodSimInput, goodSimPlugin, put, variant } from './lib/pluginFileSample';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -91,7 +91,7 @@ describe('仓库里的样本', () => {
   const index: { file: string; kind: string; why: string }[] = JSON.parse(readFileSync(join(DIR, 'index.json'), 'utf8'));
 
   it('和样本表对得上(改了样本表要跑 scripts/plugin-file-samples.ts)', () => {
-    const want = ['good', ...PLUGIN_SAMPLES.filter((s) => !s.big).map((s) => s.name)].map((n) => `${n}.civplugin`);
+    const want = ['good', 'good-sim', ...PLUGIN_SAMPLES.filter((s) => !s.big).map((s) => s.name)].map((n) => `${n}.civplugin`);
     expect(index.map((e) => e.file)).toEqual(want);
   });
 
@@ -124,7 +124,7 @@ describe('要更新网站时说清要的是什么', () => {
     expect((await needOf((m) => (m.requires[0] = 'world.read@2'))).need).toBe('world.read 第 2 版');
     expect((await needOf((m) => (m.format = 2))).need).toBe('第 2 版插件文件');
     expect((await needOf((m) => (m.api = 3))).need).toBe('第 3 版插件接口');
-    expect((await needOf((m) => (m.role = 'sim'))).need).toBe('sim 这种插件');
+    expect((await needOf((m) => (m.role = 'map'))).need).toBe('map 这种插件');
   });
 
   it('格式更新时名字还没查过:名字不合规矩就不带', async () => {
@@ -147,7 +147,7 @@ describe('权限框', () => {
     expect(PLUGIN_CAPS.get('author.write@1')).toBe('authorWrite');
     expect(PLUGIN_CAPS.get('store.world@1')).toBe('storeWorld');
     const loud = (Object.keys(PERMISSIONS) as PermissionKey[]).filter((k) => PERMISSIONS[k].loud);
-    expect(loud).toEqual(['authorRead', 'authorWrite']);
+    expect(loud).toEqual(['authorRead', 'authorWrite', 'simSteer']);
     expect(PERMISSIONS.storeWorld.note).toContain('不能公开分享');
     expect(PERMISSIONS.authorWrite.note).toContain('能撤销');
   });
