@@ -6,26 +6,8 @@ import { PluginIcon, useIcons } from './pluginIcons';
 import { versionLabel } from './pluginText';
 import { kbText } from './askState';
 import { usedPlugins, type UsedPlugin } from './worldPlugins';
+import { simHere, simLines } from './simWorldText';
 import './worldData.css';
-
-/** 推演插件本机有没有世界记的那一版(现在用的、留着的上一版都算) */
-export function simHere(u: Pick<UsedPlugin, 'plugin' | 'installed'>): 'same' | 'other' | 'none' {
-  const have = u.installed;
-  if (!have) return 'none';
-  const sum = u.plugin?.sum;
-  return have.current.sum === sum || have.previous?.sum === sum ? 'same' : 'other';
-}
-
-/** 推演插件那一行的小字:第几个出手、滑条拨到几;只装了别的版本的说要装回哪一版 */
-export function simLines(u: Pick<UsedPlugin, 'plugin' | 'installed'>, order: number): string[] {
-  const spec = u.installed?.current.manifest.sim?.params ?? {};
-  const given = Object.entries(u.plugin?.params ?? {}).filter((e): e is [string, number] => typeof e[1] === 'number');
-  const changed = given.filter(([k, v]) => !spec[k] || v !== spec[k].default);
-  const knobs = !given.length ? '' : !changed.length ? '滑条都是默认' : `滑条：${changed.map(([k, v]) => (spec[k] ? `${spec[k].label} ${v}（默认 ${spec[k].default}）` : `${k} ${v}`)).join('、')}${changed.length < given.length ? '，别的是默认' : ''}`;
-  const out = [`第 ${order} 个出手。${knobs}`.replace(/。$/, '')];
-  if (simHere(u) === 'other' && u.plugin) out.push(`要接着推，得装回${versionLabel(u.plugin.version)}；不装也照常能看`);
-  return out;
-}
 
 /** 一行下面的小字 */
 function linesOf(u: UsedPlugin, titles: string[]): string[] {

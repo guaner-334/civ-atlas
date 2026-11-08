@@ -39,7 +39,7 @@ import { contentTrouble, pendingOf } from './worldStore';
 import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem, useSubmitBan, useSubmitWorldOn, type SubmitWork } from './submitView';
 import { RemoveDataItem, pluginNames, usePluginData } from './plugins/saveItems';
 import { useNarrow } from './device';
-import { SIM_NO_LINK, useSimLinkOff } from './world/simNow';
+import { SIM_NO_LINK, useSimLinkOff } from './world/simAsk';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */

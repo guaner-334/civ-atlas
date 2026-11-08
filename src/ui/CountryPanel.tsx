@@ -83,7 +83,7 @@ import { Act, Acts, AiBox, AiSuggestLink, CenterAct, EventList, Link, MoreAct, P
 import { AiMenuItem, MenuItem, MenuSep } from './PopMenu';
 import { Icon } from './icons';
 import { copyMomentLink } from './shareMoment';
-import { SIM_NO_LINK, useSimLinkOff } from './world/simNow';
+import { SIM_NO_LINK, useSimLinkOff } from './world/simAsk';
 import { useAiOn } from '../ai/client';
 import { FlagIcon } from './Flag';
 import { FlagPanel } from './FlagPanel';

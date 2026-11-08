@@ -7,10 +7,10 @@
 import { Suspense, lazy, useState } from 'react';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import { Dialog } from '../AccountDialogs';
-import { newVersionTitle } from '../FrozenWorld';
-import { askSims, type SimAsk } from '../world/simNow';
+import { askSims, type SimAsk } from '../world/simAsk';
 import { PluginIcon } from './pluginIcons';
 import { versionLabel } from './pluginWords';
+import { missingText, otherText, simWhat } from './simWorldText';
 import { useWallRev, wallWorkOf } from './galleryWatch';
 import './plugins.css';
 
@@ -20,22 +20,6 @@ type Missing = Extract<SimPluginCheck, { status: 'missing' }>;
 type Other = Extract<SimPluginCheck, { status: 'other' }>;
 
 const nameOf = (c: SimPluginCheck) => c.plugin.name ?? c.id;
-
-/** 要先装的那一句 */
-export function missingText(title: string, miss: readonly Pick<SimPluginCheck, 'id' | 'plugin'>[]): string {
-  const list = miss.map((c) => `「${c.plugin.name ?? c.id}」${versionLabel(c.plugin.version)}`).join('、');
-  return `「${title}」用了推演插件${list}。看不用装；要接着推，得先装上同一版，推出来的历史才对得上。`;
-}
-
-/** 另存一份那两句 */
-export function otherText(title: string, other: readonly Pick<Other, 'id' | 'plugin' | 'installed'>[], what: string): [string, string] {
-  const one = other.length === 1 ? other[0] : null;
-  const first = one
-    ? `「${title}」是用推演插件「${one.plugin.name ?? one.id}」${versionLabel(one.plugin.version)}推的，你装的是${versionLabel(one.installed.version)}。推演的话，地图和你写的东西留下，历史按${versionLabel(one.installed.version)}从第 0 年重推，整段都会不一样。`
-    : `「${title}」用的推演插件，你装的是别的版本：${other.map((c) => `「${c.plugin.name ?? c.id}」${versionLabel(c.plugin.version)}（你装的是${versionLabel(c.installed.version)}）`).join('、')}。推演的话，地图和你写的东西留下，历史按你装的版本从第 0 年重推，整段都会不一样。`;
-  const back = one ? `要照原样接着推，得装回${versionLabel(one.plugin.version)}。` : '要照原样接着推，得装回原来那几版。';
-  return [first, `原来的「${title}」不动；另存一份「${newVersionTitle(title)}」，在那一份上${what}。${back}`];
-}
 
 export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean }) {
   useWallRev();
@@ -98,7 +82,7 @@ export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean 
     );
   }
   const other = ask.checks.filter((c): c is Other => c.status === 'other');
-  const [first, second] = otherText(ask.title, other, ask.what);
+  const [first, second] = otherText(ask.title, other, simWhat(ask.now, ask.next));
   const label = '另存一份再推演？';
   const go = () => {
     close();

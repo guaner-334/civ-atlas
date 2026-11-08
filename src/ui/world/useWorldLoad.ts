@@ -716,12 +716,14 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 带着本机没装的插件存的数据:同一条提示第二行最前面说一句(从我的世界点开的也说),「看看」到世界设定
     if (pluginsUiOn())
       void import('../plugins/worldPlugins')
-        .then((m) => m.missingNote(t.id))
+        .then(async (m) => [await m.missingNote(t.id), await m.missingWall(t.id).catch(() => null)] as const)
         .then(
-          (line) => {
+          ([line, wall]) => {
             if (!line || currentWorld()?.id !== t.id) return;
             const see: ToastAction = { label: '看看', act: 'plugin-see', onClick: () => openOverview('genesis') };
-            say({ kind: warn ? 'warn' : 'ok', text, more: [line, ...lead, ...more], action: held?.action ?? (act ? undefined : see), ...(brief ? { ttl: OK_TTL } : {}) });
+            const get: ToastAction | null = wall ? { label: '去作品墙装同一版', act: 'plugin-wall-same', onClick: () => void import('../plugins/entry').then((e) => e.openWallPlugin(wall)) } : null;
+            const acts = !held?.action && !act && get ? { actions: [see, get] } : { action: held?.action ?? (act ? undefined : see) };
+            say({ kind: warn ? 'warn' : 'ok', text, more: [line, ...lead, ...more], ...acts, ...(brief ? { ttl: OK_TTL } : {}) });
           },
           () => {},
         );

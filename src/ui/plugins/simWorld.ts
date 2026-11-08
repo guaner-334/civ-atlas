@@ -6,7 +6,11 @@ import { listPlugins, pluginFileBytes, type InstalledPlugin } from '../../plugin
 import { recordParams, simParamsOf, simPluginOf, simPluginsIn, type SimPluginFile } from '../../plugin/pluginWorld';
 import { simPluginsReady } from '../../plugin/simPlugins';
 import { getSimNow, setSimNow } from '../world/simNow';
+import type { WorldEdits } from '../../gen/edits';
+import { copyNotes } from '../../ai/library';
+import { notify, saveAsNewVersion, storageFullWhy } from '../saveStore';
 import { vaultCall } from '../worldStore';
+import './simWorld.css';
 
 /** 世界仓库里这个世界记的推演插件读进来、和本机核对;仓库里还没有这个世界 = 不动(新建中选的、另存的那一份记着) */
 export async function loadSimNow(id: string): Promise<void> {
@@ -15,13 +19,13 @@ export async function loadSimNow(id: string): Promise<void> {
   const list = simPluginsIn(m.plugins);
   if (!list.length) return setSimNow(null);
   const r = await simPluginsReady(m.plugins).catch(() => null);
-  setSimNow({ id, list, files: r?.ok ? r.files : null, checks: r && !r.ok ? r.checks : [] });
+  setSimNow({ id, list, files: r?.ok ? r.files : null, checks: r && !r.ok ? r.checks : [], stored: true });
 }
 
 /** 装了、删了插件以后:地图上这个世界的推演插件本机对不上的,再核对一遍(新建中选的不动) */
 export async function refreshSimNow(): Promise<void> {
   const s = getSimNow();
-  if (s && !s.files) await loadSimNow(s.id);
+  if (s && (s.stored || !s.files)) await loadSimNow(s.id);
 }
 
 /** 删了一个插件:地图上这个世界用着它的,再核对一遍(推演不再带它的文件) */
@@ -67,4 +71,13 @@ export function chosenSims(worldId: string | undefined): SimChoice[] {
     const params = recordParams(p);
     return { id: p.id, ...(params ? { params } : {}) };
   });
+}
+
+/** 只装了推演插件别的版本:另存一份(带着 next 这次的修改),按本机现在那一版从第 0 年重推(滑条照原来的);存好交新编号、AI 写的史书跟过去没有 */
+export async function copyWithSims(from: string, next: WorldEdits, open: (id: string, notes: boolean) => void): Promise<void> {
+  const id = saveAsNewVersion(from, next);
+  if (!id) return void notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
+  const notes = copyNotes(from, id);
+  await chooseSims(id, chosenSims(getSimNow()?.id));
+  open(id, notes);
 }

@@ -42,6 +42,17 @@ export async function missingNote(worldId: string): Promise<string | null> {
   return miss.length ? `用到了你没装的插件${namesText(miss)}，它${miss.length > 1 ? '们' : ''}存的数据原样留着` : null;
 }
 
+/** 打开世界时那一句里没装的插件:作品墙上现在正是世界记的那一版的,交作品编号(给「去作品墙装同一版」);没有 = null */
+export async function missingWall(worldId: string): Promise<string | null> {
+  const miss = withData(await usedPlugins(worldId)).filter((u) => u.here === 'none' && u.plugin);
+  const { wallWorkOf } = await import('./galleryWatch');
+  for (const u of miss) {
+    const w = wallWorkOf(u.id, u.plugin!.sum);
+    if (w) return w;
+  }
+  return null;
+}
+
 /** 去掉这个世界里所有插件存的数据(先问一句);去掉了 = true */
 export async function removePluginData(worldId: string, list: readonly UsedPlugin[]): Promise<boolean> {
   const data = withData(list);

@@ -18,7 +18,7 @@ import { currentWorld, useSavesVersion } from './saveStore';
 import { showToast } from './Toast';
 import { openDiag } from './DiagDialog';
 import { closeStuck, openStuck, useStuck, type StuckWhy } from './stuckStore';
-import { simErrorAt } from '../diag/watch';
+import { simErrorAt } from './sim/simClient';
 import { getSimNow } from './world/simNow';
 import './stuck.css';
 

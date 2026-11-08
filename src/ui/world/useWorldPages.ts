@@ -25,7 +25,8 @@ import type { SharedWorld } from '../fullWorldPull';
 import { sizeText } from '../sizeWords';
 import { setGoHome } from '../AccountDialogs';
 import { pluginsUiOn } from '../plugins/flag';
-import { askSims, getSimNow } from './simNow';
+import { askSims } from './simAsk';
+import { getSimNow } from './simNow';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
 import { clearEditHistory, getEdits, putEditsQuiet, setHistoryGate } from '../editsStore';
@@ -649,18 +650,6 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const title = loadWorld(r.id)?.save.title ?? newVersionTitle(name);
     showToast({ id: 'save', kind: 'ok', ttl: 0, dismissible: true, text: `「${title}」另存好了`, more: ['地图没变，历史按新版重推了', ...more], action: { label: '打开', act: 'open-copy', onClick: () => openStoredRef.current(r.id) } });
   };
-  /** 只装了推演插件别的版本:另存一份,按本机现在的那一版从第 0 年重推(滑条照原来的),打开它 */
-  const simCopy = async (c: CurrentWorld, next: WorldEdits) => {
-    const id = saveAsNewVersion(c.id, next);
-    if (!id) return notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
-    const more = copyNotes(c.id, id) ? [] : [NOTES_LOST];
-    const picks = (getSimNow()?.list ?? []).map((p) => ({ id: p.id, ...(p.params ? { params: p.params as Record<string, number> } : {}) }));
-    await import('../plugins/simWorld').then((m) => m.chooseSims(id, picks)).catch(() => {});
-    savedCopy.current = { id, line: '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more };
-    openStoredRef.current(id);
-  };
-  const simCopyRef = useRef(simCopy);
-  simCopyRef.current = simCopy;
   const saveAsNewRef = useRef(saveAsNewNow);
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
@@ -682,7 +671,19 @@ export function useWorldPages(deps: WorldPagesDeps) {
       const sims = pluginsUiOn() ? getSimNow() : null;
       if (c && sims && sims.id === c.id && !sims.files) {
         const cur = c;
-        askSims({ title: c.title || `种子 ${c.params.seed}`, checks: sims.checks, what: simWhat(getEdits(), next), copy: () => void simCopyRef.current(cur, next) });
+        askSims({
+          title: c.title || '未命名世界',
+          checks: sims.checks,
+          now: getEdits(),
+          next,
+          copy: () =>
+            void import('../plugins/simWorld').then((m) =>
+              m.copyWithSims(cur.id, next, (id, notes) => {
+                savedCopy.current = { id, line: '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more: notes ? [] : [NOTES_LOST] };
+                openStoredRef.current(id);
+              }),
+            ),
+        });
         return true;
       }
       if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return false;
@@ -773,13 +774,4 @@ export function useWorldPages(deps: WorldPagesDeps) {
     v,
     draftBack,
   };
-}
-
-/** 问「另存一份再推演？」时说这次要做的:再推几年、推演几条命令 */
-function simWhat(now: WorldEdits, next: WorldEdits): string {
-  const a = endParamOf(now) ?? 3000;
-  const b = endParamOf(next) ?? 3000;
-  if (b > a) return `再推 ${Math.round(b - a)} 年`;
-  const n = next.interventions.length - now.interventions.length;
-  return n > 0 ? `推演这 ${n} 条命令` : '推演';
 }
