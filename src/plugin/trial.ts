@@ -1,5 +1,5 @@
 /**
- * 审插件时的试跑:在示例世界上照固定的办法替插件点选(两座最大的城、最大的那一国),拦下它对你写的东西的修改,
+ * 审插件时的试跑:在示例世界上照固定的办法替插件点选(最大的城和同一块陆地上的另一座、最大的那一国),拦下它对你写的东西的修改,
  * 记下它拿了什么、替它点了什么、画了什么、发了多少话、日志和出的错。纯逻辑,不碰 DOM;沙箱、截图由叫的地方管。
  */
 import { fullChronicle } from '../gen/civ/story/religionText';
@@ -41,9 +41,10 @@ export interface TrialBox {
   name: string;
 }
 
-/** 替插件点的:点一处依次给最大的两座城,框一片给最大的那一国的外接框 */
+/** 替插件点的:点一处先给最大的城,再给走陆路连得到的城里最大的(没有就给第二大的,sameLand = false);框一片给最大的那一国的外接框 */
 export interface TrialPicks {
   cities: TrialCity[];
+  sameLand: boolean;
   box: TrialBox | null;
 }
 
@@ -77,18 +78,46 @@ export function wrapSpan(xs: readonly number[], W: number): { x0: number; w: num
   return { x0: ((start % W) + W) % W, w: end - start };
 }
 
+/** 从地块 c 走陆路(不是水的地块、相邻)连得到的地块;和插件拿到的 water、neighbors 算法一样 */
+export function landFrom(world: World, c: number): Uint8Array {
+  const { water } = world;
+  const { n, adjStart, adj } = world.mesh;
+  const on = new Uint8Array(n);
+  if (water[c] !== 0) return on;
+  const q = new Int32Array(n);
+  let qh = 0;
+  let qt = 0;
+  q[qt++] = c;
+  on[c] = 1;
+  while (qh < qt) {
+    const i = q[qh++];
+    for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+      const j = adj[k];
+      if (water[j] === 0 && !on[j]) {
+        on[j] = 1;
+        q[qt++] = j;
+      }
+    }
+  }
+  return on;
+}
+
 export function trialPicks(world: World, civ: Civ | null, year: number): TrialPicks {
-  if (!civ) return { cities: [], box: null };
+  if (!civ) return { cities: [], sameLand: false, box: null };
   const towns = historySettlements(civ, { year })
     .filter((s) => (s.population ?? 0) > 0)
     .sort((a, b) => (b.population ?? 0) - (a.population ?? 0) || a.id - b.id);
-  const cities = towns.slice(0, 2).map((s) => ({ cell: s.cell, name: s.name }));
+  const land = towns.length > 1 ? landFrom(world, towns[0].cell) : null;
+  const near = land ? towns.slice(1).find((s) => land[s.cell] === 1) : undefined;
+  const second = near ?? towns[1];
+  const cities = [towns[0], second].filter((s) => s !== undefined).map((s) => ({ cell: s.cell, name: s.name }));
+  const sameLand = near !== undefined;
   const own = historyAt(world, civ, { year, fields: ['polity'] }, (a) => a).polity!;
   const count = new Map<number, number>();
   for (let i = 0; i < own.length; i++) if (own[i] >= 0) count.set(own[i], (count.get(own[i]) ?? 0) + 1);
   let best = -1;
   for (const [p, n] of count) if (best < 0 || n > count.get(best)! || (n === count.get(best)! && p < best)) best = p;
-  if (best < 0) return { cities, box: null };
+  if (best < 0) return { cities, sameLand, box: null };
   const { x, y } = world.mesh;
   const xs: number[] = [];
   let y0 = Infinity;
@@ -101,7 +130,7 @@ export function trialPicks(world: World, civ: Civ | null, year: number): TrialPi
   }
   const span = wrapSpan(xs, world.width);
   const name = historyPolities(civ, { year }).find((p) => p.id === best)?.name ?? `第 ${best} 国`;
-  return { cities, box: { x0: span.x0, y0, x1: span.x0 + span.w, y1, cells: cellsInTrialBox(world, span.x0, span.w, y0, y1), name } };
+  return { cities, sameLand, box: { x0: span.x0, y0, x1: span.x0 + span.w, y1, cells: cellsInTrialBox(world, span.x0, span.w, y0, y1), name } };
 }
 
 /** 去掉换行这类控制字符,超长截断(按码位) */
@@ -340,7 +369,10 @@ export class TrialRecorder {
 
   private pickedText(): string {
     const parts: string[] = [];
-    if (this.answered.length) parts.push(`${this.answered.join('、')}（${this.answered.length > 1 ? '最大的两座城' : '最大的城'}）`);
+    if (this.answered.length) {
+      const why = this.answered.length < 2 ? '最大的城' : this.picks.sameLand ? '最大的城，和同一块陆地上最大的另一座' : '最大的两座城：最大的城那块陆地上没有别的城，第二座隔着水';
+      parts.push(`${this.answered.join('、')}（${why}）`);
+    }
     if (this.boxed) parts.push(`框了「${this.boxed}」那一片（最大的那一国）`);
     const extra = this.asks - this.answered.length - (this.boxed ? 1 : 0);
     if (extra > 0) parts.push(`${parts.length ? '之后又' : ''}请点 ${extra} 次，当作不点了`);
