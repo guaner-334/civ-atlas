@@ -45,6 +45,7 @@ import { READER_VERSIONS } from '../gen/readers/versions';
 import { parseSave, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
 import type { AuthorContent, WorldMade } from '../gen/worldFormat';
+import type { SimPluginsReady } from '../plugin/simPlugins';
 import type { ConvertJob } from '../worldConvert';
 import type { ConvertReply } from '../worldConvertWorker';
 import { pendingEdit, type CommitRequest, type CommitResult, type DraftedFile, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
@@ -495,6 +496,14 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** 手机(不在后台算世界) */
 const onPhone = () => isNarrow() || isCoarse();
 
+/** 这个世界最新的修订记的推演插件本机有没有同一版(没用推演插件、没有修订 = null) */
+async function simFilesOf(id: string, read: <T>(p: Promise<T>) => Promise<T | null>): Promise<SimPluginsReady | null> {
+  const m = await read(call('worldPluginsOf', [id]));
+  if (!m?.plugins.some((p) => p.role === 'sim')) return null;
+  const { simPluginsReady } = await import('../plugin/simPlugins');
+  return simPluginsReady(m.plugins);
+}
+
 /**
  * 这个世界下一步要转什么;没有要转的 = null。
  * 先转比现在的存档更旧的那份原件(留底),再转现在的样子。没有原件的更旧版本只记下来。
@@ -506,7 +515,8 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   // 用的人等着要文件:仓库打不开(硬盘真的满了时 WebKit 连库都打不开)也算得出来,算好了写不下就直接装成文件
   const read = <T>(p: Promise<T>): Promise<T | null> => (asked ? p.catch(() => null) : p);
   const state = await read(call('stateOf', [id]));
-  if (state?.status === 'failed' && state.app === APP_VERSION) return null;
+  // 等推演插件的不算转失败:装上了照样转
+  if (state?.status === 'failed' && state.app === APP_VERSION && !state.simWait) return null;
   const heads = await resultHeads(id);
   const body = { id, thumb: thumbBytes(w.thumb) };
 
@@ -527,9 +537,15 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   if (w.save.generator === GENERATOR_VERSION) {
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
     if (!asked && (onPhone() || currentWorld()?.id === id)) return null;
+    // 用了推演插件的带着世界记的那一版推;本机没有就不推(推出来是另一段历史),照原样留着,记下在等哪几个
+    const sims = await simFilesOf(id, read);
+    const wait = sims && !sims.ok ? sims.checks.filter((c) => c.status !== 'ready').map((c) => c.id) : undefined;
+    if (JSON.stringify(state?.simWait) !== JSON.stringify(wait)) await call('patchState', [id, { simWait: wait }]).catch(() => {});
+    if (wait) return null;
+    const more = sims?.ok && sims.files.length ? { simPlugins: sims.files } : {};
     // 地图留着的世界不按种子算:先看它自己、再看它出自的世界,再看别的世界有没有存着那张地图
-    if (keptMapOf(w.save.edits)) return { ...body, kind: 'keptMap', save: w.save, from: [id, ...(w.save.edits.map?.from ? [w.save.edits.map.from] : []), ...allWorldIds()], app: APP_VERSION, commit: APP_COMMIT };
-    return { ...body, kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
+    if (keptMapOf(w.save.edits)) return { ...body, ...more, kind: 'keptMap', save: w.save, from: [id, ...(w.save.edits.map?.from ? [w.save.edits.map.from] : []), ...allWorldIds()], app: APP_VERSION, commit: APP_COMMIT };
+    return { ...body, ...more, kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
   }
   // 只是记一笔:存储满了记不下也没事
   if (state?.status !== 'old' || state.generator !== w.save.generator) await call('patchState', [id, { status: 'old', generator: w.save.generator }]).catch(() => {});

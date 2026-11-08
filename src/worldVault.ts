@@ -162,6 +162,8 @@ export interface WorldState extends RosterMarks {
   checked?: string;
   /** 打开时发现这一份修订的块坏了(修订号):下一次存完整的内容时块全部重写 */
   corrupt?: number;
+  /** 要按配方重推,但本机没有世界记的那一版推演插件(插件编号):不重推,照原样留着,装上了再推 */
+  simWait?: string[];
   /** 放进来时校验没过的 author 块(指纹):字节留着,不当正文读 */
   authorSkip?: string;
   /** 只有 SIZES_ROW 这一行有:块的键 → 压缩后的字节数 */

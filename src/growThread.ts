@@ -6,11 +6,12 @@
  * 消息:
  *   主线程 → 线程  { grow: 'start', map, setup, sides }
  *     这个线程要推哪几段(sides,一段一个 side 编号 + key):同一张地图上已经在推的、key 没变的接着推(推完了的不再推),
- *     key 变了的从头推,没列的不推了;换了地图的全部从头推。地图(map)和设定(setup)对所有段一样,每段只是规则(tuning)不同
+ *     key 变了的从头推,没列的不推了;换了地图的全部从头推。地图(map)和设定(setup)对所有段一样,每段只是规则(tuning)不同。
+ *     设定里带推演插件的,每段各装一份(各推各的,插件的全局变量不串)
  *   线程 → 主线程
  *     { grow: 'progress', side, key, year }      推到哪一年了(推的时候每隔一会儿报一次)
  *     { grow: 'civ', side, key, civ, done }      交一份推到 civ.endYear 的整理好的历史;done = 最后一份
- *     { grow: 'failed', side, key, at, civ }     推不下去了(见 grow.ts 的 failed)
+ *     { grow: 'failed', side, key, at, civ, plugin? }  推不下去了(见 grow.ts 的 failed)
  * 主线程按 side + key 认是不是现在要的那一段(换过 key 的旧消息不管)。
  *
  * 几段轮流推:每段推一小会儿(SLICE_MS)就换下一段,两段一起往前长;每推一小会儿让一下,新到的消息先处理(换规则、换地图不用等推完)。
@@ -26,6 +27,8 @@ import type { WorldTuning } from './gen/civ/tuning';
 import type { Frontier, Origins } from './gen/civ/frontier';
 import type { Calamity } from './gen/civ/calamity';
 import type { NameMix } from './gen/names';
+import type { SimPluginFile } from './plugin/pluginWorld';
+import type { SimBoxer, SimPluginsOn } from './simPluginRun';
 
 /** 哪张地图:参数、地形修改、草图(和世界存档里的一样) */
 export interface GrowMap {
@@ -41,6 +44,8 @@ export interface GrowSetup {
   origins?: Origins;
   calamity?: Calamity;
   names?: NameMix;
+  /** 推演插件(按出手的先后;不给 = 没有) */
+  simPlugins?: SimPluginFile[];
 }
 
 /** 一段历史:side = 第几段(主线程定的编号),key = 这一次推的编号(规则改了换一个),tuning = 规则里改过的项和换算版本(不给 = 官方规则) */
@@ -62,7 +67,7 @@ export interface GrowRequest {
 export type GrowReply =
   | { grow: 'progress'; side: number; key: number; year: number }
   | { grow: 'civ'; side: number; key: number; civ: Civ; done: boolean }
-  | { grow: 'failed'; side: number; key: number; at: number; civ: Civ | null };
+  | { grow: 'failed'; side: number; key: number; at: number; civ: Civ | null; plugin?: string };
 
 /** 是不是边推边交的消息(别的是找世界的活) */
 export function isGrowRequest(m: unknown): m is GrowRequest {
@@ -75,14 +80,27 @@ const SLICE_MS = 50;
 const PROGRESS_MS = 200;
 
 const mapKey = (m: GrowMap) => JSON.stringify([Object.entries(m.params).sort(([a], [b]) => (a < b ? -1 : 1)), m.terrain ?? [], m.sketch ?? null]);
+const simKey = (list: readonly SimPluginFile[] | undefined) => (list?.length ? `|sim:${JSON.stringify(list.map((p) => [p.id, p.sum, p.params ?? null]))}` : '');
 
 interface Running {
   side: number;
   key: number;
-  grower: Grower;
+  /** 推演插件还没装好 = null */
+  grower: Grower | null;
+  /** 装推演插件(装好了 grower 就有了;装不上的 grower 还是 null) */
+  ready?: Promise<void>;
+  sims?: SimPluginsOn;
+  /** 不推了:装好的推演插件放掉 */
+  dropped?: boolean;
   /** 上一次报的年份、时刻 */
   said: number;
   saidAt: number;
+}
+
+function drop(r: Running): void {
+  r.dropped = true;
+  r.sims?.dispose();
+  r.sims = undefined;
 }
 
 /** 这个线程手上的地图、在推的几段、推完了的几段(side → key) */
@@ -130,17 +148,38 @@ function paramsOf(setup: GrowSetup, tuning: WorldTuning | undefined, tempo: CivP
   };
 }
 
+/** 开始推一段;带推演插件的先装插件(这一段自己的一份) */
+function begin(m: GrowRequest, s: GrowSide, world: World, tempo: CivParams['tempo'] | undefined, box: SimBoxer | undefined): Running {
+  const params = paramsOf(m.setup, s.tuning, tempo);
+  const opt = s.failAt !== undefined ? { engine: breakAt(s.failAt) } : {};
+  const r: Running = { side: s.side, key: s.key, grower: null, said: -1, saidAt: 0 };
+  const files = m.setup.simPlugins ?? [];
+  if (!files.length) {
+    r.grower = startGrow(world, params, opt);
+    return r;
+  }
+  r.ready = (async () => {
+    const run = await import('./simPluginRun');
+    const on = await run.simPluginsOn(files, m.setup.civSeed ?? m.map.params.seed, box ?? run.quickjsBox);
+    if (r.dropped) return on.dispose();
+    r.sims = on;
+    r.grower = startGrow(world, { ...params, plugins: on.plugins }, opt);
+  })().catch(() => {});
+  return r;
+}
+
 /**
- * 收到一条边推边交的消息。reply = 往主线程发消息的办法。
+ * 收到一条边推边交的消息。reply = 往主线程发消息的办法;box = 怎么装推演插件(单测用;不给 = 浏览器里的 QuickJS)。
  * 返回手上的几段都推完(或者都不推了)时兑现的 Promise(单测等它;线程里不用等)
  */
-export function growMessage(m: GrowRequest, reply: (r: GrowReply) => void): Promise<void> {
+export function growMessage(m: GrowRequest, reply: (r: GrowReply) => void, box?: SimBoxer): Promise<void> {
   post = reply;
   // 改过地形的世界给不给文明种子,扩张节拍的取法不同(见 paramsOf):算在地图里
-  const key = `${mapKey(m.map)}|${m.setup.civSeed === undefined ? 'own' : 'seed'}`;
+  const key = `${mapKey(m.map)}|${m.setup.civSeed === undefined ? 'own' : 'seed'}${simKey(m.setup.simPlugins)}`;
   if (!here || here.key !== key) {
     // 换了地图:先放掉旧的,生成新的时候不同时占着两张
     here = null;
+    running.forEach(drop);
     running = [];
     finished = new Map();
     const world = generateWorld(m.map.params, undefined, m.map.terrain, sketchGrid(m.map.sketch));
@@ -157,8 +196,9 @@ export function growMessage(m: GrowRequest, reply: (r: GrowReply) => void): Prom
       continue;
     }
     const old = running.find((r) => r.side === s.side && r.key === s.key);
-    next.push(old ?? { side: s.side, key: s.key, grower: startGrow(world, paramsOf(m.setup, s.tuning, tempo), s.failAt !== undefined ? { engine: breakAt(s.failAt) } : {}), said: -1, saidAt: 0 });
+    next.push(old ?? begin(m, s, world, tempo, box));
   }
+  running.filter((r) => !next.includes(r)).forEach(drop);
   running = next;
   finished = keep;
   return (pumping ??= pump().finally(() => (pumping = null)));
@@ -170,9 +210,20 @@ async function pump(): Promise<void> {
   while (running.length) {
     const r = running[turn % running.length];
     turn++;
+    if (!r.grower) {
+      await r.ready;
+      if (!running.includes(r)) continue;
+      if (!r.grower) {
+        // 推演插件文件对不上、QuickJS 下载不了:这一段推不了
+        post({ grow: 'failed', side: r.side, key: r.key, at: 0, civ: null });
+        running = running.filter((x) => x !== r);
+        finished.set(r.side, r.key);
+      }
+      continue;
+    }
     const e = r.grower.step(SLICE_MS);
     if (e?.kind === 'civ') post({ grow: 'civ', side: r.side, key: r.key, civ: e.civ, done: e.done });
-    else if (e?.kind === 'failed') post({ grow: 'failed', side: r.side, key: r.key, at: e.at, civ: e.civ });
+    else if (e?.kind === 'failed') post({ grow: 'failed', side: r.side, key: r.key, at: e.at, civ: e.civ, ...(e.plugin !== undefined ? { plugin: e.plugin } : {}) });
     else {
       const year = Math.floor(r.grower.year);
       const t = performance.now();
@@ -185,6 +236,7 @@ async function pump(): Promise<void> {
     if (r.grower.done) {
       running = running.filter((x) => x !== r);
       finished.set(r.side, r.key);
+      drop(r);
     }
     await pause();
   }
