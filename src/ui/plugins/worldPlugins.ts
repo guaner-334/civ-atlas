@@ -187,7 +187,7 @@ export function carriedMissing(worldId: string | undefined): Missing[] {
  * 以它为底稿带过来、还没装的照旧列着(推演不带文件,装上或移出以前不能开始推演)
  */
 let chooseSeq = 0;
-export async function chooseSims(worldId: string, picks: readonly SimChoice[], installed?: readonly InstalledPlugin[]): Promise<void> {
+export async function chooseSims(worldId: string, picks: readonly SimChoice[], installed?: readonly InstalledPlugin[], still: () => boolean = () => true): Promise<void> {
   // 文件还在读时又改了选的:只认最后一次
   const seq = ++chooseSeq;
   const carried = carriedMissing(worldId);
@@ -210,7 +210,7 @@ export async function chooseSims(worldId: string, picks: readonly SimChoice[], i
     list.push(simPluginOf(p.current, params));
     files.push({ id: p.id, sum: p.current.sum, bytes, ...(Object.keys(params).length ? { params } : {}) });
   }
-  if (seq === chooseSeq) setSimNow(list.length ? { id: worldId, list, files: missing.length ? null : files, checks: missing } : null);
+  if (seq === chooseSeq && still()) setSimNow(list.length ? { id: worldId, list, files: missing.length ? null : files, checks: missing } : null);
 }
 
 /** 新建中选上的(没选、记着的是别的世界的 = 空) */
@@ -231,6 +231,9 @@ export async function carrySims(worldId: string, from: readonly WorldPlugin[]): 
   const keep = from.filter((r) => !verdictOf(r.sum, r.id).blocked);
   if (!keep.length) return;
   const have = await listPlugins().catch(() => [] as InstalledPlugin[]);
+  // 读插件仓库的时候已经离开了那个新建的世界:不带了
+  const here = () => currentWorld()?.id === worldId;
+  if (!here()) return;
   const usable = (r: WorldPlugin) => have.some((p) => p.id === r.id && p.current.manifest.role === 'sim' && !verdictOf(p.current.sum, p.id).blocked);
   const missing = keep.filter((r) => !usable(r)).map((plugin): Missing => ({ id: plugin.id, plugin, status: 'missing' }));
   setSimNow({ id: worldId, list: [...keep], files: missing.length ? null : [], checks: missing });
@@ -241,8 +244,12 @@ export async function carrySims(worldId: string, from: readonly WorldPlugin[]): 
       return { id: r.id, ...(params ? { params } : {}) };
     }),
     have,
+    here,
   );
 }
+
+/** 刚建好的世界停用前带的文件(又不停用了换回来) */
+let unblock: { id: string; files: SimPluginFile[] } | null = null;
 
 /** 装了、删了插件、停用名单变了以后:地图上这个世界的推演插件本机对不上的,再核对一遍;新建中选的只看带过来没装的、停用的 */
 export async function refreshSimNow(): Promise<void> {
@@ -250,10 +257,13 @@ export async function refreshSimNow(): Promise<void> {
   if (!s) return;
   if (s.stored) return loadSimNow(s.id);
   const cur = currentWorld();
-  // 刚建好、仓库里还没记上的:停用了就不再跑,和打开的世界一样先问
+  // 刚建好、仓库里还没记上的:停用了就不再跑,和打开的世界一样先问;又不停用了就换回原来的文件
   if (cur?.id === s.id && cur.kind !== 'draft') {
     const blocked = blockedChecks(s.list, null);
-    if (blocked) setSimNow({ ...s, files: null, checks: blocked });
+    if (blocked) {
+      if (s.files) unblock = { id: s.id, files: s.files };
+      setSimNow({ ...s, files: null, checks: blocked });
+    } else if (!s.files && unblock?.id === s.id && s.checks.some((c) => c.status === 'blocked')) setSimNow({ ...s, files: unblock.files, checks: [] });
     return;
   }
   if (!s.files || s.list.some((p) => verdictOf(p.sum, p.id).blocked)) await chooseSims(s.id, chosenSims(s.id));

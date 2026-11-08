@@ -16,9 +16,10 @@ vi.mock('../src/ui/plugins/verdict', () => ({
   subscribeVerdicts: () => () => {},
 }));
 vi.mock('../src/ui/worldStore', () => ({ vaultCall: async () => null, settleWorld: async () => null }));
-vi.mock('../src/ui/saveStore', () => ({ currentWorld: () => null, keepWorld: () => {}, notify: () => {}, saveAsNewVersion: () => null, storageFullWhy: () => '' }));
+const cur = { id: '', kind: 'draft' };
+vi.mock('../src/ui/saveStore', () => ({ currentWorld: () => (cur.id ? { ...cur } : null), keepWorld: () => {}, notify: () => {}, saveAsNewVersion: () => null, storageFullWhy: () => '' }));
 
-const { blockedChecks, carrySims, chooseSims, chosenSims } = await import('../src/ui/plugins/worldPlugins');
+const { blockedChecks, carrySims, chooseSims, chosenSims, refreshSimNow } = await import('../src/ui/plugins/worldPlugins');
 const { getSimNow, setSimNow } = await import('../src/ui/world/simNow');
 
 const record = (id: string, name: string, sum: string, params?: Record<string, number>): WorldPlugin => ({ id, version: '1.0.0', sum, role: 'sim', name, ...(params ? { params } : {}) });
@@ -38,6 +39,7 @@ beforeEach(() => {
   blocked.clear();
   installed = [];
   setSimNow(null);
+  Object.assign(cur, { id: 'draft', kind: 'draft' });
 });
 
 describe('停用名单', () => {
@@ -115,6 +117,14 @@ describe('以它为底稿新建', () => {
     expect(s.checks).toEqual([]);
   });
 
+  it('读插件仓库的时候已经离开了那个新建的世界:不带', async () => {
+    installed = [have('faith', '宗教生效', 'e'.repeat(64))];
+    const p = carrySims('draft', [faith]);
+    cur.id = 'other';
+    await p;
+    expect(getSimNow()).toBeNull();
+  });
+
   it('停用的不带;删掉的插件(不是带过来的)照旧不算', async () => {
     installed = [have('faith', '宗教生效', 'e'.repeat(64))];
     blocked.add(magic.sum);
@@ -123,5 +133,22 @@ describe('以它为底稿新建', () => {
     await chooseSims('w2', [{ id: 'gone' }, { id: 'faith' }]);
     expect(getSimNow()?.list.map((p) => p.id)).toEqual(['faith']);
     expect(getSimNow()?.files).not.toBeNull();
+  });
+});
+
+describe('刚建好的世界', () => {
+  it('停用了推演不带它的文件;又不停用了换回原来的', async () => {
+    Object.assign(cur, { id: 'w', kind: 'created' });
+    installed = [have('magic', '魔力', 'f'.repeat(64))];
+    await chooseSims('w', [{ id: 'magic' }]);
+    const files = getSimNow()!.files;
+    blocked.add('magic');
+    await refreshSimNow();
+    expect(getSimNow()?.files).toBeNull();
+    expect(getSimNow()?.checks.map((c) => c.status)).toEqual(['blocked']);
+    blocked.clear();
+    await refreshSimNow();
+    expect(getSimNow()?.files).toBe(files);
+    expect(getSimNow()?.checks).toEqual([]);
   });
 });
