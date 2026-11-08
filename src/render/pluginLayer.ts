@@ -75,6 +75,48 @@ export function cellColors(l: CellPaint, alpha = l.opacity ?? PLUGIN_LAYER_OPACI
   return out;
 }
 
+/** 存进世界的图层:一格一个数(地块或州),years 给了就是几份接在一起 */
+export interface StoredPaint extends CellPaint {
+  years?: readonly number[];
+}
+
+/** 第 year 年画第几份:years 里不晚于 year 的最后一份;没有 years = 唯一那份;比第一份早 = -1 */
+export function frameAt(years: readonly number[] | undefined, year: number): number {
+  if (!years) return 0;
+  let k = -1;
+  for (let i = 0; i < years.length && years[i] <= year; i++) k = i;
+  return k;
+}
+
+/**
+ * 存着的图层第 year 年那一份(比第一份早 = null)。渐变没给的一头按所有份一起定,同一个数哪一年都是同一个颜色;
+ * 一份的图层和 cellColors 直接画的一样
+ */
+export function framePaint(l: StoredPaint, year: number): CellPaint | null {
+  const k = frameAt(l.years, year);
+  if (k < 0) return null;
+  const count = l.values.length / (l.years?.length ?? 1);
+  const out: CellPaint = { values: l.values.subarray(k * count, (k + 1) * count) };
+  if (l.ramp) {
+    const [min, max] = rampRange(l);
+    out.ramp = { colors: l.ramp.colors, min, max };
+  }
+  if (l.classes) out.classes = l.classes;
+  if (l.opacity !== undefined) out.opacity = l.opacity;
+  return out;
+}
+
+/** 按州的一份铺到地块上(of = 每个地块在哪个州):不在州里、州号超出这一份格数的地块不画 */
+export function regionsToCells(p: CellPaint, of: ArrayLike<number>): CellPaint {
+  const n = p.values.length;
+  const values = new Float32Array(of.length).fill(NaN);
+  for (let c = 0; c < of.length; c++) {
+    const r = of[c];
+    if (r >= 0 && r < n) values[c] = p.values[r];
+  }
+  return { ...p, values };
+}
+
 /**
  * 整张铺到 ctx 上(和 raster 一样大、等距圆柱,左上角对齐;画布先清空):每个像素取它所在地块的颜色。
  * colors 是 cellColors 算好的(同一份图层换投影、换世界段时不用重算)
