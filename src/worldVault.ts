@@ -1027,7 +1027,7 @@ export async function changePluginData(id: string, plugin: WorldPlugin, data: { 
 // ---------------------------------------------------------------------------
 // 插件存进世界的图层
 
-/** 存在世界里的一个工具插件的图层:块名、哪个插件、图层编号(块名里那一段)、内容、清单里记的这个插件(没记 = null) */
+/** 存在世界里的一个工具插件、地图插件的图层:块名、哪个插件、图层编号(块名里那一段)、内容、清单里记的这个插件(没记 = null) */
 export interface PluginLayerRead {
   name: string;
   by: string;
@@ -1058,9 +1058,10 @@ export async function readPluginLayers(id: string, cells: number, history?: { re
         const byRegion = (v as { unit?: unknown } | null)?.unit === 'region';
         if (byRegion && !history) continue;
         validatePluginLayer(v, byRegion ? { cells, ...history! } : { cells, regions: 0 }, `插件图层 ${p.info.name}`);
-        // 带年份的地块图层(别处写的文件)还不能在这里拿掉再放回去,先不列
-        if (byRegion ? v.years === undefined : v.years !== undefined) continue;
-        out.push({ name: p.info.name, by: ids[0], layer: ids[1], data: v, plugin: head.manifest.plugins.find((x) => x.id === ids[0]) ?? null });
+        const plugin = head.manifest.plugins.find((x) => x.id === ids[0]) ?? null;
+        // 带年份的地块图层只列地图插件的(有地形大事时一段一份,长地图时存的,不在这里拿掉再放回去);别处写的先不列
+        if (byRegion ? v.years === undefined : v.years !== undefined && plugin?.role !== 'map') continue;
+        out.push({ name: p.info.name, by: ids[0], layer: ids[1], data: v, plugin });
       } catch (e) {
         if (asWorldFileError(e).kind === 'memory') throw e;
       }

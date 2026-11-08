@@ -83,6 +83,8 @@ export interface LayerChip {
   sim?: boolean;
   /** 带年份、跟着时间轴变的 */
   timed?: boolean;
+  /** 地图插件长地图时出的(按钮上带「地图」小标) */
+  map?: boolean;
 }
 
 const fills = (l: LiveLayer['layer']): l is CellLayer | RegionLayer => l.kind !== 'marks';
@@ -96,7 +98,7 @@ export function layerChips(s: PluginLayers): LayerChip[] {
   const plugins = new Set<string>();
   for (const [key, l] of s.saved) {
     const live = s.live.get(key)?.layer;
-    out.push({ key, label: live?.title ?? l.data.title, ...(l.data.years || live?.kind === 'regions' ? { timed: true } : {}) });
+    out.push({ key, label: live?.title ?? l.data.title, ...(l.data.years || live?.kind === 'regions' ? { timed: true } : {}), ...(l.record?.role === 'map' ? { map: true } : {}) });
     seen.add(key);
     plugins.add(l.pluginId);
   }

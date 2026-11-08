@@ -3,6 +3,7 @@ import { endParamOf, type WorldEdits } from '../../gen/edits';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import type { UsedPlugin } from './worldPlugins';
 import { versionLabel } from './pluginWords';
+import { MAP_STAGE_TEXT } from './mapText';
 
 type Other = Extract<SimPluginCheck, { status: 'other' }>;
 /** 另存的那份叫什么(和旧版本世界另存的同一个叫法) */
@@ -24,6 +25,20 @@ export function simLines(u: Pick<UsedPlugin, 'plugin' | 'installed'>, order: num
   const knobs = !given.length ? '' : !changed.length ? '滑条都是默认' : `滑条：${changed.map(([k, v]) => (spec[k] ? `${spec[k].label} ${v}（默认 ${spec[k].default}）` : `${k} ${v}`)).join('、')}${changed.length < given.length ? '，别的是默认' : ''}`;
   const out = [`第 ${order} 个出手。${knobs}`.replace(/。$/, '')];
   if (simHere(u) === 'other' && u.plugin) out.push(`要接着推，得装回${versionLabel(u.plugin.version)}；不装也照常能看`);
+  return out;
+}
+
+/** 地图插件那一行的小字:哪一步、第几个出手、滑条拨到几;出的图层;对不上的说改地形要装回哪一版 */
+export function mapLines(u: Pick<UsedPlugin, 'plugin' | 'installed'>, order: number, titles: readonly string[]): string[] {
+  const m = u.installed?.current.manifest.map;
+  const spec = m?.params ?? {};
+  const given = Object.entries(u.plugin?.params ?? {}).filter((e): e is [string, number] => typeof e[1] === 'number');
+  const changed = given.filter(([k, v]) => !spec[k] || v !== spec[k].default);
+  const knobs = !given.length ? '' : !changed.length ? '滑条都是默认' : `滑条：${changed.map(([k, v]) => (spec[k] ? `${spec[k].label} ${v}（默认 ${spec[k].default}）` : `${k} ${v}`)).join('、')}${changed.length < given.length ? '，别的是默认' : ''}`;
+  const steps = m ? m.stages.map((k) => MAP_STAGE_TEXT[k] ?? k).join('、') : '';
+  const out = [`${steps ? `${steps}，` : ''}第 ${order} 个出手。${knobs}`.replace(/。$/, '')];
+  if (titles.length) out.push(`出了${titles.length > 1 ? ` ${titles.length} 张` : '一张'}图层${titles.map((t) => `「${t}」`).join('')}，存在世界里，没装也照常能看（图层面板「插件图层」）`);
+  if (simHere(u) !== 'same' && u.plugin) out.push(`要改地形，得装回${versionLabel(u.plugin.version)}`);
   return out;
 }
 

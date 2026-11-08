@@ -93,6 +93,8 @@ export interface LayersReply {
 export interface MapPlugin {
   /** 插件编号:rand、出错时报的、图层归谁都按它 */
   id: string;
+  /** 给人看的名字(进度里写;不给 = 编号) */
+  name?: string;
   /** 同一个插件、同一版、同样的滑条 = 同一串;生成的缓存和「没改地形的星球」按它认 */
   key: string;
   stages: readonly MapStage[];
@@ -112,20 +114,37 @@ export interface MapLayer {
   values: Float32Array;
 }
 
-/** 地图插件出错:哪个插件、哪一口、为什么 */
+/** 出错的是哪一种:插件抛错、一口算太久、合计算太久、交回的数不对 */
+export type MapFailKind = 'throw' | 'slow' | 'total' | 'bad';
+
+/** 一个插件一口用了多久(毫秒) */
+export interface MapSpent {
+  id: string;
+  stage: MapStage;
+  ms: number;
+}
+
+/** 地图插件出错:哪个插件、哪一口、为什么;合计算太久的带上到那时每一口各用了多久 */
 export class MapPluginError extends Error {
+  readonly kind: MapFailKind;
+  readonly spent?: readonly MapSpent[];
   constructor(
     readonly plugin: string,
     readonly stage: MapStage,
     readonly why: string,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; kind?: MapFailKind; spent?: readonly MapSpent[] },
   ) {
-    super(`地图插件「${plugin}」在${STAGE_NAME[stage]}这一步出错:${why}`, options);
+    super(`地图插件「${plugin}」在${STAGE_NAME[stage]}这一步出错:${why}`, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'MapPluginError';
+    this.kind = options?.kind ?? 'bad';
+    if (options?.spent) this.spent = options.spent;
   }
 }
 
 const STAGE_NAME: Record<MapStage, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+
+/** 进度里那一句:地图插件「柯本气候」：改气候 */
+export const mapStageNote = (pl: Pick<MapPlugin, 'id' | 'name'>, stage: MapStage): string => `地图插件「${pl.name ?? pl.id}」：${STAGE_NAME[stage]}`;
 
 /** 叫停线(毫秒):一口;一次生成里所有地图插件合计 */
 export const MAP_PLUGIN_TIME = { stage: 5000, total: 15_000 } as const;
@@ -138,6 +157,7 @@ const sec = (ms: number) => (ms / 1000).toFixed(1);
  */
 export class MapClock {
   private readonly spent = new Map<string, number>();
+  private readonly each: MapSpent[] = [];
   private sum = 0;
 
   /** now 不给 = performance.now(单测换成假的) */
@@ -145,12 +165,18 @@ export class MapClock {
 
   spend(id: string, stage: MapStage, ms: number): void {
     this.spent.set(id, (this.spent.get(id) ?? 0) + ms);
+    const at = this.each.find((x) => x.id === id && x.stage === stage);
+    if (at) at.ms += ms;
+    else this.each.push({ id, stage, ms });
     this.sum += ms;
-    if (ms > MAP_PLUGIN_TIME.stage) throw new MapPluginError(id, stage, `用了 ${sec(ms)} 秒,超过 ${sec(MAP_PLUGIN_TIME.stage)} 秒`);
+    if (ms > MAP_PLUGIN_TIME.stage) throw new MapPluginError(id, stage, `用了 ${sec(ms)} 秒,超过 ${sec(MAP_PLUGIN_TIME.stage)} 秒`, { kind: 'slow' });
     if (this.sum > MAP_PLUGIN_TIME.total) {
       let top = id;
       for (const [k, v] of this.spent) if (v > this.spent.get(top)!) top = k;
-      throw new MapPluginError(top, stage, `到这一步所有地图插件一共用了 ${sec(this.sum)} 秒,超过 ${sec(MAP_PLUGIN_TIME.total)} 秒(它用得最多,${sec(this.spent.get(top)!)} 秒)`);
+      throw new MapPluginError(top, stage, `到这一步所有地图插件一共用了 ${sec(this.sum)} 秒,超过 ${sec(MAP_PLUGIN_TIME.total)} 秒(它用得最多,${sec(this.spent.get(top)!)} 秒)`, {
+        kind: 'total',
+        spent: this.each.map((x) => ({ ...x })),
+      });
     }
   }
 }
@@ -169,6 +195,7 @@ export function timedMapPlugins(plugins: readonly MapPlugin[], clock = new MapCl
     return {
       id: pl.id,
       key: pl.key,
+      ...(pl.name ? { name: pl.name } : {}),
       stages: pl.stages,
       ...(pl.layerIds ? { layerIds: pl.layerIds } : {}),
       ...(pl.height && pl.stages.includes('height') ? { height: timed('height', pl.height) } : {}),
@@ -190,6 +217,7 @@ export function withoutLayers(plugins: readonly MapPlugin[]): MapPlugin[] {
       ? {
           id: pl.id,
           key: pl.key,
+          ...(pl.name ? { name: pl.name } : {}),
           stages: pl.stages.filter((s) => s !== 'layers'),
           ...(pl.height ? { height: pl.height.bind(pl) } : {}),
           ...(pl.climate ? { climate: pl.climate.bind(pl) } : {}),
@@ -223,13 +251,13 @@ function shared(mesh: Mesh, seed: number, pl: MapPlugin): MapShared {
 
 function call<I, R extends object>(pl: MapPlugin, stage: MapStage, d: I): R | undefined {
   const fn = pl[stage] as ((d: I) => R | undefined) | undefined;
-  if (typeof fn !== 'function') throw new MapPluginError(pl.id, stage, '代码里没有这一步');
+  if (typeof fn !== 'function') throw new MapPluginError(pl.id, stage, '代码里没有这一步', { kind: 'throw' });
   let r: unknown;
   try {
     r = fn.call(pl, d);
   } catch (e) {
     if (e instanceof MapPluginError) throw e;
-    throw new MapPluginError(pl.id, stage, e instanceof Error ? e.message : String(e), { cause: e });
+    throw new MapPluginError(pl.id, stage, e instanceof Error ? e.message : String(e), { cause: e, kind: 'throw' });
   }
   if (r === undefined || r === null) return undefined;
   if (typeof r !== 'object' || Array.isArray(r)) throw new MapPluginError(pl.id, stage, '交回的不是对象');
@@ -252,11 +280,15 @@ function clamped(pl: MapPlugin, stage: MapStage, name: string, v: unknown, n: nu
 
 const copy = <T extends Float32Array | Uint8Array>(a: T): T => a.slice() as T;
 
+/** 一个插件要出手了(进度里说一声) */
+export type MapSay = (pl: MapPlugin, stage: MapStage) => void;
+
 /** 改海拔:按先后出手,elevation、land 原地改 */
-export function heightHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, elevation: Float32Array, land: Uint8Array, plate: Int16Array): void {
+export function heightHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, elevation: Float32Array, land: Uint8Array, plate: Int16Array, say?: MapSay): void {
   const { n } = mesh;
   for (const pl of plugins) {
     if (!pl.stages.includes('height')) continue;
+    say?.(pl, 'height');
     const r = call<HeightInput, HeightReply>(pl, 'height', { ...shared(mesh, seed, pl), elevation: copy(elevation), land: copy(land), plate: plate.slice() });
     if (!r) continue;
     const e = r.elevation === undefined ? null : clamped(pl, 'height', 'elevation', r.elevation, n, MAP_RANGE.elevation);
@@ -306,10 +338,11 @@ const climateCopy = (c: ClimateFields): ClimateFields => ({
 });
 
 /** 改气候:按先后出手,temperature、precipitation 原地改 */
-export function climateHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, c: ClimateFields): void {
+export function climateHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, c: ClimateFields, say?: MapSay): void {
   const { n } = mesh;
   for (const pl of plugins) {
     if (!pl.stages.includes('climate')) continue;
+    say?.(pl, 'climate');
     const r = call<ClimateInput, ClimateReply>(pl, 'climate', { ...shared(mesh, seed, pl), ...climateCopy(c) });
     if (!r) continue;
     const t = r.temperature === undefined ? null : clamped(pl, 'climate', 'temperature', r.temperature, n, MAP_RANGE.temperature);
@@ -330,7 +363,7 @@ export interface LayerFields extends ClimateFields {
 }
 
 /** 出图层:只看不改;按插件先后、各自登记的先后交回 */
-export function layerHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, w: LayerFields): MapLayer[] {
+export function layerHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, w: LayerFields, say?: MapSay): MapLayer[] {
   const { n } = mesh;
   const riverStart = new Int32Array(w.rivers.length + 1);
   for (let k = 0; k < w.rivers.length; k++) riverStart[k + 1] = riverStart[k] + w.rivers[k].cells.length;
@@ -339,6 +372,7 @@ export function layerHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: numb
   const out: MapLayer[] = [];
   for (const pl of plugins) {
     if (!pl.stages.includes('layers')) continue;
+    say?.(pl, 'layers');
     const r = call<LayersInput, LayersReply>(pl, 'layers', {
       ...shared(mesh, seed, pl),
       ...climateCopy(w),

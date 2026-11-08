@@ -6,7 +6,7 @@ import { PluginIcon, useIcons } from './pluginIcons';
 import { versionLabel } from './pluginText';
 import { kbText } from './askState';
 import { usedPlugins, type UsedPlugin } from './worldPlugins';
-import { simHere, simLines } from './simWorldText';
+import { mapLines, simHere, simLines } from './simWorldText';
 import './worldData.css';
 
 /** 一行下面的小字 */
@@ -41,17 +41,23 @@ export default function WorldPluginsSection({ worldId }: { worldId: string }) {
   const icons = useIcons(installed);
   if (!list?.length) return null;
   const sims = list.filter((u) => u.plugin?.role === 'sim');
+  const maps = list.filter((u) => u.plugin?.role === 'map');
+  // 地图插件排最前(按长地图时出手的先后),再是推演插件、工具插件
+  const rows = [...maps, ...list.filter((u) => u.plugin?.role !== 'map')];
   return (
     <section className="ov-sec plg-wp" data-testid="world-plugins">
       <h3>
         用到的插件<small>看世界不需要插件</small>
       </h3>
       <div className="ov-kv">
-        {list.map((u) => {
+        {rows.map((u) => {
           const titles = u.layers.map((l) => saved.get(`${u.id}/${l}`)?.data.title).filter((t): t is string => !!t);
           const sim = u.plugin?.role === 'sim';
-          const here = sim ? simHere(u) : u.here;
-          const lines = sim ? simLines(u, sims.indexOf(u) + 1) : linesOf(u, titles);
+          const map = u.plugin?.role === 'map';
+          // 推演、地图插件对不上要标黄(接着推、改地形要同一版);工具插件不要紧
+          const loud = sim || map;
+          const here = loud ? simHere(u) : u.here;
+          const lines = sim ? simLines(u, sims.indexOf(u) + 1) : map ? mapLines(u, maps.indexOf(u) + 1, titles) : linesOf(u, titles);
           return (
             <div key={u.id} className="plg-wp-row" data-plugin={u.id}>
               <PluginIcon src={u.installed ? icons.get(u.installed.current.sum) : null} size="sm" />
@@ -60,10 +66,11 @@ export default function WorldPluginsSection({ worldId }: { worldId: string }) {
                   {u.name}
                   {u.plugin && <span className="plg-tag">{versionLabel(u.plugin.version)}</span>}
                   {sim && <span className="plg-tag">推演</span>}
+                  {map && <span className="plg-tag">地图</span>}
                   {here === 'none' ? (
-                    <span className={`plg-tag${sim ? ' warn' : ''}`}>你没装</span>
+                    <span className={`plg-tag${loud ? ' warn' : ''}`}>你没装</span>
                   ) : here === 'other' ? (
-                    <span className={`plg-tag${sim ? ' warn' : ''}`}>{sim && u.installed ? `你装的是${versionLabel(u.installed.current.manifest.version)}` : '你装的是别的版本'}</span>
+                    <span className={`plg-tag${loud ? ' warn' : ''}`}>{loud && u.installed ? `你装的是${versionLabel(u.installed.current.manifest.version)}` : '你装的是别的版本'}</span>
                   ) : null}
                 </b>
                 {lines.map((t) => (
@@ -75,9 +82,11 @@ export default function WorldPluginsSection({ worldId }: { worldId: string }) {
         })}
       </div>
       <p>
-        {sims.length
-          ? '世界里记着推演插件的名字、第几版、文件指纹和滑条拨到几，不带插件的代码。看世界不用装；要接着推（再推、改过去、逐年推演、照大纲），得装着同一版（滑条拨到几世界里记着）。'
-          : '世界里只记插件的名字、第几版和文件指纹，不带插件的代码。装了同一个插件、版本不一样也能用；它认不了旧数据时会自己说要新版。'}
+        {maps.length
+          ? '世界里记着地图插件的名字、第几版、文件指纹、滑条拨到几和先后，不带插件的代码。看世界、接着推都不用装；要改地形（加地形大事、以它为底稿改地形），得装着同一版。'
+          : sims.length
+            ? '世界里记着推演插件的名字、第几版、文件指纹和滑条拨到几，不带插件的代码。看世界不用装；要接着推（再推、改过去、逐年推演、照大纲），得装着同一版（滑条拨到几世界里记着）。'
+            : '世界里只记插件的名字、第几版和文件指纹，不带插件的代码。装了同一个插件、版本不一样也能用；它认不了旧数据时会自己说要新版。'}
       </p>
     </section>
   );

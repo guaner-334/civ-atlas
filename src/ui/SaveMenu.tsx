@@ -40,7 +40,7 @@ import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem
 import { RemoveDataItem, pluginNames, usePluginData } from './plugins/saveItems';
 import { useNarrow } from './device';
 import { SIM_NO_LINK, simWaitText, useSimLinkOff } from './world/simAsk';
-import { useMapLinkOff } from './world/mapAsk';
+import { MAP_NO_LINK, useMapLinkOff } from './world/mapAsk';
 import { pluginsUiOn } from './plugins/flag';
 
 export interface SaveMenuProps {
@@ -388,7 +388,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
                 <Icon name="link" size={17} />
                 <span>
                   <b>复制配方链接</b>
-                  {plgData.length ? <small className="plg-off">这个世界里有插件{plgNames}存的数据，不能公开分享。要发给别人，请存成文件</small> : <small>{simOff ? SIM_NO_LINK : kept || mapOff ? NO_LINK : RECIPE_HINT}</small>}
+                  {plgData.length ? <small className="plg-off">这个世界里有插件{plgNames}存的数据，不能公开分享。要发给别人，请存成文件</small> : <small>{simOff ? SIM_NO_LINK : mapOff && !kept ? MAP_NO_LINK : kept ? NO_LINK : RECIPE_HINT}</small>}
                 </span>
               </button>
               {at && !kept && !mapOff && !plgData.length && !simOff && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}

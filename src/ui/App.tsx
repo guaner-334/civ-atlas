@@ -47,7 +47,8 @@ import {
 import { renderLayer, type LayerId } from '../render/layers';
 import { Legend } from './Legend';
 import { ThoughtLegend } from './ThoughtParts';
-import type { WorkerRequest } from '../worker';
+import type { MapFailedKind, WorkerRequest } from '../worker';
+import type { MapSpent, MapStage } from '../gen/mapHooks';
 import type { Civ } from '../gen/civ/types';
 import { CivLayer, civOpenSteps } from './CivLayer';
 import { CivTimeline } from './CivTimeline';
@@ -247,7 +248,7 @@ import { SourceLayer, useImportOn, useSourceView } from './ImportImage';
 import { NewWorldDialog } from './NewWorldDialog';
 import { randomSeedValue, type HomeStart } from './homeStart';
 import { WORKER_URL } from './workerUrl';
-import { noteCrash, resetStuck, simFailOpt } from './stuckStore';
+import { noteCrash as noteCrashNow, resetStuck, simFailOpt } from './stuckStore';
 import { StuckCard } from './StuckCard';
 import { SimClient } from './sim/simClient';
 import { useSimResults, type ExtendJob, type ExtendUndo, type OutlineJob, type RenameCheck, type ResimInfo, type SwitchNote } from './sim/useSimResults';
@@ -291,8 +292,12 @@ import {
   type WorkFor,
 } from './world/worldTarget';
 import { simsOf } from './world/simNow';
-import { mapFilesOf } from './world/mapNow';
+import { getMapNow, mapFilesOf } from './world/mapNow';
+import { setMapFail, type MapFail } from './world/mapFail';
+import { undoLastEdit } from './undo';
+import { MAP_STAGE_TEXT } from './plugins/mapText';
 import { SimAskHost } from './world/SimAskHost';
+import { MapAskHost } from './world/MapAskHost';
 
 type Replay = { w: number; h: number; frames: Uint8ClampedArray[]; mya: number[]; idx: number };
 
@@ -771,6 +776,54 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const fresh = useRef(false);
   /** 正在进行的"按新地形重新生成"(编号 = 那次生成的请求编号);t0 = 发出去的时刻 */
   const regenRef = useRef<RegenJob | null>(null);
+  /** 地图插件长不下去的那件活(线程随后照 lost 收起它,那时不算线程出错) */
+  const mapFailReq = useRef<WorkerRequest | null>(null);
+  /**
+   * 地图插件长不下去:新建中整张长不出来,星球上放一张卡(world/mapFail.ts);改地形涂的一笔长不出来,顶上一条、能撤销这一笔;
+   * 别的(回放形成、地形大事预览……)顶上说一声。地图都还是原来那份
+   */
+  const mapFailedRef = useRef<(m: { plugin: string; stage: MapStage | null; why: string; kind?: MapFailedKind; spent?: MapSpent[] }, req: WorkerRequest) => void>(() => {});
+  mapFailedRef.current = (m, req) => {
+    const list = getMapNow()?.list ?? [];
+    const rec = list.find((x) => x.id === m.plugin);
+    const name = rec?.name ?? m.plugin;
+    const stage = m.stage ? `「${MAP_STAGE_TEXT[m.stage]}」那一步` : '';
+    const names = new Map(list.map((x) => [x.id, x.name ?? x.id]));
+    const failOf = (): MapFail => ({
+      worldId: targetRef.current?.id ?? '',
+      plugin: m.plugin,
+      name,
+      ...(rec ? { version: rec.version, sum: rec.sum, ...(rec.params ? { params: Object.fromEntries(Object.entries(rec.params).filter((e): e is [string, number] => typeof e[1] === 'number')) } : {}) } : {}),
+      stage: m.stage,
+      why: m.why,
+      kind: m.kind ?? 'throw',
+      ...(m.spent ? { spent: m.spent.map((x) => ({ ...x, name: names.get(x.id) ?? x.id })) } : {}),
+      seed: genParams.current?.seed ?? 0,
+    });
+    if (req.type === 'generate' && req.skipCiv) {
+      regenRef.current = null;
+      setTerrainStatus((s) => ({ ...s, busy: false }));
+      setProgress(null);
+      showToast({
+        id: 'map-fail',
+        kind: 'warn',
+        text: '这一笔没长成',
+        more: [`地图插件「${name}」在${stage || '长地图时'}出错了，地图还是这一笔之前的样子`],
+        actions: [
+          { label: '撤销这一笔', act: 'map-fail-undo', onClick: () => void undoLastEdit() },
+          { label: '看看', act: 'map-fail-look', onClick: () => setMapFail(failOf()) },
+        ],
+        dismissible: true,
+        ttl: 0,
+      });
+      return;
+    }
+    if (req.type === 'generate') {
+      setProgress(null);
+      if (targetRef.current?.kind === 'draft' && getStage().stage === 'draft') return setMapFail(failOf());
+    }
+    showToast({ id: 'map-fail', kind: 'warn', text: `地图插件「${name}」出错了`, more: [`${stage ? `在${stage}：` : ''}${m.why}`], dismissible: true, ttl: 0 });
+  };
   /** 地图上那张整图(baseRef)是哪个世界的(线程的 baseKey;编辑地形时线程按它判断能不能只交回变了的那块) */
   const baseKeyRef = useRef<string | null>(null);
   /** 最近一次发出去的生成请求(按块重铺对不上时按整张重新要) */
@@ -929,6 +982,10 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       spawn: () => new Worker(WORKER_URL, { type: 'module' }),
       currentId: () => reqId.current,
       ...simFailOpt(),
+      mapFailed: (m, req) => {
+        mapFailReq.current = req;
+        mapFailedRef.current(m, req);
+      },
       on: {
         // 生成、打开世界那几种(世界和地图、进度、原件读不出来、原件、主图补丁、地形大事预览):见 ./world/worldMessages.ts
         ...worldMessages({
@@ -966,6 +1023,10 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       // 线程出错、重发过一次又出错的活(见 ./sim/simClient.ts 文件头「线程出错」):不再算它,界面上收起,地图上还是原来那份。
       // 生成世界、重推、再推没推成的弹「后台算不动了」那张卡(多半是内存不够),能再推一次;读档退回旧的路,回放帧、地形大事预览再点一次就是新的一件活
       lost: (req) => {
+        // 地图插件长不下去(mapFailed 已经说过了):不算线程出错,不弹「后台算不动了」
+        const quiet = mapFailReq.current === req;
+        if (quiet) mapFailReq.current = null;
+        const noteCrash = quiet ? () => {} : noteCrashNow;
         // 打开世界的那件重发过又出错了:退回旧的路
         if (req.type === 'load') {
           endLoadWatch();
@@ -1048,6 +1109,9 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         cancelTerrainPatch();
         dropPreparedRivers();
         resetStuck();
+        // 又要长了:上一次地图插件长不出来的卡、提示收起
+        setMapFail(null);
+        clearToast('map-fail');
       }
       // 交回历史的请求带上现在的改名:线程先交套上它的编年史(打开世界时那两种自己带着存档里的改名;试推演不换上,不用)
       const named =
@@ -2938,6 +3002,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       <AccountHost phone={narrow} />
       {pluginsUiOn() && <PluginsHost phone={narrow} />}
       {pluginsUiOn() && <SimAskHost phone={narrow} />}
+      <MapAskHost phone={narrow} />
       {pluginsUiOn() && <PluginAskSlot phone={narrow} />}
       {pluginsUiOn() && data && world && <ToolsHost phone={narrow} world={data.world} root={baseData?.world ?? data.world} civ={civ} raw={shownRaw} api={markApi} stage={stageRef} active={toolable} />}
       <FrozenAsk phone={narrow} />

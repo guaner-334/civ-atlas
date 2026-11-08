@@ -139,6 +139,8 @@ import { MapPickHost, PuzzleIcon, SimPickHost } from '../plugins/entry';
 import { pluginsUiOn } from '../plugins/flag';
 import { useSimNow } from '../world/simNow';
 import { useMapNow } from '../world/mapNow';
+import { useMapFail } from '../world/mapFail';
+import { MapFailCard } from './MapFailCard';
 import '../worlds.css';
 import './studio.css';
 
@@ -438,6 +440,8 @@ export function Studio(p: StudioProps) {
   const [mapPage, setMapPage] = useState(false);
   const mapNow = useMapNow();
   const mapNames = mapNow?.list.map((x) => x.name ?? x.id) ?? [];
+  /** 地图插件长不出这张地图(星球上那张卡;改了选的、重新长就收起) */
+  const mapFail = useMapFail();
   const mapLocked = simOn && !found && mapNames.length > 0;
   /** 起源页上:星球停住时的样子(圆点按它摆;动着 = null)、底下的提示(点错了的那句和画虚线圈的地方,过几秒收起) */
   const [pinPose, setPinPose] = useState<StillPose | null>(null);
@@ -1553,9 +1557,16 @@ export function Studio(p: StudioProps) {
       <span className="sb-row-main">
         <b>地图插件</b>
       </span>
-      <span className="sb-row-side sb-origin" data-side="map-plugins">
-        {mapNames.length ? mapNames.join('、') : '不用'}
-      </span>
+      {mapFail ? (
+        <span className="sb-row-side sb-origin nw-map-warn" data-side="map-plugins">
+          <Icon name="warn" size={14} />
+          {mapFail.name}出错了
+        </span>
+      ) : (
+        <span className="sb-row-side sb-origin" data-side="map-plugins">
+          {mapNames.length ? mapNames.join('、') : '不用'}
+        </span>
+      )}
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
@@ -1788,17 +1799,17 @@ export function Studio(p: StudioProps) {
     </button>
   );
   const createBtn = (
-    <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied)} onClick={askCreate}>
+    <button className="nw-create" data-act="create-world" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied) || !!mapFail} onClick={askCreate}>
       {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : outlineHow ? '建好，先写大纲' : found ? `建好，停在第 ${found.year} 年` : '开始推演') : '创建世界'}
     </button>
   );
   /** 第 1 步底部:「保存地图」「打造文明 ›」 */
   const mapBtns = (
     <div className="st-foot-2">
-      <button className="nw-create alt" data-act="save-map" disabled={p.busy || !p.ready || out > 0} onClick={() => p.onSaveMap()}>
+      <button className="nw-create alt" data-act="save-map" disabled={p.busy || !p.ready || out > 0 || !!mapFail} onClick={() => p.onSaveMap()}>
         保存地图
       </button>
-      <button className="nw-create" data-act="to-civ" disabled={p.busy || !p.ready || out > 0} onClick={toCiv}>
+      <button className="nw-create" data-act="to-civ" disabled={p.busy || !p.ready || out > 0 || !!mapFail} onClick={toCiv}>
         {p.phone ? '地图做好了，下一步' : '打造文明 ›'}
       </button>
     </div>
@@ -2403,6 +2414,19 @@ export function Studio(p: StudioProps) {
             else p.onParams(q);
           }}
         />
+      )}
+      {mapFail && !out && (
+        <div className="mf-wrap" style={{ left: box.x + box.w / 2, top: box.y + box.h / 2 }}>
+          <MapFailCard
+            f={mapFail}
+            onPick={openMapPage}
+            onDrop={() =>
+              void import('../plugins/mapWorld').then(async (m) => {
+                if (await m.chooseMaps(mapFail.worldId, m.chosenMaps(mapFail.worldId).filter((c) => c.id !== mapFail.plugin))) p.onMaps?.();
+              })
+            }
+          />
+        </div>
       )}
       {viewSaved && !out && (
         <div className="st-cap st-tip st-def-tip" style={!p.phone ? { left: box.x + box.w / 2 } : undefined} data-act="default-view-tip">

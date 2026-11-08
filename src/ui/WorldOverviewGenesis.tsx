@@ -31,6 +31,7 @@ import { ParamField, rangeFill } from './ParamField';
 import { pluginsUiOn } from './plugins/flag';
 import { WorldPluginsSlot } from './plugins/layerSlots';
 import { useSimNow } from './world/simNow';
+import { useMapNow } from './world/mapNow';
 import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contDefault, yearsSpan, type SliderLike } from './genesisSliders';
 import './ai.css';
 
@@ -157,6 +158,12 @@ function useSimNames(worldId: string | undefined): string | null {
   return pluginsUiOn() && s && s.id === worldId ? s.list.map((p) => p.name ?? p.id).join('、') : null;
 }
 
+/** 这个世界用的地图插件(按出手的先后);没用 = null */
+function useMapNames(worldId: string | undefined): string | null {
+  const s = useMapNow();
+  return s && s.id === worldId ? s.list.map((p) => p.name ?? p.id).join('、') : null;
+}
+
 /** 「规则」一行(入口开着时才有):点了用调规则的大卡看这个世界用的那一版(只能看;官方的看官方规则) */
 function RulesRow({ rules, worldId }: { rules: RuleSet | undefined; worldId: string | undefined }) {
   // 「我的规则」里改了、加了新版,那一句跟着变
@@ -197,6 +204,7 @@ export function SettingsPage(p: SettingsProps) {
   const end = endYearOf(edits);
   const narrow = useNarrow();
   const simNames = useSimNames(cur?.id);
+  const mapNames = useMapNames(cur?.id);
   const [tab, setTab] = useState<SettingsTab>('civ');
   const seg = (
     <div className="ov-seg" role="tablist">
@@ -258,6 +266,12 @@ export function SettingsPage(p: SettingsProps) {
               <span>改过的地形</span>
               <b>{terrainBrief(edits.terrain, edits.sketch)}</b>
             </div>
+            {mapNames && (
+              <div className="ov-kv-row" data-param="map-plugins">
+                <span>地图插件</span>
+                <b>{mapNames}</b>
+              </div>
+            )}
           </div>
           {keptOf && <p className="ov-txt dim ov-kept-note">这张地图是旧世界留下的，不会再按种子重新长。</p>}
         </section>
@@ -270,6 +284,7 @@ export function SettingsPage(p: SettingsProps) {
             {p.replay.on ? (p.replay.ready ? '正在回放' : '正在准备回放') : '回放世界形成'}
           </button>
         </section>
+        {pluginsUiOn() && cur && <WorldPluginsSlot worldId={cur.id} />}
       </div>
     );
   }

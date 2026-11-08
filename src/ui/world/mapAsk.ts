@@ -1,4 +1,7 @@
-/** 世界用的地图插件本机对不上时改地形先问(问的窗另做,这里只记着要问什么)、配方链接不给:只在世界页用,不进首页 */
+/** 世界用的地图插件本机对不上时改地形先问(问的窗是 plugins/MapAsk.tsx,这里只记着要问什么)、配方链接不给:只在世界页用,不进首页 */
+
+/** 配方链接带不上地图插件,对方长出来的地图不一样 */
+export const MAP_NO_LINK = '地图插件带不进链接，对方长出来的地图不一样。要发给别人，请存成文件';
 import { useSyncExternalStore } from 'react';
 import type { WorldEdits } from '../../gen/edits';
 import type { MapPluginCheck } from '../../plugin/pluginWorld';

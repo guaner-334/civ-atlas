@@ -260,6 +260,13 @@ async function noteFailure(id: string, e: unknown, notes = false): Promise<void>
   await drainTrash().catch(() => {});
 }
 
+const partsSaved = new Set<(id: string) => void>();
+/** 线程交回的整份内容存进了仓库(地图插件的图层这时才读得到);返回取消的函数 */
+export function onPartsSaved(f: (id: string) => void): () => void {
+  partsSaved.add(f);
+  return () => void partsSaved.delete(f);
+}
+
 /** 生成世界的线程交回来一份完整的内容:对得上当前世界存着的存档就存 */
 export function offerWorldParts(o: WorldPartsOffer): Promise<boolean> {
   offer = o;
@@ -288,7 +295,9 @@ function keepOffer(): Promise<boolean> {
         { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, ...(o.schemas ? { schemas: o.schemas } : {}), ...(o.plugins ? { simPlugins: o.plugins } : {}), ...(o.mapPlugins ? { mapPlugins: o.mapPlugins } : {}), made, readers: o.readers ?? { ...READER_VERSIONS }, thumb: thumbBytes(again.thumb) },
         o.parts.map((p) => p.data),
       );
-      return r?.status === 'saved';
+      if (r?.status !== 'saved') return false;
+      if (o.mapPlugins?.length) for (const f of partsSaved) f(c.id);
+      return true;
     } catch {
       return false;
     }

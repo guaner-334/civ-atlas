@@ -121,7 +121,7 @@ export function mapPluginsOf(keys: readonly string[]): MapPlugin[] | null {
   for (const k of keys) {
     const l = done.get(k);
     if (!l) return null;
-    out.push(l.plugin);
+    out.push(l.record.name ? { ...l.plugin, name: l.record.name } : l.plugin);
   }
   return out;
 }

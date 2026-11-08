@@ -17,6 +17,7 @@ import { mirrorCanvas } from '../../mapWrap';
 import { ProjLayer } from '../../projection';
 import { noteDismiss } from '../../dismissClick';
 import { useSimNow } from '../../world/simNow';
+import { onPartsSaved } from '../../worldStore';
 import { currentShown, pluginLayers, rerunLayerPlugin, setSimLayers, shownPaint, type ShownLayer, type ShownPaint } from '../layerState';
 import { stopLayerPlugin } from './layerRun';
 import { historyChanged, loadSavedLayers, removeLayer, sameAsSaved, saveLayer, setRegionMap } from './layerSave';
@@ -249,6 +250,9 @@ export function PluginLegend({ phone }: { phone: boolean }) {
             <span className="plg-ltag">推演</span>
             {paint?.year !== undefined && <span className="plg-lyear">{phone ? `第 ${paint.year} 年` : `第 ${paint.year} 年的样子`}</span>}
           </>
+        ) : saved?.record?.role === 'map' ? (
+          // 地图插件长地图时就存进了世界:没有「存进这个世界」「拿掉」
+          <span className="plg-ltag">地图</span>
         ) : fresh ? (
           <button type="button" className="plg-lbtn" data-act="plugin-layer-save" disabled={busy} onClick={() => run(() => saveLayer(live!, phone))}>
             {busy && timed ? '正在存…' : phone ? '存进世界' : '存进这个世界'}
@@ -310,9 +314,14 @@ export function SavedLoader({ worldId, cells, civ, real, mesh }: { worldId: stri
   const realRef = useRef<{ mesh?: object; civ: Civ | null }>({ civ: null });
   useEffect(() => {
     stopLayerPlugin();
-    const r = realRef.current.civ;
-    if (worldId) void loadSavedLayers(worldId, cells, r ? { regions: r.regions.count, endYear: r.endYear } : undefined);
-    else pluginLayers.set({ ...pluginLayers.get(), saved: new Map(), savedFor: null });
+    const read = () => {
+      const r = realRef.current.civ;
+      if (worldId) void loadSavedLayers(worldId, cells, r ? { regions: r.regions.count, endYear: r.endYear } : undefined);
+    };
+    read();
+    if (!worldId) pluginLayers.set({ ...pluginLayers.get(), saved: new Map(), savedFor: null });
+    // 地图插件的图层随整份内容存进仓库:存好了再读一遍
+    return onPartsSaved((id) => id === worldId && read());
   }, [worldId, cells, mesh, has]);
   useLayoutEffect(() => {
     if (!real) return;

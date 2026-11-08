@@ -43,7 +43,7 @@ import {
 import { sketchUsed, type Sketch } from './sketch';
 import { samePlates } from './plateEdits';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
-import { climateHooks, hasStage, heightHooks, layerHooks, mapPluginKeys, type MapLayer, type MapPlugin } from './mapHooks';
+import { climateHooks, hasStage, heightHooks, layerHooks, mapPluginKeys, mapStageNote, type MapLayer, type MapPlugin } from './mapHooks';
 
 // 生成参数和默认值在 params.ts(存档、网址只用到它们,不用带上整套生成代码)
 export { DEFAULT_PARAMS, type WorldParams } from './params';
@@ -463,7 +463,7 @@ function* growTerrain(
   }
   if (hasStage(plugins, 'height')) {
     const before = elevation.slice();
-    heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate);
+    heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate, (pl, st) => progress(mapStageNote(pl, st), 0.6));
     addToFrames(history, before, elevation);
   }
   const top = planet ? planet.peak : landPeak(land, elevation);
@@ -667,7 +667,7 @@ export function* generateWorldSteps(
   progress('风与降水', 0.72);
   const currents = computeCurrents(mesh, water);
   const clim = computeClimate(mesh, elevation, water, climateP, currents, true);
-  if (hasStage(mapPlugins, 'climate')) climateHooks(mapPlugins, mesh, p.seed, { ...clim, elevation, water, rainSummer: clim.rainSummer!, rainWinter: clim.rainWinter! });
+  if (hasStage(mapPlugins, 'climate')) climateHooks(mapPlugins, mesh, p.seed, { ...clim, elevation, water, rainSummer: clim.rainSummer!, rainWinter: clim.rainWinter! }, (pl, st) => progress(mapStageNote(pl, st), 0.76));
   // 改地形:作者涂的更湿 / 更干 / 更暖 / 更冷
   if (ops.length) applyClimatePens(mesh, clim.temperature, clim.precipitation, ops);
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
@@ -743,7 +743,7 @@ export function* generateWorldSteps(
       flux,
       riverThreshold,
       rivers,
-    });
+    }, (pl, st) => progress(mapStageNote(pl, st), 0.92));
   }
 
   return {

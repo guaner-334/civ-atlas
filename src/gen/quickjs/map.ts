@@ -90,7 +90,7 @@ class MapBox extends Box {
   }
 
   protected fail(what: string): Error {
-    return this.stage ? new MapPluginError(this.id, this.stage, what) : new MapPluginLoadError(this.id, what);
+    return this.stage ? new MapPluginError(this.id, this.stage, what, { kind: /叫停了$/.test(what) ? 'slow' : 'throw' }) : new MapPluginLoadError(this.id, what);
   }
 
   protected ours(e: unknown): boolean {

@@ -181,7 +181,8 @@ export function shareCopiedToast(r: ShareCopy, at: MomentNow | null): void {
 export async function copyMomentLink(): Promise<void> {
   const plain = currentSave();
   // 用了地图插件的也一样:配方里没有插件,别人点开长出来是另一张图
-  if ((plain && keptMapOf(plain.edits)) || usesMaps(currentWorld()?.id)) return notify({ kind: 'warn', text: '这个世界的地图带不进链接', more: ['要发给别人，请到「存档」里存成文件'] });
+  if (plain && keptMapOf(plain.edits)) return notify({ kind: 'warn', text: '这个世界的地图带不进链接', more: ['要发给别人，请到「存档」里存成文件'] });
+  if (usesMaps(currentWorld()?.id)) return notify({ kind: 'warn', text: '地图插件带不进链接', more: ['对方长出来的地图不一样。要发给别人，请到「存档」里存成文件'] });
   const names = await pluginDataNames(currentWorld()?.id);
   if (names) return notify({ kind: 'warn', text: `这个世界里有插件${names}存的数据，不能公开分享`, more: ['要发给别人，请到「存档」里存成文件'] });
   const at = momentNow(true);
