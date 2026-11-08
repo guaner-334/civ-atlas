@@ -56,6 +56,16 @@ export function newVersionOf(p: InstalledPlugin): WallLatest | null {
   return newerOnWall(p, latest?.items[p.id], (sum) => verdictOf(sum, p.id).reviewed);
 }
 
+/** 作品墙上各插件现在那一版还没取过:取一次(本机没装插件时 checkPlugins 不取) */
+export async function wallOnce(): Promise<void> {
+  if (latest || !serverBase()) return;
+  try {
+    noteWall((await fetchGallery()).plugins);
+  } catch {
+    /* 取不到:当作品墙上没有 */
+  }
+}
+
 /** 作品墙上现在那一版就是这一份(按指纹):作品编号;没有、不是这一版 = null */
 export function wallWorkOf(id: string, sum: string): string | null {
   const l = latest?.items[id];

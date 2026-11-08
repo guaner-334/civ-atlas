@@ -4,14 +4,14 @@
  *   别的版本「另存一份再推演？」:和旧版本世界问的那一个窗一样,另存「…（新版）」按本机这一版从第 0 年重推
  * 没装和别的版本都有时先说要先装;装齐了再点,才轮到另存。
  */
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import { Dialog } from '../AccountDialogs';
 import { askSims, type SimAsk } from '../world/simAsk';
 import { PluginIcon } from './pluginIcons';
 import { versionLabel } from './pluginWords';
 import { missingText, otherText, simWhat } from './simWorldText';
-import { useWallRev, wallWorkOf } from './galleryWatch';
+import { useWallRev, wallOnce, wallWorkOf } from './galleryWatch';
 import './plugins.css';
 
 const PluginWorkDialog = lazy(() => import('./GalleryPlugins').then((m) => ({ default: m.PluginWorkDialog })));
@@ -23,6 +23,7 @@ const nameOf = (c: SimPluginCheck) => c.plugin.name ?? c.id;
 
 export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean }) {
   useWallRev();
+  useEffect(() => void wallOnce(), []);
   const [look, setLook] = useState<string | null>(null);
   const close = () => askSims(null);
   if (look)

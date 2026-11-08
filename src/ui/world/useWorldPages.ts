@@ -26,7 +26,7 @@ import { sizeText } from '../sizeWords';
 import { setGoHome } from '../AccountDialogs';
 import { pluginsUiOn } from '../plugins/flag';
 import { askSims } from './simAsk';
-import { getSimNow } from './simNow';
+import { getSimNow, sameSims, subscribeSimNow } from './simNow';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
 import { clearEditHistory, getEdits, putEditsQuiet, setHistoryGate } from '../editsStore';
@@ -650,6 +650,16 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const title = loadWorld(r.id)?.save.title ?? newVersionTitle(name);
     showToast({ id: 'save', kind: 'ok', ttl: 0, dismissible: true, text: `「${title}」另存好了`, more: ['地图没变，历史按新版重推了', ...more], action: { label: '打开', act: 'open-copy', onClick: () => openStoredRef.current(r.id) } });
   };
+  // 打开时没装、装上以后:推演带上插件(不然接着推按官方推);线程手上那份不带插件的历史不再接着用,从第 0 年带着插件重推
+  useEffect(
+    () =>
+      subscribeSimNow(() => {
+        const s = getSimNow();
+        if (!s?.stored || s.id !== currentWorld()?.id || !s.files || sameSims(civSetup.current?.simPlugins, s.files)) return;
+        civSetup.current = { ...civSetup.current, simPlugins: s.files };
+      }),
+    [],
+  );
   const saveAsNewRef = useRef(saveAsNewNow);
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {

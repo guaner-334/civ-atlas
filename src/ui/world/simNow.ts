@@ -37,6 +37,12 @@ export function simNowFor(id: string | null): void {
   if (now && now.id !== id) setSimNow(null);
 }
 
+/** 记着的变了就调 f;返回取消的函数 */
+export function subscribeSimNow(f: () => void): () => void {
+  subs.add(f);
+  return () => subs.delete(f);
+}
+
 export function useSimNow(): SimNow | null {
   return useSyncExternalStore(
     (f) => {

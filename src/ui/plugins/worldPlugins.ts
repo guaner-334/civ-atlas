@@ -10,14 +10,13 @@ import { pluginsInWorld, recordParams, simParamsOf, simPluginOf, simPluginsIn, t
 import { simPluginsReady } from '../../plugin/simPlugins';
 import { approxBytes } from '../../plugin/protocol';
 import type { PluginDataStore } from '../../plugin/store';
-import type { WorldEdits } from '../../gen/edits';
+import { keptMapOf, type WorldEdits } from '../../gen/edits';
 import { copyNotes } from '../../ai/library';
 import { currentWorld, keepWorld, notify, saveAsNewVersion, storageFullWhy } from '../saveStore';
 import { getSimNow, setSimNow } from '../world/simNow';
 import { settleWorld, vaultCall } from '../worldStore';
 import { askData, kbText } from './askState';
 import './worldData.css';
-import './simWorld.css';
 
 /** 世界里用到的一个插件,连同叫什么(清单里记的名字,没记看本机装的,都没有写编号) */
 export interface UsedPlugin extends WorldPluginUse {
@@ -201,6 +200,8 @@ export async function forgetSim(id: string): Promise<void> {
 
 /** 只装了推演插件别的版本:另存一份(带着 next 这次的修改),按本机现在那一版从第 0 年重推(滑条照原来的);存好交新编号、AI 写的史书跟过去没有 */
 export async function copyWithSims(from: string, next: WorldEdits, open: (id: string, notes: boolean) => void): Promise<void> {
+  // 地图留着的世界另存出来要按存下的地图重算,那一步只认世界清单里记的插件,这里选的带不过去
+  if (keptMapOf(next)) return void notify({ kind: 'warn', text: '这个世界另存不了按新版插件重推的一份', more: ['它的地图是从别的世界留下来的。要照原样接着推，得装回原来那一版'] });
   const id = saveAsNewVersion(from, next);
   if (!id) return void notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
   const notes = copyNotes(from, id);
