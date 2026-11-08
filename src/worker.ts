@@ -40,6 +40,7 @@
  *
  * 地图插件(请求带的 mapPlugins,按先后):生成、改地形、地形大事、回放形成过程、重长没改地形的星球都带着它们长;世界键带上它们(没用的和以前一样)。
  * 插件文件用到才装(mapPluginRun.ts,装好的记着);插件出错、这台没有世界记的那一版,这件活交 mapFailed,不当线程的错。
+ * 改过地形的世界存进仓库时带上没改地形那颗星球的参照(planet 那一块),读进来推历史用存下的,这台没有插件也推得了。
  *
  * 照大纲推演(outline,gen/outline.ts):照常推、逐条查情节,没发生的硬改,每查完一条报进度(outlineProgress)、先让新到的消息排进来;
  * 来了新的推演请求或叫停(outlineStop)就不推了(outlineStopped),已经定下来的几条记着(outlineCache)。推完交整段历史和新的干预串(outlined),结果和带着这串干预从第 0 年推完一样。
@@ -524,10 +525,7 @@ const genMaps = (keys: readonly string[]): MapPlugin[] | undefined => (keys.leng
 /** 起地名照着的那一份按哪套设定认(推文明时带的这几样要和这里一样) */
 const refOpt = (m: CivInput) => ({ ...namesOpt(m.names), ...setupOpt(m), ...frozenOpt(m) });
 
-/**
- * 推文明时带的地图插件(世界记的那一串)和存下的照着沿用的地名:改过地形的世界推历史要照没改地形的星球,
- * 存下的对不上这次的设定就得带同样的插件重长那颗星球,这时插件用不了就抛错(交 mapFailed)
- */
+/** 推文明时带的地图插件和存下的地名:存下的对不上这次的设定、这台又长不出没改地形的那颗星球,就抛错(交 mapFailed) */
 function mapOpt(world: World, m: CivInput): { mapPlugins?: MapPlugin[]; planetNames?: PlanetNames } {
   const keys = world.mapPlugins;
   if (!keys?.length) return {};
@@ -539,18 +537,17 @@ function mapOpt(world: World, m: CivInput): { mapPlugins?: MapPlugin[]; planetNa
   return names;
 }
 
-/**
- * 存进世界的星球参照(planet 那一块):用地图插件长、改过地形的世界才存。节拍只存手里有的;照着沿用的地名没记着的,
- * 插件在手就现起,不在手(或者长不出来)这次不存
- */
+/** 存进世界的星球参照(和 worldConvert.ts 存的一样):手里没有、插件也不在手的那一样这次不存 */
 function planetOffer(world: World, m: CivInput): PlanetValue | null {
   const keys = world.mapPlugins;
   if (!keys?.length || !(world.terrain?.length || world.sketch)) return null;
-  const tempo = storedTempo(m.params, m.sketch, mapKeys(m)) ?? tempos.get(keyOf(m.params, undefined, m.sketch, mapKeys(m)));
-  const kept = frozen?.planet?.value.names;
   const ps = mapRun?.mapPluginsOf(keys);
+  const kept = frozen?.planet?.value.names;
+  const known = ps || tempos.has(keyOf(m.params, undefined, m.sketch, mapKeys(m))) || storedTempo(m.params, m.sketch, mapKeys(m)) !== undefined;
+  let tempo: PlanetTempo | null | undefined;
   let names: PlanetNames | undefined;
   try {
+    tempo = known ? tempoOf(m.params, m.terrain, m.sketch, m.civSeed, mapKeys(m)) : undefined;
     names = planetNames(world, { ...refOpt(m), ...(kept ? { planetNames: kept } : {}), ...(ps ? { mapPlugins: timedMapPlugins(ps) } : {}) }, !!ps) ?? undefined;
   } catch {
     names = undefined;

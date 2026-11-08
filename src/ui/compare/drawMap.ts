@@ -35,6 +35,10 @@ export function makeDrawMap(map: GrowMap, progress: (stage: string, pct: number)
       const m = ev.data;
       if (m.id !== 1) return;
       if (m.type === 'progress') return progress(m.stage, m.pct);
+      if (m.type === 'mapFailed') {
+        stop();
+        return reject(new Error(`地图插件「${m.plugin}」长不出这张地图:${m.why}`));
+      }
       if (m.type !== 'done') return;
       stop();
       if (!m.world || !m.raster) return reject(new Error('没交回整张地图'));
@@ -42,6 +46,6 @@ export function makeDrawMap(map: GrowMap, progress: (stage: string, pct: number)
       resolve({ world: m.world, raster: m.raster });
     };
   });
-  w.postMessage({ type: 'generate', id: 1, scale: 1, params: map.params, ...(map.terrain ? { terrain: map.terrain } : {}), ...(map.sketch ? { sketch: map.sketch } : {}), skipCiv: true } satisfies WorkerRequest);
+  w.postMessage({ type: 'generate', id: 1, scale: 1, params: map.params, ...(map.terrain ? { terrain: map.terrain } : {}), ...(map.sketch ? { sketch: map.sketch } : {}), ...(map.mapPlugins?.length ? { mapPlugins: map.mapPlugins } : {}), skipCiv: true } satisfies WorkerRequest);
   return { done, stop };
 }

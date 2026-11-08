@@ -222,6 +222,24 @@ describe('没存星球参照的世界', () => {
     expect(planet?.sum).toBe((await readRevision('wp', undefined, ['planet']))!.parts.find((q) => q.info.name === 'planet')!.info.sum);
   }, 240_000);
 
+  it('用地图插件长、只有地形大事没改地形的:用不着星球参照,没装插件也能推', async () => {
+    const h = await device();
+    h.send({ type: 'generate', id: 60, scale: 0.25, ...base(files, []) });
+    await h.wait(60, ['done']);
+    const o = (await h.wait(60, ['worldParts'])).offer;
+    expect(o.parts.some((p) => p.name === 'planet')).toBe(false);
+    const rk = await keep('wu', o, []);
+    h.send({ type: 'resim', id: 60, seq: 1, interventions: x, ...base(files, []) });
+    const want = (await h.wait(60, ['civ'])).civ;
+    await h.wait(60, ['worldParts']);
+
+    const k = await device();
+    k.send({ type: 'load', id: 70, scale: 0.25, ...base(ids, []), vault: { id: 'wu', recipe: rk, generator: GENERATOR_VERSION } });
+    expect((await k.wait(70, ['done', 'loadFailed'])).type).toBe('done');
+    k.send({ type: 'resim', id: 70, seq: 1, interventions: x, ...base(ids, []) });
+    expect((await k.wait(70, ['civ'])).civ).toEqual(want);
+  }, 240_000);
+
   it('没用地图插件的老世界:不存星球参照,照旧能开能推', async () => {
     const e = await device();
     e.send({ type: 'generate', id: 40, scale: 0.25, ...base(undefined) });

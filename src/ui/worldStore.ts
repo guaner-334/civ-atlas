@@ -502,15 +502,15 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const onPhone = () => isNarrow() || isCoarse();
 
 /**
- * 这个世界最新的修订记的推演插件本机有没有同一版(没用推演插件、没有修订 = null)。
- * 用了地图插件的 = 'map':按配方重算要带着同一版地图插件长地图,这里不算
+ * 这个世界最新的修订记的推演插件、地图插件本机有没有同一版:sims 没用推演插件、没有修订 = null;
+ * maps 没用地图插件 = undefined,本机没有同一版 = null(按配方重算长出来是另一张地图)
  */
-async function simFilesOf(id: string, read: <T>(p: Promise<T>) => Promise<T | null>): Promise<SimPluginsReady | 'map' | null> {
+async function pluginFilesOf(id: string, read: <T>(p: Promise<T>) => Promise<T | null>): Promise<{ sims: SimPluginsReady | null; maps?: MapPluginFile[] | null }> {
   const m = await read(call('worldPluginsOf', [id]));
-  if (m?.plugins.some((p) => p.role === 'map')) return 'map';
-  if (!m?.plugins.some((p) => p.role === 'sim')) return null;
-  const { simPluginsReady } = await import('../plugin/simPlugins');
-  return simPluginsReady(m.plugins);
+  const sims = m?.plugins.some((p) => p.role === 'sim') ? await (await import('../plugin/simPlugins')).simPluginsReady(m.plugins) : null;
+  if (!m?.plugins.some((p) => p.role === 'map')) return { sims };
+  const r = await (await import('../plugin/mapPlugins')).mapPluginsReady(m.plugins);
+  return { sims, maps: r.ok ? r.files : null };
 }
 
 /**
@@ -547,15 +547,16 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
     if (!asked && (onPhone() || currentWorld()?.id === id)) return null;
     // 用了推演插件的带着世界记的那一版推;本机没有就不推(推出来是另一段历史),照原样留着,记下在等哪几个
-    const sims = await simFilesOf(id, read);
-    if (sims === 'map') return null;
+    const { sims, maps } = await pluginFilesOf(id, read);
     const wait = sims && !sims.ok ? sims.checks.filter((c) => c.status !== 'ready').map((c) => c.id) : undefined;
     if (JSON.stringify(state?.simWait) !== JSON.stringify(wait)) await call('patchState', [id, { simWait: wait }]).catch(() => {});
     if (wait) return null;
     const more = sims?.ok && sims.files.length ? { simPlugins: sims.files } : {};
     // 地图留着的世界不按种子算:先看它自己、再看它出自的世界,再看别的世界有没有存着那张地图
     if (keptMapOf(w.save.edits)) return { ...body, ...more, kind: 'keptMap', save: w.save, from: [id, ...(w.save.edits.map?.from ? [w.save.edits.map.from] : []), ...allWorldIds()], app: APP_VERSION, commit: APP_COMMIT };
-    return { ...body, ...more, kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
+    // 用了地图插件的带着世界记的那一版长地图;本机没有就不转
+    if (maps === null) return null;
+    return { ...body, ...more, ...(maps?.length ? { mapPlugins: maps } : {}), kind: 'recompute', save: w.save, app: APP_VERSION, commit: APP_COMMIT };
   }
   // 只是记一笔:存储满了记不下也没事
   if (state?.status !== 'old' || state.generator !== w.save.generator) await call('patchState', [id, { status: 'old', generator: w.save.generator }]).catch(() => {});

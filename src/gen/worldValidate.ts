@@ -584,7 +584,7 @@ export function validateEras(v: unknown, map: World): void {
   allStrings(e, TEXT_TOTAL_MAX, TEXT_TOTAL_MAX, '各段世界');
 }
 
-/** 照着沿用的地名最多几个(实测 36k 地块一百多个) */
+/** 照着沿用的地名最多几个(实测几十个;只防离谱的) */
 const PLANET_NAMES_MAX = 100_000;
 const PLANET_NAME_KEYS = ['kind', 'x', 'y', 'size', 'rank', 'name', 'latin', 'style', 'hearth'];
 

@@ -50,7 +50,7 @@ const PART_LIMITS: ReadonlyMap<string, number> = new Map([
   ['author', 64 * MB],
   // 封面:480 × 240 的 JPEG 几十 KB
   ['thumb', 2 * MB],
-  // 星球参照:几个数和照着沿用的地名,一个地名几十字节
+  // 星球参照:实测 3.6 万、20 万地块都是几十个地名,不到 10 KB
   ['planet', 4 * MB],
 ]);
 /**

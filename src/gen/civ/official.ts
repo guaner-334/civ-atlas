@@ -163,10 +163,7 @@ function nameRefOf(pack: CivPack<OfficialOwn>, world: World, s: RefSetup): reado
   return ref;
 }
 
-/**
- * 推这个世界(params 同 generateCiv)照着沿用的地名和那套设定的指纹:不用照着起 = undefined;
- * 记着的、params.planetNames 对得上的直接给,grow = false 时都没有就是 null(不重长没改地形的星球)
- */
+/** 同 index.ts 的 planetNames;设定照 prelude、settle 里的取法,和推的时候认的是同一个键 */
 export function planetNamesOf(pack: CivPack<OfficialOwn>, world: World, params: Partial<CivParams>, grow: boolean): PlanetNames | null | undefined {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
   if (!edited(world) || p.placeRef === false) return undefined;

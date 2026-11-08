@@ -20,10 +20,7 @@ export * from './types';
 export { DEFAULT_CIV_PARAMS, type Continuation, type Stepper } from './run';
 export { planetTempo } from './official';
 
-/**
- * 推这个世界(params 同 generateCiv)山海湖岛照着沿用的地名和那套设定的指纹:不用照着起 = undefined;
- * grow = false 时手里没有(没记着、params.planetNames 对不上)= null,不重长没改地形的星球
- */
+/** 推这个世界(params 同 generateCiv)照着沿用的地名和设定指纹:不用照着起 = undefined;grow = false 时手里没有 = null,不重长没改地形的星球 */
 export function planetNames(world: World, params: Partial<CivParams>, grow: boolean): PlanetNames | null | undefined {
   return planetNamesOf(OFFICIAL_PACK, world, params, grow);
 }
