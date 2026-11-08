@@ -313,6 +313,14 @@ describe('递数据', () => {
     expect(calls).toBe(1);
   });
 
+  it('回合里别的数据(挡下的命令、约到的事、听到的史事)原样递进去,键的先后也一样', async () => {
+    const refused = [{ kind: 'declare', index: 1, why: '作者不许' }];
+    const events = [{ year: 3.5, kind: 2, data: [-0, 7] }];
+    const heard = [{ year: 3, kind: 'war', a: 1, b: 2, region: -1, settlement: -1, war: 5 }];
+    const r = await once('return { commands: [Object.keys(turn).join(), turn.refused, turn.events, turn.heard, Object.is(turn.events[0].data[0], -0)] };', turnOf({ events, heard, refused }));
+    expect(r?.commands).toEqual(['year,tick,events,heard,note,read,table,rand,influence,refused', refused, events, heard, true]);
+  });
+
   it('读口的参数是 ±Infinity、-0 时各算各的,不和别的参数共用一份', async () => {
     let calls = 0;
     const read = { annals: (from: number) => (calls++, [{ from: Object.is(from, -0) ? '-0' : String(from) }]) };
