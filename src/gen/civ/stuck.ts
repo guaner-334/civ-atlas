@@ -31,7 +31,7 @@ export function civOrStuck(world: World, params: Partial<CivParams>, opt: StuckO
     return engine.generate(world, params);
   } catch (e) {
     opt.failed?.(e);
-    const civ = findStuck(world, params, from, engine, opt.snap);
+    const civ = findStuck(world, params, from, engine, opt.snap, e);
     if (!civ) throw e;
     return civ;
   }
@@ -46,7 +46,7 @@ export function continueOrStuck(world: World, base: Civ, params: Partial<CivPara
     return run ? run.finish() : engine.generate(world, q);
   } catch (e) {
     opt.failed?.(e);
-    const civ = findStuck(world, q, base, engine, opt.snap);
+    const civ = findStuck(world, q, base, engine, opt.snap, e);
     if (!civ) throw e;
     return civ;
   }
@@ -54,9 +54,9 @@ export function continueOrStuck(world: World, base: Civ, params: Partial<CivPara
 
 /**
  * 已知推到 params.endYear 会出错:找出最后推得出来的那一年,交到那年为止的历史(带 stuck)。
- * from = 推得出来的一份(从它接着找;不给 = 从第 0 年起)。连一份都推不出来 = null
+ * from = 推得出来的一份(从它接着找;不给 = 从第 0 年起);cause = 推到 params.endYear 时抛的错。连一份都推不出来 = null
  */
-export function findStuck(world: World, params: Partial<CivParams>, from: Civ | null, engine: GrowEngine = growEngine, snap: (year: number) => number = (y) => y): Civ | null {
+export function findStuck(world: World, params: Partial<CivParams>, from: Civ | null, engine: GrowEngine = growEngine, snap: (year: number) => number = (y) => y, cause?: unknown): Civ | null {
   const end = params.endYear ?? DEFAULT_CIV_PARAMS.endYear;
   const at = (endYear: number): Partial<CivParams> => ({ ...params, endYear });
   let last = from && from.endYear < end ? from : null;
@@ -69,7 +69,7 @@ export function findStuck(world: World, params: Partial<CivParams>, from: Civ | 
     if (last.endYear >= end) return last;
   }
   const run = engine.resume(world, last, params);
-  if (!run) return bisect(world, params, last, end, end, engine, snap);
+  if (!run) return bisect(world, params, last, end, end, engine, snap, cause);
   let before = run.year;
   try {
     while (run.year < end) {

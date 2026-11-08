@@ -9,6 +9,7 @@ import { civOrStuck, continueOrStuck } from '../src/gen/civ/stuck';
 import { PLUGIN_TIME, PluginError, type SimPlugin } from '../src/gen/civ/engine/plugin';
 import type { TableCard } from '../src/gen/civ/engine/tables';
 import type { SimRead } from '../src/gen/civ/simRead';
+import { upheavalSteps } from '../src/gen/civ/upheaval';
 import { civDiff } from '../scripts/lib/resumeFuzz';
 
 const PARAMS = { ...DEFAULT_PARAMS, cells: 12000, seed: 2024 };
@@ -97,6 +98,18 @@ describe('推演插件的护栏:停在出错前那一年,记上是哪个插件',
     const civ = continueOrStuck(w, generateCiv(w, { ...params, endYear: 30 }), params);
     stoppedBefore(w, civ, params, 50, 'boom');
   }, 60_000);
+
+  it('接不着推的(有地形大事)按年份找:正好在最后那年出错也记上是哪个插件', () => {
+    const w = worldOf();
+    const upheavals = upheavalSteps(PARAMS, [], null, [{ year: 200, ops: [{ kind: 'volcano', pts: [1169, 764], r: 36, s: 1.1 }] }]);
+    const late: Plugin = { id: 'late', every: 10, act: (t) => {
+      if (t.year === 300) throw new Error('炸了');
+    } };
+    const civ = civOrStuck(w, { endYear: 300, upheavals, plugins: [late] });
+    expect(civ.stuck).toMatchObject({ to: 300, plugin: 'late' });
+    expect(civ.endYear).toBe(299);
+    expect(civ.upheavals?.map((u) => u.year)).toEqual([200]);
+  }, 120_000);
 
   it('来回震荡也停下;写了备份规则的换成备份接着推', () => {
     const w = worldOf();
