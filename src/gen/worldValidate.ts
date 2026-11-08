@@ -537,7 +537,22 @@ function checkWorldBody(w: Obj, n: number, at: string): void {
     typed(s.grid, Uint8Array, `${at}的 sketch.grid`, SKETCH_W * SKETCH_H);
     num(s.coast, `${at}的 sketch.coast`);
   }
+  if (w.mapPlugins !== undefined) {
+    const keys = list(w.mapPlugins, `${at}的 mapPlugins`);
+    if (!keys.length || keys.length > MAP_PLUGINS_MAX) broken(`${at}的 mapPlugins 不对`);
+    keys.forEach((k, i) => {
+      if (!MAP_PLUGIN_KEY.test(str(k, `${at}的 mapPlugins[${i}]`, MAP_PLUGIN_KEY_MAX))) broken(`${at}的 mapPlugins[${i}] 认不出`);
+    });
+  }
+  // 地图插件出的图层另存成图层块,不放在地图里
+  if (w.mapLayers !== undefined) broken(`${at}带了地图插件的图层`);
 }
+
+/** 一张地图最多用几个地图插件 */
+const MAP_PLUGINS_MAX = 16;
+/** World.mapPlugins 的一项:「插件编号@文件指纹」,有滑条的后面接 [名字, 值] 串(plugin/pluginWorld.ts 的 mapPluginKey) */
+const MAP_PLUGIN_KEY = /^[a-z][a-z0-9]*(-[a-z0-9]+)*@[0-9a-f]{64}(\[.*\])?$/;
+const MAP_PLUGIN_KEY_MAX = 1024;
 
 /** 地图(map 那一块):不合格抛 broken */
 export function validateWorld(v: unknown): asserts v is World {

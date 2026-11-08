@@ -133,6 +133,12 @@ export function knownPart(p: SnapshotPart, schema?: number, migrations?: Migrati
   return packedFrom(p, schema ?? currentSchema(p.name, migrations), known.need);
 }
 
+/** 后台线程打好的一块:认得的块同 knownPart;地图插件出的图层块(layer.<插件编号>.<图层编号>)by 写插件编号 */
+export function offeredPart(p: SnapshotPart, schema?: number, migrations?: MigrationTable): PackedPart {
+  const ids = pluginLayerOf(p.name);
+  return ids ? packedFrom(p, PLUGIN_LAYER_SCHEMA, 'extra', ids[0]) : knownPart(p, schema, migrations);
+}
+
 /** 附加数据打包:need 是 extra */
 export async function packExtra(x: WorldExtra): Promise<PackedPart> {
   if (KNOWN_PARTS.has(x.name) || isSimState(x.name) || isPluginLayer(x.name)) throw new Error(`附加数据不能叫 ${x.name}`);
@@ -191,17 +197,20 @@ export async function packThumb(bytes: Uint8Array, migrations?: MigrationTable):
   return { info: { name: 'thumb', file: fileOf('thumb', 'none'), schema: currentSchema('thumb', migrations), sum, bytes: bytes.length, zip: 'none', need: 'extra' }, data: bytes };
 }
 
-/** 去掉回放快照(不存)、各段世界的网格(和地图同一套) */
+/** 去掉回放快照(不存)、各段世界的网格(和地图同一套)、地图插件的图层(另存成图层块) */
 function mapValue(map: World): World {
-  return { ...map, history: [] };
+  const { mapLayers: _l, ...rest } = map;
+  void _l;
+  return { ...rest, history: [] };
 }
 
 function erasValue(e: WorldEras): WorldEras {
   return {
     baseKey: e.baseKey,
     eras: e.eras.map(({ key, world }) => {
-      const { mesh: _mesh, ...rest } = world as Omit<World, 'mesh'> & { mesh?: unknown };
+      const { mesh: _mesh, mapLayers: _l, ...rest } = world as Omit<World, 'mesh'> & { mesh?: unknown };
       void _mesh;
+      void _l;
       return { key, world: { ...rest, history: [] } };
     }),
   };

@@ -63,8 +63,41 @@ export function simPluginOf(p: Pick<OpenedPlugin, 'manifest' | 'sum'>, params: R
   return { ...worldPluginOf(p), ...(Object.keys(params).length ? { params: { ...params } } : {}) };
 }
 
+/** 世界清单 plugins 里记这个地图插件的那一条:连同长这张地图时滑条拨到几(没有滑条不写) */
+export const mapPluginOf = simPluginOf;
+
 /** 世界清单里记的推演插件(按出手的先后) */
 export const simPluginsIn = (plugins: readonly WorldPlugin[]): WorldPlugin[] => plugins.filter((p) => p.role === 'sim');
+
+/** 世界清单里记的地图插件(按生成时出手的先后) */
+export const mapPluginsIn = (plugins: readonly WorldPlugin[]): WorldPlugin[] => plugins.filter((p) => p.role === 'map');
+
+/**
+ * 一个地图插件交给生成线程的:编号、文件的指纹、滑条拨到几(清单里写的每一个都有,一串按出手的先后排)。
+ * bytes = 文件的原字节;这台设备没有那一版 = 不给(线程认得出是哪张地图,但长不出来)
+ */
+export interface MapPluginFile {
+  id: string;
+  sum: string;
+  params?: Readonly<Record<string, number>>;
+  bytes?: Uint8Array;
+}
+
+/**
+ * 同一个插件文件、同样的滑条 = 同一串:生成的缓存、世界里的 World.mapPlugins、线程里的世界键都按它认。
+ * 「编号@指纹」,有滑条的后面接按名字排好的 [名字, 值] 串
+ */
+export function mapPluginKey(p: Pick<MapPluginFile, 'id' | 'sum' | 'params'>): string {
+  const params = Object.entries(p.params ?? {}).sort(([a], [b]) => (a < b ? -1 : 1));
+  return `${p.id}@${p.sum}${params.length ? JSON.stringify(params) : ''}`;
+}
+
+/** 世界清单里记的地图插件 → 交给生成线程的(不带字节) */
+export const mapPluginIds = (plugins: readonly WorldPlugin[]): MapPluginFile[] =>
+  mapPluginsIn(plugins).map((p) => {
+    const params = recordParams(p);
+    return { id: p.id, sum: p.sum, ...(params ? { params } : {}) };
+  });
 
 /** 世界清单里记的滑条(只要数;没记 = undefined) */
 export function recordParams(p: WorldPlugin): Record<string, number> | undefined {
@@ -82,22 +115,29 @@ export interface InstalledSim {
 }
 
 /**
- * 接着推之前,世界用的一个推演插件本机有没有:
- * - ready:有世界记的那一版(现在用的或留着的上一版,文件指纹一样),接着推用它、用世界记的滑条
+ * 世界用的一个插件本机有没有(推演插件接着推之前、地图插件改地形之前):
+ * - ready:有世界记的那一版(现在用的或留着的上一版,文件指纹一样),用它、用世界记的滑条
  * - missing:没装
- * - other:装了,两版都不是世界记的那一版;installed 是现在用的那一版(只能另存一份、按它从第 0 年重推)
- * - blocked:世界记的那一版被网站停用了(按编号或指纹),不再跑;只能另存一份不带它的、从第 0 年重推
+ * - other:装了,两版都不是世界记的那一版;installed 是现在用的那一版(只能另存一份、按它重推 / 重长)
+ * - blocked:世界记的那一版被网站停用了(按编号或指纹),不再跑;只能另存一份不带它的
  */
-export type SimPluginCheck = { id: string; plugin: WorldPlugin } & (
+export type PluginCheck = { id: string; plugin: WorldPlugin } & (
   | { status: 'ready'; which: 'current' | 'previous' }
   | { status: 'missing' }
   | { status: 'other'; installed: { version: string; sum: string } }
   | { status: 'blocked'; why: string; day: string }
 );
+export type SimPluginCheck = PluginCheck;
+export type MapPluginCheck = PluginCheck;
 
 /** 世界清单里记的推演插件逐个核对(按记的先后);installed = 本机装的插件 */
-export function checkSimPlugins(world: readonly WorldPlugin[], installed: readonly InstalledSim[]): SimPluginCheck[] {
-  return simPluginsIn(world).map((plugin): SimPluginCheck => {
+export const checkSimPlugins = (world: readonly WorldPlugin[], installed: readonly InstalledSim[]): SimPluginCheck[] => checkPlugins(simPluginsIn(world), installed);
+
+/** 世界清单里记的地图插件逐个核对(按记的先后) */
+export const checkMapPlugins = (world: readonly WorldPlugin[], installed: readonly InstalledSim[]): MapPluginCheck[] => checkPlugins(mapPluginsIn(world), installed);
+
+function checkPlugins(list: readonly WorldPlugin[], installed: readonly InstalledSim[]): PluginCheck[] {
+  return list.map((plugin): PluginCheck => {
     const id = plugin.id;
     const have = installed.find((p) => p.id === id);
     if (!have) return { id, plugin, status: 'missing' };

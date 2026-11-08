@@ -50,7 +50,7 @@ export interface SimWorker {
 
 type Msg<K extends WorkerResponse['type']> = Extract<WorkerResponse, { type: K }>;
 /** 客户端自己收拾的:分段先交的历史、编年史,半路放下的回音,试推演的结果,打好的内容 */
-type Internal = 'civPart' | 'chronicle' | 'chronicleBlock' | 'aborted' | 'trial' | 'packed' | 'simError' | 'devTry' | 'devTryProgress';
+type Internal = 'civPart' | 'chronicle' | 'chronicleBlock' | 'aborted' | 'trial' | 'packed' | 'simError' | 'devTry' | 'devTryProgress' | 'mapFailed';
 /** 每种消息交给谁(现在这个世界的;记账、拼历史、记编年史都已做完) */
 export type SimHandlers = { [K in Exclude<WorkerResponse['type'], Internal>]: (m: Msg<K>) => void };
 
@@ -65,6 +65,8 @@ export interface SimClientOptions {
    * 只交现在这个世界的(编号对不上的不交);试推演不交,这里直接 reject
    */
   lost: (req: WorkerRequest) => void;
+  /** 地图插件长不下去(worker.ts 的 mapFailed):先交给它说是哪个插件、为什么(只交现在这个世界的),再照 lost 收起那件活 */
+  mapFailed?: (m: Msg<'mapFailed'>, req: WorkerRequest) => void;
   /** 冒烟检查、截图用:每个新开的线程推过这一年就故意出错(见 worker.ts 的 simFail;不给 = 照常) */
   simFail?: number;
 }
@@ -360,16 +362,28 @@ export class SimClient {
       return void recordSimError(m.at, m.message, m.stack);
     }
     if ('split' in m && m.split) this.parts.join(m.civ!, m.split);
+    let req: WorkerRequest | undefined;
     if (!QUIET.has(m.type)) {
-      this.pending.shift();
+      req = this.pending.shift()?.req;
       if (!this.pending.length) {
         this.doing = null;
         diagBeat();
       }
-      if (m.type === 'done' || m.type === 'aborted') this.soft.delete(m.id);
+      if (m.type === 'done' || m.type === 'aborted' || m.type === 'mapFailed') this.soft.delete(m.id);
     }
     // 半路放下的生成(被新的一笔顶掉了):只是一声回音
     if (m.type === 'aborted') return;
+    // 地图插件长不下去:那件活到此为止,和重发过又出错的一样收起
+    if (m.type === 'mapFailed') {
+      if (!req) return;
+      if (req.type === 'packParts') {
+        const p = this.packs.get(req.fid);
+        this.packs.delete(req.fid);
+        return void p?.reject(Object.assign(new Error(m.why), { kind: 'failed' }));
+      }
+      if (req.id === this.opts.currentId()) this.opts.mapFailed?.(m, req);
+      return this.lose(req);
+    }
     if ((m.type === 'done' || m.type === 'civ' || m.type === 'trial') && m.tempo) this.tempo = m.tempo;
     if (m.type === 'trial') {
       // 试推演(助手):交给等着它的那一次;世界换了的话助手那边已经停下,结果没人要

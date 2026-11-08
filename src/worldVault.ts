@@ -37,7 +37,7 @@ import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, packValue, partBytes, sha25
 import { GENERATOR_VERSION } from './gen/edits';
 import { VAULT_DB, type RosterMarks } from './worldRoster';
 import type { SaveFile } from './gen/savefile';
-import { buildManifest, historyParts, knownPart, manifestBytes, opaqueParts, openWorldFile, packExtra, packKnown, packPluginLayer, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
+import { buildManifest, historyParts, manifestBytes, offeredPart, opaqueParts, openWorldFile, packExtra, packKnown, packPluginLayer, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
 import {
   KNOWN_PARTS,
   PLUGIN_DATA_MAX_BYTES,
@@ -202,6 +202,11 @@ export interface CommitRequest {
   source?: RevisionSource;
   /** 给了 parts 才看:这份历史用的推演插件(按出手的先后),清单里原来记的推演插件换成这几条(空 = 没用);不给 = 不知道,照上一份 */
   simPlugins?: WorldPlugin[];
+  /**
+   * 给了 parts 才看:这张地图用的地图插件(按出手的先后),清单里原来记的地图插件、它们的图层块换成这几条和 parts 里带的图层块
+   * (空 = 没用);不给 = 不知道,照上一份
+   */
+  mapPlugins?: WorldPlugin[];
 }
 
 export type CommitResult =
@@ -238,6 +243,8 @@ export interface WorldPartsOffer {
   schemas?: Readonly<Record<string, number>>;
   /** 这份历史用的推演插件(世界清单里记的那几条,空 = 没用);历史是读存着的、线程不知道 = 不给 */
   plugins?: WorldPlugin[];
+  /** 这张地图用的地图插件(世界清单里记的那几条,空 = 没用),parts 里带着它们出的图层块;地图是读存着的、线程不知道 = 不给 */
+  mapPlugins?: WorldPlugin[];
 }
 
 // ---------------------------------------------------------------------------
@@ -507,17 +514,22 @@ function sameManifest(a: WorldManifest, b: WorldManifest): boolean {
   return norm(a) === norm(b);
 }
 
-/** 新的一份修订清单里记的插件:带着完整内容、说了用哪些推演插件的,推演插件跟着历史换成这次的那几条,别的照上一份 */
+/**
+ * 新的一份修订清单里记的插件:带着完整内容、说了用哪些推演插件的,推演插件跟着历史换成这次的那几条;
+ * 说了用哪些地图插件的,地图插件跟着地图换;别的照上一份
+ */
 function pluginsFor(req: CommitRequest, prev: WorldManifest | null): WorldPlugin[] {
   const had = prev?.plugins ?? [];
-  if (!req.parts || !req.simPlugins) return [...had];
-  const sims = req.simPlugins.map((p) => ({ ...p, role: 'sim' }));
-  return [...had.filter((p) => p.role !== 'sim' && !sims.some((s) => s.id === p.id)), ...sims];
+  if (!req.parts || (!req.simPlugins && !req.mapPlugins)) return [...had];
+  const sims = req.simPlugins?.map((p) => ({ ...p, role: 'sim' }));
+  const maps = req.mapPlugins?.map((p) => ({ ...p, role: 'map' }));
+  const fresh = [...(maps ?? []), ...(sims ?? [])];
+  return [...had.filter((p) => !(sims && p.role === 'sim') && !(maps && p.role === 'map') && !fresh.some((s) => s.id === p.id)), ...fresh];
 }
 
 /** 请求里这次带来的几块打包 */
 async function packGiven(req: CommitRequest) {
-  const incoming = (req.parts ?? []).map((p) => knownPart(p, req.schemas?.[p.name]));
+  const incoming = (req.parts ?? []).map((p) => offeredPart(p, req.schemas?.[p.name]));
   const author = req.author === undefined ? undefined : req.author?.notes.length ? await packKnown('author', req.author) : null;
   let thumb: PackedPart | null | undefined;
   if (req.thumb) {
@@ -568,7 +580,19 @@ function partsAfter(req: CommitRequest, prev: WorldManifest | null, incoming: re
     // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了);推演插件的状态、图层跟着历史,上一份的不留
     for (const n of VIEW_PARTS) infos.delete(n);
     for (const n of historyParts(infos.keys())) infos.delete(n);
+    // 说了用哪些地图插件的:地图换了,原来那几个地图插件存的图层不留
+    if (req.mapPlugins) {
+      const maps = new Set([...(prev?.plugins ?? []).filter((p) => p.role === 'map'), ...req.mapPlugins].map((p) => p.id));
+      for (const n of [...infos.keys()]) if (maps.has(pluginLayerOf(n)?.[0] ?? '')) infos.delete(n);
+    }
     for (const p of incoming) infos.set(p.info.name, p.info);
+    // 图层块超了上限:这次带来的从后往前不存(工具插件存的留着)
+    let over = [...infos.keys()].filter((n) => n.startsWith(PLUGIN_LAYER_PREFIX)).length - PLUGIN_LAYERS_MAX;
+    for (let i = incoming.length - 1; i >= 0 && over > 0; i--) {
+      if (!pluginLayerOf(incoming[i].info.name)) continue;
+      infos.delete(incoming[i].info.name);
+      over--;
+    }
   }
   if (author !== undefined) {
     if (author) infos.set('author', author.info);

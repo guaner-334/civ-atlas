@@ -20,10 +20,15 @@ import { playInterventions, type Intervention, type PlayState, type TerrainOp } 
 import type { NameMix } from './gen/names';
 import type { SketchEdit } from './gen/sketch';
 import type { World, WorldParams } from './gen/world';
+import { checkLayerLook, type LayerLook } from './gen/layerLook';
+import { pluginLayerPart, savedLayerId, type PluginLayerValue } from './gen/worldFormat';
 
-/** 世界在线程里的键(参数 + 草图 + 地形修改) */
-export const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEdit) =>
-  JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain ?? [], sketch ?? null]);
+/** 世界在线程里的键(参数 + 草图 + 地形修改 + 地图插件,MapPlugin.key 按先后;没用地图插件的和不加这一项一样) */
+export const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEdit, maps?: readonly string[]) =>
+  JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain ?? [], sketch ?? null]) + mapKeyOf(maps);
+
+/** 键上加的地图插件那一段(没用 = 空) */
+export const mapKeyOf = (maps: readonly string[] | undefined): string => (maps?.length ? `|map:${JSON.stringify(maps)}` : '');
 
 /** 推演插件在线程里记着的历史的键上加的那一段:编号、文件指纹、滑条(没有推演插件 = 空,键和原来一样) */
 export const simKeyOf = (list: readonly { id: string; sum: string; params?: Readonly<Record<string, number>> }[] | undefined): string =>
@@ -57,20 +62,43 @@ export const playOpt = (m: { play?: PlayState; interventions?: readonly Interven
 /** 推文明时带的地形大事(没有 = 不带,和不加这一项逐字节一样) */
 export const upOpt = <S>(steps: S[]) => (steps.length ? { upheavals: steps } : {});
 
-/** 地图那一块存什么:形成过程的回放快照太大,不存 */
+/** 地图那一块存什么:形成过程的回放快照太大,不存;地图插件的图层另存成图层块 */
 export function mapValue(world: World): World {
-  const { history: _h, ...rest } = world;
+  const { history: _h, mapLayers: _l, ...rest } = world;
   void _h;
+  void _l;
   return { ...rest, history: [] };
 }
 
-/** 各段的世界:不带网格(和地图同一套)、回放快照。key = 这一段在线程里的键 */
+/**
+ * 地图插件出的图层存进世界的几块(块名 → 内容):按插件的先后、各自清单里登记的先后,样子照登记的画法;
+ * 有地形大事的按年份一段一份(第 0 年是原来的地图,往后每件大事一份),某一段没交这张图层的那一段不画。哪一段都没交的不存
+ */
+export function mapLayerParts(plugins: readonly { id: string; looks: readonly (LayerLook & { id: string })[] }[], world: World, steps: readonly { year: number; world: World }[]): { name: string; value: PluginLayerValue }[] {
+  const frames = [world, ...steps.map((s) => s.world)];
+  const years = steps.length ? [0, ...steps.map((s) => s.year)] : undefined;
+  const n = world.mesh.n;
+  const out: { name: string; value: PluginLayerValue }[] = [];
+  for (const pl of plugins) {
+    for (const look of pl.looks) {
+      const each = frames.map((w) => w.mapLayers?.find((x) => x.by === pl.id && x.id === look.id)?.values);
+      if (!each.some(Boolean)) continue;
+      const values = new Float32Array(n * frames.length).fill(NaN);
+      each.forEach((v, k) => v && values.set(v, k * n));
+      out.push({ name: pluginLayerPart(pl.id, savedLayerId(look.id)), value: { ...checkLayerLook(look), unit: 'cell', ...(years ? { years } : {}), values } });
+    }
+  }
+  return out;
+}
+
+/** 各段的世界:不带网格(和地图同一套)、回放快照、地图插件的图层。key = 这一段在线程里的键 */
 export function eraWorlds(steps: readonly { key: string; world: World }[]): { key: string; world: World }[] | undefined {
   if (!steps.length) return undefined;
   return steps.map((s) => {
-    const { mesh: _m, history: _h, ...rest } = s.world;
+    const { mesh: _m, history: _h, mapLayers: _l, ...rest } = s.world;
     void _m;
     void _h;
+    void _l;
     return { key: s.key, world: { ...rest, history: [] } as unknown as World };
   });
 }

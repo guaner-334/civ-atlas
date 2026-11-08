@@ -157,6 +157,46 @@ describe('后台线程客户端(SimClient)', () => {
     expect(workers[0].terminated).toBe(true);
   });
 
+  it('地图插件长不下去(mapFailed):算这件活的回音,先说是哪个插件再照 lost 收起;不当线程坏了;试推演 reject、打内容 reject', async () => {
+    const workers: FakeWorker[] = [];
+    const lost: WorkerRequest[] = [];
+    const failed: string[] = [];
+    const got: WorkerResponse[] = [];
+    const sim = new SimClient({
+      spawn: () => {
+        const w = new FakeWorker();
+        workers.push(w);
+        return w;
+      },
+      currentId: () => 1,
+      on: new Proxy({} as SimHandlers, { get: () => (m: WorkerResponse) => got.push(m) }),
+      lost: (req) => void lost.push(req),
+      mapFailed: (m, req) => void failed.push(`${m.plugin}/${m.stage}/${m.why}/${req.type}`),
+    });
+    sim.send(gen(1, { skipCiv: true }));
+    workers[0].reply({ type: 'mapFailed', id: 1, plugin: 'craters', stage: 'height', why: '用了 6.0 秒' });
+    expect(sim.busy).toBe(0);
+    expect(failed).toEqual(['craters/height/用了 6.0 秒/generate']);
+    expect(lost.map((r) => r.type)).toEqual(['generate']);
+    expect(got).toEqual([]);
+    // 不再算能半路放下的:手上没活,下一件生成不关线程
+    sim.send(gen(1));
+    expect(workers.length).toBe(1);
+    workers[0].reply({ type: 'mapFailed', id: 1, plugin: 'tides', stage: null, why: '这台设备没有世界记的那一版' });
+
+    let why = '';
+    const tid = sim.trial(undefined, () => {}, (e) => (why = e.message))!;
+    sim.send({ type: 'trial', id: 1, tid, params: PARAMS, interventions: [] });
+    workers[0].reply({ type: 'mapFailed', id: 1, plugin: 'tides', stage: null, why: 'x' });
+    expect(why).toMatch(/试推演没算成/);
+
+    const packing = sim.packParts({ id: 1, params: PARAMS });
+    workers[0].reply({ type: 'mapFailed', id: 1, plugin: 'tides', stage: null, why: '装不上' });
+    await expect(packing).rejects.toMatchObject({ message: '装不上', kind: 'failed' });
+    expect(workers.length).toBe(1);
+    expect(workers[0].terminated).toBe(false);
+  });
+
   it('请求编号不是现在这个世界的:记账照记,不交给回调;半路放下的回音也不交', () => {
     const { sim, workers, got, cur } = setup(1);
     sim.send(resim(1));
