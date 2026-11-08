@@ -443,6 +443,7 @@ function bridge(sim: CivSim): PluginBridge<SimRead> | null {
     polities: () => ({ count: pm.polities.length, anchor: pm.ptag }),
     unit: (name) => (officialNames.has(name) ? officialUnit(name as OfficialName) : undefined),
     official: (name) => read.official(name as OfficialName),
+    counts: () => ({ polities: pm.polities.length, settlements: pm.settlements.length, cultures: (cultureModelOf(sim)?.cultures ?? pm.cultures).length }),
   };
 }
 

@@ -15,6 +15,7 @@ import type { UpheavalStep } from './upheaval';
 import type { FinishCtx, InstallCtx, ResumeCtx } from './modules';
 import { PluginError, PluginLine, answerNow, type PluginAsk, type PluginBridge, type PluginReply, type SimPlugin } from './engine/plugin';
 import type { SimRead } from './simRead';
+import { checkLayerLook } from '../../plugin/check';
 
 export const DEFAULT_CIV_PARAMS: CivParams = {
   endYear: 3000,
@@ -303,7 +304,16 @@ function plugInto<S>(pack: CivPack<S>, sim: CivSim, plugins: readonly SimPlugin<
   if (!plugins.length) return null;
   const bridge = pack.bridge?.(sim);
   if (!bridge) throw new Error(`规则包 ${pack.id} 不接推演插件`);
-  return new PluginLine(sim, bridge, plugins, seed, saved ? { states: saved.simPlugins ?? [], year: saved.endYear } : null);
+  return new PluginLine(sim, bridge, plugins, seed, saved ? { states: saved.simPlugins ?? [], year: saved.endYear, chronicle: saved.simChronicle, layers: saved.simLayers } : null, checkLayerLook);
+}
+
+/** 推演插件推出来的放进结果:写的编年史、状态、图层(没有的不给) */
+function putPlugins(civ: Civ, plug: PluginLine<SimRead>): void {
+  const lines = plug.chronicle();
+  if (lines.length) civ.simChronicle = lines;
+  civ.simPlugins = plug.snapshot(civ.endYear);
+  const layers = plug.layers(civ.regions.count);
+  if (layers.length) civ.simLayers = layers;
 }
 
 /** 从第 0 年推到 p.endYear 的总流程,主线照 line.stop 停;地形大事那一段(推到底的那一支、换地形)一次做完 */
@@ -375,7 +385,7 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
 function halfOf<S>(run: CivRun<S>, own: S, seg: Segment, habitat: Habitat, regions: Regions): Civ {
   const civ = run.pack.half(run, own, seg, habitat, regions);
   partialModules(run.pack, { sim: seg.sim, world: seg.world, endYear: civ.endYear, regions, civ });
-  if (seg.plug) civ.simPlugins = seg.plug.snapshot(civ.endYear);
+  if (seg.plug) putPlugins(civ, seg.plug);
   return civ;
 }
 
@@ -383,7 +393,7 @@ function halfOf<S>(run: CivRun<S>, own: S, seg: Segment, habitat: Habitat, regio
 function settleOf<S>(run: CivRun<S>, own: S, fin: Segment, eras: CivEra[], facts: UpheavalFact[]): Civ {
   const civ = run.pack.settle(run, own, fin, eras, facts);
   if (civ.viable && civ.cultures.length) finishModules(run.pack, { sim: fin.sim, world: fin.world, endYear: run.p.endYear, regions: fin.regions, civ });
-  if (fin.plug) civ.simPlugins = fin.plug.snapshot(civ.endYear);
+  if (fin.plug) putPlugins(civ, fin.plug);
   return civ;
 }
 

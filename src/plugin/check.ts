@@ -249,12 +249,31 @@ export interface CellLayer {
   opacity?: number;
 }
 
+/** 图层的样子:标题、渐变或分类、图例、透明度(地块图层和存进世界的插件图层共用) */
+export type LayerLook = Pick<CellLayer, 'title' | 'ramp' | 'classes' | 'legend' | 'opacity'>;
+
+type LayerArgs = Partial<Record<keyof CellLayerSpec, unknown>>;
+
+/** 只查图层的样子(别的键不管),返回网站这边的一份 */
+export function checkLayerLook(raw: unknown): LayerLook {
+  const a = argsOf(raw) as LayerArgs;
+  const out: LayerLook = { title: text(a.title, 'title', TITLE_MAX) };
+  lookRest(a, out);
+  return out;
+}
+
 export function checkCellLayer(raw: unknown, cells: number): CellLayer {
-  const a = argsOf(raw) as Partial<Record<keyof CellLayerSpec, unknown>>;
+  const a = argsOf(raw) as LayerArgs;
   const out: CellLayer = { kind: 'cells', id: id(a.id, 'id'), title: text(a.title, 'title', TITLE_MAX), values: new Float32Array(cells) };
   const v = numbers(a.values, 'values', cells);
   if (v.length !== cells) bad(`values 要有 ${cells} 个(每个地块一个)`);
   for (let i = 0; i < cells; i++) out.values[i] = Number.isFinite(v[i]) ? v[i] : NaN;
+  lookRest(a, out);
+  return out;
+}
+
+/** 样子里标题以外的几样,接着写到 out 上 */
+function lookRest(a: LayerArgs, out: LayerLook): void {
   if ((a.ramp === undefined) === (a.classes === undefined)) bad('ramp 和 classes 给且只给一个');
   if (a.ramp !== undefined) {
     const r = isRec(a.ramp) ? a.ramp : bad('ramp 要是对象');
@@ -279,7 +298,6 @@ export function checkCellLayer(raw: unknown, cells: number): CellLayer {
   if (legend !== undefined) out.legend = legend;
   const opacity = optNum(a.opacity, 'opacity', 0, 1);
   if (opacity !== undefined) out.opacity = opacity;
-  return out;
 }
 
 const LAYER_COLORS: readonly LayerMarkColor[] = ['red', 'orange', 'green', 'blue', 'purple', 'teal', 'black', 'white'];
