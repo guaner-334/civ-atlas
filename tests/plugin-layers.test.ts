@@ -395,9 +395,9 @@ describe('工具插件按州按年份的图层', () => {
     pluginLayers.set({ ...pluginLayers.get(), shown: 'pop-density/density' });
     expect(layerChips(pluginLayers.get())).toEqual([{ key: 'pop-density/density', label: '各国人口密度', timed: true }]);
     expect(shownPaint(50)).toMatchObject({ year: 50 });
-    expect(savedSpan([0, 50, 100], 25_600)).toBe('第 0 到 100 年，每 50 年一份，约 25 KB');
+    expect(savedSpan([0, 50, 100], 25_600)).toBe('第 0 到 100 年，每 50 年一份，约 25\u00a0KB');
     expect(savedSpan([0, 120, 333])).toBe('第 0 到 333 年，共 3 份');
-    expect(savedSpan([450], 300)).toBe('第 450 年这一份，不到 1 KB');
+    expect(savedSpan([450], 300)).toBe('第 450 年这一份，不到 1\u00a0KB');
   });
 
   it('换了一段历史:按州的(存着的、交来的)拿掉,地块图层、推演插件的不动;显示着的收起', () => {

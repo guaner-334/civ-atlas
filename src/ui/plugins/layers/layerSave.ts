@@ -39,7 +39,8 @@ export function savedSpan(years: readonly number[], bytes?: number): string {
   const steps = new Set(years.slice(1).map((y, k) => y - years[k]));
   const span = n === 1 ? `第 ${years[0]} 年这一份` : `第 ${years[0]} 到 ${years[n - 1]} 年，${steps.size === 1 ? `每 ${[...steps][0]} 年一份` : `共 ${n} 份`}`;
   if (bytes === undefined) return span;
-  const size = bytes < 1024 ? '不到 1 KB' : bytes < 1024 * 1024 ? `约 ${Math.round(bytes / 1024)} KB` : `约 ${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  // 数和单位之间不折行
+  const size = bytes < 1024 ? '不到 1\u00a0KB' : bytes < 1024 * 1024 ? `约 ${Math.round(bytes / 1024)}\u00a0KB` : `约 ${(bytes / 1024 / 1024).toFixed(1)}\u00a0MB`;
   return `${span}，${size}`;
 }
 
@@ -116,7 +117,7 @@ export async function saveLayer(live: LiveLayer, phone = false): Promise<void> {
     kind: 'ok',
     text: data.years && phone ? `「${data.title}」存进了这个世界` : `「${data.title}」这个图层存进了这个世界`,
     more: data.years
-      ? [`${savedSpan(data.years, r.status === 'saved' ? r.size : undefined)}；${phone ? '' : '别人打开，'}没装这个插件也看得到${data.years.length > 1 ? '，拖时间轴跟着变' : ''}`]
+      ? [`${savedSpan(data.years, r.status === 'saved' && !phone ? r.size : undefined)}；${phone ? '没装插件' : '别人打开，没装这个插件'}也看得到${data.years.length > 1 ? '，拖时间轴跟着变' : ''}`]
       : ['别人打开，没装这个插件也看得到；存成文件、分享都带着'],
     action: { label: '撤销', act: 'plugin-layer-undo', onClick: () => void undoSave(worldId, live.record, key, layer, data.title, before) },
   });
