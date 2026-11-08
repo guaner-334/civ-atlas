@@ -29,12 +29,18 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   const TA = {
     Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array,
   };
-  const TAP = getProto(Int8Array.prototype);
-  const taSlice = TAP.slice;
-  const taBuffer = O.getOwnPropertyDescriptor(TAP, 'buffer').get;
+  const taBuffer = O.getOwnPropertyDescriptor(getProto(Int8Array.prototype), 'buffer').get;
   const NAMES = new Map();
   for (const k of keys(TA)) NAMES.set(TA[k].prototype, k);
-  const nameOf = (x) => apply(Map.prototype.get, NAMES, [getProto(x)]);
+  const mapGet = Map.prototype.get;
+  const nameOf = (x) => apply(mapGet, NAMES, [getProto(x)]);
+  const Str = String;
+  // 只写自己的属性:插件在原型上装的 setter、getter 碰不到我们递来递去的东西
+  const put = (o, k, v) => defProp(o, k, { value: v, writable: true, enumerable: true, configurable: true });
+  const has = (list, k) => {
+    for (let i = 0; i < list.length; i++) if (list[i] === k) return true;
+    return false;
+  };
   const SPECIAL = { '-0': -0, NaN: NaN, Infinity: Infinity, '-Infinity': -Infinity };
   const DEPTH = 64;
 
@@ -55,7 +61,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
       }
       let o = root;
       for (let j = 0; j < path.length - 1; j++) o = o[path[j]];
-      o[path[path.length - 1]] = v;
+      put(o, path[path.length - 1], v);
     }
     return root;
   }
@@ -64,34 +70,38 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
     const patches = [];
     const bufs = [];
     const path = [];
-    const at = () => apply(Array.prototype.slice, path, []);
+    const at = () => {
+      const c = [];
+      for (let i = 0; i < path.length; i++) put(c, i, path[i]);
+      return c;
+    };
     const walk = (x, depth) => {
       if (depth > DEPTH) throw new Err('回话套得太深(超过 ' + DEPTH + ' 层)');
       switch (typeof x) {
         case 'number': {
           const s = special(x);
-          if (s !== null) patches[patches.length] = [at(), 1, s];
+          if (s !== null) put(patches, patches.length, [at(), 1, s]);
           return;
         }
         case 'string':
         case 'boolean':
           return;
         case 'undefined':
-          patches[patches.length] = [at(), 2];
+          put(patches, patches.length, [at(), 2]);
           return;
         case 'object': {
           if (x === null) return;
           if (isView(x)) {
             const name = nameOf(x);
             if (name === undefined) throw new Err('回话里的数组只能是数的类型化数组(Int8Array…Float64Array)');
-            patches[patches.length] = [at(), 0, name, bufs.length];
-            bufs[bufs.length] = apply(taBuffer, apply(taSlice, x, []), []);
+            put(patches, patches.length, [at(), 0, name, bufs.length]);
+            put(bufs, bufs.length, apply(taBuffer, new TA[name](x), []));
             return;
           }
           if (isArray(x)) {
             const n = x.length;
             for (let i = 0; i < n; i++) {
-              path[path.length] = i;
+              put(path, path.length, i);
               walk(x[i], depth + 1);
               path.length--;
             }
@@ -101,7 +111,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
           if (proto !== OP && proto !== null) throw new Err('回话里只能放普通对象');
           const ks = keys(x);
           for (let i = 0; i < ks.length; i++) {
-            path[path.length] = ks[i];
+            put(path, path.length, ks[i]);
             walk(x[ks[i]], depth + 1);
             path.length--;
           }
@@ -114,13 +124,13 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
     walk(v, 0);
     const text = patches.length ? stringify(v, replacer) : stringify(v);
     const out = [0, text === undefined ? 'null' : text, patches.length ? stringify(patches) : ''];
-    for (let i = 0; i < bufs.length; i++) out[out.length] = bufs[i];
+    for (let i = 0; i < bufs.length; i++) put(out, out.length, bufs[i]);
     return out;
   }
 
   function ask(kind, name, args) {
     const call = [kind, name];
-    for (let i = 0; i < args.length; i++) call[call.length] = args[i];
+    for (let i = 0; i < args.length; i++) put(call, call.length, args[i]);
     const w = apply(host, undefined, call);
     if (w[0] === null) {
       const e = new Err(w[3]);
@@ -191,7 +201,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   let cur = null;
   const describe = (e) => {
     try {
-      return e instanceof Err ? String(e.message) : String(e);
+      return e instanceof Err ? Str(e.message) : Str(e);
     } catch (x) {
       return '插件抛出的错说不清';
     }
@@ -204,14 +214,14 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
       readKeys = h.rk;
       for (let i = 0; i < readKeys.length; i++) {
         const k = readKeys[i];
-        if (h.rf.indexOf(k) >= 0) read[k] = method(0, k);
+        if (has(h.rf, k)) put(read, k, method(0, k));
         else defProp(read, k, { get: () => cur.rd[k], enumerable: true, configurable: true });
       }
     }
     const turn = {};
     for (let i = 0; i < h.k.length; i++) {
       const k = h.k[i];
-      turn[k] = k === 'read' ? read : k === 'rand' ? rand : h.f.indexOf(k) >= 0 ? method(1, k) : h.d[k];
+      put(turn, k, k === 'read' ? read : k === 'rand' ? rand : has(h.f, k) ? method(1, k) : h.d[k]);
     }
     try {
       const r = def.act(turn);

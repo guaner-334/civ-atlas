@@ -259,6 +259,25 @@ describe('出错的说法', () => {
     expect((e2 as Error).message).toMatch(/不能有函数/);
     expect(performance.now() - t0).toBeLessThan(5000);
   });
+
+  it('插件在数组、对象的原型上装 setter / getter:我们递来递去的东西不走它,真走到了也叫停,不卡住推演线程', async () => {
+    const t0 = performance.now();
+    const trap = (i: number) => `Object.defineProperty(Array.prototype, ${i}, { set(v) { Object.defineProperty(this, ${i}, { get() { for (;;) {} } }); }, configurable: true });`;
+    const read = { polities: () => [{ id: 0 }] };
+    const r = await once(
+      `${[3, 4].map(trap).join(' ')} Object.defineProperty(Object.prototype, 'note', { set(v) { for (;;) {} }, configurable: true });
+       return { note: new Uint8Array([1]), influences: { a: Float64Array.of(-0) }, commands: [turn.read.polities()[0].id] };`,
+      turnOf({}, read),
+      { moment: 150 },
+    );
+    expect(r?.note).toEqual(Uint8Array.of(1));
+    expect(Object.is((r?.influences?.a as Float64Array)[0], -0)).toBe(true);
+    expect(r?.commands).toEqual([0]);
+    // QuickJS 自带的 JSON.stringify 里面也往数组里写,这样的插件自己坏了,但只是这一刻叫停
+    const e = await errOf(() => once(`${[0, 1, 2].map(trap).join(' ')} return { note: new Uint8Array([1]) };`, turnOf(), { moment: 150 }));
+    expect((e as Error).message).toMatch(/叫停了/);
+    expect(performance.now() - t0).toBeLessThan(5000);
+  });
 });
 
 describe('递数据', () => {

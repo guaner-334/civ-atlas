@@ -49,6 +49,9 @@ const MIN_PAGES = 256;
 const sec = (ms: number) => (ms / 1000).toFixed(1);
 const MB = (b: number) => Math.round(b / 1024 / 1024);
 
+/** 往 QuickJS 的数组里放一格:定义成自己的属性,不走插件在原型上装的 setter */
+const own = (vm: QuickJSContext, o: QuickJSHandle, i: number, h: QuickJSHandle) => vm.defineProp(o, i, { value: h, enumerable: true, configurable: true });
+
 /** 推演线程自己的栈用完了(浏览器各家报法不同):QuickJS 停在半路,这一份不能再用 */
 const stackGone = (e: unknown) => (e instanceof RangeError && /stack/i.test(e.message)) || (e instanceof Error && e.name === 'InternalError');
 
@@ -239,7 +242,7 @@ class Box {
       if (stackGone(e)) this.dead ??= this.fail('调用套得太深,推演线程的栈用完了');
       const n = this.thrown.push(e) - 1;
       const out = vm.newArray();
-      const put = (i: number, h: QuickJSHandle) => (vm.setProp(out, i, h), h.dispose());
+      const put = (i: number, h: QuickJSHandle) => (own(vm, out, i, h), h.dispose());
       put(0, vm.null);
       put(1, vm.newNumber(n));
       put(2, vm.newString(e instanceof Error ? e.name : 'Error'));
@@ -253,7 +256,7 @@ class Box {
   private put(w: Wire): QuickJSHandle {
     const vm = this.vm!;
     const out = vm.newArray();
-    const put = (i: number, h: QuickJSHandle) => (vm.setProp(out, i, h), h.dispose());
+    const put = (i: number, h: QuickJSHandle) => (own(vm, out, i, h), h.dispose());
     put(0, vm.newString(w.text));
     put(1, vm.newString(w.patches));
     w.bufs.forEach((b, i) => put(2 + i, vm.newArrayBuffer(b)));
@@ -320,7 +323,12 @@ class Box {
     if (res.error) throw this.escaped(res.error, where);
     const out = res.value;
     try {
-      return vm.typeof(out) === 'undefined' ? { reply: undefined } : this.reply(out, where);
+      if (vm.typeof(out) === 'undefined') return { reply: undefined };
+      // 读交回的数组也可能跑到插件装的 getter,照样限时
+      return this.timed(() => this.reply(out, where));
+    } catch (e) {
+      if (this.interrupted) throw this.fail(`${where}跑了 ${sec(this.limits.moment)} 秒还没跑完,叫停了`);
+      throw e;
     } finally {
       out.dispose();
     }
