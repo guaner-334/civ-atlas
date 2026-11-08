@@ -2892,7 +2892,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff || stepQuiet} />}
         {/* 开发者模式载入的插件:左边一块小卡(重新载入、日志) */}
         {pluginsUiOn() && data && world && <PluginDevSlot phone={narrow} world={data.world} civ={realCiv} raw={shownRaw} api={markApi} />}
-        {pluginsUiOn() && data && world && <PluginSavedSlot worldId={worldId} cells={data.world.mesh.n} />}
+        {pluginsUiOn() && data && world && <PluginSavedSlot worldId={worldId} cells={data.world.mesh.n} civ={shownRaw} />}
         {/* 再推 N 年:电脑是「再推」上面的弹层,手机推的时候胶囊上面一张小卡片 */}
         {data && world && civ && !narrow && <ExtendPop end={civ.endYear} hidden={!extendShown} />}
         {data && world && narrow && <ExtendDock hidden={!extendShown} />}
