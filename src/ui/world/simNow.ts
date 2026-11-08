@@ -35,9 +35,6 @@ export function simNowFor(id: string | null): void {
   if (now && now.id !== id) setSimNow(null);
 }
 
-// 检查脚本看这个世界带没带着推演插件
-if (typeof window !== 'undefined') (window as unknown as { __wfSimNow: unknown }).__wfSimNow = () => now && { id: now.id, list: now.list.map((p) => `${p.id}@${p.version}`), ready: !!now.files };
-
 export function useSimNow(): SimNow | null {
   return useSyncExternalStore(
     (f) => {

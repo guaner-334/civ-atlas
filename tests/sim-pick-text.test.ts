@@ -9,7 +9,7 @@ describe('新建世界选推演插件那一页的字', () => {
     expect(simBrief({ every: 5, commands: ['declare', 'ally'], influences: ['war.odds'] })).toBe('每 5 年出手，会下令宣战、结盟');
     expect(simBrief({ every: 5, layers: [{ id: 'm', table: 'm', keep: 50, title: '魔力' }], influences: ['city.capacity'] })).toBe('每 5 年出手，加一个图层');
     expect(simBrief({ every: 10, influences: ['control.reach', 'war.power'] })).toBe('每 10 年出手；影响中央管得到多远、国力');
-    expect(simBrief({ listen: ['war'] })).toBe('有大事时出手');
+    expect(simBrief({ listen: ['war'] })).toBe('只在约好的年份出手');
   });
 
   it('滑条几个、改过几个', () => {

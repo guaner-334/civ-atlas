@@ -16,7 +16,7 @@ import { Icon } from '../icons';
 import { ParamField, rangeFill } from '../ParamField';
 import type { SliderLike } from '../genesisSliders';
 import { currentWorld } from '../saveStore';
-import { openPlugins, subscribePluginsOpen } from './entry';
+import { PuzzleIcon, openPlugins, subscribePluginsOpen } from './entry';
 import { PluginIcon, useIcons } from './pluginIcons';
 import { versionLabel } from './pluginWords';
 import { chooseSims, chosenSims, type SimChoice } from './simWorld';
@@ -140,7 +140,7 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
       <div className="nw-title-row">
         <div className="nw-title">推演插件</div>
       </div>
-      <div className="nw-intro rp-intro">
+      <div className="nw-intro sp-intro">
         {phone ? '推演时跟着出手的插件，最多 4 个，上面的先出手。建好以后不能换。' : '推演时跟着出手的插件，最多 4 个，上面的先出手。建好以后不能换；想换，就以它为底稿另建一个世界。'}
       </div>
     </>
@@ -152,12 +152,12 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
         <div className="sp-empty">
           <b>还没装推演插件</b>
           <span>推演插件会在推演里出手，改历史怎么走：比如有议会的国家开战要先过议会（厌战）、异教的州更难治（宗教生效）。在插件页里从作品墙或文件装，装好回到这里选。</span>
-          <button className="rp-btn" data-act="sim-pick-plugins" onClick={openPlugins}>
-            <Icon name="grid" size={16} />
+          <button className="sp-btn" data-act="sim-pick-plugins" onClick={openPlugins}>
+            <PuzzleIcon size={16} />
             去插件页…
           </button>
         </div>
-        <div className="nm-note rp-note">不选就照规则推，和以前一样。</div>
+        <div className="nm-note sp-note">不选就照规则推，和以前一样。</div>
       </div>
     );
 
@@ -275,7 +275,7 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
       <button className="sp-more" data-act="sim-pick-plugins" onClick={openPlugins}>
         去插件页装别的推演插件…
       </button>
-      {!phone && <div className="nm-note rp-note">选了插件的世界，别人打开照样能看；要接着推，得装着同一版插件。</div>}
+      {!phone && <div className="nm-note sp-note">选了插件的世界，别人打开照样能看；要接着推，得装着同一版插件。</div>}
     </div>
   );
 }

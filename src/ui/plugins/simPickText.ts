@@ -11,7 +11,7 @@ const influenceText = (k: string) => (has(SIM_INFLUENCE_TEXT, k) ? short(SIM_INF
 
 /** 名字下面那一行:「每 5 年出手，会下令宣战、结盟」「每 5 年出手，加一个图层」 */
 export function simBrief(sim: Pick<SimManifest, 'every' | 'listen' | 'commands' | 'layers' | 'influences'>): string {
-  const when = sim.every ? (sim.every === 1 ? '每年出手' : `每 ${sim.every} 年出手`) : sim.listen?.length ? '有大事时出手' : '跟着自己的数算';
+  const when = sim.every ? (sim.every === 1 ? '每年出手' : `每 ${sim.every} 年出手`) : '只在约好的年份出手';
   if (sim.commands?.length) return `${when}，会下令${sim.commands.map(commandText).join('、')}`;
   if (sim.layers?.length) return `${when}，加${sim.layers.length === 1 ? '一' : ` ${sim.layers.length} `}个图层`;
   if (sim.influences?.length) return `${when}；影响${sim.influences.map(influenceText).join('、')}`;
