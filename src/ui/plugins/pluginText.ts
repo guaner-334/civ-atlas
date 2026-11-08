@@ -110,12 +110,11 @@ const LISTEN_TEXT: Readonly<Record<string, string>> = {
   treaty: '立约',
 };
 
-/** 「每 5 年一次；打仗、攻下、议和时也会出手」 */
+/** 「每 5 年一次（出手时看打仗、攻下、议和）」:听的史事只在出手时交给它,不多出手 */
 export function simWhenText(sim: Pick<SimManifest, 'every' | 'listen'>): string {
-  const every = sim.every ? (sim.every === 1 ? '每年一次' : `每 ${sim.every} 年一次`) : '';
+  const every = sim.every ? (sim.every === 1 ? '每年一次' : `每 ${sim.every} 年一次`) : '只在开头和自己约好的年份';
   const heard = [...new Set((sim.listen ?? []).map((k) => LISTEN_TEXT[k] ?? '别的史事'))].join('、');
-  if (every && heard) return `${every}；${heard}时也会出手`;
-  return every || (heard ? `${heard}时出手` : '只随自己的数一起算');
+  return heard ? `${every}（出手时看${heard}）` : every;
 }
 
 /** 插件页「它在推演里做什么」 */

@@ -97,11 +97,11 @@ describe('插件页的字', () => {
 describe('推演插件的字', () => {
   const caps = ['sim.read@1', 'sim.tables@1', 'sim.influence@1', 'sim.chronicle@1'];
 
-  it('什么时候出手:频率和听的史事', () => {
+  it('什么时候出手:频率;听的史事只在出手时看,不多出手', () => {
     expect(simWhenText({ every: 5 })).toBe('每 5 年一次');
-    expect(simWhenText({ every: 1, listen: ['war', 'conquer', 'peace'] })).toBe('每年一次；打仗、攻下、议和时也会出手');
-    expect(simWhenText({ listen: ['war', 'reform', 'winter'] })).toBe('打仗、别的史事时出手');
-    expect(simWhenText({})).toBe('只随自己的数一起算');
+    expect(simWhenText({ every: 1, listen: ['war', 'conquer', 'peace'] })).toBe('每年一次（出手时看打仗、攻下、议和）');
+    expect(simWhenText({ listen: ['war', 'reform', 'winter'] })).toBe('只在开头和自己约好的年份（出手时看打仗、别的史事）');
+    expect(simWhenText({})).toBe('只在开头和自己约好的年份');
   });
 
   it('它在推演里做什么:影响口、命令照网站的说法,没有的写不下、不加', () => {
