@@ -959,7 +959,75 @@
 }
 .plg-devc-h .plg-btn {
   flex: none;
+}
+.plg-devc-h b + * {
   margin-left: auto;
+}
+/* 试推的时候:按钮换成进度条和「停」 */
+.plg-try {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 170px;
+}
+.plg-try-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--btn);
+  overflow: hidden;
+}
+.plg-try-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+/* 试推完:每个插件一行 */
+.plg-tt {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.plg-tt th {
+  padding: 3px 6px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.plg-tt td {
+  padding: 4px 6px;
+  border-top: 1px solid var(--line);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plg-tt th:first-child,
+.plg-tt td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+.plg-devc-n {
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+.plg-chk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+.plg-chk .icon {
+  flex: none;
+}
+.plg-chk.ok .icon {
+  color: var(--ok);
+}
+.plg-chk.bad {
+  color: #c2372e;
 }
 .plg-devc-h .plg-x {
   margin: 0 -6px 0 -2px;
@@ -1008,6 +1076,9 @@
 }
 .plg-logs .error {
   color: #c2372e;
+}
+.plg-logs .site span:nth-child(2) {
+  color: #8f5d07;
 }
 .plg-devc-f {
   display: flex;
@@ -1068,8 +1139,12 @@
 [data-theme='dark'] .plg-logs .warn {
   color: var(--warn);
 }
-[data-theme='dark'] .plg-logs .error {
+[data-theme='dark'] .plg-logs .error,
+[data-theme='dark'] .plg-chk.bad {
   color: var(--err);
+}
+[data-theme='dark'] .plg-logs .site span:nth-child(2) {
+  color: var(--warn);
 }
 
 /* ---- 作品墙上有新版、更新框里「这一版」 ---- */

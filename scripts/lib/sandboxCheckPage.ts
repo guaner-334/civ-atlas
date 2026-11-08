@@ -27,6 +27,8 @@ export async function buildCheckPage(root: string, opts: CheckPageOptions = {}):
     publicDir: false,
     define: opts.define,
     plugins: opts.plugins,
+    // 推演插件那一组的后台线程:QuickJS 那一包用到才下载,要能拆块
+    worker: { format: 'es' },
     build: {
       write: false,
       modulePreload: false,

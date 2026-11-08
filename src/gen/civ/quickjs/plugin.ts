@@ -24,6 +24,8 @@ export interface QuickJSPluginSpec {
   /** 文明种子(和推演用的同一个:turn.rand 照它在 QuickJS 里算) */
   seed: number;
   limits?: Partial<QuickJSLimits>;
+  /** 插件里 console.log 这几样交到这里(year = 那一回合的年份,装插件时 = null);不给 = 什么都不做。不影响推出来的历史 */
+  log?: (method: string, text: string, year: number | null) => void;
 }
 
 export interface QuickJSLimits {
@@ -41,6 +43,17 @@ export interface QuickJSPlugin extends SimPlugin<SimRead> {
   /** 放掉 QuickJS(用完一段推演就放) */
   dispose(): void;
 }
+
+/** 一条日志最多几个字 */
+const LOG_MAX = 500;
+const logText = (v: unknown): string => {
+  if (typeof v === 'string') return v;
+  try {
+    return JSON.stringify(v) ?? String(v);
+  } catch {
+    return String(v);
+  }
+};
 
 /** wasm 一页 64 KB;QuickJS 这份要求起步 256 页 */
 const PAGE = 65536;
@@ -179,7 +192,7 @@ class Box {
       const base = vm.newNumber(this.base);
       const params = vm.newString(JSON.stringify(this.spec.params ?? {}));
       const shim = vm.unwrapResult(vm.evalCode(SHIM, 'civ-atlas-shim.js'));
-      const made = vm.callFunction(shim, vm.undefined, host, base, params);
+      const made = vm.callFunction(shim, vm.undefined, host, base, params, this.spec.log ? vm.true : vm.false);
       [shim, host, base, params].forEach((h) => h.dispose());
       const pair = vm.unwrapResult(made);
       this.actFn = vm.getProp(pair, 0);
@@ -224,6 +237,10 @@ class Box {
     const kind = vm.getNumber(args[0]);
     const name = vm.getString(args[1]);
     const rest = args.slice(2).map((h) => vm.dump(h) as unknown);
+    if (kind === 2) {
+      this.spec.log?.(name, rest.map(logText).join(' ').slice(0, LOG_MAX), this.cur ? this.cur.year : null);
+      return vm.undefined;
+    }
     let w: Wire;
     try {
       const t = this.cur;

@@ -80,6 +80,7 @@ import { eraWorlds as eraWorldsOf, keyOf, mapValue, namesOpt, playOpt, setupOpt,
 import type { WorldPartsOffer } from './worldVault';
 import type { WorldPlugin } from './gen/worldFormat';
 import type { SimPluginFile } from './plugin/pluginWorld';
+import type { DevTryResult } from './plugin/devTry';
 import type { SimPluginsOn } from './simPluginRun';
 import { olderTerrainOf } from './gen/readers/older';
 import type { TerrainReader } from './gen/readers/terrainReader';
@@ -179,6 +180,8 @@ export type WorkerRequest =
   | ({ type: 'resim'; id: number; seq: number; interventions: Intervention[] } & CivInput)
   /** 试推演(助手用):和 resim 一样重推(同样带节拍),但只把结果交回去,主线程不换上它;tid = 第几次试推演 */
   | ({ type: 'trial'; id: number; tid: number; interventions: Intervention[] } & CivInput)
+  /** 开发者模式试推(plugin/devTry.ts):带着 simPlugins 从第 0 年推 years 年,只交回量到的,不记、不换上;did = 第几次 */
+  | ({ type: 'devTry'; id: number; did: number; interventions: Intervention[]; years: number } & CivInput)
   /**
    * 读存下的世界打开:不生成,读这个世界存着的内容(世界仓库的修订,或者原件,gen/snapshot.ts 的各块:地图、各段世界、整段历史),
    * 铺像素以后照 generate 一样交 done。铺像素的代码按世界记的版本取(gen/readers/)。
@@ -313,6 +316,9 @@ export type WorkerResponse =
   | { type: 'outlineStopped'; id: number; oid: number }
   /** 试推演的结果;tempo 同 done */
   | { type: 'trial'; id: number; tid: number; civ: Civ; split?: CivSplit; ms: number; tempo?: TempoNote }
+  /** 开发者模式试推:推到哪了(0–1)、推完的结果(网站这头出的错 = error) */
+  | { type: 'devTryProgress'; id: number; did: number; pct: number }
+  | { type: 'devTry'; id: number; did: number; result?: DevTryResult; error?: string }
   /** 一段的主图补丁:key 这一段比 prev 那一段(原来的世界或上一件大事以后)变了的那一块;null = 看不出变化 */
   | { type: 'eraPatch'; id: number; key: string; prev: string; patch: RasterPatch | null }
   /** 地形大事的预览;water = 加上这几笔以后各地块的海陆(0 陆地 / 1 海 / 2 湖) */
@@ -1147,7 +1153,7 @@ async function handle(m: Queued): Promise<void> {
   if (simFail !== undefined && simFail < 0 && ((m.type === 'generate' && !m.skipCiv) || m.type === 'resim' || m.type === 'extend' || m.type === 'turn' || m.type === 'outline')) throw new Error('故意让线程出错');
   checkKept(m);
   // 有了新的活:逐年推演上一步等着打的原件不要了(新的一步、换了世界、重推会各自再排)
-  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'release' && m.type !== 'pin' && m.type !== 'packParts') dropTurnSnap();
+  if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'trial' && m.type !== 'devTry' && m.type !== 'release' && m.type !== 'pin' && m.type !== 'packParts') dropTurnSnap();
   if (m.type !== 'history' && m.type !== 'upPreview' && m.type !== 'extendStop' && m.type !== 'outlineStop' && m.type !== 'release' && m.type !== 'pin') takeTempo(m.params, m.sketch, m.tempo);
   if (m.type === 'generate') {
     // 后面已经排着新的世界(编辑地形连着涂了几笔):这一次不用算了
@@ -1476,6 +1482,18 @@ async function handle(m: Queued): Promise<void> {
       queuePatches(m.id, m, steps);
       queueSnapshot(m.id, m, world, steps, cloned, simRecords(sims));
     } else postCiv({ type: 'trial', id: m.id, tid: m.tid, civ, ms, tempo }, civTransferables(civ));
+  } else if (m.type === 'devTry') {
+    try {
+      const world = worldOf(m.params, m.terrain, m.sketch);
+      const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals);
+      const params = { interventions: m.interventions.length ? m.interventions : undefined, tempo: tempoOf(m.params, m.terrain, m.sketch, m.civSeed), ...upOpt(steps), ...namesOpt(m.names), ...setupOpt(m), ...frozenOpt(m), base: baseOf(world, m.civSeed) };
+      const [{ devTry }, { quickjsBox }] = await Promise.all([import('./plugin/devTry'), import('./simPluginRun')]);
+      const years = Math.max(1, Math.floor(m.years));
+      const result = await devTry(world, params, m.simPlugins ?? [], m.civSeed ?? m.params.seed, { years, half: Math.floor(years / 2), box: quickjsBox, progress: (pct) => post({ type: 'devTryProgress', id: m.id, did: m.did, pct }) });
+      post({ type: 'devTry', id: m.id, did: m.did, result });
+    } catch (e) {
+      post({ type: 'devTry', id: m.id, did: m.did, error: e instanceof Error ? e.message : String(e) });
+    }
   } else if (m.type === 'turn') {
     const t0 = performance.now();
     const world = worldOf(m.params, m.terrain, m.sketch);

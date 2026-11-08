@@ -1,12 +1,13 @@
 /**
- * 插件隔离自检页(sandbox-check.html):拿真手机打开,一打开就把插件沙箱在这个浏览器里试一遍。
+ * 插件隔离自检页(sandbox-check.html):拿真手机打开,一打开就把插件沙箱在这个浏览器里试一遍;
+ * 再在一个后台线程里量推演插件(一回合多久、推出来的和电脑上一不一样、栈够不够,只量,不算进全部通过)。
  * 只进测试网站的构建、没有入口;不用 React,和首页不共用任何文件。
  */
 import '../../ui/theme.css';
 import { APP_COMMIT, APP_VERSION } from '../../ui/version';
 import { describeDevice } from './device';
 import { battery, batteryCode, echo, frameNav, isolation, spin, stops } from './probes';
-import { ESCAPED_PARAM, report, summary, verdict, type Raw, type Row } from './verdict';
+import { ESCAPED_PARAM, report, simRows, summary, verdict, type Raw, type Row } from './verdict';
 
 const ICONS = {
   phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
@@ -45,6 +46,15 @@ function render() {
       return bad ? `${line}<div class="why">${esc(r.why)}</div>` : line;
     })
     .join('');
+  // 推演插件那一组:没过的照样标红,量出来的那句(估几秒)过了也写
+  const sims = simRows(raw)
+    .map((r) => {
+      const bad = r.state === 'bad' || r.state === 'err';
+      const mark = r.state === 'run' ? '<span class="spin"></span>' : icon(bad ? 'x2' : 'ok2');
+      const line = `<div class="ck ${bad ? 'bad' : r.state}">${mark}${esc(r.label)}<span class="r">${esc(r.result)}</span></div>`;
+      return r.why ? `${line}<div class="why${bad ? '' : ' note'}">${esc(r.why)}</div>` : line;
+    })
+    .join('');
   const tip =
     sum.state === 'bad'
       ? '复制的结果里带着浏览器型号和每一项的原始数，开发拿到就知道是哪里。'
@@ -55,6 +65,8 @@ function render() {
     <div class="dev">${icon('phone')}这台：${esc(device)}</div>
     <div class="sum ${sum.state}"><span class="big">${big}</span><span><b>${esc(sum.title)}</b><small>${esc(sum.note)}</small></span></div>
     <div class="grp">${list}</div>
+    <div class="gl">推演插件</div>
+    <div class="grp">${sims}</div>
     <div class="bs">
       <button type="button" class="btn" data-act="again"${running ? ' disabled' : ''}>再查一次</button>
       <button type="button" class="btn pri" data-act="copy"${running ? ' disabled' : ''}>${copyLabel || '复制结果'}</button>
@@ -77,6 +89,48 @@ async function step<K extends Exclude<keyof Raw, 'escapedTop'>>(key: K, fn: () =
   update();
 }
 
+/** 推演插件那一组:开一个后台线程,先交一回合多久和散列,再交栈够不够;ms 内没交齐的算没量成 */
+function simGroup(ms = 120_000): Promise<void> {
+  return new Promise((resolve) => {
+    const fail = (e: string) => {
+      raw.sim ??= { error: e };
+      raw.stack ??= { error: e };
+    };
+    let w: Worker;
+    try {
+      w = new Worker(new URL('./simProbe.worker.ts', import.meta.url), { type: 'module' });
+    } catch (e) {
+      fail(String((e as Error)?.message ?? e).slice(0, 200));
+      update();
+      return resolve();
+    }
+    const done = () => {
+      clearTimeout(t);
+      w.terminate();
+      update();
+      resolve();
+    };
+    const t = setTimeout(() => {
+      fail(`no result in ${ms / 1000}s`);
+      done();
+    }, ms);
+    w.onmessage = (e: MessageEvent<{ sim?: Raw['sim']; stack?: Raw['stack']; error?: string }>) => {
+      const m = e.data;
+      if (m.sim) raw.sim = m.sim;
+      if (m.stack) raw.stack = m.stack;
+      if (m.error) fail(m.error);
+      if (raw.stack) done();
+      else update();
+    };
+    w.onerror = (e) => {
+      e.preventDefault();
+      fail(`worker error: ${e.message || 'crashed'}`.slice(0, 200));
+      done();
+    };
+    w.postMessage(null);
+  });
+}
+
 async function runAll(first: boolean) {
   running = true;
   finishedAt = null;
@@ -90,6 +144,7 @@ async function runAll(first: boolean) {
   // 量卡不卡、框跳走都单独跑,别的插件不同时占着手机
   await step('spin', spin);
   await step('nav', () => frameNav(page, raw.escapedTop));
+  await simGroup();
   running = false;
   finishedAt = new Date();
   update();
