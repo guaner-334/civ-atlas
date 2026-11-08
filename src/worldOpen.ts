@@ -20,8 +20,9 @@ import { parseSave } from './gen/savefile';
 import { recipeKey, recipeOfSave, type SnapshotPart } from './gen/snapshot';
 import type { World } from './gen/world';
 import { historyLayerNames, openStoredParts, readStoredContent, readTrustedParts, simPartNames, type OpenedWorldFile, type PackedPart, type WorldEras } from './gen/worldFile';
-import { WorldFileError, asWorldFileError, broken } from './gen/worldFormat';
+import { WorldFileError, asWorldFileError, broken, type PlanetValue } from './gen/worldFormat';
 import { currentSchema, migratePart } from './gen/worldMigrate';
+import { validatePlanet } from './gen/worldValidate';
 import { VaultError, latestOf, patchState, pendingEdit, readRevision, stateOf, type RevisionHead } from './worldVault';
 
 /** 要打开哪个世界 */
@@ -75,6 +76,8 @@ export interface StoredWorld {
   parts: ReadonlyMap<string, SnapshotPart>;
   /** 地图那一块的结构版本 */
   mapSchema: number;
+  /** 星球参照(没装地图插件时推历史用);没有、读不出来 = null */
+  planet: PlanetValue | null;
   fromCiv: (value: unknown) => Civ;
 }
 
@@ -82,6 +85,8 @@ export interface StoredWorld {
 const VIEW = ['map', 'eras', 'civ', 'chronicle', 'flags'];
 /** 其中读不了也能打开世界的(能按历史重新算出来) */
 const SPARE = ['chronicle', 'flags'];
+/** 跟着地图读的可选的一块:读不了只是没装地图插件时推不了历史 */
+const PLANET = 'planet';
 
 const asPart = (p: PackedPart): SnapshotPart => ({ name: p.info.name, bytes: p.info.bytes, sum: p.info.sum, zip: p.info.zip as SnapshotPart['zip'], data: p.data instanceof Uint8Array ? (p.data.slice().buffer as ArrayBuffer) : p.data });
 
@@ -104,17 +109,24 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true, anyRecipe
     }
     const n = head.n;
     const checked = (await stateOf(req.id).catch(() => null))?.checked === head.content;
-    let rev = await readRevision(req.id, n, checked ? VIEW : undefined, SPARE);
+    let rev = await readRevision(req.id, n, checked ? [...VIEW, PLANET] : undefined, [...SPARE, PLANET]);
     if (!rev) throw new OpenRefused('none', '仓库里没有这个世界');
     // 推演插件的状态、图层跟着历史读(接着推要用);读不到不碍看世界
     const sims = checked && wantCiv ? [...simPartNames(rev), ...historyLayerNames(rev)] : [];
-    if (sims.length) rev = (await readRevision(req.id, n, [...VIEW, ...sims], [...SPARE, ...sims])) ?? rev;
+    if (sims.length) rev = (await readRevision(req.id, n, [...VIEW, PLANET, ...sims], [...SPARE, PLANET, ...sims])) ?? rev;
     const opened = openStoredParts(rev.text, rev.parts, { readers: { ...READER_VERSIONS } });
     const { manifest } = opened;
-    let values: { map: unknown; eras: unknown; civ: unknown; chronicle?: unknown; flags?: unknown };
+    let values: { map: unknown; eras: unknown; civ: unknown; chronicle?: unknown; flags?: unknown; planet?: unknown };
     if (checked) {
       values = (await readTrustedParts(opened, wantCiv ? VIEW.filter((p) => !SPARE.includes(p)) : ['map', 'eras'])) as typeof values;
       if (wantCiv) for (const name of SPARE) values[name as 'chronicle' | 'flags'] = await spareOf(opened, name, values.civ as Civ);
+      // 第一次打开时这一块没过校验也照样记成校验过了(它读不了不碍看世界),所以每次都核对
+      values.planet = await readTrustedParts(opened, [PLANET])
+        .then((v) => {
+          if (v[PLANET] !== null) validatePlanet(v[PLANET], values.map as World);
+          return v[PLANET];
+        })
+        .catch(() => null);
     } else {
       values = await readStoredContent(opened);
       // 这份清单真是这份配方的(表里记的指纹和清单里的配方对得上)
@@ -143,6 +155,7 @@ export async function openStoredWorld(req: StoredOpen, wantCiv = true, anyRecipe
       chronicleIsCurrent: manifest.parts.find((p) => p.name === 'chronicle')?.schema === currentSchema('chronicle'),
       parts: new Map(rev.parts.map((p) => [p.info.name, asPart(p)])),
       mapSchema: manifest.parts.find((p) => p.name === 'map')?.schema ?? 1,
+      planet: (values.planet as PlanetValue | null | undefined) ?? null,
       fromCiv: (v) => migratePart('civ', civInfo.schema, v, manifest) as Civ,
     };
   } catch (e) {

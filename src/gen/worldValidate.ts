@@ -10,7 +10,8 @@
  * - 能在 worker 和 Node 里跑(服务器共用同一份),不碰 DOM。每一项的耗时都和数据量成正比,没有会卡死的循环
  *
  * 对外:parseManifest(清单)、validateWorld(地图)、validateEras(地形大事以后的各段)、validateCiv(历史)、
- * validateChronicle(编年史)、validateFlags(旗)、validateAuthor(作者内容)、validateThumb(封面)、validatePluginLayer(插件图层)。
+ * validateChronicle(编年史)、validateFlags(旗)、validateAuthor(作者内容)、validateThumb(封面)、validatePluginLayer(插件图层)、
+ * validatePlanet(星球参照)。
  */
 import { BIOMES } from './biomes';
 import { BOOK_COLS } from './civ/fiscalBook';
@@ -49,6 +50,7 @@ import {
   newer,
   pluginLayerOf,
   type AuthorContent,
+  type PlanetValue,
   type PluginLayerValue,
   type WorldManifest,
 } from './worldFormat';
@@ -580,6 +582,39 @@ export function validateEras(v: unknown, map: World): void {
     checkWorldBody(w, map.mesh.n, `各段世界 [${i}] `);
   });
   allStrings(e, TEXT_TOTAL_MAX, TEXT_TOTAL_MAX, '各段世界');
+}
+
+/** 照着沿用的地名最多几个(实测几十个;只防离谱的) */
+const PLANET_NAMES_MAX = 100_000;
+const PLANET_NAME_KEYS = ['kind', 'x', 'y', 'size', 'rank', 'name', 'latin', 'style', 'hearth'];
+
+/** planet 那一块(worldFormat.ts 的 PlanetValue):只有数和地名,多一个字段都不认 */
+export function validatePlanet(v: unknown, map: World): asserts v is PlanetValue {
+  const p = obj(v, '星球参照');
+  onlyKeys(p, ['tempo', 'names'], '星球参照');
+  if (p.tempo !== undefined && p.tempo !== null) {
+    const t = obj(p.tempo, '星球参照的 tempo');
+    onlyKeys(t, ['spread', 'capNorm'], '星球参照的 tempo');
+    if (!(num(t.spread, '星球参照的 tempo.spread') > 0) || !(num(t.capNorm, '星球参照的 tempo.capNorm') > 0)) broken('星球参照的 tempo 不对');
+  }
+  if (p.names !== undefined) {
+    const at = '星球参照的 names';
+    const s = obj(p.names, at);
+    onlyKeys(s, ['key', 'ref'], at);
+    if (!/^[0-9a-f]{16}$/.test(str(s.key, `${at}.key`, 16))) broken(`${at}.key 认不出`);
+    const ref = list(s.ref, `${at}.ref`);
+    if (ref.length > PLANET_NAMES_MAX) broken(`${at} 太多`);
+    ref.forEach((raw, i) => {
+      const r = obj(raw, `${at}.ref[${i}]`);
+      onlyKeys(r, PLANET_NAME_KEYS, `${at}.ref[${i}]`);
+      oneOf(r.kind, PLACE_KINDS, `${at}.ref[${i}].kind`);
+      for (const k of ['x', 'y', 'size', 'rank']) num(r[k], `${at}.ref[${i}].${k}`);
+      str(r.name, `${at}.ref[${i}].name`, NAME_TEXT_MAX);
+      optStr(r.latin, `${at}.ref[${i}].latin`, NAME_TEXT_MAX);
+      str(r.style, `${at}.ref[${i}].style`, NAME_TEXT_MAX);
+      int(r.hearth, -1, map.mesh.n, `${at}.ref[${i}].hearth`);
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

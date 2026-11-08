@@ -48,6 +48,7 @@ export const MIGRATIONS: MigrationTable = {
   flags: [],
   author: [],
   thumb: [],
+  planet: [],
 };
 
 function stepsOf(table: MigrationTable, name: string): readonly MigrationStep[] {

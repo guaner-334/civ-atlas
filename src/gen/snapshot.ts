@@ -50,6 +50,8 @@ const PART_LIMITS: ReadonlyMap<string, number> = new Map([
   ['author', 64 * MB],
   // 封面:480 × 240 的 JPEG 几十 KB
   ['thumb', 2 * MB],
+  // 星球参照:实测 3.6 万、20 万地块都是几十个地名,不到 10 KB
+  ['planet', 4 * MB],
 ]);
 /**
  * 认不出的块名给 16 MB。认不出的块本来就只原样留着、不用解开;真要读的只会是以后新加的块,那时在上面的表里按实测写明上限。

@@ -5,7 +5,8 @@
 import { generateWorld, type World, type WorldParams } from '../world';
 import type { Sketch } from '../sketch';
 import { withoutLayers, type MapPlugin } from '../mapHooks';
-import type { Annal, Civ, CivEra, CivParams, Culture, Habitat, NamePins, PlanetTempo, Place, Polity, Regions, Route, Settlement, UpheavalFact } from './types';
+import type { Annal, Civ, CivEra, CivParams, Culture, Habitat, NamePins, PlanetNames, PlanetTempo, Place, Polity, Regions, Route, Settlement, UpheavalFact } from './types';
+import { subSeed } from '../util';
 import { computeHabitat } from './habitat';
 import { buildRegions } from './regions';
 import type { CivSim } from './engine/sim';
@@ -117,6 +118,9 @@ function refKeyOf(world: Pick<World, 'params' | 'mapPlugins'>, s: RefSetup): str
   return JSON.stringify([entries, p.civSeed ?? null, s.mix ?? null, p.regionArea, p.cultures, p.pace, p.birthSpan ?? null, s.frontier ?? null, s.origins ?? null, ...k, ...m]);
 }
 
+/** 设定键的指纹(存进世界的那一份地名带着它):两条 32 位散列拼成 16 位十六进制 */
+const refSum = (key: string): string => [1, 2].map((s) => subSeed(s, key).toString(16).padStart(8, '0')).join('');
+
 /** 记着的几份(按 refKeyOf;最近用过的在后面) */
 const refMemo = new Map<string, readonly NameRef[]>();
 const REF_KEEP = 4;
@@ -136,7 +140,8 @@ function rememberRef(key: string, ref: readonly NameRef[]): void {
 function nameRefOf(pack: CivPack<OfficialOwn>, world: World, s: RefSetup): readonly NameRef[] | undefined {
   if (!edited(world) || s.p.placeRef === false) return undefined;
   const key = refKeyOf(world, s);
-  let ref = refMemo.get(key);
+  const kept = s.p.planetNames;
+  let ref = kept && kept.key === refSum(key) ? kept.ref : refMemo.get(key);
   if (!ref) {
     const { p, mix, frontier, origins, knobs } = s;
     const w0 = generateWorld(world.params, undefined, undefined, undefined, undefined, planetPlugins(world, p));
@@ -156,6 +161,17 @@ function nameRefOf(pack: CivPack<OfficialOwn>, world: World, s: RefSetup): reado
   }
   rememberRef(key, ref);
   return ref;
+}
+
+/** 同 index.ts 的 planetNames;设定照 prelude、settle 里的取法,和推的时候认的是同一个键 */
+export function planetNamesOf(pack: CivPack<OfficialOwn>, world: World, params: Partial<CivParams>, grow: boolean): PlanetNames | null | undefined {
+  const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
+  if (!edited(world) || p.placeRef === false) return undefined;
+  const s: RefSetup = { p, mix: cleanMix(p.names), frontier: cleanFrontier(p.frontier), origins: cleanOrigins(p.origins), knobs: knobSet(p.knobs, pack.knobs).patch };
+  const key = refKeyOf(world, s);
+  const kept = p.planetNames;
+  if (!grow && !(kept && kept.key === refSum(key)) && !refMemo.has(key)) return null;
+  return { key: refSum(key), ref: nameRefOf(pack, world, s)! };
 }
 
 /** 开头几步:定民族、定国家;干预的事件最先预约(同一刻里只排在地形大事和看王朝、新君即位、迁都后重看边地后面,干预之前的历史一字不差) */

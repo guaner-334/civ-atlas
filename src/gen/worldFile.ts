@@ -22,7 +22,7 @@ import { parseSave, type SaveFile } from './savefile';
 import { makePart, partBytes, sha256, unpackValue, type SnapshotPart } from './snapshot';
 import type { World } from './world';
 import { MIGRATIONS, currentSchema, migratePart, type MigrationTable } from './worldMigrate';
-import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validatePluginLayer, validateSimState, validateThumb, validateWorld, worldHeadLimit, worldPartLimit, type LayerSizes } from './worldValidate';
+import { parseManifest, validateAuthor, validateChronicle, validateCiv, validateEras, validateFlags, validatePlanet, validatePluginLayer, validateSimState, validateThumb, validateWorld, worldHeadLimit, worldPartLimit, type LayerSizes } from './worldValidate';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES, parseZip, writeZip } from './zipStore';
 import {
   KNOWN_PARTS,
@@ -41,6 +41,7 @@ import {
   pluginLayerPart,
   simStatePart,
   type AuthorContent,
+  type PlanetValue,
   type PluginLayerValue,
   type WorldMade,
   type WorldManifest,
@@ -77,6 +78,8 @@ export interface WorldValues {
   author?: AuthorContent | null;
   /** 封面(JPEG 的字节);没有 = 不给 */
   thumb?: Uint8Array | null;
+  /** 星球参照;没有 = 不给 */
+  planet?: PlanetValue | null;
 }
 
 /** 插件放的附加数据:只当字节留着,看世界用不着 */
@@ -278,6 +281,7 @@ export async function packWorldParts(input: PackInput): Promise<PackedWorld> {
   parts.push(await packKnown('civ', layers.civ), await packKnown('chronicle', input.chronicle), await packKnown('flags', input.flags));
   if (input.author) parts.push(await packKnown('author', input.author));
   if (input.thumb) parts.push(await packThumb(input.thumb));
+  if (input.planet) parts.push(await packKnown('planet', input.planet));
   parts.push(...split.parts, ...layers.parts);
   for (const l of input.layers ?? []) {
     const ids = pluginLayerOf(l.name);
@@ -387,6 +391,7 @@ export interface WorldContent extends WorldValues {
   eras: WorldEras | null;
   author: AuthorContent | null;
   thumb: Uint8Array | null;
+  planet: PlanetValue | null;
   /** 配方照存档的办法读出来的那份(清理过);界面用这一份,不用清单里的原样 */
   save: SaveFile;
   /** 读配方时的提示(和打开存档时一样) */
@@ -608,10 +613,14 @@ async function readContent(opened: OpenedWorldFile, spare: boolean): Promise<Sto
     if (got.trouble) skipped.push('author');
     const thumb = (await read('thumb', (b) => b)) as Uint8Array | null;
     if (thumb) validateThumb(thumb);
+    // 本机读的过不了只是没装地图插件时推不了历史,世界照样开
+    const planet = await story<PlanetValue | null>('planet', (v) => {
+      if (v !== null) validatePlanet(v, map);
+    });
     const r = parseSave(JSON.stringify(manifest.recipe));
     if (!r.ok) broken(r.error);
     const warnings = got.trouble ? [...r.warnings, got.trouble === 'damaged' ? AUTHOR_DAMAGED : AUTHOR_SKIPPED] : r.warnings;
-    return { map, eras, civ, chronicle, flags, author: got.author, thumb, save: r.save, warnings, skipped, ...(got.trouble ? { authorTrouble: got.trouble } : {}) };
+    return { map, eras, civ, chronicle, flags, author: got.author, thumb, planet, save: r.save, warnings, skipped, ...(got.trouble ? { authorTrouble: got.trouble } : {}) };
   } catch (err) {
     throw asWorldFileError(err);
   }
@@ -627,7 +636,7 @@ export interface RewriteChange {
   readers?: WorldReaders;
   recipe?: SaveFile;
   plugins?: WorldPlugin[];
-  /** 换掉的块;eras、author、thumb 给 null = 去掉这一块 */
+  /** 换掉的块;eras、author、thumb、planet 给 null = 去掉这一块 */
   values?: Partial<WorldValues>;
   /** 文件最大多少字节(不给 = 本机存取的上限) */
   maxBytes?: number;
@@ -667,6 +676,7 @@ export async function rewriteWorldFile(opened: OpenedWorldFile, change: RewriteC
   if (v.flags) replaced.set('flags', await packKnown('flags', v.flags, table));
   if (v.author !== undefined) replaced.set('author', v.author ? await packKnown('author', v.author, table) : null);
   if (v.thumb !== undefined) replaced.set('thumb', v.thumb ? await packThumb(v.thumb, table) : null);
+  if (v.planet !== undefined) replaced.set('planet', v.planet ? await packKnown('planet', v.planet, table) : null);
 
   const parts: PackedPart[] = [];
   const stale = new Set(sims ? historyParts(manifest.parts.map((p) => p.name)) : []);
