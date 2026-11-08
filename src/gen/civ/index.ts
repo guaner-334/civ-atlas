@@ -7,17 +7,23 @@
  * 没给 = 地图种子(world.params.seed),和加这一项以前逐字节一样;给了 = 同一张地图上另一段历史(州、民族、国家、名字……都另起)。
  */
 import type { Progress, World } from '../world';
-import type { ChangeLog, Civ, CivBase, CivParams } from './types';
+import type { ChangeLog, Civ, CivBase, CivParams, PlanetNames } from './types';
 import { computeHabitat } from './habitat';
 import { REGIONS_KNOBS, buildRegions, emptyRegions } from './regions';
 import { knobSet } from './knobs';
 import { DEFAULT_CIV_PARAMS, continuePack, runPack, startPack, viability, type Continuation, type Stepper } from './run';
 import { OFFICIAL_PACK } from './modules';
+import { planetNamesOf } from './official';
 
 export * from './types';
 
 export { DEFAULT_CIV_PARAMS, type Continuation, type Stepper } from './run';
 export { planetTempo } from './official';
+
+/** 推这个世界(params 同 generateCiv)照着沿用的地名和设定指纹:不用照着起 = undefined;grow = false 时手里没有 = null,不重长没改地形的星球 */
+export function planetNames(world: World, params: Partial<CivParams>, grow: boolean): PlanetNames | null | undefined {
+  return planetNamesOf(OFFICIAL_PACK, world, params, grow);
+}
 
 /**
  * 推文明的底子:宜居度和州(generateCiv 的头两步,和它算的一模一样)。只跟地形、文明种子、每州面积有关:

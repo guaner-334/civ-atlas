@@ -16,6 +16,7 @@
  *
  * 几段轮流推:每段推一小会儿(SLICE_MS)就换下一段,两段一起往前长;每推一小会儿让一下,新到的消息先处理(换规则、换地图不用等推完)。
  * 交出去的历史是复制的一份(线程里留着原来那份接着推)。纯计算,不碰 DOM。
+ * 地图用了地图插件的带着插件文件来:先装好再长地图(改过地形的世界,没改地形的星球也照它们长);装不上、长不出来的每段都交 failed。
  */
 import { generateWorld, type World, type WorldParams } from './gen/world';
 import { planetTempo, type Civ, type CivParams } from './gen/civ';
@@ -29,12 +30,17 @@ import type { Calamity } from './gen/civ/calamity';
 import type { NameMix } from './gen/names';
 import type { SimPluginFile } from './plugin/pluginWorld';
 import type { SimBoxer, SimPluginsOn } from './simPluginRun';
+import { timedMapPlugins, type MapPlugin } from './gen/mapHooks';
+import { mapPluginKey } from './gen/worldFormat';
+import type { MapPluginFile } from './plugin/pluginWorld';
+import type { MapBoxer } from './mapPluginRun';
 
-/** 哪张地图:参数、地形修改、草图(和世界存档里的一样) */
+/** 哪张地图:参数、地形修改、草图(和世界存档里的一样)、地图插件(按出手的先后,带着文件;不给 = 没用) */
 export interface GrowMap {
   params: WorldParams;
   terrain?: TerrainOp[];
   sketch?: SketchEdit;
+  mapPlugins?: MapPluginFile[];
 }
 
 /** 几段历史共用的设定(不给的 = 默认;文明种子不给 = 地图种子) */
@@ -79,7 +85,7 @@ const SLICE_MS = 50;
 /** 推到哪一年最多多久报一次(毫秒) */
 const PROGRESS_MS = 200;
 
-const mapKey = (m: GrowMap) => JSON.stringify([Object.entries(m.params).sort(([a], [b]) => (a < b ? -1 : 1)), m.terrain ?? [], m.sketch ?? null]);
+const mapKey = (m: GrowMap) => JSON.stringify([Object.entries(m.params).sort(([a], [b]) => (a < b ? -1 : 1)), m.terrain ?? [], m.sketch ?? null, ...(m.mapPlugins?.length ? [m.mapPlugins.map(mapPluginKey)] : [])]);
 const simKey = (list: readonly SimPluginFile[] | undefined) => (list?.length ? `|sim:${JSON.stringify(list.map((p) => [p.id, p.sum, p.params ?? null]))}` : '');
 
 interface Running {
@@ -103,8 +109,8 @@ function drop(r: Running): void {
   r.sims = undefined;
 }
 
-/** 这个线程手上的地图、在推的几段、推完了的几段(side → key) */
-let here: { key: string; world: World; tempo: CivParams['tempo'] | undefined } | null = null;
+/** 这个线程手上的地图(maps = 长它的地图插件,推历史时重长没改地形的星球也要;world = null:长不出来)、在推的几段、推完了的几段(side → key) */
+let here: { key: string; world: World | null; tempo: CivParams['tempo'] | undefined; maps?: readonly MapPlugin[] } | null = null;
 let running: Running[] = [];
 let finished = new Map<number, number>();
 let post: (r: GrowReply) => void = () => {};
@@ -148,11 +154,15 @@ function paramsOf(setup: GrowSetup, tuning: WorldTuning | undefined, tempo: CivP
   };
 }
 
-/** 开始推一段;带推演插件的先装插件(这一段自己的一份) */
-function begin(m: GrowRequest, s: GrowSide, world: World, tempo: CivParams['tempo'] | undefined, box: SimBoxer | undefined): Running {
-  const params = paramsOf(m.setup, s.tuning, tempo);
+/** 开始推一段;带推演插件的先装插件(这一段自己的一份);地图长不出来的(world = null)这一段推不了 */
+function begin(m: GrowRequest, s: GrowSide, world: World | null, tempo: CivParams['tempo'] | undefined, box: SimBoxer | undefined, maps?: readonly MapPlugin[]): Running {
+  const params = { ...paramsOf(m.setup, s.tuning, tempo), ...(maps ? { mapPlugins: timedMapPlugins(maps) } : {}) };
   const opt = s.failAt !== undefined ? { engine: breakAt(s.failAt) } : {};
   const r: Running = { side: s.side, key: s.key, grower: null, said: -1, saidAt: 0 };
+  if (!world) {
+    r.ready = Promise.resolve();
+    return r;
+  }
   const files = m.setup.simPlugins ?? [];
   if (!files.length) {
     r.grower = startGrow(world, params, opt);
@@ -168,26 +178,60 @@ function begin(m: GrowRequest, s: GrowSide, world: World, tempo: CivParams['temp
   return r;
 }
 
+/** 装地图插件的那一份(地图用了插件才 import) */
+let mapRun: typeof import('./mapPluginRun') | null = null;
+
+/** 装好这张地图的地图插件;装不上(文件对不上、QuickJS 下载不了)= null */
+async function loadMaps(files: readonly MapPluginFile[], mapBox: MapBoxer | undefined): Promise<readonly MapPlugin[] | null> {
+  try {
+    mapRun ??= await import('./mapPluginRun');
+    await mapRun.loadMaps(files, mapBox ?? mapRun.quickjsMapBox);
+    return mapRun.mapPluginsOf(files.map(mapPluginKey));
+  } catch {
+    return null;
+  }
+}
+
+/** 按参数长这张地图和(改过地形的)没改地形那颗星球的节拍;地图插件装不上、出错 = 长不出来(world = null) */
+function grown(m: GrowRequest, key: string, maps?: readonly MapPlugin[] | null): NonNullable<typeof here> {
+  if (maps === null) return { key, world: null, tempo: undefined };
+  const sketch = sketchGrid(m.map.sketch);
+  try {
+    const world = generateWorld(m.map.params, undefined, m.map.terrain, sketch, undefined, maps && timedMapPlugins(maps));
+    const tempo = m.map.terrain?.length && m.setup.civSeed === undefined ? (planetTempo(m.map.params, undefined, sketch, maps && timedMapPlugins(maps)) ?? null) : undefined;
+    return { key, world, tempo, ...(maps ? { maps } : {}) };
+  } catch (e) {
+    if (!maps) throw e;
+    return { key, world: null, tempo: undefined };
+  }
+}
+
+/** 换了地图:先放掉旧的,生成新的时候不同时占着两张 */
+function take(m: GrowRequest, key: string, maps?: readonly MapPlugin[] | null): void {
+  here = null;
+  running.forEach(drop);
+  running = [];
+  finished = new Map();
+  here = grown(m, key, maps);
+}
+
 /**
- * 收到一条边推边交的消息。reply = 往主线程发消息的办法;box = 怎么装推演插件(单测用;不给 = 浏览器里的 QuickJS)。
+ * 收到一条边推边交的消息。reply = 往主线程发消息的办法;box = 怎么装推演插件,mapBox = 怎么装地图插件(单测用;不给 = 浏览器里的 QuickJS)。
  * 返回手上的几段都推完(或者都不推了)时兑现的 Promise(单测等它;线程里不用等)
  */
-export function growMessage(m: GrowRequest, reply: (r: GrowReply) => void, box?: SimBoxer): Promise<void> {
-  post = reply;
+export function growMessage(m: GrowRequest, reply: (r: GrowReply) => void, box?: SimBoxer, mapBox?: MapBoxer): Promise<void> {
   // 改过地形的世界给不给文明种子,扩张节拍的取法不同(见 paramsOf):算在地图里
   const key = `${mapKey(m.map)}|${m.setup.civSeed === undefined ? 'own' : 'seed'}${simKey(m.setup.simPlugins)}`;
-  if (!here || here.key !== key) {
-    // 换了地图:先放掉旧的,生成新的时候不同时占着两张
-    here = null;
-    running.forEach(drop);
-    running = [];
-    finished = new Map();
-    const world = generateWorld(m.map.params, undefined, m.map.terrain, sketchGrid(m.map.sketch));
-    const tempo = m.map.terrain?.length && m.setup.civSeed === undefined ? (planetTempo(m.map.params, undefined, sketchGrid(m.map.sketch)) ?? null) : undefined;
-    here = { key, world, tempo };
+  // 换了一张用地图插件的地图:先装好插件,再照常处理这条消息
+  if (m.map.mapPlugins?.length && here?.key !== key) {
+    return loadMaps(m.map.mapPlugins, mapBox).then((maps) => {
+      if (here?.key !== key) take(m, key, maps);
+      return growMessage(m, reply, box, mapBox);
+    });
   }
-  const world = here.world;
-  const tempo = here.tempo;
+  post = reply;
+  if (!here || here.key !== key) take(m, key);
+  const { world, tempo, maps } = here!;
   const next: Running[] = [];
   const keep = new Map<number, number>();
   for (const s of m.sides) {
@@ -196,7 +240,7 @@ export function growMessage(m: GrowRequest, reply: (r: GrowReply) => void, box?:
       continue;
     }
     const old = running.find((r) => r.side === s.side && r.key === s.key);
-    next.push(old ?? begin(m, s, world, tempo, box));
+    next.push(old ?? begin(m, s, world, tempo, box, maps));
   }
   running.filter((r) => !next.includes(r)).forEach(drop);
   running = next;
@@ -214,7 +258,7 @@ async function pump(): Promise<void> {
       await r.ready;
       if (!running.includes(r)) continue;
       if (!r.grower) {
-        // 推演插件文件对不上、QuickJS 下载不了:这一段推不了
+        // 推演插件文件对不上、QuickJS 下载不了、地图插件长不出地图:这一段推不了
         post({ grow: 'failed', side: r.side, key: r.key, at: 0, civ: null });
         running = running.filter((x) => x !== r);
         finished.set(r.side, r.key);

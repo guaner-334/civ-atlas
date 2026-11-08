@@ -14,6 +14,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEven
 import { Icon } from '../icons';
 import { isNarrow } from '../device';
 import { currentWorld, listWorlds } from '../saveStore';
+import { mapFilesOf } from '../world/mapNow';
 import { getEdits } from '../editsStore';
 import { getStage } from '../stageStore';
 import { useMyRules, setRuleValue } from '../rulesStore';
@@ -58,7 +59,7 @@ export function ComparePage() {
   const changed = Object.keys(values).length;
 
   const [phone] = useState(isNarrow);
-  const choices = useMemo(() => mapChoices(worldHere(getStage().stage === 'world', currentWorld(), getEdits()), listWorlds()), []);
+  const choices = useMemo(() => mapChoices(worldHere(getStage().stage === 'world', currentWorld(), getEdits(), mapFilesOf(currentWorld()?.id)), listWorlds()), []);
   const [choiceKey, setChoiceKey] = useState(choices[0].key);
   const choice: MapChoice = choices.find((c) => c.key === choiceKey) ?? choices[0];
   // 网址带 compareFail=1820:右边推到那年故意出错(冒烟检查、截图看推不下去时的样子)

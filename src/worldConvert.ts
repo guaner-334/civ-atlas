@@ -4,7 +4,8 @@
  * - original:浏览器里有它的原件(ui/resultStore.ts)。地图、各段世界、历史的字节直接拿来,不重算生成和推演;
  *   编年史、国旗用现在的代码算(用的人今天打开看到的就是这样)。原件只读,一个字不动
  * - recompute:没有原件,但世界就是当前版本建的:当前版本算一遍就是它原来的样子。和生成世界的线程走同一段推演代码(worldRun.ts)。
- *   用了推演插件的带着世界记的那一版插件推(本机没有就不转,见 ui/worldStore.ts 的 jobFor)
+ *   用了推演插件、地图插件的带着世界记的那一版插件推、长地图(本机没有就不转,见 ui/worldStore.ts 的 jobFor);
+ *   地图插件的图层、星球参照和生成世界的线程存的一样
  * - keptMap:地图留着的世界(gen/edits.ts 文件头"地图留着的世界"):地图、各段世界的块照原样从仓库里拿,历史按现在的规则从第 0 年推一遍。
  *   哪个世界存着那张地图(和要的各段世界)就从哪拿,原来那个世界删了也行。读不到、对不上、推出来校验不过的报错,不算出一个怪东西
  *
@@ -12,7 +13,8 @@
  *
  * 用的人等着存成文件时(fileIfFull)写不进仓库也不白算:算好的内容直接装成文件,跟着 full 的错交回去(FullWithFile)。
  */
-import { generateCiv, planetTempo, type Civ } from './gen/civ';
+import { generateCiv, planetNames, planetTempo, type Civ } from './gen/civ';
+import { timedMapPlugins, type MapPlugin } from './gen/mapHooks';
 import type { SimPlugin } from './gen/civ/engine/plugin';
 import { playStop } from './gen/civ/play';
 import type { SimRead } from './gen/civ/simRead';
@@ -26,12 +28,13 @@ import { sketchGrid } from './gen/sketch';
 import { SNAPSHOT_FORMAT, makePart, partOf, readLocalPart, recipeKey, recipeOfSave, type Recipe, type SnapshotPart } from './gen/snapshot';
 import { generateWorld, type World } from './gen/world';
 import { openStoredParts, readTrustedParts, type PackedPart, type WorldEras } from './gen/worldFile';
-import type { AuthorContent, WorldMade, WorldPlugin } from './gen/worldFormat';
+import { mapPluginKey, type AuthorContent, type PlanetValue, type WorldMade, type WorldPlugin } from './gen/worldFormat';
 import { validateCiv, validateEras, validateWorld } from './gen/worldValidate';
 import { indexedDbResults, type ResultBackend } from './resultDb';
-import type { SimPluginFile } from './plugin/pluginWorld';
+import type { MapPluginFile, SimPluginFile } from './plugin/pluginWorld';
 import type { SimBoxer, SimPluginsOn } from './simPluginRun';
-import { eraWorlds, keyOf, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
+import type { MapBoxer } from './mapPluginRun';
+import { eraWorlds, keyOf, mapLayerParts, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
 import { VaultError, asVaultError, commitWorld, draftFile, readRevision, type CommitRequest, type CommitResult, type DraftedFile, type RevisionSource, type StoredRevision } from './worldVault';
 
 interface JobBase {
@@ -44,6 +47,8 @@ interface JobBase {
   fileIfFull?: { author?: AuthorContent };
   /** 按配方推的(recompute、keptMap):世界记的推演插件,本机装着的同一版(按出手的先后);不给 = 没用 */
   simPlugins?: SimPluginFile[];
+  /** 按配方算的(recompute):世界记的地图插件,本机装着的同一版(按出手的先后);不给 = 没用 */
+  mapPlugins?: MapPluginFile[];
 }
 
 /** 写不进仓库,但内容已经装成文件了 */
@@ -105,31 +110,34 @@ export interface KeptWorlds {
 
 /**
  * 按存档算一遍:地图、各段世界、整段历史。结果和生成世界的线程按这份存档推出来的一样。kept = 地图留着的世界存下的地图、各段世界,只推历史。
- * plugins = 推演插件(带着的推不下去时和生成世界的线程一样停在那一年)
+ * plugins = 推演插件(带着的推不下去时和生成世界的线程一样停在那一年);maps = 长地图的地图插件(按先后)。
+ * planet = 存进世界的星球参照(用地图插件长、改过地形的才有)
  */
-export function recomputeWorld(save: SaveFile, kept?: KeptWorlds, plugins?: readonly SimPlugin<SimRead>[]): { world: World; civ: Civ; steps: { key: string; world: World }[] } {
+export function recomputeWorld(save: SaveFile, kept?: KeptWorlds, plugins?: readonly SimPlugin<SimRead>[], maps?: readonly MapPlugin[]): { world: World; civ: Civ; steps: { key: string; year: number; world: World }[]; planet: PlanetValue | null } {
   const r = recipeOfSave(save);
   if (r.keptMap && !kept) throw new VaultError('failed', '地图留着的世界不按种子重新长');
   const params = r.params;
   const terrain = (r.terrain ?? []) as TerrainOp[];
   const sketch = sketchGrid(r.sketch);
-  const world = kept ? kept.map : generateWorld(params, undefined, terrain, sketch);
+  const keys = maps?.map((m) => m.key);
+  const grow = () => (maps?.length ? timedMapPlugins(maps) : undefined);
+  const world = kept ? kept.map : generateWorld(params, undefined, terrain, sketch, undefined, grow());
   if (!kept && save.check && save.check !== worldCheck(world)) throw new VaultError('failed', '算出来的地形和存档对不上');
   let all: TerrainOp[] = [...terrain];
   const steps = mergeUpheavals(r.upheavals ?? []).map((m) => {
     all = [...all, ...m.ops];
-    const key = keyOf(params, all, r.sketch);
+    const key = keyOf(params, all, r.sketch, keys);
     if (kept) {
       const era = kept.eras?.eras.find((x) => x.key === key);
       if (!era) throw new VaultError('failed', '存下的内容里少一段地形大事');
       return { ...m, key, all, world: { ...era.world, mesh: world.mesh } as World };
     }
-    const w = generateWorld(params, undefined, all, sketch);
+    const w = generateWorld(params, undefined, all, sketch, undefined, grow());
     w.history = [];
     return { ...m, key, all, world: w };
   });
   // 改过地形的:扩张节拍按没改地形时的同一颗星球(和生成世界的线程一样);另起文明种子的、地图留着的按地图本身
-  const tempo = kept || !terrain.length || r.civSeed !== undefined ? undefined : (planetTempo(params, undefined, sketch) ?? null);
+  const tempo = kept || !terrain.length || r.civSeed !== undefined ? undefined : (planetTempo(params, undefined, sketch, grow()) ?? null);
   const civParams = {
     interventions: r.interventions?.length ? [...r.interventions] : undefined,
     tempo,
@@ -140,9 +148,23 @@ export function recomputeWorld(save: SaveFile, kept?: KeptWorlds, plugins?: read
     ...playOpt({ play: r.play, interventions: r.interventions }),
     // 地名不照"没改过地形的星球"起:按现在的版本长的那一颗不是它
     ...(kept ? { placeRef: false as const } : {}),
+    ...(maps?.length ? { mapPlugins: grow() } : {}),
   };
   const civ = plugins?.length ? civOrStuck(world, { ...civParams, plugins: [...plugins] }, r.play ? { snap: (y) => playStop(y) } : {}) : generateCiv(world, civParams);
-  return { world, civ, steps };
+  const names = maps?.length && (terrain.length || sketch) ? planetNames(world, civParams, true) : undefined;
+  const planet = tempo !== undefined || names ? { ...(tempo !== undefined ? { tempo } : {}), ...(names ? { names } : {}) } : null;
+  return { world, civ, steps, planet };
+}
+
+/** 装好任务带的地图插件(没带 = null);装不上抛错(不转) */
+async function mapsOf(job: JobBase, box: MapBoxer | undefined): Promise<{ plugins: MapPlugin[]; run: typeof import('./mapPluginRun') } | null> {
+  if (!job.mapPlugins?.length) return null;
+  const run = await import('./mapPluginRun');
+  await run.loadMaps(job.mapPlugins, box ?? run.quickjsMapBox);
+  const keys = job.mapPlugins.map(mapPluginKey);
+  const plugins = run.mapPluginsOf(keys);
+  if (!plugins) throw new VaultError('failed', `地图插件装不上:${run.loadError(keys.find((k) => !run.loadedMap(k)) ?? keys[0])?.message ?? ''}`);
+  return { plugins, run };
 }
 
 /** 装好任务带的推演插件(没带 = null);seed = 文明种子 */
@@ -153,29 +175,37 @@ async function simsOf(job: JobBase, box: SimBoxer | undefined): Promise<SimPlugi
   return run.simPluginsOn(job.simPlugins, r.civSeed ?? r.params.seed, box ?? run.quickjsBox);
 }
 
-/** 带着推演插件按存档算一遍,算完放掉 */
-async function recomputeWith(job: JobBase, kept: KeptWorlds | undefined, box: SimBoxer | undefined): Promise<ReturnType<typeof recomputeWorld> & { sims: WorldPlugin[] | null }> {
+/** 带着推演插件、地图插件按存档算一遍,算完放掉推演插件 */
+async function recomputeWith(job: JobBase, kept: KeptWorlds | undefined, box: SimBoxer | undefined, mapBox?: MapBoxer): Promise<ReturnType<typeof recomputeWorld> & { sims: WorldPlugin[] | null; maps: Awaited<ReturnType<typeof mapsOf>> }> {
+  const maps = kept ? null : await mapsOf(job, mapBox);
   const sims = await simsOf(job, box);
   try {
-    return { ...recomputeWorld(job.save, kept, sims?.plugins), sims: sims ? sims.records : null };
+    return { ...recomputeWorld(job.save, kept, sims?.plugins, maps?.plugins), sims: sims ? sims.records : null, maps };
   } finally {
     sims?.dispose();
   }
 }
 
 /** 按当前版本算一遍 */
-async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>, box?: SimBoxer): Promise<CommitResult> {
+async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>, box?: SimBoxer, mapBox?: MapBoxer): Promise<CommitResult> {
   if (job.save.generator !== GENERATOR_VERSION) throw new VaultError('failed', '存档不是当前版本');
   const r = recipeOfSave(job.save);
-  const { world, civ, steps, sims } = await recomputeWith(job, undefined, box);
+  const { world, civ, steps, planet, sims, maps } = await recomputeWith(job, undefined, box, mapBox);
+  const keys = maps?.plugins.map((p) => p.key);
+  const looks = maps ? maps.plugins.map((p) => ({ id: p.id, looks: maps.run.loadedMap(p.key)!.looks })) : [];
+  const layers = [];
+  for (const l of mapLayerParts(looks, world, steps)) layers.push(await makePart(l.name, l.value));
   const parts = [
     await makePart('map', mapValue(world)),
-    ...(steps.length ? [await makePart('eras', { baseKey: keyOf(r.params, r.terrain, r.sketch), eras: eraWorlds(steps) ?? [] })] : []),
+    ...(steps.length ? [await makePart('eras', { baseKey: keyOf(r.params, r.terrain, r.sketch, keys), eras: eraWorlds(steps) ?? [] })] : []),
     await makePart('civ', civ),
     ...(await storyParts(world, civ, job.save)),
+    ...layers,
+    ...(planet ? [await makePart('planet', planet)] : []),
   ];
   const made: WorldMade = { app: job.app, generator: GENERATOR_VERSION, commit: job.commit, at: new Date().toISOString() };
-  return keep({ id: job.id, recipe: job.save, recipeKey: await recipeKey(r), parts, made, readers: { ...READER_VERSIONS }, thumb: job.thumb, source: 'migrated', ...(sims ? { simPlugins: sims } : {}) }, job);
+  const mapRecords = maps ? { mapPlugins: maps.plugins.map((p) => maps.run.loadedMap(p.key)!.record) } : {};
+  return keep({ id: job.id, recipe: job.save, recipeKey: await recipeKey(r), parts, made, readers: { ...READER_VERSIONS }, thumb: job.thumb, source: 'migrated', ...(sims ? { simPlugins: sims } : {}), ...mapRecords }, job);
 }
 
 const asSnapshotPart = (p: PackedPart): SnapshotPart => ({ name: p.info.name, bytes: p.info.bytes, sum: p.info.sum, zip: p.info.zip as SnapshotPart['zip'], data: p.data instanceof Uint8Array ? (p.data.slice().buffer as ArrayBuffer) : p.data });
@@ -265,9 +295,9 @@ async function fromKeptMap(job: Extract<ConvertJob, { kind: 'keptMap' }>, box?: 
   );
 }
 
-/** 转一个世界;转不了抛错。box = 怎么装推演插件(单测用;不给 = 浏览器里的 QuickJS) */
-export function runConvert(job: ConvertJob, results?: ResultBackend, box?: SimBoxer): Promise<CommitResult> {
-  if (job.kind === 'recompute') return fromRecipe(job, box);
+/** 转一个世界;转不了抛错。box、mapBox = 怎么装推演插件、地图插件(单测用;不给 = 浏览器里的 QuickJS) */
+export function runConvert(job: ConvertJob, results?: ResultBackend, box?: SimBoxer, mapBox?: MapBoxer): Promise<CommitResult> {
+  if (job.kind === 'recompute') return fromRecipe(job, box, mapBox);
   if (job.kind === 'keptMap') return fromKeptMap(job, box);
   const db = results ?? indexedDbResults();
   if (!db) return Promise.reject(new VaultError('unavailable', '没有 IndexedDB'));
