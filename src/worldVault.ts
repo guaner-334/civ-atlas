@@ -198,6 +198,8 @@ export interface CommitRequest {
   thumb?: Uint8Array | null;
   /** 不给 = made */
   source?: RevisionSource;
+  /** 给了 parts 才看:这份历史用的推演插件(按出手的先后),清单里原来记的推演插件换成这几条(空 = 没用);不给 = 不知道,照上一份 */
+  simPlugins?: WorldPlugin[];
 }
 
 export type CommitResult =
@@ -232,6 +234,8 @@ export interface WorldPartsOffer {
   readers?: WorldReaders;
   /** 地图留着的世界:地图那一块照原样留着,结构版本也照它原来的;不给 = 现在的 */
   schemas?: Readonly<Record<string, number>>;
+  /** 这份历史用的推演插件(世界清单里记的那几条,空 = 没用);历史是读存着的、线程不知道 = 不给 */
+  plugins?: WorldPlugin[];
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +505,14 @@ function sameManifest(a: WorldManifest, b: WorldManifest): boolean {
   return norm(a) === norm(b);
 }
 
+/** 新的一份修订清单里记的插件:带着完整内容、说了用哪些推演插件的,推演插件跟着历史换成这次的那几条,别的照上一份 */
+function pluginsFor(req: CommitRequest, prev: WorldManifest | null): WorldPlugin[] {
+  const had = prev?.plugins ?? [];
+  if (!req.parts || !req.simPlugins) return [...had];
+  const sims = req.simPlugins.map((p) => ({ ...p, role: 'sim' }));
+  return [...had.filter((p) => p.role !== 'sim' && !sims.some((s) => s.id === p.id)), ...sims];
+}
+
 /** 请求里这次带来的几块打包 */
 async function packGiven(req: CommitRequest) {
   const incoming = (req.parts ?? []).map((p) => knownPart(p, req.schemas?.[p.name]));
@@ -572,7 +584,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       const made = (req.parts ? req.made : prev?.made) ?? null;
       const readers = (req.parts ? req.readers : prev?.readers) ?? null;
       if (!made || !readers) throw new VaultError('failed', '存世界没给版本');
-      const plugins: WorldPlugin[] = prev?.plugins ?? [];
+      const plugins = pluginsFor(req, prev);
       const n = maxN + 1;
       const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
       // 清单里认不出的字段(以后的版本写的)原样带着
@@ -659,9 +671,9 @@ export async function draftFile(req: CommitRequest): Promise<DraftedFile | null>
     if (!made || !readers) throw new VaultError('failed', '存世界没给版本');
     const n = (rows.at(-1)?.n ?? 0) + 1;
     const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
-    const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins: prev?.plugins ?? [], revision: { n, ...(parent ? { parent } : {}) } }, parts) };
+    const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins: pluginsFor(req, prev), revision: { n, ...(parent ? { parent } : {}) } }, parts) };
     if (!req.recipe.title) delete manifest.title;
-    const same = !!base && !!prev && !req.parts && sameManifest(prev, manifest);
+    const same =!!base && !!prev && !req.parts && sameManifest(prev, manifest);
     const text = same ? new TextEncoder().encode(base.text) : manifestBytes(manifest);
     parseManifest(text, { readers: { ...readers } });
     const data: { info: WorldPartInfo; data: Uint8Array | ArrayBuffer | Blob }[] = [];

@@ -283,7 +283,7 @@ function keepOffer(): Promise<boolean> {
       offer = null;
       const made: WorldMade = { app: APP_VERSION, generator: o.generator, commit: APP_COMMIT, at: new Date().toISOString() };
       const r = await commit(
-        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, ...(o.schemas ? { schemas: o.schemas } : {}), made, readers: o.readers ?? { ...READER_VERSIONS }, thumb: thumbBytes(again.thumb) },
+        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, ...(o.schemas ? { schemas: o.schemas } : {}), ...(o.plugins ? { simPlugins: o.plugins } : {}), made, readers: o.readers ?? { ...READER_VERSIONS }, thumb: thumbBytes(again.thumb) },
         o.parts.map((p) => p.data),
       );
       return r?.status === 'saved';
