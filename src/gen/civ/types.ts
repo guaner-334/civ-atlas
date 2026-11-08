@@ -1303,6 +1303,11 @@ export interface CivParams {
    * 带着代码,不跨线程传;接着推时要和 civ.simPlugins 记的插件一一对上,对不上从第 0 年重推
    */
   plugins?: readonly import('./engine/plugin').SimPlugin<import('./simRead').SimRead>[];
+  /**
+   * 世界用地图插件长的(World.mapPlugins)、改过地形时,重长没改地形的星球(扩张节拍、地名照着的那一颗)要用的地图插件,
+   * 要和世界记的一一对上。带着代码,不跨线程传
+   */
+  mapPlugins?: readonly import('../mapHooks').MapPlugin[];
   /** 推演插件计时(毫秒;单测换成假的):插件用时超了 engine/plugin.ts 的 PLUGIN_TIME 就停下。不给 = performance.now */
   pluginClock?: () => number;
 }

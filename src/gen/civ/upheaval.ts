@@ -22,6 +22,7 @@
  */
 import { generateWorld, type World, type WorldParams } from '../world';
 import type { Sketch } from '../sketch';
+import type { MapPlugin } from '../mapHooks';
 import type { TerrainOp, Upheaval } from '../edits';
 import { Layer, type Civ, type Habitat, type Polity, type Regions, type Settlement, type UpheavalFact, type Year } from './types';
 import { computeHabitat } from './habitat';
@@ -71,21 +72,21 @@ export function mergeUpheavals(list: readonly Upheaval[], endYear: Year = END_YE
 
 /**
  * 推演用的几步(generateCiv 的 CivParams.upheavals):第 k 步的世界 = 原来的地形修改 + 前 k 步大事的修改,从头生成(和改地形一样)。
- * terrain、sketch = 这个世界本来的地形修改、草图;progress(k, n) = 开始生成第 k 步(共 n 步)
+ * terrain、sketch、opts.mapPlugins = 这个世界本来的地形修改、草图、地图插件;progress(k, n) = 开始生成第 k 步(共 n 步)
  */
 export function upheavalSteps(
   params: WorldParams,
   terrain: readonly TerrainOp[],
   sketch: Sketch | null | undefined,
   list: readonly Upheaval[],
-  opts: { endYear?: Year; progress?: (k: number, n: number) => void } = {},
+  opts: { endYear?: Year; progress?: (k: number, n: number) => void; mapPlugins?: readonly MapPlugin[] } = {},
 ): UpheavalStep[] {
   const merged = mergeUpheavals(list, opts.endYear);
   let ops: TerrainOp[] = terrain.slice();
   return merged.map((m, k) => {
     opts.progress?.(k, merged.length);
     ops = [...ops, ...m.ops];
-    return { ...m, world: generateWorld(params, undefined, ops, sketch) };
+    return { ...m, world: generateWorld(params, undefined, ops, sketch, undefined, opts.mapPlugins) };
   });
 }
 

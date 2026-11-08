@@ -43,6 +43,7 @@ import {
 import { sketchUsed, type Sketch } from './sketch';
 import { samePlates } from './plateEdits';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
+import { climateHooks, hasStage, heightHooks, layerHooks, mapPluginKeys, type MapLayer, type MapPlugin } from './mapHooks';
 
 // 生成参数和默认值在 params.ts(存档、网址只用到它们,不用带上整套生成代码)
 export { DEFAULT_PARAMS, type WorldParams } from './params';
@@ -128,6 +129,10 @@ export interface World {
   terrain?: TerrainOp[];
   /** 生成时照着的草图格子图(gen/sketch.ts 的 sketchGrid);没画 = 不给。草图算星球的一部分:planetTempo 也照它生成 */
   sketch?: Sketch;
+  /** 生成时出手的地图插件(MapPlugin.key,按先后);没用 = 不给。和草图一样算星球的一部分 */
+  mapPlugins?: string[];
+  /** 地图插件出的图层;没有 = 不给 */
+  mapLayers?: MapLayer[];
 }
 
 export type Progress = (stage: string, pct: number) => void;
@@ -166,7 +171,8 @@ export interface BaseCache {
 
 /** 侵蚀之前套上的几种地形修改(火山、山脉、抬起陆地、沉成海):前一半只看它们 */
 const isShapeOp = (o: TerrainOp) => o.kind === 'volcano' || o.kind === 'range' || o.kind === 'raise' || o.kind === 'sink';
-const baseKeyOf = (p: WorldParams, shapes: readonly TerrainOp[]) => JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), shapes]);
+const baseKeyOf = (p: WorldParams, shapes: readonly TerrainOp[], plugins: readonly MapPlugin[]) =>
+  JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), shapes, ...(plugins.length ? [mapPluginKeys(plugins)] : [])]);
 const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
   a === b ||
   (!!a &&
@@ -187,6 +193,14 @@ interface Planet {
 const planetMemo = new Map<string, Planet>();
 const PLANET_MEMO = 4;
 
+/** 回放帧加上 before → after 改动的差值(回放用的是现在的海陆,最后一帧和现在的地形对得上) */
+function addToFrames(frames: readonly Float32Array[], before: Float32Array, after: Float32Array): void {
+  const changed: number[] = [];
+  for (let i = 0; i < after.length; i++) if (after[i] !== before[i]) changed.push(i);
+  if (!changed.length) return;
+  for (const fr of frames) for (const i of changed) fr[i] += after[i] - before[i];
+}
+
 /** 陆地最高处(米;没有陆地 = 0) */
 function landPeak(land: Uint8Array, elevation: Float32Array): number {
   let m = 0;
@@ -199,13 +213,13 @@ function landPeak(land: Uint8Array, elevation: Float32Array): number {
  * 陆地最高处。改过地形的世界远处照它换算(growTerrain),和这颗星球逐位一样高,最高海拔也照它;
  * 按参数记着,编辑地形时涂第二笔起不再重算。mesh = 改过地形的世界已经撒好的地块(同样的参数撒出来的一样,省得再撒一遍)
  */
-function* planetOf(p: WorldParams, mesh: Mesh, climateP: ClimateParams): Generator<void, Planet> {
-  const key = baseKeyOf(p, []);
+function* planetOf(p: WorldParams, mesh: Mesh, climateP: ClimateParams, plugins: readonly MapPlugin[]): Generator<void, Planet> {
+  const key = baseKeyOf(p, [], plugins);
   let planet = planetMemo.get(key);
   if (planet) {
     planetMemo.delete(key);
   } else {
-    const b = yield* growTerrain(p, null, [], climateP, () => {}, key, mesh);
+    const b = yield* growTerrain(p, null, [], climateP, () => {}, key, plugins, mesh);
     planet = { refs: b.refs, peak: b.peak };
     if (planetMemo.size >= PLANET_MEMO) planetMemo.delete(planetMemo.keys().next().value!);
   }
@@ -228,7 +242,16 @@ function meshOf(W: number, H: number, spacing: number, seed: number): Mesh {
 }
 
 /** 前一半(见 TerrainBase):ops 只给侵蚀之前套的那几种。一段一段算,段与段之间停一下(见 generateWorldSteps) */
-function* growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp[], climateP: ClimateParams, progress: Progress, key: string, meshIn?: Mesh): Generator<void, TerrainBase> {
+function* growTerrain(
+  p: WorldParams,
+  sk: Sketch | null,
+  ops: readonly TerrainOp[],
+  climateP: ClimateParams,
+  progress: Progress,
+  key: string,
+  plugins: readonly MapPlugin[],
+  meshIn?: Mesh,
+): Generator<void, TerrainBase> {
   const W = MAP_W;
   const H = MAP_H;
 
@@ -255,7 +278,7 @@ function* growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp
   const skTouched = tect.sketchTouched;
   // 改过地形的世界换算成米:远处照没改地形的同一颗星球的"最高峰"(planet),草图涂过的地方照这个世界自己的(和以前一样,
   // 涂的高山不会高得离谱),中间几圈平滑过渡(blend:涂过的 1,往外几圈降到 0)。涂一道山,远处的山不跟着变矮
-  const planet = edited ? yield* planetOf(p, mesh, climateP) : null;
+  const planet = edited ? yield* planetOf(p, mesh, climateP, plugins) : null;
   let blend: Float32Array | null = null;
   if (planet && skTouched) {
     const f = new Float32Array(n);
@@ -438,6 +461,11 @@ function* growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp
       elevation[i] -= depth * Math.exp(-geo.near2(i, c, r3) / (r * r));
     }
   }
+  if (hasStage(plugins, 'height')) {
+    const before = elevation.slice();
+    heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate);
+    addToFrames(history, before, elevation);
+  }
   const top = planet ? planet.peak : landPeak(land, elevation);
   return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, peak: top, highLand, refs };
 }
@@ -446,8 +474,15 @@ function* growTerrain(p: WorldParams, sk: Sketch | null, ops: readonly TerrainOp
  * terrain:作者的地形修改(WorldEdits.terrain,按先后;不给 / 空 = 不改);sketch:草图涂成的格子图(不给 / null = 没画)。
  * cache:记着上一次的前一半(见 TerrainBase);参数、草图、侵蚀之前的地形修改都没变时跳过网格、板块、侵蚀
  */
-export function generateWorld(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[], sketch?: Sketch | null, cache?: BaseCache): World {
-  const it = generateWorldSteps(params, progress, terrain, sketch, cache);
+export function generateWorld(
+  params: WorldParams,
+  progress: Progress = () => {},
+  terrain?: readonly TerrainOp[],
+  sketch?: Sketch | null,
+  cache?: BaseCache,
+  mapPlugins?: readonly MapPlugin[],
+): World {
+  const it = generateWorldSteps(params, progress, terrain, sketch, cache, mapPlugins);
   for (;;) {
     const r = it.next();
     if (r.done) return r.value;
@@ -459,7 +494,14 @@ export function generateWorld(params: WorldParams, progress: Progress = () => {}
  * 或者不接着算了(后台线程编辑地形时新的一笔来了,上一笔不用算完)。接着算到底和 generateWorld 一模一样;
  * 中途不算了,记着的东西(cache 里的前一半等)要么还是原来的、要么是算完了的一份,不会是算了一半的
  */
-export function* generateWorldSteps(params: WorldParams, progress: Progress = () => {}, terrain?: readonly TerrainOp[], sketch?: Sketch | null, cache?: BaseCache): Generator<void, World> {
+export function* generateWorldSteps(
+  params: WorldParams,
+  progress: Progress = () => {},
+  terrain?: readonly TerrainOp[],
+  sketch?: Sketch | null,
+  cache?: BaseCache,
+  mapPlugins: readonly MapPlugin[] = [],
+): Generator<void, World> {
   const p = { ...DEFAULT_PARAMS, ...params };
   // 地形修改 + 地形大事(upheaval.ts 生成大事以后的世界时接在后面)
   const ops = cleanTerrainOps(terrain ?? [], TERRAIN_MAX_OPS + UPHEAVALS_MAX * UPHEAVAL_OPS_MAX);
@@ -472,14 +514,14 @@ export function* generateWorldSteps(params: WorldParams, progress: Progress = ()
   };
   const sk = sketchUsed(sketch) ? sketch : null;
   const shapes = ops.filter(isShapeOp);
-  const key = baseKeyOf(p, shapes);
+  const key = baseKeyOf(p, shapes, mapPlugins);
   const had = cache?.base;
   let base: TerrainBase;
   if (had && had.key === key && sameSketchGrid(had.sketch, sk)) {
     base = had;
     progress('湖泊与水系', 0.62);
   } else {
-    base = yield* growTerrain(p, sk, shapes, climateP, progress, key);
+    base = yield* growTerrain(p, sk, shapes, climateP, progress, key, mapPlugins);
     if (cache) cache.base = base;
   }
   // 没改地形的星球:记下它的"最高峰"(planetOf 要的就是这一份),之后编辑地形涂第一笔不用再生成一遍这颗星球
@@ -625,6 +667,7 @@ export function* generateWorldSteps(params: WorldParams, progress: Progress = ()
   progress('风与降水', 0.72);
   const currents = computeCurrents(mesh, water);
   const clim = computeClimate(mesh, elevation, water, climateP, currents, true);
+  if (hasStage(mapPlugins, 'climate')) climateHooks(mapPlugins, mesh, p.seed, { ...clim, elevation, water, rainSummer: clim.rainSummer!, rainWinter: clim.rainWinter! });
   // 改地形:作者涂的更湿 / 更干 / 更暖 / 更冷
   if (ops.length) applyClimatePens(mesh, clim.temperature, clim.precipitation, ops);
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
@@ -679,6 +722,29 @@ export function* generateWorldSteps(params: WorldParams, progress: Progress = ()
   // (TerrainBase.peak;后一半只挖湖、填洼地、把海平面以下的垫平,陆地最高处不变),涂一道高山、放一座大火山、
   // 用高度笔堆高、把最高的山压平都不改远处山名、山峰符号的门槛
   const maxElevation = (ops.length > 0 || sk) && !sk?.plates ? base.peak : landPeak(land, elevation);
+  let mapLayers: MapLayer[] | null = null;
+  if (hasStage(mapPlugins, 'layers')) {
+    // 图层不挡地图:调用方可以先交地图,下一段再算图层
+    yield;
+    const { temperature, precipitation, windX, windY, rainSummer, rainWinter } = clim;
+    mapLayers = layerHooks(mapPlugins, mesh, p.seed, {
+      elevation,
+      water,
+      temperature,
+      precipitation,
+      windX,
+      windY,
+      rainSummer: rainSummer!,
+      rainWinter: rainWinter!,
+      plate: tect.plate,
+      waterLevel,
+      seaIce,
+      biome,
+      flux,
+      riverThreshold,
+      rivers,
+    });
+  }
 
   return {
     params: p,
@@ -703,6 +769,8 @@ export function* generateWorldSteps(params: WorldParams, progress: Progress = ()
     volcanoes: ops.length ? volcanoPeaks(mesh, water, elevation, ops) : [],
     ...(ops.length ? { terrain: ops.slice() } : {}),
     ...(sk ? { sketch: sk } : {}),
+    ...(mapPlugins.length ? { mapPlugins: mapPluginKeys(mapPlugins) } : {}),
+    ...(mapLayers?.length ? { mapLayers } : {}),
   };
 }
 

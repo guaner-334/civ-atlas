@@ -32,6 +32,9 @@ export interface Climate {
   precipitation: Float32Array;
   windX: Float32Array;
   windY: Float32Array;
+  /** 只在 seasons 时有:这个地块的夏半年、冬半年按全年算的降水(mm;年降水是两者的平均) */
+  rainSummer?: Float32Array;
+  rainWinter?: Float32Array;
 }
 
 const TEMP_BY_LAT = [0, 27, 15, 26, 30, 20, 45, 11, 60, 1, 75, -11, 90, -24];
@@ -417,7 +420,7 @@ export function computeClimate(
   const year = carryMoisture(mesh, annual, air);
   const precipitation = new Float32Array(n);
   /** 降掉的水汽(沿海平地 ≈ BASE)× 纬度带修正 → 年降水(mm),加到 precipitation 上 */
-  const addRain = (rain: Float32Array, zonal: (i: number) => number, share: number, heat: Float32Array | null) => {
+  const addRain = (rain: Float32Array, zonal: (i: number) => number, share: number, heat: Float32Array | null, half?: (i: number) => Float32Array) => {
     const rainS = blurField(mesh, rain, 2);
     for (let i = 0; i < n; i++) {
       const rel = rainS[i] / BASE; // 沿海平地 ≈ 1
@@ -427,11 +430,19 @@ export function computeClimate(
       // 寒流那边吹来的空气又冷又稳,副热带更干(大陆西岸的海边沙漠:阿塔卡马、纳米布)
       else if (heat && z < 1 && heat[i] < 0) z *= 1 - COLD_SINK * Math.min(1, -heat[i] / 5);
       const v = rel * z * (1 + 0.18 * base.pNoise[i]);
-      precipitation[i] += share * Math.max(0, v * 1500 * p.rainfall);
+      const mm = Math.max(0, v * 1500 * p.rainfall);
+      precipitation[i] += share * mm;
+      if (half) half(i)[i] = mm;
     }
   };
+  let rainSummer: Float32Array | undefined;
+  let rainWinter: Float32Array | undefined;
   if (!seasons) addRain(year.rain, (i) => base.zonal[i], 1, null);
   else {
+    const summer = new Float32Array(n);
+    const winter = new Float32Array(n);
+    rainSummer = summer;
+    rainWinter = winter;
     for (const s of [1, -1]) {
       // s = 1:北半球夏半年(南半球冬半年);s = −1 反过来
       const tSeason = new Float32Array(n);
@@ -441,10 +452,10 @@ export function computeClimate(
         tSeason[i] = temperature[i] + year.landHeat[i] + (lat >= 0 ? s : -s) * amp;
       }
       const half = carryMoisture(mesh, windBase(mesh, base, s * SEASON_WIND), { ...air, temperature: tSeason });
-      addRain(half.rain, (i) => base.zonal[i], 0.5, sst ? half.landHeat : null);
+      addRain(half.rain, (i) => base.zonal[i], 0.5, sst ? half.landHeat : null, (i) => ((geo.latitude(i) >= 0 ? s : -s) > 0 ? summer : winter));
     }
   }
 
   if (sst) for (let i = 0; i < n; i++) temperature[i] += year.landHeat[i];
-  return { temperature, precipitation, windX: annual.windX.slice(), windY: annual.windY.slice() };
+  return { temperature, precipitation, windX: annual.windX.slice(), windY: annual.windY.slice(), ...(rainSummer && rainWinter ? { rainSummer, rainWinter } : {}) };
 }
