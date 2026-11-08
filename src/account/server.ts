@@ -32,9 +32,9 @@ export function accountServer(): string | null {
   return accountsOn() ? serverBase() : null;
 }
 
-/** 请求这个接口用的地址;账号关着时只有作品墙的接口有 */
+/** 请求这个接口用的地址;账号关着时只有作品墙的接口(连同插件的停用名单)有 */
 export function serverFor(path: string): string | null {
-  return /^\/v1\/gallery(\/|$)/.test(path) ? serverBase() : accountServer();
+  return /^\/v1\/(gallery(\/|$)|plugins\/verdicts$)/.test(path) ? serverBase() : accountServer();
 }
 
 const listeners = new Set<() => void>();

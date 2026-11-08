@@ -8,8 +8,12 @@
  *                                   新建参数的 preset(预设链接 # 后面那段)/ 规则作品的 rules 换成规则链接 # 后面那段(字符串);
  *                                   撤下的 410 gallery-gone;没有 404
  *   GET  /v1/gallery/:id/full     → 世界作品的世界文件(撤下的 410)
- *   GET  /v1/gallery/:id/cover    → 封面 JPEG(宽高 2:1;世界 = 政区图,地图 = 实景图,新建参数 = 星球)
+ *   GET  /v1/gallery/:id/cover    → 封面 JPEG(宽高 2:1;世界 = 政区图,地图 = 实景图,新建参数 = 星球;插件 = 审核时在示例世界上跑出来的样子,
+ *                                   ?seed=<种子> 取那个种子上的一张,有哪几张看 plugin.shots)
  *   POST /v1/gallery/:id/report { reason } → 204;同一个网络一小时最多几次(429)
+ *
+ * 插件作品(kind = 'plugin')单独放在列表的 plugins 里,别的地方(精选、挑战、全部作品)都不混;它的 plugin 原样留着,插件那头(ui/plugins/,懒加载)整理。
+ * 撤下了的插件作品 410 的 error 里多 kind: 'plugin',网站停用的再多 blocked(给用的人看的原因)。
  *
  * 服务器没开作品墙时这几个接口都是 404:网页上什么都不出现(入口、空页面的精选都没有),和没配服务器一样。
  * 都不用登录。"同一台设备对同一个作品只能举报一次"记在这个浏览器里(localStorage;读写不了就只在这一页里记着)。
@@ -17,9 +21,9 @@
 import { useSyncExternalStore } from 'react';
 import { ServerError, call, onServerChange, serverBase } from './server';
 
-export type WorkKind = 'world' | 'map' | 'preset' | 'rules';
+export type WorkKind = 'world' | 'map' | 'preset' | 'rules' | 'plugin';
 
-export const WORK_KIND_NAME: Record<WorkKind, string> = { world: '世界', map: '地图', preset: '新建参数', rules: '规则' };
+export const WORK_KIND_NAME: Record<WorkKind, string> = { world: '世界', map: '地图', preset: '新建参数', rules: '规则', plugin: '插件' };
 
 /** 规则摘要(上架时网站算好的):规则名、改了几项、最显眼的几处(用「、」连,不带省略号) */
 export interface WorkRules {
@@ -41,6 +45,8 @@ export interface GalleryWork {
   addedAt: string;
   /** 规则作品、用了非官方规则的作品:规则摘要 */
   rules?: WorkRules;
+  /** 插件作品:服务器给的 plugin,没整理过 */
+  plugin?: unknown;
 }
 
 export interface GalleryFeatured {
@@ -64,8 +70,10 @@ export interface GalleryList {
   month: string;
   featured: GalleryFeatured[];
   challenges: GalleryChallenge[];
-  /** 上架中的全部作品,新上架的在前 */
+  /** 上架中的全部作品,新上架的在前(没有插件) */
   works: GalleryWork[];
+  /** 上架中的插件 */
+  plugins: GalleryWork[];
 }
 
 /** 取一个作品:列表那一项 + 内容 */
@@ -87,7 +95,7 @@ export function isWorkId(s: unknown): s is string {
   return typeof s === 'string' && WORK_ID_RE.test(s);
 }
 
-const KINDS: readonly WorkKind[] = ['world', 'map', 'preset', 'rules'];
+const KINDS: readonly WorkKind[] = ['world', 'map', 'preset', 'rules', 'plugin'];
 const str = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '');
 
 function cleanRules(v: unknown): WorkRules | undefined {
@@ -111,6 +119,7 @@ function cleanWork(v: unknown): GalleryWork | null {
     version: typeof o.version === 'number' && Number.isInteger(o.version) ? o.version : null,
     addedAt: str(o.addedAt, 40),
     ...(rules ? { rules } : {}),
+    ...(o.kind === 'plugin' ? { plugin: o.plugin } : {}),
   };
 }
 
@@ -118,10 +127,13 @@ function cleanWork(v: unknown): GalleryWork | null {
 export function cleanGallery(raw: unknown): GalleryList {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const works: GalleryWork[] = [];
+  const plugins: GalleryWork[] = [];
   const seen = new Set<string>();
   for (const x of Array.isArray(o.works) ? o.works : []) {
     const w = cleanWork(x);
-    if (w && !seen.has(w.id)) {
+    if (w?.kind === 'plugin') {
+      if (!plugins.some((y) => y.id === w.id)) plugins.push(w);
+    } else if (w && !seen.has(w.id)) {
       seen.add(w.id);
       works.push(w);
     }
@@ -138,7 +150,7 @@ export function cleanGallery(raw: unknown): GalleryList {
     const ids = (Array.isArray(c.works) ? c.works : []).filter((id): id is string => isWorkId(id) && seen.has(id));
     challenges.push({ id: c.id, title: str(c.title, 60), blurb: str(c.blurb, 300), deadline: str(c.deadline, 10), works: ids });
   }
-  return { month: typeof o.month === 'string' && /^\d{4}-\d{2}$/.test(o.month) ? o.month : '', featured, challenges, works };
+  return { month: typeof o.month === 'string' && /^\d{4}-\d{2}$/.test(o.month) ? o.month : '', featured, challenges, works, plugins };
 }
 
 export async function fetchGallery(): Promise<GalleryList> {
@@ -152,7 +164,9 @@ export async function fetchWork(id: string): Promise<GalleryItem> {
   if (!w || w.id !== id) throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
   const out: GalleryItem = { ...w };
   const full = r.full as { sum?: unknown; bytes?: unknown } | null | undefined;
-  if (w.kind === 'preset') {
+  if (w.kind === 'plugin') {
+    if (!r.plugin || typeof r.plugin !== 'object') throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
+  } else if (w.kind === 'preset') {
     if (typeof r.preset !== 'string') throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
     out.preset = r.preset;
   } else if (w.kind === 'rules') {
@@ -194,10 +208,10 @@ export function galleryHref(pathname: string, search: string, id: string, drop: 
   return `${pathname}?${rest ? `${rest}&` : ''}gallery${id ? `=${encodeURIComponent(id)}` : ''}`;
 }
 
-/** 封面的地址(没有服务器 = '') */
-export function coverUrl(id: string): string {
+/** 封面的地址(没有服务器 = '');seed = 插件在那个种子上跑出来的那张 */
+export function coverUrl(id: string, seed?: number): string {
   const base = serverBase();
-  return base ? `${base}/v1/gallery/${encodeURIComponent(id)}/cover` : '';
+  return base ? `${base}/v1/gallery/${encodeURIComponent(id)}/cover${seed === undefined ? '' : `?seed=${seed}`}` : '';
 }
 
 /** 一个作品在这个网站上的地址(出处里记的、能发给别人):网站地址/?gallery=<编号> */
@@ -209,17 +223,8 @@ export function workLink(id: string): string {
 // ---------------------------------------------------------------------------
 // 举报
 
+/** 作品、分享的六个理由的键(说法在 ui/ReportBox.tsx) */
 export type ReportReason = 'illegal' | 'porn' | 'abuse' | 'privacy' | 'infringe' | 'other';
-
-/** 六个理由(只能选,不能写字):键、说法、补一句举例 */
-export const REPORT_REASONS: readonly { key: ReportReason; title: string; sub?: string }[] = [
-  { key: 'illegal', title: '违法违规', sub: '危害国家安全、暴恐、赌博、毒品等' },
-  { key: 'porn', title: '色情低俗' },
-  { key: 'abuse', title: '辱骂、歧视、人身攻击' },
-  { key: 'privacy', title: '写了真人的隐私', sub: '真实的姓名、电话、住址、照片等' },
-  { key: 'infringe', title: '侵权', sub: '抄了别人的作品，或者冒用别人的署名' },
-  { key: 'other', title: '其他不适合公开展示的内容' },
-];
 
 const REPORTED_KEY = 'civ-atlas:gallery-reported';
 /** 读写不了浏览器存储时,这一页里记着 */
@@ -253,8 +258,8 @@ export function rememberReport(id: string): void {
   emit();
 }
 
-/** 举报一个作品;这台设备举报过的不再发(当成功) */
-export async function reportWork(id: string, reason: ReportReason): Promise<void> {
+/** 举报一个作品(插件的理由另一组,键见 ui/plugins/);这台设备举报过的不再发(当成功) */
+export async function reportWork(id: string, reason: string): Promise<void> {
   if (wasReported(id)) return;
   await call(`/v1/gallery/${encodeURIComponent(id)}/report`, { method: 'POST', body: { reason } });
   rememberReport(id);

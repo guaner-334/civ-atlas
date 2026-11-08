@@ -25,7 +25,7 @@ import './layers.css';
 export function layerOnly(p: InstalledPlugin): boolean {
   const m = p.current.manifest;
   const caps = [...m.requires, ...(m.optional ?? [])];
-  return p.on && !isTool(m) && !verdictOf(p.current.sum).blocked && (caps.includes('layer.cells@1') || caps.includes('layer.marks@1'));
+  return p.on && !isTool(m) && !verdictOf(p.current.sum, p.id).blocked && (caps.includes('layer.cells@1') || caps.includes('layer.marks@1'));
 }
 
 /** 重新列一遍装着的只交图层的插件(图层面板打开时) */
@@ -72,7 +72,7 @@ function watchManager() {
     void getPlugin(r.id).then(
       (pl) => {
         if (running !== r) return;
-        if (!pl || !pl.on || (r.sum && pl.current.sum !== r.sum) || verdictOf(pl.current.sum).blocked) {
+        if (!pl || !pl.on || (r.sum && pl.current.sum !== r.sum) || verdictOf(pl.current.sum, pl.id).blocked) {
           stopLayerPlugin();
           const s = pluginLayers.get();
           if (s.shown === `run:${r.id}`) pluginLayers.set({ ...s, shown: null });
@@ -105,7 +105,7 @@ export async function startLayerPlugin(id: string): Promise<void> {
     if (!live()) return;
     name = opened.manifest.name;
     running.sum = opened.sum;
-    const blocked = verdictOf(opened.sum).blocked;
+    const blocked = verdictOf(opened.sum, opened.manifest.id).blocked;
     if (blocked) return failed(`网站停用了这一版：${blocked.why}`);
     const who = { pluginId: id, plugin: name, record: worldPluginOf(opened), dev: false };
     const h = await startPluginHost({

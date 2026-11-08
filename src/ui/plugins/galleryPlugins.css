@@ -1,0 +1,306 @@
+/* 作品墙上的插件(GalleryPlugins.tsx):卡片照作品卡(gallery.css),详情照「新建参数」作品那个窗;权限那几行用插件页的(plugins.css) */
+
+/* ---- 卡片 ---- */
+.pw-have {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  color: #23804a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.pw-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  min-width: 0;
+}
+.plg-pi.pw-ic {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+.pw-tt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pw-by {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pw-by .plg-tag {
+  vertical-align: 0;
+}
+.pw-card .gl-blurb {
+  margin-top: 6px;
+}
+.pw-caps {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  min-width: 0;
+  overflow: hidden;
+}
+.pw-cap {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--btn);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 19px;
+  white-space: nowrap;
+}
+.pw-cap.y {
+  background: rgba(185, 124, 12, 0.13);
+  color: #8f5d07;
+}
+.pw-lic {
+  margin-left: auto;
+  padding-left: 6px;
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* 手机:一行一个,左边小封面 */
+.pw-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw .gl-card.pw-row {
+  flex-direction: row;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.mw-phone .pw-row .gl-cover {
+  flex: none;
+  width: 112px;
+  height: 56px;
+  aspect-ratio: auto;
+  border-radius: 7px;
+}
+.pw-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pw-row .pw-head {
+  margin-top: 0;
+  gap: 7px;
+}
+.pw-row .plg-pi.pw-ic {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.pw-row .plg-pi.pw-ic .icon {
+  width: 13px;
+  height: 13px;
+}
+.mw-phone .pw-row .gl-name {
+  flex: 0 1 auto;
+  font-size: 15px;
+  line-height: 20px;
+}
+.mw-phone .pw-row .gl-by {
+  margin-top: 1px;
+  font-size: 12.5px;
+}
+.mw-phone .pw-row .gl-blurb {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 18px;
+}
+.pw-row .pw-caps {
+  margin-top: 6px;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* ---- 详情 ---- */
+.gl-pcover.pw-cover {
+  flex: none;
+  height: 210px;
+  background-color: var(--btn);
+  background-size: cover;
+}
+.pw-dlg.sheet .pw-cover {
+  height: 170px;
+}
+.pw-shot {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 12px;
+}
+.pw-dots {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+}
+.pw-dots button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+.pw-dots button.on {
+  background: #fff;
+}
+.acct-dlg.pw-dlg .acct-body {
+  gap: 12px;
+  padding-top: 16px;
+}
+.pw-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pw-title > div {
+  flex: 1;
+  min-width: 0;
+}
+.pw-title .plg-pi.pw-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+}
+.pw-title h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 700;
+}
+.pw-title .plg-by {
+  margin-top: 2px;
+}
+.acct-dlg.pw-dlg .plg-st {
+  margin: -2px 0 0;
+}
+.pw-blurb {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.acct-dlg.pw-dlg .plg-sec {
+  margin: 2px 2px -6px;
+}
+.pw-dlg .plg-safe {
+  margin-top: -4px;
+}
+.pw-dlg .plg-grp + .plg-safe {
+  margin-top: -4px;
+}
+.pw-kv.plg-kv {
+  grid-template-columns: 78px 1fr;
+}
+.pw-kv b {
+  font-weight: 500;
+}
+.pw-dlg .pw-lnk {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.pw-dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 14px;
+}
+.pw-lictext {
+  max-height: 220px;
+  overflow: auto;
+  margin: -4px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.acct-btn.pw-go {
+  color: var(--link);
+}
+.acct-btn.pw-have-btn:disabled {
+  opacity: 1;
+  color: var(--ink-2);
+}
+.pw-cover.ghost + .acct-body {
+  padding-bottom: 8px;
+}
+
+/* 手机:从下面升起,太长的往下滑,按钮钉在最底下;封面顶着窗口的上沿 */
+.pw-dlg > .acct-grip {
+  display: none;
+}
+.pw-dlg.sheet {
+  max-height: calc(100% - 40px);
+  padding-bottom: calc(18px + var(--safe-b, 0px));
+}
+.pw-scroll {
+  min-height: 0;
+}
+.pw-dlg.sheet .pw-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pw-dlg.sheet .pw-foot {
+  flex: none;
+  padding-top: 12px;
+  gap: 8px;
+}
+.pw-dlg.sheet .pw-title h2 {
+  font-size: 20px;
+}
+.pw-dlg.sheet .pw-title .acct-btn {
+  padding: 0 6px;
+}
+.pw-dlg.sheet .pw-blurb {
+  font-size: 15px;
+}
+.pw-dlg.sheet .pw-kv.plg-kv {
+  grid-template-columns: 62px 1fr;
+}
+
+/* 举报插件:理由下面那句 */
+.gw-extra {
+  margin: 0;
+}

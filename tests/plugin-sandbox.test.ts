@@ -210,13 +210,16 @@ describe('首页不带沙箱', () => {
           grew = true;
         }
     }
-    // 现在这样的只有插件页、开发者模式的小卡、工具(菜单、插件卡)、插件图层(画、图层面板里开的插件)、插件存进世界的数据那几包;别的文件静态 import 了它们就会多出来
+    // 现在这样的只有插件页、开发者模式的小卡、工具(菜单、插件卡)、插件图层(画、图层面板里开的插件)、插件存进世界的数据、作品墙上的插件那几包;别的文件静态 import 了它们就会多出来
     expect([...pulls].map((f) => path.relative(ROOT, f).replace(/\\/g, '/')).sort()).toEqual([
       'src/ui/plugins/DevCard.tsx',
+      'src/ui/plugins/GalleryPlugins.tsx',
       'src/ui/plugins/PluginWindow.tsx',
       'src/ui/plugins/WorldDataAsk.tsx',
       'src/ui/plugins/WorldPluginsSection.tsx',
       'src/ui/plugins/dev.ts',
+      'src/ui/plugins/galleryPlugin.ts',
+      'src/ui/plugins/galleryWatch.ts',
       'src/ui/plugins/layers/LayerView.tsx',
       'src/ui/plugins/layers/layerRun.ts',
       'src/ui/plugins/pluginIcons.tsx',

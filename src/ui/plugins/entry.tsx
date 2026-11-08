@@ -31,11 +31,14 @@ export function closePlugins(): void {
 }
 
 export function PluginsMenuItem() {
-  const [n, setN] = useState(0);
+  const [n, setN] = useState({ on: 0, newer: 0 });
   useEffect(() => {
     let live = true;
-    Promise.all([import('../../plugin/pluginStore'), import('./verdict')])
-      .then(async ([store, { verdictOf }]) => (await store.listPlugins()).filter((p) => !verdictOf(p.current.sum).blocked).length)
+    Promise.all([import('../../plugin/pluginStore'), import('./verdict'), import('./galleryWatch')])
+      .then(async ([store, { verdictOf }, { newVersionOf }]) => {
+        const ok = (await store.listPlugins()).filter((p) => !verdictOf(p.current.sum, p.id).blocked);
+        return { on: ok.length, newer: ok.filter((p) => newVersionOf(p)).length };
+      })
       .then(
         (count) => live && setN(count),
         () => {},
@@ -45,7 +48,7 @@ export function PluginsMenuItem() {
     };
   }, []);
   return (
-    <MenuItem icon={<PuzzleIcon size={16} />} act="plugins" note={n ? `装了 ${n} 个` : undefined} onClick={openPlugins}>
+    <MenuItem icon={<PuzzleIcon size={16} />} act="plugins" note={n.on ? `装了 ${n.on} 个${n.newer ? `，${n.newer} 个有新版` : ''}` : undefined} onClick={openPlugins}>
       插件
     </MenuItem>
   );
@@ -63,6 +66,13 @@ const PluginWindow = lazy(() => import('./PluginWindow').catch(() => ({ default:
 
 export function PluginsHost({ phone }: { phone: boolean }) {
   const shown = open.use();
+  // 装着的插件联网时和作品墙对一对:有新版、被网站停用了
+  useEffect(() => {
+    import('./galleryWatch').then(
+      (m) => m.watchPlugins(),
+      () => {},
+    );
+  }, []);
   if (!shown) return null;
   return (
     <Suspense fallback={null}>

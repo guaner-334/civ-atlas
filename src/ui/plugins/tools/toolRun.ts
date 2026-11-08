@@ -118,7 +118,7 @@ const yearNow = (p: ToolsProps): number => yearOf(p.civ);
 export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps): Promise<void> {
   stopTool();
   const my = seq;
-  const verdict = verdictOf(plugin.current.sum);
+  const verdict = verdictOf(plugin.current.sum, plugin.id);
   const base: ToolRun = { plugin, phase: 'starting', panel: null, trouble: null, refusal: null, pick: null, box: null };
   if (verdict.blocked) {
     toolRun.set({ ...base, phase: 'stopped', trouble: { kind: 'blocked', ...verdict.blocked } });

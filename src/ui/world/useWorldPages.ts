@@ -24,6 +24,7 @@ import { startFullView } from '../fullWorldView';
 import type { SharedWorld } from '../fullWorldPull';
 import { sizeText } from '../sizeWords';
 import { setGoHome } from '../AccountDialogs';
+import { pluginsUiOn } from '../plugins/flag';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
 import { clearEditHistory, getEdits, putEditsQuiet, setHistoryGate } from '../editsStore';
@@ -190,12 +191,14 @@ export function useWorldPages(deps: WorldPagesDeps) {
       if (my !== wallSeq.current) return;
       clearToast('share');
       const gone = isWorkGone(e);
-      setWall({ kind: 'work', id, state: gone ? 'gone' : { error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后再试。' : e instanceof Error ? e.message : String(e) } });
+      const plugin = gone && pluginsUiOn() && e instanceof ServerError && e.data.kind === 'plugin' ? { plugin: typeof e.data.blocked === 'string' ? e.data.blocked : '' } : null;
+      setWall({ kind: 'work', id, state: plugin ?? (gone ? 'gone' : { error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后再试。' : e instanceof Error ? e.message : String(e) }) });
       // 作品墙上的卡片跟着去掉
       if (gone) loadGallery(true);
     };
     fetchWork(id).then((it) => {
       if (my !== wallSeq.current) return;
+      if (it.kind === 'plugin' && !pluginsUiOn()) return failed(new ServerError(200, 'bad-response', '服务器返回的内容看不懂'));
       if (it.kind === 'world') return it.full ? pullWorkWorld(it, it.full.bytes, my).catch(failed) : openWorkWorld(it);
       setWall(it.kind === 'map' ? { kind: 'map', work: it } : { kind: 'list', shown: it });
     }, failed);

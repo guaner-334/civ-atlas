@@ -238,7 +238,7 @@ export async function loadDev(file: File, h: FileHandle | null): Promise<void> {
     return done(run, null);
   }
   if (my !== epoch) return;
-  const blocked = verdictOf(opened.sum).blocked;
+  const blocked = verdictOf(opened.sum, opened.manifest.id).blocked;
   if (blocked) {
     stopHost();
     log(++run, 'error', `网站停用了这一版：${blocked.why}`);

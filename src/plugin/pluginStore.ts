@@ -25,6 +25,8 @@ export interface PluginVersion {
   at: number;
   /** 装的时候的文件名(给的是 File 才有) */
   file?: string;
+  /** 从作品墙装的:作品编号 */
+  work?: string;
 }
 
 /** 装了的一个插件 */
@@ -35,8 +37,8 @@ export interface InstalledPlugin {
   previous?: PluginVersion;
   /** 关着的不出现在工具里 */
   on: boolean;
-  /** 从哪装的 */
-  from: 'file';
+  /** 第一次是从哪装的 */
+  from: 'file' | 'gallery';
   /** 第一次装的时间 */
   at: number;
 }
@@ -188,14 +190,14 @@ export type InstallResult = { status: 'added' | 'same'; plugin: InstalledPlugin 
  * 从文件装:先照插件文件的规矩核对(坏的、要新版网站的抛 PluginFileError),再存。
  * 已经装了这个编号的别的版本:新的成了现在用的,原来的成了上一版,更早的那一版删掉。装上的都是开着的
  */
-export async function installPlugin(file: Blob | Uint8Array): Promise<InstallResult> {
+export async function installPlugin(file: Blob | Uint8Array, opts: { work?: string } = {}): Promise<InstallResult> {
   try {
     // 只读一次:存下的必须是核对过的那份字节
     if (file instanceof Blob && file.size > PLUGIN_MAX_BYTES) throw new PluginFileError('broken', '插件文件太大');
     const bytes = file instanceof Blob ? new Uint8Array(await file.arrayBuffer()) : file;
     const opened = await openPluginFile(bytes);
     const name = typeof File !== 'undefined' && file instanceof File && file.name ? file.name.slice(0, 200) : undefined;
-    const ver: PluginVersion = { sum: opened.sum, bytes: opened.bytes, manifest: opened.manifest, at: Date.now(), ...(name ? { file: name } : {}) };
+    const ver: PluginVersion = { sum: opened.sum, bytes: opened.bytes, manifest: opened.manifest, at: Date.now(), ...(name ? { file: name } : {}), ...(opts.work ? { work: opts.work } : {}) };
     const data = copy(bytes);
     return await run<InstallResult>(['files', 'plugins'], 'readwrite', (t, done) => {
       get<InstalledPlugin>(t, 'plugins', ver.manifest.id, (had) => {
@@ -203,7 +205,9 @@ export async function installPlugin(file: Blob | Uint8Array): Promise<InstallRes
         const files = t.objectStore('files');
         files.put({ sum: ver.sum, data } satisfies FileRow);
         if (had?.previous && had.previous.sum !== ver.sum) files.delete(had.previous.sum);
-        const plugin: InstalledPlugin = had ? { ...had, current: ver, previous: had.current, on: true } : { id: ver.manifest.id, current: ver, on: true, from: 'file', at: ver.at };
+        const plugin: InstalledPlugin = had
+          ? { ...had, current: ver, previous: had.current, on: true }
+          : { id: ver.manifest.id, current: ver, on: true, from: opts.work ? 'gallery' : 'file', at: ver.at };
         t.objectStore('plugins').put(plugin);
         done(had ? { status: 'updated', plugin, replaced: had.current } : { status: 'added', plugin });
       });

@@ -228,7 +228,7 @@ function ToolsMenu({ phone, onStart }: { phone: boolean; onStart: (p: InstalledP
         <div className="plg-tl">
           {tools.map((x) => {
             const m = x.current.manifest;
-            const v = verdictOf(x.current.sum);
+            const v = verdictOf(x.current.sum, x.id);
             return (
               <button key={x.id} type="button" className={`plg-ti${v.blocked ? ' off' : ''}`} data-act="plugin-tool" data-plugin={x.id} onClick={() => onStart(x)}>
                 <PluginIcon src={icons.get(x.current.sum)} size={phone ? 'md' : 'sm'} />
@@ -277,7 +277,7 @@ function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAga
   const m = pl.current.manifest;
   const list = useMemo(() => [pl], [pl]);
   const icon = useIcons(list).get(pl.current.sum);
-  const v = verdictOf(pl.current.sum);
+  const v = verdictOf(pl.current.sum, pl.id);
   const writes = [...m.requires, ...(m.optional ?? [])].includes('author.write@1');
   const label = `插件「${m.name}」${versionLabel(m.version)}`;
   const t = run.trouble;
