@@ -39,6 +39,36 @@ export class PluginError extends Error {
   }
 }
 
+/** 插件用时的上限(毫秒):一个插件在一刻里(算表、出手、办回话)多久;一段推演(新建、接着推各算一段)里所有插件加起来多久 */
+export const PLUGIN_TIME = { moment: 2000, total: 30_000 } as const;
+
+const sec = (ms: number) => (ms / 1000).toFixed(1);
+
+/**
+ * 一段推演里插件的用时:这一段上所有插件那一段(地形大事前后、推到底的那一支)记在同一份上,超了上限停下。
+ * 计时只决定停不停,不进历史;超了算谁的:一刻超了是那一刻的插件,加起来超了是用得最多的那个
+ */
+export class PluginClock {
+  private readonly spent = new Map<string, number>();
+  private sum = 0;
+
+  /** now 不给 = performance.now(单测换成假的) */
+  constructor(readonly now: () => number = () => performance.now()) {}
+
+  /** 记上 id 在第 year 年这一刻从 t0 起用的时长 */
+  charge(id: string, t0: number, year: number): void {
+    const ms = this.now() - t0;
+    this.spent.set(id, (this.spent.get(id) ?? 0) + ms);
+    this.sum += ms;
+    if (ms > PLUGIN_TIME.moment) throw new PluginError(id, `第 ${year} 年这一刻用了 ${sec(ms)} 秒,超过 ${sec(PLUGIN_TIME.moment)} 秒`);
+    if (this.sum > PLUGIN_TIME.total) {
+      let top = id;
+      for (const [k, v] of this.spent) if (v > this.spent.get(top)!) top = k;
+      throw new PluginError(top, `推到第 ${year} 年,所有推演插件一共用了 ${sec(this.sum)} 秒,超过 ${sec(PLUGIN_TIME.total)} 秒(它用得最多,${sec(this.spent.get(top)!)} 秒)`);
+    }
+  }
+}
+
 /** 插件自己约的一件事 */
 export interface PluginEvent {
   year: number;
@@ -226,9 +256,10 @@ class Host<V> {
     private readonly sim: CivSim,
     private readonly bridge: PluginBridge<V>,
     seed: number,
+    private readonly clock: PluginClock,
     /** 这一段推演里插件写的编年史(几个插件写进同一串) */
     private readonly lines: SimChronicleLine[],
-    look: LayerLookCheck,
+    look: LayerLookCheck | undefined,
   ) {
     const id = plugin.id;
     this.id = id;
@@ -274,7 +305,8 @@ class Host<V> {
     for (const spec of layers) {
       if (this.layers.some((l) => l.spec.id === spec?.id)) fail(`图层 ${spec.id} 给了两次`);
       try {
-        this.layers.push(new LayerRun(spec, this.cards.get(spec?.table), TICKS, look));
+        if (!look) fail('这套规则不认图层');
+        this.layers.push(new LayerRun(spec, this.cards.get(spec?.table), TICKS, look!));
       } catch (e) {
         fail(e instanceof Error ? e.message : String(e));
       }
@@ -409,6 +441,7 @@ class Host<V> {
 
   /** 这一刻(tick)要办的:算表;该出手的交出一回合、办回话 */
   *moment(tick: number): Generator<PluginAsk<V>, void, PluginReply | undefined> {
+    const t0 = this.clock.now();
     const year = tick / TICKS;
     const first = this.at < 0;
     // 只为存图层的一刻:不填表、不算表、不出手,和没标图层时一样
@@ -416,6 +449,7 @@ class Host<V> {
       this.at = tick;
       this.keepLayers(tick);
       this.next = this.nextTick();
+      this.clock.charge(this.id, t0, year);
       return;
     }
     let k = 0;
@@ -423,6 +457,7 @@ class Host<V> {
     const due = this.events.splice(0, k);
     this.at = tick;
     if (this.eng) {
+      const seen = this.eng.incidents.length;
       try {
         // 接官方的输入表每一刻都填新的(插件出手时读到的也是这一刻的)
         this.fill();
@@ -433,6 +468,14 @@ class Host<V> {
         if (e instanceof PluginError) throw e;
         throw new PluginError(this.id, `第 ${year} 年算表出错:${e instanceof Error ? e.message : String(e)}`, { cause: e });
       }
+      // 数表引擎遇到不是数、来回震荡,没有备份规则的会把表关掉接着算;插件的表不关,停下
+      for (let i = seen; i < this.eng.incidents.length; i++) {
+        const x = this.eng.incidents[i];
+        if (x.action !== 'off') continue;
+        const multi = colCount(this.cards.get(x.table)!) > 1;
+        const what = x.kind === 'nan' ? `算出了不是数的值(第 ${x.index} 格${multi ? `第 ${(x.col ?? 0) + 1} 栏` : ''})` : '来回震荡(大批格子一步涨一步跌)';
+        throw new PluginError(this.id, `第 ${year} 年表「${x.name}」${what}`);
+      }
     }
     const isTick = first || (this.every > 0 && tick % this.every === 0);
     if (isTick || due.length) {
@@ -442,6 +485,7 @@ class Host<V> {
     }
     this.keepLayers(tick);
     this.next = this.nextTick();
+    this.clock.charge(this.id, t0, year);
   }
 
   /** 算表之前:州 → 国、接官方表的输入表填好 */
@@ -605,8 +649,16 @@ export class PluginLine<V> {
   private readonly hosts: Host<V>[];
   private readonly lines: SimChronicleLine[] = [];
 
-  /** saved = 接着推时存下的(从第 0 年起推 = null);look = 查图层的样子 */
-  constructor(sim: CivSim, bridge: PluginBridge<V>, plugins: readonly SimPlugin<V>[], seed: number, saved: PluginSaved | null, look: LayerLookCheck) {
+  /** saved = 接着推时存下的(从第 0 年起推 = null)。clock = 这一段推演记用时的那一份;look = 查图层的样子(不给 = 插件不能标图层) */
+  constructor(
+    sim: CivSim,
+    bridge: PluginBridge<V>,
+    plugins: readonly SimPlugin<V>[],
+    seed: number,
+    saved: PluginSaved | null,
+    clock: PluginClock = new PluginClock(),
+    look?: LayerLookCheck,
+  ) {
     if (plugins.length > PLUGIN_LIMITS.plugins) throw new Error(`一个世界最多 ${PLUGIN_LIMITS.plugins} 个推演插件`);
     const ids = new Set<string>();
     for (const p of plugins) {
@@ -615,7 +667,7 @@ export class PluginLine<V> {
       if (ids.has(id)) throw new Error(`推演插件 ${id} 给了两次`);
       ids.add(id);
     }
-    this.hosts = plugins.map((p) => new Host(p, sim, bridge, seed, this.lines, look));
+    this.hosts = plugins.map((p) => new Host(p, sim, bridge, seed, clock, this.lines, look));
     if (saved) {
       if (saved.states.length !== plugins.length) throw new Error('存下的推演插件和给的对不上');
       const written = new Map<string, number>();

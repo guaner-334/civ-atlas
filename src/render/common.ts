@@ -278,16 +278,65 @@ export interface VecView {
 }
 
 /**
- * 放大后的细节层第一次画要用的缓存,拆成一小步一小步在后台分帧算(fantasy.ts 的 fantasyDetailPrep、realistic.ts 的 realisticDetailPrep;
- * 调度见 ui/detailJobs.ts)。一步 = 一个函数,做过的再调直接返回
- */
-export type PrepStep = () => void;
-
-/**
- * 分几段做的一步(逐行上色这类一次要算很久的):deadline = 这一段最晚做到什么时候(performance.now());
- * 返回 true = 还没做完,下一段接着做。PrepStep 也是一种 WorkStep(一次做完)
+ * 后台分帧做的一步(放大后细节层第一次画要用的缓存、逐行上色这类,调度见 ui/detailJobs.ts):deadline = 这一段最晚做到什么时候(performance.now());
+ * 返回 true = 还没做完,下一段接着做;deadline = Infinity 时一定做完。做过的再调直接返回
  */
 export type WorkStep = (deadline: number) => boolean | void;
+
+/** 一口气算完的 generator(每个 yield 处可以停下) */
+export function drain<T>(g: Generator<void, T, void>): T {
+  for (;;) {
+    const s = g.next();
+    if (s.done) return s.value;
+  }
+}
+
+/**
+ * 分几段算的一样东西(make 给出的 generator,每个 yield 处可以停下):step 做到 deadline(没算完返回 true),
+ * get 剩下的当下算完。算到一半的留着,下一份活、当下要用时都接着算,结果和一口气算完一样
+ */
+export class Gradual<T> {
+  private it: Generator<void, T, void> | null = null;
+  private out: { v: T } | null = null;
+  constructor(private readonly make: () => Generator<void, T, void>) {}
+
+  step(deadline: number): boolean {
+    if (this.out) return false;
+    const it = (this.it ??= this.make());
+    for (;;) {
+      let s: IteratorResult<void, T>;
+      try {
+        s = it.next();
+      } catch (e) {
+        // 出错的 generator 不能再接着用:下次从头算
+        this.it = null;
+        throw e;
+      }
+      if (s.done) {
+        this.out = { v: s.value };
+        this.it = null;
+        return false;
+      }
+      if (performance.now() >= deadline) return true;
+    }
+  }
+
+  get(): T {
+    this.step(Infinity);
+    return this.out!.v;
+  }
+
+  /** 算完了的结果(没算完 = undefined) */
+  peek(): T | undefined {
+    return this.out?.v;
+  }
+
+  /** 在别的 generator 里接着算它(yield* g.run()) */
+  *run(): Generator<void, T, void> {
+    while (this.step(-Infinity)) yield;
+    return this.out!.v;
+  }
+}
 
 /**
  * 分几下画的一层里的一下:依次画在同一张画布上,一下接一下画完和一口气画完逐像素一样

@@ -13,7 +13,7 @@ import { knobSet, sameKnobs } from './knobs';
 import { YEAR_TICKS, cleanInterventions, sameInterventions, type Intervention } from '../edits';
 import type { UpheavalStep } from './upheaval';
 import type { FinishCtx, InstallCtx, ResumeCtx } from './modules';
-import { PluginError, PluginLine, answerNow, type PluginAsk, type PluginBridge, type PluginReply, type SimPlugin } from './engine/plugin';
+import { PluginClock, PluginError, PluginLine, answerNow, type PluginAsk, type PluginBridge, type PluginReply, type SimPlugin } from './engine/plugin';
 import type { SimRead } from './simRead';
 import { checkLayerLook } from '../layerLook';
 
@@ -299,12 +299,12 @@ export function startPack<S>(pack: CivPack<S>, world: World, params: Partial<Civ
   };
 }
 
-/** 推演插件接到一段推演上:saved = 接着推的那份历史(从第 0 年起推 = null);没给插件 = null */
-function plugInto<S>(pack: CivPack<S>, sim: CivSim, plugins: readonly SimPlugin<SimRead>[], seed: number, saved: Civ | null): PluginLine<SimRead> | null {
-  if (!plugins.length) return null;
+/** 推演插件接到一段推演上:saved = 接着推的那份历史(从第 0 年起推 = null);clock = 这一段推演记用时的那一份;没给插件 = null */
+function plugInto<S>(pack: CivPack<S>, sim: CivSim, plugins: readonly SimPlugin<SimRead>[], seed: number, saved: Civ | null, clock: PluginClock | null): PluginLine<SimRead> | null {
+  if (!plugins.length || !clock) return null;
   const bridge = pack.bridge?.(sim, seed);
   if (!bridge) throw new Error(`规则包 ${pack.id} 不接推演插件`);
-  return new PluginLine(sim, bridge, plugins, seed, saved ? { states: saved.simPlugins ?? [], year: saved.endYear, chronicle: saved.simChronicle, layers: saved.simLayers } : null, checkLayerLook);
+  return new PluginLine(sim, bridge, plugins, seed, saved ? { states: saved.simPlugins ?? [], year: saved.endYear, chronicle: saved.simChronicle, layers: saved.simLayers } : null, clock, checkLayerLook);
 }
 
 /** 推演插件推出来的放进结果:写的编年史、状态、图层(没有的不给) */
@@ -315,6 +315,9 @@ function putPlugins(civ: Civ, plug: PluginLine<SimRead>): void {
   const layers = plug.layers(civ.regions.count);
   if (layers.length) civ.simLayers = layers;
 }
+
+/** 这一段推演记插件用时的那一份(没有插件 = null) */
+const clockOf = (p: CivParams): PluginClock | null => (p.plugins?.length ? new PluginClock(p.pluginClock) : null);
 
 /** 从第 0 年推到 p.endYear 的总流程,主线照 line.stop 停;地形大事那一段(推到底的那一支、换地形)一次做完 */
 function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Progress, line: Line): Flow<Ran<S>> {
@@ -337,7 +340,8 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
   const { own, install } = pack.prelude(run, fin);
   if (install) installModules(pack, install);
   const plugins = install ? (p.plugins ?? []) : [];
-  fin.plug = plugInto(pack, sim, plugins, seed, null);
+  const clock = clockOf(p);
+  fin.plug = plugInto(pack, sim, plugins, seed, null, clock);
   progress('民族推演', 0.85);
   const ups = install ? (p.upheavals ?? []).filter((u) => u.year > 0 && u.year < p.endYear) : [];
   yield* segment(line, sim, ups.length ? ups[0].year - 1 / 256 : p.endYear, fin.plug);
@@ -351,7 +355,7 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
     same.upheavals = facts.slice();
     // 接着推和一口气推完一样:这一支和"没有这件大事、照原样推到底"一模一样(信仰照历史重放:早先几段按那时的州)
     const branch = resumePack(pack, before.world, same, same.interventions ?? [], undefined, eras);
-    yield* segment({ stop: Infinity, sim: null }, branch, p.endYear, plugInto(pack, branch, plugins, seed, same));
+    yield* segment({ stop: Infinity, sim: null }, branch, p.endYear, plugInto(pack, branch, plugins, seed, same, clock));
     eras.push(pack.era(run, own, { k, seg: before, branch, from: k ? ups[k - 1].year : -Infinity, to: u.year, eras }));
     // 新地形:州沿用编号,只改变了的地方
     const h1 = computeHabitat(u.world);
@@ -374,7 +378,7 @@ function* packFlow<S>(pack: CivPack<S>, world: World, p: CivParams, progress: Pr
       eras,
     );
     up.install(s1);
-    const plug = plugInto(pack, s1, plugins, seed, half);
+    const plug = plugInto(pack, s1, plugins, seed, half, clock);
     yield* segment(line, s1, k + 1 < ups.length ? ups[k + 1].year - 1 / 256 : p.endYear, plug);
     fin = { sim: s1, world: u.world, habitat: h1, regions: r1, plug };
   }
@@ -481,7 +485,7 @@ export function continuePack<S>(pack: CivPack<S>, world: World, civ: Civ, params
   const run: CivRun<S> = { pack, p, seed, knobs: sim.knobs, viable: true, progress };
   let plug: PluginLine<SimRead> | null;
   try {
-    plug = plugInto(pack, sim, p.plugins ?? [], civ.seed, civ);
+    plug = plugInto(pack, sim, p.plugins ?? [], civ.seed, civ, clockOf(p));
   } catch (e) {
     // 存下的插件状态接不上(插件的表改了、状态坏了):和别的接不上一样从第 0 年重推
     if (e instanceof PluginError) return null;
