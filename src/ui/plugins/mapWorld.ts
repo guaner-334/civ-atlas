@@ -7,7 +7,7 @@ import { mapPluginsReady } from '../../plugin/mapPlugins';
 import { listPlugins, pluginFileBytes, type InstalledPlugin } from '../../plugin/pluginStore';
 import { mapPluginIds, mapPluginOf, mapPluginsIn, recordParams, simParamsOf, type MapPluginCheck, type MapPluginFile } from '../../plugin/pluginWorld';
 import { vaultCall } from '../worldStore';
-import { getMapNow, setMapNow } from '../world/mapNow';
+import { getMapNow, rememberMaps, setMapNow } from '../world/mapNow';
 import { subscribeVerdicts, verdictOf } from './verdict';
 import { blockedChecks } from './worldPlugins';
 
@@ -72,7 +72,24 @@ export async function chooseMaps(worldId: string, picks: readonly MapChoice[], i
   }
   if (seq !== chooseSeq || !still()) return false;
   setMapNow(list.length ? { id: worldId, list, files, ready: !off.length, checks: off } : null);
+  rememberMaps(worldId, list.length ? list : null);
   return true;
+}
+
+/**
+ * 刷新、从「我的世界」再打开新建中的世界:照记着的选上(用本机现在那一版);没装了、被停用的去掉。
+ * 交回去掉了的那几个的名字
+ */
+export async function restoreMaps(worldId: string, records: readonly WorldPlugin[]): Promise<string[]> {
+  await chooseMaps(
+    worldId,
+    records.map((r) => {
+      const params = recordParams(r);
+      return { id: r.id, ...(params ? { params } : {}) };
+    }),
+  );
+  const kept = getMapNow()?.id === worldId ? getMapNow()!.list.map((p) => p.id) : [];
+  return records.filter((r) => !kept.includes(r.id)).map((r) => r.name ?? r.id);
 }
 
 /** 新建中选上的(没选、记着的是别的世界的 = 空) */

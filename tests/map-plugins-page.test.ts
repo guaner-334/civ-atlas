@@ -22,8 +22,8 @@ vi.mock('../src/ui/worldStore', () => ({ vaultCall: async () => manifest, settle
 const cur = { id: '', kind: 'created' };
 vi.mock('../src/ui/saveStore', () => ({ currentWorld: () => (cur.id ? { ...cur } : null), keepWorld: () => {}, notify: () => {}, saveAsNewVersion: () => null, storageFullWhy: () => '' }));
 
-const { chooseMaps, chosenMaps, loadMapNow, refreshMapNow } = await import('../src/ui/plugins/mapWorld');
-const { carryMaps, getMapNow, mapFilesOf, mapNowFor, setMapNow, usesMaps } = await import('../src/ui/world/mapNow');
+const { chooseMaps, chosenMaps, loadMapNow, refreshMapNow, restoreMaps } = await import('../src/ui/plugins/mapWorld');
+const { carryMaps, getMapNow, mapFilesOf, mapNowFor, rememberedMaps, setMapNow, usesMaps } = await import('../src/ui/world/mapNow');
 const { sameSetup, setupFor, setupOpt } = await import('../src/ui/world/worldTarget');
 
 const record = (id: string, name: string, sum: string, params?: Record<string, number>): WorldPlugin => ({ id, version: '1.0.0', sum, role: 'map', name, ...(params ? { params } : {}) });
@@ -186,6 +186,28 @@ describe('以它为底稿新建', () => {
     installed = [have('craters', '环形山', craters.sum)];
     expect(await chooseMaps('d1', [{ id: 'craters' }], undefined, () => false)).toBe(false);
     expect(getMapNow()).toBeNull();
+  });
+});
+
+describe('新建中的世界刷新以后', () => {
+  it('选的地图插件记在浏览器里,再打开时照它取回;没装了的去掉', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    installed = [have('craters', '环形山', craters.sum), have('tides', '潮汐', tides.sum)];
+    await chooseMaps('d1', [{ id: 'tides' }, { id: 'craters', params: { count: 12 } }]);
+    const rec = rememberedMaps('d1')!;
+    expect(rec.map((p) => [p.id, p.params])).toEqual([
+      ['tides', { count: 40 }],
+      ['craters', { count: 12 }],
+    ]);
+    setMapNow(null);
+    installed = [have('craters', '环形山', craters.sum)];
+    expect(await restoreMaps('d1', rec)).toEqual(['潮汐']);
+    expect(getMapNow()!.list.map((p) => [p.id, p.params])).toEqual([['craters', { count: 12 }]]);
+    // 一个都不选了:不再记
+    await chooseMaps('d1', []);
+    expect(rememberedMaps('d1')).toBeNull();
+    vi.unstubAllGlobals();
   });
 });
 

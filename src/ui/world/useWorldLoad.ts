@@ -111,8 +111,11 @@ import {
   type WallView,
 } from './worldTarget';
 import { simNowFor } from './simNow';
-import { mapNowFor } from './mapNow';
+import { getMapNow, mapNowFor, rememberedMaps } from './mapNow';
 import { forgetSimError } from '../sim/simClient';
+
+/** 这次打开网页里已经照记着的取回过地图插件的新建中的世界(取回过就不再取,免得取不回时一直重来) */
+const mapsRestored = new Set<string>();
 
 /**
  * 新建中的世界让生成线程顺手画好的写实像素层(见 worker.ts 的 paint):新建界面的星球贴的是卫星画法 sat 那一种
@@ -257,6 +260,23 @@ export function useWorldLoad(deps: WorldLoadDeps) {
   /** 按 t 的参数、地形修改生成世界;生成完(readyRef)套上 t 的修改 */
   const generate = useCallback(
     (t: Target) => {
+      // 新建中的世界选过地图插件(不进世界仓库,记在浏览器里):先照记着的取回插件,再长
+      const kept = t.kind === 'draft' && !t.fullCiv && getMapNow()?.id !== t.id && !mapsRestored.has(t.id) ? rememberedMaps(t.id) : null;
+      if (kept) {
+        mapsRestored.add(t.id);
+        targetRef.current = t;
+        setProgress({ stage: '准备', pct: 0, seed: t.params.seed });
+        void import('../plugins/mapWorld')
+          .then(async (m) => {
+            const lost = await m.restoreMaps(t.id, kept);
+            if (lost.length) showToast({ id: 'map-fail', kind: 'warn', text: '有地图插件用不了了', more: [`${lost.map((n) => `「${n}」`).join('')}没装了，或者被网站停用了，地图照剩下的长`], dismissible: true, ttl: 0 });
+          })
+          .catch(() => {})
+          .finally(() => {
+            if (targetRef.current === t) generate(t);
+          });
+        return;
+      }
       // 原来那个世界等着截的缩略图(编辑地形停笔没多久)先截下来,换走以后就截不到了
       flushThumb();
       targetRef.current = t;
