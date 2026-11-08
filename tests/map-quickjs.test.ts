@@ -3,7 +3,6 @@
  * 每一口新开环境;QuickJS 里没有时间、随机数、eval;死循环叫停、内存用完、栈用完都报错停下;帮手递出来算,和网站这头直接算一样;
  * 一次生成的合计用时超了停下
  */
-import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
@@ -13,18 +12,11 @@ import { MapPluginLoadError, quickjsMapPlugin, type QuickJSMapPlugin, type Quick
 import { keyed, subSeed } from '../src/gen/util';
 import { pluginScript, quickjsWasm } from '../scripts/lib/quickjsNode';
 import { craters, koppen, tides, withParams } from './lib/mapPlugins';
+import { MAP_PINS, MAP_SEEDS, mapDigest as digest, type MapSeed } from './lib/mapPins';
 
 const FILE = fileURLToPath(new URL('./lib/mapPlugins.ts', import.meta.url));
 
 const bytes = (a: ArrayBufferView) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
-
-/** 长出来的地图的指纹:海拔、海陆湖、群落、气温、降水、径流、插件出的图层 */
-function digest(w: World): string {
-  const h = createHash('sha256');
-  for (const a of [w.elevation, w.water, w.biome, w.temperature, w.precipitation, w.flux]) h.update(bytes(a));
-  for (const l of w.mapLayers ?? []) h.update(`${l.by}/${l.id}`).update(bytes(l.values));
-  return h.digest('hex').slice(0, 16);
-}
 
 /** 测试插件的 QuickJS 版:同一个文件的源码 + civAtlas.map(make) */
 const boxed = (native: { id: string; key: string; stages: readonly MapStage[]; layerIds?: readonly string[] }, make: string, params: Record<string, number> = {}) =>
@@ -55,14 +47,8 @@ async function errOf(f: () => unknown): Promise<Error> {
   throw new Error('没有出错');
 }
 
-/** 种子 7、2024(默认 36k 地块)三个测试插件一起开:长出来的地图的指纹(PRINT_FINGERPRINT=1 重算) */
-const PINNED: Record<number, string> = {
-  7: '5f38d47fb6f094d5',
-  2024: 'fed5495d76d3f6e2',
-};
-
 describe('照接口写的插件以源码进 QuickJS,和直接跑一样', () => {
-  it.each([7, 2024])('seed %i 环形山、柯本、潮汐一起开:长出的地图和直接跑逐位一样,指纹钉住', async (seed) => {
+  it.each(MAP_SEEDS)('seed %i 环形山、柯本、潮汐一起开:长出的地图和直接跑逐位一样,指纹钉住', async (seed) => {
     const P = { ...DEFAULT_PARAMS, seed };
     const native = generateWorld(P, undefined, undefined, undefined, undefined, [withParams(craters(), { count: 40 }), withParams(koppen()), withParams(tides())]);
     const w = await using([boxed(craters(), 'craters()', { count: 40 }), boxed(koppen(), 'koppen()'), boxed(tides(), 'tides()')], (ps) =>
@@ -79,7 +65,7 @@ describe('照接口写的插件以源码进 QuickJS,和直接跑一样', () => {
     expect([...tide.values].filter((v) => v > 0).length).toBeGreaterThan(500);
     const plain = generateWorld(P);
     expect(digest(w)).not.toBe(digest(plain));
-    expect(digest(w)).toBe(PINNED[seed]);
+    expect(digest(w)).toBe(MAP_PINS[seed as MapSeed]);
   }, 60_000);
 });
 
