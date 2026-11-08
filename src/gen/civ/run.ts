@@ -15,7 +15,7 @@ import type { UpheavalStep } from './upheaval';
 import type { FinishCtx, InstallCtx, ResumeCtx } from './modules';
 import { PluginError, PluginLine, answerNow, type PluginAsk, type PluginBridge, type PluginReply, type SimPlugin } from './engine/plugin';
 import type { SimRead } from './simRead';
-import { checkLayerLook } from '../../plugin/check';
+import { checkLayerLook } from '../layerLook';
 
 export const DEFAULT_CIV_PARAMS: CivParams = {
   endYear: 3000,

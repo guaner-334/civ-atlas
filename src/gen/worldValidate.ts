@@ -54,7 +54,7 @@ import {
 } from './worldFormat';
 import { PLUGIN_LIMITS, type SimPluginState } from './civ/engine/plugin';
 import { checkStoredChronicle, type ChronicleRefKind } from './civ/engine/pluginChronicle';
-import { checkLayerLook } from '../plugin/check';
+import { checkLayerLook } from './layerLook';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES } from './zipStore';
 
 // ---------------------------------------------------------------------------

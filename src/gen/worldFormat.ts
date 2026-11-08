@@ -145,7 +145,7 @@ export function pluginLayerOf(name: string): [string, string] | null {
 
 /**
  * 插件图层那一块的内容。画第 y 年时用 years 里不晚于 y 的最后一份,比第一份早不画;
- * 颜色写成小写的 #rrggbb,标题、图例、分类的名字最长 40 字(和工具插件交的地块图层同一套,plugin/check.ts 的 checkLayerLook)
+ * 颜色写成小写的 #rrggbb,标题、图例、分类的名字最长 40 字(和工具插件交的地块图层同一套,layerLook.ts 的 checkLayerLook)
  */
 export interface PluginLayerValue {
   title: string;
