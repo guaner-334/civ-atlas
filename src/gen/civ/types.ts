@@ -694,6 +694,8 @@ export interface Civ {
    * 编年史这类按整段历史算的用它(后面才冒出来的州也认得),地图用这一份本身
    */
   history?: Civ;
+  /** 推演插件推到 endYear 的状态(按 CivParams.plugins 的先后),接着推时照它恢复;没用推演插件 = 不给 */
+  simPlugins?: import('./engine/plugin').SimPluginState[];
 }
 
 /** 地形大事以前的一段:到 until 年为止(不含) */
@@ -1292,6 +1294,11 @@ export interface CivParams {
    * 接着推(continueCiv、startContinue)时不给 = 照 civ 带着的那一套
    */
   knobs?: KnobPatch;
+  /**
+   * 推演插件(engine/plugin.ts),按这个先后出手;不给 / 空 = 没有(和没有这一项逐字节一样)。
+   * 带着代码,不跨线程传;接着推时要和 civ.simPlugins 记的插件一一对上,对不上从第 0 年重推
+   */
+  plugins?: readonly import('./engine/plugin').SimPlugin<import('./simRead').SimRead>[];
 }
 
 /**

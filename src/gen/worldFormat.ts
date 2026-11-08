@@ -12,6 +12,7 @@
  *   parts/author.gz      作者的内容:AI 写的正文(可选)
  *   parts/thumb.jpg      封面(可选)
  *   parts/ext.xxx.gz     插件存的数据(可选,见 PLUGIN_DATA_PREFIX)
+ *   parts/sim.xxx.gz     推演插件推到哪的状态(可选,见 SIM_STATE_PREFIX)
  *
  * 带 .gz 的块:字节是 gzip 压缩过的 CIVSNAP1(snapshot.ts 的 packValue)。外壳不再压缩。
  * ZIP 里只能有清单和清单列出的块,多一个、少一个都不认:每一个字节都有清单担保,校验、审核才能看全。
@@ -104,6 +105,17 @@ export const PLUGIN_DATA_PREFIX = 'ext.';
 /** 一个插件存进一个世界的数据最多多少字节(解压后) */
 export const PLUGIN_DATA_MAX_BYTES = 1024 * 1024;
 export const pluginDataPart = (pluginId: string): string => `${PLUGIN_DATA_PREFIX}${pluginId}`;
+
+/**
+ * 推演插件推到哪的状态(Civ.simPlugins 的一项,engine/plugin.ts 的 SimPluginState):一个插件一块,块名 sim.<插件编号>,
+ * 按插件出手的先后排;need 是 extra(看世界用不着,接着推才用),by 写这个插件的编号,schema 是 SIM_STATE_SCHEMA。
+ * 内容是 packValue 打的值,只有数和数表的名字,网站逐项核对(worldValidate.ts 的 validateSimState),不算只当字节留着的块
+ */
+export const SIM_STATE_PREFIX = 'sim.';
+export const SIM_STATE_SCHEMA = 1;
+/** 一块最多多少字节(解压后):20 万地块的世界约 5000 州,插件 64 栏按州的表每格存三份约 8 MB,留四倍 */
+export const SIM_STATE_MAX_BYTES = 32 * 1000 * 1000;
+export const simStatePart = (pluginId: string): string => `${SIM_STATE_PREFIX}${pluginId}`;
 
 /** 用过的插件:世界里只记这些,绝不放插件的代码 */
 export interface WorldPlugin {

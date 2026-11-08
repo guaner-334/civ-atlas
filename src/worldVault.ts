@@ -38,7 +38,7 @@ import { GENERATOR_VERSION } from './gen/edits';
 import { VAULT_DB, type RosterMarks } from './worldRoster';
 import type { SaveFile } from './gen/savefile';
 import { buildManifest, knownPart, manifestBytes, opaqueParts, openWorldFile, packExtra, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
-import { KNOWN_PARTS, PLUGIN_DATA_MAX_BYTES, WorldFileError, asWorldFileError, pluginDataPart, type AuthorContent, type AuthorNote, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
+import { KNOWN_PARTS, PLUGIN_DATA_MAX_BYTES, SIM_STATE_PREFIX, WorldFileError, asWorldFileError, pluginDataPart, type AuthorContent, type AuthorNote, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
 import { currentSchema } from './gen/worldMigrate';
 import { parseManifest, validateThumb } from './gen/worldValidate';
 import { writeZip, type ZipInput } from './gen/zipStore';
@@ -502,8 +502,9 @@ async function packGiven(req: CommitRequest) {
 function partsAfter(req: CommitRequest, prev: WorldManifest | null, incoming: readonly PackedPart[], author: PackedPart | null | undefined, thumb: PackedPart | null | undefined): Map<string, WorldPartInfo> {
   const infos = new Map<string, WorldPartInfo>((prev?.parts ?? []).map((p) => [p.name, p]));
   if (req.parts) {
-    // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了)
+    // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了);推演插件的状态跟着历史,上一份的不留
     for (const n of VIEW_PARTS) infos.delete(n);
+    for (const n of [...infos.keys()]) if (n.startsWith(SIM_STATE_PREFIX)) infos.delete(n);
     for (const p of incoming) infos.set(p.info.name, p.info);
   }
   if (author !== undefined) {
