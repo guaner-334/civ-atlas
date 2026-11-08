@@ -440,7 +440,7 @@ function bridge(sim: CivSim): PluginBridge<SimRead> | null {
   return {
     read,
     regions: { count: R, adjStart: reg.adjStart.slice(0, R + 1), adj: reg.adj.slice(), seat: reg.seat.slice(0, R) },
-    polities: () => pm.polities.length,
+    polities: () => ({ count: pm.polities.length, anchor: pm.ptag }),
     unit: (name) => (officialNames.has(name) ? officialUnit(name as OfficialName) : undefined),
     official: (name) => read.official(name as OfficialName),
   };

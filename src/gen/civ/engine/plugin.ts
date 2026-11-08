@@ -21,6 +21,8 @@ export const PLUGIN_LIMITS = { plugins: 4, tables: 16, cols: 64, pending: 4096, 
 
 /** 插件按国记的表用这张表对上州 → 国(插件自己的表不能叫这个名字) */
 const OWNER_TABLE = '国';
+/** 表名最长几个字(存进世界的表名、累计名按这个核对) */
+const TABLE_ID_MAX = 64;
 
 /** 哪个插件出了什么错 */
 export class PluginError extends Error {
@@ -91,8 +93,8 @@ export interface PluginBridge<V> {
   read: V;
   /** 州的结构(插件按州记的表用) */
   regions: { count: number; adjStart: Int32Array; adj: Int32Array; seat: Int32Array };
-  /** 此刻有几国(亡了的也算) */
-  polities(): number;
+  /** 此刻有几国(亡了的也算)、各国的位置锚(数表里按国取随机数用) */
+  polities(): { count: number; anchor: ArrayLike<number> };
   /** 官方表的单位;没有这个名字 = undefined */
   unit(name: string): 'region' | 'polity' | undefined;
   /** 官方表此刻的值(一州或一国一个数) */
@@ -111,6 +113,8 @@ export interface PluginAsk<V = unknown> {
  */
 export interface SimPluginState {
   id: string;
+  /** 插件的设定(频率、表、接哪些官方表、听哪些史事)的指纹:设定改了,存下的状态不能接着用 */
+  sig: number;
   year: number;
   /** 史事听到了第几条 */
   heard: number;
@@ -184,6 +188,7 @@ class Host<V> {
   private readonly every: number;
   private readonly tableEvery: number;
   private readonly rand: number;
+  private readonly sig: number;
   private readonly eng: TableEngine | null;
   private readonly cards = new Map<string, TableCard>();
   private readonly inputs: [string, string][] = [];
@@ -216,12 +221,14 @@ class Host<V> {
     if (!Array.isArray(listen) || listen.length > PLUGIN_LIMITS.listen || listen.some((k) => typeof k !== 'string')) fail('listen 要是不超过 64 个史事种类');
     this.listen = listen.length ? new Set(listen) : null;
     this.rand = subSeed(seed, `plugin:${id}`);
+    this.sig = subSeed(0, JSON.stringify([plugin.every ?? null, plugin.tables ?? [], plugin.inputs ?? {}, listen]));
 
     const cards = plugin.tables ?? [];
     if (!Array.isArray(cards) || cards.length > PLUGIN_LIMITS.tables) fail(`最多 ${PLUGIN_LIMITS.tables} 张表`);
     let cols = 0;
     for (const c of cards) {
       if (c.id === OWNER_TABLE) fail(`表不能叫 ${OWNER_TABLE}`);
+      if (typeof c.id !== 'string' || c.id.length > TABLE_ID_MAX) fail(`表名最长 ${TABLE_ID_MAX} 个字`);
       if (c.unit === 'tile') fail(`表 ${c.id} 不能按地块记`);
       cols += colCount(c);
       this.cards.set(c.id, c);
@@ -261,6 +268,7 @@ class Host<V> {
       throw new PluginError(this.id, `存下的状态${what}`);
     };
     if (s.id !== this.id || s.year !== year) fail('和这段历史对不上');
+    if (s.sig !== this.sig) fail('和插件现在的设定对不上');
     const at = Math.round(year * TICKS);
     if (!(at >= 0 && at < MAX_TICK && at === year * TICKS)) fail('的时刻不对');
     if (!isInt(s.heard, 0, this.sim.annalCount)) fail('的史事条数不对');
@@ -311,6 +319,7 @@ class Host<V> {
     for (const e of this.events) flat.push(e.tick, e.seq, e.kind, e.data.length, ...e.data);
     return {
       id: this.id,
+      sig: this.sig,
       year,
       heard: this.heard,
       seq: this.seq,
@@ -363,7 +372,8 @@ class Host<V> {
   private fill(): void {
     const eng = this.eng!;
     if (this.ownsPolities) {
-      eng.setPolities(this.bridge.polities());
+      const { count, anchor } = this.bridge.polities();
+      eng.setPolities(count, anchor);
       eng.input(OWNER_TABLE).set(this.sim.owners[Layer.Polity]);
     }
     for (const [t, name] of this.inputs) {

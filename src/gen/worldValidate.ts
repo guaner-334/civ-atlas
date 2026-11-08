@@ -1311,8 +1311,9 @@ function checkTableSnapshot(v: unknown, at: string): void {
  */
 export function validateSimState(v: unknown, id: string, at = `推演插件 ${id} 的状态`): asserts v is SimPluginState {
   const s = obj(v, at);
-  onlyKeys(s, ['id', 'year', 'heard', 'seq', 'events', 'note', 'tables'], at);
+  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables'], at);
   if (s.id !== id) broken(`${at} 的 id 对不上`);
+  int(s.sig, 0, 2 ** 32, `${at}.sig`);
   const year = yearOk(s.year, `${at}.year`);
   if (year < 0 || year > END_YEAR_MAX) broken(`${at}.year 超出范围`);
   int(s.heard, 0, 2 ** 31, `${at}.heard`);

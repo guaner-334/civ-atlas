@@ -3,15 +3,19 @@
  * 存的时候从历史里拆出来、读的时候接回去,读回来接着推和一口气推完一样;逐项核对,不算只当字节留着的块;
  * 另存换了历史时跟着换;坏了的本机读时不要(接着推时从第 0 年重推),传上服务器的文件照旧算坏
  */
+import 'fake-indexeddb/auto';
+import { IDBFactory } from 'fake-indexeddb';
 import { isDeepStrictEqual } from 'node:util';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { generateCiv, startContinue, type Civ } from '../src/gen/civ';
 import { chronicleBlock } from '../src/gen/civ/story/nameTokens';
 import { flagBook } from '../src/gen/civ/story/flags';
 import { makeSave, worldCheck } from '../src/gen/savefile';
-import { makePart, packValue } from '../src/gen/snapshot';
+import { makePart, packValue, recipeKey, recipeOfSave, sha256 } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
-import { opaqueParts, openWorldFile, packWorldFile, readTrustedParts, readWorldContent, rewriteWorldFile, type PackInput } from '../src/gen/worldFile';
+import { opaqueParts, openStoredParts, openWorldFile, packWorldFile, readTrustedParts, readWorldContent, rewriteWorldFile, type OpenedWorldFile, type PackInput, type PackedPart } from '../src/gen/worldFile';
+import { _resetVault, adoptFile, stateOf } from '../src/worldVault';
+import { openStoredWorld } from '../src/worldOpen';
 import { SIM_STATE_MAX_BYTES, WorldFileError } from '../src/gen/worldFormat';
 import { parseManifest, validateSimState } from '../src/gen/worldValidate';
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
@@ -70,8 +74,12 @@ describe('世界文件里推演插件的状态', () => {
     expect(opened.manifest.parts[4]).toMatchObject({ file: 'parts/sim.ledger.gz', schema: 1, need: 'extra', by: 'ledger' });
     expect(opened.kept).toEqual([]);
     expect(opaqueParts(opened.manifest.parts)).toEqual([]);
-    const trusted = await readTrustedParts(opened, ['civ']);
-    expect('simPlugins' in (trusted.civ as Civ)).toBe(false);
+    const partsOf = (o: OpenedWorldFile, keep: (name: string) => boolean): PackedPart[] => o.manifest.parts.filter((p) => keep(p.name)).map((info) => ({ info, data: o.bytes.get(info.name)! }));
+    // 历史那一块本身不带状态;状态块也在手边时才接回去
+    const viewOnly = openStoredParts(opened.manifestBytes, partsOf(opened, (n) => !n.startsWith('sim.')), OPEN);
+    expect('simPlugins' in ((await readTrustedParts(viewOnly, ['civ'])).civ as Civ)).toBe(false);
+    const all = openStoredParts(opened.manifestBytes, partsOf(opened, () => true), OPEN);
+    expect(bytes(((await readTrustedParts(all, ['civ'])).civ as Civ).simPlugins).equals(bytes(civ.simPlugins))).toBe(true);
     const c = await readWorldContent(opened);
     expect(c.skipped).toEqual([]);
     expect(bytes(c.civ.simPlugins).equals(bytes(civ.simPlugins))).toBe(true);
@@ -152,11 +160,29 @@ describe('世界文件里推演插件的状态', () => {
     await expectBroken(() => inCiv(civ, true), '两处都有');
   }, 60_000);
 
+  it('本机仓库:收下带状态块的文件,第一次打开(逐项校验)和以后再打开(只核指纹)都接回状态', async () => {
+    (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
+    _resetVault();
+    const inp = input(civ);
+    const file = await packWorldFile(inp);
+    const opened = await openWorldFile(await bytesOf(file), OPEN);
+    const key = await recipeKey(recipeOfSave(inp.recipe));
+    await adoptFile({ id: 'wsim', file, sum: await sha256(opened.manifestBytes), recipeKey: key, generator: inp.recipe.generator, readers: READERS });
+    const ask = { id: 'wsim', recipe: key, generator: inp.recipe.generator };
+    const first = await openStoredWorld(ask);
+    expect(bytes(first.civ!.simPlugins).equals(bytes(civ.simPlugins))).toBe(true);
+    expect((await stateOf('wsim'))?.checked).toBeTruthy();
+    const again = await openStoredWorld(ask);
+    expect(bytes(again.civ!.simPlugins).equals(bytes(civ.simPlugins))).toBe(true);
+    _resetVault();
+  }, 60_000);
+
   it('核对状态:认不出的键、字、不是数、事件写坏、表的名字不合规矩都算坏', () => {
     const s = civ.simPlugins![0];
     expect(() => validateSimState(s, 'ledger')).not.toThrow();
     const bad = (x: unknown, hint: string) => expect(() => validateSimState(x, 'ledger'), hint).toThrow(WorldFileError);
     bad({ ...s, id: 'other' }, 'id');
+    bad({ ...s, sig: -1 }, '指纹');
     bad({ ...s, extra: 1 }, '认不出的键');
     bad({ ...s, note: { a: 'x' } }, '字');
     bad({ ...s, note: [Infinity] }, '不是有限的数');

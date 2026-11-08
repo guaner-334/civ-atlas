@@ -228,9 +228,11 @@ describe('推演插件:接不上、写错了', () => {
     expect(startContinue(w, saved, { endYear: 900, plugins: [ledger('other')] })).toBeNull();
     expect(startContinue(w, saved, { endYear: 900, plugins: [ledger(), chain()] })).toBeNull();
     expect(startContinue(w, roundTrip(generateCiv(w, { endYear: 600 })), { endYear: 900, plugins: [ledger()] })).toBeNull();
-    // 插件的表改了:状态接不上,也从第 0 年重推
-    const changed: SimPlugin<SimRead> = { ...ledger(), tables: ledger().tables!.filter((c) => c.id !== 'zeal') };
-    expect(startContinue(w, saved, { endYear: 900, plugins: [changed] })).toBeNull();
+    // 插件的设定改了(少一张表;表还是那几张、规则改了;频率改了):状态接不上,也从第 0 年重推
+    const fewer: SimPlugin<SimRead> = { ...ledger(), tables: ledger().tables!.filter((c) => c.id !== 'zeal') };
+    const rule: SimPlugin<SimRead> = { ...ledger(), tables: ledger().tables!.map((c) => (c.id === 'magic' ? { ...c, rate: '0.1 - 0.01 * magic' } : c)) };
+    for (const changed of [fewer, rule, ledger('ledger', 10)]) expect(startContinue(w, saved, { endYear: 900, plugins: [changed] })).toBeNull();
+    expect(startContinue(w, saved, { endYear: 900, plugins: [ledger()] })).not.toBeNull();
     sameBytes(continueCiv(w, saved, { endYear: 900 }), generateCiv(w, { endYear: 900 }), '去掉插件重推');
   }, 60_000);
 
@@ -261,6 +263,15 @@ describe('推演插件:接不上、写错了', () => {
     }
   }, 60_000);
 
+  it('按国记的表里的随机数按各国的位置锚取:各国不一样', () => {
+    const w = worldOf(7);
+    const luck: SimPlugin<SimRead> = { id: 'luck', tables: [{ id: 'luck', name: '运气', unit: 'polity', every: 10, min: 0, max: 1e9, init: 0, off: 0, rate: 'rand()' }], act: () => {} };
+    const civ = generateCiv(w, { endYear: 1500, plugins: [luck] });
+    const cur = civ.simPlugins![0].tables!.tables.luck.cur;
+    expect(cur.length).toBe(civ.polities.length);
+    expect(new Set(cur).size).toBe(cur.length);
+  });
+
   it('插件本身写错了:频率不在菜单里、按地块的表、编号不对、重复、超过 4 个', () => {
     const w = worldOf(7);
     const bad = (plugins: SimPlugin<SimRead>[]) => () => generateCiv(w, { endYear: 5, plugins });
@@ -268,6 +279,7 @@ describe('推演插件:接不上、写错了', () => {
     expect(bad([{ id: 'tile', tables: [{ id: 't', name: 't', unit: 'tile', min: 0, max: 1, off: 0, rule: '0' }], act: () => {} }])).toThrow(/地块/);
     expect(bad([{ id: 'in', tables: [{ id: 't', name: 't', unit: 'region', input: true, min: 0, max: 1, off: 0 }], inputs: { t: 'unrest' }, act: () => {} }])).toThrow(/单位/);
     expect(bad([{ id: 'Bad_Id', act: () => {} }])).toThrow(/编号/);
+    expect(bad([{ id: 'long', tables: [{ id: 'a'.repeat(65), name: 't', unit: 'world', min: 0, max: 1, off: 0, rule: '0' }], act: () => {} }])).toThrow(/表名最长/);
     expect(bad([quiet(), quiet()])).toThrow(/两次/);
     expect(bad(['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, act: () => {} })))).toThrow(/最多 4 个/);
   });

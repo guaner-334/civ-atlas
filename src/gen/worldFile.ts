@@ -369,7 +369,7 @@ function partReader(opened: OpenedWorldFile, skipped: string[], done: { civ?: Ci
 
 /**
  * 只解开这几块:核指纹、迁移,不逐项校验。只给校验器已经过了的内容用(本机再打开世界时,见 worldOpen.ts);别人给的文件要走 readWorldContent。
- * 返回 块名 → 值(清单里没有这一块 = null)
+ * 返回 块名 → 值(清单里没有这一块 = null)。读了历史的,推演插件的状态块也在 opened 里就接回去(读不出来、过不了校验 = 不接)
  */
 export async function readTrustedParts(opened: OpenedWorldFile, names: readonly string[], done: { civ?: Civ } = {}): Promise<Record<string, unknown>> {
   const read = partReader(opened, [], done);
@@ -378,6 +378,12 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
     for (const n of names) {
       out[n] = await read(n);
       if (n === 'civ') done.civ = out[n] as Civ;
+    }
+    const civ = out.civ as Civ | null | undefined;
+    const sims = simPartNames(opened);
+    if (civ && sims.length && sims.every((n) => opened.bytes.has(n)) && civ.simPlugins === undefined) {
+      const got = await readSimParts(opened, read, []).catch(() => []);
+      if (got.length) civ.simPlugins = got;
     }
     return out;
   } catch (err) {
@@ -391,6 +397,7 @@ export async function readTrustedParts(opened: OpenedWorldFile, names: readonly 
  */
 async function readSimParts(opened: OpenedWorldFile, read: ReturnType<typeof partReader>, skipped: string[]): Promise<SimPluginState[]> {
   const infos = opened.manifest.parts.filter((p) => isSimState(p.name) && !opened.kept.includes(p));
+  if (infos.length !== simPartNames(opened).length) return [];
   const out: SimPluginState[] = [];
   for (const p of infos) {
     try {
@@ -404,6 +411,11 @@ async function readSimParts(opened: OpenedWorldFile, read: ReturnType<typeof par
     }
   }
   return out;
+}
+
+/** 清单里推演插件状态块的名字(按文件里的先后) */
+export function simPartNames(opened: Pick<OpenedWorldFile, 'manifest'>): string[] {
+  return opened.manifest.parts.filter((p) => isSimState(p.name)).map((p) => p.name);
 }
 
 const AUTHOR_SKIPPED = 'AI 写的东西有一段太长，这次没读进来。世界不受影响，文件先别删';
