@@ -10,7 +10,8 @@
  * 地形大事:半路整颗星球沉入海中、整片抬成陆地、五件最大最强的火山(有同一年的、第 1 年和第 2999 年的),
  * 各段的州和那时的地形对得上,大事以后的城、国家、信仰、编年史照样合法。
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
- * 插件世界:装一个重的推演插件推 3000 年,推得完、官方历史和不装一样,打印插件多花多少时间(推演速度一样算进汇总)。
+ * 插件世界:装一个重的推演插件推 3000 年,推得完、官方历史和不装一样,打印插件多花多少时间(推演速度一样算进汇总);
+ * 照接口写的两个插件以源码关进 QuickJS 推 3000 年,和直接跑逐位一样。
  * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);\n * 带地形大事的世界 6 组(大事那一刻接着推和一口气推完一样);不一样也退出码 1。
  * 规则项(src/gen/civ/tuning.ts,开放给用的人调的 70 项):每一项的两头各推一遍,全部拉到最左 / 最右各推一遍 ——
  * 推得完、NaN / Infinity 不进历史、编年史写得出、关掉的事一次也没有(见那一段)。
@@ -50,7 +51,11 @@ import { TUNING_CALC, TUNING_ITEMS, tuningEnds, tuningItem, type TuningValues } 
 import { tuningPatch } from '../src/gen/civ/tuningPatch';
 import { packValue } from '../src/gen/snapshot';
 import { PLUGIN_TIME } from '../src/gen/civ/engine/plugin';
+import { fileURLToPath } from 'node:url';
 import { loadPlugin } from './lib/simPluginLoad';
+import { pluginScript, quickjsWasm } from './lib/quickjsNode';
+import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { faithEffect, weariness } from '../tests/lib/simV1Plugins';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -182,10 +187,10 @@ const DRY = process.env.STRESS_DRY === '1';
 if (PARTS > 1 && !DRY) console.log(`只跑第 ${PART} 份(共 ${PARTS} 份)
 `);
 /** 登记的各组:名字(和这组打印的那行开头一样)、估的耗时(秒)、要跑的检查 */
-const groups: { name: string; sec: number; run: () => void }[] = [];
+const groups: { name: string; sec: number; run: () => void | Promise<void> }[] = [];
 /** 登记一组;分份、跑本份的各组在速度汇总前面 */
 const ONLY = process.env.STRESS_ONLY;
-const group = (name: string, sec: number, run: () => void) => {
+const group = (name: string, sec: number, run: () => void | Promise<void>) => {
   if (!ONLY || name.includes(ONLY)) groups.push({ name, sec, run });
 };
 
@@ -614,6 +619,43 @@ for (const seed of [7, 2024]) group(`{"插件世界":"推 3000 年"} seed ${seed
   );
 });
 
+// ---- 插件世界 经 QuickJS:照接口写的两个插件(厌战、宗教生效)以源码关进 QuickJS 推 3000 年:推得完、整个结果和直接跑逐字节一样;
+// 推演速度算进汇总(每秒至少 80 年),另报插件在 QuickJS 里比直接跑多花多少 ----
+for (const seed of [7, 2024]) group(`{"插件世界":"经 QuickJS"} seed ${seed}`, 16, async () => {
+  const w = generateWorld({ ...DEFAULT_PARAMS, seed });
+  const t0 = performance.now();
+  const native = generateCiv(w, { plugins: [weariness(), faithEffect()] });
+  const t1 = performance.now();
+  const file = new URL('../tests/lib/simV1Plugins.ts', import.meta.url);
+  const boxed = await Promise.all(
+    ([[weariness(), 'weariness()'], [faithEffect(), 'faithEffect()']] as const).map(([p, make]) => {
+      const { id, act: _act, ...setup } = p;
+      return quickjsPlugin(quickjsWasm(), { id, code: pluginScript(fileURLToPath(file), make), setup, seed });
+    }),
+  );
+  const t2 = performance.now();
+  let civ: Civ | null = null;
+  let err = '';
+  try {
+    civ = generateCiv(w, { plugins: boxed });
+  } catch (e) {
+    err = e instanceof Error ? e.message : String(e);
+  } finally {
+    boxed.forEach((p) => p.dispose());
+  }
+  const t3 = performance.now();
+  const nativeMs = t1 - t0;
+  const ms = t3 - t2;
+  const same = !!civ && Buffer.from(packValue(civ)).equals(Buffer.from(packValue(native)));
+  if (civ) noteRate(civ.endYear, ms, `插件世界 经 QuickJS seed ${seed}`);
+  if (!same) process.exitCode = 1;
+  console.log(
+    '{"插件世界":"经 QuickJS"}', 'seed', seed,
+    `文明 直接跑 ${Math.round(nativeMs)}ms 经 QuickJS ${Math.round(ms)}ms(多花 ${Math.round(ms - nativeMs)}ms,装插件 ${Math.round(t2 - t1)}ms,每秒 ${Math.round(DEFAULT_CIV_PARAMS.endYear / (ms / 1000))} 年)`,
+    err ? `推不下去!${err}` : !same ? '和直接跑的不一样!' : '',
+  );
+});
+
 // ---- 「天灾 很多」推 12000 年,第 600 年再下一场最重、无人收拾 60 年的全球大疫:史事有序、人口和发展度不是 NaN、
 // 全球大疫里一城最多死六成、天下人口不低于疫前一半、还有国家在、纪事里不冒 undefined / NaN ----
 for (const seed of [7, 99]) group(`{"天灾":"很多","推演年数":12000} seed ${seed}`, 23.5, () => {
@@ -799,12 +841,12 @@ if (DRY) {
 } else {
   /** 本份各组:名字、估时、实际用了几秒 */
   const spent: { name: string; sec: number; real: number }[] = [];
-  groups.forEach((g, i) => {
-    if (partOf[i] !== PART - 1) return;
+  for (const [i, g] of groups.entries()) {
+    if (partOf[i] !== PART - 1) continue;
     const t0 = performance.now();
-    g.run();
+    await g.run();
     spent.push({ name: g.name, sec: g.sec, real: (performance.now() - t0) / 1000 });
-  });
+  }
 
   // ---- 速度汇总:只报告,不改退出码(预算和来历见 SPEED_BUDGET) ----
   const over: string[] = [];
