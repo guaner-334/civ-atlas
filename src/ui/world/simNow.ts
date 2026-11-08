@@ -55,3 +55,9 @@ export function sameSims(a: readonly SimPluginFile[] | undefined, b: readonly Si
   const key = (l: readonly SimPluginFile[] | undefined) => JSON.stringify((l ?? []).map((p) => [p.id, p.sum, Object.entries(p.params ?? {}).sort(([x], [y]) => (x < y ? -1 : 1))]));
   return key(a) === key(b);
 }
+
+/** 页面里这个世界(id)推演带的推演插件:没用 = undefined;本机对不上 = null */
+export function simsOf(id: string | undefined): SimPluginFile[] | null | undefined {
+  if (!now || now.id !== id) return undefined;
+  return now.files;
+}

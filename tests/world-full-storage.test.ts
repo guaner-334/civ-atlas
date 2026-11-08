@@ -21,7 +21,7 @@ import * as saveStore from '../src/ui/saveStore';
 import { _resetToasts, clearToast, peekToast, showToast } from '../src/ui/toastStore';
 import { _setWorldFiles, lookWorldFile, keepWorldFile, saveAllWorldFiles, saveWorldFile, type LookedWorldFile } from '../src/ui/worldFiles';
 import { _setHolds, holdWorld, ifNotHeld, isHeld } from '../src/ui/worldHolds';
-import { setSimNow } from '../src/ui/world/simNow';
+import { setSimNow, simsOf } from '../src/ui/world/simNow';
 import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, notesVault, offerWorldParts, packPage, setWorldStoreSim, spaceBoard, startWorldStore, trashFreed, trashInfo, vaultCall, vaultIsFull, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
 import { runConvert, type FullWithFile } from '../src/worldConvert';
 import type { ConvertReply } from '../src/worldConvertWorker';
@@ -434,7 +434,7 @@ describe('一个世界存成文件', () => {
   it('正开着的世界用了推演插件:打页面里的内容(存成文件、腾出地方补存)带着插件;本机对不上的不打', async () => {
     const id = await makeWorld('插件世界');
     const sim = simThatPacks();
-    setWorldStoreSim(sim);
+    setWorldStoreSim({ ...sim, sims: () => simsOf(saveStore.currentWorld()?.id) });
     const file = { id: 'weariness', sum: 'a'.repeat(64), bytes: new Uint8Array([1, 2]), params: { k: 2 } };
     const list = [{ id: 'weariness', version: '1.0.0', sum: file.sum, role: 'sim', name: '厌战', params: { k: 2 } }];
     try {
