@@ -78,16 +78,19 @@ export async function chooseMaps(worldId: string, picks: readonly MapChoice[], i
 
 /**
  * 刷新、从「我的世界」再打开新建中的世界:照记着的选上(用本机现在那一版);没装了、被停用的去掉。
- * 交回去掉了的那几个的名字
+ * 交回去掉了的那几个的名字;still() = 取完时还在打开这个世界(不在了就不记)
  */
-export async function restoreMaps(worldId: string, records: readonly WorldPlugin[]): Promise<string[]> {
-  await chooseMaps(
+export async function restoreMaps(worldId: string, records: readonly WorldPlugin[], still: () => boolean = () => true): Promise<string[]> {
+  const ok = await chooseMaps(
     worldId,
     records.map((r) => {
       const params = recordParams(r);
       return { id: r.id, ...(params ? { params } : {}) };
     }),
+    undefined,
+    still,
   );
+  if (!ok) return [];
   const kept = getMapNow()?.id === worldId ? getMapNow()!.list.map((p) => p.id) : [];
   return records.filter((r) => !kept.includes(r.id)).map((r) => r.name ?? r.id);
 }
