@@ -4,8 +4,8 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { listPlugins, removePlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
-import { clearSelection } from '../../civView';
+import { getPlugin, listPlugins, removePlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
+import { clearSelection, useSelection } from '../../civView';
 import { copyText } from '../../clipboard';
 import { useCoarse } from '../../device';
 import { noteDismiss } from '../../dismissClick';
@@ -50,11 +50,26 @@ export default function ToolsLayer(p: ToolsProps) {
     }
   }, [p.active]);
   useEffect(() => () => stopTool(), [p.root]);
-  // 侧栏收起着:插件卡弹出来
+  // 侧栏收起着:插件卡弹出来(选中的东西关掉以后又轮到插件卡)
   const cardOn = !!run;
+  const sel = useSelection().sel;
   useEffect(() => {
     if (!p.phone) peekSide(cardOn);
-  }, [cardOn, p.phone]);
+  }, [cardOn, sel, p.phone]);
+  // 插件页里关掉、删掉、换了版本的:关上插件页以后停下
+  const runId = run?.plugin.id;
+  const runSum = run?.plugin.current.sum;
+  useEffect(() => {
+    if (pluginsOpen || !runId) return;
+    let live = true;
+    getPlugin(runId).then(
+      (pl) => live && (!pl || !pl.on || pl.current.sum !== runSum) && stopTool(),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [pluginsOpen, runId, runSum]);
 
   // 开始放标记、在地图上选目标、框地区:不再请用的人点
   useEffect(() => subscribeMarkUi(() => getMarkUi().placing && cancelPick()), []);
@@ -118,6 +133,7 @@ export default function ToolsLayer(p: ToolsProps) {
             world={p.world}
             api={p.api}
             box={run?.box ?? null}
+            onLost={cancelPick}
             onDone={(b) => {
               const x0 = (((b.cx - b.w / 2) % p.world.width) + p.world.width) % p.world.width;
               pickBox(b, { x0, y0: b.cy - b.h / 2, x1: x0 + b.w, y1: b.cy + b.h / 2, cells: cellsInBox(p.world, b) });

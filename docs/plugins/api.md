@@ -337,6 +337,7 @@ civAtlas.on('panel.action', ({ id, value }) => {
 
 - `data` 是 `{ schema, value }`:`schema` 是你自己定的结构版本(正整数),以后改了存法靠它认新旧;`get()` 原样还回来,没存过是 `null`
 - `value` 只能是:`null`、`true` / `false`、有限的数、字、数组(不能有空位)、普通对象、数值数组(Float32Array 这类,BigInt 的不行);最多套 32 层,不能绕成圈,不能用 `__proto__`、`constructor`、`prototype` 当键
+- 从「工具」里开的插件,这一版 `store.world` 还没接上(每个世界第一次存之前要先问用的人),调用回 `unavailable`;开发者模式里载入的照旧只存在内存里。`store.local` 照常能用
 - **存了 `store.world` 的世界不能公开分享**(网站不解开插件的数据,没法检查里面写了什么),还能存成文件发给别人。装插件时权限框上这一行下面写明这个后果,能不存就不存
 
 ## 出错码

@@ -11,10 +11,11 @@ import { commitPluginEdits } from '../../../plugin/editsCommit';
 import { planChanges } from '../../../plugin/edit';
 import { startPluginHost, type PickAnswer, type PickRequest, type PluginHost, type PluginSource } from '../../../plugin/host';
 import { PluginFileError } from '../../../plugin/pluginFile';
-import { loadPlugin, readPluginLocal, writePluginLocal, type InstalledPlugin } from '../../../plugin/pluginStore';
+import { localDataStore } from '../../../plugin/pluginData';
+import { loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { MESSAGES_PER_SECOND, MESSAGE_MAX_BYTES } from '../../../plugin/protocol';
 import type { PluginDataStore } from '../../../plugin/store';
-import type { PanelNode, StoredData, ViewInfo } from '../../../plugin/types';
+import type { PanelNode, ViewInfo } from '../../../plugin/types';
 import { getCivShow, getCivTime, getSelection, subscribeCivTime, subscribeSelection } from '../../civView';
 import { createStore } from '../../createStore';
 import { commitEdits, getEdits, historyDiffers, revertEdits } from '../../editsStore';
@@ -85,9 +86,14 @@ function patch(my: number, p: Partial<ToolRun>) {
   if (my === seq && r) toolRun.set({ ...r, ...p });
 }
 
-const localStore: PluginDataStore = {
-  get: (id) => readPluginLocal(id).then((v) => (v ?? null) as StoredData | null),
-  set: (id, d) => writePluginLocal(id, d ?? undefined),
+/** 存进世界要先问用的人、记进世界仓库,这一版还没接上:回插件「还不能」,不假装存好了 */
+const noWorldStore: PluginDataStore = {
+  get: () => {
+    throw new PluginApiError('unavailable', '网站这一版还不能把插件的数据存进世界');
+  },
+  set: () => {
+    throw new PluginApiError('unavailable', '网站这一版还不能把插件的数据存进世界');
+  },
 };
 
 /** 停下来的原因换成卡片上的说法;我们自己叫停的 = null */
@@ -175,8 +181,9 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
           b();
         };
       },
-      pick: (req, signal) => askPick(my, req, signal),
-      commit: (next, keys) => commitBatch(name, next, keys, asked, env),
+      pick: (req, signal) => (live() ? askPick(my, req, signal) : Promise.resolve(null)),
+      // 开到一半关掉了(插件顶层代码排着的调用开好以后才发出来):不再照它改
+      commit: (next, keys) => (live() ? commitBatch(name, next, keys, asked, env) : '插件已经停了'),
     };
     const h = await startPluginHost({
       plugin: opened.manifest,
@@ -198,7 +205,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
           patch(my, { refusal: refusalOf(args, e.message, check) });
         },
       },
-      stores: { local: localStore },
+      stores: { local: localDataStore, world: noWorldStore },
       onStop: (reason, detail) => {
         const t = troubleOf(reason, detail);
         if (!live() || !t) return;

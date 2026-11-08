@@ -1,6 +1,7 @@
 /**
  * 插件请用的人框一片:在地图上拖一个框;有上一次的框时拖框里面挪、拖边角改大小、框外拖一下重新框。松手就把框住的地块交给插件。
- * 拖法、框的样子照「地区」(terrain3d/Pick.tsx),不压暗地图;只在平面地图上框(地球仪、弯边投影先切回平面)。滚轮照样缩放地图。
+ * 拖法、框的样子照「地区」(terrain3d/Pick.tsx),不压暗地图;只在平面地图上框(开始时切回平面,框的时候换成地球仪、弯边投影就不框了)。
+ * 滚轮、双指照样缩放地图。
  */
 import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react';
 import type { World } from '../../../gen/world';
@@ -39,7 +40,7 @@ function toScreen(f: Frame, b: ToolBox, nearX: number): [number, number] {
 /** 框最小几个像素(再小当成点了一下,不算) */
 const MIN_PX = 8;
 
-type Grab = { mode: 'move' | 'new' | 'size'; ex: number; ey: number; box: ToolBox | null; hx: number; hy: number; sx: number; sy: number; moved: boolean };
+type Grab = { pid: number; mode: 'move' | 'new' | 'size'; ex: number; ey: number; box: ToolBox | null; hx: number; hy: number; sx: number; sy: number; moved: boolean };
 
 const HANDLES: [number, number][] = [
   [-1, -1],
@@ -84,12 +85,17 @@ function clamp(b: ToolBox, W: number, H: number): ToolBox {
   return { cx: b.cx, cy, w: Math.min(W, Math.max(0, b.w)), h };
 }
 
-export function BoxPick({ world, api, box: start, onDone }: { world: World; api: MutableRefObject<MarkApi | null>; box: ToolBox | null; onDone: (b: ToolBox) => void }) {
+/** onLost = 换成了地球仪、弯边投影(框不了了) */
+export function BoxPick({ world, api, box: start, onDone, onLost }: { world: World; api: MutableRefObject<MarkApi | null>; box: ToolBox | null; onDone: (b: ToolBox) => void; onLost: () => void }) {
   const W = world.width;
   const H = world.height;
   const [frame, setFrame] = useState<Frame | null>(null);
   const [box, setBox] = useState<ToolBox | null>(start);
   const grab = useRef<Grab | null>(null);
+  /** 按着的手指:第二根按下去 = 双指缩放地图,框不跟着动 */
+  const touches = useRef(new Set<number>());
+  const lost = useRef(onLost);
+  lost.current = onLost;
 
   // 只在平面地图上框
   useEffect(() => {
@@ -100,10 +106,15 @@ export function BoxPick({ world, api, box: start, onDone }: { world: World; api:
   useEffect(() => {
     let raf = 0;
     let sig = '';
+    let seen = false;
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const f = readFrame(api.current);
-      if (!f) return;
+      if (!f) {
+        if (seen && getProjection() !== 'equirect') lost.current();
+        return;
+      }
+      seen = true;
       if (f.sig !== sig) {
         sig = f.sig;
         setFrame(f);
@@ -126,11 +137,19 @@ export function BoxPick({ world, api, box: start, onDone }: { world: World; api:
   };
   const down = (e: RPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.pointerType === 'touch') touches.current.add(e.pointerId);
+    if (touches.current.size > 1) {
+      // 交给地图捏合:正在拖的这一下作废
+      const g = grab.current;
+      grab.current = null;
+      if (g) setBox(g.box);
+      return;
+    }
     e.stopPropagation();
     const [x, y] = at(e);
     const t = e.target as HTMLElement;
     const h = t.dataset.h;
-    const base = { ex: x, ey: y, box, hx: 0, hy: 0, sx: (x - frame.ox) / frame.k, sy: (y - frame.oy) / frame.k, moved: false };
+    const base = { pid: e.pointerId, ex: x, ey: y, box, hx: 0, hy: 0, sx: (x - frame.ox) / frame.k, sy: (y - frame.oy) / frame.k, moved: false };
     if (h && box) {
       const [hx, hy] = h.split(',').map(Number);
       grab.current = { ...base, mode: 'size', hx, hy };
@@ -140,7 +159,7 @@ export function BoxPick({ world, api, box: start, onDone }: { world: World; api:
   };
   const move = (e: RPointerEvent<HTMLDivElement>) => {
     const g = grab.current;
-    if (!g) return;
+    if (!g || g.pid !== e.pointerId) return;
     e.stopPropagation();
     const [x, y] = at(e);
     if (!g.moved && Math.abs(x - g.ex) + Math.abs(y - g.ey) < 4) return;
@@ -166,8 +185,9 @@ export function BoxPick({ world, api, box: start, onDone }: { world: World; api:
     setBox(clamp({ cx: (l + r) / 2, cy: (t + bt) / 2, w: r - l, h: bt - t }, W, H));
   };
   const up = (e: RPointerEvent<HTMLDivElement>) => {
+    touches.current.delete(e.pointerId);
     const g = grab.current;
-    if (!g) return;
+    if (!g || g.pid !== e.pointerId) return;
     e.stopPropagation();
     grab.current = null;
     // 点了一下没拖:不算(新框太小也不算)
