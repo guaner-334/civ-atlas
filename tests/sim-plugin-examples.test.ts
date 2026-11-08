@@ -17,7 +17,7 @@ import { packValue, unpackValue } from '../src/gen/snapshot';
 import { PLUGIN_FILE_EXT, type OpenedPlugin } from '../src/plugin/pluginFile';
 import { simCapsUnused } from '../src/plugin/pluginSim';
 import { civDiff } from '../scripts/lib/resumeFuzz';
-import { openSimPlugin, simPluginOf } from '../scripts/lib/simPluginFile';
+import { openSimPlugin, quickjsSimPlugin } from '../scripts/lib/simPluginFile';
 import { V1_PINS, V1_SEEDS, simDigest, type V1Seed } from './lib/simV1Pins';
 import type * as Dts from '../examples/plugins/civ-atlas-sim';
 
@@ -55,7 +55,7 @@ interface Seen {
 
 /** 插件包在 QuickJS 里推一段;每次出手记下回话交了哪几样 */
 async function run(p: OpenedPlugin, seed: number, go: (plugins: SimPlugin<SimRead>[]) => Civ, params?: Record<string, number>): Promise<{ civ: Civ; seen: Seen }> {
-  const q = await simPluginOf(p, seed, params);
+  const q = await quickjsSimPlugin(p, seed, params);
   const seen: Seen = { acts: 0, reply: new Set(), turn: new Set() };
   try {
     const spy: SimPlugin<SimRead> = {

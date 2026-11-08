@@ -11,7 +11,7 @@ import { DEFAULT_CIV_PARAMS, generateCiv, type Civ } from '../src/gen/civ';
 import type { PluginReply, PluginTurn, SimPlugin } from '../src/gen/civ/engine/plugin';
 import { chronicleText } from '../src/gen/civ/engine/pluginChronicle';
 import type { SimRead } from '../src/gen/civ/simApi';
-import { openSimPlugin, simPluginOf } from './lib/simPluginFile';
+import { openSimPlugin, quickjsSimPlugin } from './lib/simPluginFile';
 
 const args = process.argv.slice(2);
 const path = args.find((a) => !a.includes('='));
@@ -30,7 +30,11 @@ for (const a of args) {
   else params[m[1]] = Number(m[2]);
 }
 
-const p = await openSimPlugin(path);
+function stop(e: unknown): never {
+  console.error(`出错停下:${e instanceof Error ? e.message : String(e)}`);
+  process.exit(1);
+}
+const p = await openSimPlugin(path).catch(stop);
 const m = p.manifest;
 console.log(`${m.name} ${m.version}(${m.id}),种子 ${seed},推 ${years} 年`);
 const world = generateWorld({ ...DEFAULT_PARAMS, seed });
@@ -38,7 +42,7 @@ let t0 = performance.now();
 const base = generateCiv(world, { endYear: years });
 const baseMs = performance.now() - t0;
 
-const q = await simPluginOf(p, seed, params);
+const q = await quickjsSimPlugin(p, seed, params).catch(stop);
 let acts = 0;
 let refused = 0;
 const kinds: Record<string, number> = {};
@@ -60,8 +64,7 @@ t0 = performance.now();
 try {
   civ = generateCiv(world, { endYear: years, plugins: [spy] });
 } catch (e) {
-  console.error(`出错停下:${e instanceof Error ? e.message : String(e)}`);
-  process.exit(1);
+  stop(e);
 } finally {
   q.dispose();
 }

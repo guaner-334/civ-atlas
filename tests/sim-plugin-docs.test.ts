@@ -15,7 +15,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import type { PluginReply, PluginTurn, SimPlugin } from '../src/gen/civ/engine/plugin';
 import type { SimRead } from '../src/gen/civ/simApi';
 import { openPluginFile, packPluginFile, type PluginPackInput } from '../src/plugin/pluginFile';
-import { simPluginOf } from '../scripts/lib/simPluginFile';
+import { quickjsSimPlugin } from '../scripts/lib/simPluginFile';
 import { simDigest } from './lib/simV1Pins';
 
 const at = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -87,7 +87,7 @@ describe('推演插件文档的代码片段', () => {
         manifest: manifest as PluginPackInput['manifest'],
         files: { 'main.js': code, 'README.md': `# ${String(manifest.name)}\n`, LICENSE: new Uint8Array(LICENSE) },
       });
-      const q = await simPluginOf(await openPluginFile(bytes), seed);
+      const q = await quickjsSimPlugin(await openPluginFile(bytes), seed);
       let acts = 0;
       const commands: Record<string, number> = {};
       const spy: SimPlugin<SimRead> = {

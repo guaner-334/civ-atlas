@@ -7,6 +7,7 @@ import { PluginError, type PluginReply } from '../../src/gen/civ/engine/plugin';
 import { quickjsPlugin, type QuickJSPlugin, type SimSetup } from '../../src/gen/civ/quickjs/plugin';
 import { openPluginFile, type OpenedPlugin } from '../../src/plugin/pluginFile';
 import { undeclaredCommand, type SimManifest } from '../../src/plugin/pluginSim';
+import { simParamsOf } from '../../src/plugin/pluginWorld';
 import { packPluginDir } from './pluginDir';
 import { quickjsWasm } from './quickjsNode';
 
@@ -24,18 +25,11 @@ export function simSetupOf(sim: SimManifest): SimSetup {
   return setup as SimSetup;
 }
 
-/** 滑条拨到几:清单里的默认值,给了的换上 */
-export function simParamsOf(sim: SimManifest, given: Readonly<Record<string, number>> = {}): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [k, p] of Object.entries(sim.params ?? {})) out[k] = Object.prototype.hasOwnProperty.call(given, k) ? given[k] : p.default;
-  for (const k of Object.keys(given)) if (!(k in out)) throw new Error(`清单的 sim.params 里没有 ${k}`);
-  return out;
-}
-
-/** 打开的推演插件 → 文明种子 seed 上跑的 QuickJS 插件(用完 dispose) */
-export async function simPluginOf(p: OpenedPlugin, seed: number, params?: Readonly<Record<string, number>>): Promise<QuickJSPlugin> {
+/** 打开的推演插件 → 文明种子 seed 上跑的 QuickJS 插件(用完 dispose);params 写了清单里没有的滑条算写错 */
+export async function quickjsSimPlugin(p: OpenedPlugin, seed: number, params: Readonly<Record<string, number>> = {}): Promise<QuickJSPlugin> {
   const sim = p.manifest.sim!;
-  const q = await quickjsPlugin(quickjsWasm(), { id: p.manifest.id, code: p.code, setup: simSetupOf(sim), params: simParamsOf(sim, params), seed });
+  for (const k of Object.keys(params)) if (!sim.params || !Object.prototype.hasOwnProperty.call(sim.params, k)) throw new Error(`清单的 sim.params 里没有 ${k}`);
+  const q = await quickjsPlugin(quickjsWasm(), { id: p.manifest.id, code: p.code, setup: simSetupOf(sim), params: simParamsOf(sim.params, params), seed });
   return {
     ...q,
     act(turn) {
