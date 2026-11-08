@@ -994,6 +994,8 @@ export function Studio(p: StudioProps) {
     if (name !== p.title) p.onTitle(name);
   };
   const askCreate = () => {
+    // 以它为底稿带过来的推演插件本机没装:先到选推演插件那一页,装上或移出
+    if (simLocked && !simNow?.files) return openSimPage();
     p.onLeaveTerrain();
     commitName();
     mixFlush.current?.();

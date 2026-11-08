@@ -33,6 +33,21 @@ export function missingText(title: string, miss: readonly Pick<SimPluginCheck, '
   return `「${title}」用了推演插件${list}。看不用装；要接着推，得先装上同一版，推出来的历史才对得上。`;
 }
 
+/** 被网站停用了:框的标题 */
+export function blockedLabel(blocked: readonly Pick<SimPluginCheck, 'id' | 'plugin'>[]): string {
+  return blocked.length === 1 ? `「${blocked[0].plugin.name ?? blocked[0].id}」被网站停用了` : `${blocked.length} 个推演插件被网站停用了`;
+}
+
+/** 被网站停用了:框里那两句 */
+export function blockedText(title: string, blocked: readonly Pick<SimPluginCheck, 'id' | 'plugin'>[]): [string, string] {
+  const list = blocked.map((c) => `「${c.plugin.name ?? c.id}」${versionLabel(c.plugin.version)}`).join('、');
+  const it = blocked.length > 1 ? '它们' : '它';
+  return [
+    `「${title}」用了推演插件${list}，${it}被网站停用了，不再跑。这个世界照样能看；要接着推，只能另存一份不带${it}的。`,
+    `原来的「${title}」不动；另存一份「${newTitle(title)}」，地图和你写的东西留下，历史不带${it}、从第 0 年重推，整段都会不一样。`,
+  ];
+}
+
 /** 另存一份那两句 */
 export function otherText(title: string, other: readonly Pick<Other, 'id' | 'plugin' | 'installed'>[], what: string): [string, string] {
   const one = other.length === 1 ? other[0] : null;
