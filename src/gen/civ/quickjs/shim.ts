@@ -2,12 +2,13 @@
  * QuickJS 里插件代码之前先跑的那一层:登记 civAtlas.sim、把递进来的一回合包成 PluginTurn 的样子、回话打包递回去,
  * 再拿掉会让同一个种子推出不同历史(Date、Math.random)或跑审核没看过的代码(eval、Function 一族的构造器)的几样。
  *
- * 这段整个是一个函数表达式,装的时候调一次:SHIM(host, base, paramsJson) → [act, ready]。
+ * 这段整个是一个函数表达式,装的时候调一次:SHIM(host, base, paramsJson, logOn) → [act, ready]。
  * host(kind, name, ...args):kind 0 = turn.read[name],1 = turn[name];成功交回 [JSON, 补丁表, ...字节],出错交回 [null, 编号, 名字, 说明]。
+ * kind 2 = console[name](...args)(只在 logOn 时调,不交回东西)。
  * act(JSON, 补丁表, ...字节) 交回:undefined(没有回话)| [0, JSON, 补丁表, ...字节] | [1, 说明, 宿主错误的编号(没有 = −1), 1 内存用完 / 2 栈用完 / 0 别的]。
  * 数据的写法见 wire.ts;rand 和 util.ts 的 keyed / keyed4 逐位一样。
  */
-export const SHIM = String.raw`(function (host, base, paramsJson) {
+export const SHIM = String.raw`(function (host, base, paramsJson, logOn) {
   'use strict';
   const G = globalThis;
   const O = Object;
@@ -195,10 +196,21 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   for (const f of [async function () {}, function* () {}, async function* () {}]) {
     defProp(getProto(f), 'constructor', { value: ban('函数构造器', RUN), writable: true, configurable: true });
   }
-  // QuickJS 本来没有 console:给一个什么都不做的,插件里留着 console.log 不出错
+  // QuickJS 本来没有 console:给一个什么都不做的,插件里留着 console.log 不出错;开发者模式试推时 log、info、warn、error、debug 交给宿主记日志
   const quiet = {};
+  const said = { log: 1, info: 1, warn: 1, error: 1, debug: 1 };
   for (const k of ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir', 'table', 'assert', 'count', 'countReset', 'group', 'groupCollapsed', 'groupEnd', 'time', 'timeLog', 'timeEnd']) {
-    put(quiet, k, () => undefined);
+    put(
+      quiet,
+      k,
+      logOn && apply(hasOwn, said, [k])
+        ? function () {
+            const args = [2, k];
+            for (let i = 0; i < arguments.length; i++) put(args, i + 2, arguments[i]);
+            apply(host, undefined, args);
+          }
+        : () => undefined,
+    );
   }
   defProp(G, 'console', { value: quiet, writable: true, configurable: true });
 

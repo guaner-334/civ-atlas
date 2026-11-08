@@ -27,6 +27,7 @@ import { setUpRunner } from '../upheavalStore';
 import { getExtend, setExtendBusy, setExtendFresh, setExtendRunner } from '../extendStore';
 import { setOutlineRunner } from '../outlineStore';
 import { clearToast, showToast } from '../Toast';
+import { setDevTryRunner } from '../plugins/devSlot';
 import { namesOpt, setupOpt, upsOpt, yearsOpt } from '../world/worldTarget';
 import type { CivRefs, GenRefs, MapRefs, Ref, ResimRefs } from '../world/worldRefs';
 import type { SimClient } from './simClient';
@@ -78,7 +79,16 @@ export function useSimRunners(deps: SimRunnersDeps): void {
           send({ type: 'trial', id: reqId.current, tid, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...interventions], ...upsOpt(ups), ...namesOpt(civNames.current), ...yearsOpt(civYears.current), ...setupOpt(civSetup.current) });
         }),
     );
-    return () => setTrialRunner(null);
+    // 开发者模式试推:带着给的推演插件从第 0 年推,只交回量到的
+    setDevTryRunner((files, years, progress) => {
+      const p = genParams.current;
+      if (!p || !rawRef.current) return Promise.reject(new Error('世界还没生成好'));
+      return sim.devTry({ type: 'devTry', id: reqId.current, params: p, terrain: [...genTerrain.current], sketch: genSketch.current, interventions: [...civEdits.current], years, ...upsOpt(civUps.current), ...namesOpt(civNames.current), ...setupOpt({ ...civSetup.current, simPlugins: files }) }, progress);
+    });
+    return () => {
+      setTrialRunner(null);
+      setDevTryRunner(null);
+    };
   }, [send, sim]);
   // 逐年推演:算一步(worker 的 turn)、从推演模式某一年开始、存回推演模式、重新演绎、切支线
   useEffect(() => {
