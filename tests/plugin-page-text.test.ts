@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import type { PluginManifest } from '../src/plugin/pluginFile';
-import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, sizeText, versionLabel, versionText } from '../src/ui/plugins/pluginText';
+import {
+  addedLines,
+  addsRows,
+  askByLine,
+  clockText,
+  dayText,
+  devLoadLine,
+  devLogCopy,
+  devLogOrder,
+  devStopText,
+  moreText,
+  pageByLine,
+  sizeText,
+  versionLabel,
+  versionText,
+  type DevLog,
+} from '../src/ui/plugins/pluginText';
 
 function manifest(over: Partial<PluginManifest> = {}): PluginManifest {
   return {
@@ -70,5 +86,43 @@ describe('插件页的字', () => {
     expect(layer.map((r) => r.k)).toEqual(['图层', '往世界里存东西']);
     expect(layer[1].v).toBe('存它自己的数据');
     expect(addsRows(manifest({ requires: ['world.read@1'] }), false)).toEqual([{ k: '往世界里存东西', v: '不存', small: '它算的关掉就没了，世界不变' }]);
+  });
+});
+
+describe('开发者模式的小卡', () => {
+  const at = (h: number, m: number, sec: number) => new Date(2026, 10, 8, h, m, sec).getTime();
+
+  it('时刻写成 14:32:05', () => {
+    expect(clockText(at(14, 32, 5))).toBe('14:32:05');
+    expect(clockText(at(9, 3, 0))).toBe('09:03:00');
+  });
+
+  it('最近一次载入的排最上面,同一次里照先后;复制的和看到的一个顺序', () => {
+    const logs: DevLog[] = [
+      { at: at(14, 31, 40), level: 'error', text: '出错了', run: 1 },
+      { at: at(14, 31, 40), level: 'site', text: '插件出错，已经停下', run: 1 },
+      { at: at(14, 32, 5), level: 'info', text: '读到 36,214 个地块', run: 2 },
+      { at: at(14, 32, 5), level: 'warn', text: 'layer.cells 没成：x', run: 2 },
+    ];
+    expect(devLogOrder(logs).map((l) => l.text)).toEqual(['读到 36,214 个地块', 'layer.cells 没成：x', '出错了', '插件出错，已经停下']);
+    expect(devLogCopy(logs).split('\n')).toEqual([
+      '14:32:05 信息 读到 36,214 个地块',
+      '14:32:05 警告 layer.cells 没成：x',
+      '14:31:40 出错 出错了',
+      '14:31:40 网站 插件出错，已经停下',
+    ]);
+  });
+
+  it('第二行:载入还是重新载入、用了多久、没开起来', () => {
+    expect(devLoadLine(at(14, 32, 5), true, 18.4, 'sea-distance.civplugin')).toBe('14:32:05 重新载入，算了 18 毫秒（sea-distance.civplugin）');
+    expect(devLoadLine(at(14, 32, 5), false, 0.2, 'a.civplugin')).toBe('14:32:05 载入，算了 1 毫秒（a.civplugin）');
+    expect(devLoadLine(at(14, 32, 5), true, null, 'a.civplugin')).toBe('14:32:05 重新载入，没开起来（a.civplugin）');
+  });
+
+  it('插件停下时网站的一句:网站自己停的不记;出错的那句另记', () => {
+    expect(devStopText('stopped', '')).toBeNull();
+    expect(devStopText('crashed', 'Uncaught Error: x')).toBe('插件出错，已经停下');
+    expect(devStopText('flood', 'over 200 messages a second')).toBe('插件一秒发话太多，已经停下（over 200 messages a second）');
+    expect(devStopText('start-timeout', '')).toBe('插件代码顶层 10 秒没跑完，已经停下');
   });
 });

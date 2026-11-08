@@ -4,7 +4,8 @@
  */
 import { fullChronicle, fullChronicleCached } from '../../../gen/civ/story/religionText';
 import { applyNames, type KeyKind, type WorldEdits } from '../../../gen/edits';
-import { listNotes } from '../../../ai/library';
+import { exportNotes } from '../../../ai/library';
+import { cleanNoteList } from '../../../authorNotes';
 import { PluginApiError } from '../../../plugin/check';
 import { commitPluginEdits } from '../../../plugin/editsCommit';
 import { planChanges } from '../../../plugin/edit';
@@ -163,7 +164,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
       },
       notes: () => {
         const id = currentWorld()?.id;
-        return id ? listNotes(id) : [];
+        return id ? cleanNoteList(exportNotes(id)) : [];
       },
       view: () => viewOf(env()),
       watchView: (fn) => {

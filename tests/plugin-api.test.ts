@@ -468,7 +468,7 @@ const { startPluginHost, PluginRefused, OUT_BYTES_PER_SECOND, LOG_MAX } = await 
 async function open(requires: string[], extra: Partial<Parameters<typeof startPluginHost>[0]> = {}) {
   const view: ViewInfo = { year: 100, selected: null, visible: null, layer: 'polities' };
   const watchers = new Set<() => void>();
-  const sink = { panel: vi.fn(), layer: vi.fn(), log: vi.fn() };
+  const sink = { panel: vi.fn(), layer: vi.fn(), log: vi.fn(), failed: vi.fn() };
   const host = await startPluginHost({
     plugin: { id: 'test', requires },
     code: '',
@@ -646,6 +646,27 @@ describe('回调用', () => {
     const { call, sink } = await open([]);
     expect(await call('log', { text: 'hi\u0007' })).toMatchObject({ ok: true });
     expect(sink.log).toHaveBeenCalledWith('hi');
+  });
+
+  it('沙箱记的没接住的出错带 level: error;别的 level 不认', async () => {
+    const { call, sink } = await open([]);
+    await call('log', { text: 'Uncaught (in promise) Error: x', level: 'error' });
+    expect(sink.log).toHaveBeenLastCalledWith('Uncaught (in promise) Error: x', 'error');
+    await call('log', { text: 'y', level: 'shout' });
+    expect(sink.log.mock.lastCall).toEqual(['y']);
+  });
+
+  it('没成的调用告诉开发者模式:哪个调用、出错码、说明', async () => {
+    const { call, sink } = await open(['world.read@1']);
+    await call('history.span');
+    expect(sink.failed).toHaveBeenLastCalledWith('history.span', 'no-permission', expect.stringContaining('history.read@1'));
+    await call('world.cells', { fields: ['nope'] });
+    expect(sink.failed.mock.lastCall?.slice(0, 2)).toEqual(['world.cells', 'bad-args']);
+    await call('nothing.here');
+    expect(sink.failed.mock.lastCall?.slice(0, 2)).toEqual(['nothing.here', 'unknown-call']);
+    sink.failed.mockClear();
+    await call('world.info');
+    expect(sink.failed).not.toHaveBeenCalled();
   });
 
   it('太长的日志只记前面,末尾说截掉了多少;不拆开两格的字', async () => {
