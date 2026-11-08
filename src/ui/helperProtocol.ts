@@ -18,6 +18,9 @@
  *                  (runs 和后台存试跑结果的接口收的一样;插件自己出错、没开成都算一份 ok = false 的 run)
  *                  推演插件(清单 role: 'sim')不带 did,带 sim(plugin/simTrial.ts 的 SimTrial):各推 3000 年和官方比的几样数、
  *                  插件写的编年史前 20 句、分段推和一口气推一不一样;map 是带插件推到最后一年的政区图盖上它的第一个图层
+ *                  地图插件(清单 role: 'map')不带 did,带 map(plugin/mapTrial.ts 的 MapTrial):不带 / 带插件各长一张比的几样数、
+ *                  每一口多久、长两遍和改一笔一不一样、各推 3000 年;shots.map 是带插件的地形图,
+ *                  shots.views 是地形、气温、降水、群落四样图各一对(不带 / 带插件,600×300),shots.layers 是它的图层盖在带插件的地形图上(按图层编号)
  *                  { type: 'civ-atlas:trial-done', v: 3, id, ok: false, error }(网站这边没跑成,比如生成不了示例世界)
  *
  * - 只认网站所配服务器(VITE_AI_SERVER)那个来源、从上一层框发来的消息;回话也只发给那个来源。没配服务器 = 不帮(不出声)
@@ -33,6 +36,7 @@
  * 一次画一个,后到的排在后面。
  */
 import { RULES_NAME_MAX, UNNAMED_RULES } from '../gen/civ/ruleSet';
+import type { MapTrial } from '../plugin/mapTrial';
 import type { SimTrial } from '../plugin/simTrial';
 
 export const HELPER_V = 1;
@@ -87,6 +91,10 @@ export interface TrialRequest {
   seeds: number[];
 }
 
+/** 地图插件并排比的四样图 */
+export const MAP_VIEWS = ['terrain', 'temperature', 'precipitation', 'biomes'] as const;
+export type MapView = (typeof MAP_VIEWS)[number];
+
 /** 一个种子的试跑结果(和后台存试跑结果的接口收的一样) */
 export interface TrialRun {
   seed: number;
@@ -97,9 +105,18 @@ export interface TrialRun {
   /** 工具插件做了什么 */
   did?: { got: string; picked: string; drew: string; wrote: string; said: string };
   /** JPEG 的 data: 网址;没截到 = 不带 */
-  shots: { map?: string; panel?: string };
+  shots: {
+    map?: string;
+    panel?: string;
+    /** 地图插件:不带插件、带插件各一张 */
+    views?: Partial<Record<MapView, { official?: string; plugin?: string }>>;
+    /** 地图插件:图层编号 → 盖在带插件的地形图上 */
+    layers?: Record<string, string>;
+  };
   /** 推演插件 */
   sim?: SimTrial;
+  /** 地图插件 */
+  map?: MapTrial;
 }
 
 export interface HelperInfo {

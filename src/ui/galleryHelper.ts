@@ -93,6 +93,7 @@ export function run(req: RunRequest): Promise<Generated> {
       const m = ev.data;
       if (m.id !== 1) return;
       if (m.type === 'loadFailed') return void (out ? undefined : fail(new LoadRefused(m.why)));
+      if (m.type === 'mapFailed') return void (out ? undefined : fail(new Error(`地图插件「${m.plugin}」长不下去：${m.why}`)));
       // 交历史之前先交的几段(src/civParts.ts):收着,交历史的那条到了拼回去
       if (m.type === 'civPart') return void parts.take(m);
       if ('split' in m && m.split) parts.join(m.civ!, m.split);
