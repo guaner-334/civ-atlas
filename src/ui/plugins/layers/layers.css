@@ -17,6 +17,39 @@
   padding-left: 4px;
   padding-right: 4px;
 }
+/* 有推演插件的图层时:按钮挨着排,推演插件的按字宽(带「推演」小标),别的照旧一格宽 */
+.lp-chips.plg-chips {
+  display: flex;
+  flex-wrap: wrap;
+}
+.plg-chips .lp-chip.plg-chip {
+  width: calc((100% - 18px) / 4);
+}
+.plg-chips .lp-chip.plg-chip.sim {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: auto;
+  max-width: 100%;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+.plg-ctag {
+  flex: none;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-tag);
+  background: rgba(118, 118, 128, 0.16);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.lp-chip.on .plg-ctag {
+  background: rgba(255, 255, 255, 0.25);
+  color: var(--on-accent);
+}
 
 /* 图例:照数据底图的图例,多一行名字、「插件「XX」」和存进世界的按钮 */
 .legend.plg-legend {
@@ -49,6 +82,17 @@
 .plg-lname {
   min-width: 0;
   line-height: 1.4;
+}
+/* 推演插件的:放不下就折行,第几年靠右 */
+.plg-lt.sim {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.plg-lyear {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-2);
+  white-space: nowrap;
 }
 .plg-ltag {
   flex: none;

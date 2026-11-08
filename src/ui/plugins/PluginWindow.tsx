@@ -44,6 +44,7 @@ export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugi
     const where = isSim(m) ? simWhere(phone) : toolWhere(m, phone);
     showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
   }
+  void import('./worldPlugins').then((x) => x.refreshSimNow()).catch(() => {});
   return r.plugin;
 }
 
@@ -169,6 +170,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     await removePlugin(id).catch(() => false);
     setDetail(false);
     await reload();
+    void import('./worldPlugins').then((x) => x.forgetSim(id)).catch(() => {});
   };
 
   /** 投到作品墙:交的就是装着的这一份文件 */
@@ -313,6 +315,18 @@ const MORE_ICONS = {
   box: <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9" />,
   shield: <path d="M12 3 5 6v5.5c0 4.3 3 8 7 9.5 4-1.5 7-5.2 7-9.5V6zM9 12l2.2 2.2 4-4.2" />,
   arrowUp: <path d="M12 19V5M6 11l6-6 6 6" />,
+  ok2: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.5 12.3 2.4 2.4 4.6-4.9" />
+    </>
+  ),
+  x2: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m9 9 6 6M15 9l-6 6" />
+    </>
+  ),
   reload: (
     <>
       <path d="M20 11a8 8 0 1 0-2.3 5.7" />
@@ -437,7 +451,7 @@ function DevRow({ on, phone }: { on: boolean; phone?: boolean }) {
     <div className={phone ? 'plg-devr' : 'plg-dev'}>
       <span>
         <b>开发者模式</b>
-        <small>写插件的人用：重新载入、看日志</small>
+        <small>写插件的人用：重新载入、看日志、试推</small>
       </span>
       <Switch on={on} small={!phone} label="开发者模式" onChange={setDevMode} />
     </div>

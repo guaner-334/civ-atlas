@@ -65,8 +65,17 @@ function WindowMissing() {
 
 const PluginWindow = lazy(() => import('./PluginWindow').catch(() => ({ default: WindowMissing as unknown as typeof import('./PluginWindow').default })));
 
+const WallPlugin = lazy(() => import('./GalleryPlugins').then((m) => ({ default: m.PluginWorkDialog })));
+const wallLook = createStore<string | null>(null);
+
+/** 打开作品墙上这个插件的那一页(从那里装);作品编号 */
+export function openWallPlugin(work: string): void {
+  wallLook.set(work);
+}
+
 export function PluginsHost({ phone }: { phone: boolean }) {
   const shown = open.use();
+  const look = wallLook.use();
   // 装着的插件联网时和作品墙对一对:有新版、被网站停用了
   useEffect(() => {
     import('./galleryWatch').then(
@@ -74,10 +83,11 @@ export function PluginsHost({ phone }: { phone: boolean }) {
       () => {},
     );
   }, []);
-  if (!shown) return null;
+  if (!shown && !look) return null;
   return (
     <Suspense fallback={null}>
-      <PluginWindow phone={phone} onClose={closePlugins} />
+      {look && <WallPlugin id={look} phone={phone} onClose={() => wallLook.set(null)} />}
+      {shown && <PluginWindow phone={phone} onClose={closePlugins} />}
     </Suspense>
   );
 }

@@ -190,3 +190,82 @@ export function devStopText(reason: string, detail: string): string | null {
   if (!t) return null;
   return detail && reason !== 'crashed' ? `${t}（${detail}）` : t;
 }
+
+// 开发者模式的试推(载入的是推演插件)
+
+/** 试推交回来的一部分(DevTried 的样子,这里只用到这几样) */
+export interface TriedView {
+  at: number;
+  file: string;
+  plugins: readonly { id: string; name: string; dev: boolean }[];
+  alone: boolean;
+  error?: string;
+  result: {
+    years: number;
+    stuck: { year: number; error: string } | null;
+    ms: number;
+    plugins: readonly { id: string; turns: number; ms: number; worst: number; worstYear: number }[];
+    commands: Readonly<Record<string, number>>;
+    lines: number;
+    logs: readonly { year: number | null; level: DevLevel; plugin: string; text: string }[];
+    resume: { same: true } | { same: false; year: number | null; what: string } | null;
+  } | null;
+}
+
+/** 命令的短说法(一句话里用,不带括号) */
+const COMMAND_SHORT: Record<string, string> = { declare: '宣战', ally: '结盟', treaty: '立约', cede: '割地', found: '立国', move: '迁都', destroy: '灭国', disaster: '天灾', trek: '大迁徙' };
+
+const secText = (ms: number) => `${ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)} 秒`;
+
+/** 小卡第二行:试推完、推不下去、没推成 */
+export function devTryLine(t: TriedView, phone: boolean): string {
+  const r = t.result;
+  if (!r) return `${clockText(t.at)} 没推成：${t.error ?? '后台线程出错'}`;
+  if (r.stuck) return `${clockText(t.at)} 试推到第 ${r.stuck.year} 年出错停下${phone ? '' : `（${t.file}）`}`;
+  return `${clockText(t.at)} 试推完：${phone ? '' : '这个世界的地图，'}第 0 年推到第 ${r.years} 年，用了 ${secText(r.ms)}${phone ? '' : `（${t.file}）`}`;
+}
+
+/** 表里一个插件一行:名字、出手几回、一共多久、最慢一次(电脑上带哪年) */
+export function devTryRows(t: TriedView, phone: boolean): { id: string; name: string; turns: string; total: string; worst: string }[] {
+  const r = t.result;
+  if (!r) return [];
+  return r.plugins.map((p) => {
+    const who = t.plugins.find((x) => x.id === p.id);
+    const name = who ? (who.dev ? `${who.name}（开发中）` : who.name) : p.id;
+    const worst = p.turns === 0 ? '—' : `${p.worst < 1 ? '不到 1' : Math.round(p.worst)} 毫秒${phone ? '' : `，第 ${p.worstYear} 年`}`;
+    return { id: p.id, name, turns: `${p.turns} 回`, total: secText(p.ms), worst };
+  });
+}
+
+/** 「下了 14 条命令（立约 9、宣战 3、结盟 2），写了 14 句编年史」(手机上不列每种几条) */
+export function devTryCounts(t: TriedView, phone: boolean): string {
+  const r = t.result;
+  if (!r) return '';
+  const kinds = Object.entries(r.commands).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  const n = kinds.reduce((s, [, k]) => s + k, 0);
+  const cmd = n ? `下了 ${n} 条命令${phone ? '' : `（${kinds.map(([k, c]) => `${COMMAND_SHORT[k] ?? k} ${c}`).join('、')}）`}` : '没下命令';
+  return `${cmd}，${r.lines ? `写了 ${r.lines} 句编年史` : '没写编年史'}`;
+}
+
+/** 分段推那一行:一样 / 不一样在哪;没查(推不下去)= null */
+export function devTryResume(t: TriedView, half: number, phone: boolean): { ok: boolean; text: string } | null {
+  const v = t.result?.resume;
+  if (!v) return null;
+  if (v.same) return { ok: true, text: phone ? '分段推和一口气推一样' : `分段推（推到第 ${half} 年存下、打开再接着推）和一口气推一样` };
+  if (v.what === 'stuck') return { ok: false, text: `分段推的时候${v.year === null ? '' : `第 ${v.year} 年`}推不下去，一口气推的推得下去，多半是用了全局变量记东西` };
+  return { ok: false, text: v.year === null ? `不一样：史事都一样，${v.what} 对不上，多半是用了全局变量记东西` : `不一样：第 ${v.year} 年起对不上，多半是用了全局变量记东西` };
+}
+
+/** 日志一行左边:第几年(装插件时打的写「装的时候」) */
+export const devTryYear = (year: number | null): string => (year === null ? '装的时候' : `第 ${year} 年`);
+
+/** 试推的「复制全部」:那一行、每个插件、命令和编年史、分段推、日志 */
+export function devTryCopy(t: TriedView, half: number): string {
+  const out = [devTryLine(t, false)];
+  for (const r of devTryRows(t, false)) out.push(`${r.name}：出手 ${r.turns}，一共 ${r.total}，最慢一次 ${r.worst}`);
+  if (t.result) out.push(devTryCounts(t, false));
+  const v = devTryResume(t, half, false);
+  if (v) out.push(v.text);
+  for (const l of t.result?.logs ?? []) out.push(`${devTryYear(l.year)} ${levelText(l.level)} ${l.plugin ? `[${l.plugin}] ` : ''}${l.text}`);
+  return out.join('\n');
+}

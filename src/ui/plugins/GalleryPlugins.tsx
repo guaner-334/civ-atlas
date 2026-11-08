@@ -2,7 +2,7 @@
  * 作品墙上的插件:「插件」页签里的卡片、点开的详情(试跑截图、要用到什么、版本和文件、举报、装上)。
  * 装上弹的是插件页那张权限框(审过的那种),装好以后详情里换成「已装上」;装着旧版的换成「更新…」。
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { coverUrl, fetchWork, isWorkGone, loadGallery, reportWork, useGallery, wasReported, type GalleryWork } from '../../account/gallery';
 import { serverBase } from '../../account/server';
@@ -168,7 +168,8 @@ type Step = { kind: 'ask'; a: Ask } | { kind: 'said'; said: Said };
 
 /**
  * 点开一个插件:id = 作品编号;w / item = 已经有的(作品墙上点的、打开网址时取好的),没有就去取。
- * inPlace = 放在作品墙那一页里(提示条盖得住它);onUpdate = 在插件页里点「看看」打开的:装着旧版时「更新…」交给插件页
+ * inPlace = 放在作品墙那一页里(提示条盖得住它);onUpdate = 在插件页里点「看看」打开的:装着旧版时「更新…」交给插件页;
+ * direct = 直接装:取到就弹权限框,装好、取消都关掉(取不到才露出详情说为什么);want = 只装这一版(指纹),作品墙上换了版本就不装
  */
 export function PluginWorkDialog({
   id,
@@ -178,11 +179,15 @@ export function PluginWorkDialog({
   inPlace,
   onClose,
   onUpdate,
+  direct,
+  want,
 }: {
   id: string;
   w?: GalleryWork;
   item?: GalleryWork;
   phone: boolean;
+  direct?: boolean;
+  want?: string;
   inPlace?: boolean;
   onClose: () => void;
   onUpdate?: () => void;
@@ -221,7 +226,8 @@ export function PluginWorkDialog({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || busy) return;
       e.stopPropagation();
-      setStep(null);
+      if (direct) onClose();
+      else setStep(null);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -235,6 +241,7 @@ export function PluginWorkDialog({
       await installAsk(a, phone);
       setStep(null);
       await refreshInstalled();
+      if (direct) onClose();
     } catch {
       setStep({ kind: 'said', said: { kind: 'failed', name: a.opened.manifest.name } });
     } finally {
@@ -242,28 +249,42 @@ export function PluginWorkDialog({
     }
   };
 
-  const start = async () => {
-    if (!w || !p) return;
+  /** 取插件文件、弹权限框;交回 false = 什么框都没弹(已经装着同一版、取不到) */
+  const start = async (): Promise<boolean> => {
+    if (!w || !p) return false;
+    if (want && p.sum !== want) {
+      setErr('作品墙上这个插件已经换了版本，没有你要的那一版了');
+      return true;
+    }
     setBusy(true);
     setErr('');
     try {
       const { bytes, opened } = await wallFile(w.id, p.sum);
       const m = opened.manifest;
       const v = verdictOf(opened.sum, m.id);
-      if (v.blocked) return setStep({ kind: 'said', said: { kind: 'blocked', name: m.name, version: m.version, ...v.blocked } });
+      if (v.blocked) return void setStep({ kind: 'said', said: { kind: 'blocked', name: m.name, version: m.version, ...v.blocked } }), true;
       const old = (await listPlugins().catch(() => [] as InstalledPlugin[])).find((x) => x.id === m.id);
-      if (old?.current.sum === opened.sum) return void (await refreshInstalled());
-      if (!old) return setStep({ kind: 'ask', a: { kind: 'install', bytes, opened, file: '从作品墙装', verdict: { reviewed: true, blocked: null }, work: w.id } });
+      if (old?.current.sum === opened.sum) return void (await refreshInstalled()), false;
+      if (!old) return void setStep({ kind: 'ask', a: { kind: 'install', bytes, opened, file: '从作品墙装', verdict: { reviewed: true, blocked: null }, work: w.id } }), true;
       const a: Ask = { kind: 'update', bytes, opened, file: '', old, added: addedLines(old.current.manifest, m), work: w.id, note: p.note };
       if (a.added.length) setStep({ kind: 'ask', a });
       else await finish(a);
+      return true;
     } catch (e) {
       if (e instanceof PluginFileError && e.kind === 'newer') setStep({ kind: 'said', said: { kind: 'newer', name: e.plugin ?? p.name, need: e.need ?? '新版网站的东西' } });
       else setErr(`没取到插件文件：${e instanceof Error ? e.message : String(e)}`);
+      return true;
     } finally {
       setBusy(false);
     }
   };
+  const started = useRef(false);
+  useEffect(() => {
+    if (!direct || started.current || !w || !p) return;
+    started.current = true;
+    void start().then((shown) => !shown && onClose());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 取到作品就开始,只一次
+  }, [direct, w, p]);
 
   const showLicense = async () => {
     if (lic !== null) return setLic(null);
@@ -278,7 +299,7 @@ export function PluginWorkDialog({
   };
 
   if (step) {
-    const back = () => setStep(null);
+    const back = () => (direct ? onClose() : setStep(null));
     const box =
       step.kind === 'said' ? (
         <SaidBox said={step.said} phone={phone} onOk={back} />
@@ -303,6 +324,8 @@ export function PluginWorkDialog({
     );
   }
 
+  // 直接装:权限框弹出来之前不露出详情
+  if (direct && !err && !gone) return null;
   const label = w && p ? titleOf(w, p) : '插件';
   const close = (
     <button className="acct-x" onClick={onClose} title="关闭" aria-label="关闭">

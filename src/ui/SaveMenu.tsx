@@ -35,10 +35,12 @@ import { showToast } from './toastStore';
 import { useSession } from '../account/session';
 import { saveAsNew } from './FrozenWorld';
 import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
-import { contentTrouble, pendingOf } from './worldStore';
+import { contentTrouble, pendingOf, simWaitOf } from './worldStore';
 import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem, useSubmitBan, useSubmitWorldOn, type SubmitWork } from './submitView';
 import { RemoveDataItem, pluginNames, usePluginData } from './plugins/saveItems';
 import { useNarrow } from './device';
+import { SIM_NO_LINK, simWaitText, useSimLinkOff } from './world/simAsk';
+import { pluginsUiOn } from './plugins/flag';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -121,6 +123,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
   const full = storageIsFull() || vaultFullSeen();
   const session = useSession();
   const curId = cur?.id;
+  const simOff = useSimLinkOff();
   const oldRecipe = cur?.oldRecipe !== undefined;
   const kept = keptFrom(edits);
   const [failedId, setFailedId] = useState<string | null>(null);
@@ -136,6 +139,16 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     };
   }, [checkFailed, curId, v]);
   const failed = checkFailed && failedId === curId;
+  // 用了推演插件、本机没有同一版:内容先照原样留着,等装上再存
+  const [simWait, setSimWait] = useState<{ id: string; ids: string[] } | null>(null);
+  useEffect(() => {
+    if (!open || !curId || !pluginsUiOn()) return;
+    let live = true;
+    void simWaitOf(curId).then((ids) => live && setSimWait(ids.length ? { id: curId, ids } : null));
+    return () => {
+      live = false;
+    };
+  }, [open, curId, v]);
   const recipeOnly = oldRecipe || failed;
   // 存成文件有多大:菜单开着才算;存储满了时写不准(页面里的比存着的新),不写
   const [size, setSize] = useState<{ id: string; note: string; bytes: number } | null>(null);
@@ -368,14 +381,14 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
             </button>
           ) : (
             <>
-              <button className={`save-it${kept || plgData.length ? ' off' : ''}`} data-act="share-link" aria-disabled={kept || plgData.length ? true : undefined} disabled={!cur} onClick={kept || plgData.length ? undefined : shareLink}>
+              <button className={`save-it${kept || plgData.length || simOff ? ' off' : ''}`} data-act="share-link" aria-disabled={kept || plgData.length || simOff ? true : undefined} disabled={!cur} onClick={kept || plgData.length || simOff ? undefined : shareLink}>
                 <Icon name="link" size={17} />
                 <span>
                   <b>复制配方链接</b>
-                  {plgData.length ? <small className="plg-off">这个世界里有插件{plgNames}存的数据，不能公开分享。要发给别人，请存成文件</small> : <small>{kept ? NO_LINK : RECIPE_HINT}</small>}
+                  {plgData.length ? <small className="plg-off">这个世界里有插件{plgNames}存的数据，不能公开分享。要发给别人，请存成文件</small> : <small>{simOff ? SIM_NO_LINK : kept ? NO_LINK : RECIPE_HINT}</small>}
                 </span>
               </button>
-              {at && !kept && !plgData.length && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
+              {at && !kept && !plgData.length && !simOff && <MomentCheck at={at} on={momentOn} onChange={setMomentOn} />}
             </>
           )}
           {submitItem && (
@@ -388,6 +401,15 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
             </button>
           )}
           {plgData.length > 0 && curId && <RemoveDataItem worldId={curId} list={plgData} phone={narrow} onDone={() => setOpen(false)} />}
+          {simWait && simWait.id === curId && (
+            <div className="save-it off" data-act="sim-wait">
+              <Icon name="warn" size={17} />
+              <span>
+                <b>还没存好</b>
+                <small>{simWaitText(simWait.ids)}</small>
+              </span>
+            </div>
+          )}
           {failed && (
             <button className="save-it" data-act="save-again" onClick={saveAgain}>
               <Icon name="save" size={17} />

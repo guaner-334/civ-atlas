@@ -1,9 +1,46 @@
 /**
- * 插件隔离自检:把各项检查交回来的原始结果判成九行。纯逻辑,单测直接调;真去试的在 ./probes.ts。
+ * 插件隔离自检:把各项检查交回来的原始结果判成九行,再加「推演插件」一组(只量,不算进全部通过)。
+ * 纯逻辑,单测直接调;真去试的在 ./probes.ts、./simProbe.ts。
  * 判法和 scripts/sandbox-check.ts 一样,只是没有收信站:连没连出去以插件在小屋里自己看到的为准。
  */
 
 export type Step<T> = T | { error: string };
+
+// 推演插件那一组(真去量的在 ./simProbe.ts,后台线程里跑)
+
+export const SIM_PROBE_SEED = 7;
+/** 推几年:宗教生效每 5 年出手一次,取 200 回合左右 */
+export const SIM_PROBE_YEARS = 1000;
+/** 电脑上推出来的散列。改了推演或示例插件,单测会报,照它打出来的换掉 */
+export const SIM_PROBE_SUM = '93821bb70b78defc';
+/** 推 3000 年要在这么多秒以内(电脑上每秒至少推 80 年):超过算慢 */
+export const SIM_SLOW_SEC = 37.5;
+
+export interface SimProbeRaw {
+  /** 宗教生效一回合的中间值(毫秒)、取了几回合 */
+  faithMs: number;
+  faithTurns: number;
+  /** 厌战一回合的中间值(毫秒) */
+  wearMs: number;
+  /** 不算插件推一年(毫秒) */
+  yearMs: number;
+  /** 照这个,带两个示例插件推 3000 年约几秒 */
+  estSec: number;
+  /** 生成地图、推历史各用了多久(毫秒) */
+  genMs: number;
+  civMs: number;
+  sum: string;
+  same: boolean;
+}
+
+export interface StackRaw {
+  /** 套到第几层停下 */
+  depth: number;
+  /** 谁先停的:QuickJS 自己(够)、后台线程的栈(不够);一直没停 = none */
+  by: 'quickjs' | 'thread' | 'none';
+  /** 停下时的那句话 */
+  note: string;
+}
 
 export interface Outcome {
   name: string;
@@ -70,11 +107,15 @@ export interface Raw {
   stops?: Step<Record<string, StopRaw>>;
   spin?: Step<SpinRaw>;
   nav?: Step<NavRaw>;
+  /** 推演插件那一组 */
+  sim?: Step<SimProbeRaw>;
+  stack?: Step<StackRaw>;
   /** 上一次查的时候整页被框带走了(网址上带着记号回来) */
   escapedTop: boolean;
 }
 
-export type RowState = 'run' | 'ok' | 'bad' | 'err';
+/** slow = 推演插件那一组里量出来慢(右边变黄) */
+export type RowState = 'run' | 'ok' | 'bad' | 'err' | 'slow';
 
 export interface Row {
   label: string;
@@ -294,6 +335,52 @@ export interface Summary {
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
+
+/** 26 秒、3 分钟 */
+const dur = (sec: number) => (sec < 60 ? `${Math.max(1, Math.round(sec))} 秒` : `${Math.round(sec / 60)} 分钟`);
+
+/** 「推演插件」那一组:一回合多久、推出来的和电脑上一不一样、插件调用能套多深。只量,不算进上面的全部通过 */
+export function simRows(raw: Raw): Row[] {
+  const run = (label: string): Row => ({ label, state: 'run', result: '', why: '', detail: '' });
+  const err = (label: string, e: string): Row => ({ label, state: 'err', result: '没量成', why: '这一项没量成，把结果复制给开发', detail: e });
+  const out: Row[] = [];
+  const s = raw.sim;
+  const TURN = '算一回合要多久';
+  const SAME = '推出来的和电脑上一样';
+  if (!s) out.push(run(TURN), run(SAME));
+  else if (failed(s)) out.push(err(TURN, s.error), err(SAME, s.error));
+  else {
+    const slow = s.estSec > SIM_SLOW_SEC;
+    out.push({
+      label: TURN,
+      state: slow ? 'slow' : 'ok',
+      result: `${Number(s.faithMs.toPrecision(2))} 毫秒`,
+      why: `示例插件「宗教生效」跑 ${s.faithTurns} 回合取中间；照这个，带两个示例插件推 3000 年约 ${dur(s.estSec)}${slow ? '，用了推演插件的世界会推得很慢' : ''}`,
+      detail: `宗教生效一回合 ${s.faithMs} ms（${s.faithTurns} 回合的中间值），厌战 ${s.wearMs} ms，不算插件推一年 ${s.yearMs} ms，估 3000 年 ${s.estSec} 秒；地图 ${s.genMs} ms，推 ${SIM_PROBE_YEARS} 年 ${s.civMs} ms`,
+    });
+    out.push({
+      label: SAME,
+      state: s.same ? 'ok' : 'bad',
+      result: s.same ? '一样' : '不一样',
+      why: s.same ? '' : '同一个世界在这台上推出来的历史和电脑上的不一样，用了推演插件的世界在这台上接着推会推出另一段',
+      detail: `散列 ${s.sum}，电脑上 ${SIM_PROBE_SUM}`,
+    });
+  }
+  const k = raw.stack;
+  const DEEP = '插件调用能套多深';
+  if (!k) out.push(run(DEEP));
+  else if (failed(k)) out.push(err(DEEP, k.error));
+  else if (k.by === 'quickjs') out.push({ label: DEEP, state: 'ok', result: `${k.depth} 层`, why: '', detail: `套到 ${k.depth} 层 QuickJS 先停下：${k.note}` });
+  else
+    out.push({
+      label: DEEP,
+      state: 'bad',
+      result: '不够',
+      why: k.by === 'thread' ? '后台线程的栈比插件的上限先用完：插件调用套得深的时候，在这台上停的地方和电脑上不一样' : '套到很深也没停下，说明 QuickJS 的栈上限没起作用',
+      detail: `${k.by}：${k.note}`,
+    });
+  return out;
+}
 export const shortTime = (d: Date) => `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${d.getHours()}:${pad(d.getMinutes())}`;
 
 export function summary(rows: Row[], when: Date | null): Summary {
@@ -326,5 +413,8 @@ export function report(rows: Row[], raw: Raw, meta: ReportMeta): string {
     '只看小屋里面：没有收信站，连没连出去以插件在小屋里自己看到的为准。',
     '',
     ...rows.flatMap((r) => [`${r.state === 'ok' ? '✓' : '✗'} ${r.label}：${r.result}`, `  ${r.detail}`]),
+    '',
+    '推演插件（只量，不算进全部通过）',
+    ...simRows(raw).flatMap((r) => [`${r.state === 'ok' ? '✓' : r.state === 'slow' ? '!' : '✗'} ${r.label}：${r.result}`, `  ${r.detail}`]),
   ].join('\n');
 }

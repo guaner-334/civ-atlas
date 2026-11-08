@@ -4,7 +4,7 @@ import { generateCiv } from '../src/gen/civ';
 import { historyAt, historyPolities, historySettlements } from '../src/plugin/read';
 import { PluginApiError } from '../src/plugin/check';
 import { EMPTY_EDITS } from '../src/gen/edits';
-import { TRIAL_LINE_MAX, TRIAL_LOG_LINES, TrialRecorder, cellsInTrialBox, trialLine, trialPicks, wrapSpan } from '../src/plugin/trial';
+import { TRIAL_LINE_MAX, TRIAL_LOG_LINES, TrialRecorder, cellsInTrialBox, landFrom, trialLine, trialPicks, wrapSpan } from '../src/plugin/trial';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7, cells: 3000 });
 const civ = generateCiv(world, { endYear: 800 });
@@ -18,7 +18,13 @@ function recorder() {
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-describe('替插件点的:两座最大的城、最大的那一国', () => {
+/** 那一年有人的城,人口从多到少 */
+const townsBySize = () =>
+  historySettlements(civ, { year })
+    .filter((s) => (s.population ?? 0) > 0)
+    .sort((a, b) => (b.population ?? 0) - (a.population ?? 0) || a.id - b.id);
+
+describe('替插件点的:最大的城和同一块陆地上的另一座、最大的那一国', () => {
   it('东西相连时盖住几个 x 的最窄一段', () => {
     expect(wrapSpan([10, 50, 30], 100)).toEqual({ x0: 10, w: 40 });
     // 跨过东西接缝:从 90 盖到 110(= 10)
@@ -26,11 +32,46 @@ describe('替插件点的:两座最大的城、最大的那一国', () => {
     expect(wrapSpan([42], 100)).toEqual({ x0: 42, w: 0 });
   });
 
-  it('点一处给的是那一年人口最多的两座城', () => {
+  it('走陆路连得到的地块:都是陆地,连着的陆地一块不漏;起点在水上就是空的', () => {
+    const { water } = world;
+    const { n, adjStart, adj } = world.mesh;
+    const start = townsBySize()[0].cell;
+    const on = landFrom(world, start);
+    expect(on[start]).toBe(1);
+    for (let i = 0; i < n; i++) {
+      if (!on[i]) continue;
+      expect(water[i]).toBe(0);
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) if (water[adj[k]] === 0) expect(on[adj[k]]).toBe(1);
+    }
+    expect(on.reduce((a, b) => a + b, 0)).toBeLessThan(n);
+    const sea = water.findIndex((w) => w !== 0);
+    expect(landFrom(world, sea).every((x) => x === 0)).toBe(true);
+  });
+
+  it('点一处:先给那一年人口最多的城,再给和它同一块陆地上人口最多的另一座', () => {
     const p = trialPicks(world, civ, year);
-    const towns = historySettlements(civ, { year }).sort((a, b) => (b.population ?? 0) - (a.population ?? 0));
+    const towns = townsBySize();
+    const on = landFrom(world, towns[0].cell);
+    const near = towns.slice(1).find((s) => on[s.cell] === 1)!;
+    expect(near).toBeDefined();
+    expect(p.sameLand).toBe(true);
+    expect(p.cities).toEqual([towns[0], near].map((s) => ({ cell: s.cell, name: s.name })));
+  });
+
+  it('最大的城那块陆地上没有别的城:第二座退回第二大的城,说清楚隔着水', async () => {
+    const towns = townsBySize();
+    const water = world.water.slice();
+    const c = towns[0].cell;
+    for (let k = world.mesh.adjStart[c]; k < world.mesh.adjStart[c + 1]; k++) water[world.mesh.adj[k]] = 1;
+    const island = { ...world, water };
+    const p = trialPicks(island, civ, year);
+    expect(p.sameLand).toBe(false);
     expect(p.cities).toEqual(towns.slice(0, 2).map((s) => ({ cell: s.cell, name: s.name })));
-    expect(p.cities).toHaveLength(2);
+    const rec = new TrialRecorder({ world: island, civ, year, now: () => 0 });
+    const signal = new AbortController().signal;
+    await rec.source().pick!({ kind: 'cell', hint: '' }, signal);
+    await rec.source().pick!({ kind: 'cell', hint: '' }, signal);
+    expect(rec.did().picked).toBe(`${towns[0].name}、${towns[1].name}（最大的两座城：最大的城那块陆地上没有别的城，第二座隔着水）`);
   });
 
   it('框一片给的是地块最多的那一国的外接框:它的地块都在框里,框里的照网站框选那样列', () => {
@@ -51,7 +92,7 @@ describe('替插件点的:两座最大的城、最大的那一国', () => {
   });
 
   it('没长出文明:不点', () => {
-    expect(trialPicks(world, null, 0)).toEqual({ cities: [], box: null });
+    expect(trialPicks(world, null, 0)).toEqual({ cities: [], sameLand: false, box: null });
   });
 });
 
@@ -67,7 +108,7 @@ describe('试跑时记下插件做了什么', () => {
     expect(Array.from(box.cells)).toEqual(Array.from(rec.picks.box!.cells));
     expect(await src.pick!({ kind: 'box', hint: '' }, signal)).toBeNull();
     await expect(src.pick!({ kind: 'cells', hint: '' }, signal)).rejects.toBeInstanceOf(PluginApiError);
-    expect(rec.did().picked).toBe(`${a.name}、${b.name}（最大的两座城）；框了「${rec.picks.box!.name}」那一片（最大的那一国）；之后又请点 2 次，当作不点了；要一次点好几块 1 次，网站这一版还不会`);
+    expect(rec.did().picked).toBe(`${a.name}、${b.name}（最大的城，和同一块陆地上最大的另一座）；框了「${rec.picks.box!.name}」那一片（最大的那一国）；之后又请点 2 次，当作不点了；要一次点好几块 1 次，网站这一版还不会`);
   });
 
   it('没请点、没画、没改、没发话', () => {

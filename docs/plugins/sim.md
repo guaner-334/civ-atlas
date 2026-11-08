@@ -407,7 +407,7 @@ civAtlas.sim({
 |---|---|---|
 | `protect` | 不许灭 | 灭这国、划走它最后一个有城的州、在那里立国 |
 | `unity` | 禁止分裂 | 在这国的州里立国 |
-| `halt` | 不许扩张 | 这国宣战 |
+| `halt` | 不许扩张 | 这国宣战、把州划给它、灭别国把国土并给它 |
 | `ally` | 结盟 | 结盟的两国之间宣战 |
 | `stay` | 不许迁 | 这一族的大迁徙 |
 
@@ -491,7 +491,7 @@ civAtlas.sim({
 
 这些本来就没有:`fetch` 和一切联网、`setTimeout` 等定时器、`Worker`、`WebAssembly`、`Atomics`、`Intl`、`TextEncoder`、`structuredClone`、`self`、`postMessage`、`importScripts`。用到的库直接写进 `main.js`(普通脚本,不能 `import`)。
 
-`console.log`、`console.warn` 这些可以留在代码里,什么都不做,也不出错。要看中间算出来的数,用 `scripts/sim-plugin-try.ts` 试跑,把要看的写进编年史或小本子。
+`console.log`、`console.warn` 这些可以留在代码里,推演时什么都不做,也不出错。要看中间算出来的数:网站上打开开发者模式载入插件「试推 300 年」,`console.log` 这几样记进小卡的日志、带年份(见[开发者模式](README.md#开发者模式));或者用 `scripts/sim-plugin-try.ts` 试跑,把要看的写进编年史或小本子。
 
 ## 上限
 

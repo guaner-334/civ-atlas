@@ -18,6 +18,8 @@ import { currentWorld, useSavesVersion } from './saveStore';
 import { showToast } from './Toast';
 import { openDiag } from './DiagDialog';
 import { closeStuck, openStuck, useStuck, type StuckWhy } from './stuckStore';
+import { simErrorAt } from './sim/simClient';
+import { getSimNow } from './world/simNow';
 import './stuck.css';
 
 interface CardButton {
@@ -30,6 +32,10 @@ interface CardButton {
 interface CardText {
   title: string;
   text: string;
+  /** 插件报的错(灰框) */
+  box?: { label: string; text: string };
+  /** 灰框下面那一句 */
+  tail?: string;
   buttons: CardButton[];
 }
 
@@ -59,8 +65,35 @@ function crashCard(civ: Civ | null, retry: () => void): CardText {
   };
 }
 
-/** 推演插件出的错:说是哪个插件,不猜规则里哪几项,也不说是程序的毛病 */
-const byPlugin = (id: string) => `推演插件「${id}」在这一年出了错`;
+/** 推演插件出的错:说是哪个插件、第几版(世界记着的;没记写编号),不猜规则里哪几项,也不说是程序的毛病 */
+function pluginOf(id: string): { name: string; who: string; sum: string } {
+  const p = getSimNow()?.list.find((x) => x.id === id);
+  const name = p?.name ?? id;
+  return { name, who: `推演插件「${name}」${p ? `第 ${p.version.replace(/^(\d+\.\d+)\.0$/, '$1')} 版` : ''}`, sum: p?.sum ?? '' };
+}
+const byPlugin = (id: string) => `${pluginOf(id).who}在这一年出了错`;
+
+/** 插件出错时推演里抛的那句:去掉网站加的「推演插件 编号:」;慢的两种另说 */
+function pluginError(at: number, id: string): { kind: 'moment' | 'total' | 'error'; text: string } | null {
+  const raw = simErrorAt(at);
+  if (!raw) return null;
+  const head = `推演插件 ${id}:`;
+  const text = raw.startsWith(head) ? raw.slice(head.length) : raw;
+  if (/这一刻用了 [\d.]+ 秒,超过/.test(text)) return { kind: 'moment', text };
+  if (/所有推演插件一共用了 [\d.]+ 秒,超过/.test(text)) return { kind: 'total', text };
+  return { kind: 'error', text };
+}
+
+/** 「复制给作者」:插件名、第几版、文件指纹、种子、哪一年、那句错 */
+function copyForAuthor(civ: Civ, id: string): void {
+  const p = pluginOf(id);
+  const at = civ.stuck!.at;
+  const lines = [p.who, p.sum && `文件指纹 ${p.sum}`, `种子 ${currentWorld()?.params.seed ?? ''}`, `第 ${at} 年推不下去`, simErrorAt(at) ?? ''].filter(Boolean);
+  void navigator.clipboard?.writeText(lines.join('\n')).then(
+    () => showToast({ id: 'stuck-copy', kind: 'ok', text: '已复制', more: ['发给插件的作者'] }),
+    () => showToast({ id: 'stuck-copy', kind: 'warn', text: '没能复制', more: ['浏览器不让复制，打开「问题记录」照着抄'] }),
+  );
+}
 
 /** 卡上的字和按钮 */
 function cardOf(civ: Civ, why: StuckWhy | null): CardText {
@@ -80,10 +113,13 @@ function cardOf(civ: Civ, why: StuckWhy | null): CardText {
   if (why?.kind === 'extend') {
     const head = `第 ${why.from} 年以前的历史不变，新推出来的 ${stop - why.from} 年照样能看。`;
     const mid = plugin ? byPlugin(plugin) : official ? '世界用的是官方规则，多半是程序的毛病，不是你做错了' : `可能是${who(list)}太极端`;
+    const err = plugin ? pluginError(at, plugin) : null;
     return {
       title: `再推到第 ${at} 年推不下去了`,
       text: `${head}${mid}；不要这一段的话，可以撤销这次再推。`,
+      ...(err && plugin ? { box: { label: '插件报的错', text: err.text } } : {}),
       buttons: [
+        ...(plugin ? [{ label: '复制给作者', act: 'stuck-copy', onClick: () => copyForAuthor(civ, plugin) }] : []),
         {
           label: '撤销这次再推',
           act: 'stuck-undo-extend',
@@ -120,10 +156,29 @@ function cardOf(civ: Civ, why: StuckWhy | null): CardText {
 
   const saved = worldId ? '世界已经存好，' : '';
   if (plugin) {
+    const err = pluginError(at, plugin);
+    const p = pluginOf(plugin);
+    const stopped = `世界停在第 ${stop} 年，前面的历史照样能看。`;
+    const copy: CardButton = { label: '复制给作者', act: 'stuck-copy', onClick: () => copyForAuthor(civ, plugin) };
+    if (err?.kind === 'total')
+      return {
+        title,
+        text: `${p.who}太慢：这一段推演里推演插件一共用了 30 秒，到了上限，网站把它停了。${stopped}`,
+        tail: '慢的设备上更容易碰到。换一台快一点的设备打开这个世界再推，或者告诉作者。',
+        buttons: [copy, { ...look, primary: true }],
+      };
+    if (err?.kind === 'moment')
+      return {
+        title,
+        text: `${p.who}在第 ${at} 年出手，2 秒还没算完，网站把它停了，多半是插件里有转不出来的圈。${stopped}`,
+        buttons: [copy, { ...look, primary: true }],
+      };
     return {
       title,
-      text: `${byPlugin(plugin)}。世界停在第 ${stop} 年，前面的历史照样能看。出错的经过记在「更多 › 问题记录」里。`,
-      buttons: [{ label: '问题记录', act: 'stuck-diag', onClick: openDiag }, { ...look, primary: true }],
+      text: `${p.who}在第 ${at} 年出了错，${stopped}`,
+      ...(err ? { box: { label: '插件报的错', text: err.text } } : {}),
+      tail: '这是插件的毛病，不是你做错了，可以把这句发给作者。想接着推，可以等作者出新版，或者以它为底稿另建一个世界、不带这个插件。',
+      buttons: [copy, { label: '问题记录', act: 'stuck-diag', onClick: openDiag }, { ...look, primary: true }],
     };
   }
   if (official) {
@@ -211,6 +266,13 @@ export function StuckCard({ civ, phone, busy, over }: { civ: Civ | null; phone: 
             {c.title}
           </h4>
           <p>{c.text}</p>
+          {c.box && (
+            <div className="stuck-err" data-testid="stuck-plugin-error">
+              <b>{c.box.label}</b>
+              {c.box.text}
+            </div>
+          )}
+          {c.tail && <p className="stuck-tail">{c.tail}</p>}
           <div className="stuck-bs">
             {c.buttons.map((b) => (
               <button key={b.act} className={`stuck-btn${b.primary ? ' pri' : ''}`} data-act={b.act} onClick={b.onClick}>

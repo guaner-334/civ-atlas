@@ -83,6 +83,7 @@ import { Act, Acts, AiBox, AiSuggestLink, CenterAct, EventList, Link, MoreAct, P
 import { AiMenuItem, MenuItem, MenuSep } from './PopMenu';
 import { Icon } from './icons';
 import { copyMomentLink } from './shareMoment';
+import { SIM_NO_LINK, useSimLinkOff } from './world/simAsk';
 import { useAiOn } from '../ai/client';
 import { FlagIcon } from './Flag';
 import { FlagPanel } from './FlagPanel';
@@ -284,6 +285,7 @@ function CountryHead({ civ, raw, id, year, names, shared }: CountryPanelProps & 
 /** lock = 演一国时演的那一国(看的是别国:干预入口变灰、写一句;没在演 / 就是它 = −1) */
 function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: CountryPanelProps & { p: Polity; shared: Shared; lock: number }) {
   const era = useEra();
+  const simOff = useSimLinkOff();
   const pending = usePending();
   const step = useStepwiseOn();
   const { ai } = shared;
@@ -372,7 +374,7 @@ function InfoPage({ civ, raw, raster, world, id, year, p, shared, lock }: Countr
           改名
         </Act>
         <MoreAct>
-          <MenuItem icon={<Icon name="link" size={16} />} act="share-moment-link" note={`停在${yearFull(year, era)}`} onClick={() => void copyMomentLink()}>
+          <MenuItem icon={<Icon name="link" size={16} />} act="share-moment-link" disabled={simOff} note={simOff ? SIM_NO_LINK : `停在${yearFull(year, era)}`} onClick={() => void copyMomentLink()}>
             复制配方链接
           </MenuItem>
           <MenuItem icon={<Icon name="scroll" size={16} />} act="chronicle" disabled={!allCount} onClick={() => openOverview('chronicle', { polity: id, major: false })}>

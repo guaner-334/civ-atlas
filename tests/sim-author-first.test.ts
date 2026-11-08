@@ -25,14 +25,19 @@ const AT = { from: Y, fromTick: 1 } as const;
 
 /** 第 Y 年插件出手时看到的世界(不下命令的插件看到的,和不装插件一样) */
 function sceneAtY() {
-  let got: { polities: SimPolity[]; owner: Int16Array; cities: Set<number> } | undefined;
+  let got: { polities: SimPolity[]; owner: Int16Array; peopled: Int16Array; cities: Set<number> } | undefined;
   const scout: SimPlugin<SimRead> = {
     id: 'scout',
     every: 100,
     act(t) {
       if (t.year !== Y) return;
       const r = t.read;
-      got = { polities: r.polities(), owner: r.owners('polity').slice(), cities: new Set(r.settlements().filter((s) => s.ended === undefined).map((s) => s.region)) };
+      got = {
+        polities: r.polities(),
+        owner: r.owners('polity').slice(),
+        peopled: r.owners('culture').slice(),
+        cities: new Set(r.settlements().filter((s) => s.ended === undefined).map((s) => s.region)),
+      };
     },
   };
   const civ = generateCiv(w, { endYear: Y, plugins: [scout] });
@@ -52,6 +57,9 @@ const [other, other2] = alive.filter((p) => p.id !== wide.id).map((p) => p.id);
 const small = alive
   .filter((p) => p.id !== other && cityLands(p.id).length >= 2 && cityLands(p.id).length <= 12)
   .sort((a, b) => cityLands(a.id).length - cityLands(b.id).length || a.id - b.id)[0];
+/** 不是国都的州;有人住、没有主的州 */
+const sideLand = (p: number) => landsOf(p).find((r) => r !== capRegion(scene.polities[p]))!;
+const wild = [...scene.owner.keys()].find((r) => scene.owner[r] < 0 && scene.peopled[r] >= 0)!;
 
 type Log = { year: number; refused?: PluginRefused[] }[];
 
@@ -74,6 +82,13 @@ function run(plan: Readonly<Record<number, unknown[]>>, interventions: Intervent
   return { civ, log, took: (civ.interventions ?? []).filter((v) => v.plugin === 'probe') };
 }
 
+/** 第 Y 年插件在州 r 立国,立出来的新国的稳定键(先推一遍看是哪一国) */
+function bornKey(r: number) {
+  const { civ } = run({ [Y]: [{ kind: 'found', region: r }] }, [], Y + 1);
+  const p = civ.polities.find((q) => q.founded === T && civ.settlements[q.capital].region === r)!;
+  return polityKey(civ, p.id);
+}
+
 /** 告诉了插件的那几回合 */
 const told = (log: Log) => log.filter((x) => x.refused);
 
@@ -88,6 +103,7 @@ describe('作者的干预挡下插件的命令', () => {
     expect(wide).toBeDefined();
     expect(other2).toBeDefined();
     expect(small).toBeDefined();
+    expect(wild).toBeDefined();
   });
 
   it.each([
@@ -165,6 +181,74 @@ describe('作者的干预挡下插件的命令', () => {
       refused: [{ kind: 'declare', index: 0, why: 'halt' }],
     },
     {
+      name: '不许扩张挡把别国的州、无主的州划给它,把它的州划走照收',
+      cmds: () => [
+        { kind: 'cede', a: wide.id, region: sideLand(other) },
+        { kind: 'cede', a: wide.id, region: wild },
+        { kind: 'cede', a: other2, region: sideLand(wide.id) },
+      ],
+      author: (): Intervention => ({ kind: 'halt', a: key(wide.id), ...AT }),
+      refused: [
+        { kind: 'cede', index: 0, why: 'halt' },
+        { kind: 'cede', index: 1, why: 'halt' },
+      ],
+    },
+    {
+      name: '不许扩张挡灭别国并给它;灭国散成无主、并给别国、灭它自己照收',
+      cmds: () => [
+        { kind: 'destroy', a: other, b: wide.id },
+        { kind: 'destroy', a: other2 },
+        { kind: 'destroy', a: wide.id, b: other },
+      ],
+      author: (): Intervention => ({ kind: 'halt', a: key(wide.id), ...AT }),
+      refused: [{ kind: 'destroy', index: 0, why: 'halt' }],
+    },
+    {
+      name: '划给、并给同一格已经灭掉的不许扩张之国(办不成):照收',
+      cmds: () => [
+        { kind: 'destroy', a: wide.id },
+        { kind: 'destroy', a: other, b: wide.id },
+        { kind: 'cede', a: wide.id, region: sideLand(other2) },
+      ],
+      author: (): Intervention => ({ kind: 'halt', a: key(wide.id), ...AT }),
+      refused: [],
+    },
+    {
+      name: '先立国、再拿新国的键灭它并给不许扩张之国:照挡',
+      cmds: () => {
+        const r = sideLand(other);
+        return [
+          { kind: 'found', region: r },
+          { kind: 'destroy', a: bornKey(r), b: wide.id },
+        ];
+      },
+      author: (): Intervention => ({ kind: 'halt', a: key(wide.id), ...AT }),
+      refused: [{ kind: 'destroy', index: 1, why: 'halt' }],
+    },
+    {
+      name: '先立国、再把不许灭之国最后一座有城的州划给新国:照挡',
+      cmds: () => {
+        const rs = cityLands(small.id);
+        const r = sideLand(other);
+        return [
+          ...rs.slice(0, -1).map((region) => ({ kind: 'cede', a: other, region })),
+          { kind: 'found', region: r },
+          { kind: 'cede', a: bornKey(r), region: rs[rs.length - 1] },
+        ];
+      },
+      author: (): Intervention => ({ kind: 'protect', a: key(small.id), ...AT }),
+      refused: [{ kind: 'cede', index: cityLands(small.id).length, why: 'protect' }],
+    },
+    {
+      name: '不许扩张不挡立国:立出来的是新国,在它的州里、无主的州里都照收',
+      cmds: () => [
+        { kind: 'found', region: sideLand(wide.id) },
+        { kind: 'found', region: wild },
+      ],
+      author: (): Intervention => ({ kind: 'halt', a: key(wide.id), ...AT }),
+      refused: [],
+    },
+    {
       name: '作者的结盟挡两国之间的宣战(哪一方动手都挡),别的两国照打',
       cmds: () => [
         { kind: 'declare', a: other, b: wide.id },
@@ -210,6 +294,18 @@ describe('作者的干预挡下插件的命令', () => {
     expect(kept.civ.polities[small.id].ended).toBeUndefined();
     // 划走的是国都也照收(另有城可以迁都),只挡最后那一州
     expect(kept.took.length).toBe(cityLands(small.id).length - 1);
+  }, 60_000);
+
+  it('挡下灭别国并给不许扩张之国:那国那一格没亡;没下干预时那一格亡了、并进去', () => {
+    const merge = { [Y]: [{ kind: 'destroy', a: other, b: wide.id }] };
+    const free = run(merge, []).civ;
+    expect(free.polities[other].ended).toBe(T);
+    expect(free.annals.some((e) => e.kind === 'fall' && e.a === other && e.b === wide.id)).toBe(true);
+    expect(run(merge, [{ kind: 'halt', a: key(wide.id), ...AT }]).civ.polities[other].ended).not.toBe(T);
+    // 同一格先立国、再拿新国的键并给它:没下干预时真并进去了
+    const r = sideLand(other);
+    const viaNew = run({ [Y]: [{ kind: 'found', region: r }, { kind: 'destroy', a: bornKey(r), b: wide.id }] }, []).civ;
+    expect(viaNew.annals.some((e) => e.kind === 'fall' && e.b === wide.id && viaNew.polities[e.a].founded === T)).toBe(true);
   }, 60_000);
 
   it('两个插件同一刻下命令:后出手的照前一个收下的命令办完以后的归属看', () => {
