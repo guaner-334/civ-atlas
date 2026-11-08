@@ -784,6 +784,30 @@ describe('改你写的东西', () => {
     expect(ok({ kind: 'name', key, name: '' }).result).toEqual({ applied: 0, skipped: 1, marks: [] });
   });
 
+  it('下命令不合规回 bad-args、国名超长回 limit,不替插件改;取 0、false 的、国名末尾的「国」照收;推演插件的记号去掉', () => {
+    const key = pk();
+    const other = polityKey(civ, read.historyPolities(civ, { year: 600 })[1].id);
+    const rk = regionKey(civ, 3);
+    const iv = (v: Record<string, unknown>) => ({ kind: 'intervention', v });
+    const code = (v: Record<string, unknown>) => codeOf(() => planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'name', key, name: '甲' }, iv(v)] }));
+    const ok = (v: Record<string, unknown>) => planChanges(EMPTY_EDITS, civ, { changes: [iv(v)] }).next.interventions[0];
+    expect(code({ kind: 'found', region: rk, from: 10, name: '字'.repeat(NAME_MAX + 1) })).toBe('limit');
+    expect(code({ kind: 'protect', a: key, from: 10.5 })).toBe('bad-args');
+    expect(code({ kind: 'protect', a: key, from: 100, until: 100 })).toBe('bad-args');
+    expect(code({ kind: 'protect', a: key, from: 100, extra: 1 })).toBe('bad-args');
+    expect(code({ kind: 'destroy', a: key, from: 100, b: key })).toBe('bad-args');
+    expect(code({ kind: 'disaster', type: 'famine', level: 1, from: 100, regions: [rk, rk] })).toBe('bad-args');
+    expect(code({ kind: 'disaster', type: 'plague', level: 1, from: 100, city: 'settlement:c1#0', region: rk })).toBe('bad-args');
+    expect(code({ kind: 'policy', a: key, from: 100, war: 60 })).toBe('bad-args');
+    expect(code({ kind: 'treaty', a: key, ps: [other], from: 100, term: 600 })).toBe('bad-args');
+    expect(code({ kind: 'boost', a: key, from: 100, mul: 5 })).toBe('bad-args');
+    expect(ok({ kind: 'found', region: rk, from: 10, name: '秦国' })).toEqual({ kind: 'found', region: rk, from: 10, name: '秦' });
+    expect(ok({ kind: 'policy', a: key, from: 100, war: 0, expand: 20 })).toEqual({ kind: 'policy', a: key, from: 100, expand: 20 });
+    expect(ok({ kind: 'cede', a: key, region: rk, from: 100, permanent: false })).toEqual({ kind: 'cede', a: key, region: rk, from: 100 });
+    expect(ok({ from: 100, b: other, a: key, kind: 'ally', plugin: 'magic' })).toEqual({ kind: 'ally', a: key, b: other, from: 100 });
+    expect(Object.keys(ok({ from: 100, b: other, a: key, kind: 'ally' }))).toEqual(['kind', 'a', 'b', 'from']);
+  });
+
   it('下命令的类型和世界文件里的干预一致', () => {
     const toSite = (x: InterventionInfo): Intervention => x;
     const toPlugin = (x: Intervention): InterventionInfo => x;

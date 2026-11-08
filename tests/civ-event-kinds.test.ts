@@ -80,10 +80,10 @@ describe('引擎按登记的事件种类排同一刻的先后', () => {
 });
 
 describe('官方推演登记的种类', () => {
-  it('事件:编号不重复,都有名字;49 种全登记了', () => {
+  it('事件:编号不重复,都有名字;50 种全登记了', () => {
     const ids = CIV_EVENTS.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.length).toBe(49);
+    expect(ids.length).toBe(50);
     for (const e of CIV_EVENTS) expect(e.name.length).toBeGreaterThan(0);
     expect(() => new CivSim(1, CIV_EVENTS)).not.toThrow();
   });

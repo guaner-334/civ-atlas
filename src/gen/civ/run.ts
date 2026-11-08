@@ -123,8 +123,8 @@ export interface CivPack<S> extends RulePack<InstallCtx, ResumeCtx, FinishCtx> {
   upheave(run: CivRun<S>, own: S, c: UpheaveStep): Upheave;
   /** 推完整理成结果(起名、道路、地名、人物……);各模块的 finish 接着往上补 */
   settle(run: CivRun<S>, own: S, fin: Segment, eras: CivEra[], facts: UpheavalFact[]): Civ;
-  /** 推演插件那一段用的(没装模块的引擎 = null);不给 = 这套规则不接推演插件 */
-  bridge?(sim: CivSim): PluginBridge<SimRead> | null;
+  /** 推演插件那一段用的(没装模块的引擎 = null;seed = 文明种子);不给 = 这套规则不接推演插件 */
+  bridge?(sim: CivSim, seed: number): PluginBridge<SimRead> | null;
 }
 
 /** 两张表的值一样(同一张旋钮表在两套数里取出来的) */
@@ -301,7 +301,7 @@ export function startPack<S>(pack: CivPack<S>, world: World, params: Partial<Civ
 /** 推演插件接到一段推演上:saved = 接着推的那份历史(从第 0 年起推 = null);没给插件 = null */
 function plugInto<S>(pack: CivPack<S>, sim: CivSim, plugins: readonly SimPlugin<SimRead>[], seed: number, saved: Civ | null): PluginLine<SimRead> | null {
   if (!plugins.length) return null;
-  const bridge = pack.bridge?.(sim);
+  const bridge = pack.bridge?.(sim, seed);
   if (!bridge) throw new Error(`规则包 ${pack.id} 不接推演插件`);
   return new PluginLine(sim, bridge, plugins, seed, saved ? { states: saved.simPlugins ?? [], year: saved.endYear } : null);
 }
@@ -502,10 +502,10 @@ export function continuePack<S>(pack: CivPack<S>, world: World, civ: Civ, params
     },
     partial() {
       runTo();
-      // 干预、地名风格补在最后:交出去的键序和以前一样
+      // 干预、地名风格补在最后:交出去的键序和以前一样(推演插件下过命令的,干预已经照引擎上的那一份拼进去了)
       const out = halfOf(run, pack.adopt(run, civ, [], sim), fin, civ.habitat, regions);
       if (civ.knobs) out.knobs = civ.knobs;
-      if (list.length) out.interventions = list.slice();
+      if (list.length && !out.interventions) out.interventions = list.slice();
       if (civ.names) out.names = civ.names;
       return out;
     },
