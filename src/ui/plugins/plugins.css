@@ -805,6 +805,9 @@
 .phone .plg-ops .plg-btn {
   margin-left: auto;
 }
+.phone .plg-ops .plg-btn + .plg-btn {
+  margin-left: 0;
+}
 .phone .plg-desc {
   margin: 10px 16px 0;
   line-height: 1.55;

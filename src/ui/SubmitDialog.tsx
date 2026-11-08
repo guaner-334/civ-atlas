@@ -1,7 +1,7 @@
-/** 投稿窗(点开才下载)。须知每次都要自己勾,不替人先勾。 */
-import { useEffect, useState, type ReactNode } from 'react';
-import { Icon } from './icons';
-import { Dialog, CloseX, openAccount, openShareDialog, type SubmitView } from './AccountDialogs';
+/** 投稿窗(点开才下载)。须知每次都要自己勾,不替人先勾。投插件的窗在 SubmitPluginDialog.tsx */
+import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react';
+import { Icon, type IconName } from './icons';
+import { Dialog, CloseX, PanelsMissing, openAccount, openShareDialog, type SubmitView } from './AccountDialogs';
 import { cleanSignature } from '../gen/savefile';
 import { useSession } from '../account/session';
 import type { SmallWork, SubmitForm, SubmitKind, SubmitLimits } from '../account/submissions';
@@ -65,7 +65,9 @@ function smallSpec(o: Omit<WorkSpec, 'send'>, work: (form: SubmitForm) => SmallW
   };
 }
 
-function specOf(work: SubmitWork): WorkSpec {
+type WorkOf = Exclude<SubmitWork, { kind: 'plugin' }>;
+
+function specOf(work: WorkOf): WorkSpec {
   const key = workKey(work);
   if (work.kind === 'world') return worldSpec(work.worldId, work.title);
   if (work.kind === 'map') {
@@ -97,15 +99,26 @@ function specOf(work: SubmitWork): WorkSpec {
 }
 
 const seg = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('zh', { granularity: 'grapheme' }) : null;
-const chars = (s: string): string[] => (seg ? Array.from(seg.segment(s), (x) => x.segment) : [...s]);
-const clip = (s: string, max: number) => {
+export const chars = (s: string): string[] => (seg ? Array.from(seg.segment(s), (x) => x.segment) : [...s]);
+export const clip = (s: string, max: number) => {
   const c = chars(s);
   return c.length > max ? c.slice(0, max).join('') : s;
 };
 
 // ---------------------------------------------------------------------------
 
+const PluginSubmit = lazy(() => import('./SubmitPluginDialog').catch(() => ({ default: PanelsMissing as unknown as typeof import('./SubmitPluginDialog').default })));
+
 export default function SubmitDialog({ phone, work, view, onClose }: { phone: boolean; work: SubmitWork; view?: SubmitView; onClose: () => void }) {
+  if (work.kind !== 'plugin') return <WorkSubmitDialog phone={phone} work={work} view={view} onClose={onClose} />;
+  return (
+    <Suspense fallback={null}>
+      <PluginSubmit phone={phone} work={work} onClose={onClose} />
+    </Suspense>
+  );
+}
+
+function WorkSubmitDialog({ phone, work, view, onClose }: { phone: boolean; work: WorkOf; view?: SubmitView; onClose: () => void }) {
   const [spec] = useState(() => specOf(work));
   // 新建参数、规则没有现成的小图:现画一张(后台线程算),画好换上
   const [thumb, setThumb] = useState(spec.thumb);
@@ -351,7 +364,7 @@ export default function SubmitDialog({ phone, work, view, onClose }: { phone: bo
   );
 }
 
-const ACT_LABEL: Record<FailAct, string> = { retry: '再投一次', reload: '刷新页面', file: '存成文件' };
+export const ACT_LABEL: Record<FailAct, string> = { retry: '再投一次', reload: '刷新页面', file: '存成文件' };
 
 function JobRow({ icon, title, small, pct, act }: { icon: ReactNode; title: string; small: string; pct: number | null; act: { label: string; name: string; on: () => void } | null }) {
   return (
@@ -377,7 +390,7 @@ function JobRow({ icon, title, small, pct, act }: { icon: ReactNode; title: stri
   );
 }
 
-function FailBlock({ fail, kind }: { fail: Extract<SubmitFail, { kind: 'hits' | 'block' }>; kind: SubmitKind }) {
+export function FailBlock({ fail, kind }: { fail: Extract<SubmitFail, { kind: 'hits' | 'block' }>; kind: SubmitKind }) {
   return (
     <div className="acct-callout sub-bad" data-testid="submit-fail">
       <Icon name="warn" size={16} />
@@ -410,7 +423,14 @@ function FailBlock({ fail, kind }: { fail: Extract<SubmitFail, { kind: 'hits' | 
 // ---------------------------------------------------------------------------
 // 通知样子的窗口:投好了、投不了
 
-function Notice({ phone, icon, tone, h, p, why, small, btns, onClose, testId }: { phone: boolean; icon: 'check' | 'info' | 'ban'; tone?: string; h: string; p: string; why?: ReactNode; small?: string; btns: ReactNode; onClose: () => void; testId: string }) {
+const CLOCK = (
+  <svg className="icon" width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 7.5V12l3 2" />
+  </svg>
+);
+
+export function Notice({ phone, icon, tone, h, p, why, small, btns, onClose, testId }: { phone: boolean; icon: IconName | 'clock'; tone?: string; h: string; p: string; why?: ReactNode; small?: string; btns: ReactNode; onClose: () => void; testId: string }) {
   return (
     <Dialog
       phone={phone}
@@ -426,9 +446,7 @@ function Notice({ phone, icon, tone, h, p, why, small, btns, onClose, testId }: 
       }
     >
       <div className="gw-ok" style={{ paddingTop: 4 }}>
-        <span className={`gw-ok-ic${tone ? ` ${tone}` : ''}`}>
-          <Icon name={icon} size={28} />
-        </span>
+        <span className={`gw-ok-ic${tone ? ` ${tone}` : ''}`}>{icon === 'clock' ? CLOCK : <Icon name={icon} size={28} />}</span>
         <h2>{h}</h2>
         <p>{p}</p>
         {why && <div className="sub-why">{why}</div>}
@@ -439,7 +457,7 @@ function Notice({ phone, icon, tone, h, p, why, small, btns, onClose, testId }: 
   );
 }
 
-function NoticeBtn({ phone, blue, children, onClick, act }: { phone: boolean; blue?: boolean; children: ReactNode; onClick: () => void; act: string }) {
+export function NoticeBtn({ phone, blue, children, onClick, act }: { phone: boolean; blue?: boolean; children: ReactNode; onClick: () => void; act: string }) {
   return (
     <button className={`acct-btn ${phone ? 'full' : 'lg gw-wide'}${blue ? ' blue' : phone ? ' sub-plain' : ''}`} data-act={act} onClick={onClick}>
       {children}
@@ -447,7 +465,7 @@ function NoticeBtn({ phone, blue, children, onClick, act }: { phone: boolean; bl
   );
 }
 
-function DoneNotice({ phone, left, email, onClose }: { phone: boolean; left: number | null; email: string; onClose: () => void }) {
+export function DoneNotice({ phone, left, email, onClose }: { phone: boolean; left: number | null; email: string; onClose: () => void }) {
   return (
     <Notice
       phone={phone}
@@ -471,7 +489,7 @@ function DoneNotice({ phone, left, email, onClose }: { phone: boolean; left: num
   );
 }
 
-function LimitNotice({ phone, fail, ban, onClose }: { phone: boolean; fail: Extract<SubmitFail, { kind: 'notice' }>; ban: SubmitBan | null; onClose: () => void }) {
+export function LimitNotice({ phone, fail, ban, onClose }: { phone: boolean; fail: Extract<SubmitFail, { kind: 'notice' }>; ban: SubmitBan | null; onClose: () => void }) {
   const contact = useContact();
   const look = (
     <NoticeBtn phone={phone} act="submit-look" onClick={() => openAccount('submissions')}>

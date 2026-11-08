@@ -6,6 +6,7 @@
  *   POST   /v1/submissions               → 201 { id, status: 'pending' }(地图交存档,新建参数、规则交链接 # 后面那段)
  *   POST   /v1/submissions/world/begin   → { need }(要传哪些块;这个账号传过的块不用再传)
  *   POST   /v1/submissions/world         → 202 { id, status: 'checking' }(服务器在后台核对,这一步取消不了)
+ *   POST   /v1/submissions/plugin        → 201 { id, status: 'pending', plugin }(交整个插件文件;名字照清单,新版的署名照第一次投的)
  *   DELETE /v1/submissions/:id           → 204 撤回核对中、等审、审核中的(当天的次数不退)
  *   POST   /v1/submissions/:id/withdraw  → 撤下已上墙的,回这一份
  */
@@ -13,7 +14,7 @@ import type { BlockPlan, FullHit } from './fullWorlds';
 import { ServerError } from './server';
 import { authed } from './session';
 
-export type SubmitKind = 'world' | 'map' | 'preset' | 'rules';
+export type SubmitKind = 'world' | 'map' | 'preset' | 'rules' | 'plugin';
 
 export interface SubmitLimits {
   perDay: number;
@@ -32,10 +33,20 @@ export interface SubmitCheckError {
   retryAfter?: number;
 }
 
+/** 插件投稿记下的:清单里的编号、版本、名字,文件指纹,这一版改了什么 */
+export interface SubmittedPlugin {
+  id: string;
+  version: string;
+  name: string;
+  sum?: string;
+  note?: string;
+}
+
 export interface Submission {
   id: number;
   kind: SubmitKind;
   title: string;
+  by?: string;
   status: string;
   reason?: string;
   error?: SubmitCheckError;
@@ -45,10 +56,17 @@ export interface Submission {
   updatedAt?: string;
   /** 上墙、退回的时间 */
   decidedAt?: string;
+  plugin?: SubmittedPlugin;
 }
 
-/** 地图、新建参数、规则交的东西:地图交存档,另外两种交链接 # 后面那段 */
-export type SmallWork = { kind: 'map'; save: unknown } | { kind: 'preset' | 'rules'; link: string };
+/**
+ * 地图、新建参数、规则、插件交的东西:地图交存档,新建参数、规则交链接 # 后面那段,插件交整个文件。
+ * 插件的 note 是这一版改了什么(上过墙的插件必填),pluginTerms 是看过第几版插件投稿须知
+ */
+export type SmallWork =
+  | { kind: 'map'; save: unknown }
+  | { kind: 'preset' | 'rules'; link: string }
+  | { kind: 'plugin'; file: Uint8Array; note?: string; pluginTerms: number };
 
 export interface SubmissionList {
   submissions: Submission[];
@@ -94,7 +112,17 @@ export function commitWorldSubmit(plan: BlockPlan, form: SubmitForm, moment: num
 }
 
 export function postSubmission(work: SmallWork, form: SubmitForm): Promise<{ id: number; status: string }> {
+  if (work.kind === 'plugin') {
+    const { file, note, pluginTerms } = work;
+    return authed('/v1/submissions/plugin', { method: 'POST', body: { file: base64(file), ...form, ...(note ? { note } : {}), pluginTerms } });
+  }
   return authed('/v1/submissions', { method: 'POST', body: { ...work, ...form } });
+}
+
+function base64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 export async function cancelSubmission(id: number): Promise<void> {
