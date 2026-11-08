@@ -250,6 +250,15 @@ describe('出错的说法', () => {
     expect(((await errOf(() => make(`${sim('return {};')}\n${sim('return {};')}`))) as Error).message).toMatch(/只能调用一次/);
     expect(((await errOf(() => once('civAtlas.sim({ act() {} });'))) as Error).message).toMatch(/只能在插件代码的顶层调用/);
   });
+
+  it('插件换掉全局的 Error 也挡不住我们那一层报错,不会卡住', async () => {
+    const t0 = performance.now();
+    const e = await errOf(() => make('Error = function () { for (;;) {} }; TypeError = Error;', { moment: 150 }));
+    expect((e as Error).message).toMatch(/没有用 civAtlas\.sim/);
+    const e2 = await errOf(() => once('Error = function () { for (;;) {} }; return { note: [() => 1] };', turnOf(), { moment: 150 }));
+    expect((e2 as Error).message).toMatch(/不能有函数/);
+    expect(performance.now() - t0).toBeLessThan(5000);
+  });
 });
 
 describe('递数据', () => {
@@ -302,6 +311,17 @@ describe('递数据', () => {
     const r = await once('const a = turn.read.polities(); a[0].wars.push(9); const b = turn.read.polities(); return { commands: [a[0].wars.length, b[0].wars.length, a === b] };', turnOf({}, read));
     expect(r?.commands).toEqual([1, 0, false]);
     expect(calls).toBe(1);
+  });
+
+  it('读口的参数是 ±Infinity、-0 时各算各的,不和别的参数共用一份', async () => {
+    let calls = 0;
+    const read = { annals: (from: number) => (calls++, [{ from: Object.is(from, -0) ? '-0' : String(from) }]) };
+    const r = await once(
+      'const f = (x) => turn.read.annals(x)[0].from; return { commands: [f(-Infinity), f(Infinity), f(0), f(-0), f(NaN), f(Infinity)] };',
+      turnOf({}, read),
+    );
+    expect(r?.commands).toEqual(['-Infinity', 'Infinity', '0', '-0', 'NaN', 'Infinity']);
+    expect(calls).toBe(5);
   });
 
   it('civAtlas.params 是只读的滑条', async () => {

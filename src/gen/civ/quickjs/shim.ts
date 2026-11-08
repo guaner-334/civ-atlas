@@ -24,6 +24,8 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   const imul = Math.imul;
   const OP = O.prototype;
   const IE = G.InternalError;
+  const Err = Error;
+  const TErr = TypeError;
   const TA = {
     Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array,
   };
@@ -64,7 +66,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
     const path = [];
     const at = () => apply(Array.prototype.slice, path, []);
     const walk = (x, depth) => {
-      if (depth > DEPTH) throw new Error('回话套得太深(超过 ' + DEPTH + ' 层)');
+      if (depth > DEPTH) throw new Err('回话套得太深(超过 ' + DEPTH + ' 层)');
       switch (typeof x) {
         case 'number': {
           const s = special(x);
@@ -81,7 +83,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
           if (x === null) return;
           if (isView(x)) {
             const name = nameOf(x);
-            if (name === undefined) throw new Error('回话里的数组只能是数的类型化数组(Int8Array…Float64Array)');
+            if (name === undefined) throw new Err('回话里的数组只能是数的类型化数组(Int8Array…Float64Array)');
             patches[patches.length] = [at(), 0, name, bufs.length];
             bufs[bufs.length] = apply(taBuffer, apply(taSlice, x, []), []);
             return;
@@ -96,7 +98,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
             return;
           }
           const proto = getProto(x);
-          if (proto !== OP && proto !== null) throw new Error('回话里只能放普通对象');
+          if (proto !== OP && proto !== null) throw new Err('回话里只能放普通对象');
           const ks = keys(x);
           for (let i = 0; i < ks.length; i++) {
             path[path.length] = ks[i];
@@ -106,7 +108,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
           return;
         }
         default:
-          throw new Error('回话里只能放数、字、真假、数组和普通对象,不能有' + (typeof x === 'function' ? '函数' : typeof x));
+          throw new Err('回话里只能放数、字、真假、数组和普通对象,不能有' + (typeof x === 'function' ? '函数' : typeof x));
       }
     };
     walk(v, 0);
@@ -121,7 +123,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
     for (let i = 0; i < args.length; i++) call[call.length] = args[i];
     const w = apply(host, undefined, call);
     if (w[0] === null) {
-      const e = new Error(w[3]);
+      const e = new Err(w[3]);
       defProp(e, 'name', { value: w[2], writable: true, configurable: true });
       defProp(e, '__civHost', { value: w[1] });
       throw e;
@@ -158,9 +160,9 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   let def = null;
   let open = true;
   function sim(d) {
-    if (!open) throw new Error('civAtlas.sim 只能在插件代码的顶层调用');
-    if (def) throw new Error('civAtlas.sim 只能调用一次');
-    if (d === null || typeof d !== 'object' || typeof d.act !== 'function') throw new TypeError('civAtlas.sim 要给一个带 act 函数的对象');
+    if (!open) throw new Err('civAtlas.sim 只能在插件代码的顶层调用');
+    if (def) throw new Err('civAtlas.sim 只能调用一次');
+    if (d === null || typeof d !== 'object' || typeof d.act !== 'function') throw new TErr('civAtlas.sim 要给一个带 act 函数的对象');
     def = d;
   }
   defProp(G, 'civAtlas', { value: freeze({ sim, params: freeze(parse(paramsJson)) }), enumerable: true });
@@ -169,7 +171,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   const RUN = '跑的代码要和审过的一样';
   const ban = (what, why) =>
     function () {
-      throw new TypeError('推演插件里不能用 ' + what + ':' + why);
+      throw new TErr('推演插件里不能用 ' + what + ':' + why);
     };
   const D = ban('Date', SAME);
   for (const k of ['now', 'parse', 'UTC']) D[k] = ban('Date.' + k, SAME);
@@ -189,7 +191,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   let cur = null;
   const describe = (e) => {
     try {
-      return e instanceof Error ? String(e.message) : String(e);
+      return e instanceof Err ? String(e.message) : String(e);
     } catch (x) {
       return '插件抛出的错说不清';
     }
@@ -214,7 +216,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
     try {
       const r = def.act(turn);
       if (r === undefined || r === null) return undefined;
-      if ((typeof r === 'object' || typeof r === 'function') && typeof r.then === 'function') throw new Error('回话要当场交回');
+      if ((typeof r === 'object' || typeof r === 'function') && typeof r.then === 'function') throw new Err('回话要当场交回');
       return encode(r);
     } catch (e) {
       const tag = e !== null && typeof e === 'object' && apply(hasOwn, e, ['__civHost']) ? e.__civHost : -1;
@@ -224,7 +226,7 @@ export const SHIM = String.raw`(function (host, base, paramsJson) {
   }
   function ready() {
     open = false;
-    if (!def) throw new Error('插件代码里没有用 civAtlas.sim({ act }) 登记');
+    if (!def) throw new Err('插件代码里没有用 civAtlas.sim({ act }) 登记');
   }
   return [act, ready];
 })`;

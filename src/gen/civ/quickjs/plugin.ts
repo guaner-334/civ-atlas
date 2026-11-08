@@ -186,7 +186,7 @@ class Box {
         const ran = this.timed(() => vm.evalCode(this.spec.code, 'main.js', { type: 'global' }));
         if (ran.error) throw this.escaped(ran.error, '插件代码');
         ran.value.dispose();
-        const ok = vm.callFunction(ready, vm.undefined);
+        const ok = this.timed(() => vm.callFunction(ready, vm.undefined));
         if (ok.error) throw this.escaped(ok.error, '插件代码');
         ok.value.dispose();
       } finally {
@@ -228,7 +228,9 @@ class Box {
       const self = (kind === 0 ? t.read : t) as unknown as Record<string, unknown>;
       const fn = Object.prototype.hasOwnProperty.call(self, name) ? self[name] : undefined;
       if (typeof fn !== 'function' || name === 'rand') throw new Error(`没有 ${name}`);
-      const key = `${kind}:${name}:${JSON.stringify(rest)}`;
+      // 参数照递数据的写法记:-0、±Infinity、NaN、undefined 各是各的
+      const args = toWire(rest);
+      const key = `${kind}:${name}:${args.text}:${args.patches}`;
       let hit = this.cache.get(key);
       if (!hit) this.cache.set(key, (hit = toWire(Reflect.apply(fn, self, rest))));
       w = hit;
