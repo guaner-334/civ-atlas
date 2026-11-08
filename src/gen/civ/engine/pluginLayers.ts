@@ -80,12 +80,12 @@ export class LayerRun {
     }
   }
 
-  /** 存一份:data = 那张表此刻的值(格 × 栏) */
+  /** 存一份:data = 那张表此刻的值(格 × 栏);超出单精度能存的压到最大最小,不变成无穷大 */
   keepFrame(year: number, data: Float64Array): void {
     const n = data.length / this.cols;
     if ((this.years.length + 1) * n * 4 > LAYER_LIMITS.bytes) throw new Error(`图层 ${this.spec.id} 存的太多(每 ${this.spec.keep} 年一份、${n} 个州),把 keep 调大`);
     const f = new Float32Array(n);
-    for (let r = 0; r < n; r++) f[r] = data[r * this.cols + this.col];
+    for (let r = 0; r < n; r++) f[r] = Math.max(-F32_MAX, Math.min(F32_MAX, data[r * this.cols + this.col]));
     this.years.push(year);
     this.frames.push(f);
   }
@@ -97,7 +97,7 @@ export class LayerRun {
     for (let t = 0; t <= year * ticks; t += this.keep) want.push(t / ticks);
     if (saved.unit !== 'region' || !Array.isArray(saved.years) || saved.years.length !== want.length || saved.years.some((y, i) => y !== want[i])) throw new Error(`存下的图层 ${s.id} 的年份对不上`);
     if (!(saved.values instanceof Float32Array) || saved.values.length !== want.length * count) throw new Error(`存下的图层 ${s.id} 的格数对不上`);
-    if (JSON.stringify(lookOf(saved)) !== JSON.stringify(this.look)) throw new Error(`存下的图层 ${s.id} 和插件现在的样子对不上`);
+    if (canon(lookOf(saved)) !== canon(this.look)) throw new Error(`存下的图层 ${s.id} 和插件现在的样子对不上`);
     this.years = want;
     this.frames = want.map((_, k) => saved.values.slice(k * count, (k + 1) * count));
   }
@@ -110,6 +110,13 @@ export class LayerRun {
     return { by, id: this.spec.id, title, unit: 'region', years: this.years.slice(), values, ...rest };
   }
 }
+
+/** 单精度能存的最大的数 */
+const F32_MAX = 3.4028234663852886e38;
+
+/** 写成键排好序的 JSON:比两份样子不看键的先后 */
+const canon = (v: unknown): string =>
+  JSON.stringify(v, (_, x: unknown) => (x !== null && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, (x as Record<string, unknown>)[k]])) : x));
 
 /** 一个图层的样子(照查样子交出来的先后) */
 function lookOf(v: SimLayerLook): SimLayerLook {

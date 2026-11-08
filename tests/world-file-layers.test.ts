@@ -160,6 +160,14 @@ describe('世界文件里的插件图层、推演插件写的编年史', () => {
     expect(back.manifest.parts.map((p) => p.name)).toEqual(['map', 'civ', 'chronicle', 'flags', 'layer.ruler.sea-dist', 'sim.scribe', 'layer.scribe.magic', 'layer.scribe.mark-b']);
     expect(bytes((await readWorldContent(back)).civ.simLayers).equals(bytes(again.simLayers))).toBe(true);
 
+    // 工具插件存的带年份的图层和历史无关:换成推得更短的历史也照样认得
+    const dated = await packPluginLayer('ruler', 'dated', { ...toolLayer(), years: [0, 1200], values: new Float32Array(2 * world.mesh.n) });
+    const withDated = await openWorldFile(await fileWith(civ, [dated]), OPEN);
+    const short = generateCiv(world, { endYear: 600 });
+    const shorter = await openWorldFile(await bytesOf(await rewriteWorldFile(withDated, { values: { civ: short, chronicle: chronicleBlock(short), flags: flagBook(world, short) } })), OPEN);
+    expect(shorter.manifest.parts.map((p) => p.name)).toContain('layer.ruler.dated');
+    expect((await readWorldContent(shorter)).skipped).toEqual([]);
+
     const renamed = await openWorldFile(await bytesOf(await rewriteWorldFile(opened, { title: '改个名' })), OPEN);
     for (const p of opened.manifest.parts.filter((x) => x.name.startsWith('layer.'))) {
       expect(renamed.manifest.parts.find((x) => x.name === p.name)).toEqual(p);
@@ -175,9 +183,9 @@ describe('世界文件里的插件图层、推演插件写的编年史', () => {
     expect('simLayers' in c.civ).toBe(false);
     await expectBroken(() => read(bad, ZIP_UPLOAD_MAX_BYTES), '传上服务器');
 
-    const tool = await fileWith(civ, [await packPluginLayer('ruler', 'sea-dist', { ...toolLayer(), values: new Float32Array(5) })]);
+    const tool = await fileWith(civ, [await packPluginLayer('ruler', 'sea-dist', { ...toolLayer(), values: new Float32Array(5) }), await packPluginLayer('ruler', 'by-region', { ...toolLayer(), unit: 'region', values: new Float32Array(civ.regions.count) })]);
     const t = await read(tool);
-    expect(t.skipped).toEqual(['layer.ruler.sea-dist']);
+    expect(t.skipped).toEqual(['layer.ruler.sea-dist', 'layer.ruler.by-region']);
     expect(bytes(t.civ.simLayers).equals(bytes(civ.simLayers))).toBe(true);
     await expectBroken(() => read(tool, ZIP_UPLOAD_MAX_BYTES), '工具插件的图层传上服务器');
   }, 60_000);
@@ -258,6 +266,12 @@ describe('世界文件里的插件图层、推演插件写的编年史', () => {
     bad({ ...magic, title: '魔力\u0007' }, '标题带控制字符');
     bad({ ...magic, title: '长'.repeat(41) }, '标题太长');
     bad({ ...magic, classes: [{ value: 0, color: '#000000', label: '零' }] }, '渐变和分类都给');
+    bad({ ...magic, ramp: { ...magic.ramp!, extra: 1 } }, '渐变里有认不出的键');
+    // 键的先后不算
+    expect(() => validatePluginLayer({ ...magic, ramp: { max: 100, min: 0, colors: magic.ramp!.colors } }, sizes)).not.toThrow();
+    const classes = { ...toolLayer(), ramp: undefined, classes: [{ label: '零', color: '#000000', value: 0 }] };
+    expect(() => validatePluginLayer(classes, sizes)).not.toThrow();
+    bad({ ...classes, classes: [{ label: '零', color: '#000000', value: 0, why: 'x' }] }, '分类里有认不出的键');
     expect(() => validatePluginLayer({ ...toolLayer(), years: [10] }, sizes)).not.toThrow();
     bad({ ...toolLayer(), years: [0, 10] }, '两份年份、一份的数');
 

@@ -246,6 +246,15 @@ describe('推演插件写的编年史、标的图层:写错了', () => {
     expect(bad([{ ...layer, ramp: { colors: ['red', 'blue'] } }])).toThrow(/#rrggbb/);
     expect(bad([layer, layer])).toThrow(/两次/);
     expect(bad(['a', 'b', 'c', 'd', 'e'].map((id) => ({ ...layer, id })))).toThrow(/最多 4 个图层/);
+    // 表里的数超出单精度能存的:图层里压到最大,不变成无穷大
+    const huge: SimPlugin<SimRead> = {
+      id: 'huge',
+      tables: [{ id: 'big', name: '大', unit: 'region', every: 5, min: -1e41, max: 1e41, init: 1e40, off: 0, rate: '0' }],
+      layers: [{ id: 'big', table: 'big', keep: 5, title: '大', ramp: { colors: ['#000000', '#ffffff'] } }],
+      act: () => {},
+    };
+    const big = generateCiv(w, { endYear: 10, plugins: [huge] }).simLayers![0];
+    expect(big.values.every((x) => x === 3.4028234663852886e38)).toBe(true);
     const polity: SimPlugin<SimRead> = { ...ledger('poly'), layers: [{ id: 'zeal', table: 'zeal', keep: 10, title: '热忱', ramp: { colors: ['#000000', '#ffffff'] } }] };
     expect(() => generateCiv(w, { endYear: 5, plugins: [polity] })).toThrow(/按州记数/);
     try {

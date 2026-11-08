@@ -54,7 +54,7 @@ import {
 } from './worldFormat';
 import { PLUGIN_LIMITS, type SimPluginState } from './civ/engine/plugin';
 import { checkStoredChronicle, type ChronicleRefKind } from './civ/engine/pluginChronicle';
-import { checkLayerLook } from './layerLook';
+import { checkLayerLook, sameLayerLook } from './layerLook';
 import { ZIP_LOCAL_MAX_BYTES, ZIP_UPLOAD_MAX_BYTES } from './zipStore';
 
 // ---------------------------------------------------------------------------
@@ -1389,8 +1389,8 @@ function checkSimChronicle(raw: unknown, c: Counts): void {
 export interface LayerSizes {
   cells: number;
   regions: number;
-  /** 历史推到哪年(图层的年份不能更晚) */
-  endYear: number;
+  /** 跟着历史走的图层:历史推到哪年(年份不能更晚);不给 = 和历史无关(不晚于 END_YEAR_MAX) */
+  endYear?: number;
 }
 
 /**
@@ -1404,24 +1404,23 @@ export function validatePluginLayer(v: unknown, sizes: LayerSizes, at = '插件�
   let frames = 1;
   if (o.years !== undefined) {
     const years = list(o.years, `${at}.years`);
+    const last = sizes.endYear ?? END_YEAR_MAX;
     if (!years.length) broken(`${at}.years 是空的`);
     years.forEach((y, i) => {
       const year = num(y, `${at}.years[${i}]`);
-      if (year < 0 || year > sizes.endYear || (i > 0 && !(year > (years[i - 1] as number)))) broken(`${at}.years[${i}] 不对(要从小到大、在 0 到 ${sizes.endYear} 之间)`);
+      if (year < 0 || year > last || (i > 0 && !(year > (years[i - 1] as number)))) broken(`${at}.years[${i}] 不对(要从小到大、在 0 到 ${last} 之间)`);
     });
     frames = years.length;
   }
   const values = typed(o.values, Float32Array, `${at}.values`, frames * (o.unit === 'cell' ? sizes.cells : sizes.regions));
   for (let i = 0; i < values.length; i++) if (values[i] === Infinity || values[i] === -Infinity) broken(`${at}.values[${i}] 不是数`);
-  let look: Obj;
+  let same = false;
   try {
-    look = checkLayerLook(o) as unknown as Obj;
+    same = sameLayerLook(o, checkLayerLook(o));
   } catch (e) {
     broken(`${at} 的样子不对:${e instanceof Error ? e.message : String(e)}`);
   }
-  for (const k of ['title', 'ramp', 'classes', 'legend', 'opacity']) {
-    if (JSON.stringify(look![k]) !== JSON.stringify(o[k])) broken(`${at}.${k} 不对`);
-  }
+  if (!same) broken(`${at} 的样子不对(标题、颜色、分类、图例、透明度要是网站查完的那一份)`);
 }
 
 /** 历史里 simLayers 那一项:推演插件存下的图层,(插件, 图层) 不重复 */

@@ -58,6 +58,15 @@ export function checkLayerLook(raw: unknown, fail: LookFail = plain): LayerLook 
   return out;
 }
 
+/** 一样东西写成键排好序的 JSON(比两份样子时不看键的先后) */
+const canon = (v: unknown): string =>
+  JSON.stringify(v, (_, x: unknown) => (isRec(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x));
+
+/** raw 里的样子(标题、渐变或分类、图例、透明度,连同里面的键)和 look 一模一样,不看键的先后 */
+export function sameLayerLook(raw: Rec, look: LayerLook): boolean {
+  return (['title', 'ramp', 'classes', 'legend', 'opacity'] as const).every((k) => canon(raw[k]) === canon(look[k]));
+}
+
 /** 标题以外的几样,接着写到 out 上(先后:渐变或分类、图例、透明度) */
 export function layerLookRest(a: Rec, out: LayerLook, fail: LookFail = plain): void {
   if ((a.ramp === undefined) === (a.classes === undefined)) fail('bad', 'ramp 和 classes 给且只给一个');

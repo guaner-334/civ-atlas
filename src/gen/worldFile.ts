@@ -486,8 +486,11 @@ async function readLayerParts(opened: OpenedWorldFile, read: ReturnType<typeof p
     }
     try {
       const v = await read(p.name);
-      validatePluginLayer(v, sizes, `插件图层 ${p.name}`);
-      if (!history.has(p.name)) continue;
+      const hist = history.has(p.name);
+      validatePluginLayer(v, hist ? sizes : { cells: sizes.cells, regions: sizes.regions }, `插件图层 ${p.name}`);
+      // 别的插件存的图层和历史无关:换了历史还得认得,所以只能按地块
+      if (!hist && v.unit !== 'cell') broken(`插件图层 ${p.name} 不是推演插件的,要按地块`);
+      if (!hist) continue;
       if (v.unit !== 'region' || v.years === undefined) broken(`插件图层 ${p.name} 是推演插件的,要按州、带年份`);
       const [by, id] = pluginLayerOf(p.name)!;
       out.push({ by, id, ...v } as SimLayer);
