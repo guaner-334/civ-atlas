@@ -76,7 +76,7 @@ export async function extendCiv(world: World, base: Civ | null, params: Partial<
     civ = run.finish();
   } catch (e) {
     hooks.failed?.(e);
-    const stuck = findStuck(world, q, base, engine);
+    const stuck = findStuck(world, q, base, engine, undefined, e);
     if (!stuck) throw e;
     civ = stuck;
   }
