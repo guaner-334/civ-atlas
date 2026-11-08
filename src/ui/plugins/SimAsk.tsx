@@ -1,9 +1,9 @@
 /**
  * 世界用的推演插件本机对不上时、要接着推之前问的窗(world/simNow.ts 的 askSims):
- *   被停用了 「「魔力」被网站停用了」:不再跑,只给「另存一份，不带它重推」(不给去作品墙装)
  *   没装   「要先装「魔力」第 1.0 版」:作品墙上正是这一版就给「去作品墙装同一版」(直接弹权限框),不是就说向分享世界的人要文件
+ *   被停用了 「「魔力」被网站停用了」:不再跑,只给「另存一份，不带它重推」(不给去作品墙装)
  *   别的版本「另存一份再推演？」:和旧版本世界问的那一个窗一样,另存「…（新版）」按本机这一版从第 0 年重推
- * 停用的先说;再是没装;装齐了再点,才轮到另存。
+ * 没装的先说(另存时没装的带不上);装齐了再点,才轮到停用的、另存。
  */
 import { Suspense, lazy, useEffect, useState } from 'react';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
@@ -56,13 +56,14 @@ function Foot({ phone, cancel, main }: { phone: boolean; cancel: { label: string
 export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean }) {
   useWallRev();
   useEffect(() => void wallOnce(), []);
-  const [install, setInstall] = useState<string | null>(null);
+  const [install, setInstall] = useState<{ work: string; sum: string } | null>(null);
   const close = () => askSims(null);
   if (install)
     return (
       <Suspense fallback={null}>
         <PluginWorkDialog
-          id={install}
+          id={install.work}
+          want={install.sum}
           phone={phone}
           direct
           onClose={() => {
@@ -72,6 +73,35 @@ export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean 
         />
       </Suspense>
     );
+  const miss = ask.checks.filter((c): c is Missing => c.status === 'missing');
+  if (miss.length) {
+    const label = miss.length === 1 ? `要先装「${nameOf(miss[0])}」${versionLabel(miss[0].plugin.version)}` : `要先装 ${miss.length} 个推演插件`;
+    const works = miss.map((c) => wallWorkOf(c.id, c.plugin.sum));
+    const at = works.findIndex((w) => !!w);
+    const go = at < 0 ? null : { work: works[at]!, sum: miss[at].plugin.sum };
+    return (
+      <Dialog phone={phone} label={label} onClose={close} testId="sim-ask-missing" className="sim-ask" head={phone ? <div className="acct-head"><h2>{label}</h2></div> : undefined}>
+        <div className="acct-body">
+          <p>{missingText(ask.title, miss)}</p>
+          <div className="sim-ask-list">
+            {miss.map((c, i) => (
+              <div key={c.id} className="sim-ask-it" data-plugin={c.id}>
+                <PluginIcon src={null} size="md" />
+                <span>
+                  <b>
+                    {nameOf(c)} <span className="plg-tag">{versionLabel(c.plugin.version)}</span>
+                  </b>
+                  <small>{works[i] ? '作品墙上有这一版' : '作品墙上没有这一版：向分享这个世界的人要插件文件，在「插件」页从文件装'}</small>
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="acct-small">不想装的话，可以在「世界设定」里以它为底稿新建一个世界，不带这个插件，从第 0 年重推。</p>
+        </div>
+        <Foot phone={phone} cancel={{ label: '知道了', act: 'sim-ask-ok', onClick: close }} main={go ? { label: '去作品墙装同一版', act: 'sim-ask-wall', onClick: () => setInstall(go) } : null} />
+      </Dialog>
+    );
+  }
   const blocked = ask.checks.filter((c): c is Blocked => c.status === 'blocked');
   if (blocked.length) {
     const label = blockedLabel(blocked);
@@ -100,34 +130,6 @@ export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean 
           <p className="acct-small">{second}</p>
         </div>
         <Foot phone={phone} cancel={{ label: '取消', onClick: close }} main={{ label: blocked.length > 1 ? '另存一份，不带它们重推' : '另存一份，不带它重推', act: 'sim-ask-drop', onClick: go }} />
-      </Dialog>
-    );
-  }
-  const miss = ask.checks.filter((c): c is Missing => c.status === 'missing');
-  if (miss.length) {
-    const label = miss.length === 1 ? `要先装「${nameOf(miss[0])}」${versionLabel(miss[0].plugin.version)}` : `要先装 ${miss.length} 个推演插件`;
-    const works = miss.map((c) => wallWorkOf(c.id, c.plugin.sum));
-    const go = works.find((w): w is string => !!w);
-    return (
-      <Dialog phone={phone} label={label} onClose={close} testId="sim-ask-missing" className="sim-ask" head={phone ? <div className="acct-head"><h2>{label}</h2></div> : undefined}>
-        <div className="acct-body">
-          <p>{missingText(ask.title, miss)}</p>
-          <div className="sim-ask-list">
-            {miss.map((c, i) => (
-              <div key={c.id} className="sim-ask-it" data-plugin={c.id}>
-                <PluginIcon src={null} size="md" />
-                <span>
-                  <b>
-                    {nameOf(c)} <span className="plg-tag">{versionLabel(c.plugin.version)}</span>
-                  </b>
-                  <small>{works[i] ? '作品墙上有这一版' : '作品墙上没有这一版：向分享这个世界的人要插件文件，在「插件」页从文件装'}</small>
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="acct-small">不想装的话，可以在「世界设定」里以它为底稿新建一个世界，不带这个插件，从第 0 年重推。</p>
-        </div>
-        <Foot phone={phone} cancel={{ label: '知道了', act: 'sim-ask-ok', onClick: close }} main={go ? { label: '去作品墙装同一版', act: 'sim-ask-wall', onClick: () => setInstall(go) } : null} />
       </Dialog>
     );
   }

@@ -187,7 +187,8 @@ export function useSimRunners(deps: SimRunnersDeps): void {
       rewind: (year, name) => {
         // 正在切支线:地图、时间轴上还是原来那支,修改里已经是切到的那一支,这时另开会从切到的那一支分出去
         // (切的时候问重新演绎的窗口本来就不开,见 openStepDialog);已经在等着做别的:这次不做
-        if (getStepwise().switching || waiting) return;
+        // 推演插件本机对不上:另开一支要按插件从头推,先问
+        if (getStepwise().switching || waiting || simGated(getEdits())) return;
         setCivTime({ playing: false });
         afterStep(() => {
           const e0 = keptBranch();
@@ -211,7 +212,7 @@ export function useSimRunners(deps: SimRunnersDeps): void {
         const cur = all.find((b) => b.current);
         const to = all.find((b) => b.id === id && !b.current);
         // 正在切、等着重新演绎、正在重推 / 生成(地图上的历史还不是这一支的)时不切
-        if (!s.on || s.switching || waiting || resimInfo.current || regenRef.current || !cur || !to) return;
+        if (!s.on || s.switching || waiting || resimInfo.current || regenRef.current || !cur || !to || simGated(getEdits())) return;
         // 那一行先转起圈来(别的行、下令先不能点),停下;正在算的那一步算完再切
         branchSwitching({ to: id, from: cur.id, ...(to.last ? { last: to.last } : {}) });
         stepAuto.current = false;

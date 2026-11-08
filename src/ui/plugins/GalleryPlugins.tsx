@@ -169,7 +169,7 @@ type Step = { kind: 'ask'; a: Ask } | { kind: 'said'; said: Said };
 /**
  * 点开一个插件:id = 作品编号;w / item = 已经有的(作品墙上点的、打开网址时取好的),没有就去取。
  * inPlace = 放在作品墙那一页里(提示条盖得住它);onUpdate = 在插件页里点「看看」打开的:装着旧版时「更新…」交给插件页;
- * direct = 直接装:取到就弹权限框,装好、取消都关掉(取不到才露出详情说为什么)
+ * direct = 直接装:取到就弹权限框,装好、取消都关掉(取不到才露出详情说为什么);want = 只装这一版(指纹),作品墙上换了版本就不装
  */
 export function PluginWorkDialog({
   id,
@@ -180,12 +180,14 @@ export function PluginWorkDialog({
   onClose,
   onUpdate,
   direct,
+  want,
 }: {
   id: string;
   w?: GalleryWork;
   item?: GalleryWork;
   phone: boolean;
   direct?: boolean;
+  want?: string;
   inPlace?: boolean;
   onClose: () => void;
   onUpdate?: () => void;
@@ -250,6 +252,10 @@ export function PluginWorkDialog({
   /** 取插件文件、弹权限框;交回 false = 什么框都没弹(已经装着同一版、取不到) */
   const start = async (): Promise<boolean> => {
     if (!w || !p) return false;
+    if (want && p.sum !== want) {
+      setErr('作品墙上这个插件已经换了版本，没有你要的那一版了');
+      return true;
+    }
     setBusy(true);
     setErr('');
     try {
