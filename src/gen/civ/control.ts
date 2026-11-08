@@ -59,7 +59,7 @@ import { ERA_COL, Practice, RAIL_RECLAIM, WIRE_LORD, hasPractice, practiceMask }
 import { capacityAt, capitalAt, populationAt } from './growth';
 import { TableEngine } from './engine/tables';
 import { NEVER } from './devTables';
-import { stateCards, type ControlRuleConsts, type FiscalRuleConsts } from './stateTables';
+import { stateCards, type ControlRuleConsts, type FiscalRuleConsts, type StatePlug } from './stateTables';
 import type { TableCard } from './engine/tables';
 import { UNREST_KNOBS, unrestConsts, unrestInputs, unrestModelOf } from './unrest';
 import { BOOK_WIDTH } from './fiscalBook';
@@ -70,6 +70,7 @@ import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs, type KnobSet } from './engine/knobs';
 import { TABLE_GROUP } from './tableGroups';
+import { mulOf } from './influence';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -318,12 +319,13 @@ export const FISCAL_CONSTS: FiscalRuleConsts = {
   FISCAL_W,
   FISCAL_EVERY,
 };
-/** 政局的全部表:按一套数编好的(同一套数只编一次) */
-const cardsMemo = new WeakMap<KnobSet, TableCard[]>();
-export function stateCardsOf(knobs: KnobSet): TableCard[] {
-  let cards = cardsMemo.get(knobs);
-  if (!cards) cardsMemo.set(knobs, (cards = stateCards(controlConsts(knobs), unrestConsts(knobs), FISCAL_CONSTS, popConsts(knobs), councilConsts(knobs))));
-  return cards;
+/** 政局的全部表:按一套数编好的(同一套数、同样接了的影响口只编一次) */
+const cardsMemo = new WeakMap<KnobSet, TableCard[][]>();
+export function stateCardsOf(knobs: KnobSet, plug: StatePlug = {}): TableCard[] {
+  const k = (plug.unrest ? 1 : 0) | (plug.reach ? 2 : 0);
+  let list = cardsMemo.get(knobs);
+  if (!list) cardsMemo.set(knobs, (list = []));
+  return (list[k] ??= stateCards(controlConsts(knobs), unrestConsts(knobs), FISCAL_CONSTS, popConsts(knobs), councilConsts(knobs), plug));
 }
 /**
  * 存下来的表(接着推时填回):算出来的几张(三样收入几年才算一次、国库和乡村人口接着上一年的,都得存),和事件层还要读的几张输入表。
@@ -357,9 +359,11 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
   const N = dev.world.mesh.n;
   const tileTable = new Set<string>(POP_TILE_TABLES);
   // ---- 政局的数表(管得到几成、离国都多远、动荡;规则见 stateTables.ts):每年年初填好输入、算一步,这一年里的事件读它 ----
+  const inf = sim.influence;
+  const plug: StatePlug = { unrest: !!inf?.has('unrest.add'), reach: !!inf?.has('control.reach') };
   const eng = new TableEngine({
     seed: subSeed(seed, 'civ-state'),
-    cards: stateCardsOf(sim.knobs),
+    cards: stateCardsOf(sim.knobs, plug),
     units: {
       // 乡村人口、地力按地块算(population.ts)
       tile: { count: tiles.count, adjStart: tiles.adjStart, adj: tiles.adj },
@@ -432,6 +436,12 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
       scale[p] = powerScaleOf(pm, p, t);
       if (lordsN[p] && mark(p, t)) for (const r of pm.lands[p]) if (inLord(r)) lordLand[r] = 1;
     }
+    if (plug.reach) {
+      const reach = eng.input('远近');
+      const m = inf!.get('control.reach')!;
+      for (let p = 0; p < NP; p++) reach[p] = mulOf(m, p);
+    }
+    if (plug.unrest) eng.input('动荡加').set(inf!.get('unrest.add')!);
     // 在打几场仗;贡赋按上一步藩属的实收算
     const [wars, paid, got] = ['战事', '纳贡', '收贡'].map((id) => eng.input(id).fill(0));
     for (const w of wm.active) {

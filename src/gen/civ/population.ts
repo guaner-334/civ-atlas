@@ -257,6 +257,8 @@ export function popLayer(sim: CivSim, pm: PolityModel, dev: DevModel, eng: Table
     }
     const cap = eng.input('乡容');
     ruralTargets(dev, t, cap, eng.input('乡速'));
+    const capIn = sim.influence?.get('rural.capacity');
+    if (capIn) for (let r = 0; r < R; r++) cap[r] *= capIn[r];
     // 逃兵灾分给有人住过的邻块
     let changed = !counted;
     for (let r = 0; r < R; r++) {

@@ -35,6 +35,7 @@ import { MinHeap } from '../../util';
 import { Layer, type Annal, type AnnalKind, type ChangeLog, type Checkpoint, type Year } from '../types';
 import { OFFICIAL_KNOBS, knobSetOf, type KnobPatch, type KnobSet } from './knobs';
 import { TableRegistry } from './tables/registry';
+import type { Influences } from './influence';
 
 /** 检查点间隔(年) */
 export const CHECKPOINT_EVERY = 100;
@@ -284,6 +285,9 @@ export class CivSim {
 
   /** 各组数表的总登记(规则那一边建好引擎时登记进来);每次推演一份 */
   readonly tables = new TableRegistry();
+
+  /** 推演插件交数的影响口(装模块、接着推的模块以前接上);没有插件接 = null */
+  influence: Influences | null = null;
 
   /** 推演过程中处理了多少个事件(含过期丢掉的),调参 / 测试用 */
   processed = 0;

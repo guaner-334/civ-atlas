@@ -7,6 +7,7 @@ import { CivSim, type AnnalSchema, type EngineState, type EventKind } from './si
 import type { SimModule } from './module';
 import type { KnobSet, Knobs, KnobValue } from './knobs';
 import type { TableCard } from './tables';
+import type { InfluencePoint } from './influence';
 
 /** 一组数表(按这次推演的那套数配卡) */
 export interface TableGroup {
@@ -26,6 +27,8 @@ export interface RulePack<I, R, F> {
   readonly partial: readonly SimModule<I, R, F>[];
   /** 推完往结果上补的次序 */
   readonly finish: readonly SimModule<I, R, F>[];
+  /** 推演插件能交数的影响口(不给 = 没有) */
+  readonly influences?: readonly InfluencePoint[];
 }
 
 /** 一口气推用的引擎:登记包里的事件种类和史事的样子 */

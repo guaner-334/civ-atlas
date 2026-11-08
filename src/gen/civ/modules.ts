@@ -15,6 +15,7 @@ import type { Civ, Culture, Habitat, Regions, Year } from './types';
 import type { CivSim } from './engine/sim';
 import type { SimModule } from './engine/module';
 import type { TableGroup } from './engine/pack';
+import { OFFICIAL_INFLUENCES } from './influence';
 import { culturesModule, type CultureModel } from './cultures';
 import { politiesModule, type PolityModel } from './polities';
 import { warsModule } from './wars';
@@ -138,6 +139,7 @@ export const OFFICIAL_PACK: CivPack<OfficialOwn> = {
   modules: CIV_MODULES,
   partial: CIV_PARTIAL,
   finish: CIV_FINISH,
+  influences: OFFICIAL_INFLUENCES,
   ...OFFICIAL_STEPS,
 };
 
