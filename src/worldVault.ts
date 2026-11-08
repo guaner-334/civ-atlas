@@ -580,10 +580,11 @@ function partsAfter(req: CommitRequest, prev: WorldManifest | null, incoming: re
     // 一次完整的结果:看世界的几块整个换掉(这次没有地形大事,上一次的 eras 就不算了);推演插件的状态、图层跟着历史,上一份的不留
     for (const n of VIEW_PARTS) infos.delete(n);
     for (const n of historyParts(infos.keys())) infos.delete(n);
-    // 说了用哪些地图插件的:地图换了,原来那几个地图插件存的图层不留
+    // 说了用哪些地图插件的:地图换了,原来那几个地图插件存的图层、星球参照不留
     if (req.mapPlugins) {
       const maps = new Set([...(prev?.plugins ?? []).filter((p) => p.role === 'map'), ...req.mapPlugins].map((p) => p.id));
       for (const n of [...infos.keys()]) if (maps.has(pluginLayerOf(n)?.[0] ?? '')) infos.delete(n);
+      infos.delete('planet');
     }
     for (const p of incoming) infos.set(p.info.name, p.info);
     // 图层块超了上限:这次带来的从后往前不存(工具插件存的留着)
