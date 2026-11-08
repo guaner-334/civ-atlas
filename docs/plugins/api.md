@@ -209,6 +209,8 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 { kind: 'intervention', v: { kind: 'declare', a: attackerKey, b: defenderKey, from: 420 } } // 420 年开战
 ```
 
+网站不替插件改命令:年份要是 0–65535 的整数,`until` 要比 `from` 晚;多出来的字段、格式不对的键、超出范围的数、重复的州这类(用的人自己在页面上下命令时网站会悄悄整理掉的)都回 `bad-args`,`message` 说是哪个字段。立国的国名照改名的规矩去掉末尾的「国」这类,剩下的最长 16 个字,长了回 `limit`。取 0 的滑条、`false` 的开关当作没给,照收。`plot`、`guide`、方针的 `power`、`unrest`、`look`,和推演插件下的命令带的 `plugin`,交上来的会去掉。
+
 照办以后网站从那一年起重新推演历史(之前的历史不变)。格式对、推演里做不到的命令照样记下,推完网站会说有几条没生效。一模一样的命令已经有了就算 `skipped`。
 
 **出错码**:`bad-args`(有一条不合格)、`limit`(超过上限、改完存档太大)、`unavailable`(世界还没有历史:改名、下命令要等历史推出来;或网站这时还不能照办)、`blocked`(网站这时不让改,`message` 说为什么)、`busy`(一秒最多提 10 次)。

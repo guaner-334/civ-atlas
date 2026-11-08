@@ -76,7 +76,7 @@
  *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
-import { GUIDE_LOOK_MAX, cleanInterventions, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
+import { GUIDE_LOOK_MAX, YEAR_TICKS, cleanInterventions, commandAt, isCommand, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
 import { Layer, type Culture, type Polity } from './types';
 import { subSeed } from './engine/rand';
 import { LOOK_K, quantize, type CivSim } from './engine/sim';
@@ -115,24 +115,28 @@ type Stay = Extract<Intervention, { kind: 'stay' }>;
 
 /** 推演里的干预:清理过的列表 + 键 → 编号的解析 + 各机制查询用的规则 */
 export class InterventionModel {
-  /** 推演用的干预(edits.ts 的 simInterventions:年中的 from 就是那一刻) */
-  readonly list: readonly Intervention[];
-  /** 清理过的原样(年中的照旧是 from + fromTick;Civ.interventions 存这一份) */
-  readonly stored: readonly Intervention[];
+  private _list: readonly Intervention[];
+  private _stored: readonly Intervention[];
+  /** 推演插件下了命令以后列表换成自己的一份(传进来的可能是别人的数组,不能改) */
+  private copied = false;
+  /** 推演插件下的命令:生效那一刻(1/256 年为单位)→ 列表里的下标(按列表先后) */
+  private readonly commands = new Map<number, number[]>();
+  /** 已经预约了 Ev.Command 的那几刻 */
+  readonly booked = new Set<number>();
   /** keyed 随机数的根(援盟) */
   readonly base: number;
   /** 城镇 / 国家模型(installInterventions 时挂上;解析键要用) */
   pm: PolityModel | null = null;
   /** 国家层的归属(installInterventions 时挂上;永久划州要看州此刻在谁手里) */
   owner: Int16Array | null = null;
-  private readonly protectRules: Extract<Intervention, { kind: 'protect' }>[];
-  private readonly unityRules: Extract<Intervention, { kind: 'unity' }>[];
-  private readonly allyRules: Ally[];
-  private readonly haltRules: Halt[];
-  private readonly stayRules: Stay[];
+  private readonly protectRules: Extract<Intervention, { kind: 'protect' }>[] = [];
+  private readonly unityRules: Extract<Intervention, { kind: 'unity' }>[] = [];
+  private readonly allyRules: Ally[] = [];
+  private readonly haltRules: Halt[] = [];
+  private readonly stayRules: Stay[] = [];
   /** 保住王室:开关(keep)的下标;即位带 keep 的有没有 */
   private readonly keepRules: number[] = [];
-  private readonly crownKeeps: boolean;
+  private crownKeeps = false;
   /** 永久划州:州号、得到它的国家(键)、年份(州键要按地块找州:挂上国家模型时才解析,见 bindRegions) */
   private lockRules: { region: number; a: string; from: number }[] = [];
   /** 有永久划州的州(先查它,别的州不用扫规则) */
@@ -149,18 +153,68 @@ export class InterventionModel {
   private knownCities = 0;
 
   constructor(list: readonly Intervention[], seed: number, stored: readonly Intervention[] = list) {
-    this.list = list;
-    this.stored = stored;
+    this._list = list;
+    this._stored = stored;
     this.base = subSeed(seed, 'civ-intervene');
-    this.protectRules = list.filter((v): v is Extract<Intervention, { kind: 'protect' }> => v.kind === 'protect');
-    this.unityRules = list.filter((v): v is Extract<Intervention, { kind: 'unity' }> => v.kind === 'unity');
-    this.allyRules = list.filter((v): v is Ally => v.kind === 'ally');
-    this.haltRules = list.filter((v): v is Halt => v.kind === 'halt');
-    this.stayRules = list.filter((v): v is Stay => v.kind === 'stay');
-    list.forEach((v, i) => {
-      if (v.kind === 'keep') this.keepRules.push(i);
-    });
-    this.crownKeeps = list.some((v) => v.kind === 'crown' && v.keep === true);
+    list.forEach((v, i) => this.rule(v, i));
+  }
+
+  /** 推演用的干预(edits.ts 的 simInterventions:年中的 from 就是那一刻) */
+  get list(): readonly Intervention[] {
+    return this._list;
+  }
+
+  /** 清理过的原样(年中的照旧是 from + fromTick;Civ.interventions 存这一份) */
+  get stored(): readonly Intervention[] {
+    return this._stored;
+  }
+
+  /** 列表里有推演插件下的命令 */
+  get commanded(): boolean {
+    return this.commands.size > 0;
+  }
+
+  /** 第 i 条(推演用的那一份)登记进各机制查的规则 */
+  private rule(v: Intervention, i: number): void {
+    if (isCommand(v)) {
+      const t = Math.round(v.from * YEAR_TICKS);
+      const at = this.commands.get(t);
+      if (at) at.push(i);
+      else this.commands.set(t, [i]);
+    }
+    if (v.kind === 'protect') this.protectRules.push(v);
+    else if (v.kind === 'unity') this.unityRules.push(v);
+    else if (v.kind === 'ally') this.allyRules.push(v);
+    else if (v.kind === 'halt') this.haltRules.push(v);
+    else if (v.kind === 'stay') this.stayRules.push(v);
+    else if (v.kind === 'keep') this.keepRules.push(i);
+    else if (v.kind === 'crown' && v.keep === true) this.crownKeeps = true;
+  }
+
+  /** 接上一条推演插件下的命令(清理过、带 plugin 的原样);返回它在列表里的下标 */
+  add(v: Intervention): number {
+    if (!this.copied) {
+      this._list = this._list.slice();
+      this._stored = this._stored.slice();
+      this.copied = true;
+    }
+    const sim = simInterventions([v])[0];
+    (this._stored as Intervention[]).push(v);
+    (this._list as Intervention[]).push(sim);
+    const i = this._list.length - 1;
+    this.rule(sim, i);
+    if (sim.kind === 'cede' && sim.permanent && this.pm) this.bindRegions();
+    return i;
+  }
+
+  /** t 那一刻生效的推演插件命令(列表里的下标) */
+  commandsAt(t: number): readonly number[] {
+    return this.commands.get(Math.round(t * YEAR_TICKS)) ?? [];
+  }
+
+  /** 推演插件的命令生效的那几刻(1/256 年为单位) */
+  commandTicks(): IterableIterator<number> {
+    return this.commands.keys();
   }
 
   /** 地块 → 州(国家模型挂上以后才有;按地块定位的键靠它找州;地形大事以后按每块地最早属于的州,见 Regions.keyOf) */
@@ -375,8 +429,9 @@ export function scheduleInterventions(
     if (v.kind === 'halt' && v.until !== undefined && (!resume || quantize(v.until) > sim.now)) sim.schedule(v.until, Ev.HaltEnd, i, 0);
   });
   list.forEach((v, i) => {
-    if (!resume || quantize(v.from) > sim.now) sim.schedule(v.from, Ev.Intervene, i, 0);
+    if (!isCommand(v) && (!resume || quantize(v.from) > sim.now)) sim.schedule(v.from, Ev.Intervene, i, 0);
   });
+  for (const t of iv.commandTicks()) if (!resume || t / YEAR_TICKS > sim.now) bookCommands(sim, iv, t);
   // 照大纲顺着引的方针替那国多看的几眼(年中;同一刻里排在干预事件后面)
   list.forEach((v, i) => {
     if (v.kind !== 'policy' || !v.look) return;
@@ -389,6 +444,38 @@ export function scheduleInterventions(
 
 /** 多看一眼在那一年的什么时候(年中:不和整年份的干预撞在同一刻) */
 const LOOK_AT = 0.5;
+
+/** t 那一刻(1/256 年为单位)的推演插件命令预约一件 Ev.Command:一刻只能一件(同一刻同一类的先后分不出) */
+function bookCommands(sim: CivSim, iv: InterventionModel, t: number): void {
+  if (iv.booked.has(t)) return;
+  iv.booked.add(t);
+  sim.schedule(t / YEAR_TICKS, Ev.Command, 0, 0);
+}
+
+/**
+ * 推演插件下的命令(清理过、带 plugin,from / fromTick 是生效的那一刻,要比现在晚)接在干预列表后面,到那一刻照干预办。
+ * 这个世界还没有干预的,现在装上(和一开始就装上一样:规则只在 from 以后才查得到)
+ */
+export function issueCommands(sim: CivSim, seed: number, list: readonly Intervention[]): void {
+  let iv = models.get(sim);
+  if (!iv) {
+    iv = new InterventionModel([], seed, []);
+    installInterventions(sim, iv);
+    if (models.get(sim) !== iv) throw new Error('这段推演还没有国家,不能下命令');
+  }
+  const now = Math.round(sim.now * YEAR_TICKS);
+  if (list.some((v) => !(commandAt(v) > now))) throw new Error('命令要比现在晚才生效');
+  for (const v of list) {
+    iv.add(v);
+    bookCommands(sim, iv, commandAt(v));
+  }
+}
+
+/** 推演插件下过命令的:这段推演带着的整份干预(作者的、插件下的,按列表先后);没下过 = undefined */
+export function commandedList(sim: CivSim): readonly Intervention[] | undefined {
+  const iv = models.get(sim);
+  return iv?.commanded ? iv.stored : undefined;
+}
 
 /** 登记干预的事件处理,把规则挂到战争模型、城镇国家模型上(installCities / resumeCities 之后调用) */
 export function installInterventions(sim: CivSim, iv: InterventionModel): void {
@@ -589,7 +676,8 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     if (ok) setPolicy(sim, pm, a, v, i, t);
   };
 
-  sim.on(Ev.Intervene, (i, _b, t) => {
+  /** 第 i 条干预此刻生效 */
+  const intervene = (i: number, t: number) => {
     const v = iv.list[i];
     if (!v) return;
     if (v.kind === 'found') {
@@ -688,6 +776,11 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
       if (!alive(a) || !alive(b) || fighting.length || !polityBorders(pm, owner, a, b, t)) return;
       api.war.declare!(a, b, t);
     }
+  };
+
+  sim.on(Ev.Intervene, (i, _b, t) => intervene(i, t));
+  sim.on(Ev.Command, (_a, _b, t) => {
+    for (const i of iv.commandsAt(t)) intervene(i, t);
   });
 
   // 不许扩张到期:从现有国土重新预约扩张(禁令期间的"国家到达"都丢掉了)

@@ -21,8 +21,8 @@ const MAX_TICK = 2 ** 24;
 const PLUGIN_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const PLUGIN_ID_MAX = 32;
 
-/** 一个世界最多几个推演插件、每个插件最多几张表几栏、同时约着几件事、一件事带几个数、小本子多大多深 */
-export const PLUGIN_LIMITS = { plugins: 4, tables: 16, cols: 64, pending: 4096, data: 16, note: 64 * 1024, depth: 8, listen: 64 } as const;
+/** 一个世界最多几个推演插件、每个插件最多几张表几栏、同时约着几件事、一件事带几个数、小本子多大多深、一次出手下几条命令 */
+export const PLUGIN_LIMITS = { plugins: 4, tables: 16, cols: 64, pending: 4096, data: 16, note: 64 * 1024, depth: 8, listen: 64, commands: 64 } as const;
 
 /** 插件按国记的表用这张表对上州 → 国(插件自己的表不能叫这个名字) */
 const OWNER_TABLE = '国';
@@ -77,6 +77,8 @@ export interface PluginReply {
   at?: readonly { year: number; kind: number; data?: readonly number[] }[];
   /** 换掉自己几张表的值(格 × 栏,个数要对;压回上下限) */
   tables?: Readonly<Record<string, ArrayLike<number>>>;
+  /** 下命令(规则包认的写法):此刻的下一格生效 */
+  commands?: readonly unknown[];
   /** 写进编年史的几句(记在此刻) */
   chronicle?: readonly PluginChronicle[];
 }
@@ -108,6 +110,8 @@ export interface PluginBridge<V> {
   unit(name: string): 'region' | 'polity' | undefined;
   /** 官方表此刻的值(一州或一国一个数) */
   official(name: string): Float64Array;
+  /** 收下一个插件这次下的几条命令,从 at 那一刻(年)起生效;有一条不合格抛错、说清是哪条,一条都不收。不给 = 这套规则不收命令 */
+  commands?(plugin: string, list: readonly unknown[], at: number): void;
   /** 此刻有几国、几城、几族(编年史的指代要小于它) */
   counts(): { polities: number; settlements: number; cultures: number };
 }
@@ -490,7 +494,7 @@ class Host<V> {
       throw new PluginError(this.id, what);
     };
     if (typeof reply !== 'object') fail('回话要是一个对象');
-    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
+    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'commands' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
     if (reply.tables !== undefined) {
       if (reply.tables === null || typeof reply.tables !== 'object') fail('回话里的 tables 要是一个对象');
       for (const [t, v] of Object.entries(reply.tables)) this.setTable(t, v);
@@ -500,6 +504,7 @@ class Host<V> {
       if (!Array.isArray(reply.at)) fail('回话里的 at 要是一个数组');
       for (const b of reply.at) this.book(now, b);
     }
+    if (reply.commands !== undefined) this.command(now, reply.commands);
     if (reply.chronicle !== undefined) {
       if (!Array.isArray(reply.chronicle)) fail('回话里的 chronicle 要是一个数组');
       for (const c of reply.chronicle) this.write(now, c);
@@ -516,6 +521,25 @@ class Host<V> {
     }
     this.lines.push({ year: now / TICKS, by: this.id, text });
     this.written++;
+  }
+
+  /** 命令在下一格才生效:这一刻的检查点已经存了,同一刻后出手的插件看到的也该是官方办完时的样子 */
+  private command(now: number, list: readonly unknown[]): void {
+    const fail = (what: string): never => {
+      throw new PluginError(this.id, what);
+    };
+    if (!Array.isArray(list)) fail('回话里的 commands 要是一个数组');
+    if (!list.length) return;
+    if (list.length > PLUGIN_LIMITS.commands) fail(`一次最多下 ${PLUGIN_LIMITS.commands} 条命令`);
+    const take = this.bridge.commands;
+    if (!take) fail('这套规则不收命令');
+    if (now + 1 >= MAX_TICK) fail('太晚了,命令没有下一刻可以生效');
+    try {
+      take!.call(this.bridge, this.id, list, (now + 1) / TICKS);
+    } catch (e) {
+      if (e instanceof PluginError) throw e;
+      throw new PluginError(this.id, `第 ${now / TICKS} 年下的命令:${e instanceof Error ? e.message : String(e)}`, { cause: e });
+    }
   }
 
   private book(now: number, b: { year: number; kind: number; data?: readonly number[] }): void {
