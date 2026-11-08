@@ -686,7 +686,7 @@ describe('回调用', () => {
 const { planChanges: planRaw, CHANGES_MAX } = await import('../src/plugin/edit');
 const planChanges = (e: WorldEdits, h: Civ | null, raw: unknown) => planRaw(e, h, raw, world.params);
 const { commitPluginEdits } = await import('../src/plugin/editsCommit');
-const { getEdits, setEdits } = await import('../src/ui/editsStore');
+const { getEdits, setEdits, setHistoryGate } = await import('../src/ui/editsStore');
 const { undoLastEdit, redoLastEdit } = await import('../src/ui/undo');
 const { checkStored, memoryStore, STORE_LOCAL_MAX } = await import('../src/plugin/store');
 const { polityKey, regionKey, MARKS_MAX, MARK_REGIONS_MAX, MARK_TITLE_MAX, MARK_NOTE_MAX, NAME_MAX } = await import('../src/gen/edits');
@@ -818,6 +818,46 @@ describe('改你写的东西', () => {
     expect(getEdits().names[key]).toBe('甲');
     expect(getEdits().marks).toHaveLength(1);
     setEdits(EMPTY_EDITS);
+  });
+
+  it('照原样打开的旧世界:同一个插件这一次打开,改历史只问一次,之后直接回原因', () => {
+    setEdits(EMPTY_EDITS);
+    const key = pk();
+    let askedTimes = 0;
+    setHistoryGate(() => (askedTimes++, true));
+    const asked = { history: false };
+    const iv = (from: number) => planChanges(getEdits(), civ, { changes: [{ kind: 'intervention', v: { kind: 'protect', a: key, from } }] });
+    expect(commitPluginEdits(iv(100).next, [key], asked)).toMatch(/另存/);
+    expect(commitPluginEdits(iv(200).next, [key], asked)).toMatch(/另存/);
+    expect(askedTimes).toBe(1);
+    // 不改历史的(改名)照常记进去;另一个插件(另一份记号)还会问
+    expect(commitPluginEdits(planChanges(getEdits(), civ, { changes: [{ kind: 'name', key, name: '甲' }] }).next, [key], asked)).toBeNull();
+    expect(commitPluginEdits(iv(300).next, [key], { history: false })).toMatch(/另存/);
+    expect(askedTimes).toBe(2);
+    setHistoryGate(null);
+    setEdits(EMPTY_EDITS);
+  });
+
+  it('不合格式的一批:回 bad-args / limit,同时交给网站说哪几处不对(一处都没改)', async () => {
+    const key = pk();
+    const commits: WorldEdits[] = [];
+    const refused = vi.fn();
+    const { call } = await open(['author.write@1'], {
+      source: { world: () => world, civ: () => civ, edits: () => EMPTY_EDITS, commit: (next) => (commits.push(next), null) },
+      sink: { refused },
+    });
+    const changes = [
+      { kind: 'name', key, name: '甲' },
+      { kind: 'name', key, name: '一二三四五六七八九十一二三四五六七' },
+    ];
+    expect(await call('author.apply', { changes })).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(commits).toHaveLength(0);
+    expect(refused).toHaveBeenCalledTimes(1);
+    expect(refused.mock.calls[0][0]).toEqual({ changes });
+    expect(refused.mock.calls[0][1]).toMatchObject({ code: 'limit' });
+    // 网站这时不让改(blocked)、太快(busy)不算格式不对
+    expect(await call('author.apply', { changes: [] })).toMatchObject({ ok: true });
+    expect(refused).toHaveBeenCalledTimes(1);
   });
 
   it('回调用:照办回结果;网站不让改回 blocked;网站没接上回 unavailable', async () => {

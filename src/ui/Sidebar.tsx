@@ -5,7 +5,7 @@
  *          (用一句话改世界、问问题在右上「助手」打开的助手面板里,见 Assistant.tsx)
  *   下面   三选一 ——
  *          搜索框里有字:搜索结果(点一条 = 选中它,地图飞过去)
- *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx)
+ *          地图上选中了东西:它的详情(Inspector:国家 / 城 / 地理实体 / 州的面板);打开了地形大事:它的卡片(UpheavalPanel.tsx);开着插件:插件卡
  *          什么都没选:整个世界(WorldHome:大纲(OutlineSide.tsx;逐年推演里不放)、信仰(只在信仰图层)、思潮(只在思潮图层,ThoughtParts.tsx)、国家按大小排、民族按大小排、最近大事、我的干预(干预和地形大事)、
  *          这颗星球(从这里演绎(逐年推演,从时间轴停的这一年起)、回放世界形成、地形大事、在这张地图上打造新文明、世界设定;
  *          从别人的分享另存来的,最后一行是底稿出处,点了在新标签页打开那个分享链接))。
@@ -56,6 +56,7 @@ import { VersionMenuFoot } from './VersionNews';
 import { PlayQualityItem } from './PlayQualityMenu';
 import { pluginsUiOn } from './plugins/flag';
 import { PluginsMenuItem } from './plugins/entry';
+import { toolCard } from './plugins/toolsState';
 import { useCoarse, useNarrow } from './device';
 import { CONTROL_COLORS } from '../render/civ/control';
 import { ThoughtSide } from './ThoughtParts';
@@ -106,6 +107,7 @@ const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 export function Sidebar(p: SidebarProps) {
   const { sel } = useSelection();
   const up = useUpUi().on;
+  const tool = toolCard.use();
   const s = useSearch(p.civ);
   const side = useSide();
   /** 收起了(弹出来显示选中的东西时不算):卡片滑到左边外面,换成左上角的小按钮 */
@@ -132,7 +134,7 @@ export function Sidebar(p: SidebarProps) {
         <div className="sb-body">
           {s.searching ? (
             <SearchResults q={s.q} hits={s.hits} active={s.active} onActive={s.setActive} onPick={s.pick} />
-          ) : (sel || up) && p.civ && p.raw && p.data ? (
+          ) : (sel || up || tool) && p.civ && p.raw && p.data ? (
             <div className="inspector-slot" ref={p.inspectorSlot} />
           ) : (
             <WorldHome {...p} />

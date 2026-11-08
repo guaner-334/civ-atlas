@@ -17,6 +17,7 @@ import { sameSketch, type SketchEdit } from '../../gen/sketch';
 import { sameTerrain, sameUpheavals } from '../../gen/terrainEdits';
 import { sameMix } from '../../gen/names/mix';
 import { multisetDiff } from '../../gen/util';
+import { spaced, yearSpanAt } from '../../gen/era';
 import { worldCheck } from '../../gen/savefile';
 import { interventionOutcome } from '../../gen/civ/story/chronicle';
 import { clearChroniclePick, clearSelection, getChronicle, setChronicle } from '../civView';
@@ -259,7 +260,8 @@ ${s.image.cells}` : null);
       years: yearsOnly || setupOnly,
     };
     // 切支线:提示条写切到哪一支(只用这一次)
-    const text = stepOnly && resimText.current ? resimText.current : undefined;
+    const lead = note?.say?.busy;
+    const text = stepOnly && resimText.current ? resimText.current : lead ? `${lead}正在重新推演${spaced(yearSpanAt(Math.max(0, Math.floor(year)), Math.floor(play ? play.year : newEnd), getEdits().era))}` : undefined;
     resimText.current = null;
     setResim({ year: stepOnly ? 0 : year, end: play ? play.year : newEnd, ...(text ? { text } : {}) });
     send({

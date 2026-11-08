@@ -246,11 +246,12 @@ export function useSimResults(d: SimResultsDeps) {
             .filter((k) => !had.includes(k))
             .map((k) => done.indexOf(k))
             .filter((i) => i >= 0 && !interventionOutcome(civ, i).ok).length;
+          const said = n.say?.done(spaced(at(y)), failed);
           showToast({
             id: 'resim-done',
             kind: failed ? 'warn' : 'ok',
-            text: `已按你说的改写 · 从${spaced(at(y))}重新推演`,
-            more: failed ? [`${failed} 条命令没生效,原因见概览的"我的干预"`] : undefined,
+            text: said ? said.text : `已按你说的改写 · 从${spaced(at(y))}重新推演`,
+            more: said ? said.more : failed ? [`${failed} 条命令没生效,原因见概览的"我的干预"`] : undefined,
             action: n.undo && {
               label: '撤销',
               act: 'rw-undo',
@@ -259,10 +260,12 @@ export function useSimResults(d: SimResultsDeps) {
                 clearToast('resim-done');
               },
             },
-            ttl: 7000,
+            // 插件的命令有几条没生效:留着等人关
+            ttl: said && failed ? 0 : 7000,
           });
         } else {
-          showToast({ id: 'resim-done', kind: 'ok', text: info.left ? `已撤销改写,从${spaced(at(y))}起重新推演` : `已撤销改写,${at(y)}之后恢复原历史`, ttl: 4000 });
+          const said = n.say?.done(spaced(at(y)), 0);
+          showToast({ id: 'resim-done', kind: 'ok', text: said ? said.text : info.left ? `已撤销改写,从${spaced(at(y))}起重新推演` : `已撤销改写,${at(y)}之后恢复原历史`, ttl: 4000 });
         }
       } else if (info.crown) {
         const undo = info.crown.undo;
