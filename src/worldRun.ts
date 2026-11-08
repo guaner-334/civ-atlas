@@ -25,6 +25,10 @@ import type { World, WorldParams } from './gen/world';
 export const keyOf = (p: WorldParams, terrain?: readonly TerrainOp[], sketch?: SketchEdit) =>
   JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), terrain ?? [], sketch ?? null]);
 
+/** 推演插件在线程里记着的历史的键上加的那一段:编号、文件指纹、滑条(没有推演插件 = 空,键和原来一样) */
+export const simKeyOf = (list: readonly { id: string; sum: string; params?: Readonly<Record<string, number>> }[] | undefined): string =>
+  list?.length ? `|sim:${JSON.stringify(list.map((p) => [p.id, p.sum, Object.entries(p.params ?? {}).sort(([a], [b]) => (a < b ? -1 : 1))]))}` : '';
+
 /** 推文明时带的地名风格(自动 = 不带) */
 export const namesOpt = (names: NameMix | undefined) => (names ? { names } : {});
 

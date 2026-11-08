@@ -47,8 +47,8 @@ function banner(commit = ''): string {
   return `/*! 文明与地图 v${pkg.version}${commit ? ` (${commit})` : ''} | Copyright (C) 2026 guaner-334 | ${pkg.license} | ${SOURCE_URL} */`;
 }
 
-/** 预先压好的文件:这几种文本文件(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
-const PACK_EXT = /\.(js|mjs|css|json|svg|txt|md)$/;
+/** 预先压好的文件:这几种文本文件和 wasm(.html 不压:发布流程最后才换页面本身,压好的那份要跟着它一起换) */
+const PACK_EXT = /\.(js|mjs|css|json|svg|txt|md|wasm)$/;
 
 /**
  * 构建完把文本文件各压一份最高等级的 .gz 和 .br 放在旁边(gzip 9 级、brotli 11 级),
@@ -165,7 +165,17 @@ export default defineConfig({
       },
     },
   },
-  worker: { format: 'es', plugins: () => [bannerFirst()], rollupOptions: { output: { banner: () => banner() } } },
+  worker: {
+    format: 'es',
+    plugins: () => [bannerFirst()],
+    rollupOptions: {
+      output: {
+        banner: () => banner(),
+        // 推演线程用到推演插件才下载的 QuickJS 那一包用自己的名字(它的入口也叫 index,不然和主程序同名)
+        chunkFileNames: (c) => (c.facadeModuleId && /[\\/]gen[\\/]civ[\\/]quickjs[\\/]index\.ts$/.test(c.facadeModuleId) ? 'assets/quickjs-[hash].js' : 'assets/[name]-[hash].js'),
+      },
+    },
+  },
   server: { port: 5188, strictPort: true },
   // 只跑 tests/ 下的单测;本地工具目录(.claude/)里的不算。
   // 先后和分份(PR 检查上分几台机器跑)按各文件大概多久排,见 tests/lib/shardSequencer.ts
