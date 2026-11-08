@@ -14,7 +14,8 @@ export const PLUGIN_DIR_MANIFEST = 'plugin.json';
 export const PLUGIN_DIR_KEYS: readonly string[] = ['id', 'name', 'version', 'role', 'api', 'runtime', 'requires', 'optional', 'why', 'description', 'license', 'author'];
 const FILLED = ['app', 'kind', 'format', 'entry', 'files'];
 
-export async function packPluginDir(dir: string): Promise<{ id: string; bytes: Uint8Array }> {
+/** patch = 打包前改清单里的几项(开发用的假服务器拿示例插件打别的版本) */
+export async function packPluginDir(dir: string, patch: Record<string, unknown> = {}): Promise<{ id: string; bytes: Uint8Array }> {
   let manifest: Record<string, unknown>;
   try {
     manifest = JSON.parse(readFileSync(join(dir, PLUGIN_DIR_MANIFEST), 'utf8'));
@@ -30,6 +31,7 @@ export async function packPluginDir(dir: string): Promise<{ id: string; bytes: U
     const p = join(dir, path);
     if (existsSync(p)) files[path] = new Uint8Array(readFileSync(p));
   }
+  manifest = { ...manifest, ...patch };
   const bytes = await packPluginFile({ manifest: manifest as unknown as PluginPackInput['manifest'], files });
   return { id: String(manifest.id), bytes };
 }

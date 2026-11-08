@@ -24,8 +24,10 @@ export function pageByLine(m: PluginManifest, bytes: number): string {
   return [...who(m), `开源许可证 ${m.license}`, sizeText(bytes)].join('，');
 }
 
+type Caps = Pick<PluginManifest, 'requires' | 'optional' | 'why'>;
+
 /** 更新时新多出来的权限行(旧版没有的行;同一行里多要了一样能力不算) */
-export function addedLines(old: PluginManifest, next: PluginManifest): PermissionLine[] {
+export function addedLines(old: Caps, next: Caps): PermissionLine[] {
   const had = new Set(permissionLines(old).map((l) => l.key));
   return permissionLines(next).filter((l) => !had.has(l.key));
 }
@@ -42,6 +44,19 @@ export function isTool(m: PluginManifest): boolean {
 export function toolWhere(m: PluginManifest, phone: boolean): string | undefined {
   if (!isTool(m)) return undefined;
   return phone ? `右上竖排的拼图里多了「${m.name}」` : `地图右下的「工具」里多了「${m.name}」`;
+}
+
+/** 从作品墙装好以后提示条第二行:作品墙那一页没有地图,说打开一个世界以后在哪 */
+export function wallInstalledText(m: PluginManifest, phone: boolean): string {
+  const tail = '装在这个浏览器里，所有世界都能用。';
+  const where = isTool(m) ? (phone ? '右上竖排的拼图里' : '地图右下的「工具」里') : caps(m).has('layer.cells@1') ? '图层面板的「插件图层」里' : '';
+  return where ? `打开一个世界，${where}就有它。${tail}` : tail;
+}
+
+/** 作者写的「这一版改了什么」:没带句末标点的补一个句号 */
+export function noteText(note: string): string {
+  const t = note.trim();
+  return /[。！？.!?]$/.test(t) ? t : `${t}。`;
 }
 
 export interface AddsRow {

@@ -101,6 +101,20 @@
   padding: 0 2px;
   font-size: 13.5px;
 }
+.mw-phone .gl-seg.six button {
+  padding: 0 2px;
+  font-size: 13px;
+}
+/* 「插件」前一道竖线:插件不算作品 */
+.gl-seg-bar {
+  flex: none;
+  width: 1px;
+  margin: 6px 4px;
+  background: var(--line-strong);
+}
+.mw-phone .gl-seg-bar {
+  margin: 8px 2px;
+}
 .gl-none {
   margin: 0;
   padding: 6px 0 32px;

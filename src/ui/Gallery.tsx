@@ -10,12 +10,12 @@
  *   PresetWorkDialog  点开一个新建参数作品:封面星球、这套参数、作者的一句话;「用这套参数新建」
  *                     点开一个规则作品是调规则的大卡(rules/RulesSheet.tsx,盖在这一页上)
  *   WorkGone          打开作品的地址时:取的时候一页空白,撤下了(或没有)整页写"这个作品已经撤下了"
- *   ReportDialog      举报:六个理由选一个,不能打字;提交以后"收到了,谢谢"。同一台设备对同一个作品只能举报一次(分享短链接的举报同一个窗,ShareReportDialog)
+ *   ReportDialog      举报(窗在 ReportBox.tsx,点了才下载)。同一台设备对同一个作品只能举报一次(分享短链接的举报同一个窗,ShareReportDialog)
  *
  * 打开世界 / 地图作品以后的顶条、地图作品的星球在 GalleryWork.tsx(首页不用下载星球那一套)。
  * 样式在 gallery.css;卡片、页签、弹窗、单选照「我的世界」(worlds.css)和账号窗口(account.css)的。
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
 import { Dialog } from './AccountDialogs';
 import { useContact } from './contact';
@@ -31,9 +31,7 @@ import { rulesUiOn } from './rules/flag';
 import { pluginsUiOn } from './plugins/flag';
 import { DEFAULT_PARAMS } from '../gen/params';
 import { END_YEAR_DEFAULT } from '../gen/edits';
-import { ServerError } from '../account/server';
 import {
-  REPORT_REASONS,
   WORK_KIND_NAME,
   coverUrl,
   fetchWork,
@@ -48,10 +46,28 @@ import {
   type ReportReason,
   type WorkKind,
 } from '../account/gallery';
+import type { WorkGoneState } from './world/worldTarget';
 import { useFullOverview } from './fullWorldView';
 import { useServerSubmit } from './submitView';
 import { TERMS } from './submitTerms';
 import './gallery.css';
+
+const ReportBox = lazy(() => import('./ReportBox'));
+
+type GalleryPluginsModule = typeof import('./plugins/GalleryPlugins');
+const loadPlugins = () => import('./plugins/GalleryPlugins');
+const PluginCards = lazy(() =>
+  loadPlugins().then(
+    (m) => ({ default: m.PluginCards }),
+    () => ({ default: (() => <p className="gl-none">没能打开插件，重新加载网页试试</p>) as GalleryPluginsModule['PluginCards'] }),
+  ),
+);
+const PluginWorkDialog = lazy(() =>
+  loadPlugins().then(
+    (m) => ({ default: m.PluginWorkDialog }),
+    () => ({ default: (() => null) as unknown as GalleryPluginsModule['PluginWorkDialog'] }),
+  ),
+);
 
 const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
 
@@ -219,6 +235,11 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
   useEffect(() => {
     if (preset) setPresetW({ w: preset, item: preset });
   }, [preset]);
+  const plugin = shown?.kind === 'plugin' && pluginsUiOn() ? shown : null;
+  const [pluginW, setPluginW] = useState<{ w: GalleryWork; item?: GalleryItem } | null>(plugin ? { w: plugin, item: plugin } : null);
+  useEffect(() => {
+    if (plugin) setPluginW({ w: plugin, item: plugin });
+  }, [plugin]);
   useEffect(() => {
     if (shown?.kind === 'rules') openRulesWork(shown, shown.ruleLink ?? '');
   }, [shown]);
@@ -230,7 +251,7 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
     [],
   );
   const sheet = useRulesSheet();
-  const shownId = presetW?.w.id ?? rulesWorkId(sheet);
+  const shownId = presetW?.w.id ?? pluginW?.w.id ?? rulesWorkId(sheet);
   const shownRef = useRef(onShown);
   shownRef.current = onShown;
   const firstShown = useRef(true);
@@ -247,7 +268,7 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
     if (g.status === 'off') onHome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g.status]);
-  const open = (w: GalleryWork) => (w.kind === 'preset' ? setPresetW({ w }) : w.kind === 'rules' ? openRulesWork(w) : onOpen(w));
+  const open = (w: GalleryWork) => (w.kind === 'preset' ? setPresetW({ w }) : w.kind === 'plugin' ? setPluginW({ w }) : w.kind === 'rules' ? openRulesWork(w) : onOpen(w));
   const list = g.list;
 
   const homeBtn = (
@@ -282,7 +303,7 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
     );
   } else if (!list) {
     body = <GallerySkeleton phone={phone} />;
-  } else if (!list.works.length) {
+  } else if (!list.works.length && !(pluginsUiOn() && list.plugins.length)) {
     body = (
       <PageNote
         icon="image"
@@ -357,6 +378,11 @@ export function GalleryPage({ phone, onHome, onOpen, onPreset, shown, onShown }:
           }}
         />
       )}
+      {pluginW && pluginsUiOn() && (
+        <Suspense fallback={null}>
+          <PluginWorkDialog id={pluginW.w.id} w={pluginW.w} item={pluginW.item} phone={phone} inPlace onClose={() => setPluginW(null)} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -407,21 +433,22 @@ function wallList(list: GalleryList): GalleryList {
 
 function GalleryBody({ list: all, phone, tab: tab0, onTab, onOpen }: { list: GalleryList; phone: boolean; tab: Tab; onTab: (t: Tab) => void; onOpen: (w: GalleryWork) => void }) {
   const list = wallList(all);
-  const tabs = rulesUiOn() ? TABS : TABS.filter((t) => t.id !== 'rules');
+  const tabs = [...(rulesUiOn() ? TABS : TABS.filter((t) => t.id !== 'rules')), ...(pluginsUiOn() ? [{ id: 'plugin' as const, name: '插件' }] : [])];
   const tab = tabs.some((t) => t.id === tab0) ? tab0 : 'all';
   const byId = new Map(list.works.map((w) => [w.id, w]));
   const feat = list.featured.filter((f) => byId.has(f.id));
   const month = monthText(list.month);
-  const count = (t: Tab) => (t === 'all' ? list.works.length : list.works.filter((w) => w.kind === t).length);
+  const count = (t: Tab) => (t === 'all' ? list.works.length : t === 'plugin' ? list.plugins.length : list.works.filter((w) => w.kind === t).length);
   const shown = tab === 'all' ? list.works : list.works.filter((w) => w.kind === tab);
   const seg = (
-    <div className={`mw-seg gl-seg${tabs.length > 4 ? ' five' : ''}`} role="tablist" aria-label="按种类看">
-      {tabs.map((t) => (
+    <div className={`mw-seg gl-seg${tabs.length > 5 ? ' six' : tabs.length > 4 ? ' five' : ''}`} role="tablist" aria-label="按种类看">
+      {tabs.map((t) => [
+        t.id === 'plugin' && <span key="bar" className="gl-seg-bar" aria-hidden="true" />,
         <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} data-tab={t.id} onClick={() => onTab(t.id)}>
           {t.name}
           {!phone && <i>{count(t.id)}</i>}
-        </button>
-      ))}
+        </button>,
+      ])}
     </div>
   );
   return (
@@ -478,7 +505,11 @@ function GalleryBody({ list: all, phone, tab: tab0, onTab, onOpen }: { list: Gal
           )}
         </div>
         {phone && seg}
-        {shown.length ? (
+        {tab === 'plugin' ? (
+          <Suspense fallback={null}>
+            <PluginCards works={list.plugins} phone={phone} onOpen={onOpen} />
+          </Suspense>
+        ) : shown.length ? (
           <div className="gl-grid" role="list">
             {shown.map((w) => (
               <WorkCard key={w.id} w={w} kind="card" phone={phone} onOpen={onOpen} />
@@ -765,30 +796,38 @@ function read(it: GalleryItem): { p: SharedPreset } | { error: string } {
 // ---------------------------------------------------------------------------
 // 打开作品的地址:取的时候、撤下了、取不到
 
-export function WorkGone({ phone, state, onHome, onGallery, onRetry }: { phone: boolean; state: 'loading' | 'gone' | { error: string }; onHome: () => void; onGallery: () => void; onRetry: () => void }) {
+export function WorkGone({ phone, state, onHome, onGallery, onRetry }: { phone: boolean; state: WorkGoneState; onHome: () => void; onGallery: () => void; onRetry: () => void }) {
+  const plugin = typeof state === 'object' && 'plugin' in state ? state.plugin : null;
+  const gone = state === 'gone' || plugin !== null;
   return (
     <div className={`share-gone${phone ? ' phone' : ''}`} role="main" data-testid="gallery-gone" onPointerDown={stop} onClick={stop} onWheel={stop}>
       {state !== 'loading' && (
         <div className="share-gone-box">
           <span className="share-gone-ic">
-            <Icon name={state === 'gone' ? 'image' : 'cloudoff'} size={28} />
+            <Icon name={plugin ? 'ban' : gone ? 'image' : 'cloudoff'} size={28} />
           </span>
-          <h2>{state === 'gone' ? '这个作品已经撤下了' : '暂时打不开这个作品'}</h2>
-          {state === 'gone' ? (
+          <h2>{plugin ? '这个插件已经停用了' : plugin !== null ? '这个插件已经撤下了' : gone ? '这个作品已经撤下了' : '暂时打不开这个作品'}</h2>
+          {plugin !== null ? (
+            <p>
+              {plugin ? `${plugin}。` : '作者撤下了它。'}
+              <br />
+              {plugin ? '装了它的人：它不再启动，用过它的世界照常能看。' : '装了它的人照常能用，只是作品墙上不再列出。'}
+            </p>
+          ) : state === 'gone' ? (
             <p>
               作者要求撤下，或者它不再适合公开展示。
               <br />
               如果你之前另存过，它还在你的「我的世界」里。
             </p>
           ) : (
-            <p>{state.error}</p>
+            typeof state === 'object' && 'error' in state && <p>{state.error}</p>
           )}
           <div className="share-gone-acts">
             <button className="acct-btn lg" data-act="home" onClick={onHome}>
               <Icon name="grid" size={16} />
               我的世界
             </button>
-            {state === 'gone' ? (
+            {gone ? (
               <button className="acct-btn lg blue" data-act="gallery" onClick={onGallery}>
                 <Icon name="image" size={16} />
                 去作品墙看看
@@ -814,103 +853,18 @@ export function WorkGone({ phone, state, onHome, onGallery, onRetry }: { phone: 
 // 举报
 
 export function ReportDialog({ phone, work, onClose }: { phone: boolean; work: GalleryWork; onClose: () => void }) {
-  return <ReportBox phone={phone} what="work" lead={workWho(work)} send={(r) => reportWork(work.id, r)} onClose={onClose} />;
+  return (
+    <Suspense fallback={null}>
+      <ReportBox phone={phone} what="work" lead={workWho(work)} send={(r) => reportWork(work.id, r)} onClose={onClose} />
+    </Suspense>
+  );
 }
 
 /** 举报别人的分享短链接:lead 是「谁分享的「世界名」」;send 发出去(这台设备举报过的记下) */
 export function ShareReportDialog({ phone, lead, send, onClose }: { phone: boolean; lead: string; send: (r: ReportReason) => Promise<void>; onClose: () => void }) {
-  return <ReportBox phone={phone} what="share" lead={lead} send={send} onClose={onClose} />;
-}
-
-function ReportBox({ phone, what, lead, send, onClose }: { phone: boolean; what: 'work' | 'share'; lead: string; send: (r: ReportReason) => Promise<void>; onClose: () => void }) {
-  const [reason, setReason] = useState<ReportReason | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [done, setDone] = useState(false);
-  const work = what === 'work';
-  const undo = work ? '撤下' : '停掉这个链接';
-  const submit = async () => {
-    if (!reason || busy) return;
-    setBusy(true);
-    setErr('');
-    try {
-      await send(reason);
-      setDone(true);
-    } catch (e) {
-      setErr(
-        e instanceof ServerError && e.code === 'rate-limit'
-          ? '举报太频繁，请稍后再试'
-          : work && isWorkGone(e)
-            ? '这个作品已经撤下了'
-            : e instanceof Error
-              ? e.message
-              : String(e),
-      );
-    }
-    setBusy(false);
-  };
-  if (done)
-    return (
-      <Dialog phone={phone} label="收到了，谢谢" width={400} onClose={onClose} head={<span />} testId={work ? 'gallery-reported' : 'share-reported'} className="gw-done">
-        <div className="gw-ok">
-          <span className="gw-ok-ic">
-            <Icon name="check" size={28} />
-          </span>
-          <h2>收到了，谢谢</h2>
-          <p>我们会尽快看。核实有问题就{undo}，结果不另外通知。</p>
-          <p className="acct-small">如果是你的作品被抄、署名被冒用，请到 QQ 交流群联系我们，方便核实。</p>
-        </div>
-        <div className="acct-foot">
-          <button className="acct-btn lg blue gw-wide" data-act="report-ok" onClick={onClose}>
-            好
-          </button>
-        </div>
-      </Dialog>
-    );
-  const note = <span className="acct-small">不用登录，也不会告诉{work ? '作者' : '分享的人'}是谁举报的。</span>;
   return (
-    <Dialog phone={phone} label={work ? '举报这个作品' : '举报这个分享'} width={440} onClose={busy ? undefined : onClose} testId={work ? 'gallery-report' : 'share-report'} className="gw-report">
-      <div className="acct-body">
-        <p className="acct-lead">
-          {lead}。选一个理由，我们看过后决定要不要{undo}。
-        </p>
-        <div className="gw-rds" role="radiogroup" aria-label="举报理由">
-          {REPORT_REASONS.map((r) => (
-            <label key={r.key} className={`acct-radio${reason === r.key ? ' on' : ''}`} data-reason={r.key}>
-              <input type="radio" name={`${what}-report`} checked={reason === r.key} onChange={() => setReason(r.key)} />
-              <i className="o" aria-hidden="true" />
-              <span>
-                <b>{r.title}</b>
-                {r.sub && <small>{r.sub}</small>}
-              </span>
-            </label>
-          ))}
-        </div>
-        {phone && note}
-        {err && (
-          <p className="acct-err" role="alert">
-            {err}
-          </p>
-        )}
-      </div>
-      <div className="acct-foot">
-        {phone ? (
-          <button className="acct-btn full blue" data-act="report-send" disabled={!reason || busy} onClick={() => void submit()}>
-            {busy ? '正在提交' : '提交'}
-          </button>
-        ) : (
-          <>
-            {note}
-            <span className="acct-sp" />
-            <button className="acct-btn" data-act="report-cancel" disabled={busy} onClick={onClose}>
-              取消
-            </button>
-            <button className="acct-btn blue" data-act="report-send" disabled={!reason || busy} onClick={() => void submit()}>
-              提交
-            </button>
-          </>
-        )}
-      </div>
-    </Dialog>
+    <Suspense fallback={null}>
+      <ReportBox phone={phone} what="share" lead={lead} send={(r) => send(r as ReportReason)} onClose={onClose} />
+    </Suspense>
   );
 }

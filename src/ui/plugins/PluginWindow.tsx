@@ -4,7 +4,7 @@
  * 权限框和装不上的说明换掉插件页显示,关掉回到插件页。
  * 开发者模式打开以后多一个「载入正在写的插件…」:选了文件就收起插件页,载入、权限框、日志都在地图左下角的小卡(DevCard.tsx)。
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
@@ -17,20 +17,42 @@ import { askPhone, phoneRequired, submitBan, useSubmitOn } from '../submitView';
 import { knownAuthOptions } from '../../account/session';
 import { pluginSubmitOn } from '../submitPlugin';
 import { loadDev, pickDevFile, setDevMode, useDevMode, type DevAsk } from './dev';
-import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, toolWhere, versionLabel, versionText } from './pluginText';
+import { openPlugins } from './entry';
+import { compareVersions, type WallLatest } from './galleryPlugin';
+import { CAP_LABEL } from './pluginWords';
+import { checkPlugins, newVersionOf, useWallRev, wallFile } from './galleryWatch';
+import { addedLines, addsRows, askByLine, dayText, moreText, noteText, pageByLine, toolWhere, versionLabel, versionText, wallInstalledText } from './pluginText';
 import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
-import { verdictOf, type PluginVerdict } from './verdict';
+import { markReviewed, refreshVerdicts, useVerdicts, verdictOf, type PluginVerdict } from './verdict';
 import './plugins.css';
 
-type Ask =
-  | { kind: 'install'; bytes: Uint8Array; opened: OpenedPlugin; file: string; verdict: PluginVerdict }
-  | { kind: 'update'; bytes: Uint8Array; opened: OpenedPlugin; file: string; old: InstalledPlugin; added: PermissionLine[] };
+/** work = 从作品墙装的作品编号;note = 作者写的这一版改了什么 */
+export type Ask =
+  | { kind: 'install'; bytes: Uint8Array; opened: OpenedPlugin; file: string; verdict: PluginVerdict; work?: string }
+  | { kind: 'update'; bytes: Uint8Array; opened: OpenedPlugin; file: string; old: InstalledPlugin; added: PermissionLine[]; work?: string; note?: string };
 
-type Said =
+const PluginWorkDialog = lazy(() => import('./GalleryPlugins').then((m) => ({ default: m.PluginWorkDialog })));
+
+/** 装上、更新(从文件或作品墙);装好了说一声,更新的说到了第几版 */
+export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugin> {
+  const r = await installPlugin(a.work ? a.bytes : new File([a.bytes], a.file), a.work ? { work: a.work } : {});
+  const m = r.plugin.current.manifest;
+  if (a.work) markReviewed(r.plugin.current.sum, r.plugin.id);
+  if (a.work && a.kind === 'update') showToast({ id: 'plugins', kind: 'ok', text: `「${m.name}」更新到${versionLabel(m.version)}了` });
+  else if (a.work) showToast({ id: 'plugins', kind: 'ok', text: `装好了「${m.name}」`, more: [wallInstalledText(m, phone)], action: { label: '去插件页', act: 'plugins-open', onClick: openPlugins } });
+  else {
+    const where = toolWhere(m, phone);
+    showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
+  }
+  return r.plugin;
+}
+
+export type Said =
   | { kind: 'broken'; file: string }
   | { kind: 'newer'; name: string; need: string }
   | { kind: 'blocked'; name: string; version: string; why: string; day: string }
-  | { kind: 'failed'; name: string };
+  | { kind: 'failed'; name: string }
+  | { kind: 'fetch'; name: string; why: string };
 
 export default function PluginWindow({ phone, onClose }: { phone: boolean; onClose: () => void }) {
   const [list, setList] = useState<InstalledPlugin[] | null>(null);
@@ -42,8 +64,12 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const fileRef = useRef<HTMLInputElement>(null);
   /** 选的文件拿去装,还是拿去载入正在写的插件 */
   const picking = useRef<'install' | 'dev'>('install');
+  /** 「看看」作品墙上的新版:作品编号 */
+  const [look, setLook] = useState<string | null>(null);
   const dev = useDevMode();
   const icons = useIcons(list);
+  useWallRev();
+  useVerdicts();
   // 登录、服务器的选项变了都会重画(useSubmitOn 盯着)
   const submitOn = useSubmitOn(true) && pluginSubmitOn(knownAuthOptions()?.features);
 
@@ -52,13 +78,16 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     setList(l);
     setSel((s) => pick ?? (s && l.some((p) => p.id === s) ? s : (l[0]?.id ?? null)));
   };
-  useEffect(() => void reload(), []);
+  useEffect(() => {
+    void reload();
+    void checkPlugins();
+  }, []);
 
   const back = () => {
     setAsk(null);
     setSaid(null);
   };
-  useEscape(() => (ask || said ? back() : onClose()));
+  useEscape(() => (look ? setLook(null) : ask || said ? back() : onClose()));
 
   const onFile = async (f: File) => {
     if (f.size > PLUGIN_MAX_BYTES) return setSaid({ kind: 'broken', file: f.name });
@@ -74,7 +103,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
         return;
       }
       const m = opened.manifest;
-      const verdict = verdictOf(opened.sum);
+      await refreshVerdicts();
+      const verdict = verdictOf(opened.sum, m.id);
       if (verdict.blocked) return setSaid({ kind: 'blocked', name: m.name, version: m.version, ...verdict.blocked });
       const old = list?.find((p) => p.id === m.id);
       if (old?.current.sum === opened.sum) return void setSel(old.id);
@@ -90,15 +120,33 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const install = async (a: Ask) => {
     setBusy(true);
     try {
-      const r = await installPlugin(new File([a.bytes], a.file));
-      await reload(r.plugin.id);
+      const p = await installAsk(a, phone);
+      await reload(p.id);
       setAsk(null);
-      setDetail(false);
-      const where = toolWhere(r.plugin.current.manifest, phone);
-      showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
+      if (!a.work) setDetail(false);
     } catch {
       setAsk(null);
       setSaid({ kind: 'failed', name: a.opened.manifest.name });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 换成作品墙上的新版:多要了东西先问,没多要的直接换 */
+  const updateFromWall = async (p: InstalledPlugin, l: WallLatest) => {
+    setBusy(true);
+    try {
+      const { bytes, opened } = await wallFile(l.work, l.sum);
+      const m = opened.manifest;
+      if (m.id !== p.id || opened.sum === p.current.sum) return;
+      const verdict = verdictOf(opened.sum, m.id);
+      if (verdict.blocked) return setSaid({ kind: 'blocked', name: m.name, version: m.version, ...verdict.blocked });
+      const a: Ask = { kind: 'update', bytes, opened, file: '', old: p, added: addedLines(p.current.manifest, m), work: l.work, note: l.note };
+      if (a.added.length) setAsk(a);
+      else await install(a);
+    } catch (e) {
+      if (e instanceof PluginFileError && e.kind === 'newer') setSaid({ kind: 'newer', name: e.plugin ?? p.current.manifest.name, need: e.need ?? '新版网站的东西' });
+      else setSaid({ kind: 'fetch', name: p.current.manifest.name, why: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
     }
@@ -181,10 +229,12 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   else if (ask?.kind === 'update') body = <UpdateBox ask={ask} phone={phone} icon={icons.get(ask.old.current.sum)} busy={busy} onCancel={back} onOk={() => void install(ask)} />;
   else {
     mode = 'page';
+    const wall = { onUpdate: (p: InstalledPlugin, l: WallLatest) => void updateFromWall(p, l), onLook: setLook };
     const onSubmit = submitOn ? (p: InstalledPlugin) => void submit(p) : null;
-    const props = { list, cur, icons, busy, dev, onPick: pick, onPickDev: () => void pickDev(), onSel: setSel, onToggle: toggle, onRemove: remove, onSubmit, onClose };
+    const props = { list, cur, icons, busy, dev, wall, onPick: pick, onPickDev: () => void pickDev(), onSel: setSel, onToggle: toggle, onRemove: remove, onSubmit, onClose };
     body = phone ? <PhonePage {...props} detail={detail} onDetail={setDetail} /> : <DeskPage {...props} />;
   }
+  const looked = look && cur ? newVersionOf(cur) : null;
   return createPortal(
     <div
       className={`plg-bg ${mode}${phone ? ' phone' : ''}`}
@@ -197,6 +247,23 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     >
       {body}
       {input}
+      {look && (
+        <Suspense fallback={null}>
+          <PluginWorkDialog
+            id={look}
+            phone={phone}
+            onClose={() => setLook(null)}
+            onUpdate={
+              cur && looked
+                ? () => {
+                    setLook(null);
+                    void updateFromWall(cur, looked);
+                  }
+                : undefined
+            }
+          />
+        </Suspense>
+      )}
     </div>,
     document.body,
   );
@@ -238,6 +305,7 @@ const MORE_ICONS = {
   ),
   box: <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9" />,
   shield: <path d="M12 3 5 6v5.5c0 4.3 3 8 7 9.5 4-1.5 7-5.2 7-9.5V6zM9 12l2.2 2.2 4-4.2" />,
+  arrowUp: <path d="M12 19V5M6 11l6-6 6 6" />,
   reload: (
     <>
       <path d="M20 11a8 8 0 1 0-2.3 5.7" />
@@ -278,7 +346,7 @@ function Perm({ line }: { line: PermissionLine }) {
   );
 }
 
-function Perms({ m }: { m: PluginManifest }) {
+export function Perms({ m }: { m: Pick<PluginManifest, 'requires' | 'optional' | 'why'> }) {
   const lines = permissionLines(m);
   return (
     <>
@@ -344,6 +412,8 @@ interface PageProps {
   /** 投到作品墙;没登录、服务器不收插件 = null */
   onSubmit: ((p: InstalledPlugin) => void) | null;
   onClose: () => void;
+  /** 作品墙上的新版:更新、看看(作品编号) */
+  wall: { onUpdate: (p: InstalledPlugin, l: WallLatest) => void; onLook: (work: string) => void };
 }
 
 /** 开发者模式那一行;关掉时载入的插件一起停掉 */
@@ -376,12 +446,13 @@ function ItemText({ p, v }: { p: InstalledPlugin; v: PluginVerdict }) {
       <small>
         <span>{versionLabel(p.current.manifest.version)}</span>
         <StatusTag v={v} />
+        {!v.blocked && newVersionOf(p) && <span className="plg-tag new">有新版</span>}
       </small>
     </button>
   );
 }
 
-function DeskPage({ list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose }: PageProps) {
+function DeskPage({ list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose }: PageProps) {
   return (
     <div className="plg-page" role="dialog" aria-modal="true" aria-label="插件" data-testid="plugin-page">
       <div className="plg-page-h">
@@ -393,7 +464,7 @@ function DeskPage({ list, cur, icons, busy, dev, onPick, onPickDev, onSel, onTog
         <div className="plg-lcol">
           <div className="plg-items">
             {list?.map((p) => {
-              const v = verdictOf(p.current.sum);
+              const v = verdictOf(p.current.sum, p.id);
               return (
                 <div key={p.id} className={`plg-it${p.id === cur?.id ? ' on' : ''}${v.blocked ? ' off' : ''}`} data-plugin={p.id} onClick={() => onSel(p.id)}>
                   <PluginIcon src={icons.get(p.current.sum)} size="md" />
@@ -417,29 +488,17 @@ function DeskPage({ list, cur, icons, busy, dev, onPick, onPickDev, onSel, onTog
             <DevRow on={dev} />
           </div>
         </div>
-        <div className="plg-rcol">{cur ? <Detail p={cur} icon={icons.get(cur.current.sum)} onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} /> : list && <Empty />}</div>
+        <div className="plg-rcol">{cur ? <Detail p={cur} icon={icons.get(cur.current.sum)} busy={busy} wall={wall} onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} /> : list && <Empty />}</div>
       </div>
     </div>
   );
 }
 
-function Detail({
-  p,
-  icon,
-  phone,
-  onToggle,
-  onRemove,
-  onSubmit,
-}: {
-  p: InstalledPlugin;
-  icon: string | null | undefined;
-  phone?: boolean;
-  onToggle: PageProps['onToggle'];
-  onRemove: PageProps['onRemove'];
-  onSubmit: PageProps['onSubmit'];
-}) {
+function Detail(props: { p: InstalledPlugin; icon: string | null | undefined; phone?: boolean; busy: boolean } & Pick<PageProps, 'wall' | 'onToggle' | 'onRemove' | 'onSubmit'>) {
+  const { p, icon, phone, busy, wall, onToggle, onRemove, onSubmit } = props;
   const m = p.current.manifest;
-  const v = verdictOf(p.current.sum);
+  const v = verdictOf(p.current.sum, p.id);
+  const newer = v.blocked ? null : newVersionOf(p);
   const ops = (
     <div className="plg-ops">
       <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={m.name} onChange={(on) => onToggle(p.id, on)} />
@@ -487,6 +546,7 @@ function Detail({
       </div>
       {phone && status}
       {phone && ops}
+      {newer && <NewerBar p={p} l={newer} phone={!!phone} busy={busy} wall={wall} />}
       {m.description && <p className="plg-desc">{m.description}</p>}
       <div className="plg-sec">它能拿到什么</div>
       <Perms m={m} />
@@ -505,16 +565,53 @@ function Detail({
       <div className="plg-sec">从哪来</div>
       <div className="plg-grp plg-kv">
         <span>装的时候</span>
-        {dayText(p.current.at)}，从文件装{p.current.file ? `（${p.current.file}）` : ''}
+        {p.current.work ? `${dayText(p.current.at)}，从作品墙装（${versionLabel(m.version)}）` : `${dayText(p.current.at)}，从文件装${p.current.file ? `（${p.current.file}）` : ''}`}
         <span>更新</span>
-        不自动更新；有新文件时再从文件装一次
+        {p.current.work ? '不自动更新；作品墙上有新版时，这里和「···」菜单里会说一声' : '不自动更新；有新文件时再从文件装一次'}
       </div>
     </div>
   );
 }
 
+/** 作品墙上有新版:第几版、哪天审过、这一版改了什么、新版多要了什么;不自动更新 */
+function NewerBar({ p, l, phone, busy, wall }: { p: InstalledPlugin; l: WallLatest; phone: boolean; busy: boolean; wall: PageProps['wall'] }) {
+  const more = addedLines(p.current.manifest, l);
+  const day = dayText(Date.parse(l.at));
+  const small = `${l.note ? `这一版：${noteText(l.note)}` : ''}${more.length ? `${moreText(more.length)}${more.map((x) => CAP_LABEL[x.key] ?? x.key).join('、')}。` : ''}`;
+  const look = (
+    <button className={phone ? 'plg-btn' : 'plg-lnk'} data-act="plugin-wall-look" onClick={() => wall.onLook(l.work)}>
+      看看
+    </button>
+  );
+  const update = (
+    <button className={`plg-btn pri${phone ? '' : ' sm'}`} data-act="plugin-wall-update" disabled={busy} onClick={() => wall.onUpdate(p, l)}>
+      更新…
+    </button>
+  );
+  return (
+    <div className={`plg-newer${phone ? ' col' : ''}`} data-testid="plugin-newer">
+      <div className="plg-newer-t">
+        <Ico name="arrowUp" size={16} />
+        <span>
+          <b>作品墙上有{versionLabel(l.version)}</b>
+          {day && `，${day}审过`}
+          {small && <small>{small}</small>}
+        </span>
+        {!phone && look}
+        {!phone && update}
+      </div>
+      {phone && (
+        <div className="plg-newer-b">
+          {look}
+          {update}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean) => void }) {
-  const { list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose, detail, onDetail } = props;
+  const { list, cur, icons, busy, dev, wall, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose, detail, onDetail } = props;
   if (detail && cur)
     return (
       <div className="plg-page" role="dialog" aria-modal="true" aria-label={cur.current.manifest.name} data-testid="plugin-page">
@@ -527,7 +624,7 @@ function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean)
           <CloseBtn onClose={onClose} round />
         </div>
         <div className="plg-pscroll">
-          <Detail p={cur} icon={icons.get(cur.current.sum)} phone onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} />
+          <Detail p={cur} icon={icons.get(cur.current.sum)} phone busy={busy} wall={wall} onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} />
         </div>
       </div>
     );
@@ -543,7 +640,7 @@ function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean)
         {list && list.length > 0 ? (
           <div className="plg-grp plg-lst">
             {list.map((p) => {
-              const v = verdictOf(p.current.sum);
+              const v = verdictOf(p.current.sum, p.id);
               return (
                 <div
                   key={p.id}
@@ -611,7 +708,7 @@ function AskShell({ phone, label, tight, narrow, testId, children }: { phone: bo
   );
 }
 
-function InstallBox({ ask, phone, busy, onCancel, onOk }: { ask: Pick<Extract<Ask, { kind: 'install' }>, 'opened' | 'file' | 'verdict'>; phone: boolean; busy: boolean; onCancel: () => void; onOk: () => void }) {
+export function InstallBox({ ask, phone, busy, onCancel, onOk }: { ask: Pick<Extract<Ask, { kind: 'install' }>, 'opened' | 'file' | 'verdict'>; phone: boolean; busy: boolean; onCancel: () => void; onOk: () => void }) {
   const m = ask.opened.manifest;
   const icon = useOpenedIcon(ask.opened);
   const lines = permissionLines(m);
@@ -663,25 +760,17 @@ export function DevAskBox({ ask, phone }: { ask: DevAsk; phone: boolean }) {
       onClick={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
-      <InstallBox ask={{ opened: ask.opened, file: ask.file, verdict: verdictOf(ask.opened.sum) }} phone={phone} busy={false} onCancel={no} onOk={() => ask.answer(true)} />
+      <InstallBox ask={{ opened: ask.opened, file: ask.file, verdict: verdictOf(ask.opened.sum, ask.opened.manifest.id) }} phone={phone} busy={false} onCancel={no} onOk={() => ask.answer(true)} />
     </div>,
     document.body,
   );
 }
 
-/** 两个版本号比大小:新的大于旧的 = 1 */
-function newerThan(a: string, b: string): number {
-  const x = a.split('.').map(Number);
-  const y = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1;
-  return 0;
-}
-
-function UpdateBox({ ask, phone, icon, busy, onCancel, onOk }: { ask: Extract<Ask, { kind: 'update' }>; phone: boolean; icon: string | null | undefined; busy: boolean; onCancel: () => void; onOk: () => void }) {
+export function UpdateBox({ ask, phone, icon, busy, onCancel, onOk }: { ask: Extract<Ask, { kind: 'update' }>; phone: boolean; icon: string | null | undefined; busy: boolean; onCancel: () => void; onOk: () => void }) {
   const m = ask.opened.manifest;
   const opened = useOpenedIcon(ask.opened);
   const v = versionText(m.version);
-  const title = newerThan(m.version, ask.old.current.manifest.version) < 0 ? `把「${m.name}」换回第 ${v} 版？` : `把「${m.name}」更新到第 ${v} 版？`;
+  const title = compareVersions(m.version, ask.old.current.manifest.version) < 0 ? `把「${m.name}」换回第 ${v} 版？` : `把「${m.name}」更新到第 ${v} 版？`;
   return (
     <AskShell phone={phone} label={title} narrow testId="plugin-update">
       <div className="plg-scroll">
@@ -689,6 +778,12 @@ function UpdateBox({ ask, phone, icon, busy, onCancel, onOk }: { ask: Extract<As
           <PluginIcon src={opened ?? icon} size="sm" />
           {title}
         </h4>
+        {ask.note && (
+          <div className="plg-vnote">
+            <span>这一版：</span>
+            {noteText(ask.note)}
+          </div>
+        )}
         {ask.added.length > 0 && (
           <>
             <p>{moreText(ask.added.length)}</p>
@@ -708,7 +803,7 @@ function UpdateBox({ ask, phone, icon, busy, onCancel, onOk }: { ask: Extract<As
   );
 }
 
-function SaidBox({ said, phone, onOk }: { said: Said; phone: boolean; onOk: () => void }) {
+export function SaidBox({ said, phone, onOk }: { said: Said; phone: boolean; onOk: () => void }) {
   let head: ReactNode;
   let text: ReactNode;
   let small: string;
@@ -739,6 +834,15 @@ function SaidBox({ said, phone, onOk }: { said: Said; phone: boolean; onOk: () =
     );
     text = `「${said.name}」${versionLabel(said.version)}${said.why}，${said.day}停用。`;
     small = '作者改好、新版审过以后才能再装。';
+  } else if (said.kind === 'fetch') {
+    head = (
+      <>
+        <Icon name="cloudoff" size={20} />
+        没取到「{said.name}」
+      </>
+    );
+    text = said.why;
+    small = '网络断了，或者作品墙上正在换版本，过一会儿再试。';
   } else {
     head = (
       <>

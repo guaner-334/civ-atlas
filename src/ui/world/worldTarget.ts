@@ -98,7 +98,9 @@ export interface Target {
  *   map   地图作品:整屏一颗星球
  * 世界作品打开就是平常的世界(只是看看,左上一条写作品;见 App 的 workFor)
  */
-export type WallView = { kind: 'list'; shown?: GalleryItem } | { kind: 'work'; id: string; state: 'loading' | 'gone' | { error: string } } | { kind: 'map'; work: GalleryItem };
+/** state 里 plugin = 撤下了的是插件:网站停用的原因(作者自己撤下的是空的) */
+export type WallView = { kind: 'list'; shown?: GalleryItem } | { kind: 'work'; id: string; state: WorkGoneState } | { kind: 'map'; work: GalleryItem };
+export type WorkGoneState = 'loading' | 'gone' | { plugin: string } | { error: string };
 
 /** 打开网页时去哪(App 的 firstRoute 算一次):我的世界 / 新建 / 某个世界;gone = 要回的世界已经删掉了(世界名);dialog = 开着新建弹窗 */
 export type FirstRoute = { stage: Stage; target: Target | null; gone?: string; dialog?: NewWorldInit };

@@ -18,6 +18,10 @@
  * 作品墙(src/account/gallery.ts):开着,摆着世界(带世界文件、用了非官方规则)、地图、新建参数、规则各一件,一件精选、一个挑战;不用登录。
  * 世界作品的文件第一次要的时候现做(fakeWorldFile.ts,一两秒),网页上能照存的内容打开。
  * POST /v1/dev/gallery { off?, withdrawn? } 关掉作品墙(接口都 404)、撤下几件。
+ * 作品墙上的插件:示例插件(examples/plugins)现打的包,量路程(第 1.2 版,往前还有两版)、离海多远、框选合计;下载文件、试跑的图(种子 7、2024)、
+ * 举报(插件那组理由)、停用名单 GET /v1/plugins/verdicts(maxAge 只给 60 秒,改了马上看得到)。
+ * POST /v1/dev/plugins { publish?, block?, unblock? }:publish 'route-days' 让量路程第 1.3 版审过上墙(多要「看历史」);
+ * block { id | sum, why } 停用(按编号停的作品墙上一起撤下);unblock 解除全部停用。
  * 投到作品墙(src/account/submissions.ts):投世界、地图、新建参数、规则,撤回、撤下;一天 3 次、同时等审 5 件、须知第 3 版;
  * 作者填的字(地图、链接里的字也算)里有「敏感词」三个字就当碰到词。世界核对用 fullCheckMs,过了就进等审(不建后台草稿)。
  * POST /v1/dev/submit { off?, world?, phoneRequired?, terms?, fail?, refuse?, ban?, used?, pending?, forget?, add?, decide? }:
@@ -39,8 +43,10 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GENERATOR_VERSION } from '../../src/gen/edits';
-import { openPluginFile } from '../../src/plugin/pluginFile';
+import { join } from 'node:path';
 import { STEADY_RULES, WARRING_RULES, makeWorldFile, rulesBriefOf, rulesLinkOf } from './fakeWorldFile';
+import { openPluginFile, type PluginManifest } from '../../src/plugin/pluginFile';
+import { packPluginDir } from './pluginDir';
 
 export const FAKE_CODE = '246810';
 /** 开发服务器的邀请码 */
@@ -183,6 +189,50 @@ interface Work {
 }
 
 const REPORT_REASONS = ['illegal', 'porn', 'abuse', 'privacy', 'infringe', 'other'];
+const PLUGIN_REPORT_REASONS = ['impersonate', 'mismatch', 'illegal', 'porn', 'infringe', 'other'];
+
+/** 作品墙上的一个插件:各版新的在前(patch = 打包前改清单的几项);ready = 还没审过的新版(开发接口 publish 让它上墙) */
+interface FakePlugin {
+  work: string;
+  dir: string;
+  title: string;
+  by: string;
+  blurb: string;
+  addedAt: number;
+  versions: { version: string; note: string; at: number; patch: Record<string, unknown> }[];
+  ready?: { version: string; note: string; patch: Record<string, unknown> };
+}
+
+function samplePlugins(now: number): FakePlugin[] {
+  const day = 86400_000;
+  // 量路程第 1.2 版以前不要「看历史」,第 1.3 版才要
+  const noHistory = { optional: [], why: { 'world.read@1': '按地形和水陆找路、量距离', 'input.pick@1': '请你在地图上点起点和终点', 'layer.marks@1': '把路线画在地图上' } };
+  return [
+    {
+      work: 'q8xr3mvd',
+      dir: 'route-days',
+      title: '量路程',
+      by: '青石',
+      blurb: '点两个点，沿陆路按地形算要走几天（山路难走，水上过不去），画出路线。',
+      addedAt: now - 13 * day,
+      versions: [
+        { version: '1.2.0', note: '量完一条接着点下一条，不用再点「开始量」', at: now - 5 * day, patch: { ...noHistory, version: '1.2.0' } },
+        { version: '1.1.0', note: '可以选步行还是骑马', at: now - 10 * day, patch: { ...noHistory, version: '1.1.0' } },
+        { version: '1.0.0', note: '', at: now - 13 * day, patch: { ...noHistory, version: '1.0.0' } },
+      ],
+      ready: { version: '1.3.0', note: '起点、终点用附近的城起名，沿途经过哪几国也列出来', patch: { version: '1.3.0' } },
+    },
+    { work: 'h5ct7nbe', dir: 'coast-distance', title: '离海多远', by: '北岸', blurb: '加一个地块图层：每块陆地走陆路到海边有多少公里，分五段上色。', addedAt: now - 8 * day, versions: [{ version: '1.0.0', note: '', at: now - 8 * day, patch: {} }] },
+    { work: 'b2fw9kye', dir: 'box-summary', title: '框选合计', by: '北岸', blurb: '框一片地方，合计里面的陆地、州、人口、城市和各国占多少；可以存成一个标记。', addedAt: now - 9 * day, versions: [{ version: '1.0.0', note: '', at: now - 9 * day, patch: {} }] },
+  ];
+}
+
+/** 插件试跑的图:2:1 的一块颜色,写着插件名和种子 */
+function shotSvg(title: string, seed: string): string {
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  const bg = seed === '2024' ? '#d8cfb4' : '#cfdcc0';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320"><rect width="640" height="320" fill="${bg}"/><path d="M90 90 C 220 140, 300 220, 540 230" stroke="#c0392b" stroke-width="5" fill="none"/><text x="320" y="160" font-size="36" text-anchor="middle" fill="#2b3a2e" font-family="sans-serif">${esc(title)}</text><text x="320" y="204" font-size="20" text-anchor="middle" fill="#55624f" font-family="sans-serif">种子 ${esc(seed)}</text></svg>`;
+}
 
 function sampleWorks(now: number): Work[] {
   const day = 86400_000;
@@ -404,6 +454,60 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     addedAt: iso(w.addedAt),
     ...(w.brief ? { rules: w.brief } : {}),
   });
+  // 作品墙上的插件
+  const plugins = { list: samplePlugins(Date.now()), blocked: [] as { id?: string; sum?: string; why: string; at: number }[], packs: new Map<string, Promise<{ id: string; bytes: Uint8Array; sum: string; manifest: PluginManifest }>>() };
+  const packOf = (p: FakePlugin, patch: Record<string, unknown>) => {
+    const key = `${p.dir}:${JSON.stringify(patch)}`;
+    let got = plugins.packs.get(key);
+    if (!got) {
+      got = packPluginDir(join(process.cwd(), 'examples', 'plugins', p.dir), patch).then(async (r) => {
+        const opened = await openPluginFile(r.bytes);
+        return { ...r, sum: opened.sum, manifest: opened.manifest };
+      });
+      plugins.packs.set(key, got);
+    }
+    return got;
+  };
+  const pluginGone = (p: FakePlugin) => gallery.withdrawn.has(p.work) || plugins.blocked.some((b) => b.id === p.dir);
+  const pluginView = async (p: FakePlugin, full: boolean) => {
+    const cur = p.versions[0];
+    const pack = await packOf(p, cur.patch);
+    const m = pack.manifest;
+    const versions = await Promise.all(p.versions.map(async (v) => ({ version: v.version, sum: (await packOf(p, v.patch)).sum, at: iso(v.at), note: v.note })));
+    return {
+      id: p.work,
+      kind: 'plugin',
+      title: p.title,
+      by: p.by,
+      blurb: p.blurb,
+      version: null,
+      addedAt: iso(p.addedAt),
+      plugin: {
+        id: m.id,
+        name: m.name,
+        version: m.version,
+        sum: pack.sum,
+        bytes: pack.bytes.length,
+        role: m.role,
+        api: m.api,
+        requires: m.requires,
+        ...(m.optional?.length ? { optional: m.optional } : {}),
+        license: m.license,
+        icon: false,
+        updatedAt: iso(cur.at),
+        note: cur.note,
+        versions,
+        shots: [7, 2024],
+        ...(full ? { runtime: m.runtime, ...(m.why ? { why: m.why } : {}), ...(m.description ? { description: m.description } : {}), ...(m.author ? { author: m.author } : {}) } : {}),
+      },
+    };
+  };
+  const pluginVerdicts = async () => ({
+    reviewed: (await Promise.all(plugins.list.flatMap((p) => p.versions.map(async (v) => ({ sum: (await packOf(p, v.patch)).sum, id: p.dir, version: v.version }))))),
+    blocked: plugins.blocked.map((b) => ({ ...(b.id ? { id: b.id } : { sum: b.sum }), why: b.why, at: iso(b.at) })),
+    maxAge: 60,
+  });
+
   const galleryList = async () => {
     const live = gallery.works.filter((w) => !gallery.withdrawn.has(w.id)).sort((a, b) => b.addedAt - a.addedAt);
     const bytes = live.some((w) => w.full) ? (await galleryFile()).data.length : 0;
@@ -413,7 +517,10 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       month: bj(Date.now()).slice(0, 7),
       featured: [{ id: 'k7qm2xpa', note: '海峡两岸的拉锯写得很细，每一次换手都有来由。' }].filter((f) => has(f.id)),
       challenges: [{ id: 1, title: '一个王朝三百年', blurb: '从立国到灭亡，讲一个王朝的三百年。', deadline: bj(Date.now() + 30 * 86400_000).slice(0, 10), works: ['m3np8rta'].filter(has) }],
-      works: live.map((w) => ({ ...workView(w), ...(w.full ? { full: { bytes } } : {}) })),
+      works: [
+        ...live.map((w) => ({ ...workView(w), ...(w.full ? { full: { bytes } } : {}) })),
+        ...(await Promise.all(plugins.list.filter((p) => !pluginGone(p)).map((p) => pluginView(p, false)))),
+      ],
     };
   };
 
@@ -445,10 +552,49 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
       if (Array.isArray(b?.withdrawn)) gallery.withdrawn = new Set(b.withdrawn.filter((x: unknown) => typeof x === 'string'));
       return json(200, { ok: true });
     }
+    if (req.method === 'POST' && path === '/v1/dev/plugins') {
+      const b = await body(req);
+      const p = plugins.list.find((x) => x.dir === b?.publish);
+      if (p?.ready) {
+        p.versions.unshift({ ...p.ready, at: Date.now() });
+        p.ready = undefined;
+      }
+      if (b?.block && typeof b.block.why === 'string') plugins.blocked.push({ ...(typeof b.block.id === 'string' ? { id: b.block.id } : { sum: String(b.block.sum) }), why: b.block.why, at: Date.now() });
+      if (b?.unblock) plugins.blocked = [];
+      return json(200, { ok: true });
+    }
+    if (req.method === 'GET' && path === '/v1/plugins/verdicts') {
+      if (gallery.off) return fail(404, 'bad-request', '没有这个接口');
+      return json(200, await pluginVerdicts());
+    }
     if (path === '/v1/gallery' || path.startsWith('/v1/gallery/')) {
       if (gallery.off) return fail(404, 'bad-request', '没有这个接口');
       if (req.method === 'GET' && path === '/v1/gallery') return json(200, await galleryList());
-      const g = /^\/v1\/gallery\/([^/]+)(\/cover|\/full|\/report)?$/.exec(path);
+      const g = /^\/v1\/gallery\/([^/]+)(\/cover|\/full|\/report|\/plugin|\/icon)?$/.exec(path);
+      const pl = g ? plugins.list.find((x) => x.work === decodeURIComponent(g[1])) : undefined;
+      if (g && pl) {
+        if (pluginGone(pl)) {
+          const why = plugins.blocked.find((b) => b.id === pl.dir)?.why;
+          return json(410, { withdrawn: true, error: { code: 'gallery-gone', message: '这个作品已经撤下', kind: 'plugin', ...(why ? { blocked: why } : {}) } });
+        }
+        if (req.method === 'GET' && !g[2]) return json(200, await pluginView(pl, true));
+        if (req.method === 'GET' && g[2] === '/cover') {
+          const seed = new URL(req.url).searchParams.get('seed') ?? '7';
+          return new Response(shotSvg(pl.title, seed), { status: 200, headers: { ...CORS, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-cache' } });
+        }
+        if (req.method === 'GET' && g[2] === '/plugin') {
+          const pack = await packOf(pl, pl.versions[0].patch);
+          return new Response(pack.bytes, { status: 200, headers: { ...CORS, 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${pack.id}.civplugin"`, ETag: `"${pack.sum}"` } });
+        }
+        if (req.method === 'GET' && g[2] === '/icon') return fail(404, 'not-found', '这个插件没带图标');
+        if (req.method === 'POST' && g[2] === '/report') {
+          const reason = (await body(req))?.reason;
+          if (!PLUGIN_REPORT_REASONS.includes(reason)) return fail(400, 'bad-request', '举报理由不对');
+          gallery.reports.push({ id: pl.work, reason });
+          return new Response(null, { status: 204, headers: CORS });
+        }
+        return fail(404, 'bad-request', '没有这个接口');
+      }
       const w = g ? gallery.works.find((x) => x.id === decodeURIComponent(g[1])) : undefined;
       if (!g || !w) return fail(404, 'not-found', '这个作品已经撤下');
       if (gallery.withdrawn.has(w.id)) return json(410, { withdrawn: true, error: { code: 'gallery-gone', message: '这个作品已经撤下' } });
@@ -1159,7 +1305,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
     return fail(404, 'bad-request', '没有这个接口');
   }
 
-  return { handle, users, shares, gallery, subs };
+  return { handle, users, shares, gallery, subs, plugins };
 }
 
 /** 挂到 Vite 开发服务器上用(connect 中间件;挂载前缀已被去掉,req.url 是 /v1/...) */
