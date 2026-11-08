@@ -111,6 +111,7 @@ import {
   type WallView,
 } from './worldTarget';
 import { simNowFor } from './simNow';
+import { forgetSimError } from '../sim/simClient';
 
 /**
  * 新建中的世界让生成线程顺手画好的写实像素层(见 worker.ts 的 paint):新建界面的星球贴的是卫星画法 sat 那一种
@@ -285,6 +286,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       // 照故事找的世界不带推演插件(找的时候没带)
       simNowFor(t.fullCiv ? null : t.id);
+      forgetSimError();
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块。

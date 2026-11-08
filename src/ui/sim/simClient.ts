@@ -38,7 +38,6 @@ import type { LoadRequest, TempoNote, WorkerRequest, WorkerResponse } from '../.
 import type { WorldPartsOffer } from '../../worldVault';
 import { adoptChronicle, dropChronicleParts, takeChronicleBlock, takeChroniclePart } from '../chronicleHandoff';
 import { adoptStoredFlags } from '../flagStore';
-import { currentWorld } from '../saveStore';
 
 /** 线程:浏览器的 Worker,测试里换成假的 */
 export interface SimWorker {
@@ -87,9 +86,13 @@ const WORK_LABEL: Partial<Record<WorkerRequest['type'], string>> = {
  * 不算一件回音的:主图补丁、原件是后台自己排的活;再推 / 照大纲推演的进度、先交的编年史、先交的地图也不算(推完 / 停下才算)。
  * 先交的几段历史(civPart)在记账之前就收下了,也不算
  */
-let lastSim: { at: number; message: string; world: string | undefined } | null = null;
-/** 这一页里这个世界最近一次推到 at 年推不下去时推演里抛的那句(推不下去的卡上给插件作者看);没有 = null */
-export const simErrorAt = (at: number): string | null => (lastSim?.at === at && lastSim.world === currentWorld()?.id ? lastSim.message : null);
+let lastSim: { at: number; message: string } | null = null;
+/** 地图上这个世界最近一次推到 at 年推不下去时推演里抛的那句(推不下去的卡上给插件作者看);没有 = null */
+export const simErrorAt = (at: number): string | null => (lastSim?.at === at ? lastSim.message : null);
+/** 换世界了:上一个世界推演里抛的那句不算了 */
+export function forgetSimError(): void {
+  lastSim = null;
+}
 
 const QUIET = new Set<WorkerResponse['type']>(['progress', 'eraPatch', 'snapshot', 'worldParts', 'extendProgress', 'outlineProgress', 'chronicle', 'chronicleBlock', 'map', 'simError']);
 
@@ -324,7 +327,7 @@ export class SimClient {
     if (this.w !== w) return; // 已被换掉的线程
     if (m.type === 'civPart') return void this.parts.take(m);
     if (m.type === 'simError') {
-      lastSim = { at: m.at, message: m.message, world: currentWorld()?.id };
+      lastSim = { at: m.at, message: m.message };
       return void recordSimError(m.at, m.message, m.stack);
     }
     if ('split' in m && m.split) this.parts.join(m.civ!, m.split);
