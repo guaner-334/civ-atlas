@@ -3,10 +3,17 @@ import { useSyncExternalStore } from 'react';
 import type { WorldEdits } from '../../gen/edits';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import { currentWorld } from '../saveStore';
-import { useSimNow } from './simNow';
+import { getSimNow, useSimNow } from './simNow';
 
 /** 配方链接带不上推演插件,对方长出来的历史不一样 */
 export const SIM_NO_LINK = '推演插件带不进链接，对方长出来的历史不一样。要发给别人，请存成文件';
+
+/** 世界在等本机装上推演插件才存得下(世界小状态的 simWait):存档菜单里那一句 */
+export function simWaitText(ids: readonly string[]): string {
+  const list = getSimNow()?.list ?? [];
+  const names = ids.map((id) => `「${list.find((p) => p.id === id)?.name ?? id}」`).join('');
+  return `用了推演插件${names}，这台设备没装同一版，内容先照原样留着。看不用装；装上同一版以后会自己存好`;
+}
 
 /** 地图上这个世界用了推演插件:「复制配方链接」灰着 */
 export function useSimLinkOff(): boolean {

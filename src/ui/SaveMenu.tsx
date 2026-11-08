@@ -35,11 +35,12 @@ import { showToast } from './toastStore';
 import { useSession } from '../account/session';
 import { saveAsNew } from './FrozenWorld';
 import { LONG_HINT, MomentCheck, copyShareLink, momentNow, shareCopiedToast, useMomentOn } from './shareMoment';
-import { contentTrouble, pendingOf } from './worldStore';
+import { contentTrouble, pendingOf, simWaitOf } from './worldStore';
 import { SHARE_BANNED, SUBMIT_WORLD_MAX, askPhone, phoneRequired, submitMenuItem, useSubmitBan, useSubmitWorldOn, type SubmitWork } from './submitView';
 import { RemoveDataItem, pluginNames, usePluginData } from './plugins/saveItems';
 import { useNarrow } from './device';
-import { SIM_NO_LINK, useSimLinkOff } from './world/simAsk';
+import { SIM_NO_LINK, simWaitText, useSimLinkOff } from './world/simAsk';
+import { pluginsUiOn } from './plugins/flag';
 
 export interface SaveMenuProps {
   /** 世界生成完了(能存) */
@@ -138,6 +139,16 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     };
   }, [checkFailed, curId, v]);
   const failed = checkFailed && failedId === curId;
+  // 用了推演插件、本机没有同一版:内容先照原样留着,等装上再存
+  const [simWait, setSimWait] = useState<{ id: string; ids: string[] } | null>(null);
+  useEffect(() => {
+    if (!open || !curId || !pluginsUiOn()) return;
+    let live = true;
+    void simWaitOf(curId).then((ids) => live && setSimWait(ids.length ? { id: curId, ids } : null));
+    return () => {
+      live = false;
+    };
+  }, [open, curId, v]);
   const recipeOnly = oldRecipe || failed;
   // 存成文件有多大:菜单开着才算;存储满了时写不准(页面里的比存着的新),不写
   const [size, setSize] = useState<{ id: string; note: string; bytes: number } | null>(null);
@@ -390,6 +401,15 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
             </button>
           )}
           {plgData.length > 0 && curId && <RemoveDataItem worldId={curId} list={plgData} phone={narrow} onDone={() => setOpen(false)} />}
+          {simWait && simWait.id === curId && (
+            <div className="save-it off" data-act="sim-wait">
+              <Icon name="warn" size={17} />
+              <span>
+                <b>还没存好</b>
+                <small>{simWaitText(simWait.ids)}</small>
+              </span>
+            </div>
+          )}
           {failed && (
             <button className="save-it" data-act="save-again" onClick={saveAgain}>
               <Icon name="save" size={17} />
