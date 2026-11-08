@@ -86,11 +86,13 @@ export interface InstalledSim {
  * - ready:有世界记的那一版(现在用的或留着的上一版,文件指纹一样),接着推用它、用世界记的滑条
  * - missing:没装
  * - other:装了,两版都不是世界记的那一版;installed 是现在用的那一版(只能另存一份、按它从第 0 年重推)
+ * - blocked:世界记的那一版被网站停用了(按编号或指纹),不再跑;只能另存一份不带它的、从第 0 年重推
  */
 export type SimPluginCheck = { id: string; plugin: WorldPlugin } & (
   | { status: 'ready'; which: 'current' | 'previous' }
   | { status: 'missing' }
   | { status: 'other'; installed: { version: string; sum: string } }
+  | { status: 'blocked'; why: string; day: string }
 );
 
 /** 世界清单里记的推演插件逐个核对(按记的先后);installed = 本机装的插件 */

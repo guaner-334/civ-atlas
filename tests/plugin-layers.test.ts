@@ -14,7 +14,7 @@ import type { CellLayer, RegionLayer } from '../src/plugin/check';
 import { chipOn, layerChips, pluginExport, pluginLayers, setLiveLayer, setSavedLayers, setSimLayers, shownLayer, shownPaint } from '../src/ui/plugins/layerState';
 import { dropRegionLayers, layerData, sameAsSaved, savedSpan, setRegionMap } from '../src/ui/plugins/layers/layerSave';
 import type { SimLayer } from '../src/gen/civ/engine/pluginLayers';
-import { _resetVault, changePluginLayer, commitWorld, opaquePartsOf, readPluginLayers, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
+import { _resetVault, changePluginLayer, commitWorld, draftFile, opaquePartsOf, readPluginLayers, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
 
 const g = globalThis as unknown as { indexedDB: IDBFactory | undefined };
@@ -184,6 +184,10 @@ describe('存进世界', () => {
     expect((await latest()).parts.some((p) => p.name === pluginLayerPart(tool.id, 'density'))).toBe(true);
     const civ = await makePart('civ', { ...sample.civ, endYear: 2999 });
     const parts = copies(viewParts).map((p) => (p.name === 'civ' ? civ : p));
+    // 存不下时拼的那份文件也一样
+    const drafted = (await openWorldFile(await bytesOf((await draftFile(request({ recipeKey: 'k3', parts: copies(parts) })))!.file), { readers: READERS })).manifest;
+    expect(drafted.parts.map((p) => p.name)).not.toContain(pluginLayerPart(tool.id, 'density'));
+    expect(drafted.parts.map((p) => p.name)).toContain(pluginLayerPart(tool.id, 'coast'));
     expect((await commitWorld(request({ recipeKey: 'k3', parts }))).status).toBe('saved');
     const m = await latest();
     expect(m.parts.some((p) => p.name === pluginLayerPart(tool.id, 'density'))).toBe(false);

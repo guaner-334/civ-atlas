@@ -21,13 +21,14 @@ import { currentWorld, isStored, listWorlds, nextTitle, notify, overwriteWorld, 
 import { askHistory, getEdits, putEditsQuiet } from '../editsStore';
 import { getPending, removePending } from '../pendingStore';
 import { reuseRegions } from '../eras';
-import { getCivTime, setCivTime } from '../civView';
+import { getCivTime, pausePlayback, setCivTime } from '../civView';
 import { setTrialRunner } from '../assistantStore';
 import { setUpRunner } from '../upheavalStore';
 import { getExtend, setExtendBusy, setExtendFresh, setExtendRunner } from '../extendStore';
 import { setOutlineRunner } from '../outlineStore';
 import { clearToast, showToast } from '../Toast';
 import { setDevTryRunner } from '../plugins/devSlot';
+import { simGated } from '../world/simAsk';
 import { namesOpt, setupOpt, upsOpt, yearsOpt } from '../world/worldTarget';
 import type { CivRefs, GenRefs, MapRefs, Ref, ResimRefs } from '../world/worldRefs';
 import type { SimClient } from './simClient';
@@ -132,6 +133,11 @@ export function useSimRunners(deps: SimRunnersDeps): void {
         const play = cleanPlay(getEdits().play);
         // 地图上这份历史得正是按现在这份进度推的(不在重推、不在生成)
         if (!p || !play || !rawRef.current || fresh.current || regenRef.current || resimInfo.current || JSON.stringify(play) !== JSON.stringify(civPlay.current ?? null)) return false;
+        // 推演插件本机对不上:先停下问(装上 / 另存),不然这一步会不带插件推
+        if (simGated(getEdits())) {
+          pausePlayback();
+          return false;
+        }
         send({
           type: 'turn',
           id: reqId.current,
@@ -151,7 +157,7 @@ export function useSimRunners(deps: SimRunnersDeps): void {
       },
       start: (year, drop, adv) => {
         const cur = currentWorld();
-        if (!cur || !rawRef.current) return;
+        if (!cur || !rawRef.current || simGated(getEdits())) return;
         // 推进设置只写进新的那个(原来的世界不动)
         const { advance: _old, ...rest } = getEdits();
         void _old;
@@ -191,7 +197,8 @@ export function useSimRunners(deps: SimRunnersDeps): void {
       rewind: (year, name) => {
         // 正在切支线:地图、时间轴上还是原来那支,修改里已经是切到的那一支,这时另开会从切到的那一支分出去
         // (切的时候问重新演绎的窗口本来就不开,见 openStepDialog);已经在等着做别的:这次不做
-        if (getStepwise().switching || waiting) return;
+        // 推演插件本机对不上:另开一支要按插件从头推,先问
+        if (getStepwise().switching || waiting || simGated(getEdits())) return;
         setCivTime({ playing: false });
         afterStep(() => {
           const e0 = keptBranch();
@@ -215,7 +222,7 @@ export function useSimRunners(deps: SimRunnersDeps): void {
         const cur = all.find((b) => b.current);
         const to = all.find((b) => b.id === id && !b.current);
         // 正在切、等着重新演绎、正在重推 / 生成(地图上的历史还不是这一支的)时不切
-        if (!s.on || s.switching || waiting || resimInfo.current || regenRef.current || !cur || !to) return;
+        if (!s.on || s.switching || waiting || resimInfo.current || regenRef.current || !cur || !to || simGated(getEdits())) return;
         // 那一行先转起圈来(别的行、下令先不能点),停下;正在算的那一步算完再切
         branchSwitching({ to: id, from: cur.id, ...(to.last ? { last: to.last } : {}) });
         stepAuto.current = false;

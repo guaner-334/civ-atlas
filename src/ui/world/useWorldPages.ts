@@ -25,7 +25,7 @@ import type { SharedWorld } from '../fullWorldPull';
 import { sizeText } from '../sizeWords';
 import { setGoHome } from '../AccountDialogs';
 import { pluginsUiOn } from '../plugins/flag';
-import { askSims } from './simAsk';
+import { askSims, setSimGate } from './simAsk';
 import { getSimNow, sameSims, subscribeSimNow } from './simNow';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
@@ -453,7 +453,11 @@ export function useWorldPages(deps: WorldPagesDeps) {
     backRef.current = { ...t, kind: cur.kind, edits: orig, saved: undefined, title: cur.title, from: undefined, save: undefined, view: undefined };
     const d = draftTarget(t.params, base, e, nextTitle(base.title));
     derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
+    // 推演插件和滑条照原来的带过去(新建里还能换)
+    const sims = pluginsUiOn() ? getSimNow() : null;
+    const carry = sims?.id === cur.id ? sims.list : [];
     openTarget({ ...d, pristine: false, view: undefined });
+    if (carry.length) void import('../plugins/worldPlugins').then((m) => m.carrySims(d.id, carry)).catch(() => {});
   };
   /** 新建第 1 步点了「保存地图」:只存地图(没有文明),回到我的世界的「地图」页签、选中它。存下了 = true */
   const saveMap = (): boolean => {
@@ -655,8 +659,12 @@ export function useWorldPages(deps: WorldPagesDeps) {
     () =>
       subscribeSimNow(() => {
         const s = getSimNow();
-        if (!s?.stored || s.id !== currentWorld()?.id || !s.files || sameSims(civSetup.current?.simPlugins, s.files)) return;
-        civSetup.current = { ...civSetup.current, simPlugins: s.files };
+        const cur = currentWorld();
+        if (!s || s.id !== cur?.id || cur.kind === 'draft') return;
+        // 被网站停用了:不再带着它推(要接着推先问)
+        const files = s.files ?? undefined;
+        if ((files && !s.stored) || sameSims(civSetup.current?.simPlugins, files)) return;
+        civSetup.current = { ...civSetup.current, simPlugins: files };
       }),
     [],
   );
@@ -664,6 +672,32 @@ export function useWorldPages(deps: WorldPagesDeps) {
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
     setSaveAsNew((e, from) => saveAsNewRef.current(e, from));
+    // 用了推演插件、本机没装、只有别的版本、被网站停用了:先装,或者另存一份(按新版 / 不带停用的)从第 0 年重推
+    const simGate = (next: WorldEdits): boolean => {
+      const c = currentWorld();
+      const sims = pluginsUiOn() ? getSimNow() : null;
+      if (!c || !sims || sims.id !== c.id || sims.files) return false;
+      askSims({
+        title: c.title || '未命名世界',
+        checks: sims.checks,
+        now: getEdits(),
+        next,
+        copy: (drop) =>
+          void import('../plugins/worldPlugins').then((m) =>
+            m.copyWithSims(
+              c.id,
+              next,
+              (id, notes) => {
+                savedCopy.current = { id, line: drop.length ? '地图和你写的东西留下了，历史不带停用的插件、从第 0 年重推。原来的世界照原样留着' : '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more: notes ? [] : [NOTES_LOST] };
+                openStoredRef.current(id);
+              },
+              drop,
+            ),
+          ),
+      });
+      return true;
+    };
+    setSimGate(simGate);
     // 照原样打开的旧世界、只读打开的世界:改历史(要用现在的规则重新推演)先问要不要另存一份;别的世界照常改。
     // 逐年推演:只能在"现在"干预(下一步生效),不改以前的历史(撤销、助手执行的都算);想改以前的事先存回推演模式
     setHistoryGate((next) => {
@@ -676,26 +710,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
         showToast({ id: 'edit-block', kind: 'warn', text: '逐年推演里只能在「现在」干预', more: ['想改以前的事，先存回推演模式'], ttl: 5000 });
         return true;
       }
+      if (simGate(next)) return true;
       const c = currentWorld();
-      // 用了推演插件、本机没装或者只有别的版本:先装,或者另存一份按新版重推
-      const sims = pluginsUiOn() ? getSimNow() : null;
-      if (c && sims && sims.id === c.id && !sims.files) {
-        const cur = c;
-        askSims({
-          title: c.title || '未命名世界',
-          checks: sims.checks,
-          now: getEdits(),
-          next,
-          copy: () =>
-            void import('../plugins/worldPlugins').then((m) =>
-              m.copyWithSims(cur.id, next, (id, notes) => {
-                savedCopy.current = { id, line: '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more: notes ? [] : [NOTES_LOST] };
-                openStoredRef.current(id);
-              }),
-            ),
-        });
-        return true;
-      }
       if (!c || (c.frozen === undefined && !c.readonly && !c.oldRecipe)) return false;
       const now = getEdits();
       const count = Math.max(0, next.interventions.length - now.interventions.length) + Math.max(0, (next.upheavals?.length ?? 0) - (now.upheavals?.length ?? 0));
@@ -706,6 +722,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     return () => {
       setSaveAsNew(null);
       setHistoryGate(null);
+      setSimGate(null);
     };
   }, []);
   // 账号里的世界列表:登录了读一次;正在看的世界在别的页面里改过,点"载入"重新打开它;账号窗里点"最近删除"回到我的世界

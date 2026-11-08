@@ -540,8 +540,8 @@ async function staleRegionLayers(id: string, n: number, prev: WorldManifest, inc
   const old = prev.parts.find((p) => p.name === 'civ');
   if (!civ || !old || civ.info.sum === old.sum) return [];
   const all = prev.parts.map((p) => p.name);
-  const hist = new Set(historyParts(all));
-  const names = all.filter((x) => x.startsWith(PLUGIN_LAYER_PREFIX) && !hist.has(x));
+  const keep = new Set([...historyParts(all), ...opaqueParts(prev.parts)]);
+  const names = all.filter((x) => x.startsWith(PLUGIN_LAYER_PREFIX) && !keep.has(x));
   if (!names.length) return [];
   const got = await readRevision(id, n, names, names);
   const out: string[] = [];
@@ -554,6 +554,11 @@ async function staleRegionLayers(id: string, n: number, prev: WorldManifest, inc
     }
   }
   return out;
+}
+
+/** 拿掉了按州图层(stale)以后,世界里一块都不剩的工具插件,清单里的记录跟着去掉 */
+function toolsLeft(plugins: WorldPlugin[], stale: readonly string[], parts: readonly WorldPartInfo[]): WorldPlugin[] {
+  return plugins.filter((p) => p.role !== 'tool' || !stale.some((x) => pluginLayerOf(x)?.[0] === p.id) || parts.some((x) => x.by === p.id));
 }
 
 /** 新的一份修订有哪几块:上一份的,换上这次带来的 */
@@ -613,7 +618,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       const made = (req.parts ? req.made : prev?.made) ?? null;
       const readers = (req.parts ? req.readers : prev?.readers) ?? null;
       if (!made || !readers) throw new VaultError('failed', '存世界没给版本');
-      const plugins = pluginsFor(req, prev).filter((p) => p.role !== 'tool' || !stale.some((x) => pluginLayerOf(x)?.[0] === p.id) || parts.some((x) => x.by === p.id));
+      const plugins = toolsLeft(pluginsFor(req, prev), stale, parts);
       const n = maxN + 1;
       const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
       // 清单里认不出的字段(以后的版本写的)原样带着
@@ -689,6 +694,9 @@ export async function draftFile(req: CommitRequest): Promise<DraftedFile | null>
     if (!req.parts && (!base || base.recipeKey !== req.recipeKey || base.generator !== req.recipe.generator)) return null;
     const prev = base ? manifestOf(base) : null;
     const infos = partsAfter(req, prev, incoming, author, thumb);
+    // 和存的时候一样:换了历史,按州的工具插件图层不带
+    const stale = base && prev ? await staleRegionLayers(req.id, base.n, prev, incoming).catch(() => []) : [];
+    for (const name of stale) infos.delete(name);
     // 和存的时候一样:notes 表里等着的并进来(这里只读,那一行不动)。上次发现块坏了的,坏的 author 块不带
     const damaged = !shut && (await stateOf(req.id).catch(() => null))?.corrupt !== undefined;
     const fold = !shut && req.author === undefined ? await foldedAuthor(req.id, infos, damaged) : null;
@@ -700,7 +708,7 @@ export async function draftFile(req: CommitRequest): Promise<DraftedFile | null>
     if (!made || !readers) throw new VaultError('failed', '存世界没给版本');
     const n = (rows.at(-1)?.n ?? 0) + 1;
     const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
-    const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins: pluginsFor(req, prev), revision: { n, ...(parent ? { parent } : {}) } }, parts) };
+    const manifest: WorldManifest = { ...(prev ?? {}), ...buildManifest({ id: req.id, title: req.recipe.title, made, readers, recipe: req.recipe, plugins: toolsLeft(pluginsFor(req, prev), stale, parts), revision: { n, ...(parent ? { parent } : {}) } }, parts) };
     if (!req.recipe.title) delete manifest.title;
     const same =!!base && !!prev && !req.parts && sameManifest(prev, manifest);
     const text = same ? new TextEncoder().encode(base.text) : manifestBytes(manifest);
@@ -1026,7 +1034,8 @@ export async function readPluginLayers(id: string, cells: number, history?: { re
         const byRegion = (v as { unit?: unknown } | null)?.unit === 'region';
         if (byRegion && !history) continue;
         validatePluginLayer(v, byRegion ? { cells, ...history! } : { cells, regions: 0 }, `插件图层 ${p.info.name}`);
-        if (byRegion && v.years === undefined) continue;
+        // 带年份的地块图层(别处写的文件)还不能在这里拿掉再放回去,先不列
+        if (byRegion ? v.years === undefined : v.years !== undefined) continue;
         out.push({ name: p.info.name, by: ids[0], layer: ids[1], data: v, plugin: head.manifest.plugins.find((x) => x.id === ids[0]) ?? null });
       } catch (e) {
         if (asWorldFileError(e).kind === 'memory') throw e;
