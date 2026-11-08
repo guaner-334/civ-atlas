@@ -10,7 +10,7 @@
  *   第 1 版          世界存档、新建参数照旧交回封面和名字
  *   第 3 版试跑      examples/plugins 的三个示例插件在种子 7、2024 上各跑一遍,交回的五项、日志、两张截图合理;
  *                    改你写的被拦下、出错、清单要了网站没有的能力、文件坏了都照实交回;
- *                    推演插件(厌战)两个种子各推 3000 年:和官方比的几样数、编年史、分段推和一口气推的一样、带插件的地图截图
+ *                    推演插件(示例插件厌战)两个种子各推 3000 年:和官方比的几样数、编年史、分段推和一口气推的一样、带插件的地图截图
  * 封面、试跑的截图和结果存在 --out(默认 snaps/gallery-helper)。--only=trial 只跑第 3 版,--only=sim 只跑推演插件。没过的打印「没过」,退出码非 0。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -25,7 +25,6 @@ import { packPluginFile } from '../src/plugin/pluginFile';
 import type { SimTrial } from '../src/plugin/simTrial';
 import { parseZip, writeZip } from '../src/gen/zipStore';
 import { MANIFEST_FILE } from '../src/gen/worldFormat';
-import { simV1File } from '../tests/lib/simV1Files';
 
 const args = process.argv.slice(2);
 const OUT = path.resolve(args.find((a) => a.startsWith('--out='))?.slice(6) ?? 'snaps/gallery-helper');
@@ -280,10 +279,11 @@ async function trialChecks(page: Page) {
   check(!!broken.reply.ok && broken.reply.runs?.length === 2 && broken.reply.runs.every((x) => !x.ok && /打不开/.test(x.error ?? '')), `文件坏了:${broken.reply.runs?.[0]?.error}`);
 }
 
-/** 推演插件:单测里打成插件文件的厌战,两个种子各推 3000 年 */
+/** 推演插件:示例插件厌战,两个种子各推 3000 年 */
 async function simTrialChecks(page: Page) {
   console.log('第 3 版:试跑推演插件');
-  for (const x of await trial(page, 'weariness', await simV1File('weariness'), SIM_WAIT)) {
+  const weariness = new Uint8Array(readFileSync(new URL('../examples/plugins/weariness/weariness.civplugin', import.meta.url)));
+  for (const x of await trial(page, 'weariness', weariness, SIM_WAIT)) {
     const s = x.sim;
     console.log(`  种子 ${x.seed}:${x.ms} 毫秒;${x.log.join(';')}`);
     console.log(`  官方 ${JSON.stringify(s?.stats.official)}\n  带插件 ${JSON.stringify(s?.stats.plugin)}\n  命令 ${JSON.stringify(s?.commands)},编年史 ${s?.lines} 句`);

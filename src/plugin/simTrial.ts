@@ -93,7 +93,7 @@ export function simStats(civ: Civ, year: number): SimStats {
   return {
     states: civ.polities.filter((p) => polityAlive(p, year)).length,
     wars: countAnnals(civ, 'war', year),
-    fallen: civ.polities.filter((p) => p.ended !== undefined && p.ended <= year).length,
+    fallen: countAnnals(civ, 'fall', year),
     splits: countAnnals(civ, 'split', year),
     dynasties: countAnnals(civ, 'dynasty', year),
     plagues: countAnnals(civ, 'plague', year),
