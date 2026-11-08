@@ -46,6 +46,7 @@ import { GENERATOR_VERSION } from '../../src/gen/edits';
 import { join } from 'node:path';
 import { STEADY_RULES, WARRING_RULES, makeWorldFile, rulesBriefOf, rulesLinkOf } from './fakeWorldFile';
 import { openPluginFile, type PluginManifest } from '../../src/plugin/pluginFile';
+import { openPluginFileFully } from '../../src/plugin/pluginSimTables';
 import { packPluginDir } from './pluginDir';
 
 export const FAKE_CODE = '246810';
@@ -935,7 +936,7 @@ export function createFakeAiServer(opts: FakeAiOptions = {}) {
         if (hits.length) return fail(400, 'content-filter', `有 ${hits.length} 处字词不能公开,改掉以后再投`, { hits, hitCount: hits.length });
         let opened: Awaited<ReturnType<typeof openPluginFile>>;
         try {
-          opened = await openPluginFile(new Uint8Array(Buffer.from(b.file, 'base64')));
+          opened = await openPluginFileFully(new Uint8Array(Buffer.from(b.file, 'base64')));
         } catch (e) {
           return fail(400, 'plugin-invalid', `这个插件文件没过检查,没有收下:${(e as Error).message}`);
         }

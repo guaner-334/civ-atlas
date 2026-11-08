@@ -6,8 +6,9 @@ import { PluginError, type SimPlugin } from './gen/civ/engine/plugin';
 import type { SimRead } from './gen/civ/simRead';
 import type { QuickJSPlugin, QuickJSPluginSpec, SimSetup } from './gen/civ/quickjs/plugin';
 import type { WorldPlugin } from './gen/worldFormat';
-import { openPluginFile, type OpenedPlugin } from './plugin/pluginFile';
+import type { OpenedPlugin } from './plugin/pluginFile';
 import { undeclaredCommand } from './plugin/pluginSim';
+import { openPluginFileFully } from './plugin/pluginSimTables';
 import { simParamsOf, simPluginOf, type SimPluginFile } from './plugin/pluginWorld';
 
 /** 装好一个插件(浏览器里经 import() 取 QuickJS 和它的 wasm,Node 里直接给) */
@@ -28,7 +29,7 @@ const OPENED_KEEP = 8;
 function openOnce(f: SimPluginFile): Promise<OpenedPlugin> {
   let p = opened.get(f.sum);
   if (!p) {
-    p = openPluginFile(f.bytes).then((o) => {
+    p = openPluginFileFully(f.bytes).then((o) => {
       if (o.sum !== f.sum) throw new Error(`推演插件 ${f.id} 的文件和指纹对不上`);
       return o;
     });

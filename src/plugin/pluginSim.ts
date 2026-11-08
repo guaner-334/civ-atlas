@@ -1,13 +1,14 @@
 /**
  * 推演插件清单的 sim 段:和推演插件的设定(SimPlugin)一一对上,另加会下哪几种命令(commands)和新建世界时拨的滑条(params)。
- * 表、图层照推演引擎同一份核对(表的公式要能编译)。写错了抛 Error(读插件文件时算坏了)。纯计算。
- * 查过的 sim 段可以照原样交给推演:表上会让引擎少查几样的 builtin、fallback 这里就拦下了。
+ * 表、图层照推演引擎同一份核对。写错了抛 Error(读插件文件时算坏了)。纯计算。
+ * 表的公式、先后要建一遍数表引擎才查得出,网页主线程不带数表引擎,在 pluginSimTables.ts 另查(推演线程装插件时、服务器)。
+ * 两边都查过的 sim 段可以照原样交给推演:表上会让引擎少查几样的 builtin、fallback 这里就拦下了。
  * 读插件文件时只有推演插件才 import() 它。
  */
 import { ANNAL_KINDS } from '../gen/civ/annals';
 import { PLUGIN_LIMITS } from '../gen/civ/engine/plugin';
 import { LAYER_LIMITS, LayerRun, type SimLayerSpec } from '../gen/civ/engine/pluginLayers';
-import { FREQUENCIES, TableEngine, TableSetupError, colCount, type TableCard } from '../gen/civ/engine/tables';
+import { FREQUENCIES, cardProblems, colCount, type TableCard } from '../gen/civ/engine/tables/cards';
 import { OFFICIAL_NAMES, officialUnit, type OfficialName } from '../gen/civ/simOfficial';
 import { checkLayerLook } from '../gen/layerLook';
 import { SIM_COMMAND_TEXT, SIM_INFLUENCE_TEXT, simCommandsText } from './pluginCaps';
@@ -50,11 +51,8 @@ export interface SimNeed {
 
 type Obj = Record<string, unknown>;
 
-/** 和引擎里插件按国记表时补的那张州 → 国的编号表一样 */
-const OWNER_TABLE = '国';
-const OWNER_CARD: TableCard = { id: OWNER_TABLE, name: OWNER_TABLE, unit: 'region', kind: 'id', min: -1, max: 2 ** 15, off: -1 };
-/** 只有一个州、没有邻州:查表的公式不用真的地图 */
-const ONE_REGION = { count: 1, adjStart: new Int32Array(2), adj: new Int32Array(0), seat: new Int32Array(1) };
+/** 和引擎里插件按国记表时补的那张州 → 国的编号表同名(插件自己的表不能叫它) */
+export const OWNER_TABLE = '国';
 const TABLE_ID_MAX = 64;
 const NAME_MAX = 40;
 const KEY = /^[a-z][a-z0-9.]{0,63}$/;
@@ -149,17 +147,15 @@ function cardOf(raw: unknown, at: string): TableCard {
   return card;
 }
 
-/** 表:个数、栏数照插件的上限,卡和公式交给数表引擎查 */
+/** 表:个数、栏数照插件的上限,卡照数表引擎同一份查;公式、先后要建一遍数表引擎,在 pluginSimTables.ts 查 */
 function checkTables(raw: unknown): Map<string, TableCard> {
   const cards = list(raw, '清单的 sim.tables', PLUGIN_LIMITS.tables).map((c, i) => cardOf(c, `清单的 sim.tables[${i}]`));
   const cols = cards.reduce((n, c) => n + colCount(c), 0);
   if (cols > PLUGIN_LIMITS.cols) fail(`清单的 sim.tables 所有表加起来最多 ${PLUGIN_LIMITS.cols} 栏`);
-  const polity = cards.some((c) => c.unit === 'polity');
-  try {
-    new TableEngine({ seed: 0, cards: polity ? [...cards, OWNER_CARD] : cards, units: { region: ONE_REGION }, ...(polity ? { owner: OWNER_TABLE } : {}), backend: 'closure' });
-  } catch (e) {
-    fail(`清单的 sim.tables:${e instanceof TableSetupError ? e.problems.join(';') : e instanceof Error ? e.message : String(e)}`);
-  }
+  const problems = cards.flatMap((c) => cardProblems(c));
+  const dup = cards.find((c, i) => cards.findIndex((d) => d.id === c.id) !== i);
+  if (dup) problems.push(`有两张表都叫 ${dup.id}`);
+  if (problems.length) fail(`清单的 sim.tables:${problems.join(';')}`);
   return new Map(cards.map((c) => [c.id, c]));
 }
 
