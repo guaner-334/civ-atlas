@@ -37,7 +37,33 @@ export function setMapNow(s: MapNow | null): void {
 
 /** 以它为底稿新建:原来那个世界的地图插件照原样带到新建的世界(id)上(同一版、同样的滑条;本机对不上的照旧对不上) */
 export function carryMaps(from: string, id: string): void {
-  if (now && now.id === from) setMapNow({ ...now, id, stored: false });
+  if (!now || now.id !== from) return;
+  setMapNow({ ...now, id, stored: false });
+  rememberMaps(id, now.list);
+}
+
+/** 新建中的世界选的地图插件不进世界仓库:记在这个浏览器里,刷新、从「我的世界」再打开时照它重新长 */
+const DRAFT_KEY = 'civ-atlas:draft-maps:';
+
+export function rememberMaps(id: string, list: readonly WorldPlugin[] | null): void {
+  try {
+    if (list?.length) localStorage.setItem(DRAFT_KEY + id, JSON.stringify(list));
+    else localStorage.removeItem(DRAFT_KEY + id);
+  } catch {
+    // 存不下(无痕模式、满了):刷新以后照不带插件的长
+  }
+}
+
+/** 记着的这个新建中的世界的地图插件(没记、读不了 = null) */
+export function rememberedMaps(id: string): WorldPlugin[] | null {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(DRAFT_KEY + id) ?? 'null');
+    if (!Array.isArray(v)) return null;
+    const ok = v.filter((p): p is WorldPlugin => !!p && typeof p === 'object' && typeof p.id === 'string' && typeof p.sum === 'string' && p.role === 'map');
+    return ok.length ? ok : null;
+  } catch {
+    return null;
+  }
 }
 
 /** 换了世界:记着的是别的世界的就不要了 */

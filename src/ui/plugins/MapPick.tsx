@@ -14,6 +14,7 @@ import { listPlugins, type InstalledPlugin } from '../../plugin/pluginStore';
 import type { MapPluginCheck } from '../../plugin/pluginWorld';
 import { Icon } from '../icons';
 import { currentWorld } from '../saveStore';
+import { getStage } from '../stageStore';
 import { useMapNow } from '../world/mapNow';
 import { PuzzleIcon, openPlugins, subscribePluginsOpen } from './entry';
 import { MAP_PICK_MAX, mapBrief } from './mapText';
@@ -50,13 +51,6 @@ export function MapPick({ phone, onBack, onChange, onCollapse }: MapPickProps) {
   const idRef = useRef(currentWorld()?.id);
   idRef.current = currentWorld()?.id ?? idRef.current;
   const worldId = idRef.current;
-  const live = useRef(true);
-  useEffect(() => {
-    live.current = true;
-    return () => {
-      live.current = false;
-    };
-  }, []);
   const [installed, setInstalled] = useState<InstalledPlugin[] | null>(null);
   const [picks, setPicks] = useState<MapChoice[]>(() => chosenMaps(worldId));
   const picksRef = useRef(picks);
@@ -103,7 +97,8 @@ export function MapPick({ phone, onBack, onChange, onCollapse }: MapPickProps) {
 
   const commit = (next: MapChoice[]) => {
     setPicks(next);
-    if (worldId) void chooseMaps(worldId, next, installed ?? undefined, () => live.current && (currentWorld()?.id ?? worldId) === worldId).then((ok) => ok && onChange());
+    // 读插件文件的这一会儿点了「‹ 地图」也照样记下、重新长;离开了新建界面、换了世界的不记
+    if (worldId) void chooseMaps(worldId, next, installed ?? undefined, () => getStage().stage === 'draft' && (currentWorld()?.id ?? worldId) === worldId).then((ok) => ok && onChange());
   };
   // 插件删掉了、被停用了:选上的里去掉(换了版本的不自动换,地图不悄悄变)
   useEffect(() => {

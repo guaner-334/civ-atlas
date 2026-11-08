@@ -464,7 +464,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     // 推演插件和滑条照原来的带过去(新建里还能换)
     const sims = pluginsUiOn() ? getSimNow() : null;
     const carry = sims?.id === cur.id ? sims.list : [];
-    // 地图插件同一版、同样的滑条带过去(插件界面关着也一样):不带的话新建的世界长出来是另一张图
+    // 地图插件同一版、同样的滑条带过去(插件界面关着也一样):不带的话新建的世界长出来是另一张图。
+    // 本机对不上的还带不了:线程手上没有插件,长不出原来那张地图
     if (getMapNow()?.ready) carryMaps(cur.id, d.id);
     openTarget({ ...d, pristine: false, view: undefined });
     if (carry.length) void import('../plugins/worldPlugins').then((m) => m.carrySims(d.id, carry)).catch(() => {});
