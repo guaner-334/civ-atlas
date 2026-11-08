@@ -11,7 +11,7 @@ import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { EMPTY_EDITS, resolveKey, type Intervention, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
-import { PLUGIN_CAPS } from '../src/plugin/pluginCaps';
+import { PLUGIN_CAPS, capRole } from '../src/plugin/pluginCaps';
 import { checkCellLayer, checkMarkLayer, checkPanel, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
 import { approxBytes, MESSAGE_MAX_BYTES, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
 import * as read from '../src/plugin/read';
@@ -33,11 +33,12 @@ function codeOf(f: () => unknown): string {
 }
 
 describe('能力表', () => {
-  it('每个调用、事件要的能力都在能力名表里;能力名表里的每样都有调用用它', () => {
+  it('每个调用、事件要的能力都在能力名表里;能力名表里工具插件的每样都有调用用它', () => {
     const used = new Set<string>();
     for (const [name, caps] of Object.entries(PLUGIN_METHODS)) for (const c of caps) expect(PLUGIN_CAPS.has(c), name).toBe(true), used.add(c);
     for (const c of Object.values(PLUGIN_EVENTS)) expect(PLUGIN_CAPS.has(c)).toBe(true);
-    expect([...PLUGIN_CAPS.keys()].filter((c) => !used.has(c))).toEqual([]);
+    for (const c of used) expect(capRole(c), c).toBe('tool');
+    expect([...PLUGIN_CAPS.keys()].filter((c) => capRole(c) === 'tool' && !used.has(c))).toEqual([]);
   });
 
   it('认得的给;写法不对、写了两遍 = broken;网站没有的 = newer;optional 里网站没有的不给', () => {

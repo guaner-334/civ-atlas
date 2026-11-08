@@ -17,7 +17,8 @@
  */
 import { MANIFEST_FILE, PLUGIN_ID, PLUGIN_ID_MAX, WORLD_APP, WORLD_KIND } from '../gen/worldFormat';
 import { parseZip, writeZip, type ZipInput } from '../gen/zipStore';
-import { CAP_NAME, PLUGIN_CAPS } from './pluginCaps';
+import { CAP_NAME, PLUGIN_CAPS, capRole } from './pluginCaps';
+import type { SimManifest, SimNeed } from './pluginSim';
 
 export const PLUGIN_FILE_EXT = '.civplugin';
 /** 清单里 kind 的值 */
@@ -26,9 +27,11 @@ export const PLUGIN_KIND = 'plugin';
 export const PLUGIN_FORMAT = 1;
 /** 这一版网站给插件的接口大版本 */
 export const PLUGIN_API = 1;
-/** 这一版网站跑得了的插件种类(role)、跑法(runtime) */
-export const PLUGIN_ROLES: readonly string[] = ['tool'];
-export const PLUGIN_RUNTIMES: readonly string[] = ['worker'];
+/** 这一版网站跑得了的插件种类(role)、跑法(runtime);每种插件只有一种跑法 */
+export const PLUGIN_ROLES: readonly string[] = ['tool', 'sim'];
+export const PLUGIN_RUNTIMES: readonly string[] = ['worker', 'quickjs'];
+const ROLE_RUNTIME: Readonly<Record<string, string>> = { tool: 'worker', sim: 'quickjs' };
+const ROLE_NAME: Readonly<Record<string, string>> = { tool: '工具', sim: '推演' };
 
 const KIB = 1024;
 /** 整个文件最多多少字节 */
@@ -67,11 +70,11 @@ export interface PluginManifest {
   name: string;
   /** 第几版:主.次.补丁 */
   version: string;
-  /** 种类:tool 工具;以后的推演插件 sim、地图生成插件 map */
+  /** 种类:tool 工具、sim 推演;以后的地图生成插件 map */
   role: string;
   /** 用第几版接口 */
   api: number;
-  /** 跑法:worker;以后要逐位一致的推演插件用 quickjs */
+  /** 跑法:工具插件 worker,推演插件 quickjs(要各处逐位一致) */
   runtime: string;
   /** 要的能力(「名字@大版本」),这一版网站没有其中任何一样就装不了 */
   requires: string[];
@@ -79,6 +82,8 @@ export interface PluginManifest {
   optional?: string[];
   /** 能力 → 作者写的为什么要,显示在权限框那一行下面 */
   why?: Record<string, string>;
+  /** 推演插件的设定(role 是 sim 的才有,也一定要有) */
+  sim?: SimManifest;
   entry: typeof PLUGIN_ENTRY;
   /** 除清单以外的每个文件 */
   files: PluginFileInfo[];
@@ -280,14 +285,25 @@ function parseManifest(bytes: Uint8Array): PluginManifest {
   if (m.description !== undefined) line(m.description, DESCRIPTION_MAX, '清单的 description');
   matches(m.license, LICENSE_NAME, 64, '清单的 license');
   if (m.author !== undefined) line(obj(m.author, '清单的 author').name, NAME_MAX, '清单的 author.name');
+  // 种类认得的才查跑法、能力、sim 段配不配(认不得的在 checkSupport 报要更新网站)
+  const role = m.role as string;
+  if (PLUGIN_ROLES.includes(role)) {
+    const runtime = m.runtime as string;
+    if (PLUGIN_RUNTIMES.includes(runtime) && runtime !== ROLE_RUNTIME[role]) broken(`清单的 runtime:${ROLE_NAME[role]}插件要写 ${ROLE_RUNTIME[role]}`);
+    for (const c of seen) if (PLUGIN_CAPS.has(c) && capRole(c) !== role) broken(`${ROLE_NAME[role]}插件不能要 ${c}`);
+    if (role === 'sim' && m.sim === undefined) broken('推演插件的清单要有 sim 段');
+    if (role !== 'sim' && m.sim !== undefined) broken(`${ROLE_NAME[role]}插件的清单不能有 sim 段`);
+  }
   return m as unknown as PluginManifest;
 }
 
-function checkSupport(m: PluginManifest): void {
+/** sim = 推演插件清单里这一版网站不认得的头一样 */
+function checkSupport(m: PluginManifest, sim: SimNeed | null): void {
   const o = m as unknown as Obj;
   if (!PLUGIN_ROLES.includes(m.role)) newer(`要更新网站才能用:这一版网站跑不了「${m.role}」这种插件`, `${m.role} 这种插件`, o);
   if (!PLUGIN_RUNTIMES.includes(m.runtime)) newer(`要更新网站才能用:这一版网站没有「${m.runtime}」这种跑法`, `${m.runtime} 这种跑法`, o);
   for (const c of m.requires) if (!PLUGIN_CAPS.has(c)) newer(`要更新网站才能用:插件要的 ${c} 这一版网站还没有`, capNeed(c), o);
+  if (sim) newer(`要更新网站才能用:插件要的${sim.what} ${sim.name} 这一版网站还没有`, `${sim.what} ${sim.name}`, o);
 }
 
 async function sha256(data: Uint8Array): Promise<string> {
@@ -355,7 +371,8 @@ export async function openPluginFile(file: Blob | Uint8Array): Promise<OpenedPlu
       else if (path === PLUGIN_ENTRY) code = textOf(data, path);
       else textOf(data, path);
     }
-    checkSupport(manifest);
+    const sim = manifest.role === 'sim' ? (await import('./pluginSim')).checkSimManifest(manifest) : null;
+    checkSupport(manifest, sim);
     return { manifest, sum: await sha256(bytes), bytes: bytes.length, files, code };
   } catch (err) {
     throw asPluginFileError(err);
@@ -396,6 +413,7 @@ export async function packPluginFile(input: PluginPackInput): Promise<Uint8Array
       requires: m.requires,
       ...(m.optional ? { optional: m.optional } : {}),
       ...(m.why ? { why: m.why } : {}),
+      ...(m.sim ? { sim: m.sim } : {}),
       entry: PLUGIN_ENTRY,
       files,
       ...(m.description !== undefined ? { description: m.description } : {}),

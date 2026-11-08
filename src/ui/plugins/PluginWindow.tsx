@@ -331,6 +331,8 @@ const PERM_ICON: Record<PermissionKey, IconName | keyof typeof MORE_ICONS> = {
   view: 'pin',
   layer: 'route',
   storeWorld: 'box',
+  sim: 'book',
+  simSteer: 'history',
 };
 
 function Perm({ line }: { line: PermissionLine }) {
