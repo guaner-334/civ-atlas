@@ -46,6 +46,7 @@ import { parseSave, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
 import type { AuthorContent, WorldMade } from '../gen/worldFormat';
 import type { SimPluginsReady } from '../plugin/simPlugins';
+import type { SimPluginFile } from '../plugin/pluginWorld';
 import type { ConvertJob } from '../worldConvert';
 import type { ConvertReply } from '../worldConvertWorker';
 import { pendingEdit, type CommitRequest, type CommitResult, type DraftedFile, type PendingEdit, type VaultErrorKind, type VaultOps, type WorldPartsOffer } from '../worldVault';
@@ -484,6 +485,8 @@ export interface WorldStoreSim {
   packNow: () => void;
   /** 叫它把这份配方的世界打成几块交回来,不存(见 worker.ts 的 packParts);打不成 reject,错上带 kind */
   packParts?: (ask: Omit<PackAsk, 'id'>) => Promise<WorldPartsOffer>;
+  /** 页面里这个世界推演带的推演插件(没用 = undefined;本机对不上、推不出来 = null) */
+  sims?: () => SimPluginFile[] | null | undefined;
 }
 
 /** 接上生成世界的线程 */
@@ -790,8 +793,12 @@ export async function settleForFile(id: string): Promise<SettledForFile> {
 /** 线程把页面里的这个世界打成几块,不存(存成文件、腾出地方以后补存用)。这一版算不出来的世界(照原样打开的旧世界)= null;打不成 reject,错上带 kind */
 export function packPage(save: SaveFile): Promise<WorldPartsOffer> | null {
   if (!sim.packParts || save.generator !== GENERATOR_VERSION) return null;
+  // 用了推演插件的带着它们打;本机对不上的算不出来(按官方推出来是另一段历史,还会把世界记的插件冲掉)
+  const sims = sim.sims?.();
+  if (sims === null) return null;
   const r = recipeOfSave(save);
   return sim.packParts({
+    ...(sims?.length ? { simPlugins: sims } : {}),
     params: r.params,
     terrain: r.terrain as TerrainOp[] | undefined,
     sketch: r.sketch,

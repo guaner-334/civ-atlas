@@ -135,6 +135,9 @@ import type { LabelView } from '../../render/labels/draw';
 import { LEFT_W, RIGHT_W, appPose, flatRect } from './layout';
 import { flatGeom, getStudioFlat, keepStudioView, setStudioFlat, takeStudioView } from './studioStore';
 import { holdMark } from '../holdMark';
+import { PuzzleIcon, SimPickHost } from '../plugins/entry';
+import { pluginsUiOn } from '../plugins/flag';
+import { useSimNow } from '../world/simNow';
 import '../worlds.css';
 import './studio.css';
 
@@ -421,6 +424,13 @@ export function Studio(p: StudioProps) {
   const [originsPage, setOriginsPage] = useState(false);
   /** 左边换成选「规则」的那一页 */
   const [rulesPage, setRulesPage] = useState(false);
+  /** 左边换成选推演插件的那一页 */
+  const [simPage, setSimPage] = useState(false);
+  const simOn = pluginsUiOn();
+  const simNow = useSimNow();
+  const simNames = simNow?.list.map((x) => x.name ?? x.id) ?? [];
+  /** 确认框里列推演插件:选了的(照故事找的不带) */
+  const simLocked = simOn && !found && simNames.length > 0;
   /** 起源页上:星球停住时的样子(圆点按它摆;动着 = null)、底下的提示(点错了的那句和画虚线圈的地方,过几秒收起) */
   const [pinPose, setPinPose] = useState<StillPose | null>(null);
   const [originMsg, setOriginMsg] = useState<{ text: string; x: number; y: number } | null>(null);
@@ -996,6 +1006,7 @@ export function Studio(p: StudioProps) {
     setDrawer(null);
     if (p.phone) setSheetFull(true);
     setRulesPage(false);
+    setSimPage(false);
     setNamesPage(true);
   };
   /** 选「规则」的那一页:手机上卡片拉到最高 */
@@ -1006,6 +1017,15 @@ export function Studio(p: StudioProps) {
     setNamesPage(false);
     closeOrigins();
     setRulesPage(true);
+  };
+  /** 选推演插件的那一页:手机上卡片拉到最高 */
+  const openSimPage = () => {
+    setDrawer(null);
+    setStyOpen(false);
+    if (p.phone) setSheetFull(true);
+    setNamesPage(false);
+    closeOrigins();
+    setSimPage(true);
   };
   /** 「文明起源」页:星球停转(照手绘图的卷成地球仪),圆点按星球现在的样子摆;手机上卡片拉开 */
   const openOrigins = () => {
@@ -1018,6 +1038,7 @@ export function Studio(p: StudioProps) {
     setOriginOnly(!!o?.only);
     keptOrigins.current = undefined;
     setRulesPage(false);
+    setSimPage(false);
     if (p.phone) setSheetFull(true);
     if (image) {
       if (tool.on) setTerrainTool({ on: false });
@@ -1043,6 +1064,7 @@ export function Studio(p: StudioProps) {
     if (p.phone) {
       setNamesPage(false);
       setRulesPage(false);
+      setSimPage(false);
     }
     closeOrigins();
     if (tool.on) setTerrainTool({ on: false });
@@ -1497,6 +1519,21 @@ export function Studio(p: StudioProps) {
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
+  /** 「推演插件」:选上的几个(没选写「不用」),点了左边换成选推演插件的那一页(插件界面开着才有) */
+  const simRow = simOn && (
+    <button className="sb-row" data-act="sim-plugins" onClick={openSimPage}>
+      <span className="sb-ico">
+        <PuzzleIcon size={ico} />
+      </span>
+      <span className="sb-row-main">
+        <b>推演插件</b>
+      </span>
+      <span className="sb-row-side sb-origin" data-side="sim-plugins">
+        {simNames.length ? simNames.join('、') : '不用'}
+      </span>
+      <Icon name="chevron" size={14} className="sb-chev" />
+    </button>
+  );
   /** 选了照大纲:一句说明(放在「怎么推」下面) */
   const outlineNote = outlineHow && <div className="nw-note nw-how-note">建好以后先打开「大纲」：一条条写下故事里的大事，写完点「照大纲推演」。地形、民族、国家起源照常生成，大纲只决定后面的历史怎么走。</div>;
   const adv = advanceOf(edits);
@@ -1639,6 +1676,7 @@ export function Studio(p: StudioProps) {
     closeAssistant();
     setNamesPage(false);
     setRulesPage(false);
+    setSimPage(false);
     closeOrigins();
     setSheetFull(false);
     setCivStep(true);
@@ -1648,6 +1686,7 @@ export function Studio(p: StudioProps) {
     setDrawer(null);
     setNamesPage(false);
     setRulesPage(false);
+    setSimPage(false);
     closeOrigins();
     setSheetFull(false);
     setYearsOpen(false);
@@ -1728,8 +1767,9 @@ export function Studio(p: StudioProps) {
   /** 文明起源按第 0 年的州看(有地形大事时是大事以前的,见 origins.ts 的 originCiv) */
   const ogRaw = p.civ ?? p.raw;
   const ogCiv = ogRaw && originCiv(ogRaw);
-  const ogShown = originsOn && !mixShown && !rpShown;
-  const pageShown = mixShown || ogShown || rpShown;
+  const spShown = simOn && simPage && !tool.on && !peek && !mixShown && !rpShown;
+  const ogShown = originsOn && !mixShown && !rpShown && !spShown;
+  const pageShown = mixShown || ogShown || rpShown || spShown;
   const mixPage = mixShown ? (
     <NameMixPage backLabel={heading} onBack={() => setNamesPage(false)} civ={p.raw} busy={p.busy} ready={p.ready} phone={p.phone} flush={mixFlush} />
   ) : rpShown ? (
@@ -1741,6 +1781,8 @@ export function Studio(p: StudioProps) {
       onBack={() => setRulesPage(false)}
       onCollapse={p.phone ? undefined : () => setCollapsed(true)}
     />
+  ) : spShown ? (
+    <SimPickHost phone={p.phone} onBack={() => setSimPage(false)} onCollapse={p.phone ? undefined : () => setCollapsed(true)} />
   ) : (
     ogShown && (
       <OriginsPage
@@ -1814,6 +1856,7 @@ export function Studio(p: StudioProps) {
           <StepParams params={p.params} onParams={p.onParams} disabled={p.busy} />
           {rerollRow}
           {rulesRow}
+          {simRow}
           {originsRow}
           <div className="sk-name">{nameField}</div>
           {mixRow}
@@ -1857,12 +1900,14 @@ export function Studio(p: StudioProps) {
               {lockedRow('origins-found', '文明起源', '和找的时候一样')}
               {lockedRow('calamity-found', '天灾', '和找的时候一样')}
               {rulesOn && lockedRow('rules-found', '规则', '和找的时候一样')}
+              {simOn && lockedRow('sims-found', '推演插件', '不用（找的时候没带插件）')}
             </>
           ) : (
             <>
               {stepHow ? advRow : yearsRow}
               {calamityRow}
               {!compact && rulesRow}
+              {!compact && simRow}
             </>
           )}
           {found ? null : compact ? (
@@ -1870,7 +1915,7 @@ export function Studio(p: StudioProps) {
               <span className="sb-row-main">
                 <b>更多设定</b>
               </span>
-              <span className="sb-row-side">{rulesOn ? '规则、拓荒、起源、地名' : '拓荒、起源、地名'}</span>
+              <span className="sb-row-side">{[rulesOn && '规则', simOn && '推演插件', '拓荒、起源、地名'].filter(Boolean).join('、')}</span>
               <Icon name="chevron" size={14} className="sb-chev" />
             </button>
           ) : (
@@ -1935,6 +1980,7 @@ export function Studio(p: StudioProps) {
           <div className="sb-group">
             {calamityRow}
             {rulesRow}
+            {simRow}
             {originsRow}
           </div>
         </section>
@@ -1962,6 +2008,7 @@ export function Studio(p: StudioProps) {
         if (sheetFull) {
           setNamesPage(false);
           setRulesPage(false);
+          setSimPage(false);
           closeOrigins();
         }
         setSheetFull(!sheetFull);
@@ -2344,7 +2391,7 @@ export function Studio(p: StudioProps) {
               {step2 ? (nameNow ? `开始${verb}「${nameNow}」？` : `开始${verb}这个文明？`) : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}
             </h2>
             <p>
-              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (calamity ? 1 : 0) + (edits.rules ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
+              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (calamity ? 1 : 0) + (edits.rules ? 1 : 0) + (simLocked ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
             </p>
             <div className="sb-group">
               {image ? (
@@ -2427,6 +2474,17 @@ export function Studio(p: StudioProps) {
                   </span>
                   <span className="sb-row-side sb-origin" data-confirm="rules">
                     {ruleSetLabel(edits.rules)}
+                  </span>
+                </div>
+              )}
+              {simLocked && (
+                <div className="sb-row static">
+                  <Icon name="lock" size={16} className="sb-ico" />
+                  <span className="sb-row-main">
+                    <b>推演插件</b>
+                  </span>
+                  <span className="sb-row-side sb-origin" data-confirm="sim-plugins">
+                    {simNames.join('、')}
                   </span>
                 </div>
               )}

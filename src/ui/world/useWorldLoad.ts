@@ -110,6 +110,7 @@ import {
   type Target,
   type WallView,
 } from './worldTarget';
+import { simNowFor } from './simNow';
 
 /**
  * 新建中的世界让生成线程顺手画好的写实像素层(见 worker.ts 的 paint):新建界面的星球贴的是卫星画法 sat 那一种
@@ -282,6 +283,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       civNames.current = t.edits.nameMix;
       // 推演年数同样直接带着(新建中的世界先推 3000 年)
       civYears.current = yearsFor(t.kind === 'draft' && !t.fullCiv, t.edits);
+      // 照故事找的世界不带推演插件(找的时候没带)
+      simNowFor(t.fullCiv ? null : t.id);
       civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
       storyAfterYears.current = null;
       // 新建的世界能编辑地形:线程留着整张主图,第一笔就能只重铺变了的那块。
@@ -428,6 +431,12 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           // 这一版还没有原件的:读完存一份(旧路还留着)
           const heads = stored.generator === GENERATOR_VERSION && !t.fullFile ? await atMost(resultHeads(t.id), 2000, null) : null;
           const original = !!heads && !heads.some((h) => h.generator === stored.generator && h.recipe === recipe);
+          // 用了推演插件的世界:带着插件读进来,接着推才不用从第 0 年重推
+          if (pluginsUiOn()) {
+            await import('../plugins/worldPlugins').then((m) => m.loadSimNow(t.id)).catch(() => {});
+            if (id !== reqId.current) return;
+            civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);
+          }
           if (id !== reqId.current) return;
           sendLoad({ vault: { id: t.id, recipe, generator: stored.generator }, ...(original ? { original } : {}) }, stored.generator, fail);
         })().catch(() => {

@@ -4,6 +4,7 @@ import { createStore } from '../createStore';
 import { MenuItem } from '../PopMenu';
 import { showToast } from '../toastStore';
 import { toolCard, toolRunning, toolsMenu, type ToolsProps } from './toolsState';
+import type { SimPickProps } from './SimPick';
 
 const open = createStore(false);
 
@@ -132,6 +133,17 @@ export function ToolsHost(p: ToolsProps) {
   return (
     <Suspense fallback={null}>
       <ToolsLayer {...p} />
+    </Suspense>
+  );
+}
+
+const SimPickPage = lazy(() => import('./SimPick').then((m) => ({ default: m.SimPick })));
+
+/** 新建世界里选推演插件的那一页(点了才下载) */
+export function SimPickHost(p: SimPickProps) {
+  return (
+    <Suspense fallback={null}>
+      <SimPickPage {...p} />
     </Suspense>
   );
 }

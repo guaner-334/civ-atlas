@@ -1166,3 +1166,248 @@
 .phone .plg-newer {
   margin: 12px 16px 0;
 }
+
+/* ==== 新建世界里选推演插件的那一页(SimPick.tsx;和选规则那一页同一种,换掉左边) ==== */
+.sp {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sp-sec {
+  display: flex;
+  align-items: baseline;
+  padding: 0 4px;
+  margin-bottom: -4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.sp-sec span {
+  margin-left: auto;
+  font-weight: 400;
+}
+.sp-grp {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: var(--btn);
+  overflow: hidden;
+}
+.sp-item + .sp-item,
+.sp-grp > .sp-row + .sp-row {
+  border-top: 0.5px solid var(--line);
+}
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+}
+.sp-row.dis .sp-nm,
+.sp-row.dis .plg-pi {
+  opacity: 0.45;
+}
+.sp-nm {
+  flex: 1;
+  min-width: 0;
+}
+.sp-nm b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.sp-nm small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.sp-grip,
+.sp-rm,
+.sp-add,
+.sp-tog,
+.sp-lnk,
+.sp-more {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.studio .sp-grip {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 28px;
+  margin: 0 -4px 0 -2px;
+  padding: 0;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;
+}
+.sp-grip:active {
+  cursor: grabbing;
+}
+.sp-ord {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(118, 118, 128, 0.4);
+  font-size: 11px;
+  font-weight: 700;
+}
+.sp-rm,
+.sp-add {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: -4px;
+  padding: 0;
+}
+.studio .sp-rm {
+  color: var(--err);
+}
+.studio .sp-add {
+  color: var(--accent);
+}
+.studio .sp-add:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+.studio .sp-tog {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.sp-slh {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px 6px 40px;
+  border-top: 0.5px solid var(--line);
+  background: rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.sp-slh .sp-lnk:first-of-type {
+  margin-left: auto;
+}
+.studio .sp-lnk {
+  padding: 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+.sp .param-slider.sp-sl {
+  padding: 6px 12px 10px 40px;
+  border-top: 0.5px solid var(--line);
+  border-bottom: 0;
+  background: rgba(0, 0, 0, 0.12);
+  font-size: 13px;
+  font-weight: 600;
+}
+.sp-def {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.sp-info {
+  display: flex;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(118, 118, 128, 0.18);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.sp-info > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ink-2);
+}
+.sp-info > span > span {
+  display: block;
+}
+.studio .sp-more {
+  align-self: flex-start;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--accent);
+}
+.sp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 16px 14px;
+  border-radius: 10px;
+  background: var(--btn);
+  text-align: center;
+}
+.sp-empty b {
+  font-size: 14.5px;
+}
+.sp-empty span {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  text-align: left;
+}
+.st-in .nw-intro.sp-intro {
+  margin: 4px 0 4px;
+  line-height: 1.6;
+}
+.sp-note {
+  margin: -4px 4px 0;
+  line-height: 1.6;
+}
+.studio .sp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 34px;
+  margin-top: 4px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.studio .sp-btn:hover {
+  background: var(--hover-bg);
+}
+/* 手机:字大一号 */
+.st-sheet .sp-nm b {
+  font-size: 15.5px;
+}
+.st-sheet .sp-nm small,
+.st-sheet .sp-tog {
+  font-size: 13.5px;
+}
+.st-sheet .sp-row {
+  padding: 11px 14px;
+}
+.st-sheet .sp-sec {
+  font-size: 14px;
+}
+.st-sheet .sp-info,
+.st-sheet .sp-more {
+  font-size: 14px;
+}
