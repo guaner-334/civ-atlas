@@ -9,24 +9,23 @@ import { cleanNoteList } from '../../../authorNotes';
 import { PluginApiError } from '../../../plugin/check';
 import { commitPluginEdits } from '../../../plugin/editsCommit';
 import { planChanges } from '../../../plugin/edit';
-import { startPluginHost, type PickAnswer, type PickRequest, type PluginHost, type PluginSource } from '../../../plugin/host';
-import { PluginFileError } from '../../../plugin/pluginFile';
+import { startPluginHost, type PickAnswer, type PickRequest, type PluginHost, type PluginSink, type PluginSource } from '../../../plugin/host';
+import { PluginFileError, type OpenedPlugin } from '../../../plugin/pluginFile';
 import { localDataStore } from '../../../plugin/pluginData';
+import { worldPluginOf } from '../../../plugin/pluginWorld';
 import { loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { MESSAGES_PER_SECOND, MESSAGE_MAX_BYTES } from '../../../plugin/protocol';
 import type { PluginDataStore } from '../../../plugin/store';
-import type { PanelNode, ViewInfo } from '../../../plugin/types';
-import { getCivShow, getCivTime, getSelection, subscribeCivTime, subscribeSelection } from '../../civView';
+import type { PanelNode } from '../../../plugin/types';
 import { createStore } from '../../createStore';
 import { commitEdits, editsEra, getEdits, historyDiffers, revertEdits } from '../../editsStore';
-import { selectionKey } from '../../flyTo';
 import { setPolityPick } from '../../Interventions';
-import { fillOf } from '../../mapLayers';
 import { stopPlacing } from '../../markStore';
-import { getProjection } from '../../projectionStore';
 import { noteRewrite } from '../../rewriteStore';
 import { currentWorld } from '../../saveStore';
 import { clearToast, showToast } from '../../toastStore';
+import { setLiveLayer } from '../layerState';
+import { viewOf, watchView, yearNow as yearOf } from '../pluginView';
 import { toolCard, toolCellPick, toolRunning, type ToolsProps } from '../toolsState';
 import { verdictOf } from '../verdict';
 import { batchParts, keyName, refusalOf, sayBatch, sayBusy, sayDone, type Refusal } from './toolSay';
@@ -60,6 +59,8 @@ export interface ToolRun {
   pick: ToolPick | null;
   /** 上一次框的框:再请框选时还在,能挪、改大小 */
   box: ToolBox | null;
+  /** 开发者模式载入的(不在插件仓库里;「再试一次」= 重新载入) */
+  dev?: { again: () => void };
 }
 
 export const toolRun = createStore<ToolRun | null>(null);
@@ -121,25 +122,7 @@ export function stopTool(): void {
   clearToast('plugin-pick');
 }
 
-/** 当前年份(取整,夹在历史里) */
-function yearNow(p: ToolsProps): number {
-  const end = p.civ?.endYear ?? 0;
-  return Math.floor(Math.min(end, Math.max(0, getCivTime().year ?? end)));
-}
-
-function viewOf(p: ToolsProps): ViewInfo {
-  const sel = getSelection().sel;
-  let visible: ViewInfo['visible'] = null;
-  const f = getProjection() === 'equirect' ? p.api.current?.frame() : null;
-  const a = f?.pt(0, 0);
-  const b = f?.pt(1000, 1000);
-  if (f && a && b && b[0] > a[0]) {
-    const k = (b[0] - a[0]) / 1000;
-    visible = { x0: -a[0] / k, y0: -a[1] / k, x1: (f.w - a[0]) / k, y1: (f.h - a[1]) / k };
-  }
-  const key = sel && p.raw ? selectionKey(p.raw, sel) : '';
-  return { year: yearNow(p), selected: sel ? { kind: sel.kind, id: sel.id, ...(key ? { key } : {}) } : null, visible, layer: fillOf(getCivShow()) };
-}
+const yearNow = (p: ToolsProps): number => yearOf(p.civ);
 
 /** 开一个工具(先停掉开着的);env = 地图那边最新的一份 */
 export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps): Promise<void> {
@@ -159,6 +142,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
     const opened = await loadPlugin(plugin.id);
     if (!live()) return;
     const name = opened.manifest.name;
+    const who = { pluginId: plugin.id, plugin: name, record: worldPluginOf(opened), dev: false };
     const source: PluginSource = {
       world: () => env().world,
       civ: () => env().civ,
@@ -173,14 +157,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
         return id ? cleanNoteList(exportNotes(id)) : [];
       },
       view: () => viewOf(env()),
-      watchView: (fn) => {
-        const a = subscribeCivTime(() => fn());
-        const b = subscribeSelection(fn);
-        return () => {
-          a();
-          b();
-        };
-      },
+      watchView,
       pick: (req, signal) => (live() ? askPick(my, req, signal) : Promise.resolve(null)),
       // 开到一半关掉了(插件顶层代码排着的调用开好以后才发出来):不再照它改
       commit: (next, keys) => (live() ? commitBatch(name, next, keys, asked, env) : '插件已经停了'),
@@ -191,7 +168,10 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
       source,
       sink: {
         panel: (nodes) => patch(my, { panel: nodes }),
-        layer: () => {},
+        layer: (id, layer) => {
+          if (live()) setLiveLayer(who, id, layer);
+          else if (!layer) setLiveLayer(who, id, null);
+        },
         refused: (args, e) => {
           const p = env();
           const check = (c: unknown) => {
@@ -224,6 +204,46 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
     const text = e instanceof PluginFileError && e.kind === 'newer' ? '它要用到这一版网站还没有的东西' : e instanceof Error && e.name === 'PluginRefused' ? e.message : '没能打开它';
     patch(my, { phase: 'stopped', trouble: { kind: 'crashed', site: true, text } });
   }
+}
+
+/** 开发者模式载入的插件接到插件卡和点选上:开它之前调,拿到给沙箱的点选和面板;开好了 attach,停了 stopped(停下的原因;我们自己叫停的 = null) */
+export interface DevTool {
+  pick: NonNullable<PluginSource['pick']>;
+  panel: NonNullable<PluginSink['panel']>;
+  attach(h: PluginHost): void;
+  stopped(reason: string, detail: string): void;
+}
+
+/** 载入的插件:先停掉开着的工具,插件卡换成它的(卡上「再试一次」= again) */
+export function beginDevTool(opened: OpenedPlugin, again: () => void): DevTool {
+  stopTool();
+  const my = seq;
+  const plugin: InstalledPlugin = { id: opened.manifest.id, current: { sum: opened.sum, bytes: opened.bytes, manifest: opened.manifest, at: Date.now() }, on: true, from: 'file', at: Date.now() };
+  toolRun.set({ plugin, phase: 'starting', panel: null, trouble: null, refusal: null, pick: null, box: null, dev: { again } });
+  const live = () => my === seq;
+  return {
+    pick: (req, signal) => (live() ? askPick(my, req, signal) : Promise.resolve(null)),
+    panel: (nodes) => patch(my, { panel: nodes }),
+    attach: (h) => {
+      if (!live()) return;
+      host = h;
+      patch(my, { phase: 'running' });
+    },
+    stopped: (reason, detail) => {
+      if (!live()) return;
+      const t = troubleOf(reason, detail);
+      if (!t) return stopTool();
+      toolRun.get()?.pick?.done(null);
+      clearToast('plugin-pick');
+      host = null;
+      patch(my, { phase: 'stopped', trouble: t, panel: null, refusal: null, pick: null });
+    },
+  };
+}
+
+/** 插件卡是开发者模式载入的那个:收起(小卡关掉了) */
+export function stopDevTool(): void {
+  if (toolRun.get()?.dev) stopTool();
 }
 
 /** 每隔一会儿问插件一声:SLOW_MS 内没回就停掉(沙箱自己停,停的原因是 unresponsive) */

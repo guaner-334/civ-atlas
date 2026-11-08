@@ -57,7 +57,7 @@ export default function ToolsLayer(p: ToolsProps) {
     if (!p.phone) peekSide(cardOn);
   }, [cardOn, sel, p.phone]);
   // 插件页里关掉、删掉、换了版本的:关上插件页以后停下
-  const runId = run?.plugin.id;
+  const runId = run?.dev ? undefined : run?.plugin.id;
   const runSum = run?.plugin.current.sum;
   useEffect(() => {
     if (pluginsOpen || !runId) return;
@@ -124,7 +124,7 @@ export default function ToolsLayer(p: ToolsProps) {
   return (
     <>
       {menu && <ToolsMenu phone={p.phone} onStart={start} />}
-      {run && slot && createPortal(<ToolCard run={run} phone={p.phone} onAgain={() => start(run.plugin)} />, slot)}
+      {run && slot && createPortal(<ToolCard run={run} phone={p.phone} onAgain={() => (run.dev ? run.dev.again() : start(run.plugin))} />, slot)}
       {pick?.kind === 'box' &&
         stage &&
         createPortal(
@@ -289,7 +289,7 @@ function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAga
           <div className="plg-cn">
             <span>{m.name}</span>
             <span className="plg-tag">插件</span>
-            {!v.reviewed && !v.blocked && <span className="plg-tag warn">没审核</span>}
+            {run.dev ? <span className="plg-tag dev">开发中</span> : !v.reviewed && !v.blocked && <span className="plg-tag warn">没审核</span>}
           </div>
           <span className="cp-sub">
             {m.author?.name ? `${m.author.name} 写的，` : ''}

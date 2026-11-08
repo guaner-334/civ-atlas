@@ -1,0 +1,178 @@
+/**
+ * 插件图层:开着的插件交来的(工具、只交图层的插件、开发者模式载入的)和这个世界里存着的,图层面板里选了哪一个。
+ * 这里只放数据和几个小函数;开只交图层的插件、画、存进世界的代码(layers/)用到才下载。
+ *
+ * 图层面板「插件图层」一个地块图层一个按钮,同一时间只显示一个(再点一下收起);标注图层(路线、框、点)交来就画,不进面板。
+ * 同一个插件的同一个图层,开着的插件交来的盖过存着的;插件停了它交的都拿掉,存着的照旧在。
+ */
+import type { CellLayer, MarkLayer } from '../../plugin/check';
+import type { PluginLayerData, WorldPlugin } from '../../gen/worldFormat';
+import { createStore } from '../createStore';
+
+/** 开着的插件交来的一个图层 */
+export interface LiveLayer {
+  pluginId: string;
+  /** 插件叫什么 */
+  plugin: string;
+  /** 存进世界时清单里记的这个插件(编号、第几版、文件指纹、种类) */
+  record: WorldPlugin;
+  /** 开发者模式载入的 */
+  dev: boolean;
+  layer: CellLayer | MarkLayer;
+}
+
+/** 这个世界里存着的一个地块图层 */
+export interface SavedLayer {
+  pluginId: string;
+  /** 块名 */
+  name: string;
+  data: PluginLayerData;
+  /** 世界清单里记的这个插件(没记 = null) */
+  record: WorldPlugin | null;
+}
+
+export interface PluginLayers {
+  /** 键 = 插件编号/图层编号 */
+  live: ReadonlyMap<string, LiveLayer>;
+  saved: ReadonlyMap<string, SavedLayer>;
+  /** saved 是哪个世界的 */
+  savedFor: string | null;
+  /** 装着的、只交图层的插件(图层面板里点了才开) */
+  runnable: readonly { id: string; name: string }[];
+  /** 选中的图层的键;run:<插件编号> = 点了只交图层的插件,还没交来 */
+  shown: string | null;
+}
+
+export const pluginLayers = createStore<PluginLayers>({ live: new Map(), saved: new Map(), savedFor: null, runnable: [], shown: null });
+
+export const layerKey = (pluginId: string, layerId: string): string => `${pluginId}/${layerId}`;
+const RUN = 'run:';
+
+/** 图层面板里的一个按钮 */
+export interface LayerChip {
+  key: string;
+  label: string;
+}
+
+/** 图层面板「插件图层」的按钮:存着的、开着的插件交来的地块图层,再加上还没交过图层的、只交图层的插件 */
+export function layerChips(s: PluginLayers): LayerChip[] {
+  const out: LayerChip[] = [];
+  const seen = new Set<string>();
+  const plugins = new Set<string>();
+  for (const [key, l] of s.saved) {
+    out.push({ key, label: s.live.get(key)?.layer.title ?? l.data.title });
+    seen.add(key);
+    plugins.add(l.pluginId);
+  }
+  for (const [key, l] of s.live) {
+    if (l.layer.kind !== 'cells' || seen.has(key)) continue;
+    out.push({ key, label: l.layer.title });
+    plugins.add(l.pluginId);
+  }
+  for (const p of s.runnable) if (!plugins.has(p.id)) out.push({ key: RUN + p.id, label: p.name });
+  return out;
+}
+
+/** 正显示的地块图层 */
+export interface ShownLayer {
+  key: string;
+  /** 画的这一份:开着的插件交来的,没有就是存着的 */
+  cells: CellLayer | PluginLayerData;
+  plugin: string;
+  pluginId: string;
+  dev: boolean;
+  live: LiveLayer | null;
+  saved: SavedLayer | null;
+}
+
+/** 选中的按钮现在画哪一份;点了只交图层的插件、还没交来 = null */
+export function shownLayer(s: PluginLayers): ShownLayer | null {
+  let key = s.shown;
+  if (!key) return null;
+  if (key.startsWith(RUN)) {
+    const pid = key.slice(RUN.length);
+    key = [...s.live].find(([, l]) => l.pluginId === pid && l.layer.kind === 'cells')?.[0] ?? null;
+    if (!key) return null;
+  }
+  const live = s.live.get(key);
+  const saved = s.saved.get(key) ?? null;
+  const liveCells = live?.layer.kind === 'cells' ? live : null;
+  if (liveCells) return { key, cells: liveCells.layer as CellLayer, plugin: liveCells.plugin, pluginId: liveCells.pluginId, dev: liveCells.dev, live: liveCells, saved };
+  if (saved) return { key, cells: saved.data, plugin: saved.data.plugin.name, pluginId: saved.pluginId, dev: false, live: null, saved };
+  return null;
+}
+
+let memo: { s: PluginLayers; v: ShownLayer | null } | null = null;
+/** 现在显示的地块图层(同一份状态交回同一个对象,组件里能直接拿来订阅) */
+export function currentShown(): ShownLayer | null {
+  const s = pluginLayers.get();
+  if (memo?.s !== s) memo = { s, v: shownLayer(s) };
+  return memo.v;
+}
+
+/** 按钮亮不亮:选中的就是它,或者选中的是它这个插件、交来的正是它 */
+export function chipOn(s: PluginLayers, key: string): boolean {
+  if (s.shown === key) return true;
+  return !!s.shown?.startsWith(RUN) && shownLayer(s)?.key === key;
+}
+
+let runner: Promise<typeof import('./layers/layerRun')> | null = null;
+const loadRunner = () => (runner ??= import('./layers/layerRun'));
+
+/** 重新列一遍装着的只交图层的插件(图层面板打开时) */
+export function refreshLayerPlugins(): void {
+  void loadRunner().then(
+    (m) => m.refreshRunnable(),
+    () => {},
+  );
+}
+
+/** 点了图层面板里的一个按钮:选中它(只交图层的插件这时才开),再点一下收起 */
+export function pickPluginLayer(key: string): void {
+  const s = pluginLayers.get();
+  const off = chipOn(s, key);
+  pluginLayers.set({ ...s, shown: off ? null : key });
+  const run = key.startsWith(RUN);
+  const pid = run ? key.slice(RUN.length) : key.slice(0, key.indexOf('/'));
+  // 开着的只交图层的插件只为显示它交的图层:收起、换成别的插件的图层就停
+  void loadRunner().then(
+    (m) => {
+      if (!off && run) void m.startLayerPlugin(pid);
+      else m.keepLayerPlugin(off ? null : pid);
+    },
+    () => {},
+  );
+}
+
+/** 开着的插件交来(layer = null:拿掉)一个图层。第一次交来的地块图层,没有选中的就显示它;点了它这个插件、正等着的,换成它 */
+export function setLiveLayer(who: Omit<LiveLayer, 'layer'>, id: string, layer: CellLayer | MarkLayer | null): void {
+  const s = pluginLayers.get();
+  const key = layerKey(who.pluginId, id);
+  const live = new Map(s.live);
+  let shown = s.shown;
+  if (layer) {
+    const fresh = !live.has(key);
+    live.set(key, { ...who, layer });
+    if (layer.kind === 'cells' && (shown === RUN + who.pluginId || (fresh && shown === null))) shown = key;
+  } else {
+    if (!live.delete(key)) return;
+    if (shown === key && !s.saved.has(key)) shown = null;
+  }
+  pluginLayers.set({ ...s, live, shown });
+}
+
+/** 换了世界:存着的换成这个世界的(读的代码在 layers/) */
+export function setSavedLayers(worldId: string | null, saved: ReadonlyMap<string, SavedLayer>): void {
+  const s = pluginLayers.get();
+  let shown = s.shown;
+  if (shown && !shown.startsWith(RUN) && !s.live.has(shown) && !saved.has(shown)) shown = null;
+  pluginLayers.set({ ...s, saved, savedFor: worldId, shown });
+}
+
+/** 导出地图图片时带上的:正显示的地块图层、开着的插件交来的标注图层(没有 = 不带) */
+export function pluginExport(): { plugin?: CellLayer | PluginLayerData; pluginMarks?: MarkLayer[] } {
+  const s = pluginLayers.get();
+  const shown = currentShown();
+  const marks = [...s.live.values()].filter((l) => l.layer.kind === 'marks').map((l) => l.layer as MarkLayer);
+  return { ...(shown ? { plugin: shown.cells } : {}), ...(marks.length ? { pluginMarks: marks } : {}) };
+}

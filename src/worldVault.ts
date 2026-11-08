@@ -37,10 +37,27 @@ import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, packValue, partBytes, sha25
 import { GENERATOR_VERSION } from './gen/edits';
 import { VAULT_DB, type RosterMarks } from './worldRoster';
 import type { SaveFile } from './gen/savefile';
-import { buildManifest, knownPart, manifestBytes, opaqueParts, openWorldFile, packExtra, packKnown, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
-import { KNOWN_PARTS, PLUGIN_DATA_MAX_BYTES, SIM_STATE_PREFIX, WorldFileError, asWorldFileError, pluginDataPart, type AuthorContent, type AuthorNote, type WorldMade, type WorldManifest, type WorldPartInfo, type WorldPlugin, type WorldReaders } from './gen/worldFormat';
+import { buildManifest, knownPart, manifestBytes, opaqueParts, openWorldFile, packExtra, packKnown, packPluginLayer, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
+import {
+  KNOWN_PARTS,
+  PLUGIN_DATA_MAX_BYTES,
+  PLUGIN_LAYER_MAX_BYTES,
+  PLUGIN_LAYER_PREFIX,
+  SIM_STATE_PREFIX,
+  WorldFileError,
+  asWorldFileError,
+  pluginDataPart,
+  type AuthorContent,
+  type AuthorNote,
+  type PluginLayerData,
+  type WorldMade,
+  type WorldManifest,
+  type WorldPartInfo,
+  type WorldPlugin,
+  type WorldReaders,
+} from './gen/worldFormat';
 import { currentSchema } from './gen/worldMigrate';
-import { parseManifest, validateThumb } from './gen/worldValidate';
+import { parseManifest, validatePluginLayer, validateThumb } from './gen/worldValidate';
 import { writeZip, type ZipInput } from './gen/zipStore';
 
 export { VAULT_DB };
@@ -933,6 +950,78 @@ export async function changePluginData(id: string, plugin: WorldPlugin, data: { 
 }
 
 // ---------------------------------------------------------------------------
+// 插件存进世界的图层
+
+/** 存在世界里的一个插件图层:块名、哪个插件、内容、清单里记的这个插件(没记 = null) */
+export interface PluginLayerRead {
+  name: string;
+  by: string;
+  data: PluginLayerData;
+  plugin: WorldPlugin | null;
+}
+
+/** 这个世界最新修订里存着的插件图层(按清单里的先后);读不出来、核对不过、结构比软件新的跳过 */
+export async function readPluginLayers(id: string): Promise<PluginLayerRead[]> {
+  try {
+    const head = await readRevision(id, undefined, []);
+    if (!head) return [];
+    const kept = new Set(opaqueParts(head.manifest.parts));
+    const names = head.manifest.parts.filter((p) => p.name.startsWith(PLUGIN_LAYER_PREFIX) && !kept.has(p.name)).map((p) => p.name);
+    if (!names.length) return [];
+    const got = await readRevision(id, head.head.n, names);
+    const out: PluginLayerRead[] = [];
+    for (const p of got?.parts ?? []) {
+      try {
+        const v = unpackValue(await partBytes(p.info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, new Uint8Array(p.data), PLUGIN_LAYER_MAX_BYTES));
+        validatePluginLayer(v, p.info.name);
+        const by = p.info.by ?? '';
+        out.push({ name: p.info.name, by, data: v, plugin: head.manifest.plugins.find((x) => x.id === by) ?? null });
+      } catch (e) {
+        if (asWorldFileError(e).kind === 'memory') throw e;
+      }
+    }
+    return out;
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+/**
+ * 换掉(data = null:拿掉)这个世界里存着的一个插件图层(块名 = pluginLayerPart),写一份新修订,别的块、配方都照上一份;
+ * 清单的插件记录和存数据一样(pluginsAfter;plugin.sum 是空串 = 不动)。还没有修订的世界存不了(nobase)
+ */
+export async function changePluginLayer(id: string, plugin: WorldPlugin, name: string, data: PluginLayerData | null): Promise<PluginDataWrote> {
+  try {
+    const packed = data ? await packPluginLayer(name, plugin.id, data) : null;
+    for (let tries = 0; tries < COMMIT_TRIES; tries++) {
+      const rows = await rowsOf(id);
+      const maxN = rows.at(-1)?.n ?? 0;
+      const base = chainOf(rows).at(-1);
+      const prev = base ? manifestOf(base) : null;
+      if (!base || !prev) return { status: 'nobase' };
+      if (!packed && !prev.parts.some((p) => p.name === name)) return { status: 'same', n: base.n };
+      const infos = new Map<string, WorldPartInfo>(prev.parts.map((p) => [p.name, p]));
+      if (packed) infos.set(name, packed.info);
+      else infos.delete(name);
+      const parts = sortParts(infos.values());
+      // 没给指纹 = 清单里的插件记录不动(调用的地方不知道插件是哪一版)
+      const plugins = plugin.sum ? pluginsAfter(prev.plugins, plugin, !!packed, parts) : [...prev.plugins];
+      const n = maxN + 1;
+      const manifest: WorldManifest = { ...prev, parts, plugins, revision: { n, parent: await sha256(new TextEncoder().encode(base.text)) } };
+      if (sameManifest(prev, manifest)) return { status: 'same', n: base.n };
+      const text = manifestBytes(manifest);
+      parseManifest(text, { readers: { ...prev.readers } });
+      if (packed && !(await existing([partKey(packed.info)])).size) await storePart(packed);
+      const row: RevisionRow = { id, n, text: new TextDecoder().decode(text), keys: [...new Set(parts.map(partKey))], content: contentOf(parts), recipeKey: base.recipeKey, generator: base.generator, source: 'made', at: Date.now() };
+      if ((await publish(row, maxN)) === 'ok') return { status: 'saved', n };
+    }
+    throw new VaultError('corrupt', '写清单时块总是不全');
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 把文件收进来
 
 /** 把一个核对过的世界文件收进仓库 */
@@ -1347,5 +1436,5 @@ export async function rosterCopy(id: string): Promise<{ recipe: SaveFile; thumb:
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor, readPluginData, changePluginData, opaquePartsOf };
+export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor, readPluginData, changePluginData, readPluginLayers, changePluginLayer, opaquePartsOf };
 export type VaultOps = typeof vaultOps;

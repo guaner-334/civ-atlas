@@ -34,8 +34,11 @@ import { isGradientLegend } from '../render/dataLegend';
 import { LAYERS, type LayerId } from '../render/layers';
 import type { CivShow, CivStyle } from '../render/civ/overlay';
 import type { ResourceLook } from '../render/civ/resources';
-import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapLegend, mapLegendCanvasBoxes, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
+import { IMAGE_FORMATS, drawExportContours, drawExportMarks, drawExportPluginMarks, drawExportTrail, drawLegend, drawMapBase, drawMapLabels, drawMapLegend, mapLegendCanvasBoxes, drawMapOverlay, drawMapTerrain, type ExportScale, type ImageFormat } from '../render/export';
 import { canvasMeasure, drawMarks, layoutMarks, markStyle, placedTextBoxes, type MarkItem } from '../render/marks';
+import type { CellPaint } from '../render/pluginLayer';
+import type { MarkLayer } from '../plugin/check';
+import { pluginExport } from './plugins/layerState';
 import { drawTrail, layoutTrail, type TrailInput } from '../render/trail';
 import { getEdits, useEdits } from './editsStore';
 import { northText } from './WorldOverviewGenesis';
@@ -228,6 +231,9 @@ interface MapInput {
   trail?: TrailInput | null;
   /** 物产图层:只看哪一样、画不画还没发现的 */
   res?: ResourceLook;
+  /** 插件的地块图层(正显示的那个)、标注图层(插件界面开着、有的时候) */
+  plugin?: CellPaint;
+  pluginMarks?: readonly MarkLayer[];
 }
 
 /** 地图图片:后台线程画地形和文明底图,主线程叠文字、编码 PNG / JPEG */
@@ -250,6 +256,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
     graticule: m.graticule,
     split: !!m.contours,
     font: m.style === 'fantasy' ? fantasyFontUrl() : undefined,
+    plugin: m.plugin,
   };
   const res = await runWorker(req);
   const t1 = performance.now();
@@ -304,6 +311,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   const legendBoxes = mapLegendCanvasBoxes(m, scale);
   detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed, undefined, legendBoxes) : 0;
   if (m.trail) detail.trailDots = drawExportTrail(ctx, m, scale, m.trail, n.placed, legendBoxes);
+  if (m.pluginMarks?.length) detail.pluginMarks = drawExportPluginMarks(ctx, m, scale, m.pluginMarks);
   const t3 = performance.now();
   detail.labels = t3 - t2;
   detail.labelCount = n.labels;
@@ -452,7 +460,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
         const contours = getContourKind() ?? undefined;
         const contourDark = style === 'data' && MAP_LAYERS.some((l) => l.data === layer && l.dark);
         const r = await exportMap(
-          { world, raster, civ: ok ? civ : null, style, layer, look, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail, res: { ...getResourceView() } },
+          { world, raster, civ: ok ? civ : null, style, layer, look, year: y, show, center, projection, graticule, contours, contourDark, marks: markItems, trail, res: { ...getResourceView() }, ...pluginExport() },
           scale,
           format,
         );

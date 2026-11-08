@@ -8,12 +8,16 @@ import { buildChronicle } from '../../gen/civ/story/chronicle';
 import { commitPluginEdits } from '../../plugin/editsCommit';
 import { PluginRefused, startPluginHost, type PluginHost, type PluginSource } from '../../plugin/host';
 import { PLUGIN_FILE_EXT, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
+import { worldPluginOf } from '../../plugin/pluginWorld';
 import { memoryStore, type PluginDataStore } from '../../plugin/store';
 import { createStore } from '../createStore';
 import { getEdits } from '../editsStore';
 import { currentWorld } from '../saveStore';
-import { devCardOn, devWorld } from './devSlot';
-import { addedLines, devStopText, type DevLevel, type DevLog } from './pluginText';
+import { devCardOn, pluginWorld } from './devSlot';
+import { setLiveLayer } from './layerState';
+import { viewOf, watchView } from './pluginView';
+import { addedLines, devStopText, isTool, type DevLevel, type DevLog } from './pluginText';
+import type { DevTool } from './tools/toolRun';
 import { verdictOf } from './verdict';
 
 const KEY = 'civ-atlas:plugin-dev';
@@ -128,6 +132,7 @@ const devWorldStore: PluginDataStore = {
 export function closeDev(): void {
   epoch++;
   stopHost();
+  if (toolsLoaded) void loadTools().then((m) => m.stopDevTool());
   asking.get()?.answer(false);
   asking.set(null);
   handle = null;
@@ -137,13 +142,22 @@ export function closeDev(): void {
   devCardOn.set(false);
 }
 
-function source(r: number): PluginSource {
+let toolsLoaded = false;
+const loadTools = () => {
+  toolsLoaded = true;
+  return import('./tools/toolRun');
+};
+
+function source(r: number, tool: DevTool | null): PluginSource {
   return {
-    world: () => devWorld.world,
-    civ: () => devWorld.civ,
+    ...(tool ? { pick: tool.pick } : {}),
+    world: () => pluginWorld.world,
+    civ: () => pluginWorld.civ,
     edits: () => getEdits(),
     title: () => currentWorld()?.title || '未命名世界',
-    chronicle: () => (devWorld.civ ? buildChronicle(devWorld.civ) : null),
+    chronicle: () => (pluginWorld.civ ? buildChronicle(pluginWorld.civ) : null),
+    view: () => viewOf(pluginWorld),
+    watchView,
     notes: () => {
       const id = currentWorld()?.id;
       return id ? cleanNoteList(exportNotes(id)) : [];
@@ -243,20 +257,33 @@ export async function loadDev(file: File, h: FileHandle | null): Promise<void> {
 
   stopHost();
   const r = ++run;
+  // 要了面板或点选的(工具):插件卡、点选和「工具」里开的一样
+  let tool: DevTool | null = null;
+  if (isTool(opened.manifest)) {
+    const m = await loadTools().catch(() => null);
+    if (my !== epoch || run !== r) return;
+    tool = m?.beginDevTool(opened, () => void reloadDev()) ?? null;
+  }
   const t0 = performance.now();
   try {
     const started = await startPluginHost({
       plugin: opened.manifest,
       code: opened.code,
-      source: source(r),
+      source: source(r, tool),
       stores: { world: devWorldStore },
       sink: {
+        ...(tool ? { panel: tool.panel } : {}),
+        layer: (id, layer) => {
+          if (layer && run !== r) return;
+          setLiveLayer({ pluginId: opened.manifest.id, plugin: opened.manifest.name, record: worldPluginOf(opened), dev: true }, id, layer);
+        },
         log: (text, level) => log(r, level ?? 'info', text),
         failed: (call, code, text) => {
           if (code !== 'cancelled') log(r, 'warn', `${call} 没成：${text}`);
         },
       },
       onStop: (reason, detail) => {
+        tool?.stopped(reason, detail);
         if (reason === 'crashed' && detail) log(r, 'error', detail);
         const t = devStopText(reason, detail);
         if (t) log(r, 'site', t);
@@ -265,6 +292,7 @@ export async function loadDev(file: File, h: FileHandle | null): Promise<void> {
     });
     if (my !== epoch || run !== r) return started.stop();
     host = started;
+    tool?.attach(started);
     pinger = setInterval(() => void started.sandbox.ping(PING_MS).catch(() => {}), PING_MS);
     done(r, performance.now() - t0, opened.manifest);
   } catch (e) {

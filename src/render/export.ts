@@ -48,6 +48,9 @@ import { drawTerrainProjected } from './detail';
 import { drawTrail, layoutTrail, type TrailInput } from './trail';
 import { compassSpot, drawProjFrame } from './fantasy';
 import { drawContours, type ContourSet } from './contours';
+import { cellColors, paintPluginCells, type CellPaint } from './pluginLayer';
+import { drawPluginMarks } from './pluginMarks';
+import type { MarkLayer } from '../plugin/check';
 
 type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -91,6 +94,8 @@ export interface ExportMapParams {
   legend?: boolean;
   /** 纪年(地图上大迁徙路线旁的年份照它写;不给 = 第几年) */
   era?: Era;
+  /** 插件的地块图层(和屏幕上一样盖在文明底图上面;没有 = 不给) */
+  plugin?: CellPaint;
 }
 
 /** 弯边投影:图片按哪种投影、哪条中央经线画(等距圆柱 = null) */
@@ -139,7 +144,25 @@ export function drawMapBase(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: numb
  */
 export function drawMapOverlay(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
   drawMapCiv(ctx, p, makeCanvas);
+  drawMapPlugin(ctx, p, makeCanvas);
   drawMapDecor(ctx, p);
+}
+
+/** 插件的地块图层:铺在单独一张透明画布上,等距圆柱按中心转好、弯边投影按投影铺,再贴上去。个数和地块对不上的不画 */
+export function drawMapPlugin(ctx: Ctx2D, p: ExportMapParams, makeCanvas: (w: number, h: number) => OffscreenCanvas | HTMLCanvasElement): void {
+  const l = p.plugin;
+  if (!l || l.values.length !== p.world.mesh.n) return;
+  const { raster } = p;
+  const mp = exportProj(p);
+  const cv = makeCanvas(raster.w, raster.h);
+  const octx = cv.getContext('2d') as CanvasRenderingContext2D;
+  paintPluginCells(octx, raster, cellColors(l));
+  if (mp) reprojectImage(ctx, cv, raster.w, raster.h, mp, { s: raster.scale, ox: 0, oy: 0 });
+  else {
+    rotateToCenter(octx, p, makeCanvas);
+    ctx.drawImage(cv, 0, 0);
+  }
+  cv.width = cv.height = 0;
 }
 
 /**
@@ -577,6 +600,17 @@ export function drawExportMarks(
   drawMarks(ctx, layout, m, style);
   ctx.restore();
   return layout.pins.length + layout.areas.length;
+}
+
+/** 插件交来的标注图层(和屏幕上一样的线、点、小牌),画在最上面。返回画了几项 */
+export function drawExportPluginMarks(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'world' | 'center' | 'projection'>, S: ExportScale, layers: readonly MarkLayer[]): number {
+  if (!layers.length) return 0;
+  const { frame, m } = exportMarkFrame(p, { s: S, dpr: S });
+  ctx.save();
+  ctx.scale(m, m);
+  drawPluginMarks(ctx, layers, frame, p.world.mesh);
+  ctx.restore();
+  return layers.reduce((n, l) => n + l.items.length, 0);
 }
 
 /** 正选着的作者人物的足迹(和屏幕上一样的线、圆点、年份、头像);年份尽量不压地图上的字。返回画了几个点 */

@@ -96,6 +96,8 @@ import {
   type SelectionTarget,
 } from '../render/civ/highlight';
 import { drawCivFill, type CivDrawParams, type CivShow } from '../render/civ/overlay';
+import { drawPluginOver } from '../render/pluginLayer';
+import { currentShown, pluginLayers } from './plugins/layerState';
 import { borderLines } from '../render/civ/borders';
 import { vassalTies } from '../render/civ/vassals';
 import { routeLines } from '../render/civ/routes';
@@ -827,7 +829,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
      * 自己画的文明贴图(国土色块,不含国界道路)、选中的罩染:画布、按什么画的(依赖变了才重画)、画过几次;
      * 选中的描边 / 淡光(矢量线组)
      */
-    civTex: { canvas: null as HTMLCanvasElement | null, key: null as unknown[] | null, ver: 0, ms: 0 },
+    civTex: { canvas: null as HTMLCanvasElement | null, key: null as unknown[] | null, ver: 0, ms: 0, has: false },
     selTex: { canvas: null as HTMLCanvasElement | null, key: null as unknown[] | null, ver: 0, lines: null as { kind: 'outline' | 'band'; set: GlobeLineSet; width: number } | null },
     /**
      * 编年史高亮:罩染(自己画的一张,不含描边)、描边(矢量线组,每帧按投影画,不透明度跟着闪)、
@@ -1158,21 +1160,28 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const p = props.current;
     const cp = civParamsOf(p);
     const globeInk = !!cp && !cp.fast && globeTex;
-    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus, cp.cultureFocus] : [p.world];
+    // 插件的地块图层盖在国土色块上面(和平面主图一样),一起放进这张贴图
+    const shown = currentShown()?.cells;
+    const plg = shown && shown.values.length === p.world.mesh.n ? shown : null;
+    const ck = cp ? [cp.world, cp.raster, cp.civ, cp.style, cp.year, cp.show, cp.fast, globeInk, cp.faithFocus, cp.cultureFocus, plg] : [p.world, p.raster, plg];
     if (!sameKey(s.civTex.key, ck)) {
       s.civTex.key = ck;
       const t0 = performance.now();
       let cv = s.civTex.canvas;
-      if (cp) {
+      if (cp || plg) {
         if (!cv) cv = s.civTex.canvas = document.createElement('canvas');
         if (cv.width !== p.raster.w || cv.height !== p.raster.h) {
           cv.width = p.raster.w;
           cv.height = p.raster.h;
         }
-        drawCivFill(cv.getContext('2d')!, { ...cp, globeInk });
+        const ctx = cv.getContext('2d')!;
+        if (cp) drawCivFill(ctx, { ...cp, globeInk });
+        else ctx.clearRect(0, 0, cv.width, cv.height);
+        if (plg) drawPluginOver(ctx, p.raster, plg);
       }
       s.civTex.ms = performance.now() - t0;
       s.civTex.ver++;
+      s.civTex.has = !!(cp || plg);
     }
     return cp;
   };
@@ -1242,7 +1251,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     const cp = prepCivTex(s.tex === 'globe');
     if (s.uploaded.civ !== s.civTex.ver) {
       s.uploaded.civ = s.civTex.ver;
-      const src = cp ? s.civTex.canvas : null;
+      const src = s.civTex.has ? s.civTex.canvas : null;
       if (gl) up.civ = gl.upload('civ', src);
       else setCpuCanvas('civ', src);
     }
@@ -1910,6 +1919,7 @@ export function Globe({ world, raster, civ, geo, style, layer, look = 'classic',
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => subscribeCivFeed(invalidate), []);
+  useEffect(() => pluginLayers.subscribe(invalidate), []);
   // 时间轴一动:文明贴图、国界道路的矢量线换成那一年的
   useEffect(() => subscribeCivTime(invalidate), []);
 

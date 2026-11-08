@@ -176,6 +176,7 @@ import { pluginsUiOn } from './plugins/flag';
 import { PluginsHost, ToolsHost } from './plugins/entry';
 import { toolCard, toolCellPick } from './plugins/toolsState';
 import { PluginDevSlot } from './plugins/devSlot';
+import { PluginCellSlot, PluginLegendSlot, PluginMarksSlot, PluginSavedSlot, usePluginLegendOn } from './plugins/layerSlots';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import type { GalleryItem } from '../account/gallery';
@@ -2345,6 +2346,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const reliefView = reliefable && relief.phase === 'view';
   /** 插件的工具:建好的世界上能用(回放世界形成、导出视频 / 长图、地区图里不能);不能用了插件停下 */
   const toolable = pluginsUiOn() && !!data && world && !home && !draft && !replayOn && !filmOn && !reliefView;
+  const plgLegend = usePluginLegendOn() && !draft && !home;
   useEffect(() => {
     if (!reliefable) closeRelief();
   }, [reliefable, relief.phase]);
@@ -2633,6 +2635,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             {data && (
               <CivLayer world={data.world} raster={data.raster} civ={namesHeld ? null : civ} geo={namesHeld ? null : shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} bright={mapBase === 'satellite'} />
             )}
+            {data && pluginsUiOn() && <PluginCellSlot world={data.world} raster={data.raster} mp={mp} />}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />
             {/* 照手绘图新建:原图 / 认出来的 / 叠上原图(在改地形覆盖层底下,笔画在它上面) */}
@@ -2679,6 +2682,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             rightRoom={astOpen ? astRoom(stageSize.w) : 0}
           />
         )}
+        {/* 插件交来的标注(路线、框、点;地球仪上也画):在作者标记下面 */}
+        {data && world && pluginsUiOn() && <PluginMarksSlot world={data.world} api={markApi} />}
         {/* 作者标记(图钉、圈的州;地球仪上也画):在地名、地球仪上面 */}
         {data && world && <MarkLayer civ={civ} world={data.world} api={markApi} hidden={replayOn || draft || home} style={style} />}
         {/* 作者的人物一生的足迹(选中一个人物时;地球仪上也画):在标记上面 */}
@@ -2781,11 +2786,12 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
               />
           )}
           {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} relief={reliefable ? relief.phase === 'pick' : undefined} tools={toolable} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || atlasOn || contourOn || workOn || ideoLegend) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || atlasOn || contourOn || workOn || ideoLegend || plgLegend) && (
             <div className="corner-tl">
               {workBar}
               <OldSiteBadge />
               {(style === 'data' || atlasOn || contourOn) && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} phone />}
+              {plgLegend && <PluginLegendSlot phone />}
               {ideoLegend && <ThoughtLegend civ={civ!} phone />}
             </div>
           )}
@@ -2810,12 +2816,13 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             />
           )}
           {!draft && <MapBar civ={civ} layers={layerProps} exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }} />}
-          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || relBack || ((style === 'data' || atlasOn || contourOn || ideoLegend) && !terrainTool.on)) && (
+          {!draft && (OLD_SITE !== null || BETA_SITE || workOn || relBack || ((style === 'data' || atlasOn || contourOn || ideoLegend || plgLegend) && !terrainTool.on)) && (
             <div className="corner-tl">
               {relBack && civ && <RelationBack civ={civ} />}
               {workBar}
               <OldSiteBadge />
               {(style === 'data' || atlasOn || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
+              {plgLegend && !terrainTool.on && <PluginLegendSlot phone={false} />}
               {ideoLegend && !terrainTool.on && <ThoughtLegend civ={civ!} />}
             </div>
           )}
@@ -2882,7 +2889,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         {/* 导播的字幕条:浮在时间轴上面 */}
         {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff || stepQuiet} />}
         {/* 开发者模式载入的插件:左边一块小卡(重新载入、日志) */}
-        {pluginsUiOn() && data && world && <PluginDevSlot phone={narrow} world={data.world} civ={realCiv} />}
+        {pluginsUiOn() && data && world && <PluginDevSlot phone={narrow} world={data.world} civ={realCiv} raw={shownRaw} api={markApi} />}
+        {pluginsUiOn() && data && world && <PluginSavedSlot worldId={worldId} />}
         {/* 再推 N 年:电脑是「再推」上面的弹层,手机推的时候胶囊上面一张小卡片 */}
         {data && world && civ && !narrow && <ExtendPop end={civ.endYear} hidden={!extendShown} />}
         {data && world && narrow && <ExtendDock hidden={!extendShown} />}

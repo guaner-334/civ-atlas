@@ -1,0 +1,139 @@
+/* 插件图层:地图上的画布、左上角的图例、图层面板里「插件图层」的按钮。插件界面开着、有插件图层时才下载 */
+
+.plg-cells {
+  pointer-events: none;
+}
+.plg-marks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+/* 图层面板:插件给的名字可能长,按钮里放不下就省略 */
+.lp-chip.plg-chip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* 图例:照数据底图的图例,多一行名字、「插件「XX」」和存进世界的按钮 */
+.legend.plg-legend {
+  width: 360px;
+  max-width: 100%;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+.app.phone .legend.plg-legend {
+  width: 312px;
+  padding: 8px 10px;
+}
+.plg-legend .gradient {
+  width: 100%;
+}
+.plg-legend .keys {
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.plg-lt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  min-height: 28px;
+  font-size: 12px;
+  color: var(--ink);
+}
+/* 名字和单位长了折行,不截掉 */
+.plg-lname {
+  min-width: 0;
+  line-height: 1.4;
+}
+.plg-ltag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-tag);
+  background: rgba(118, 118, 128, 0.16);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.plg-ltag.dev {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.plg-lbtn {
+  flex: none;
+  margin-left: auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: var(--btn);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.plg-lbtn:hover:not(:disabled) {
+  background: rgba(118, 118, 128, 0.2);
+}
+.plg-lbtn:disabled {
+  opacity: 0.6;
+}
+.plg-lsaved {
+  position: relative;
+  flex: none;
+  margin-left: auto;
+}
+.plg-lsaved > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #23804a;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.plg-lmenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-panel);
+}
+.plg-lmenu button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--err);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.plg-lmenu button:hover {
+  background: var(--btn);
+}
+[data-theme='dark'] .plg-lsaved > button {
+  color: var(--ok);
+}

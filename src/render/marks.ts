@@ -181,20 +181,27 @@ export function cellPolygons(mesh: Mesh, cells: readonly number[], ref: number):
 
 /** 几个州(州号)画出来的样子;一个地块都没有(州号都不对)= null */
 export function markAreaShape(mesh: Mesh, regions: Pick<Regions, 'count' | 'cellStart' | 'cells'>, ids: readonly number[]): AreaShape | null {
+  const cells: number[] = [];
+  for (const r of ids) {
+    if (!(r >= 0 && r < regions.count)) continue;
+    for (let k = regions.cellStart[r]; k < regions.cellStart[r + 1]; k++) cells.push(regions.cells[k]);
+  }
+  return cellAreaShape(mesh, cells);
+}
+
+/** 一串地块(可以重复、不在地图上的不算)画出来的样子;一个地块都没有 = null */
+export function cellAreaShape(mesh: Mesh, list: ArrayLike<number>): AreaShape | null {
   const { x, y, adjStart, adj } = mesh;
   const W = mesh.width;
   const H = mesh.height;
   const ix = meshIndex(mesh);
   const inSet = new Uint8Array(mesh.n);
   const cells: number[] = [];
-  for (const r of ids) {
-    if (!(r >= 0 && r < regions.count)) continue;
-    for (let k = regions.cellStart[r]; k < regions.cellStart[r + 1]; k++) {
-      const c = regions.cells[k];
-      if (inSet[c]) continue;
-      inSet[c] = 1;
-      cells.push(c);
-    }
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (!(c >= 0 && c < mesh.n) || inSet[c]) continue;
+    inSet[c] = 1;
+    cells.push(c);
   }
   if (!cells.length) return null;
   const ref = x[cells[0]];

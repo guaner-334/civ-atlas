@@ -21,6 +21,7 @@ import type { CivShow, CivStyle } from './render/civ/overlay';
 import type { LayerId } from './render/layers';
 import { heightmapPng, type HeightmapBits, type HeightmapInfo } from './gen/heightmap';
 import { drawMapBase, drawMapOverlay, drawMapTerrain, type ExportScale } from './render/export';
+import type { CellPaint } from './render/pluginLayer';
 import { loadWorkerFont } from './render/labels/fonts';
 import type { DrainLines } from './gen/pixelDrain';
 import type { ProjectionId } from './render/projection';
@@ -51,6 +52,8 @@ export type ExportRequest =
       split?: boolean;
       /** 手绘风字体文件的地址(罗盘的「北」字要用;线程里没有页面加载好的字体) */
       font?: string;
+      /** 插件的地块图层(见 ExportMapParams.plugin) */
+      plugin?: CellPaint;
     }
   | {
       job: 'heightmap';
@@ -96,7 +99,7 @@ self.onmessage = async (e: MessageEvent<ExportRequest>) => {
     const cv = new OffscreenCanvas(raster.w, raster.h);
     const ctx = cv.getContext('2d');
     if (!ctx) throw new Error('开不了这么大的画布(内存不够)');
-    const p = { world: m.world, raster, civ: m.civ, style: m.style, layer: m.layer, look: m.look, year: m.year, show: m.show, center: m.center, projection: m.projection, graticule: m.graticule };
+    const p = { world: m.world, raster, civ: m.civ, style: m.style, layer: m.layer, look: m.look, year: m.year, show: m.show, center: m.center, projection: m.projection, graticule: m.graticule, plugin: m.plugin };
     const make = (w: number, h: number) => new OffscreenCanvas(w, h);
     if (m.split) {
       drawMapTerrain(ctx, p, make);
