@@ -105,7 +105,7 @@ export const useVerdicts = (): Saved | null => changed.use(() => saved);
 
 let trying: Promise<boolean> | null = null;
 let triedAt = 0;
-/** 取不到时多久再试 */
+/** 取不到时多久再试(取到了照 maxAge) */
 const RETRY_MS = 10 * 60_000;
 
 /** 过期了(或 force)就去取;取到了 = true。没有服务器、取不到照用上次存的 */
@@ -115,11 +115,11 @@ export function refreshVerdicts(force = false): Promise<boolean> {
   if (!force && saved && now - saved.at < saved.maxAge * 1000) return Promise.resolve(false);
   if (trying) return trying;
   if (!force && now - triedAt < RETRY_MS) return Promise.resolve(false);
-  triedAt = now;
   trying = call<unknown>('/v1/plugins/verdicts')
     .then((raw) => {
       const next = clean(raw, Date.now());
-      if (!next) return false;
+      if (!next) throw new Error('bad-response');
+      triedAt = 0;
       saved = next;
       reviewedSums = new Set(next.reviewed.map((r) => r.sum));
       try {
@@ -130,7 +130,10 @@ export function refreshVerdicts(force = false): Promise<boolean> {
       changed.emit();
       return true;
     })
-    .catch(() => false)
+    .catch(() => {
+      triedAt = Date.now();
+      return false;
+    })
     .finally(() => {
       trying = null;
     });

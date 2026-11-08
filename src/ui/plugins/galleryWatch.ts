@@ -66,9 +66,10 @@ let checking: Promise<void> | null = null;
 export function checkPlugins(): Promise<void> {
   if (!serverBase()) return Promise.resolve();
   checking ??= (async () => {
+    // 还没装插件也取停用名单:从文件装的时候要查
+    const fresh = await refreshVerdicts();
     const list = await listPlugins().catch(() => [] as InstalledPlugin[]);
     if (!list.length) return;
-    const fresh = await refreshVerdicts();
     if (fresh || !latest) {
       try {
         noteWall((await fetchGallery()).plugins);
@@ -138,7 +139,9 @@ export function wallFile(work: string, sum?: string): Promise<{ bytes: Uint8Arra
       if (!res.ok) throw new ServerError(res.status, res.status === 410 ? 'gallery-gone' : 'not-found', res.status === 410 ? '这个插件已经撤下了' : `没取到插件文件(HTTP ${res.status})`);
       const bytes = new Uint8Array(await res.arrayBuffer());
       if (bytes.length > PLUGIN_MAX_BYTES) throw new ServerError(200, 'bad-response', '插件文件太大');
-      return { bytes, opened: await openPluginFile(bytes) };
+      const opened = await openPluginFile(bytes);
+      if (sum && opened.sum !== sum) throw new ServerError(200, 'bad-response', '作品墙上这个插件刚换了版本，关掉再打开试试');
+      return { bytes, opened };
     })();
     files.set(key, got);
     got.catch(() => files.delete(key));

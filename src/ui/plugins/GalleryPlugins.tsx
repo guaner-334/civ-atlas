@@ -309,7 +309,7 @@ export function PluginWorkDialog({
       <Icon name="close" size={14} />
     </button>
   );
-  if (!w || !p)
+  if (gone || !w || !p)
     return (
       <Dialog phone={phone} label={label} width={600} onClose={onClose} head={<span />} testId="gallery-plugin" className="gl-pdlg pw-dlg" inPlace={inPlace}>
         <div className="gl-pcover pw-cover ghost">{close}</div>

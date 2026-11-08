@@ -186,6 +186,23 @@ describe('停用名单', () => {
     expect(verdictOf(SUM('a'), 'route-days').reviewed).toBe(true);
   });
 
+  it('取到了照 maxAge 再取,取不到才隔十分钟再试', async () => {
+    served = { ...(served as object), maxAge: 60 };
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(t0);
+    await refreshVerdicts();
+    now.mockReturnValue(t0 + 61_000);
+    expect(await refreshVerdicts()).toBe(true);
+    expect(calls).toBe(2);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
+    now.mockReturnValue(t0 + 122_000);
+    expect(await refreshVerdicts()).toBe(false);
+    now.mockReturnValue(t0 + 183_000);
+    expect(await refreshVerdicts()).toBe(false);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    now.mockRestore();
+  });
+
   it('取不到照用上次的', async () => {
     await refreshVerdicts();
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));

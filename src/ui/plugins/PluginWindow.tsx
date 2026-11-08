@@ -23,7 +23,7 @@ import { CAP_LABEL } from './pluginWords';
 import { checkPlugins, newVersionOf, useWallRev, wallFile } from './galleryWatch';
 import { addedLines, addsRows, askByLine, dayText, moreText, noteText, pageByLine, toolWhere, versionLabel, versionText, wallInstalledText } from './pluginText';
 import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
-import { markReviewed, useVerdicts, verdictOf, type PluginVerdict } from './verdict';
+import { markReviewed, refreshVerdicts, useVerdicts, verdictOf, type PluginVerdict } from './verdict';
 import './plugins.css';
 
 /** work = 从作品墙装的作品编号;note = 作者写的这一版改了什么 */
@@ -103,6 +103,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
         return;
       }
       const m = opened.manifest;
+      await refreshVerdicts();
       const verdict = verdictOf(opened.sum, m.id);
       if (verdict.blocked) return setSaid({ kind: 'blocked', name: m.name, version: m.version, ...verdict.blocked });
       const old = list?.find((p) => p.id === m.id);
