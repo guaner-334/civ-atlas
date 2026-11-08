@@ -338,12 +338,13 @@ class Host<V> {
     while (k < this.events.length && this.events[k].tick === tick) k++;
     const due = this.events.splice(0, k);
     this.at = tick;
-    if (this.eng && (first || (this.tableEvery && tick % this.tableEvery === 0))) {
+    if (this.eng) {
       try {
+        // 接官方的输入表每一刻都填新的(插件出手时读到的也是这一刻的)
         this.fill();
         // 第一回从这一刻起算:先填开头的值再算一步(dt = 0),之后每一步的 dt 都是整段间隔
         if (first) this.eng.start(year);
-        this.eng.step(year);
+        if (first || (this.tableEvery && tick % this.tableEvery === 0)) this.eng.step(year);
       } catch (e) {
         if (e instanceof PluginError) throw e;
         throw new PluginError(this.id, `第 ${year} 年算表出错:${e instanceof Error ? e.message : String(e)}`, { cause: e });

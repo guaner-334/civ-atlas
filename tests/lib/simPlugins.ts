@@ -14,7 +14,11 @@ export interface Seen {
   readYear: number;
   annals: number;
   latestHeard: number;
+  /** 接官方的输入表和读口此刻给的一样 */
+  fresh: boolean;
 }
+
+const sameValues = (a: Float64Array, b: Float64Array) => a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
 
 /**
  * 记账的插件:每 every 年出手;听立国、灭亡、宣战;每次照频率出手时约一件自己的事,事到了的时候有三成再约一件;
@@ -44,7 +48,15 @@ export function ledger(id = 'ledger', every = 20, seen?: Seen[]): SimPlugin<SimR
       n.magic = Math.round(turn.table('magic').reduce((s, x) => s + x, 0) * 1000);
       n.zeal = Math.round(turn.table('zeal').reduce((s, x) => s + x, 0) * 1000);
       n.alive += turn.read.polities().filter((p) => p.ended === undefined).length;
-      seen?.push({ id, tick: turn.tick, year: turn.year, readYear: turn.read.year, annals: turn.read.annals(-Infinity).length, latestHeard: Math.max(-1, ...turn.heard.map((e) => e.year)) });
+      seen?.push({
+        id,
+        tick: turn.tick,
+        year: turn.year,
+        readYear: turn.read.year,
+        annals: turn.read.annals(-Infinity).length,
+        latestHeard: Math.max(-1, ...turn.heard.map((e) => e.year)),
+        fresh: sameValues(turn.table('rural'), turn.read.official('rural')) && sameValues(turn.table('unrest'), turn.read.official('unrest')),
+      });
       const at: { year: number; kind: number; data: number[] }[] = [];
       if (turn.tick) at.push({ year: turn.year + 0.5 + Math.floor(turn.rand(turn.year * 256, 1) * 400) / 32, kind: 1, data: [turn.year, n.acts] });
       for (const e of turn.events) if (e.kind === 1 && turn.rand(e.data[1], 2) < 0.3) at.push({ year: turn.year + 3 + 5 / 256, kind: 2, data: [e.data[0]] });

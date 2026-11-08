@@ -111,7 +111,7 @@ describe('推演插件:只读不改时官方历史一位不差', () => {
     }
   }, 120_000);
 
-  it('同一刻:官方这一刻的史事都记完了才轮到插件,读口的年份就是这一刻,听到的没有比这一刻晚的', () => {
+  it('同一刻:官方这一刻的史事都记完了才轮到插件,读口的年份就是这一刻,听到的没有比这一刻晚的,接官方的输入表是这一刻的', () => {
     const w = worldOf(7);
     const seen: Seen[] = [];
     const civ = generateCiv(w, { endYear: 1000, plugins: [ledger('ledger', 5, seen)] });
@@ -121,6 +121,7 @@ describe('推演插件:只读不改时官方历史一位不差', () => {
       expect(s.readYear).toBe(s.year);
       expect(s.latestHeard).toBeLessThanOrEqual(s.year);
       expect(s.annals).toBe(civ.annals.filter((e) => e.year <= s.year).length);
+      expect(s.fresh).toBe(true);
     }
   }, 60_000);
 
