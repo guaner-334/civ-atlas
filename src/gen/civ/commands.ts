@@ -148,14 +148,18 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   const blocked = (v: Intervention): RefuseReason | null => {
     if (v.kind === 'destroy') {
       const a = iv.resolve(v.a);
-      return a >= 0 && iv.protects(a, t) ? 'protect' : null;
+      if (a >= 0 && iv.protects(a, t)) return 'protect';
+      const b = v.b !== undefined ? iv.resolve(v.b) : -1;
+      return alive(a) && alive(b) && b !== a && iv.halted(b, t) ? 'halt' : null;
     }
     if (v.kind === 'cede' || v.kind === 'found') {
       const x = loss(v);
-      const o = x ? x[0] : -1;
-      if (o < 0) return null;
-      if (iv.protects(o, t) && ends(o, x![1])) return 'protect';
-      return v.kind === 'found' && iv.unites(o, t) ? 'unity' : null;
+      if (!x) return null;
+      const [o, r, by] = x;
+      if (o >= 0 && iv.protects(o, t) && ends(o, r)) return 'protect';
+      // 立国立出来的是新国,不归哪一国,不算谁扩张
+      if (v.kind === 'cede') return iv.halted(by, t) ? 'halt' : null;
+      return o >= 0 && iv.unites(o, t) ? 'unity' : null;
     }
     if (v.kind === 'declare') {
       const a = iv.resolve(v.a);
