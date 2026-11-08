@@ -63,6 +63,7 @@ jobs:
           VITE_AI_SERVER: ${{ vars.VITE_AI_SERVER }}
           # 测试版的存档不能传进账号:正式网站以后开了账号,这里也一直关着
           VITE_ACCOUNTS: 'off'
+          VITE_PLUGINS: 'on'
           VITE_BETA_SITE: '1'
           ICP_BEIAN: ${{ vars.ICP_BEIAN_SHOW == '1' && vars.ICP_BEIAN || '' }}
         run: pnpm build
