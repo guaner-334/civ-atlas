@@ -106,9 +106,12 @@ const pct = (k, all) => `${Math.round((k / all) * 100)}%`;
           ],
         });
       }
+      return;
     } finally {
       picking = false;
     }
+    // 合计完接着等:网站留着这个框,用的人挪一挪、改改大小就再合计一次;按「退出」或 Esc 就不框了
+    pickBox();
   };
 
   civAtlas.on('view.year', (d) => {

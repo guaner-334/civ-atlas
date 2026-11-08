@@ -51,6 +51,13 @@ subscribeSelection(() => {
   else if (state.collapsed) set({ ...state, peek: true });
 });
 
+/** 收起时插件卡也弹出来(和选中东西一样);关掉插件卡、又没选东西时收回去 */
+export function peekSide(on: boolean) {
+  const state = store.get();
+  if (on && state.collapsed) set({ ...state, peek: true });
+  else if (!on && !getSelection().sel) set({ ...state, peek: false });
+}
+
 /** 收起卡片(卡片里的收起按钮;弹出来显示详情时点它也是收回去,选中的东西留着) */
 export function collapseSide() {
   save(true);

@@ -49,6 +49,8 @@ export interface ToastInput {
   dismissible?: boolean;
   /** 左边一个绿点(ok 类里要强调"办成了"的:世界创建好了) */
   dot?: boolean;
+  /** 主文字前面一个灰色小标(插件的工具模式:「插件」) */
+  tag?: string;
   /** 来源;同一来源的提示互相替换。不给 = 'default' */
   id?: string;
   /** 这一条没了就调(到时收起、被关掉、被同一来源的新提示换掉,都算):「撤销」这类按钮从这一刻起点不到了 */

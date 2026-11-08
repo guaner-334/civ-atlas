@@ -493,23 +493,25 @@ const EXAMPLES: { id: string; picks: string[]; steps: { year?: number; action?: 
   },
   {
     id: 'route-days',
-    // 第三次「换个起点」时没有答案了,当用的人退出点选:上一条路线要跟着清掉
+    // 量完一条接着请点:第二条换掉第一条;第三次请点时没有答案了,当用的人退出点选,第二条留着。
+    // 清掉以后点「换个起点」又没有答案:这回是从头量,退出了就说没量完
     picks: ['city', 'far', 'far', 'city'],
-    steps: [{ action: { id: 'mode', value: 'horse' } }, { action: { id: 'clear' } }, { action: { id: 'again' } }, { action: { id: 'again' } }],
+    steps: [{ action: { id: 'mode', value: 'horse' } }, { action: { id: 'clear' } }, { action: { id: 'again' } }],
     sane: (s) =>
-      s.asked.length === 5 &&
+      s.asked.length === 6 &&
+      s.asked[2].includes('再点两个点') &&
       s.frames[0].layers.route?.items[0]?.kind === 'line' &&
       !eq(s.frames[0].panel, s.frames[1].panel) &&
       !s.frames[2].layers.route &&
-      !!s.frames[3].layers.route &&
-      !s.frames[4].layers.route,
+      !s.frames[3].layers.route,
   },
   {
     id: 'box-summary',
+    // 合计完接着请框:没有答案了当用的人退出,合计留着
     picks: ['box'],
     steps: [{ year: 400 }, { action: { id: 'save' } }],
     sane: (s) =>
-      s.asked.length === 1 && !eq(s.frames[0].panel, s.frames[1].panel) && s.commits.length === 1 && s.commits[0].marks.length === 1 && (s.commits[0].marks[0].regions?.length ?? 0) > 0,
+      s.asked.length === 2 && !eq(s.frames[0].panel, s.frames[1].panel) && s.commits.length === 1 && s.commits[0].marks.length === 1 && (s.commits[0].marks[0].regions?.length ?? 0) > 0,
   },
 ];
 const UPDATE_EXAMPLES = process.argv.includes('--update');

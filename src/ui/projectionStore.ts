@@ -84,3 +84,10 @@ const moving = createStore(false);
 export const getMapMoving = moving.get;
 export const useMapMoving = moving.use;
 export const setMapMoving = moving.set;
+
+/** 弯边投影里的这次移动是地图自己飞过去(不是用户在拖);只在画的时候读,变了不用重画 */
+let flying = false;
+export const getMapFlying = (): boolean => flying;
+export function setMapFlying(on: boolean): void {
+  flying = on;
+}

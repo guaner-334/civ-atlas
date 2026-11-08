@@ -173,7 +173,8 @@ import { setFlatGeomSource, useStudioFlat } from './studio/studioStore';
 import { MyWorlds } from './MyWorlds';
 import { RulesHost } from './rules/RulesHost';
 import { pluginsUiOn } from './plugins/flag';
-import { PluginsHost } from './plugins/entry';
+import { PluginsHost, ToolsHost } from './plugins/entry';
+import { toolCard, toolCellPick } from './plugins/toolsState';
 import { PluginDevSlot } from './plugins/devSlot';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
@@ -563,7 +564,9 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const pickNow = usePolityPick();
   /** 地形大事的卡片开着(UpheavalPanel.tsx;和选中的东西的卡片在同一处) */
   const upOn = useUpUi().on;
-  const panelOpen = (!!selState.sel || upOn) && !!civ && !pickNow && !panelUi.run;
+  /** 插件卡开着(没选东西时在卡片的位置) */
+  const toolCardOn = toolCard.use();
+  const panelOpen = (!!selState.sel || upOn || toolCardOn) && !!civ && !pickNow && !panelUi.run;
   /** 窄屏(手机):底部的世界 / 详情卡片、时间轴胶囊、右上竖排按钮(phone.css);触屏:没有悬停卡片、右下不放 + −(用双指捏合) */
   const narrow = useNarrow();
   const coarse = useCoarse();
@@ -1863,7 +1866,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       mh = tool || draft || replayOn ? null : (charHoverAt(e.clientX, e.clientY) ?? markHoverAt(e.clientX, e.clientY));
       // 商道的线(字、标记底下):那条亮一圈,出商道的悬停小卡
       trade = tool || draft || replayOn || label || mh ? null : tradeAtClient(e.clientX, e.clientY);
-      el.style.cursor = mh ? mh.cursor : label || trade !== null ? 'pointer' : '';
+      el.style.cursor = toolCellPick.get() ? 'crosshair' : mh ? mh.cursor : label || trade !== null ? 'pointer' : '';
     }
     setTradeHover(drag.current && moved.current ? null : trade);
     // 悬停小卡片:拖动、改地形、回放、新建时不显示;手指没有"悬停"(点了直接出面板)
@@ -1957,6 +1960,13 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     }
     // 新建时还没有历史,点了不看详情
     if (draft) return;
+    // 插件请用的人点一处:点到的地块交给它(不选别的)
+    const tp = toolCellPick.get();
+    if (tp) {
+      const c = e.detail < 2 ? cellAt(e.clientX, e.clientY) : -1;
+      if (c >= 0) tp.done(c);
+      return;
+    }
     // 作者的人物:正在填的时候点地图不选别的;挑地方时 = 选好那一处(城 / 州 / 海上那一点)
     const cu = getCharUi();
     if (civ && cu.draft) {
@@ -2333,6 +2343,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const relief = useRelief();
   const reliefable = !!data && world && !replayOn && !filmOn;
   const reliefView = reliefable && relief.phase === 'view';
+  /** 插件的工具:建好的世界上能用(回放世界形成、导出视频 / 长图、地区图里不能);不能用了插件停下 */
+  const toolable = pluginsUiOn() && !!data && world && !home && !draft && !replayOn && !filmOn && !reliefView;
   useEffect(() => {
     if (!reliefable) closeRelief();
   }, [reliefable, relief.phase]);
@@ -2545,7 +2557,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const hold = holdMark(data, civ, shownRaw);
   return (
     <div
-      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}${stepOn ? ' step-on' : ''}${stepCard && !selState.sel ? ' step-stop' : ''}${reliefView ? ' relief-on' : ''}${reliefable && relief.phase === 'pick' ? ' relief-pick' : ''}`}
+      className={`app${narrow ? ' phone' : ' has-side'}${chron.open ? ' chron-open' : ''}${panelOpen ? ' panel-open' : ''}${narrow && panelOpen && panelUi.sheet === 'full' ? ' sheet-full' : ''}${narrow && !selState.sel && !upOn && !toolCardOn && !filmOn && panelUi.world === 'full' ? ' world-full' : ''}${narrow && panelUi.drag ? ' sheet-drag' : ''}${narrow && selState.sel && !panelOpen ? ' sheet-away' : ''}${!narrow && world && sideUi.collapsed && !sideUi.peek ? ' side-collapsed' : ''}${picking ? ' picking' : ''}${globeOn ? ' globe-on' : ''}${data ? '' : ' booting'}${home ? ' home' : ''}${draft ? ' draft' : ''}${studioOn ? ' studio-on' : ''}${fr ? ' studio-flat' : ''}${astOpen && !narrow && !home && !draft ? ' ast-open' : ''}${preview ? ' ast-preview' : ''}${filmOn ? ' film-on' : ''}${filmOn && filmUi.mode === 'long' ? ' film-long' : ''}${stepOn ? ' step-on' : ''}${stepCard && !selState.sel ? ' step-stop' : ''}${reliefView ? ' relief-on' : ''}${reliefable && relief.phase === 'pick' ? ' relief-pick' : ''}`}
       data-theme={theme}
       data-layer={mapLayer}
       data-base={mapBase}
@@ -2754,7 +2766,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
               新建时这些都不放(新建界面自己一套) */}
           {filmOn ? (
             filmUi.mode === 'long' ? <LongPanel phone style={style} baseName={baseName(mapBase, satLook)} /> : <FilmPanel phone style={style} layer={layer} look={terrainLook} />
-          ) : !draft && !selState.sel && !upOn && (
+          ) : !draft && !selState.sel && !upOn && !toolCardOn && (
               <PhoneSheet
                 data={data}
                 civ={civ}
@@ -2768,7 +2780,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
                 exp={{ data, civ, plain: plainCiv, style, layer, look: terrainLook }}
               />
           )}
-          {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} relief={reliefable ? relief.phase === 'pick' : undefined} />}
+          {!draft && !filmOn && <PhoneButtons layers={layerProps} globeOn={globeOn} onToggleGlobe={toggleGlobe} marking={markable ? markPlacing : undefined} director={!directorOff} relief={reliefable ? relief.phase === 'pick' : undefined} tools={toolable} />}
           {!draft && (OLD_SITE !== null || BETA_SITE || style === 'data' || atlasOn || contourOn || workOn || ideoLegend) && (
             <div className="corner-tl">
               {workBar}
@@ -2848,6 +2860,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         marking={markable ? markPlacing : undefined}
         director={!directorOff}
         relief={reliefable ? relief.phase === 'pick' : undefined}
+        tools={toolable}
       />
       {sharedOn ? (
         <SharedHint phone={narrow} short={sharedFor.short} by={sharedFor.by} own={sharedFor.own} at={sharedAt} report={sharedFor.short ? shareReport : null} onReplay={replayShared} onOk={() => setSharedFor(null)} />
@@ -2910,6 +2923,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       {pluginsUiOn() && <PluginsHost phone={narrow} />}
+      {pluginsUiOn() && data && world && <ToolsHost phone={narrow} world={data.world} root={baseData?.world ?? data.world} civ={civ} raw={shownRaw} api={markApi} stage={stageRef} active={toolable} />}
       <FrozenAsk phone={narrow} />
       <SameWorldHost phone={narrow} />
       <ShortcutsHost />
