@@ -106,6 +106,16 @@ describe('打开的世界:和本机核对', () => {
     expect(s.files.every((f) => !!f.bytes)).toBe(true);
   });
 
+  it('核对完时已经换了世界、又核对了一次的:不记', async () => {
+    installed = [have('tides', '潮汐', tides.sum)];
+    await loadMapNow('w1', [tides], () => false);
+    expect(getMapNow()).toBeNull();
+    const first = loadMapNow('w1', [craters, tides]);
+    const second = loadMapNow('w2', [tides]);
+    await Promise.all([first, second]);
+    expect(getMapNow()?.id).toBe('w2');
+  });
+
   it('没用地图插件的世界:不记;换了世界,记着的不要了', async () => {
     manifest = { plugins: [magic], parts: [] };
     await loadMapNow('w1');

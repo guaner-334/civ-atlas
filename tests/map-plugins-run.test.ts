@@ -116,6 +116,17 @@ describe('拿不到插件', () => {
     expect(loadError(mapPluginKey(lone))).toBeUndefined();
   });
 
+  it('装过的这一回没带字节(本机删了、被网站停用了):记着的那一份放掉,不再跑', async () => {
+    await loadMaps(files, box);
+    expect(mapPluginsOf(keys)).not.toBeNull();
+    const { bytes: _b, ...gone } = files[2];
+    void _b;
+    await loadMaps([files[0], files[1], gone], box);
+    expect(loadedMap(keys[2])).toBeUndefined();
+    expect(mapPluginsOf(keys)).toBeNull();
+    expect(mapPluginsOf(keys.slice(0, 2))).not.toBeNull();
+  });
+
   it('文件和指纹对不上、不是地图插件:记下装不上的原因', async () => {
     const wrong = { ...files[1], sum: 'f'.repeat(64) };
     await loadMaps([wrong], box);

@@ -69,14 +69,17 @@ const failed = new Map<string, Error>();
 
 /**
  * 装好这串地图插件里带了字节的(按 MapPlugin.key 记着,装过的不再装)。不抛错:装不上的记下(loadError),要长地图时才报;
- * 没带字节的跳过:loadedMap 拿不到它
+ * 没带字节的(这台没有同一版、被网站停用了)记着的那一份也放掉,loadedMap 拿不到它
  */
 export async function loadMaps(files: readonly MapPluginFile[], box: MapBoxer): Promise<void> {
   const keys = files.map(mapPluginKey);
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
     const key = keys[i];
-    if (!f.bytes) continue;
+    if (!f.bytes) {
+      drop(key);
+      continue;
+    }
     let p = loaded.get(key);
     if (p) loaded.delete(key);
     else {

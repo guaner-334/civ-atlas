@@ -482,9 +482,10 @@ const mapKeys = (m: { mapPlugins?: readonly MapPluginFile[] }): string[] => m.ma
 /** 装插件的代码下载不了(下次带着插件再试) */
 let mapRunFailed = false;
 
-/** 装好请求带的、带了字节的地图插件(装过的不再装);装不上的要长地图时才报 */
+/** 装好请求带的、带了字节的地图插件(装过的不再装);装不上的要长地图时才报。没带字节的不再用记着的那一份 */
 async function loadMapsFor(m: { mapPlugins?: readonly MapPluginFile[] }): Promise<void> {
-  if (!m.mapPlugins?.some((f) => f.bytes)) return;
+  if (!m.mapPlugins?.length) return;
+  if (!m.mapPlugins.some((f) => f.bytes)) return void mapRun?.loadMaps(m.mapPlugins, mapRun.quickjsMapBox);
   try {
     mapRun ??= await import('./mapPluginRun');
     mapRunFailed = false;

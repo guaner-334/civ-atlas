@@ -8,22 +8,27 @@ import { listPlugins, pluginFileBytes, type InstalledPlugin } from '../../plugin
 import { mapPluginIds, mapPluginOf, mapPluginsIn, recordParams, simParamsOf, type MapPluginCheck, type MapPluginFile } from '../../plugin/pluginWorld';
 import { vaultCall } from '../worldStore';
 import { getMapNow, setMapNow } from '../world/mapNow';
-import { subscribeVerdicts, verdictOf, type PluginVerdict } from './verdict';
+import { subscribeVerdicts, verdictOf } from './verdict';
 import { blockedChecks } from './worldPlugins';
+
+let loadSeq = 0;
 
 /**
  * 这个世界记的地图插件和本机核对:都有同一版、没被网站停用的带上文件;不然只带编号、指纹、滑条,交回每个插件的核对结果。
- * plugins 不给 = 读世界仓库里最新的一份(还没有这个世界 = 不动)。verdict 默认看停用名单(单测换掉)
+ * plugins 不给 = 读世界仓库里最新的一份(还没有这个世界 = 不动)。still() = 核对完时还在这个世界上(换了世界、又核对了一次的不算)
  */
-export async function loadMapNow(id: string, plugins?: readonly WorldPlugin[], verdict: (sum: string, id: string) => PluginVerdict = verdictOf): Promise<void> {
+export async function loadMapNow(id: string, plugins?: readonly WorldPlugin[], still: () => boolean = () => true): Promise<void> {
+  const seq = ++loadSeq;
+  const live = () => seq === loadSeq && still();
   const m = plugins ? { plugins } : await vaultCall('worldPluginsOf', [id]).catch(() => null);
-  if (!m) return;
+  if (!m || !live()) return;
   const list = mapPluginsIn(m.plugins);
   if (!list.length) return setMapNow(null);
   const r = await mapPluginsReady(m.plugins).catch(() => null);
+  if (!live()) return;
   const missing = (): MapPluginCheck[] => list.map((plugin) => ({ id: plugin.id, plugin, status: 'missing' }));
   const checks = r ? (r.ok ? null : r.checks) : missing();
-  const blocked = blockedChecks(list, checks, verdict);
+  const blocked = blockedChecks(list, checks, verdictOf);
   if (r?.ok && !blocked) return setMapNow({ id, list, files: r.files, ready: true, checks: [], stored: true });
   setMapNow({ id, list, files: mapPluginIds(m.plugins), ready: false, checks: blocked ?? checks ?? [], stored: true });
 }
@@ -71,7 +76,7 @@ export function chosenMaps(worldId: string | undefined): MapChoice[] {
 export async function refreshMapNow(): Promise<void> {
   const s = getMapNow();
   if (!s) return;
-  if (s.stored) return loadMapNow(s.id);
+  if (s.stored) return loadMapNow(s.id, undefined, () => getMapNow()?.id === s.id);
   if (s.list.some((p) => verdictOf(p.sum, p.id).blocked)) await chooseMaps(s.id, chosenMaps(s.id));
 }
 subscribeVerdicts(() => void refreshMapNow().catch(() => {}));
