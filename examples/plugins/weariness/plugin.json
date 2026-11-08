@@ -1,0 +1,23 @@
+{
+  "id": "weariness",
+  "name": "厌战",
+  "version": "1.0.0",
+  "role": "sim",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["sim.read@1", "sim.events@1", "sim.state@1", "sim.influence@1", "sim.commands@1", "sim.chronicle@1"],
+  "why": {
+    "sim.read@1": "看各国的政体、议会，听宣战、攻占、议和",
+    "sim.influence@1": "有议会的国家开战要先过议会，宣战的几率打折",
+    "sim.commands@1": "久战不决的仗，由议会遣使议和、立约罢兵"
+  },
+  "sim": {
+    "every": 1,
+    "listen": ["war", "conquer", "peace"],
+    "influences": ["war.odds"],
+    "commands": ["treaty"]
+  },
+  "description": "有议会的国家开战要先过议会；久攻不下、打得太久的仗，议会厌战，遣使议和。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

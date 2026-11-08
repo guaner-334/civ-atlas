@@ -1,7 +1,7 @@
 /**
- * 示例插件(examples/plugins/):重新打包和仓库里的插件文件一个字节不差,许可证是 MIT,
- * 代码里用到的调用、事件清单里都要了,清单要的能力代码里都用到了。
- * 在真沙箱里跑出来的面板、图层和存下的对不对得上,见 scripts/sandbox-check.ts。
+ * 示例插件(examples/plugins/):重新打包和仓库里的插件文件一个字节不差,许可证是 MIT;
+ * 工具插件代码里用到的调用、事件清单里都要了,清单要的能力代码里都用到了。
+ * 工具插件在真沙箱里跑出来的面板、图层和存下的对不对得上,见 scripts/sandbox-check.ts;推演插件经 QuickJS 推的见 sim-plugin-examples.test.ts。
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,8 +18,8 @@ const EXAMPLES = readdirSync(ROOT, { withFileTypes: true })
   .sort();
 
 describe('示例插件', () => {
-  it('三个示例都在', () => {
-    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'route-days']);
+  it('工具、推演各三个示例都在', () => {
+    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'faith', 'magic', 'route-days', 'weariness']);
   });
 
   describe.each(EXAMPLES)('%s', (name) => {
@@ -38,7 +38,8 @@ describe('示例插件', () => {
       expect(new TextDecoder().decode(p.files.get('LICENSE'))).toMatch(/^MIT License\n/);
     });
 
-    it('用到的调用、事件清单里都要了,要的能力都用到了', async () => {
+    const role = JSON.parse(readFileSync(join(dir, 'plugin.json'), 'utf8')).role;
+    it.runIf(role === 'tool')('工具插件:用到的调用、事件清单里都要了,要的能力都用到了', async () => {
       const { manifest, code } = await openPluginFile(committed());
       const caps = [...manifest.requires, ...(manifest.optional ?? [])];
       const used = new Set<string>();

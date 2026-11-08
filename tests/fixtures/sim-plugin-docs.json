@@ -1,0 +1,39 @@
+{
+  "harbor": {
+    "acts": 151,
+    "commands": {},
+    "chronicle": 0,
+    "first": [],
+    "digest": "42f2e3d71e5e6526"
+  },
+  "comet": {
+    "acts": 21,
+    "commands": {},
+    "chronicle": 10,
+    "first": [
+      "308 彗星见于天,人心惶惶",
+      "486 彗星见于天,人心惶惶",
+      "702 彗星见于天,人心惶惶"
+    ],
+    "digest": "c9232550ff1e6493"
+  },
+  "fallen": {
+    "acts": 301,
+    "commands": {},
+    "chronicle": 2,
+    "first": [
+      "2120 {国:64}亡,自开辟以来亡国已50",
+      "2860 {国:107}亡,自开辟以来亡国已100"
+    ],
+    "digest": "f67be32c92bb8b36"
+  },
+  "conquest": {
+    "acts": 31,
+    "commands": {
+      "declare": 9
+    },
+    "chronicle": 0,
+    "first": [],
+    "digest": "cfb1885ad7cc2547"
+  }
+}

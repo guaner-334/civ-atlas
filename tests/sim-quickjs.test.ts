@@ -135,16 +135,25 @@ const errOf = async (run: () => unknown): Promise<unknown> => {
 };
 
 describe('QuickJS 里只有 JS 语言本身', () => {
-  it('全局只有语言自带的几样和 civAtlas;联网、存储、计时、线程一样都没有', async () => {
+  it('全局只有语言自带的几样、civAtlas 和什么都不做的 console;联网、存储、计时、线程一样都没有', async () => {
     const r = await once('return { commands: Object.getOwnPropertyNames(globalThis).sort() };');
     expect(r?.commands).toEqual([
       'AggregateError', 'Array', 'ArrayBuffer', 'BigInt', 'BigInt64Array', 'BigUint64Array', 'Boolean', 'DataView', 'Date', 'Error', 'EvalError',
       'Float16Array', 'Float32Array', 'Float64Array', 'Function', 'Infinity', 'Int16Array', 'Int32Array', 'Int8Array', 'InternalError', 'Iterator',
       'JSON', 'Map', 'Math', 'NaN', 'Number', 'Object', 'Promise', 'Proxy', 'RangeError', 'ReferenceError', 'Reflect', 'RegExp', 'Set',
       'SharedArrayBuffer', 'String', 'Symbol', 'SyntaxError', 'TypeError', 'URIError', 'Uint16Array', 'Uint32Array', 'Uint8Array', 'Uint8ClampedArray',
-      'WeakMap', 'WeakSet', 'civAtlas', 'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent', 'escape', 'eval', 'globalThis',
+      'WeakMap', 'WeakSet', 'civAtlas', 'console', 'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent', 'escape', 'eval', 'globalThis',
       'isFinite', 'isNaN', 'parseFloat', 'parseInt', 'undefined', 'unescape',
     ]);
+  });
+
+  it('插件代码里留着 console.log 这些不出错,什么都不做', async () => {
+    const p = await make(`console.log('装上了', globalThis);\n${sim("console.log('第', turn.year, '年'); console.warn(1); console.error(2); console.table([1]); console.time('t'); console.timeEnd('t'); return { note: [console.info('x') === undefined ? 1 : 0] };")}`);
+    try {
+      expect(p.act(turnOf())).toEqual({ note: [1] });
+    } finally {
+      p.dispose();
+    }
   });
 
   it.each([
