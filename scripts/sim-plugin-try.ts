@@ -1,5 +1,5 @@
 /**
- * 推演插件试跑:插件关进 QuickJS(和网站上同一份),在一个种子的世界上推一遍,和官方的比一比。
+ * 推演插件试跑:照推演线程的装法(src/simPluginRun.ts)把插件关进 QuickJS,在一个种子的世界上推一遍,和官方的比一比。
  *
  *   npx tsx scripts/sim-plugin-try.ts examples/plugins/magic                  # 种子 7、默认参数推 3000 年
  *   npx tsx scripts/sim-plugin-try.ts <插件文件夹或 .civplugin> [seed=2024] [years=1000] [滑条名=数 ...]
@@ -11,7 +11,7 @@ import { DEFAULT_CIV_PARAMS, generateCiv, type Civ } from '../src/gen/civ';
 import type { PluginReply, PluginTurn, SimPlugin } from '../src/gen/civ/engine/plugin';
 import { chronicleText } from '../src/gen/civ/engine/pluginChronicle';
 import type { SimRead } from '../src/gen/civ/simApi';
-import { openSimPlugin, quickjsSimPlugin } from './lib/simPluginFile';
+import { openSimPlugin, simPluginsInNode } from './lib/simPluginFile';
 
 const args = process.argv.slice(2);
 const path = args.find((a) => !a.includes('='));
@@ -34,15 +34,16 @@ function stop(e: unknown): never {
   console.error(`出错停下:${e instanceof Error ? e.message : String(e)}`);
   process.exit(1);
 }
-const p = await openSimPlugin(path).catch(stop);
-const m = p.manifest;
+const { opened, file } = await openSimPlugin(path, params).catch(stop);
+const m = opened.manifest;
 console.log(`${m.name} ${m.version}(${m.id}),种子 ${seed},推 ${years} 年`);
 const world = generateWorld({ ...DEFAULT_PARAMS, seed });
 let t0 = performance.now();
 const base = generateCiv(world, { endYear: years });
 const baseMs = performance.now() - t0;
 
-const q = await quickjsSimPlugin(p, seed, params).catch(stop);
+const on = await simPluginsInNode([file], seed).catch(stop);
+const q = on.plugins[0];
 let acts = 0;
 let refused = 0;
 const kinds: Record<string, number> = {};
@@ -66,7 +67,7 @@ try {
 } catch (e) {
   stop(e);
 } finally {
-  q.dispose();
+  on.dispose();
 }
 const ms = performance.now() - t0;
 if (civ.stuck) console.log(`推到第 ${civ.endYear} 年推不下去了:${JSON.stringify(civ.stuck)}`);

@@ -1,5 +1,5 @@
 /**
- * 推演插件的示例(examples/plugins/ 里 role 是 sim 的):打成插件包、关进 QuickJS,种子 7、2024 各推 3000 年。
+ * 推演插件的示例(examples/plugins/ 里 role 是 sim 的):从插件文件照推演线程的装法关进 QuickJS,种子 7、2024 各推 3000 年。
  * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力钉自己的。
  * 清单要的能力都用得到;编辑器用的类型(examples/plugins/civ-atlas-sim.d.ts)和接口一样。
  * 改了官方推演,魔力的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS
@@ -16,8 +16,9 @@ import type { InfluenceName, OfficialName, SimCommand, SimRead } from '../src/ge
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { PLUGIN_FILE_EXT, type OpenedPlugin } from '../src/plugin/pluginFile';
 import { simCapsUnused } from '../src/plugin/pluginSim';
+import type { SimPluginFile } from '../src/plugin/pluginWorld';
 import { civDiff } from '../scripts/lib/resumeFuzz';
-import { openSimPlugin, quickjsSimPlugin } from '../scripts/lib/simPluginFile';
+import { openSimPlugin, simPluginsInNode } from '../scripts/lib/simPluginFile';
 import { V1_PINS, V1_SEEDS, simDigest, type V1Seed } from './lib/simV1Pins';
 import type * as Dts from '../examples/plugins/civ-atlas-sim';
 
@@ -27,10 +28,11 @@ const SIM_EXAMPLES = readdirSync(ROOT, { withFileTypes: true })
   .map((d) => d.name)
   .sort();
 
-const opened = new Map<string, Promise<OpenedPlugin>>();
+type Example = { opened: OpenedPlugin; file: SimPluginFile };
+const examples = new Map<string, Promise<Example>>();
 const open = (name: string) => {
-  let p = opened.get(name);
-  if (!p) opened.set(name, (p = openSimPlugin(join(ROOT, name, `${name}${PLUGIN_FILE_EXT}`))));
+  let p = examples.get(name);
+  if (!p) examples.set(name, (p = openSimPlugin(join(ROOT, name, `${name}${PLUGIN_FILE_EXT}`))));
   return p;
 };
 const worlds = new Map<number, World>();
@@ -53,9 +55,10 @@ interface Seen {
   turn: Set<string>;
 }
 
-/** 插件包在 QuickJS 里推一段;每次出手记下回话交了哪几样 */
-async function run(p: OpenedPlugin, seed: number, go: (plugins: SimPlugin<SimRead>[]) => Civ, params?: Record<string, number>): Promise<{ civ: Civ; seen: Seen }> {
-  const q = await quickjsSimPlugin(p, seed, params);
+/** 插件文件照推演线程的装法推一段;每次出手记下回话交了哪几样 */
+async function run(x: Example, seed: number, go: (plugins: SimPlugin<SimRead>[]) => Civ, params?: Record<string, number>): Promise<{ civ: Civ; seen: Seen }> {
+  const on = await simPluginsInNode([{ ...x.file, ...(params ? { params } : {}) }], seed);
+  const q = on.plugins[0];
   const seen: Seen = { acts: 0, reply: new Set(), turn: new Set() };
   try {
     const spy: SimPlugin<SimRead> = {
@@ -70,12 +73,12 @@ async function run(p: OpenedPlugin, seed: number, go: (plugins: SimPlugin<SimRea
     };
     return { civ: go([spy]), seen };
   } finally {
-    q.dispose();
+    on.dispose();
   }
 }
 
 /** 清单要的能力:sim 段、代码、回话里看得出用到的 */
-function capsUsed(p: OpenedPlugin, seen: Seen): string[] {
+function capsUsed({ opened: p }: Example, seen: Seen): string[] {
   const s = p.manifest.sim!;
   const used = new Set<string>();
   if (s.listen?.length || /\bturn\.(read|heard)\b/.test(p.code)) used.add('sim.read@1');
@@ -96,9 +99,9 @@ describe('推演插件的示例', () => {
   });
 
   it.each(SIM_EXAMPLES)('%s:清单是推演插件、跑法 quickjs;要的能力都用得到(sim 段看得出的也没多要)', async (name) => {
-    const p = await open(name);
-    expect(p.manifest).toMatchObject({ role: 'sim', runtime: 'quickjs', api: 1 });
-    expect(simCapsUnused(p.manifest)).toEqual([]);
+    const { opened } = await open(name);
+    expect(opened.manifest).toMatchObject({ role: 'sim', runtime: 'quickjs', api: 1 });
+    expect(simCapsUnused(opened.manifest)).toEqual([]);
   });
 });
 
@@ -110,7 +113,7 @@ describe.each(['weariness', 'faith'] as const)('%s:打成插件包经 QuickJS,�
     expect(civ.endYear).toBe(3000);
     expect(by(civ, name).length).toBeGreaterThan(0);
     expect(simDigest(civ)).toBe(V1_PINS[seed as V1Seed][name].digest);
-    expect(capsUsed(p, seen)).toEqual([...p.manifest.requires].sort());
+    expect(capsUsed(p, seen)).toEqual([...p.opened.manifest.requires].sort());
   }, 120_000);
 });
 
@@ -171,7 +174,7 @@ describe('魔力:自己的表、图层、滑条', () => {
     const { civ, seen } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins }));
     expect(civ.stuck).toBeUndefined();
     expect(civ.endYear).toBe(3000);
-    expect(capsUsed(p, seen)).toEqual([...p.manifest.requires].sort());
+    expect(capsUsed(p, seen)).toEqual([...p.opened.manifest.requires].sort());
     expect(civ.simLayers).toHaveLength(1);
     const L = civ.simLayers![0];
     expect(L).toMatchObject({ by: 'magic', id: 'magic', title: '魔力浓度', unit: 'region' });
