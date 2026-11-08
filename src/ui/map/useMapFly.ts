@@ -19,7 +19,7 @@ import { nearX, wrapOf } from '../../render/common';
 import { projectWorldNear, unprojectWorld, wrapLon, type MapProj } from '../../render/projection';
 import { highlightBox, highlightMarks } from '../../render/civ/highlight';
 import { getMapCenter, lonOfX, publishMapCenter, stageToWorld, worldToStage, xOfLon, type MapView, type StageBox } from '../mapWrap';
-import { curvedProj, getProjection, setMapMoving } from '../projection';
+import { curvedProj, getProjection, setMapFlying, setMapMoving } from '../projection';
 import { FLY_MS, animProgress, cultureFocus, curvedFly, easeOutCubic, flatFly, freeArea, markFocus, phoneFree, pointsFocus, selectionFocus, sideRoom, type FlyGoal, type Focus } from '../flyTo';
 import { getCivTime, getSelection, useCivHighlight } from '../civView';
 import { useDirectorFly } from '../directorStore';
@@ -246,7 +246,10 @@ export function useMapFly({ data, dataRef, civ, box, replayOn, narrow, panelOpen
         flyRaf.current = requestAnimationFrame(frame);
         return;
       }
-      if (curvedNow) setMapMoving(true);
+      if (curvedNow) {
+        setMapFlying(true);
+        setMapMoving(true);
+      }
       const t = animProgress(now, t0, FLY_MS);
       const r = step(easeOutCubic(t));
       viewRef.current = r.v;
