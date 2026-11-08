@@ -19,7 +19,7 @@ export const MAP_RANGE = {
   precipitation: [0, 15000],
 } as const;
 
-/** 三个口子都递的(网格的几样只读) */
+/** 三个口子都递的 */
 export interface MapShared {
   n: number;
   /** 纬度、经度(度) */
@@ -159,9 +159,9 @@ function shared(mesh: Mesh, seed: number, pl: MapPlugin): MapShared {
     n,
     lat,
     lon,
-    xyz: mesh.xyz,
-    adjStart: mesh.adjStart,
-    adj: mesh.adj,
+    xyz: mesh.xyz.slice(),
+    adjStart: mesh.adjStart.slice(),
+    adj: mesh.adj.slice(),
     kmPerUnit: (mesh.width * KM_PER_UNIT) / (2 * Math.PI),
     seed,
     rand: (a = 0, b = 0, c = 0) => keyed(base, a, b, c),
@@ -313,8 +313,9 @@ export function layerHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: numb
       const values = new Float32Array(n);
       for (let i = 0; i < n; i++) {
         const x = v[i];
-        if (typeof x !== 'number' || x === Infinity || x === -Infinity) throw new MapPluginError(pl.id, 'layers', `图层「${id}」第 ${i} 个不是数或是无穷大`);
-        values[i] = x;
+        // 存成 32 位以后才看是不是无穷大:1e100 这样的有限数也会变成无穷大
+        values[i] = typeof x === 'number' ? x : Infinity;
+        if (values[i] === Infinity || values[i] === -Infinity) throw new MapPluginError(pl.id, 'layers', `图层「${id}」第 ${i} 个不是数,或是无穷大`);
       }
       out.push({ by: pl.id, id, values });
     }

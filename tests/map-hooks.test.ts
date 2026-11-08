@@ -99,6 +99,23 @@ describe('改海拔', () => {
     expect(moved).toBeGreaterThan(50);
   });
 
+  it('插件改了递进去的数组(连同网格)也不影响世界', () => {
+    const w0 = plain7();
+    const mesh0 = { xyz: w0.mesh.xyz.slice(), adj: w0.mesh.adj.slice(), adjStart: w0.mesh.adjStart.slice() };
+    const vandal: MapPlugin = {
+      id: 'vandal',
+      key: 'vandal@1',
+      stages: ['height', 'climate', 'layers'],
+      height: (d) => void (d.elevation.fill(0), d.land.fill(0), d.plate.fill(0), d.xyz.fill(0), d.adj.fill(0), d.adjStart.fill(0)),
+      climate: (d) => void (d.temperature.fill(0), d.precipitation.fill(0), d.water.fill(1)),
+      layers: (d) => void (d.biome.fill(0), d.flux.fill(0), d.riverCells.fill(0)),
+    };
+    const w = generateWorld(P, undefined, undefined, undefined, undefined, [vandal]);
+    expect(worldCheck(w)).toBe(worldCheck(w0));
+    expect(w.flux).toEqual(w0.flux);
+    expect({ xyz: w.mesh.xyz, adj: w.mesh.adj, adjStart: w.mesh.adjStart }).toEqual(mesh0);
+  });
+
   it('压到 −11000…9000 米;没给 land 时只翻改过的地块', () => {
     const { mesh } = plain7();
     const n = mesh.n;
@@ -353,6 +370,7 @@ describe('出图层', () => {
       [one('layers', () => ({ layers: { nope: new Float32Array(n) } }), { layerIds: ['x'] }), /没在清单里登记/],
       [one('layers', () => ({ layers: Object.fromEntries(ids.map((id) => [id, new Float32Array(n)])) }), { layerIds: ids }), /最多/],
       [one('layers', () => ({ layers: { x: new Float32Array(n).fill(Infinity) } }), { layerIds: ['x'] }), /无穷大/],
+      [one('layers', () => ({ layers: { x: new Float64Array(n).fill(1e100) } }), { layerIds: ['x'] }), /无穷大/],
       [one('layers', () => ({ layers: { x: new Float32Array(1) } }), { layerIds: ['x'] }), /长度/],
       [one('layers', () => ({ layers: [] }), { layerIds: ['x'] }), /图层编号/],
     ];
