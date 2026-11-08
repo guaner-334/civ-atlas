@@ -100,9 +100,10 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   const pm = iv.pm!;
   const owner = sim.owners[Layer.Polity];
   const peopled = sim.owners[Layer.Culture];
-  const alive = (p: number) => p >= 0 && pm.polities[p].ended === undefined;
-  /** 前面收下的命令办完以后归属变了的州 → 新主(−1 = 无主,NEW = 立国立出来的新国) */
+  /** 前面收下的命令办完以后归属变了的州 → 新主(−1 = 无主,NEW = 立国立出来的新国)、亡了的国 */
   const moved = new Map<number, number>();
+  const dead = new Set<number>();
+  const alive = (p: number) => p >= 0 && !dead.has(p) && pm.polities[p].ended === undefined;
   const NEW = -2;
   const ownerOf = (r: number) => moved.get(r) ?? owner[r];
   const landsOf = (o: number) => {
@@ -129,13 +130,18 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     if (v.kind === 'destroy') {
       const a = iv.resolve(v.a);
       const b = v.b !== undefined ? iv.resolve(v.b) : -1;
-      if (alive(a)) for (const q of landsOf(a)) moved.set(q, alive(b) && b !== a ? b : -1);
+      if (!alive(a)) return;
+      for (const q of landsOf(a)) moved.set(q, alive(b) && b !== a ? b : -1);
+      dead.add(a);
       return;
     }
     const x = loss(v);
     if (!x) return;
     const [o, r, by] = x;
-    if (o >= 0 && ends(o, r)) for (const q of landsOf(o)) moved.set(q, by);
+    if (o >= 0 && ends(o, r)) {
+      for (const q of landsOf(o)) moved.set(q, by);
+      dead.add(o);
+    }
     moved.set(r, by);
   };
   for (const i of iv.commandsAt(t)) apply(iv.list[i]);

@@ -143,6 +143,19 @@ describe('作者的干预挡下插件的命令', () => {
       refused: [],
     },
     {
+      name: '划给同一格已经灭掉的国(划不成)、再在那里立国:照原主挡',
+      cmds: () => {
+        const r = landsOf(wide.id).find((q) => q !== capRegion(wide))!;
+        return [
+          { kind: 'destroy', a: other2 },
+          { kind: 'cede', a: other2, region: r },
+          { kind: 'found', region: r },
+        ];
+      },
+      author: (): Intervention => ({ kind: 'unity', a: key(wide.id), ...AT }),
+      refused: [{ kind: 'found', index: 2, why: 'unity' }],
+    },
+    {
       name: '不许扩张挡它宣战,别国照样能对它宣战',
       cmds: () => [
         { kind: 'declare', a: wide.id, b: other },
