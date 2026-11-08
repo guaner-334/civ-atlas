@@ -4,7 +4,7 @@
  */
 import { PluginError, type SimPlugin } from './gen/civ/engine/plugin';
 import type { SimRead } from './gen/civ/simRead';
-import type { QuickJSPlugin, QuickJSPluginSpec, SimSetup } from './gen/civ/quickjs/plugin';
+import type { QuickJSPlugin, QuickJSPluginSpec, SimSetup } from './gen/quickjs/sim';
 import type { WorldPlugin } from './gen/worldFormat';
 import { openPluginFile, type OpenedPlugin } from './plugin/pluginFile';
 import { undeclaredCommand } from './plugin/pluginSim';
@@ -16,7 +16,7 @@ export type SimBoxer = (spec: QuickJSPluginSpec) => Promise<QuickJSPlugin>;
 
 /** 浏览器里:QuickJS 和它的 wasm 用到才下载 */
 export const quickjsBox: SimBoxer = async (spec) => {
-  const q = await import('./gen/civ/quickjs');
+  const q = await import('./gen/quickjs');
   return q.quickjsPlugin(await q.quickjsWasm(), spec);
 };
 

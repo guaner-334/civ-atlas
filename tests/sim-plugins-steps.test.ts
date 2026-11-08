@@ -8,7 +8,7 @@ import { generateCiv, type Civ } from '../src/gen/civ';
 import { PluginError } from '../src/gen/civ/engine/plugin';
 import { extendCiv } from '../src/gen/civ/extend';
 import { playCiv, playStop, playTicks, playTurn, type PlayContinue } from '../src/gen/civ/play';
-import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../src/gen/quickjs/sim';
 import { civOrStuck, continueOrStuck } from '../src/gen/civ/stuck';
 import { TUNING_CALC } from '../src/gen/civ/tuning';
 import { worldPatch } from '../src/gen/civ/tuningPatch';

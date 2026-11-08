@@ -5,8 +5,8 @@
  */
 import faithUrl from '../../../examples/plugins/faith/faith.civplugin?url';
 import wearUrl from '../../../examples/plugins/weariness/weariness.civplugin?url';
-import { quickjsPlugin } from '../../gen/civ/quickjs/plugin';
-import { quickjsWasm } from '../../gen/civ/quickjs/wasm';
+import { quickjsPlugin } from '../../gen/quickjs/sim';
+import { quickjsWasm } from '../../gen/quickjs/wasm';
 import { openPluginFile } from '../pluginFile';
 import type { SimPluginFile } from '../pluginWorld';
 import { simProbe, stackProbe } from './simProbe';

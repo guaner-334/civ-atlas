@@ -9,7 +9,7 @@ import { newQuickJSWASMModuleFromVariant, newVariant } from 'quickjs-emscripten-
 import variant from '@jitl/quickjs-wasmfile-release-sync';
 import type { PluginTurn, SimPlugin } from '../../gen/civ/engine/plugin';
 import { generateCiv } from '../../gen/civ';
-import { QUICKJS_LIMITS } from '../../gen/civ/quickjs/plugin';
+import { QUICKJS_LIMITS } from '../../gen/quickjs/sim';
 import type { SimRead } from '../../gen/civ/simRead';
 import { packValue } from '../../gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld } from '../../gen/world';

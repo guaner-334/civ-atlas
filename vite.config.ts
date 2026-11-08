@@ -171,8 +171,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         banner: () => banner(),
-        // 推演线程用到推演插件才下载的 QuickJS 那一包用自己的名字(它的入口也叫 index,不然和主程序同名)
-        chunkFileNames: (c) => (c.facadeModuleId && /[\\/]gen[\\/]civ[\\/]quickjs[\\/]index\.ts$/.test(c.facadeModuleId) ? 'assets/quickjs-[hash].js' : 'assets/[name]-[hash].js'),
+        // 用到插件才下载的 QuickJS 那一包用自己的名字(它的入口也叫 index,不然和主程序同名)
+        chunkFileNames: (c) => (c.facadeModuleId && /[\\/]gen[\\/]quickjs[\\/]index\.ts$/.test(c.facadeModuleId) ? 'assets/quickjs-[hash].js' : 'assets/[name]-[hash].js'),
       },
     },
   },

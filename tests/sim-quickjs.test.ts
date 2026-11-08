@@ -1,5 +1,5 @@
 /**
- * 推演插件关进 QuickJS 跑(src/gen/civ/quickjs/):照接口写的插件以源码进 QuickJS,推出来的历史和直接跑逐位一样;
+ * 推演插件关进 QuickJS 跑(src/gen/quickjs/):照接口写的插件以源码进 QuickJS,推出来的历史和直接跑逐位一样;
  * QuickJS 里没有时间、随机数、eval;死循环叫停、内存用完、栈用完都报错停下
  */
 import { createHash } from 'node:crypto';
@@ -12,8 +12,8 @@ import { generateCiv, startContinue, type Civ } from '../src/gen/civ';
 import { PluginError, type PluginTurn, type SimPlugin } from '../src/gen/civ/engine/plugin';
 import { keyed, keyed4, subSeed } from '../src/gen/civ/engine/rand';
 import type { SimRead } from '../src/gen/civ/simRead';
-import { quickjsPlugin, type QuickJSLimits, type QuickJSPlugin } from '../src/gen/civ/quickjs/plugin';
-import { fromWire } from '../src/gen/civ/quickjs/wire';
+import { quickjsPlugin, type QuickJSLimits, type QuickJSPlugin } from '../src/gen/quickjs/sim';
+import { fromWire } from '../src/gen/quickjs/wire';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { pluginScript, quickjsWasm } from '../scripts/lib/quickjsNode';
 import { loadPlugin } from '../scripts/lib/simPluginLoad';

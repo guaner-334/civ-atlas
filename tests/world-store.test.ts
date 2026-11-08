@@ -25,7 +25,7 @@ import { TRASH_KEEP_MS, notesVault, _setWorldStore, _settled, _syncLight, clearW
 import { recomputeWorld, runConvert, type ConvertJob } from '../src/worldConvert';
 import { eraWorlds, keyOf, mapValue, worldChronicle, worldFlags } from '../src/worldRun';
 import { _resetVault, changeAuthor, latestOf, patchState, purgeWorld, readAuthor, readRevision, revisionFile, revisionsOf, stateOf, vaultOps, type VaultOps, type WorldPartsOffer } from '../src/worldVault';
-import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../src/gen/quickjs/sim';
 import { openPluginFile } from '../src/plugin/pluginFile';
 import { _resetPluginStore, installPlugin } from '../src/plugin/pluginStore';
 import { simRecordsOf, type SimBoxer } from '../src/simPluginRun';

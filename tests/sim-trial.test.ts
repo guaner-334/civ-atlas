@@ -4,7 +4,7 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { generateCiv, type Civ } from '../src/gen/civ';
-import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../src/gen/quickjs/sim';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { openPluginFile, packPluginFile, type PluginPackInput } from '../src/plugin/pluginFile';
 import type { SimPluginFile } from '../src/plugin/pluginWorld';

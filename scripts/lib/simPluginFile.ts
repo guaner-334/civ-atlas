@@ -2,7 +2,7 @@
  * Node 里跑推演插件文件(.civplugin):装法和推演线程同一份(src/simPluginRun.ts),QuickJS 的 wasm 从磁盘读。单测、试跑脚本用
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { quickjsPlugin } from '../../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../../src/gen/quickjs/sim';
 import type { OpenedPlugin } from '../../src/plugin/pluginFile';
 import { openPluginFileFully } from '../../src/plugin/pluginSimTables';
 import type { SimPluginFile } from '../../src/plugin/pluginWorld';

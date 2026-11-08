@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateCiv, startContinue, type Civ } from '../src/gen/civ';
 import { extendCiv } from '../src/gen/civ/extend';
 import { civOrStuck } from '../src/gen/civ/stuck';
-import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../src/gen/quickjs/sim';
 import { polityKey, type Intervention } from '../src/gen/edits';
 import { packValue, unpackValue } from '../src/gen/snapshot';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';

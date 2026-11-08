@@ -6,7 +6,7 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../src/gen/quickjs/sim';
 import { PLUGIN_FILE_EXT } from '../src/plugin/pluginFile';
 import { simProbe, stackProbe } from '../src/plugin/selfCheck/simProbe';
 import { SIM_PROBE_SUM, simRows, type Raw } from '../src/plugin/selfCheck/verdict';

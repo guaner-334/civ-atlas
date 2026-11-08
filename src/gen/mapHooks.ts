@@ -7,6 +7,7 @@ import type { Mesh } from './mesh';
 import { BIOMES } from './biomes';
 import { keyed, subSeed } from './util';
 import { KM_PER_UNIT } from './civ/scale';
+import { mapHelpers, type MapHelpers } from './mapHelpers';
 
 export type MapStage = 'height' | 'climate' | 'layers';
 
@@ -19,8 +20,8 @@ export const MAP_RANGE = {
   precipitation: [0, 15000],
 } as const;
 
-/** 三个口子都递的 */
-export interface MapShared {
+/** 三个口子都递的;帮手(噪声、平滑……)见 mapHelpers.ts */
+export interface MapShared extends MapHelpers {
   n: number;
   /** 纬度、经度(度) */
   lat: Float32Array;
@@ -126,6 +127,57 @@ export class MapPluginError extends Error {
 
 const STAGE_NAME: Record<MapStage, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
 
+/** 叫停线(毫秒):一口;一次生成里所有地图插件合计 */
+export const MAP_PLUGIN_TIME = { stage: 5000, total: 15_000 } as const;
+
+const sec = (ms: number) => (ms / 1000).toFixed(1);
+
+/**
+ * 一次生成里地图插件的用时,超了停在那一口。计时只决定停不停,不进世界;
+ * 一口超了算那一口的插件,加起来超了算用得最多的那个
+ */
+export class MapClock {
+  private readonly spent = new Map<string, number>();
+  private sum = 0;
+
+  /** now 不给 = performance.now(单测换成假的) */
+  constructor(readonly now: () => number = () => performance.now()) {}
+
+  spend(id: string, stage: MapStage, ms: number): void {
+    this.spent.set(id, (this.spent.get(id) ?? 0) + ms);
+    this.sum += ms;
+    if (ms > MAP_PLUGIN_TIME.stage) throw new MapPluginError(id, stage, `用了 ${sec(ms)} 秒,超过 ${sec(MAP_PLUGIN_TIME.stage)} 秒`);
+    if (this.sum > MAP_PLUGIN_TIME.total) {
+      let top = id;
+      for (const [k, v] of this.spent) if (v > this.spent.get(top)!) top = k;
+      throw new MapPluginError(top, stage, `到这一步所有地图插件一共用了 ${sec(this.sum)} 秒,超过 ${sec(MAP_PLUGIN_TIME.total)} 秒(它用得最多,${sec(this.spent.get(top)!)} 秒)`);
+    }
+  }
+}
+
+/** 一次生成用的这串插件,每一口的用时记进 clock(一次生成一个新的 clock) */
+export function timedMapPlugins(plugins: readonly MapPlugin[], clock = new MapClock()): MapPlugin[] {
+  return plugins.map((pl) => {
+    const timed =
+      <D, R>(stage: MapStage, fn: (d: D) => R) =>
+      (d: D): R => {
+        const t0 = clock.now();
+        const r = fn.call(pl, d);
+        clock.spend(pl.id, stage, clock.now() - t0);
+        return r;
+      };
+    return {
+      id: pl.id,
+      key: pl.key,
+      stages: pl.stages,
+      ...(pl.layerIds ? { layerIds: pl.layerIds } : {}),
+      ...(pl.height && pl.stages.includes('height') ? { height: timed('height', pl.height) } : {}),
+      ...(pl.climate && pl.stages.includes('climate') ? { climate: timed('climate', pl.climate) } : {}),
+      ...(pl.layers && pl.stages.includes('layers') ? { layers: timed('layers', pl.layers) } : {}),
+    };
+  });
+}
+
 /** 同一串插件:生成的缓存键、世界记的都是它 */
 export const mapPluginKeys = (plugins: readonly MapPlugin[]): string[] => plugins.map((p) => p.key);
 
@@ -165,6 +217,7 @@ function shared(mesh: Mesh, seed: number, pl: MapPlugin): MapShared {
     kmPerUnit: (mesh.width * KM_PER_UNIT) / (2 * Math.PI),
     seed,
     rand: (a = 0, b = 0, c = 0) => keyed(base, a, b, c),
+    ...mapHelpers(mesh, seed, pl.id),
   };
 }
 

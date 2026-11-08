@@ -12,6 +12,7 @@
  * 推演年数:推到最久(60000 年,有一组再叠一件地形大事),史事、国都、人口、信仰照样合法,名字里不冒数字。
  * 插件世界:装一个重的推演插件推 3000 年,推得完、官方历史和不装一样,打印插件多花多少时间(推演速度一样算进汇总);
  * 照接口写的两个插件以源码关进 QuickJS 推 3000 年,和直接跑逐位一样。
+ * 地图插件:三个测试插件以源码关进 QuickJS 一起开,生成 + 铺像素,和直接跑逐位一样,打印比不开插件多花多少。
  * 接着推:14 组随机自查(逐年推演随机推、随机下命令,和一口气推完逐字段相等,见 scripts/lib/resumeFuzz.ts);\n * 带地形大事的世界 6 组(大事那一刻接着推和一口气推完一样);不一样也退出码 1。
  * 规则项(src/gen/civ/tuning.ts,开放给用的人调的 70 项):每一项的两头各推一遍,全部拉到最左 / 最右各推一遍 ——
  * 推得完、NaN / Infinity 不进历史、编年史写得出、关掉的事一次也没有(见那一段)。
@@ -54,8 +55,10 @@ import { PLUGIN_TIME } from '../src/gen/civ/engine/plugin';
 import { fileURLToPath } from 'node:url';
 import { loadPlugin } from './lib/simPluginLoad';
 import { pluginScript, quickjsWasm } from './lib/quickjsNode';
-import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../src/gen/quickjs/sim';
+import { quickjsMapPlugin } from '../src/gen/quickjs/map';
 import { faithEffect, weariness } from '../tests/lib/simV1Plugins';
+import { craters, koppen, tides, withParams } from '../tests/lib/mapPlugins';
 
 /** 发展度:有文明就有;快照的年份递增、最后一份是结束那年,没有算坏的能力和物产;物产 0–3 档,眼下能用的不超过底子;大事的年份有序、时代、物产和国家编号在范围内 */
 function devBad(civ: ReturnType<typeof generateCiv>): number {
@@ -653,6 +656,53 @@ for (const seed of [7, 2024]) group(`{"插件世界":"经 QuickJS"} seed ${seed}
     '{"插件世界":"经 QuickJS"}', 'seed', seed,
     `文明 直接跑 ${Math.round(nativeMs)}ms 经 QuickJS ${Math.round(ms)}ms(多花 ${Math.round(ms - nativeMs)}ms,装插件 ${Math.round(t2 - t1)}ms,每秒 ${Math.round(DEFAULT_CIV_PARAMS.endYear / (ms / 1000))} 年)`,
     err ? `推不下去!${err}` : !same ? '和直接跑的不一样!' : '',
+  );
+});
+
+// ---- 地图插件 经 QuickJS:三个测试插件(环形山、柯本、潮汐)以源码关进 QuickJS 一起开,默认参数 生成 + 铺像素:长得出、
+// 和直接跑逐位一样、海拔气温降水径流没有 NaN、图层没有无穷大;另报生成比不开插件多花多少(先直接跑一遍热身,不算进耗时) ----
+for (const seed of [7, 2024]) group(`{"地图插件":"经 QuickJS"} seed ${seed}`, 8, async () => {
+  const P = { ...DEFAULT_PARAMS, seed };
+  const native = generateWorld(P, undefined, undefined, undefined, undefined, [withParams(craters(), { count: 40 }), withParams(koppen()), withParams(tides())]);
+  const t0 = performance.now();
+  generateWorld(P);
+  const t1 = performance.now();
+  const file = fileURLToPath(new URL('../tests/lib/mapPlugins.ts', import.meta.url));
+  const made = await Promise.all(
+    ([[craters(), 'craters()', { count: 40 }], [koppen(), 'koppen()', {}], [tides(), 'tides()', {}]] as const).map(([p, make, params]) =>
+      quickjsMapPlugin(quickjsWasm(), { id: p.id, key: p.key, code: pluginScript(file, make, 'map'), setup: { stages: p.stages, ...('layerIds' in p ? { layerIds: p.layerIds } : {}) }, params }),
+    ),
+  );
+  const t2 = performance.now();
+  let w: ReturnType<typeof generateWorld> | null = null;
+  let err = '';
+  let t3 = 0;
+  let t4 = 0;
+  try {
+    w = generateWorld(P, undefined, undefined, undefined, undefined, made);
+    t3 = performance.now();
+    rasterize(w, 1);
+    t4 = performance.now();
+  } catch (e) {
+    err = e instanceof Error ? e.message : String(e);
+  } finally {
+    made.forEach((p) => p.dispose());
+  }
+  const fields = (x: typeof native) => [x.elevation, x.water, x.biome, x.temperature, x.precipitation, x.flux, ...(x.mapLayers ?? []).map((l) => l.values)];
+  const same = !!w && Buffer.from(packValue(fields(w))).equals(Buffer.from(packValue(fields(native))));
+  let cn = 0;
+  if (w) {
+    for (const a of [w.elevation, w.temperature, w.precipitation, w.flux]) if (!a.every(Number.isFinite)) cn++;
+    for (const l of w.mapLayers ?? []) if (l.values.some((v) => v === Infinity || v === -Infinity)) cn++;
+    if ((w.mapLayers ?? []).length !== 2) cn++;
+  }
+  if (!w || !same || cn) process.exitCode = 1;
+  console.log(
+    '{"地图插件":"经 QuickJS"}', 'seed', seed,
+    w
+      ? `生成 不开插件 ${Math.round(t1 - t0)}ms 开了 ${Math.round(t3 - t2)}ms(插件多花 ${Math.round(t3 - t2 - (t1 - t0))}ms,装插件 ${Math.round(t2 - t1)}ms)铺像素 ${Math.round(t4 - t3)}ms`
+      : '',
+    err ? `长不出来!${err}` : !same ? '和直接跑的不一样!' : cn ? `NaN 或无穷大! ${cn}` : '',
   );
 });
 

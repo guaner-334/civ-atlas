@@ -1,4 +1,4 @@
-/** 浏览器里取 QuickJS 的 wasm(用到推演插件才下载;一个线程编译一次,失败了下次再试) */
+/** 浏览器里取 QuickJS 的 wasm(用到插件才下载;一个线程编译一次,失败了下次再试) */
 import url from '@jitl/quickjs-wasmfile-release-sync/wasm?url';
 
 let compiled: Promise<WebAssembly.Module> | null = null;

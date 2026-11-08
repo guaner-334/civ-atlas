@@ -3,7 +3,7 @@
  * 推到一半存下另装一份接着推和一口气推比;推不下去停在哪年。小卡上的几句话(ui/plugins/pluginText.ts)
  */
 import { beforeAll, describe, expect, it } from 'vitest';
-import { quickjsPlugin } from '../src/gen/civ/quickjs/plugin';
+import { quickjsPlugin } from '../src/gen/quickjs/sim';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { devTry } from '../src/plugin/devTry';
 import { openPluginFile, packPluginFile, type PluginPackInput } from '../src/plugin/pluginFile';

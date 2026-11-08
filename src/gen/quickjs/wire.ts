@@ -1,5 +1,5 @@
 /**
- * 推演线程和 QuickJS 之间递数据:结构走 JSON,JSON 表达不了的(类型化数组、-0、NaN、±Infinity、值是 undefined 的键)
+ * 生成、推演线程和 QuickJS 之间递数据:结构走 JSON,JSON 表达不了的(类型化数组、-0、NaN、±Infinity、值是 undefined 的键)
  * 在 JSON 里先写 null,另记一张补丁表(路径 → 换成什么),类型化数组的字节单独递。
  *
  * 补丁:[路径, 0, 类型名, 第几块字节] | [路径, 1, '-0' | 'NaN' | 'Infinity' | '-Infinity'] | [路径, 2](undefined);
@@ -48,7 +48,7 @@ const isPlain = (x: object) => {
 
 const replacer = (_k: string, x: unknown) => (x === undefined || ArrayBuffer.isView(x) || (typeof x === 'number' && specialOf(x) !== null) ? null : x);
 
-/** 推演线程这头打包(读口的结果、一回合);只认数、字、真假、null、undefined、数组、类型化数组、普通对象 */
+/** 线程这头打包(读口、帮手的结果,一回合、一口递进去的);只认数、字、真假、null、undefined、数组、类型化数组、普通对象 */
 export function toWire(v: unknown): Wire {
   const patches: Patch[] = [];
   const bufs: ArrayBuffer[] = [];
@@ -110,7 +110,7 @@ function slot(o: unknown, k: unknown): o is Record<Key, unknown> {
 }
 
 /**
- * 推演线程这头拆开 QuickJS 递回来的(插件的回话):照补丁换回去。QuickJS 那头是插件能动的,
+ * 线程这头拆开 QuickJS 递回来的(插件的回话、调帮手的参数):照补丁换回去。QuickJS 那头是插件能动的,
  * 补丁表、字节一律当不可信的核对:路径只走 JSON 读出来的自己的键,换的时候直接定义成自己的属性
  */
 export function fromWire(w: Wire): unknown {
