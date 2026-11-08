@@ -51,6 +51,7 @@ export function startCiv(world: World, params: Partial<CivParams> = {}, progress
  * 有地形大事的世界、要推的年份不比 civ 晚的,照常从第 0 年整段重推(结果一样,只是不省时间)。
  * params.interventions(不给 = civ 推出来时带着的):可以是 civ 的干预后面接上几条比 civ.endYear 晚才生效的(逐年推演时下的新命令,play.ts),
  * 接着推的结果和带着它们一口气推完一样;不是这样接上的(改了、删了早先的干预)照常整段重推。
+ * 推演插件下过命令的:给作者的干预就行(带不带插件的命令都行,命令不当输入);作者新加了干预照常整段重推(新加的要排在命令前面)。
  * 返回的是生成出来的名字:用户改过的名字(gen/edits.ts 的 applyNames)不在 Civ 里随推演走,照常在结果上再套一遍。
  * params.knobs(这个世界的一套数)不给 = civ 带着的那一套(接得上、从第 0 年重推都按它;见 continueParams)。
  * 传进来的 civ 不改(worker 留着它,下次再推还从它接着推)

@@ -72,7 +72,7 @@ export class Influences {
     const fail = (what: string): never => {
       throw new PluginError(plugin, what);
     };
-    if (v === null || typeof v !== 'object' || Array.isArray(v)) fail('回话里的 outputs 要是一个对象');
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) fail('回话里的 influences 要是一个对象');
     for (const [id, x] of Object.entries(v as Record<string, unknown>)) {
       const p = this.points.get(id);
       if (!p || !this.wants[slot]?.has(id)) fail(`没有登记交给影响口 ${id}`);
@@ -148,12 +148,12 @@ export class Influences {
  * 照几个插件接的口建好这段推演的影响口(装模块、接着推的模块以前建:决策点按有没有插件接来定算法);
  * 没有插件接任何口 = null。插件写的口名不对、重复的,抛 PluginError
  */
-export function influencesFor(points: readonly InfluencePoint[], plugins: readonly { readonly id: string; readonly outputs?: readonly string[] }[], R: number): Influences | null {
+export function influencesFor(points: readonly InfluencePoint[], plugins: readonly { readonly id: string; readonly influences?: readonly string[] }[], R: number): Influences | null {
   const known = new Set(points.map((p) => p.id));
   let any = false;
   const wants = plugins.map((pl) => {
-    const outs = pl.outputs ?? [];
-    if (!Array.isArray(outs) || outs.length > points.length) throw new PluginError(pl.id, `outputs 要是不超过 ${points.length} 个影响口的名字`);
+    const outs = pl.influences ?? [];
+    if (!Array.isArray(outs) || outs.length > points.length) throw new PluginError(pl.id, `influences 要是不超过 ${points.length} 个影响口的名字`);
     const seen = new Set<string>();
     for (const id of outs) {
       if (typeof id !== 'string' || !known.has(id)) throw new PluginError(pl.id, `没有影响口 ${String(id)}`);

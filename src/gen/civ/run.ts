@@ -10,7 +10,7 @@ import { quantize, type CivSim, type EngineState } from './engine/sim';
 import { finishModules, installModules, packSim, partialModules, restorePackSim, resumeModules, type RulePack } from './engine/pack';
 import type { KnobSet, KnobValue } from './engine/knobs';
 import { knobSet, sameKnobs } from './knobs';
-import { YEAR_TICKS, cleanInterventions, sameInterventions, type Intervention } from '../edits';
+import { YEAR_TICKS, cleanInterventions, isCommand, sameInterventions, type Intervention } from '../edits';
 import type { UpheavalStep } from './upheaval';
 import type { FinishCtx, InstallCtx, ResumeCtx } from './modules';
 import { PluginClock, PluginError, PluginLine, answerNow, type PluginAsk, type PluginBridge, type PluginReply, type SimPlugin } from './engine/plugin';
@@ -459,6 +459,17 @@ function extends_(had: readonly Intervention[], next: readonly Intervention[], e
   return next.slice(had.length).every((v) => quantize(v.from + (v.fromTick ?? 0) / YEAR_TICKS) > endYear);
 }
 
+/**
+ * 接着推带的干预:给的里面推演插件的命令不当输入(和从第 0 年推一样)。推演插件下过命令的历史,作者的那几条要和 had 里的一样,接着用 had;
+ * 作者新加了几条 = null:新加的得排在命令前面,史事里记的命令下标跟着变,只能从第 0 年重推
+ */
+function withCommands(had: readonly Intervention[], given: readonly Intervention[]): readonly Intervention[] | null {
+  const asked = given.some(isCommand) ? given.filter((v) => !isCommand(v)) : given;
+  if (!had.some(isCommand)) return asked;
+  const mine = had.filter((v) => !isCommand(v));
+  return asked.length === mine.length && sameInterventions(mine, asked) ? had : null;
+}
+
 /** civ 记着的推演插件和这次给的一一对上(编号、先后),状态都停在 civ.endYear */
 function samePlugins(plugins: readonly SimPlugin<SimRead>[], civ: Civ): boolean {
   const saved = civ.simPlugins ?? [];
@@ -469,7 +480,7 @@ function samePlugins(plugins: readonly SimPlugin<SimRead>[], civ: Civ): boolean 
 export function continuePack<S>(pack: CivPack<S>, world: World, civ: Civ, params: Partial<CivParams> = {}, progress: Progress = () => {}): Continuation | null {
   const p: CivParams = { ...DEFAULT_CIV_PARAMS, ...params };
   const had = civ.interventions ?? [];
-  const list = params.interventions === undefined ? had : cleanInterventions(params.interventions);
+  const list = params.interventions === undefined ? had : withCommands(had, cleanInterventions(params.interventions));
   // 一套数:不给 = civ 带着的那一套;给了另一套就接不上(接着推照 civ 带着的那套算)
   const sameSet = params.knobs === undefined || sameKnobs(params.knobs, civ.knobs, pack.knobs);
   if (
@@ -480,6 +491,7 @@ export function continuePack<S>(pack: CivPack<S>, world: World, civ: Civ, params
     civ.upheavals?.length ||
     p.upheavals?.length ||
     !(p.endYear > civ.endYear) ||
+    !list ||
     !extends_(had, list, civ.endYear) ||
     !samePlugins(p.plugins ?? [], civ)
   )

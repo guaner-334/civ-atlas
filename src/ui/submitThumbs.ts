@@ -1,14 +1,16 @@
 /** 投稿的小图:服务器不给投稿的封面,只能投的时候在这台设备上记下(按账号分开) */
 import { getSession } from '../account/session';
 import { coverUrl } from '../account/gallery';
+import { serverBase } from '../account/server';
 import type { Submission } from '../account/submissions';
 import type { SubmitWork } from './submitView';
 
 const KEY = 'civ-atlas:submit-thumbs';
 /** 最多记几件(我的投稿最多列 20 件) */
 const KEEP = 30;
-const W = 112;
-const H = 56;
+const WIDE_W = 112;
+const WIDE_H = 56;
+const ICON = 60;
 
 type Saved = Record<string, string>;
 
@@ -25,8 +27,10 @@ const userKey = () => {
   return s ? String(s.user.id || s.user.account) : '';
 };
 
-/** 缩成 112×56(照 2:1 裁中间);读不出图 = null */
-function shrink(src: string): Promise<string | null> {
+/** 缩成 112×56(照 2:1 裁中间),插件图标缩成 60×60;读不出图 = null */
+function shrink(src: string, square: boolean): Promise<string | null> {
+  const W = square ? ICON : WIDE_W;
+  const H = square ? ICON : WIDE_H;
   return new Promise((done) => {
     const img = new Image();
     img.onload = () => {
@@ -40,18 +44,18 @@ function shrink(src: string): Promise<string | null> {
       const sh = r > W / H ? img.naturalHeight : img.naturalWidth / (W / H);
       x.imageSmoothingQuality = 'high';
       x.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, 0, 0, W, H);
-      done(c.toDataURL('image/jpeg', 0.8));
+      done(square ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.8));
     };
     img.onerror = () => done(null);
     img.src = src;
   });
 }
 
-/** 投好了:记下这一件的小图 */
-export async function keepSubmitThumb(id: number, src: string | null): Promise<void> {
+/** 投好了:记下这一件的小图(square = 插件图标) */
+export async function keepSubmitThumb(id: number, src: string | null, square = false): Promise<void> {
   if (!src) return;
   const user = userKey();
-  const small = await shrink(src);
+  const small = await shrink(src, square);
   if (!small || !user) return;
   const all = { ...read() };
   const k = `${user}:${id}`;
@@ -66,8 +70,12 @@ export async function keepSubmitThumb(id: number, src: string | null): Promise<v
   }
 }
 
-/** 「我的投稿」那一行的小图:上了墙的用作品墙的封面,别的用这台设备上记下的;都没有 = null */
-export function submitThumb(s: Pick<Submission, 'id' | 'status' | 'workId'>): string | null {
+/** 「我的投稿」那一行的小图:上了墙的用作品墙的封面,别的用这台设备上记下的;插件用图标,这台设备上记下的优先;都没有 = null */
+export function submitThumb(s: Pick<Submission, 'id' | 'status' | 'workId' | 'kind'>): string | null {
+  if (s.kind === 'plugin') {
+    const base = serverBase();
+    return read()[`${userKey()}:${s.id}`] ?? (s.workId && base ? `${base}/v1/gallery/${encodeURIComponent(s.workId)}/icon` : null);
+  }
   if (s.status === 'live' && s.workId) {
     const u = coverUrl(s.workId);
     if (u) return u;

@@ -242,6 +242,11 @@ export class FaithSim {
     return this.rootArr[f];
   }
 
+  /** 到眼下有过的信仰(下标 = 信仰编号;只读) */
+  get list(): readonly Faith[] {
+    return this.faiths;
+  }
+
   /** 国家 p 眼下的国教(−1 = 没有) */
   stateFaith(p: number): number {
     return p >= 0 && p < this.stateOf.length ? this.stateOf[p] : -1;

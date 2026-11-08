@@ -118,11 +118,11 @@ describe('影响口:没有插件接时照原来的算', () => {
       const base = generateCiv(w, params);
       const n = generateCiv(w, { ...params, plugins: [steady('neutral', NEUTRAL)] });
       sameBytes(official(n), base, `${seed} 不影响的数`);
-      expect(Object.keys(n.simPlugins![0].outputs!).sort()).toEqual(Object.keys(NEUTRAL).sort());
-      const silent: SimPlugin<SimRead> = { id: 'silent', every: 100, outputs: ['city.capacity', 'dev.rate', 'control.reach', 'war.power', 'plague.loss'], act: () => {} };
+      expect(Object.keys(n.simPlugins![0].influences!).sort()).toEqual(Object.keys(NEUTRAL).sort());
+      const silent: SimPlugin<SimRead> = { id: 'silent', every: 100, influences: ['city.capacity', 'dev.rate', 'control.reach', 'war.power', 'plague.loss'], act: () => {} };
       const s = generateCiv(w, { ...params, plugins: [silent] });
       sameBytes(official(s), base, `${seed} 不交数`);
-      expect(s.simPlugins![0].outputs).toBeUndefined();
+      expect(s.simPlugins![0].influences).toBeUndefined();
     }
   }, 120_000);
 
@@ -141,7 +141,7 @@ describe('影响口:没有插件接时照原来的算', () => {
     sameBytes(official(generateCiv(w, { endYear: 1000, plugins: [steady('a', { 'city.capacity': 3 }), steady('b', { 'city.capacity': 3 })] })), four, '3 × 3');
     const nine = generateCiv(w, { endYear: 1000, plugins: [steady('nine', { 'city.capacity': 9 })] });
     sameBytes(official(nine), four, '9');
-    expect(nine.simPlugins![0].outputs!['city.capacity'].every((x) => x === 4)).toBe(true);
+    expect(nine.simPlugins![0].influences!['city.capacity'].every((x) => x === 4)).toBe(true);
   }, 60_000);
 });
 
@@ -235,7 +235,7 @@ describe('影响口:分段推、存下接着推都和一口气推完一样', () 
     const w = worldOf(7);
     const plugins = [sway()];
     const one = generateCiv(w, { plugins });
-    expect(Object.keys(one.simPlugins![0].outputs!).length).toBe(12);
+    expect(Object.keys(one.simPlugins![0].influences!).length).toBe(12);
     for (const at of [1500, 1507.5]) {
       const saved = roundTrip(generateCiv(w, { plugins, endYear: at }));
       const run = startContinue(w, saved, { plugins });
@@ -265,15 +265,15 @@ describe('影响口:存进世界、写错了', () => {
     const c = generateCiv(worldOf(2024), { endYear: 300, plugins: [sway()] });
     const s = c.simPlugins![0];
     expect(() => validateSimState(roundTrip(c).simPlugins![0], 'sway')).not.toThrow();
-    const o = s.outputs!;
-    const bad = (outputs: unknown, hint: string) => expect(() => validateSimState({ ...s, outputs }, 'sway'), hint).toThrow(WorldFileError);
+    const o = s.influences!;
+    const bad = (influences: unknown, hint: string) => expect(() => validateSimState({ ...s, influences }, 'sway'), hint).toThrow(WorldFileError);
     bad({ ...o, 'magic.power': new Float64Array(3) }, '口名');
     bad({ ...o, 'city.capacity': new Float64Array(o['city.capacity'].length).fill(5) }, '超出上下限');
     bad({ ...o, 'dev.rate': new Float64Array(7).fill(1) }, '格数');
     bad({ ...o, 'unrest.add': Array.from(o['unrest.add']) }, '不是数组');
     // 存下的几栏和插件现在接的口对不上:接不上,从第 0 年重推
     const saved = roundTrip(c);
-    const fewer: SimPlugin<SimRead> = { ...sway(), outputs: sway().outputs!.filter((x) => x !== 'dev.rate') };
+    const fewer: SimPlugin<SimRead> = { ...sway(), influences: sway().influences!.filter((x) => x !== 'dev.rate') };
     expect(startContinue(worldOf(2024), saved, { endYear: 400, plugins: [fewer] })).toBeNull();
     expect(startContinue(worldOf(2024), saved, { endYear: 400, plugins: [sway()] })).not.toBeNull();
   }, 60_000);
@@ -281,14 +281,14 @@ describe('影响口:存进世界、写错了', () => {
   it('写错了:没有的口、写了两次、回话里交了没登记的口、格数不对、不是有限的数、问没登记的口', () => {
     const w = worldOf(7);
     const bad = (p: SimPlugin<SimRead>) => () => generateCiv(w, { endYear: 60, plugins: [p] });
-    expect(bad({ id: 'nope', outputs: ['magic.power'], act: () => {} })).toThrow(/没有影响口/);
-    expect(bad({ id: 'twice', outputs: ['dev.rate', 'dev.rate'], act: () => {} })).toThrow(/两次/);
+    expect(bad({ id: 'nope', influences: ['magic.power'], act: () => {} })).toThrow(/没有影响口/);
+    expect(bad({ id: 'twice', influences: ['dev.rate', 'dev.rate'], act: () => {} })).toThrow(/两次/);
     const cases: [SimPlugin<SimRead>, RegExp][] = [
-      [{ id: 'undeclared', every: 20, outputs: ['city.capacity'], act: (t) => ({ outputs: { 'rural.capacity': t.output('city.capacity') } }) }, /没有登记/],
-      [{ id: 'none', every: 20, act: () => ({ outputs: { 'city.capacity': [1] } }) }, /没有登记/],
-      [{ id: 'short', every: 20, outputs: ['dev.rate'], act: (t) => ({ outputs: { 'dev.rate': t.output('dev.rate').subarray(1) } }) }, /要交/],
-      [{ id: 'nan', every: 20, outputs: ['unrest.add'], act: (t) => ({ outputs: { 'unrest.add': t.output('unrest.add').fill(NaN) } }) }, /有限/],
-      [{ id: 'ask', every: 20, outputs: ['unrest.add'], act: (t) => void t.output('dev.rate') }, /没有登记/],
+      [{ id: 'undeclared', every: 20, influences: ['city.capacity'], act: (t) => ({ influences: { 'rural.capacity': t.influence('city.capacity') } }) }, /没有登记/],
+      [{ id: 'none', every: 20, act: () => ({ influences: { 'city.capacity': [1] } }) }, /没有登记/],
+      [{ id: 'short', every: 20, influences: ['dev.rate'], act: (t) => ({ influences: { 'dev.rate': t.influence('dev.rate').subarray(1) } }) }, /要交/],
+      [{ id: 'nan', every: 20, influences: ['unrest.add'], act: (t) => ({ influences: { 'unrest.add': t.influence('unrest.add').fill(NaN) } }) }, /有限/],
+      [{ id: 'ask', every: 20, influences: ['unrest.add'], act: (t) => void t.influence('dev.rate') }, /没有登记/],
     ];
     for (const [p, msg] of cases) {
       let err: unknown;

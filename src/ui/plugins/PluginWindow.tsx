@@ -1,17 +1,21 @@
 /**
- * 插件页:装了哪些、开关、能拿到什么、删除;从文件装(查文件 → 权限框 → 装上)。
+ * 插件页:装了哪些、开关、能拿到什么、删除、投到作品墙;从文件装(查文件 → 权限框 → 装上)。
  * 电脑是居中的窗,左边列表右边详情;手机是从下面升起的一页,点一行进详情。
  * 权限框和装不上的说明换掉插件页显示,关掉回到插件页。
  * 开发者模式打开以后多一个「载入正在写的插件…」:选了文件就收起插件页,载入、权限框、日志都在地图左下角的小卡(DevCard.tsx)。
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
+import { PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
-import { installPlugin, listPlugins, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
+import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
+import { openSubmitDialog } from '../AccountDialogs';
 import { isCoarse } from '../device';
 import { Icon, type IconName } from '../icons';
 import { showToast } from '../toastStore';
+import { askPhone, phoneRequired, submitBan, useSubmitOn } from '../submitView';
+import { knownAuthOptions } from '../../account/session';
+import { pluginSubmitOn } from '../submitPlugin';
 import { loadDev, pickDevFile, setDevMode, useDevMode, type DevAsk } from './dev';
 import { addedLines, addsRows, askByLine, dayText, moreText, pageByLine, toolWhere, versionLabel, versionText } from './pluginText';
 import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
@@ -40,6 +44,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const picking = useRef<'install' | 'dev'>('install');
   const dev = useDevMode();
   const icons = useIcons(list);
+  // 登录、服务器的选项变了都会重画(useSubmitOn 盯着)
+  const submitOn = useSubmitOn(true) && pluginSubmitOn(knownAuthOptions()?.features);
 
   const reload = async (pick?: string) => {
     const l = await listPlugins().catch(() => [] as InstalledPlugin[]);
@@ -110,6 +116,32 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     await reload();
   };
 
+  /** 投到作品墙:交的就是装着的这一份文件 */
+  const submit = async (p: InstalledPlugin) => {
+    const bytes = await pluginFileBytes(p.current.sum).catch(() => null);
+    if (!bytes) return showToast({ id: 'plugins', kind: 'error', text: '没读到这个插件的文件', more: ['从文件再装一次再投'] });
+    const m = p.current.manifest;
+    const go = () =>
+      openSubmitDialog({
+        kind: 'plugin',
+        plugin: {
+          id: m.id,
+          name: m.name,
+          version: m.version,
+          sum: p.current.sum,
+          file: p.current.file ?? `${m.id}${PLUGIN_FILE_EXT}`,
+          bytes,
+          license: m.license,
+          description: m.description ?? '',
+          icon: icons.get(p.current.sum) ?? null,
+          lines: permissionLines(m).map((l) => l.key),
+          capLines: Object.fromEntries(PLUGIN_CAPS),
+        },
+      });
+    if (!submitBan() && phoneRequired()) askPhone({ for: 'submit', then: go });
+    else go();
+  };
+
   const pick = () => {
     picking.current = 'install';
     fileRef.current?.click();
@@ -149,7 +181,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   else if (ask?.kind === 'update') body = <UpdateBox ask={ask} phone={phone} icon={icons.get(ask.old.current.sum)} busy={busy} onCancel={back} onOk={() => void install(ask)} />;
   else {
     mode = 'page';
-    const props = { list, cur, icons, busy, dev, onPick: pick, onPickDev: () => void pickDev(), onSel: setSel, onToggle: toggle, onRemove: remove, onClose };
+    const onSubmit = submitOn ? (p: InstalledPlugin) => void submit(p) : null;
+    const props = { list, cur, icons, busy, dev, onPick: pick, onPickDev: () => void pickDev(), onSel: setSel, onToggle: toggle, onRemove: remove, onSubmit, onClose };
     body = phone ? <PhonePage {...props} detail={detail} onDetail={setDetail} /> : <DeskPage {...props} />;
   }
   return createPortal(
@@ -181,7 +214,8 @@ function useEscape(f: () => void) {
   latest.current = f;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      // 上面盖着投稿窗这些账号的窗时,Esc 只关那个窗
+      if (e.key !== 'Escape' || document.querySelector('.acct-bg')) return;
       e.stopPropagation();
       latest.current();
     };
@@ -307,6 +341,8 @@ interface PageProps {
   onSel: (id: string) => void;
   onToggle: (id: string, on: boolean) => void;
   onRemove: (id: string) => void;
+  /** 投到作品墙;没登录、服务器不收插件 = null */
+  onSubmit: ((p: InstalledPlugin) => void) | null;
   onClose: () => void;
 }
 
@@ -345,7 +381,7 @@ function ItemText({ p, v }: { p: InstalledPlugin; v: PluginVerdict }) {
   );
 }
 
-function DeskPage({ list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onClose }: PageProps) {
+function DeskPage({ list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose }: PageProps) {
   return (
     <div className="plg-page" role="dialog" aria-modal="true" aria-label="插件" data-testid="plugin-page">
       <div className="plg-page-h">
@@ -381,19 +417,39 @@ function DeskPage({ list, cur, icons, busy, dev, onPick, onPickDev, onSel, onTog
             <DevRow on={dev} />
           </div>
         </div>
-        <div className="plg-rcol">{cur ? <Detail p={cur} icon={icons.get(cur.current.sum)} onToggle={onToggle} onRemove={onRemove} /> : list && <Empty />}</div>
+        <div className="plg-rcol">{cur ? <Detail p={cur} icon={icons.get(cur.current.sum)} onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} /> : list && <Empty />}</div>
       </div>
     </div>
   );
 }
 
-function Detail({ p, icon, phone, onToggle, onRemove }: { p: InstalledPlugin; icon: string | null | undefined; phone?: boolean; onToggle: PageProps['onToggle']; onRemove: PageProps['onRemove'] }) {
+function Detail({
+  p,
+  icon,
+  phone,
+  onToggle,
+  onRemove,
+  onSubmit,
+}: {
+  p: InstalledPlugin;
+  icon: string | null | undefined;
+  phone?: boolean;
+  onToggle: PageProps['onToggle'];
+  onRemove: PageProps['onRemove'];
+  onSubmit: PageProps['onSubmit'];
+}) {
   const m = p.current.manifest;
   const v = verdictOf(p.current.sum);
   const ops = (
     <div className="plg-ops">
       <Switch on={p.on && !v.blocked} disabled={!!v.blocked} label={m.name} onChange={(on) => onToggle(p.id, on)} />
       {p.on && !v.blocked ? '开着' : '关着'}
+      {onSubmit && !v.reviewed && !v.blocked && (
+        <button className="plg-btn sm" data-act="plugin-submit" onClick={() => onSubmit(p)}>
+          <Icon name="export" size={14} />
+          投到作品墙…
+        </button>
+      )}
       <button className="plg-btn sm red" data-act="plugin-remove" onClick={() => onRemove(p.id)}>
         <Icon name="trash" size={14} />
         删除
@@ -458,7 +514,7 @@ function Detail({ p, icon, phone, onToggle, onRemove }: { p: InstalledPlugin; ic
 }
 
 function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean) => void }) {
-  const { list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onClose, detail, onDetail } = props;
+  const { list, cur, icons, busy, dev, onPick, onPickDev, onSel, onToggle, onRemove, onSubmit, onClose, detail, onDetail } = props;
   if (detail && cur)
     return (
       <div className="plg-page" role="dialog" aria-modal="true" aria-label={cur.current.manifest.name} data-testid="plugin-page">
@@ -471,7 +527,7 @@ function PhonePage(props: PageProps & { detail: boolean; onDetail: (on: boolean)
           <CloseBtn onClose={onClose} round />
         </div>
         <div className="plg-pscroll">
-          <Detail p={cur} icon={icons.get(cur.current.sum)} phone onToggle={onToggle} onRemove={onRemove} />
+          <Detail p={cur} icon={icons.get(cur.current.sum)} phone onToggle={onToggle} onRemove={onRemove} onSubmit={onSubmit} />
         </div>
       </div>
     );

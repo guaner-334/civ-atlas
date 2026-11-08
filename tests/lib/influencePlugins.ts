@@ -39,26 +39,26 @@ export function parity(id: string, point: Point, even: number, odd: number, ever
   return {
     id,
     every,
-    outputs: [point],
+    influences: [point],
     act(turn) {
-      const v = turn.output(point);
+      const v = turn.influence(point);
       for (let p = 0; p < v.length; p++) v[p] = p % 2 ? odd : even;
-      return { outputs: { [point]: v } };
+      return { influences: { [point]: v } };
     },
   };
 }
 
 /** 每 every 年往给的几个口交同一个数(每格都一样) */
 export function steady(id: string, vals: Partial<Record<Point, number>>, every = 20): SimPlugin<SimRead> {
-  const outputs = Object.keys(vals) as Point[];
+  const influences = Object.keys(vals) as Point[];
   return {
     id,
     every,
-    outputs,
+    influences,
     act(turn) {
       const out: Record<string, Float64Array> = {};
-      for (const k of outputs) out[k] = turn.output(k).fill(vals[k]!);
-      return { outputs: out };
+      for (const k of influences) out[k] = turn.influence(k).fill(vals[k]!);
+      return { influences: out };
     },
   };
 }
@@ -72,20 +72,20 @@ export function sway(id = 'sway'): SimPlugin<SimRead> {
   return {
     id,
     every: 20,
-    outputs: ['city.capacity', 'rural.capacity', 'unrest.add', 'dev.rate', 'assim.rate', 'control.reach', 'war.odds', 'war.power', 'split.odds', 'dynasty.odds', 'plague.odds', 'plague.loss'],
+    influences: ['city.capacity', 'rural.capacity', 'unrest.add', 'dev.rate', 'assim.rate', 'control.reach', 'war.odds', 'war.power', 'split.odds', 'dynasty.odds', 'plague.odds', 'plague.loss'],
     tables: [{ id: 'magic', name: '魔力', unit: 'region', every: 5, min: 0, max: 100, init: '100 * rand()', off: 0, rate: '0.02 * (nbmean(nb.magic) - magic) + 0.002 * (50 - magic)' }],
     act(turn) {
       const m = turn.table('magic');
       const R = m.length;
-      const city = turn.output('city.capacity');
-      const rural = turn.output('rural.capacity');
-      const unrest = turn.output('unrest.add');
-      const dev = turn.output('dev.rate');
-      const assim = turn.output('assim.rate');
-      const reach = turn.output('control.reach');
-      const plague = turn.output('plague.odds');
-      const loss = turn.output('plague.loss');
-      const byPolity = (['war.odds', 'war.power', 'split.odds', 'dynasty.odds'] as const).map((k) => turn.output(k));
+      const city = turn.influence('city.capacity');
+      const rural = turn.influence('rural.capacity');
+      const unrest = turn.influence('unrest.add');
+      const dev = turn.influence('dev.rate');
+      const assim = turn.influence('assim.rate');
+      const reach = turn.influence('control.reach');
+      const plague = turn.influence('plague.odds');
+      const loss = turn.influence('plague.loss');
+      const byPolity = (['war.odds', 'war.power', 'split.odds', 'dynasty.odds'] as const).map((k) => turn.influence(k));
       for (let r = 0; r < R; r++) {
         const x = Math.min(1, Math.max(0, m[r] / 100 + (turn.rand(r, turn.year * 256, 2) - 0.5) / 5));
         city[r] = 0.6 + 2 * x;
@@ -105,7 +105,7 @@ export function sway(id = 'sway'): SimPlugin<SimRead> {
       const at = turn.tick ? [{ year: turn.year + 7 + 37 / 256, kind: 1 }] : [];
       const [odds, power, split, dynasty] = byPolity;
       return {
-        outputs: {
+        influences: {
           'city.capacity': city,
           'rural.capacity': rural,
           'unrest.add': unrest,

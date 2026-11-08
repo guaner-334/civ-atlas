@@ -12,7 +12,10 @@ import { controlModelOf } from '../src/gen/civ/control';
 import { devModelOf } from '../src/gen/civ/development';
 import { ideoModelOf } from '../src/gen/civ/ideology';
 import { capitalAt, populationAt } from '../src/gen/civ/growth';
-import { faithAt } from '../src/gen/civ/religion';
+import { faithAt, stateFaithAt } from '../src/gen/civ/religion';
+import { courtRulesAt } from '../src/gen/civ/council';
+import { dynastyIndexAt } from '../src/gen/civ/polityRoot';
+import { reformedSeg, segRegime } from '../src/gen/civ/regime';
 import { OFFICIAL_NAMES, officialUnit, simRead, type SimRead } from '../src/gen/civ/simRead';
 
 import { CIV_MODULES, OFFICIAL_PACK, resumeCiv, type CivModule } from '../src/gen/civ/modules';
@@ -41,6 +44,7 @@ function readAll(v: SimRead) {
     polities: v.polities(),
     settlements: v.settlements(),
     cultures: v.cultures(),
+    faiths: v.faiths(),
     official: OFFICIAL_NAMES.map((n) => v.official(n)),
     annals: v.annals(from),
   };
@@ -143,6 +147,7 @@ describe('读口 sim.read@1', () => {
       civ.cultures.map((c) => [c.id, c.kind, c.hearth, c.born, c.ended, c.parent]),
     );
 
+
     // 官方表:每个稳定名字都找得到、单位和卡上的一样,值就是总登记里那一栏
     const dm = devModelOf(sim)!;
     for (const name of OFFICIAL_NAMES) {
@@ -161,6 +166,24 @@ describe('读口 sim.read@1', () => {
     expect(v.annals(800, 850)).toEqual(pick(800, 850));
     expect(v.annals(850)).toEqual(pick(850, 900));
     expect(v.annals(901)).toEqual([]);
+  });
+
+  it.each(SEEDS)('国教、政体、议政、有过的信仰和推演此刻一样(第 2400 年,seed %i)', (seed) => {
+    const w = world(seed);
+    const civ = generateCiv(w, { endYear: 2400 });
+    const v = simRead(resumeCiv(w, civ))!;
+    const ps = v.polities();
+    for (const p of ps) {
+      const P = civ.polities[p.id];
+      const seg = dynastyIndexAt(P, 2400);
+      expect([p.regime, p.reformed, p.charter], `国 ${p.id} 的政体`).toEqual([segRegime(P, seg), reformedSeg(P, seg), courtRulesAt(civ, p.id, 2400).charter]);
+      expect(p.faith, `国 ${p.id} 的国教`).toBe(stateFaithAt(civ.religion, p.id, 2400)?.faith ?? -1);
+    }
+    expect(ps.some((p) => p.faith >= 0 && p.size > 0)).toBe(true);
+    expect(v.faiths().map((f) => [f.id, f.kind, f.culture, f.parent, f.founded, f.holy])).toEqual(
+      civ.religion!.faiths.map((f) => [f.id, f.kind, f.culture, f.parent, f.founded, f.holy]),
+    );
+    expect(v.faiths().some((f) => f.kind === 'great' && f.holy !== undefined)).toBe(true);
   });
 
   it('推演中途读的就是此刻:读口上的年份、归属跟着推演走', () => {

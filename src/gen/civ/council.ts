@@ -272,6 +272,8 @@ export type CouncilKnobs = typeof COUNCIL_KNOBS.values;
 export interface CouncilModel {
   /** 国家 p 此刻的规矩(没议过 = 原样) */
   rules: (p: number) => { tax: number; fief: boolean; army: number; office: number };
+  /** 国家 p 此刻的议政(Rules.charter:0 君主独断、1 议事会、2 议会) */
+  charter: (p: number) => number;
 }
 
 const models = new WeakMap<CivSim, CouncilModel>();
@@ -382,6 +384,7 @@ function hook(sim: CivSim, seed: number, book: Map<number, Rules>): CouncilModel
       const r = book.get(p);
       return { tax: r?.tax ?? 0, fief: r?.fief !== undefined, army: r?.army ?? 0, office: r?.office ?? 0 };
     },
+    charter: (p) => book.get(p)?.charter ?? 0,
   };
   models.set(sim, model);
 
