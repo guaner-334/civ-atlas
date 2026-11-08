@@ -8,7 +8,7 @@ const RAMP = { colors: ['#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '
 (async () => {
   const { to } = await civAtlas.history.span();
   // 一份几格 = 州数(不给年份时列的是全部的州,地形大事以后才有的州也算)
-  const count = (await civAtlas.history.regions()).length;
+  const count = (await civAtlas.history.regions({})).length;
   const years = [];
   for (let y = 0; y <= to; y += EVERY) years.push(y);
   if (Math.floor(to) > years[years.length - 1]) years.push(Math.floor(to));

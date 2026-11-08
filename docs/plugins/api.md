@@ -325,7 +325,7 @@ civAtlas.on('panel.action', ({ id, value }) => {
 
 ```js
 const { to } = await civAtlas.history.span();
-const n = (await civAtlas.history.regions()).length; // 州数
+const n = (await civAtlas.history.regions({})).length; // 州数
 const years = [];
 for (let y = 0; y <= to; y += 50) years.push(y);
 const values = new Float32Array(years.length * n).fill(NaN);
