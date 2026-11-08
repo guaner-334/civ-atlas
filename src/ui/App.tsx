@@ -805,6 +805,8 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       regenRef.current = null;
       setTerrainStatus((s) => ({ ...s, busy: false }));
       setProgress(null);
+      // 这一笔还在修改里,地图是上一笔的:撤销或重新长以前不能存、不能建
+      setMapFail({ ...failOf(), quiet: true });
       showToast({
         id: 'map-fail',
         kind: 'warn',

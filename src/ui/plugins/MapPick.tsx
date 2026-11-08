@@ -35,6 +35,8 @@ export interface MapPickProps {
   onChange: () => void;
   /** 电脑:右上收起侧栏 */
   onCollapse?: () => void;
+  /** 新建中的世界(长不出地图时 currentWorld() 是空的,照这个认) */
+  worldId?: string;
 }
 
 const MAX = MAP_PICK_MAX;
@@ -46,9 +48,9 @@ function offTag(c: Off): string {
   return '你没装';
 }
 
-export function MapPick({ phone, onBack, onChange, onCollapse }: MapPickProps) {
-  // 选了以后星球在重新长,那会儿 currentWorld() 是空的:记着进来时的世界
-  const idRef = useRef(currentWorld()?.id);
+export function MapPick({ phone, onBack, onChange, onCollapse, worldId: given }: MapPickProps) {
+  // 选了以后星球在重新长、长不出来,那会儿 currentWorld() 是空的:记着进来时的世界
+  const idRef = useRef(currentWorld()?.id ?? given);
   idRef.current = currentWorld()?.id ?? idRef.current;
   const worldId = idRef.current;
   const [installed, setInstalled] = useState<InstalledPlugin[] | null>(null);

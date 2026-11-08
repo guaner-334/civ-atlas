@@ -18,6 +18,8 @@ export interface MapFail {
   /** 合计算太久:到那时每一口各用了多久(按先后;名字换成给人看的) */
   spent?: { id: string; name: string; stage: MapStage; ms: number }[];
   seed: number;
+  /** 改地形涂的一笔长不出来:卡先不放(顶上一条说了),「保存地图」「创建」照样灰着,撤销这一笔或重新长才放开;点「看看」才放卡 */
+  quiet?: boolean;
 }
 
 let now: MapFail | null = null;

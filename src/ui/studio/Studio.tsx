@@ -37,7 +37,7 @@
  * 没有 WebGL(或显卡丢了):中间一直是平常的平面地图;样式照样能换。
  * 系统设了"减少动态效果":地球仪不自转,换样式和投影只做很短的过渡。
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { World, WorldParams } from '../../gen/world';
 import { DEFAULT_PARAMS } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
@@ -140,9 +140,11 @@ import { pluginsUiOn } from '../plugins/flag';
 import { useSimNow } from '../world/simNow';
 import { useMapNow } from '../world/mapNow';
 import { useMapFail } from '../world/mapFail';
-import { MapFailCard } from './MapFailCard';
 import '../worlds.css';
 import './studio.css';
+
+/** 地图插件长不出地图的卡:出错时才下载 */
+const MapFailCard = lazy(() => import('../plugins/MapFailCard').then((m) => ({ default: m.MapFailCard })));
 
 /** 新建时能看的样式(不用历史的;政区、民族建好以后才有) */
 export const STUDIO_STYLES: { id: MapLayer; name: string; hint: string }[] = [
@@ -444,7 +446,7 @@ export function Studio(p: StudioProps) {
   const mapFail = useMapFail();
   // 手机:卡在最上面,卡片退回「地图」那一页、不拉到最高(不挡着卡)
   useEffect(() => {
-    if (!mapFail || !p.phone) return;
+    if (!mapFail || mapFail.quiet || !p.phone) return;
     setMapPage(false);
     setSheetFull(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1845,7 +1847,7 @@ export function Studio(p: StudioProps) {
   ) : spShown ? (
     <SimPickHost phone={p.phone} onBack={() => setSimPage(false)} onCollapse={p.phone ? undefined : () => setCollapsed(true)} />
   ) : mpShown ? (
-    <MapPickHost phone={p.phone} onBack={() => setMapPage(false)} onChange={() => p.onMaps?.()} onCollapse={p.phone ? undefined : () => setCollapsed(true)} />
+    <MapPickHost phone={p.phone} worldId={mapFail?.worldId ?? mapNow?.id} onBack={() => setMapPage(false)} onChange={() => p.onMaps?.()} onCollapse={p.phone ? undefined : () => setCollapsed(true)} />
   ) : (
     ogShown && (
       <OriginsPage
@@ -2422,17 +2424,19 @@ export function Studio(p: StudioProps) {
           }}
         />
       )}
-      {mapFail && !out && (
+      {mapFail && !mapFail.quiet && !out && (
         <div className={`mf-wrap${p.phone ? ' ph' : ''}`} style={p.phone ? undefined : { left: box.x + box.w / 2, top: box.y + box.h / 2 }}>
-          <MapFailCard
-            f={mapFail}
-            onPick={openMapPage}
-            onDrop={() =>
-              void import('../plugins/mapWorld').then(async (m) => {
-                if (await m.chooseMaps(mapFail.worldId, m.chosenMaps(mapFail.worldId).filter((c) => c.id !== mapFail.plugin))) p.onMaps?.();
-              })
-            }
-          />
+          <Suspense fallback={null}>
+            <MapFailCard
+              f={mapFail}
+              onPick={openMapPage}
+              onDrop={() =>
+                void import('../plugins/mapWorld').then(async (m) => {
+                  if (await m.chooseMaps(mapFail.worldId, m.chosenMaps(mapFail.worldId).filter((c) => c.id !== mapFail.plugin))) p.onMaps?.();
+                })
+              }
+            />
+          </Suspense>
         </div>
       )}
       {viewSaved && !out && (
