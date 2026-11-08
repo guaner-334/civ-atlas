@@ -3,7 +3,8 @@
  *
  * - original:浏览器里有它的原件(ui/resultStore.ts)。地图、各段世界、历史的字节直接拿来,不重算生成和推演;
  *   编年史、国旗用现在的代码算(用的人今天打开看到的就是这样)。原件只读,一个字不动
- * - recompute:没有原件,但世界就是当前版本建的:当前版本算一遍就是它原来的样子。和生成世界的线程走同一段推演代码(worldRun.ts)
+ * - recompute:没有原件,但世界就是当前版本建的:当前版本算一遍就是它原来的样子。和生成世界的线程走同一段推演代码(worldRun.ts)。
+ *   用了推演插件的带着世界记的那一版插件推(本机没有就不转,见 ui/worldStore.ts 的 jobFor)
  * - keptMap:地图留着的世界(gen/edits.ts 文件头"地图留着的世界"):地图、各段世界的块照原样从仓库里拿,历史按现在的规则从第 0 年推一遍。
  *   哪个世界存着那张地图(和要的各段世界)就从哪拿,原来那个世界删了也行。读不到、对不上、推出来校验不过的报错,不算出一个怪东西
  *
@@ -12,6 +13,10 @@
  * 用的人等着存成文件时(fileIfFull)写不进仓库也不白算:算好的内容直接装成文件,跟着 full 的错交回去(FullWithFile)。
  */
 import { generateCiv, planetTempo, type Civ } from './gen/civ';
+import type { SimPlugin } from './gen/civ/engine/plugin';
+import { playStop } from './gen/civ/play';
+import type { SimRead } from './gen/civ/simRead';
+import { civOrStuck } from './gen/civ/stuck';
 import { mergeUpheavals } from './gen/civ/upheaval';
 import { worldTuning } from './gen/civ/ruleSet';
 import { GENERATOR_VERSION, type TerrainOp } from './gen/edits';
@@ -21,9 +26,11 @@ import { sketchGrid } from './gen/sketch';
 import { SNAPSHOT_FORMAT, makePart, partOf, readLocalPart, recipeKey, recipeOfSave, type Recipe, type SnapshotPart } from './gen/snapshot';
 import { generateWorld, type World } from './gen/world';
 import { openStoredParts, readTrustedParts, type PackedPart, type WorldEras } from './gen/worldFile';
-import type { AuthorContent, WorldMade } from './gen/worldFormat';
+import type { AuthorContent, WorldMade, WorldPlugin } from './gen/worldFormat';
 import { validateCiv, validateEras, validateWorld } from './gen/worldValidate';
 import { indexedDbResults, type ResultBackend } from './resultDb';
+import type { SimPluginFile } from './plugin/pluginWorld';
+import type { SimBoxer, SimPluginsOn } from './simPluginRun';
 import { eraWorlds, keyOf, mapValue, namesOpt, playOpt, setupOpt, upOpt, worldChronicle, worldFlags, yearsOpt } from './worldRun';
 import { VaultError, asVaultError, commitWorld, draftFile, readRevision, type CommitRequest, type CommitResult, type DraftedFile, type RevisionSource, type StoredRevision } from './worldVault';
 
@@ -35,6 +42,8 @@ interface JobBase {
   thumb?: Uint8Array;
   /** 用的人等着存成文件:写不进仓库就直接装成文件。author = 页面里有、还没写进仓库的 AI 正文 */
   fileIfFull?: { author?: AuthorContent };
+  /** 按配方推的(recompute、keptMap):世界记的推演插件,本机装着的同一版(按出手的先后);不给 = 没用 */
+  simPlugins?: SimPluginFile[];
 }
 
 /** 写不进仓库,但内容已经装成文件了 */
@@ -94,8 +103,11 @@ export interface KeptWorlds {
   eras: WorldEras | null;
 }
 
-/** 按存档算一遍:地图、各段世界、整段历史。结果和生成世界的线程按这份存档推出来的一样。kept = 地图留着的世界存下的地图、各段世界,只推历史 */
-export function recomputeWorld(save: SaveFile, kept?: KeptWorlds): { world: World; civ: Civ; steps: { key: string; world: World }[] } {
+/**
+ * 按存档算一遍:地图、各段世界、整段历史。结果和生成世界的线程按这份存档推出来的一样。kept = 地图留着的世界存下的地图、各段世界,只推历史。
+ * plugins = 推演插件(带着的推不下去时和生成世界的线程一样停在那一年)
+ */
+export function recomputeWorld(save: SaveFile, kept?: KeptWorlds, plugins?: readonly SimPlugin<SimRead>[]): { world: World; civ: Civ; steps: { key: string; world: World }[] } {
   const r = recipeOfSave(save);
   if (r.keptMap && !kept) throw new VaultError('failed', '地图留着的世界不按种子重新长');
   const params = r.params;
@@ -118,7 +130,7 @@ export function recomputeWorld(save: SaveFile, kept?: KeptWorlds): { world: Worl
   });
   // 改过地形的:扩张节拍按没改地形时的同一颗星球(和生成世界的线程一样);另起文明种子的、地图留着的按地图本身
   const tempo = kept || !terrain.length || r.civSeed !== undefined ? undefined : (planetTempo(params, undefined, sketch) ?? null);
-  const civ = generateCiv(world, {
+  const civParams = {
     interventions: r.interventions?.length ? [...r.interventions] : undefined,
     tempo,
     ...upOpt(steps),
@@ -128,15 +140,34 @@ export function recomputeWorld(save: SaveFile, kept?: KeptWorlds): { world: Worl
     ...playOpt({ play: r.play, interventions: r.interventions }),
     // 地名不照"没改过地形的星球"起:按现在的版本长的那一颗不是它
     ...(kept ? { placeRef: false as const } : {}),
-  });
+  };
+  const civ = plugins?.length ? civOrStuck(world, { ...civParams, plugins: [...plugins] }, r.play ? { snap: (y) => playStop(y) } : {}) : generateCiv(world, civParams);
   return { world, civ, steps };
 }
 
+/** 装好任务带的推演插件(没带 = null);seed = 文明种子 */
+async function simsOf(job: JobBase, box: SimBoxer | undefined): Promise<SimPluginsOn | null> {
+  if (!job.simPlugins?.length) return null;
+  const r = recipeOfSave(job.save);
+  const run = await import('./simPluginRun');
+  return run.simPluginsOn(job.simPlugins, r.civSeed ?? r.params.seed, box ?? run.quickjsBox);
+}
+
+/** 带着推演插件按存档算一遍,算完放掉 */
+async function recomputeWith(job: JobBase, kept: KeptWorlds | undefined, box: SimBoxer | undefined): Promise<ReturnType<typeof recomputeWorld> & { sims: WorldPlugin[] | null }> {
+  const sims = await simsOf(job, box);
+  try {
+    return { ...recomputeWorld(job.save, kept, sims?.plugins), sims: sims ? sims.records : null };
+  } finally {
+    sims?.dispose();
+  }
+}
+
 /** 按当前版本算一遍 */
-async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>): Promise<CommitResult> {
+async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>, box?: SimBoxer): Promise<CommitResult> {
   if (job.save.generator !== GENERATOR_VERSION) throw new VaultError('failed', '存档不是当前版本');
   const r = recipeOfSave(job.save);
-  const { world, civ, steps } = recomputeWorld(job.save);
+  const { world, civ, steps, sims } = await recomputeWith(job, undefined, box);
   const parts = [
     await makePart('map', mapValue(world)),
     ...(steps.length ? [await makePart('eras', { baseKey: keyOf(r.params, r.terrain, r.sketch), eras: eraWorlds(steps) ?? [] })] : []),
@@ -144,7 +175,7 @@ async function fromRecipe(job: Extract<ConvertJob, { kind: 'recompute' }>): Prom
     ...(await storyParts(world, civ, job.save)),
   ];
   const made: WorldMade = { app: job.app, generator: GENERATOR_VERSION, commit: job.commit, at: new Date().toISOString() };
-  return keep({ id: job.id, recipe: job.save, recipeKey: await recipeKey(r), parts, made, readers: { ...READER_VERSIONS }, thumb: job.thumb, source: 'migrated' }, job);
+  return keep({ id: job.id, recipe: job.save, recipeKey: await recipeKey(r), parts, made, readers: { ...READER_VERSIONS }, thumb: job.thumb, source: 'migrated', ...(sims ? { simPlugins: sims } : {}) }, job);
 }
 
 const asSnapshotPart = (p: PackedPart): SnapshotPart => ({ name: p.info.name, bytes: p.info.bytes, sum: p.info.sum, zip: p.info.zip as SnapshotPart['zip'], data: p.data instanceof Uint8Array ? (p.data.slice().buffer as ArrayBuffer) : p.data });
@@ -195,17 +226,18 @@ async function keptSource(from: readonly string[], r: Recipe): Promise<{ src: St
 }
 
 /** 地图留着的世界:存下的地图上按现在的规则推一遍 */
-async function fromKeptMap(job: Extract<ConvertJob, { kind: 'keptMap' }>): Promise<CommitResult> {
+async function fromKeptMap(job: Extract<ConvertJob, { kind: 'keptMap' }>, box?: SimBoxer): Promise<CommitResult> {
   if (job.save.generator !== GENERATOR_VERSION) throw new VaultError('failed', '存档不是当前版本');
   const r = recipeOfSave(job.save);
   if (!r.keptMap) throw new VaultError('failed', '不是地图留着的世界');
   let src: StoredRevision;
   let civ: Civ;
   let world: World;
+  let sims: WorldPlugin[] | null;
   try {
     const found = await keptSource(job.from, r);
     src = found.src;
-    ({ civ, world } = recomputeWorld(job.save, found.kept));
+    ({ civ, world, sims } = await recomputeWith(job, found.kept, box));
     validateCiv(civ, world);
   } catch (e) {
     throw e instanceof VaultError ? e : new VaultError('failed', `这张地图上推不出历史:${e instanceof Error ? e.message : String(e)}`);
@@ -227,15 +259,16 @@ async function fromKeptMap(job: Extract<ConvertJob, { kind: 'keptMap' }>): Promi
       // 地形按地图长出来时那一版读,放大的细部才不变;历史是现在算的,查询用现在的
       readers: { terrain: src.manifest.readers.terrain, query: READER_VERSIONS.query },
       thumb: job.thumb,
+      ...(sims ? { simPlugins: sims } : {}),
     },
     job,
   );
 }
 
-/** 转一个世界;转不了抛错 */
-export function runConvert(job: ConvertJob, results?: ResultBackend): Promise<CommitResult> {
-  if (job.kind === 'recompute') return fromRecipe(job);
-  if (job.kind === 'keptMap') return fromKeptMap(job);
+/** 转一个世界;转不了抛错。box = 怎么装推演插件(单测用;不给 = 浏览器里的 QuickJS) */
+export function runConvert(job: ConvertJob, results?: ResultBackend, box?: SimBoxer): Promise<CommitResult> {
+  if (job.kind === 'recompute') return fromRecipe(job, box);
+  if (job.kind === 'keptMap') return fromKeptMap(job, box);
   const db = results ?? indexedDbResults();
   if (!db) return Promise.reject(new VaultError('unavailable', '没有 IndexedDB'));
   return fromOriginal(job, db);
