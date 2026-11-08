@@ -198,7 +198,7 @@ export interface CommitRequest {
   thumb?: Uint8Array | null;
   /** 不给 = made */
   source?: RevisionSource;
-  /** 给了 parts 才看:这份历史用的推演插件(按出手的先后),清单里原来记的推演插件换成这几条;不给 = 没用 */
+  /** 给了 parts 才看:这份历史用的推演插件(按出手的先后),清单里原来记的推演插件换成这几条(空 = 没用);不给 = 不知道,照上一份 */
   simPlugins?: WorldPlugin[];
 }
 
@@ -234,7 +234,7 @@ export interface WorldPartsOffer {
   readers?: WorldReaders;
   /** 地图留着的世界:地图那一块照原样留着,结构版本也照它原来的;不给 = 现在的 */
   schemas?: Readonly<Record<string, number>>;
-  /** 这份历史用的推演插件(世界清单里记的那几条);没用 = 不给 */
+  /** 这份历史用的推演插件(世界清单里记的那几条,空 = 没用);历史是读存着的、线程不知道 = 不给 */
   plugins?: WorldPlugin[];
 }
 
@@ -505,11 +505,11 @@ function sameManifest(a: WorldManifest, b: WorldManifest): boolean {
   return norm(a) === norm(b);
 }
 
-/** 新的一份修订清单里记的插件:带着完整内容来的,推演插件跟着历史换成这次的那几条,别的照上一份 */
+/** 新的一份修订清单里记的插件:带着完整内容、说了用哪些推演插件的,推演插件跟着历史换成这次的那几条,别的照上一份 */
 function pluginsFor(req: CommitRequest, prev: WorldManifest | null): WorldPlugin[] {
   const had = prev?.plugins ?? [];
-  if (!req.parts) return [...had];
-  const sims = (req.simPlugins ?? []).map((p) => ({ ...p, role: 'sim' }));
+  if (!req.parts || !req.simPlugins) return [...had];
+  const sims = req.simPlugins.map((p) => ({ ...p, role: 'sim' }));
   return [...had.filter((p) => p.role !== 'sim' && !sims.some((s) => s.id === p.id)), ...sims];
 }
 

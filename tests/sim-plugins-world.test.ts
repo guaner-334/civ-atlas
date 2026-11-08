@@ -86,7 +86,10 @@ describe('清单里记推演插件', () => {
     expect((await latest()).plugins).toEqual([other, tool]);
     await commitWorld(request({ recipeKey: 'k3', simPlugins: [magic] }));
     expect((await latest()).plugins).toEqual([tool, magic]);
+    // 没说用了哪些(历史是读存着的,线程不知道):照上一份;说了没用:去掉
     await commitWorld(request({ recipeKey: 'k4' }));
+    expect((await latest()).plugins).toEqual([tool, magic]);
+    await commitWorld(request({ recipeKey: 'k5', simPlugins: [] }));
     expect((await latest()).plugins).toEqual([tool]);
   });
 
