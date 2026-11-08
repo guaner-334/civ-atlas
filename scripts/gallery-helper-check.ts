@@ -11,7 +11,10 @@
  *   第 3 版试跑      examples/plugins 的三个示例插件在种子 7、2024 上各跑一遍,交回的五项、日志、两张截图合理;
  *                    改你写的被拦下、出错、清单要了网站没有的能力、文件坏了都照实交回;
  *                    推演插件(示例插件厌战)两个种子各推 3000 年:和官方比的几样数、编年史、分段推和一口气推的一样、带插件的地图截图
- * 封面、试跑的截图和结果存在 --out(默认 snaps/gallery-helper)。--only=trial 只跑第 3 版,--only=sim 只跑推演插件。没过的打印「没过」,退出码非 0。
+ *                    地图插件(示例插件环形山、柯本气候)两个种子不带 / 带插件各长一张:几样数、用时、长两遍和改一笔一样、各推 3000 年、并排的图和图层;
+ *                    插件出错停在哪一口
+ * 封面、试跑的截图和结果存在 --out(默认 snaps/gallery-helper)。--only=trial 只跑第 3 版,--only=sim 只跑推演插件,--only=map 只跑地图插件。
+ * 没过的打印「没过」,退出码非 0。
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -23,6 +26,7 @@ import { rulesHash } from '../src/gen/civ/ruleShare';
 import { presetHash } from '../src/ui/presetLink';
 import { packPluginFile } from '../src/plugin/pluginFile';
 import type { SimTrial } from '../src/plugin/simTrial';
+import type { MapTrial } from '../src/plugin/mapTrial';
 import { parseZip, writeZip } from '../src/gen/zipStore';
 import { MANIFEST_FILE } from '../src/gen/worldFormat';
 
@@ -34,6 +38,7 @@ const WAIT = 180_000;
 const SIM_WAIT = 240_000;
 const ONLY_TRIAL = args.includes('--only=trial');
 const ONLY_SIM = args.includes('--only=sim');
+const ONLY_MAP = args.includes('--only=map');
 
 const fails: string[] = [];
 const check = (ok: boolean, what: string) => {
@@ -49,8 +54,9 @@ interface TrialRunReply {
   log: string[];
   /** 推演插件不带 */
   did: Record<string, string>;
-  shots: { map?: string; panel?: string };
+  shots: { map?: string; panel?: string; views?: Record<string, { official?: string; plugin?: string }>; layers?: Record<string, string> };
   sim?: SimTrial;
+  map?: MapTrial;
 }
 
 interface Reply {
@@ -220,14 +226,27 @@ async function trial(page: Page, name: string, bytes: Uint8Array, wait = WAIT): 
   const runs = r.runs ?? [];
   check(JSON.stringify(runs.map((x) => x.seed)) === '[7,2024]', `${name}:种子 7、2024`);
   for (const x of runs) {
-    if (!x.sim) check(DID.every((k) => typeof x.did?.[k] === 'string' && x.did[k].length > 0 && [...x.did[k]].length <= 300), `${name}@${x.seed}:五项都有、300 字以内`);
+    if (!x.sim && !x.map) check(DID.every((k) => typeof x.did?.[k] === 'string' && x.did[k].length > 0 && [...x.did[k]].length <= 300), `${name}@${x.seed}:五项都有、300 字以内`);
     check(Array.isArray(x.log) && x.log.length <= 50 && x.log.every((l) => [...l].length <= 300), `${name}@${x.seed}:日志 50 条以内`);
     const mb = saveJpeg(`trial-${name}-${x.seed}-map`, x.shots.map);
     const pb = saveJpeg(`trial-${name}-${x.seed}-panel`, x.shots.panel);
     if (x.shots.map) check(mb <= 600 * 1024 && jpegSize(x.shots.map) === '1200×600', `${name}@${x.seed}:地图截图 1200×600、600 KB 以内(${(mb / 1024).toFixed(0)} KB)`);
     if (x.shots.panel) check(pb <= 300 * 1024, `${name}@${x.seed}:面板截图 300 KB 以内(${jpegSize(x.shots.panel)},${(pb / 1024).toFixed(0)} KB)`);
   }
-  writeFileSync(path.join(OUT, `trial-${name}.json`), JSON.stringify(runs.map((x) => ({ ...x, shots: { map: !!x.shots.map, panel: !!x.shots.panel } })), null, 2));
+  for (const x of runs) {
+    for (const [v, pair] of Object.entries(x.shots.views ?? {})) {
+      for (const side of ['official', 'plugin'] as const) {
+        const b = saveJpeg(`trial-${name}-${x.seed}-${v}-${side}`, pair[side]);
+        check(!pair[side] || (b <= 200 * 1024 && jpegSize(pair[side]) === '600×300'), `${name}@${x.seed}:${v} ${side} 600×300、200 KB 以内(${(b / 1024).toFixed(0)} KB)`);
+      }
+    }
+    for (const [id, url] of Object.entries(x.shots.layers ?? {})) {
+      const b = saveJpeg(`trial-${name}-${x.seed}-layer-${id}`, url);
+      check(b <= 200 * 1024 && jpegSize(url) === '600×300', `${name}@${x.seed}:图层 ${id} 600×300、200 KB 以内(${(b / 1024).toFixed(0)} KB)`);
+    }
+  }
+  const brief = (x: TrialRunReply) => ({ map: !!x.shots.map, panel: !!x.shots.panel, views: Object.keys(x.shots.views ?? {}), layers: Object.keys(x.shots.layers ?? {}) });
+  writeFileSync(path.join(OUT, `trial-${name}.json`), JSON.stringify(runs.map((x) => ({ ...x, shots: brief(x) })), null, 2));
   return runs;
 }
 
@@ -303,18 +322,48 @@ async function simTrialChecks(page: Page) {
   }
 }
 
+/** 地图插件:示例插件环形山(只改海拔)、柯本气候(改气候、出图层),和一个改海拔时出错的 */
+async function mapTrialChecks(page: Page) {
+  console.log('第 3 版:试跑地图插件');
+  const ex = (id: string) => new Uint8Array(readFileSync(new URL(`../examples/plugins/${id}/${id}.civplugin`, import.meta.url)));
+  const views = (x: TrialRunReply) => ['terrain', 'temperature', 'precipitation', 'biomes'].every((v) => !!x.shots.views?.[v]?.official && !!x.shots.views[v].plugin);
+  for (const [name, layers] of [
+    ['craters', []],
+    ['koppen', ['koppen']],
+  ] as const) {
+    for (const x of await trial(page, name, ex(name), SIM_WAIT)) {
+      const m = x.map;
+      console.log(`  种子 ${x.seed}:${x.ms} 毫秒;${x.log.join(';')}`);
+      console.log(`  官方 ${JSON.stringify({ ...m?.stats.official, biomes: undefined })}\n  带插件 ${JSON.stringify({ ...m?.stats.plugin, biomes: undefined })}\n  改了 ${JSON.stringify(m?.changed)},改一笔 ${JSON.stringify(m?.edit)}`);
+      check(x.ok && !!m && !!m.stats.official && !!m.stats.plugin && Object.keys(m.stageMs).length > 0 && !!m.bigStageMs && !m.bigError, `${name}@${x.seed}:两张都长出来、几样数、每一口多久(20 万地块也量了):${x.error ?? ''}`);
+      check(m?.sameTwice === true && m.cachedSame === true && !!m.edit, `${name}@${x.seed}:长两遍一样、改一笔接着长和从头长一样:${m?.sameNote ?? ''}`);
+      check(!!m?.civ.official?.viable && !!m.civ.plugin?.viable && m.civ.plugin.states > 0, `${name}@${x.seed}:两张各推 3000 年都长出了文明:${JSON.stringify(m?.civ)}`);
+      check(x.did === undefined && !x.shots.panel && jpegSize(x.shots.map) === '1200×600' && views(x), `${name}@${x.seed}:不带五项和面板,有带插件的地形图和四样并排的图`);
+      check(JSON.stringify(Object.keys(x.shots.layers ?? {})) === JSON.stringify(layers) && JSON.stringify(m?.layers.map((l) => l.id)) === JSON.stringify(layers) && !!m?.layers.every((l) => l.cells > 0), `${name}@${x.seed}:图层 ${JSON.stringify(m?.layers)}`);
+    }
+  }
+  const broken = await packPluginFile({
+    manifest: { id: 'broken-map', name: '坏地图', version: '1.0.0', role: 'map', api: 1, runtime: 'quickjs', requires: ['gen.height@1'], map: { stages: ['height'] }, license: 'MIT' },
+    files: { 'main.js': "civAtlas.map({ height(d) { throw new Error('故意出错'); } });\n", 'README.md': 'broken', LICENSE: 'MIT' },
+  });
+  for (const x of await trial(page, 'broken-map', broken, SIM_WAIT)) {
+    check(!x.ok && x.map?.stage === 'height' && /故意出错/.test(x.error ?? '') && !!x.map.stats.official && !x.map.stats.plugin && !x.shots.map, `改海拔出错@${x.seed}:停在改海拔、照实交回:${x.error}`);
+  }
+}
+
 async function main() {
   const server = await startDevServer();
   const browser = await chromium.launch();
   try {
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 800 }, deviceScaleFactor: 1 })).newPage();
     page.on('pageerror', (e) => console.log('  [pageerror]', e.message.slice(0, 200)));
-    if (ONLY_TRIAL || ONLY_SIM) {
+    if (ONLY_TRIAL || ONLY_SIM || ONLY_MAP) {
       await page.goto(server.url);
       const ready = (await openHelper(page, server.url)) as { v: number; versions?: number[] };
       check(ready.v === 1 && JSON.stringify(ready.versions) === '[1,2,3]', `帮手说准备好了、听得懂第 1、2、3 版:${JSON.stringify(ready)}`);
       if (ONLY_TRIAL) await trialChecks(page);
-      await simTrialChecks(page);
+      if (ONLY_TRIAL || ONLY_SIM) await simTrialChecks(page);
+      if (ONLY_TRIAL || ONLY_MAP) await mapTrialChecks(page);
       return;
     }
 
@@ -406,6 +455,7 @@ async function main() {
 
     await trialChecks(page);
     await simTrialChecks(page);
+    await mapTrialChecks(page);
   } finally {
     await browser.close();
     await server.close();
