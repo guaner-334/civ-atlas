@@ -407,7 +407,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     writeWorldUrl(targetRef.current);
     if (rawRef.current) setWorldStats(aliveAtEnd(rawRef.current));
     refreshThumb();
-    void keepCarried(t.id);
+    // 以它为底稿新建、推演没有重推的:线程不会再交内容,当场存
+    void keepCarried(t.id, !!t.base && endParamOf(getEdits()) === civYears.current && sameSetup(setupFor(false, getEdits()), civSetup.current));
     const keep = persistent();
     showToast({
       id: 'created',

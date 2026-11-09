@@ -22,7 +22,7 @@ import { _resetToasts, clearToast, peekToast, showToast } from '../src/ui/toastS
 import { _setWorldFiles, lookWorldFile, keepWorldFile, saveAllWorldFiles, saveWorldFile, type LookedWorldFile } from '../src/ui/worldFiles';
 import { _setHolds, holdWorld, ifNotHeld, isHeld } from '../src/ui/worldHolds';
 import { setSimNow, simsOf } from '../src/ui/world/simNow';
-import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, notesVault, offerWorldParts, packPage, setWorldStoreSim, spaceBoard, startWorldStore, trashFreed, trashInfo, vaultCall, vaultIsFull, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
+import { NEAR_FULL_BYTES, TRASH_KEEP_MS, _setWorldStore, _settled, clearTrashNow, fullWorldIds, holdTrashed, notesVault, keepCarried, offerWorldParts, packPage, setWorldStoreSim, spaceBoard, startWorldStore, trashFreed, trashInfo, vaultCall, vaultIsFull, type ConvertRunner, type WorldStoreSim } from '../src/ui/worldStore';
 import { runConvert, type FullWithFile } from '../src/worldConvert';
 import type { ConvertReply } from '../src/worldConvertWorker';
 import { lookFile } from '../src/worldFileLook';
@@ -447,6 +447,30 @@ describe('一个世界存成文件', () => {
       setSimNow({ id: 'another', list, files: [file], checks: [] });
       await packPage(save);
       expect((sim.asks[1] as { simPlugins?: unknown }).simPlugins).toBeUndefined();
+    } finally {
+      setSimNow(null);
+    }
+  });
+
+  it('以它为底稿新建、用了推演插件的世界建好马上存进仓库,带着推演插件的记录;推演重推了的不抢着存', async () => {
+    const id = saveStore.newWorldId();
+    openWorld(id);
+    saveStore.markCreated();
+    const file = { id: 'weariness', sum: 'a'.repeat(64), bytes: new Uint8Array([1, 2]), params: { k: 2 } };
+    const list = [{ id: 'weariness', version: '1.0.0', sum: file.sum, role: 'sim', name: '厌战', params: { k: 2 } }];
+    const sim = simThatPacks();
+    setWorldStoreSim({ ...sim, packParts: async (ask) => ({ ...(await sim.packParts!(ask)), plugins: list }), sims: () => simsOf(saveStore.currentWorld()?.id) });
+    try {
+      setSimNow({ id, list, files: [file], checks: [] });
+      await keepCarried(id);
+      expect(await latestOf(id)).toBeNull();
+      await keepCarried(id, true);
+      const head = (await readRevision(id))!;
+      expect(head.manifest.plugins?.map((x) => [x.id, x.role])).toEqual([['weariness', 'sim']]);
+      expect(head.manifest.parts.some((x) => x.name === 'civ')).toBe(true);
+      const n = head.head.n;
+      await keepCarried(id, true);
+      expect((await readRevision(id))!.head.n).toBe(n);
     } finally {
       setSimNow(null);
     }

@@ -60,6 +60,7 @@ import { NEAR_FULL_BYTES, PERSIST_ASKED, appleDevice, askPersisted, firstHintSai
 import { afterOkToasts, clearToast, showToast } from './toastStore';
 import { withFileFlow } from './worldFileLazy';
 import { getMapNow } from './world/mapNow';
+import { getSimNow } from './world/simNow';
 import { APP_COMMIT, APP_VERSION } from './version';
 import { canSeeHolds, holdWorld, ifNotHeld, isHeld } from './worldHolds';
 
@@ -818,13 +819,15 @@ export async function settleForFile(id: string): Promise<SettledForFile> {
 }
 
 /**
- * 刚建好的、地图插件照原样从底稿带过来的世界:页面接着用的是底稿那张图,线程没再算、不会自己交内容。
- * 仓库里还没有它就当场打一份存上:不然下次打开、后台转存只能按配方重长,本机没有那几个插件长出来是另一张图
+ * 刚建好的、地图插件照原样从底稿带过来(sims = 用了推演插件、推演没有重推)的世界:页面接着用的是底稿的图和历史,线程没再算、不会自己交内容。
+ * 仓库里还没有它就当场打一份存上:不然下次打开、后台转存只能按配方重长,没有那几个插件长出来是另一张图、另一段历史
  */
-export async function keepCarried(id: string): Promise<void> {
+export async function keepCarried(id: string, sims = false): Promise<void> {
   try {
     const m = getMapNow();
-    if (m?.id !== id || !m.from || currentWorld()?.id !== id || (await storedFresh(id))) return;
+    const s = getSimNow();
+    const maps = m?.id === id && !!m.from;
+    if ((!maps && !(sims && s?.id === id && s.files?.length)) || currentWorld()?.id !== id || (await storedFresh(id))) return;
     const w = loadWorld(id);
     const p = w && packPage(w.save);
     if (p) await offerWorldParts(await p);
