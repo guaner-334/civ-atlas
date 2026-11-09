@@ -281,7 +281,9 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         void import('../plugins/mapWorld')
           .then(async (m) => {
             const lost = await m.restoreMaps(t.id, kept, () => targetRef.current === t, t.base?.id);
-            if (lost.length) showToast({ id: 'map-fail', kind: 'warn', text: '有地图插件用不了了', more: [`${lost.map((n) => `「${n}」`).join('')}没装了，或者被网站停用了，地图照剩下的长`], dismissible: true, ttl: 0 });
+            const names = lost.map((n) => `「${n}」`).join('');
+            const line = pluginsUiOn() ? `${names}没装了，或者被网站停用了，地图照剩下的长` : `网站暂时关了插件，${names}现在不跑，地图先照不带${lost.length > 1 ? '它们' : '它'}的长`;
+            if (lost.length) showToast({ id: 'map-fail', kind: 'warn', text: '有地图插件用不了了', more: [line], dismissible: true, ttl: 0 });
           })
           .catch(() => {})
           .finally(() => {

@@ -4,7 +4,7 @@
  *   被停用了 「「环形山」被网站停用了」
  *   别的版本 「改地形要装回第 1.0 版」
  * 没装的先说;装齐了再改,才轮到停用的、别的版本。看、接着推都不问(地图存着,推历史用不着长地图)。
- * 网站关了插件(插件界面关着)时没有插件页:不说去哪装、换,只说等插件开回来。
+ * 网站关了插件(插件界面关着)时没有插件页:不说去哪装、换,只说等插件开回来;本机装着同一版的也不跑,问「网站暂时关了插件」。
  */
 import { Suspense, lazy, useEffect, useState } from 'react';
 import type { MapPluginCheck } from '../../plugin/pluginWorld';
@@ -14,6 +14,7 @@ import { openPlugins } from './entry';
 import { pluginsUiOn } from './flag';
 import { PluginIcon } from './pluginIcons';
 import { noWallVersionText, versionLabel } from './pluginWords';
+import { OFF_LABEL } from './simWorldText';
 import { serverBase } from '../../account/server';
 import { useWallRev, wallOnce, wallWorkOf } from './galleryWatch';
 import './plugins.css';
@@ -137,6 +138,20 @@ export default function MapAskBox({ ask, phone }: { ask: MapAsk; phone: boolean 
     );
   }
   const other = ask.checks.filter((c): c is Other => c.status === 'other');
+  if (!other.length && !on)
+    return (
+      <Dialog phone={phone} label={OFF_LABEL} onClose={close} testId="map-ask-off" className="sim-ask" head={head(OFF_LABEL)}>
+        <div className="acct-body">
+          <p>{`「${ask.title}」的地图是用地图插件${listOf(ask.checks)}长的。看、接着推不受影响；${what}要把地图重新长一遍，得等插件开回来，长出来的地形才对得上。`}</p>
+          <div className="sim-ask-list">
+            {ask.checks.map((c) => (
+              <Item key={c.id} c={c} small="插件关着，这一版现在不跑" />
+            ))}
+          </div>
+        </div>
+        <Foot phone={phone} cancel={{ label: '知道了', act: 'map-ask-ok', onClick: close }} />
+      </Dialog>
+    );
   const one = other.length === 1 ? other[0] : null;
   const label = one ? `${what}要装回${versionLabel(one.plugin.version)}` : `${what}要装回原来那几版`;
   return (

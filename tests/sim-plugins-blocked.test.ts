@@ -10,6 +10,7 @@ import { blockedLabel, blockedText } from '../src/ui/plugins/simWorldText';
 
 const blocked = new Set<string>();
 let installed: InstalledPlugin[] = [];
+vi.mock('../src/ui/plugins/flag', () => ({ pluginsUiOn: () => true }));
 vi.mock('../src/plugin/pluginStore', () => ({ listPlugins: async () => installed, pluginFileBytes: async () => new Uint8Array([1, 2, 3]) }));
 vi.mock('../src/ui/plugins/verdict', () => ({
   verdictOf: (sum: string, id?: string) => ({ reviewed: false, blocked: blocked.has(sum) || (id !== undefined && blocked.has(id)) ? { why: '会偷偷改别国的国土', day: '11 月 8 日' } : null }),

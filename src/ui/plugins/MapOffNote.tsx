@@ -3,7 +3,7 @@
  *   没装     「原来的地图用了「环形山」第 1.0 版，这台没装」:「去作品墙装同一版」(作品墙上正是这一版才有)「从文件装…」
  *   被停用了 只说停用了,移出它才能重新长
  *   别的版本 「换成第 1.1 版重新长」(地图会变,不自动换)
- * 没装的先说;装好以后这一块自己收起
+ * 没装的先说;装好以后这一块自己收起。网站关了插件(插件界面关着)时本机装着同一版的也不跑:说等插件开回来
  */
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { MapPluginCheck } from '../../plugin/pluginWorld';
@@ -35,7 +35,9 @@ export function MapOffNote({ where, phone, plugins, onRegrow }: MapOffNoteProps)
   const s = useMapNow();
   const fileRef = useRef<HTMLInputElement>(null);
   useWallRev();
-  useEffect(() => void wallOnce(), []);
+  useEffect(() => {
+    if (plugins) void wallOnce();
+  }, [plugins]);
   if (!s || s.ready) return null;
   const off = s.checks.filter((c): c is Off => c.status !== 'ready');
   const miss = off.filter((c) => c.status === 'missing');
@@ -48,7 +50,11 @@ export function MapOffNote({ where, phone, plugins, onRegrow }: MapOffNoteProps)
   let head: string;
   let text: string;
   let buttons: ReactNode = null;
-  if (miss.length || !off.length) {
+  if (!off.length && !plugins) {
+    const n = s.list.length;
+    head = `原来的地图用了${s.list.map((p) => `「${p.name ?? p.id}」${versionLabel(p.version)}`).join('、')}，网站暂时关了插件`;
+    text = studio ? `换世界参数、改地形，都得用${it(n)}把地图重新长一遍，等插件开回来才能改。` : `改地形要用${it(n)}把地图重新长一遍，等插件开回来才能改。`;
+  } else if (miss.length || !off.length) {
     const cs = miss.length ? miss : s.list.map((plugin): Off => ({ id: plugin.id, plugin, status: 'missing' }));
     want = cs.map((c) => ({ id: c.id, name: c.plugin.name ?? c.id }));
     const works = cs.map((c) => wallWorkOf(c.id, c.plugin.sum));

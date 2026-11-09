@@ -196,7 +196,8 @@ export async function chooseSims(worldId: string, picks: readonly SimChoice[], i
   // 文件还在读时又改了选的:只认最后一次
   const seq = ++chooseSeq;
   const carried = carriedMissing(worldId);
-  const have = installed ?? (await listPlugins().catch(() => [] as InstalledPlugin[]));
+  // 网站关了插件:不取插件文件,一个都选不上
+  const have = !pluginsUiOn() ? [] : (installed ?? (await listPlugins().catch(() => [] as InstalledPlugin[])));
   const list: WorldPlugin[] = [];
   const files: SimPluginFile[] = [];
   const missing: Missing[] = [];

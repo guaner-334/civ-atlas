@@ -1,6 +1,7 @@
 /**
  * 页面里这个世界用的地图插件(world/mapNow.ts):打开的世界和本机核对(同一版带字节;没装、只有别的版本、被网站停用的只带编号和指纹),
- * 新建中选上的取现在那一版(停用的、不是地图插件的选不上);长地图的请求哪一步都带着;用了地图插件的世界不给配方链接
+ * 新建中选上的取现在那一版(停用的、不是地图插件的选不上);长地图的请求哪一步都带着;用了地图插件的世界不给配方链接。
+ * 网站关了插件(插件界面关着)时一个都不跑:不读插件文件,装着同一版的也只带编号和指纹
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorldPlugin } from '../src/gen/worldFormat';
@@ -9,21 +10,25 @@ import type { InstalledPlugin } from '../src/plugin/pluginStore';
 const blocked = new Set<string>();
 let installed: InstalledPlugin[] = [];
 let manifest: { plugins: WorldPlugin[]; parts: [] } | null = null;
+const flag = { on: true };
+vi.mock('../src/ui/plugins/flag', () => ({ pluginsUiOn: () => flag.on }));
+const fileBytes = vi.fn(async (sum: string) => (installed.some((p) => p.current.sum === sum || p.previous?.sum === sum) ? new Uint8Array([1, 2, 3]) : null));
 vi.mock('../src/plugin/pluginStore', () => ({
   listPlugins: async () => installed,
-  pluginFileBytes: async (sum: string) => (installed.some((p) => p.current.sum === sum || p.previous?.sum === sum) ? new Uint8Array([1, 2, 3]) : null),
+  pluginFileBytes: (sum: string) => fileBytes(sum),
   PluginStoreError: class extends Error {},
 }));
 vi.mock('../src/ui/plugins/verdict', () => ({
   verdictOf: (sum: string, id?: string) => ({ reviewed: false, blocked: blocked.has(sum) || (id !== undefined && blocked.has(id)) ? { why: '会把整片大陆沉进海里', day: '11 月 8 日' } : null }),
   subscribeVerdicts: () => () => {},
 }));
-vi.mock('../src/ui/worldStore', () => ({ vaultCall: async () => manifest, settleWorld: async () => null }));
+const byWorld: Record<string, { plugins: WorldPlugin[]; parts: [] }> = {};
+vi.mock('../src/ui/worldStore', () => ({ vaultCall: async (_op: string, args: unknown[]) => byWorld[args[0] as string] ?? manifest, settleWorld: async () => null }));
 const cur = { id: '', kind: 'created' };
 vi.mock('../src/ui/saveStore', () => ({ currentWorld: () => (cur.id ? { ...cur } : null), keepWorld: () => {}, notify: () => {}, saveAsNewVersion: () => null, storageFullWhy: () => '' }));
 
-const { chooseMaps, chosenMaps, loadMapNow, refreshMapNow, restoreMaps } = await import('../src/ui/plugins/mapWorld');
-const { carryMaps, getMapNow, mapFilesOf, mapNowFor, rememberedMaps, setMapNow, usesMaps } = await import('../src/ui/world/mapNow');
+const { MAPS_OFF, chooseMaps, chosenMaps, loadMapNow, refreshMapNow, restoreMaps, storedMapsOf } = await import('../src/ui/plugins/mapWorld');
+const { carryMaps, getMapNow, mapFilesNow, mapFilesOf, mapNowFor, mapsOff, rememberMaps, rememberedMaps, setMapNow, usesMaps } = await import('../src/ui/world/mapNow');
 const { sameSetup, setupFor, setupOpt } = await import('../src/ui/world/worldTarget');
 
 const record = (id: string, name: string, sum: string, params?: Record<string, number>): WorldPlugin => ({ id, version: '1.0.0', sum, role: 'map', name, ...(params ? { params } : {}) });
@@ -45,6 +50,10 @@ beforeEach(() => {
   installed = [];
   manifest = null;
   cur.id = 'w1';
+  cur.kind = 'created';
+  flag.on = true;
+  fileBytes.mockClear();
+  for (const k of Object.keys(byWorld)) delete byWorld[k];
   setMapNow(null);
 });
 
@@ -218,5 +227,103 @@ describe('配方链接', () => {
     await loadMapNow('w1');
     expect(usesMaps('w1')).toBe(true);
     expect(usesMaps('w2')).toBe(false);
+  });
+});
+
+describe('网站关了插件', () => {
+  beforeEach(() => {
+    flag.on = false;
+  });
+
+  it('打开的世界:装着同一版也不读插件文件、不带字节;改地形要先问,核对结果照实记着装没装', async () => {
+    installed = [have('craters', '环形山', craters.sum)];
+    manifest = { plugins: [craters, magic, tides], parts: [] };
+    await loadMapNow('w1');
+    expect(fileBytes).not.toHaveBeenCalled();
+    const s = getMapNow()!;
+    expect(s).toMatchObject({ id: 'w1', ready: false, stored: true });
+    expect(s.list).toEqual([craters, tides]);
+    expect(s.files.every((f) => !f.bytes)).toBe(true);
+    expect(s.files.map((f) => [f.id, f.sum, f.params])).toEqual([
+      ['craters', craters.sum, { count: 30 }],
+      ['tides', tides.sum, undefined],
+    ]);
+    expect(s.checks.map((c) => [c.id, c.status])).toEqual([
+      ['craters', 'ready'],
+      ['tides', 'missing'],
+    ]);
+    expect(mapsOff('w1')).toBe(true);
+    expect(mapFilesOf('w1')).toBeNull();
+    expect(mapFilesNow()!.every((f) => !f.bytes)).toBe(true);
+    // 装了插件、停用名单变了以后重新核对:照旧不读文件
+    installed = [have('craters', '环形山', craters.sum), have('tides', '潮汐', tides.sum)];
+    await refreshMapNow();
+    expect(fileBytes).not.toHaveBeenCalled();
+    expect(getMapNow()!.ready).toBe(false);
+    expect(getMapNow()!.checks.map((c) => c.status)).toEqual(['ready', 'ready']);
+  });
+
+  it('开着时照旧:装着同一版的带上字节', async () => {
+    flag.on = true;
+    installed = [have('craters', '环形山', craters.sum)];
+    manifest = { plugins: [craters], parts: [] };
+    await loadMapNow('w1');
+    expect(fileBytes).toHaveBeenCalled();
+    expect(getMapNow()!.ready).toBe(true);
+  });
+
+  it('以它为底稿新建:照原样带过去、不带字节;拨滑条、换先后、刷新再打开都不读插件文件', async () => {
+    installed = [have('craters', '环形山', craters.sum), have('tides', '潮汐', tides.sum)];
+    manifest = { plugins: [craters, tides], parts: [] };
+    await loadMapNow('w1');
+    carryMaps('w1', 'd1');
+    expect(getMapNow()).toMatchObject({ id: 'd1', ready: false, from: 'w1' });
+    cur.id = 'd1';
+    cur.kind = 'draft';
+    await refreshMapNow();
+    expect(getMapNow()!.checks.map((c) => [c.id, c.status])).toEqual([
+      ['craters', 'ready'],
+      ['tides', 'ready'],
+    ]);
+    expect(await chooseMaps('d1', [{ id: 'tides' }, { id: 'craters', params: { count: 5 } }])).toBe(true);
+    const n = getMapNow()!;
+    expect(n.ready).toBe(false);
+    expect(n.list.map((p) => p.id)).toEqual(['tides', 'craters']);
+    expect(n.files.every((f) => !f.bytes)).toBe(true);
+    setMapNow(null);
+    expect(await restoreMaps('d1', [craters, tides], () => true, 'w1')).toEqual([]);
+    expect(getMapNow()).toMatchObject({ id: 'd1', ready: false, from: 'w1', stored: false });
+    expect(fileBytes).not.toHaveBeenCalled();
+  });
+
+  it('新建中的世界刷新以后:这次不带地图插件长,记着的不动(插件开回来再打开照它取回)', async () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    installed = [have('craters', '环形山', craters.sum), have('tides', '潮汐', tides.sum)];
+    rememberMaps('d1', [tides, craters]);
+    setMapNow({ id: 'w9', list: [tides], files: [], ready: true, checks: [] });
+    expect(await restoreMaps('d1', [tides, craters])).toEqual(['潮汐', '环形山']);
+    expect(getMapNow()).toBeNull();
+    expect(rememberedMaps('d1')!.map((p) => p.id)).toEqual(['tides', 'craters']);
+    expect(fileBytes).not.toHaveBeenCalled();
+    flag.on = true;
+    expect(await restoreMaps('d1', rememberedMaps('d1')!)).toEqual([]);
+    expect(getMapNow()!.ready).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('并排试推的地图:用了地图插件的都长不了,装着的写「网站暂时关了插件」,没装的照旧写没装', async () => {
+    installed = [have('craters', '环形山', craters.sum)];
+    byWorld.a = { plugins: [craters], parts: [] };
+    byWorld.b = { plugins: [craters, tides], parts: [] };
+    byWorld.c = { plugins: [magic], parts: [] };
+    const r = await storedMapsOf(['a', 'b', 'c']);
+    expect([...r.entries()]).toEqual([
+      ['a', { files: null, off: MAPS_OFF }],
+      ['b', { files: null, off: '你没装「潮汐」' }],
+    ]);
+    expect(fileBytes).not.toHaveBeenCalled();
+    flag.on = true;
+    expect((await storedMapsOf(['a'])).get('a')!.files!.every((f) => !!f.bytes)).toBe(true);
   });
 });

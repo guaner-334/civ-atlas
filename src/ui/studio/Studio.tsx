@@ -465,6 +465,8 @@ export function Studio(p: StudioProps) {
   /** 以它为底稿新建、这台对不上原来那张地图用的地图插件:地图照原样放着,要重新长地图的几样(世界参数、编辑地形、让助手改)改不了 */
   const mapOff = !!mapNow && !mapNow.ready;
   const offTag = mapNow && !mapNow.ready ? mapOffTag(mapNow.checks) : null;
+  /** 编辑地形、让助手改右边那句:网站关了插件、本机都装着同一版时不说装 */
+  const mapNeed = mapOff && !simOn && mapNow.checks.every((c) => c.status === 'ready') ? '插件关着' : '要先装插件';
   /** 起源页上:星球停住时的样子(圆点按它摆;动着 = null)、底下的提示(点错了的那句和画虚线圈的地方,过几秒收起) */
   const [pinPose, setPinPose] = useState<StillPose | null>(null);
   const [originMsg, setOriginMsg] = useState<{ text: string; x: number; y: number } | null>(null);
@@ -1417,7 +1419,7 @@ export function Studio(p: StudioProps) {
       <span className="sb-row-main">
         <b>编辑地形</b>
       </span>
-      {mapOff ? <span className="sb-row-side nw-map-need">要先装插件</span> : <span className="sb-row-side">{terrainSide(edits, '还没改')}</span>}
+      {mapOff ? <span className="sb-row-side nw-map-need">{mapNeed}</span> : <span className="sb-row-side">{terrainSide(edits, '还没改')}</span>}
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
@@ -1427,7 +1429,7 @@ export function Studio(p: StudioProps) {
       <span className="sb-row-main">
         <b>让助手改</b>
       </span>
-      {mapOff ? <span className="sb-row-side nw-map-need">要先装插件</span> : <span className="sb-row-side">说一句话就行</span>}
+      {mapOff ? <span className="sb-row-side nw-map-need">{mapNeed}</span> : <span className="sb-row-side">说一句话就行</span>}
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );

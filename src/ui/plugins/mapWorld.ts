@@ -1,14 +1,16 @@
 /**
  * 地图上这个世界用的地图插件(world/mapNow.ts 记着):打开的世界从世界清单读、和本机插件仓库核对(被网站停用的不跑);
- * 新建中选上的从插件仓库取现在那一版的文件。只在世界用了地图插件、或者新建时选地图插件时 import()
+ * 新建中选上的从插件仓库取现在那一版的文件。只在世界用了地图插件、或者新建时选地图插件时 import()。
+ * 网站关了插件(插件界面关着)时一个都不跑:不读插件文件,本机装着同一版的也只带编号和指纹
  */
 import type { WorldPlugin } from '../../gen/worldFormat';
 import { mapPluginsReady } from '../../plugin/mapPlugins';
 import { listPlugins, pluginFileBytes, type InstalledPlugin } from '../../plugin/pluginStore';
-import { mapPluginIds, mapPluginKey, mapPluginOf, mapPluginsIn, recordParams, simParamsOf, type MapPluginCheck, type MapPluginFile } from '../../plugin/pluginWorld';
+import { checkMapPlugins, mapPluginIds, mapPluginKey, mapPluginOf, mapPluginsIn, recordParams, simParamsOf, type MapPluginCheck, type MapPluginFile } from '../../plugin/pluginWorld';
 import { vaultCall } from '../worldStore';
 import { currentWorld } from '../saveStore';
 import { getMapNow, rememberMaps, setMapNow, type MapNow } from '../world/mapNow';
+import { pluginsUiOn } from './flag';
 import { subscribeVerdicts, verdictOf } from './verdict';
 import { versionLabel } from './pluginWords';
 import { blockedChecks } from './worldPlugins';
@@ -35,8 +37,19 @@ export async function loadMapNow(id: string, plugins?: readonly WorldPlugin[], s
 /** 两串地图插件记录是不是同一套(编号、指纹、滑条、先后) */
 const sameRecords = (a: readonly WorldPlugin[], b: readonly WorldPlugin[]): boolean => JSON.stringify(mapPluginIds(a).map(mapPluginKey)) === JSON.stringify(mapPluginIds(b).map(mapPluginKey));
 
+/** 网站关了插件时的核对:只看装没装、停没停用,不读插件文件;装着同一版的照旧记 ready(只是这时不跑) */
+async function offChecks(list: readonly WorldPlugin[]): Promise<MapPluginCheck[]> {
+  const checks = checkMapPlugins(list, await listPlugins().catch(() => [] as InstalledPlugin[]));
+  return blockedChecks(list, checks, verdictOf) ?? checks;
+}
+
 /** 和本机核对这一串:都有同一版、没被网站停用的带上文件;不然只带编号、指纹、滑条和每个的核对结果 */
 async function setChecked(id: string, list: readonly WorldPlugin[], live: () => boolean, more: Pick<MapNow, 'stored' | 'from'>): Promise<void> {
+  if (!pluginsUiOn()) {
+    const checks = await offChecks(list);
+    if (live()) setMapNow({ id, list: [...list], files: mapPluginIds(list), ready: false, checks, ...more });
+    return;
+  }
   const r = await mapPluginsReady(list).catch(() => null);
   if (!live()) return;
   const missing = (): MapPluginCheck[] => list.map((plugin) => ({ id: plugin.id, plugin, status: 'missing' }));
@@ -63,8 +76,10 @@ export async function chooseMaps(worldId: string, picks: readonly MapChoice[], i
   // 文件还在读时又改了选的:只认最后一次
   const seq = ++chooseSeq;
   const prev = getMapNow();
-  const carried = prev && prev.id === worldId && !prev.ready ? prev.checks.filter((c) => c.status !== 'ready' && !swap.includes(c.id)) : [];
-  const have = installed ?? (await listPlugins().catch(() => [] as InstalledPlugin[]));
+  // 网站关了插件:不取插件文件,带过来的照旧列着(装着同一版的也不跑),别的选不上
+  const shut = !pluginsUiOn();
+  const carried = prev && prev.id === worldId && !prev.ready ? prev.checks.filter((c) => (shut || c.status !== 'ready') && !swap.includes(c.id)) : [];
+  const have = shut ? [] : (installed ?? (await listPlugins().catch(() => [] as InstalledPlugin[])));
   const list: WorldPlugin[] = [];
   const files: MapPluginFile[] = [];
   const off: MapPluginCheck[] = [];
@@ -100,6 +115,11 @@ export async function restoreMaps(worldId: string, records: readonly WorldPlugin
     const seq = ++loadSeq;
     await setChecked(worldId, records, () => seq === loadSeq && still(), { stored: false, from: base });
     return [];
+  }
+  // 网站关了插件:这次照不带它们的长,记着的不动(插件开回来再打开照它取回)
+  if (!pluginsUiOn()) {
+    if (still()) setMapNow(null);
+    return records.map((r) => r.name ?? r.id);
   }
   const ok = await chooseMaps(
     worldId,
@@ -142,6 +162,11 @@ export async function refreshMapNow(): Promise<void> {
   const cur = currentWorld();
   if (cur?.id === s.id && cur.kind !== 'draft') return loadMapNow(s.id, s.list, () => getMapNow()?.id === s.id);
   if (!s.ready) {
+    if (!pluginsUiOn()) {
+      const checks = await offChecks(s.list);
+      if (getMapNow() === s) setMapNow({ ...s, checks });
+      return;
+    }
     const r = await mapPluginsReady(s.list).catch(() => null);
     if (getMapNow() !== s) return;
     const blocked = blockedChecks(s.list, r && !r.ok ? r.checks : null);
@@ -166,14 +191,19 @@ const offText = (c: MapPluginCheck): string => {
   return `你没装${name}`;
 };
 
-/** 这几个世界(编号)里用了地图插件的:世界清单读出来和本机核对;没用的不在结果里 */
+/** 网站关了插件、本机都装着同一版时那一句 */
+export const MAPS_OFF = '网站暂时关了插件';
+
+/** 这几个世界(编号)里用了地图插件的:世界清单读出来和本机核对;没用的不在结果里。网站关了插件时都长不了,不读插件文件 */
 export async function storedMapsOf(ids: readonly string[]): Promise<Map<string, StoredMaps>> {
   const out = new Map<string, StoredMaps>();
+  const shut = !pluginsUiOn();
   await Promise.all(
     ids.map(async (id) => {
       const m = await vaultCall('worldPluginsOf', [id]).catch(() => null);
       const list = m ? mapPluginsIn(m.plugins) : [];
       if (!m || !list.length) return;
+      if (shut) return void out.set(id, { files: null, off: (await offChecks(list)).filter((c) => c.status !== 'ready').map(offText).join('、') || MAPS_OFF });
       const r = await mapPluginsReady(m.plugins).catch(() => null);
       const checks = r ? (r.ok ? null : r.checks) : list.map((plugin): MapPluginCheck => ({ id: plugin.id, plugin, status: 'missing' }));
       const blocked = blockedChecks(list, checks, verdictOf);

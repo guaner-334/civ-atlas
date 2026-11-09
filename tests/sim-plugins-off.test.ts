@@ -13,7 +13,9 @@ let plugins: WorldPlugin[] = [];
 vi.mock('../src/ui/worldStore', () => ({ vaultCall: async (name: string) => (name === 'worldPluginsOf' ? { plugins, parts: [] } : null), settleWorld: async () => null }));
 const ready = vi.fn(async (list: readonly WorldPlugin[]) => ({ ok: true as const, files: list.filter((p) => p.role === 'sim').map((p) => ({ id: p.id, sum: p.sum, bytes: new Uint8Array([1]) })) }));
 vi.mock('../src/plugin/simPlugins', () => ({ simPluginsReady: (list: readonly WorldPlugin[]) => ready(list) }));
-vi.mock('../src/plugin/pluginStore', () => ({ listPlugins: async () => [], pluginFileBytes: async () => null }));
+let installed: unknown[] = [];
+const fileBytes = vi.fn(async () => new Uint8Array([1]));
+vi.mock('../src/plugin/pluginStore', () => ({ listPlugins: async () => installed, pluginFileBytes: () => fileBytes() }));
 vi.mock('../src/ui/plugins/verdict', () => ({ verdictOf: () => ({ reviewed: false, blocked: null }), subscribeVerdicts: () => () => {} }));
 const notes: { text: string }[] = [];
 const copies: [string, WorldEdits][] = [];
@@ -26,7 +28,7 @@ vi.mock('../src/ui/saveStore', () => ({
 }));
 vi.mock('../src/ai/library', () => ({ copyNotes: () => true }));
 
-const { copyWithSims, loadSimNow } = await import('../src/ui/plugins/worldPlugins');
+const { chooseSims, copyWithSims, loadSimNow } = await import('../src/ui/plugins/worldPlugins');
 const { getSimNow, setSimNow, simFilesNow, simsOf } = await import('../src/ui/world/simNow');
 const { OFF_LABEL, offText } = await import('../src/ui/plugins/simWorldText');
 
@@ -39,6 +41,8 @@ beforeEach(() => {
   flag.on = false;
   plugins = [map, weariness, faith];
   ready.mockClear();
+  fileBytes.mockClear();
+  installed = [];
   notes.length = 0;
   copies.length = 0;
   setSimNow(null);
@@ -104,5 +108,20 @@ describe('网站关了插件', () => {
     ]);
     expect(a).toBe('「群岛」用了推演插件「厌战」第 1.0 版、「宗教生效」第 1.0 版。看不受影响；要接着推，得等插件开回来，推出来的历史才对得上。');
     expect(b).toContain('历史不带它们');
+  });
+});
+
+describe('网站关了插件:新建里选推演插件', () => {
+  const have = (p: WorldPlugin) => ({ id: p.id, on: true, from: 'file', at: 0, current: { sum: p.sum, bytes: 1, at: 0, manifest: { id: p.id, name: p.name, version: '1.0.0', role: 'sim', sim: { every: 1 } } } });
+
+  it('装着也不读插件文件,一个都选不上;开着时照旧带上文件', async () => {
+    installed = [have(weariness)];
+    await chooseSims('d1', [{ id: 'weariness' }]);
+    expect(fileBytes).not.toHaveBeenCalled();
+    expect(getSimNow()).toBeNull();
+    flag.on = true;
+    await chooseSims('d1', [{ id: 'weariness' }]);
+    expect(fileBytes).toHaveBeenCalledTimes(1);
+    expect(getSimNow()?.files?.map((f) => f.id)).toEqual(['weariness']);
   });
 });

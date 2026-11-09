@@ -164,6 +164,8 @@ export interface WorldState extends RosterMarks {
   corrupt?: number;
   /** 要按配方重推,但本机没有世界记的那一版推演插件(插件编号):不重推,照原样留着,装上了再推 */
   simWait?: string[];
+  /** 要按配方重算,但网站关了插件、它用了推演或地图插件(插件编号):不算,照原样留着,插件开回来再算 */
+  pluginsOff?: string[];
   /** 放进来时校验没过的 author 块(指纹):字节留着,不当正文读 */
   authorSkip?: string;
   /** 只有 SIZES_ROW 这一行有:块的键 → 压缩后的字节数 */

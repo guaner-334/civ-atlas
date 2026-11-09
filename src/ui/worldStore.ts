@@ -61,6 +61,7 @@ import { afterOkToasts, clearToast, showToast } from './toastStore';
 import { withFileFlow } from './worldFileLazy';
 import { getMapNow } from './world/mapNow';
 import { getSimNow } from './world/simNow';
+import { pluginsUiOn } from './plugins/flag';
 import { APP_COMMIT, APP_VERSION } from './version';
 import { canSeeHolds, holdWorld, ifNotHeld, isHeld } from './worldHolds';
 
@@ -532,6 +533,13 @@ async function pluginFilesOf(id: string, read: <T>(p: Promise<T>) => Promise<T |
   return { sims, maps: r.ok ? r.files : null };
 }
 
+/** 网站关了插件时这个世界用的推演、地图插件(编号);没用 = undefined */
+async function pluginsOffOf(id: string, read: <T>(p: Promise<T>) => Promise<T | null>): Promise<string[] | undefined> {
+  const m = await read(call('worldPluginsOf', [id]));
+  const ids = (m?.plugins ?? []).filter((p) => p.role === 'sim' || p.role === 'map').map((p) => p.id);
+  return ids.length ? ids : undefined;
+}
+
 /**
  * 这个世界下一步要转什么;没有要转的 = null。
  * 先转比现在的存档更旧的那份原件(留底),再转现在的样子。没有原件的更旧版本只记下来。
@@ -565,6 +573,10 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   if (w.save.generator === GENERATOR_VERSION) {
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
     if (!asked && (onPhone() || currentWorld()?.id === id)) return null;
+    // 网站关了插件:用了推演、地图插件的一个都不跑(不带它们重算出来是另一个世界),照原样留着,记下在等哪几个
+    const off = pluginsUiOn() ? undefined : await pluginsOffOf(id, read);
+    if (JSON.stringify(state?.pluginsOff) !== JSON.stringify(off)) await call('patchState', [id, { pluginsOff: off }]).catch(() => {});
+    if (off) return null;
     // 用了推演插件的带着世界记的那一版推;本机没有就不推(推出来是另一段历史),照原样留着,记下在等哪几个
     const { sims, maps } = await pluginFilesOf(id, read);
     const wait = sims && !sims.ok ? sims.checks.filter((c) => c.status !== 'ready').map((c) => c.id) : undefined;
