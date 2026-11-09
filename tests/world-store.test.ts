@@ -864,6 +864,28 @@ describe('把现有的世界转进来', () => {
     _resetPluginStore();
   }, 120_000);
 
+  it('网站关了插件:用了插件的世界有同一份配方的原件也不拿它转(原件不记插件);没用插件的照常转', async () => {
+    const save = makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, 'x', '2026-11-01T00:00:00.000Z');
+    const id = storeSave(save);
+    const plain = storeSave(makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 200 }, check, 'p', '2026-11-01T00:00:00.000Z'));
+    const civ0 = generateCiv(world, { endYear: 300 });
+    const parts = [await makePart('map', mapValue(world)), await makePart('civ', civ0), await makePart('chronicle', worldChronicle(civ0, undefined)), await makePart('flags', worldFlags(world, civ0))];
+    const made = { app: '1.9.0', generator: GENERATOR_VERSION, commit: '', at: '2026-11-01T00:00:00.000Z' };
+    const weary = { id: 'weariness', version: '1.0.0', sum: 'e'.repeat(64), role: 'sim', name: '厌战' };
+    await vaultOps.commitWorld({ id, recipe: save, recipeKey: await recipeKey(recipeOfSave(save)), parts, made, readers: { ...READER_VERSIONS }, simPlugins: [weary] });
+    await patchState(id, { corrupt: 1 });
+    // 同一份配方不带插件推出来的原件(新建时先长、后选插件的那一份)
+    await putOriginal(id, [await makePart('map', mapValue(world)), await makePart('civ', civ0)], save, GENERATOR_VERSION);
+    await putOriginal(plain, [await makePart('map', mapValue(world)), await makePart('civ', generateCiv(world, { endYear: 200 }))], saveStore.loadWorld(plain)!.save, GENERATOR_VERSION);
+    const jobs: ConvertJob[] = [];
+    _setWorldStore({ runner: (job) => (jobs.push(job), { done: runConvert(job, results).then((result) => ({ ok: true as const, result })), stop: () => {} }) });
+    flag.on = false;
+    await startConversions();
+    expect(jobs.map((j) => [j.id, j.kind])).toEqual([[plain, 'original']]);
+    expect(await stateOf(id)).toMatchObject({ corrupt: 1, pluginsOff: ['weariness'] });
+    expect((await revisionsOf(id)).length).toBe(1);
+  }, 120_000);
+
   it('按存档算一遍:和生成世界的线程走同一段代码,带干预、地形大事、地形修改、逐年推演都对得上配方', async () => {
     const terrain = [{ kind: 'volcano', pts: [812, 403], r: 60, s: 1.5 }] as WorldEdits['terrain'];
     const params = PARAMS;

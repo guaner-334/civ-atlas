@@ -553,6 +553,12 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   const state = await read(call('stateOf', [id]));
   // 等推演插件的不算转失败:装上了照样转
   if (state?.status === 'failed' && state.app === APP_VERSION && !state.simWait) return null;
+  // 网站关了插件:用了推演、地图插件的一样都不转(原件不记插件,不带插件重算出来是另一个世界),照原样留着,记下在等哪几个
+  const shut = pluginsUiOn() ? undefined : await pluginsOffOf(id, read);
+  const hold = async (wait: string[] | undefined): Promise<null> => {
+    if (JSON.stringify(state?.pluginsOff) !== JSON.stringify(wait)) await call('patchState', [id, { pluginsOff: wait }]).catch(() => {});
+    return null;
+  };
   const heads = await resultHeads(id);
   const body = { id, thumb: thumbBytes(w.thumb) };
 
@@ -562,21 +568,19 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   if (parsed?.ok && !state?.archived?.includes(parsed.save.generator)) {
     const old = parsed.save;
     const key = await recipeKey(recipeOfSave(old));
-    if (heads.some((h) => h.generator === old.generator && h.recipe === key)) return { kind: 'original', id, generator: old.generator, save: old, source: 'archive' };
+    if (heads.some((h) => h.generator === old.generator && h.recipe === key)) return shut ? hold(shut) : { kind: 'original', id, generator: old.generator, save: old, source: 'archive' };
   }
 
   const key = await recipeKey(recipeOfSave(w.save));
   const latest = await read(call('latestOf', [id]));
   // 打开时发现块坏了的(state.corrupt)再转一遍,commitWorld 会把块重写一遍
-  if (latest && latest.recipeKey === key && latest.generator === w.save.generator && state?.corrupt === undefined) return null;
-  if (heads.some((h) => h.generator === w.save.generator && h.recipe === key)) return { ...body, kind: 'original', generator: w.save.generator, save: w.save, source: 'migrated' };
+  if (latest && latest.recipeKey === key && latest.generator === w.save.generator && state?.corrupt === undefined) return hold(undefined);
+  if (heads.some((h) => h.generator === w.save.generator && h.recipe === key)) return shut ? hold(shut) : { ...body, kind: 'original', generator: w.save.generator, save: w.save, source: 'migrated' };
   if (w.save.generator === GENERATOR_VERSION) {
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
     if (!asked && (onPhone() || currentWorld()?.id === id)) return null;
-    // 网站关了插件:用了推演、地图插件的一个都不跑(不带它们重算出来是另一个世界),照原样留着,记下在等哪几个
-    const off = pluginsUiOn() ? undefined : await pluginsOffOf(id, read);
-    if (JSON.stringify(state?.pluginsOff) !== JSON.stringify(off)) await call('patchState', [id, { pluginsOff: off }]).catch(() => {});
-    if (off) return null;
+    await hold(shut);
+    if (shut) return null;
     // 用了推演插件的带着世界记的那一版推;本机没有就不推(推出来是另一段历史),照原样留着,记下在等哪几个
     const { sims, maps } = await pluginFilesOf(id, read);
     const wait = sims && !sims.ok ? sims.checks.filter((c) => c.status !== 'ready').map((c) => c.id) : undefined;
