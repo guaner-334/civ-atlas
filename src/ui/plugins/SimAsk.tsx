@@ -11,7 +11,8 @@ import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import { Dialog } from '../AccountDialogs';
 import { askSims, type SimAsk } from '../world/simAsk';
 import { PluginIcon } from './pluginIcons';
-import { versionLabel } from './pluginWords';
+import { noWallVersionText, versionLabel } from './pluginWords';
+import { serverBase } from '../../account/server';
 import { OFF_LABEL, blockedLabel, blockedText, missingText, offText, otherText, simWhat } from './simWorldText';
 import { pluginsUiOn } from './flag';
 import { useWallRev, wallOnce, wallWorkOf } from './galleryWatch';
@@ -124,7 +125,7 @@ export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean 
                   <b>
                     {nameOf(c)} <span className="plg-tag">{versionLabel(c.plugin.version)}</span>
                   </b>
-                  <small>{works[i] ? '作品墙上有这一版' : '作品墙上没有这一版：向分享这个世界的人要插件文件，在「插件」页从文件装'}</small>
+                  <small>{works[i] ? '作品墙上有这一版' : noWallVersionText(!!serverBase())}</small>
                 </span>
               </div>
             ))}

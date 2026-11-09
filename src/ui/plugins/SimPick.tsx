@@ -20,7 +20,8 @@ import { currentWorld } from '../saveStore';
 import { useSimNow } from '../world/simNow';
 import { PuzzleIcon, openPlugins, subscribePluginsOpen } from './entry';
 import { PluginIcon, useIcons } from './pluginIcons';
-import { versionLabel } from './pluginWords';
+import { installHowText, versionLabel } from './pluginWords';
+import { serverBase } from '../../account/server';
 import { chooseSims, chosenSims, type SimChoice } from './worldPlugins';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import { paramDigits, paramStep, paramsBrief, sharedNotes, simBrief } from './simPickText';
@@ -167,7 +168,7 @@ export function SimPick({ phone, onBack, onCollapse }: SimPickProps) {
         {top}
         <div className="sp-empty">
           <b>还没装推演插件</b>
-          <span>推演插件会在推演里出手，改历史怎么走：比如有议会的国家开战要先过议会（厌战）、异教的州更难治（宗教生效）。在插件页里从作品墙或文件装，装好回到这里选。</span>
+          <span>推演插件会在推演里出手，改历史怎么走：比如有议会的国家开战要先过议会（厌战）、异教的州更难治（宗教生效）。{installHowText(!!serverBase())}</span>
           <button className="sp-btn" data-act="sim-pick-plugins" onClick={openPlugins}>
             <PuzzleIcon size={16} />
             去插件页…

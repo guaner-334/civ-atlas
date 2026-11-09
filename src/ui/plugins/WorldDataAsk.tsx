@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { listPlugins, type InstalledPlugin } from '../../plugin/pluginStore';
 import { PluginIcon, useIcons } from './pluginIcons';
+import { noShareText } from './pluginWords';
+import { serverBase } from '../../account/server';
 import type { DataAsk } from './askState';
 import './plugins.css';
 import './worldData.css';
@@ -36,7 +38,7 @@ function StoreBody({ ask }: { ask: Extract<DataAsk, { kind: 'store' }> }) {
       <p>存的是它自己的数据，大约 {ask.kb} KB。存了以后：</p>
       <ul>
         <li>
-          <b>这个世界不能公开分享</b>：不能复制链接、不能分享、不能投到作品墙。网站读不懂插件自己的数据，没法替你检查里面写了什么
+          <b>这个世界不能公开分享</b>：{noShareText(!!serverBase())}。网站读不懂插件自己的数据，没法替你检查里面写了什么
         </li>
         <li>还能存成文件发给别人，对方装了这个插件才用得上这些数据</li>
         <li>以后想分享，到「存档」里去掉这些数据就行</li>

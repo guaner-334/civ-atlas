@@ -35,3 +35,18 @@ export const CAP_LABEL: Readonly<Record<string, string>> = {
   simSteer: '改推演',
   mapSteer: '改地图',
 };
+
+/** 没装插件那一页:没有服务器就没有作品墙,只说从文件装 */
+export function installHowText(hasWall: boolean): string {
+  return `在插件页里从${hasWall ? '作品墙或' : ''}文件装，装好回到这里选。`;
+}
+
+/** 问框里本机没装、作品墙上又没有这一版的插件下面那句 */
+export function noWallVersionText(hasWall: boolean): string {
+  return `${hasWall ? '作品墙上没有这一版：' : ''}向分享这个世界的人要插件文件，在「插件」页从文件装`;
+}
+
+/** 往世界里存插件数据后不能做的事 */
+export function noShareText(hasWall: boolean): string {
+  return `不能复制链接、不能分享${hasWall ? '、不能投到作品墙' : ''}`;
+}
