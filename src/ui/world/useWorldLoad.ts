@@ -182,6 +182,8 @@ async function baseLoad(baseId: string, id: number): Promise<LoadRequest | null>
 /** 提示条的来源:上次有改动没推完、世界打不开。换世界时收起(提示条上的按钮是冲着那个世界的) */
 const PENDING_TOAST = 'pending-edit';
 const TROUBLE_TOAST = 'open-trouble';
+/** 新建中的世界再打开时,记着的地图插件有用不了的 */
+const MAPS_LOST_TOAST = 'map-lost';
 
 /** 这件事最多等这么久(毫秒),等不到 = fallback:读新路之前的几步卡住了也不能挡着打开世界 */
 function atMost<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -279,15 +281,15 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         targetRef.current = t;
         setProgress({ stage: '准备', pct: 0, seed: t.params.seed });
         void import('../plugins/mapWorld')
-          .then(async (m) => {
-            const lost = await m.restoreMaps(t.id, kept, () => targetRef.current === t, t.base?.id);
+          .then((m) => m.restoreMaps(t.id, kept, () => targetRef.current === t, t.base?.id))
+          .catch(() => [] as string[])
+          .then((lost) => {
+            if (targetRef.current !== t) return;
+            // 发出生成请求时会收起地图插件出错的那一条:这一条在那之后再出
+            generate(t);
             const names = lost.map((n) => `「${n}」`).join('');
             const line = pluginsUiOn() ? `${names}没装了，或者被网站停用了，地图照剩下的长` : `网站暂时关了插件，${names}现在不跑，地图先照不带${lost.length > 1 ? '它们' : '它'}的长`;
-            if (lost.length) showToast({ id: 'map-fail', kind: 'warn', text: '有地图插件用不了了', more: [line], dismissible: true, ttl: 0 });
-          })
-          .catch(() => {})
-          .finally(() => {
-            if (targetRef.current === t) generate(t);
+            if (lost.length) showToast({ id: MAPS_LOST_TOAST, kind: 'warn', text: '有地图插件用不了了', more: [line], dismissible: true, ttl: 0 });
           });
         return;
       }
@@ -340,6 +342,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       openingClear();
       clearToast(PENDING_TOAST);
       clearToast(TROUBLE_TOAST);
+      clearToast(MAPS_LOST_TOAST);
       /** 读存下的内容打开。这份内容就是带着 edits 里的干预、地形大事(逐年推演的:推到"现在")推出来的:套上以后不用重推 */
       const sendLoad = (src: Pick<LoadRequest, 'parts' | 'vault' | 'original'>, gen: number, back: LoadBack) => {
         frozenLoad.current = { id: t.id, gen };
