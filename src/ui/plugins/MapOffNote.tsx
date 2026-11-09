@@ -5,11 +5,12 @@
  *   别的版本 「换成第 1.1 版重新长」(地图会变,不自动换)
  * 没装的先说;装好以后这一块自己收起
  */
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { MapPluginCheck } from '../../plugin/pluginWorld';
 import { Icon } from '../icons';
 import { useMapNow } from '../world/mapNow';
-import { openPlugins, openWallPlugin } from './entry';
+import { openPluginPicked, openWallPlugin } from './entry';
+import { pickAccept } from './pickAccept';
 import { useWallRev, wallOnce, wallWorkOf } from './galleryWatch';
 import { swapMaps } from './mapWorld';
 import { versionLabel } from './pluginWords';
@@ -32,6 +33,7 @@ const nameOf = (c: Off) => `「${c.plugin.name ?? c.id}」${versionLabel(c.plugi
 
 export function MapOffNote({ where, phone, plugins, onRegrow }: MapOffNoteProps) {
   const s = useMapNow();
+  const fileRef = useRef<HTMLInputElement>(null);
   useWallRev();
   useEffect(() => void wallOnce(), []);
   if (!s || s.ready) return null;
@@ -63,7 +65,7 @@ export function MapOffNote({ where, phone, plugins, onRegrow }: MapOffNoteProps)
               去作品墙装同一版
             </button>
           )}
-          <button className="mo-btn" data-act="map-off-file" onClick={openPlugins}>
+          <button className="mo-btn" data-act="map-off-file" onClick={() => fileRef.current?.click()}>
             从文件装…
           </button>
         </>
@@ -102,6 +104,18 @@ export function MapOffNote({ where, phone, plugins, onRegrow }: MapOffNoteProps)
         <b>{head}</b>
         {text}
         {buttons && <span className="mo-bs">{buttons}</span>}
+        <input
+          ref={fileRef}
+          type="file"
+          accept={pickAccept()}
+          hidden
+          data-testid="map-off-file-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (f) openPluginPicked(f);
+          }}
+        />
       </span>
     </div>
   );

@@ -10,7 +10,6 @@ import { PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey, typ
 import { PLUGIN_FILE_EXT, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
 import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
 import { openSubmitDialog } from '../AccountDialogs';
-import { isCoarse } from '../device';
 import { Icon, type IconName } from '../icons';
 import { showToast } from '../toastStore';
 import { askPhone, phoneRequired, submitBan, useSubmitOn } from '../submitView';
@@ -18,6 +17,7 @@ import { knownAuthOptions } from '../../account/session';
 import { pluginSubmitOn } from '../submitPlugin';
 import { loadDev, pickDevFile, setDevMode, useDevMode, type DevAsk } from './dev';
 import { openPlugins } from './entry';
+import { pickAccept } from './pickAccept';
 import { compareVersions, type WallLatest } from './galleryPlugin';
 import { CAP_LABEL } from './pluginWords';
 import { checkPlugins, newVersionOf, useWallRev, wallFile } from './galleryWatch';
@@ -35,14 +35,14 @@ export type Ask =
 const PluginWorkDialog = lazy(() => import('./GalleryPlugins').then((m) => ({ default: m.PluginWorkDialog })));
 
 /** 装上、更新(从文件或作品墙);装好了说一声,更新的说到了第几版 */
-export async function installAsk(a: Ask, phone: boolean): Promise<InstalledPlugin> {
+export async function installAsk(a: Ask, phone: boolean, plain = false): Promise<InstalledPlugin> {
   const r = await installPlugin(a.work ? a.bytes : new File([a.bytes], a.file), a.work ? { work: a.work } : {});
   const m = r.plugin.current.manifest;
   if (a.work) markReviewed(r.plugin.current.sum, r.plugin.id);
   if (a.work && a.kind === 'update') showToast({ id: 'plugins', kind: 'ok', text: `「${m.name}」更新到${versionLabel(m.version)}了` });
   else if (a.work) showToast({ id: 'plugins', kind: 'ok', text: `装好了「${m.name}」`, more: [wallInstalledText(m, phone)], action: { label: '去插件页', act: 'plugins-open', onClick: openPlugins } });
   else {
-    const where = isSim(m) ? simWhere(phone) : isMap(m) ? mapWhere() : toolWhere(m, phone);
+    const where = plain ? null : isSim(m) ? simWhere(phone) : isMap(m) ? mapWhere() : toolWhere(m, phone);
     showToast({ id: 'plugins', kind: 'ok', text: '装好了', ...(where ? { more: [where] } : {}) });
   }
   void import('./worldPlugins').then((x) => x.refreshSimNow()).catch(() => {});
@@ -57,7 +57,7 @@ export type Said =
   | { kind: 'failed'; name: string }
   | { kind: 'fetch'; name: string; why: string };
 
-export default function PluginWindow({ phone, onClose }: { phone: boolean; onClose: () => void }) {
+export default function PluginWindow({ phone, onClose, first }: { phone: boolean; onClose: () => void; first?: File | null }) {
   const [list, setList] = useState<InstalledPlugin[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [detail, setDetail] = useState(false);
@@ -82,17 +82,21 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
     setSel((s) => pick ?? (s && l.some((p) => p.id === s) ? s : (l[0]?.id ?? null)));
   };
   useEffect(() => {
-    void reload();
     void checkPlugins();
+    if (first) void listPlugins().then((l) => (setList(l), onFile(first, l)), () => onFile(first, []));
+    else void reload();
   }, []);
 
+  /** 从别处选好文件带进来:核对、权限框、出错说明都在这个窗里,看完就关掉整个窗 */
+  const direct = useRef(!!first).current;
   const back = () => {
     setAsk(null);
     setSaid(null);
+    if (direct) onClose();
   };
   useEscape(() => (look ? setLook(null) : ask || said ? back() : onClose()));
 
-  const onFile = async (f: File) => {
+  const onFile = async (f: File, have: InstalledPlugin[] | null = list) => {
     if (f.size > PLUGIN_MAX_BYTES) return setSaid({ kind: 'broken', file: f.name });
     setBusy(true);
     try {
@@ -116,8 +120,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
       await refreshVerdicts();
       const verdict = verdictOf(opened.sum, m.id);
       if (verdict.blocked) return setSaid({ kind: 'blocked', name: m.name, version: m.version, ...verdict.blocked });
-      const old = list?.find((p) => p.id === m.id);
-      if (old?.current.sum === opened.sum) return void setSel(old.id);
+      const old = have?.find((p) => p.id === m.id);
+      if (old?.current.sum === opened.sum) return direct ? onClose() : void setSel(old.id);
       if (old) return setAsk({ kind: 'update', bytes, opened, file: f.name, old, added: addedLines(old.current.manifest, m) });
       setAsk({ kind: 'install', bytes, opened, file: f.name, verdict });
     } catch {
@@ -130,9 +134,10 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const install = async (a: Ask) => {
     setBusy(true);
     try {
-      const p = await installAsk(a, phone);
+      const p = await installAsk(a, phone, direct);
       await reload(p.id);
       setAsk(null);
+      if (direct) return onClose();
       if (!a.work) setDetail(false);
     } catch {
       setAsk(null);
@@ -236,7 +241,8 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   const cur = list?.find((p) => p.id === sel) ?? null;
   let body: ReactNode;
   let mode: 'page' | 'ask' = 'ask';
-  if (said) body = <SaidBox said={said} phone={phone} onOk={back} />;
+  if (direct && !said && !ask) body = null;
+  else if (said) body = <SaidBox said={said} phone={phone} onOk={back} />;
   else if (ask?.kind === 'install') body = <InstallBox ask={ask} phone={phone} busy={busy} onCancel={back} onOk={() => void install(ask)} />;
   else if (ask?.kind === 'update') body = <UpdateBox ask={ask} phone={phone} icon={icons.get(ask.old.current.sum)} busy={busy} onCancel={back} onOk={() => void install(ask)} />;
   else {
@@ -281,12 +287,7 @@ export default function PluginWindow({ phone, onClose }: { phone: boolean; onClo
   );
 }
 
-/** 手机和 Safari 上不限文件类型:.civplugin 系统不认识,写了可能灰掉不让选 */
-export function pickAccept(): string | undefined {
-  const ua = navigator.userAgent;
-  if (isCoarse() || /iPhone|iPad|iPod|Android|Mobile/i.test(ua) || (/Safari/i.test(ua) && !/Chrome|Chromium|Edg/i.test(ua))) return undefined;
-  return PLUGIN_FILE_EXT;
-}
+export { pickAccept };
 
 function useEscape(f: () => void) {
   const latest = useRef(f);

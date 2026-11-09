@@ -231,6 +231,7 @@ describe('首页不带沙箱', () => {
       'src/ui/plugins/layers/LayerView.tsx',
       'src/ui/plugins/layers/layerRun.ts',
       'src/ui/plugins/mapWorld.ts',
+      'src/ui/plugins/pickAccept.ts',
       'src/ui/plugins/pluginIcons.tsx',
       'src/ui/plugins/pluginText.ts',
       'src/ui/plugins/simPickText.ts',

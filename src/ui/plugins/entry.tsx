@@ -9,6 +9,8 @@ import type { MapPickProps } from './MapPick';
 import type { MapOffNoteProps } from './MapOffNote';
 
 const open = createStore(false);
+/** 从别处选好、等插件页核对的插件文件 */
+const picked = createStore<File | null>(null);
 
 /** 插件的图标:一块拼图(不放进 icons.tsx:那份跟首页一起下载) */
 export function PuzzleIcon({ size = 18 }: { size?: number }) {
@@ -29,8 +31,15 @@ export const usePluginsOpen = (): boolean => open.use();
 /** 插件页开、关时调 f;返回取消的函数 */
 export const subscribePluginsOpen = (f: (on: boolean) => void): (() => void) => open.subscribe(() => f(open.get()));
 
+/** 插件文件已经选好:打开插件页直接核对、问权限、装上(装完或看完说明就关) */
+export function openPluginPicked(f: File): void {
+  picked.set(f);
+  open.set(true);
+}
+
 export function closePlugins(): void {
   open.set(false);
+  picked.set(null);
 }
 
 export function PluginsMenuItem() {
@@ -77,6 +86,7 @@ export function openWallPlugin(work: string, want?: string): void {
 
 export function PluginsHost({ phone }: { phone: boolean }) {
   const shown = open.use();
+  const first = picked.use();
   const look = wallLook.use();
   // 装着的插件联网时和作品墙对一对:有新版、被网站停用了
   useEffect(() => {
@@ -89,7 +99,7 @@ export function PluginsHost({ phone }: { phone: boolean }) {
   return (
     <Suspense fallback={null}>
       {look && <WallPlugin id={look.id} {...(look.want ? { want: look.want, direct: true } : {})} phone={phone} onClose={() => wallLook.set(null)} />}
-      {shown && <PluginWindow phone={phone} onClose={closePlugins} />}
+      {shown && <PluginWindow phone={phone} onClose={closePlugins} first={first} />}
     </Suspense>
   );
 }
