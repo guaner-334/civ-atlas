@@ -25,6 +25,7 @@ import { noteExtendSpeed } from '../extendStore';
 import { noteGenSpeed } from '../genSpeed';
 import type { Style } from '../mapLayers';
 import { noteMapSum, offerSnapshot } from '../resultStore';
+import { simsOf } from './simNow';
 import { offerWorldParts } from '../worldStore';
 import { adoptReaders } from '../worldReaders';
 import { endLoadWatch, kickLoadWatch, reportOpenCrash } from '../openGuard';
@@ -221,7 +222,8 @@ export function worldMessages(deps: WorldMessageDeps): WorldHandlers {
     loadFailed: (m) => loadBackNow(m.why, m.recipe),
     // 这次生成 / 重推的原件:对得上存着的存档就存进浏览器(resultStore.ts)
     snapshot: (m) => {
-      void offerSnapshot(m.snapshot);
+      // 用了推演插件、本机对不上:这份是不带插件推的,存下了后台转存会拿它盖掉世界仓库里的
+      void offerSnapshot(m.snapshot, (id) => simsOf(id) !== null);
       void noteMapSum(m.snapshot);
     },
     worldParts: (m) => void offerWorldParts(m.offer),

@@ -283,7 +283,10 @@ function keepOffer(): Promise<boolean> {
       const c = currentWorld();
       if (!o || !c || c.kind !== 'created' || c.unsaved || c.gone || o.generator !== GENERATOR_VERSION) return false;
       // 用了推演插件、本机对不上(没装、停用、网站关了插件):线程这份是不带插件推的,存进去会把世界记的推演插件冲掉
-      if (sim.sims?.() === null) return false;
+      if (sim.sims?.() === null) {
+        if (offer === o) offer = null;
+        return false;
+      }
       const w = loadWorld(c.id);
       if (!w || !canKeep(w) || w.save.generator !== o.generator) return false;
       const recipe = recipeOfSave(w.save);
