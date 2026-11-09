@@ -64,8 +64,8 @@ export function PluginLayerChips({ phone }: { phone: boolean }) {
         {chips.map((c) => {
           const on = chipOn(s, c.key);
           return (
-            <button key={c.key} className={`lp-chip plg-chip${c.sim ? ' sim' : ''}${on ? ' on' : ''}`} aria-pressed={on} data-plugin-layer={c.key} title={c.label} onClick={() => pickPluginLayer(c.key)}>
-              {c.label}
+            <button key={c.key} className={`lp-chip plg-chip${c.sim || c.map ? ' tagged' : ''}${on ? ' on' : ''}`} aria-pressed={on} data-plugin-layer={c.key} title={c.label} onClick={() => pickPluginLayer(c.key)}>
+              <span className="plg-cname">{c.label}</span>
               {c.sim && <span className="plg-ctag">推演</span>}
               {c.map && <span className="plg-ctag">地图</span>}
             </button>

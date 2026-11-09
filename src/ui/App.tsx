@@ -176,7 +176,7 @@ import { RulesHost } from './rules/RulesHost';
 import { pluginsUiOn } from './plugins/flag';
 import { PluginsHost, ToolsHost } from './plugins/entry';
 import { toolCard, toolCellPick } from './plugins/toolsState';
-import { PluginDevSlot } from './plugins/devSlot';
+import { PluginDevMapSlot, PluginDevSlot, useDevMapOn } from './plugins/devSlot';
 import { PluginAskSlot, PluginCellSlot, PluginLegendSlot, PluginMarksSlot, PluginSavedSlot, usePluginLegendOn } from './plugins/layerSlots';
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
@@ -601,6 +601,9 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   const mapLayer = layerOf(style, layer, civShow);
   /** 地形画在写实底图上时用哪种画法(别的画风不看它) */
   const terrainLook: SurfaceLook = style === 'realistic' ? paintedLook : 'classic';
+  const devLook = { style, look: terrainLook, layer };
+  // 开发者模式「放到地图上看」盖着试生成的那张:地名是这张地图的,藏起来
+  const devMapOn = useDevMapOn();
   const mapViewRef = useRef({ base: mapBase, fill: mapFill, sat: satLook });
   mapViewRef.current = { base: mapBase, fill: mapFill, sat: satLook };
   const theme = studioOn || baseDark(mapBase) ? 'dark' : 'light';
@@ -2717,6 +2720,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
               <CivLayer world={data.world} raster={data.raster} civ={namesHeld ? null : civ} geo={namesHeld ? null : shownRaw} style={style} view={view} mp={mp} labelsHost={labelsHost} detailHost={civDetailHost} flags={flagView} bright={mapBase === 'satellite'} />
             )}
             {data && pluginsUiOn() && <PluginCellSlot world={data.world} raster={data.raster} mp={mp} />}
+            {data && pluginsUiOn() && <PluginDevMapSlot mp={mp} />}
             <canvas ref={overlayRef} className={`overlay ${replayOn && replay ? 'show' : ''}`} />
             <canvas ref={overlayCopyRef} className={`overlay wrap-copy ${replayOn && replay ? 'show' : ''}`} />
             {/* 照手绘图新建:原图 / 认出来的 / 叠上原图(在改地形覆盖层底下,笔画在它上面) */}
@@ -2727,7 +2731,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
           </div>
         </div>
         {/* 文字层(CivLayer 放进来);回放世界形成时、认图时、照手绘图新建看原图或认出来的时藏起来(回放画面盖住文明层,字也不露出来;认图时只看图) */}
-        <div className={`screen-layer${namesIn ? ' names-in' : ''}`} ref={setLabelsHost} style={(replayOn && replay) || importing || (draft && sourceView.show !== 'grown') ? { ...screenStyle, display: 'none' } : screenStyle} />
+        <div className={`screen-layer${namesIn ? ' names-in' : ''}`} ref={setLabelsHost} style={(replayOn && replay) || devMapOn || importing || (draft && sourceView.show !== 'grown') ? { ...screenStyle, display: 'none' } : screenStyle} />
         {/* 地形大事:涂的地方、会变的地块、会没了的城盖在地名上面(和地图一起缩放) */}
         {data && !curved && upOn && (
           <div className="canvas-wrap-upper" data-hold={hold} style={wrapStyle}>
@@ -2970,7 +2974,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         {/* 导播的字幕条:浮在时间轴上面 */}
         {data && world && <DirectorCaption phone={narrow} civ={civ} hidden={directorOff || stepQuiet} />}
         {/* 开发者模式载入的插件:左边一块小卡(重新载入、日志) */}
-        {pluginsUiOn() && data && world && <PluginDevSlot phone={narrow} world={data.world} civ={realCiv} raw={shownRaw} api={markApi} />}
+        {pluginsUiOn() && data && world && <PluginDevSlot phone={narrow} world={data.world} root={baseData?.world ?? data.world} civ={realCiv} raw={shownRaw} api={markApi} look={devLook} />}
         {pluginsUiOn() && data && world && <PluginSavedSlot worldId={worldId} cells={data.world.mesh.n} civ={shownRaw} real={previewRaw ? null : rawCiv} mesh={data.world.mesh} />}
         {/* 再推 N 年:电脑是「再推」上面的弹层,手机推的时候胶囊上面一张小卡片 */}
         {data && world && civ && !narrow && <ExtendPop end={civ.endYear} hidden={!extendShown} />}

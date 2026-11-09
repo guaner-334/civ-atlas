@@ -1,5 +1,5 @@
 /**
- * 插件隔离自检:把各项检查交回来的原始结果判成九行,再加「推演插件」一组(只量,不算进全部通过)。
+ * 插件隔离自检:把各项检查交回来的原始结果判成九行,再加「推演插件」「地图插件」两组(只量,不算进全部通过)。
  * 纯逻辑,单测直接调;真去试的在 ./probes.ts、./simProbe.ts。
  * 判法和 scripts/sandbox-check.ts 一样,只是没有收信站:连没连出去以插件在小屋里自己看到的为准。
  */
@@ -29,6 +29,27 @@ export interface SimProbeRaw {
   /** 生成地图、推历史各用了多久(毫秒) */
   genMs: number;
   civMs: number;
+  sum: string;
+  same: boolean;
+}
+
+// 地图插件那一组(真去量的在 ./mapProbe.ts,后台线程里跑)
+
+export const MAP_PROBE_SEED = 7;
+/** 电脑上长出来的散列。改了生成或示例插件,单测会报,照它打出来的换掉 */
+export const MAP_PROBE_SUM = '75825ebcc6c178e0';
+/** 电脑上示例插件长一张图多花几秒(写给人看的对照) */
+export const MAP_PROBE_PC_SEC = 0.1;
+/** 多花超过这么久(毫秒)算慢 */
+export const MAP_SLOW_MS = 1000;
+
+export interface MapProbeRaw {
+  /** 插件那几口一共用了多久(毫秒) */
+  ms: number;
+  /** 连插件长一整张用了多久(毫秒) */
+  genMs: number;
+  /** 要长几块地(参数里的) */
+  cells: number;
   sum: string;
   same: boolean;
 }
@@ -110,6 +131,8 @@ export interface Raw {
   /** 推演插件那一组 */
   sim?: Step<SimProbeRaw>;
   stack?: Step<StackRaw>;
+  /** 地图插件那一组 */
+  map?: Step<MapProbeRaw>;
   /** 上一次查的时候整页被框带走了(网址上带着记号回来) */
   escapedTop: boolean;
 }
@@ -381,6 +404,36 @@ export function simRows(raw: Raw): Row[] {
     });
   return out;
 }
+/** 6 毫秒、0.04 秒、0.4 秒、1.2 秒 */
+const secs = (ms: number) => (ms < 10 ? `${Math.max(1, Math.round(ms))} 毫秒` : `${(ms / 1000).toFixed(ms < 100 ? 2 : 1)} 秒`);
+
+/** 「地图插件」那一组:长一张图多花多久、长出来的和电脑上一不一样。只量,不算进上面的全部通过 */
+export function mapRows(raw: Raw): Row[] {
+  const COST = '长一张图多花多久';
+  const SAME = '长出来的图和电脑上一样';
+  const m = raw.map;
+  if (!m) return [COST, SAME].map((label) => ({ label, state: 'run', result: '', why: '', detail: '' }));
+  if (failed(m)) return [COST, SAME].map((label) => ({ label, state: 'err', result: '没量成', why: '这一项没量成，把结果复制给开发', detail: m.error }));
+  const slow = m.ms > MAP_SLOW_MS;
+  const wan = Math.round(m.cells / 1000) / 10;
+  return [
+    {
+      label: COST,
+      state: slow ? 'slow' : 'ok',
+      result: secs(m.ms),
+      why: `示例插件「柯本气候」长 ${wan} 万块地的一张图；电脑上约 ${MAP_PROBE_PC_SEC} 秒${slow ? '。用了地图插件的世界在这台上新建、改地形会慢一些' : ''}`,
+      detail: `柯本气候那几口 ${m.ms} ms，连插件长一整张 ${m.genMs} ms，${m.cells} 块地`,
+    },
+    {
+      label: SAME,
+      state: m.same ? 'ok' : 'bad',
+      result: m.same ? '一样' : '不一样',
+      why: m.same ? '' : '同一个世界在这台上长出来的地图和电脑上不一样',
+      detail: `散列 ${m.sum}，电脑上 ${MAP_PROBE_SUM}`,
+    },
+  ];
+}
+
 export const shortTime = (d: Date) => `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${d.getHours()}:${pad(d.getMinutes())}`;
 
 export function summary(rows: Row[], when: Date | null): Summary {
@@ -416,5 +469,8 @@ export function report(rows: Row[], raw: Raw, meta: ReportMeta): string {
     '',
     '推演插件（只量，不算进全部通过）',
     ...simRows(raw).flatMap((r) => [`${r.state === 'ok' ? '✓' : r.state === 'slow' ? '!' : '✗'} ${r.label}：${r.result}`, `  ${r.detail}`]),
+    '',
+    '地图插件（只量，不算进全部通过）',
+    ...mapRows(raw).flatMap((r) => [`${r.state === 'ok' ? '✓' : r.state === 'slow' ? '!' : '✗'} ${r.label}：${r.result}`, `  ${r.detail}`]),
   ].join('\n');
 }
