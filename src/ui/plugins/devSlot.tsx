@@ -22,6 +22,9 @@ export const pluginWorld: { world: World | null; root: World | null; civ: Civ | 
   look: { style: 'fantasy' },
 };
 
+/** 地图上这个世界不带地形大事的那张:换了就是换了一张地图,之前的试生成不算 */
+export const devRoot = createStore<World | null>(null);
+
 /** 「放到地图上看」:盖在地图上的那张(没盖 = null) */
 export const devMapView = createStore<ImageBitmap | null>(null);
 export const useDevMapOn = (): boolean => devMapView.use() !== null;
@@ -60,11 +63,13 @@ export function PluginDevSlot({ phone, world, root, civ, raw, api, look }: { pho
   useLayoutEffect(() => {
     if (pluginWorld.root && pluginWorld.root !== root) devMapView.set(null);
     pluginWorld.root = root;
+    devRoot.set(root);
   }, [root]);
   useLayoutEffect(
     () => () => {
       Object.assign(pluginWorld, { world: null, root: null, civ: null, raw: null, api: null });
       devMapView.set(null);
+      devRoot.set(null);
     },
     [],
   );

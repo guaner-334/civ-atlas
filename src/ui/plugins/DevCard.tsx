@@ -7,9 +7,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { copyText } from '../clipboard';
 import { Icon } from '../icons';
-import { DEV_TRY_YEARS, clearDevLogs, closeDev, loadDev, reloadDev, showGen, stopTry, tryDev, tryGen, useDevAsk, useDevPlugin, type DevGen } from './dev';
+import { DEV_TRY_YEARS, clearDevLogs, closeDev, loadDev, reloadDev, showGen, stopTry, tryDev, tryGen, useDevAsk, useDevPlugin, type DevGenTried } from './dev';
 import { CloseBtn, DevAskBox, Ico, pickAccept } from './PluginWindow';
-import { devMapView } from './devSlot';
+import { devMapView, devRoot } from './devSlot';
 import {
   clockText,
   devGenBrief,
@@ -38,6 +38,7 @@ const HALF = Math.floor(DEV_TRY_YEARS / 2);
 export default function DevCard({ phone }: { phone: boolean }) {
   const s = useDevPlugin();
   const ask = useDevAsk();
+  const root = devRoot.use();
   const fileRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -52,7 +53,8 @@ export default function DevCard({ phone }: { phone: boolean }) {
   const gen = s.map;
   const tried = sim?.last ?? null;
   const result = tried?.result ?? null;
-  const genTried = gen?.last ?? null;
+  // 换了地图:之前试生成的那次不算
+  const genTried = gen?.last && gen.last.root === root ? gen.last : null;
   const rows = devLogOrder(s.logs);
   const tryLogs = result?.logs ?? [];
   const genLogs = genTried?.result?.logs ?? [];
@@ -105,7 +107,7 @@ export default function DevCard({ phone }: { phone: boolean }) {
       </div>
       {tried?.alone && <div className="plg-devc-t">这个世界用的推演插件本机对不上，这次只带了它</div>}
       {genTried?.alone && <div className="plg-devc-t">这个世界用的地图插件本机对不上，这次只带了它</div>}
-      {gen && genTried?.result && <GenBody gen={gen} phone={phone} />}
+      {genTried?.result && <GenBody t={genTried} phone={phone} />}
       {result && (
         <>
           <table className="plg-tt">
@@ -194,8 +196,7 @@ export default function DevCard({ phone }: { phone: boolean }) {
 }
 
 /** 试生成完:两张小图、每一口多久改了几块、几样数、两条自动查(手机上并成几行) */
-function GenBody({ gen, phone }: { gen: DevGen; phone: boolean }) {
-  const t = gen.last!;
+function GenBody({ t, phone }: { t: DevGenTried; phone: boolean }) {
   const rows = devGenRows(t);
   const tally = devGenTally(t);
   const checks = devGenChecks(t, phone);

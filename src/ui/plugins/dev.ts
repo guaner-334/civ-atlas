@@ -15,7 +15,7 @@ import { memoryStore, type PluginDataStore } from '../../plugin/store';
 import { createStore } from '../createStore';
 import { getEdits } from '../editsStore';
 import { currentWorld } from '../saveStore';
-import { devCardOn, devMapView, devTryRunner, pluginWorld } from './devSlot';
+import { devCardOn, devMapView, devRoot, devTryRunner, pluginWorld } from './devSlot';
 import { setLiveLayer } from './layerState';
 import { viewOf, watchView } from './pluginView';
 import { addedLines, devStopText, isSim, isTool, type DevLevel, type DevLog } from './pluginText';
@@ -24,6 +24,7 @@ import type { DevGenJob, DevGenReply } from '../../plugin/devGenWorker';
 import type { DevGenResult } from '../../plugin/devGen';
 import { simParamsOf, type MapPluginFile, type SimPluginFile } from '../../plugin/pluginWorld';
 import { getMapNow } from '../world/mapNow';
+import type { World } from '../../gen/world';
 import { isMap } from './mapText';
 import { getSimNow } from '../world/simNow';
 import type { DevTool } from './tools/toolRun';
@@ -98,6 +99,8 @@ export interface DevSim {
 export interface DevGenTried {
   at: number;
   file: string;
+  /** 照哪张地图试的(devRoot) */
+  root: World;
   /** 带的插件(按出手的先后):编号 → 名字;dev = 载入的这个 */
   plugins: { id: string; name: string; dev: boolean }[];
   /** 世界用的地图插件本机对不上,只带了载入的这个 */
@@ -490,7 +493,7 @@ const NO_PICS = { thumbs: { official: null, plugin: null }, big: null };
 /** 试生成:后台用地图上这个世界的种子、参数不带 / 带载入的地图插件各长一张(不改世界) */
 export function tryGen(): void {
   const s = state.get();
-  const root = pluginWorld.root ?? pluginWorld.world;
+  const root = devRoot.get();
   if (!s?.map || s.map.pct !== null || s.busy || !mapFile || !root) return;
   const my = ++tries;
   const { files, plugins, alone } = genFiles(mapFile, s.manifest);
@@ -498,11 +501,17 @@ export function tryGen(): void {
   if (last?.big && devMapView.get() === last.big) devMapView.set(null);
   const put = (map: DevGen) => my === tries && state.update((x) => (x?.map ? { ...x, map } : x));
   put({ pct: 0, last });
-  const base = { file: s.file, plugins, alone };
-  const finish = (t: Omit<DevGenTried, 'at' | 'file' | 'plugins' | 'alone'>) => {
+  const base = { file: s.file, root, plugins, alone };
+  const finish = (t: Omit<DevGenTried, 'at' | 'file' | 'root' | 'plugins' | 'alone'>) => {
     if (genWorker === w) stopGen();
     if (my !== tries) return dropGen({ ...base, at: 0, ...t });
     dropGen(state.get()?.map?.last ?? null);
+    // 长的时候换了地图:长出来的是那张地图的,不要
+    if (devRoot.get() !== root) {
+      dropGen({ ...base, at: 0, ...t });
+      put({ pct: null, last: null });
+      return;
+    }
     put({ pct: null, last: { ...base, at: Date.now(), ...t } });
   };
   let w: Worker | null = null;
@@ -526,8 +535,9 @@ export function tryGen(): void {
   w.postMessage(job);
 }
 
-/** 「放到地图上看」:带插件那张盖到地图上 / 收起 */
+/** 「放到地图上看」:带插件那张盖到地图上 / 收起(换了地图的不盖) */
 export function showGen(on: boolean): void {
-  const big = state.get()?.map?.last?.big;
-  if (big) devMapView.set(on ? big : null);
+  const last = state.get()?.map?.last;
+  if (!last?.big) return;
+  devMapView.set(on && last.root === devRoot.get() ? last.big : null);
 }

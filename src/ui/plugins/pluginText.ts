@@ -386,7 +386,7 @@ export function devGenChecks(t: GenView, phone: boolean): { key: string; ok: boo
       text: r.cachedSame
         ? phone
           ? '改一笔地形和从头长一样'
-          : '改一笔地形（放一座火山）和从头长一样'
+          : '改一笔地形（挖一个湖）和从头长一样'
         : `不一样：${failed(r.cachedNote) ? `改一笔地形以后接着长时${r.cachedNote}` : `改一笔地形以后接着长和从头长${r.cachedNote ?? ''}对不上`}，${GLOBAL_VAR}`,
     });
   return out;

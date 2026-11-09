@@ -66,7 +66,7 @@ describe('开发者模式的试生成', () => {
     expect(devGenTally(t).map((x) => x.name)).toEqual(['陆地', '湖', '河']);
     expect(devGenChecks(t, false).map((c) => [c.ok, c.text])).toEqual([
       [true, '同一个种子长两遍一样'],
-      [true, '改一笔地形（放一座火山）和从头长一样'],
+      [true, '改一笔地形（挖一个湖）和从头长一样'],
     ]);
     expect(devGenChecks(t, true).map((c) => c.text)).toEqual(['长两遍一样', '改一笔地形和从头长一样']);
     expect(devGenBrief(t)[0]).toMatch(/^环形山改海拔 .+，柯本气候改气候 .+，柯本气候出图层 .+$/);

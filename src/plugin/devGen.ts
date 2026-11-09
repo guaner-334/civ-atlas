@@ -1,10 +1,11 @@
 /** 开发者模式的「试生成」:不带 / 带地图插件各长一张比,不改世界。纯计算,不碰 DOM */
 import { MAP_RANGE, MapClock, MapPluginError, timedMapPlugins, type MapPlugin, type MapStage } from '../gen/mapHooks';
 import type { TerrainOp } from '../gen/edits';
+import { TERRAIN_PRESETS } from '../gen/terrainOps';
 import type { Sketch } from '../gen/sketch';
-import { generateWorld, type BaseCache, type World, type WorldParams } from '../gen/world';
+import { MAP_H, MAP_W, generateWorld, type BaseCache, type World, type WorldParams } from '../gen/world';
 import { loadMapFile, type LoadedMap, type MapBoxer } from '../mapPluginRun';
-import { MAP_TRIAL_EDIT, worldDiff } from './mapTrial';
+import { worldDiff } from './mapTrial';
 import { mapPluginKey, type MapPluginFile } from './pluginWorld';
 
 export interface DevGenInput {
@@ -58,6 +59,8 @@ export interface DevGenResult {
 
 /** 日志最多留几条 */
 export const DEV_GEN_LOGS = 300;
+/** 改一笔地形:图正中挖一个湖(不是火山、山脉这类:那几种连前一半一起重长,查不到记着的那一份) */
+export const DEV_GEN_EDIT: TerrainOp = { kind: 'lake', pts: [MAP_W / 2, MAP_H / 2], r: TERRAIN_PRESETS.lake[1][0], s: TERRAIN_PRESETS.lake[1][1] };
 
 const METHOD_LEVEL: Record<string, DevGenLog['level']> = { warn: 'warn', error: 'error' };
 const round1 = (x: number) => Math.round(x * 10) / 10;
@@ -260,7 +263,7 @@ export async function devGen(input: DevGenInput, box: MapBoxer, o: DevGenOptions
       if (d) result.sameNote = d;
       o.progress?.(0.75);
       // 从头长的另装一份插件、换一个键:不沾上面记着的前一半
-      const edit = [...(ops ?? []), MAP_TRIAL_EDIT];
+      const edit = [...(ops ?? []), DEV_GEN_EDIT];
       const edited = generateWorld(params, undefined, edit, sketch ?? null, cache, plugins);
       const fresh = await loadAll('#dev', false);
       let scratch: World;
