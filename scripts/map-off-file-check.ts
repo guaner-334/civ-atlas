@@ -3,7 +3,7 @@
  *   装环形山建世界 → 在插件页删掉 → 刷新再打开 → 世界设定「以它为底稿新建…」→ 说明块「从文件装…」
  *   取消选文件       什么都不变
  *   选了坏文件       出错说明,关掉以后说明块还在
- *   选了别的插件     权限框,取消以后说明块还在
+ *   选了别的插件     说一句「不是这张地图用的」,没装,看完说明块还在
  *   选了第 1.1 版    装上以后说明块换成「你装的是第 1.1 版」
  *   选了第 1.0 版    换回同一版:权限框装上,说明块收起,编辑地形能放开
  *
@@ -113,12 +113,17 @@ try {
   await page.waitForTimeout(500);
   check((await page.locator('.plg-bg').count()) === 0 && (await note(page).count()) === 1, '看完出错说明:插件页关了,说明块还在');
 
-  // 别的插件:权限框,取消
+  // 别的插件:说一句、不装
+  const tidesWas = await page.evaluate(async () => (await (await import(/* @vite-ignore */ String('/src/plugin/pluginStore.ts'))).listPlugins()).length);
   await pickFile('tides');
-  check((await page.locator('[data-act=plugin-ok]').count()) === 1, '选了别的插件:弹出权限框');
-  await click('plugin-cancel');
+  check((await page.locator('[data-act=plugin-ok]').count()) === 1 && (await page.locator('[data-said=other]').count()) === 1, '选了别的插件:出一句话、没有权限框');
+  check((await page.locator('[data-testid=plugin-said]').innerText()).includes('不是这张地图用的「环形山」'), '这句话说了文件是哪个、地图要哪个');
+  await snap('0-别的插件');
+  await click('plugin-ok');
   await page.waitForTimeout(500);
-  check((await page.locator('.plg-bg').count()) === 0 && (await note(page).count()) === 1, '取消权限框:插件页关了,说明块还在');
+  check((await page.locator('.plg-bg').count()) === 0 && (await note(page).count()) === 1, '看完这句话:插件页关了,说明块还在');
+  const tidesNow = await page.evaluate(async () => (await (await import(/* @vite-ignore */ String('/src/plugin/pluginStore.ts'))).listPlugins()).length);
+  check(tidesNow === tidesWas, '选了别的插件:没装上');
 
   // 第 1.1 版:装上,说明块变成版本不对
   await pickFile('craters11');

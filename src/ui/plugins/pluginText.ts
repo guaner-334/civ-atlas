@@ -17,6 +17,9 @@ export function dayText(at: number, now = Date.now()): string {
 const who = (m: PluginManifest): string[] => (m.author ? [`${m.author.name} 写的`] : []);
 
 /** 权限框标题下面那行;phone 不写许可证 */
+/** 从地图的说明块选的文件不是这张地图要的插件 */
+export const otherPluginText = (got: string, want: string): string => `这个文件是「${got}」，不是这张地图用的「${want}」。要装它，去插件页从文件装。`;
+
 export function askByLine(m: PluginManifest, bytes: number, phone: boolean): string {
   return [...who(m), versionLabel(m.version), sizeText(bytes), ...(phone ? [] : [`开源许可证 ${m.license}`])].join('，');
 }

@@ -16,12 +16,12 @@ import { askPhone, phoneRequired, submitBan, useSubmitOn } from '../submitView';
 import { knownAuthOptions } from '../../account/session';
 import { pluginSubmitOn } from '../submitPlugin';
 import { loadDev, pickDevFile, setDevMode, useDevMode, type DevAsk } from './dev';
-import { openPlugins } from './entry';
+import { openPlugins, type PickedFile } from './entry';
 import { pickAccept } from './pickAccept';
 import { compareVersions, type WallLatest } from './galleryPlugin';
 import { CAP_LABEL } from './pluginWords';
 import { checkPlugins, newVersionOf, useWallRev, wallFile } from './galleryWatch';
-import { addedLines, addsRows, askByLine, dayText, isSim, moreText, noteText, pageByLine, simRows, simWhere, toolWhere, versionLabel, versionText, wallInstalledText, type AddsRow } from './pluginText';
+import { addedLines, addsRows, askByLine, dayText, isSim, moreText, noteText, otherPluginText, pageByLine, simRows, simWhere, toolWhere, versionLabel, versionText, wallInstalledText, type AddsRow } from './pluginText';
 import { PluginIcon, useIcons, useOpenedIcon } from './pluginIcons';
 import { MAP_USE, isMap, mapRows, mapWhere } from './mapText';
 import { markReviewed, refreshVerdicts, useVerdicts, verdictOf, type PluginVerdict } from './verdict';
@@ -52,12 +52,13 @@ export async function installAsk(a: Ask, phone: boolean, plain = false): Promise
 
 export type Said =
   | { kind: 'broken'; file: string }
+  | { kind: 'other'; name: string; want: string }
   | { kind: 'newer'; name: string; need: string }
   | { kind: 'blocked'; name: string; version: string; why: string; day: string }
   | { kind: 'failed'; name: string }
   | { kind: 'fetch'; name: string; why: string };
 
-export default function PluginWindow({ phone, onClose, first }: { phone: boolean; onClose: () => void; first?: File | null }) {
+export default function PluginWindow({ phone, onClose, first }: { phone: boolean; onClose: () => void; first?: PickedFile | null }) {
   const [list, setList] = useState<InstalledPlugin[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [detail, setDetail] = useState(false);
@@ -83,7 +84,7 @@ export default function PluginWindow({ phone, onClose, first }: { phone: boolean
   };
   useEffect(() => {
     void checkPlugins();
-    if (first) void listPlugins().then((l) => (setList(l), onFile(first, l)), () => onFile(first, []));
+    if (first) void listPlugins().then((l) => (setList(l), onFile(first.file, l)), () => onFile(first.file, []));
     else void reload();
   }, []);
 
@@ -110,6 +111,7 @@ export default function PluginWindow({ phone, onClose, first }: { phone: boolean
         return;
       }
       const m = opened.manifest;
+      if (first?.want && !first.want.some((w) => w.id === m.id)) return setSaid({ kind: 'other', name: m.name, want: first.want.map((w) => w.name).join('」「') });
       if (isSim(m)) {
         try {
           await (await import('../../plugin/simCheck')).checkSimFully(bytes);
@@ -904,6 +906,15 @@ export function SaidBox({ said, phone, onOk }: { said: Said; phone: boolean; onO
     );
     text = '这个文件不是插件，或者坏了。';
     small = `插件文件以 ${PLUGIN_FILE_EXT} 结尾，最大 ${PLUGIN_MAX_BYTES / 1024 / 1024} MB。是别人发给你的，请对方再发一次。`;
+  } else if (said.kind === 'other') {
+    head = (
+      <>
+        <Icon name="info" size={20} />
+        没装上「{said.name}」
+      </>
+    );
+    text = otherPluginText(said.name, said.want);
+    small = '';
   } else if (said.kind === 'newer') {
     head = (
       <>
@@ -948,7 +959,7 @@ export function SaidBox({ said, phone, onOk }: { said: Said; phone: boolean; onO
         <p>
           {text}
           <br />
-          <small>{small}</small>
+          {small && <small>{small}</small>}
         </p>
       </div>
       <Buttons phone={phone} ok="好" onOk={onOk} />

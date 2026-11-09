@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PluginManifest } from '../src/plugin/pluginFile';
 import {
+  otherPluginText,
   addedLines,
   addsRows,
   askByLine,
@@ -218,5 +219,9 @@ describe('开发者模式的小卡', () => {
     expect(devStopText('crashed', 'Uncaught Error: x')).toBe('插件出错，已经停下');
     expect(devStopText('flood', 'over 200 messages a second')).toBe('插件一秒发话太多，已经停下（over 200 messages a second）');
     expect(devStopText('start-timeout', '')).toBe('插件代码顶层 10 秒没跑完，已经停下');
+  });
+
+  it('从地图说明块选的是别的插件:说文件是哪个、地图要哪个、去哪装', () => {
+    expect(otherPluginText('潮汐', '环形山')).toBe('这个文件是「潮汐」，不是这张地图用的「环形山」。要装它，去插件页从文件装。');
   });
 });

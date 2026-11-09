@@ -44,11 +44,13 @@ export function MapOffNote({ where, phone, plugins, onRegrow }: MapOffNoteProps)
   const studio = where === 'studio';
   const it = (n: number) => (n > 1 ? '它们' : '它');
   const names = (cs: readonly Off[]) => cs.map(nameOf).join('、');
+  let want: { id: string; name: string }[] = [];
   let head: string;
   let text: string;
   let buttons: ReactNode = null;
   if (miss.length || !off.length) {
     const cs = miss.length ? miss : s.list.map((plugin): Off => ({ id: plugin.id, plugin, status: 'missing' }));
+    want = cs.map((c) => ({ id: c.id, name: c.plugin.name ?? c.id }));
     const works = cs.map((c) => wallWorkOf(c.id, c.plugin.sum));
     const at = works.findIndex((w) => !!w);
     const go = at < 0 ? null : { work: works[at]!, sum: cs[at].plugin.sum };
@@ -113,7 +115,7 @@ export function MapOffNote({ where, phone, plugins, onRegrow }: MapOffNoteProps)
           onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = '';
-            if (f) openPluginPicked(f);
+            if (f) openPluginPicked(f, want);
           }}
         />
       </span>
