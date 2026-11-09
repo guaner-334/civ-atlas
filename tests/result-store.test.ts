@@ -6,6 +6,7 @@ import { EMPTY_EDITS, GENERATOR_VERSION, type WorldEdits } from '../src/gen/edit
 import { makeSave } from '../src/gen/savefile';
 import { SNAPSHOT_FORMAT, makePart, recipeKey, recipeOfSave, type Snapshot } from '../src/gen/snapshot';
 import { _setResultBackend, clearResults, copyResults, dropOrphans, keepPending, loadResult, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
+import { setSimNow } from '../src/ui/world/simNow';
 
 /** 假的 localStorage */
 class FakeStorage {
@@ -125,6 +126,23 @@ describe('原件存进浏览器(resultStore)', () => {
     openWorld(imported.id);
     expect(await offerSnapshot(await snapshotOf(EMPTY_EDITS))).toBe(false);
     expect(mem.records.size).toBe(0);
+  });
+
+  it('用了推演插件、本机对不上(插件删了、网站关了插件):不带插件推出来的这份不存;对得上照常存', async () => {
+    const id = saveStore.newWorldId();
+    openWorld(id, { ...EMPTY_EDITS, names: { 'region:c1': '甲' } });
+    expect(saveStore.loadWorld(id)).not.toBeNull();
+    const plugin = { id: 'weariness', version: '1.0.0', sum: 'a'.repeat(64), role: 'sim', name: '厌战' };
+    try {
+      setSimNow({ id, list: [plugin], files: null, checks: [{ id: 'weariness', plugin, status: 'missing' }], stored: true });
+      expect(await offerSnapshot(await snapshotOf(getEdits()))).toBe(false);
+      expect(mem.records.size).toBe(0);
+      setSimNow({ id, list: [plugin], files: [{ id: 'weariness', sum: plugin.sum, bytes: new Uint8Array([1]) }], checks: [], stored: true });
+      expect(await offerSnapshot(await snapshotOf(getEdits()))).toBe(true);
+      expect(mem.records.size).toBe(1);
+    } finally {
+      setSimNow(null);
+    }
   });
 
   it('不同版本的各留各的,不淘汰;复制跟着复制;删掉的世界、退出登录时删掉', async () => {

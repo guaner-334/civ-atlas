@@ -24,6 +24,7 @@ import { currentSave, currentWorld, isStored, loadWorld, persistent, subscribe, 
 import { isHeld } from './worldHolds';
 import { getEdits, setMapSum } from './editsStore';
 import { APP_VERSION } from './version';
+import { simsOf } from './world/simNow';
 import { indexedDbResults, type ResultBackend, type ResultHead, type ResultRecord } from '../resultDb';
 
 export { indexedDbResults, type ResultBackend, type ResultHead, type ResultRecord };
@@ -92,6 +93,8 @@ export function keepPending(): Promise<boolean> {
     const b = be();
     const c = currentWorld();
     if (!s || !b || !c || c.kind !== 'created' || c.unsaved || c.gone || s.generator !== GENERATOR_VERSION) return false;
+    // 用了推演插件、本机对不上:这份是不带插件推的,存下了后台转存会拿它盖掉世界仓库里的
+    if (simsOf(c.id) === null) return false;
     const w = loadWorld(c.id);
     if (!w || w.draft || w.save.generator !== s.generator) return false;
     try {
