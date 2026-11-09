@@ -735,6 +735,11 @@ function ShareAskDialog({ phone, worldId, title, onClose }: { phone: boolean; wo
   useEffect(() => void askFull(), []);
   useEffect(() => holdFullToasts(worldId), [worldId]);
   const [started, setStarted] = useState(false);
+  const wanted = useRef(true);
+  useEffect(() => {
+    wanted.current = true;
+    return () => void (wanted.current = false);
+  }, []);
   const mine = job?.id === worldId ? job : null;
   const other = !!job && !mine;
   const note = notes[worldId] ?? null;
@@ -749,7 +754,7 @@ function ShareAskDialog({ phone, worldId, title, onClose }: { phone: boolean; wo
   };
   const go = () => {
     setStarted(true);
-    void flow().then((m) => m.uploadFromCard(worldId));
+    void flow().then((m) => (wanted.current ? m.uploadFromCard(worldId, () => wanted.current) : undefined));
   };
   const pct = mine?.total ? Math.round((mine.done / mine.total) * 100) : 0;
   return (
