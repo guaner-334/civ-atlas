@@ -25,6 +25,9 @@ import { latestTuning, rulesTuning } from '../../gen/civ/ruleSet';
 import { GROW_MARKS } from '../../gen/civ/grow';
 import { closeCompare, useCompare } from './compareStore';
 import { mapChoices, worldHere, type MapChoice } from './compareMaps';
+import { mapGroups } from '../mapGroups';
+import { keptMapOf } from '../../gen/edits';
+import type { StoredMaps } from '../plugins/mapWorld';
 import { useCompareRun, type SideState } from './useCompareRun';
 import { PaneDrawer } from './paneDraw';
 import { TALLY_ROWS, diffText, tallyAt, tallyOf, tallyText, type TallyAt } from './tally';
@@ -59,7 +62,20 @@ export function ComparePage() {
   const changed = Object.keys(values).length;
 
   const [phone] = useState(isNarrow);
-  const choices = useMemo(() => mapChoices(worldHere(getStage().stage === 'world', currentWorld(), getEdits(), mapFilesOf(currentWorld()?.id)), listWorlds()), []);
+  const [worlds] = useState(() => listWorlds());
+  // 「我的世界」里哪些用了地图插件、本机对不对得上:核对完以前只列正看着的和种子 7(不把用了插件的当成没用的列出来)
+  const [stored, setStored] = useState<Map<string, StoredMaps> | null>(null);
+  useEffect(() => {
+    let live = true;
+    void import('../plugins/mapWorld')
+      .then((m) => m.storedMapsOf(mapGroups(worlds).filter((g) => !keptMapOf(g.head.save.edits)).map((g) => g.head.id)))
+      .catch(() => new Map())
+      .then((r) => live && setStored(r));
+    return () => {
+      live = false;
+    };
+  }, [worlds]);
+  const choices = useMemo(() => mapChoices(worldHere(getStage().stage === 'world', currentWorld(), getEdits(), mapFilesOf(currentWorld()?.id)), stored ? worlds : [], stored ?? undefined), [worlds, stored]);
   const [choiceKey, setChoiceKey] = useState(choices[0].key);
   const choice: MapChoice = choices.find((c) => c.key === choiceKey) ?? choices[0];
   // 网址带 compareFail=1820:右边推到那年故意出错(冒烟检查、截图看推不下去时的样子)
@@ -515,6 +531,7 @@ function MapMenu({ choices, current, phone, onPick }: { choices: MapChoice[]; cu
               className="pm-item"
               role="menuitemradio"
               aria-checked={c.key === current}
+              disabled={!!c.off}
               data-act="compare-map-pick"
               onClick={() => {
                 setOpen(false);

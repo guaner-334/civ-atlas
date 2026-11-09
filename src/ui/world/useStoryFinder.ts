@@ -27,6 +27,7 @@ import { foundPickOf, putFound, setFindAgainHandler, type FoundPick } from '../f
 import type { BaseId, FillId } from '../mapLayers';
 import { moveOutline, outlineFrom, outlineRoles, type OutlineFrom } from '../outlineMove';
 import { setOutlineFinder } from '../outlineStore';
+import { getMapNow } from './mapNow';
 import { closeOverview, openOverview } from '../overviewStore';
 import { getProjection, setGraticule, setGraticuleStep, setProjection } from '../projection';
 import { currentWorld, isStored } from '../saveStore';
@@ -107,8 +108,11 @@ export function useStoryFinder(deps: StoryFinderDeps) {
     const tuning = worldTuning(e.rules);
     const civ = { ...(endYear ? { endYear } : {}), ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(calamity ? { calamity } : {}), ...(e.nameMix ? { names: e.nameMix } : {}) };
     const sketch = sketchGrid(e.sketch);
+    const now = getMapNow();
+    const mapPlugins = now && now.id === t.id ? now.list.map((p) => p.name ?? p.id) : [];
     return {
-      key: JSON.stringify([worldKey(t.params), e.terrain, e.sketch ?? null, civ, ...(tuning ? [tuning] : [])]),
+      ...(mapPlugins.length ? { mapPlugins } : {}),
+      key: JSON.stringify([worldKey(t.params), e.terrain, e.sketch ?? null, civ, ...(tuning ? [tuning] : []), ...(mapPlugins.length ? [mapPlugins] : [])]),
       setup: { world: t.params, ...(Object.keys(civ).length ? { civ } : {}), ...(tuning ? { tuning } : {}), ...(e.terrain.length ? { terrain: [...e.terrain] } : {}), ...(sketch ? { sketch } : {}) },
     };
   };

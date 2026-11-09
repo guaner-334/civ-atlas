@@ -38,6 +38,26 @@ describe('并排试推的地图', () => {
     expect(mapChoices(here, [])[0].label).toBe('「北境」的新版地图');
   });
 
+  it('用了地图插件的世界:本机有同一版就带着插件;对不上的灰着写哪里对不上,不当成没用插件的', () => {
+    const file = { id: 'crater', sum: 'ab12', bytes: new Uint8Array([1]) } as never;
+    const worlds = [stored('a', 11, {}, '2026-10-03'), stored('b', 12, {}, '2026-10-02'), stored('c', 13, {}, '2026-10-01')];
+    const list = mapChoices(
+      null,
+      worlds,
+      new Map([
+        ['a', { files: [file], off: null }],
+        ['b', { files: null, off: '你没装「环形山」' }],
+      ]),
+    );
+    expect(list.map((c) => c.label)).toEqual(['种子 7 的地图', '种子 11 的地图', '种子 12 的地图（你没装「环形山」）', '种子 13 的地图']);
+    expect(list[1].map.mapPlugins).toEqual([file]);
+    expect(list[1].off).toBeUndefined();
+    expect(list[2].off).toBe('你没装「环形山」');
+    expect(list[3].map.mapPlugins).toBeUndefined();
+    // 同样的参数,带插件和不带是两张地图
+    expect(list[1].key).not.toBe(mapChoices(null, [worlds[0]])[1].key);
+  });
+
   it('不在世界里:从种子 7 起;改过地形的地图名字上写着', () => {
     expect(worldHere(false, { params: DEFAULT_PARAMS }, EMPTY_EDITS)).toBeNull();
     expect(worldHere(true, null, EMPTY_EDITS)).toBeNull();

@@ -5,6 +5,7 @@
  *   3. 「我的世界」地图页签里的各张地图(最近动过的在前):参数、地形照那张地图,文明种子 = 地图种子,别的照默认
  * 同一张地图(参数、地形修改、草图都一样)只列一次,先列的算。两边一律推 3000 年(推演年数不带)。
  * 地图留着的世界不列(gen/edits.ts 文件头"地图留着的世界"):这里的地图都是按参数现长的,长出来的不是它那张。
+ * 用了地图插件的世界:本机有同一版就带着插件长;对不上的列着但灰着(off 写哪里对不上),不当成没用插件的那张。
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/params';
 import { cleanCivSeed, keptMapOf, type WorldEdits } from '../../gen/edits';
@@ -52,6 +53,8 @@ export interface MapChoice {
   label: string;
   map: GrowMap;
   setup: GrowSetup;
+  /** 它用的地图插件本机对不上(「你没装「X」」):列着但选不了 */
+  off?: string;
 }
 
 /** 默认那张:种子 7 */
@@ -67,7 +70,7 @@ function mapOf(params: WorldParams, terrain: GrowMap['terrain'], sketch: GrowMap
 }
 
 /** 能换的几张地图(here = 正看着的那个世界;worlds = listWorlds 的结果) */
-export function mapChoices(here: CompareHere | null, worlds: readonly StoredWorld[]): MapChoice[] {
+export function mapChoices(here: CompareHere | null, worlds: readonly StoredWorld[], stored?: ReadonlyMap<string, { files: MapPluginFile[] | null; off: string | null }>): MapChoice[] {
   const out: MapChoice[] = [];
   const seen = new Set<string>();
   const add = (label: string, map: GrowMap, setup: GrowSetup) => {
@@ -81,7 +84,13 @@ export function mapChoices(here: CompareHere | null, worlds: readonly StoredWorl
   for (const g of mapGroups(worlds)) {
     const s = g.head.save;
     if (keptMapOf(s.edits)) continue;
-    add(`${mapName(g.head)}的地图`.replace(/(\d)的地图$/, '$1 的地图'), mapOf(s.params, s.edits.terrain, s.edits.sketch), {});
+    const label = `${mapName(g.head)}的地图`.replace(/(\d)的地图$/, '$1 的地图');
+    const used = stored?.get(g.head.id);
+    if (used && !used.files) {
+      out.push({ key: `off:${g.head.id}`, label: `${label}（${used.off}）`, map: mapOf(s.params, s.edits.terrain, s.edits.sketch), setup: {}, off: used.off ?? '' });
+      continue;
+    }
+    add(label, { ...mapOf(s.params, s.edits.terrain, s.edits.sketch), ...(used?.files?.length ? { mapPlugins: used.files } : {}) }, {});
   }
   return out;
 }
