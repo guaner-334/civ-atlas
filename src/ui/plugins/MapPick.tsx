@@ -20,7 +20,8 @@ import { PuzzleIcon, openPlugins, subscribePluginsOpen } from './entry';
 import { MAP_PICK_MAX, mapBrief } from './mapText';
 import { chooseMaps, chosenMaps, type MapChoice } from './mapWorld';
 import { PluginIcon, useIcons } from './pluginIcons';
-import { versionLabel } from './pluginWords';
+import { installHowText, versionLabel } from './pluginWords';
+import { serverBase } from '../../account/server';
 import { paramsBrief } from './simPickText';
 import { Glyph, SimSlider, move } from './SimPick';
 import { useVerdicts, verdictOf } from './verdict';
@@ -184,7 +185,7 @@ export function MapPick({ phone, onBack, onChange, onCollapse, worldId: given }:
         {top}
         <div className="sp-empty">
           <b>还没装地图插件</b>
-          <span>地图插件在长地图时出手，改海拔、改气候，或者给地图加一张图层：比如砸出陨石坑（环形山）、照柯本气候分类（柯本气候）。在插件页里从作品墙或文件装，装好回到这里选。</span>
+          <span>地图插件在长地图时出手，改海拔、改气候，或者给地图加一张图层：比如砸出陨石坑（环形山）、照柯本气候分类（柯本气候）。{installHowText(!!serverBase())}</span>
           <button className="sp-btn" data-act="map-pick-plugins" onClick={openPlugins}>
             <PuzzleIcon size={16} />
             去插件页…

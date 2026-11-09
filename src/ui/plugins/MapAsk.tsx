@@ -11,7 +11,8 @@ import { Dialog } from '../AccountDialogs';
 import { askMaps, type MapAsk } from '../world/mapAsk';
 import { openPlugins } from './entry';
 import { PluginIcon } from './pluginIcons';
-import { versionLabel } from './pluginWords';
+import { noWallVersionText, versionLabel } from './pluginWords';
+import { serverBase } from '../../account/server';
 import { useWallRev, wallOnce, wallWorkOf } from './galleryWatch';
 import './plugins.css';
 
@@ -104,7 +105,7 @@ export default function MapAskBox({ ask, phone }: { ask: MapAsk; phone: boolean 
           <p>{`「${ask.title}」的地图是用地图插件${listOf(miss)}长的。看、接着推都不用装；${what}要把地图重新长一遍，得先装上同一版，长出来的地形才对得上。`}</p>
           <div className="sim-ask-list">
             {miss.map((c, i) => (
-              <Item key={c.id} c={c} small={works[i] ? '作品墙上有这一版' : '作品墙上没有这一版：向分享这个世界的人要插件文件，在「插件」页从文件装'} />
+              <Item key={c.id} c={c} small={works[i] ? '作品墙上有这一版' : noWallVersionText(!!serverBase())} />
             ))}
           </div>
           <p className="acct-small">不想装的话，可以在「世界设定」里以它为底稿新建一个世界，不带这个插件。</p>
