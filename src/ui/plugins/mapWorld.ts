@@ -5,10 +5,10 @@
 import type { WorldPlugin } from '../../gen/worldFormat';
 import { mapPluginsReady } from '../../plugin/mapPlugins';
 import { listPlugins, pluginFileBytes, type InstalledPlugin } from '../../plugin/pluginStore';
-import { mapPluginIds, mapPluginOf, mapPluginsIn, recordParams, simParamsOf, type MapPluginCheck, type MapPluginFile } from '../../plugin/pluginWorld';
+import { mapPluginIds, mapPluginKey, mapPluginOf, mapPluginsIn, recordParams, simParamsOf, type MapPluginCheck, type MapPluginFile } from '../../plugin/pluginWorld';
 import { vaultCall } from '../worldStore';
 import { currentWorld } from '../saveStore';
-import { getMapNow, rememberMaps, setMapNow } from '../world/mapNow';
+import { getMapNow, rememberMaps, setMapNow, type MapNow } from '../world/mapNow';
 import { subscribeVerdicts, verdictOf } from './verdict';
 import { versionLabel } from './pluginWords';
 import { blockedChecks } from './worldPlugins';
@@ -26,13 +26,24 @@ export async function loadMapNow(id: string, plugins?: readonly WorldPlugin[], s
   if (!m || !live()) return;
   const list = mapPluginsIn(m.plugins);
   if (!list.length) return setMapNow(null);
-  const r = await mapPluginsReady(m.plugins).catch(() => null);
+  // 以它为底稿带过来、刚建好还没存进仓库的:底稿是哪个世界照旧记着
+  const was = getMapNow();
+  const from = was?.id === id && was.from && sameRecords(was.list, list) ? { from: was.from } : {};
+  await setChecked(id, list, live, { stored: true, ...from });
+}
+
+/** 两串地图插件记录是不是同一套(编号、指纹、滑条、先后) */
+const sameRecords = (a: readonly WorldPlugin[], b: readonly WorldPlugin[]): boolean => JSON.stringify(mapPluginIds(a).map(mapPluginKey)) === JSON.stringify(mapPluginIds(b).map(mapPluginKey));
+
+/** 和本机核对这一串:都有同一版、没被网站停用的带上文件;不然只带编号、指纹、滑条和每个的核对结果 */
+async function setChecked(id: string, list: readonly WorldPlugin[], live: () => boolean, more: Pick<MapNow, 'stored' | 'from'>): Promise<void> {
+  const r = await mapPluginsReady(list).catch(() => null);
   if (!live()) return;
   const missing = (): MapPluginCheck[] => list.map((plugin) => ({ id: plugin.id, plugin, status: 'missing' }));
   const checks = r ? (r.ok ? null : r.checks) : missing();
   const blocked = blockedChecks(list, checks, verdictOf);
-  if (r?.ok && !blocked) return setMapNow({ id, list, files: r.files, ready: true, checks: [], stored: true });
-  setMapNow({ id, list, files: mapPluginIds(m.plugins), ready: false, checks: blocked ?? checks ?? [], stored: true });
+  if (r?.ok && !blocked) return setMapNow({ id, list: [...list], files: r.files, ready: true, checks: [], ...more });
+  setMapNow({ id, list: [...list], files: mapPluginIds(list), ready: false, checks: blocked ?? checks ?? [], ...more });
 }
 
 /** 选上的一个地图插件:编号、滑条拨到几(没拨过的按默认) */
@@ -45,14 +56,14 @@ let chooseSeq = 0;
 
 /**
  * 新建中选上的地图插件(按出手的先后)交给生成:各用本机现在的那一版,滑条照它的清单补齐;
- * 被网站停用的、没装的、不是地图插件的、文件没了的不算。以它为底稿带过来、本机对不上的照旧列着(不带字节,长不出地图),移出才不带。
- * still() = 读完插件仓库时还在这个世界上。记下了 = true
+ * 被网站停用的、没装的、不是地图插件的、文件没了的不算。以它为底稿带过来、本机对不上的照旧列着(不带字节,长不出地图),移出才不带;
+ * swap 里的几个换成本机现在那一版(滑条照旧)。still() = 读完插件仓库时还在这个世界上。记下了 = true
  */
-export async function chooseMaps(worldId: string, picks: readonly MapChoice[], installed?: readonly InstalledPlugin[], still: () => boolean = () => true): Promise<boolean> {
+export async function chooseMaps(worldId: string, picks: readonly MapChoice[], installed?: readonly InstalledPlugin[], still: () => boolean = () => true, swap: readonly string[] = []): Promise<boolean> {
   // 文件还在读时又改了选的:只认最后一次
   const seq = ++chooseSeq;
   const prev = getMapNow();
-  const carried = prev && prev.id === worldId && !prev.ready ? prev.checks.filter((c) => c.status !== 'ready') : [];
+  const carried = prev && prev.id === worldId && !prev.ready ? prev.checks.filter((c) => c.status !== 'ready' && !swap.includes(c.id)) : [];
   const have = installed ?? (await listPlugins().catch(() => [] as InstalledPlugin[]));
   const list: WorldPlugin[] = [];
   const files: MapPluginFile[] = [];
@@ -80,9 +91,16 @@ export async function chooseMaps(worldId: string, picks: readonly MapChoice[], i
 
 /**
  * 刷新、从「我的世界」再打开新建中的世界:照记着的选上(用本机现在那一版);没装了、被停用的去掉。
+ * 以别的世界为底稿(base)、记着的就是底稿那一套:照原样带着(本机对不上的照旧对不上,地图照底稿存着的放)。
  * 交回去掉了的那几个的名字;still() = 取完时还在打开这个世界(不在了就不记)
  */
-export async function restoreMaps(worldId: string, records: readonly WorldPlugin[], still: () => boolean = () => true): Promise<string[]> {
+export async function restoreMaps(worldId: string, records: readonly WorldPlugin[], still: () => boolean = () => true, base?: string): Promise<string[]> {
+  const had = base ? await vaultCall('worldPluginsOf', [base]).catch(() => null) : null;
+  if (base && had && sameRecords(mapPluginsIn(had.plugins), records)) {
+    const seq = ++loadSeq;
+    await setChecked(worldId, records, () => seq === loadSeq && still(), { stored: false, from: base });
+    return [];
+  }
   const ok = await chooseMaps(
     worldId,
     records.map((r) => {
@@ -95,6 +113,11 @@ export async function restoreMaps(worldId: string, records: readonly WorldPlugin
   if (!ok) return [];
   const kept = getMapNow()?.id === worldId ? getMapNow()!.list.map((p) => p.id) : [];
   return records.filter((r) => !kept.includes(r.id)).map((r) => r.name ?? r.id);
+}
+
+/** 以它为底稿带过来、本机只有别的版本的那几个换成本机这一版(地图要重新长)。换好了 = true */
+export function swapMaps(worldId: string, ids: readonly string[]): Promise<boolean> {
+  return chooseMaps(worldId, chosenMaps(worldId), undefined, () => getMapNow()?.id === worldId, ids);
 }
 
 /** 新建中选上的(没选、记着的是别的世界的 = 空) */

@@ -111,7 +111,7 @@ import {
   type WallView,
 } from './worldTarget';
 import { simNowFor } from './simNow';
-import { getMapNow, mapNowFor, rememberedMaps } from './mapNow';
+import { getMapNow, mapFilesNow, mapNowFor, mapsOff, rememberedMaps } from './mapNow';
 import { forgetSimError } from '../sim/simClient';
 
 /** 这次打开网页里已经照记着的取回过地图插件的新建中的世界(取回过就不再取,免得取不回时一直重来) */
@@ -165,6 +165,18 @@ function storedSave(t: Target): SaveFile | null {
 function oldStored(t: Target): SaveFile | null {
   const save = storedSave(t);
   return save && save.generator < GENERATOR_VERSION ? save : null;
+}
+
+/**
+ * 以它为底稿新建、本机长不了那几个地图插件:底稿那个世界怎么读(交给线程,手上没有它就先读它钉住,照原样放它的地图)。
+ * 不在我的世界里、更旧的版本算的、地图留着的 = null
+ */
+async function baseLoad(baseId: string, id: number): Promise<LoadRequest | null> {
+  const w = loadWorld(baseId);
+  if (!w || w.draft || w.map || w.save.generator !== GENERATOR_VERSION || keptMapOf(w.save.edits)) return null;
+  const e = w.save.edits;
+  const maps = mapFilesNow();
+  return { type: 'load', id, params: w.save.params, scale: 1, vault: { id: baseId, recipe: await recipeKey(recipeOfSave(w.save)), generator: w.save.generator }, terrain: [...e.terrain], sketch: e.sketch, ...upsOpt(e.upheavals), ...(maps ? { mapPlugins: maps } : {}) };
 }
 
 /** 提示条的来源:上次有改动没推完、世界打不开。换世界时收起(提示条上的按钮是冲着那个世界的) */
@@ -268,7 +280,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         setProgress({ stage: '准备', pct: 0, seed: t.params.seed });
         void import('../plugins/mapWorld')
           .then(async (m) => {
-            const lost = await m.restoreMaps(t.id, kept, () => targetRef.current === t);
+            const lost = await m.restoreMaps(t.id, kept, () => targetRef.current === t, t.base?.id);
             if (lost.length) showToast({ id: 'map-fail', kind: 'warn', text: '有地图插件用不了了', more: [`${lost.map((n) => `「${n}」`).join('')}没装了，或者被网站停用了，地图照剩下的长`], dismissible: true, ttl: 0 });
           })
           .catch(() => {})
@@ -409,7 +421,10 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       const byRecipe = () => {
         if (keptMapOf(t.edits)) return keptOpen();
         genReq.current = null;
-        send(req);
+        if (!(t.kind === 'draft' && t.base && mapsOff(t.id))) return send(req);
+        void baseLoad(t.base.id, id)
+          .catch(() => null)
+          .then((base) => id === reqId.current && send(base ? { ...req, base } : req));
       };
       /** 旧路:旧版本建的世界,浏览器里有它那一版的原件就照原样打开(不重新生成);没有才按现在的规则生成。vaultBad = 新路是读坏了才退回来的 */
       const byOriginal = (vaultBad: boolean) => {

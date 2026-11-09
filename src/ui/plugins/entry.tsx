@@ -6,6 +6,7 @@ import { showToast } from '../toastStore';
 import { toolCard, toolRunning, toolsMenu, type ToolsProps } from './toolsState';
 import type { SimPickProps } from './SimPick';
 import type { MapPickProps } from './MapPick';
+import type { MapOffNoteProps } from './MapOffNote';
 
 const open = createStore(false);
 
@@ -67,11 +68,11 @@ function WindowMissing() {
 const PluginWindow = lazy(() => import('./PluginWindow').catch(() => ({ default: WindowMissing as unknown as typeof import('./PluginWindow').default })));
 
 const WallPlugin = lazy(() => import('./GalleryPlugins').then((m) => ({ default: m.PluginWorkDialog })));
-const wallLook = createStore<string | null>(null);
+const wallLook = createStore<{ id: string; want?: string } | null>(null);
 
-/** 打开作品墙上这个插件的那一页(从那里装);作品编号 */
-export function openWallPlugin(work: string): void {
-  wallLook.set(work);
+/** 打开作品墙上这个插件的那一页(从那里装);作品编号。want = 直接装这一版(指纹;作品墙上换了版本就不装) */
+export function openWallPlugin(work: string, want?: string): void {
+  wallLook.set({ id: work, ...(want ? { want } : {}) });
 }
 
 export function PluginsHost({ phone }: { phone: boolean }) {
@@ -87,7 +88,7 @@ export function PluginsHost({ phone }: { phone: boolean }) {
   if (!shown && !look) return null;
   return (
     <Suspense fallback={null}>
-      {look && <WallPlugin id={look} phone={phone} onClose={() => wallLook.set(null)} />}
+      {look && <WallPlugin id={look.id} {...(look.want ? { want: look.want, direct: true } : {})} phone={phone} onClose={() => wallLook.set(null)} />}
       {shown && <PluginWindow phone={phone} onClose={closePlugins} />}
     </Suspense>
   );
@@ -155,6 +156,17 @@ export function SimPickHost(p: SimPickProps) {
   return (
     <Suspense fallback={null}>
       <SimPickPage {...p} />
+    </Suspense>
+  );
+}
+
+const MapOffPart = lazy(() => import('./MapOffNote').then((m) => ({ default: m.MapOffNote })));
+
+/** 以它为底稿新建、本机对不上地图插件时那一块(用到才下载) */
+export function MapOffHost(p: MapOffNoteProps) {
+  return (
+    <Suspense fallback={null}>
+      <MapOffPart {...p} />
     </Suspense>
   );
 }

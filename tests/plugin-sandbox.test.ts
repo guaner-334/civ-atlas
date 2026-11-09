@@ -210,7 +210,7 @@ describe('首页不带沙箱', () => {
           grew = true;
         }
     }
-    // 现在这样的只有插件页、开发者模式的小卡、工具(菜单、插件卡)、插件图层(画、图层面板里开的插件)、插件存进世界的数据、作品墙上的插件、帮手的试跑、推演线程装推演插件、生成线程装地图插件、世界页核对地图插件那几包;别的文件静态 import 了它们就会多出来
+    // 现在这样的只有插件页、开发者模式的小卡、工具(菜单、插件卡)、插件图层(画、图层面板里开的插件)、插件存进世界的数据、作品墙上的插件、帮手的试跑、推演线程装推演插件、生成线程装地图插件、世界页核对地图插件、新建界面里本机对不上地图插件那一块那几包;别的文件静态 import 了它们就会多出来
     expect([...pulls].map((f) => path.relative(ROOT, f).replace(/\\/g, '/')).sort()).toEqual([
       'src/mapPluginRun.ts',
       'src/simPluginRun.ts',
@@ -218,6 +218,7 @@ describe('首页不带沙箱', () => {
       'src/ui/plugins/DevCard.tsx',
       'src/ui/plugins/GalleryPlugins.tsx',
       'src/ui/plugins/MapAsk.tsx',
+      'src/ui/plugins/MapOffNote.tsx',
       'src/ui/plugins/MapPick.tsx',
       'src/ui/plugins/PluginWindow.tsx',
       'src/ui/plugins/SimAsk.tsx',

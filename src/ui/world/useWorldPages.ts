@@ -74,7 +74,7 @@ import { getStage, type DraftBase } from '../stageStore';
 import { keptTerrainBlocked } from '../openTrouble';
 import { clearToast, showToast } from '../Toast';
 import type { SimClient } from '../sim/simClient';
-import { keepMapCopy, type KeptMapCopy } from '../worldStore';
+import { keepCarried, keepMapCopy, type KeptMapCopy } from '../worldStore';
 import type { LoadLater, useWorldLoad } from './useWorldLoad';
 import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
@@ -407,6 +407,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     writeWorldUrl(targetRef.current);
     if (rawRef.current) setWorldStats(aliveAtEnd(rawRef.current));
     refreshThumb();
+    void keepCarried(t.id);
     const keep = persistent();
     showToast({
       id: 'created',
@@ -465,8 +466,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const sims = pluginsUiOn() ? getSimNow() : null;
     const carry = sims?.id === cur.id ? sims.list : [];
     // 地图插件同一版、同样的滑条带过去(插件界面关着也一样):不带的话新建的世界长出来是另一张图。
-    // 本机对不上的还带不了:线程手上没有插件,长不出原来那张地图
-    if (getMapNow()?.ready) carryMaps(cur.id, d.id);
+    // 本机对不上的也带过去:线程照原样用原来那张地图,要重新长地图的几样先装插件
+    if (getMapNow()) carryMaps(cur.id, d.id);
     openTarget({ ...d, pristine: false, view: undefined });
     if (carry.length) void import('../plugins/worldPlugins').then((m) => m.carrySims(d.id, carry)).catch(() => {});
   };

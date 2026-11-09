@@ -9,8 +9,8 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const UI = join(__dirname, '..', 'src', 'ui');
-/** 点了才下载的那一包自己的样式(立体地形:ui/terrain3d/,App 里按需加载;调规则的页:ui/rules/、并排试推:ui/compare/、占了多少地方、投稿窗、插件页、插件的工具、插件图层、插件存进世界的数据、作品墙上的插件:打开时才加载;地图插件长不出地图的卡:出错时才加载) */
-const ON_DEMAND = ['terrain3d/terrain3d.css', 'rules/rules.css', 'compare/compare.css', 'spaceNotice.css', 'spaceWindow.css', 'submit.css', 'plugins/plugins.css', 'plugins/tools/tools.css', 'plugins/layers/layers.css', 'plugins/worldData.css', 'plugins/galleryPlugins.css', 'plugins/mapFail.css'];
+/** 点了才下载的那一包自己的样式(立体地形:ui/terrain3d/,App 里按需加载;调规则的页:ui/rules/、并排试推:ui/compare/、占了多少地方、投稿窗、插件页、插件的工具、插件图层、插件存进世界的数据、作品墙上的插件:打开时才加载;地图插件长不出地图的卡:出错时才加载;以它为底稿新建、本机对不上地图插件时那一块:对不上时才加载) */
+const ON_DEMAND = ['terrain3d/terrain3d.css', 'rules/rules.css', 'compare/compare.css', 'spaceNotice.css', 'spaceWindow.css', 'submit.css', 'plugins/plugins.css', 'plugins/tools/tools.css', 'plugins/layers/layers.css', 'plugins/worldData.css', 'plugins/galleryPlugins.css', 'plugins/mapFail.css', 'plugins/mapOff.css'];
 
 function cssFiles(dir: string): string[] {
   const out: string[] = [];

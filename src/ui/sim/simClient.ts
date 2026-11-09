@@ -218,6 +218,8 @@ export class SimClient {
     if (fresh) this.loaded = null;
     this.post(this.ensure(fresh), { req, tries: 0 });
     if (req.type === 'load') this.loaded = req;
+    // 照原样用底稿那张地图新建的:线程重开过也先把底稿钉住
+    else if (req.type === 'generate' && req.base) this.loaded = req.base;
   }
 
   /** 把一件活交给线程 w、记账(发、重发都走这里) */

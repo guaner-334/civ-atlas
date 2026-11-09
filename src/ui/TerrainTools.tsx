@@ -69,6 +69,8 @@ import type { Raster } from '../gen/raster';
 import { PLATE_IMAGE_MAX, PLATE_SPEED, cleanPlateImage, cutsPlate, driftOf, driftText, plateImageCount, type PlateCrust, type PlateOp } from '../gen/plateEdits';
 import { placeOnLayer, plateRegions } from '../gen/sketchImage';
 import { showToast } from './toastStore';
+import { currentWorld } from './saveStore';
+import { mapsOff } from './world/mapNow';
 import { PLATE_ARROW_L, plateArrows } from '../render/layers';
 import { Icon, type IconName } from './icons';
 import { Seg, Slider } from './tpControls';
@@ -475,6 +477,7 @@ const lassoOn = (t: TerrainToolState) => !isPlaceTool(t.tool) && !isHeightTool(t
 /** 地图上按下:涂、圈、画河的工具开始画(返回 true = 这一下归编辑地形管,不平移) */
 export function terrainDown(w: [number, number] | null, button: number): boolean {
   if (tool.on && importOn()) return !space && importDown(w, button);
+  if (tool.on && mapsOff(currentWorld()?.id)) return false;
   if (!tool.on || !w || button !== 0 || space || tool.tool === 'volcano' || tool.tool === 'lake' || tool.tool === 'delWater' || tool.tool === 'plateMerge') return false;
   // 选中:按在选中板块箭头头的圈上 = 开始拖箭头;按在别处是点,交给 terrainClick(选中那里的板块)
   if (tool.tool === 'plateSelect') {
@@ -652,6 +655,8 @@ export function terrainClick(w: [number, number] | null): boolean {
     importClick(w);
     return true;
   }
+  // 这张地图用的地图插件这台对不上:点了不放东西(要重新长地图)
+  if (mapsOff(currentWorld()?.id)) return true;
   if (w && tool.tool === 'setHeight' && tool.picking) {
     const e = heightAt(w[0], w[1]);
     setTerrainTool(e === null ? { picking: false } : { picking: false, height: Math.round(Math.min(HEIGHT_M[1], Math.max(HEIGHT_M[0], e))) });
@@ -1100,9 +1105,9 @@ export function useTerrainHint(): string {
  * 照手绘图生成(mode = 'image',第 2 步「用笔修改」展开的样子):没有组头;同样分四页,笔、画法 / 大小 / 高低、海岸线 / 程序补全、画了几笔、
  * 显示草图一路排下来,最后是 extra(「让助手改」);没有"没涂的地方"(没盖到的都是海),怎么用写在地图下边。
  * 照图长的陆地整片都算涂过,程序补全不是随意发挥时板块相撞不在陆地上造山:板块页多一句提示。
- * 世界还在生成时"画了几笔"那里写"生成中…"。手机上工具排成一行横着滑,随机生成的海岸线和没涂的地方收进「整张草图」那一行(点开展开)。
+ * 世界还在生成时"画了几笔"那里写"生成中…"。locked = 这张地图用的地图插件这台对不上时顶上那一块:给了就锁着(组头、它、「让助手改」照常,别的灰着)。手机上工具排成一行横着滑,随机生成的海岸线和没涂的地方收进「整张草图」那一行(点开展开)。
  */
-export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }: { disabled: boolean; phone?: boolean; mode?: 'random' | 'image'; extra?: ReactNode }) {
+export function TerrainPanel({ disabled, phone = false, mode = 'random', extra, locked }: { disabled: boolean; phone?: boolean; mode?: 'random' | 'image'; extra?: ReactNode; locked?: ReactNode }) {
   const t = useTerrainTool();
   const edits = useEdits();
   const [confirm, setConfirm] = useState(false);
@@ -1319,7 +1324,8 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
 
   if (image)
     return (
-      <div className="tp tp-step" role="toolbar" aria-label="用笔修改">
+      <div className={`tp tp-step${locked ? ' tp-locked' : ''}`} role="toolbar" aria-label="用笔修改">
+        {locked}
         {pages}
         {toolList}
         {!penless && penOpts}
@@ -1340,7 +1346,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
 
   const coastName = COASTS.find((x) => x.v === coast)?.name ?? '适中';
   return (
-    <div className="tp" role="toolbar" aria-label="编辑地形">
+    <div className={`tp${locked ? ' tp-locked' : ''}`} role="toolbar" aria-label="编辑地形">
       <section className="sb-sec">
         <div className="sb-sec-head">
           <span>编辑地形</span>
@@ -1348,6 +1354,7 @@ export function TerrainPanel({ disabled, phone = false, mode = 'random', extra }
             完成
           </button>
         </div>
+        {locked}
         {pages}
         <div className="sb-group">{toolList}</div>
       </section>

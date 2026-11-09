@@ -20,6 +20,8 @@ export interface MapNow {
   checks: MapPluginCheck[];
   /** 从世界清单读的(不是新建中选的):本机装了、删了插件、停用名单变了要重新核对 */
   stored?: boolean;
+  /** 以它为底稿新建、照原样带过来的:底稿那个世界的编号(地图照它存着的放,头一回存进仓库时它的图层、星球参照跟着带过来) */
+  from?: string;
 }
 
 let now: MapNow | null = null;
@@ -38,8 +40,13 @@ export function setMapNow(s: MapNow | null): void {
 /** 以它为底稿新建:原来那个世界的地图插件照原样带到新建的世界(id)上(同一版、同样的滑条;本机对不上的照旧对不上) */
 export function carryMaps(from: string, id: string): void {
   if (!now || now.id !== from) return;
-  setMapNow({ ...now, id, stored: false });
+  setMapNow({ ...now, id, stored: false, from });
   rememberMaps(id, now.list);
+}
+
+/** 这个世界(id)用的地图插件本机对不上(没装、只有别的版本、被网站停用):要重新长地图的几样改不了 */
+export function mapsOff(id: string | undefined): boolean {
+  return !!now && now.id === id && !now.ready;
 }
 
 /** 新建中的世界选的地图插件不进世界仓库:记在这个浏览器里,刷新、从「我的世界」再打开时照它重新长 */

@@ -135,16 +135,26 @@ import type { LabelView } from '../../render/labels/draw';
 import { LEFT_W, RIGHT_W, appPose, flatRect } from './layout';
 import { flatGeom, getStudioFlat, keepStudioView, setStudioFlat, takeStudioView } from './studioStore';
 import { holdMark } from '../holdMark';
-import { MapPickHost, PuzzleIcon, SimPickHost } from '../plugins/entry';
+import { MapOffHost, MapPickHost, PuzzleIcon, SimPickHost } from '../plugins/entry';
 import { pluginsUiOn } from '../plugins/flag';
 import { useSimNow } from '../world/simNow';
 import { useMapNow } from '../world/mapNow';
+import type { MapPluginCheck } from '../../plugin/pluginWorld';
+import { versionLabel } from '../plugins/pluginWords';
 import { useMapFail } from '../world/mapFail';
 import '../worlds.css';
 import './studio.css';
 
 /** 地图插件长不出地图的卡:出错时才下载 */
 const MapFailCard = lazy(() => import('../plugins/MapFailCard').then((m) => ({ default: m.MapFailCard })));
+
+/** 「地图插件」那一行标黄的小标:没装的先说,再是停用了、别的版本 */
+function mapOffTag(checks: readonly MapPluginCheck[]): string {
+  const c = checks.find((x) => x.status === 'missing') ?? checks.find((x) => x.status === 'blocked') ?? checks.find((x) => x.status === 'other');
+  if (c?.status === 'other') return `你装的是${versionLabel(c.installed.version)}`;
+  if (c?.status === 'blocked') return '网站停用了';
+  return '你没装';
+}
 
 /** 新建时能看的样式(不用历史的;政区、民族建好以后才有) */
 export const STUDIO_STYLES: { id: MapLayer; name: string; hint: string }[] = [
@@ -452,6 +462,9 @@ export function Studio(p: StudioProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFail]);
   const mapLocked = simOn && !found && mapNames.length > 0;
+  /** 以它为底稿新建、这台对不上原来那张地图用的地图插件:地图照原样放着,要重新长地图的几样(世界参数、编辑地形、让助手改)改不了 */
+  const mapOff = !!mapNow && !mapNow.ready;
+  const offTag = mapNow && !mapNow.ready ? mapOffTag(mapNow.checks) : null;
   /** 起源页上:星球停住时的样子(圆点按它摆;动着 = null)、底下的提示(点错了的那句和画虚线圈的地方,过几秒收起) */
   const [pinPose, setPinPose] = useState<StillPose | null>(null);
   const [originMsg, setOriginMsg] = useState<{ text: string; x: number; y: number } | null>(null);
@@ -1286,7 +1299,7 @@ export function Studio(p: StudioProps) {
     </div>
   );
   const slider = (x: (typeof SLIDERS)[number]) => (
-    <ParamSlider key={x.key} s={x} value={p.params[x.key]} changed={changed.has(x.key)} onCommit={(v) => p.onParams({ ...p.params, [x.key]: v })} />
+    <ParamSlider key={x.key} s={x} value={p.params[x.key]} changed={changed.has(x.key)} disabled={mapOff} onCommit={(v) => p.onParams({ ...p.params, [x.key]: v })} />
   );
   // 「拓荒」三样(世界参数里精细度下面):民族扩散、国家扩张,「地形难走程度」点开原地展开八样
   const frontier = edits.frontier;
@@ -1338,7 +1351,7 @@ export function Studio(p: StudioProps) {
           <b>世界参数</b>
         </span>
         {paramsOpen ? (
-          !isDefault && (
+          !isDefault && !mapOff && (
             <span
               className="sb-link"
               role="button"
@@ -1362,13 +1375,13 @@ export function Studio(p: StudioProps) {
         <div className="nw-sliders">
           <div className="ps-row nw-preset">
             <span className="ps-l">预设</span>
-            <PresetPicker params={p.params} endYear={years} rules={edits.rules} onPick={applyPreset} phone={p.phone} />
+            <PresetPicker params={p.params} endYear={years} rules={edits.rules} onPick={applyPreset} phone={p.phone} disabled={mapOff} />
           </div>
           {SLIDERS.slice(0, 3).map(slider)}
           <div className="nw-sub">大陆</div>
           <div className="sb-row static nw-cont" data-param="continents">
             <span className="sb-row-main">数量</span>
-            <ContinentSeg value={p.params.continents} onChange={(n) => p.onParams({ ...p.params, continents: n })} plates={p.params.plates} land={p.params.landFraction} />
+            <ContinentSeg value={p.params.continents} onChange={(n) => p.onParams({ ...p.params, continents: n })} plates={p.params.plates} land={p.params.landFraction} disabled={mapOff} />
           </div>
           {CONT_SLIDERS.map(slider)}
           <div className="nw-sub">气候</div>
@@ -1404,7 +1417,7 @@ export function Studio(p: StudioProps) {
       <span className="sb-row-main">
         <b>编辑地形</b>
       </span>
-      <span className="sb-row-side">{terrainSide(edits, '还没改')}</span>
+      {mapOff ? <span className="sb-row-side nw-map-need">要先装插件</span> : <span className="sb-row-side">{terrainSide(edits, '还没改')}</span>}
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
@@ -1414,7 +1427,7 @@ export function Studio(p: StudioProps) {
       <span className="sb-row-main">
         <b>让助手改</b>
       </span>
-      <span className="sb-row-side">说一句话就行</span>
+      {mapOff ? <span className="sb-row-side nw-map-need">要先装插件</span> : <span className="sb-row-side">说一句话就行</span>}
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
@@ -1571,6 +1584,11 @@ export function Studio(p: StudioProps) {
           <Icon name="warn" size={14} />
           {mapFail.name}出错了
         </span>
+      ) : offTag ? (
+        <span className="sb-row-side sb-origin nw-map-off" data-side="map-plugins">
+          <span className="nw-map-names">{mapNames.join('、')}</span>
+          <span className="plg-tag warn">{offTag}</span>
+        </span>
       ) : (
         <span className="sb-row-side sb-origin" data-side="map-plugins">
           {mapNames.length ? mapNames.join('、') : '不用'}
@@ -1676,6 +1694,8 @@ export function Studio(p: StudioProps) {
   ) : (
     <div className="nw-note">文明种子决定民族、国家和名字怎么长出来。同一张地图换一个文明种子，就是另一个文明。</div>
   );
+  /** 以它为底稿新建、这台对不上原来那张地图用的地图插件时那一块(星球那一组下面、编辑地形面板顶上) */
+  const mapOffNote = (where: 'studio' | 'terrain') => mapOff && <MapOffHost where={where} phone={p.phone} plugins={simOn} onRegrow={() => p.onMaps?.()} />;
   const leftNote = locked && srcName && <div className="nw-note">{srcName}里的国家、人物、你的干预、标记、改过的名字和地形大事都不带过来。</div>;
   const noCivHint = p.noCiv && <div className="nw-note warn">{image ? '这颗星球长不出文明，多画些陆地试试' : '这颗星球长不出文明，换一颗或调大陆地比例'}</div>;
   const baseRows = base && (
@@ -1913,13 +1933,14 @@ export function Studio(p: StudioProps) {
           </div>
         ),
       )}
-      {stepGroup(2, '用笔修改', <TerrainPanel disabled={p.busy} phone={p.phone} mode="image" extra={aiOn && askRow} />)}
+      {stepGroup(2, '用笔修改', <TerrainPanel disabled={p.busy} phone={p.phone} mode="image" extra={aiOn && askRow} locked={mapOffNote('terrain')} />)}
       {stepGroup(
         3,
         '参数和名字',
         <>
-          <StepParams params={p.params} onParams={p.onParams} disabled={p.busy} />
+          <StepParams params={p.params} onParams={p.onParams} disabled={p.busy || mapOff} />
           {mapPlugRow}
+          {mapOffNote('studio')}
           {rerollRow}
           {rulesRow}
           {simRow}
@@ -2008,7 +2029,7 @@ export function Studio(p: StudioProps) {
     </>
   );
   const settings = tool.on ? (
-    <TerrainPanel disabled={p.busy} phone={p.phone} />
+    <TerrainPanel disabled={p.busy} phone={p.phone} locked={mapOffNote('terrain')} />
   ) : step2 ? (
     civSettings(p.phone && !sheetFull)
   ) : (
@@ -2025,6 +2046,7 @@ export function Studio(p: StudioProps) {
           {!peek && mapPlugRow}
           {finderRow}
         </div>
+        {!peek && mapOffNote('studio')}
         {!peek && noCivHint}
       </section>
       {!peek && (

@@ -389,6 +389,17 @@ describe('后台线程客户端(SimClient)', () => {
     expect(workers[5].sent.map((m) => m.type)).toEqual(['resim']);
   });
 
+  it('照原样用底稿那张地图新建的(generate 带 base):线程被重开过时先钉住底稿', () => {
+    const { sim, workers } = setup();
+    const base = { type: 'load', id: 1, scale: 1, params: PARAMS, vault: { id: 'w', recipe: 'r', generator: 1 } } as unknown as Extract<WorkerRequest, { type: 'load' }>;
+    sim.send({ ...(gen(1) as Extract<WorkerRequest, { type: 'generate' }>), base });
+    workers[0].reply({ type: 'done', id: 1 } as unknown as WorkerResponse);
+    sim.send(resim(1));
+    fail(workers[0]);
+    expect(workers[1].sent.map((m) => m.type)).toEqual(['pin', 'resim']);
+    expect((workers[1].sent[0] as { load: WorkerRequest }).load).toBe(base);
+  });
+
   it('页面卸下(dispose):排着的试推演 reject', () => {
     const { sim } = setup();
     const errs: string[] = [];

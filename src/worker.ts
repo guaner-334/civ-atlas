@@ -175,9 +175,11 @@ export type WorkerRequest =
    * tempo = 主线程记着的扩张节拍(星球对不上就不用);skipCiv = 只生成地形、铺像素,不推文明(编辑地形时:交回的 done 不带历史,
    * 收起编辑地形以后用 civOnly 补推);mapFirst = 地图先交:整张铺好就交 map(沟壑本线程也领一段,不等推文明),
    * 历史推完再交 done(mapSent,不带地图)。推几千年的历史比生成地形、铺像素慢,新建世界时地图不用等它。
-   * paint(mapFirst 时):写实画风这几种画法的整张像素层也在这边画好(帮手一起分带子画),随 map 一起交,主线程换上之前只要贴上
+   * paint(mapFirst 时):写实画风这几种画法的整张像素层也在这边画好(帮手一起分带子画),随 map 一起交,主线程换上之前只要贴上。
+   * base:以它为底稿新建、这台用不了世界记的地图插件时,底稿那个世界怎么读(同 load):键和手上读进来的那张地图一样就照原样用,
+   * 手上没有先读它钉住(见 heldMap)
    */
-  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[]; skipCiv?: true; mapFirst?: true; paint?: SurfaceLook[] } & CivInput & PatchInput)
+  | ({ type: 'generate'; id: number; scale: number; interventions?: Intervention[]; skipCiv?: true; mapFirst?: true; paint?: SurfaceLook[]; base?: LoadRequest } & CivInput & PatchInput)
   /**
    * 补推上一次 skipCiv 生成的世界的文明:世界是线程手上那一个(线程被重开过就按参数重新生成),推法和 generate 里一模一样
    * (同样的输入 = 同一份历史、同样的地名)。nid = 第几次补推(主线程只认最新的)
@@ -1161,6 +1163,28 @@ function pinLoaded(f: LoadedWorld): void {
   pool.use(f.older ? { read: f.older, version: f.readers.terrain } : undefined);
 }
 
+/**
+ * 新建的这张地图要用的地图插件这台用不了(没装、版本不对):手上读进来的(或刚长好的)正是这张地图,就照原样用、不重新长。
+ * 请求带了底稿那个世界(base)、手上的不是它:先读它钉住。没有 = null(照常长,长不出来交 mapFailed)
+ */
+async function heldMap(m: Extract<Queued, { type: 'generate' }>): Promise<World | null> {
+  const key = keyOf(m.params, m.terrain, m.sketch, mapKeys(m));
+  // 照原样打开的旧世界、地图留着的世界、要按旧版读取代码铺的,这里按现在的版本铺不出它原来的样子
+  const pinned = () => (frozen?.key === key && !frozen.old && !frozen.kept && terrain === NOW_TERRAIN ? frozen.world : null);
+  if (!pinned() && m.base && keyOf(m.base.params, m.base.terrain, m.base.sketch, mapKeys(m.base)) === key) {
+    try {
+      const f = await loadedOf(m.base, false);
+      if (f.key === key && !f.old && !f.older) {
+        regionsMemo.clear();
+        pinLoaded(f);
+      }
+    } catch {
+      /* 读不出来:当手上没有 */
+    }
+  }
+  return pinned() ?? (last?.key === key ? last.world : null);
+}
+
 /** 读不了的说法(worldOpen.ts 的 OpenRefusal);读原件时、对不上时抛的是别的错 */
 function loadFailure(e: unknown): { why: OpenRefusal; recipe?: unknown } {
   // worldOpen.ts 的 OpenRefused(那个文件是下载的,这里不 import 它)
@@ -1348,18 +1372,22 @@ async function handleOne(m: Queued): Promise<void> {
   if (m.type === 'generate') {
     // 后面已经排着新的世界(编辑地形连着涂了几笔):这一次不用算了
     if (superseded()) return void post({ type: 'aborted', id: m.id });
+    const asIs = mapKeys(m).length && !mapRun?.mapPluginsOf(mapKeys(m)) ? await heldMap(m) : null;
+    if (superseded()) return void post({ type: 'aborted', id: m.id });
     // 地图插件用不了就不动手上的世界
-    if (m.mapPlugins?.length) mapPlugins(mapKeys(m));
+    if (m.mapPlugins?.length && !asIs) mapPlugins(mapKeys(m));
     // 换了世界:后台排着的补丁和记着的整图、推文明的底子都作废
     bg.length = 0;
     rasters.clear();
     civMemo = null;
     outlineCache = null;
-    // 刚才是照原样读进来的旧世界:州的划分是按旧地形算的,同样的键这回要按新生成的重算
-    if (frozen) regionsMemo.clear();
-    frozen = null;
-    terrain = NOW_TERRAIN;
-    pool.use();
+    if (!asIs || asIs !== frozen?.world) {
+      // 刚才是照原样读进来的旧世界:州的划分是按旧地形算的,同样的键这回要按新生成的重算
+      if (frozen) regionsMemo.clear();
+      frozen = null;
+      terrain = NOW_TERRAIN;
+      pool.use();
+    }
     // 编辑地形:上一笔交出去了、主线程还没换上就又涂了这一笔(照上一笔之前那张比的):上一笔改回去(见 KeptUndo)
     const undo = kept?.undo;
     if (kept && undo) {
@@ -1373,10 +1401,10 @@ async function handleOne(m: Queued): Promise<void> {
     const had = baseCache.base;
     // 一段一段算,中间让一下:新的一笔来了就不算了(线程不用关掉重开,记着的网格、板块、前一半、整图都还在)。
     // 地图先交的(新建):地图插件的图层等地图交出去以后再算
-    const got = await generateLayersLater(!!m.mapFirst && !m.skipCiv, [m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch), baseCache, genMaps(mapKeys(m))]);
+    const got = asIs ? { world: asIs, layers: null } : await generateLayersLater(!!m.mapFirst && !m.skipCiv, [m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch), baseCache, genMaps(mapKeys(m))]);
     if (!got) return void post({ type: 'aborted', id: m.id });
     const world = got.world;
-    const reused = !!had && baseCache.base === had;
+    const reused = !asIs && !!had && baseCache.base === had;
     last = { key: keyOf(m.params, m.terrain, m.sketch, mapKeys(m)), world };
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals, mapKeys(m), (k, n) => post({ type: 'progress', id: m.id, stage: '地形大事', pct: 0.9 + (0.03 * k) / n }));
     const genMs = performance.now() - t0;

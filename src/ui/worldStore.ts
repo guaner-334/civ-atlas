@@ -59,6 +59,7 @@ import { MAX_WORLDS, TRASH, VAULT_CLEARED, allWorldIds, currentWorld, deleteWorl
 import { NEAR_FULL_BYTES, PERSIST_ASKED, appleDevice, askPersisted, firstHintSaid, isNearFull, noteFirstHint, noteVaultFull, rawRoom, spaceChanged } from './spaceFacts';
 import { afterOkToasts, clearToast, showToast } from './toastStore';
 import { withFileFlow } from './worldFileLazy';
+import { getMapNow } from './world/mapNow';
 import { APP_COMMIT, APP_VERSION } from './version';
 import { canSeeHolds, holdWorld, ifNotHeld, isHeld } from './worldHolds';
 
@@ -291,12 +292,15 @@ function keepOffer(): Promise<boolean> {
       if (offer !== o || !again || !canKeep(again) || again.save.generator !== o.generator || recipeText(recipeOfSave(again.save)) !== text) return false;
       offer = null;
       const made: WorldMade = { app: APP_VERSION, generator: o.generator, commit: APP_COMMIT, at: new Date().toISOString() };
+      // 以它为底稿新建、地图照原样放的(线程手上没有那几个地图插件,不知道记什么):照带过来的记,图层、星球参照从底稿那里带
+      const maps = getMapNow();
+      const carried = !o.mapPlugins && maps?.id === c.id && maps.from ? { mapPlugins: maps.list, mapsFrom: maps.from } : o.mapPlugins ? { mapPlugins: o.mapPlugins } : {};
       const r = await commit(
-        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, ...(o.schemas ? { schemas: o.schemas } : {}), ...(o.plugins ? { simPlugins: o.plugins } : {}), ...(o.mapPlugins ? { mapPlugins: o.mapPlugins } : {}), made, readers: o.readers ?? { ...READER_VERSIONS }, thumb: thumbBytes(again.thumb) },
+        { id: c.id, recipe: again.save, recipeKey: o.recipe, parts: o.parts, ...(o.schemas ? { schemas: o.schemas } : {}), ...(o.plugins ? { simPlugins: o.plugins } : {}), ...carried, made, readers: o.readers ?? { ...READER_VERSIONS }, thumb: thumbBytes(again.thumb) },
         o.parts.map((p) => p.data),
       );
       if (r?.status !== 'saved') return false;
-      if (o.mapPlugins?.length) for (const f of partsSaved) f(c.id);
+      if (carried.mapPlugins?.length) for (const f of partsSaved) f(c.id);
       return true;
     } catch {
       return false;
@@ -813,14 +817,32 @@ export async function settleForFile(id: string): Promise<SettledForFile> {
   }
 }
 
+/**
+ * 刚建好的、地图插件照原样从底稿带过来的世界:页面接着用的是底稿那张图,线程没再算、不会自己交内容。
+ * 仓库里还没有它就当场打一份存上:不然下次打开、后台转存只能按配方重长,本机没有那几个插件长出来是另一张图
+ */
+export async function keepCarried(id: string): Promise<void> {
+  try {
+    const m = getMapNow();
+    if (m?.id !== id || !m.from || currentWorld()?.id !== id || (await storedFresh(id))) return;
+    const w = loadWorld(id);
+    const p = w && packPage(w.save);
+    if (p) await offerWorldParts(await p);
+  } catch {
+    /* 这次没打成:推完、改完再存 */
+  }
+}
+
 /** 线程把页面里的这个世界打成几块,不存(存成文件、腾出地方以后补存用)。这一版算不出来的世界(照原样打开的旧世界)= null;打不成 reject,错上带 kind */
 export function packPage(save: SaveFile): Promise<WorldPartsOffer> | null {
   if (!sim.packParts || save.generator !== GENERATOR_VERSION) return null;
   // 用了推演插件的带着它们打;本机对不上的算不出来(按官方推出来是另一段历史,还会把世界记的插件冲掉)
   const sims = sim.sims?.();
   if (sims === null) return null;
-  // 用了地图插件的同样:本机对不上的长不出这张地图
-  const maps = sim.maps?.();
+  // 用了地图插件的同样:本机对不上的长不出这张地图(以它为底稿照原样带过来的除外:线程手上就是底稿那张)
+  let maps = sim.maps?.();
+  const now = getMapNow();
+  if (maps === null && now?.from && now.id === currentWorld()?.id) maps = now.files;
   if (maps === null) return null;
   const r = recipeOfSave(save);
   return sim.packParts({

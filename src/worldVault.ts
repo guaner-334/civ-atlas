@@ -36,7 +36,7 @@ import { applyNoteOps, cleanNoteList, mergeNotes, sameNotes, type NoteOp } from 
 import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, packValue, partBytes, sha256, unpackValue, type SnapshotPart } from './gen/snapshot';
 import { GENERATOR_VERSION } from './gen/edits';
 import { VAULT_DB, type RosterMarks } from './worldRoster';
-import type { SaveFile } from './gen/savefile';
+import { worldKey, type SaveFile } from './gen/savefile';
 import { buildManifest, historyParts, manifestBytes, offeredPart, opaqueParts, openWorldFile, packExtra, packKnown, packPluginLayer, packThumb, zipWorld, type PackedPart } from './gen/worldFile';
 import {
   KNOWN_PARTS,
@@ -207,6 +207,11 @@ export interface CommitRequest {
    * (空 = 没用);不给 = 不知道,照上一份
    */
   mapPlugins?: WorldPlugin[];
+  /**
+   * 给了 mapPlugins 才看,只管还没有修订的世界:地图照原样用的是这个世界(编号)存着的那张(本机没装那几个地图插件,parts 里没有它们出的图层)。
+   * 它最新一份修订用的地图插件和地图的配方都一样时,它的地图插件图层块、星球参照(这次没带的)照原样带过来,块按内容存,不另写字节
+   */
+  mapsFrom?: string;
 }
 
 export type CommitResult =
@@ -606,6 +611,24 @@ function partsAfter(req: CommitRequest, prev: WorldManifest | null, incoming: re
   return infos;
 }
 
+/** 地图那一块按什么长的(参数、地形修改、草图、地形大事):一样 = 同一张地图、同几段地形 */
+const mapRecipe = (s: SaveFile) => JSON.stringify([worldKey(s.params), s.edits.terrain ?? [], s.edits.sketch ?? null, s.edits.upheavals ?? []]);
+
+/**
+ * 照原样用别的世界那张地图的(CommitRequest.mapsFrom):那个世界最新一份修订里这几个地图插件出的图层块、星球参照,infos 里还没有、块还在的。
+ * 它用的地图插件、地图的配方对不上 = 空
+ */
+async function carriedMapParts(req: CommitRequest, infos: ReadonlyMap<string, WorldPartInfo>): Promise<WorldPartInfo[]> {
+  const head = chainOf(await rowsOf(req.mapsFrom!)).at(-1);
+  const from = head ? manifestOf(head) : null;
+  const keys = (ps: readonly WorldPlugin[]) => JSON.stringify(ps.map((p) => [p.id, p.sum, Object.entries(p.params ?? {}).sort(([a], [b]) => (a < b ? -1 : 1))]));
+  if (!from || keys((from.plugins ?? []).filter((p) => p.role === 'map')) !== keys(req.mapPlugins ?? []) || mapRecipe(from.recipe) !== mapRecipe(req.recipe)) return [];
+  const ids = new Set(req.mapPlugins!.map((p) => p.id));
+  const want = from.parts.filter((p) => !infos.has(p.name) && (p.name === 'planet' || ids.has(pluginLayerOf(p.name)?.[0] ?? '')));
+  const have = await existing(want.map(partKey));
+  return want.filter((p) => have.has(partKey(p)));
+}
+
 /**
  * 存一份修订。不改传进来的请求之外的任何东西;存不下抛 VaultError,上一份修订、别的世界都不受影响。
  * 这里只查清单能不能读(写坏的清单谁都读不了),不跑世界的校验器:万一校验器误伤,东西也得先存下来
@@ -632,7 +655,10 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       }
       // 清单读不懂的(坏了):当没有上一份,带着完整内容来的照样写得进去
       const prev = base ? manifestOf(base) : null;
-      const infos = partsAfter(req, prev, incoming, author, thumb);
+      // 照原样用别的世界那张地图的,只有头一份照它带;已经有修订的,地图插件的记录、图层照上一份
+      const r = base && req.mapsFrom ? { ...req, mapPlugins: undefined, mapsFrom: undefined } : req;
+      const infos = partsAfter(r, prev, incoming, author, thumb);
+      if (r.mapsFrom && r.parts && r.mapPlugins?.length) for (const p of await carriedMapParts(r, infos)) infos.set(p.name, p);
       const stale = base && prev ? await staleRegionLayers(req.id, base.n, prev, incoming) : [];
       for (const name of stale) infos.delete(name);
       // 没给作者内容 = 沿用。notes 表里等着的并进来;块坏了要重写时,坏的这一块不留(读不出来,留着存不成文件)
@@ -643,7 +669,7 @@ export async function commitWorld(req: CommitRequest): Promise<CommitResult> {
       const made = (req.parts ? req.made : prev?.made) ?? null;
       const readers = (req.parts ? req.readers : prev?.readers) ?? null;
       if (!made || !readers) throw new VaultError('failed', '存世界没给版本');
-      const plugins = toolsLeft(pluginsFor(req, prev), stale, parts);
+      const plugins = toolsLeft(pluginsFor(r, prev), stale, parts);
       const n = maxN + 1;
       const parent = base ? await sha256(new TextEncoder().encode(base.text)) : undefined;
       // 清单里认不出的字段(以后的版本写的)原样带着

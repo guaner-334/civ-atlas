@@ -1,0 +1,77 @@
+/* 以它为底稿新建、本机对不上那几个地图插件:黄色的一块(底色、字色照生成出错的卡那一套深色),要重新长地图的几样灰着 */
+.mo-why {
+  display: flex;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #3a3022;
+  border: 1px solid rgba(255, 179, 64, 0.35);
+  color: #f5e6cc;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.st-in .sb-sec > .mo-why {
+  margin-top: 8px;
+}
+.mo-why > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: #ffb340;
+}
+.mo-why b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13.5px;
+  color: #fff3df;
+}
+.mo-bs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+.mo-btn {
+  height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(118, 118, 128, 0.32);
+  color: #f5f5f7;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mo-btn.pri {
+  background: var(--accent);
+  color: #fff;
+}
+.mo-why.ph .mo-btn {
+  height: 34px;
+  font-size: 13.5px;
+}
+.studio .sb-row-side.nw-map-need {
+  color: #ffb340;
+}
+.sb-row-side.nw-map-off {
+  display: inline-flex;
+  align-items: center;
+  max-width: 200px;
+}
+.nw-map-off .nw-map-names {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nw-map-off .plg-tag {
+  flex: none;
+  margin-left: 6px;
+}
+/* 编辑地形面板锁着:组头、上面那一块和「让助手改」照常,别的灰着点不了(地图上本来就不涂) */
+.tp-locked > :not(:first-child):not(.st-ask),
+.tp-locked:not(.tp-step) > :first-child > :not(.sb-sec-head):not(.mo-why) {
+  opacity: 0.38;
+  pointer-events: none;
+}
