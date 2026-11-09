@@ -505,6 +505,35 @@ describe('一个世界存成文件', () => {
   });
 });
 
+describe('用了推演插件、本机对不上时线程交回的内容', () => {
+  it('插件被删了、网站关了插件,打开时按配方重推出来的(没带插件)不存:世界记的推演插件和历史照留;对得上时照常存', async () => {
+    const list = [{ id: 'weariness', version: '1.0.0', sum: 'a'.repeat(64), role: 'sim', name: '厌战' }];
+    const file = { id: 'weariness', sum: list[0].sum, bytes: new Uint8Array([1, 2]) };
+    setWorldStoreSim({ ...simThatPacks(), sims: () => simsOf(saveStore.currentWorld()?.id) });
+    try {
+      const id = saveStore.newWorldId();
+      openWorld(id);
+      saveStore.markCreated();
+      setSimNow({ id, list, files: [file], checks: [] });
+      expect(await offerWorldParts({ ...(await offerOf(getEdits())), plugins: list })).toBe(true);
+      const kept = (await readRevision(id))!;
+      // 插件删了(或网站关了插件)以后再打开:推演不带文件
+      setSimNow({ id, list, files: null, checks: [{ id: 'weariness', plugin: list[0], status: 'missing' }], stored: true });
+      expect(await offerWorldParts({ ...(await offerOf(getEdits(), 'official')), plugins: [] })).toBe(false);
+      const now = (await readRevision(id))!;
+      expect(now.head.n).toBe(kept.head.n);
+      expect(now.manifest.plugins?.map((x) => [x.id, x.role])).toEqual([['weariness', 'sim']]);
+      // 装回来:照常存
+      setSimNow({ id, list, files: [file], checks: [], stored: true });
+      expect(await offerWorldParts({ ...(await offerOf(getEdits(), 'again')), plugins: list })).toBe(true);
+      expect((await readRevision(id))!.manifest.plugins?.map((x) => x.id)).toEqual(['weariness']);
+    } finally {
+      setSimNow(null);
+      setWorldStoreSim(simThatPacks());
+    }
+  });
+});
+
 describe('全部存成文件', () => {
   it('当前世界用页面里的,别的用存的;存不上的世界说得清', async () => {
     const stored = await makeWorld('存好的');
