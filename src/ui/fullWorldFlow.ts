@@ -325,12 +325,13 @@ export async function refuseUpload(id: string, r: FullRefusal): Promise<void> {
 }
 
 /** 卡片菜单点了:已经传过、没再改的开账号窗;灰的说原因;别的传 */
-export async function uploadFromCard(id: string): Promise<void> {
+export async function uploadFromCard(id: string, stillWanted: () => boolean = () => true): Promise<void> {
   const o = fullOverview();
   if (o) {
     const r = refusalOf(o, id, await worldFileBytes(id));
     if (r) return refuseUpload(id, r);
   }
+  if (!stillWanted()) return;
   return uploadWorld(id);
 }
 

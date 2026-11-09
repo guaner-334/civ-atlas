@@ -267,7 +267,8 @@ describe('字', () => {
   it('分享那一项', () => {
     const entry = overview().worlds[0];
     expect(shareItem({ kind: 'never' }, false)).toEqual({ small: '生成链接，随时能停。对方打开时重新长一遍，可能和你看到的不一样', off: false });
-    expect(shareItem({ kind: 'recipe', at: AT, same: false }, true).off).toBe(true);
+    expect(shareItem({ kind: 'recipe', at: AT, same: false }, true)).toMatchObject({ off: false, ask: true });
+    expect(shareItem({ kind: 'never' }, false).ask).toBeUndefined();
     expect(shareItem({ kind: 'same', entry }, true)).toEqual({ small: '生成链接，随时能停。对方看到的和你这里一模一样', off: false });
     expect(shareItem({ kind: 'changed', entry }, false).small).toBe('生成链接，随时能停。对方看到的是 11 月 3 日传的那份');
     expect(shareItem({ kind: 'same', entry: { ...entry, public: false, reason: 'opaque' } }, false)).toEqual({ small: '带着插件的附加数据，不能公开分享。可以存成文件发给对方', off: true });

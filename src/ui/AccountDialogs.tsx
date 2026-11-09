@@ -41,6 +41,8 @@ export type Panel =
   | { kind: 'logout' }
   | { kind: 'delete' }
   | { kind: 'share'; worldId: string; title: string }
+  /** 地图带不进配方的世界还没传到账号:先问一句,传好接着开分享窗 */
+  | { kind: 'share-ask'; worldId: string; title: string }
   | { kind: 'submit'; work: SubmitWork; view?: SubmitView }
   /** back:绑好、取消以后回到哪个窗;then:绑好以后接着做的 */
   | { kind: 'phone'; mode: PhoneMode; back: Panel | null; then?: () => void };
@@ -82,6 +84,11 @@ export function openAccount(to?: 'submissions'): void {
 }
 export function openShareDialog(worldId: string, title: string): void {
   panel = { kind: 'share', worldId, title };
+  forNow();
+  emit();
+}
+export function openShareAsk(worldId: string, title: string): void {
+  panel = { kind: 'share-ask', worldId, title };
   forNow();
   emit();
 }

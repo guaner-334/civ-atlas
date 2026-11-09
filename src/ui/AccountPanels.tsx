@@ -17,7 +17,7 @@ import { createShare, getCloud, listAllShares, listShares, listTrash, seenStoppe
 import { fetchSubmissions } from '../account/submissions';
 import { SIGNATURE_UNITS, cleanSignature, momentHash } from '../gen/savefile';
 import { MomentCheck, momentNow, useMomentOn } from './shareMoment';
-import { CloseX, Dialog, closeAccountPanel, codeOf, errText, goToPanel, openAccount, openPhoneDialog, openSubmitDialog, openTrash, sendLabel, useCountdown, type Panel } from './AccountDialogs';
+import { CloseX, Dialog, closeAccountPanel, codeOf, errText, goToPanel, openAccount, openPhoneDialog, openShareDialog, openSubmitDialog, openTrash, sendLabel, useCountdown, type Panel } from './AccountDialogs';
 import { openWorldById } from './newCivAction';
 import { ShareAborted, pushForShare } from './sharePush';
 import { askFull, fullDay, fullStatusOf, holdFullToasts, pairText, useFullJob, useFullNotes, useFullOverview, useFullPull, type FullJob, type FullNote } from './fullWorldView';
@@ -32,6 +32,7 @@ export default function AccountPanel({ panel, phone, onClose, onBack }: { panel:
   if (panel.kind === 'account') return <AccountDialog phone={phone} to={panel.to} onClose={onClose} />;
   if (panel.kind === 'logout') return <LogoutDialog phone={phone} onClose={onClose} onBack={onBack} />;
   if (panel.kind === 'delete') return <DeleteDialog phone={phone} onClose={onClose} onBack={onBack} />;
+  if (panel.kind === 'share-ask') return <ShareAskDialog key={panel.worldId} phone={phone} worldId={panel.worldId} title={panel.title} onClose={onClose} />;
   return <ShareDialog key={panel.worldId} phone={phone} worldId={panel.worldId} title={panel.title} onClose={onClose} />;
 }
 
@@ -723,6 +724,91 @@ function FullShareRow({ worldId }: { worldId: string }) {
   const act = job ? undefined : { label: status.kind === 'changed' ? '再传一次' : '传到账号', name: 'share-full-upload', on: upload };
   if (status.kind === 'changed') return row(`对方看到的是 ${fullDay(status.entry.uploadedAt)}那份`, '之后的改动还没传。再传一次，对方刷新就能看到', act);
   return row('对方看到的可能和你不一样', '这个链接只带配方，对方打开时重新长一遍。传到账号以后就一模一样', act);
+}
+
+/** 地图带不进配方的世界点「分享…」:先问一句,传好直接开分享窗。进度和出错的话写在窗口里(提示条盖不到) */
+function ShareAskDialog({ phone, worldId, title, onClose }: { phone: boolean; worldId: string; title: string; onClose: () => void }) {
+  const fo = useFullOverview();
+  const job = useFullJob();
+  const notes = useFullNotes();
+  useSavesVersion();
+  useEffect(() => void askFull(), []);
+  useEffect(() => holdFullToasts(worldId), [worldId]);
+  const [started, setStarted] = useState(false);
+  const wanted = useRef(true);
+  useEffect(() => {
+    wanted.current = true;
+    return () => void (wanted.current = false);
+  }, []);
+  const mine = job?.id === worldId ? job : null;
+  const other = !!job && !mine;
+  const note = notes[worldId] ?? null;
+  const sent = !!fo?.worlds.some((w) => w.id === worldId);
+  useEffect(() => {
+    if (started && !job && sent) openShareDialog(worldId, title);
+  }, [started, job, sent, worldId, title]);
+  const name = title || '这个世界';
+  const stop = () => {
+    if (mine && mine.phase !== 'check') void flow().then((m) => m.cancelUpload());
+    onClose();
+  };
+  const go = () => {
+    setStarted(true);
+    void flow().then((m) => (wanted.current ? m.uploadFromCard(worldId, () => wanted.current) : undefined));
+  };
+  const pct = mine?.total ? Math.round((mine.done / mine.total) * 100) : 0;
+  return (
+    <Dialog phone={phone} label={`分享「${name}」`} width={440} onClose={mine?.phase === 'check' ? undefined : stop} testId="share-ask-dialog">
+      <div className="acct-body" style={{ gap: 10 }}>
+        <p className="acct-lead" style={{ marginBottom: 4 }}>
+          要先传到你的账号才能分享（占 1 个名额）
+        </p>
+        <p className="acct-small">这个世界的地图带不进配方链接，只有传到账号，对方才打得开。传好马上给你链接。</p>
+        {mine && (
+          <div className="acct-grp" data-testid="share-ask-job">
+            <div className="acct-gr" style={{ minHeight: 58 }}>
+              <Icon name="cloudup" size={19} />
+              <span className="main">
+                <b>{mine.phase === 'check' ? '正在核对' : '正在传到账号'}</b>
+                <small style={{ whiteSpace: 'normal' }}>{mine.phase === 'check' ? '已经传完，服务器在检查里面的内容' : `${mine.total ? `${pairText(mine.done, mine.total)}，` : ''}别关页面`}</small>
+                {mine.phase === 'send' && mine.total > 0 && (
+                  <i className="acct-bar">
+                    <i style={{ width: `${pct}%` }} />
+                  </i>
+                )}
+              </span>
+            </div>
+          </div>
+        )}
+        {!mine && note && (
+          <div className="acct-grp" data-testid="share-ask-note">
+            <div className="acct-gr" style={{ minHeight: 58 }}>
+              <Icon name="cloudup" size={19} />
+              <span className="main">
+                <b>{note.text}</b>
+                {note.more && <small style={{ whiteSpace: 'normal' }}>{note.more}</small>}
+              </span>
+              {note.action && (
+                <button className="mini" data-act={note.action.act} onClick={note.action.onClick}>
+                  {note.action.label}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {other && <p className="acct-small">别的世界正在传，传完再来</p>}
+      </div>
+      <div className="acct-foot">
+        <span className="acct-sp" />
+        <button className="acct-btn lg" data-act="share-ask-cancel" disabled={mine?.phase === 'check'} onClick={stop}>
+          取消
+        </button>
+        <button className="acct-btn lg blue" data-act="share-ask-go" disabled={!!job || !fo} onClick={go}>
+          传并分享
+        </button>
+      </div>
+    </Dialog>
+  );
 }
 
 function ShareDialog({ phone, worldId, title, onClose }: { phone: boolean; worldId: string; title: string; onClose: () => void }) {
