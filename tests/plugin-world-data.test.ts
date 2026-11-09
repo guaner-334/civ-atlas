@@ -13,7 +13,7 @@ import { PluginApiError } from '../src/plugin/check';
 import { worldDataStore } from '../src/plugin/pluginData';
 import { pluginsInWorld, worldPluginOf } from '../src/plugin/pluginWorld';
 import type { VaultCaller } from '../src/ui/worldStore';
-import { _resetVault, changePluginData, commitWorld, opaquePartsOf, readPluginData, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
+import { _resetVault, changePluginData, changePluginLayer, commitWorld, opaquePartsOf, readPluginData, readPluginLayers, readRevision, revisionFile, vaultOps, type CommitRequest } from '../src/worldVault';
 import { goodPlugin } from './lib/pluginFileSample';
 import { MADE, READERS, makeSample } from './lib/worldFileSample';
 
@@ -179,5 +179,34 @@ describe('世界用到的插件和本机装没装', () => {
       ['route-measure', ['a', 'b'], true],
       ['coast-distance', ['coast'], false],
     ]);
+  });
+});
+
+describe('复制世界(copyRevision)', () => {
+  it('最新的修订原样成为新世界的第一份:插件记录、数据、图层、块都在,配方换成新名字', async () => {
+    await commitWorld(request());
+    const sim: WorldPlugin = { id: 'magic-sim', version: '1.0.0', sum: 'c'.repeat(64), role: 'sim' };
+    await changePluginData(sample.id, sim, { schema: 1, value: 'x' });
+    await changePluginData(sample.id, tool, { schema: 2, value: { route: [3, 9] } });
+    const cells = sample.map.mesh.n;
+    await changePluginLayer(sample.id, tool, 'dist', { title: '距离', unit: 'cell', values: new Float32Array(cells).fill(1), classes: [{ value: 1, color: '#2b83ba', label: '近' }], legend: '', opacity: 0.7 });
+    const from = await latest();
+    const recipe = { ...from.recipe, title: '复制的' };
+
+    expect(await vaultOps.copyRevision(sample.id, 'copy-1', recipe)).toBe(true);
+    const copy = (await readRevision('copy-1', undefined, []))!;
+    expect(copy.manifest.id).toBe('copy-1');
+    expect(copy.manifest.revision).toEqual({ n: 1 });
+    expect(copy.manifest.recipe).toEqual(recipe);
+    expect(copy.manifest.plugins).toEqual(from.plugins);
+    expect(copy.manifest.parts).toEqual(from.parts);
+    expect(copy.head.recipeKey).toBe('k1');
+    expect(await readPluginData('copy-1', tool.id)).toMatchObject({ schema: 2, value: { route: [3, 9] } });
+    expect((await readPluginLayers('copy-1', cells)).map((l) => l.layer)).toEqual(['dist']);
+
+    // 原来的世界不动;已经有修订的、没有修订的世界复制不了
+    expect((await latest()).revision.n).toBe(4);
+    expect(await vaultOps.copyRevision(sample.id, 'copy-1', recipe)).toBe(false);
+    expect(await vaultOps.copyRevision('nothing', 'copy-2', recipe)).toBe(false);
   });
 });

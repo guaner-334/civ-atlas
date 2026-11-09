@@ -1239,6 +1239,27 @@ export async function worldPluginsOf(id: string): Promise<Pick<WorldManifest, 'p
   return m ? { plugins: m.plugins, parts: m.parts } : null;
 }
 
+/**
+ * 复制一个世界:from 最新的修订原样成为 to 的第一份修订(块不动、插件记录和插件存的数据、图层都在),清单里的配方换成 recipe(新的名字)。
+ * from 没有修订、to 已经有修订(别的标签页抢先转了) = false
+ */
+export async function copyRevision(from: string, to: string, recipe: SaveFile): Promise<boolean> {
+  try {
+    const base = chainOf(await rowsOf(from)).at(-1);
+    const prev = base ? manifestOf(base) : null;
+    if (!base || !prev) return false;
+    const manifest: WorldManifest = { ...prev, id: to, ...(prev.title !== undefined ? { title: recipe.title } : {}), recipe, revision: { n: 1 } };
+    const text = manifestBytes(manifest);
+    parseManifest(text, { readers: { ...prev.readers } });
+    const row: RevisionRow = { id: to, n: 1, text: new TextDecoder().decode(text), keys: [...base.keys], content: base.content, recipeKey: base.recipeKey, generator: base.generator, source: 'made', at: Date.now() };
+    const out = await publish(row, 0);
+    if (out === 'missing') throw new VaultError('corrupt', '写清单时块不全');
+    return out === 'ok';
+  } catch (e) {
+    throw asVaultError(e);
+  }
+}
+
 /** 一个世界最新的修订里只当字节留着的块(gen/worldFile.ts 的 opaqueParts):有就不能公开分享、投稿;没有修订、清单读不懂 = 没有 */
 export async function opaquePartsOf(id: string): Promise<string[]> {
   const last = chainOf(await rowsOf(id)).at(-1);
@@ -1569,5 +1590,5 @@ export async function rosterCopy(id: string): Promise<{ recipe: SaveFile; thumb:
 }
 
 /** 主线程通过后台线程调的几样(worldVaultWorker.ts、ui/worldStore.ts) */
-export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor, readPluginData, changePluginData, readPluginLayers, changePluginLayer, worldPluginsOf, opaquePartsOf };
+export const vaultOps = { commitWorld, draftFile, adoptFile, latestOf, revisionsOf, readRevision, revisionFile, zipBlobs, sweepParts, spaceOf, spaceBoard, fullStates, purgeWorld, clearVault, stateOf, patchState, patchStates, rosterOf, rosterCopy, readAuthor, changeAuthor, readPluginData, changePluginData, readPluginLayers, changePluginLayer, worldPluginsOf, copyRevision, opaquePartsOf };
 export type VaultOps = typeof vaultOps;

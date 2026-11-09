@@ -702,7 +702,13 @@ function WorldCard({
                   // AI 写的史书、名字由来跟着复制;存不下就说一声(这一页里还看得到,刷新以后没有)
                   if (!copyNotes(w.id, id)) more.push('AI 写的史书、名字由来没能一起存下（浏览器存储已满）');
                   void copyResults(w.id, id);
-                  notify({ kind: more.length > 1 ? 'warn' : 'ok', text: `已复制一份「${name}」`, more });
+                  void import('./worldStore')
+                    .then((m) => m.copyWorldPlugins(w.id, id))
+                    .catch(() => 'failed' as const)
+                    .then((r) => {
+                      if (r === 'failed') more.push('用到的插件没能一起存下，打开可能和原来不一样（浏览器存储已满）');
+                      notify({ kind: more.length > 1 ? 'warn' : 'ok', text: `已复制一份「${name}」`, more });
+                    });
                 })}
               >
                 <Icon name="copy" size={16} />

@@ -990,6 +990,18 @@ export async function keepMapCopy(id: string, o: { edits?: WorldEdits; title?: s
   return { ok: false, kind: stuck === 'full' ? 'full' : 'failed', message: why?.error ?? '没能存下这一份' };
 }
 
+/** 复制一份:from 用了插件(推演、地图、工具)的,它最新的修订原样给 to,不然 to 打开时按不带插件长。没用插件、读不了 = none */
+export async function copyWorldPlugins(from: string, to: string): Promise<'none' | 'ok' | 'failed'> {
+  const used = await call('worldPluginsOf', [from]).catch(() => null);
+  if (!used?.plugins.length) return 'none';
+  try {
+    const save = loadWorld(to)?.save;
+    return save && (await call('copyRevision', [from, to, save])) ? 'ok' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
 if (typeof window !== 'undefined') (window as unknown as { __wfKeepMapCopy: typeof keepMapCopy }).__wfKeepMapCopy = keepMapCopy;
 
 /** 这个标签页正在转一遍 */
