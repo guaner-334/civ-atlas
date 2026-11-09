@@ -16,7 +16,7 @@
  * 待完成的修改:存着的修订在仓库里,配方草稿就是存档(saveStore),两边分开放。崩了以后拿两边比(pendingEdit、pendingOf)就知道有没有没推完的修改。
  *
  * 把现有的世界转进来(startConversions):打开页面过一会儿在后台一个一个转,一次一个、一个线程转一个。
- * - 有原件的直接转;没有原件但是当前版本建的,电脑上算一遍,手机上不算(打开时自然就存了);没有原件的更旧版本只记下来(old),不转
+ * - 有原件的直接转(用了推演、地图插件的世界不看原件:原件不记插件);没有原件但是当前版本建的,电脑上算一遍,手机上不算(打开时自然就存了);没有原件的更旧版本只记下来(old),不转
  * - 用的人一开始推演就关掉线程让路(写到一半的不算数),闲下来再从这个世界重来;关了页面下次接着转(转完的不再转)
  * - 转失败了记下(failed),这一版软件不再试;转的时候页面崩了(下次打开时还有 CONVERTING 这条记录)也算失败,不然每次打开都崩
  * - 几个标签页同时开着,只有一个转(navigator.locks)
@@ -44,7 +44,7 @@ import { GENERATOR_VERSION, civSeedOf, cleanMapRef, keptMapOf, type Intervention
 import { READER_VERSIONS } from '../gen/readers/versions';
 import { parseSave, type SaveFile } from '../gen/savefile';
 import { recipeKey, recipeOfSave, recipeText } from '../gen/snapshot';
-import type { AuthorContent, WorldMade } from '../gen/worldFormat';
+import { shapesWorld, type AuthorContent, type WorldMade } from '../gen/worldFormat';
 import type { SimPluginsReady } from '../plugin/simPlugins';
 import type { MapPluginFile, SimPluginFile } from '../plugin/pluginWorld';
 import type { ConvertJob } from '../worldConvert';
@@ -533,10 +533,10 @@ async function pluginFilesOf(id: string, read: <T>(p: Promise<T>) => Promise<T |
   return { sims, maps: r.ok ? r.files : null };
 }
 
-/** 网站关了插件时这个世界用的推演、地图插件(编号);没用 = undefined */
-async function pluginsOffOf(id: string, read: <T>(p: Promise<T>) => Promise<T | null>): Promise<string[] | undefined> {
+/** 这个世界最新的修订记的推演、地图插件(编号);没用、没有修订 = undefined */
+async function shapingPluginsOf(id: string, read: <T>(p: Promise<T>) => Promise<T | null>): Promise<string[] | undefined> {
   const m = await read(call('worldPluginsOf', [id]));
-  const ids = (m?.plugins ?? []).filter((p) => p.role === 'sim' || p.role === 'map').map((p) => p.id);
+  const ids = (m?.plugins ?? []).filter(shapesWorld).map((p) => p.id);
   return ids.length ? ids : undefined;
 }
 
@@ -553,13 +553,15 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   const state = await read(call('stateOf', [id]));
   // 等推演插件的不算转失败:装上了照样转
   if (state?.status === 'failed' && state.app === APP_VERSION && !state.simWait) return null;
-  // 网站关了插件:用了推演、地图插件的一样都不转(原件不记插件,不带插件重算出来是另一个世界),照原样留着,记下在等哪几个
-  const shut = pluginsUiOn() ? undefined : await pluginsOffOf(id, read);
+  // 用了推演、地图插件的世界不从原件转:原件不记插件,浏览器里存着的可能是新建时先不带插件长的那一份
+  const plugged = await shapingPluginsOf(id, read);
+  // 网站关了插件:用了推演、地图插件的一样都不转(不带插件重算出来是另一个世界),照原样留着,记下在等哪几个
+  const shut = pluginsUiOn() ? undefined : plugged;
   const hold = async (wait: string[] | undefined): Promise<null> => {
     if (JSON.stringify(state?.pluginsOff) !== JSON.stringify(wait)) await call('patchState', [id, { pluginsOff: wait }]).catch(() => {});
     return null;
   };
-  const heads = await resultHeads(id);
+  const heads = plugged ? [] : await resultHeads(id);
   const body = { id, thumb: thumbBytes(w.thumb) };
 
   // 存档被新版重存过,原来那份还留着,也有那一版的原件
@@ -568,14 +570,14 @@ async function jobFor(id: string, asked = false, noArchive = false): Promise<Con
   if (parsed?.ok && !state?.archived?.includes(parsed.save.generator)) {
     const old = parsed.save;
     const key = await recipeKey(recipeOfSave(old));
-    if (heads.some((h) => h.generator === old.generator && h.recipe === key)) return shut ? hold(shut) : { kind: 'original', id, generator: old.generator, save: old, source: 'archive' };
+    if (heads.some((h) => h.generator === old.generator && h.recipe === key)) return { kind: 'original', id, generator: old.generator, save: old, source: 'archive' };
   }
 
   const key = await recipeKey(recipeOfSave(w.save));
   const latest = await read(call('latestOf', [id]));
   // 打开时发现块坏了的(state.corrupt)再转一遍,commitWorld 会把块重写一遍
   if (latest && latest.recipeKey === key && latest.generator === w.save.generator && state?.corrupt === undefined) return hold(undefined);
-  if (heads.some((h) => h.generator === w.save.generator && h.recipe === key)) return shut ? hold(shut) : { ...body, kind: 'original', generator: w.save.generator, save: w.save, source: 'migrated' };
+  if (heads.some((h) => h.generator === w.save.generator && h.recipe === key)) return { ...body, kind: 'original', generator: w.save.generator, save: w.save, source: 'migrated' };
   if (w.save.generator === GENERATOR_VERSION) {
     // 打开着的世界线程自己会交内容;手机上打开哪个转哪个
     if (!asked && (onPhone() || currentWorld()?.id === id)) return null;
@@ -609,6 +611,8 @@ export async function contentTrouble(id: string): Promise<'old' | 'failed' | nul
     const g = w.save.generator;
     if (!(g < GENERATOR_VERSION)) return null;
     if ((await call('latestOf', [id]))?.generator === g) return null;
+    // 用了推演、地图插件的不从原件转(见 jobFor)
+    if (await shapingPluginsOf(id, (p) => p)) return 'old';
     return (await resultHeads(id)).some((h) => h.generator === g) ? null : 'old';
   } catch {
     return null;

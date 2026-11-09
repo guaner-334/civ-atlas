@@ -886,6 +886,54 @@ describe('把现有的世界转进来', () => {
     expect((await revisionsOf(id)).length).toBe(1);
   }, 120_000);
 
+  it('用了推演、地图插件的世界有同一份配方、不带插件推的原件也不拿它转(存成文件前也一样):带着插件按存档重推,本机没有的照原样留着;没用插件的照常转', async () => {
+    _resetPluginStore();
+    const box: SimBoxer = (spec) => quickjsPlugin(quickjsWasm(), spec);
+    const save = makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 300 }, check, 'x', '2026-11-01T00:00:00.000Z');
+    const id = storeSave(save);
+    const mapSave = makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 250 }, check, 'm', '2026-11-01T00:00:00.000Z');
+    const mapId = storeSave(mapSave);
+    const plainSave = makeSave(PARAMS, { ...EMPTY_EDITS, endYear: 200 }, check, 'p', '2026-11-01T00:00:00.000Z');
+    const plain = storeSave(plainSave);
+    const b = await simV1File('weariness');
+    await installPlugin(b);
+    const records = await simRecordsOf([{ id: 'weariness', sum: (await openPluginFile(b)).sum, bytes: b }]);
+    const withSims = generateCiv(world, { endYear: 300, plugins: [weariness()] });
+    const partsOf = async (c: ReturnType<typeof generateCiv>) => [await makePart('map', mapValue(world)), await makePart('civ', c), await makePart('chronicle', worldChronicle(c, undefined)), await makePart('flags', worldFlags(world, c))];
+    const made = { app: '1.9.0', generator: GENERATOR_VERSION, commit: '', at: '2026-11-01T00:00:00.000Z' };
+    await vaultOps.commitWorld({ id, recipe: save, recipeKey: await recipeKey(recipeOfSave(save)), parts: await partsOf(withSims), made, readers: { ...READER_VERSIONS }, simPlugins: records });
+    const craters = { id: 'craters', version: '1.0.0', sum: 'c'.repeat(64), role: 'map', name: '环形山' };
+    const map250 = generateCiv(world, { endYear: 250 });
+    await vaultOps.commitWorld({ id: mapId, recipe: mapSave, recipeKey: await recipeKey(recipeOfSave(mapSave)), parts: await partsOf(map250), made, readers: { ...READER_VERSIONS }, mapPlugins: [craters] });
+    await patchState(id, { corrupt: 1 });
+    await patchState(mapId, { corrupt: 1 });
+    // 同一份配方不带插件推出来的原件(新建时先长、后选插件的那一份)
+    await putOriginal(id, [await makePart('map', mapValue(world)), await makePart('civ', generateCiv(world, { endYear: 300 }))], save, GENERATOR_VERSION);
+    await putOriginal(mapId, [await makePart('map', mapValue(world)), await makePart('civ', map250)], mapSave, GENERATOR_VERSION);
+    await putOriginal(plain, [await makePart('map', mapValue(world)), await makePart('civ', generateCiv(world, { endYear: 200 }))], plainSave, GENERATOR_VERSION);
+    const jobs: ConvertJob[] = [];
+    _setWorldStore({ runner: (job) => (jobs.push(job), { done: runConvert(job, results, box).then((result) => ({ ok: true as const, result })), stop: () => {} }) });
+    await settleWorld(mapId);
+    expect(jobs).toEqual([]);
+    await startConversions();
+    const done = jobs.map((j) => [j.id, j.kind]);
+    expect(done).toHaveLength(2);
+    expect(done).toEqual(
+      expect.arrayContaining([
+        [id, 'recompute'],
+        [plain, 'original'],
+      ]),
+    );
+    const file = await openWorldFile(await bytesOf((await revisionFile(id))!), OPEN);
+    expect(file.manifest.plugins).toEqual(records);
+    expect(isDeepStrictEqual((await readWorldContent(file)).civ, withSims)).toBe(true);
+    // 地图插件这台没装:不算、不拿原件转,仓库里那一份照原样
+    expect((await revisionsOf(mapId)).length).toBe(1);
+    expect(await stateOf(mapId)).toMatchObject({ corrupt: 1 });
+    expect((await latestOf(plain))?.source).toBe('migrated');
+    _resetPluginStore();
+  }, 120_000);
+
   it('按存档算一遍:和生成世界的线程走同一段代码,带干预、地形大事、地形修改、逐年推演都对得上配方', async () => {
     const terrain = [{ kind: 'volcano', pts: [812, 403], r: 60, s: 1.5 }] as WorldEdits['terrain'];
     const params = PARAMS;

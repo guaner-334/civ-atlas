@@ -6,6 +6,8 @@ import { EMPTY_EDITS, GENERATOR_VERSION, type WorldEdits } from '../src/gen/edit
 import { makeSave } from '../src/gen/savefile';
 import { SNAPSHOT_FORMAT, makePart, recipeKey, recipeOfSave, type Snapshot } from '../src/gen/snapshot';
 import { _setResultBackend, clearResults, copyResults, dropOrphans, keepPending, loadResult, memoryResults, offerSnapshot, resultHeads } from '../src/ui/resultStore';
+import { setMapNow, usesMaps } from '../src/ui/world/mapNow';
+import { setSimNow, simsOf } from '../src/ui/world/simNow';
 
 /** 假的 localStorage */
 class FakeStorage {
@@ -58,6 +60,8 @@ describe('原件存进浏览器(resultStore)', () => {
   });
   afterEach(() => {
     stopAuto?.();
+    setSimNow(null);
+    setMapNow(null);
     delete g.localStorage;
     saveStore._resetForTest();
     clearEdits();
@@ -138,6 +142,37 @@ describe('原件存进浏览器(resultStore)', () => {
     expect(await keepPending()).toBe(false);
     expect(mem.records.size).toBe(0);
     expect(await offerSnapshot(s, (w) => w === id && usable)).toBe(true);
+    expect(mem.records.size).toBe(1);
+  });
+
+  it('用了推演、地图插件的世界不存:新建时选插件之前不带插件长的那份、带着推演插件推的那份都不存;没用插件的照存', async () => {
+    // 和页面交原件时说的一样(带着推演插件推的、存的时候世界用着推演或地图插件的不算)
+    const pageOk = (plugged: boolean) => (w: string) => !plugged && simsOf(w) === undefined && !usesMaps(w);
+    const weary = { id: 'weariness', version: '1.0.0', sum: 'e'.repeat(64), role: 'sim', name: '厌战' };
+    const craters = { id: 'craters', version: '1.0.0', sum: 'c'.repeat(64), role: 'map', name: '环形山' };
+    for (const use of ['sim', 'map'] as const) {
+      const id = saveStore.newWorldId();
+      openWorld(id, EMPTY_EDITS, 'draft');
+      // 选插件之前不带插件长的那份:新建中先放着
+      expect(await offerSnapshot(await snapshotOf(getEdits()), pageOk(false))).toBe(false);
+      if (use === 'sim') setSimNow({ id, list: [weary], files: [], checks: [] });
+      else setMapNow({ id, list: [craters], files: [{ id: craters.id, sum: craters.sum }], ready: true, checks: [] });
+      // 建好:配方不记插件,和手上那份对得上,也不存
+      expect(saveStore.markCreated()).toBe(true);
+      expect(await keepPending()).toBe(false);
+      expect(await offerSnapshot(await snapshotOf(getEdits(), GENERATOR_VERSION, 'b'), pageOk(use === 'sim'))).toBe(false);
+      expect(await resultHeads(id)).toEqual([]);
+      setSimNow(null);
+      setMapNow(null);
+    }
+    const id = saveStore.newWorldId();
+    openWorld(id, EMPTY_EDITS, 'draft');
+    // 带着推演插件推的:建好以后插件又去掉了也不存
+    expect(await offerSnapshot(await snapshotOf(getEdits()), pageOk(true))).toBe(false);
+    expect(saveStore.markCreated()).toBe(true);
+    expect(await keepPending()).toBe(false);
+    expect(mem.records.size).toBe(0);
+    expect(await offerSnapshot(await snapshotOf(getEdits(), GENERATOR_VERSION, 'c'), pageOk(false))).toBe(true);
     expect(mem.records.size).toBe(1);
   });
 

@@ -71,6 +71,7 @@ import { openRulesHash, openRulesText } from '../rules/sheetStore';
 import { pickSharedPreset } from '../presetStore';
 import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
 import { recipeChanges, recipeKey, recipeOfSave } from '../../gen/snapshot';
+import { shapesWorld } from '../../gen/worldFormat';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
 import { frozenResult, resultHeads } from '../resultStore';
 import { keptMapHere, settleKeptWorld, vaultCall } from '../worldStore';
@@ -436,8 +437,11 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         const save = oldStored(t);
         if (!save) return byRecipe();
         genReq.current = req;
-        void frozenResult(t.id, save).then((r) => {
+        const used = atMost(vaultCall('worldPluginsOf', [t.id]).catch(() => null), 2000, null);
+        void Promise.all([frozenResult(t.id, save), used]).then(([found, u]) => {
           if (id !== reqId.current) return;
+          // 原件不记插件:用了推演、地图插件的世界存着的那份可能是不带插件长的
+          const r = found && found !== 'broken' && u?.plugins.some(shapesWorld) ? 'broken' : found;
           if (!r || r === 'broken') {
             if (r || vaultBad) frozenBroken.current = t.id;
             return byRecipe();
@@ -470,12 +474,11 @@ export function useWorldLoad(deps: WorldLoadDeps) {
         const fail: LoadBack = rd ? (why) => (why === 'newer' ? newerBack() : generate({ ...rd.draft, noVault: true, vaultBad: true })) : vaultBack;
         void (async () => {
           await openGuardReady();
-          if (!vaultAllowed(t.id)) throw new Error('这个世界这一版不走新路');
           const recipe = await recipeKey(recipeOfSave(stored));
-          // 这一版还没有原件的:读完存一份(旧路还留着)
           const heads = stored.generator === GENERATOR_VERSION && !t.fullFile ? await atMost(resultHeads(t.id), 2000, null) : null;
-          const original = !!heads && !heads.some((h) => h.generator === stored.generator && h.recipe === recipe);
           const used = await vaultCall('worldPluginsOf', [t.id]).catch(() => null);
+          // 这一版还没有原件的:读完存一份(旧路还留着)。原件不记插件,用了推演、地图插件的不存
+          const original = !!heads && !heads.some((h) => h.generator === stored.generator && h.recipe === recipe) && !used?.plugins.some(shapesWorld);
           if (id !== reqId.current) return;
           // 用了推演插件的世界(插件界面关着也一样):带着插件读进来,接着推才不用从第 0 年重推;关着时不跑,接着推先问
           if (pluginsUiOn() || used?.plugins.some((p) => p.role === 'sim')) {
@@ -490,6 +493,8 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           req = { ...req, ...setupOpt(civSetup.current) };
           if (genReq.current) genReq.current = req;
           if (id !== reqId.current) return;
+          // 这一版不走新路的也先把插件读上:退回旧路按配方生成时带着它们
+          if (!vaultAllowed(t.id)) throw new Error('这个世界这一版不走新路');
           sendLoad({ vault: { id: t.id, recipe, generator: stored.generator }, ...(original ? { original } : {}) }, stored.generator, fail);
         })().catch(() => {
           if (id === reqId.current) fail('none');

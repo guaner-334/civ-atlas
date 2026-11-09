@@ -337,8 +337,8 @@ export type WorkerResponse =
   | { type: 'eraPatch'; id: number; key: string; prev: string; patch: RasterPatch | null }
   /** 地形大事的预览;water = 加上这几笔以后各地块的海陆(0 陆地 / 1 海 / 2 湖) */
   | { type: 'upPreview'; id: number; pid: number; preview: UpheavalPreview; water: Uint8Array; ms: number }
-  /** 这次生成 / 重推的原件(后台打好的) */
-  | { type: 'snapshot'; id: number; snapshot: Snapshot }
+  /** 这次生成 / 重推的原件(后台打好的);plugged = 带着推演插件推的(只拿来记地图的校验,不存) */
+  | { type: 'snapshot'; id: number; snapshot: Snapshot; plugged?: true }
   /** 这次生成 / 重推的完整内容(后台打好的,存进世界仓库用) */
   | { type: 'worldParts'; id: number; offer: WorldPartsOffer }
   /** packParts 的回音;kind = memory:内存不够,东西没问题 */
@@ -1003,7 +1003,7 @@ function queueSnapshot(id: number, m: CivInput & { interventions?: Intervention[
       kept = null;
     }
     // 地图那一块还记着(下次重推用),不交出去,复制一份。地图留着的世界不打原件:只存进仓库(原件是旧的路,旧的路会按种子重新长)
-    if (original) post({ type: 'snapshot', id, snapshot }, [eras.data, civPart.data]);
+    if (original) post({ type: 'snapshot', id, snapshot, ...(m.simPlugins?.length ? { plugged: true as const } : {}) }, [eras.data, civPart.data]);
     if (kept) queueWorldParts(id, { generator: snapshot.generator, recipe: snapshot.recipe, parts: [...kept, ...(mapsIn?.layers ?? []), ...planetPart], ...(pin ? { readers: { terrain: pin.readers.terrain, query: READER_VERSIONS.query }, schemas: { map: pin.schema } } : {}), ...(plugins ? { plugins } : {}), ...(mapsIn ? { mapPlugins: mapsIn.mapPlugins } : {}) }, world, civ, chron, m.characters);
   });
 }

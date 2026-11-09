@@ -202,6 +202,9 @@ export interface WorldPlugin {
   params?: Record<string, unknown>;
 }
 
+/** 推演插件、地图插件:世界长成什么样、历史怎么走由它们定(原件、配方指纹都不记插件) */
+export const shapesWorld = (p: Pick<WorldPlugin, 'role'>): boolean => p.role === 'sim' || p.role === 'map';
+
 /** 第几次修订 */
 export interface WorldRevision {
   n: number;
