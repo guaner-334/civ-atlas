@@ -596,6 +596,7 @@ export function aboutMinutes(ms: number): string {
 
 export function FinderConds({ ui, phone, seed, estimate }: { ui: FinderUi; phone: boolean; seed: number; estimate: (n: number) => number }) {
   const q = ui.query;
+  const plugins = ui.base?.mapPlugins?.length ? ui.base.mapPlugins.map((n) => `「${n}」`).join('、') : null;
   const [menu, setMenu] = useState<MenuAt | null>(null);
   const openMenu = (role: number, el: HTMLElement) => {
     const r = el.getBoundingClientRect();
@@ -674,10 +675,11 @@ export function FinderConds({ ui, phone, seed, estimate }: { ui: FinderUi; phone
               <button role="radio" aria-checked={ui.map === 'each'} className={ui.map === 'each' ? 'on' : ''} data-act="map-each" onClick={() => setFinderMap('each')}>
                 每个世界换一张
               </button>
-              <button role="radio" aria-checked={ui.map === 'fixed'} className={ui.map === 'fixed' ? 'on' : ''} data-act="map-fixed" onClick={() => setFinderMap('fixed')}>
+              <button role="radio" aria-checked={ui.map === 'fixed'} className={ui.map === 'fixed' ? 'on' : ''} data-act="map-fixed" disabled={!!plugins} title={plugins ? `这张地图用了地图插件${plugins}，找的时候带不了` : undefined} onClick={() => setFinderMap('fixed')}>
                 都用种子 {seed} 这张
               </button>
             </span>
+            {plugins && <span className="fd-hint">这张地图用了地图插件{plugins}，找的时候带不了，只能每个世界换一张</span>}
           </div>
         )}
         <button className="fd-btn primary big" data-act="finder-start" disabled={!canStart} onClick={startFinder}>

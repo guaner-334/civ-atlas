@@ -16,6 +16,7 @@ import {
   pickPreset,
   resetFinder,
   setFinderCount,
+  setFinderMap,
   setFinderSpawn,
   setQuery,
   startFinder,
@@ -244,6 +245,20 @@ describe('照故事找世界:搜', () => {
     expect(getFinder().page).toBe('conds');
     resetFinder();
     setFinderSpawn(undefined);
+  });
+});
+
+describe('照故事找世界:用了地图插件的世界', () => {
+  it('「都用这张」带不了插件:打开时退回每个世界换一张,搜的设定里也没有这张', () => {
+    resetFinder();
+    const base = { key: 'p', setup: { world: { ...DEFAULT_PARAMS } }, mapPlugins: ['环形山'] };
+    openFinder({ key: 'p0', setup: base.setup }, false);
+    setFinderMap('fixed');
+    expect(getFinder().map).toBe('fixed');
+    openFinder(base, false);
+    expect(getFinder().map).toBe('each');
+    expect(getFinder().base?.mapPlugins).toEqual(['环形山']);
+    resetFinder();
   });
 });
 

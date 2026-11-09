@@ -1078,3 +1078,11 @@ input.fd-role.fd-name {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.fd-seg button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.fd-foot-line > .fd-hint {
+  display: block;
+}

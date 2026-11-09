@@ -10,6 +10,7 @@ import { vaultCall } from '../worldStore';
 import { currentWorld } from '../saveStore';
 import { getMapNow, rememberMaps, setMapNow } from '../world/mapNow';
 import { subscribeVerdicts, verdictOf } from './verdict';
+import { versionLabel } from './pluginWords';
 import { blockedChecks } from './worldPlugins';
 
 let loadSeq = 0;
@@ -128,3 +129,34 @@ export async function refreshMapNow(): Promise<void> {
   if (s.list.some((p) => verdictOf(p.sum, p.id).blocked)) await chooseMaps(s.id, chosenMaps(s.id));
 }
 subscribeVerdicts(() => void refreshMapNow().catch(() => {}));
+
+/** 存着的一个世界用的地图插件和本机核对的结果:files = 都有同一版、没被停用(能带着长这张地图);不然 off 写哪里对不上 */
+export interface StoredMaps {
+  files: MapPluginFile[] | null;
+  off: string | null;
+}
+
+const offText = (c: MapPluginCheck): string => {
+  const name = `「${c.plugin.name ?? c.id}」`;
+  if (c.status === 'other') return `${name}你装的是${versionLabel(c.installed.version)}`;
+  if (c.status === 'blocked') return `${name}网站停用了`;
+  return `你没装${name}`;
+};
+
+/** 这几个世界(编号)里用了地图插件的:世界清单读出来和本机核对;没用的不在结果里 */
+export async function storedMapsOf(ids: readonly string[]): Promise<Map<string, StoredMaps>> {
+  const out = new Map<string, StoredMaps>();
+  await Promise.all(
+    ids.map(async (id) => {
+      const m = await vaultCall('worldPluginsOf', [id]).catch(() => null);
+      const list = m ? mapPluginsIn(m.plugins) : [];
+      if (!m || !list.length) return;
+      const r = await mapPluginsReady(m.plugins).catch(() => null);
+      const checks = r ? (r.ok ? null : r.checks) : list.map((plugin): MapPluginCheck => ({ id: plugin.id, plugin, status: 'missing' }));
+      const blocked = blockedChecks(list, checks, verdictOf);
+      if (r?.ok && !blocked) return void out.set(id, { files: r.files, off: null });
+      out.set(id, { files: null, off: (blocked ?? checks ?? []).filter((c) => c.status !== 'ready').map(offText).join('、') || '地图插件对不上' });
+    }),
+  );
+  return out;
+}

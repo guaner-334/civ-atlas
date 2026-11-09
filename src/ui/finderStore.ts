@@ -31,6 +31,8 @@ export interface FinderBase {
   key: string;
   /** 世界参数、地形、草图、推演设定(FinderSetup 去掉 map) */
   setup: Omit<FinderSetup, 'map'>;
+  /** 新建中的世界用的地图插件名字:找的时候带不了,「都用这张」按不了 */
+  mapPlugins?: string[];
 }
 
 /** 选中的结果:哪个种子;alt = 换一种配法里的第几种(−1 = 最合的那种) */
@@ -140,6 +142,7 @@ export function openFinder(base: FinderBase, phone: boolean) {
     open: true,
     phone,
     base,
+    map: base.mapPlugins?.length ? 'each' : state.map,
     page: keep ? state.page : 'conds',
     run: keep ? state.run : null,
     sel: keep ? state.sel : null,
