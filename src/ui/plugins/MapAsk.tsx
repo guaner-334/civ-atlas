@@ -3,13 +3,15 @@
  *   没装     「要先装「环形山」第 1.0 版」:作品墙上正是这一版就给「去作品墙装同一版」(直接弹权限框),不是就说向分享世界的人要文件
  *   被停用了 「「环形山」被网站停用了」
  *   别的版本 「改地形要装回第 1.0 版」
- * 没装的先说;装齐了再改,才轮到停用的、别的版本。看、接着推都不问(地图存着,推历史用不着长地图)
+ * 没装的先说;装齐了再改,才轮到停用的、别的版本。看、接着推都不问(地图存着,推历史用不着长地图)。
+ * 网站关了插件(插件界面关着)时没有插件页:不说去哪装、换,只说等插件开回来。
  */
 import { Suspense, lazy, useEffect, useState } from 'react';
 import type { MapPluginCheck } from '../../plugin/pluginWorld';
 import { Dialog } from '../AccountDialogs';
 import { askMaps, type MapAsk } from '../world/mapAsk';
 import { openPlugins } from './entry';
+import { pluginsUiOn } from './flag';
 import { PluginIcon } from './pluginIcons';
 import { versionLabel } from './pluginWords';
 import { useWallRev, wallOnce, wallWorkOf } from './galleryWatch';
@@ -72,7 +74,10 @@ function Item({ c, small }: { c: MapPluginCheck; small: string }) {
 
 export default function MapAskBox({ ask, phone }: { ask: MapAsk; phone: boolean }) {
   useWallRev();
-  useEffect(() => void wallOnce(), []);
+  const on = pluginsUiOn();
+  useEffect(() => {
+    if (on) void wallOnce();
+  }, [on]);
   const [install, setInstall] = useState<{ work: string; sum: string } | null>(null);
   const close = () => askMaps(null);
   const what = ask.what ?? whatOf(ask);
@@ -97,17 +102,17 @@ export default function MapAskBox({ ask, phone }: { ask: MapAsk; phone: boolean 
     const label = miss.length === 1 ? `要先装「${nameOf(miss[0])}」${versionLabel(miss[0].plugin.version)}` : `要先装 ${miss.length} 个地图插件`;
     const works = miss.map((c) => wallWorkOf(c.id, c.plugin.sum));
     const at = works.findIndex((w) => !!w);
-    const go = at < 0 ? null : { work: works[at]!, sum: miss[at].plugin.sum };
+    const go = !on || at < 0 ? null : { work: works[at]!, sum: miss[at].plugin.sum };
     return (
       <Dialog phone={phone} label={label} onClose={close} testId="map-ask-missing" className="sim-ask" head={head(label)}>
         <div className="acct-body">
           <p>{`「${ask.title}」的地图是用地图插件${listOf(miss)}长的。看、接着推都不用装；${what}要把地图重新长一遍，得先装上同一版，长出来的地形才对得上。`}</p>
           <div className="sim-ask-list">
             {miss.map((c, i) => (
-              <Item key={c.id} c={c} small={works[i] ? '作品墙上有这一版' : '作品墙上没有这一版：向分享这个世界的人要插件文件，在「插件」页从文件装'} />
+              <Item key={c.id} c={c} small={!on ? '网站暂时关了插件，现在装不了' : works[i] ? '作品墙上有这一版' : '作品墙上没有这一版：向分享这个世界的人要插件文件，在「插件」页从文件装'} />
             ))}
           </div>
-          <p className="acct-small">不想装的话，可以在「世界设定」里以它为底稿新建一个世界，不带这个插件。</p>
+          <p className="acct-small">{on ? '不想装的话，可以在「世界设定」里以它为底稿新建一个世界，不带这个插件。' : `等插件开回来，装上同一版就能${what}。`}</p>
         </div>
         <Foot phone={phone} cancel={{ label: '知道了', act: 'map-ask-ok', onClick: close }} main={go ? { label: '去作品墙装同一版', act: 'map-ask-wall', onClick: () => setInstall(go) } : null} />
       </Dialog>
@@ -141,19 +146,23 @@ export default function MapAskBox({ ask, phone }: { ask: MapAsk; phone: boolean 
             ? `「${ask.title}」的地图是用地图插件「${nameOf(one)}」${versionLabel(one.plugin.version)}长的，你装的是${versionLabel(one.installed.version)}。${what}要把地图重新长一遍，换了版本长出来的地图会不一样。`
             : `「${ask.title}」的地图用的地图插件，你装的是别的版本：${other.map((c) => `「${nameOf(c)}」${versionLabel(c.plugin.version)}（你装的是${versionLabel(c.installed.version)}）`).join('、')}。${what}要把地图重新长一遍，换了版本长出来的地图会不一样。`}
         </p>
-        <p className="acct-small">{`在「插件」页换回原来那一版，就能照原样${what}；看、接着推不用换。`}</p>
+        <p className="acct-small">{on ? `在「插件」页换回原来那一版，就能照原样${what}；看、接着推不用换。` : `网站暂时关了插件，现在换不了版本；等插件开回来，换回原来那一版就能照原样${what}。看、接着推不用换。`}</p>
       </div>
       <Foot
         phone={phone}
         cancel={{ label: '知道了', act: 'map-ask-ok', onClick: close }}
-        main={{
-          label: '去插件页',
-          act: 'map-ask-plugins',
-          onClick: () => {
-            close();
-            openPlugins();
-          },
-        }}
+        main={
+          on
+            ? {
+                label: '去插件页',
+                act: 'map-ask-plugins',
+                onClick: () => {
+                  close();
+                  openPlugins();
+                },
+              }
+            : null
+        }
       />
     </Dialog>
   );

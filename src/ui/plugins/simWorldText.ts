@@ -1,4 +1,4 @@
-/** 世界用的推演插件:世界设定里那一行的小字、本机对不上时问的窗上的话。纯计算,单测直接测 */
+/** 世界用的推演插件:世界设定里那一行的小字、本机对不上或网站关了插件时问的窗上的话。纯计算,单测直接测 */
 import { endParamOf, type WorldEdits } from '../../gen/edits';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
 import type { UsedPlugin } from './worldPlugins';
@@ -60,6 +60,19 @@ export function blockedText(title: string, blocked: readonly Pick<SimPluginCheck
   return [
     `「${title}」用了推演插件${list}，${it}被网站停用了，不再跑。这个世界照样能看；要接着推，只能另存一份不带${it}的。`,
     `原来的「${title}」不动；另存一份「${newTitle(title)}」，地图和你写的东西留下，历史不带${it}、从第 0 年重推，整段都会不一样。`,
+  ];
+}
+
+/** 网站暂时关了插件(插件界面关着):框的标题 */
+export const OFF_LABEL = '网站暂时关了插件';
+
+/** 网站暂时关了插件:框里那两句 */
+export function offText(title: string, list: readonly Pick<SimPluginCheck, 'id' | 'plugin'>[]): [string, string] {
+  const names = list.map((c) => `「${c.plugin.name ?? c.id}」${versionLabel(c.plugin.version)}`).join('、');
+  const it = list.length > 1 ? '它们' : '它';
+  return [
+    `「${title}」用了推演插件${names}。看不受影响；要接着推，得等插件开回来，推出来的历史才对得上。`,
+    `不想等的话，可以另存一份「${newTitle(title)}」：地图和你写的东西留下，历史不带${it}、从第 0 年重推，整段都会不一样。原来的「${title}」不动。`,
   ];
 }
 

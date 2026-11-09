@@ -3018,7 +3018,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       <AiSettingsHost />
       <AccountHost phone={narrow} />
       {pluginsUiOn() && <PluginsHost phone={narrow} />}
-      {pluginsUiOn() && <SimAskHost phone={narrow} />}
+      <SimAskHost phone={narrow} />
       <MapAskHost phone={narrow} />
       {pluginsUiOn() && <PluginAskSlot phone={narrow} />}
       {pluginsUiOn() && data && world && <ToolsHost phone={narrow} world={data.world} root={baseData?.world ?? data.world} civ={civ} raw={shownRaw} api={markApi} stage={stageRef} active={toolable} />}

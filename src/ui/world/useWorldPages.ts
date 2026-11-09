@@ -696,11 +696,12 @@ export function useWorldPages(deps: WorldPagesDeps) {
   saveAsNewRef.current = saveAsNewNow;
   useEffect(() => {
     setSaveAsNew((e, from) => saveAsNewRef.current(e, from));
-    // 用了推演插件、本机没装、只有别的版本、被网站停用了:先装,或者另存一份(按新版 / 不带停用的)从第 0 年重推
+    // 用了推演插件、本机没装、只有别的版本、被网站停用了、网站关了插件:先装,或者另存一份(按新版 / 不带停用的 / 不带插件)从第 0 年重推
     const simGate = (next: WorldEdits): boolean => {
       const c = currentWorld();
-      const sims = pluginsUiOn() ? getSimNow() : null;
+      const sims = getSimNow();
       if (!c || !sims || sims.id !== c.id || sims.files) return false;
+      const off = !pluginsUiOn();
       askSims({
         title: c.title || '未命名世界',
         checks: sims.checks,
@@ -712,7 +713,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
               c.id,
               next,
               (id, notes) => {
-                savedCopy.current = { id, line: drop.length ? '地图和你写的东西留下了，历史不带停用的插件、从第 0 年重推。原来的世界照原样留着' : '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more: notes ? [] : [NOTES_LOST] };
+                savedCopy.current = { id, line: off ? '地图和你写的东西留下了，历史不带推演插件、从第 0 年重推。原来的世界照原样留着' : drop.length ? '地图和你写的东西留下了，历史不带停用的插件、从第 0 年重推。原来的世界照原样留着' : '地图和你写的东西留下了，历史按新版插件从第 0 年重推。原来的世界照原样留着', more: notes ? [] : [NOTES_LOST] };
                 openStoredRef.current(id);
               },
               drop,

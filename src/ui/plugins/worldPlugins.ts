@@ -16,6 +16,7 @@ import { currentWorld, keepWorld, notify, saveAsNewVersion, storageFullWhy } fro
 import { getSimNow, setSimNow } from '../world/simNow';
 import { settleWorld, vaultCall } from '../worldStore';
 import { askData, kbText } from './askState';
+import { pluginsUiOn } from './flag';
 import { subscribeVerdicts, verdictOf, type PluginVerdict } from './verdict';
 import './worldData.css';
 
@@ -150,12 +151,16 @@ export function blockedChecks(list: readonly WorldPlugin[], checks: readonly Sim
   return any ? out : null;
 }
 
-/** 世界仓库里这个世界记的推演插件读进来、和本机核对(被网站停用的不跑);仓库里还没有这个世界 = 不动(新建中选的、另存的那一份记着) */
+/**
+ * 世界仓库里这个世界记的推演插件读进来、和本机核对(被网站停用的不跑);仓库里还没有这个世界 = 不动(新建中选的、另存的那一份记着)。
+ * 网站关了插件(插件界面关着)时本机装着的也不跑:都当作对不上,要接着推先问
+ */
 export async function loadSimNow(id: string): Promise<void> {
   const m = await vaultCall('worldPluginsOf', [id]).catch(() => null);
   if (!m) return;
   const list = simPluginsIn(m.plugins);
   if (!list.length) return setSimNow(null);
+  if (!pluginsUiOn()) return setSimNow({ id, list, files: null, checks: list.map((plugin): Missing => ({ id: plugin.id, plugin, status: 'missing' })), stored: true });
   const r = await simPluginsReady(m.plugins).catch(() => null);
   const blocked = blockedChecks(list, r && !r.ok ? r.checks : null);
   setSimNow({ id, list, files: r?.ok && !blocked ? r.files : null, checks: blocked ?? (r && !r.ok ? r.checks : []), stored: true });
@@ -282,7 +287,7 @@ export async function forgetSim(id: string): Promise<void> {
  */
 export async function copyWithSims(from: string, next: WorldEdits, open: (id: string, notes: boolean) => void, drop: readonly string[] = []): Promise<void> {
   // 地图留着的世界另存出来要按存下的地图重算,那一步只认世界清单里记的插件,这里选的带不过去
-  if (keptMapOf(next)) return void notify({ kind: 'warn', text: drop.length ? '这个世界另存不了不带停用插件重推的一份' : '这个世界另存不了按新版插件重推的一份', more: [drop.length ? '它的地图是从别的世界留下来的，只能照原样看' : '它的地图是从别的世界留下来的。要照原样接着推，得装回原来那一版'] });
+  if (keptMapOf(next)) return void notify({ kind: 'warn', text: drop.length ? `这个世界另存不了不带${pluginsUiOn() ? '停用' : ''}插件重推的一份` : '这个世界另存不了按新版插件重推的一份', more: [drop.length ? '它的地图是从别的世界留下来的，只能照原样看' : '它的地图是从别的世界留下来的。要照原样接着推，得装回原来那一版'] });
   const id = saveAsNewVersion(from, next);
   if (!id) return void notify({ kind: 'error', text: '没能另存', more: [storageFullWhy()] });
   const notes = copyNotes(from, id);

@@ -470,13 +470,14 @@ export function useWorldLoad(deps: WorldLoadDeps) {
           // 这一版还没有原件的:读完存一份(旧路还留着)
           const heads = stored.generator === GENERATOR_VERSION && !t.fullFile ? await atMost(resultHeads(t.id), 2000, null) : null;
           const original = !!heads && !heads.some((h) => h.generator === stored.generator && h.recipe === recipe);
-          // 用了推演插件的世界:带着插件读进来,接着推才不用从第 0 年重推
-          if (pluginsUiOn()) {
+          const used = await vaultCall('worldPluginsOf', [t.id]).catch(() => null);
+          if (id !== reqId.current) return;
+          // 用了推演插件的世界(插件界面关着也一样):带着插件读进来,接着推才不用从第 0 年重推;关着时不跑,接着推先问
+          if (pluginsUiOn() || used?.plugins.some((p) => p.role === 'sim')) {
             await import('../plugins/worldPlugins').then((m) => m.loadSimNow(t.id)).catch(() => {});
             if (id !== reqId.current) return;
           }
           // 用了地图插件的世界(插件界面关着也一样):请求都带上它们,线程才认得出是哪张地图;本机没有同一版的改地形先问
-          const used = await vaultCall('worldPluginsOf', [t.id]).catch(() => null);
           if (used?.plugins.some((p) => p.role === 'map')) await import('../plugins/mapWorld').then((m) => m.loadMapNow(t.id, used.plugins, () => id === reqId.current)).catch(() => {});
           if (id !== reqId.current) return;
           civSetup.current = setupFor(t.kind === 'draft' && !t.fullCiv, t.edits);

@@ -4,6 +4,7 @@
  *   被停用了 「「魔力」被网站停用了」:不再跑,只给「另存一份，不带它重推」(不给去作品墙装)
  *   别的版本「另存一份再推演？」:和旧版本世界问的那一个窗一样,另存「…（新版）」按本机这一版从第 0 年重推
  * 没装的先说(另存时没装的带不上);装齐了再点,才轮到停用的、另存。
+ * 网站关了插件(插件界面关着)时不跑、也装不了,只问「网站暂时关了插件」:另存一份不带它们的,或者取消。
  */
 import { Suspense, lazy, useEffect, useState } from 'react';
 import type { SimPluginCheck } from '../../plugin/pluginWorld';
@@ -11,7 +12,8 @@ import { Dialog } from '../AccountDialogs';
 import { askSims, type SimAsk } from '../world/simAsk';
 import { PluginIcon } from './pluginIcons';
 import { versionLabel } from './pluginWords';
-import { blockedLabel, blockedText, missingText, otherText, simWhat } from './simWorldText';
+import { OFF_LABEL, blockedLabel, blockedText, missingText, offText, otherText, simWhat } from './simWorldText';
+import { pluginsUiOn } from './flag';
 import { useWallRev, wallOnce, wallWorkOf } from './galleryWatch';
 import './plugins.css';
 
@@ -55,9 +57,40 @@ function Foot({ phone, cancel, main }: { phone: boolean; cancel: { label: string
 
 export default function SimAskBox({ ask, phone }: { ask: SimAsk; phone: boolean }) {
   useWallRev();
-  useEffect(() => void wallOnce(), []);
+  useEffect(() => {
+    if (pluginsUiOn()) void wallOnce();
+  }, []);
   const [install, setInstall] = useState<{ work: string; sum: string } | null>(null);
   const close = () => askSims(null);
+  if (!pluginsUiOn()) {
+    const [first, second] = offText(ask.title, ask.checks);
+    const go = () => {
+      close();
+      ask.copy(ask.checks.map((c) => c.id));
+    };
+    return (
+      <Dialog phone={phone} label={OFF_LABEL} onClose={close} testId="sim-ask-off" className="sim-ask" head={phone ? <div className="acct-head"><h2>{OFF_LABEL}</h2></div> : undefined}>
+        <div className="acct-body">
+          <p>{first}</p>
+          <div className="sim-ask-list">
+            {ask.checks.map((c) => (
+              <div key={c.id} className="sim-ask-it" data-plugin={c.id}>
+                <PluginIcon src={null} size="md" />
+                <span>
+                  <b>
+                    {nameOf(c)} <span className="plg-tag">{versionLabel(c.plugin.version)}</span>
+                  </b>
+                  <small>插件关着，这一版现在不跑</small>
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="acct-small">{second}</p>
+        </div>
+        <Foot phone={phone} cancel={{ label: '取消', act: 'sim-ask-off-cancel', onClick: close }} main={{ label: ask.checks.length > 1 ? '另存一份，不带它们重推' : '另存一份，不带它重推', act: 'sim-ask-off-copy', onClick: go }} />
+      </Dialog>
+    );
+  }
   if (install)
     return (
       <Suspense fallback={null}>
