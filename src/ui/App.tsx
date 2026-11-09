@@ -2264,17 +2264,19 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
   // 生成世界(首次打开、换种子、调参数、读档)/ 按新地形重新生成:一行"正在…",小字是种子和这一步在做什么
   useEffect(() => {
     // 照故事找世界打开一个结果:地图顶上那一条写着"正在打开",不另出提示条
+    // 地图先换上了、地图插件还在补图层
+    const backfill = mapEarly && progress?.stage.startsWith('地图插件');
     if (progress && !finderOn)
       showToast({
         id: 'progress',
         kind: 'progress',
-        text: progress.regen ? '正在按新地形重新生成' : '正在生成世界',
+        text: backfill ? '地图长好了，正在补插件的图层' : progress.regen ? '正在按新地形重新生成' : '正在生成世界',
         // 手机上地图插件那一句放不下种子
-        more: [progress.seed !== undefined && !progress.regen && !(narrow && progress.stage.startsWith('地图插件')) ? `种子 ${progress.seed}，${progress.stage}` : progress.stage],
+        more: [progress.seed !== undefined && !progress.regen && !backfill && !(narrow && progress.stage.startsWith('地图插件')) ? `种子 ${progress.seed}，${progress.stage}` : progress.stage],
         progress: progress.pct,
       });
     else clearToast('progress');
-  }, [progress, finderOn, narrow]);
+  }, [progress, finderOn, narrow, mapEarly]);
   // 回放世界形成:后台算各个年代的地形那一两秒(算好以后是地图上的字幕)
   const replayWait = replayOn && !replay;
   useEffect(() => {

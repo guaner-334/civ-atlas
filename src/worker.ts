@@ -1261,19 +1261,31 @@ const GEN_SLICE = 25;
 
 /**
  * 生成世界(参数同 generateWorld),一段一段算,每隔 GEN_SLICE 毫秒让一下;让的时候后面排上了新的世界就不算了(null)。
- * 算完的结果和 generateWorld 一模一样
+ * 算完的结果和 generateWorld 一模一样。later = 地图插件的图层留到后面:地图长好就交回,layers() 再接着把图层补进同一个世界
+ * (后面排上了新的世界 = false);没有要出图层的地图插件、later 是 false 时 layers = null
  */
-async function generateUnlessSuperseded(...args: Parameters<typeof generateWorld>): Promise<World | null> {
-  const r = await stepsUnlessSuperseded(generateWorldSteps(...args));
-  return r && r.value;
+async function generateLayersLater(
+  later: boolean,
+  [params, progress, terrain, sketch, cache, maps]: Parameters<typeof generateWorld>,
+): Promise<{ world: World; layers: (() => Promise<boolean>) | null } | null> {
+  let ready: World | null = null;
+  const it = generateWorldSteps(params, progress, terrain, sketch, cache, maps, later ? (w) => void (ready = w) : undefined);
+  const r = await stepsUnlessSuperseded(it, () => ready !== null);
+  if (!r) return null;
+  if (r.value) return { world: r.value, layers: null };
+  return { world: ready!, layers: async () => (await stepsUnlessSuperseded(it)) !== null };
 }
 
 /** 一段一段做的活(yield 隔开),每隔 GEN_SLICE 毫秒让一下;让的时候后面排上了新的世界就不做了(null,做到一半的留给调用方收拾) */
-async function stepsUnlessSuperseded<T>(it: Generator<void, T>): Promise<{ value: T } | null> {
+async function stepsUnlessSuperseded<T>(it: Generator<void, T>): Promise<{ value: T } | null>;
+/** pause() 是 true 就停在这一段(value = null,接着调就接着做) */
+async function stepsUnlessSuperseded<T>(it: Generator<void, T>, pause: () => boolean): Promise<{ value: T | null } | null>;
+async function stepsUnlessSuperseded<T>(it: Generator<void, T>, pause?: () => boolean): Promise<{ value: T | null } | null> {
   let t = performance.now();
   for (;;) {
     const r = it.next();
     if (r.done) return { value: r.value };
+    if (pause?.()) return { value: null };
     if (performance.now() - t < GEN_SLICE) continue;
     await yieldTask();
     if (superseded()) return null;
@@ -1359,9 +1371,11 @@ async function handleOne(m: Queued): Promise<void> {
     await pool.up;
     const t0 = performance.now();
     const had = baseCache.base;
-    // 一段一段算,中间让一下:新的一笔来了就不算了(线程不用关掉重开,记着的网格、板块、前一半、整图都还在)
-    const world = await generateUnlessSuperseded(m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch), baseCache, genMaps(mapKeys(m)));
-    if (!world) return void post({ type: 'aborted', id: m.id });
+    // 一段一段算,中间让一下:新的一笔来了就不算了(线程不用关掉重开,记着的网格、板块、前一半、整图都还在)。
+    // 地图先交的(新建):地图插件的图层等地图交出去以后再算
+    const got = await generateLayersLater(!!m.mapFirst && !m.skipCiv, [m.params, (stage, pct) => post({ type: 'progress', id: m.id, stage, pct }), m.terrain, sketchGrid(m.sketch), baseCache, genMaps(mapKeys(m))]);
+    if (!got) return void post({ type: 'aborted', id: m.id });
+    const world = got.world;
     const reused = !!had && baseCache.base === had;
     last = { key: keyOf(m.params, m.terrain, m.sketch, mapKeys(m)), world };
     const steps = stepsOf(m.params, m.terrain, m.sketch, m.upheavals, mapKeys(m), (k, n) => post({ type: 'progress', id: m.id, stage: '地形大事', pct: 0.9 + (0.03 * k) / n }));
@@ -1451,6 +1465,7 @@ async function handleOne(m: Queued): Promise<void> {
     // 地图先交(mapFirst,整张铺的):沟壑本线程也领一段,铺完就交 map,再推文明。
     // 推文明的时候本线程收不到消息(帮手算好的沟壑也收不到),和推文明同时算沟壑的话,地图要等推完才交得出去
     const early = !!m.mapFirst && !m.skipCiv && !pj && !old;
+    if (!early && got.layers && !(await got.layers())) return void post({ type: 'aborted', id: m.id });
     if (early) {
       await pool.finish(d, undefined, () => void (plan = planGlyphs(world)));
       if (superseded()) return void post({ type: 'aborted', id: m.id });
@@ -1467,6 +1482,7 @@ async function handleOne(m: Queued): Promise<void> {
       );
       // 交了地图以后后面又排上了新的世界(按了后退……):这个世界的历史不用推了
       if (superseded()) return void post({ type: 'aborted', id: m.id });
+      if (got.layers && !(await got.layers())) return void post({ type: 'aborted', id: m.id });
     }
     // 编辑地形等帮手的时候新的一笔来了:不等帮手算完就放下(沟壑、细沟没叠回去也没关系,giveUp 把留着的整图改回原样)
     const sup = m.skipCiv && old ? untilSuperseded() : null;

@@ -501,6 +501,8 @@ export function* generateWorldSteps(
   sketch?: Sketch | null,
   cache?: BaseCache,
   mapPlugins: readonly MapPlugin[] = [],
+  /** 地图插件要出图层时:地图长好、还没出图层那一下交出世界(之后出的图层补进同一个对象) */
+  mapReady?: (w: World) => void,
 ): Generator<void, World> {
   const p = { ...DEFAULT_PARAMS, ...params };
   // 地形修改 + 地形大事(upheaval.ts 生成大事以后的世界时接在后面)
@@ -722,31 +724,7 @@ export function* generateWorldSteps(
   // (TerrainBase.peak;后一半只挖湖、填洼地、把海平面以下的垫平,陆地最高处不变),涂一道高山、放一座大火山、
   // 用高度笔堆高、把最高的山压平都不改远处山名、山峰符号的门槛
   const maxElevation = (ops.length > 0 || sk) && !sk?.plates ? base.peak : landPeak(land, elevation);
-  let mapLayers: MapLayer[] | null = null;
-  if (hasStage(mapPlugins, 'layers')) {
-    // 图层不挡地图:调用方可以先交地图,下一段再算图层
-    yield;
-    const { temperature, precipitation, windX, windY, rainSummer, rainWinter } = clim;
-    mapLayers = layerHooks(mapPlugins, mesh, p.seed, {
-      elevation,
-      water,
-      temperature,
-      precipitation,
-      windX,
-      windY,
-      rainSummer: rainSummer!,
-      rainWinter: rainWinter!,
-      plate: tect.plate,
-      waterLevel,
-      seaIce,
-      biome,
-      flux,
-      riverThreshold,
-      rivers,
-    }, (pl, st) => progress(mapStageNote(pl, st), 0.92));
-  }
-
-  return {
+  const world: World = {
     params: p,
     width: W,
     height: H,
@@ -770,8 +748,32 @@ export function* generateWorldSteps(
     ...(ops.length ? { terrain: ops.slice() } : {}),
     ...(sk ? { sketch: sk } : {}),
     ...(mapPlugins.length ? { mapPlugins: mapPluginKeys(mapPlugins) } : {}),
-    ...(mapLayers?.length ? { mapLayers } : {}),
   };
+  if (hasStage(mapPlugins, 'layers')) {
+    // 图层不挡地图:调用方可以先交地图,下一段再算图层
+    mapReady?.(world);
+    yield;
+    const { temperature, precipitation, windX, windY, rainSummer, rainWinter } = clim;
+    const mapLayers: MapLayer[] = layerHooks(mapPlugins, mesh, p.seed, {
+      elevation,
+      water,
+      temperature,
+      precipitation,
+      windX,
+      windY,
+      rainSummer: rainSummer!,
+      rainWinter: rainWinter!,
+      plate: tect.plate,
+      waterLevel,
+      seaIce,
+      biome,
+      flux,
+      riverThreshold,
+      rivers,
+    }, (pl, st) => progress(mapStageNote(pl, st), 0.92));
+    if (mapLayers.length) world.mapLayers = mapLayers;
+  }
+  return world;
 }
 
 /** 把超过阈值的径流 cell 串成河道折线:从每条支流源头往下游走,遇到干流 / 湖 / 海就停。 */
