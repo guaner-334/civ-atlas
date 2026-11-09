@@ -995,8 +995,8 @@ export async function copyWorldPlugins(from: string, to: string): Promise<'none'
   const used = await call('worldPluginsOf', [from]).catch(() => null);
   if (!used?.plugins.length) return 'none';
   try {
-    const save = loadWorld(to)?.save;
-    return save && (await call('copyRevision', [from, to, save])) ? 'ok' : 'failed';
+    const title = loadWorld(to)?.save.title;
+    return (await call('copyRevision', [from, to, title])) ? 'ok' : 'failed';
   } catch {
     return 'failed';
   }

@@ -1240,15 +1240,16 @@ export async function worldPluginsOf(id: string): Promise<Pick<WorldManifest, 'p
 }
 
 /**
- * 复制一个世界:from 最新的修订原样成为 to 的第一份修订(块不动、插件记录和插件存的数据、图层都在),清单里的配方换成 recipe(新的名字)。
+ * 复制一个世界:from 最新的修订原样成为 to 的第一份修订(块不动、插件记录和插件存的数据、图层都在),清单里的配方照原来的、只换名字。
  * from 没有修订、to 已经有修订(别的标签页抢先转了) = false
  */
-export async function copyRevision(from: string, to: string, recipe: SaveFile): Promise<boolean> {
+export async function copyRevision(from: string, to: string, title: string | undefined): Promise<boolean> {
   try {
     const base = chainOf(await rowsOf(from)).at(-1);
     const prev = base ? manifestOf(base) : null;
     if (!base || !prev) return false;
-    const manifest: WorldManifest = { ...prev, id: to, ...(prev.title !== undefined ? { title: recipe.title } : {}), recipe, revision: { n: 1 } };
+    const named = title === undefined ? {} : { title };
+    const manifest: WorldManifest = { ...prev, id: to, ...(prev.title !== undefined ? named : {}), recipe: { ...prev.recipe, ...named }, revision: { n: 1 } };
     const text = manifestBytes(manifest);
     parseManifest(text, { readers: { ...prev.readers } });
     const row: RevisionRow = { id: to, n: 1, text: new TextDecoder().decode(text), keys: [...base.keys], content: base.content, recipeKey: base.recipeKey, generator: base.generator, source: 'made', at: Date.now() };

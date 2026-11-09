@@ -193,7 +193,7 @@ describe('复制世界(copyRevision)', () => {
     const from = await latest();
     const recipe = { ...from.recipe, title: '复制的' };
 
-    expect(await vaultOps.copyRevision(sample.id, 'copy-1', recipe)).toBe(true);
+    expect(await vaultOps.copyRevision(sample.id, 'copy-1', '复制的')).toBe(true);
     const copy = (await readRevision('copy-1', undefined, []))!;
     expect(copy.manifest.id).toBe('copy-1');
     expect(copy.manifest.revision).toEqual({ n: 1 });
@@ -206,7 +206,7 @@ describe('复制世界(copyRevision)', () => {
 
     // 原来的世界不动;已经有修订的、没有修订的世界复制不了
     expect((await latest()).revision.n).toBe(4);
-    expect(await vaultOps.copyRevision(sample.id, 'copy-1', recipe)).toBe(false);
-    expect(await vaultOps.copyRevision('nothing', 'copy-2', recipe)).toBe(false);
+    expect(await vaultOps.copyRevision(sample.id, 'copy-1', '复制的')).toBe(false);
+    expect(await vaultOps.copyRevision('nothing', 'copy-2', '复制的')).toBe(false);
   });
 });
