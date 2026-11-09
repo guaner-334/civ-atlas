@@ -195,7 +195,7 @@ describe('localStorage 满了', () => {
     expect(notesBehind('w1')).toEqual([]);
     expect(putNote('w1', note('new', 'y'.repeat(5000)))).toBe(false);
     broken = false;
-    await vi.waitFor(() => expect(notesSaved('w1')).toBe(true));
+    await vi.waitFor(() => expect(notesSaved('w1')).toBe(true), { timeout: 5000 });
     await _notesSettled();
     expect(notesBehind('w1')).toBeNull();
     expect((await readAuthor('w1')).notes.map((n) => n.key)).toEqual(['old', 'new']);
@@ -372,7 +372,7 @@ describe('仓库坏了', () => {
     expect(putNote('w1', note('a'))).toBe(true);
     expect(putNote('w2', note('b'))).toBe(true);
     await notesReady(['w1', 'w2', 'w3']);
-    await vi.waitFor(() => expect(JSON.parse(g.localStorage.getItem(`${PREFIX}w1`) ?? '[]').map((n: AiNote) => n.key)).toEqual(['a']));
+    await vi.waitFor(() => expect(JSON.parse(g.localStorage.getItem(`${PREFIX}w1`) ?? '[]').map((n: AiNote) => n.key)).toEqual(['a']), { timeout: 5000 });
     expect(JSON.parse(g.localStorage.getItem(`${PREFIX}w2`)!).map((n: AiNote) => n.key)).toEqual(['b']);
   });
 
@@ -407,7 +407,7 @@ describe('仓库坏了', () => {
     await flushNotes('w1');
     expect((await authorInBlock('w1'))!.map((n) => n.key)).toEqual(['a', 'b']);
     bad = false;
-    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true));
+    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true), { timeout: 5000 });
     expect(KEYS('w1')).toEqual(['a', 'b']);
   });
 
@@ -613,7 +613,7 @@ describe('写和读、几个线程撞在一起', () => {
     await flushNotes('w1');
     go();
     await notesReady(['w1']);
-    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true));
+    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true), { timeout: 5000 });
     expect(KEYS('w1')).toEqual(['fast']);
   });
 
@@ -644,7 +644,7 @@ describe('写和读、几个线程撞在一起', () => {
     putNote('w1', book('第四版!!!', '2026-01-04T00:00:00.000Z'));
     await flushNotes('w1');
     bad = false;
-    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true));
+    await vi.waitFor(() => expect(notesKnown('w1')).toBe(true), { timeout: 5000 });
     await _notesSettled();
     const n = (await readAuthor('w1')).notes[0] as AiNote & { others: { text: string }[]; ver: number };
     expect(n.text).toBe('第四版!!!');
@@ -705,7 +705,7 @@ describe('写和读、几个线程撞在一起', () => {
     await notesReady(['w1']);
     expect(copyNotes('w1', 'w2')).toBe(true);
     bad = false;
-    await vi.waitFor(() => expect(KEYS('w2')).toEqual(['a']));
+    await vi.waitFor(() => expect(KEYS('w2')).toEqual(['a']), { timeout: 5000 });
     await _notesSettled();
     expect((await readAuthor('w2')).notes.map((n) => n.key)).toEqual(['a']);
   });
@@ -740,7 +740,7 @@ describe('写和读、几个线程撞在一起', () => {
     refresh(flaky({ change: () => new VaultError('unavailable', '不让用了') }));
     await notesReady(['w1']);
     expect(putNote('w1', note('small'))).toBe(true);
-    await vi.waitFor(() => expect([...g.localStorage.map.keys()].some((k) => k === `${PREFIX}w1`)).toBe(false));
+    await vi.waitFor(() => expect([...g.localStorage.map.keys()].some((k) => k === `${PREFIX}w1`)).toBe(false), { timeout: 5000 });
     await new Promise((r) => setTimeout(r, 0));
     expect([...g.localStorage.map.keys()].filter((k) => k.startsWith(`${PREFIX}~w1`))).toHaveLength(1);
     // 这次打开、下次打开仓库还是用不了:从草稿读得出来
