@@ -78,12 +78,12 @@ export function menuItem(f: MenuFacts): MenuItem {
   return { icon: 'cloudup', title: '传到账号', small: f.kept ? `这张地图只在这台设备上。${whole}，别的设备、别人才打得开` : `${whole}，换设备、分享都一模一样`, off: false, act: 'upload' };
 }
 
-/** 分享那一项的小字;off = 灰着。这个世界的整个世界不能公开时也灰着,说清为什么 */
-export function shareItem(status: FullStatus, kept: boolean): { small: string; off: boolean } {
+/** 分享那一项的小字;off = 灰着;ask = 点了先问一句「传并分享」。这个世界的整个世界不能公开时也灰着,说清为什么 */
+export function shareItem(status: FullStatus, kept: boolean): { small: string; off: boolean; ask?: true } {
   const entry: FullEntry | null = status.kind === 'same' || status.kind === 'changed' ? status.entry : null;
   if (entry && entry.public === false && entry.reason === 'opaque') return { small: '带着插件的附加数据，不能公开分享。可以存成文件发给对方', off: true };
   if (entry && entry.public === false && entry.reason === 'text') return { small: '里面有不能公开的字词。改掉再传一次，才能分享', off: true };
-  if (!entry) return kept ? { small: '地图带不进配方，对方打不开。传到账号以后就能分享', off: true } : { small: '生成链接，随时能停。对方打开时重新长一遍，可能和你看到的不一样', off: false };
+  if (!entry) return kept ? { small: '地图带不进配方，要先传到你的账号才能分享', off: false, ask: true } : { small: '生成链接，随时能停。对方打开时重新长一遍，可能和你看到的不一样', off: false };
   if (status.kind === 'same') return { small: '生成链接，随时能停。对方看到的和你这里一模一样', off: false };
   return { small: `生成链接，随时能停。对方看到的是 ${fullDay(entry.uploadedAt)}传的那份`, off: false };
 }

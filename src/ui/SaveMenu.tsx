@@ -28,7 +28,7 @@ import { OLD_SITE, oldSiteFor, openOriginal } from './oldSite';
 import { openFailed } from './openTrouble';
 import { Icon } from './icons';
 import { noteDismiss } from './dismissClick';
-import { openAccount, openShareDialog, openSubmitDialog } from './AccountDialogs';
+import { openAccount, openShareAsk, openShareDialog, openSubmitDialog } from './AccountDialogs';
 import { askFull, fullStatusOf, refusalOf, useFullJob, useFullOverview, type FullStatus } from './fullWorldView';
 import { menuItem, shareItem } from './fullWorldWords';
 import { showToast } from './toastStore';
@@ -303,7 +303,7 @@ export function SaveMenu({ ready, icon }: SaveMenuProps) {
     if (!cur) return;
     setOpen(false);
     if (banned) return openSubmitDialog({ kind: 'world', worldId: cur.id, title: title ?? '' }, 'ban-share');
-    const go = () => openShareDialog(cur.id, title ?? '');
+    const go = () => (shareFull?.ask && !plgData.length ? openShareAsk(cur.id, title ?? '') : openShareDialog(cur.id, title ?? ''));
     if (phoneRequired()) askPhone({ for: 'share', then: go });
     else go();
   };
