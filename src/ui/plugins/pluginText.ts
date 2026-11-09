@@ -271,3 +271,134 @@ export function devTryCopy(t: TriedView, half: number): string {
   for (const l of t.result?.logs ?? []) out.push(`${devTryYear(l.year)} ${levelText(l.level)} ${l.plugin ? `[${l.plugin}] ` : ''}${l.text}`);
   return out.join('\n');
 }
+
+// 开发者模式的试生成(载入的是地图插件)
+
+/** 试生成交回来的一部分(DevGenTried 的样子,这里只用到这几样) */
+export interface GenView {
+  at: number;
+  file: string;
+  plugins: readonly { id: string; name: string; dev: boolean }[];
+  alone: boolean;
+  error?: string;
+  result: {
+    ms: number;
+    steps: readonly { id: string; stage: string; ms: number; changed: number; failed?: true }[];
+    stats: { official: GenTally | null; plugin: GenTally | null };
+    sameTwice: boolean | null;
+    sameNote?: string;
+    cachedSame: boolean | null;
+    cachedNote?: string;
+    logs: readonly { stage: string | null; level: DevLevel; plugin: string; text: string }[];
+    error: { plugin: string; stage: string | null; why: string } | null;
+  } | null;
+}
+
+interface GenTally {
+  land: number;
+  lakes: number;
+  rivers: number;
+}
+
+const GEN_STAGE: Record<string, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+/** 日志一行左边:哪一步(装插件时打的写「装的时候」) */
+export const devGenStage = (s: string | null): string => (s === null ? '装的时候' : (GEN_STAGE[s] ?? s));
+/** 一口超过这么久(毫秒)那格标黄 */
+export const GEN_SLOW_MS = 1000;
+
+/** 3 毫秒、0.09 秒、1.2 秒 */
+export function genTime(ms: number): string {
+  if (ms < 10) return ms < 0.5 ? '不到 1 毫秒' : `${Math.round(ms)} 毫秒`;
+  return `${(ms / 1000).toFixed(ms < 1000 ? 2 : 1)} 秒`;
+}
+
+/** 小卡第二行:试生成完、出错停下、没长成 */
+export function devGenLine(t: GenView, phone: boolean): string {
+  const r = t.result;
+  const file = phone ? '' : `（${t.file}）`;
+  if (!r) return `${clockText(t.at)} 没长成：${t.error ?? '后台线程出错'}`;
+  if (r.error) return r.error.stage === null ? `${clockText(t.at)} 试生成时插件装不上${file}` : `${clockText(t.at)} 试生成到「${devGenStage(r.error.stage)}」出错停下${file}`;
+  return `${clockText(t.at)} 试生成完：${phone ? '' : '这个世界的种子和参数，'}不带 / 带插件各长一遍，用了 ${(r.ms / 1000).toFixed(1)} 秒${file}`;
+}
+
+/** 表里一个插件的一口一行:名字、哪一步、用时(超 1 秒标黄)、改了几块(出图层 = 几张) */
+export function devGenRows(t: GenView): { key: string; name: string; stage: string; time: string; changed: string; slow: boolean }[] {
+  return (t.result?.steps ?? []).map((s, i) => ({
+    key: `${s.id}:${s.stage}:${i}`,
+    name: t.plugins.find((p) => p.id === s.id)?.name ?? s.id,
+    stage: devGenStage(s.stage),
+    time: genTime(s.ms),
+    changed: s.failed ? '出错' : s.stage === 'layers' ? `${s.changed} 张` : `${s.changed.toLocaleString('en-US')} 块`,
+    slow: s.ms > GEN_SLOW_MS,
+  }));
+}
+
+const TALLY: readonly [keyof GenTally, string, (n: number) => string][] = [
+  ['land', '陆地', (n) => `${n}%`],
+  ['lakes', '湖', (n) => `${n} 块`],
+  ['rivers', '河', (n) => `${n} 条`],
+];
+
+/** 右边那张表:几样数不带 / 带(带插件的没长出来 = 「—」) */
+export function devGenTally(t: GenView): { key: string; name: string; off: string; on: string }[] {
+  const s = t.result?.stats;
+  const off = s?.official;
+  if (!s || !off) return [];
+  return TALLY.map(([k, name, f]) => ({ key: k, name, off: f(off[k]), on: s.plugin ? f(s.plugin[k]) : '—' }));
+}
+
+/** 手机上的两行:「环形山改海拔 8 毫秒，柯本气候改气候 0.31 秒」「湖 82 → 88 块，河 214 → 251 条，陆地 33% 没变」 */
+export function devGenBrief(t: GenView): string[] {
+  const steps = devGenRows(t).map((r) => `${r.name}${r.stage} ${r.time}`);
+  const out = steps.length ? [steps.join('，')] : [];
+  const s = t.result?.stats;
+  if (!s?.official || !s.plugin) return out;
+  const moved: string[] = [];
+  const kept: string[] = [];
+  for (const [k, name, f] of TALLY) {
+    const a = s.official[k];
+    const b = s.plugin[k];
+    if (a === b) kept.push(`${name} ${f(a)} 没变`);
+    else moved.push(`${name} ${k === 'land' ? f(a) : a} → ${f(b)}`);
+  }
+  return [...out, [...moved, ...kept].join('，')];
+}
+
+const GLOBAL_VAR = '多半是用了全局变量记东西';
+
+/** 两条自动查:长两遍一样、改一笔和从头长一样;没查(出错停下)的不列 */
+export function devGenChecks(t: GenView, phone: boolean): { key: string; ok: boolean; text: string }[] {
+  const r = t.result;
+  if (!r) return [];
+  // 后几遍出错的,note 是「出错：……」
+  const failed = (note: string | undefined) => !!note?.startsWith('出错');
+  const out: { key: string; ok: boolean; text: string }[] = [];
+  if (r.sameTwice !== null)
+    out.push({
+      key: 'twice',
+      ok: r.sameTwice,
+      text: r.sameTwice ? (phone ? '长两遍一样' : '同一个种子长两遍一样') : `不一样：${failed(r.sameNote) ? `长第二遍时${r.sameNote}` : `长两遍${r.sameNote ?? ''}对不上`}，${GLOBAL_VAR}`,
+    });
+  if (r.cachedSame !== null)
+    out.push({
+      key: 'edit',
+      ok: r.cachedSame,
+      text: r.cachedSame
+        ? phone
+          ? '改一笔地形和从头长一样'
+          : '改一笔地形（挖一个湖）和从头长一样'
+        : `不一样：${failed(r.cachedNote) ? `改一笔地形以后接着长时${r.cachedNote}` : `改一笔地形以后接着长和从头长${r.cachedNote ?? ''}对不上`}，${GLOBAL_VAR}`,
+    });
+  return out;
+}
+
+/** 试生成的「复制全部」:那一行、每一口、几样数、两条自动查、日志 */
+export function devGenCopy(t: GenView): string {
+  const out = [devGenLine(t, false)];
+  if (t.alone) out.push('这个世界用的地图插件本机对不上，这次只带了它');
+  for (const r of devGenRows(t)) out.push(`${r.name} ${r.stage}：${r.time}，改了 ${r.changed}`);
+  for (const r of devGenTally(t)) out.push(`${r.name}：不带 ${r.off}，带 ${r.on}`);
+  for (const c of devGenChecks(t, false)) out.push(`${c.ok ? '✓' : '✗'} ${c.text}`);
+  for (const l of t.result?.logs ?? []) out.push(`${devGenStage(l.stage)} ${levelText(l.level)} ${l.plugin ? `[${l.plugin}] ` : ''}${l.text}`);
+  return out.join('\n');
+}

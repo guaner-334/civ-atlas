@@ -1013,6 +1013,79 @@
   margin-top: 4px;
   font-size: 12.5px;
 }
+/* 试生成(地图插件):两张小图并排、两张表并排 */
+.plg-devc.map:not(.phone) {
+  width: 560px;
+}
+.plg-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.plg-thumbs figure {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.plg-thumb {
+  height: 104px;
+  border-radius: 6px;
+  background: var(--btn);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+}
+.plg-devc.phone .plg-thumb {
+  height: 78px;
+}
+.plg-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.plg-thumbs figcaption {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.plg-devc .plg-lk {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+.plg-devc-h b + .plg-tag {
+  flex: none;
+  margin-left: 0;
+}
+.plg-devc-h b + .plg-tag + * {
+  margin-left: auto;
+}
+.plg-two {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.plg-two > table {
+  flex: 1;
+  min-width: 0;
+  margin-top: 6px;
+}
+.plg-tt.plg-gen td:nth-child(2),
+.plg-tt.plg-gen th:nth-child(2) {
+  text-align: left;
+}
+.plg-tt td.slow {
+  color: #8f5d07;
+  font-weight: 600;
+}
+.plg-tt td.d {
+  color: var(--ink-2);
+}
 .plg-chk {
   display: flex;
   align-items: center;

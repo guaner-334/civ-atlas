@@ -456,7 +456,7 @@ function DevRow({ on, phone }: { on: boolean; phone?: boolean }) {
     <div className={phone ? 'plg-devr' : 'plg-dev'}>
       <span>
         <b>开发者模式</b>
-        <small>写插件的人用：重新载入、看日志、试推</small>
+        <small>写插件的人用：重新载入、看日志、试推、试生成</small>
       </span>
       <Switch on={on} small={!phone} label="开发者模式" onChange={setDevMode} />
     </div>

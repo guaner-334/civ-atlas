@@ -17,7 +17,7 @@
   padding-left: 4px;
   padding-right: 4px;
 }
-/* 有推演插件的图层时:按钮挨着排,推演插件的按字宽(带「推演」小标),别的照旧一格宽 */
+/* 有推演、地图插件的图层时:按钮挨着排,它们的按字宽(带「推演」「地图」小标,名字太长时省略名字、小标不截),别的照旧一格宽 */
 .lp-chips.plg-chips {
   display: flex;
   flex-wrap: wrap;
@@ -25,7 +25,7 @@
 .plg-chips .lp-chip.plg-chip {
   width: calc((100% - 18px) / 4);
 }
-.plg-chips .lp-chip.plg-chip.sim {
+.plg-chips .lp-chip.plg-chip.tagged {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -34,6 +34,11 @@
   max-width: 100%;
   padding-left: 10px;
   padding-right: 10px;
+}
+.plg-cname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .plg-ctag {
   flex: none;
