@@ -38,6 +38,10 @@ import { useEdits } from './editsStore';
 import { Icon } from './icons';
 import { Seg, Slider } from './tpControls';
 import { loadImage, type LoadedImage } from './imageFile';
+import { exactImageOn } from './exactImageFlag';
+import { encodeGrey } from '../gen/sketchFineWrite';
+import { greyLayer, traceSeaLevel } from '../gen/sketchImageFine';
+import type { FineHow, FineReply, FineRequest } from '../fineWorker';
 
 // 选图、读图(新建弹窗也用)在 imageFile.ts,这里照旧一起导出
 export { isImageFile, loadImage, type LoadedImage } from './imageFile';
@@ -65,6 +69,8 @@ interface ImportState {
   sea: number;
   dark: boolean;
   heights: boolean;
+  /** 海岸照图原样(不扭不补,逐像素照图定海陆) */
+  trace: boolean;
   /** 放法:铺满整张 / 保持比例(x、y = 图中心在整张图上的位置 0–1,scale = 大小) */
   fit: 'fill' | 'keep';
   x: number;
@@ -80,6 +86,7 @@ function setImp(next: ImportState | null) {
   imp = next;
   if (!next) document.body.classList.remove('imp-move');
   subs.forEach((f) => f());
+  if (next?.trace) fineSoon(next);
 }
 const patch = (p: Partial<ImportState>) => imp && setImp({ ...imp, ...p });
 
@@ -131,6 +138,7 @@ export function dropSource() {
   cancelImport();
   setSource(null);
   setSourceView({ show: 'grown', overlay: 0 });
+  dropFine();
 }
 
 /** 地图上看什么(不在认的时候):原图 / 认出来的 / 长出来的(星球本身);长出来的上面叠原图多少(0–1) */
@@ -188,14 +196,16 @@ export function beginImport(l: LoadedImage) {
   loading++;
   drag = null;
   if (imp && imp.url !== source?.url && imp.url !== l.url) URL.revokeObjectURL(imp.url);
+  const trace = exactImageOn() && !!(imp ?? source)?.trace;
   setImp({
     ...l,
     mode: 'wand',
     clicks: [],
     range: WAND_RANGE,
-    sea: autoSeaLevel(l.pic),
+    sea: seaLevel(l.pic, false, trace),
     dark: false,
     heights: true,
+    trace,
     fit: 'fill',
     x: 0.5,
     y: 0.5,
@@ -271,10 +281,122 @@ function recognize(s: ImportState): Recognized {
 }
 
 /** 现在认出来的,点「用这张图」时用;还没认出东西、认得不像样 = null */
-export function importResult(): { name: string; layer: Uint8Array } | null {
+export function importResult(): ImportResult | null {
   if (!imp) return null;
   const r = recognize(imp);
-  return r.ready && !r.warn ? { name: imp.name, layer: r.layer } : null;
+  if (!r.ready || r.warn) return null;
+  if (!imp.trace) return { name: imp.name, layer: r.layer };
+  const key = fineKey(imp);
+  const grey = imp.mode === 'level' && heightsOn(imp) ? encodeGrey(greyLayer(imp.pic, imp.sea, imp.dark, r.values, placementOf(imp))) : undefined;
+  const fine = fineDone?.key === key ? fineDone.fine : undefined;
+  if (!fine) void askFine(imp);
+  return { name: imp.name, layer: r.layer, trace: { ...(fine ? { fine } : {}), ...(grey ? { grey } : {}) }, fineKey: key };
+}
+
+export interface ImportResult {
+  name: string;
+  layer: Uint8Array;
+  /** 照图原样:细图(还没认好 = 不给,认好了用 onFine 补上)、连续高低 */
+  trace?: { fine?: string; grey?: string };
+  fineKey?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 照图原样的细图:按原图在后台线程里认(界面上认的那张图太小),认法一变就重认一次
+
+let fineThread: Worker | null = null;
+let fineSent: { url: string; ready: Promise<boolean> } | null = null;
+let fineDone: { key: string; fine: string } | null = null;
+let fineAsked = '';
+let fineTimer = 0;
+const fineWait = new Map<string, ((fine: string) => void)[]>();
+
+const fineKey = (s: ImportState) =>
+  `${s.url}|${s.mode === 'wand' ? `w|${s.range}|${s.clicks.map((c) => c.join(',')).join(';')}` : `l|${s.sea}|${s.dark}`}|${JSON.stringify(placementOf(s))}`;
+const fineHow = (s: ImportState): FineHow => (s.mode === 'wand' ? { mode: 'wand', clicks: s.clicks.map((c) => [c[0], c[1]]), range: s.range } : { mode: 'level', sea: s.sea, dark: s.dark });
+
+function fineWorker(): Worker {
+  if (!fineThread) {
+    fineThread = new Worker(new URL('../fineWorker.ts', import.meta.url), { type: 'module' });
+    fineThread.onmessage = (e: MessageEvent<FineReply>) => {
+      const { key, fine } = e.data;
+      if (fineAsked === key) fineAsked = '';
+      if (!fine) return;
+      fineDone = { key, fine };
+      const ws = fineWait.get(key);
+      fineWait.delete(key);
+      ws?.forEach((f) => f(fine));
+    };
+  }
+  return fineThread;
+}
+
+const post = (m: FineRequest, transfer: Transferable[] = []) => fineWorker().postMessage(m, transfer);
+
+/** 原图解码成像素(和读图时一样缩到长边 DECODE_SIDE) */
+async function decodePixels(url: string): Promise<ImageData | null> {
+  const img = new Image();
+  const ok = await new Promise<boolean>((done) => {
+    img.onload = () => done(true);
+    img.onerror = () => done(false);
+    img.src = url;
+  });
+  if (!ok || !img.naturalWidth || !img.naturalHeight) return null;
+  const k = Math.min(1, DECODE_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(img.naturalWidth * k));
+  cv.height = Math.max(1, Math.round(img.naturalHeight * k));
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, cv.width, cv.height);
+  try {
+    return ctx.getImageData(0, 0, cv.width, cv.height);
+  } catch {
+    return null;
+  }
+}
+const DECODE_SIDE = 2560;
+
+function sendImage(url: string): Promise<boolean> {
+  if (fineSent?.url === url) return fineSent.ready;
+  const ready = decodePixels(url).then((px) => {
+    if (!px || fineSent?.url !== url) return false;
+    post({ type: 'image', id: url, data: px.data, width: px.width, height: px.height }, [px.data.buffer]);
+    return true;
+  });
+  fineSent = { url, ready };
+  return ready;
+}
+
+async function askFine(s: ImportState) {
+  const key = fineKey(s);
+  if (fineDone?.key === key || fineAsked === key) return;
+  fineAsked = key;
+  if (!(await sendImage(s.url)) || fineAsked !== key) return;
+  post({ type: 'fine', id: s.url, key, how: fineHow(s), place: placementOf(s) });
+}
+
+/** 认法变了:停一下再认(拖滑条时不一格一格认) */
+function fineSoon(s: ImportState) {
+  clearTimeout(fineTimer);
+  fineTimer = window.setTimeout(() => {
+    if (imp === s && recognize(s).ready) void askFine(s);
+  }, 150);
+}
+
+/** 细图认好了叫 f(已经认好的马上叫) */
+export function onFine(key: string, f: (fine: string) => void) {
+  if (fineDone?.key === key) return f(fineDone.fine);
+  fineWait.set(key, [...(fineWait.get(key) ?? []), f]);
+}
+
+function dropFine() {
+  clearTimeout(fineTimer);
+  fineWait.clear();
+  fineDone = null;
+  fineAsked = '';
+  fineSent = null;
+  if (fineThread) post({ type: 'drop' });
 }
 
 /** 图在地图上的哪一块(世界坐标) */
@@ -396,6 +518,20 @@ function warnText(w: Exclude<ImportWarning, null>, mode: ImportMode, stats: Laye
   return lead + (t === 'specks' ? '把「范围」调大一点试试。' : t === 'sea' ? '看看海岸线有没有断口，或把「范围」调小。' : '点的可能是陆地，撤销一下再点海。');
 }
 
+const SHORES = [
+  { v: 1, name: '照图原样' },
+  { v: 0, name: '自然一些' },
+];
+
+/** 海平面自动放哪(照图原样另有取法) */
+const seaLevel = (pic: Picture, dark: boolean, trace: boolean) => (trace ? traceSeaLevel(pic, dark) : autoSeaLevel(pic, dark));
+
+/** 换海岸的长法:海平面还是自动取的那个时,跟着换成这种长法自动取的 */
+function setTrace(s: ImportState, trace: boolean) {
+  const sea = s.sea === seaLevel(s.pic, s.dark, s.trace) ? seaLevel(s.pic, s.dark, trace) : s.sea;
+  patch({ trace, sea });
+}
+
 /**
  * 第 1 步「认出海陆」展开的样子:怎么认(点一下海 / 按深浅)、范围或海平面、点了几处(撤销一下 / 重新点)、高低也照图、
  * 认不准的提醒,放法(保持比例时还有大小),认出来陆地、海各多少,最下面「照这样长出星球」。
@@ -481,7 +617,7 @@ export function ImportPanel({ phone, onUse, wait = false }: { phone: boolean; on
                 { v: 1, name: '暗的是陆地' },
               ]}
               value={s.dark ? 1 : 0}
-              onPick={(v) => patch({ dark: v === 1, sea: autoSeaLevel(s.pic, v === 1) })}
+              onPick={(v) => patch({ dark: v === 1, sea: seaLevel(s.pic, v === 1, s.trace) })}
             />
           </>
         )}
@@ -501,7 +637,7 @@ export function ImportPanel({ phone, onUse, wait = false }: { phone: boolean; on
         <button className="sb-row tp-show imp-heights" role="switch" aria-checked={s.heights} data-act="import-heights" onClick={() => patch({ heights: !s.heights })}>
           <span className="sb-row-main">
             <b>高低也照图</b>
-            <small>{s.dark ? '越暗越高' : '越亮越高'}，长成丘陵、山地；关掉就只分海陆，山由程序定</small>
+            <small>{`${s.dark ? '越暗越高' : '越亮越高'}${s.trace ? '，照图的深浅连续定高低，山脊、河谷再由程序刻出来' : '，长成丘陵、山地；关掉就只分海陆，山由程序定'}`}</small>
           </span>
           <span className={`ai-switch${s.heights ? ' on' : ''}`} aria-hidden="true" />
         </button>
@@ -535,6 +671,12 @@ export function ImportPanel({ phone, onUse, wait = false }: { phone: boolean; on
         />
         {s.fit === 'keep' && <Slider label="大小" act="import-scale" min={PLACE_SCALE[0]} max={PLACE_SCALE[1]} step={0.01} value={s.scale} onChange={(v) => patch({ scale: v })} />}
       </div>
+      {exactImageOn() && (
+        <div className="tp-opts imp-shore">
+          <Seg label="海岸" act="import-trace" items={SHORES} value={s.trace ? 1 : 0} onPick={(v) => setTrace(s, v === 1)} />
+          <div className="imp-hint">{s.trace ? '海岸、小岛、海峡和图上一模一样，不扭也不补。适合画得细的图。' : '把海岸扭得像真的，小岛、细节由程序补。适合随手画的草图。'}</div>
+        </div>
+      )}
       {result}
       <button className="imp-use" data-act="import-use" disabled={!r.ready || !!r.warn || wait} onClick={onUse}>
         照这样长出星球

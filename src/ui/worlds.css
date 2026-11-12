@@ -1417,6 +1417,15 @@
 [data-theme='dark'] .tp .tp-seg button.on {
   background: rgba(255, 255, 255, 0.18);
 }
+/* 用不上的一行(照图原样时的海岸线):按钮灰着,右边写为什么 */
+.tp-lbl.tp-off .tp-seg {
+  opacity: 0.45;
+}
+.tp-off-tag {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
 /* 大小滑条:左边小点、右边大点,最右写半径 */
 .tp-range {
   flex: 1;
@@ -1664,6 +1673,11 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--ink-2);
+}
+/* 海岸:照图原样 / 自然一些,下面一句说选中的那个 */
+.imp-shore .imp-hint {
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 /* 高低也照图:标题下面一行说明,右边开关 */
 .tp .imp-heights {

@@ -9,7 +9,8 @@ import { rasterizeWindow, zoomSource } from '../src/gen/rasterWindow';
 import { EMPTY_EDITS, type WorldEdits } from '../src/gen/edits';
 import { makeSave, parseSave, saveText } from '../src/gen/savefile';
 import { validateWorld } from '../src/gen/worldValidate';
-import { FINE_PICTURE_W, autoSeaLevel, greyLayer, levelsFrom, placeOnFine, preparePicture } from '../src/gen/sketchImage';
+import { autoSeaLevel, levelsFrom, preparePicture } from '../src/gen/sketchImage';
+import { FINE_PICTURE_W, greyLayer, placeOnFine, traceSeaLevel } from '../src/gen/sketchImageFine';
 import { LAYER_H, LAYER_W, SKETCH_LAND, SKETCH_SEA, cleanSketch, encodeLayer, sameSketch, sketchGrid, type SketchEdit } from '../src/gen/sketch';
 import { FINE_H, FINE_LAND, FINE_NONE, FINE_W, FINE_WATER, GREY_H, GREY_W, decodeFine, decodeGrey } from '../src/gen/sketchFine';
 import { encodeFine, encodeGrey } from '../src/gen/sketchFineWrite';
@@ -96,7 +97,7 @@ describe('照图原样认图', () => {
   it('黑白图的海平面取正中间;不糊时 3 像素的缝原样留着', () => {
     const big = preparePicture(picture(2048, 1024), FINE_PICTURE_W);
     expect(big.w).toBe(2048);
-    const sea = autoSeaLevel(big, true, true);
+    const sea = traceSeaLevel(big, true);
     expect(sea).toBeGreaterThan(100);
     expect(sea).toBeLessThan(156);
     const v = levelsFrom(big, { sea, dark: true, sharp: true });

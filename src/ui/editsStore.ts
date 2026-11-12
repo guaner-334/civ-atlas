@@ -750,12 +750,20 @@ export function undoSketchStroke(): boolean {
  * 草图:照手绘图生成时,导入的图认出来的格子图(LAYER_W × LAYER_H)是整颗星球的底子 —— 铺在所有笔画底下,没盖到的地方都是海;
  * 已经有的换掉(「换一张」),笔画留着。还没有草图时新开一张,海岸线、程序补全用 coast、fill(不给 = 默认)。一格也没盖到的不导入;返回是否导入了
  */
-export function setSketchBase(name: string, layer: Uint8Array, coast?: number, fill?: SketchFill | 'free'): boolean {
+export function setSketchBase(name: string, layer: Uint8Array, coast?: number, fill?: SketchFill | 'free', trace?: { fine?: string; grey?: string }): boolean {
   const now = state.sketch;
-  const image = cleanSketchImage({ name, cells: encodeLayer(layer) }, now?.strokes.length ?? 0);
+  const image = cleanSketchImage({ name, cells: encodeLayer(layer), ...trace }, now?.strokes.length ?? 0);
   if (!image) return false;
-  const base: SketchEdit = now ?? freshSketch('sea', coast, fill);
-  return putSketch({ ...base, rest: 'sea', image });
+  const { trace: _, ...base }: SketchEdit = now ?? freshSketch('sea', coast, fill);
+  void _;
+  return putSketch({ ...base, rest: 'sea', image, ...(trace ? { trace: 1 as const } : {}) });
+}
+
+/** 照图原样的细图后认好的:草图底下还是 cells 那张图、还照图原样时补上;返回是否补上了 */
+export function setSketchFine(cells: string, fine: string): boolean {
+  const now = state.sketch;
+  if (!now?.trace || now.image?.cells !== cells || now.image.fine) return false;
+  return putSketch({ ...now, image: { ...now.image, fine } });
 }
 
 /** 草图:清掉所有笔画(导入的图、海岸线、没涂的地方留着) */
