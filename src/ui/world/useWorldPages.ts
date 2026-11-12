@@ -850,18 +850,18 @@ export function useWorldPages(deps: WorldPagesDeps) {
       if (left) deleteWorld(left);
       goHome();
     };
-    const cur = currentWorld();
-    const editing = cur?.edit && cur.id === targetRef.current?.id ? cur : null;
+    const t = targetRef.current;
+    const editing = t?.kind === 'draft' && t.edit ? t.id : null;
     return {
       label: '我的世界',
       onClick: back,
-      // 修改一张存着的地图、改过了:先问一句;不保存 = 改的这一份删掉,那张地图照原样
+      // 修改一张存着的地图、改过了(还在照改的重新长也算):先问一句;不保存 = 改的这一份删掉,那张地图照原样
       ...(editing && {
         leave: {
           dirty: () => !derivedUntouched(),
           discard: () => {
-            deleteWorld(editing.id);
-            rememberMaps(editing.id, null);
+            deleteWorld(editing);
+            rememberMaps(editing, null);
             back();
           },
         },

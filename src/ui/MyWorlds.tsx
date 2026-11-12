@@ -881,7 +881,7 @@ function MapDeleteDialog({ g, phone, onClose, onGo }: { g: MapGroup; phone: bool
                 </b>
                 <small>{civLine(w)}</small>
               </span>
-              <span className="side">{when(w.at)}</span>
+              <span className="side mw-del-at">{when(w.at)}</span>
             </div>
           ))}
         </div>

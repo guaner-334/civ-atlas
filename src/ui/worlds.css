@@ -694,6 +694,9 @@
   background: var(--btn) center / cover no-repeat;
   box-shadow: inset 0 0 0 0.5px var(--line);
 }
+.acct-gr .side.mw-del-at {
+  color: var(--ink-3);
+}
 .mw-del-tag {
   margin-left: 6px;
   font-size: 12px;

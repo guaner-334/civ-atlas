@@ -7,7 +7,8 @@ import { EMPTY_EDITS, newHistoryEdits, type TerrainOp, type WorldEdits } from '.
 import { makeSave } from '../src/gen/savefile';
 import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, seedTag, setCivSeed, setEdits } from '../src/ui/editsStore';
-import { groupIds, mapBriefOf, mapGroups, mapKeyOf, mapLine, mapMates, mapName } from '../src/ui/mapGroups';
+import { civsOn, groupIds, mapBriefOf, mapGroups, mapKeyOf, mapLine, mapMates, mapName } from '../src/ui/mapGroups';
+import { encodeLayer, LAYER_H, LAYER_W, SKETCH_LAND } from '../src/gen/sketch';
 import { bundleText, importBundle, parseBundle } from '../src/ui/bundle';
 import type { StoredWorld } from '../src/ui/saveStore';
 
@@ -189,6 +190,69 @@ describe('保存地图', () => {
     clearEdits();
     saveStore.attachWorld({ id: 'wmtest0004', params: DEFAULT_PARAMS, check: 'c', kind: 'draft', saved: EMPTY_EDITS, origin });
     expect(saveStore.currentWorld()?.origin).toBeUndefined();
+  });
+
+  it('修改一张存着的地图、点「保存修改」:写回那张(编号不变、还是只有地图),改的那一份删掉', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 512 };
+    setEdits(EMPTY_EDITS);
+    saveStore.attachWorld({ id: 'wmtest0020', params, check: 'c512', kind: 'draft', saved: EMPTY_EDITS });
+    expect(saveStore.saveCurrentAsMap()).toBe(true);
+
+    clearEdits();
+    const changed: WorldEdits = { ...EMPTY_EDITS, terrain: [range] };
+    setEdits(changed);
+    saveStore.attachWorld({ id: 'wmtest0021', params, check: 'c512b', kind: 'draft', saved: changed, edit: 'wmtest0020' });
+    // 改的这一份记着在改哪张(刷新回来还认得),这个标记不同步
+    expect(saveStore.loadWorld('wmtest0021')?.edit).toBe('wmtest0020');
+    expect(saveStore.cleanSyncMeta({ draft: true, edit: 'wmtest0020' })).toEqual({ draft: true });
+
+    expect(saveStore.saveCurrentOverMap()).toBe(true);
+    expect(saveStore.currentWorld()).toBeNull();
+    const list = saveStore.listWorlds();
+    expect(list.map((w) => w.id)).toEqual(['wmtest0020']);
+    const [m] = list;
+    expect(m.map).toBe(true);
+    expect(m.edit).toBeUndefined();
+    expect(m.save.edits.terrain).toEqual([range]);
+    expect(m.save.check).toBe('c512b');
+    expect(saveStore.rawWorld('wmtest0020')?.meta).toEqual({ map: true });
+  });
+
+  it('修改的那张不是只存了地图的(或已经删了):写不回去,什么都不动;另存一张照样行,改的这一份留着', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 512 };
+    const civ = saveStore.importSave(makeSave(params, EMPTY_EDITS, 'c512', '苍澜界'))!;
+    const changed: WorldEdits = { ...EMPTY_EDITS, terrain: [range] };
+    setEdits(changed);
+    saveStore.attachWorld({ id: 'wmtest0030', params, check: 'c512b', kind: 'draft', saved: changed, edit: civ });
+    expect(saveStore.saveCurrentOverMap()).toBe(false);
+    expect(saveStore.loadWorld(civ)?.save.edits.terrain).toEqual([]);
+    expect(saveStore.loadWorld('wmtest0030')?.draft).toBe(true);
+    expect(saveStore.saveCurrentMapTo('wnothere001')).toBeNull();
+
+    const mid = saveStore.saveCurrentMapTo()!;
+    expect(mid).not.toBe('wmtest0030');
+    expect(saveStore.loadWorld(mid)).toMatchObject({ map: true });
+    expect(saveStore.loadWorld(mid)?.save.edits.terrain).toEqual([range]);
+    // 接着打造文明的还要用改的这一份
+    expect(saveStore.currentWorld()?.id).toBe('wmtest0030');
+    expect(saveStore.loadWorld('wmtest0030')?.draft).toBe(true);
+    // 地图上的文明:在它上面打造的算,新建中的也算;只存了地图的那份不算
+    const on = saveStore.importSave(makeSave(params, newHistoryEdits(EMPTY_EDITS, { civSeed: 2, from: mid }), 'c512b', '新的'))!;
+    expect(civsOn(saveStore.listWorlds(), mid).map((w) => w.id)).toEqual([on]);
+  });
+
+  it('照手绘图新建点「保存地图」:草图里照着长的那张图跟着存下', () => {
+    const layer = new Uint8Array(LAYER_W * LAYER_H);
+    layer.fill(SKETCH_LAND, 80 * LAYER_W, 120 * LAYER_W);
+    const sketch = { rest: 'sea' as const, strokes: [], image: { name: '我画的地图.png', cells: encodeLayer(layer) } };
+    const edits: WorldEdits = { ...EMPTY_EDITS, sketch, endYear: 6000 };
+    setEdits(edits);
+    saveStore.attachWorld({ id: 'wmtest0040', params: DEFAULT_PARAMS, check: 'c', kind: 'draft', saved: edits });
+    expect(saveStore.saveCurrentAsMap()).toBe(true);
+    const w = saveStore.loadWorld('wmtest0040')!;
+    expect(w.map).toBe(true);
+    expect(w.save.edits.sketch?.image?.name).toBe('我画的地图.png');
+    expect(w.save.edits.endYear).toBeUndefined();
   });
 
   it('同步来的标记:只存了地图的、新建中的不会同时是两样', () => {
