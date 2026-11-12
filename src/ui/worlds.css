@@ -660,6 +660,49 @@
 .mw-panel.empty {
   padding-bottom: 32px;
 }
+/* 标题行右边几个按钮挨着放(单个按钮的 margin-left: auto 不再各自顶开) */
+.mw-panel-hd .mw-hd-acts {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  gap: 10px;
+}
+.mw-panel-hd .mw-hd-acts .mw-btn {
+  margin-left: 0;
+}
+/* 手机:「打造新文明」下面一排一样宽的灰按钮 */
+.mw-panel-2 {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.mw .mw-panel-2 .mw-btn.wide {
+  flex: 1;
+  width: auto;
+  margin-top: 0;
+}
+/* 删地图前问的那个窗口(挂在 body 上,不在 .mw 里) */
+.mw-del-list {
+  max-height: 262px;
+  overflow-y: auto;
+}
+.mw-del-th {
+  flex: none;
+  width: 64px;
+  height: 32px;
+  border-radius: 5px;
+  background: var(--btn) center / cover no-repeat;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.mw-del-tag {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.acct-head h2.mw-del-title {
+  white-space: normal;
+}
 @media (prefers-reduced-motion: reduce) {
   .mw-globe canvas {
     transition: none;

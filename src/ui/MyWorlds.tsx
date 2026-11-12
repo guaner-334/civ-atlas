@@ -35,10 +35,10 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { lookForLostWorlds } from './lostWorlds';
 import { holdWorld } from './worldHolds';
-import { currentUnsaved, deleteWorld, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, storageFullWhy, useSavesVersion, type StoredWorld } from './saveStore';
+import { currentUnsaved, deleteWorld, deleteWorlds, duplicateWorld, listWorlds, loadWorld, notify, persistent, renameWorld, restoreWorld, restoreWorlds, storageFullWhy, useSavesVersion, type StoredWorld } from './saveStore';
 import { isCoarse } from './device';
 import { withFileFlow } from './worldFileLazy';
-import { closeTrash, openAccount, openLogin, openSubmitDialog, useAccountPanelOpen, useTrashView } from './AccountDialogs';
+import { Dialog, closeTrash, openAccount, openLogin, openSubmitDialog, useAccountPanelOpen, useTrashView } from './AccountDialogs';
 import { askPhone, phoneRequired, useSubmitBan, useSubmitOn } from './submitView';
 import { accountServer } from '../account/server';
 import { displayName, useSession } from '../account/session';
@@ -59,7 +59,8 @@ import { BEIAN } from './beian';
 import { HomeGlobe } from './studio/HomeGlobe';
 import { OldSiteBadge } from './OldSiteBadge';
 import { BETA_SITE, OLD_SITE } from './oldSite';
-import { civName, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
+import { civName, groupIds, mapBrief, mapGroups, mapLine, mapName, type MapGroup } from './mapGroups';
+import { mapEditOn } from './mapEditFlag';
 import { GENERATOR_VERSION } from '../gen/edits';
 import { loadGallery, useGallery, type GalleryWork } from '../account/gallery';
 import { GalleryFeatured } from './Gallery';
@@ -803,6 +804,105 @@ function removeWorld(id: string, name: string) {
   });
 }
 
+/** 删掉一张地图连同上面的文明:一个提示条,「撤销」全部放回;别的照删一个世界 */
+function removeMapGroup(g: MapGroup) {
+  const ids = groupIds(g);
+  const account = fullOverview()?.account;
+  const inAccount = ids.some((id) => account?.some((w) => w.id === id));
+  const name = mapName(g.head);
+  const gone = deleteWorlds(ids);
+  if (!gone.length) return notify({ kind: 'ok', text: `「${name}」已在别的页面里删掉了` });
+  const frees = gone.map((d) => holdWorld(d.id));
+  const n = gone.filter((d) => d.id !== g.map?.id).length;
+  let undoFailed = false;
+  notify({
+    kind: 'ok',
+    text: n ? `已删除「${name}」和上面的 ${n} 个文明` : `已删除「${name}」`,
+    ...(inAccount ? { more: ['账号里那份还在，要删到账号窗里删'] } : {}),
+    action: {
+      label: '撤销',
+      act: 'world-undelete',
+      onClick: () => {
+        const left = restoreWorlds(gone);
+        if (!left.length) return notify(null);
+        undoFailed = true;
+        notify({ kind: 'error', text: left.length < gone.length ? `有 ${left.length} 个没能放回去` : '没能放回去', more: ['浏览器存储已满'] });
+      },
+    },
+    onGone: () => {
+      if (undoFailed) return;
+      for (const free of frees) free();
+      spaceChanged();
+      void import('./worldStore').then((m) => gone.forEach((d) => m.trashFreed(d.id))).catch(() => {});
+    },
+  });
+}
+
+/** 删地图之前问一句:列出会一起删掉的文明 */
+function MapDeleteDialog({ g, phone, onClose, onGo }: { g: MapGroup; phone: boolean; onClose: () => void; onGo: () => void }) {
+  const n = g.civs.length;
+  const account = useFullOverview()?.account;
+  const inAccount = groupIds(g).some((id) => account?.some((w) => w.id === id));
+  const title = `删除这张地图和上面的 ${n} 个文明？`;
+  const go = (
+    <button className={`acct-btn red ${phone ? 'full' : 'lg'}`} data-act="map-delete-confirm" onClick={onGo}>
+      删除地图和 {n} 个文明
+    </button>
+  );
+  const no = (
+    <button className={`acct-btn ${phone ? 'full' : 'lg'}`} data-act="map-delete-cancel" onClick={onClose}>
+      取消
+    </button>
+  );
+  return (
+    <Dialog
+      phone={phone}
+      label={title}
+      onClose={onClose}
+      testId="map-delete"
+      head={
+        <div className="acct-head">
+          <h2 className="mw-del-title">{title}</h2>
+        </div>
+      }
+    >
+      <div className="acct-body">
+        <p>「{mapName(g.head)}」这张地图，连同下面 {n} 个文明推演出来的历史、人物、史书，都会从这个浏览器里删掉。</p>
+        <div className="acct-grp mw-del-list">
+          {g.civs.map((w) => (
+            <div key={w.id} className="acct-gr">
+              <span className="mw-del-th" style={w.thumb ? { backgroundImage: `url(${w.thumb})` } : undefined} />
+              <span className="main">
+                <b>
+                  {civName(w)}
+                  {w.draft && <span className="mw-del-tag">没建完</span>}
+                </b>
+                <small>{civLine(w)}</small>
+              </span>
+              <span className="side">{when(w.at)}</span>
+            </div>
+          ))}
+        </div>
+        <p className="acct-small">
+          删掉以后，提示条上还能撤销。{inAccount && '账号里存的那份不动，要删到账号窗里删。'}
+        </p>
+      </div>
+      {phone ? (
+        <div className="acct-foot col">
+          {go}
+          {no}
+        </div>
+      ) : (
+        <div className="acct-foot">
+          {no}
+          <span className="acct-sp" />
+          {go}
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 /** 展开那块里一个文明的第二行:"现存 15 国" */
 function civLine(w: StoredWorld): string {
   if (w.draft) return '还在新建';
@@ -889,6 +989,8 @@ function MapPanel({
   const n = g.civs.length;
   const submitOn = useSubmitOn(true);
   const banned = useSubmitBan();
+  const tools = mapEditOn();
+  const [asking, setAsking] = useState(false);
   // 在哪个世界的地图上打造:地图那一份 / 最早那个世界 / 最近的一个建好的文明(都是同一张地图;没建完的不算)
   const from = g.head.id;
   const src = (g.map ?? (g.head.draft ? g.civs.find((w) => !w.draft) : g.head))?.id;
@@ -947,13 +1049,24 @@ function MapPanel({
       )}
     </button>
   );
+  const del = tools && (
+    <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete-all" onClick={() => setAsking(true)}>
+      删除地图…
+    </button>
+  );
   return (
     <div className="mw-panel" role="group" aria-label={`这张地图上的 ${n} 个文明`} style={style}>
       <i className="mw-caret" aria-hidden="true" />
       <div className="mw-panel-hd">
         <b>这张地图上的 {n} 个文明</b>
         {!phone && <span>{mapBrief(g.head)}</span>}
-        {!phone && add}
+        {!phone && !tools && add}
+        {!phone && tools && (
+          <span className="mw-hd-acts">
+            {del}
+            {add}
+          </span>
+        )}
       </div>
       {phone ? (
         <div className="mw-panel-list" role="list">
@@ -998,6 +1111,18 @@ function MapPanel({
         </div>
       )}
       {phone && add}
+      {phone && tools && <div className="mw-panel-2">{del}</div>}
+      {asking && (
+        <MapDeleteDialog
+          g={g}
+          phone={phone}
+          onClose={() => setAsking(false)}
+          onGo={() => {
+            setAsking(false);
+            removeMapGroup(g);
+          }}
+        />
+      )}
     </div>
   );
 }
