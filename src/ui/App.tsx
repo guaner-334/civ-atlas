@@ -140,6 +140,7 @@ import {
 } from '../gen/savefile';
 import {
   currentWorld,
+  listWorlds,
   loadWorld,
 } from './saveStore';
 import { setWorldStoreSim } from './worldStore';
@@ -181,7 +182,7 @@ import { PluginAskSlot, PluginCellSlot, PluginLegendSlot, PluginMarksSlot, Plugi
 import { GalleryPage, WorkGone } from './Gallery';
 import { MapWorkView, WorkBar } from './GalleryWork';
 import type { GalleryItem } from '../account/gallery';
-import { mapBriefOf } from './mapGroups';
+import { civsOn, mapBriefOf, mapKeyOf, mapName } from './mapGroups';
 import { useCoarse, useNarrow } from './device';
 import { useMapView } from './map/useMapView';
 import { useMapGestures } from './map/useMapGestures';
@@ -1285,6 +1286,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     createWorld,
     draftFromCurrent,
     saveMap,
+    editMap,
     startNewCiv,
     newCivOnWork,
     derivedUntouched,
@@ -2574,6 +2576,16 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
     return { title: (w && !w.map && w.save.title) || null, brief: `种子 ${t.params.seed}，${mapBriefOf(t.params, t.edits)}` };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftMap, v]);
+  // 在修改一张存着的地图:它的名字、上面有几个文明(有文明的保存时另存一张)
+  const draftEdit = draft ? targetRef.current?.edit : undefined;
+  const draftEditOf = useMemo(() => {
+    if (!draftEdit) return null;
+    const w = loadWorld(draftEdit);
+    if (!w) return null;
+    // 照一个文明的地图改的:它和同一张地图上的文明都算
+    return { name: mapName(w), civs: w.map ? civsOn(listWorlds(), draftEdit).length : Math.max(1, civsOn(listWorlds(), mapKeyOf(w) ?? draftEdit).length) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftEdit, v]);
   const studio = ((draft && !finderOn) || studioOut > 0) && (
     <Studio
       onFinder={() => openFinderPage()}
@@ -2591,7 +2603,9 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
       onMaps={draftMaps}
       onTitle={draftRename}
       onCreate={studioCreate}
-      onSaveMap={saveMap}
+      onSaveMap={() => saveMap()}
+      onSaveMapAsNew={() => saveMap(true)}
+      editOf={draftEditOf}
       mapFrom={draftMapFrom}
       // 以它为底稿新建、调过参数:带过来的干预要等重推完(不然创建时截的缩略图、放的历史是没干预的)
       busy={!!progress || !!resim}
@@ -2849,7 +2863,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
         ) : wall?.kind === 'work' ? (
           <WorkGone phone={narrow} state={wall.state} onHome={goHome} onGallery={showGallery} onRetry={() => openWork(wall.id)} />
         ) : (
-          <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} onNewCiv={startNewCiv} onGallery={showGallery} onOpenWork={(w) => openWork(w.id)} />
+          <MyWorlds phone={narrow} onOpen={openStored} onNew={startDraft} onOpenText={openText} onNewCiv={startNewCiv} onEditMap={editMap} onGallery={showGallery} onOpenWork={(w) => openWork(w.id)} />
         )
       ) : narrow ? (
         <>

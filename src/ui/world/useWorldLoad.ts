@@ -692,7 +692,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       notify({ kind: 'error', text: '没法在这张地图上打造文明', more: [t.mapKept ? '这张地图是旧世界留下的，现在长不出一样的，没法新开' : '这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
       return;
     }
-    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, origin: t.origin, original, frozen, readonly: !!t.readonly || guessed });
+    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, edit: t.edit, origin: t.origin, original, frozen, readonly: !!t.readonly || guessed });
     // 新路读的世界换上了:再过一会儿没事就算打开成了(openGuard.ts)。新开的历史还没记地图的,记上
     if (loadedGen !== undefined) openingShown();
     else openingClear();

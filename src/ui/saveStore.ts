@@ -520,6 +520,8 @@ interface Meta {
   base?: DraftBase;
   /** 只存了地图、还没有文明(见文件头) */
   map?: boolean;
+  /** 新建中、在修改一张存着的地图:那张地图的编号(只在这台设备上) */
+  edit?: string;
   /** 逐年推演:从哪个世界的哪一年开始的(存回推演模式时能选"覆盖原来的";只在这台设备上) */
   from?: string;
   /** 从文件打开进来的时间(ISO;存档菜单写「来自文件」用;只在这台设备上,不进文件、不同步) */
@@ -542,6 +544,8 @@ export interface StoredWorld {
   base?: DraftBase;
   /** 只存了地图、还没有文明 */
   map: boolean;
+  /** 新建中、在修改一张存着的地图:那张地图的编号 */
+  edit?: string;
   /** 地图缩略图(没截过 = null) */
   mapThumb: string | null;
   /** 从文件打开进来的时间(只在这台设备上记) */
@@ -571,6 +575,7 @@ function parseMeta(text: string): Meta {
     const b = v.base as Record<string, unknown> | undefined;
     if (b && typeof b === 'object' && typeof b.id === 'string' && typeof b.title === 'string')
       m.base = { id: b.id, title: cleanTitle(b.title) || '未命名世界', names: Math.max(0, Math.floor(Number(b.names) || 0)), interventions: Math.max(0, Math.floor(Number(b.interventions) || 0)) };
+    if (typeof v.edit === 'string' && v.edit) m.edit = v.edit;
     if (typeof v.from === 'string' && v.from) m.from = v.from;
     if (typeof v.fromFile === 'string' && !Number.isNaN(Date.parse(v.fromFile))) m.fromFile = v.fromFile;
     return m;
@@ -586,7 +591,7 @@ export function loadWorld(id: string): StoredWorld | null {
   const m = readMeta(id);
   const at = m.opened && m.opened > save.savedAt ? m.opened : save.savedAt;
   const kv = store();
-  return { id, save, count: editCount(save.edits), thumb: kv.get(THUMB + id), draft: !!m.draft, at, alive: m.alive, base: m.draft ? m.base : undefined, map: !!m.map, mapThumb: kv.get(MAPTHUMB + id), ...(m.fromFile ? { fromFile: m.fromFile } : {}) };
+  return { id, save, count: editCount(save.edits), thumb: kv.get(THUMB + id), draft: !!m.draft, at, alive: m.alive, base: m.draft ? m.base : undefined, map: !!m.map, mapThumb: kv.get(MAPTHUMB + id), ...(m.draft && m.edit ? { edit: m.edit } : {}), ...(m.fromFile ? { fromFile: m.fromFile } : {}) };
 }
 
 /** 存过的世界,最近打开或改过的在前 */
@@ -626,6 +631,7 @@ function writeMeta(id: string, m: Meta): boolean {
   if (m.opened) v.opened = m.opened;
   if (m.alive !== undefined) v.alive = m.alive;
   if (m.draft && m.base) v.base = m.base;
+  if (m.draft && m.edit) v.edit = m.edit;
   if (m.map && !m.draft) v.map = true;
   if (m.from) v.from = m.from;
   // 自动存写本地信息时不带这一项(只在从文件打开时记一次),原来有的留着
@@ -1033,6 +1039,8 @@ interface Current {
   alive?: number;
   /** 新建中、以某个世界为底稿:原来那个世界 */
   base?: DraftBase;
+  /** 新建中、在修改一张存着的地图:那张地图的编号 */
+  edit?: string;
   /** 最近一次存下的修改(同一个对象不重复存) */
   saved: WorldEdits | null;
   /** 最近一次存下的投影设置 */
@@ -1232,7 +1240,7 @@ export function refreshThumb() {
 
 function metaOf(c: Current, opened?: string): Meta {
   const m = readMeta(c.id);
-  return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined, from: m.from };
+  return { draft: c.kind === 'draft', opened: opened ?? m.opened, alive: c.alive ?? m.alive, base: c.kind === 'draft' ? c.base : undefined, edit: c.kind === 'draft' ? c.edit : undefined, from: m.from };
 }
 
 const READONLY_EDIT = '这里的改动不会存。要留下，先另存一份';
@@ -1327,6 +1335,8 @@ export interface AttachSpec {
   pristine?: boolean;
   /** 新建中、以某个世界为底稿:原来那个世界 */
   base?: DraftBase | null;
+  /** 新建中、在修改一张存着的地图:那张地图的编号 */
+  edit?: string;
   /** 底稿出处(存着的世界、存档文件里带着的;打开别人的分享短链接时是那个链接)。新建中的没有 */
   origin?: SaveOrigin | null;
   /** 还没存着、来自旧版本的世界(分享链接、旧网址、存不进浏览器的存档文件):原来那一份(看原样用,第一次存进来时原样留着) */
@@ -1356,6 +1366,7 @@ export function attachWorld(spec: AttachSpec) {
     kind: spec.kind,
     pristine: spec.kind === 'draft' && !!spec.pristine,
     base: spec.kind === 'draft' ? (spec.base ?? undefined) : undefined,
+    edit: spec.kind === 'draft' ? spec.edit : undefined,
     saved: spec.saved,
     savedView: withGraticule(spec.view ?? prev?.view ?? DEFAULT_VIEW),
     // 新建中的没有底稿出处;两种例外,出处跟着(建好以后侧栏照样写):在别的世界的地图上打造的文明(地图出自那里)、
@@ -1452,10 +1463,7 @@ export function markCreated(): boolean {
 export function saveCurrentAsMap(): boolean {
   const c = current;
   if (!c || c.kind !== 'draft' || c.gone) return false;
-  const e = getEdits();
-  const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
-  // 出处跟着(照作品墙上的新建参数作品新建的:地图出自那套参数)
-  const save = makeSave(c.params, edits, c.check, undefined, undefined, currentView(), c.origin);
+  const save = mapSaveOf(c);
   const prev = store().get(PREFIX + c.id);
   if (!writeSave(c.id, save, { map: true, opened: save.savedAt })) {
     // 存档换成了只有地图的、本地信息却没写上:放回原来那份(还是没建完的,名字、文明的设定都在)
@@ -1470,6 +1478,45 @@ export function saveCurrentAsMap(): boolean {
   current = null;
   stopThumb();
   changed();
+  return true;
+}
+
+/** 当前世界只有地图的那一份:参数、地形修改、草图;出处跟着(照作品墙上的新建参数作品新建的:地图出自那套参数) */
+function mapSaveOf(c: Current): SaveFile {
+  const e = getEdits();
+  const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
+  return makeSave(c.params, edits, c.check, undefined, undefined, currentView(), c.origin);
+}
+
+/**
+ * 当前世界的地图存成只有地图的一份:id = 写回那张(要还是只存了地图的),不给 = 另存一张;当前世界照旧(接着打造文明的还要用)。
+ * 返回那一份的编号;那张不在了、写不下 = null,什么都不动
+ */
+export function saveCurrentMapTo(id?: string): string | null {
+  const c = current;
+  if (!c || c.kind !== 'draft' || c.gone) return null;
+  const to = id ?? newWorldId();
+  const old = store().get(PREFIX + to);
+  if (id && (old === null || !readMeta(id).map)) return null;
+  const save = mapSaveOf(c);
+  if (!writeSave(to, save, { map: true, opened: save.savedAt })) {
+    if (old !== null && store().get(PREFIX + to) !== old) put(PREFIX + to, old);
+    changed();
+    return null;
+  }
+  const url = take(thumbMaker, c.id, true);
+  const map = take(mapThumbMaker, c.id, true);
+  if (url) put(THUMB + to, url);
+  if (map) put(MAPTHUMB + to, map);
+  changed();
+  return to;
+}
+
+/** 修改一张存着的地图点了「保存修改」:写回那张地图(编号不变,缩略图重截),改的这一份删掉。写不回去 = false,什么都不动 */
+export function saveCurrentOverMap(): boolean {
+  const c = current;
+  if (!c?.edit || !saveCurrentMapTo(c.edit)) return false;
+  deleteWorld(c.id);
   return true;
 }
 

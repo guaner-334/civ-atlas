@@ -285,6 +285,7 @@ export function HomeShell({ onLeave, loadFailed = 0 }: { onLeave: LeaveHome; loa
           onNew={() => setNewDlg({})}
           onOpenText={(text, fileName) => leave({ kind: 'text', text, fileName })}
           onNewCiv={(id) => leave({ kind: 'newCiv', id })}
+          onEditMap={(id) => leave({ kind: 'editMap', id })}
           opening={waiting && (waiting.kind === 'open' || waiting.kind === 'newCiv') ? { id: waiting.id, pct } : null}
           onGallery={showWall}
           onOpenWork={(w) => openWork(w.id)}

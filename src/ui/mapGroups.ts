@@ -77,6 +77,9 @@ export const mapBrief = (head: StoredWorld) => mapBriefOf(head.save.params, head
 /** 一个文明的名字 */
 export const civName = (w: StoredWorld) => w.save.title || '未命名世界';
 
+/** 这张地图(组的编号)上的文明,连同新建中的 */
+export const civsOn = (list: readonly StoredWorld[], key: string): StoredWorld[] => list.filter((w) => !w.map && mapKeyOf(w) === key);
+
 /** 一张地图连同上面的文明,一共是哪几个存档 */
 export const groupIds = (g: Pick<MapGroup, 'map' | 'civs'>): string[] => [...(g.map ? [g.map.id] : []), ...g.civs.map((w) => w.id)];
 

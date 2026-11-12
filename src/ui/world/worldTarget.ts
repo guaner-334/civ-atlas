@@ -81,6 +81,8 @@ export interface Target {
   origin?: SaveOrigin | null;
   /** 新建时选的照手绘图生成(还没照图长出星球时靠它认;存下以后看草图里有没有那张图) */
   mode?: 'image';
+  /** 新建中、在修改一张存着的地图:那张地图的编号 */
+  edit?: string;
   /**
    * 在旧版本建的世界的地图上打造文明:那个世界存的地形校验。生成出来的地图和它对不上(现在的版本算出来不一样了)就不让打造
    */
@@ -138,6 +140,7 @@ export function storedTarget(w: StoredWorld, from: 'stored' | 'restore'): Target
     saved: w.save.edits,
     title: w.save.title,
     base: w.base ?? null,
+    ...(w.edit ? { edit: w.edit } : {}),
     pristine: false,
     view: from === 'restore' ? undefined : (w.save.view ?? null),
     from,

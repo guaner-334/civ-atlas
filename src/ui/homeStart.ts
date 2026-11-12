@@ -16,11 +16,13 @@ import type { SharedPreset } from './presetStore';
  *   gallery 去作品墙那一页(主程序没下好时这里先放出那一页,见 HomeShell.tsx)
  *   work    打开作品墙上的一个作品
  *   preset  作品墙上的新建参数作品点了「用这套参数新建」
+ *   editMap 地图面板上点了「修改地图」
  */
 export type HomeStart =
   | { kind: 'open'; id: string }
   | { kind: 'text'; text: string; fileName?: string }
   | { kind: 'newCiv'; id: string }
+  | { kind: 'editMap'; id: string }
   | { kind: 'dialog'; start: NewWorldStart }
   | { kind: 'gallery' }
   | { kind: 'work'; id: string }
