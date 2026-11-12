@@ -12,6 +12,7 @@
  */
 import { clamp } from './util';
 import { LAYER_H, LAYER_W, SKETCH_HILLS, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_SEA, SKETCH_SHELF } from './sketch';
+import { FINE_H, FINE_LAND, FINE_NONE, FINE_W, FINE_WATER, GREY_H, GREY_W } from './sketchFine';
 
 /** 解码好的图片:RGBA 逐行(和 canvas 的 ImageData 一样) */
 export interface Pixels {
@@ -54,11 +55,11 @@ const MIN_LAND_PIECE = 12;
  * 缩小、找线、转颜色。透明的地方当白纸。
  * 线在原图上找(细的铅笔线缩小以后就淡得看不出了):max(R, G, B) 比周围 7 × 7 里最亮的暗 LINE_DROP 以上的像素,缩小后它落在哪一格,那一格就算线
  */
-export function preparePicture(px: Pixels): Picture {
+export function preparePicture(px: Pixels, maxW = PICTURE_W): Picture {
   const W = Math.max(1, Math.floor(px.width));
   const H = Math.max(1, Math.floor(px.height));
   const d = px.data;
-  const w = Math.min(W, PICTURE_W);
+  const w = Math.min(W, maxW);
   const h = Math.max(1, Math.round((H * w) / W));
   const xs = new Int32Array(W);
   for (let x = 0; x < W; x++) xs[x] = Math.min(w - 1, Math.floor((x * w) / W));
@@ -381,6 +382,8 @@ export interface LevelOptions {
   dark?: boolean;
   /** 高低也照图:海平面往上按亮度分成陆地 / 丘陵 / 山地低中高,海平面往下一点是浅海;不给 = 只分海陆 */
   heights?: boolean;
+  /** 不先糊(照图原样认细图:糊了窄水道会被吃掉一圈) */
+  sharp?: boolean;
 }
 
 /** 高低也照图时,(灰度 − 海平面) / (255 − 海平面) 不到这几个数的依次是陆地、丘陵、山地低、山地中,其余是山地高 */
@@ -395,9 +398,15 @@ function levelGray(pic: Picture, dark?: boolean): Float32Array {
   return g;
 }
 
+function sharpGray(pic: Picture, dark?: boolean): Float32Array {
+  const g = pic.gray.slice();
+  if (dark) for (let i = 0; i < g.length; i++) g[i] = 255 - g[i];
+  return g;
+}
+
 /** 「按深浅」:返回每格的草图值 */
 export function levelsFrom(pic: Picture, o: LevelOptions): Uint8Array {
-  const g = levelGray(pic, o.dark);
+  const g = o.sharp ? sharpGray(pic, o.dark) : levelGray(pic, o.dark);
   const t = clamp(o.sea, 1, 254);
   const out = new Uint8Array(g.length);
   for (let i = 0; i < g.length; i++) {
@@ -416,8 +425,12 @@ export function levelsFrom(pic: Picture, o: LevelOptions): Uint8Array {
  * 刚打开「按深浅」时海平面放哪:先按大津法把灰度分成暗、亮两堆,再在 [0.4 × 分界, 分界] 里找灰度分布最低的地方
  * (高度图常见的海陆分界:海是一大片暗的,陆地从海边往上慢慢变亮)。返回 1–254 的整数
  */
-export function autoSeaLevel(pic: Picture, dark?: boolean): number {
+export function autoSeaLevel(pic: Picture, dark?: boolean, mid = false): number {
   const g = levelGray(pic, dark);
+  if (mid) {
+    const m = twoToneMid(g);
+    if (m !== null) return m;
+  }
   const hist = new Float64Array(256);
   for (let i = 0; i < g.length; i++) hist[Math.round(clamp(g[i], 0, 255))]++;
   // 大津法:让暗、亮两堆的类间方差最大的分界
@@ -452,6 +465,21 @@ export function autoSeaLevel(pic: Picture, dark?: boolean): number {
   let level = otsu;
   for (let k = Math.floor(0.4 * otsu); k <= otsu; k++) if (sm[k] < sm[level]) level = k;
   return clamp(Math.round(level), 1, 254);
+}
+
+/** 只有深浅两种颜色(九成以上的格子贴着最暗或最亮)的图:两种颜色正中间;不是这种图 = null */
+function twoToneMid(g: Float32Array): number | null {
+  let lo = 255;
+  let hi = 0;
+  for (let i = 0; i < g.length; i++) {
+    if (g[i] < lo) lo = g[i];
+    if (g[i] > hi) hi = g[i];
+  }
+  if (hi - lo < 64) return null;
+  const band = (hi - lo) / 6;
+  let n = 0;
+  for (let i = 0; i < g.length; i++) if (g[i] <= lo + band || g[i] >= hi - band) n++;
+  return n >= 0.9 * g.length ? clamp(Math.round((lo + hi) / 2), 1, 254) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,4 +591,65 @@ export function layerTrouble(s: LayerStats): 'specks' | 'sea' | 'land' | null {
 export function importWarning(s: LayerStats, mode: 'wand' | 'level', colorful: boolean): ImportWarning {
   const t = layerTrouble(s);
   return t && mode === 'level' && colorful ? 'colorful' : t;
+}
+
+// ---------------------------------------------------------------------------
+// 照图原样:细图和连续高低
+
+/** 照图原样认细图用的宽度(和细图一样宽) */
+export const FINE_PICTURE_W = FINE_W;
+
+/**
+ * 认出来的(w × h 格的草图值,一般是 FINE_PICTURE_W 宽的图认的)按放法铺到细图上:每一格取它中心落在图上那一格,
+ * 陆地类 = FINE_LAND,海、浅海 = FINE_WATER,没盖到 = FINE_NONE。放法和 placeOnLayer 一样
+ */
+export function placeOnFine(values: Uint8Array, w: number, h: number, p: Placement): Uint8Array {
+  const out = new Uint8Array(FINE_W * FINE_H);
+  const k = FINE_W / LAYER_W;
+  const r0 = placeRect(w, h, p);
+  const r = { x: r0.x * k, y: r0.y * k, w: r0.w * k, h: r0.h * k };
+  for (let fy = 0; fy < FINE_H; fy++) {
+    const sy = Math.floor(((fy + 0.5 - r.y) / r.h) * h);
+    if (sy < 0 || sy >= h) continue;
+    for (let fx = 0; fx < FINE_W; fx++) {
+      const dx = (((fx + 0.5 - r.x) % FINE_W) + FINE_W) % FINE_W;
+      const sx = Math.floor((dx / r.w) * w);
+      if (sx < 0 || sx >= w) continue;
+      const v = values[sy * w + sx];
+      out[fy * FINE_W + fx] = v === SKETCH_NONE ? FINE_NONE : v >= SKETCH_LAND ? FINE_LAND : FINE_WATER;
+    }
+  }
+  return out;
+}
+
+/**
+ * 照图原样的连续高低:亮度(dark = 暗的高)按放法铺到 GREY_W × GREY_H 上(双线性),海平面以下、没盖到 = 0,往上 1–255。
+ * 一格先看认出来的那张图(levels,pic 同大小)是不是陆地,不是陆地的 = 0
+ */
+export function greyLayer(pic: Picture, sea: number, dark: boolean | undefined, levels: Uint8Array, p: Placement): Uint8Array {
+  const g = levelGray(pic, dark);
+  const t = clamp(sea, 1, 254);
+  const out = new Uint8Array(GREY_W * GREY_H);
+  const k = GREY_W / LAYER_W;
+  const r0 = placeRect(pic.w, pic.h, p);
+  const r = { x: r0.x * k, y: r0.y * k, w: r0.w * k, h: r0.h * k };
+  for (let ly = 0; ly < GREY_H; ly++) {
+    const sy = ((ly + 0.5 - r.y) / r.h) * pic.h - 0.5;
+    if (sy < -0.5 || sy >= pic.h - 0.5) continue;
+    for (let lx = 0; lx < GREY_W; lx++) {
+      const dx = (((lx + 0.5 - r.x) % GREY_W) + GREY_W) % GREY_W;
+      const sx = (dx / r.w) * pic.w - 0.5;
+      if (sx < -0.5 || sx >= pic.w - 0.5) continue;
+      const x0 = clamp(Math.floor(sx), 0, pic.w - 1);
+      const y0 = clamp(Math.floor(sy), 0, pic.h - 1);
+      if (levels[y0 * pic.w + x0] < SKETCH_LAND) continue;
+      const x1 = Math.min(pic.w - 1, x0 + 1);
+      const y1 = Math.min(pic.h - 1, y0 + 1);
+      const fx = clamp(sx - x0, 0, 1);
+      const fy = clamp(sy - y0, 0, 1);
+      const v = (g[y0 * pic.w + x0] * (1 - fx) + g[y0 * pic.w + x1] * fx) * (1 - fy) + (g[y1 * pic.w + x0] * (1 - fx) + g[y1 * pic.w + x1] * fx) * fy;
+      out[ly * GREY_W + lx] = v < t ? 1 : Math.min(255, Math.round((254 * (v - t)) / (255 - t)) + 1);
+    }
+  }
+  return out;
 }

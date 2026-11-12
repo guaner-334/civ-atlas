@@ -637,7 +637,7 @@ export function makeSave(
   if (ai.length) save.edits.aiNames = Object.fromEntries(ai.map((k) => [k, { ...edits.aiNames![k] }]));
   // 草图:画了才写
   if (edits.sketch) {
-    const { rest, coast, fill, strokes, image, plates } = edits.sketch;
+    const { rest, coast, fill, strokes, image, plates, trace } = edits.sketch;
     save.edits.sketch = {
       rest,
       ...(coast !== undefined ? { coast } : {}),
@@ -645,6 +645,7 @@ export function makeSave(
       strokes: strokes.map((x) => ({ ...x, pts: x.pts.slice() })),
       ...(image ? { image: { ...image } } : {}),
       ...(plates ? { plates: JSON.parse(JSON.stringify(plates)) as PlateEdit } : {}),
+      ...(trace ? { trace } : {}),
     };
   }
   // 地形大事:有才写

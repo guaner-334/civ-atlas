@@ -20,6 +20,7 @@ import type { Mesh } from './mesh';
 import { clamp } from './util';
 import { TERRAIN_H, TERRAIN_W, nearLon, wrapLon } from './terrainOps';
 import { cleanPlates, samePlates, type PlateEdit } from './plateOps';
+import { FINE_H, FINE_LAND, FINE_NONE, FINE_W, FINE_WATER, decodeFine, decodeGrey } from './sketchFine';
 
 export const SKETCH_W = 1024;
 export const SKETCH_H = 512;
@@ -54,6 +55,18 @@ export interface Sketch {
   noNewLand?: true;
   /** 板块的改动(SketchEdit.plates) */
   plates?: PlateEdit;
+  /** 照图原样(SketchEdit.trace) */
+  trace?: true;
+  /** 照图原样时逐像素的海陆:FINE_W × FINE_H,值见 sketchFine.ts(FINE_NONE = 由程序定) */
+  mask?: Uint8Array;
+  /** 照图原样的连续高低 */
+  heights?: SketchHeights;
+}
+
+/** 连续高低:grey 见 sketchFine.ts;off = 草图格子上后来用笔涂过的(那里照笔的种类长,不照 grey) */
+export interface SketchHeights {
+  grey: Uint8Array;
+  off: Uint8Array | null;
 }
 
 /** 程序补全:只补细节 / 完全照画(随意发挥 = 不存) */
@@ -82,6 +95,10 @@ export interface SketchImage {
   cells: string;
   /** 铺在第几笔之后:前 at 笔先涂,然后铺这张图,剩下的笔画盖在它上面(不给 = 0,在所有笔画底下) */
   at?: number;
+  /** 照图原样:逐像素的海陆(编码见 sketchFine.ts) */
+  fine?: string;
+  /** 照图原样:连续高低(编码见 sketchFine.ts) */
+  grey?: string;
 }
 
 export interface SketchEdit {
@@ -97,6 +114,8 @@ export interface SketchEdit {
   image?: SketchImage;
   /** 「板块」页的改动(不给 = 没改板块) */
   plates?: PlateEdit;
+  /** 1 = 照图原样:海岸不扭不补,导入的图有 fine 时逐像素照它定海陆 */
+  trace?: 1;
 }
 
 /** 最多多少笔、一笔最多多少个点 */
@@ -242,9 +261,24 @@ export function cleanSketchImage(x: unknown, strokes: number, at?: number): Sket
   const a0 = at ?? num(o.at);
   const at1 = a0 === null ? 0 : Math.round(clamp(a0, 0, strokes));
   const out: SketchImage = at1 ? { name, cells: o.cells, at: at1 } : { name, cells: o.cells };
-  const same = name === o.name && out.at === o.at && Object.keys(o).length === Object.keys(out).length;
+  if (typeof o.fine === 'string' && fineOk(o.fine)) out.fine = o.fine;
+  if (typeof o.grey === 'string' && greyOk(o.grey)) out.grey = o.grey;
+  const same = name === o.name && out.at === o.at && out.fine === o.fine && out.grey === o.grey && Object.keys(o).length === Object.keys(out).length;
   return same ? (x as SketchImage) : out;
 }
+
+/** 读得出来的细图、高低记几份(加一笔就要清理一次草图,不用每次都整张解一遍) */
+const okFine: string[] = [];
+const okGrey: string[] = [];
+function remembered(list: string[], s: string, test: (s: string) => boolean): boolean {
+  if (list.includes(s)) return true;
+  if (!test(s)) return false;
+  list.push(s);
+  if (list.length > 4) list.shift();
+  return true;
+}
+const fineOk = (s: string) => remembered(okFine, s, (x) => !!decodeFine(x)?.some((v) => v !== FINE_NONE));
+const greyOk = (s: string) => remembered(okGrey, s, (x) => !!decodeGrey(x));
 
 /**
  * 清理一份草图:不是对象的 = null;笔画逐笔过 cleanSketchStroke(不合格的丢掉,最多 SKETCH_MAX_STROKES 笔);
@@ -257,6 +291,7 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   const o = x as Record<string, unknown>;
   const rest = o.rest === 'sea' || o.rest === 'noNewLand' ? o.rest : 'auto';
   const fill = o.fill === 'detail' || o.fill === 'exact' ? o.fill : undefined;
+  const trace = o.trace === 1 ? 1 : undefined;
   const c0 = num(o.coast);
   const coast = c0 === null ? SKETCH_COAST : Math.round(clamp(c0, 0, 1) * 100) / 100;
   const list = Array.isArray(o.strokes) ? (o.strokes as unknown[]) : [];
@@ -264,6 +299,7 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   let same = rest === o.rest && list === o.strokes && list.length <= SKETCH_MAX_STROKES;
   same = same && (coast === SKETCH_COAST ? !('coast' in o) : coast === o.coast);
   same = same && (fill ? fill === o.fill : !('fill' in o));
+  same = same && (trace ? true : !('trace' in o));
   // 导入的图铺在原来第几笔之后;丢掉了不合格的笔画时,换成它前面留下来的笔数(先后不变)
   const img = o.image && typeof o.image === 'object' ? (o.image as Record<string, unknown>) : null;
   const a0 = img ? num(img.at) : null;
@@ -281,20 +317,20 @@ export function cleanSketch(x: unknown): SketchEdit | null {
   same = same && (image ? image === o.image : !('image' in o));
   const plates = o.plates === undefined ? null : cleanPlates(o.plates);
   same = same && (plates ? plates === o.plates : !('plates' in o));
-  same = same && Object.keys(o).length === 2 + (coast === SKETCH_COAST ? 0 : 1) + (fill ? 1 : 0) + (image ? 1 : 0) + (plates ? 1 : 0);
+  same = same && Object.keys(o).length === 2 + (coast === SKETCH_COAST ? 0 : 1) + (fill ? 1 : 0) + (image ? 1 : 0) + (plates ? 1 : 0) + (trace ? 1 : 0);
   if (!strokes.length && !image && !plates && rest === 'auto') return null;
   if (same) return x as SketchEdit;
-  return { rest, ...(coast === SKETCH_COAST ? {} : { coast }), ...(fill ? { fill } : {}), strokes, ...(image ? { image } : {}), ...(plates ? { plates } : {}) };
+  return { rest, ...(coast === SKETCH_COAST ? {} : { coast }), ...(fill ? { fill } : {}), strokes, ...(image ? { image } : {}), ...(plates ? { plates } : {}), ...(trace ? { trace } : {}) };
 }
 
 /** 两份草图是不是一样(逐笔逐字段比;都没有也算一样) */
 export function sameSketch(a: SketchEdit | null | undefined, b: SketchEdit | null | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
-  if (a.rest !== b.rest || sketchCoast(a) !== sketchCoast(b) || sketchFill(a) !== sketchFill(b) || a.strokes.length !== b.strokes.length) return false;
+  if (a.rest !== b.rest || sketchCoast(a) !== sketchCoast(b) || sketchFill(a) !== sketchFill(b) || a.trace !== b.trace || a.strokes.length !== b.strokes.length) return false;
   const ia = a.image;
   const ib = b.image;
-  if (ia !== ib && (!ia || !ib || ia.name !== ib.name || ia.cells !== ib.cells || (ia.at ?? 0) !== (ib.at ?? 0))) return false;
+  if (ia !== ib && (!ia || !ib || ia.name !== ib.name || ia.cells !== ib.cells || (ia.at ?? 0) !== (ib.at ?? 0) || ia.fine !== ib.fine || ia.grey !== ib.grey)) return false;
   if (!samePlates(a.plates, b.plates)) return false;
   return a.strokes.every((x, i) => {
     const y = b.strokes[i];
@@ -307,8 +343,12 @@ export function sameSketch(a: SketchEdit | null | undefined, b: SketchEdit | nul
 
 /** 一笔涂到格子图上:离折线不超过半径的格子(按格子中心算)改成这支笔的值;fill 的再把圈里涂满。x 绕一圈取模 */
 function paint(grid: Uint8Array, s: SketchStroke) {
-  const v = valueOf(s);
-  const r = s.r / CELL;
+  paintOn(grid, SKETCH_W, SKETCH_H, CELL, s, valueOf(s));
+}
+
+/** 同 paint,涂到 gw × gh、一格 = 世界坐标 cell × cell 的格子图上,涂成 v */
+function paintOn(grid: Uint8Array, gw: number, gh: number, cell: number, s: SketchStroke, v: number) {
+  const r = s.r / cell;
   const r2 = r * r;
   const n = s.pts.length >> 1;
   // 一段 a → b(格子坐标);只有一个点 = a、b 重合,涂一个圆
@@ -317,19 +357,19 @@ function paint(grid: Uint8Array, s: SketchStroke) {
   for (let k = 0; k < segs; k++) {
     // 圈起来填满的那一笔,最后一段从终点连回起点
     const kb = s.fill ? (k + 1) % n : Math.min(k + 1, last);
-    const ax = s.pts[2 * k] / CELL;
-    const ay = s.pts[2 * k + 1] / CELL;
-    let bx = s.pts[2 * kb] / CELL;
-    const by = s.pts[2 * kb + 1] / CELL;
+    const ax = s.pts[2 * k] / cell;
+    const ay = s.pts[2 * k + 1] / cell;
+    let bx = s.pts[2 * kb] / cell;
+    const by = s.pts[2 * kb + 1] / cell;
     // 连回起点那一段:起点挪到离终点最近的那一圈
-    if (kb < k) bx += Math.round((ax - bx) / SKETCH_W) * SKETCH_W;
+    if (kb < k) bx += Math.round((ax - bx) / gw) * gw;
     const dx = bx - ax;
     const dy = by - ay;
     const len2 = dx * dx + dy * dy;
     const x0 = Math.floor(Math.min(ax, bx) - r);
     const x1 = Math.ceil(Math.max(ax, bx) + r);
     const y0 = Math.max(0, Math.floor(Math.min(ay, by) - r));
-    const y1 = Math.min(SKETCH_H - 1, Math.ceil(Math.max(ay, by) + r));
+    const y1 = Math.min(gh - 1, Math.ceil(Math.max(ay, by) + r));
     for (let gy = y0; gy <= y1; gy++) {
       const cy = gy + 0.5;
       for (let gx = x0; gx <= x1; gx++) {
@@ -338,41 +378,41 @@ function paint(grid: Uint8Array, s: SketchStroke) {
         const ex = cx - (ax + t * dx);
         const ey = cy - (ay + t * dy);
         if (ex * ex + ey * ey > r2) continue;
-        grid[gy * SKETCH_W + (((gx % SKETCH_W) + SKETCH_W) % SKETCH_W)] = v;
+        grid[gy * gw + (((gx % gw) + gw) % gw)] = v;
       }
     }
   }
-  if (s.fill) fillPolygon(grid, s.pts, v);
+  if (s.fill) fillPolygon(grid, gw, gh, cell, s.pts, v);
 }
 
 /**
  * 把一圈折线(世界坐标,x 已经是连续展开的)围住的格子涂成 v:逐行求和各条边的交点,按奇偶规则两两之间涂上(格子中心在圈里才算)。
  * x 绕一圈取模
  */
-function fillPolygon(grid: Uint8Array, pts: number[], v: number) {
+function fillPolygon(grid: Uint8Array, gw: number, gh: number, cell: number, pts: number[], v: number) {
   const n = pts.length >> 1;
   const xs: number[] = [];
   let ymin = Infinity;
   let ymax = -Infinity;
   for (let k = 0; k < n; k++) {
-    const y = pts[2 * k + 1] / CELL;
+    const y = pts[2 * k + 1] / cell;
     if (y < ymin) ymin = y;
     if (y > ymax) ymax = y;
   }
   const gy0 = Math.max(0, Math.floor(ymin));
-  const gy1 = Math.min(SKETCH_H - 1, Math.ceil(ymax));
+  const gy1 = Math.min(gh - 1, Math.ceil(ymax));
   // 终点连回起点:起点那一圈挪到终点附近
-  const lastX = pts[2 * (n - 1)] / CELL;
-  const firstX = pts[0] / CELL;
-  const closeX = firstX + Math.round((lastX - firstX) / SKETCH_W) * SKETCH_W;
+  const lastX = pts[2 * (n - 1)] / cell;
+  const firstX = pts[0] / cell;
+  const closeX = firstX + Math.round((lastX - firstX) / gw) * gw;
   for (let gy = gy0; gy <= gy1; gy++) {
     const cy = gy + 0.5;
     xs.length = 0;
     for (let k = 0; k < n; k++) {
-      const ax = pts[2 * k] / CELL;
-      const ay = pts[2 * k + 1] / CELL;
-      const bx = k + 1 < n ? pts[2 * k + 2] / CELL : closeX;
-      const by = k + 1 < n ? pts[2 * k + 3] / CELL : pts[1] / CELL;
+      const ax = pts[2 * k] / cell;
+      const ay = pts[2 * k + 1] / cell;
+      const bx = k + 1 < n ? pts[2 * k + 2] / cell : closeX;
+      const by = k + 1 < n ? pts[2 * k + 3] / cell : pts[1] / cell;
       if (ay <= cy === by <= cy) continue;
       xs.push(ax + ((cy - ay) / (by - ay)) * (bx - ax));
     }
@@ -380,7 +420,7 @@ function fillPolygon(grid: Uint8Array, pts: number[], v: number) {
     for (let q = 0; q + 1 < xs.length; q += 2) {
       const a = Math.ceil(xs[q] - 0.5);
       const b = Math.floor(xs[q + 1] - 0.5);
-      for (let gx = a; gx <= b; gx++) grid[gy * SKETCH_W + (((gx % SKETCH_W) + SKETCH_W) % SKETCH_W)] = v;
+      for (let gx = a; gx <= b; gx++) grid[gy * gw + (((gx % gw) + gw) % gw)] = v;
     }
   }
 }
@@ -397,6 +437,52 @@ function paintLayer(grid: Uint8Array, layer: Uint8Array) {
   }
 }
 
+/** 细图对齐草图格子的海陆:一格看细图的 2 × 2 格,多数是陆地而格子是水的改成陆地,多数是水而格子是陆地的改成海 */
+function fitFine(grid: Uint8Array, fine: Uint8Array) {
+  for (let gy = 0; gy < SKETCH_H; gy++) {
+    for (let gx = 0; gx < SKETCH_W; gx++) {
+      const i = 2 * gy * FINE_W + 2 * gx;
+      let land = 0;
+      let water = 0;
+      for (const v of [fine[i], fine[i + 1], fine[i + FINE_W], fine[i + FINE_W + 1]]) {
+        if (v === FINE_LAND) land++;
+        else if (v === FINE_WATER) water++;
+      }
+      const k = gy * SKETCH_W + gx;
+      const g = grid[k];
+      if (land > 2 || (land === 2 && water < 2)) {
+        if (g < SKETCH_LAND) grid[k] = SKETCH_LAND;
+      } else if (water >= 2 && g >= SKETCH_LAND) grid[k] = SKETCH_SEA;
+    }
+  }
+}
+
+/** 笔涂到细图上是什么:陆地类 = 陆地,海、浅海 = 水,擦掉 = 没盖到,群岛 = 交给程序 */
+const FINE_PROGRAM = 3;
+function fineValueOf(s: SketchStroke): number {
+  return s.kind === 'erase' ? FINE_NONE : s.kind === 'isles' ? FINE_PROGRAM : s.kind === 'sea' || s.kind === 'shelf' ? FINE_WATER : FINE_LAND;
+}
+
+/** 逐像素的海陆:前 at 笔、细图、后面的笔依次盖上去(同 sketchGrid 的先后),没盖到的照 rest */
+function fineMask(edit: SketchEdit, fine: Uint8Array, at: number): Uint8Array {
+  const m = new Uint8Array(FINE_W * FINE_H);
+  for (let k = 0; k < at; k++) paintOn(m, FINE_W, FINE_H, 1, edit.strokes[k], fineValueOf(edit.strokes[k]));
+  for (let i = 0; i < m.length; i++) if (fine[i] !== FINE_NONE) m[i] = fine[i];
+  for (let k = at; k < edit.strokes.length; k++) paintOn(m, FINE_W, FINE_H, 1, edit.strokes[k], fineValueOf(edit.strokes[k]));
+  const rest = edit.rest === 'sea' ? FINE_WATER : FINE_NONE;
+  for (let i = 0; i < m.length; i++) if (m[i] === FINE_NONE) m[i] = rest;
+  for (let i = 0; i < m.length; i++) if (m[i] === FINE_PROGRAM) m[i] = FINE_NONE;
+  return m;
+}
+
+/** 导入的图后面又用笔涂过的草图格子(没有 = null) */
+function strokedAfter(edit: SketchEdit, at: number): Uint8Array | null {
+  if (at >= edit.strokes.length) return null;
+  const g = new Uint8Array(SKETCH_W * SKETCH_H);
+  for (let k = at; k < edit.strokes.length; k++) paintOn(g, SKETCH_W, SKETCH_H, CELL, edit.strokes[k], 1);
+  return g;
+}
+
 /**
  * 草图涂成的格子图(生成用)。没有草图、或者涂完一格也没有(没涂的又交给程序)= null,和没画一样。
  * rest = 'sea' 时没涂的格子当海:什么也没画就是一颗全是海的星球;rest = 'noNewLand' 时什么也没画也一样(没有能连上的陆地)
@@ -406,14 +492,22 @@ export function sketchGrid(edit: SketchEdit | null | undefined): Sketch | null {
   const grid = new Uint8Array(SKETCH_W * SKETCH_H);
   const layer = edit.image ? decodeLayer(edit.image.cells) : null;
   const at = layer ? Math.min(edit.image!.at ?? 0, edit.strokes.length) : edit.strokes.length;
+  const fine = edit.trace && layer && edit.image!.fine ? decodeFine(edit.image!.fine) : null;
   for (let k = 0; k < at; k++) paint(grid, edit.strokes[k]);
   if (layer) paintLayer(grid, layer);
+  if (fine) fitFine(grid, fine);
   for (let k = at; k < edit.strokes.length; k++) paint(grid, edit.strokes[k]);
   if (edit.rest === 'sea') for (let i = 0; i < grid.length; i++) if (grid[i] === SKETCH_NONE) grid[i] = SKETCH_SEA;
   const out: Sketch = { grid, coast: sketchCoast(edit) };
   if (edit.fill === 'detail' || edit.fill === 'exact') out.fill = edit.fill;
   if (edit.rest === 'noNewLand') out.noNewLand = true;
   if (edit.plates) out.plates = edit.plates;
+  if (edit.trace) {
+    out.trace = true;
+    if (fine) out.mask = fineMask(edit, fine, at);
+    const grey = layer && edit.image!.grey ? decodeGrey(edit.image!.grey) : null;
+    if (grey) out.heights = { grey, off: strokedAfter(edit, at) };
+  }
   return sketchUsed(out) ? out : null;
 }
 

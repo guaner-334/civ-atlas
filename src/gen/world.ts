@@ -40,7 +40,8 @@ import {
   riversAt,
   volcanoPeaks,
 } from './terrainEdits';
-import { sketchUsed, type Sketch } from './sketch';
+import { SKETCH_LAND, sketchCells, sketchUsed, type Sketch } from './sketch';
+import { greyRise, heightAt } from './sketchHeights';
 import { samePlates } from './plateEdits';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
 import { climateHooks, hasStage, heightHooks, layerHooks, mapPluginKeys, mapStageNote, type MapLayer, type MapPlugin } from './mapHooks';
@@ -173,6 +174,7 @@ export interface BaseCache {
 const isShapeOp = (o: TerrainOp) => o.kind === 'volcano' || o.kind === 'range' || o.kind === 'raise' || o.kind === 'sink';
 const baseKeyOf = (p: WorldParams, shapes: readonly TerrainOp[], plugins: readonly MapPlugin[]) =>
   JSON.stringify([Object.entries(p).sort(([a], [b]) => (a < b ? -1 : 1)), shapes, ...(plugins.length ? [mapPluginKeys(plugins)] : [])]);
+const sameArr = (a: Uint8Array | undefined, b: Uint8Array | undefined) => a === b || (!!a && !!b && a.length === b.length && a.every((v, i) => v === b[i]));
 const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
   a === b ||
   (!!a &&
@@ -180,6 +182,10 @@ const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
     a.coast === b.coast &&
     a.fill === b.fill &&
     a.noNewLand === b.noNewLand &&
+    a.trace === b.trace &&
+    sameArr(a.mask, b.mask) &&
+    sameArr(a.heights?.grey, b.heights?.grey) &&
+    sameArr(a.heights?.off ?? undefined, b.heights?.off ?? undefined) &&
     samePlates(a.plates, b.plates) &&
     a.grid.length === b.grid.length &&
     a.grid.every((v, i) => v === b.grid[i]));
@@ -424,6 +430,7 @@ function* growTerrain(
     for (const i of cut) fr[i] += (base[i] - plateau[i]) * g;
   }
   const elevation = toMeters(h, peak, base);
+  if (sk?.heights) pullToGrey(mesh, land, elevation, sk.heights);
   history.push(elevation.slice());
   yield;
 
@@ -468,6 +475,19 @@ function* growTerrain(
   }
   const top = planet ? planet.peak : landPeak(land, elevation);
   return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, peak: top, highLand, refs };
+}
+
+/** 照图原样的连续高低:侵蚀完的海拔往图的亮度拉回一半(山脊、河谷留着,高低照图) */
+const GREY_PULL = 0.5;
+const GREY_TOP_M = 4200;
+const GREY_BASE_M = 20;
+function pullToGrey(mesh: World['mesh'], land: Uint8Array, elevation: Float32Array, hs: NonNullable<Sketch['heights']>) {
+  for (let i = 0; i < mesh.n; i++) {
+    if (!land[i]) continue;
+    const v = heightAt(hs, mesh.x[i], mesh.y[i], mesh.width, mesh.height);
+    if (!(v > 0)) continue;
+    elevation[i] = GREY_PULL * (GREY_BASE_M + GREY_TOP_M * greyRise(v)) + (1 - GREY_PULL) * elevation[i];
+  }
 }
 
 /**
@@ -583,6 +603,8 @@ export function* generateWorldSteps(
   }
   // 太大的湖(平原上的浅洼地被整片灌满)不自然:填成平地
   const maxLake = Math.max(40, Math.round(highLand * 0.004));
+  // 照图原样:图上是陆地的地方不另长湖
+  const drawnLand = sk?.trace ? sketchCells(mesh, sk.grid) : null;
   const seen = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     if (water[i] !== 2 || seen[i]) continue;
@@ -598,7 +620,8 @@ export function* generateWorldSteps(
         }
       }
     }
-    if (comp.length > maxLake && !(userLake && comp.some((c) => userLake[c])) && !(painted && comp.some((c) => painted[c]))) {
+    const drawn = !!drawnLand && comp.some((c) => drawnLand[c] >= SKETCH_LAND);
+    if ((comp.length > maxLake || drawn) && !(userLake && comp.some((c) => userLake[c])) && !(painted && comp.some((c) => painted[c]))) {
       for (const c of comp) {
         water[c] = 0;
         elevation[c] = pool.filled[c] - 1;

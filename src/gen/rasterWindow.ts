@@ -14,7 +14,7 @@
  */
 import type { World } from './world';
 import type { Raster } from './raster';
-import { bankBytes, carveValleys, noiseTiles, rasterBase, sampleSpline, shadeSphere, stampVeins, streamsOf, valleyLines, veinLinesOf, type SphereGrid, type ValleyLines } from './raster';
+import { bankBytes, carveValleys, coastOf, noiseTiles, rasterBase, sampleSpline, shadeSphere, stampVeins, streamsOf, valleyLines, veinLinesOf, type CoastMask, type SphereGrid, type ValleyLines } from './raster';
 import type { DrainLines } from './pixelDrain';
 import { Gullies } from './gully';
 import { subSeed } from './util';
@@ -57,6 +57,8 @@ export interface ZoomSource {
   iceTone: Uint8Array;
   /** 入海的河口(放大后海岸照它们凹出喇叭口、长出三角洲,见 estuary.ts) */
   mouths: Mouth[];
+  /** 照图原样的海岸(没有 = null) */
+  coast: CoastMask | null;
 }
 
 /** 准备放大现算:whole = 这个世界的整张主图(1 倍;只取海冰和细沟,细沟的线没带来就现算) */
@@ -91,6 +93,7 @@ export function zoomSource(world: World, whole: Pick<Raster, 'w' | 'h' | 'scale'
     ice: whole.ice,
     iceConc: whole.iceConc,
     iceTone: whole.iceTone,
+    coast: coastOf(world),
   };
 }
 
@@ -160,8 +163,9 @@ export function rasterizeWindow(src: ZoomSource, S: number, x0: number, y0: numb
     win: { x0, y0, W, H },
   };
   const zoom = { gullies: src.gullies, base: src.base, w: src.bw, h: src.bh, x0, y0, S: W / src.bw };
-  shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, src.spacing, null, zoom);
-  stampEstuaries(out, src.mouths, src.threshold, src.width, S, x0, y0);
+  shadeSphere(out, tri, wa, wb, src.planes, base, carve, calm, src.dTile, src.jTile, g, src.R, src.spacing, null, zoom, null, src.coast);
+  // 照图原样:海岸不凹喇叭口、不长三角洲
+  if (!src.coast) stampEstuaries(out, src.mouths, src.threshold, src.width, S, x0, y0);
   out.bank = bankBytes(calm);
   out.vein = new Uint8Array(N);
   stampVeins(src.veins, S, w, h, out.vein, x0, y0, W);

@@ -27,6 +27,7 @@ import type { TradeEvent } from './civ/trade';
 import { END_YEAR_MAX } from './edits';
 import { PARAM_RANGE, SAVE_FORMAT, parseSave } from './savefile';
 import { SKETCH_H, SKETCH_W } from './sketch';
+import { FINE_H, FINE_LAND, FINE_W, GREY_H, GREY_W } from './sketchFine';
 import { LOCAL_HEAD_MAX_BYTES, LOCAL_PART_MAX_BYTES, checkDepth, partLimit } from './snapshot';
 import { TERRAIN_MAX_OPS, cleanTerrainOp } from './terrainOps';
 import { MAP_H, MAP_W, type World } from './world';
@@ -538,6 +539,13 @@ function checkWorldBody(w: Obj, n: number, at: string): void {
     const s = obj(w.sketch, `${at}的 sketch`);
     typed(s.grid, Uint8Array, `${at}的 sketch.grid`, SKETCH_W * SKETCH_H);
     num(s.coast, `${at}的 sketch.coast`);
+    if (s.trace !== undefined && s.trace !== true) broken(`${at}的 sketch.trace 不对`);
+    if (s.mask !== undefined && typed(s.mask, Uint8Array, `${at}的 sketch.mask`, FINE_W * FINE_H).some((v) => v > FINE_LAND)) broken(`${at}的 sketch.mask 认不出`);
+    if (s.heights !== undefined) {
+      const hs = obj(s.heights, `${at}的 sketch.heights`);
+      typed(hs.grey, Uint8Array, `${at}的 sketch.heights.grey`, GREY_W * GREY_H);
+      if (hs.off !== null) typed(hs.off, Uint8Array, `${at}的 sketch.heights.off`, SKETCH_W * SKETCH_H);
+    }
   }
   if (w.mapPlugins !== undefined) {
     const keys = list(w.mapPlugins, `${at}的 mapPlugins`);

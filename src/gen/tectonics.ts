@@ -41,7 +41,9 @@ import { MinHeap, smoothstep, subSeed, mulberry32, clamp, hypot2, keyed } from '
 import { geometryOf, type PlateMotion, type SurfaceNoise } from './geometry';
 import { connectInlandSeas } from './inlandSea';
 import { round24 } from './civ/engine/rand';
-import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SHELF, decodeLayer, sketchAt, sketchPainted, type Sketch } from './sketch';
+import { SKETCH_HILLS, SKETCH_ISLES, SKETCH_LAND, SKETCH_MOUNTAIN, SKETCH_NONE, SKETCH_PLATEAU, SKETCH_SEA, SKETCH_SHELF, decodeLayer, sketchAt, sketchPainted, type Sketch } from './sketch';
+import { greyRise, heightAt } from './sketchHeights';
+import { FINE_LAND, FINE_W, FINE_WATER } from './sketchFine';
 import { PLATE_IMAGE_MAX, applyPlateImage, applyPlateOps, type PlateEdit, type PlateState } from './plateEdits';
 
 export interface TectonicParams {
@@ -501,6 +503,8 @@ const SK_MTN_U = 1.25;
 const SK_MTN_H = [0.6, 1, 1.55];
 /** 完全照画:涂过的陆地处处一样的抬升(比一般平原的基础抬升低,长出来是平的) */
 const SK_EXACT_U = 0.012;
+/** 照图原样的连续高低:最亮处的抬升(× 山的高低参数) */
+const SK_GREY_U = 1.4;
 /** 草图上涂的丘陵:抬升 */
 const SK_HILLS_U = 0.2;
 /** 草图上涂的高原:底座(米) */
@@ -999,6 +1003,19 @@ function buildFrame(mesh: Mesh, p: TectonicParams, pe: PlateEdit | undefined): F
   return { plate, P, vxOut, vyOut, motion, plateContinental, convergence, conv, div, sideOf, divSources, hot, B, land, noise, ramp, thin, soft, softW };
 }
 
+/** 照图原样时地块取的草图值:不扭;有逐像素海陆时海陆照它(格子的种类留着) */
+function traceAt(sketch: Sketch, x: number, y: number, W: number, H: number): number {
+  const v = sketchAt(sketch.grid, x, y, W, H);
+  const m = sketch.mask;
+  if (!m) return v;
+  const fx = ((Math.floor(x) % FINE_W) + FINE_W) % FINE_W;
+  const fy = Math.min(m.length / FINE_W - 1, Math.max(0, Math.floor(y)));
+  const f = m[fy * FINE_W + fx];
+  if (f === FINE_LAND && v < SKETCH_LAND && v !== SKETCH_ISLES) return SKETCH_LAND;
+  if (f === FINE_WATER && v >= SKETCH_LAND) return SKETCH_SEA;
+  return v;
+}
+
 /**
  * sketch:作者的草图(sketch.ts)。没有 / 全是 0 = 和不给一样(结果逐字节不变)
  */
@@ -1022,6 +1039,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
   let sk: Uint8Array | null = null;
   /** 草图涂上去以前的海陆(画了草图才记;下面凿通 / 填平封闭内海以后就是不画草图时的海陆) */
   let landPre: Uint8Array | null = null;
+  const hs = sketch?.heights ?? null;
   if (sketchPainted(sketch)) {
     landPre = land.slice();
     // 每个地块在扭过的位置上取草图的值
@@ -1029,7 +1047,12 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     const cp = clamp(sketch.coast, 0, 1);
     const warp = SK_WARP_MIN + (SK_WARP - SK_WARP_MIN) * cp;
     const fine = SK_FINE_MIN + (SK_FINE - SK_FINE_MIN) * cp;
+    const trace = !!sketch.trace;
     for (let i = 0; i < n; i++) {
+      if (trace) {
+        sk[i] = traceAt(sketch, mesh.x[i], mesh.y[i], W, mesh.height);
+        continue;
+      }
       geo.moveCell(q, i, warp * nz.warpX.at(i), warp * nz.warpY.at(i));
       sk[i] = sketchAt(sketch.grid, q[0], q[1], W, mesh.height);
     }
@@ -1059,10 +1082,11 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
       const sd = want[i] ? ed[i] : -ed[i];
       const rug = 0.25 + 1.35 * smoothstep(-0.35, 0.45, nz.rug.at(i));
       // 群岛那片的海岸就是岛屿噪声本身,不再加细碎噪声(否则一个个小岛会被推得连成一片)
-      if (v === SKETCH_ISLES) land[i] = want[i];
+      if (v === SKETCH_ISLES || trace) land[i] = want[i];
       else land[i] = v >= SKETCH_MOUNTAIN || sd + fine * rug * nz.coastF.at(i) > 0 ? 1 : 0;
       if (Number.isFinite(sd)) B[i] = ftanh(sd / ramp);
       else B[i] = want[i] ? 1 : -1;
+      if (hs && heightAt(hs, mesh.x[i], mesh.y[i], W, mesh.height) > 0) continue;
       if (v >= SKETCH_MOUNTAIN) mtn[i] = SK_MTN_H[v - SKETCH_MOUNTAIN];
       else if (v === SKETCH_HILLS) hil[i] = 1;
       else if (v === SKETCH_PLATEAU) pla[i] = 1;
@@ -1186,6 +1210,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     // + 草图自己涂的山地、丘陵、高原
     if (fixed && fixed[i]) {
       let U = exact ? SK_EXACT_U : 0.016 + 0.018 * soft * (nz.baseU.at(i) + 1);
+      if (hs) U += mf * SK_GREY_U * greyRise(heightAt(hs, mesh.x[i], mesh.y[i], W, mesh.height));
       if (skMtn && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * nz.skRidge.at(i));
       if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * nz.skHills.at(i));
       uplift[i] = U;
@@ -1215,6 +1240,7 @@ export function buildTectonics(mesh: Mesh, p: TectonicParams, sketch?: Sketch | 
     U *= 1 - 0.75 * div.str[i] * band(div.dist[i], 20) * contF;
     // 草图上涂的山地:一片山,里面是山脊噪声(高低起伏、有走向),交给侵蚀刻出山谷
     if (skMtn && skMtn[i] > 0) U += mf * SK_MTN_U * skMtn[i] * (0.35 + 0.9 * nz.skRidge.at(i));
+    if (hs) U += mf * SK_GREY_U * greyRise(heightAt(hs, mesh.x[i], mesh.y[i], W, mesh.height));
     // 草图上涂的丘陵:一片低矮的起伏
     if (skHills && skHills[i] > 0) U += SK_HILLS_U * skHills[i] * (0.6 + 0.4 * nz.skHills.at(i));
     uplift[i] = U;

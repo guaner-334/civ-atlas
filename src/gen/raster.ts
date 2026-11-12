@@ -34,6 +34,7 @@ export { bankBytes, carveValleys, valleyLines, type ValleyLines } from './valley
 import { veinsOf, type DrainLines, type Streams, type VeinJob } from './pixelDrain';
 import { creeksOf } from './creeks';
 import { boxSpans, inBox, type PixelBox } from './pixelBox';
+import { FINE_LAND, FINE_NONE, FINE_W } from './sketchFine';
 export { stampVeins, veinLinesOf, veinsOf, type VeinJob } from './pixelDrain';
 
 export interface Raster {
@@ -654,11 +655,12 @@ function* rasterizeRawSteps(world: World, scale: number, gully: boolean, lines?:
   const job = gully ? newGullyJob(subSeed(world.params.seed, 'gully'), w, h, R, scale) : null;
   // 逐像素按整行分段铺(一个像素只看输入,和一口气整张铺逐位相同;沟壑要算的像素照样按行记进 job)
   const rows = Math.max(1, Math.floor(SHADE_STEP / w));
+  const coast = coastOf(world);
   for (let y = 0; y < h; y += rows) {
-    shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, world.mesh.spacing, job, null, { x0: 0, y0: y, w, h: Math.min(rows, h - y) });
+    shadeSphere(out, b.tri, b.wa, b.wb, b.planes, b.elev, carve, calm, dTile, jTile, b.g, R, world.mesh.spacing, job, null, { x0: 0, y0: y, w, h: Math.min(rows, h - y) }, coast);
     yield;
   }
-  dropSpecks(out, Math.round(SPECK_MAX * scale * scale));
+  if (!coast) dropSpecks(out, Math.round(SPECK_MAX * scale * scale));
   yield;
   out.bank = bankBytes(calm);
   seaIcePixels(world, out);
@@ -675,6 +677,73 @@ function* rasterizeRawSteps(world: World, scale: number, gully: boolean, lines?:
     riverThreshold: world.riverThreshold,
   };
   return { raster: out, job, veins, inputs };
+}
+
+/**
+ * 照图原样的海岸(草图的逐像素海陆糊过一点,放大时双线性取样、海岸是圆的):FINE_W × FINE_H,
+ * 0–COAST_FULL = 陆地的程度,COAST_FREE = 这里由程序定
+ */
+export interface CoastMask {
+  soft: Uint8Array;
+  w: number;
+  h: number;
+}
+const COAST_FULL = 250;
+const COAST_FREE = 255;
+const coastMasks = new WeakMap<Uint8Array, CoastMask>();
+
+/** 世界照图原样、有逐像素海陆时的海岸(没有 = null) */
+export function coastOf(world: World): CoastMask | null {
+  const m = world.sketch?.trace ? world.sketch.mask : undefined;
+  if (!m) return null;
+  let c = coastMasks.get(m);
+  if (!c) coastMasks.set(m, (c = softCoast(m)));
+  return c;
+}
+
+function softCoast(m: Uint8Array): CoastMask {
+  const w = FINE_W;
+  const h = m.length / w;
+  const a = new Float32Array(w * h);
+  const b = new Float32Array(w * h);
+  for (let k = 0; k < a.length; k++) a[k] = m[k] === FINE_LAND ? 1 : 0;
+  // [1 2 1] / 4 横竖各两遍(东西相连)
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < h; y++) {
+      const r = y * w;
+      for (let x = 0; x < w; x++) b[r + x] = 0.25 * a[r + (x === 0 ? w - 1 : x - 1)] + 0.5 * a[r + x] + 0.25 * a[r + (x === w - 1 ? 0 : x + 1)];
+    }
+    for (let y = 0; y < h; y++) {
+      const u = (y === 0 ? 0 : y - 1) * w;
+      const d = (y === h - 1 ? h - 1 : y + 1) * w;
+      const r = y * w;
+      for (let x = 0; x < w; x++) a[r + x] = 0.25 * b[u + x] + 0.5 * b[r + x] + 0.25 * b[d + x];
+    }
+  }
+  const soft = new Uint8Array(w * h);
+  for (let k = 0; k < soft.length; k++) soft[k] = m[k] === FINE_NONE ? COAST_FREE : Math.round(a[k] * COAST_FULL);
+  return { soft, w, h };
+}
+
+/** 主图(scale 像素 / 世界单位)第 (gx, gy) 个像素照图是陆地(1)、水(0),还是由程序定(-1) */
+function coastAt(c: CoastMask, gx: number, gy: number, scale: number): number {
+  const x = (gx + 0.5) / scale - 0.5;
+  const y = Math.min(c.h - 1, Math.max(0, (gy + 0.5) / scale - 0.5));
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const fx = x - x0;
+  const fy = y - y0;
+  const xa = ((x0 % c.w) + c.w) % c.w;
+  const xb = xa === c.w - 1 ? 0 : xa + 1;
+  const ya = y0 * c.w;
+  const yb = Math.min(c.h - 1, y0 + 1) * c.w;
+  const s = c.soft;
+  const p = s[ya + xa];
+  const q = s[ya + xb];
+  const u = s[yb + xa];
+  const v = s[yb + xb];
+  if (p === COAST_FREE || q === COAST_FREE || u === COAST_FREE || v === COAST_FREE) return -1;
+  return (p * (1 - fx) + q * fx) * (1 - fy) + (u * (1 - fx) + v * fx) * fy >= COAST_FULL / 2 ? 1 : 0;
 }
 
 /**
@@ -1150,6 +1219,7 @@ export function shadeSphere(
   job: GullyJob | null,
   zoom: ZoomBase | null = null,
   rect: PixelBox | null = null,
+  coast: CoastMask | null = null,
 ) {
   const { w, h, scale } = out;
   const ry0 = rect ? rect.y0 : 0;
@@ -1163,7 +1233,10 @@ export function shadeSphere(
   const FJ = JITTER_SIZE / 18 / 40;
   const fine2 = !!zoom && scale >= 2;
   const fine4 = !!zoom && scale >= 4;
-  const coarse = Math.min(2, Math.max(0, (spacing - COAST_FINE) / COAST_STEP));
+  // 照图原样:海岸不挪(海陆另照图定)
+  const coarse = coast ? 0 : Math.min(2, Math.max(0, (spacing - COAST_FINE) / COAST_STEP));
+  const gx0 = zoom ? zoom.x0 : 0;
+  const gy0 = zoom ? zoom.y0 : 0;
   let ti = 0;
   for (let py = ry0; py < ry1; py++) {
     const row = py * w;
@@ -1226,7 +1299,7 @@ export function shadeSphere(
         if (cw > 0.01) {
           rug = P[o + 15] * fx + P[o + 16] * fy + P[o + 17];
           const flat = coarse * (1 - rug);
-          const sD = (scale * smoothstep(0.01, 0.5, cw)) / DETAIL_STD;
+          const sD = coast ? 0 : (scale * smoothstep(0.01, 0.5, cw)) / DETAIL_STD;
           const D = (1.2 + 3.5 * rug) * sD;
           let wx = tri3(dTile, DETAIL_SIZE, 1, 211.3);
           let wy = tri3(dTile, DETAIL_SIZE, 1, 53.9);
@@ -1292,8 +1365,18 @@ export function shadeSphere(
         }
         if (zoom) ee = eg;
       }
+      let wtr = isLake ? 2 : ee < 0 ? 1 : 0;
+      if (coast) {
+        const c = coastAt(coast, gx0 + px, gy0 + py, scale);
+        if (c === 1) {
+          if (ee < 2) ee = 2;
+          wtr = 0;
+        } else if (c === 0 && !isLake) {
+          if (ee >= 0) ee = -2;
+          wtr = 1;
+        }
+      }
       oElev[k] = ee;
-      const wtr = isLake ? 2 : ee < 0 ? 1 : 0;
       oWater[k] = wtr;
       const j = tri3(jTile, JITTER_SIZE, FJ, 3.7);
       const t = P[o + 9] * fx + P[o + 10] * fy + P[o + 11] - LAPSE * Math.max(0, wtr === 1 ? 0 : ee) + 1.2 * j;
