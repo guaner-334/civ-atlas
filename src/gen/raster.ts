@@ -583,6 +583,8 @@ export interface RasterInputs {
   sElev: Float32Array;
   rivers: readonly { pts: Float32Array }[];
   riverThreshold: number;
+  /** 照图原样的海岸(没有 = null) */
+  coast?: CoastMask | null;
 }
 
 /** cover 是不是这个网格、这么大的主图的(网格对象换了也逐个比:重新生成出来的同一张网格照样认) */
@@ -675,6 +677,7 @@ function* rasterizeRawSteps(world: World, scale: number, gully: boolean, lines?:
     sElev: b.sElev,
     rivers: world.rivers,
     riverThreshold: world.riverThreshold,
+    coast,
   };
   return { raster: out, job, veins, inputs };
 }
@@ -914,7 +917,7 @@ export function rasterInputs(world: World, cover: Cover, prev?: RasterInputs): R
     calm = new Float32Array(N);
     carveValleys(valleyLines(world.rivers, world.riverThreshold, world.width), world.riverThreshold, 1, w, h, carve, calm);
   }
-  return { base, carve, calm, planes, cover: { ...cover, mesh }, sElev: f.sElev, rivers: world.rivers, riverThreshold: world.riverThreshold };
+  return { base, carve, calm, planes, cover: { ...cover, mesh }, sElev: f.sElev, rivers: world.rivers, riverThreshold: world.riverThreshold, coast: coastOf(world) };
 }
 
 /** 两个数组逐位相同 */
@@ -1368,7 +1371,8 @@ export function shadeSphere(
       let wtr = isLake ? 2 : ee < 0 ? 1 : 0;
       if (coast) {
         const c = coastAt(coast, gx0 + px, gy0 + py, scale);
-        if (c === 1) {
+        // 照图的陆地上还剩的湖是作者自己挖的(程序的湖生成时已经填掉),留着
+        if (c === 1 && !isLake) {
           if (ee < 2) ee = 2;
           wtr = 0;
         } else if (c === 0 && !isLake) {

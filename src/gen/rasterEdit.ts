@@ -247,5 +247,16 @@ function inputChange(a: RasterInputs, b: RasterInputs, W: number, H: number): Pi
     const y = (k / W) | 0;
     mark(y, k - y * W);
   }
+  // 照图原样的海岸:海陆照它逐像素定,地块没变也可能变(两张都是 1 倍主图大小,下标对得上)
+  const ca = a.coast?.soft;
+  const cb = b.coast?.soft;
+  if (ca !== cb) {
+    if (!ca || !cb || ca.length !== W * H || cb.length !== W * H) return { x0: 0, y0: 0, w: W, h: H };
+    for (let k = 0; k < ca.length; k++) {
+      if (ca[k] === cb[k]) continue;
+      const y = (k / W) | 0;
+      mark(y, k - y * W);
+    }
+  }
   return boxOfCols(col, y0, y1);
 }

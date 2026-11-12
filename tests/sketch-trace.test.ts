@@ -186,6 +186,29 @@ describe('长出来的海陆', () => {
     expect(got.water[450 * FINE_W + 900]).not.toBe(0);
   });
 
+  it('只改了细图(两个地块中间涂一座小岛):按块重铺也画出来,和整张重铺逐位相同', () => {
+    const finish = (d: ReturnType<typeof rasterizeDeferred>) => {
+      finishGully(d.raster, d.job, gullyHeights(d.job, 0, d.job.n));
+      finishVeins(d.raster, veinsOf(d.veins));
+      return d.raster;
+    };
+    const d0 = rasterizeDeferred(traced, 1);
+    const keep = { raster: finish(d0), inputs: d0.inputs };
+    const w1 = generateWorld(PARAMS, undefined, [], sketchGrid({ ...TRACED, strokes: [{ kind: 'land', r: 2, pts: [1702, 801] }] }));
+    const t = rasterizePatch(w1, keep);
+    if (!t || !('job' in t)) throw new Error('没按块重铺');
+    const got = finish(t);
+    const full = finish(rasterizeDeferred(w1, 1));
+    expect(full.water[801 * FINE_W + 1702]).toBe(0);
+    expect(Buffer.from(got.water.buffer).equals(Buffer.from(full.water.buffer))).toBe(true);
+  });
+
+  it('作者在照图的陆地上挖的湖留着', () => {
+    const w = generateWorld(PARAMS, undefined, [{ kind: 'lake', pts: [760, 560], r: 16, s: 0.7 }], sketchGrid(TRACED));
+    const r = rasterize(w, 1, false);
+    expect(r.water[560 * FINE_W + 760]).toBe(2);
+  });
+
   it('图后面用笔涂的几笔照样改海陆(海里涂陆地、陆地上涂海)', () => {
     const strokes = [
       { kind: 'land' as const, r: 12, pts: [1700, 300] },
