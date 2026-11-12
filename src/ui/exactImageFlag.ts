@@ -1,7 +1,7 @@
 /**
  * 照手绘图新建第 1 步的「海岸:照图原样 / 自然一些」开没开。
  *
- * 默认关;测试网站和本机开发的网址带 exactimage=on 能在这个标签页里临时打开。
+ * 测试网站一直开着,正式网站关着;本机开发的网址带 exactimage=on 能在这个标签页里临时打开。
  */
 import { BETA_SITE } from './oldSite';
 
@@ -21,15 +21,16 @@ function askedHere(): boolean {
   }
 }
 
-const TRYABLE = BETA_SITE || !!import.meta.env?.DEV;
+const TRYABLE = !!import.meta.env?.DEV;
 let asked: boolean | null = null;
 
 /** 照图原样那一行开没开 */
 export function exactImageOn(): boolean {
+  if (BETA_SITE) return true;
   if (!TRYABLE) return false;
   asked ??= askedHere();
   return asked;
 }
 
 // 网址里的参数要在网站第一次换网址之前读到
-if (TRYABLE && typeof location !== 'undefined') exactImageOn();
+if (!BETA_SITE && TRYABLE && typeof location !== 'undefined') exactImageOn();
