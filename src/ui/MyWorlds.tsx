@@ -104,6 +104,8 @@ export interface MyWorldsProps {
   onOpenText: (text: string, fileName?: string) => void;
   /** 在这个世界(或只存了地图的那一份)的地图上打造新文明 */
   onNewCiv: (id: string) => void;
+  /** 修改这个世界(或只存了地图的那一份)的地图 */
+  onEditMap?: (id: string) => void;
   /** 点了打开(或打造新文明)、地图程序还没下完:哪一个、下了百分之几(null = 不知道) */
   opening?: { id: string; pct: number | null } | null;
   /** 去作品墙那一页(不给 = 不放入口) */
@@ -166,7 +168,7 @@ function worldLine(w: StoredWorld): string {
   return w.alive ? `${seed}，现存 ${w.alive} 国` : `${seed}，没有文明`;
 }
 
-export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv: newCiv, opening, onGallery, onOpenWork }: MyWorldsProps) {
+export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv: newCiv, onEditMap, opening, onGallery, onOpenWork }: MyWorldsProps) {
   const v = useSavesVersion();
   const list = useMemo(() => listWorlds(), [v]);
   const groups = useMemo(() => mapGroups(list), [list]);
@@ -423,7 +425,7 @@ export function MyWorlds({ phone, onOpen: openWorld, onNew, onOpenText, onNewCiv
         </div>
       )}
       {feOn && !rulesTab && <GalleryFeatured phone={phone} onOpen={onOpenWork!} onGallery={onGallery!} />}
-      {!empty && tab === 'maps' && <MapGrid groups={groups} phone={phone} pick={pick} onPick={(k) => setView({ pick: k })} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} />}
+      {!empty && tab === 'maps' && <MapGrid groups={groups} phone={phone} pick={pick} onPick={(k) => setView({ pick: k })} onOpen={onOpen} onNewCiv={onNewCiv} onEditMap={onEditMap} waitOf={waitOf} />}
       {!empty && tab === 'civs' && !civs.length && <p className="mw-none">还没有文明。到「地图」里选一张地图打造文明，或者新建世界。</p>}
       {!empty && tab === 'civs' && civs.length > 0 && (
         <div className="mw-grid" role="list">
@@ -879,7 +881,7 @@ function MapDeleteDialog({ g, phone, onClose, onGo }: { g: MapGroup; phone: bool
                 </b>
                 <small>{civLine(w)}</small>
               </span>
-              <span className="side">{when(w.at)}</span>
+              <span className="side mw-del-at">{when(w.at)}</span>
             </div>
           ))}
         </div>
@@ -921,6 +923,7 @@ function MapGrid({
   onPick,
   onOpen,
   onNewCiv,
+  onEditMap,
   waitOf,
 }: {
   groups: MapGroup[];
@@ -929,6 +932,7 @@ function MapGrid({
   onPick: (key: string | null) => void;
   onOpen: (id: string) => void;
   onNewCiv: (id: string, at?: WaitAt) => void;
+  onEditMap?: (id: string) => void;
   waitOf: WaitOf;
 }) {
   const grid = useRef<HTMLDivElement>(null);
@@ -961,7 +965,7 @@ function MapGrid({
               </span>
             </button>
           </div>
-          {i === at && <MapPanel g={groups[sel]} col={sel % cols} cols={cols} phone={phone} onOpen={onOpen} onNewCiv={onNewCiv} waitOf={waitOf} />}
+          {i === at && <MapPanel g={groups[sel]} col={sel % cols} cols={cols} phone={phone} onOpen={onOpen} onNewCiv={onNewCiv} onEditMap={onEditMap} waitOf={waitOf} />}
         </Fragment>
       ))}
     </div>
@@ -976,6 +980,7 @@ function MapPanel({
   phone,
   onOpen,
   onNewCiv,
+  onEditMap,
   waitOf,
 }: {
   g: MapGroup;
@@ -984,6 +989,7 @@ function MapPanel({
   phone: boolean;
   onOpen: (id: string) => void;
   onNewCiv: (id: string, at?: WaitAt) => void;
+  onEditMap?: (id: string) => void;
   waitOf: WaitOf;
 }) {
   const n = g.civs.length;
@@ -995,6 +1001,17 @@ function MapPanel({
   const from = g.head.id;
   const src = (g.map ?? (g.head.draft ? g.civs.find((w) => !w.draft) : g.head))?.id;
   const style = { '--col': col, '--cols': cols } as React.CSSProperties;
+  const edit = (id: string) =>
+    onEditMap && (
+      <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-edit" onClick={() => onEditMap(id)}>
+        修改地图
+      </button>
+    );
+  const delOne = (
+    <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete" onClick={() => removeWorld(from, mapName(g.head))}>
+      删除这张地图
+    </button>
+  );
   if (!n) {
     return (
       <div className="mw-panel empty" role="group" aria-label="这张地图上还没有文明" style={style}>
@@ -1003,7 +1020,7 @@ function MapPanel({
           <b>这张地图上还没有文明</b>
           {!phone && <span>{mapBrief(g.head)}</span>}
         </div>
-        <p className="mw-panel-txt">打造文明会在这张地图上从第 0 年推演：民族、国家、城都从头长出来。地图本身不再变。</p>
+        {!tools && <p className="mw-panel-txt">打造文明会在这张地图上从第 0 年推演：民族、国家、城都从头长出来。地图本身不再变。</p>}
         <div className="mw-panel-acts">
           <button className={`mw-btn blue${phone ? ' wide' : ''}${waitOf(from, 'btn') ? ' wait' : ''}`} data-act="map-new-civ" onClick={() => onNewCiv(from, 'btn')}>
             {waitOf(from, 'btn') ? (
@@ -1030,9 +1047,17 @@ function MapPanel({
               <span>投到作品墙…</span>
             </button>
           )}
-          <button className={`mw-btn${phone ? ' wide' : ''}`} data-act="map-delete" onClick={() => removeWorld(from, mapName(g.head))}>
-            删除这张地图
-          </button>
+          {tools && phone ? (
+            <div className="mw-panel-2">
+              {edit(from)}
+              {delOne}
+            </div>
+          ) : (
+            <>
+              {tools && edit(from)}
+              {delOne}
+            </>
+          )}
         </div>
       </div>
     );
@@ -1063,6 +1088,7 @@ function MapPanel({
         {!phone && !tools && add}
         {!phone && tools && (
           <span className="mw-hd-acts">
+            {src && edit(src)}
             {del}
             {add}
           </span>
@@ -1111,7 +1137,12 @@ function MapPanel({
         </div>
       )}
       {phone && add}
-      {phone && tools && <div className="mw-panel-2">{del}</div>}
+      {phone && tools && (
+        <div className="mw-panel-2">
+          {src && edit(src)}
+          {del}
+        </div>
+      )}
       {asking && (
         <MapDeleteDialog
           g={g}

@@ -27,7 +27,8 @@ import { setGoHome } from '../AccountDialogs';
 import { pluginsUiOn } from '../plugins/flag';
 import { askSims, setSimGate } from './simAsk';
 import { getSimNow, sameSims, subscribeSimNow } from './simNow';
-import { carryMaps, getMapNow, subscribeMapNow } from './mapNow';
+import { carryMaps, getMapNow, rememberMaps, rememberedMaps, subscribeMapNow } from './mapNow';
+import { civsOn } from '../mapGroups';
 import { askMaps } from './mapAsk';
 import { newConversation } from '../assistantStore';
 import { getCivTime, pausePlayback, resetCivTime, setCivTime, startCivReplay, takeAutoplay } from '../civView';
@@ -53,6 +54,7 @@ import {
   isStored,
   keepWorld,
   addFileSaver,
+  listWorlds,
   loadWorld,
   markCreated,
   newWorldId,
@@ -64,6 +66,8 @@ import {
   dropPendingEdits,
   saveAsNewVersion,
   saveCurrentAsMap,
+  saveCurrentMapTo,
+  saveCurrentOverMap,
   setReopenHandler,
   setWorldStats,
   storageFullWhy,
@@ -74,7 +78,8 @@ import { getStage, type DraftBase } from '../stageStore';
 import { keptTerrainBlocked } from '../openTrouble';
 import { clearToast, showToast } from '../Toast';
 import type { SimClient } from '../sim/simClient';
-import { keepCarried, keepMapCopy, type KeptMapCopy } from '../worldStore';
+import { keepCarried, keepMapCopy, vaultCall, type KeptMapCopy } from '../worldStore';
+import type { WorldPlugin } from '../../gen/worldFormat';
 import type { LoadLater, useWorldLoad } from './useWorldLoad';
 import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
@@ -154,6 +159,9 @@ export interface WorldPagesDeps {
   /** useWorldLoad 经 ref 调的几样:这里填 .current */
   later: Pick<LoadLater, 'showHomeRef' | 'wallRef'>;
 }
+
+/** 几个地图插件(哪一个、哪一版、滑条)合成一串,比有没有换过 */
+const mapsSig = (list: readonly WorldPlugin[] | null | undefined): string => (list ?? []).map((x) => `${x.id}|${x.sum}|${JSON.stringify(x.params ?? null)}`).join(',');
 
 export function useWorldPages(deps: WorldPagesDeps) {
   const { sim, releaseNames } = deps;
@@ -391,6 +399,14 @@ export function useWorldPages(deps: WorldPagesDeps) {
     rememberLast(t.params, cleanEndYear(getEdits().endYear), clean ?? '');
     // 用的是「我的规则」里的一套:记一笔用它建过一个世界(这一版用过了,之后再改就是新的一版)
     noteRulesUsed(getEdits().rules);
+    // 修改一张存着的地图、接着打造文明:改过的地图先存下(写回那张 / 另存一张),文明挂在它下面
+    if (cur.edit) {
+      const mid = saveCurrentMapTo(editInPlace(cur.edit) ? cur.edit : undefined);
+      if (mid) {
+        rememberMaps(mid, rememberedMaps(t.id));
+        putEditsQuiet({ ...getEdits(), map: { from: mid } });
+      }
+    }
     // 说存住了,要真的写进了浏览器(存储满了、删了旧的也写不下,或者浏览器不让存 = 只在这一页里)
     const stored = markCreated() && persistent();
     // 新建时执行过的改地形从此不能再撤销:⌘Z 也不再往回退(助手那边按锁换了,旧的确认单不能执行)
@@ -472,13 +488,29 @@ export function useWorldPages(deps: WorldPagesDeps) {
     openTarget({ ...d, pristine: false, view: undefined });
     if (carry.length) void import('../plugins/worldPlugins').then((m) => m.carrySims(d.id, carry)).catch(() => {});
   };
-  /** 新建第 1 步点了「保存地图」:只存地图(没有文明),回到我的世界的「地图」页签、选中它。存下了 = true */
-  const saveMap = (): boolean => {
+  /**
+   * 新建第 1 步点了「保存地图」:只存地图(没有文明),回到我的世界的「地图」页签、选中它。存下了 = true。
+   * 在修改一张存着的地图、那张上面还没有文明:写回那张(asNew = 另存一张)
+   */
+  const saveMap = (asNew = false): boolean => {
     // 编辑地形时没起的地名接着在后台起(不等它)
     releaseNames();
     const t = draftNow();
     const cur = currentWorld();
     if (!t || !cur || cur.id !== t.id || fresh.current || regenRef.current) return false;
+    const over = !asNew && cur.edit && editInPlace(cur.edit) ? cur.edit : null;
+    if (over) {
+      const maps = rememberedMaps(t.id);
+      if (!saveCurrentOverMap()) {
+        notify({ kind: 'error', text: '没能保存修改', more: [persistent() ? storageFullWhy() : '浏览器不让网页存数据'] });
+        return false;
+      }
+      rememberMaps(t.id, null);
+      rememberMaps(over, maps);
+      showMapInWorlds(over);
+      showHome();
+      return true;
+    }
     if (!saveCurrentAsMap()) {
       notify({ kind: 'error', text: '没能保存地图', more: [persistent() ? storageFullWhy() : '浏览器不让网页存数据'] });
       return false;
@@ -486,6 +518,30 @@ export function useWorldPages(deps: WorldPagesDeps) {
     showMapInWorlds(t.id);
     showHome();
     return true;
+  };
+  /**
+   * 我的世界里点了「修改地图」:照那张地图的配方(参数、地形修改、草图)进新建第 1 步;它上面还没有文明时保存修改写回它,
+   * 有文明的另存一张(文明的地图存在它们自己身上,不跟着变)。什么都没动就返回,这一份删掉
+   */
+  const editMap = (id: string) => {
+    const w = loadWorld(id);
+    if (!w || w.draft) return notify({ kind: 'error', text: '打不开这张地图', more: ['可能已在别的页面里删掉了'] });
+    const e = w.save.edits;
+    const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
+    const d = draftTarget(w.save.params, null, edits);
+    const open = (maps: WorldPlugin[] | null) => {
+      derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
+      editMapsRef.current = { id: d.id, sig: mapsSig(maps) };
+      if (maps?.length) rememberMaps(d.id, maps);
+      setNewDlg(null);
+      openTarget({ ...d, pristine: false, origin: w.save.origin ?? null, edit: id });
+    };
+    // 建好的世界用的地图插件记在世界仓库里(只存了地图的、新建中的记在浏览器里)
+    const local = rememberedMaps(id);
+    if (local || w.map) return open(local);
+    void vaultCall('worldPluginsOf', [id])
+      .catch(() => null)
+      .then((used) => open(used?.plugins.filter((x) => x.role === 'map') ?? null));
   };
   /**
    * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、推演年数、拓荒、起源、
@@ -573,6 +629,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     if (s.kind === 'open') openStored(s.id);
     else if (s.kind === 'text') openText(s.text, s.fileName);
     else if (s.kind === 'newCiv') startNewCiv(s.id);
+    else if (s.kind === 'editMap') editMap(s.id);
     // 作品墙那一页、作品:首页上已经把网址换成了它,useWorldLoad 照网址已经打开了(再开一次会把开着的新建参数作品关掉、多取一次)
     else if (s.kind === 'gallery') {
       if (init.gallery === null) showGallery();
@@ -588,6 +645,14 @@ export function useWorldPages(deps: WorldPagesDeps) {
   const backRef = useRef<Target | null>(null);
   /** 以别的世界为底稿新建的那一份:编号和一开始的样子(返回时没动过就删掉) */
   const derivedRef = useRef<{ id: string; sig: string } | null>(null);
+  /** 修改存着的地图:一开始用的地图插件(只换了插件、拨了滑条也算改过) */
+  const editMapsRef = useRef<{ id: string; sig: string } | null>(null);
+  const mapsNowOf = (id: string) => {
+    const now = getMapNow();
+    return now?.id === id ? now.list : rememberedMaps(id);
+  };
+  /** 修改的这张地图还能写回去:还是只存了地图的一份,上面也还没有文明 */
+  const editInPlace = (id: string): boolean => !!loadWorld(id)?.map && !civsOn(listWorlds(), id).length;
   /** 以底稿新建的那一份还是一开始的样子(参数、修改、名字都没动) */
   const derivedUntouched = (): string | null => {
     const d = derivedRef.current;
@@ -796,15 +861,29 @@ export function useWorldPages(deps: WorldPagesDeps) {
         },
       };
     }
+    const back = () => {
+      if (navBack({ page: 'home' })) return;
+      // 在一张地图上打造、什么都没动就返回:那一份删掉(后退的话 App 的 routeNav 删)
+      const left = derivedUntouched();
+      if (left) deleteWorld(left);
+      goHome();
+    };
+    const t = targetRef.current;
+    const editing = t?.kind === 'draft' && t.edit ? t.id : null;
     return {
       label: '我的世界',
-      onClick: () => {
-        if (navBack({ page: 'home' })) return;
-        // 在一张地图上打造、什么都没动就返回:那一份删掉(后退的话 App 的 routeNav 删)
-        const left = derivedUntouched();
-        if (left) deleteWorld(left);
-        goHome();
-      },
+      onClick: back,
+      // 修改一张存着的地图、改过了(还在照改的重新长也算):先问一句;不保存 = 改的这一份删掉,那张地图照原样
+      ...(editing && {
+        leave: {
+          dirty: () => !derivedUntouched() || (editMapsRef.current?.id === editing && mapsSig(mapsNowOf(editing)) !== editMapsRef.current.sig),
+          discard: () => {
+            deleteWorld(editing);
+            rememberMaps(editing, null);
+            back();
+          },
+        },
+      }),
     };
   })();
 
@@ -825,6 +904,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     createWorld,
     draftFromCurrent,
     saveMap,
+    editMap,
     startNewCiv,
     newCivOnWork,
     derivedUntouched,

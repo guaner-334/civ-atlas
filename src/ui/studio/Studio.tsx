@@ -104,6 +104,7 @@ import { ContactMenuItem } from '../ContactLink';
 import { openDiag } from '../DiagDialog';
 import { VersionMenuFoot } from '../VersionNews';
 import { Icon } from '../icons';
+import { mapEditOn } from '../mapEditFlag';
 import { styleKey } from '../LayerPopover';
 import type { MapLayer } from '../mapLayers';
 import {
@@ -210,8 +211,8 @@ export interface StudioProps {
   /** 名字(打开没建完的世界时是它存的名字;以别的世界为底稿时先填好"原名(二)") */
   title: string;
   base: DraftBase | null;
-  /** 左上返回(我的世界 / 底稿那个世界) */
-  back: { label: string; onClick: () => void } | null;
+  /** 左上返回(我的世界 / 底稿那个世界);leave = 修改一张存着的地图时,改过了先问一句(不保存 = discard) */
+  back: { label: string; onClick: () => void; leave?: { dirty: () => boolean; discard: () => void } } | null;
   /** 换种子(params:连参数一起换,「看过的星球」里点一颗、带种子的预设) */
   onSeed: (seed: number, params?: WorldParams) => void;
   /** 换一个随机种子(随机生成的「换一颗」;照手绘图的「山河、地名换一种」:海陆照图,不变) */
@@ -227,6 +228,10 @@ export interface StudioProps {
   onCreate: (title: string, lon: number, how?: 'step' | 'outline') => boolean;
   /** 第 1 步「保存地图」:只存地图、回我的世界;存下了 = true */
   onSaveMap: () => boolean;
+  /** 修改一张存着的地图时「···」里的「另存一张新地图」 */
+  onSaveMapAsNew?: () => void;
+  /** 在修改一张存着的地图:它的名字、上面有几个文明(有文明的保存时另存一张) */
+  editOf?: { name: string; civs: number } | null;
   /** 在一张地图上打造文明(地图锁着):那张地图是哪个世界的(名字;只存了地图的、那个世界删掉了 = null)、一句简介;新建世界 = undefined */
   mapFrom?: { title: string | null; brief: string };
   /** 正在生成(换了种子、调了参数、改了地形):创建不了 */
@@ -423,6 +428,8 @@ export function Studio(p: StudioProps) {
   // 经纬网:和世界页、编辑地形共用一个设置(开关 + 间隔)
   const grat = useGraticule();
   const [confirm, setConfirm] = useState(false);
+  /** 修改存着的地图、改过了点返回:问要不要保存 */
+  const [leaving, setLeaving] = useState(false);
   /** 创建以后:1 = 面板滑出、星球展开;2 = 淡出 */
   const [out, setOut] = useState<0 | 1 | 2>(0);
   // 选的是「我的规则」里的一套:那一套调过、改了名(在调规则的大卡里、别的页面里),这个世界跟着用现在的样子(和官方一样 = 不写);
@@ -1203,11 +1210,24 @@ export function Studio(p: StudioProps) {
       : '用这张地图，从第 0 年推演出一个新的文明。地图本身不动。'
     : base
       ? `设定都带过来了，改完存成一个新世界，${base.title}本身不变。`
-      : image
+      : p.editOf && !civStep
+        ? `改的是「${p.editOf.name}」这张地图，改好点「保存修改」。想留着原来那张，到右上「···」里另存一张。`
+        : image
         ? '海和陆地照你的图长，山、河、气候由程序补上。'
         : civStep
           ? '地图定下了。接下来定文明怎么推演：一口气推完，或者从第 0 年起演绎。'
           : '按种子随机生成。地图做好了，可以先保存，也可以接着打造文明。';
+  const editCivs = p.editOf && !civStep ? p.editOf.civs : 0;
+  const introBlock = editCivs ? (
+    <div className="nw-edit-note">
+      <Icon name="info" size={16} />
+      <span>
+        这张地图上已经有 <b>{editCivs} 个文明</b>，它们不跟着变。改好会<b>另存成一张新地图</b>，原来那张和 {editCivs} 个文明都留着。
+      </span>
+    </div>
+  ) : (
+    <div className="nw-intro">{intro0}</div>
+  );
   const isDefault = (Object.keys(DEFAULT_PARAMS) as (keyof WorldParams)[]).every((k) => k === 'seed' || p.params[k] === DEFAULT_PARAMS[k]) && (twoStep || !edits.frontier);
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
@@ -1730,6 +1750,14 @@ export function Studio(p: StudioProps) {
   const moreMenu = (
     <div className="nw-more-wrap">
       <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
+        {p.editOf && !p.editOf.civs && p.onSaveMapAsNew && (
+          <>
+            <MenuItem act="save-map-new" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied) || !!mapFail} onClick={p.onSaveMapAsNew}>
+              另存一张新地图
+            </MenuItem>
+            <MenuSep />
+          </>
+        )}
         <AiSettingsItem onClick={() => openAiSettings()} />
         <MenuSep />
         <MenuItem icon={<Icon name="log" size={16} />} act="diag" onClick={openDiag}>
@@ -1749,7 +1777,12 @@ export function Studio(p: StudioProps) {
       </PopMenu>
     </div>
   );
-  const heading = locked ? '打造文明' : base ? `以${base.title}为底稿新建` : image ? '照手绘图新建' : '新建世界';
+  const heading = locked ? '打造文明' : base ? `以${base.title}为底稿新建` : p.editOf ? '修改地图' : image ? '照手绘图新建' : '新建世界';
+  /** 左上返回:修改存着的地图、改过了先问一句 */
+  const goBack = () => {
+    if (p.back?.leave?.dirty()) setLeaving(true);
+    else p.back?.onClick();
+  };
   /** 第 1 步 → 第 2 步:改地形、助手、地名风格和起源那两页都收起;星球底下换一句提示 */
   const toCiv = () => {
     setDrawer(null);
@@ -1786,7 +1819,7 @@ export function Studio(p: StudioProps) {
       </button>
     ) : (
       p.back && (
-        <button className="nw-back" data-act="back" onClick={p.back.onClick}>
+        <button className="nw-back" data-act="back" onClick={goBack}>
           <Icon name="back" size={18} />
           {p.back.label}
         </button>
@@ -1834,18 +1867,28 @@ export function Studio(p: StudioProps) {
       {base ? '创建新世界' : step2 ? (stepHow ? '开始演绎' : outlineHow ? '建好，先写大纲' : found ? `建好，停在第 ${found.year} 年` : '开始推演') : '创建世界'}
     </button>
   );
+  const saveMapLabel = p.editOf ? (p.editOf.civs ? '存成新地图' : '保存修改') : '保存地图';
+  /** 照手绘图新建底部:「保存地图」「创建世界」 */
+  const imageBtns = (
+    <div className="st-foot-2">
+      <button className="nw-create alt" data-act="save-map" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied) || !!mapFail} onClick={() => p.onSaveMap()}>
+        {saveMapLabel}
+      </button>
+      {createBtn}
+    </div>
+  );
   /** 第 1 步底部:「保存地图」「打造文明 ›」 */
   const mapBtns = (
     <div className="st-foot-2">
       <button className="nw-create alt" data-act="save-map" disabled={p.busy || !p.ready || out > 0 || !!mapFail} onClick={() => p.onSaveMap()}>
-        保存地图
+        {saveMapLabel}
       </button>
       <button className="nw-create" data-act="to-civ" disabled={p.busy || !p.ready || out > 0 || !!mapFail} onClick={toCiv}>
         {p.phone ? '地图做好了，下一步' : '打造文明 ›'}
       </button>
     </div>
   );
-  const footBtn = twoStep && !civStep ? mapBtns : createBtn;
+  const footBtn = twoStep && !civStep ? mapBtns : image && !base && mapEditOn() ? imageBtns : createBtn;
   const mixShown = namesPage && !tool.on && !peek;
   const rpShown = rulesOn && rulesPage && !tool.on && !peek && !mixShown;
   /** 文明起源按第 0 年的州看(有地形大事时是大事以前的,见 origins.ts 的 originCiv) */
@@ -2120,7 +2163,7 @@ export function Studio(p: StudioProps) {
         {!pageShown && (
           <div className="sk-phd">
             {p.back && (
-              <button className="sk-bk" data-act="back" aria-label={`返回${p.back.label}`} onClick={p.back.onClick}>
+              <button className="sk-bk" data-act="back" aria-label={`返回${p.back.label}`} onClick={goBack}>
                 <Icon name="back" size={20} />
               </button>
             )}
@@ -2157,7 +2200,7 @@ export function Studio(p: StudioProps) {
                 </div>
               )}
               {!peek && !tool.on && !civPeek && stepper}
-              {(!peek || step2) && !tool.on && <div className="nw-intro">{intro0}</div>}
+              {(!peek || step2) && !tool.on && introBlock}
               {settings}
             </>
           )}
@@ -2182,7 +2225,7 @@ export function Studio(p: StudioProps) {
                 {moreMenu}
               </div>
               {!tool.on && stepper}
-              {(image || !tool.on) && <div className="nw-intro">{intro0}</div>}
+              {(image || !tool.on) && introBlock}
               {image ? imageSteps : settings}
             </>
           )}
@@ -2489,6 +2532,41 @@ export function Studio(p: StudioProps) {
       {imageCap}
       {ogTip}
       {tool.on && (!image || (p.phone && !importing)) && <TerrainCaption phone={p.phone} />}
+      {leaving && p.back?.leave && (
+        <div className="st-scrim" onPointerDown={stop} onClick={() => setLeaving(false)}>
+          <div className="st-dlg" role="alertdialog" aria-modal="true" aria-labelledby="st-leave-title" onClick={stop}>
+            <h2 id="st-leave-title">改的还没保存</h2>
+            <p>{p.editOf?.civs ? '要把改过的样子存成一张新地图吗？' : `要把改过的样子存进「${p.editOf?.name ?? '这张地图'}」吗？`}</p>
+            <div className="st-dlg-btns three">
+              <button className="st-b2" data-act="leave-stay" onClick={() => setLeaving(false)}>
+                接着改
+              </button>
+              <button
+                className="st-b2"
+                data-act="leave-discard"
+                onClick={() => {
+                  setLeaving(false);
+                  p.back?.leave?.discard();
+                }}
+              >
+                不保存
+              </button>
+              <button
+                className="st-b1"
+                data-act="leave-save"
+                autoFocus
+                disabled={p.busy || !p.ready || out > 0 || importing || !!mapFail}
+                onClick={() => {
+                  setLeaving(false);
+                  p.onSaveMap();
+                }}
+              >
+                {saveMapLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirm && (
         <div className="st-scrim" onPointerDown={stop} onClick={() => setConfirm(false)}>
           <div className="st-dlg" role="alertdialog" aria-modal="true" aria-labelledby="st-dlg-title" onClick={stop}>
