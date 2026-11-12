@@ -846,9 +846,12 @@ export function applyImport(): boolean {
   if (!r || !setSketchBase(r.name, r.layer, tool.coast, SKETCH_FILL_NEW, r.trace)) return false;
   keepImport();
   const cells = getEdits().sketch?.image?.cells;
-  if (r.trace && !r.trace.fine && r.fineKey && cells) onFine(r.fineKey, (fine) => setSketchFine(cells, fine));
+  // 认好时已经又长过一次星球的,不补(粗格子一样、细图不一样的图也会对上)
+  const seq = ++applied;
+  if (r.trace && !r.trace.fine && r.fineKey && cells) onFine(r.fineKey, (fine) => seq === applied && setSketchFine(cells, fine));
   return true;
 }
+let applied = 0;
 const canRedo = (terrain: readonly TerrainOp[], sketch: SketchEdit | undefined) => redo.length > 0 && !!redoAt && redoAt.terrain === terrain && redoAt.sketch === sketch;
 
 /** 撤销最后一笔(这次加的按先后;更早的、助手加的:先撤草图,再撤放的)。照着长的那张图不算一笔,撤不掉 */
