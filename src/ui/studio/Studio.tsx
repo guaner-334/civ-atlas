@@ -1752,7 +1752,7 @@ export function Studio(p: StudioProps) {
       <PopMenu className="sb-pill sb-more" icon={<Icon name="more" size={17} />} title="更多" act="world-more" align="right">
         {p.editOf && !p.editOf.civs && p.onSaveMapAsNew && (
           <>
-            <MenuItem act="save-map-new" disabled={p.busy || !p.ready || out > 0 || !!mapFail} onClick={p.onSaveMapAsNew}>
+            <MenuItem act="save-map-new" disabled={p.busy || !p.ready || out > 0 || importing || (image && !applied) || !!mapFail} onClick={p.onSaveMapAsNew}>
               另存一张新地图
             </MenuItem>
             <MenuSep />

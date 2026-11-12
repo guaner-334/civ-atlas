@@ -78,7 +78,8 @@ import { getStage, type DraftBase } from '../stageStore';
 import { keptTerrainBlocked } from '../openTrouble';
 import { clearToast, showToast } from '../Toast';
 import type { SimClient } from '../sim/simClient';
-import { keepCarried, keepMapCopy, type KeptMapCopy } from '../worldStore';
+import { keepCarried, keepMapCopy, vaultCall, type KeptMapCopy } from '../worldStore';
+import type { WorldPlugin } from '../../gen/worldFormat';
 import type { LoadLater, useWorldLoad } from './useWorldLoad';
 import type { CivRefs, GenRefs, OpenRefs, Ref, ResimRefs, Setter, WorldViewRefs } from './worldRefs';
 import {
@@ -158,6 +159,9 @@ export interface WorldPagesDeps {
   /** useWorldLoad 经 ref 调的几样:这里填 .current */
   later: Pick<LoadLater, 'showHomeRef' | 'wallRef'>;
 }
+
+/** 几个地图插件(哪一个、哪一版、滑条)合成一串,比有没有换过 */
+const mapsSig = (list: readonly WorldPlugin[] | null | undefined): string => (list ?? []).map((x) => `${x.id}|${x.sum}|${JSON.stringify(x.params ?? null)}`).join(',');
 
 export function useWorldPages(deps: WorldPagesDeps) {
   const { sim, releaseNames } = deps;
@@ -525,11 +529,19 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const e = w.save.edits;
     const edits: WorldEdits = { names: {}, interventions: [], terrain: e.terrain, ...(e.sketch ? { sketch: e.sketch } : {}) };
     const d = draftTarget(w.save.params, null, edits);
-    derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
-    const maps = rememberedMaps(id);
-    if (maps) rememberMaps(d.id, maps);
-    setNewDlg(null);
-    openTarget({ ...d, pristine: false, origin: w.save.origin ?? null, edit: id });
+    const open = (maps: WorldPlugin[] | null) => {
+      derivedRef.current = { id: d.id, sig: draftSig(d.params, d.edits, d.title) };
+      editMapsRef.current = { id: d.id, sig: mapsSig(maps) };
+      if (maps?.length) rememberMaps(d.id, maps);
+      setNewDlg(null);
+      openTarget({ ...d, pristine: false, origin: w.save.origin ?? null, edit: id });
+    };
+    // 建好的世界用的地图插件记在世界仓库里(只存了地图的、新建中的记在浏览器里)
+    const local = rememberedMaps(id);
+    if (local || w.map) return open(local);
+    void vaultCall('worldPluginsOf', [id])
+      .catch(() => null)
+      .then((used) => open(used?.plugins.filter((x) => x.role === 'map') ?? null));
   };
   /**
    * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、推演年数、拓荒、起源、
@@ -633,6 +645,12 @@ export function useWorldPages(deps: WorldPagesDeps) {
   const backRef = useRef<Target | null>(null);
   /** 以别的世界为底稿新建的那一份:编号和一开始的样子(返回时没动过就删掉) */
   const derivedRef = useRef<{ id: string; sig: string } | null>(null);
+  /** 修改存着的地图:一开始用的地图插件(只换了插件、拨了滑条也算改过) */
+  const editMapsRef = useRef<{ id: string; sig: string } | null>(null);
+  const mapsNowOf = (id: string) => {
+    const now = getMapNow();
+    return now?.id === id ? now.list : rememberedMaps(id);
+  };
   /** 修改的这张地图还能写回去:还是只存了地图的一份,上面也还没有文明 */
   const editInPlace = (id: string): boolean => !!loadWorld(id)?.map && !civsOn(listWorlds(), id).length;
   /** 以底稿新建的那一份还是一开始的样子(参数、修改、名字都没动) */
@@ -858,7 +876,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
       // 修改一张存着的地图、改过了(还在照改的重新长也算):先问一句;不保存 = 改的这一份删掉,那张地图照原样
       ...(editing && {
         leave: {
-          dirty: () => !derivedUntouched(),
+          dirty: () => !derivedUntouched() || (editMapsRef.current?.id === editing && mapsSig(mapsNowOf(editing)) !== editMapsRef.current.sig),
           discard: () => {
             deleteWorld(editing);
             rememberMaps(editing, null);
