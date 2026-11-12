@@ -7,7 +7,7 @@ import { EMPTY_EDITS, newHistoryEdits, type TerrainOp, type WorldEdits } from '.
 import { makeSave } from '../src/gen/savefile';
 import * as saveStore from '../src/ui/saveStore';
 import { clearEdits, seedTag, setCivSeed, setEdits } from '../src/ui/editsStore';
-import { mapBriefOf, mapGroups, mapKeyOf, mapLine, mapMates, mapName } from '../src/ui/mapGroups';
+import { groupIds, mapBriefOf, mapGroups, mapKeyOf, mapLine, mapMates, mapName } from '../src/ui/mapGroups';
 import { bundleText, importBundle, parseBundle } from '../src/ui/bundle';
 import type { StoredWorld } from '../src/ui/saveStore';
 
@@ -195,6 +195,54 @@ describe('保存地图', () => {
     expect(saveStore.cleanSyncMeta({ map: true })).toEqual({ map: true });
     expect(saveStore.cleanSyncMeta({ map: true, draft: true })).toEqual({ draft: true });
     expect(saveStore.cleanSyncMeta({ map: 'yes' })).toEqual({});
+  });
+
+  it('一张地图连同上面的文明一起删:都删掉,别的地图不动;撤销全部放回,还在一组、原来的先后', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 512 };
+    setEdits({ ...EMPTY_EDITS, terrain: [range] });
+    saveStore.attachWorld({ id: 'wmtest0010', params, check: 'c512', kind: 'draft', saved: EMPTY_EDITS });
+    expect(saveStore.saveCurrentAsMap()).toBe(true);
+    const civ = (n: number) => saveStore.importSave(makeSave(params, newHistoryEdits(EMPTY_EDITS, { civSeed: n, from: 'wmtest0010' }), 'c512', `文明 ${n}`))!;
+    const a = civ(1);
+    const b = civ(2);
+    const other = saveStore.importSave(makeSave({ ...DEFAULT_PARAMS, seed: 7 }, EMPTY_EDITS, 'c7', '赤原'))!;
+    const order = saveStore.listWorlds().map((w) => w.id);
+    const g512 = mapGroups(saveStore.listWorlds()).find((x) => x.key === 'wmtest0010')!;
+    expect(groupIds(g512).sort()).toEqual(['wmtest0010', a, b].sort());
+
+    const gone = saveStore.deleteWorlds(groupIds(g512));
+    expect(gone.map((d) => d.id).sort()).toEqual(['wmtest0010', a, b].sort());
+    expect(saveStore.listWorlds().map((w) => w.id)).toEqual([other]);
+    expect(Object.keys(saveStore.trashMarks()).sort()).toEqual(['wmtest0010', a, b].sort());
+
+    expect(saveStore.restoreWorlds(gone)).toEqual([]);
+    expect(saveStore.listWorlds().map((w) => w.id)).toEqual(order);
+    expect(saveStore.trashMarks()).toEqual({});
+    const back = mapGroups(saveStore.listWorlds()).find((x) => x.key === 'wmtest0010')!;
+    expect(back.map?.id).toBe('wmtest0010');
+    expect(back.civs.map((w) => w.id).sort()).toEqual([a, b].sort());
+  });
+
+  it('一起删:别的页面里已经删掉的不算;放回时有一个写不下 = 只报它', () => {
+    const params = { ...DEFAULT_PARAMS, seed: 512 };
+    const a = saveStore.importSave(makeSave(params, EMPTY_EDITS, 'c512', '苍澜界'))!;
+    const b = saveStore.importSave(makeSave(params, newHistoryEdits(EMPTY_EDITS, { civSeed: 3, from: a }), 'c512', '苍澜界（二）'))!;
+    saveStore.deleteWorld(b);
+    const gone = saveStore.deleteWorlds([a, b]);
+    expect(gone.map((d) => d.id)).toEqual([a]);
+
+    const c = saveStore.importSave(makeSave(params, newHistoryEdits(EMPTY_EDITS, { civSeed: 4, from: a }), 'c512', '苍澜界（三）'))!;
+    const two = saveStore.deleteWorlds([c]);
+    const fs = g.localStorage as FakeStorage;
+    const set = fs.setItem.bind(fs);
+    fs.setItem = (k: string, v: string) => {
+      if (k === `wenming-ditu:world:${c}`) throw Object.assign(new Error('full'), { name: 'QuotaExceededError' });
+      set(k, v);
+    };
+    expect(saveStore.restoreWorlds([...gone, ...two])).toEqual([c]);
+    fs.setItem = set;
+    expect(saveStore.loadWorld(a)).toBeTruthy();
+    expect(saveStore.loadWorld(c)).toBeNull();
   });
 
   it('复制出去的文字抬头:有自己的文明种子写「文明种子」', () => {

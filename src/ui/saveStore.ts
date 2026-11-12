@@ -795,6 +795,21 @@ export function restoreWorld(d: DeletedWorld): boolean {
   return true;
 }
 
+/** 一起删掉几个世界(一张地图连同上面的文明);返回撤销用的,已经不在了的不算 */
+export function deleteWorlds(ids: readonly string[]): DeletedWorld[] {
+  const out: DeletedWorld[] = [];
+  for (const id of ids) {
+    const d = deleteWorld(id);
+    if (d) out.push(d);
+  }
+  return out;
+}
+
+/** 一起放回去;返回没放回去的编号(浏览器存储满了) */
+export function restoreWorlds(list: readonly DeletedWorld[]): string[] {
+  return list.filter((d) => !restoreWorld(d)).map((d) => d.id);
+}
+
 /** 给存档起名(改名);当前世界还没存过的(打开的链接),顺手存下来 */
 export function renameWorld(id: string, title: string) {
   const t = cleanTitle(title);

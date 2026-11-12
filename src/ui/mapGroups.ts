@@ -77,6 +77,9 @@ export const mapBrief = (head: StoredWorld) => mapBriefOf(head.save.params, head
 /** 一个文明的名字 */
 export const civName = (w: StoredWorld) => w.save.title || '未命名世界';
 
+/** 一张地图连同上面的文明,一共是哪几个存档 */
+export const groupIds = (g: Pick<MapGroup, 'map' | 'civs'>): string[] => [...(g.map ? [g.map.id] : []), ...g.civs.map((w) => w.id)];
+
 /** 地图卡片的第二行:"还没有文明" / "2 个文明：苍澜界（二）、苍澜界"(short = 手机上只写个数) */
 export function mapLine(g: MapGroup, short = false): string {
   const n = g.civs.length;
