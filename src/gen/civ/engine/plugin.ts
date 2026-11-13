@@ -3,7 +3,7 @@
  * 插件不进官方的事件堆、不取官方的随机数、不改归属,所以怎么出手官方的历史都一样。
  * 出手是交一回合(PluginTurn)、收一份回话(PluginReply),叫插件的是驱动:插件同步跑还是在别处等回话,推演代码是同一份。
  */
-import { Layer, type Annal, type AnnalKind } from '../types';
+import { Layer, type Annal, type AnnalCause, type AnnalKind } from '../types';
 import { keyed, keyed4, subSeed } from './rand';
 import type { CivSim } from './sim';
 import { FREQUENCIES, TableEngine, colCount, type TableCard, type TableSnapshot } from './tables';
@@ -79,6 +79,10 @@ export interface PluginAnnal {
   region: number;
   settlement: number;
   war: number;
+  /** 由头(宣战为什么打、盟约怎么断的……);没有 = 不给 */
+  cause?: AnnalCause;
+  /** 立约、约满、设中立地才有:约里的几国(按入约先后) */
+  ps?: number[];
 }
 
 /** 插件自己约的一件事 */
@@ -275,7 +279,12 @@ export function cleanRefused(v: unknown): PluginRefused[] | null {
 }
 
 /** 交给插件的史事只给稳定的几列 */
-export const annalOf = (e: Annal): PluginAnnal => ({ year: e.year, kind: e.kind, a: e.a, b: e.b, region: e.region, settlement: e.settlement, war: e.war });
+export const annalOf = (e: Annal): PluginAnnal => {
+  const out: PluginAnnal = { year: e.year, kind: e.kind, a: e.a, b: e.b, region: e.region, settlement: e.settlement, war: e.war };
+  if (e.cause !== undefined) out.cause = e.cause;
+  if (e.ps !== undefined) out.ps = e.ps.slice();
+  return out;
+};
 
 const isInt = (x: unknown, lo: number, hi: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= lo && x <= hi;
 

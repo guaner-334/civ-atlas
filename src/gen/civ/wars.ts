@@ -361,13 +361,13 @@ function gapOf(wm: WarModel, w: War, i: number): number {
 }
 
 /** 这场战争想拿下几州(战争目标;达成就议和,灭国之战除外) */
-function goalOf(wm: WarModel, w: War): number {
+export function goalOf(wm: WarModel, w: War): number {
   const { GOAL } = wm.k;
   return GOAL[0] + Math.floor((GOAL[1] - GOAL[0] + 1) * warRand(wm, w, 0, U_GOAL));
 }
 
 /** 这场战争最多打几年 */
-function lengthOf(wm: WarModel, w: War): number {
+export function lengthOf(wm: WarModel, w: War): number {
   const { LENGTH } = wm.k;
   return LENGTH[0] + (LENGTH[1] - LENGTH[0]) * warRand(wm, w, 0, U_LENGTH);
 }

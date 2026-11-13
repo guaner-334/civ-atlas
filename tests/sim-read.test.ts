@@ -47,6 +47,16 @@ function readAll(v: SimRead) {
     faiths: v.faiths(),
     official: OFFICIAL_NAMES.map((n) => v.official(n)),
     annals: v.annals(from),
+    wars: v.wars(),
+    truces: v.truces(),
+    grudges: v.grudges(),
+    handover: v.handover(),
+    pacts: v.pacts(),
+    rulers: v.rulers(),
+    trades: v.trades(),
+    treks: v.treks(),
+    plague: v.plague(),
+    sacks: v.sacks(0),
   };
 }
 
@@ -162,7 +172,9 @@ describe('读口 sim.read@1', () => {
     expect(v.official('control').some((x) => x > 0)).toBe(true);
 
     const pick = (lo: number, hi: number) =>
-      civ.annals.filter((e) => e.year >= lo && e.year <= hi).map((e) => ({ year: e.year, kind: e.kind, a: e.a, b: e.b, region: e.region, settlement: e.settlement, war: e.war }));
+      civ.annals
+        .filter((e) => e.year >= lo && e.year <= hi)
+        .map((e) => ({ year: e.year, kind: e.kind, a: e.a, b: e.b, region: e.region, settlement: e.settlement, war: e.war, ...(e.cause !== undefined ? { cause: e.cause } : {}), ...(e.ps !== undefined ? { ps: e.ps } : {}) }));
     expect(v.annals(800, 850)).toEqual(pick(800, 850));
     expect(v.annals(850)).toEqual(pick(850, 900));
     expect(v.annals(901)).toEqual([]);
@@ -196,12 +208,20 @@ describe('读口 sim.read@1', () => {
     expect(v.annals(1250).every((e) => e.year >= 1250 && e.year <= 1250.5)).toBe(true);
   });
 
-  it.each(SEEDS)('分段推读到的 = 一口气推读到的:从存下的第 900 年接着推,和从更早接着推到第 900 年,读口交的一样(seed %i)', (seed) => {
+  it.each([
+    [7, 600, 900],
+    [2024, 600, 900],
+    [7, 2050, 2300],
+    [2024, 2050, 2300],
+  ])('分段推读到的 = 一口气推读到的:seed %i 从存下的第 %i 年接着推到第 %i 年,和存在那一年再接着推,读口交的一样', (seed, from, to) => {
     const w = world(seed);
-    const early = resumeCiv(w, generateCiv(w, { endYear: 600 }));
-    early.run(900);
-    const saved = resumeCiv(w, generateCiv(w, { endYear: 900 }));
-    expect(readAll(simRead(saved)!)).toEqual(readAll(simRead(early)!));
+    const early = resumeCiv(w, generateCiv(w, { endYear: from }));
+    early.run(to);
+    const saved = resumeCiv(w, generateCiv(w, { endYear: to }));
+    const got = readAll(simRead(saved)!) as Record<string, unknown>;
+    const want = readAll(simRead(early)!) as Record<string, unknown>;
+    OFFICIAL_NAMES.forEach((n, i) => expect((got.official as unknown[])[i], n).toEqual((want.official as unknown[])[i]));
+    for (const k of Object.keys(want)) expect(got[k], k).toEqual(want[k]);
   });
 
   it.each(SEEDS)('推演中途每 5 年读一遍、把读到的全改掉,推出来的整份历史和不读的逐项一样(seed %i)', (seed) => {
