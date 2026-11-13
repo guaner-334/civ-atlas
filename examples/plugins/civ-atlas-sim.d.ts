@@ -232,7 +232,7 @@ export interface SimPolity {
   broke: number;
   /** 正和哪几国打仗(编号升序) */
   wars: number[];
-  /** 盟国(编号升序) */
+  /** 盟国(编号升序;含作者的干预和插件命令结的盟) */
   allies: number[];
   /** 宗主;不是藩属 = −1 */
   liege: number;

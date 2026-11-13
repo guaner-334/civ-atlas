@@ -10,6 +10,7 @@ import { annalOf, type PluginAnnal } from './engine/plugin';
 import type { CivApi } from './api';
 import { cultureModelOf } from './cultures';
 import { diplomacyModelOf } from './diplomacy';
+import { interventionModelOf } from './interventions';
 import { CAPITAL_BOOST, capacityAt, capitalAt, capitalLevel, devFactorAt, populationAt, portAt, settlementRank } from './growth';
 import { effOf, polityModelOf, regentOf, rulerOf, type PolityModel } from './polities';
 import { faithSimOf } from './religion';
@@ -70,7 +71,7 @@ export interface SimPolity {
   broke: number;
   /** 正和哪几国打仗(编号升序) */
   wars: number[];
-  /** 盟国(编号升序) */
+  /** 盟国(编号升序;含作者的干预和插件命令结的盟) */
   allies: number[];
   /** 宗主;不是藩属 = −1 */
   liege: number;
@@ -510,6 +511,15 @@ export function simRead(sim: CivSim): SimRead | null {
       const dm = diplomacyModelOf(sim);
       const cm = councilModelOf(sim);
       const fs = faithSimOf(sim);
+      const iv = interventionModelOf(sim);
+      const ended = (q: number) => pm.polities[q]?.ended !== undefined;
+      // 作者下的结盟、插件 ally 命令结的盟不进邦交模型,要并进来
+      const alliesOf = (p: number): number[] => {
+        const own = dm ? dm.alliesOf(p) : [];
+        if (!iv || ended(p)) return own;
+        const more = iv.alliesOf(p, t).filter((q) => !ended(q) && !own.includes(q));
+        return more.length ? [...own, ...more].sort((x, y) => x - y) : own;
+      };
       const foes: number[][] = pm.polities.map(() => []);
       for (const w of wm?.active ?? []) {
         if (w.a < foes.length && !foes[w.a].includes(w.b)) foes[w.a].push(w.b);
@@ -529,7 +539,7 @@ export function simRead(sim: CivSim): SimRead | null {
           treasury: api?.purse?.(p, t) ?? 1,
           broke: api?.broke?.(p, t) ?? 0,
           wars: foes[p].sort((x, y) => x - y),
-          allies: dm ? dm.alliesOf(p) : [],
+          allies: alliesOf(p),
           liege: dm ? dm.liegeOf(p) : -1,
           faith: fs ? fs.stateFaith(p) : -1,
           regime: segRegime(P, seg),
