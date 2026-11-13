@@ -132,6 +132,7 @@ import { IV_TOLL, PLAGUE_IV, SLUMP_DEFAULT, quakeWord } from '../calamity';
 import { foesAt } from '../fiscalBook';
 import { IV_NOBODY, IV_NO_ZONE, IV_REFUSED, OPT_LASTING, envoyOf, treatyBook, treatyCallName, treatyLine } from './treatyInfo';
 import { BOOST_N, IV_TOP_ERA } from '../boost';
+import { IV_HAS_CITY, IV_NOT_ZONE, IV_NO_CITY, IV_NO_LAND, IV_SAME } from '../commandActs';
 import { ERAS } from '../development';
 
 /** 重要度:3 最重要 */
@@ -999,8 +1000,10 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
       return dead(e.a) ? fail(`欲保${A}不亡,然${A}已亡`, `那一年${A}已亡`) : done(`${A}自此不亡${until}`);
     }
-    case 'unity':
-      return dead(e.a) ? fail(`欲令${A}四境无叛,然${A}已亡`, `那一年${A}已亡`) : done(`${A}自此四境无叛,再无州郡自立`);
+    case 'unity': {
+      const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
+      return dead(e.a) ? fail(`欲令${A}四境无叛,然${A}已亡`, `那一年${A}已亡`) : done(`${A}自此四境无叛,再无州郡自立${until}`);
+    }
     case 'keep': {
       const until = v.until !== undefined ? `,至第 ${v.until} 年` : '';
       return dead(e.a) ? fail(`欲保${A}宗社,然${A}已亡`, `那一年${A}已亡`) : done(`${A}自此宗社不移${until}`);
@@ -1115,9 +1118,72 @@ function interveneStory(civ: Civ, e: Annal, id: number): IvStory {
       return decreeStory(civ, e, id, v, A, R, fail, done);
     case 'boost':
       return boostStory(civ, e, v, A, R, fail, done);
+    case 'peace':
+    case 'submit':
+    case 'unally':
+    case 'annul':
+      return pairStory(civ, e, id, v.kind, A, B, dead, fail, done);
+    case 'release':
+      if (e.b === -3) return fail(`欲令${A}自立,然${A}已亡`, `那一年${A}已亡`);
+      return e.b >= 0 ? done(`${B}放藩属${A}自立`) : fail(`欲令${A}自立,然${A}本非藩属`, `那时${A}不是谁的藩属`);
+    case 'unzone':
+      if (e.region < 0) return fail('欲撤某州中立,然无此州', NO_REGION);
+      return e.b === IV_NOT_ZONE ? fail(`欲撤${R}中立,然${R}本非中立地`, `那一年${R}不是中立地`) : done(`${R}不复为中立地`);
+    case 'city': {
+      if (e.region < 0) return fail('欲于某州筑城,然无此州', NO_REGION);
+      if (e.b === -2) return fail(`欲于${R}筑城,然其地无人居住`, `那一年${R}没人住`);
+      const city = cityName(civ, e.settlement);
+      if (e.b === IV_HAS_CITY) return fail(`欲于${R}筑城,然${R}已有${city || '城'}`, `${R}那时已经有城`);
+      return done(`于${R}筑${city || '新城'}`);
+    }
+    case 'dynasty':
+      if (e.b === -3) return fail(`欲令${A}改朝换代,然${A}已亡`, `那一年${A}已亡`);
+      if (e.b === IV_NO_THRONE) return fail(`欲令${A}改朝换代,然${A}无王室`, `${A}那时没有王室`);
+      if (e.b === IV_PROTECTED) return fail(`欲令${A}改朝换代,然又有令保其宗社`, '同一刻后下的「保住王室」护着它');
+      return done(`令${A}改朝换代`);
+    case 'secede':
+      if (e.b === -3) return fail(`欲分${A}之地,然${A}已亡`, `那一年${A}已亡`);
+      if (e.b === IV_NO_LAND) return fail(`欲分${A}之地,然无州可分`, `点名的州那时都不是${A}的(或是国都、被永久划给它)`);
+      if (e.b === IV_NO_CITY) return fail(`欲分${A}之地,然其地无城可都`, '点名的州里那时没有城');
+      return done(`${e.n ? cnNumber(e.n) : '数'}州脱${A}自立,号${B}`);
+    case 'convert': {
+      const F = civ.cultures[e.n ?? -1] ? folk(civ, e.n!) : '某族';
+      if (e.region < 0) return fail(`欲令某州之民化为${F},然无此州`, NO_REGION);
+      if (e.b === -2) return fail(`欲令${R}之民化为${F},然其地无人居住`, `那一年${R}没人住`);
+      if (e.b === -3) return fail(`欲令${R}之民化为${F},然其族已亡`, '那一年这一族已消亡');
+      return e.b === IV_SAME ? done(`${R}本为${F}所居`) : done(`${R}之民化为${F}`);
+    }
     default:
       return done(A);
   }
+}
+
+/** 两国之间的几样(插件的命令:停战、称臣、断盟、废约):n = 办成了几样(0 = 没办成) */
+function pairStory(civ: Civ, e: Annal, id: number, kind: 'peace' | 'submit' | 'unally' | 'annul', A: string, B: string, dead: (p: number) => boolean, fail: Say, done: Done): IvStory {
+  const what = (b: string) => ({ peace: `令${A}与${b}罢兵`, submit: `令${A}称臣于${b}`, unally: `令${A}与${b}绝盟`, annul: `废${A}与${b}之约` })[kind];
+  if (!B) return fail(`欲${what('他国')},然其国不存`, '对方在新历史里没有(或那一年还没立国)');
+  const gone = dead(e.a) ? A : dead(e.b) ? B : '';
+  if (gone) return fail(`欲${what(B)},然${gone}已亡`, `那一年${gone}已亡`);
+  if (e.n) return done({ peace: `${A}与${B}罢兵`, submit: `${A}奉表称臣于${B}`, unally: `${A}与${B}绝盟`, annul: `${A}与${B}之约作废` }[kind]);
+  if (kind === 'peace') return fail(`欲${what(B)},然两国未尝交兵`, '两国那时没在交战');
+  if (kind === 'unally') return fail(`欲${what(B)},然两国本无盟约`, '两国那时没有结盟');
+  if (kind === 'annul') return fail(`欲${what(B)},然两国本无约`, '两国那时不在同一份约里');
+  // 称臣没成:A 已是藩属,或 B 自己是藩属
+  const la = liegeBefore(civ, e.a, id);
+  if (la >= 0) return fail(`欲${what(B)},然${A}已称臣于${pn(civ, la, e.year)}`, `${A}那时已是别国的藩属`);
+  const lb = liegeBefore(civ, e.b, id);
+  return fail(`欲${what(B)},然${B}自为${lb >= 0 ? pn(civ, lb, e.year) : '他国'}藩属`, `${B}那时是别国的藩属`);
+}
+
+/** 第 id 条史事之前 p 的宗主(没有 = −1;只看称臣、自立,宗主亡了的由调用方另说) */
+function liegeBefore(civ: Civ, p: number, id: number): number {
+  for (let i = Math.min(id, civ.annals.length) - 1; i >= 0; i--) {
+    const e = civ.annals[i];
+    if (e.a !== p) continue;
+    if (e.kind === 'submit') return e.b;
+    if (e.kind === 'defect') return -1;
+  }
+  return -1;
 }
 
 /**
@@ -1551,10 +1617,18 @@ function foldedIntoIntervene(civ: Civ, i: number): boolean {
   const e = civ.annals[i];
   let j = i - 1;
   if (e.kind === 'famine') while (j >= 0 && civ.annals[j].kind === 'famine' && civ.annals[j].year === e.year) j--;
+  // 插件的命令废约:一次废几份约,中间夹着撤中立地
+  if (e.kind === 'expire') while (j >= 0 && civ.annals[j].year === e.year && (civ.annals[j].kind === 'expire' || civ.annals[j].kind === 'neutral')) j--;
+  // 称臣:正和宗主交兵的先罢兵
+  if (e.kind === 'submit') while (j >= 0 && civ.annals[j].year === e.year && (civ.annals[j].kind === 'peace' || civ.annals[j].kind === 'conquer')) j--;
   const d = civ.annals[j];
   if (!d || d.kind !== 'intervene' || d.year !== e.year) return false;
   const v = civ.interventions?.[d.war];
   if (e.kind === 'famine') return v?.kind === 'disaster' && v.type !== 'plague';
+  // 插件的命令办成的事(cause = decree;称臣没有 cause)并进那一条:断盟、放藩、废约、改民族、称臣
+  if (e.kind === 'expire' || e.kind === 'assimilate') return e.cause === 'decree' && v?.kind === (e.kind === 'expire' ? 'annul' : 'convert');
+  if (e.kind === 'unally' || e.kind === 'defect') return e.cause === 'decree' && d.a === e.a && v?.kind === (e.kind === 'unally' ? 'unally' : 'release');
+  if (e.kind === 'submit') return d.a === e.a && v?.kind === 'submit';
   if (d.a !== e.a) return false;
   const kind = v?.kind;
   return (e.kind === 'found' && kind === 'found') || (e.kind === 'capital' && e.war < 0 && kind === 'move') || (e.kind === 'fall' && kind === 'destroy');
@@ -2438,6 +2512,7 @@ function diplomacyEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
         return base(e, id, `${head}${A}坐视不救,两国之盟遂绝`, 2, [e.a, e.b], [], '绝');
       }
       if (e.cause === 'betray') return base(e, id, `${A}背弃与${B}之盟`, 2, [e.a, e.b], [], '背');
+      if (e.cause === 'decree') return base(e, id, `${A}与${B}绝盟`, 2, [e.a, e.b], [], '绝');
       if (e.cause === 'vassal') {
         const s = submitBefore(civ, e.a, id + 1);
         return base(e, id, s ? `${A}既称臣于${pn(civ, s.b, y)},与${B}之盟遂废` : `${A}与${B}之盟遂废`, 1, [e.a, e.b], [], '绝');
@@ -2456,7 +2531,11 @@ function diplomacyEntry(ctx: Ctx, e: Annal, id: number): ChronicleEntry {
     case 'defect': {
       // 作者下令宗主向藩属开战:宗藩反目
       const why = e.cause === 'betray' ? '' : troubleOf(civ, e.b, id);
-      const t = e.cause === 'betray' ? `${B}与藩属${A}反目,${A}不复称臣` : why ? `${A}乘${B}${why},绝其朝贡,不复称臣` : `${A}绝${B}之贡,不复称臣`;
+      const t =
+        e.cause === 'decree' ? `${B}放藩属${A}自立`
+        : e.cause === 'betray' ? `${B}与藩属${A}反目,${A}不复称臣`
+        : why ? `${A}乘${B}${why},绝其朝贡,不复称臣`
+        : `${A}绝${B}之贡,不复称臣`;
       const P = polityOf(civ, e.a);
       return base(e, id, t, P && polityTierAt(P, y) >= GREAT_TIER ? 3 : 2, [e.a, e.b], [e.region]);
     }
@@ -2600,7 +2679,7 @@ function treatyEntry(ctx: Ctx, ids: number[]): ChronicleEntry {
       const ref = treatyRef(civ, e.war, all, y);
       const last = x?.renewals.filter((r) => r.year < y).pop();
       const term = last ? last.term : (x?.term ?? 20);
-      const t = e.cause === 'lapse' ? `${ref}遂废${zoneTail}` : `${ref}满${cnNumber(term)}年,不续${zoneTail}`;
+      const t = e.cause === 'lapse' ? `${ref}遂废${zoneTail}` : e.cause === 'decree' ? `${ref}作废${zoneTail}` : `${ref}满${cnNumber(term)}年,不续${zoneTail}`;
       return { ...base(e, id, t, e.cause === 'lapse' ? 1 : 2, all, [], '满'), settlement: -1 };
     }
     case 'neutral': {
@@ -4575,7 +4654,7 @@ export function* chronicleSteps(civ: Civ): Generator<void, ChronicleEntry[]> {
     // 作者下令立的约、划的中立地并进干预那一条
     if ((e.kind === 'treaty' || e.kind === 'neutral') && e.cause === 'decree' && foldedIntoDecree(civ, i)) continue;
     // 干预引起的立国、迁都并进干预那一条
-    if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine') && foldedIntoIntervene(civ, i)) continue;
+    if ((e.kind === 'found' || e.kind === 'capital' || e.kind === 'fall' || e.kind === 'famine' || e.cause === 'decree' || e.kind === 'submit') && foldedIntoIntervene(civ, i)) continue;
     // 照大纲划给同一国的几州并进头一条
     if (e.kind === 'intervene' && i > 0 && plotCedeKey(civ, i) && plotCedeKey(civ, i - 1) === plotCedeKey(civ, i)) continue;
     // 照大纲顺着引的方针(gen/outline.ts)不写进编年史,只在大纲的批改里写

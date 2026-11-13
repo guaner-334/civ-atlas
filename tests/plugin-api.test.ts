@@ -9,7 +9,7 @@ import { generateCiv } from '../src/gen/civ';
 import type { Civ } from '../src/gen/civ/types';
 import { buildChronicle } from '../src/gen/civ/story/chronicle';
 import { ownersAt } from '../src/gen/civ/engine/timeline';
-import { EMPTY_EDITS, resolveKey, type Intervention, type WorldEdits } from '../src/gen/edits';
+import { EMPTY_EDITS, resolveKey, type AuthorIntervention, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
 import { PLUGIN_CAPS, capRole } from '../src/plugin/pluginCaps';
 import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
@@ -852,8 +852,8 @@ describe('改你写的东西', () => {
   });
 
   it('下命令的类型和世界文件里的干预一致', () => {
-    const toSite = (x: InterventionInfo): Intervention => x;
-    const toPlugin = (x: Intervention): InterventionInfo => x;
+    const toSite = (x: InterventionInfo): AuthorIntervention => x;
+    const toPlugin = (x: AuthorIntervention): InterventionInfo => x;
     expect([toSite, toPlugin]).toHaveLength(2);
   });
 

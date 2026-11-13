@@ -5,7 +5,7 @@
  * 插件下过命令的历史,接着推时作者新加了干预就从第 0 年重推(结果一样,只是不省时间)。
  * 作者下的不许灭、禁止分裂、不许扩张、结盟、不许迁在那一刻挡得住插件的命令:挡下的不办、不记,下一回合在 turn.refused 里(why 见 REFUSE_REASONS)。
  */
-import type { DisasterLevel, TrekDir, TrekReach } from '../edits';
+import type { BoostMul, DisasterLevel, TrekDir, TrekReach } from '../edits';
 import { OFFICIAL_INFLUENCES } from './influence';
 import { SIM_READ } from './simRead';
 
@@ -59,7 +59,7 @@ export const INFLUENCE_NAMES: readonly InfluenceName[] = OFFICIAL_INFLUENCES.map
 /** 命令里指一国、一州、一城、一族:读口里的编号(只在这一刻有效),或稳定键 */
 export type SimRef = number | string;
 
-/** 插件能下的命令(PluginReply.commands):干预的写法,from 由推演定(出手那一刻的下一格) */
+/** 插件能下的命令(PluginReply.commands):干预的写法,from 由推演定(出手那一刻的下一格);peace 往下几种只有插件下得了 */
 export type SimCommand =
   | { kind: 'declare'; a: SimRef; b: SimRef }
   | { kind: 'ally'; a: SimRef; b: SimRef; until?: number }
@@ -71,4 +71,14 @@ export type SimCommand =
   | { kind: 'disaster'; type: 'plague'; level: DisasterLevel; city: SimRef }
   | { kind: 'disaster'; type: 'famine'; level: DisasterLevel; a?: SimRef; regions?: SimRef[] }
   | { kind: 'disaster'; type: 'quake'; level: DisasterLevel; region: SimRef }
-  | { kind: 'trek'; folk: SimRef; region?: SimRef; to?: SimRef; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir };
+  | { kind: 'trek'; folk: SimRef; region?: SimRef; to?: SimRef; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir }
+  | { kind: 'neutral'; a: SimRef; region: SimRef; ps: SimRef[]; quiet?: true; lasting?: true; until?: number; ask?: true }
+  | { kind: 'boost'; a: SimRef; mul?: BoostMul; until?: number; regions?: SimRef[] }
+  | { kind: 'protect' | 'unity' | 'halt' | 'keep'; a: SimRef; until?: number }
+  | { kind: 'stay'; folk: SimRef; until?: number }
+  | { kind: 'peace' | 'submit' | 'unally' | 'annul'; a: SimRef; b: SimRef }
+  | { kind: 'release'; a: SimRef }
+  | { kind: 'unzone' | 'city'; region: SimRef }
+  | { kind: 'dynasty'; a: SimRef; region?: SimRef }
+  | { kind: 'secede'; a: SimRef; regions: SimRef[]; name?: string }
+  | { kind: 'convert'; region: SimRef; folk: SimRef };

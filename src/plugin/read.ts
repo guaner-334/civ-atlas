@@ -8,7 +8,7 @@ import { civAtEra } from '../gen/civ/eraCiv';
 import { cellAreas } from '../gen/civ/geo';
 import { KM_PER_UNIT } from '../gen/civ/scale';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
-import { cultureKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey, type WorldEdits } from '../gen/edits';
+import { cultureKey, faithKey, isCommandOnly, personKey, placeKeyOf, polityKey, regionKey, settlementKey, type AuthorIntervention, type WorldEdits } from '../gen/edits';
 import { capitalAt, faithAt, ownersAt, polityName, populationAt, portAt, regionPopulationAt, settlementRank } from '../gen/readers/openQuery';
 import type { World } from '../gen/world';
 import type { AuthorNote } from '../gen/worldFormat';
@@ -370,7 +370,7 @@ export function authorCharacters(edits: WorldEdits): unknown[] {
 }
 
 export function authorInterventions(edits: WorldEdits): InterventionInfo[] {
-  return structuredClone(edits.interventions);
+  return structuredClone(edits.interventions.filter((v): v is AuthorIntervention => !isCommandOnly(v)));
 }
 
 export function authorNotes(notes: readonly AuthorNote[], raw: unknown): Page<AuthorNoteInfo> {

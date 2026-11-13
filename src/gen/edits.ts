@@ -83,6 +83,23 @@
  * | `trek`    | 大迁徙   | folk = 民族(`culture:…`);region = 从哪一州出发(可选);to = 往哪一州去(可选,不给 = 推演挑) | 这一年年初这一族分出一支(约三成的人,到了能占 3–8 州)举族远走,沿陆路(草原快,林地、山地慢,不过海)走到那一州,路上洗劫,到了立国、开战,和推演自己起的大迁徙一样(civ/migration.ts)。出发:给了 region、那年那州还是这一族的就从那州走,不然从本族离目的地最近的一州走。推演挑 = 走得到的、不是本族的、有城的州里"地好 × 守得弱"最高的那一州。不管全世界同时几支在路上、这个世界已经走过几次、这一族多久前走过。这一族那年已消亡 / 走不到(陆路不通、推演挑没有可去的地方)= 不生效 | reach:推演挑时走多远(near 近 / far 远;不给 = 中,见 TREK_REACHES);dir:推演挑时只挑这个方位上的地方(east 东 / south 南 / west 西 / north 北;按整条路线在地图上的走向,同 Civ.migrations 的 dir;那一档没有就依次放宽到中、近、远里别的几档。照大纲推演硬改「大迁徙」情节时下的) |
  * | `stay`    | 不许迁   | folk = 民族                       | 从这一年起推演不让这一族大迁徙(已经在路上的照走;避兵外迁、随征服而来的移民这类小股的照旧;作者下令的大迁徙照走) | until:到这一年止(不含;不给 = 一直) |
  *
+ * 下面几种只有推演插件下得了(COMMAND_ONLY_KINDS;不带 plugin 的不合格),都在那一刻办完(civ/commandActs.ts):
+ *
+ * | kind      | 意思     | 字段                              | 那一刻                                     | 可选                          |
+ * |-----------|----------|-----------------------------------|-------------------------------------------|-------------------------------|
+ * | `peace`   | 停战     | a、b = 两国                        | 两国正在打的仗当即议和                      | —                             |
+ * | `submit`  | 称臣     | a = 称臣的国,b = 宗主              | a 向 b 称臣(正和 b 交战的先议和);a 已是藩属、b 自己是藩属 = 不生效 | —           |
+ * | `release` | 放藩     | a = 藩属                          | a 不再称臣(不是藩属 = 不生效)               | —                             |
+ * | `unally`  | 断盟     | a、b = 两国                        | 推演结的盟、插件命令结的盟当即断了(作者下令的结盟断不了) | —                  |
+ * | `annul`   | 废约     | a、b = 两国                        | 两国同在的约当即作废                        | —                             |
+ * | `unzone`  | 撤中立地 | region = 州                       | 这州的中立地当即撤销                        | —                             |
+ * | `city`    | 建城     | region = 州                       | 在这州的治所建城(有人住、没有城才建;故城遗址上的算重建) | —                    |
+ * | `dynasty` | 改朝换代 | a = 国家                          | 当即改朝换代(没有王室 = 不生效)             | region:新朝的根据地(这国有城的州;不给 = 推演挑) |
+ * | `secede`  | 分裂     | a = 国家,regions = 几州(1–SECEDE_REGIONS_MAX) | 这几州(a 的、不是国都、没被永久划给它的)连同断开的碎块分出去立新国 | name:国名(同立国) |
+ * | `convert` | 改民族   | region = 州,folk = 民族            | 这州的民族当即换成 folk                     | —                             |
+ *
+ * 推演插件下的禁止分裂(unity)也可以带 until(作者的没有,带了去掉)。
+ *
  * 即位(crown)的几样字段都抄进干预,不在推演时去读人物卡:"种子 + 干预串"自己就推得出同一个世界(读档、换设备都一样)。
  * char 是作者人物的编号(AuthorCharacter.id,1–1e9 的整数);born、until 是年份(同 from 的清理);
  * leanings 是开拓 / 好战 / 发展 / 重商(expand / war / develop / trade)四项,各 0–100 的整数(取整夹回范围,缺的补 50)。
@@ -751,7 +768,17 @@ export type InterventionKind =
   | 'boost'
   | 'trek'
   | 'stay'
-  | 'appoint';
+  | 'appoint'
+  | 'peace'
+  | 'submit'
+  | 'release'
+  | 'unally'
+  | 'annul'
+  | 'unzone'
+  | 'city'
+  | 'dynasty'
+  | 'secede'
+  | 'convert';
 
 /**
  * 大迁徙(trek)"推演挑"时走多远:near 近(五到十州)/ mid 中(十到二十州,和推演自己起的一样)/ far 远(二三十州,横穿大陆,只有下令才有)。
@@ -849,7 +876,7 @@ export type Intervention = (
   | { kind: 'protect'; a: string; from: number; until?: number }
   | { kind: 'ally'; a: string; b: string; from: number; until?: number }
   | { kind: 'declare'; a: string; b: string; from: number; lead?: number }
-  | { kind: 'unity'; a: string; from: number }
+  | { kind: 'unity'; a: string; from: number; until?: number }
   | { kind: 'cede'; a: string; region: string; from: number; permanent?: true }
   | { kind: 'found'; region: string; from: number; name?: string }
   | { kind: 'move'; a: string; city: string; from: number }
@@ -881,6 +908,16 @@ export type Intervention = (
   | { kind: 'boost'; a: string; from: number; mul?: BoostMul; until?: number; regions?: string[] }
   | { kind: 'trek'; folk: string; from: number; region?: string; to?: string; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir }
   | { kind: 'stay'; folk: string; from: number; until?: number }
+  | { kind: 'peace'; a: string; b: string; from: number }
+  | { kind: 'submit'; a: string; b: string; from: number }
+  | { kind: 'release'; a: string; from: number }
+  | { kind: 'unally'; a: string; b: string; from: number }
+  | { kind: 'annul'; a: string; b: string; from: number }
+  | { kind: 'unzone'; region: string; from: number }
+  | { kind: 'city'; region: string; from: number }
+  | { kind: 'dynasty'; a: string; from: number; region?: string }
+  | { kind: 'secede'; a: string; regions: string[]; from: number; name?: string }
+  | { kind: 'convert'; region: string; folk: string; from: number }
   | {
       kind: 'policy';
       a: string;
@@ -1965,7 +2002,15 @@ function folkRenamed(civ: Civ, f: Faith, cultures: readonly Culture[]): string |
 /** 干预年份的上限(推演引擎能预约的最远时刻) */
 export const INTERVENTION_YEAR_MAX = 65535;
 
-export const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost', 'trek', 'stay', 'appoint'];
+export const INTERVENTION_KINDS: readonly InterventionKind[] = ['protect', 'ally', 'declare', 'unity', 'cede', 'found', 'move', 'halt', 'crown', 'policy', 'destroy', 'death', 'temper', 'disaster', 'treaty', 'neutral', 'regent', 'marry', 'keep', 'boost', 'trek', 'stay', 'appoint', ...['peace', 'submit', 'release', 'unally', 'annul', 'unzone', 'city', 'dynasty', 'secede', 'convert'] as const];
+/** 只有推演插件下得了的几种(见文件头"干预"表下):不带 plugin 的不合格 */
+export type CommandOnlyKind = 'peace' | 'submit' | 'release' | 'unally' | 'annul' | 'unzone' | 'city' | 'dynasty' | 'secede' | 'convert';
+export const COMMAND_ONLY_KINDS: readonly InterventionKind[] = INTERVENTION_KINDS.slice(INTERVENTION_KINDS.indexOf('peace'));
+/** 作者下得了的干预(作者的修改、工具插件改的只有这几种) */
+export type AuthorIntervention = Exclude<Intervention, { kind: CommandOnlyKind }>;
+export const isCommandOnly = (v: Intervention): v is Extract<Intervention, { kind: CommandOnlyKind }> => COMMAND_ONLY_KINDS.includes(v.kind);
+/** 分裂(secede)最多带几州 */
+export const SECEDE_REGIONS_MAX = 64;
 
 /** 人物键的几段(格式见 personKey):国家键、身份、生成时的名字、生年(取整)、同名同年的第几个(0 起);格式不对 = null */
 export interface PersonKeyParts {
@@ -2055,6 +2100,17 @@ function cleanBoost(o: Record<string, unknown>, a: string, from: number, until: 
   }
   if (regions) v.regions = regions;
   return v;
+}
+
+/** 分裂(secede):州去重、去掉格式不对的、最多 SECEDE_REGIONS_MAX 个(一个都没有 = 不合格);国名同立国 */
+function cleanSecede(o: Record<string, unknown>, a: string, from: number): Intervention | null {
+  if (!Array.isArray(o.regions)) return null;
+  const rs: string[] = [];
+  for (const k of o.regions) if (isRegionKey(k) && !rs.includes(k) && rs.length < SECEDE_REGIONS_MAX) rs.push(k);
+  if (!rs.length) return null;
+  const regions = rs.length === o.regions.length && rs.every((k, i) => k === (o.regions as unknown[])[i]) ? (o.regions as string[]) : rs;
+  const name = typeof o.name === 'string' ? cleanName('polity', o.name) : '';
+  return name ? { kind: 'secede', a, regions, from, name } : { kind: 'secede', a, regions, from };
 }
 
 /** 即位(crown)的作者人物编号最大到几(和 characters.ts 的编号一样) */
@@ -2292,7 +2348,7 @@ export function tidyIntervention(x: unknown): Intervention | null {
   const o = x as Record<string, unknown>;
   const kind = o.kind as InterventionKind;
   const from = yearOf(o.from);
-  if (!INTERVENTION_KINDS.includes(kind) || from === null) return null;
+  if (!INTERVENTION_KINDS.includes(kind) || from === null || (COMMAND_ONLY_KINDS.includes(kind) && !isPluginId(o.plugin))) return null;
   const untilOf = () => {
     const until = o.until === undefined ? null : yearOf(o.until);
     return until !== null && until > from ? until : null;
@@ -2310,10 +2366,27 @@ export function tidyIntervention(x: unknown): Intervention | null {
     const t = cleanTrek(o, kind, from, untilOf());
     if (!t) return null;
     v = t;
+  } else if (kind === 'unzone' || kind === 'city') {
+    if (!isRegionKey(o.region)) return null;
+    v = { kind, region: o.region, from };
+  } else if (kind === 'convert') {
+    if (!isRegionKey(o.region) || !isCultureKey(o.folk)) return null;
+    v = { kind, region: o.region, folk: o.folk, from };
   } else {
     if (!isPolityKey(o.a)) return null;
     const a = o.a;
-    if (kind === 'unity') v = { kind, a, from };
+    if (kind === 'release') v = { kind, a, from };
+    else if (kind === 'unity') {
+      // 只有推演插件下的带得了 until
+      const until = isPluginId(o.plugin) ? untilOf() : null;
+      v = until !== null ? { kind, a, from, until } : { kind, a, from };
+    }
+    else if (kind === 'dynasty') v = isRegionKey(o.region) ? { kind, a, from, region: o.region } : { kind, a, from };
+    else if (kind === 'secede') {
+      const x = cleanSecede(o, a, from);
+      if (!x) return null;
+      v = x;
+    }
     else if (kind === 'protect' || kind === 'halt' || kind === 'keep') {
       const until = untilOf();
       v = until !== null ? { kind, a, from, until } : { kind, a, from };
@@ -2371,10 +2444,10 @@ export function tidyIntervention(x: unknown): Intervention | null {
     } else {
       if (!isPolityKey(o.b) || o.b === a) return null;
       if (kind === 'declare') v = isCharId(o.lead) ? { kind, a, b: o.b, from, lead: o.lead } : { kind, a, b: o.b, from };
-      else {
+      else if (kind === 'ally') {
         const until = untilOf();
         v = until !== null ? { kind, a, b: o.b, from, until } : { kind, a, b: o.b, from };
-      }
+      } else v = { kind, a, b: o.b, from };
     }
   }
   // 照大纲硬改出来的:记着哪一条情节(编号不合格 = 当作者自己下的);顺着引的方针多记 guide
@@ -2707,12 +2780,12 @@ export function sameFollow(a: unknown, b: unknown): boolean {
  * 天灾只有选了一国闹饥荒的才有)
  */
 export function interventionKeys(v: Intervention): string[] {
-  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay') return [];
+  if (v.kind === 'found' || v.kind === 'trek' || v.kind === 'stay' || v.kind === 'unzone' || v.kind === 'city' || v.kind === 'convert') return [];
   if (v.kind === 'disaster') return v.a ? [v.a] : [];
   if (v.kind === 'destroy') return v.b ? [v.a, v.b] : [v.a];
   if (v.kind === 'treaty') return v.by ? [v.a, ...v.ps, v.by] : [v.a, ...v.ps];
   if (v.kind === 'neutral') return [v.a, ...v.ps];
-  return v.kind === 'ally' || v.kind === 'declare' || v.kind === 'marry' ? [v.a, v.b] : [v.a];
+  return 'b' in v && v.b ? [v.a, v.b] : [v.a];
 }
 
 // ---------------------------------------------------------------------------

@@ -76,7 +76,7 @@
  *   逐年推演(play.ts)停在第 T 年年初的前一刻,在列表后面接上 from = T 的新命令:比现在晚,和别的还没到的干预一样补上事件,
  *   同一刻里照样排在别的事件前面、按列表先后 —— 所以停下来下命令接着推,和带着同样的命令一口气推完一样。纯计算,不碰 DOM。
  */
-import { GUIDE_LOOK_MAX, YEAR_TICKS, cleanInterventions, commandAt, isCommand, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
+import { GUIDE_LOOK_MAX, YEAR_TICKS, cleanInterventions, commandAt, isCommand, isCommandOnly, keyByRegion, parsePersonKey, regionOfKey, simInterventions, type Intervention } from '../edits';
 import { Layer, type Culture, type Polity } from './types';
 import { subSeed } from './engine/rand';
 import { LOOK_K, quantize, type CivSim } from './engine/sim';
@@ -101,6 +101,7 @@ import { IV_GONE, authorRegentEnd, regentAt } from './regents';
 import type { CivModule } from './modules';
 import { Ev } from './events';
 import { civApi } from './api';
+import { commandActs } from './commandActs';
 
 type Ally = Extract<Intervention, { kind: 'ally' }>;
 type Halt = Extract<Intervention, { kind: 'halt' }>;
@@ -112,6 +113,9 @@ type PolicyIv = Extract<Intervention, { kind: 'policy' }>;
 type DestroyIv = Extract<Intervention, { kind: 'destroy' }>;
 type PersonIv = Extract<Intervention, { kind: 'death' | 'temper' }>;
 type Stay = Extract<Intervention, { kind: 'stay' }>;
+type Veto = Extract<Intervention, { kind: 'protect' | 'unity' | 'halt' | 'keep' | 'stay' }>;
+const NONE: readonly number[] = [];
+const vetoActive = (v: Veto, t: number) => t >= v.from && (v.until === undefined || t < v.until);
 
 /** 推演里的干预:清理过的列表 + 键 → 编号的解析 + 各机制查询用的规则 */
 export class InterventionModel {
@@ -130,6 +134,17 @@ export class InterventionModel {
   /** 国家层的归属(installInterventions 时挂上;永久划州要看州此刻在谁手里) */
   owner: Int16Array | null = null;
   private readonly protectRules: Extract<Intervention, { kind: 'protect' }>[] = [];
+  /** 插件下的否决类(下标,按列表先后)按国家 / 民族的内部键分好:上万条也不用每次全扫;todo = 还没分的(挂上国家模型以后才分得了) */
+  private readonly vetoBy = new Map<string, number[]>();
+  private vetoTodo: number[] = [];
+  /** 内部键 → 名下那几条最晚管到哪一刻(有不给 until 的 = Infinity):过了就不用再扫 */
+  private readonly vetoEnd = new Map<string, number>();
+  /** 国家编号 → 内部键;民族编号 → 内部键 */
+  private readonly polityRef: string[] = [];
+  private readonly cultureRef = new Map<number, string>();
+  /** 插件命令结的盟 → 下标;插件下的断盟(下标、两国):断得了比它先下的结盟 */
+  private readonly allyAt = new Map<Ally, number>();
+  private readonly unallyRules: { i: number; v: Extract<Intervention, { kind: 'unally' }> }[] = [];
   private readonly unityRules: Extract<Intervention, { kind: 'unity' }>[] = [];
   private readonly allyRules: Ally[] = [];
   private readonly haltRules: Halt[] = [];
@@ -182,9 +197,13 @@ export class InterventionModel {
       if (at) at.push(i);
       else this.commands.set(t, [i]);
     }
-    if (v.kind === 'protect') this.protectRules.push(v);
+    if (isCommand(v) && (v.kind === 'protect' || v.kind === 'unity' || v.kind === 'halt' || v.kind === 'keep' || v.kind === 'stay')) this.vetoTodo.push(i);
+    else if (v.kind === 'protect') this.protectRules.push(v);
     else if (v.kind === 'unity') this.unityRules.push(v);
-    else if (v.kind === 'ally') this.allyRules.push(v);
+    else if (v.kind === 'ally') {
+      this.allyRules.push(v);
+      if (isCommand(v)) this.allyAt.set(v, i);
+    } else if (v.kind === 'unally') this.unallyRules.push({ i, v });
     else if (v.kind === 'halt') this.haltRules.push(v);
     else if (v.kind === 'stay') this.stayRules.push(v);
     else if (v.kind === 'keep') this.keepRules.push(i);
@@ -246,18 +265,55 @@ export class InterventionModel {
 
   /** 国家的稳定键 → 此刻的国家编号(还没立国 / 新历史里没有 = −1) */
   resolve(key: string): number {
-    const pm = this.pm;
-    if (!pm) return -1;
+    if (!this.pm) return -1;
+    this.syncPolities();
+    const k = this.ref(key);
+    return k === null ? -1 : (this.ids.get(k) ?? -1);
+  }
+
+  private syncPolities(): void {
+    const pm = this.pm!;
     const P = pm.polities;
     for (; this.known < P.length; this.known++) {
       // 和 edits.ts 的 polityKey 同一个算法:立国时的国都所在州 + 这州第几个立国(国家按立国先后编号)
       const r = pm.settlements[P[this.known].capital]?.region ?? -1;
       const n = this.perRegion.get(r) ?? 0;
       this.perRegion.set(r, n + 1);
-      this.ids.set(`polity:${r}#${n}`, this.known);
+      const k = `polity:${r}#${n}`;
+      this.ids.set(k, this.known);
+      this.polityRef[this.known] = k;
     }
-    const k = this.ref(key);
-    return k === null ? -1 : (this.ids.get(k) ?? -1);
+  }
+
+  /** 内部键 k 名下插件下的否决类(下标升序) */
+  private vetoesAt(k: string | undefined): readonly number[] {
+    if (this.vetoTodo.length && this.pm) {
+      for (const i of this.vetoTodo) {
+        const v = this.list[i] as Veto;
+        const r = this.ref(v.kind === 'stay' ? v.folk : v.a);
+        if (r === null) continue;
+        const at = this.vetoBy.get(r);
+        if (at) at.push(i);
+        else this.vetoBy.set(r, [i]);
+        this.vetoEnd.set(r, Math.max(this.vetoEnd.get(r) ?? -Infinity, v.until ?? Infinity));
+      }
+      this.vetoTodo = [];
+    }
+    return (k !== undefined && this.vetoBy.get(k)) || NONE;
+  }
+
+  /** 插件下的否决类里,国家 p 此刻 kind 那一种管着的头一条(只算排在第 after 条后面的;没有 = −1) */
+  private vetoOf(kind: Veto['kind'], p: number, t: number, after = -1): number {
+    if (!this.pm) return -1;
+    this.syncPolities();
+    const k = this.polityRef[p];
+    const list = this.vetoesAt(k);
+    if (!list.length || t >= this.vetoEnd.get(k)!) return -1;
+    for (const i of list) {
+      const v = this.list[i] as Veto;
+      if (i > after && v.kind === kind && vetoActive(v, t)) return i;
+    }
+    return -1;
   }
 
   /** 国家的稳定键 → t 那一刻之前(不含这一刻)已经立国的国家编号(接着推时重放过去的某一刻用) */
@@ -281,19 +337,19 @@ export class InterventionModel {
     return k === null ? -1 : (this.cityIds.get(k) ?? -1);
   }
 
-  /** 国家 p 此刻"不许灭" */
-  protects(p: number, t: number): boolean {
+  /** 国家 p 此刻"不许灭"(author = 只算作者下的,插件的命令那一关用) */
+  protects(p: number, t: number, author = false): boolean {
     for (const v of this.protectRules) if (t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) return true;
-    return false;
+    return !author && this.vetoOf('protect', p, t) >= 0;
   }
 
-  /** 时刻 t 护着国家 p 的"不许灭"里,有没有排在第 i 条干预后面的(灭国撞上"不许灭":后下的为准) */
+  /** 时刻 t 护着国家 p 的"不许灭"里,有没有排在第 i 条干预后面的(灭国撞上"不许灭":后下的为准;插件下的挡不住作者的灭国) */
   protectedAfter(p: number, t: number, i: number): boolean {
     for (let k = i + 1; k < this.list.length; k++) {
       const v = this.list[k];
-      if (v.kind === 'protect' && t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) return true;
+      if (v.kind === 'protect' && !isCommand(v) && t >= v.from && (v.until === undefined || t < v.until) && this.resolve(v.a) === p) return true;
     }
-    return false;
+    return isCommand(this.list[i]) && this.vetoOf('protect', p, t, i) >= 0;
   }
 
   /**
@@ -312,23 +368,39 @@ export class InterventionModel {
     return same[n] ?? -1;
   }
 
-  /** 民族 c 此刻"不许迁"(cultures = 推演里此刻的民族表) */
-  stays(c: number, t: number, cultures: readonly Culture[]): boolean {
+  /** 民族 c 此刻"不许迁"(cultures = 推演里此刻的民族表;author 同 protects) */
+  stays(c: number, t: number, cultures: readonly Culture[], author = false): boolean {
     for (const v of this.stayRules) if (t >= v.from && (v.until === undefined || t < v.until) && this.resolveCulture(v.folk, cultures) === c) return true;
+    if (author || !this.pm) return false;
+    let k = this.cultureRef.get(c);
+    if (k === undefined) {
+      // 同 resolveCulture:发源州 + 这州发源的第几个(按出现先后;后分化出来的排在后面,算过的不会变)
+      const x = cultures[c];
+      let n = 0;
+      for (let i = 0; i < cultures.length; i++) if (i !== c && cultures[i].hearth === x.hearth && (cultures[i].born < x.born || (cultures[i].born === x.born && i < c))) n++;
+      this.cultureRef.set(c, (k = `culture:${x.hearth}#${n}`));
+    }
+    const list = this.vetoesAt(k);
+    if (!list.length || t >= this.vetoEnd.get(k)!) return false;
+    for (const i of list) {
+      const v = this.list[i] as Veto;
+      if (v.kind === 'stay' && vetoActive(v, t)) return true;
+    }
     return false;
   }
 
-  /** 国家 p 此刻"禁止分裂" */
-  unites(p: number, t: number): boolean {
+  /** 国家 p 此刻"禁止分裂"(author 同 protects) */
+  unites(p: number, t: number, author = false): boolean {
     for (const v of this.unityRules) if (t >= v.from && this.resolve(v.a) === p) return true;
-    return false;
+    return !author && this.vetoOf('unity', p, t) >= 0;
   }
 
   /**
    * 国家 p 此刻"保住王室":护着它的那一条干预的下标(开关 keep 在生效期里;即位带 keep 的,此刻在位的是那位作者的人物);
-   * 有几条时取列表里靠前的;没有 = −1。after = 只算排在第 after 条后面(后下)的(作者下令的篡位撞上保住王室:后下的为准)
+   * 有几条时取列表里靠前的;没有 = −1。after = 只算排在第 after 条后面(后下)的(作者下令的篡位撞上保住王室:后下的为准;
+   * 插件下的挡不住作者的);author 同 protects
    */
-  keeps(p: number, t: number, after = -1): number {
+  keeps(p: number, t: number, after = -1, author = false): number {
     let best = -1;
     for (const i of this.keepRules) {
       const v = this.list[i] as Extract<Intervention, { kind: 'keep' }>;
@@ -337,6 +409,7 @@ export class InterventionModel {
         break;
       }
     }
+    if (best < 0 && !author && !(after >= 0 && !isCommand(this.list[after]))) best = this.vetoOf('keep', p, t, after);
     if (this.crownKeeps && this.pm) {
       const c = rulerOf(this.pm, p, t).crown;
       const v = c ? this.list[c.iv] : undefined;
@@ -345,10 +418,10 @@ export class InterventionModel {
     return best;
   }
 
-  /** 国家 p 此刻"不许扩张" */
-  halted(p: number, t: number): boolean {
+  /** 国家 p 此刻"不许扩张"(author 同 protects) */
+  halted(p: number, t: number, author = false): boolean {
     for (const v of this.haltRules) if (haltActive(v, t) && this.resolve(v.a) === p) return true;
-    return false;
+    return !author && this.vetoOf('halt', p, t) >= 0;
   }
 
   /** 州 r 此刻是"永久划给"它现在的主人的(战争、分裂、复国、议和割地都拿不走) */
@@ -367,10 +440,37 @@ export class InterventionModel {
     return false;
   }
 
+  /** 插件命令结的盟 v 到 t 那一刻已被后下的断盟命令断了(作者下的结盟断不了) */
+  private cut(v: Ally, t: number): boolean {
+    const i = this.allyAt.get(v);
+    if (i === undefined || !this.unallyRules.length) return false;
+    const a = this.resolve(v.a);
+    const b = this.resolve(v.b);
+    return this.unallyRules.some((u) => u.i > i && u.v.from <= t && this.samePair(u.v, a, b));
+  }
+
+  /** 两国此刻结着排在第 i 条前面的插件命令结的盟(没被第 i 条前面的断盟断了) */
+  commandAllied(p: number, q: number, t: number, i: number): boolean {
+    for (const [v, k] of this.allyAt) {
+      if (k >= i || !allyActive(v, t)) continue;
+      const a = this.resolve(v.a);
+      const b = this.resolve(v.b);
+      if (!((a === p && b === q) || (a === q && b === p))) continue;
+      if (!this.unallyRules.some((u) => u.i > k && u.i < i && u.v.from <= t && this.samePair(u.v, a, b))) return true;
+    }
+    return false;
+  }
+
+  private samePair(v: { a: string; b: string }, p: number, q: number): boolean {
+    const a = this.resolve(v.a);
+    const b = this.resolve(v.b);
+    return (a === p && b === q) || (a === q && b === p);
+  }
+
   /** 两国此刻结着盟(author = 只算作者下的) */
   allied(p: number, q: number, t: number, author = false): boolean {
     for (const v of this.allyRules) {
-      if (!allyActive(v, t) || (author && isCommand(v))) continue;
+      if (!allyActive(v, t) || (author && isCommand(v)) || this.cut(v, t)) continue;
       const a = this.resolve(v.a);
       const b = this.resolve(v.b);
       if ((a === p && b === q) || (a === q && b === p)) return true;
@@ -382,7 +482,7 @@ export class InterventionModel {
   alliesOf(p: number, t: number): number[] {
     const out: number[] = [];
     for (const v of this.allyRules) {
-      if (!allyActive(v, t)) continue;
+      if (!allyActive(v, t) || this.cut(v, t)) continue;
       const a = this.resolve(v.a);
       const b = this.resolve(v.b);
       const o = a === p ? b : b === p ? a : -1;
@@ -394,7 +494,7 @@ export class InterventionModel {
   /** 到 now(含)为止已经到期的"不许扩张"(到期时刻、国家键;按处理先后:时刻先后,同一刻按列表先后) */
   haltEndsUpTo(now: number): { t: number; key: string }[] {
     const out: { t: number; key: string }[] = [];
-    for (const v of this.haltRules) if (v.until !== undefined && quantize(v.until) <= now) out.push({ t: quantize(v.until), key: v.a });
+    for (const v of this.list) if (v.kind === 'halt' && v.until !== undefined && quantize(v.until) <= now) out.push({ t: quantize(v.until), key: v.a });
     return out.sort((x, y) => x.t - y.t);
   }
 }
@@ -426,7 +526,10 @@ export function scheduleInterventions(
   const list = simInterventions(stored);
   const iv = new InterventionModel(list, seed, stored);
   list.forEach((v, i) => {
-    if (v.kind === 'halt' && v.until !== undefined && (!resume || quantize(v.until) > sim.now)) sim.schedule(v.until, Ev.HaltEnd, i, 0);
+    if (v.kind !== 'halt' || v.until === undefined || (resume && quantize(v.until) <= sim.now)) return;
+    // 插件下的在生效那一刻才预约:还没生效的到时预约,已经生效的照那一刻补上
+    if (!isCommand(v)) sim.schedule(v.until, Ev.HaltEnd, i, 0);
+    else if (quantize(v.from) <= sim.now) sim.schedule(v.until, Ev.HaltEnd, i, 0, v.from);
   });
   list.forEach((v, i) => {
     if (!isCommand(v) && (!resume || quantize(v.from) > sim.now)) sim.schedule(v.from, Ev.Intervene, i, 0);
@@ -676,10 +779,16 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     if (ok) setPolicy(sim, pm, a, v, i, t);
   };
 
+  const act = commandActs(sim, iv, pm);
+
   /** 第 i 条干预此刻生效 */
   const intervene = (i: number, t: number) => {
     const v = iv.list[i];
     if (!v) return;
+    if (isCommandOnly(v)) {
+      act(v, i, t);
+      return;
+    }
     if (v.kind === 'found') {
       found(v, i, t);
       return;
@@ -764,6 +873,8 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
     if (v.kind === 'halt') {
       // 不许扩张:它挑起的战争当即议和
       if (alive(a)) for (const w of wm.active.filter((x) => x.a === a)) api.war.makePeace!(w, t);
+      // 插件下的到期在这一刻预约(作者的装各层时就预约了,见 scheduleInterventions)
+      if (isCommand(v) && v.until !== undefined) sim.schedule(v.until, Ev.HaltEnd, i, 0);
       return;
     }
     if (b < 0) return;

@@ -123,6 +123,11 @@ export interface DynastyModel {
   look?: (p: number, k: number, t: Year) => void;
   /** 看王朝时没改朝换代:看会不会出一位专权的大臣、大将(regency.ts 挂上) */
   strong?: (p: number, t: Year) => void;
+  /**
+   * 推演插件的命令「改朝换代」(hook 里填;interventions.ts 在那一刻调,k = 取随机数用的第几次):新朝起于州 r(−1 = 照看王朝的规矩挑,
+   * 挑不出 = 国都所在州),国都迁不迁照看王朝的规矩。没有王室(共和国)= false,什么都不做
+   */
+  force?: (p: number, k: number, r: number, t: Year) => boolean;
 }
 
 const models = new WeakMap<CivSim, DynastyModel>();
@@ -175,6 +180,7 @@ function hook(sim: CivSim, dm: DynastyModel): void {
   const { pm, wm } = dm;
   const reg = pm.terrain.regions;
   const culture = sim.owners[Layer.Culture];
+  const owner = sim.owners[Layer.Polity];
 
   // 新国家(立国、分裂、复国)拿到第一州时预约第一次看王朝
   sim.onChange(Layer.Polity, (_r, v, _prev, cause) => {
@@ -289,6 +295,15 @@ function hook(sim: CivSim, dm: DynastyModel): void {
       sim.record('keep', { a: p, b: r === capR ? KEEP_COURT : KEEP_RISE, region: r, settlement: seat, war: kept, n: stir >= KEEP_DIRE ? 1 : 0 });
       return;
     }
+    enthrone(P, k, r, t);
+  };
+
+  /** 新朝起于州 r(要有城):定都、记王朝、重排在位表、记 dynasty */
+  const enthrone = (P: Polity, k: number, r: number, t: number): void => {
+    const p = P.id;
+    const seat = pm.cityOf[r];
+    let sid = capitalAt(P, t);
+    const capR = pm.settlements[sid].region;
     // 新朝定都根据地;刚迁过都(CAPITAL_GRACE 年内,多半是国都失守)的不再迁 —— 不会几年里一迁再迁
     if (
       r !== capR &&
@@ -308,6 +323,14 @@ function hook(sim: CivSim, dm: DynastyModel): void {
   };
   sim.on(Ev.DynastyCheck, dynastyCheck);
   dm.look = (p, k, t) => dynastyCheck(k, p, t);
+  dm.force = (p, k, r0, t) => {
+    const P = pm.polities[p];
+    if (!royalAt(P, t)) return false;
+    const s = r0 >= 0 && owner[r0] === p ? pm.cityOf[r0] : -1;
+    const r = s >= 0 && pm.settlements[s].ended === undefined ? r0 : pickBase(P, k, t);
+    enthrone(P, k, r >= 0 ? r : pm.settlements[capitalAt(P, t)].region, t);
+    return true;
+  };
 }
 
 /**

@@ -223,6 +223,9 @@ export class TreatyModel {
    * 记史事 intervene(b 列见 IV_NOBODY 那几个),生效了接着记 treaty / neutral。installTreaties 时挂上
    */
   decree?: (v: Extract<Intervention, { kind: 'treaty' | 'neutral' }>, i: number, a: number, t: Year, iv: InterventionModel) => void;
+  /** 推演插件的命令「废约」「撤中立地」:约当即作废(记 expire,cause = decree)/ 中立地当即撤销(同到期撤)。installTreaties 时挂上 */
+  annul?: (x: Treaty, t: Year) => void;
+  unzone?: (z: Zone, t: Year) => void;
 
   constructor(pm: PolityModel, dm: DiplomacyModel) {
     this.pm = pm;
@@ -901,6 +904,9 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
   /** 作者选的那一州能不能做这几国的中立地:有人住、还不是中立地、原属其中一国或无主、不是国都、没被作者永久划给谁 */
   const zoneOk = (r: number, ps: readonly number[], t: Year): boolean =>
     r >= 0 && r < culture.length && culture[r] >= 0 && m.zoneAt[r] < 0 && (owner[r] < 0 || ps.includes(owner[r])) && !isCapital(r) && !wm.iv?.locked(r, t);
+
+  m.annul = (x, t) => endTreaty(x, t, 'decree');
+  m.unzone = (z, t) => dropZone(z, t);
 
   m.decree = (v, i, a, t, iv) => {
     const sid = alive(a) ? capitalAt(pm.polities[a], t) : -1;

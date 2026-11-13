@@ -1,7 +1,7 @@
 /**
  * 插件交上来的干预(工具插件改作者的修改、推演插件下命令)照这里查,不清理。和 edits.ts 分开放:首页不下载它。
  */
-import { INTERVENTION_KINDS, INTERVENTION_YEAR_MAX, NAME_MAX, cleanName, tidyIntervention, type Intervention, type InterventionKind } from './edits';
+import { COMMAND_ONLY_KINDS, INTERVENTION_KINDS, INTERVENTION_YEAR_MAX, NAME_MAX, cleanName, isPluginId, tidyIntervention, type Intervention, type InterventionKind } from './edits';
 import { SLUMP_DEFAULT } from './civ/calamity';
 
 const IV_YEARS = ['from', 'until', 'born', 'died'] as const;
@@ -17,7 +17,8 @@ const ivNoop = (k: string, x: unknown) => x === false || (x === 0 && IV_ZERO_OK.
 export function checkIntervention(x: unknown): { ok: Intervention } | { error: string; limit?: true } {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return { error: '要是一个对象' };
   const o = x as Record<string, unknown>;
-  if (!INTERVENTION_KINDS.includes(o.kind as InterventionKind)) return { error: `kind 只能是 ${INTERVENTION_KINDS.join('、')}` };
+  const kinds = isPluginId(o.plugin) ? INTERVENTION_KINDS : INTERVENTION_KINDS.filter((k) => !COMMAND_ONLY_KINDS.includes(k));
+  if (!kinds.includes(o.kind as InterventionKind)) return { error: `kind 只能是 ${kinds.join('、')}` };
   for (const k of IV_YEARS) {
     const y = o[k];
     if (y === undefined ? k === 'from' : !(Number.isInteger(y) && (y as number) >= 0 && (y as number) <= INTERVENTION_YEAR_MAX)) return { error: `${k} 要是 0–${INTERVENTION_YEAR_MAX} 的整数年份` };

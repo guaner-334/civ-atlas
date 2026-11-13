@@ -44,7 +44,7 @@
  * 随机数:keyed(subSeed(seed, 'civ-diplomacy'), 国家…, 第几次, 用途);国家一律用位置锚(PolityModel.ptag)。纯计算,不碰 DOM。
  */
 import type { World } from '../world';
-import { YEAR_TICKS, resolveKey } from '../edits';
+import { YEAR_TICKS, isCommand, resolveKey, type Intervention } from '../edits';
 import { Layer, type Annal, type Civ, type Year } from './types';
 import { fpow, keyed, keyed4, subSeed } from './engine/rand';
 import { bookChain, quantize, type CivSim } from './engine/sim';
@@ -417,6 +417,8 @@ export function installDiplomacy(sim: CivSim, pm: PolityModel, dm: DiplomacyMode
     for (const x of dm.pactsOf(v)) record('unally', { a: v, b: x.a === v ? x.b : x.a, cause: 'vassal' });
   };
 
+  api.diplomacy.swear = (v, L, t) => swear(v, L, t);
+
   // ---- ① 藩属自立 ----
   const tryDefect = (v: number, L: number, k: number, t: number): boolean => {
     if (t - (dm.sworn.get(v) ?? t) < DEFECT_MIN) return false;
@@ -675,18 +677,22 @@ export function polityTies(civ: Civ, id: number, year: Year): PolityTies {
   const vassals = [...r.liege].filter(([, x]) => x.liege === id).map(([v, x]) => ({ id: v, since: x.since }));
   const allies = r.pacts.filter((x) => x.a === id || x.b === id).map((x) => ({ id: x.a === id ? x.b : x.a, since: x.since, foe: x.foe }));
   const P = civ.polities[id];
-  for (const v of civ.interventions ?? []) {
+  const ivs = civ.interventions ?? [];
+  const at = (v: Intervention) => v.from + (v.fromTick ?? 0) / YEAR_TICKS;
+  const pairOf = (v: { a: string; b: string }) => [resolveKey(civ, v.a), resolveKey(civ, v.b)].map((k) => (k?.kind === 'polity' ? k.id : -1));
+  ivs.forEach((v, i) => {
     // 结盟从下令那一刻起(年中下的带着第几格)
-    const from = v.from + (v.fromTick ?? 0) / YEAR_TICKS;
-    if (v.kind !== 'ally' || year < from || (v.until !== undefined && year >= v.until)) continue;
-    const a = resolveKey(civ, v.a);
-    const b = resolveKey(civ, v.b);
-    if (a?.kind !== 'polity' || b?.kind !== 'polity' || (a.id !== id && b.id !== id)) continue;
-    const o = a.id === id ? b.id : a.id;
+    const from = at(v);
+    if (v.kind !== 'ally' || year < from || (v.until !== undefined && year >= v.until)) return;
+    const [a, b] = pairOf(v);
+    if (a < 0 || b < 0 || (a !== id && b !== id)) return;
+    // 推演插件结的盟被它后面的断盟命令断了(interventions.ts 的 cut)
+    if (isCommand(v) && ivs.some((u, k) => k > i && u.kind === 'unally' && at(u) <= year && pairOf(u).sort().join() === [a, b].sort().join())) return;
+    const o = a === id ? b : a;
     const O = civ.polities[o];
-    if (o === id || !P || !O || !polityAlive(P, year) || !polityAlive(O, year) || allies.some((x) => x.id === o)) continue;
+    if (o === id || !P || !O || !polityAlive(P, year) || !polityAlive(O, year) || allies.some((x) => x.id === o)) return;
     allies.push({ id: o, since: Math.max(from, O.founded, P.founded), foe: -1 });
-  }
+  });
   return { liege: r.liege.get(id), vassals, allies };
 }
 
