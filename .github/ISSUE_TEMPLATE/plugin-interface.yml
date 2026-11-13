@@ -1,0 +1,67 @@
+name: 插件接口需求
+description: 写插件时,想做的事现有接口做不到
+title: "插件接口需求:"
+labels: ["插件接口需求"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提之前先看[缺接口怎么办](https://github.com/guaner-334/civ-atlas/blob/main/docs/plugins/requests.md):查过文档、搜过有没有人提过同一件事(有就去那条下面附议)。
+        标题在「插件接口需求:」后面接一句话说缺什么。一条只提一件事。
+  - type: textarea
+    id: goal
+    attributes:
+      label: 想做的插件
+      description: 用一两句大白话说插件要做什么、用的人会看到什么。
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: 哪种插件
+      options:
+        - 工具
+        - 推演
+        - 地图
+        - 不确定
+    validations:
+      required: true
+  - type: textarea
+    id: blocked
+    attributes:
+      label: 卡在哪
+      description: 做到哪一步做不下去了。查过哪几页文档、试过哪个调用、报了什么错或撞了哪条上限。
+    validations:
+      required: true
+  - type: textarea
+    id: wanted
+    attributes:
+      label: 需要的接口
+      description: 要读到什么数据(每个地块 / 每州 / 每国 / 每座城 / 每个人一份?哪一年的?)、要改什么、要在界面上放什么。有想好的写法可以写几行示意的代码,没有也行。
+    validations:
+      required: true
+  - type: dropdown
+    id: persist
+    attributes:
+      label: 结果要不要留在世界里
+      options:
+        - 只在开着插件时显示
+        - 要存进世界、能跟着世界分享
+        - 不确定
+    validations:
+      required: true
+  - type: textarea
+    id: absent
+    attributes:
+      label: 别人没装这个插件时
+      description: 打开用过它的世界,你希望别人看到什么:和装了一样 / 看得到结果但改不了 / 看不到插件那部分也行。
+  - type: textarea
+    id: workaround
+    attributes:
+      label: 现在的替代做法
+      description: 没有这个接口时你打算怎么凑合(少做哪一块、拿什么近似)。没有就写「没有」。
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充
+      description: 参照了哪个游戏或工具的哪个功能、有几个人想要、急不急。

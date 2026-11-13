@@ -48,4 +48,6 @@ npx tsx scripts/map-plugin-try.ts examples/plugins/craters examples/plugins/kopp
 
 `tsconfig.json`、`civ-atlas.d.ts`、`civ-atlas-sim.d.ts` 和 `civ-atlas-map.d.ts` 让编辑器认得 `civAtlas`,不进插件包。
 
+`AGENTS.md`(和只有一行、指向它的 `CLAUDE.md`)是写给 AI 助手的:该读哪几页、接口不够时怎么办。想做的事现有接口做不到,见[缺接口怎么办](../../docs/plugins/requests.md)。
+
 这些示例也是网站的测试:单测核对重新打包和仓库里的 `.civplugin` 一个字节不差、许可证是 MIT。工具插件:用到的调用清单里都要了;`pnpm test:sandbox` 在三个浏览器的真沙箱里对种子 7、2024 各跑一遍,交出来的面板、图层和 `tests/fixtures/plugin-examples.json` 对上;有意改了示例,`pnpm test:sandbox --update` 重写这份快照。推演插件:打成插件包关进 QuickJS,对种子 7、2024 各推 3000 年,厌战、宗教生效推出来的历史和照接口直接跑的一模一样,魔力的结果钉在 `tests/sim-plugin-examples.test.ts` 里。地图插件:打成插件包关进 QuickJS,三个一起开,在种子 7、2024 上长出的地图和照接口直接跑的一模一样,再推 3000 年长得出文明;各自的效果和滑条见 `tests/map-plugin-examples.test.ts`。
