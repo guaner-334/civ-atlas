@@ -16,6 +16,7 @@
 | [推演插件](sim.md) | 在推演里跑的插件:十分钟写一个、什么时候出手、一回合和回话、读口、自己的表、影响口、命令、编年史、图层、滑条、上限 |
 | [地图插件](map.md) | 长地图时出手的插件:十分钟写一个、三个口子各递什么交回什么、随机数、帮手、图层、滑条、上限、写快一点 |
 | [存进世界的图层](layer-format.md) | 图层存进世界的格式(第 1 版):存在哪、每个字段、上限、网站怎么画、版本 |
+| [缺接口怎么办](requests.md) | 想做的事现有接口做不到时怎么提接口需求;用 AI 写插件时让它照着办的规矩 |
 
 示例插件在 [`examples/plugins/`](../../examples/plugins/),一个文件夹一个,拷走改改就能用:
 
@@ -120,6 +121,12 @@ npx tsx scripts/pack-plugin.ts path/to/my-elevation     # 写出 path/to/my-elev
 ### 编辑器提示
 
 接口的类型定义在 [`src/plugin/types.ts`](../../src/plugin/types.ts)。在这个仓库里打开 `examples/plugins/` 下的文件,编辑器(VS Code 等)会照 [`examples/plugins/tsconfig.json`](../../examples/plugins/tsconfig.json) 和 [`civ-atlas.d.ts`](../../examples/plugins/civ-atlas.d.ts) 给出 `civAtlas` 的补全和类型检查。在别处写插件,把这两个文件和 `types.ts` 拷过去、改一下里面的路径就行。
+
+### 让 AI 帮你写
+
+在这个仓库里打开 `examples/plugins/`,认 [`AGENTS.md`](../../examples/plugins/AGENTS.md) 的 AI 助手会自己读到该看哪几页。在别处写,把这一页、你要写的那种插件的那一页和[缺接口怎么办](requests.md)发给它。
+
+想做的事接口里没有时,它该停下来告诉你缺的是什么、替你起草一条接口需求,而不是编一个不存在的调用,或者拿别的数据凑一个差不多的结果。规矩写在[缺接口怎么办](requests.md#给-ai-助手)里。
 
 ## 装来试
 
