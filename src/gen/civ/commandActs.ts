@@ -67,11 +67,12 @@ export function commandActs(sim: CivSim, iv: InterventionModel, pm: PolityModel)
     }
     if (v.kind === 'submit') {
       const dm = diplomacyModelOf(sim);
-      const ok = both && !!dm && dm.liegeOf(a) < 0 && dm.liegeOf(b) < 0;
+      // 藩属不收藩属(同推演里称臣):自己有藩属的不称臣
+      const ok = both && !!dm && dm.liegeOf(a) < 0 && dm.liegeOf(b) < 0 && !dm.vassalsOf(a).length;
       note(i, a, b, at, ok ? 1 : 0);
       if (!ok) return;
-      // 和宗主正在打的先罢兵(同战败称臣)
-      for (const w of fighting(a, b)) api.war.makePeace!(w, t);
+      // 和宗主、宗主的藩属正在打的先罢兵(称臣以后都是一家)
+      for (const q of [b, ...dm.vassalsOf(b)]) for (const w of fighting(a, q)) api.war.makePeace!(w, t);
       api.diplomacy.swear!(a, b, t);
       return;
     }
@@ -79,7 +80,7 @@ export function commandActs(sim: CivSim, iv: InterventionModel, pm: PolityModel)
       const pact = both ? diplomacyModelOf(sim)?.pactOf(a, b) : undefined;
       const cut = both && iv.commandAllied(a, b, t, i);
       note(i, a, b, at, pact || cut ? 1 : 0);
-      if (pact) api.diplomacy.note!('unally', { a, b, cause: 'decree' });
+      if (pact || cut) api.diplomacy.note!('unally', { a, b, cause: 'decree' });
       return;
     }
     const tm = treatyModelOf(sim);
@@ -141,9 +142,10 @@ export function commandActs(sim: CivSim, iv: InterventionModel, pm: PolityModel)
     // 分裂:a 的、不是国都、没被永久划给它的那几州,连同因此和国都断开的碎块;国都 = 其中人口最多的城
     const capR = at.region;
     const rs = [...new Set(v.regions.map(regionOf))].filter((r) => r >= 0 && owner[r] === a && r !== capR && !iv.locked(r, t)).sort((x, y) => x - y);
-    const sid = rs.length ? (api.politics.biggestCity?.(rs, t) ?? -1) : -1;
-    if (sid < 0) return note(i, a, rs.length ? IV_NO_CITY : IV_NO_LAND, at);
+    if (!rs.length) return note(i, a, IV_NO_LAND, at);
     const group = api.politics.cutOff?.(a, rs, t, Infinity) ?? rs;
+    const sid = api.politics.biggestCity?.(group, t) ?? -1;
+    if (sid < 0) return note(i, a, IV_NO_CITY, at);
     const r = S[sid].region;
     note(i, a, pm.polities.length, { region: r, settlement: sid }, group.length);
     api.politics.secede!(a, group, sid, r, t, 'split', 'decree', v.name ? { name: v.name } : undefined);

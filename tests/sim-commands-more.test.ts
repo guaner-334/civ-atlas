@@ -176,6 +176,11 @@ describe('现成的动作:下了有效果、史事里有记、存下接着推一
     const again = run({ [y]: [{ kind: 'submit', a: v, b: L }] }).civ;
     expect(outcome(again).e.n).toBe(0);
     expect(line(again)).toMatch(/已称臣于/);
+    // 自己有藩属的宗主不称臣(藩属不收藩属)
+    const q = base.polities.find((x) => x.id !== L && x.id !== v && lives(x.id, y) && !relationsAt(base, y).liege.has(x.id))!;
+    const lord = run({ [y]: [{ kind: 'submit', a: L, b: q.id }] }).civ;
+    expect(outcome(lord).e.n).toBe(0);
+    expect(line(lord)).toMatch(/自有藩属/);
   }, 120_000);
 
   it('放藩:藩属不再称臣;不是藩属的不办', () => {
@@ -201,6 +206,7 @@ describe('现成的动作:下了有效果、史事里有记、存下接着推一
     const [p, q] = free;
     const two = resumes({ [Y]: [{ kind: 'ally', a: p.id, b: q.id }], [Y + 10]: [{ kind: 'unally', a: p.id, b: q.id }] });
     expect(outcome(two, 1).e.n).toBe(1);
+    expect(outcome(two, 1).after.some((x) => x.kind === 'unally' && x.cause === 'decree')).toBe(true);
     expect(polityTies(two, p.id, Y + 5).allies.some((x) => x.id === q.id)).toBe(true);
     expect(polityTies(two, p.id, Y + 15).allies.some((x) => x.id === q.id)).toBe(false);
   }, 180_000);
@@ -360,6 +366,15 @@ describe('作者的干预挡下命令(新的几种挡法)', () => {
     expect(told(mine.log)).toEqual([]);
     expect(outcome(mine.civ, 1).e.n).toBeGreaterThanOrEqual(1);
   }, 120_000);
+
+  it('同一批先撤中立地、再在那州立国:照还回去的原主挡(禁止分裂)', () => {
+    const a = wide.id;
+    const b = neighbor(a);
+    const r = landsOf(a).find((q) => q !== capRegion(a) && adjacent(q, b))!;
+    const got = run({ [Y]: [{ kind: 'neutral', a, region: r, ps: [b] }], [Y + 10]: [{ kind: 'unzone', region: r }, { kind: 'found', region: r }] }, [{ kind: 'unity', a: key(a), ...AT }]);
+    expect(told(got.log)).toEqual([{ year: Y + 20, refused: [{ kind: 'found', index: 1, why: 'unity' }] }]);
+    expect(got.took.map((v) => v.kind)).toEqual(['neutral', 'unzone']);
+  }, 60_000);
 
   it('民族键也认(改民族)', () => {
     const got = run({ [Y]: [{ kind: 'convert', region: sideCities[0], folk: cultureKey(scene.civ, otherFolk) }] });

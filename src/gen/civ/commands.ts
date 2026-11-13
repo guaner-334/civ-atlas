@@ -174,6 +174,15 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
       if (r >= 0) built.add(r);
       return;
     }
+    if (v.kind === 'unzone') {
+      // 撤了的中立地还给原主:后面在那州立国、划走照原主挡
+      const tm = treatyModelOf(sim);
+      const r = regionOf(v.region);
+      const z = r >= 0 && tm ? tm.zoneAt[r] : -1;
+      const back = z >= 0 ? (tm!.backOf?.(tm!.zones[z], ownerOf) ?? -1) : -1;
+      if (back >= 0 && alive(back)) moved.set(r, back);
+      return;
+    }
     if (v.kind === 'secede') {
       // 国都、在哪州照办的时候挑:这里只把点了名的州挪给新国(没算断开的碎块)
       const a = who(v.a);

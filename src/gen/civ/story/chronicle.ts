@@ -1168,11 +1168,12 @@ function pairStory(civ: Civ, e: Annal, id: number, kind: 'peace' | 'submit' | 'u
   if (kind === 'peace') return fail(`欲${what(B)},然两国未尝交兵`, '两国那时没在交战');
   if (kind === 'unally') return fail(`欲${what(B)},然两国本无盟约`, '两国那时没有结盟');
   if (kind === 'annul') return fail(`欲${what(B)},然两国本无约`, '两国那时不在同一份约里');
-  // 称臣没成:A 已是藩属,或 B 自己是藩属
+  // 称臣没成:A 已是藩属、B 自己是藩属,或 A 自有藩属
   const la = liegeBefore(civ, e.a, id);
   if (la >= 0) return fail(`欲${what(B)},然${A}已称臣于${pn(civ, la, e.year)}`, `${A}那时已是别国的藩属`);
   const lb = liegeBefore(civ, e.b, id);
-  return fail(`欲${what(B)},然${B}自为${lb >= 0 ? pn(civ, lb, e.year) : '他国'}藩属`, `${B}那时是别国的藩属`);
+  if (lb >= 0) return fail(`欲${what(B)},然${B}自为${pn(civ, lb, e.year)}藩属`, `${B}那时是别国的藩属`);
+  return fail(`欲${what(B)},然${A}自有藩属`, `${A}那时自己有藩属`);
 }
 
 /** 第 id 条史事之前 p 的宗主(没有 = −1;只看称臣、自立,宗主亡了的由调用方另说) */

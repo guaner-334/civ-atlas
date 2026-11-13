@@ -226,6 +226,8 @@ export class TreatyModel {
   /** 推演插件的命令「废约」「撤中立地」:约当即作废(记 expire,cause = decree)/ 中立地当即撤销(同到期撤)。installTreaties 时挂上 */
   annul?: (x: Treaty, t: Year) => void;
   unzone?: (z: Zone, t: Year) => void;
+  /** 中立地 z 此刻撤了还给谁(−1 = 成了无主之地);owner = 各州此刻的主人(收命令那一关推着看的) */
+  backOf?: (z: Zone, owner: (r: number) => number) => number;
 
   constructor(pm: PolityModel, dm: DiplomacyModel) {
     this.pm = pm;
@@ -598,12 +600,21 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     if (cause === 'decree' && until !== undefined) sim.schedule(until, Ev.ZoneEnd, id, 0);
   };
 
+  /** 中立地 z 撤了还给谁:原主还在、陆上还和它接壤、不是藩属才还 */
+  const backOf = (z: Zone, of: (r: number) => number = (r) => owner[r]): number => {
+    const r = z.region;
+    if (of(r) >= 0) return of(r);
+    if (z.owner < 0 || !alive(z.owner) || dm.liegeOf(z.owner) >= 0) return -1;
+    for (let e = reg.adjStart[r]; e < reg.adjStart[r + 1]; e++) if (land(reg.adjKind[e]) && of(reg.adj[e]) === z.owner) return z.owner;
+    return -1;
+  };
+  m.backOf = backOf;
+
   /** 撤中立地:还给原主(还在、陆上还和它接壤),不然成了无主之地 */
   const dropZone = (z: Zone, t: Year) => {
     if (z.ended !== undefined) return;
     const r = z.region;
-    let back = owner[r];
-    if (back < 0 && z.owner >= 0 && alive(z.owner) && touches(z.owner, r) && dm.liegeOf(z.owner) < 0) back = z.owner;
+    const back = backOf(z);
     const give = owner[r] < 0 && back >= 0;
     note('neutral', { a: back, region: r, settlement: pm.cityOf[r], war: z.id, n: z.treaty, cause: 'lapse' });
     if (give) sim.setOwner(Layer.Polity, r, back, Ev.Neutral);
