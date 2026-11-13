@@ -355,6 +355,8 @@ export interface CivHighlightState {
   tag?: { text: string; cell: number };
   blue?: boolean;
   stripes?: number[][];
+  /** 不把地图平移、把地球仪转过去(插件圈的:要挪地图它自己另外请) */
+  still?: boolean;
 }
 
 const highlight = store<{ h: CivHighlightState | null }>({ h: null });

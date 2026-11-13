@@ -54,7 +54,7 @@ const unavailable = (text: string): never => {
 export const needCiv = (civ: Civ | null): Civ => civ?.history ?? civ ?? unavailable('这个世界还没有历史');
 
 /** 第 year 年那一段地形的历史(州、道路、地名换成那一段的;大事那一年的年初发生) */
-function eraCiv(civ: Civ, year: number): Civ {
+export function eraCiv(civ: Civ, year: number): Civ {
   const f = civ.upheavals;
   let k = 0;
   while (f && k < f.length && f[k].year <= year) k++;

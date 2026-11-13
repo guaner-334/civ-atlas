@@ -35,6 +35,7 @@ import * as read from './read';
 import { startPluginSandbox, type PluginSandbox, type StopReason } from './sandbox';
 import { checkStored, defaultLocalStore, defaultWorldStore, storedOut, STORE_LOCAL_MAX, STORE_WORLD_MAX, type PluginDataStore } from './store';
 import type { CapRef, HostInfo, PanelNode, PluginErrorCode, ViewInfo } from './types';
+import { flyFocus, highlightOf, Rate, seekYear, STEER_PER_SECOND, type SteerCall, type ViewFocus, type ViewHighlight } from './viewControl';
 
 export interface PickRequest {
   kind: 'cell' | 'cells' | 'box';
@@ -63,6 +64,12 @@ export interface PluginSource {
    * 现在不让改 = 原因。网站这边的做法见 editsCommit.ts
    */
   commit?(next: WorldEdits, keys: string[]): string | null;
+  /** 时间轴翻到 year;现在不能翻 = 原因(插件拿到 busy) */
+  seek?(year: number): string | null;
+  /** 地图飞过去;现在不能飞 = 原因(插件拿到 busy) */
+  fly?(to: ViewFocus): string | null;
+  /** 一直圈着,不挪地图;null = 拿掉这个插件圈的 */
+  highlight?(h: ViewHighlight | null): void;
 }
 
 /** 插件交来的面板、图层、日志交给谁(null = 拿掉) */
@@ -157,6 +164,9 @@ class Host implements PluginHost {
   /** 最近 APPLY_PER_SECOND 次提修改是什么时候(环形) */
   private readonly applyTimes = new Float64Array(APPLY_PER_SECOND);
   private applied = 0;
+  private readonly steerRates = new Map<SteerCall, Rate>();
+  /** 圈着东西(停了要拿掉) */
+  private lit = false;
 
   constructor(
     readonly id: string,
@@ -316,6 +326,14 @@ class Host implements PluginHost {
       }
       case 'view.get':
         return structuredClone(src.view ? src.view() : unavailable('网站这边没给看的状态'));
+      case 'view.seek':
+      case 'view.fly':
+      case 'view.highlight':
+        return this.steer(call as SteerCall, args);
+      case 'view.unhighlight':
+        if (this.lit) src.highlight?.(null);
+        this.lit = false;
+        return null;
       case 'pick.cell':
       case 'pick.cells':
       case 'pick.box':
@@ -360,6 +378,28 @@ class Host implements PluginHost {
       default:
         return unavailable(`网站这一版还没开 ${call}`);
     }
+  }
+
+  /** 照办了的才算次数:用的人正按着地图、时间轴时回的 busy 不算 */
+  private steer(call: SteerCall, args: unknown): null {
+    const src = this.src;
+    const act = call === 'view.seek' ? src.seek : call === 'view.fly' ? src.fly : src.highlight;
+    if (!act) return unavailable('网站这边还不能替插件翻年份、移地图');
+    let rate = this.steerRates.get(call);
+    if (!rate) this.steerRates.set(call, (rate = new Rate(STEER_PER_SECOND[call])));
+    const now = performance.now();
+    if (rate.full(now)) throw new PluginApiError('busy', `${call} 一秒最多 ${rate.max} 次`);
+    const year = () => src.view?.().year ?? Infinity;
+    let why: string | null = null;
+    if (call === 'view.seek') why = src.seek!(seekYear(this.civ(), args));
+    else if (call === 'view.fly') why = src.fly!(flyFocus(this.world(), () => this.civ(), args, year));
+    else {
+      src.highlight!(highlightOf(this.civ(), args, year));
+      this.lit = true;
+    }
+    if (why) throw new PluginApiError('busy', why);
+    rate.hit(now);
+    return null;
   }
 
   private worldStore(): PluginDataStore {
@@ -466,6 +506,8 @@ class Host implements PluginHost {
     this.panel = null;
     for (const k of this.layers.keys()) this.sink.layer?.(k, null);
     this.layers.clear();
+    if (this.lit) this.src.highlight?.(null);
+    this.lit = false;
     this.onStop?.(reason, detail);
   };
 }

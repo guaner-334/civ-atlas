@@ -2,7 +2,7 @@
 
 ## 能力和权限框
 
-插件要什么都写在清单的 `requires`(和 `optional`)里,每样叫一个能力。装的时候网站把能力翻成大白话列在权限框上,一行一条,下面是作者在 `why` 里写的理由。能力表在 [`src/plugin/pluginCaps.ts`](../../src/plugin/pluginCaps.ts)。这一页讲工具插件的 12 样;推演插件另有 7 样(`sim.` 开头,只给推演插件),权限框上两行,见[推演插件](sim.md#能力和权限框);地图插件另有 3 样(`gen.` 开头,只给地图插件),见[地图插件](map.md#能力和权限框)。工具插件的:
+插件要什么都写在清单的 `requires`(和 `optional`)里,每样叫一个能力。装的时候网站把能力翻成大白话列在权限框上,一行一条,下面是作者在 `why` 里写的理由。能力表在 [`src/plugin/pluginCaps.ts`](../../src/plugin/pluginCaps.ts)。这一页讲工具插件的 13 样;推演插件另有 7 样(`sim.` 开头,只给推演插件),权限框上两行,见[推演插件](sim.md#能力和权限框);地图插件另有 3 样(`gen.` 开头,只给地图插件),见[地图插件](map.md#能力和权限框)。工具插件的:
 
 | 能力 | 能用的调用和事件 | 权限框上那一行 |
 |---|---|---|
@@ -12,6 +12,7 @@
 | `author.write@1` | `author.apply` | **会改你写的东西（改国名人名、加标记和批注、下命令）**,显眼;下面网站固定写一行「改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演」 |
 | `view.read@1` | `view.get`,事件 `view.year`、`view.select` | 知道你在看哪一年、点了哪里（只在用它的时候） |
 | `input.pick@1` | `pick.cell`、`pick.cells`、`pick.box` | 同上一行 |
+| `view.control@1` | `view.seek`、`view.fly`、`view.highlight`、`view.unhighlight` | 会替你翻年份、移地图、圈出国家和州 |
 | `ui.panel@1` | `panel.set`、`panel.clear`,事件 `panel.action` | 不单列(哪个插件都能有) |
 | `layer.cells@1` | `layer.cells`、`layer.remove` | 在地图上加图层和标注 |
 | `layer.regions@1` | `layer.regions`、`layer.remove` | 同上一行 |
@@ -60,6 +61,7 @@
 | 一个标记 | 圈 500 个州;名字 40 个字,说明 2000 个字 | `limit` |
 | 改名 | 一个名字 16 个字 | `limit` |
 | 点选的提示 | 40 个字 | `limit` |
+| `view.seek`、`view.fly`、`view.highlight` | 一秒 4 次、2 次、10 次;用的人按着地图、时间轴时翻年份、移地图不照办 | `busy` |
 | 面板 | 2000 个格子、4000 个字;表格 500 行 × 20 列;套 4 层 | `limit` |
 | 地块图层、按州按年份的图层 | 合起来一个插件 4 个;渐变 2–16 色,分类 1–32 类;按州的份数 × 州数 × 4 字节最多 3.5 MB | `limit` / `bad-args` |
 | 标注图层 | 一个插件 4 个;每个 5000 项、地块和点一共 200000 个;字 40 个 | `limit` |
