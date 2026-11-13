@@ -2,6 +2,7 @@
  * 插件能要的能力(「名字@大版本」),和装插件时权限框上对应的那一行。
  * 这张表里没有的能力(名字认得、版本更高的也算)一律当这一版网站还没有。纯定义,网页、Worker、服务器共用。
  */
+import type { MapHelpers } from '../gen/mapHelpers';
 
 export type PermissionKey = 'map' | 'history' | 'authorRead' | 'authorWrite' | 'view' | 'layer' | 'storeWorld' | 'sim' | 'simSteer' | 'mapSteer';
 
@@ -61,6 +62,12 @@ export const PLUGIN_CAPS: ReadonlyMap<string, PermissionKey | null> = new Map<st
   ['gen.layers@1', 'layer'],
 ]);
 
+/** 接口的档:stable 只加不改;experimental 网站更新后可能改意思、改名或拿掉 */
+export type ApiTier = 'stable' | 'experimental';
+
+/** 能力的档;没写的是稳定档(下面影响口、命令、生成的步骤、帮手的档表一样) */
+export const CAP_TIER: Readonly<Record<string, ApiTier>> = {};
+
 /** 能力名的写法:小写的点分名字 + @ + 大版本 */
 export const CAP_NAME = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,3}$/;
 
@@ -115,6 +122,12 @@ export const SIM_INFLUENCE_TEXT: Readonly<Record<string, string>> = {
   'plague.odds': '起瘟疫的几率（按州）',
   'plague.loss': '瘟疫死几成（按州）',
 };
+
+export const SIM_COMMAND_TIER: Readonly<Record<string, ApiTier>> = {};
+export const SIM_INFLUENCE_TIER: Readonly<Record<string, ApiTier>> = {};
+/** 地图插件生成的步骤(pluginMap.ts 的 MAP_STAGE_CAPS)、帮手(gen/mapHelpers.ts)的档放这里:那两个文件只在跑地图插件时才载入 */
+export const MAP_STAGE_TIER: Readonly<Record<string, ApiTier>> = {};
+export const MAP_HELPER_TIER: Readonly<Partial<Record<keyof MapHelpers, ApiTier>>> = {};
 
 /** 清单 sim.commands → 「宣战、结盟」 */
 export const simCommandsText = (kinds: readonly string[]): string => kinds.map((k) => (Object.prototype.hasOwnProperty.call(SIM_COMMAND_TEXT, k) ? SIM_COMMAND_TEXT[k] : k)).join('、');
