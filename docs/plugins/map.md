@@ -130,7 +130,9 @@ export interface MapPluginDef {
 | `seed` | 地图种子 |
 | `params` | 滑条拨到几,只读,和 `civAtlas.params` 是同一份(见[滑条](#滑条)) |
 | `rand(a, b, c)` | 随机数(见[随机数](#随机数)) |
-| `noise`、`blur`、`steps`、`near`、`km` | 帮手(见[帮手](#帮手)) |
+| `noise`、`blur`、`steps`、`near`、`km`、`ridged`、`flow`、`distance`、`components`、`slope`、`cellAt`、`line`、`westEast`、`biomeOf` | 帮手(见[帮手](#帮手)) |
+
+板块、地块面积、洋流、水往哪流这些数,清单 `map.reads` 里写了才递,见[多读的数](#多读的数)。
 
 ### 改海拔(`height`)
 
@@ -217,6 +219,92 @@ civAtlas.map({
 
 这一口只看不改,交回 `{ layers: { 图层编号: 每块一个数 } }`,见[图层](#图层)。
 
+## 多读的数
+
+上面那些每一口都递。网站长地图时还算了一批数(板块怎么漂、地块多大、洋流、水往哪流……),插件要用才递:在清单的 `map` 段加一项 `reads`,写要哪几样,比如 `"reads": ["cellArea", "convergence"]`。没写的不递,每一口递的和不写时一样。
+
+| `d.` 上的 | 哪几口有 | 是什么 |
+|---|---|---|
+| `plateVx`、`plateVy` | 三口都有 | 每个板块(下标是 `plate` 里的编号)在自己质心处的漂移速度,东、南分量;没有单位,大小 0.3–1 |
+| `plateOmega` | 三口都有 | 每个板块绕转轴转动的角速度向量,交错存 x, y, z(和 `xyz` 同一套坐标):板块在某处的速度 = ω × 那处的位置 |
+| `plateContinental` | 三口都有 | 每个板块:1 大陆板块 / 0 大洋板块 |
+| `convergence` | 三口都有 | 板块边界上的汇聚强度:正 = 相撞,负 = 张裂,0 = 不在边界 |
+| `convergentKm`、`divergentKm` | 三口都有 | 离最近的相撞边界(汇聚强度大于 0.25)、张裂边界(小于 −0.25)多少公里;全世界一处这种边界都没有是 −1 |
+| `convergentStrength`、`divergentStrength` | 三口都有 | 最近的那段相撞边界撞得多猛、张裂边界裂得多猛(0–1) |
+| `uplift` | 三口都有 | 陆地抬升得多快(没有单位):山是雨水从它冲出来的 |
+| `plateau` | 三口都有 | 高原底座(米;海里是 0) |
+| `oceanDepth` | 三口都有 | 海底深度(米,负数;陆地是 0) |
+| `cellArea` | 三口都有 | 每个地块的面积(平方公里) |
+| `worldParams` | 三口都有 | 新建世界时的参数:`seed`、`cells`、`landFraction`、`plates`、`mountains`、`temperature`、`rainfall`、`continents`、`gather`、`rugged`、`hardness`、`north`(各是什么见类型定义) |
+| `edited` | 三口都有 | 1 = 作者在地形编辑里改过的地块:改海拔那一口是火山、山脉、抬起沉下、草图涂过的;改气候、出图层再加上高度笔、挖的湖、画的河碰到的 |
+| `currentU`、`currentV` | 改气候、出图层 | 洋流的表层流向:东、南分量,长短 = 强弱(0–1);陆地、湖是 0 |
+| `currentTemp` | 改气候、出图层 | 洋流让海面比同纬度的平均暖多少(°C,负 = 冷);陆地、湖是 0 |
+| `downstream` | 出图层 | 水往哪块流(−1 = 海,或者流不到海);`flux` 就是 `runoff` 沿它一路加起来的 |
+| `fillLevel` | 出图层 | 洼地灌满以后的水面(米):比海拔高 3 米以上的积成了湖(太大的湖后来填平了) |
+| `runoff` | 出图层 | 每块自己产多少水(米 / 年,只有陆地有) |
+| `wetland` | 出图层 | 湿地适宜度(0–1):陆地上到 0.5 的成了湿地 |
+| `maxElevation` | 出图层 | 最高海拔(米),山名、山峰符号的门槛按它定;改过地形的世界照没改地形时的 |
+
+- `uplift`、`plateau`、`oceanDepth` 是雨水冲刷之前定的,改海拔那一口拿到的 `elevation` 已经照它们长好了;改它们的口子还没有
+- 只多看几样数,不要能力,权限框上不多一行
+- `reads` 最多写 64 样,不重复;写了的那样在 `map.stages` 的哪一口都不递(比如只在改海拔出手、却要 `downstream`),打包时就报;写了这一版网站还没有的名字,装的时候说要更新网站
+- 每多一样,一口多递一份地块数那么长的数组(默认地块数时约 0.15 MB,20 万块时约 0.8 MB),都占插件那 64 MB 内存:20 万块时出图层那一口不写 `reads` 递约 17 MB,全写上约 30 MB。用不着的别写
+
+下面这个「大陆和岛」把陆地按连成的一片有多大分成三类,用了地块面积和帮手 `components`:
+
+```json
+{
+  "id": "landmass",
+  "name": "大陆和岛",
+  "version": "1.0.0",
+  "role": "map",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["gen.layers@1"],
+  "why": { "gen.layers@1": "把陆地按连成的一片有多大分成大陆、大岛、小岛" },
+  "map": {
+    "stages": ["layers"],
+    "reads": ["cellArea"],
+    "layers": [
+      {
+        "id": "landmass",
+        "title": "大陆和岛",
+        "classes": [
+          { "value": 0, "color": "#2b8cbe", "label": "大陆" },
+          { "value": 1, "color": "#7bccc4", "label": "大岛" },
+          { "value": 2, "color": "#ccebc5", "label": "小岛" }
+        ]
+      }
+    ]
+  },
+  "description": "把陆地按连成的一片有多大分成大陆、大岛、小岛。",
+  "license": "MIT",
+  "author": { "name": "你的名字" }
+}
+```
+
+```js
+civAtlas.map({
+  layers(d) {
+    // 海以外的标 1(湖算在陆地里),连成几片
+    const land = new Uint8Array(d.n);
+    for (let i = 0; i < d.n; i++) land[i] = d.water[i] === 1 ? 0 : 1;
+    const { group, size } = d.components(land);
+    // 每片多少平方公里
+    const area = new Float64Array(size.length);
+    for (let i = 0; i < d.n; i++) if (group[i] >= 0) area[group[i]] += d.cellArea[i];
+    const out = new Float32Array(d.n).fill(NaN);
+    for (let i = 0; i < d.n; i++) {
+      if (d.water[i] !== 0) continue;
+      // 澳大利亚约 770 万平方公里,大不列颠岛约 21 万
+      const a = area[group[i]];
+      out[i] = a >= 5e6 ? 0 : a >= 1e5 ? 1 : 2;
+    }
+    return { layers: { landmass: out } };
+  },
+});
+```
+
 ## 随机数
 
 `d.rand(a, b, c)` 是 [0, 1) 的数,只由地图种子、插件编号和 a、b、c 三个整数定(不给当 0,小数部分去掉)。同样的 a、b、c 永远是同一个数,和调的先后无关:环形山第 k 个坑用 `d.rand(k, 1)` 定在哪、`d.rand(k, 2)` 定多大、`d.rand(k, 3)` 定多深。换一个插件编号,同一个种子得到另一串数。
@@ -232,11 +320,20 @@ civAtlas.map({
 | `d.steps(from, through)` | 从 `from` 沿邻居走过来,每块要走几步(`Int32Array`),走不到是 −1 | `from`:标了 1 的是起点;`through` 可选:只能走进标了 1 的地块(起点不受它管) |
 | `d.near(cell, km)` | 离地块 `cell` 不超过 `km` 公里的地块(`Int32Array`,含它自己,编号从小到大) | `cell`:地块编号;`km`:不小于 0 |
 | `d.km(a, b)` | 两块之间多少公里(直线穿过星球的距离,近处和沿地面走差不多) | `a`、`b`:地块编号 |
+| `d.ridged({ km, octaves, persistence, salt })` | 山脊噪声:每块一个 0 到 1 的数(`Float32Array`),连成一道道山脊的地方接近 1,和官方长老山脉用的同一套 | 同 `noise` |
+| `d.flow(height, land, rain)` | `{ downstream, fillLevel, flux }`:水往哪块流(`Int32Array`;没标 1 的是 −1,一整片陆地都挨不着没标 1 的地块时也是 −1)、洼地灌满以后的水面(`Float32Array`,和 `height` 同一个单位;不是陆地的是 `height` 和 0 里小的那个)、汇流量(`Float32Array`,自己的 `rain` 加上游流来的)。和官方积水成湖、算河的同一套 | `height`:每块的高;`land`:标了 1 的是陆地,水一直流到没标 1 的地块(湖也标 1,水穿过湖往下流);`rain` 可选:每块自己产多少水,不给 = 标了 1 的每块 1、别处 0 |
+| `d.distance(from, through)` | `{ km, nearest }`:每块沿邻居走过来最少多少公里(`Float32Array`)、最近的是哪个起点(`Int32Array`);走不到的都是 −1 | 同 `steps` |
+| `d.components(mask)` | `{ group, size }`:每块属于第几片(`Int32Array`,没标 1 的是 −1)、第几片有几块(`Int32Array`);片按里面最小的地块编号排 | `mask`:标了 1 的沿邻居连成片 |
+| `d.slope(height)` | 每块和邻居比最陡的那一下,每公里升降多少(`Float32Array`,`height` 的单位 / 公里,不分上坡下坡) | `height`:每块的高 |
+| `d.cellAt(lat, lon)` | 纬度 `lat`、经度 `lon` 处是哪个地块(离那一点最近的地块编号) | `lat`:−90 到 90;`lon`:度,超出 −180 到 180 的绕回来 |
+| `d.line(a, b)` | 从地块 `a` 沿最短的路(大圆)走到 `b` 经过的地块(`Int32Array`,含两头,按先后,一块挨一块) | `a`、`b`:地块编号;两块正好在星球两头(最短的路不止一条)报错 |
+| `d.westEast(mask)` | `{ west, east }`:每块沿纬线往西、往东到最近的标了 1 的地块多少公里(`Float32Array`,约 80 公里一格粗算);这一圈纬线上一块都没有是 −1 | `mask`:标了 1 的地块。官方算洋流时这样找大洋的东西两岸 |
+| `d.biomeOf(temperature, precipitation, water)` | 照气温、年降水每块该是什么群落(`Uint8Array`,编号和 `biomeNames` 对得上),和官方判的同一套;湿地不在里面(官方另按低平、排水差判),海不看海冰 | `temperature`(°C)、`precipitation`(毫米)每块一个数;`water` 可选:0 陆地 / 1 海 / 2 湖,不给全当陆地 |
 
-- `mask`、`from`、`through` 只认等于 1 的格子,2 也不算:`water` 那种 0 / 1 / 2 要先换成 0 和 1。`field`、`mask`、`from`、`through` 的长度都要等于地块数,给普通数组的每一格都要是数
-- 噪声的种子按插件编号和 `salt` 分开:两个插件,或者同一个插件给两个 `salt`,得到的噪声互不相干
+- `mask`、`from`、`through`、`land` 只认等于 1 的格子,2 也不算:`water` 那种 0 / 1 / 2 要先换成 0 和 1。传进去的数组长度都要等于地块数,给普通数组的每一格都要是数;`flow`、`slope` 的 `height` 和 `flow` 的 `rain` 还要是有限的数
+- 噪声的种子按插件编号和 `salt` 分开:两个插件,或者同一个插件给两个 `salt`,得到的噪声互不相干;`ridged` 和 `noise` 给同一个 `salt` 也互不相干
 - 参数写错了抛错,说是哪个帮手、哪一项(`d.noise 的 km 要是大于 0 的数`);插件没接住,就是这一口出错
-- `noise`、`blur`、`steps`、`near` 要把数据递出 QuickJS 再拿回来,一次几毫秒以内;`rand`、`km` 就在 QuickJS 里算。几千块的地方各调一次 `d.near` 也不贵,每块调一次就慢了
+- 除了 `rand`、`km`,帮手都要把数据递出 QuickJS 再拿回来,一次几毫秒以内(20 万块时 `flow` 要几十毫秒);`rand`、`km` 就在 QuickJS 里算。几千块的地方各调一次 `d.near`、`d.cellAt`、`d.line` 也不贵,每块调一次就慢了
 
 下面这个「丘陵起伏」给陆地加上一片片丘陵(丘陵之间的洼地后面会积成小湖),用了噪声和只在陆地上的平滑:
 
@@ -406,7 +503,8 @@ civAtlas.map({
 | 交回的数 | 海拔 −11000 到 9000 米,气温 −70 到 50 °C,降水 0 到 15000 毫米 | 压到范围里 |
 | 图层 | 一个插件 4 张;渐变 2–16 色,分类 1–32 类 | 打包时 / 生成停下 |
 | 滑条 | 8 个,`label` 12 个字 | 打包时就报 |
-| 帮手 | `noise` 最多叠 8 层、`salt` 64 个字;`blur` 最多 200 遍 | 这一口出错 |
+| 帮手 | `noise`、`ridged` 最多叠 8 层、`salt` 64 个字;`blur` 最多 200 遍 | 这一口出错 |
+| 多读的数 | `map.reads` 最多 64 样 | 打包时就报 |
 
 一次生成:新建世界、换参数重新长是一次;改一笔地形也是一次(只重跑改气候、出图层)。
 
@@ -439,7 +537,7 @@ civAtlas.map({
 QuickJS 是解释着跑的,比浏览器直接跑慢几十倍。两招:
 
 - **沿邻居走,别每次扫全图**:要找附近的地块,用 `d.near` 或者从邻接表一圈圈往外走(潮汐示例找海湾那样),不要对每个点把全图扫一遍
-- **能用帮手就用帮手**:噪声、平滑、离某处几步网站算好递进来
+- **能用帮手就用帮手**:噪声、平滑、离某处几步、多少公里、水往哪流、连成几片网站算好递进来
 
 在电脑上量过的数(默认 3 万多块,在 QuickJS 里):
 

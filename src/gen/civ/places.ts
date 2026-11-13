@@ -34,6 +34,7 @@ import type { World } from '../world';
 import { BIOMES, biomeMask, biomeTagged } from '../biomes';
 import { MinHeap, hypot2, mulberry32, subSeed } from '../util';
 import { geometryOf, type Chart, type Geometry } from '../geometry';
+import { components } from '../mesh';
 import { createNamer, NAME_STYLES, pickStyle, type GeneratedName, type NameMix, type Namer } from '../names';
 import type { Culture, Place, Regions } from './types';
 import { passSince, type PassSite } from './passSites';
@@ -245,30 +246,6 @@ function distanceField(world: World, ctx: Ctx, inside: Uint8Array): Float32Array
   // 走不到的地块(网格里偶尔有没有邻居的孤点)记为 0,不当成"最远点"
   const out = new Float32Array(ctx.n);
   for (let i = 0; i < ctx.n; i++) out[i] = dist[i] === Infinity ? 0 : dist[i];
-  return out;
-}
-
-/** 连通片:返回每片的地块列表(按片里最小的地块编号排序,顺序确定) */
-function components(world: World, mask: Uint8Array): number[][] {
-  const { n, adjStart, adj } = world.mesh;
-  const seen = new Uint8Array(n);
-  const out: number[][] = [];
-  for (let s = 0; s < n; s++) {
-    if (!mask[s] || seen[s]) continue;
-    const q = [s];
-    seen[s] = 1;
-    for (let h = 0; h < q.length; h++) {
-      const i = q[h];
-      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
-        const j = adj[k];
-        if (mask[j] && !seen[j]) {
-          seen[j] = 1;
-          q.push(j);
-        }
-      }
-    }
-    out.push(q);
-  }
   return out;
 }
 
@@ -894,7 +871,7 @@ function findMountains(world: World, ctx: Ctx, ns: Namers): Place[] {
   // 越高的地块权重越大:主轴和路径贴着山脊走
   const w = (c: number) => (elevation[c] - T + 300) ** 2 * ctx.area[c];
   const pieces: { cells: number[]; area: number; mass: number }[] = [];
-  for (const cells of components(world, high)) {
+  for (const cells of components(world.mesh, high)) {
     const area = sumArea(ctx, cells) / ctx.cellA;
     if (area < MOUNTAIN.minArea) continue;
     // 又大又不成一条线(分叉、拐弯的山系):按位置聚成几段,各起各的名字
@@ -1185,7 +1162,7 @@ function findLakes(world: World, ctx: Ctx, ns: Namers): Place[] {
   const lake = new Uint8Array(n);
   for (let i = 0; i < n; i++) lake[i] = world.water[i] === 2 && !ICE[world.biome[i]] ? 1 : 0;
   const dist = distanceField(world, ctx, lake);
-  const all = components(world, lake)
+  const all = components(world.mesh, lake)
     .map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }))
     .filter((c) => c.area >= LAKE.minArea)
     .sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0]);
@@ -1202,7 +1179,7 @@ function findIslands(world: World, ctx: Ctx, ns: Namers): Place[] {
   const n = ctx.n;
   const land = new Uint8Array(n);
   for (let i = 0; i < n; i++) land[i] = world.water[i] !== 1 ? 1 : 0;
-  const all = components(world, land).map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }));
+  const all = components(world.mesh, land).map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }));
   if (!all.length) return [];
   const largest = Math.max(...all.map((c) => c.area));
   const maxArea = Math.min(ISLAND.maxArea, largest * ISLAND.maxFracOfLargest);
@@ -1251,7 +1228,7 @@ function findDeserts(world: World, ctx: Ctx, ns: Namers): Place[] {
   for (let i = 0; i < n; i++) {
     desert[i] = world.water[i] === 0 && DESERT_BIOME[world.biome[i]] ? 1 : 0;
   }
-  const all = components(world, desert)
+  const all = components(world.mesh, desert)
     .map((cells) => ({ cells, area: sumArea(ctx, cells) / ctx.cellA }))
     .filter((c) => c.area >= DESERT.minArea)
     .sort((a, b) => b.area - a.area || a.cells[0] - b.cells[0]);
