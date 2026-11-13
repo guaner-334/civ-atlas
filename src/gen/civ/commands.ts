@@ -11,6 +11,7 @@ import { Layer } from './types';
 import { polityModelOf } from './polities';
 import { cultureModelOf } from './cultures';
 import { capitalAt } from './growth';
+import { civApi } from './api';
 import { treatyModelOf } from './treaties';
 import { commandedList, interventionModelOf, issueCommands, type InterventionModel } from './interventions';
 
@@ -194,14 +195,14 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
       return;
     }
     if (v.kind === 'secede') {
-      // 国都、在哪州照办的时候挑:这里只把点了名的州挪给新国(没算断开的碎块)
+      // 同办的时候:点了名的州连同断开的碎块挪给新国(碎块照此刻的归属算)
       const a = who(v.a);
       if (!alive(a) || a >= P.length) return;
       const cap = pm.settlements[capitalAt(P[a], t)]?.region ?? -1;
-      const rs = v.regions.map(regionOf).filter((r) => r >= 0 && r !== cap && ownerOf(r) === a && !iv.locked(r, t));
+      const rs = [...new Set(v.regions.map(regionOf))].filter((r) => r >= 0 && r !== cap && ownerOf(r) === a && !iv.locked(r, t)).sort((x, y) => x - y);
       if (!rs.length) return;
       const id = P.length + made++;
-      for (const r of rs) moved.set(r, id);
+      for (const r of civApi(sim).politics.cutOff?.(a, rs, t, Infinity) ?? rs) moved.set(r, id);
       return;
     }
     const x = loss(v);
