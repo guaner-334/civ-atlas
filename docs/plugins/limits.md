@@ -8,7 +8,7 @@
 |---|---|---|
 | `world.read@1` | `world.*` | 看地图（地形、气候、河流） |
 | `history.read@1` | `history.*` | 看历史（国家、城市、人物、编年史） |
-| `author.read@1` | `author.marks`、`names`、`characters`、`interventions`、`notes` | **看你写的东西（笔记、标记、AI 写的正文）**,显眼 |
+| `author.read@1` | `author.marks`、`names`、`characters`、`interventions`、`notes`、`terrain` | **看你写的东西（笔记、标记、AI 写的正文）**,显眼 |
 | `author.write@1` | `author.apply` | **会改你写的东西（改国名人名、加标记和批注、下命令）**,显眼;下面网站固定写一行「改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演」 |
 | `view.read@1` | `view.get`,事件 `view.year`、`view.select` | 知道你在看哪一年、点了哪里（只在用它的时候） |
 | `input.pick@1` | `pick.cell`、`pick.cells`、`pick.box` | 同上一行 |
@@ -54,6 +54,8 @@
 | 插件文件 | 2 MB;`main.js` 1 MB,README、LICENSE、清单、图标各 64 KB | 装不上 |
 | `world.cells` 一次 | 16 种 | `limit` |
 | `history.people`、`history.events` 一页 | 2000 条 | `limit` |
+| `history.dynasties`、`treaties`、`zones`、`trade`、`migrations` 一页 | 2000 项 | `limit` |
+| `history.regionStats` 一次 | 32 种 | `limit` |
 | `author.notes` 一页 | 100 篇 | `limit` |
 | `author.apply` | 一次 200 条,一秒 10 次;改完以后一共最多 20000 个改名、10000 条命令,存档要存得下 | `limit` / `busy` |
 | 标记 | 一个世界 2000 个,所有标记一共圈 10000 个州 | `limit` |
