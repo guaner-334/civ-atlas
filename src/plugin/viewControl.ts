@@ -88,14 +88,17 @@ export function flyFocus(world: World, civ: () => Civ, raw: unknown, year: () =>
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  const add = (px: number, py: number) => {
-    if (Number.isNaN(ref)) ref = px;
-    const v = px - W * Math.round((px - ref) / W);
-    if (v < x0) x0 = v;
-    if (v > x1) x1 = v;
-    if (py < y0) y0 = py;
-    if (py > y1) y1 = py;
+  // 一段东西方向的范围整段挪到离 ref 最近的那一圈(框比半圈宽也不会被折成另一边)
+  const span = (ax: number, bx: number, ay: number, by: number) => {
+    const mid = (ax + bx) / 2;
+    if (Number.isNaN(ref)) ref = mid;
+    const s = -W * Math.round((mid - ref) / W);
+    x0 = Math.min(x0, ax + s);
+    x1 = Math.max(x1, bx + s);
+    y0 = Math.min(y0, ay);
+    y1 = Math.max(y1, by);
   };
+  const add = (px: number, py: number) => span(px, px, py, py);
   const addRegion = (R: Civ['regions'], r: number) => {
     for (let k = R.cellStart[r]; k < R.cellStart[r + 1]; k++) add(x[R.cells[k]], y[R.cells[k]]);
   };
@@ -107,8 +110,7 @@ export function flyFocus(world: World, civ: () => Civ, raw: unknown, year: () =>
     const bx1 = num(b.x1, 'box.x1', bx0, bx0 + W);
     const by0 = num(b.y0, 'box.y0', 0, H);
     const by1 = num(b.y1, 'box.y1', by0, H);
-    add(bx0, by0);
-    add(bx1, by1);
+    span(bx0, bx1, by0, by1);
   }
   if (a.polities !== undefined || a.regions !== undefined || a.settlements !== undefined) {
     const h = civ();

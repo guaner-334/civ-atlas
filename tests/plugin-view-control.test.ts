@@ -193,6 +193,16 @@ describe('移地图', () => {
     expect(box.box).toEqual([2000, 100, 2100, 200]);
     expect(box.x).toBeCloseTo(2050 - W);
     expect(box.lat).toBeCloseTo(90 - (150 / world.height) * 180);
+
+    // 比半圈宽的框、整圈的框照原样
+    for (const [x0, x1] of [
+      [0, W * 0.75],
+      [0, W],
+    ]) {
+      tick();
+      expect(await code('view.fly', { box: { x0, y0: 100, x1, y1: 200 } })).toBe('ok');
+      expect(did.fly.at(-1)!.box).toEqual([x0, 100, x1, 200]);
+    }
   });
 
   it('国家看全那一年的国土(编号、键一样);州、城;不给年份按时间轴停的那一年', async () => {
