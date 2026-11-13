@@ -129,7 +129,10 @@ export function strikeBoost(sim: CivSim, iv: InterventionModel, v: BoostIv, i: n
   if (v.mul !== undefined) {
     rec(-1, regions.length * BOOST_N);
     const s = segOf(v, a, pm);
-    if (s) segsOf.get(sim)?.push(s);
+    const segs = segsOf.get(sim);
+    // 推演插件下的头一条快几倍:这时才挂上(installBoosts 照史事把这一条也算进去)
+    if (!segs) installBoosts(sim, iv);
+    else if (s) segs.push(s);
     return;
   }
   // 直接进:以国都所在州的时代为准,进下一个

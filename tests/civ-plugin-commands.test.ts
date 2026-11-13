@@ -271,7 +271,7 @@ describe('推演插件下命令:写错了', () => {
   it('种类不收、带了推演定的字段、编号不对、清理会改掉的、超过上限:停在那一刻,说是哪个插件、哪一条', () => {
     const w = worldOf(2024);
     const cases: [unknown, RegExp][] = [
-      [{ kind: 'protect', a: 0 }, /kind 只能是/],
+      [{ kind: 'crown', a: 0 }, /kind 只能是/],
       [{ kind: 'declare', a: 0, b: 1, from: 50 }, /不能带 from/],
       [{ kind: 'declare', a: 0, b: 1, lead: 3 }, /不能带 lead/],
       [{ kind: 'disaster', type: 'pandemic', level: 2, city: 0 }, /pandemic|plague、famine、quake/],

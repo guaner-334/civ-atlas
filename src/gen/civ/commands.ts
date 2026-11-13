@@ -10,12 +10,22 @@ import type { PluginRefused } from './engine/plugin';
 import { Layer } from './types';
 import { polityModelOf } from './polities';
 import { cultureModelOf } from './cultures';
+import { capitalAt } from './growth';
+import { civApi } from './api';
+import { treatyModelOf } from './treaties';
 import { commandedList, interventionModelOf, issueCommands, type InterventionModel } from './interventions';
 
-/** 插件能下的几种:宣战、结盟、立约(议和)、划州、立国、迁都、灭国、天灾、大迁徙 */
-export const COMMAND_KINDS: readonly InterventionKind[] = ['declare', 'ally', 'treaty', 'cede', 'found', 'move', 'destroy', 'disaster', 'trek'];
-/** 挡下插件命令的作者干预(PluginTurn.refused 的 why):不许灭、禁止分裂、不许扩张、结盟、不许迁 */
-export const REFUSE_REASONS = ['protect', 'unity', 'halt', 'ally', 'stay'] as const;
+/**
+ * 插件能下的几种:宣战、结盟、立约(议和)、划州、立国、迁都、灭国、天灾、大迁徙;划中立地、推一把发展;
+ * 不许灭、禁止分裂、不许扩张、保住王室、不许迁;停战、称臣、放藩、断盟、废约、撤中立地、建城、改朝换代、分裂、改民族
+ */
+export const COMMAND_KINDS: readonly InterventionKind[] = [
+  ...['declare', 'ally', 'treaty', 'cede', 'found', 'move', 'destroy', 'disaster', 'trek', 'neutral', 'boost'] as const,
+  ...['protect', 'unity', 'halt', 'keep', 'stay'] as const,
+  ...['peace', 'submit', 'release', 'unally', 'annul', 'unzone', 'city', 'dynasty', 'secede', 'convert'] as const,
+];
+/** 挡下插件命令的作者干预(PluginTurn.refused 的 why):不许灭、禁止分裂、不许扩张、结盟、不许迁、保住王室、立约、划中立地 */
+export const REFUSE_REASONS = ['protect', 'unity', 'halt', 'ally', 'stay', 'keep', 'treaty', 'neutral'] as const;
 export type RefuseReason = (typeof REFUSE_REASONS)[number];
 /** 天灾里能下的几种(全球大疫不行) */
 const COMMAND_DISASTERS: readonly string[] = ['plague', 'famine', 'quake'];
@@ -92,8 +102,22 @@ function commandOf(raw: unknown, plugin: string, at: number, key: (ref: Ref, x: 
   return r.ok;
 }
 
+/** 约(treaty)/ 中立地(neutral)war 是作者下令立的:它那条 cause = decree 的史事往前、同一刻最近的 intervene 是作者的干预 */
+function authorDecreed(sim: CivSim, iv: InterventionModel, kind: 'treaty' | 'neutral', war: number): boolean {
+  for (let k = sim.annalCount - 1; k >= 0; k--) {
+    const e = sim.annal(k);
+    if (e.kind !== kind || e.war !== war || e.cause !== 'decree') continue;
+    for (let j = k - 1; j >= 0 && sim.annal(j).year === e.year; j--) {
+      const d = sim.annal(j);
+      if (d.kind === 'intervene') return !!iv.list[d.war] && !isCommand(iv.list[d.war]);
+    }
+    return false;
+  }
+  return false;
+}
+
 /**
- * 作者的干预在 t 那一刻挡下哪几条命令(挡它的干预种类,没挡 = null)。插件下不了 protect、unity、halt、stay,查到的这几样都是作者的。
+ * 作者的干预在 t 那一刻挡下哪几条命令(挡它的干预种类,没挡 = null);插件下的否决类不挡命令。
  * 这一格收下的命令按先后办,州归谁要照前面收下的(别的插件的、这一批前面的)推着看:不然先划过去再立国、一次划两州就绕过了禁止分裂、不许灭
  */
 function refusals(sim: CivSim, iv: InterventionModel, list: readonly Intervention[], t: number): (RefuseReason | null)[] {
@@ -106,6 +130,9 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   const dead = new Set<number>();
   /** 前面收下的立国立出来的新国:按州定位的键 → 编号(接着现有的国往后排,同推演里立国);插件能拿算得出的键接着对它下命令 */
   const born = new Map<string, number>();
+  /** 前面收下的立国、分裂一共立出几国;建了城的州 */
+  let made = 0;
+  const built = new Set<number>();
   const who = (k: string) => {
     const p = iv.resolve(k);
     if (p >= 0) return p;
@@ -124,13 +151,13 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     return r >= 0 && r < sim.R && peopled[r] >= 0 ? r : -1;
   };
   /** 国家 o 再丢了州 r 就没有带城的州了(国都所在州丢了,没处迁都) */
-  const ends = (o: number, r: number) => !landsOf(o).some((q) => q !== r && pm.cityOf[q] >= 0);
+  const ends = (o: number, r: number) => !landsOf(o).some((q) => q !== r && (pm.cityOf[q] >= 0 || built.has(q)));
   /** 这条命令让州的主人丢掉它(划给别国、在那里立国):[原主, 州, 得到它的];不丢 = null */
   const loss = (v: Intervention): [number, number, number] | null => {
     if (v.kind !== 'cede' && v.kind !== 'found') return null;
     const r = regionOf(v.region);
     const o = r >= 0 ? ownerOf(r) : -1;
-    const by = v.kind === 'found' ? P.length + born.size : who(v.a);
+    const by = v.kind === 'found' ? P.length + made : who(v.a);
     if (r < 0 || o === by || (v.kind === 'cede' && !alive(by))) return null;
     return [o, r, by];
   };
@@ -143,13 +170,48 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
       dead.add(a);
       return;
     }
+    if (v.kind === 'city') {
+      const r = regionOf(v.region);
+      if (r >= 0) built.add(r);
+      return;
+    }
+    if (v.kind === 'unzone' || v.kind === 'annul') {
+      // 撤了的中立地(废约连带撤的也算)还给原主:后面在那州立国、划走照原主挡
+      const tm = treatyModelOf(sim);
+      if (!tm) return;
+      const zs: number[] = [];
+      if (v.kind === 'unzone') {
+        const r = regionOf(v.region);
+        if (r >= 0 && tm.zoneAt[r] >= 0) zs.push(tm.zoneAt[r]);
+      } else {
+        const a = who(v.a);
+        const b = who(v.b);
+        for (const x of tm.live) if (a >= 0 && b >= 0 && x.zone >= 0 && !tm.zones[x.zone].lasting && tm.member(x, a) && tm.member(x, b)) zs.push(x.zone);
+      }
+      for (const z of zs) {
+        const back = tm.zones[z].ended === undefined ? (tm.backOf?.(tm.zones[z], ownerOf) ?? -1) : -1;
+        if (back >= 0 && alive(back)) moved.set(tm.zones[z].region, back);
+      }
+      return;
+    }
+    if (v.kind === 'secede') {
+      // 同办的时候:点了名的州连同断开的碎块挪给新国(碎块照此刻的归属算)
+      const a = who(v.a);
+      if (!alive(a) || a >= P.length) return;
+      const cap = pm.settlements[capitalAt(P[a], t)]?.region ?? -1;
+      const rs = [...new Set(v.regions.map(regionOf))].filter((r) => r >= 0 && r !== cap && ownerOf(r) === a && !iv.locked(r, t)).sort((x, y) => x - y);
+      if (!rs.length) return;
+      const id = P.length + made++;
+      for (const r of civApi(sim).politics.cutOff?.(a, rs, t, Infinity) ?? rs) moved.set(r, id);
+      return;
+    }
     const x = loss(v);
     if (v.kind === 'found') {
       const r = regionOfKey(v.region, iv.of);
       if (r >= 0 && r < sim.R) {
         let n = 0;
         while (who(`polity:r${r}#${n}`) >= 0) n++;
-        born.set(`polity:${r}#${n}`, P.length + born.size);
+        born.set(`polity:${r}#${n}`, P.length + made++);
       }
     }
     if (!x) return;
@@ -164,30 +226,63 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   const blocked = (v: Intervention): RefuseReason | null => {
     if (v.kind === 'destroy') {
       const a = who(v.a);
-      if (a >= 0 && iv.protects(a, t)) return 'protect';
+      if (a >= 0 && iv.protects(a, t, true)) return 'protect';
       const b = v.b !== undefined ? who(v.b) : -1;
-      return alive(a) && alive(b) && b !== a && iv.halted(b, t) ? 'halt' : null;
+      return alive(a) && alive(b) && b !== a && iv.halted(b, t, true) ? 'halt' : null;
     }
     if (v.kind === 'cede' || v.kind === 'found') {
       const x = loss(v);
       if (!x) return null;
       const [o, r, by] = x;
-      if (o >= 0 && iv.protects(o, t) && ends(o, r)) return 'protect';
+      if (o >= 0 && iv.protects(o, t, true) && ends(o, r)) return 'protect';
       // 立国立出来的是新国,不归哪一国,不算谁扩张
-      if (v.kind === 'cede') return iv.halted(by, t) ? 'halt' : null;
-      return o >= 0 && iv.unites(o, t) ? 'unity' : null;
+      if (v.kind === 'cede') return iv.halted(by, t, true) ? 'halt' : null;
+      return o >= 0 && iv.unites(o, t, true) ? 'unity' : null;
     }
     if (v.kind === 'declare') {
       const a = iv.resolve(v.a);
       const b = iv.resolve(v.b);
       if (a < 0) return null;
-      if (iv.halted(a, t)) return 'halt';
+      if (iv.halted(a, t, true)) return 'halt';
       return b >= 0 && iv.allied(a, b, t, true) ? 'ally' : null;
     }
     if (v.kind === 'trek') {
       const cultures = cultureModelOf(sim)?.cultures ?? pm.cultures;
       const c = iv.resolveCulture(v.folk, cultures);
-      return c >= 0 && iv.stays(c, t, cultures) ? 'stay' : null;
+      return c >= 0 && iv.stays(c, t, cultures, true) ? 'stay' : null;
+    }
+    if (v.kind === 'unally') {
+      const a = who(v.a);
+      const b = who(v.b);
+      return a >= 0 && b >= 0 && iv.allied(a, b, t, true) ? 'ally' : null;
+    }
+    if (v.kind === 'submit') {
+      const b = who(v.b);
+      return b >= 0 && iv.halted(b, t, true) ? 'halt' : null;
+    }
+    if (v.kind === 'secede') {
+      const a = who(v.a);
+      return a >= 0 && iv.unites(a, t, true) ? 'unity' : null;
+    }
+    if (v.kind === 'dynasty') {
+      const a = who(v.a);
+      return a >= 0 && iv.keeps(a, t, -1, true) >= 0 ? 'keep' : null;
+    }
+    if (v.kind === 'annul') {
+      const tm = treatyModelOf(sim);
+      const a = who(v.a);
+      const b = who(v.b);
+      if (!tm || a < 0 || b < 0) return null;
+      const xs = tm.live.filter((x) => tm.member(x, a) && tm.member(x, b));
+      if (xs.some((x) => authorDecreed(sim, iv, 'treaty', x.id))) return 'treaty';
+      // 约废了连带撤的中立地是作者划的:同撤中立地
+      const zoneOf = (x: (typeof xs)[number]) => (x.zone >= 0 && tm.zones[x.zone].ended === undefined && !tm.zones[x.zone].lasting ? x.zone : -1);
+      return xs.some((x) => zoneOf(x) >= 0 && authorDecreed(sim, iv, 'neutral', zoneOf(x))) ? 'neutral' : null;
+    }
+    if (v.kind === 'unzone') {
+      const r = regionOf(v.region);
+      const z = r >= 0 ? (treatyModelOf(sim)?.zoneAt[r] ?? -1) : -1;
+      return z >= 0 && authorDecreed(sim, iv, 'neutral', z) ? 'neutral' : null;
     }
     return null;
   };

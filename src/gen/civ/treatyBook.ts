@@ -45,7 +45,7 @@ export interface TreatyInfo {
   renewals: { year: Year; parties: number[]; term: number; annal: number }[];
   /** 背约:哪年、谁背约打谁、那场战争 */
   breaches: { year: Year; by: number; against: number; war: number; annal: number }[];
-  /** 约废的年份、怎么废的(expire 约满不续;lapse 剩不到两国);还在 = 不给 */
+  /** 约废的年份、怎么废的(expire 约满不续;lapse 剩不到两国、推演插件下令废约);还在 = 不给 */
   ended?: Year;
   end?: 'expire' | 'lapse';
   /** 中立地的编号(−1 = 没有) */
@@ -146,7 +146,7 @@ export function treatyBook(civ: Civ): TreatyBook {
         const x = treaties[e.war];
         if (!x) return;
         x.ended = e.year;
-        x.end = e.cause === 'lapse' ? 'lapse' : 'expire';
+        x.end = e.cause === 'lapse' || e.cause === 'decree' ? 'lapse' : 'expire';
         return;
       }
       case 'neutral': {
