@@ -24,7 +24,8 @@ export function checkIntervention(x: unknown): { ok: Intervention } | { error: s
     if (y === undefined ? k === 'from' : !(Number.isInteger(y) && (y as number) >= 0 && (y as number) <= INTERVENTION_YEAR_MAX)) return { error: `${k} 要是 0–${INTERVENTION_YEAR_MAX} 的整数年份` };
   }
   if (o.until !== undefined && (o.until as number) <= (o.from as number)) return { error: 'until 要比 from 晚' };
-  if (o.kind === 'found' && typeof o.name === 'string' && [...cleanName('polity', o.name, false, Infinity)].length > NAME_MAX) return { error: `name 最多 ${NAME_MAX} 个字`, limit: true };
+  const named = o.kind === 'found' || o.kind === 'secede';
+  if (named && typeof o.name === 'string' && [...cleanName('polity', o.name, false, Infinity)].length > NAME_MAX) return { error: `name 最多 ${NAME_MAX} 个字`, limit: true };
   const v = tidyIntervention(x);
   if (!v) return { error: `不是合格的 ${String(o.kind)}:要的字段缺了、键的格式不对,或者两方是同一个` };
   const w = v as Record<string, unknown>;
@@ -33,7 +34,7 @@ export function checkIntervention(x: unknown): { ok: Intervention } | { error: s
     if (a === undefined) continue;
     if (!(k in w)) {
       if (!ivNoop(k, a)) return { error: `${k} 不合规矩` };
-    } else if (JSON.stringify(a) !== JSON.stringify(w[k]) && !(k === 'name' && o.kind === 'found')) return { error: `${k} 不合规矩` };
+    } else if (JSON.stringify(a) !== JSON.stringify(w[k]) && !(k === 'name' && named)) return { error: `${k} 不合规矩` };
   }
   return { ok: v };
 }

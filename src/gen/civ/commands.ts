@@ -272,7 +272,11 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
       const a = who(v.a);
       const b = who(v.b);
       if (!tm || a < 0 || b < 0) return null;
-      return tm.live.some((x) => tm.member(x, a) && tm.member(x, b) && authorDecreed(sim, iv, 'treaty', x.id)) ? 'treaty' : null;
+      const xs = tm.live.filter((x) => tm.member(x, a) && tm.member(x, b));
+      if (xs.some((x) => authorDecreed(sim, iv, 'treaty', x.id))) return 'treaty';
+      // 约废了连带撤的中立地是作者划的:同撤中立地
+      const zoneOf = (x: (typeof xs)[number]) => (x.zone >= 0 && tm.zones[x.zone].ended === undefined && !tm.zones[x.zone].lasting ? x.zone : -1);
+      return xs.some((x) => zoneOf(x) >= 0 && authorDecreed(sim, iv, 'neutral', zoneOf(x))) ? 'neutral' : null;
     }
     if (v.kind === 'unzone') {
       const r = regionOf(v.region);

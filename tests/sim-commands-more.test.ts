@@ -263,7 +263,7 @@ describe('现成的动作:下了有效果、史事里有记、存下接着推一
   }, 120_000);
 
   it('分裂:点名的州(连同断开的碎块)分出去立新国,国都是其中最大的城;国都不分', () => {
-    const civ = resumes({ [Y]: [{ kind: 'secede', a: wide.id, regions: [...sideCities, capRegion(wide.id)], name: '东' }] });
+    const civ = resumes({ [Y]: [{ kind: 'secede', a: wide.id, regions: [...sideCities, capRegion(wide.id)], name: '东国' }] });
     const { e, after } = outcome(civ);
     const n = civ.polities[e.b];
     expect(n).toMatchObject({ founded: T, parent: wide.id });
@@ -372,6 +372,10 @@ describe('作者的干预挡下命令(新的几种挡法)', () => {
     const mine = run({ [Y - 10]: [{ kind: 'treaty', a, ps: [b], keep: true }], [Y]: [{ kind: 'annul', a, b }] });
     expect(told(mine.log)).toEqual([]);
     expect(outcome(mine.civ, 1).e.n).toBeGreaterThanOrEqual(1);
+    // 插件立的约、作者依这份约划的中立地:废约会连带撤掉它,照撤中立地挡
+    const zoned = run({ [Y - 20]: [{ kind: 'treaty', a, ps: [b], keep: true }], [Y]: [{ kind: 'annul', a, b }] }, [{ kind: 'neutral', a: key(a), region: regionKey(scene.civ, r), ps: [key(b)], from: Y - 10 }]);
+    expect(zoned.civ.annals.some((x) => x.kind === 'neutral' && x.region === r && x.cause === 'decree' && x.year === Y - 10)).toBe(true);
+    expect(told(zoned.log)).toEqual([{ year: Y + 10, refused: [{ kind: 'annul', index: 0, why: 'neutral' }] }]);
   }, 120_000);
 
   it('同一批先撤中立地、再在那州立国:照还回去的原主挡(禁止分裂)', () => {
