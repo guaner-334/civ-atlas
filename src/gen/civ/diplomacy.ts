@@ -680,14 +680,20 @@ export function polityTies(civ: Civ, id: number, year: Year): PolityTies {
   const ivs = civ.interventions ?? [];
   const at = (v: Intervention) => v.from + (v.fromTick ?? 0) / YEAR_TICKS;
   const pairOf = (v: { a: string; b: string }) => [resolveKey(civ, v.a), resolveKey(civ, v.b)].map((k) => (k?.kind === 'polity' ? k.id : -1));
+  const cuts = (u: Intervention, k: number, a: number, b: number): boolean => {
+    if (u.kind === 'unally') return pairOf(u).sort().join() === [a, b].sort().join();
+    if (u.kind !== 'submit' || !civ.annals.some((e) => e.kind === 'intervene' && e.war === k && e.n === 1)) return false;
+    const x = resolveKey(civ, u.a);
+    return x?.kind === 'polity' && (x.id === a || x.id === b);
+  };
   ivs.forEach((v, i) => {
     // 结盟从下令那一刻起(年中下的带着第几格)
     const from = at(v);
     if (v.kind !== 'ally' || year < from || (v.until !== undefined && year >= v.until)) return;
     const [a, b] = pairOf(v);
     if (a < 0 || b < 0 || (a !== id && b !== id)) return;
-    // 推演插件结的盟被它后面的断盟命令断了(interventions.ts 的 cut)
-    if (isCommand(v) && ivs.some((u, k) => k > i && u.kind === 'unally' && at(u) <= year && pairOf(u).sort().join() === [a, b].sort().join())) return;
+    // 推演插件结的盟被它后面的断盟命令、办成了的称臣命令断了(interventions.ts 的 cut)
+    if (isCommand(v) && ivs.some((u, k) => k > i && at(u) <= year && cuts(u, k, a, b))) return;
     const o = a === id ? b : a;
     const O = civ.polities[o];
     if (o === id || !P || !O || !polityAlive(P, year) || !polityAlive(O, year) || allies.some((x) => x.id === o)) return;

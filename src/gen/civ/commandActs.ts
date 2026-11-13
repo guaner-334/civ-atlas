@@ -73,7 +73,11 @@ export function commandActs(sim: CivSim, iv: InterventionModel, pm: PolityModel)
       if (!ok) return;
       // 和宗主、宗主的藩属正在打的先罢兵(称臣以后都是一家)
       for (const q of [b, ...dm.vassalsOf(b)]) for (const w of fighting(a, q)) api.war.makePeace!(w, t);
+      // 插件命令结的盟和推演自己结的一样随之作废
+      const mates = iv.commandAlliesOf(a, t, i).filter((q) => !dm.pactOf(a, q));
       api.diplomacy.swear!(a, b, t);
+      for (const q of mates) api.diplomacy.note!('unally', { a, b: q, cause: 'vassal' });
+      iv.swore(i);
       return;
     }
     if (v.kind === 'unally') {

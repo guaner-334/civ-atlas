@@ -174,13 +174,23 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
       if (r >= 0) built.add(r);
       return;
     }
-    if (v.kind === 'unzone') {
-      // 撤了的中立地还给原主:后面在那州立国、划走照原主挡
+    if (v.kind === 'unzone' || v.kind === 'annul') {
+      // 撤了的中立地(废约连带撤的也算)还给原主:后面在那州立国、划走照原主挡
       const tm = treatyModelOf(sim);
-      const r = regionOf(v.region);
-      const z = r >= 0 && tm ? tm.zoneAt[r] : -1;
-      const back = z >= 0 ? (tm!.backOf?.(tm!.zones[z], ownerOf) ?? -1) : -1;
-      if (back >= 0 && alive(back)) moved.set(r, back);
+      if (!tm) return;
+      const zs: number[] = [];
+      if (v.kind === 'unzone') {
+        const r = regionOf(v.region);
+        if (r >= 0 && tm.zoneAt[r] >= 0) zs.push(tm.zoneAt[r]);
+      } else {
+        const a = who(v.a);
+        const b = who(v.b);
+        for (const x of tm.live) if (a >= 0 && b >= 0 && x.zone >= 0 && !tm.zones[x.zone].lasting && tm.member(x, a) && tm.member(x, b)) zs.push(x.zone);
+      }
+      for (const z of zs) {
+        const back = tm.zones[z].ended === undefined ? (tm.backOf?.(tm.zones[z], ownerOf) ?? -1) : -1;
+        if (back >= 0 && alive(back)) moved.set(tm.zones[z].region, back);
+      }
       return;
     }
     if (v.kind === 'secede') {

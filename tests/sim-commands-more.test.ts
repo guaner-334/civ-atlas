@@ -181,6 +181,13 @@ describe('现成的动作:下了有效果、史事里有记、存下接着推一
     const lord = run({ [y]: [{ kind: 'submit', a: L, b: q.id }] }).civ;
     expect(outcome(lord).e.n).toBe(0);
     expect(line(lord)).toMatch(/自有藩属/);
+    // 插件先让 a、c 结盟,a 称臣以后这个盟随之作废(和推演自己结的一样记 unally,cause = vassal);存下接着推一样
+    const c = free[2];
+    const sworn = resumes({ [Y]: [{ kind: 'ally', a: a.id, b: c.id }], [Y + 10]: [{ kind: 'submit', a: a.id, b: b.id }] });
+    expect(outcome(sworn, 1).e.n).toBe(1);
+    expect(outcome(sworn, 1).after.some((x) => x.kind === 'unally' && x.a === a.id && x.b === c.id && x.cause === 'vassal')).toBe(true);
+    expect(polityTies(sworn, a.id, Y + 5).allies.some((x) => x.id === c.id)).toBe(true);
+    expect(polityTies(sworn, a.id, Y + 15).allies.some((x) => x.id === c.id)).toBe(false);
   }, 120_000);
 
   it('放藩:藩属不再称臣;不是藩属的不办', () => {
@@ -374,6 +381,10 @@ describe('作者的干预挡下命令(新的几种挡法)', () => {
     const got = run({ [Y]: [{ kind: 'neutral', a, region: r, ps: [b] }], [Y + 10]: [{ kind: 'unzone', region: r }, { kind: 'found', region: r }] }, [{ kind: 'unity', a: key(a), ...AT }]);
     expect(told(got.log)).toEqual([{ year: Y + 20, refused: [{ kind: 'found', index: 1, why: 'unity' }] }]);
     expect(got.took.map((v) => v.kind)).toEqual(['neutral', 'unzone']);
+    // 废约连带撤了中立地,一样照还回去的原主挡
+    const viaAnnul = run({ [Y]: [{ kind: 'treaty', a, ps: [b], zone: r }], [Y + 10]: [{ kind: 'annul', a, b }, { kind: 'found', region: r }] }, [{ kind: 'unity', a: key(a), ...AT }]);
+    expect(viaAnnul.civ.annals.some((x) => x.kind === 'neutral' && x.region === r && x.year === T)).toBe(true);
+    expect(told(viaAnnul.log)).toEqual([{ year: Y + 20, refused: [{ kind: 'found', index: 1, why: 'unity' }] }]);
   }, 60_000);
 
   it('民族键也认(改民族)', () => {

@@ -142,9 +142,12 @@ export class InterventionModel {
   /** 国家编号 → 内部键;民族编号 → 内部键 */
   private readonly polityRef: string[] = [];
   private readonly cultureRef = new Map<number, string>();
-  /** 插件命令结的盟 → 下标;插件下的断盟(下标、两国):断得了比它先下的结盟 */
+  /**
+   * 插件命令结的盟 → 下标;断得了比它先下的插件结的盟的:断盟命令(两国)、办成了的称臣命令(称臣那一国的盟都断,b 不给)。
+   * 称臣办没办成要推了才知道:办的那一刻记上,接着推时照史事补上(installInterventions)
+   */
   private readonly allyAt = new Map<Ally, number>();
-  private readonly unallyRules: { i: number; v: Extract<Intervention, { kind: 'unally' }> }[] = [];
+  private readonly unallyRules: { i: number; v: { a: string; b?: string; from: number } }[] = [];
   private readonly unityRules: Extract<Intervention, { kind: 'unity' }>[] = [];
   private readonly allyRules: Ally[] = [];
   private readonly haltRules: Halt[] = [];
@@ -440,7 +443,13 @@ export class InterventionModel {
     return false;
   }
 
-  /** 插件命令结的盟 v 到 t 那一刻已被后下的断盟命令断了(作者下的结盟断不了) */
+  /** 第 i 条(称臣命令)办成了:称臣那一国此前插件结的盟都断了 */
+  swore(i: number): void {
+    const v = this.list[i];
+    if (v?.kind === 'submit' && !this.unallyRules.some((u) => u.i === i)) this.unallyRules.push({ i, v: { a: v.a, from: v.from } });
+  }
+
+  /** 插件命令结的盟 v 到 t 那一刻已被后下的断盟、称臣命令断了(作者下的结盟断不了) */
   private cut(v: Ally, t: number): boolean {
     const i = this.allyAt.get(v);
     if (i === undefined || !this.unallyRules.length) return false;
@@ -461,10 +470,26 @@ export class InterventionModel {
     return false;
   }
 
-  private samePair(v: { a: string; b: string }, p: number, q: number): boolean {
+  /** 断盟(a、b 两国)/ 称臣(a 那一国的盟)断得了 p、q 的盟 */
+  private samePair(v: { a: string; b?: string }, p: number, q: number): boolean {
     const a = this.resolve(v.a);
+    if (v.b === undefined) return a === p || a === q;
     const b = this.resolve(v.b);
     return (a === p && b === q) || (a === q && b === p);
+  }
+
+  /** 此刻和 p 结着的、排在第 i 条前面的插件命令结的盟的另一国(编号升序,不重复) */
+  commandAlliesOf(p: number, t: number, i: number): number[] {
+    const out: number[] = [];
+    for (const [v, k] of this.allyAt) {
+      if (k >= i || !allyActive(v, t)) continue;
+      const a = this.resolve(v.a);
+      const b = this.resolve(v.b);
+      const o = a === p ? b : b === p ? a : -1;
+      if (o < 0 || o === p || out.includes(o)) continue;
+      if (!this.unallyRules.some((u) => u.i > k && u.i < i && u.v.from <= t && this.samePair(u.v, a, b))) out.push(o);
+    }
+    return out.sort((x, y) => x - y);
   }
 
   /** 两国此刻结着盟(author = 只算作者下的) */
@@ -587,6 +612,11 @@ export function installInterventions(sim: CivSim, iv: InterventionModel): void {
   const wm = warModelOf(sim);
   if (!pm || !wm) return;
   models.set(sim, iv);
+  // 办成了的称臣命令(接着推时从史事里补上;一口气推的在办的那一刻记)
+  for (let k = 0; k < sim.annalCount; k++) {
+    const e = sim.annal(k);
+    if (e.kind === 'intervene' && e.n === 1 && iv.list[e.war]?.kind === 'submit') iv.swore(e.war);
+  }
   iv.pm = pm;
   iv.owner = sim.owners[Layer.Polity];
   iv.bindRegions();
