@@ -242,8 +242,8 @@ function realmStat(civ: Civ) {
 }
 
 const REALM_PINS: Record<V1Seed, unknown> = {
-  7: { hurt: 88, cede: 31, move: 522, before: { polities: 123, wars: 246, splits: 45, capitals: 27 }, after: { polities: 134, wars: 251, splits: 61, capitals: 541 }, digest: 'dd72e08cc3d629e0' },
-  2024: { hurt: 48, cede: 35, move: 330, before: { polities: 151, wars: 186, splits: 58, capitals: 21 }, after: { polities: 152, wars: 286, splits: 57, capitals: 355 }, digest: '605d4f165dda8f12' },
+  7: { hurt: 15, cede: 21, move: 537, before: { polities: 123, wars: 246, splits: 45, capitals: 27 }, after: { polities: 133, wars: 275, splits: 60, capitals: 546 }, digest: '7339f1df3304420b' },
+  2024: { hurt: 50, cede: 39, move: 327, before: { polities: 151, wars: 186, splits: 58, capitals: 21 }, after: { polities: 152, wars: 283, splits: 57, capitals: 352 }, digest: '833082ddccc1f27d' },
 };
 
 describe('国力与疆域:六个滑条交五个影响口,下划州、迁都', () => {

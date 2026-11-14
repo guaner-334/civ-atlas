@@ -153,8 +153,8 @@ function tidy(turn, r, ps, alive, capRegion) {
   return cmds;
 }
 
-/** 王帐随行:游牧民族的国把国都迁到本国人口最多的另一座城 */
-function nomads(r, ps, alive) {
+/** 王帐随行:游牧民族的国把国都迁到本国人口最多的另一座城。够格的国超过 nomadMost 个时,第 k 回从第 k × nomadMost 个起轮着挑 */
+function nomads(r, ps, alive, k) {
   const folk = r.cultures();
   const ss = r.settlements();
   const owner = r.owners('polity');
@@ -166,9 +166,12 @@ function nomads(r, ps, alive) {
     const b = best.get(p);
     if (b === undefined || s.population > ss[b].population) best.set(p, s.id);
   }
+  const all = [...best].sort((x, y) => x[0] - y[0]);
+  const most = Math.min(REALM.nomadMost, all.length);
+  const from = all.length > most ? (k * most) % all.length : 0;
   const cmds = [];
-  for (const [a, city] of [...best].sort((x, y) => x[0] - y[0])) {
-    if (cmds.length >= REALM.nomadMost) break;
+  for (let i = 0; i < most; i++) {
+    const [a, city] = all[(from + i) % all.length];
     cmds.push({ kind: 'move', a, city });
   }
   return cmds;
@@ -182,18 +185,25 @@ civAtlas.sim({
     const reply = {};
     const commands = [];
     const gap = S.nomad > 0 ? Math.max(1, Math.round(REALM.nomadYears / S.nomad)) : 0;
-    if (turn.year === 0 && gap) reply.at = [{ year: gap, kind: NOMAD }];
+    if (turn.year === 0 && gap) reply.at = [{ year: gap, kind: NOMAD, data: [0] }];
+    // 这一刻要迁都的国 → 新国都;同一刻整飞地按新国都算本土,不把刚迁去的那州划走
+    const moving = new Map();
     for (const e of turn.events) {
       if (e.kind !== NOMAD) continue;
-      commands.push(...nomads(r, ps, alive));
-      reply.at = [{ year: turn.year + gap, kind: NOMAD }];
+      const k = e.data[0] ?? 0;
+      for (const c of nomads(r, ps, alive, k)) {
+        commands.push(c);
+        moving.set(c.a, c.city);
+      }
+      reply.at = [{ year: turn.year + gap, kind: NOMAD, data: [k + 1] }];
     }
     if (turn.tick) {
       const ss = r.settlements();
-      const capRegion = (p) => {
-        const s = ss[ps[p].capital];
+      const regionOf = (sid) => {
+        const s = ss[sid];
         return s && s.ended === undefined ? s.region : -1;
       };
+      const capRegion = (p) => regionOf(ps[p].capital);
       const owner = r.owners('polity');
       const { area, biome } = r.regions();
       const control = r.official('control');
@@ -258,7 +268,7 @@ civAtlas.sim({
       }
       reply.influences = { 'unrest.add': unrest, 'war.power': power, 'split.odds': split, 'war.odds': odds, 'control.reach': reachF };
 
-      if (turn.year > 0 && turn.year % REALM.tidyEvery === 0) commands.push(...tidy(turn, r, ps, alive, capRegion));
+      if (turn.year > 0 && turn.year % REALM.tidyEvery === 0) commands.push(...tidy(turn, r, ps, alive, (p) => regionOf(moving.get(p) ?? ps[p].capital)));
     }
     if (commands.length) reply.commands = commands;
     return reply;
