@@ -1,8 +1,8 @@
 /**
  * 推演插件的示例(examples/plugins/ 里 role 是 sim 的):从插件文件照推演线程的装法关进 QuickJS,种子 7、2024 各推 3000 年。
- * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力钉自己的。
+ * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力、乱世钉自己的。
  * 清单要的能力都用得到;编辑器用的类型(examples/plugins/civ-atlas-sim.d.ts)和接口一样。
- * 改了官方推演,魔力的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS
+ * 改了官方推演,魔力、乱世的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS、CHAOS_PINS
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -94,8 +94,8 @@ function capsUsed({ opened: p }: Example, seen: Seen): string[] {
 const by = (civ: Civ, id: string) => (civ.interventions ?? []).filter((v) => v.plugin === id);
 
 describe('推演插件的示例', () => {
-  it('三个都在:厌战、宗教生效、魔力', () => {
-    expect(SIM_EXAMPLES).toEqual(['faith', 'magic', 'weariness']);
+  it('四个都在:厌战、宗教生效、魔力、乱世', () => {
+    expect(SIM_EXAMPLES).toEqual(['chaos', 'faith', 'magic', 'weariness']);
   });
 
   it.each(SIM_EXAMPLES)('%s:清单是推演插件、跑法 quickjs;要的能力都用得到(sim 段看得出的也没多要)', async (name) => {
@@ -221,6 +221,100 @@ describe('魔力:自己的表、图层、滑条', () => {
     expect(one.simLayers![0].years).toHaveLength(61);
     expect(civDiff(rest, one)).toBeNull();
   }, 120_000);
+});
+
+/** 和不装比:国家数、战争、分裂、复国,末年的人口(万人,城加乡村) */
+function chaosStats(civ: Civ) {
+  const count = (kind: string) => civ.annals.filter((e) => e.kind === kind).length;
+  let pop = 0;
+  for (const s of civ.settlements) if (s.ended === undefined || s.ended > civ.endYear) pop += populationAt(s, civ.endYear);
+  const rural = civ.development?.rural;
+  for (const v of rural?.[rural.length - 1] ?? []) pop += v;
+  return { polities: civ.polities.length, wars: count('war'), splits: count('split'), restored: civ.polities.filter((p) => p.restores !== undefined).length, pop: Math.round(pop / 10) };
+}
+
+/** 编年史里乱世各件事写了几句 */
+function chaosLines(civ: Civ) {
+  const lines = (civ.simChronicle ?? []).filter((l) => l.by === 'chaos');
+  const n = (word: string) => lines.filter((l) => l.text.includes(word)).length;
+  return { shatter: n('崩解之际'), rise: n('拥兵自立'), loyal: n('勤王'), revive: n('据地立'), distant: n('远交'), all: lines.length };
+}
+
+const CHAOS_PINS: Record<V1Seed, unknown> = {
+  7: {
+    before: { polities: 123, wars: 246, splits: 45, restored: 24, pop: 27739 },
+    after: { polities: 203, wars: 407, splits: 53, restored: 31, pop: 27665 },
+    commands: { found: 92, ally: 90, declare: 15 },
+    lines: { shatter: 5, rise: 25, loyal: 6, revive: 25, distant: 88, all: 149 },
+    digest: 'ff2775a7787d7fef',
+  },
+  2024: {
+    before: { polities: 151, wars: 186, splits: 58, restored: 35, pop: 28185 },
+    after: { polities: 214, wars: 360, splits: 60, restored: 29, pop: 28097 },
+    commands: { found: 79, ally: 139, declare: 8 },
+    lines: { shatter: 2, rise: 25, loyal: 5, revive: 23, distant: 135, all: 190 },
+    digest: 'ee5e93e3a461569e',
+  },
+};
+
+describe('乱世:听史事、约事、立国、宣战、结盟', () => {
+  it.each(V1_SEEDS)('seed %i 推 3000 年:崩解、改朝换代时有州自立、互相宣战,无主的富州立国,远交结盟;国家比不装多;结果钉住', async (seed) => {
+    const p = await open('chaos');
+    const { civ, seen } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins }));
+    expect(civ.stuck).toBeUndefined();
+    expect(civ.endYear).toBe(3000);
+    expect(capsUsed(p, seen)).toEqual([...p.opened.manifest.requires].sort());
+    const commands: Record<string, number> = {};
+    for (const v of by(civ, 'chaos')) commands[v.kind] = (commands[v.kind] ?? 0) + 1;
+    expect(Object.keys(commands).sort()).toEqual(['ally', 'declare', 'found']);
+    const lines = chaosLines(civ);
+    expect(lines.shatter).toBeGreaterThan(0);
+    expect(lines.rise).toBeGreaterThan(0);
+    expect(lines.revive).toBeGreaterThan(0);
+    expect(lines.distant).toBeGreaterThan(0);
+    const before = chaosStats(baseOf(seed));
+    const after = chaosStats(civ);
+    expect(after.polities).toBeGreaterThan(before.polities);
+    const got = { before, after, commands, lines, digest: simDigest(civ) };
+    if (process.env.PRINT_PINS) console.log(`chaos ${seed}: ${JSON.stringify(got)}`);
+    expect(got).toEqual(CHAOS_PINS[seed as V1Seed]);
+  }, 120_000);
+
+  it('滑条全拨到 0:一条命令都不下、编年史不写,历史和没装一样', async () => {
+    const seed = 7;
+    const p = await open('chaos');
+    const { civ } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins }), { shatter: 0, rise: 0, revive: 0, distant: 0 });
+    const base = baseOf(seed);
+    expect(by(civ, 'chaos')).toEqual([]);
+    expect(civ.simChronicle ?? []).toEqual([]);
+    expect(packValue({ annals: civ.annals, polity: civ.polity, culture: civ.culture })).toEqual(packValue({ annals: base.annals, polity: base.polity, culture: base.culture }));
+  }, 120_000);
+
+  it('存下读回来接着推(接着推那段换新的 QuickJS),和一口气推完一样:第 1500 年,和崩成几家约好的宣战还没到的那年', async () => {
+    const seed = 2024;
+    const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed });
+    const p = await open('chaos');
+    const roundTrip = (c: Civ) => unpackValue(packValue(c)) as Civ;
+    const one = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins }))).civ);
+    // 崩成几家:下令立国那一年约好半年后认出新国、宣战,到时编年史记「崩解之际」
+    const fight = (one.simChronicle ?? []).find((l) => l.by === 'chaos' && l.text.includes('崩解之际'));
+    expect(fight).toBeDefined();
+    const ordered = fight!.year - 0.5;
+    for (const stop of [1500, ordered]) {
+      const half = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins, endYear: stop }))).civ);
+      if (stop === ordered) expect(half.simPlugins![0].events.length).toBeGreaterThan(0);
+      const rest = roundTrip(
+        (
+          await run(p, seed, (plugins) => {
+            const r = startContinue(w, half, { plugins });
+            expect(r).not.toBeNull();
+            return r!.finish();
+          })
+        ).civ,
+      );
+      expect(civDiff(rest, one), `第 ${stop} 年存下`).toBeNull();
+    }
+  }, 240_000);
 });
 
 /** 两个类型一模一样(不只是能互相赋值) */
