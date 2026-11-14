@@ -28,7 +28,7 @@ const { elevation } = await civAtlas.world.cells({ fields: ['elevation'] });
 { api: 1, app: '文明与地图', caps: ['world.read@1', ...], cells: 36000 }
 ```
 
-`caps` 是这次真给了插件的能力(`requires` 加上用的人同意了的 `optional`);`cells` 是地块数,还没打开世界时是 0。有可选能力时用它判断给没给:
+`caps` 是这次真给了插件的能力(`requires` 加上 `optional` 里这一版网站有的);`cells` 是地块数,还没打开世界时是 0。有可选能力时用它判断网站有没有:
 
 ```js
 const { caps } = await civAtlas.host.info();
