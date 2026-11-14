@@ -9,11 +9,17 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
+import { windAt } from '../src/gen/climate';
+import { geometryOf } from '../src/gen/geometry';
 import type { ClimateInput, ClimateReply, HeightInput, HeightReply, LayersInput, LayersReply, MapShared } from '../src/gen/mapHooks';
-import type { MapHelpers, NoiseOptions } from '../src/gen/mapHelpers';
-import { PLUGIN_FILE_EXT } from '../src/plugin/pluginFile';
+import { mapHelpers, type MapHelpers, type NoiseOptions } from '../src/gen/mapHelpers';
+import { quickjsMapPlugin } from '../src/gen/quickjs/map';
+import type { MapBoxer } from '../src/mapPluginRun';
+import { openPluginFile, PLUGIN_FILE_EXT } from '../src/plugin/pluginFile';
 import { mapCapsUnused } from '../src/plugin/pluginMap';
+import { trialMap } from '../src/plugin/mapTrial';
 import { mapPluginInNode, openMapPlugin, type MapFile } from '../scripts/lib/mapPluginFile';
+import { quickjsWasm } from '../scripts/lib/quickjsNode';
 import { MAP_PINS, MAP_SEEDS, mapDigest, type MapSeed } from './lib/mapPins';
 import type * as Dts from '../examples/plugins/civ-atlas-map';
 
@@ -58,8 +64,8 @@ const count = (a: ArrayLike<number>, v: number) => {
 };
 
 describe('地图插件的示例', () => {
-  it('三个都在:环形山、柯本气候、潮汐', () => {
-    expect(MAP_EXAMPLES).toEqual(['craters', 'koppen', 'tides']);
+  it('四个都在:环形山、柯本气候、雨影与极地、潮汐', () => {
+    expect(MAP_EXAMPLES).toEqual(['craters', 'koppen', 'rain-polar', 'tides']);
   });
 
   it.each(MAP_EXAMPLES)('%s:清单是地图插件、跑法 quickjs;要的能力都用得到;代码里登记的就是清单写的那几步', async (name) => {
@@ -148,6 +154,99 @@ describe('各自的效果和滑条(种子 7,1.2 万块)', () => {
     expect(bay[1]).toBeGreaterThan(20);
     expect(bay[0] / bay[1]).toBeGreaterThan(wide[0] / wide[1]);
   }, 60_000);
+
+  it('雨影与极地:三个滑条都拨到 0 地图和没装一样;雨影只改降水,少了雨的地块上风有更高的山,拨大了更干', async () => {
+    const plain = plainOf(7);
+    expect(terrainDigest(await grow(7, [await open('rain-polar', { shadow: 0 })], SMALL))).toBe(terrainDigest(plain));
+    const f = await open('rain-polar');
+    expect(f.params).toEqual({ shadow: 1, north: 0, south: 0, polar: 70 });
+    const w = await grow(7, [f], SMALL);
+    expect(w.mapLayers).toBeUndefined();
+    expect(w.elevation).toEqual(plain.elevation);
+    expect(w.water).toEqual(plain.water);
+    const all = landSum(plain, plain.precipitation);
+    const one = landSum(w, w.precipitation);
+    expect(one).toBeLessThan(all);
+    expect(one).toBeGreaterThan(0.8 * all);
+    const strong = await grow(7, [await open('rain-polar', { shadow: 3 })], SMALL);
+    expect(landSum(strong, strong.precipitation)).toBeLessThan(one);
+
+    // 少了一成半以上的地块:500 公里内上风那边(按全年的盛行风)最高的山比下风那边高
+    const geo = geometryOf(w.mesh);
+    const near = mapHelpers(w.mesh, 7, 'test').near;
+    const h = (i: number) => Math.max(0, w.elevation[i]);
+    let dry = 0;
+    let upHigher = 0;
+    let wetter = 0;
+    for (let i = 0; i < w.mesh.n; i++) {
+      if (w.water[i] !== 0) continue;
+      const r = w.precipitation[i] / plain.precipitation[i];
+      if (r > 1) wetter++;
+      if (r >= 0.85) continue;
+      dry++;
+      const [wx, wy] = windAt(geo.latitude(i));
+      let up = 0;
+      let down = 0;
+      for (const j of near(i, 500)) {
+        const dot = geo.edgeDot(i, j, -wx, -wy);
+        if (dot > 0.5) up = Math.max(up, h(j));
+        else if (dot < -0.5) down = Math.max(down, h(j));
+      }
+      if (up > down) upHigher++;
+    }
+    expect(dry).toBeGreaterThan(SMALL / 50);
+    expect(upHigher / dry).toBeGreaterThan(0.7);
+    expect(wetter).toBeGreaterThan(SMALL / 100);
+  }, 60_000);
+
+  it('雨影与极地:北极拨到 1 极区全是陆地、−1 全是海,拨到一半只改离极点近的那一半;南极同样', async () => {
+    const plain = plainOf(7);
+    /** 纬度在 [a, b) 里的地块,海有几块、不是海的几块 */
+    const band = (w: World, a: number, b: number) => {
+      const geo = geometryOf(w.mesh);
+      const n = [0, 0];
+      for (let i = 0; i < w.mesh.n; i++) {
+        const l = geo.latitude(i);
+        if (l >= a && l < b) n[w.water[i] === 1 ? 0 : 1]++;
+      }
+      return n;
+    };
+    // 不装时北边极区海多、南边极区陆地多
+    const [plainNorthSea] = band(plain, 70.5, 90);
+    const [, plainSouthLand] = band(plain, -90, -70.5);
+    expect(plainNorthSea).toBeGreaterThan(100);
+    expect(plainSouthLand).toBeGreaterThan(100);
+
+    const flip = await grow(7, [await open('rain-polar', { shadow: 0, north: 1, south: -1 })], SMALL);
+    expect(band(flip, 70.5, 90)[0]).toBe(0);
+    expect(band(flip, -90, -70.5)[1]).toBe(0);
+    expect(band(flip, -69.5, 69.5)).toEqual(band(plain, -69.5, 69.5));
+
+    const half = await grow(7, [await open('rain-polar', { shadow: 0, north: 0.5, south: -0.5 })], SMALL);
+    expect(band(half, 80.5, 90)[0]).toBe(0);
+    expect(band(half, -90, -80.5)[1]).toBe(0);
+    expect(band(half, 70.5, 79.5)).toEqual(band(plain, 70.5, 79.5));
+    expect(band(half, -79.5, -70.5)).toEqual(band(plain, -79.5, -70.5));
+
+    // 极区从 60° 起:拨到 1 管到 60°
+    const wide = await grow(7, [await open('rain-polar', { shadow: 0, north: 1, polar: 60 })], SMALL);
+    expect(band(wide, 60.5, 90)[0]).toBe(0);
+    expect(band(plain, 60.5, 70)[0]).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('雨影与极地:长两遍一样;改一笔地形接着长和从头长一样(两口都出手)', async () => {
+    const bytes = new Uint8Array(readFileSync(join(ROOT, 'rain-polar', `rain-polar${PLUGIN_FILE_EXT}`)));
+    const o = await openPluginFile(bytes);
+    const file = { id: o.manifest.id, sum: o.sum, bytes, params: { shadow: 2, north: 1, south: -1, polar: 70 } };
+    const box: MapBoxer = (spec) => quickjsMapPlugin(quickjsWasm(), spec);
+    const r = await trialMap({ ...DEFAULT_PARAMS, seed: 2024, cells: SMALL }, file, box, { bigCells: 0, years: 100 });
+    expect(r.error).toBeUndefined();
+    expect(Object.keys(r.map.stageMs).sort()).toEqual(['climate', 'height']);
+    expect(r.map.changed!.elevation).toBeGreaterThan(0);
+    expect(r.map.changed!.climate).toBeGreaterThan(0);
+    expect(r.map.sameTwice).toBe(true);
+    expect(r.map.cachedSame).toBe(true);
+  }, 120_000);
 });
 
 /** 两个类型一模一样(不只是能互相赋值) */

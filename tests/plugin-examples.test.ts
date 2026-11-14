@@ -19,8 +19,8 @@ const EXAMPLES = readdirSync(ROOT, { withFileTypes: true })
   .sort();
 
 describe('示例插件', () => {
-  it('工具四个、推演三个、地图三个示例都在', () => {
-    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'craters', 'faith', 'koppen', 'magic', 'pop-density', 'route-days', 'tides', 'weariness']);
+  it('工具四个、推演三个、地图四个示例都在', () => {
+    expect(EXAMPLES).toEqual(['box-summary', 'coast-distance', 'craters', 'faith', 'koppen', 'magic', 'pop-density', 'rain-polar', 'route-days', 'tides', 'weariness']);
   });
 
   describe.each(EXAMPLES)('%s', (name) => {
