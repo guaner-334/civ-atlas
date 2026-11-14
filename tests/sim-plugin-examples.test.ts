@@ -1,8 +1,8 @@
 /**
  * 推演插件的示例(examples/plugins/ 里 role 是 sim 的):从插件文件照推演线程的装法关进 QuickJS,种子 7、2024 各推 3000 年。
- * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力钉自己的。
+ * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力、灾异钉自己的。
  * 清单要的能力都用得到;编辑器用的类型(examples/plugins/civ-atlas-sim.d.ts)和接口一样。
- * 改了官方推演,魔力的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS
+ * 改了官方推演,魔力、灾异的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS、OMEN_PINS
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,6 +14,7 @@ import { populationAt } from '../src/gen/civ/growth';
 import type { PluginReply, PluginTurn, SimPlugin } from '../src/gen/civ/engine/plugin';
 import type { InfluenceName, OfficialName, SimCommand, SimRead } from '../src/gen/civ/simApi';
 import { packValue, unpackValue } from '../src/gen/snapshot';
+import { polityKey } from '../src/gen/edits';
 import { PLUGIN_FILE_EXT, type OpenedPlugin } from '../src/plugin/pluginFile';
 import { simCapsUnused } from '../src/plugin/pluginSim';
 import type { SimPluginFile } from '../src/plugin/pluginWorld';
@@ -94,8 +95,8 @@ function capsUsed({ opened: p }: Example, seen: Seen): string[] {
 const by = (civ: Civ, id: string) => (civ.interventions ?? []).filter((v) => v.plugin === id);
 
 describe('推演插件的示例', () => {
-  it('三个都在:厌战、宗教生效、魔力', () => {
-    expect(SIM_EXAMPLES).toEqual(['faith', 'magic', 'weariness']);
+  it('四个都在:厌战、宗教生效、魔力、灾异', () => {
+    expect(SIM_EXAMPLES).toEqual(['faith', 'magic', 'omens', 'weariness']);
   });
 
   it.each(SIM_EXAMPLES)('%s:清单是推演插件、跑法 quickjs;要的能力都用得到(sim 段看得出的也没多要)', async (name) => {
@@ -220,6 +221,105 @@ describe('魔力:自己的表、图层、滑条', () => {
     );
     expect(one.simLayers![0].years).toHaveLength(61);
     expect(civDiff(rest, one)).toBeNull();
+  }, 120_000);
+});
+
+/** 灾异写的编年史按哪一样分开数 */
+const OMEN_LINES = { 潮灾: '大潮', 入冷: '转寒', 出冷: '回暖', 天变: '天象', 灾后疫: '又起疫病', 经济危机: '市面崩坏', 技术失控: '失控' } as const;
+function omenLines(civ: Civ) {
+  const n = Object.fromEntries(Object.keys(OMEN_LINES).map((k) => [k, 0])) as Record<keyof typeof OMEN_LINES, number>;
+  for (const l of civ.simChronicle ?? []) {
+    const k = (Object.keys(OMEN_LINES) as (keyof typeof OMEN_LINES)[]).find((x) => l.text.includes(OMEN_LINES[x]));
+    if (k) n[k]++;
+  }
+  return n;
+}
+const yearsOf = (civ: Civ, word: string) => (civ.simChronicle ?? []).filter((l) => l.text.includes(word)).map((l) => l.year);
+const OMENS_OFF = { aftermath: 0, modern: 0, cosmic: 0, climate: 0, tide: 0 };
+
+const OMEN_PINS: Record<V1Seed, unknown> = {
+  7: {
+    lines: { 潮灾: 154, 入冷: 6, 出冷: 5, 天变: 0, 灾后疫: 0, 经济危机: 0, 技术失控: 0 },
+    cold: [459, 1016, 1412, 1788, 2341, 2936],
+    plagues: { before: 98, after: 87 },
+    commands: 0,
+    digest: '3ac2c34f41f61f1c',
+  },
+  2024: {
+    lines: { 潮灾: 132, 入冷: 6, 出冷: 6, 天变: 1, 灾后疫: 3, 经济危机: 0, 技术失控: 0 },
+    cold: [408, 761, 1140, 1606, 2059, 2544],
+    plagues: { before: 81, after: 107 },
+    commands: 4,
+    digest: '8b228650c55067af',
+  },
+};
+
+describe('灾异:听史事、约事、五个影响口、天灾命令、滑条', () => {
+  it.each(V1_SEEDS)('seed %i 推 3000 年:大潮、冷期都来过,冷期一段 100–200 年;结果钉住', async (seed) => {
+    const p = await open('omens');
+    const { civ, seen } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins }));
+    expect(civ.stuck).toBeUndefined();
+    expect(civ.endYear).toBe(3000);
+    expect(capsUsed(p, seen)).toEqual([...p.opened.manifest.requires].sort());
+    const lines = omenLines(civ);
+    expect(lines.潮灾).toBeGreaterThan(0);
+    const cold = yearsOf(civ, OMEN_LINES.入冷);
+    const warm = yearsOf(civ, OMEN_LINES.出冷);
+    expect(cold.length).toBeGreaterThan(0);
+    for (let i = 0; i < warm.length; i++) expect(warm[i] - cold[i]).toBeGreaterThanOrEqual(100), expect(warm[i] - cold[i]).toBeLessThan(200);
+    const plagues = (c: Civ) => c.annals.filter((e) => e.kind === 'plague').length;
+    const got = { lines, cold, plagues: { before: plagues(baseOf(seed)), after: plagues(civ) }, commands: by(civ, 'omens').length, digest: simDigest(civ) };
+    if (process.env.PRINT_PINS) console.log(`omens ${seed}: ${JSON.stringify(got)}`);
+    expect(got).toEqual(OMEN_PINS[seed as V1Seed]);
+  }, 120_000);
+
+  it('滑条全拨到 0:什么都不交、不写,历史和没装一样', async () => {
+    const seed = 7;
+    const p = await open('omens');
+    const { civ, seen } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins }), OMENS_OFF);
+    const base = baseOf(seed);
+    expect([...seen.reply]).toEqual([]);
+    expect(civ.simChronicle ?? []).toEqual([]);
+    expect(packValue({ annals: civ.annals, polity: civ.polity, culture: civ.culture })).toEqual(packValue({ annals: base.annals, polity: base.polity, culture: base.culture }));
+  }, 120_000);
+
+  it('后世之灾:推一把发展进了工业、信息时代的国,会有经济危机、技术失控', async () => {
+    const seed = 7;
+    const base = baseOf(seed);
+    const old = base.polities.filter((q) => q.founded <= 500 && (q.ended === undefined || q.ended > 1200)).sort((a, b) => a.founded - b.founded || a.id - b.id)[0];
+    const a = polityKey(base, old.id);
+    const interventions = Array.from({ length: 8 }, (_, i) => ({ kind: 'boost' as const, a, from: 600 + 5 * i }));
+    const p = await open('omens');
+    const { civ } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins, interventions, endYear: 1200 }), { ...OMENS_OFF, modern: 3 });
+    expect(civ.stuck).toBeUndefined();
+    const lines = omenLines(civ);
+    expect(lines.经济危机).toBeGreaterThan(0);
+    expect(lines.技术失控).toBeGreaterThan(0);
+    expect(lines.经济危机 + lines.技术失控).toBe((civ.simChronicle ?? []).length);
+  }, 120_000);
+
+  it('推到 1500 年、推到冷期中间存下,读回来接着推(换新的 QuickJS),和一口气推完一样', async () => {
+    const seed = 2024;
+    const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed });
+    const p = await open('omens');
+    const roundTrip = (c: Civ) => unpackValue(packValue(c)) as Civ;
+    const one = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins }))).civ);
+    const cold = yearsOf(one, OMEN_LINES.入冷).find((y) => y > 1500)!;
+    const warm = yearsOf(one, OMEN_LINES.出冷).find((y) => y > cold)!;
+    for (const cut of [1500, Math.round((cold + warm) / 2)]) {
+      const half = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins, endYear: cut }))).civ);
+      if (cut !== 1500) expect(half.simPlugins!.find((s) => s.id === 'omens')!.note).toMatchObject({ cold: 1 });
+      const rest = roundTrip(
+        (
+          await run(p, seed, (plugins) => {
+            const r = startContinue(w, half, { plugins });
+            expect(r).not.toBeNull();
+            return r!.finish();
+          })
+        ).civ,
+      );
+      expect(civDiff(rest, one)).toBeNull();
+    }
   }, 120_000);
 });
 

@@ -1,0 +1,30 @@
+{
+  "id": "omens",
+  "name": "灾异",
+  "version": "1.0.0",
+  "role": "sim",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["sim.read@1", "sim.events@1", "sim.state@1", "sim.influence@1", "sim.commands@1", "sim.chronicle@1"],
+  "why": {
+    "sim.read@1": "听饥荒、洗劫、毁城；看各国国都的发展度、哪些州临海、城里多少人、谁和谁接壤",
+    "sim.influence@1": "灾后的州容易起瘟疫；经济危机时动荡、发展变慢；技术失控、大潮、天变、冷期压低城乡的人口上限",
+    "sim.commands@1": "大灾之后那州的城又起疫病；天变时最大的那座城闹一场大疫"
+  },
+  "sim": {
+    "every": 1,
+    "listen": ["famine", "sack", "ruin"],
+    "influences": ["plague.odds", "unrest.add", "dev.rate", "city.capacity", "rural.capacity"],
+    "commands": ["disaster"],
+    "params": {
+      "aftermath": { "label": "灾后疫", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "modern": { "label": "后世之灾", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "cosmic": { "label": "天变", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "climate": { "label": "冷暖", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "tide": { "label": "潮灾", "min": 0, "max": 3, "default": 1, "step": 0.1 }
+    }
+  },
+  "description": "灾祸连着来、跟着时代变：大灾之后多瘟疫，工业以后有经济危机、技术失控，偶尔天变，几百年来一段冷期，沿海闹大潮。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}
