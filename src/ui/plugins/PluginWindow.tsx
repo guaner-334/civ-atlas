@@ -6,7 +6,7 @@
  */
 import { Fragment, Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey, type PermissionLine } from '../../plugin/pluginCaps';
+import { PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey, type PermissionLine, type PermissionSource } from '../../plugin/pluginCaps';
 import { PLUGIN_FILE_EXT, PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, type PluginManifest } from '../../plugin/pluginFile';
 import { installPlugin, listPlugins, pluginFileBytes, removePlugin, setPluginOn, type InstalledPlugin } from '../../plugin/pluginStore';
 import { openSubmitDialog } from '../AccountDialogs';
@@ -53,10 +53,16 @@ export async function installAsk(a: Ask, phone: boolean, plain = false): Promise
 export type Said =
   | { kind: 'broken'; file: string }
   | { kind: 'other'; name: string; want: string }
-  | { kind: 'newer'; name: string; need: string }
+  /** gone:不是网站太旧,是用的实验接口网站拿掉了(那个接口给人看的名字),version = 插件的版本 */
+  | { kind: 'newer'; name: string; need: string; gone?: string; version?: string }
   | { kind: 'blocked'; name: string; version: string; why: string; day: string }
   | { kind: 'failed'; name: string }
   | { kind: 'fetch'; name: string; why: string };
+
+/** 插件文件要新版网站、或用的实验接口网站拿掉了时那张小框 */
+export function newerSaid(e: PluginFileError, name: string): Said {
+  return { kind: 'newer', name: e.plugin ?? name, need: e.need ?? '新版网站的东西', ...(e.gone ? { gone: e.gone, ...(e.version ? { version: e.version } : {}) } : {}) };
+}
 
 export default function PluginWindow({ phone, onClose, first }: { phone: boolean; onClose: () => void; first?: PickedFile | null }) {
   const [list, setList] = useState<InstalledPlugin[] | null>(null);
@@ -106,7 +112,7 @@ export default function PluginWindow({ phone, onClose, first }: { phone: boolean
       try {
         opened = await openPluginFile(bytes);
       } catch (e) {
-        if (e instanceof PluginFileError && e.kind === 'newer') setSaid({ kind: 'newer', name: e.plugin ?? f.name, need: e.need ?? '新版网站的东西' });
+        if (e instanceof PluginFileError && e.kind === 'newer') setSaid(newerSaid(e, f.name));
         else setSaid({ kind: 'broken', file: f.name });
         return;
       }
@@ -162,7 +168,7 @@ export default function PluginWindow({ phone, onClose, first }: { phone: boolean
       if (a.added.length) setAsk(a);
       else await install(a);
     } catch (e) {
-      if (e instanceof PluginFileError && e.kind === 'newer') setSaid({ kind: 'newer', name: e.plugin ?? p.current.manifest.name, need: e.need ?? '新版网站的东西' });
+      if (e instanceof PluginFileError && e.kind === 'newer') setSaid(newerSaid(e, p.current.manifest.name));
       else setSaid({ kind: 'fetch', name: p.current.manifest.name, why: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
@@ -201,7 +207,7 @@ export default function PluginWindow({ phone, onClose, first }: { phone: boolean
           license: m.license,
           description: m.description ?? '',
           icon: icons.get(p.current.sum) ?? null,
-          lines: permissionLines(m).map((l) => l.key),
+          lines: permissionLines(m).flatMap((l) => (l.key === 'experimental' ? [] : [l.key])),
           capLines: Object.fromEntries(PLUGIN_CAPS),
         },
       });
@@ -367,7 +373,7 @@ const PERM_ICON: Record<PermissionKey, IconName | keyof typeof MORE_ICONS> = {
 function Perm({ line }: { line: PermissionLine }) {
   return (
     <div className={`plg-perm${line.loud ? ' hi' : ''}`} data-perm={line.key}>
-      <Ico name={PERM_ICON[line.key]} />
+      <Ico name={line.key === 'experimental' ? 'flask' : PERM_ICON[line.key]} />
       <span>
         {line.loud ? <b>{line.text}</b> : line.text}
         {line.note && <small>{line.note}</small>}
@@ -377,8 +383,9 @@ function Perm({ line }: { line: PermissionLine }) {
   );
 }
 
-export function Perms({ m }: { m: Pick<PluginManifest, 'requires' | 'optional' | 'why'> & { role?: string } }) {
-  const lines = permissionLines(m);
+/** code = 插件代码(装的时候有;地图插件调的实验帮手要看它) */
+export function Perms({ m, code }: { m: PermissionSource; code?: string }) {
+  const lines = permissionLines(m, code);
   return (
     <>
       {lines.length > 0 && (
@@ -667,7 +674,7 @@ function Rows({ rows, sim }: { rows: AddsRow[]; sim?: boolean }) {
 function NewerBar({ p, l, phone, busy, wall }: { p: InstalledPlugin; l: WallLatest; phone: boolean; busy: boolean; wall: PageProps['wall'] }) {
   const more = addedLines(p.current.manifest, l);
   const day = dayText(Date.parse(l.at));
-  const small = `${l.note ? `这一版：${noteText(l.note)}` : ''}${more.length ? `${moreText(more.length)}${more.map((x) => CAP_LABEL[x.key] ?? x.key).join('、')}。` : ''}`;
+  const small = `${l.note ? `这一版：${noteText(l.note)}` : ''}${more.length ? `${moreText(more.length)}${more.map((x) => (x.key === 'experimental' ? '实验接口' : (CAP_LABEL[x.key] ?? x.key))).join('、')}。` : ''}`;
   const look = (
     <button className={phone ? 'plg-btn' : 'plg-lnk'} data-act="plugin-wall-look" onClick={() => wall.onLook(l.work)}>
       看看
@@ -801,7 +808,7 @@ function AskShell({ phone, label, tight, narrow, testId, children }: { phone: bo
 export function InstallBox({ ask, phone, busy, onCancel, onOk }: { ask: Pick<Extract<Ask, { kind: 'install' }>, 'opened' | 'file' | 'verdict'>; phone: boolean; busy: boolean; onCancel: () => void; onOk: () => void }) {
   const m = ask.opened.manifest;
   const icon = useOpenedIcon(ask.opened);
-  const lines = permissionLines(m);
+  const lines = permissionLines(m, ask.opened.code);
   const reviewed = ask.verdict.reviewed;
   return (
     <AskShell phone={phone} label={`装「${m.name}」？`} tight={lines.length > 4} testId="plugin-ask">
@@ -828,7 +835,7 @@ export function InstallBox({ ask, phone, busy, onCancel, onOk }: { ask: Pick<Ext
           </div>
         )}
         {lines.length > 0 && <div className="plg-lab">它要用到</div>}
-        <Perms m={m} />
+        <Perms m={m} code={ask.opened.code} />
         {phone && <div className="plg-fn">{ask.file}</div>}
       </div>
       <Buttons phone={phone} left={ask.file} cancel="取消" ok={reviewed ? '装上' : '仍然装上'} busy={busy} onCancel={onCancel} onOk={onOk} />
@@ -915,6 +922,15 @@ export function SaidBox({ said, phone, onOk }: { said: Said; phone: boolean; onO
     );
     text = otherPluginText(said.name, said.want);
     small = '';
+  } else if (said.kind === 'newer' && said.gone) {
+    head = (
+      <>
+        <Icon name="flask" size={20} />
+        装不上「{said.name}」{said.version ? versionLabel(said.version) : ''}
+      </>
+    );
+    text = `它用的实验接口「${said.gone}」，网站已经改掉了。要等作者出新版。`;
+    small = '更新网站没有用，要作者改插件。';
   } else if (said.kind === 'newer') {
     head = (
       <>
