@@ -4,39 +4,71 @@
  */
 import { BIOMES } from '../gen/biomes';
 import type { Civ } from '../gen/civ/types';
+import { controlShare } from '../gen/civ/control';
+import { CAP_COUNT, CAPS, eraLevel, RESOURCE_COUNT, RESOURCES } from '../gen/civ/development';
+import { relationsAt } from '../gen/civ/diplomacy';
 import { civAtEra } from '../gen/civ/eraCiv';
 import { cellAreas } from '../gen/civ/geo';
+import { dynastyTitle } from '../gen/civ/growth';
+import { THOUGHT_COUNT, THOUGHTS } from '../gen/civ/ideology';
 import { KM_PER_UNIT } from '../gen/civ/scale';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
-import { cultureKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, settlementKey, type WorldEdits } from '../gen/edits';
-import { capitalAt, faithAt, ownersAt, polityName, populationAt, portAt, regionPopulationAt, settlementRank } from '../gen/readers/openQuery';
+import { treatyBook, treatyMembersAt, treatyTitle } from '../gen/civ/story/treatyInfo';
+import { cultureKey, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, tradeKey, treatyKey, YEAR_TICKS, type WorldEdits } from '../gen/edits';
+import { geometryOf } from '../gen/geometry';
+import { driftOf } from '../gen/plateOps';
+import {
+  capitalAt,
+  controlAt,
+  developmentAt,
+  faithAt,
+  ideologyAt,
+  ownersAt,
+  polityAlive,
+  polityName,
+  populationAt,
+  portAt,
+  regionPopulationAt,
+  resourcesAt,
+  settlementRank,
+} from '../gen/readers/openQuery';
 import type { World } from '../gen/world';
 import type { AuthorNote } from '../gen/worldFormat';
 import { argsOf, bad, list, num, optInt, over, PluginApiError } from './check';
 import type {
   AuthorMarkInfo,
   AuthorNoteInfo,
+  AuthorTerrainInfo,
   CellArrays,
   CellField,
   CellOwners,
   CultureInfo,
+  DynastyInfo,
   EventInfo,
   FaithInfo,
   Hex,
   HistorySpan,
   InterventionInfo,
   LegendEntry,
+  MigrationInfo,
   Neighbors,
   OwnerField,
   Page,
   PersonInfo,
   PlaceInfo,
+  PlateInfo,
   PolityInfo,
   RegionInfo,
+  RegionStat,
+  RelationsInfo,
+  ResourceName,
   RiverInfo,
   RouteInfo,
   SettlementInfo,
+  TradeInfo,
+  TreatyInfo,
   WorldInfo,
+  ZoneInfo,
 } from './types';
 
 /** 交给插件之前登记一下(转交、算取了多少) */
@@ -45,6 +77,8 @@ export type Give = <T extends ArrayBufferView>(a: T) => T;
 export const CELL_FIELDS_MAX = 16;
 export const EVENTS_MAX = 2000;
 export const PEOPLE_MAX = 2000;
+/** 朝代、约、中立地、商道、大迁徙一页最多几项 */
+export const LIST_MAX = 2000;
 export const NOTES_MAX = 100;
 
 const unavailable = (text: string): never => {
@@ -70,7 +104,7 @@ export function worldInfo(world: World, title: string): WorldInfo {
   return { title, seed: world.params.seed, cells: world.mesh.n, width: world.width, height: world.height, kmPerUnit: KM_PER_UNIT };
 }
 
-const CELL_FIELDS: readonly CellField[] = ['x', 'y', 'lon', 'lat', 'area', 'elevation', 'water', 'temperature', 'precipitation', 'biome', 'flux', 'seaIce'];
+const CELL_FIELDS: readonly CellField[] = ['x', 'y', 'lon', 'lat', 'area', 'elevation', 'water', 'temperature', 'precipitation', 'biome', 'flux', 'seaIce', 'plate', 'currentX', 'currentY', 'currentTemp'];
 
 function cellField(world: World, f: CellField): CellArrays[CellField] {
   const { mesh } = world;
@@ -109,6 +143,14 @@ function cellField(world: World, f: CellField): CellArrays[CellField] {
       return world.flux.slice();
     case 'seaIce':
       return world.seaIce.slice();
+    case 'plate':
+      return world.tect.plate.slice();
+    case 'currentX':
+      return world.currents.u.slice();
+    case 'currentY':
+      return world.currents.v.slice();
+    case 'currentTemp':
+      return world.currents.sst.slice();
   }
 }
 
@@ -139,6 +181,21 @@ export function worldLegend(raw: unknown): LegendEntry[] {
   if (kind === 'biome') return BIOMES.map((b) => ({ value: b.id, name: b.name }));
   if (kind === 'water') return WATER_NAMES.map((name, value) => ({ value, name }));
   return bad('kind 只能是 biome、water');
+}
+
+export function worldPlates(world: World): PlateInfo[] {
+  const { mesh, tect } = world;
+  const P = tect.plateCount;
+  const cnt = new Float64Array(P);
+  for (let i = 0; i < mesh.n; i++) cnt[tect.plate[i]]++;
+  const cen = geometryOf(mesh).groupCentroids(tect.plate, P, cnt);
+  const out: PlateInfo[] = [];
+  for (let p = 0; p < P; p++) {
+    if (!cnt[p]) continue;
+    const { dir, speed } = driftOf(tect.plateVx[p], tect.plateVy[p]);
+    out.push({ id: p, continental: tect.plateContinental[p] === 1, cells: cnt[p], x: cen.x[p], y: cen.y[p], dir, speed });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,9 +377,248 @@ export function historyPeople(civ: Civ, raw: unknown): Page<PersonInfo> {
       if (p.until !== undefined) info.until = p.until;
       if (p.title) info.title = p.title;
       if (p.female) info.female = true;
+      if (p.parent !== undefined) info.parent = p.parent;
+      if (p.adopted) info.adopted = true;
+      if (p.mom !== undefined) info.mom = p.mom;
+      if (p.husband !== undefined) info.husband = p.husband;
+      if (p.spouses?.length)
+        info.spouses = p.spouses.map((s) => {
+          const o: NonNullable<PersonInfo['spouses']>[number] = { polity: s.polity, father: s.father, year: s.year };
+          if (s.person !== undefined) o.person = s.person;
+          return o;
+        });
+      if (p.dynasty !== undefined) info.dynasty = p.dynasty;
+      if (p.descent) info.descent = { from: p.descent.from, gen: p.descent.gen };
       return info;
     }),
   };
+}
+
+export function historyDynasties(civ: Civ, raw: unknown): Page<DynastyInfo> {
+  const a = argsOf(raw);
+  const { offset, limit } = pageArgs(a, LIST_MAX);
+  const polity = optInt(a.polity, 'polity', 0, civ.polities.length - 1);
+  const all: [number, number][] = [];
+  for (const p of polity === undefined ? civ.polities : [civ.polities[polity]]) p.dynasties?.forEach((_, i) => all.push([p.id, i]));
+  const pg = page(all, offset, limit);
+  return {
+    ...pg,
+    items: pg.items.map(([id, i]) => {
+      const p = civ.polities[id];
+      const d = p.dynasties![i];
+      const until = p.dynasties![i + 1]?.year ?? p.ended;
+      const info: DynastyInfo = { polity: id, index: i, key: dynastyKey(civ, id, i), name: dynastyTitle(p, i), from: d.year, seat: d.seat };
+      if (until !== undefined) info.until = until;
+      if (d.regime) info.regime = d.regime;
+      return info;
+    }),
+  };
+}
+
+const inForce = (year: number | undefined, from: number, ended: number | undefined) => year === undefined || (year >= from && (ended === undefined || year < ended));
+
+export function historyTreaties(civ: Civ, raw: unknown): Page<TreatyInfo> {
+  const a = argsOf(raw);
+  const year = optYear(civ, a.year);
+  const { offset, limit } = pageArgs(a, LIST_MAX);
+  const hit = treatyBook(civ).treaties.filter((x) => x && inForce(year, x.start, x.ended));
+  const pg = page(hit, offset, limit);
+  return {
+    ...pg,
+    items: pg.items.map((x) => {
+      const info: TreatyInfo = {
+        id: x.id,
+        key: treatyKey(civ, x.id),
+        name: treatyTitle(civ, x.id),
+        kind: x.kind,
+        how: x.how,
+        parties: x.parties.slice(),
+        start: x.start,
+        term: x.term,
+        settlement: x.settlement,
+        region: x.region,
+        by: x.by,
+        foe: x.foe,
+        renewals: x.renewals.map((r) => ({ year: r.year, parties: r.parties.slice(), term: r.term })),
+        breaches: x.breaches.map((b) => ({ year: b.year, by: b.by, against: b.against })),
+        zone: x.zone,
+      };
+      if (Number.isFinite(x.until)) info.until = x.until;
+      if (x.ended !== undefined) info.ended = x.ended;
+      if (x.end) info.end = x.end;
+      if (x.keep) info.keep = true;
+      if (year !== undefined) info.members = treatyMembersAt(civ, x, year);
+      return info;
+    }),
+  };
+}
+
+export function historyZones(civ: Civ, raw: unknown): Page<ZoneInfo> {
+  const a = argsOf(raw);
+  const year = optYear(civ, a.year);
+  const { offset, limit } = pageArgs(a, LIST_MAX);
+  const hit = treatyBook(civ).zones.filter((z) => z && inForce(year, z.from, z.ended));
+  const pg = page(hit, offset, limit);
+  return {
+    ...pg,
+    items: pg.items.map((z) => {
+      const info: ZoneInfo = { id: z.id, region: z.region, settlement: z.settlement, treaty: z.treaty, how: z.how, founders: z.founders.slice(), owner: z.owner, from: z.from, residents: z.residents.slice() };
+      if (z.ended !== undefined) info.ended = z.ended;
+      if (z.back !== undefined) info.back = z.back;
+      return info;
+    }),
+  };
+}
+
+/** 盟约照国家卡片上的算:推演里结的,加上用的人下令结的(那一年在约期内、两国都在) */
+export function historyRelations(civ: Civ, raw: unknown): RelationsInfo {
+  const year = yearOf(civ, argsOf(raw).year);
+  const r = relationsAt(civ, year);
+  const alliances: RelationsInfo['alliances'] = r.pacts.map((x) => ({ a: x.a, b: x.b, since: x.since, foe: x.foe }));
+  const has = new Set(alliances.map((x) => `${Math.min(x.a, x.b)},${Math.max(x.a, x.b)}`));
+  for (const v of civ.interventions ?? []) {
+    if (v.kind !== 'ally') continue;
+    const from = v.from + (v.fromTick ?? 0) / YEAR_TICKS;
+    if (year < from || (v.until !== undefined && year >= v.until)) continue;
+    const A = resolveKey(civ, v.a);
+    const B = resolveKey(civ, v.b);
+    if (A?.kind !== 'polity' || B?.kind !== 'polity' || A.id === B.id) continue;
+    const pa = civ.polities[A.id];
+    const pb = civ.polities[B.id];
+    const k = `${Math.min(A.id, B.id)},${Math.max(A.id, B.id)}`;
+    if (!pa || !pb || !polityAlive(pa, year) || !polityAlive(pb, year) || has.has(k)) continue;
+    has.add(k);
+    alliances.push({ a: A.id, b: B.id, since: Math.max(from, pa.founded, pb.founded), foe: -1, decree: true });
+  }
+  return { alliances, vassals: [...r.liege].map(([polity, x]) => ({ polity, liege: x.liege, since: x.since })) };
+}
+
+const RESOURCE_NAMES: readonly ResourceName[] = ['grain', 'livestock', 'copper', 'iron', 'coal', 'timber', 'salt', 'fish', 'oil', 'rare', 'gold'];
+/** 推演里的物产下标 → 接口上的名字(按中文名对,推演那边换了先后也不错位) */
+const RES_ZH: Readonly<Record<ResourceName, string>> = { grain: '粮', livestock: '牲畜', copper: '铜锡', iron: '铁', coal: '煤', timber: '木材', salt: '盐', fish: '渔获', oil: '石油', rare: '稀有矿', gold: '金银' };
+const resourceName = (i: number): ResourceName => RESOURCE_NAMES.find((n) => RES_ZH[n] === RESOURCES[i]) ?? unavailable(`认不得第 ${i} 样物产`);
+
+export function historyTrade(civ: Civ, raw: unknown): Page<TradeInfo> {
+  const a = argsOf(raw);
+  const year = optYear(civ, a.year);
+  const { offset, limit } = pageArgs(a, LIST_MAX);
+  const routes = civ.trade?.routes ?? [];
+  const hit = year === undefined ? routes : routes.filter((r) => r.events.length && inForce(year, r.events[0].year, r.events.find((e) => e.kind === 'end')?.year));
+  const pg = page(hit, offset, limit);
+  return {
+    ...pg,
+    items: pg.items.map((r) => ({
+      id: r.id,
+      key: tradeKey(civ, r.id),
+      name: r.name,
+      buyer: r.buyer,
+      from: r.from,
+      goods: r.goods.map((g) => (g.until === undefined ? { resource: resourceName(g.res), from: g.from } : { resource: resourceName(g.res), from: g.from, until: g.until })),
+      events: r.events.map((e) => {
+        const o: TradeInfo['events'][number] = { year: e.year, kind: e.kind };
+        if (e.foe !== undefined) o.foe = e.foe;
+        if (e.why) o.why = e.why;
+        return o;
+      }),
+      paths: r.paths.map((p) => ({ year: p.year, regions: p.regions.slice() })),
+    })),
+  };
+}
+
+const DIRS: Readonly<Record<string, MigrationInfo['dir']>> = { 东: 'east', 南: 'south', 西: 'west', 北: 'north' };
+
+export function historyMigrations(civ: Civ, raw: unknown): Page<MigrationInfo> {
+  const { offset, limit } = pageArgs(argsOf(raw), LIST_MAX);
+  const all = civ.migrations ?? [];
+  const pg = page(all, offset, limit);
+  return {
+    ...pg,
+    items: pg.items.map((m, j) => {
+      const info: MigrationInfo = {
+        id: offset + j,
+        culture: m.culture,
+        year: m.year,
+        route: m.route.slice(),
+        years: m.years.slice(),
+        dir: DIRS[m.dir],
+        size: m.size,
+        push: m.push,
+        pull: m.pull,
+        target: m.target,
+      };
+      if (m.settled !== undefined) info.settled = m.settled;
+      if (m.outcome) info.outcome = m.outcome;
+      if (m.outcomeYear !== undefined) info.outcomeYear = m.outcomeYear;
+      if (m.polity !== undefined) info.polity = m.polity;
+      return info;
+    }),
+  };
+}
+
+const DEV_ZH: Readonly<Record<string, string>> = { production: '生产', transport: '运输', information: '信息', administration: '行政', mobilization: '动员' };
+const IDEO_ZH: Readonly<Record<string, string>> = { mandate: '天命之说', law: '律法之说', council: '共治之说', craft: '技艺之说', rights: '民权之说', nation: '国族之说', commons: '均产之说' };
+const REGION_STATS: readonly RegionStat[] = [
+  'population',
+  'control',
+  'era',
+  ...(Object.keys(DEV_ZH).map((k) => `dev.${k}`) as RegionStat[]),
+  ...RESOURCE_NAMES.map((k) => `res.${k}` as const),
+  ...(Object.keys(IDEO_ZH).map((k) => `ideology.${k}`) as RegionStat[]),
+];
+export const REGION_STATS_MAX = 32;
+
+/**
+ * 发展、物产、思潮在两份快照之间线性插值,和网站自己的图层一样;
+ * 管辖是分档的,取不晚于那一年的最近一份(比第一份早 = NaN)
+ */
+export function historyRegionStats(civ: Civ, raw: unknown, give: Give): Partial<Record<RegionStat, Float32Array>> {
+  const a = argsOf(raw);
+  const year = yearOf(civ, a.year);
+  const fields = list(a.fields, 'fields', REGION_STATS_MAX);
+  if (!fields.length) bad('fields 至少一种');
+  for (const f of fields) if (!REGION_STATS.includes(f as RegionStat)) bad(`fields 里的 ${String(f).slice(0, 24)} 不认得,能取的有 ${REGION_STATS.join('、')}`);
+  const R = civ.regions.count;
+  const dev = civ.development;
+  let lv: Float32Array | null | undefined;
+  let res: Float32Array | null | undefined;
+  let ideo: Float32Array | null | undefined;
+  const levels = () => (lv === undefined ? (lv = dev ? developmentAt(dev, year) : null) : lv);
+  /** 一州 k 栏的表(R × K)→ 每州一个数;表比州少的(更早的地形)补 NaN */
+  const column = (src: Float32Array | null, K: number, k: number) => {
+    const out = new Float32Array(R).fill(NaN);
+    if (src && k >= 0) for (let r = 0; r < R && r * K + k < src.length; r++) out[r] = src[r * K + k];
+    return out;
+  };
+  const one = (f: RegionStat): Float32Array => {
+    if (f === 'population') {
+      const out = new Float32Array(R);
+      for (let r = 0; r < R; r++) out[r] = regionPopulationAt(civ, r, year);
+      return out;
+    }
+    if (f === 'control') {
+      const snap = controlAt(civ, year);
+      const out = new Float32Array(R).fill(NaN);
+      if (snap) for (let r = 0; r < R && r < snap.length; r++) out[r] = controlShare(snap[r]);
+      return out;
+    }
+    if (f === 'era') {
+      const l = levels();
+      const out = new Float32Array(R).fill(NaN);
+      if (l) for (let r = 0; r < R && (r + 1) * CAP_COUNT <= l.length; r++) out[r] = eraLevel(l, r);
+      return out;
+    }
+    const [group, name] = f.split('.');
+    if (group === 'dev') return column(levels(), CAP_COUNT, CAPS.indexOf(DEV_ZH[name] as (typeof CAPS)[number]));
+    if (group === 'res') {
+      if (res === undefined) res = dev ? resourcesAt(dev, year) : null;
+      return column(res, RESOURCE_COUNT, RESOURCES.indexOf(RES_ZH[name as ResourceName] as (typeof RESOURCES)[number]));
+    }
+    if (ideo === undefined) ideo = civ.ideology ? ideologyAt(civ.ideology, year) : null;
+    return column(ideo, THOUGHT_COUNT, THOUGHTS.findIndex((t) => t.name === IDEO_ZH[name]));
+  };
+  const out: Partial<Record<RegionStat, Float32Array>> = {};
+  for (const f of fields as RegionStat[]) out[f] ??= give(one(f));
+  return out;
 }
 
 export function historyEvents(civ: Civ, chronicle: readonly ChronicleEntry[] | null, raw: unknown): Page<EventInfo> {
@@ -371,6 +667,12 @@ export function authorCharacters(edits: WorldEdits): unknown[] {
 
 export function authorInterventions(edits: WorldEdits): InterventionInfo[] {
   return structuredClone(edits.interventions);
+}
+
+export function authorTerrain(edits: WorldEdits): AuthorTerrainInfo {
+  const out: AuthorTerrainInfo = { terrain: structuredClone(edits.terrain ?? []), upheavals: structuredClone(edits.upheavals ?? []) };
+  if (edits.sketch) out.sketch = structuredClone(edits.sketch);
+  return out;
 }
 
 export function authorNotes(notes: readonly AuthorNote[], raw: unknown): Page<AuthorNoteInfo> {

@@ -87,6 +87,9 @@ if (caps.includes('history.read@1')) { /* 用历史 */ }
 | `biome` | Uint8Array | 生物群落编号,名字用 `world.legend({ kind: 'biome' })` 查 |
 | `flux` | Float32Array | 径流量(从上游累计下来的) |
 | `seaIce` | Float32Array | 海冰,0–1 |
+| `plate` | Int16Array | 属于第几块板块,板块的漂移见 `world.plates()` |
+| `currentX`、`currentY` | Float32Array | 洋流的表层流向:单位方向 × 强弱(0–1),往东、往南(地图上往下)是正的;陆地、湖是 0 |
+| `currentTemp` | Float32Array | 洋流让水温高了几度(°C,暖流正、寒流负);陆地、湖是 0 |
 
 ### `world.neighbors()`
 
@@ -107,6 +110,10 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 ### `world.legend({ kind })`
 
 `kind` 是 `'biome'` 或 `'water'`,返回 `[{ value, name }]`:编号对应的名字。
+
+### `world.plates()`
+
+板块,有地块的每块一项 `PlateInfo`:`id`(`world.cells` 的 `plate` 里的数)、`continental`(大陆板块 `true`、大洋板块 `false`)、`cells`(几个地块)、`x`、`y`(重心,世界坐标)、`dir`(重心处往哪边漂,度,0 北、90 东)、`speed`(每年漂几厘米)。
 
 ## 历史(`history.read@1`)
 
@@ -151,6 +158,97 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 返回 `{ items, total, next }`:`next` 是下一页的 `offset`,取完了是 `null`。每项 `PersonInfo`:`id`、`key`、`name`、`role`、`polity`、`born`、`died?`、`from?`(君主即位、名臣入仕)、`until?`、`title?`、`female?`。
 
+世系、婚姻(都是人物编号,没有就不给):`parent?`(父亲;君主、宗室按世系,将门、世家的将领、名臣是本国先前的一位;女的父辈也记在这里)、`adopted?`(`parent` 是养父)、`mom?`(母亲:联姻嫁来的宗室女所生、临朝太后所辅的幼主才有)、`husband?`(后妃的丈夫)、`spouses?`(联姻娶的宗室女,按先后,每项 `{ polity, father, year, person? }`:她出自哪国、她的父亲(没有 = −1)、结亲那年、她本人)、`dynasty?`(君主、名臣是第几朝,对得上 `history.dynasties()` 的 `index`)、`descent?`(复国之君:`{ from, gen }`,出自故国哪位君主、是他的第几代孙,1 子、2 孙……)。
+
+```js
+// 编号 rulerId 的君主往上数三代(复国之君的父辈在故国,所以不按国家筛)
+const all = [];
+for (let next = 0; next !== null; ) {
+  const pg = await civAtlas.history.people({ offset: next });
+  all.push(...pg.items);
+  next = pg.next;
+}
+const byId = new Map(all.map((p) => [p.id, p]));
+const line = [];
+for (let p = byId.get(rulerId); p && line.length < 4; p = byId.get(p.parent)) line.push(p.name);
+```
+
+### `history.dynasties({ polity?, offset?, limit? })`
+
+改朝换代过的国家的各朝(没改过的国家只有一朝,不列),分页取,`limit` 最多 2000;`polity` 只要某国的。每项 `DynastyInfo`:`polity`、`index`(第几朝,0 = 立国时那一朝)、`key`、`name`(东方语感是这一朝的国名词根,比如「景」;西幻是「卡诺王朝」;改制开的共和、军政府那一段是空的)、`from`、`until?`(下一朝开始或亡国那年;到最后还在 = 不给)、`seat`(这一朝兴起的城)、`regime?`(改制开的一段:`republic` 共和 / `junta` 军政府)。
+
+### `history.treaties({ year?, offset?, limit? })`、`history.zones({ year?, offset?, limit? })`
+
+约和中立地,分页取,`limit` 最多 2000;给了 `year` 只列那一年在的(约:立了、还没废;中立地:设了、还没撤)。
+
+约 `TreatyInfo`:`id`、`key`、`name`(改过的名字;没改过是会盟的城起的「丹枫关之约」,没有城是「甲与乙之约」,和条约卡片上一样)、`kind`(`pact` 两国互不侵犯 / `limited` 三国以上有限竞争)、`how`(`self` 几国自己立的 / `peace` 议和时顺带立的 / `decree` 用的人下令立的)、`parties`(立约的几国,按入约先后)、`start`、`term`(头一个期限,年;0 = 一直有效)、`until?`(眼下这一期到哪年,续过约的按最后一次续约算;一直有效 = 不给)、`ended?`、`end?`(`expire` 约满不续 / `lapse` 剩不到两国)、`keep?`(下令立的、约期内不许背约)、`settlement`(会盟的城)、`region`、`by`(居间的国家)、`foe`(共同的强邻)、`renewals`(续约 `[{ year, parties, term }]`)、`breaches`(背约 `[{ year, by, against }]`:谁背约打谁)、`zone`(依这份约设的中立地)。没有的编号是 −1。给了 `year` 还有 `members`:那一年还在约里的几国(背约的、亡了的、向别国称过臣的不算)。
+
+中立地 `ZoneInfo`:`id`、`region`、`settlement`、`treaty`(依的那份约,议和划的缓冲没有 = −1)、`how`(`treaty` 立约时共建 / `peace` 议和时划的缓冲)、`founders`(共建的几国)、`owner`(让出那州的国家,−1 = 原是无主之地)、`from`、`ended?`、`back?`(撤销时还给了谁,−1 = 没还)、`residents`(放逐、出奔到这里的人物)。
+
+### `history.relations({ year })`
+
+那一年的盟约和宗藩,亡了的国家不算:
+
+```ts
+{
+  alliances: [{ a, b, since, foe, decree? }],  // 结着的盟:两国、结盟那年、共御的强邻(−1 = 没有);decree = 用的人下令结的
+  vassals: [{ polity, liege, since }],         // 藩属:哪国、宗主、称臣那年
+}
+```
+
+和国家卡片上「盟国」「宗主」「藩属」一样。
+
+### `history.trade({ year?, offset?, limit? })`
+
+商道:要紧的货从产地州运到买方国都,分页取,`limit` 最多 2000;给了 `year` 只列那一年开通了、还没废的(断着的也算)。每项 `TradeInfo`:
+
+| 字段 | 意思 |
+|---|---|
+| `id`、`key`、`name` | 编号、稳定键、名字 |
+| `buyer` | 买方国家 |
+| `from` | 产地州 |
+| `goods` | 运过的货 `[{ resource, from, until? }]`,按开始运的先后;`resource` 是 `grain` 粮 / `livestock` 牲畜 / `copper` 铜锡 / `iron` 铁 / `coal` 煤 / `timber` 木材 / `salt` 盐 / `fish` 渔获 / `oil` 石油 / `rare` 稀有矿 / `gold` 金银 |
+| `events` | 通断,按年份 `[{ year, kind, foe?, why? }]`:`open` 通、`break` 断(`foe` 和哪国交兵)、`reopen` 复通、`end` 废(`why`:`fall` 买方亡了 / `gain` 本国采得到了 / `need` 用不着了 / `gone` 产地不产了或另找了产地 / `fade` 商旅渐稀) |
+| `paths` | 路线 `[{ year, regions }]`:从哪年起经过哪些州(产地 → 买方国都所在州),路线变了另起一段 |
+
+### `history.migrations({ offset?, limit? })`
+
+大迁徙:一个民族分出一支举族远走,到了落脚地立国、开战。分页取,`limit` 最多 2000。每项 `MigrationInfo`:`id`、`culture`(哪个民族)、`year`(动身那年)、`route`(依次走过的州,头一个是出发的州,最后一个是落脚的州)、`years`(到 `route` 里每一州的年份)、`dir`(`east` / `south` / `west` / `north`)、`size`(到了能占几州)、`push`(为什么走:`crowd` 老家挤 / `famine` 灾年 / `scatter` 本族的国刚散了、亡了)、`pull`(冲着什么去:`chaos` 那边大乱 / `plague` 疫后空了 / `rich` 富庶 / `tribal` 部落地带)、`target`(冲着哪国去,−1 = 部落地带)、`settled?`(落脚那年,还在路上 = 不给)、`outcome?`(`found` 立了国 / `conquer` 入主 / `rout` 败散)、`outcomeYear?`、`polity?`(立的国)。
+
+### `history.regionStats({ year, fields })`
+
+那一年每州一个数,一次取几种(`fields` 1–32 项)。返回 `{ 名字: Float32Array }`,长度是州数(`history.regions()` 不给年份的个数),下标是州的编号:
+
+| 名字 | 意思 |
+|---|---|
+| `population` | 人口(千人,城加乡村;同 `history.regions({ year })` 的 `population`) |
+| `control` | 中央管得到几成(0–1);割据 = 0,不在国家里 = `NaN` |
+| `era` | 时代:整数部分是第几个时代(0 石器、1 青铜、2 铁器、3 中古、4 火药、5 工业、6 电气、7 信息、8 未来),小数是走到了几成 |
+| `dev.production`、`dev.transport`、`dev.information`、`dev.administration`、`dev.mobilization` | 五种能力:生产、运输、信息、行政、动员,和时代同一把尺子 |
+| `res.grain`、`res.livestock`、`res.copper`、`res.iron`、`res.coal`、`res.timber`、`res.salt`、`res.fish`、`res.oil`、`res.rare`、`res.gold` | 物产眼下能用多少(0–3 档;还没发现的是 0) |
+| `ideology.mandate`、`ideology.law`、`ideology.council`、`ideology.craft`、`ideology.rights`、`ideology.nation`、`ideology.commons` | 各说的接受度(0–1):天命、律法、共治、技艺、民权、国族、均产 |
+
+名字和推演插件读的官方表一样。世界里存的是每隔一段的一份:能力、物产每 100 年(全球大疫前后每 20 年),思潮每 20 年,管辖每 20 年;人口每年都算得出。年份不在存的那几份上时:
+
+- 能力、时代、物产、思潮:**前后两份之间按年份线性插值**,和网站自己的图层一样
+- 管辖:分档的数,**用不晚于那一年的最近一份**;比第一份还早是 `NaN`
+- 人口:就是那一年的
+
+要画成按州按年份的图层,每隔几十年取一次,接成一串交给 `layer.regions`:
+
+```js
+const { to } = await civAtlas.history.span();
+const n = (await civAtlas.history.regions({})).length;
+const years = [];
+for (let y = 0; y <= to; y += 50) years.push(y);
+const values = new Float32Array(years.length * n);
+for (let k = 0; k < years.length; k++) {
+  const { era } = await civAtlas.history.regionStats({ year: years[k], fields: ['era'] });
+  values.set(era, k * n);
+}
+await civAtlas.layer.regions({ id: 'era', title: '各州的时代', years, values, ramp: { colors: ['#f7f4e9', '#8c2d04'], min: 0, max: 8 } });
+```
+
 ### `history.events({ from?, to?, offset?, limit? })`
 
 编年史 `[from, to]` 年里的条目,分页取,`limit` 最多 2000。编年史还没写好时回 `unavailable`。每项 `EventInfo`:`id`、`year`、`end`、`tag`(一个字的标签:立、战、亡……)、`text`(已经换好名字的一句话)、`importance`(1–3,3 是大事)、`polities`、`regions`、`settlement`(相关的城,没有是 −1)、`people?`。
@@ -166,6 +264,7 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 | `author.characters()` | 用的人放进世界的人物(格式同世界文件) |
 | `author.interventions()` | 下过的命令(干预,格式见下面 `author.apply`) |
 | `author.notes({ offset?, limit? })` | AI 写的正文,分页取,`limit` 最多 100;每项 `{ key, kind, title, text, createdAt }` |
+| `author.terrain()` | 改过的地形:`{ terrain, upheavals, sketch? }`,格式同世界文件(类型见 `types.ts` 的 `AuthorTerrainInfo`)。`terrain` 是地形修改(从第 0 年起就那样,每种的意思见 [`src/gen/edits.ts`](../../src/gen/edits.ts) 开头「地形修改」那一节的表),`upheavals` 是地形大事 `[{ year, ops }]`(那一年发生),`sketch` 是新建世界时涂的草图(没画 = 不给)。没改过 = 两个空数组 |
 
 ## 改你写的东西(`author.write@1`)
 
@@ -184,8 +283,8 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 **改名** `{ kind: 'name', key, name }`
 
-- `key`:`history.*` 返回的稳定键(国家、城、州、民族、信仰、人物、地名都行)
-- `name`:新名字;`null` 或空的 = 恢复原名。国家改的是国名词根:末尾的「国」「王国」「帝国」「王朝」这类会去掉,全称照当年的国号接上;民族末尾的「族」会去掉。去掉以后最长 16 个字,长了回 `limit`
+- `key`:`history.*` 返回的稳定键(国家、城、州、民族、信仰、人物、地名、朝代、约、商道都行)
+- `name`:新名字;`null` 或空的 = 恢复原名。国家改的是国名词根:末尾的「国」「王国」「帝国」「王朝」这类会去掉,全称照当年的国号接上(东方语感的朝代也一样);西幻的朝代末尾的「王朝」、民族末尾的「族」会去掉。去掉以后最长 16 个字,长了回 `limit`
 
 **加标记** `{ kind: 'mark', mark: { title, note?, color, size?, from, to?, at | regions } }`
 
