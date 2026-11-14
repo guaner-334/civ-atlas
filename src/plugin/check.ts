@@ -231,6 +231,8 @@ export function panelValue(nodes: readonly PanelNode[], cid: string, value: unkn
 
 export const LAYERS_MAX = 8;
 export const MARK_ITEMS_MAX = 5000;
+/** 一个插件所有标注图层合起来最多几项:拖地图时每一帧都要全画一遍 */
+export const MARK_ITEMS_TOTAL = 20_000;
 export const MARK_TEXT_MAX = 40;
 /** 一个标注图层里的地块和点一共最多几个 */
 export const MARK_POINTS_MAX = 200_000;

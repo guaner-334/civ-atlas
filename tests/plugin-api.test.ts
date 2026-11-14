@@ -12,7 +12,7 @@ import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { EMPTY_EDITS, resolveKey, type Intervention, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
 import { PLUGIN_CAPS, capRole } from '../src/plugin/pluginCaps';
-import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, LAYERS_MAX, PANEL_NODES_MAX, PANEL_TEXT_MAX } from '../src/plugin/check';
+import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, LAYERS_MAX, MARK_ITEMS_TOTAL, PANEL_NODES_MAX, PANEL_TEXT_MAX } from '../src/plugin/check';
 import { approxBytes, MESSAGE_MAX_BYTES, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
 import * as read from '../src/plugin/read';
 import type { PluginResponse } from '../src/plugin/protocol';
@@ -631,6 +631,20 @@ describe('回调用', () => {
     expect(sink.panel).toHaveBeenLastCalledWith(null);
     expect(sink.layer.mock.calls.map((c) => c[0]).sort()).toEqual([...ids.filter((x) => x !== 'b'), 'm']);
     expect(sink.layer.mock.calls.every((c) => c[1] === null)).toBe(true);
+  });
+
+  it('标注图层 8 个,合起来最多 20000 项;换掉同一个按新的算', async () => {
+    const { call } = await open(['layer.marks@1']);
+    expect(MARK_ITEMS_TOTAL).toBe(20_000);
+    const marks = (lid: string, n: number) => ({ id: lid, title: lid, items: Array.from({ length: n }, () => ({ kind: 'point', cells: [0] })) });
+    for (const lid of ['a', 'b', 'c', 'd']) expect(await call('layer.marks', marks(lid, 5000))).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('e', 1))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.marks', marks('d', 4000))).toMatchObject({ ok: true });
+    for (const lid of ['e', 'f', 'g', 'h']) expect(await call('layer.marks', marks(lid, 250))).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('h', 251))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.marks', marks('i', 1))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.remove', { id: 'a' })).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('i', 5000))).toMatchObject({ ok: true });
   });
 
   it('按州按年份的图层:州数、年份照这段历史查;和地块图层合起来最多 8 个;没要能力不能交', async () => {

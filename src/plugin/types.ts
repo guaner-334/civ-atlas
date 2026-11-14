@@ -566,7 +566,7 @@ export interface CivAtlas {
     cells: Call<CellLayerSpec, void>;
     /** 同 id 的换掉;和地块图层合起来一个插件最多 8 个;份数 × 州数 × 4 字节最多 3.5 MB */
     regions: Call<RegionLayerSpec, void>;
-    /** 同 id 的换掉;一个插件最多 8 个,每个最多 5000 项 */
+    /** 同 id 的换掉;一个插件最多 8 个,每个最多 5000 项,合起来最多 20000 项 */
     marks: Call<MarkLayerSpec, void>;
     remove: Call<{ id: string }, void>;
   };

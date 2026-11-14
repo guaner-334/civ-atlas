@@ -19,6 +19,7 @@ import {
   id as checkId,
   int,
   LAYERS_MAX,
+  MARK_ITEMS_TOTAL,
   num,
   optInt,
   optText,
@@ -379,6 +380,11 @@ class Host implements PluginHost {
     const group = (k: string) => (k === 'marks' ? 'marks' : 'fill');
     if (!had && [...this.layers.values()].filter((x) => group(x.kind) === group(l.kind)).length >= LAYERS_MAX)
       throw new PluginApiError('limit', `一个插件最多 ${LAYERS_MAX} 个${l.kind === 'marks' ? '标注' : '地块和按州的'}图层`);
+    if (l.kind === 'marks') {
+      let n = l.items.length;
+      for (const x of this.layers.values()) if (x.kind === 'marks' && x.id !== l.id) n += x.items.length;
+      if (n > MARK_ITEMS_TOTAL) throw new PluginApiError('limit', `一个插件的标注图层合起来最多 ${MARK_ITEMS_TOTAL} 项,交上这个就有 ${n} 项`);
+    }
     this.layers.set(l.id, l);
     this.sink.layer?.(l.id, l);
     return null;
