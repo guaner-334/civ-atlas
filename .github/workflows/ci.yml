@@ -45,11 +45,12 @@ jobs:
         id: diff
         env:
           EVENT: ${{ github.event_name }}
-        # 拿不准(比不出来、没有文件)一律当成改了代码,宁可多跑
+        # 拿不准(比不出来、没有文件)一律当成改了代码,宁可多跑。
+        # --no-renames:把代码文件改名成 .md 时,原来那个文件名也要列出来,不然会被当成只改了文档
         run: |
           code=true
           if [ "$EVENT" = "pull_request" ]; then
-            if files=$(git -c core.quotePath=false diff --name-only HEAD^1 HEAD) && ! printf '%s\n' "$files" | grep -qv '\.md$'; then
+            if files=$(git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD) && ! printf '%s\n' "$files" | grep -qv '\.md$'; then
               code=false
             fi
           fi
