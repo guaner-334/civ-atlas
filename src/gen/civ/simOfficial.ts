@@ -38,6 +38,54 @@ export const OFFICIAL = {
   'ideology.rights': { unit: 'region', table: id('思潮'), col: '民权之说' },
   'ideology.nation': { unit: 'region', table: id('思潮'), col: '国族之说' },
   'ideology.commons': { unit: 'region', table: id('思潮'), col: '均产之说' },
+  /** 兵祸(0–1) */
+  strife: { unit: 'region', table: st('兵祸') },
+  /** 地力(0–1;收成、能养多少人都乘它) */
+  soil: { unit: 'region', table: st('州地力') },
+  /** 钱粮:各州的田赋、工商、市税和三样之和 */
+  'fiscal.land': { unit: 'region', table: st('田赋') },
+  'fiscal.craft': { unit: 'region', table: st('工商') },
+  'fiscal.market': { unit: 'region', table: st('市税') },
+  'fiscal.tax': { unit: 'region', table: st('税') },
+  /** 钱粮:各国应缴、实收、国库、国用不足(0–1) */
+  'fiscal.due': { unit: 'polity', table: st('应缴') },
+  'fiscal.collected': { unit: 'polity', table: st('实收') },
+  'fiscal.treasury': { unit: 'polity', table: st('国库') },
+  'fiscal.broke': { unit: 'polity', table: st('窘迫') },
+  /** 时代(按四样能力折算;没人住 = 0) */
+  era: { unit: 'region', table: dv('时代') },
+  /** 物产的底子(0–3 档) */
+  'res.base.grain': { unit: 'region', table: dv('物产'), col: '粮' },
+  'res.base.livestock': { unit: 'region', table: dv('物产'), col: '牲畜' },
+  'res.base.copper': { unit: 'region', table: dv('物产'), col: '铜锡' },
+  'res.base.iron': { unit: 'region', table: dv('物产'), col: '铁' },
+  'res.base.coal': { unit: 'region', table: dv('物产'), col: '煤' },
+  'res.base.timber': { unit: 'region', table: dv('物产'), col: '木材' },
+  'res.base.salt': { unit: 'region', table: dv('物产'), col: '盐' },
+  'res.base.fish': { unit: 'region', table: dv('物产'), col: '渔获' },
+  'res.base.oil': { unit: 'region', table: dv('物产'), col: '石油' },
+  'res.base.rare': { unit: 'region', table: dv('物产'), col: '稀有矿' },
+  'res.base.gold': { unit: 'region', table: dv('物产'), col: '金银' },
+  /** 物产的存量:矿还剩几年的量,林、渔、田、牧还剩几成 */
+  'res.stock.grain': { unit: 'region', table: dv('存量'), col: '粮' },
+  'res.stock.livestock': { unit: 'region', table: dv('存量'), col: '牲畜' },
+  'res.stock.copper': { unit: 'region', table: dv('存量'), col: '铜锡' },
+  'res.stock.iron': { unit: 'region', table: dv('存量'), col: '铁' },
+  'res.stock.coal': { unit: 'region', table: dv('存量'), col: '煤' },
+  'res.stock.timber': { unit: 'region', table: dv('存量'), col: '木材' },
+  'res.stock.salt': { unit: 'region', table: dv('存量'), col: '盐' },
+  'res.stock.fish': { unit: 'region', table: dv('存量'), col: '渔获' },
+  'res.stock.oil': { unit: 'region', table: dv('存量'), col: '石油' },
+  'res.stock.rare': { unit: 'region', table: dv('存量'), col: '稀有矿' },
+  'res.stock.gold': { unit: 'region', table: dv('存量'), col: '金银' },
+  /** 各国各说的接受度(按人口加权,0–1) */
+  'ideology.polity.mandate': { unit: 'polity', table: id('国中'), col: '天命之说' },
+  'ideology.polity.law': { unit: 'polity', table: id('国中'), col: '律法之说' },
+  'ideology.polity.council': { unit: 'polity', table: id('国中'), col: '共治之说' },
+  'ideology.polity.craft': { unit: 'polity', table: id('国中'), col: '技艺之说' },
+  'ideology.polity.rights': { unit: 'polity', table: id('国中'), col: '民权之说' },
+  'ideology.polity.nation': { unit: 'polity', table: id('国中'), col: '国族之说' },
+  'ideology.polity.commons': { unit: 'polity', table: id('国中'), col: '均产之说' },
 } as const satisfies Record<string, OfficialDef>;
 
 export type OfficialName = keyof typeof OFFICIAL;

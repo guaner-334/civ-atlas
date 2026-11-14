@@ -145,6 +145,11 @@ interface TradeModel {
 
 const models = new WeakMap<CivSim, TradeModel>();
 
+/** 此刻还没废的商道(上一步算的),broken = 断着 */
+export function liveTrade(sim: CivSim): readonly { readonly r: TradeRoute; readonly broken: boolean }[] {
+  return models.get(sim)?.live ?? [];
+}
+
 /** 登记商道(generateCiv 里,installDevelopment 之后) */
 export function installTrade(sim: CivSim, seed: number): void {
   hook(sim, subSeed(seed, 'civ-trade'), null);
