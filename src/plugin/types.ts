@@ -362,13 +362,30 @@ export type InterventionInfo = (
 ) & { fromTick?: number; author?: number; plot?: number; guide?: true; plugin?: string };
 
 /**
+ * 改一个标记时给的字段:给了的换掉,没给的不动;note、size、to 给 null = 去掉;
+ * 给 at 就不再圈州,给 regions 就不再是一个点
+ */
+export interface AuthorMarkPatch {
+  title?: string;
+  note?: string | null;
+  color?: AuthorMarkColor;
+  size?: 's' | 'l' | 'xl' | null;
+  from?: number;
+  to?: number | null;
+  at?: [number, number];
+  regions?: string[];
+}
+
+/**
  * 改你写的东西(author.write)的一条:
  * name 改名(null 或空的 = 恢复原名;国名末尾的「国」「王朝」这类先去掉,剩下的最长 16 字);
- * mark 加一个标记(不用给 id);intervention 下一条命令
+ * mark 加一个标记(不用给 id);markEdit 改一个标记;markRemove 删一个标记;intervention 下一条命令
  */
 export type AuthorChange =
   | { kind: 'name'; key: string; name: string | null }
   | { kind: 'mark'; mark: Omit<AuthorMarkInfo, 'id'> }
+  | { kind: 'markEdit'; id: number; mark: AuthorMarkPatch }
+  | { kind: 'markRemove'; id: number }
   | { kind: 'intervention'; v: InterventionInfo };
 
 /** applied 照办了几条;skipped 本来就是这样、没变的几条;marks 新标记的编号 */
@@ -468,10 +485,36 @@ export interface RegionLayerSpec extends Omit<CellLayerSpec, 'values'> {
 /** 标注图层的颜色(和你的标记的颜色不是一套) */
 export type LayerMarkColor = 'red' | 'orange' | 'green' | 'blue' | 'purple' | 'teal' | 'black' | 'white';
 
+/** 点能配的图标(网站给的一套) */
+export type MarkIcon =
+  | 'castle'
+  | 'harbor'
+  | 'camp'
+  | 'shrine'
+  | 'ruin'
+  | 'lighthouse'
+  | 'bridge'
+  | 'volcano'
+  | 'battle'
+  | 'flag'
+  | 'danger'
+  | 'star'
+  | 'circle'
+  | 'square'
+  | 'triangle'
+  | 'diamond';
+
 export interface MarkStyle {
-  color?: LayerMarkColor;
+  /** 八种名字之一,或 #rrggbb */
+  color?: LayerMarkColor | Hex;
   line?: 'solid' | 'dashed';
   size?: 's' | 'm' | 'l';
+  /** 线宽 1–8 像素(线、圈地块的边);不给 = 照 size */
+  width?: number;
+  /** 线的箭头:end 末端一个,both 两头各一个 */
+  arrow?: 'end' | 'both';
+  /** 点、文字标注配一个图标 */
+  icon?: MarkIcon;
 }
 
 /**
@@ -485,6 +528,9 @@ export interface MarkItem {
   /** 最长 40 字;label 必须有 */
   text?: string;
   style?: MarkStyle;
+  /** 时间轴在 [from, to] 这些年里(两头都算)才画;整数年,不给 = 那一头不限 */
+  from?: number;
+  to?: number;
 }
 
 export interface MarkLayerSpec {

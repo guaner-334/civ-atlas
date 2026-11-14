@@ -2,7 +2,7 @@
  * 检查插件交来的东西:调用的参数、面板、图层。纯计算,不碰 DOM。
  * 不合格的一律抛 PluginApiError(网站回给插件),合格的换成网站自己的一份(插件那边再改也影响不到)。
  */
-import type { CellLayerSpec, Hex, LayerMarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode, RegionLayerSpec } from './types';
+import type { CellLayerSpec, Hex, LayerMarkColor, MarkIcon, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode, RegionLayerSpec } from './types';
 import { layerLookRest, type LookFail } from '../gen/layerLook';
 
 export class PluginApiError extends Error {
@@ -292,6 +292,12 @@ export function checkRegionLayer(raw: unknown, regions: number, end: number): Re
 }
 
 const LAYER_COLORS: readonly LayerMarkColor[] = ['red', 'orange', 'green', 'blue', 'purple', 'teal', 'black', 'white'];
+/** 插件里写的名字是长期承诺:只加不删、不改名 */
+export const MARK_ICONS: readonly MarkIcon[] = ['castle', 'harbor', 'camp', 'shrine', 'ruin', 'lighthouse', 'bridge', 'volcano', 'battle', 'flag', 'danger', 'star', 'circle', 'square', 'triangle', 'diamond'];
+export const MARK_WIDTH_MIN = 1;
+export const MARK_WIDTH_MAX = 8;
+/** 和作者标记、干预的年份同一个上限(gen/edits.ts 的 INTERVENTION_YEAR_MAX) */
+const MARK_YEAR_MAX = 65535;
 
 /** 网站这边的一项标注:地块换成 Int32Array,点换成 Float32Array(x 规整到 [0, width)) */
 export interface MarkLayerItem {
@@ -300,6 +306,8 @@ export interface MarkLayerItem {
   points?: Float32Array;
   text?: string;
   style?: MarkStyle;
+  from?: number;
+  to?: number;
 }
 export interface MarkLayer {
   kind: 'marks';
@@ -312,9 +320,17 @@ function checkStyle(raw: unknown, at: string): MarkStyle | undefined {
   if (raw === undefined) return undefined;
   if (!isRec(raw)) return bad(`${at} 要是对象`);
   const s: MarkStyle = {};
-  if (raw.color !== undefined) s.color = LAYER_COLORS.includes(raw.color as LayerMarkColor) ? (raw.color as LayerMarkColor) : bad(`${at}.color 只能是 ${LAYER_COLORS.join('、')}`);
+  if (raw.color !== undefined)
+    s.color = LAYER_COLORS.includes(raw.color as LayerMarkColor)
+      ? (raw.color as LayerMarkColor)
+      : typeof raw.color === 'string' && HEX.test(raw.color)
+        ? raw.color.toLowerCase()
+        : bad(`${at}.color 只能是 ${LAYER_COLORS.join('、')},或写成 #rrggbb`);
   if (raw.line !== undefined) s.line = raw.line === 'solid' || raw.line === 'dashed' ? raw.line : bad(`${at}.line 只能是 solid、dashed`);
   if (raw.size !== undefined) s.size = raw.size === 's' || raw.size === 'm' || raw.size === 'l' ? raw.size : bad(`${at}.size 只能是 s、m、l`);
+  if (raw.width !== undefined) s.width = num(raw.width, `${at}.width`, MARK_WIDTH_MIN, MARK_WIDTH_MAX);
+  if (raw.arrow !== undefined) s.arrow = raw.arrow === 'end' || raw.arrow === 'both' ? raw.arrow : bad(`${at}.arrow 只能是 end、both`);
+  if (raw.icon !== undefined) s.icon = MARK_ICONS.includes(raw.icon as MarkIcon) ? (raw.icon as MarkIcon) : bad(`${at}.icon 只能是 ${MARK_ICONS.join('、')}`);
   return s;
 }
 
@@ -360,6 +376,10 @@ export function checkMarkLayer(raw: unknown, world: { cells: number; width: numb
     if (t !== undefined) item.text = t;
     const style = checkStyle(it.style, `${p}.style`);
     if (style) item.style = style;
+    const from = optInt(it.from, `${p}.from`, 0, MARK_YEAR_MAX);
+    const to = optInt(it.to, `${p}.to`, from ?? 0, MARK_YEAR_MAX);
+    if (from !== undefined) item.from = from;
+    if (to !== undefined) item.to = to;
     out.items.push(item);
   }
   return out;

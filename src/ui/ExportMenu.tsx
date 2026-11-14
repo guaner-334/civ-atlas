@@ -311,7 +311,7 @@ async function exportMap(m: MapInput, scale: ExportScale, format: ImageFormat): 
   const legendBoxes = mapLegendCanvasBoxes(m, scale);
   detail.markCount = m.marks?.length ? drawExportMarks(ctx, m, scale, m.marks, n.placed, undefined, legendBoxes) : 0;
   if (m.trail) detail.trailDots = drawExportTrail(ctx, m, scale, m.trail, n.placed, legendBoxes);
-  if (m.pluginMarks?.length) detail.pluginMarks = drawExportPluginMarks(ctx, m, scale, m.pluginMarks);
+  if (m.pluginMarks?.length) detail.pluginMarks = drawExportPluginMarks(ctx, m, scale, m.pluginMarks, m.civ ? m.year : undefined);
   const t3 = performance.now();
   detail.labels = t3 - t2;
   detail.labelCount = n.labels;

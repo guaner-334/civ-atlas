@@ -380,7 +380,7 @@ async function mapShot(g: Generated, year: number, rec: TrialRecorder): Promise<
   x.drawImage(big, 0, 0, SHOT_W, SHOT_H);
   big.width = big.height = 0;
   const marks = rec.markLayers();
-  if (marks.length) drawPluginMarks(x, marks, shotFrame(g.world), g.world.mesh);
+  if (marks.length) drawPluginMarks(x, marks, shotFrame(g.world), g.world.mesh, g.civ ? year : undefined);
   try {
     return coverJpeg(c);
   } finally {

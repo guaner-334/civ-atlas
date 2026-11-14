@@ -315,6 +315,37 @@ describe('图层', () => {
     expect(codeOf(() => checkMarkLayer({ id: 'a', title: 'a', items: Array(5001).fill({ kind: 'point', cells: [1] }) }, world))).toBe('limit');
     expect(codeOf(() => checkMarkLayer({ id: 'a', title: 'a', items: Array(5).fill({ kind: 'area', cells: new Int32Array(50_000) }) }, { ...world, cells: 1e6 }))).toBe('limit');
   });
+
+  it('标注的样子:色号、1–8 像素的线宽、箭头、图标;按年份显隐', () => {
+    const l = checkMarkLayer(
+      {
+        id: 'march',
+        title: '行军',
+        items: [
+          { kind: 'line', cells: [1, 2], style: { color: '#A0521C', width: 7, arrow: 'end' }, from: 2990, to: 3000 },
+          { kind: 'label', cells: [3], text: '军营', style: { color: 'purple', icon: 'camp', size: 'l' }, from: 100 },
+          { kind: 'point', cells: [4], style: { icon: 'battle', width: 1 }, to: 0 },
+        ],
+      },
+      world,
+    );
+    expect(l.items[0]).toMatchObject({ style: { color: '#a0521c', width: 7, arrow: 'end' }, from: 2990, to: 3000 });
+    expect(l.items[1]).toMatchObject({ style: { color: 'purple', icon: 'camp', size: 'l' }, from: 100 });
+    expect(l.items[1].to).toBeUndefined();
+    expect(l.items[2]).toMatchObject({ to: 0 });
+    const one = (it: Record<string, unknown>) => codeOf(() => checkMarkLayer({ id: 'a', title: 'a', items: [{ kind: 'line', cells: [1, 2], ...it }] }, world));
+    for (const style of [{ color: '#fff' }, { color: 'a0521c' }, { width: 0.5 }, { width: 9 }, { width: '3' }, { arrow: 'start' }, { icon: 'mountain' }]) expect(one({ style })).toBe('bad-args');
+    expect(one({ from: 1.5 })).toBe('bad-args');
+    expect(one({ from: -1 })).toBe('bad-args');
+    expect(one({ from: 10, to: 9 })).toBe('bad-args');
+    expect(one({ to: 65536 })).toBe('bad-args');
+  });
+
+  it('图标名字表和画的图案对得上', async () => {
+    const { MARK_ICONS } = await import('../src/plugin/check');
+    const { MARK_ICON_PATHS } = await import('../src/render/markIcons');
+    expect([...Object.keys(MARK_ICON_PATHS), 'battle'].sort()).toEqual([...MARK_ICONS].sort());
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -864,6 +895,48 @@ describe('改你写的东西', () => {
     const e: WorldEdits = { ...EMPTY_EDITS, interventions: many };
     expect(codeOf(() => planChanges(e, civ, { changes: Array.from({ length: 200 }, (_, i) => ({ kind: 'intervention', v: { kind: 'disaster', type: 'famine', level: 2, from: 9000 + i, regions } })) }))).toBe('limit');
     expect(planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'name', key, name: '甲' }] }).result.applied).toBe(1);
+  });
+
+  it('改、删已有的标记:给了的字段换掉,null 去掉;找不到的改回 bad-args、删算没变;一样的不算', () => {
+    const rk = regionKey(civ, 3);
+    const e: WorldEdits = {
+      ...EMPTY_EDITS,
+      marks: [
+        { id: 4, title: '旧城', note: '说明', color: 'red', size: 'l', from: 10, to: 900, at: [10, 20] },
+        { id: 7, title: '用的人放的', color: 'blue', from: 0, regions: [rk] },
+      ],
+    };
+    const plan = planChanges(e, null, {
+      changes: [
+        { kind: 'markEdit', id: 4, mark: { title: '新城', note: null, size: null, to: null, regions: [rk] } },
+        { kind: 'markRemove', id: 7 },
+        { kind: 'markRemove', id: 99 },
+        { kind: 'markEdit', id: 4, mark: { title: '新城' } },
+      ],
+    });
+    expect(plan.result).toEqual({ applied: 2, skipped: 2, marks: [] });
+    expect(plan.next.marks).toEqual([{ id: 4, title: '新城', color: 'red', from: 10, regions: [rk] }]);
+    const gone = planChanges(plan.next, null, { changes: [{ kind: 'markRemove', id: 4 }] });
+    expect(gone.next.marks).toBeUndefined();
+    const code = (...changes: unknown[]) => codeOf(() => planChanges(e, null, { changes }));
+    expect(code({ kind: 'markEdit', id: 99, mark: { title: 'x' } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { color: 'pink' } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { from: 1000 } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { at: [1, 1], regions: [rk] } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { title: 'x'.repeat(MARK_TITLE_MAX + 1) } })).toBe('limit');
+    expect(code({ kind: 'markEdit', id: 4 })).toBe('bad-args');
+    expect(code({ kind: 'markRemove', id: '4' })).toBe('bad-args');
+  });
+
+  it('改、删标记也是整批一步撤销', () => {
+    setEdits({ ...EMPTY_EDITS, marks: [{ id: 1, title: 'a', color: 'red', from: 0, at: [5, 5] }, { id: 2, title: 'b', color: 'red', from: 0, at: [6, 6] }] });
+    const was = getEdits();
+    const plan = planChanges(was, null, { changes: [{ kind: 'markEdit', id: 1, mark: { title: 'A', color: 'teal' } }, { kind: 'markRemove', id: 2 }] });
+    expect(commitPluginEdits(plan.next, plan.keys)).toBeNull();
+    expect(getEdits().marks!.map((m) => m.title)).toEqual(['A']);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits().marks).toEqual(was.marks);
+    setEdits(EMPTY_EDITS);
   });
 
   it('记进网站的修改:整批一步撤销、一步重做', () => {
