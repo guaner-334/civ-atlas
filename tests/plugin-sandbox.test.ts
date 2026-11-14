@@ -235,6 +235,7 @@ describe('首页不带沙箱', () => {
       'src/ui/plugins/pluginIcons.tsx',
       'src/ui/plugins/pluginText.ts',
       'src/ui/plugins/simPickText.ts',
+      'src/ui/plugins/tools/PanelView.tsx',
       'src/ui/plugins/tools/ToolsLayer.tsx',
       'src/ui/plugins/tools/toolRun.ts',
       'src/ui/plugins/worldPlugins.ts',

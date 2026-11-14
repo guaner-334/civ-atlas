@@ -473,8 +473,8 @@ function cssFor(root: Element): string {
 /** 拷一份卡片:下拉选中哪项、滑块的值这些只在属性(property)上,序列化前写成 HTML 属性 */
 function formsAsAttrs(card: HTMLElement): HTMLElement {
   const copy = card.cloneNode(true) as HTMLElement;
-  const from = card.querySelectorAll('select, input');
-  const to = copy.querySelectorAll('select, input');
+  const from = card.querySelectorAll('select, input, textarea');
+  const to = copy.querySelectorAll('select, input, textarea');
   from.forEach((el, i) => {
     const c = to[i];
     if (el instanceof HTMLSelectElement) {
@@ -483,6 +483,8 @@ function formsAsAttrs(card: HTMLElement): HTMLElement {
       c.setAttribute('value', el.value);
       if (el.checked) c.setAttribute('checked', '');
       else c.removeAttribute('checked');
+    } else if (el instanceof HTMLTextAreaElement) {
+      c.textContent = el.value;
     }
   });
   return copy;
