@@ -169,6 +169,12 @@ class Heap {
       .map((t) => t.name);
   };
 
+  // 面板一共最多 4000 字:城太多时只列前面的,后面写省略号
+  const passedLine = (names) => {
+    const text = `经过：${names.join('、')}`;
+    return text.length <= 1000 ? text : `${text.slice(0, text.lastIndexOf('、', 1000))}……`;
+  };
+
   let pair = null;
   let route = null;
 
@@ -198,7 +204,7 @@ class Heap {
       nodes: [
         { type: 'heading', text: '这条路' },
         { type: 'text', text: `起点 ${placeName(a)}\n终点 ${placeName(b)}` },
-        { type: 'text', text: !passed ? '没给看历史，列不出城' : passed.length ? `经过：${passed.join('、')}` : '沿路没有城' },
+        { type: 'text', text: !passed ? '没给看历史，列不出城' : passed.length ? passedLine(passed) : '沿路没有城' },
         { type: 'number', label: '路程', value: Math.round(kmBy.reduce((s, v) => s + v, 0) + seaKm), unit: '公里' },
         { type: 'number', label: '要走', value: days, unit: '天' },
         modeSelect(),
