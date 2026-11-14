@@ -72,8 +72,43 @@ describe('取世界文件', () => {
     expect((e as ServerError).code).toBe('network');
   });
 
-  it('从链接拿到的比说的少:算没下完', async () => {
-    stub((url) => (url.startsWith(BASE) ? link({ url: LINK, bytes: FILE.length + 1, sum: 'abc' }) : new Response(FILE)));
+  it('从链接拿到的比说的少:算没下完(存储那边自己说的大小不算)', async () => {
+    stub((url) => (url.startsWith(BASE) ? link({ url: LINK, bytes: FILE.length + 1, sum: 'abc' }) : file()));
     await expect(fetchFile('/v1/s/Abcd1234/full')).rejects.toMatchObject({ code: 'network' });
+  });
+
+  it('链接那头一直不回:过了等待时间改问服务器,不当成取消', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const calls = stub((url) =>
+        url === LINK
+          ? new Promise<Response>((_, reject) => {
+              const signal = (vi.mocked(fetch).mock.calls.at(-1)?.[1] as RequestInit | undefined)?.signal;
+              signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+            })
+          : url.includes('via=link')
+            ? link()
+            : file(),
+      );
+      const got = fetchFile('/v1/s/Abcd1234/full');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(await bytesOf(await got)).toEqual(FILE);
+      expect(calls.map((c) => c.url)).toEqual([`${BASE}/v1/s/Abcd1234/full?via=link`, LINK, `${BASE}/v1/s/Abcd1234/full`]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('用的人取消了:不再改问服务器', async () => {
+    const stopIt = new AbortController();
+    const calls = stub((url) => {
+      if (url === LINK) {
+        stopIt.abort();
+        return Promise.reject(new DOMException('aborted', 'AbortError'));
+      }
+      return link();
+    });
+    await expect(fetchFile('/v1/s/Abcd1234/full', { signal: stopIt.signal })).rejects.toMatchObject({ code: 'network' });
+    expect(calls.map((c) => c.url)).toEqual([`${BASE}/v1/s/Abcd1234/full?via=link`, LINK]);
   });
 });
