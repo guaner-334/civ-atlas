@@ -339,6 +339,7 @@ describe('插件卡上的「保存」', () => {
     const saved = askSave(offer('国力排行-第3000年.csv'), ctl.signal);
     const s = fileStrip.get().save!;
     expect(saveText(s)).toEqual({ tone: 'ask', icon: 'download', title: '它准备好了一个文件', small: '国力排行-第3000年.csv，表格，12 KB。点「保存」才会存到你的电脑上。', acts: ['不要', '保存'] });
+    expect(saveText(s, true).small).toBe('国力排行-第3000年.csv，表格，12 KB。点「保存」才会存到你的手机上。');
     await vi.advanceTimersByTimeAsync(60_000);
     expect(download).not.toHaveBeenCalled();
     saveNow(download);

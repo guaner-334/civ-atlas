@@ -307,7 +307,7 @@ function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAga
           <Trouble t={t} label={label} onAgain={onAgain} onRemove={() => void removePlugin(pl.id).finally(stopTool)} />
         ) : (
           <>
-            <FileStrips />
+            <FileStrips phone={phone} />
             {run.refusal && (
               <Msg
                 icon={<Icon name="warn" size={phone ? 20 : 19} />}
@@ -335,11 +335,11 @@ function ToolCard({ run, phone, onAgain }: { run: ToolRun; phone: boolean; onAga
 }
 
 /** 网站替插件问用的人:存文件、选文件(放在插件面板上面,往下滚时钉在最上面) */
-function FileStrips() {
+function FileStrips({ phone }: { phone: boolean }) {
   const { save, open } = fileStrip.use();
   return (
     <>
-      {save && <Strip t={saveText(save)} kind="save" onSkip={skipSave} onGo={() => saveNow(downloadBlob)} />}
+      {save && <Strip t={saveText(save, phone)} kind="save" onSkip={skipSave} onGo={() => saveNow(downloadBlob)} />}
       {open && <OpenStrip o={open} />}
     </>
   );

@@ -130,12 +130,13 @@ export const fileSizeText = (n: number): string => sizeText(n).replace('.0 MB', 
 
 const SHEETS = ['xlsx', 'xls', 'ods', 'numbers', 'et'];
 
-export function saveText(s: FileSave): StripText {
+/** phone = 手机布局(说存到手机上) */
+export function saveText(s: FileSave, phone = false): StripText {
   if (s.phase === 'saved') return { tone: 'done', icon: 'check', title: '存好了', small: `${s.name}，在浏览器的「下载」里。` };
   const f = s.file;
   const head = `${f.name}，${f.kind}，${fileSizeText(f.bytes.length)}。`;
   if (s.replaced) return { tone: 'ask', icon: 'download', title: '它换了一份新的', small: `${head}上一份没存，换成这一份了。`, acts: ['不要', '保存'] };
-  return { tone: 'ask', icon: 'download', title: '它准备好了一个文件', small: `${head}点「保存」才会存到你的电脑上。`, acts: ['不要', '保存'] };
+  return { tone: 'ask', icon: 'download', title: '它准备好了一个文件', small: `${head}点「保存」才会存到你的${phone ? '手机' : '电脑'}上。`, acts: ['不要', '保存'] };
 }
 
 export function openText(o: FileOpen): StripText {
