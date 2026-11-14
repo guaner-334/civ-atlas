@@ -2,6 +2,7 @@
  * 新建界面星球上那张「长不出这张地图」的卡(深色,底色照确认框;出错时才下载):哪个插件、第几版、哪一步、什么错;
  * 「复制给作者」「不带它生成」,合计算太久的列出各用了多久、按钮换成「改选插件」。不挡左边:改了选的、拨了滑条、换了种子就重新长,卡收起
  */
+import { GONE_MARK } from '../../plugin/pluginFile';
 import { copyText } from '../clipboard';
 import { Icon } from '../icons';
 import { showToast } from '../toastStore';
@@ -12,6 +13,7 @@ import type { MapFail } from '../world/mapFail';
 import './mapFail.css';
 
 const stageText = (s: string | null) => (s ? (MAP_STAGE_TEXT[s] ?? s) : '');
+const GONE_TAIL = '更新网站没有用。';
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)} 秒`;
 
 /** 「复制给作者」:插件名、第几版、文件指纹、种子和滑条、哪一步、那句错 */
@@ -66,6 +68,13 @@ export function MapFailCard({ f, onDrop, onPick }: { f: MapFail; onDrop: () => v
           {at}算了 5 秒还没算完，停下了。
         </p>
         <p className="sm">在这台设备上它太慢。换台快一点的设备再试，或者不带它接着建。</p>
+      </>
+    );
+  } else if (f.kind === 'load' && f.why.includes(GONE_MARK)) {
+    body = (
+      <>
+        <p>{f.why.replace(GONE_TAIL, '')}</p>
+        <p className="sm">{GONE_TAIL}</p>
       </>
     );
   } else if (f.kind === 'missing' || f.kind === 'load') {

@@ -1,14 +1,15 @@
 /**
- * 插件用了哪些实验档的接口、哪些已经被拿掉的接口(各登记表的档在 pluginCaps.ts)。纯计算,网页、Worker、服务器、打包共用。
+ * 插件用了哪些实验档的接口、哪些已经被拿掉的接口(档表在 apiTier.ts)。纯计算,网页、Worker、服务器、打包共用。
  */
-import { CAP_TIER, MAP_HELPER_TIER, MAP_STAGE_TIER, SIM_COMMAND_TIER, SIM_INFLUENCE_TIER, type TierNote } from './pluginCaps';
+import { CAP_TIER, MAP_HELPER_TIER, MAP_STAGE_TIER, SIM_COMMAND_TIER, SIM_INFLUENCE_TIER, type TierNote } from './apiTier';
 
 export type ExperimentalWhat = '能力' | '影响口' | '命令' | '生成的一步' | '帮手';
 
-/** 用到的一样实验接口:什么、叫什么 */
+/** 用到的一样实验接口:什么、叫什么、给用的人看的名字 */
 export interface ExperimentalUse {
   what: ExperimentalWhat;
   name: string;
+  label: string;
 }
 
 /** 用到的一样已经拿掉的实验接口;removed = 哪一版网站拿掉的 */
@@ -55,16 +56,25 @@ function notes(m: ExperimentalSource, code: string | undefined): { what: Experim
  * 帮手是地图插件代码里调的,只在 role 是 map、给了 code 时看
  */
 export function experimentalUses(m: ExperimentalSource, code?: string): ExperimentalUse[] {
-  return notes(m, code).flatMap(({ what, name, note }) => (note.tier === 'experimental' && note.removed === undefined ? [{ what, name }] : []));
+  return notes(m, code).flatMap(({ what, name, note }) => (note.tier === 'experimental' && note.removed === undefined ? [{ what, name, label: note.label }] : []));
 }
 
 /** 用到的、网站已经拿掉的接口(插件开不了时,和「网站太旧、还没有」分开说);排法同 experimentalUses。optional 里的能力拿掉了照样能开,不算 */
 export function removedUses(m: ExperimentalSource, code?: string): RemovedUse[] {
   const optional = new Set(names(m.optional));
-  return notes(m, code).flatMap(({ what, name, note }) => (note.removed !== undefined && !(what === '能力' && optional.has(name)) ? [{ what, name, removed: note.removed }] : []));
+  return notes(m, code).flatMap(({ what, name, note }) =>
+    note.removed !== undefined && !(what === '能力' && optional.has(name)) ? [{ what, name, label: note.label, removed: note.removed }] : [],
+  );
 }
+
+const same = (a: ExperimentalUse, b: ExperimentalUse) => a.what === b.what && a.name === b.name;
 
 /** 新版比旧版多用的实验接口 */
 export function addedExperimental(old: readonly ExperimentalUse[], next: readonly ExperimentalUse[]): ExperimentalUse[] {
-  return next.filter((u) => !old.some((o) => o.what === u.what && o.name === u.name));
+  return next.filter((u) => !old.some((o) => same(o, u)));
+}
+
+/** 新版、旧版都用的实验接口 */
+export function keptExperimental(old: readonly ExperimentalUse[], next: readonly ExperimentalUse[]): ExperimentalUse[] {
+  return next.filter((u) => old.some((o) => same(o, u)));
 }

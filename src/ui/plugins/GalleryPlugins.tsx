@@ -14,9 +14,9 @@ import { dayText, workWho } from '../Gallery';
 import ReportBox from '../ReportBox';
 import { Icon } from '../icons';
 import { openPlugins, subscribePluginsOpen } from './entry';
-import { capChips, compareVersions, wallPlugin, wallPlugins, type WallPlugin } from './galleryPlugin';
+import { capChips, compareVersions, usesExperimental, wallPlugin, wallPlugins, type WallPlugin } from './galleryPlugin';
 import { noteWall, wallFile } from './galleryWatch';
-import { Ico, InstallBox, Perms, SaidBox, UpdateBox, installAsk, type Ask, type Said } from './PluginWindow';
+import { Ico, InstallBox, Perms, SaidBox, UpdateBox, installAsk, newerSaid, type Ask, type Said } from './PluginWindow';
 import { PluginIcon } from './pluginIcons';
 import { addedLines, sizeText, versionLabel } from './pluginText';
 import { useVerdicts, verdictOf } from './verdict';
@@ -78,6 +78,16 @@ function Caps({ p, license }: { p: WallPlugin; license?: boolean }) {
   );
 }
 
+/** 用了实验接口的插件卡上那个小标签 */
+function TrialTag() {
+  return (
+    <span className="plg-tag" data-testid="plugin-trial-tag">
+      <Icon name="flask" size={11} />
+      实验
+    </span>
+  );
+}
+
 /** 「插件」页签:电脑四列,手机一行一个 */
 export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryWork[]; phone: boolean; onOpen: (w: GalleryWork) => void }) {
   useVerdicts();
@@ -102,6 +112,7 @@ export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryW
                   <PluginIcon src={iconUrl(w, p)} size="sm" className="pw-ic" />
                   <b className="gl-name">{title}</b>
                   <span className="plg-tag">{versionLabel(p.version)}</span>
+                  {usesExperimental(p) && <TrialTag />}
                   {have && <span className="plg-tag ok">已装上</span>}
                 </span>
                 <span className="gl-by">
@@ -136,6 +147,7 @@ export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryW
                   {w.by}
                   <span className="plg-tag">{versionLabel(p.version)}</span>
                   <span className="plg-tag ok">审过</span>
+                  {usesExperimental(p) && <TrialTag />}
                 </span>
               </span>
             </span>
@@ -271,7 +283,7 @@ export function PluginWorkDialog({
       else await finish(a);
       return true;
     } catch (e) {
-      if (e instanceof PluginFileError && e.kind === 'newer') setStep({ kind: 'said', said: { kind: 'newer', name: e.plugin ?? p.name, need: e.need ?? '新版网站的东西' } });
+      if (e instanceof PluginFileError && e.kind === 'newer') setStep({ kind: 'said', said: newerSaid(e, p.name) });
       else setErr(`没取到插件文件：${e instanceof Error ? e.message : String(e)}`);
       return true;
     } finally {

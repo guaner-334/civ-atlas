@@ -18,6 +18,7 @@
 import { MANIFEST_FILE, PLUGIN_ID, PLUGIN_ID_MAX, WORLD_APP, WORLD_KIND } from '../gen/worldFormat';
 import { parseZip, writeZip, type ZipInput } from '../gen/zipStore';
 import { CAP_NAME, PLUGIN_CAPS, capRole } from './pluginCaps';
+import { removedUses } from './experimental';
 import type { ManifestNeed } from './manifestParts';
 import type { MapManifest } from './pluginMap';
 import type { SimManifest } from './pluginSim';
@@ -107,12 +108,18 @@ export class PluginFileError extends Error {
   readonly need?: string;
   /** newer:清单里读得出来的插件名字 */
   readonly plugin?: string;
-  constructor(kind: PluginFileErrorKind, message: string, more?: { need?: string; plugin?: string }) {
+  /** newer:不是网站太旧,是插件用的实验接口网站拿掉了;值是那个接口给人看的名字 */
+  readonly gone?: string;
+  /** gone 时插件的版本 */
+  readonly version?: string;
+  constructor(kind: PluginFileErrorKind, message: string, more?: { need?: string; plugin?: string; gone?: string; version?: string }) {
     super(message);
     this.name = 'PluginFileError';
     this.kind = kind;
     if (more?.need) this.need = more.need;
     if (more?.plugin) this.plugin = more.plugin;
+    if (more?.gone) this.gone = more.gone;
+    if (more?.version) this.version = more.version;
   }
 }
 
@@ -120,10 +127,10 @@ function broken(message: string): never {
   throw new PluginFileError('broken', message);
 }
 
-function newer(message: string, need: string, m: Obj): never {
+function newer(message: string, need: string, m: Obj, gone?: string): never {
   const n = m.name;
   const plugin = typeof n === 'string' && n.trim() && n.length <= NAME_MAX && !BAD_TEXT.test(n) ? n : undefined;
-  throw new PluginFileError('newer', message, { need, plugin });
+  throw new PluginFileError('newer', message, { need, plugin, ...(gone ? { gone, version: String(m.version) } : {}) });
 }
 
 /** 以后几类插件的能力名开头 → 给人看的名字 */
@@ -303,11 +310,20 @@ function parseManifest(bytes: Uint8Array): PluginManifest {
   return m as unknown as PluginManifest;
 }
 
+/** 插件用的实验接口网站拿掉了时那句话里都有的几个字 */
+export const GONE_MARK = '用的实验接口，网站已经改掉了';
+
+/** 用的实验接口网站拿掉了:推演、地图插件这句话直接显示在世界里 */
+export const goneText = (name: string, role: string): string =>
+  role === 'sim' || role === 'map' ? `「${name}」${GONE_MARK}。这个世界照常能看；要接着推（或用它新长地图），等作者出新版。更新网站没有用。` : `「${name}」${GONE_MARK}。要等作者出新版。更新网站没有用。`;
+
 /** need = 推演、地图插件清单里这一版网站不认得的头一样 */
-function checkSupport(m: PluginManifest, need: ManifestNeed | null): void {
+function checkSupport(m: PluginManifest, need: ManifestNeed | null, code: string): void {
   const o = m as unknown as Obj;
   if (!PLUGIN_ROLES.includes(m.role)) newer(`要更新网站才能用:这一版网站跑不了「${m.role}」这种插件`, `${m.role} 这种插件`, o);
   if (!PLUGIN_RUNTIMES.includes(m.runtime)) newer(`要更新网站才能用:这一版网站没有「${m.runtime}」这种跑法`, `${m.runtime} 这种跑法`, o);
+  const gone = removedUses(m, code)[0];
+  if (gone) newer(goneText(m.name, m.role), `${gone.what} ${gone.name}`, o, gone.label);
   for (const c of m.requires) if (!PLUGIN_CAPS.has(c)) newer(`要更新网站才能用:插件要的 ${c} 这一版网站还没有`, capNeed(c), o);
   if (need) newer(`要更新网站才能用:插件要的${need.what} ${need.name} 这一版网站还没有`, `${need.what} ${need.name}`, o);
 }
@@ -378,7 +394,7 @@ export async function openPluginFile(file: Blob | Uint8Array): Promise<OpenedPlu
       else textOf(data, path);
     }
     const need = manifest.role === 'sim' ? (await import('./pluginSim')).checkSimManifest(manifest) : manifest.role === 'map' ? (await import('./pluginMap')).checkMapManifest(manifest) : null;
-    checkSupport(manifest, need);
+    checkSupport(manifest, need, code);
     return { manifest, sum: await sha256(bytes), bytes: bytes.length, files, code };
   } catch (err) {
     throw asPluginFileError(err);

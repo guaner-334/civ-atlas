@@ -5,7 +5,8 @@
  *   带 @experimental,注释里提到它或紧跟着的那一行声明它
  */
 import { MAP_STAGE_CAPS } from '../../src/plugin/pluginMap';
-import { CAP_TIER, MAP_HELPER_TIER, MAP_STAGE_TIER, PLUGIN_CAPS, SIM_COMMAND_TEXT, SIM_COMMAND_TIER, SIM_INFLUENCE_TEXT, SIM_INFLUENCE_TIER, capRole, type TierNote } from '../../src/plugin/pluginCaps';
+import { CAP_TIER, MAP_HELPER_TIER, MAP_STAGE_TIER, SIM_COMMAND_TIER, SIM_INFLUENCE_TIER, type TierNote } from '../../src/plugin/apiTier';
+import { PLUGIN_CAPS, SIM_COMMAND_TEXT, SIM_INFLUENCE_TEXT, capRole } from '../../src/plugin/pluginCaps';
 
 export const TIER_MARK = '实验:网站更新后可能改';
 
@@ -51,6 +52,7 @@ export function tierTableProblems(helperNames: readonly string[], site: string):
     for (const [name, note] of Object.entries(tiers)) {
       const at = `${kind} ${name}`;
       if (note.tier !== 'stable' && note.tier !== 'experimental') out.push(`${at}:档只能是 stable、experimental`);
+      if (typeof note.label !== 'string' || !note.label.trim()) out.push(`${at}:要写给用的人看的名字`);
       if (note.removed === undefined && !known(name)) out.push(`${at}:没拿掉,登记表里却没有`);
       if (note.removed !== undefined && known(name)) out.push(`${at}:拿掉了,登记表里还有`);
       const versions = [note.since, ...(note.changed ?? []), ...(note.removed === undefined ? [] : [note.removed])];

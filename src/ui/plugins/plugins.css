@@ -85,6 +85,10 @@
   white-space: nowrap;
   vertical-align: 2px;
 }
+.plg-tag .icon {
+  flex: none;
+  margin-right: 3px;
+}
 .plg-hd h3 .plg-tag + .plg-tag {
   margin-left: 4px;
 }

@@ -1,5 +1,6 @@
 /** 插件页、权限框上的几句话。纯计算,单测直接测 */
-import { permissionLines, simCommandsText, simInfluencesText, type PermissionLine } from '../../plugin/pluginCaps';
+import { addedExperimental, keptExperimental } from '../../plugin/experimental';
+import { experimentalMoreNote, permissionLines, simCommandsText, simInfluencesText, whyOf, type PermissionLine, type PermissionSource } from '../../plugin/pluginCaps';
 import type { PluginManifest } from '../../plugin/pluginFile';
 import type { SimManifest } from '../../plugin/pluginSim';
 import { versionLabel, sizeText } from './pluginWords';
@@ -29,12 +30,23 @@ export function pageByLine(m: PluginManifest, bytes: number): string {
   return [...who(m), `开源许可证 ${m.license}`, sizeText(bytes)].join('，');
 }
 
-type Caps = Pick<PluginManifest, 'requires' | 'optional' | 'why'>;
-
-/** 更新时新多出来的权限行(旧版没有的行;同一行里多要了一样能力不算) */
-export function addedLines(old: Caps, next: Caps): PermissionLine[] {
-  const had = new Set(permissionLines(old).map((l) => l.key));
-  return permissionLines(next).filter((l) => !had.has(l.key));
+/**
+ * 更新时新多出来的权限行:旧版没有的行(同一行里多要了一样能力不算);
+ * 实验接口一项一项算,旧版已经有实验那一行、新版又多用一样也列,小字写多用了哪几样、理由只留新多用的
+ */
+export function addedLines(old: PermissionSource, next: PermissionSource): PermissionLine[] {
+  const was = permissionLines(old);
+  const had = new Set(was.map((l) => l.key));
+  const before = was.find((l) => l.key === 'experimental')?.uses ?? [];
+  return permissionLines(next).flatMap((l) => {
+    if (l.key !== 'experimental') return had.has(l.key) ? [] : [l];
+    const now = l.uses ?? [];
+    const more = addedExperimental(before, now);
+    if (!more.length) return [];
+    if (!before.length) return [l];
+    const why = whyOf(next, more.flatMap((u) => (u.what === '能力' ? [u.name] : [])));
+    return [{ ...l, note: experimentalMoreNote(more, keptExperimental(before, now)), why, uses: more }];
+  });
 }
 
 const caps = (m: PluginManifest) => new Set([...m.requires, ...(m.optional ?? [])]);

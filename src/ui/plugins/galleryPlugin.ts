@@ -9,6 +9,7 @@
  */
 import type { GalleryWork } from '../../account/gallery';
 import { permissionLines, type PermissionKey } from '../../plugin/pluginCaps';
+import { experimentalUses } from '../../plugin/experimental';
 import { CAP_LABEL } from './pluginWords';
 
 export interface WallVersion {
@@ -97,10 +98,13 @@ export function wallPlugins(works: readonly GalleryWork[]): WallPluginWork[] {
   return out.sort((a, b) => at(b) - at(a));
 }
 
-/** 卡片上那排小标签(权限框那几行的短说法);loud = 看 / 改你写的东西,标黄 */
+/** 卡片上那排小标签(权限框那几行的短说法;用了实验接口的另挂「实验」,不在这排);loud = 看 / 改你写的东西,标黄 */
 export function capChips(p: Pick<WallPlugin, 'requires' | 'optional'>): { key: PermissionKey; text: string; loud: boolean }[] {
-  return permissionLines(p).map((l) => ({ key: l.key, text: CAP_LABEL[l.key] ?? l.key, loud: l.loud }));
+  return permissionLines(p).flatMap((l) => (l.key === 'experimental' ? [] : [{ key: l.key, text: CAP_LABEL[l.key] ?? l.key, loud: l.loud }]));
 }
+
+/** 用了实验接口:作品墙上只看得到要的能力 */
+export const usesExperimental = (p: Pick<WallPlugin, 'requires' | 'optional'>): boolean => experimentalUses(p).length > 0;
 
 /** 两个版本号比大小:a 新 = 1,一样 = 0,a 旧 = -1 */
 export function compareVersions(a: string, b: string): number {
