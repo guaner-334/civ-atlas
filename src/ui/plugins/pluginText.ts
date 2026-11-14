@@ -39,10 +39,10 @@ export function addedLines(old: Caps, next: Caps): PermissionLine[] {
 
 const caps = (m: PluginManifest) => new Set([...m.requires, ...(m.optional ?? [])]);
 
-/** 出现在「工具」里:要了面板或点选的(只交图层的在图层面板) */
+/** 出现在「工具」里:要了面板、点选、存文件、选文件的(只交图层的在图层面板;存文件、选文件要在插件卡上问用的人) */
 export function isTool(m: PluginManifest): boolean {
   const c = caps(m);
-  return c.has('ui.panel@1') || c.has('input.pick@1');
+  return c.has('ui.panel@1') || c.has('input.pick@1') || c.has('file.save@1') || c.has('file.open@1');
 }
 
 /** 装好以后提示条第二行:工具在哪 */

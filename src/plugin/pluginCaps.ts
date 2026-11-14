@@ -3,7 +3,7 @@
  * 这张表里没有的能力(名字认得、版本更高的也算)一律当这一版网站还没有。纯定义,网页、Worker、服务器共用。
  */
 
-export type PermissionKey = 'map' | 'history' | 'authorRead' | 'authorWrite' | 'view' | 'layer' | 'storeWorld' | 'sim' | 'simSteer' | 'mapSteer';
+export type PermissionKey = 'map' | 'history' | 'authorRead' | 'authorWrite' | 'view' | 'layer' | 'fileSave' | 'fileOpen' | 'storeWorld' | 'sim' | 'simSteer' | 'mapSteer';
 
 /** 权限框上的各行,按这个先后列;loud = 显眼;note = 网站写的那行小字(每个插件都一样,在作者写的理由上面) */
 export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: boolean; note?: string }>> = {
@@ -14,6 +14,8 @@ export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: b
   view: { text: '知道你在看哪一年、点了哪里（只在用它的时候）', loud: false },
   mapSteer: { text: '会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）', loud: true },
   layer: { text: '在地图上加图层和标注', loud: false },
+  fileSave: { text: '会给你文件存（你点「保存」才存）', loud: false },
+  fileOpen: { text: '会请你选一个文件给它', loud: false, note: '它只拿得到你选的那一个文件' },
   storeWorld: { text: '在世界里存自己的数据', loud: false, note: '存了以后那个世界不能公开分享，能存成文件发给别人。每个世界第一次存的时候还会问你' },
   sim: { text: '在推演里加自己的数和事件、写编年史', loud: false },
   simSteer: { text: '会改推演怎么走（只影响用它新推的世界，已经推好的世界不变）', loud: true },
@@ -49,6 +51,8 @@ export const PLUGIN_CAPS: ReadonlyMap<string, PermissionKey | null> = new Map<st
   ['layer.marks@1', 'layer'],
   ['store.local@1', null],
   ['store.world@1', 'storeWorld'],
+  ['file.save@1', 'fileSave'],
+  ['file.open@1', 'fileOpen'],
   ['sim.read@1', 'sim'],
   ['sim.tables@1', 'sim'],
   ['sim.events@1', 'sim'],

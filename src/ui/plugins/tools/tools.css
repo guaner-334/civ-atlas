@@ -582,6 +582,57 @@
   font-size: 14px !important;
 }
 
+/* ---- 网站替插件存文件、选文件:插件面板上面一块,样子照插件页「有新版」(.plg-newer);往下滚时钉在最上面 ---- */
+.plg-cb > .plg-file.plg-newer {
+  position: sticky;
+  /* 钉在滚动区的上沿,盖住卡片内容区上边那 12 像素的留白(不然滚上去的字会从缝里露出来) */
+  top: -12px;
+  z-index: 2;
+  flex: none;
+  margin: 0 14px;
+  background:
+    linear-gradient(var(--accent-soft), var(--accent-soft)),
+    var(--panel-solid);
+}
+.plg-file .plg-newer-t b {
+  overflow-wrap: anywhere;
+}
+.plg-file .plg-newer-b .plg-btn {
+  height: 32px;
+}
+.plg-card.phone .plg-file .plg-newer-b .plg-btn {
+  height: 38px;
+}
+/* 手机卡片把按钮底换成了白的;这一块里照电脑的灰底,和浅蓝底分得开 */
+.plg-card.phone .plg-file {
+  --btn: rgba(118, 118, 128, 0.12);
+}
+[data-theme='dark'] .plg-card.phone .plg-file {
+  --btn: rgba(118, 118, 128, 0.26);
+}
+.plg-cb > .plg-file.done {
+  background:
+    linear-gradient(rgba(46, 154, 88, 0.1), rgba(46, 154, 88, 0.1)),
+    var(--panel-solid);
+}
+.plg-file.done .plg-newer-t > .icon {
+  color: #23804a;
+}
+.plg-cb > .plg-file.bad {
+  background:
+    linear-gradient(rgba(224, 68, 58, 0.08), rgba(224, 68, 58, 0.08)),
+    var(--panel-solid);
+}
+.plg-file.bad .plg-newer-t > .icon {
+  color: #c2372e;
+}
+[data-theme='dark'] .plg-file.done .plg-newer-t > .icon {
+  color: var(--ok);
+}
+[data-theme='dark'] .plg-file.bad .plg-newer-t > .icon {
+  color: var(--err);
+}
+
 /* ---- 框选:地图上的框(样子照「地区」,不压暗地图) ---- */
 .plg-bx {
   position: absolute;
