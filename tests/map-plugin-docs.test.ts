@@ -89,7 +89,7 @@ function summary(w: World) {
 
 describe('地图插件文档的代码片段', () => {
   it('有教程和几个完整的例子;json 都是合法的 JSON', () => {
-    expect(plugins.map((p) => p.manifest.id)).toEqual(['sealevel', 'dryinland', 'hills', 'riverside']);
+    expect(plugins.map((p) => p.manifest.id)).toEqual(['sealevel', 'dryinland', 'landmass', 'hills', 'riverside']);
     for (const b of blocks.filter((x) => x.lang === 'json')) expect(() => JSON.parse(b.text), b.text.slice(0, 60)).not.toThrow();
   });
 

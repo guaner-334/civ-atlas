@@ -65,6 +65,32 @@ export function blurField(mesh: Mesh, f: Float32Array, passes: number) {
   return a;
 }
 
+/**
+ * 连成一片的地块(mask 非 0 的,沿邻居连):每片的地块列表,片按里面最小的地块编号排,片里按从那块出发一圈圈往外找到的先后
+ */
+export function components(mesh: Mesh, mask: ArrayLike<number>): number[][] {
+  const { n, adjStart, adj } = mesh;
+  const seen = new Uint8Array(n);
+  const out: number[][] = [];
+  for (let s = 0; s < n; s++) {
+    if (!mask[s] || seen[s]) continue;
+    const q = [s];
+    seen[s] = 1;
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h];
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
+        const j = adj[k];
+        if (mask[j] && !seen[j]) {
+          seen[j] = 1;
+          q.push(j);
+        }
+      }
+    }
+    out.push(q);
+  }
+  return out;
+}
+
 /** 遍数到这么多才只算会变的地块(找这些地块要先把全部地块扫一遍,遍数少时不划算) */
 const SPARSE_PASSES = 8;
 /** 地块按邻居个数分的组:6、5、7 个邻居的各一组(球面网格上占九成以上),其余的一组(0 = 个数不定) */

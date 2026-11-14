@@ -38,7 +38,7 @@ export function mapPluginInNode(f: MapFile, log?: QuickJSMapSpec['log']): Promis
     id: m.id,
     key: `${m.id}@${f.opened.sum}${Object.keys(f.params).length ? JSON.stringify(f.params) : ''}`,
     code: f.opened.code,
-    setup: { stages: map.stages as MapStage[], ...(map.layers?.length ? { layerIds: map.layers.map((l) => l.id) } : {}) },
+    setup: { stages: map.stages as MapStage[], ...(map.layers?.length ? { layerIds: map.layers.map((l) => l.id) } : {}), ...(map.reads?.length ? { reads: map.reads } : {}) },
     params: f.params,
     ...(log ? { log } : {}),
   });

@@ -23,6 +23,22 @@
     "precipitation": 1042,
     "digest": "d203d45ab807367a"
   },
+  "landmass": {
+    "land": 33.3,
+    "lakes": 82,
+    "rivers": 265,
+    "temperature": 8.3,
+    "precipitation": 1140,
+    "layers": [
+      {
+        "id": "landmass/landmass",
+        "cells": 11328,
+        "min": 0,
+        "max": 2
+      }
+    ],
+    "digest": "559a9384b65aaa7c"
+  },
   "hills": {
     "land": 32.6,
     "lakes": 310,

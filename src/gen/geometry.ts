@@ -189,6 +189,8 @@ export interface Geometry {
   nearest(px: number, py: number, hint: number): number;
   /** 连续查最近地块(地名标注沿路径取样):每次从上一次找到的地块附近开始找 */
   locator(): (px: number, py: number) => number;
+  /** 从地块 a 沿大圆走到地块 b 经过的地块(含两头,按先后,相邻的不重复);两块正好在球的两头时连线不唯一,返回 null */
+  lineCells(a: number, b: number): Int32Array | null;
 
   // ---- 面积、折线、局部平面 ----
 
@@ -256,6 +258,8 @@ export function geometryOf(mesh: Mesh): Geometry {
 }
 
 const TAU = Math.PI * 2;
+/** lineCells 对半分到第几层就停(2^40 段远比地块多) */
+const LINE_DEPTH = 40;
 /** 三角函数舍入到 24 位:各引擎最后一位的差别不会漏进世界里(见 civ/rand.ts 的 round24) */
 const fsin = (v: number) => round24(Math.sin(v));
 const fcos = (v: number) => round24(Math.cos(v));
@@ -1366,6 +1370,57 @@ class SphereGeometry implements Geometry {
   locator(): (px: number, py: number) => number {
     let last = 0;
     return (px: number, py: number) => (last = this.nearest(px, py, last));
+  }
+  /** 一段对半分,分到两头是同一块或邻居、又短过半个地块间距为止:只用加减乘除和开方,哪个引擎上都逐位一样 */
+  lineCells(a: number, b: number): Int32Array | null {
+    const p = this.p;
+    const { adjStart, adj } = this.mesh;
+    const ax = p[3 * a];
+    const ay = p[3 * a + 1];
+    const az = p[3 * a + 2];
+    const bx = p[3 * b];
+    const by = p[3 * b + 1];
+    const bz = p[3 * b + 2];
+    const ex = ax + bx;
+    const ey = ay + by;
+    const ez = az + bz;
+    if (ex * ex + ey * ey + ez * ez < 1e-12) return null;
+    this.finder ??= sphereFinder(this.mesh, p);
+    const find = this.finder.find;
+    const half = (0.5 * this.mesh.spacing) / this.R;
+    const lim2 = half * half;
+    const q = new Float64Array(3);
+    const out = [a];
+    const near = (i: number, j: number) => {
+      if (i === j) return true;
+      for (let k = adjStart[i]; k < adjStart[i + 1]; k++) if (adj[k] === j) return true;
+      return false;
+    };
+    const seg = (x0: number, y0: number, z0: number, c0: number, x1: number, y1: number, z1: number, c1: number, depth: number): void => {
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const dz = z1 - z0;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (depth >= LINE_DEPTH || (d2 <= lim2 && near(c0, c1))) {
+        if (out[out.length - 1] !== c1) out.push(c1);
+        return;
+      }
+      const sx = x0 + x1;
+      const sy = y0 + y1;
+      const sz = z0 + z1;
+      const l = Math.sqrt(sx * sx + sy * sy + sz * sz);
+      const mx = sx / l;
+      const my = sy / l;
+      const mz = sz / l;
+      q[0] = mx;
+      q[1] = my;
+      q[2] = mz;
+      const cm = find(q, c0);
+      seg(x0, y0, z0, c0, mx, my, mz, cm, depth + 1);
+      seg(mx, my, mz, cm, x1, y1, z1, c1, depth + 1);
+    };
+    seg(ax, ay, az, a, bx, by, bz, b, 0);
+    return Int32Array.from(out);
   }
 
   // ---- 面积、折线、局部平面 ----
