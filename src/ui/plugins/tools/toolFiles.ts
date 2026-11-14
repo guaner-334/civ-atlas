@@ -90,7 +90,8 @@ export async function fileChosen(f: { name: string; size: number; arrayBuffer():
   try {
     bytes = new Uint8Array(await f.arrayBuffer());
   } catch {
-    return put({ open: { ...o, bad: null } });
+    // 读不出来:这一块原样留着,让人重选或「不给」(等的时候可能已经换了别的请求,不能拿旧的盖回去)
+    return;
   }
   const now = fileStrip.get().open;
   if (now?.phase !== 'ask' || now.done !== o.done) return;

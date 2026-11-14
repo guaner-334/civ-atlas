@@ -392,6 +392,25 @@ describe('插件卡上的「选文件…」', () => {
     expect(openText(fileStrip.get().open!)).toEqual({ tone: 'done', icon: 'check', title: '交给它了', small: '国力排行-第2000年.csv，9 KB。' });
   });
 
+  it('读文件慢、读的时候换了一次请求:旧的读完或读不出来都不盖掉新的', async () => {
+    let fail: (e: Error) => void = () => {};
+    let ok: (b: ArrayBuffer) => void = () => {};
+    const slow = (name: string, mode: 'fail' | 'ok') => ({ name, size: 3, arrayBuffer: () => new Promise<ArrayBuffer>((res, rej) => (mode === 'ok' ? (ok = res) : (fail = rej))) });
+    const first = askOpen(checkOpenFile({}), new AbortController().signal);
+    const reading = fileChosen(slow('a.csv', 'fail'));
+    skipOpen();
+    expect(await first).toBeNull();
+    const second = askOpen(checkOpenFile({ accept: ['json'] }), new AbortController().signal);
+    const now = fileStrip.get().open;
+    fail(new Error('读不出来'));
+    await reading;
+    expect(fileStrip.get().open).toBe(now);
+    const third = fileChosen(slow('b.json', 'ok'));
+    ok(new Uint8Array([1, 2, 3]).buffer);
+    await third;
+    expect((await second)?.name).toBe('b.json');
+  });
+
   it('「不给」、取消、插件停了:回 null,收起', async () => {
     const a = askOpen(checkOpenFile({}), new AbortController().signal);
     expect(openText(fileStrip.get().open!).small).toBe('最大 16 MB。它只拿得到你选的这一个。');
