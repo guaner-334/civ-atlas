@@ -1,8 +1,8 @@
 /**
  * 推演插件的示例(examples/plugins/ 里 role 是 sim 的):从插件文件照推演线程的装法关进 QuickJS,种子 7、2024 各推 3000 年。
- * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力钉自己的。
+ * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力、民生与时代钉自己的。
  * 清单要的能力都用得到;编辑器用的类型(examples/plugins/civ-atlas-sim.d.ts)和接口一样。
- * 改了官方推演,魔力的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS
+ * 改了官方推演,魔力、民生与时代的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS、LIVELIHOOD_PINS
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv, startContinue, type Civ } from '../src/gen/civ';
-import { populationAt } from '../src/gen/civ/growth';
+import { populationAt, regionPopulationAt } from '../src/gen/civ/growth';
+import { RESOURCES, RESOURCE_COUNT, developmentAt, eraLevel, resourcesAt } from '../src/gen/civ/development';
 import type { PluginReply, PluginTurn, SimPlugin } from '../src/gen/civ/engine/plugin';
 import type { InfluenceName, OfficialName, SimCommand, SimRead } from '../src/gen/civ/simApi';
 import { packValue, unpackValue } from '../src/gen/snapshot';
@@ -94,8 +95,8 @@ function capsUsed({ opened: p }: Example, seen: Seen): string[] {
 const by = (civ: Civ, id: string) => (civ.interventions ?? []).filter((v) => v.plugin === id);
 
 describe('推演插件的示例', () => {
-  it('三个都在:厌战、宗教生效、魔力', () => {
-    expect(SIM_EXAMPLES).toEqual(['faith', 'magic', 'weariness']);
+  it('都在:厌战、宗教生效、民生与时代、魔力', () => {
+    expect(SIM_EXAMPLES).toEqual(['faith', 'livelihood', 'magic', 'weariness']);
   });
 
   it.each(SIM_EXAMPLES)('%s:清单是推演插件、跑法 quickjs;要的能力都用得到(sim 段看得出的也没多要)', async (name) => {
@@ -221,6 +222,142 @@ describe('魔力:自己的表、图层、滑条', () => {
     expect(one.simLayers![0].years).toHaveLength(61);
     expect(civDiff(rest, one)).toBeNull();
   }, 120_000);
+});
+
+/** 各州的「食」= 粮 + 牲畜 / 2 + 渔获 / 2,按这份历史末年眼下能用的物产 */
+function foodOf(civ: Civ): Float64Array {
+  const res = resourcesAt(civ.development!, civ.endYear);
+  const [g, l, f] = (['粮', '牲畜', '渔获'] as const).map((k) => RESOURCES.indexOf(k));
+  const out = new Float64Array(civ.regions.count);
+  for (let r = 0; r < out.length; r++) {
+    const o = r * RESOURCE_COUNT;
+    out[r] = res[o + g] + res[o + l] / 2 + res[o + f] / 2;
+  }
+  return out;
+}
+
+/** 末年的人口(千人):食少(< 1.5)、食多(≥ 3)的州各一共多少 */
+function fed(civ: Civ, food: Float64Array) {
+  let poor = 0;
+  let rich = 0;
+  for (let r = 0; r < food.length; r++) {
+    const p = regionPopulationAt(civ, r, civ.endYear);
+    if (food[r] < 1.5) poor += p;
+    else if (food[r] >= 3) rich += p;
+  }
+  return { poor: Math.round(poor), rich: Math.round(rich) };
+}
+
+/** 记下插件每次交 dev.rate 时有几州被技术卡着(年 → 州数) */
+const watchSlow =
+  (slowed: Map<number, number>) =>
+  (q: SimPlugin<SimRead>): SimPlugin<SimRead> => ({
+    ...q,
+    act(turn: PluginTurn<SimRead>) {
+      const r = q.act(turn) as PluginReply | undefined;
+      const rate = r?.influences?.['dev.rate'];
+      if (rate) {
+        let n = 0;
+        for (let i = 0; i < rate.length; i += 5) if (rate[i] < 1) n++;
+        slowed.set(turn.year, n);
+      }
+      return r;
+    },
+  });
+
+const LIVELIHOOD_PINS: Record<V1Seed, unknown> = {
+  7: { before: { poor: 30493, rich: 115331 }, after: { poor: 24673, rich: 156424 }, slow: { turns: 94, of: 151, most: 54 }, cedes: 0, digest: 'fd70cba840df256e' },
+  2024: { before: { poor: 46093, rich: 94278 }, after: { poor: 36245, rich: 124807 }, slow: { turns: 89, of: 151, most: 39 }, cedes: 0, digest: '64137b4fa38058b4' },
+};
+const LIVELIHOOD_PINS_6000 = { cedes: 22, first: 4800, metro: { before: 16331, after: 22349 }, digest: '0b40998232a05169' };
+
+describe('民生与时代:粮养人、技术门槛、后世大城、近现代拓荒', () => {
+  it.each(V1_SEEDS)('seed %i 推 3000 年:粮多的州人多、粮少的州人少;有州被技术卡着发展慢;结果钉住', async (seed) => {
+    const p = await open('livelihood');
+    const slowed = new Map<number, number>();
+    const { civ, seen } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins: plugins.map(watchSlow(slowed)) }));
+    expect(civ.stuck).toBeUndefined();
+    expect(civ.endYear).toBe(3000);
+    expect(capsUsed(p, seen)).toEqual([...p.opened.manifest.requires].sort());
+    const base = baseOf(seed);
+    const food = foodOf(base);
+    const before = fed(base, food);
+    const after = fed(civ, food);
+    expect(after.rich).toBeGreaterThan(before.rich);
+    expect(after.poor).toBeLessThan(before.poor);
+    const counts = [...slowed.values()];
+    const slow = { turns: counts.filter((n) => n > 0).length, of: counts.length, most: Math.max(...counts) };
+    expect(slow.turns).toBeGreaterThan(0);
+    const got = { before, after, slow, cedes: by(civ, 'livelihood').length, digest: simDigest(civ) };
+    if (process.env.PRINT_PINS) console.log(`livelihood ${seed}: ${JSON.stringify(got)}`);
+    expect(got).toEqual(LIVELIHOOD_PINS[seed as V1Seed]);
+  }, 120_000);
+
+  it('四个滑条都拨到 0:历史和没装一样', async () => {
+    const seed = 7;
+    const p = await open('livelihood');
+    const { civ } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins }), { grain: 0, tech: 0, metro: 0, frontier: 0 });
+    const keep = (c: Civ) => packValue({ annals: c.annals, polity: c.polity, culture: c.culture, settlements: c.settlements });
+    expect(keep(civ)).toEqual(keep(baseOf(seed)));
+  }, 120_000);
+
+  it('存下、读回来接着推,和一口气推完一样:在第 1500 年、在后来一个有州正被技术卡着的年份各断开一次', async () => {
+    const seed = 2024;
+    const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed });
+    const p = await open('livelihood');
+    const roundTrip = (c: Civ) => unpackValue(packValue(c)) as Civ;
+    const slowed = new Map<number, number>();
+    const one = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins: plugins.map(watchSlow(slowed)) }))).civ);
+    const late = Math.max(...[...slowed].filter(([y, n]) => y > 1500 && y < 3000 && n > 0).map(([y]) => y));
+    expect(late).toBeGreaterThan(1500);
+    for (const cut of [1500, late]) {
+      const half = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins, endYear: cut }))).civ);
+      const rate = half.simPlugins![0].influences!['dev.rate'];
+      expect(rate.some((x) => x < 1)).toBe(true);
+      const rest = roundTrip(
+        (
+          await run(p, seed, (plugins) => {
+            const r = startContinue(w, half, { plugins });
+            expect(r).not.toBeNull();
+            return r!.finish();
+          })
+        ).civ,
+      );
+      expect(civDiff(rest, one), `第 ${cut} 年断开`).toBeNull();
+    }
+  }, 180_000);
+
+  it('seed 2024 小一点的世界推 6000 年:到了工业时代城更大,挨着的荒地划进版图;结果钉住', async () => {
+    const seed = 2024;
+    const end = 6000;
+    const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed });
+    const p = await open('livelihood');
+    const base = generateCiv(w, { endYear: end });
+    const { civ } = await run(p, seed, (plugins) => generateCiv(w, { plugins, endYear: end }));
+    expect(civ.stuck).toBeUndefined();
+    expect(civ.endYear).toBe(end);
+    // 拓荒:划的都是没有主、有人住的州,都划成了;一回最多 6 州
+    const cedes = by(civ, 'livelihood');
+    expect(cedes.length).toBeGreaterThan(0);
+    expect(cedes.every((v) => v.kind === 'cede')).toBe(true);
+    const took = civ.annals.filter((e) => e.kind === 'intervene' && civ.interventions![e.war]?.plugin === 'livelihood');
+    expect(took.map((e) => e.b)).toEqual(cedes.map(() => -1));
+    const perRound = new Map<number, number>();
+    for (const v of cedes) perRound.set(v.from, (perRound.get(v.from) ?? 0) + 1);
+    expect(Math.max(...perRound.values())).toBeLessThanOrEqual(6);
+    // 后世大城:按不装插件那一遍末年到了工业时代的州,城里的人多了
+    const lv = developmentAt(base.development!, end);
+    const townsIn = (c: Civ) => {
+      let sum = 0;
+      for (const s of c.settlements) if ((s.ended === undefined || s.ended > end) && eraLevel(lv, s.region) >= 5) sum += populationAt(s, end);
+      return Math.round(sum);
+    };
+    const metro = { before: townsIn(base), after: townsIn(civ) };
+    expect(metro.after).toBeGreaterThan(metro.before);
+    const got = { cedes: cedes.length, first: Math.min(...cedes.map((v) => v.from)), metro, digest: simDigest(civ) };
+    if (process.env.PRINT_PINS) console.log(`livelihood 6000: ${JSON.stringify(got)}`);
+    expect(got).toEqual(LIVELIHOOD_PINS_6000);
+  }, 180_000);
 });
 
 /** 两个类型一模一样(不只是能互相赋值) */
