@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PERMISSIONS, PERMISSION_FOOTER, PERMISSION_FOOTER_SIM, PERMISSION_FOOTER_WRITE, PLUGIN_CAPS, permissionFooter, permissionLines, type PermissionKey } from '../src/plugin/pluginCaps';
-import { PluginFileError, openPluginFile, packPluginFile, type PluginFileErrorKind } from '../src/plugin/pluginFile';
+import { PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, packPluginFile, type PluginFileErrorKind } from '../src/plugin/pluginFile';
 import { openPluginFileFully } from '../src/plugin/pluginSimTables';
 import { PLUGIN_SAMPLES, goodInput, goodPlugin, goodSimInput, goodSimPlugin, put, variant } from './lib/pluginFileSample';
 
@@ -49,6 +49,16 @@ describe('插件文件:打包再读回', () => {
   it('Blob 也读得了', async () => {
     const p = await openPluginFile(new Blob([await goodPlugin()]));
     expect(p.manifest.id).toBe('route-measure');
+  });
+
+  it('整个文件最大 8 MB,main.js 最大 7 MB:7 MB 的代码打得出、读得了', async () => {
+    expect(PLUGIN_MAX_BYTES).toBe(8 * 1024 * 1024);
+    const input = goodInput();
+    const code = `// big\n${'x'.repeat(7 * 1024 * 1024 - 8)}`;
+    const bytes = await packPluginFile({ ...input, files: { ...input.files, 'main.js': code } });
+    expect(bytes.length).toBeGreaterThan(2 * 1024 * 1024);
+    const p = await openPluginFile(bytes);
+    expect(p.code.length).toBe(code.length);
   });
 
   it('可选的字段、图标都不给也行', async () => {

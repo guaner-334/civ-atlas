@@ -13,7 +13,7 @@ import { PLUGIN_MAX_BYTES, PluginFileError, openPluginFile, type OpenedPlugin, t
 
 export const PLUGIN_DB = 'civ-atlas:plugins';
 /** 一个插件自己的设置最多多少字节(打包后) */
-export const PLUGIN_LOCAL_MAX_BYTES = 64 * 1024;
+export const PLUGIN_LOCAL_MAX_BYTES = 1024 * 1024;
 
 /** 装着的一版 */
 export interface PluginVersion {

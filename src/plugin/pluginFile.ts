@@ -37,7 +37,7 @@ const ROLE_NAME: Readonly<Record<string, string>> = { tool: '工具', sim: '推�
 
 const KIB = 1024;
 /** 整个文件最多多少字节 */
-export const PLUGIN_MAX_BYTES = 2 * KIB * KIB;
+export const PLUGIN_MAX_BYTES = 8 * KIB * KIB;
 export const PLUGIN_MANIFEST_MAX_BYTES = 64 * KIB;
 /** ZIP 里最多几个条目(连清单) */
 export const PLUGIN_MAX_ENTRIES = 16;
@@ -49,7 +49,7 @@ export const PLUGIN_ICON_SIZE = 128;
 
 /** 清单以外认得的文件:max 字节数上限,need = 必须有;除了图标都是 UTF-8 的文字 */
 export const PLUGIN_FILES: ReadonlyMap<string, { max: number; need: boolean }> = new Map([
-  [PLUGIN_ENTRY, { max: 1024 * KIB, need: true }],
+  [PLUGIN_ENTRY, { max: 7 * KIB * KIB, need: true }],
   ['README.md', { max: 64 * KIB, need: true }],
   ['LICENSE', { max: 64 * KIB, need: true }],
   [PLUGIN_ICON, { max: 64 * KIB, need: false }],

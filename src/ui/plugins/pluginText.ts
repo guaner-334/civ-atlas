@@ -182,7 +182,7 @@ export function devLoadLine(at: number, again: boolean, ms: number | null, file:
 
 const STOPPED: Record<string, string> = {
   crashed: '插件出错，已经停下',
-  'start-timeout': '插件代码顶层 10 秒没跑完，已经停下',
+  'start-timeout': '插件代码顶层 30 秒没跑完，已经停下',
   unresponsive: '插件没反应，已经停下',
   protocol: '插件发来看不懂的话，已经停下',
   flood: '插件一秒发话太多，已经停下',

@@ -19,6 +19,7 @@ import {
   id as checkId,
   int,
   LAYERS_MAX,
+  MARK_ITEMS_TOTAL,
   num,
   optInt,
   optText,
@@ -119,7 +120,7 @@ export interface PluginHost {
 /** 每秒最多递给插件多少字节,多了回 busy:拷贝在网站这边做,太多会卡拖地图 */
 export const OUT_BYTES_PER_SECOND = 64 * 1024 * 1024;
 /** 同时最多几个还没回的调用(点选这种要等用的人的) */
-export const INFLIGHT_MAX = 16;
+export const INFLIGHT_MAX = 64;
 /** 一秒最多提几次修改:每次都要量一遍改完的存档 */
 export const APPLY_PER_SECOND = 10;
 /** view.year、view.select 最快多久发一次 */
@@ -379,6 +380,11 @@ class Host implements PluginHost {
     const group = (k: string) => (k === 'marks' ? 'marks' : 'fill');
     if (!had && [...this.layers.values()].filter((x) => group(x.kind) === group(l.kind)).length >= LAYERS_MAX)
       throw new PluginApiError('limit', `一个插件最多 ${LAYERS_MAX} 个${l.kind === 'marks' ? '标注' : '地块和按州的'}图层`);
+    if (l.kind === 'marks') {
+      let n = l.items.length;
+      for (const x of this.layers.values()) if (x.kind === 'marks' && x.id !== l.id) n += x.items.length;
+      if (n > MARK_ITEMS_TOTAL) throw new PluginApiError('limit', `一个插件的标注图层合起来最多 ${MARK_ITEMS_TOTAL} 项,交上这个就有 ${n} 项`);
+    }
     this.layers.set(l.id, l);
     this.sink.layer?.(l.id, l);
     return null;

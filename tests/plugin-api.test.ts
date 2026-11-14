@@ -12,7 +12,7 @@ import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { EMPTY_EDITS, resolveKey, type Intervention, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
 import { PLUGIN_CAPS, capRole } from '../src/plugin/pluginCaps';
-import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
+import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, LAYERS_MAX, MARK_ITEMS_TOTAL, PANEL_NODES_MAX, PANEL_TEXT_MAX } from '../src/plugin/check';
 import { approxBytes, MESSAGE_MAX_BYTES, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
 import * as read from '../src/plugin/read';
 import type { PluginResponse } from '../src/plugin/protocol';
@@ -212,8 +212,10 @@ describe('面板', () => {
     expect(codeOf(() => checkPanel([{ type: 'number', label: 'x', value: NaN }]))).toBe('bad-args');
     expect(codeOf(() => checkPanel([{ type: 'legend', items: [{ color: 'red', label: 'x' }] }]))).toBe('bad-args');
     expect(codeOf(() => checkPanel(Array(PANEL_NODES_MAX + 1).fill({ type: 'divider' })))).toBe('limit');
-    expect(codeOf(() => checkPanel([{ type: 'text', text: 'x'.repeat(4001) }]))).toBe('limit');
-    expect(codeOf(() => checkPanel(Array(5).fill({ type: 'text', text: 'x'.repeat(900) })))).toBe('limit');
+    expect(PANEL_TEXT_MAX).toBe(20_000);
+    expect(checkPanel([{ type: 'text', text: 'x'.repeat(PANEL_TEXT_MAX) }])).toHaveLength(1);
+    expect(codeOf(() => checkPanel([{ type: 'text', text: 'x'.repeat(PANEL_TEXT_MAX + 1) }]))).toBe('limit');
+    expect(codeOf(() => checkPanel(Array(Math.ceil(PANEL_TEXT_MAX / 900) + 1).fill({ type: 'text', text: 'x'.repeat(900) })))).toBe('limit');
     expect(codeOf(() => checkPanel([{ type: 'table', columns: ['a'], rows: Array(501).fill([1]) }]))).toBe('limit');
     let deep: unknown = [{ type: 'divider' }];
     for (let i = 0; i < 5; i++) deep = [{ type: 'group', children: deep }];
@@ -491,7 +493,7 @@ vi.mock('../src/plugin/sandbox', () => ({
   },
 }));
 
-const { startPluginHost, PluginRefused, OUT_BYTES_PER_SECOND, LOG_MAX } = await import('../src/plugin/host');
+const { startPluginHost, PluginRefused, OUT_BYTES_PER_SECOND, INFLIGHT_MAX, LOG_MAX } = await import('../src/plugin/host');
 
 async function open(requires: string[], extra: Partial<Parameters<typeof startPluginHost>[0]> = {}) {
   const view: ViewInfo = { year: 100, selected: null, visible: null, layer: 'polities' };
@@ -582,6 +584,21 @@ describe('回调用', () => {
     expect(f.sent.map((s) => (s.res.ok ? 'ok' : s.res.error.code))).toEqual(['unavailable', 'unavailable', 'unavailable', 'unavailable']);
   });
 
+  it('同时最多 64 个调用没回,第 65 个回 busy;回了一个又能调', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const local = { get: async () => (await gate, null), set: () => {} };
+    const { f } = await open(['store.local@1'], { stores: { local } });
+    expect(INFLIGHT_MAX).toBe(64);
+    for (let i = 1; i <= INFLIGHT_MAX + 1; i++) f.opts.onRequest!(i, 'store.local.get', {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent.map((s) => s.id)).toEqual([INFLIGHT_MAX + 1]);
+    expect(f.sent[0].res).toMatchObject({ ok: false, error: { code: 'busy' } });
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent.filter((s) => s.res.ok)).toHaveLength(INFLIGHT_MAX);
+  });
+
   it('取数太快回 busy', async () => {
     const { call } = await open(['world.read@1']);
     const fields = ['x', 'y', 'lon', 'lat', 'area', 'elevation', 'temperature', 'precipitation', 'flux', 'seaIce'];
@@ -594,14 +611,16 @@ describe('回调用', () => {
     expect(busy).toBeGreaterThan(0);
   });
 
-  it('面板、图层交给画的那一边;超过 4 个图层回 limit;停了全拿掉', async () => {
+  it('面板、图层交给画的那一边;超过 8 个图层回 limit;停了全拿掉', async () => {
     const { host, call, sink } = await open(['ui.panel@1', 'layer.cells@1', 'layer.marks@1']);
     expect(await call('panel.set', { nodes: [{ type: 'button', id: 'go', label: '开始' }] })).toMatchObject({ ok: true });
     expect(sink.panel).toHaveBeenLastCalledWith([{ type: 'button', id: 'go', label: '开始' }]);
     expect(await call('panel.set', { nodes: [{ type: 'script' }] })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
     const layer = (lid: string) => ({ id: lid, title: lid, values: new Float32Array(world.mesh.n), ramp: { colors: ['#000000', '#ffffff'] } });
-    for (const lid of ['a', 'b', 'c', 'd']) expect(await call('layer.cells', layer(lid))).toMatchObject({ ok: true });
-    expect(await call('layer.cells', layer('e'))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(LAYERS_MAX).toBe(8);
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    for (const lid of ids) expect(await call('layer.cells', layer(lid))).toMatchObject({ ok: true });
+    expect(await call('layer.cells', layer('z'))).toMatchObject({ ok: false, error: { code: 'limit' } });
     expect(await call('layer.cells', layer('a'))).toMatchObject({ ok: true });
     expect(await call('layer.marks', { id: 'a', title: 'a', items: [] })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
     expect(await call('layer.marks', { id: 'm', title: 'm', items: [{ kind: 'point', cells: [0] }] })).toMatchObject({ ok: true });
@@ -610,11 +629,25 @@ describe('回调用', () => {
     sink.layer.mockClear();
     host.stop();
     expect(sink.panel).toHaveBeenLastCalledWith(null);
-    expect(sink.layer.mock.calls.map((c) => c[0]).sort()).toEqual(['a', 'c', 'd', 'm']);
+    expect(sink.layer.mock.calls.map((c) => c[0]).sort()).toEqual([...ids.filter((x) => x !== 'b'), 'm']);
     expect(sink.layer.mock.calls.every((c) => c[1] === null)).toBe(true);
   });
 
-  it('按州按年份的图层:州数、年份照这段历史查;和地块图层合起来最多 4 个;没要能力不能交', async () => {
+  it('标注图层 8 个,合起来最多 20000 项;换掉同一个按新的算', async () => {
+    const { call } = await open(['layer.marks@1']);
+    expect(MARK_ITEMS_TOTAL).toBe(20_000);
+    const marks = (lid: string, n: number) => ({ id: lid, title: lid, items: Array.from({ length: n }, () => ({ kind: 'point', cells: [0] })) });
+    for (const lid of ['a', 'b', 'c', 'd']) expect(await call('layer.marks', marks(lid, 5000))).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('e', 1))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.marks', marks('d', 4000))).toMatchObject({ ok: true });
+    for (const lid of ['e', 'f', 'g', 'h']) expect(await call('layer.marks', marks(lid, 250))).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('h', 251))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.marks', marks('i', 1))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.remove', { id: 'a' })).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('i', 5000))).toMatchObject({ ok: true });
+  });
+
+  it('按州按年份的图层:州数、年份照这段历史查;和地块图层合起来最多 8 个;没要能力不能交', async () => {
     const { call, sink } = await open(['layer.cells@1', 'layer.regions@1']);
     const n = civ.regions.count;
     const ramp = { colors: ['#000000', '#ffffff'] };
@@ -622,8 +655,8 @@ describe('回调用', () => {
     expect(await call('layer.regions', regions('r'))).toMatchObject({ ok: true });
     expect(sink.layer).toHaveBeenLastCalledWith('r', expect.objectContaining({ kind: 'regions', years: [0, civ.endYear] }));
     expect(await call('layer.regions', regions('x', [0, civ.endYear + 1]))).toMatchObject({ ok: false, error: { code: 'bad-args' } });
-    for (const lid of ['a', 'b', 'c']) expect(await call('layer.cells', { id: lid, title: lid, values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: true });
-    expect(await call('layer.regions', regions('e'))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    for (const lid of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) expect(await call('layer.cells', { id: lid, title: lid, values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: true });
+    expect(await call('layer.regions', regions('z'))).toMatchObject({ ok: false, error: { code: 'limit' } });
     expect(await call('layer.cells', { id: 'r', title: 'r', values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
     const other = await open(['layer.cells@1']);
     expect(await other.call('layer.regions', regions('r'))).toMatchObject({ ok: false, error: { code: 'no-permission' } });
@@ -970,6 +1003,8 @@ describe('插件自己的数据', () => {
     const loop: unknown[] = [];
     loop.push(loop);
     expect(code({ schema: 1, value: loop })).toBe('bad-args');
+    expect(STORE_LOCAL_MAX).toBe(1024 * 1024);
+    expect(code({ schema: 1, value: 'x'.repeat(STORE_LOCAL_MAX / 2 - 1000) })).toBe('no error');
     expect(code({ schema: 1, value: 'x'.repeat(STORE_LOCAL_MAX) })).toBe('limit');
     let deep: unknown = 1;
     for (let i = 0; i < 40; i++) deep = [deep];
