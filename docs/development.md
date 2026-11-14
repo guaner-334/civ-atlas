@@ -40,6 +40,8 @@ pnpm test:sandbox          # 插件沙箱:在 Chromium、WebKit、Firefox 里查
 
 有意改了示例插件或插件接口,示例插件在沙箱里交出来的面板、图层变了:`pnpm test:sandbox --update` 重写它们的快照(`tests/fixtures/plugin-examples.json`),和代码一起提交。
 
+PR 上这些检查分成几组同时跑,最后汇成一项「检查汇总」:几组都过了它才过,它没过就合不进 main。只改文档(`*.md`)的 PR 不跑那几组,「检查汇总」直接过。
+
 冒烟测试、画面回归和截图脚本要用无头浏览器,第一次先装:`pnpm exec playwright install chromium`(插件沙箱还要 `webkit firefox`)。
 
 截图和调试脚本(都会自己起一个临时服务,不用先 `pnpm dev`;截图默认写到 `snaps/`,这个目录不进仓库):
