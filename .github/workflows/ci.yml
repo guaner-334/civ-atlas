@@ -1,14 +1,13 @@
 name: CI
 
 # 什么时候跑:
-# - PR:改了代码就全查;只改文档(*.md)的不跑
+# - PR:改了代码就全查;只改文档(*.md)的,几组检查都跳过,只有最后的「检查汇总」给一个结果
+#   (main 的合并保护只认「检查汇总」这一项,所以每个 PR 都得有它)
 # - 合并进 main 后马上再全查一轮(合并就发测试网站;PR 查的是合并前那一刻的 main,
 #   几个 PR 前后脚合进去时,合起来的样子只有这一轮查得到);同样只改文档的不跑
 # - 需要时可以在 Actions 页面手动跑
 on:
   pull_request:
-    paths-ignore:
-      - '**/*.md'
   push:
     branches: [main]
     paths-ignore:
@@ -29,8 +28,39 @@ concurrency:
 # 类型检查、单测、压力、构建原来挤在一项里要 17–21 分钟,现在分开:单测分 8 份、压力测试分 3 份,每项十分钟以内;
 # 冒烟从头跑到尾约 37 分钟,分 5 份同时跑;类型检查 / 构建和画面回归都只要两三分钟,合在一项里先后跑
 jobs:
+  # 这次改动里有没有文档(*.md)以外的文件:没有的话下面几组都不用跑
+  changes:
+    name: 看改了什么
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      # PR 的检查跑在「合进 main 以后的样子」上,多取一层才看得到 main 那一头
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - name: 有没有文档以外的改动
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        # 拿不准(比不出来、没有文件)一律当成改了代码,宁可多跑。
+        # --no-renames:把代码文件改名成 .md 时,原来那个文件名也要列出来,不然会被当成只改了文档
+        run: |
+          code=true
+          if [ "$EVENT" = "pull_request" ]; then
+            if files=$(git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD) && ! printf '%s\n' "$files" | grep -qv '\.md$'; then
+              code=false
+            fi
+          fi
+          echo "改了文档以外的文件:$code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   build:
     name: 类型检查 / 构建 / 画面回归
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # 平常四分半左右(类型检查 / 构建一分半,画面回归三分钟)
     timeout-minutes: 20
@@ -83,6 +113,8 @@ jobs:
   # 插件沙箱:插件把能想到的坏事在三个浏览器引擎里各试一遍,另起的收信站收到任何东西就算没过
   sandbox:
     name: 插件沙箱
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -110,6 +142,8 @@ jobs:
   # 单测分 8 份同时跑;怎么分(按各文件大概多久,几份差不多快)见 tests/lib/shardSequencer.ts
   test:
     name: 单测 ${{ matrix.shard }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # 平常每份五六分钟(含装依赖);GitHub 的机器快慢不一,慢的一台要多花一半时间,留足余量
     timeout-minutes: 25
@@ -132,6 +166,8 @@ jobs:
   # 压力测试分 4 份同时跑(各组按估的耗时从长到短、每组给累计最少的那份,见 scripts/stress.ts 的 group)
   stress:
     name: 压力测试 ${{ matrix.part }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # 四份各约 8.5 分钟(从头跑到尾约 34 分钟,其中规则项每一档的极端值约 6 分钟;GitHub 快的那档机器上快三成多),留足余量
     timeout-minutes: 20
@@ -155,6 +191,8 @@ jobs:
   # 冒烟分 5 份同时跑(各段按先后归份,几段自己开页面的挪到别的份拉平时长,见 scripts/replay-check.ts 的 PART_STARTS、MOVED)
   smoke:
     name: 冒烟 ${{ matrix.part }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # 平常每份八分钟上下(从头跑到尾约三十七分钟),留足余量
     timeout-minutes: 25
@@ -187,3 +225,28 @@ jobs:
         run: pnpm smoke
         env:
           SMOKE_PART: ${{ matrix.part }}
+
+  # main 的合并保护只认这一项:上面几组都过了它才过;只改文档时上面几组是跳过的,也算过。
+  # 分几份跑的检查名字里带份数,份数一改名字就变,所以不让合并保护去认它们的名字。
+  # 用 always():这一轮被取消、前面有检查没过时它也要跑出一个「没过」;换成跳过的话,GitHub 会把跳过的必过检查当成通过
+  gate:
+    name: 检查汇总
+    needs: [changes, build, sandbox, test, stress, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 各组检查的结果
+        env:
+          CODE: ${{ needs.changes.outputs.code }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "各组结果:$RESULTS(改了文档以外的文件:$CODE)"
+          for r in $RESULTS; do
+            case "$r" in
+              success) ;;
+              skipped)
+                if [ "$CODE" != "false" ]; then echo "改了代码却有检查被跳过"; exit 1; fi ;;
+              *) echo "有检查没过或被取消"; exit 1 ;;
+            esac
+          done
