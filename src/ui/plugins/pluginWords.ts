@@ -30,6 +30,8 @@ export const CAP_LABEL: Readonly<Record<string, string>> = {
   authorWrite: '改你写的',
   view: '看你点了哪',
   layer: '加图层',
+  fileSave: '存文件',
+  fileOpen: '选文件',
   storeWorld: '存进世界',
   sim: '推演里加数',
   simSteer: '改推演',

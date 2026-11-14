@@ -121,6 +121,8 @@ const ALL_CAPS = [
   'layer.marks@1',
   'store.local@1',
   'store.world@1',
+  'file.save@1',
+  'file.open@1',
 ];
 
 const batteryJs = readFileSync(new URL('./lib/sandbox/battery.js', import.meta.url), 'utf8')
@@ -378,6 +380,7 @@ async function apiChecks(ev: Ev) {
     ms: number;
     sink: { panels: (number | null)[]; layers: [string, string | null][]; logs: string[] };
     commits: { names: number; marks: string[]; interventions: number }[];
+    files?: { saved: [string, string, number, boolean][]; opened: unknown[] };
     worldIntact: boolean;
     expect: { cells: number; elev: number; ownedPolities: number; rivers: number };
     frames: number;
@@ -415,6 +418,18 @@ async function apiChecks(ev: Ev) {
   );
   check(o.applyAfter?.marks === 2 && Object.values(o.applyAfter?.names ?? {}).includes('插件起的'), '照办以后插件读到的是改过的', JSON.stringify(o.applyAfter));
   check(eq(o.store, [null, 'ok', { schema: 1, value: { speed: 3 } }, 'ok', [1, 2, 3], 'ok', null]), '插件自己的数据:设置、世界里的数据存取删', JSON.stringify(o.store));
+  check(
+    eq(o.file, { save: '排行.csv', png: '地图.png', open: ['排行.csv', 13, true, '国,州\n甲,3'] }) &&
+      eq(r.files, {
+        saved: [
+          ['排行.csv', 'text/csv', 10, false],
+          ['地图.png', 'image/png', 10, false],
+        ],
+        opened: [{ accept: ['csv'], max: 1000 }],
+      }),
+    '存文件、选文件:文件名去掉路径、表格带 BOM 交给网站;选的文件字节交给插件',
+    JSON.stringify([o.file, r.files]),
+  );
   check(o.panel === 'ok' && r.sink.panels.includes(3), '面板交给画的那一边', `${o.panel} ${JSON.stringify(r.sink.panels)}`);
   check(eq(o.layers, ['ok', 'ok', 'ok', 'ok', 'limit', 'ok', 'ok']), '图层:四个以内交给画的那一边,第五个回 limit;标注、拿掉', JSON.stringify(o.layers));
   check(r.sink.layers.some(([k, v]) => k === 'b' && v === null) && r.sink.layers.some(([k, v]) => k === 'route' && v === 'marks'), '图层交给画的那一边、拿掉的也说', JSON.stringify(r.sink.layers).slice(0, 200));
@@ -434,6 +449,10 @@ async function apiChecks(ev: Ev) {
       applyKind: 'bad-args',
       storeBig: 'limit',
       storeKind: 'bad-args',
+      fileHtml: 'bad-args',
+      fileSvg: 'bad-args',
+      fileBig: 'limit',
+      openAccept: 'bad-args',
       uncloneable: 'bad-args',
       stillUp: 1,
     }),

@@ -34,7 +34,8 @@ import { approxBytes } from './protocol';
 import * as read from './read';
 import { startPluginSandbox, type PluginSandbox, type StopReason } from './sandbox';
 import { checkStored, defaultLocalStore, defaultWorldStore, storedOut, STORE_LOCAL_MAX, STORE_WORLD_MAX, type PluginDataStore } from './store';
-import type { CapRef, HostInfo, PanelNode, PluginErrorCode, ViewInfo } from './types';
+import type { CapRef, HostInfo, OpenedFile, PanelNode, PluginErrorCode, ViewInfo } from './types';
+import { checkOpenFile, checkSaveFile, pickedOut, type OpenRequest, type PickedFile, type SaveOffer } from './userFile';
 
 export interface PickRequest {
   kind: 'cell' | 'cells' | 'box';
@@ -63,6 +64,10 @@ export interface PluginSource {
    * 现在不让改 = 原因。网站这边的做法见 editsCommit.ts
    */
   commit?(next: WorldEdits, keys: string[]): string | null;
+  /** 插件交来一个文件,用的人点了「保存」才存:true = 存了,false = 不要。replaced = 上一份没存就换成了这一份 */
+  saveFile?(file: SaveOffer & { replaced: boolean }, signal: AbortSignal): Promise<boolean>;
+  /** 请用的人选一个文件;不给 = null */
+  openFile?(req: OpenRequest, signal: AbortSignal): Promise<PickedFile | null>;
 }
 
 /** 插件交来的面板、图层、日志交给谁(null = 拿掉) */
@@ -149,6 +154,8 @@ class Host implements PluginHost {
   private panel: PanelNode[] | null = null;
   private readonly layers = new Map<string, CellLayer | RegionLayer | MarkLayer>();
   private picking: AbortController | null = null;
+  private saving: AbortController | null = null;
+  private opening: AbortController | null = null;
   private unwatch: (() => void) | null = null;
   private lastView: { year: number; select: string } | null = null;
   private readonly viewTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -357,6 +364,10 @@ class Host implements PluginHost {
         return this.storeSet(this.worldStore(), checkStored(args, STORE_WORLD_MAX));
       case 'store.world.clear':
         return this.storeSet(this.worldStore(), null);
+      case 'file.save':
+        return this.saveFile(args);
+      case 'file.open':
+        return this.openFile(args, give);
       default:
         return unavailable(`网站这一版还没开 ${call}`);
     }
@@ -409,6 +420,51 @@ class Host implements PluginHost {
       });
   }
 
+  /** 等用的人回话;signal 断了(又交来一份、插件停了)当场回 cancelled,不等界面那边收起 */
+  private ask<T>(ctl: AbortController, p: Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const off = () => reject(new PluginApiError('cancelled', ctl.signal.reason === 'replaced' ? '又交来了一份新的,这一份没存' : '插件停了'));
+      if (ctl.signal.aborted) return off();
+      ctl.signal.addEventListener('abort', off, { once: true });
+      p.then(resolve, reject).finally(() => ctl.signal.removeEventListener('abort', off));
+    });
+  }
+
+  /** 连着交来好几份只留最新的:上一份还没存就收起来,回 cancelled */
+  private saveFile(args: unknown): Promise<unknown> {
+    const save = this.src.saveFile ?? unavailable('网站这边还不能替插件存文件');
+    const file = checkSaveFile(args);
+    const replaced = !!this.saving;
+    this.saving?.abort('replaced');
+    const ctl = new AbortController();
+    this.saving = ctl;
+    return this.ask(ctl, save({ ...file, replaced }, ctl.signal))
+      .then((saved) => {
+        if (!saved) throw new PluginApiError('cancelled', '用的人没存');
+        return { name: file.name };
+      })
+      .finally(() => {
+        if (this.saving === ctl) this.saving = null;
+      });
+  }
+
+  private openFile(args: unknown, give: read.Give): Promise<unknown> {
+    const open = this.src.openFile ?? unavailable('网站这边还不能请用的人选文件');
+    const req = checkOpenFile(args);
+    if (this.opening) throw new PluginApiError('busy', '上一次选文件还没完');
+    const ctl = new AbortController();
+    this.opening = ctl;
+    return this.ask(ctl, open(req, ctl.signal))
+      .then((f): OpenedFile => {
+        if (!f) throw new PluginApiError('cancelled', '用的人没给');
+        const out = pickedOut(req, f);
+        return { name: out.name, size: out.bytes.length, bytes: give(out.bytes) };
+      })
+      .finally(() => {
+        if (this.opening === ctl) this.opening = null;
+      });
+  }
+
   private viewKey() {
     const v = this.src.view!();
     return { year: v.year, select: JSON.stringify(v.selected ?? null) };
@@ -458,6 +514,10 @@ class Host implements PluginHost {
     this.done = true;
     this.picking?.abort();
     this.picking = null;
+    this.saving?.abort('stopped');
+    this.saving = null;
+    this.opening?.abort('stopped');
+    this.opening = null;
     this.unwatch?.();
     this.unwatch = null;
     for (const t of this.viewTimers.values()) clearTimeout(t);

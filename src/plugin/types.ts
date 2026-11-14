@@ -20,7 +20,9 @@ export type CapRef =
   | 'layer.regions@1'
   | 'layer.marks@1'
   | 'store.local@1'
-  | 'store.world@1';
+  | 'store.world@1'
+  | 'file.save@1'
+  | 'file.open@1';
 
 /**
  * 出错时 Error 上的 code:
@@ -494,6 +496,28 @@ export interface MarkLayerSpec {
 }
 
 // ---------------------------------------------------------------------------
+// 存文件、选文件(file.save / file.open):网站在插件卡上问用的人
+
+/** name 带扩展名,只能是 csv、tsv、txt、json、geojson、png、jpg、jpeg、webp;content 是字(文字类)或 Uint8Array,最大 2 MB */
+export interface SaveFileSpec {
+  name: string;
+  content: string | Uint8Array | ArrayBuffer;
+}
+
+/** accept:只收哪几种扩展名(不给 = 都收);max:最大多少字节(不给 = 16 MB) */
+export interface OpenFileSpec {
+  accept?: string[];
+  max?: number;
+}
+
+export interface OpenedFile {
+  /** 用的人那边的文件名(不带路径) */
+  name: string;
+  size: number;
+  bytes: Uint8Array;
+}
+
+// ---------------------------------------------------------------------------
 // civAtlas
 
 type Call<A, R> = (args: A) => Promise<R>;
@@ -575,5 +599,11 @@ export interface CivAtlas {
     local: { get: Call0<StoredData | null>; set: Call<StoredData, void>; clear: Call0<void> };
     /** 存进这个世界(带了它的世界不能公开分享);最多 1 MB */
     world: { get: Call0<StoredData | null>; set: Call<StoredData, void>; clear: Call0<void> };
+  };
+  file: {
+    /** 用的人点了「保存」才 resolve(name 是网站整理过的文件名);点「不要」、又交来一份新的 = cancelled */
+    save: Call<SaveFileSpec, { name: string }>;
+    /** 一次一个;用的人不给 = cancelled */
+    open: Call<OpenFileSpec, OpenedFile>;
   };
 }

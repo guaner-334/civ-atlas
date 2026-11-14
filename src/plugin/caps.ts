@@ -50,6 +50,8 @@ export const PLUGIN_METHODS: Readonly<Record<string, readonly CapRef[]>> = {
   'store.world.get': ['store.world@1'],
   'store.world.set': ['store.world@1'],
   'store.world.clear': ['store.world@1'],
+  'file.save': ['file.save@1'],
+  'file.open': ['file.open@1'],
 };
 
 /** 网站发给插件的事件要哪样能力 */

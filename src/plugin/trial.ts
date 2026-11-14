@@ -243,6 +243,9 @@ export class TrialRecorder {
       notes: () => [],
       view: () => this.view,
       pick: (req) => this.pick(req),
+      // 试跑时当用的人不存、不给
+      saveFile: () => (this.touch(), Promise.resolve(false)),
+      openFile: () => (this.touch(), Promise.resolve(null)),
       commit: (_next, keys) => {
         this.touch();
         this.blocked++;
