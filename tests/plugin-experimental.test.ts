@@ -16,6 +16,7 @@ import { GONE_MARK, PluginFileError, openPluginFile, packPluginFile, type Plugin
 import { MAP_STAGE_CAPS } from '../src/plugin/pluginMap';
 import { capChips, usesExperimental } from '../src/ui/plugins/galleryPlugin';
 import { addedLines } from '../src/ui/plugins/pluginText';
+import { loadMapFile } from '../src/mapPluginRun';
 import { experimentalNote, packPluginDir } from '../scripts/lib/pluginDir';
 import { TIER_MARK, markProblems, tierTableProblems } from './lib/experimentalMarks';
 
@@ -361,6 +362,21 @@ describe('实验接口被网站拿掉以后', () => {
     const e = await openPluginFile(bytes).catch((x: unknown) => x);
     expect(e).toMatchObject({ kind: 'newer', message: '要更新网站才能用:插件要的 fake.future@1 这一版网站还没有' });
     expect((e as PluginFileError).gone).toBeUndefined();
+  });
+
+  it('地图插件:长地图时装不上,错上带着是实验接口拿掉了(地图那张卡另说)', async () => {
+    const goneNote = stageTier[FAKE.stage];
+    const bytes = await packedBefore(input({ role: 'map', runtime: 'quickjs', name: '潮汐', requires: ['gen.height@1', FAKE.stageCap], map: { stages: ['height', FAKE.stage] } }), () => {
+      delete stageCaps[FAKE.stage];
+      stageTier[FAKE.stage] = { ...goneNote, removed: '1.8.0' };
+    });
+    try {
+      const e = await loadMapFile({ id: 'fake-gone', sum: 'x', bytes }, 'k', () => Promise.reject(new Error('不该装进 QuickJS'))).catch((x: unknown) => x);
+      expect(e).toMatchObject({ name: 'MapPluginLoadError', gone: true, why: '「潮汐」用的实验接口，网站已经改掉了。这个世界照常能看；要接着推（或用它新长地图），等作者出新版。更新网站没有用。' });
+    } finally {
+      stageCaps[FAKE.stage] = 'gen.fakestep';
+      stageTier[FAKE.stage] = goneNote;
+    }
   });
 
   it('开插件时查能力:拿掉了的另说', () => {
