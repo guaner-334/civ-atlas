@@ -10,7 +10,7 @@ export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: b
   map: { text: '看地图（地形、气候、河流）', loud: false },
   history: { text: '看历史（国家、城市、人物、编年史）', loud: false },
   authorRead: { text: '看你写的东西（笔记、标记、AI 写的正文）', loud: true },
-  authorWrite: { text: '会改你写的东西（改国名人名、加标记和批注、下命令）', loud: true, note: '改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演' },
+  authorWrite: { text: '会改你写的东西（改国名人名、加改删标记和批注、下命令）', loud: true, note: '改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演' },
   view: { text: '知道你在看哪一年、点了哪里（只在用它的时候）', loud: false },
   mapSteer: { text: '会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）', loud: true },
   layer: { text: '在地图上加图层和标注', loud: false },

@@ -374,7 +374,7 @@ await civAtlas.layer.regions({ id: 'density', title: '各国人口密度', years
 |---|---|
 | `kind` | `point` 一个点 / `label` 一个点加文字 / `line` 一条线(按先后连)/ `area` 圈出几个地块 |
 | `cells` 或 `points` | 位置给地块编号,或世界坐标 `[x0, y0, x1, y1, …]`(`x` 超出 0–`width` 的绕回来,`y` 要在 0–`height` 之间);`area` 只认 `cells` |
-| `text` | 最长 40 个字;`label` 必须有 |
+| `text` | 最长 40 个字;`label` 必须有。写在白底小牌上:`point`、`label` 的在点右边,`line` 的在线走到一半那一点的下面,`area` 的在圈的地方中间 |
 | `style` | 可选,样子,见下表 |
 | `from`、`to` | 可选:时间轴在这几年里(两头都算)才画这一项,0–65535 的整数年,`to` 不早于 `from`;不给的那一头不限。世界还没有历史时都画 |
 

@@ -1,6 +1,6 @@
 /**
  * 插件的标注图层(点、文字、线、圈几个地块):按 MarkFrame 换到画布上画,平面主图、弯边投影、地球仪、导出共用。
- * 线和点都先描一道白边,压在什么底图上都看得清;文字写在点旁边的白底小牌上。只往给定的画布上画,不碰 DOM。
+ * 线和点都先描一道白边,压在什么底图上都看得清;文字写在白底小牌上:点的在右边,线的在线走到一半那一点的下面。只往给定的画布上画,不碰 DOM。
  */
 import type { Mesh } from '../gen/mesh';
 import type { MarkLayer, MarkLayerItem } from '../plugin/check';
@@ -260,16 +260,41 @@ function drawLine(ctx: Ctx, f: MarkFrame, it: MarkLayerItem, mesh: Mesh) {
     ctx.setLineDash([]);
     for (const a of heads) drawArrow(ctx, a, o, len, look.line, col, edge);
   }
+  if (it.text) {
+    const m = midOf(runs);
+    if (m) drawLabelAt(ctx, f, [m[0], m[1] + look.edge / 2 + 9 + LABEL_H / 2], it.text, 0);
+  }
 }
+
+/** 看得见的几段线按长度走到一半的那一点(画布坐标);没有长度 = null */
+function midOf(runs: number[][]): [number, number] | null {
+  let total = 0;
+  for (const r of runs) for (let i = 2; i < r.length; i += 2) total += Math.hypot(r[i] - r[i - 2], r[i + 1] - r[i - 1]);
+  if (!(total > 0)) return null;
+  let left = total / 2;
+  for (const r of runs)
+    for (let i = 2; i < r.length; i += 2) {
+      const d = Math.hypot(r[i] - r[i - 2], r[i + 1] - r[i - 1]);
+      if (d >= left && d > 0) return [r[i - 2] + ((r[i] - r[i - 2]) * left) / d, r[i - 1] + ((r[i + 1] - r[i - 1]) * left) / d];
+      left -= d;
+    }
+  return null;
+}
+
+const LABEL_H = 21;
 
 /** 文字小牌:白底圆角,字在 (x, y) 右边 dx 处、竖直居中(x、y 是世界坐标) */
 function drawLabel(ctx: Ctx, f: MarkFrame, wx: number, wy: number, text: string, dx: number) {
   const p = f.pt(wx, wy);
-  if (!p) return;
+  if (p) drawLabelAt(ctx, f, p, text, dx);
+}
+
+/** 同上,p 是画布坐标;dx = 0 = 小牌以 p 为中心 */
+function drawLabelAt(ctx: Ctx, f: MarkFrame, p: [number, number], text: string, dx: number) {
   ctx.font = `600 12.5px ${MARK_FONT}`;
   const w = ctx.measureText(text).width + 16;
-  const h = 21;
-  for (const o of shiftsFor(f, p[0], p[0] + dx + w)) {
+  const h = LABEL_H;
+  for (const o of shiftsFor(f, dx ? p[0] : p[0] - w / 2, p[0] + dx + w)) {
     const x = p[0] + o + dx;
     const y = p[1] - h / 2;
     ctx.save();

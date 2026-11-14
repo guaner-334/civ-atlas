@@ -73,6 +73,19 @@ describe('插件标注怎么画', () => {
     expect(tips('both', 110).out).toEqual([[110, 100], [100, 100]]);
   });
 
+  it('线带的字:白底小牌在线走到一半那一点的下面、左右居中', () => {
+    const r = recorder();
+    drawPluginMarks(r.ctx, [layer([{ kind: 'line', points: [100, 100, 300, 100, 300, 300], text: '商路', style: { width: 2 } }])], frame, mesh);
+    const text = r.calls.find((c) => c.fn === 'fillText')!;
+    expect(text.args[0]).toBe('商路');
+    const w = 2 * 7 + 16;
+    expect(text.args[1]).toBeCloseTo(300 - w / 2 + 8);
+    expect(text.args[2]).toBeCloseTo(100 + (2 * 1.2 + 3.6) / 2 + 9 + 21 / 2 + 0.5);
+    const none = recorder();
+    drawPluginMarks(none.ctx, [layer([{ kind: 'line', points: [100, 100, 300, 100] }])], frame, mesh);
+    expect(none.calls.some((c) => c.fn === 'fillText')).toBe(false);
+  });
+
   it('线宽照 width;很浅的色号描深色的边', () => {
     const widths = (style: Record<string, unknown>) => {
       const r = recorder();
