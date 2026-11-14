@@ -12,7 +12,7 @@
 | `author.write@1` | `author.apply` | **会改你写的东西（改国名人名、加标记和批注、下命令）**,显眼;下面网站固定写一行「改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演」 |
 | `view.read@1` | `view.get`,事件 `view.year`、`view.select` | 知道你在看哪一年、点了哪里（只在用它的时候） |
 | `input.pick@1` | `pick.cell`、`pick.cells`、`pick.box` | 同上一行 |
-| `view.control@1` | `view.seek`、`view.fly`、`view.highlight`、`view.unhighlight` | 会替你翻年份、移地图、圈出国家和州 |
+| `view.control@1` | `view.seek`、`view.fly`、`view.highlight`、`view.unhighlight` | 会替你翻年份、移地图;下面网站固定写一行「你正拖着地图、时间轴的时候，它不抢」 |
 | `ui.panel@1` | `panel.set`、`panel.clear`,事件 `panel.action` | 不单列(哪个插件都能有) |
 | `layer.cells@1` | `layer.cells`、`layer.remove` | 在地图上加图层和标注 |
 | `layer.regions@1` | `layer.regions`、`layer.remove` | 同上一行 |

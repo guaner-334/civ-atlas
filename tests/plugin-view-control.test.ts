@@ -121,7 +121,7 @@ describe('能力和权限框', () => {
   it('四个调用都要 view.control@1;权限框上单列一行,不显眼', async () => {
     for (const c of ['view.seek', 'view.fly', 'view.highlight', 'view.unhighlight']) expect(PLUGIN_METHODS[c], c).toEqual(['view.control@1']);
     expect(PLUGIN_CAPS.get('view.control@1')).toBe('viewSteer');
-    expect(PERMISSIONS.viewSteer.loud).toBe(false);
+    expect(PERMISSIONS.viewSteer).toEqual({ text: '会替你翻年份、移地图', loud: false, note: '你正拖着地图、时间轴的时候，它不抢' });
     expect(permissionLines({ requires: ['view.read@1', 'view.control@1'] }).map((l) => l.key)).toEqual(['view', 'viewSteer']);
     const { code } = await open({}, ['history.read@1']);
     for (const c of ['view.seek', 'view.fly', 'view.highlight', 'view.unhighlight']) expect(await code(c, {}), c).toBe('no-permission');

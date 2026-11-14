@@ -12,7 +12,7 @@ export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: b
   authorRead: { text: '看你写的东西（笔记、标记、AI 写的正文）', loud: true },
   authorWrite: { text: '会改你写的东西（改国名人名、加标记和批注、下命令）', loud: true, note: '改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演' },
   view: { text: '知道你在看哪一年、点了哪里（只在用它的时候）', loud: false },
-  viewSteer: { text: '会替你翻年份、移地图、圈出国家和州', loud: false },
+  viewSteer: { text: '会替你翻年份、移地图', loud: false, note: '你正拖着地图、时间轴的时候，它不抢' },
   mapSteer: { text: '会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）', loud: true },
   layer: { text: '在地图上加图层和标注', loud: false },
   storeWorld: { text: '在世界里存自己的数据', loud: false, note: '存了以后那个世界不能公开分享，能存成文件发给别人。每个世界第一次存的时候还会问你' },
