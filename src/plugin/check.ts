@@ -2,7 +2,7 @@
  * 检查插件交来的东西:调用的参数、面板、图层。纯计算,不碰 DOM。
  * 不合格的一律抛 PluginApiError(网站回给插件),合格的换成网站自己的一份(插件那边再改也影响不到)。
  */
-import type { CellLayerSpec, Hex, LayerMarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelNode, PluginErrorCode, RegionLayerSpec } from './types';
+import type { CellLayerSpec, Hex, LayerMarkColor, MarkItem, MarkLayerSpec, MarkStyle, PanelLink, PanelNode, PanelTarget, PluginErrorCode, RegionLayerSpec } from './types';
 import { layerLookRest, type LookFail } from '../gen/layerLook';
 
 export class PluginApiError extends Error {
@@ -46,11 +46,15 @@ export const optInt = (v: unknown, at: string, min: number, max: number) => (v =
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/g;
 
+function clean(v: string, multiline: boolean): string {
+  const s = v.replace(CONTROL, '');
+  return multiline ? s.replace(/\r\n?/g, '\n') : s.replace(/[\r\n]+/g, ' ');
+}
+
 /** 一段字:去掉控制字符和改书写方向的字符;multiline = 留着换行。超过 max 个字是超上限 */
 export function text(v: unknown, at: string, max: number, multiline = false): string {
   if (typeof v !== 'string') return bad(`${at} 要是字`);
-  let s = v.replace(CONTROL, '');
-  s = multiline ? s.replace(/\r\n?/g, '\n') : s.replace(/[\r\n]+/g, ' ');
+  const s = clean(v, multiline);
   return s.length > max ? over(`${at} 最多 ${max} 个字`) : s;
 }
 export const optText = (v: unknown, at: string, max: number) => (v === undefined ? undefined : text(v, at, max));
@@ -108,6 +112,24 @@ const PANEL_DEPTH_MAX = 4;
 export const PANEL_ITEMS_MAX = 20_000;
 /** 一个标签、按钮上的字最多几个 */
 const LABEL_MAX = 80;
+/** 输入框最多几个字;没给 max 时单行的默认 */
+export const PANEL_INPUT_MAX = 2000;
+const INPUT_LINE_MAX = 200;
+const PANEL_TABS_MAX = 8;
+const TAB_TITLE_MAX = 16;
+/** 一段带链接的字最多分几截 */
+const PANEL_SPANS_MAX = 200;
+const TARGET_KEY = /^(polity|settlement|region):[A-Za-z0-9#/_-]{1,56}$/;
+const YEAR_MAX = 1_000_000;
+
+export const inputMax = (n: Extract<PanelNode, { type: 'input' }>) => n.max ?? (n.multiline ? PANEL_INPUT_MAX : INPUT_LINE_MAX);
+
+function target(v: unknown, at: string): PanelTarget {
+  if (!isRec(v)) return bad(`${at} 要写成 { key } 或 { year }`);
+  if (v.key !== undefined && v.year !== undefined) bad(`${at} 的 key 和 year 只给一个`);
+  if (v.year !== undefined) return { year: int(v.year, `${at}.year`, 0, YEAR_MAX) };
+  return typeof v.key === 'string' && TARGET_KEY.test(v.key) ? { key: v.key } : bad(`${at}.key 要是国、城、州的稳定键`);
+}
 
 /** 面板整个查一遍,返回网站这边的一份 */
 export function checkPanel(raw: unknown): PanelNode[] {
@@ -132,7 +154,26 @@ export function checkPanel(raw: unknown): PanelNode[] {
     ids.add(s);
     return s;
   };
-  const walk = (arr: unknown, at: string, depth: number): PanelNode[] => {
+  const targets = (v: unknown, at: string, n: number): (PanelTarget | null)[] => {
+    const a = spend(list(v, at, PANEL_ROWS_MAX));
+    if (a.length !== n) bad(`${at} 要和行一样多(${n} 项)`);
+    return a.map((x, k) => (x === null ? null : target(x, `${at}[${k}]`)));
+  };
+  const clickable = (x: Rec, p: string, n: number) => {
+    const cl = x.id === undefined ? undefined : cid(x.id, `${p}.id`);
+    const to = x.to === undefined ? undefined : targets(x.to, `${p}.to`, n);
+    return { ...(cl !== undefined ? { id: cl } : {}), ...(to ? { to } : {}) };
+  };
+  const link = (s: unknown, q: string): PanelLink => {
+    if (!isRec(s)) return bad(`${q} 要是字或 { text, id?, to? }`);
+    const lt = t(s.text, `${q}.text`, LABEL_MAX);
+    if (!lt) bad(`${q}.text 不能是空的`);
+    const lid = s.id === undefined ? undefined : cid(s.id, `${q}.id`);
+    const to = s.to === undefined ? undefined : target(s.to, `${q}.to`);
+    if (lid === undefined && to === undefined) bad(`${q} 要给 id 或 to`);
+    return { text: lt, ...(lid !== undefined ? { id: lid } : {}), ...(to ? { to } : {}) };
+  };
+  const walk = (arr: unknown, at: string, depth: number, inTabs = false): PanelNode[] => {
     if (depth > PANEL_DEPTH_MAX) over(`面板最多套 ${PANEL_DEPTH_MAX} 层`);
     return list(arr, at, PANEL_NODES_MAX).map((x, i) => {
       const p = `${at}[${i}]`;
@@ -142,7 +183,11 @@ export function checkPanel(raw: unknown): PanelNode[] {
         case 'heading':
           return { type: 'heading', text: t(x.text, `${p}.text`, LABEL_MAX) };
         case 'text':
-          return { type: 'text', text: t(x.text, `${p}.text`, PANEL_TEXT_MAX, true) };
+          if (!Array.isArray(x.text)) return { type: 'text', text: t(x.text, `${p}.text`, PANEL_TEXT_MAX, true) };
+          return {
+            type: 'text',
+            text: spend(list(x.text, `${p}.text`, PANEL_SPANS_MAX)).map((s, k) => (typeof s === 'string' ? t(s, `${p}.text[${k}]`, PANEL_TEXT_MAX, true) : link(s, `${p}.text[${k}]`))),
+          };
         case 'number': {
           const unit = ot(x.unit, `${p}.unit`, 16);
           return { type: 'number', label: t(x.label, `${p}.label`, LABEL_MAX), value: num(x.value, `${p}.value`), ...(unit !== undefined ? { unit } : {}) };
@@ -152,10 +197,12 @@ export function checkPanel(raw: unknown): PanelNode[] {
           const rows = spend(list(x.rows, `${p}.rows`, PANEL_ROWS_MAX)).map((r, k) =>
             spend(list(r, `${p}.rows[${k}]`, PANEL_COLUMNS_MAX)).map((c, j) => (typeof c === 'number' ? num(c, `${p}.rows[${k}][${j}]`) : t(c, `${p}.rows[${k}][${j}]`, LABEL_MAX))),
           );
-          return { type: 'table', columns, rows };
+          return { type: 'table', columns, rows, ...clickable(x, p, rows.length) };
         }
-        case 'list':
-          return { type: 'list', items: spend(list(x.items, `${p}.items`, PANEL_ROWS_MAX)).map((c, k) => t(c, `${p}.items[${k}]`, LABEL_MAX)) };
+        case 'list': {
+          const items = spend(list(x.items, `${p}.items`, PANEL_ROWS_MAX)).map((c, k) => t(c, `${p}.items[${k}]`, LABEL_MAX));
+          return { type: 'list', items, ...clickable(x, p, items.length) };
+        }
         case 'button':
           return { type: 'button', id: cid(x.id, `${p}.id`), label: t(x.label, `${p}.label`, LABEL_MAX), ...(x.disabled === true ? { disabled: true } : {}) };
         case 'select': {
@@ -179,6 +226,32 @@ export function checkPanel(raw: unknown): PanelNode[] {
         case 'toggle':
           if (typeof x.value !== 'boolean') bad(`${p}.value 要是 true 或 false`);
           return { type: 'toggle', id: cid(x.id, `${p}.id`), label: t(x.label, `${p}.label`, LABEL_MAX), value: x.value as boolean };
+        case 'input': {
+          if (x.multiline !== undefined && typeof x.multiline !== 'boolean') bad(`${p}.multiline 要是 true 或 false`);
+          const multiline = x.multiline === true;
+          const max = optInt(x.max, `${p}.max`, 1, Infinity);
+          if (max !== undefined && max > PANEL_INPUT_MAX) over(`${p}.max 最多 ${PANEL_INPUT_MAX}`);
+          const node = { type: 'input', id: cid(x.id, `${p}.id`), label: t(x.label, `${p}.label`, LABEL_MAX), ...(max !== undefined ? { max } : {}), ...(multiline ? { multiline } : {}) } as const;
+          const value = x.value === undefined ? undefined : t(x.value, `${p}.value`, inputMax(node), multiline);
+          const placeholder = ot(x.placeholder, `${p}.placeholder`);
+          return { ...node, ...(value !== undefined ? { value } : {}), ...(placeholder !== undefined ? { placeholder } : {}) };
+        }
+        case 'color':
+          return { type: 'color', id: cid(x.id, `${p}.id`), label: t(x.label, `${p}.label`, LABEL_MAX), value: hex(x.value, `${p}.value`) };
+        case 'tabs': {
+          if (inTabs) bad(`${p} 页签里不能再放页签`);
+          const tid = x.id === undefined ? undefined : cid(x.id, `${p}.id`);
+          const tabs = list(x.tabs, `${p}.tabs`, PANEL_TABS_MAX).map((g, k) => {
+            const q = `${p}.tabs[${k}]`;
+            if (!isRec(g)) return bad(`${q} 要写成 { title, children }`);
+            const title = t(g.title, `${q}.title`, TAB_TITLE_MAX);
+            if (!title) bad(`${q}.title 不能是空的`);
+            return { title, children: walk(g.children, `${q}.children`, depth + 1, true) };
+          });
+          if (!tabs.length) bad(`${p}.tabs 至少一页`);
+          const value = optInt(x.value, `${p}.value`, 0, tabs.length - 1);
+          return { type: 'tabs', ...(tid !== undefined ? { id: tid } : {}), ...(value !== undefined ? { value } : {}), tabs };
+        }
         case 'legend':
           return {
             type: 'legend',
@@ -195,7 +268,7 @@ export function checkPanel(raw: unknown): PanelNode[] {
         }
         case 'group': {
           const title = ot(x.title, `${p}.title`);
-          return { type: 'group', ...(title !== undefined ? { title } : {}), children: walk(x.children, `${p}.children`, depth + 1) };
+          return { type: 'group', ...(title !== undefined ? { title } : {}), children: walk(x.children, `${p}.children`, depth + 1, inTabs) };
         }
         default:
           return bad(`${p}.type 不认得:${String(x.type).slice(0, 20)}`);
@@ -207,22 +280,32 @@ export function checkPanel(raw: unknown): PanelNode[] {
 
 /** 面板上的控件:用的人动了以后,值要合这个控件(网站这边画面板的代码交来的,也照样查) */
 export function panelValue(nodes: readonly PanelNode[], cid: string, value: unknown): { id: string; value?: string | number | boolean } | null {
-  const find = (arr: readonly PanelNode[]): PanelNode | null => {
+  const find = (arr: readonly PanelNode[]): PanelNode | { type: 'link' } | null => {
     for (const n of arr) {
       if ('id' in n && n.id === cid) return n;
-      if (n.type === 'group') {
-        const f = find(n.children);
-        if (f) return f;
-      }
+      const f = n.type === 'group' ? find(n.children) : n.type === 'tabs' ? find(n.tabs.flatMap((g) => g.children)) : null;
+      if (f) return f;
+      if (n.type === 'text' && typeof n.text !== 'string' && n.text.some((s) => typeof s !== 'string' && s.id === cid)) return { type: 'link' };
     }
     return null;
   };
   const n = find(nodes);
   if (!n) return null;
+  const index = (count: number) => (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < count ? { id: cid, value } : null);
   if (n.type === 'button') return n.disabled ? null : { id: cid };
+  if (n.type === 'link') return { id: cid };
   if (n.type === 'toggle') return typeof value === 'boolean' ? { id: cid, value } : null;
   if (n.type === 'select') return typeof value === 'string' && n.options.some((o) => o.value === value) ? { id: cid, value } : null;
   if (n.type === 'slider') return typeof value === 'number' && value >= n.min && value <= n.max ? { id: cid, value } : null;
+  if (n.type === 'input') {
+    if (typeof value !== 'string') return null;
+    const s = clean(value, n.multiline === true);
+    return s.length <= inputMax(n) ? { id: cid, value: s } : null;
+  }
+  if (n.type === 'color') return typeof value === 'string' && HEX.test(value) ? { id: cid, value: value.toLowerCase() } : null;
+  if (n.type === 'table') return index(n.rows.length);
+  if (n.type === 'list') return index(n.items.length);
+  if (n.type === 'tabs') return index(n.tabs.length);
   return null;
 }
 

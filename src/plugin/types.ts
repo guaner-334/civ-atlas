@@ -415,24 +415,43 @@ export interface BoxPick {
 // ---------------------------------------------------------------------------
 // 插件面板(ui.panel):插件只说放什么,长什么样由网站画
 
-/** 按钮、下拉、滑块、开关的 id:字母数字、- 和 _,最长 32 */
+/** 链接、能点的行指向的东西:国、城、州的稳定键(PolityInfo、SettlementInfo、RegionInfo 的 key),或一个年份 */
+export type PanelTarget = { key: string } | { year: number };
+
+/** 一段字里的一截链接:id、to 至少给一个 */
+export interface PanelLink {
+  text: string;
+  id?: string;
+  to?: PanelTarget;
+}
+
+/** 按钮、下拉、滑块、开关、输入框、颜色、页签、能点的表格和列表、链接的 id:字母数字、- 和 _,最长 32 */
 export type PanelNode =
   | { type: 'heading'; text: string }
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string | (string | PanelLink)[] }
   | { type: 'number'; label: string; value: number; unit?: string }
-  | { type: 'table'; columns: string[]; rows: (string | number)[][] }
-  | { type: 'list'; items: string[] }
+  /** 给 id 的一行一行能点;to 和 rows 一样长,null = 这一行不指向什么 */
+  | { type: 'table'; columns: string[]; rows: (string | number)[][]; id?: string; to?: (PanelTarget | null)[] }
+  | { type: 'list'; items: string[]; id?: string; to?: (PanelTarget | null)[] }
   | { type: 'button'; id: string; label: string; disabled?: boolean }
   | { type: 'select'; id: string; label: string; options: { value: string; label: string }[]; value?: string }
   | { type: 'slider'; id: string; label: string; min: number; max: number; step?: number; value: number }
   | { type: 'toggle'; id: string; label: string; value: boolean }
+  /** 输入框:max 是最多几个字(1–2000,不给 = 单行 200、多行 2000);没有密码框 */
+  | { type: 'input'; id: string; label: string; value?: string; placeholder?: string; max?: number; multiline?: boolean }
+  | { type: 'color'; id: string; label: string; value: Hex }
+  /** 页签:一页一组,value 是一开始显示第几页(从 0 数) */
+  | { type: 'tabs'; id?: string; value?: number; tabs: { title: string; children: PanelNode[] }[] }
   | { type: 'legend'; items: { color: Hex; label: string }[] }
   | { type: 'divider' }
   /** value 0–1 */
   | { type: 'progress'; value: number; label?: string }
   | { type: 'group'; title?: string; children: PanelNode[] };
 
-/** 用的人动了面板上的东西:按钮没有 value */
+/**
+ * 用的人动了面板上的东西:按钮、链接没有 value;开关 true / false;下拉是选中那项的 value;滑块是数;
+ * 输入框是字;颜色是 #rrggbb;能点的表格、列表是第几行(从 0 数);页签是第几页
+ */
 export interface PanelAction {
   id: string;
   value?: string | number | boolean;
@@ -557,7 +576,7 @@ export interface CivAtlas {
     box: Call<{ hint?: string }, BoxPick>;
   };
   panel: {
-    /** 整个换掉;一个面板最多 2000 个节点、4000 字,表格最多 500 行 */
+    /** 整个换掉;一个面板最多 2000 个节点、4000 字,表格最多 500 行,输入框最多 2000 字,页签最多 8 页 */
     set: Call<{ nodes: PanelNode[] }, void>;
     clear: Call0<void>;
   };

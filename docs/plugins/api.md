@@ -262,14 +262,17 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 | `type` | 字段 | 是什么 |
 |---|---|---|
 | `heading` | `text` | 小标题 |
-| `text` | `text` | 一段字,可以有换行 |
+| `text` | `text` | 一段字,可以有换行;`text` 也可以是一串,里面夹着[链接](#链接和能点的行) |
 | `number` | `label`、`value`、`unit?` | 一个数,带名字和单位 |
-| `table` | `columns`、`rows` | 表格,格子里是字或数 |
-| `list` | `items` | 一串字 |
+| `table` | `columns`、`rows`、`id?`、`to?` | 表格,格子里是字或数;给了 `id` 一行一行能点 |
+| `list` | `items`、`id?`、`to?` | 一串字;给了 `id` 一项一项能点 |
 | `button` | `id`、`label`、`disabled?` | 按钮 |
 | `select` | `id`、`label`、`options: [{ value, label }]`、`value?` | 下拉;`value` 和各项的 `value` 写法同 `id` |
 | `slider` | `id`、`label`、`min`、`max`、`step?`、`value` | 滑块 |
 | `toggle` | `id`、`label`、`value` | 开关 |
+| `input` | `id`、`label`、`value?`、`placeholder?`、`max?`、`multiline?` | [输入框](#输入框) |
+| `color` | `id`、`label`、`value` | 挑颜色:网站给几种常用的,也能填色号;颜色写成 `#rrggbb` |
+| `tabs` | `id?`、`value?`、`tabs: [{ title, children }]` | 页签:一页放一组格子,用的人点哪页显示哪页;`value` 是一开始显示第几页(从 0 数) |
 | `legend` | `items: [{ color, label }]` | 图例,颜色写成 `#rrggbb` |
 | `divider` | — | 分隔线 |
 | `progress` | `value`(0–1)、`label?` | 进度条 |
@@ -277,21 +280,43 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 上限:
 
-- 一个面板最多 2000 个格子,字一共最多 4000 个;`group` 最多套 4 层
-- 小标题、名字、按钮上的字、表格和列表里的一格最多 80 个字,`unit` 最多 16 个字
-- 表格最多 500 行、20 列,列表最多 500 项,下拉最多 100 项,图例最多 32 项;表格的格子、列表的项、下拉的选项、图例加起来最多 20000 个
-- 控件的 `id`:字母、数字、`-`、`_`,最长 32,一个面板里不能重
-- 控制字符会去掉;除了 `text`,换行都换成空格
+- 一个面板最多 2000 个格子,字一共最多 4000 个(输入框里插件填的字也算);`group`、`tabs` 最多套 4 层,页签里不能再放页签
+- 小标题、名字、按钮上的字、表格和列表里的一格、链接上的字、输入框的 `placeholder` 最多 80 个字,`unit`、页签的 `title` 最多 16 个字
+- 表格最多 500 行、20 列,列表最多 500 项,下拉最多 100 项,图例最多 32 项,页签最多 8 页,一段字最多分 200 截;表格的格子、列表的项、下拉的选项、图例、`to` 的项、一段字分的截加起来最多 20000 个
+- 输入框最多 2000 个字
+- 控件的 `id`(按钮、下拉、滑块、开关、输入框、颜色、页签、能点的表格和列表、链接):字母、数字、`-`、`_`,最长 32,一个面板里不能重
+- 控制字符会去掉;除了 `text` 和多行的输入框,换行都换成空格
+
+### 输入框
+
+`{ type: 'input', id, label }` 是一行的输入框,`multiline: true` 是多行的。名字在框上面,框占满一行。
+
+- `value`:框里一开始的字;`placeholder`:框空着时的浅灰提示
+- `max`:最多几个字,1–2000,不给 = 一行的 200、多行的 2000;快写满时框右下角显示写了几个字、最多几个
+- 用的人打字时不发;一行的按回车或点别处、多行的点别处(多行里回车是换行)才发 `panel.action`,`value` 是框里的字
+
+没有密码框。卡片头的「插件」两个字一直在,用的人看得出是插件在问,不是网站。**不要请用的人输入密钥、密码、账号**(见[写插件时照着查](limits.md#写插件时照着查)),审核时这样的插件会退回。
+
+### 链接和能点的行
+
+- 链接:`text` 写成一串,字和链接 `{ text, id?, to? }` 接着排,例如 `['第一名是', { text: '塞雷尼亚帝国', id: 'top' }, '。']`
+- 能点的行:`table`、`list` 给了 `id`,每一行(项)都能点,右边有个小箭头
+- `to`:这一项指向的东西,国、城、州的稳定键 `{ key }`(`history.polities()` 这些给的 `key`),或者年份 `{ year }`;`table`、`list` 的 `to` 一行一个,和 `rows`、`items` 一样长,不指向什么的写 `null`
+- 现在网站只认 `id`:点了发 `panel.action`;只给了 `to`、没给 `id` 的链接和行点不了,照普通的字画
 
 ### 用的人动了控件
 
-收到 `panel.action` 事件 `{ id, value? }`:按钮没有 `value`(按钮 `disabled` 时不发),开关是 `true` / `false`,下拉是选中那项的 `value`,滑块是数。值不合那个控件的不转给插件。要让面板跟着变(比如数字重算了),再 `panel.set` 一次。
+收到 `panel.action` 事件 `{ id, value? }`:按钮没有 `value`(按钮 `disabled` 时不发),开关是 `true` / `false`,下拉是选中那项的 `value`,滑块是数,输入框是框里的字,颜色是 `#rrggbb`,链接没有 `value`,能点的表格、列表是点了第几行(从 0 数),页签是换到了第几页(没给 `id` 的页签换页不发)。值不合那个控件的不转给插件。要让面板跟着变(比如数字重算了),再 `panel.set` 一次。
 
 ```js
 civAtlas.on('panel.action', ({ id, value }) => {
   if (id === 'mode') { mode = value; render(); }
+  if (id === 'find') { query = value; render(); }
+  if (id === 'rank') { picked = rows[value]; render(); }
 });
 ```
+
+再 `panel.set` 时,输入框里用的人打的字、选中的页签留着;插件换了输入框的 `value`、页签的 `value`,就照插件给的。
 
 ## 图层(`layer.cells@1`、`layer.regions@1`、`layer.marks@1`)
 
