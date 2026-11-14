@@ -119,7 +119,7 @@ export interface PluginHost {
 /** 每秒最多递给插件多少字节,多了回 busy:拷贝在网站这边做,太多会卡拖地图 */
 export const OUT_BYTES_PER_SECOND = 64 * 1024 * 1024;
 /** 同时最多几个还没回的调用(点选这种要等用的人的) */
-export const INFLIGHT_MAX = 16;
+export const INFLIGHT_MAX = 64;
 /** 一秒最多提几次修改:每次都要量一遍改完的存档 */
 export const APPLY_PER_SECOND = 10;
 /** view.year、view.select 最快多久发一次 */

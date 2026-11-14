@@ -12,7 +12,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../../../src/gen/worl
 import { PLUGIN_METHODS } from '../../../src/plugin/caps';
 import type { CellLayer, MarkLayer, RegionLayer } from '../../../src/plugin/check';
 import { PluginRefused, startPluginHost, type PickAnswer } from '../../../src/plugin/host';
-import { frameCsp, SANDBOX_FLAGS } from '../../../src/plugin/protocol';
+import { frameCsp, MESSAGES_PER_SECOND, SANDBOX_FLAGS } from '../../../src/plugin/protocol';
 import { SandboxStopped, startPluginSandbox, type PluginSandbox, type StopReason } from '../../../src/plugin/sandbox';
 import type { PanelNode, ViewInfo } from '../../../src/plugin/types';
 
@@ -356,7 +356,7 @@ const NOTHING = `(async () => {
 
 /** 越界就停的几种:结果是停的原因 */
 const apiStops = {
-  flood: () => api("for (let i = 0; i < 400; i++) civAtlas.log('x');", []),
+  flood: () => api(`for (let i = 0; i < ${MESSAGES_PER_SECOND * 2}; i++) civAtlas.log('x');`, []),
   oversize: () => api("civAtlas.post('x'.repeat(3000000));", []),
   badCall: () => api("setTimeout(() => postMessage({ v: 1, kind: 'req', id: 1, call: 'no good' }), 50);", []),
   forgedRes: () => api("setTimeout(() => postMessage({ v: 1, kind: 'res', id: 1, ok: true, data: 1 }), 50);", []),

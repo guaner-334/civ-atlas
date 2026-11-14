@@ -99,7 +99,7 @@ export function cellList(v: unknown, at: string, cells: number, max: number): In
 // 面板
 
 export const PANEL_NODES_MAX = 2000;
-export const PANEL_TEXT_MAX = 4000;
+export const PANEL_TEXT_MAX = 20_000;
 export const PANEL_ROWS_MAX = 500;
 const PANEL_COLUMNS_MAX = 20;
 const PANEL_OPTIONS_MAX = 100;
@@ -229,7 +229,7 @@ export function panelValue(nodes: readonly PanelNode[], cid: string, value: unkn
 // ---------------------------------------------------------------------------
 // 图层
 
-export const LAYERS_MAX = 4;
+export const LAYERS_MAX = 8;
 export const MARK_ITEMS_MAX = 5000;
 export const MARK_TEXT_MAX = 40;
 /** 一个标注图层里的地块和点一共最多几个 */

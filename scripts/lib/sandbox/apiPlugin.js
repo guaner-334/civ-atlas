@@ -109,7 +109,7 @@
     );
     const values = new Float32Array(w.cells).fill(1);
     out.layers = [];
-    for (const id of ['a', 'b', 'c', 'd', 'e']) out.layers.push(await codeOf(civAtlas.layer.cells({ id, title: id, values, ramp: { colors: ['#000000', '#ffffff'] } })));
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']) out.layers.push(await codeOf(civAtlas.layer.cells({ id, title: id, values, ramp: { colors: ['#000000', '#ffffff'] } })));
     out.layers.push(await codeOf(civAtlas.layer.marks({ id: 'route', title: '路线', items: [{ kind: 'line', cells: [0, 1, 2] }, { kind: 'label', cells: [3], text: '起点' }] })));
     out.layers.push(await codeOf(civAtlas.layer.remove({ id: 'b' })));
 
@@ -127,7 +127,7 @@
       proto: await codeOf(all('constructor', {})),
       applyKey: await codeOf(civAtlas.author.apply({ changes: [{ kind: 'name', key: 'polity:c99999999#0', name: 'x' }] })),
       applyKind: await codeOf(civAtlas.author.apply({ changes: [{ kind: 'terrain', op: {} }] })),
-      storeBig: await codeOf(civAtlas.store.local.set({ schema: 1, value: 'x'.repeat(70000) })),
+      storeBig: await codeOf(civAtlas.store.local.set({ schema: 1, value: 'x'.repeat(600000) })),
       storeKind: await codeOf(civAtlas.store.world.set({ schema: 1, value: new Date() })),
       uncloneable: await codeOf(civAtlas.world.info({ f: () => 1 })),
       stillUp: (await civAtlas.host.info()).api,

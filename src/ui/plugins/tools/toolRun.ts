@@ -15,6 +15,7 @@ import { localDataStore } from '../../../plugin/pluginData';
 import { worldPluginOf } from '../../../plugin/pluginWorld';
 import { loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { MESSAGES_PER_SECOND, MESSAGE_MAX_BYTES } from '../../../plugin/protocol';
+import { START_TIMEOUT_MS } from '../../../plugin/sandbox';
 import type { PanelNode } from '../../../plugin/types';
 import { createStore } from '../../createStore';
 import { commitEdits, editsEra, getEdits, historyDiffers, revertEdits } from '../../editsStore';
@@ -76,8 +77,6 @@ toolRun.subscribe(() => {
 /** 隔多久问插件一声、多久没回算没反应 */
 const PING_EVERY_MS = 2000;
 export const SLOW_MS = 5000;
-/** 插件代码顶层多久没跑完算没反应(沙箱的默认值) */
-const START_MS = 10_000;
 
 let seq = 0;
 let host: PluginHost | null = null;
@@ -90,7 +89,7 @@ function patch(my: number, p: Partial<ToolRun>) {
 /** 停下来的原因换成卡片上的说法;我们自己叫停的 = null */
 function troubleOf(reason: string, detail: string): ToolTrouble | null {
   if (reason === 'stopped') return null;
-  if (reason === 'start-timeout') return { kind: 'slow', secs: START_MS / 1000 };
+  if (reason === 'start-timeout') return { kind: 'slow', secs: START_TIMEOUT_MS / 1000 };
   if (reason === 'unresponsive') {
     const ms = Number(/(\d+) ms/.exec(detail)?.[1]);
     return { kind: 'slow', secs: Math.round((Number.isFinite(ms) && ms > 0 ? ms : SLOW_MS) / 1000) };
