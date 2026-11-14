@@ -3,7 +3,7 @@
  * 这张表里没有的能力(名字认得、版本更高的也算)一律当这一版网站还没有。纯定义,网页、Worker、服务器共用。
  */
 
-export type PermissionKey = 'map' | 'history' | 'authorRead' | 'authorWrite' | 'view' | 'layer' | 'storeWorld' | 'sim' | 'simSteer' | 'mapSteer';
+export type PermissionKey = 'map' | 'history' | 'authorRead' | 'authorWrite' | 'view' | 'viewSteer' | 'layer' | 'storeWorld' | 'sim' | 'simSteer' | 'mapSteer';
 
 /** 权限框上的各行,按这个先后列;loud = 显眼;note = 网站写的那行小字(每个插件都一样,在作者写的理由上面) */
 export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: boolean; note?: string }>> = {
@@ -12,6 +12,7 @@ export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: b
   authorRead: { text: '看你写的东西（笔记、标记、AI 写的正文）', loud: true },
   authorWrite: { text: '会改你写的东西（改国名人名、加标记和批注、下命令）', loud: true, note: '改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演' },
   view: { text: '知道你在看哪一年、点了哪里（只在用它的时候）', loud: false },
+  viewSteer: { text: '会替你翻年份、移地图', loud: false, note: '你正拖着地图、时间轴的时候，它不抢' },
   mapSteer: { text: '会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）', loud: true },
   layer: { text: '在地图上加图层和标注', loud: false },
   storeWorld: { text: '在世界里存自己的数据', loud: false, note: '存了以后那个世界不能公开分享，能存成文件发给别人。每个世界第一次存的时候还会问你' },
@@ -43,6 +44,7 @@ export const PLUGIN_CAPS: ReadonlyMap<string, PermissionKey | null> = new Map<st
   ['author.write@1', 'authorWrite'],
   ['view.read@1', 'view'],
   ['input.pick@1', 'view'],
+  ['view.control@1', 'viewSteer'],
   ['ui.panel@1', null],
   ['layer.cells@1', 'layer'],
   ['layer.regions@1', 'layer'],

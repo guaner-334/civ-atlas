@@ -357,6 +357,7 @@ const PERM_ICON: Record<PermissionKey, IconName | keyof typeof MORE_ICONS> = {
   authorRead: 'bubble',
   authorWrite: 'pen',
   view: 'pin',
+  viewSteer: 'map',
   layer: 'route',
   storeWorld: 'box',
   sim: 'book',

@@ -249,6 +249,14 @@ export class TrialRecorder {
         for (const k of keys) this.blockedKeys.add(k);
         return '试跑的时候不改你写的东西';
       },
+      // 截图照试跑的年份画:翻年份只改 view.get 拿到的
+      seek: (year) => {
+        this.touch();
+        this.view.year = year;
+        return null;
+      },
+      fly: () => (this.touch(), null),
+      highlight: () => this.touch(),
     };
   }
 

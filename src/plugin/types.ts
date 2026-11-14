@@ -14,6 +14,7 @@ export type CapRef =
   | 'author.read@1'
   | 'author.write@1'
   | 'view.read@1'
+  | 'view.control@1'
   | 'input.pick@1'
   | 'ui.panel@1'
   | 'layer.cells@1'
@@ -402,6 +403,34 @@ export interface ViewInfo {
 }
 
 // ---------------------------------------------------------------------------
+// 替你翻年份、移地图、圈出(view.control)
+
+/** 国、州、城:编号,或 history.* 给的稳定键 */
+export type ViewRef = number | string;
+
+/** 飞过去看全给的这些(给几样都行) */
+export interface ViewFlyTarget {
+  cells?: ArrayLike<number>;
+  /** 世界坐标;x1 可以超过 width(跨东西接缝) */
+  box?: { x0: number; y0: number; x1: number; y1: number };
+  /** 国家按 year 那一年的国土 */
+  polities?: ViewRef[];
+  regions?: ViewRef[];
+  settlements?: ViewRef[];
+  /** 不给 = 时间轴停的那一年 */
+  year?: number;
+}
+
+export interface ViewHighlightSpec {
+  /** 国家按 year 那一年的国土,圈得淡 */
+  polities?: ViewRef[];
+  /** 州,圈得浓 */
+  regions?: ViewRef[];
+  /** 不给 = 时间轴停的那一年 */
+  year?: number;
+}
+
+// ---------------------------------------------------------------------------
 // 点选(input.pick)
 
 export interface BoxPick {
@@ -550,7 +579,17 @@ export interface CivAtlas {
     /** 提一批修改(最多 200 条):有一条不合格整批不改;照办的整批记一步撤销 */
     apply: Call<{ changes: AuthorChange[] }, ApplyResult>;
   };
-  view: { get: Call0<ViewInfo> };
+  view: {
+    get: Call0<ViewInfo>;
+    /** 时间轴翻到这一年(正在放的停下);一秒最多 4 次 */
+    seek: Call<{ year: number }, void>;
+    /** 地图飞过去看全;一秒最多 2 次 */
+    fly: Call<ViewFlyTarget, void>;
+    /** 一直圈着(换掉上一次圈的,不挪地图);一秒最多 10 次 */
+    highlight: Call<ViewHighlightSpec, void>;
+    /** 拿掉自己圈的 */
+    unhighlight: Call0<void>;
+  };
   pick: {
     cell: Call<{ hint?: string }, { cell: number }>;
     cells: Call<{ hint?: string; max?: number }, { cells: Int32Array }>;

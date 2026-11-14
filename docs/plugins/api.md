@@ -232,6 +232,43 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 变化用 `view.year`、`view.select` 两个事件听(见[基本](#civatlasonevent-fn))。
 
+## 替你翻年份、移地图、圈出(`view.control@1`)
+
+讲解、导览这类插件用:翻到某一年,把地图移到某处,圈出几国几州。只有「工具」里开的插件(要了 `ui.panel@1` 或 `input.pick@1`)和开发者模式里载入的用得上,只交图层的插件调了回 `unavailable`。不能替用的人选中东西:选中了,插件卡要让给详情卡,面板就看不见了。
+
+| 调用 | 做什么 |
+|---|---|
+| `view.seek({ year })` | 时间轴翻到 `year` 年(整数,0 到 `history.span()` 的 `to`);正在放的停下 |
+| `view.fly({ cells?, box?, polities?, regions?, settlements?, year? })` | 地图飞过去看全给的这些,几样一起给也行 |
+| `view.highlight({ polities?, regions?, year? })` | 在地图上一直圈着几国(国土,淡)、几州(浓),换掉这个插件上一次圈的;不挪地图 |
+| `view.unhighlight()` | 拿掉这个插件圈的 |
+
+- `polities`、`regions`、`settlements` 每一项给编号、给稳定键都行,`history.events` 给的 `polities`、`regions` 可以直接交;键在这段历史里找不到回 `bad-args`
+- `cells` 是地块编号;`box` 是 `{ x0, y0, x1, y1 }`(世界坐标,`y` 在 0 到 `height` 之间;跨东西接缝的框把 `x1` 写成超过 `width` 的数)
+- 不给 `year` 按时间轴停的那一年。`view.fly` 的国家按那一年的国土(那年还没立国按立国那年,已经亡了按亡国前);`view.highlight` 就按那一年画,那一年不在的国家圈不出来,先 `view.seek` 翻到它在的年份。圈着的国土不跟着时间轴变,想跟着变就听 `view.year`,再圈一次
+- 只给了一个点(一座城、一块地)放大到看得清那一带,大的放到看全为止;已经在画面中间、远近也差不多就不动。地球仪上只把球转过去,不改远近。网站这时挪不了地图(比如正在回放世界形成)就不挪,不算出错
+- 还没有历史时 `view.seek`、`view.highlight` 和给了国、州、城的 `view.fly` 回 `unavailable`
+
+**用的人的手先。** 插件不跟用的人抢地图和时间轴:
+
+- 用的人按着鼠标或手指的时候(拖地图、捏合、拖时间轴……),`view.seek`、`view.fly` 不照办,回 `busy`,网站也不替插件排着,过一会儿再调。用的人点插件面板上的按钮,`panel.action` 到的时候已经松手了,接着调就行
+- 地图照插件的意思飞到半路,用的人一按地图、一滚滚轮,地图就停下让给他
+- `view.highlight` 不挪地图、不翻年份,不受这一条管
+- 一秒最多照办 `view.seek` 4 次、`view.fly` 2 次、`view.highlight` 10 次,多了回 `busy`;回了 `busy` 的不算次数
+
+插件停了,它圈的一起拿掉;翻到的年份、移到的地方留着。用的人点了编年史的一条,网站自己的高亮会换掉插件圈的。
+
+```js
+// 带你看一场仗:翻到那一年,圈出交战的国家和打到的州,地图飞过去
+const { items } = await civAtlas.history.events({ from: 400, to: 500 });
+const war = items.find((e) => e.tag === '战');
+if (war) {
+  await civAtlas.view.seek({ year: war.year });
+  await civAtlas.view.highlight({ polities: war.polities, regions: war.regions });
+  await civAtlas.view.fly({ polities: war.polities, regions: war.regions });
+}
+```
+
 ## 点选(`input.pick@1`)
 
 请用的人在地图上点。鼠标、手指由网站处理,插件只拿到点完的结果,拿不到每一下移动;点的时候拖地图、缩放照常。
@@ -389,7 +426,7 @@ await civAtlas.layer.regions({ id: 'density', title: '各国人口密度', years
 | `bad-args` | 参数不对(`message` 说哪里不对);参数里有传不过去的东西(函数之类)也是它 |
 | `limit` | 超过上限 |
 | `unavailable` | 现在拿不到:还没打开世界、还没有历史、编年史还没写好、网站这边还没开这个功能 |
-| `busy` | 正忙:取数太快、同时没回的调用太多、上一次点选还没完、提修改太快 |
+| `busy` | 正忙:取数太快、同时没回的调用太多、上一次点选还没完、提修改太快、用的人正按着地图或时间轴、翻年份移地图太快 |
 | `blocked` | 网站这时不让改 |
 | `cancelled` | 用的人取消了(比如退出了点选) |
 | `failed` | 网站这边出错 |
