@@ -8,7 +8,7 @@ import type { PluginManifest } from '../src/plugin/pluginFile';
 import type { PanelNode, PanelTarget } from '../src/plugin/types';
 import { isTool, toolWhere } from '../src/ui/plugins/pluginText';
 import { batchParts, changeText, keyName, refusalOf, sayBatch, sayBusy, sayDone, type BatchParts } from '../src/ui/plugins/tools/toolSay';
-import { numText, PanelView, sectionsOf } from '../src/ui/plugins/tools/PanelView';
+import { kept, numText, PanelView, sectionsOf } from '../src/ui/plugins/tools/PanelView';
 import { boxSize, cellsInBox } from '../src/ui/plugins/tools/BoxPick';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7, cells: 3000 });
@@ -140,6 +140,27 @@ describe('插件面板用网站的样子画', () => {
     const on = html(() => {});
     expect(on).toContain('第一名是<span class="plg-a" role="button" tabindex="0">大昌</span>');
     expect(on).toContain('class="plg-li go" role="button"');
+  });
+
+  it('id 叫 constructor、__proto__ 的页签和输入框照样画', () => {
+    for (const id of ['constructor', '__proto__', 'toString']) {
+      const nodes: PanelNode[] = [
+        { type: 'tabs', id, tabs: [{ title: '甲', children: [{ type: 'text', text: '第一页' }] }] },
+        { type: 'input', id: `${id}-in`, label: 'x' },
+        { type: 'color', id: `${id}-c`, label: 'y', value: '#ffffff' },
+      ];
+      expect(renderToStaticMarkup(createElement(PanelView, { nodes, act: () => {} }))).toContain('第一页');
+    }
+  });
+
+  it('用的人留下的:插件换了 base 就作废,换回原来的也不再拿出来', () => {
+    const m = new Map();
+    const at = (base: number | undefined) => kept(m, 'tab:page', base, () => ({ at: base ?? 0 }));
+    at(0).at = 2;
+    expect(at(0).at).toBe(2);
+    expect(at(1).at).toBe(1);
+    expect(at(0).at).toBe(0);
+    expect(kept(m, 'tab:constructor', undefined, () => ({ at: 0 })).at).toBe(0);
   });
 });
 
