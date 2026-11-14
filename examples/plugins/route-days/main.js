@@ -16,6 +16,9 @@ const MODES = [
 /** 上一次船、下一次船各多算几天 */
 const BOARD_DAYS = 1;
 const NO_WAY = '这两个地方隔着水，走不过去。';
+const NO_WAY_ICE = '这两个地方隔着结冰的海，走不过去。';
+/** 海冰到这么多就当结冰,船过不去(和网站画海冰一样) */
+const ICE = 0.5;
 
 // 先放进变量再交给网站的面板控件、标注要标上类型,不然类型检查把 'select'、'line' 当成普通的字符串
 /** @typedef {Parameters<typeof civAtlas.panel.set>[0]['nodes'][number]} PanelNode */
@@ -62,7 +65,7 @@ class Heap {
 (async () => {
   const host = await civAtlas.host.info();
   const world = await civAtlas.world.info();
-  const cells = await civAtlas.world.cells({ fields: ['x', 'y', 'lon', 'lat', 'elevation', 'water'] });
+  const cells = await civAtlas.world.cells({ fields: ['x', 'y', 'lon', 'lat', 'elevation', 'water', 'seaIce'] });
   const { start, list } = await civAtlas.world.neighbors();
 
   const terrainOf = (i) => TERRAIN.findIndex((t) => cells.elevation[i] < t.below);
@@ -108,9 +111,10 @@ class Heap {
     const d = km(i, j) / 2;
     return c + d * TERRAIN[terrainOf(i)].slow + d * TERRAIN[terrainOf(j)].slow;
   };
-  // 坐船的折成天数:陆地和水相邻的一步就是上船或下船,所以只能在挨着水的陆地上船下船
+  // 坐船的折成天数:陆地和水相邻的一步就是上船或下船,所以只能在挨着水的陆地上船下船;结冰的海上不去
   const half = (i, d) => (wet(i) ? d / mode.sail : (d * TERRAIN[terrainOf(i)].slow) / mode.perDay);
   const boatStep = (c, i, j) => {
+    if (wet(j) && cells.seaIce[j] >= ICE) return Infinity;
     const d = km(i, j) / 2;
     return c + half(i, d) + half(j, d) + (wet(i) !== wet(j) ? BOARD_DAYS : 0);
   };
@@ -244,7 +248,7 @@ class Heap {
     route = findRoute(pair.a, pair.b);
     if (route) return showRoute();
     await civAtlas.layer.remove({ id: 'route' });
-    return showStart(NO_WAY, true);
+    return showStart(mode.sail ? NO_WAY_ICE : NO_WAY, true);
   };
 
   let picking = false;
@@ -275,7 +279,7 @@ class Heap {
       if (b === a) return await showStart('起点和终点是同一块地方。');
       pair = { a, b };
       route = findRoute(a, b);
-      if (!route) return await showStart(NO_WAY, true);
+      if (!route) return await showStart(mode.sail ? NO_WAY_ICE : NO_WAY, true);
       await showRoute();
     } catch (e) {
       // cancelled = 用的人退出了点选;别的出错码见开发文档
