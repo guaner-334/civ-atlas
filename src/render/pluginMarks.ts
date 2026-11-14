@@ -170,18 +170,19 @@ function drawArea(ctx: Ctx, f: MarkFrame, it: MarkLayerItem, mesh: Mesh) {
   if (it.text) drawLabel(ctx, f, sh.label[0], sh.label[1], it.text, 0);
 }
 
-/** 箭头的尖、朝向(单位向量) */
+/** 箭头的尖、朝向(单位向量);线在这一头要缩的:run 里哪几个点(从这一头数 k 个)、离下一个点多远 d */
 interface Arrow {
+  run: number[];
+  end: boolean;
   tip: [number, number];
   ux: number;
   uy: number;
+  k: number;
+  d: number;
 }
 
-/**
- * 线的一头画箭头:这一头的点看得见(在球背面、投影切口外的不画)。线在这一头缩到箭头底边里,圆头不从箭头两边露出来。
- * end = 末端(最后一段的最后一点),否则是开头;run 原地改
- */
-function cutForArrow(run: number[], end: boolean, len: number): Arrow | null {
+/** 线的一头的箭头(只读 run);这一头的点看得见才有(在球背面、投影切口外的不画)。end = 末端,否则是开头 */
+function arrowAt(run: number[], end: boolean): Arrow | null {
   const n = run.length / 2;
   if (n < 2) return null;
   const at = (i: number): [number, number] => (end ? [run[2 * (n - 1 - i)], run[2 * (n - 1 - i) + 1]] : [run[2 * i], run[2 * i + 1]]);
@@ -195,17 +196,18 @@ function cutForArrow(run: number[], end: boolean, len: number): Arrow | null {
   }
   if (k >= n) return null;
   const back = at(k);
-  const ux = (tip[0] - back[0]) / d;
-  const uy = (tip[1] - back[1]) / d;
-  const keep = Math.max(0, d - (len - 1));
-  const nx = back[0] + ux * keep;
-  const ny = back[1] + uy * keep;
-  for (let i = 0; i < k; i++) {
-    const j = end ? n - 1 - i : i;
-    run[2 * j] = nx;
-    run[2 * j + 1] = ny;
+  return { run, end, tip, ux: (tip[0] - back[0]) / d, uy: (tip[1] - back[1]) / d, k, d };
+}
+
+/** 线在箭头那一头缩到箭头底边里,圆头不从箭头两边露出来。两头的箭头都先算好再缩,短线两头都还有箭头 */
+function cutForArrow(a: Arrow, len: number) {
+  const n = a.run.length / 2;
+  const s = Math.min(a.d, len - 1);
+  for (let i = 0; i < a.k; i++) {
+    const j = a.end ? n - 1 - i : i;
+    a.run[2 * j] = a.tip[0] - a.ux * s;
+    a.run[2 * j + 1] = a.tip[1] - a.uy * s;
   }
-  return { tip, ux, uy };
 }
 
 function drawArrow(ctx: Ctx, a: Arrow, o: number, len: number, w: number, fill: string, edge: string) {
@@ -238,15 +240,10 @@ function drawLine(ctx: Ctx, f: MarkFrame, it: MarkLayerItem, mesh: Mesh) {
   const heads: Arrow[] = [];
   if (arrow) {
     const n = pts.length / 2;
-    const last = runs[runs.length - 1];
-    if (f.pt(pts[2 * n - 2], pts[2 * n - 1])) {
-      const a = cutForArrow(last, true, len);
-      if (a) heads.push(a);
-    }
-    if (arrow === 'both' && f.pt(pts[0], pts[1])) {
-      const a = cutForArrow(runs[0], false, len);
-      if (a) heads.push(a);
-    }
+    const tail = f.pt(pts[2 * n - 2], pts[2 * n - 1]) ? arrowAt(runs[runs.length - 1], true) : null;
+    const head = arrow === 'both' && f.pt(pts[0], pts[1]) ? arrowAt(runs[0], false) : null;
+    for (const a of [tail, head]) if (a) heads.push(a);
+    for (const a of heads) cutForArrow(a, len);
   }
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -351,22 +348,31 @@ function drawBadge(ctx: Ctx, x: number, y: number, d: number, icon: MarkIcon, s?
   ctx.restore();
 }
 
-/** 画好的图标按(图案、颜色、大小、画布缩放)留一张小图,拖地图时几千个也只是贴图 */
+function drawDot(ctx: Ctx, x: number, y: number, r: number, s?: MarkStyle) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = colorOf(s);
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = edgeOf(s);
+  ctx.stroke();
+}
+
+/** 画好的点、图标按(样子、颜色、大小、画布缩放)留一张小图(box 见方,点在正中),拖地图时几千个也只是贴图 */
 const sprites = new Map<string, OffscreenCanvas>();
-function badgeSprite(ctx: Ctx, d: number, icon: MarkIcon, s?: MarkStyle): OffscreenCanvas | null {
+function sprite(ctx: Ctx, key: string, box: number, draw: (g: OffscreenCanvasRenderingContext2D) => void): OffscreenCanvas | null {
   if (typeof OffscreenCanvas === 'undefined') return null;
   const t = ctx.getTransform();
   const k = Math.round(Math.hypot(t.a, t.b) * 100) / 100;
-  const key = `${icon}|${colorOf(s)}|${d}|${k}`;
-  let c = sprites.get(key);
+  const id = `${key}|${box}|${k}`;
+  let c = sprites.get(id);
   if (!c) {
     if (sprites.size >= 256) sprites.clear();
-    const box = d + 8;
     c = new OffscreenCanvas(Math.ceil(box * k), Math.ceil(box * k));
     const g = c.getContext('2d')!;
     g.scale(k, k);
-    drawBadge(g, box / 2, box / 2, d, icon, s);
-    sprites.set(key, c);
+    draw(g);
+    sprites.set(id, c);
   }
   return c;
 }
@@ -375,27 +381,16 @@ function drawPoint(ctx: Ctx, f: MarkFrame, it: MarkLayerItem, mesh: Mesh) {
   const pts = worldPts(it, mesh);
   const p = f.pt(pts[0], pts[1]);
   if (!p) return;
-  const icon = it.style?.icon;
-  const d = BADGE[it.style?.size ?? 'm'];
-  const r = icon ? d / 2 + 2 : sizeOf(it.style).dot;
-  const sprite = icon ? badgeSprite(ctx, d, icon, it.style) : null;
+  const s = it.style;
+  const icon = s?.icon;
+  const d = BADGE[s?.size ?? 'm'];
+  const r = icon ? d / 2 + 2 : sizeOf(s).dot;
+  const box = icon ? d + 8 : 2 * r + 6;
+  const sp = icon ? sprite(ctx, `${icon}|${colorOf(s)}|${d}`, box, (g) => drawBadge(g, box / 2, box / 2, d, icon, s)) : sprite(ctx, `dot|${colorOf(s)}|${r}`, box, (g) => drawDot(g, box / 2, box / 2, r, s));
   for (const o of shiftsFor(f, p[0] - r, p[0] + r)) {
-    if (sprite) {
-      const box = d + 8;
-      ctx.drawImage(sprite, p[0] + o - box / 2, p[1] - box / 2, box, box);
-      continue;
-    }
-    if (icon) {
-      drawBadge(ctx, p[0] + o, p[1], d, icon, it.style);
-      continue;
-    }
-    ctx.beginPath();
-    ctx.arc(p[0] + o, p[1], r, 0, Math.PI * 2);
-    ctx.fillStyle = colorOf(it.style);
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = edgeOf(it.style);
-    ctx.stroke();
+    if (sp) ctx.drawImage(sp, p[0] + o - box / 2, p[1] - box / 2, box, box);
+    else if (icon) drawBadge(ctx, p[0] + o, p[1], d, icon, s);
+    else drawDot(ctx, p[0] + o, p[1], r, s);
   }
   if (it.text) drawLabel(ctx, f, pts[0], pts[1], it.text, icon ? r + 2 : r + 6);
 }

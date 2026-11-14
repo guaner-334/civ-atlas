@@ -55,10 +55,10 @@ describe('插件标注怎么画', () => {
     expect(dots()).toEqual([10, 20, 30]);
   });
 
-  it('箭头:末端一个、两头各一个,尖落在线的端点上,颜色跟着线', () => {
-    const tips = (arrow?: string) => {
+  it('箭头:末端一个、两头各一个,尖落在线的端点上,颜色跟着线;线短过箭头也两头都有', () => {
+    const tips = (arrow?: string, to = 300) => {
       const r = recorder();
-      drawPluginMarks(r.ctx, [layer([{ kind: 'line', points: [100, 100, 300, 100], style: { color: '#123456', width: 4, ...(arrow ? { arrow } : {}) } }])], frame, mesh);
+      drawPluginMarks(r.ctx, [layer([{ kind: 'line', points: [100, 100, to, 100], style: { color: '#123456', width: 4, ...(arrow ? { arrow } : {}) } }])], frame, mesh);
       const out: number[][] = [];
       r.calls.forEach((c, i) => {
         if (c.fn === 'closePath') out.push(r.calls[i - 3].args as number[]);
@@ -70,6 +70,7 @@ describe('插件标注怎么画', () => {
     expect(tips('end').out).toEqual([[300, 100]]);
     expect(tips('end').fills).toEqual(['#123456']);
     expect(tips('both').out).toEqual([[300, 100], [100, 100]]);
+    expect(tips('both', 110).out).toEqual([[110, 100], [100, 100]]);
   });
 
   it('线宽照 width;很浅的色号描深色的边', () => {
