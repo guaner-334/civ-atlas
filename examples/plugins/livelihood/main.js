@@ -75,7 +75,9 @@ function frontier(turn, era) {
   let any = false;
   for (const p of ps) {
     if (p.ended !== undefined || p.size <= 0 || p.capital < 0) continue;
-    if (era[towns[p.capital].region] >= INDUSTRY) ready[p.id] = 1, any = true;
+    if (era[towns[p.capital].region] < INDUSTRY) continue;
+    ready[p.id] = 1;
+    any = true;
   }
   if (!any) return [];
   const rural = read.official('rural');

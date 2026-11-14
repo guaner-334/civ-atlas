@@ -266,10 +266,10 @@ const watchSlow =
   });
 
 const LIVELIHOOD_PINS: Record<V1Seed, unknown> = {
-  7: { before: { poor: 30493, rich: 115331 }, after: { poor: 24673, rich: 156424 }, slow: { turns: 94, of: 151, most: 54 }, cedes: 0, digest: 'fd70cba840df256e' },
-  2024: { before: { poor: 46093, rich: 94278 }, after: { poor: 36245, rich: 124807 }, slow: { turns: 89, of: 151, most: 39 }, cedes: 0, digest: '64137b4fa38058b4' },
+  7: { before: { poor: 30493, rich: 115331 }, after: { poor: 24673, rich: 156424 }, slow: { turns: 94, of: 151, most: 54 }, cedes: 0, digest: 'bd2d14361d663c96' },
+  2024: { before: { poor: 46093, rich: 94278 }, after: { poor: 36245, rich: 124807 }, slow: { turns: 89, of: 151, most: 39 }, cedes: 0, digest: '1b50c16d6229f12d' },
 };
-const LIVELIHOOD_PINS_6000 = { cedes: 22, first: 4800, metro: { before: 16331, after: 22349 }, digest: '0b40998232a05169' };
+const LIVELIHOOD_PINS_6000 = { cedes: 22, first: 4800, metro: { before: 16331, after: 22349 }, digest: '2d31a477ab050c72' };
 
 describe('民生与时代:粮养人、技术门槛、后世大城、近现代拓荒', () => {
   it.each(V1_SEEDS)('seed %i 推 3000 年:粮多的州人多、粮少的州人少;有州被技术卡着发展慢;结果钉住', async (seed) => {
