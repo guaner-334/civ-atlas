@@ -4,12 +4,14 @@
  */
 import { polityName } from '../../../gen/civ/growth';
 import type { Civ } from '../../../gen/civ/types';
-import { resolveKey, type KeyKind, type WorldEdits } from '../../../gen/edits';
+import { resolveKey, sameMark, type AuthorMark, type KeyKind, type WorldEdits } from '../../../gen/edits';
 
-/** 一批修改里有什么:改的名字(改之前、改之后)、新加的标记(名字)、新下的命令(几条) */
+/** 一批修改里有什么:改的名字(改之前、改之后)、新加 / 改过 / 删掉的标记(名字)、新下的命令(几条) */
 export interface BatchParts {
   names: { kind: KeyKind; before: string; after: string }[];
   marks: string[];
+  edited: string[];
+  removed: string[];
   commands: number;
 }
 
@@ -62,10 +64,24 @@ export function batchParts(before: WorldEdits, after: WorldEdits, nameOf: (key: 
     const kind = a?.kind ?? b?.kind;
     if (kind) names.push({ kind, before: b?.name ?? '', after: a?.name || after.names[k] || '' });
   }
-  const had = new Set((before.marks ?? []).map((m) => m.id));
-  const marks = (after.marks ?? []).filter((m) => !had.has(m.id)).map((m) => m.title || '新标记');
-  return { names, marks, commands: Math.max(0, after.interventions.length - before.interventions.length) };
+  const was = new Map((before.marks ?? []).map((m) => [m.id, m]));
+  const now = new Set((after.marks ?? []).map((m) => m.id));
+  const title = (m: AuthorMark) => m.title || '新标记';
+  const marks = (after.marks ?? []).filter((m) => !was.has(m.id)).map(title);
+  const edited = (after.marks ?? []).filter((m) => was.has(m.id) && !sameMark(was.get(m.id)!, m)).map(title);
+  const removed = (before.marks ?? []).filter((m) => !now.has(m.id)).map(title);
+  return { names, marks, edited, removed, commands: Math.max(0, after.interventions.length - before.interventions.length) };
 }
+
+/** 标记那几样:[几个, 加了 / 改了 / 删了] */
+const markKinds = (b: BatchParts): [string[], string][] =>
+  (
+    [
+      [b.marks, '加了'],
+      [b.edited, '改了'],
+      [b.removed, '删了'],
+    ] as [string[], string][]
+  ).filter(([l]) => l.length);
 
 /** 列头几个:三个以内全列,再多列两个、说还有几个 */
 function head(items: string[], sep: string): string {
@@ -82,22 +98,26 @@ function namesWord(b: BatchParts): string {
 function kinds(b: BatchParts): string {
   const out: string[] = [];
   if (b.names.length) out.push(`改了 ${b.names.length} 个${namesWord(b)}`);
-  if (b.marks.length) out.push(`加了 ${b.marks.length} 个标记`);
+  for (const [l, verb] of markKinds(b)) out.push(`${verb} ${l.length} 个标记`);
   if (b.commands) out.push(`下了 ${b.commands} 条命令`);
   return out.join('、');
 }
 
-const count = (b: BatchParts) => b.names.length + b.marks.length + b.commands;
+const count = (b: BatchParts) => b.names.length + b.marks.length + b.edited.length + b.removed.length + b.commands;
 
-/** 不用重新推演的(只改名、加标记):照办以后当场说 */
+/** 不用重新推演的(只改名、加改删标记):照办以后当场说 */
 export function sayBatch(plugin: string, b: BatchParts): Said {
   const p = who(plugin);
-  if (!b.marks.length && b.names.length === 1) {
+  const mk = markKinds(b);
+  if (!mk.length && b.names.length === 1) {
     const n = b.names[0];
     return n.before && n.before !== n.after ? { text: `${p}把${n.before}改名为${n.after}` } : { text: `${p}改了 1 个${WORD[n.kind]}`, more: [n.after] };
   }
-  if (!b.marks.length) return { text: `${p}改了 ${b.names.length} 个${namesWord(b)}`, more: [head(b.names.map((n) => (n.before && n.before !== n.after ? `${n.before}改叫${n.after}` : n.after)), '，')] };
-  if (!b.names.length) return b.marks.length === 1 ? { text: `${p}加了标记「${b.marks[0]}」` } : { text: `${p}加了 ${b.marks.length} 个标记`, more: [head(b.marks, '、')] };
+  if (!mk.length) return { text: `${p}改了 ${b.names.length} 个${namesWord(b)}`, more: [head(b.names.map((n) => (n.before && n.before !== n.after ? `${n.before}改叫${n.after}` : n.after)), '，')] };
+  if (!b.names.length && mk.length === 1) {
+    const [l, verb] = mk[0];
+    return l.length === 1 ? { text: `${p}${verb}标记「${l[0]}」` } : { text: `${p}${verb} ${l.length} 个标记`, more: [head(l, '、')] };
+  }
   return { text: `${p}改了 ${count(b)} 处`, more: [kinds(b)] };
 }
 
@@ -110,7 +130,7 @@ export function sayBusy(plugin: string, b: BatchParts): string {
 export function sayDone(plugin: string, b: BatchParts, from: string, failed: number): Said {
   const p = who(plugin);
   const miss = failed ? `${failed} 条命令没生效，原因见概览"我的干预"` : '';
-  if (!b.names.length && !b.marks.length) return { text: `${p}下了 ${b.commands} 条命令，已从${from}起重新推演`, ...(miss ? { more: [miss] } : {}) };
+  if (!b.names.length && !markKinds(b).length) return { text: `${p}下了 ${b.commands} 条命令，已从${from}起重新推演`, ...(miss ? { more: [miss] } : {}) };
   return { text: `${p}改了 ${count(b)} 处，已从${from}起重新推演`, more: [miss ? `${kinds(b)}；${miss}` : kinds(b)] };
 }
 
@@ -138,6 +158,7 @@ const FIELDS: [string, string][] = [
   ['mark.at', '标记的位置'],
   ['mark.regions', '标记圈的州'],
   ['mark', '标记'],
+  ['id', '标记的编号'],
   ['key', '改的东西'],
   ['name', '名字'],
   ['v', '命令'],

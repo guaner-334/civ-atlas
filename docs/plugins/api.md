@@ -180,7 +180,7 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 
 返回 `{ applied, skipped, marks }`:`applied` 照办了几条,`skipped` 本来就是这样、没变的几条,`marks` 新加的标记的编号。
 
-每条是下面三种之一:
+每条是下面五种之一:
 
 **改名** `{ kind: 'name', key, name }`
 
@@ -200,6 +200,26 @@ for (let k = start[i]; k < start[i + 1]; k++) { const j = list[k]; /* j 和 i �
 | `regions` | 几个州的键(`history.regions()` 的 `key`),1–500 个;重复的只存一个 |
 
 `at` 和 `regions` 只给一个。不合规的回 `bad-args`,名字、说明、州数超了回 `limit`,网站不替插件改。一个世界最多 2000 个标记,所有标记一共最多圈 10000 个州。
+
+**改标记** `{ kind: 'markEdit', id, mark: { …要改的字段 } }`
+
+- `id`:标记的编号(`author.marks()` 读到的,或加标记时 `apply` 返回的 `marks`);这个世界里没有这个编号回 `bad-args`
+- `mark`:只写要改的字段,字段和规矩同上;没写的照旧。`note`、`size`、`to` 给 `null` = 去掉(没说明、中号字、一直在)。给了 `at` 就不再圈州,给了 `regions` 就不再是一个点
+- 改完和原来一模一样的算 `skipped`
+
+**删标记** `{ kind: 'markRemove', id }`
+
+- 这个世界里已经没有这个编号的(比如用的人刚删了)算 `skipped`,不报错
+
+能改、能删的是这个世界里的**所有**标记,用的人自己放的也算(和改名一样,哪个名字都能改)。改、删和加一样进一步撤销,提示条上说「插件「XX」改了标记「YY」」「删了 3 个标记」。只想管自己加的标记,把加的时候 `apply` 返回的 `marks` 编号记下来(比如存进 `store.world`),只改、删这几个。
+
+```js
+const { marks: [id] } = await civAtlas.author.apply({ changes: [{ kind: 'mark', mark: { title: '前线', color: 'red', from: 2990, at: [x, y] } }] });
+// ……战线推进了:挪过去、改名
+await civAtlas.author.apply({ changes: [{ kind: 'markEdit', id, mark: { title: '新前线', at: [x2, y2] } }] });
+// 仗打完了
+await civAtlas.author.apply({ changes: [{ kind: 'markRemove', id }] });
+```
 
 **下命令** `{ kind: 'intervention', v: { kind, from, ... } }`
 
@@ -354,10 +374,48 @@ await civAtlas.layer.regions({ id: 'density', title: '各国人口密度', years
 |---|---|
 | `kind` | `point` 一个点 / `label` 一个点加文字 / `line` 一条线(按先后连)/ `area` 圈出几个地块 |
 | `cells` 或 `points` | 位置给地块编号,或世界坐标 `[x0, y0, x1, y1, …]`(`x` 超出 0–`width` 的绕回来,`y` 要在 0–`height` 之间);`area` 只认 `cells` |
-| `text` | 最长 40 个字;`label` 必须有 |
-| `style` | 可选:`color`(`red` / `orange` / `green` / `blue` / `purple` / `teal` / `black` / `white`)、`line`(`solid` / `dashed`)、`size`(`s` / `m` / `l`) |
+| `text` | 最长 40 个字;`label` 必须有。写在白底小牌上:`point`、`label` 的在点右边,`line` 的在线走到一半那一点的下面,`area` 的在圈的地方中间 |
+| `style` | 可选,样子,见下表 |
+| `from`、`to` | 可选:时间轴在这几年里(两头都算)才画这一项,0–65535 的整数年,`to` 不早于 `from`;不给的那一头不限。世界还没有历史时都画 |
 
-`point`、`label` 只能给一个位置,`line` 至少两个,`area` 至少一个。一个标注图层最多 5000 项,地块和点一共最多 200000 个。
+`style` 的字段都可选:
+
+| 字段 | 规矩 |
+|---|---|
+| `color` | `red` / `orange` / `green` / `blue` / `purple` / `teal` / `black` / `white`,或色号 `#rrggbb`。很浅的颜色(白、浅黄这类)描深色的边 |
+| `line` | `solid` / `dashed`:线、圈地块的边是实线还是虚线 |
+| `size` | `s` / `m` / `l`:线的粗细、点和图标的大小三档,不给是 `m` |
+| `width` | 线宽,1–8 像素(可以是小数):线和圈地块的边照它画,不给照 `size` |
+| `arrow` | 线的箭头:`end` 末端一个(按 `cells` / `points` 的先后,最后一个位置那头),`both` 两头各一个。箭头和线一个颜色、外面一道白边,大小跟着线宽 |
+| `icon` | `point`、`label` 配一个网站给的图标:圆底、白图案,圆是 `color` 的颜色;`label` 的字牌写在图标右边。没配的还是圆点 |
+
+`icon` 能写的名字(只加不删、不改名):
+
+| 名字 | 图案 | 名字 | 图案 |
+|---|---|---|---|
+| `castle` | 城堡 | `battle` | 战场(交叉的剑,和地图上战争的记号一样) |
+| `harbor` | 港口 | `flag` | 旗 |
+| `camp` | 营地 | `danger` | 凶险 |
+| `shrine` | 圣地 | `star` | 星 |
+| `ruin` | 古迹 | `circle` | 圆 |
+| `lighthouse` | 灯塔 | `square` | 方 |
+| `bridge` | 桥 | `triangle` | 三角 |
+| `volcano` | 火山 | `diamond` | 菱形 |
+
+```js
+await civAtlas.layer.marks({
+  id: 'march',
+  title: '南征',
+  items: [
+    { kind: 'line', cells: route, style: { color: '#a0521c', width: 6, arrow: 'end' }, from: 2990 },
+    { kind: 'label', cells: [camp], text: '有鹰军营', style: { color: 'purple', icon: 'camp' }, from: 2995, to: 3000 },
+  ],
+});
+```
+
+`point`、`label` 只能给一个位置,`line` 至少两个,`area` 至少一个。一个标注图层最多 5000 项,地块和点一共最多 200000 个。不认得的颜色、图标名,超出范围的线宽、年份回 `bad-args`。
+
+带 `from`、`to` 的项,网站跟着时间轴挑着画,插件不用听 `view.year` 自己重交;导出图片按导出的那一年挑。
 
 ### `layer.remove({ id })` — `layer.cells@1`、`layer.regions@1` 或 `layer.marks@1`
 

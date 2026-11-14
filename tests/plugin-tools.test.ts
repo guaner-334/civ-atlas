@@ -12,7 +12,7 @@ import { boxSize, cellsInBox } from '../src/ui/plugins/tools/BoxPick';
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7, cells: 3000 });
 const civ = generateCiv(world, { endYear: 300 });
 
-const parts = (p: Partial<BatchParts>): BatchParts => ({ names: [], marks: [], commands: 0, ...p });
+const parts = (p: Partial<BatchParts>): BatchParts => ({ names: [], marks: [], edited: [], removed: [], commands: 0, ...p });
 const name = (before: string, after: string) => ({ kind: 'polity' as const, before, after });
 
 describe('插件改了以后提示条怎么说', () => {
@@ -50,6 +50,20 @@ describe('插件改了以后提示条怎么说', () => {
     expect(b.commands).toBe(1);
     expect(keyName(civ, key, 100)).toBeTruthy();
     expect(keyName(civ, 'polity:nope', 100)).toBe('');
+  });
+
+  it('改、删标记:认出来、提示条照「加了」的说法说', () => {
+    const a = { id: 1, title: '奥里卡', color: 'red' as const, from: 0, at: [1, 2] as [number, number] };
+    const b = { id: 2, title: '维雷拉', color: 'blue' as const, from: 0, at: [3, 4] as [number, number] };
+    const before: WorldEdits = { ...EMPTY_EDITS, marks: [a, b] };
+    const after: WorldEdits = { ...EMPTY_EDITS, marks: [{ ...a, to: 500 }] };
+    const got = batchParts(before, after, () => null);
+    expect(got).toMatchObject({ marks: [], edited: ['奥里卡'], removed: ['维雷拉'] });
+    expect(sayBatch('X', parts({ edited: ['奥里卡'] }))).toEqual({ text: '插件「X」改了标记「奥里卡」' });
+    expect(sayBatch('X', parts({ removed: ['a', 'b', 'c', 'd'] }))).toEqual({ text: '插件「X」删了 4 个标记', more: ['a、b，还有 2 个'] });
+    expect(sayBatch('X', parts({ edited: ['a'], removed: ['b', 'c'] }))).toEqual({ text: '插件「X」改了 3 处', more: ['改了 1 个标记、删了 2 个标记'] });
+    expect(sayDone('X', parts({ removed: ['a'], commands: 1 }), ' 1650 年', 0)).toEqual({ text: '插件「X」改了 2 处，已从 1650 年起重新推演', more: ['删了 1 个标记、下了 1 条命令'] });
+    expect(changeText({ kind: 'markEdit' }, 'changes[0].id 不对:这个世界里没有这个标记')).toBe('标记的编号不对:这个世界里没有这个标记');
   });
 });
 

@@ -9,7 +9,7 @@
 | `world.read@1` | `world.*` | 看地图（地形、气候、河流） |
 | `history.read@1` | `history.*` | 看历史（国家、城市、人物、编年史） |
 | `author.read@1` | `author.marks`、`names`、`characters`、`interventions`、`notes` | **看你写的东西（笔记、标记、AI 写的正文）**,显眼 |
-| `author.write@1` | `author.apply` | **会改你写的东西（改国名人名、加标记和批注、下命令）**,显眼;下面网站固定写一行「改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演」 |
+| `author.write@1` | `author.apply` | **会改你写的东西（改国名人名、加改删标记和批注、下命令）**,显眼;下面网站固定写一行「改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演」 |
 | `view.read@1` | `view.get`,事件 `view.year`、`view.select` | 知道你在看哪一年、点了哪里（只在用它的时候） |
 | `input.pick@1` | `pick.cell`、`pick.cells`、`pick.box` | 同上一行 |
 | `ui.panel@1` | `panel.set`、`panel.clear`,事件 `panel.action` | 不单列(哪个插件都能有) |
@@ -62,7 +62,7 @@
 | 点选的提示 | 40 个字 | `limit` |
 | 面板 | 2000 个格子、4000 个字;表格 500 行 × 20 列;套 4 层 | `limit` |
 | 地块图层、按州按年份的图层 | 合起来一个插件 4 个;渐变 2–16 色,分类 1–32 类;按州的份数 × 州数 × 4 字节最多 3.5 MB | `limit` / `bad-args` |
-| 标注图层 | 一个插件 4 个;每个 5000 项、地块和点一共 200000 个;字 40 个 | `limit` |
+| 标注图层 | 一个插件 4 个;每个 5000 项、地块和点一共 200000 个;字 40 个;线宽 1–8 像素 | `limit` / `bad-args` |
 | `store.local` / `store.world` | 64 KB / 1 MB;最多套 32 层 | `limit` |
 | 日志 | 一条 2000 个字 | 只记前 2000 个字,末尾标出截掉了 |
 | 同时没回的调用 | 16 个 | `busy` |
