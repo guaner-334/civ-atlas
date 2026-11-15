@@ -1,6 +1,7 @@
 /**
  * 作品墙、新建世界、回我的世界、按新版另存一份(App 用;生成、打开世界见 ./useWorldLoad.ts):
- *   - 作品墙       去作品墙那一页、打开一个作品(世界作品只是看看、地图作品整屏一颗星球、新建参数作品弹窗)、世界作品「另存一份接着改」
+ *   - 作品墙       去作品墙那一页、打开一个作品(作品墙那一页上开着它的窗;世界作品窗里取完只是看看、地图作品「看看这颗星球」整屏一颗星球)、
+ *                  世界作品「另存一份接着改」
  *   - 新建世界     弹窗、换种子、调参数、起名、创建世界(从此锁住、一直存着)、保存地图;以正在看的世界为底稿新建;
  *                  在一个世界(或只存了地图的那一份)的地图上打造新文明(连同用新版规则另存一份重推);新建卡片左上的返回;
  *                  别人分享的规则「用它新建世界」(新建弹窗,规则选好那一套)
@@ -18,7 +19,7 @@ import type { RuleSet } from '../../gen/civ/ruleSet';
 import { cleanTitle, parseSave, worldKey, type SaveFile, type SaveOrigin } from '../../gen/savefile';
 import { startStepwise } from '../../gen/stepwise';
 import { copyNotes } from '../../ai/library';
-import { fetchWork, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../../account/gallery';
+import { fetchWork, getGallery, isWorkGone, isWorkId, loadGallery, workLink, type GalleryItem, type GalleryWork } from '../../account/gallery';
 import { ServerError, serverBase } from '../../account/server';
 import { startFullView } from '../fullWorldView';
 import type { SharedWorld } from '../fullWorldPull';
@@ -38,7 +39,7 @@ import { workWho } from '../Gallery';
 import { randomSeedValue, type HomeStart } from '../homeStart';
 import { beginImport } from '../ImportImage';
 import { showMapInWorlds } from '../MyWorlds';
-import { navBack, navReplace, navTitle, navTo } from '../nav';
+import { navBack, navReplace, navTitle, navTo, type NavWork } from '../nav';
 import { setNewCivHandler, setOpenWorkHandler, setOpenWorldHandler } from '../newCivAction';
 import { withFileFlow } from '../worldFileLazy';
 import type { NewWorldStart } from '../NewWorldDialog';
@@ -191,12 +192,16 @@ export function useWorldPages(deps: WorldPagesDeps) {
     enterWall({ kind: 'list' }, '');
   };
   /**
-   * 打开作品墙上的一个作品(作品墙上点的、我的世界空页面上的精选、作品的网址):先是一页空白,去服务器取;
-   * 世界作品打开那个世界(只是看看),地图作品整屏一颗星球,新建参数、规则作品在作品墙那一页上打开;撤下了、没有这个编号整页说"已经撤下了"
+   * 打开作品墙上的一个作品(我的世界空页面上的精选、作品的网址、出处、按后退回到开着窗的那一步):作品墙那一页上开着它的窗。
+   * 世界、地图作品列表里有的马上开窗、窗里去取;别的先是一页空白,去服务器取,取到了开窗(新建参数、插件、规则同样在那一页上打开);
+   * 撤下了、没有这个编号整页说"已经撤下了"。
+   * enter = 这一步记着作品打开以后的样子(刷新、前进回到它):取到了直接进世界(下载世界文件)/ 整屏星球,不开窗
    */
-  const openWork = (id: string) => {
-    navTo({ page: 'gallery', id });
-    enterWall({ kind: 'work', id, state: 'loading' }, id);
+  const openWork = (id: string, enter?: NavWork) => {
+    navTo({ page: 'gallery', id, ...(enter ? { work: enter } : {}) });
+    const known = enter || !serverBase() ? undefined : getGallery().list?.works.find((w) => w.id === id);
+    if (known && (known.kind === 'world' || known.kind === 'map')) return enterWall({ kind: 'list', opening: { ...known } }, id);
+    enterWall({ kind: 'work', id, state: 'loading', ...(enter ? { enter } : {}) }, id);
     const my = wallSeq.current;
     if (!isWorkId(id) || !serverBase()) return setWall({ kind: 'work', id, state: 'gone' });
     const failed = (e: unknown) => {
@@ -204,18 +209,20 @@ export function useWorldPages(deps: WorldPagesDeps) {
       clearToast('share');
       const gone = isWorkGone(e);
       const plugin = gone && pluginsUiOn() && e instanceof ServerError && e.data.kind === 'plugin' ? { plugin: typeof e.data.blocked === 'string' ? e.data.blocked : '' } : null;
-      setWall({ kind: 'work', id, state: plugin ?? (gone ? 'gone' : { error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后再试。' : e instanceof Error ? e.message : String(e) }) });
+      const state = plugin ?? (gone ? 'gone' : { error: e instanceof ServerError && e.code === 'network' ? '连不上服务器，请检查网络后再试。' : e instanceof Error ? e.message : String(e) });
+      setWall({ kind: 'work', id, state, ...(enter ? { enter } : {}) });
       // 作品墙上的卡片跟着去掉
       if (gone) loadGallery(true);
     };
     fetchWork(id).then((it) => {
       if (my !== wallSeq.current) return;
       if (it.kind === 'plugin' && !pluginsUiOn()) return failed(new ServerError(200, 'bad-response', '服务器返回的内容看不懂'));
-      if (it.kind === 'world') return it.full ? pullWorkWorld(it, it.full.bytes, my).catch(failed) : openWorkWorld(it);
-      setWall(it.kind === 'map' ? { kind: 'map', work: it } : { kind: 'list', shown: it });
+      if (enter === 'world' && it.kind === 'world') return it.full ? pullWorkWorld(it, it.full.bytes, my).catch(failed) : openWorkWorld(it, undefined, 'replace');
+      if (enter === 'map' && it.kind === 'map') return setWall({ kind: 'map', work: it });
+      setWall({ kind: 'list', shown: it });
     }, failed);
   };
-  /** 世界作品的世界文件:提示条上写取了多少,取完照存的内容打开(同打开带着整个世界的短链接) */
+  /** 刷新回到世界作品的世界:提示条上写取了多少,取完照存的内容打开(同打开带着整个世界的短链接) */
   const pullWorkWorld = async (it: GalleryItem, bytes: number, my: number) => {
     const here = () => my === wallSeq.current;
     const text = `正在打开作品「${it.title || '未命名世界'}」`;
@@ -225,14 +232,18 @@ export function useWorldPages(deps: WorldPagesDeps) {
     });
     if (!here()) return;
     clearToast('share');
-    openWorkWorld({ ...it, save: got.save }, got);
+    openWorkWorld({ ...it, save: got.save }, got, 'replace');
   };
-  /** 打开世界作品:和打开分享链接一样,别人的世界先只是看看,改了才另存进我的世界(出处写作品)。file = 取到的世界文件,照它存的内容打开 */
-  const openWorkWorld = (it: GalleryItem, file?: SharedWorld) => {
+  /**
+   * 打开世界作品:和打开分享链接一样,别人的世界先只是看看,改了才另存进我的世界(出处写作品)。file = 取到的世界文件,照它存的内容打开。
+   * step = 'push':从介绍窗进来,新记一步(网址里还是这个作品,后退回到开着窗的那一步);'replace':刷新回来的,就是这一步
+   */
+  const openWorkWorld = (it: GalleryItem, file: SharedWorld | undefined, step: 'push' | 'replace') => {
     const p = file ?? parseSave(JSON.stringify(it.save ?? null));
     if (!p.ok) return setWall({ kind: 'work', id: it.id, state: { error: briefError(p.error) } });
     const sv = p.save;
     const id = file?.id ?? newWorldId();
+    wallSeq.current++;
     setWall(null);
     setSharedFor(null);
     setWorkFor({ id, work: it });
@@ -254,8 +265,16 @@ export function useWorldPages(deps: WorldPagesDeps) {
         moment: sv.moment ?? null,
         ...(file ? { fullFile: true as const } : {}),
       },
-      'replace',
+      step,
     );
+  };
+  /** 介绍窗里「打开这个世界」:世界文件在窗里取完了(只存了存档的旧作品不用取) */
+  const openWorkFromDialog = (it: GalleryItem, file?: SharedWorld) => openWorkWorld(file ? { ...it, save: file.save } : it, file, 'push');
+  /** 地图作品「看看这颗星球」:用窗里取到的那份,新记一步(网址不变;刷新回到星球、后退回到开着窗的那一步) */
+  const lookPlanet = (it: GalleryItem) => {
+    navTo({ page: 'gallery', id: it.id, work: 'map' });
+    wallSeq.current++;
+    setWall({ kind: 'map', work: it });
   };
   /** 世界作品「另存一份接着改」:存进我的世界(出处已经写着),网址换成它的编号 */
   const keepWork = () => {
@@ -898,6 +917,8 @@ export function useWorldPages(deps: WorldPagesDeps) {
   return {
     showGallery,
     openWork,
+    openWorkFromDialog,
+    lookPlanet,
     keepWork,
     takePresetWork,
     startDraft,

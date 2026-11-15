@@ -59,7 +59,7 @@ import { layerParts } from '../mapLayers';
 import { publishMapCenter, requestMapCenter } from '../mapWrap';
 import { resetMarkUi } from '../markStore';
 import { showMapInWorlds } from '../MyWorlds';
-import { getNav, isNavState, navAdopt, navReplace, navTo, navUrl, startNav, type NavHooks, type NavInfo } from '../nav';
+import { getNav, isNavState, navAdopt, navReplace, navTo, navUrl, startNav, type NavHooks, type NavInfo, type NavWork } from '../nav';
 import { getNewView } from '../newViewStore';
 import { OLD_SITE, OWN_KEY, oldSiteFor, oldSiteNote, openInLatest, openOriginal, plainSave } from '../oldSite';
 import { KEPT_DEVICE, KEPT_DEVICE_FULL, KEPT_FILE, KEPT_LINK, READ_BACK, READ_TROUBLE, fileTrouble, newerNotice, openFailed } from '../openTrouble';
@@ -200,7 +200,9 @@ function genOfText(text: string): number | null {
 /** 浏览器后退记的这一步是哪个画面(nav.ts):我的世界 / 新建(哪颗星球)/ 某个世界 */
 function navInfo(stage: Stage, t: Target | null | undefined): NavInfo {
   if (stage === 'home' || !t) return { page: 'home' };
-  return stage === 'draft' ? { page: 'draft', id: t.id, seed: t.params.seed, title: t.title } : { page: 'world', id: t.id, title: t.title };
+  if (stage === 'draft') return { page: 'draft', id: t.id, seed: t.params.seed, title: t.title };
+  // 作品墙上的世界作品、还没另存:这一步记成作品打开以后的世界(刷新时直接进世界,不先开介绍窗)
+  return { page: 'world', id: t.id, title: t.title, ...(t.kind === 'visit' && t.gallery ? { work: 'world' as const } : {}) };
 }
 
 /** 网址里的看法(画风、图层、投影、中央经线、经纬网、等值线):不算一步,按后退 / 前进时照现在的(nav.ts 的 url) */
@@ -221,7 +223,7 @@ export interface LoadLater {
   /** 回我的世界 */
   showHome: () => void;
   /** 打开作品墙上的一个作品(打开网页时,网址是作品的) */
-  openWork: (id: string) => void;
+  openWork: (id: string, enter?: NavWork) => void;
   /** 分享链接带着"这一刻":App 记下要停到的那一刻(画面出来、重推完以后停过去) */
   holdMoment: (id: string, moment: SaveMoment) => void;
   showHomeRef: Ref<() => void>;
@@ -535,7 +537,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     // 邀请链接(invite=):记下邀请码,从网址里去掉(在记第一步之前去掉,按后退时不会再带回来)
     const invited = takeInviteFromUrl();
     // 浏览器的后退、前进:这一页记成第一步,之后每换一个画面记一步(nav.ts)
-    const stopNav = startNav(wall ? { page: 'gallery', ...(wall.kind === 'work' ? { id: wall.id } : {}) } : navInfo(route.stage, route.target), {
+    const stopNav = startNav(wall ? { page: 'gallery', ...(wall.kind === 'work' ? { id: wall.id, ...(wall.enter ? { work: wall.enter } : {}) } : {}) } : navInfo(route.stage, route.target), {
       route: (to, from, dir) => navRef.current.route(to, from, dir),
       describe: () => navRef.current.describe(),
       settled: () => navRef.current.settled(),
@@ -568,7 +570,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     else if (landing === 'loading') openShortShare(init.shortShare ?? '');
     // 作品墙:网址换成 ?gallery(=编号)的写法(# 后面写的也换过来);带编号的去取那个作品
     else if (wall) {
-      if (wall.kind === 'work') openWork(wall.id);
+      if (wall.kind === 'work') openWork(wall.id, wall.enter);
       else writeGalleryUrl('');
     }
     // 刷新回来的照图新建(new=image)留着,弹窗点了「开始」或「取消」才换掉,再刷新还能回到弹窗
