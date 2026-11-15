@@ -9,7 +9,7 @@ import type { Raster } from '../../../gen/raster';
 import type { World } from '../../../gen/world';
 import type { MarkLayer } from '../../../plugin/check';
 import { cellColors, paintPluginCells, rampRange, type CellPaint } from '../../../render/pluginLayer';
-import { drawPluginMarks } from '../../../render/pluginMarks';
+import { drawPluginMarks, marksTimed } from '../../../render/pluginMarks';
 import type { MapProj } from '../../../render/projection';
 import type { MarkApi } from '../../MarkLayer';
 import { getCivTime, subscribeCivTime } from '../../civView';
@@ -96,8 +96,11 @@ export function CellCanvas({ world, raster, mp }: { world: World; raster: Raster
 
 const markLayersOf = (live: ReadonlyMap<string, { layer: { kind: string } }>): MarkLayer[] => [...live.values()].filter((l) => l.layer.kind === 'marks').map((l) => l.layer as MarkLayer);
 
-/** 标注图层:铺满舞台的一张画布,不接鼠标;地图动了、交来的变了才重画 */
-export function MarksCanvas({ world, api }: { world: World; api: MutableRefObject<MarkApi | null> }) {
+/**
+ * 标注图层:铺满舞台的一张画布,不接鼠标;地图动了、交来的变了、带年份的项碰上时间轴换了年才重画。
+ * end = 历史推到哪年(时间轴没停在哪年时按它挑带年份的项);没有历史 = 都画
+ */
+export function MarksCanvas({ world, api, end }: { world: World; api: MutableRefObject<MarkApi | null>; end?: number }) {
   const live = pluginLayers.use(() => pluginLayers.get().live);
   const ref = useRef<HTMLCanvasElement>(null);
   const has = [...live.values()].some((l) => l.layer.kind === 'marks');
@@ -106,13 +109,15 @@ export function MarksCanvas({ world, api }: { world: World; api: MutableRefObjec
     if (!cv || !has) return;
     const ctx = cv.getContext('2d')!;
     const layers = markLayersOf(live);
+    const timed = marksTimed(layers);
     let sig = '';
     let raf = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const v = api.current?.frame();
       const dpr = window.devicePixelRatio || 1;
-      const now = v ? `${v.sig}|${dpr}` : '';
+      const year = timed && end !== undefined ? Math.floor(Math.min(end, Math.max(0, getCivTime().year ?? end))) : undefined;
+      const now = v ? `${v.sig}|${dpr}|${year}` : '';
       if (now === sig) return;
       sig = now;
       if (!v) return ctx.clearRect(0, 0, cv.width, cv.height);
@@ -133,7 +138,7 @@ export function MarksCanvas({ world, api }: { world: World; api: MutableRefObjec
         ctx.rect(v.win[0], 0, v.win[1] - v.win[0], v.h);
         ctx.clip();
       }
-      drawPluginMarks(ctx, layers, v, world.mesh);
+      drawPluginMarks(ctx, layers, v, world.mesh, year);
       ctx.restore();
     };
     frame();
@@ -141,7 +146,7 @@ export function MarksCanvas({ world, api }: { world: World; api: MutableRefObjec
       cancelAnimationFrame(raf);
       ctx.clearRect(0, 0, cv.width, cv.height);
     };
-  }, [live, has, api, world]);
+  }, [live, has, api, world, end]);
   if (!has) return null;
   return <canvas ref={ref} className="plg-marks" aria-hidden="true" />;
 }

@@ -376,8 +376,8 @@ export const PLUGIN_SAMPLES: readonly PluginSample[] = [
   { name: 'icon-not-png', kind: 'broken', why: 'icon.png 不是 PNG', says: '不是 PNG', build: () => variant((p) => put(p, 'icon.png', text('<svg xmlns="http://www.w3.org/2000/svg"/>'))) },
   { name: 'icon-wrong-size', kind: 'broken', why: 'icon.png 不是 128×128', says: '128×128', build: () => variant((p) => put(p, 'icon.png', iconPng(64))) },
   // 太大的
-  { name: 'too-big', kind: 'broken', why: '整个文件超过 2 MB', says: '插件文件太大', big: true, build: () => variant((p) => put(p, 'main.js', new Uint8Array(PLUGIN_MAX_BYTES).fill(0x20))) },
-  { name: 'code-too-big', kind: 'broken', why: 'main.js 超过 1 MB', says: 'main.js 太大', big: true, build: () => variant((p) => put(p, 'main.js', new Uint8Array(1024 * 1024 + 1).fill(0x20))) },
+  { name: 'too-big', kind: 'broken', why: '整个文件超过 8 MB', says: '插件文件太大', big: true, build: () => variant((p) => put(p, 'main.js', new Uint8Array(PLUGIN_MAX_BYTES).fill(0x20))) },
+  { name: 'code-too-big', kind: 'broken', why: 'main.js 超过 7 MB', says: 'main.js 太大', big: true, build: () => variant((p) => put(p, 'main.js', new Uint8Array(7 * 1024 * 1024 + 1).fill(0x20))) },
   { name: 'readme-too-big', kind: 'broken', why: 'README.md 超过 64 KB', says: 'README.md 太大', big: true, build: () => variant((p) => put(p, 'README.md', new Uint8Array(64 * 1024 + 1).fill(0x20))) },
   { name: 'icon-too-big', kind: 'broken', why: 'icon.png 超过 64 KB', says: 'icon.png 太大', big: true, build: () => variant((p) => put(p, 'icon.png', new Uint8Array(64 * 1024 + 1))) },
   { name: 'manifest-too-big', kind: 'broken', why: '清单超过 64 KB', says: '清单太大', big: true, build: () => variant(({ m }) => void (m.padding = ' '.repeat(64 * 1024))) },

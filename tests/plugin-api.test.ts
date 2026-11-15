@@ -12,7 +12,7 @@ import { ownersAt } from '../src/gen/civ/engine/timeline';
 import { EMPTY_EDITS, resolveKey, type AuthorIntervention, type WorldEdits } from '../src/gen/edits';
 import { checkCaps, PLUGIN_EVENTS, PLUGIN_METHODS } from '../src/plugin/caps';
 import { PLUGIN_CAPS, capRole } from '../src/plugin/pluginCaps';
-import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, PANEL_NODES_MAX } from '../src/plugin/check';
+import { checkCellLayer, checkMarkLayer, checkPanel, checkRegionLayer, panelValue, PluginApiError, LAYERS_MAX, MARK_ITEMS_TOTAL, PANEL_NODES_MAX, PANEL_TEXT_MAX } from '../src/plugin/check';
 import { approxBytes, MESSAGE_MAX_BYTES, PROTOCOL, readFrameMessage, workerSource } from '../src/plugin/protocol';
 import * as read from '../src/plugin/read';
 import type { PluginResponse } from '../src/plugin/protocol';
@@ -212,8 +212,10 @@ describe('面板', () => {
     expect(codeOf(() => checkPanel([{ type: 'number', label: 'x', value: NaN }]))).toBe('bad-args');
     expect(codeOf(() => checkPanel([{ type: 'legend', items: [{ color: 'red', label: 'x' }] }]))).toBe('bad-args');
     expect(codeOf(() => checkPanel(Array(PANEL_NODES_MAX + 1).fill({ type: 'divider' })))).toBe('limit');
-    expect(codeOf(() => checkPanel([{ type: 'text', text: 'x'.repeat(4001) }]))).toBe('limit');
-    expect(codeOf(() => checkPanel(Array(5).fill({ type: 'text', text: 'x'.repeat(900) })))).toBe('limit');
+    expect(PANEL_TEXT_MAX).toBe(20_000);
+    expect(checkPanel([{ type: 'text', text: 'x'.repeat(PANEL_TEXT_MAX) }])).toHaveLength(1);
+    expect(codeOf(() => checkPanel([{ type: 'text', text: 'x'.repeat(PANEL_TEXT_MAX + 1) }]))).toBe('limit');
+    expect(codeOf(() => checkPanel(Array(Math.ceil(PANEL_TEXT_MAX / 900) + 1).fill({ type: 'text', text: 'x'.repeat(900) })))).toBe('limit');
     expect(codeOf(() => checkPanel([{ type: 'table', columns: ['a'], rows: Array(501).fill([1]) }]))).toBe('limit');
     let deep: unknown = [{ type: 'divider' }];
     for (let i = 0; i < 5; i++) deep = [{ type: 'group', children: deep }];
@@ -238,6 +240,105 @@ describe('面板', () => {
     expect(panelValue(p, 'mode', 'a')).toEqual({ id: 'mode', value: 'a' });
     expect(panelValue(p, 'mode', 'z')).toBeNull();
     expect(panelValue(p, 'nope', 1)).toBeNull();
+  });
+
+  const more: unknown[] = [
+    { type: 'input', id: 'q', label: '找国家', placeholder: '输入国名里的几个字' },
+    { type: 'input', id: 'names', label: '只看这几国', value: '甲\r\n乙', multiline: true, max: 100 },
+    { type: 'text', text: ['第一名是', { text: '大昌', to: { key: 'polity:c12#0' } }, ',', { text: '402 年', id: 'y402', to: { year: 402 } }, '立国。'] },
+    { type: 'table', id: 'rank', columns: ['国家', '州'], rows: [['大昌', 3], ['索拉', 1]], to: [{ key: 'polity:c12#0' }, null] },
+    { type: 'list', id: 'events', items: ['一', '二'], to: [{ year: 2999 }, { year: 2998 }] },
+    { type: 'list', items: ['只给 to'], to: [{ key: 'region:c40' }] },
+    {
+      type: 'tabs',
+      id: 'page',
+      value: 1,
+      tabs: [
+        { title: '排行', children: [{ type: 'text', text: 'x' }] },
+        { title: '设置', children: [{ type: 'group', title: '国都标记', children: [{ type: 'color', id: 'col', label: '颜色', value: '#C4372B' }] }] },
+      ],
+    },
+  ];
+
+  it('输入框、链接、能点的行、页签、颜色:合格的留下,没给的字段不补', () => {
+    const p = checkPanel(more);
+    expect(p[0]).toEqual({ type: 'input', id: 'q', label: '找国家', placeholder: '输入国名里的几个字' });
+    expect(p[1]).toEqual({ type: 'input', id: 'names', label: '只看这几国', value: '甲\n乙', multiline: true, max: 100 });
+    expect(p[2]).toEqual({ type: 'text', text: ['第一名是', { text: '大昌', to: { key: 'polity:c12#0' } }, ',', { text: '402 年', id: 'y402', to: { year: 402 } }, '立国。'] });
+    expect(p[3]).toMatchObject({ id: 'rank', to: [{ key: 'polity:c12#0' }, null] });
+    expect(p[5]).toEqual({ type: 'list', items: ['只给 to'], to: [{ key: 'region:c40' }] });
+    expect(p[6]).toMatchObject({ type: 'tabs', id: 'page', value: 1 });
+    expect((p[6] as Extract<PanelNode, { type: 'tabs' }>).tabs[1].children[0]).toEqual({ type: 'group', title: '国都标记', children: [{ type: 'color', id: 'col', label: '颜色', value: '#c4372b' }] });
+    // 单行输入框的值里的换行换成空格
+    expect(checkPanel([{ type: 'input', id: 'a', label: 'x', value: '甲\n乙' }])[0]).toMatchObject({ value: '甲 乙' });
+  });
+
+  it('新格子不合格的报 bad-args,超上限的报 limit', () => {
+    const bads: unknown[] = [
+      { type: 'input', label: 'x' },
+      { type: 'input', id: 'a', label: 'x', multiline: 'yes' },
+      { type: 'input', id: 'a', label: 'x', max: 0 },
+      { type: 'input', id: 'a', label: 'x', max: 1.5 },
+      { type: 'input', id: 'a', label: 'x', value: 3 },
+      { type: 'color', id: 'a', label: 'x', value: 'red' },
+      { type: 'color', id: 'a', label: 'x' },
+      { type: 'text', text: [{ text: '没有 id 也没有 to' }] },
+      { type: 'text', text: [{ text: '', id: 'a' }] },
+      { type: 'text', text: [3] },
+      { type: 'text', text: [{ text: 'x', to: { key: 'person:c1#0' } }] },
+      { type: 'text', text: [{ text: 'x', to: { key: 'polity:c1#0', year: 3 } }] },
+      { type: 'text', text: [{ text: 'x', to: { year: -1 } }] },
+      { type: 'text', text: [{ text: 'x', to: { year: 1.5 } }] },
+      { type: 'table', columns: [], rows: [[1], [2]], to: [null] },
+      { type: 'table', columns: [], rows: [[1]], id: 'a b' },
+      { type: 'list', items: ['a'], to: ['polity:c1#0'] },
+      { type: 'tabs', tabs: [] },
+      { type: 'tabs', tabs: [{ title: '', children: [] }] },
+      { type: 'tabs', tabs: [{ title: 'a', children: [] }], value: 1 },
+      { type: 'tabs', tabs: [{ title: 'a', children: [{ type: 'tabs', tabs: [{ title: 'b', children: [] }] }] }] },
+      { type: 'tabs', tabs: [{ title: 'a', children: [{ type: 'group', children: [{ type: 'tabs', tabs: [{ title: 'b', children: [] }] }] }] }] },
+      { type: 'password', id: 'a', label: '密码' },
+    ];
+    for (const b of bads) expect(codeOf(() => checkPanel([b])), JSON.stringify(b)).toBe('bad-args');
+    // id 和别的控件重了:链接、能点的表格、页签都算
+    expect(codeOf(() => checkPanel([{ type: 'button', id: 'a', label: 'x' }, { type: 'text', text: [{ text: 'y', id: 'a' }] }]))).toBe('bad-args');
+    expect(codeOf(() => checkPanel([{ type: 'button', id: 'a', label: 'x' }, { type: 'list', id: 'a', items: [] }]))).toBe('bad-args');
+    const limits: unknown[] = [
+      { type: 'input', id: 'a', label: 'x', max: 2001 },
+      { type: 'input', id: 'a', label: 'x', value: 'x'.repeat(201) },
+      { type: 'input', id: 'a', label: 'x', max: 5, value: '123456' },
+      { type: 'text', text: Array(201).fill('x') },
+      { type: 'text', text: [{ text: 'x'.repeat(81), id: 'a' }] },
+      { type: 'tabs', tabs: Array(9).fill({ title: 'a', children: [] }) },
+      { type: 'tabs', tabs: [{ title: 'x'.repeat(17), children: [] }] },
+      { type: 'list', items: ['a'], to: Array(501).fill(null) },
+    ];
+    for (const l of limits) expect(codeOf(() => checkPanel([l])), JSON.stringify(l).slice(0, 80)).toBe('limit');
+    // 多行默认 2000 字;输入框的值也算进面板一共 4000 字
+    expect(checkPanel([{ type: 'input', id: 'a', label: 'x', multiline: true, value: 'x'.repeat(2000) }])).toHaveLength(1);
+    expect(codeOf(() => checkPanel([{ type: 'input', id: 'a', label: 'x', multiline: true, value: 'x'.repeat(2001) }]))).toBe('limit');
+    expect(codeOf(() => checkPanel(Array.from({ length: 11 }, (_, i) => i).map((i) => ({ type: 'input', id: `a${i}`, label: 'x', multiline: true, value: 'x'.repeat(2000) }))))).toBe('limit');
+  });
+
+  it('新格子用的人动了以后:值要合那个控件', () => {
+    const p = checkPanel(more) as PanelNode[];
+    expect(panelValue(p, 'q', '塞雷')).toEqual({ id: 'q', value: '塞雷' });
+    expect(panelValue(p, 'q', '塞\n雷‮')).toEqual({ id: 'q', value: '塞 雷' });
+    expect(panelValue(p, 'q', 'x'.repeat(201))).toBeNull();
+    expect(panelValue(p, 'q', 3)).toBeNull();
+    expect(panelValue(p, 'names', '甲\r\n乙')).toEqual({ id: 'names', value: '甲\n乙' });
+    expect(panelValue(p, 'names', 'x'.repeat(101))).toBeNull();
+    expect(panelValue(p, 'y402', 'x')).toEqual({ id: 'y402' });
+    expect(panelValue(p, 'rank', 1)).toEqual({ id: 'rank', value: 1 });
+    expect(panelValue(p, 'rank', 2)).toBeNull();
+    expect(panelValue(p, 'rank', 0.5)).toBeNull();
+    expect(panelValue(p, 'rank', '0')).toBeNull();
+    expect(panelValue(p, 'events', 0)).toEqual({ id: 'events', value: 0 });
+    expect(panelValue(p, 'page', 0)).toEqual({ id: 'page', value: 0 });
+    expect(panelValue(p, 'page', 2)).toBeNull();
+    // 页签里的控件:不管哪一页显示着都找得到
+    expect(panelValue(p, 'col', '#3478D4')).toEqual({ id: 'col', value: '#3478d4' });
+    expect(panelValue(p, 'col', 'blue')).toBeNull();
   });
 });
 
@@ -314,6 +415,37 @@ describe('图层', () => {
     expect(one({ kind: 'circle', cells: [1] })).toBe('bad-args');
     expect(codeOf(() => checkMarkLayer({ id: 'a', title: 'a', items: Array(5001).fill({ kind: 'point', cells: [1] }) }, world))).toBe('limit');
     expect(codeOf(() => checkMarkLayer({ id: 'a', title: 'a', items: Array(5).fill({ kind: 'area', cells: new Int32Array(50_000) }) }, { ...world, cells: 1e6 }))).toBe('limit');
+  });
+
+  it('标注的样子:色号、1–8 像素的线宽、箭头、图标;按年份显隐', () => {
+    const l = checkMarkLayer(
+      {
+        id: 'march',
+        title: '行军',
+        items: [
+          { kind: 'line', cells: [1, 2], style: { color: '#A0521C', width: 7, arrow: 'end' }, from: 2990, to: 3000 },
+          { kind: 'label', cells: [3], text: '军营', style: { color: 'purple', icon: 'camp', size: 'l' }, from: 100 },
+          { kind: 'point', cells: [4], style: { icon: 'battle', width: 1 }, to: 0 },
+        ],
+      },
+      world,
+    );
+    expect(l.items[0]).toMatchObject({ style: { color: '#a0521c', width: 7, arrow: 'end' }, from: 2990, to: 3000 });
+    expect(l.items[1]).toMatchObject({ style: { color: 'purple', icon: 'camp', size: 'l' }, from: 100 });
+    expect(l.items[1].to).toBeUndefined();
+    expect(l.items[2]).toMatchObject({ to: 0 });
+    const one = (it: Record<string, unknown>) => codeOf(() => checkMarkLayer({ id: 'a', title: 'a', items: [{ kind: 'line', cells: [1, 2], ...it }] }, world));
+    for (const style of [{ color: '#fff' }, { color: 'a0521c' }, { width: 0.5 }, { width: 9 }, { width: '3' }, { arrow: 'start' }, { icon: 'mountain' }]) expect(one({ style })).toBe('bad-args');
+    expect(one({ from: 1.5 })).toBe('bad-args');
+    expect(one({ from: -1 })).toBe('bad-args');
+    expect(one({ from: 10, to: 9 })).toBe('bad-args');
+    expect(one({ to: 65536 })).toBe('bad-args');
+  });
+
+  it('图标名字表和画的图案对得上', async () => {
+    const { MARK_ICONS } = await import('../src/plugin/check');
+    const { MARK_ICON_PATHS } = await import('../src/render/markIcons');
+    expect([...Object.keys(MARK_ICON_PATHS), 'battle'].sort()).toEqual([...MARK_ICONS].sort());
   });
 });
 
@@ -491,7 +623,7 @@ vi.mock('../src/plugin/sandbox', () => ({
   },
 }));
 
-const { startPluginHost, PluginRefused, OUT_BYTES_PER_SECOND, LOG_MAX } = await import('../src/plugin/host');
+const { startPluginHost, PluginRefused, OUT_BYTES_PER_SECOND, INFLIGHT_MAX, LOG_MAX } = await import('../src/plugin/host');
 
 async function open(requires: string[], extra: Partial<Parameters<typeof startPluginHost>[0]> = {}) {
   const view: ViewInfo = { year: 100, selected: null, visible: null, layer: 'polities' };
@@ -582,6 +714,21 @@ describe('回调用', () => {
     expect(f.sent.map((s) => (s.res.ok ? 'ok' : s.res.error.code))).toEqual(['unavailable', 'unavailable', 'unavailable', 'unavailable']);
   });
 
+  it('同时最多 64 个调用没回,第 65 个回 busy;回了一个又能调', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const local = { get: async () => (await gate, null), set: () => {} };
+    const { f } = await open(['store.local@1'], { stores: { local } });
+    expect(INFLIGHT_MAX).toBe(64);
+    for (let i = 1; i <= INFLIGHT_MAX + 1; i++) f.opts.onRequest!(i, 'store.local.get', {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent.map((s) => s.id)).toEqual([INFLIGHT_MAX + 1]);
+    expect(f.sent[0].res).toMatchObject({ ok: false, error: { code: 'busy' } });
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.sent.filter((s) => s.res.ok)).toHaveLength(INFLIGHT_MAX);
+  });
+
   it('取数太快回 busy', async () => {
     const { call } = await open(['world.read@1']);
     const fields = ['x', 'y', 'lon', 'lat', 'area', 'elevation', 'temperature', 'precipitation', 'flux', 'seaIce'];
@@ -594,14 +741,16 @@ describe('回调用', () => {
     expect(busy).toBeGreaterThan(0);
   });
 
-  it('面板、图层交给画的那一边;超过 4 个图层回 limit;停了全拿掉', async () => {
+  it('面板、图层交给画的那一边;超过 8 个图层回 limit;停了全拿掉', async () => {
     const { host, call, sink } = await open(['ui.panel@1', 'layer.cells@1', 'layer.marks@1']);
     expect(await call('panel.set', { nodes: [{ type: 'button', id: 'go', label: '开始' }] })).toMatchObject({ ok: true });
     expect(sink.panel).toHaveBeenLastCalledWith([{ type: 'button', id: 'go', label: '开始' }]);
     expect(await call('panel.set', { nodes: [{ type: 'script' }] })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
     const layer = (lid: string) => ({ id: lid, title: lid, values: new Float32Array(world.mesh.n), ramp: { colors: ['#000000', '#ffffff'] } });
-    for (const lid of ['a', 'b', 'c', 'd']) expect(await call('layer.cells', layer(lid))).toMatchObject({ ok: true });
-    expect(await call('layer.cells', layer('e'))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(LAYERS_MAX).toBe(8);
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    for (const lid of ids) expect(await call('layer.cells', layer(lid))).toMatchObject({ ok: true });
+    expect(await call('layer.cells', layer('z'))).toMatchObject({ ok: false, error: { code: 'limit' } });
     expect(await call('layer.cells', layer('a'))).toMatchObject({ ok: true });
     expect(await call('layer.marks', { id: 'a', title: 'a', items: [] })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
     expect(await call('layer.marks', { id: 'm', title: 'm', items: [{ kind: 'point', cells: [0] }] })).toMatchObject({ ok: true });
@@ -610,11 +759,25 @@ describe('回调用', () => {
     sink.layer.mockClear();
     host.stop();
     expect(sink.panel).toHaveBeenLastCalledWith(null);
-    expect(sink.layer.mock.calls.map((c) => c[0]).sort()).toEqual(['a', 'c', 'd', 'm']);
+    expect(sink.layer.mock.calls.map((c) => c[0]).sort()).toEqual([...ids.filter((x) => x !== 'b'), 'm']);
     expect(sink.layer.mock.calls.every((c) => c[1] === null)).toBe(true);
   });
 
-  it('按州按年份的图层:州数、年份照这段历史查;和地块图层合起来最多 4 个;没要能力不能交', async () => {
+  it('标注图层 8 个,合起来最多 20000 项;换掉同一个按新的算', async () => {
+    const { call } = await open(['layer.marks@1']);
+    expect(MARK_ITEMS_TOTAL).toBe(20_000);
+    const marks = (lid: string, n: number) => ({ id: lid, title: lid, items: Array.from({ length: n }, () => ({ kind: 'point', cells: [0] })) });
+    for (const lid of ['a', 'b', 'c', 'd']) expect(await call('layer.marks', marks(lid, 5000))).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('e', 1))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.marks', marks('d', 4000))).toMatchObject({ ok: true });
+    for (const lid of ['e', 'f', 'g', 'h']) expect(await call('layer.marks', marks(lid, 250))).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('h', 251))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.marks', marks('i', 1))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    expect(await call('layer.remove', { id: 'a' })).toMatchObject({ ok: true });
+    expect(await call('layer.marks', marks('i', 5000))).toMatchObject({ ok: true });
+  });
+
+  it('按州按年份的图层:州数、年份照这段历史查;和地块图层合起来最多 8 个;没要能力不能交', async () => {
     const { call, sink } = await open(['layer.cells@1', 'layer.regions@1']);
     const n = civ.regions.count;
     const ramp = { colors: ['#000000', '#ffffff'] };
@@ -622,8 +785,8 @@ describe('回调用', () => {
     expect(await call('layer.regions', regions('r'))).toMatchObject({ ok: true });
     expect(sink.layer).toHaveBeenLastCalledWith('r', expect.objectContaining({ kind: 'regions', years: [0, civ.endYear] }));
     expect(await call('layer.regions', regions('x', [0, civ.endYear + 1]))).toMatchObject({ ok: false, error: { code: 'bad-args' } });
-    for (const lid of ['a', 'b', 'c']) expect(await call('layer.cells', { id: lid, title: lid, values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: true });
-    expect(await call('layer.regions', regions('e'))).toMatchObject({ ok: false, error: { code: 'limit' } });
+    for (const lid of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) expect(await call('layer.cells', { id: lid, title: lid, values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: true });
+    expect(await call('layer.regions', regions('z'))).toMatchObject({ ok: false, error: { code: 'limit' } });
     expect(await call('layer.cells', { id: 'r', title: 'r', values: new Float32Array(world.mesh.n), ramp })).toMatchObject({ ok: false, error: { code: 'bad-args' } });
     const other = await open(['layer.cells@1']);
     expect(await other.call('layer.regions', regions('r'))).toMatchObject({ ok: false, error: { code: 'no-permission' } });
@@ -866,6 +1029,48 @@ describe('改你写的东西', () => {
     expect(planChanges(EMPTY_EDITS, civ, { changes: [{ kind: 'name', key, name: '甲' }] }).result.applied).toBe(1);
   });
 
+  it('改、删已有的标记:给了的字段换掉,null 去掉;找不到的改回 bad-args、删算没变;一样的不算', () => {
+    const rk = regionKey(civ, 3);
+    const e: WorldEdits = {
+      ...EMPTY_EDITS,
+      marks: [
+        { id: 4, title: '旧城', note: '说明', color: 'red', size: 'l', from: 10, to: 900, at: [10, 20] },
+        { id: 7, title: '用的人放的', color: 'blue', from: 0, regions: [rk] },
+      ],
+    };
+    const plan = planChanges(e, null, {
+      changes: [
+        { kind: 'markEdit', id: 4, mark: { title: '新城', note: null, size: null, to: null, regions: [rk] } },
+        { kind: 'markRemove', id: 7 },
+        { kind: 'markRemove', id: 99 },
+        { kind: 'markEdit', id: 4, mark: { title: '新城' } },
+      ],
+    });
+    expect(plan.result).toEqual({ applied: 2, skipped: 2, marks: [] });
+    expect(plan.next.marks).toEqual([{ id: 4, title: '新城', color: 'red', from: 10, regions: [rk] }]);
+    const gone = planChanges(plan.next, null, { changes: [{ kind: 'markRemove', id: 4 }] });
+    expect(gone.next.marks).toBeUndefined();
+    const code = (...changes: unknown[]) => codeOf(() => planChanges(e, null, { changes }));
+    expect(code({ kind: 'markEdit', id: 99, mark: { title: 'x' } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { color: 'pink' } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { from: 1000 } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { at: [1, 1], regions: [rk] } })).toBe('bad-args');
+    expect(code({ kind: 'markEdit', id: 4, mark: { title: 'x'.repeat(MARK_TITLE_MAX + 1) } })).toBe('limit');
+    expect(code({ kind: 'markEdit', id: 4 })).toBe('bad-args');
+    expect(code({ kind: 'markRemove', id: '4' })).toBe('bad-args');
+  });
+
+  it('改、删标记也是整批一步撤销', () => {
+    setEdits({ ...EMPTY_EDITS, marks: [{ id: 1, title: 'a', color: 'red', from: 0, at: [5, 5] }, { id: 2, title: 'b', color: 'red', from: 0, at: [6, 6] }] });
+    const was = getEdits();
+    const plan = planChanges(was, null, { changes: [{ kind: 'markEdit', id: 1, mark: { title: 'A', color: 'teal' } }, { kind: 'markRemove', id: 2 }] });
+    expect(commitPluginEdits(plan.next, plan.keys)).toBeNull();
+    expect(getEdits().marks!.map((m) => m.title)).toEqual(['A']);
+    expect(undoLastEdit()).toBe(true);
+    expect(getEdits().marks).toEqual(was.marks);
+    setEdits(EMPTY_EDITS);
+  });
+
   it('记进网站的修改:整批一步撤销、一步重做', () => {
     setEdits(EMPTY_EDITS);
     const key = pk();
@@ -970,6 +1175,8 @@ describe('插件自己的数据', () => {
     const loop: unknown[] = [];
     loop.push(loop);
     expect(code({ schema: 1, value: loop })).toBe('bad-args');
+    expect(STORE_LOCAL_MAX).toBe(1024 * 1024);
+    expect(code({ schema: 1, value: 'x'.repeat(STORE_LOCAL_MAX / 2 - 1000) })).toBe('no error');
     expect(code({ schema: 1, value: 'x'.repeat(STORE_LOCAL_MAX) })).toBe('limit');
     let deep: unknown = 1;
     for (let i = 0; i < 40; i++) deep = [deep];

@@ -92,7 +92,7 @@ const ability = (c: Civ, k: number) => {
 };
 
 describe('影响口:没有插件接时照原来的算', () => {
-  it('官方登记了十二个口,名字、单位、上下限', () => {
+  it('官方登记的口:名字、单位、上下限(只加不改,新的接在后面)', () => {
     expect(OFFICIAL_INFLUENCES.map((p) => [p.id, p.unit, p.cols ?? 1, p.op, p.min, p.max])).toEqual([
       ['city.capacity', 'region', 1, 'mul', 0.25, 4],
       ['rural.capacity', 'region', 1, 'mul', 0.25, 4],
@@ -106,6 +106,20 @@ describe('影响口:没有插件接时照原来的算', () => {
       ['dynasty.odds', 'polity', 1, 'mul', 0, 4],
       ['plague.odds', 'region', 1, 'mul', 0, 4],
       ['plague.loss', 'region', 1, 'mul', 0.25, 4],
+      ['revolt.odds', 'polity', 1, 'mul', 0, 4],
+      ['collapse.odds', 'polity', 1, 'mul', 0, 4],
+      ['claim.odds', 'polity', 1, 'mul', 0, 4],
+      ['warlord.odds', 'polity', 1, 'mul', 0, 4],
+      ['merge.odds', 'polity', 1, 'mul', 0, 4],
+      ['restore.odds', 'polity', 1, 'mul', 0, 4],
+      ['alliance.odds', 'polity', 1, 'mul', 0, 4],
+      ['submit.odds', 'polity', 1, 'mul', 0, 4],
+      ['defect.odds', 'polity', 1, 'mul', 0, 4],
+      ['treaty.odds', 'polity', 1, 'mul', 0, 4],
+      ['marry.odds', 'polity', 1, 'mul', 0, 4],
+      ['aid.odds', 'polity', 1, 'mul', 0, 4],
+      ['war.length', 'polity', 1, 'mul', 0.25, 4],
+      ['war.goal', 'polity', 1, 'mul', 0.25, 4],
     ]);
   });
 

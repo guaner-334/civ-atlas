@@ -11,6 +11,7 @@
 | [厌战](../../examples/plugins/weariness/) | 有议会的国家开战要先过议会;久攻不下、打得太久的仗,议会遣使议和 | 读口、听史事、小本子、影响口、命令、编年史 |
 | [宗教生效](../../examples/plugins/faith/) | 异教的州难治、难融合,异教邻国更容易开战;圣城被异教国占了就兴兵去夺,同教的小国联手对付异教强邻 | 读口、小本子、随机数、三个影响口、两种命令、编年史 |
 | [魔力](../../examples/plugins/magic/) | 每州一个魔力浓度,从灵脉涌出、向邻州漫开、被人耗掉;魔力浓的州城的人口上限高 | 自己的表、接官方表、图层、影响口、滑条 |
+| [民生与时代](../../examples/plugins/livelihood/) | 粮多的地方人多;技术跟不上的州发展慢;工业时代以后城更大,挨着的荒漠、苔原、冰原有人去占 | 读口、自己的表、接官方表、三个影响口、划州的命令、四个滑条 |
 
 ## 和工具插件有什么不一样
 
@@ -166,12 +167,24 @@ export interface PluginReply {
 | `read.year` | 此刻(年) |
 | `read.regions()` | 州:`count` 个数、`area` 面积(平方公里)、`seat` 治所地块、`biome` 主导地貌、`coastal`(1 = 临海)、`habitability` 宜居分、`neighbors`(州 `r` 的邻州是 `list[start[r] .. start[r + 1])`,含海峡、航线) |
 | `read.owners(field)` | 此刻各州归属,`field` 是 `'polity'`(国)、`'culture'`(民族)、`'faith'`(信仰);没有 = −1 |
-| `read.polities()` | 所有国家(亡了的也在,`ended` 是亡国那年):国都、民族、从哪国分出来、几州、国力、国库、正在和谁打仗、盟国(含作者的干预和插件命令结的盟)、宗主、国教、政体、议政…… |
-| `read.settlements()` | 所有城(毁了的也在):在哪一州、人口(千人)、等级、是不是港口 |
+| `read.polities()` | 所有国家(亡了的也在,`ended` 是亡国那年):国都、民族、从哪国分出来、几州、国力、国库、正在和谁打仗、盟国(含作者的干预和插件命令结的盟)、宗主、国教、政体、议政、朝代和政体分段、议事定下的规矩(征法、分封、军制、官制)、方针…… |
+| `read.settlements()` | 所有城(毁了的也在):在哪一州、人口(千人)、等级、是不是港口、建城时的民族、人口上限 |
 | `read.cultures()` | 所有民族:种类、发源的州、生于哪年、从哪族分出来 |
 | `read.faiths()` | 到此刻有过的信仰:民间信仰 / 大教 / 教派,教派从哪个大教分出来,大教的圣城 |
 | `read.official(name)` | 官方表此刻的值,一州或一国一个数,`name` 见[接官方表](#接官方表) |
 | `read.annals(from, to?)` | `[from, to]` 年里的史事(按发生先后) |
+| `read.sacks(from, to?)` | `[from, to]` 年里城受的灾(按先后):哪座城、洗劫 / 饥荒 / 瘟疫 / 地震水旱 / 大疫以后的凋敝、人口折损几成 |
+| `read.wars()` | 所有战争(打完的也在,下标就是史事里的 `war`):攻方、守方、宣战那年、议和那年、这场仗里易手的州;还在打的另有攻方拿下几州就议和(`goal`)、最多打几年(`length`),插件交给 `war.goal`、`war.length` 的倍数已经乘上 |
+| `read.truces()` | 两国议和以后还在的停战:停战到哪年(这以前两国互不宣战) |
+| `read.grudges()` | 还记着的仇:上一场仗净丢了州的一方记恨赢它的那国,到哪年为止看邻国时更想打它 |
+| `read.handover()` | 各州最近一次换国家:哪年、之前归哪国 |
+| `read.pacts()` | 邦交:结着的盟(自己结的和作者、插件下令结的)、藩属和宗主、还没废的约(此刻还在约里的几国、约满那年、互不侵犯还是有限竞争)、中立地 |
+| `read.rulers()` | 在世的各国此刻在位的那一位:生年、即位那年、倾向;有人掌着实权时掌权的人;在世的儿子(哪个是预定的继承人);他此刻寿终会据地争位的儿子 |
+| `read.trades()` | 还没废的商道:买方、产地、此刻运的货、断着没有、路线 |
+| `read.treks()` | 在路上的大迁徙:哪个民族、路线和到每一州的时刻、此刻走到哪、冲着哪国去 |
+| `read.plague()` | 正在传的那一场瘟疫(没有是 `null`):起疫那年、染过的州、上一年刚染上的州 |
+
+打仗、邦交、在位的君主这几样拿来写判断条件:「打了三年还没打下来就……」读 `read.wars()` 里的 `start` 和 `takes`,「宗主弱了藩属就……」读 `read.pacts().vassals` 再比两国的国力。`read.rulers()` 里的儿子是推演此刻在世的;推演完排人物时有的儿子会战死、在争储里被杀,人物表里的和这里不一定一样。
 
 各字段的意思写在 [`civ-atlas-sim.d.ts`](../../examples/plugins/civ-atlas-sim.d.ts) 的 `SimRead` 那几个类型上;和工具插件读历史的接口同名的字段,意思也一样。
 
@@ -236,7 +249,7 @@ civAtlas.sim({
 
 ## 听史事、写编年史
 
-**听史事**(`sim.read@1`):清单 `sim.listen` 写要听哪几种史事(`war` 宣战、`fall` 亡国、`split` 分裂、`plague` 瘟疫……,种类见 [`civ-atlas-sim.d.ts`](../../examples/plugins/civ-atlas-sim.d.ts) 的 `AnnalKind`,各列的意思见 [`src/gen/civ/annals.ts`](../../src/gen/civ/annals.ts))。每次出手,`turn.heard` 是上次出手以后官方记下的这几种,按发生先后;`a`、`b` 按种类是国、民族或城的编号,`region`、`settlement`、`war` 没有是 −1。最多听 64 种。
+**听史事**(`sim.read@1`):清单 `sim.listen` 写要听哪几种史事(`war` 宣战、`fall` 亡国、`split` 分裂、`plague` 瘟疫……,种类见 [`civ-atlas-sim.d.ts`](../../examples/plugins/civ-atlas-sim.d.ts) 的 `AnnalKind`,各列的意思见 [`src/gen/civ/annals.ts`](../../src/gen/civ/annals.ts))。每次出手,`turn.heard` 是上次出手以后官方记下的这几种,按发生先后;`a`、`b` 按种类是国、民族或城的编号,`region`、`settlement`、`war` 没有是 −1。有由头的另带 `cause`(宣战为什么打、盟约怎么断的……,见 `AnnalCause`),立约、约满、设中立地另带 `ps`(约里的几国)。最多听 64 种。
 
 **写编年史**(`sim.chronicle@1`):回话里的 `chronicle` 是几句话,记在此刻。一句是 `{ text, refs }`:`text` 里用 `{国:a}`、`{州:r}`、`{城:s}`、`{族:c}` 指代,`refs` 给每个指代此刻的编号。存下的是编号,显示时换成名字,所以作者改了国名,编年史跟着变。一句最多 80 个字(不算占位符)、8 个占位符;一个插件在一个世界里最多写 2000 句。
 
@@ -340,6 +353,14 @@ civAtlas.sim({
 | `dev.production`、`dev.transport`、`dev.information`、`dev.administration`、`dev.mobilization` | 州 | 发展度:生产、运输、信息、行政、动员 |
 | `res.grain`、`res.livestock`、`res.copper`、`res.iron`、`res.coal`、`res.timber`、`res.salt`、`res.fish`、`res.oil`、`res.rare`、`res.gold` | 州 | 物产眼下能用多少(0–3 档):粮、牲畜、铜锡、铁、煤、木材、盐、渔获、石油、稀有矿、金银 |
 | `ideology.mandate`、`ideology.law`、`ideology.council`、`ideology.craft`、`ideology.rights`、`ideology.nation`、`ideology.commons` | 州 | 各说的接受度(0–1):天命、律法、共治、技艺、民权、国族、均产 |
+| `ideology.polity.mandate`、`ideology.polity.law`……(后缀同上) | 国 | 各国各说的接受度(0–1,按人口加权) |
+| `strife` | 州 | 兵祸(0–1) |
+| `soil` | 州 | 地力(0–1;收成、能养多少人都乘它) |
+| `era` | 州 | 时代(按四样能力折算;没人住是 0) |
+| `res.base.grain`、`res.base.livestock`……(后缀同 `res.*`) | 州 | 物产的底子(0–3 档) |
+| `res.stock.grain`、`res.stock.livestock`……(后缀同 `res.*`) | 州 | 物产的存量:矿还剩几年的量,林、渔、田、牧还剩几成 |
+| `fiscal.land`、`fiscal.craft`、`fiscal.market`、`fiscal.tax` | 州 | 钱粮:田赋、工商、市税、三样之和 |
+| `fiscal.due`、`fiscal.collected`、`fiscal.treasury`、`fiscal.broke` | 国 | 钱粮:应缴、实收、国库、国用不足(0–1) |
 
 ## 图层
 
@@ -381,6 +402,20 @@ civAtlas.sim({
 | `dynasty.odds` | 国 | 乘 | 0–4 | 改朝换代的几率 |
 | `plague.odds` | 州 | 乘 | 0–4 | 自己起瘟疫的几率 |
 | `plague.loss` | 州 | 乘 | 0.25–4 | 自己起的瘟疫里城死几成 |
+| `revolt.odds` | 国 | 乘 | 0–4 | 饥荒里饥民起事(民变)的几率 |
+| `collapse.odds` | 国 | 乘 | 0–4 | 动荡到顶的大国一下子散成几块(大崩解)的几率;大迁徙打进国都当即崩散的不归它管 |
+| `claim.odds` | 国 | 乘 | 0–4 | 新君即位时宗室起兵争位的几率 |
+| `warlord.odds` | 国 | 乘 | 0–4 | 看内政时管得松的州新起一处割据的几率;议事破裂起的割据不归它管 |
+| `merge.odds` | 国 | 乘 | 0–4 | 小国并入接壤的同族大国的几率,按要并进去的小国 |
+| `restore.odds` | 国 | 乘 | 0–4 | 亡国的遗民在故都起兵复国的几率,按亡了的那一国;起兵自立、大崩解时新国都正好是同族故都的也算复国,不归它管 |
+| `alliance.odds` | 国 | 乘 | 0–4 | 受强邻威胁时找别国结盟的几率,按去结盟的那一国 |
+| `submit.odds` | 国 | 乘 | 0–4 | 受强邻威胁时向它称臣的几率,按称臣的那一国;打输了奉表称臣的不归它管 |
+| `defect.odds` | 国 | 乘 | 0–4 | 藩属自立的几率,按藩属;宗藩之间开战时断的不归它管 |
+| `treaty.odds` | 国 | 乘 | 0–4 | 看邦交时和邻国立约的几率,按提出的那一国;议和、续约不归它管 |
+| `marry.odds` | 国 | 乘 | 0–4 | 看邦交时和别国结亲的几率,按娶亲的那一国(互嫁时对方娶这边宗室女的那一头按对方的数);议和时的和亲不归它管 |
+| `aid.odds` | 国 | 乘 | 0–4 | 盟国被宣战时出兵援盟的几率,按要不要出兵的那一国 |
+| `war.length` | 国 | 乘 | 0.25–4 | 一场仗最多打几年,按攻方;每一仗打完看议不议和时用攻方此刻的数 |
+| `war.goal` | 国 | 乘 | 0.25–4 | 一场仗想拿下几州(拿够了就议和),按攻方,同上;灭国之战、讨伐民变不看目标 |
 
 按国交的数,出手以后才立的国(编号超出交的格数)按不影响算;下次出手 `turn.influence` 交回的格数就跟上了。两国之间的宣战、结盟没有影响口:要指名两国就下命令。
 
@@ -531,7 +566,7 @@ civAtlas.sim({
 
 | 项目 | 上限 | 超了 |
 |---|---|---|
-| 插件文件 | 同工具插件:2 MB;`main.js` 1 MB | 装不上 |
+| 插件文件 | 同工具插件:8 MB;`main.js` 7 MB | 装不上 |
 | 一个世界的推演插件 | 4 个 | 推演开不了 |
 | 一刻里用时 | 一个插件 2 秒(算表、出手、办回话加起来) | 推演停下 |
 | 一段推演里用时 | 所有推演插件加起来 30 秒 | 推演停下(算用得最多的那个) |

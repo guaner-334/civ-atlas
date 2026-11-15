@@ -1,0 +1,30 @@
+{
+  "id": "realm",
+  "name": "国力与疆域",
+  "version": "1.0.0",
+  "role": "sim",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["sim.read@1", "sim.events@1", "sim.state@1", "sim.influence@1", "sim.commands@1"],
+  "why": {
+    "sim.read@1": "看各国的国库、管得到几成、国土的地貌、国都的发展度，谁和谁接壤，游牧国家有哪些城",
+    "sim.influence@1": "亏空久了国力弱、动荡、容易分裂；管不住的地方调不来兵；早年和难走的地方管不远、少开战",
+    "sim.commands@1": "不连本土的小块飞地、细走廊尽头的州划给邻国；游牧国家的国都随王帐迁到别的城"
+  },
+  "sim": {
+    "every": 5,
+    "influences": ["unrest.add", "war.power", "split.odds", "war.odds", "control.reach"],
+    "commands": ["cede", "move"],
+    "params": {
+      "deficit": { "label": "亏空伤国", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "levy": { "label": "控制力", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "terrain": { "label": "管辖难易", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "early": { "label": "早期扩张难", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "tidy": { "label": "飞地整形", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "nomad": { "label": "王帐随行", "min": 0, "max": 3, "default": 1, "step": 0.1 }
+    }
+  },
+  "description": "国力和国土更讲道理：亏空久了伤国，管不住的地方调不来兵，早年和难走的地方管不远，零碎的飞地划给邻国，游牧国家的国都随王帐迁。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

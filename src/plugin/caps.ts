@@ -2,6 +2,7 @@
  * 插件接口的每个调用、每种事件要哪样能力(能力名表在 pluginCaps.ts);开插件时按清单算给了哪些。
  * 纯数据和纯计算,不碰 DOM。
  */
+import { CAP_TIER } from './apiTier';
 import { CAP_NAME, PLUGIN_CAPS } from './pluginCaps';
 import type { CapRef } from './types';
 
@@ -17,6 +18,7 @@ export const PLUGIN_METHODS: Readonly<Record<string, readonly CapRef[]>> = {
   'world.neighbors': ['world.read@1'],
   'world.rivers': ['world.read@1'],
   'world.legend': ['world.read@1'],
+  'world.plates': ['world.read@1'],
   'history.span': ['history.read@1'],
   'history.at': ['history.read@1'],
   'history.polities': ['history.read@1'],
@@ -28,13 +30,25 @@ export const PLUGIN_METHODS: Readonly<Record<string, readonly CapRef[]>> = {
   'history.regions': ['history.read@1'],
   'history.people': ['history.read@1'],
   'history.events': ['history.read@1'],
+  'history.dynasties': ['history.read@1'],
+  'history.treaties': ['history.read@1'],
+  'history.zones': ['history.read@1'],
+  'history.relations': ['history.read@1'],
+  'history.trade': ['history.read@1'],
+  'history.migrations': ['history.read@1'],
+  'history.regionStats': ['history.read@1'],
   'author.marks': ['author.read@1'],
   'author.names': ['author.read@1'],
   'author.characters': ['author.read@1'],
   'author.interventions': ['author.read@1'],
   'author.notes': ['author.read@1'],
+  'author.terrain': ['author.read@1'],
   'author.apply': ['author.write@1'],
   'view.get': ['view.read@1'],
+  'view.seek': ['view.control@1'],
+  'view.fly': ['view.control@1'],
+  'view.highlight': ['view.control@1'],
+  'view.unhighlight': ['view.control@1'],
   'pick.cell': ['input.pick@1'],
   'pick.cells': ['input.pick@1'],
   'pick.box': ['input.pick@1'],
@@ -50,6 +64,8 @@ export const PLUGIN_METHODS: Readonly<Record<string, readonly CapRef[]>> = {
   'store.world.get': ['store.world@1'],
   'store.world.set': ['store.world@1'],
   'store.world.clear': ['store.world@1'],
+  'file.save': ['file.save@1'],
+  'file.open': ['file.open@1'],
 };
 
 /** 网站发给插件的事件要哪样能力 */
@@ -87,6 +103,11 @@ export function checkCaps(requires: unknown, optional?: unknown): CapsCheck {
   if (typeof req === 'string') return { ok: false, kind: 'broken', text: req };
   const opt = read(optional, 'optional');
   if (typeof opt === 'string') return { ok: false, kind: 'broken', text: opt };
-  for (const c of req) if (!PLUGIN_CAPS.has(c)) return { ok: false, kind: 'newer', text: `要更新网站才能用:插件要的 ${c} 这一版网站还没有` };
+  for (const c of req) {
+    if (PLUGIN_CAPS.has(c)) continue;
+    const gone = Object.prototype.hasOwnProperty.call(CAP_TIER, c) ? CAP_TIER[c] : undefined;
+    if (gone?.removed !== undefined) return { ok: false, kind: 'newer', text: `用的实验接口「${gone.label}」，网站已经改掉了，要等作者出新版` };
+    return { ok: false, kind: 'newer', text: `要更新网站才能用:插件要的 ${c} 这一版网站还没有` };
+  }
   return { ok: true, requires: req as CapRef[], optional: opt.filter((c) => PLUGIN_CAPS.has(c)) as CapRef[] };
 }
