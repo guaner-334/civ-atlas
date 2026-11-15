@@ -117,10 +117,11 @@ export const pluginDataPart = (pluginId: string): string => `${PLUGIN_DATA_PREFI
 export const SIM_STATE_PREFIX = 'sim.';
 /**
  * 状态块里能出现新东西(新的影响口、命令种类,放宽的上限)就加一:比软件新的块只当字节留着,老一版不会拿认不得的口名报坏。
- * 每一版都是上一版加东西,老版本的块照旧读。2:又一批按国的影响口(revolt.odds 等);3:又一批按州的(sack.odds 等);4:数据栏(columns)
+ * 每一版都是上一版加东西,老版本的块照旧读。2:又一批按国的影响口(revolt.odds 等);3:又一批按州的(sack.odds 等);4:数据栏(columns);
+ * 5:放宽的上限(表 32 张、小本子 1 MB、一次 256 条命令)
  */
-export const SIM_STATE_SCHEMA = 4;
-/** 一块最多多少字节(解压后):20 万地块的世界约 5000 州,插件 64 栏按州的表每格存三份约 8 MB,留四倍 */
+export const SIM_STATE_SCHEMA = 5;
+/** 一块最多多少字节(解压后):插件 128 栏按州的表,20 万地块、陆地八成(约 2000 州)实测 4.3 MB;按 5000 州、每格存三份约 15 MB,留一倍 */
 export const SIM_STATE_MAX_BYTES = 32 * 1000 * 1000;
 export const simStatePart = (pluginId: string): string => `${SIM_STATE_PREFIX}${pluginId}`;
 
