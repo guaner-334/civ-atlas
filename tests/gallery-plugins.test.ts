@@ -69,6 +69,9 @@ describe('作品墙列表里的插件', () => {
     expect(p.shots).toEqual([7, 2024]);
     expect(p.why).toEqual({ 'world.read@1': '找路' });
     expect(p.author).toBe('青石');
+    expect(p.role).toBe('tool');
+    expect(wallPlugin(plugin({ role: 'map' }))!.role).toBe('map');
+    expect(wallPlugin(plugin({ role: 'nope' }))!.role).toBeUndefined();
     expect(wallPlugin(plugin({ version: '1.2' }))).toBeNull();
     expect(wallPlugin(plugin({ sum: 'abc' }))).toBeNull();
     expect(wallPlugin(null)).toBeNull();
