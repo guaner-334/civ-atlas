@@ -89,7 +89,8 @@ import type { SimPluginsOn } from './simPluginRun';
 import { MapPluginError, timedMapPlugins, type MapFailKind, type MapPlugin, type MapSpent, type MapStage } from './gen/mapHooks';
 
 /** 地图插件长不下去的是哪一种:插件出的错(见 MapFailKind)、这台没有世界记的那一版(missing)、装不上(load) */
-export type MapFailedKind = MapFailKind | 'missing' | 'load';
+/** gone:插件用的实验接口网站拿掉了 */
+export type MapFailedKind = MapFailKind | 'missing' | 'load' | 'gone';
 import { mapPluginKey } from './gen/worldFormat';
 import type { MapPluginFile } from './plugin/pluginWorld';
 import { olderTerrainOf } from './gen/readers/older';
@@ -566,8 +567,8 @@ function planetOffer(world: World, m: CivInput): PlanetValue | null {
 function mapFailure(e: unknown): { plugin: string; stage: MapStage | null; why: string; kind: MapFailedKind; spent?: MapSpent[]; dead: boolean } | null {
   if (e instanceof MapPluginError) return { plugin: e.plugin, stage: e.stage, why: e.why, kind: e.kind, ...(e.spent ? { spent: [...e.spent] } : {}), dead: true };
   if (e instanceof MapsMissing) return { plugin: e.plugin, stage: null, why: e.why, kind: 'missing', dead: false };
-  const x = e as { name?: unknown; plugin?: unknown; why?: unknown } | null;
-  if (x && x.name === 'MapPluginLoadError' && typeof x.plugin === 'string') return { plugin: x.plugin, stage: null, why: String(x.why ?? ''), kind: 'load', dead: false };
+  const x = e as { name?: unknown; plugin?: unknown; why?: unknown; gone?: unknown } | null;
+  if (x && x.name === 'MapPluginLoadError' && typeof x.plugin === 'string') return { plugin: x.plugin, stage: null, why: String(x.why ?? ''), kind: x.gone === true ? 'gone' : 'load', dead: false };
   return null;
 }
 

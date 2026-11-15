@@ -29,6 +29,7 @@ export const CAP_LABEL: Readonly<Record<string, string>> = {
   authorRead: '看你写的',
   authorWrite: '改你写的',
   view: '看你点了哪',
+  viewSteer: '翻年份移地图',
   layer: '加图层',
   storeWorld: '存进世界',
   sim: '推演里加数',

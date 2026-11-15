@@ -29,9 +29,11 @@ import { toolCard, toolCellPick, toolRunning, type ToolsProps } from '../toolsSt
 import { verdictOf } from '../verdict';
 import { askingWorldStore } from '../worldPlugins';
 import { batchParts, keyName, refusalOf, sayBatch, sayBusy, sayDone, type Refusal } from './toolSay';
+import { toolSteer } from './toolSteer';
 
 /** 停下的原因:slow 没反应(几秒);crashed 出错(site = 网站查到的,不是插件自己报的);blocked 网站停用了 */
-export type ToolTrouble = { kind: 'slow'; secs: number } | { kind: 'crashed'; text: string; site?: boolean } | { kind: 'blocked'; why: string; day: string };
+/** gone:用的实验接口网站拿掉了(what = 那个接口给人看的名字) */
+export type ToolTrouble = { kind: 'slow'; secs: number } | { kind: 'crashed'; text: string; site?: boolean } | { kind: 'blocked'; why: string; day: string } | { kind: 'gone'; what: string };
 
 /** 插件请用的人在地图上点:一处 / 框一片 */
 export interface ToolPick {
@@ -151,6 +153,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
       pick: (req, signal) => (live() ? askPick(my, req, signal) : Promise.resolve(null)),
       // 开到一半关掉了(插件顶层代码排着的调用开好以后才发出来):不再照它改
       commit: (next, keys) => (live() ? commitBatch(name, next, keys, asked, env) : '插件已经停了'),
+      ...toolSteer(live),
     };
     const h = await startPluginHost({
       plugin: opened.manifest,
@@ -191,6 +194,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
     void watch(my, h);
   } catch (e) {
     if (!live() || toolRun.get()?.phase === 'stopped') return;
+    if (e instanceof PluginFileError && e.kind === 'newer' && e.gone) return patch(my, { phase: 'stopped', trouble: { kind: 'gone', what: e.gone } });
     const text = e instanceof PluginFileError && e.kind === 'newer' ? '它要用到这一版网站还没有的东西' : e instanceof Error && e.name === 'PluginRefused' ? e.message : '没能打开它';
     patch(my, { phase: 'stopped', trouble: { kind: 'crashed', site: true, text } });
   }
@@ -199,6 +203,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
 /** 开发者模式载入的插件接到插件卡和点选上:开它之前调,拿到给沙箱的点选和面板;开好了 attach,停了 stopped(停下的原因;我们自己叫停的 = null) */
 export interface DevTool {
   pick: NonNullable<PluginSource['pick']>;
+  steer: ReturnType<typeof toolSteer>;
   panel: NonNullable<PluginSink['panel']>;
   attach(h: PluginHost): void;
   stopped(reason: string, detail: string): void;
@@ -213,6 +218,7 @@ export function beginDevTool(opened: OpenedPlugin, again: () => void): DevTool {
   const live = () => my === seq;
   return {
     pick: (req, signal) => (live() ? askPick(my, req, signal) : Promise.resolve(null)),
+    steer: toolSteer(live),
     panel: (nodes) => patch(my, { panel: nodes }),
     attach: (h) => {
       if (!live()) return;

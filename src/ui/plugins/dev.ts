@@ -232,7 +232,7 @@ const loadTools = () => {
 
 function source(r: number, tool: DevTool | null): PluginSource {
   return {
-    ...(tool ? { pick: tool.pick } : {}),
+    ...(tool ? { pick: tool.pick, ...tool.steer } : {}),
     world: () => pluginWorld.world,
     civ: () => pluginWorld.civ,
     edits: () => getEdits(),
