@@ -229,7 +229,7 @@ function readPluginMessage(m: unknown): PluginMessage | null {
 }
 
 /** 插件一秒最多发几条话,多了停掉 */
-export const MESSAGES_PER_SECOND = 200;
+export const MESSAGES_PER_SECOND = 500;
 /** 插件发来的一条话最大多少字节(估的),大了停掉 */
 export const MESSAGE_MAX_BYTES = 4 * 1024 * 1024;
 const INDEX = /^(0|[1-9]\d*)$/;

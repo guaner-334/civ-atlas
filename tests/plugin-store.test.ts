@@ -225,6 +225,9 @@ describe('插件仓库:插件自己的设置', () => {
     expect(await localDataStore.get('route-measure')).toBeNull();
     await localDataStore.set('route-measure', { schema: 2, value: { unit: '里' } });
     expect(await localDataStore.get('route-measure')).toEqual({ schema: 2, value: { unit: '里' } });
+    expect(PLUGIN_LOCAL_MAX_BYTES).toBe(1024 * 1024);
+    await localDataStore.set('route-measure', { schema: 3, value: new Uint8Array(1000 * 1000).fill(7) });
+    expect(((await localDataStore.get('route-measure'))!.value as Uint8Array).length).toBe(1000 * 1000);
     const err = await Promise.resolve(localDataStore.set('route-measure', { schema: 1, value: new Uint8Array(PLUGIN_LOCAL_MAX_BYTES) })).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PluginApiError);
     expect((err as PluginApiError).code).toBe('limit');

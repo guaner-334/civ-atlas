@@ -12,7 +12,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../../../src/gen/worl
 import { PLUGIN_METHODS } from '../../../src/plugin/caps';
 import type { CellLayer, MarkLayer, RegionLayer } from '../../../src/plugin/check';
 import { PluginRefused, startPluginHost, type PickAnswer } from '../../../src/plugin/host';
-import { frameCsp, SANDBOX_FLAGS } from '../../../src/plugin/protocol';
+import { frameCsp, MESSAGES_PER_SECOND, SANDBOX_FLAGS } from '../../../src/plugin/protocol';
 import { SandboxStopped, startPluginSandbox, type PluginSandbox, type StopReason } from '../../../src/plugin/sandbox';
 import type { PanelNode, ViewInfo } from '../../../src/plugin/types';
 
@@ -271,6 +271,7 @@ async function api(code: string, requires: string[]) {
   const sink = { panels: [] as (number | null)[], layers: [] as [string, string | null][], logs: [] as string[] };
   let edits: WorldEdits = { ...EMPTY_EDITS, names: { 'polity:c1#0': '甲' }, marks: [{ id: 1, title: '故乡', color: 'red', from: 0, at: [10, 20] }] };
   const commits: { names: number; marks: string[]; interventions: number }[] = [];
+  const files: { saved: [string, string, number, boolean][]; opened: unknown[] } = { saved: [], opened: [] };
   let stopped: string | null = null;
   let finish: (v: unknown) => void = () => {};
   const done = new Promise((r) => (finish = r));
@@ -302,6 +303,8 @@ async function api(code: string, requires: string[]) {
         view: () => view,
         watchView: (fn) => (watchers.add(fn), () => watchers.delete(fn)),
         pick: async (req) => (req.kind === 'cell' ? { cell: 5 } : req.kind === 'cells' ? { cells: [1, 2, 3] } : { x0: 0, y0: 0, x1: 10, y1: 10, cells: [7, 8] }),
+        saveFile: async (f) => (files.saved.push([f.name, f.mime, f.bytes.length, f.replaced]), true),
+        openFile: async (req) => (files.opened.push(req), { name: '排行.csv', bytes: new TextEncoder().encode('国,州\n甲,3') }),
         commit: (next) => {
           edits = next;
           commits.push({ names: Object.keys(next.names).length, marks: (next.marks ?? []).map((m) => m.title), interventions: next.interventions.length });
@@ -334,6 +337,7 @@ async function api(code: string, requires: string[]) {
     ms: Math.round(performance.now() - t0),
     sink,
     commits,
+    files,
     worldIntact: world.elevation.length === world.mesh.n && total(world.elevation) === elevBefore,
     expect: { cells: world.mesh.n, elev: elevBefore, ownedPolities: owned.size, rivers: world.rivers.length },
     frames: document.querySelectorAll('iframe').length,
@@ -356,7 +360,7 @@ const NOTHING = `(async () => {
 
 /** 越界就停的几种:结果是停的原因 */
 const apiStops = {
-  flood: () => api("for (let i = 0; i < 400; i++) civAtlas.log('x');", []),
+  flood: () => api(`for (let i = 0; i < ${MESSAGES_PER_SECOND * 2}; i++) civAtlas.log('x');`, []),
   oversize: () => api("civAtlas.post('x'.repeat(3000000));", []),
   badCall: () => api("setTimeout(() => postMessage({ v: 1, kind: 'req', id: 1, call: 'no good' }), 50);", []),
   forgedRes: () => api("setTimeout(() => postMessage({ v: 1, kind: 'res', id: 1, ok: true, data: 1 }), 50);", []),

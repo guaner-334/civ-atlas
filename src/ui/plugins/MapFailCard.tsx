@@ -12,6 +12,7 @@ import type { MapFail } from '../world/mapFail';
 import './mapFail.css';
 
 const stageText = (s: string | null) => (s ? (MAP_STAGE_TEXT[s] ?? s) : '');
+const GONE_TAIL = '更新网站没有用。';
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)} 秒`;
 
 /** 「复制给作者」:插件名、第几版、文件指纹、种子和滑条、哪一步、那句错 */
@@ -66,6 +67,13 @@ export function MapFailCard({ f, onDrop, onPick }: { f: MapFail; onDrop: () => v
           {at}算了 5 秒还没算完，停下了。
         </p>
         <p className="sm">在这台设备上它太慢。换台快一点的设备再试，或者不带它接着建。</p>
+      </>
+    );
+  } else if (f.kind === 'gone') {
+    body = (
+      <>
+        <p>{f.why.replace(GONE_TAIL, '')}</p>
+        <p className="sm">{GONE_TAIL}</p>
       </>
     );
   } else if (f.kind === 'missing' || f.kind === 'load') {
