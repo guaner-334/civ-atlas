@@ -74,13 +74,13 @@ describe('开发者模式的试生成', () => {
   }, 120_000);
 
   it('插件打的日志带是哪一步;交回超出范围的,网站记一条压回去了', async () => {
-    const f = await mapFile('tall', ['height'], ['gen.height@1'], "civAtlas.map({ height(d) { console.log('抬高三块'); const e = Array.from(d.elevation); e[0] = 20000; e[1] = 30000; e[2] = -20000; return { elevation: e }; } });");
+    const f = await mapFile('tall', ['height'], ['gen.height@1'], "civAtlas.map({ height(d) { console.log('抬高三块'); const e = Array.from(d.elevation); e[0] = 25000; e[1] = 30000; e[2] = -20000; return { elevation: e }; } });");
     const run = await devGen({ params: P, files: [f] }, box);
     expect(run.result.error).toBeNull();
     expect(run.result.steps).toEqual([{ id: 'tall', stage: 'height', ms: expect.any(Number), changed: 3 }]);
     expect(run.result.logs).toEqual([
       { stage: 'height', level: 'info', plugin: 'tall', text: '抬高三块' },
-      { stage: 'height', level: 'site', plugin: 'tall', text: '交回的海拔有 2 块高过 9000 米，压回 9000 米' },
+      { stage: 'height', level: 'site', plugin: 'tall', text: '交回的海拔有 2 块高过 20000 米，压回 20000 米' },
       { stage: 'height', level: 'site', plugin: 'tall', text: '交回的海拔有 1 块低过 -11000 米，压回 -11000 米' },
     ]);
   }, 60_000);

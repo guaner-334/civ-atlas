@@ -102,4 +102,44 @@ describe('数据图层图例', () => {
   it('只有连续色阶算"地图上能画"', () => {
     for (const { id } of LAYERS) expect(isGradientLegend(id)).toBe(GRADIENT.includes(id));
   });
+
+  it('世界真有超出普通世界那截的值时才多画延伸段;湖底或水面不算陆地高山', () => {
+    const normal = {
+      elevation: new Float32Array([8000, -5000]),
+      water: new Uint8Array([0, 1]),
+      temperature: new Float32Array([-65, 30]),
+      precipitation: new Float32Array([25000, 800]),
+    };
+    for (const id of GRADIENT) {
+      const a = dataLegend(id);
+      const b = dataLegend(id, normal);
+      expect(a.kind === 'gradient' && a.extra).toBeUndefined();
+      expect(b.kind === 'gradient' && b.extra).toBeUndefined();
+    }
+
+    const lakeHigh = { ...normal, elevation: new Float32Array([15000, 500]), water: new Uint8Array([2, 0]) };
+    const dlLake = dataLegend('elevation', lakeHigh);
+    expect(dlLake.kind === 'gradient' && dlLake.extra).toBeUndefined();
+
+    const extreme = {
+      elevation: new Float32Array([15000, -5000]),
+      water: new Uint8Array([0, 1]),
+      temperature: new Float32Array([-90, 20]),
+      precipitation: new Float32Array([80000, 1000]),
+    };
+    const elev = dataLegend('elevation', extreme);
+    expect(elev.kind === 'gradient' && elev.extra).toMatchObject({ side: 'high', label: '12,000 ~ 20,000' });
+    expect(dataLegendText('elevation', extreme)).toContain('≈');
+    expect(dataLegendText('elevation', extreme)).toContain('12,000 ~ 20,000');
+
+    const temp = dataLegend('temperature', extreme);
+    expect(temp.kind === 'gradient' && temp.extra).toMatchObject({ side: 'low', label: '-120 ~ -82' });
+    expect(dataLegendText('temperature', extreme)).toContain('≈');
+    expect(dataLegendText('temperature', extreme)).toContain('-120 ~ -82');
+
+    const precip = dataLegend('precipitation', extreme);
+    expect(precip.kind === 'gradient' && precip.extra).toMatchObject({ side: 'high', label: '70,000 ~ 100,000' });
+    expect(dataLegendText('precipitation', extreme)).toContain('≈');
+    expect(dataLegendText('precipitation', extreme)).toContain('70,000 ~ 100,000');
+  });
 });

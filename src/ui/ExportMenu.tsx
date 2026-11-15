@@ -505,7 +505,7 @@ export function ExportMenu({ data, civ: shown, plain, style, layer, look = 'clas
       } else {
         if (!ok || !civ) throw new Error('文明还没推演完');
         const name = `${base}-${fileYear}-图例${x2}.png`;
-        const cv = await drawLegend({ civ, style, year: y, show, seed: seedN, layer, era }, scale);
+        const cv = await drawLegend({ civ, world, style, year: y, show, seed: seedN, layer, era }, scale);
         const blob = await toBlob(cv);
         download(blob, name);
         dbg = { job, name, bytes: blob.size, w: cv.width, h: cv.height, ms: performance.now() - t0 };

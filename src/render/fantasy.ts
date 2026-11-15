@@ -4379,7 +4379,7 @@ export function planGlyphs(world: World, metric?: GlyphMetric): Plan {
   }
 
   const base = baseLevel(world, e0, land, 40);
-  const maxE = Math.max(1, maxElevation);
+  const maxE = Math.max(1, world.terrainPeak ?? maxElevation);
   const mtnMin = Math.max(900, maxE * 0.16);
   const mtnBase = mtnMin * 0.8;
   const ridgeMin = Math.max(70, maxE * 0.022);

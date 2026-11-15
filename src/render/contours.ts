@@ -37,7 +37,7 @@ export interface ContourSet {
 export const CONTOUR_SPEC: Record<ContourKind, { name: string; levels: number[]; major: (v: number) => boolean; fmt: (v: number) => string; unit: string }> = {
   elev: {
     name: '等高线',
-    levels: range(250, 9000, 250),
+    levels: range(250, 20000, 250),
     major: (v) => v % 1000 === 0,
     fmt: (v) => String(v),
     unit: '米',

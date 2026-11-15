@@ -87,6 +87,30 @@ describe('等值线', () => {
     expect(contourShown('temp', 5, 1)).toBe(true);
   });
 
+  it('等高线规定到 20000 米;山高过 9000 米时 9000 米以上照画,整千是粗线', () => {
+    expect(CONTOUR_SPEC.elev.levels.at(-1)).toBe(20000);
+    let cx = -1;
+    let cy = -1;
+    for (let y = 40; y < r.h - 40 && cx < 0; y++)
+      for (let x = 40; x < r.w - 40; x++)
+        if (r.water[y * r.w + x] === 0) {
+          cx = x;
+          cy = y;
+          break;
+        }
+    const elev = r.elev.slice();
+    for (let dy = -50; dy <= 50; dy++)
+      for (let dx = -50; dx <= 50; dx++) {
+        const d = Math.hypot(dx, dy);
+        if (d < 50) elev[(cy + dy) * r.w + (cx + dx)] = Math.max(elev[(cy + dy) * r.w + (cx + dx)], d <= 15 ? 15000 : 15000 * (1 - (d - 15) / 35));
+      }
+    const set = computeContours({ ...r, elev }, 'elev', world.width);
+    const high = set.lines.filter((l) => l.level > 9000);
+    expect(high.length).toBeGreaterThan(10);
+    expect(high.some((l) => l.level === 10000 && l.major)).toBe(true);
+    expect(high.some((l) => l.level === 14750 && !l.major)).toBe(true);
+  });
+
   it('存档的视图记着叠的是哪种线;认不出的当没记;有一份没记就不比', () => {
     expect(cleanView({ projection: 'equirect', center: 0, contours: 'temp' })).toEqual({ projection: 'equirect', center: 0, contours: 'temp' });
     expect(cleanView({ projection: 'equirect', center: 0, contours: '' })).toEqual({ projection: 'equirect', center: 0, contours: '' });

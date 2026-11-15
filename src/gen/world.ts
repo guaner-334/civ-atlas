@@ -116,11 +116,10 @@ export interface World {
   rivers: River[];
   /** 侵蚀过程快照(米),用于"看世界长出来"回放 */
   history: Float32Array[];
-  /**
-   * 最高海拔(米),山名、山峰符号的门槛按它定:陆地的最高处;改过地形、画了草图的世界(草图改了板块的除外)
-   * 照没改地形的同一颗星球的,在一处堆高、把最高的山压平都不改别处的门槛
-   */
+  /** 最高海拔(米):陆地的最高处;改过地形、画了草图的世界(草图改了板块的除外)照没改地形的同一颗星球的 */
   maxElevation: number;
+  /** 地图插件改海拔之前的最高峰(米;只在有改海拔的地图插件时记):山名、山峰符号的门槛照它算,不给时照 maxElevation */
+  terrainPeak?: number;
   /** 作者放的火山(阶段 4 改地形):每座的峰顶地块,手绘风画火山符号;没有 = 空 */
   volcanoes: number[];
   /**
@@ -160,6 +159,8 @@ export interface TerrainBase {
    * 不然 = 这一半自己的。改过地形、只用了高度笔的世界的最高海拔(World.maxElevation)照它
    */
   peak: number;
+  /** 地图插件改海拔之前的最高峰(米;只在有改海拔的地图插件时记) */
+  terrainPeak?: number;
   /** 海拔 60 米以上的陆地块数(太大的湖按它定) */
   highLand: number;
   /** 地图插件改海拔时标的:积成的湖再大也不填平(没标 = null) */
@@ -196,6 +197,8 @@ const sameSketchGrid = (a: Sketch | null, b: Sketch | null) =>
 interface Planet {
   refs: number[];
   peak: number;
+  /** 地图插件改海拔之前的最高峰(米;只在有改海拔的地图插件时记) */
+  terrainPeak?: number;
 }
 /** 按参数记最近几颗(planetOf) */
 const planetMemo = new Map<string, Planet>();
@@ -235,7 +238,7 @@ function* planetOf(p: WorldParams, mesh: Mesh, climateP: ClimateParams, plugins:
     planetMemo.delete(key);
   } else {
     const b = yield* growTerrain(p, null, [], climateP, () => {}, key, plugins, mesh);
-    planet = { refs: b.refs, peak: b.peak };
+    planet = { refs: b.refs, peak: b.peak, ...(b.terrainPeak !== undefined ? { terrainPeak: b.terrainPeak } : {}) };
     if (planetMemo.size >= PLANET_MEMO) planetMemo.delete(planetMemo.keys().next().value!);
   }
   planetMemo.set(key, planet);
@@ -478,7 +481,9 @@ function* growTerrain(
     }
   }
   let keepLakes: Uint8Array | null = null;
+  let terrainPeak: number | undefined;
   if (hasStage(plugins, 'height')) {
+    terrainPeak = planet ? planet.terrainPeak : landPeak(land, elevation);
     const before = elevation.slice();
     keepLakes = heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate, (pl, st) => progress(mapStageNote(pl, st), 0.6), {
       tect,
@@ -488,7 +493,7 @@ function* growTerrain(
     addToFrames(history, before, elevation);
   }
   const top = planet ? planet.peak : landPeak(land, elevation);
-  return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, peak: top, highLand, keepLakes, refs };
+  return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, peak: top, ...(terrainPeak !== undefined ? { terrainPeak } : {}), highLand, keepLakes, refs };
 }
 
 /** 照图原样的连续高低:侵蚀完的海拔往图的亮度拉回一半(山脊、河谷留着,高低照图) */
@@ -563,7 +568,7 @@ export function* generateWorldSteps(
   // 没改地形的星球:记下它的"最高峰"(planetOf 要的就是这一份),之后编辑地形涂第一笔不用再生成一遍这颗星球
   if (!sk && !shapes.length && !planetMemo.has(key)) {
     if (planetMemo.size >= PLANET_MEMO) planetMemo.delete(planetMemo.keys().next().value!);
-    planetMemo.set(key, { refs: base.refs, peak: base.peak });
+    planetMemo.set(key, { refs: base.refs, peak: base.peak, ...(base.terrainPeak !== undefined ? { terrainPeak: base.terrainPeak } : {}) });
   }
   const { mesh, touched, highLand, keepLakes } = base;
   const { n } = mesh;
@@ -771,7 +776,7 @@ export function* generateWorldSteps(
   // 湿地:低平、排水差、有水来(本地的水蒸发不完 / 大河漫滩 / 湖边)的陆地块盖成湿地(见 wetland.ts;冰原上没有)
   const wet = wetlandSuitability({ mesh, elevation, water, temperature: clim.temperature, precipitation: clim.precipitation, flux, riverThreshold });
   for (let i = 0; i < n; i++) if (water[i] === 0 && wet[i] >= WETLAND_CUT) biome[i] = Biome.Wetland;
-  // 最高海拔(山名、山峰符号的门槛按它定):改过地形、画了草图的世界(草图改了板块的除外)照没改地形的同一颗星球的
+  // 最高海拔(没带改海拔插件时,山名、山峰符号的门槛也按它定):改过地形、画了草图的世界(草图改了板块的除外)照没改地形的同一颗星球的
   // (TerrainBase.peak;后一半只挖湖、填洼地、把海平面以下的垫平,陆地最高处不变),涂一道高山、放一座大火山、
   // 用高度笔堆高、把最高的山压平都不改远处山名、山峰符号的门槛
   const maxElevation = (ops.length > 0 || sk) && !sk?.plates ? base.peak : landPeak(land, elevation);
@@ -795,6 +800,7 @@ export function* generateWorldSteps(
     rivers,
     history,
     maxElevation,
+    ...(base.terrainPeak !== undefined ? { terrainPeak: base.terrainPeak } : {}),
     volcanoes: ops.length ? volcanoPeaks(mesh, water, elevation, ops) : [],
     ...(ops.length ? { terrain: ops.slice() } : {}),
     ...(sk ? { sketch: sk } : {}),

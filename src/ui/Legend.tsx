@@ -1,17 +1,37 @@
-import { atlasLegend, dataLegend, type BandsLegend, type ClimateLegend, type GradientLegend } from '../render/dataLegend';
+import { useMemo } from 'react';
+import { atlasLegend, dataLegend, type BandsLegend, type ClimateLegend, type GradientLegend, type LegendWorld } from '../render/dataLegend';
 import { contourNote, type ContourKind } from '../render/contours';
 import type { LayerId } from '../render/layers';
 import type { RGB } from '../render/common';
 
 const css = (c: RGB) => `rgb(${c.map(Math.round).join(',')})`;
-
-function Gradient({ spec }: { spec: GradientLegend }) {
-  const { stops, unit, labels } = spec;
+const stopsCss = (stops: [number, RGB][]) => {
   const lo = stops[0][0];
   const hi = stops[stops.length - 1][0];
-  const g = stops.map(([v, c]) => `${css(c)} ${((v - lo) / (hi - lo)) * 100}%`).join(',');
-  return (
-    <div className="gradient">
+  return stops.map(([v, c]) => `${css(c)} ${((v - lo) / (hi - lo)) * 100}%`).join(',');
+};
+
+function Gradient({ spec }: { spec: GradientLegend }) {
+  const { stops, unit, labels, extra } = spec;
+  const lo = stops[0][0];
+  const hi = stops[stops.length - 1][0];
+  const g = stopsCss(stops);
+  if (!extra)
+    return (
+      <div className="gradient">
+        <div className="bar" style={{ background: `linear-gradient(90deg, ${g})` }} />
+        <div className="ticks">
+          {labels.map((l) => (
+            <span key={l} style={{ left: `${((l - lo) / (hi - lo)) * 100}%` }}>
+              {l.toLocaleString()}
+            </span>
+          ))}
+        </div>
+        <div className="unit">{unit}</div>
+      </div>
+    );
+  const mainCol = (
+    <div className="lg-main">
       <div className="bar" style={{ background: `linear-gradient(90deg, ${g})` }} />
       <div className="ticks">
         {labels.map((l) => (
@@ -19,6 +39,34 @@ function Gradient({ spec }: { spec: GradientLegend }) {
             {l.toLocaleString()}
           </span>
         ))}
+      </div>
+    </div>
+  );
+  const extraCol = (
+    <div className="lg-extra">
+      <div className="bar" style={{ background: `linear-gradient(90deg, ${stopsCss(extra.stops)})` }} />
+      <div className="ticks">
+        <span style={{ left: '50%' }}>{extra.label}</span>
+      </div>
+    </div>
+  );
+  const brk = <div className="lg-brk">≈</div>;
+  return (
+    <div className="gradient split">
+      <div className="lg-row">
+        {extra.side === 'low' ? (
+          <>
+            {extraCol}
+            {brk}
+            {mainCol}
+          </>
+        ) : (
+          <>
+            {mainCol}
+            {brk}
+            {extraCol}
+          </>
+        )}
       </div>
       <div className="unit">{unit}</div>
     </div>
@@ -119,7 +167,22 @@ function ContourKey({ kind, ink, zoom }: { kind: ContourKind; ink: string; zoom:
  * 地图左上角的图例:数据图层的色阶 / 色块(layer = null:不是数据图层,只有等值线的说明;'atlas' = 地理图的海拔色标,
  * phone = 手机上缩成一条);开着等值线时下面加一行线的说明(contours = 哪种线,ink = 线的颜色,zoom = 放大倍数)
  */
-export function Legend({ layer, contours = null, ink = '#333', zoom = 1, phone = false }: { layer: LayerId | 'atlas' | null; contours?: ContourKind | null; ink?: string; zoom?: number; phone?: boolean }) {
+export function Legend({
+  layer,
+  world = null,
+  contours = null,
+  ink = '#333',
+  zoom = 1,
+  phone = false,
+}: {
+  layer: LayerId | 'atlas' | null;
+  world?: LegendWorld | null;
+  contours?: ContourKind | null;
+  ink?: string;
+  zoom?: number;
+  phone?: boolean;
+}) {
+  const spec = useMemo(() => (layer && layer !== 'atlas' ? dataLegend(layer, world) : null), [layer, world]);
   const key = contours ? <ContourKey kind={contours} ink={ink} zoom={zoom} /> : null;
   if (!layer)
     return key ? <div className="legend">{key}</div> : null;
@@ -131,14 +194,14 @@ export function Legend({ layer, contours = null, ink = '#333', zoom = 1, phone =
         {key}
       </div>
     );
-  const spec = dataLegend(layer);
+  const d = spec!;
   let body;
-  if (spec.kind === 'climate') body = <ClimateKeys spec={spec} />;
-  else if (spec.kind === 'gradient') body = <Gradient spec={spec} />;
+  if (d.kind === 'climate') body = <ClimateKeys spec={d} />;
+  else if (d.kind === 'gradient') body = <Gradient spec={d} />;
   else
     body = (
       <div className="keys">
-        {spec.keys.map((k) => (
+        {d.keys.map((k) => (
           <span key={k.name}>
             <i style={{ background: css(k.color) }} />
             {k.name}
@@ -147,7 +210,7 @@ export function Legend({ layer, contours = null, ink = '#333', zoom = 1, phone =
       </div>
     );
   return (
-    <div className={`legend${layer === 'climate' ? ' wide' : ''}`}>
+    <div className={`legend${layer === 'climate' ? ' wide' : ''}${phone && d.kind === 'gradient' && d.extra ? ' phone-split' : ''}`}>
       {body}
       {key && <div className="lg-sep" />}
       {key}

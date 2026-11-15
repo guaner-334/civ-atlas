@@ -25,7 +25,7 @@ import type { SurfaceLook } from './surface';
 import { drawFrame, drawPaperVignette, renderFantasy } from './fantasy';
 import { bakedView, wrapOf } from './common';
 import { renderLayer, type LayerId } from './layers';
-import { dataLegend, dataLegendText, isGradientLegend, type DataLegend, type GradientLegend } from './dataLegend';
+import { dataLegend, dataLegendText, isGradientLegend, type DataLegend, type GradientLegend, type LegendWorld } from './dataLegend';
 import { drawCivOverlay, type CivShow, type CivStyle } from './civ/overlay';
 import { RESOURCE_COLORS, drawResourceLayer, resourceTier, type ResourceLook } from './civ/resources';
 import { numLegendRows } from './civ/numLayer';
@@ -395,12 +395,30 @@ export function mapLegendCanvasBoxes(p: Pick<ExportMapParams, 'style' | 'layer' 
  * 只画连续色阶(海拔、气温、降水、洋流);分类图层(板块、生态、气候)的色块图例走单独导出的图例图片。
  * 压在地名上面、作者标记和人物足迹下面;排地名、标记名字、足迹年份时都让开这块(mapLegendCanvasBoxes),标记和足迹的点本身仍画在最上面,不会被色阶盖住。
  */
-export async function drawMapLegend(ctx: CanvasRenderingContext2D, p: Pick<ExportMapParams, 'style' | 'layer' | 'legend'>, S: ExportScale): Promise<boolean> {
+function drawGradientBar(ctx: CanvasRenderingContext2D, stops: GradientLegend['stops'], x: number, y: number, w: number, h: number, r: number): void {
+  const lo = stops[0][0];
+  const hi = stops[stops.length - 1][0];
+  const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+  for (const [v, c] of stops) grad.addColorStop((v - lo) / (hi - lo), `rgb(${c.join(',')})`);
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.clip();
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+}
+
+export async function drawMapLegend(
+  ctx: CanvasRenderingContext2D,
+  p: Pick<ExportMapParams, 'style' | 'layer' | 'legend'> & { world?: LegendWorld | null },
+  S: ExportScale,
+): Promise<boolean> {
   if (p.style !== 'data' || p.legend === false) return false;
   const box = mapLegendBox(p.layer);
   if (!box) return false;
-  const spec = dataLegend(p.layer) as GradientLegend;
-  await ensureFonts('data', dataLegendText(p.layer), 15000);
+  const spec = dataLegend(p.layer, p.world) as GradientLegend;
+  await ensureFonts('data', dataLegendText(p.layer, p.world), 15000);
   const family = familyFor('data');
   const ink = 'rgb(28,30,34)';
   const muted = 'rgba(28,30,34,0.62)';
@@ -432,21 +450,32 @@ export async function drawMapLegend(ctx: CanvasRenderingContext2D, p: Pick<Expor
   const barH = 11 * S;
   const lo = spec.stops[0][0];
   const hi = spec.stops[spec.stops.length - 1][0];
-  const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-  for (const [v, c] of spec.stops) grad.addColorStop((v - lo) / (hi - lo), `rgb(${c.join(',')})`);
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(barX, barY, barW, barH, 2 * S);
-  ctx.clip();
-  ctx.fillStyle = grad;
-  ctx.fillRect(barX, barY, barW, barH);
-  ctx.restore();
   ctx.font = fontCss(family, 500, 11.5 * S);
   ctx.fillStyle = muted;
-  spec.labels.forEach((v, i) => {
-    ctx.textAlign = i === 0 ? 'left' : i === spec.labels.length - 1 ? 'right' : 'center';
-    ctx.fillText(v.toLocaleString(), barX + ((v - lo) / (hi - lo)) * barW, y + 61 * S);
-  });
+  if (!spec.extra) {
+    drawGradientBar(ctx, spec.stops, barX, barY, barW, barH, 2 * S);
+    spec.labels.forEach((v, i) => {
+      ctx.textAlign = i === 0 ? 'left' : i === spec.labels.length - 1 ? 'right' : 'center';
+      ctx.fillText(v.toLocaleString(), barX + ((v - lo) / (hi - lo)) * barW, y + 61 * S);
+    });
+  } else {
+    const brkW = 18 * S;
+    const extraW = 92 * S;
+    const mainW = barW - brkW - extraW;
+    const mainX = spec.extra.side === 'low' ? barX + extraW + brkW : barX;
+    const extraX = spec.extra.side === 'low' ? barX : barX + mainW + brkW;
+    const brkX = spec.extra.side === 'low' ? barX + extraW + brkW / 2 : barX + mainW + brkW / 2;
+    drawGradientBar(ctx, spec.stops, mainX, barY, mainW, barH, 2 * S);
+    drawGradientBar(ctx, spec.extra.stops, extraX, barY, extraW, barH, 2 * S);
+    ctx.textAlign = 'center';
+    ctx.fillText('≈', brkX, barY + barH / 2);
+    spec.labels.forEach((v, i) => {
+      ctx.textAlign = i === 0 ? 'left' : i === spec.labels.length - 1 ? 'right' : 'center';
+      ctx.fillText(v.toLocaleString(), mainX + ((v - lo) / (hi - lo)) * mainW, y + 61 * S);
+    });
+    ctx.textAlign = 'center';
+    ctx.fillText(spec.extra.label, extraX + extraW / 2, y + 61 * S);
+  }
   ctx.restore();
   return true;
 }
@@ -705,6 +734,7 @@ const LEGEND_LOOK: Record<CivStyle, LegendLook> = {
 
 export interface LegendParams {
   civ: Civ;
+  world?: LegendWorld | null;
   style: CivStyle;
   year: Year;
   show: CivShow;
@@ -786,21 +816,32 @@ function drawDataLegendBlock(
     const barH = 14;
     const lo = d.stops[0][0];
     const hi = d.stops[d.stops.length - 1][0];
-    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
-    for (const [v, c] of d.stops) grad.addColorStop((v - lo) / (hi - lo), `rgb(${c.join(',')})`);
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(x, barY, w, barH, 3);
-    ctx.clip();
-    ctx.fillStyle = grad;
-    ctx.fillRect(x, barY, w, barH);
-    ctx.restore();
     ctx.font = fontCss(family, 500, 12);
     ctx.fillStyle = look.muted;
-    d.labels.forEach((v, i) => {
-      ctx.textAlign = i === 0 ? 'left' : i === d.labels.length - 1 ? 'right' : 'center';
-      ctx.fillText(v.toLocaleString(), x + ((v - lo) / (hi - lo)) * w, y + 44);
-    });
+    if (!d.extra) {
+      drawGradientBar(ctx, d.stops, x, barY, w, barH, 3);
+      d.labels.forEach((v, i) => {
+        ctx.textAlign = i === 0 ? 'left' : i === d.labels.length - 1 ? 'right' : 'center';
+        ctx.fillText(v.toLocaleString(), x + ((v - lo) / (hi - lo)) * w, y + 44);
+      });
+    } else {
+      const brkW = 20;
+      const extraW = 108;
+      const mainW = w - brkW - extraW;
+      const mainX = d.extra.side === 'low' ? x + extraW + brkW : x;
+      const extraX = d.extra.side === 'low' ? x : x + mainW + brkW;
+      const brkX = d.extra.side === 'low' ? x + extraW + brkW / 2 : x + mainW + brkW / 2;
+      drawGradientBar(ctx, d.stops, mainX, barY, mainW, barH, 3);
+      drawGradientBar(ctx, d.extra.stops, extraX, barY, extraW, barH, 3);
+      ctx.textAlign = 'center';
+      ctx.fillText('≈', brkX, barY + barH / 2);
+      d.labels.forEach((v, i) => {
+        ctx.textAlign = i === 0 ? 'left' : i === d.labels.length - 1 ? 'right' : 'center';
+        ctx.fillText(v.toLocaleString(), mainX + ((v - lo) / (hi - lo)) * mainW, y + 44);
+      });
+      ctx.textAlign = 'center';
+      ctx.fillText(d.extra.label, extraX + extraW / 2, y + 44);
+    }
     text(d.unit, x, y + 66, 12.5, look.muted);
     return 78;
   }
@@ -868,7 +909,7 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
   const family = familyFor(style);
   const rows = legendRows(civ, y);
   // 数据图层:图例先画这张图层的色阶 / 色块,不再把国家、民族列在头里(除非地图上确实叠了它们)
-  const data = style === 'data' ? dataLegend(p.layer ?? 'biomes') : null;
+  const data = style === 'data' ? dataLegend(p.layer ?? 'biomes', p.world) : null;
   // 数值填色(时代、管辖、思潮,见 civ/numLayers.ts):地图铺的是各州的档(国家只画国界),图例列国家(空心框)和各档;
   // 和地图同一个挑法(思潮在信仰铺着时让给信仰)。思潮看的那一说世上还没有时写一句。物产图层:列物产(不列国家、民族)
   const num = numLayerDrawn(civ, show);
@@ -891,7 +932,7 @@ export async function drawLegend(p: LegendParams, scale: ExportScale): Promise<H
     '图例第年国家民族信仰教派时代管辖思潮物产城镇道路大路小路航线部落地带种子州都还没有' +
     numTitle +
     yearFull(y, p.era) +
-    (data ? dataLegendText(p.layer ?? 'biomes') : '');
+    (data ? dataLegendText(p.layer ?? 'biomes', p.world) : '');
   await ensureFonts(style, allText, 15000);
 
   // ---- 版式(CSS 像素,最后 × S)----

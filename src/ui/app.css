@@ -1435,6 +1435,50 @@ button.primary:hover {
 .gradient {
   width: 300px;
 }
+.gradient.split {
+  width: auto;
+}
+.gradient .lg-row {
+  display: flex;
+  align-items: flex-start;
+}
+.gradient .lg-main {
+  width: 280px;
+}
+.gradient .lg-extra {
+  width: 96px;
+  flex: none;
+}
+.gradient .lg-brk {
+  width: 18px;
+  flex: none;
+  text-align: center;
+  font-size: 11px;
+  line-height: 10px;
+  color: var(--muted);
+}
+.gradient.split .ticks span {
+  white-space: nowrap;
+}
+.legend.phone-split {
+  width: 302px;
+  max-width: 100%;
+  padding: 8px 10px;
+}
+.legend.phone-split .gradient .lg-main {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.legend.phone-split .gradient .lg-brk {
+  width: 14px;
+}
+.legend.phone-split .gradient .lg-extra {
+  width: 82px;
+}
+.legend.phone-split .gradient .ticks {
+  font-size: 9.5px;
+}
 /* 地理图的海拔色标:一档一档的层色(手机上缩成一条,只留几个刻度) */
 .legend.atlas.phone {
   padding: 6px 8px;

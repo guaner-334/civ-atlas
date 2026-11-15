@@ -9,6 +9,7 @@ import { worldCheck } from '../src/gen/savefile';
 import { generateCiv, planetTempo, type Civ } from '../src/gen/civ';
 import { upheavalSteps } from '../src/gen/civ/upheaval';
 import type { TerrainOp } from '../src/gen/edits';
+import { G_MOUNTAIN, planGlyphs } from '../src/render/fantasy';
 import { MAP_LAYERS_MAX as MANIFEST_LAYERS_MAX } from '../src/plugin/pluginMap';
 
 const P = { ...DEFAULT_PARAMS, cells: 6000, seed: 7 };
@@ -116,7 +117,7 @@ describe('改海拔', () => {
     expect({ xyz: w.mesh.xyz, adj: w.mesh.adj, adjStart: w.mesh.adjStart }).toEqual(mesh0);
   });
 
-  it('压到 −11000…9000 米;没给 land 时只翻改过的地块', () => {
+  it('压到 −11000…20000 米;没给 land 时只翻改过的地块', () => {
     const { mesh } = plain7();
     const n = mesh.n;
     const elevation = new Float32Array(n).fill(100);
@@ -128,10 +129,11 @@ describe('改海拔', () => {
       [
         one('height', () => {
           const e = elevation.slice();
-          e[0] = 20000;
+          e[0] = 30000;
           e[1] = 50;
           e[2] = 0;
           e[3] = -20000;
+          e[5] = 15000;
           return { elevation: e };
         }),
       ],
@@ -141,12 +143,64 @@ describe('改海拔', () => {
       land,
       new Int16Array(n),
     );
-    expect([elevation[0], elevation[1], elevation[2], elevation[3], elevation[4]]).toEqual([9000, 50, 0, -11000, -5]);
+    expect([elevation[0], elevation[1], elevation[2], elevation[3], elevation[4], elevation[5]]).toEqual([20000, 50, 0, -11000, -5, 15000]);
     expect([land[0], land[1], land[2], land[3], land[4], land[5]]).toEqual([1, 1, 0, 0, 1, 1]);
     // 给了 land 就照它
     heightHooks([one('height', () => ({ land: new Uint8Array(n) }))], mesh, 7, elevation, land, new Int16Array(n));
     expect(land.every((x) => x === 0)).toBe(true);
-    expect(elevation[0]).toBe(9000);
+    expect(elevation[0]).toBe(20000);
+  });
+
+  it('插件堆高山时:maxElevation 和 map.reads 照堆高后的,山峰符号和山名的门槛照插件改之前的 terrainPeak', () => {
+    const w0 = plain7();
+    expect('terrainPeak' in w0).toBe(false);
+    let seenMax: number | undefined;
+    const dome: MapPlugin = {
+      id: 'dome',
+      key: 'dome@15k',
+      stages: ['height', 'layers'],
+      reads: ['maxElevation'],
+      height(d) {
+        const e = d.elevation.slice();
+        const deg = Math.PI / 180;
+        for (let i = 0; i < d.n; i++) {
+          const c = Math.sin(d.lat[i] * deg) * Math.sin(-10.5 * deg) + Math.cos(d.lat[i] * deg) * Math.cos(-10.5 * deg) * Math.cos((d.lon[i] + 53.2) * deg);
+          const dd = Math.acos(Math.max(-1, Math.min(1, c))) / deg;
+          if (dd < 7) e[i] += (15000 - e[i]) * (dd <= 3 ? 1 : 0.5 * (1 + Math.cos((Math.PI * (dd - 3)) / 4)));
+        }
+        return { elevation: e };
+      },
+      layers(d) {
+        seenMax = d.maxElevation;
+        return undefined;
+      },
+    };
+    const w = generateWorld(P, undefined, undefined, undefined, undefined, [dome]);
+    expect(w.maxElevation).toBe(15000);
+    expect(seenMax).toBe(15000);
+    expect(w.terrainPeak).toBe(w0.maxElevation);
+
+    const deg = Math.PI / 180;
+    const far = (i: number) => {
+      const lat = 90 - (180 * w.mesh.y[i]) / w.mesh.height;
+      const lon = (360 * w.mesh.x[i]) / w.mesh.width - 180;
+      const c = Math.sin(lat * deg) * Math.sin(-10.5 * deg) + Math.cos(lat * deg) * Math.cos(-10.5 * deg) * Math.cos((lon + 53.2) * deg);
+      return Math.acos(Math.max(-1, Math.min(1, c))) / deg > 15;
+    };
+    const m0 = planGlyphs(w0).glyphs.filter((g) => g.kind === G_MOUNTAIN && far(g.cell)).length;
+    const mFixed = planGlyphs(w).glyphs.filter((g) => g.kind === G_MOUNTAIN && far(g.cell)).length;
+    const mUnfixed = planGlyphs({ ...w, terrainPeak: undefined }).glyphs.filter((g) => g.kind === G_MOUNTAIN && far(g.cell)).length;
+    expect(mFixed).toBeGreaterThan(m0 * 0.9);
+    expect(mUnfixed).toBeLessThan(m0 * 0.6);
+
+    const namesFixed = generateCiv(w, { endYear: 60, mapPlugins: [dome] }).places.filter((p) => p.kind === 'mountains').length;
+    const namesUnfixed = generateCiv({ ...w, terrainPeak: undefined }, { endYear: 60, mapPlugins: [dome] }).places.filter((p) => p.kind === 'mountains').length;
+    expect(namesFixed).toBeGreaterThan(namesUnfixed);
+
+    const volcano: TerrainOp = { kind: 'volcano', pts: [1100, 380], r: 22, s: 1 };
+    const edited = generateWorld(P, undefined, [volcano], null, undefined, [dome]);
+    expect(edited.terrainPeak).toBe(w0.maxElevation);
+    expect(edited.maxElevation).toBe(15000);
   });
 
   it('交回坏数、出错:说哪个插件、哪一口', () => {
@@ -232,8 +286,8 @@ describe('改气候', () => {
           if (Math.abs(d.rainSummer[i] - d.rainWinter[i]) > 50) differ++;
         }
         const p = d.precipitation.slice();
-        for (let i = 0; i < d.n; i++) if (d.lat[i] > 0 && d.water[i] === 0) p[i] = 99999;
-        return { temperature: Array.from(d.temperature, (t) => t - 80), precipitation: p };
+        for (let i = 0; i < d.n; i++) if (d.lat[i] > 0 && d.water[i] === 0) p[i] = 200000;
+        return { temperature: Array.from(d.temperature, (t) => t - 110), precipitation: p };
       },
     };
     const a = generateWorld(P, undefined, undefined, undefined, undefined, [cool]);
@@ -242,14 +296,20 @@ describe('改气候', () => {
     expect(a.elevation).toEqual(w0.elevation);
     expect(a.water).toEqual(w0.water);
     let north = 0;
+    let clampedCold = 0;
+    let belowOld = 0;
     for (let i = 0; i < w0.mesh.n; i++) {
-      expect(a.temperature[i]).toBe(Math.fround(Math.max(-70, w0.temperature[i] - 80)));
+      expect(a.temperature[i]).toBe(Math.fround(Math.max(-120, w0.temperature[i] - 110)));
+      if (a.temperature[i] === -120) clampedCold++;
+      if (a.temperature[i] < -70) belowOld++;
       const lat = 90 - (180 * w0.mesh.y[i]) / w0.mesh.height;
       if (lat > 0 && w0.water[i] === 0) {
         north++;
-        expect(a.precipitation[i]).toBe(15000);
+        expect(a.precipitation[i]).toBe(100000);
       } else expect(a.precipitation[i]).toBe(w0.precipitation[i]);
     }
+    expect(clampedCold).toBeGreaterThan(0);
+    expect(belowOld).toBeGreaterThan(100);
     expect(north).toBeGreaterThan(100);
     expect(a.biome).not.toEqual(w0.biome);
     expect(worldCheck(generateWorld(P, undefined, undefined, undefined, undefined, [cool]))).toBe(worldCheck(a));

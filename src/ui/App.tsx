@@ -2901,7 +2901,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
             <div className="corner-tl">
               {workBar}
               <OldSiteBadge />
-              {(style === 'data' || atlasOn || contourOn) && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} phone />}
+              {(style === 'data' || atlasOn || contourOn) && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} world={data?.world} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} phone />}
               {plgLegend && <PluginLegendSlot phone />}
               {ideoLegend && <ThoughtLegend civ={civ!} phone />}
             </div>
@@ -2932,7 +2932,7 @@ function AppBody({ fromHome }: { fromHome?: HomeStart }) {
               {relBack && civ && <RelationBack civ={civ} />}
               {workBar}
               <OldSiteBadge />
-              {(style === 'data' || atlasOn || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
+              {(style === 'data' || atlasOn || contourOn) && !terrainTool.on && <Legend layer={style === 'data' ? layer : atlasOn ? 'atlas' : null} world={data?.world} contours={contourOn ? contourKind : null} ink={contourInkNow} zoom={view.k} />}
               {plgLegend && !terrainTool.on && <PluginLegendSlot phone={false} />}
               {ideoLegend && !terrainTool.on && <ThoughtLegend civ={civ!} />}
             </div>

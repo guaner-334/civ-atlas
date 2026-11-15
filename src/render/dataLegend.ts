@@ -6,11 +6,29 @@
  */
 import { BIOMES } from '../gen/biomes';
 import { CLIMATE_CLASSES } from '../gen/koppen';
-import { CURRENT_RAMP, ELEV_RAMP, PRECIP_RAMP, TEMP_RAMP, type LayerId } from './layers';
+import type { World } from '../gen/world';
+import {
+  CURRENT_RAMP,
+  ELEV_BASE_RAMP,
+  ELEV_EXTRA_RAMP,
+  PRECIP_BASE_RAMP,
+  PRECIP_EXTRA_RAMP,
+  TEMP_BASE_RAMP,
+  TEMP_EXTRA_RAMP,
+  type LayerId,
+} from './layers';
 import type { RGB } from './common';
 import { ATLAS_RIVER, ATLAS_SEA, ATLAS_SEA_EDGES, HYPSO, HYPSO_ARID, HYPSO_EDGES, HYPSO_SNOW, STIPPLE } from './atlasColors';
 
 const hexRGB = (s: string): RGB => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+
+export type LegendWorld = Pick<World, 'elevation' | 'water' | 'temperature' | 'precipitation'>;
+
+export interface GradientExtra {
+  side: 'low' | 'high';
+  stops: [number, RGB][];
+  label: string;
+}
 
 export interface GradientLegend {
   kind: 'gradient';
@@ -20,6 +38,8 @@ export interface GradientLegend {
   labels: number[];
   /** 刻度下面的一行小字:单位 + 读法 */
   unit: string;
+  /** 世界里真有超出普通色阶那一截时,隔「≈」多画的一小截 */
+  extra?: GradientExtra;
 }
 
 export interface KeyItem {
@@ -76,15 +96,57 @@ const PLATE_KEYS: KeyItem[] = [
   { name: '偏暗 = 大洋板块', color: hexRGB('#56687d') },
 ];
 
+function hasElevExtra(w: LegendWorld | null | undefined): boolean {
+  if (!w) return false;
+  const hi = ELEV_EXTRA_RAMP[0][0];
+  for (let i = 0; i < w.elevation.length; i++) if (w.water[i] !== 2 && w.elevation[i] > hi) return true;
+  return false;
+}
+
+function hasTempExtra(w: LegendWorld | null | undefined): boolean {
+  if (!w) return false;
+  const lo = TEMP_EXTRA_RAMP[TEMP_EXTRA_RAMP.length - 1][0];
+  for (let i = 0; i < w.temperature.length; i++) if (w.temperature[i] < lo) return true;
+  return false;
+}
+
+function hasPrecipExtra(w: LegendWorld | null | undefined): boolean {
+  if (!w) return false;
+  const hi = PRECIP_EXTRA_RAMP[0][0];
+  for (let i = 0; i < w.precipitation.length; i++) if (w.precipitation[i] > hi) return true;
+  return false;
+}
+
 /** 某个数据图层的图例内容;连续色阶的 labels 在 stops 的范围内 */
-export function dataLegend(layer: LayerId): DataLegend {
+export function dataLegend(layer: LayerId, world?: LegendWorld | null): DataLegend {
   switch (layer) {
     case 'elevation':
-      return { kind: 'gradient', title: '海拔', stops: ELEV_RAMP, labels: [-4000, 0, 2200, 5500], unit: '海拔 米' };
+      return {
+        kind: 'gradient',
+        title: '海拔',
+        stops: ELEV_BASE_RAMP,
+        labels: [-4000, 0, 2200, 5500],
+        unit: '海拔 米',
+        ...(hasElevExtra(world) ? { extra: { side: 'high', stops: ELEV_EXTRA_RAMP, label: '12,000 ~ 20,000' } } : {}),
+      };
     case 'temperature':
-      return { kind: 'gradient', title: '气温', stops: TEMP_RAMP, labels: [-30, -15, 0, 15, 30], unit: '年均温 °C' };
+      return {
+        kind: 'gradient',
+        title: '气温',
+        stops: TEMP_BASE_RAMP,
+        labels: [-30, -15, 0, 15, 30],
+        unit: '年均温 °C',
+        ...(hasTempExtra(world) ? { extra: { side: 'low', stops: TEMP_EXTRA_RAMP, label: '-120 ~ -82' } } : {}),
+      };
     case 'precipitation':
-      return { kind: 'gradient', title: '降水', stops: PRECIP_RAMP, labels: [0, 600, 1200, 2000, 3200], unit: '年降水 mm · 白箭头 = 盛行风' };
+      return {
+        kind: 'gradient',
+        title: '降水',
+        stops: PRECIP_BASE_RAMP,
+        labels: [0, 600, 1200, 2000, 3200],
+        unit: '年降水 mm · 白箭头 = 盛行风',
+        ...(hasPrecipExtra(world) ? { extra: { side: 'high', stops: PRECIP_EXTRA_RAMP, label: '70,000 ~ 100,000' } } : {}),
+      };
     case 'currents':
       return { kind: 'gradient', title: '洋流', stops: CURRENT_RAMP, labels: [-6, -3, 0, 3, 6], unit: '水温和同纬度比（°C），箭头是洋流方向' };
     case 'plates':
@@ -121,10 +183,10 @@ export function isGradientLegend(layer: LayerId): boolean {
 }
 
 /** 图例里要写的全部字(先加载字体,免得第一张图用后备字体) */
-export function dataLegendText(layer: LayerId): string {
-  const l = dataLegend(layer);
+export function dataLegendText(layer: LayerId, world?: LegendWorld | null): string {
+  const l = dataLegend(layer, world);
   let s = l.title;
-  if (l.kind === 'gradient') s += l.unit + l.labels.join('') + '0123456789.-°C';
+  if (l.kind === 'gradient') s += l.unit + l.labels.join('') + (l.extra ? '≈~,' + l.extra.label : '') + '0123456789.-°C';
   else if (l.kind === 'keys') s += l.keys.map((k) => k.name).join('');
   else s += l.subtitle + l.note + l.groups.map((g) => g.name + g.classes.map((c) => c.code + c.name + c.short).join('')).join('');
   return s;

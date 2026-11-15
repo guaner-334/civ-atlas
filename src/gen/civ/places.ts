@@ -863,7 +863,7 @@ function findSeas(world: World, ctx: Ctx, names: Namers): Place[] {
 function findMountains(world: World, ctx: Ctx, ns: Namers): Place[] {
   const { mesh, water, elevation } = world;
   const n = mesh.n;
-  const maxE = Math.max(1, world.maxElevation);
+  const maxE = Math.max(1, world.terrainPeak ?? world.maxElevation);
   // 门槛和手绘风画山峰符号的门槛相当:画了山的地方就有机会标山名
   const T = Math.max(MOUNTAIN.minElev, maxE * MOUNTAIN.elevFrac);
   const high = new Uint8Array(n);

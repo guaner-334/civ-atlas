@@ -499,6 +499,7 @@ function checkWorldBody(w: Obj, n: number, at: string): void {
   allIn(typed(w.biome, Uint8Array, `${at}的 biome`, n), 0, BIOMES.length, `${at}的 biome`);
   num(w.riverThreshold, `${at}的 riverThreshold`);
   if (Math.abs(num(w.maxElevation, `${at}的 maxElevation`)) > FIELD_RANGE.elevation[1]) broken(`${at}的 maxElevation 超出范围`);
+  if (w.terrainPeak !== undefined && Math.abs(num(w.terrainPeak, `${at}的 terrainPeak`)) > FIELD_RANGE.elevation[1]) broken(`${at}的 terrainPeak 超出范围`);
 
   const tect = obj(w.tect, `${at}的 tect`);
   const plates = int(tect.plateCount, 0, 1 << 15, `${at}的 tect.plateCount`);

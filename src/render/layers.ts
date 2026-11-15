@@ -19,7 +19,7 @@ export const LAYERS: { id: LayerId; name: string }[] = [
   { id: 'climate', name: '气候分类' },
 ];
 
-export const ELEV_RAMP: [number, RGB][] = [
+export const ELEV_BASE_RAMP: [number, RGB][] = [
   [-6000, hexRGB('#08204a')],
   [-2000, hexRGB('#1d4f8f')],
   [-200, hexRGB('#4a8cc7')],
@@ -31,7 +31,21 @@ export const ELEV_RAMP: [number, RGB][] = [
   [3800, hexRGB('#8a6a55')],
   [5500, hexRGB('#f2f0ee')],
 ];
-export const TEMP_RAMP: [number, RGB][] = [
+// 普通世界拉满滑条也到不了 12000 米 / −82 °C / 70000 毫米:从这里往外续色,普通世界一点不变
+export const ELEV_EXTRA_RAMP: [number, RGB][] = [
+  [12000, hexRGB('#f2f0ee')],
+  [13500, hexRGB('#cdbfe9')],
+  [16000, hexRGB('#a08cd6')],
+  [20000, hexRGB('#7458bd')],
+];
+export const ELEV_RAMP: [number, RGB][] = [...ELEV_BASE_RAMP, ...ELEV_EXTRA_RAMP];
+
+export const TEMP_EXTRA_RAMP: [number, RGB][] = [
+  [-120, hexRGB('#f4f1fa')],
+  [-95, hexRGB('#cfc3ea')],
+  [-82, hexRGB('#3b1f8f')],
+];
+export const TEMP_BASE_RAMP: [number, RGB][] = [
   [-30, hexRGB('#3b1f8f')],
   [-15, hexRGB('#3565c9')],
   [-3, hexRGB('#7fc3e6')],
@@ -40,7 +54,9 @@ export const TEMP_RAMP: [number, RGB][] = [
   [22, hexRGB('#f09a42')],
   [30, hexRGB('#c7352b')],
 ];
-export const PRECIP_RAMP: [number, RGB][] = [
+export const TEMP_RAMP: [number, RGB][] = [...TEMP_EXTRA_RAMP, ...TEMP_BASE_RAMP];
+
+export const PRECIP_BASE_RAMP: [number, RGB][] = [
   [0, hexRGB('#8c5a2b')],
   [250, hexRGB('#d8b26a')],
   [600, hexRGB('#e9e39a')],
@@ -48,6 +64,11 @@ export const PRECIP_RAMP: [number, RGB][] = [
   [2000, hexRGB('#2f9a8a')],
   [3200, hexRGB('#1c4f9c')],
 ];
+export const PRECIP_EXTRA_RAMP: [number, RGB][] = [
+  [70000, hexRGB('#1c4f9c')],
+  [100000, hexRGB('#5b2a86')],
+];
+export const PRECIP_RAMP: [number, RGB][] = [...PRECIP_BASE_RAMP, ...PRECIP_EXTRA_RAMP];
 
 /** 洋流图层:海面按水温偏差(和同纬度比,°C)上色,冷蓝暖红 */
 export const CURRENT_RAMP: [number, RGB][] = [

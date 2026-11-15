@@ -96,6 +96,7 @@ describe('真实世界全过', () => {
   it('最小的世界:参数 2000 实际不到 2000 块,不能拦', () => {
     expect(map.mesh.n).toBeLessThan(2000);
     validateWorld(map);
+    validateWorld({ ...map, terrainPeak: 6500 });
   });
 
   it.each(readSamples())('仓库里的样本世界:$title', async (s) => {
@@ -151,6 +152,8 @@ describe('每条规则:地图', () => {
     ['气温太离谱', (w) => (w.temperature[7] = -1e30)],
     ['降水太离谱', (w) => (w.precipitation[7] = 1e30)],
     ['最高海拔太离谱', (w) => (w.maxElevation = 1e30)],
+    ['插件改前的最高峰不是数', (w) => (w.terrainPeak = NaN)],
+    ['插件改前的最高峰太离谱', (w) => (w.terrainPeak = 1e30)],
     ['水域种类认不出', (w) => (w.water[7] = 3)],
     ['地貌种类认不出', (w) => (w.biome[7] = 250)],
     ['数组种类不对', (w) => (w.elevation = new Float64Array(w.mesh.n))],

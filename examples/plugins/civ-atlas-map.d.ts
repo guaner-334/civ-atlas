@@ -184,6 +184,7 @@ export interface HeightInput extends MapShared {
 }
 /** 不给 land:海拔改过的地块高过 0 米是陆地、不高于是海 */
 export interface HeightReply {
+  /** 新海拔(米),压到 −11000–20000 */
   elevation?: ArrayLike<number>;
   land?: ArrayLike<number>;
   /** 1 = 这块积成的湖再大也不填平(标湖里任意一块,整个湖都留着) */
@@ -209,7 +210,9 @@ export interface ClimateInput extends MapShared {
   currentTemp?: Float32Array;
 }
 export interface ClimateReply {
+  /** 年平均气温(°C),压到 −120–60 */
   temperature?: ArrayLike<number>;
+  /** 年降水(毫米),压到 0–100000 */
   precipitation?: ArrayLike<number>;
 }
 
@@ -217,7 +220,7 @@ export interface SeaIceInput extends ClimateInput {
   /** 海冰盖了多少(0–1,只有海上有) */
   seaIce: Float32Array;
 }
-/** 只有海上的算数,陆地、湖上的当 0 */
+/** 只有海上的算数,陆地、湖上的当 0;压到 0–1 */
 export interface SeaIceReply {
   seaIce?: ArrayLike<number>;
 }
@@ -229,7 +232,7 @@ export interface RunoffInput extends SeaIceInput {
   /** 水往哪块流(−1 = 海,或者流不到海) */
   downstream?: Int32Array;
 }
-/** 只有陆地(含湖)上的算数,海上的当 0 */
+/** 只有陆地(含湖)上的算数,海上的当 0;压到 0–20 米 / 年 */
 export interface RunoffReply {
   runoff?: ArrayLike<number>;
 }
@@ -255,7 +258,7 @@ export interface LayersInput extends ClimateInput {
   runoff?: Float32Array;
   /** 湿地适宜度(0–1):陆地上到 0.5 的成了湿地 */
   wetland?: Float32Array;
-  /** 最高海拔(米),山名、山峰符号的门槛按它定;改过地形的世界照没改时的 */
+  /** 最高海拔(米);改过地形的世界照没改时的 */
   maxElevation?: number;
 }
 /** 值是 NaN 的地块不画 */
