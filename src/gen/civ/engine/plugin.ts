@@ -22,13 +22,16 @@ const MAX_TICK = 2 ** 24;
 const PLUGIN_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const PLUGIN_ID_MAX = 32;
 
-/** 一个世界最多几个推演插件、每个插件最多几张表几栏、同时约着几件事、一件事带几个数、小本子多大多深、一次出手下几条命令 */
-export const PLUGIN_LIMITS = { plugins: 4, tables: 16, cols: 64, pending: 4096, data: 16, note: 64 * 1024, depth: 8, listen: 64, commands: 64 } as const;
+/** 一个世界最多几个推演插件、每个插件最多几张表几栏、同时约着几件事、一件事带几个数、小本子多大多深、一次出手下几条命令、几栏数据 */
+export const PLUGIN_LIMITS = { plugins: 4, tables: 16, cols: 64, pending: 4096, data: 16, note: 64 * 1024, depth: 8, listen: 64, commands: 64, columns: 16 } as const;
 
 /** 插件按国记的表用这张表对上州 → 国(插件自己的表不能叫这个名字) */
 const OWNER_TABLE = '国';
 /** 表名最长几个字(存进世界的表名、累计名按这个核对) */
 const TABLE_ID_MAX = 64;
+/** 数据栏的名字:和存进世界的表名同一个规矩(worldValidate.ts 的 SIM_TABLE_NAME) */
+const COLUMN_ID = /^[\p{L}_][\p{L}\p{N}_]{0,63}$/u;
+const COLUMN_UNITS = ['settlement', 'culture', 'faith'] as const;
 
 /** 哪个插件出了什么错 */
 export class PluginError extends Error {
@@ -95,6 +98,17 @@ export interface PluginEvent {
 /** 小本子:只放数(数、数组、对象,一层层套) */
 export type PluginNote = number | PluginNote[] | { [key: string]: PluginNote };
 
+/** 插件登记的一栏数据:一城、一族或一种信仰一个数(编号就是下标,毁了、亡了的也占一格),不进公式,插件整栏交回、推演只管存 */
+export interface SimColumn {
+  id: string;
+  unit: (typeof COLUMN_UNITS)[number];
+  /** 上下限,交回的压回来 */
+  min: number;
+  max: number;
+  /** 没有值时等于几(后来才有的城、民族、信仰) */
+  off: number;
+}
+
 /** 下了没办的一条命令:回话 commands 里的第 index 条(种类 kind),被规则包认的哪种干预(why)挡下 */
 export interface PluginRefused {
   kind: string;
@@ -122,6 +136,8 @@ export interface PluginTurn<V> {
   table(id: string): Float64Array;
   /** 自己交给影响口 id 的那栏此刻的值(复制的一份,格 × 栏;还没交 = 全是不影响的数) */
   influence(id: string): Float64Array;
+  /** 自己的数据栏此刻的值(复制的一份,一城、一族或一种信仰一格) */
+  column(id: string): Float64Array;
   /** 自己的随机数:[0, 1),按键直接算,和先后无关(键当整数用) */
   rand(a: number, b?: number, c?: number, d?: number): number;
 }
@@ -136,6 +152,8 @@ export interface PluginReply {
   tables?: Readonly<Record<string, ArrayLike<number>>>;
   /** 换掉交给影响口的几栏(口名 → 格 × 栏,个数要对;压回口的上下限) */
   influences?: Readonly<Record<string, ArrayLike<number>>>;
+  /** 换掉自己几栏数据(个数要对;压回上下限) */
+  columns?: Readonly<Record<string, ArrayLike<number>>>;
   /** 下命令(规则包认的写法):此刻的下一格生效 */
   commands?: readonly unknown[];
   /** 写进编年史的几句(记在此刻) */
@@ -157,6 +175,8 @@ export interface SimPlugin<V = unknown> {
   readonly layers?: readonly SimLayerSpec[];
   /** 交数给哪几个影响口(规则包登记的口名) */
   readonly influences?: readonly string[];
+  /** 自己的数据栏 */
+  readonly columns?: readonly SimColumn[];
   act(turn: PluginTurn<V>): PluginReply | void;
 }
 
@@ -176,8 +196,8 @@ export interface PluginBridge<V> {
    * 交回挡下没收的几条(不算出错,插件下一回合看得到)。不给 = 这套规则不收命令
    */
   commands?(plugin: string, list: readonly unknown[], at: number): readonly PluginRefused[] | void;
-  /** 此刻有几国、几城、几族(编年史的指代要小于它) */
-  counts(): { polities: number; settlements: number; cultures: number };
+  /** 此刻有几国、几城、几族、几种信仰(编年史的指代要小于它,数据栏照它补格子) */
+  counts(): { polities: number; settlements: number; cultures: number; faiths: number };
 }
 
 /** 交给驱动的一回合:叫哪个插件 */
@@ -206,6 +226,8 @@ export interface SimPluginState {
   influences?: InfluenceCols;
   /** 还没告诉插件的、上一回合挡下的命令 */
   refused?: PluginRefused[];
+  /** 数据栏(按登记的先后;格数是上一回出手那一刻的城、民族、信仰数) */
+  columns?: Record<string, Float64Array>;
 }
 
 /** 当场叫插件(插件在推演线程里同步跑);交回的是还没出来的结果 = 插件写错了 */
@@ -229,6 +251,8 @@ interface Booked {
 }
 
 const isBadKey = (k: string) => k === '__proto__' || k === 'constructor' || k === 'prototype';
+
+const REPLY_KEYS: readonly string[] = ['note', 'at', 'tables', 'influences', 'columns', 'commands', 'chronicle'];
 
 /** 小本子查一遍、复制一份:只许数(有限的)、数组、普通对象,层数和大小有上限 */
 function cleanNote(id: string, v: unknown): PluginNote {
@@ -288,6 +312,29 @@ export const annalOf = (e: Annal): PluginAnnal => {
 
 const isInt = (x: unknown, lo: number, hi: number): x is number => typeof x === 'number' && Number.isInteger(x) && x >= lo && x <= hi;
 
+const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+
+/** 一栏数据登记得哪里不对(taken = 已经用掉的表名、数据栏名);没毛病 = null */
+export function columnProblem(c: unknown, taken: ReadonlySet<string>): string | null {
+  const o = (c !== null && typeof c === 'object' ? c : {}) as Partial<Record<keyof SimColumn, unknown>>;
+  const id = o.id;
+  if (typeof id !== 'string' || !COLUMN_ID.test(id)) return `数据栏的名字 ${String(id).slice(0, 64)} 只能用字母、汉字、数字、下划线,不以数字开头,最长 64 个字`;
+  if (isBadKey(id)) return `数据栏不能叫 ${id}`;
+  if (taken.has(id)) return `数据栏 ${id} 和自己的表或别的数据栏重名`;
+  if (!(COLUMN_UNITS as readonly unknown[]).includes(o.unit)) return `数据栏 ${id} 的 unit 只能是 ${COLUMN_UNITS.join('、')}`;
+  if (!(isNum(o.min) && isNum(o.max) && o.min <= o.max && isNum(o.off))) return `数据栏 ${id} 要写上下限和没有值时等于几(有限的数,下限不大于上限)`;
+  return null;
+}
+
+type Counts = ReturnType<PluginBridge<unknown>['counts']>;
+const UNIT_COUNT = { settlement: 'settlements', culture: 'cultures', faith: 'faiths' } as const;
+
+/** 一栏数据:格数只在出手前补齐(城、民族、信仰只会变多) */
+interface Column {
+  spec: SimColumn;
+  values: Float64Array;
+}
+
 /** 一个插件在这一段推演里 */
 class Host<V> {
   readonly id: string;
@@ -312,6 +359,7 @@ class Host<V> {
   /** 上一回合挡下、下一回合才告诉插件的命令 */
   private refused: PluginRefused[] = [];
   private readonly layers: LayerRun[] = [];
+  private readonly columns = new Map<string, Column>();
   /** 自己写了几句编年史 */
   private written = 0;
 
@@ -344,6 +392,7 @@ class Host<V> {
     const shape: unknown[] = [plugin.every ?? null, plugin.tables ?? [], plugin.inputs ?? {}, listen];
     if (plugin.layers?.length) shape.push(plugin.layers);
     if (outs.length) shape.push(outs);
+    if (plugin.columns?.length) shape.push({ columns: plugin.columns });
     this.sig = subSeed(0, JSON.stringify(shape));
 
     const cards = plugin.tables ?? [];
@@ -364,6 +413,15 @@ class Host<V> {
       if (!unit) fail(`没有官方表 ${name}`);
       if (unit !== c!.unit) fail(`${t} 和官方表 ${name} 的单位不一样`);
       this.inputs.push([t, name]);
+    }
+    const columns = plugin.columns ?? [];
+    if (!Array.isArray(columns) || columns.length > PLUGIN_LIMITS.columns) fail(`最多 ${PLUGIN_LIMITS.columns} 栏数据`);
+    const taken = new Set(this.cards.keys());
+    for (const c of columns) {
+      const bad = columnProblem(c, taken);
+      if (bad) fail(bad);
+      taken.add(c.id);
+      this.columns.set(c.id, { spec: c, values: new Float64Array(0) });
     }
     this.ownsPolities = cards.some((c) => c.unit === 'polity');
     let tableEvery = Infinity;
@@ -444,6 +502,17 @@ class Host<V> {
       if (!this.sim.influence) fail('和插件接的影响口对不上');
       this.sim.influence!.restore(this.slot, this.id, s.influences);
     }
+    if ((s.columns !== undefined) !== this.columns.size > 0) fail('和插件的数据栏对不上');
+    if (this.columns.size) {
+      const saved = s.columns!;
+      if (saved === null || typeof saved !== 'object' || Object.keys(saved).length !== this.columns.size) fail('和插件的数据栏对不上');
+      const counts = this.bridge.counts();
+      for (const [k, c] of this.columns) {
+        const v = Object.prototype.hasOwnProperty.call(saved, k) ? saved[k] : undefined;
+        if (!(v instanceof Float64Array) || v.length > counts[UNIT_COUNT[c.spec.unit]] || !v.every(Number.isFinite)) fail(`的数据栏 ${k} 和插件的对不上`);
+        c.values = v!.slice();
+      }
+    }
     this.note = s.note === undefined ? undefined : cleanNote(this.id, s.note);
     const refused = s.refused === undefined ? [] : cleanRefused(s.refused);
     if (!refused) fail('里挡下的命令不对');
@@ -481,6 +550,7 @@ class Host<V> {
       ...(this.eng ? { tables: this.eng.snapshot() } : {}),
       ...this.influencesOf(),
       ...(this.refused.length ? { refused: this.refused.map((x) => ({ ...x })) } : {}),
+      ...(this.columns.size ? { columns: Object.fromEntries([...this.columns].map(([k, c]) => [k, c.values.slice()])) } : {}),
     };
   }
 
@@ -512,10 +582,12 @@ class Host<V> {
 
   /** 到了存图层的时刻就存一份(这一刻的表算完、插件出完手以后) */
   private keepLayers(tick: number): void {
+    if (!this.layers.length) return;
+    const owner = this.sim.owners[Layer.Polity].subarray(0, this.bridge.regions.count);
     for (const l of this.layers) {
       if (tick % l.keep) continue;
       try {
-        l.keepFrame(tick / TICKS, this.eng!.get(l.spec.table));
+        l.keepFrame(tick / TICKS, this.eng!.get(l.spec.table), owner);
       } catch (e) {
         throw new PluginError(this.id, e instanceof Error ? e.message : String(e), { cause: e });
       }
@@ -596,6 +668,7 @@ class Host<V> {
         if (this.listen.has(e.kind)) heard.push(annalOf(e));
       }
     }
+    if (this.columns.size) this.padColumns(this.bridge.counts());
     const base = this.rand;
     const refused = this.refused;
     this.refused = [];
@@ -616,7 +689,23 @@ class Host<V> {
         if (!this.plugin.influences?.includes(id)) throw new PluginError(this.id, `没有登记交给影响口 ${id}`);
         return this.sim.influence!.view(this.slot, id, this.bridge.polities().count);
       },
+      column: (id: string) => {
+        const c = this.columns.get(id);
+        if (!c) throw new PluginError(this.id, `没有数据栏 ${id}`);
+        return c.values.slice();
+      },
     };
+  }
+
+  /** 数据栏补到此刻的城、民族、信仰数,补上的格子是 off */
+  private padColumns(counts: Counts): void {
+    for (const c of this.columns.values()) {
+      const n = counts[UNIT_COUNT[c.spec.unit]];
+      if (c.values.length >= n) continue;
+      const v = new Float64Array(n).fill(c.spec.off);
+      v.set(c.values);
+      c.values = v;
+    }
   }
 
   private apply(now: number, reply: PluginReply | undefined): void {
@@ -625,7 +714,7 @@ class Host<V> {
       throw new PluginError(this.id, what);
     };
     if (typeof reply !== 'object') fail('回话要是一个对象');
-    for (const key of Object.keys(reply)) if (key !== 'note' && key !== 'at' && key !== 'tables' && key !== 'influences' && key !== 'commands' && key !== 'chronicle') fail(`回话里的 ${key} 认不出`);
+    for (const key of Object.keys(reply)) if (!REPLY_KEYS.includes(key)) fail(`回话里的 ${key} 认不出`);
     if (reply.tables !== undefined) {
       if (reply.tables === null || typeof reply.tables !== 'object') fail('回话里的 tables 要是一个对象');
       for (const [t, v] of Object.entries(reply.tables)) this.setTable(t, v);
@@ -633,6 +722,10 @@ class Host<V> {
     if (reply.influences !== undefined) {
       if (!this.plugin.influences?.length) fail('没有登记交给影响口,回话里不能有 influences');
       this.sim.influence!.take(this.slot, this.id, reply.influences, this.bridge.polities().count);
+    }
+    if (reply.columns !== undefined) {
+      if (reply.columns === null || typeof reply.columns !== 'object') fail('回话里的 columns 要是一个对象');
+      for (const [k, v] of Object.entries(reply.columns)) this.setColumn(k, v);
     }
     if (reply.note !== undefined) this.note = cleanNote(this.id, reply.note);
     if (reply.at !== undefined) {
@@ -701,6 +794,20 @@ class Host<V> {
       else hi = mid;
     }
     this.events.splice(lo, 0, e);
+  }
+
+  private setColumn(k: string, v: ArrayLike<number>): void {
+    const c = this.columns.get(k);
+    if (!c) throw new PluginError(this.id, `没有数据栏 ${k}`);
+    const n = c.values.length;
+    if (!v || typeof v.length !== 'number' || v.length !== n) throw new PluginError(this.id, `数据栏 ${k} 要交 ${n} 个数`);
+    const out = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = v[i];
+      if (typeof x !== 'number' || !Number.isFinite(x)) throw new PluginError(this.id, `数据栏 ${k} 第 ${i} 个不是有限的数`);
+      out[i] = Math.min(c.spec.max, Math.max(c.spec.min, x));
+    }
+    c.values = out;
   }
 
   private setTable(t: string, v: ArrayLike<number>): void {

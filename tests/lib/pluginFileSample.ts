@@ -103,6 +103,7 @@ export function goodSimInput(): PluginPackInput {
         inputs: { unrest_in: 'unrest' },
         listen: ['fall', 'plague'],
         layers: [{ id: 'magic', table: 'magic', title: '魔力浓度', ramp: { colors: ['#1b1036', '#a46cff'] }, keep: 50 }],
+        columns: [{ id: 'ward', unit: 'settlement', min: 0, max: 10, off: 1 }],
         influences: ['city.capacity'],
         commands: ['declare', 'ally'],
         params: { strength: { label: '魔力的影响', min: 0, max: 3, default: 1, step: 0.5 } },
@@ -334,7 +335,12 @@ export const PLUGIN_SAMPLES: readonly PluginSample[] = [
   sim('sim-listen-twice', 'broken', 'listen 里同一种史事写了两遍', 'sim.listen 里 fall 写了两遍', (m) => m.sim.listen.push('fall')),
   sim('sim-listen-newer', 'newer', '要听的史事种类这一版网站没有', '史事种类 meteor', (m) => m.sim.listen.push('meteor')),
   sim('sim-layer-keep', 'broken', '图层 keep 不是 1 到 1000 的整数', 'keep 要是 1 到 1000 的整数', (m) => (m.sim.layers[0].keep = 0)),
-  sim('sim-layer-table', 'broken', '图层标的是按国记的表', '要按州记数', (m) => (m.sim.layers[0].table = 'awe')),
+  sim('sim-layer-table', 'broken', '图层标的是全世界一个数的表', '要按州或按国记数', (m) => {
+    m.sim.tables.push({ id: 'tally', name: '记数', unit: 'world', input: true, min: 0, max: 1, off: 0 });
+    m.sim.layers[0].table = 'tally';
+  }),
+  sim('sim-column-unit', 'broken', '数据栏按州记(只能按城、民族、信仰)', 'unit 只能是 settlement、culture、faith', (m) => (m.sim.columns[0].unit = 'region')),
+  sim('sim-column-name', 'broken', '数据栏和表重名', '数据栏 magic 和自己的表或别的数据栏重名', (m) => (m.sim.columns[0].id = 'magic')),
   sim('sim-layer-look', 'broken', '图层没给颜色(ramp、classes 都没有)', 'ramp 和 classes 给且只给一个', (m) => delete m.sim.layers[0].ramp),
   sim('sim-influence-newer', 'newer', '交数的影响口这一版网站没有', '影响口 war.pair', (m) => m.sim.influences.push('war.pair')),
   sim('sim-command-newer', 'newer', '会下的命令这一版网站没有', '命令 tax', (m) => m.sim.commands.push('tax')),

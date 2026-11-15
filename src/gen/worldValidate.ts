@@ -1392,7 +1392,7 @@ function checkTableSnapshot(v: unknown, at: string): void {
  */
 export function validateSimState(v: unknown, id: string, at = `推演插件 ${id} 的状态`): asserts v is SimPluginState {
   const s = obj(v, at);
-  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables', 'influences', 'refused'], at);
+  onlyKeys(s, ['id', 'sig', 'year', 'heard', 'seq', 'events', 'note', 'tables', 'influences', 'refused', 'columns'], at);
   if (s.id !== id) broken(`${at} 的 id 对不上`);
   int(s.sig, 0, 2 ** 32, `${at}.sig`);
   const year = yearOk(s.year, `${at}.year`);
@@ -1412,6 +1412,16 @@ export function validateSimState(v: unknown, id: string, at = `推演插件 ${id
   if (s.tables !== undefined) checkTableSnapshot(s.tables, `${at}.tables`);
   if (s.influences !== undefined) checkInfluences(s.influences, `${at}.influences`);
   if (s.refused !== undefined && !cleanRefused(s.refused)) broken(`${at}.refused 不对`);
+  if (s.columns !== undefined) {
+    const o = obj(s.columns, `${at}.columns`);
+    const names = Object.keys(o);
+    if (names.length > PLUGIN_LIMITS.columns) broken(`${at}.columns 太多`);
+    // 一城、一族或一种信仰一格(格数和此刻的城数对不对得上,接着推时再查)
+    for (const k of names) {
+      if (!SIM_TABLE_NAME.test(k)) broken(`${at}.columns 里 ${k.slice(0, 64)} 的名字不合规矩`);
+      allFinite(typed(o[k], Float64Array, `${at}.columns.${k}`), `${at}.columns.${k}`);
+    }
+  }
 }
 
 /** 插件交给影响口的几栏:口名是官方登记的,数在口的上下限里(格数和州、国对不对得上,接着推时再查) */

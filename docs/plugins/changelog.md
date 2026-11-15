@@ -51,6 +51,9 @@
   - 读口 `read.wars()` 里还在打的仗的 `goal`、`length` 把插件交给 `war.goal`、`war.length` 的倍数乘上了(交了 `war.goal` 的,`goal` 可能带小数)
   - 这一版网站存的、带推演插件的世界,在旧版网站上照样打得开、看得了,只是接着推要从第 0 年推起
 - 推演插件的影响口又开 8 个按州交的:`sack.odds`(洗劫)、`ruin.odds`(毁城)、`rebuild.odds`(重建)、`plague.spread`(瘟疫传开)、`famine.odds`(饥荒)、`diverge.odds`(民族分化)、`trek.odds`(大迁徙动身,按这一族的发源州)乘在几率上,0–4;`defense.power`(守这一州的兵力)0.25–4。清单 `sim.influences` 最多写的口数 32 → 64。(#726)
+- 推演插件的数据栏(`sim.tables@1`):清单 `sim.columns` 登记按城(`settlement`)、按民族(`culture`)、按信仰(`faith`)一格一个数(`id`、`unit`、`min`、`max`、`off`),`turn.column(id)` 读此刻的值,回话 `columns` 整栏交回(压回上下限),存进世界;不进公式。下标就是读口里的编号,后来才有的城、民族、信仰补 `off`。一个插件最多 16 栏。见[数据栏](sim.md#数据栏)。(#727)
+  - 这一版网站存的、带数据栏的世界,在旧版网站上照样打得开、看得了,只是接着推要从第 0 年推起
+- 推演插件的图层(`sim.layers`)可以标按国记的表:存的那一刻照归属摊到各州,不归哪国的州不画;存下的格式不变。(#727)
 
 ### 改了
 

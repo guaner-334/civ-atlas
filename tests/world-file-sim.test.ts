@@ -192,5 +192,10 @@ describe('世界文件里推演插件的状态', () => {
     bad({ ...s, tables: { ...t, tables: { ...t.tables, 'bad name': t.tables.magic } } }, '表名');
     bad({ ...s, tables: { ...t, tables: { ...t.tables, magic: { ...t.tables.magic, disabled: 1 } } } }, '真假');
     bad({ ...s, tables: { ...t, polityAnchor: new Int32Array(t.polityCount + 1) } }, '国的个数');
+    expect(() => validateSimState({ ...s, columns: { 城防: new Float64Array([1, 2]) } }, 'ledger')).not.toThrow();
+    bad({ ...s, columns: { 城防: [1, 2] } }, '数据栏不是数组');
+    bad({ ...s, columns: { 城防: new Float64Array([NaN]) } }, '数据栏不是数');
+    bad({ ...s, columns: { 'bad name': new Float64Array(1) } }, '数据栏的名字');
+    bad({ ...s, columns: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`c${i}`, new Float64Array(1)])) }, '数据栏太多');
   });
 });

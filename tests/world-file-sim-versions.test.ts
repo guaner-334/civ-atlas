@@ -1,7 +1,7 @@
 /**
  * 推演插件状态块(sim.<插件编号>)换版:相邻两版的软件互相读对方存的世界。
  * 老一版读新一版的块:世界照常打开,块只当字节留着(不拿认不得的口名报坏);新一版读老一版的块:照常核对、接回状态。
- * 「第 v 版的软件」= 把 SIM_STATE_SCHEMA 换成 v、登记的影响口只留第 v 版以前有的,另起一份模块来读写
+ * 「第 v 版的软件」= 把 SIM_STATE_SCHEMA 换成 v、登记的影响口只留第 v 版以前有的、核对状态时认不出第 v 版以后才有的键,另起一份模块来读写
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { generateCiv, startContinue, type Civ } from '../src/gen/civ';
@@ -13,6 +13,8 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { SIM_STATE_SCHEMA } from '../src/gen/worldFormat';
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
 import type { PackInput } from '../src/gen/worldFile';
+import type { SimPlugin } from '../src/gen/civ/engine/plugin';
+import type { SimRead } from '../src/gen/civ/simRead';
 import { MADE, READERS, bytesOf } from './lib/worldFileSample';
 import { steady, type Point } from './lib/influencePlugins';
 
@@ -21,13 +23,27 @@ const ADDED: Readonly<Record<number, readonly Point[]>> = {
   2: ['revolt.odds', 'collapse.odds', 'claim.odds', 'warlord.odds', 'merge.odds', 'restore.odds', 'alliance.odds', 'submit.odds', 'defect.odds', 'treaty.odds', 'marry.odds', 'aid.odds', 'war.length', 'war.goal'],
   3: ['sack.odds', 'ruin.odds', 'rebuild.odds', 'defense.power', 'plague.spread', 'famine.odds', 'diverge.odds', 'trek.odds'],
 };
+/** 各版状态块里新能出现的键(不是影响口的新东西)和用上它的插件;状态块再升版时在这里加一行 */
+const ADDED_KEYS: Readonly<Record<number, { key: string; plugin: () => SimPlugin<SimRead> }>> = {
+  4: {
+    key: 'columns',
+    plugin: () => ({
+      id: 'p',
+      every: 20,
+      columns: [{ id: 'walls', unit: 'settlement', min: 0, max: 100, off: 10 }],
+      act: (t) => ({ columns: { walls: t.column('walls').map((x, i) => x + (i % 3)) } }),
+    }),
+  },
+};
+const VERSIONS = [...Object.keys(ADDED), ...Object.keys(ADDED_KEYS)].map(Number);
 const sinceOf = (id: string): number => Number(Object.keys(ADDED).find((v) => ADDED[+v].includes(id as Point)) ?? 1);
-/** 第 v 版新能出现的一个口(第 1 版拿 war.odds) */
-const pointOf = (v: number): Point => (v === 1 ? 'war.odds' : ADDED[v][0]);
+/** 第 v 版的插件:用上第 v 版新能出现的那样东西(第 1 版往 war.odds 交数) */
+const pluginOf = (v: number): SimPlugin<SimRead> => (ADDED_KEYS[v] ? ADDED_KEYS[v].plugin() : steady('p', { [v === 1 ? 'war.odds' : ADDED[v][0]]: 1.5 }));
 
 type WorldFileModule = typeof import('../src/gen/worldFile');
 type InfluenceModule = typeof import('../src/gen/civ/influence');
 type FormatModule = typeof import('../src/gen/worldFormat');
+type ValidateModule = typeof import('../src/gen/worldValidate');
 
 /** 第 v 版的软件读写世界文件的那一份模块 */
 async function software(v: number): Promise<WorldFileModule> {
@@ -37,21 +53,32 @@ async function software(v: number): Promise<WorldFileModule> {
     const m = await orig<InfluenceModule>();
     return { ...m, OFFICIAL_INFLUENCES: m.OFFICIAL_INFLUENCES.filter((p) => sinceOf(p.id) <= v) };
   });
+  vi.doMock('../src/gen/worldValidate', async (orig) => {
+    const m = await orig<ValidateModule>();
+    const { WorldFileError } = await import('../src/gen/worldFormat');
+    const later = Object.entries(ADDED_KEYS).filter(([w]) => +w > v);
+    const validateSimState: ValidateModule['validateSimState'] = (s, id, at) => {
+      for (const [, { key }] of later) if (s !== null && typeof s === 'object' && key in s) throw new WorldFileError('broken', `推演插件 ${id} 的状态 里有认不出的 ${key}`);
+      return m.validateSimState(s, id, at);
+    };
+    return { ...m, validateSimState };
+  });
   try {
     return await import('../src/gen/worldFile');
   } finally {
     vi.doUnmock('../src/gen/worldFormat');
     vi.doUnmock('../src/gen/civ/influence');
+    vi.doUnmock('../src/gen/worldValidate');
   }
 }
 
 const params = { ...DEFAULT_PARAMS, seed: 7, cells: 2000 };
 let world: World;
 const civs = new Map<number, Civ>();
-/** 带一个插件推到第 700 年,插件交给第 v 版新能出现的那个口 */
+/** 带一个插件推到第 700 年,插件用上第 v 版新能出现的那样东西 */
 function civOf(v: number): Civ {
   let c = civs.get(v);
-  if (!c) civs.set(v, (c = generateCiv(world, { endYear: 700, plugins: [steady('p', { [pointOf(v)]: 1.5 })] })));
+  if (!c) civs.set(v, (c = generateCiv(world, { endYear: 700, plugins: [pluginOf(v)] })));
   return c;
 }
 function input(c: Civ): PackInput {
@@ -76,7 +103,9 @@ beforeAll(() => {
 
 describe('推演插件状态块:相邻两版互相读', () => {
   it('登记表:最新一版就是现在的 SIM_STATE_SCHEMA,列的口都登记了;第 1 版以后登记的口都列在哪一版', () => {
-    expect(Math.max(1, ...Object.keys(ADDED).map(Number))).toBe(SIM_STATE_SCHEMA);
+    expect(Math.max(1, ...VERSIONS)).toBe(SIM_STATE_SCHEMA);
+    expect(new Set(VERSIONS).size, '一版只登记一种新东西').toBe(VERSIONS.length);
+    for (const v of Object.keys(ADDED_KEYS)) expect(civOf(+v).simPlugins![0], `第 ${v} 版的插件用上了 ${ADDED_KEYS[+v].key}`).toHaveProperty(ADDED_KEYS[+v].key);
     const all = OFFICIAL_INFLUENCES.map((p) => p.id);
     for (const v of Object.keys(ADDED)) for (const id of ADDED[+v]) expect(all, id).toContain(id);
     // 第 1 版的口:插件第 1 版就有的那 12 个
@@ -95,11 +124,11 @@ describe('推演插件状态块:相邻两版互相读', () => {
       expect(content.civ.annals.length).toBe(c.annals.length);
       expect('simPlugins' in content.civ).toBe(false);
       expect(content.skipped).toEqual([]);
-      expect(startContinue(world, content.civ, { endYear: 800, plugins: [steady('p', { [pointOf(v + 1)]: 1.5 })] }), '接不上').toBeNull();
+      expect(startContinue(world, content.civ, { endYear: 800, plugins: [pluginOf(v + 1)] }), '接不上').toBeNull();
       // 传上服务器(没重打的校验器就是老一版):也打得开,只是带着看不懂的块
       const up = await old.readWorldContent(await old.openWorldFile(f, { readers: READERS, maxBytes: ZIP_UPLOAD_MAX_BYTES }));
       expect('simPlugins' in up.civ).toBe(false);
-      // 新口名写进第 v 版的块:老一版本机读时这块不要,传上服务器算坏
+      // 新东西写进第 v 版的块:老一版本机读时这块不要,传上服务器算坏
       const same = await packBy(v, c);
       expect((await old.readWorldContent(await old.openWorldFile(same, { readers: READERS }))).skipped).toEqual(['sim.p']);
       await expect(old.readWorldContent(await old.openWorldFile(same, { readers: READERS, maxBytes: ZIP_UPLOAD_MAX_BYTES }))).rejects.toMatchObject({ kind: 'broken' });
