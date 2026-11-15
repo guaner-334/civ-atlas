@@ -1,10 +1,10 @@
 /**
- * 世界参数的滑条(SLIDERS、CONT_SLIDERS)、推演年数的开关和滑条的说法、几句参数简写。
+ * 世界参数的滑条(SLIDERS、CONT_SLIDERS)、几句参数简写。
  * 新建世界的弹窗(NewWorldDialog.tsx)、新建界面(studio/)、世界设定页(WorldOverviewGenesis.tsx,那边照旧一起导出)都用;
  * 单独一个文件,打开网站时首页上的新建弹窗不用带上世界设定页。
  */
 import type { WorldParams } from '../gen/params';
-import { END_YEAR_DEFAULT, END_YEAR_MAX, END_YEAR_STEP } from '../gen/edits';
+import { END_YEAR_DEFAULT } from '../gen/edits';
 import { genSeconds } from './genSpeed';
 import type { FieldSpec } from './ParamField';
 
@@ -74,27 +74,9 @@ export function contBrief(p: WorldParams): string | null {
   return parts.length ? parts.join('，') : null;
 }
 
-/** 不是世界参数的滑条(推演年数):键只用来标记 */
+/** 不是世界参数的滑条(拓荒):键只用来标记 */
 export type SliderLike = Omit<Slider, 'key'> & { key: string };
 
-/** 推演到第几年(开了「推演超过 3000 年」才有):3000–60000,一格 1000 年 */
-export const YEARS_SLIDER: SliderLike = {
-  key: 'endYear',
-  name: '推演到',
-  min: END_YEAR_DEFAULT,
-  max: END_YEAR_MAX,
-  step: END_YEAR_STEP,
-  fmt: (v) => `${v} 年`,
-  hint: '历史推到第几年;年数越多,打开世界、改历史都越慢',
-  field: { unit: '年', snap: END_YEAR_STEP },
-};
-/** 推演年数的开关 */
-export const YEARS_SWITCH = `推演超过 ${END_YEAR_DEFAULT} 年`;
-/** 打开开关时滑条先停在哪 */
-export const YEARS_ON = 10000;
-/** 开关下面一直显示的那段说明 */
-export const YEARS_NOTE =
-  '近现代、现代、未来整体还在开发中，帝国的衰退和科技的发展也在设计当中，历史推演超过3000年后会陷入低价值的循环，如果你理解并且接受这种情况可以选择开启该选项最高推演至6万年。';
 /**
  * "三千年的历史":3000 年的世界照旧,推得更久的写真实年数("60000 年的历史")。
  * gap:接在汉字后面(不是标点后面)时数字前空一格("推演它 60000 年")

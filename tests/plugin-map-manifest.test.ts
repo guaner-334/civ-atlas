@@ -71,8 +71,8 @@ describe('地图插件的清单', () => {
     const p = await openPluginFile(await packPluginFile({ ...input, manifest: { ...m, requires: requires(), map } }));
     expect(p.manifest.map?.reads).toEqual(['cellArea', 'currentU', 'downstream']);
     expect(checkMapManifest({ map: { stages: ['height'], reads: ['convergence', 'worldParams', 'edited'] }, requires: ['gen.height@1'] })).toBeNull();
-    expect(() => checkMapManifest({ map: { stages: ['height'], reads: ['downstream'] }, requires: ['gen.height@1'] })).toThrow('map.reads 写了 downstream,它只递给出图层,map.stages 里一口都没写');
-    expect(() => checkMapManifest({ map: { stages: ['height'], reads: ['currentU'] }, requires: ['gen.height@1'] })).toThrow('它只递给改气候、出图层');
+    expect(() => checkMapManifest({ map: { stages: ['height'], reads: ['downstream'] }, requires: ['gen.height@1'] })).toThrow('map.reads 写了 downstream,它只递给改水系、出图层,map.stages 里一口都没写');
+    expect(() => checkMapManifest({ map: { stages: ['height'], reads: ['currentU'] }, requires: ['gen.height@1'] })).toThrow('它只递给改气候、改海冰、改水系、出图层');
     expect(checkMapManifest({ map: { ...goodMap(), reads: ['cellArea', 'tideRange'] }, requires: requires() })).toEqual({ what: '地图读数', name: 'tideRange' });
     const bad: [unknown, RegExp][] = [
       ['cellArea', /map\.reads 不是列表/],
@@ -103,7 +103,7 @@ describe('能力表和权限框', () => {
       ['mapSteer', true],
       ['layer', false],
     ]);
-    expect(lines[0].text).toBe('会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）');
+    expect(lines[0].text).toBe('会改地图（海拔、气候、海冰、河；只影响用它新长的地图，已经长好的世界不变）');
     expect(lines[1].why).toEqual(['画出柯本气候分类']);
     expect(lines[0].why).toEqual(['季风强的地方夏天多下雨']);
     expect(permissionLines({ requires: ['gen.height@1', 'gen.climate@1'] }).map((l) => l.key)).toEqual(['mapSteer']);

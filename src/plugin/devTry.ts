@@ -54,8 +54,12 @@ export const DEV_TRY_LOGS = 300;
 
 const METHOD_LEVEL: Record<string, DevTryLog['level']> = { warn: 'warn', error: 'error' };
 /** 挡下命令的作者干预(PluginTurn.refused 的 why)→ 网站的说法 */
-const REFUSE_TEXT: Record<string, string> = { protect: '不许灭', unity: '禁止分裂', halt: '不许扩张', ally: '结盟', stay: '不许迁' };
-const COMMAND_TEXT: Record<string, string> = { declare: '宣战', ally: '结盟', treaty: '立约', cede: '割地', found: '立国', move: '迁都', destroy: '灭国', disaster: '天灾', trek: '大迁徙' };
+const REFUSE_TEXT: Record<string, string> = { protect: '不许灭', unity: '禁止分裂', halt: '不许扩张', ally: '结盟', stay: '不许迁', keep: '保住王室', treaty: '立约', neutral: '划中立地' };
+const COMMAND_TEXT: Record<string, string> = {
+  ...{ declare: '宣战', ally: '结盟', treaty: '立约', cede: '割地', found: '立国', move: '迁都', destroy: '灭国', disaster: '天灾', trek: '大迁徙', neutral: '划中立地', boost: '推一把发展' },
+  ...{ protect: '不许灭', unity: '禁止分裂', halt: '不许扩张', keep: '保住王室', stay: '不许迁' },
+  ...{ peace: '停战', submit: '称臣', release: '放藩', unally: '断盟', annul: '废约', unzone: '撤中立地', city: '建城', dynasty: '改朝换代', secede: '分裂', convert: '改民族' },
+};
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 

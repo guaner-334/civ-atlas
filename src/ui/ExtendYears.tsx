@@ -4,7 +4,8 @@
  *   ExtendButton  时间轴轨道尽头、1× / 4× 前面:电脑「＋ 再推」,手机一个小圆钮「＋」(像剪辑软件主轨道尽头的加号)。
  *                 推的时候原地变成进度圈:电脑圈 +「停下」,手机圈里一个方块(点了就停)。推到第 60000 年变灰。
  *   ExtendPop     电脑:点「再推」在按钮上面弹出的小卡片 —— 100 / 500 / 1000 年 / 自己填,底下写推到第几年、
- *                 这台电脑大约多久、时间轴会怎么变;「取消」「再推 N 年」。Esc、点别处 = 取消,回车 = 再推
+ *                 这台电脑大约多久、时间轴会怎么变(这一次跨过第 3000 年的,下面多一行提醒);「取消」「再推 N 年」。
+ *                 Esc、点别处 = 取消,回车 = 再推
  *   ExtendSheet   手机:从底下拉起的卡片,内容同上,底部两个大按钮
  *   ExtendDock    手机推的时候:时间轴胶囊上面一张小卡片「再推 500 年 / 正在推,到第 3240 年」+「停下」
  *
@@ -17,6 +18,7 @@ import { getEdits, useEra, useMonthNames, useMonths } from './editsStore';
 import { momentFull } from './stepTime';
 import {
   EXTEND_PRESETS,
+  YEARS_NOTE,
   busyParts,
   durationText,
   extendMs,
@@ -29,6 +31,7 @@ import {
   setExtendPick,
   stopTip,
   useExtend,
+  yearsNoteOn,
   type ExtendBusy,
   type ExtendPick,
 } from './extendStore';
@@ -226,6 +229,17 @@ function Result({ end, years, plan, phone }: { end: number; years: number | null
   );
 }
 
+/** 推到第几年那一格下面的提醒(这一次跨过第 3000 年才有) */
+function YearsNote({ end, plan }: { end: number; plan: ReturnType<typeof extendPlan> | null }) {
+  if (!plan || !yearsNoteOn(end, plan.to)) return null;
+  return (
+    <p className="xt-warn" data-testid="extend-years-note">
+      <Icon name="warn" size={13} />
+      <span>{YEARS_NOTE}</span>
+    </p>
+  );
+}
+
 /** 电脑:「再推」按钮上面的弹层(放在底部那一行里,按按钮的位置摆;小三角对着按钮) */
 export function ExtendPop({ end, hidden }: { end: number; hidden?: boolean }) {
   const x = useExtend();
@@ -279,6 +293,7 @@ function PopBody({ end }: { end: number }) {
       <Seg pick={f.x.pick} onPick={f.pick} />
       {f.x.pick === 'own' && <OwnRow end={end} text={f.text} over={over} onType={f.type} />}
       <Result end={end} years={f.years} plan={f.plan} />
+      <YearsNote end={end} plan={f.plan} />
       <div className="xt-foot">
         <span className="xt-sp" />
         <button className="xt-b" data-act="extend-cancel" onClick={() => setExtendOpen(false)}>
@@ -334,6 +349,7 @@ function SheetBody({ end }: { end: number }) {
       <Seg pick={f.x.pick} onPick={f.pick} phone />
       {f.x.pick === 'own' && <OwnRow end={end} text={f.text} over={over} onType={f.type} phone />}
       <Result end={end} years={f.years} plan={f.plan} phone />
+      <YearsNote end={end} plan={f.plan} />
       <div className="xt-foot phone">
         <button className="xt-b big" data-act="extend-cancel" onClick={() => setExtendOpen(false)}>
           取消

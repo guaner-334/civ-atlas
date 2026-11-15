@@ -15,7 +15,7 @@ import { classifyBiome } from './biomes';
 export interface NoiseOptions {
   /** 起伏的尺度(公里):大约多远一个起落 */
   km: number;
-  /** 叠几层(1–8,默认 1);每多一层尺度减半 */
+  /** 叠几层(1–12,默认 1);每多一层尺度减半 */
   octaves?: number;
   /** 每多一层起伏乘多少(0–1,默认 0.5) */
   persistence?: number;
@@ -26,7 +26,7 @@ export interface NoiseOptions {
 export interface MapHelpers {
   /** 每个地块一个 −1…1 左右的数,和官方生成用的同一套噪声 */
   noise(o: NoiseOptions): Float32Array;
-  /** 和邻居平均 passes 遍(0–200);给了 mask 只在标了 1 的地块上平均、只和标了 1 的邻居平均,别的地块不变 */
+  /** 和邻居平均 passes 遍(0–500);给了 mask 只在标了 1 的地块上平均、只和标了 1 的邻居平均,别的地块不变 */
   blur(field: ArrayLike<number>, passes: number, mask?: ArrayLike<number>): Float32Array;
   /** 从 from 标了 1 的地块沿邻居走,每块要走几步(到不了 = −1);给了 through 只能走进标了 1 的地块 */
   steps(from: ArrayLike<number>, through?: ArrayLike<number>): Int32Array;
@@ -84,8 +84,8 @@ export interface WestEastResult {
   east: Float32Array;
 }
 
-export const NOISE_OCTAVES_MAX = 8;
-export const BLUR_PASSES_MAX = 200;
+export const NOISE_OCTAVES_MAX = 12;
+export const BLUR_PASSES_MAX = 500;
 const SALT_MAX = 64;
 
 const arrayLike = (v: unknown): v is ArrayLike<unknown> => typeof v === 'object' && v !== null && typeof (v as ArrayLike<unknown>).length === 'number';

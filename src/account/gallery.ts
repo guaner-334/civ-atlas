@@ -6,7 +6,7 @@
  *                                   rules = 规则作品、用了非官方规则的作品的规则摘要 { name, changed, brief }
  *   GET  /v1/gallery/:id          → 列表里那一项 + 世界的 full { sum, bytes }(只存了存档的旧作品给 save)/ 地图的 save(和存成文件同一格式,带 moment)/
  *                                   新建参数的 preset(预设链接 # 后面那段)/ 规则作品的 rules 换成规则链接 # 后面那段(字符串);
- *                                   撤下的 410 gallery-gone;没有 404
+ *                                   世界可能多 facts(几样数,见 WorkFacts;老服务器没有);撤下的 410 gallery-gone;没有 404
  *   GET  /v1/gallery/:id/full     → 世界作品的世界文件(撤下的 410)
  *   GET  /v1/gallery/:id/cover    → 封面 JPEG(宽高 2:1;世界 = 政区图,地图 = 实景图,新建参数 = 星球;插件 = 审核时在示例世界上跑出来的样子,
  *                                   ?seed=<种子> 取那个种子上的一张,有哪几张看 plugin.shots)
@@ -86,6 +86,56 @@ export interface GalleryItem extends GalleryWork {
   preset?: string;
   /** 规则:规则链接 # 后面那段(rules=1&…) */
   ruleLink?: string;
+  /** 世界:服务器给的几样数(整理过;一样都没有 = 不给) */
+  facts?: WorkFacts;
+}
+
+/** AI 写的正文按功能分:史书、释名、教义、风俗(按这个先后列) */
+export type AiKind = 'history' | 'names' | 'doctrine' | 'customs';
+export const AI_KINDS: readonly AiKind[] = ['history', 'names', 'doctrine', 'customs'];
+
+/**
+ * 世界作品的几样数。哪样没有就是服务器没给(或给得不像样),界面上不列那一行;0 是真的 0。
+ * states、peoples 说的是 year 那年,没有 year 就一起不要
+ */
+export interface WorkFacts {
+  /** 打开时停在哪年 */
+  year?: number;
+  /** 历史推到哪年(3000–60000) */
+  endYear?: number;
+  /** year 那年几个国家 */
+  states?: number;
+  /** year 那年几个族 */
+  peoples?: number;
+  /** AI 写的正文,每种一项、篇数 ≥ 1 */
+  ai?: { kind: AiKind; n: number }[];
+}
+
+const intIn = (v: unknown, lo: number, hi = Number.MAX_SAFE_INTEGER): number | undefined => (typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi ? v : undefined);
+
+/** 整理服务器给的 facts:不像样的字段扔掉、不报错;一样都不剩 = undefined */
+export function cleanFacts(v: unknown): WorkFacts | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const o = v as Record<string, unknown>;
+  const out: WorkFacts = {};
+  const endYear = intIn(o.endYear, 3000, 60000);
+  if (endYear !== undefined) out.endYear = endYear;
+  const year = intIn(o.year, 0);
+  if (year !== undefined && (endYear === undefined || year <= endYear)) {
+    out.year = year;
+    const states = intIn(o.states, 0);
+    const peoples = intIn(o.peoples, 0);
+    if (states !== undefined) out.states = states;
+    if (peoples !== undefined) out.peoples = peoples;
+  }
+  const raw = Array.isArray(o.ai) ? (o.ai as unknown[]) : [];
+  const ai: { kind: AiKind; n: number }[] = [];
+  for (const kind of AI_KINDS) {
+    const hit = raw.find((x): x is { kind: AiKind; n: number } => !!x && typeof x === 'object' && (x as { kind?: unknown }).kind === kind && intIn((x as { n?: unknown }).n, 1) !== undefined);
+    if (hit) ai.push({ kind, n: hit.n });
+  }
+  if (ai.length) out.ai = ai;
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** 作品编号:8 位小写字母和数字(去掉了容易看错的 i、l、o、0、1) */
@@ -178,6 +228,8 @@ export async function fetchWork(id: string): Promise<GalleryItem> {
     if (!r.save || typeof r.save !== 'object') throw new ServerError(200, 'bad-response', '服务器返回的内容看不懂');
     out.save = r.save;
   }
+  const facts = w.kind === 'world' ? cleanFacts(r.facts) : undefined;
+  if (facts) out.facts = facts;
   return out;
 }
 

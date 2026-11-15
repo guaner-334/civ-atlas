@@ -44,7 +44,7 @@ import { SKETCH_LAND, sketchCells, sketchUsed, type Sketch } from './sketch';
 import { greyRise, heightAt } from './sketchHeights';
 import { samePlates } from './plateEdits';
 import { DEFAULT_PARAMS, type WorldParams } from './params';
-import { climateHooks, hasStage, heightHooks, layerHooks, mapPluginKeys, mapStageNote, type MapLayer, type MapPlugin } from './mapHooks';
+import { climateHooks, hasStage, heightHooks, layerHooks, mapPluginKeys, mapStageNote, runoffHooks, seaIceHooks, type MapLayer, type MapPlugin } from './mapHooks';
 
 // 生成参数和默认值在 params.ts(存档、网址只用到它们,不用带上整套生成代码)
 export { DEFAULT_PARAMS, type WorldParams } from './params';
@@ -162,6 +162,8 @@ export interface TerrainBase {
   peak: number;
   /** 海拔 60 米以上的陆地块数(太大的湖按它定) */
   highLand: number;
+  /** 地图插件改海拔时标的:积成的湖再大也不填平(没标 = null) */
+  keepLakes: Uint8Array | null;
   /** 侵蚀高度换算成米时每一次用的"最高峰"(按先后;没改地形的世界记下的给改过地形的同一颗星球用,见 planetOf) */
   refs: number[];
 }
@@ -475,9 +477,10 @@ function* growTerrain(
       elevation[i] -= depth * Math.exp(-geo.near2(i, c, r3) / (r * r));
     }
   }
+  let keepLakes: Uint8Array | null = null;
   if (hasStage(plugins, 'height')) {
     const before = elevation.slice();
-    heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate, (pl, st) => progress(mapStageNote(pl, st), 0.6), {
+    keepLakes = heightHooks(plugins, mesh, p.seed, elevation, land, tect.plate, (pl, st) => progress(mapStageNote(pl, st), 0.6), {
       tect,
       params: p,
       edited: () => editedMask(n, touched, skTouched),
@@ -485,7 +488,7 @@ function* growTerrain(
     addToFrames(history, before, elevation);
   }
   const top = planet ? planet.peak : landPeak(land, elevation);
-  return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, peak: top, highLand, refs };
+  return { key, sketch: sk && { ...sk, grid: sk.grid.slice() }, mesh, tect, elevation, history, touched, peak: top, highLand, keepLakes, refs };
 }
 
 /** 照图原样的连续高低:侵蚀完的海拔往图的亮度拉回一半(山脊、河谷留着,高低照图) */
@@ -562,7 +565,7 @@ export function* generateWorldSteps(
     if (planetMemo.size >= PLANET_MEMO) planetMemo.delete(planetMemo.keys().next().value!);
     planetMemo.set(key, { refs: base.refs, peak: base.peak });
   }
-  const { mesh, touched, highLand } = base;
+  const { mesh, touched, highLand, keepLakes } = base;
   const { n } = mesh;
   const elevation = base.elevation.slice();
   // 改地形:高度五种笔(抬高、压低、平滑、抹平、定高)直接改海拔;涂过海平面的地方海陆跟着变(在副本上改,前一半记着的不动)。
@@ -618,7 +621,12 @@ export function* generateWorldSteps(
   const drawnLand = sk?.trace ? sketchCells(mesh, sk.grid) : null;
   for (const comp of components(mesh, water.map((x) => (x === 2 ? 1 : 0)))) {
     const drawn = !!drawnLand && comp.some((c) => drawnLand[c] >= SKETCH_LAND);
-    if ((comp.length > maxLake || drawn) && !(userLake && comp.some((c) => userLake[c])) && !(painted && comp.some((c) => painted[c]))) {
+    if (
+      (comp.length > maxLake || drawn) &&
+      !(userLake && comp.some((c) => userLake[c])) &&
+      !(painted && comp.some((c) => painted[c])) &&
+      !(keepLakes && comp.some((c) => keepLakes[c]))
+    ) {
       for (const c of comp) {
         water[c] = 0;
         elevation[c] = pool.filled[c] - 1;
@@ -703,6 +711,10 @@ export function* generateWorldSteps(
   // 改地形:作者涂的更湿 / 更干 / 更暖 / 更冷
   if (ops.length) applyClimatePens(mesh, clim.temperature, clim.precipitation, ops);
   const seaIce = computeSeaIce(mesh, elevation, water, clim.temperature, clim.windX, clim.windY, p.seed);
+  const climFields = { ...clim, elevation, water, rainSummer: clim.rainSummer!, rainWinter: clim.rainWinter! };
+  if (hasStage(mapPlugins, 'seaice')) {
+    seaIceHooks(mapPlugins, mesh, p.seed, { ...climFields, seaIce }, (pl, st) => progress(mapStageNote(pl, st), 0.78), { tect, params: p, edited, currents });
+  }
 
   // ---- 水系 ----
   yield;
@@ -719,8 +731,17 @@ export function* generateWorldSteps(
     const pet = 250 + 22 * Math.max(0, clim.temperature[i]); // 粗略蒸散
     runoff[i] = Math.max(0.03, (clim.precipitation[i] - 0.45 * pet) / 1000);
   }
-  const flux = accumulate(route, land, runoff, new Float32Array(n));
   const riverThreshold = 10 * (n / 36000);
+  if (hasStage(mapPlugins, 'runoff')) {
+    runoffHooks(mapPlugins, mesh, p.seed, { ...climFields, seaIce, runoff, riverThreshold }, (pl, st) => progress(mapStageNote(pl, st), 0.84), {
+      tect,
+      params: p,
+      edited,
+      currents,
+      downstream: route.receiver,
+    });
+  }
+  const flux = accumulate(route, land, runoff, new Float32Array(n));
   // 改地形:删河湖指着的河 —— 按先后一处处删:照现在的流量串一遍河,找指着的那条连同支流,它们的陆地段和上游流域(只沿陆地往上,
   // 不穿过湖)流量压到 DEL_WATER_FLUX 倍门槛以下;下一处按删过的再找
   if (delRivers.length) {

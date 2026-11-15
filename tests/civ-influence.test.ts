@@ -120,6 +120,14 @@ describe('影响口:没有插件接时照原来的算', () => {
       ['aid.odds', 'polity', 1, 'mul', 0, 4],
       ['war.length', 'polity', 1, 'mul', 0.25, 4],
       ['war.goal', 'polity', 1, 'mul', 0.25, 4],
+      ['sack.odds', 'region', 1, 'mul', 0, 4],
+      ['ruin.odds', 'region', 1, 'mul', 0, 4],
+      ['rebuild.odds', 'region', 1, 'mul', 0, 4],
+      ['defense.power', 'region', 1, 'mul', 0.25, 4],
+      ['plague.spread', 'region', 1, 'mul', 0, 4],
+      ['famine.odds', 'region', 1, 'mul', 0, 4],
+      ['diverge.odds', 'region', 1, 'mul', 0, 4],
+      ['trek.odds', 'region', 1, 'mul', 0, 4],
     ]);
   });
 

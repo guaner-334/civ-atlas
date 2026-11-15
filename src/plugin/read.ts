@@ -14,7 +14,7 @@ import { THOUGHT_COUNT, THOUGHTS } from '../gen/civ/ideology';
 import { KM_PER_UNIT } from '../gen/civ/scale';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { treatyBook, treatyMembersAt, treatyTitle } from '../gen/civ/story/treatyInfo';
-import { cultureKey, dynastyKey, faithKey, personKey, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, tradeKey, treatyKey, YEAR_TICKS, type WorldEdits } from '../gen/edits';
+import { cultureKey, dynastyKey, faithKey, isCommandOnly, personKey, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, tradeKey, treatyKey, YEAR_TICKS, type AuthorIntervention, type WorldEdits } from '../gen/edits';
 import { geometryOf } from '../gen/geometry';
 import { driftOf } from '../gen/plateOps';
 import {
@@ -666,7 +666,7 @@ export function authorCharacters(edits: WorldEdits): unknown[] {
 }
 
 export function authorInterventions(edits: WorldEdits): InterventionInfo[] {
-  return structuredClone(edits.interventions);
+  return structuredClone(edits.interventions.filter((v): v is AuthorIntervention => !isCommandOnly(v)));
 }
 
 export function authorTerrain(edits: WorldEdits): AuthorTerrainInfo {

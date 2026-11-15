@@ -230,7 +230,11 @@ export interface TriedView {
 }
 
 /** 命令的短说法(一句话里用,不带括号) */
-const COMMAND_SHORT: Record<string, string> = { declare: '宣战', ally: '结盟', treaty: '立约', cede: '割地', found: '立国', move: '迁都', destroy: '灭国', disaster: '天灾', trek: '大迁徙' };
+const COMMAND_SHORT: Record<string, string> = {
+  ...{ declare: '宣战', ally: '结盟', treaty: '立约', cede: '割地', found: '立国', move: '迁都', destroy: '灭国', disaster: '天灾', trek: '大迁徙', neutral: '划中立地', boost: '推一把发展' },
+  ...{ protect: '不许灭', unity: '禁止分裂', halt: '不许扩张', keep: '保住王室', stay: '不许迁' },
+  ...{ peace: '停战', submit: '称臣', release: '放藩', unally: '断盟', annul: '废约', unzone: '撤中立地', city: '建城', dynasty: '改朝换代', secede: '分裂', convert: '改民族' },
+};
 
 const secText = (ms: number) => `${ms < 1000 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)} 秒`;
 
@@ -315,7 +319,7 @@ interface GenTally {
   rivers: number;
 }
 
-const GEN_STAGE: Record<string, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+const GEN_STAGE: Record<string, string> = { height: '改海拔', climate: '改气候', seaice: '改海冰', runoff: '改水系', layers: '出图层' };
 /** 日志一行左边:哪一步(装插件时打的写「装的时候」) */
 export const devGenStage = (s: string | null): string => (s === null ? '装的时候' : (GEN_STAGE[s] ?? s));
 /** 一口超过这么久(毫秒)那格标黄 */

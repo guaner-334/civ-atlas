@@ -58,6 +58,7 @@ import { TREK_DIR_NAMES, regionOfKey, type Intervention, type TrekReach } from '
 import { AdjKind, Layer, type Civ, type Culture, type Migration, type MigrationDir, type Year } from './types';
 import { fexp, keyed, keyed4, subSeed } from './engine/rand';
 import { BOOKED_AT_START, bookChain, quantize, type CivSim } from './engine/sim';
+import { oddsTimes } from './influence';
 import { addPolity, moveCapital, polityModelOf, type PolityModel } from './polities';
 import { bestCapital, polityBorders, warModelOf, type War, type WarModel } from './wars';
 import { politicsModelOf, type PoliticsModel } from './politics';
@@ -451,8 +452,10 @@ function hook(sim: CivSim, tm: TrekModel): void {
     // 中了的按发源州的先后,一次看最多走一支
     const behind = Math.max(0, (t - CHECK_FIRST) / PACE_YEARS - list.length);
     cands.sort((a, b) => folkTag(a.c) - folkTag(b.c));
+    const trekIn = sim.influence?.get('trek.odds');
     for (const x of cands) {
-      const odds = ODDS * (x.score / (x.score + HALF)) * (1 + PACE_W * behind);
+      const odds0 = ODDS * (x.score / (x.score + HALF)) * (1 + PACE_W * behind);
+      const odds = trekIn ? oddsTimes(odds0, trekIn, Math.min(R - 1, Math.max(0, cultures[x.c].hearth))) : odds0;
       if (keyed(tm.base, k, folkTag(x.c), U_GO) >= odds / (1 + odds)) continue;
       paths(x.c);
       depart(x.c, x.target, x.push, x.pull, n[x.c], t);

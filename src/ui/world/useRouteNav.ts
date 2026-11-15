@@ -25,7 +25,7 @@ import { readUrl, visitTarget } from './pageUrl';
 import type { useWorldLoad } from './useWorldLoad';
 import type { useWorldPages } from './useWorldPages';
 import type { CivRefs, GenRefs, Ref, ResimRefs, Setter } from './worldRefs';
-import { draftTarget, goneToast, sameScreen, writeWorldUrl, yearsEdits, type Landing, type NewDlg, type Target, type WallView, type WorkFor } from './worldTarget';
+import { draftTarget, goneToast, sameScreen, writeWorldUrl, type Landing, type NewDlg, type Target, type WallView, type WorkFor } from './worldTarget';
 
 /** 投影、中央经线、经纬网、等值线写进网址(停下来约半秒) */
 export function useViewUrl(view: { projection: MapProjection; mapCenter: number; graticule: number; contourKind: ContourKind | null }): void {
@@ -140,8 +140,8 @@ export function useRouteNav(deps: RouteNavDeps): void {
     closeHistoryBook();
     closeBookReader();
     if (to.page === 'home') return showHome();
-    // 作品墙那一页、一个作品(取的时候换了画面,取回来不再打开)
-    if (to.page === 'gallery') return to.id ? openWork(to.id) : showGallery();
+    // 作品墙那一页、开着窗的作品、地图作品的星球(取的时候换了画面,取回来不再打开)
+    if (to.page === 'gallery') return to.id ? openWork(to.id, to.work) : showGallery();
     wallSeq.current++;
     setWall(null);
     // 回到从作品墙打开的世界作品:左上那一条照旧
@@ -179,10 +179,10 @@ export function useRouteNav(deps: RouteNavDeps): void {
       // 照手绘图新建、还没照图长出星球(图不存,离开就没了):和刷新时一样,回我的世界,弹窗停在照手绘图选图那一步
       if (q.get('new') === 'image') {
         showHome();
-        setNewDlg({ init: { mode: 'image', params: url.params, step: 2, endYear: url.years } });
+        setNewDlg({ init: { mode: 'image', params: url.params, step: 2 } });
         return;
       }
-      return openTarget({ ...draftTarget({ ...url.params, seed }, null, yearsEdits(url.years)), id: to.id ?? newWorldId() });
+      return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;
     const once = to.stored || isWorldId(q.get('w'));
@@ -204,9 +204,9 @@ export function useRouteNav(deps: RouteNavDeps): void {
       setLanding('loading');
       return openShortShare(code, () => sameScreen(getNav(), to));
     }
-    // 从作品墙打开、还没存下的世界作品(刷新过,手上没有这个世界):和打开作品的网址一样再取一次
+    // 从作品墙打开、还没存下的世界作品(刷新过,手上没有这个世界):再取一次,直接进世界
     const gid = q.get('gallery');
-    if (gid) return openWork(gid);
+    if (gid) return openWork(gid, 'world');
     if (q.has('seed')) return openTarget({ ...visitTarget(url.params, url.gen), id: to.id ?? newWorldId() });
     return showHome();
   };

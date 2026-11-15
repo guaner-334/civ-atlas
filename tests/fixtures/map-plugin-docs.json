@@ -15,6 +15,14 @@
     "precipitation": 1242,
     "digest": "ccc6455db7c02f05"
   },
+  "biglake": {
+    "land": 32.7,
+    "lakes": 270,
+    "rivers": 278,
+    "temperature": 8,
+    "precipitation": 1170,
+    "digest": "842a91f47fa2e47d"
+  },
   "dryinland": {
     "land": 33.3,
     "lakes": 82,
@@ -22,6 +30,22 @@
     "temperature": 8.3,
     "precipitation": 1042,
     "digest": "d203d45ab807367a"
+  },
+  "frozensea": {
+    "land": 33.3,
+    "lakes": 82,
+    "rivers": 265,
+    "temperature": 8.3,
+    "precipitation": 1140,
+    "digest": "64719f13a2ca4fb3"
+  },
+  "riverflow": {
+    "land": 33.3,
+    "lakes": 82,
+    "rivers": 0,
+    "temperature": 8.3,
+    "precipitation": 1140,
+    "digest": "e579b912d1b2c098"
   },
   "landmass": {
     "land": 33.3,

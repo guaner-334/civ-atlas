@@ -74,7 +74,7 @@ export function panelGo(to: PanelTarget, world: World, civ: Civ | null): void {
   if (!r) return;
   const arg = r.kind === 'polity' ? { polities: [to.key] } : r.kind === 'region' ? { regions: [to.key] } : r.kind === 'settlement' ? { settlements: [to.key] } : null;
   if (!arg) return;
-  const year = () => getCivTime().year ?? 0;
+  const year = () => getCivTime().year ?? civ.endYear;
   try {
     directorFlyTo(flyFocus(world, () => civ, arg, year));
     if (r.kind !== 'settlement') setCivHighlight(highlightOf(civ, arg, year));

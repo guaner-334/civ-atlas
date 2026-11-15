@@ -658,7 +658,15 @@ export type InfluenceName =
   | 'marry.odds'
   | 'aid.odds'
   | 'war.length'
-  | 'war.goal';
+  | 'war.goal'
+  | 'sack.odds'
+  | 'ruin.odds'
+  | 'rebuild.odds'
+  | 'defense.power'
+  | 'plague.spread'
+  | 'famine.odds'
+  | 'diverge.odds'
+  | 'trek.odds';
 
 /** 命令里指一国、一州、一城、一族:读口里的编号(只在这一刻有效),或稳定键 */
 export type SimRef = number | string;
@@ -666,8 +674,10 @@ export type SimRef = number | string;
 export type DisasterLevel = 1 | 2 | 3;
 export type TrekReach = 'near' | 'mid' | 'far';
 export type TrekDir = 'east' | 'south' | 'west' | 'north';
+/** 推一把发展快几倍(不给 = 直接进下一个时代) */
+export type BoostMul = 3 | 10;
 
-/** 插件能下的命令(PluginReply.commands 里的一条) */
+/** 插件能下的命令(PluginReply.commands 里的一条;protect、unity、halt、keep、stay 是否决类,管到 until。各种的意思见推演插件文档「命令」一节) */
 export type SimCommand =
   | { kind: 'declare'; a: SimRef; b: SimRef }
   | { kind: 'ally'; a: SimRef; b: SimRef; until?: number }
@@ -679,4 +689,14 @@ export type SimCommand =
   | { kind: 'disaster'; type: 'plague'; level: DisasterLevel; city: SimRef }
   | { kind: 'disaster'; type: 'famine'; level: DisasterLevel; a?: SimRef; regions?: SimRef[] }
   | { kind: 'disaster'; type: 'quake'; level: DisasterLevel; region: SimRef }
-  | { kind: 'trek'; folk: SimRef; region?: SimRef; to?: SimRef; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir };
+  | { kind: 'trek'; folk: SimRef; region?: SimRef; to?: SimRef; reach?: Exclude<TrekReach, 'mid'>; dir?: TrekDir }
+  | { kind: 'neutral'; a: SimRef; region: SimRef; ps: SimRef[]; quiet?: true; lasting?: true; until?: number; ask?: true }
+  | { kind: 'boost'; a: SimRef; mul?: BoostMul; until?: number; regions?: SimRef[] }
+  | { kind: 'protect' | 'unity' | 'halt' | 'keep'; a: SimRef; until?: number }
+  | { kind: 'stay'; folk: SimRef; until?: number }
+  | { kind: 'peace' | 'submit' | 'unally' | 'annul'; a: SimRef; b: SimRef }
+  | { kind: 'release'; a: SimRef }
+  | { kind: 'unzone' | 'city'; region: SimRef }
+  | { kind: 'dynasty'; a: SimRef; region?: SimRef }
+  | { kind: 'secede'; a: SimRef; regions: SimRef[]; name?: string }
+  | { kind: 'convert'; region: SimRef; folk: SimRef };

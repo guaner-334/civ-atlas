@@ -4,11 +4,11 @@
  * 随机生成(mode = 'random')。分两步(左上标着「① 地图 ② 文明」):
  *   第 1 步  地图:种子 + 换一颗、世界参数;地形(改地形工具、让助手改)。底部「保存地图」(只存地图,回我的世界的「地图」页签)
  *            和「打造文明 ›」(到第 2 步;手机上是「地图做好了，下一步」)
- *   第 2 步  文明:地图定下(左上「‹ 改地图」回第 1 步);文明种子 + 换一个(默认就是地图种子)、推演年数、天灾、规则、拓荒、文明起源;
- *            名字(世界名、地名风格);底部「开始推演」。手机上卡片里先是文明种子、推演年数和「更多设定」(规则、拓荒、起源、地名),名字框
+ *   第 2 步  文明:地图定下(左上「‹ 改地图」回第 1 步);文明种子 + 换一个(默认就是地图种子)、天灾、规则、拓荒、文明起源;
+ *            名字(世界名、地名风格);底部「开始推演」。手机上卡片里先是文明种子、天灾和「更多设定」(规则、拓荒、起源、地名),名字框
  *   打造文明 在已有的一张地图上(App 的 startNewCiv;修改里记着 map):只有第 2 步,标题「打造文明」,最上面一组「地图」锁着
  *            (哪个世界一开始的地图),文明种子先随机给一个,底下写明原来那个世界的东西都不带
- *   以别的世界为底稿新建(base):还是一页(种子锁着,世界参数里连拓荒、推演年数),底部「创建新世界」
+ *   以别的世界为底稿新建(base):还是一页(种子锁着,世界参数里连拓荒),底部「创建新世界」
  *   中间     这颗星球(StudioScene + PlanetGL):进来就是地球仪、自转;拖动转动。改地形时摊成平面,换成平常的平面地图和改地形覆盖层
  *            (App 按 studioStore 的 flat 摆地图)
  *   左边     设定(电脑贴着窗口左边、能收起;手机是底部卡片,平时只露种子和「创建世界」):
@@ -31,8 +31,8 @@
  *   助手     「让助手改」打开:电脑上贴着右边,手机上是盖住设定卡片的底部卡片(上面留出星球)。
  *            新建时助手只改地形、回答问题;列出来还没执行的改地形在星球上用白色虚线圈出来、编号和清单对上,
  *            星球先转过去正对着那一块。执行后和手动改地形一样重新生成、星球淡入新样子(不放提示条)
- *   确认框   点「创建世界」先列出建好以后不能改的几样(种子 / 照的图、世界参数、推演年数、拓荒、天灾、规则、地形、文明起源、地名风格;
- *            推演年数、拓荒、天灾、规则、文明起源改过才列);确认后面板滑出、星球展开成平常的地图、淡出
+ *   确认框   点「创建世界」先列出建好以后不能改的几样(种子 / 照的图、世界参数、拓荒、天灾、规则、地形、文明起源、地名风格;
+ *            拓荒、天灾、规则、文明起源改过才列);确认后面板滑出、星球展开成平常的地图、淡出
  *
  * 没有 WebGL(或显卡丢了):中间一直是平常的平面地图;样式照样能换。
  * 系统设了"减少动态效果":地球仪不自转,换样式和投影只做很短的过渡。
@@ -43,9 +43,9 @@ import { DEFAULT_PARAMS } from '../../gen/world';
 import type { Civ } from '../../gen/civ/types';
 import type { Raster } from '../../gen/raster';
 import { TITLE_MAX, worldKey } from '../../gen/savefile';
-import { END_YEAR_DEFAULT, advanceOf, cleanCivSeed, cleanEndYear } from '../../gen/edits';
+import { advanceOf, cleanCivSeed } from '../../gen/edits';
 import type { DraftBase } from '../stageStore';
-import { getEdits, setAdvance, setCalamity, setCivSeed, setEndYear, setFrontier, setOrigins, setRules, useEdits } from '../editsStore';
+import { getEdits, setAdvance, setCalamity, setCivSeed, setFrontier, setOrigins, setRules, useEdits } from '../editsStore';
 import { CALAMITIES, CALAMITY_NAMES, cleanCalamity, type Calamity } from '../../gen/civ/calamity';
 import { AdvanceFields } from '../StepwiseDialogs';
 import { advanceBrief } from '../advanceText';
@@ -88,7 +88,7 @@ import {
   useSource,
   useSourceView,
 } from '../ImportImage';
-import { CONT_SLIDERS, ParamSlider, SLIDERS, YearsRows, paramsSide, yearsSpan } from '../WorldOverviewGenesis';
+import { CONT_SLIDERS, ParamSlider, SLIDERS, paramsSide } from '../WorldOverviewGenesis';
 import { ContinentSeg } from '../ParamField';
 import { PresetPicker, type PresetPick } from '../PresetPicker';
 import { changedKeys, usePresets } from '../presetStore';
@@ -346,9 +346,6 @@ const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(pre
 
 export function Studio(p: StudioProps) {
   const edits = useEdits();
-  /** 推演年数:开了「推演超过 3000 年」= years */
-  const years = cleanEndYear(edits.endYear);
-  const endYear = years ?? END_YEAR_DEFAULT;
   const tool = useTerrainTool();
   const imp = useImport();
   const importing = !!imp;
@@ -383,7 +380,7 @@ export function Studio(p: StudioProps) {
   const twoStep = !image && !p.base && !locked;
   /** 两步里到了第 2 步「文明」(照故事找世界「用这个世界」回来的直接在第 2 步) */
   const [civStep, setCivStep] = useState(() => !!p.found);
-  /** 照故事找的:种子、推演年数、拓荒、起源、天灾、规则锁着(改了历史就不是找到的那样) */
+  /** 照故事找的:种子、拓荒、起源、天灾、规则锁着(改了历史就不是找到的那样) */
   const found = twoStep ? (p.found ?? null) : null;
   const step2 = locked || (twoStep && civStep);
   // ---- 规则:选的那一套、跟上「我的规则」里调过的 ----
@@ -411,15 +408,13 @@ export function Studio(p: StudioProps) {
     setRulesPick(id);
     setRules(id ? findMyRules(id)?.rules : undefined);
   };
-  /** 第 2 步「怎么推」:一口气推完(推演年数)/ 演绎(建好以后从第 0 年起逐年推演,推进设置)/ 照大纲(照常推完,建好以后先打开大纲) */
+  /** 第 2 步「怎么推」:一口气推完 / 演绎(建好以后从第 0 年起逐年推演,推进设置)/ 照大纲(照常推完,建好以后先打开大纲) */
   const [how, setHow] = useState<'all' | 'step' | 'outline'>('all');
   const stepHow = step2 && how === 'step';
   const outlineHow = step2 && how === 'outline';
-  /** 确认框里的动词;选了演绎时推演年数不算(从第 0 年起一步步往下走) */
+  /** 确认框里的动词 */
   const verb = stepHow ? '演绎' : '推演';
-  const yearsLocked = !!years && !stepHow;
-  /** 第 2 步里推演年数、推进设置、拓荒展开着没有 */
-  const [yearsOpen, setYearsOpen] = useState(false);
+  /** 第 2 步里推进设置、拓荒展开着没有 */
   const [advOpen, setAdvOpen] = useState(false);
   const [frontierOpen, setFrontierOpen] = useState(false);
   /** 一进来用的投影:设过「新建时的默认」就照它(照手绘图的照旧是地球仪) */
@@ -1232,9 +1227,8 @@ export function Studio(p: StudioProps) {
   const presets = usePresets();
   /** 和所选预设不一样的几样(数字用主色写) */
   const changed = changedKeys(presets, presets.chosen, p.params);
-  /** 选了一个预设:参数换成它的(推演年数也是);存了种子的连种子换(以别的世界为底稿时种子不换);存了规则的规则选好那一套(照故事找的锁着) */
+  /** 选了一个预设:参数换成它的;存了种子的连种子换(以别的世界为底稿时种子不换);存了规则的规则选好那一套(照故事找的锁着) */
   const applyPreset = (c: PresetPick) => {
-    if (c.endYear !== years) setEndYear(c.endYear);
     if (rulesOn && !found && c.rules) {
       beforePreset.current ??= { rules: edits.rules, pick: rulesPick };
       const r = takePresetRules(c.rules);
@@ -1397,7 +1391,7 @@ export function Studio(p: StudioProps) {
         <div className="nw-sliders">
           <div className="ps-row nw-preset">
             <span className="ps-l">预设</span>
-            <PresetPicker params={p.params} endYear={years} rules={edits.rules} onPick={applyPreset} phone={p.phone} disabled={mapOff} />
+            <PresetPicker params={p.params} rules={edits.rules} onPick={applyPreset} phone={p.phone} disabled={mapOff} />
           </div>
           {SLIDERS.slice(0, 3).map(slider)}
           <div className="nw-sub">大陆</div>
@@ -1410,12 +1404,11 @@ export function Studio(p: StudioProps) {
           {SLIDERS.slice(3, 5).map(slider)}
           <div className="nw-sub">精细度</div>
           {SLIDERS.slice(5).map(slider)}
-          {/* 分两步的新建:拓荒、推演年数在第 2 步「文明」里 */}
+          {/* 分两步的新建:拓荒在第 2 步「文明」里 */}
           {!twoStep && (
             <>
               <div className="nw-sub">拓荒</div>
               {frontierRows}
-              <YearsRows />
             </>
           )}
         </div>
@@ -1464,7 +1457,7 @@ export function Studio(p: StudioProps) {
       <Icon name="chevron" size={14} className="sb-chev" />
     </button>
   );
-  // ---- 第 2 步「文明」:文明种子、推演年数、拓荒(起源、名字、地名风格和原来一样) ----
+  // ---- 第 2 步「文明」:文明种子、拓荒(起源、名字、地名风格和原来一样) ----
   /** 文明种子:没写 = 跟着地图种子 */
   const civSeedNow = cleanCivSeed(edits.civSeed) ?? p.params.seed;
   const [civText, setCivText] = useState(String(civSeedNow));
@@ -1526,23 +1519,6 @@ export function Studio(p: StudioProps) {
         </button>
       </span>
     </div>
-  );
-  const yearsRow = (
-    <>
-      <button className={`sb-row nw-params${yearsOpen ? ' open' : ''}`} data-act="years" aria-expanded={yearsOpen} disabled={!p.ready} onClick={() => setYearsOpen((o) => !o)}>
-        <Icon name="history" size={ico} className="sb-ico" />
-        <span className="sb-row-main">
-          <b>推演年数</b>
-        </span>
-        {!yearsOpen && <span className="sb-row-side">{endYear} 年</span>}
-        <Icon name={yearsOpen ? 'down' : 'chevron'} size={14} className="sb-chev" />
-      </button>
-      {yearsOpen && (
-        <div className="nw-sliders">
-          <YearsRows />
-        </div>
-      )}
-    </>
   );
   /** 怎么推:一口气推完 / 演绎 */
   const howRow = (
@@ -1806,7 +1782,6 @@ export function Studio(p: StudioProps) {
     setMapPage(false);
     closeOrigins();
     setSheetFull(false);
-    setYearsOpen(false);
     setFrontierOpen(false);
     setCivStep(false);
     setTip(false);
@@ -2027,7 +2002,7 @@ export function Studio(p: StudioProps) {
           {outlineNote}
           {found ? (
             <>
-              {stepHow ? advRow : lockedRow('years-found', '推演年数', `${endYear} 年`)}
+              {stepHow && advRow}
               {lockedRow('frontier-found', '拓荒', '和找的时候一样')}
               {lockedRow('origins-found', '文明起源', '和找的时候一样')}
               {lockedRow('calamity-found', '天灾', '和找的时候一样')}
@@ -2037,7 +2012,7 @@ export function Studio(p: StudioProps) {
             </>
           ) : (
             <>
-              {stepHow ? advRow : yearsRow}
+              {stepHow && advRow}
               {calamityRow}
               {!compact && rulesRow}
               {!compact && simRow}
@@ -2176,7 +2151,7 @@ export function Studio(p: StudioProps) {
       </section>
     );
   } else if (p.phone) {
-    // 第 2 步「文明」:卡片没拉开时也是一整组(文明种子、推演年数、更多设定、名字),不是只露一行
+    // 第 2 步「文明」:卡片没拉开时也是一整组(文明种子、天灾、更多设定、名字),不是只露一行
     const civPeek = step2 && !sheetFull;
     left = (
       <section
@@ -2577,7 +2552,7 @@ export function Studio(p: StudioProps) {
               {step2 ? (nameNow ? `开始${verb}「${nameNow}」？` : `开始${verb}这个文明？`) : nameNow ? `创建「${nameNow}」？` : '创建这个世界？'}
             </h2>
             <p>
-              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (yearsLocked ? 1 : 0) + (frontier ? 1 : 0) + (calamity ? 1 : 0) + (edits.rules ? 1 : 0) + (simLocked ? 1 : 0) + (mapLocked ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
+              {step2 ? `开始${verb}以后` : '创建以后，这颗星球的样子就定下来了'}，下面{LOCK_COUNT[4 + (step2 ? 1 : 0) + (frontier ? 1 : 0) + (calamity ? 1 : 0) + (edits.rules ? 1 : 0) + (simLocked ? 1 : 0) + (mapLocked ? 1 : 0) + (originN ? 1 : 0)]}样不能再改：
             </p>
             <div className="sb-group">
               {image ? (
@@ -2627,17 +2602,6 @@ export function Studio(p: StudioProps) {
                   </span>
                   <span className="sb-row-side" data-confirm="civ-seed">
                     {civSeedNow}
-                  </span>
-                </div>
-              )}
-              {yearsLocked && (
-                <div className="sb-row static">
-                  <Icon name="lock" size={16} className="sb-ico" />
-                  <span className="sb-row-main">
-                    <b>推演年数</b>
-                  </span>
-                  <span className="sb-row-side" data-confirm="end-year">
-                    {endYear} 年
                   </span>
                 </div>
               )}

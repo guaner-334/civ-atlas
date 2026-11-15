@@ -9,10 +9,11 @@
  * - 推完(fresh):刚推的那一段在时间轴上垫一道浅蓝、起点一条细线;只在这次打开网页里标着(不进存档),
  *   再推一次换成新的那段,换世界、读档以后不标。
  * - "这台电脑约 N 秒":按这台电脑刚才推演用的时间估(生成世界时推文明那一步、上一次再推的实测毫秒数);估不出来 = null。
+ * - 这一次从第 3000 年或更早推到 3000 年以后:推到第几年那一格下面多一行提醒(YEARS_NOTE),只是一行字,照样一按就推。
  * 不碰 DOM(浏览器存储读写包了 try),单测直接测(tests/extend-years.test.ts)。
  */
 import { createListeners } from './createStore';
-import { END_YEAR_MAX } from '../gen/edits';
+import { END_YEAR_DEFAULT, END_YEAR_MAX } from '../gen/edits';
 import { yearFull, type Era } from '../gen/era';
 import { momentFull, momentTail } from './stepTime';
 
@@ -186,6 +187,13 @@ export function extendPlan(end: number, years: number): { to: number; over: bool
   const n = Math.max(1, Math.round(years));
   const to = end + Math.min(n, room);
   return { to, over: n > room, squeeze: to > 0 ? Math.round((end / to) * 100) : 100 };
+}
+
+export const YEARS_NOTE = '近现代、现代、未来整体还在开发中，帝国的衰退和科技的发展也在设计当中，历史推演超过3000年后会陷入低价值的循环。';
+
+/** 从第 end 年推到第 to 年要不要写 YEARS_NOTE:跨过第 3000 年的那一次才写 */
+export function yearsNoteOn(end: number, to: number): boolean {
+  return end <= END_YEAR_DEFAULT && to > END_YEAR_DEFAULT;
 }
 
 // ---------------------------------------------------------------------------

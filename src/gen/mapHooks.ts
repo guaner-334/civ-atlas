@@ -1,5 +1,5 @@
 /**
- * 地图插件在生成流程里出手的三个口子:改海拔(height)、改气候(climate)、出图层(layers)。
+ * 地图插件在生成流程里出手的口子:改海拔(height)、改气候(climate)、改海冰(seaice)、改水系(runoff)、出图层(layers)。
  * 生成流程只认这里的接口,插件怎么跑由调用方包成 MapPlugin;交回的东西在这里核对、压范围以后才套上。
  * 纯计算,worker 和 Node 里都能跑。
  */
@@ -14,15 +14,19 @@ import { KM_PER_UNIT } from './civ/scale';
 import { mapHelpers, type MapHelpers } from './mapHelpers';
 import { MAP_READS } from './mapReads';
 
-export type MapStage = 'height' | 'climate' | 'layers';
+export type MapStage = 'height' | 'climate' | 'seaice' | 'runoff' | 'layers';
+/** 按出手的先后 */
+export const MAP_STAGES: readonly MapStage[] = ['height', 'climate', 'seaice', 'runoff', 'layers'];
 
 /** 每个插件最多交几张图层 */
 export const MAP_LAYERS_MAX = 4;
-/** 交回的值压到这些范围里(海拔:米;气温:°C;降水:毫米 / 年) */
+/** 交回的值压到这些范围里(海拔:米;气温:°C;降水:毫米 / 年;海冰:0–1;径流:米 / 年) */
 export const MAP_RANGE = {
   elevation: [-11000, 9000],
   temperature: [-70, 50],
   precipitation: [0, 15000],
+  seaIce: [0, 1],
+  runoff: [0, 20],
 } as const;
 
 /** 新建世界时的参数(滑条上的那些数) */
@@ -52,7 +56,7 @@ export interface MapWorldParams {
   north: number;
 }
 
-/** 三个口子都递的;帮手(噪声、平滑……)见 mapHelpers.ts;带 ? 的是清单 map.reads 写了才递的 */
+/** 每一口都递的;帮手(噪声、平滑……)见 mapHelpers.ts;带 ? 的是清单 map.reads 写了才递的 */
 export interface MapShared extends MapHelpers {
   n: number;
   /** 纬度、经度(度) */
@@ -111,6 +115,8 @@ export interface HeightInput extends MapShared {
 export interface HeightReply {
   elevation?: ArrayLike<number>;
   land?: ArrayLike<number>;
+  /** 1 = 这块积成的湖再大也不填平(标湖里任意一块,整个湖都留着) */
+  keepLakes?: ArrayLike<number>;
 }
 
 export interface ClimateInput extends MapShared {
@@ -134,6 +140,27 @@ export interface ClimateInput extends MapShared {
 export interface ClimateReply {
   temperature?: ArrayLike<number>;
   precipitation?: ArrayLike<number>;
+}
+
+export interface SeaIceInput extends ClimateInput {
+  /** 海冰盖了多少(0–1,只有海上有) */
+  seaIce: Float32Array;
+}
+/** 只有海上的算数,陆地、湖上的当 0 */
+export interface SeaIceReply {
+  seaIce?: ArrayLike<number>;
+}
+
+export interface RunoffInput extends SeaIceInput {
+  /** 每块自己产多少水(米 / 年,只有陆地有):沿 downstream 一路加起来是 flux,到 riverThreshold 的成河 */
+  runoff: Float32Array;
+  riverThreshold: number;
+  /** 水往哪块流(−1 = 海,或者流不到海) */
+  downstream?: Int32Array;
+}
+/** 只有陆地(含湖)上的算数,海上的当 0 */
+export interface RunoffReply {
+  runoff?: ArrayLike<number>;
 }
 
 export interface LayersInput extends ClimateInput {
@@ -180,6 +207,8 @@ export interface MapPlugin {
   reads?: readonly string[];
   height?(d: HeightInput): HeightReply | undefined;
   climate?(d: ClimateInput): ClimateReply | undefined;
+  seaice?(d: SeaIceInput): SeaIceReply | undefined;
+  runoff?(d: RunoffInput): RunoffReply | undefined;
   layers?(d: LayersInput): LayersReply | undefined;
 }
 
@@ -219,7 +248,7 @@ export class MapPluginError extends Error {
   }
 }
 
-const STAGE_NAME: Record<MapStage, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+const STAGE_NAME: Record<MapStage, string> = { height: '改海拔', climate: '改气候', seaice: '改海冰', runoff: '改水系', layers: '出图层' };
 
 /** 进度里那一句:地图插件「柯本气候」：改气候 */
 export const mapStageNote = (pl: Pick<MapPlugin, 'id' | 'name'>, stage: MapStage): string => `地图插件「${pl.name ?? pl.id}」：${STAGE_NAME[stage]}`;
@@ -259,29 +288,38 @@ export class MapClock {
   }
 }
 
+type StageFn = (d: never) => unknown;
+
+/** 插件在 keep 的那几口的函数,各经 wrap 包一层 */
+function stageFns(pl: MapPlugin, keep: (st: MapStage) => boolean, wrap: (st: MapStage, fn: StageFn) => StageFn): Pick<MapPlugin, MapStage> {
+  const out: Partial<Record<MapStage, StageFn>> = {};
+  for (const st of MAP_STAGES) {
+    const fn = pl[st] as StageFn | undefined;
+    if (fn && keep(st)) out[st] = wrap(st, fn);
+  }
+  return out as Pick<MapPlugin, MapStage>;
+}
+
 /** 一次生成用的这串插件,每一口的用时记进 clock(一次生成一个新的 clock) */
 export function timedMapPlugins(plugins: readonly MapPlugin[], clock = new MapClock()): MapPlugin[] {
-  return plugins.map((pl) => {
-    const timed =
-      <D, R>(stage: MapStage, fn: (d: D) => R) =>
-      (d: D): R => {
+  return plugins.map((pl) => ({
+    id: pl.id,
+    key: pl.key,
+    ...(pl.name ? { name: pl.name } : {}),
+    stages: pl.stages,
+    ...(pl.layerIds ? { layerIds: pl.layerIds } : {}),
+    ...(pl.reads ? { reads: pl.reads } : {}),
+    ...stageFns(
+      pl,
+      (st) => pl.stages.includes(st),
+      (stage, fn) => (d) => {
         const t0 = clock.now();
         const r = fn.call(pl, d);
         clock.spend(pl.id, stage, clock.now() - t0);
         return r;
-      };
-    return {
-      id: pl.id,
-      key: pl.key,
-      ...(pl.name ? { name: pl.name } : {}),
-      stages: pl.stages,
-      ...(pl.layerIds ? { layerIds: pl.layerIds } : {}),
-      ...(pl.reads ? { reads: pl.reads } : {}),
-      ...(pl.height && pl.stages.includes('height') ? { height: timed('height', pl.height) } : {}),
-      ...(pl.climate && pl.stages.includes('climate') ? { climate: timed('climate', pl.climate) } : {}),
-      ...(pl.layers && pl.stages.includes('layers') ? { layers: timed('layers', pl.layers) } : {}),
-    };
-  });
+      },
+    ),
+  }));
 }
 
 /** 同一串插件:生成的缓存键、世界记的都是它 */
@@ -299,8 +337,11 @@ export function withoutLayers(plugins: readonly MapPlugin[]): MapPlugin[] {
           ...(pl.name ? { name: pl.name } : {}),
           stages: pl.stages.filter((s) => s !== 'layers'),
           ...(pl.reads ? { reads: pl.reads } : {}),
-          ...(pl.height ?{ height: pl.height.bind(pl) } : {}),
-          ...(pl.climate ? { climate: pl.climate.bind(pl) } : {}),
+          ...stageFns(
+            pl,
+            (st) => st !== 'layers',
+            (_st, fn) => fn.bind(pl),
+          ),
         }
       : pl,
   );
@@ -466,7 +507,18 @@ const copy = <T extends Float32Array | Uint8Array>(a: T): T => a.slice() as T;
 /** 一个插件要出手了(进度里说一声) */
 export type MapSay = (pl: MapPlugin, stage: MapStage) => void;
 
-/** 改海拔:按先后出手,elevation、land 原地改 */
+/** 每块 0 或 1 */
+function zeroOne(pl: MapPlugin, stage: MapStage, name: string, v: unknown, n: number): Uint8Array {
+  if (!arrayLike(v) || v.length !== n) throw new MapPluginError(pl.id, stage, `${name} 的长度不是地块数 ${n}`);
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (v[i] !== 0 && v[i] !== 1) throw new MapPluginError(pl.id, stage, `${name}[${i}] 不是 0 或 1`);
+    out[i] = v[i] as number;
+  }
+  return out;
+}
+
+/** 改海拔:按先后出手,elevation、land 原地改;交回各插件标的 keepLakes 并起来(都没标 = null) */
 export function heightHooks(
   plugins: readonly MapPlugin[],
   mesh: Mesh,
@@ -476,8 +528,9 @@ export function heightHooks(
   plate: Int16Array,
   say?: MapSay,
   src?: MapSources,
-): void {
+): Uint8Array | null {
   const { n } = mesh;
+  let keep: Uint8Array | null = null;
   for (const pl of plugins) {
     if (!pl.stages.includes('height')) continue;
     say?.(pl, 'height');
@@ -490,15 +543,11 @@ export function heightHooks(
     });
     if (!r) continue;
     const e = r.elevation === undefined ? null : clamped(pl, 'height', 'elevation', r.elevation, n, MAP_RANGE.elevation);
-    let l: Uint8Array | null = null;
-    if (r.land !== undefined) {
-      const v = r.land;
-      if (!arrayLike(v) || v.length !== n) throw new MapPluginError(pl.id, 'height', `land 的长度不是地块数 ${n}`);
-      l = new Uint8Array(n);
-      for (let i = 0; i < n; i++) {
-        if (v[i] !== 0 && v[i] !== 1) throw new MapPluginError(pl.id, 'height', `land[${i}] 不是 0 或 1`);
-        l[i] = v[i] as number;
-      }
+    const l = r.land === undefined ? null : zeroOne(pl, 'height', 'land', r.land, n);
+    const k = r.keepLakes === undefined ? null : zeroOne(pl, 'height', 'keepLakes', r.keepLakes, n);
+    if (k) {
+      keep ??= new Uint8Array(n);
+      for (let i = 0; i < n; i++) keep[i] |= k[i];
     }
     if (e) {
       for (let i = 0; i < n; i++) {
@@ -511,6 +560,7 @@ export function heightHooks(
     }
     if (l) land.set(l);
   }
+  return keep;
 }
 
 export interface ClimateFields {
@@ -547,6 +597,48 @@ export function climateHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: nu
     const p = r.precipitation === undefined ? null : clamped(pl, 'climate', 'precipitation', r.precipitation, n, MAP_RANGE.precipitation);
     if (t) c.temperature.set(t);
     if (p) c.precipitation.set(p);
+  }
+}
+
+export interface SeaIceFields extends ClimateFields {
+  seaIce: Float32Array;
+}
+
+/** 改海冰:按先后出手,seaIce 原地改(只改海上的) */
+export function seaIceHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, c: SeaIceFields, say?: MapSay, src?: MapSources): void {
+  const { n } = mesh;
+  for (const pl of plugins) {
+    if (!pl.stages.includes('seaice')) continue;
+    say?.(pl, 'seaice');
+    const r = call<SeaIceInput, SeaIceReply>(pl, 'seaice', { ...shared(mesh, seed, pl), ...readsFor(pl, 'seaice', mesh, src), ...climateCopy(c), seaIce: copy(c.seaIce) });
+    if (!r || r.seaIce === undefined) continue;
+    const s = clamped(pl, 'seaice', 'seaIce', r.seaIce, n, MAP_RANGE.seaIce);
+    for (let i = 0; i < n; i++) if (c.water[i] === 1) c.seaIce[i] = s[i];
+  }
+}
+
+export interface RunoffFields extends SeaIceFields {
+  runoff: Float32Array;
+  riverThreshold: number;
+}
+
+/** 改水系:按先后出手,runoff 原地改(只改陆地、湖上的) */
+export function runoffHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, c: RunoffFields, say?: MapSay, src?: MapSources): void {
+  const { n } = mesh;
+  for (const pl of plugins) {
+    if (!pl.stages.includes('runoff')) continue;
+    say?.(pl, 'runoff');
+    const r = call<RunoffInput, RunoffReply>(pl, 'runoff', {
+      ...shared(mesh, seed, pl),
+      ...readsFor(pl, 'runoff', mesh, src),
+      ...climateCopy(c),
+      seaIce: copy(c.seaIce),
+      runoff: copy(c.runoff),
+      riverThreshold: c.riverThreshold,
+    });
+    if (!r || r.runoff === undefined) continue;
+    const v = clamped(pl, 'runoff', 'runoff', r.runoff, n, MAP_RANGE.runoff);
+    for (let i = 0; i < n; i++) if (c.water[i] !== 1) c.runoff[i] = v[i];
   }
 }
 

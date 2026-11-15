@@ -292,6 +292,16 @@ const IV_WORD: Record<Intervention['kind'], string> = {
   trek: '大迁徙',
   stay: '不许迁',
   appoint: '任作者的人物为将 / 为臣',
+  peace: '停战',
+  submit: '称臣',
+  release: '放藩',
+  unally: '断盟',
+  annul: '废约',
+  unzone: '撤中立地',
+  city: '建城',
+  dynasty: '改朝换代',
+  secede: '分裂',
+  convert: '改一州的民族',
 };
 
 function ivWord(civ: Civ, v: Intervention, a: number, b: number): string {

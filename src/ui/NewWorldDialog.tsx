@@ -7,8 +7,7 @@
  *            照图的先选一张图(拖进来或「选一张图」),不列陆地比例(海陆照图定),种子随机给,进去以后在「山河、地名换一种」里换。
  *            照图的「精细度」下面一组「拓荒」:民族扩散、国家扩张两条滑条(默认 1×),「地形难走程度」一行点开原地展开八样地形
  *            (改过的数字变成强调色、前面一个圆点;「恢复默认」一下还原),组下面一段说明。
- *            最后一组「历史」:开关「推演超过 3000 年」(默认关),组下面一直写着那段说明;开了多一条「推演到」(刚打开 10000 年)。
- *            随机生成的不列「拓荒」「历史」(先只做地图,这两样在新建界面第 2 步「打造文明」里定)。
+ *            随机生成的不列「拓荒」(先只做地图,在新建界面第 2 步「打造文明」里定)。
  *            底下一句说进去以后这些都还能改
  *
  * 朋友的预设链接(presetLink.ts)打开的:直接到第 2 步(随机生成),参数照链接填好;第 2 步标题下面那句换成一条浅蓝
@@ -25,7 +24,7 @@
  */
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { WorldParams } from '../gen/world';
-import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, type SliderLike } from './genesisSliders';
+import { CONT_SLIDERS, SLIDERS, contBrief, type SliderLike } from './genesisSliders';
 import { CONT_RESET, ContinentSeg, ParamField, rangeFill } from './ParamField';
 import { createPortal } from 'react-dom';
 import { PresetPicker, SavePreset, type PresetPick } from './PresetPicker';
@@ -47,20 +46,17 @@ export interface NewWorldStart {
   params: WorldParams;
   /** 照手绘图:读好的那张图(交给 App 以后由它管,不再收回) */
   picture: LoadedImage | null;
-  /** 推演到第几年(没开「推演超过 3000 年」= 不给) */
-  endYear?: number;
   /** 拓荒(都是默认 = 不给) */
   frontier?: Frontier;
   /** 用哪一套规则(官方 = 不给;整套存进新世界,本机「我的规则」里的那一套带着本机编号) */
   rules?: RuleSet;
 }
 
-/** 从哪一步开始(刷新了照手绘图还没选好图的新建:回到它的第 2 步,参数、推演年数照网址) */
+/** 从哪一步开始(刷新了照手绘图还没选好图的新建:回到它的第 2 步,参数照网址) */
 export interface NewWorldInit {
   mode: NewWorldMode;
   params: WorldParams;
   step: 1 | 2;
-  endYear?: number;
 }
 
 export interface NewWorldDialogProps {
@@ -151,13 +147,11 @@ function ParamRow({ s, value, onChange, phone, sub, changed }: { s: SliderLike; 
 /** 打开弹窗时的参数:停在上次选的预设上(存了种子的连种子,存了规则的连规则) */
 function startParams(randomSeed: () => number): {
   params: WorldParams;
-  endYear?: number;
   rules?: RuleSet;
 } {
   const c = choiceParams(getPresets(), getPresets().chosen);
   return {
     params: { ...c.params, seed: c.seed ?? randomSeed() },
-    endYear: c.endYear,
     rules: c.rules,
   };
 }
@@ -165,13 +159,11 @@ function startParams(randomSeed: () => number): {
 export function NewWorldDialog(p: NewWorldDialogProps) {
   const [step, setStep] = useState<1 | 2>(p.init?.step ?? 1);
   const [mode, setMode] = useState<NewWorldMode>(p.init?.mode ?? 'random');
-  const [first] = useState(() => (p.init ? { params: p.init.params, endYear: p.init.endYear, rules: p.shared?.rules } : startParams(p.randomSeed)));
+  const [first] = useState(() => (p.init ? { params: p.init.params, rules: p.shared?.rules } : startParams(p.randomSeed)));
   const [params, setParams] = useState<WorldParams>(first.params);
   const [seedText, setSeedText] = useState(String(params.seed));
   const [seedBad, setSeedBad] = useState(false);
   const [picture, setPicture] = useState<LoadedImage | null>(null);
-  /** 推演到第几年(开关关着 = undefined,就是 3000 年) */
-  const [years, setYears] = useState<number | undefined>(first.endYear);
   /** 「大陆」一组展开了没有(平时收着,像打印窗口的「显示详细信息」) */
   const [contOpen, setContOpen] = useState(false);
   const presets = usePresets();
@@ -186,7 +178,6 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     setParams({ ...c.params, seed });
     setSeedText(String(seed));
     setSeedBad(false);
-    setYears(c.endYear);
     setRules(c.rules && rulesUiOn() ? { r: c.rules, preset: true } : p.rules ? { r: p.rules, preset: false } : null);
   };
   /** 拓荒(都是默认 = undefined);「地形难走程度」展开没有 */
@@ -256,7 +247,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     const final = mode === 'random' ? (n > 0 ? { ...params, seed: n } : params) : { ...params, ...CONT_RESET, hardness: params.hardness };
     given.current = true;
     if (mode !== 'image' && held.current) URL.revokeObjectURL(held.current.url);
-    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(years ? { endYear: years } : {}), ...(frontier && mode === 'image' ? { frontier } : {}), ...(rules ? { rules: rules.r } : {}) });
+    p.onStart({ mode, params: final, picture: mode === 'image' ? picture : null, ...(frontier && mode === 'image' ? { frontier } : {}), ...(rules ? { rules: rules.r } : {}) });
   };
   const next = (m: NewWorldMode = mode) => {
     setMode(m);
@@ -304,8 +295,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const info =
     mode === 'random'
       ? p.phone
-        ? '进去以后这些都还能改，还能用笔改地形。地图做好了，可以先保存，也可以接着打造文明：推演年数、拓荒、文明从哪里起源，都在那一步。'
-        : '进去以后，这些在左边「世界参数」里都还能改，还能用笔改地形。地图做好了，可以先保存，也可以接着打造文明：推演年数、拓荒、文明从哪里起源，都在那一步。'
+        ? '进去以后这些都还能改，还能用笔改地形。地图做好了，可以先保存，也可以接着打造文明：拓荒、文明从哪里起源，都在那一步。'
+        : '进去以后，这些在左边「世界参数」里都还能改，还能用笔改地形。地图做好了，可以先保存，也可以接着打造文明：拓荒、文明从哪里起源，都在那一步。'
       : '进去以后先认出图里的海和陆地，再用笔修。这些参数在「参数和名字」那一步都还能改；点「创建世界」以后才定下来。';
 
   const cards = (
@@ -517,26 +508,8 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
           {i === 0 && contSec}
         </Fragment>
       ))}
-      {/* 随机生成先只做地图:拓荒、历史在新建界面的第 2 步「打造文明」里定 */}
-      {mode === 'image' && (
-        <>
-          {frontierGroup}
-          <div className="nd-sec">
-            <div className="nd-lab">
-              历史
-              <small>年数越多，打开越慢</small>
-            </div>
-            <div className="nd-grp">
-              <label className="nd-pr">
-                <span className="nd-n wide">{YEARS_SWITCH}</span>
-                <button className={`ai-switch${years ? ' on' : ''}`} role="switch" aria-checked={!!years} data-act="dlg-years" onClick={() => setYears(years ? undefined : YEARS_ON)} />
-              </label>
-              {years && <ParamRow s={YEARS_SLIDER} value={years} phone={p.phone} onChange={setYears} />}
-            </div>
-            <p className="nd-foot">{YEARS_NOTE}</p>
-          </div>
-        </>
-      )}
+      {/* 随机生成先只做地图:拓荒在新建界面的第 2 步「打造文明」里定 */}
+      {mode === 'image' && frontierGroup}
       {(mode === 'random' || picture) && (
         <div className="nd-info">
           <Icon name="info" size={17} />
@@ -568,7 +541,6 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
     createPortal(
       <SavePreset
         params={{ ...p.shared.params, seed: p.shared.seed ?? params.seed }}
-        endYear={p.shared.endYear}
         initial={{ name: p.shared.name, withSeed: p.shared.seed !== undefined, rules: p.shared.rules }}
         onSaved={() => setKept(true)}
         onClose={() => setKeepOpen(false)}
@@ -584,7 +556,7 @@ export function NewWorldDialog(p: NewWorldDialogProps) {
   const presetRow = (
     <div className="ps-row nd-preset">
       <span className="ps-l">预设</span>
-      <PresetPicker params={params} endYear={years} rules={rules?.r} onPick={applyPreset} phone={p.phone} saveLink={!p.phone} after={p.phone ? undefined : rulesNote} />
+      <PresetPicker params={params} rules={rules?.r} onPick={applyPreset} phone={p.phone} saveLink={!p.phone} after={p.phone ? undefined : rulesNote} />
     </div>
   );
 
