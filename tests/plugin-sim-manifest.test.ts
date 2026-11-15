@@ -83,7 +83,7 @@ describe('推演插件的清单', () => {
     ['数据栏的上下限反了', (s) => ((s.columns[0].min = 5), (s.columns[0].max = 1)), /上下限/],
     ['数据栏超过 16 栏', (s) => s.columns.push(...Array.from({ length: 16 }, (_, i) => ({ id: `c${i}`, unit: 'culture', min: 0, max: 1, off: 0 }))), /16/],
     ['图层的颜色没给', (s) => delete s.layers[0].ramp, /ramp/],
-    ['表超过 16 张', (s) => s.tables.push(...Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, name: `t${i}`, unit: 'world', min: 0, max: 1, off: 0, rule: '0' }))), /16/],
+    ['表超过 32 张', (s) => s.tables.push(...Array.from({ length: 30 }, (_, i) => ({ id: `t${i}`, name: `t${i}`, unit: 'world', min: 0, max: 1, off: 0, rule: '0' }))), /32/],
   ];
   it.each(bad)('推演拦下的写法,清单检查也拦下:%s', (_, change, says) => {
     const s = goodSim();

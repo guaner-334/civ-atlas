@@ -30,7 +30,7 @@ export interface QuickJSPluginSpec {
   log?: (method: string, text: string, year: number | null) => void;
 }
 
-export const QUICKJS_LIMITS: QuickJSLimits = { memory: 64 * 1024 * 1024, moment: PLUGIN_TIME.moment, stack: 64 * 1024 };
+export const QUICKJS_LIMITS: QuickJSLimits = { memory: 64 * 1024 * 1024, moment: PLUGIN_TIME.moment, stack: 256 * 1024 };
 
 export interface QuickJSPlugin extends SimPlugin<SimRead> {
   /** 放掉 QuickJS(用完一段推演就放) */

@@ -14,7 +14,7 @@ import { THOUGHT_COUNT, THOUGHTS } from '../gen/civ/ideology';
 import { KM_PER_UNIT } from '../gen/civ/scale';
 import type { ChronicleEntry } from '../gen/civ/story/chronicle';
 import { treatyBook, treatyMembersAt, treatyTitle } from '../gen/civ/story/treatyInfo';
-import { cultureKey, dynastyKey, faithKey, isCommandOnly, personKey, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, tradeKey, treatyKey, YEAR_TICKS, type AuthorIntervention, type WorldEdits } from '../gen/edits';
+import { cultureKey, dynastyKey, faithKey, isCommand, isCommandOnly, personKey, placeKeyOf, polityKey, regionKey, resolveKey, settlementKey, tradeKey, treatyKey, YEAR_TICKS, type AuthorIntervention, type Intervention, type WorldEdits } from '../gen/edits';
 import { geometryOf } from '../gen/geometry';
 import { driftOf } from '../gen/plateOps';
 import {
@@ -476,19 +476,35 @@ export function historyRelations(civ: Civ, raw: unknown): RelationsInfo {
   const r = relationsAt(civ, year);
   const alliances: RelationsInfo['alliances'] = r.pacts.map((x) => ({ a: x.a, b: x.b, since: x.since, foe: x.foe }));
   const has = new Set(alliances.map((x) => `${Math.min(x.a, x.b)},${Math.max(x.a, x.b)}`));
-  for (const v of civ.interventions ?? []) {
+  const ivs = civ.interventions ?? [];
+  const at = (v: Intervention) => v.from + (v.fromTick ?? 0) / YEAR_TICKS;
+  const pairKey = (a: number, b: number) => `${Math.min(a, b)},${Math.max(a, b)}`;
+  const polityOf = (k: string) => {
+    const x = resolveKey(civ, k);
+    return x?.kind === 'polity' ? x.id : -1;
+  };
+  const cuts = (u: Intervention, k: number, key: string, a: number, b: number): boolean => {
+    if (u.kind === 'unally') return pairKey(polityOf(u.a), polityOf(u.b)) === key;
+    if (u.kind !== 'submit' || !civ.annals.some((e) => e.kind === 'intervene' && e.war === k && e.n === 1)) return false;
+    const x = polityOf(u.a);
+    return x === a || x === b;
+  };
+  for (let i = 0; i < ivs.length; i++) {
+    const v = ivs[i];
     if (v.kind !== 'ally') continue;
-    const from = v.from + (v.fromTick ?? 0) / YEAR_TICKS;
+    const from = at(v);
     if (year < from || (v.until !== undefined && year >= v.until)) continue;
-    const A = resolveKey(civ, v.a);
-    const B = resolveKey(civ, v.b);
-    if (A?.kind !== 'polity' || B?.kind !== 'polity' || A.id === B.id) continue;
-    const pa = civ.polities[A.id];
-    const pb = civ.polities[B.id];
-    const k = `${Math.min(A.id, B.id)},${Math.max(A.id, B.id)}`;
+    const a = polityOf(v.a);
+    const b = polityOf(v.b);
+    if (a < 0 || b < 0 || a === b) continue;
+    const k = pairKey(a, b);
+    // 插件命令结的盟被后面生效的断盟或办成了的称臣断了(同 polityTies)
+    if (isCommand(v) && ivs.some((u, j) => j > i && at(u) <= year && cuts(u, j, k, a, b))) continue;
+    const pa = civ.polities[a];
+    const pb = civ.polities[b];
     if (!pa || !pb || !polityAlive(pa, year) || !polityAlive(pb, year) || has.has(k)) continue;
     has.add(k);
-    alliances.push({ a: A.id, b: B.id, since: Math.max(from, pa.founded, pb.founded), foe: -1, decree: true });
+    alliances.push({ a, b, since: Math.max(from, pa.founded, pb.founded), foe: -1, decree: true });
   }
   return { alliances, vassals: [...r.liege].map(([polity, x]) => ({ polity, liege: x.liege, since: x.since })) };
 }

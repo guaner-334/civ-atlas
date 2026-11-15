@@ -1,7 +1,7 @@
 /**
  * 推演插件状态块(sim.<插件编号>)换版:相邻两版的软件互相读对方存的世界。
  * 老一版读新一版的块:世界照常打开,块只当字节留着(不拿认不得的口名报坏);新一版读老一版的块:照常核对、接回状态。
- * 「第 v 版的软件」= 把 SIM_STATE_SCHEMA 换成 v、登记的影响口只留第 v 版以前有的、核对状态时认不出第 v 版以后才有的键,另起一份模块来读写
+ * 「第 v 版的软件」= 把 SIM_STATE_SCHEMA 换成 v、登记的影响口只留第 v 版以前有的、核对状态时认不出第 v 版以后才有的东西,另起一份模块来读写
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { generateCiv, startContinue, type Civ } from '../src/gen/civ';
@@ -23,10 +23,15 @@ const ADDED: Readonly<Record<number, readonly Point[]>> = {
   2: ['revolt.odds', 'collapse.odds', 'claim.odds', 'warlord.odds', 'merge.odds', 'restore.odds', 'alliance.odds', 'submit.odds', 'defect.odds', 'treaty.odds', 'marry.odds', 'aid.odds', 'war.length', 'war.goal'],
   3: ['sack.odds', 'ruin.odds', 'rebuild.odds', 'defense.power', 'plague.spread', 'famine.odds', 'diverge.odds', 'trek.odds'],
 };
-/** 各版状态块里新能出现的键(不是影响口的新东西)和用上它的插件;状态块再升版时在这里加一行 */
-const ADDED_KEYS: Readonly<Record<number, { key: string; plugin: () => SimPlugin<SimRead> }>> = {
+type State = Record<string, unknown> & { tables?: { tables: object } };
+/**
+ * 各版状态块里新能出现的别的东西(不是影响口):用上它的插件,更老的软件核对状态时认不出的那一处(what 说是什么、newer 查状态里有没有);
+ * 状态块再升版时在这里加一行
+ */
+const ADDED_STATE: Readonly<Record<number, { what: string; newer: (s: State) => boolean; plugin: () => SimPlugin<SimRead> }>> = {
   4: {
-    key: 'columns',
+    what: '数据栏 columns',
+    newer: (s) => 'columns' in s,
     plugin: () => ({
       id: 'p',
       every: 20,
@@ -34,11 +39,21 @@ const ADDED_KEYS: Readonly<Record<number, { key: string; plugin: () => SimPlugin
       act: (t) => ({ columns: { walls: t.column('walls').map((x, i) => x + (i % 3)) } }),
     }),
   },
+  5: {
+    what: '超过 16 张表',
+    newer: (s) => Object.keys(s.tables?.tables ?? {}).length > 16 + 1,
+    plugin: () => ({
+      id: 'p',
+      every: 20,
+      tables: Array.from({ length: 20 }, (_, i) => ({ id: `t${i}`, name: `表${i}`, unit: 'world' as const, input: true, min: 0, max: 1e9, off: 0 })),
+      act: (t) => ({ tables: { t0: [t.year] } }),
+    }),
+  },
 };
-const VERSIONS = [...Object.keys(ADDED), ...Object.keys(ADDED_KEYS)].map(Number);
+const VERSIONS = [...Object.keys(ADDED), ...Object.keys(ADDED_STATE)].map(Number);
 const sinceOf = (id: string): number => Number(Object.keys(ADDED).find((v) => ADDED[+v].includes(id as Point)) ?? 1);
 /** 第 v 版的插件:用上第 v 版新能出现的那样东西(第 1 版往 war.odds 交数) */
-const pluginOf = (v: number): SimPlugin<SimRead> => (ADDED_KEYS[v] ? ADDED_KEYS[v].plugin() : steady('p', { [v === 1 ? 'war.odds' : ADDED[v][0]]: 1.5 }));
+const pluginOf = (v: number): SimPlugin<SimRead> => (ADDED_STATE[v] ? ADDED_STATE[v].plugin() : steady('p', { [v === 1 ? 'war.odds' : ADDED[v][0]]: 1.5 }));
 
 type WorldFileModule = typeof import('../src/gen/worldFile');
 type InfluenceModule = typeof import('../src/gen/civ/influence');
@@ -56,9 +71,9 @@ async function software(v: number): Promise<WorldFileModule> {
   vi.doMock('../src/gen/worldValidate', async (orig) => {
     const m = await orig<ValidateModule>();
     const { WorldFileError } = await import('../src/gen/worldFormat');
-    const later = Object.entries(ADDED_KEYS).filter(([w]) => +w > v);
+    const later = Object.entries(ADDED_STATE).filter(([w]) => +w > v);
     const validateSimState: ValidateModule['validateSimState'] = (s, id, at) => {
-      for (const [, { key }] of later) if (s !== null && typeof s === 'object' && key in s) throw new WorldFileError('broken', `推演插件 ${id} 的状态 里有认不出的 ${key}`);
+      for (const [, { what, newer }] of later) if (s !== null && typeof s === 'object' && newer(s as State)) throw new WorldFileError('broken', `推演插件 ${id} 的状态里有认不出的${what}`);
       return m.validateSimState(s, id, at);
     };
     return { ...m, validateSimState };
@@ -105,7 +120,7 @@ describe('推演插件状态块:相邻两版互相读', () => {
   it('登记表:最新一版就是现在的 SIM_STATE_SCHEMA,列的口都登记了;第 1 版以后登记的口都列在哪一版', () => {
     expect(Math.max(1, ...VERSIONS)).toBe(SIM_STATE_SCHEMA);
     expect(new Set(VERSIONS).size, '一版只登记一种新东西').toBe(VERSIONS.length);
-    for (const v of Object.keys(ADDED_KEYS)) expect(civOf(+v).simPlugins![0], `第 ${v} 版的插件用上了 ${ADDED_KEYS[+v].key}`).toHaveProperty(ADDED_KEYS[+v].key);
+    for (const v of Object.keys(ADDED_STATE)) expect(ADDED_STATE[+v].newer(civOf(+v).simPlugins![0] as unknown as State), `第 ${v} 版的插件用上了${ADDED_STATE[+v].what}`).toBe(true);
     const all = OFFICIAL_INFLUENCES.map((p) => p.id);
     for (const v of Object.keys(ADDED)) for (const id of ADDED[+v]) expect(all, id).toContain(id);
     // 第 1 版的口:插件第 1 版就有的那 12 个

@@ -367,9 +367,9 @@ describe('挡下的命令存下接着推', () => {
       [ok, ok],
       [{ ...ok, kind: 'Cede' }],
       [{ ...ok, why: '' }],
-      [{ ...ok, index: 64 }],
+      [{ ...ok, index: 256 }],
       [{ ...ok, extra: 1 }],
-      Array.from({ length: 65 }, (_, i) => ({ ...ok, index: i })),
+      Array.from({ length: 257 }, (_, i) => ({ ...ok, index: i })),
       'protect',
     ]) {
       expect(() => validateSimState({ ...st, refused: bad }, 'probe'), JSON.stringify(bad)).toThrow(/refused/);

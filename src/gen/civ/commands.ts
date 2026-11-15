@@ -7,12 +7,15 @@ import { YEAR_TICKS, isCommand, keyByRegion, regionOfKey, type Intervention, typ
 import { checkIntervention } from '../ivCheck';
 import type { CivSim } from './engine/sim';
 import type { PluginRefused } from './engine/plugin';
-import { Layer } from './types';
-import { polityModelOf } from './polities';
+import { Layer, type Polity } from './types';
+import { fpow, keyed } from './engine/rand';
+import { canCross, polityModelOf } from './polities';
 import { cultureModelOf } from './cultures';
-import { capitalAt } from './growth';
+import { GROWTH_A, capitalAt, populationAt } from './growth';
 import { civApi } from './api';
-import { treatyModelOf } from './treaties';
+import { POLITICS_KNOBS } from './politics';
+import { treatyModelOf, type Treaty, type Zone } from './treaties';
+import { warModelOf } from './wars';
 import { commandedList, interventionModelOf, issueCommands, type InterventionModel } from './interventions';
 
 /**
@@ -125,22 +128,93 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   const P = pm.polities;
   const owner = sim.owners[Layer.Polity];
   const peopled = sim.owners[Layer.Culture];
-  /** 前面收下的命令办完以后归属变了的州 → 新主(−1 = 无主)、亡了的国 */
+  /** 前面收下的命令办完以后归属变了的州 → 新主(−1 = 无主)、这一刻归属换过的州、亡了的国 */
   const moved = new Map<number, number>();
+  const changed = new Set<number>();
   const dead = new Set<number>();
-  /** 前面收下的立国立出来的新国:按州定位的键 → 编号(接着现有的国往后排,同推演里立国);插件能拿算得出的键接着对它下命令 */
+  /** 前面收下的立国、分裂立出来的新国:按州定位的键 → 编号(接着现有的国往后排,同推演里立国);国家编号 → 换过的国都所在州 */
   const born = new Map<string, number>();
-  /** 前面收下的立国、分裂一共立出几国;建了城的州 */
+  const capAt = new Map<number, number>();
+  /** 前面收下的立国、分裂一共立出几国;建了城的州与城键;在效的约与新划 / 新撤的中立地;新收下的永久划州 */
   let made = 0;
   const built = new Set<number>();
+  const builtKey = new Map<string, number>();
+  const tm = treatyModelOf(sim);
+  interface ProjTreaty {
+    raw: Treaty | null;
+    parties: readonly number[];
+    out: Set<number>;
+    hadZone: boolean;
+    zoneRegion: number;
+    ended: boolean;
+  }
+  const zoned = new Map<number, { owner: number; lasting: boolean }>();
+  const unzoned = new Set<number>();
+  const liveTreaties: ProjTreaty[] = tm
+    ? tm.live.map((x) => ({
+        raw: x,
+        parties: x.parties,
+        out: new Set(),
+        hadZone: x.zone >= 0,
+        zoneRegion: x.zone >= 0 && tm.zones[x.zone].ended === undefined ? tm.zones[x.zone].region : -1,
+        ended: false,
+      }))
+    : [];
+  const permCedes: { region: number; by: number }[] = [];
+  const wm = warModelOf(sim);
+  let wars = (wm?.active ?? []).map((w) => ({ a: w.a, b: w.b }));
+  const endWar = (fn: (w: { a: number; b: number }) => boolean) => {
+    wars = wars.filter((w) => !fn(w));
+  };
+  const settle = pm.knobs.get(POLITICS_KNOBS).SETTLE;
+  const reg = pm.terrain.regions;
   const who = (k: string) => {
     const p = iv.resolve(k);
     if (p >= 0) return p;
     const q = keyByRegion(k, iv.of);
     return q === null ? -1 : (born.get(q) ?? -1);
   };
+  const birth = (r: number) => {
+    const id = P.length + made++;
+    let n = 0;
+    while (who(`polity:r${r}#${n}`) >= 0) n++;
+    born.set(`polity:${r}#${n}`, id);
+    capAt.set(id, r);
+    return id;
+  };
+  const capOf = (p: number) => (p < 0 ? -1 : capAt.get(p) ?? (p < P.length ? (pm.settlements[capitalAt(P[p], t)]?.region ?? -1) : -1));
+  const polOf = (p: number): Polity => {
+    if (p < P.length) return P[p];
+    const cr = capOf(p);
+    const cu = cr >= 0 ? peopled[cr] : -1;
+    return { kind: cu >= 0 ? pm.cultures[cu].kind : 'plain' } as Polity;
+  };
+  const cityRegionOf = (k: string) => {
+    const sid = iv.resolveCity(k);
+    if (sid >= 0) return pm.settlements[sid].ended === undefined ? pm.settlements[sid].region : -1;
+    const q = keyByRegion(k, iv.of);
+    return q === null ? -1 : (builtKey.get(q) ?? -1);
+  };
+  const addCity = (r: number) => {
+    if (!pm.terrain.habitable[r] || pm.cityOf[r] >= 0 || built.has(r)) return;
+    built.add(r);
+    let n = 0;
+    while (iv.resolveCity(`settlement:r${r}#${n}`) >= 0 || cityRegionOf(`settlement:r${r}#${n}`) >= 0) n++;
+    builtKey.set(`settlement:${r}#${n}`, r);
+  };
   const alive = (p: number) => p >= 0 && !dead.has(p) && (p >= P.length || P[p].ended === undefined);
   const ownerOf = (r: number) => moved.get(r) ?? owner[r];
+  const move = (r: number, to: number) => {
+    if (ownerOf(r) === to) return;
+    moved.set(r, to);
+    changed.add(r);
+  };
+  const lockedOf = (r: number) => {
+    const o = ownerOf(r);
+    if (o < 0) return false;
+    if (permCedes.some((x) => x.region === r && x.by === o)) return true;
+    return iv.list.some((v) => v.kind === 'cede' && v.permanent === true && t >= v.from && regionOfKey(v.region, iv.of) === r && who(v.a) === o);
+  };
   const landsOf = (o: number) => {
     const out = (pm.lands[o] ?? []).filter((q) => ownerOf(q) === o);
     for (const [q, x] of moved) if (x === o && owner[q] !== o) out.push(q);
@@ -149,6 +223,48 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
   const regionOf = (k: string) => {
     const r = regionOfKey(k, iv.of);
     return r >= 0 && r < sim.R && peopled[r] >= 0 ? r : -1;
+  };
+  const cityPopAt = (r: number) => {
+    const c = pm.cityOf[r];
+    if (c >= 0) return populationAt(pm.settlements[c], t);
+    if (!built.has(r)) return -1;
+    const { CAP_REF, CAP_EXP, PORT_CAP, RIVER_CAP } = pm.k;
+    const T = pm.terrain;
+    let cap = CAP_REF * fpow(T.regions.capacity[r] / pm.capNorm, CAP_EXP);
+    if (pm.port[r]) cap *= PORT_CAP;
+    if (T.riverSeat[r]) cap *= RIVER_CAP;
+    cap *= 0.8 + 0.45 * keyed(pm.base, T.regions.seat[r], 2);
+    if (pm.capFactor) cap *= pm.cityCapOf ? pm.cityCapOf(r) : pm.capFactor[r];
+    return cap / (1 + GROWTH_A);
+  };
+  const cutOffOf = (pid: number, cap: number, rs: number[]): number[] | null => {
+    if (!civApi(sim).politics.cutOff) return rs;
+    const pol = P[pid];
+    if (cap < 0 || ownerOf(cap) !== pid) return rs;
+    const bfs = (skip?: ReadonlySet<number>) => {
+      const seen = new Set<number>([cap]);
+      const q = [cap];
+      for (let h = 0; h < q.length; h++) {
+        const r = q[h];
+        for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) {
+          const j = reg.adj[k];
+          if (seen.has(j) || skip?.has(j) || ownerOf(j) !== pid || !canCross(pm, pol, reg.adjKind[k], t)) continue;
+          seen.add(j);
+          q.push(j);
+        }
+      }
+      return seen;
+    };
+    const core = bfs();
+    const inG = new Set(rs);
+    const reach = bfs(inG);
+    const out = rs.slice();
+    for (const r of core) {
+      if (reach.has(r) || inG.has(r)) continue;
+      if ((wm && t - (changed.has(r) ? t : wm.since[r]) < settle) || lockedOf(r)) return null;
+      out.push(r);
+    }
+    return out.sort((x, y) => x - y);
   };
   /** 国家 o 再丢了州 r 就没有带城的州了(国都所在州丢了,没处迁都) */
   const ends = (o: number, r: number) => !landsOf(o).some((q) => q !== r && (pm.cityOf[q] >= 0 || built.has(q)));
@@ -161,68 +277,185 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     if (r < 0 || o === by || (v.kind === 'cede' && !alive(by))) return null;
     return [o, r, by];
   };
-  const apply = (v: Intervention) => {
+  const bordersOf = (x: number, y: number) => {
+    const px = polOf(x);
+    for (const r of landsOf(x)) {
+      for (let k = reg.adjStart[r]; k < reg.adjStart[r + 1]; k++) if (ownerOf(reg.adj[k]) === y && canCross(pm, px, reg.adjKind[k], t)) return true;
+    }
+    return false;
+  };
+  const isZone = (r: number) => zoned.has(r) || ((tm?.zoneAt[r] ?? -1) >= 0 && !unzoned.has(r));
+  const inTreaty = (pt: ProjTreaty, p: number) => !pt.ended && !pt.out.has(p) && alive(p) && (pt.raw ? tm!.member(pt.raw, p) : pt.parties.includes(p));
+  const zoneOkProj = (r: number, ps: readonly number[]) => {
+    if (r < 0 || isZone(r) || lockedOf(r)) return false;
+    const o = ownerOf(r);
+    if (o >= 0 && !ps.includes(o)) return false;
+    return !(o >= 0 && capOf(o) === r);
+  };
+  const dropZoneAt = (r: number) => {
+    if (!tm) return;
+    let prev = -1;
+    if (zoned.has(r)) {
+      prev = zoned.get(r)!.owner;
+      zoned.delete(r);
+    } else if (tm.zoneAt[r] >= 0 && !unzoned.has(r) && tm.zones[tm.zoneAt[r]].ended === undefined) {
+      prev = tm.zones[tm.zoneAt[r]].owner;
+      unzoned.add(r);
+    } else return;
+    for (const pt of liveTreaties) if (pt.zoneRegion === r) pt.zoneRegion = -1;
+    const back = tm.backOf?.({ region: r, owner: prev } as Zone, ownerOf) ?? -1;
+    if (back >= 0 && alive(back)) move(r, back);
+  };
+  const apply = (v: Intervention, ivIdx: number) => {
     if (v.kind === 'destroy') {
       const a = who(v.a);
       const b = v.b !== undefined ? who(v.b) : -1;
       if (!alive(a)) return;
-      for (const q of landsOf(a)) moved.set(q, alive(b) && b !== a ? b : -1);
+      for (const q of landsOf(a)) move(q, alive(b) && b !== a ? b : -1);
       dead.add(a);
+      endWar((w) => w.a === a || w.b === a);
       return;
     }
     if (v.kind === 'city') {
       const r = regionOf(v.region);
-      if (r >= 0) built.add(r);
+      if (r >= 0) addCity(r);
+      return;
+    }
+    if (v.kind === 'move') {
+      const a = who(v.a);
+      const cr = cityRegionOf(v.city);
+      if (alive(a) && cr >= 0 && ownerOf(cr) === a) capAt.set(a, cr);
+      return;
+    }
+    if (v.kind === 'peace' || v.kind === 'ally') {
+      const a = who(v.a);
+      const b = who(v.b);
+      if (a >= 0 && b >= 0 && a !== b && alive(a) && alive(b)) endWar((w) => (w.a === a && w.b === b) || (w.a === b && w.b === a));
+      return;
+    }
+    if (v.kind === 'halt') {
+      const a = who(v.a);
+      if (alive(a)) endWar((w) => w.a === a);
+      return;
+    }
+    if (v.kind === 'declare') {
+      const a = who(v.a);
+      const b = who(v.b);
+      if (!wm || !alive(a) || !alive(b) || a === b || wars.some((w) => (w.a === a && w.b === b) || (w.a === b && w.b === a)) || !bordersOf(a, b)) return;
+      wars.push({ a, b });
+      if (!tm) return;
+      for (const x of liveTreaties) {
+        if (!inTreaty(x, a) || !inTreaty(x, b)) continue;
+        x.out.add(a);
+        const r = x.zoneRegion;
+        if (r >= 0) {
+          const lasting = zoned.has(r) ? zoned.get(r)!.lasting : tm.zoneAt[r] >= 0 && tm.zones[tm.zoneAt[r]].lasting;
+          if (!lasting) dropZoneAt(r);
+        }
+        if (x.parties.filter((p) => inTreaty(x, p)).length < 2) x.ended = true;
+      }
+      return;
+    }
+    if (v.kind === 'treaty' || v.kind === 'neutral') {
+      const a = who(v.a);
+      if (!tm || !alive(a)) return;
+      const others: number[] = [];
+      for (const k of v.ps) {
+        const q = who(k);
+        if (q >= 0 && q !== a && alive(q) && !others.includes(q)) others.push(q);
+      }
+      if (!others.length) return;
+      const yes = v.ask ? others.filter((q) => a < P.length && q < P.length && !!tm.willing?.(a, q, t, ivIdx)) : others;
+      if (!yes.length) return;
+      const parties = [a, ...yes];
+      if (v.kind === 'treaty') {
+        const r = v.zone !== undefined ? regionOf(v.zone) : -1;
+        const z = zoneOkProj(r, parties) ? r : -1;
+        if (z >= 0) {
+          const o = ownerOf(z);
+          zoned.set(z, { owner: o, lasting: false });
+          if (o >= 0) move(z, -1);
+        }
+        liveTreaties.push({ raw: null, parties, out: new Set(), hadZone: z >= 0, zoneRegion: z, ended: false });
+        endWar((w) => parties.includes(w.a) && parties.includes(w.b));
+        return;
+      }
+      const r = regionOf(v.region);
+      if (!zoneOkProj(r, parties)) return;
+      const o = ownerOf(r);
+      zoned.set(r, { owner: o, lasting: !!v.lasting });
+      if (o >= 0) move(r, -1);
+      const x = liveTreaties.find((y) => !y.ended && !y.hadZone && parties.every((p) => inTreaty(y, p)));
+      if (x) {
+        x.hadZone = true;
+        x.zoneRegion = r;
+      } else {
+        liveTreaties.push({ raw: null, parties, out: new Set(), hadZone: true, zoneRegion: r, ended: false });
+        endWar((w) => parties.includes(w.a) && parties.includes(w.b));
+      }
       return;
     }
     if (v.kind === 'unzone' || v.kind === 'annul') {
       // 撤了的中立地(废约连带撤的也算)还给原主:后面在那州立国、划走照原主挡
-      const tm = treatyModelOf(sim);
       if (!tm) return;
-      const zs: number[] = [];
       if (v.kind === 'unzone') {
         const r = regionOf(v.region);
-        if (r >= 0 && tm.zoneAt[r] >= 0) zs.push(tm.zoneAt[r]);
-      } else {
-        const a = who(v.a);
-        const b = who(v.b);
-        for (const x of tm.live) if (a >= 0 && b >= 0 && x.zone >= 0 && !tm.zones[x.zone].lasting && tm.member(x, a) && tm.member(x, b)) zs.push(x.zone);
+        if (r >= 0) dropZoneAt(r);
+        return;
       }
-      for (const z of zs) {
-        const back = tm.zones[z].ended === undefined ? (tm.backOf?.(tm.zones[z], ownerOf) ?? -1) : -1;
-        if (back >= 0 && alive(back)) moved.set(tm.zones[z].region, back);
+      const a = who(v.a);
+      const b = who(v.b);
+      if (a < 0 || b < 0 || a === b || !alive(a) || !alive(b)) return;
+      for (const x of liveTreaties) {
+        if (!inTreaty(x, a) || !inTreaty(x, b)) continue;
+        x.ended = true;
+        const r = x.zoneRegion;
+        if (r < 0) continue;
+        const lasting = zoned.has(r) ? zoned.get(r)!.lasting : tm.zoneAt[r] >= 0 && tm.zones[tm.zoneAt[r]].lasting;
+        if (!lasting) dropZoneAt(r);
       }
       return;
     }
     if (v.kind === 'secede') {
-      // 同办的时候:点了名的州连同断开的碎块挪给新国(碎块照此刻的归属算)
       const a = who(v.a);
       if (!alive(a) || a >= P.length) return;
-      const cap = pm.settlements[capitalAt(P[a], t)]?.region ?? -1;
-      const rs = [...new Set(v.regions.map(regionOf))].filter((r) => r >= 0 && r !== cap && ownerOf(r) === a && !iv.locked(r, t)).sort((x, y) => x - y);
+      const cap = capOf(a);
+      const rs = [...new Set(v.regions.map(regionOf))].filter((r) => r >= 0 && r !== cap && ownerOf(r) === a && !lockedOf(r)).sort((x, y) => x - y);
       if (!rs.length) return;
-      const id = P.length + made++;
-      for (const r of civApi(sim).politics.cutOff?.(a, rs, t, Infinity) ?? rs) moved.set(r, id);
+      const group = cutOffOf(a, cap, rs) ?? rs;
+      let seat = -1;
+      let best = -1;
+      for (const r of group) {
+        const pop = cityPopAt(r);
+        if (pop > best) {
+          best = pop;
+          seat = r;
+        }
+      }
+      if (seat < 0) return;
+      const id = birth(seat);
+      for (const r of group) move(r, id);
       return;
     }
     const x = loss(v);
     if (v.kind === 'found') {
       const r = regionOfKey(v.region, iv.of);
-      if (r >= 0 && r < sim.R) {
-        let n = 0;
-        while (who(`polity:r${r}#${n}`) >= 0) n++;
-        born.set(`polity:${r}#${n}`, P.length + made++);
+      if (r >= 0 && r < sim.R && (peopled[r] >= 0 || pm.terrain.habitable[r])) {
+        addCity(r);
+        birth(r);
       }
     }
     if (!x) return;
     const [o, r, by] = x;
+    if (v.kind === 'cede' && v.permanent) permCedes.push({ region: r, by });
     if (o >= 0 && ends(o, r)) {
-      for (const q of landsOf(o)) moved.set(q, by);
+      for (const q of landsOf(o)) move(q, by);
       dead.add(o);
+      endWar((w) => w.a === o || w.b === o);
     }
-    moved.set(r, by);
+    move(r, by);
   };
-  for (const i of iv.commandsAt(t)) apply(iv.list[i]);
+  for (const i of iv.commandsAt(t)) apply(iv.list[i], i);
   const blocked = (v: Intervention): RefuseReason | null => {
     if (v.kind === 'destroy') {
       const a = who(v.a);
@@ -286,9 +519,10 @@ function refusals(sim: CivSim, iv: InterventionModel, list: readonly Interventio
     }
     return null;
   };
+  let nextIv = iv.list.length;
   return list.map((v) => {
     const why = blocked(v);
-    if (!why) apply(v);
+    if (!why) apply(v, nextIv++);
     return why;
   });
 }
