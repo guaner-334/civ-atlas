@@ -227,11 +227,17 @@ export async function waitChecked(id: string, o: { signal?: AbortSignal; everyMs
 /** 取的时候多久没收到字节算断了(毫秒) */
 const READ_STALL_MS = 60_000;
 
+const linkOf = (v: unknown): { url: string; bytes: number } | null => {
+  const o = v as { url?: unknown; bytes?: unknown } | null;
+  return o && typeof o.url === 'string' && /^https?:\/\//.test(o.url) && typeof o.bytes === 'number' ? { url: o.url, bytes: o.bytes } : null;
+};
+
 /** 下载整个世界文件,一边收一边报进度。出错抛 ServerError */
 export async function fetchFile(path: string, o: { token?: string; total?: number; signal?: AbortSignal; onBytes?: (done: number, total: number) => void } = {}): Promise<Blob> {
   const base = serverFor(path);
   if (!base) throw new ServerError(0, 'not-configured', '还没有开放');
-  const ctl = new AbortController();
+  // 每个请求一个:去链接拿卡住了,改问服务器时要换一个没取消的
+  let ctl = new AbortController();
   const stop = () => ctl.abort();
   o.signal?.addEventListener('abort', stop);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -239,16 +245,45 @@ export async function fetchFile(path: string, o: { token?: string; total?: numbe
     clearTimeout(timer);
     timer = setTimeout(stop, READ_STALL_MS);
   };
-  kick();
-  try {
-    let res: Response;
+  const fresh = () => {
+    if (o.signal?.aborted) throw networkError();
+    ctl = new AbortController();
+    kick();
+    return ctl.signal;
+  };
+  const ask = async (p: string) => {
+    let r: Response;
     try {
-      res = await fetch(base + path, { credentials: 'omit', signal: ctl.signal, headers: o.token ? { Authorization: `Bearer ${o.token}` } : {} });
+      r = await fetch(base + p, { credentials: 'omit', signal: fresh(), headers: o.token ? { Authorization: `Bearer ${o.token}` } : {} });
     } catch {
       throw networkError();
     }
-    if (!res.ok) throw errorOf(res.status, await res.text().catch(() => ''), o.token);
-    const total = Number(res.headers.get('Content-Length')) || o.total || 0;
+    if (!r.ok) throw errorOf(r.status, await r.text().catch(() => ''), o.token);
+    return r;
+  };
+  try {
+    let res = await ask(`${path}${path.includes('?') ? '&' : '?'}via=link`);
+    let linked: number | null = null;
+    // 服务器可能只给一个限时链接,文件要去链接拿(不带登录令牌);链接拿不到就改由服务器转
+    if (/json/i.test(res.headers.get('Content-Type') ?? '')) {
+      const link = linkOf(await res.json().catch(() => null));
+      if (!link) throw networkError();
+      let direct: Response | null = null;
+      try {
+        direct = await fetch(link.url, { credentials: 'omit', signal: fresh() });
+      } catch {
+        if (o.signal?.aborted) throw networkError();
+      }
+      if (direct?.ok) {
+        res = direct;
+        linked = link.bytes;
+      } else {
+        void direct?.body?.cancel().catch(() => {});
+        res = await ask(path);
+      }
+    }
+    // 从链接拿的按服务器说的大小核对,不信存储那边的 Content-Length
+    const total = linked ?? (Number(res.headers.get('Content-Length')) || o.total || 0);
     if (!res.body) return await res.blob();
     const reader = res.body.getReader();
     // 不把大世界攒成一个大数组:隔一段拼成 Blob,浏览器会放到硬盘上

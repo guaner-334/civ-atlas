@@ -213,3 +213,5 @@ pnpm dev        # http://localhost:5188
 许可证全文和来源校验值见 `public/fonts/` 中的 `OFL-*.txt`、`SOURCES.txt`。
 
 人物头像的部件图放在 `public/portraits/`，由图像生成工具生成后裁切、去底、调色，以 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)（公有领域贡献）发布，随便用、不用署名；说明见 `public/portraits/LICENSE.txt`。
+
+插件标注能配的图标（`src/render/markIcons.ts`）除「战场」外，图案取自 Mapbox 的 [Maki](https://github.com/mapbox/maki) 图标，CC0 1.0。

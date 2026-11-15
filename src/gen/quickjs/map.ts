@@ -18,8 +18,8 @@ export interface QuickJSMapSpec {
   key: string;
   /** 插件代码(普通脚本,里面调 civAtlas.map({ height, climate, layers }) 登记) */
   code: string;
-  /** 清单 map 段给的:在哪几步出手、登记了哪几张图层 */
-  setup: { stages: readonly MapStage[]; layerIds?: readonly string[] };
+  /** 清单 map 段给的:在哪几步出手、登记了哪几张图层、多读哪些数 */
+  setup: { stages: readonly MapStage[]; layerIds?: readonly string[]; reads?: readonly string[] };
   /** 滑条拨到几(插件里是只读的 d.params,也是 civAtlas.params) */
   params?: Readonly<Record<string, number>>;
   limits?: Partial<QuickJSLimits>;
@@ -35,11 +35,12 @@ export interface QuickJSMapPlugin extends MapPlugin {
   dispose(): void;
 }
 
-/** 装不上:插件代码出错、没登记、清单写了的那一步没有函数 */
+/** 装不上:插件代码出错、没登记、清单写了的那一步没有函数;gone = 插件用的实验接口网站拿掉了 */
 export class MapPluginLoadError extends Error {
   constructor(
     readonly plugin: string,
     readonly why: string,
+    readonly gone = false,
   ) {
     super(`地图插件「${plugin}」装不上:${why}`);
     this.name = 'MapPluginLoadError';
@@ -56,12 +57,13 @@ export async function quickjsMapPlugin(wasm: WebAssembly.Module, spec: QuickJSMa
     box.dispose();
     throw e;
   }
-  const { stages, layerIds } = spec.setup;
+  const { stages, layerIds, reads } = spec.setup;
   return {
     id: spec.id,
     key: spec.key,
     stages: [...stages],
     ...(layerIds ? { layerIds: [...layerIds] } : {}),
+    ...(reads?.length ? { reads: [...reads] } : {}),
     ...(stages.includes('height') ? { height: (d) => box.run('height', d) as HeightReply | undefined } : {}),
     ...(stages.includes('climate') ? { climate: (d) => box.run('climate', d) as ClimateReply | undefined } : {}),
     ...(stages.includes('layers') ? { layers: (d) => box.run('layers', d) as LayersReply | undefined } : {}),
