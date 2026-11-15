@@ -460,7 +460,8 @@ export interface SimWar {
   /** 这场仗里易手的州(按先后;by = 拿下它的一方) */
   takes: { year: number; region: number; by: number }[];
   /**
-   * 还在打的才有:攻方拿下几州就议和、最多打几年(从宣战算),照攻方此刻说了算的人的倾向和方针算。
+   * 还在打的才有:攻方拿下几州就议和、最多打几年(从宣战算),照攻方此刻说了算的人的倾向和方针算,插件交给 war.goal、war.length 的倍数也乘上了
+   * (交了 war.goal 的,goal 可能带小数:拿下的州数够到它就议和)。
    * 讨伐民变、宗室争位、迁来的一支开的仗不看目标(没有 goal),打得更久;攻方国力是守方好几倍的灭国之战也不看目标
    */
   goal?: number;
@@ -643,7 +644,21 @@ export type InfluenceName =
   | 'split.odds'
   | 'dynasty.odds'
   | 'plague.odds'
-  | 'plague.loss';
+  | 'plague.loss'
+  | 'revolt.odds'
+  | 'collapse.odds'
+  | 'claim.odds'
+  | 'warlord.odds'
+  | 'merge.odds'
+  | 'restore.odds'
+  | 'alliance.odds'
+  | 'submit.odds'
+  | 'defect.odds'
+  | 'treaty.odds'
+  | 'marry.odds'
+  | 'aid.odds'
+  | 'war.length'
+  | 'war.goal';
 
 /** 命令里指一国、一州、一城、一族:读口里的编号(只在这一刻有效),或稳定键 */
 export type SimRef = number | string;

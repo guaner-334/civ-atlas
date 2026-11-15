@@ -60,6 +60,7 @@ import type { World } from '../world';
 import { AdjKind, Layer, type Annal, type AnnalCause, type Civ, type Year } from './types';
 import { keyed, keyed4, subSeed } from './engine/rand';
 import { quantize, type CivSim } from './engine/sim';
+import { mulOf } from './influence';
 import { REOPEN, hates, limitedEnd, polityModelOf, policyAt, powerScaleOf, type PolityModel } from './polities';
 import { warModelOf, type War, type WarModel } from './wars';
 import { diplomacyModelOf, type DiplomacyModel } from './diplomacy';
@@ -697,6 +698,8 @@ export function installTreaties(sim: CivSim, pm: PolityModel, world: World, tm?:
     let odds = TREATY_ODDS * (stale ? REASON : 1) * (foe >= 0 ? REASON : 1);
     if (calm(p, t)) odds *= CALM;
     if (calm(q, t)) odds *= CALM;
+    const oddsIn = sim.influence?.get('treaty.odds');
+    if (oddsIn) odds *= mulOf(oddsIn, p);
     if (keyed(base, pm.ptag[p], k, U_TREATY) >= odds) return false;
     // 拉进第三、第四国:和两国都陆上接壤(或者和其中一国接壤、也挨着那个共同的强邻 —— 一样怕它)、国力和其中一国差不多、
     // 没在和约国打仗的邻国,各有 JOIN 的机会

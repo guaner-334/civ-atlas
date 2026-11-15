@@ -18,6 +18,7 @@ import { IV_NOT_HIM } from './rulers';
 import { IV_NO_THRONE } from './regents';
 import { keyed4, subSeed } from './engine/rand';
 import type { CivSim } from './engine/sim';
+import { mulOf } from './influence';
 import { bookOf, polityModelOf, rulerOf, type PolityModel } from './polities';
 import { warModelOf, type War } from './wars';
 import { diplomacyModelOf } from './diplomacy';
@@ -186,11 +187,13 @@ function hook(sim: CivSim, mm: MarriageModel): void {
       if (!cand.length) return;
       const tag = pm.ptag[p];
       const q = cand[Math.min(cand.length - 1, Math.floor(keyed4(mm.base, tag, k, U_PICK, 0) * cand.length))];
-      const odds = Math.min(MARRY_MAX, MARRY_PER * cand.length) + (dm.pactOf(p, q) ? MARRY_ALLY : 0);
+      const odds0 = Math.min(MARRY_MAX, MARRY_PER * cand.length) + (dm.pactOf(p, q) ? MARRY_ALLY : 0);
+      const oddsIn = sim.influence?.get('marry.odds');
+      const odds = oddsIn ? odds0 * mulOf(oddsIn, p) : odds0;
       if (keyed4(mm.base, tag, k, U_MARRY, 0) >= odds) return;
       note(p, q, g, t);
-      // 互嫁:对方的太子(没有就照样挑)娶这边的宗室女
-      if (keyed4(mm.base, tag, k, U_MUTUAL, 0) < MUTUAL && brideOk(p, t)) {
+      // 互嫁:对方的太子(没有就照样挑)娶这边的宗室女(插件交给 marry.odds 的按娶亲的那一国乘)
+      if (keyed4(mm.base, tag, k, U_MUTUAL, 0) < (oddsIn ? MUTUAL * mulOf(oddsIn, q) : MUTUAL) && brideOk(p, t)) {
         const h = groomOf(q, t);
         if (h) note(q, p, h, t);
       }

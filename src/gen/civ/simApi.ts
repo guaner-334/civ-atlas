@@ -79,7 +79,21 @@ export type InfluenceName =
   | 'split.odds'
   | 'dynasty.odds'
   | 'plague.odds'
-  | 'plague.loss';
+  | 'plague.loss'
+  | 'revolt.odds'
+  | 'collapse.odds'
+  | 'claim.odds'
+  | 'warlord.odds'
+  | 'merge.odds'
+  | 'restore.odds'
+  | 'alliance.odds'
+  | 'submit.odds'
+  | 'defect.odds'
+  | 'treaty.odds'
+  | 'marry.odds'
+  | 'aid.odds'
+  | 'war.length'
+  | 'war.goal';
 
 export const INFLUENCE_NAMES: readonly InfluenceName[] = OFFICIAL_INFLUENCES.map((p) => p.id as InfluenceName);
 

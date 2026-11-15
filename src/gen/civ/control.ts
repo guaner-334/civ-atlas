@@ -70,7 +70,7 @@ import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs, type KnobSet } from './engine/knobs';
 import { TABLE_GROUP } from './tableGroups';
-import { mulOf } from './influence';
+import { mulOf, oddsTimes } from './influence';
 
 // ---- 调参(以 20 个种子的统计为准,见 scripts/control-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -648,7 +648,9 @@ function hook(sim: CivSim, seed: number, lords: Warlord[], saved: TablesState | 
     if (r0 < 0) return false;
     // 有了电报的,地方有变朝廷当日即知:赔率再乘 WIRE_LORD
     const wire = hasPractice(practices(p, t), Practice.Wire) ? WIRE_LORD : 1;
-    const odds = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1) * (cm.lordOdds?.(p, t) ?? 1) * wire;
+    const odds0 = ODDS * fexp(K * (u + (WARLORD_C - c0) * GAP_W - U0)) * (cm.fiefOf?.(p, t) ? FIEF_LORD : 1) * (cm.lordOdds?.(p, t) ?? 1) * wire;
+    const oddsIn = sim.influence?.get('warlord.odds');
+    const odds = oddsIn ? oddsTimes(odds0, oddsIn, p) : odds0;
     if (keyed(cm.base, pm.ptag[p], k, U_RISE) >= odds / (1 + odds)) return false;
     rise(p, r0, t);
     return true;

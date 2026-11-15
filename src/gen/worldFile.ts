@@ -415,6 +415,8 @@ function partReader(opened: OpenedWorldFile, skipped: string[], done: { civ?: Ci
     const data = opened.bytes.get(name);
     if (!data) broken(`缺 ${name} 这一块`);
     const b = await partBytes(info as Pick<SnapshotPart, 'name' | 'bytes' | 'sum' | 'zip'>, data, worldPartLimit(name, opened.options.maxBytes));
+    // 推演插件的状态不走迁移表:新一版只多认几样,不比软件新的(没留成字节的)原样就能读
+    if (isSimState(name)) return decode(b);
     try {
       return migratePart(name, info.schema, decode(b), manifest, migrations, done);
     } catch (err) {

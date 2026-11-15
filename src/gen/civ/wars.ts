@@ -103,6 +103,7 @@ import { Ev } from './events';
 import { civApi } from './api';
 import { defineKnobs } from './engine/knobs';
 import { mulOf } from './influence';
+import type { Influences } from './engine/influence';
 
 // ---- 调参(以截图和统计数为准,见 scripts/gen-stats.ts) ----
 /** 这一段的旋钮(名字、官方的值;推演照这个世界的那套数算,见 engine/knobs.ts) */
@@ -360,16 +361,20 @@ function gapOf(wm: WarModel, w: War, i: number): number {
   return GAP[0] + (GAP[1] - GAP[0]) * warRand(wm, w, i, U_GAP);
 }
 
-/** 这场战争想拿下几州(战争目标;达成就议和,灭国之战除外) */
-export function goalOf(wm: WarModel, w: War): number {
+/** 这场战争想拿下几州(战争目标;达成就议和,灭国之战除外;inf = 此刻的影响口,乘上攻方的 war.goal) */
+export function goalOf(wm: WarModel, w: War, inf: Influences | null): number {
   const { GOAL } = wm.k;
-  return GOAL[0] + Math.floor((GOAL[1] - GOAL[0] + 1) * warRand(wm, w, 0, U_GOAL));
+  const n = GOAL[0] + Math.floor((GOAL[1] - GOAL[0] + 1) * warRand(wm, w, 0, U_GOAL));
+  const m = inf?.get('war.goal');
+  return m ? n * mulOf(m, w.a) : n;
 }
 
-/** 这场战争最多打几年 */
-export function lengthOf(wm: WarModel, w: War): number {
+/** 这场战争最多打几年(inf 同上,乘上攻方的 war.length) */
+export function lengthOf(wm: WarModel, w: War, inf: Influences | null): number {
   const { LENGTH } = wm.k;
-  return LENGTH[0] + (LENGTH[1] - LENGTH[0]) * warRand(wm, w, 0, U_LENGTH);
+  const n = LENGTH[0] + (LENGTH[1] - LENGTH[0]) * warRand(wm, w, 0, U_LENGTH);
+  const m = inf?.get('war.length');
+  return m ? n * mulOf(m, w.a) : n;
 }
 
 function newModel(pm: PolityModel): WarModel {
@@ -773,11 +778,13 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     // 阶段 4 干预的结盟:y 被宣战,它的盟国(和 x 接壤、没和 x 结盟、和 x 没有宗藩之分、没在和 x 打)有 ALLY_JOIN 的机会援盟
     const iv = wm.iv;
     if (iv && ally < 0) {
+      const aidIn = sim.influence?.get('aid.odds');
       for (const z of iv.alliesOf(y, t)) {
         if (z === x || pm.polities[z].ended !== undefined || iv.allied(z, x, t) || wm.dm?.friendly(z, x) || iv.halted(z, t) || befriends(pm, z, x, t)) continue;
         if (wm.active.some((v) => (v.a === z && v.b === x) || (v.a === x && v.b === z)) || !borders(z, x)) continue;
         // 国家方针:z 把 y 当亲国的更肯出兵(policy.ts)
-        if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= (befriends(pm, z, y, t) ? Math.max(ALLY_JOIN, FRIEND_JOIN) : ALLY_JOIN)) continue;
+        const join = befriends(pm, z, y, t) ? Math.max(ALLY_JOIN, FRIEND_JOIN) : ALLY_JOIN;
+        if (keyed4(iv.base, pm.ptag[z], pm.ptag[x], Math.round(t * 256), U_ALLY) >= (aidIn ? join * mulOf(aidIn, z) : join)) continue;
         declare(z, x, t, y, 'ally');
       }
     }
@@ -1124,7 +1131,7 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
     const last = w.takes.length ? w.takes[w.takes.length - 1].year : w.start;
     // 攻方此刻在位的君主:越好战越不轻易罢兵、想多拿几州,好战低的打不了多久就想议和(rulers.ts;加上方针的胆量、和谈底线)
     const eff = effOf(pm, w.a, t);
-    const length = lengthOf(wm, w) * eff.war;
+    const length = lengthOf(wm, w, sim.influence) * eff.war;
     // 攻方国用不足到 BROKE_PEACE 以上、仗打过了年限的 BROKE_LENGTH:罢兵
     let peace = t - w.start >= length || t - last >= STALL || (t - w.start >= BROKE_LENGTH * length && (api.war.broke?.(w.a, t) ?? 0) >= BROKE_PEACE);
     /** 厌战、僵持、国用不足罢兵(攻方没达成目标):议和后两国可能顺带立约(treaties.ts) */
@@ -1137,8 +1144,8 @@ export function installWars(sim: CivSim, pm: PolityModel, world: World, wm: WarM
       let held = 0;
       for (const e of w.takes) if (e.by === w.a && owner[e.region] === w.a) held++;
       // 灭国之战:拿下国都、对方丢了过半国土都不停(不设目标,见 CRUSH_GOAL;君主的倾向只管打多久,算在上面的年限里)
-      if (pow[w.a] >= CRUSH * pow[w.b]) peace = held >= CRUSH_GOAL * goalOf(wm, w);
-      else peace = capitalFell || held >= pm.size[w.b] || held >= Math.max(1, goalOf(wm, w) + eff.goal);
+      if (pow[w.a] >= CRUSH * pow[w.b]) peace = held >= CRUSH_GOAL * goalOf(wm, w, sim.influence);
+      else peace = capitalFell || held >= pm.size[w.b] || held >= Math.max(1, goalOf(wm, w, sim.influence) + eff.goal);
     }
     if (peace) {
       // 罢兵割地:攻方这场仗净得了州(讨伐民变的不算),守方再割 CEDE 州

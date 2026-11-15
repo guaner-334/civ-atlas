@@ -151,6 +151,20 @@ export const SIM_INFLUENCE_TEXT: Readonly<Record<string, string>> = {
   'dynasty.odds': '改朝换代的几率（按国）',
   'plague.odds': '起瘟疫的几率（按州）',
   'plague.loss': '瘟疫死几成（按州）',
+  'revolt.odds': '民变的几率（按国）',
+  'collapse.odds': '大崩解的几率（按国）',
+  'claim.odds': '宗室争位的几率（按国）',
+  'warlord.odds': '新起割据的几率（按国）',
+  'merge.odds': '合并的几率（按国）',
+  'restore.odds': '复国的几率（按国）',
+  'alliance.odds': '结盟的几率（按国）',
+  'submit.odds': '称臣的几率（按国）',
+  'defect.odds': '藩属自立的几率（按国）',
+  'treaty.odds': '立约的几率（按国）',
+  'marry.odds': '结亲的几率（按国）',
+  'aid.odds': '援盟的几率（按国）',
+  'war.length': '一场仗打多久（按国）',
+  'war.goal': '一场仗想拿几州（按国）',
 };
 
 /** 清单 sim.commands → 「宣战、结盟」 */
