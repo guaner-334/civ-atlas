@@ -88,13 +88,15 @@ function TrialTag() {
   );
 }
 
-/** 「插件」页签:电脑四列,手机一行一个 */
-export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryWork[]; phone: boolean; onOpen: (w: GalleryWork) => void }) {
+/** 「插件」页签:电脑四列,手机一行一个;hl = 搜的时候把搜到的字标出来 */
+export function PluginCards({ works, phone, onOpen, hl }: { works: readonly GalleryWork[]; phone: boolean; onOpen: (w: GalleryWork) => void; hl?: (s: string) => ReactNode }) {
   useVerdicts();
   const list = useInstalled();
   useEffect(() => noteWall(works), [works]);
   const items = wallPlugins(works).filter(({ p }) => !verdictOf(p.sum, p.id).blocked);
   if (!items.length) return <p className="gl-none">还没有插件</p>;
+  const t = (s: string) => (hl ? hl(s) : s);
+  const found = hl ? ' found' : '';
   return (
     <div className={phone ? 'pw-list' : 'gl-grid'} role="list" data-testid="gallery-plugins">
       {items.map(({ w, p }) => {
@@ -105,26 +107,26 @@ export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryW
         const bg = cover ? { backgroundImage: `url("${cover}")` } : undefined;
         if (phone)
           return (
-            <button key={w.id} className="gl-card pw-card pw-row" role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
+            <button key={w.id} className={`gl-card pw-card pw-row${found}`} role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
               <span className="gl-cover" style={bg} />
               <span className="pw-body">
                 <span className="pw-head">
                   <PluginIcon src={iconUrl(w, p)} size="sm" className="pw-ic" />
-                  <b className="gl-name">{title}</b>
+                  <b className="gl-name">{t(title)}</b>
                   <span className="plg-tag">{versionLabel(p.version)}</span>
                   {usesExperimental(p) && <TrialTag />}
                   {have && <span className="plg-tag ok">已装上</span>}
                 </span>
                 <span className="gl-by">
-                  {w.by ? `${w.by}，` : ''}开源 {p.license}
+                  {w.by && <>{t(w.by)}，</>}开源 {p.license}
                 </span>
-                {blurb && <span className="gl-blurb">{blurb}</span>}
+                {blurb && <span className="gl-blurb">{t(blurb)}</span>}
                 <Caps p={p} />
               </span>
             </button>
           );
         return (
-          <button key={w.id} className="gl-card pw-card" role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
+          <button key={w.id} className={`gl-card pw-card${found}`} role="listitem" data-work={w.id} data-kind="plugin" onClick={() => onOpen(w)}>
             <span className="gl-cover" style={bg}>
               <span className="gl-tags">
                 <span className="gl-tag">插件</span>
@@ -140,18 +142,18 @@ export function PluginCards({ works, phone, onOpen }: { works: readonly GalleryW
               <PluginIcon src={iconUrl(w, p)} size="md" className="pw-ic" />
               <span className="pw-tt">
                 <span className="gl-row1">
-                  <b className="gl-name">{title}</b>
+                  <b className="gl-name">{t(title)}</b>
                   <span className="gl-at">{dayText(p.updatedAt || w.addedAt)}</span>
                 </span>
                 <span className="gl-by pw-by">
-                  {w.by}
+                  {hl ? <span>{hl(w.by)}</span> : w.by}
                   <span className="plg-tag">{versionLabel(p.version)}</span>
                   <span className="plg-tag ok">审过</span>
                   {usesExperimental(p) && <TrialTag />}
                 </span>
               </span>
             </span>
-            {blurb && <span className="gl-blurb">{blurb}</span>}
+            {blurb && <span className="gl-blurb">{t(blurb)}</span>}
             <Caps p={p} license />
           </button>
         );
