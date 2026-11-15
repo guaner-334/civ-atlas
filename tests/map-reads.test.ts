@@ -16,7 +16,7 @@ import { mapDigest } from './lib/mapPins';
 
 const P = { ...DEFAULT_PARAMS, cells: 6000, seed: 7 };
 const ALL_READS = Object.keys(MAP_READS);
-const STAGES: MapStage[] = ['height', 'climate', 'layers'];
+const STAGES: MapStage[] = ['height', 'climate', 'seaice', 'runoff', 'layers'];
 
 const HELPERS = ['noise', 'blur', 'steps', 'near', 'km', 'ridged', 'flow', 'distance', 'components', 'slope', 'cellAt', 'line', 'westEast', 'biomeOf'];
 const SHARED = ['n', 'lat', 'lon', 'xyz', 'adjStart', 'adj', 'kmPerUnit', 'seed', 'rand', ...HELPERS];
@@ -24,19 +24,21 @@ const CLIMATE = [...SHARED, 'elevation', 'water', 'temperature', 'precipitation'
 const DEFAULT_KEYS: Record<MapStage, string[]> = {
   height: [...SHARED, 'elevation', 'land', 'plate'],
   climate: CLIMATE,
+  seaice: [...CLIMATE, 'seaIce'],
+  runoff: [...CLIMATE, 'seaIce', 'runoff', 'riverThreshold'],
   layers: [...CLIMATE, 'plate', 'waterLevel', 'seaIce', 'biome', 'biomeNames', 'flux', 'riverThreshold', 'riverCells', 'riverStart'],
 };
 
 type Seen = Partial<Record<MapStage, Record<string, unknown>>>;
 
-/** 三口都出手、什么都不改,记下每一口递进来的 */
+/** 每一口都出手、什么都不改,记下每一口递进来的 */
 function watcher(reads?: string[], key = 'w@1'): { pl: MapPlugin; seen: Seen } {
   const seen: Seen = {};
   const keep = (st: MapStage) => (d: object) => {
     seen[st] = { ...(d as Record<string, unknown>) };
     return undefined;
   };
-  const pl: MapPlugin = { id: 'w', key, stages: STAGES, layerIds: [], ...(reads ? { reads } : {}), height: keep('height'), climate: keep('climate'), layers: keep('layers') };
+  const pl: MapPlugin = { id: 'w', key, stages: STAGES, layerIds: [], ...(reads ? { reads } : {}), height: keep('height'), climate: keep('climate'), seaice: keep('seaice'), runoff: keep('runoff'), layers: keep('layers') };
   return { pl, seen };
 }
 
@@ -92,9 +94,9 @@ describe('写了 map.reads', () => {
     expect((seen.height!.convergentKm as Float32Array).some((x) => x > 1000)).toBe(true);
   });
 
-  it('洋流从改气候那一口起;流向、灌满的水面、产水、湿地、最高海拔在出图层那一口,和世界对得上', () => {
+  it('洋流从改气候那一口起、流向从改水系那一口起;灌满的水面、产水、湿地、最高海拔在出图层那一口,和世界对得上', () => {
     const { w, seen } = grow(ALL_READS);
-    for (const st of ['climate', 'layers'] as const) {
+    for (const st of ['climate', 'seaice', 'runoff', 'layers'] as const) {
       expect(seen[st]!.currentU).toEqual(w.currents.u);
       expect(seen[st]!.currentV).toEqual(w.currents.v);
       expect(seen[st]!.currentTemp).toEqual(w.currents.sst);
@@ -106,6 +108,8 @@ describe('写了 map.reads', () => {
     const land = Uint8Array.from(w.water, (x) => (x === 1 ? 0 : 1));
     const f = mapHelpers(w.mesh, P.seed, 'w').flow(w.elevation, land, d.runoff as Float32Array);
     expect(d.downstream).toEqual(f.downstream);
+    expect(seen.runoff!.downstream).toEqual(d.downstream);
+    expect(seen.runoff!.runoff).toEqual(d.runoff);
     expect(f.flux).toEqual(w.flux);
     const runoff = d.runoff as Float32Array;
     for (let i = 0; i < n; i++) if (w.water[i] === 1) expect(runoff[i]).toBe(0);

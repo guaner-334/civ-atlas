@@ -198,7 +198,7 @@ export function mapCiv(civ: Civ): MapCiv {
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const sec = (ms: number) => `${(ms / 1000).toFixed(1)} 秒`;
-const STAGE_NAME: Record<MapStage, string> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+const STAGE_NAME: Record<MapStage, string> = { height: '改海拔', climate: '改气候', seaice: '改海冰', runoff: '改水系', layers: '出图层' };
 const stagesText = (s: Partial<Record<MapStage, number>>) =>
   (Object.entries(s) as [MapStage, number][]).map(([k, v]) => `${STAGE_NAME[k]} ${v} 毫秒`).join('、') || '没出手';
 

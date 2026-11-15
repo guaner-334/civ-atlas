@@ -6,7 +6,17 @@
  * 这个文件连同 QuickJS 只经 import() 取。
  */
 import type { QuickJSHandle, QuickJSRuntime } from 'quickjs-emscripten-core';
-import { MAP_PLUGIN_TIME, MapPluginError, type ClimateReply, type HeightReply, type LayersReply, type MapPlugin, type MapStage } from '../mapHooks';
+import {
+  MAP_PLUGIN_TIME,
+  MapPluginError,
+  type ClimateReply,
+  type HeightReply,
+  type LayersReply,
+  type MapPlugin,
+  type MapStage,
+  type RunoffReply,
+  type SeaIceReply,
+} from '../mapHooks';
 import { keyed, subSeed } from '../util';
 import { Box, LOG_MAX, logText, newRuntime, type QuickJSLimits } from './box';
 import { MAP_SHIM } from './shim';
@@ -16,7 +26,7 @@ export interface QuickJSMapSpec {
   id: string;
   /** 见 MapPlugin.key */
   key: string;
-  /** 插件代码(普通脚本,里面调 civAtlas.map({ height, climate, layers }) 登记) */
+  /** 插件代码(普通脚本,里面调 civAtlas.map({ height, climate, … }) 登记) */
   code: string;
   /** 清单 map 段给的:在哪几步出手、登记了哪几张图层、多读哪些数 */
   setup: { stages: readonly MapStage[]; layerIds?: readonly string[]; reads?: readonly string[] };
@@ -66,6 +76,8 @@ export async function quickjsMapPlugin(wasm: WebAssembly.Module, spec: QuickJSMa
     ...(reads?.length ? { reads: [...reads] } : {}),
     ...(stages.includes('height') ? { height: (d) => box.run('height', d) as HeightReply | undefined } : {}),
     ...(stages.includes('climate') ? { climate: (d) => box.run('climate', d) as ClimateReply | undefined } : {}),
+    ...(stages.includes('seaice') ? { seaice: (d) => box.run('seaice', d) as SeaIceReply | undefined } : {}),
+    ...(stages.includes('runoff') ? { runoff: (d) => box.run('runoff', d) as RunoffReply | undefined } : {}),
     ...(stages.includes('layers') ? { layers: (d) => box.run('layers', d) as LayersReply | undefined } : {}),
     dispose: () => box.dispose(),
   };
