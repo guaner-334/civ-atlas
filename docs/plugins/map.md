@@ -156,7 +156,7 @@ export interface MapPluginDef {
 - 在内陆挖到海平面以下,那里就是海(四面是陆地的内海),不是湖。想要湖,挖到 0 米以上就停:陆地上四面高、中间低的地方后面会积水成湖(比水面低 3 米以上的才算湖,太大的一整片会被填平,不想被填平就标 `keepLakes`)
 - `keepLakes`:每块 0 或 1。积成的湖太大(默认地块数时 40 来块以上)会被填成平地,标了 1 的地块所在的那个湖不填:标湖里任意一块就行,整个湖都留着。几个插件标的并在一起;你在地形编辑里删湖照样删得掉
 
-下面这个「大湖」在离海最远的地方挖一个碗,标上 `keepLakes`,积成一个不被填平的大湖(不标的话,种子 7 上这片湖会被填平):
+下面这个「大湖」在大陆腹地挖一个碗,标上 `keepLakes`,积成一个不被填平的大湖(不标的话,种子 7 上这片湖会被填平):
 
 ```json
 {
@@ -174,7 +174,7 @@ export interface MapPluginDef {
       "size": { "label": "湖多大（公里）", "min": 300, "max": 1500, "default": 900, "step": 100 }
     }
   },
-  "description": "在离海最远的地方挖一个碗，积成一个大湖。",
+  "description": "在大陆腹地离海最远的地方挖一个碗，积成一个大湖。",
   "license": "MIT",
   "author": { "name": "你的名字" }
 }
@@ -183,19 +183,21 @@ export interface MapPluginDef {
 ```js
 civAtlas.map({
   height(d) {
-    // 离海最远的那块陆地当湖心
+    // 南北纬 60 度以内、离海最远的那块陆地当湖心
     const sea = new Uint8Array(d.n);
     for (let i = 0; i < d.n; i++) sea[i] = d.land[i] ? 0 : 1;
-    const far = d.steps(sea);
-    let c = 0;
-    for (let i = 1; i < d.n; i++) if (far[i] > far[c]) c = i;
-    // 湖心周围挖成碗:越靠湖心越深,碗底不低于 50 米(挖到 0 米以下就成了海)
-    const r = d.params.size;
+    const far = d.distance(sea).km;
+    let c = -1;
+    for (let i = 0; i < d.n; i++) if (Math.abs(d.lat[i]) < 60 && (c < 0 || far[i] > far[c])) c = i;
+    if (c < 0) return;
+    // 碗不挖到海边:半径最多是离海距离的一半
+    const r = Math.min(d.params.size, far[c] / 2);
+    // 碗里压到 200 米,碗沿(再往外 300 公里)垫到至少 600 米:水出不去,积成湖
     const e = d.elevation.slice();
-    const bowl = d.near(c, r);
-    for (let k = 0; k < bowl.length; k++) {
-      const i = bowl[k];
-      e[i] = Math.max(50, e[i] - 1500 * (1 - d.km(c, i) / r));
+    const near = d.near(c, r + 300);
+    for (let k = 0; k < near.length; k++) {
+      const i = near[k];
+      e[i] = d.km(c, i) < r ? Math.min(e[i], 200) : Math.max(e[i], 600);
     }
     // 标湖心一块:积成的湖再大也不填平
     const keepLakes = new Uint8Array(d.n);

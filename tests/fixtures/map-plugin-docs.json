@@ -16,12 +16,12 @@
     "digest": "ccc6455db7c02f05"
   },
   "biglake": {
-    "land": 33,
-    "lakes": 175,
-    "rivers": 265,
-    "temperature": 8.5,
-    "precipitation": 1152,
-    "digest": "4676bd668efe349d"
+    "land": 32.7,
+    "lakes": 270,
+    "rivers": 278,
+    "temperature": 8,
+    "precipitation": 1170,
+    "digest": "842a91f47fa2e47d"
   },
   "dryinland": {
     "land": 33.3,
