@@ -188,13 +188,17 @@ export function patchWindow(mesh: MeshLike, s: Spots): PicRect | null {
 }
 
 /**
- * 要看的一片(世界坐标)落在画面的 area 里:撑成 2:1、不小于全图宽 WIN_SHARE,这样宽过全图 ZOOM_MAX_SHARE 画整张(null);
- * 再把画面往外撑到这一片落进 area(有面板时画面可以宽过一半,最多一整圈)。上下不出图,东西照接缝接上
+ * 要看的一片(世界坐标)落在画面的 area 里:撑成 2:1、不小于全图宽 WIN_SHARE,这样宽过全图 ZOOM_MAX_SHARE 画整张;
+ * 再把画面往外撑到这一片落进 area(有面板时画面可以宽过一半,最多一整圈)。上下不出图,东西照接缝接上。
+ * 画整张:area 是整个画面 = null;不是(有面板、有字幕)= 整圈转到这一片的正中对着 area 的正中
  */
 export function fitArea(r: PicRect, W: number, H: number, area: PicArea = FULL_AREA): PicRect | null {
-  if (Math.max(r.w, 2 * r.h, W * WIN_SHARE) > W * ZOOM_MAX_SHARE + 1e-9) return null;
   const aw = area.x1 - area.x0;
   const ah = area.y1 - area.y0;
+  if (Math.max(r.w, 2 * r.h, W * WIN_SHARE) > W * ZOOM_MAX_SHARE + 1e-9) {
+    const full = area.x0 === 0 && area.y0 === 0 && area.x1 === 1 && area.y1 === 1;
+    return full ? null : { x: r.x + r.w / 2 - (area.x0 + aw / 2) * W, y: 0, w: W, h: H };
+  }
   const fw = Math.min(W, H * 2, Math.max(r.w / aw, (2 * r.h) / ah, W * WIN_SHARE));
   const fh = fw / 2;
   const x = r.x + r.w / 2 - (area.x0 + aw / 2) * fw;

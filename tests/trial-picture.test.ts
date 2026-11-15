@@ -187,6 +187,19 @@ describe('有确切位置的东西放大到哪', () => {
     for (const [, py] of pts) expect((py - sub.y) / sub.h).toBeLessThan(0.8);
   });
 
+  it('要框的超过一半、又有面板时:画整张,但转到它对着面板左边那块的正中', () => {
+    const pts: [number, number][] = [
+      [1500, 300],
+      [2048 + 300, 600],
+    ];
+    expect(pointsWindow(pts, W, H)).toBeNull();
+    const r = pointsWindow(pts, W, H, PANEL_AREA.map)!;
+    expect(r.w).toBe(W);
+    expect(r.h).toBe(H);
+    // 两点正中(x = 1924)在画面上落在面板左边那块的正中
+    expect((((1924 - r.x) % W) + W) % W).toBeCloseTo(((PANEL_AREA.map.x0 + PANEL_AREA.map.x1) / 2) * W, 5);
+  });
+
   it('fitArea:一片放进画面的一块,不改它的大小比例', () => {
     const r = fitArea({ x: 100, y: 200, w: 512, h: 256 }, W, H)!;
     expect(r).toEqual({ x: 100, y: 200, w: 512, h: 256 });

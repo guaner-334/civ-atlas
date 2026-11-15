@@ -632,7 +632,7 @@ async function toolPictures(g: Generated, params: WorldParams, year: number, rec
     return r && fitArea(r, W, H, area);
   };
   const zoom: Record<PicKind, PicRect | null> = { map: zoomOf('map'), card: zoomOf('card') };
-  const big = await politicalBig(g, params, year, paint, !!(zoom.map || zoom.card));
+  const big = await politicalBig(g, params, year, paint, [zoom.map, zoom.card].some((r) => r && r.w < W));
   try {
     const legend = layer && paint ? legendOf(layer, paint, (c) => inRect(zoom.map, mesh.x[c], mesh.y[c], W)) : undefined;
     return picsOf((kind) =>
