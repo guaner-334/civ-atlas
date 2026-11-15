@@ -69,7 +69,7 @@ import { setWorldSheet } from '../panelStore';
 import { decodePresetHash, isPresetHash, type PresetLinkResult } from '../presetLink';
 import { openRulesHash, openRulesText } from '../rules/sheetStore';
 import { pickSharedPreset } from '../presetStore';
-import { GLOBE_READY, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
+import { GLOBE_READY, getContourKind, getGraticuleLines, isCurved, isGraticuleStep, isMapProjection, setContourKind, setGraticule, setGraticuleStep, setProjection, type MapProjection } from '../projection';
 import { recipeChanges, recipeKey, recipeOfSave } from '../../gen/snapshot';
 import { shapesWorld } from '../../gen/worldFormat';
 import { endLoadWatch, noteOpenTrouble, openGuardReady, openingClear, openingShown, openingStart, vaultAllowed, watchLoad } from '../openGuard';
@@ -112,6 +112,7 @@ import {
   type WallView,
 } from './worldTarget';
 import { simNowFor } from './simNow';
+import { writeProjectionUrl } from './pageUrl';
 import { getMapNow, mapFilesNow, mapNowFor, mapsOff, rememberedMaps } from './mapNow';
 import { forgetSimError } from '../sim/simClient';
 
@@ -566,7 +567,14 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     if (openRulesHash(location.hash)) navUrl(location.pathname + location.search);
     // 邀请链接:弹出登录窗(已经登录了就算了)
     if (invited && accountServer() && !getSession()) openLogin();
-    if (route.target) generate(route.target);
+    if (route.target) {
+      const rv = route.target.view;
+      if (rv !== undefined) {
+        const p: MapProjection = isMapProjection(rv?.projection) && (rv.projection !== 'globe' || GLOBE_READY) ? rv.projection : 'equirect';
+        writeProjectionUrl({ projection: p, mapCenter: rv && Number.isFinite(rv.center) ? wrapLon(rv.center) : 0, graticule: rv?.graticule ?? 0, contourKind: rv?.contours || null });
+      }
+      generate(route.target);
+    }
     else if (landing === 'loading') openShortShare(init.shortShare ?? '');
     // 作品墙:网址换成 ?gallery(=编号)的写法(# 后面写的也换过来);带编号的去取那个作品
     else if (wall) {
@@ -694,7 +702,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
       notify({ kind: 'error', text: '没法在这张地图上打造文明', more: [t.mapKept ? '这张地图是旧世界留下的，现在长不出一样的，没法新开' : '这个世界是旧版本做的，地图现在算出来不一样了，没法新开'] });
       return;
     }
-    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.view ?? undefined, pristine: t.pristine, base: t.base, edit: t.edit, origin: t.origin, original, frozen, readonly: !!t.readonly || guessed });
+    attachWorld({ id: t.id, params: world.params, check, kind: t.kind, title: t.title, saved: t.saved ?? edits, view: t.from === 'restore' ? undefined : (t.view ?? undefined), pristine: t.pristine, base: t.base, edit: t.edit, origin: t.origin, original, frozen, readonly: !!t.readonly || guessed });
     // 新路读的世界换上了:再过一会儿没事就算打开成了(openGuard.ts)。新开的历史还没记地图的,记上
     if (loadedGen !== undefined) openingShown();
     else openingClear();
@@ -829,6 +837,7 @@ export function useWorldLoad(deps: WorldLoadDeps) {
     publishMapCenter(lon);
     setProjection(p);
     if (!isCurved(p)) requestMapCenter(lon);
+    writeProjectionUrl({ projection: p, mapCenter: lon, graticule: getGraticuleLines(), contourKind: getContourKind() });
   };
   /** 现在这张图(或正在生成的)就是这组参数 + 草图 + 地形修改 */
   const sameGen = (p: WorldParams, terrain: readonly TerrainOp[], sketch: SketchEdit | undefined) =>

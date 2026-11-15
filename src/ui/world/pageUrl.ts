@@ -8,14 +8,14 @@
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
 import { EMPTY_EDITS } from '../../gen/edits';
-import { GEN_KEY, PARAM_RANGE, decodeMomentHash, isContourKind, isMomentHash, isShareHash } from '../../gen/savefile';
+import { GEN_KEY, PARAM_RANGE, decodeMomentHash, isContourKind, isMomentHash, isShareHash, type ContourKind, type SaveView } from '../../gen/savefile';
 import { LAYERS, type LayerId } from '../../render/layers';
 import { wrapLon } from '../../render/projection';
 import type { SurfaceLook } from '../../render/surface';
 import { galleryOfUrl } from '../../account/gallery';
 import { baseLook, mapViewFromUrl, writeMapView, type BaseId, type FillId, type SatLook, type Style } from '../mapLayers';
 import { showMapInWorlds } from '../MyWorlds';
-import { isNavState, navUrl } from '../nav';
+import { isNavState, navUrl, tidyUrl } from '../nav';
 import { isPresetHash } from '../presetLink';
 import { GLOBE_READY, isGraticuleStep, isMapProjection, type MapProjection } from '../projection';
 import { isWorldId, legacyWorld, loadWorld, newWorldId } from '../saveStore';
@@ -54,18 +54,24 @@ export function readUrl() {
   const preset = isPresetHash(location.hash) ? location.hash : null;
   // 作品墙(Gallery.tsx):作品墙那一页 / 打开一个作品
   const gallery = galleryOfUrl(q, location.hash);
+  // 只带世界编号(?w=编号,没带 seed=):网址里没写的投影、中央经线、经纬网、等值线按存档里记的打开
+  const w = !share && shortShare === null && gallery === null && !q.has('seed') ? q.get('w') : null;
+  const stored = isWorldId(w) ? loadWorld(w) : null;
+  const sv = stored && !stored.map ? stored.save.view : undefined;
   // 投影、中央经线(改了就写进网址,刷新、复制网址都还在)
   // 地球仪以前写的是 view=globe,照样认
   const pq = q.get('proj') ?? (q.get('view') === 'globe' ? 'globe' : null);
-  const proj: MapProjection = isMapProjection(pq) && (pq !== 'globe' || GLOBE_READY) ? pq : 'equirect';
-  const lq = Number(q.get('lon'));
-  const lon = q.get('lon') !== null && Number.isFinite(lq) ? wrapLon(lq) : null;
+  const wantProj = pq ?? sv?.projection ?? null;
+  const proj: MapProjection = isMapProjection(wantProj) && (wantProj !== 'globe' || GLOBE_READY) ? wantProj : 'equirect';
+  const lonRaw = q.get('lon');
+  const lq = Number(lonRaw);
+  const lon = lonRaw !== null ? (Number.isFinite(lq) ? wrapLon(lq) : null) : sv && Number.isFinite(sv.center) ? wrapLon(sv.center) : null;
   // 经纬网:grat=1 = 每 30°(旧网址就是这样),grat=10 / 15 / 30 = 每隔几度;没有 = 关
   const gq0 = q.get('grat');
-  const grat: number = gq0 === '1' ? 30 : isGraticuleStep(Number(gq0)) ? Number(gq0) : 0;
+  const grat: number = gq0 !== null ? (gq0 === '1' ? 30 : isGraticuleStep(Number(gq0)) ? Number(gq0) : 0) : sv?.graticule !== undefined && isGraticuleStep(sv.graticule) ? sv.graticule : 0;
   // 等值线:iso=elev / temp / precip;没有 = 不画
   const iq = q.get('iso');
-  const iso = isContourKind(iq) ? iq : null;
+  const iso = iq !== null ? (isContourKind(iq) ? iq : null) : isContourKind(sv?.contours) ? sv.contours : null;
   // 生成器版本(gen=):这个网址是哪一版画出来的世界;和现在的不同,打开时说清变了什么。旧网址没有 = 不知道,不提示;
   // 带了却认不出(不是整数之类)当成第 0 版:认不出的旧版本,照样提示,也不当成没带 gen 的老网址
   const gq = q.get(GEN_KEY);
@@ -89,6 +95,24 @@ export type PageUrl = ReturnType<typeof readUrl>;
 export function writeViewUrl(v: { base: BaseId; fill: FillId; sat: SatLook }) {
   const next = `?${writeMapView(new URLSearchParams(location.search), v)}`;
   if (next !== location.search) navUrl(next);
+}
+
+/** 投影、中央经线、经纬网、等值线写进网址(默认的不带) */
+export function writeProjectionUrl(v: { projection: MapProjection; mapCenter: number; graticule: number; contourKind: ContourKind | null }) {
+  const q = new URLSearchParams(location.search);
+  if (v.projection !== 'equirect') q.set('proj', v.projection);
+  else q.delete('proj');
+  q.delete('view');
+  if (v.graticule) q.set('grat', v.graticule === 30 ? '1' : String(v.graticule));
+  else q.delete('grat');
+  if (v.contourKind) q.set('iso', v.contourKind);
+  else q.delete('iso');
+  const lon = Math.round(v.mapCenter * 100) / 100;
+  if (Math.abs(lon) >= 0.005) q.set('lon', String(lon));
+  else q.delete('lon');
+  const rest = q.toString();
+  const next = rest ? tidyUrl(`?${rest}`) : '';
+  if (next !== location.search) navUrl(`${next || location.pathname}${location.hash}`);
 }
 
 /** 网址里带种子的(别人发的网址、截图脚本):直接看这个世界,先不存,改了才存 */
@@ -124,7 +148,10 @@ export function firstRoute(init: PageUrl): FirstRoute {
     showMapInWorlds(stored.id);
     return { stage: 'home', target: null };
   }
-  if (stored) return { stage: stored.draft ? 'draft' : 'world', target: storedTarget(stored, 'restore') };
+  if (stored) {
+    const view: SaveView | undefined = q.has('seed') ? undefined : { projection: init.proj, center: init.lon ?? 0, graticule: init.grat, contours: init.iso ?? '' };
+    return { stage: stored.draft ? 'draft' : 'world', target: { ...storedTarget(stored, 'restore'), ...(view ? { view } : {}) } };
+  }
   const was: unknown = history.state;
   if (isWorldId(w) && isNavState(was) && was.page !== 'home' && was.id === w) return { stage: 'home', target: null, gone: was.title ?? '' };
   // 这一步记的世界存着,网址是存下之前的那一版(开着卡片时改了第一笔才存下,退回来的这一步网址里还没有 w=):打开存着的

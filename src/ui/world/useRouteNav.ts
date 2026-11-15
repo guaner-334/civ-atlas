@@ -14,14 +14,14 @@ import type { GalleryItem } from '../../account/gallery';
 import { closeBookReader, closeHistoryBook } from '../bookStore';
 import { pausePlayback } from '../civView';
 import { getEdits } from '../editsStore';
-import { getNav, navUrl, type NavHooks, type NavState } from '../nav';
+import { getNav, type NavHooks, type NavState } from '../nav';
 import { applyLayer as applyNavLayer } from '../navView';
 import type { MapProjection } from '../projection';
 import { currentUnsaved, currentWorld, deleteWorld, isStored, isWorldId, loadWorld, newWorldId, viewChanged } from '../saveStore';
 import { getStage } from '../stageStore';
 import { clearToast } from '../Toast';
 import { cancelTimeout } from '../holdMark';
-import { readUrl, visitTarget } from './pageUrl';
+import { readUrl, visitTarget, writeProjectionUrl } from './pageUrl';
 import type { useWorldLoad } from './useWorldLoad';
 import type { useWorldPages } from './useWorldPages';
 import type { CivRefs, GenRefs, Ref, ResimRefs, Setter } from './worldRefs';
@@ -33,19 +33,7 @@ export function useViewUrl(view: { projection: MapProjection; mapCenter: number;
   // 投影 / 中心 / 经纬网停下来约半秒:写进网址(刷新、复制网址都还在),已经存着的世界跟着重存一次
   useEffect(() => {
     const t = setTimeout(() => {
-      const q = new URLSearchParams(location.search);
-      if (projection !== 'equirect') q.set('proj', projection);
-      else q.delete('proj');
-      q.delete('view'); // 旧的地球仪开关,换成 proj=globe
-      if (graticule) q.set('grat', graticule === 30 ? '1' : String(graticule));
-      else q.delete('grat');
-      if (contourKind) q.set('iso', contourKind);
-      else q.delete('iso');
-      const lon = Math.round(mapCenter * 100) / 100;
-      if (Math.abs(lon) >= 0.005) q.set('lon', String(lon));
-      else q.delete('lon');
-      const next = `?${q}`;
-      if (next !== location.search) navUrl(next);
+      writeProjectionUrl({ projection, mapCenter, graticule, contourKind });
       viewChanged();
     }, 450);
     return cancelTimeout(t);
