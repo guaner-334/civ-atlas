@@ -14,12 +14,14 @@
  *      画不出来: { type: 'civ-atlas:rendered', v, id, ok: false, error: '中文的原因' }
  *   第 3 版(审插件的试跑):
  *      后台 → 网站 { type: 'civ-atlas:trial', v: 3, id, file(插件文件,Blob 或 ArrayBuffer), seeds?(只认 7、2024,不给 = 两个都跑) }
- *      网站 → 后台 { type: 'civ-atlas:trial-done', v: 3, id, ok: true, runs: [{ seed, ok, ms, error?, log, did?, shots: { map?, panel? }, sim? }] }
+ *      网站 → 后台 { type: 'civ-atlas:trial-done', v: 3, id, ok: true, runs: [{ seed, ok, ms, error?, log, did?, shots: { map?, card?, panel? }, sim? }] }
  *                  (runs 和后台存试跑结果的接口收的一样;插件自己出错、没开成都算一份 ok = false 的 run)
+ *                  shots.map 是详情图、shots.card 是封面(不放小字),都照插件在试跑里留下了什么画(plugin/trialPicture.ts);
+ *                  交了 map 就一定交 card,一张都画不出来两样都不交(只交 map 的是这一版以前的网站)
  *                  推演插件(清单 role: 'sim')不带 did,带 sim(plugin/simTrial.ts 的 SimTrial):各推 3000 年和官方比的几样数、
- *                  插件写的编年史前 20 句、分段推和一口气推一不一样;map 是带插件推到最后一年的政区图盖上它的第一个图层
+ *                  插件写的编年史前 20 句、分段推和一口气推一不一样
  *                  地图插件(清单 role: 'map')不带 did,带 map(plugin/mapTrial.ts 的 MapTrial):不带 / 带插件各长一张比的几样数、
- *                  每一口多久、长两遍和改一笔一不一样、各推 3000 年;shots.map 是带插件的地形图,
+ *                  每一口多久、长两遍和改一笔一不一样、各推 3000 年;
  *                  shots.views 是地形、气温、降水、群落四样图各一对(不带 / 带插件,600×300),shots.layers 是它的图层盖在带插件的地形图上(按图层编号)
  *                  { type: 'civ-atlas:trial-done', v: 3, id, ok: false, error }(网站这边没跑成,比如生成不了示例世界)
  *
@@ -106,7 +108,10 @@ export interface TrialRun {
   did?: { got: string; picked: string; drew: string; wrote: string; said: string };
   /** JPEG 的 data: 网址;没截到 = 不带 */
   shots: {
+    /** 详情图(1200×600):照插件留下了什么画,见 plugin/trialPicture.ts */
     map?: string;
+    /** 封面(1200×600,不放小字);交了 map 就一定交 card,一张都画不出来两样都不交 */
+    card?: string;
     panel?: string;
     /** 地图插件:不带插件、带插件各一张 */
     views?: Partial<Record<MapView, { official?: string; plugin?: string }>>;

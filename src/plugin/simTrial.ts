@@ -167,9 +167,8 @@ export function resumeDiff(rest: Civ, full: Civ): string | null {
   return `史事一样，${d.split(/[.[]/)[0]} 不一样`;
 }
 
-/** 带插件那一遍第一个图层在 year 那年(那年以前最近存的一份)按地块铺开;没有图层 = null */
-export function simLayerPaint(civ: Civ, year: number): CellPaint | null {
-  const l = civ.simLayers?.[0];
+/** 带插件那一遍的图层 l(默认第一个)在 year 那年(那年以前最近存的一份)按地块铺开;没有图层 = null */
+export function simLayerPaint(civ: Civ, year: number, l = civ.simLayers?.[0]): CellPaint | null {
   if (!l?.years.length) return null;
   const frame = framePaint(l, year);
   return frame && regionsToCells(frame, civ.regions.of);
@@ -181,8 +180,8 @@ const sec = (ms: number) => `${(ms / 1000).toFixed(1)} 秒`;
 export interface SimTrialHooks {
   /** 每做完一步交一次到这一步为止的结果(帮手到时停掉线程时用最后一次的) */
   report?: (r: SimTrialSeed) => void;
-  /** 带插件推出来了(推不下去的停在那一年) */
-  ran?: (civ: Civ) => void;
+  /** 带插件推出来了(推不下去的停在那一年);official = 官方推的那一遍 */
+  ran?: (civ: Civ, official: Civ) => void;
   now?: () => number;
 }
 
@@ -260,7 +259,7 @@ export async function trialSim(world: World, files: readonly SimPluginFile[], bo
   sim.layers = (full.simLayers ?? []).map((l) => l.title);
   log.push(`带插件推${full.stuck ? `到第 ${year} 年` : ` ${SIM_TRIAL_YEARS} 年`}：${sec(now() - t0)}，插件出手 ${sim.turns} 回合，一共 ${sec(sim.pluginMs)}`);
   if (out.error) log.push(out.error);
-  hooks.ran?.(full);
+  hooks.ran?.(full, official);
   report();
   if (full.stuck) return { ...out, civ: full };
 
