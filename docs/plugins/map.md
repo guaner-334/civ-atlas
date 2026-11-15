@@ -615,7 +615,7 @@ civAtlas.map({
 
 | 能力 | 能用的 | 权限框上那一行 |
 |---|---|---|
-| `gen.height@1` | `map.stages` 写 `height`,`height(d)` | **会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）**,显眼 |
+| `gen.height@1` | `map.stages` 写 `height`,`height(d)` | **会改地图（海拔、气候、海冰、河；只影响用它新长的地图，已经长好的世界不变）**,显眼 |
 | `gen.climate@1` | `map.stages` 写 `climate`,`climate(d)` | 同上一行 |
 | `gen.seaice@1` | `map.stages` 写 `seaice`,`seaice(d)` | 同上一行 |
 | `gen.runoff@1` | `map.stages` 写 `runoff`,`runoff(d)` | 同上一行 |
