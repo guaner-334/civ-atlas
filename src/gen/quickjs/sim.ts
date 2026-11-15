@@ -14,7 +14,7 @@ import { toWire, type Wire } from './wire';
 export type { QuickJSLimits } from './box';
 
 /** 清单 sim 段给的设定(和 SimPlugin 一一对上) */
-export type SimSetup = Pick<SimPlugin, 'every' | 'tables' | 'inputs' | 'listen' | 'layers' | 'influences'>;
+export type SimSetup = Pick<SimPlugin, 'every' | 'tables' | 'inputs' | 'listen' | 'layers' | 'influences' | 'columns'>;
 
 export interface QuickJSPluginSpec {
   id: string;

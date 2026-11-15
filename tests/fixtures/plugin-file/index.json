@@ -437,7 +437,17 @@
   {
     "file": "sim-layer-table.civplugin",
     "kind": "broken",
-    "why": "图层标的是按国记的表"
+    "why": "图层标的是全世界一个数的表"
+  },
+  {
+    "file": "sim-column-unit.civplugin",
+    "kind": "broken",
+    "why": "数据栏按州记(只能按城、民族、信仰)"
+  },
+  {
+    "file": "sim-column-name.civplugin",
+    "kind": "broken",
+    "why": "数据栏和表重名"
   },
   {
     "file": "sim-layer-look.civplugin",

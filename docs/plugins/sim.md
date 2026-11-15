@@ -130,6 +130,8 @@ export interface PluginTurn<V> {
   table(id: string): Float64Array;
   /** 自己交给影响口 id 的那栏此刻的值(复制的一份,格 × 栏;还没交 = 全是不影响的数) */
   influence(id: string): Float64Array;
+  /** 自己的数据栏此刻的值(复制的一份,一城、一族或一种信仰一格) */
+  column(id: string): Float64Array;
   /** 自己的随机数:[0, 1),按键直接算,和先后无关(键当整数用) */
   rand(a: number, b?: number, c?: number, d?: number): number;
 }
@@ -147,6 +149,8 @@ export interface PluginReply {
   tables?: Readonly<Record<string, ArrayLike<number>>>;
   /** 换掉交给影响口的几栏(口名 → 格 × 栏,个数要对;压回口的上下限) */
   influences?: Readonly<Record<string, ArrayLike<number>>>;
+  /** 换掉自己几栏数据(个数要对;压回上下限) */
+  columns?: Readonly<Record<string, ArrayLike<number>>>;
   /** 下命令(SimCommand 的写法):此刻的下一格生效 */
   commands?: readonly unknown[];
   /** 写进编年史的几句(记在此刻) */
@@ -155,7 +159,7 @@ export interface PluginReply {
 ```
 
 - 回话里只能有数、字、真假、数组、普通对象和数的类型化数组(`Float64Array` 这类);交回函数、`Promise`、别的类的对象算出错。认不得的键也算出错
-- 拿到的都是复制的一份:改 `turn.table(…)`、`turn.influence(…)` 交回来的数组不碰推演,要在回话里交回才算
+- 拿到的都是复制的一份:改 `turn.table(…)`、`turn.influence(…)`、`turn.column(…)` 交回来的数组不碰推演,要在回话里交回才算
 - 「格 × 栏」:按州的一州一格、按国的一国一格(国的编号就是下标,亡了的国也占一格);多栏的(如 `dev.rate` 有 5 栏)第 `i` 格第 `c` 栏在 `[i * 栏数 + c]`
 
 ## 读口(`sim.read@1`)
@@ -364,7 +368,7 @@ civAtlas.sim({
 
 ## 图层
 
-按州记数的表可以标成图层(清单 `sim.layers`,要 `sim.tables@1`):推演每隔 `keep` 年存一份那张表的值,从第 0 年起,存进世界。看世界的人没装插件也看得到,能按年份看它怎么变。存下的格式和网站怎么画见[存进世界的图层](layer-format.md)。
+按州或按国记数的表可以标成图层(清单 `sim.layers`,要 `sim.tables@1`):推演每隔 `keep` 年存一份那张表的值,从第 0 年起,存进世界。看世界的人没装插件也看得到,能按年份看它怎么变。存下的格式和网站怎么画见[存进世界的图层](layer-format.md)。
 
 ```json
 {
@@ -378,11 +382,29 @@ civAtlas.sim({
 ```
 
 - `id`:图层编号,小写字母、数字、连字符,最长 25 个字
-- `table`:哪张表,要按州记、记数;多栏的表再给 `col` 栏名
+- `table`:哪张表,要按州或按国记、记数;多栏的表再给 `col` 栏名
+- 按国的表(比如各国兵力)存的那一刻照此刻的归属摊到各州:每州画它所属那国的数,不归哪国的州不画;那一刻表还没算到的新国,画表的 `off`。存下的还是按州的一份,和按州的表一样画
 - `keep`:每隔几年存一份,1–1000 的整数
 - 样子和工具插件的地块图层同一套写法:`title`(最长 40 个字),`ramp`(渐变,2–16 色,`min`、`max` 不写按数据定)和 `classes`(分类,1–32 类,`{ value, color, label }`)给且只给一个,可选 `legend`、`opacity`
 - 一个插件最多 4 个图层;一个图层存的数最多约 6 MB(份数 × 州数 × 4 字节),超了推演停下,把 `keep` 调大
 - 工具插件也能交这种按州按年份的图层([`layer.regions`](api.md#图层layercells1layerregions1layermarks1)),存进世界以后和推演插件的是同一种块
+
+## 数据栏
+
+按城、按民族、按信仰各记一个数(城防、民族的士气、教派的热度……),写在清单 `sim.columns` 里(要 `sim.tables@1`)。数据栏不进公式,推演只管存:插件出手时 `turn.column(id)` 读此刻的值,改好在回话 `columns` 里整栏交回,存进世界,接着推时原样接上。要随时间涨落、往邻州扩散的数,用[自己的表](#自己的表simtables1)。
+
+比如 `"columns": [{ "id": "walls", "unit": "settlement", "min": 0, "max": 100, "off": 10 }]` 登记一栏城防,代码里 `const walls = turn.column('walls')` 拿到每城一个数,改完交 `{ columns: { walls } }`。
+
+| 字段 | 必须 | 意思 |
+|---|---|---|
+| `id` | 是 | 名字:字母、汉字、数字、下划线,不以数字开头,最长 64 个字;不能和自己的表、别的数据栏同名 |
+| `unit` | 是 | 按什么记:`settlement` 一城一个、`culture` 一个民族一个、`faith` 一种信仰一个 |
+| `min`、`max` | 是 | 上下限,交回的压回来 |
+| `off` | 是 | 没有值时等于什么:后来才有的城、民族、信仰补上的格子是它 |
+
+- 一格对一个编号,下标就是 `read.settlements()`、`read.cultures()`、`read.faiths()` 里的编号:毁了的城、亡了的民族也一直占着那一格。新建的城、新出的民族和信仰,到插件下一次出手时补上格子,值是 `off`
+- 交回的个数要和这一回合拿到的一样(城、民族、信仰此刻的数),每个是有限的数;个数不对、交了没登记的名字,推演停下
+- 一个插件最多 16 栏数据
 
 ## 影响口(`sim.influence@1`)
 
@@ -545,7 +567,7 @@ civAtlas.sim({
 | 能力 | 能用的 | 权限框上那一行 |
 |---|---|---|
 | `sim.read@1` | `turn.read`、`turn.heard`、清单 `listen` | 在推演里加自己的数和事件、写编年史 |
-| `sim.tables@1` | 清单 `tables`、`inputs`、`layers`,`turn.table`,回话 `tables` | 同上一行 |
+| `sim.tables@1` | 清单 `tables`、`inputs`、`layers`、`columns`,`turn.table`、`turn.column`,回话 `tables`、`columns` | 同上一行 |
 | `sim.events@1` | 清单 `every`,`turn.events`,回话 `at` | 同上一行 |
 | `sim.chronicle@1` | 回话 `chronicle` | 同上一行 |
 | `sim.state@1` | `turn.note`,回话 `note` | 同上一行 |
@@ -556,7 +578,7 @@ civAtlas.sim({
 
 > 它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了地形。
 
-清单的 `sim` 段用到哪样就要在 `requires` 里写上哪样(`every` 要 `sim.events@1`,`listen` 要 `sim.read@1`,`tables`、`inputs`、`layers` 要 `sim.tables@1`,`influences` 要 `sim.influence@1`,`commands` 要 `sim.commands@1`),打包时就查;代码里用的(读口、小本子、编年史、约事)也要写全。权限框上的字以网站上显示的为准。
+清单的 `sim` 段用到哪样就要在 `requires` 里写上哪样(`every` 要 `sim.events@1`,`listen` 要 `sim.read@1`,`tables`、`inputs`、`layers`、`columns` 要 `sim.tables@1`,`influences` 要 `sim.influence@1`,`commands` 要 `sim.commands@1`),打包时就查;代码里用的(读口、小本子、编年史、约事)也要写全。权限框上的字以网站上显示的为准。
 
 ## QuickJS 里没有什么
 
@@ -581,6 +603,7 @@ civAtlas.sim({
 | 内存 | 一个插件的 QuickJS 64 MB | 推演停下 |
 | 调用套的深度 | QuickJS 的栈 64 KB | 推演停下 |
 | 表 | 16 张、一共 64 栏 | 打包时就报 |
+| 数据栏 | 16 栏 | 打包时就报 |
 | 图层 | 4 个;`keep` 1–1000 年;一个图层约 6 MB | 打包时 / 推演停下 |
 | 听史事 | 64 种 | 打包时就报 |
 | 小本子 | 约 64 KB,8 层 | 推演停下 |

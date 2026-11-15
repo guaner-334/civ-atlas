@@ -255,8 +255,8 @@ describe('推演插件写的编年史、标的图层:写错了', () => {
     };
     const big = generateCiv(w, { endYear: 10, plugins: [huge] }).simLayers![0];
     expect(big.values.every((x) => x === 3.4028234663852886e38)).toBe(true);
-    const polity: SimPlugin<SimRead> = { ...ledger('poly'), layers: [{ id: 'zeal', table: 'zeal', keep: 10, title: '热忱', ramp: { colors: ['#000000', '#ffffff'] } }] };
-    expect(() => generateCiv(w, { endYear: 5, plugins: [polity] })).toThrow(/按州记数/);
+    const world: SimPlugin<SimRead> = { ...ledger('poly'), layers: [{ id: 'tally', table: 'tally', keep: 10, title: '记数', ramp: { colors: ['#000000', '#ffffff'] } }] };
+    expect(() => generateCiv(w, { endYear: 5, plugins: [world] })).toThrow(/按州或按国记数/);
     try {
       bad([{ ...layer, keep: 0 }])();
     } catch (e) {
