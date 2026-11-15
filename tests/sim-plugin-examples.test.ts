@@ -1,8 +1,8 @@
 /**
  * 推演插件的示例(examples/plugins/ 里 role 是 sim 的):从插件文件照推演线程的装法关进 QuickJS,种子 7、2024 各推 3000 年。
- * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力、灾异、乱世、民生与时代钉自己的。
+ * 厌战、宗教生效是照接口写的那两个(tests/lib/simV1Plugins.ts)搬成插件包,历史的指纹和直接跑钉的一样;魔力、国力与疆域、灾异、乱世、民生与时代钉自己的。
  * 清单要的能力都用得到;编辑器用的类型(examples/plugins/civ-atlas-sim.d.ts)和接口一样。
- * 改了官方推演,魔力、灾异、乱世、民生与时代的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS、OMEN_PINS、CHAOS_PINS、LIVELIHOOD_PINS
+ * 改了官方推演,魔力、国力与疆域、灾异、乱世、民生与时代的钉子跟着变:PRINT_PINS=1 跑一遍,照打出来的换掉 MAGIC_PINS、REALM_PINS、OMEN_PINS、CHAOS_PINS、LIVELIHOOD_PINS
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -96,8 +96,8 @@ function capsUsed({ opened: p }: Example, seen: Seen): string[] {
 const by = (civ: Civ, id: string) => (civ.interventions ?? []).filter((v) => v.plugin === id);
 
 describe('推演插件的示例', () => {
-  it('六个都在:厌战、宗教生效、魔力、灾异、乱世、民生与时代', () => {
-    expect(SIM_EXAMPLES).toEqual(['chaos', 'faith', 'livelihood', 'magic', 'omens', 'weariness']);
+  it('七个都在:厌战、宗教生效、魔力、国力与疆域、灾异、乱世、民生与时代', () => {
+    expect(SIM_EXAMPLES).toEqual(['chaos', 'faith', 'livelihood', 'magic', 'omens', 'realm', 'weariness']);
   });
 
   it.each(SIM_EXAMPLES)('%s:清单是推演插件、跑法 quickjs;要的能力都用得到(sim 段看得出的也没多要)', async (name) => {
@@ -224,6 +224,93 @@ describe('魔力:自己的表、图层、滑条', () => {
     expect(civDiff(rest, one)).toBeNull();
   }, 120_000);
 });
+
+/** 套在插件外面:每次出手交回的回话给 look 看一眼 */
+const peek =
+  (look: (turn: PluginTurn<SimRead>, reply: PluginReply | undefined) => void) =>
+  (q: SimPlugin<SimRead>): SimPlugin<SimRead> => ({
+    ...q,
+    act(turn: PluginTurn<SimRead>) {
+      const r = q.act(turn) as PluginReply | undefined;
+      look(turn, r);
+      return r;
+    },
+  });
+
+/** 3000 年里的国家数、战争、分裂(含复国)、迁都 */
+function realmStat(civ: Civ) {
+  const n = (kind: string) => civ.annals.filter((e) => e.kind === kind).length;
+  return { polities: civ.polities.length, wars: n('war'), splits: n('split'), capitals: n('capital') };
+}
+
+const REALM_PINS: Record<V1Seed, unknown> = {
+  7: { hurt: 61, cede: 27, move: 117, before: { polities: 123, wars: 246, splits: 45, capitals: 27 }, after: { polities: 128, wars: 253, splits: 46, capitals: 132 }, digest: '7905f152acdc9e48' },
+  2024: { hurt: 147, cede: 36, move: 64, before: { polities: 151, wars: 186, splits: 58, capitals: 21 }, after: { polities: 169, wars: 278, splits: 68, capitals: 98 }, digest: '8a3b2fd0cc3ff15d' },
+};
+
+describe('国力与疆域:六个滑条交五个影响口,下划州、迁都', () => {
+  it.each(V1_SEEDS)('seed %i 推 3000 年:有国亏空伤国,划了州、迁了都;结果钉住', async (seed) => {
+    const p = await open('realm');
+    let hurt = 0;
+    const look = peek((_turn, r) => {
+      const split = r?.influences?.['split.odds'];
+      if (split) for (let i = 0; i < split.length; i++) if (split[i] > 1) hurt++;
+    });
+    const { civ, seen } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins: plugins.map(look) }));
+    expect(civ.stuck).toBeUndefined();
+    expect(civ.endYear).toBe(3000);
+    expect(capsUsed(p, seen)).toEqual([...p.opened.manifest.requires].sort());
+    const done = by(civ, 'realm');
+    const cede = done.filter((v) => v.kind === 'cede').length;
+    const move = done.filter((v) => v.kind === 'move').length;
+    expect(hurt).toBeGreaterThan(0);
+    expect(cede).toBeGreaterThan(0);
+    expect(move).toBeGreaterThan(0);
+    const got = { hurt, cede, move, before: realmStat(baseOf(seed)), after: realmStat(civ), digest: simDigest(civ) };
+    if (process.env.PRINT_PINS) console.log(`realm ${seed}: ${JSON.stringify(got)}`);
+    expect(got).toEqual(REALM_PINS[seed as V1Seed]);
+  }, 120_000);
+
+  it.each(V1_SEEDS)('seed %i 六个滑条都拨到 0:官方的历史和没装一样', async (seed) => {
+    const p = await open('realm');
+    const zero = { deficit: 0, levy: 0, terrain: 0, early: 0, tidy: 0, nomad: 0 };
+    const { civ } = await run(p, seed, (plugins) => generateCiv(worldOf(seed), { plugins }), zero);
+    const base = baseOf(seed);
+    expect(civ.stuck).toBeUndefined();
+    expect(by(civ, 'realm')).toEqual([]);
+    const history = (c: Civ) => packValue({ annals: c.annals, polity: c.polity, culture: c.culture, settlements: c.settlements });
+    expect(history(civ)).toEqual(history(base));
+  }, 120_000);
+
+  it('存下再接着推(接着推那段换新的 QuickJS),和一口气推完一样:停在第 1500 年、停在有国连着亏了 20–50 年的时候', async () => {
+    const seed = 2024;
+    const w = generateWorld({ ...DEFAULT_PARAMS, cells: 12000, seed });
+    const p = await open('realm');
+    const roundTrip = (c: Civ) => unpackValue(packValue(c)) as Civ;
+    let mid = -1;
+    const look = peek((turn, r) => {
+      const broke = (r?.note as { broke?: Record<string, number> } | undefined)?.broke;
+      if (mid < 0 && turn.year >= 300 && broke && Object.values(broke).some((y) => y >= 20 && y < 50)) mid = turn.year;
+    });
+    const one = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins: plugins.map(look) }))).civ);
+    expect(mid).toBeGreaterThan(0);
+    for (const stop of [1500, mid + 2]) {
+      const half = roundTrip((await run(p, seed, (plugins) => generateCiv(w, { plugins, endYear: stop }))).civ);
+      const rest = roundTrip(
+        (
+          await run(p, seed, (plugins) => {
+            const r = startContinue(w, half, { plugins });
+            expect(r).not.toBeNull();
+            return r!.finish();
+          })
+        ).civ,
+      );
+      expect(civDiff(rest, one), `停在第 ${stop} 年`).toBeNull();
+    }
+    if (process.env.PRINT_PINS) console.log(`realm 接着推:停在第 1500 年、第 ${mid + 2} 年`);
+  }, 240_000);
+});
+
 
 /** 灾异写的编年史按哪一样分开数 */
 const OMEN_LINES = { 潮灾: '大潮', 入冷: '转寒', 出冷: '回暖', 天变: '天象', 灾后疫: '又起疫病', 经济危机: '市面崩坏', 技术失控: '失控' } as const;
