@@ -6,7 +6,7 @@
 import type { MapPlugin } from './gen/mapHooks';
 import { MapPluginLoadError, quickjsMapPlugin, type QuickJSMapPlugin, type QuickJSMapSpec } from './gen/quickjs/map';
 import type { WorldPlugin } from './gen/worldFormat';
-import { openPluginFile } from './plugin/pluginFile';
+import { PluginFileError, openPluginFile } from './plugin/pluginFile';
 import type { MapLayerSpec } from './plugin/pluginMap';
 import { mapPluginKey, mapPluginOf, simParamsOf, type MapPluginFile } from './plugin/pluginWorld';
 
@@ -36,7 +36,7 @@ export async function loadMapFile(f: MapPluginFile & { bytes: Uint8Array }, key:
   try {
     o = await openPluginFile(f.bytes);
   } catch (e) {
-    throw new MapPluginLoadError(f.id, e instanceof Error ? e.message : String(e));
+    throw new MapPluginLoadError(f.id, e instanceof Error ? e.message : String(e), e instanceof PluginFileError && !!e.gone);
   }
   if (o.sum !== f.sum) throw new MapPluginLoadError(f.id, '文件和指纹对不上');
   if (o.manifest.id !== f.id) throw new MapPluginLoadError(f.id, `文件里是 ${o.manifest.id}`);

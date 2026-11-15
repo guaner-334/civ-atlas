@@ -260,6 +260,8 @@ class Host implements PluginHost {
         return read.worldRivers(this.world(), give);
       case 'world.legend':
         return read.worldLegend(args);
+      case 'world.plates':
+        return read.worldPlates(this.world());
       case 'history.span':
         return read.historySpan(this.civ());
       case 'history.at':
@@ -282,6 +284,20 @@ class Host implements PluginHost {
         return read.historyPeople(this.civ(), args);
       case 'history.events':
         return read.historyEvents(this.civ(), src.chronicle?.() ?? null, args);
+      case 'history.dynasties':
+        return read.historyDynasties(this.civ(), args);
+      case 'history.treaties':
+        return read.historyTreaties(this.civ(), args);
+      case 'history.zones':
+        return read.historyZones(this.civ(), args);
+      case 'history.relations':
+        return read.historyRelations(this.civ(), args);
+      case 'history.trade':
+        return read.historyTrade(this.civ(), args);
+      case 'history.migrations':
+        return read.historyMigrations(this.civ(), args);
+      case 'history.regionStats':
+        return read.historyRegionStats(this.civ(), args, give);
       case 'author.marks':
         return read.authorMarks(src.edits());
       case 'author.names':
@@ -292,6 +308,8 @@ class Host implements PluginHost {
         return read.authorInterventions(src.edits());
       case 'author.notes':
         return read.authorNotes(src.notes?.() ?? [], args);
+      case 'author.terrain':
+        return read.authorTerrain(src.edits());
       case 'author.apply': {
         const commit = src.commit ?? unavailable('网站这边还不能照插件的要求改');
         const now = performance.now();
