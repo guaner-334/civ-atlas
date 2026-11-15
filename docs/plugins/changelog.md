@@ -45,6 +45,9 @@
 - 地图插件帮手多九个:`d.ridged`、`d.flow`、`d.distance`、`d.components`、`d.slope`、`d.cellAt`、`d.line`、`d.westEast`、`d.biomeOf`。`ridged` 和 `noise` 一样最多叠 8 层。(#679)
 - 标注图层(`layer.marks`)每项多了 `from`、`to`(时间轴在这几年里才画)和 `style` 的 `width`(线宽 1–8 像素)、`arrow`(`end` / `both`)、`icon`(`castle`、`harbor`、`camp`、`shrine`、`ruin`、`lighthouse`、`bridge`、`volcano`、`battle`、`flag`、`danger`、`star`、`circle`、`square`、`triangle`、`diamond`),`style.color` 可以写 `#rrggbb`。(#684)
 - `author.apply` 多两种改动:`{ kind: 'markEdit', id, mark }` 改标记、`{ kind: 'markRemove', id }` 删标记;世界里所有标记都能改、删,和加一样能撤销。(#684)
+- 推演插件的影响口(`sim.influence@1`)又开 14 个,都按国交:`revolt.odds`(民变)、`collapse.odds`(大崩解)、`claim.odds`(宗室争位)、`warlord.odds`(新起割据)、`merge.odds`(小国并入同族大国)、`restore.odds`(复国)、`alliance.odds`(结盟)、`submit.odds`(称臣)、`defect.odds`(藩属自立)、`treaty.odds`(立约)、`marry.odds`(结亲)、`aid.odds`(援盟)乘在几率上,0–4;`war.length`(一场仗最多打几年)、`war.goal`(一场仗想拿下几州)按攻方乘,0.25–4。各自按哪一国、管哪一处,见[影响口](sim.md#影响口siminfluence1)。(#724)
+  - 读口 `read.wars()` 里还在打的仗的 `goal`、`length` 把插件交给 `war.goal`、`war.length` 的倍数乘上了(交了 `war.goal` 的,`goal` 可能带小数)
+  - 这一版网站存的、带推演插件的世界,在旧版网站上照样打得开、看得了,只是接着推要从第 0 年推起
 
 ### 改了
 

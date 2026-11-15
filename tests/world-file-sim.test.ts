@@ -16,7 +16,7 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { opaqueParts, openStoredParts, openWorldFile, packWorldFile, readTrustedParts, readWorldContent, rewriteWorldFile, type OpenedWorldFile, type PackInput, type PackedPart } from '../src/gen/worldFile';
 import { _resetVault, adoptFile, stateOf } from '../src/worldVault';
 import { openStoredWorld } from '../src/worldOpen';
-import { SIM_STATE_MAX_BYTES, WorldFileError } from '../src/gen/worldFormat';
+import { SIM_STATE_MAX_BYTES, SIM_STATE_SCHEMA, WorldFileError } from '../src/gen/worldFormat';
 import { parseManifest, validateSimState } from '../src/gen/worldValidate';
 import { ZIP_UPLOAD_MAX_BYTES } from '../src/gen/zipStore';
 import { civDiff } from '../scripts/lib/resumeFuzz';
@@ -71,7 +71,7 @@ describe('世界文件里推演插件的状态', () => {
     const opened = await openWorldFile(await bytesOf(f), OPEN);
     const names = opened.manifest.parts.map((p) => p.name);
     expect(names).toEqual(['map', 'civ', 'chronicle', 'flags', 'sim.ledger', 'sim.chain']);
-    expect(opened.manifest.parts[4]).toMatchObject({ file: 'parts/sim.ledger.gz', schema: 1, need: 'extra', by: 'ledger' });
+    expect(opened.manifest.parts[4]).toMatchObject({ file: 'parts/sim.ledger.gz', schema: SIM_STATE_SCHEMA, need: 'extra', by: 'ledger' });
     expect(opened.kept).toEqual([]);
     expect(opaqueParts(opened.manifest.parts)).toEqual([]);
     const partsOf = (o: OpenedWorldFile, keep: (name: string) => boolean): PackedPart[] => o.manifest.parts.filter((p) => keep(p.name)).map((info) => ({ info, data: o.bytes.get(info.name)! }));
@@ -141,7 +141,7 @@ describe('世界文件里推演插件的状态', () => {
     for (const over of [{ need: 'view' }, { by: 'chain' }, { by: undefined }, { name: 'sim.Bad', file: 'parts/simbad.gz' }, { bytes: SIM_STATE_MAX_BYTES + 1 }]) {
       expect(() => parseManifest(changed(over), OPEN), JSON.stringify(over)).toThrow(WorldFileError);
     }
-    const newer = parseManifest(changed({ schema: 2 }), OPEN);
+    const newer = parseManifest(changed({ schema: SIM_STATE_SCHEMA + 1 }), OPEN);
     expect(opaqueParts(newer.parts)).toEqual(['sim.ledger']);
   }, 60_000);
 

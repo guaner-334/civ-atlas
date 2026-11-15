@@ -29,7 +29,41 @@ export const OFFICIAL_INFLUENCES: readonly InfluencePoint[] = [
   { id: 'plague.odds', unit: 'region', op: 'mul', min: 0, max: 4 },
   /** 自己起的瘟疫里染疫的城死几成(不含全球大疫、作者下的瘟疫;最多死到「天灾很多」的上限) */
   { id: 'plague.loss', unit: 'region', op: 'mul', min: 0.25, max: 4 },
+  /** 饥荒里饥民起事(民变)的赔率 */
+  { id: 'revolt.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 动荡到顶的大国一下子散成几块(大崩解)的赔率 */
+  { id: 'collapse.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 新君即位时宗室起兵争位的赔率 */
+  { id: 'claim.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 管得松的州新起一处割据的赔率 */
+  { id: 'warlord.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 小国并入接壤的同族大国的赔率(按要并进去的小国) */
+  { id: 'merge.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 亡国的遗民在故都复国的赔率(按亡了的那一国) */
+  { id: 'restore.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 受强邻威胁时找别国结盟的赔率(按去结盟的那一国) */
+  { id: 'alliance.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 受强邻威胁时向它称臣的赔率(按称臣的那一国) */
+  { id: 'submit.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 藩属自立的赔率(按藩属) */
+  { id: 'defect.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 看邦交时和邻国立约的几率(按提出立约的那一国) */
+  { id: 'treaty.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 看邦交时和别国结亲的几率(按娶亲的那一国) */
+  { id: 'marry.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 盟国被宣战时出兵援盟的几率(按要不要出兵的那一国;作者下令结的盟、推演里自己结的盟都算) */
+  { id: 'aid.odds', unit: 'polity', op: 'mul', min: 0, max: 4 },
+  /** 一场仗最多打几年(按攻方;每一仗之后看议不议和时用当时的数) */
+  { id: 'war.length', unit: 'polity', op: 'mul', min: 0.25, max: 4 },
+  /** 一场仗想拿下几州(按攻方;同上) */
+  { id: 'war.goal', unit: 'polity', op: 'mul', min: 0.25, max: 4 },
 ];
 
 /** 按国的口里一国的数:后立的国(超出插件交的格数)按不影响算 */
 export const mulOf = (col: Float64Array, p: number): number => (p < col.length ? col[p] : 1);
+
+/** 赔率乘上口里第 i 格的数;交 0 就是 0(官方算出来的赔率是 Infinity 时乘 0 得 NaN,掷的那一下比不出大小,反倒成了) */
+export const oddsTimes = (odds: number, col: Float64Array, i: number): number => {
+  const m = mulOf(col, i);
+  return m === 0 ? 0 : odds * m;
+};
