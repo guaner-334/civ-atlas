@@ -2,6 +2,7 @@
  * 插件能要的能力(「名字@大版本」),和装插件时权限框上对应的那一行。
  * 这张表里没有的能力(名字认得、版本更高的也算)一律当这一版网站还没有。纯定义,网页、Worker、服务器共用。
  */
+import { experimentalUses, type ExperimentalSource, type ExperimentalUse } from './experimental';
 
 export type PermissionKey = 'map' | 'history' | 'authorRead' | 'authorWrite' | 'view' | 'layer' | 'storeWorld' | 'sim' | 'simSteer' | 'mapSteer';
 
@@ -28,7 +29,7 @@ export const PERMISSION_FOOTER_MAP = '它不能联网、看不到你的 AI 密�
 export const PERMISSION_FOOTER_MAP_LAYERS = '它不能联网、看不到你的 AI 密钥和账号、看不到别的世界、改不了地形和历史。';
 
 /** 这几行权限底下该配哪一句;role = 清单的 role(推演、地图插件一样能力都不要也不说各自改得了的那样) */
-export function permissionFooter(lines: readonly { key: PermissionKey }[], role?: string): string {
+export function permissionFooter(lines: readonly { key: PermissionLineKey }[], role?: string): string {
   if (lines.some((l) => l.key === 'mapSteer')) return PERMISSION_FOOTER_MAP;
   if (role === 'map') return PERMISSION_FOOTER_MAP_LAYERS;
   if (role === 'sim' || lines.some((l) => l.key === 'sim' || l.key === 'simSteer')) return PERMISSION_FOOTER_SIM;
@@ -67,25 +68,55 @@ export const CAP_NAME = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+@[1-9][0-9]{0,3}$/;
 /** 能力给哪种插件:sim. 开头的给推演插件,gen. 开头的给地图插件,别的给工具插件 */
 export const capRole = (cap: string): 'sim' | 'tool' | 'map' => (cap.startsWith('sim.') ? 'sim' : cap.startsWith('gen.') ? 'map' : 'tool');
 
-/** 权限框上的一行;why = 作者给这一行里各能力写的理由 */
+/** 权限框上的各行,加上用了实验接口的那一行(排在最后) */
+export type PermissionLineKey = PermissionKey | 'experimental';
+
+export const EXPERIMENTAL_PERMISSION = { text: '用了实验接口：网站更新后可能失效', loud: false } as const;
+
+/** 权限框上的一行;why = 作者给这一行里各能力写的理由;uses = 实验那一行列的是哪几样 */
 export interface PermissionLine {
-  key: PermissionKey;
+  key: PermissionLineKey;
   text: string;
   loud: boolean;
   note?: string;
   why: string[];
+  uses?: ExperimentalUse[];
 }
 
-/** 装这个插件时权限框上要列的行;optional 里这一版网站没有的不会给,也不列 */
-export function permissionLines(m: { requires: readonly string[]; optional?: readonly string[]; why?: Readonly<Record<string, string>> }): PermissionLine[] {
+/** 权限框要看的清单那几项;role、sim、map 只用来认实验接口 */
+export interface PermissionSource extends ExperimentalSource {
+  requires: readonly string[];
+  why?: Readonly<Record<string, string>>;
+}
+
+const labelsOf = (uses: readonly ExperimentalUse[]) => uses.map((u) => u.label).join('、');
+
+/** 实验那一行网站写的小字 */
+export const experimentalLineNote = (uses: readonly ExperimentalUse[]): string =>
+  `用到：${labelsOf(uses)}。${uses.length > 1 ? '网站改了其中哪一个' : '网站改了这个接口'}，它会先停下，等作者更新。`;
+
+/** 更新时实验那一行的小字:新多用的,括号里是新版接着用的 */
+export const experimentalMoreNote = (more: readonly ExperimentalUse[], kept: readonly ExperimentalUse[]): string =>
+  `多用了：${labelsOf(more)}${kept.length ? `（原来就用：${labelsOf(kept)}）` : ''}`;
+
+/** 作者给这几样能力写的理由 */
+export const whyOf = (m: Pick<PermissionSource, 'why'>, caps: readonly string[]): string[] => caps.flatMap((c) => (m.why && Object.prototype.hasOwnProperty.call(m.why, c) ? [m.why[c]] : []));
+
+/**
+ * 装这个插件时权限框上要列的行;optional 里这一版网站没有的不会给,也不列。
+ * 用了实验接口的最后多一行,实验能力的理由写在那一行;code = 插件代码(地图插件调的实验帮手要看它)
+ */
+export function permissionLines(m: PermissionSource, code?: string): PermissionLine[] {
   const caps = [...m.requires, ...(m.optional ?? [])];
+  const uses = experimentalUses(m, code);
+  const trial = new Set(uses.flatMap((u) => (u.what === '能力' ? [u.name] : [])));
   const lines: PermissionLine[] = [];
   for (const key of Object.keys(PERMISSIONS) as PermissionKey[]) {
     const mine = caps.filter((c) => PLUGIN_CAPS.get(c) === key);
     if (!mine.length) continue;
-    const why = mine.flatMap((c) => (m.why && Object.prototype.hasOwnProperty.call(m.why, c) ? [m.why[c]] : []));
-    lines.push({ key, ...PERMISSIONS[key], why });
+    lines.push({ key, ...PERMISSIONS[key], why: whyOf(m, mine.filter((c) => !trial.has(c))) });
   }
+  if (uses.length) lines.push({ key: 'experimental', ...EXPERIMENTAL_PERMISSION, note: experimentalLineNote(uses), why: whyOf(m, [...trial]), uses });
   return lines;
 }
 
