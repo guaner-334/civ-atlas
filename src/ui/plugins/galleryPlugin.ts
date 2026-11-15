@@ -27,6 +27,7 @@ export interface WallPlugin {
   version: string;
   sum: string;
   bytes: number;
+  role?: 'tool' | 'sim' | 'map';
   requires: string[];
   optional: string[];
   license: string;
@@ -68,6 +69,7 @@ export function wallPlugin(raw: unknown): WallPlugin | null {
     version: o.version,
     sum: o.sum,
     bytes: typeof o.bytes === 'number' && Number.isSafeInteger(o.bytes) && o.bytes > 0 ? o.bytes : 0,
+    ...(o.role === 'tool' || o.role === 'sim' || o.role === 'map' ? { role: o.role } : {}),
     requires: strs(o.requires),
     optional: strs(o.optional),
     license: str(o.license, 80),
