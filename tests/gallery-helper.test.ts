@@ -405,11 +405,12 @@ describe('帮手列的名字和几样数', () => {
     expect(map.lon).toBeUndefined();
   });
 
-  it('新建参数作品:照这套参数生成;没带种子的用默认种子;读不出来给中文原因', () => {
-    const hash = presetHash({ name: '两块完整大陆', params: { ...DEFAULT_PARAMS, landFraction: 0.4, continents: 2 }, seed: 5730, endYear: 6000 });
+  it('新建参数作品:照这套参数生成;没带种子的用默认种子;旧作品带的推演年数不管;读不出来给中文原因', () => {
+    const hash = presetHash({ name: '两块完整大陆', params: { ...DEFAULT_PARAMS, landFraction: 0.4, continents: 2 }, seed: 5730 });
     const job = helperJob({ id: 'a', kind: 'preset', preset: hash.replace(/^#/, '') });
     expect(job.params).toMatchObject({ seed: 5730, landFraction: 0.4, continents: 2 });
-    expect(job.input.endYear).toBe(6000);
+    expect(job.input).not.toHaveProperty('endYear');
+    expect(helperJob({ id: 'a', kind: 'preset', preset: `${hash.replace(/^#/, '')}&years=6000` }).input).not.toHaveProperty('endYear');
     const noSeed = helperJob({ id: 'a', kind: 'preset', preset: 'preset=1&name=x&landFraction=0.3' });
     expect(noSeed.params.seed).toBe(DEFAULT_PARAMS.seed);
     expect(() => helperJob({ id: 'a', kind: 'preset', preset: 'nonsense' })).toThrow(/新建参数读不出来/);

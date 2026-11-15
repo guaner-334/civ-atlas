@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { World, WorldParams } from '../../gen/world';
 import type { Raster } from '../../gen/raster';
 import type { Civ } from '../../gen/civ/types';
-import { EMPTY_EDITS, cleanCivSeed, cleanEndYear, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, cleanCivSeed, type WorldEdits } from '../../gen/edits';
 import { cleanCalamity } from '../../gen/civ/calamity';
 import { cleanFrontier, cleanOrigins } from '../../gen/civ/frontier';
 import { worldTuning } from '../../gen/civ/ruleSet';
@@ -99,14 +99,13 @@ export function useStoryFinder(deps: StoryFinderDeps) {
   const [outlineSrc, setOutlineSrc] = useState<{ from: OutlineFrom; view: { base: BaseId; fill: FillId } } | null>(null);
   /** 一张地图认是不是同一张:参数、地形、草图(在哪张地图上打造的那条出处不算:地图本身一样) */
   const mapKeyOf = (p: WorldParams, e: WorldEdits) => JSON.stringify([worldKey(p), e.terrain, e.sketch ?? null]);
-  /** 新建中的世界 → 搜的时候照它生成的设定(世界参数、地形和草图(都用这张地图时)、推演年数、拓荒、起源、天灾、规则、地名风格) */
+  /** 新建中的世界 → 搜的时候照它生成的设定(世界参数、地形和草图(都用这张地图时)、拓荒、起源、天灾、规则、地名风格;一律在 3000 年里找) */
   const finderBaseOf = (t: Target, e: WorldEdits): FinderBase => {
-    const endYear = cleanEndYear(e.endYear);
     const frontier = cleanFrontier(e.frontier);
     const origins = cleanOrigins(e.origins);
     const calamity = cleanCalamity(e.calamity);
     const tuning = worldTuning(e.rules);
-    const civ = { ...(endYear ? { endYear } : {}), ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(calamity ? { calamity } : {}), ...(e.nameMix ? { names: e.nameMix } : {}) };
+    const civ = { ...(frontier ? { frontier } : {}), ...(origins ? { origins } : {}), ...(calamity ? { calamity } : {}), ...(e.nameMix ? { names: e.nameMix } : {}) };
     const sketch = sketchGrid(e.sketch);
     const now = getMapNow();
     const mapPlugins = now && now.id === t.id ? now.list.map((p) => p.name ?? p.id) : [];
@@ -143,10 +142,9 @@ export function useStoryFinder(deps: StoryFinderDeps) {
     const fixed = run.setup.map === 'fixed';
     const be = back.target.edits;
     const params = fixed ? back.target.params : { ...back.target.params, seed };
-    const { nameMix, endYear, frontier, origins, calamity, rules, era, months, monthNames } = be;
+    const { nameMix, frontier, origins, calamity, rules, era, months, monthNames } = be;
     const keep: Partial<WorldEdits> = {
       ...(nameMix ? { nameMix } : {}),
-      ...(endYear ? { endYear } : {}),
       ...(frontier ? { frontier } : {}),
       ...(origins ? { origins } : {}),
       ...(calamity ? { calamity } : {}),
@@ -362,7 +360,7 @@ export function useStoryFinder(deps: StoryFinderDeps) {
     return () => setFindAgainHandler(null);
   }, []);
   /**
-   * 大纲页「找更合的世界」:照这个世界新建一个(世界参数、地形、推演年数、拓荒、起源、天灾、规则、地名风格、纪年照原来的),打开找世界那一页;
+   * 大纲页「找更合的世界」:照这个世界新建一个(世界参数、地形、拓荒、起源、天灾、规则、地名风格、纪年照原来的;先推 3000 年),打开找世界那一页;
    * 大纲里写到最多的几国先列成故事里的国家(叫法用大纲里的国名,条件空着让作者加)。建好以后大纲搬过去(foundCreated)
    */
   const findForOutlineNow = () => {
@@ -373,13 +371,12 @@ export function useStoryFinder(deps: StoryFinderDeps) {
     if (!cur || !t || t.kind === 'draft' || !civNow || !e.outline?.plots.length) return;
     const from = outlineFrom({ civ: civNow, plots: e.outline.plots, marks: e.marks, characters: e.characters }, cur.id, mapKeyOf(t.params, e));
     const view = { base: mapViewRef.current.base, fill: mapViewRef.current.fill };
-    const { endYear, frontier, origins, calamity, rules, nameMix, era, months, monthNames, sketch } = e;
+    const { frontier, origins, calamity, rules, nameMix, era, months, monthNames, sketch } = e;
     const keep: WorldEdits = {
       ...EMPTY_EDITS,
       terrain: [...e.terrain],
       ...(sketch ? { sketch } : {}),
       ...(nameMix ? { nameMix } : {}),
-      ...(endYear ? { endYear } : {}),
       ...(frontier ? { frontier } : {}),
       ...(origins ? { origins } : {}),
       ...(calamity ? { calamity } : {}),

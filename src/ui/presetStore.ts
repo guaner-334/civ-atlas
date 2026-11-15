@@ -3,11 +3,12 @@
  *
  *   默认      DEFAULT_PARAMS(种子照旧随机)
  *   上次用的  上一次点「创建世界」时的参数(不含种子),记着那次建的世界叫什么
- *   自己存的  「存成预设…」存下的:陆地、大陆、气候、精细度、推演年数;种子、规则只有勾了「连种子 / 规则一起存」才存。最多 30 个
+ *   自己存的  「存成预设…」存下的:陆地、大陆、气候、精细度;种子、规则只有勾了「连种子 / 规则一起存」才存。最多 30 个
  *   分享的    打开朋友的预设链接(presetLink.ts)带来的那一套:不自动存,点「存进我的预设…」才存;只在这次打开的页面里有
  *
  * 另外记着上次选的是哪个(下次打开弹窗停在它上面;选的是分享的那一套时记的还是之前那个)。
  * 都存在这个浏览器里(和存档一样换电脑带不走);浏览器不让存(隐私模式)就只在这次打开的页面里有效。
+ * 以前存下的推演年数(endYear)读的时候不要:新建一律先推 3000 年。
  */
 import { createListeners } from './createStore';
 import { PARAM_RANGE } from '../gen/savefile';
@@ -24,15 +25,12 @@ export interface Preset {
   params: PresetParams;
   /** 勾了「连种子一起存」 */
   seed?: number;
-  /** 推演到第几年(没开「推演超过 3000 年」= 不给) */
-  endYear?: number;
   /** 勾了「连规则一起存」:那一套(「我的规则」里的带本机编号) */
   rules?: RuleSet;
 }
 
 export interface LastUsed {
   params: PresetParams;
-  endYear?: number;
   /** 那次建的世界叫什么("建「阿斯特拉」时") */
   title: string;
 }
@@ -101,7 +99,6 @@ function load(): PresetState {
         name: p.name,
         params: cleanParams(p.params),
         seed: posInt(p.seed),
-        endYear: posInt(p.endYear),
         ...withRules(p.rules),
       });
     }
@@ -110,7 +107,6 @@ function load(): PresetState {
       l && typeof l === 'object'
         ? {
             params: cleanParams(l.params),
-            endYear: posInt(l.endYear),
             title: typeof l.title === 'string' ? l.title : '',
           }
         : null;
@@ -157,10 +153,10 @@ export const strip = (p: WorldParams): PresetParams => {
 };
 
 /** 选的那个预设的参数(没有 = 默认) */
-export function choiceParams(s: PresetState, c: PresetChoice): { params: PresetParams; seed?: number; endYear?: number; rules?: RuleSet } {
-  if (c === 'last' && s.last) return { params: s.last.params, endYear: s.last.endYear };
+export function choiceParams(s: PresetState, c: PresetChoice): { params: PresetParams; seed?: number; rules?: RuleSet } {
+  if (c === 'last' && s.last) return { params: s.last.params };
   const p = c === 'shared' ? s.shared : s.list.find((x) => x.id === c);
-  if (p) return { params: p.params, seed: p.seed, endYear: p.endYear, ...(p.rules ? { rules: p.rules } : {}) };
+  if (p) return { params: p.params, seed: p.seed, ...(p.rules ? { rules: p.rules } : {}) };
   return { params: strip(DEFAULT_PARAMS) };
 }
 
@@ -192,7 +188,7 @@ export function pickSharedPreset(p: SharedPreset) {
 }
 
 /** 存成预设:同名的换掉;多了扔掉最旧的。返回新的 id */
-export function savePreset(name: string, params: WorldParams, withSeed: boolean, endYear?: number, rules?: RuleSet): string {
+export function savePreset(name: string, params: WorldParams, withSeed: boolean, rules?: RuleSet): string {
   const s = get();
   const same = s.list.find((p) => p.name === name);
   const id = same?.id ?? `p${Date.now().toString(36)}${s.list.length.toString(36)}`;
@@ -201,7 +197,6 @@ export function savePreset(name: string, params: WorldParams, withSeed: boolean,
     name,
     params: strip(params),
     ...(withSeed ? { seed: params.seed } : {}),
-    ...(endYear ? { endYear } : {}),
     ...withRules(rules),
   };
   const list = same ? s.list.map((p) => (p.id === id ? it : p)) : [...s.list, it].slice(-MAX_PRESETS);
@@ -224,19 +219,18 @@ export function deletePreset(id: string) {
 }
 
 /** 点「创建世界」建好了:记成「上次用的」 */
-export function rememberLast(params: WorldParams, endYear: number | undefined, title: string) {
+export function rememberLast(params: WorldParams, title: string) {
   const s = get();
   set({
     ...s,
-    last: { params: strip(params), ...(endYear ? { endYear } : {}), title },
+    last: { params: strip(params), title },
   });
 }
 
 /** 参数和预设一样吗(不比种子;预设存了种子的连种子比) */
-export function sameAsChoice(s: PresetState, c: PresetChoice, p: WorldParams, endYear: number | undefined): boolean {
+export function sameAsChoice(s: PresetState, c: PresetChoice, p: WorldParams): boolean {
   const ch = choiceParams(s, c);
   if (ch.seed && ch.seed !== p.seed) return false;
-  if ((ch.endYear ?? 0) !== (endYear ?? 0)) return false;
   return (Object.keys(ch.params) as (keyof PresetParams)[]).every((k) => ch.params[k] === p[k]);
 }
 
@@ -269,7 +263,7 @@ export function presetSummary(p: Pick<Preset, 'params' | 'seed' | 'rules'>, max:
   return parts.slice(0, max).join('，');
 }
 
-/** 「存成预设」小窗里"会存下:…"那几组(陆地、大陆、气候、精细度、推演年数);陆地写数,大陆改过才写 */
+/** 「存成预设」小窗里"会存下:…"那几组(陆地、大陆、气候、精细度);陆地写数,大陆改过才写 */
 export function keptGroups(p: WorldParams): { name: string; detail?: string }[] {
   const cont = contBrief(p);
   return [
@@ -280,6 +274,5 @@ export function keptGroups(p: WorldParams): { name: string; detail?: string }[] 
     { name: '大陆', detail: cont ? cont.replace(' 块大陆', ' 块') : undefined },
     { name: '气候' },
     { name: '精细度' },
-    { name: '推演年数' },
   ];
 }
