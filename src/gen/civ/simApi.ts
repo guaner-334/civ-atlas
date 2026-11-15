@@ -17,7 +17,34 @@ export { CHRONICLE_LIMITS } from './engine/pluginChronicle';
 export { LAYER_LIMITS } from './engine/pluginLayers';
 export { COMMAND_KINDS, COMMANDS_MAX, REFUSE_REASONS, type RefuseReason } from './commands';
 export { OFFICIAL_INFLUENCES } from './influence';
-export type { OfficialName, SimAnnal, SimCulture, SimFaith, SimOwnerField, SimPolity, SimRead, SimRegions, SimSettlement } from './simRead';
+export type {
+  Leanings,
+  OfficialName,
+  SimAnnal,
+  SimCulture,
+  SimFaith,
+  SimGrudge,
+  SimHandover,
+  SimOwnerField,
+  SimPacts,
+  SimPlague,
+  SimPolicy,
+  SimPolity,
+  SimRead,
+  SimRegencyKind,
+  SimRegions,
+  SimResource,
+  SimRuler,
+  SimRules,
+  SimSack,
+  SimSettlement,
+  SimTrade,
+  SimTreaty,
+  SimTrek,
+  SimTruce,
+  SimWar,
+  SimZone,
+} from './simRead';
 export { OFFICIAL_NAMES } from './simRead';
 
 /** 插件清单 api 写的版本 */

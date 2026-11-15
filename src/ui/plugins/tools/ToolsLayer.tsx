@@ -352,6 +352,24 @@ function Trouble({ t, label, onAgain, onRemove }: { t: ToolTrouble; label: strin
         }
       />
     );
+  if (t.kind === 'gone')
+    return (
+      <Msg
+        icon={<Icon name="flask" size={19} />}
+        tone="warn"
+        title="它用的实验接口，网站已经改掉了"
+        lines={[`它用到「${t.what}」，这一版网站不再有。要等作者出新版，才能再用。`]}
+        small="更新网站没有用。你的世界没受影响，用它做过的图层还在。"
+        acts={
+          <>
+            <CopyButton text={`${label}用的实验接口「${t.what}」，网站已经改掉了，要出新版才能再用。`} />
+            <button type="button" className="plg-btn pri" data-act="plugin-close" onClick={stopTool}>
+              知道了
+            </button>
+          </>
+        }
+      />
+    );
   if (t.kind === 'crashed')
     return (
       <Msg
