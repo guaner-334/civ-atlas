@@ -31,7 +31,8 @@ import { askingWorldStore } from '../worldPlugins';
 import { batchParts, keyName, refusalOf, sayBatch, sayBusy, sayDone, type Refusal } from './toolSay';
 
 /** 停下的原因:slow 没反应(几秒);crashed 出错(site = 网站查到的,不是插件自己报的);blocked 网站停用了 */
-export type ToolTrouble = { kind: 'slow'; secs: number } | { kind: 'crashed'; text: string; site?: boolean } | { kind: 'blocked'; why: string; day: string };
+/** gone:用的实验接口网站拿掉了(what = 那个接口给人看的名字) */
+export type ToolTrouble = { kind: 'slow'; secs: number } | { kind: 'crashed'; text: string; site?: boolean } | { kind: 'blocked'; why: string; day: string } | { kind: 'gone'; what: string };
 
 /** 插件请用的人在地图上点:一处 / 框一片 */
 export interface ToolPick {
@@ -191,6 +192,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
     void watch(my, h);
   } catch (e) {
     if (!live() || toolRun.get()?.phase === 'stopped') return;
+    if (e instanceof PluginFileError && e.kind === 'newer' && e.gone) return patch(my, { phase: 'stopped', trouble: { kind: 'gone', what: e.gone } });
     const text = e instanceof PluginFileError && e.kind === 'newer' ? '它要用到这一版网站还没有的东西' : e instanceof Error && e.name === 'PluginRefused' ? e.message : '没能打开它';
     patch(my, { phase: 'stopped', trouble: { kind: 'crashed', site: true, text } });
   }

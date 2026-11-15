@@ -35,11 +35,12 @@ export interface QuickJSMapPlugin extends MapPlugin {
   dispose(): void;
 }
 
-/** 装不上:插件代码出错、没登记、清单写了的那一步没有函数 */
+/** 装不上:插件代码出错、没登记、清单写了的那一步没有函数;gone = 插件用的实验接口网站拿掉了 */
 export class MapPluginLoadError extends Error {
   constructor(
     readonly plugin: string,
     readonly why: string,
+    readonly gone = false,
   ) {
     super(`地图插件「${plugin}」装不上:${why}`);
     this.name = 'MapPluginLoadError';
