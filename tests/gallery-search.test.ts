@@ -44,8 +44,9 @@ describe('搜哪几段字', () => {
     expect(hits(p, 'coast')).toBe(true);
     expect(hits(p, '公里')).toBe(true);
     expect(workTexts(plugin({ title: '潮汐' }, { name: '潮汐' }))).toEqual(['潮汐', '潮汐']);
-    // 整理不出来的 plugin 只搜作品自己的字
-    expect(workTexts(work({ kind: 'plugin', title: '坏插件', plugin: { id: 1 } }))).toEqual(['坏插件']);
+    // plugin 里没有名字、说明(或者不是字)的,只搜作品自己的字
+    expect(workTexts(work({ kind: 'plugin', title: '坏插件', plugin: { id: 1, name: 2 } }))).toEqual(['坏插件']);
+    expect(workTexts(work({ kind: 'plugin', title: '坏插件', plugin: null }))).toEqual(['坏插件']);
   });
 
   it('规则作品另搜规则名和摘要;别的作品带着规则也不搜它', () => {

@@ -3,7 +3,6 @@
  * 英文不分大小写、全角半角当一样,每个词搜到的地方各自标出来。
  */
 import type { GalleryWork } from '../account/gallery';
-import { wallPlugin } from './plugins/galleryPlugin';
 
 /** 框里最多几个字 */
 export const FIND_MAX = 40;
@@ -34,8 +33,9 @@ export const findKeys = (words: readonly string[]): string[] => words.map(fold);
 export function workTexts(w: GalleryWork): string[] {
   const out = [w.title, w.by, w.blurb];
   if (w.kind === 'plugin') {
-    const p = wallPlugin(w.plugin);
-    if (p) out.push(p.name, p.description ?? '');
+    // 直接读服务器给的 plugin:整理它的代码连着插件那一包,搜索不该把它拖进来
+    const p = (w.plugin ?? {}) as { name?: unknown; description?: unknown };
+    for (const t of [p.name, p.description]) if (typeof t === 'string') out.push(t);
   } else if (w.kind === 'rules' && w.rules) out.push(w.rules.name, w.rules.brief);
   return out.filter(Boolean);
 }
