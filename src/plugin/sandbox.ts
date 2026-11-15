@@ -53,7 +53,7 @@ export interface PluginSandbox {
   stop(): void;
 }
 
-const START_TIMEOUT_MS = 10_000;
+export const START_TIMEOUT_MS = 30_000;
 const CALL_TIMEOUT_MS = 5_000;
 const PING_TIMEOUT_MS = 2_000;
 
