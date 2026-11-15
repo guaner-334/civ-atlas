@@ -2,6 +2,7 @@
  * 预设做成分享链接(ui/presetLink.ts):预设 → 链接 → 预设逐字段相等;链接有多长;
  * 折了行、转义过的照样读;坏的参数调回范围内并提示;不是预设链接、少了一截、来自更新版本的给中文错误;
  * 连规则一起的:写成第 2 版、规则逐字段读回来;第 1 版后面接着规则的写法也读得出规则。
+ * 旧链接里的推演年数(years):先拿掉,写的是什么都不管、不提示,读出来的预设里没有,再编也不写。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/world';
@@ -19,14 +20,13 @@ const SITE = 'https://atlas.gerdor.top/';
 
 const SAMPLES: SharedPreset[] = [
   { name: '两块完整大陆', params: P({ landFraction: 0.4, continents: 2, gather: 0.5 }) },
-  { name: '寒冷群岛', params: P({ landFraction: 0.22, plates: 36, mountains: 1.2, temperature: -8, rainfall: 1.3, rugged: 1.6 }), seed: 5730, endYear: 6000 },
+  { name: '寒冷群岛', params: P({ landFraction: 0.22, plates: 36, mountains: 1.2, temperature: -8, rainfall: 1.3, rugged: 1.6 }), seed: 5730 },
   { name: '默认', params: P() },
   // 每一样都改过、名字带空格和符号(& = # % + 都要转义)
   {
     name: 'A & B = 50% #1 + 北境',
     params: { cells: 120000, landFraction: 0.123456789, plates: 64, mountains: 4.75, temperature: -39.5, rainfall: 0.05, continents: 8, gather: 1, rugged: 2.5, hardness: 0.3, north: -1 },
     seed: 999999,
-    endYear: 60000,
   },
 ];
 
@@ -43,7 +43,6 @@ describe('预设链接:编码 → 解码', () => {
       expect(r.preset).toEqual(p);
       for (const k of Object.keys(p.params) as (keyof PresetParams)[]) expect(r.preset.params[k]).toBe(p.params[k]);
       expect(r.preset.seed).toBe(p.seed);
-      expect(r.preset.endYear).toBe(p.endYear);
       // 同一个预设编出同一个链接
       expect(presetHash(r.preset)).toBe(hash);
     });
@@ -51,8 +50,8 @@ describe('预设链接:编码 → 解码', () => {
 
   it('链接长度:只写和默认不一样的几样,远小于提醒"链接较长"的 8000 字', () => {
     const lens = SAMPLES.map((p) => (SITE + presetHash(p)).length);
-    // 两块完整大陆 135 字、寒冷群岛(带种子、推演年数)178 字、默认 58 字、样样都改过 259 字
-    expect(lens).toEqual([135, 178, 58, 259]);
+    // 两块完整大陆 135 字、寒冷群岛(带种子)167 字、默认 58 字、样样都改过 247 字
+    expect(lens).toEqual([135, 167, 58, 247]);
     for (const n of lens) expect(n).toBeLessThan(SHARE_WARN_LENGTH);
     // 默认的那几样不写
     expect(presetHash(SAMPLES[0])).toBe('#preset=1&name=%E4%B8%A4%E5%9D%97%E5%AE%8C%E6%95%B4%E5%A4%A7%E9%99%86&landFraction=0.4&continents=2&gather=0.5');
@@ -96,19 +95,35 @@ describe('预设链接:坏的参数调回来,附提示', () => {
     expect(r.warnings).toEqual(['预设链接里的精细度、板块数量、气温、板块软硬不对,已改成合理的值']);
   });
 
-  it('种子不是正整数:去掉,种子照旧随机;推演年数不是数:按 3000 年', () => {
+  it('种子不是正整数:去掉,种子照旧随机', () => {
     for (const seed of ['-5', '1.5', 'abc', '', '1e30']) {
       const r = decodePresetHash(`#preset=1&name=x&seed=${seed}`);
       expect(r.ok && r.preset.seed).toBeUndefined();
       expect(r.ok && r.warnings).toEqual(['预设链接里的种子不对,已去掉(种子照旧随机给)']);
     }
-    const y = decodePresetHash('#preset=1&name=x&years=很久');
-    expect(y.ok && y.preset.endYear).toBeUndefined();
-    expect(y.ok && y.warnings).toEqual(['预设链接里的推演年数不对,按 3000 年']);
-    // 3000 年本来就不写;超出的夹到 60000
-    const z = decodePresetHash('#preset=1&name=x&years=99999');
-    expect(z.ok && z.preset.endYear).toBe(60000);
-    expect(decodePresetHash('#preset=1&years=3000').ok && (decodePresetHash('#preset=1&years=3000') as { preset: SharedPreset }).preset.endYear).toBeUndefined();
+  });
+});
+
+describe('预设链接:旧链接里的推演年数', () => {
+  const hash = presetHash(SAMPLES[1]);
+  it('写的是什么都照常打开、不提示,读出来的预设里没有年数', () => {
+    for (const y of ['years=6000', 'years=', 'years=很久', 'years=99999', 'years=3000', 'years=6000&years=8000', 'years=%ZZ', 'years']) {
+      for (const v of [`${hash}&${y}`, hash.replace('&seed=', `&${y}&seed=`)]) {
+        const r = decodePresetHash(v);
+        expect(r.ok, v).toBe(true);
+        if (!r.ok) continue;
+        expect(r.warnings).toEqual([]);
+        expect(r.preset).toEqual(SAMPLES[1]);
+        expect(r.preset).not.toHaveProperty('endYear');
+      }
+    }
+  });
+  it('再编成链接(再分享、投稿)不写年数', () => {
+    const r = decodePresetHash(`${hash}&years=6000`);
+    expect(r.ok && presetHash(r.preset)).toBe(hash);
+    // 别处带进来的 endYear 也不写
+    expect(presetHash({ ...SAMPLES[1], endYear: 6000 } as SharedPreset)).toBe(hash);
+    expect(hash).not.toContain('years');
   });
 });
 
@@ -149,12 +164,12 @@ describe('预设链接:连规则一起', () => {
     values: { 'war.odds': 2, 'war.truce': 2, 'war.length': [3, 20], 'war.crush': 'never', 'war.winter': 'off' },
     biomes: { temperateDesert: '灰烬荒原' },
   };
-  const P1: SharedPreset = { name: '乱世大陆', params: P({ landFraction: 0.4, continents: 2 }), seed: 5730, endYear: 6000, rules: { ...WAR, id: 'rmh3k2x9a4f' } };
+  const P1: SharedPreset = { name: '乱世大陆', params: P({ landFraction: 0.4, continents: 2 }), seed: 5730, rules: { ...WAR, id: 'rmh3k2x9a4f' } };
 
   it('写成第 2 版;规则逐字段读回来(本机编号不写),同一个预设编出同一个链接', () => {
     const hash = presetHash(P1);
     expect(hash.startsWith('#preset=2&')).toBe(true);
-    expect(hash).toContain('&years=6000&rules=1&rules.name=');
+    expect(hash).toContain('&continents=2&rules=1&rules.name=');
     expect(hash).not.toContain('rmh3k2x9a4f');
     const r = decodePresetHash(hash);
     expect(r.ok).toBe(true);
@@ -183,7 +198,7 @@ describe('预设链接:连规则一起', () => {
     expect(r.preset.name).toBe('两块大陆');
     expect(r.preset.params).toEqual(P({ landFraction: 0.4 }));
     expect(r.preset.seed).toBe(5730);
-    expect(r.preset.endYear).toBe(6000);
+    expect(r.preset).not.toHaveProperty('endYear');
     expect(r.preset.rules).toEqual({
       name: '战乱年代',
       version: 2,

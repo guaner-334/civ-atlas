@@ -46,11 +46,10 @@ function SharePreset(p: SharePresetProps) {
   );
 }
 
-/** 选了一个预设:参数(不含种子)、存了的种子、推演年数、存了的规则 */
+/** 选了一个预设:参数(不含种子)、存了的种子、存了的规则 */
 export interface PresetPick {
   params: PresetParams;
   seed?: number;
-  endYear?: number;
   rules?: RuleSet;
 }
 
@@ -86,7 +85,6 @@ const tick = (
 
 export function PresetPicker({
   params,
-  endYear,
   rules,
   onPick,
   phone,
@@ -95,7 +93,6 @@ export function PresetPicker({
   disabled,
 }: {
   params: WorldParams;
-  endYear: number | undefined;
   /** 现在用的那一套规则(官方 = 不给;存成预设、复制分享链接时先选好它) */
   rules?: RuleSet;
   onPick: (p: PresetPick) => void;
@@ -119,13 +116,13 @@ export function PresetPicker({
   } | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
   useEscape(!!menu, () => setMenu(null));
-  const changed = !sameAsChoice(st, st.chosen, params, endYear);
+  const changed = !sameAsChoice(st, st.chosen, params);
   const submitOn = useSubmitOn(!!menu);
   const banned = useSubmitBan();
   const submit = () => {
     setMenu(null);
     const picked = st.chosen === 'shared' ? st.shared : st.list.find((p) => p.id === st.chosen);
-    const go = () => openSubmitDialog({ kind: 'preset', name: picked?.name ?? '', params, ...(endYear ? { endYear } : {}), ...(rules ? { rules } : {}) }, banned ? 'ban' : undefined);
+    const go = () => openSubmitDialog({ kind: 'preset', name: picked?.name ?? '', params, ...(rules ? { rules } : {}) }, banned ? 'ban' : undefined);
     if (!banned && phoneRequired()) askPhone({ for: 'submit', then: go });
     else go();
   };
@@ -191,8 +188,8 @@ export function PresetPicker({
           />,
           document.body,
         )}
-      {mini?.kind === 'save' && createPortal(<SavePreset theme={mini.theme} params={params} endYear={endYear} rules={rules} onClose={() => setMini(null)} />, document.body)}
-      {mini?.kind === 'share' && createPortal(<SharePreset theme={mini.theme} params={params} endYear={endYear} rules={rules} onClose={() => setMini(null)} />, document.body)}
+      {mini?.kind === 'save' && createPortal(<SavePreset theme={mini.theme} params={params} rules={rules} onClose={() => setMini(null)} />, document.body)}
+      {mini?.kind === 'share' && createPortal(<SharePreset theme={mini.theme} params={params} rules={rules} onClose={() => setMini(null)} />, document.body)}
       {mini?.kind === 'manage' && createPortal(<ManagePresets theme={mini.theme} onClose={() => setMini(null)} />, document.body)}
     </>
   );

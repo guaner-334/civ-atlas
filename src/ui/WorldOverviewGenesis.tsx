@@ -4,7 +4,7 @@
  * (回到新建这一步,设定照原样带过去,存成另一个世界);右栏是随时能改的「纪年」(EraSettings.tsx)和「月份」(MonthSettings.tsx;窄屏放在最上面)。
  * 「地图」—— 种子、世界参数、改过的地形;右栏是这张地图上的几个文明(点了打开)、"在这张地图上打造新文明…"、"回放世界形成"。
  *
- * 世界参数的滑条(ParamSlider;滑条的定义在 genesisSliders.ts)、推演年数的开关和滑条(YearsRows)在这里,新建世界(studio/Studio.tsx)用。
+ * 世界参数的滑条(ParamSlider;滑条的定义在 genesisSliders.ts)在这里,新建世界(studio/Studio.tsx)用。
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { World, WorldParams } from '../gen/world';
@@ -12,8 +12,8 @@ import { speedText, terrainBrief as terrainCostBrief } from '../gen/civ/frontier
 import { CALAMITY_NAMES, cleanCalamity } from '../gen/civ/calamity';
 import { originCiv, originSpots } from './studio/origins';
 import type { Civ } from '../gen/civ/types';
-import { END_YEAR_DEFAULT, civSeedOf, cleanEndYear, endYearOf, type TerrainKind } from '../gen/edits';
-import { setEndYear, useEdits } from './editsStore';
+import { civSeedOf, endYearOf, type TerrainKind } from '../gen/edits';
+import { useEdits } from './editsStore';
 import { currentWorld, keptFrom, listWorlds, useSavesVersion } from './saveStore';
 import { civName, mapMates } from './mapGroups';
 import { openWorldById, startNewCiv } from './newCivAction';
@@ -32,11 +32,11 @@ import { pluginsUiOn } from './plugins/flag';
 import { WorldPluginsSlot } from './plugins/layerSlots';
 import { useSimNow } from './world/simNow';
 import { useMapNow } from './world/mapNow';
-import { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contDefault, yearsSpan, type SliderLike } from './genesisSliders';
+import { CONT_SLIDERS, SLIDERS, contDefault, yearsSpan, type SliderLike } from './genesisSliders';
 import './ai.css';
 
-// 滑条、推演年数的说法、参数简写在 genesisSliders.ts(新建弹窗也用),这里照旧一起导出
-export { CONT_SLIDERS, SLIDERS, YEARS_NOTE, YEARS_ON, YEARS_SLIDER, YEARS_SWITCH, contBrief, contDefault, northText, paramsSide, yearsSpan, type SliderLike } from './genesisSliders';
+// 滑条、参数简写在 genesisSliders.ts(新建弹窗也用),这里照旧一起导出
+export { CONT_SLIDERS, SLIDERS, contBrief, contDefault, northText, paramsSide, yearsSpan, type SliderLike } from './genesisSliders';
 
 const KIND_NAME: Record<TerrainKind, string> = { volcano: '火山', range: '山脉', lake: '湖', raise: '抬起陆地', sink: '沉成海', river: '河', wet: '更湿', dry: '更干', warm: '更暖', cold: '更冷', lift: '抬高', lower: '压低', smooth: '平滑', flatten: '抹平', setHeight: '定高', delWater: '删河湖' };
 
@@ -96,28 +96,6 @@ export function ParamSlider({
         onKeyUp={() => v !== value && onCommit(v)}
       />
     </div>
-  );
-}
-
-/**
- * 新建界面「世界参数」里最后三样:开关「推演超过 3000 年」(默认关),下面一直写着那段说明;
- * 开了才有「推演到」滑条(刚打开在 YEARS_ON 年,松手才算数)。改的是当前世界的修改(editsStore 的 setEndYear)
- */
-export function YearsRows({ disabled }: { disabled?: boolean }) {
-  const raw = useEdits().endYear;
-  const on = raw !== undefined;
-  const end = cleanEndYear(raw) ?? END_YEAR_DEFAULT;
-  return (
-    <>
-      <button className="sb-row nw-years" role="switch" aria-checked={on} data-act="years-switch" disabled={disabled} onClick={() => setEndYear(on ? undefined : YEARS_ON)}>
-        <span className="sb-row-main">
-          <b>{YEARS_SWITCH}</b>
-        </span>
-        <span className={`ai-switch${on ? ' on' : ''}`} aria-hidden="true" />
-      </button>
-      <p className="nw-years-note">{YEARS_NOTE}</p>
-      {on && <ParamSlider s={YEARS_SLIDER} value={end} disabled={disabled} onCommit={setEndYear} />}
-    </>
   );
 }
 

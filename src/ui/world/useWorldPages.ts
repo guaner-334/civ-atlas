@@ -13,7 +13,7 @@
 import { useEffect, useRef } from 'react';
 import type { WorkerRequest } from '../../worker';
 import { DEFAULT_PARAMS, type WorldParams } from '../../gen/world';
-import { EMPTY_EDITS, GENERATOR_VERSION, civSeedOf, cleanEndYear, cleanPlay, endParamOf, keptMapOf, newHistoryEdits, type WorldEdits } from '../../gen/edits';
+import { EMPTY_EDITS, GENERATOR_VERSION, civSeedOf, cleanPlay, endParamOf, keptMapOf, newHistoryEdits, type WorldEdits } from '../../gen/edits';
 import type { RuleSet } from '../../gen/civ/ruleSet';
 import { cleanTitle, parseSave, worldKey, type SaveFile, type SaveOrigin } from '../../gen/savefile';
 import { startStepwise } from '../../gen/stepwise';
@@ -88,11 +88,11 @@ import {
   presetDialog,
   sameSetup,
   setupFor,
+  startEdits,
   terrainDiffers,
   writeGalleryUrl,
   writeHomeUrl,
   writeWorldUrl,
-  yearsEdits,
   type Landing,
   type NewDlg,
   type SharedFor,
@@ -295,7 +295,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const g = chosenGallery(getPresets(), newDlg?.shared);
     setNewDlg(null);
     // 规则:「我的规则」里的用它现在的样子;朋友链接、作品墙上带来的先加进我的规则
-    const plain = draftTarget(s.params, null, yearsEdits(s.endYear, s.frontier, s.rules && takePresetRules(s.rules)));
+    const plain = draftTarget(s.params, null, startEdits(s.frontier, s.rules && takePresetRules(s.rules)));
     const d = g?.id && isWorkId(g.id) ? { ...plain, origin: workOrigin({ id: g.id, by: g.by, title: g.title ?? '' }) } : plain;
     if (s.mode === 'random') return openTarget(d);
     openTarget({ ...d, mode: 'image' });
@@ -396,9 +396,14 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const clean = cleanTitle(title) || undefined;
     if ((clean ?? '') !== (cur.title ?? '')) renameWorld(t.id, clean ?? '');
     // 记成预设里的「上次用的」(不含种子)
-    rememberLast(t.params, cleanEndYear(getEdits().endYear), clean ?? '');
+    rememberLast(t.params, clean ?? '');
     // 用的是「我的规则」里的一套:记一笔用它建过一个世界(这一版用过了,之后再改就是新的一版)
     noteRulesUsed(getEdits().rules);
+    // 新建一律先推 3000 年:还没建完时存下的推演年数不算;在一张地图上另存一份重推的(带着地图记录)照原来的年数
+    if (!getEdits().map && getEdits().endYear !== undefined) {
+      const { endYear: _endYear, endTick: _endTick, ...rest } = getEdits();
+      putEditsQuiet(rest);
+    }
     // 修改一张存着的地图、接着打造文明:改过的地图先存下(写回那张 / 另存一张),文明挂在它下面
     if (cur.edit) {
       const mid = saveCurrentMapTo(editInPlace(cur.edit) ? cur.edit : undefined);
@@ -472,9 +477,12 @@ export function useWorldPages(deps: WorldPagesDeps) {
     const cur = currentWorld();
     if (!t || !cur || cur.id !== t.id || fresh.current) return;
     // 以它为底稿新建的地图还能改:不再算原来那张地图上的(地图记录不带;文明种子照旧带过去)
+    // 推到哪年也不带:新世界先推 3000 年,底稿再推过的那几千年里的干预、改名照旧带着,再推到那年照常生效
     const orig = getEdits();
     const e: WorldEdits = { ...orig };
     delete e.map;
+    delete e.endYear;
+    delete e.endTick;
     const base: DraftBase = { id: cur.id, title: cur.title || '未命名世界', names: Object.keys(e.names).length, interventions: e.interventions.length };
     backRef.current = { ...t, kind: cur.kind, edits: orig, saved: undefined, title: cur.title, from: undefined, save: undefined, view: undefined };
     const d = draftTarget(t.params, base, e, nextTitle(base.title));
@@ -544,7 +552,7 @@ export function useWorldPages(deps: WorldPagesDeps) {
       .then((used) => open(used?.plugins.filter((x) => x.role === 'map') ?? null));
   };
   /**
-   * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、推演年数、拓荒、起源、
+   * 在一个世界(或只存了地图的那一份)的地图上打造新文明:进新建界面的「打造文明」(地图锁着,定文明种子、拓荒、起源、
    * 名字、地名风格)。用的是它一开始的地图(参数、地形修改、草图;不带地形大事)和它的规则,原来的国家、人物、干预、改名……都不带;原来的不动。
    * 文明种子先随机给一个;名字先填"原名(二)"。旧版本建的世界:生成出来的地图和它存的对不上就不让打造(见 ./useWorldLoad.ts 的 readyRef)。
    * redo = 用这一版规则另存一份重推(世界设定里「用第 3 版另存一份重推」):文明种子、推演年数(推到年中的推到同一刻)、天灾、拓荒、起源、地名风格都照原来的,

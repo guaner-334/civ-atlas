@@ -371,11 +371,7 @@
 .nd-lab-a:hover {
   text-decoration: underline;
 }
-/* 「历史」一组:开关那一行名字占满;组下面一直写着那段说明(像系统设置里开关下面的灰字) */
-.nd-grp .nd-n.wide {
-  flex: 1;
-  width: auto;
-}
+/* 组下面的说明(像系统设置里开关下面的灰字) */
 .nd-foot {
   margin: 7px 4px 0;
   font-size: 12.5px;
@@ -767,10 +763,6 @@
   width: 64px;
   height: 30px;
   font-size: 14px;
-}
-/* 放得下「推演到」的"10000 年" */
-.nd-pbody .pf.k-endYear {
-  width: 84px;
 }
 .nd-pbody .nd-err {
   padding-left: 86px;

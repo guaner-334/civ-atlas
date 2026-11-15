@@ -740,6 +740,11 @@
 .gl-pp .acct-gr:nth-last-child(-n + 2) {
   border-bottom: 0;
 }
+/* 单数格:最后一格占满一行,它上面那一行照常有底线 */
+.gl-pp .acct-gr.wide {
+  grid-column: 1 / -1;
+  border-right: 0;
+}
 .gl-pp .k {
   flex: 1;
   color: var(--ink);
@@ -751,6 +756,9 @@
 /* 连规则一起存的:最下面一整行「规则」,点了看那一套 */
 .gl-pp.rl .acct-gr:nth-last-child(-n + 3) {
   border-bottom: 0;
+}
+.gl-pp .acct-gr:has(+ .acct-gr.wide) {
+  border-bottom: 0.5px solid var(--line);
 }
 .gl-pp button.acct-gr.gl-prl {
   grid-column: 1 / -1;

@@ -87,7 +87,7 @@ function specOf(work: WorkOf): WorkSpec {
       { key, kind: 'preset', name: work.name || '这套参数', note: `交的是这套参数${r ? `，连着规则「${r.name}」` : ''}。封面是用它长出来的星球。`, thumb: null, defaultTitle: work.name },
       (form) => ({
         kind: 'preset',
-        link: presetHash({ name: form.title, params: strip(work.params), seed: work.params.seed, ...(work.endYear ? { endYear: work.endYear } : {}), ...(r ? { rules: r } : {}) }).replace(/^#/, ''),
+        link: presetHash({ name: form.title, params: strip(work.params), seed: work.params.seed, ...(r ? { rules: r } : {}) }).replace(/^#/, ''),
       }),
     );
   }
