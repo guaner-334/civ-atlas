@@ -218,7 +218,7 @@ describe('开发者模式的小卡', () => {
     expect(devStopText('stopped', '')).toBeNull();
     expect(devStopText('crashed', 'Uncaught Error: x')).toBe('插件出错，已经停下');
     expect(devStopText('flood', 'over 200 messages a second')).toBe('插件一秒发话太多，已经停下（over 200 messages a second）');
-    expect(devStopText('start-timeout', '')).toBe('插件代码顶层 10 秒没跑完，已经停下');
+    expect(devStopText('start-timeout', '')).toBe('插件代码顶层 30 秒没跑完，已经停下');
   });
 
   it('从地图说明块选的是别的插件:说文件是哪个、地图要哪个、去哪装', () => {

@@ -1,5 +1,5 @@
 /**
- * 插件提的「改你写的东西」:改名、加标记、下干预。一次调用的整批先套在现在的修改上算好,有一条不合格整批不改,不替插件改;
+ * 插件提的「改你写的东西」:改名、加改删标记、下干预。一次调用的整批先套在现在的修改上算好,有一条不合格整批不改,不替插件改;
  * 合格的由网站照办,整批记一步撤销。查的只是改完的世界能存、能打开,不替用的人判断改得对不对。
  */
 import type { Civ } from '../gen/civ/types';
@@ -22,6 +22,7 @@ import {
   NAME_MAX,
   nextMarkId,
   resolveKey,
+  sameMark,
   type AuthorMark,
   type Intervention,
   type WorldEdits,
@@ -30,7 +31,7 @@ import { checkIntervention } from '../gen/ivCheck';
 import { makeSave, saveText, SAVE_MAX_BYTES } from '../gen/savefile';
 import { TERRAIN_H } from '../gen/terrainOps';
 import type { WorldParams } from '../gen/world';
-import { argsOf, bad, int, isRec, list, num, over, PluginApiError } from './check';
+import { argsOf, bad, int, isRec, list, num, over, PluginApiError, type Rec } from './check';
 import { approxBytes } from './protocol';
 import type { ApplyResult } from './types';
 
@@ -97,6 +98,20 @@ function checkMark(raw: unknown, at: string, id: number): AuthorMark {
   return cleanMark({ ...raw, id }) ?? bad(`${at} 不是合格的标记`);
 }
 
+/** 改一个标记:给了的字段换掉,note、size、to 给 null = 去掉;给 at 就不再圈州,给 regions 就不再是一个点。合不合格交给 checkMark 查 */
+function patchMark(old: AuthorMark, raw: unknown, at: string): Rec {
+  if (!isRec(raw)) return bad(`${at} 要是对象`);
+  const out: Rec = { ...old };
+  if (raw.at !== undefined) delete out.regions;
+  if (raw.regions !== undefined) delete out.at;
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === 'id') continue;
+    if (v === null && (k === 'note' || k === 'size' || k === 'to')) delete out[k];
+    else out[k] = v;
+  }
+  return out;
+}
+
 /** 整批算好;不合格抛 PluginApiError(bad-args / limit / unavailable)。params = 这个世界的参数(量改完以后的存档有多大) */
 export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, params: WorldParams): PlannedChanges {
   const changes = list(argsOf(raw).changes, 'changes', CHANGES_MAX);
@@ -135,6 +150,24 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, pa
       if (m.regions && markRegionTotal(marks) + m.regions.length > MARK_REGIONS_TOTAL) over(`所有标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州`);
       marks = [...marks, m];
       result.marks.push(id);
+    } else if (c.kind === 'markEdit') {
+      if (typeof c.id !== 'number' || !Number.isInteger(c.id)) return bad(`${at}.id 要是整数`);
+      const i = marks.findIndex((m) => m.id === c.id);
+      if (i < 0) return bad(`${at}.id 不对:这个世界里没有这个标记`);
+      const m = checkMark(patchMark(marks[i], c.mark, `${at}.mark`), `${at}.mark`, marks[i].id);
+      if (sameMark(m, marks[i])) {
+        result.skipped++;
+        return;
+      }
+      if (m.regions && markRegionTotal(marks, m.id) + m.regions.length > MARK_REGIONS_TOTAL) over(`所有标记一共最多圈 ${MARK_REGIONS_TOTAL} 个州`);
+      marks = marks.map((x, j) => (j === i ? m : x));
+    } else if (c.kind === 'markRemove') {
+      if (typeof c.id !== 'number' || !Number.isInteger(c.id)) return bad(`${at}.id 要是整数`);
+      if (!marks.some((m) => m.id === c.id)) {
+        result.skipped++;
+        return;
+      }
+      marks = marks.filter((m) => m.id !== c.id);
     } else if (c.kind === 'intervention') {
       needCiv(civ);
       if (!isRec(c.v)) return bad(`${at}.v 要是对象`);
@@ -156,7 +189,7 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, pa
       if (interventions.length >= PLUGIN_INTERVENTIONS_MAX) over(`干预最多 ${PLUGIN_INTERVENTIONS_MAX} 条`);
       interventions = [...interventions, v];
       keys.push(...ivKeys(v));
-    } else return bad(`${at}.kind 只能是 name、mark、intervention`);
+    } else return bad(`${at}.kind 只能是 name、mark、markEdit、markRemove、intervention`);
     result.applied++;
   });
   if (names !== edits.names && Object.keys(names).length > PLUGIN_NAMES_MAX) over(`改名最多 ${PLUGIN_NAMES_MAX} 个`);
@@ -165,6 +198,7 @@ export function planChanges(edits: WorldEdits, civ: Civ | null, raw: unknown, pa
   if (aiNames) next.aiNames = aiNames;
   else delete next.aiNames;
   if (marks.length) next.marks = marks;
+  else delete next.marks;
   if (saveText(makeSave(params, next, '')).length > SAVE_MAX_BYTES - SAVE_ROOM) over('改完以后存档太大,存不下');
   return { next, result, keys };
 }

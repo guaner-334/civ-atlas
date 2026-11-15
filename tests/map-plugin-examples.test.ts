@@ -11,8 +11,8 @@ import { DEFAULT_PARAMS, generateWorld, type World } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { windAt } from '../src/gen/climate';
 import { geometryOf } from '../src/gen/geometry';
-import type { ClimateInput, ClimateReply, HeightInput, HeightReply, LayersInput, LayersReply, MapShared } from '../src/gen/mapHooks';
-import { mapHelpers, type MapHelpers, type NoiseOptions } from '../src/gen/mapHelpers';
+import type { ClimateInput, ClimateReply, HeightInput, HeightReply, LayersInput, LayersReply, MapShared, MapWorldParams } from '../src/gen/mapHooks';
+import { mapHelpers, type ComponentsResult, type DistanceResult, type FlowResult, type MapHelpers, type NoiseOptions, type WestEastResult } from '../src/gen/mapHelpers';
 import { quickjsMapPlugin } from '../src/gen/quickjs/map';
 import type { MapBoxer } from '../src/mapPluginRun';
 import { openPluginFile, PLUGIN_FILE_EXT } from '../src/plugin/pluginFile';
@@ -264,7 +264,12 @@ describe('编辑器用的类型', () => {
       Same<Dts.LayersReply, LayersReply>,
       Same<Dts.MapHelpers, MapHelpers>,
       Same<Dts.NoiseOptions, NoiseOptions>,
-    ] = [true, true, true, true, true, true, true, true, true];
+      Same<Dts.FlowResult, FlowResult>,
+      Same<Dts.DistanceResult, DistanceResult>,
+      Same<Dts.ComponentsResult, ComponentsResult>,
+      Same<Dts.WestEastResult, WestEastResult>,
+      Same<Dts.MapWorldParams, MapWorldParams>,
+    ] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
     expect(same.every(Boolean)).toBe(true);
   });
 });

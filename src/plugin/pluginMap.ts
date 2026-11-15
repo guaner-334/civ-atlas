@@ -1,8 +1,9 @@
 /**
- * 地图插件清单的 map 段:在生成的哪几步出手(stages)、交几张图层(layers)、新建世界时拨的滑条(params)。
+ * 地图插件清单的 map 段:在生成的哪几步出手(stages)、交几张图层(layers)、新建世界时拨的滑条(params)、多读哪些数(reads)。
  * 写错了抛 Error(读插件文件时算坏了)。纯计算,不带生成器,读插件文件时只有地图插件才 import() 它。
  */
 import { checkLayerLook } from '../gen/layerLook';
+import { MAP_READS, MAP_READS_MAX } from '../gen/mapReads';
 import { PARAMS_MAX, checkParams, fail, has, isObj, list, names, obj, str, type ManifestNeed, type ManifestParam, type Obj } from './manifestParts';
 
 export type MapParam = ManifestParam;
@@ -23,6 +24,8 @@ export interface MapManifest {
   /** 交几张图层(要有 layers 这一步) */
   layers?: MapLayerSpec[];
   params?: Record<string, MapParam>;
+  /** 每一口多递哪些数(名字见 MAP_READS) */
+  reads?: string[];
 }
 
 /** 这一版网站有的几步,和各自要的能力(不看版本) */
@@ -37,9 +40,11 @@ export const MAP_LAYERS_MAX = 4;
 export const MAP_PARAMS_MAX = PARAMS_MAX;
 
 const LAYER_ID = /^[a-z][a-z0-9_]{0,31}$/;
+const READ_NAME = /^[a-z][A-Za-z0-9]{0,31}$/;
 const STAGES_MAX = 8;
 
 const capName = (cap: string) => cap.split('@')[0];
+const STAGE_TEXT: Readonly<Record<string, string>> = { height: '改海拔', climate: '改气候', layers: '出图层' };
 
 function checkLayers(raw: unknown): void {
   const ids = new Set<string>();
@@ -75,6 +80,18 @@ export function checkMapManifest(m: { map?: unknown; requires: readonly string[]
   if (layers?.length && !stages.includes('layers')) fail('清单的 map.layers 要在 map.stages 里写上 layers');
   if (stages.includes('layers') && !layers?.length) fail('清单的 map.stages 写了 layers,要在 map.layers 里登记交哪几张图层');
   if (s.params !== undefined) checkParams(s.params, '清单的 map.params');
+  if (s.reads !== undefined) {
+    const reads = list(s.reads, '清单的 map.reads', MAP_READS_MAX).map((x, i) => (typeof x === 'string' && READ_NAME.test(x) ? x : fail(`清单的 map.reads[${i}] 不合规矩`)));
+    const dup = reads.find((x, i) => reads.indexOf(x) !== i);
+    if (dup !== undefined) fail(`清单的 map.reads 里 ${dup} 写了两遍`);
+    for (const r of reads) {
+      if (!has(MAP_READS, r)) {
+        need ??= { what: '地图读数', name: r };
+        continue;
+      }
+      if (!MAP_READS[r].some((st) => stages.includes(st))) fail(`清单的 map.reads 写了 ${r},它只递给${MAP_READS[r].map((st) => STAGE_TEXT[st]).join('、')},map.stages 里一口都没写`);
+    }
+  }
 
   const wanted = new Set(m.requires.map(capName));
   for (const k of known) if (!wanted.has(MAP_STAGE_CAPS[k])) fail(`清单的 map.stages 写了 ${k},要在 requires 里写上 ${MAP_STAGE_CAPS[k]}@1`);

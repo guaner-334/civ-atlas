@@ -132,6 +132,8 @@ export function distanceField(
   sources: number[],
   strengthOf: (i: number) => number,
   stats?: DistanceFieldStats,
+  /** 给了只走进标了 1 的地块(起点不受它管) */
+  through?: ArrayLike<number>,
 ) {
   const { n, adjStart, adj } = mesh;
   const elen = geometryOf(mesh).edgeLengths();
@@ -158,6 +160,7 @@ export function distanceField(
     }
     for (let k = adjStart[i]; k < adjStart[i + 1]; k++) {
       const j = adj[k];
+      if (through && through[j] !== 1) continue;
       const nd = d + elen[k];
       if (nd < dist[j]) {
         dist[j] = nd;

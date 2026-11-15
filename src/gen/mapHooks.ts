@@ -4,10 +4,15 @@
  * 纯计算,worker 和 Node 里都能跑。
  */
 import type { Mesh } from './mesh';
+import type { Tectonics } from './tectonics';
+import type { WorldParams } from './params';
+import type { Currents } from './currents';
 import { BIOMES } from './biomes';
+import { geometryOf } from './geometry';
 import { keyed, subSeed } from './util';
 import { KM_PER_UNIT } from './civ/scale';
 import { mapHelpers, type MapHelpers } from './mapHelpers';
+import { MAP_READS } from './mapReads';
 
 export type MapStage = 'height' | 'climate' | 'layers';
 
@@ -20,7 +25,34 @@ export const MAP_RANGE = {
   precipitation: [0, 15000],
 } as const;
 
-/** 三个口子都递的;帮手(噪声、平滑……)见 mapHelpers.ts */
+/** 新建世界时的参数(滑条上的那些数) */
+export interface MapWorldParams {
+  seed: number;
+  /** 要的地块数(实际是 n) */
+  cells: number;
+  /** 陆地占几成 */
+  landFraction: number;
+  /** 板块几块 */
+  plates: number;
+  /** 山多高(1 = 原样) */
+  mountains: number;
+  /** 整体冷暖(0 = 原样) */
+  temperature: number;
+  /** 雨多少(1 = 原样) */
+  rainfall: number;
+  /** 主要大陆几块(0 = 自动) */
+  continents: number;
+  /** 大陆聚在一起的程度(0–1) */
+  gather: number;
+  /** 破碎度(1 = 原样) */
+  rugged: number;
+  /** 板块硬度(1 = 原样) */
+  hardness: number;
+  /** 陆地偏向哪个半球(−1 南 … 1 北) */
+  north: number;
+}
+
+/** 三个口子都递的;帮手(噪声、平滑……)见 mapHelpers.ts;带 ? 的是清单 map.reads 写了才递的 */
 export interface MapShared extends MapHelpers {
   n: number;
   /** 纬度、经度(度) */
@@ -37,6 +69,35 @@ export interface MapShared extends MapHelpers {
   seed: number;
   /** [0, 1) 的随机数,只由地图种子、插件编号和 a、b、c 定 */
   rand(a?: number, b?: number, c?: number): number;
+  /** 每个板块在自己质心处的漂移速度(东、南分量;没有单位,大小 0.3–1) */
+  plateVx?: Float32Array;
+  plateVy?: Float32Array;
+  /** 每个板块绕转轴转动的角速度向量,交错存 x, y, z(和 xyz 同一套坐标):板块在某处的速度 = ω × 那处的位置 */
+  plateOmega?: Float32Array;
+  /** 每个板块:1 大陆板块 / 0 大洋板块 */
+  plateContinental?: Uint8Array;
+  /** 板块边界上的汇聚强度:正 = 相撞,负 = 张裂,0 = 不在边界 */
+  convergence?: Float32Array;
+  /** 离最近的相撞边界(汇聚强度大于 0.25)多少公里;一处都没有 = −1 */
+  convergentKm?: Float32Array;
+  /** 最近的那段相撞边界撞得多猛(0–1) */
+  convergentStrength?: Float32Array;
+  /** 离最近的张裂边界(汇聚强度小于 −0.25)多少公里;一处都没有 = −1 */
+  divergentKm?: Float32Array;
+  /** 最近的那段张裂边界裂得多猛(0–1) */
+  divergentStrength?: Float32Array;
+  /** 陆地抬升得多快(没有单位;雨水冲刷之前定的,山是从它冲出来的) */
+  uplift?: Float32Array;
+  /** 高原底座(米;海里是 0) */
+  plateau?: Float32Array;
+  /** 海底深度(米,负数;陆地是 0;雨水冲刷之前定的) */
+  oceanDepth?: Float32Array;
+  /** 每个地块的面积(平方公里) */
+  cellArea?: Float32Array;
+  /** 新建世界时的参数 */
+  worldParams?: MapWorldParams;
+  /** 1 = 作者在地形编辑里改过的地块 */
+  edited?: Uint8Array;
 }
 
 export interface HeightInput extends MapShared {
@@ -64,6 +125,11 @@ export interface ClimateInput extends MapShared {
   /** 这个地块的夏半年、冬半年按全年算的降水(毫米 / 年;年降水是两者的平均) */
   rainSummer: Float32Array;
   rainWinter: Float32Array;
+  /** 洋流的表层流向(东、南分量,长短 = 强弱 0–1);陆地、湖是 0 */
+  currentU?: Float32Array;
+  currentV?: Float32Array;
+  /** 洋流让海面比同纬度的平均暖多少(°C,负 = 冷);陆地、湖是 0 */
+  currentTemp?: Float32Array;
 }
 export interface ClimateReply {
   temperature?: ArrayLike<number>;
@@ -83,6 +149,16 @@ export interface LayersInput extends ClimateInput {
   /** 河经过的地块,一条接一条;第 k 条是 riverCells[riverStart[k] .. riverStart[k+1]) */
   riverCells: Int32Array;
   riverStart: Int32Array;
+  /** 水往哪块流(−1 = 海,或者流不到海) */
+  downstream?: Int32Array;
+  /** 洼地灌满以后的水面(米):比海拔高 3 米以上的积成了湖(太大的湖后来填平了) */
+  fillLevel?: Float32Array;
+  /** 每块自己产多少水(米 / 年,只有陆地有);flux 是它沿 downstream 一路加起来的 */
+  runoff?: Float32Array;
+  /** 湿地适宜度(0–1):陆地上到 0.5 的成了湿地 */
+  wetland?: Float32Array;
+  /** 最高海拔(米),山名、山峰符号的门槛按它定;改过地形的世界照没改时的 */
+  maxElevation?: number;
 }
 /** 值是 NaN 的地块不画 */
 export interface LayersReply {
@@ -100,6 +176,8 @@ export interface MapPlugin {
   stages: readonly MapStage[];
   /** 清单里登记的图层编号:出图层只收这几张 */
   layerIds?: readonly string[];
+  /** 清单 map.reads:每一口多递哪些数 */
+  reads?: readonly string[];
   height?(d: HeightInput): HeightReply | undefined;
   climate?(d: ClimateInput): ClimateReply | undefined;
   layers?(d: LayersInput): LayersReply | undefined;
@@ -198,6 +276,7 @@ export function timedMapPlugins(plugins: readonly MapPlugin[], clock = new MapCl
       ...(pl.name ? { name: pl.name } : {}),
       stages: pl.stages,
       ...(pl.layerIds ? { layerIds: pl.layerIds } : {}),
+      ...(pl.reads ? { reads: pl.reads } : {}),
       ...(pl.height && pl.stages.includes('height') ? { height: timed('height', pl.height) } : {}),
       ...(pl.climate && pl.stages.includes('climate') ? { climate: timed('climate', pl.climate) } : {}),
       ...(pl.layers && pl.stages.includes('layers') ? { layers: timed('layers', pl.layers) } : {}),
@@ -219,7 +298,8 @@ export function withoutLayers(plugins: readonly MapPlugin[]): MapPlugin[] {
           key: pl.key,
           ...(pl.name ? { name: pl.name } : {}),
           stages: pl.stages.filter((s) => s !== 'layers'),
-          ...(pl.height ? { height: pl.height.bind(pl) } : {}),
+          ...(pl.reads ? { reads: pl.reads } : {}),
+          ...(pl.height ?{ height: pl.height.bind(pl) } : {}),
           ...(pl.climate ? { climate: pl.climate.bind(pl) } : {}),
         }
       : pl,
@@ -247,6 +327,109 @@ function shared(mesh: Mesh, seed: number, pl: MapPlugin): MapShared {
     rand: (a = 0, b = 0, c = 0) => keyed(base, a, b, c),
     ...mapHelpers(mesh, seed, pl.id),
   };
+}
+
+/** 清单 map.reads 要的数从这里取;生成到哪一口有哪几样 */
+export interface MapSources {
+  tect?: Pick<
+    Tectonics,
+    'plateVx' | 'plateVy' | 'plateOmega' | 'plateContinental' | 'convergence' | 'distConv' | 'strengthConv' | 'distDiv' | 'strengthDiv' | 'uplift' | 'plateau' | 'oceanDepth'
+  >;
+  params?: WorldParams;
+  /** 有插件要读才算 */
+  edited?: () => Uint8Array;
+  currents?: Currents;
+  downstream?: Int32Array;
+  fillLevel?: Float32Array;
+  runoff?: Float32Array;
+  wetland?: Float32Array;
+  maxElevation?: number;
+}
+
+const WORLD_PARAMS: readonly (keyof MapWorldParams)[] = ['seed', 'cells', 'landFraction', 'plates', 'mountains', 'temperature', 'rainfall', 'continents', 'gather', 'rugged', 'hardness', 'north'];
+
+/** 世界单位 → 公里;Infinity(到不了)→ −1 */
+function kmOf(a: Float32Array): Float32Array {
+  const out = new Float32Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] === Infinity ? -1 : a[i] * KM_PER_UNIT;
+  return out;
+}
+
+const areaMemo = new WeakMap<Mesh, Float32Array>();
+function cellAreaKm2(mesh: Mesh): Float32Array {
+  let a = areaMemo.get(mesh);
+  if (!a) {
+    a = geometryOf(mesh).cellAreas();
+    for (let i = 0; i < a.length; i++) a[i] *= KM_PER_UNIT * KM_PER_UNIT;
+    areaMemo.set(mesh, a);
+  }
+  return a;
+}
+
+/** 这个插件在这一口多要的(都是复制的一份) */
+function readsFor(pl: MapPlugin, stage: MapStage, mesh: Mesh, src: MapSources | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!pl.reads?.length || !src) return out;
+  const t = src.tect;
+  for (const r of pl.reads) {
+    if (!Object.prototype.hasOwnProperty.call(MAP_READS, r) || !MAP_READS[r].includes(stage)) continue;
+    let v: unknown;
+    switch (r) {
+      case 'plateVx':
+      case 'plateVy':
+      case 'plateOmega':
+      case 'plateContinental':
+      case 'convergence':
+      case 'uplift':
+      case 'plateau':
+      case 'oceanDepth':
+        v = t?.[r].slice();
+        break;
+      case 'convergentKm':
+        v = t && kmOf(t.distConv);
+        break;
+      case 'convergentStrength':
+        v = t?.strengthConv.slice();
+        break;
+      case 'divergentKm':
+        v = t && kmOf(t.distDiv);
+        break;
+      case 'divergentStrength':
+        v = t?.strengthDiv.slice();
+        break;
+      case 'cellArea':
+        v = cellAreaKm2(mesh).slice();
+        break;
+      case 'worldParams': {
+        const p = src.params;
+        v = p && Object.fromEntries(WORLD_PARAMS.map((k) => [k, p[k]]));
+        break;
+      }
+      case 'edited':
+        v = src.edited?.().slice();
+        break;
+      case 'currentU':
+        v = src.currents?.u.slice();
+        break;
+      case 'currentV':
+        v = src.currents?.v.slice();
+        break;
+      case 'currentTemp':
+        v = src.currents?.sst.slice();
+        break;
+      case 'downstream':
+      case 'fillLevel':
+      case 'runoff':
+      case 'wetland':
+        v = src[r]?.slice();
+        break;
+      case 'maxElevation':
+        v = src.maxElevation;
+        break;
+    }
+    if (v !== undefined) out[r] = v;
+  }
+  return out;
 }
 
 function call<I, R extends object>(pl: MapPlugin, stage: MapStage, d: I): R | undefined {
@@ -284,12 +467,27 @@ const copy = <T extends Float32Array | Uint8Array>(a: T): T => a.slice() as T;
 export type MapSay = (pl: MapPlugin, stage: MapStage) => void;
 
 /** 改海拔:按先后出手,elevation、land 原地改 */
-export function heightHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, elevation: Float32Array, land: Uint8Array, plate: Int16Array, say?: MapSay): void {
+export function heightHooks(
+  plugins: readonly MapPlugin[],
+  mesh: Mesh,
+  seed: number,
+  elevation: Float32Array,
+  land: Uint8Array,
+  plate: Int16Array,
+  say?: MapSay,
+  src?: MapSources,
+): void {
   const { n } = mesh;
   for (const pl of plugins) {
     if (!pl.stages.includes('height')) continue;
     say?.(pl, 'height');
-    const r = call<HeightInput, HeightReply>(pl, 'height', { ...shared(mesh, seed, pl), elevation: copy(elevation), land: copy(land), plate: plate.slice() });
+    const r = call<HeightInput, HeightReply>(pl, 'height', {
+      ...shared(mesh, seed, pl),
+      ...readsFor(pl, 'height', mesh, src),
+      elevation: copy(elevation),
+      land: copy(land),
+      plate: plate.slice(),
+    });
     if (!r) continue;
     const e = r.elevation === undefined ? null : clamped(pl, 'height', 'elevation', r.elevation, n, MAP_RANGE.elevation);
     let l: Uint8Array | null = null;
@@ -338,12 +536,12 @@ const climateCopy = (c: ClimateFields): ClimateFields => ({
 });
 
 /** 改气候:按先后出手,temperature、precipitation 原地改 */
-export function climateHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, c: ClimateFields, say?: MapSay): void {
+export function climateHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, c: ClimateFields, say?: MapSay, src?: MapSources): void {
   const { n } = mesh;
   for (const pl of plugins) {
     if (!pl.stages.includes('climate')) continue;
     say?.(pl, 'climate');
-    const r = call<ClimateInput, ClimateReply>(pl, 'climate', { ...shared(mesh, seed, pl), ...climateCopy(c) });
+    const r = call<ClimateInput, ClimateReply>(pl, 'climate', { ...shared(mesh, seed, pl), ...readsFor(pl, 'climate', mesh, src), ...climateCopy(c) });
     if (!r) continue;
     const t = r.temperature === undefined ? null : clamped(pl, 'climate', 'temperature', r.temperature, n, MAP_RANGE.temperature);
     const p = r.precipitation === undefined ? null : clamped(pl, 'climate', 'precipitation', r.precipitation, n, MAP_RANGE.precipitation);
@@ -363,7 +561,7 @@ export interface LayerFields extends ClimateFields {
 }
 
 /** 出图层:只看不改;按插件先后、各自登记的先后交回 */
-export function layerHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, w: LayerFields, say?: MapSay): MapLayer[] {
+export function layerHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: number, w: LayerFields, say?: MapSay, src?: MapSources): MapLayer[] {
   const { n } = mesh;
   const riverStart = new Int32Array(w.rivers.length + 1);
   for (let k = 0; k < w.rivers.length; k++) riverStart[k + 1] = riverStart[k] + w.rivers[k].cells.length;
@@ -375,6 +573,7 @@ export function layerHooks(plugins: readonly MapPlugin[], mesh: Mesh, seed: numb
     say?.(pl, 'layers');
     const r = call<LayersInput, LayersReply>(pl, 'layers', {
       ...shared(mesh, seed, pl),
+      ...readsFor(pl, 'layers', mesh, src),
       ...climateCopy(w),
       plate: w.plate.slice(),
       waterLevel: copy(w.waterLevel),
