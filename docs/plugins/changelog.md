@@ -42,7 +42,9 @@
 - 推演插件(`sim.read@1`)的读口 `read` 多了:`sacks(from, to?)`(城受的灾)、`wars()`、`truces()`、`grudges()`、`handover()`、`pacts()`、`rulers()`、`trades()`、`treks()`、`plague()`;`read.polities()` 每国多了朝代和政体分段、议事定下的规矩、方针,`read.settlements()` 每城多了建城时的民族、人口上限;听史事的 `turn.heard` 有由头的另带 `cause`,立约、约满、设中立地另带 `ps`。(#680)
 - 推演插件读官方表(`read.official`)多了:`ideology.polity.*`(各国各说的接受度)、`strife`、`soil`、`era`、`res.base.*`、`res.stock.*`、`fiscal.land`、`fiscal.craft`、`fiscal.market`、`fiscal.tax`、`fiscal.due`、`fiscal.collected`、`fiscal.treasury`、`fiscal.broke`。(#680)
 - 地图插件清单 `map.reads`(不要能力,最多 64 样):按清单多递一批数——`plateVx`、`plateVy`、`plateOmega`、`plateContinental`、`convergence`、`convergentKm`、`divergentKm`、`convergentStrength`、`divergentStrength`、`uplift`、`plateau`、`oceanDepth`、`cellArea`、`worldParams`、`edited`(三口都有),`currentU`、`currentV`、`currentTemp`(改气候、出图层),`downstream`、`fillLevel`、`runoff`、`wetland`、`maxElevation`(出图层)。(#679)
-- 地图插件帮手多九个:`d.ridged`、`d.flow`、`d.distance`、`d.components`、`d.slope`、`d.cellAt`、`d.line`、`d.westEast`、`d.biomeOf`。`ridged` 和 `noise` 一样最多叠 8 层。(#679)
+- 地图插件帮手多九个:`d.ridged`、`d.flow`、`d.distance`、`d.components`、`d.slope`、`d.cellAt`、`d.line`、`d.westEast`、`d.biomeOf`。`ridged` 和 `noise` 一样最多叠 12 层。(#679、#720)
+- 地图插件多两个口子(见[五个口子](map.md#五个口子)):`seaice`(改海冰,能力 `gen.seaice@1`)在海冰算完以后改海冰,海冰群落、海上的航路跟着变;`runoff`(改水系,能力 `gen.runoff@1`)在每块产多少水算完、汇成河之前改它,河、湿地跟着变。权限框上并进「会改地图」那一行。`map.reads` 里每一口都有的那几样、洋流那三样这两口也递,`downstream` 改水系那一口也递。(#720)
+- 地图插件改海拔那一口能多交一张 `keepLakes`:标了的地块所在的湖再大也不填平,做大湖、内陆湖用。(#720)
 - 标注图层(`layer.marks`)每项多了 `from`、`to`(时间轴在这几年里才画)和 `style` 的 `width`(线宽 1–8 像素)、`arrow`(`end` / `both`)、`icon`(`castle`、`harbor`、`camp`、`shrine`、`ruin`、`lighthouse`、`bridge`、`volcano`、`battle`、`flag`、`danger`、`star`、`circle`、`square`、`triangle`、`diamond`),`style.color` 可以写 `#rrggbb`。(#684)
 - `author.apply` 多两种改动:`{ kind: 'markEdit', id, mark }` 改标记、`{ kind: 'markRemove', id }` 删标记;世界里所有标记都能改、删,和加一样能撤销。(#684)
 - 推演插件的影响口(`sim.influence@1`)又开 14 个,都按国交:`revolt.odds`(民变)、`collapse.odds`(大崩解)、`claim.odds`(宗室争位)、`warlord.odds`(新起割据)、`merge.odds`(小国并入同族大国)、`restore.odds`(复国)、`alliance.odds`(结盟)、`submit.odds`(称臣)、`defect.odds`(藩属自立)、`treaty.odds`(立约)、`marry.odds`(结亲)、`aid.odds`(援盟)乘在几率上,0–4;`war.length`(一场仗最多打几年)、`war.goal`(一场仗想拿下几州)按攻方乘,0.25–4。各自按哪一国、管哪一处,见[影响口](sim.md#影响口siminfluence1)。(#724)
@@ -61,6 +63,7 @@
   - 同时没回的调用 16 个 → 64 个
   - 地块图层和按州按年份的图层、标注图层各 4 个 → 8 个;所有标注图层合起来最多 20000 项
   - 存进世界的插件图层:一个世界一共最多 16 个(不分哪个插件),满了用的人点「存进这个世界」时当场说存不下
+- 地图插件帮手 `d.noise`、`d.ridged` 最多叠的层数 8 → 12,`d.blur` 最多的遍数 200 → 500。(#720)
 - 错误码 `busy` 多了几种情形:用的人正按着地图或时间轴、翻年份移地图太快、上一次选文件还没完;`cancelled` 也用在没存文件、不给文件。(#678、#683)
 - `author.write@1` 在权限框上写成「会改你写的东西(改国名人名、加改删标记和批注、下命令)」。(#684)
 

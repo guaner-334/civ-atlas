@@ -1,4 +1,4 @@
-// 地图插件(role map,runtime quickjs)拿到的全局对象 civAtlas 和三个口子递进来、交回去的类型,给编辑器提示用(插件包里不用带)。
+// 地图插件(role map,runtime quickjs)拿到的全局对象 civAtlas 和各个口子递进来、交回去的类型,给编辑器提示用(插件包里不用带)。
 // 只靠这一个文件,拷到别处也能用;和网站的地图插件接口第 1 版一样(单测核对)
 
 /** 插件代码里的 civAtlas:登记插件、读滑条 */
@@ -15,6 +15,10 @@ export interface MapPluginDef {
   height?(d: HeightInput & MapParams): HeightReply | void;
   /** 改气候:气温降水算完之后、海冰河流群落之前 */
   climate?(d: ClimateInput & MapParams): ClimateReply | void;
+  /** 改海冰:海冰算完之后、群落之前 */
+  seaice?(d: SeaIceInput & MapParams): SeaIceReply | void;
+  /** 改水系:每块产多少水算完之后、汇成河之前 */
+  runoff?(d: RunoffInput & MapParams): RunoffReply | void;
   /** 出图层:地图长好以后,只看不改 */
   layers?(d: LayersInput & MapParams): LayersReply | void;
 }
@@ -27,7 +31,7 @@ export interface MapParams {
 export interface NoiseOptions {
   /** 起伏的尺度(公里):大约多远一个起落 */
   km: number;
-  /** 叠几层(1–8,默认 1);每多一层尺度减半 */
+  /** 叠几层(1–12,默认 1);每多一层尺度减半 */
   octaves?: number;
   /** 每多一层起伏乘多少(0–1,默认 0.5) */
   persistence?: number;
@@ -38,7 +42,7 @@ export interface NoiseOptions {
 export interface MapHelpers {
   /** 每个地块一个 −1…1 左右的数,和官方生成用的同一套噪声 */
   noise(o: NoiseOptions): Float32Array;
-  /** 和邻居平均 passes 遍(0–200);给了 mask 只在标了 1 的地块上平均、只和标了 1 的邻居平均,别的地块不变 */
+  /** 和邻居平均 passes 遍(0–500);给了 mask 只在标了 1 的地块上平均、只和标了 1 的邻居平均,别的地块不变 */
   blur(field: ArrayLike<number>, passes: number, mask?: ArrayLike<number>): Float32Array;
   /** 从 from 标了 1 的地块沿邻居走,每块要走几步(到不了 = −1);给了 through 只能走进标了 1 的地块 */
   steps(from: ArrayLike<number>, through?: ArrayLike<number>): Int32Array;
@@ -123,7 +127,7 @@ export interface MapWorldParams {
   north: number;
 }
 
-/** 三个口子都递的;带 ? 的是清单 map.reads 写了才递的 */
+/** 每一口都递的;带 ? 的是清单 map.reads 写了才递的 */
 export interface MapShared extends MapHelpers {
   n: number;
   /** 纬度、经度(度) */
@@ -182,6 +186,8 @@ export interface HeightInput extends MapShared {
 export interface HeightReply {
   elevation?: ArrayLike<number>;
   land?: ArrayLike<number>;
+  /** 1 = 这块积成的湖再大也不填平(标湖里任意一块,整个湖都留着) */
+  keepLakes?: ArrayLike<number>;
 }
 
 export interface ClimateInput extends MapShared {
@@ -205,6 +211,27 @@ export interface ClimateInput extends MapShared {
 export interface ClimateReply {
   temperature?: ArrayLike<number>;
   precipitation?: ArrayLike<number>;
+}
+
+export interface SeaIceInput extends ClimateInput {
+  /** 海冰盖了多少(0–1,只有海上有) */
+  seaIce: Float32Array;
+}
+/** 只有海上的算数,陆地、湖上的当 0 */
+export interface SeaIceReply {
+  seaIce?: ArrayLike<number>;
+}
+
+export interface RunoffInput extends SeaIceInput {
+  /** 每块自己产多少水(米 / 年,只有陆地有):沿 downstream 一路加起来是 flux,到 riverThreshold 的成河 */
+  runoff: Float32Array;
+  riverThreshold: number;
+  /** 水往哪块流(−1 = 海,或者流不到海) */
+  downstream?: Int32Array;
+}
+/** 只有陆地(含湖)上的算数,海上的当 0 */
+export interface RunoffReply {
+  runoff?: ArrayLike<number>;
 }
 
 export interface LayersInput extends ClimateInput {

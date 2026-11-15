@@ -76,10 +76,12 @@ export function tallyOf(w: World): DevGenTally {
   return { land: Math.round((100 * land) / w.mesh.n), lakes, rivers: w.rivers.length };
 }
 
-const RANGE_TEXT: Record<'elevation' | 'temperature' | 'precipitation', [string, string]> = {
-  elevation: ['海拔', '米'],
-  temperature: ['气温', '°C'],
-  precipitation: ['降水', '毫米'],
+const RANGE_TEXT: Record<keyof typeof MAP_RANGE, [string, string]> = {
+  elevation: ['海拔', ' 米'],
+  temperature: ['气温', ' °C'],
+  precipitation: ['降水', ' 毫米'],
+  seaIce: ['海冰', ''],
+  runoff: ['径流', ' 米 / 年'],
 };
 
 /** 交回的数里超出范围的(网站会压回去):高过、低过各几块 */
@@ -96,11 +98,12 @@ function outOfRange(v: unknown, [lo, hi]: readonly [number, number]): { over: nu
   return out;
 }
 
-/** 交回的和递进去的不一样的地块数(按压回范围、存成 32 位以后的比) */
-function changedCells(n: number, pairs: readonly [unknown, ArrayLike<number>, readonly [number, number] | null][]): number {
+/** 交回的和递进去的不一样的地块数(按压回范围、存成 32 位以后的比);only = 只数网站收的那些地块 */
+function changedCells(n: number, pairs: readonly [unknown, ArrayLike<number>, readonly [number, number] | null][], only?: (i: number) => boolean): number {
   let count = 0;
   const arr = (v: unknown) => (typeof v === 'object' && v !== null && (v as ArrayLike<unknown>).length === n ? (v as ArrayLike<unknown>) : null);
   for (let i = 0; i < n; i++) {
+    if (only && !only(i)) continue;
     for (const [got, was, range] of pairs) {
       const a = arr(got);
       if (!a) continue;
@@ -122,8 +125,8 @@ function metered(plugins: readonly MapPlugin[], steps: DevGenStep[], say: (l: De
     const r = outOfRange(v, MAP_RANGE[field]);
     const [name, unit] = RANGE_TEXT[field];
     const [lo, hi] = MAP_RANGE[field];
-    if (r.over) say({ stage, level: 'site', plugin: pl.id, text: `交回的${name}有 ${r.over} 块高过 ${hi} ${unit}，压回 ${hi} ${unit}` });
-    if (r.under) say({ stage, level: 'site', plugin: pl.id, text: `交回的${name}有 ${r.under} 块低过 ${lo} ${unit}，压回 ${lo} ${unit}` });
+    if (r.over) say({ stage, level: 'site', plugin: pl.id, text: `交回的${name}有 ${r.over} 块高过 ${hi}${unit}，压回 ${hi}${unit}` });
+    if (r.under) say({ stage, level: 'site', plugin: pl.id, text: `交回的${name}有 ${r.under} 块低过 ${lo}${unit}，压回 ${lo}${unit}` });
   };
   const wrap =
     <D extends { n: number }, R>(pl: MapPlugin, stage: MapStage, fn: (d: D) => R, count: (d: D, r: NonNullable<R>) => number) =>
@@ -168,6 +171,22 @@ function metered(plugins: readonly MapPlugin[], steps: DevGenStep[], say: (l: De
               [r.temperature, d.temperature, MAP_RANGE.temperature],
               [r.precipitation, d.precipitation, MAP_RANGE.precipitation],
             ]);
+          }),
+        }
+      : {}),
+    ...(pl.seaice
+      ? {
+          seaice: wrap(pl, 'seaice', pl.seaice, (d, r) => {
+            clamp(pl, 'seaice', 'seaIce', r.seaIce);
+            return changedCells(d.n, [[r.seaIce, d.seaIce, MAP_RANGE.seaIce]], (i) => d.water[i] === 1);
+          }),
+        }
+      : {}),
+    ...(pl.runoff
+      ? {
+          runoff: wrap(pl, 'runoff', pl.runoff, (d, r) => {
+            clamp(pl, 'runoff', 'runoff', r.runoff);
+            return changedCells(d.n, [[r.runoff, d.runoff, MAP_RANGE.runoff]], (i) => d.water[i] !== 1);
           }),
         }
       : {}),

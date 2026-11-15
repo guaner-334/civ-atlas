@@ -14,7 +14,7 @@ export const PERMISSIONS: Readonly<Record<PermissionKey, { text: string; loud: b
   authorWrite: { text: '会改你写的东西（改国名人名、加改删标记和批注、下命令）', loud: true, note: '改了顶上会说一声，能撤销；下了命令，那一年往后的历史重新推演' },
   view: { text: '知道你在看哪一年、点了哪里（只在用它的时候）', loud: false },
   viewSteer: { text: '会替你翻年份、移地图', loud: false, note: '你正拖着地图、时间轴的时候，它不抢' },
-  mapSteer: { text: '会改地图（海拔、气候；只影响用它新长的地图，已经长好的世界不变）', loud: true },
+  mapSteer: { text: '会改地图（海拔、气候、海冰、河；只影响用它新长的地图，已经长好的世界不变）', loud: true },
   layer: { text: '在地图上加图层和标注', loud: false },
   fileSave: { text: '会给你文件存（你点「保存」才存）', loud: false },
   fileOpen: { text: '会请你选一个文件给它', loud: false, note: '它只拿得到你选的那一个文件' },
@@ -65,6 +65,8 @@ export const PLUGIN_CAPS: ReadonlyMap<string, PermissionKey | null> = new Map<st
   ['sim.commands@1', 'simSteer'],
   ['gen.height@1', 'mapSteer'],
   ['gen.climate@1', 'mapSteer'],
+  ['gen.seaice@1', 'mapSteer'],
+  ['gen.runoff@1', 'mapSteer'],
   ['gen.layers@1', 'layer'],
 ]);
 

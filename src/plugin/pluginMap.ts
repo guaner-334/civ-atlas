@@ -32,6 +32,8 @@ export interface MapManifest {
 export const MAP_STAGE_CAPS: Readonly<Record<string, string>> = {
   height: 'gen.height',
   climate: 'gen.climate',
+  seaice: 'gen.seaice',
+  runoff: 'gen.runoff',
   layers: 'gen.layers',
 };
 
@@ -44,7 +46,7 @@ const READ_NAME = /^[a-z][A-Za-z0-9]{0,31}$/;
 const STAGES_MAX = 8;
 
 const capName = (cap: string) => cap.split('@')[0];
-const STAGE_TEXT: Readonly<Record<string, string>> = { height: '改海拔', climate: '改气候', layers: '出图层' };
+const STAGE_TEXT: Readonly<Record<string, string>> = { height: '改海拔', climate: '改气候', seaice: '改海冰', runoff: '改水系', layers: '出图层' };
 
 function checkLayers(raw: unknown): void {
   const ids = new Set<string>();
