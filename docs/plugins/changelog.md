@@ -30,7 +30,35 @@
 
 ## 还没发布(测试网站上已经有)
 
-暂无。
+这一批加的接口都是稳定档,没有实验接口。老插件都不用改。
+
+### 加了
+
+- 新能力 `view.control@1`(工具插件):`view.seek({ year })` 翻时间轴、`view.fly({ cells?, box?, polities?, regions?, settlements?, year? })` 把地图移过去、`view.highlight({ polities?, regions?, year? })` 圈出几国几州、`view.unhighlight()` 拿掉。用的人按着地图或时间轴时 `seek`、`fly` 回 `busy`;一秒最多 4 次、2 次、10 次。权限框上多一行「会替你翻年份、移地图」。(#678)
+- 新能力 `file.save@1`、`file.open@1`(工具插件):`file.save({ name, content })` 请用的人保存一个文件(最大 2 MB,只收 csv、tsv、txt、json、geojson、png、jpg、jpeg、webp)、`file.open({ accept?, max? })` 请用的人选一个文件(默认最大 16 MB),用的人不存、不给回 `cancelled`。只要了这两样能力的插件也出现在「工具」里。(#683)
+- 面板格子 `input`(输入框,多行用 `multiline`)、`color`(挑颜色)、`tabs`(页签,最多 8 页);`table`、`list` 加 `id?`、`to?`,给了 `id` 一行(一项)能点;`text` 可以是一串,里面夹链接 `{ text, id?, to? }`。这些的 `panel.action` 事件:输入框给框里的字,颜色给 `#rrggbb`,能点的表格、列表给第几行,页签给第几页。现在网站只认 `id`,只给 `to` 的点不了。(#682)
+- 工具插件读历史(`history.read@1`)多了:`history.dynasties`(各朝)、`history.treaties`(条约)、`history.zones`(中立地)、`history.relations({ year })`(那一年的盟约和宗藩)、`history.trade`(商道)、`history.migrations`(大迁徙)、`history.regionStats({ year, fields })`(那一年每州一个数,一次取几种);`history.people` 每项多了世系和婚姻字段(`parent?`、`adopted?`、`mom?`、`husband?`、`spouses?`、`dynasty?`、`descent?`);改名的 `key` 也认朝代、约、商道。一页最多 2000 项,`regionStats` 一次最多 32 种。(#677)
+- 工具插件读地图(`world.read@1`)多了 `world.plates()`(板块),`world.cells` 多了 `plate`、`currentX`、`currentY`、`currentTemp` 这四样;读你写的东西(`author.read@1`)多了 `author.terrain()`(改过的地形)。(#677)
+- 推演插件(`sim.read@1`)的读口 `read` 多了:`sacks(from, to?)`(城受的灾)、`wars()`、`truces()`、`grudges()`、`handover()`、`pacts()`、`rulers()`、`trades()`、`treks()`、`plague()`;`read.polities()` 每国多了朝代和政体分段、议事定下的规矩、方针,`read.settlements()` 每城多了建城时的民族、人口上限;听史事的 `turn.heard` 有由头的另带 `cause`,立约、约满、设中立地另带 `ps`。(#680)
+- 推演插件读官方表(`read.official`)多了:`ideology.polity.*`(各国各说的接受度)、`strife`、`soil`、`era`、`res.base.*`、`res.stock.*`、`fiscal.land`、`fiscal.craft`、`fiscal.market`、`fiscal.tax`、`fiscal.due`、`fiscal.collected`、`fiscal.treasury`、`fiscal.broke`。(#680)
+- 地图插件清单 `map.reads`(不要能力,最多 64 样):按清单多递一批数——`plateVx`、`plateVy`、`plateOmega`、`plateContinental`、`convergence`、`convergentKm`、`divergentKm`、`convergentStrength`、`divergentStrength`、`uplift`、`plateau`、`oceanDepth`、`cellArea`、`worldParams`、`edited`(三口都有),`currentU`、`currentV`、`currentTemp`(改气候、出图层),`downstream`、`fillLevel`、`runoff`、`wetland`、`maxElevation`(出图层)。(#679)
+- 地图插件帮手多九个:`d.ridged`、`d.flow`、`d.distance`、`d.components`、`d.slope`、`d.cellAt`、`d.line`、`d.westEast`、`d.biomeOf`。`ridged` 和 `noise` 一样最多叠 8 层。(#679)
+- 标注图层(`layer.marks`)每项多了 `from`、`to`(时间轴在这几年里才画)和 `style` 的 `width`(线宽 1–8 像素)、`arrow`(`end` / `both`)、`icon`(`castle`、`harbor`、`camp`、`shrine`、`ruin`、`lighthouse`、`bridge`、`volcano`、`battle`、`flag`、`danger`、`star`、`circle`、`square`、`triangle`、`diamond`),`style.color` 可以写 `#rrggbb`。(#684)
+- `author.apply` 多两种改动:`{ kind: 'markEdit', id, mark }` 改标记、`{ kind: 'markRemove', id }` 删标记;世界里所有标记都能改、删,和加一样能撤销。(#684)
+
+### 改了
+
+- 放宽的上限(都是放宽,原来能用的照样能用):(#685)
+  - 面板的字 4000 个 → 20000 个
+  - 插件自己的设置 `store.local` 64 KB → 1 MB
+  - 插件文件 2 MB → 8 MB(`main.js` 1 MB → 7 MB)
+  - 一秒发话 200 条 → 500 条
+  - 插件代码顶层要跑完的时间 10 秒 → 30 秒
+  - 同时没回的调用 16 个 → 64 个
+  - 地块图层和按州按年份的图层、标注图层各 4 个 → 8 个;所有标注图层合起来最多 20000 项
+  - 存进世界的插件图层:一个世界一共最多 16 个(不分哪个插件),满了用的人点「存进这个世界」时当场说存不下
+- 错误码 `busy` 多了几种情形:用的人正按着地图或时间轴、翻年份移地图太快、上一次选文件还没完;`cancelled` 也用在没存文件、不给文件。(#678、#683)
+- `author.write@1` 在权限框上写成「会改你写的东西(改国名人名、加改删标记和批注、下命令)」。(#684)
 
 ## 网站 1.7.0(2026 年 11 月 15 日发布)
 
