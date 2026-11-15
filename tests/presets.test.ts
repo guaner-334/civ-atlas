@@ -1,5 +1,6 @@
 /**
- * 新建世界的预设(ui/presetStore.ts):存、同名替换、改名删除、上次用的、和预设比哪几样改过、简写;存的东西坏了也能读
+ * 新建世界的预设(ui/presetStore.ts):存、同名替换、改名删除、上次用的、和预设比哪几样改过、简写;存的东西坏了也能读;
+ * 以前存下的推演年数读的时候不要,存出去也不带
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PARAMS } from '../src/gen/world';
@@ -28,8 +29,8 @@ describe('预设', () => {
     const a = m.savePreset('两块完整大陆', p, false);
     expect(m.getPresets().chosen).toBe(a);
     expect(m.getPresets().list[0].seed).toBeUndefined();
-    const b = m.savePreset('北半球大陆', { ...p, north: 0.8 }, true, 6000);
-    expect(m.getPresets().list[1]).toMatchObject({ seed: 5730, endYear: 6000 });
+    const b = m.savePreset('北半球大陆', { ...p, north: 0.8 }, true);
+    expect(m.getPresets().list[1]).toMatchObject({ seed: 5730 });
     expect(m.savePreset('两块完整大陆', { ...p, continents: 3 }, false)).toBe(a);
     expect(m.getPresets().list.map((x) => x.params.continents)).toEqual([3, 2]);
     m.renamePreset(b, '北边');
@@ -43,13 +44,35 @@ describe('预设', () => {
   it('上次用的;和预设比哪几样改过(存了种子的连种子比)', async () => {
     const m = await fresh();
     expect(m.choiceParams(m.getPresets(), 'last').params).toEqual(m.strip(DEFAULT_PARAMS));
-    m.rememberLast({ ...DEFAULT_PARAMS, temperature: -8 }, undefined, '阿斯特拉');
+    m.rememberLast({ ...DEFAULT_PARAMS, temperature: -8 }, '阿斯特拉');
     const s = m.getPresets();
     expect(s.last?.title).toBe('阿斯特拉');
     expect([...m.changedKeys(s, 'last', { ...DEFAULT_PARAMS, seed: 9 })]).toEqual(['temperature']);
-    expect(m.sameAsChoice(s, 'last', { ...DEFAULT_PARAMS, seed: 9, temperature: -8 }, undefined)).toBe(true);
+    expect(m.sameAsChoice(s, 'last', { ...DEFAULT_PARAMS, seed: 9, temperature: -8 })).toBe(true);
     const id = m.savePreset('带种子', { ...DEFAULT_PARAMS, seed: 42 }, true);
-    expect(m.sameAsChoice(m.getPresets(), id, { ...DEFAULT_PARAMS, seed: 43 }, undefined)).toBe(false);
+    expect(m.sameAsChoice(m.getPresets(), id, { ...DEFAULT_PARAMS, seed: 43 })).toBe(false);
+  });
+
+  it('以前存下的推演年数:读的时候不要(选它、上次用的都不交出年数),再存出去也不带', async () => {
+    store[KEY] = JSON.stringify({
+      list: [{ id: 'a', name: '推得久的', params: { plates: 40 }, seed: 5730, endYear: 6000 }],
+      last: { params: { temperature: -8 }, endYear: 10000, title: '阿斯特拉' },
+      chosen: 'a',
+    });
+    const m = await fresh();
+    const s = m.getPresets();
+    expect(s.list[0]).not.toHaveProperty('endYear');
+    expect(s.last).not.toHaveProperty('endYear');
+    expect(m.choiceParams(s, 'a')).toEqual({ params: { ...m.strip(DEFAULT_PARAMS), plates: 40 }, seed: 5730 });
+    expect(m.choiceParams(s, 'last')).toEqual({ params: { ...m.strip(DEFAULT_PARAMS), temperature: -8 } });
+    // 读的时候不去改写浏览器里存着的
+    expect(JSON.parse(store[KEY]).list[0].endYear).toBe(6000);
+    // 选了它、什么都没改:和它一样
+    expect(m.sameAsChoice(s, 'a', { ...DEFAULT_PARAMS, seed: 5730, plates: 40 })).toBe(true);
+    m.rememberLast({ ...DEFAULT_PARAMS, temperature: -8 }, '阿斯特拉');
+    m.savePreset('推得久的', { ...DEFAULT_PARAMS, seed: 5730, plates: 40 }, true);
+    expect(JSON.parse(store[KEY]).list[0]).not.toHaveProperty('endYear');
+    expect(JSON.parse(store[KEY]).last).not.toHaveProperty('endYear');
   });
 
   it('简写:种子、陆地、大陆块数、气候,再是大陆的其余几样', async () => {
@@ -85,8 +108,8 @@ describe('预设', () => {
     const s = m.getPresets();
     expect(s.chosen).toBe('shared');
     expect(m.choiceName(s, 'shared')).toBe('两块完整大陆');
-    expect(m.choiceParams(s, 'shared')).toEqual({ params: shared.params, seed: undefined, endYear: undefined });
-    expect(m.sameAsChoice(s, 'shared', { ...DEFAULT_PARAMS, seed: 99, landFraction: 0.4, continents: 2 }, undefined)).toBe(true);
+    expect(m.choiceParams(s, 'shared')).toEqual({ params: shared.params, seed: undefined });
+    expect(m.sameAsChoice(s, 'shared', { ...DEFAULT_PARAMS, seed: 99, landFraction: 0.4, continents: 2 })).toBe(true);
     expect([...m.changedKeys(s, 'shared', { ...DEFAULT_PARAMS, seed: 99, landFraction: 0.5, continents: 2 })]).toEqual(['landFraction']);
     // 浏览器里记的:没有分享的那一套,"上次选的"还是自己的那个
     expect(JSON.parse(store[KEY]).shared).toBeUndefined();
@@ -94,17 +117,17 @@ describe('预设', () => {
     expect(JSON.parse(store[KEY]).list).toHaveLength(1);
     expect((await fresh()).getPresets()).toMatchObject({ chosen: mine, shared: null });
     // 带了种子的:种子跟着;存进自己的预设以后选的是存下的那个
-    m.pickSharedPreset({ ...shared, seed: 925418, endYear: 6000 });
-    expect(m.choiceParams(m.getPresets(), 'shared')).toMatchObject({ seed: 925418, endYear: 6000 });
-    const kept = m.savePreset('两块完整大陆', { ...DEFAULT_PARAMS, ...shared.params, seed: 925418 }, true, 6000);
+    m.pickSharedPreset({ ...shared, seed: 925418 });
+    expect(m.choiceParams(m.getPresets(), 'shared')).toMatchObject({ seed: 925418 });
+    const kept = m.savePreset('两块完整大陆', { ...DEFAULT_PARAMS, ...shared.params, seed: 925418 }, true);
     expect(m.getPresets().chosen).toBe(kept);
-    expect(m.getPresets().list.find((p) => p.id === kept)).toMatchObject({ seed: 925418, endYear: 6000 });
+    expect(m.getPresets().list.find((p) => p.id === kept)).toMatchObject({ seed: 925418 });
   });
 
   it('连规则一起存:整套存下(带本机编号)、读回来清理过;选它时交出规则;简写先写规则(有现在的名字写现在的)', async () => {
     const m = await fresh();
     const rules = { id: 'rmh3k2x9a4f', name: '战国千年', version: 2, values: { 'war.odds': 2 }, calc: 3 };
-    const id = m.savePreset('乱世大陆', { ...DEFAULT_PARAMS, seed: 5730, landFraction: 0.4 }, true, undefined, rules);
+    const id = m.savePreset('乱世大陆', { ...DEFAULT_PARAMS, seed: 5730, landFraction: 0.4 }, true, rules);
     const saved = { id: 'rmh3k2x9a4f', name: '战国千年', version: 2, values: { 'war.odds': 2 } };
     expect(m.getPresets().list[0].rules).toEqual(saved);
     expect(m.choiceParams(m.getPresets(), id).rules).toEqual(saved);

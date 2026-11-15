@@ -30,7 +30,6 @@ import { closeRulesSheet, getRulesSheet, openRulesSheet, openRulesWork, rulesWor
 import { rulesUiOn } from './rules/flag';
 import { pluginsUiOn } from './plugins/flag';
 import { DEFAULT_PARAMS } from '../gen/params';
-import { END_YEAR_DEFAULT } from '../gen/edits';
 import {
   WORK_KIND_NAME,
   coverUrl,
@@ -663,7 +662,7 @@ function HowToDialog({ phone, onClose }: { phone: boolean; onClose: () => void }
 // ---------------------------------------------------------------------------
 // 新建参数作品
 
-/** 这套参数的八格:种子、陆地比例、大陆数量、板块数量、造山强度、气温和降水、精细度、推演到 */
+/** 这套参数的七格:种子、陆地比例、大陆数量、板块数量、造山强度、气温和降水、精细度 */
 export function presetRows(p: SharedPreset): [string, string][] {
   const q = { ...DEFAULT_PARAMS, ...p.params };
   const t = q.temperature;
@@ -675,7 +674,6 @@ export function presetRows(p: SharedPreset): [string, string][] {
     ['造山强度', q.mountains.toFixed(2)],
     ['气温、降水', `${t > 0 ? '+' : ''}${t}°C、${q.rainfall.toFixed(2)}`],
     ['精细度', `${Math.round(q.cells / 1000)}k 地块`],
-    ['推演到', `第 ${p.endYear ?? END_YEAR_DEFAULT} 年`],
   ];
 }
 
@@ -724,8 +722,8 @@ function PresetWorkDialog({ phone, w, item, onClose, onUse }: { phone: boolean; 
         {w.blurb && <p className="gl-pblurb">{w.blurb}</p>}
         {ok ? (
           <div className={`acct-grp gl-pp${okRules ? ' rl' : ''}`} data-testid="preset-rows">
-            {presetRows(ok).map(([k, v]) => (
-              <div className="acct-gr" key={k}>
+            {presetRows(ok).map(([k, v], i, all) => (
+              <div className={`acct-gr${i === all.length - 1 && all.length % 2 ? ' wide' : ''}`} key={k}>
                 <span className="k">{k}</span>
                 <span className="v">{v}</span>
               </div>

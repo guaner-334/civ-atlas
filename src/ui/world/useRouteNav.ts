@@ -25,7 +25,7 @@ import { readUrl, visitTarget } from './pageUrl';
 import type { useWorldLoad } from './useWorldLoad';
 import type { useWorldPages } from './useWorldPages';
 import type { CivRefs, GenRefs, Ref, ResimRefs, Setter } from './worldRefs';
-import { draftTarget, goneToast, sameScreen, writeWorldUrl, yearsEdits, type Landing, type NewDlg, type Target, type WallView, type WorkFor } from './worldTarget';
+import { draftTarget, goneToast, sameScreen, writeWorldUrl, type Landing, type NewDlg, type Target, type WallView, type WorkFor } from './worldTarget';
 
 /** 投影、中央经线、经纬网、等值线写进网址(停下来约半秒) */
 export function useViewUrl(view: { projection: MapProjection; mapCenter: number; graticule: number; contourKind: ContourKind | null }): void {
@@ -179,10 +179,10 @@ export function useRouteNav(deps: RouteNavDeps): void {
       // 照手绘图新建、还没照图长出星球(图不存,离开就没了):和刷新时一样,回我的世界,弹窗停在照手绘图选图那一步
       if (q.get('new') === 'image') {
         showHome();
-        setNewDlg({ init: { mode: 'image', params: url.params, step: 2, endYear: url.years } });
+        setNewDlg({ init: { mode: 'image', params: url.params, step: 2 } });
         return;
       }
-      return openTarget({ ...draftTarget({ ...url.params, seed }, null, yearsEdits(url.years)), id: to.id ?? newWorldId() });
+      return openTarget({ ...draftTarget({ ...url.params, seed }), id: to.id ?? newWorldId() });
     }
     const w = to.id ? loadWorld(to.id) : null;
     const once = to.stored || isWorldId(q.get('w'));

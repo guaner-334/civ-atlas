@@ -18,7 +18,7 @@ import { newRuleSet } from '../src/gen/civ/ruleSetEdit';
 import { tuningPatch, worldPatch } from '../src/gen/civ/tuningPatch';
 import { TUNING_CALC } from '../src/gen/civ/tuning';
 import { WARS_KNOBS } from '../src/gen/civ/wars';
-import { sameSetup, setupFor, setupOpt, yearsEdits } from '../src/ui/world/worldTarget';
+import { sameSetup, setupFor, setupOpt, startEdits } from '../src/ui/world/worldTarget';
 import { revertEdits } from '../src/ui/editsStore';
 
 const f64 = new Float64Array(1);
@@ -222,10 +222,10 @@ describe('规则跟着世界走', () => {
     expect(sameSetup(made, setupFor(false, { ...EDITS, rules: { ...RULES, values: { ...RULES.values, 'war.odds': 3 } } }))).toBe(false);
   });
 
-  it('新建世界的参数里带一套规则:进了新世界的修改(官方的不带)', () => {
-    expect(yearsEdits(undefined, undefined, RULES)).toEqual({ ...EMPTY_EDITS, rules: { ...cleanRuleSet(RULES).rules, calc: TUNING_CALC } });
-    expect(yearsEdits(6000, undefined, RULES).endYear).toBe(6000);
-    expect(yearsEdits(undefined, undefined, newRuleSet('空的'))).toBe(EMPTY_EDITS);
+  it('新建世界的参数里带一套规则:进了新世界的修改(官方的不带);推演年数不带(一律先推 3000 年)', () => {
+    expect(startEdits(undefined, RULES)).toEqual({ ...EMPTY_EDITS, rules: { ...cleanRuleSet(RULES).rules, calc: TUNING_CALC } });
+    expect(startEdits(undefined, RULES)).not.toHaveProperty('endYear');
+    expect(startEdits(undefined, newRuleSet('空的'))).toBe(EMPTY_EDITS);
   });
 
   it('在这张地图上打造新文明:规则跟着走(原来的国家、人物、干预不带)', () => {
@@ -265,7 +265,7 @@ describe('换算版本(各条路照世界记的版本推,见 rules-calc.test.ts)
   });
 
   it('新建的世界盖上现在的版本,存档写格式 4', () => {
-    const made = yearsEdits(undefined, undefined, RULES);
+    const made = startEdits(undefined, RULES);
     expect(made.rules!.calc).toBe(TUNING_CALC);
     expect(newHistoryEdits(EDITS, { civSeed: 99, from: 'wabc', rules: RULES }).rules!.calc).toBe(TUNING_CALC);
     expect(makeSave(PARAMS, { ...EDITS, rules: made.rules }, 'abc').format).toBe(4);

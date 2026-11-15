@@ -1,7 +1,7 @@
 /**
  * 再推 N 年的界面状态和纯计算(src/ui/extendStore.ts)、非整千年的时间轴刻度字(timelineLayout.ts 的 rulerOf 给了轨道宽度时):
  * 选几年、推到第几年(到第 60000 年为止)、原来那段挤到左边百分之几;"这台电脑约 N 秒"的估算和写法;
- * 推的进度只认这一次、只增不减;上次推的那一档记在浏览器里;刻度字只有真和结尾挤住才省。
+ * 推的进度只认这一次、只增不减;上次推的那一档记在浏览器里;刻度字只有真和结尾挤住才省;跨过第 3000 年那一次多一行提醒。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { END_YEAR_MAX } from '../src/gen/edits';
@@ -27,6 +27,8 @@ import {
   setExtendPick,
   setExtendRunner,
   stopTip,
+  yearsNoteOn,
+  YEARS_NOTE,
 } from '../src/ui/extendStore';
 import { rulerOf } from '../src/ui/timelineLayout';
 
@@ -52,6 +54,27 @@ describe('选几年', () => {
     expect(extendPlan(3000, 99999)).toEqual({ to: END_YEAR_MAX, over: true, squeeze: 5 });
     expect(extendPlan(59900, 500)).toEqual({ to: END_YEAR_MAX, over: true, squeeze: 100 });
     expect(extendRoom(END_YEAR_MAX)).toBe(0);
+  });
+});
+
+describe('跨过第 3000 年那一次的提醒', () => {
+  const on = (end: number, years: number) => yearsNoteOn(end, extendPlan(end, years).to);
+  it('从第 3000 年或更早推到 3000 年以后才写', () => {
+    expect(on(3000, 500)).toBe(true);
+    expect(on(3000, 100)).toBe(true);
+    expect(on(3000, 99999)).toBe(true);
+    expect(on(2500, 600)).toBe(true);
+    // 年中停下存回的世界(推到的那一刻带小数)
+    expect(on(2999.5, 100)).toBe(true);
+  });
+  it('已经过了 3000 年的、推完还不到(或正好到)3000 年的不写', () => {
+    expect(on(5000, 500)).toBe(false);
+    expect(on(3000.5, 100)).toBe(false);
+    expect(on(2500, 100)).toBe(false);
+    expect(on(2500, 500)).toBe(false);
+  });
+  it('字照原话写到「陷入低价值的循环」为止', () => {
+    expect(YEARS_NOTE).toBe('近现代、现代、未来整体还在开发中，帝国的衰退和科技的发展也在设计当中，历史推演超过3000年后会陷入低价值的循环。');
   });
 });
 

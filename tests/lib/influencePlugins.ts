@@ -16,7 +16,29 @@ export type Point =
   | 'split.odds'
   | 'dynasty.odds'
   | 'plague.odds'
-  | 'plague.loss';
+  | 'plague.loss'
+  | 'revolt.odds'
+  | 'collapse.odds'
+  | 'claim.odds'
+  | 'warlord.odds'
+  | 'merge.odds'
+  | 'restore.odds'
+  | 'alliance.odds'
+  | 'submit.odds'
+  | 'defect.odds'
+  | 'treaty.odds'
+  | 'marry.odds'
+  | 'aid.odds'
+  | 'war.length'
+  | 'war.goal'
+  | 'sack.odds'
+  | 'ruin.odds'
+  | 'rebuild.odds'
+  | 'defense.power'
+  | 'plague.spread'
+  | 'famine.odds'
+  | 'diverge.odds'
+  | 'trek.odds';
 
 /** 交不影响的数(乘的 1、加的 0) */
 export const NEUTRAL: Record<Point, number> = {
@@ -32,6 +54,28 @@ export const NEUTRAL: Record<Point, number> = {
   'dynasty.odds': 1,
   'plague.odds': 1,
   'plague.loss': 1,
+  'revolt.odds': 1,
+  'collapse.odds': 1,
+  'claim.odds': 1,
+  'warlord.odds': 1,
+  'merge.odds': 1,
+  'restore.odds': 1,
+  'alliance.odds': 1,
+  'submit.odds': 1,
+  'defect.odds': 1,
+  'treaty.odds': 1,
+  'marry.odds': 1,
+  'aid.odds': 1,
+  'war.length': 1,
+  'war.goal': 1,
+  'sack.odds': 1,
+  'ruin.odds': 1,
+  'rebuild.odds': 1,
+  'defense.power': 1,
+  'plague.spread': 1,
+  'famine.odds': 1,
+  'diverge.odds': 1,
+  'trek.odds': 1,
 };
 
 /** 每 every 年往一个按国的口交数:双号国 even 倍、单号国 odd 倍 */
@@ -121,6 +165,31 @@ export function sway(id = 'sway'): SimPlugin<SimRead> {
         },
         at,
       };
+    },
+  };
+}
+
+/** 第二批按州的口 */
+export const REGION_MORE = ['sack.odds', 'ruin.odds', 'rebuild.odds', 'defense.power', 'plague.spread', 'famine.odds', 'diverge.odds', 'trek.odds'] as const satisfies readonly Point[];
+
+/** 第二批按国的口 */
+export const POLITY_MORE = ['revolt.odds', 'collapse.odds', 'claim.odds', 'warlord.odds', 'merge.odds', 'restore.odds', 'alliance.odds', 'submit.odds', 'defect.odds', 'treaty.odds', 'marry.odds', 'aid.odds', 'war.length', 'war.goal'] as const satisfies readonly Point[];
+
+/** 每 20 年和自己约的事(带小数的时刻)到了时,往第二批的口各交一个随机的数(0.6–1.6,每国、每州、每口不同) */
+export function swayMore(id = 'sway-more'): SimPlugin<SimRead> {
+  const all = [...POLITY_MORE, ...REGION_MORE];
+  return {
+    id,
+    every: 20,
+    influences: all,
+    act(turn) {
+      const out: Record<string, Float64Array> = {};
+      all.forEach((k, i) => {
+        const v = turn.influence(k);
+        for (let p = 0; p < v.length; p++) v[p] = 0.6 + turn.rand(p, turn.year * 256, 10 + i);
+        out[k] = v;
+      });
+      return { influences: out, at: turn.tick ? [{ year: turn.year + 7 + 37 / 256, kind: 1 }] : [] };
     },
   };
 }

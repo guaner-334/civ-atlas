@@ -174,7 +174,9 @@ export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: Ci
     const tick = Math.round(t * 256);
     const rank = settlementRank(populationAt(s, t));
     const razed = cm.razed.get(w.id) ?? 0;
-    const pRuin = Math.min(P_MAX, RUIN_P * harsh * RUIN_RANK[rank] * (capital ? CAPITAL_RUIN : 1) * fpow(RUIN_AGAIN, razed));
+    const ruinIn = sim.influence?.get('ruin.odds');
+    const pRuin0 = RUIN_P * harsh * RUIN_RANK[rank] * (capital ? CAPITAL_RUIN : 1) * fpow(RUIN_AGAIN, razed);
+    const pRuin = Math.min(P_MAX, ruinIn ? pRuin0 * ruinIn[r] : pRuin0);
     const tag = pm.stag[sid];
     if (keyed(base, tag, tick, U_RUIN) < pRuin) {
       s.ended = t;
@@ -188,7 +190,9 @@ export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: Ci
     let recent = false;
     const sk = s.sacks;
     if (sk) for (let i = sk.length - 1; i >= 0 && t - sk[i].year < SACK_REST && !recent; i--) if (!sk[i].cause) recent = true;
-    const pSack = Math.min(P_MAX, SACK_P * harsh * (capital ? CAPITAL_SACK : 1) * (recent ? SACK_AGAIN : 1));
+    const sackIn = sim.influence?.get('sack.odds');
+    const pSack0 = SACK_P * harsh * (capital ? CAPITAL_SACK : 1) * (recent ? SACK_AGAIN : 1);
+    const pSack = Math.min(P_MAX, sackIn ? pSack0 * sackIn[r] : pSack0);
     if (keyed(base, tag, tick, U_SACK) < pSack) {
       const loss = LOSS[0] + (LOSS[1] - LOSS[0]) * keyed(base, tag, tick, U_LOSS) + (brutal || nomad ? LOSS_HARSH : 0);
       (s.sacks ??= []).push({ year: t, loss: Math.round(loss * 1000) / 1000 });
@@ -207,7 +211,9 @@ export function installCities(sim: CivSim, pm: PolityModel, wm: WarModel, cm: Ci
     };
     const site = Math.min(1.5, Math.max(0.5, Math.sqrt(capacityAt(s, s.ended) / SITE_REF)));
     // 全球大疫的凋敝里无人收拾,不重建(pandemic.ts;没有全球大疫时不看)
-    if (culture[r] < 0 || t - wm.since[r] < REBUILD_SETTLE || inSlump(pandemicModelOf(sim), r, t) || keyed(base, pm.stag[sid], k, U_REBUILD) >= REBUILD_P * site) {
+    const rebuildIn = sim.influence?.get('rebuild.odds');
+    const p = rebuildIn ? REBUILD_P * site * rebuildIn[r] : REBUILD_P * site;
+    if (culture[r] < 0 || t - wm.since[r] < REBUILD_SETTLE || inSlump(pandemicModelOf(sim), r, t) || keyed(base, pm.stag[sid], k, U_REBUILD) >= p) {
       next();
       return;
     }

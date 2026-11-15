@@ -1,7 +1,7 @@
 /**
  * 新建世界的预设做成分享链接、从链接读回来(预设本身存在 presetStore.ts)。纯计算:不碰 DOM、不读浏览器存储,Node 里可测。
  *
- *   https://…/#preset=1&name=两块完整大陆&seed=5730&landFraction=0.4&continents=2&years=6000
+ *   https://…/#preset=1&name=两块完整大陆&seed=5730&landFraction=0.4&continents=2
  *   https://…/#preset=2&name=乱世大陆&seed=5730&rules=1&rules.name=战乱年代&rules.v=2&rules.by=明月&war.odds=2&biome.temperateDesert=灰烬荒原
  *
  * - 放在 # 后面:浏览器不发给服务器,只在打开链接的人自己的页面里读(和世界的分享链接一样,见 gen/savefile.ts)
@@ -10,14 +10,13 @@
  * - seed:勾了「连种子一起」才写(正整数)
  * - 参数:和带种子的网址同一套键(cells、landFraction……),只写和默认不一样的;读的时候认不出的键跳过(以后加的参数),
  *   不是数的、超出合理范围的(PARAM_RANGE,和读存档一样)按默认 / 调回范围内,附一句提示
- * - years:推演到第几年(3000 年不写;读的时候过 cleanEndYear)
+ * - years:旧链接里的推演年数。不再写;读的时候先拿掉再读别的,写的是什么都不管(新建一律先推 3000 年)
  * - rules=1:连规则一起(1 是规则链接的写法版本);规则项、地貌的叫法和规则链接同一套写法,名字、版本、署名、介绍、出处的键前面加 rules.
  *   (gen/civ/ruleLink.ts)。没有这个键 = 新建时用官方规则
  * - 中文名字按网址的规矩转义(URLSearchParams):聊天软件里复制粘贴不会断;折了行的(多出来的空白)也认
  */
 import { DEFAULT_PARAMS, type WorldParams } from '../gen/world';
 import { PARAM_NAME, PARAM_RANGE } from '../gen/savefile';
-import { cleanEndYear } from '../gen/edits';
 import { RULES_HASH_MAX, readRuleParams, writeRuleParams } from '../gen/civ/ruleLink';
 import type { Preset, PresetParams } from './presetStore';
 
@@ -42,7 +41,7 @@ export const PRESET_BROKEN = '预设链接不完整或被改动过(可能复制�
 const PRESET_EMPTY = '链接里没有预设';
 const NEWER = '这个预设链接来自更新版本的「文明与地图」,请刷新页面换到最新版再打开';
 
-/** 分享的预设:名字、参数(不含种子)、连种子一起时的种子、推演年数、连规则一起时的那套规则(不带本机编号) */
+/** 分享的预设:名字、参数(不含种子)、连种子一起时的种子、连规则一起时的那套规则(不带本机编号) */
 export type SharedPreset = Omit<Preset, 'id'>;
 
 export type PresetLinkResult = { ok: true; preset: SharedPreset; warnings: string[] } | { ok: false; error: string };
@@ -79,8 +78,6 @@ export function presetHash(p: SharedPreset): string {
     const v = p.params[k];
     if (typeof v === 'number' && Number.isFinite(v) && v !== DEFAULT_PARAMS[k]) q.set(k, String(v));
   }
-  const years = cleanEndYear(p.endYear);
-  if (years) q.set('years', String(years));
   if (p.rules) {
     q.set('rules', String(RULES_FORMAT));
     writeRuleParams(q, p.rules, RULES_META);
@@ -94,8 +91,14 @@ export function presetHash(p: SharedPreset): string {
  */
 export function decodePresetHash(hash: string): PresetLinkResult {
   if (typeof hash !== 'string' || !isPresetHash(hash)) return { ok: false, error: PRESET_EMPTY };
-  // 聊天软件折过行:去掉所有空白(名字里的空格已经转义成 + 或 %20)
-  const s = hash.trim().replace(/^#/, '').replace(/\s+/g, '');
+  // 聊天软件折过行:去掉所有空白(名字里的空格已经转义成 + 或 %20);旧链接的 years 连同写坏的转义一起先拿掉
+  const s = hash
+    .trim()
+    .replace(/^#/, '')
+    .replace(/\s+/g, '')
+    .split('&')
+    .filter((kv) => kv.split('=')[0] !== 'years')
+    .join('&');
   if (s.length > HASH_MAX) return { ok: false, error: '链接太长,不像「文明与地图」的预设链接' };
   let q: URLSearchParams;
   try {
@@ -132,13 +135,6 @@ export function decodePresetHash(hash: string): PresetLinkResult {
     const seed = Number(seedRaw);
     if (seedRaw.trim() !== '' && isSeed(seed)) preset.seed = seed;
     else warnings.push('预设链接里的种子不对,已去掉(种子照旧随机给)');
-  }
-  const yearsRaw = q.get('years');
-  if (yearsRaw !== null) {
-    const y = yearsRaw.trim() === '' ? NaN : Number(yearsRaw);
-    if (!Number.isFinite(y)) warnings.push('预设链接里的推演年数不对,按 3000 年');
-    const endYear = cleanEndYear(y);
-    if (endYear) preset.endYear = endYear;
   }
   const rv = q.get('rules');
   if (rv !== null) {
