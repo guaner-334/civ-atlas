@@ -1,0 +1,27 @@
+{
+  "id": "chaos",
+  "name": "乱世",
+  "version": "1.0.0",
+  "role": "sim",
+  "api": 1,
+  "runtime": "quickjs",
+  "requires": ["sim.read@1", "sim.events@1", "sim.state@1", "sim.commands@1", "sim.chronicle@1"],
+  "why": {
+    "sim.read@1": "听大崩解、改朝换代；看各州归谁、谁和谁接壤、哪里有城、中央管得到几成、乡村人口、宜居、各国国力",
+    "sim.commands@1": "大国崩解、改朝换代时让几州立国、互相宣战，同族邻国兴兵勤王；无主的富庶之地立国；不接壤的两国结盟对付夹在中间的强国"
+  },
+  "sim": {
+    "every": 1,
+    "listen": ["collapse", "dynasty"],
+    "commands": ["found", "declare", "ally"],
+    "params": {
+      "shatter": { "label": "崩成几家", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "rise": { "label": "乱中自立", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "revive": { "label": "乱后立国", "min": 0, "max": 3, "default": 1, "step": 0.1 },
+      "distant": { "label": "远交", "min": 0, "max": 3, "default": 1, "step": 0.1 }
+    }
+  },
+  "description": "大国崩解时碎成几家、互相攻伐；改朝换代时远处的州拥兵自立，同族的邻国兴兵勤王；无主的富庶之地快点立国；不接壤的两国结盟，对付夹在中间的强国。",
+  "license": "MIT",
+  "author": { "name": "文明与地图示例" }
+}

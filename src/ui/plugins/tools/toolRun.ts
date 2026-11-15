@@ -15,6 +15,7 @@ import { localDataStore } from '../../../plugin/pluginData';
 import { worldPluginOf } from '../../../plugin/pluginWorld';
 import { loadPlugin, type InstalledPlugin } from '../../../plugin/pluginStore';
 import { MESSAGES_PER_SECOND, MESSAGE_MAX_BYTES } from '../../../plugin/protocol';
+import { START_TIMEOUT_MS } from '../../../plugin/sandbox';
 import type { PanelNode } from '../../../plugin/types';
 import { createStore } from '../../createStore';
 import { commitEdits, editsEra, getEdits, historyDiffers, revertEdits } from '../../editsStore';
@@ -28,10 +29,13 @@ import { viewOf, watchView, yearNow as yearOf } from '../pluginView';
 import { toolCard, toolCellPick, toolRunning, type ToolsProps } from '../toolsState';
 import { verdictOf } from '../verdict';
 import { askingWorldStore } from '../worldPlugins';
+import { askOpen, askSave, clearFiles } from './toolFiles';
 import { batchParts, keyName, refusalOf, sayBatch, sayBusy, sayDone, type Refusal } from './toolSay';
+import { toolSteer } from './toolSteer';
 
 /** 停下的原因:slow 没反应(几秒);crashed 出错(site = 网站查到的,不是插件自己报的);blocked 网站停用了 */
-export type ToolTrouble = { kind: 'slow'; secs: number } | { kind: 'crashed'; text: string; site?: boolean } | { kind: 'blocked'; why: string; day: string };
+/** gone:用的实验接口网站拿掉了(what = 那个接口给人看的名字) */
+export type ToolTrouble = { kind: 'slow'; secs: number } | { kind: 'crashed'; text: string; site?: boolean } | { kind: 'blocked'; why: string; day: string } | { kind: 'gone'; what: string };
 
 /** 插件请用的人在地图上点:一处 / 框一片 */
 export interface ToolPick {
@@ -76,8 +80,6 @@ toolRun.subscribe(() => {
 /** 隔多久问插件一声、多久没回算没反应 */
 const PING_EVERY_MS = 2000;
 export const SLOW_MS = 5000;
-/** 插件代码顶层多久没跑完算没反应(沙箱的默认值) */
-const START_MS = 10_000;
 
 let seq = 0;
 let host: PluginHost | null = null;
@@ -90,7 +92,7 @@ function patch(my: number, p: Partial<ToolRun>) {
 /** 停下来的原因换成卡片上的说法;我们自己叫停的 = null */
 function troubleOf(reason: string, detail: string): ToolTrouble | null {
   if (reason === 'stopped') return null;
-  if (reason === 'start-timeout') return { kind: 'slow', secs: START_MS / 1000 };
+  if (reason === 'start-timeout') return { kind: 'slow', secs: START_TIMEOUT_MS / 1000 };
   if (reason === 'unresponsive') {
     const ms = Number(/(\d+) ms/.exec(detail)?.[1]);
     return { kind: 'slow', secs: Math.round((Number.isFinite(ms) && ms > 0 ? ms : SLOW_MS) / 1000) };
@@ -109,6 +111,7 @@ export function stopTool(): void {
   host = null;
   r?.pick?.done(null);
   if (r) toolRun.set(null);
+  clearFiles();
   clearToast('plugin-pick');
 }
 
@@ -149,8 +152,11 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
       view: () => viewOf(env()),
       watchView,
       pick: (req, signal) => (live() ? askPick(my, req, signal) : Promise.resolve(null)),
+      saveFile: (file, signal) => (live() ? askSave(file, signal) : Promise.resolve(false)),
+      openFile: (req, signal) => (live() ? askOpen(req, signal) : Promise.resolve(null)),
       // 开到一半关掉了(插件顶层代码排着的调用开好以后才发出来):不再照它改
       commit: (next, keys) => (live() ? commitBatch(name, next, keys, asked, env) : '插件已经停了'),
+      ...toolSteer(live),
     };
     const h = await startPluginHost({
       plugin: opened.manifest,
@@ -191,6 +197,7 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
     void watch(my, h);
   } catch (e) {
     if (!live() || toolRun.get()?.phase === 'stopped') return;
+    if (e instanceof PluginFileError && e.kind === 'newer' && e.gone) return patch(my, { phase: 'stopped', trouble: { kind: 'gone', what: e.gone } });
     const text = e instanceof PluginFileError && e.kind === 'newer' ? '它要用到这一版网站还没有的东西' : e instanceof Error && e.name === 'PluginRefused' ? e.message : '没能打开它';
     patch(my, { phase: 'stopped', trouble: { kind: 'crashed', site: true, text } });
   }
@@ -199,6 +206,9 @@ export async function startTool(plugin: InstalledPlugin, env: () => ToolsProps):
 /** 开发者模式载入的插件接到插件卡和点选上:开它之前调,拿到给沙箱的点选和面板;开好了 attach,停了 stopped(停下的原因;我们自己叫停的 = null) */
 export interface DevTool {
   pick: NonNullable<PluginSource['pick']>;
+  saveFile: NonNullable<PluginSource['saveFile']>;
+  openFile: NonNullable<PluginSource['openFile']>;
+  steer: ReturnType<typeof toolSteer>;
   panel: NonNullable<PluginSink['panel']>;
   attach(h: PluginHost): void;
   stopped(reason: string, detail: string): void;
@@ -213,6 +223,9 @@ export function beginDevTool(opened: OpenedPlugin, again: () => void): DevTool {
   const live = () => my === seq;
   return {
     pick: (req, signal) => (live() ? askPick(my, req, signal) : Promise.resolve(null)),
+    saveFile: (file, signal) => (live() ? askSave(file, signal) : Promise.resolve(false)),
+    openFile: (req, signal) => (live() ? askOpen(req, signal) : Promise.resolve(null)),
+    steer: toolSteer(live),
     panel: (nodes) => patch(my, { panel: nodes }),
     attach: (h) => {
       if (!live()) return;

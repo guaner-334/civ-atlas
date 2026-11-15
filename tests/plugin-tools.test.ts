@@ -1,18 +1,20 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PARAMS, generateWorld } from '../src/gen/world';
 import { generateCiv } from '../src/gen/civ';
 import { EMPTY_EDITS, polityKey, type WorldEdits } from '../src/gen/edits';
 import type { PluginManifest } from '../src/plugin/pluginFile';
-import type { PanelNode } from '../src/plugin/types';
+import type { PanelNode, PanelTarget } from '../src/plugin/types';
 import { isTool, toolWhere } from '../src/ui/plugins/pluginText';
 import { batchParts, changeText, keyName, refusalOf, sayBatch, sayBusy, sayDone, type BatchParts } from '../src/ui/plugins/tools/toolSay';
-import { numText, sectionsOf } from '../src/ui/plugins/tools/PanelView';
+import { kept, numText, PanelView, sectionsOf } from '../src/ui/plugins/tools/PanelView';
 import { boxSize, cellsInBox } from '../src/ui/plugins/tools/BoxPick';
 
 const world = generateWorld({ ...DEFAULT_PARAMS, seed: 7, cells: 3000 });
 const civ = generateCiv(world, { endYear: 300 });
 
-const parts = (p: Partial<BatchParts>): BatchParts => ({ names: [], marks: [], commands: 0, ...p });
+const parts = (p: Partial<BatchParts>): BatchParts => ({ names: [], marks: [], edited: [], removed: [], commands: 0, ...p });
 const name = (before: string, after: string) => ({ kind: 'polity' as const, before, after });
 
 describe('插件改了以后提示条怎么说', () => {
@@ -50,6 +52,20 @@ describe('插件改了以后提示条怎么说', () => {
     expect(b.commands).toBe(1);
     expect(keyName(civ, key, 100)).toBeTruthy();
     expect(keyName(civ, 'polity:nope', 100)).toBe('');
+  });
+
+  it('改、删标记:认出来、提示条照「加了」的说法说', () => {
+    const a = { id: 1, title: '奥里卡', color: 'red' as const, from: 0, at: [1, 2] as [number, number] };
+    const b = { id: 2, title: '维雷拉', color: 'blue' as const, from: 0, at: [3, 4] as [number, number] };
+    const before: WorldEdits = { ...EMPTY_EDITS, marks: [a, b] };
+    const after: WorldEdits = { ...EMPTY_EDITS, marks: [{ ...a, to: 500 }] };
+    const got = batchParts(before, after, () => null);
+    expect(got).toMatchObject({ marks: [], edited: ['奥里卡'], removed: ['维雷拉'] });
+    expect(sayBatch('X', parts({ edited: ['奥里卡'] }))).toEqual({ text: '插件「X」改了标记「奥里卡」' });
+    expect(sayBatch('X', parts({ removed: ['a', 'b', 'c', 'd'] }))).toEqual({ text: '插件「X」删了 4 个标记', more: ['a、b，还有 2 个'] });
+    expect(sayBatch('X', parts({ edited: ['a'], removed: ['b', 'c'] }))).toEqual({ text: '插件「X」改了 3 处', more: ['改了 1 个标记、删了 2 个标记'] });
+    expect(sayDone('X', parts({ removed: ['a'], commands: 1 }), ' 1650 年', 0)).toEqual({ text: '插件「X」改了 2 处，已从 1650 年起重新推演', more: ['删了 1 个标记、下了 1 条命令'] });
+    expect(changeText({ kind: 'markEdit' }, 'changes[0].id 不对:这个世界里没有这个标记')).toBe('标记的编号不对:这个世界里没有这个标记');
   });
 });
 
@@ -92,6 +108,73 @@ describe('插件面板用网站的样子画', () => {
     expect(sectionsOf([])).toEqual([]);
     expect(numText(9100)).toBe('9,100');
     expect(numText(1.234)).toBe('1.23');
+  });
+
+  const tabs: PanelNode = {
+    type: 'tabs',
+    id: 'page',
+    tabs: [
+      { title: '排行', children: [{ type: 'table', id: 'rank', columns: ['国家'], rows: [['大昌'], ['索拉']], to: [{ key: 'polity:c12#0' }, null] }] },
+      { title: '设置', children: [{ type: 'heading', text: '国都标记' }, { type: 'color', id: 'col', label: '颜色', value: '#c4372b' }, { type: 'toggle', id: 'arrow', label: '画箭头', value: true }] },
+    ],
+  };
+
+  it('页签自成一节,后面只摊开选中的那一页;颜色和开关并成一组', () => {
+    const s0 = sectionsOf([{ type: 'heading', text: '各国' }, tabs]);
+    expect(s0.map((x) => x.title)).toEqual(['各国', undefined]);
+    expect(s0[0].blocks.map((b) => b.kind)).toEqual(['tabs']);
+    expect(s0[1].blocks[0]).toMatchObject({ kind: 'node', node: { id: 'rank' } });
+    const s1 = sectionsOf([tabs], () => 1);
+    expect(s1.map((x) => x.title)).toEqual([undefined, '国都标记']);
+    expect(s1[1].blocks.map((b) => b.kind)).toEqual(['rows']);
+    expect(s1[1].blocks[0].kind === 'rows' && s1[1].blocks[0].rows.map((r) => r.type)).toEqual(['color', 'toggle']);
+    // 插件给了 value 就先显示那一页,超出的按最后一页
+    expect(sectionsOf([{ ...tabs, value: 1 }])[1].title).toBe('国都标记');
+    expect(sectionsOf([tabs], () => 9)[1].title).toBe('国都标记');
+  });
+
+  it('画出来:没有密码框;能点的行有小箭头;只给 to 的链接没接上网站时照普通的字画', () => {
+    const nodes: PanelNode[] = [
+      { type: 'input', id: 'q', label: '找国家', placeholder: '输入国名里的几个字' },
+      { type: 'input', id: 'names', label: '只看这几国', multiline: true, value: '甲' },
+      { type: 'text', text: ['第一名是', { text: '大昌', to: { key: 'polity:c12#0' } }, ',', { text: '402 年', id: 'y402' }, '立国。'] },
+      { type: 'list', items: ['一'], to: [{ year: 2999 }] },
+      tabs,
+    ];
+    const html = (go?: (to: PanelTarget) => void) => renderToStaticMarkup(createElement(PanelView, { nodes, act: () => {}, go }));
+    const off = html();
+    expect(off).not.toMatch(/type="password"/);
+    expect(off).toMatch(/<input type="text" class="plg-in"[^>]*maxLength="200"[^>]*placeholder="输入国名里的几个字"/);
+    expect(off).toMatch(/<textarea class="plg-ta"[^>]*maxLength="2000"/);
+    expect(off).toContain('第一名是大昌,<span class="plg-a" role="button"');
+    expect(off).toContain('<div class="plg-li">一</div>');
+    expect(off.match(/plg-tr go"/g)).toHaveLength(2);
+    expect(off).toContain('plg-tr plg-th go-pad');
+    expect(off).not.toContain('国都标记');
+    const on = html(() => {});
+    expect(on).toContain('第一名是<span class="plg-a" role="button" tabindex="0">大昌</span>');
+    expect(on).toContain('class="plg-li go" role="button"');
+  });
+
+  it('id 叫 constructor、__proto__ 的页签和输入框照样画', () => {
+    for (const id of ['constructor', '__proto__', 'toString']) {
+      const nodes: PanelNode[] = [
+        { type: 'tabs', id, tabs: [{ title: '甲', children: [{ type: 'text', text: '第一页' }] }] },
+        { type: 'input', id: `${id}-in`, label: 'x' },
+        { type: 'color', id: `${id}-c`, label: 'y', value: '#ffffff' },
+      ];
+      expect(renderToStaticMarkup(createElement(PanelView, { nodes, act: () => {} }))).toContain('第一页');
+    }
+  });
+
+  it('用的人留下的:插件换了 base 就作废,换回原来的也不再拿出来', () => {
+    const m = new Map();
+    const at = (base: number | undefined) => kept(m, 'tab:page', base, () => ({ at: base ?? 0 }));
+    at(0).at = 2;
+    expect(at(0).at).toBe(2);
+    expect(at(1).at).toBe(1);
+    expect(at(0).at).toBe(0);
+    expect(kept(m, 'tab:constructor', undefined, () => ({ at: 0 })).at).toBe(0);
   });
 });
 
